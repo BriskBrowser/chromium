@@ -100,6 +100,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) Validator : public Mapper {
             bool managed_onc,
             bool log_warnings);
 
+  Validator(const Validator&) = delete;
+  Validator& operator=(const Validator&) = delete;
+
   ~Validator() override;
 
   // Sets the ONC source to |source|. If not set, defaults to ONC_SOURCE_NONE.
@@ -199,6 +202,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) Validator : public Mapper {
   bool ValidateVPN(base::DictionaryValue* result);
   bool ValidateIPsec(base::DictionaryValue* result);
   bool ValidateOpenVPN(base::DictionaryValue* result);
+  bool ValidateWireGuard(base::DictionaryValue* result);
   bool ValidateThirdPartyVPN(base::DictionaryValue* result);
   bool ValidateARCVPN(base::DictionaryValue* result);
   bool ValidateVerifyX509(base::DictionaryValue* result);
@@ -292,8 +296,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) Validator : public Mapper {
   // List of all validation issues that occured within validation initiated by
   // function ValidateAndRepairObject.
   std::vector<ValidationIssue> validation_issues_;
-
-  DISALLOW_COPY_AND_ASSIGN(Validator);
 };
 
 }  // namespace onc

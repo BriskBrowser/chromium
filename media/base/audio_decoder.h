@@ -5,8 +5,6 @@
 #ifndef MEDIA_BASE_AUDIO_DECODER_H_
 #define MEDIA_BASE_AUDIO_DECODER_H_
 
-#include <string>
-
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -43,6 +41,9 @@ class MEDIA_EXPORT AudioDecoder : public Decoder {
   using DecodeCB = base::OnceCallback<void(Status)>;
 
   AudioDecoder();
+
+  AudioDecoder(const AudioDecoder&) = delete;
+  AudioDecoder& operator=(const AudioDecoder&) = delete;
 
   // Fires any pending callbacks, stops and destroys the decoder.
   // Note: Since this is a destructor, |this| will be destroyed after this call.
@@ -89,9 +90,6 @@ class MEDIA_EXPORT AudioDecoder : public Decoder {
 
   // Returns the type of the decoder for statistics recording purposes.
   virtual AudioDecoderType GetDecoderType() const = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AudioDecoder);
 };
 
 }  // namespace media

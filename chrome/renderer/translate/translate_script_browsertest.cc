@@ -50,7 +50,7 @@ const char kElementJs[] =
     "  return {"
     "    isAvailable: function() { return true; },"
     "    restore: function() {},"
-    "    translatePage: function(originalLang, targetLang, cb) {"
+    "    translatePage: function(sourceLang, targetLang, cb) {"
     "      if (window['throwUnexpectedScriptError']) {"
     "        throw 'all your base are belong to us';"
     "      }"
@@ -76,6 +76,10 @@ std::string GenerateSetCallbackErrorCodeScript(int code) {
 class TranslateScriptBrowserTest : public ChromeRenderViewTest {
  public:
   TranslateScriptBrowserTest() {}
+
+  TranslateScriptBrowserTest(const TranslateScriptBrowserTest&) = delete;
+  TranslateScriptBrowserTest& operator=(const TranslateScriptBrowserTest&) =
+      delete;
 
  protected:
   void InjectElementLibrary() {
@@ -132,8 +136,6 @@ class TranslateScriptBrowserTest : public ChromeRenderViewTest {
     }
     return result.As<v8::Boolean>()->Value();
   }
-
-  DISALLOW_COPY_AND_ASSIGN(TranslateScriptBrowserTest);
 };
 
 // Test if onTranslateElementLoad() succeeds to initialize the element library.

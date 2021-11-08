@@ -15,11 +15,11 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/mock_timer.h"
@@ -39,6 +39,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 using content::BrowserThread;
@@ -163,9 +164,9 @@ class VisitedLinkTest : public testing::Test {
                    bool suppress_rebuild,
                    bool wait_for_io_complete) {
     // Initialize the visited link system.
-    writer_.reset(new VisitedLinkWriter(new TrackingVisitedLinkEventListener(),
-                                        &delegate_, true, suppress_rebuild,
-                                        visited_file_, initial_size));
+    writer_ = std::make_unique<VisitedLinkWriter>(
+        new TrackingVisitedLinkEventListener(), &delegate_, true,
+        suppress_rebuild, visited_file_, initial_size);
     bool result = writer_->Init();
     if (result && wait_for_io_complete) {
       // Wait for all pending file I/O to be completed.
@@ -555,6 +556,9 @@ class VisitCountingContext : public mojom::VisitedLinkNotificationSink {
         completely_reset_event_count_(0),
         new_table_count_(0) {}
 
+  VisitCountingContext(const VisitCountingContext&) = delete;
+  VisitCountingContext& operator=(const VisitCountingContext&) = delete;
+
   void Bind(mojo::ScopedMessagePipeHandle handle) {
     receiver_.Add(this,
                   mojo::PendingReceiver<mojom::VisitedLinkNotificationSink>(
@@ -615,8 +619,6 @@ class VisitCountingContext : public mojom::VisitedLinkNotificationSink {
 
   base::OnceClosure quit_closure_;
   mojo::ReceiverSet<mojom::VisitedLinkNotificationSink> receiver_;
-
-  DISALLOW_COPY_AND_ASSIGN(VisitCountingContext);
 };
 
 // Stub out as little as possible, borrowing from RenderProcessHost.
@@ -634,21 +636,30 @@ class VisitRelayingRenderProcessHost : public MockRenderProcessHost {
         content::Source<RenderProcessHost>(this),
         content::NotificationService::NoDetails());
   }
+
+  VisitRelayingRenderProcessHost(const VisitRelayingRenderProcessHost&) =
+      delete;
+  VisitRelayingRenderProcessHost& operator=(
+      const VisitRelayingRenderProcessHost&) = delete;
+
   ~VisitRelayingRenderProcessHost() override {
     content::NotificationService::current()->Notify(
         content::NOTIFICATION_RENDERER_PROCESS_TERMINATED,
         content::Source<content::RenderProcessHost>(this),
         content::NotificationService::NoDetails());
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(VisitRelayingRenderProcessHost);
 };
 
 class VisitedLinkRenderProcessHostFactory
     : public content::RenderProcessHostFactory {
  public:
   VisitedLinkRenderProcessHostFactory() : context_(new VisitCountingContext) {}
+
+  VisitedLinkRenderProcessHostFactory(
+      const VisitedLinkRenderProcessHostFactory&) = delete;
+  VisitedLinkRenderProcessHostFactory& operator=(
+      const VisitedLinkRenderProcessHostFactory&) = delete;
+
   content::RenderProcessHost* CreateRenderProcessHost(
       content::BrowserContext* browser_context,
       content::SiteInstance* site_instance) override {
@@ -666,7 +677,6 @@ class VisitedLinkRenderProcessHostFactory
  private:
   std::list<std::unique_ptr<VisitRelayingRenderProcessHost>> processes_;
   std::unique_ptr<VisitCountingContext> context_;
-  DISALLOW_COPY_AND_ASSIGN(VisitedLinkRenderProcessHostFactory);
 };
 
 class VisitedLinkEventsTest : public content::RenderViewHostTestHarness {
@@ -700,8 +710,9 @@ class VisitedLinkEventsTest : public content::RenderViewHostTestHarness {
 
  protected:
   void CreateVisitedLinkWriter(content::BrowserContext* browser_context) {
-    timer_.reset(new base::MockOneShotTimer());
-    writer_.reset(new VisitedLinkWriter(browser_context, &delegate_, true));
+    timer_ = std::make_unique<base::MockOneShotTimer>();
+    writer_ =
+        std::make_unique<VisitedLinkWriter>(browser_context, &delegate_, true);
     static_cast<VisitedLinkEventListener*>(writer_->GetListener())
         ->SetCoalesceTimerForTest(timer_.get());
     writer_->Init();

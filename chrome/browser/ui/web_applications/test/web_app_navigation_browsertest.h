@@ -9,9 +9,8 @@
 #include <string>
 
 #include "base/callback_forward.h"
-#include "base/files/file_path.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "chrome/browser/web_applications/components/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/content_mock_cert_verifier.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -115,7 +114,7 @@ class WebAppNavigationBrowserTest : public InProcessBrowserTest {
   bool TestTabActionDoesNotOpenAppWindow(const GURL& target_url,
                                          base::OnceClosure action);
 
-  const net::EmbeddedTestServer& https_server() { return https_server_; }
+  net::EmbeddedTestServer& https_server() { return https_server_; }
 
   const AppId& test_web_app_id() const { return test_web_app_; }
 

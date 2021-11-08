@@ -11,7 +11,6 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/webui/help/version_updater.h"
@@ -22,7 +21,7 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/task/cancelable_task_tracker.h"
-#include "chrome/browser/chromeos/tpm_firmware_update.h"
+#include "chrome/browser/ash/tpm_firmware_update.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace base {
@@ -41,6 +40,10 @@ class AboutHandler : public settings::SettingsPageUIHandler,
                      public UpgradeObserver {
  public:
   explicit AboutHandler(Profile* profile);
+
+  AboutHandler(const AboutHandler&) = delete;
+  AboutHandler& operator=(const AboutHandler&) = delete;
+
   ~AboutHandler() override;
 
   // WebUIMessageHandler implementation.
@@ -52,7 +55,7 @@ class AboutHandler : public settings::SettingsPageUIHandler,
   void OnUpgradeRecommended() override;
 
   // Returns the browser version as a string.
-  static base::string16 BuildBrowserVersionString();
+  static std::u16string BuildBrowserVersionString();
 
  protected:
   // Used to test the EOL string displayed in the About details page.
@@ -146,7 +149,7 @@ class AboutHandler : public settings::SettingsPageUIHandler,
                        bool powerwash,
                        const std::string& version,
                        int64_t size,
-                       const base::string16& fail_message);
+                       const std::u16string& fail_message);
 
 #if defined(OS_MAC)
   // Callback method which forwards promotion state to the page.
@@ -195,8 +198,6 @@ class AboutHandler : public settings::SettingsPageUIHandler,
 
   // Used for callbacks.
   base::WeakPtrFactory<AboutHandler> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AboutHandler);
 };
 
 }  // namespace settings

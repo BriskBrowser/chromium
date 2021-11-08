@@ -10,12 +10,17 @@
 #include <type_traits>
 #include <vector>
 
+#include "base/debug/stack_trace.h"
+#include "ui/base/class_property.h"
+#include "ui/base/metadata/metadata_types.h"
 #include "ui/views/debug/debugger_utils.h"
-#include "ui/views/metadata/metadata_types.h"
 #include "ui/views/view.h"
 #include "ui/views/views_export.h"
 
 namespace views {
+
+VIEWS_EXPORT extern const ui::ClassProperty<base::debug::StackTrace*>* const
+    kViewStackTraceKey;
 
 class ViewDebugWrapperImpl : public debug::ViewDebugWrapper {
  public:
@@ -42,8 +47,8 @@ class ViewDebugWrapperImpl : public debug::ViewDebugWrapper {
 template <typename V>
 bool IsViewClass(View* view) {
   static_assert(std::is_base_of<View, V>::value, "Only View classes supported");
-  metadata::ClassMetaData* parent = V::MetaData();
-  metadata::ClassMetaData* child = view->GetClassMetaData();
+  ui::metadata::ClassMetaData* parent = V::MetaData();
+  ui::metadata::ClassMetaData* child = view->GetClassMetaData();
   while (child && child != parent)
     child = child->parent_class_meta_data();
   return !!child;
@@ -52,6 +57,8 @@ bool IsViewClass(View* view) {
 VIEWS_EXPORT void PrintViewHierarchy(View* view,
                                      bool verbose = false,
                                      int depth = -1);
+
+VIEWS_EXPORT std::string GetViewDebugInfo(View* view);
 
 }  // namespace views
 

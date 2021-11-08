@@ -109,7 +109,7 @@ class AX_EXPORT __declspec(uuid("3071e40d-a10d-45ff-a59f-6e8e1138e2c1"))
 
   IFACEMETHODIMP ExpandToEnclosingUnitImpl(TextUnit unit);
 
-  base::string16 GetString(int max_count,
+  std::u16string GetString(int max_count,
                            size_t* appended_newlines_count = nullptr);
   AXPlatformNodeWin* owner() const;
   const AXPositionInstance& start() const { return endpoints_.GetStart(); }
@@ -145,6 +145,7 @@ class AX_EXPORT __declspec(uuid("3071e40d-a10d-45ff-a59f-6e8e1138e2c1"))
                                         const int count,
                                         int* units_moved);
   AXPositionInstance MoveEndpointByFormat(const AXPositionInstance& endpoint,
+                                          const bool is_start_endpoint,
                                           const int count,
                                           int* units_moved);
   AXPositionInstance MoveEndpointByDocument(const AXPositionInstance& endpoint,
@@ -167,7 +168,6 @@ class AX_EXPORT __declspec(uuid("3071e40d-a10d-45ff-a59f-6e8e1138e2c1"))
   //   endpoints are on the same anchor.
   // Normalization never updates the internal endpoints directly. Instead, it
   // normalizes the endpoints passed by parameter.
-  // TODO(vicfei): Make static.
   void NormalizeTextRange(AXPositionInstance& start, AXPositionInstance& end);
   static void NormalizeAsUnignoredPosition(AXPositionInstance& position);
   static void NormalizeAsUnignoredTextRange(AXPositionInstance& start,
@@ -177,9 +177,11 @@ class AX_EXPORT __declspec(uuid("3071e40d-a10d-45ff-a59f-6e8e1138e2c1"))
   AXNode* GetSelectionCommonAnchor();
   void RemoveFocusFromPreviousSelectionIfNeeded(
       const AXNodeRange& new_selection);
+  AXPlatformNodeWin* GetPlatformNodeFromAXNode(const AXNode* node) const;
   AXPlatformNodeWin* GetLowestAccessibleCommonPlatformNode() const;
-  bool HasCaretOrSelectionInPlainTextField(
-      const AXPositionInstance& position) const;
+  bool HasTextRangeOrSelectionInAtomicTextField(
+      const AXPositionInstance& start_position,
+      const AXPositionInstance& end_position) const;
 
   void SetStart(AXPositionInstance start);
   void SetEnd(AXPositionInstance end);
@@ -212,6 +214,7 @@ class AX_EXPORT __declspec(uuid("3071e40d-a10d-45ff-a59f-6e8e1138e2c1"))
     void AddObserver(const AXTreeID tree_id);
     void RemoveObserver(const AXTreeID tree_id);
     void OnNodeWillBeDeleted(AXTree* tree, AXNode* node) override;
+    void OnNodeDeleted(AXTree* tree, AXNodeID node_id) override;
     void OnTreeManagerWillBeRemoved(AXTreeID previous_tree_id) override;
 
    private:

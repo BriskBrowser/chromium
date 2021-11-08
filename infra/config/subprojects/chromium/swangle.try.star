@@ -14,7 +14,6 @@ try_.defaults.set(
             path = "win_toolchain",
         ),
     ],
-    configure_kitchen = True,
     cores = 8,
     cpu = cpu.X86_64,
     cq_group = "cq",
@@ -27,7 +26,6 @@ try_.defaults.set(
     pool = "luci.chromium.try",
     service_account = "chromium-try-gpu-builder@chops-service-accounts.iam.gserviceaccount.com",
     subproject_list_view = "luci.chromium.try",
-    swarming_tags = ["vpython:native-python-wrapper"],
     task_template_canary_percentage = 5,
 )
 
@@ -44,29 +42,13 @@ try_.chromium_swangle_linux_builder(
 )
 
 try_.chromium_swangle_linux_builder(
-    name = "linux-swangle-try-tot-angle-x86",
-    pool = "luci.chromium.swangle.linux.x86.try",
-)
-
-try_.chromium_swangle_linux_builder(
     name = "linux-swangle-try-tot-swiftshader-x64",
     pool = "luci.chromium.swangle.sws.linux.x64.try",
 )
 
 try_.chromium_swangle_linux_builder(
-    name = "linux-swangle-try-tot-swiftshader-x86",
-    pool = "luci.chromium.swangle.linux.x86.try",
-)
-
-try_.chromium_swangle_linux_builder(
     name = "linux-swangle-try-x64",
     pool = "luci.chromium.swangle.deps.linux.x64.try",
-    pinned = False,
-)
-
-try_.chromium_swangle_linux_builder(
-    name = "linux-swangle-try-x86",
-    pool = "luci.chromium.swangle.linux.x86.try",
     pinned = False,
 )
 

@@ -17,11 +17,10 @@
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/api/url_handlers/url_handlers_parser.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
-#include "chrome/common/extensions/manifest_handlers/app_theme_color_info.h"
 #include "components/security_state/core/security_state.h"
 #include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/browser_context.h"
@@ -36,6 +35,7 @@
 #include "extensions/common/extension.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/image/image_skia.h"
 #include "url/gurl.h"
 
@@ -68,15 +68,14 @@ bool HostedAppBrowserController::HasMinimalUiButtons() const {
   return false;
 }
 
-gfx::ImageSkia HostedAppBrowserController::GetWindowAppIcon() const {
+ui::ImageModel HostedAppBrowserController::GetWindowAppIcon() const {
   // TODO(calamity): Use the app name to retrieve the app icon without using the
   // extensions tab helper to make icon load more immediate.
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon) &&
-      apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(
+  if (apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(
           browser()->profile())) {
     if (!app_icon_.isNull())
-      return app_icon_;
+      return ui::ImageModel::FromImageSkia(app_icon_);
 
     const Extension* extension = GetExtension();
     if (extension &&
@@ -104,35 +103,18 @@ gfx::ImageSkia HostedAppBrowserController::GetWindowAppIcon() const {
   if (!icon_bitmap)
     return GetFallbackAppIcon();
 
-  return gfx::ImageSkia::CreateFrom1xBitmap(*icon_bitmap);
+  return ui::ImageModel::FromImageSkia(
+      gfx::ImageSkia::CreateFrom1xBitmap(*icon_bitmap));
 }
 
-gfx::ImageSkia HostedAppBrowserController::GetWindowIcon() const {
+ui::ImageModel HostedAppBrowserController::GetWindowIcon() const {
   if (IsWebApp(browser()))
     return GetWindowAppIcon();
 
-  return browser()->GetCurrentPageIcon().AsImageSkia();
+  return ui::ImageModel::FromImage(browser()->GetCurrentPageIcon());
 }
 
-base::Optional<SkColor> HostedAppBrowserController::GetThemeColor() const {
-  base::Optional<SkColor> web_theme_color =
-      AppBrowserController::GetThemeColor();
-  if (web_theme_color)
-    return web_theme_color;
-
-  const Extension* extension = GetExtension();
-  if (!extension)
-    return base::nullopt;
-
-  base::Optional<SkColor> extension_theme_color =
-      AppThemeColorInfo::GetThemeColor(extension);
-  if (extension_theme_color)
-    return SkColorSetA(*extension_theme_color, SK_AlphaOPAQUE);
-
-  return base::nullopt;
-}
-
-base::string16 HostedAppBrowserController::GetTitle() const {
+std::u16string HostedAppBrowserController::GetTitle() const {
   // When showing the toolbar, display the name of the app, instead of the
   // current page as the title.
   if (ShouldShowCustomTabBar()) {
@@ -169,22 +151,22 @@ bool HostedAppBrowserController::IsUrlInAppScope(const GURL& url) const {
 
 const Extension* HostedAppBrowserController::GetExtension() const {
   return ExtensionRegistry::Get(browser()->profile())
-      ->GetExtensionById(GetAppId(), ExtensionRegistry::EVERYTHING);
+      ->GetExtensionById(app_id(), ExtensionRegistry::EVERYTHING);
 }
 
-base::string16 HostedAppBrowserController::GetAppShortName() const {
+std::u16string HostedAppBrowserController::GetAppShortName() const {
   const Extension* extension = GetExtension();
   return extension ? base::UTF8ToUTF16(extension->short_name())
-                   : base::string16();
+                   : std::u16string();
 }
 
-base::string16 HostedAppBrowserController::GetFormattedUrlOrigin() const {
+std::u16string HostedAppBrowserController::GetFormattedUrlOrigin() const {
   const Extension* extension = GetExtension();
   return extension ? FormatUrlOrigin(AppLaunchInfo::GetLaunchWebURL(extension))
-                   : base::string16();
+                   : std::u16string();
 }
 
-bool HostedAppBrowserController::CanUninstall() const {
+bool HostedAppBrowserController::CanUserUninstall() const {
   if (uninstall_dialog_)
     return false;
 
@@ -197,7 +179,8 @@ bool HostedAppBrowserController::CanUninstall() const {
       ->UserMayModifySettings(extension, nullptr);
 }
 
-void HostedAppBrowserController::Uninstall() {
+void HostedAppBrowserController::Uninstall(
+    webapps::WebappUninstallSource webapp_uninstall_source) {
   const Extension* extension = GetExtension();
   if (!extension)
     return;
@@ -225,7 +208,7 @@ bool HostedAppBrowserController::IsHostedApp() const {
 
 void HostedAppBrowserController::OnExtensionUninstallDialogClosed(
     bool success,
-    const base::string16& error) {
+    const std::u16string& error) {
   uninstall_dialog_.reset();
 }
 

@@ -10,9 +10,9 @@
 #include "base/macros.h"
 #include "chrome/browser/ui/autofill/payments/autofill_dialog_models.h"
 #include "components/autofill/core/browser/ui/payments/card_unmask_prompt_view.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace content {
@@ -20,7 +20,6 @@ class WebContents;
 }  // namespace content
 
 namespace views {
-class Checkbox;
 class Combobox;
 class Label;
 class Textfield;
@@ -46,15 +45,14 @@ class CardUnmaskPromptViews : public CardUnmaskPromptView,
   void Show() override;
   void ControllerGone() override;
   void DisableAndWaitForVerification() override;
-  void GotVerificationResult(const base::string16& error_message,
+  void GotVerificationResult(const std::u16string& error_message,
                              bool allow_retry) override;
 
   // views::BubbleDialogDelegateView:
   View* GetContentsView() override;
   void AddedToWidget() override;
   void OnThemeChanged() override;
-  base::string16 GetWindowTitle() const override;
-  void DeleteDelegate() override;
+  std::u16string GetWindowTitle() const override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   View* GetInitiallyFocusedView() override;
   bool ShouldShowCloseButton() const override;
@@ -63,13 +61,13 @@ class CardUnmaskPromptViews : public CardUnmaskPromptView,
 
   // views::TextfieldController
   void ContentsChanged(views::Textfield* sender,
-                       const base::string16& new_contents) override;
+                       const std::u16string& new_contents) override;
 
  private:
   friend class CardUnmaskPromptViewTesterViews;
 
   void InitIfNecessary();
-  void SetRetriableErrorMessage(const base::string16& message);
+  void SetRetriableErrorMessage(const std::u16string& message);
   bool ExpirationDateIsValid() const;
   void SetInputsEnabled(bool enabled);
   void ShowNewCardLink();
@@ -104,7 +102,6 @@ class CardUnmaskPromptViews : public CardUnmaskPromptView,
   views::Label* error_label_ = nullptr;
 
   views::View* controls_container_ = nullptr;
-  views::Checkbox* storage_checkbox_ = nullptr;
 
   // Elements related to progress or error when the request is being made.
   views::View* overlay_ = nullptr;

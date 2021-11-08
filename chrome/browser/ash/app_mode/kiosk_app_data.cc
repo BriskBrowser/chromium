@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ash/app_mode/kiosk_app_data.h"
 
+#include <memory>
 #include <vector>
 
 #include "base/bind.h"
@@ -84,6 +85,8 @@ class KioskAppData::CrxLoader : public extensions::SandboxedUnpackerClient {
         task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
             {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
              base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})) {}
+  CrxLoader(const CrxLoader&) = delete;
+  CrxLoader& operator=(const CrxLoader&) = delete;
 
   void Start() {
     task_runner_->PostTask(FROM_HERE,
@@ -141,8 +144,9 @@ class KioskAppData::CrxLoader : public extensions::SandboxedUnpackerClient {
     }
 
     auto unpacker = base::MakeRefCounted<extensions::SandboxedUnpacker>(
-        extensions::Manifest::INTERNAL, extensions::Extension::NO_FLAGS,
-        temp_dir_.GetPath(), task_runner_.get(), this);
+        extensions::mojom::ManifestLocation::kInternal,
+        extensions::Extension::NO_FLAGS, temp_dir_.GetPath(),
+        task_runner_.get(), this);
     unpacker->StartWithCrx(extensions::CRXFileInfo(
         crx_file_, extensions::GetPolicyVerifierFormat()));
   }
@@ -177,8 +181,6 @@ class KioskAppData::CrxLoader : public extensions::SandboxedUnpackerClient {
   std::string name_;
   SkBitmap icon_;
   std::string required_platform_version_;
-
-  DISALLOW_COPY_AND_ASSIGN(CrxLoader);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -190,6 +192,8 @@ class KioskAppData::WebstoreDataParser
  public:
   explicit WebstoreDataParser(const base::WeakPtr<KioskAppData>& client)
       : client_(client) {}
+  WebstoreDataParser(const WebstoreDataParser&) = delete;
+  WebstoreDataParser& operator=(const WebstoreDataParser&) = delete;
 
   void Start(const std::string& app_id,
              const std::string& manifest,
@@ -217,8 +221,9 @@ class KioskAppData::WebstoreDataParser
       const std::string& id,
       const SkBitmap& icon,
       std::unique_ptr<base::DictionaryValue> parsed_manifest) override {
-    extensions::Manifest manifest(extensions::Manifest::INVALID_LOCATION,
-                                  std::move(parsed_manifest), id);
+    extensions::Manifest manifest(
+        extensions::mojom::ManifestLocation::kInvalidLocation,
+        std::move(parsed_manifest), id);
 
     if (!IsValidKioskAppManifest(manifest)) {
       ReportFailure();
@@ -248,8 +253,6 @@ class KioskAppData::WebstoreDataParser
   }
 
   base::WeakPtr<KioskAppData> client_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebstoreDataParser);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -466,8 +469,8 @@ void KioskAppData::StartFetch() {
     return;
   }
 
-  webstore_fetcher_.reset(
-      new extensions::WebstoreDataFetcher(this, GURL(), app_id()));
+  webstore_fetcher_ =
+      std::make_unique<extensions::WebstoreDataFetcher>(this, GURL(), app_id());
   webstore_fetcher_->set_max_auto_retries(3);
   webstore_fetcher_->Start(g_browser_process->system_network_context_manager()
                                ->GetURLLoaderFactory());

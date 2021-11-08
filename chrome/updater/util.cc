@@ -5,17 +5,26 @@
 #include "chrome/updater/util.h"
 
 #include "base/base_paths.h"
+#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
+#include "base/version.h"
 #include "build/build_config.h"
+#include "chrome/updater/constants.h"
+#include "chrome/updater/tag.h"
 #include "chrome/updater/updater_branding.h"
+#include "chrome/updater/updater_scope.h"
 #include "chrome/updater/updater_version.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
-namespace updater {
+#if defined(OS_MAC)
+#import "chrome/updater/mac/mac_util.h"
+#endif
 
+namespace updater {
 namespace {
 
 const char kHexString[] = "0123456789ABCDEF";
@@ -34,7 +43,7 @@ struct Charmap {
     return ((map[c >> 5] & (1 << (c & 31))) != 0);
   }
 
-  uint32_t map[8];
+  uint32_t map[8] = {};
 };
 
 // Everything except alphanumerics and !'()*-._~
@@ -78,55 +87,103 @@ std::string EscapeQueryParamValue(base::StringPiece text, bool use_plus) {
 
 }  // namespace
 
-bool GetBaseDirectory(base::FilePath* path) {
-  constexpr int kPathKey =
+absl::optional<base::FilePath> GetBaseDirectory(UpdaterScope scope) {
+  absl::optional<base::FilePath> app_data_dir;
 #if defined(OS_WIN)
-      base::DIR_LOCAL_APP_DATA;
-#elif defined(OS_MAC)
-      base::DIR_APP_DATA;
-#endif
-
-  base::FilePath app_data_dir;
-  if (!base::PathService::Get(kPathKey, &app_data_dir)) {
-    LOG(ERROR) << "Can't retrieve local app data directory.";
-    return false;
+  base::FilePath path;
+  if (!base::PathService::Get(scope == UpdaterScope::kSystem
+                                  ? base::DIR_PROGRAM_FILES
+                                  : base::DIR_LOCAL_APP_DATA,
+                              &path)) {
+    LOG(ERROR) << "Can't retrieve app data directory.";
+    return absl::nullopt;
   }
-
+  app_data_dir = path;
+#elif defined(OS_MAC)
+  app_data_dir = GetApplicationSupportDirectory(scope);
+  if (!app_data_dir) {
+    LOG(ERROR) << "Can't retrieve app data directory.";
+    return absl::nullopt;
+  }
+#endif
   const auto product_data_dir =
-      app_data_dir.AppendASCII(COMPANY_SHORTNAME_STRING)
+      app_data_dir->AppendASCII(COMPANY_SHORTNAME_STRING)
           .AppendASCII(PRODUCT_FULLNAME_STRING);
   if (!base::CreateDirectory(product_data_dir)) {
-    LOG(ERROR) << "Can't create base directory.";
-    return false;
+    LOG(ERROR) << "Can't create base directory: " << product_data_dir;
+    return absl::nullopt;
   }
-
-  *path = product_data_dir;
-  return true;
+  return product_data_dir;
 }
 
-bool GetVersionedDirectory(base::FilePath* path) {
-  base::FilePath product_dir;
-  if (!GetBaseDirectory(&product_dir)) {
+absl::optional<base::FilePath> GetVersionedDirectory(UpdaterScope scope) {
+  const absl::optional<base::FilePath> product_dir = GetBaseDirectory(scope);
+  if (!product_dir) {
     LOG(ERROR) << "Failed to get the base directory.";
-    return false;
+    return absl::nullopt;
   }
 
-  const auto versioned_dir = product_dir.AppendASCII(UPDATER_VERSION_STRING);
+  const auto versioned_dir = product_dir->AppendASCII(kUpdaterVersion);
   if (!base::CreateDirectory(versioned_dir)) {
     LOG(ERROR) << "Can't create versioned directory.";
-    return false;
+    return absl::nullopt;
   }
 
-  *path = versioned_dir;
-  return true;
+  return versioned_dir;
+}
+
+absl::optional<base::FilePath> GetVersionedUpdaterFolderPathForVersion(
+    UpdaterScope scope,
+    const base::Version& version) {
+  const absl::optional<base::FilePath> path = GetUpdaterFolderPath(scope);
+  if (!path)
+    return absl::nullopt;
+  return path->AppendASCII(version.GetString());
+}
+
+absl::optional<base::FilePath> GetVersionedUpdaterFolderPath(
+    UpdaterScope scope) {
+  return GetVersionedUpdaterFolderPathForVersion(
+      scope, base::Version(kUpdaterVersion));
+}
+
+absl::optional<tagging::TagArgs> GetTagArgs() {
+  static const absl::optional<tagging::TagArgs> tag_args =
+      []() -> absl::optional<tagging::TagArgs> {
+    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+    const std::string tag = command_line->GetSwitchValueASCII(kTagSwitch);
+    if (tag.empty())
+      return absl::nullopt;
+    tagging::TagArgs tag_args;
+    const tagging::ErrorCode error =
+        tagging::Parse(tag, absl::nullopt, &tag_args);
+    VLOG_IF(1, error != tagging::ErrorCode::kSuccess)
+        << "Tag parsing returned " << error << ".";
+    return error == tagging::ErrorCode::kSuccess ? absl::make_optional(tag_args)
+                                                 : absl::nullopt;
+  }();
+
+  return tag_args;
+}
+
+base::CommandLine MakeElevated(base::CommandLine command_line) {
+#if defined(OS_MAC)
+  command_line.PrependWrapper("/usr/bin/sudo");
+#endif
+  return command_line;
 }
 
 // The log file is created in DIR_LOCAL_APP_DATA or DIR_APP_DATA.
-void InitLogging(const base::FilePath::StringType& filename) {
+void InitLogging(UpdaterScope updater_scope,
+                 const base::FilePath::StringType& filename) {
   logging::LoggingSettings settings;
-  base::FilePath log_dir;
-  GetBaseDirectory(&log_dir);
-  const base::FilePath log_file = log_dir.Append(filename);
+  const absl::optional<base::FilePath> log_dir =
+      GetBaseDirectory(updater_scope);
+  if (!log_dir) {
+    LOG(ERROR) << "Error getting base dir.";
+    return;
+  }
+  const base::FilePath log_file = log_dir->Append(filename);
   settings.log_file_path = log_file.value().c_str();
   settings.logging_dest = logging::LOG_TO_ALL;
   logging::InitLogging(settings);

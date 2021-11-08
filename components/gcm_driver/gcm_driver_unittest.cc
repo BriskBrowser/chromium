@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/task/current_thread.h"
 #include "base/test/task_environment.h"
@@ -33,6 +32,7 @@
 #include "services/network/test/test_url_loader_factory.h"
 #include "services/network/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace gcm {
 
@@ -51,6 +51,10 @@ class GCMDriverBaseTest : public testing::Test {
   enum WaitToFinish { DO_NOT_WAIT, WAIT };
 
   GCMDriverBaseTest();
+
+  GCMDriverBaseTest(const GCMDriverBaseTest&) = delete;
+  GCMDriverBaseTest& operator=(const GCMDriverBaseTest&) = delete;
+
   ~GCMDriverBaseTest() override;
 
   // testing::Test:
@@ -109,8 +113,6 @@ class GCMDriverBaseTest : public testing::Test {
   std::string encrypted_message_;
   GCMDecryptionResult decryption_result_ = GCMDecryptionResult::UNENCRYPTED;
   std::string decrypted_message_;
-
-  DISALLOW_COPY_AND_ASSIGN(GCMDriverBaseTest);
 };
 
 GCMDriverBaseTest::GCMDriverBaseTest() : io_thread_("IOThread") {}
@@ -154,7 +156,7 @@ void GCMDriverBaseTest::CreateDriver() {
   driver_ = std::make_unique<GCMDriverDesktop>(
       std::make_unique<FakeGCMClientFactory>(
           base::ThreadTaskRunnerHandle::Get(), io_thread_.task_runner()),
-      chrome_build_info, "user-agent-string", &prefs_, temp_dir_.GetPath(),
+      chrome_build_info, &prefs_, temp_dir_.GetPath(),
       /*remove_account_mappings_with_email_key=*/true, base::DoNothing(),
       base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
           &test_url_loader_factory_),

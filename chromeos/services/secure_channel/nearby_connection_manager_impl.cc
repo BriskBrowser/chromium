@@ -4,6 +4,7 @@
 
 #include "chromeos/services/secure_channel/nearby_connection_manager_impl.h"
 
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/services/secure_channel/authenticated_channel_impl.h"
@@ -85,15 +86,16 @@ void NearbyConnectionManagerImpl::OnReceivedAdvertisement(
     multidevice::RemoteDeviceRef remote_device,
     device::BluetoothDevice* bluetooth_device,
     ConnectionMedium connection_medium,
-    ConnectionRole connection_role) {
+    ConnectionRole connection_role,
+    const std::vector<uint8_t>& eid) {
   // Only process advertisements received as part of the Nearby Connections
   // flow.
   if (connection_medium != ConnectionMedium::kNearbyConnections)
     return;
 
   // Create a connection to the device.
-  std::unique_ptr<Connection> connection =
-      NearbyConnection::Factory::Create(remote_device, GetNearbyConnector());
+  std::unique_ptr<Connection> connection = NearbyConnection::Factory::Create(
+      remote_device, eid, GetNearbyConnector());
 
   SetAuthenticatingChannel(
       remote_device.GetDeviceId(),

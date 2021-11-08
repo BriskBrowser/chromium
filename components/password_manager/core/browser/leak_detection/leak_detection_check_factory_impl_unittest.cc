@@ -4,9 +4,11 @@
 
 #include "components/password_manager/core/browser/leak_detection/leak_detection_check_factory_impl.h"
 
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "components/password_manager/core/browser/leak_detection/leak_detection_check.h"
 #include "components/password_manager/core/browser/leak_detection/mock_leak_detection_delegate.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/test/test_shared_url_loader_factory.h"
@@ -51,6 +53,13 @@ TEST_F(LeakDetectionCheckFactoryImplTest, SignedOut) {
       &delegate(), identity_env().identity_manager(), url_loader_factory()));
 }
 
+TEST_F(LeakDetectionCheckFactoryImplTest, SignedOutWithFeatureEnabled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(features::kLeakDetectionUnauthenticated);
+  EXPECT_TRUE(request_factory().TryCreateLeakCheck(
+      &delegate(), identity_env().identity_manager(), url_loader_factory()));
+}
+
 TEST_F(LeakDetectionCheckFactoryImplTest, BulkCheck_SignedOut) {
   EXPECT_CALL(bulk_delegate(), OnError(LeakDetectionError::kNotSignIn));
   EXPECT_FALSE(request_factory().TryCreateBulkLeakCheck(
@@ -76,13 +85,13 @@ TEST_F(LeakDetectionCheckFactoryImplTest, BulkCheck_SignedIn) {
 }
 
 TEST_F(LeakDetectionCheckFactoryImplTest, SignedInAndSyncing) {
-  identity_env().SetPrimaryAccount(kTestAccount);
+  identity_env().SetPrimaryAccount(kTestAccount, signin::ConsentLevel::kSync);
   EXPECT_TRUE(request_factory().TryCreateLeakCheck(
       &delegate(), identity_env().identity_manager(), url_loader_factory()));
 }
 
 TEST_F(LeakDetectionCheckFactoryImplTest, BulkCheck_SignedInAndSyncing) {
-  identity_env().SetPrimaryAccount(kTestAccount);
+  identity_env().SetPrimaryAccount(kTestAccount, signin::ConsentLevel::kSync);
   EXPECT_TRUE(request_factory().TryCreateBulkLeakCheck(
       &bulk_delegate(), identity_env().identity_manager(),
       url_loader_factory()));

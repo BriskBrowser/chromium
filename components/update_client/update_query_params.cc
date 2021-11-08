@@ -66,9 +66,11 @@ const char kArch[] =
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 const char kChrome[] = "chrome";
 const char kCrx[] = "chromecrx";
+const char kWebView[] = "googleandroidwebview";
 #else
 const char kChrome[] = "chromium";
 const char kCrx[] = "chromiumcrx";
+const char kWebView[] = "androidwebview";
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
 UpdateQueryParamsDelegate* g_delegate = nullptr;
@@ -91,6 +93,8 @@ const char* UpdateQueryParams::GetProdIdString(UpdateQueryParams::ProdId prod) {
       return kChrome;
     case UpdateQueryParams::CRX:
       return kCrx;
+    case UpdateQueryParams::WEBVIEW:
+      return kWebView;
   }
   return kUnknown;
 }
@@ -111,8 +115,7 @@ const char* UpdateQueryParams::GetNaclArch() {
 #if defined(ARCH_CPU_X86_64)
   return "x86-64";
 #elif defined(OS_WIN)
-  bool x86_64 = (base::win::OSInfo::GetInstance()->wow64_status() ==
-                 base::win::OSInfo::WOW64_ENABLED);
+  bool x86_64 = base::win::OSInfo::GetInstance()->IsWowX86OnAMD64();
   return x86_64 ? "x86-64" : "x86-32";
 #else
   return "x86-32";

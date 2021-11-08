@@ -15,18 +15,23 @@
 class DevToolsManagerDelegateAndroid : public content::DevToolsManagerDelegate {
  public:
   DevToolsManagerDelegateAndroid();
+
+  DevToolsManagerDelegateAndroid(const DevToolsManagerDelegateAndroid&) =
+      delete;
+  DevToolsManagerDelegateAndroid& operator=(
+      const DevToolsManagerDelegateAndroid&) = delete;
+
   ~DevToolsManagerDelegateAndroid() override;
 
  private:
   // content::DevToolsManagerDelegate implementation.
+  content::BrowserContext* GetDefaultBrowserContext() override;
   std::string GetTargetType(content::WebContents* web_contents) override;
   content::DevToolsAgentHost::List RemoteDebuggingTargets() override;
   scoped_refptr<content::DevToolsAgentHost> CreateNewTarget(
       const GURL& url) override;
   std::string GetDiscoveryPageHTML() override;
   bool IsBrowserTargetDiscoverable() override;
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsManagerDelegateAndroid);
 };
 
 #endif  // CHROME_BROWSER_ANDROID_DEVTOOLS_MANAGER_DELEGATE_ANDROID_H_

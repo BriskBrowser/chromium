@@ -6,10 +6,7 @@
 
 #include <memory>
 
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -20,15 +17,20 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/autofill/content/browser/content_autofill_driver.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
+#include "components/autofill/content/browser/content_autofill_driver_test_api.h"
+#include "components/autofill/content/browser/content_autofill_router.h"
+#include "components/autofill/content/browser/content_autofill_router_test_api.h"
 #include "components/autofill/core/browser/autofill_external_delegate.h"
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
+#include "components/autofill/core/browser/browser_autofill_manager.h"
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_active_popup.h"
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_tree_id.h"
@@ -55,12 +57,14 @@ namespace autofill {
 namespace {
 
 const char kAppLocale[] = "en-US";
-const AutofillManager::AutofillDownloadManagerState kDownloadState =
-    AutofillManager::DISABLE_AUTOFILL_DOWNLOAD_MANAGER;
+const BrowserAutofillManager::AutofillDownloadManagerState kDownloadState =
+    BrowserAutofillManager::DISABLE_AUTOFILL_DOWNLOAD_MANAGER;
 
 class MockAutofillClient : public autofill::TestAutofillClient {
  public:
   MockAutofillClient() : prefs_(autofill::test::PrefServiceForTesting()) {}
+  MockAutofillClient(MockAutofillClient&) = delete;
+  MockAutofillClient& operator=(MockAutofillClient&) = delete;
   ~MockAutofillClient() override = default;
 
   PrefService* GetPrefs() override {
@@ -70,49 +74,49 @@ class MockAutofillClient : public autofill::TestAutofillClient {
 
  private:
   std::unique_ptr<PrefService> prefs_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockAutofillClient);
 };
 
 class MockAutofillDriver : public ContentAutofillDriver {
  public:
-  MockAutofillDriver(content::RenderFrameHost* rfh, MockAutofillClient* client)
-      : ContentAutofillDriver(rfh,
-                              client,
-                              kAppLocale,
-                              kDownloadState,
-                              nullptr) {}
+  MockAutofillDriver(content::RenderFrameHost* rfh,
+                     MockAutofillClient* client,
+                     ContentAutofillRouter* router)
+      : ContentAutofillDriver(
+            rfh,
+            client,
+            kAppLocale,
+            router,
+            kDownloadState,
+            AutofillManager::AutofillManagerFactoryCallback()) {}
+
+  MockAutofillDriver(MockAutofillDriver&) = delete;
+  MockAutofillDriver& operator=(MockAutofillDriver&) = delete;
 
   ~MockAutofillDriver() override = default;
   MOCK_CONST_METHOD0(GetAxTreeId, ui::AXTreeID());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockAutofillDriver);
 };
 
-class MockAutofillManager : public AutofillManager {
+class MockBrowserAutofillManager : public BrowserAutofillManager {
  public:
-  MockAutofillManager(AutofillDriver* driver, MockAutofillClient* client)
-      : AutofillManager(driver,
-                        client,
-                        client->GetPersonalDataManager(),
-                        client->GetAutocompleteHistoryManager()) {}
-  ~MockAutofillManager() override = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockAutofillManager);
+  MockBrowserAutofillManager(AutofillDriver* driver, MockAutofillClient* client)
+      : BrowserAutofillManager(driver,
+                               client,
+                               client->GetPersonalDataManager()) {}
+  MockBrowserAutofillManager(MockBrowserAutofillManager&) = delete;
+  MockBrowserAutofillManager& operator=(MockBrowserAutofillManager&) = delete;
+  ~MockBrowserAutofillManager() override = default;
 };
 
 class MockAutofillExternalDelegate : public AutofillExternalDelegate {
  public:
-  MockAutofillExternalDelegate(AutofillManager* autofill_manager,
+  MockAutofillExternalDelegate(BrowserAutofillManager* autofill_manager,
                                AutofillDriver* autofill_driver)
       : AutofillExternalDelegate(autofill_manager, autofill_driver) {}
   ~MockAutofillExternalDelegate() override = default;
 
-  void DidSelectSuggestion(const base::string16& value,
+  void DidSelectSuggestion(const std::u16string& value,
                            int identifier) override {}
-  bool RemoveSuggestion(const base::string16& value, int identifier) override {
+  bool RemoveSuggestion(const std::u16string& value, int identifier) override {
     return true;
   }
   base::WeakPtr<AutofillExternalDelegate> GetWeakPtr() {
@@ -126,18 +130,17 @@ class MockAutofillExternalDelegate : public AutofillExternalDelegate {
 class MockAutofillPopupView : public AutofillPopupView {
  public:
   MockAutofillPopupView() = default;
+  MockAutofillPopupView(MockAutofillPopupView&) = delete;
+  MockAutofillPopupView& operator=(MockAutofillPopupView&) = delete;
   ~MockAutofillPopupView() override = default;
 
   MOCK_METHOD0(Show, void());
   MOCK_METHOD0(Hide, void());
   MOCK_METHOD2(OnSelectedRowChanged,
-               void(base::Optional<int> previous_row_selection,
-                    base::Optional<int> current_row_selection));
+               void(absl::optional<int> previous_row_selection,
+                    absl::optional<int> current_row_selection));
   MOCK_METHOD0(OnSuggestionsChanged, void());
-  MOCK_METHOD0(GetAxUniqueId, base::Optional<int32_t>());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockAutofillPopupView);
+  MOCK_METHOD0(GetAxUniqueId, absl::optional<int32_t>());
 };
 
 class TestAutofillPopupController : public AutofillPopupControllerImpl {
@@ -159,7 +162,7 @@ class TestAutofillPopupController : public AutofillPopupControllerImpl {
   using AutofillPopupControllerImpl::GetRootAXPlatformNodeForWebContents;
   using AutofillPopupControllerImpl::GetSuggestionAt;
   using AutofillPopupControllerImpl::GetSuggestionLabelAt;
-  using AutofillPopupControllerImpl::GetSuggestionValueAt;
+  using AutofillPopupControllerImpl::GetSuggestionMainTextAt;
   using AutofillPopupControllerImpl::GetWeakPtr;
   using AutofillPopupControllerImpl::RemoveSelectedLine;
   using AutofillPopupControllerImpl::selected_line;
@@ -181,6 +184,8 @@ class TestAutofillPopupController : public AutofillPopupControllerImpl {
 class MockAxTreeManager : public ui::AXTreeManager {
  public:
   MockAxTreeManager() = default;
+  MockAxTreeManager(MockAxTreeManager&) = delete;
+  MockAxTreeManager& operator=(MockAxTreeManager&) = delete;
   ~MockAxTreeManager() = default;
 
   MOCK_CONST_METHOD2(GetNodeFromTree,
@@ -195,44 +200,38 @@ class MockAxTreeManager : public ui::AXTreeManager {
   MOCK_CONST_METHOD0(GetParentTreeID, ui::AXTreeID());
   MOCK_CONST_METHOD0(GetRootAsAXNode, ui::AXNode*());
   MOCK_CONST_METHOD0(GetParentNodeFromParentTreeAsAXNode, ui::AXNode*());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockAxTreeManager);
 };
 
 class MockAxPlatformNodeDelegate : public ui::AXPlatformNodeDelegateBase {
  public:
   MockAxPlatformNodeDelegate() = default;
+  MockAxPlatformNodeDelegate(MockAxPlatformNodeDelegate&) = delete;
+  MockAxPlatformNodeDelegate& operator=(MockAxPlatformNodeDelegate&) = delete;
   ~MockAxPlatformNodeDelegate() override = default;
 
   MOCK_METHOD1(GetFromNodeID, ui::AXPlatformNode*(int32_t id));
   MOCK_METHOD2(GetFromTreeIDAndNodeID,
                ui::AXPlatformNode*(const ui::AXTreeID& tree_id, int32_t id));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockAxPlatformNodeDelegate);
 };
 
 class MockAxPlatformNode : public ui::AXPlatformNodeBase {
  public:
   MockAxPlatformNode() = default;
+  MockAxPlatformNode(MockAxPlatformNode&) = delete;
+  MockAxPlatformNode& operator=(MockAxPlatformNode&) = delete;
   ~MockAxPlatformNode() override = default;
 
   MOCK_CONST_METHOD0(GetDelegate, ui::AXPlatformNodeDelegate*());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockAxPlatformNode);
 };
 
-static constexpr base::Optional<int> kNoSelection;
+static constexpr absl::optional<int> kNoSelection;
 
 }  // namespace
 
 class AutofillPopupControllerUnitTest : public ChromeRenderViewHostTestHarness {
  public:
   AutofillPopupControllerUnitTest()
-      : autofill_client_(new MockAutofillClient()),
-        autofill_popup_controller_(nullptr) {}
+      : autofill_client_(std::make_unique<MockAutofillClient>()) {}
   ~AutofillPopupControllerUnitTest() override = default;
 
   void SetUp() override {
@@ -251,6 +250,10 @@ class AutofillPopupControllerUnitTest : public ChromeRenderViewHostTestHarness {
       autofill_popup_controller_->DoHide();
 
     external_delegate_.reset();
+    autofill_manager_.reset();
+    autofill_driver_.reset();
+    autofill_router_.reset();
+
     ChromeRenderViewHostTestHarness::TearDown();
   }
 
@@ -258,22 +261,28 @@ class AutofillPopupControllerUnitTest : public ChromeRenderViewHostTestHarness {
   CreateExternalDelegate() {
     ContentAutofillDriverFactory::CreateForWebContentsAndDelegate(
         web_contents(), autofill_client_.get(), "en-US",
-        AutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
+        BrowserAutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
     // Make sure RenderFrame is created.
     NavigateAndCommit(GURL("about:blank"));
     ContentAutofillDriverFactory* factory =
         ContentAutofillDriverFactory::FromWebContents(web_contents());
     ContentAutofillDriver* driver =
         factory->DriverForFrame(web_contents()->GetMainFrame());
+    // Fake that |driver| has queried a form.
+    ContentAutofillRouterTestApi(
+        &ContentAutofillDriverTestApi(driver).autofill_router())
+        .set_last_queried_source(driver);
     return std::make_unique<NiceMock<MockAutofillExternalDelegate>>(
-        driver->autofill_manager(), driver);
+        driver->browser_autofill_manager(), driver);
   }
 
   TestAutofillPopupController* popup_controller() {
     return autofill_popup_controller_;
   }
 
-  MockAutofillExternalDelegate* delegate() { return external_delegate_.get(); }
+  NiceMock<MockAutofillExternalDelegate>* delegate() {
+    return external_delegate_.get();
+  }
 
   MockAutofillPopupView* autofill_popup_view() {
     return autofill_popup_view_.get();
@@ -281,46 +290,43 @@ class AutofillPopupControllerUnitTest : public ChromeRenderViewHostTestHarness {
 
  protected:
   std::unique_ptr<MockAutofillClient> autofill_client_;
+  std::unique_ptr<ContentAutofillRouter> autofill_router_;
+  std::unique_ptr<NiceMock<MockAutofillDriver>> autofill_driver_;
+  std::unique_ptr<MockBrowserAutofillManager> autofill_manager_;
   std::unique_ptr<NiceMock<MockAutofillExternalDelegate>> external_delegate_;
   std::unique_ptr<NiceMock<MockAutofillPopupView>> autofill_popup_view_;
-  NiceMock<TestAutofillPopupController>* autofill_popup_controller_;
+  NiceMock<TestAutofillPopupController>* autofill_popup_controller_ = nullptr;
 };
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
 class AutofillPopupControllerAccessibilityUnitTest
     : public AutofillPopupControllerUnitTest {
  public:
-  AutofillPopupControllerAccessibilityUnitTest() = default;
+  AutofillPopupControllerAccessibilityUnitTest()
+      : accessibility_mode_setter_(ui::AXMode::kScreenReader) {}
+  AutofillPopupControllerAccessibilityUnitTest(
+      AutofillPopupControllerAccessibilityUnitTest&) = delete;
+  AutofillPopupControllerAccessibilityUnitTest& operator=(
+      AutofillPopupControllerAccessibilityUnitTest&) = delete;
   ~AutofillPopupControllerAccessibilityUnitTest() override = default;
-
-  void SetUp() override {
-    AutofillPopupControllerUnitTest::SetUp();
-    content::BrowserAccessibilityState::GetInstance()
-        ->AddAccessibilityModeFlags(ui::AXMode::kScreenReader);
-  }
-
-  void TearDown() override {
-    content::BrowserAccessibilityState::GetInstance()
-        ->RemoveAccessibilityModeFlags(ui::AXMode::kScreenReader);
-    AutofillPopupControllerUnitTest::TearDown();
-  }
 
   std::unique_ptr<NiceMock<MockAutofillExternalDelegate>>
   CreateExternalDelegate() override {
+    autofill_router_ = std::make_unique<ContentAutofillRouter>();
     autofill_driver_ = std::make_unique<NiceMock<MockAutofillDriver>>(
-        web_contents()->GetMainFrame(), autofill_client_.get());
-    autofill_manager_ = std::make_unique<MockAutofillManager>(
+        web_contents()->GetMainFrame(), autofill_client_.get(),
+        autofill_router_.get());
+    // Fake that |driver| has queried a form.
+    ContentAutofillRouterTestApi(autofill_router_.get())
+        .set_last_queried_source(autofill_driver_.get());
+    autofill_manager_ = std::make_unique<MockBrowserAutofillManager>(
         autofill_driver_.get(), autofill_client_.get());
     return std::make_unique<NiceMock<MockAutofillExternalDelegate>>(
         autofill_manager_.get(), autofill_driver_.get());
   }
 
  protected:
-  std::unique_ptr<MockAutofillManager> autofill_manager_;
-  std::unique_ptr<NiceMock<MockAutofillDriver>> autofill_driver_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AutofillPopupControllerAccessibilityUnitTest);
+  content::testing::ScopedContentAXModeSetter accessibility_mode_setter_;
 };
 #endif
 
@@ -359,7 +365,7 @@ TEST_F(AutofillPopupControllerUnitTest, RedrawSelectedLine) {
 
   // Make sure that when a new line is selected, it is invalidated so it can
   // be updated to show it is selected.
-  base::Optional<int> selected_line = 0;
+  absl::optional<int> selected_line = 0;
   EXPECT_CALL(*autofill_popup_view_,
               OnSelectedRowChanged(kNoSelection, selected_line));
 
@@ -395,7 +401,7 @@ TEST_F(AutofillPopupControllerUnitTest, RemoveLine) {
   EXPECT_FALSE(autofill_popup_controller_->RemoveSelectedLine());
 
   // Select the first entry.
-  base::Optional<int> selected_line(0);
+  absl::optional<int> selected_line(0);
   EXPECT_CALL(*autofill_popup_view_,
               OnSelectedRowChanged(kNoSelection, selected_line));
   autofill_popup_controller_->SetSelectedLine(selected_line);
@@ -437,7 +443,7 @@ TEST_F(AutofillPopupControllerUnitTest, RemoveOnlyLine) {
   EXPECT_FALSE(autofill_popup_controller_->selected_line());
 
   // Select the only line.
-  base::Optional<int> selected_line(0);
+  absl::optional<int> selected_line(0);
   EXPECT_CALL(*autofill_popup_view_,
               OnSelectedRowChanged(kNoSelection, selected_line));
   autofill_popup_controller_->SetSelectedLine(selected_line);
@@ -504,10 +510,10 @@ TEST_F(AutofillPopupControllerUnitTest, UpdateDataListValues) {
                                    PopupType::kUnspecified);
 
   // Add one data list entry.
-  base::string16 value1 = ASCIIToUTF16("data list value 1");
-  std::vector<base::string16> data_list_values{value1};
-  base::string16 label1 = ASCIIToUTF16("data list label 1");
-  std::vector<base::string16> data_list_labels{label1};
+  std::u16string value1 = u"data list value 1";
+  std::vector<std::u16string> data_list_values{value1};
+  std::u16string label1 = u"data list label 1";
+  std::vector<std::u16string> data_list_labels{label1};
 
   autofill_popup_controller_->UpdateDataListValues(data_list_values,
                                                    data_list_labels);
@@ -516,28 +522,28 @@ TEST_F(AutofillPopupControllerUnitTest, UpdateDataListValues) {
 
   Suggestion result0 = autofill_popup_controller_->GetSuggestionAt(0);
   EXPECT_EQ(value1, result0.value);
-  EXPECT_EQ(value1, autofill_popup_controller_->GetSuggestionValueAt(0));
+  EXPECT_EQ(value1, autofill_popup_controller_->GetSuggestionMainTextAt(0));
   EXPECT_EQ(label1, result0.label);
-  EXPECT_EQ(base::string16(), result0.additional_label);
+  EXPECT_EQ(std::u16string(), result0.additional_label);
   EXPECT_EQ(label1, autofill_popup_controller_->GetSuggestionLabelAt(0));
   EXPECT_EQ(POPUP_ITEM_ID_DATALIST_ENTRY, result0.frontend_id);
 
   Suggestion result1 = autofill_popup_controller_->GetSuggestionAt(1);
-  EXPECT_EQ(base::string16(), result1.value);
-  EXPECT_EQ(base::string16(), result1.label);
-  EXPECT_EQ(base::string16(), result1.additional_label);
+  EXPECT_EQ(std::u16string(), result1.value);
+  EXPECT_EQ(std::u16string(), result1.label);
+  EXPECT_EQ(std::u16string(), result1.additional_label);
   EXPECT_EQ(POPUP_ITEM_ID_SEPARATOR, result1.frontend_id);
 
   Suggestion result2 = autofill_popup_controller_->GetSuggestionAt(2);
-  EXPECT_EQ(base::string16(), result2.value);
-  EXPECT_EQ(base::string16(), result2.label);
-  EXPECT_EQ(base::string16(), result2.additional_label);
+  EXPECT_EQ(std::u16string(), result2.value);
+  EXPECT_EQ(std::u16string(), result2.label);
+  EXPECT_EQ(std::u16string(), result2.additional_label);
   EXPECT_EQ(1, result2.frontend_id);
 
   // Add two data list entries (which should replace the current one).
-  base::string16 value2 = ASCIIToUTF16("data list value 2");
+  std::u16string value2 = u"data list value 2";
   data_list_values.push_back(value2);
-  base::string16 label2 = ASCIIToUTF16("data list label 2");
+  std::u16string label2 = u"data list label 2";
   data_list_labels.push_back(label2);
 
   autofill_popup_controller_->UpdateDataListValues(data_list_values,
@@ -546,14 +552,14 @@ TEST_F(AutofillPopupControllerUnitTest, UpdateDataListValues) {
 
   // Original one first, followed by new one, then separator.
   EXPECT_EQ(value1, autofill_popup_controller_->GetSuggestionAt(0).value);
-  EXPECT_EQ(value1, autofill_popup_controller_->GetSuggestionValueAt(0));
+  EXPECT_EQ(value1, autofill_popup_controller_->GetSuggestionMainTextAt(0));
   EXPECT_EQ(label1, autofill_popup_controller_->GetSuggestionAt(0).label);
-  EXPECT_EQ(base::string16(),
+  EXPECT_EQ(std::u16string(),
             autofill_popup_controller_->GetSuggestionAt(0).additional_label);
   EXPECT_EQ(value2, autofill_popup_controller_->GetSuggestionAt(1).value);
-  EXPECT_EQ(value2, autofill_popup_controller_->GetSuggestionValueAt(1));
+  EXPECT_EQ(value2, autofill_popup_controller_->GetSuggestionMainTextAt(1));
   EXPECT_EQ(label2, autofill_popup_controller_->GetSuggestionAt(1).label);
-  EXPECT_EQ(base::string16(),
+  EXPECT_EQ(std::u16string(),
             autofill_popup_controller_->GetSuggestionAt(1).additional_label);
   EXPECT_EQ(POPUP_ITEM_ID_SEPARATOR,
             autofill_popup_controller_->GetSuggestionAt(2).frontend_id);
@@ -576,10 +582,10 @@ TEST_F(AutofillPopupControllerUnitTest, PopupsWithOnlyDataLists) {
                                    PopupType::kUnspecified);
 
   // Replace the datalist element with a new one.
-  base::string16 value1 = ASCIIToUTF16("data list value 1");
-  std::vector<base::string16> data_list_values{value1};
-  base::string16 label1 = ASCIIToUTF16("data list label 1");
-  std::vector<base::string16> data_list_labels{label1};
+  std::u16string value1 = u"data list value 1";
+  std::vector<std::u16string> data_list_values{value1};
+  std::u16string label1 = u"data list label 1";
+  std::vector<std::u16string> data_list_labels{label1};
 
   autofill_popup_controller_->UpdateDataListValues(data_list_values,
                                                    data_list_labels);
@@ -587,7 +593,7 @@ TEST_F(AutofillPopupControllerUnitTest, PopupsWithOnlyDataLists) {
   ASSERT_EQ(1, autofill_popup_controller_->GetLineCount());
   EXPECT_EQ(value1, autofill_popup_controller_->GetSuggestionAt(0).value);
   EXPECT_EQ(label1, autofill_popup_controller_->GetSuggestionAt(0).label);
-  EXPECT_EQ(base::string16(),
+  EXPECT_EQ(std::u16string(),
             autofill_popup_controller_->GetSuggestionAt(0).additional_label);
   EXPECT_EQ(POPUP_ITEM_ID_DATALIST_ENTRY,
             autofill_popup_controller_->GetSuggestionAt(0).frontend_id);
@@ -605,7 +611,8 @@ TEST_F(AutofillPopupControllerUnitTest, GetOrCreate) {
       ContentAutofillDriverFactory::FromWebContents(web_contents());
   ContentAutofillDriver* driver =
       factory->DriverForFrame(web_contents()->GetMainFrame());
-  MockAutofillExternalDelegate delegate(driver->autofill_manager(), driver);
+  NiceMock<MockAutofillExternalDelegate> delegate(
+      driver->browser_autofill_manager(), driver);
 
   WeakPtr<AutofillPopupControllerImpl> controller =
       AutofillPopupControllerImpl::GetOrCreate(
@@ -681,8 +688,8 @@ TEST_F(AutofillPopupControllerUnitTest, HidingClearsPreview) {
       ContentAutofillDriverFactory::FromWebContents(web_contents());
   ContentAutofillDriver* driver =
       factory->DriverForFrame(web_contents()->GetMainFrame());
-  StrictMock<MockAutofillExternalDelegate> delegate(driver->autofill_manager(),
-                                                    driver);
+  StrictMock<MockAutofillExternalDelegate> delegate(
+      driver->browser_autofill_manager(), driver);
   StrictMock<TestAutofillPopupController>* test_controller =
       new StrictMock<TestAutofillPopupController>(delegate.GetWeakPtr(),
                                                   gfx::RectF());
@@ -718,7 +725,7 @@ TEST_F(AutofillPopupControllerAccessibilityUnitTest, FireControlsChangedEvent) {
         .WillRepeatedly(testing::Return(test_tree_id));
     EXPECT_CALL(*autofill_popup_view_, GetAxUniqueId)
         .Times(2)
-        .WillRepeatedly(testing::Return(base::Optional<int32_t>(123)));
+        .WillRepeatedly(testing::Return(absl::optional<int32_t>(123)));
     EXPECT_CALL(*autofill_popup_controller_,
                 GetRootAXPlatformNodeForWebContents)
         .WillRepeatedly(testing::Return(&mock_ax_platform_node));
@@ -734,7 +741,7 @@ TEST_F(AutofillPopupControllerAccessibilityUnitTest, FireControlsChangedEvent) {
 
     // Fire event for popup hide and active popup ax unique id is cleared.
     autofill_popup_controller_->FireControlsChangedEvent(false);
-    EXPECT_EQ(base::nullopt, ui::GetActivePopupAxUniqueId());
+    EXPECT_EQ(absl::nullopt, ui::GetActivePopupAxUniqueId());
   }
 
   // Test for attempting to fire controls changed event when ax tree manager
@@ -744,7 +751,7 @@ TEST_F(AutofillPopupControllerAccessibilityUnitTest, FireControlsChangedEvent) {
     EXPECT_CALL(*autofill_driver_, GetAxTreeId())
         .WillOnce(testing::Return(test_tree_id));
     EXPECT_CALL(*autofill_popup_view_, GetAxUniqueId)
-        .WillOnce(testing::Return(base::Optional<int32_t>(123)));
+        .WillOnce(testing::Return(absl::optional<int32_t>(123)));
     EXPECT_CALL(*autofill_popup_controller_,
                 GetRootAXPlatformNodeForWebContents)
         .WillOnce(testing::Return(&mock_ax_platform_node));
@@ -756,7 +763,7 @@ TEST_F(AutofillPopupControllerAccessibilityUnitTest, FireControlsChangedEvent) {
     // No controls changed event is fired and active popup ax unique id is not
     // set.
     autofill_popup_controller_->FireControlsChangedEvent(true);
-    EXPECT_EQ(base::nullopt, ui::GetActivePopupAxUniqueId());
+    EXPECT_EQ(absl::nullopt, ui::GetActivePopupAxUniqueId());
   }
 
   // Test for attempting to fire controls changed event when failing to retrieve
@@ -773,12 +780,12 @@ TEST_F(AutofillPopupControllerAccessibilityUnitTest, FireControlsChangedEvent) {
     EXPECT_CALL(mock_ax_platform_node_delegate, GetFromTreeIDAndNodeID)
         .WillOnce(testing::Return(nullptr));
     EXPECT_CALL(*autofill_popup_view_, GetAxUniqueId)
-        .WillOnce(testing::Return(base::Optional<int32_t>(123)));
+        .WillOnce(testing::Return(absl::optional<int32_t>(123)));
 
     // No controls changed event is fired and active popup ax unique id is not
     // set.
     autofill_popup_controller_->FireControlsChangedEvent(true);
-    EXPECT_EQ(base::nullopt, ui::GetActivePopupAxUniqueId());
+    EXPECT_EQ(absl::nullopt, ui::GetActivePopupAxUniqueId());
   }
 
   // Test for attempting to fire controls changed event when failing to retrieve
@@ -795,13 +802,17 @@ TEST_F(AutofillPopupControllerAccessibilityUnitTest, FireControlsChangedEvent) {
     EXPECT_CALL(mock_ax_platform_node_delegate, GetFromTreeIDAndNodeID)
         .WillOnce(testing::Return(&mock_ax_platform_node));
     EXPECT_CALL(*autofill_popup_view_, GetAxUniqueId)
-        .WillOnce(testing::Return(base::nullopt));
+        .WillOnce(testing::Return(absl::nullopt));
 
     // No controls changed event is fired and active popup ax unique id is not
     // set.
     autofill_popup_controller_->FireControlsChangedEvent(true);
-    EXPECT_EQ(base::nullopt, ui::GetActivePopupAxUniqueId());
+    EXPECT_EQ(absl::nullopt, ui::GetActivePopupAxUniqueId());
   }
+  // This needs to happen before TearDown() because having the mode set to
+  // kScreenReader causes mocked functions to get called  with
+  // mock_ax_platform_node_delegate after it has been destroyed.
+  accessibility_mode_setter_.ResetMode();
 }
 #endif
 

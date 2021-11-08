@@ -11,13 +11,11 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/optional.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/values.h"
 #include "ios/web/common/user_agent.h"
 #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/layout.h"
 
 namespace base {
@@ -26,6 +24,7 @@ class RefCountedMemory;
 
 class GURL;
 
+@protocol UITraitEnvironment;
 @class UIWebView;
 @class NSString;
 
@@ -38,7 +37,6 @@ namespace web {
 class BrowserState;
 class BrowserURLRewriter;
 class JavaScriptFeature;
-class SerializableUserDataManager;
 class WebClient;
 class WebMainParts;
 class WebState;
@@ -86,26 +84,19 @@ class WebClient {
   // browser would return true for "chrome://about" URL.
   virtual bool IsAppSpecificURL(const GURL& url) const;
 
-  // Returns true if URL should not be restored.
-  virtual bool ShouldBlockUrlDuringRestore(const GURL& url,
-                                           WebState* web_state) const;
-
-  // Allow embedder to inject data.
-  virtual void AddSerializableData(
-      web::SerializableUserDataManager* user_data_manager,
-      web::WebState* web_state);
   // Returns text to be displayed for an unsupported plugin.
-  virtual base::string16 GetPluginNotSupportedText() const;
+  virtual std::u16string GetPluginNotSupportedText() const;
 
   // Returns the user agent string for the specified type.
   virtual std::string GetUserAgent(UserAgentType type) const;
 
   // Returns a string resource given its id.
-  virtual base::string16 GetLocalizedString(int message_id) const;
+  virtual std::u16string GetLocalizedString(int message_id) const;
 
   // Returns the contents of a resource in a StringPiece given the resource id.
-  virtual base::StringPiece GetDataResource(int resource_id,
-                                            ui::ScaleFactor scale_factor) const;
+  virtual base::StringPiece GetDataResource(
+      int resource_id,
+      ui::ResourceScaleFactor scale_factor) const;
 
   // Returns the raw bytes of a scale independent data resource.
   virtual base::RefCountedMemory* GetDataResourceBytes(int resource_id) const;
@@ -152,21 +143,6 @@ class WebClient {
       WebState* web_state,
       mojo::GenericPendingReceiver receiver) {}
 
-  // Informs the embedder that a certificate error has occurred. |cert_error| is
-  // a network error code defined in //net/base/net_error_list.h. If
-  // |overridable| is true, the user can ignore the error and continue.
-  // |navigation_id| is retrieved from NavigationContext::GetNavigationId() and
-  // indicates which navigation triggered the certificate error. The embedder
-  // can call the |callback| asynchronously (an argument of true means that
-  // |cert_error| should be ignored and web// should load the page).
-  virtual void AllowCertificateError(WebState* web_state,
-                                     int cert_error,
-                                     const net::SSLInfo& ssl_info,
-                                     const GURL& request_url,
-                                     bool overridable,
-                                     int64_t navigation_id,
-                                     base::OnceCallback<void(bool)> callback);
-
   // Allows the embedder to specify legacy TLS enforcement on a per-host basis,
   // for example to allow users to bypass interstitial warnings on affected
   // hosts.
@@ -186,7 +162,7 @@ class WebClient {
                                 NSError* error,
                                 bool is_post,
                                 bool is_off_the_record,
-                                const base::Optional<net::SSLInfo>& info,
+                                const absl::optional<net::SSLInfo>& info,
                                 int64_t navigation_id,
                                 base::OnceCallback<void(NSString*)> callback);
 
@@ -201,20 +177,17 @@ class WebClient {
   // Enables the logic to handle long press context menu with UIContextMenu.
   virtual bool EnableLongPressUIContextMenu() const;
 
-  // This method is used when the user didn't express any preference for the
-  // version of |url|. Returning true allows to make sure that for |url|, the
-  // mobile version will be used, unless the user explicitly requested the
-  // desktop version. This method can be overriden to avoid having specific URL
-  // being requested in desktop mode when the default mode is desktop.
-  virtual bool ForceMobileVersionByDefault(const GURL& url);
-
   // Returns the UserAgentType that should be used by default for the web
   // content, based on the size class of |web_view| and the |url|.
   virtual UserAgentType GetDefaultUserAgent(id<UITraitEnvironment> web_view,
                                             const GURL& url);
 
-  // Returns whether the embedders could block restore urls.
-  virtual bool IsEmbedderBlockRestoreUrlEnabled();
+  // Returns true if URL was restored via session restoration cache.
+  virtual bool RestoreSessionFromCache(web::WebState* web_state) const;
+
+  // Correct missing NTP and reading list virtualURLs and titles. Native session
+  // restoration may not properly restore these items.
+  virtual void CleanupNativeRestoreURLs(web::WebState* web_state) const;
 };
 
 }  // namespace web

@@ -17,9 +17,9 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "extensions/browser/api/automation_internal/automation_event_router_interface.h"
 #include "extensions/common/extension_messages.h"
 #include "ui/accessibility/ax_action_data.h"
-#include "ui/accessibility/ax_event_bundle_sink.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/views/accessibility/ax_aura_obj_wrapper.h"
 #include "ui/views/accessibility/ax_tree_source_views.h"
@@ -27,6 +27,8 @@
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/radio_button.h"
 #include "ui/views/controls/scroll_view.h"
+#include "ui/views/controls/table/table_view.h"
+#include "ui/views/controls/table/test_table_model.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
@@ -61,30 +63,36 @@ void FindAllHostsOfWebContentsWithAXTreeID(
 
 // A helper to retrieve an ax tree id given a RenderFrameHost.
 ui::AXTreeID GetAXTreeIDFromRenderFrameHost(content::RenderFrameHost* rfh) {
-  auto* registry = ui::AXTreeIDRegistry::GetInstance();
-  return registry->GetAXTreeID(ui::AXTreeIDRegistry::FrameID(
+  auto* registry = ui::AXActionHandlerRegistry::GetInstance();
+  return registry->GetAXTreeID(ui::AXActionHandlerRegistry::FrameID(
       rfh->GetProcess()->GetID(), rfh->GetRoutingID()));
 }
 
 // A class that installs itself as the sink to handle automation event bundles
 // from AutomationManagerAura, then waits until an automation event indicates
-// that a given node ID is focused.
-class AutomationEventWaiter : public ui::AXEventBundleSink {
+// that a given node ID is focused or an AX event is sent.
+class AutomationEventWaiter
+    : public extensions::AutomationEventRouterInterface {
  public:
   AutomationEventWaiter() : run_loop_(std::make_unique<base::RunLoop>()) {
-    AutomationManagerAura::GetInstance()->set_event_bundle_sink(this);
+    AutomationManagerAura::GetInstance()->set_automation_event_router_interface(
+        this);
   }
 
-  ~AutomationEventWaiter() override {
+  AutomationEventWaiter(const AutomationEventWaiter&) = delete;
+  AutomationEventWaiter& operator=(const AutomationEventWaiter&) = delete;
+
+  virtual ~AutomationEventWaiter() {
     // Don't bother to reconnect to AutomationEventRouter because it's not
     // relevant to the tests.
-    AutomationManagerAura::GetInstance()->set_event_bundle_sink(nullptr);
+    AutomationManagerAura::GetInstance()->set_automation_event_router_interface(
+        nullptr);
   }
 
   // Returns immediately if the node with AXAuraObjCache ID |node_id|
   // has ever been focused, otherwise spins a loop until that node is
   // focused.
-  void WaitForNodeIdToBeFocused(int node_id) {
+  void WaitForNodeIdToBeFocused(ui::AXNodeID node_id) {
     if (WasNodeIdFocused(node_id))
       return;
 
@@ -93,11 +101,14 @@ class AutomationEventWaiter : public ui::AXEventBundleSink {
     run_loop_ = std::make_unique<base::RunLoop>();
   }
 
-  std::unique_ptr<ui::AXEvent> WaitForEvent(ax::mojom::Event event_type) {
+  std::unique_ptr<ui::AXEvent> WaitForEvent(
+      ax::mojom::Event event_type,
+      ui::AXNodeID target_node_id = ui::kInvalidAXNodeID) {
     event_type_to_wait_for_ = event_type;
+    event_target_node_id_to_wait_for_ = target_node_id;
     run_loop_->Run();
     run_loop_ = std::make_unique<base::RunLoop>();
-    return std::move(most_recent_event_);
+    return std::move(matched_wait_for_event_);
   }
 
   bool WasNodeIdFocused(int node_id) {
@@ -107,18 +118,25 @@ class AutomationEventWaiter : public ui::AXEventBundleSink {
     return false;
   }
 
+  ui::AXTree* ax_tree() { return &ax_tree_; }
+
  private:
-  // ui::AXEventBundleSink:
+  // extensions::AutomationEventRouterInterface:
   void DispatchAccessibilityEvents(const ui::AXTreeID& tree_id,
                                    std::vector<ui::AXTreeUpdate> updates,
                                    const gfx::Point& mouse_location,
                                    std::vector<ui::AXEvent> events) override {
-    if (node_id_to_wait_for_ != -1) {
-      for (const ui::AXTreeUpdate& update : updates) {
+    for (const ui::AXTreeUpdate& update : updates) {
+      if (!ax_tree_.Unserialize(update)) {
+        LOG(ERROR) << ax_tree_.error();
+        FAIL() << "Could not unserialize AXTreeUpdate";
+      }
+
+      if (node_id_to_wait_for_ != ui::kInvalidAXNodeID) {
         int focused_node_id = update.tree_data.focus_id;
         focused_node_ids_.push_back(focused_node_id);
         if (focused_node_id == node_id_to_wait_for_) {
-          node_id_to_wait_for_ = -1;
+          node_id_to_wait_for_ = ui::kInvalidAXNodeID;
           run_loop_->Quit();
         }
       }
@@ -128,23 +146,45 @@ class AutomationEventWaiter : public ui::AXEventBundleSink {
       return;
 
     for (const ui::AXEvent& event : events) {
-      if (event.event_type == event_type_to_wait_for_) {
-        most_recent_event_ = std::make_unique<ui::AXEvent>(event);
+      if (event.event_type == event_type_to_wait_for_ &&
+          (event_target_node_id_to_wait_for_ == ui::kInvalidAXNodeID ||
+           event_target_node_id_to_wait_for_ == event.id)) {
+        matched_wait_for_event_ = std::make_unique<ui::AXEvent>(event);
         event_type_to_wait_for_ = ax::mojom::Event::kNone;
         run_loop_->Quit();
       }
     }
   }
+  void DispatchAccessibilityLocationChange(
+      const ExtensionMsg_AccessibilityLocationChangeParams& params) override {}
+  void DispatchTreeDestroyedEvent(
+      ui::AXTreeID tree_id,
+      content::BrowserContext* browser_context) override {}
+  void DispatchActionResult(
+      const ui::AXActionData& data,
+      bool result,
+      content::BrowserContext* browser_context = nullptr) override {}
+  void DispatchGetTextLocationDataResult(
+      const ui::AXActionData& data,
+      const absl::optional<gfx::Rect>& rect) override {}
 
+  ui::AXTree ax_tree_;
   std::unique_ptr<base::RunLoop> run_loop_;
-  int node_id_to_wait_for_ = -1;
+  ui::AXNodeID node_id_to_wait_for_ = ui::kInvalidAXNodeID;
   std::vector<int> focused_node_ids_;
 
-  std::unique_ptr<ui::AXEvent> most_recent_event_;
+  std::unique_ptr<ui::AXEvent> matched_wait_for_event_;
   ax::mojom::Event event_type_to_wait_for_ = ax::mojom::Event::kNone;
-
-  DISALLOW_COPY_AND_ASSIGN(AutomationEventWaiter);
+  ui::AXNodeID event_target_node_id_to_wait_for_ = ui::kInvalidAXNodeID;
 };
+
+ui::TableColumn TestTableColumn(int id, const std::string& title) {
+  ui::TableColumn column;
+  column.id = id;
+  column.title = base::ASCIIToUTF16(title.c_str());
+  column.sortable = true;
+  return column;
+}
 
 }  // namespace
 
@@ -161,9 +201,10 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, WebAppearsOnce) {
   manager->Enable();
   auto* tree = manager->tree_.get();
 
-  ui_test_utils::NavigateToURL(
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(),
-      GURL("data:text/html;charset=utf-8,<button autofocus>Click me</button>"));
+      GURL(
+          "data:text/html;charset=utf-8,<button autofocus>Click me</button>")));
 
   auto* web_contents = browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -186,7 +227,6 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, WebAppearsOnce) {
     for (size_t i = 0; i < web_hosts.size(); i++) {
       ui::AXNodeData node_data;
       tree->SerializeNode(web_hosts[i], &node_data);
-      LOG(ERROR) << i << ": " << node_data.ToString();
     }
   }
 }
@@ -197,6 +237,7 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest,
   auto* cache_ptr = cache.get();
   AutomationManagerAura* manager = AutomationManagerAura::GetInstance();
   manager->set_ax_aura_obj_cache_for_testing(std::move(cache));
+  AutomationEventWaiter waiter;
   manager->Enable();
 
   views::Widget* widget = new views::Widget;
@@ -224,8 +265,6 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest,
   widget->GetRootView()->AddChildView(view3);
   views::AXAuraObjWrapper* wrapper3 = cache_ptr->GetOrCreate(view3);
 
-  AutomationEventWaiter waiter;
-
   // Focus view1, then block until we get an accessibility event that
   // shows this view is focused.
   view1->RequestFocus();
@@ -250,11 +289,18 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest,
   AddFailureOnWidgetAccessibilityError(widget);
 }
 
-IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, ScrollView) {
+// TODO(crbug.com/1202250): Crashes on Ozone.
+#if defined(USE_OZONE)
+#define MAYBE_ScrollView DISABLED_ScrollView
+#else
+#define MAYBE_ScrollView ScrollView
+#endif
+IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, MAYBE_ScrollView) {
   auto cache = std::make_unique<views::AXAuraObjCache>();
   auto* cache_ptr = cache.get();
   AutomationManagerAura* manager = AutomationManagerAura::GetInstance();
   manager->set_ax_aura_obj_cache_for_testing(std::move(cache));
+  AutomationEventWaiter waiter;
   manager->Enable();
   auto* tree = manager->tree_.get();
 
@@ -308,17 +354,25 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, ScrollView) {
               node_data.GetIntAttribute(ax::mojom::IntAttribute::kScrollYMax),
               kAllowedError);
 
-  // Scroll right and check the X position.
+  // Scroll right and check a scroll event occurred and the X position.
   ui::AXActionData action_data;
   action_data.action = ax::mojom::Action::kScrollRight;
   scroll_view_wrapper->HandleAccessibleAction(action_data);
+  auto event_from_views =
+      waiter.WaitForEvent(ax::mojom::Event::kScrollPositionChanged);
+  ASSERT_NE(nullptr, event_from_views.get());
+  EXPECT_EQ(ax::mojom::EventFrom::kNone, event_from_views->event_from);
   tree->SerializeNode(scroll_view_wrapper, &node_data);
   EXPECT_NEAR(200, node_data.GetIntAttribute(ax::mojom::IntAttribute::kScrollX),
               kAllowedError);
 
-  // Scroll down and check the Y position.
+  // Scroll down and check a scroll event occurred and the Y position.
   action_data.action = ax::mojom::Action::kScrollDown;
   scroll_view_wrapper->HandleAccessibleAction(action_data);
+  event_from_views =
+      waiter.WaitForEvent(ax::mojom::Event::kScrollPositionChanged);
+  ASSERT_NE(nullptr, event_from_views.get());
+  EXPECT_EQ(ax::mojom::EventFrom::kNone, event_from_views->event_from);
   tree->SerializeNode(scroll_view_wrapper, &node_data);
   EXPECT_NEAR(200, node_data.GetIntAttribute(ax::mojom::IntAttribute::kScrollY),
               kAllowedError);
@@ -327,16 +381,138 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, ScrollView) {
   action_data.action = ax::mojom::Action::kSetScrollOffset;
   action_data.target_point.SetPoint(50, 315);
   scroll_view_wrapper->HandleAccessibleAction(action_data);
+  event_from_views =
+      waiter.WaitForEvent(ax::mojom::Event::kScrollPositionChanged);
+  ASSERT_NE(nullptr, event_from_views.get());
+  EXPECT_EQ(ax::mojom::EventFrom::kNone, event_from_views->event_from);
   tree->SerializeNode(scroll_view_wrapper, &node_data);
   EXPECT_EQ(50, node_data.GetIntAttribute(ax::mojom::IntAttribute::kScrollX));
   EXPECT_EQ(315, node_data.GetIntAttribute(ax::mojom::IntAttribute::kScrollY));
+}
+
+// Ensure that TableView accessibility works at the level of the
+// serialized accessibility tree generated by AutomationManagerAura.
+// TODO(crbug.com/1202250): Crashes on Ozone.
+#if defined(USE_OZONE)
+#define MAYBE_TableView DISABLED_TableView
+#else
+#define MAYBE_TableView TableView
+#endif
+IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, MAYBE_TableView) {
+  // Make our own AXAuraObjCache.
+  auto cache = std::make_unique<views::AXAuraObjCache>();
+  auto* cache_ptr = cache.get();
+  ASSERT_NE(nullptr, cache_ptr);
+
+  // Get the AutomationManagerAura and make it use our cache.
+  AutomationManagerAura* manager = AutomationManagerAura::GetInstance();
+  manager->set_ax_aura_obj_cache_for_testing(std::move(cache));
+
+  // Initialize this before we enable AutomationManagerAura because it's
+  // going to intercept all AXTreeUpdates and build an AXTree from the
+  // results.
+  AutomationEventWaiter waiter;
+
+  // Enable the AutomationManagerAura.
+  manager->Enable();
+
+  // Create a widget and give it explicit bounds that aren't at the top-left
+  // of the screen so that we can check that the global bounding rect of
+  // various accessibility nodes is correct.
+  views::Widget* widget = new views::Widget;
+  views::Widget::InitParams params(
+      views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
+  constexpr int kLeft = 100;
+  constexpr int kTop = 500;
+  constexpr int kWidth = 300;
+  constexpr int kHeight = 200;
+  params.bounds = {kLeft, kTop, kWidth, kHeight};
+  widget->Init(std::move(params));
+
+  // Construct a simple table model for testing, and then make a TableView
+  // based on that. There are 4 columns specified here, and 4 rows
+  // (TestTableModel fills cells in with fake data automatically).
+  std::vector<ui::TableColumn> columns;
+  columns.push_back(TestTableColumn(0, "Fruit"));
+  columns.push_back(TestTableColumn(1, "Color"));
+  columns.push_back(TestTableColumn(2, "Origin"));
+  columns.push_back(TestTableColumn(3, "Price"));
+  auto model = std::make_unique<TestTableModel>(4);  // Create 4 rows.
+
+  // Add the TableView to our Widget's root view and give it bounds.
+  // WARNING: This holds a raw pointer to `model`. To ensure the table doesn't
+  // outlive its model, it must be manually deleted at the bottom of this
+  // function.
+  views::TableView* const table = widget->GetRootView()->AddChildView(
+      std::make_unique<views::TableView>(model.get(), columns, views::TEXT_ONLY,
+                                         /* single_selection = */ true));
+  table->SetBounds(0, 0, 200, 200);
+
+  // Show the widget.
+  widget->Show();
+  widget->Activate();
+
+  // Find the virtual views for the first row and first cell within the
+  // table.
+  ASSERT_EQ(4U, table->GetViewAccessibility().virtual_children().size());
+  views::AXVirtualView* ax_row_0 =
+      table->GetViewAccessibility().virtual_children()[0].get();
+  ASSERT_EQ(4U, ax_row_0->children().size());
+  views::AXVirtualView* ax_cell_0_0 = ax_row_0->children()[0].get();
+  ASSERT_NE(nullptr, ax_cell_0_0);
+
+  // This is the key part! Tell the table to focus and select the first row.
+  // Then wait for an accessibility focus event on the first cell in the table!
+  views::AXAuraObjWrapper* ax_cell_0_0_wrapper =
+      ax_cell_0_0->GetOrCreateWrapper(cache_ptr);
+  table->RequestFocus();
+  table->Select(0);
+  waiter.WaitForNodeIdToBeFocused(ax_cell_0_0_wrapper->GetUniqueId());
+
+  // If we got this far, that means we got a focus event on the correct
+  // node in the table. Now, find that same node in the AXTree (which is
+  // after being serialized and unserialized) and ensure that the resulting
+  // bounding box for the table cell is correct.
+  {
+    ui::AXNode* cell =
+        waiter.ax_tree()->GetFromId(ax_cell_0_0_wrapper->GetUniqueId());
+    ASSERT_TRUE(cell);
+    EXPECT_EQ(ax::mojom::Role::kCell, cell->GetRole());
+    gfx::RectF cell_bounds = waiter.ax_tree()->GetTreeBounds(cell);
+    SCOPED_TRACE("Cell: " + cell_bounds.ToString());
+
+    ui::AXNode* window = cell->parent();
+    while (window && window->GetRole() != ax::mojom::Role::kWindow)
+      window = window->parent();
+    ASSERT_TRUE(window);
+
+    gfx::RectF window_bounds = waiter.ax_tree()->GetTreeBounds(window);
+    SCOPED_TRACE("Window: " + window_bounds.ToString());
+    SCOPED_TRACE(waiter.ax_tree()->ToString());
+
+    // The cell should have the same x, y as the window (with 1 pixel of slop).
+    // The cell should have a width that's less than or equal to the window
+    // width, and the cell's height should be significantly smaller so we
+    // assert that the cell's height is greater than zero, but less than half
+    // the window height.
+    EXPECT_NEAR(cell_bounds.x(), window_bounds.x(), 1);
+    EXPECT_NEAR(cell_bounds.y(), window_bounds.y(), 1);
+    EXPECT_LE(cell_bounds.width(), window_bounds.width());
+    EXPECT_GT(cell_bounds.height(), 0);
+    EXPECT_LT(cell_bounds.height(), window_bounds.height() / 2);
+  }
+  // Remove and destroy the TableView, it refers to `model` which is about to go
+  // out of scope.
+  widget->GetRootView()->RemoveChildViewT(table);
 }
 
 IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, EventFromAction) {
   auto cache = std::make_unique<views::AXAuraObjCache>();
   auto* cache_ptr = cache.get();
   AutomationManagerAura* manager = AutomationManagerAura::GetInstance();
+  manager->send_window_state_on_enable_ = false;
   manager->set_ax_aura_obj_cache_for_testing(std::move(cache));
+  AutomationEventWaiter waiter;
   manager->Enable();
 
   views::Widget* widget = new views::Widget;
@@ -358,12 +534,11 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, EventFromAction) {
   widget->GetRootView()->AddChildView(view2);
   views::AXAuraObjWrapper* wrapper2 = cache_ptr->GetOrCreate(view2);
 
-  AutomationEventWaiter waiter;
-
   // Focus view1, simulating the non-accessibility action, block until we get an
   // accessibility event that shows this view is focused.
   view1->RequestFocus();
-  auto event_from_views = waiter.WaitForEvent(ax::mojom::Event::kFocus);
+  auto event_from_views = waiter.WaitForEvent(
+      ax::mojom::Event::kFocus, view1->GetViewAccessibility().GetUniqueId());
   ASSERT_NE(nullptr, event_from_views.get());
   EXPECT_EQ(ax::mojom::EventFrom::kNone, event_from_views->event_from);
 
@@ -371,11 +546,12 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, EventFromAction) {
   // accessibility event that shows this view is focused.
   ui::AXActionData action_data;
   action_data.action = ax::mojom::Action::kFocus;
-  action_data.target_tree_id = manager->tree_.get()->tree_id_for_test();
+  action_data.target_tree_id = manager->tree_.get()->tree_id();
   action_data.target_node_id = wrapper2->GetUniqueId();
 
   manager->PerformAction(action_data);
-  auto event_from_action = waiter.WaitForEvent(ax::mojom::Event::kFocus);
+  auto event_from_action = waiter.WaitForEvent(
+      ax::mojom::Event::kFocus, view2->GetViewAccessibility().GetUniqueId());
   ASSERT_NE(nullptr, event_from_action.get());
   EXPECT_EQ(ax::mojom::EventFrom::kAction, event_from_action->event_from);
 
@@ -406,4 +582,55 @@ IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest,
   run_loop.Run();
 
   manager->Enable();
+}
+
+IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest,
+                       AXActionHandlerRegistryUpdates) {
+  ui::AXActionHandlerRegistry* registry =
+      ui::AXActionHandlerRegistry::GetInstance();
+  AutomationManagerAura* manager = AutomationManagerAura::GetInstance();
+  ui::AXTreeID tree_id = manager->ax_tree_id();
+
+  // TODO: after Lacros, this should be EQ.
+  EXPECT_NE(nullptr, registry->GetActionHandler(tree_id));
+  manager->Enable();
+  EXPECT_NE(nullptr, registry->GetActionHandler(tree_id));
+  manager->Disable();
+
+  // TODO: after Lacros, this should be EQ.
+  EXPECT_NE(nullptr, registry->GetActionHandler(tree_id));
+  manager->Enable();
+  EXPECT_NE(nullptr, registry->GetActionHandler(tree_id));
+}
+
+IN_PROC_BROWSER_TEST_F(AutomationManagerAuraBrowserTest, GetFocusOnChildTree) {
+  views::AXAuraObjCache cache;
+  views::Widget* widget = new views::Widget;
+  views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
+  params.bounds = {0, 0, 200, 200};
+  widget->Init(std::move(params));
+  widget->Show();
+  widget->Activate();
+
+  cache.set_focused_widget_for_testing(widget);
+
+  // No focus falls back on root view.
+  EXPECT_EQ(cache.GetOrCreate(widget->GetRootView()), cache.GetFocus());
+
+  // A child of the client view results in a focus if it has a tree id.
+  views::View* child =
+      widget->non_client_view()->client_view()->children().front();
+  ASSERT_NE(nullptr, child);
+
+  // No tree id yet.
+  EXPECT_EQ(cache.GetOrCreate(widget->GetRootView()), cache.GetFocus());
+
+  // Now, there's a tree id.
+  child->GetViewAccessibility().OverrideChildTreeID(
+      ui::AXTreeID::CreateNewAXTreeID());
+  EXPECT_EQ(cache.GetOrCreate(child), cache.GetFocus());
+
+  cache.set_focused_widget_for_testing(nullptr);
+
+  AddFailureOnWidgetAccessibilityError(widget);
 }

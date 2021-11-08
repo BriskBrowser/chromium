@@ -49,6 +49,10 @@ namespace remoting {
 class DisconnectWindowMac : public HostWindow {
  public:
   DisconnectWindowMac();
+
+  DisconnectWindowMac(const DisconnectWindowMac&) = delete;
+  DisconnectWindowMac& operator=(const DisconnectWindowMac&) = delete;
+
   ~DisconnectWindowMac() override;
 
   // HostWindow overrides.
@@ -57,8 +61,6 @@ class DisconnectWindowMac : public HostWindow {
 
  private:
   DisconnectWindowController* window_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(DisconnectWindowMac);
 };
 
 DisconnectWindowMac::DisconnectWindowMac()
@@ -112,9 +114,9 @@ std::unique_ptr<HostWindow> HostWindow::CreateDisconnectWindow() {
 @synthesize connectedToField = _connectedToField;
 @synthesize disconnectButton = _disconnectButton;
 
-- (id)initWithCallback:(base::OnceClosure)disconnect_callback
-              username:(const std::string&)username
-                window:(NSWindow*)window {
+- (instancetype)initWithCallback:(base::OnceClosure)disconnect_callback
+                        username:(const std::string&)username
+                          window:(NSWindow*)window {
   self = [super initWithWindow:(NSWindow*)window];
   if (self) {
     _disconnect_callback = std::move(disconnect_callback);
@@ -231,10 +233,10 @@ std::unique_ptr<HostWindow> HostWindow::CreateDisconnectWindow() {
 
 @implementation DisconnectWindow
 
-- (id)initWithContentRect:(NSRect)contentRect
-                styleMask:(NSUInteger)aStyle
-                  backing:(NSBackingStoreType)bufferingType
-                  defer:(BOOL)flag {
+- (instancetype)initWithContentRect:(NSRect)contentRect
+                          styleMask:(NSUInteger)aStyle
+                            backing:(NSBackingStoreType)bufferingType
+                              defer:(BOOL)flag {
   // Pass NSBorderlessWindowMask for the styleMask to remove the title bar.
   self = [super initWithContentRect:contentRect
                           styleMask:NSBorderlessWindowMask

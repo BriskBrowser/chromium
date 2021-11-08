@@ -95,6 +95,11 @@ class MediaPerceptionAPIManager::MediaPerceptionControllerClient
     DCHECK(delegate_) << "Delegate not set.";
   }
 
+  MediaPerceptionControllerClient(const MediaPerceptionControllerClient&) =
+      delete;
+  MediaPerceptionControllerClient& operator=(
+      const MediaPerceptionControllerClient&) = delete;
+
   ~MediaPerceptionControllerClient() override = default;
 
   // media_perception::mojom::MediaPerceptionControllerClient:
@@ -113,8 +118,6 @@ class MediaPerceptionAPIManager::MediaPerceptionControllerClient
   mojo::Receiver<
       chromeos::media_perception::mojom::MediaPerceptionControllerClient>
       receiver_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaPerceptionControllerClient);
 };
 
 // static
@@ -137,7 +140,7 @@ MediaPerceptionAPIManager::MediaPerceptionAPIManager(
     content::BrowserContext* context)
     : browser_context_(context),
       analytics_process_state_(AnalyticsProcessState::IDLE) {
-  scoped_observer_.Add(chromeos::MediaAnalyticsClient::Get());
+  scoped_observation_.Observe(chromeos::MediaAnalyticsClient::Get());
 }
 
 MediaPerceptionAPIManager::~MediaPerceptionAPIManager() {
@@ -390,7 +393,7 @@ void MediaPerceptionAPIManager::UpstartStartProcessCallback(
       FROM_HERE,
       base::BindOnce(&MediaPerceptionAPIManager::SendMojoInvitation,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)),
-      base::TimeDelta::FromMilliseconds(kStartupDelayMs));
+      base::Milliseconds(kStartupDelayMs));
 }
 
 void MediaPerceptionAPIManager::SendMojoInvitation(
@@ -553,7 +556,7 @@ void MediaPerceptionAPIManager::UpstartRestartCallback(
 
 void MediaPerceptionAPIManager::StateCallback(
     APIStateCallback callback,
-    base::Optional<mri::State> result) {
+    absl::optional<mri::State> result) {
   if (!result.has_value()) {
     std::move(callback).Run(
         GetStateForServiceError(extensions::api::media_perception_private::
@@ -567,7 +570,7 @@ void MediaPerceptionAPIManager::StateCallback(
 
 void MediaPerceptionAPIManager::GetDiagnosticsCallback(
     APIGetDiagnosticsCallback callback,
-    base::Optional<mri::Diagnostics> result) {
+    absl::optional<mri::Diagnostics> result) {
   if (!result.has_value()) {
     std::move(callback).Run(GetDiagnosticsForServiceError(
         extensions::api::media_perception_private::

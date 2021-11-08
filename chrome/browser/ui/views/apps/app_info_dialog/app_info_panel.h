@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/metadata/view_factory.h"
 #include "ui/views/view.h"
 
@@ -39,7 +39,7 @@ class AppInfoPanel : public views::View {
   void OpenLink(const GURL& url);
 
   // Create a heading label with the given text.
-  std::unique_ptr<views::Label> CreateHeading(const base::string16& text) const;
+  std::unique_ptr<views::Label> CreateHeading(const std::u16string& text) const;
 
   // Create a view with a vertically-stacked box layout, which can have child
   // views appended to it. |child_spacing| defaults to
@@ -59,8 +59,8 @@ class AppInfoPanel : public views::View {
       std::unique_ptr<views::View> key,
       std::unique_ptr<views::View> value) const;
 
-  Profile* profile_;
-  const extensions::Extension* app_;
+  Profile* const profile_;
+  const extensions::Extension* const app_;
 };
 
 BEGIN_VIEW_BUILDER(/* no export */, AppInfoPanel, views::View)

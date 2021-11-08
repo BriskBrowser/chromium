@@ -39,6 +39,7 @@ class FirstLetterPseudoElement;
 // node.
 class CORE_EXPORT LayoutTextFragment : public LayoutText {
  public:
+  LayoutTextFragment(Node*, StringImpl*, int start_offset, int length);
   ~LayoutTextFragment() override;
 
   static LayoutTextFragment* Create(Node*,
@@ -56,7 +57,7 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
                                              LegacyLayout);
 
   Position PositionForCaretOffset(unsigned) const override;
-  base::Optional<unsigned> CaretOffsetForPosition(
+  absl::optional<unsigned> CaretOffsetForPosition(
       const Position&) const override;
 
   unsigned Start() const {
@@ -118,7 +119,7 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
   Text* AssociatedTextNode() const;
   LayoutText* GetFirstLetterPart() const override;
 
-  LayoutTextFragment(Node*, StringImpl*, int start_offset, int length);
+  String PlainText() const override;
 
  protected:
   friend class LayoutObjectFactory;

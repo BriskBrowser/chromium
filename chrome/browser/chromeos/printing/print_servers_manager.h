@@ -8,10 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/chromeos/printing/print_server.h"
-#include "chrome/browser/chromeos/printing/print_servers_manager.h"
 #include "chrome/browser/chromeos/printing/print_servers_policy_provider.h"
 #include "chrome/browser/chromeos/printing/printer_detector.h"
 #include "chrome/browser/chromeos/printing/printer_installation_manager.h"
@@ -22,14 +20,17 @@
 class PrefRegistrySimple;
 class Profile;
 
+namespace ash {
+class ServerPrintersProvider;
+}  // namespace ash
+
 namespace user_prefs {
 class PrefRegistrySyncable;
-}
+}  // namespace user_prefs
 
 namespace chromeos {
 
 class PrinterDetector;
-class ServerPrintersProvider;
 
 struct PrintServersConfig {
   PrintServersConfig();
@@ -58,7 +59,7 @@ class PrintServersManager {
 
   // Factory function that allows injected dependencies, for testing.
   static std::unique_ptr<PrintServersManager> CreateForTesting(
-      std::unique_ptr<ServerPrintersProvider> server_printers_provider,
+      std::unique_ptr<ash::ServerPrintersProvider> server_printers_provider,
       std::unique_ptr<PrintServersPolicyProvider> print_servers_provider);
 
   // Register the profile printing preferences with the |registry|.

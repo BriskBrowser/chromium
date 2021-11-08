@@ -8,14 +8,17 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/feature_list.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "chromeos/dbus/shill/shill_manager_client.h"
 #include "chromeos/dbus/shill/shill_property_changed_observer.h"
 #include "dbus/bus.h"
@@ -24,6 +27,7 @@
 #include "dbus/object_proxy.h"
 #include "dbus/values_util.h"
 #include "net/base/ip_endpoint.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
@@ -93,9 +97,34 @@ void FakeShillDeviceClient::SetProperty(const dbus::ObjectPath& device_path,
                                         const base::Value& value,
                                         base::OnceClosure callback,
                                         ErrorCallback error_callback) {
+  if (property_change_delay_.has_value()) {
+    // Return callback immediately and set property after delay.
+    std::move(callback).Run();
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&FakeShillDeviceClient::SetPropertyInternal,
+                       weak_ptr_factory_.GetWeakPtr(), device_path, name,
+                       value.Clone(),
+                       /*callback=*/base::DoNothing(),
+                       /*error_callback=*/base::DoNothing(),
+                       /*notify_changed=*/true),
+        *property_change_delay_);
+    return;
+  }
+
+  if (simulate_inhibit_scanning_ && name == shill::kInhibitedProperty &&
+      value.GetBool()) {
+    SetScanning(device_path, /*is_scanning=*/true);
+  }
+
   SetPropertyInternal(device_path, name, value, std::move(callback),
                       std::move(error_callback),
                       /*notify_changed=*/true);
+
+  if (simulate_inhibit_scanning_ && name == shill::kInhibitedProperty &&
+      !value.GetBool()) {
+    SetScanning(device_path, /*is_scanning=*/false);
+  }
 }
 
 void FakeShillDeviceClient::SetPropertyInternal(
@@ -266,97 +295,6 @@ void FakeShillDeviceClient::Reset(const dbus::ObjectPath& device_path,
   base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
 }
 
-void FakeShillDeviceClient::AddWakeOnPacketConnection(
-    const dbus::ObjectPath& device_path,
-    const net::IPEndPoint& ip_endpoint,
-    base::OnceClosure callback,
-    ErrorCallback error_callback) {
-  if (!stub_devices_.FindKey(device_path.value())) {
-    PostNotFoundError(std::move(error_callback));
-    return;
-  }
-
-  wake_on_packet_connections_[device_path].insert(ip_endpoint);
-
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
-}
-
-void FakeShillDeviceClient::AddWakeOnPacketOfTypes(
-    const dbus::ObjectPath& device_path,
-    const std::vector<std::string>& types,
-    base::OnceClosure callback,
-    ErrorCallback error_callback) {
-  if (!stub_devices_.FindKey(device_path.value())) {
-    PostNotFoundError(std::move(error_callback));
-    return;
-  }
-
-  wake_on_packet_types_[device_path].insert(types.begin(), types.end());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
-}
-
-void FakeShillDeviceClient::RemoveWakeOnPacketConnection(
-    const dbus::ObjectPath& device_path,
-    const net::IPEndPoint& ip_endpoint,
-    base::OnceClosure callback,
-    ErrorCallback error_callback) {
-  const auto device_iter = wake_on_packet_connections_.find(device_path);
-  if (!stub_devices_.FindKey(device_path.value()) ||
-      device_iter == wake_on_packet_connections_.end()) {
-    PostNotFoundError(std::move(error_callback));
-    return;
-  }
-
-  const auto endpoint_iter = device_iter->second.find(ip_endpoint);
-  if (endpoint_iter == device_iter->second.end()) {
-    PostNotFoundError(std::move(error_callback));
-    return;
-  }
-
-  device_iter->second.erase(endpoint_iter);
-
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
-}
-
-void FakeShillDeviceClient::RemoveWakeOnPacketOfTypes(
-    const dbus::ObjectPath& device_path,
-    const std::vector<std::string>& types,
-    base::OnceClosure callback,
-    ErrorCallback error_callback) {
-  if (!stub_devices_.FindKey(device_path.value())) {
-    PostNotFoundError(std::move(error_callback));
-    return;
-  }
-
-  const auto registered_types_iter = wake_on_packet_types_.find(device_path);
-  if (registered_types_iter == wake_on_packet_types_.end()) {
-    PostNotFoundError(std::move(error_callback));
-    return;
-  }
-
-  std::set<std::string>& registered_types = registered_types_iter->second;
-  for (auto it = types.begin(); it != types.end(); it++)
-    registered_types.erase(*it);
-
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
-}
-
-void FakeShillDeviceClient::RemoveAllWakeOnPacketConnections(
-    const dbus::ObjectPath& device_path,
-    base::OnceClosure callback,
-    ErrorCallback error_callback) {
-  const auto iter = wake_on_packet_connections_.find(device_path);
-  if (!stub_devices_.FindKey(device_path.value()) ||
-      iter == wake_on_packet_connections_.end()) {
-    PostNotFoundError(std::move(error_callback));
-    return;
-  }
-
-  wake_on_packet_connections_.erase(iter);
-
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
-}
-
 void FakeShillDeviceClient::SetUsbEthernetMacAddressSource(
     const dbus::ObjectPath& device_path,
     const std::string& source,
@@ -403,6 +341,8 @@ void FakeShillDeviceClient::AddDevice(const std::string& device_path,
                      base::Value(modemmanager::kModemManager1ServiceName));
   if (type == shill::kTypeCellular) {
     properties->SetKey(shill::kCellularAllowRoamingProperty,
+                       base::Value(false));
+    properties->SetKey(shill::kCellularPolicyAllowRoamingProperty,
                        base::Value(false));
   }
 }
@@ -493,6 +433,16 @@ void FakeShillDeviceClient::SetUsbEthernetMacAddressSourceError(
     const std::string& device_path,
     const std::string& error_name) {
   set_usb_ethernet_mac_address_source_error_names_[device_path] = error_name;
+}
+
+void FakeShillDeviceClient::SetSimulateInhibitScanning(
+    bool simulate_inhibit_scanning) {
+  simulate_inhibit_scanning_ = simulate_inhibit_scanning;
+}
+
+void FakeShillDeviceClient::SetPropertyChangeDelay(
+    absl::optional<base::TimeDelta> time_delay) {
+  property_change_delay_ = time_delay;
 }
 
 // Private Methods -------------------------------------------------------------
@@ -605,7 +555,7 @@ void FakeShillDeviceClient::PassStubDeviceProperties(
   const base::Value* device_properties =
       stub_devices_.FindDictKey(device_path.value());
   if (!device_properties) {
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
     return;
   }
   std::move(callback).Run(device_properties->Clone());
@@ -654,6 +604,15 @@ FakeShillDeviceClient::GetObserverList(const dbus::ObjectPath& device_path) {
   PropertyObserverList* observer_list = new PropertyObserverList();
   observer_list_[device_path] = base::WrapUnique(observer_list);
   return *observer_list;
+}
+
+void FakeShillDeviceClient::SetScanning(const dbus::ObjectPath& device_path,
+                                        bool is_scanning) {
+  SetPropertyInternal(device_path, shill::kScanningProperty,
+                      base::Value(is_scanning),
+                      /*callback=*/base::DoNothing(),
+                      /*error_callback=*/base::DoNothing(),
+                      /*notify_changed=*/true);
 }
 
 }  // namespace chromeos

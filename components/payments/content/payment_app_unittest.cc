@@ -51,6 +51,10 @@ static const RequiredPaymentOptions kRequiredPaymentOptionsValues[]{
 
 class PaymentAppTest : public testing::TestWithParam<RequiredPaymentOptions>,
                        public PaymentRequestSpec::Observer {
+ public:
+  PaymentAppTest(const PaymentAppTest&) = delete;
+  PaymentAppTest& operator=(const PaymentAppTest&) = delete;
+
  protected:
   PaymentAppTest()
       : address_(autofill::test::GetFullProfile()),
@@ -188,8 +192,6 @@ class PaymentAppTest : public testing::TestWithParam<RequiredPaymentOptions>,
   RequiredPaymentOptions required_options_;
   std::unique_ptr<PaymentRequestSpec> spec_;
   base::WeakPtrFactory<PaymentAppTest> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentAppTest);
 };
 
 INSTANTIATE_TEST_SUITE_P(All,
@@ -231,8 +233,7 @@ TEST_P(PaymentAppTest, SortApps) {
   // Add a card with no name.
   autofill::CreditCard card_with_no_name = local_credit_card();
   card_with_no_name.SetInfo(
-      autofill::AutofillType(autofill::CREDIT_CARD_NAME_FULL),
-      base::ASCIIToUTF16(""), "en-US");
+      autofill::AutofillType(autofill::CREDIT_CARD_NAME_FULL), u"", "en-US");
   AutofillPaymentApp cc_app_with_no_name("visa", card_with_no_name,
                                          billing_profiles(), "en-US", nullptr);
   apps.push_back(&cc_app_with_no_name);
@@ -245,7 +246,7 @@ TEST_P(PaymentAppTest, SortApps) {
 
   // Add a card with no number.
   autofill::CreditCard card_with_no_number = local_credit_card();
-  card_with_no_number.SetNumber(base::ASCIIToUTF16(""));
+  card_with_no_number.SetNumber(u"");
   AutofillPaymentApp cc_app_with_no_number(
       "visa", card_with_no_number, billing_profiles(), "en-US", nullptr);
   apps.push_back(&cc_app_with_no_number);
@@ -408,7 +409,7 @@ TEST_P(DownRankJustInTimePaymentAppTest, SortApps) {
 
   // Add a card with no number.
   autofill::CreditCard card_with_no_number = local_credit_card();
-  card_with_no_number.SetNumber(base::ASCIIToUTF16(""));
+  card_with_no_number.SetNumber(u"");
   AutofillPaymentApp cc_app_with_no_number(
       "visa", card_with_no_number, billing_profiles(), "en-US", nullptr);
   apps.push_back(&cc_app_with_no_number);
@@ -416,8 +417,7 @@ TEST_P(DownRankJustInTimePaymentAppTest, SortApps) {
   // Add a card with no name.
   autofill::CreditCard card_with_no_name = local_credit_card();
   card_with_no_name.SetInfo(
-      autofill::AutofillType(autofill::CREDIT_CARD_NAME_FULL),
-      base::ASCIIToUTF16(""), "en-US");
+      autofill::AutofillType(autofill::CREDIT_CARD_NAME_FULL), u"", "en-US");
   AutofillPaymentApp cc_app_with_no_name("visa", card_with_no_name,
                                          billing_profiles(), "en-US", nullptr);
   apps.push_back(&cc_app_with_no_name);

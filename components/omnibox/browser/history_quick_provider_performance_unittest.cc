@@ -8,9 +8,9 @@
 #include <random>
 #include <string>
 
+#include "base/cxx17_backports.h"
 #include "base/no_destructor.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
@@ -32,7 +32,7 @@ namespace {
 std::string GenerateFakeHashedString(size_t sym_count) {
   static constexpr char kSyms[] =
       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,/=+?#";
-  static base::NoDestructor<std::mt19937> engine;
+  static std::mt19937 engine;
   std::uniform_int_distribution<size_t> index_distribution(
       0, base::size(kSyms) - 2 /* trailing \0 */);
 
@@ -40,7 +40,7 @@ std::string GenerateFakeHashedString(size_t sym_count) {
   res.reserve(sym_count);
 
   std::generate_n(std::back_inserter(res), sym_count, [&index_distribution] {
-    return kSyms[index_distribution(*engine)];
+    return kSyms[index_distribution(engine)];
   });
 
   return res;
@@ -58,7 +58,7 @@ URLRow GeneratePopularURLRow() {
   row.set_title(base::UTF8ToUTF16("Page " + fake_hash));
   row.set_visit_count(1);
   row.set_typed_count(1);
-  row.set_last_visit(base::Time::Now() - base::TimeDelta::FromDays(1));
+  row.set_last_visit(base::Time::Now() - base::Days(1));
   return row;
 }
 
@@ -100,7 +100,7 @@ class HQPPerfTestOnePopularURL : public testing::Test {
   }
 
  private:
-  base::TimeDelta RunTest(const base::string16& text);
+  base::TimeDelta RunTest(const std::u16string& text);
 
   base::test::TaskEnvironment task_environment_;
   std::unique_ptr<FakeAutocompleteProviderClient> client_;
@@ -168,7 +168,7 @@ void HQPPerfTestOnePopularURL::PrintMeasurements(
   reporter.AddResultList(".duration", durations);
 }
 
-base::TimeDelta HQPPerfTestOnePopularURL::RunTest(const base::string16& text) {
+base::TimeDelta HQPPerfTestOnePopularURL::RunTest(const std::u16string& text) {
   base::RunLoop().RunUntilIdle();
   AutocompleteInput input(text, metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());

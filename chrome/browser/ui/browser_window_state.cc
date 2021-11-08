@@ -12,10 +12,11 @@
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/buildflags.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sessions/session_service.h"
-#include "chrome/browser/sessions/session_service_factory.h"
+#include "chrome/browser/sessions/session_service_base.h"
+#include "chrome/browser/sessions/session_service_lookup.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
@@ -55,6 +56,10 @@ class WindowPlacementPrefUpdate : public DictionaryPrefUpdate {
       : DictionaryPrefUpdate(service, prefs::kAppWindowPlacement),
         window_name_(window_name) {}
 
+  WindowPlacementPrefUpdate(const WindowPlacementPrefUpdate&) = delete;
+  WindowPlacementPrefUpdate& operator=(const WindowPlacementPrefUpdate&) =
+      delete;
+
   ~WindowPlacementPrefUpdate() override {}
 
   base::DictionaryValue* Get() override {
@@ -70,8 +75,6 @@ class WindowPlacementPrefUpdate : public DictionaryPrefUpdate {
 
  private:
   const std::string window_name_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowPlacementPrefUpdate);
 };
 
 }  // namespace
@@ -122,10 +125,11 @@ const base::DictionaryValue* GetWindowPlacementDictionaryReadOnly(
 }
 
 bool ShouldSaveWindowPlacement(const Browser* browser) {
-  // Never track app popup windows that do not have a trusted source (i.e.
-  // popup windows spawned by an app).  See similar code in
-  // SessionService::ShouldTrackBrowser().
-  return !browser->deprecated_is_app() || browser->is_trusted_source();
+  // Never track app windows that do not have a trusted source (i.e. windows
+  // spawned by an app).  See similar code in
+  // SessionServiceBase::ShouldTrackBrowser().
+  return !(browser->is_type_app() || browser->is_type_app_popup()) ||
+         browser->is_trusted_source();
 }
 
 bool SavedBoundsAreContentBounds(const Browser* browser) {
@@ -143,26 +147,23 @@ void SaveWindowPlacement(const Browser* browser,
   // Note that we don't want to be the ones who cause lazy initialization of
   // the session service. This function gets called during initial window
   // showing, and we don't want to bring in the session service this early.
-  SessionService* session_service =
-      SessionServiceFactory::GetForProfileIfExisting(browser->profile());
-  if (session_service)
-    session_service->SetWindowBounds(browser->session_id(), bounds, show_state);
+  SessionServiceBase* service = GetAppropriateSessionServiceIfExisting(browser);
+  if (service)
+    service->SetWindowBounds(browser->session_id(), bounds, show_state);
 }
 
 void SaveWindowWorkspace(const Browser* browser, const std::string& workspace) {
-  SessionService* session_service =
-      SessionServiceFactory::GetForProfileIfExisting(browser->profile());
-  if (session_service)
-    session_service->SetWindowWorkspace(browser->session_id(), workspace);
+  SessionServiceBase* service = GetAppropriateSessionServiceIfExisting(browser);
+  if (service)
+    service->SetWindowWorkspace(browser->session_id(), workspace);
 }
 
 void SaveWindowVisibleOnAllWorkspaces(const Browser* browser,
                                       bool visible_on_all_workspaces) {
-  SessionService* session_service =
-      SessionServiceFactory::GetForProfileIfExisting(browser->profile());
-  if (session_service) {
-    session_service->SetWindowVisibleOnAllWorkspaces(browser->session_id(),
-                                                     visible_on_all_workspaces);
+  SessionServiceBase* service = GetAppropriateSessionServiceIfExisting(browser);
+  if (service) {
+    service->SetWindowVisibleOnAllWorkspaces(browser->session_id(),
+                                             visible_on_all_workspaces);
   }
 }
 

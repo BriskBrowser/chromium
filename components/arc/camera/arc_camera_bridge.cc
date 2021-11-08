@@ -15,7 +15,7 @@
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "components/arc/session/arc_bridge_service.h"
 #include "crypto/random.h"
-#include "media/capture/video/chromeos/ash/camera_hal_dispatcher_impl.h"
+#include "media/capture/video/chromeos/camera_hal_dispatcher_impl.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
 #include "mojo/public/cpp/system/invitation.h"
@@ -65,6 +65,11 @@ class ArcCameraBridge::PendingStartCameraServiceResult {
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
+  PendingStartCameraServiceResult(const PendingStartCameraServiceResult&) =
+      delete;
+  PendingStartCameraServiceResult& operator=(
+      const PendingStartCameraServiceResult&) = delete;
+
   ~PendingStartCameraServiceResult() = default;
 
  private:
@@ -89,14 +94,18 @@ class ArcCameraBridge::PendingStartCameraServiceResult {
   mojo::Remote<mojom::CameraService> service_;
   ArcCameraBridge::StartCameraServiceCallback callback_;
   base::WeakPtrFactory<PendingStartCameraServiceResult> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PendingStartCameraServiceResult);
 };
 
 // static
 ArcCameraBridge* ArcCameraBridge::GetForBrowserContext(
     content::BrowserContext* context) {
   return ArcCameraBridgeFactory::GetForBrowserContext(context);
+}
+
+// static
+ArcCameraBridge* ArcCameraBridge::GetForBrowserContextForTesting(
+    content::BrowserContext* context) {
+  return ArcCameraBridgeFactory::GetForBrowserContextForTesting(context);
 }
 
 ArcCameraBridge::ArcCameraBridge(content::BrowserContext* context,

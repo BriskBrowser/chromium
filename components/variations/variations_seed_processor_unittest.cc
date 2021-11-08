@@ -10,15 +10,14 @@
 #include <map>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/format_macros.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -89,11 +88,15 @@ Study CreateStudyWithFlagGroups(int default_group_probability,
 
 class TestOverrideStringCallback {
  public:
-  typedef std::map<uint32_t, base::string16> OverrideMap;
+  typedef std::map<uint32_t, std::u16string> OverrideMap;
 
   TestOverrideStringCallback()
       : callback_(base::BindRepeating(&TestOverrideStringCallback::Override,
                                       base::Unretained(this))) {}
+
+  TestOverrideStringCallback(const TestOverrideStringCallback&) = delete;
+  TestOverrideStringCallback& operator=(const TestOverrideStringCallback&) =
+      delete;
 
   virtual ~TestOverrideStringCallback() {}
 
@@ -104,14 +107,12 @@ class TestOverrideStringCallback {
   const OverrideMap& overrides() const { return overrides_; }
 
  private:
-  void Override(uint32_t hash, const base::string16& string) {
+  void Override(uint32_t hash, const std::u16string& string) {
     overrides_[hash] = string;
   }
 
   VariationsSeedProcessor::UIStringOverrideCallback callback_;
   OverrideMap overrides_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestOverrideStringCallback);
 };
 
 }  // namespace
@@ -120,6 +121,10 @@ class VariationsSeedProcessorTest : public ::testing::Test {
  public:
   VariationsSeedProcessorTest() {
   }
+
+  VariationsSeedProcessorTest(const VariationsSeedProcessorTest&) = delete;
+  VariationsSeedProcessorTest& operator=(const VariationsSeedProcessorTest&) =
+      delete;
 
   ~VariationsSeedProcessorTest() override {
     // Ensure that the maps are cleared between tests, since they are stored as
@@ -157,7 +162,7 @@ class VariationsSeedProcessorTest : public ::testing::Test {
     if (processed_study.Init(&study, is_expired)) {
       VariationsSeedProcessor().CreateTrialFromStudy(
           processed_study, override_callback_.callback(),
-          override_entropy_provider, feature_list);
+          &override_entropy_provider, feature_list);
       return true;
     }
     return false;
@@ -165,7 +170,7 @@ class VariationsSeedProcessorTest : public ::testing::Test {
 
   void CreateTrialsFromSeed(const VariationsSeed& seed,
                             double low_entropy = 0.9) {
-    ClientFilterableState client_state({});
+    ClientFilterableState client_state(base::BindOnce([] { return false; }));
     client_state.locale = "en-CA";
     client_state.reference_date = base::Time::Now();
     client_state.version = base::Version("20.0.0.0");
@@ -178,14 +183,11 @@ class VariationsSeedProcessorTest : public ::testing::Test {
     VariationsSeedProcessor seed_processor;
     seed_processor.CreateTrialsFromSeed(
         seed, client_state, override_callback_.callback(),
-        mock_low_entropy_provider, &feature_list);
+        &mock_low_entropy_provider, &feature_list);
   }
 
  protected:
   TestOverrideStringCallback override_callback_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(VariationsSeedProcessorTest);
 };
 
 TEST_F(VariationsSeedProcessorTest, AllowForceGroupAndVariationId) {
@@ -290,10 +292,9 @@ TEST_F(VariationsSeedProcessorTest,
   *study2 = *study1;
   ASSERT_EQ(seed.study(0).name(), seed.study(1).name());
 
-  const base::Time year_ago =
-      base::Time::Now() - base::TimeDelta::FromDays(365);
+  const base::Time year_ago = base::Time::Now() - base::Days(365);
 
-  ClientFilterableState client_state({});
+  ClientFilterableState client_state(base::BindOnce([] { return false; }));
   client_state.locale = "en-CA";
   client_state.reference_date = base::Time::Now();
   client_state.version = base::Version("20.0.0.0");
@@ -312,7 +313,7 @@ TEST_F(VariationsSeedProcessorTest,
     base::MockEntropyProvider mock_low_entropy_provider(0.9);
     seed_processor.CreateTrialsFromSeed(
         seed, client_state, override_callback_.callback(),
-        mock_low_entropy_provider, &feature_list);
+        &mock_low_entropy_provider, &feature_list);
     EXPECT_EQ(kGroup1Name, base::FieldTrialList::FindFullName(kTrialName));
   }
 
@@ -328,7 +329,7 @@ TEST_F(VariationsSeedProcessorTest,
     base::MockEntropyProvider mock_low_entropy_provider(0.9);
     seed_processor.CreateTrialsFromSeed(
         seed, client_state, override_callback_.callback(),
-        mock_low_entropy_provider, &feature_list);
+        &mock_low_entropy_provider, &feature_list);
     EXPECT_EQ(kGroup1Name, base::FieldTrialList::FindFullName(kTrialName));
   }
 }
@@ -363,7 +364,7 @@ TEST_F(VariationsSeedProcessorTest, OverrideUIStrings) {
 
   EXPECT_EQ(1u, overrides.size());
   auto it = overrides.find(1234);
-  EXPECT_EQ(base::ASCIIToUTF16("test"), it->second);
+  EXPECT_EQ(u"test", it->second);
 }
 
 TEST_F(VariationsSeedProcessorTest, OverrideUIStringsWithForcingFlag) {
@@ -384,11 +385,12 @@ TEST_F(VariationsSeedProcessorTest, OverrideUIStringsWithForcingFlag) {
       override_callback_.overrides();
   EXPECT_EQ(1u, overrides.size());
   auto it = overrides.find(1234);
-  EXPECT_EQ(base::ASCIIToUTF16("test"), it->second);
+  EXPECT_EQ(u"test", it->second);
 }
 
 TEST_F(VariationsSeedProcessorTest, ValidateStudy) {
   Study study;
+  study.set_name("study");
   study.set_default_experiment_name("def");
   AddExperiment("abc", 100, &study);
   Study_Experiment* default_group = AddExperiment("def", 200, &study);
@@ -435,6 +437,7 @@ TEST_F(VariationsSeedProcessorTest, ValidateStudy) {
 
 TEST_F(VariationsSeedProcessorTest, ValidateStudyWithAssociatedFeatures) {
   Study study;
+  study.set_name("study");
   study.set_default_experiment_name("def");
   Study_Experiment* exp1 = AddExperiment("exp1", 100, &study);
   Study_Experiment* exp2 = AddExperiment("exp2", 100, &study);
@@ -488,6 +491,7 @@ TEST_F(VariationsSeedProcessorTest, ValidateStudyWithAssociatedFeatures) {
 
 TEST_F(VariationsSeedProcessorTest, ProcessedStudyAllAssignmentsToOneGroup) {
   Study study;
+  study.set_name("study1");
   study.set_default_experiment_name("def");
   AddExperiment("def", 100, &study);
 
@@ -506,6 +510,7 @@ TEST_F(VariationsSeedProcessorTest, ProcessedStudyAllAssignmentsToOneGroup) {
 
   // Try with default group and first group being at 0.
   Study study2;
+  study2.set_name("study2");
   study2.set_default_experiment_name("def");
   AddExperiment("def", 0, &study2);
   AddExperiment("xyz", 34, &study2);
@@ -573,7 +578,7 @@ TEST_F(VariationsSeedProcessorTest, StartsActive) {
   AddExperiment("Default", 0, study3);
   study3->set_activation_type(Study_ActivationType_ACTIVATE_ON_QUERY);
 
-  ClientFilterableState client_state({});
+  ClientFilterableState client_state(base::BindOnce([] { return false; }));
   client_state.locale = "en-CA";
   client_state.reference_date = base::Time::Now();
   client_state.version = base::Version("20.0.0.0");
@@ -585,7 +590,7 @@ TEST_F(VariationsSeedProcessorTest, StartsActive) {
   base::MockEntropyProvider mock_low_entropy_provider(0.9);
   seed_processor.CreateTrialsFromSeed(
       seed, client_state, override_callback_.callback(),
-      mock_low_entropy_provider, base::FeatureList::GetInstance());
+      &mock_low_entropy_provider, base::FeatureList::GetInstance());
 
   // Non-specified and ACTIVATE_ON_QUERY should not start active, but
   // ACTIVATE_ON_STARTUP should.
@@ -846,8 +851,8 @@ TEST_F(VariationsSeedProcessorTest, FeaturesInExpiredStudies) {
     "kEnabledFeature", base::FEATURE_ENABLED_BY_DEFAULT
   };
   const base::Time now = base::Time::Now();
-  const base::Time year_ago = now - base::TimeDelta::FromDays(365);
-  const base::Time year_later = now + base::TimeDelta::FromDays(365);
+  const base::Time year_ago = now - base::Days(365);
+  const base::Time year_later = now + base::Days(365);
 
   struct {
     const base::Feature& feature;
@@ -932,8 +937,7 @@ TEST_F(VariationsSeedProcessorTest, ExistingFieldTrial_ExpiredByConfig) {
 
   Study study;
   study.set_name("Study1");
-  const base::Time year_ago =
-      base::Time::Now() - base::TimeDelta::FromDays(365);
+  const base::Time year_ago = base::Time::Now() - base::Days(365);
   study.set_expiry_date(TimeToProtoTime(year_ago));
   auto* exp1 = AddExperiment("A", 1, &study);
   exp1->mutable_feature_association()->add_enable_feature(kFeature.name);
@@ -957,8 +961,7 @@ TEST_F(VariationsSeedProcessorTest, ExpiredStudy_NoDefaultGroup) {
   // that happens.
   Study study;
   study.set_name("Study1");
-  const base::Time year_ago =
-      base::Time::Now() - base::TimeDelta::FromDays(365);
+  const base::Time year_ago = base::Time::Now() - base::Days(365);
   study.set_expiry_date(TimeToProtoTime(year_ago));
   auto* exp1 = AddExperiment("A", 1, &study);
   exp1->mutable_feature_association()->add_enable_feature(kFeature.name);

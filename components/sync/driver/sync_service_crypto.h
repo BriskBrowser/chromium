@@ -9,14 +9,13 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/data_type_encryption_handler.h"
 #include "components/sync/driver/trusted_vault_client.h"
-#include "components/sync/engine/configure_reason.h"
+#include "components/sync/engine/nigori/key_derivation_params.h"
 #include "components/sync/engine/sync_encryption_handler.h"
 #include "components/sync/engine/sync_engine.h"
 
@@ -29,13 +28,25 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
                           public DataTypeEncryptionHandler,
                           public TrustedVaultClient::Observer {
  public:
+  class Delegate {
+   public:
+    virtual ~Delegate() = default;
+    virtual void CryptoStateChanged() = 0;
+    virtual void CryptoRequiredUserActionChanged() = 0;
+    virtual void ReconfigureDataTypesDueToCrypto() = 0;
+    virtual void EncryptionBootstrapTokenChanged(
+        const std::string& bootstrap_token) = 0;
+  };
+
+  // |delegate| must not be null and must outlive this object.
   // |trusted_vault_client| may be null, but if non-null, the pointee must
   // outlive this object.
-  SyncServiceCrypto(
-      const base::RepeatingClosure& notify_observers,
-      const base::RepeatingClosure& notify_required_user_action_changed,
-      const base::RepeatingCallback<void(ConfigureReason)>& reconfigure,
-      TrustedVaultClient* trusted_vault_client);
+  SyncServiceCrypto(Delegate* delegate,
+                    TrustedVaultClient* trusted_vault_client);
+
+  SyncServiceCrypto(const SyncServiceCrypto&) = delete;
+  SyncServiceCrypto& operator=(const SyncServiceCrypto&) = delete;
+
   ~SyncServiceCrypto() override;
 
   void Reset();
@@ -43,7 +54,7 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
   // See the SyncService header.
   base::Time GetExplicitPassphraseTime() const;
   bool IsPassphraseRequired() const;
-  bool IsUsingSecondaryPassphrase() const;
+  bool IsUsingExplicitPassphrase() const;
   bool IsTrustedVaultKeyRequired() const;
   bool IsTrustedVaultRecoverabilityDegraded() const;
   bool IsEncryptEverythingEnabled() const;
@@ -71,8 +82,7 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
   void OnPassphraseAccepted() override;
   void OnTrustedVaultKeyRequired() override;
   void OnTrustedVaultKeyAccepted() override;
-  void OnBootstrapTokenUpdated(const std::string& bootstrap_token,
-                               BootstrapTokenType type) override;
+  void OnBootstrapTokenUpdated(const std::string& bootstrap_token) override;
   void OnEncryptedTypesChanged(ModelTypeSet encrypted_types,
                                bool encrypt_everything) override;
   void OnCryptographerStateChanged(Cryptographer* cryptographer,
@@ -87,8 +97,6 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
   // TrustedVaultClient::Observer implementation.
   void OnTrustedVaultKeysChanged() override;
   void OnTrustedVaultRecoverabilityChanged() override;
-
-  bool encryption_pending() const { return state_.encryption_pending; }
 
  private:
   enum class RequiredUserAction {
@@ -136,12 +144,7 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
   // TrustedVaultClient::GetIsRecoverabilityDegraded().
   void GetIsRecoverabilityDegradedCompleted(bool is_recoverability_degraded);
 
-  // Calls SyncServiceBase::NotifyObservers(). Never null.
-  const base::RepeatingClosure notify_observers_;
-
-  const base::RepeatingClosure notify_required_user_action_changed_;
-
-  const base::RepeatingCallback<void(ConfigureReason)> reconfigure_;
+  Delegate* const delegate_;
 
   // Never null and guaranteed to outlive us.
   TrustedVaultClient* const trusted_vault_client_;
@@ -171,11 +174,6 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
 
     // Whether we want to encrypt everything.
     bool encrypt_everything = false;
-
-    // Whether we're waiting for an attempt to encryption all sync data to
-    // complete. We track this at this layer in order to allow the user to
-    // cancel if they e.g. don't remember their explicit passphrase.
-    bool encryption_pending = false;
 
     // We cache the cryptographer's pending keys whenever
     // NotifyPassphraseRequired is called. This way, before the UI calls
@@ -212,9 +210,9 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  base::WeakPtrFactory<SyncServiceCrypto> weak_factory_{this};
+  bool initial_trusted_vault_recoverability_logged_to_uma_ = false;
 
-  DISALLOW_COPY_AND_ASSIGN(SyncServiceCrypto);
+  base::WeakPtrFactory<SyncServiceCrypto> weak_factory_{this};
 };
 
 }  // namespace syncer

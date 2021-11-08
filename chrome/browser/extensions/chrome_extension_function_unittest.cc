@@ -23,7 +23,7 @@ namespace {
 
 void SuccessCallback(bool* did_respond,
                      ExtensionFunction::ResponseType type,
-                     const base::ListValue& results,
+                     const base::Value& results,
                      const std::string& error) {
   EXPECT_EQ(ExtensionFunction::ResponseType::SUCCEEDED, type);
   *did_respond = true;
@@ -31,7 +31,7 @@ void SuccessCallback(bool* did_respond,
 
 void FailCallback(bool* did_respond,
                   ExtensionFunction::ResponseType type,
-                  const base::ListValue& results,
+                  const base::Value& results,
                   const std::string& error) {
   EXPECT_EQ(ExtensionFunction::ResponseType::FAILED, type);
   *did_respond = true;
@@ -41,7 +41,7 @@ class ValidationFunction : public ExtensionFunction {
  public:
   explicit ValidationFunction(bool should_succeed)
       : should_succeed_(should_succeed), did_respond_(false) {
-    set_response_callback(base::BindRepeating(
+    set_response_callback(base::BindOnce(
         (should_succeed ? &SuccessCallback : &FailCallback), &did_respond_));
   }
 
@@ -90,7 +90,7 @@ TEST_F(ChromeExtensionFunctionUnitTest, DestructionWithoutResponseOnUnload) {
 
   auto function = base::MakeRefCounted<ValidationFunction>(false);
   function->set_extension(extension);
-  function->set_browser_context(browser_context());
+  function->SetBrowserContextForTesting(browser_context());
 
   service()->DisableExtension(extension->id(),
                               disable_reason::DISABLE_USER_ACTION);
@@ -118,7 +118,6 @@ TEST_F(ChromeExtensionFunctionDeathTest, DestructionWithoutResponse) {
 
         auto function = base::MakeRefCounted<ValidationFunction>(false);
         function->set_extension(extension);
-        function->set_browser_context(browser_context());
         function.reset();
       },
       "");

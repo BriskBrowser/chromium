@@ -6,7 +6,21 @@
  * @fileoverview Polymer element to remove eSIM profile
  */
 
+import '//resources/cr_components/chromeos/cellular_setup/cellular_setup_icons.m.js';
+import '//resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import '//resources/cr_elements/cr_input/cr_input.m.js';
+
+import {getESimProfile, getESimProfileProperties, getEuicc, getNonPendingESimProfiles, getNumESimProfiles, getPendingESimProfiles} from '//resources/cr_components/chromeos/cellular_setup/esim_manager_utils.m.js';
+import {OncMojo} from '//resources/cr_components/chromeos/network/onc_mojo.m.js';
+import {I18nBehavior} from '//resources/js/i18n_behavior.m.js';
+import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {Route, Router} from '../../router.js';
+import {routes} from '../os_route.m.js';
+import {RouteObserverBehavior} from '../route_observer_behavior.js';
+
 Polymer({
+  _template: html`{__html_template__}`,
   is: 'esim-remove-profile-dialog',
 
   behaviors: [
@@ -14,10 +28,10 @@ Polymer({
   ],
 
   properties: {
-    /** @type {string} */
-    iccid: {
-      type: String,
-      value: '',
+    /** @type {?OncMojo.NetworkStateProperties} */
+    networkState: {
+      type: Object,
+      value: null,
     },
 
     /** @type {boolean} */
@@ -31,63 +45,33 @@ Polymer({
       type: String,
       value: '',
     },
-
-    /** @private {string} */
-    errorMessage_: {
-      type: String,
-      value: '',
-    },
-
-    /** @private {boolean} */
-    isRemoveInProgress_: {
-      type: Boolean,
-      value: false,
-    }
   },
-
-  /**
-   * Provides an interface to the ESimManager Mojo service.
-   * @private {?chromeos.cellularSetup.mojom.ESimManagerRemote}
-   */
-  eSimManagerRemote_: null,
-
-  /** @private {?chromeos.networkConfig.mojom.CrosNetworkConfigRemote} */
-  networkConfig_: null,
 
   /** @private {?chromeos.cellularSetup.mojom.ESimProfileRemote} */
   esimProfileRemote_: null,
 
   /** @override */
-  created() {
-    this.eSimManagerRemote_ = cellular_setup.getESimManagerRemote();
-    this.networkConfig_ = network_config.MojoInterfaceProviderImpl.getInstance()
-                              .getMojoServiceRemote();
+  attached() {
     this.init_();
   },
 
   /** @private */
   async init_() {
-    const euicc = await cellular_setup.getEuicc();
-    if (!euicc) {
-      console.error('No Euiccs found');
+    if (!(this.networkState &&
+          this.networkState.type ===
+              chromeos.networkConfig.mojom.NetworkType.kCellular)) {
       return;
     }
-
-    const esimProfilesRemotes = await euicc.getProfileList();
-
-    for (const profileRemote of esimProfilesRemotes.profiles) {
-      const profileProperties = await profileRemote.getProperties();
-
-      if (profileProperties.properties.iccid !== this.iccid) {
-        continue;
-      }
-
-      this.esimProfileRemote_ = profileRemote;
-      this.esimProfileName_ = profileProperties.properties.nickname ?
-          this.convertString16ToJSString_(
-              profileProperties.properties.nickname) :
-          this.convertString16ToJSString_(profileProperties.properties.name);
+    this.esimProfileRemote_ =
+        await getESimProfile(this.networkState.typeState.cellular.iccid);
+    // Fail gracefully if init is incomplete, see crbug/1194729.
+    if (!this.esimProfileRemote_) {
+      this.fire('show-error-toast', this.i18n('eSimRemoveProfileDialogError'));
+      this.$.dialog.close();
+      return;
     }
+    this.esimProfileName_ = this.networkState.name;
+    this.$.cancel.focus();
   },
 
   /**
@@ -105,6 +89,9 @@ Polymer({
    * @private
    */
   getTitleString_() {
+    if (!this.esimProfileName_) {
+      return '';
+    }
     return this.i18n('esimRemoveProfileDialogTitle', this.esimProfileName_);
   },
 
@@ -113,23 +100,21 @@ Polymer({
    * @private
    */
   onRemoveProfileTap_(event) {
-    this.isRemoveInProgress_ = true;
-    this.esimProfileRemote_.uninstallProfile().then(response => {
-      this.handleRemoveProfileResponse(response.result);
+    this.esimProfileRemote_.uninstallProfile().then((response) => {
+      if (response.result ===
+          chromeos.cellularSetup.mojom.ESimOperationResult.kFailure) {
+        this.fire(
+            'show-error-toast', this.i18n('eSimRemoveProfileDialogError'));
+      }
     });
-  },
-
-  /**
-   * @param {chromeos.cellularSetup.mojom.ESimOperationResult} result
-   * @private
-   */
-  handleRemoveProfileResponse(result) {
-    this.isRemoveInProgress_ = false;
-    if (result === chromeos.cellularSetup.mojom.ESimOperationResult.kFailure) {
-      this.errorMessage_ = this.i18n('eSimRemoveProfileDialogError');
-      return;
-    }
     this.$.dialog.close();
+    const params = new URLSearchParams;
+    params.append(
+        'type',
+        OncMojo.getNetworkTypeString(
+            chromeos.networkConfig.mojom.NetworkType.kCellular));
+    Router.getInstance().setCurrentRoute(
+        routes.INTERNET_NETWORKS, params, /*isPopState=*/ true);
   },
 
   /**
@@ -138,5 +123,23 @@ Polymer({
    */
   onCancelTap_(event) {
     this.$.dialog.close();
+  },
+
+  /**
+   * @param {string} esimProfileName
+   * @return {string}
+   * @private
+   */
+  getRemoveBtnA11yLabel_(esimProfileName) {
+    return this.i18n('eSimRemoveProfileRemoveA11yLabel', esimProfileName);
+  },
+
+  /**
+   * @param {string} esimProfileName
+   * @return {string}
+   * @private
+   */
+  getCancelBtnA11yLabel_(esimProfileName) {
+    return this.i18n('eSimRemoveProfileCancelA11yLabel', esimProfileName);
   }
 });

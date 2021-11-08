@@ -101,7 +101,7 @@ class BottomSheetOnboardingCoordinator extends BaseOnboardingCoordinator {
 
         mBottomSheetObserver = new EmptyBottomSheetObserver() {
             @Override
-            public void onSheetStateChanged(int newState) {
+            public void onSheetStateChanged(int newState, int reason) {
                 if (mOverlayCoordinator == null) {
                     return;
                 }
@@ -139,6 +139,11 @@ class BottomSheetOnboardingCoordinator extends BaseOnboardingCoordinator {
 
     @Override
     void showViewImpl() {
+        if (mContent == null) {
+            // This can happen if the startup has been cancelled in the time between |show()| and
+            // here.
+            return;
+        }
         mContent.setContent(mView, mView);
         BottomSheetUtils.showContentAndMaybeExpand(
                 mController, mContent, /* shouldExpand = */ true, mAnimate);
@@ -175,7 +180,6 @@ class BottomSheetOnboardingCoordinator extends BaseOnboardingCoordinator {
             mOverlayCoordinator.destroy();
             mOverlayCoordinator = null;
         }
-        destroy();
     }
 
     @Override

@@ -6,9 +6,9 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/json/json_reader.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
@@ -18,14 +18,17 @@
 #include "chrome/browser/extensions/extension_action_test_util.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
+#include "chrome/browser/extensions/load_error_reporter.h"
 #include "chrome/browser/extensions/scripting_permissions_modifier.h"
 #include "chrome/browser/extensions/test_extension_system.h"
+#include "chrome/browser/ui/extensions/extension_action_test_helper.h"
+#include "chrome/browser/ui/extensions/extensions_container.h"
 #include "chrome/browser/ui/extensions/icon_with_badge_image_source.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
-#include "chrome/browser/ui/toolbar/toolbar_actions_bar_unittest.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/test/base/browser_with_test_window_test.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_action.h"
@@ -35,9 +38,12 @@
 #include "extensions/browser/notification_types.h"
 #include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/common/extension_builder.h"
+#include "extensions/common/mojom/run_location.mojom-shared.h"
 #include "extensions/common/user_script.h"
 #include "extensions/test/test_extension_dir.h"
 #include "ui/base/l10n/l10n_util.h"
+
+using extensions::mojom::ManifestLocation;
 
 class ExtensionActionViewControllerUnitTest : public BrowserWithTestWindowTest {
  public:
@@ -104,7 +110,7 @@ class ExtensionActionViewControllerUnitTest : public BrowserWithTestWindowTest {
     scoped_refptr<const extensions::Extension> extension =
         extensions::ExtensionBuilder(name)
             .SetAction(action_type)
-            .SetLocation(extensions::Manifest::INTERNAL)
+            .SetLocation(ManifestLocation::kInternal)
             .Build();
     extension_service()->AddExtension(extension.get());
     return extension;
@@ -149,14 +155,12 @@ TEST_F(ExtensionActionViewControllerUnitTest,
   std::unique_ptr<IconWithBadgeImageSource> image_source =
       action->GetIconImageSourceForTesting(web_contents, view_size());
   EXPECT_TRUE(image_source->grayscale());
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
 
   SetActionWantsToRunOnTab(action->extension_action(), web_contents, true);
   image_source =
       action->GetIconImageSourceForTesting(web_contents, view_size());
   EXPECT_FALSE(image_source->grayscale());
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
 }
 
@@ -165,7 +169,7 @@ TEST_F(ExtensionActionViewControllerUnitTest, BrowserActionBlockedActions) {
   scoped_refptr<const extensions::Extension> extension =
       extensions::ExtensionBuilder("browser action")
           .SetAction(extensions::ExtensionBuilder::ActionType::BROWSER_ACTION)
-          .SetLocation(extensions::Manifest::INTERNAL)
+          .SetLocation(ManifestLocation::kInternal)
           .AddPermission("https://www.google.com/*")
           .Build();
 
@@ -188,26 +192,23 @@ TEST_F(ExtensionActionViewControllerUnitTest, BrowserActionBlockedActions) {
       action_controller->GetIconImageSourceForTesting(web_contents,
                                                       view_size());
   EXPECT_FALSE(image_source->grayscale());
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
 
   extensions::ExtensionActionRunner* action_runner =
       extensions::ExtensionActionRunner::GetForWebContents(web_contents);
   ASSERT_TRUE(action_runner);
   action_runner->RequestScriptInjectionForTesting(
-      extension.get(), extensions::UserScript::DOCUMENT_IDLE,
+      extension.get(), extensions::mojom::RunLocation::kDocumentIdle,
       base::DoNothing());
   image_source = action_controller->GetIconImageSourceForTesting(web_contents,
                                                                  view_size());
   EXPECT_FALSE(image_source->grayscale());
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_TRUE(image_source->paint_blocked_actions_decoration());
 
   action_runner->RunForTesting(extension.get());
   image_source = action_controller->GetIconImageSourceForTesting(web_contents,
                                                                  view_size());
   EXPECT_FALSE(image_source->grayscale());
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
 }
 
@@ -216,7 +217,7 @@ TEST_F(ExtensionActionViewControllerUnitTest, PageActionBlockedActions) {
   scoped_refptr<const extensions::Extension> extension =
       extensions::ExtensionBuilder("page action")
           .SetAction(extensions::ExtensionBuilder::ActionType::PAGE_ACTION)
-          .SetLocation(extensions::Manifest::INTERNAL)
+          .SetLocation(ManifestLocation::kInternal)
           .AddPermission("https://www.google.com/*")
           .Build();
 
@@ -237,18 +238,16 @@ TEST_F(ExtensionActionViewControllerUnitTest, PageActionBlockedActions) {
       action_controller->GetIconImageSourceForTesting(web_contents,
                                                       view_size());
   EXPECT_FALSE(image_source->grayscale());
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
 
   extensions::ExtensionActionRunner* action_runner =
       extensions::ExtensionActionRunner::GetForWebContents(web_contents);
   action_runner->RequestScriptInjectionForTesting(
-      extension.get(), extensions::UserScript::DOCUMENT_IDLE,
+      extension.get(), extensions::mojom::RunLocation::kDocumentIdle,
       base::DoNothing());
   image_source = action_controller->GetIconImageSourceForTesting(web_contents,
                                                                  view_size());
   EXPECT_FALSE(image_source->grayscale());
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_TRUE(image_source->paint_blocked_actions_decoration());
 }
 
@@ -257,7 +256,7 @@ TEST_F(ExtensionActionViewControllerUnitTest, PageActionBlockedActions) {
 TEST_F(ExtensionActionViewControllerUnitTest, OnlyHostPermissionsAppearance) {
   scoped_refptr<const extensions::Extension> extension =
       extensions::ExtensionBuilder("just hosts")
-          .SetLocation(extensions::Manifest::INTERNAL)
+          .SetLocation(ManifestLocation::kInternal)
           .AddPermission("https://www.google.com/*")
           .Build();
 
@@ -281,7 +280,6 @@ TEST_F(ExtensionActionViewControllerUnitTest, OnlyHostPermissionsAppearance) {
                                                       view_size());
   EXPECT_TRUE(image_source->grayscale());
   EXPECT_FALSE(action_controller->IsEnabled(web_contents));
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
   EXPECT_EQ("just hosts",
             base::UTF16ToUTF8(action_controller->GetTooltip(web_contents)));
@@ -294,7 +292,6 @@ TEST_F(ExtensionActionViewControllerUnitTest, OnlyHostPermissionsAppearance) {
                                                                  view_size());
   EXPECT_FALSE(image_source->grayscale());
   EXPECT_TRUE(action_controller->IsEnabled(web_contents));
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
   EXPECT_EQ("just hosts\nWants access to this site",
             base::UTF16ToUTF8(action_controller->GetTooltip(web_contents)));
@@ -307,7 +304,6 @@ TEST_F(ExtensionActionViewControllerUnitTest, OnlyHostPermissionsAppearance) {
                                                                  view_size());
   EXPECT_FALSE(image_source->grayscale());
   EXPECT_FALSE(action_controller->IsEnabled(web_contents));
-  EXPECT_FALSE(image_source->paint_page_action_decoration());
   EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
   EXPECT_EQ("just hosts\nHas access to this site",
             base::UTF16ToUTF8(action_controller->GetTooltip(web_contents)));
@@ -329,7 +325,7 @@ TEST_F(ExtensionActionViewControllerUnitTest,
     int visibility_index = context_menu->GetIndexOfCommandId(
         extensions::ExtensionContextMenuModel::TOGGLE_VISIBILITY);
     ASSERT_GE(visibility_index, 0);
-    base::string16 visibility_label =
+    std::u16string visibility_label =
         context_menu->GetLabelAt(visibility_index);
     EXPECT_EQ(l10n_util::GetStringUTF16(expected_visibility_string),
               visibility_label);
@@ -366,6 +362,12 @@ class ExtensionActionViewControllerGrayscaleTest
   };
 
   ExtensionActionViewControllerGrayscaleTest() {}
+
+  ExtensionActionViewControllerGrayscaleTest(
+      const ExtensionActionViewControllerGrayscaleTest&) = delete;
+  ExtensionActionViewControllerGrayscaleTest& operator=(
+      const ExtensionActionViewControllerGrayscaleTest&) = delete;
+
   ~ExtensionActionViewControllerGrayscaleTest() override = default;
 
   void RunGrayscaleTest(PermissionType permission_type);
@@ -377,8 +379,6 @@ class ExtensionActionViewControllerGrayscaleTest
       content::WebContents* web_contents,
       scoped_refptr<const extensions::Extension> extensions,
       PermissionType permission_type);
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionActionViewControllerGrayscaleTest);
 };
 
 void ExtensionActionViewControllerGrayscaleTest::RunGrayscaleTest(
@@ -496,7 +496,7 @@ void ExtensionActionViewControllerGrayscaleTest::RunGrayscaleTest(
         // to inject a script.
         NavigateAndCommitActiveTab(kHasPermissionUrl);
         action_runner->RequestScriptInjectionForTesting(
-            extension.get(), extensions::UserScript::DOCUMENT_IDLE,
+            extension.get(), extensions::mojom::RunLocation::kDocumentIdle,
             base::DoNothing());
         break;
       case PageAccessStatus::kGranted:
@@ -529,7 +529,7 @@ ExtensionActionViewControllerGrayscaleTest::CreateExtension(
     PermissionType permission_type) {
   extensions::ExtensionBuilder builder("extension");
   builder.SetAction(extensions::ExtensionBuilder::ActionType::BROWSER_ACTION)
-      .SetLocation(extensions::Manifest::INTERNAL);
+      .SetLocation(ManifestLocation::kInternal);
   constexpr char kHostGoogle[] = "https://www.google.com/*";
   switch (permission_type) {
     case PermissionType::kScriptableHost: {
@@ -577,7 +577,7 @@ TEST_F(ExtensionActionViewControllerUnitTest, RuntimeHostsTooltip) {
   scoped_refptr<const extensions::Extension> extension =
       extensions::ExtensionBuilder("extension name")
           .SetAction(extensions::ExtensionBuilder::ActionType::BROWSER_ACTION)
-          .SetLocation(extensions::Manifest::INTERNAL)
+          .SetLocation(ManifestLocation::kInternal)
           .AddPermission("https://www.google.com/*")
           .Build();
   extension_service()->GrantPermissions(extension.get());
@@ -606,7 +606,7 @@ TEST_F(ExtensionActionViewControllerUnitTest, RuntimeHostsTooltip) {
   extensions::ExtensionActionRunner* action_runner =
       extensions::ExtensionActionRunner::GetForWebContents(web_contents);
   action_runner->RequestScriptInjectionForTesting(
-      extension.get(), extensions::UserScript::DOCUMENT_IDLE,
+      extension.get(), extensions::mojom::RunLocation::kDocumentIdle,
       base::DoNothing());
   EXPECT_EQ("extension name\nWants access to this site",
             base::UTF16ToUTF8(controller->GetTooltip(web_contents)));
@@ -651,7 +651,6 @@ TEST_F(ExtensionActionViewControllerUnitTest, ActiveTabIconAppearance) {
     std::unique_ptr<IconWithBadgeImageSource> image_source =
         controller->GetIconImageSourceForTesting(web_contents, view_size());
     EXPECT_FALSE(image_source->grayscale());
-    EXPECT_FALSE(image_source->paint_page_action_decoration());
     EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
     EXPECT_EQ(kWantsAccessTooltip,
               base::UTF16ToUTF8(controller->GetTooltip(web_contents)));
@@ -671,7 +670,6 @@ TEST_F(ExtensionActionViewControllerUnitTest, ActiveTabIconAppearance) {
     std::unique_ptr<IconWithBadgeImageSource> image_source =
         controller->GetIconImageSourceForTesting(web_contents, view_size());
     EXPECT_FALSE(image_source->grayscale());
-    EXPECT_FALSE(image_source->paint_page_action_decoration());
     EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
     EXPECT_EQ(kHasAccessTooltip,
               base::UTF16ToUTF8(controller->GetTooltip(web_contents)));
@@ -686,7 +684,6 @@ TEST_F(ExtensionActionViewControllerUnitTest, ActiveTabIconAppearance) {
     std::unique_ptr<IconWithBadgeImageSource> image_source =
         controller->GetIconImageSourceForTesting(web_contents, view_size());
     EXPECT_TRUE(image_source->grayscale());
-    EXPECT_FALSE(image_source->paint_page_action_decoration());
     EXPECT_FALSE(image_source->paint_blocked_actions_decoration());
     EXPECT_EQ(kNoAccessTooltip,
               base::UTF16ToUTF8(controller->GetTooltip(web_contents)));

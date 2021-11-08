@@ -298,7 +298,8 @@ void GinJavaBridgeDispatcherHost::SetAllowObjectContentsInspection(bool allow) {
   allow_object_contents_inspection_ = allow;
 }
 
-void GinJavaBridgeDispatcherHost::DocumentAvailableInMainFrame() {
+void GinJavaBridgeDispatcherHost::DocumentAvailableInMainFrame(
+    RenderFrameHost* render_frame_host) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Called when the window object has been cleared in the main frame.
   // That means, all sub-frames have also been cleared, so only named
@@ -380,7 +381,7 @@ void GinJavaBridgeDispatcherHost::OnInvokeMethod(
   *error_code = result->GetInvocationError();
   if (result->HoldsPrimitiveResult()) {
     std::unique_ptr<base::ListValue> result_copy(
-        result->GetPrimitiveResult().DeepCopy());
+        result->GetPrimitiveResult().CreateDeepCopy());
     wrapped_result->Swap(result_copy.get());
   } else if (!result->GetObjectResult().is_null()) {
     GinJavaBoundObject::ObjectID returned_object_id;

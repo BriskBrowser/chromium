@@ -20,19 +20,22 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
+#include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/signin/signin_ui_util.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/profile_picker.h"
@@ -44,99 +47,63 @@
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/hover_button.h"
 #include "chrome/browser/ui/views/profiles/badged_profile_photo.h"
-#include "chrome/browser/ui/views/profiles/user_manager_view.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/signin/core/browser/signin_error_controller.h"
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/base/signin_pref_names.h"
-#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/primary_account_mutator.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
 #include "net/base/url_util.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image_skia_operations.h"
-#include "ui/native_theme/native_theme.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/accessibility/view_accessibility.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
 // Helpers --------------------------------------------------------------------
 
-// Most error cases get displayed the same way, only the button string changes.
-ProfileMenuViewBase::SyncInfo GetStandardSyncErrorInfo(int button_string_id) {
-  return {IDS_SYNC_ERROR_USER_MENU_TITLE, button_string_id,
-          ProfileMenuViewBase::SyncInfoContainerBackgroundState::kError};
-}
-
-ProfileMenuViewBase::SyncInfo GetSyncInfoForAvatarErrorType(
-    sync_ui_util::AvatarSyncErrorType error) {
+std::u16string GetSyncErrorButtonText(AvatarSyncErrorType error) {
   switch (error) {
-    case sync_ui_util::NO_SYNC_ERROR:
-      return {IDS_SETTINGS_EMPTY_STRING, IDS_PROFILES_OPEN_SYNC_SETTINGS_BUTTON,
-              ProfileMenuViewBase::SyncInfoContainerBackgroundState::kNoError};
-    case sync_ui_util::AUTH_ERROR:
-      // Sync paused. The user can reauth to resolve the signin error.
-      return {IDS_PROFILES_DICE_SYNC_PAUSED_TITLE,
-              IDS_SYNC_ERROR_USER_MENU_SIGNIN_BUTTON,
-              ProfileMenuViewBase::SyncInfoContainerBackgroundState::kPaused};
-    case sync_ui_util::MANAGED_USER_UNRECOVERABLE_ERROR:
-      // For a managed user, the user is directed to the signout confirmation
-      // dialogue in the settings page.
-      return GetStandardSyncErrorInfo(IDS_SYNC_ERROR_USER_MENU_SIGNOUT_BUTTON);
-    case sync_ui_util::UNRECOVERABLE_ERROR:
-      // For a non-managed user, we sign out on the user's behalf and prompt the
-      // user to sign in again.
-      return GetStandardSyncErrorInfo(
-          IDS_SYNC_ERROR_USER_MENU_SIGNIN_AGAIN_BUTTON);
-    case sync_ui_util::UPGRADE_CLIENT_ERROR:
-      return GetStandardSyncErrorInfo(IDS_SYNC_ERROR_USER_MENU_UPGRADE_BUTTON);
-    case sync_ui_util::PASSPHRASE_ERROR:
-      return GetStandardSyncErrorInfo(
+    case AvatarSyncErrorType::kAuthError:
+    case AvatarSyncErrorType::kUnrecoverableError:
+      // The user was signed out. Offer them to sign in again.
+      return l10n_util::GetStringUTF16(IDS_SYNC_ERROR_USER_MENU_SIGNIN_BUTTON);
+    case AvatarSyncErrorType::kManagedUserUnrecoverableError:
+      // As opposed to the corresponding error in an unmanaged account
+      // (AvatarSyncErrorType::kUnrecoverableError), sign-out hasn't happened
+      // here yet. The button directs to the sign-out confirmation dialog in
+      // settings.
+      return l10n_util::GetStringUTF16(IDS_SYNC_ERROR_USER_MENU_SIGNOUT_BUTTON);
+    case AvatarSyncErrorType::kUpgradeClientError:
+      return l10n_util::GetStringUTF16(IDS_SYNC_ERROR_USER_MENU_UPGRADE_BUTTON);
+    case AvatarSyncErrorType::kPassphraseError:
+      return l10n_util::GetStringUTF16(
           IDS_SYNC_ERROR_USER_MENU_PASSPHRASE_BUTTON);
-    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_EVERYTHING_ERROR:
-      return GetStandardSyncErrorInfo(
+    case AvatarSyncErrorType::kTrustedVaultKeyMissingForEverythingError:
+    case AvatarSyncErrorType::kTrustedVaultKeyMissingForPasswordsError:
+      return l10n_util::GetStringUTF16(
           IDS_SYNC_ERROR_USER_MENU_RETRIEVE_KEYS_BUTTON);
-    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR:
-      return {IDS_SYNC_ERROR_PASSWORDS_USER_MENU_TITLE,
-              IDS_SYNC_ERROR_USER_MENU_RETRIEVE_KEYS_BUTTON,
-              ProfileMenuViewBase::SyncInfoContainerBackgroundState::kError};
-    case sync_ui_util::
-        TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING_ERROR:
-      return {
-          IDS_SYNC_ERROR_RECOVERABILITY_DEGRADED_FOR_EVERYTHING_USER_MENU_TITLE,
-          IDS_SYNC_ERROR_USER_MENU_RECOVERABILITY_BUTTON,
-          ProfileMenuViewBase::SyncInfoContainerBackgroundState::kError};
-    case sync_ui_util::
-        TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS_ERROR:
-      return {
-          IDS_SYNC_ERROR_RECOVERABILITY_DEGRADED_FOR_PASSWORDS_USER_MENU_TITLE,
-          IDS_SYNC_ERROR_USER_MENU_RECOVERABILITY_BUTTON,
-          ProfileMenuViewBase::SyncInfoContainerBackgroundState::kError};
-    case sync_ui_util::SETTINGS_UNCONFIRMED_ERROR:
-      return GetStandardSyncErrorInfo(
+    case AvatarSyncErrorType::
+        kTrustedVaultRecoverabilityDegradedForEverythingError:
+    case AvatarSyncErrorType::
+        kTrustedVaultRecoverabilityDegradedForPasswordsError:
+      return l10n_util::GetStringUTF16(
+          IDS_SYNC_ERROR_USER_MENU_RECOVERABILITY_BUTTON);
+    case AvatarSyncErrorType::kSettingsUnconfirmedError:
+      return l10n_util::GetStringUTF16(
           IDS_SYNC_ERROR_USER_MENU_CONFIRM_SYNC_SETTINGS_BUTTON);
   }
-
-  NOTREACHED();
-  return {IDS_SETTINGS_EMPTY_STRING, IDS_SETTINGS_EMPTY_STRING,
-          ProfileMenuViewBase::SyncInfoContainerBackgroundState::kNoError};
-}
-
-ProfileAttributesEntry* GetProfileAttributesEntry(Profile* profile) {
-  ProfileAttributesEntry* entry =
-      g_browser_process->profile_manager()
-          ->GetProfileAttributesStorage()
-          .GetProfileAttributesWithPath(profile->GetPath());
-  CHECK(entry);
-  return entry;
 }
 
 void NavigateToGoogleAccountPage(Profile* profile, const std::string& email) {
@@ -160,23 +127,13 @@ void NavigateToGoogleAccountPage(Profile* profile, const std::string& email) {
 int CountBrowsersFor(Profile* profile) {
   int browser_count = chrome::GetBrowserCount(profile);
   if (!profile->IsOffTheRecord() && profile->HasPrimaryOTRProfile())
-    browser_count += chrome::GetBrowserCount(profile->GetPrimaryOTRProfile());
+    browser_count += chrome::GetBrowserCount(
+        profile->GetPrimaryOTRProfile(/*create_if_needed=*/true));
   return browser_count;
 }
 
 bool IsSyncPaused(Profile* profile) {
-  return sync_ui_util::GetAvatarSyncErrorType(profile) ==
-         sync_ui_util::AUTH_ERROR;
-}
-
-// TODO(crbug.com/1125474): Replace IsGuest(profile) calls with
-// Profile::IsGuestProfile() after IsEphemeralGuestProfile is fully migrated.
-bool IsGuest(Profile* profile) {
-  return profile->IsGuestSession() || profile->IsEphemeralGuestProfile();
-}
-
-bool UseNewPicker() {
-  return base::FeatureList::IsEnabled(features::kNewProfilePicker);
+  return GetAvatarSyncErrorType(profile) == AvatarSyncErrorType::kAuthError;
 }
 
 }  // namespace
@@ -196,9 +153,9 @@ ProfileMenuView::~ProfileMenuView() = default;
 
 void ProfileMenuView::BuildMenu() {
   Profile* profile = browser()->profile();
-  if (IsGuest(profile)) {
+  if (profile->IsGuestSession()) {
     BuildGuestIdentity();
-  } else if (profile->IsRegularProfile()) {
+  } else if (!profile->IsOffTheRecord()) {
     BuildIdentity();
     BuildSyncInfo();
     BuildAutofillButtons();
@@ -210,9 +167,9 @@ void ProfileMenuView::BuildMenu() {
 
 //  ChromeOS doesn't support multi-profile.
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  if (!(IsGuest(profile) &&
-        base::FeatureList::IsEnabled(features::kNewProfilePicker))) {
-    BuildProfileManagementHeading();
+  if (!(profile->IsGuestSession())) {
+    SetProfileManagementHeading(
+        l10n_util::GetStringUTF16(IDS_PROFILES_LIST_PROFILES_TITLE));
     BuildSelectableProfiles();
     BuildProfileManagementFeatureButtons();
   }
@@ -221,47 +178,35 @@ void ProfileMenuView::BuildMenu() {
 
 gfx::ImageSkia ProfileMenuView::GetSyncIcon() const {
   Profile* profile = browser()->profile();
-
-  if (!profile->IsRegularProfile())
+  if (profile->IsOffTheRecord() || profile->IsGuestSession())
     return gfx::ImageSkia();
 
-  if (!IdentityManagerFactory::GetForProfile(profile)->HasPrimaryAccount(
-          signin::ConsentLevel::kSync)) {
+  bool is_sync_feature_enabled =
+      IdentityManagerFactory::GetForProfile(profile)->HasPrimaryAccount(
+          signin::ConsentLevel::kSync);
+  if (!is_sync_feature_enabled) {
+    // This is done regardless of GetAvatarSyncErrorType() because the icon
+    // should reflect that sync-the-feature is off. The error will still be
+    // highlighted by other parts of the UI.
     return ColoredImageForMenu(kSyncPausedCircleIcon, gfx::kGoogleGrey500);
   }
 
-  const gfx::VectorIcon* icon = nullptr;
-  ui::NativeTheme::ColorId color_id;
-  switch (sync_ui_util::GetAvatarSyncErrorType(profile)) {
-    case sync_ui_util::NO_SYNC_ERROR:
-      icon = &kSyncCircleIcon;
-      color_id = ui::NativeTheme::kColorId_AlertSeverityLow;
-      break;
-    case sync_ui_util::AUTH_ERROR:
-      icon = &kSyncPausedCircleIcon;
-      color_id = ui::NativeTheme::kColorId_ProminentButtonColor;
-      break;
-    case sync_ui_util::MANAGED_USER_UNRECOVERABLE_ERROR:
-    case sync_ui_util::UNRECOVERABLE_ERROR:
-    case sync_ui_util::UPGRADE_CLIENT_ERROR:
-    case sync_ui_util::PASSPHRASE_ERROR:
-    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_EVERYTHING_ERROR:
-    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR:
-    case sync_ui_util::
-        TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING_ERROR:
-    case sync_ui_util::
-        TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS_ERROR:
-    case sync_ui_util::SETTINGS_UNCONFIRMED_ERROR:
-      icon = &kSyncPausedCircleIcon;
-      color_id = ui::NativeTheme::kColorId_AlertSeverityHigh;
-      break;
+  absl::optional<AvatarSyncErrorType> error = GetAvatarSyncErrorType(profile);
+  const auto* color_provider = GetColorProvider();
+  if (!error) {
+    return ColoredImageForMenu(
+        kSyncCircleIcon, color_provider->GetColor(ui::kColorAlertLowSeverity));
   }
-  const SkColor image_color = GetNativeTheme()->GetSystemColor(color_id);
-  return ColoredImageForMenu(*icon, image_color);
+
+  ui::ColorId color_id = error == AvatarSyncErrorType::kAuthError
+                             ? ui::kColorButtonBackgroundProminent
+                             : ui::kColorAlertHighSeverity;
+  return ColoredImageForMenu(kSyncPausedCircleIcon,
+                             color_provider->GetColor(color_id));
 }
 
-base::string16 ProfileMenuView::GetAccessibleWindowTitle() const {
-  base::string16 title =
+std::u16string ProfileMenuView::GetAccessibleWindowTitle() const {
+  std::u16string title =
       l10n_util::GetStringUTF16(IDS_PROFILES_PROFILE_BUBBLE_ACCESSIBLE_TITLE);
 
   if (!menu_title_.empty()) {
@@ -283,12 +228,11 @@ void ProfileMenuView::OnManageGoogleAccountButtonClicked() {
   Profile* profile = browser()->profile();
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
-  DCHECK(
-      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kNotRequired));
+  DCHECK(identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSignin));
   NavigateToGoogleAccountPage(
-      profile, identity_manager
-                   ->GetPrimaryAccountInfo(signin::ConsentLevel::kNotRequired)
-                   .email);
+      profile,
+      identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin)
+          .email);
 }
 
 void ProfileMenuView::OnPasswordsButtonClicked() {
@@ -317,9 +261,7 @@ void ProfileMenuView::OnGuestProfileButtonClicked() {
   RecordClick(ActionableItem::kGuestProfileButton);
   if (!perform_menu_actions())
     return;
-  PrefService* service = g_browser_process->local_state();
-  DCHECK(service);
-  DCHECK(service->GetBoolean(prefs::kBrowserGuestModeEnabled));
+  DCHECK(profiles::IsGuestModeEnabled());
   profiles::SwitchToGuestProfile(ProfileManager::CreateCallback());
 }
 
@@ -337,8 +279,7 @@ void ProfileMenuView::OnSyncSettingsButtonClicked() {
   chrome::ShowSettingsSubPage(browser(), chrome::kSyncSetupSubPage);
 }
 
-void ProfileMenuView::OnSyncErrorButtonClicked(
-    sync_ui_util::AvatarSyncErrorType error) {
+void ProfileMenuView::OnSyncErrorButtonClicked(AvatarSyncErrorType error) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // On ChromeOS, sync errors are fixed by re-signing into the OS.
   chrome::AttemptUserExit();
@@ -349,51 +290,47 @@ void ProfileMenuView::OnSyncErrorButtonClicked(
 
   // The logic below must be consistent with GetSyncInfoForAvatarErrorType().
   switch (error) {
-    case sync_ui_util::MANAGED_USER_UNRECOVERABLE_ERROR:
+    case AvatarSyncErrorType::kManagedUserUnrecoverableError:
       chrome::ShowSettingsSubPage(browser(), chrome::kSignOutSubPage);
       break;
-    case sync_ui_util::UNRECOVERABLE_ERROR:
+    case AvatarSyncErrorType::kUnrecoverableError:
       // GetPrimaryAccountMutator() might return nullptr on some platforms.
       if (auto* account_mutator =
               IdentityManagerFactory::GetForProfile(browser()->profile())
                   ->GetPrimaryAccountMutator()) {
         account_mutator->RevokeSyncConsent(
             signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS,
-            signin_metrics::SignoutDelete::IGNORE_METRIC);
+            signin_metrics::SignoutDelete::kIgnoreMetric);
         Hide();
         browser()->signin_view_controller()->ShowSignin(
             profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN,
             signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN);
       }
       break;
-    case sync_ui_util::AUTH_ERROR:
+    case AvatarSyncErrorType::kAuthError:
       Hide();
       browser()->signin_view_controller()->ShowSignin(
           profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH,
           signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN);
       break;
-    case sync_ui_util::UPGRADE_CLIENT_ERROR:
+    case AvatarSyncErrorType::kUpgradeClientError:
       chrome::OpenUpdateChromeDialog(browser());
       break;
-    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_EVERYTHING_ERROR:
-    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR:
-      sync_ui_util::OpenTabForSyncKeyRetrieval(
-          browser(), syncer::KeyRetrievalTriggerForUMA::kProfileMenu);
+    case AvatarSyncErrorType::kTrustedVaultKeyMissingForEverythingError:
+    case AvatarSyncErrorType::kTrustedVaultKeyMissingForPasswordsError:
+      OpenTabForSyncKeyRetrieval(
+          browser(), syncer::TrustedVaultUserActionTriggerForUMA::kProfileMenu);
       break;
-    case sync_ui_util::
-        TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING_ERROR:
-    case sync_ui_util::
-        TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS_ERROR:
-      // TODO(crbug.com/1081649): This should use a dedicated function.
-      sync_ui_util::OpenTabForSyncKeyRetrieval(
-          browser(), syncer::KeyRetrievalTriggerForUMA::kProfileMenu);
+    case AvatarSyncErrorType::
+        kTrustedVaultRecoverabilityDegradedForEverythingError:
+    case AvatarSyncErrorType::
+        kTrustedVaultRecoverabilityDegradedForPasswordsError:
+      OpenTabForSyncKeyRecoverabilityDegraded(
+          browser(), syncer::TrustedVaultUserActionTriggerForUMA::kProfileMenu);
       break;
-    case sync_ui_util::PASSPHRASE_ERROR:
-    case sync_ui_util::SETTINGS_UNCONFIRMED_ERROR:
+    case AvatarSyncErrorType::kPassphraseError:
+    case AvatarSyncErrorType::kSettingsUnconfirmedError:
       chrome::ShowSettingsSubPage(browser(), chrome::kSyncSetupSubPage);
-      break;
-    case sync_ui_util::NO_SYNC_ERROR:
-      NOTREACHED();
       break;
   }
 #endif
@@ -476,47 +413,44 @@ void ProfileMenuView::BuildIdentity() {
   Profile* profile = browser()->profile();
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
-  CoreAccountInfo account = identity_manager->GetPrimaryAccountInfo(
-      signin::ConsentLevel::kNotRequired);
-  base::Optional<AccountInfo> account_info =
-      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-          account);
+  CoreAccountInfo account =
+      identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
+  AccountInfo account_info = identity_manager->FindExtendedAccountInfo(account);
   ProfileAttributesEntry* profile_attributes =
-      GetProfileAttributesEntry(profile);
+      g_browser_process->profile_manager()
+          ->GetProfileAttributesStorage()
+          .GetProfileAttributesWithPath(profile->GetPath());
+  if (!profile_attributes) {
+    // May happen if the profile is being deleted. https://crbug.com/1040079
+    return;
+  }
 
-  base::string16 profile_name;
-  base::Optional<EditButtonParams> edit_button_params;
+  std::u16string profile_name;
+  absl::optional<EditButtonParams> edit_button_params;
 // Profile names are not supported on ChromeOS.
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  size_t num_of_profiles =
-      g_browser_process->profile_manager()->GetNumberOfProfiles();
-  if (num_of_profiles > 1 || !profile_attributes->IsUsingDefaultName() ||
-      base::FeatureList::IsEnabled(features::kNewProfilePicker)) {
-    profile_name = profile_attributes->GetLocalProfileName();
-    edit_button_params = EditButtonParams(
-        &vector_icons::kEditIcon,
-        UseNewPicker() ? l10n_util::GetStringUTF16(
-                             IDS_PROFILES_CUSTOMIZE_PROFILE_BUTTON_TOOLTIP)
-                       : l10n_util::GetStringUTF16(IDS_SETTINGS_EDIT_PERSON),
-        base::BindRepeating(&ProfileMenuView::OnEditProfileButtonClicked,
-                            base::Unretained(this)));
-  }
+  profile_name = profile_attributes->GetLocalProfileName();
+  edit_button_params = EditButtonParams(
+      &vector_icons::kEditIcon,
+      l10n_util::GetStringUTF16(IDS_PROFILES_CUSTOMIZE_PROFILE_BUTTON_TOOLTIP),
+      base::BindRepeating(&ProfileMenuView::OnEditProfileButtonClicked,
+                          base::Unretained(this)));
 #endif
 
   SkColor background_color =
       profile_attributes->GetProfileThemeColors().profile_highlight_color;
-  if (account_info.has_value()) {
-    menu_title_ = base::UTF8ToUTF16(account_info.value().full_name);
+  if (!account_info.IsEmpty()) {
+    menu_title_ = base::UTF8ToUTF16(account_info.full_name);
     menu_subtitle_ =
         IsSyncPaused(profile)
             ? l10n_util::GetStringUTF16(IDS_PROFILES_LOCAL_PROFILE_STATE)
-            : base::UTF8ToUTF16(account_info.value().email);
+            : base::UTF8ToUTF16(account_info.email);
     SetProfileIdentityInfo(
         profile_name, background_color, edit_button_params,
-        ui::ImageModel::FromImage(account_info.value().account_image),
-        menu_title_, menu_subtitle_);
+        ui::ImageModel::FromImage(account_info.account_image), menu_title_,
+        menu_subtitle_);
   } else {
-    menu_title_ = base::string16();
+    menu_title_ = std::u16string();
     menu_subtitle_ =
         l10n_util::GetStringUTF16(IDS_PROFILES_LOCAL_PROFILE_STATE);
     SetProfileIdentityInfo(
@@ -531,19 +465,18 @@ void ProfileMenuView::BuildGuestIdentity() {
   int guest_window_count = BrowserList::GetGuestBrowserCount();
 
   menu_title_ = l10n_util::GetStringUTF16(IDS_GUEST_PROFILE_NAME);
-  menu_subtitle_ = base::string16();
-  if (guest_window_count > 1 &&
-      base::FeatureList::IsEnabled(features::kNewProfilePicker)) {
+  menu_subtitle_ = std::u16string();
+  if (guest_window_count > 1) {
     menu_subtitle_ = l10n_util::GetPluralStringFUTF16(
         IDS_GUEST_WINDOW_COUNT_MESSAGE, guest_window_count);
   }
 
-  ui::ThemedVectorIcon header_art_icon(
-      &kGuestMenuArtIcon, ui::NativeTheme::kColorId_AvatarHeaderArt);
+  ui::ThemedVectorIcon header_art_icon(&kGuestMenuArtIcon,
+                                       ui::kColorAvatarHeaderArt);
   SetProfileIdentityInfo(
-      /*profile_name=*/base::string16(),
+      /*profile_name=*/std::u16string(),
       /*background_color=*/SK_ColorTRANSPARENT,
-      /*edit_button=*/base::nullopt, profiles::GetGuestAvatar(), menu_title_,
+      /*edit_button=*/absl::nullopt, profiles::GetGuestAvatar(), menu_title_,
       menu_subtitle_, header_art_icon);
 }
 
@@ -568,56 +501,65 @@ void ProfileMenuView::BuildAutofillButtons() {
 
 void ProfileMenuView::BuildSyncInfo() {
   Profile* profile = browser()->profile();
-  // Only show the sync info if signin and sync are allowed.
-  if (!profile->GetPrefs()->GetBoolean(prefs::kSigninAllowed) ||
-      !ProfileSyncServiceFactory::IsSyncAllowed(profile)) {
+  if (!profile->GetPrefs()->GetBoolean(prefs::kSigninAllowed))
     return;
-  }
 
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
-
-  if (identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
-    // Show sync state.
-    const sync_ui_util::AvatarSyncErrorType error =
-        sync_ui_util::GetAvatarSyncErrorType(browser()->profile());
-
-    const base::RepeatingClosure action =
-        error == sync_ui_util::NO_SYNC_ERROR
-            ? base::BindRepeating(&ProfileMenuView::OnSyncSettingsButtonClicked,
-                                  base::Unretained(this))
-            : base::BindRepeating(&ProfileMenuView::OnSyncErrorButtonClicked,
-                                  base::Unretained(this), error);
-    SetSyncInfo(GetSyncInfoForAvatarErrorType(error), action,
-                /*show_badge=*/true);
-
+  bool is_sync_feature_enabled =
+      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync);
+  // First, check for sync errors. They may exist even if sync-the-feature is
+  // disabled and only sync-the-transport is running.
+  const absl::optional<AvatarSyncErrorType> error =
+      GetAvatarSyncErrorType(profile);
+  if (error) {
+    BuildSyncInfoWithCallToAction(
+        GetAvatarSyncErrorDescription(*error, is_sync_feature_enabled),
+        GetSyncErrorButtonText(*error),
+        error == AvatarSyncErrorType::kAuthError
+            ? ui::kColorSyncInfoBackgroundPaused
+            : ui::kColorSyncInfoBackgroundError,
+        base::BindRepeating(&ProfileMenuView::OnSyncErrorButtonClicked,
+                            base::Unretained(this), *error),
+        /*show_sync_badge=*/is_sync_feature_enabled);
     return;
   }
 
-  // Show sync promos.
-  CoreAccountInfo unconsented_account = identity_manager->GetPrimaryAccountInfo(
-      signin::ConsentLevel::kNotRequired);
-  base::Optional<AccountInfo> account_info =
-      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-          unconsented_account);
+  // If there's no error and sync-the-feature is enabled, the text says
+  // everything is fine and the button simply opens sync settings.
+  if (is_sync_feature_enabled) {
+    BuildSyncInfoWithoutCallToAction(
+        l10n_util::GetStringUTF16(IDS_PROFILES_OPEN_SYNC_SETTINGS_BUTTON),
+        base::BindRepeating(&ProfileMenuView::OnSyncSettingsButtonClicked,
+                            base::Unretained(this)));
+    return;
+  }
 
-  if (account_info.has_value()) {
-    SetSyncInfo(
-        {IDS_PROFILES_DICE_NOT_SYNCING_TITLE, IDS_PROFILES_DICE_SIGNIN_BUTTON,
-         SyncInfoContainerBackgroundState::kNoPrimaryAccount},
+  // If there's no error and sync-the-feature is disabled, show a sync promo.
+  // For a signed-in user, the promo just opens the "turn on sync" dialog.
+  // For a signed-out user, it prompts for sign-in first.
+  AccountInfo account_info = identity_manager->FindExtendedAccountInfo(
+      identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin));
+  if (!account_info.IsEmpty()) {
+    BuildSyncInfoWithCallToAction(
+        l10n_util::GetStringUTF16(IDS_PROFILES_DICE_NOT_SYNCING_TITLE),
+        l10n_util::GetStringUTF16(IDS_PROFILES_DICE_SIGNIN_BUTTON),
+        ui::kColorSyncInfoBackground,
         base::BindRepeating(&ProfileMenuView::OnSigninAccountButtonClicked,
-                            base::Unretained(this), account_info.value()),
-        /*show_badge=*/true);
+                            base::Unretained(this), account_info),
+        /*show_sync_badge=*/true);
   } else {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     // There is always an account on ChromeOS.
     NOTREACHED();
 #else
-    SetSyncInfo({IDS_PROFILES_DICE_SYNC_PROMO, IDS_PROFILES_DICE_SIGNIN_BUTTON,
-                 SyncInfoContainerBackgroundState::kNoPrimaryAccount},
-                base::BindRepeating(&ProfileMenuView::OnSigninButtonClicked,
-                                    base::Unretained(this)),
-                /*show_badge=*/false);
+    BuildSyncInfoWithCallToAction(
+        l10n_util::GetStringUTF16(IDS_PROFILES_DICE_SYNC_PROMO),
+        l10n_util::GetStringUTF16(IDS_PROFILES_DICE_SIGNIN_BUTTON),
+        ui::kColorSyncInfoBackground,
+        base::BindRepeating(&ProfileMenuView::OnSigninButtonClicked,
+                            base::Unretained(this)),
+        /*show_sync_badge=*/false);
 #endif
   }
 }
@@ -627,8 +569,8 @@ void ProfileMenuView::BuildFeatureButtons() {
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
   const bool has_unconsented_account =
-      !IsGuest(profile) &&
-      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kNotRequired);
+      !profile->IsGuestSession() &&
+      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSignin);
 
   if (has_unconsented_account && !IsSyncPaused(profile)) {
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
@@ -651,8 +593,7 @@ void ProfileMenuView::BuildFeatureButtons() {
   }
 
   int window_count = CountBrowsersFor(profile);
-  if (base::FeatureList::IsEnabled(features::kNewProfilePicker) &&
-      IsGuest(profile)) {
+  if (profile->IsGuestSession()) {
     AddFeatureButton(
         l10n_util::GetPluralStringFUTF16(IDS_GUEST_PROFILE_MENU_CLOSE_BUTTON,
                                          window_count),
@@ -672,7 +613,7 @@ void ProfileMenuView::BuildFeatureButtons() {
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
   const bool has_primary_account =
-      !IsGuest(profile) &&
+      !profile->IsGuestSession() &&
       identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync);
   // The sign-out button is always at the bottom.
   if (has_unconsented_account && !has_primary_account) {
@@ -686,13 +627,6 @@ void ProfileMenuView::BuildFeatureButtons() {
 }
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-void ProfileMenuView::BuildProfileManagementHeading() {
-  SetProfileManagementHeading(
-      UseNewPicker()
-          ? l10n_util::GetStringUTF16(IDS_PROFILES_LIST_PROFILES_TITLE)
-          : l10n_util::GetStringUTF16(IDS_PROFILES_OTHER_PROFILES_TITLE));
-}
-
 void ProfileMenuView::BuildSelectableProfiles() {
   auto profile_entries = g_browser_process->profile_manager()
                              ->GetProfileAttributesStorage()
@@ -715,10 +649,8 @@ void ProfileMenuView::BuildSelectableProfiles() {
   UMA_HISTOGRAM_BOOLEAN("ProfileChooser.HasProfilesShown",
                         profile_entries.size() > 1);
 
-  PrefService* service = g_browser_process->local_state();
-  DCHECK(service);
-  if (!IsGuest(browser()->profile()) &&
-      service->GetBoolean(prefs::kBrowserGuestModeEnabled)) {
+  if (!browser()->profile()->IsGuestSession() &&
+      profiles::IsGuestModeEnabled()) {
     AddSelectableProfile(
         profiles::GetGuestAvatar(),
         l10n_util::GetStringUTF16(IDS_GUEST_PROFILE_NAME),
@@ -731,16 +663,11 @@ void ProfileMenuView::BuildSelectableProfiles() {
 void ProfileMenuView::BuildProfileManagementFeatureButtons() {
   AddProfileManagementShortcutFeatureButton(
       vector_icons::kSettingsIcon,
-      UseNewPicker()
-          ? l10n_util::GetStringUTF16(
-                IDS_PROFILES_MANAGE_PROFILES_BUTTON_TOOLTIP)
-          : l10n_util::GetStringUTF16(IDS_PROFILES_MANAGE_USERS_BUTTON),
+      l10n_util::GetStringUTF16(IDS_PROFILES_MANAGE_PROFILES_BUTTON_TOOLTIP),
       base::BindRepeating(&ProfileMenuView::OnManageProfilesButtonClicked,
                           base::Unretained(this)));
 
-  PrefService* service = g_browser_process->local_state();
-  DCHECK(service);
-  if (service->GetBoolean(prefs::kBrowserAddPersonEnabled)) {
+  if (profiles::IsProfileCreationAllowed()) {
     AddProfileManagementFeatureButton(
         kAddIcon, l10n_util::GetStringUTF16(IDS_ADD),
         base::BindRepeating(&ProfileMenuView::OnAddNewProfileButtonClicked,

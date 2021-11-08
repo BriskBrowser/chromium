@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "chromeos/network/network_configuration_handler.h"
@@ -83,7 +84,7 @@ NetworkMetadataStore::NetworkMetadataStore(
   if (network_configuration_handler_) {
     network_configuration_handler_->AddObserver(this);
   }
-  if (network_state_handler_ && !HasFixedHiddenNetworks()) {
+  if (network_state_handler_) {
     network_state_handler_->AddObserver(this, FROM_HERE);
   }
   if (LoginState::IsInitialized()) {
@@ -111,17 +112,19 @@ void NetworkMetadataStore::LoggedInStateChanged() {
 }
 
 void NetworkMetadataStore::NetworkListChanged() {
-  if (HasFixedHiddenNetworks()) {
-    return;
-  }
-
   // Ensure that user networks have been loaded from Shill before querying.
   if (!network_state_handler_->IsProfileNetworksLoaded()) {
+    has_profile_loaded_ = false;
     return;
   }
 
-  profile_pref_service_->SetBoolean(kHasFixedHiddenNetworks, true);
+  if (has_profile_loaded_) {
+    return;
+  }
+
+  has_profile_loaded_ = true;
   FixSyncedHiddenNetworks();
+  LogHiddenNetworkAge();
 }
 
 void NetworkMetadataStore::OwnSharedNetworksOnFirstUserLogin() {
@@ -153,12 +156,17 @@ void NetworkMetadataStore::OwnSharedNetworksOnFirstUserLogin() {
 }
 
 void NetworkMetadataStore::FixSyncedHiddenNetworks() {
+  if (HasFixedHiddenNetworks()) {
+    return;
+  }
+
   NetworkStateHandler::NetworkStateList networks;
   network_state_handler_->GetNetworkListByType(
       NetworkTypePattern::WiFi(), /*configured_only=*/true,
       /*visible_only=*/false, /*limit=*/0, &networks);
 
   NET_LOG(EVENT) << "Updating networks from sync to disable HiddenSSID.";
+  int total_count = 0;
   for (const chromeos::NetworkState* network : networks) {
     if (!network->hidden_ssid()) {
       continue;
@@ -167,13 +175,38 @@ void NetworkMetadataStore::FixSyncedHiddenNetworks() {
       continue;
     }
 
+    total_count++;
     base::Value dict(base::Value::Type::DICTIONARY);
     dict.SetBoolKey(shill::kWifiHiddenSsid, false);
     network_configuration_handler_->SetShillProperties(
         network->path(), base::Value::AsDictionaryValue(dict),
-        base::DoNothing::Once(),
+        base::DoNothing(),
         base::BindOnce(&NetworkMetadataStore::OnDisableHiddenError,
                        weak_ptr_factory_.GetWeakPtr()));
+  }
+  profile_pref_service_->SetBoolean(kHasFixedHiddenNetworks, true);
+  base::UmaHistogramCounts1000("Network.Wifi.Synced.Hidden.Fixed", total_count);
+}
+
+void NetworkMetadataStore::LogHiddenNetworkAge() {
+  NetworkStateHandler::NetworkStateList networks;
+  network_state_handler_->GetNetworkListByType(
+      NetworkTypePattern::WiFi(), /*configured_only=*/true,
+      /*visible_only=*/false, /*limit=*/0, &networks);
+
+  for (const chromeos::NetworkState* network : networks) {
+    if (!network->hidden_ssid()) {
+      continue;
+    }
+    base::TimeDelta timestamp = GetLastConnectedTimestamp(network->guid());
+    if (!timestamp.is_zero()) {
+      int days = base::Time::Now().ToDeltaSinceWindowsEpoch().InDays() -
+                 timestamp.InDays();
+      base::UmaHistogramCounts10000("Network.Shill.WiFi.Hidden.LastConnected",
+                                    days);
+    }
+    base::UmaHistogramBoolean("Network.Shill.WiFi.Hidden.EverConnected",
+                              !timestamp.is_zero());
   }
 }
 
@@ -277,14 +310,14 @@ void NetworkMetadataStore::UpdateExternalModifications(
 void NetworkMetadataStore::OnConfigurationModified(
     const std::string& service_path,
     const std::string& guid,
-    base::DictionaryValue* set_properties) {
+    const base::Value* set_properties) {
   if (!set_properties) {
     return;
   }
 
   SetPref(guid, kIsFromSync, base::Value(false));
 
-  if (set_properties->HasKey(shill::kProxyConfigProperty)) {
+  if (set_properties->FindKey(shill::kProxyConfigProperty)) {
     UpdateExternalModifications(guid, shill::kProxyConfigProperty);
   }
   if (set_properties->FindPath(
@@ -293,10 +326,13 @@ void NetworkMetadataStore::OnConfigurationModified(
     UpdateExternalModifications(guid, shill::kNameServersProperty);
   }
 
-  // Only clear last connected if the passphrase changes.  Other settings
-  // (autoconnect, dns, etc.) won't affect the ability to connect to a network.
-  if (set_properties->HasKey(shill::kPassphraseProperty)) {
+  if (set_properties->FindKey(shill::kPassphraseProperty)) {
+    // Only clear last connected if the passphrase changes.  Other settings
+    // (autoconnect, dns, etc.) won't affect the ability to connect to a
+    // network.
     SetPref(guid, kLastConnectedTimestampPref, base::Value(0));
+    // Whichever user supplied the password is the "owner".
+    SetIsCreatedByUser(guid);
   }
 
   for (auto& observer : observers_) {
@@ -320,7 +356,7 @@ void NetworkMetadataStore::RemoveNetworkFromPref(
 
   const base::DictionaryValue* dict =
       pref_service->GetDictionary(kNetworkMetadataPref);
-  if (!dict || !dict->HasKey(network_guid)) {
+  if (!dict || !dict->FindKey(network_guid)) {
     return;
   }
 
@@ -346,7 +382,7 @@ base::TimeDelta NetworkMetadataStore::GetLastConnectedTimestamp(
     return base::TimeDelta();
   }
 
-  return base::TimeDelta::FromMillisecondsD(timestamp->GetDouble());
+  return base::Milliseconds(timestamp->GetDouble());
 }
 
 void NetworkMetadataStore::SetLastConnectedTimestamp(

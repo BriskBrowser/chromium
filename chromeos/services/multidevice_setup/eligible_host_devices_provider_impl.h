@@ -21,7 +21,7 @@ class EligibleHostDevicesProviderImpl
       public device_sync::DeviceSyncClient::Observer {
  public:
   static constexpr base::TimeDelta kInactiveDeviceThresholdInDays =
-      base::TimeDelta::FromDays(30);
+      base::Days(30);
 
   class Factory {
    public:
@@ -37,6 +37,11 @@ class EligibleHostDevicesProviderImpl
    private:
     static Factory* test_factory_;
   };
+
+  EligibleHostDevicesProviderImpl(const EligibleHostDevicesProviderImpl&) =
+      delete;
+  EligibleHostDevicesProviderImpl& operator=(
+      const EligibleHostDevicesProviderImpl&) = delete;
 
   ~EligibleHostDevicesProviderImpl() override;
 
@@ -56,15 +61,13 @@ class EligibleHostDevicesProviderImpl
 
   void OnGetDevicesActivityStatus(
       device_sync::mojom::NetworkRequestResult,
-      base::Optional<std::vector<device_sync::mojom::DeviceActivityStatusPtr>>);
+      absl::optional<std::vector<device_sync::mojom::DeviceActivityStatusPtr>>);
 
   device_sync::DeviceSyncClient* device_sync_client_;
 
   multidevice::RemoteDeviceRefList eligible_devices_from_last_sync_;
   multidevice::DeviceWithConnectivityStatusList
       eligible_active_devices_from_last_sync_;
-
-  DISALLOW_COPY_AND_ASSIGN(EligibleHostDevicesProviderImpl);
 };
 
 }  // namespace multidevice_setup

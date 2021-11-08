@@ -73,6 +73,8 @@ component("bindings_base") {
     "lib/pending_remote_state.cc",
     "lib/pending_remote_state.h",
     "lib/scoped_interface_endpoint_handle.cc",
+    "lib/send_message_helper.cc",
+    "lib/send_message_helper.h",
     "lib/serialization.h",
     "lib/serialization_forward.h",
     "lib/serialization_util.h",
@@ -103,6 +105,7 @@ component("bindings_base") {
     "struct_forward.h",
     "struct_ptr.h",
     "struct_traits.h",
+    "tracing_helpers.h",
     "type_converter.h",
     "union_traits.h",
   ]
@@ -138,6 +141,8 @@ component("bindings") {
     "callback_helpers.h",
     "connection_error_callback.h",
     "connector.h",
+    "generic_pending_associated_receiver.cc",
+    "generic_pending_associated_receiver.h",
     "generic_pending_receiver.cc",
     "generic_pending_receiver.h",
     "interface_endpoint_client.h",
@@ -195,6 +200,7 @@ component("bindings") {
     "pipe_control_message_proxy.h",
     "raw_ptr_impl_ref_traits.h",
     "receiver.h",
+    "receiver_set.cc",
     "receiver_set.h",
     "remote.h",
     "remote_set.h",
@@ -209,6 +215,7 @@ component("bindings") {
     "sync_event_watcher.h",
     "sync_handle_registry.h",
     "sync_handle_watcher.h",
+    "thread_safe_proxy.h",
     "unique_associated_receiver_set.h",
     "unique_ptr_impl_ref_traits.h",
     "unique_receiver_set.h",
@@ -232,7 +239,6 @@ component("bindings") {
     ":bindings_base",
     ":struct_traits",
     "//base",
-    "//base/util/type_safety",
     "//ipc:message_support",
     "//ipc:param_traits",
     "//mojo/public/cpp/system",
@@ -278,7 +284,5 @@ if (!is_ios) {
       "//third_party/blink/renderer/platform:platform_export",
       "//third_party/blink/renderer/platform/wtf",
     ]
-
-    public_configs = [ "//third_party/blink/renderer:config" ]
   }
 }

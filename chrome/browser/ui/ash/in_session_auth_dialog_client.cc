@@ -11,10 +11,10 @@
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/login/quick_unlock/fingerprint_storage.h"
-#include "chrome/browser/chromeos/login/quick_unlock/pin_backend.h"
-#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
-#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
+#include "chrome/browser/ash/login/quick_unlock/fingerprint_storage.h"
+#include "chrome/browser/ash/login/quick_unlock/pin_backend.h"
+#include "chrome/browser/ash/login/quick_unlock/quick_unlock_factory.h"
+#include "chrome/browser/ash/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -65,8 +65,8 @@ InSessionAuthDialogClient* InSessionAuthDialogClient::Get() {
 
 bool InSessionAuthDialogClient::IsFingerprintAuthAvailable(
     const AccountId& account_id) {
-  chromeos::quick_unlock::QuickUnlockStorage* quick_unlock_storage =
-      chromeos::quick_unlock::QuickUnlockFactory::GetForAccountId(account_id);
+  ash::quick_unlock::QuickUnlockStorage* quick_unlock_storage =
+      ash::quick_unlock::QuickUnlockFactory::GetForAccountId(account_id);
   return quick_unlock_storage &&
          quick_unlock_storage->fingerprint_storage()->IsFingerprintAvailable();
 }
@@ -95,7 +95,7 @@ void InSessionAuthDialogClient::CheckPinAuthAvailability(
     const AccountId& account_id,
     base::OnceCallback<void(bool)> callback) {
   // PinBackend may be using cryptohome backend or prefs backend.
-  chromeos::quick_unlock::PinBackend::GetInstance()->CanAuthenticate(
+  ash::quick_unlock::PinBackend::GetInstance()->CanAuthenticate(
       account_id, std::move(callback));
 }
 
@@ -125,7 +125,7 @@ void InSessionAuthDialogClient::AuthenticateUserWithPasswordOrPin(
   pending_auth_state_.emplace(std::move(callback));
 
   if (authenticated_by_pin) {
-    chromeos::quick_unlock::PinBackend::GetInstance()->TryAuthenticate(
+    ash::quick_unlock::PinBackend::GetInstance()->TryAuthenticate(
         user_context.GetAccountId(), *user_context.GetKey(),
         base::BindOnce(&InSessionAuthDialogClient::OnPinAttemptDone,
                        weak_factory_.GetWeakPtr(), user_context));
@@ -142,10 +142,10 @@ void InSessionAuthDialogClient::OnPinAttemptDone(
     bool success) {
   if (success) {
     // Mark strong auth if this is cryptohome based pin.
-    if (chromeos::quick_unlock::PinBackend::GetInstance()->ShouldUseCryptohome(
+    if (ash::quick_unlock::PinBackend::GetInstance()->ShouldUseCryptohome(
             user_context.GetAccountId())) {
-      chromeos::quick_unlock::QuickUnlockStorage* quick_unlock_storage =
-          chromeos::quick_unlock::QuickUnlockFactory::GetForAccountId(
+      ash::quick_unlock::QuickUnlockStorage* quick_unlock_storage =
+          ash::quick_unlock::QuickUnlockFactory::GetForAccountId(
               user_context.GetAccountId());
       if (quick_unlock_storage)
         quick_unlock_storage->MarkStrongAuth();
@@ -175,8 +175,8 @@ void InSessionAuthDialogClient::AuthenticateWithPassword(
 
 void InSessionAuthDialogClient::OnPasswordAuthSuccess(
     const UserContext& user_context) {
-  chromeos::quick_unlock::QuickUnlockStorage* quick_unlock_storage =
-      chromeos::quick_unlock::QuickUnlockFactory::GetForAccountId(
+  ash::quick_unlock::QuickUnlockStorage* quick_unlock_storage =
+      ash::quick_unlock::QuickUnlockFactory::GetForAccountId(
           user_context.GetAccountId());
   if (quick_unlock_storage)
     quick_unlock_storage->MarkStrongAuth();
@@ -193,21 +193,20 @@ void InSessionAuthDialogClient::AuthenticateUserWithFingerprint(
   extended_authenticator_->AuthenticateWithFingerprint(
       user_context,
       base::BindOnce(&InSessionAuthDialogClient::OnFingerprintAuthDone,
-                     weak_factory_.GetWeakPtr(),
-                     base::Passed(std::move(callback))));
+                     weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void InSessionAuthDialogClient::OnFingerprintAuthDone(
     base::OnceCallback<void(bool, ash::FingerprintState)> callback,
-    cryptohome::CryptohomeErrorCode error) {
+    user_data_auth::CryptohomeErrorCode error) {
   switch (error) {
-    case cryptohome::CRYPTOHOME_ERROR_NOT_SET:
+    case user_data_auth::CRYPTOHOME_ERROR_NOT_SET:
       std::move(callback).Run(true, ash::FingerprintState::AVAILABLE_DEFAULT);
       break;
-    case cryptohome::CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED:
+    case user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED:
       std::move(callback).Run(false, ash::FingerprintState::AVAILABLE_DEFAULT);
       break;
-    case cryptohome::CRYPTOHOME_ERROR_FINGERPRINT_DENIED:
+    case user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_DENIED:
       std::move(callback).Run(false,
                               ash::FingerprintState::DISABLED_FROM_ATTEMPTS);
       break;

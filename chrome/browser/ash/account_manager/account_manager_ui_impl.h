@@ -5,12 +5,12 @@
 #ifndef CHROME_BROWSER_ASH_ACCOUNT_MANAGER_ACCOUNT_MANAGER_UI_IMPL_H_
 #define CHROME_BROWSER_ASH_ACCOUNT_MANAGER_ACCOUNT_MANAGER_UI_IMPL_H_
 
-#include "ash/components/account_manager/account_manager_ui.h"
 #include "base/callback_forward.h"
+#include "components/account_manager_core/chromeos/account_manager_ui.h"
 
 namespace ash {
 
-class AccountManagerUIImpl : public AccountManagerUI {
+class AccountManagerUIImpl : public account_manager::AccountManagerUI {
  public:
   AccountManagerUIImpl();
   AccountManagerUIImpl(const AccountManagerUIImpl&) = delete;
@@ -23,6 +23,7 @@ class AccountManagerUIImpl : public AccountManagerUI {
   void ShowReauthAccountDialog(const std::string& email,
                                base::OnceClosure close_dialog_closure) override;
   bool IsDialogShown() override;
+  void ShowManageAccountsSettings() override;
 };
 
 }  // namespace ash

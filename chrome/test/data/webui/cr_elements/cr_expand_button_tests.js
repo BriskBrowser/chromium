@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 // clang-format off
-// #import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.m.js';
-// #import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
+import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.m.js';
+import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
 // clang-format on
 
 suite('cr-expand-button', function() {
@@ -56,5 +56,17 @@ suite('cr-expand-button', function() {
     const labelId = 'label';
     assertEquals('true', button.$$(`#${labelId}`).getAttribute('aria-hidden'));
     assertEquals(labelId, icon.getAttribute('aria-labelledby'));
+  });
+
+  test('setting |expand-icon| and |collapse-icon|', () => {
+    const expandIconName = 'cr:arrow-drop-down';
+    button.setAttribute('expand-icon', expandIconName);
+    const collapseIconName = 'cr:arrow-drop-up';
+    button.setAttribute('collapse-icon', collapseIconName);
+
+    assertFalse(button.expanded);
+    assertEquals(expandIconName, icon.ironIcon);
+    button.expanded = true;
+    assertEquals(collapseIconName, icon.ironIcon);
   });
 });

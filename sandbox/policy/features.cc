@@ -4,6 +4,7 @@
 
 #include "sandbox/policy/features.h"
 
+#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 
@@ -11,12 +12,12 @@ namespace sandbox {
 namespace policy {
 namespace features {
 
-#if !defined(OS_MAC)
+#if !defined(OS_MAC) && !defined(OS_FUCHSIA)
 // Enables network service sandbox.
 // (Only causes an effect when feature kNetworkService is enabled.)
 const base::Feature kNetworkServiceSandbox{"NetworkServiceSandbox",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // !defined(OS_MAC)
+#endif  // !defined(OS_MAC) && !defined(OS_FUCHSIA)
 
 #if defined(OS_WIN)
 // Emergency "off switch" for new Windows KTM security mitigation,
@@ -24,10 +25,10 @@ const base::Feature kNetworkServiceSandbox{"NetworkServiceSandbox",
 const base::Feature kWinSboxDisableKtmComponent{
     "WinSboxDisableKtmComponent", base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Emergency "off switch" for new Windows sandbox security mitigation,
+// Experiment for Windows sandbox security mitigation,
 // sandbox::MITIGATION_EXTENSION_POINT_DISABLE.
 const base::Feature kWinSboxDisableExtensionPoints{
-    "WinSboxDisableExtensionPoint", base::FEATURE_ENABLED_BY_DEFAULT};
+    "WinSboxDisableExtensionPoint", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables GPU AppContainer sandbox on Windows.
 const base::Feature kGpuAppContainer{"GpuAppContainer",
@@ -35,6 +36,7 @@ const base::Feature kGpuAppContainer{"GpuAppContainer",
 
 // Enables GPU Low Privilege AppContainer when combined with kGpuAppContainer.
 const base::Feature kGpuLPAC{"GpuLPAC", base::FEATURE_ENABLED_BY_DEFAULT};
+
 #endif  // defined(OS_WIN)
 
 #if !defined(OS_ANDROID)
@@ -55,6 +57,29 @@ const base::Feature kSpectreVariant2Mitigation{
 const base::Feature kForceSpectreVariant2Mitigation{
     "ForceSpectreVariant2Mitigation", base::FEATURE_DISABLED_BY_DEFAULT};
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if defined(OS_WIN)
+bool IsWinNetworkServiceSandboxSupported() {
+  // Since some APIs used for LPAC are unsupported below Windows 10 RS2 (1703
+  // build 15063) so place a check here in a central place.
+  if (base::win::GetVersion() < base::win::Version::WIN10_RS2)
+    return false;
+  return true;
+}
+#endif  // defined(OS_WIN)
+
+bool IsNetworkSandboxEnabled() {
+#if defined(OS_MAC) || defined(OS_FUCHSIA)
+  return true;
+#else
+#if defined(OS_WIN)
+  if (!IsWinNetworkServiceSandboxSupported())
+    return false;
+#endif  // defined(OS_WIN)
+  // Check feature status.
+  return base::FeatureList::IsEnabled(kNetworkServiceSandbox);
+#endif  // defined(OS_MAC) || defined(OS_FUCHSIA)
+}
 
 }  // namespace features
 }  // namespace policy

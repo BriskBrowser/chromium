@@ -47,6 +47,10 @@ class TestPreferenceAPI : public PreferenceAPIBase {
                              ContentSettingsService* content_settings)
       : test_extension_prefs_(test_extension_prefs),
         content_settings_(content_settings) {}
+
+  TestPreferenceAPI(const TestPreferenceAPI&) = delete;
+  TestPreferenceAPI& operator=(const TestPreferenceAPI&) = delete;
+
   ~TestPreferenceAPI() {}
 
  private:
@@ -63,8 +67,6 @@ class TestPreferenceAPI : public PreferenceAPIBase {
 
   TestExtensionPrefs* test_extension_prefs_;
   ContentSettingsService* content_settings_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestPreferenceAPI);
 };
 
 class ExtensionControlledPrefsTest : public PrefsPrepopulatedTestBase {
@@ -183,7 +185,8 @@ void ExtensionControlledPrefsTest::EnsureExtensionUninstalled(
       break;
     }
   }
-  prefs()->OnExtensionUninstalled(extension_id, Manifest::INTERNAL, false);
+  prefs()->OnExtensionUninstalled(extension_id,
+                                  mojom::ManifestLocation::kInternal, false);
 }
 
 class ControlledPrefsInstallOneExtension

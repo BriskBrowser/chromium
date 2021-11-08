@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/platform/graphics/filters/filter_effect.h"
 
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/platform/graphics/filters/filter.h"
 #include "third_party/skia/include/core/SkColorFilter.h"
 
@@ -58,7 +59,7 @@ FloatRect FilterEffect::MapInputs(const FloatRect& rect) const {
   }
   FloatRect input_union;
   for (const auto& effect : input_effects_)
-    input_union.Unite(effect->MapRect(rect));
+    input_union.Union(effect->MapRect(rect));
   return input_union;
 }
 
@@ -73,7 +74,7 @@ FloatRect FilterEffect::ApplyBounds(const FloatRect& rect) const {
   FloatRect bounds = AbsoluteBounds();
   if (AffectsTransparentPixels())
     return bounds;
-  return Intersection(rect, bounds);
+  return IntersectRects(rect, bounds);
 }
 
 FloatRect FilterEffect::MapRect(const FloatRect& rect) const {
@@ -138,7 +139,7 @@ sk_sp<PaintFilter> FilterEffect::CreateTransparentBlack() const {
       std::move(color_filter), nullptr, base::OptionalOrNullptr(GetCropRect()));
 }
 
-base::Optional<PaintFilter::CropRect> FilterEffect::GetCropRect() const {
+absl::optional<PaintFilter::CropRect> FilterEffect::GetCropRect() const {
   if (!ClipsToBounds())
     return {};
   FloatRect computed_bounds = FilterPrimitiveSubregion();

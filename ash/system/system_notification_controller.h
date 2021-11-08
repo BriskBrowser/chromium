@@ -17,6 +17,7 @@ class CapsLockNotificationController;
 class GestureEducationNotificationController;
 class CastNotificationController;
 class CellularSetupNotifier;
+class MicrophoneMuteNotificationController;
 class PowerNotificationController;
 class ScreenSecurityNotificationController;
 class SessionLimitNotificationController;
@@ -28,6 +29,11 @@ class WifiToggleNotificationController;
 class SystemNotificationController {
  public:
   SystemNotificationController();
+
+  SystemNotificationController(const SystemNotificationController&) = delete;
+  SystemNotificationController& operator=(const SystemNotificationController&) =
+      delete;
+
   ~SystemNotificationController();
 
  private:
@@ -40,14 +46,13 @@ class SystemNotificationController {
   const std::unique_ptr<CellularSetupNotifier> cellular_setup_notifier_;
   const std::unique_ptr<GestureEducationNotificationController>
       gesture_education_;
+  std::unique_ptr<MicrophoneMuteNotificationController> microphone_mute_;
   const std::unique_ptr<PowerNotificationController> power_;
   const std::unique_ptr<ScreenSecurityNotificationController> screen_security_;
   const std::unique_ptr<SessionLimitNotificationController> session_limit_;
   const std::unique_ptr<TracingNotificationController> tracing_;
   const std::unique_ptr<UpdateNotificationController> update_;
   const std::unique_ptr<WifiToggleNotificationController> wifi_toggle_;
-
-  DISALLOW_COPY_AND_ASSIGN(SystemNotificationController);
 };
 
 }  // namespace ash

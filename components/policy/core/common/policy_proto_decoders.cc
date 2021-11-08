@@ -4,6 +4,7 @@
 
 #include "components/policy/core/common/policy_proto_decoders.h"
 
+#include <cstring>
 #include <limits>
 #include <memory>
 
@@ -105,6 +106,18 @@ base::Value DecodeJsonProto(const em::StringPolicyProto& proto,
   return std::move(value_with_error.value.value());
 }
 
+bool PerProfileMatches(bool policy_per_profile,
+                       PolicyPerProfileFilter per_profile_enum) {
+  switch (per_profile_enum) {
+    case PolicyPerProfileFilter::kTrue:
+      return policy_per_profile;
+    case PolicyPerProfileFilter::kFalse:
+      return !policy_per_profile;
+    case PolicyPerProfileFilter::kAny:
+      return true;
+  }
+}
+
 }  // namespace
 
 void DecodeProtoFields(
@@ -112,13 +125,15 @@ void DecodeProtoFields(
     base::WeakPtr<CloudExternalDataManager> external_data_manager,
     PolicySource source,
     PolicyScope scope,
-    PolicyMap* map) {
+    PolicyMap* map,
+    PolicyPerProfileFilter per_profile) {
   PolicyLevel level;
 
   // Access arrays are terminated by a struct that contains only nullptrs.
   for (const BooleanPolicyAccess* access = &kBooleanPolicyAccess[0];
        access->policy_key; access++) {
-    if (!(policy.*access->has_proto)())
+    if (!PerProfileMatches(access->per_profile, per_profile) ||
+        !(policy.*access->has_proto)())
       continue;
 
     const em::BooleanPolicyProto& proto = (policy.*access->get_proto)();
@@ -131,7 +146,8 @@ void DecodeProtoFields(
 
   for (const IntegerPolicyAccess* access = &kIntegerPolicyAccess[0];
        access->policy_key; access++) {
-    if (!(policy.*access->has_proto)())
+    if (!PerProfileMatches(access->per_profile, per_profile) ||
+        !(policy.*access->has_proto)())
       continue;
 
     const em::IntegerPolicyProto& proto = (policy.*access->get_proto)();
@@ -149,7 +165,8 @@ void DecodeProtoFields(
 
   for (const StringPolicyAccess* access = &kStringPolicyAccess[0];
        access->policy_key; access++) {
-    if (!(policy.*access->has_proto)())
+    if (!PerProfileMatches(access->per_profile, per_profile) ||
+        !(policy.*access->has_proto)())
       continue;
 
     const em::StringPolicyProto& proto = (policy.*access->get_proto)();
@@ -161,8 +178,16 @@ void DecodeProtoFields(
                             ? DecodeStringProto(proto)
                             : DecodeJsonProto(proto, &error);
 
+    // EXTERNAL policies represent a single piece of external data that is
+    // retrieved by an ExternalDataFetcher.
+    // kWebAppInstallForceList is currently the only policy that is a JSON
+    // policy (containing mostly non-external data) which can contain
+    // references to multiple pieces of external data as well. For that it
+    // needs an ExternalDataFetcher. If we ever create a second such policy,
+    // create a new type for it instead of special-casing the policies here.
     std::unique_ptr<ExternalDataFetcher> external_data_fetcher =
-        (access->type == StringPolicyType::EXTERNAL)
+        (access->type == StringPolicyType::EXTERNAL ||
+         strcmp(access->policy_key, key::kWebAppInstallForceList) == 0)
             ? std::make_unique<ExternalDataFetcher>(external_data_manager,
                                                     access->policy_key)
             : nullptr;
@@ -177,7 +202,8 @@ void DecodeProtoFields(
 
   for (const StringListPolicyAccess* access = &kStringListPolicyAccess[0];
        access->policy_key; access++) {
-    if (!(policy.*access->has_proto)())
+    if (!PerProfileMatches(access->per_profile, per_profile) ||
+        !(policy.*access->has_proto)())
       continue;
 
     const em::StringListPolicyProto& proto = (policy.*access->get_proto)();

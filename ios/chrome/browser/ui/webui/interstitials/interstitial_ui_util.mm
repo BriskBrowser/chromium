@@ -9,7 +9,7 @@
 #include "base/memory/ref_counted_memory.h"
 #include "base/time/time.h"
 #include "components/grit/dev_ui_components_resources.h"
-#include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/core/browser/db/v4_protocol_manager_util.h"
 #import "components/safe_browsing/ios/browser/safe_browsing_url_allow_list.h"
 #include "components/security_interstitials/core/ssl_error_options_mask.h"
 #include "components/security_interstitials/core/unsafe_resource.h"
@@ -25,7 +25,6 @@
 #import "ios/chrome/browser/ui/webui/interstitials/interstitial_ui_util.h"
 #include "ios/components/security_interstitials/ios_blocking_page_controller_client.h"
 #import "ios/components/security_interstitials/ios_blocking_page_metrics_helper.h"
-#import "ios/web/public/security/web_interstitial_delegate.h"
 #include "ios/web/public/web_state.h"
 #include "ios/web/public/webui/url_data_source_ios.h"
 #include "ios/web/public/webui/web_ui_ios.h"
@@ -51,21 +50,19 @@ scoped_refptr<net::X509Certificate> CreateFakeCert() {
   std::string cert_der;
   if (!net::x509_util::CreateKeyAndSelfSignedCert(
           "CN=Error", static_cast<uint32_t>(serial_number.GetNext()),
-          base::Time::Now() - base::TimeDelta::FromMinutes(5),
-          base::Time::Now() + base::TimeDelta::FromMinutes(5), &unused_key,
-          &cert_der)) {
+          base::Time::Now() - base::Minutes(5),
+          base::Time::Now() + base::Minutes(5), &unused_key, &cert_der)) {
     return nullptr;
   }
 
-  return net::X509Certificate::CreateFromBytes(cert_der.data(),
-                                               cert_der.size());
+  return net::X509Certificate::CreateFromBytes(
+      base::as_bytes(base::make_span(cert_der)));
 }
 
 }
 
-std::unique_ptr<web::WebInterstitialDelegate> CreateSslBlockingPageDelegate(
-    web::WebState* web_state,
-    const GURL& url) {
+std::unique_ptr<security_interstitials::IOSSecurityInterstitialPage>
+CreateSslBlockingPage(web::WebState* web_state, const GURL& url) {
   DCHECK_EQ(kChromeInterstitialSslPath, url.path());
   // Fake parameters for SSL blocking page.
   GURL request_url("https://example.com");
@@ -122,7 +119,7 @@ std::unique_ptr<web::WebInterstitialDelegate> CreateSslBlockingPageDelegate(
 
   return std::make_unique<IOSSSLBlockingPage>(
       web_state, cert_error, ssl_info, request_url, options_mask,
-      base::Time::NowFromSystemTime(), base::OnceCallback<void(bool)>(),
+      base::Time::NowFromSystemTime(),
       std::make_unique<security_interstitials::IOSBlockingPageControllerClient>(
           web_state,
           std::make_unique<
@@ -131,8 +128,8 @@ std::unique_ptr<web::WebInterstitialDelegate> CreateSslBlockingPageDelegate(
           GetApplicationContext()->GetApplicationLocale()));
 }
 
-std::unique_ptr<web::WebInterstitialDelegate>
-CreateCaptivePortalBlockingPageDelegate(web::WebState* web_state) {
+std::unique_ptr<security_interstitials::IOSSecurityInterstitialPage>
+CreateCaptivePortalBlockingPage(web::WebState* web_state) {
   GURL landing_url("https://captive.portal/login");
   GURL request_url("https://google.com");
 
@@ -140,7 +137,7 @@ CreateCaptivePortalBlockingPageDelegate(web::WebState* web_state) {
   reporting_info.metric_prefix = "ssl_nonoverridable";
 
   return std::make_unique<IOSCaptivePortalBlockingPage>(
-      web_state, request_url, landing_url, base::OnceCallback<void(bool)>(),
+      web_state, request_url, landing_url,
       new security_interstitials::IOSBlockingPageControllerClient(
           web_state,
           std::make_unique<
@@ -149,9 +146,8 @@ CreateCaptivePortalBlockingPageDelegate(web::WebState* web_state) {
           GetApplicationContext()->GetApplicationLocale()));
 }
 
-std::unique_ptr<web::WebInterstitialDelegate>
-CreateSafeBrowsingBlockingPageDelegate(web::WebState* web_state,
-                                       const GURL& url) {
+std::unique_ptr<security_interstitials::IOSSecurityInterstitialPage>
+CreateSafeBrowsingBlockingPage(web::WebState* web_state, const GURL& url) {
   safe_browsing::SBThreatType threat_type =
       safe_browsing::SB_THREAT_TYPE_URL_MALWARE;
   GURL request_url("http://example.com");

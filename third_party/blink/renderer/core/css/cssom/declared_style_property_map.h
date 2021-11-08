@@ -35,7 +35,7 @@ class CORE_EXPORT DeclaredStylePropertyMap final : public StylePropertyMap {
 
  protected:
   const CSSValue* GetProperty(CSSPropertyID) const override;
-  const CSSValue* GetCustomProperty(AtomicString) const override;
+  const CSSValue* GetCustomProperty(const AtomicString&) const override;
   void ForEachProperty(const IterationCallback&) override;
   void SetProperty(CSSPropertyID, const CSSValue&) override;
   bool SetShorthandProperty(CSSPropertyID,
@@ -56,4 +56,4 @@ class CORE_EXPORT DeclaredStylePropertyMap final : public StylePropertyMap {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSSOM_DECLARED_STYLE_PROPERTY_MAP_H_

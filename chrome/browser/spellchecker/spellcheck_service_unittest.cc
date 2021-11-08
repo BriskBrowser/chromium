@@ -86,6 +86,11 @@ static std::unique_ptr<KeyedService> BuildSpellcheckService(
 class SpellcheckServiceUnitTestBase : public testing::Test {
  public:
   SpellcheckServiceUnitTestBase() = default;
+
+  SpellcheckServiceUnitTestBase(const SpellcheckServiceUnitTestBase&) = delete;
+  SpellcheckServiceUnitTestBase& operator=(
+      const SpellcheckServiceUnitTestBase&) = delete;
+
   ~SpellcheckServiceUnitTestBase() override = default;
 
   content::BrowserContext* browser_context() { return &profile_; }
@@ -111,9 +116,6 @@ class SpellcheckServiceUnitTestBase : public testing::Test {
   base::test::ScopedFeatureList feature_list_;
 #endif  // defined(OS_WIN)
   TestingProfile profile_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SpellcheckServiceUnitTestBase);
 };
 
 class SpellcheckServiceUnitTest : public SpellcheckServiceUnitTestBase,
@@ -151,7 +153,9 @@ TEST_P(SpellcheckServiceUnitTest, GetDictionaries) {
   prefs()->SetString(language::prefs::kAcceptLanguages,
                      GetParam().accept_languages);
   base::ListValue spellcheck_dictionaries;
-  spellcheck_dictionaries.AppendStrings(GetParam().spellcheck_dictionaries);
+  for (const std::string& dictionary : GetParam().spellcheck_dictionaries) {
+    spellcheck_dictionaries.Append(dictionary);
+  }
   prefs()->Set(spellcheck::prefs::kSpellCheckDictionaries,
                spellcheck_dictionaries);
 
@@ -221,7 +225,9 @@ void SpellcheckServiceHybridUnitTestBase::RunGetDictionariesTest(
 
   prefs()->SetString(language::prefs::kAcceptLanguages, accept_languages);
   base::ListValue spellcheck_dictionaries_list;
-  spellcheck_dictionaries_list.AppendStrings(spellcheck_dictionaries);
+  for (std::string dict : spellcheck_dictionaries) {
+    spellcheck_dictionaries_list.Append(dict);
+  }
   prefs()->Set(spellcheck::prefs::kSpellCheckDictionaries,
                spellcheck_dictionaries_list);
 

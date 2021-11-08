@@ -9,18 +9,21 @@
 
 // clang-format off
 import 'chrome://settings/lazy_load.js';
+
 import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {PrivacyPageBrowserProxyImpl, SecureDnsMode, SecureDnsUiManagementMode} from 'chrome://settings/settings.js';
-import {TestPrivacyPageBrowserProxy} from 'chrome://test/settings/test_privacy_page_browser_proxy.js';
-import {flushTasks} from 'chrome://test/test_util.m.js';
+import {flushTasks} from 'chrome://webui-test/test_util.js';
+
+import {TestPrivacyPageBrowserProxy} from './test_privacy_page_browser_proxy.js';
 
 // clang-format on
 
 /** @return {boolean} */
 function focused(inputElement) {
-  return inputElement.$$('#input').hasAttribute('focused_');
+  return inputElement.shadowRoot.querySelector('#input').hasAttribute(
+      'focused_');
 }
 
 suite('SettingsSecureDnsInputInteractive', function() {
@@ -92,7 +95,7 @@ suite('SettingsSecureDnsInteractive', function() {
     assertTrue(document.hasFocus());
     testBrowserProxy = new TestPrivacyPageBrowserProxy();
     testBrowserProxy.setResolverList(resolverList);
-    PrivacyPageBrowserProxyImpl.instance_ = testBrowserProxy;
+    PrivacyPageBrowserProxyImpl.setInstance(testBrowserProxy);
     PolymerTest.clearBody();
     testElement = document.createElement('settings-secure-dns');
     testElement.prefs = {
@@ -103,8 +106,9 @@ suite('SettingsSecureDnsInteractive', function() {
 
     await testBrowserProxy.whenCalled('getSecureDnsSetting');
     await flushTasks();
-    secureDnsToggle = testElement.$$('#secureDnsToggle');
-    secureDnsRadioGroup = testElement.$$('#secureDnsRadioGroup');
+    secureDnsToggle = testElement.shadowRoot.querySelector('#secureDnsToggle');
+    secureDnsRadioGroup =
+        testElement.shadowRoot.querySelector('#secureDnsRadioGroup');
   });
 
   teardown(function() {
@@ -130,7 +134,8 @@ suite('SettingsSecureDnsInteractive', function() {
     assertEquals(
         SecureDnsMode.AUTOMATIC, testElement.prefs.dns_over_https.mode.value);
 
-    const secureDnsInput = testElement.$$('#secureDnsInput');
+    const secureDnsInput =
+        testElement.shadowRoot.querySelector('#secureDnsInput');
     assertFalse(focused(secureDnsInput));
 
     // Change the radio button to secure mode. The focus should be on the
@@ -181,7 +186,8 @@ suite('SettingsSecureDnsInteractive', function() {
 
   test('SecureDnsDropdown', function() {
     const options =
-        testElement.$$('#secureResolverSelect').querySelectorAll('option');
+        testElement.shadowRoot.querySelector('#secureResolverSelect')
+            .querySelectorAll('option');
     assertEquals(4, options.length);
 
     for (let i = 0; i < options.length; i++) {
@@ -198,12 +204,21 @@ suite('SettingsSecureDnsInteractive', function() {
     });
     flush();
     assertEquals(SecureDnsMode.SECURE, secureDnsRadioGroup.selected);
-    assertEquals(0, testElement.$$('#secureResolverSelect').selectedIndex);
     assertEquals(
-        'none', getComputedStyle(testElement.$$('#privacyPolicy')).display);
+        0,
+        testElement.shadowRoot.querySelector('#secureResolverSelect')
+            .selectedIndex);
     assertEquals(
-        'block', getComputedStyle(testElement.$$('#secureDnsInput')).display);
-    assertEquals('', testElement.$$('#secureDnsInput').value);
+        'none',
+        getComputedStyle(testElement.shadowRoot.querySelector('#privacyPolicy'))
+            .display);
+    assertEquals(
+        'block',
+        getComputedStyle(
+            testElement.shadowRoot.querySelector('#secureDnsInput'))
+            .display);
+    assertEquals(
+        '', testElement.shadowRoot.querySelector('#secureDnsInput').value);
   });
 
   test('SecureDnsDropdownChangeInSecureMode', async function() {
@@ -215,13 +230,18 @@ suite('SettingsSecureDnsInteractive', function() {
     flush();
     assertEquals(SecureDnsMode.SECURE, secureDnsRadioGroup.selected);
 
-    const dropdownMenu = testElement.$$('#secureResolverSelect');
-    const privacyPolicyLine = testElement.$$('#privacyPolicy');
-    const secureDnsInput = testElement.$$('#secureDnsInput');
+    const dropdownMenu =
+        testElement.shadowRoot.querySelector('#secureResolverSelect');
+    const privacyPolicyLine =
+        testElement.shadowRoot.querySelector('#privacyPolicy');
+    const secureDnsInput =
+        testElement.shadowRoot.querySelector('#secureDnsInput');
 
     assertEquals(1, dropdownMenu.selectedIndex);
     assertEquals(
-        'block', getComputedStyle(testElement.$$('#privacyPolicy')).display);
+        'block',
+        getComputedStyle(testElement.shadowRoot.querySelector('#privacyPolicy'))
+            .display);
     assertEquals(
         resolverList[1].policy, privacyPolicyLine.querySelector('a').href);
 
@@ -234,7 +254,9 @@ suite('SettingsSecureDnsInteractive', function() {
     assertEquals(resolverList[2].value, args[1]);
     assertEquals(2, dropdownMenu.selectedIndex);
     assertEquals(
-        'block', getComputedStyle(testElement.$$('#privacyPolicy')).display);
+        'block',
+        getComputedStyle(testElement.shadowRoot.querySelector('#privacyPolicy'))
+            .display);
     assertEquals(
         resolverList[2].policy, privacyPolicyLine.querySelector('a').href);
     assertEquals(
@@ -250,7 +272,9 @@ suite('SettingsSecureDnsInteractive', function() {
     assertEquals('', args[1]);
     assertEquals(0, dropdownMenu.selectedIndex);
     assertEquals(
-        'none', getComputedStyle(testElement.$$('#privacyPolicy')).display);
+        'none',
+        getComputedStyle(testElement.shadowRoot.querySelector('#privacyPolicy'))
+            .display);
     assertTrue(secureDnsInput.matches(':focus-within'));
     assertFalse(secureDnsInput.isInvalid());
     assertEquals(SecureDnsMode.SECURE, secureDnsRadioGroup.selected);
@@ -293,8 +317,10 @@ suite('SettingsSecureDnsInteractive', function() {
     flush();
     assertEquals(SecureDnsMode.AUTOMATIC, secureDnsRadioGroup.selected);
 
-    const dropdownMenu = testElement.$$('#secureResolverSelect');
-    const privacyPolicyLine = testElement.$$('#privacyPolicy');
+    const dropdownMenu =
+        testElement.shadowRoot.querySelector('#secureResolverSelect');
+    const privacyPolicyLine =
+        testElement.shadowRoot.querySelector('#privacyPolicy');
 
     // Select resolver3. This change should not be reflected in prefs.
     assertNotEquals(3, dropdownMenu.selectedIndex);
@@ -306,7 +332,9 @@ suite('SettingsSecureDnsInteractive', function() {
     assertEquals(resolverList[3].value, args[1]);
     assertEquals(3, dropdownMenu.selectedIndex);
     assertEquals(
-        'block', getComputedStyle(testElement.$$('#privacyPolicy')).display);
+        'block',
+        getComputedStyle(testElement.shadowRoot.querySelector('#privacyPolicy'))
+            .display);
     assertEquals(
         resolverList[3].policy, privacyPolicyLine.querySelector('a').href);
     assertEquals(
@@ -329,7 +357,9 @@ suite('SettingsSecureDnsInteractive', function() {
     assertFalse(secureDnsRadioGroup.hidden);
     assertEquals(3, dropdownMenu.selectedIndex);
     assertEquals(
-        'block', getComputedStyle(testElement.$$('#privacyPolicy')).display);
+        'block',
+        getComputedStyle(testElement.shadowRoot.querySelector('#privacyPolicy'))
+            .display);
     assertEquals(
         resolverList[3].policy, privacyPolicyLine.querySelector('a').href);
 
@@ -339,7 +369,9 @@ suite('SettingsSecureDnsInteractive', function() {
     assertEquals(SecureDnsMode.SECURE, secureDnsRadioGroup.selected);
     assertEquals(3, dropdownMenu.selectedIndex);
     assertEquals(
-        'block', getComputedStyle(testElement.$$('#privacyPolicy')).display);
+        'block',
+        getComputedStyle(testElement.shadowRoot.querySelector('#privacyPolicy'))
+            .display);
     assertEquals(
         resolverList[3].policy, privacyPolicyLine.querySelector('a').href);
     assertEquals(
@@ -350,22 +382,27 @@ suite('SettingsSecureDnsInteractive', function() {
 
   test('SecureDnsInputChange', async function() {
     // Start in secure mode with a custom valid template
+    testElement.prefs = {
+      dns_over_https:
+          {mode: {value: SecureDnsMode.SECURE}, templates: {value: validEntry}},
+    };
     webUIListenerCallback('secure-dns-setting-changed', {
       mode: SecureDnsMode.SECURE,
-      templates: ['https://dns.example/dns-query'],
+      templates: [validEntry],
       managementMode: SecureDnsUiManagementMode.NO_OVERRIDE,
     });
     flush();
-    const secureDnsRadioGroup = testElement.$$('#secureDnsRadioGroup');
-    const secureDnsInput = testElement.$$('#secureDnsInput');
+    const secureDnsRadioGroup =
+        testElement.shadowRoot.querySelector('#secureDnsRadioGroup');
+    const secureDnsInput =
+        testElement.shadowRoot.querySelector('#secureDnsInput');
     assertEquals('block', getComputedStyle(secureDnsInput).display);
     assertFalse(secureDnsInput.matches(':focus-within'));
     assertFalse(secureDnsInput.isInvalid());
-    assertEquals('https://dns.example/dns-query', secureDnsInput.value);
+    assertEquals(validEntry, secureDnsInput.value);
     assertEquals(SecureDnsMode.SECURE, secureDnsRadioGroup.selected);
 
-    // Make the template invalid and check that the mode pref changes to
-    // 'automatic'.
+    // Make the template invalid and check that the mode pref doesn't change.
     secureDnsInput.focus();
     assertTrue(focused(secureDnsInput));
     secureDnsInput.value = invalidEntry;
@@ -374,10 +411,10 @@ suite('SettingsSecureDnsInteractive', function() {
     await testBrowserProxy.whenCalled('parseCustomDnsEntry');
     assertFalse(secureDnsInput.matches(':focus-within'));
     assertTrue(secureDnsInput.isInvalid());
-    assertEquals(SecureDnsMode.AUTOMATIC, secureDnsRadioGroup.selected);
+    assertEquals(SecureDnsMode.SECURE, secureDnsRadioGroup.selected);
     assertEquals(
-        SecureDnsMode.AUTOMATIC, testElement.prefs.dns_over_https.mode.value);
-    assertEquals('', testElement.prefs.dns_over_https.templates.value);
+        SecureDnsMode.SECURE, testElement.prefs.dns_over_https.mode.value);
+    assertEquals(validEntry, testElement.prefs.dns_over_https.templates.value);
 
     // Receive a pref update and make sure the custom input field is not
     // cleared.
@@ -462,7 +499,8 @@ suite('SettingsSecureDnsInteractive', function() {
       managementMode: SecureDnsUiManagementMode.NO_OVERRIDE,
     });
     flush();
-    const secureDnsInput = testElement.$$('#secureDnsInput');
+    const secureDnsInput =
+        testElement.shadowRoot.querySelector('#secureDnsInput');
 
     // The input should not be focused automatically.
     assertFalse(focused(secureDnsInput));
@@ -486,5 +524,13 @@ suite('SettingsSecureDnsInteractive', function() {
     assertEquals(2, testBrowserProxy.getCallCount('probeCustomDnsTemplate'));
     assertFalse(secureDnsInput.matches(':focus-within'));
     assertTrue(secureDnsInput.isInvalid());
+
+    // Unreachable templates are accepted and committed anyway.
+    assertEquals(SecureDnsMode.SECURE, secureDnsRadioGroup.selected);
+    assertEquals(
+        SecureDnsMode.SECURE, testElement.prefs.dns_over_https.mode.value);
+    assertEquals(
+        `${validEntry} ${otherEntry}`,
+        testElement.prefs.dns_over_https.templates.value);
   });
 });

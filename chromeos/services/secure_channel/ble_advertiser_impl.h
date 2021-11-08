@@ -12,13 +12,13 @@
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "chromeos/services/secure_channel/ble_advertiser.h"
 #include "chromeos/services/secure_channel/ble_constants.h"
 #include "chromeos/services/secure_channel/device_id_pair.h"
 #include "chromeos/services/secure_channel/public/cpp/shared/connection_priority.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class OneShotTimer;
@@ -76,6 +76,9 @@ class BleAdvertiserImpl : public BleAdvertiser {
     static Factory* test_factory_;
   };
 
+  BleAdvertiserImpl(const BleAdvertiserImpl&) = delete;
+  BleAdvertiserImpl& operator=(const BleAdvertiserImpl&) = delete;
+
   ~BleAdvertiserImpl() override;
 
  private:
@@ -85,13 +88,16 @@ class BleAdvertiserImpl : public BleAdvertiser {
     ActiveAdvertisementRequest(DeviceIdPair device_id_pair,
                                ConnectionPriority connection_priority,
                                std::unique_ptr<base::OneShotTimer> timer);
+
+    ActiveAdvertisementRequest(const ActiveAdvertisementRequest&) = delete;
+    ActiveAdvertisementRequest& operator=(const ActiveAdvertisementRequest&) =
+        delete;
+
     virtual ~ActiveAdvertisementRequest();
 
     DeviceIdPair device_id_pair;
     ConnectionPriority connection_priority;
     std::unique_ptr<base::OneShotTimer> timer;
-
-    DISALLOW_COPY_AND_ASSIGN(ActiveAdvertisementRequest);
   };
 
   static const int64_t kNumSecondsPerAdvertisementTimeslot;
@@ -113,12 +119,12 @@ class BleAdvertiserImpl : public BleAdvertiser {
 
   bool ReplaceLowPriorityAdvertisementIfPossible(
       ConnectionPriority connection_priority);
-  base::Optional<size_t> GetIndexWithLowerPriority(
+  absl::optional<size_t> GetIndexWithLowerPriority(
       ConnectionPriority connection_priority);
   void UpdateAdvertisementState();
   void AddActiveAdvertisementRequest(size_t index_to_add);
   void AttemptToAddActiveAdvertisement(size_t index_to_add);
-  base::Optional<size_t> GetIndexForActiveRequest(const DeviceIdPair& request);
+  absl::optional<size_t> GetIndexForActiveRequest(const DeviceIdPair& request);
   void StopAdvertisementRequestAndUpdateActiveRequests(
       size_t index,
       bool replaced_by_higher_priority_advertisement,
@@ -165,8 +171,6 @@ class BleAdvertiserImpl : public BleAdvertiser {
       requests_already_removed_due_to_failed_advertisement_;
 
   base::WeakPtrFactory<BleAdvertiserImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BleAdvertiserImpl);
 };
 
 }  // namespace secure_channel

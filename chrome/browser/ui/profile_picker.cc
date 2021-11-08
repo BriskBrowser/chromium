@@ -21,15 +21,7 @@
 
 namespace {
 
-constexpr base::TimeDelta kActiveTimeThreshold = base::TimeDelta::FromDays(28);
-
-// Returns a pref value indicating whether the profile picker has been shown to
-// the user before.
-bool ProfilePickerShown() {
-  PrefService* prefs = g_browser_process->local_state();
-  DCHECK(prefs);
-  return prefs->GetBoolean(prefs::kBrowserProfilePickerShown);
-}
+constexpr base::TimeDelta kActiveTimeThreshold = base::Days(28);
 
 ProfilePicker::AvailabilityOnStartup GetAvailabilityOnStartup() {
   int availability_on_startup = g_browser_process->local_state()->GetInteger(
@@ -52,18 +44,16 @@ ProfilePicker::AvailabilityOnStartup GetAvailabilityOnStartup() {
 const char ProfilePicker::kTaskManagerUrl[] =
     "chrome://profile-picker/task-manager";
 
-const base::Feature kEnableProfilePickerOnStartupFeature{
-    "EnableProfilePickerOnStartup", base::FEATURE_ENABLED_BY_DEFAULT};
+// static
+bool ProfilePicker::Shown() {
+  PrefService* prefs = g_browser_process->local_state();
+  DCHECK(prefs);
+  return prefs->GetBoolean(prefs::kBrowserProfilePickerShown);
+}
 
 // static
 bool ProfilePicker::ShouldShowAtLaunch() {
   AvailabilityOnStartup availability_on_startup = GetAvailabilityOnStartup();
-
-  if (!base::FeatureList::IsEnabled(features::kNewProfilePicker))
-    return false;
-
-  if (!base::FeatureList::IsEnabled(kEnableProfilePickerOnStartupFeature))
-    return false;
 
   if (availability_on_startup == AvailabilityOnStartup::kDisabled)
     return false;
@@ -82,8 +72,7 @@ bool ProfilePicker::ShouldShowAtLaunch() {
     return false;
 
   std::vector<ProfileAttributesEntry*> profile_attributes =
-      profile_manager->GetProfileAttributesStorage().GetAllProfilesAttributes(
-          /*include_guest_profile=*/false);
+      profile_manager->GetProfileAttributesStorage().GetAllProfilesAttributes();
   int number_of_active_profiles =
       std::count_if(profile_attributes.begin(), profile_attributes.end(),
                     [](ProfileAttributesEntry* entry) {
@@ -93,7 +82,7 @@ bool ProfilePicker::ShouldShowAtLaunch() {
   // Don't show the profile picker at launch if the user has less than two
   // active profiles. However, if the user has already seen the profile picker
   // before, respect user's preference.
-  if (number_of_active_profiles < 2 && !ProfilePickerShown())
+  if (number_of_active_profiles < 2 && !Shown())
     return false;
 
   bool pref_enabled = g_browser_process->local_state()->GetBoolean(

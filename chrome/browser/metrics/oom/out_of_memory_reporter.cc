@@ -28,18 +28,14 @@ void OutOfMemoryReporter::RemoveObserver(Observer* observer) {
 
 OutOfMemoryReporter::OutOfMemoryReporter(content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents),
-      tick_clock_(std::make_unique<base::DefaultTickClock>())
+      tick_clock_(std::make_unique<base::DefaultTickClock>()) {
 #if defined(OS_ANDROID)
-      ,
-      scoped_observer_(this) {
   // This adds N async observers for N WebContents, which isn't great but
   // probably won't be a big problem on Android, where many multiple tabs are
   // rarer.
   auto* crash_manager = crash_reporter::CrashMetricsReporter::GetInstance();
   DCHECK(crash_manager);
-  scoped_observer_.Add(crash_manager);
-#else
-{
+  scoped_observation_.Observe(crash_manager);
 #endif
 }
 
@@ -64,8 +60,10 @@ void OutOfMemoryReporter::SetTickClockForTest(
 
 void OutOfMemoryReporter::DidFinishNavigation(
     content::NavigationHandle* handle) {
-  // Only care about main frame navigations that commit to another document.
-  if (!handle->IsInMainFrame() || !handle->HasCommitted() ||
+  // Ignore navigations to documents not in the primary main frame, as they will
+  // never show up as a visible top document. In particular, prerendered pages
+  // will navigate again in the primary main frame when they are activated.
+  if (!handle->IsInPrimaryMainFrame() || !handle->HasCommitted() ||
       handle->IsSameDocument()) {
     return;
   }
@@ -78,7 +76,8 @@ void OutOfMemoryReporter::DidFinishNavigation(
       handle->GetNavigationId(), ukm::SourceIdType::NAVIGATION_ID);
 }
 
-void OutOfMemoryReporter::RenderProcessGone(base::TerminationStatus status) {
+void OutOfMemoryReporter::PrimaryMainFrameRenderProcessGone(
+    base::TerminationStatus status) {
   // Don't record OOM metrics (especially not UKM) for unactivated portals
   // since the user didn't explicitly navigate to it.
   if (web_contents()->IsPortal())
@@ -88,6 +87,8 @@ void OutOfMemoryReporter::RenderProcessGone(base::TerminationStatus status) {
   if (web_contents()->GetVisibility() != content::Visibility::VISIBLE)
     return;
 
+  // RenderProcessGone is only called for when the current RenderFrameHost of
+  // the primary main frame exits, so it is ok to call GetMainFrame here.
   crashed_render_process_id_ =
       web_contents()->GetMainFrame()->GetProcess()->GetID();
 
@@ -130,4 +131,4 @@ void OutOfMemoryReporter::OnCrashDumpProcessed(
 }
 #endif  // defined(OS_ANDROID)
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(OutOfMemoryReporter)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(OutOfMemoryReporter);

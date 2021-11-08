@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/run_loop.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/external_install_info.h"
@@ -72,23 +73,23 @@ std::string ForceInstallProvider::GetDebugPolicyProviderName() const {
 }
 
 bool ForceInstallProvider::UserMayModifySettings(const Extension* extension,
-                                                 base::string16* error) const {
+                                                 std::u16string* error) const {
   return extension->id() != id_;
 }
 
 bool ForceInstallProvider::MustRemainEnabled(const Extension* extension,
-                                             base::string16* error) const {
+                                             std::u16string* error) const {
   return extension->id() == id_;
 }
 
 DelayTracker::DelayTracker()
     : action_(base::BindRepeating(&DelayTracker::ReinstallAction,
                                   base::Unretained(this))) {
-  PolicyExtensionReinstaller::set_policy_reinstall_action_for_test(&action_);
+  CorruptedExtensionReinstaller::set_reinstall_action_for_test(&action_);
 }
 
 DelayTracker::~DelayTracker() {
-  PolicyExtensionReinstaller::set_policy_reinstall_action_for_test(nullptr);
+  CorruptedExtensionReinstaller::set_reinstall_action_for_test(nullptr);
 }
 
 const std::vector<base::TimeDelta>& DelayTracker::calls() {
@@ -111,7 +112,7 @@ void DelayTracker::Proceed() {
 }
 
 void DelayTracker::StopWatching() {
-  PolicyExtensionReinstaller::set_policy_reinstall_action_for_test(nullptr);
+  CorruptedExtensionReinstaller::set_reinstall_action_for_test(nullptr);
 }
 
 }  // namespace content_verifier_test

@@ -67,22 +67,22 @@ class HeadlessBrowserContextIsolationTest
   }
 
   void RunDevTooledTest() override {
-    load_observer_.reset(new LoadObserver(
+    load_observer_ = std::make_unique<LoadObserver>(
         devtools_client_.get(),
         base::BindOnce(
             &HeadlessBrowserContextIsolationTest::OnFirstLoadComplete,
-            base::Unretained(this))));
+            base::Unretained(this)));
     devtools_client_->GetPage()->Navigate(
         embedded_test_server()->GetURL("/hello.html").spec());
   }
 
   void OnFirstLoadComplete() {
     EXPECT_TRUE(load_observer_->navigation_succeeded());
-    load_observer_.reset(new LoadObserver(
+    load_observer_ = std::make_unique<LoadObserver>(
         devtools_client2_.get(),
         base::BindOnce(
             &HeadlessBrowserContextIsolationTest::OnSecondLoadComplete,
-            base::Unretained(this))));
+            base::Unretained(this)));
     devtools_client2_->GetPage()->Navigate(
         embedded_test_server()->GetURL("/hello.html").spec());
   }
@@ -181,8 +181,7 @@ class HeadlessBrowserUserDataDirTest : public HeadlessBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(HeadlessBrowserUserDataDirTest, Do) {
-  // Allow IO from the main thread.
-  base::ThreadRestrictions::SetIOAllowed(true);
+  base::ScopedAllowBlockingForTesting allow_blocking;
 
   EXPECT_TRUE(embedded_test_server()->Start());
 
@@ -207,8 +206,8 @@ IN_PROC_BROWSER_TEST_F(HeadlessBrowserUserDataDirTest, Do) {
 
 IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, IncognitoMode) {
   // We do not want to bother with posting tasks to create a temp dir.
-  // Just allow IO from main thread for now.
-  base::ThreadRestrictions::SetIOAllowed(true);
+  // Just allow blocking from main thread for now.
+  base::ScopedAllowBlockingForTesting allow_blocking;
 
   EXPECT_TRUE(embedded_test_server()->Start());
 

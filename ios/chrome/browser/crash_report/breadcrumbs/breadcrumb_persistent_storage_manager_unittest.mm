@@ -2,30 +2,36 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#import "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_persistent_storage_manager.h"
+#import "components/breadcrumbs/core/breadcrumb_persistent_storage_manager.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #import "base/test/ios/wait_util.h"
+#include "components/breadcrumbs/core/breadcrumb_manager_keyed_service.h"
+#include "components/breadcrumbs/core/breadcrumb_persistent_storage_util.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state_manager.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_keyed_service.h"
 #include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_keyed_service_factory.h"
 #include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_persistent_storage_util.h"
-#import "ios/chrome/browser/crash_report/crash_reporter_breadcrumb_observer.h"
 #include "ios/chrome/test/ios_chrome_scoped_testing_chrome_browser_state_manager.h"
 #include "ios/web/public/test/web_task_environment.h"
 #include "testing/platform_test.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 using base::test::ios::kWaitForFileOperationTimeout;
 using base::test::ios::WaitUntilConditionOrTimeout;
-using breadcrumb_persistent_storage_util::
-    GetBreadcrumbPersistentStorageFilePath;
+
+namespace breadcrumbs {
 
 namespace {
 
@@ -37,7 +43,8 @@ constexpr unsigned long kEventCountTooManyForPersisting =
 // Creates a new BreadcrumbManagerKeyedService for |browser_state|.
 std::unique_ptr<KeyedService> BuildBreadcrumbManagerKeyedService(
     web::BrowserState* browser_state) {
-  return std::make_unique<BreadcrumbManagerKeyedService>(browser_state);
+  return std::make_unique<BreadcrumbManagerKeyedService>(
+      browser_state->IsOffTheRecord());
 }
 
 // Validates that the events in |persisted_events| are contiguous and that the
@@ -96,8 +103,12 @@ class BreadcrumbPersistentStorageManagerTest : public PlatformTest {
     breadcrumb_manager_service_ = static_cast<BreadcrumbManagerKeyedService*>(
         BreadcrumbManagerKeyedServiceFactory::GetForBrowserState(
             chrome_browser_state_.get()));
-    persistent_storage_ =
-        std::make_unique<BreadcrumbPersistentStorageManager>(directory_name);
+    persistent_storage_ = std::make_unique<BreadcrumbPersistentStorageManager>(
+        directory_name,
+        breadcrumb_persistent_storage_util::
+            GetOldBreadcrumbPersistentStorageFilePath(directory_name),
+        breadcrumb_persistent_storage_util::
+            GetOldBreadcrumbPersistentStorageTempFilePath(directory_name));
     breadcrumb_manager_service_->StartPersisting(persistent_storage_.get());
   }
 
@@ -115,16 +126,12 @@ class BreadcrumbPersistentStorageManagerTest : public PlatformTest {
   std::unique_ptr<BreadcrumbPersistentStorageManager> persistent_storage_;
 };
 
-#if !defined(__has_feature) || !__has_feature(objc_arc)
-#error "This file requires ARC support."
-#endif
-
 // Ensures that logged events are persisted.
 TEST_F(BreadcrumbPersistentStorageManagerTest, PersistEvents) {
   breadcrumb_manager_service_->AddEvent("event");
 
   // Advance clock to trigger writing final events.
-  task_env_.FastForwardBy(base::TimeDelta::FromMinutes(1));
+  task_env_.FastForwardBy(base::Minutes(1));
 
   __block bool events_received = false;
   persistent_storage_->GetStoredEvents(
@@ -148,13 +155,13 @@ TEST_F(BreadcrumbPersistentStorageManagerTest, PersistLargeBucket) {
   while (event_count < kEventCountTooManyForPersisting) {
     event = base::StringPrintf("event %lu", event_count);
     breadcrumb_manager_service_->AddEvent(event);
-    task_env_.FastForwardBy(base::TimeDelta::FromMilliseconds(1));
+    task_env_.FastForwardBy(base::Milliseconds(1));
 
     event_count++;
   }
 
   // Advance clock to trigger writing final events.
-  task_env_.FastForwardBy(base::TimeDelta::FromMinutes(1));
+  task_env_.FastForwardBy(base::Minutes(1));
 
   __block bool events_received = false;
   persistent_storage_->GetStoredEvents(
@@ -179,13 +186,13 @@ TEST_F(BreadcrumbPersistentStorageManagerTest, PersistManyEventsOverTime) {
   while (event_count < kEventCountTooManyForPersisting) {
     event = base::StringPrintf("event %lu", event_count);
     breadcrumb_manager_service_->AddEvent(event);
-    task_env_.FastForwardBy(base::TimeDelta::FromSeconds(1));
+    task_env_.FastForwardBy(base::Seconds(1));
 
     event_count++;
   }
 
   // Advance clock to trigger writing final events.
-  task_env_.FastForwardBy(base::TimeDelta::FromMinutes(1));
+  task_env_.FastForwardBy(base::Minutes(1));
 
   __block bool events_received = false;
   persistent_storage_->GetStoredEvents(
@@ -217,12 +224,12 @@ TEST_F(BreadcrumbPersistentStorageManagerTest,
     event_counter++;
 
     if (event_counter % kNumEventsPerBucket == 0) {
-      task_env_.FastForwardBy(base::TimeDelta::FromHours(1));
+      task_env_.FastForwardBy(base::Hours(1));
     }
   }
 
   // Advance clock to trigger writing final events.
-  task_env_.FastForwardBy(base::TimeDelta::FromMinutes(1));
+  task_env_.FastForwardBy(base::Minutes(1));
 
   __block bool events_received = false;
   persistent_storage_->GetStoredEvents(
@@ -285,3 +292,53 @@ TEST_F(BreadcrumbPersistentStorageManagerTest,
     return events_received;
   }));
 }
+
+using BreadcrumbPersistentStorageManagerFilenameTest = PlatformTest;
+
+TEST_F(BreadcrumbPersistentStorageManagerFilenameTest,
+       MigrateOldBreadcrumbFiles) {
+  web::WebTaskEnvironment task_env;
+  base::ScopedTempDir scoped_temp_directory;
+  ASSERT_TRUE(scoped_temp_directory.CreateUniqueTempDir());
+  base::FilePath directory_name = scoped_temp_directory.GetPath();
+
+  // Create breadcrumb file and temp file with old filenames.
+  const base::FilePath old_breadcrumb_file_path =
+      breadcrumb_persistent_storage_util::
+          GetOldBreadcrumbPersistentStorageFilePath(directory_name);
+  const base::FilePath old_temp_file_path = breadcrumb_persistent_storage_util::
+      GetOldBreadcrumbPersistentStorageTempFilePath(directory_name);
+  base::File old_breadcrumb_file(
+      old_breadcrumb_file_path,
+      base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
+  base::File old_temp_file(old_temp_file_path, base::File::FLAG_CREATE_ALWAYS |
+                                                   base::File::FLAG_WRITE);
+  ASSERT_TRUE(old_breadcrumb_file.IsValid());
+  ASSERT_TRUE(old_temp_file.IsValid());
+  old_temp_file.Close();
+
+  // Write some test data to the breadcrumb file.
+  const std::string test_data = "breadcrumb file test data";
+  ASSERT_NE(-1,
+            old_breadcrumb_file.Write(0, test_data.c_str(), test_data.size()));
+  old_breadcrumb_file.Close();
+
+  BreadcrumbPersistentStorageManager persistent_storage(
+      directory_name, old_breadcrumb_file_path, old_temp_file_path);
+  task_env.RunUntilIdle();
+
+  // The old files should have been removed, and the new breadcrumb file should
+  // be present.
+  EXPECT_FALSE(base::PathExists(old_breadcrumb_file_path));
+  EXPECT_FALSE(base::PathExists(old_temp_file_path));
+  base::File new_file(GetBreadcrumbPersistentStorageFilePath(directory_name),
+                      base::File::FLAG_OPEN | base::File::FLAG_READ);
+  EXPECT_TRUE(new_file.IsValid());
+  const size_t test_data_size = test_data.size();
+  char new_file_data[test_data_size];
+  EXPECT_EQ(static_cast<int>(test_data_size),
+            new_file.Read(0, new_file_data, test_data_size));
+  EXPECT_EQ(test_data, std::string(new_file_data, test_data_size));
+}
+
+}  // namespace breadcrumbs

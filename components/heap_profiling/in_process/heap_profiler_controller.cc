@@ -20,6 +20,7 @@
 #include "build/build_config.h"
 #include "components/metrics/call_stack_profile_builder.h"
 #include "components/metrics/call_stack_profile_metrics_provider.h"
+#include "components/services/heap_profiling/public/cpp/merge_samples.h"
 
 namespace {
 
@@ -72,7 +73,7 @@ void HeapProfilerController::Start() {
   base::SamplingHeapProfiler::Get()->Start();
   const int interval = GetCollectionIntervalInMinutes();
   DCHECK_GT(interval, 0);
-  ScheduleNextSnapshot(stopped_, base::TimeDelta::FromMinutes(interval));
+  ScheduleNextSnapshot(stopped_, base::Minutes(interval));
 }
 
 // static
@@ -98,7 +99,7 @@ void HeapProfilerController::TakeSnapshot(
 
 // static
 void HeapProfilerController::RetrieveAndSendSnapshot() {
-  std::vector<base::SamplingHeapProfiler::Sample> samples =
+  std::vector<Sample> samples =
       base::SamplingHeapProfiler::Get()->GetSamples(0);
   if (samples.empty())
     return;
@@ -111,12 +112,18 @@ void HeapProfilerController::RetrieveAndSendSnapshot() {
 
   base::ModuleCache module_cache;
   metrics::CallStackProfileParams params(
-      metrics::CallStackProfileParams::BROWSER_PROCESS,
-      metrics::CallStackProfileParams::UNKNOWN_THREAD,
-      metrics::CallStackProfileParams::PERIODIC_HEAP_COLLECTION);
+      metrics::CallStackProfileParams::Process::kBrowser,
+      metrics::CallStackProfileParams::Thread::kUnknown,
+      metrics::CallStackProfileParams::Trigger::kPeriodicHeapCollection);
   metrics::CallStackProfileBuilder profile_builder(params);
 
-  for (const base::SamplingHeapProfiler::Sample& sample : samples) {
+  heap_profiling::SampleMap merged_samples =
+      heap_profiling::MergeSamples(samples);
+
+  for (auto& pair : merged_samples) {
+    const Sample& sample = pair.first;
+    const heap_profiling::SampleValue& value = pair.second;
+
     std::vector<base::Frame> frames;
     frames.reserve(sample.stack.size());
     for (const void* frame : sample.stack) {
@@ -125,14 +132,10 @@ void HeapProfilerController::RetrieveAndSendSnapshot() {
           module_cache.GetModuleForAddress(address);
       frames.emplace_back(address, module);
     }
-    size_t count = std::max<size_t>(
-        static_cast<size_t>(
-            std::llround(static_cast<double>(sample.total) / sample.size)),
-        1);
     // Heap "samples" represent allocation stacks aggregated over time so do not
     // have a meaningful timestamp.
     profile_builder.OnSampleCompleted(std::move(frames), base::TimeTicks(),
-                                      sample.total, count);
+                                      value.total, value.count);
   }
 
   profile_builder.OnProfileCompleted(base::TimeDelta(), base::TimeDelta());

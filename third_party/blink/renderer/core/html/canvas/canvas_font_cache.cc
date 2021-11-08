@@ -30,12 +30,13 @@ namespace blink {
 CanvasFontCache::CanvasFontCache(Document& document)
     : document_(&document), pruning_scheduled_(false) {
   FontFamily font_family;
-  font_family.SetFamily(defaultFontFamily);
+  font_family.SetFamily(defaultFontFamily,
+                        FontFamily::InferredTypeFor(defaultFontFamily));
   FontDescription default_font_description;
   default_font_description.SetFamily(font_family);
   default_font_description.SetSpecifiedSize(defaultFontSize);
   default_font_description.SetComputedSize(defaultFontSize);
-  default_font_style_ = ComputedStyle::Create();
+  default_font_style_ = document.GetStyleResolver().CreateComputedStyle();
   default_font_style_->SetFontDescription(default_font_description);
 }
 
@@ -72,8 +73,10 @@ bool CanvasFontCache::GetFontUsingDefaultStyle(HTMLCanvasElement& element,
   if (!parsed_style)
     return false;
 
-  ComputedStyle* font_style = ComputedStyle::Clone(*default_font_style_);
-  document_->GetStyleEngine().ComputeFont(element, font_style, *parsed_style);
+  scoped_refptr<ComputedStyle> font_style =
+      ComputedStyle::Clone(*default_font_style_.get());
+  document_->GetStyleEngine().ComputeFont(element, font_style.get(),
+                                          *parsed_style);
   fonts_resolved_using_default_style_.insert(font_string,
                                              font_style->GetFont());
   resolved_font = fonts_resolved_using_default_style_.find(font_string)->value;
@@ -145,7 +148,6 @@ void CanvasFontCache::PruneAll() {
 void CanvasFontCache::Trace(Visitor* visitor) const {
   visitor->Trace(fetched_fonts_);
   visitor->Trace(document_);
-  visitor->Trace(default_font_style_);
 }
 
 void CanvasFontCache::Dispose() {

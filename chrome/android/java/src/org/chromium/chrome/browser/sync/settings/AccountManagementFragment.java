@@ -22,7 +22,6 @@ import androidx.preference.PreferenceScreen;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileAccountManagementMetrics;
@@ -33,11 +32,11 @@ import org.chromium.chrome.browser.signin.services.ProfileDataCache;
 import org.chromium.chrome.browser.signin.services.SigninManager;
 import org.chromium.chrome.browser.signin.services.SigninManager.SignInStateObserver;
 import org.chromium.chrome.browser.signin.services.SigninMetricsUtils;
-import org.chromium.chrome.browser.signin.ui.SignOutDialogFragment;
-import org.chromium.chrome.browser.signin.ui.SignOutDialogFragment.SignOutDialogListener;
-import org.chromium.chrome.browser.signin.ui.SigninUtils;
 import org.chromium.chrome.browser.superviseduser.FilteringBehavior;
-import org.chromium.chrome.browser.sync.ProfileSyncService;
+import org.chromium.chrome.browser.sync.SyncService;
+import org.chromium.chrome.browser.ui.signin.SignOutDialogFragment;
+import org.chromium.chrome.browser.ui.signin.SignOutDialogFragment.SignOutDialogListener;
+import org.chromium.chrome.browser.ui.signin.SigninUtils;
 import org.chromium.components.browser_ui.settings.ChromeBasePreference;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.components.prefs.PrefService;
@@ -87,11 +86,11 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
     private Profile mProfile;
     private String mSignedInAccountName;
     private ProfileDataCache mProfileDataCache;
-    private @Nullable ProfileSyncService.SyncSetupInProgressHandle mSyncSetupInProgressHandle;
+    private @Nullable SyncService.SyncSetupInProgressHandle mSyncSetupInProgressHandle;
 
     @Override
     public void onCreatePreferences(Bundle savedState, String rootKey) {
-        ProfileSyncService syncService = ProfileSyncService.get();
+        SyncService syncService = SyncService.get();
         if (syncService != null) {
             // Prevent sync settings changes from taking effect until the user leaves this screen.
             mSyncSetupInProgressHandle = syncService.getSetupInProgressHandle();
@@ -107,8 +106,10 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
         SigninMetricsUtils.logProfileAccountManagementMenu(
                 ProfileAccountManagementMetrics.VIEW, mGaiaServiceType);
 
-        mProfileDataCache = ProfileDataCache.createProfileDataCache(
-                getActivity(), mProfile.isChild() ? R.drawable.ic_account_child_20dp : 0);
+        mProfileDataCache = mProfile.isChild()
+                ? ProfileDataCache.createWithDefaultImageSize(
+                        requireContext(), R.drawable.ic_account_child_20dp)
+                : ProfileDataCache.createWithDefaultImageSizeAndNoBadge(requireContext());
     }
 
     @Override
@@ -136,19 +137,16 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
                 .getSigninManager(Profile.getLastUsedRegularProfile())
                 .addSignInStateObserver(this);
         mProfileDataCache.addObserver(this);
-        List<String> accountNames = AccountUtils.toAccountNames(
-                AccountManagerFacadeProvider.getInstance().tryGetGoogleAccounts());
-        mProfileDataCache.update(accountNames);
         update();
     }
 
     @Override
     public void onPause() {
         super.onPause();
+        mProfileDataCache.removeObserver(this);
         IdentityServicesProvider.get()
                 .getSigninManager(Profile.getLastUsedRegularProfile())
                 .removeSignInStateObserver(this);
-        mProfileDataCache.removeObserver(this);
     }
 
     public void update() {
@@ -160,11 +158,7 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
         mSignedInAccountName = CoreAccountInfo.getEmailFrom(
                 IdentityServicesProvider.get()
                         .getIdentityManager(Profile.getLastUsedRegularProfile())
-                        .getPrimaryAccountInfo(
-                                ChromeFeatureList.isEnabled(
-                                        ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
-                                        ? ConsentLevel.NOT_REQUIRED
-                                        : ConsentLevel.SYNC));
+                        .getPrimaryAccountInfo(ConsentLevel.SIGNIN));
         if (mSignedInAccountName == null) {
             // The AccountManagementFragment can only be shown when the user is signed in. If the
             // user is signed out, exit the fragment.
@@ -181,7 +175,7 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
         configureSignOutSwitch();
         configureChildAccountPreferences();
 
-        updateAccountsList();
+        AccountManagerFacadeProvider.getInstance().getAccounts().then(this::updateAccountsList);
     }
 
     private boolean canAddAccounts() {
@@ -196,11 +190,14 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
             getPreferenceScreen().removePreference(signOutPreference);
             getPreferenceScreen().removePreference(findPreference(PREF_SIGN_OUT_DIVIDER));
         } else {
-            if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-                signOutPreference.setLayoutResource(R.layout.account_management_account_row);
-                signOutPreference.setIcon(R.drawable.ic_signout_40dp);
-            }
-            signOutPreference.setTitle(getSignOutPreferenceText());
+            signOutPreference.setLayoutResource(R.layout.account_management_account_row);
+            signOutPreference.setIcon(R.drawable.ic_signout_40dp);
+            signOutPreference.setTitle(
+                    IdentityServicesProvider.get()
+                                    .getIdentityManager(Profile.getLastUsedRegularProfile())
+                                    .hasPrimaryAccount(ConsentLevel.SYNC)
+                            ? R.string.sign_out_and_turn_off_sync
+                            : R.string.sign_out);
             signOutPreference.setOnPreferenceClickListener(preference -> {
                 if (!isVisible() || !isResumed() || mSignedInAccountName == null) {
                     return false;
@@ -274,35 +271,22 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
         }
     }
 
-    private int getSignOutPreferenceText() {
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-            if (!IdentityServicesProvider.get()
-                            .getIdentityManager(Profile.getLastUsedRegularProfile())
-                            .hasPrimaryAccount()) {
-                // There is no syncing account.
-                return R.string.sign_out;
-            }
+    private void updateAccountsList(List<Account> accounts) {
+        PreferenceCategory accountsCategory = findPreference(PREF_ACCOUNTS_CATEGORY);
+        if (accountsCategory == null) {
+            // This pref is dynamically added/removed many times, so it might not be present by now.
+            // More details can be found in crbug/1221491.
+            return;
         }
-        return R.string.sign_out_and_turn_off_sync;
-    }
-
-    private void updateAccountsList() {
-        PreferenceCategory accountsCategory =
-                (PreferenceCategory) findPreference(PREF_ACCOUNTS_CATEGORY);
-        if (accountsCategory == null) return;
-
         accountsCategory.removeAll();
 
         accountsCategory.addPreference(
                 createAccountPreference(AccountUtils.createAccountFromName(mSignedInAccountName)));
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-            accountsCategory.addPreference(
-                    createDividerPreference(R.layout.account_divider_preference));
-            accountsCategory.addPreference(createManageYourGoogleAccountPreference());
-            accountsCategory.addPreference(createDividerPreference(R.layout.divider_preference));
-        }
+        accountsCategory.addPreference(
+                createDividerPreference(R.layout.account_divider_preference));
+        accountsCategory.addPreference(createManageYourGoogleAccountPreference());
+        accountsCategory.addPreference(createDividerPreference(R.layout.divider_preference));
 
-        List<Account> accounts = AccountManagerFacadeProvider.getInstance().tryGetGoogleAccounts();
         for (Account account : accounts) {
             if (!mSignedInAccountName.equals(account.name)) {
                 accountsCategory.addPreference(createAccountPreference(account));
@@ -350,14 +334,8 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
     private ChromeBasePreference createAddAccountPreference() {
         ChromeBasePreference addAccountPreference = new ChromeBasePreference(getStyledContext());
         addAccountPreference.setLayoutResource(R.layout.account_management_account_row);
-
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-            addAccountPreference.setIcon(R.drawable.ic_person_add_40dp);
-            addAccountPreference.setTitle(R.string.signin_add_account_to_device);
-        } else {
-            addAccountPreference.setIcon(R.drawable.ic_add_circle_40dp);
-            addAccountPreference.setTitle(R.string.account_management_add_account_title);
-        }
+        addAccountPreference.setIcon(R.drawable.ic_person_add_40dp);
+        addAccountPreference.setTitle(R.string.signin_add_account_to_device);
         addAccountPreference.setOnPreferenceClickListener(preference -> {
             if (!isVisible() || !isResumed()) return false;
 
@@ -395,7 +373,7 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
     // ProfileDataCache.Observer implementation:
     @Override
     public void onProfileDataUpdated(String accountEmail) {
-        updateAccountsList();
+        AccountManagerFacadeProvider.getInstance().getAccounts().then(this::updateAccountsList);
     }
 
     // SignOutDialogListener implementation:
@@ -403,10 +381,9 @@ public class AccountManagementFragment extends PreferenceFragmentCompat
     public void onSignOutClicked(boolean forceWipeUserData) {
         // In case the user reached this fragment without being signed in, we guard the sign out so
         // we do not hit a native crash.
-        if (IdentityServicesProvider.get()
+        if (!IdentityServicesProvider.get()
                         .getIdentityManager(Profile.getLastUsedRegularProfile())
-                        .getPrimaryAccountInfo(ConsentLevel.NOT_REQUIRED)
-                == null) {
+                        .hasPrimaryAccount(ConsentLevel.SIGNIN)) {
             return;
         }
         final DialogFragment clearDataProgressDialog = new ClearDataProgressDialog();

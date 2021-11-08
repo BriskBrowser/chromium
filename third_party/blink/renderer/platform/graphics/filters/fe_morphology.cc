@@ -24,6 +24,7 @@
 
 #include "third_party/blink/renderer/platform/graphics/filters/fe_morphology.h"
 
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/platform/graphics/filters/filter.h"
 #include "third_party/blink/renderer/platform/graphics/filters/paint_filter_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_stream.h"
@@ -76,8 +77,8 @@ bool FEMorphology::SetRadiusY(float radius_y) {
 
 FloatRect FEMorphology::MapEffect(const FloatRect& rect) const {
   FloatRect result = rect;
-  result.InflateX(GetFilter()->ApplyHorizontalScale(radius_x_));
-  result.InflateY(GetFilter()->ApplyVerticalScale(radius_y_));
+  result.OutsetX(GetFilter()->ApplyHorizontalScale(radius_x_));
+  result.OutsetY(GetFilter()->ApplyVerticalScale(radius_y_));
   return result;
 }
 
@@ -86,7 +87,7 @@ sk_sp<PaintFilter> FEMorphology::CreateImageFilter() {
       InputEffect(0), OperatingInterpolationSpace()));
   float radius_x = GetFilter()->ApplyHorizontalScale(radius_x_);
   float radius_y = GetFilter()->ApplyVerticalScale(radius_y_);
-  base::Optional<PaintFilter::CropRect> crop_rect = GetCropRect();
+  absl::optional<PaintFilter::CropRect> crop_rect = GetCropRect();
   MorphologyPaintFilter::MorphType morph_type =
       type_ == FEMORPHOLOGY_OPERATOR_DILATE
           ? MorphologyPaintFilter::MorphType::kDilate

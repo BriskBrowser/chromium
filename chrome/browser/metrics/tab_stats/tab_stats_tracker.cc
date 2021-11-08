@@ -25,6 +25,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/tabs/tab_group.h"
+#include "chrome/browser/ui/tabs/tab_group_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/pref_names.h"
@@ -48,8 +50,7 @@ namespace {
 
 // The interval at which the DailyEvent::CheckInterval function should be
 // called.
-constexpr base::TimeDelta kDailyEventIntervalTimeDelta =
-    base::TimeDelta::FromMinutes(30);
+constexpr base::TimeDelta kDailyEventIntervalTimeDelta = base::Minutes(30);
 
 // The intervals at which we report the number of unused tabs. This is used for
 // all the tab usage histograms listed below.
@@ -57,18 +58,16 @@ constexpr base::TimeDelta kDailyEventIntervalTimeDelta =
 // The 'Tabs.TabUsageIntervalLength' histogram suffixes entry in histograms.xml
 // should be kept in sync with these values.
 constexpr base::TimeDelta kTabUsageReportingIntervals[] = {
-    base::TimeDelta::FromSeconds(30), base::TimeDelta::FromMinutes(1),
-    base::TimeDelta::FromMinutes(10), base::TimeDelta::FromHours(1),
-    base::TimeDelta::FromHours(5),    base::TimeDelta::FromHours(12)};
+    base::Seconds(30), base::Minutes(1), base::Minutes(10),
+    base::Hours(1),    base::Hours(5),   base::Hours(12)};
 
 #if defined(OS_WIN)
 const base::TimeDelta kNativeWindowOcclusionCalculationInterval =
-    base::TimeDelta::FromMinutes(10);
+    base::Minutes(10);
 #endif
 
 // The interval at which the heartbeat tab metrics should be reported.
-const base::TimeDelta kTabsHeartbeatReportingInterval =
-    base::TimeDelta::FromMinutes(5);
+const base::TimeDelta kTabsHeartbeatReportingInterval = base::Minutes(5);
 
 // The global TabStatsTracker instance.
 TabStatsTracker* g_tab_stats_tracker_instance = nullptr;
@@ -124,10 +123,12 @@ const char
 const char
     TabStatsTracker::UmaStatsReportingDelegate::kWindowCountHistogramName[] =
         "Tabs.WindowCount";
-
 const char
     TabStatsTracker::UmaStatsReportingDelegate::kWindowWidthHistogramName[] =
         "Tabs.WindowWidth";
+const char
+    TabStatsTracker::UmaStatsReportingDelegate::kCollapsedTabHistogramName[] =
+        "TabGroups.CollapsedTabCount";
 
 const TabStatsDataStore::TabsStats& TabStatsTracker::tab_stats() const {
   return tab_stats_data_store_->tab_stats();
@@ -161,7 +162,7 @@ TabStatsTracker::TabStatsTracker(PrefService* pref_service)
   }
 
   browser_list->AddObserver(this);
-  base::PowerMonitor::AddObserver(this);
+  base::PowerMonitor::AddPowerSuspendObserver(this);
 
   // Setup daily reporting of the stats aggregated in |tab_stats_data_store|.
   daily_event_->AddObserver(std::make_unique<TabStatsDailyObserver>(
@@ -206,7 +207,7 @@ TabStatsTracker::TabStatsTracker(PrefService* pref_service)
 TabStatsTracker::~TabStatsTracker() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   BrowserList::GetInstance()->RemoveObserver(this);
-  base::PowerMonitor::RemoveObserver(this);
+  base::PowerMonitor::RemovePowerSuspendObserver(this);
 }
 
 // static
@@ -235,6 +236,8 @@ void TabStatsTracker::AddObserverAndSetInitialState(
       observer->OnTabAdded(wc);
       if (wc->GetCurrentlyPlayingVideoCount())
         observer->OnVideoStartedPlaying(wc);
+      if (wc->IsCurrentlyAudible())
+        observer->OnTabIsAudibleChanged(wc);
       if (wc->IsFullscreen() && wc->HasActiveEffectivelyFullscreenVideo())
         observer->OnMediaEffectivelyFullscreenChanged(wc, true);
     }
@@ -268,6 +271,9 @@ class TabStatsTracker::WebContentsUsageObserver
         tab_stats_tracker_(tab_stats_tracker),
         ukm_source_id_(ukm::GetSourceIdForWebContentsDocument(web_contents)) {}
 
+  WebContentsUsageObserver(const WebContentsUsageObserver&) = delete;
+  WebContentsUsageObserver& operator=(const WebContentsUsageObserver&) = delete;
+
   // content::WebContentsObserver:
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override {
@@ -280,10 +286,13 @@ class TabStatsTracker::WebContentsUsageObserver
     }
   }
 
+  // TODO(crbug.com/1245014): Change this to PrimaryPageChanged and use
+  // RFH::GetUkmPageSourceId instead of navigation_handle->GetNavigationId() for
+  // the Ukm source id.
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override {
     if (!navigation_handle->HasCommitted() ||
-        !navigation_handle->IsInMainFrame() ||
+        !navigation_handle->IsInPrimaryMainFrame() ||
         navigation_handle->IsSameDocument()) {
       return;
     }
@@ -295,7 +304,7 @@ class TabStatsTracker::WebContentsUsageObserver
     // Update observers.
     for (TabStatsObserver& tab_stats_observer :
          tab_stats_tracker_->tab_stats_observers_) {
-      tab_stats_observer.OnMainFrameNavigationCommitted(web_contents());
+      tab_stats_observer.OnPrimaryMainFrameNavigationCommitted(web_contents());
     }
   }
 
@@ -309,7 +318,7 @@ class TabStatsTracker::WebContentsUsageObserver
   void OnVisibilityChanged(content::Visibility visibility) override {
     for (TabStatsObserver& tab_stats_observer :
          tab_stats_tracker_->tab_stats_observers_) {
-      tab_stats_observer.OnTabVisibilityChanged(web_contents(), visibility);
+      tab_stats_observer.OnTabVisibilityChanged(web_contents());
     }
   }
 
@@ -324,6 +333,13 @@ class TabStatsTracker::WebContentsUsageObserver
     tab_stats_tracker_->OnWebContentsDestroyed(web_contents());
     // The call above will free |this| and so nothing should be done on this
     // object starting from here.
+  }
+
+  void OnAudioStateChanged(bool audible) override {
+    for (TabStatsObserver& tab_stats_observer :
+         tab_stats_tracker_->tab_stats_observers_) {
+      tab_stats_observer.OnTabIsAudibleChanged(web_contents());
+    }
   }
 
   void MediaEffectivelyFullscreenChanged(bool is_fullscreen) override {
@@ -371,8 +387,6 @@ class TabStatsTracker::WebContentsUsageObserver
   ukm::SourceId ukm_source_id_ = 0;
   // The number of video currently playing in this tab.
   size_t video_playing_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(WebContentsUsageObserver);
 };
 
 void TabStatsTracker::OnBrowserAdded(Browser* browser) {
@@ -416,20 +430,6 @@ void TabStatsTracker::OnTabStripModelChanged(
         replace->new_contents, std::make_unique<WebContentsUsageObserver>(
                                    replace->new_contents, this)));
     web_contents_usage_observers_.erase(replace->old_contents);
-  }
-}
-
-void TabStatsTracker::TabChangedAt(content::WebContents* web_contents,
-                                   int index,
-                                   TabChangeType change_type) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Ignore 'loading' changes, we're only interested in audio here.
-  if (change_type != TabChangeType::kAll)
-    return;
-  if (web_contents->IsCurrentlyAudible()) {
-    for (TabStatsObserver& tab_stats_observer : tab_stats_observers_) {
-      tab_stats_observer.OnTabAudible(web_contents);
-    }
   }
 }
 
@@ -519,9 +519,20 @@ void TabStatsTracker::UmaStatsReportingDelegate::ReportHeartbeatMetrics(
                                                  tab_stats.total_tab_count);
   UmaHistogramCounts10000WithBatteryStateVariant(kWindowCountHistogramName,
                                                  tab_stats.window_count);
+  int collapsed_tab_count = 0;
 
   // Record the width of all open browser windows with tabs.
   for (Browser* browser : *BrowserList::GetInstance()) {
+    TabGroupModel* const tab_group_model =
+        browser->tab_strip_model()->group_model();
+    const std::vector<tab_groups::TabGroupId>& groups =
+        tab_group_model->ListTabGroups();
+    for (const tab_groups::TabGroupId& group_id : groups) {
+      const TabGroup* const tab_group = tab_group_model->GetTabGroup(group_id);
+      if (tab_group->visual_data()->is_collapsed())
+        collapsed_tab_count += tab_group->ListTabs().length();
+    }
+
     if (browser->type() != Browser::TYPE_NORMAL)
       continue;
 
@@ -546,6 +557,9 @@ void TabStatsTracker::UmaStatsReportingDelegate::ReportHeartbeatMetrics(
     UMA_HISTOGRAM_CUSTOM_COUNTS(kWindowWidthHistogramName, window_size.width(),
                                 100, 10000, 50);
   }
+
+  base::UmaHistogramCustomCounts(kCollapsedTabHistogramName,
+                                 collapsed_tab_count, 1, 200, 50);
 }
 
 void TabStatsTracker::UmaStatsReportingDelegate::ReportUsageDuringInterval(

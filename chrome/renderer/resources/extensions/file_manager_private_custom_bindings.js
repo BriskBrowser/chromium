@@ -74,6 +74,12 @@ apiBridge.registerCustomHook(function(bindingsAPI) {
     });
   });
 
+  apiFunctions.setHandleRequest('getVolumeRoot', function(options, callback) {
+    fileManagerPrivateInternal.getVolumeRoot(options, function(entry) {
+      callback(entry ? GetExternalFileEntry(entry) : undefined);
+    });
+  });
+
   apiFunctions.setHandleRequest('getEntryProperties',
                                 function(entries, names, callback) {
     var urls = entries.map(function(entry) {
@@ -182,20 +188,20 @@ apiBridge.registerCustomHook(function(bindingsAPI) {
   });
 
   apiFunctions.setHandleRequest('executeTask',
-      function(taskId, entries, callback) {
+      function(descriptor, entries, callback) {
         var urls = entries.map(function(entry) {
           return getEntryURL(entry);
         });
-        fileManagerPrivateInternal.executeTask(taskId, urls, callback);
+        fileManagerPrivateInternal.executeTask(descriptor, urls, callback);
       });
 
   apiFunctions.setHandleRequest('setDefaultTask',
-      function(taskId, entries, mimeTypes, callback) {
+      function(descriptor, entries, mimeTypes, callback) {
         var urls = entries.map(function(entry) {
           return getEntryURL(entry);
         });
         fileManagerPrivateInternal.setDefaultTask(
-            taskId, urls, mimeTypes, callback);
+            descriptor, urls, mimeTypes, callback);
       });
 
   apiFunctions.setHandleRequest('getFileTasks', function(entries, callback) {
@@ -210,12 +216,6 @@ apiBridge.registerCustomHook(function(bindingsAPI) {
     fileManagerPrivateInternal.getDownloadUrl(url, callback);
   });
 
-  apiFunctions.setHandleRequest('copyImageToClipboard', function(
-        entry, callback) {
-    var url = getEntryURL(entry);
-    fileManagerPrivateInternal.copyImageToClipboard(url, callback);
-  });
-
   apiFunctions.setHandleRequest('startCopy', function(
         entry, parentEntry, newName, callback) {
     var url = getEntryURL(entry);
@@ -224,15 +224,12 @@ apiBridge.registerCustomHook(function(bindingsAPI) {
         url, parentUrl, newName, callback);
   });
 
-  apiFunctions.setHandleRequest('zipSelection', function(
-        parentEntry, entries, destName, callback) {
-    var parentUrl = getEntryURL(parentEntry);
-    var urls = entries.map(function(entry) {
-      return getEntryURL(entry);
-    });
-    fileManagerPrivateInternal.zipSelection(
-        parentUrl, urls, destName, callback);
-  });
+  apiFunctions.setHandleRequest(
+      'zipSelection',
+      (entries, parentEntry, destName, callback) =>
+          fileManagerPrivateInternal.zipSelection(
+              getEntryURL(parentEntry), entries.map(getEntryURL), destName,
+              callback));
 
   apiFunctions.setHandleRequest('validatePathNameLength', function(
         entry, name, callback) {
@@ -347,11 +344,12 @@ apiBridge.registerCustomHook(function(bindingsAPI) {
       });
 
   apiFunctions.setHandleRequest(
-      'invokeSharesheet', function(entries, callback) {
+      'invokeSharesheet', function(entries, launchSource, callback) {
         var urls = entries.map(function(entry) {
           return getEntryURL(entry);
         });
-        fileManagerPrivateInternal.invokeSharesheet(urls, callback);
+        fileManagerPrivateInternal.invokeSharesheet(
+            urls, launchSource, callback);
       });
 
   apiFunctions.setHandleRequest(
@@ -360,6 +358,15 @@ apiBridge.registerCustomHook(function(bindingsAPI) {
         fileManagerPrivateInternal.toggleAddedToHoldingSpace(
             urls, added, callback);
       });
+
+  apiFunctions.setHandleRequest('startIOTask', function(type, entries, params) {
+    const urls = entries.map(entry => getEntryURL(entry));
+    let newParams = {};
+    if (params.destinationFolder) {
+      newParams.destinationFolderUrl = getEntryURL(params.destinationFolder);
+    }
+    fileManagerPrivateInternal.startIOTask(type, urls, newParams);
+  });
 });
 
 bindingUtil.registerEventArgumentMassager(

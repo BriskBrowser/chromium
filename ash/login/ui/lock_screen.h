@@ -16,6 +16,7 @@
 #include "base/macros.h"
 #include "base/scoped_observation.h"
 #include "ui/base/clipboard/clipboard.h"
+#include "ui/views/widget/widget.h"
 
 namespace views {
 class View;
@@ -44,6 +45,9 @@ class ASH_EXPORT LockScreen : public TrayActionObserver,
 
   // The UI that this instance is displaying.
   enum class ScreenType { kLogin, kLock };
+
+  LockScreen(const LockScreen&) = delete;
+  LockScreen& operator=(const LockScreen&) = delete;
 
   // Fetch the global lock screen instance. |Show()| must have been called
   // before this.
@@ -99,15 +103,20 @@ class ASH_EXPORT LockScreen : public TrayActionObserver,
 
   bool is_shown_ = false;
 
+  // Clipboard used to restore user session's clipboard, after having made a
+  // new one especially for the lock screen. We want two separate clipboards
+  // for security purposes: if a user leaves their session locked, with their
+  // password copied, it leaves the lock screen vulnerable. However, this is
+  // a desirable behavior for secondary login screen.
   std::unique_ptr<ui::Clipboard> saved_clipboard_;
+
+  std::unique_ptr<views::Widget::PaintAsActiveLock> paint_as_active_lock_;
 
   base::ScopedObservation<TrayAction, TrayActionObserver>
       tray_action_observation_{this};
   ScopedSessionObserver session_observer_{this};
 
   std::vector<base::OnceClosure> on_shown_callbacks_;
-
-  DISALLOW_COPY_AND_ASSIGN(LockScreen);
 };
 
 }  // namespace ash

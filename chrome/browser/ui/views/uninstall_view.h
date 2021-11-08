@@ -11,8 +11,8 @@
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/models/combobox_model.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace views {
@@ -36,7 +36,7 @@ class UninstallView : public views::DialogDelegateView,
 
   // Overridden from ui::ComboboxModel:
   int GetItemCount() const override;
-  base::string16 GetItemAt(int index) const override;
+  std::u16string GetItemAt(int index) const override;
 
  private:
   typedef std::map<std::wstring, std::wstring> BrowsersMap;

@@ -12,13 +12,14 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/dbus/constants/dbus_switches.h"
 #include "chromeos/dbus/shill/fake_shill_device_client.h"
@@ -47,7 +48,7 @@ bool s_dynamic_wep = false;
 struct ValueEquals {
   explicit ValueEquals(const base::Value* first) : first_(first) {}
   bool operator()(const base::Value* second) const {
-    return first_->Equals(second);
+    return *first_ == *second;
   }
   const base::Value* first_;
 };
@@ -68,14 +69,23 @@ bool GetString(const base::Value& dict, const char* key, std::string* result) {
   // Note: FindPath uses path expansion which is currently required for the
   // fake shill implementations.
   const base::Value* v = dict.FindPathOfType(key, base::Value::Type::STRING);
-  if (!v)
+  if (!v || !v->is_string())
     return false;
-  return v->GetAsString(result);
+  *result = v->GetString();
+  return true;
 }
 
 std::string GetStringValue(const base::Value& dict, const char* key) {
   const base::Value* value = dict.FindKeyOfType(key, base::Value::Type::STRING);
   return value ? value->GetString() : std::string();
+}
+
+// Returns whether added.
+bool AppendIfNotPresent(base::ListValue* list, base::Value value) {
+  if (base::Contains(list->GetList(), value))
+    return false;
+  list->Append(std::move(value));
+  return true;
 }
 
 bool IsPortalledState(const std::string& state) {
@@ -476,8 +486,8 @@ ShillManagerClient::TestInterface* FakeShillManagerClient::GetTestInterface() {
 // ShillManagerClient::TestInterface overrides.
 
 void FakeShillManagerClient::AddDevice(const std::string& device_path) {
-  if (GetListProperty(shill::kDevicesProperty)
-          ->AppendIfNotPresent(std::make_unique<base::Value>(device_path))) {
+  if (AppendIfNotPresent(GetListProperty(shill::kDevicesProperty),
+                         base::Value(device_path))) {
     CallNotifyObserversPropertyChanged(shill::kDevicesProperty);
   }
 }
@@ -485,25 +495,25 @@ void FakeShillManagerClient::AddDevice(const std::string& device_path) {
 void FakeShillManagerClient::RemoveDevice(const std::string& device_path) {
   base::Value device_path_value(device_path);
   if (GetListProperty(shill::kDevicesProperty)
-          ->Remove(device_path_value, nullptr)) {
+          ->EraseListValue(device_path_value)) {
     CallNotifyObserversPropertyChanged(shill::kDevicesProperty);
   }
 }
 
 void FakeShillManagerClient::ClearDevices() {
-  GetListProperty(shill::kDevicesProperty)->Clear();
+  GetListProperty(shill::kDevicesProperty)->ClearList();
   CallNotifyObserversPropertyChanged(shill::kDevicesProperty);
 }
 
 void FakeShillManagerClient::AddTechnology(const std::string& type,
                                            bool enabled) {
-  if (GetListProperty(shill::kAvailableTechnologiesProperty)
-          ->AppendIfNotPresent(std::make_unique<base::Value>(type))) {
+  if (AppendIfNotPresent(GetListProperty(shill::kAvailableTechnologiesProperty),
+                         base::Value(type))) {
     CallNotifyObserversPropertyChanged(shill::kAvailableTechnologiesProperty);
   }
   if (enabled &&
-      GetListProperty(shill::kEnabledTechnologiesProperty)
-          ->AppendIfNotPresent(std::make_unique<base::Value>(type))) {
+      AppendIfNotPresent(GetListProperty(shill::kEnabledTechnologiesProperty),
+                         base::Value(type))) {
     CallNotifyObserversPropertyChanged(shill::kEnabledTechnologiesProperty);
   }
 }
@@ -511,11 +521,11 @@ void FakeShillManagerClient::AddTechnology(const std::string& type,
 void FakeShillManagerClient::RemoveTechnology(const std::string& type) {
   base::Value type_value(type);
   if (GetListProperty(shill::kAvailableTechnologiesProperty)
-          ->Remove(type_value, nullptr)) {
+          ->EraseListValue(type_value)) {
     CallNotifyObserversPropertyChanged(shill::kAvailableTechnologiesProperty);
   }
   if (GetListProperty(shill::kEnabledTechnologiesProperty)
-          ->Remove(type_value, nullptr)) {
+          ->EraseListValue(type_value)) {
     CallNotifyObserversPropertyChanged(shill::kEnabledTechnologiesProperty);
   }
 }
@@ -523,14 +533,15 @@ void FakeShillManagerClient::RemoveTechnology(const std::string& type) {
 void FakeShillManagerClient::SetTechnologyInitializing(const std::string& type,
                                                        bool initializing) {
   if (initializing) {
-    if (GetListProperty(shill::kUninitializedTechnologiesProperty)
-            ->AppendIfNotPresent(std::make_unique<base::Value>(type))) {
+    if (AppendIfNotPresent(
+            GetListProperty(shill::kUninitializedTechnologiesProperty),
+            base::Value(type))) {
       CallNotifyObserversPropertyChanged(
           shill::kUninitializedTechnologiesProperty);
     }
   } else {
     if (GetListProperty(shill::kUninitializedTechnologiesProperty)
-            ->Remove(base::Value(type), nullptr)) {
+            ->EraseListValue(base::Value(type))) {
       CallNotifyObserversPropertyChanged(
           shill::kUninitializedTechnologiesProperty);
     }
@@ -578,8 +589,7 @@ void FakeShillManagerClient::AddGeoNetwork(const std::string& technology,
 
 void FakeShillManagerClient::AddProfile(const std::string& profile_path) {
   const char* key = shill::kProfilesProperty;
-  if (GetListProperty(key)->AppendIfNotPresent(
-          std::make_unique<base::Value>(profile_path))) {
+  if (AppendIfNotPresent(GetListProperty(key), base::Value(profile_path))) {
     CallNotifyObserversPropertyChanged(key);
   }
 }
@@ -596,8 +606,8 @@ void FakeShillManagerClient::SetManagerProperty(const std::string& key,
 void FakeShillManagerClient::AddManagerService(const std::string& service_path,
                                                bool notify_observers) {
   VLOG(2) << "AddManagerService: " << service_path;
-  GetListProperty(shill::kServiceCompleteListProperty)
-      ->AppendIfNotPresent(std::make_unique<base::Value>(service_path));
+  AppendIfNotPresent(GetListProperty(shill::kServiceCompleteListProperty),
+                     base::Value(service_path));
   SortManagerServices(false);
   if (notify_observers)
     CallNotifyObserversPropertyChanged(shill::kServiceCompleteListProperty);
@@ -608,13 +618,13 @@ void FakeShillManagerClient::RemoveManagerService(
   VLOG(2) << "RemoveManagerService: " << service_path;
   base::Value service_path_value(service_path);
   GetListProperty(shill::kServiceCompleteListProperty)
-      ->Remove(service_path_value, nullptr);
+      ->EraseListValue(service_path_value);
   CallNotifyObserversPropertyChanged(shill::kServiceCompleteListProperty);
 }
 
 void FakeShillManagerClient::ClearManagerServices() {
   VLOG(1) << "ClearManagerServices";
-  GetListProperty(shill::kServiceCompleteListProperty)->Clear();
+  GetListProperty(shill::kServiceCompleteListProperty)->ClearList();
   CallNotifyObserversPropertyChanged(shill::kServiceCompleteListProperty);
 }
 
@@ -804,8 +814,8 @@ void FakeShillManagerClient::SetupDefaultEnvironment() {
     SetInitialDeviceProperty("/device/eth1", shill::kAddressProperty,
                              base::Value("0123456789ab"));
     base::ListValue eth_ip_configs;
-    eth_ip_configs.AppendString("ipconfig_v4_path");
-    eth_ip_configs.AppendString("ipconfig_v6_path");
+    eth_ip_configs.Append("ipconfig_v4_path");
+    eth_ip_configs.Append("ipconfig_v6_path");
     SetInitialDeviceProperty("/device/eth1", shill::kIPConfigsProperty,
                              eth_ip_configs);
     const std::string kFakeEthernetNetworkPath = "/service/eth1";
@@ -828,8 +838,8 @@ void FakeShillManagerClient::SetupDefaultEnvironment() {
     SetInitialDeviceProperty("/device/wifi1", shill::kAddressProperty,
                              base::Value("23456789abcd"));
     base::ListValue wifi_ip_configs;
-    wifi_ip_configs.AppendString("ipconfig_v4_path");
-    wifi_ip_configs.AppendString("ipconfig_v6_path");
+    wifi_ip_configs.Append("ipconfig_v4_path");
+    wifi_ip_configs.Append("ipconfig_v6_path");
     SetInitialDeviceProperty("/device/wifi1", shill::kIPConfigsProperty,
                              wifi_ip_configs);
 
@@ -1116,9 +1126,9 @@ void FakeShillManagerClient::SetTechnologyEnabled(const std::string& type,
   base::ListValue* enabled_list =
       GetListProperty(shill::kEnabledTechnologiesProperty);
   if (enabled)
-    enabled_list->AppendIfNotPresent(std::make_unique<base::Value>(type));
+    AppendIfNotPresent(enabled_list, base::Value(type));
   else
-    enabled_list->Remove(base::Value(type), nullptr);
+    enabled_list->EraseListValue(base::Value(type));
   CallNotifyObserversPropertyChanged(shill::kEnabledTechnologiesProperty);
   base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
   // May affect available services.
@@ -1149,7 +1159,7 @@ base::Value FakeShillManagerClient::GetEnabledServiceList() const {
 }
 
 void FakeShillManagerClient::ClearProfiles() {
-  if (GetListProperty(shill::kProfilesProperty)->empty()) {
+  if (GetListProperty(shill::kProfilesProperty)->GetList().empty()) {
     return;
   }
   GetListProperty(shill::kProfilesProperty)->ClearList();
@@ -1199,7 +1209,7 @@ bool FakeShillManagerClient::ParseOption(const std::string& arg0,
     int seconds = 3;
     if (!arg1.empty())
       base::StringToInt(arg1, &seconds);
-    interactive_delay_ = base::TimeDelta::FromSeconds(seconds);
+    interactive_delay_ = base::Seconds(seconds);
     return true;
   } else if (arg0 == "sim_lock") {
     bool locked = (arg1 == "1");

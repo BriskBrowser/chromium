@@ -38,7 +38,7 @@ class InfobarOverlayTabHelperTest : public PlatformTest {
         std::make_unique<web::FakeNavigationManager>());
     InfoBarManagerImpl::CreateForWebState(&web_state_);
     InfobarOverlayRequestInserter::CreateForWebState(
-        &web_state_, std::make_unique<FakeInfobarOverlayRequestFactory>());
+        &web_state_, &FakeInfobarOverlayRequestFactory);
     InfobarOverlayTabHelper::CreateForWebState(&web_state_);
   }
 
@@ -69,9 +69,8 @@ TEST_F(InfobarOverlayTabHelperTest, HighPriorityInfoBar) {
   ASSERT_TRUE(front_request());
 
   std::unique_ptr<FakeInfobarIOS> high_priority_infobar =
-      std::make_unique<FakeInfobarIOS>(
-          InfobarType::kInfobarTypeTranslate,
-          base::ASCIIToUTF16("FakeTranslateInfobar"));
+      std::make_unique<FakeInfobarIOS>(InfobarType::kInfobarTypeTranslate,
+                                       u"FakeTranslateInfobar");
   high_priority_infobar->set_high_priority(true);
   manager()->AddInfoBar(std::move(high_priority_infobar));
   OverlayRequest* request = front_request();

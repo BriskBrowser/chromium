@@ -10,18 +10,20 @@
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 
 class PrefService;
 
 namespace chromeos {
 
 class AutoConnectHandler;
-class CellularESimConnectionHandler;
+class CellularConnectionHandler;
 class CellularESimProfileHandler;
-class CellularInhibitor;
+class CellularESimInstaller;
 class CellularESimUninstallHandler;
+class CellularInhibitor;
 class CellularMetricsLogger;
+class CellularPolicyHandler;
 class ClientCertResolver;
 class GeolocationHandler;
 class ManagedNetworkConfigurationHandler;
@@ -38,6 +40,7 @@ class NetworkProfileHandler;
 class NetworkStateHandler;
 class NetworkSmsHandler;
 class ProhibitedTechnologiesHandler;
+class StubCellularNetworksProvider;
 class UIProxyConfigService;
 
 // Class for handling initialization and access to chromeos network handlers.
@@ -53,6 +56,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
 
   // Gets the global instance. Initialize() must be called first.
   static NetworkHandler* Get();
+
+  NetworkHandler(const NetworkHandler&) = delete;
+  NetworkHandler& operator=(const NetworkHandler&) = delete;
 
   // Returns true if the global instance has been initialized.
   static bool IsInitialized();
@@ -80,9 +86,12 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
   // explicit so that classes can be constructed explicitly in tests without
   // NetworkHandler.
   AutoConnectHandler* auto_connect_handler();
+  CellularConnectionHandler* cellular_connection_handler();
+  CellularESimInstaller* cellular_esim_installer();
   CellularESimProfileHandler* cellular_esim_profile_handler();
   CellularESimUninstallHandler* cellular_esim_uninstall_handler();
   CellularInhibitor* cellular_inhibitor();
+  CellularPolicyHandler* cellular_policy_handler();
   NetworkStateHandler* network_state_handler();
   NetworkDeviceHandler* network_device_handler();
   NetworkProfileHandler* network_profile_handler();
@@ -110,17 +119,20 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   std::unique_ptr<NetworkStateHandler> network_state_handler_;
   std::unique_ptr<NetworkDeviceHandlerImpl> network_device_handler_;
-  std::unique_ptr<CellularESimProfileHandler> cellular_esim_profile_handler_;
   std::unique_ptr<CellularInhibitor> cellular_inhibitor_;
-  std::unique_ptr<CellularESimConnectionHandler>
-      cellular_esim_connection_handler_;
+  std::unique_ptr<CellularESimProfileHandler> cellular_esim_profile_handler_;
+  std::unique_ptr<StubCellularNetworksProvider>
+      stub_cellular_networks_provider_;
+  std::unique_ptr<CellularConnectionHandler> cellular_connection_handler_;
   std::unique_ptr<NetworkProfileHandler> network_profile_handler_;
   std::unique_ptr<NetworkConfigurationHandler> network_configuration_handler_;
   std::unique_ptr<ManagedNetworkConfigurationHandlerImpl>
       managed_network_configuration_handler_;
   std::unique_ptr<NetworkConnectionHandler> network_connection_handler_;
+  std::unique_ptr<CellularESimInstaller> cellular_esim_installer_;
   std::unique_ptr<CellularESimUninstallHandler>
       cellular_esim_uninstall_handler_;
+  std::unique_ptr<CellularPolicyHandler> cellular_policy_handler_;
   std::unique_ptr<CellularMetricsLogger> cellular_metrics_logger_;
   std::unique_ptr<NetworkCertMigrator> network_cert_migrator_;
   std::unique_ptr<ClientCertResolver> client_cert_resolver_;
@@ -136,8 +148,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
 
   // True when the device is managed by policy.
   bool is_enterprise_managed_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkHandler);
 };
 
 }  // namespace chromeos

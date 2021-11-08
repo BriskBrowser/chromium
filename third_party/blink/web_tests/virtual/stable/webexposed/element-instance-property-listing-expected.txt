@@ -113,6 +113,7 @@ namespace http://www.w3.org/1999/xhtml
     property getElementsByClassName
     property getElementsByTagName
     property getElementsByTagNameNS
+    property getInnerHTML
     property getRootNode
     property hasAttribute
     property hasAttributeNS
@@ -227,11 +228,13 @@ namespace http://www.w3.org/1999/xhtml
     property onresize
     property onscroll
     property onsearch
+    property onsecuritypolicyviolation
     property onseeked
     property onseeking
     property onselect
     property onselectionchange
     property onselectstart
+    property onslotchange
     property onstalled
     property onsubmit
     property onsuspend
@@ -303,6 +306,7 @@ namespace http://www.w3.org/1999/xhtml
     property toString
     property toggleAttribute
     property translate
+    property virtualKeyboardPolicy
     property webkitMatchesSelector
     property webkitRequestFullScreen
     property webkitRequestFullscreen
@@ -783,6 +787,7 @@ html element menu
 html element meta
     property content
     property httpEquiv
+    property media
     property name
     property scheme
 html element meter
@@ -927,11 +932,13 @@ html element slot
     property name
 html element small
 html element source
+    property height
     property media
     property sizes
     property src
     property srcset
     property type
+    property width
 html element span
 html element strike
 html element strong
@@ -1269,6 +1276,7 @@ namespace http://www.w3.org/2000/svg
     property getElementsByClassName
     property getElementsByTagName
     property getElementsByTagNameNS
+    property getInnerHTML
     property getRootNode
     property hasAttribute
     property hasAttributeNS
@@ -1373,11 +1381,13 @@ namespace http://www.w3.org/2000/svg
     property onresize
     property onscroll
     property onsearch
+    property onsecuritypolicyviolation
     property onseeked
     property onseeking
     property onselect
     property onselectionchange
     property onselectstart
+    property onslotchange
     property onstalled
     property onsubmit
     property onsuspend

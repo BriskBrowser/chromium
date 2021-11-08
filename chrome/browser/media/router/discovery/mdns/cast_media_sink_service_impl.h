@@ -13,7 +13,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/media/router/discovery/dial/dial_media_sink_service_impl.h"
 #include "chrome/browser/media/router/discovery/discovery_network_monitor.h"
 #include "chrome/browser/media/router/discovery/media_sink_discovery_metrics.h"
@@ -63,6 +63,10 @@ class CastMediaSinkServiceImpl : public MediaSinkServiceBase,
                            DiscoveryNetworkMonitor* network_monitor,
                            MediaSinkServiceBase* dial_media_sink_service,
                            bool allow_all_ips);
+
+  CastMediaSinkServiceImpl(const CastMediaSinkServiceImpl&) = delete;
+  CastMediaSinkServiceImpl& operator=(const CastMediaSinkServiceImpl&) = delete;
+
   ~CastMediaSinkServiceImpl() override;
 
   // Returns the SequencedTaskRunner that should be used to invoke methods on
@@ -149,7 +153,9 @@ class CastMediaSinkServiceImpl : public MediaSinkServiceBase,
   FRIEND_TEST_ALL_PREFIXES(CastMediaSinkServiceImplTest,
                            TestOnSinkAddedOrUpdatedSkipsIfNonCastDevice);
   FRIEND_TEST_ALL_PREFIXES(CastMediaSinkServiceImplTest,
-                           TestOnChannelErrorRetry);
+                           TestSuccessOnChannelErrorRetry);
+  FRIEND_TEST_ALL_PREFIXES(CastMediaSinkServiceImplTest,
+                           TestFailureOnChannelErrorRetry);
   FRIEND_TEST_ALL_PREFIXES(CastMediaSinkServiceImplTest,
                            OpenChannelNewIPSameSink);
 
@@ -340,8 +346,6 @@ class CastMediaSinkServiceImpl : public MediaSinkServiceBase,
 
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<CastMediaSinkServiceImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CastMediaSinkServiceImpl);
 };
 
 }  // namespace media_router

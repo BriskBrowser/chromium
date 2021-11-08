@@ -12,7 +12,7 @@
 #include "chrome/browser/extensions/install_signer.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/incident_reporting/incident_reporting_service.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_prefs_factory.h"
 #include "extensions/browser/extension_registry.h"
@@ -90,7 +90,8 @@ void PopulateExtensionInfo(
   if (serializer.Serialize(*extension.manifest()->value()))
     extension_info->mutable_manifest()->swap(manifest_json);
 
-  extension_info->set_manifest_location_type(extension.manifest()->location());
+  extension_info->set_manifest_location_type(
+      static_cast<int>(extension.manifest()->location()));
 }
 
 }  // namespace

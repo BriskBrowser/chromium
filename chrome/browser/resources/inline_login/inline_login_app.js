@@ -6,9 +6,9 @@ import 'chrome://resources/polymer/v3_0/paper-spinner/paper-spinner-lite.js';
 import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
 import 'chrome://resources/cr_elements/icons.m.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
-import 'chrome://resources/cr_elements/cr_view_manager/cr_view_manager.m.js';
 
 import {isChromeOS} from '//resources/js/cr.m.js';
+import {CrViewManagerElement} from 'chrome://resources/cr_elements/cr_view_manager/cr_view_manager.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {isRTL} from 'chrome://resources/js/util.m.js';
 import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
@@ -67,18 +67,6 @@ Polymer({
     },
 
     // <if expr="chromeos">
-    /**
-     * True if redesign of account management flows is enabled.
-     * @private
-     */
-    isAccountManagementFlowsV2Enabled_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('isAccountManagementFlowsV2Enabled');
-      },
-      readOnly: true,
-    },
-
     /*
      * True if welcome page should not be shown.
      * @private
@@ -89,6 +77,15 @@ Polymer({
         return loadTimeData.getBoolean('shouldSkipWelcomePage');
       },
       readOnly: true,
+    },
+
+    /*
+     * True if the dialog is open for reauthentication.
+     * @private
+     */
+    isReauthentication_: {
+      type: Boolean,
+      value: false,
     },
     // </if>
 
@@ -124,7 +121,6 @@ Polymer({
 
   /** @override */
   ready() {
-    this.switchView_(this.getDefaultView_());
     this.authExtHost_ = new Authenticator(
         /** @type {!WebView} */ (this.$.signinFrame));
     this.addAuthExtHostListeners_();
@@ -182,11 +178,9 @@ Polymer({
     window.open(e.detail.targetUrl, '_blank');
     e.detail.window.discard();
     // <if expr="chromeos">
-    if (this.isAccountManagementFlowsV2Enabled_) {
-      // On Chrome OS this dialog is always-on-top, so we have to close it if
-      // user opens a link in a new window.
-      this.closeDialog_();
-    }
+    // On Chrome OS this dialog is always-on-top, so we have to close it if
+    // user opens a link in a new window.
+    this.closeDialog_();
     // </if>
   },
 
@@ -238,11 +232,16 @@ Polymer({
     this.loading_ = true;
     this.isLoginPrimaryAccount_ = data.isLoginPrimaryAccount;
     this.enableGaiaActionButtons_ = data.enableGaiaActionButtons;
+    // Skip welcome page for reauthentication.
+    if (data.email) {
+      this.isReauthentication_ = true;
+    }
+    this.switchView_(this.getDefaultView_());
   },
 
   /**
    * Sends a message 'lstFetchResults'. This is a specific message sent when
-   * the inline signin is loaded with reason REASON_FETCH_LST_ONLY. Handlers of
+   * the inline signin is loaded with reason kFetchLstOnly. Handlers of
    * this message would expect a single argument a base::Dictionary value that
    * contains the values fetched from the gaia sign in endpoint.
    * @param {string} arg The string representation of the json data returned by
@@ -335,8 +334,7 @@ Polymer({
     if (!isChromeOS) {
       return false;
     }
-    return this.isAccountManagementFlowsV2Enabled_ &&
-        !this.shouldSkipWelcomePage_;
+    return !this.shouldSkipWelcomePage_ && !this.isReauthentication_;
   },
 
   // <if expr="chromeos">
@@ -347,6 +345,12 @@ Polymer({
         /** @type {WelcomePageAppElement} */ (this.$$('welcome-page-app'))
             .isSkipCheckboxChecked();
     this.browserProxy_.skipWelcomePage(skipChecked);
+    this.setFocusToWebview_();
+  },
+
+  /** @private */
+  setFocusToWebview_() {
+    this.$.signinFrame.focus();
   },
   // </if>
 

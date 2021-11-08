@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "chromeos/services/ime/decoder/decoder_engine.h"
 #include "chromeos/services/ime/input_engine.h"
 #include "chromeos/services/ime/public/cpp/shared_lib/interfaces.h"
-#include "chromeos/services/ime/public/mojom/input_engine.mojom.h"
+#include "chromeos/services/ime/public/mojom/ime_service.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -27,6 +28,10 @@ class ImeService : public mojom::ImeService,
                    public ImeCrosPlatform {
  public:
   explicit ImeService(mojo::PendingReceiver<mojom::ImeService> receiver);
+
+  ImeService(const ImeService&) = delete;
+  ImeService& operator=(const ImeService&) = delete;
+
   ~ImeService() override;
 
  private:
@@ -43,14 +48,24 @@ class ImeService : public mojom::ImeService,
       mojo::PendingRemote<mojom::InputChannel> from_engine,
       const std::vector<uint8_t>& extra,
       ConnectToImeEngineCallback callback) override;
+  void ConnectToInputMethod(
+      const std::string& ime_spec,
+      mojo::PendingReceiver<mojom::InputMethod> input_method,
+      mojo::PendingRemote<mojom::InputMethodHost> input_method_host,
+      ConnectToInputMethodCallback callback) override;
 
   // ImeCrosPlatform overrides:
   const char* GetImeBundleDir() override;
-  const char* GetImeGlobalDir() override;
   const char* GetImeUserHomeDir() override;
+  // To be deprecated soon. Do not make a call on it anymore.
+  const char* GetImeGlobalDir() override;
+
   int SimpleDownloadToFile(const char* url,
                            const char* file_path,
                            SimpleDownloadCallback callback) override;
+  int SimpleDownloadToFileV2(const char* url,
+                             const char* file_path,
+                             SimpleDownloadCallbackV2 callback) override;
   ImeCrosDownloader* GetDownloader() override;
   void RunInMainSequence(ImeSequencedTask task, int task_id) override;
   bool IsFeatureEnabled(const char* feature_name) override;
@@ -59,19 +74,26 @@ class ImeService : public mojom::ImeService,
   // On failure, |file| will be empty.
   void SimpleDownloadFinished(SimpleDownloadCallback callback,
                               const base::FilePath& file);
+  // V2 of |SimpleDownloadFinished|, returns an extra URL with |file|.
+  // Callback used when a file download finishes by the |SimpleURLLoader|.
+  // The |url| is the original download url and bound when downloading request
+  // starts. On failure, |file| will be empty.
+  void SimpleDownloadFinishedV2(SimpleDownloadCallbackV2 callback,
+                                const std::string& url_str,
+                                const base::FilePath& file);
+  const MojoSystemThunks* GetMojoSystemThunks() override;
 
   mojo::Receiver<mojom::ImeService> receiver_;
   scoped_refptr<base::SequencedTaskRunner> main_task_runner_;
 
   // For the duration of this service lifetime, there should be only one
-  // input engine instance.
+  // decoder engine or input engine instance.
+  std::unique_ptr<DecoderEngine> decoder_engine_;
   std::unique_ptr<InputEngine> input_engine_;
 
   // Platform delegate for access to privilege resources.
   mojo::Remote<mojom::PlatformAccessProvider> platform_access_;
   mojo::ReceiverSet<mojom::InputEngineManager> manager_receivers_;
-
-  DISALLOW_COPY_AND_ASSIGN(ImeService);
 };
 
 }  // namespace ime

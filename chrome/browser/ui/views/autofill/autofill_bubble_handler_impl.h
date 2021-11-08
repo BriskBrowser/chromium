@@ -31,6 +31,11 @@ class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
  public:
   AutofillBubbleHandlerImpl(Browser* browser,
                             ToolbarButtonProvider* toolbar_button_provider);
+
+  AutofillBubbleHandlerImpl(const AutofillBubbleHandlerImpl&) = delete;
+  AutofillBubbleHandlerImpl& operator=(const AutofillBubbleHandlerImpl&) =
+      delete;
+
   ~AutofillBubbleHandlerImpl() override;
 
   // AutofillBubbleHandler:
@@ -51,8 +56,20 @@ class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
       SaveUPIBubbleController* controller) override;
   AutofillBubbleBase* ShowSaveAddressProfileBubble(
       content::WebContents* web_contents,
-      SaveAddressProfileBubbleController* controller,
+      SaveUpdateAddressProfileBubbleController* controller,
       bool is_user_gesture) override;
+  AutofillBubbleBase* ShowUpdateAddressProfileBubble(
+      content::WebContents* web_contents,
+      SaveUpdateAddressProfileBubbleController* controller,
+      bool is_user_gesture) override;
+  AutofillBubbleBase* ShowEditAddressProfileDialog(
+      content::WebContents* web_contents,
+      EditAddressProfileDialogController* controller) override;
+  AutofillBubbleBase* ShowVirtualCardManualFallbackBubble(
+      content::WebContents* web_contents,
+      VirtualCardManualFallbackBubbleController* controller,
+      bool is_user_gesture) override;
+
   void OnPasswordSaved() override;
 
   // PersonalDataManagerObserver:
@@ -77,8 +94,6 @@ class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
       personal_data_manager_observation_{this};
   base::ScopedObservation<AvatarToolbarButton, AvatarToolbarButton::Observer>
       avatar_toolbar_button_observation_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AutofillBubbleHandlerImpl);
 };
 
 }  // namespace autofill

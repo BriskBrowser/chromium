@@ -25,7 +25,7 @@ class MockNewWindowDelegate : public testing::NiceMock<TestNewWindowDelegate> {
  public:
   // TestNewWindowDelegate:
   MOCK_METHOD(void,
-              NewTabWithUrl,
+              OpenUrl,
               (const GURL& url, bool from_user_interaction),
               (override));
 };
@@ -45,6 +45,10 @@ class TaskContinuationViewTest : public AshTestBase {
   // AshTestBase:
   void SetUp() override {
     feature_list_.InitAndEnableFeature(chromeos::features::kPhoneHub);
+    auto delegate = std::make_unique<MockNewWindowDelegate>();
+    new_window_delegate_ = delegate.get();
+    delegate_provider_ =
+        std::make_unique<TestNewWindowDelegateProvider>(std::move(delegate));
     AshTestBase::SetUp();
 
     task_continuation_view_ = std::make_unique<TaskContinuationView>(
@@ -59,14 +63,15 @@ class TaskContinuationViewTest : public AshTestBase {
  protected:
   TaskContinuationView* task_view() { return task_continuation_view_.get(); }
   chromeos::phonehub::MutablePhoneModel* phone_model() { return &phone_model_; }
-  MockNewWindowDelegate& new_window_delegate() { return new_window_delegate_; }
+  MockNewWindowDelegate& new_window_delegate() { return *new_window_delegate_; }
 
  private:
   std::unique_ptr<TaskContinuationView> task_continuation_view_;
   chromeos::phonehub::FakeUserActionRecorder fake_user_action_recorder_;
   chromeos::phonehub::MutablePhoneModel phone_model_;
   base::test::ScopedFeatureList feature_list_;
-  MockNewWindowDelegate new_window_delegate_;
+  MockNewWindowDelegate* new_window_delegate_;
+  std::unique_ptr<TestNewWindowDelegateProvider> delegate_provider_;
 };
 
 TEST_F(TaskContinuationViewTest, TaskViewVisibility) {
@@ -115,8 +120,8 @@ TEST_F(TaskContinuationViewTest, TaskChipsView) {
 
   for (auto* child : task_view()->chips_view_->children()) {
     ContinueBrowsingChip* chip = static_cast<ContinueBrowsingChip*>(child);
-    // NewTabWithUrl is expected to call after button pressed simulation.
-    EXPECT_CALL(new_window_delegate(), NewTabWithUrl)
+    // OpenUrl is expected to call after button pressed simulation.
+    EXPECT_CALL(new_window_delegate(), OpenUrl)
         .WillOnce([](const GURL& url, bool from_user_interaction) {
           EXPECT_EQ(GURL("https://www.example.com/tab1"), url);
           EXPECT_TRUE(from_user_interaction);

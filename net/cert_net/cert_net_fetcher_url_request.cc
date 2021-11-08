@@ -58,6 +58,7 @@
 
 #include "net/cert_net/cert_net_fetcher_url_request.h"
 
+#include <memory>
 #include <tuple>
 #include <utility>
 
@@ -67,14 +68,16 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_math.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
+#include "net/base/io_buffer.h"
 #include "net/base/isolation_info.h"
 #include "net/base/load_flags.h"
 #include "net/cert/cert_net_fetcher.h"
 #include "net/cookies/site_for_cookies.h"
+#include "net/dns/public/secure_dns_policy.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/redirect_info.h"
 #include "net/url_request/url_request_context.h"
@@ -129,6 +132,10 @@ class CertNetFetcherURLRequest::AsyncCertNetFetcherURLRequest {
   // Shutdown() is called or the AsyncCertNetFetcherURLRequest is destroyed.
   explicit AsyncCertNetFetcherURLRequest(URLRequestContext* context);
 
+  AsyncCertNetFetcherURLRequest(const AsyncCertNetFetcherURLRequest&) = delete;
+  AsyncCertNetFetcherURLRequest& operator=(
+      const AsyncCertNetFetcherURLRequest&) = delete;
+
   // The AsyncCertNetFetcherURLRequest is expected to be kept alive until all
   // requests have completed or Shutdown() is called.
   ~AsyncCertNetFetcherURLRequest();
@@ -159,8 +166,6 @@ class CertNetFetcherURLRequest::AsyncCertNetFetcherURLRequest {
   URLRequestContext* context_ = nullptr;
 
   THREAD_CHECKER(thread_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(AsyncCertNetFetcherURLRequest);
 };
 
 namespace {
@@ -176,8 +181,8 @@ Error CanFetchUrl(const GURL& url) {
 
 base::TimeDelta GetTimeout(int timeout_milliseconds) {
   if (timeout_milliseconds == CertNetFetcher::DEFAULT)
-    return base::TimeDelta::FromSeconds(kTimeoutSeconds);
-  return base::TimeDelta::FromMilliseconds(timeout_milliseconds);
+    return base::Seconds(kTimeoutSeconds);
+  return base::Milliseconds(timeout_milliseconds);
 }
 
 size_t GetMaxResponseBytes(int max_response_bytes,
@@ -210,6 +215,9 @@ class CertNetFetcherURLRequest::RequestCore
       : completion_event_(base::WaitableEvent::ResetPolicy::MANUAL,
                           base::WaitableEvent::InitialState::NOT_SIGNALED),
         task_runner_(std::move(task_runner)) {}
+
+  RequestCore(const RequestCore&) = delete;
+  RequestCore& operator=(const RequestCore&) = delete;
 
   void AttachedToJob(Job* job) {
     DCHECK(task_runner_->RunsTasksInCurrentSequence());
@@ -275,12 +283,13 @@ class CertNetFetcherURLRequest::RequestCore
   base::WaitableEvent completion_event_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(RequestCore);
 };
 
 struct CertNetFetcherURLRequest::RequestParams {
   RequestParams();
+
+  RequestParams(const RequestParams&) = delete;
+  RequestParams& operator=(const RequestParams&) = delete;
 
   bool operator<(const RequestParams& other) const;
 
@@ -292,9 +301,6 @@ struct CertNetFetcherURLRequest::RequestParams {
   base::TimeDelta timeout;
 
   // IMPORTANT: When adding fields to this structure, update operator<().
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(RequestParams);
 };
 
 CertNetFetcherURLRequest::RequestParams::RequestParams()
@@ -315,6 +321,10 @@ class Job : public URLRequest::Delegate {
  public:
   Job(std::unique_ptr<CertNetFetcherURLRequest::RequestParams> request_params,
       CertNetFetcherURLRequest::AsyncCertNetFetcherURLRequest* parent);
+
+  Job(const Job&) = delete;
+  Job& operator=(const Job&) = delete;
+
   ~Job() override;
 
   const CertNetFetcherURLRequest::RequestParams& request_params() const {
@@ -394,8 +404,6 @@ class Job : public URLRequest::Delegate {
   // Non-owned pointer to the AsyncCertNetFetcherURLRequest that created this
   // job.
   CertNetFetcherURLRequest::AsyncCertNetFetcherURLRequest* parent_;
-
-  DISALLOW_COPY_AND_ASSIGN(Job);
 };
 
 }  // namespace
@@ -512,7 +520,7 @@ void Job::StartURLRequest(URLRequestContext* context) {
 
   // Disable secure DNS for hostname lookups triggered by certificate network
   // fetches to prevent deadlock.
-  url_request_->SetDisableSecureDns(true);
+  url_request_->SetSecureDnsPolicy(SecureDnsPolicy::kDisable);
 
   // Create IsolationInfo based on the origin of the requested URL.
   // TODO(https://crbug.com/1016890): Cert validation needs to either be
@@ -529,7 +537,7 @@ void Job::StartURLRequest(URLRequestContext* context) {
   url_request_->Start();
 
   // Start a timer to limit how long the job runs for.
-  if (request_params_->timeout > base::TimeDelta()) {
+  if (request_params_->timeout.is_positive()) {
     timer_.Start(FROM_HERE, request_params_->timeout,
                  base::BindOnce(&Job::FailRequest, base::Unretained(this),
                                 ERR_TIMED_OUT));
@@ -850,7 +858,7 @@ void CertNetFetcherURLRequest::DoFetchOnNetworkSequence(
   }
 
   if (!impl_) {
-    impl_.reset(new AsyncCertNetFetcherURLRequest(context_));
+    impl_ = std::make_unique<AsyncCertNetFetcherURLRequest>(context_);
   }
 
   impl_->Fetch(std::move(request_params), request);

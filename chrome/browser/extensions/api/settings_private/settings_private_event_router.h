@@ -18,7 +18,7 @@
 #include "extensions/browser/event_router.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #endif
 
 namespace content {
@@ -37,6 +37,11 @@ class SettingsPrivateEventRouter
  public:
   static SettingsPrivateEventRouter* Create(
       content::BrowserContext* browser_context);
+
+  SettingsPrivateEventRouter(const SettingsPrivateEventRouter&) = delete;
+  SettingsPrivateEventRouter& operator=(const SettingsPrivateEventRouter&) =
+      delete;
+
   ~SettingsPrivateEventRouter() override;
 
   // settings_private::GeneratedPref::Observer implementation.
@@ -85,8 +90,6 @@ class SettingsPrivateEventRouter
   std::unique_ptr<PrefsUtil> prefs_util_;
 
   base::WeakPtrFactory<SettingsPrivateEventRouter> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SettingsPrivateEventRouter);
 };
 
 }  // namespace extensions

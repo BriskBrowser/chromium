@@ -31,7 +31,7 @@ class LayoutSVGResourcePaintServer : public LayoutSVGResourceContainer {
       : LayoutSVGResourceContainer(element) {}
 
   virtual bool ApplyShader(const SVGResourceClient&,
-                           const FloatRect& reference_box,
+                           const gfx::RectF& reference_box,
                            const AffineTransform* additional_transform,
                            PaintFlags&) = 0;
 };
@@ -44,4 +44,4 @@ inline bool IsResourceOfType<LayoutSVGResourcePaintServer>(
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_RESOURCE_PAINT_SERVER_H_

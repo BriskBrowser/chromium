@@ -7,8 +7,11 @@
 #import "base/mac/foundation_util.h"
 #import "base/test/task_environment.h"
 #import "ios/chrome/browser/main/test_browser.h"
+#import "ios/chrome/browser/ui/commands/bookmarks_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/qr_generation_commands.h"
+#import "ios/chrome/browser/ui/main/scene_state.h"
+#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/ui/qr_generator/qr_generator_view_controller.h"
 #import "ios/chrome/common/ui/confirmation_alert/confirmation_alert_action_handler.h"
 #import "ios/chrome/common/ui/elements/popover_label_view_controller.h"
@@ -26,14 +29,21 @@ class QRGeneratorCoordinatorTest : public PlatformTest {
  protected:
   QRGeneratorCoordinatorTest()
       : test_url_("https://www.google.com/"),
-        browser_(std::make_unique<TestBrowser>()) {
+        browser_(std::make_unique<TestBrowser>()),
+        scene_state_([[SceneState alloc] initWithAppState:nil]) {
     base_view_controller_ = [[UIViewController alloc] init];
     [scoped_key_window_.Get() setRootViewController:base_view_controller_];
+    SceneStateBrowserAgent::CreateForBrowser(browser_.get(), scene_state_);
   }
 
   void SetUp() override {
     mock_qr_generation_commands_handler_ =
         OCMStrictProtocolMock(@protocol(QRGenerationCommands));
+
+    [browser_->GetCommandDispatcher()
+        startDispatchingToTarget:OCMStrictProtocolMock(
+                                     @protocol(BookmarksCommands))
+                     forProtocol:@protocol(BookmarksCommands)];
 
     test_title_ = @"Does not matter";
 
@@ -54,6 +64,7 @@ class QRGeneratorCoordinatorTest : public PlatformTest {
   std::unique_ptr<TestBrowser> browser_;
   ScopedKeyWindow scoped_key_window_;
   UIViewController* base_view_controller_;
+  SceneState* scene_state_;
 
   QRGeneratorCoordinator* coordinator_;
 };
@@ -77,11 +88,6 @@ TEST_F(QRGeneratorCoordinatorTest, Done_DispatchesCommand) {
   QRGeneratorViewController* viewController =
       base::mac::ObjCCastStrict<QRGeneratorViewController>(
           base_view_controller_.presentedViewController);
-
-  // Verify some properties on the VC.
-  EXPECT_TRUE(viewController.helpButtonAvailable);
-  EXPECT_EQ(test_title_, viewController.titleString);
-  EXPECT_TRUE([net::NSURLWithGURL(test_url_) isEqual:viewController.pageURL]);
 
   // Mimick click on done button.
   [viewController.actionHandler confirmationAlertDismissAction];

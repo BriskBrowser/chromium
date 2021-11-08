@@ -31,7 +31,7 @@
 #include <memory>
 
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
 #include "third_party/blink/public/common/privacy_budget/identifiable_token.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
@@ -70,10 +70,10 @@ class CanvasDrawListener;
 class CanvasRenderingContext;
 class CanvasRenderingContextFactory;
 class GraphicsContext;
-class HitTestCanvasResult;
 class HTMLCanvasElement;
 class ImageBitmapOptions;
 class IntSize;
+class StaticBitmapImageToVideoFrameCopier;
 
 class
     CanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContextOrGPUCanvasContext;
@@ -85,8 +85,6 @@ typedef CanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextO
 // It can be a 3D Context (WebGL or WebGL2), 2D Context,
 // BitmapRenderingContext or it can have no context (Offscreen placeholder).
 // To check the no context case is good to check if there is a placeholder.
-// For 3D and 2D contexts there are Is3D or IsRenderingContext2D functions.
-// The remaining case is BitmaprenderingContext.
 //
 // TODO (juanmihd): Study if a refactor of context could help in simplifying
 // this class and without overcomplicating context.
@@ -108,8 +106,8 @@ class CORE_EXPORT HTMLCanvasElement final
   ~HTMLCanvasElement() override;
 
   // Attributes and functions exposed to script
-  unsigned width() const { return Size().Width(); }
-  unsigned height() const { return Size().Height(); }
+  unsigned width() const { return Size().width(); }
+  unsigned height() const { return Size().height(); }
 
   const IntSize& Size() const override { return size_; }
 
@@ -153,8 +151,8 @@ class CORE_EXPORT HTMLCanvasElement final
   bool HasCanvasCapture() const final { return !listeners_.IsEmpty(); }
 
   // Used for rendering
-  void DidDraw(const FloatRect&) override;
-  void DidDraw() override;
+  void DidDraw(const SkIRect&) override;
+  using CanvasRenderingContextHost::DidDraw;
 
   void Paint(GraphicsContext&,
              const PhysicalRect&,
@@ -183,6 +181,7 @@ class CORE_EXPORT HTMLCanvasElement final
   InsertionNotificationRequest InsertedInto(ContainerNode&) override;
 
   bool IsDirty() { return !dirty_rect_.IsEmpty(); }
+  bool IsVisible() const;
 
   void DoDeferredPaintInvalidation();
 
@@ -201,8 +200,10 @@ class CORE_EXPORT HTMLCanvasElement final
   void PageVisibilityChanged() override;
 
   // CanvasImageSource implementation
-  scoped_refptr<Image> GetSourceImageForCanvas(SourceImageStatus*,
-                                               const FloatSize&) override;
+  scoped_refptr<Image> GetSourceImageForCanvas(
+      SourceImageStatus*,
+      const FloatSize&,
+      const AlphaDisposition alpha_disposition = kPremultiplyAlpha) override;
   bool WouldTaintOrigin() const override;
   FloatSize ElementSize(const FloatSize&,
                         const RespectImageOrientationEnum) const override;
@@ -219,12 +220,13 @@ class CORE_EXPORT HTMLCanvasElement final
   void NotifyGpuContextLost() override;
   void SetNeedsCompositingUpdate() override;
   void UpdateMemoryUsage() override;
+  size_t GetMemoryUsage() const override;
   bool ShouldAccelerate2dContext() const override;
-  SkFilterQuality FilterQuality() const override;
   bool LowLatencyEnabled() const override;
   CanvasResourceProvider* GetOrCreateCanvasResourceProvider(
       RasterModeHint hint) override;
   bool IsPrinting() const override;
+  void SetFilterQuality(cc::PaintFlags::FilterQuality filter_quality) override;
 
   // CanvasRenderingContextHost implementation.
   UkmParameters GetUkmParameters() override;
@@ -235,13 +237,13 @@ class CORE_EXPORT HTMLCanvasElement final
   // ImageBitmapSource implementation
   IntSize BitmapSourceSize() const override;
   ScriptPromise CreateImageBitmap(ScriptState*,
-                                  base::Optional<IntRect> crop_rect,
+                                  absl::optional<IntRect> crop_rect,
                                   const ImageBitmapOptions*,
                                   ExceptionState&) override;
 
   // OffscreenCanvasPlaceholder implementation.
   void SetOffscreenCanvasResource(scoped_refptr<CanvasResource>,
-                                  unsigned resource_id) override;
+                                  viz::ResourceId resource_id) override;
   void Trace(Visitor*) const override;
 
   void SetResourceProviderForTesting(std::unique_ptr<CanvasResourceProvider>,
@@ -258,11 +260,6 @@ class CORE_EXPORT HTMLCanvasElement final
   void LayoutObjectDestroyed();
 
   void NotifyListenersCanvasChanged();
-
-  // For Canvas HitRegions
-  bool IsSupportedInteractiveCanvasFallback(const Element&);
-  HitTestCanvasResult* GetControlAndIdIfHitRegionExists(const PhysicalOffset&);
-  String GetIdFromControl(const Element*);
 
   // For OffscreenCanvas that controls this html canvas element
   ::blink::SurfaceLayerBridge* SurfaceLayerBridge() const {
@@ -321,6 +318,8 @@ class CORE_EXPORT HTMLCanvasElement final
 
   bool IsCanvasClear() { return canvas_is_clear_; }
 
+  bool IsPlaceholder() const override { return IsOffscreenCanvasRegistered(); }
+
  protected:
   void DidMoveToNewDocument(Document& old_document) override;
 
@@ -338,7 +337,6 @@ class CORE_EXPORT HTMLCanvasElement final
       IdentifiableToken canvas_contents_token) const;
 
   void PaintInternal(GraphicsContext&, const PhysicalRect&);
-  void UpdateFilterQuality(SkFilterQuality filter_quality);
 
   using ContextFactoryVector =
       Vector<std::unique_ptr<CanvasRenderingContextFactory>>;
@@ -377,9 +375,8 @@ class CORE_EXPORT HTMLCanvasElement final
       const CanvasContextCreationAttributesCore&);
 
   scoped_refptr<StaticBitmapImage> GetSourceImageForCanvasInternal(
-      SourceImageStatus*);
-
-  void OnContentsCcLayerChanged();
+      SourceImageStatus*,
+      const AlphaDisposition alpha_disposition = kPremultiplyAlpha);
 
   HeapHashSet<WeakMember<CanvasDrawListener>> listeners_;
 
@@ -396,6 +393,7 @@ class CORE_EXPORT HTMLCanvasElement final
 
   bool origin_clean_;
   bool needs_unbuffered_input_ = false;
+  bool style_is_visible_ = false;
 
   // It prevents repeated attempts in allocating resources after the first
   // attempt failed.
@@ -415,12 +413,14 @@ class CORE_EXPORT HTMLCanvasElement final
   // TODO: rename to CanvasFrameDispatcher.
   std::unique_ptr<CanvasResourceDispatcher> frame_dispatcher_;
 
+  std::unique_ptr<StaticBitmapImageToVideoFrameCopier> copier_;
+
   bool did_notify_listeners_for_current_frame_ = false;
 
   // GPU Memory Management
   mutable intptr_t externally_allocated_memory_;
 
-  scoped_refptr<StaticBitmapImage> transparent_image_ = nullptr;
+  scoped_refptr<StaticBitmapImage> transparent_image_;
 };
 
 }  // namespace blink

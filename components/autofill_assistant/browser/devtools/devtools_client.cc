@@ -10,7 +10,6 @@
 #include "components/autofill_assistant/browser/devtools/devtools_client.h"
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/strings/strcat.h"
@@ -27,7 +26,6 @@ DevtoolsClient::DevtoolsClient(
       input_domain_(this),
       dom_domain_(this),
       runtime_domain_(this),
-      network_domain_(this),
       target_domain_(this),
       next_message_id_(0),
       frame_tracker_(this) {
@@ -51,10 +49,6 @@ dom::Domain* DevtoolsClient::GetDOM() {
 
 runtime::Domain* DevtoolsClient::GetRuntime() {
   return &runtime_domain_;
-}
-
-network::Domain* DevtoolsClient::GetNetwork() {
-  return &network_domain_;
 }
 
 target::ExperimentalDomain* DevtoolsClient::GetTarget() {

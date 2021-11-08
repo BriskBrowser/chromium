@@ -13,8 +13,9 @@
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "base/containers/mru_cache.h"
+#include "base/containers/lru_cache.h"
 #include "base/feature_list.h"
+#include "base/gtest_prod_util.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_debouncer.h"
@@ -65,8 +66,8 @@ class DocumentProvider : public AutocompleteProvider {
   // ^           ^ ^^   ^            ^  ^
   // NONE        M |M   |            |  NONE
   //               NONE NONE         MATCH
-  static ACMatchClassifications Classify(const base::string16& input_text,
-                                         const base::string16& text);
+  static ACMatchClassifications Classify(const std::u16string& input_text,
+                                         const std::u16string& text);
 
   // Builds a GURL to use for deduping against other document/history
   // suggestions. Multiple URLs may refer to the same document.
@@ -96,7 +97,7 @@ class DocumentProvider : public AutocompleteProvider {
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, CachingForSyncMatches);
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, StartCallsStop);
 
-  using MatchesCache = base::MRUCache<GURL, AutocompleteMatch>;
+  using MatchesCache = base::LRUCache<GURL, AutocompleteMatch>;
 
   DocumentProvider(AutocompleteProviderClient* client,
                    AutocompleteProviderListener* listener,
@@ -162,40 +163,19 @@ class DocumentProvider : public AutocompleteProvider {
   // Full date for old files, mm/dd within the same calendar year, or time-of-
   // day if a file was modified on the same date.
   // |now| should generally be base::Time::Now() but is passed in for testing.
-  static base::string16 GenerateLastModifiedString(
+  static std::u16string GenerateLastModifiedString(
       const std::string& modified_timestamp_string,
       base::Time now);
 
   // Convert mimetype (e.g. "application/vnd.google-apps.document") to a string
   // that can be used in the match description (e.g. "Google Docs").
-  static base::string16 GetProductDescriptionString(
+  static std::u16string GetProductDescriptionString(
       const std::string& mimetype);
 
   // Construct match description; e.g. "Jan 12 - First Last - Google Docs".
-  static base::string16 GetMatchDescription(const std::string& update_time,
+  static std::u16string GetMatchDescription(const std::string& update_time,
                                             const std::string& mimetype,
                                             const std::string& owner);
-
-  // Don't request doc suggestions for inputs shorter than |min_query_length_|
-  // or longer than |max_query_length_|. A value of -1 indicates no limit. These
-  // help limit the load on backend servers.
-  const size_t min_query_length_;
-  const size_t max_query_length_;
-  // Hide doc suggestions for inputs shorter than |min_query_show_length_| or
-  // longer than |max_query_show_length_|. A value of -1 indicates no limit.
-  // These help analyze experiments by allowing observing the effect of changing
-  // |min(max)_query_length_| while keeping data populations consistent.
-  const size_t min_query_show_length_;
-  const size_t max_query_show_length_;
-  // Don't log doc suggestions for inputs shorter than |min_query_log_length_|
-  // or longer than |max_query_log_length_| (i.e. don't trigger
-  // field_trial_triggered and field_trial_triggered_in_session). A value of -1
-  // indicates no limit. These help analyze experiments by restricting data
-  // populations to avoid noise when only interested in a range of input
-  // lengths. E.g. experimenting with |max_query_show_length_| would affect only
-  // the small subset of long queries.
-  const size_t min_query_log_length_;
-  const size_t max_query_log_length_;
 
   // Whether a field trial has triggered for this query and this session,
   // respectively. Works similarly to BaseSearchProvider, though this class does

@@ -13,6 +13,7 @@
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
@@ -88,11 +89,11 @@ MediaControlsHeaderView::MediaControlsHeaderView(
   auto close_button = CreateVectorImageButton(std::move(close_button_cb));
   close_button->SetPreferredSize(kCloseButtonSize);
   close_button->SetFocusBehavior(View::FocusBehavior::ALWAYS);
-  base::string16 close_button_label(
+  std::u16string close_button_label(
       l10n_util::GetStringUTF16(IDS_ASH_LOCK_SCREEN_MEDIA_CONTROLS_CLOSE));
   close_button->SetAccessibleName(close_button_label);
-  close_button->SetInkDropBaseColor(
-      color_utils::DeriveDefaultIconColor(gfx::kGoogleGrey700));
+  views::InkDrop::Get(close_button.get())
+      ->SetBaseColor(color_utils::DeriveDefaultIconColor(gfx::kGoogleGrey700));
   close_button_ = AddChildView(std::move(close_button));
 }
 
@@ -102,7 +103,7 @@ void MediaControlsHeaderView::SetAppIcon(const gfx::ImageSkia& img) {
   app_icon_view_->SetImage(img);
 }
 
-void MediaControlsHeaderView::SetAppName(const base::string16& name) {
+void MediaControlsHeaderView::SetAppName(const std::u16string& name) {
   app_name_view_->SetText(name);
 }
 
@@ -119,7 +120,7 @@ void MediaControlsHeaderView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->SetName(app_name_view_->GetText());
 }
 
-const base::string16& MediaControlsHeaderView::app_name_for_testing() const {
+const std::u16string& MediaControlsHeaderView::app_name_for_testing() const {
   return app_name_view_->GetText();
 }
 

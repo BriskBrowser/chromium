@@ -10,61 +10,100 @@ namespace blink {
 
 namespace {
 
-// The prefix and suffix terms are specified to begin/end with a '-' character.
-// These methods will find the prefix/suffix and return it without the '-', and
-// remove the prefix/suffix from the |target_text| string. If not found, we
-// return an empty string to indicate no prefix/suffix was specified or it
-// was malformed and should be ignored.
-String ExtractPrefix(String* target_text) {
-  size_t comma_pos = target_text->find(',');
-  size_t hyphen_pos = target_text->find('-');
-
-  if (hyphen_pos != kNotFound && hyphen_pos == comma_pos - 1) {
-    String prefix = target_text->Substring(0, hyphen_pos);
-    target_text->Remove(0, comma_pos + 1);
-    return prefix;
-  }
-  return "";
+// Escapes special chars that can be part of text fragment directive, including
+// hyphen (-), ampersand (&), and comma (,).
+String EscapeSelectorSpecialCharacters(const String& target_text) {
+  String escaped_str = EncodeWithURLEscapeSequences(target_text);
+  escaped_str.Replace("-", "%2D");
+  return escaped_str;
 }
 
-String ExtractSuffix(String* target_text) {
-  size_t last_comma_pos = target_text->ReverseFind(',');
-  size_t last_hyphen_pos = target_text->ReverseFind('-');
+// Used after parsing out individual terms from the full string microsyntax to
+// tell if the resulting string contains only valid characters.
+bool IsValidTerm(const String& term) {
+  // Should only be called on terms after splitting on ',' and '&', which are
+  // also invalid chars.
+  DCHECK_EQ(term.find(','), kNotFound);
+  DCHECK_EQ(term.find('&'), kNotFound);
 
-  if (last_hyphen_pos != kNotFound && last_hyphen_pos == last_comma_pos + 1) {
-    String suffix = target_text->Substring(last_hyphen_pos + 1);
-    target_text->Truncate(last_comma_pos);
-    return suffix;
-  }
-  return "";
+  if (term.IsEmpty())
+    return false;
+
+  wtf_size_t hyphen_pos = term.find('-');
+  return hyphen_pos == kNotFound;
+}
+
+bool IsPrefix(const String& term) {
+  if (term.IsEmpty())
+    return false;
+
+  return term[term.length() - 1] == '-';
+}
+
+bool IsSuffix(const String& term) {
+  if (term.IsEmpty())
+    return false;
+
+  return term[0] == '-';
 }
 
 }  // namespace
 
-TextFragmentSelector TextFragmentSelector::Create(String target_text) {
+TextFragmentSelector TextFragmentSelector::FromTextDirective(
+    const String& directive) {
+  DEFINE_STATIC_LOCAL(const TextFragmentSelector, kInvalidSelector, (kInvalid));
   SelectorType type;
   String start;
   String end;
+  String prefix;
+  String suffix;
 
-  String prefix = ExtractPrefix(&target_text);
-  String suffix = ExtractSuffix(&target_text);
+  DCHECK_EQ(directive.find('&'), kNotFound);
 
-  size_t comma_pos = target_text.find(',');
+  Vector<String> terms;
+  directive.Split(",", true, terms);
 
-  // If there are more commas, this is an invalid text fragment selector.
-  size_t next_comma_pos = target_text.find(',', comma_pos + 1);
-  if (next_comma_pos != kNotFound)
-    return TextFragmentSelector(kInvalid);
+  if (terms.IsEmpty() || terms.size() > 4)
+    return kInvalidSelector;
 
-  if (comma_pos == kNotFound) {
-    type = kExact;
-    start = target_text;
-    end = "";
-  } else {
-    type = kRange;
-    start = target_text.Substring(0, comma_pos);
-    end = target_text.Substring(comma_pos + 1);
+  if (IsPrefix(terms.front())) {
+    prefix = terms.front();
+    prefix = prefix.Left(prefix.length() - 1);
+    terms.erase(terms.begin());
+
+    if (!IsValidTerm(prefix) || terms.IsEmpty())
+      return kInvalidSelector;
   }
+
+  if (IsSuffix(terms.back())) {
+    suffix = terms.back();
+    suffix = suffix.Right(suffix.length() - 1);
+    terms.pop_back();
+
+    if (!IsValidTerm(suffix) || terms.IsEmpty())
+      return kInvalidSelector;
+  }
+
+  DCHECK(!terms.IsEmpty());
+  if (terms.size() > 2)
+    return kInvalidSelector;
+
+  type = kExact;
+  start = terms.front();
+  if (!IsValidTerm(start))
+    return kInvalidSelector;
+  terms.erase(terms.begin());
+
+  if (!terms.IsEmpty()) {
+    type = kRange;
+    end = terms.front();
+    if (!IsValidTerm(end))
+      return kInvalidSelector;
+
+    terms.erase(terms.begin());
+  }
+
+  DCHECK(terms.IsEmpty());
 
   return TextFragmentSelector(
       type, DecodeURLEscapeSequences(start, DecodeURLMode::kUTF8),
@@ -85,22 +124,22 @@ TextFragmentSelector::TextFragmentSelector(SelectorType type) : type_(type) {}
 String TextFragmentSelector::ToString() const {
   StringBuilder selector;
   if (!prefix_.IsEmpty()) {
-    selector.Append(EncodeWithURLEscapeSequences(prefix_));
+    selector.Append(EscapeSelectorSpecialCharacters(prefix_));
     selector.Append("-,");
   }
 
   if (!start_.IsEmpty()) {
-    selector.Append(EncodeWithURLEscapeSequences(start_));
+    selector.Append(EscapeSelectorSpecialCharacters(start_));
   }
 
   if (!end_.IsEmpty()) {
     selector.Append(",");
-    selector.Append(EncodeWithURLEscapeSequences(end_));
+    selector.Append(EscapeSelectorSpecialCharacters(end_));
   }
 
   if (!suffix_.IsEmpty()) {
     selector.Append(",-");
-    selector.Append(EncodeWithURLEscapeSequences(suffix_));
+    selector.Append(EscapeSelectorSpecialCharacters(suffix_));
   }
 
   return selector.ToString();

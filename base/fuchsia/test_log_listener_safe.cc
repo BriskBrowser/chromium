@@ -4,11 +4,13 @@
 
 #include "base/fuchsia/test_log_listener_safe.h"
 
+#include "base/callback_helpers.h"
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/test/bind.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 
@@ -55,7 +57,7 @@ void SimpleTestLogListener::ListenToLog(
   log->ListenSafe(binding_.NewBinding(), std::move(options));
 }
 
-base::Optional<fuchsia::logger::LogMessage>
+absl::optional<fuchsia::logger::LogMessage>
 SimpleTestLogListener::RunUntilMessageReceived(
     base::StringPiece expected_string) {
   while (!logged_messages_.empty()) {
@@ -67,7 +69,7 @@ SimpleTestLogListener::RunUntilMessageReceived(
     }
   }
 
-  base::Optional<fuchsia::logger::LogMessage> logged_message;
+  absl::optional<fuchsia::logger::LogMessage> logged_message;
   base::RunLoop loop;
   binding_.set_error_handler(
       [quit_loop = loop.QuitClosure()](zx_status_t status) {
@@ -87,7 +89,7 @@ SimpleTestLogListener::RunUntilMessageReceived(
   loop.Run();
 
   binding_.set_error_handler({});
-  on_log_message_ = {};
+  on_log_message_ = NullCallback();
 
   return logged_message;
 }

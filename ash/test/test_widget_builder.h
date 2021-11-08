@@ -11,6 +11,7 @@
 #include "base/compiler_specific.h"
 #include "ui/aura/window.h"
 #include "ui/base/class_property.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/widget/widget.h"
 
@@ -35,6 +36,8 @@ class ASH_EXPORT TestWidgetBuilder {
   TestWidgetBuilder& SetBounds(const gfx::Rect& bounds);
   TestWidgetBuilder& SetParent(aura::Window* parent);
   TestWidgetBuilder& SetContext(aura::Window* context);
+  TestWidgetBuilder& SetActivatable(bool activatable);
+  TestWidgetBuilder& SetShowState(ui::WindowShowState show_state);
 
   // Sets the window property to be set on the window of a widget.
   template <typename T>

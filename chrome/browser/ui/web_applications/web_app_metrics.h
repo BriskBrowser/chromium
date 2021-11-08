@@ -8,9 +8,10 @@
 #include "base/memory/weak_ptr.h"
 #include "base/power_monitor/power_observer.h"
 #include "base/scoped_observation.h"
+#include "base/time/time.h"
 #include "chrome/browser/ui/browser_tab_strip_tracker.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
-#include "chrome/browser/web_applications/components/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_id.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/site_engagement/content/site_engagement_observer.h"
 #include "url/gurl.h"
@@ -31,7 +32,7 @@ class WebAppMetrics : public KeyedService,
                       public site_engagement::SiteEngagementObserver,
                       public BrowserListObserver,
                       public TabStripModelObserver,
-                      public base::PowerObserver {
+                      public base::PowerSuspendObserver {
  public:
   static WebAppMetrics* Get(Profile* profile);
 
@@ -57,7 +58,7 @@ class WebAppMetrics : public KeyedService,
       const TabStripModelChange& change,
       const TabStripSelectionChange& selection) override;
 
-  // base::PowerObserver:
+  // base::PowerSuspendObserver:
   void OnSuspend() override;
 
   // Called when a web contents changes associated AppId (may be empty).

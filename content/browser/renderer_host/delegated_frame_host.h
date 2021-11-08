@@ -24,7 +24,7 @@
 #include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom.h"
 #include "services/viz/public/mojom/hit_test/hit_test_region_list.mojom.h"
 #include "third_party/blink/public/common/page/content_to_visible_time_reporter.h"
-#include "third_party/blink/public/mojom/page/record_content_to_visible_time_request.mojom-forward.h"
+#include "third_party/blink/public/mojom/widget/record_content_to_visible_time_request.mojom-forward.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/compositor_observer.h"
 #include "ui/compositor/layer.h"
@@ -46,7 +46,8 @@ class CONTENT_EXPORT DelegatedFrameHostClient {
   virtual bool DelegatedFrameHostIsVisible() const = 0;
   // Returns the color that the resize gutters should be drawn with.
   virtual SkColor DelegatedFrameHostGetGutterColor() const = 0;
-  virtual void OnFrameTokenChanged(uint32_t frame_token) = 0;
+  virtual void OnFrameTokenChanged(uint32_t frame_token,
+                                   base::TimeTicks activation_time) = 0;
   virtual float GetDeviceScaleFactor() const = 0;
   virtual void InvalidateLocalSurfaceIdOnEviction() = 0;
   virtual std::vector<viz::SurfaceId> CollectSurfaceIdsForEviction() = 0;
@@ -82,6 +83,10 @@ class CONTENT_EXPORT DelegatedFrameHost
   DelegatedFrameHost(const viz::FrameSinkId& frame_sink_id,
                      DelegatedFrameHostClient* client,
                      bool should_register_frame_sink_id);
+
+  DelegatedFrameHost(const DelegatedFrameHost&) = delete;
+  DelegatedFrameHost& operator=(const DelegatedFrameHost&) = delete;
+
   ~DelegatedFrameHost() override;
 
   void AddObserverForTesting(Observer* observer);
@@ -94,7 +99,8 @@ class CONTENT_EXPORT DelegatedFrameHost
 
   // viz::HostFrameSinkClient implementation.
   void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
-  void OnFrameTokenChanged(uint32_t frame_token) override;
+  void OnFrameTokenChanged(uint32_t frame_token,
+                           base::TimeTicks activation_time) override;
 
   // Public interface exposed to RenderWidgetHostView.
 
@@ -197,6 +203,7 @@ class CONTENT_EXPORT DelegatedFrameHost
       const gfx::Rect& src_subrect,
       const gfx::Size& output_size,
       viz::CopyOutputRequest::ResultFormat format,
+      viz::CopyOutputRequest::ResultDestination destination,
       viz::CopyOutputRequest::CopyOutputRequestCallback callback);
 
   void SetFrameEvictionStateAndNotifyObservers(
@@ -240,8 +247,6 @@ class CONTENT_EXPORT DelegatedFrameHost
   base::ObserverList<Observer>::Unchecked observers_;
 
   base::WeakPtrFactory<DelegatedFrameHost> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DelegatedFrameHost);
 };
 
 }  // namespace content

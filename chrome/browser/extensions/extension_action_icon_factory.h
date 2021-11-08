@@ -5,10 +5,8 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_ACTION_ICON_FACTORY_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_ACTION_ICON_FACTORY_H_
 
-#include <memory>
-
 #include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "extensions/browser/extension_icon_image.h"
 
 class Profile;
@@ -37,6 +35,11 @@ class ExtensionActionIconFactory : public extensions::IconImage::Observer {
                              const extensions::Extension* extension,
                              extensions::ExtensionAction* action,
                              Observer* observer);
+
+  ExtensionActionIconFactory(const ExtensionActionIconFactory&) = delete;
+  ExtensionActionIconFactory& operator=(const ExtensionActionIconFactory&) =
+      delete;
+
   ~ExtensionActionIconFactory() override;
 
   // Controls whether invisible icons will be returned by GetIcon().
@@ -63,10 +66,9 @@ class ExtensionActionIconFactory : public extensions::IconImage::Observer {
   const bool should_check_icons_;
   gfx::Image cached_default_icon_image_;
 
-  ScopedObserver<extensions::IconImage, extensions::IconImage::Observer>
-      icon_image_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionActionIconFactory);
+  base::ScopedObservation<extensions::IconImage,
+                          extensions::IconImage::Observer>
+      icon_image_observation_{this};
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_EXTENSION_ACTION_ICON_FACTORY_H_

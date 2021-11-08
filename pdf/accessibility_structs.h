@@ -10,12 +10,16 @@
 #include <string>
 #include <vector>
 
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 
 namespace chrome_pdf {
 
 struct AccessibilityDocInfo {
+  bool operator==(const AccessibilityDocInfo& other) const;
+  bool operator!=(const AccessibilityDocInfo& other) const;
+
   uint32_t page_count = 0;
   bool text_accessible = false;
   bool text_copyable = false;
@@ -105,7 +109,7 @@ struct AccessibilityCharInfo {
 struct AccessibilityTextRunRangeInfo {
   // Index of the starting text run of the annotation in the collection of all
   // text runs in the page.
-  uint32_t index = 0;
+  size_t index = 0;
   // Count of the text runs spanning the annotation.
   uint32_t count = 0;
 };
@@ -217,6 +221,7 @@ struct AccessibilityChoiceFieldOptionInfo {
 enum class ChoiceFieldType {
   kListBox = 0,
   kComboBox = 1,
+  kMinValue = kListBox,
   kMaxValue = kComboBox,
 };
 
@@ -265,6 +270,7 @@ enum class ButtonType {
   kPushButton = 1,
   kCheckBox = 2,
   kRadioButton = 3,
+  kMinValue = kPushButton,
   kMaxValue = kRadioButton,
 };
 
@@ -296,13 +302,13 @@ struct AccessibilityButtonInfo {
   // Represents count of controls in the control group. A group of interactive
   // form annotations is collectively called a form control group. Here, an
   // interactive form annotation, should be either a radio button or a
-  // checkbox. Value of |control_count| is >= 1.
+  // checkbox. Value of `control_count` is >= 1.
   uint32_t control_count = 0;
   // Represents index of the control in the control group. A group of
   // interactive form annotations is collectively called a form control group.
   // Here, an interactive form annotation, should be either a radio button or
-  // a checkbox. Value of |control_index| should always be less than
-  // |control_count|.
+  // a checkbox. Value of `control_index` should always be less than
+  // `control_count`.
   uint32_t control_index = 0;
   // Index of this button in the collection of buttons in the page.
   uint32_t index_in_page = 0;
@@ -372,6 +378,105 @@ struct AccessibilityViewportInfo {
   uint32_t selection_end_page_index = 0;
   uint32_t selection_end_char_index = 0;
   AccessibilityFocusInfo focus_info;
+};
+
+// TODO(crbug.com/702993): Remove next line comment after PDF migrates away
+// from Pepper.
+// Explicitly set all enum values to match enum values in
+// PP_PdfAccessibilityAction.
+enum class AccessibilityAction {
+  // No action specified.
+  kNone = 0,
+  // Invoke the rect to scroll into the viewport.
+  kScrollToMakeVisible = 1,
+  // Invoke the default action on a node.
+  kDoDefaultAction = 2,
+  // Invoke the global point to scroll into the viewport.
+  kScrollToGlobalPoint = 3,
+  // Set the text selection.
+  kSetSelection = 4,
+  // Last enum value marker.
+  kMaxValue = kSetSelection,
+};
+
+// TODO(crbug.com/702993): Remove next line comment after PDF migrates away
+// from Pepper.
+// Explicitly set all enum values to match enum values in
+// PP_PdfAccessibilityAnnotationType.
+enum class AccessibilityAnnotationType {
+  // No annotation type defined.
+  kNone = 0,
+  // Link annotation.
+  kLink = 1,
+  // Last enum value marker.
+  kMaxValue = kLink,
+};
+
+enum class AccessibilityScrollAlignment {
+  // No scroll alignment specified.
+  kNone = 0,
+  // Scroll the point to the center of the viewport.
+  kCenter,
+  // Scroll the point to the top of the viewport.
+  kTop,
+  // Scroll the point to the bottom of the viewport.
+  kBottom,
+  // Scroll the point to the left of the viewport.
+  kLeft,
+  // Scroll the point to the right of the viewport.
+  kRight,
+  // Scroll the point to the closest edge of the viewport.
+  kClosestToEdge,
+  // Last enum value marker.
+  kMaxValue = kClosestToEdge,
+};
+
+struct PageCharacterIndex {
+  // Index of PDF page.
+  uint32_t page_index = 0;
+  // Index of character within the PDF page.
+  uint32_t char_index = 0;
+};
+
+struct AccessibilityActionData {
+  AccessibilityActionData();
+  AccessibilityActionData(
+      AccessibilityAction action,
+      AccessibilityAnnotationType annotation_type,
+      const gfx::Point& target_point,
+      const gfx::Rect& target_rect,
+      uint32_t annotation_index,
+      uint32_t page_index,
+      AccessibilityScrollAlignment horizontal_scroll_alignment,
+      AccessibilityScrollAlignment vertical_scroll_alignment,
+      const PageCharacterIndex& selection_start_index,
+      const PageCharacterIndex& selection_end_index);
+  AccessibilityActionData(const AccessibilityActionData& other);
+  ~AccessibilityActionData();
+
+  // Accessibility action type.
+  AccessibilityAction action = AccessibilityAction::kNone;
+  // Annotation type on which the action is to be performed.
+  AccessibilityAnnotationType annotation_type =
+      AccessibilityAnnotationType::kNone;
+  // Target point on which the action is to be performed.
+  gfx::Point target_point;
+  // Target rect on which the action is to be performed.
+  gfx::Rect target_rect;
+  // Index of annotation in page.
+  uint32_t annotation_index = 0;
+  // Page index on which the link is present.
+  uint32_t page_index = 0;
+  // Horizontal scroll alignment with respect to the viewport
+  AccessibilityScrollAlignment horizontal_scroll_alignment =
+      AccessibilityScrollAlignment::kNone;
+  // Vertical scroll alignment with respect to the viewport
+  AccessibilityScrollAlignment vertical_scroll_alignment =
+      AccessibilityScrollAlignment::kNone;
+  // Page and character index of start of selection.
+  PageCharacterIndex selection_start_index;
+  // Page and character index of exclusive end of selection.
+  PageCharacterIndex selection_end_index;
 };
 
 }  // namespace chrome_pdf

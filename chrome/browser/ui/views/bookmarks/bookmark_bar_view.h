@@ -15,17 +15,19 @@
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bubble_observer.h"
 #include "chrome/browser/ui/bookmarks/bookmark_stats.h"
+#include "chrome/browser/ui/tabs/tab_group_theme.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_menu_controller_observer.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
 #include "components/prefs/pref_change_registrar.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/menu/menu_types.h"
 #include "ui/views/drag_controller.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/view.h"
 
 class BookmarkBarViewObserver;
 class BookmarkBarViewTestHelper;
@@ -148,11 +150,11 @@ class BookmarkBarView : public views::AccessiblePaneView,
   //
   // Note that we adjust the direction of both the URL and the title based on
   // the locale so that pure LTR strings are displayed properly in RTL locales.
-  static base::string16 CreateToolTipForURLAndTitle(
+  static std::u16string CreateToolTipForURLAndTitle(
       int max_tooltip_width,
       const gfx::FontList& font_list,
       const GURL& url,
-      const base::string16& title);
+      const std::u16string& title);
 
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
@@ -169,6 +171,8 @@ class BookmarkBarView : public views::AccessiblePaneView,
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
   ui::mojom::DragOperation OnPerformDrop(
+      const ui::DropTargetEvent& event) override;
+  views::View::DropCallback GetDropCallback(
       const ui::DropTargetEvent& event) override;
   void OnThemeChanged() override;
   void VisibilityChanged(View* starting_from, bool is_visible) override;
@@ -313,6 +317,10 @@ class BookmarkBarView : public views::AccessiblePaneView,
                              const bookmarks::BookmarkNodeData& data,
                              DropLocation* location);
 
+  // Marks the current drop as invalid and cancels the menu. Used when the
+  // model is mutated and a drop is in progress.
+  void InvalidateDrop();
+
   // Returns the node corresponding to |sender|, which is one of the
   // |bookmark_buttons_|.
   const bookmarks::BookmarkNode* GetNodeForSender(View* sender) const;
@@ -349,6 +357,9 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // Updates the visibility of the apps shortcut based on the pref value.
   void OnAppsPageShortcutVisibilityPrefChanged();
 
+  // Updates the visibility of the reading list based on the pref value.
+  void OnReadingListVisibilityPrefChanged();
+
   void OnShowManagedBookmarksPrefChanged();
 
   void LayoutAndPaint() {
@@ -371,6 +382,20 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // opening many bookmarks is asynchronous and |page_navigator_| may
   // change in the meantime.
   base::RepeatingCallback<content::PageNavigator*()> GetPageNavigatorGetter();
+
+  // Returns the target drop BookmarkNode parent pointer and updates `index`
+  // with the right value.
+  const bookmarks::BookmarkNode* GetParentNodeAndIndexForDrop(size_t& index);
+
+  // Drops Bookmark `data` and updates `output_drag_op` accordingly.
+  void PerformDrop(const bookmarks::BookmarkNodeData data,
+                   const bookmarks::BookmarkNode* parent_node,
+                   const size_t index,
+                   const bool copy,
+                   const ui::DropTargetEvent& event,
+                   ui::mojom::DragOperation& output_drag_op);
+
+  int GetDropLocationModelIndexForTesting() const;
 
   // Needed to react to kShowAppsShortcutInBookmarkBar changes.
   PrefChangeRegistrar profile_pref_registrar_;
@@ -416,6 +441,9 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // The individual bookmark buttons.
   std::vector<views::LabelButton*> bookmark_buttons_;
 
+  // The individual TAB GROUP bookmark buttons.
+  std::vector<views::LabelButton*> tab_group_buttons_;
+
   ButtonSeparatorView* bookmarks_separator_view_ = nullptr;
 
   ReadLaterButton* read_later_button_ = nullptr;
@@ -445,6 +473,10 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // Returns WeakPtrs used in GetPageNavigatorGetter(). Used to ensure
   // safety if BookmarkBarView is deleted after getting the callback.
   base::WeakPtrFactory<BookmarkBarView> weak_ptr_factory_{this};
+
+  // Returns WeakPtrs used in GetDropCallback(). Used to ensure
+  // safety if `model_` is mutated after getting the callback.
+  base::WeakPtrFactory<BookmarkBarView> drop_weak_ptr_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_BOOKMARKS_BOOKMARK_BAR_VIEW_H_

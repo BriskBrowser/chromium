@@ -29,6 +29,10 @@ class TranslateWaiter : TranslateDriver::LanguageDetectionObserver,
 
   TranslateWaiter(ContentTranslateDriver* translate_driver,
                   WaitEvent wait_event);
+
+  TranslateWaiter(const TranslateWaiter&) = delete;
+  TranslateWaiter& operator=(const TranslateWaiter&) = delete;
+
   ~TranslateWaiter() override;
 
   // Blocks until an observer function matching |wait_event_| is invoked, or
@@ -39,7 +43,7 @@ class TranslateWaiter : TranslateDriver::LanguageDetectionObserver,
   void OnLanguageDetermined(const LanguageDetectionDetails& details) override;
 
   // ContentTranslateDriver::TranslationObserver:
-  void OnPageTranslated(const std::string& original_lang,
+  void OnPageTranslated(const std::string& source_lang,
                         const std::string& translated_lang,
                         TranslateErrors::Type error_type) override;
   void OnIsPageTranslatedChanged(content::WebContents* source) override;
@@ -57,8 +61,6 @@ class TranslateWaiter : TranslateDriver::LanguageDetectionObserver,
                           &ContentTranslateDriver::RemoveTranslationObserver>
       scoped_translation_observation_{this};
   base::RunLoop run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(TranslateWaiter);
 };
 
 }  // namespace translate

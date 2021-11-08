@@ -20,20 +20,22 @@ namespace content {
 class SandboxSupportMacImpl : public mojom::SandboxSupportMac {
  public:
   SandboxSupportMacImpl();
+
+  SandboxSupportMacImpl(const SandboxSupportMacImpl&) = delete;
+  SandboxSupportMacImpl& operator=(const SandboxSupportMacImpl&) = delete;
+
   ~SandboxSupportMacImpl() override;
 
   void BindReceiver(mojo::PendingReceiver<mojom::SandboxSupportMac> receiver);
 
   // content::mojom::SandboxSupportMac:
   void GetSystemColors(GetSystemColorsCallback callback) override;
-  void LoadFont(const base::string16& font_name,
+  void LoadFont(const std::u16string& font_name,
                 float font_point_size,
                 LoadFontCallback callback) override;
 
  private:
   mojo::ReceiverSet<mojom::SandboxSupportMac> receivers_;
-
-  DISALLOW_COPY_AND_ASSIGN(SandboxSupportMacImpl);
 };
 
 }  // namespace content

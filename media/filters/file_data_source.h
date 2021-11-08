@@ -7,8 +7,7 @@
 
 #include <stdint.h>
 
-#include <string>
-
+#include "base/compiler_specific.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/memory_mapped_file.h"
@@ -22,10 +21,14 @@ namespace media {
 class MEDIA_EXPORT FileDataSource : public DataSource {
  public:
   FileDataSource();
+
+  FileDataSource(const FileDataSource&) = delete;
+  FileDataSource& operator=(const FileDataSource&) = delete;
+
   ~FileDataSource() override;
 
-  WARN_UNUSED_RESULT bool Initialize(const base::FilePath& file_path);
-  WARN_UNUSED_RESULT bool Initialize(base::File file);
+  bool Initialize(const base::FilePath& file_path) WARN_UNUSED_RESULT;
+  bool Initialize(base::File file) WARN_UNUSED_RESULT;
 
   // Implementation of DataSource.
   void Stop() override;
@@ -34,7 +37,7 @@ class MEDIA_EXPORT FileDataSource : public DataSource {
             int size,
             uint8_t* data,
             DataSource::ReadCB read_cb) override;
-  bool GetSize(int64_t* size_out) override;
+  bool GetSize(int64_t* size_out) override WARN_UNUSED_RESULT;
   bool IsStreaming() override;
   void SetBitrate(int bitrate) override;
 
@@ -50,8 +53,6 @@ class MEDIA_EXPORT FileDataSource : public DataSource {
   bool force_read_errors_;
   bool force_streaming_;
   uint64_t bytes_read_;
-
-  DISALLOW_COPY_AND_ASSIGN(FileDataSource);
 };
 
 }  // namespace media

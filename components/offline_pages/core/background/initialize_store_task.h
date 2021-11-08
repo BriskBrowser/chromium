@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef COMPONENTS_OFFLINE_PAGES_BACKGROUND____CORE_BACKGROUND_INITIALIZE_STORE_TASK_H_
-#define COMPONENTS_OFFLINE_PAGES_BACKGROUND____CORE_BACKGROUND_INITIALIZE_STORE_TASK_H_
+#ifndef COMPONENTS_OFFLINE_PAGES_CORE_BACKGROUND_INITIALIZE_STORE_TASK_H_
+#define COMPONENTS_OFFLINE_PAGES_CORE_BACKGROUND_INITIALIZE_STORE_TASK_H_
 
 #include <stdint.h>
 
@@ -26,6 +26,10 @@ class InitializeStoreTask : public Task {
  public:
   InitializeStoreTask(RequestQueueStore* store,
                       RequestQueueStore::InitializeCallback callback);
+
+  InitializeStoreTask(const InitializeStoreTask&) = delete;
+  InitializeStoreTask& operator=(const InitializeStoreTask&) = delete;
+
   ~InitializeStoreTask() override;
 
  private:
@@ -49,9 +53,8 @@ class InitializeStoreTask : public Task {
   RequestQueueStore::InitializeCallback callback_;
 
   base::WeakPtrFactory<InitializeStoreTask> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(InitializeStoreTask);
 };
 
 }  // namespace offline_pages
 
-#endif  // COMPONENTS_OFFLINE_PAGES_BACKGROUND____CORE_BACKGROUND_INITIALIZE_STORE_TASK_H_
+#endif  // COMPONENTS_OFFLINE_PAGES_CORE_BACKGROUND_INITIALIZE_STORE_TASK_H_

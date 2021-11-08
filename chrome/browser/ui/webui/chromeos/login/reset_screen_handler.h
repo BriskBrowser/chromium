@@ -7,12 +7,14 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "chrome/browser/chromeos/tpm_firmware_update.h"
+#include "chrome/browser/ash/tpm_firmware_update.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 
-namespace chromeos {
-
+namespace ash {
 class ResetScreen;
+}
+
+namespace chromeos {
 
 // Interface for dependency injection between ResetScreen and its actual
 // representation, either views based or WebUI.
@@ -22,7 +24,7 @@ class ResetView {
 
   virtual ~ResetView() {}
 
-  virtual void Bind(ResetScreen* screen) = 0;
+  virtual void Bind(ash::ResetScreen* screen) = 0;
   virtual void Unbind() = 0;
   virtual void Show() = 0;
   virtual void Hide() = 0;
@@ -58,10 +60,14 @@ class ResetScreenHandler : public ResetView,
   using TView = ResetView;
 
   explicit ResetScreenHandler(JSCallsContainer* js_calls_container);
+
+  ResetScreenHandler(const ResetScreenHandler&) = delete;
+  ResetScreenHandler& operator=(const ResetScreenHandler&) = delete;
+
   ~ResetScreenHandler() override;
 
   // ResetView implementation:
-  void Bind(ResetScreen* screen) override;
+  void Bind(ash::ResetScreen* screen) override;
   void Unbind() override;
   void Show() override;
   void Hide() override;
@@ -89,7 +95,7 @@ class ResetScreenHandler : public ResetView,
  private:
   void HandleSetTpmFirmwareUpdateChecked(bool value);
 
-  ResetScreen* screen_ = nullptr;
+  ash::ResetScreen* screen_ = nullptr;
 
   // If true, Initialize() will call Show().
   bool show_on_init_ = false;
@@ -100,10 +106,15 @@ class ResetScreenHandler : public ResetView,
   bool is_rollback_requested_ = false;
   bool is_tpm_firmware_update_checked_ = false;
   bool is_showing_confirmation_dialog_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(ResetScreenHandler);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::ResetScreenHandler;
+using ::chromeos::ResetView;
+}
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CHROMEOS_LOGIN_RESET_SCREEN_HANDLER_H_

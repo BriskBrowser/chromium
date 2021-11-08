@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/optional.h"
+#include "base/feature_list.h"
 #include "base/strings/string_number_conversions.h"
 #include "chromecast/base/bitstream_audio_codecs.h"
 #include "chromecast/base/cast_features.h"
@@ -37,6 +37,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/web_runtime_features.h"
 #include "third_party/blink/public/web/web_frame_widget.h"
@@ -54,35 +55,38 @@
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
 #include "chromecast/common/cast_extensions_client.h"
 #include "chromecast/renderer/cast_extensions_renderer_client.h"
+#include "components/guest_view/renderer/guest_view_container_dispatcher.h"
 #include "content/public/common/content_constants.h"
 #include "extensions/common/common_manifest_handlers.h"  // nogncheck
 #include "extensions/common/extension_urls.h"            // nogncheck
 #include "extensions/renderer/dispatcher.h"              // nogncheck
 #include "extensions/renderer/extension_frame_helper.h"  // nogncheck
-#include "extensions/renderer/guest_view/extensions_guest_view_container_dispatcher.h"  // nogncheck
 #endif
 
 namespace chromecast {
 namespace shell {
 namespace {
 bool IsSupportedBitstreamAudioCodecHelper(::media::AudioCodec codec, int mask) {
-  return (codec == ::media::kCodecAC3 && (kBitstreamAudioCodecAc3 & mask)) ||
-         (codec == ::media::kCodecEAC3 && (kBitstreamAudioCodecEac3 & mask)) ||
-         (codec == ::media::kCodecMpegHAudio &&
+  return (codec == ::media::AudioCodec::kAC3 &&
+          (kBitstreamAudioCodecAc3 & mask)) ||
+         (codec == ::media::AudioCodec::kEAC3 &&
+          (kBitstreamAudioCodecEac3 & mask)) ||
+         (codec == ::media::AudioCodec::kMpegHAudio &&
           (kBitstreamAudioCodecMpegHAudio & mask));
 }
 }  // namespace
 
 #if defined(OS_ANDROID)
-// Audio renderer algorithm maximum capacity.
-constexpr base::TimeDelta kAudioRendererMaxCapacity =
-    base::TimeDelta::FromSeconds(10);
+// Audio renderer algorithm maximum capacity. 5s buffer is already large enough,
+// we don't need a larger capacity. Otherwise audio renderer will double the
+// buffer size when underrun happens, which will cause the playback paused to
+// wait long time for enough buffers.
+constexpr base::TimeDelta kAudioRendererMaxCapacity = base::Seconds(5);
 // Audio renderer algorithm starting capacity.  Configure large enough to
 // prevent underrun.
-constexpr base::TimeDelta kAudioRendererStartingCapacity =
-    base::TimeDelta::FromMilliseconds(5000);
+constexpr base::TimeDelta kAudioRendererStartingCapacity = base::Seconds(5);
 constexpr base::TimeDelta kAudioRendererStartingCapacityEncrypted =
-    base::TimeDelta::FromMilliseconds(5500);
+    base::Seconds(5);
 #endif  // defined(OS_ANDROID)
 
 CastContentRendererClient::CastContentRendererClient()
@@ -153,16 +157,12 @@ void CastContentRendererClient::RenderThreadStarted() {
   thread->AddObserver(extensions_renderer_client_->GetDispatcher());
 
   guest_view_container_dispatcher_ =
-      std::make_unique<extensions::ExtensionsGuestViewContainerDispatcher>();
+      std::make_unique<guest_view::GuestViewContainerDispatcher>();
   thread->AddObserver(guest_view_container_dispatcher_.get());
 #endif
 }
 
-void CastContentRendererClient::RenderViewCreated(
-    content::RenderView* render_view) {
-  blink::WebView* webview = render_view->GetWebView();
-  webview->SetBaseBackgroundColor(chromecast::GetSwitchValueColor(
-      switches::kCastAppBackgroundColor, SK_ColorBLACK));
+void CastContentRendererClient::WebViewCreated(blink::WebView* webview) {
   // Disable application cache as Chromecast doesn't support off-line
   // application running.
   webview->GetSettings()->SetOfflineWebApplicationCacheEnabled(false);
@@ -173,6 +173,16 @@ void CastContentRendererClient::RenderFrameCreated(
   DCHECK(render_frame);
 
   // Lifetime is tied to |render_frame| via content::RenderFrameObserver.
+  if (render_frame->IsMainFrame()) {
+    if (main_frame_feature_manager_on_associated_interface_) {
+      LOG(DFATAL) << "main_frame_feature_manager_on_associated_interface_ gets "
+                     "overwritten.";
+    }
+    main_frame_feature_manager_on_associated_interface_ =
+        new FeatureManagerOnAssociatedInterface(render_frame);
+  } else {
+    new FeatureManagerOnAssociatedInterface(render_frame);
+  }
   new media_control::MediaPlaybackOptions(render_frame);
 
   // Add script injection support to the RenderFrame, used by Cast platform
@@ -208,7 +218,7 @@ void CastContentRendererClient::RenderFrameCreated(
   // CastContentRendererClient should be alive.
   settings_managers_.emplace(
       render_frame->GetRoutingID(),
-      std::make_unique<IdentificationSettingsManagerRenderer>(
+      base::MakeRefCounted<IdentificationSettingsManagerRenderer>(
           render_frame,
           base::BindOnce(&CastContentRendererClient::OnRenderFrameRemoved,
                          base::Unretained(this),
@@ -236,7 +246,7 @@ void CastContentRendererClient::AddSupportedKeySystems(
         key_systems_properties) {
   media::AddChromecastKeySystems(key_systems_properties,
                                  false /* enable_persistent_license_support */,
-                                 false /* force_software_crypto */);
+                                 false /* enable_playready */);
 }
 
 bool CastContentRendererClient::IsSupportedAudioType(
@@ -247,15 +257,15 @@ bool CastContentRendererClient::IsSupportedAudioType(
 
   // No ATV device we know of has (E)AC3 decoder, so it relies on the audio sink
   // device.
-  if (type.codec == ::media::kCodecEAC3) {
+  if (type.codec == ::media::AudioCodec::kEAC3) {
     return kBitstreamAudioCodecEac3 &
            supported_bitstream_audio_codecs_info_.codecs;
   }
-  if (type.codec == ::media::kCodecAC3) {
+  if (type.codec == ::media::AudioCodec::kAC3) {
     return kBitstreamAudioCodecAc3 &
            supported_bitstream_audio_codecs_info_.codecs;
   }
-  if (type.codec == ::media::kCodecMpegHAudio) {
+  if (type.codec == ::media::AudioCodec::kMpegHAudio) {
     return kBitstreamAudioCodecMpegHAudio &
            supported_bitstream_audio_codecs_info_.codecs;
   }
@@ -378,42 +388,45 @@ void CastContentRendererClient::OnSupportedBitstreamAudioCodecsChanged(
   supported_bitstream_audio_codecs_info_ = info;
 }
 
-std::unique_ptr<content::WebSocketHandshakeThrottleProvider>
+std::unique_ptr<blink::WebSocketHandshakeThrottleProvider>
 CastContentRendererClient::CreateWebSocketHandshakeThrottleProvider() {
   return std::make_unique<CastWebSocketHandshakeThrottleProvider>(
       activity_url_filter_manager_.get());
 }
 
-std::unique_ptr<content::URLLoaderThrottleProvider>
+std::unique_ptr<blink::URLLoaderThrottleProvider>
 CastContentRendererClient::CreateURLLoaderThrottleProvider(
-    content::URLLoaderThrottleProviderType type) {
+    blink::URLLoaderThrottleProviderType type) {
   return std::make_unique<CastURLLoaderThrottleProvider>(
       type, activity_url_filter_manager(), this);
 }
 
-base::Optional<::media::AudioRendererAlgorithmParameters>
+absl::optional<::media::AudioRendererAlgorithmParameters>
 CastContentRendererClient::GetAudioRendererAlgorithmParameters(
     ::media::AudioParameters audio_parameters) {
 #if defined(OS_ANDROID)
+  if (base::FeatureList::IsEnabled(kEnableCastAudioOutputDevice)) {
+    return absl::nullopt;
+  }
   ::media::AudioRendererAlgorithmParameters parameters;
   parameters.max_capacity = kAudioRendererMaxCapacity;
   parameters.starting_capacity = kAudioRendererStartingCapacity;
   parameters.starting_capacity_for_encrypted =
       kAudioRendererStartingCapacityEncrypted;
-  return base::Optional<::media::AudioRendererAlgorithmParameters>(parameters);
+  return absl::optional<::media::AudioRendererAlgorithmParameters>(parameters);
 #else
-  return base::nullopt;
+  return absl::nullopt;
 #endif
 }
 
-IdentificationSettingsManager*
+scoped_refptr<IdentificationSettingsManager>
 CastContentRendererClient::GetSettingsManagerFromRenderFrameID(
     int render_frame_id) {
   const auto& it = settings_managers_.find(render_frame_id);
   if (it == settings_managers_.end()) {
     return nullptr;
   }
-  return it->second.get();
+  return it->second;
 }
 
 void CastContentRendererClient::OnRenderFrameRemoved(int render_frame_id) {

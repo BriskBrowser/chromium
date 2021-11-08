@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 #include "chrome/common/extensions/api/sessions.h"
+#include "chrome/common/extensions/api/tab_groups.h"
 #include "chrome/common/extensions/api/tabs.h"
 #include "chrome/common/extensions/api/windows.h"
 #include "components/sessions/core/tab_restore_service.h"
@@ -40,6 +41,8 @@ class SessionsGetRecentlyClosedFunction : public ExtensionFunction {
                                 bool active);
   std::unique_ptr<api::windows::Window> CreateWindowModel(
       const sessions::TabRestoreService::Window& window);
+  std::unique_ptr<api::tab_groups::TabGroup> CreateGroupModel(
+      const sessions::TabRestoreService::Group& group);
   std::unique_ptr<api::sessions::Session> CreateSessionModel(
       const sessions::TabRestoreService::Entry& entry);
 };
@@ -84,6 +87,10 @@ class SessionsRestoreFunction : public ExtensionFunction {
 class SessionsEventRouter : public sessions::TabRestoreServiceObserver {
  public:
   explicit SessionsEventRouter(Profile* profile);
+
+  SessionsEventRouter(const SessionsEventRouter&) = delete;
+  SessionsEventRouter& operator=(const SessionsEventRouter&) = delete;
+
   ~SessionsEventRouter() override;
 
   // Observer callback for TabRestoreServiceObserver. Sends data on
@@ -101,14 +108,16 @@ class SessionsEventRouter : public sessions::TabRestoreServiceObserver {
 
   // TabRestoreService that we are observing.
   sessions::TabRestoreService* tab_restore_service_;
-
-  DISALLOW_COPY_AND_ASSIGN(SessionsEventRouter);
 };
 
 class SessionsAPI : public BrowserContextKeyedAPI,
                     public extensions::EventRouter::Observer {
  public:
   explicit SessionsAPI(content::BrowserContext* context);
+
+  SessionsAPI(const SessionsAPI&) = delete;
+  SessionsAPI& operator=(const SessionsAPI&) = delete;
+
   ~SessionsAPI() override;
 
   // BrowserContextKeyedService implementation.
@@ -133,8 +142,6 @@ class SessionsAPI : public BrowserContextKeyedAPI,
 
   // Created lazily upon OnListenerAdded.
   std::unique_ptr<SessionsEventRouter> sessions_event_router_;
-
-  DISALLOW_COPY_AND_ASSIGN(SessionsAPI);
 };
 
 }  // namespace extensions

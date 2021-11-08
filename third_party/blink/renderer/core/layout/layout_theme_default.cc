@@ -63,21 +63,11 @@ String LayoutThemeDefault::ExtraDefaultStyleSheet() {
           ? UncompressResourceAsASCIIString(
                 IDR_UASTYLE_THEME_INPUT_MULTIPLE_FIELDS_CSS)
           : String();
-  String windows_style_sheet =
-      UncompressResourceAsASCIIString(IDR_UASTYLE_THEME_WIN_CSS);
-  String controls_refresh_style_sheet =
-      features::IsFormControlsRefreshEnabled()
-          ? UncompressResourceAsASCIIString(
-                IDR_UASTYLE_THEME_CONTROLS_REFRESH_CSS)
-          : String();
   StringBuilder builder;
-  builder.ReserveCapacity(
-      extra_style_sheet.length() + multiple_fields_style_sheet.length() +
-      windows_style_sheet.length() + controls_refresh_style_sheet.length());
+  builder.ReserveCapacity(extra_style_sheet.length() +
+                          multiple_fields_style_sheet.length());
   builder.Append(extra_style_sheet);
   builder.Append(multiple_fields_style_sheet);
-  builder.Append(windows_style_sheet);
-  builder.Append(controls_refresh_style_sheet);
   return builder.ToString();
 }
 
@@ -108,19 +98,13 @@ Color LayoutThemeDefault::PlatformInactiveSelectionForegroundColor(
 IntSize LayoutThemeDefault::SliderTickSize() const {
   // The value should be synchronized with a -webkit-slider-container rule in
   // html.css.
-  if (features::IsFormControlsRefreshEnabled())
-    return IntSize(1, 4);
-  else
-    return IntSize(1, 6);
+  return IntSize(1, 4);
 }
 
 int LayoutThemeDefault::SliderTickOffsetFromTrackCenter() const {
   // The value should be synchronized with a -webkit-slider-container rule in
   // html.css and LayoutThemeAndroid::ExtraDefaultStyleSheet().
-  if (features::IsFormControlsRefreshEnabled())
-    return 7;
-  else
-    return -16;
+  return 7;
 }
 
 void LayoutThemeDefault::AdjustSliderThumbSize(ComputedStyle& style) const {
@@ -132,11 +116,11 @@ void LayoutThemeDefault::AdjustSliderThumbSize(ComputedStyle& style) const {
 
   float zoom_level = style.EffectiveZoom();
   if (style.EffectiveAppearance() == kSliderThumbHorizontalPart) {
-    style.SetWidth(Length::Fixed(size.Width() * zoom_level));
-    style.SetHeight(Length::Fixed(size.Height() * zoom_level));
+    style.SetWidth(Length::Fixed(size.width() * zoom_level));
+    style.SetHeight(Length::Fixed(size.height() * zoom_level));
   } else if (style.EffectiveAppearance() == kSliderThumbVerticalPart) {
-    style.SetWidth(Length::Fixed(size.Height() * zoom_level));
-    style.SetHeight(Length::Fixed(size.Width() * zoom_level));
+    style.SetWidth(Length::Fixed(size.height() * zoom_level));
+    style.SetHeight(Length::Fixed(size.width() * zoom_level));
   }
 }
 
@@ -155,9 +139,9 @@ namespace {
 
 void SetSizeIfAuto(const IntSize& size, ComputedStyle& style) {
   if (style.Width().IsAutoOrContentOrIntrinsic())
-    style.SetWidth(Length::Fixed(size.Width()));
+    style.SetWidth(Length::Fixed(size.width()));
   if (style.Height().IsAutoOrContentOrIntrinsic())
-    style.SetHeight(Length::Fixed(size.Height()));
+    style.SetHeight(Length::Fixed(size.height()));
 }
 
 void SetMinimumSizeIfAuto(const IntSize& size, ComputedStyle& style) {
@@ -165,10 +149,10 @@ void SetMinimumSizeIfAuto(const IntSize& size, ComputedStyle& style) {
   // avoid overriding author intentions.
   if (style.MinWidth().IsAutoOrContentOrIntrinsic() &&
       style.Width().IsAutoOrContentOrIntrinsic())
-    style.SetMinWidth(Length::Fixed(size.Width()));
+    style.SetMinWidth(Length::Fixed(size.width()));
   if (style.MinHeight().IsAutoOrContentOrIntrinsic() &&
       style.Height().IsAutoOrContentOrIntrinsic())
-    style.SetMinHeight(Length::Fixed(size.Height()));
+    style.SetMinHeight(Length::Fixed(size.height()));
 }
 
 }  // namespace
@@ -182,8 +166,8 @@ void LayoutThemeDefault::SetCheckboxSize(ComputedStyle& style) const {
   IntSize size = IntSize(Platform::Current()->ThemeEngine()->GetSize(
       WebThemeEngine::kPartCheckbox));
   float zoom_level = style.EffectiveZoom();
-  size.SetWidth(size.Width() * zoom_level);
-  size.SetHeight(size.Height() * zoom_level);
+  size.set_width(size.width() * zoom_level);
+  size.set_height(size.height() * zoom_level);
   SetMinimumSizeIfAuto(size, style);
   SetSizeIfAuto(size, style);
 }
@@ -197,8 +181,8 @@ void LayoutThemeDefault::SetRadioSize(ComputedStyle& style) const {
   IntSize size = IntSize(
       Platform::Current()->ThemeEngine()->GetSize(WebThemeEngine::kPartRadio));
   float zoom_level = style.EffectiveZoom();
-  size.SetWidth(size.Width() * zoom_level);
-  size.SetHeight(size.Height() * zoom_level);
+  size.set_width(size.width() * zoom_level);
+  size.set_height(size.height() * zoom_level);
   SetMinimumSizeIfAuto(size, style);
   SetSizeIfAuto(size, style);
 }
@@ -209,8 +193,8 @@ void LayoutThemeDefault::AdjustInnerSpinButtonStyle(
       WebThemeEngine::kPartInnerSpinButton));
 
   float zoom_level = style.EffectiveZoom();
-  style.SetWidth(Length::Fixed(size.Width() * zoom_level));
-  style.SetMinWidth(Length::Fixed(size.Width() * zoom_level));
+  style.SetWidth(Length::Fixed(size.width() * zoom_level));
+  style.SetMinWidth(Length::Fixed(size.width() * zoom_level));
 }
 
 Color LayoutThemeDefault::PlatformFocusRingColor() const {

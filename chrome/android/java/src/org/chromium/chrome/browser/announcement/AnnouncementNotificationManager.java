@@ -88,7 +88,7 @@ public class AnnouncementNotificationManager {
             };
 
             // Try to load native.
-            ChromeBrowserInitializer.getInstance().handlePreNativeStartup(parts);
+            ChromeBrowserInitializer.getInstance().handlePreNativeStartupAndLoadLibraries(parts);
             ChromeBrowserInitializer.getInstance().handlePostNativeStartup(true, parts);
         }
     }
@@ -118,9 +118,8 @@ public class AnnouncementNotificationManager {
         Context context = ContextUtils.getApplicationContext();
         NotificationWrapperBuilder builder =
                 NotificationWrapperBuilderFactory
-                        .createNotificationWrapperBuilder(true /* preferCompat */,
+                        .createNotificationWrapperBuilder(
                                 ChromeChannelDefinitions.ChannelId.ANNOUNCEMENT,
-                                null /* remoteAppPackageName */,
                                 new NotificationMetadata(
                                         NotificationUmaTracker.SystemNotificationType.ANNOUNCEMENT,
                                         ANNOUNCEMENT_NOTIFICATION_TAG,

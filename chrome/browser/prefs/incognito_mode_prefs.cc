@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -23,6 +24,10 @@
 #include "chrome/browser/android/partner_browser_customizations.h"
 #endif  // defined(OS_ANDROID)
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/lacros/lacros_service.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
 // static
 // Sadly, this is required until c++17.
 constexpr IncognitoModePrefs::Availability
@@ -31,7 +36,7 @@ constexpr IncognitoModePrefs::Availability
 // static
 bool IncognitoModePrefs::IntToAvailability(int in_value,
                                            Availability* out_value) {
-  if (in_value < 0 || in_value >= AVAILABILITY_NUM_TYPES) {
+  if (in_value < 0 || in_value >= static_cast<int>(Availability::kNumTypes)) {
     *out_value = kDefaultAvailability;
     return false;
   }
@@ -48,14 +53,19 @@ IncognitoModePrefs::Availability IncognitoModePrefs::GetAvailability(
 // static
 void IncognitoModePrefs::SetAvailability(PrefService* prefs,
                                          const Availability availability) {
-  prefs->SetInteger(prefs::kIncognitoModeAvailability, availability);
+  prefs->SetInteger(prefs::kIncognitoModeAvailability,
+                    static_cast<int>(availability));
 }
 
 // static
 void IncognitoModePrefs::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterIntegerPref(prefs::kIncognitoModeAvailability,
-                                kDefaultAvailability);
+                                static_cast<int>(kDefaultAvailability));
+#if defined(OS_ANDROID)
+  registry->RegisterBooleanPref(prefs::kIncognitoReauthenticationForAndroid,
+                                false);
+#endif
 }
 
 // static
@@ -66,25 +76,33 @@ bool IncognitoModePrefs::ShouldLaunchIncognito(
   // to launch in incognito mode or if it was forced via prefs. This way,
   // the parental controls check (which can be quite slow) can be avoided
   // most of the time.
-  const bool should_use_incognito =
+  bool should_use_incognito =
       command_line.HasSwitch(switches::kIncognito) ||
       GetAvailabilityInternal(prefs, DONT_CHECK_PARENTAL_CONTROLS) ==
-          IncognitoModePrefs::FORCED;
+          IncognitoModePrefs::Availability::kForced;
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  auto* init_params = chromeos::LacrosService::Get()->init_params();
+  // TODO(https://crbug.com/1194304): Remove in M93.
+  should_use_incognito |= init_params->is_incognito_deprecated;
+  should_use_incognito |=
+      init_params->initial_browser_action ==
+      crosapi::mojom::InitialBrowserAction::kOpenIncognitoWindow;
+#endif
   return should_use_incognito &&
          GetAvailabilityInternal(prefs, CHECK_PARENTAL_CONTROLS) !=
-             IncognitoModePrefs::DISABLED;
+             IncognitoModePrefs::Availability::kDisabled;
 }
 
 // static
 bool IncognitoModePrefs::CanOpenBrowser(Profile* profile) {
   switch (GetAvailability(profile->GetPrefs())) {
-    case IncognitoModePrefs::ENABLED:
+    case IncognitoModePrefs::Availability::kEnabled:
       return true;
 
-    case IncognitoModePrefs::DISABLED:
+    case IncognitoModePrefs::Availability::kDisabled:
       return !profile->IsIncognitoProfile();
 
-    case IncognitoModePrefs::FORCED:
+    case IncognitoModePrefs::Availability::kForced:
       return profile->IsIncognitoProfile();
 
     default:
@@ -113,11 +131,11 @@ IncognitoModePrefs::Availability IncognitoModePrefs::GetAvailabilityInternal(
   Availability result = kDefaultAvailability;
   bool valid = IntToAvailability(pref_value, &result);
   DCHECK(valid);
-  if (result != IncognitoModePrefs::DISABLED &&
+  if (result != IncognitoModePrefs::Availability::kDisabled &&
       mode == CHECK_PARENTAL_CONTROLS && ArePlatformParentalControlsEnabled()) {
-    if (result == IncognitoModePrefs::FORCED)
+    if (result == IncognitoModePrefs::Availability::kForced)
       LOG(ERROR) << "Ignoring FORCED incognito. Parental control logging on";
-    return IncognitoModePrefs::DISABLED;
+    return IncognitoModePrefs::Availability::kDisabled;
   }
   return result;
 }

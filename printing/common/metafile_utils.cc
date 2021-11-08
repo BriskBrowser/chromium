@@ -96,7 +96,7 @@ bool RecursiveBuildStructureTree(const ui::AXNode* ax_node,
   bool valid = false;
 
   tag->fNodeId = ax_node->GetIntAttribute(ax::mojom::IntAttribute::kDOMNodeId);
-  switch (ax_node->data().role) {
+  switch (ax_node->GetRole()) {
     case ax::mojom::Role::kRootWebArea:
       tag->fTypeString = kPDFStructureTypeDocument;
       break;
@@ -177,14 +177,14 @@ bool RecursiveBuildStructureTree(const ui::AXNode* ax_node,
       tag->fTypeString = kPDFStructureTypeNonStruct;
   }
 
-  if (ui::IsCellOrTableHeader(ax_node->data().role)) {
-    base::Optional<int> row_span = ax_node->GetTableCellRowSpan();
+  if (ui::IsCellOrTableHeader(ax_node->GetRole())) {
+    absl::optional<int> row_span = ax_node->GetTableCellRowSpan();
     if (row_span.has_value()) {
       tag->fAttributes.appendInt(kPDFTableAttributeOwner,
                                  kPDFTableCellRowSpanAttribute,
                                  row_span.value());
     }
-    base::Optional<int> col_span = ax_node->GetTableCellColSpan();
+    absl::optional<int> col_span = ax_node->GetTableCellColSpan();
     if (col_span.has_value()) {
       tag->fAttributes.appendInt(kPDFTableAttributeOwner,
                                  kPDFTableCellColSpanAttribute,

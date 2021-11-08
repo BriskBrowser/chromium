@@ -38,14 +38,15 @@ class CORE_EXPORT InspectorContrast {
  public:
   explicit InspectorContrast(Document*);
   ContrastInfo GetContrast(Element*);
-  std::vector<ContrastInfo> GetElementsWithContrastIssues(size_t max_elements);
+  std::vector<ContrastInfo> GetElementsWithContrastIssues(bool report_aaa,
+                                                          size_t max_elements);
   Vector<Color> GetBackgroundColors(Element*, float* text_opacity);
   TextInfo GetTextInfo(Element*);
 
  private:
   void SortElementsByPaintOrder(HeapVector<Member<Node>>&, Document*);
-  std::vector<Member<Node>> ElementsFromRect(const PhysicalRect& rect,
-                                             Document& document);
+  std::vector<Node*> ElementsFromRect(const PhysicalRect& rect,
+                                      Document& document);
   bool GetColorsFromRect(PhysicalRect rect,
                          Document& document,
                          Element* top_element,
@@ -53,7 +54,11 @@ class CORE_EXPORT InspectorContrast {
                          float* text_opacity);
   void CollectNodesAndBuildRTreeIfNeeded();
 
-  cc::RTree<Member<Node>> rtree_;
+  // It is safe to keep raw pointers to Node because rtree_
+  // only operates on nodes retained in the elements_ HeapVector below.
+  // See InspectorContrast::CollectNodesAndBuildRTreeIfNeeded and
+  // crbug.com/1222445.
+  cc::RTree<Node*> rtree_;
   HeapVector<Member<Node>> elements_;
   Document* document_;
   bool rtree_built_ = false;

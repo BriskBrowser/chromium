@@ -6,19 +6,17 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <string>
 
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_downloader.h"
-#include "chrome/browser/profiles/profile_info_cache.h"
-#include "chrome/browser/profiles/profile_info_cache_unittest.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
@@ -32,7 +30,9 @@
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/sync_preferences/pref_service_syncable.h"
+#include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_unittest_util.h"
 
@@ -40,7 +40,6 @@ using ::testing::Return;
 
 namespace {
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
 AccountInfo GetValidAccountInfo(std::string email,
                                 CoreAccountId account_id,
                                 std::string given_name,
@@ -62,8 +61,6 @@ AccountInfo GetValidAccountInfo(std::string email,
 const char kChromiumOrgDomain[] = "chromium.org";
 #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
 
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
-
 class GAIAInfoUpdateServiceTestBase : public testing::Test {
  protected:
   explicit GAIAInfoUpdateServiceTestBase(
@@ -73,6 +70,11 @@ class GAIAInfoUpdateServiceTestBase : public testing::Test {
                            /*pref_service=*/nullptr,
                            account_consistency,
                            /*test_signin_client=*/nullptr) {}
+
+  GAIAInfoUpdateServiceTestBase(const GAIAInfoUpdateServiceTestBase&) = delete;
+  GAIAInfoUpdateServiceTestBase& operator=(
+      const GAIAInfoUpdateServiceTestBase&) = delete;
+
   ~GAIAInfoUpdateServiceTestBase() override = default;
 
   void SetUp() override {
@@ -85,10 +87,10 @@ class GAIAInfoUpdateServiceTestBase : public testing::Test {
     if (service_)
       service_->Shutdown();
 
-    service_.reset(new GAIAInfoUpdateService(
+    service_ = std::make_unique<GAIAInfoUpdateService>(
         identity_test_env_.identity_manager(),
         testing_profile_manager_.profile_attributes_storage(),
-        profile()->GetPath()));
+        profile()->GetPath());
   }
 
   void TearDown() override {
@@ -126,35 +128,29 @@ class GAIAInfoUpdateServiceTestBase : public testing::Test {
   TestingProfile* profile_ = nullptr;
   signin::IdentityTestEnvironment identity_test_env_;
   std::unique_ptr<GAIAInfoUpdateService> service_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GAIAInfoUpdateServiceTestBase);
 };
 
 class GAIAInfoUpdateServiceTest : public GAIAInfoUpdateServiceTestBase {
+ public:
+  GAIAInfoUpdateServiceTest(const GAIAInfoUpdateServiceTest&) = delete;
+  GAIAInfoUpdateServiceTest& operator=(const GAIAInfoUpdateServiceTest&) =
+      delete;
+
  protected:
   GAIAInfoUpdateServiceTest()
       : GAIAInfoUpdateServiceTestBase(
             signin::AccountConsistencyMethod::kDisabled) {}
   ~GAIAInfoUpdateServiceTest() override = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GAIAInfoUpdateServiceTest);
 };
 
 }  // namespace
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-// This feature should never be enabled on ChromeOS.
-TEST_F(GAIAInfoUpdateServiceTest, ShouldUseGAIAProfileInfo) {
-  EXPECT_FALSE(GAIAInfoUpdateService::ShouldUseGAIAProfileInfo(profile()));
-}
-#else  // BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(GAIAInfoUpdateServiceTest, SyncOnSyncOff) {
   AccountInfo info =
       identity_test_env()->MakeAccountAvailable("pat@example.com");
   base::RunLoop().RunUntilIdle();
-  identity_test_env()->SetPrimaryAccount(info.email);
+  identity_test_env()->SetPrimaryAccount(info.email,
+                                         signin::ConsentLevel::kSync);
   info = GetValidAccountInfo(info.email, info.account_id, "Pat", "Pat Foo",
                              kNoHostedDomainFound);
   signin::UpdateAccountInfoForAccount(identity_test_env()->identity_manager(),
@@ -163,8 +159,8 @@ TEST_F(GAIAInfoUpdateServiceTest, SyncOnSyncOff) {
 
   ASSERT_EQ(1u, storage()->GetNumberOfProfiles());
   ProfileAttributesEntry* entry = storage()->GetAllProfilesAttributes().front();
-  EXPECT_EQ(entry->GetGAIAGivenName(), base::UTF8ToUTF16("Pat"));
-  EXPECT_EQ(entry->GetGAIAName(), base::UTF8ToUTF16("Pat Foo"));
+  EXPECT_EQ(entry->GetGAIAGivenName(), u"Pat");
+  EXPECT_EQ(entry->GetGAIAName(), u"Pat Foo");
   EXPECT_EQ(entry->GetHostedDomain(), kNoHostedDomainFound);
 
   gfx::Image gaia_picture = gfx::test::CreateImage(256, 256);
@@ -185,14 +181,16 @@ TEST_F(GAIAInfoUpdateServiceTest, SyncOnSyncOff) {
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
 namespace {
 class GAIAInfoUpdateServiceDiceTest : public GAIAInfoUpdateServiceTestBase {
+ public:
+  GAIAInfoUpdateServiceDiceTest(const GAIAInfoUpdateServiceDiceTest&) = delete;
+  GAIAInfoUpdateServiceDiceTest& operator=(
+      const GAIAInfoUpdateServiceDiceTest&) = delete;
+
  protected:
   GAIAInfoUpdateServiceDiceTest()
       : GAIAInfoUpdateServiceTestBase(signin::AccountConsistencyMethod::kDice) {
   }
   ~GAIAInfoUpdateServiceDiceTest() override = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GAIAInfoUpdateServiceDiceTest);
 };
 }  // namespace
 
@@ -200,7 +198,8 @@ TEST_F(GAIAInfoUpdateServiceDiceTest, RevokeSyncConsent) {
   AccountInfo info =
       identity_test_env()->MakeAccountAvailable("pat@example.com");
   base::RunLoop().RunUntilIdle();
-  identity_test_env()->SetPrimaryAccount(info.email);
+  identity_test_env()->SetPrimaryAccount(info.email,
+                                         signin::ConsentLevel::kSync);
   info = GetValidAccountInfo(info.email, info.account_id, "Pat", "Pat Foo",
                              kNoHostedDomainFound);
   signin::UpdateAccountInfoForAccount(identity_test_env()->identity_manager(),
@@ -216,21 +215,21 @@ TEST_F(GAIAInfoUpdateServiceDiceTest, RevokeSyncConsent) {
   // Revoke sync consent (stay signed in with the primary account).
   identity_test_env()->RevokeSyncConsent();
   ASSERT_TRUE(identity_test_env()->identity_manager()->HasPrimaryAccount(
-      signin::ConsentLevel::kNotRequired));
+      signin::ConsentLevel::kSignin));
   // Verify that the GAIA name and picture, and picture URL are not cleared
   // as unconsented primary account still exists.
-  EXPECT_EQ(entry->GetGAIAGivenName(), base::UTF8ToUTF16("Pat"));
-  EXPECT_EQ(entry->GetGAIAName(), base::UTF8ToUTF16("Pat Foo"));
+  EXPECT_EQ(entry->GetGAIAGivenName(), u"Pat");
+  EXPECT_EQ(entry->GetGAIAName(), u"Pat Foo");
   EXPECT_EQ(entry->GetHostedDomain(), kNoHostedDomainFound);
   EXPECT_TRUE(gfx::test::AreImagesEqual(gaia_picture, entry->GetAvatarIcon()));
 }
 
 TEST_F(GAIAInfoUpdateServiceTest, LogInLogOut) {
   std::string email = "pat@example.com";
-  AccountInfo info =
-      identity_test_env()->MakeUnconsentedPrimaryAccountAvailable(email);
+  AccountInfo info = identity_test_env()->MakePrimaryAccountAvailable(
+      email, signin::ConsentLevel::kSignin);
   EXPECT_TRUE(identity_test_env()->identity_manager()->HasPrimaryAccount(
-      signin::ConsentLevel::kNotRequired));
+      signin::ConsentLevel::kSignin));
   EXPECT_FALSE(identity_test_env()->identity_manager()->HasPrimaryAccount(
       signin::ConsentLevel::kSync));
   info = GetValidAccountInfo(info.email, info.account_id, "Pat", "Pat Foo",
@@ -241,8 +240,8 @@ TEST_F(GAIAInfoUpdateServiceTest, LogInLogOut) {
 
   ASSERT_EQ(1u, storage()->GetNumberOfProfiles());
   ProfileAttributesEntry* entry = storage()->GetAllProfilesAttributes().front();
-  EXPECT_EQ(entry->GetGAIAGivenName(), base::UTF8ToUTF16("Pat"));
-  EXPECT_EQ(entry->GetGAIAName(), base::UTF8ToUTF16("Pat Foo"));
+  EXPECT_EQ(entry->GetGAIAGivenName(), u"Pat");
+  EXPECT_EQ(entry->GetGAIAName(), u"Pat Foo");
   EXPECT_EQ(entry->GetHostedDomain(), kNoHostedDomainFound);
 
   gfx::Image gaia_picture = gfx::test::CreateImage(256, 256);
@@ -387,11 +386,11 @@ TEST_F(GAIAInfoUpdateServiceTest, ClearGaiaInfoOnStartup) {
   // Simulate a state where the profile entry has GAIA related information
   // when there is not primary account set.
   ASSERT_FALSE(identity_test_env()->identity_manager()->HasPrimaryAccount(
-      signin::ConsentLevel::kNotRequired));
+      signin::ConsentLevel::kSignin));
   ASSERT_EQ(1u, storage()->GetNumberOfProfiles());
   ProfileAttributesEntry* entry = storage()->GetAllProfilesAttributes().front();
-  entry->SetGAIAName(base::UTF8ToUTF16("foo"));
-  entry->SetGAIAGivenName(base::UTF8ToUTF16("Pat Foo"));
+  entry->SetGAIAName(u"foo");
+  entry->SetGAIAGivenName(u"Pat Foo");
   gfx::Image gaia_picture = gfx::test::CreateImage(256, 256);
   entry->SetGAIAPicture("GAIA_IMAGE_URL_WITH_SIZE", gaia_picture);
   entry->SetHostedDomain(kNoHostedDomainFound);
@@ -407,5 +406,3 @@ TEST_F(GAIAInfoUpdateServiceTest, ClearGaiaInfoOnStartup) {
   EXPECT_FALSE(entry->GetGAIAPicture());
   EXPECT_TRUE(entry->GetHostedDomain().empty());
 }
-
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)

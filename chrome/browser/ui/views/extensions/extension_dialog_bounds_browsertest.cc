@@ -20,10 +20,17 @@
 
 namespace {
 
+using ::ash::MagnificationManager;
+
 class ExtensionDialogBoundsTest
     : public SupportsTestDialog<extensions::ExtensionBrowserTest> {
  public:
   ExtensionDialogBoundsTest() = default;
+
+  ExtensionDialogBoundsTest(const ExtensionDialogBoundsTest&) = delete;
+  ExtensionDialogBoundsTest& operator=(const ExtensionDialogBoundsTest&) =
+      delete;
+
   ~ExtensionDialogBoundsTest() override = default;
 
   void SetUp() override {
@@ -42,7 +49,7 @@ class ExtensionDialogBoundsTest
   void EnableDockedMagnifier() const {
     extensions::TestExtensionRegistryObserver registry_observer(
         extensions::ExtensionRegistry::Get(
-            AccessibilityManager::Get()->profile()));
+            ash::AccessibilityManager::Get()->profile()));
     MagnificationManager::Get()->SetDockedMagnifierEnabled(true);
     registry_observer.WaitForExtensionLoaded();
     ASSERT_TRUE(MagnificationManager::Get()->IsDockedMagnifierEnabled());
@@ -70,8 +77,6 @@ class ExtensionDialogBoundsTest
     ASSERT_TRUE(dialog);
     ASSERT_TRUE(init_listener.WaitUntilSatisfied());
   }
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionDialogBoundsTest);
 };
 
 // Note that the underscores in the test names below are important as whatever

@@ -7,29 +7,34 @@
 #include "base/containers/contains.h"
 #include "base/i18n/case_conversion.h"
 #include "base/memory/ptr_util.h"
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/extensions/extension_action_view_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
 #include "chrome/browser/ui/views/bubble_menu_item_factory.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/extensions/extensions_menu_item_view.h"
+#include "chrome/browser/ui/views/hover_button.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/vector_icons/vector_icons.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop_host_view.h"
-#include "ui/views/controls/button/label_button.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/view_utils.h"
 
@@ -41,6 +46,8 @@ bool g_allow_testing_dialogs = false;
 ExtensionsMenuView* g_extensions_dialog = nullptr;
 
 constexpr int EXTENSIONS_SETTINGS_ID = 42;
+
+constexpr int kSettingsIconSize = 16;
 
 bool CompareExtensionMenuItemViews(const ExtensionsMenuItemView* a,
                                    const ExtensionsMenuItemView* b) {
@@ -146,15 +153,9 @@ void ExtensionsMenuView::Populate() {
   // TODO(pbos): Consider moving this a footnote view (::SetFootnoteView()).
   // If so this needs to be created before being added to a widget, constructor
   // would do.
-  constexpr int kSettingsIconSize = 16;
   auto footer = CreateBubbleMenuItem(
       EXTENSIONS_SETTINGS_ID, l10n_util::GetStringUTF16(IDS_MANAGE_EXTENSION),
       base::BindRepeating(&chrome::ShowExtensions, browser_, std::string()));
-  footer->SetImage(
-      views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(vector_icons::kSettingsIcon, kSettingsIconSize,
-                            GetNativeTheme()->GetSystemColor(
-                                ui::NativeTheme::kColorId_MenuIconColor)));
 
   // Extension icons are larger-than-favicon as they contain internal padding
   // (space for badging). Add the same padding left and right of the icon to
@@ -166,12 +167,12 @@ void ExtensionsMenuView::Populate() {
       (ExtensionsMenuItemView::kIconSize.width() - kSettingsIconSize) / 2;
 
   footer->SetBorder(views::CreateEmptyBorder(
-      footer->border()->GetInsets() +
+      footer->GetInsets() +
       gfx::Insets(0, kSettingsIconHorizontalPadding, 0, 0)));
   footer->SetImageLabelSpacing(footer->GetImageLabelSpacing() +
                                kSettingsIconHorizontalPadding);
 
-  manage_extensions_button_for_testing_ = footer.get();
+  manage_extensions_button_ = footer.get();
   AddChildView(std::move(footer));
 
   // Add menu items for each extension.
@@ -263,11 +264,6 @@ ExtensionsMenuView::Section* ExtensionsMenuView::GetSectionForStatus(
   return section;
 }
 
-void ExtensionsMenuView::UpdateActionStates() {
-  for (ExtensionsMenuItemView* view : extensions_menu_items_)
-    view->view_controller()->UpdateState();
-}
-
 void ExtensionsMenuView::SortMenuItemsByName() {
   auto sort_section = [](Section* section) {
     if (section->menu_items->children().empty())
@@ -290,15 +286,15 @@ void ExtensionsMenuView::SortMenuItemsByName() {
 
 void ExtensionsMenuView::CreateAndInsertNewItem(
     const ToolbarActionsModel::ActionId& id) {
-  std::unique_ptr<ToolbarActionViewController> controller =
-      toolbar_model_->CreateActionForId(browser_, extensions_container_, false,
-                                        id);
+  std::unique_ptr<ExtensionActionViewController> controller =
+      ExtensionActionViewController::Create(id, browser_,
+                                            extensions_container_);
 
   // The bare `new` is safe here, because InsertMenuItem is guaranteed to
   // be added to the view hierarchy, which takes ownership.
   auto* item = new ExtensionsMenuItemView(browser_, std::move(controller),
                                           allow_pinning_);
-  extensions_menu_items_.push_back(item);
+  extensions_menu_items_.insert(item);
   InsertMenuItem(item);
   // Sanity check that the item was added.
   DCHECK(Contains(item));
@@ -331,7 +327,8 @@ void ExtensionsMenuView::UpdateSectionVisibility() {
 }
 
 void ExtensionsMenuView::Update() {
-  UpdateActionStates();
+  for (ExtensionsMenuItemView* view : extensions_menu_items_)
+    view->view_controller()->UpdateState();
 
   content::WebContents* const web_contents =
       browser_->tab_strip_model()->GetActiveWebContents();
@@ -389,7 +386,7 @@ void ExtensionsMenuView::SanityCheck() {
   check_section(&wants_access_);
   check_section(&cant_access_);
 
-  const std::vector<std::string>& action_ids = toolbar_model_->action_ids();
+  const base::flat_set<std::string>& action_ids = toolbar_model_->action_ids();
   DCHECK_EQ(action_ids.size(), extensions_menu_items_.size());
 
   // Check that all items are owned by the view hierarchy, and that each
@@ -403,9 +400,20 @@ void ExtensionsMenuView::SanityCheck() {
 #endif
 }
 
-base::string16 ExtensionsMenuView::GetAccessibleWindowTitle() const {
+std::u16string ExtensionsMenuView::GetAccessibleWindowTitle() const {
   // The title is already spoken via the call to SetTitle().
-  return base::string16();
+  return std::u16string();
+}
+
+void ExtensionsMenuView::OnThemeChanged() {
+  BubbleDialogDelegateView::OnThemeChanged();
+  if (manage_extensions_button_) {
+    manage_extensions_button_->SetImage(
+        views::Button::STATE_NORMAL,
+        gfx::CreateVectorIcon(
+            vector_icons::kSettingsIcon, kSettingsIconSize,
+            GetColorProvider()->GetColor(ui::kColorMenuIcon)));
+  }
 }
 
 void ExtensionsMenuView::TabChangedAt(content::WebContents* contents,
@@ -422,8 +430,7 @@ void ExtensionsMenuView::OnTabStripModelChanged(
 }
 
 void ExtensionsMenuView::OnToolbarActionAdded(
-    const ToolbarActionsModel::ActionId& item,
-    int index) {
+    const ToolbarActionsModel::ActionId& item) {
   CreateAndInsertNewItem(item);
   SortMenuItemsByName();
   UpdateSectionVisibility();
@@ -433,11 +440,10 @@ void ExtensionsMenuView::OnToolbarActionAdded(
 
 void ExtensionsMenuView::OnToolbarActionRemoved(
     const ToolbarActionsModel::ActionId& action_id) {
-  auto iter =
-      std::find_if(extensions_menu_items_.begin(), extensions_menu_items_.end(),
-                   [action_id](const ExtensionsMenuItemView* item) {
-                     return item->view_controller()->GetId() == action_id;
-                   });
+  auto iter = base::ranges::find_if(
+      extensions_menu_items_, [action_id](const ExtensionsMenuItemView* item) {
+        return item->view_controller()->GetId() == action_id;
+      });
   DCHECK(iter != extensions_menu_items_.end());
   ExtensionsMenuItemView* const view = *iter;
   DCHECK(Contains(view));
@@ -454,29 +460,9 @@ void ExtensionsMenuView::OnToolbarActionRemoved(
   SanityCheck();
 }
 
-void ExtensionsMenuView::OnToolbarActionMoved(
-    const ToolbarActionsModel::ActionId& action_id,
-    int index) {
-  // Ignore. The ExtensionsMenuView uses its own sorting.
-}
-
-void ExtensionsMenuView::OnToolbarActionLoadFailed() {
-  // Ignore. We don't handle the load / unload dance specially here for
-  // reloading extensions.
-}
-
 void ExtensionsMenuView::OnToolbarActionUpdated(
     const ToolbarActionsModel::ActionId& action_id) {
-  UpdateActionStates();
-}
-
-void ExtensionsMenuView::OnToolbarVisibleCountChanged() {
-  // Ignore. The ExtensionsMenuView always shows all extensions.
-}
-
-void ExtensionsMenuView::OnToolbarHighlightModeChanged(bool is_highlighting) {
-  NOTREACHED()
-      << "Action highlighting is not supported with the extensions menu";
+  Update();
 }
 
 void ExtensionsMenuView::OnToolbarModelInitialized() {

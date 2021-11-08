@@ -6,43 +6,34 @@
 
 #include <string>
 
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/signin/signin_util.h"
 #include "chrome/common/pref_names.h"
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/account_info.h"
-#include "components/signin/public/identity_manager/consent_level.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 
 SigninProfileAttributesUpdater::SigninProfileAttributesUpdater(
     signin::IdentityManager* identity_manager,
-    SigninErrorController* signin_error_controller,
     ProfileAttributesStorage* profile_attributes_storage,
     const base::FilePath& profile_path,
     PrefService* prefs)
     : identity_manager_(identity_manager),
-      signin_error_controller_(signin_error_controller),
       profile_attributes_storage_(profile_attributes_storage),
       profile_path_(profile_path),
       prefs_(prefs) {
   DCHECK(identity_manager_);
-  DCHECK(signin_error_controller_);
   DCHECK(profile_attributes_storage_);
-  identity_manager_observer_.Add(identity_manager_);
-  signin_error_controller_observer_.Add(signin_error_controller);
+  identity_manager_observation_.Observe(identity_manager_);
 
   UpdateProfileAttributes();
-  // TODO(crbug.com/908457): Call OnErrorChanged() here, to catch any change
-  // that happened since the construction of SigninErrorController. Profile
-  // metrics depend on this bug and must be fixed first.
 }
 
 SigninProfileAttributesUpdater::~SigninProfileAttributesUpdater() = default;
 
 void SigninProfileAttributesUpdater::Shutdown() {
-  identity_manager_observer_.RemoveAll();
-  signin_error_controller_observer_.RemoveAll();
+  identity_manager_observation_.Reset();
 }
 
 void SigninProfileAttributesUpdater::UpdateProfileAttributes() {
@@ -52,8 +43,8 @@ void SigninProfileAttributesUpdater::UpdateProfileAttributes() {
     return;
   }
 
-  CoreAccountInfo account_info = identity_manager_->GetPrimaryAccountInfo(
-      signin::ConsentLevel::kNotRequired);
+  CoreAccountInfo account_info =
+      identity_manager_->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
 
   bool clear_profile = account_info.IsEmpty();
 
@@ -66,26 +57,13 @@ void SigninProfileAttributesUpdater::UpdateProfileAttributes() {
   }
 
   if (clear_profile) {
-    entry->SetLocalAuthCredentials(std::string());
-    entry->SetAuthInfo(std::string(), base::string16(),
+    entry->SetAuthInfo(std::string(), std::u16string(),
                        /*is_consented_primary_account=*/false);
-    if (!signin_util::IsForceSigninEnabled())
-      entry->SetIsSigninRequired(false);
   } else {
     entry->SetAuthInfo(
         account_info.gaia, base::UTF8ToUTF16(account_info.email),
         identity_manager_->HasPrimaryAccount(signin::ConsentLevel::kSync));
   }
-}
-
-void SigninProfileAttributesUpdater::OnErrorChanged() {
-  ProfileAttributesEntry* entry =
-      profile_attributes_storage_->GetProfileAttributesWithPath(profile_path_);
-  if (!entry) {
-    return;
-  }
-
-  entry->SetIsAuthError(signin_error_controller_->HasError());
 }
 
 void SigninProfileAttributesUpdater::OnPrimaryAccountChanged(

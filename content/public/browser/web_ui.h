@@ -12,7 +12,6 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/values.h"
 #include "content/common/content_export.h"
@@ -40,7 +39,7 @@ class CONTENT_EXPORT WebUI {
 
   // Returns JavaScript code that, when executed, calls the function specified
   // by |function_name| with the arguments specified in |arg_list|.
-  static base::string16 GetJavascriptCall(
+  static std::u16string GetJavascriptCall(
       const std::string& function_name,
       const std::vector<const base::Value*>& arg_list);
 
@@ -59,8 +58,8 @@ class CONTENT_EXPORT WebUI {
   // Gets a custom tab title provided by the Web UI. If there is no title
   // override, the string will be empty which should trigger the default title
   // behavior for the tab.
-  virtual const base::string16& GetOverriddenTitle() = 0;
-  virtual void OverrideTitle(const base::string16& title) = 0;
+  virtual const std::u16string& GetOverriddenTitle() = 0;
+  virtual void OverrideTitle(const std::u16string& title) = 0;
 
   // Allows a controller to override the BindingsPolicy that should be enabled
   // for this page.
@@ -76,15 +75,30 @@ class CONTENT_EXPORT WebUI {
 
   // Used by WebUIMessageHandlers. If the given message is already registered,
   // the call has no effect.
-  using MessageCallback = base::RepeatingCallback<void(const base::ListValue*)>;
+  using MessageCallback =
+      base::RepeatingCallback<void(base::Value::ConstListView)>;
   virtual void RegisterMessageCallback(base::StringPiece message,
-                                       const MessageCallback& callback) = 0;
+                                       MessageCallback callback) = 0;
+
+  // Always use RegisterMessageCallback() above in new code.
+  //
+  // TODO(crbug.com/1243386): Existing callers of
+  // RegisterDeprecatedMessageCallback() should be migrated to
+  // RegisterMessageCallback() if possible.
+  //
+  // Used by WebUIMessageHandlers. If the given message is already registered,
+  // the call has no effect.
+  using DeprecatedMessageCallback =
+      base::RepeatingCallback<void(const base::ListValue*)>;
+  virtual void RegisterDeprecatedMessageCallback(
+      base::StringPiece message,
+      const DeprecatedMessageCallback& callback) = 0;
 
   template <typename... Args>
   void RegisterHandlerCallback(
       base::StringPiece message,
       base::RepeatingCallback<void(Args...)> callback) {
-    RegisterMessageCallback(
+    RegisterDeprecatedMessageCallback(
         message, base::BindRepeating(
                      &Call<std::index_sequence_for<Args...>, Args...>::Impl,
                      callback, message));

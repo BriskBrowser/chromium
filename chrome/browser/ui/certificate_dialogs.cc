@@ -76,6 +76,9 @@ class Exporter : public ui::SelectFileDialog::Listener {
            gfx::NativeWindow parent,
            net::ScopedCERTCertificateList cert_chain);
 
+  Exporter(const Exporter&) = delete;
+  Exporter& operator=(const Exporter&) = delete;
+
   // SelectFileDialog::Listener implemenation.
   void FileSelected(const base::FilePath& path,
                     int index,
@@ -89,8 +92,6 @@ class Exporter : public ui::SelectFileDialog::Listener {
 
   // The certificate hierarchy (leaf cert first).
   net::ScopedCERTCertificateList cert_chain_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(Exporter);
 };
 
 Exporter::Exporter(content::WebContents* web_contents,
@@ -192,7 +193,7 @@ void ShowCertSelectFileDialog(ui::SelectFileDialog* select_file_dialog,
       l10n_util::GetStringUTF16(IDS_CERT_EXPORT_TYPE_PKCS7_CHAIN));
   file_type_info.include_all_files = true;
   select_file_dialog->SelectFile(
-      type, base::string16(), suggested_path, &file_type_info,
+      type, std::u16string(), suggested_path, &file_type_info,
       1,  // 1-based index for |file_type_info.extensions| to specify default.
       FILE_PATH_LITERAL("crt"), parent, params);
 }

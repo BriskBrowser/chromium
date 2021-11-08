@@ -8,7 +8,6 @@
 #include <jni.h>
 
 #include <memory>
-#include <string>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
@@ -37,6 +36,10 @@ struct PendingWriteData {
       const base::android::JavaRef<jintArray>& jwrite_buffer_pos_list,
       const base::android::JavaRef<jintArray>& jwrite_buffer_limit_list,
       jboolean jwrite_end_of_stream);
+
+  PendingWriteData(const PendingWriteData&) = delete;
+  PendingWriteData& operator=(const PendingWriteData&) = delete;
+
   ~PendingWriteData();
 
   // Arguments passed in from Java. Retain a global ref so they won't get GC-ed
@@ -51,8 +54,6 @@ struct PendingWriteData {
   std::vector<scoped_refptr<net::IOBuffer>> write_buffer_list;
   // A list of the length of each IOBuffer in |write_buffer_list|.
   std::vector<int> write_buffer_len_list;
-
-  DISALLOW_COPY_AND_ASSIGN(PendingWriteData);
 };
 
 // An adapter from Java BidirectionalStream object to net::BidirectionalStream.
@@ -76,6 +77,12 @@ class CronetBidirectionalStreamAdapter
       int32_t traffic_stats_tag,
       bool traffic_stats_uid_set,
       int32_t traffic_stats_uid);
+
+  CronetBidirectionalStreamAdapter(const CronetBidirectionalStreamAdapter&) =
+      delete;
+  CronetBidirectionalStreamAdapter& operator=(
+      const CronetBidirectionalStreamAdapter&) = delete;
+
   ~CronetBidirectionalStreamAdapter() override;
 
   // Validates method and headers, initializes and starts the request. If
@@ -183,8 +190,6 @@ class CronetBidirectionalStreamAdapter
 
   // Whether BidirectionalStream::Delegate::OnFailed callback is invoked.
   bool stream_failed_;
-
-  DISALLOW_COPY_AND_ASSIGN(CronetBidirectionalStreamAdapter);
 };
 
 }  // namespace cronet

@@ -42,6 +42,10 @@ using browsertest_util::WaitForTaskManagerRows;
 class TaskManagerMacTest : public InProcessBrowserTest {
  public:
   TaskManagerMacTest() {}
+
+  TaskManagerMacTest(const TaskManagerMacTest&) = delete;
+  TaskManagerMacTest& operator=(const TaskManagerMacTest&) = delete;
+
   ~TaskManagerMacTest() override {}
 
   void SetUpOnMainThread() override {
@@ -113,9 +117,6 @@ class TaskManagerMacTest : public InProcessBrowserTest {
     }
     return -1;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TaskManagerMacTest);
 };
 
 // Tests that all defined columns have a corresponding string IDs for keying
@@ -138,10 +139,8 @@ IN_PROC_BROWSER_TEST_F(TaskManagerMacTest, TableStartsWithDefaultColumns) {
   EXPECT_EQ(0u, [[table sortDescriptors] count]);
   NSArray* tableColumns = [table tableColumns];
   for (size_t i = 0; i < kColumnsSize; ++i) {
-    EXPECT_EQ(kColumns[i].id,
-              [[[tableColumns objectAtIndex:i] identifier] intValue]);
-    EXPECT_EQ(kColumns[i].default_visibility,
-              ![[tableColumns objectAtIndex:i] isHidden]);
+    EXPECT_EQ(kColumns[i].id, [[tableColumns[i] identifier] intValue]);
+    EXPECT_EQ(kColumns[i].default_visibility, ![tableColumns[i] isHidden]);
   }
 }
 
@@ -160,10 +159,8 @@ IN_PROC_BROWSER_TEST_F(TaskManagerMacTest, ColumnsSettingsAreRestored) {
   EXPECT_EQ(0u, [[table sortDescriptors] count]);
   NSArray* tableColumns = [table tableColumns];
   for (size_t i = 0; i < kColumnsSize; ++i) {
-    EXPECT_EQ(kColumns[i].id,
-              [[[tableColumns objectAtIndex:i] identifier] intValue]);
-    EXPECT_EQ(kColumns[i].default_visibility,
-              ![[tableColumns objectAtIndex:i] isHidden]);
+    EXPECT_EQ(kColumns[i].id, [[tableColumns[i] identifier] intValue]);
+    EXPECT_EQ(kColumns[i].default_visibility, ![tableColumns[i] isHidden]);
     ToggleColumnVisibility(task_manager, kColumns[i].id);
   }
 
@@ -171,7 +168,6 @@ IN_PROC_BROWSER_TEST_F(TaskManagerMacTest, ColumnsSettingsAreRestored) {
   // be nice to fake a click with -performClick: but that doesn't work (see
   // http://www.cocoabuilder.com/archive/cocoa/177610-programmatically-click-column-header-in-nstableview.html).
   bool is_sorted = false;
-  int sorted_col_id = -1;
   for (NSTableColumn* column in tableColumns) {
     if ([column isHidden])
       continue;
@@ -181,7 +177,6 @@ IN_PROC_BROWSER_TEST_F(TaskManagerMacTest, ColumnsSettingsAreRestored) {
           [[column sortDescriptorPrototype] reversedSortDescriptor];
       [table setSortDescriptors:@[ newSortDescriptor ]];
       is_sorted = true;
-      sorted_col_id = [[column identifier] intValue];
       break;
     }
   }
@@ -210,8 +205,8 @@ IN_PROC_BROWSER_TEST_F(TaskManagerMacTest, SelectionConsistency) {
   chrome::ShowTaskManager(browser());
 
   // Set up a total of three tabs in different processes.
-  ui_test_utils::NavigateToURL(
-      browser(), embedded_test_server()->GetURL("a.com", "/title2.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("a.com", "/title2.html")));
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), embedded_test_server()->GetURL("b.com", "/title2.html"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,

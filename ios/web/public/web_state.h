@@ -37,7 +37,6 @@ typedef id<CRWWebViewProxy> CRWWebViewProxyType;
 typedef UIView<CRWScrollableContent> CRWContentView;
 
 namespace base {
-class DictionaryValue;
 class Value;
 }
 
@@ -53,7 +52,6 @@ class NavigationManager;
 class SessionCertificatePolicyCache;
 class WebFrame;
 class WebFramesManager;
-class WebInterstitial;
 class WebStateDelegate;
 class WebStateObserver;
 class WebStatePolicyDecider;
@@ -89,6 +87,9 @@ class WebState : public base::SupportsUserData {
                   ui::PageTransition transition,
                   bool is_renderer_initiated);
     OpenURLParams(const OpenURLParams& params);
+    OpenURLParams& operator=(const OpenURLParams& params);
+    OpenURLParams(OpenURLParams&& params);
+    OpenURLParams& operator=(OpenURLParams&& params);
     ~OpenURLParams();
 
     // The URL/virtualURL/referrer to be opened.
@@ -111,6 +112,10 @@ class WebState : public base::SupportsUserData {
   class InterfaceBinder {
    public:
     explicit InterfaceBinder(WebState* web_state);
+
+    InterfaceBinder(const InterfaceBinder&) = delete;
+    InterfaceBinder& operator=(const InterfaceBinder&) = delete;
+
     ~InterfaceBinder();
 
     template <typename Interface>
@@ -144,8 +149,6 @@ class WebState : public base::SupportsUserData {
 
     WebState* const web_state_;
     std::map<std::string, Callback> callbacks_;
-
-    DISALLOW_COPY_AND_ASSIGN(InterfaceBinder);
   };
 
   // Creates a new WebState.
@@ -156,6 +159,9 @@ class WebState : public base::SupportsUserData {
   static std::unique_ptr<WebState> CreateWithStorageSession(
       const CreateParams& params,
       CRWSessionStorage* session_storage);
+
+  WebState(const WebState&) = delete;
+  WebState& operator=(const WebState&) = delete;
 
   ~WebState() override {}
 
@@ -250,8 +256,8 @@ class WebState : public base::SupportsUserData {
   // NOTE: Integer values will be returned as Type::DOUBLE because of underlying
   // library limitation.
   typedef base::OnceCallback<void(const base::Value*)> JavaScriptResultCallback;
-  virtual void ExecuteJavaScript(const base::string16& javascript) = 0;
-  virtual void ExecuteJavaScript(const base::string16& javascript,
+  virtual void ExecuteJavaScript(const std::u16string& javascript) = 0;
+  virtual void ExecuteJavaScript(const std::u16string& javascript,
                                  JavaScriptResultCallback callback) = 0;
 
   // Asynchronously executes |javaScript| in the main frame's context,
@@ -266,7 +272,7 @@ class WebState : public base::SupportsUserData {
 
   // Returns the current navigation title. This could be the title of the page
   // if it is available or the URL.
-  virtual const base::string16& GetTitle() const = 0;
+  virtual const std::u16string& GetTitle() const = 0;
 
   // Returns true if the current page is loading.
   virtual bool IsLoading() const = 0;
@@ -311,22 +317,15 @@ class WebState : public base::SupportsUserData {
   // TODO(crbug.com/457679): Figure out a clean API for this.
   virtual GURL GetCurrentURL(URLVerificationTrustLevel* trust_level) const = 0;
 
-  // Returns true if a WebInterstitial is currently displayed.
-  virtual bool IsShowingWebInterstitial() const = 0;
-
-  // Returns the currently visible WebInterstitial if one is shown.
-  virtual WebInterstitial* GetWebInterstitial() const = 0;
-
   // Callback used to handle script commands. |message| is the JS message sent
   // from the |sender_frame| in the page, |page_url| is the URL of page's main
   // frame, |user_is_interacting| indicates if the user is interacting with the
   // page.
   // TODO(crbug.com/881813): remove |page_url|.
-  using ScriptCommandCallbackSignature =
-      void(const base::DictionaryValue& message,
-           const GURL& page_url,
-           bool user_is_interacting,
-           web::WebFrame* sender_frame);
+  using ScriptCommandCallbackSignature = void(const base::Value& message,
+                                              const GURL& page_url,
+                                              bool user_is_interacting,
+                                              web::WebFrame* sender_frame);
   using ScriptCommandCallback =
       base::RepeatingCallback<ScriptCommandCallbackSignature>;
   // Registers |callback| for JS message whose 'command' matches
@@ -388,6 +387,11 @@ class WebState : public base::SupportsUserData {
   // wants to close self by calling window.close() JavaScript API.
   virtual void CloseWebState() = 0;
 
+  // Injects an opaque NSData block into a WKWebView to restore or serialize.
+  // Returns true if this operation succeeds, and false otherwise.
+  virtual bool SetSessionStateData(NSData* data) = 0;
+  virtual NSData* SessionStateData() = 0;
+
  protected:
   friend class WebStatePolicyDecider;
 
@@ -399,9 +403,6 @@ class WebState : public base::SupportsUserData {
   virtual void RemovePolicyDecider(WebStatePolicyDecider* decider) = 0;
 
   WebState() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebState);
 };
 
 }  // namespace web

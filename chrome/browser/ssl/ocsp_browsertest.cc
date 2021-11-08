@@ -57,10 +57,9 @@ class OCSPBrowserTest : public PlatformBrowserTest,
     SystemNetworkContextManager::SetEnableCertificateTransparencyForTesting(
         false);
 
-    ON_CALL(policy_provider_, IsInitializationComplete(testing::_))
-        .WillByDefault(testing::Return(true));
-    ON_CALL(policy_provider_, IsFirstPolicyLoadComplete(testing::_))
-        .WillByDefault(testing::Return(true));
+    policy_provider_.SetDefaultReturns(
+        /*is_initialization_complete_return=*/true,
+        /*is_first_policy_load_complete_return=*/true);
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
         &policy_provider_);
 
@@ -72,7 +71,7 @@ class OCSPBrowserTest : public PlatformBrowserTest,
     InProcessBrowserTest::TearDown();
 
     SystemNetworkContextManager::SetEnableCertificateTransparencyForTesting(
-        base::nullopt);
+        absl::nullopt);
   }
 
   void SetUpOnMainThread() override {
@@ -141,7 +140,8 @@ class OCSPBrowserTest : public PlatformBrowserTest,
     server.AddDefaultHandlers(GetChromeTestDataDir());
     ASSERT_TRUE(server.Start());
 
-    ui_test_utils::NavigateToURL(browser(), server.GetURL("/ssl/google.html"));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(
+        browser(), server.GetURL("/ssl/google.html")));
   }
 
   net::CertStatus GetCurrentCertStatus() {

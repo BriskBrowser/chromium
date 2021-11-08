@@ -13,7 +13,8 @@ class ScreenCaptureNotificationUIStub : public ScreenCaptureNotificationUI {
 
   gfx::NativeViewId OnStarted(
       base::OnceClosure stop_callback,
-      content::MediaStreamUI::SourceCallback source_callback) override {
+      content::MediaStreamUI::SourceCallback source_callback,
+      const std::vector<content::DesktopMediaID>& media_ids) override {
     NOTIMPLEMENTED();
     return 0;
   }
@@ -21,7 +22,7 @@ class ScreenCaptureNotificationUIStub : public ScreenCaptureNotificationUI {
 
 // static
 std::unique_ptr<ScreenCaptureNotificationUI>
-ScreenCaptureNotificationUI::Create(const base::string16& title) {
+ScreenCaptureNotificationUI::Create(const std::u16string& title) {
   return std::unique_ptr<ScreenCaptureNotificationUI>(
       new ScreenCaptureNotificationUIStub());
 }

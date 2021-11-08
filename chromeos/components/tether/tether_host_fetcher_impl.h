@@ -13,7 +13,6 @@
 #include "chromeos/components/tether/tether_host_fetcher.h"
 #include "chromeos/services/device_sync/public/cpp/device_sync_client.h"
 #include "chromeos/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
-#include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
 
 namespace chromeos {
 
@@ -51,6 +50,9 @@ class TetherHostFetcherImpl
     static Factory* factory_instance_;
   };
 
+  TetherHostFetcherImpl(const TetherHostFetcherImpl&) = delete;
+  TetherHostFetcherImpl& operator=(const TetherHostFetcherImpl&) = delete;
+
   ~TetherHostFetcherImpl() override;
 
   // TetherHostFetcher:
@@ -86,8 +88,6 @@ class TetherHostFetcherImpl
 
   multidevice::RemoteDeviceRefList current_remote_device_list_;
   base::WeakPtrFactory<TetherHostFetcherImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TetherHostFetcherImpl);
 };
 
 }  // namespace tether

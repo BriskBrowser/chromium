@@ -17,6 +17,7 @@
 #include "content/public/browser/notification_registrar.h"
 #include "ui/views/widget/widget_observer.h"
 
+class CommanderFocusLossWatcher;
 class CommanderWebView;
 
 namespace views {
@@ -48,7 +49,7 @@ class CommanderFrontendViews : public commander::CommanderFrontend,
   void Hide() override;
 
   // CommanderHandler::Delegate overrides
-  void OnTextChanged(const base::string16& text) override;
+  void OnTextChanged(const std::u16string& text) override;
   void OnOptionSelected(size_t option_index, int result_set_id) override;
   void OnCompositeCommandCancelled() override;
   void OnDismiss() override;
@@ -102,6 +103,8 @@ class CommanderFrontendViews : public commander::CommanderFrontend,
   bool is_handler_enabled_ = false;
   // Registrar for observing app termination.
   content::NotificationRegistrar registrar_;
+  // Helper to close the commander widget on deactivation.
+  std::unique_ptr<CommanderFocusLossWatcher> focus_loss_watcher_;
 
   base::WeakPtrFactory<CommanderFrontendViews> weak_ptr_factory_{this};
 };

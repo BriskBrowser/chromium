@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROMECAST_MEDIA_CMA_BASE_VIDEO_PIPELINE_IMPL_H_
-#define CHROMECAST_MEDIA_CMA_BASE_VIDEO_PIPELINE_IMPL_H_
+#ifndef CHROMECAST_MEDIA_CMA_PIPELINE_VIDEO_PIPELINE_IMPL_H_
+#define CHROMECAST_MEDIA_CMA_PIPELINE_VIDEO_PIPELINE_IMPL_H_
 
 #include <memory>
 #include <vector>
@@ -29,6 +29,10 @@ class VideoPipelineImpl : public AvPipelineImpl {
  public:
   VideoPipelineImpl(CmaBackend::VideoDecoder* decoder,
                     VideoPipelineClient client);
+
+  VideoPipelineImpl(const VideoPipelineImpl&) = delete;
+  VideoPipelineImpl& operator=(const VideoPipelineImpl&) = delete;
+
   ~VideoPipelineImpl() override;
 
   ::media::PipelineStatus Initialize(
@@ -50,11 +54,9 @@ class VideoPipelineImpl : public AvPipelineImpl {
   CmaBackend::VideoDecoder* const video_decoder_;
   const VideoPipelineClient::NaturalSizeChangedCB natural_size_changed_cb_;
   std::vector<EncryptionScheme> encryption_schemes_;
-
-  DISALLOW_COPY_AND_ASSIGN(VideoPipelineImpl);
 };
 
 }  // namespace media
 }  // namespace chromecast
 
-#endif  // CHROMECAST_MEDIA_CMA_BASE_VIDEO_PIPELINE_IMPL_H_
+#endif  // CHROMECAST_MEDIA_CMA_PIPELINE_VIDEO_PIPELINE_IMPL_H_

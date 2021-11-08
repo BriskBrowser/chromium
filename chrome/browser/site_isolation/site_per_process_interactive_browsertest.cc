@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -14,6 +15,7 @@
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_test.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -27,12 +29,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/focused_node_details.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_source.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_iterator.h"
@@ -89,6 +85,12 @@ void WaitForRenderWidgetHostCount(size_t target_count) {
 class SitePerProcessInteractiveBrowserTest : public InProcessBrowserTest {
  public:
   SitePerProcessInteractiveBrowserTest() {}
+
+  SitePerProcessInteractiveBrowserTest(
+      const SitePerProcessInteractiveBrowserTest&) = delete;
+  SitePerProcessInteractiveBrowserTest& operator=(
+      const SitePerProcessInteractiveBrowserTest&) = delete;
+
   ~SitePerProcessInteractiveBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -119,9 +121,6 @@ class SitePerProcessInteractiveBrowserTest : public InProcessBrowserTest {
   };
 
   void FullscreenElementInABA(FullscreenExitMethod exit_method);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SitePerProcessInteractiveBrowserTest);
 };
 
 // Check that document.hasFocus() works properly with out-of-process iframes.
@@ -132,7 +131,7 @@ class SitePerProcessInteractiveBrowserTest : public InProcessBrowserTest {
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest, DocumentHasFocus) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b(c),d)"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -197,7 +196,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        SubframeKeyboardEventRouting) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/frame_tree/page_with_one_frame.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -261,7 +260,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        SequentialFocusNavigation) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b,c)"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -349,7 +348,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        SequentialFocusNavigationWithObject) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/page_with_object_fallback.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -430,7 +429,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        TabAndMouseFocusNavigation) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b,c)"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -738,7 +737,7 @@ void WaitForMultipleFullscreenEvents(
 // - fullscreen CSS is applied correctly in both frames.
 //
 #if defined(OS_MAC)
-// https://crbug.com/845389
+// https://crbug.com/850594
 #define MAYBE_FullscreenElementInSubframe DISABLED_FullscreenElementInSubframe
 #else
 #define MAYBE_FullscreenElementInSubframe FullscreenElementInSubframe
@@ -749,7 +748,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
   // "allowfullscreen" enabled.
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/page_with_allowfullscreen_frame.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -837,7 +836,7 @@ void SitePerProcessInteractiveBrowserTest::FullscreenElementInABA(
                                                "/cross_site_iframe_factory."
                                                "html?a(b{allowfullscreen}(a{"
                                                "allowfullscreen}))"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -871,10 +870,10 @@ void SitePerProcessInteractiveBrowserTest::FullscreenElementInABA(
   std::set<std::string> expected_events = {"main_frame", "child", "grandchild"};
   {
     content::DOMMessageQueue queue;
-    FullscreenNotificationObserver observer(browser());
+    FullscreenNotificationObserver fullscreen_observer(browser());
     EXPECT_TRUE(ExecuteScript(grandchild, "activateFullscreen()"));
     WaitForMultipleFullscreenEvents(expected_events, queue);
-    observer.Wait();
+    fullscreen_observer.Wait();
   }
 
   // Verify that the browser has entered fullscreen for the current tab.
@@ -901,7 +900,7 @@ void SitePerProcessInteractiveBrowserTest::FullscreenElementInABA(
   AddResizeListener(grandchild, original_grandchild_size);
   {
     content::DOMMessageQueue queue;
-    FullscreenNotificationObserver observer(browser());
+    FullscreenNotificationObserver fullscreen_observer(browser());
     switch (exit_method) {
       case FullscreenExitMethod::JS_CALL:
         EXPECT_TRUE(ExecuteScript(grandchild, "exitFullscreen()"));
@@ -914,7 +913,7 @@ void SitePerProcessInteractiveBrowserTest::FullscreenElementInABA(
         NOTREACHED();
     }
     WaitForMultipleFullscreenEvents(expected_events, queue);
-    observer.Wait();
+    fullscreen_observer.Wait();
   }
 
   EXPECT_FALSE(browser()->window()->IsFullscreen());
@@ -984,7 +983,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
       "a.com",
       "/cross_site_iframe_factory.html?a(a{allowfullscreen}(b,b{"
       "allowfullscreen}(c{allowfullscreen}(c{allowfullscreen}))))"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -1032,10 +1031,10 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
   // browser finishes the fullscreen transition.
   {
     content::DOMMessageQueue queue;
-    FullscreenNotificationObserver observer(browser());
+    FullscreenNotificationObserver fullscreen_observer(browser());
     EXPECT_TRUE(ExecuteScript(c_middle, "activateFullscreen()"));
     WaitForMultipleFullscreenEvents(expected_events, queue);
-    observer.Wait();
+    fullscreen_observer.Wait();
   }
 
   // Verify that the browser has entered fullscreen for the current tab.
@@ -1072,11 +1071,11 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
   AddResizeListener(c_middle, c_middle_original_size);
   {
     content::DOMMessageQueue queue;
-    FullscreenNotificationObserver observer(browser());
+    FullscreenNotificationObserver fullscreen_observer(browser());
     ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_ESCAPE,
                                                 false, false, false, false));
     WaitForMultipleFullscreenEvents(expected_events, queue);
-    observer.Wait();
+    fullscreen_observer.Wait();
   }
 
   EXPECT_FALSE(browser()->window()->IsFullscreen());
@@ -1109,7 +1108,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        DISABLED_RenderWidgetHostDeletedWhileMouseLocked) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -1138,6 +1137,12 @@ class SitePerProcessInteractivePDFTest
     : public SitePerProcessInteractiveBrowserTest {
  public:
   SitePerProcessInteractivePDFTest() : test_guest_view_manager_(nullptr) {}
+
+  SitePerProcessInteractivePDFTest(const SitePerProcessInteractivePDFTest&) =
+      delete;
+  SitePerProcessInteractivePDFTest& operator=(
+      const SitePerProcessInteractivePDFTest&) = delete;
+
   ~SitePerProcessInteractivePDFTest() override {}
 
   void SetUpOnMainThread() override {
@@ -1158,8 +1163,6 @@ class SitePerProcessInteractivePDFTest
  private:
   guest_view::TestGuestViewManagerFactory factory_;
   guest_view::TestGuestViewManager* test_guest_view_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(SitePerProcessInteractivePDFTest);
 };
 
 // This class observes a WebContents for a navigation to an extension scheme to
@@ -1171,6 +1174,11 @@ class NavigationToExtensionSchemeObserver
       : content::WebContentsObserver(contents),
         extension_loaded_(contents->GetLastCommittedURL().SchemeIs(
             extensions::kExtensionScheme)) {}
+
+  NavigationToExtensionSchemeObserver(
+      const NavigationToExtensionSchemeObserver&) = delete;
+  NavigationToExtensionSchemeObserver& operator=(
+      const NavigationToExtensionSchemeObserver&) = delete;
 
   void Wait() {
     if (extension_loaded_)
@@ -1190,8 +1198,6 @@ class NavigationToExtensionSchemeObserver
 
   bool extension_loaded_;
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(NavigationToExtensionSchemeObserver);
 };
 
 // This test loads a PDF inside an OOPIF and then verifies that context menu
@@ -1200,7 +1206,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractivePDFTest,
                        ContextMenuPositionForEmbeddedPDFInCrossOriginFrame) {
   // Navigate to a page with an <iframe>.
   GURL main_url(embedded_test_server()->GetURL("a.com", "/iframe.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   // Initially, no guests are created.
   EXPECT_EQ(0U, test_guest_view_manager()->num_guests_created());
@@ -1269,7 +1275,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractivePDFTest,
                        LoadingPdfDoesNotStealFocus) {
   // Load test HTML, and verify the text area has focus.
   GURL main_url(embedded_test_server()->GetURL("/pdf/two_iframes.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   auto* embedder_web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -1360,12 +1366,21 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractivePDFTest,
 class SitePerProcessAutofillTest : public SitePerProcessInteractiveBrowserTest {
  public:
   SitePerProcessAutofillTest() : SitePerProcessInteractiveBrowserTest() {}
+
+  SitePerProcessAutofillTest(const SitePerProcessAutofillTest&) = delete;
+  SitePerProcessAutofillTest& operator=(const SitePerProcessAutofillTest&) =
+      delete;
+
   ~SitePerProcessAutofillTest() override {}
 
  protected:
   class TestAutofillClient : public autofill::TestAutofillClient {
    public:
     TestAutofillClient() : popup_shown_(false) {}
+
+    TestAutofillClient(const TestAutofillClient&) = delete;
+    TestAutofillClient& operator=(const TestAutofillClient&) = delete;
+
     ~TestAutofillClient() override {}
 
     void WaitForNextPopup() {
@@ -1390,8 +1405,6 @@ class SitePerProcessAutofillTest : public SitePerProcessInteractiveBrowserTest {
     gfx::RectF element_bounds_;
     bool popup_shown_;
     scoped_refptr<content::MessageLoopRunner> loop_runner_;
-
-    DISALLOW_COPY_AND_ASSIGN(TestAutofillClient);
   };
 
   const int kIframeTopDisplacement = 150;
@@ -1426,52 +1439,6 @@ class SitePerProcessAutofillTest : public SitePerProcessInteractiveBrowserTest {
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
   TestAutofillClient test_autofill_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(SitePerProcessAutofillTest);
-};
-
-// Observes the notifications for changes in focused node/element in the page.
-class FocusedEditableNodeChangedObserver : content::NotificationObserver {
- public:
-  FocusedEditableNodeChangedObserver() : observed_(false) {
-    registrar_.Add(this, content::NOTIFICATION_FOCUS_CHANGED_IN_PAGE,
-                   content::NotificationService::AllSources());
-  }
-  ~FocusedEditableNodeChangedObserver() override {}
-
-  void WaitForFocusChangeInPage() {
-    if (observed_)
-      return;
-    loop_runner_ = new content::MessageLoopRunner();
-    loop_runner_->Run();
-  }
-
-  // content::NotificationObserver override.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {
-    auto focused_node_details =
-        content::Details<content::FocusedNodeDetails>(details);
-    if (!focused_node_details->is_editable_node)
-      return;
-    focused_node_bounds_in_screen_ =
-        focused_node_details->node_bounds_in_screen.origin();
-    observed_ = true;
-    if (loop_runner_)
-      loop_runner_->Quit();
-  }
-
-  const gfx::Point& focused_node_bounds_in_screen() const {
-    return focused_node_bounds_in_screen_;
-  }
-
- private:
-  content::NotificationRegistrar registrar_;
-  bool observed_;
-  gfx::Point focused_node_bounds_in_screen_;
-  scoped_refptr<content::MessageLoopRunner> loop_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(FocusedEditableNodeChangedObserver);
 };
 
 // Waits until transforming |sample_point| from |render_frame_host| coordinates
@@ -1504,7 +1471,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        ShowAndHideDatePopupInOOPIFMultipleTimes) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   content::RenderFrameHost* child_frame = ChildFrameAt(
       browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(), 0);
 
@@ -1601,14 +1568,14 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        MAYBE_SubframeAnchorOpenedInBackgroundTab) {
   // Setup the test page - the ctrl-clicked link should be in a subframe.
   GURL main_url(embedded_test_server()->GetURL("foo.com", "/iframe.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   GURL subframe_url(embedded_test_server()->GetURL(
       "bar.com", "/frame_tree/anchor_to_same_site_location.html"));
   content::WebContents* old_contents =
       browser()->tab_strip_model()->GetWebContentsAt(0);
   ASSERT_TRUE(NavigateIframeToURL(old_contents, "test", subframe_url));
-  EXPECT_LE(2u, old_contents->GetAllFrames().size());
-  content::RenderFrameHost* subframe = old_contents->GetAllFrames()[1];
+  content::RenderFrameHost* subframe = ChildFrameAt(old_contents, 0);
+  ASSERT_TRUE(subframe);
   EXPECT_EQ(subframe_url, subframe->GetLastCommittedURL());
 
   // Simulate the ctrl-return to open the anchor's link in a new background tab.

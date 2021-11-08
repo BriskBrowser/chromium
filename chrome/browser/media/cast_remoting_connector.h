@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/supports_user_data.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/sessions/core/session_id.h"
@@ -19,6 +18,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 class RenderFrameHost;
@@ -78,6 +78,9 @@ class MediaRouter;
 class CastRemotingConnector final : public base::SupportsUserData::Data,
                                     public media::mojom::RemotingSource {
  public:
+  CastRemotingConnector(const CastRemotingConnector&) = delete;
+  CastRemotingConnector& operator=(const CastRemotingConnector&) = delete;
+
   ~CastRemotingConnector() final;
 
   // Returns the instance of the CastRemotingConnector associated with
@@ -226,7 +229,7 @@ class CastRemotingConnector final : public base::SupportsUserData::Data,
 
   // Permission is checked the first time remoting requested to start for each
   // casting session.
-  base::Optional<bool> remoting_allowed_;
+  absl::optional<bool> remoting_allowed_;
 
   // This callback is non-null when a dialog is showing to get user's
   // permission, and is reset when the dialog closes.
@@ -243,8 +246,6 @@ class CastRemotingConnector final : public base::SupportsUserData::Data,
   // Key used with the base::SupportsUserData interface to search for an
   // instance of CastRemotingConnector owned by a WebContents.
   static const void* const kUserDataKey;
-
-  DISALLOW_COPY_AND_ASSIGN(CastRemotingConnector);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_CAST_REMOTING_CONNECTOR_H_

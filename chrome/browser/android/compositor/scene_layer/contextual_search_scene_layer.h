@@ -33,6 +33,11 @@ class ContextualSearchSceneLayer : public SceneLayer,
  public:
   ContextualSearchSceneLayer(JNIEnv* env,
                              const base::android::JavaRef<jobject>& jobj);
+
+  ContextualSearchSceneLayer(const ContextualSearchSceneLayer&) = delete;
+  ContextualSearchSceneLayer& operator=(const ContextualSearchSceneLayer&) =
+      delete;
+
   ~ContextualSearchSceneLayer() override;
 
   void CreateContextualSearchLayer(
@@ -75,6 +80,14 @@ class ContextualSearchSceneLayer : public SceneLayer,
       jfloat panel_help_height,
       jfloat panel_help_opacity,
       jint panel_help_container_background_color,
+      // Related Searches
+      jint related_searches_in_content_resource_id,
+      jboolean related_searches_in_content_visible,
+      jfloat related_searches_in_content_height,
+      jint related_searches_in_bar_resource_id,
+      jboolean related_searches_in_bar_visible,
+      jfloat related_searches_in_bar_height,
+      jfloat related_searches_in_bar_redundant_padding,
       // Banner etc
       jboolean search_bar_banner_visible,
       jfloat search_bar_banner_height,
@@ -142,8 +155,6 @@ class ContextualSearchSceneLayer : public SceneLayer,
   // Responsible for fading the base page content.
   scoped_refptr<cc::SolidColorLayer> color_overlay_;
   scoped_refptr<cc::Layer> content_container_;
-
-  DISALLOW_COPY_AND_ASSIGN(ContextualSearchSceneLayer);
 };
 
 }  // namespace android

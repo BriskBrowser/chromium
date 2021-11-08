@@ -7,7 +7,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/crosapi/mojom/device_attributes.mojom-test-utils.h"
 #include "chromeos/crosapi/mojom/device_attributes.mojom.h"
-#include "chromeos/lacros/lacros_chrome_service_impl.h"
+#include "chromeos/lacros/lacros_service.h"
 #include "content/public/test/browser_test.h"
 
 // This class provides integration testing for the device attributes crosapi.
@@ -20,8 +20,8 @@ IN_PROC_BROWSER_TEST_F(DeviceAttributesLacrosBrowserTest,
                        GetDirectoryDeviceId) {
   crosapi::mojom::DeviceAttributesStringResultPtr result;
   crosapi::mojom::DeviceAttributesAsyncWaiter async_waiter(
-      chromeos::LacrosChromeServiceImpl::Get()
-          ->device_attributes_remote()
+      chromeos::LacrosService::Get()
+          ->GetRemote<crosapi::mojom::DeviceAttributes>()
           .get());
   async_waiter.GetDirectoryDeviceId(&result);
 
@@ -34,8 +34,8 @@ IN_PROC_BROWSER_TEST_F(DeviceAttributesLacrosBrowserTest,
                        GetDeviceSerialNumber) {
   crosapi::mojom::DeviceAttributesStringResultPtr result;
   crosapi::mojom::DeviceAttributesAsyncWaiter async_waiter(
-      chromeos::LacrosChromeServiceImpl::Get()
-          ->device_attributes_remote()
+      chromeos::LacrosService::Get()
+          ->GetRemote<crosapi::mojom::DeviceAttributes>()
           .get());
   async_waiter.GetDeviceSerialNumber(&result);
 
@@ -47,8 +47,8 @@ IN_PROC_BROWSER_TEST_F(DeviceAttributesLacrosBrowserTest,
 IN_PROC_BROWSER_TEST_F(DeviceAttributesLacrosBrowserTest, GetDeviceAssetId) {
   crosapi::mojom::DeviceAttributesStringResultPtr result;
   crosapi::mojom::DeviceAttributesAsyncWaiter async_waiter(
-      chromeos::LacrosChromeServiceImpl::Get()
-          ->device_attributes_remote()
+      chromeos::LacrosService::Get()
+          ->GetRemote<crosapi::mojom::DeviceAttributes>()
           .get());
   async_waiter.GetDeviceAssetId(&result);
 
@@ -61,8 +61,8 @@ IN_PROC_BROWSER_TEST_F(DeviceAttributesLacrosBrowserTest,
                        GetDeviceAnnotatedLocation) {
   crosapi::mojom::DeviceAttributesStringResultPtr result;
   crosapi::mojom::DeviceAttributesAsyncWaiter async_waiter(
-      chromeos::LacrosChromeServiceImpl::Get()
-          ->device_attributes_remote()
+      chromeos::LacrosService::Get()
+          ->GetRemote<crosapi::mojom::DeviceAttributes>()
           .get());
   async_waiter.GetDeviceAnnotatedLocation(&result);
 
@@ -74,8 +74,8 @@ IN_PROC_BROWSER_TEST_F(DeviceAttributesLacrosBrowserTest,
 IN_PROC_BROWSER_TEST_F(DeviceAttributesLacrosBrowserTest, GetDeviceHostname) {
   crosapi::mojom::DeviceAttributesStringResultPtr result;
   crosapi::mojom::DeviceAttributesAsyncWaiter async_waiter(
-      chromeos::LacrosChromeServiceImpl::Get()
-          ->device_attributes_remote()
+      chromeos::LacrosService::Get()
+          ->GetRemote<crosapi::mojom::DeviceAttributes>()
           .get());
   async_waiter.GetDeviceHostname(&result);
 

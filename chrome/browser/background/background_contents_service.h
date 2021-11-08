@@ -15,7 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/background/background_contents.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
@@ -63,6 +63,11 @@ class BackgroundContentsService : private content::NotificationObserver,
  public:
   BackgroundContentsService(Profile* profile,
                             const base::CommandLine* command_line);
+
+  BackgroundContentsService(const BackgroundContentsService&) = delete;
+  BackgroundContentsService& operator=(const BackgroundContentsService&) =
+      delete;
+
   ~BackgroundContentsService() override;
 
   // Allows tests to reduce the time between a force-installed app/extension
@@ -127,7 +132,7 @@ class BackgroundContentsService : private content::NotificationObserver,
       bool is_new_browsing_instance,
       const std::string& frame_name,
       const std::string& application_id,
-      const std::string& partition_id,
+      const content::StoragePartitionId& partition_id,
       content::SessionStorageNamespace* session_storage_namespace);
 
   // Removes |contents| from |contents_map_|, deleting it.
@@ -262,13 +267,11 @@ class BackgroundContentsService : private content::NotificationObserver,
       ComponentExtensionBackoffEntryMap;
   ComponentExtensionBackoffEntryMap component_backoff_map_;
 
-  ScopedObserver<extensions::ExtensionRegistry,
-                 extensions::ExtensionRegistryObserver>
-      extension_registry_observer_{this};
+  base::ScopedObservation<extensions::ExtensionRegistry,
+                          extensions::ExtensionRegistryObserver>
+      extension_registry_observation_{this};
 
   base::WeakPtrFactory<BackgroundContentsService> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BackgroundContentsService);
 };
 
 #endif  // CHROME_BROWSER_BACKGROUND_BACKGROUND_CONTENTS_SERVICE_H_

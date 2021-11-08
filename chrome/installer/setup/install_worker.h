@@ -99,6 +99,29 @@ void AddOsUpgradeWorkItems(const InstallerState& installer_state,
                            const base::Version& new_version,
                            WorkItemList* install_list);
 
+// Adds work items to set or delete the "channel" value in `clients_key`. The
+// value is set if a channel was provided to the installer via the --channel
+// command line switch and deleted otherwise.
+void AddChannelWorkItems(HKEY root,
+                         const std::wstring& clients_key,
+                         WorkItemList* list);
+
+// Adds a best-effort item to update the "ap" value if the channel was dictated
+// by --channel on the command line. This is done so that such channel changes
+// are "sticky" -- once an install or update succeeds in this way, all
+// subsequent update checks will be on that same channel until --channel is used
+// to switch once again.
+void AddChannelSelectionWorkItems(const InstallerState& installer_state,
+                                  WorkItemList* list);
+
+// Adds work items to be done when finalizing an update. This happens both
+// after the executables get renamed for an in-use update or as the last steps
+// for a regular update.
+void AddFinalizeUpdateWorkItems(const base::Version& new_version,
+                                const InstallerState& installer_state,
+                                const base::FilePath& setup_path,
+                                WorkItemList* list);
+
 }  // namespace installer
 
 #endif  // CHROME_INSTALLER_SETUP_INSTALL_WORKER_H_

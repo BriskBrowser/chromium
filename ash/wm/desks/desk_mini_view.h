@@ -9,7 +9,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/wm/desks/desk.h"
-#include "ash/wm/overview/overview_highlight_controller.h"
+#include "ash/wm/overview/overview_highlightable_view.h"
 #include "base/macros.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/label.h"
@@ -27,12 +27,11 @@ class DesksBarView;
 // virtual desk in the desk bar view when overview mode is active. This view
 // shows a preview of the contents of the associated desk, its title, and
 // supports desk activation and removal.
-class ASH_EXPORT DeskMiniView
-    : public views::View,
-      public Desk::Observer,
-      public OverviewHighlightController::OverviewHighlightableView,
-      public views::TextfieldController,
-      public views::ViewObserver {
+class ASH_EXPORT DeskMiniView : public views::View,
+                                public Desk::Observer,
+                                public OverviewHighlightableView,
+                                public views::TextfieldController,
+                                public views::ViewObserver {
  public:
   // Returns the width of the desk preview based on its |preview_height| and the
   // aspect ratio of the root window taken from |root_window_size|.
@@ -40,11 +39,14 @@ class ASH_EXPORT DeskMiniView
                              int preview_height);
 
   // The desk preview bounds are proportional to the bounds of the display on
-  // which it resides, and whether the |compact| layout is used.
-  static gfx::Rect GetDeskPreviewBounds(aura::Window* root_window,
-                                        bool compact);
+  // which it resides.
+  static gfx::Rect GetDeskPreviewBounds(aura::Window* root_window);
 
   DeskMiniView(DesksBarView* owner_bar, aura::Window* root_window, Desk* desk);
+
+  DeskMiniView(const DeskMiniView&) = delete;
+  DeskMiniView& operator=(const DeskMiniView&) = delete;
+
   ~DeskMiniView() override;
 
   aura::Window* root_window() { return root_window_; }
@@ -58,6 +60,8 @@ class ASH_EXPORT DeskMiniView
   }
 
   DesksBarView* owner_bar() { return owner_bar_; }
+  const DeskPreviewView* desk_preview() const { return desk_preview_; }
+  DeskPreviewView* desk_preview() { return desk_preview_; }
 
   gfx::Rect GetPreviewBoundsInScreen() const;
 
@@ -79,7 +83,8 @@ class ASH_EXPORT DeskMiniView
   void OnWidgetGestureTap(const gfx::Rect& screen_rect, bool is_long_gesture);
 
   // Updates the border color of the DeskPreviewView based on the activation
-  // state of the corresponding desk.
+  // state of the corresponding desk and whether the desks template grid is
+  // visible.
   void UpdateBorderColor();
 
   // Gets the preview border's insets.
@@ -95,19 +100,21 @@ class ASH_EXPORT DeskMiniView
   // Desk::Observer:
   void OnContentChanged() override;
   void OnDeskDestroyed(const Desk* desk) override;
-  void OnDeskNameChanged(const base::string16& new_name) override;
+  void OnDeskNameChanged(const std::u16string& new_name) override;
 
-  // OverviewHighlightController::OverviewHighlightableView:
+  // OverviewHighlightableView:
   views::View* GetView() override;
   void MaybeActivateHighlightedView() override;
   void MaybeCloseHighlightedView() override;
   void MaybeSwapHighlightedView(bool right) override;
+  bool MaybeActivateHighlightedViewOnOverviewExit(
+      OverviewSession* overview_session) override;
   void OnViewHighlighted() override;
   void OnViewUnhighlighted() override;
 
   // views::TextfieldController:
   void ContentsChanged(views::Textfield* sender,
-                       const base::string16& new_contents) override;
+                       const std::u16string& new_contents) override;
   bool HandleKeyEvent(views::Textfield* sender,
                       const ui::KeyEvent& key_event) override;
   bool HandleMouseEvent(views::Textfield* sender,
@@ -118,17 +125,6 @@ class ASH_EXPORT DeskMiniView
   void OnViewBlurred(views::View* observed_view) override;
 
   bool IsPointOnMiniView(const gfx::Point& screen_location) const;
-
-  // Gets the minimum width of this view to properly lay out all its contents in
-  // default layout.
-  // The view containing this object can use the width returned from this
-  // function to decide its own proper size or layout.
-  int GetMinWidthForDefaultLayout() const;
-
-  bool IsDeskNameViewVisibleForTesting() const;
-  const DeskPreviewView* GetDeskPreviewForTesting() const {
-    return desk_preview_;
-  }
 
  private:
   void OnCloseButtonPressed();
@@ -167,8 +163,6 @@ class ASH_EXPORT DeskMiniView
   bool defer_select_all_ = false;
 
   bool is_desk_name_being_modified_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(DeskMiniView);
 };
 
 }  // namespace ash

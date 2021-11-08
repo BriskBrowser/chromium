@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
-import static org.chromium.chrome.browser.tasks.tab_management.TabSwitcherMediator.INITIAL_SCROLL_INDEX_OFFSET;
+import static org.chromium.chrome.browser.tasks.tab_management.TabSwitcherMediator.INITIAL_SCROLL_INDEX_OFFSET_GTS;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -19,22 +19,22 @@ import androidx.appcompat.content.res.AppCompatResources;
 
 import org.chromium.base.Callback;
 import org.chromium.base.metrics.RecordUserAction;
-import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.share.ChromeShareExtras;
 import org.chromium.chrome.browser.share.ShareDelegate;
-import org.chromium.chrome.browser.share.ShareDelegateImpl.ShareOrigin;
+import org.chromium.chrome.browser.share.ShareDelegate.ShareOrigin;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelFilter;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
+import org.chromium.chrome.browser.tasks.ReturnToChromeExperimentsUtil;
 import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
@@ -75,6 +75,11 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
          * @return Whether or not the TabGridDialog consumed the event.
          */
         boolean handleBackPressed();
+
+        /**
+         * @return Whether the TabGridDialog is visible.
+         */
+        boolean isVisible();
     }
 
     /**
@@ -101,7 +106,7 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
     private final TabSwitcherMediator.ResetHandler mTabSwitcherResetHandler;
     private final AnimationSourceViewProvider mAnimationSourceViewProvider;
     private final DialogHandler mTabGridDialogHandler;
-    private final ObservableSupplier<ShareDelegate> mShareDelegateSupplier;
+    private final Supplier<ShareDelegate> mShareDelegateSupplier;
     private final Runnable mScrimClickRunnable;
     private final String mComponentName;
 
@@ -118,8 +123,8 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
             TabModelSelector tabModelSelector, TabCreatorManager tabCreatorManager,
             TabSwitcherMediator.ResetHandler tabSwitcherResetHandler,
             AnimationSourceViewProvider animationSourceViewProvider,
-            ObservableSupplier<ShareDelegate> shareDelegateSupplier,
-            SnackbarManager snackbarManager, String componentName) {
+            Supplier<ShareDelegate> shareDelegateSupplier, SnackbarManager snackbarManager,
+            String componentName) {
         mContext = context;
         mModel = model;
         mTabModelSelector = tabModelSelector;
@@ -191,40 +196,14 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
             }
         };
 
-        mTabModelSelectorObserver = new EmptyTabModelSelectorObserver() {
+        mTabModelSelectorObserver = new TabModelSelectorObserver() {
             @Override
             public void onTabModelSelected(TabModel newModel, TabModel oldModel) {
-                boolean isIncognito = newModel.isIncognito();
-                int dialogBackgroundResource = isIncognito
-                        ? R.drawable.tab_grid_dialog_background_incognito
-                        : R.drawable.tab_grid_dialog_background;
-                ColorStateList tintList = isIncognito
-                        ? AppCompatResources.getColorStateList(
-                                mContext, R.color.default_icon_color_light_tint_list)
-                        : AppCompatResources.getColorStateList(
-                                mContext, R.color.default_icon_color_tint_list);
-                int ungroupBarBackgroundColorId = isIncognito
-                        ? R.color.tab_grid_dialog_background_color_incognito
-                        : R.color.tab_grid_dialog_background_color;
-                int ungroupBarHoveredBackgroundColorId = isIncognito
-                        ? R.color.tab_grid_card_selected_color_incognito
-                        : R.color.tab_grid_card_selected_color;
-                int ungroupBarTextAppearance = isIncognito
-                        ? R.style.TextAppearance_TextMediumThick_Blue_Light
-                        : R.style.TextAppearance_TextMediumThick_Blue;
-
-                mModel.set(TabGridPanelProperties.DIALOG_BACKGROUND_RESOURCE_ID,
-                        dialogBackgroundResource);
-                mModel.set(TabGridPanelProperties.TINT, tintList);
-                mModel.set(TabGridPanelProperties.DIALOG_UNGROUP_BAR_BACKGROUND_COLOR_ID,
-                        ungroupBarBackgroundColorId);
-                mModel.set(TabGridPanelProperties.DIALOG_UNGROUP_BAR_HOVERED_BACKGROUND_COLOR_ID,
-                        ungroupBarHoveredBackgroundColorId);
-                mModel.set(TabGridPanelProperties.DIALOG_UNGROUP_BAR_TEXT_APPEARANCE,
-                        ungroupBarTextAppearance);
+                updateColorProperties(context, newModel.isIncognito());
             }
         };
         mTabModelSelector.addObserver(mTabModelSelectorObserver);
+        updateColorProperties(context, mTabModelSelector.isIncognitoSelected());
 
         // Setup ScrimView click Runnable.
         mScrimClickRunnable = () -> {
@@ -296,7 +275,7 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
         // Setup toolbar button click listeners.
         setupToolbarClickHandlers();
 
-        if (TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled()) {
+        if (TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(mContext)) {
             // Setup toolbar edit text.
             setupToolbarEditText();
 
@@ -407,6 +386,34 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
                         R.plurals.bottom_tab_grid_title_placeholder, tabsCount, tabsCount));
     }
 
+    private void updateColorProperties(Context context, boolean isIncognito) {
+        int dialogBackgroundColor =
+                TabUiThemeProvider.getTabGridDialogBackgroundColor(context, isIncognito);
+        ColorStateList tintList = isIncognito ? AppCompatResources.getColorStateList(
+                                          mContext, R.color.default_icon_color_light_tint_list)
+                                              : AppCompatResources.getColorStateList(mContext,
+                                                      R.color.default_icon_color_tint_list);
+        int ungroupBarBackgroundColor =
+                TabUiThemeProvider.getTabGridDialogUngroupBarBackgroundColor(context, isIncognito);
+        int ungroupBarHoveredBackgroundColor =
+                TabUiThemeProvider.getTabGridDialogUngroupBarHoveredBackgroundColor(
+                        context, isIncognito);
+        int ungroupBarTextColor =
+                TabUiThemeProvider.getTabGridDialogUngroupBarTextColor(context, isIncognito);
+        int ungroupBarHoveredTextColor =
+                TabUiThemeProvider.getTabGridDialogUngroupBarHoveredTextColor(context, isIncognito);
+
+        mModel.set(TabGridPanelProperties.DIALOG_BACKGROUND_COLOR, dialogBackgroundColor);
+        mModel.set(TabGridPanelProperties.TINT, tintList);
+        mModel.set(TabGridPanelProperties.DIALOG_UNGROUP_BAR_BACKGROUND_COLOR,
+                ungroupBarBackgroundColor);
+        mModel.set(TabGridPanelProperties.DIALOG_UNGROUP_BAR_HOVERED_BACKGROUND_COLOR,
+                ungroupBarHoveredBackgroundColor);
+        mModel.set(TabGridPanelProperties.DIALOG_UNGROUP_BAR_TEXT_COLOR, ungroupBarTextColor);
+        mModel.set(TabGridPanelProperties.DIALOG_UNGROUP_BAR_HOVERED_TEXT_COLOR,
+                ungroupBarHoveredTextColor);
+    }
+
     private static int getRootId(Tab tab) {
         return CriticalPersistedTabData.from(tab).getRootId();
     }
@@ -420,7 +427,7 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
         List<Tab> relatedTabs = getRelatedTabs(mCurrentTabId);
         Tab currentTab = mTabModelSelector.getTabById(mCurrentTabId);
         int initialPosition =
-                Math.max(relatedTabs.indexOf(currentTab) - INITIAL_SCROLL_INDEX_OFFSET, 0);
+                Math.max(relatedTabs.indexOf(currentTab) - INITIAL_SCROLL_INDEX_OFFSET_GTS, 0);
         mModel.set(TabGridPanelProperties.INITIAL_SCROLL_INDEX, initialPosition);
     }
 
@@ -511,8 +518,11 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
             Tab parentTabToAttach = relatedTabs.get(relatedTabs.size() - 1);
             mTabCreatorManager.getTabCreator(currentTab.isIncognito())
                     .createNewTab(new LoadUrlParams(UrlConstants.NTP_URL),
-                            TabLaunchType.FROM_CHROME_UI, parentTabToAttach);
+                            TabLaunchType.FROM_TAB_GROUP_UI, parentTabToAttach);
             RecordUserAction.record("MobileNewTabOpened." + mComponentName);
+            if (!currentTab.isIncognito()) {
+                ReturnToChromeExperimentsUtil.onNewTabOpened();
+            }
         };
     }
 
@@ -616,7 +626,7 @@ public class TabGridDialogMediator implements SnackbarManager.SnackbarController
         List<Tab> tabgroup = getRelatedTabs(mCurrentTabId);
         assert tabgroup.size() > 0;
         for (int i = 0; i < tabgroup.size(); i++) {
-            sb.append(i + 1).append(". ").append(tabgroup.get(i).getUrlString()).append("\n");
+            sb.append(i + 1).append(". ").append(tabgroup.get(i).getUrl().getSpec()).append("\n");
         }
         return sb.toString();
     }

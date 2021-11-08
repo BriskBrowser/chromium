@@ -26,7 +26,7 @@ class ListStyleTypeData final : public GarbageCollected<ListStyleTypeData> {
                     AtomicString name_or_string_value,
                     const TreeScope* tree_scope)
       : type_(type),
-        name_or_string_value_(name_or_string_value),
+        name_or_string_value_(std::move(name_or_string_value)),
         tree_scope_(tree_scope) {}
 
   static ListStyleTypeData* CreateString(const AtomicString&);
@@ -45,12 +45,12 @@ class ListStyleTypeData final : public GarbageCollected<ListStyleTypeData> {
   bool IsCounterStyle() const { return type_ == Type::kCounterStyle; }
   bool IsString() const { return type_ == Type::kString; }
 
-  AtomicString GetCounterStyleName() const {
+  const AtomicString& GetCounterStyleName() const {
     DCHECK_EQ(Type::kCounterStyle, type_);
     return name_or_string_value_;
   }
 
-  AtomicString GetStringValue() const {
+  const AtomicString& GetStringValue() const {
     DCHECK_EQ(Type::kString, type_);
     return name_or_string_value_;
   }
@@ -60,8 +60,6 @@ class ListStyleTypeData final : public GarbageCollected<ListStyleTypeData> {
   // TODO(crbug.com/687225): Try not to pass a Document, which is cumbersome.
   bool IsCounterStyleReferenceValid(Document&) const;
   const CounterStyle& GetCounterStyle(Document&) const;
-
-  EListStyleType ToDeprecatedListStyleTypeEnum() const;
 
  private:
   Type type_;

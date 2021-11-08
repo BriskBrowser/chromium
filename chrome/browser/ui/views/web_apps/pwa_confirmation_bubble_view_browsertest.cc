@@ -12,10 +12,11 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/web_apps/pwa_confirmation_bubble_view.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/browser/web_applications/components/web_app_id.h"
-#include "chrome/browser/web_applications/components/web_app_prefs_utils.h"
-#include "chrome/browser/web_applications/components/web_application_info.h"
+#include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
+#include "chrome/browser/web_applications/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_prefs_utils.h"
+#include "chrome/browser/web_applications/web_application_info.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -34,9 +35,9 @@ class PWAConfirmationBubbleViewBrowserTest : public InProcessBrowserTest {
 
   std::unique_ptr<WebApplicationInfo> GetAppInfo() {
     auto app_info = std::make_unique<WebApplicationInfo>();
-    app_info->title = base::UTF8ToUTF16("Test app 2");
+    app_info->title = u"Test app 2";
     app_info->start_url = GURL("https://example2.com");
-    app_info->open_as_window = true;
+    app_info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
     return app_info;
   }
 
@@ -47,10 +48,11 @@ class PWAConfirmationBubbleViewBrowserTest : public InProcessBrowserTest {
 IN_PROC_BROWSER_TEST_F(PWAConfirmationBubbleViewBrowserTest,
                        ShowBubbleInPWAWindow) {
   auto app_info = std::make_unique<WebApplicationInfo>();
-  app_info->title = base::UTF8ToUTF16("Test app");
+  app_info->title = u"Test app";
   app_info->start_url = GURL("https://example.com");
   Profile* profile = browser()->profile();
-  web_app::AppId app_id = web_app::InstallWebApp(profile, std::move(app_info));
+  web_app::AppId app_id =
+      web_app::test::InstallWebApp(profile, std::move(app_info));
   Browser* browser = web_app::LaunchWebAppBrowser(profile, app_id);
 
   app_info = GetAppInfo();
@@ -62,9 +64,9 @@ IN_PROC_BROWSER_TEST_F(PWAConfirmationBubbleViewBrowserTest,
   // Tests that we don't crash when attempting to show bubble when it's already
   // shown.
   app_info = std::make_unique<WebApplicationInfo>();
-  app_info->title = base::UTF8ToUTF16("Test app 3");
+  app_info->title = u"Test app 3";
   app_info->start_url = GURL("https://example3.com");
-  app_info->open_as_window = true;
+  app_info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
   chrome::ShowPWAInstallBubble(
       browser->tab_strip_model()->GetActiveWebContents(), std::move(app_info),
       base::DoNothing());
@@ -84,7 +86,7 @@ IN_PROC_BROWSER_TEST_F(PWAConfirmationBubbleViewBrowserTest,
           }));
 
   PWAConfirmationBubbleView* bubble_dialog =
-      PWAConfirmationBubbleView::GetBubbleForTesting();
+      PWAConfirmationBubbleView::GetBubble();
 
   base::HistogramTester histograms;
   bubble_dialog->CancelDialog();
@@ -111,7 +113,7 @@ IN_PROC_BROWSER_TEST_F(PWAConfirmationBubbleViewBrowserTest,
       chrome::PwaInProductHelpState::kShown);
 
   PWAConfirmationBubbleView* bubble_dialog =
-      PWAConfirmationBubbleView::GetBubbleForTesting();
+      PWAConfirmationBubbleView::GetBubble();
 
   bubble_dialog->CancelDialog();
   loop.Run();
@@ -121,7 +123,8 @@ IN_PROC_BROWSER_TEST_F(PWAConfirmationBubbleViewBrowserTest,
                                       ->GetActiveWebContents()
                                       ->GetBrowserContext())
           ->GetPrefs();
-  web_app::AppId app_id = web_app::GenerateAppIdFromURL(start_url);
+  web_app::AppId app_id =
+      web_app::GenerateAppId(/*manifest_id=*/absl::nullopt, start_url);
   EXPECT_EQ(
       web_app::GetIntWebAppPref(pref_service, app_id, web_app::kIphIgnoreCount)
           .value(),
@@ -141,7 +144,8 @@ IN_PROC_BROWSER_TEST_F(PWAConfirmationBubbleViewBrowserTest,
                        AcceptDialogResetIphCounters) {
   auto app_info = GetAppInfo();
   GURL start_url = app_info->start_url;
-  web_app::AppId app_id = web_app::GenerateAppIdFromURL(start_url);
+  web_app::AppId app_id =
+      web_app::GenerateAppId(/*manifest_id=*/absl::nullopt, start_url);
   PrefService* pref_service =
       Profile::FromBrowserContext(browser()
                                       ->tab_strip_model()
@@ -167,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(PWAConfirmationBubbleViewBrowserTest,
       chrome::PwaInProductHelpState::kShown);
 
   PWAConfirmationBubbleView* bubble_dialog =
-      PWAConfirmationBubbleView::GetBubbleForTesting();
+      PWAConfirmationBubbleView::GetBubble();
 
   bubble_dialog->AcceptDialog();
   loop.Run();

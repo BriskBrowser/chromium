@@ -21,7 +21,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "components/safe_browsing/content/common/safe_browsing.mojom.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "components/security_interstitials/core/unsafe_resource.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -74,6 +74,9 @@ class ThreatDetails : public content::WebContentsObserver {
  public:
   typedef security_interstitials::UnsafeResource UnsafeResource;
 
+  ThreatDetails(const ThreatDetails&) = delete;
+  ThreatDetails& operator=(const ThreatDetails&) = delete;
+
   ~ThreatDetails() override;
 
   // Constructs a new ThreatDetails instance, using the factory.
@@ -106,7 +109,7 @@ class ThreatDetails : public content::WebContentsObserver {
   void OnRedirectionCollectionReady();
 
   // WebContentsObserver implementation:
-  void FrameDeleted(content::RenderFrameHost* render_frame_host) override;
+  void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
   void RenderFrameHostChanged(content::RenderFrameHost* old_host,
                               content::RenderFrameHost* new_host) override;
 
@@ -284,8 +287,6 @@ class ThreatDetails : public content::WebContentsObserver {
   FRIEND_TEST_ALL_PREFIXES(ThreatDetailsTest, ThreatDOMDetails_MultipleFrames);
   FRIEND_TEST_ALL_PREFIXES(ThreatDetailsTest, ThreatDOMDetails_TrimToAdTags);
   FRIEND_TEST_ALL_PREFIXES(ThreatDetailsTest, ThreatDOMDetails);
-
-  DISALLOW_COPY_AND_ASSIGN(ThreatDetails);
 };
 
 // Factory for creating ThreatDetails.  Useful for tests.

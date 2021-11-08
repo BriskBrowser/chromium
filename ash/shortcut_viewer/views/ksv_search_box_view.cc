@@ -38,7 +38,7 @@ KSVSearchBoxView::KSVSearchBoxView(ash::SearchBoxViewDelegate* delegate)
       ash::AppListColorProvider::Get()->GetSearchBoxTextColor(
           gfx::kGoogleGrey900));
   SetPlaceholderTextAttributes();
-  const base::string16 search_box_name(
+  const std::u16string search_box_name(
       l10n_util::GetStringUTF16(IDS_KSV_SEARCH_BOX_ACCESSIBILITY_NAME));
   search_box()->SetPlaceholderText(search_box_name);
   search_box()->SetAccessibleName(search_box_name);
@@ -72,13 +72,9 @@ void KSVSearchBoxView::OnKeyEvent(ui::KeyEvent* event) {
     SetSearchBoxActive(false, event->type());
 }
 
-void KSVSearchBoxView::SetAccessibleValue(const base::string16& value) {
+void KSVSearchBoxView::SetAccessibleValue(const std::u16string& value) {
   accessible_value_ = value;
   NotifyAccessibilityEvent(ax::mojom::Event::kValueChanged, true);
-}
-
-void KSVSearchBoxView::UpdateBackgroundColor(SkColor color) {
-  GetSearchBoxBackground()->SetNativeControlColor(color);
 }
 
 void KSVSearchBoxView::UpdateSearchBoxBorder() {
@@ -104,13 +100,6 @@ void KSVSearchBoxView::UpdateSearchBoxBorder() {
 
 void KSVSearchBoxView::SetupCloseButton() {
   views::ImageButton* close = close_button();
-  close->SetCallback(base::BindRepeating(
-      [](ash::SearchBoxViewBase* view) {
-        // Focus on the search box text field after clicking close button.
-        view->search_box()->RequestFocus();
-        view->ClearSearch();
-      },
-      this));
   close->SetHasInkDropActionOnClick(true);
   close->SetImage(
       views::ImageButton::STATE_NORMAL,
@@ -118,7 +107,7 @@ void KSVSearchBoxView::SetupCloseButton() {
   close->SetPreferredSize(gfx::Size(kIconSize, kIconSize));
   close->SetImageHorizontalAlignment(views::ImageButton::ALIGN_CENTER);
   close->SetImageVerticalAlignment(views::ImageButton::ALIGN_MIDDLE);
-  const base::string16 close_button_label(
+  const std::u16string close_button_label(
       l10n_util::GetStringUTF16(IDS_KSV_CLEAR_SEARCHBOX_ACCESSIBILITY_NAME));
   close->SetAccessibleName(close_button_label);
   close->SetTooltipText(close_button_label);
@@ -134,16 +123,14 @@ void KSVSearchBoxView::SetupBackButton() {
   back->SetPreferredSize(gfx::Size(kIconSize, kIconSize));
   back->SetImageHorizontalAlignment(views::ImageButton::ALIGN_CENTER);
   back->SetImageVerticalAlignment(views::ImageButton::ALIGN_MIDDLE);
-  const base::string16 back_button_label(
+  const std::u16string back_button_label(
       l10n_util::GetStringUTF16(IDS_KSV_BACK_ACCESSIBILITY_NAME));
   back->SetAccessibleName(back_button_label);
   back->SetTooltipText(back_button_label);
   back->SetVisible(false);
 }
 
-void KSVSearchBoxView::OnSearchBoxActiveChanged(bool active) {
-  // Update to override default placeholder attributes set by base class when
-  // the search box is no longer active.
+void KSVSearchBoxView::UpdatePlaceholderTextStyle() {
   SetPlaceholderTextAttributes();
 }
 

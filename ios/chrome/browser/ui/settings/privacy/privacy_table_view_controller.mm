@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/settings/privacy/privacy_table_view_controller.h"
 
+#import <LocalAuthentication/LocalAuthentication.h>
+
 #include "base/check.h"
 #import "base/mac/foundation_util.h"
 #include "base/metrics/user_metrics.h"
@@ -13,14 +15,15 @@
 #import "components/prefs/ios/pref_observer_bridge.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/public/base/account_consistency_method.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/sync/driver/sync_service.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_features.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/policy/policy_util.h"
 #include "ios/chrome/browser/pref_names.h"
+#include "ios/chrome/browser/sync/sync_service_factory.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_switch_cell.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_switch_item.h"
@@ -30,8 +33,10 @@
 #import "ios/chrome/browser/ui/settings/utils/pref_backed_boolean.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_detail_icon_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/common/string_util.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_protocol.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -60,11 +65,13 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypePrivacyFooter,
   ItemTypeOtherDevicesHandoff,
   ItemTypeIncognitoReauth,
+  ItemTypeIncognitoReauthFooter,
 };
 
 // Only used in this class to openn the Sync and Google services settings.
 // This link should not be dispatched.
 const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
+const char kSyncSettingsURL[] = "settings://open_sync";
 
 }  // namespace
 
@@ -120,12 +127,10 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
     _prefObserverBridge->ObserveChangesForPreference(
         prefs::kIosHandoffToOtherDevices, &_prefChangeRegistrar);
 
-    if (base::FeatureList::IsEnabled(kIncognitoAuthentication)) {
-      _incognitoReauthPref = [[PrefBackedBoolean alloc]
-          initWithPrefService:GetApplicationContext()->GetLocalState()
-                     prefName:prefs::kIncognitoAuthenticationSetting];
-      [_incognitoReauthPref setObserver:self];
-    }
+    _incognitoReauthPref = [[PrefBackedBoolean alloc]
+        initWithPrefService:GetApplicationContext()->GetLocalState()
+                   prefName:prefs::kIncognitoAuthenticationSetting];
+    [_incognitoReauthPref setObserver:self];
   }
   return self;
 }
@@ -154,9 +159,7 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
   TableViewModel* model = self.tableViewModel;
   [model addSectionWithIdentifier:SectionIdentifierPrivacyContent];
   [model addSectionWithIdentifier:SectionIdentifierWebServices];
-  if (base::FeatureList::IsEnabled(kIncognitoAuthentication)) {
-    [model addSectionWithIdentifier:SectionIdentifierIncognitoAuth];
-  }
+  [model addSectionWithIdentifier:SectionIdentifierIncognitoAuth];
 
   // Clear Browsing item.
   [model addItem:[self clearBrowsingDetailItem]
@@ -169,13 +172,19 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
   [model addItem:[self handoffDetailItem]
       toSectionWithIdentifier:SectionIdentifierWebServices];
 
-  // Do not show the incognito authentication setting when Incongito mode is
+  // Do not show the incognito authentication setting when Incognito mode is
   // disabled.
-  if (base::FeatureList::IsEnabled(kIncognitoAuthentication) &&
-      !IsIncognitoModeDisabled(_browserState->GetPrefs())) {
+  if (!IsIncognitoModeDisabled(_browserState->GetPrefs())) {
     // Incognito authentication item.
     [model addItem:self.incognitoReauthItem
         toSectionWithIdentifier:SectionIdentifierIncognitoAuth];
+
+    // If necessary, add the instuctional footer
+    if ([self shouldShowReauthFooter]) {
+      [model setFooter:[PrivacyTableViewController
+                           newIncognitoReauthSetupPasscodeFooter]
+          forSectionWithIdentifier:SectionIdentifierIncognitoAuth];
+    }
   }
 }
 
@@ -201,14 +210,25 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
   TableViewLinkHeaderFooterItem* showPrivacyFooterItem =
       [[TableViewLinkHeaderFooterItem alloc]
           initWithType:ItemTypePrivacyFooter];
-  showPrivacyFooterItem.text =
-      signin::IsMobileIdentityConsistencyEnabled()
-          ? l10n_util::GetNSString(IDS_IOS_PRIVACY_GOOGLE_SERVICES_FOOTER)
-          : l10n_util::GetNSString(
-                IDS_IOS_OPTIONS_PRIVACY_GOOGLE_SERVICES_FOOTER);
 
-  showPrivacyFooterItem.linkURL = GURL(kGoogleServicesSettingsURL);
+  NSString* privacyFooterText;
+  std::vector<GURL> urls;
 
+  syncer::SyncService* syncService =
+      SyncServiceFactory::GetInstance()->GetForBrowserState(_browserState);
+
+  if (syncService->IsSyncFeatureEnabled()) {
+    privacyFooterText =
+        l10n_util::GetNSString(IDS_IOS_PRIVACY_SYNC_AND_GOOGLE_SERVICES_FOOTER);
+    urls.push_back(GURL(kSyncSettingsURL));
+  } else {
+    privacyFooterText =
+        l10n_util::GetNSString(IDS_IOS_PRIVACY_GOOGLE_SERVICES_FOOTER);
+  }
+  urls.push_back(GURL(kGoogleServicesSettingsURL));
+
+  showPrivacyFooterItem.text = privacyFooterText;
+  showPrivacyFooterItem.urls = urls;
   return showPrivacyFooterItem;
 }
 
@@ -219,9 +239,19 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
           accessibilityIdentifier:kSettingsClearBrowsingDataCellId];
 }
 
-- (SettingsSwitchItem*)incognitoReauthItem {
-  DCHECK(base::FeatureList::IsEnabled(kIncognitoAuthentication));
+// Footer to the incognito reauth section that appears when the user has no
+// passcode/biometric auth set up.
++ (TableViewHeaderFooterItem*)newIncognitoReauthSetupPasscodeFooter {
+  TableViewLinkHeaderFooterItem* setupPasscodeFooter =
+      [[TableViewLinkHeaderFooterItem alloc]
+          initWithType:ItemTypeIncognitoReauthFooter];
+  setupPasscodeFooter.text =
+      l10n_util::GetNSString(IDS_IOS_INCOGNITO_REAUTH_SET_UP_PASSCODE_HINT);
 
+  return setupPasscodeFooter;
+}
+
+- (SettingsSwitchItem*)incognitoReauthItem {
   if (_incognitoReauthItem) {
     return _incognitoReauthItem;
   }
@@ -230,6 +260,7 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
   _incognitoReauthItem.text =
       l10n_util::GetNSString(IDS_IOS_INCOGNITO_REAUTH_SETTING_NAME);
   _incognitoReauthItem.on = self.incognitoReauthPref.value;
+  _incognitoReauthItem.enabled = [self deviceSupportsAuthentication];
   return _incognitoReauthItem;
 }
 
@@ -340,6 +371,8 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
     // kGoogleServicesSettingsURL is not a realy link. It should be handled
     // with a special case.
     [self.dispatcher showGoogleServicesSettingsFromViewController:self];
+  } else if (URL == GURL(kSyncSettingsURL)) {
+    [self.dispatcher showSyncSettingsFromViewController:self];
   } else {
     [super view:view didTapLinkURL:URL];
   }
@@ -353,8 +386,8 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
 // switchView.on is YES.
 - (void)switchTapped:(UISwitch*)switchView {
   if (switchView.isOn && ![self.reauthModule canAttemptReauth]) {
-    // TODO(crbug.com/1148818): add error message here or maybe even disable
-    // the switch?
+    // This should normally not happen: the switch should not even be enabled.
+    // Fallback behaviour added just in case.
     switchView.on = false;
     return;
   }
@@ -376,6 +409,19 @@ const char kGoogleServicesSettingsURL[] = "settings://open_google_services";
                                  [switchView setOn:enabled animated:YES];
                                  weakSelf.incognitoReauthPref.value = enabled;
                                }];
+}
+
+// Whether the explanatory footer for the incognito reauth setting should be
+// shown. It's shown when the setting cannot be enabled due to the device state.
+- (BOOL)shouldShowReauthFooter {
+  return ![self deviceSupportsAuthentication];
+}
+
+// Checks if the device has Passcode, Face ID, or Touch ID set up.
+- (BOOL)deviceSupportsAuthentication {
+  LAContext* context = [[LAContext alloc] init];
+  return [context canEvaluatePolicy:LAPolicyDeviceOwnerAuthentication
+                              error:nil];
 }
 
 @end

@@ -19,13 +19,14 @@
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -41,12 +42,12 @@ class LocaleItem : public ActionableView {
 
   LocaleItem(tray::LocaleDetailedView* locale_detailed_view,
              const std::string& iso_code,
-             const base::string16& display_name,
+             const std::u16string& display_name,
              bool checked)
       : ActionableView(TrayPopupInkDropStyle::FILL_BOUNDS),
         locale_detailed_view_(locale_detailed_view),
         checked_(checked) {
-    SetInkDropMode(InkDropMode::ON);
+    views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
 
     TriView* tri_view = TrayPopupUtils::CreateDefaultRowView();
     AddChildView(tri_view);

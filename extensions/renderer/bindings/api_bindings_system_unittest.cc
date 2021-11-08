@@ -6,7 +6,8 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "extensions/common/event_filtering_info.h"
@@ -189,10 +190,10 @@ void APIBindingsSystemTest::ValidateLastRequest(
   ASSERT_TRUE(last_request());
   // Note that even if no arguments are provided by the API call, we should
   // have an empty list.
-  ASSERT_TRUE(last_request()->arguments);
+  ASSERT_TRUE(last_request()->arguments_list);
   EXPECT_EQ(expected_name, last_request()->method_name);
   EXPECT_EQ(ReplaceSingleQuotes(expected_arguments),
-            ValueToString(*last_request()->arguments));
+            ValueToString(*last_request()->arguments_list));
 }
 
 v8::Local<v8::Value> APIBindingsSystemTest::CallFunctionOnObject(
@@ -470,22 +471,19 @@ TEST_F(APIBindingsSystemTest, TestCustomEvent) {
   v8::Local<v8::Object> api =
       bindings_system()->CreateAPIInstance(kAlphaAPIName, context, nullptr);
 
-  v8::Local<v8::Value> event =
-      GetPropertyFromObject(api, context, "alphaEvent");
-  ASSERT_TRUE(event->IsObject());
-  EXPECT_EQ(
-      "\"alpha.alphaEvent\"",
-      GetStringPropertyFromObject(event.As<v8::Object>(), context, "name"));
+  v8::Local<v8::Object> event;
+  ASSERT_TRUE(GetPropertyFromObjectAs(api, context, "alphaEvent", &event));
+  EXPECT_EQ("\"alpha.alphaEvent\"",
+            GetStringPropertyFromObject(event, context, "name"));
   v8::Local<v8::Value> event2 =
       GetPropertyFromObject(api, context, "alphaEvent");
   EXPECT_EQ(event, event2);
 
-  v8::Local<v8::Value> other_event =
-      GetPropertyFromObject(api, context, "alphaOtherEvent");
-  ASSERT_TRUE(other_event->IsObject());
+  v8::Local<v8::Object> other_event;
+  ASSERT_TRUE(
+      GetPropertyFromObjectAs(api, context, "alphaOtherEvent", &other_event));
   EXPECT_EQ("\"alpha.alphaOtherEvent\"",
-            GetStringPropertyFromObject(other_event.As<v8::Object>(), context,
-                                        "name"));
+            GetStringPropertyFromObject(other_event, context, "name"));
   EXPECT_NE(event, other_event);
 }
 

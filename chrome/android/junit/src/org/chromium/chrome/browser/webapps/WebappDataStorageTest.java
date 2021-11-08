@@ -19,14 +19,18 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.shadows.ShadowLooper;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.task.test.BackgroundShadowAsyncTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
+import org.chromium.blink.mojom.DisplayMode;
 import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BitmapHelper;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.test.util.browser.webapps.WebApkIntentDataProviderBuilder;
 
 import java.util.concurrent.TimeUnit;
@@ -37,6 +41,7 @@ import java.util.concurrent.TimeUnit;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {BackgroundShadowAsyncTask.class})
+@LooperMode(LooperMode.Mode.LEGACY)
 public class WebappDataStorageTest {
     @Rule
     public MockWebappDataStorageClockRule mClockRule = new MockWebappDataStorageClockRule();
@@ -88,7 +93,7 @@ public class WebappDataStorageTest {
         final Bitmap expected = createBitmap();
         mSharedPreferences.edit()
                 .putString(WebappDataStorage.KEY_SPLASH_ICON,
-                        ShortcutHelper.encodeBitmapAsString(expected))
+                        BitmapHelper.encodeBitmapAsString(expected))
                 .apply();
         WebappDataStorage.open("test").getSplashScreenImage(
                 new WebappDataStorage.FetchCallback<Bitmap>() {
@@ -108,7 +113,7 @@ public class WebappDataStorageTest {
     @Feature({"Webapp"})
     public void testSplashImageUpdate() throws Exception {
         Bitmap expectedImage = createBitmap();
-        String imageAsString = ShortcutHelper.encodeBitmapAsString(expectedImage);
+        String imageAsString = BitmapHelper.encodeBitmapAsString(expectedImage);
         WebappDataStorage.open("test").updateSplashScreenImage(imageAsString);
         BackgroundShadowAsyncTask.runBackgroundTasks();
         ShadowLooper.runUiThreadTasks();
@@ -186,15 +191,15 @@ public class WebappDataStorageTest {
         final String scope = "scope";
         final String name = "name";
         final String shortName = "shortName";
-        final String encodedIcon = ShortcutHelper.encodeBitmapAsString(createBitmap());
-        final @WebDisplayMode int displayMode = WebDisplayMode.STANDALONE;
+        final String encodedIcon = BitmapHelper.encodeBitmapAsString(createBitmap());
+        final @DisplayMode.EnumType int displayMode = DisplayMode.STANDALONE;
         final int orientation = 1;
         final long themeColor = 2;
         final long backgroundColor = 3;
         final boolean isIconGenerated = false;
         final boolean isIconAdaptive = false;
         Intent shortcutIntent = ShortcutHelper.createWebappShortcutIntent(id, url, scope, name,
-                shortName, encodedIcon, ShortcutHelper.WEBAPP_SHORTCUT_VERSION, displayMode,
+                shortName, encodedIcon, WebappConstants.WEBAPP_SHORTCUT_VERSION, displayMode,
                 orientation, themeColor, backgroundColor, isIconGenerated, isIconAdaptive);
         BrowserServicesIntentDataProvider intentDataProvider =
                 WebappIntentDataProviderFactory.create(shortcutIntent);
@@ -209,7 +214,7 @@ public class WebappDataStorageTest {
         assertEquals(shortName,
                 mSharedPreferences.getString(WebappDataStorage.KEY_SHORT_NAME, null));
         assertEquals(encodedIcon, mSharedPreferences.getString(WebappDataStorage.KEY_ICON, null));
-        assertEquals(ShortcutHelper.WEBAPP_SHORTCUT_VERSION,
+        assertEquals(WebappConstants.WEBAPP_SHORTCUT_VERSION,
                 mSharedPreferences.getInt(WebappDataStorage.KEY_VERSION, 0));
         assertEquals(orientation, mSharedPreferences.getInt(WebappDataStorage.KEY_ORIENTATION, 0));
         assertEquals(themeColor, mSharedPreferences.getLong(WebappDataStorage.KEY_THEME_COLOR, 0));
@@ -258,7 +263,7 @@ public class WebappDataStorageTest {
         assertEquals(shortName,
                 mSharedPreferences.getString(WebappDataStorage.KEY_SHORT_NAME, null));
         assertEquals(encodedIcon, mSharedPreferences.getString(WebappDataStorage.KEY_ICON, null));
-        assertEquals(ShortcutHelper.WEBAPP_SHORTCUT_VERSION,
+        assertEquals(WebappConstants.WEBAPP_SHORTCUT_VERSION,
                 mSharedPreferences.getInt(WebappDataStorage.KEY_VERSION, 0));
         assertEquals(orientation, mSharedPreferences.getInt(WebappDataStorage.KEY_ORIENTATION, 0));
         assertEquals(themeColor, mSharedPreferences.getLong(WebappDataStorage.KEY_THEME_COLOR, 0));

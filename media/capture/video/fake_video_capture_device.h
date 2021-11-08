@@ -8,7 +8,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/threading/thread_checker.h"
@@ -34,13 +33,18 @@ class PacmanFramePainter {
   PacmanFramePainter(Format pixel_format,
                      const FakeDeviceState* fake_device_state);
 
-  void PaintFrame(base::TimeDelta elapsed_time, uint8_t* target_buffer);
+  void PaintFrame(base::TimeDelta elapsed_time,
+                  uint8_t* target_buffer,
+                  int bytes_per_row = 0);
 
  private:
   void DrawGradientSquares(base::TimeDelta elapsed_time,
-                           uint8_t* target_buffer);
+                           uint8_t* target_buffer,
+                           int bytes_per_row);
 
-  void DrawPacman(base::TimeDelta elapsed_time, uint8_t* target_buffer);
+  void DrawPacman(base::TimeDelta elapsed_time,
+                  uint8_t* target_buffer,
+                  int bytes_per_row);
 
   const Format pixel_format_;
   const FakeDeviceState* fake_device_state_ = nullptr;
@@ -65,6 +69,10 @@ class FakeVideoCaptureDevice : public VideoCaptureDevice {
       std::unique_ptr<FrameDelivererFactory> frame_deliverer_factory,
       std::unique_ptr<FakePhotoDevice> photo_device,
       std::unique_ptr<FakeDeviceState> device_state);
+
+  FakeVideoCaptureDevice(const FakeVideoCaptureDevice&) = delete;
+  FakeVideoCaptureDevice& operator=(const FakeVideoCaptureDevice&) = delete;
+
   ~FakeVideoCaptureDevice() override;
 
   static void GetSupportedSizes(std::vector<gfx::Size>* supported_sizes);
@@ -99,8 +107,6 @@ class FakeVideoCaptureDevice : public VideoCaptureDevice {
   // FakeVideoCaptureDevice post tasks to itself for frame construction and
   // needs to deal with asynchronous StopAndDeallocate().
   base::WeakPtrFactory<FakeVideoCaptureDevice> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FakeVideoCaptureDevice);
 };
 
 // Represents the current state of a FakeVideoCaptureDevice.

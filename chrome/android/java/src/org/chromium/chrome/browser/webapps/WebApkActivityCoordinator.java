@@ -6,12 +6,12 @@ package org.chromium.chrome.browser.webapps;
 
 import androidx.annotation.NonNull;
 
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.browserservices.ui.controller.webapps.WebappDisclosureController;
 import org.chromium.chrome.browser.browserservices.ui.view.DisclosureInfobar;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
-import org.chromium.chrome.browser.lifecycle.Destroyable;
+import org.chromium.chrome.browser.lifecycle.DestroyObserver;
 
 import javax.inject.Inject;
 
@@ -22,7 +22,7 @@ import dagger.Lazy;
  * Add methods here if other components need to communicate with the WebAPK activity component.
  */
 @ActivityScope
-public class WebApkActivityCoordinator implements Destroyable {
+public class WebApkActivityCoordinator implements DestroyObserver {
     private final BrowserServicesIntentDataProvider mIntentDataProvider;
     private final Lazy<WebApkUpdateManager> mWebApkUpdateManager;
 
@@ -58,7 +58,7 @@ public class WebApkActivityCoordinator implements Destroyable {
     }
 
     @Override
-    public void destroy() {
+    public void onDestroy() {
         // The common case is to be connected to just one WebAPK's services. For the sake of
         // simplicity disconnect from the services of all WebAPKs.
         ChromeWebApkHost.disconnectFromAllServices(true /* waitForPendingWork */);

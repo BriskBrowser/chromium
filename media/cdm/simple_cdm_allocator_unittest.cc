@@ -15,11 +15,14 @@
 
 namespace media {
 
-class TestCdmBuffer : public cdm::Buffer {
+class TestCdmBuffer final : public cdm::Buffer {
  public:
   static TestCdmBuffer* Create(uint32_t capacity) {
     return new TestCdmBuffer(capacity);
   }
+
+  TestCdmBuffer(const TestCdmBuffer&) = delete;
+  TestCdmBuffer& operator=(const TestCdmBuffer&) = delete;
 
   // cdm::Buffer implementation.
   void Destroy() override {
@@ -36,26 +39,25 @@ class TestCdmBuffer : public cdm::Buffer {
     // Verify that Destroy() is called on this object.
     EXPECT_CALL(*this, DestroyCalled());
   }
-  ~TestCdmBuffer() final = default;
+  ~TestCdmBuffer() override = default;
 
   MOCK_METHOD0(DestroyCalled, void());
 
   std::vector<uint8_t> buffer_;
   uint32_t size_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestCdmBuffer);
 };
 
 class SimpleCdmAllocatorTest : public testing::Test {
  public:
   SimpleCdmAllocatorTest() = default;
+
+  SimpleCdmAllocatorTest(const SimpleCdmAllocatorTest&) = delete;
+  SimpleCdmAllocatorTest& operator=(const SimpleCdmAllocatorTest&) = delete;
+
   ~SimpleCdmAllocatorTest() override = default;
 
  protected:
   SimpleCdmAllocator allocator_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SimpleCdmAllocatorTest);
 };
 
 TEST_F(SimpleCdmAllocatorTest, CreateCdmBuffer) {

@@ -14,7 +14,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -59,6 +59,11 @@ class ProfileNetworkContextService
       public content_settings::CookieSettings::Observer {
  public:
   explicit ProfileNetworkContextService(Profile* profile);
+
+  ProfileNetworkContextService(const ProfileNetworkContextService&) = delete;
+  ProfileNetworkContextService& operator=(const ProfileNetworkContextService&) =
+      delete;
+
   ~ProfileNetworkContextService() override;
 
   // Configures the NetworkContextParams and the CertVerifierCreationParams for
@@ -104,7 +109,7 @@ class ProfileNetworkContextService
   FRIEND_TEST_ALL_PREFIXES(ProfileNetworkContextServiceDiskCacheBrowsertest,
                            DiskCacheSize);
   FRIEND_TEST_ALL_PREFIXES(
-      ProfileNetworkContextServiceCertVerifierBuiltinFeaturePolicyTest,
+      ProfileNetworkContextServiceCertVerifierBuiltinPermissionsPolicyTest,
       Test);
 
   friend class AmbientAuthenticationTestHelper;
@@ -136,6 +141,8 @@ class ProfileNetworkContextService
 
   bool ShouldSplitAuthCacheByNetworkIsolationKey() const;
   void UpdateSplitAuthCacheByNetworkIsolationKey();
+
+  void UpdateCorsNonWildcardRequestHeadersSupport();
 
   // Creates parameters for the NetworkContext. Use |in_memory| instead of
   // |profile_->IsOffTheRecord()| because sometimes normal profiles want off the
@@ -170,9 +177,9 @@ class ProfileNetworkContextService
   PrefChangeRegistrar pref_change_registrar_;
 
   scoped_refptr<content_settings::CookieSettings> cookie_settings_;
-  ScopedObserver<content_settings::CookieSettings,
-                 content_settings::CookieSettings::Observer>
-      cookie_settings_observer_{this};
+  base::ScopedObservation<content_settings::CookieSettings,
+                          content_settings::CookieSettings::Observer>
+      cookie_settings_observation_{this};
 
   // Used to post schedule CT policy updates
   base::OneShotTimer ct_policy_update_timer_;
@@ -187,8 +194,6 @@ class ProfileNetworkContextService
   // Used for testing.
   base::RepeatingCallback<std::unique_ptr<net::ClientCertStore>()>
       client_cert_store_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileNetworkContextService);
 };
 
 #endif  // CHROME_BROWSER_NET_PROFILE_NETWORK_CONTEXT_SERVICE_H_

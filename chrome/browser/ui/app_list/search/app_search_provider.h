@@ -12,7 +12,6 @@
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
 #include "chrome/browser/ui/app_list/search/search_provider.h"
 
 class AppListControllerDelegate;
@@ -43,10 +42,14 @@ class AppSearchProvider : public SearchProvider {
                     AppListControllerDelegate* list_controller,
                     base::Clock* clock,
                     AppListModelUpdater* model_updater);
+
+  AppSearchProvider(const AppSearchProvider&) = delete;
+  AppSearchProvider& operator=(const AppSearchProvider&) = delete;
+
   ~AppSearchProvider() override;
 
   // SearchProvider overrides:
-  void Start(const base::string16& query) override;
+  void Start(const std::u16string& query) override;
   void ViewClosing() override;
   ash::AppListSearchResultType ResultType() override;
 
@@ -85,7 +88,7 @@ class AppSearchProvider : public SearchProvider {
 
   Profile* profile_;
   AppListControllerDelegate* const list_controller_;
-  base::string16 query_;
+  std::u16string query_;
   base::TimeTicks query_start_time_;
   bool record_query_uma_ = false;
   Apps apps_;
@@ -96,8 +99,6 @@ class AppSearchProvider : public SearchProvider {
       nullptr;
   base::WeakPtrFactory<AppSearchProvider> refresh_apps_factory_{this};
   base::WeakPtrFactory<AppSearchProvider> update_results_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AppSearchProvider);
 };
 
 }  // namespace app_list

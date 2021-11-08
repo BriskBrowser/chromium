@@ -26,15 +26,17 @@
 #include "components/payments/core/payments_experimental_features.h"
 #include "components/payments/core/url_util.h"
 #include "components/security_state/core/security_state.h"
+#include "components/url_formatter/elide_url.h"
 #include "components/vector_icons/vector_icons.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
-#include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_skia.h"
@@ -48,23 +50,22 @@
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+#include "url/origin.h"
 
 namespace payments {
 namespace {
 
-base::string16 GetPaymentHandlerDialogTitle(
+std::u16string GetPaymentHandlerDialogTitle(
     content::WebContents* web_contents) {
   if (!web_contents)
-    return base::string16();
+    return std::u16string();
 
-  const base::string16 title = web_contents->GetTitle();
-  const base::string16 https_prefix =
+  const std::u16string title = web_contents->GetTitle();
+  const std::u16string https_prefix =
       base::ASCIIToUTF16(url::kHttpsScheme) +
       base::ASCIIToUTF16(url::kStandardSchemeSeparator);
   return base::StartsWith(title, https_prefix, base::CompareCase::SENSITIVE)
-             ? base::string16()
+             ? std::u16string()
              : title;
 }
 
@@ -73,11 +74,10 @@ base::string16 GetPaymentHandlerDialogTitle(
 class ReadOnlyOriginView : public views::View {
  public:
   METADATA_HEADER(ReadOnlyOriginView);
-  ReadOnlyOriginView(const base::string16& page_title,
-                     const GURL& origin,
+  ReadOnlyOriginView(const std::u16string& page_title,
+                     const url::Origin& origin,
                      const SkBitmap* icon_bitmap,
                      Profile* profile,
-                     security_state::SecurityLevel security_level,
                      SkColor background_color) {
     auto title_origin_container = std::make_unique<views::View>();
     SkColor foreground = color_utils::GetColorWithMaxContrast(background_color);
@@ -111,25 +111,12 @@ class ReadOnlyOriginView : public views::View {
     columns = origin_layout->AddColumnSet(0);
     columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER,
                        1.0, views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
-    if (PaymentsExperimentalFeatures::IsEnabled(
-            features::kPaymentHandlerSecurityIcon))
-      columns->AddPaddingColumn(views::GridLayout::kFixedSize, 4);
     columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::LEADING,
                        1.0, views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
     origin_layout->StartRow(views::GridLayout::kFixedSize, 0);
-    if (PaymentsExperimentalFeatures::IsEnabled(
-            features::kPaymentHandlerSecurityIcon)) {
-      auto security_icon = std::make_unique<views::ImageView>();
-      const ui::ThemeProvider& theme_provider =
-          ThemeService::GetThemeProviderForProfile(profile);
-      security_icon->SetImage(gfx::CreateVectorIcon(
-          location_bar_model::GetSecurityVectorIcon(security_level), 16,
-          GetOmniboxSecurityChipColor(&theme_provider, security_level)));
-      security_icon->SetID(static_cast<int>(DialogViewID::SECURITY_ICON_VIEW));
-      origin_layout->AddView(std::move(security_icon));
-    }
-    auto* origin_label = origin_layout->AddView(
-        std::make_unique<views::Label>(base::UTF8ToUTF16(origin.host())));
+    auto* origin_label = origin_layout->AddView(std::make_unique<views::Label>(
+        url_formatter::FormatOriginForSecurityDisplay(
+            origin, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC)));
     origin_label->SetElideBehavior(gfx::ELIDE_HEAD);
     if (!title_is_valid) {
       // Set the origin as title when the page title is invalid.
@@ -205,21 +192,19 @@ PaymentHandlerWebFlowViewController::PaymentHandlerWebFlowViewController(
       target_(target),
       first_navigation_complete_callback_(
           std::move(first_navigation_complete_callback)),
-      // Borrow the browser's WebContentModalDialogHost to display modal dialogs
-      // triggered by the payment handler's web view (e.g. WebAuthn dialogs).
-      // The browser's WebContentModalDialogHost is valid throughout the
-      // lifetime of this controller because the payment sheet itself is a modal
-      // dialog.
-      dialog_manager_delegate_(
-          static_cast<web_modal::WebContentsModalDialogManagerDelegate*>(
-              chrome::FindBrowserWithWebContents(payment_request_web_contents))
-              ->GetWebContentsModalDialogHost()) {}
+      dialog_manager_delegate_(payment_request_web_contents) {}
 
 PaymentHandlerWebFlowViewController::~PaymentHandlerWebFlowViewController() {
+  if (web_contents()) {
+    auto* manager = web_modal::WebContentsModalDialogManager::FromWebContents(
+        web_contents());
+    if (manager)
+      manager->SetDelegate(nullptr);
+  }
   state()->OnPaymentAppWindowClosed();
 }
 
-base::string16 PaymentHandlerWebFlowViewController::GetSheetTitle() {
+std::u16string PaymentHandlerWebFlowViewController::GetSheetTitle() {
   return GetPaymentHandlerDialogTitle(web_contents());
 }
 
@@ -283,25 +268,24 @@ bool PaymentHandlerWebFlowViewController::ShouldShowSecondaryButton() {
 std::unique_ptr<views::View>
 PaymentHandlerWebFlowViewController::CreateHeaderContentView(
     views::View* header_view) {
-  const GURL origin = web_contents()
-                          ? web_contents()->GetVisibleURL().GetOrigin()
-                          : target_.GetOrigin();
+  const url::Origin origin =
+      web_contents() ? web_contents()->GetMainFrame()->GetLastCommittedOrigin()
+                     : url::Origin::Create(target_);
   std::unique_ptr<views::Background> background =
       GetHeaderBackground(header_view);
   return std::make_unique<ReadOnlyOriginView>(
       GetPaymentHandlerDialogTitle(web_contents()), origin,
       state()->selected_app()->icon_bitmap(), profile_,
-      web_contents() ? SslValidityChecker::GetSecurityLevel(web_contents())
-                     : security_state::NONE,
       background->get_color());
 }
 
 std::unique_ptr<views::Background>
 PaymentHandlerWebFlowViewController::GetHeaderBackground(
     views::View* header_view) {
+  DCHECK(header_view);
   auto default_header_background =
       PaymentRequestSheetController::GetHeaderBackground(header_view);
-  if (web_contents()) {
+  if (web_contents() && header_view->GetWidget()) {
     return views::CreateSolidBackground(color_utils::GetResultingPaintColor(
         web_contents()->GetThemeColor().value_or(SK_ColorTRANSPARENT),
         default_header_background->get_color()));
@@ -354,6 +338,14 @@ void PaymentHandlerWebFlowViewController::AddNewContents(
   }
 }
 
+bool PaymentHandlerWebFlowViewController::HandleKeyboardEvent(
+    content::WebContents* source,
+    const content::NativeWebKeyboardEvent& event) {
+  return content_view() && content_view()->GetFocusManager() &&
+         unhandled_keyboard_event_handler_.HandleKeyboardEvent(
+             event, content_view()->GetFocusManager());
+}
+
 void PaymentHandlerWebFlowViewController::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   if (!is_active())
@@ -362,11 +354,17 @@ void PaymentHandlerWebFlowViewController::DidFinishNavigation(
   if (navigation_handle->IsSameDocument())
     return;
 
-  // The navigation must be committed because WebContents::GetLastCommittedURL()
-  // is assumed to be the URL loaded in the payment handler window.
-  DCHECK(navigation_handle->HasCommitted());
-
-  if (!SslValidityChecker::IsValidPageInPaymentHandlerWindow(
+  // Checking uncommitted navigations (e.g., Network errors) is unnecessary
+  // because the new pages have no chance to be loaded, rendered nor execute js.
+  // TODO(crbug.com/1198274): Only main frame is checked because unsafe iframes
+  // are blocked by the MixContentNavigationThrottle. But this design is
+  // fragile.
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (navigation_handle->HasCommitted() &&
+      navigation_handle->IsInPrimaryMainFrame() &&
+      !SslValidityChecker::IsValidPageInPaymentHandlerWindow(
           navigation_handle->GetWebContents())) {
     AbortPayment();
     return;

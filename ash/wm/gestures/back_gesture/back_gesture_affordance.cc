@@ -6,16 +6,18 @@
 
 #include "ash/display/screen_orientation_controller.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/style/default_color_constants.h"
 #include "ash/style/default_colors.h"
-#include "ash/style/scoped_light_mode_as_default.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/splitview/split_view_divider.h"
 #include "ash/wm/window_util.h"
+#include "base/cxx17_backports.h"
 #include "base/i18n/rtl.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
@@ -70,10 +72,8 @@ constexpr float kDistanceForMaxRadius = 116.f;
 // |kMaxRippleRadius|.
 constexpr float kDragDistanceForMaxRadius = 260.f;
 
-constexpr base::TimeDelta kAbortAnimationTimeout =
-    base::TimeDelta::FromMilliseconds(300);
-constexpr base::TimeDelta kCompleteAnimationTimeout =
-    base::TimeDelta::FromMilliseconds(200);
+constexpr base::TimeDelta kAbortAnimationTimeout = base::Milliseconds(300);
+constexpr base::TimeDelta kCompleteAnimationTimeout = base::Milliseconds(200);
 
 // Y-axis drag distance to achieve full y drag progress.
 constexpr float kDistanceForFullYProgress = 80.f;
@@ -304,7 +304,7 @@ void BackGestureAffordance::Update(int x_drag_amount,
                    kBackgroundRadius;
 
   float y_progress = y_drag_amount / kDistanceForFullYProgress;
-  y_drag_progress_ = std::min(1.0f, std::max(-1.0f, y_progress));
+  y_drag_progress_ = base::clamp(y_progress, -1.0f, 1.0f);
 
   during_reverse_dragging_ = during_reverse_dragging;
 
@@ -346,7 +346,7 @@ void BackGestureAffordance::CreateAffordanceWidget(const gfx::Point& location) {
   params.accept_events = true;
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.name = "BackGestureAffordance";
-  params.activatable = views::Widget::InitParams::ACTIVATABLE_NO;
+  params.activatable = views::Widget::InitParams::Activatable::kNo;
   params.parent = window_util::GetRootWindowAt(location)->GetChildById(
       kShellWindowId_OverlayContainer);
 

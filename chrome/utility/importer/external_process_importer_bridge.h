@@ -40,9 +40,13 @@ class ExternalProcessImporterBridge : public ImporterBridge {
       const base::flat_map<uint32_t, std::string>& localized_strings,
       mojo::SharedRemote<chrome::mojom::ProfileImportObserver> observer);
 
+  ExternalProcessImporterBridge(const ExternalProcessImporterBridge&) = delete;
+  ExternalProcessImporterBridge& operator=(
+      const ExternalProcessImporterBridge&) = delete;
+
   // Begin ImporterBridge implementation:
   void AddBookmarks(const std::vector<ImportedBookmarkEntry>& bookmarks,
-                    const base::string16& first_folder_name) override;
+                    const std::u16string& first_folder_name) override;
 
   void AddHomePage(const GURL& home_page) override;
 
@@ -65,7 +69,7 @@ class ExternalProcessImporterBridge : public ImporterBridge {
   void NotifyItemEnded(importer::ImportItem item) override;
   void NotifyEnded() override;
 
-  base::string16 GetLocalizedString(int message_id) override;
+  std::u16string GetLocalizedString(int message_id) override;
   // End ImporterBridge implementation.
 
  private:
@@ -76,8 +80,6 @@ class ExternalProcessImporterBridge : public ImporterBridge {
   base::flat_map<uint32_t, std::string> localized_strings_;
 
   mojo::SharedRemote<chrome::mojom::ProfileImportObserver> observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExternalProcessImporterBridge);
 };
 
 #endif  // CHROME_UTILITY_IMPORTER_EXTERNAL_PROCESS_IMPORTER_BRIDGE_H_

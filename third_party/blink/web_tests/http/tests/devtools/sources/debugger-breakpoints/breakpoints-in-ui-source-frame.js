@@ -4,7 +4,7 @@
 
 (async function() {
   TestRunner.addResult('Tests setting breakpoint in source frame UI.');
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.showPanel('sources');
 
   await TestRunner.addScriptTag('resources/a.js');
@@ -71,7 +71,7 @@
 
       TestRunner.addResult('Change a condition');
       const lineDecorations = SourcesTestRunner.debuggerPlugin(sourceFrame)
-                                  ._lineBreakpointDecorations(9);
+                                  .lineBreakpointDecorations(9);
       lineDecorations[0].breakpoint.setCondition('');
 
       TestRunner.addResult('Dump breakpoints');

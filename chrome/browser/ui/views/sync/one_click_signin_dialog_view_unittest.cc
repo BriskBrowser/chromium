@@ -24,6 +24,10 @@ class OneClickSigninDialogViewTest : public ChromeViewsTestBase,
  public:
   OneClickSigninDialogViewTest() {}
 
+  OneClickSigninDialogViewTest(const OneClickSigninDialogViewTest&) = delete;
+  OneClickSigninDialogViewTest& operator=(const OneClickSigninDialogViewTest&) =
+      delete;
+
   void SetUp() override {
     ChromeViewsTestBase::SetUp();
     SetConstrainedWindowViewsClient(CreateChromeConstrainedWindowViewsClient());
@@ -42,7 +46,7 @@ class OneClickSigninDialogViewTest : public ChromeViewsTestBase,
  protected:
   OneClickSigninDialogView* ShowOneClickSigninDialog() {
     OneClickSigninDialogView::ShowDialog(
-        base::string16(), nullptr, anchor_widget_->GetNativeWindow(),
+        std::u16string(), nullptr, anchor_widget_->GetNativeWindow(),
         base::BindOnce(&OneClickSigninDialogViewTest::ConfirmedCallback,
                        base::Unretained(this)));
 
@@ -84,8 +88,6 @@ class OneClickSigninDialogViewTest : public ChromeViewsTestBase,
   // Widget to host the anchor view of the dialog. Destroys itself when closed.
   std::unique_ptr<views::Widget> anchor_widget_;
   base::RunLoop* run_loop_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(OneClickSigninDialogViewTest);
 };
 
 TEST_F(OneClickSigninDialogViewTest, ShowDialog) {

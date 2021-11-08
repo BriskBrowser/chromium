@@ -4,8 +4,6 @@
 
 #include "ui/gtk/printing/print_dialog_gtk.h"
 
-#include <gtk/gtkunixprint.h>
-
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -25,16 +23,18 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
 #include "printing/metafile.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 #include "printing/print_settings.h"
 #include "ui/aura/window.h"
+#include "ui/gtk/gtk_compat.h"
 #include "ui/gtk/gtk_ui.h"
-#include "ui/gtk/gtk_ui_delegate.h"
+#include "ui/gtk/gtk_ui_platform.h"
 #include "ui/gtk/gtk_util.h"
 #include "ui/gtk/printing/printing_gtk_util.h"
 
 #if defined(USE_CUPS)
-#include "printing/mojom/print.mojom.h"
+#include "printing/mojom/print.mojom.h"  // nogncheck
 #endif
 
 using printing::PageRanges;
@@ -101,6 +101,10 @@ GtkPaperSize* FindPaperSizeMatch(GList* gtk_paper_sizes,
 class StickyPrintSettingGtk {
  public:
   StickyPrintSettingGtk() : last_used_settings_(gtk_print_settings_new()) {}
+
+  StickyPrintSettingGtk(const StickyPrintSettingGtk&) = delete;
+  StickyPrintSettingGtk& operator=(const StickyPrintSettingGtk&) = delete;
+
   ~StickyPrintSettingGtk() {
     NOTREACHED();  // Intended to be used with base::NoDestructor.
   }
@@ -115,8 +119,6 @@ class StickyPrintSettingGtk {
 
  private:
   GtkPrintSettings* last_used_settings_;
-
-  DISALLOW_COPY_AND_ASSIGN(StickyPrintSettingGtk);
 };
 
 StickyPrintSettingGtk& GetLastUsedSettings() {
@@ -192,7 +194,7 @@ PrintDialogGtk::~PrintDialogGtk() {
       parent->RemoveObserver(this);
       gtk::ClearAuraTransientParent(dialog_, parent);
     }
-    gtk_widget_destroy(dialog_);
+    gtk::GtkWindowDestroy(dialog_);
     dialog_ = nullptr;
   }
   if (gtk_settings_) {
@@ -371,8 +373,12 @@ void PrintDialogGtk::ShowDialog(
   gtk::SetGtkTransientForAura(dialog_, parent_view);
   if (parent_view)
     parent_view->AddObserver(this);
-  g_signal_connect(dialog_, "delete-event",
-                   G_CALLBACK(gtk_widget_hide_on_delete), nullptr);
+  if (gtk::GtkCheckVersion(4)) {
+    gtk_window_set_hide_on_close(GTK_WINDOW(dialog_), true);
+  } else {
+    g_signal_connect(dialog_, "delete-event",
+                     G_CALLBACK(gtk_widget_hide_on_delete), nullptr);
+  }
 
   // Handle the case when the existing |gtk_settings_| has "selection" selected
   // as the page range, but |has_selection| is false.
@@ -404,11 +410,11 @@ void PrintDialogGtk::ShowDialog(
   g_signal_connect(dialog_, "response", G_CALLBACK(OnResponseThunk), this);
   gtk_widget_show(dialog_);
 
-  gtk::GtkUi::GetDelegate()->ShowGtkWindow(GTK_WINDOW(dialog_));
+  gtk::GtkUi::GetPlatform()->ShowGtkWindow(GTK_WINDOW(dialog_));
 }
 
 void PrintDialogGtk::PrintDocument(const printing::MetafilePlayer& metafile,
-                                   const base::string16& document_name) {
+                                   const std::u16string& document_name) {
   // This runs on the print worker thread, does not block the UI thread.
   DCHECK(!owning_task_runner()->RunsTasksInCurrentSequence());
 
@@ -512,12 +518,12 @@ void PrintDialogGtk::OnResponse(GtkWidget* dialog, int response_id) {
       settings->set_selection_only(print_selection_only);
       InitPrintSettingsGtk(gtk_settings_, page_setup_, settings.get());
       context_->InitWithSettings(std::move(settings));
-      std::move(callback_).Run(PrintingContextLinux::OK);
+      std::move(callback_).Run(printing::mojom::ResultCode::kSuccess);
       return;
     }
     case GTK_RESPONSE_DELETE_EVENT:  // Fall through.
     case GTK_RESPONSE_CANCEL: {
-      std::move(callback_).Run(PrintingContextLinux::CANCEL);
+      std::move(callback_).Run(printing::mojom::ResultCode::kCanceled);
       return;
     }
     case GTK_RESPONSE_APPLY:
@@ -533,7 +539,7 @@ static void OnJobCompletedThunk(GtkPrintJob* print_job,
   static_cast<PrintDialogGtk*>(user_data)->OnJobCompleted(print_job, error);
 }
 void PrintDialogGtk::SendDocumentToPrinter(
-    const base::string16& document_name) {
+    const std::u16string& document_name) {
   DCHECK(owning_task_runner()->RunsTasksInCurrentSequence());
 
   // If |printer_| is nullptr then somehow the GTK printer list changed out
@@ -583,5 +589,5 @@ void PrintDialogGtk::OnWindowDestroying(aura::Window* window) {
   gtk::ClearAuraTransientParent(dialog_, window);
   window->RemoveObserver(this);
   if (callback_)
-    std::move(callback_).Run(PrintingContextLinux::CANCEL);
+    std::move(callback_).Run(printing::mojom::ResultCode::kCanceled);
 }

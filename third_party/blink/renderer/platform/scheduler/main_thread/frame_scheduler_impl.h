@@ -11,18 +11,16 @@
 #include <utility>
 
 #include "base/containers/flat_map.h"
-#include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/task_queue.h"
-#include "base/trace_event/trace_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/power_scheduler/power_mode_voter.h"
 #include "net/base/request_priority.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/scheduler/common/back_forward_cache_disabling_feature_tracker.h"
 #include "third_party/blink/renderer/platform/scheduler/common/tracing_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/agent_group_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/frame_origin_type.h"
@@ -79,6 +77,8 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
                      FrameScheduler::Delegate* delegate,
                      base::trace_event::BlameContext* blame_context,
                      FrameScheduler::FrameType frame_type);
+  FrameSchedulerImpl(const FrameSchedulerImpl&) = delete;
+  FrameSchedulerImpl& operator=(const FrameSchedulerImpl&) = delete;
   ~FrameSchedulerImpl() override;
 
   // FrameOrWorkerScheduler implementation:
@@ -96,7 +96,7 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   void SetCrossOriginToMainFrame(bool cross_origin) override;
   bool IsCrossOriginToMainFrame() const override;
 
-  void SetIsAdFrame() override;
+  void SetIsAdFrame(bool is_ad_frame) override;
   bool IsAdFrame() const override;
 
   void TraceUrlChange(const String& url) override;
@@ -122,7 +122,8 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
       const WTF::String& name,
       WebScopedVirtualTimePauser::VirtualTaskDuration duration) override;
 
-  void OnFirstContentfulPaint() override;
+  void OnFirstContentfulPaintInMainFrame() override;
+  void OnDomContentLoaded() override;
   void OnFirstMeaningfulPaint() override;
   void OnLoad() override;
   bool IsWaitingForContentfulPaint() const;
@@ -161,7 +162,6 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   void OnTraceLogEnabled() { tracing_controller_.OnTraceLogEnabled(); }
 
   void SetPageVisibilityForTracing(PageVisibilityState page_visibility);
-  void SetPageKeepActiveForTracing(bool keep_active);
   void SetPageFrozenForTracing(bool frozen);
 
   // Computes the priority of |task_queue| if it is associated to this frame
@@ -188,22 +188,17 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   WTF::HashSet<SchedulingPolicy::Feature>
   GetActiveFeaturesTrackedForBackForwardCacheMetrics() override;
 
-  // Notifies the delegate about the change in the set of active features.
-  // The scheduler calls this function when needed after each task finishes,
-  // grouping multiple OnStartedUsingFeature/OnStoppedUsingFeature into
-  // one call to the delegate (which is generally expected to upload them to
-  // the browser process).
-  // No calls will be issued to the delegate if the set of features didn't
-  // change since the previous call.
-  void ReportFeaturesToDelegate();
-
   std::unique_ptr<WebSchedulingTaskQueue> CreateWebSchedulingTaskQueue(
       WebSchedulingPriority) override;
   void OnWebSchedulingTaskQueuePriorityChanged(MainThreadTaskQueue*);
+  void OnWebSchedulingTaskQueueDestroyed(MainThreadTaskQueue*);
 
   const base::UnguessableToken& GetAgentClusterId() const;
 
-  void WriteIntoTracedValue(perfetto::TracedValue context) const;
+  void WriteIntoTrace(perfetto::TracedValue context) const;
+  void WriteIntoTrace(perfetto::TracedProto<
+                      perfetto::protos::pbzero::RendererMainThreadTaskExecution>
+                          proto) const;
 
  protected:
   FrameSchedulerImpl(MainThreadSchedulerImpl* main_thread_scheduler,
@@ -243,12 +238,14 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
     // loading in the frame until the reference is released during destruction.
     explicit PauseSubresourceLoadingHandleImpl(
         base::WeakPtr<FrameSchedulerImpl> frame_scheduler);
+    PauseSubresourceLoadingHandleImpl(
+        const PauseSubresourceLoadingHandleImpl&) = delete;
+    PauseSubresourceLoadingHandleImpl& operator=(
+        const PauseSubresourceLoadingHandleImpl&) = delete;
     ~PauseSubresourceLoadingHandleImpl() override;
 
    private:
     base::WeakPtr<FrameSchedulerImpl> frame_scheduler_;
-
-    DISALLOW_COPY_AND_ASSIGN(PauseSubresourceLoadingHandleImpl);
   };
 
   void DetachFromPageScheduler();
@@ -267,9 +264,6 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   void OnAddedAggressiveThrottlingOptOut();
   void OnRemovedAggressiveThrottlingOptOut();
 
-  void OnAddedBackForwardCacheOptOut(SchedulingPolicy::Feature feature);
-  void OnRemovedBackForwardCacheOptOut(SchedulingPolicy::Feature feature);
-
   std::unique_ptr<ResourceLoadingTaskRunnerHandleImpl>
   CreateResourceLoadingTaskRunnerHandleImpl();
 
@@ -277,7 +271,7 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
     return frame_task_queue_controller_.get();
   }
 
-  // Create the QueueTraits for a specific TaskType. This returns base::nullopt
+  // Create the QueueTraits for a specific TaskType. This returns absl::nullopt
   // for loading tasks and non-frame-level tasks.
   static MainThreadTaskQueue::QueueTraits CreateQueueTraitsForTaskType(
       TaskType);
@@ -289,9 +283,10 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   // a mask instead of a set.
   uint64_t GetActiveFeaturesTrackedForBackForwardCacheMetricsMask() const;
 
-  base::WeakPtr<FrameOrWorkerScheduler> GetDocumentBoundWeakPtr() override;
+  base::WeakPtr<FrameOrWorkerScheduler> GetSchedulingAffectingFeatureWeakPtr()
+      override;
 
-  void NotifyDelegateAboutFeaturesAfterCurrentTask();
+  void MoveTaskQueuesToCorrectWakeUpBudgetPool();
 
   // Create QueueTraits for the default (non-finch) task queues.
   static MainThreadTaskQueue::QueueTraits ThrottleableTaskQueueTraits();
@@ -301,11 +296,12 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   static MainThreadTaskQueue::QueueTraits FreezableTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits ForegroundOnlyTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits
-  DoesNotUseVirtualTimeTaskQueueTraits();
+  CanRunWhenVirtualTimePausedTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits LoadingTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits UnfreezableLoadingTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits LoadingControlTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits FindInPageTaskQueueTraits();
+  static MainThreadTaskQueue::QueueTraits InputBlockingQueueTraits();
 
   const FrameScheduler::FrameType frame_type_;
 
@@ -346,16 +342,10 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   TraceableState<bool, TracingCategoryName::kInfo>
       opted_out_from_aggressive_throttling_;
   size_t subresource_loading_pause_count_;
-  base::flat_map<SchedulingPolicy::Feature, int>
-      back_forward_cache_opt_out_counts_;
-  std::bitset<static_cast<size_t>(SchedulingPolicy::Feature::kMaxValue) + 1>
-      back_forward_cache_opt_outs_;
-  TraceableState<bool, TracingCategoryName::kInfo>
-      opted_out_from_back_forward_cache_;
-  // The last set of features passed to
-  // Delegate::UpdateActiveSchedulerTrackedFeatures.
-  uint64_t last_uploaded_active_features_ = 0;
-  bool feature_report_scheduled_ = false;
+
+  BackForwardCacheDisablingFeatureTracker
+      back_forward_cache_disabling_feature_tracker_;
+
   base::sequence_manager::TaskQueue::QueuePriority
       default_loading_task_priority_ =
           base::sequence_manager::TaskQueue::QueuePriority::kNormalPriority;
@@ -366,13 +356,14 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   TraceableState<bool, TracingCategoryName::kInfo> page_frozen_for_tracing_;
   TraceableState<PageVisibilityState, TracingCategoryName::kInfo>
       page_visibility_for_tracing_;
-  TraceableState<bool, TracingCategoryName::kInfo>
-      page_keep_active_for_tracing_;
 
+  TraceableState<bool, TracingCategoryName::kInfo>
+      waiting_for_dom_content_loaded_;
   TraceableState<bool, TracingCategoryName::kInfo>
       waiting_for_contentful_paint_;
   TraceableState<bool, TracingCategoryName::kInfo>
       waiting_for_meaningful_paint_;
+  TraceableState<bool, TracingCategoryName::kInfo> waiting_for_load_;
 
   std::unique_ptr<power_scheduler::PowerModeVoter> loading_power_mode_voter_;
 
@@ -387,8 +378,6 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
       invalidating_on_bfcache_restore_weak_factory_{this};
 
   mutable base::WeakPtrFactory<FrameSchedulerImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FrameSchedulerImpl);
 };
 
 }  // namespace scheduler

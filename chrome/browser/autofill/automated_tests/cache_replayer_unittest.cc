@@ -79,7 +79,6 @@ RequestResponsePair MakeQueryRequestResponsePair(
       query_form->add_fields()->set_signature(field.signature);
       auto* response_field = response_form->add_field_suggestions();
       response_field->set_field_signature(field.signature);
-      response_field->set_primary_type_prediction(field.prediction);
       response_field->add_predictions()->set_type(field.prediction);
     }
   }
@@ -88,7 +87,7 @@ RequestResponsePair MakeQueryRequestResponsePair(
 
 // Returns a query request URL. If |query| is not empty, the corresponding
 // query is encoded into the URL.
-bool MakeQueryRequestURL(const base::Optional<AutofillPageQueryRequest>& query,
+bool MakeQueryRequestURL(const absl::optional<AutofillPageQueryRequest>& query,
                          std::string* request_url) {
   if (!query.has_value()) {
     *request_url = CreateQueryUrl("");
@@ -118,7 +117,7 @@ bool MakeSerializedRequest(const AutofillPageQueryRequest& query,
                            std::string* request_url) {
   // Make body and query content for URL depending on the |type|.
   std::string body;
-  base::Optional<AutofillPageQueryRequest> query_for_url;
+  absl::optional<AutofillPageQueryRequest> query_for_url;
   if (type == RequestType::kQueryProtoGET) {
     query_for_url = std::move(query);
   } else {
@@ -130,7 +129,7 @@ bool MakeSerializedRequest(const AutofillPageQueryRequest& query,
     AutofillPageResourceQueryRequest request;
     request.set_serialized_request(encoded_query);
     request.SerializeToString(&body);
-    query_for_url = base::nullopt;
+    query_for_url = absl::nullopt;
   }
 
   // Make header according to query content for URL.
@@ -225,8 +224,9 @@ bool WriteJSON(const base::FilePath& file_path,
   return WriteJSONNode(file_path, Value(std::move(root_dict)));
 }
 
+// TODO(https://crbug.com/1212151): The test flakily times out.
 TEST(AutofillCacheReplayerDeathTest,
-     ServerCacheReplayerConstructor_CrashesWhenNoDomainNode) {
+     DISABLED_ServerCacheReplayerConstructor_CrashesWhenNoDomainNode) {
   // Make death test threadsafe.
   testing::FLAGS_gtest_death_test_style = "threadsafe";
 
@@ -476,21 +476,18 @@ TEST(AutofillCacheReplayerTest, ProtobufConversion) {
     auto* form1 = api_response.add_form_suggestions();
     auto* field101 = form1->add_field_suggestions();
     field101->set_field_signature(101);
-    field101->set_primary_type_prediction(101);
     field101->add_predictions()->set_type(101);
     field101->add_predictions()->set_type(1010);
     field101->set_may_use_prefilled_placeholder(true);
     // Todo: Password requirements
     auto* field102 = form1->add_field_suggestions();
     field102->set_field_signature(102);
-    field102->set_primary_type_prediction(102);
     field102->add_predictions()->set_type(102);
     field102->set_may_use_prefilled_placeholder(false);
 
     auto* form2 = api_response.add_form_suggestions();
     auto* field201 = form2->add_field_suggestions();
     field201->set_field_signature(201);
-    field201->set_primary_type_prediction(201);
     field201->add_predictions()->set_type(201);
   }
 
@@ -665,12 +662,11 @@ std::vector<bool> DoFormsMatch(const AutofillQueryResponse& response,
       }
       if (expected_field.prediction !=
           static_cast<unsigned int>(
-              response_form.field_suggestions(j).primary_type_prediction())) {
-        LOG(ERROR)
-            << "Expected field " << j << " of form " << i
-            << " to have primary type prediction " << expected_field.prediction
-            << " but got "
-            << response_form.field_suggestions(j).primary_type_prediction();
+              response_form.field_suggestions(j).predictions(0).type())) {
+        LOG(ERROR) << "Expected field " << j << " of form " << i
+                   << " to have primary type prediction "
+                   << expected_field.prediction << " but got "
+                   << response_form.field_suggestions(j).predictions(0).type();
         found_all_fields = false;
       }
     }

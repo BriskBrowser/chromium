@@ -11,8 +11,8 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -122,7 +122,8 @@ void CreatePrintSettingsDictionary(base::DictionaryValue* dict) {
   dict->SetBoolean(kSettingLandscape, false);
   dict->SetBoolean(kSettingCollate, false);
   dict->SetInteger(kSettingColor, static_cast<int>(mojom::ColorModel::kGray));
-  dict->SetInteger(kSettingPrinterType, static_cast<int>(PrinterType::kPdf));
+  dict->SetInteger(kSettingPrinterType,
+                   static_cast<int>(mojom::PrinterType::kPdf));
   dict->SetInteger(kSettingDuplexMode,
                    static_cast<int>(mojom::DuplexMode::kSimplex));
   dict->SetInteger(kSettingCopies, 1);
@@ -134,7 +135,6 @@ void CreatePrintSettingsDictionary(base::DictionaryValue* dict) {
                    static_cast<int>(mojom::MarginType::kDefaultMargins));
   dict->SetBoolean(kSettingPreviewModifiable, true);
   dict->SetBoolean(kSettingPreviewIsFromArc, false);
-  dict->SetBoolean(kSettingPreviewIsPdf, false);
   dict->SetBoolean(kSettingHeaderFooterEnabled, false);
   dict->SetBoolean(kSettingShouldPrintBackgrounds, false);
   dict->SetBoolean(kSettingShouldPrintSelectionOnly, false);
@@ -297,7 +297,6 @@ class TestPrintManagerHost
       EXPECT_EQ(number_pages, number_pages_);
     printer_->SetPrintedPagesCount(cookie, number_pages);
   }
-  void DidGetDocumentCookie(int32_t cookie) override {}
   void DidPrintDocument(mojom::DidPrintDocumentParamsPtr params,
                         DidPrintDocumentCallback callback) override {
     base::RunLoop().RunUntilIdle();
@@ -311,6 +310,18 @@ class TestPrintManagerHost
         printer_->GetDefaultPrintSettings();
     std::move(callback).Run(std::move(params));
   }
+  void DidShowPrintDialog() override {}
+  void ScriptedPrint(printing::mojom::ScriptedPrintParamsPtr params,
+                     ScriptedPrintCallback callback) override {
+    auto settings = printing::mojom::PrintPagesParams::New();
+    settings->params = printing::mojom::PrintParams::New();
+    if (print_dialog_user_response_) {
+      printer_->ScriptedPrint(params->cookie, params->expected_pages_count,
+                              params->has_selection, settings.get());
+    }
+    std::move(callback).Run(std::move(settings));
+  }
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   void UpdatePrintSettings(int32_t cookie,
                            base::Value job_settings,
                            UpdatePrintSettingsCallback callback) override {
@@ -320,7 +331,7 @@ class TestPrintManagerHost
 
     // Check and make sure the required settings are all there.
     // We don't actually care about the values.
-    base::Optional<int> margins_type =
+    absl::optional<int> margins_type =
         job_settings.FindIntKey(printing::kSettingMarginsType);
     if (!margins_type.has_value() ||
         !job_settings.FindBoolKey(printing::kSettingLandscape) ||
@@ -346,9 +357,9 @@ class TestPrintManagerHost
         if (!dict.is_dict())
           continue;
 
-        base::Optional<int> range_from =
+        absl::optional<int> range_from =
             dict.FindIntKey(printing::kSettingPageRangeFrom);
-        base::Optional<int> range_to =
+        absl::optional<int> range_to =
             dict.FindIntKey(printing::kSettingPageRangeTo);
         if (!range_from || !range_to)
           continue;
@@ -367,9 +378,9 @@ class TestPrintManagerHost
         job_settings.FindDictKey(printing::kSettingMediaSize);
     gfx::Size page_size;
     if (media_size_value) {
-      base::Optional<int> width_microns =
+      absl::optional<int> width_microns =
           media_size_value->FindIntKey(printing::kSettingMediaSizeWidthMicrons);
-      base::Optional<int> height_microns = media_size_value->FindIntKey(
+      absl::optional<int> height_microns = media_size_value->FindIntKey(
           printing::kSettingMediaSizeHeightMicrons);
 
       if (width_microns && height_microns) {
@@ -382,33 +393,21 @@ class TestPrintManagerHost
     }
 
     // Get scaling
-    base::Optional<int> setting_scale_factor =
+    absl::optional<int> setting_scale_factor =
         job_settings.FindIntKey(printing::kSettingScaleFactor);
     int scale_factor = setting_scale_factor.value_or(100);
 
     std::vector<uint32_t> pages(printing::PageRange::GetPages(new_ranges));
     printer_->UpdateSettings(cookie, params.get(), pages, margins_type.value(),
                              page_size, scale_factor);
-    base::Optional<bool> selection_only =
+    absl::optional<bool> selection_only =
         job_settings.FindBoolKey(printing::kSettingShouldPrintSelectionOnly);
-    base::Optional<bool> should_print_backgrounds =
+    absl::optional<bool> should_print_backgrounds =
         job_settings.FindBoolKey(printing::kSettingShouldPrintBackgrounds);
     params->params->selection_only = selection_only.value();
     params->params->should_print_backgrounds = should_print_backgrounds.value();
     std::move(callback).Run(std::move(params), canceled);
   }
-  void DidShowPrintDialog() override {}
-  void ScriptedPrint(printing::mojom::ScriptedPrintParamsPtr params,
-                     ScriptedPrintCallback callback) override {
-    auto settings = printing::mojom::PrintPagesParams::New();
-    settings->params = printing::mojom::PrintParams::New();
-    if (print_dialog_user_response_) {
-      printer_->ScriptedPrint(params->cookie, params->expected_pages_count,
-                              params->has_selection, settings.get());
-    }
-    std::move(callback).Run(std::move(settings));
-  }
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   void SetupScriptedPrintPreview(
       SetupScriptedPrintPreviewCallback callback) override {
     is_setup_scripted_print_preview_ = true;
@@ -425,7 +424,7 @@ class TestPrintManagerHost
     base::RunLoop().RunUntilIdle();
     std::move(callback).Run(preview_ui_->ShouldCancelRequest());
   }
-#endif
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
   bool IsSetupScriptedPrintPreview() {
     return is_setup_scripted_print_preview_;
@@ -633,31 +632,31 @@ class PrintRenderFrameHelperTestBase : public content::RenderViewTest {
 
   void ExpectNoBeforeNoAfterPrintEvent() {
     int result;
-    ASSERT_TRUE(ExecuteJavaScriptAndReturnIntValue(
-        base::ASCIIToUTF16("beforePrintCount"), &result));
+    ASSERT_TRUE(
+        ExecuteJavaScriptAndReturnIntValue(u"beforePrintCount", &result));
     EXPECT_EQ(0, result) << "beforeprint event should not be dispatched.";
-    ASSERT_TRUE(ExecuteJavaScriptAndReturnIntValue(
-        base::ASCIIToUTF16("afterPrintCount"), &result));
+    ASSERT_TRUE(
+        ExecuteJavaScriptAndReturnIntValue(u"afterPrintCount", &result));
     EXPECT_EQ(0, result) << "afterprint event should not be dispatched.";
   }
 
   void ExpectOneBeforeNoAfterPrintEvent() {
     int result;
-    ASSERT_TRUE(ExecuteJavaScriptAndReturnIntValue(
-        base::ASCIIToUTF16("beforePrintCount"), &result));
+    ASSERT_TRUE(
+        ExecuteJavaScriptAndReturnIntValue(u"beforePrintCount", &result));
     EXPECT_EQ(1, result) << "beforeprint event should be dispatched once.";
-    ASSERT_TRUE(ExecuteJavaScriptAndReturnIntValue(
-        base::ASCIIToUTF16("afterPrintCount"), &result));
+    ASSERT_TRUE(
+        ExecuteJavaScriptAndReturnIntValue(u"afterPrintCount", &result));
     EXPECT_EQ(0, result) << "afterprint event should not be dispatched.";
   }
 
   void ExpectOneBeforeOneAfterPrintEvent() {
     int result;
-    ASSERT_TRUE(ExecuteJavaScriptAndReturnIntValue(
-        base::ASCIIToUTF16("beforePrintCount"), &result));
+    ASSERT_TRUE(
+        ExecuteJavaScriptAndReturnIntValue(u"beforePrintCount", &result));
     EXPECT_EQ(1, result) << "beforeprint event should be dispatched once.";
-    ASSERT_TRUE(ExecuteJavaScriptAndReturnIntValue(
-        base::ASCIIToUTF16("afterPrintCount"), &result));
+    ASSERT_TRUE(
+        ExecuteJavaScriptAndReturnIntValue(u"afterPrintCount", &result));
     EXPECT_EQ(1, result) << "afterprint event should be dispatched once.";
   }
 
@@ -1130,7 +1129,8 @@ TEST_F(MAYBE_PrintRenderFrameHelperPreviewTest,
   // Fill in some dummy values.
   base::DictionaryValue dict;
   CreatePrintSettingsDictionary(&dict);
-  dict.SetInteger(kSettingPrinterType, static_cast<int>(PrinterType::kLocal));
+  dict.SetInteger(kSettingPrinterType,
+                  static_cast<int>(mojom::PrinterType::kLocal));
   OnPrintPreview(dict);
 
   EXPECT_EQ(0u, preview_ui()->print_preview_pages_remaining());
@@ -1154,7 +1154,8 @@ TEST_F(MAYBE_PrintRenderFrameHelperPreviewTest,
   // Fill in some dummy values.
   base::DictionaryValue dict;
   CreatePrintSettingsDictionary(&dict);
-  dict.SetInteger(kSettingPrinterType, static_cast<int>(PrinterType::kLocal));
+  dict.SetInteger(kSettingPrinterType,
+                  static_cast<int>(mojom::PrinterType::kLocal));
   dict.SetInteger(kSettingMarginsType,
                   static_cast<int>(mojom::MarginType::kNoMargins));
   OnPrintPreview(dict);
@@ -1307,7 +1308,8 @@ TEST_F(MAYBE_PrintRenderFrameHelperPreviewTest,
   // Fill in some dummy values.
   base::DictionaryValue dict;
   CreatePrintSettingsDictionary(&dict);
-  dict.SetInteger(kSettingPrinterType, static_cast<int>(PrinterType::kLocal));
+  dict.SetInteger(kSettingPrinterType,
+                  static_cast<int>(mojom::PrinterType::kLocal));
   OnPrintPreview(dict);
 
   EXPECT_EQ(0u, preview_ui()->print_preview_pages_remaining());
@@ -1367,7 +1369,8 @@ TEST_F(MAYBE_PrintRenderFrameHelperPreviewTest, PrintPreviewCenterToFitPage) {
   // Fill in some dummy values.
   base::DictionaryValue dict;
   CreatePrintSettingsDictionary(&dict);
-  dict.SetInteger(kSettingPrinterType, static_cast<int>(PrinterType::kLocal));
+  dict.SetInteger(kSettingPrinterType,
+                  static_cast<int>(mojom::PrinterType::kLocal));
   OnPrintPreview(dict);
 
   EXPECT_EQ(0u, preview_ui()->print_preview_pages_remaining());
@@ -1401,7 +1404,8 @@ TEST_F(MAYBE_PrintRenderFrameHelperPreviewTest, PrintPreviewShrinkToFitPage) {
   // Fill in some dummy values.
   base::DictionaryValue dict;
   CreatePrintSettingsDictionary(&dict);
-  dict.SetInteger(kSettingPrinterType, static_cast<int>(PrinterType::kLocal));
+  dict.SetInteger(kSettingPrinterType,
+                  static_cast<int>(mojom::PrinterType::kLocal));
   OnPrintPreview(dict);
 
   EXPECT_EQ(0u, preview_ui()->print_preview_pages_remaining());
@@ -1425,7 +1429,8 @@ TEST_F(MAYBE_PrintRenderFrameHelperPreviewTest,
   // Fill in some dummy values.
   base::DictionaryValue dict;
   CreatePrintSettingsDictionary(&dict);
-  dict.SetInteger(kSettingPrinterType, static_cast<int>(PrinterType::kLocal));
+  dict.SetInteger(kSettingPrinterType,
+                  static_cast<int>(mojom::PrinterType::kLocal));
   dict.SetInteger(kSettingMarginsType,
                   static_cast<int>(mojom::MarginType::kNoMargins));
   OnPrintPreview(dict);

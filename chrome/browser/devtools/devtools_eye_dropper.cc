@@ -18,6 +18,7 @@
 #include "content/public/common/content_features.h"
 #include "media/base/limits.h"
 #include "media/base/video_frame.h"
+#include "media/capture/mojom/video_capture_buffer.mojom.h"
 #include "media/capture/mojom/video_capture_types.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "skia/ext/legacy_display_globals.h"
@@ -72,8 +73,7 @@ void DevToolsEyeDropper::AttachToHost(content::RenderFrameHost* frame_host) {
   video_capturer_->SetMinSizeChangePeriod(base::TimeDelta());
   video_capturer_->SetFormat(media::PIXEL_FORMAT_ARGB,
                              gfx::ColorSpace::CreateREC709());
-  video_capturer_->SetMinCapturePeriod(base::TimeDelta::FromSeconds(1) /
-                                       kMaxFrameRate);
+  video_capturer_->SetMinCapturePeriod(base::Seconds(1) / kMaxFrameRate);
   video_capturer_->Start(this);
 }
 

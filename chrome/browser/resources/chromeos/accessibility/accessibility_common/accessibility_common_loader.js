@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 import {Autoclick} from './autoclick/autoclick.js';
+import {Dictation} from './dictation/dictation.js';
 import {Magnifier} from './magnifier/magnifier.js';
 
 /**
@@ -15,6 +16,8 @@ export class AccessibilityCommon {
     this.autoclick_ = null;
     /** @private {Magnifier} */
     this.magnifier_ = null;
+    /** @private {Dictation} */
+    this.dictation_ = null;
 
     this.init_();
   }
@@ -39,19 +42,33 @@ export class AccessibilityCommon {
    */
   init_() {
     chrome.accessibilityFeatures.autoclick.get(
-        {}, this.onAutoclickUpdated_.bind(this));
+        {}, details => this.onAutoclickUpdated_(details));
     chrome.accessibilityFeatures.autoclick.onChange.addListener(
-        this.onAutoclickUpdated_.bind(this));
+        details => this.onAutoclickUpdated_(details));
 
     chrome.accessibilityFeatures.screenMagnifier.get(
-        {}, this.onMagnifierUpdated_.bind(this, Magnifier.Type.FULL_SCREEN));
+        {},
+        details =>
+            this.onMagnifierUpdated_(Magnifier.Type.FULL_SCREEN, details));
     chrome.accessibilityFeatures.screenMagnifier.onChange.addListener(
-        this.onMagnifierUpdated_.bind(this, Magnifier.Type.FULL_SCREEN));
+        details =>
+            this.onMagnifierUpdated_(Magnifier.Type.FULL_SCREEN, details));
 
     chrome.accessibilityFeatures.dockedMagnifier.get(
-        {}, this.onMagnifierUpdated_.bind(this, Magnifier.Type.DOCKED));
+        {},
+        details => this.onMagnifierUpdated_(Magnifier.Type.DOCKED, details));
     chrome.accessibilityFeatures.dockedMagnifier.onChange.addListener(
-        this.onMagnifierUpdated_.bind(this, Magnifier.Type.DOCKED));
+        details => this.onMagnifierUpdated_(Magnifier.Type.DOCKED, details));
+
+    chrome.accessibilityFeatures.dictation.get(
+        {}, details => this.onDictationUpdated_(details));
+    chrome.accessibilityFeatures.dictation.onChange.addListener(
+        details => this.onDictationUpdated_(details));
+
+    // AccessibilityCommon is an IME so it shows in the input methods list
+    // when it starts up. Remove from this list, Dictation will add it back
+    // whenever needed.
+    Dictation.removeAsInputMethod();
   }
 
   /**
@@ -83,6 +100,19 @@ export class AccessibilityCommon {
         !details.value && this.magnifier_ && this.magnifier_.type === type) {
       this.magnifier_.onMagnifierDisabled();
       this.magnifier_ = null;
+    }
+  }
+
+  /**
+   * Called when the dictation feature is enabled or disabled.
+   * @param {*} details
+   * @private
+   */
+  onDictationUpdated_(details) {
+    if (details.value && !this.dictation_) {
+      this.dictation_ = new Dictation();
+    } else if (!details.value && this.dictation_) {
+      this.dictation_ = null;
     }
   }
 }

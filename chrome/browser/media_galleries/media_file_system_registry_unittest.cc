@@ -17,6 +17,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
@@ -53,7 +54,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
+#include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
 #endif
 
 namespace content {
@@ -196,6 +197,12 @@ class MockProfileSharedRenderProcessHostFactory
     : public content::RenderProcessHostFactory {
  public:
   MockProfileSharedRenderProcessHostFactory() {}
+
+  MockProfileSharedRenderProcessHostFactory(
+      const MockProfileSharedRenderProcessHostFactory&) = delete;
+  MockProfileSharedRenderProcessHostFactory& operator=(
+      const MockProfileSharedRenderProcessHostFactory&) = delete;
+
   ~MockProfileSharedRenderProcessHostFactory() override;
 
   // RPH created with this factory are owned by it.  If the RPH is destroyed
@@ -214,25 +221,28 @@ class MockProfileSharedRenderProcessHostFactory
         content::BrowserContext* browser_context)
         : content::MockRenderProcessHost(browser_context) {}
 
+    SharedMockRenderProcessHost(const SharedMockRenderProcessHost&) = delete;
+    SharedMockRenderProcessHost& operator=(const SharedMockRenderProcessHost&) =
+        delete;
+
     // This test class lies that the process has not been used to allow
     // testing of process sharing/reuse inherent in the unit tests that depend
     // on the MockProfileSharedRenderProcessHostFactory.
     bool HostHasNotBeenUsed() override { return true; }
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(SharedMockRenderProcessHost);
   };
 
   mutable std::map<content::BrowserContext*,
                    std::unique_ptr<content::MockRenderProcessHost>>
       rph_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockProfileSharedRenderProcessHostFactory);
 };
 
 class ProfileState {
  public:
   explicit ProfileState(MockProfileSharedRenderProcessHostFactory* rph_factory);
+
+  ProfileState(const ProfileState&) = delete;
+  ProfileState& operator=(const ProfileState&) = delete;
+
   ~ProfileState();
 
   MediaGalleriesPreferences* GetMediaGalleriesPrefs();
@@ -248,12 +258,12 @@ class ProfileState {
   extensions::Extension* regular_permission_extension();
   Profile* profile();
 
-  void AddNameForReadCompare(const base::string16& name);
-  void AddNameForAllCompare(const base::string16& name);
+  void AddNameForReadCompare(const std::u16string& name);
+  void AddNameForAllCompare(const std::u16string& name);
 
  private:
   void CompareResults(const std::string& test,
-                      const std::vector<base::string16>& names,
+                      const std::vector<std::u16string>& names,
                       const std::vector<MediaFileSystemInfo>& expected,
                       const std::vector<MediaFileSystemInfo>& actual);
   bool ContainsEntry(const MediaFileSystemInfo& info,
@@ -278,13 +288,11 @@ class ProfileState {
   std::unique_ptr<content::MockRenderProcessHost> single_rph_;
   std::unique_ptr<content::MockRenderProcessHost> shared_rph_;
 
-  std::vector<base::string16> compare_names_read_;
-  std::vector<base::string16> compare_names_all_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileState);
+  std::vector<std::u16string> compare_names_read_;
+  std::vector<std::u16string> compare_names_all_;
 };
 
-base::string16 GetExpectedFolderName(const base::FilePath& path) {
+std::u16string GetExpectedFolderName(const base::FilePath& path) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   return path.BaseName().LossyDisplayName();
 #else
@@ -297,6 +305,10 @@ base::string16 GetExpectedFolderName(const base::FilePath& path) {
 class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
  public:
   MediaFileSystemRegistryTest() = default;
+
+  MediaFileSystemRegistryTest(const MediaFileSystemRegistryTest&) = delete;
+  MediaFileSystemRegistryTest& operator=(const MediaFileSystemRegistryTest&) =
+      delete;
 
   ~MediaFileSystemRegistryTest() override = default;
 
@@ -350,9 +362,9 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
       ProfileState* profile_state);
 
   void ProcessAttach(const std::string& id,
-                     const base::string16& name,
+                     const std::u16string& name,
                      const base::FilePath::StringType& location) {
-    StorageInfo info(id, location, name, base::string16(), base::string16(), 0);
+    StorageInfo info(id, location, name, std::u16string(), std::u16string(), 0);
     StorageMonitor::GetInstance()->receiver()->ProcessAttach(info);
   }
 
@@ -393,14 +405,12 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
   // Needed for extension service & friends to work.
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
+  ash::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
 #endif
 
   MockProfileSharedRenderProcessHostFactory rph_factory_;
 
   std::vector<std::unique_ptr<ProfileState>> profile_states_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaFileSystemRegistryTest);
 };
 
 namespace {
@@ -510,7 +520,7 @@ void ProfileState::CheckGalleries(
 
   // No Media Galleries permissions.
   std::vector<MediaFileSystemInfo> empty_expectation;
-  std::vector<base::string16> empty_names;
+  std::vector<std::u16string> empty_names;
   registry->GetMediaFileSystemsForExtension(
       single_web_contents_.get(), no_permissions_extension_.get(),
       base::BindOnce(&ProfileState::CompareResults, base::Unretained(this),
@@ -564,11 +574,11 @@ Profile* ProfileState::profile() {
   return profile_.get();
 }
 
-void ProfileState::AddNameForReadCompare(const base::string16& name) {
+void ProfileState::AddNameForReadCompare(const std::u16string& name) {
   compare_names_read_.push_back(name);
 }
 
-void ProfileState::AddNameForAllCompare(const base::string16& name) {
+void ProfileState::AddNameForAllCompare(const std::u16string& name) {
   compare_names_all_.push_back(name);
 }
 
@@ -588,7 +598,7 @@ bool ProfileState::ContainsEntry(
 
 void ProfileState::CompareResults(
     const std::string& test,
-    const std::vector<base::string16>& names,
+    const std::vector<std::u16string>& names,
     const std::vector<MediaFileSystemInfo>& expected,
     const std::vector<MediaFileSystemInfo>& actual) {
   num_comparisons_++;
@@ -599,7 +609,7 @@ void ProfileState::CompareResults(
   std::sort(sorted.begin(), sorted.end(), MediaFileSystemInfoComparator);
   std::vector<MediaFileSystemInfo> expect(expected);
   std::sort(expect.begin(), expect.end(), MediaFileSystemInfoComparator);
-  std::vector<base::string16> expect_names(names);
+  std::vector<std::u16string> expect_names(names);
   std::sort(expect_names.begin(), expect_names.end());
 
   for (size_t i = 0; i < expect.size() && i < sorted.size(); ++i) {
@@ -650,7 +660,7 @@ std::string MediaFileSystemRegistryTest::AddUserGallery(
   for (size_t i = 0; i < profile_states_.size(); ++i) {
     profile_states_[i]->GetMediaGalleriesPrefs()->AddGallery(
         device_id, base::FilePath(), MediaGalleryPrefInfo::kUserAdded,
-        base::string16(), base::string16(), base::string16(), 0,
+        std::u16string(), std::u16string(), std::u16string(), 0,
         base::Time::Now(), 0, 0, 0);
   }
   return device_id;
@@ -662,7 +672,7 @@ std::string MediaFileSystemRegistryTest::AttachDevice(
     const base::FilePath& location) {
   std::string device_id = StorageInfo::MakeDeviceId(type, unique_id);
   DCHECK(StorageInfo::IsRemovableDevice(device_id));
-  base::string16 label = location.BaseName().LossyDisplayName();
+  std::u16string label = location.BaseName().LossyDisplayName();
   ProcessAttach(device_id, label, location.value());
   content::RunAllTasksUntilIdle();
   return device_id;
@@ -1041,7 +1051,7 @@ TEST_F(MediaFileSystemRegistryTest, TestNameConstruction) {
   std::vector<MediaFileSystemInfo> one_expectation;
   one_expectation.push_back(added_info);
 
-  base::string16 empty_dir_name = GetExpectedFolderName(empty_dir());
+  std::u16string empty_dir_name = GetExpectedFolderName(empty_dir());
   profile_state->AddNameForReadCompare(empty_dir_name);
   profile_state->AddNameForAllCompare(empty_dir_name);
 

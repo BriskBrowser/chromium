@@ -14,8 +14,8 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
@@ -24,6 +24,7 @@
 #include "net/base/request_priority.h"
 #include "net/base/test_completion_callback.h"
 #include "net/base/transport_info.h"
+#include "net/cert/x509_certificate.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_request_info.h"
@@ -35,7 +36,6 @@ namespace net {
 
 class IOBuffer;
 class SSLPrivateKey;
-class X509Certificate;
 class NetLogWithSource;
 struct HttpRequestInfo;
 
@@ -148,7 +148,7 @@ class TestTransactionConsumer {
 
   void Start(const HttpRequestInfo* request, const NetLogWithSource& net_log);
 
-  bool is_done() const { return state_ == DONE; }
+  bool is_done() const { return state_ == State::kDone; }
   int error() const { return error_; }
 
   const HttpResponseInfo* response_info() const {
@@ -158,12 +158,7 @@ class TestTransactionConsumer {
   const std::string& content() const { return content_; }
 
  private:
-  enum State {
-    IDLE,
-    STARTING,
-    READING,
-    DONE
-  };
+  enum class State { kIdle, kStarting, kReading, kDone };
 
   void DidStart(int result);
   void DidRead(int result);
@@ -249,6 +244,7 @@ class MockNetworkTransaction
 
   void SetRequestHeadersCallback(RequestHeadersCallback callback) override {}
   void SetResponseHeadersCallback(ResponseHeadersCallback) override {}
+  void SetEarlyResponseHeadersCallback(ResponseHeadersCallback) override {}
 
   int ResumeNetworkStart() override;
 
@@ -400,7 +396,7 @@ class ConnectedHandler {
 
   // Compatible with HttpTransaction::ConnectedCallback.
   // Returns the last value passed to set_result(), if any, OK otherwise.
-  int OnConnected(const TransportInfo& info);
+  int OnConnected(const TransportInfo& info, CompletionOnceCallback callback);
 
   // Returns the list of arguments with which OnConnected() was called.
   // The arguments are listed in the same order as the calls were received.
@@ -409,9 +405,15 @@ class ConnectedHandler {
   // Sets the value to be returned by subsequent calls to OnConnected().
   void set_result(int result) { result_ = result; }
 
+  // If true, runs the callback supplied to OnConnected asynchronously with
+  // `result_`. Otherwise, the callback is skipped and `result_` is returned
+  // directly.
+  void set_run_callback(bool run_callback) { run_callback_ = run_callback; }
+
  private:
   std::vector<TransportInfo> transports_;
   int result_ = OK;
+  bool run_callback_ = false;
 };
 
 }  // namespace net

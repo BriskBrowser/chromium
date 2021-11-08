@@ -21,7 +21,6 @@ Polymer({
     I18nBehavior,
     PrefsBehavior,
     settings.RouteObserverBehavior,
-    nearby_share.NearbyShareSettingsBehavior,
   ],
 
   properties: {
@@ -39,6 +38,19 @@ Polymer({
     profileLabel_: {
       type: String,
       value: '',
+    },
+
+    /** @type {nearby_share.NearbySettings} */
+    settings: {
+      type: Object,
+      notify: true,
+      value: {},
+    },
+
+    /** @private {boolean} */
+    isSettingsRetreived: {
+      type: Boolean,
+      value: false,
     },
 
     /** @private {boolean} */
@@ -91,13 +103,26 @@ Polymer({
         chromeos.settings.mojom.Setting.kNearbyShareDataUsage,
       ]),
     },
+
+    /** @private */
+    shouldShowFastInititationNotificationToggle_: {
+      type: Boolean,
+      computed: `computeShouldShowFastInititationNotificationToggle_(
+              settings.isFastInitiationHardwareSupported)`,
+    },
   },
 
-  listeners: {'onboarding-cancelled': 'onOnboardingCancelled_'},
+  listeners: {
+    'onboarding-cancelled': 'onOnboardingCancelled_',
+    'settings-loaded': 'onSettingsLoaded_'
+  },
+
+  observers: ['enabledChange_(settings.enabled)'],
 
   /** @private {?nearbyShare.mojom.ReceiveObserverReceiver} */
   receiveObserver_: null,
 
+  /** @override */
   attached() {
     // TODO(b/166779043): Check whether the Account Manager is enabled and fall
     // back to profile name, or just hide the row. This is not urgent because
@@ -114,22 +139,17 @@ Polymer({
         });
     this.receiveObserver_ = nearby_share.observeReceiveManager(
         /** @type {!nearbyShare.mojom.ReceiveObserverInterface} */ (this));
-
-    // Trigger a contact sync whenever the Nearby subpage is opened to improve
-    // consistency. This should help avoid scenarios where a share is attempted
-    // and contacts are stale on the receiver.
-    nearby_share.getContactManager().downloadContacts();
   },
 
-  /**
-   * @param {!Event} event
-   * @private
-   */
-  onEnableTap_(event) {
-    this.setPrefValue(
-        'nearby_sharing.enabled',
-        !this.getPref('nearby_sharing.enabled').value);
-    event.stopPropagation();
+  /** @private */
+  enabledChange_(newValue, oldValue) {
+    if (oldValue === undefined && newValue) {
+      // Trigger a contact sync whenever the Nearby subpage is opened and
+      // nearby is enabled complete to improve consistency. This should help
+      // avoid scenarios where a share is attempted and contacts are stale on
+      // the receiver.
+      nearby_share.getContactManager().downloadContacts();
+    }
   },
 
   /** @private */
@@ -180,6 +200,7 @@ Polymer({
    */
   onReceiveDialogClose_(event) {
     this.showReceiveDialog_ = false;
+    this.inHighVisibility_ = false;
   },
 
   /**
@@ -214,6 +235,20 @@ Polymer({
    */
   onTransferUpdate(shareTarget, metadata) {
     // Note: Intentionally left empty.
+  },
+
+  /**
+   * Mojo callback when the Nearby utility process stops.
+   */
+  onNearbyProcessStopped() {
+    this.inHighVisibility_ = false;
+  },
+
+  /**
+   * Mojo callback when advertising fails to start.
+   */
+  onStartAdvertisingFailure() {
+    this.inHighVisibility_ = false;
   },
 
   /** @private */
@@ -373,9 +408,7 @@ Polymer({
     }
 
     if (queryParams.has('onboarding')) {
-      this.showReceiveDialog_ = true;
-      Polymer.dom.flush();
-      this.$$('#receiveDialog').showOnboarding();
+      this.showOnboarding_();
     }
 
     this.attemptDeepLink();
@@ -404,8 +437,69 @@ Polymer({
   },
 
   /** @private */
+  getEnabledToggleClassName_() {
+    if (this.getPref('nearby_sharing.enabled').value) {
+      return 'enabled-toggle-on';
+    }
+    return 'enabled-toggle-off';
+  },
+
+  /** @private */
   onOnboardingCancelled_() {
     // Return to main settings page multidevice section
     settings.Router.getInstance().navigateTo(settings.routes.MULTIDEVICE);
   },
+
+  /** @private */
+  onFastInitiationNotificationToggledByUser_() {
+    this.set(
+        'settings.fastInitiationNotificationState',
+        this.isFastInitiationNotificationEnabled_() ?
+            nearbyShare.mojom.FastInitiationNotificationState.kDisabledByUser :
+            nearbyShare.mojom.FastInitiationNotificationState.kEnabled);
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  isFastInitiationNotificationEnabled_() {
+    return this.get('settings.fastInitiationNotificationState') ===
+        nearbyShare.mojom.FastInitiationNotificationState.kEnabled;
+  },
+
+  /**
+   * @param {boolean} isNearbySharingEnabled
+   * @param {boolean} isOnboardingComplete
+   * @param {boolean} shouldShowFastInititationNotificationToggle
+   * @return {boolean}
+   * @private
+   */
+  shouldShowSubpageContent_(
+      isNearbySharingEnabled, isOnboardingComplete,
+      shouldShowFastInititationNotificationToggle) {
+    if (!isOnboardingComplete) {
+      return false;
+    }
+    return isNearbySharingEnabled ||
+        shouldShowFastInititationNotificationToggle;
+  },
+
+  /** @private */
+  showOnboarding_() {
+    this.showReceiveDialog_ = true;
+    Polymer.dom.flush();
+    this.$$('#receiveDialog').showOnboarding();
+  },
+
+  /**
+   * @param {boolean} is_hardware_supported
+   * @return {boolean}
+   * @private
+   */
+  computeShouldShowFastInititationNotificationToggle_(is_hardware_supported) {
+    return loadTimeData.getBoolean('isNearbyShareBackgroundScanningEnabled') &&
+        is_hardware_supported;
+  },
+
 });

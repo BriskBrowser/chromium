@@ -20,9 +20,10 @@
 #include "media/base/media_switches.h"
 #include "net/base/filename_util.h"
 #include "ppapi/shared_impl/ppapi_switches.h"
+#include "third_party/blink/public/common/switches.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/audio/cras_audio_handler.h"
+#include "ash/components/audio/cras_audio_handler.h"
 #include "chromeos/dbus/audio/cras_audio_client.h"
 #endif
 
@@ -57,7 +58,8 @@ void PPAPITestBase::SetUpCommandLine(base::CommandLine* command_line) {
   command_line->AppendSwitch(switches::kDisableSmoothScrolling);
 
   // Allow manual garbage collection.
-  command_line->AppendSwitchASCII(switches::kJavaScriptFlags, "--expose_gc");
+  command_line->AppendSwitchASCII(blink::switches::kJavaScriptFlags,
+                                  "--expose_gc");
 
   command_line->AppendSwitch(switches::kUseFakeUIForMediaStream);
 
@@ -114,6 +116,7 @@ void PPAPITestBase::RunTestURL(const GURL& test_url) {
   PPAPITestMessageHandler handler;
   JavascriptTestObserver observer(shell()->web_contents(), &handler);
   shell()->LoadURL(test_url);
+  shell()->web_contents()->Focus();
 
   ASSERT_TRUE(observer.Run()) << handler.error_message();
   EXPECT_STREQ("PASS", handler.message().c_str());
@@ -142,7 +145,7 @@ OutOfProcessPPAPITest::OutOfProcessPPAPITest() {
 void OutOfProcessPPAPITest::SetUp() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::CrasAudioClient::InitializeFake();
-  chromeos::CrasAudioHandler::InitializeForTesting();
+  ash::CrasAudioHandler::InitializeForTesting();
 #endif
   ContentBrowserTest::SetUp();
 }
@@ -150,7 +153,7 @@ void OutOfProcessPPAPITest::SetUp() {
 void OutOfProcessPPAPITest::TearDown() {
   ContentBrowserTest::TearDown();
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::CrasAudioHandler::Shutdown();
+  ash::CrasAudioHandler::Shutdown();
   chromeos::CrasAudioClient::Shutdown();
 #endif
 }

@@ -128,7 +128,7 @@ bool VariableExpander::ExpandValue(base::Value* value) const {
     }
 
     case base::Value::Type::DICTIONARY: {
-      for (const auto& child : value->DictItems())
+      for (const auto child : value->DictItems())
         no_error &= ExpandValue(&child.second);
       break;
     }
@@ -145,12 +145,6 @@ bool VariableExpander::ExpandValue(base::Value* value) const {
     case base::Value::Type::BINARY:
     case base::Value::Type::NONE: {
       // Nothing to do here.
-      break;
-    }
-
-    // TODO(crbug.com/859477): Remove after root cause is found.
-    case base::Value::Type::DEAD: {
-      CHECK(false);
       break;
     }
   }

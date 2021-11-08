@@ -7,15 +7,13 @@
 
 #include <memory>
 
-#include "ash/app_list/app_list_export.h"
 #include "ash/app_list/views/search_result_base_view.h"
+#include "ash/ash_export.h"
 #include "base/macros.h"
 
 namespace views {
 class BoxLayout;
 class ImageView;
-class InkDrop;
-class InkDropRipple;
 class Label;
 }  // namespace views
 
@@ -24,8 +22,7 @@ namespace ash {
 class AppListViewDelegate;
 
 // A chip view that displays a search result.
-class APP_LIST_EXPORT SearchResultSuggestionChipView
-    : public SearchResultBaseView {
+class ASH_EXPORT SearchResultSuggestionChipView : public SearchResultBaseView {
  public:
   explicit SearchResultSuggestionChipView(AppListViewDelegate* view_delegate);
   SearchResultSuggestionChipView(const SearchResultSuggestionChipView&) =
@@ -51,17 +48,13 @@ class APP_LIST_EXPORT SearchResultSuggestionChipView
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   void OnThemeChanged() override;
 
-  // views::InkDropHost:
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
-  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
-
   // ui::LayerOwner:
   std::unique_ptr<ui::Layer> RecreateLayer() override;
 
   void SetIcon(const gfx::ImageSkia& icon);
 
-  void SetText(const base::string16& text);
-  const base::string16& GetText() const;
+  void SetText(const std::u16string& text);
+  const std::u16string& GetText() const;
 
  private:
   // Updates the suggestion chip view's title and icon.
@@ -72,7 +65,7 @@ class APP_LIST_EXPORT SearchResultSuggestionChipView
   void OnButtonPressed(const ui::Event& event);
 
   // Sets rounded corners for the layer with |corner_radius| to clip the chip.
-  void SetRoundedCornersForLayer(int corner_radius);
+  void SetRoundedCornersForLayer(float corner_radius);
 
   AppListViewDelegate* const view_delegate_;  // Owned by AppListView.
 

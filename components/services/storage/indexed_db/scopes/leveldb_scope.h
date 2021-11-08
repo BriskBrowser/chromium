@@ -71,6 +71,9 @@ class LevelDBScope {
   using TearDownCallback = base::RepeatingCallback<void(leveldb::Status)>;
   using CleanupCallback = base::OnceCallback<void(int64_t scope_id)>;
 
+  LevelDBScope(const LevelDBScope&) = delete;
+  LevelDBScope& operator=(const LevelDBScope&) = delete;
+
   ~LevelDBScope();
 
   int64_t scope_id() const {
@@ -116,7 +119,8 @@ class LevelDBScope {
     // This constructor is needed to satisfy the constraints of having default
     // construction of the |empty_ranges_| flat_map below.
     EmptyRangeLessThan();
-    EmptyRangeLessThan(const leveldb::Comparator* comparator);
+    explicit EmptyRangeLessThan(const leveldb::Comparator* comparator);
+    EmptyRangeLessThan(const EmptyRangeLessThan& other);
     EmptyRangeLessThan& operator=(const EmptyRangeLessThan& other);
 
     // The ranges are expected to be disjoint.
@@ -214,8 +218,6 @@ class LevelDBScope {
   LevelDBScopesCleanupTask cleanup_task_buffer_;
   ScopesEncoder key_encoder_;
   std::string value_buffer_;
-
-  DISALLOW_COPY_AND_ASSIGN(LevelDBScope);
 };
 
 }  // namespace content

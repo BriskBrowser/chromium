@@ -30,9 +30,10 @@ namespace {
 constexpr char kLoggerComponent[] = "CastMediaRouteProvider";
 
 // List of origins allowed to use a PresentationRequest to initiate mirroring.
-constexpr std::array<base::StringPiece, 2> kPresentationApiAllowlist = {
+constexpr std::array<base::StringPiece, 3> kPresentationApiAllowlist = {
     "https://docs.google.com",
     "https://meet.google.com",
+    "https://music.youtube.com",
 };
 
 // Returns a list of origins that are valid for |source_id|. An empty list
@@ -92,12 +93,6 @@ void CastMediaRouteProvider::Init(
   activity_manager_ = std::make_unique<CastActivityManager>(
       media_sink_service_, session_tracker, message_handler_,
       media_router_.get(), logger_.get(), hash_token);
-
-  // TODO(crbug.com/816702): This needs to be set properly according to sinks
-  // discovered.
-  media_router_->OnSinkAvailabilityUpdated(
-      MediaRouteProviderId::CAST,
-      mojom::MediaRouter::SinkAvailability::PER_SOURCE);
 }
 
 CastMediaRouteProvider::~CastMediaRouteProvider() {
@@ -125,7 +120,7 @@ void CastMediaRouteProvider::CreateRoute(const std::string& source_id,
     logger_->LogError(mojom::LogCategory::kRoute, kLoggerComponent,
                       "Attempted to create a route with an invalid sink ID",
                       sink_id, source_id, presentation_id);
-    std::move(callback).Run(base::nullopt, nullptr,
+    std::move(callback).Run(absl::nullopt, nullptr,
                             std::string("Sink not found"),
                             RouteRequestResult::ResultCode::SINK_NOT_FOUND);
     return;
@@ -138,7 +133,7 @@ void CastMediaRouteProvider::CreateRoute(const std::string& source_id,
                       "Attempted to create a route with an invalid source",
                       sink_id, source_id, presentation_id);
     std::move(callback).Run(
-        base::nullopt, nullptr, std::string("Invalid source"),
+        absl::nullopt, nullptr, std::string("Invalid source"),
         RouteRequestResult::ResultCode::NO_SUPPORTED_PROVIDER);
     return;
   }
@@ -158,7 +153,7 @@ void CastMediaRouteProvider::JoinRoute(const std::string& media_source,
       CastMediaSource::FromMediaSourceId(media_source);
   if (!cast_source) {
     std::move(callback).Run(
-        base::nullopt, nullptr, std::string("Invalid source"),
+        absl::nullopt, nullptr, std::string("Invalid source"),
         RouteRequestResult::ResultCode::NO_SUPPORTED_PROVIDER);
     logger_->LogError(mojom::LogCategory::kRoute, kLoggerComponent,
                       "Attempted to join a route with an invalid source", "",
@@ -176,7 +171,7 @@ void CastMediaRouteProvider::JoinRoute(const std::string& media_source,
     // but it's initialized in the same place as |activity_manager_|, so it's
     // almost certainly not available here.
     LOG(ERROR) << "missing activity manager";
-    std::move(callback).Run(base::nullopt, nullptr,
+    std::move(callback).Run(absl::nullopt, nullptr,
                             "Internal error: missing activity manager",
                             RouteRequestResult::ResultCode::UNKNOWN_ERROR);
     return;
@@ -199,7 +194,7 @@ void CastMediaRouteProvider::ConnectRouteByRouteId(
   // the dialog.
   NOTIMPLEMENTED();
   std::move(callback).Run(
-      base::nullopt, nullptr, std::string("Not implemented"),
+      absl::nullopt, nullptr, std::string("Not implemented"),
       RouteRequestResult::ResultCode::NO_SUPPORTED_PROVIDER);
 }
 
@@ -323,8 +318,8 @@ void CastMediaRouteProvider::GetState(GetStateCallback callback) {
 void CastMediaRouteProvider::OnSinkQueryUpdated(
     const MediaSource::Id& source_id,
     const std::vector<MediaSinkInternal>& sinks) {
-  media_router_->OnSinksReceived(MediaRouteProviderId::CAST, source_id, sinks,
-                                 GetOrigins(source_id));
+  media_router_->OnSinksReceived(mojom::MediaRouteProviderId::CAST, source_id,
+                                 sinks, GetOrigins(source_id));
 }
 
 void CastMediaRouteProvider::BroadcastMessageToSinks(

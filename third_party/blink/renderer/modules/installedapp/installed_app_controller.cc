@@ -8,7 +8,6 @@
 
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
-#include "third_party/blink/public/common/manifest/manifest.h"
 #include "third_party/blink/public/mojom/installedapp/related_application.mojom-blink.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom-blink.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -88,7 +87,7 @@ void InstalledAppController::OnGetManifestForRelatedApps(
   provider_->FilterInstalledApps(
       std::move(mojo_related_apps), url,
       WTF::Bind(&InstalledAppController::OnFilterInstalledApps,
-                WrapPersistent(this), WTF::Passed(std::move(callbacks))));
+                WrapPersistent(this), std::move(callbacks)));
 }
 
 void InstalledAppController::OnFilterInstalledApps(

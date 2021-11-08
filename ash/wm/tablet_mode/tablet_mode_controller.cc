@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "ash/accessibility/accessibility_controller_impl.h"
-#include "ash/public/cpp/ash_switches.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -30,6 +30,8 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
+#include "base/cxx17_backports.h"
 #include "base/location.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_macros.h"
@@ -43,6 +45,8 @@
 #include "ui/aura/window_observer.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/compositor/compositor.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
@@ -78,8 +82,7 @@ constexpr float kMaxStableAngle = 340.0f;
 // to prevent entering tablet mode if an erroneous accelerometer reading makes
 // the lid appear to be fully open when the user is opening the lid from a
 // closed position or is closing the lid from an opened position.
-constexpr base::TimeDelta kUnstableLidAngleDuration =
-    base::TimeDelta::FromSeconds(2);
+constexpr base::TimeDelta kUnstableLidAngleDuration = base::Seconds(2);
 
 // When the device approaches vertical orientation (i.e. portrait orientation)
 // the accelerometers for the base and lid approach the same values (i.e.
@@ -100,13 +103,11 @@ constexpr float kHingeVerticalSmoothingMaximum = 8.7f;
 constexpr float kNoisyMagnitudeDeviation = 1.0f;
 
 // Interval between calls to RecordLidAngle().
-constexpr base::TimeDelta kRecordLidAngleInterval =
-    base::TimeDelta::FromHours(1);
+constexpr base::TimeDelta kRecordLidAngleInterval = base::Hours(1);
 
 // Time that should wait to reset |occlusion_tracker_pauser_| on
 // entering/exiting tablet mode.
-constexpr base::TimeDelta kOcclusionTrackerTimeout =
-    base::TimeDelta::FromSeconds(1);
+constexpr base::TimeDelta kOcclusionTrackerTimeout = base::Seconds(1);
 
 // Histogram names for recording animation smoothness when entering or exiting
 // tablet mode.
@@ -259,17 +260,6 @@ constexpr TabletModeController::TabletModeBehavior kOnForDev{
     /*observe_pointer_device_events=*/true,
     /*block_internal_input_device=*/false,
     /*always_show_overview_button=*/true,
-    TabletModeController::ForcePhysicalTabletState::kForceTabletMode,
-};
-
-// Defines the behavior that sticks to physical tablet state. Used to implement
-// the --force-in-tablet-physical-state switch.
-constexpr TabletModeController::TabletModeBehavior kForceOnBySwitch{
-    /*use_sensor=*/false,
-    /*observe_display_events=*/false,
-    /*observe_pointer_device_events=*/true,
-    /*block_internal_input_device=*/true,
-    /*always_show_overview_button=*/false,
     TabletModeController::ForcePhysicalTabletState::kForceTabletMode,
 };
 
@@ -543,14 +533,14 @@ bool TabletModeController::InTabletMode() const {
   return tablet_state_.InTabletMode();
 }
 
-void TabletModeController::ForceUiTabletModeState(
-    base::Optional<bool> enabled) {
+bool TabletModeController::ForceUiTabletModeState(
+    absl::optional<bool> enabled) {
   if (!enabled.has_value()) {
     tablet_mode_behavior_ = kDefault;
     AccelerometerReader::GetInstance()->SetEnabled(true);
     if (!SetIsInTabletPhysicalState(CalculateIsInTabletPhysicalState()))
-      UpdateUiTabletState();
-    return;
+      return UpdateUiTabletState();
+    return true;
   }
   if (*enabled) {
     tablet_mode_behavior_ = kOnForAutotest;
@@ -562,7 +552,7 @@ void TabletModeController::ForceUiTabletModeState(
   // this should not block ScreenOrientationController as the screen may want
   // to be rotated for other factors.
   AccelerometerReader::GetInstance()->SetEnabled(false);
-  SetIsInTabletPhysicalState(CalculateIsInTabletPhysicalState());
+  return SetIsInTabletPhysicalState(CalculateIsInTabletPhysicalState());
 }
 
 void TabletModeController::SetEnabledForTest(bool enabled) {
@@ -587,12 +577,6 @@ void TabletModeController::OnShellInitialized() {
     case UiMode::kNone:
       break;
   }
-
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kForceInTabletPhysicalState)) {
-    tablet_mode_behavior_ = kForceOnBySwitch;
-    SetIsInTabletPhysicalState(CalculateIsInTabletPhysicalState());
-  }
 }
 
 void TabletModeController::OnDisplayConfigurationChanged() {
@@ -613,10 +597,10 @@ void TabletModeController::OnChromeTerminating() {
   if (CanEnterTabletMode()) {
     UMA_HISTOGRAM_CUSTOM_COUNTS("Ash.TouchView.TouchViewActiveTotal",
                                 total_tablet_mode_time_.InMinutes(), 1,
-                                base::TimeDelta::FromDays(7).InMinutes(), 50);
+                                base::Days(7).InMinutes(), 50);
     UMA_HISTOGRAM_CUSTOM_COUNTS("Ash.TouchView.TouchViewInactiveTotal",
                                 total_non_tablet_mode_time_.InMinutes(), 1,
-                                base::TimeDelta::FromDays(7).InMinutes(), 50);
+                                base::Days(7).InMinutes(), 50);
     base::TimeDelta total_runtime =
         total_tablet_mode_time_ + total_non_tablet_mode_time_;
     if (total_runtime.InSeconds() > 0) {
@@ -823,6 +807,17 @@ bool TabletModeController::ShouldShowOverviewButton() const {
          tablet_mode_behavior_.always_show_overview_button;
 }
 
+bool TabletModeController::CanEnterTabletMode() const {
+  // If ChromeOS EC lid angle driver is supported, EC can handle lid angle
+  // calculation, and trigger tablet mode at some point.
+  // Otherwise, lid angle calculation is done on Chrome side for convertible
+  // device. If we have ever seen accelerometer data, then HandleHingeRotation
+  // may trigger tablet mode at some point in the future.
+  return IsBoardTypeMarkedAsTabletCapable() &&
+         (is_ec_lid_angle_driver_supported_.value_or(false) ||
+          have_seen_accelerometer_data_);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // TabletModeController, private:
 
@@ -911,11 +906,10 @@ void TabletModeController::HandleHingeRotation(
   // accuracy.
   float largest_hinge_acceleration =
       std::max(std::abs(base_reading.x()), std::abs(lid_reading.x()));
-  float smoothing_ratio =
-      std::max(0.0f, std::min(1.0f, (largest_hinge_acceleration -
-                                     kHingeVerticalSmoothingStart) /
-                                        (kHingeVerticalSmoothingMaximum -
-                                         kHingeVerticalSmoothingStart)));
+  float smoothing_ratio = base::clamp(
+      (largest_hinge_acceleration - kHingeVerticalSmoothingStart) /
+          (kHingeVerticalSmoothingMaximum - kHingeVerticalSmoothingStart),
+      0.0f, 1.0f);
 
   // We cannot trust the computed lid angle when the device is held vertically.
   bool is_angle_reliable =
@@ -978,7 +972,7 @@ void TabletModeController::HandleHingeRotation(
 }
 
 void TabletModeController::OnGetSwitchStates(
-    base::Optional<chromeos::PowerManagerClient::SwitchStates> result) {
+    absl::optional<chromeos::PowerManagerClient::SwitchStates> result) {
   if (!result.has_value())
     return;
 
@@ -993,13 +987,6 @@ bool TabletModeController::CanUseUnstableLidAngle() const {
   DCHECK(now >= first_unstable_lid_angle_time_);
   const base::TimeDelta elapsed_time = now - first_unstable_lid_angle_time_;
   return elapsed_time >= kUnstableLidAngleDuration;
-}
-
-bool TabletModeController::CanEnterTabletMode() {
-  // If we have ever seen accelerometer data, then HandleHingeRotation may
-  // trigger tablet mode at some point in the future.
-  // All TabletMode-enabled devices can enter tablet mode.
-  return have_seen_accelerometer_data_ || InTabletMode();
 }
 
 void TabletModeController::RecordTabletModeUsageInterval(
@@ -1156,7 +1143,8 @@ void TabletModeController::FinishInitTabletMode() {
       SplitViewController::Get(Shell::GetPrimaryRootWindow())->state();
   if (state == SplitViewController::State::kLeftSnapped ||
       state == SplitViewController::State::kRightSnapped) {
-    Shell::Get()->overview_controller()->StartOverview();
+    Shell::Get()->overview_controller()->StartOverview(
+        OverviewStartAction::kSplitView);
   }
 
   UpdateInternalInputDevicesEventBlocker();
@@ -1298,13 +1286,8 @@ bool TabletModeController::ShouldUiBeInTabletMode() const {
   if (is_in_tablet_physical_state_)
     return true;
 
-  const bool can_enter_tablet_mode =
-      IsBoardTypeMarkedAsTabletCapable() && HasActiveInternalDisplay() &&
-      (is_ec_lid_angle_driver_supported_.value_or(false) ||
-       have_seen_accelerometer_data_);
-
-  return !has_internal_pointing_device_ && can_enter_tablet_mode &&
-         chromeos::IsRunningAsSystemCompositor();
+  return !has_internal_pointing_device_ && CanEnterTabletMode() &&
+         HasActiveInternalDisplay() && chromeos::IsRunningAsSystemCompositor();
 }
 
 bool TabletModeController::SetIsInTabletPhysicalState(bool new_state) {
@@ -1322,7 +1305,7 @@ bool TabletModeController::SetIsInTabletPhysicalState(bool new_state) {
     return true;
 
   UpdateInternalInputDevicesEventBlocker();
-  return true;
+  return false;
 }
 
 bool TabletModeController::UpdateUiTabletState() {

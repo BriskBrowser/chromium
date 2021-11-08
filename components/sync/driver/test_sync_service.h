@@ -26,13 +26,17 @@ namespace syncer {
 class TestSyncService : public SyncService {
  public:
   TestSyncService();
+
+  TestSyncService(const TestSyncService&) = delete;
+  TestSyncService& operator=(const TestSyncService&) = delete;
+
   ~TestSyncService() override;
 
   void SetDisableReasons(DisableReasonSet disable_reasons);
   void SetTransportState(TransportState transport_state);
   void SetLocalSyncEnabled(bool local_sync_enabled);
-  void SetAuthenticatedAccountInfo(const CoreAccountInfo& account_info);
-  void SetIsAuthenticatedAccountPrimary(bool is_primary);
+  void SetAccountInfo(const CoreAccountInfo& account_info);
+  void SetHasSyncConsent(bool has_consent);
   void SetSetupInProgress(bool in_progress);
   void SetAuthError(const GoogleServiceAuthError& auth_error);
   void SetFirstSetupComplete(bool first_setup_complete);
@@ -49,7 +53,7 @@ class TestSyncService : public SyncService {
   void SetTrustedVaultKeyRequired(bool required);
   void SetTrustedVaultKeyRequiredForPreferredDataTypes(bool required);
   void SetTrustedVaultRecoverabilityDegraded(bool degraded);
-  void SetIsUsingSecondaryPassphrase(bool enabled);
+  void SetIsUsingExplicitPassphrase(bool enabled);
 
   void FireStateChanged();
   void FireSyncCycleCompleted();
@@ -60,8 +64,8 @@ class TestSyncService : public SyncService {
   DisableReasonSet GetDisableReasons() const override;
   TransportState GetTransportState() const override;
   bool IsLocalSyncEnabled() const override;
-  CoreAccountInfo GetAuthenticatedAccountInfo() const override;
-  bool IsAuthenticatedAccountPrimary() const override;
+  CoreAccountInfo GetAccountInfo() const override;
+  bool HasSyncConsent() const override;
   GoogleServiceAuthError GetAuthError() const override;
   base::Time GetAuthErrorTime() const override;
   bool RequiresClientUpgrade() const override;
@@ -96,7 +100,6 @@ class TestSyncService : public SyncService {
   base::Location GetUnrecoverableErrorLocationForDebugging() const override;
   void AddProtocolEventObserver(ProtocolEventObserver* observer) override;
   void RemoveProtocolEventObserver(ProtocolEventObserver* observer) override;
-  base::WeakPtr<JsController> GetJsController() override;
   void GetAllNodesForDebugging(
       base::OnceCallback<void(std::unique_ptr<base::ListValue>)> callback)
       override;
@@ -108,6 +111,7 @@ class TestSyncService : public SyncService {
   void AddTrustedVaultRecoveryMethodFromWeb(
       const std::string& gaia_id,
       const std::vector<uint8_t>& public_key,
+      int method_type_hint,
       base::OnceClosure callback) override;
 
   // KeyedService implementation.
@@ -120,7 +124,7 @@ class TestSyncService : public SyncService {
   TransportState transport_state_ = TransportState::ACTIVE;
   bool local_sync_enabled_ = false;
   CoreAccountInfo account_info_;
-  bool account_is_primary_ = true;
+  bool has_sync_consent_ = true;
   bool setup_in_progress_ = false;
   GoogleServiceAuthError auth_error_;
 
@@ -135,8 +139,6 @@ class TestSyncService : public SyncService {
   base::ObserverList<syncer::SyncServiceObserver>::Unchecked observers_;
 
   GURL sync_service_url_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestSyncService);
 };
 
 }  // namespace syncer

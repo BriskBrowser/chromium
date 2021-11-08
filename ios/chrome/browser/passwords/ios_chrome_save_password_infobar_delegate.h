@@ -31,6 +31,11 @@ class IOSChromeSavePasswordInfoBarDelegate
       bool password_update,
       std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save);
 
+  IOSChromeSavePasswordInfoBarDelegate(
+      const IOSChromeSavePasswordInfoBarDelegate&) = delete;
+  IOSChromeSavePasswordInfoBarDelegate& operator=(
+      const IOSChromeSavePasswordInfoBarDelegate&) = delete;
+
   ~IOSChromeSavePasswordInfoBarDelegate() override;
 
   // Returns |delegate| as an IOSChromeSavePasswordInfoBarDelegate, or nullptr
@@ -42,8 +47,8 @@ class IOSChromeSavePasswordInfoBarDelegate
   bool ShouldExpire(const NavigationDetails& details) const override;
 
   // ConfirmInfoBarDelegate implementation.
-  base::string16 GetMessageText() const override;
-  base::string16 GetButtonLabel(InfoBarButton button) const override;
+  std::u16string GetMessageText() const override;
+  std::u16string GetButtonLabel(InfoBarButton button) const override;
   bool Accept() override;
   bool Cancel() override;
   void InfoBarDismissed() override;
@@ -97,8 +102,6 @@ class IOSChromeSavePasswordInfoBarDelegate
 
   // YES if an Infobar is being presented by this delegate.
   bool infobar_presenting_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(IOSChromeSavePasswordInfoBarDelegate);
 };
 
 #endif  // IOS_CHROME_BROWSER_PASSWORDS_IOS_CHROME_SAVE_PASSWORD_INFOBAR_DELEGATE_H_

@@ -13,9 +13,9 @@ import org.junit.runners.model.Statement;
 
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.ScalableTimeout;
-import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
+import org.chromium.chrome.browser.browserservices.intents.WebappInfo;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.webapk.lib.common.WebApkConstants;
@@ -23,7 +23,7 @@ import org.chromium.webapk.lib.common.WebApkConstants;
 /** Custom {@link ChromeActivityTestRule} for tests using a WebAPK {@link WebappActivity}. */
 public class WebApkActivityTestRule extends ChromeActivityTestRule<WebappActivity> {
     /** Time in milliseconds to wait for page to be loaded. */
-    private static final long STARTUP_TIMEOUT = ScalableTimeout.scaleTimeout(10000);
+    private static final long STARTUP_TIMEOUT = 10000;
 
     public WebApkActivityTestRule() {
         super(WebappActivity.class);
@@ -65,7 +65,7 @@ public class WebApkActivityTestRule extends ChromeActivityTestRule<WebappActivit
         Intent intent =
                 new Intent(InstrumentationRegistry.getTargetContext(), WebappActivity.class);
         intent.putExtra(WebApkConstants.EXTRA_WEBAPK_PACKAGE_NAME, "org.chromium.webapk.test");
-        intent.putExtra(ShortcutHelper.EXTRA_URL, startUrl);
+        intent.putExtra(WebappConstants.EXTRA_URL, startUrl);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
         return startWebApkActivity(intent, startUrl);
@@ -91,8 +91,8 @@ public class WebApkActivityTestRule extends ChromeActivityTestRule<WebappActivit
         Intent intent =
                 new Intent(InstrumentationRegistry.getTargetContext(), WebappActivity.class);
         intent.putExtra(WebApkConstants.EXTRA_WEBAPK_PACKAGE_NAME, webApkInfo.webApkPackageName());
-        intent.putExtra(ShortcutHelper.EXTRA_ID, webApkInfo.id());
-        intent.putExtra(ShortcutHelper.EXTRA_URL, webApkInfo.url());
+        intent.putExtra(WebappConstants.EXTRA_ID, webApkInfo.id());
+        intent.putExtra(WebappConstants.EXTRA_URL, webApkInfo.url());
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
         return intent;
     }

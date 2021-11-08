@@ -18,9 +18,11 @@
 #include <string>
 #include <vector>
 
-#include "base/containers/mru_cache.h"
+#include "base/containers/flat_map.h"
+#include "base/containers/lru_cache.h"
 #include "base/macros.h"
 #include "base/observer_list_types.h"
+#include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "net/base/completion_once_callback.h"
@@ -50,6 +52,8 @@
 #include "net/third_party/quiche/src/quic/core/quic_server_id.h"
 #include "net/third_party/quiche/src/quic/core/quic_time.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "url/origin.h"
+#include "url/scheme_host_port.h"
 
 namespace net {
 
@@ -118,6 +122,7 @@ enum QuicConnectionMigrationStatus {
   MIGRATION_STATUS_ON_WRITE_ERROR_DISABLED,
   MIGRATION_STATUS_PATH_DEGRADING_BEFORE_HANDSHAKE_CONFIRMED,
   MIGRATION_STATUS_IDLE_MIGRATION_TIMEOUT,
+  MIGRATION_STATUS_NO_UNUSED_CONNECTION_ID,
   MIGRATION_STATUS_MAX
 };
 
@@ -192,7 +197,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     // Constructs a handle to |session| which was created via the alternative
     // server |destination|.
     Handle(const base::WeakPtr<QuicChromiumClientSession>& session,
-           const HostPortPair& destination);
+           url::SchemeHostPort destination);
     Handle(const Handle& other) = delete;
     ~Handle() override;
 
@@ -263,7 +268,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     quic::QuicServerId server_id() const { return server_id_; }
 
     // Returns the alternative server used for this session.
-    HostPortPair destination() const { return destination_; }
+    const url::SchemeHostPort& destination() const { return destination_; }
 
     // Returns the session's net log.
     const NetLogWithSource& net_log() const { return net_log_; }
@@ -281,6 +286,12 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
 
     // Returns true if the session's connection has sent or received any bytes.
     bool WasEverUsed() const;
+
+    // Retrieves any DNS aliases for the given session key from the map stored
+    // in `stream_factory_`. The alias chain order is preserved in reverse, from
+    // canonical name (i.e. address record name) through to query name.
+    const std::vector<std::string>& GetDnsAliasesForSessionKey(
+        const QuicSessionKey& key) const;
 
    private:
     friend class QuicChromiumClientSession;
@@ -313,7 +324,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     // Underlying session which may be destroyed before this handle.
     base::WeakPtr<QuicChromiumClientSession> session_;
 
-    HostPortPair destination_;
+    url::SchemeHostPort destination_;
 
     // Stream request created by |RequestStream()|.
     std::unique_ptr<StreamRequest> stream_request_;
@@ -344,6 +355,9 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
   // A helper class used to manage a request to create a stream.
   class NET_EXPORT_PRIVATE StreamRequest {
    public:
+    StreamRequest(const StreamRequest&) = delete;
+    StreamRequest& operator=(const StreamRequest&) = delete;
+
     // Cancels any pending stream creation request and resets |stream_| if
     // it has not yet been released.
     ~StreamRequest();
@@ -407,8 +421,6 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     const NetworkTrafficAnnotationTag traffic_annotation_;
 
     base::WeakPtrFactory<StreamRequest> weak_factory_{this};
-
-    DISALLOW_COPY_AND_ASSIGN(StreamRequest);
   };
 
   // This class contains all the context needed for path validation and
@@ -485,6 +497,12 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     QuicChromiumPathValidationWriterDelegate(
         QuicChromiumClientSession* session,
         base::SequencedTaskRunner* task_runner);
+
+    QuicChromiumPathValidationWriterDelegate(
+        const QuicChromiumPathValidationWriterDelegate&) = delete;
+    QuicChromiumPathValidationWriterDelegate& operator=(
+        const QuicChromiumPathValidationWriterDelegate&) = delete;
+
     ~QuicChromiumPathValidationWriterDelegate();
 
     // QuicChromiumPacketWriter::Delegate interface.
@@ -510,7 +528,6 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     quic::QuicSocketAddress peer_address_;
     base::WeakPtrFactory<QuicChromiumPathValidationWriterDelegate>
         weak_factory_{this};
-    DISALLOW_COPY_AND_ASSIGN(QuicChromiumPathValidationWriterDelegate);
   };
 
   // Constructs a new session which will own |connection|, but not
@@ -533,7 +550,6 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
       std::unique_ptr<QuicServerInfo> server_info,
       const QuicSessionKey& session_key,
       bool require_confirmation,
-      quic::QuicStreamId max_allowed_push_id,
       bool migrate_sesion_early_v2,
       bool migrate_session_on_network_change_v2,
       NetworkChangeNotifier::NetworkHandle default_network,
@@ -560,6 +576,11 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
       base::SequencedTaskRunner* task_runner,
       std::unique_ptr<SocketPerformanceWatcher> socket_performance_watcher,
       NetLog* net_log);
+
+  QuicChromiumClientSession(const QuicChromiumClientSession&) = delete;
+  QuicChromiumClientSession& operator=(const QuicChromiumClientSession&) =
+      delete;
+
   ~QuicChromiumClientSession() override;
 
   void Initialize() override;
@@ -648,6 +669,8 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
       quic::QuicStreamId id,
       const spdy::SpdyStreamPrecedence& new_precedence) override;
   void OnHttp3GoAway(uint64_t id) override;
+  void OnAcceptChFrameReceivedViaAlps(
+      const quic::AcceptChFrame& frame) override;
 
   // quic::QuicSession methods:
   QuicChromiumClientStream* CreateOutgoingBidirectionalStream() override;
@@ -698,6 +721,8 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
   // MultiplexedSession methods:
   bool GetRemoteEndpoint(IPEndPoint* endpoint) override;
   bool GetSSLInfo(SSLInfo* ssl_info) const override;
+  base::StringPiece GetAcceptChViaAlpsForOrigin(
+      const url::Origin& origin) const override;
 
   // Performs a crypto handshake with the server.
   int CryptoConnect(CompletionOnceCallback callback);
@@ -731,7 +756,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
 
   // Returns a Handle to this session.
   std::unique_ptr<QuicChromiumClientSession::Handle> CreateHandle(
-      const HostPortPair& destination);
+      url::SchemeHostPort destination);
 
   // Returns the number of client hello messages that have been sent on the
   // crypto stream. If the handshake has completed then this is one greater
@@ -778,7 +803,9 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
   // successful migration, or false if number of migrations exceeds
   // kMaxReadersPerQuicSession. Takes ownership of |socket|, |reader|,
   // and |writer|.
-  bool MigrateToSocket(std::unique_ptr<DatagramClientSocket> socket,
+  bool MigrateToSocket(const quic::QuicSocketAddress& self_address,
+                       const quic::QuicSocketAddress& peer_address,
+                       std::unique_ptr<DatagramClientSocket> socket,
                        std::unique_ptr<QuicChromiumPacketReader> reader,
                        std::unique_ptr<QuicChromiumPacketWriter> writer);
 
@@ -834,16 +861,17 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
 
   quic::ParsedQuicVersion GetQuicVersion() const;
 
-  // Returns the estimate of dynamically allocated memory in bytes.
-  // See base/trace_event/memory_usage_estimator.h.
-  // TODO(xunjieli): It only tracks |packet_readers_|. Write a better estimate.
-  size_t EstimateMemoryUsage() const;
-
   // Looks for a push that matches the provided parameters.
   quic::QuicClientPromisedInfo* GetPromised(const GURL& url,
                                             const QuicSessionKey& session_key);
 
   bool require_confirmation() const { return require_confirmation_; }
+
+  // Retrieves any DNS aliases for the given session key from the map stored
+  // in `stream_factory_`. The alias chain order is preserved in reverse, from
+  // canonical name (i.e. address record name) through to query name.
+  const std::vector<std::string>& GetDnsAliasesForSessionKey(
+      const QuicSessionKey& key) const;
 
  protected:
   // quic::QuicSession methods:
@@ -1044,8 +1072,6 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
   bool headers_include_h2_stream_dependency_;
   Http2PriorityDependencies priority_dependency_state_;
 
-  quic::QuicStreamId max_allowed_push_id_;
-
   bool attempted_zero_rtt_;
 
   size_t num_migrations_;
@@ -1058,9 +1084,10 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
 
   QuicChromiumPathValidationWriterDelegate path_validation_writer_delegate_;
 
-  base::WeakPtrFactory<QuicChromiumClientSession> weak_factory_{this};
+  // Map of origin to Accept-CH header field values received via ALPS.
+  base::flat_map<url::Origin, std::string> accept_ch_entries_received_via_alps_;
 
-  DISALLOW_COPY_AND_ASSIGN(QuicChromiumClientSession);
+  base::WeakPtrFactory<QuicChromiumClientSession> weak_factory_{this};
 };
 
 }  // namespace net

@@ -26,7 +26,6 @@ namespace ash {
 namespace {
 
 using assistant::ui::kOnboardingMaxSessionsShown;
-using chromeos::assistant::features::IsBetterOnboardingEnabled;
 
 }  // namespace
 
@@ -102,7 +101,7 @@ void AssistantViewDelegateImpl::OnNotificationButtonPressed(
     const std::string& notification_id,
     int notification_button_index) {
   assistant_controller_->notification_controller()->OnNotificationClicked(
-      notification_id, notification_button_index, /*reply=*/base::nullopt);
+      notification_id, notification_button_index, /*reply=*/absl::nullopt);
 }
 
 void AssistantViewDelegateImpl::OnOnboardingShown() {
@@ -122,9 +121,6 @@ void AssistantViewDelegateImpl::OnSuggestionPressed(
 }
 
 bool AssistantViewDelegateImpl::ShouldShowOnboarding() const {
-  if (!IsBetterOnboardingEnabled())
-    return false;
-
   // Once a user has had an interaction with Assistant, we will no longer show
   // onboarding in that user session.
   auto* interaction_controller = AssistantInteractionController::Get();
@@ -151,7 +147,7 @@ bool AssistantViewDelegateImpl::ShouldShowOnboarding() const {
   // The feature will start to show only for new users which we define as users
   // who haven't had an interaction with Assistant in the last 28 days.
   return interaction_controller->GetTimeDeltaSinceLastInteraction() >=
-         base::TimeDelta::FromDays(28);
+         base::Days(28);
 }
 
 }  // namespace ash

@@ -25,8 +25,9 @@ import org.robolectric.annotation.Config;
 
 import org.chromium.base.UserDataHost;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.blink.mojom.DisplayMode;
 import org.chromium.cc.input.BrowserControlsState;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.CloseButtonVisibilityManager;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
 import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar;
@@ -34,7 +35,6 @@ import org.chromium.chrome.browser.customtabs.features.toolbar.CustomTabToolbarC
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
-import org.chromium.chrome.browser.webapps.WebDisplayMode;
 import org.chromium.chrome.test.util.browser.webapps.WebApkIntentDataProviderBuilder;
 import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.components.security_state.SecurityStateModel;
@@ -92,7 +92,7 @@ public class TrustedWebActivityBrowserControlsVisibilityManagerTest {
      */
     @Test
     public void testMinimalUiDisplayMode() {
-        mController = buildController(buildWebApkIntentDataProvider(WebDisplayMode.MINIMAL_UI));
+        mController = buildController(buildWebApkIntentDataProvider(DisplayMode.MINIMAL_UI));
         mController.updateIsInAppMode(true);
         assertEquals(BrowserControlsState.BOTH, getLastBrowserControlsState());
         assertFalse(getLastCloseButtonVisibility());
@@ -104,7 +104,7 @@ public class TrustedWebActivityBrowserControlsVisibilityManagerTest {
      */
     @Test
     public void testStandaloneDisplayMode() {
-        mController = buildController(buildWebApkIntentDataProvider(WebDisplayMode.STANDALONE));
+        mController = buildController(buildWebApkIntentDataProvider(DisplayMode.STANDALONE));
         mController.updateIsInAppMode(true);
         assertEquals(BrowserControlsState.HIDDEN, getLastBrowserControlsState());
     }
@@ -115,7 +115,7 @@ public class TrustedWebActivityBrowserControlsVisibilityManagerTest {
      */
     @Test
     public void testStandaloneDisplayModeOutOfScope() {
-        mController = buildController(buildWebApkIntentDataProvider(WebDisplayMode.STANDALONE));
+        mController = buildController(buildWebApkIntentDataProvider(DisplayMode.STANDALONE));
         mController.updateIsInAppMode(true);
         mController.updateIsInAppMode(false);
         assertEquals(BrowserControlsState.BOTH, getLastBrowserControlsState());
@@ -149,7 +149,7 @@ public class TrustedWebActivityBrowserControlsVisibilityManagerTest {
     }
 
     private BrowserServicesIntentDataProvider buildWebApkIntentDataProvider(
-            @WebDisplayMode int displayMode) {
+            @DisplayMode.EnumType int displayMode) {
         WebApkIntentDataProviderBuilder intentDataProviderBuilder =
                 new WebApkIntentDataProviderBuilder(
                         "org.chromium.webapk.abcd", "https://pwa.rocks/");

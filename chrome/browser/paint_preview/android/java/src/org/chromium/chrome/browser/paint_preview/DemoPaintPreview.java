@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.paint_preview;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.components.paintpreview.player.PlayerManager;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationHandle;
@@ -105,6 +106,20 @@ public class DemoPaintPreview implements PlayerManager.Listener {
         removePaintPreviewDemo();
     }
 
+    @Override
+    public boolean isAccessibilityEnabled() {
+        return ChromeAccessibilityUtil.get().isAccessibilityEnabled();
+    }
+
+    @Override
+    public void onAccessibilityNotSupported() {
+        if (isAccessibilityEnabled()) {
+            Toast.makeText(mTab.getContext(), R.string.paint_preview_demo_no_accessibility,
+                         Toast.LENGTH_LONG)
+                    .show();
+        }
+    }
+
     private class DemoPaintPreviewTabObserver extends EmptyTabObserver {
         @Override
         public void onDidStartNavigation(Tab tab, NavigationHandle navigationHandle) {
@@ -112,7 +127,7 @@ public class DemoPaintPreview implements PlayerManager.Listener {
 
             // Ignore navigations from subframes. We should only remove the paint preview
             // player when the user navigates to a new page.
-            if (!navigationHandle.isInMainFrame()) return;
+            if (!navigationHandle.isInPrimaryMainFrame()) return;
 
             removePaintPreviewDemo();
         }

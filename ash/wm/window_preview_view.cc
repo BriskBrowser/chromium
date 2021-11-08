@@ -153,7 +153,7 @@ void WindowPreviewView::AddWindow(aura::Window* window) {
   DCHECK(!unparented_transient_children_.contains(window));
   DCHECK(!window->HasObserver(this));
 
-  if (window->type() == aura::client::WINDOW_TYPE_POPUP)
+  if (window->GetType() == aura::client::WINDOW_TYPE_POPUP)
     return;
 
   if (!window->HasObserver(this))
@@ -180,9 +180,12 @@ void WindowPreviewView::RemoveWindow(aura::Window* window) {
   if (it == mirror_views_.end())
     return;
 
-  RemoveChildView(it->second);
+  auto* view = it->second;
+  RemoveChildView(view);
   it->first->RemoveObserver(this);
+
   mirror_views_.erase(it);
+  delete view;
 }
 
 gfx::RectF WindowPreviewView::GetUnionRect() const {

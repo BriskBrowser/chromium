@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/feature_list.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
@@ -47,11 +48,12 @@
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/process_manager.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/manifest_handlers/web_accessible_resources_info.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/value_builder.h"
-#include "extensions/test/background_page_watcher.h"
+#include "extensions/test/extension_background_page_waiter.h"
 #include "extensions/test/test_extension_dir.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -66,9 +68,8 @@ namespace extensions {
 namespace {
 
 bool IsExtensionProcessSharingAllowed() {
-  // TODO(nick): Currently, process sharing is allowed even in
-  // --site-per-process. Lock this down.  https://crbug.com/766267
-  return true;
+  return !base::FeatureList::IsEnabled(
+      extensions_features::kStrictExtensionIsolation);
 }
 
 void AddFrameToSet(std::set<content::RenderFrameHost*>* frames,
@@ -157,40 +158,44 @@ class NavigationCompletedObserver : public content::WebContentsObserver {
   explicit NavigationCompletedObserver(content::WebContents* web_contents)
       : content::WebContentsObserver(web_contents),
         message_loop_runner_(new content::MessageLoopRunner) {
-    web_contents->ForEachFrame(
-        base::BindRepeating(&AddFrameToSet, base::Unretained(&frames_)));
+    web_contents->GetMainFrame()->ForEachRenderFrameHost(base::BindRepeating(
+        &AddFrameToSet, base::Unretained(&live_original_frames_)));
   }
 
+  NavigationCompletedObserver(const NavigationCompletedObserver&) = delete;
+  NavigationCompletedObserver& operator=(const NavigationCompletedObserver&) =
+      delete;
+
   void Wait() {
-    if (!AreAllFramesInTab())
+    if (!AllLiveRenderFrameHostsAreCurrent())
       message_loop_runner_->Run();
   }
 
   void RenderFrameDeleted(content::RenderFrameHost* rfh) override {
-    if (frames_.erase(rfh) != 0 && message_loop_runner_->loop_running() &&
-        AreAllFramesInTab()) {
+    if (live_original_frames_.erase(rfh) != 0 &&
+        message_loop_runner_->loop_running() &&
+        AllLiveRenderFrameHostsAreCurrent()) {
       message_loop_runner_->Quit();
     }
   }
 
  private:
-  // Check whether all frames that were recorded at the construction of this
-  // class are still part of the tab.
-  bool AreAllFramesInTab() {
+  // Checks whether the RenderFrameHosts that were current when this class was
+  // constructed and that are still alive are all current (e.g. not pending
+  // deletion). If there is a non-current RenderFrameHost that is still alive,
+  // this returns false.
+  bool AllLiveRenderFrameHostsAreCurrent() {
     std::set<content::RenderFrameHost*> current_frames;
-    web_contents()->ForEachFrame(
+    web_contents()->GetMainFrame()->ForEachRenderFrameHost(
         base::BindRepeating(&AddFrameToSet, base::Unretained(&current_frames)));
-    for (content::RenderFrameHost* frame : frames_) {
-      if (!base::Contains(current_frames, frame))
-        return false;
-    }
-    return true;
+
+    return base::STLSetDifference<std::set<content::RenderFrameHost*>>(
+               live_original_frames_, current_frames)
+               .size() == 0;
   }
 
-  std::set<content::RenderFrameHost*> frames_;
+  std::set<content::RenderFrameHost*> live_original_frames_;
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(NavigationCompletedObserver);
 };
 
 // Exists as a browser test because ExtensionHosts are hard to create without
@@ -268,7 +273,7 @@ class ProcessManagerBrowserTest : public ExtensionBrowserTest {
     NavigationCompletedObserver observer(
         browser()->tab_strip_model()->GetActiveWebContents());
 
-    ui_test_utils::NavigateToURL(browser(), url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
     // Wait until the last RenderFrameHosts are deleted. This wait doesn't take
     // long.
@@ -337,7 +342,7 @@ IN_PROC_BROWSER_TEST_F(DefaultProfileExtensionBrowserTest, NoExtensionHosts) {
   // Explicitly get the original and off-the-record-profiles, since on CrOS,
   // the signin profile (profile()) is the off-the-record version.
   Profile* original = profile()->GetOriginalProfile();
-  Profile* otr = original->GetPrimaryOTRProfile();
+  Profile* otr = original->GetPrimaryOTRProfile(/*create_if_needed=*/true);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   EXPECT_EQ(profile(), otr);
   EXPECT_TRUE(chromeos::ProfileHelper::IsSigninProfile(original));
@@ -427,7 +432,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
       content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME,
       content::NotificationService::AllSources());
   // Open popup in the first extension.
-  test_util->Press(0);
+  test_util->Press(popup->id());
   frame_observer.Wait();
   ASSERT_TRUE(test_util->HasPopup());
 
@@ -542,14 +547,15 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   ProcessManager* pm = ProcessManager::Get(profile());
 
   // 1 background page + 1 frame in background page from Extension 2.
-  BackgroundPageWatcher(pm, extension2).WaitForOpen();
+  ExtensionBackgroundPageWaiter(profile(), *extension2).WaitForBackgroundOpen();
   EXPECT_EQ(2u, pm->GetAllFrames().size());
   EXPECT_EQ(0u, pm->GetRenderFrameHostsForExtension(extension1->id()).size());
   EXPECT_EQ(2u, pm->GetRenderFrameHostsForExtension(extension2->id()).size());
 
   ExecuteScriptInBackgroundPageNoWait(extension2->id(),
                                       "setTimeout(window.close, 0)");
-  BackgroundPageWatcher(pm, extension2).WaitForClose();
+  ExtensionBackgroundPageWaiter(profile(), *extension2)
+      .WaitForBackgroundClosed();
   EXPECT_EQ(0u, pm->GetAllFrames().size());
   EXPECT_EQ(0u, pm->GetRenderFrameHostsForExtension(extension2->id()).size());
 
@@ -975,7 +981,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
       permissions::PermissionRequestManager::ACCEPT_ALL);
 
   content::DownloadTestObserverTerminal observer(
-      content::BrowserContext::GetDownloadManager(profile()), 1,
+      profile()->GetDownloadManager(), 1,
       content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL);
   std::string script = base::StringPrintf(
       R"(var anchor = document.createElement('a');
@@ -1183,7 +1189,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
             .AppendASCII("simple");
   const Extension* app = LoadAndLaunchApp(dir);
   EXPECT_TRUE(app->permissions_data()->HasAPIPermission(
-      extensions::APIPermission::kWebView));
+      extensions::mojom::APIPermissionID::kWebView));
 
   auto app_windows = AppWindowRegistry::Get(browser()->profile())
                          ->GetAppWindowsForApp(app->id());
@@ -1218,7 +1224,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   content::WebContents* web_tab =
       browser()->tab_strip_model()->GetActiveWebContents();
   GURL web_url(embedded_test_server()->GetURL("/title1.html"));
-  ui_test_utils::NavigateToURL(browser(), web_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), web_url));
   EXPECT_NE(web_tab, app_tab);
   EXPECT_NE(web_tab->GetMainFrame()->GetProcess(), app_rfh->GetProcess());
 
@@ -1426,7 +1432,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   // Navigate to the "extension 1" page with two iframes.
   auto url = extension1->url().Resolve("two_iframes.html");
   NavigateToURL(url);
-  auto initiator_origin = base::Optional<url::Origin>(url::Origin::Create(url));
+  auto initiator_origin = absl::optional<url::Origin>(url::Origin::Create(url));
 
   ProcessManager* pm = ProcessManager::Get(profile());
   content::WebContents* tab =
@@ -1648,7 +1654,11 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   {
     content::RenderFrameHost* subframe = ChildFrameAt(main_frame, 0);
     EXPECT_EQ(subframe->GetProcess(), main_frame->GetProcess());
-    EXPECT_EQ(subframe->GetSiteInstance(), main_frame->GetSiteInstance());
+    if (content::AreStrictSiteInstancesEnabled()) {
+      EXPECT_NE(subframe->GetSiteInstance(), main_frame->GetSiteInstance());
+    } else {
+      EXPECT_EQ(subframe->GetSiteInstance(), main_frame->GetSiteInstance());
+    }
   }
 }
 
@@ -1761,9 +1771,10 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest, HostedAppAlerts) {
   EXPECT_EQ(extension, pm->GetExtensionForWebContents(tab));
   javascript_dialogs::AppModalDialogManager* js_dialog_manager =
       javascript_dialogs::AppModalDialogManager::GetInstance();
-  base::string16 hosted_app_title = base::ASCIIToUTF16("hosted_app");
-  EXPECT_EQ(hosted_app_title, js_dialog_manager->GetTitle(
-                                  tab, tab->GetLastCommittedURL().GetOrigin()));
+  std::u16string hosted_app_title = u"hosted_app";
+  EXPECT_EQ(hosted_app_title,
+            js_dialog_manager->GetTitle(
+                tab, tab->GetMainFrame()->GetLastCommittedOrigin()));
 
   GURL web_url = embedded_test_server()->GetURL("/title1.html");
   ASSERT_TRUE(content::ExecuteScript(
@@ -1776,7 +1787,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest, HostedAppAlerts) {
   EXPECT_EQ(nullptr, pm->GetExtensionForWebContents(new_tab));
   EXPECT_NE(hosted_app_title,
             js_dialog_manager->GetTitle(
-                new_tab, new_tab->GetLastCommittedURL().GetOrigin()));
+                new_tab, new_tab->GetMainFrame()->GetLastCommittedOrigin()));
 }
 
 }  // namespace extensions

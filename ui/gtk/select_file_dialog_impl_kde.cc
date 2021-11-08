@@ -49,6 +49,9 @@ class SelectFileDialogImplKDE : public SelectFileDialogImpl {
                           base::nix::DesktopEnvironment desktop,
                           const std::string& kdialog_version);
 
+  SelectFileDialogImplKDE(const SelectFileDialogImplKDE&) = delete;
+  SelectFileDialogImplKDE& operator=(const SelectFileDialogImplKDE&) = delete;
+
  protected:
   ~SelectFileDialogImplKDE() override;
 
@@ -58,7 +61,7 @@ class SelectFileDialogImplKDE : public SelectFileDialogImpl {
   // SelectFileDialog implementation.
   // |params| is user data we pass back via the Listener interface.
   void SelectFileImpl(Type type,
-                      const base::string16& title,
+                      const std::u16string& title,
                       const base::FilePath& default_path,
                       const FileTypeInfo* file_types,
                       int file_type_index,
@@ -181,8 +184,6 @@ class SelectFileDialogImplKDE : public SelectFileDialogImpl {
   scoped_refptr<base::SequencedTaskRunner> pipe_task_runner_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(SelectFileDialogImplKDE);
 };
 
 // static
@@ -252,7 +253,7 @@ bool SelectFileDialogImplKDE::IsRunning(gfx::NativeWindow parent_window) const {
 // We ignore |default_extension|.
 void SelectFileDialogImplKDE::SelectFileImpl(
     Type type,
-    const base::string16& title,
+    const std::u16string& title,
     const base::FilePath& default_path,
     const FileTypeInfo* file_types,
     int file_type_index,

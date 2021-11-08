@@ -126,12 +126,29 @@ CWV_EXPORT
 @property(nonatomic, readonly, nonnull) CWVBackForwardList* backForwardList;
 
 // Enables Chrome's custom logic to handle long press and force touch. Defaults
-// to YES. To use the system context menu this must be set to NO.
+// to NO.
 // This class property setting should only be changed BEFORE any
 // CWVWebViewConfiguration instance is initialized.
-@property(nonatomic, class) BOOL chromeLongPressAndForceTouchHandlingEnabled;
+@property(nonatomic, class) BOOL chromeContextMenuEnabled;
+
+// Set this to customize the underlying WKWebView's inputAccessoryView. Setting
+// to nil means to use the WKWebView's default inputAccessoryView instead.
+//
+// In order to be displayed properly, this UIView must:
+// - Set |translatesAutoresizingMaskIntoConstraints| to |NO|.
+// - Return a non-zero CGSize in |intrinsicContentSize|.
+//
+// Explicitly redeclared this property to allow customization according to
+// https://developer.apple.com/documentation/uikit/uiresponder/1621119-inputaccessoryview?language=objc
+@property(nonatomic, strong, nullable) UIView* inputAccessoryView;
+
+// Allows full customization of the user agent.
+// Similar to -[WKWebView customUserAgent], but applies to all instances.
+// If non-nil, this is used instead of |userAgentProduct|.
+@property(nonatomic, class, copy, nullable) NSString* customUserAgent;
 
 // The User Agent product string used to build the full User Agent.
+// Deprecated. Use |customUserAgent| instead.
 + (NSString*)userAgentProduct;
 
 // Customizes the User Agent string by inserting |product|. It should be of the
@@ -144,6 +161,8 @@ CWV_EXPORT
 // Setting |product| is only guaranteed to affect web views which have not yet
 // been initialized. However, exisiting web views could also be affected
 // depending upon their internal state.
+//
+// Deprecated. Use |customUserAgent| instead.
 + (void)setUserAgentProduct:(NSString*)product;
 
 // Use this method to set the necessary credentials used to communicate with
@@ -163,6 +182,8 @@ CWV_EXPORT
 // |*createdWKWebView| if |createdWKWebView| is not nil.
 // |*createdWKWebView| will be provided only if |wkConfiguration| is provided,
 // otherwise it will always be reset to nil.
+// IMPORTANT NOTE: Also create a new WKUserContentController and set it in the
+// |wkConfiguration| before calling this method.
 //
 // IMPORTANT: Use |*createdWKWebView| just as a return value of
 // -[WKNavigationDelegate

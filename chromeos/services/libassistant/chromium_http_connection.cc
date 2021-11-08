@@ -13,9 +13,12 @@
 #include "base/logging.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
+#include "build/buildflag.h"
+#include "chromeos/assistant/internal/buildflags.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/load_flags.h"
 #include "services/network/public/cpp/header_util.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -150,6 +153,17 @@ void ChromiumHttpConnection::Start() {
     case Method::HEAD:
       resource_request->method = "HEAD";
       break;
+#if BUILDFLAG(BUILD_LIBASSISTANT_152S)
+    case Method::PATCH:
+      resource_request->method = "PATCH";
+      break;
+    case Method::PUT:
+      resource_request->method = "PUT";
+      break;
+    case Method::DELETE:
+      resource_request->method = "DELETE";
+      break;
+#endif  // BUILD_LIBASSISTANT_152S
   }
   resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
 
@@ -271,10 +285,10 @@ void ChromiumHttpConnection::OnDataReceived(base::StringPiece string_piece,
     // notification to the delegate and cache the response part.
     on_resume_callback_ = std::move(resume);
     DCHECK(partial_response_cache_.empty());
-    partial_response_cache_ = string_piece.as_string();
+    partial_response_cache_ = std::string(string_piece);
   } else {
     DCHECK(partial_response_cache_.empty());
-    delegate_->OnPartialResponse(string_piece.as_string());
+    delegate_->OnPartialResponse(std::string(string_piece));
     std::move(resume).Run();
   }
 }

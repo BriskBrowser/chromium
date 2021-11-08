@@ -15,10 +15,10 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_install_pref.h"
 #include "extensions/browser/preload_check.h"
 #include "extensions/common/manifest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Profile;
 
@@ -39,6 +39,9 @@ class UnpackedInstaller
   using CompletionCallback = base::OnceCallback<void(const Extension* extension,
                                                      const base::FilePath&,
                                                      const std::string&)>;
+
+  UnpackedInstaller(const UnpackedInstaller&) = delete;
+  UnpackedInstaller& operator=(const UnpackedInstaller&) = delete;
 
   static scoped_refptr<UnpackedInstaller> Create(
       ExtensionService* extension_service);
@@ -129,7 +132,7 @@ class UnpackedInstaller
   // is allowed. Loads the extension, validates extension locales and persists
   // the ruleset for the Declarative Net Request API, if needed. In case of an
   // error, returns false and populates |error|.
-  bool LoadExtension(Manifest::Location location,
+  bool LoadExtension(mojom::ManifestLocation location,
                      int flags,
                      std::string* error);
 
@@ -174,15 +177,13 @@ class UnpackedInstaller
   CompletionCallback callback_;
 
   // Override default file access.
-  base::Optional<bool> allow_file_access_;
+  absl::optional<bool> allow_file_access_;
 
   // Override default incognito access.
-  base::Optional<bool> allow_incognito_access_;
+  absl::optional<bool> allow_incognito_access_;
 
   // Specify an install param.
-  base::Optional<std::string> install_param_;
-
-  DISALLOW_COPY_AND_ASSIGN(UnpackedInstaller);
+  absl::optional<std::string> install_param_;
 };
 
 }  // namespace extensions

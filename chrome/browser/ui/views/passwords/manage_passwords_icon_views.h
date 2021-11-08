@@ -8,8 +8,8 @@
 #include "chrome/browser/ui/passwords/manage_passwords_icon_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/image_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 class CommandUpdater;
 
@@ -35,7 +35,7 @@ class ManagePasswordsIconViews : public ManagePasswordsIconView,
   void OnExecuting(PageActionIconView::ExecuteSource source) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   const gfx::VectorIcon& GetVectorIcon() const override;
-  base::string16 GetTextForTooltipAndAccessibleName() const override;
+  std::u16string GetTextForTooltipAndAccessibleName() const override;
 
   // views::View:
   void AboutToRequestFocusFromTabTraversal(bool reverse) override;

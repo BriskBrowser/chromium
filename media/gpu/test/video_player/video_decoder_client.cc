@@ -22,8 +22,8 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
-#include "media/gpu/chromeos/chromeos_video_decoder_factory.h"
 #include "media/gpu/chromeos/platform_video_frame_pool.h"
+#include "media/gpu/chromeos/video_decoder_pipeline.h"
 #include "media/gpu/chromeos/video_frame_converter.h"
 #endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
 
@@ -36,7 +36,7 @@ namespace {
 // only dereferenced after rescheduling the task on the specified task runner.
 template <typename F, typename... Args>
 void CallbackThunk(
-    base::Optional<base::WeakPtr<VideoDecoderClient>> decoder_client,
+    absl::optional<base::WeakPtr<VideoDecoderClient>> decoder_client,
     scoped_refptr<base::SequencedTaskRunner> task_runner,
     F f,
     Args... args) {
@@ -185,16 +185,11 @@ void VideoDecoderClient::CreateDecoderTask(bool* success,
   switch (decoder_client_config_.implementation) {
     case DecoderImplementation::kVD:
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
-      if (decoder_client_config_.allocation_mode == AllocationMode::kImport) {
-        decoder_ = ChromeosVideoDecoderFactory::Create(
-            base::ThreadTaskRunnerHandle::Get(),
-            std::make_unique<PlatformVideoFramePool>(
-                gpu_memory_buffer_factory_),
-            std::make_unique<VideoFrameConverter>(),
-            std::make_unique<NullMediaLog>());
-      } else {
-        LOG(ERROR) << "VD-based video decoders only support import mode";
-      }
+      decoder_ = VideoDecoderPipeline::Create(
+          base::ThreadTaskRunnerHandle::Get(),
+          std::make_unique<PlatformVideoFramePool>(gpu_memory_buffer_factory_),
+          std::make_unique<VideoFrameConverter>(),
+          std::make_unique<NullMediaLog>());
 #endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
       break;
     case DecoderImplementation::kVDA:
@@ -203,7 +198,6 @@ void VideoDecoderClient::CreateDecoderTask(bool* success,
       // can use the TestVDAVideoDecoder wrapper here to test VDA-based video
       // decoders.
       decoder_ = std::make_unique<TestVDAVideoDecoder>(
-          decoder_client_config_.allocation_mode,
           decoder_client_config_.implementation ==
               DecoderImplementation::kVDVDA,
           gfx::ColorSpace(), frame_renderer_.get(), gpu_memory_buffer_factory_);
@@ -323,7 +317,7 @@ void VideoDecoderClient::DecodeNextFragmentTask() {
 
   num_outstanding_decode_requests_++;
 
-  // Throw event when we encounter a config info in a H.264 stream.
+  // Throw event when we encounter a config info in a H.264/HEVC stream.
   if (has_config_info)
     FireEvent(VideoPlayerEvent::kConfigInfo);
 }

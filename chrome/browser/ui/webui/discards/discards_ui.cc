@@ -98,6 +98,10 @@ class DiscardsDetailsProviderImpl : public discards::mojom::DetailsProvider {
       mojo::PendingReceiver<discards::mojom::DetailsProvider> receiver)
       : receiver_(this, std::move(receiver)) {}
 
+  DiscardsDetailsProviderImpl(const DiscardsDetailsProviderImpl&) = delete;
+  DiscardsDetailsProviderImpl& operator=(const DiscardsDetailsProviderImpl&) =
+      delete;
+
   ~DiscardsDetailsProviderImpl() override {}
 
   // discards::mojom::DetailsProvider overrides:
@@ -145,7 +149,7 @@ class DiscardsDetailsProviderImpl : public discards::mojom::DetailsProvider {
       info->is_auto_discardable =
           tab_lifecycle_unit_external->IsAutoDiscardable();
       info->id = lifecycle_unit->GetID();
-      base::Optional<float> reactivation_score =
+      absl::optional<float> reactivation_score =
           resource_coordinator::TabActivityWatcher::GetInstance()
               ->CalculateReactivationScore(contents);
       info->has_reactivation_score = reactivation_score.has_value();
@@ -202,8 +206,6 @@ class DiscardsDetailsProviderImpl : public discards::mojom::DetailsProvider {
 
  private:
   mojo::Receiver<discards::mojom::DetailsProvider> receiver_;
-
-  DISALLOW_COPY_AND_ASSIGN(DiscardsDetailsProviderImpl);
 };
 
 }  // namespace

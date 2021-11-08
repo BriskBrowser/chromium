@@ -113,6 +113,7 @@ class CORE_EXPORT HTMLInputElement
   // its value can be protected from memorization by autofill or keyboards.
   bool HasBeenPasswordField() const;
 
+  bool IsCheckable() const;
   bool checked() const;
   void setChecked(
       bool,
@@ -187,11 +188,11 @@ class CORE_EXPORT HTMLInputElement
   // delay the 'input' event with EventQueueScope.
   void SetValueFromRenderer(const String&);
 
-  base::Optional<uint32_t> selectionStartForBinding(ExceptionState&) const;
-  base::Optional<uint32_t> selectionEndForBinding(ExceptionState&) const;
+  absl::optional<uint32_t> selectionStartForBinding(ExceptionState&) const;
+  absl::optional<uint32_t> selectionEndForBinding(ExceptionState&) const;
   String selectionDirectionForBinding(ExceptionState&) const;
-  void setSelectionStartForBinding(base::Optional<uint32_t>, ExceptionState&);
-  void setSelectionEndForBinding(base::Optional<uint32_t>, ExceptionState&);
+  void setSelectionStartForBinding(absl::optional<uint32_t>, ExceptionState&);
+  void setSelectionEndForBinding(absl::optional<uint32_t>, ExceptionState&);
   void setSelectionDirectionForBinding(const String&, ExceptionState&);
   void setSelectionRangeForBinding(unsigned start,
                                    unsigned end,
@@ -353,6 +354,8 @@ class CORE_EXPORT HTMLInputElement
     form_element_pii_type_ = form_element_pii_type;
   }
 
+  void showPicker(ExceptionState&);
+
  protected:
   void DefaultEventHandler(Event&) override;
   void CreateShadowSubtree();
@@ -447,8 +450,8 @@ class CORE_EXPORT HTMLInputElement
 
   void AddToRadioButtonGroup();
   void RemoveFromRadioButtonGroup();
-  ComputedStyle* CustomStyleForLayoutObject(const StyleRecalcContext&) override;
-  void DidRecalcStyle(const StyleRecalcChange) override;
+  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+      const StyleRecalcContext&) override;
 
   void MaybeReportPiiMetrics();
 

@@ -11,12 +11,9 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "base/timer/elapsed_timer.h"
-#include "base/timer/timer.h"
-#include "chrome/browser/installable/digital_asset_links/digital_asset_links_handler.h"
 #include "chrome/browser/lookalikes/digital_asset_links_cross_validator.h"
 #include "chrome/browser/lookalikes/lookalike_url_blocking_page.h"
-#include "components/site_engagement/core/mojom/site_engagement_details.mojom.h"
+#include "components/digital_asset_links/digital_asset_links_handler.h"
 #include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
@@ -50,6 +47,7 @@ class LookalikeUrlNavigationThrottle : public content::NavigationThrottle {
   ~LookalikeUrlNavigationThrottle() override;
 
   // content::NavigationThrottle:
+  ThrottleCheckResult WillStartRequest() override;
   ThrottleCheckResult WillProcessResponse() override;
   const char* GetNameForLogging() override;
 
@@ -71,7 +69,9 @@ class LookalikeUrlNavigationThrottle : public content::NavigationThrottle {
 
   // A void-returning variant, only used with deferred throttle results (e.g.
   // when we need to fetch engaged sites list or digital asset link manifests).
-  void PerformChecksDeferred(const std::vector<DomainInfo>& engaged_sites);
+  // |start| is the time at which the navigation was deferred, for metrics.
+  void PerformChecksDeferred(base::TimeTicks start,
+                             const std::vector<DomainInfo>& engaged_sites);
 
   // Returns whether |url| is a lookalike, setting |match_type| and
   // |suggested_url| appropriately. Used in PerformChecks() on a per-URL basis.
@@ -92,7 +92,8 @@ class LookalikeUrlNavigationThrottle : public content::NavigationThrottle {
   ThrottleCheckResult ShowInterstitial(const GURL& safe_domain,
                                        const GURL& lookalike_domain,
                                        ukm::SourceId source_id,
-                                       LookalikeUrlMatchType match_type);
+                                       LookalikeUrlMatchType match_type,
+                                       bool triggered_by_initial_url);
 
   // Checks digital asset links of |lookalike_domain| and |safe_domain| and
   // shows a full page interstitial if either manifest validation fails.
@@ -100,13 +101,15 @@ class LookalikeUrlNavigationThrottle : public content::NavigationThrottle {
       const GURL& safe_domain,
       const GURL& lookalike_domain,
       ukm::SourceId source_id,
-      LookalikeUrlMatchType match_type);
+      LookalikeUrlMatchType match_type,
+      bool triggered_by_initial_url);
 
   // Callback for digital asset link manifest validations.
   void OnManifestValidationResult(const GURL& safe_domain,
                                   const GURL& lookalike_domain,
                                   ukm::SourceId source_id,
                                   LookalikeUrlMatchType match_type,
+                                  bool triggered_by_initial_url,
                                   bool validation_success);
 
   Profile* profile_;

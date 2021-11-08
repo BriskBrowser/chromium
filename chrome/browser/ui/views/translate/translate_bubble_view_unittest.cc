@@ -37,7 +37,7 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
   explicit MockTranslateBubbleModel(TranslateBubbleModel::ViewState view_state)
       : view_state_transition_(view_state),
         error_type_(translate::TranslateErrors::NONE),
-        original_language_index_(1),
+        source_language_index_(1),
         target_language_index_(2),
         never_translate_language_(false),
         never_translate_site_(false),
@@ -48,9 +48,9 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
         translate_called_(false),
         revert_translation_called_(false),
         translation_declined_(false),
-        original_language_index_on_translation_(-1),
+        source_language_index_on_translation_(-1),
         target_language_index_on_translation_(-1),
-        can_blocklist_site_(true) {}
+        can_add_site_to_never_prompt_list(true) {}
 
   TranslateBubbleModel::ViewState GetViewState() const override {
     return view_state_transition_.view_state();
@@ -72,26 +72,24 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
 
   int GetNumberOfTargetLanguages() const override { return 1000; }
 
-  base::string16 GetSourceLanguageNameAt(int index) const override {
-    return base::ASCIIToUTF16("English");
+  std::u16string GetSourceLanguageNameAt(int index) const override {
+    return u"English";
   }
 
-  base::string16 GetTargetLanguageNameAt(int index) const override {
-    return base::ASCIIToUTF16("English");
+  std::u16string GetTargetLanguageNameAt(int index) const override {
+    return u"English";
   }
 
-  std::string GetOriginalLanguageCode() const override {
-    if (original_language_index_ == 0)
+  std::string GetSourceLanguageCode() const override {
+    if (source_language_index_ == 0)
       return "und";
     return "eng-US";
   }
 
-  int GetOriginalLanguageIndex() const override {
-    return original_language_index_;
-  }
+  int GetSourceLanguageIndex() const override { return source_language_index_; }
 
-  void UpdateOriginalLanguageIndex(int index) override {
-    original_language_index_ = index;
+  void UpdateSourceLanguageIndex(int index) override {
+    source_language_index_ = index;
   }
 
   int GetTargetLanguageIndex() const override { return target_language_index_; }
@@ -139,7 +137,7 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
 
   void Translate() override {
     translate_called_ = true;
-    original_language_index_on_translation_ = original_language_index_;
+    source_language_index_on_translation_ = source_language_index_;
     target_language_index_on_translation_ = target_language_index_;
   }
 
@@ -148,20 +146,23 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
   void OnBubbleClosing() override {}
 
   bool IsPageTranslatedInCurrentLanguages() const override {
-    return original_language_index_on_translation_ ==
-               original_language_index_ &&
+    return source_language_index_on_translation_ == source_language_index_ &&
            target_language_index_on_translation_ == target_language_index_;
   }
 
-  bool CanBlocklistSite() override { return can_blocklist_site_; }
+  bool CanAddSiteToNeverPromptList() override {
+    return can_add_site_to_never_prompt_list;
+  }
 
-  void SetCanBlocklistSite(bool value) { can_blocklist_site_ = value; }
+  void SetCanAddSiteToNeverPromptList(bool value) {
+    can_add_site_to_never_prompt_list = value;
+  }
 
   void ReportUIInteraction(translate::UIInteraction ui_interaction) override {}
 
   TranslateBubbleViewStateTransition view_state_transition_;
   translate::TranslateErrors::Type error_type_;
-  int original_language_index_;
+  int source_language_index_;
   int target_language_index_;
   bool never_translate_language_;
   bool never_translate_site_;
@@ -172,9 +173,9 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
   bool translate_called_;
   bool revert_translation_called_;
   bool translation_declined_;
-  int original_language_index_on_translation_;
+  int source_language_index_on_translation_;
   int target_language_index_on_translation_;
-  bool can_blocklist_site_;
+  bool can_add_site_to_never_prompt_list;
 };
 
 }  // namespace
@@ -261,7 +262,7 @@ TEST_F(TranslateBubbleViewTest, OptionsMenuNeverTranslateLanguage) {
 
 TEST_F(TranslateBubbleViewTest, OptionsMenuNeverTranslateSite) {
   // NEVER_TRANSLATE_SITE should only show up for sites that can be blocklisted.
-  mock_model_->SetCanBlocklistSite(true);
+  mock_model_->SetCanAddSiteToNeverPromptList(true);
   CreateAndShowBubble();
 
   EXPECT_FALSE(mock_model_->never_translate_site_);
@@ -349,6 +350,45 @@ TEST_F(TranslateBubbleViewTest, AlwaysTranslateCheckboxAndDoneButton) {
   EXPECT_EQ(1, mock_model_->set_always_translate_called_count_);
 }
 
+TEST_F(TranslateBubbleViewTest, SourceResetButton) {
+  CreateAndShowBubble();
+  bubble_->SwitchView(TranslateBubbleModel::VIEW_STATE_SOURCE_LANGUAGE);
+
+  // If there is no change in language selection, the reset button should be
+  // disabled.
+  EXPECT_FALSE(bubble_->advanced_reset_button_source_->GetEnabled());
+
+  // Change the language selection. The reset button should be enabled.
+  bubble_->source_language_combobox_->SetSelectedIndex(10);
+  bubble_->SourceLanguageChanged();
+  EXPECT_EQ(10, bubble_->source_language_combobox_->GetSelectedIndex());
+  EXPECT_TRUE(bubble_->advanced_reset_button_source_->GetEnabled());
+
+  // Press the reset button. Language should change back to initial selection.
+  PressButton(TranslateBubbleView::BUTTON_ID_RESET);
+  EXPECT_EQ(1, bubble_->source_language_combobox_->GetSelectedIndex());
+  EXPECT_FALSE(bubble_->advanced_reset_button_source_->GetEnabled());
+}
+
+TEST_F(TranslateBubbleViewTest, TargetResetButton) {
+  CreateAndShowBubble();
+  bubble_->SwitchView(TranslateBubbleModel::VIEW_STATE_TARGET_LANGUAGE);
+
+  // If there is no change in language selection, the reset button should be
+  // disabled.
+  EXPECT_FALSE(bubble_->advanced_reset_button_target_->GetEnabled());
+
+  // Change the language selection. The reset button should be enabled.
+  bubble_->target_language_combobox_->SetSelectedIndex(10);
+  bubble_->TargetLanguageChanged();
+  EXPECT_EQ(10, bubble_->target_language_combobox_->GetSelectedIndex());
+  EXPECT_TRUE(bubble_->advanced_reset_button_target_->GetEnabled());
+
+  // Press the reset button. Language should change back to initial selection.
+  PressButton(TranslateBubbleView::BUTTON_ID_RESET);
+  EXPECT_EQ(2, bubble_->target_language_combobox_->GetSelectedIndex());
+}
+
 TEST_F(TranslateBubbleViewTest, SourceDoneButton) {
   CreateAndShowBubble();
   bubble_->SwitchView(TranslateBubbleModel::VIEW_STATE_SOURCE_LANGUAGE);
@@ -362,7 +402,7 @@ TEST_F(TranslateBubbleViewTest, SourceDoneButton) {
   bubble_->TargetLanguageChanged();
   PressButton(TranslateBubbleView::BUTTON_ID_DONE);
   EXPECT_TRUE(mock_model_->translate_called_);
-  EXPECT_EQ(10, mock_model_->original_language_index_);
+  EXPECT_EQ(10, mock_model_->source_language_index_);
   EXPECT_EQ(20, mock_model_->target_language_index_);
 
   EXPECT_EQ(TranslateBubbleModel::VIEW_STATE_AFTER_TRANSLATE,
@@ -382,7 +422,7 @@ TEST_F(TranslateBubbleViewTest, TargetDoneButton) {
   bubble_->TargetLanguageChanged();
   PressButton(TranslateBubbleView::BUTTON_ID_DONE);
   EXPECT_TRUE(mock_model_->translate_called_);
-  EXPECT_EQ(10, mock_model_->original_language_index_);
+  EXPECT_EQ(10, mock_model_->source_language_index_);
   EXPECT_EQ(20, mock_model_->target_language_index_);
 
   EXPECT_EQ(TranslateBubbleModel::VIEW_STATE_AFTER_TRANSLATE,
@@ -414,7 +454,7 @@ TEST_F(TranslateBubbleViewTest, DoneButtonWithoutTranslating) {
 }
 
 TEST_F(TranslateBubbleViewTest, OptionsMenuRespectsBlocklistSite) {
-  mock_model_->SetCanBlocklistSite(false);
+  mock_model_->SetCanAddSiteToNeverPromptList(false);
   CreateAndShowBubble();
 
   TriggerOptionsMenu();
@@ -429,7 +469,7 @@ TEST_F(TranslateBubbleViewTest, OptionsMenuRespectsBlocklistSite) {
 
 TEST_F(TranslateBubbleViewTest, MenuOptionsHiddenOnUnknownSource) {
   // Set source language to "Unknown".
-  mock_model_->UpdateOriginalLanguageIndex(0);
+  mock_model_->UpdateSourceLanguageIndex(0);
   CreateAndShowBubble();
 
   TriggerOptionsMenu();

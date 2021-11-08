@@ -11,6 +11,7 @@
 #include "cc/paint/paint_worklet_input.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/geometry/float_size.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -18,9 +19,16 @@ namespace blink {
 // CSS paint worklet.
 class CORE_EXPORT PaintWorkletInput : public cc::PaintWorkletInput {
  public:
+  enum class PaintWorkletInputType {
+    kCSS,
+    kBackgroundColor,
+    kBoxShadow,
+    kClipPath,
+  };
+
   // PaintWorkletInput implementation
   gfx::SizeF GetSize() const override {
-    return gfx::SizeF(container_size_.Width(), container_size_.Height());
+    return gfx::SizeF(container_size_.width(), container_size_.height());
   }
   int WorkletId() const override { return worklet_id_; }
   const cc::PaintWorkletInput::PropertyKeys& GetPropertyKeys() const override {
@@ -30,9 +38,9 @@ class CORE_EXPORT PaintWorkletInput : public cc::PaintWorkletInput {
   // These accessors are safe on any thread.
   const FloatSize& ContainerSize() const { return container_size_; }
 
+  virtual PaintWorkletInputType GetType() const = 0;
+
  protected:
-  PaintWorkletInput(const FloatSize& container_size, int worklet_id)
-      : container_size_(container_size), worklet_id_(worklet_id) {}
   PaintWorkletInput(const FloatSize& container_size,
                     int worklet_id,
                     cc::PaintWorkletInput::PropertyKeys property_keys)
@@ -43,6 +51,8 @@ class CORE_EXPORT PaintWorkletInput : public cc::PaintWorkletInput {
   ~PaintWorkletInput() override = default;
 
  private:
+  bool IsCSSPaintWorkletInput() const override { return true; }
+
   const FloatSize container_size_;
   const int worklet_id_;
 
@@ -52,6 +62,13 @@ class CORE_EXPORT PaintWorkletInput : public cc::PaintWorkletInput {
   // the compositor, used by this PaintWorklet as an input at paint time. The
   // worklet provides a list of the properties that it uses as inputs.
   cc::PaintWorkletInput::PropertyKeys property_keys_;
+};
+
+template <>
+struct DowncastTraits<PaintWorkletInput> {
+  static bool AllowFrom(const cc::PaintWorkletInput& worklet_input) {
+    return worklet_input.IsCSSPaintWorkletInput();
+  }
 };
 
 }  // namespace blink

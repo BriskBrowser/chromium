@@ -18,12 +18,18 @@
 class MockPasswordAccessoryController : public PasswordAccessoryController {
  public:
   MockPasswordAccessoryController();
+
+  MockPasswordAccessoryController(const MockPasswordAccessoryController&) =
+      delete;
+  MockPasswordAccessoryController& operator=(
+      const MockPasswordAccessoryController&) = delete;
+
   ~MockPasswordAccessoryController() override;
 
   MOCK_METHOD(
       void,
       SavePasswordsForOrigin,
-      ((const std::map<base::string16, const password_manager::PasswordForm*>&),
+      ((const std::map<std::u16string, const password_manager::PasswordForm*>&),
        (const url::Origin&)));
   MOCK_METHOD(void,
               RefreshSuggestionsForField,
@@ -38,13 +44,13 @@ class MockPasswordAccessoryController : public PasswordAccessoryController {
               RegisterFillingSourceObserver,
               (FillingSourceObserver),
               (override));
-  MOCK_METHOD(base::Optional<autofill::AccessorySheetData>,
+  MOCK_METHOD(absl::optional<autofill::AccessorySheetData>,
               GetSheetData,
               (),
               (const, override));
   MOCK_METHOD(void,
               OnFillingTriggered,
-              (const autofill::UserInfo::Field&),
+              (autofill::FieldGlobalId, const autofill::AccessorySheetField&),
               (override));
   MOCK_METHOD(void,
               OnOptionSelected,
@@ -54,9 +60,6 @@ class MockPasswordAccessoryController : public PasswordAccessoryController {
               OnToggleChanged,
               (autofill::AccessoryAction toggled_action, bool enabled),
               (override));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockPasswordAccessoryController);
 };
 
 #endif  // CHROME_BROWSER_AUTOFILL_MOCK_PASSWORD_ACCESSORY_CONTROLLER_H_

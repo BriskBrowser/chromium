@@ -20,7 +20,7 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "media/media_buildflags.h"
-#include "third_party/widevine/cdm/buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/path_utils.h"
@@ -38,7 +38,7 @@
 #include "base/win/registry.h"
 #endif
 
-#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && BUILDFLAG(ENABLE_WIDEVINE)
+#if BUILDFLAG(ENABLE_WIDEVINE)
 #include "third_party/widevine/cdm/widevine_cdm_common.h"  // nogncheck
 #endif
 
@@ -56,15 +56,13 @@ const base::FilePath::CharType kFilepathSinglePrefExtensions[] =
 
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
-#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && \
-    BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
+#if BUILDFLAG(ENABLE_WIDEVINE)
 // The name of the hint file that tells the latest component updated Widevine
 // CDM directory. This file name should not be changed as otherwise existing
 // Widevine CDMs might not be loaded.
 const base::FilePath::CharType kComponentUpdatedWidevineCdmHint[] =
     FILE_PATH_LITERAL("latest-component-updated-widevine-cdm");
-#endif  // (defined(OS_LINUX) || defined(OS_CHROMEOS)) &&
-        // BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
+#endif  // BUILDFLAG(ENABLE_WIDEVINE)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 const base::FilePath::CharType kChromeOSTPMFirmwareUpdateLocation[] =
@@ -80,6 +78,7 @@ base::FilePath& GetInvalidSpecifiedUserDataDirInternal() {
 
 // Gets the path for internal plugins.
 bool GetInternalPluginsDirectory(base::FilePath* result) {
+#if BUILDFLAG(ENABLE_PLUGINS)
 #if defined(OS_MAC)
   // If called from Chrome, get internal plugins from a subdirectory of the
   // framework.
@@ -90,16 +89,24 @@ bool GetInternalPluginsDirectory(base::FilePath* result) {
     return true;
   }
   // In tests, just look in the module directory (below).
-#endif
+#endif  //  defined(OS_MAC)
 
   // The rest of the world expects plugins in the module directory.
   return base::PathService::Get(base::DIR_MODULE, result);
+#else  // BUILDFLAG(ENABLE_PLUGINS)
+  // Plugins are not enabled, so don't return an internal plugins path.
+  return false;
+#endif
 }
 
 // Gets the path for bundled implementations of components. Note that these
 // implementations should not be used if higher-versioned component-updated
 // implementations are available in DIR_USER_DATA.
 bool GetComponentDirectory(base::FilePath* result) {
+#if defined(OS_FUCHSIA)
+  // TODO(crbug.com/1241871): Support bundled components.
+  return false;
+#else
 #if defined(OS_MAC)
   // If called from Chrome, return the framework's Libraries directory.
   if (base::mac::AmIBundled()) {
@@ -113,6 +120,7 @@ bool GetComponentDirectory(base::FilePath* result) {
 
   // The rest of the world expects components in the module directory.
   return base::PathService::Get(base::DIR_MODULE, result);
+#endif
 }
 
 }  // namespace
@@ -122,8 +130,6 @@ namespace chrome {
 bool PathProvider(int key, base::FilePath* result) {
   // Some keys are just aliases...
   switch (key) {
-    case chrome::DIR_APP:
-      return base::PathService::Get(base::DIR_MODULE, result);
     case chrome::DIR_LOGS:
 #ifdef NDEBUG
       // Release builds write to the data dir
@@ -140,8 +146,6 @@ bool PathProvider(int key, base::FilePath* result) {
       return base::PathService::Get(base::DIR_EXE, result);
 #endif  // defined(OS_MAC)
 #endif  // NDEBUG
-    case chrome::FILE_RESOURCE_MODULE:
-      return base::PathService::Get(base::FILE_MODULE, result);
   }
 
   // Assume that we will not need to create the directory if it does not exist.
@@ -239,7 +243,7 @@ bool PathProvider(int key, base::FilePath* result) {
       cur = base::mac::FrameworkBundlePath();
       cur = cur.Append(FILE_PATH_LITERAL("Resources"));
 #else
-      if (!base::PathService::Get(chrome::DIR_APP, &cur))
+      if (!base::PathService::Get(base::DIR_ASSETS, &cur))
         return false;
       cur = cur.Append(FILE_PATH_LITERAL("resources"));
 #endif
@@ -314,26 +318,21 @@ bool PathProvider(int key, base::FilePath* result) {
       cur = cur.Append(FILE_PATH_LITERAL("pnacl"));
       break;
 
-#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && \
-    BUILDFLAG(BUNDLE_WIDEVINE_CDM)
+#if BUILDFLAG(ENABLE_WIDEVINE)
     case chrome::DIR_BUNDLED_WIDEVINE_CDM:
       if (!GetComponentDirectory(&cur))
         return false;
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
       // TODO(crbug.com/971433): Move Widevine CDM to a separate folder on
-      // ChromeOS so that the manifest can be included.
+      // Chrome OS so that the manifest can be included.
       cur = cur.AppendASCII(kWidevineCdmBaseDirectory);
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
       break;
-#endif  // (defined(OS_LINUX) || defined(OS_CHROMEOS)) &&
-        // BUILDFLAG(BUNDLE_WIDEVINE_CDM)
 
-#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
-    BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
     case chrome::DIR_COMPONENT_UPDATED_WIDEVINE_CDM:
       if (!base::PathService::Get(chrome::DIR_USER_DATA, &cur))
         return false;
-      cur = cur.Append(kWidevineCdmBaseDirectory);
+      cur = cur.AppendASCII(kWidevineCdmBaseDirectory);
       break;
     case chrome::FILE_COMPONENT_WIDEVINE_CDM_HINT:
       if (!base::PathService::Get(chrome::DIR_COMPONENT_UPDATED_WIDEVINE_CDM,
@@ -341,8 +340,7 @@ bool PathProvider(int key, base::FilePath* result) {
         return false;
       cur = cur.Append(kComponentUpdatedWidevineCdmHint);
       break;
-#endif  // (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) &&
-        // BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
+#endif  // BUILDFLAG(ENABLE_WIDEVINE)
 
     case chrome::FILE_RESOURCES_PACK:  // Falls through.
     case chrome::FILE_DEV_UI_RESOURCES_PACK:
@@ -350,7 +348,6 @@ bool PathProvider(int key, base::FilePath* result) {
       cur = base::mac::FrameworkBundlePath();
       cur = cur.Append(FILE_PATH_LITERAL("Resources"))
                .Append(FILE_PATH_LITERAL("resources.pak"));
-      break;
 #elif defined(OS_ANDROID)
       if (!base::PathService::Get(ui::DIR_RESOURCE_PAKS_ANDROID, &cur))
         return false;
@@ -361,9 +358,10 @@ bool PathProvider(int key, base::FilePath* result) {
         cur = cur.Append(FILE_PATH_LITERAL("resources.pak"));
       }
 #else
-      // If we're not bundled on mac or Android, resources.pak should be next
-      // to the binary (e.g., for unit tests).
-      if (!base::PathService::Get(base::DIR_MODULE, &cur))
+      // If we're not bundled on mac or Android, resources.pak should be in
+      // the "assets" location (e.g. next to the binary, on many platforms, or
+      // in /pkg/data under Fuchsia, etc).
+      if (!base::PathService::Get(base::DIR_ASSETS, &cur))
         return false;
       cur = cur.Append(FILE_PATH_LITERAL("resources.pak"));
 #endif
@@ -390,15 +388,8 @@ bool PathProvider(int key, base::FilePath* result) {
     // will fail if executed from an installed executable (because the
     // generated path won't exist).
     case chrome::DIR_GEN_TEST_DATA:
-#if defined(OS_ANDROID)
-      // On Android, our tests don't have permission to write to DIR_MODULE.
-      // gtest/test_runner.py pushes data to external storage.
-      if (!base::PathService::Get(base::DIR_SOURCE_ROOT, &cur))
+      if (!base::PathService::Get(base::DIR_GEN_TEST_DATA_ROOT, &cur))
         return false;
-#else
-      if (!base::PathService::Get(base::DIR_MODULE, &cur))
-        return false;
-#endif
       cur = cur.Append(FILE_PATH_LITERAL("test_data"));
       if (!base::PathExists(cur))  // We don't want to create this.
         return false;
@@ -451,6 +442,10 @@ bool PathProvider(int key, base::FilePath* result) {
     }
 #endif
     case chrome::DIR_EXTERNAL_EXTENSIONS:
+#if defined(OS_FUCHSIA)
+      // TODO(crbug.com/1241872): Support external extensions.
+      return false;
+#else
 #if defined(OS_MAC)
       if (!chrome::GetGlobalApplicationSupportDirectory(&cur))
         return false;
@@ -467,17 +462,23 @@ bool PathProvider(int key, base::FilePath* result) {
       create_dir = true;
 #endif
       break;
+#endif
 
     case chrome::DIR_DEFAULT_APPS:
+#if defined(OS_FUCHSIA)
+      // TODO(crbug.com/1241872): Support default-installed apps.
+      return false;
+#else
 #if defined(OS_MAC)
       cur = base::mac::FrameworkBundlePath();
       cur = cur.Append(FILE_PATH_LITERAL("Default Apps"));
 #else
-      if (!base::PathService::Get(chrome::DIR_APP, &cur))
+      if (!base::PathService::Get(base::DIR_MODULE, &cur))
         return false;
       cur = cur.Append(FILE_PATH_LITERAL("default_apps"));
 #endif
       break;
+#endif
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC)
     case chrome::DIR_NATIVE_MESSAGING:

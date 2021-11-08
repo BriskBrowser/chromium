@@ -6,9 +6,9 @@
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/current_thread.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ui/views/test/view_event_test_base.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -35,11 +35,14 @@ const int kSubMenuBaseId = 200;
 //  virtual int GetItemCount() const = 0;
 //  virtual ItemType GetTypeAt(int index) const = 0;
 //  virtual int GetCommandIdAt(int index) const = 0;
-//  virtual base::string16 GetLabelAt(int index) const = 0;
+//  virtual std::u16string GetLabelAt(int index) const = 0;
 class CommonMenuModel : public ui::MenuModel {
  public:
   CommonMenuModel() {
   }
+
+  CommonMenuModel(const CommonMenuModel&) = delete;
+  CommonMenuModel& operator=(const CommonMenuModel&) = delete;
 
   ~CommonMenuModel() override {}
 
@@ -75,9 +78,6 @@ class CommonMenuModel : public ui::MenuModel {
   ui::MenuModel* GetSubmenuModelAt(int index) const override { return nullptr; }
 
   void ActivatedAt(int index) override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CommonMenuModel);
 };
 
 class SubMenuModel : public CommonMenuModel {
@@ -85,6 +85,9 @@ class SubMenuModel : public CommonMenuModel {
   SubMenuModel()
       : showing_(false) {
   }
+
+  SubMenuModel(const SubMenuModel&) = delete;
+  SubMenuModel& operator=(const SubMenuModel&) = delete;
 
   ~SubMenuModel() override {}
 
@@ -102,9 +105,7 @@ class SubMenuModel : public CommonMenuModel {
     return index + kSubMenuBaseId;
   }
 
-  base::string16 GetLabelAt(int index) const override {
-    return base::ASCIIToUTF16("Item");
-  }
+  std::u16string GetLabelAt(int index) const override { return u"Item"; }
 
   void MenuWillShow() override { showing_ = true; }
 
@@ -112,14 +113,15 @@ class SubMenuModel : public CommonMenuModel {
   void MenuWillClose() override { showing_ = false; }
 
   bool showing_;
-
-  DISALLOW_COPY_AND_ASSIGN(SubMenuModel);
 };
 
 class TopMenuModel : public CommonMenuModel {
  public:
   TopMenuModel() {
   }
+
+  TopMenuModel(const TopMenuModel&) = delete;
+  TopMenuModel& operator=(const TopMenuModel&) = delete;
 
   ~TopMenuModel() override {}
 
@@ -137,17 +139,13 @@ class TopMenuModel : public CommonMenuModel {
     return index + kTopMenuBaseId;
   }
 
-  base::string16 GetLabelAt(int index) const override {
-    return base::ASCIIToUTF16("submenu");
-  }
+  std::u16string GetLabelAt(int index) const override { return u"submenu"; }
 
   MenuModel* GetSubmenuModelAt(int index) const override {
     return &sub_menu_model_;
   }
 
   mutable SubMenuModel sub_menu_model_;
-
-  DISALLOW_COPY_AND_ASSIGN(TopMenuModel);
 };
 
 }  // namespace
@@ -177,7 +175,7 @@ class MenuModelAdapterTest : public ViewEventTestBase {
     auto button = std::make_unique<views::MenuButton>(
         base::BindRepeating(&MenuModelAdapterTest::ButtonPressed,
                             base::Unretained(this)),
-        base::ASCIIToUTF16("Menu Adapter Test"));
+        u"Menu Adapter Test");
     button_ = button.get();
     return button;
   }

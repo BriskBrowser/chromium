@@ -12,15 +12,24 @@
 // Delegate protocol for UnifiedConsentViewController.
 @protocol UnifiedConsentViewControllerDelegate<NSObject>
 
+// Returns whether there are policies disabling Sync for at least one data type.
+- (BOOL)unifiedConsentCoordinatorHasManagedSyncDataType;
+
+// Returns true if there are account restrictions.
+- (BOOL)unifiedConsentCoordinatorHasAccountRestrictions;
+
 // Called when the user taps on the settings link.
 - (void)unifiedConsentViewControllerDidTapSettingsLink:
     (UnifiedConsentViewController*)controller;
 
-// Called when the user taps at |point| on the IdentityPickerView. |point| is in
-// the window coordinates.
-- (void)unifiedConsentViewControllerDidTapIdentityPickerView:
+// Performs operations needed to open management help page.
+- (void)unifiedConsentViewControllerDidTapManagementLearnMore;
+
+// Called when the user taps at |point| on the IdentityButtonControl. |point| is
+// in the window coordinates.
+- (void)unifiedConsentViewControllerDidTapIdentityButtonControl:
             (UnifiedConsentViewController*)controller
-                                                     atPoint:(CGPoint)point;
+                                                        atPoint:(CGPoint)point;
 
 // Called when the user scrolls down to the bottom (or when the view controller
 // is loaded with no scroll needed).

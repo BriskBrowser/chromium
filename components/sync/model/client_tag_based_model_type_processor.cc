@@ -21,10 +21,15 @@
 #include "components/sync/base/time.h"
 #include "components/sync/engine/commit_queue.h"
 #include "components/sync/engine/data_type_activation_response.h"
+#include "components/sync/engine/entity_data.h"
+#include "components/sync/engine/model_type_processor_metrics.h"
 #include "components/sync/engine/model_type_processor_proxy.h"
 #include "components/sync/model/client_tag_based_remote_update_handler.h"
+#include "components/sync/model/model_type_change_processor.h"
 #include "components/sync/model/processor_entity.h"
 #include "components/sync/model/type_entities_count.h"
+#include "components/sync/protocol/entity_metadata.pb.h"
+#include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/protocol/proto_value_conversions.h"
 
 namespace syncer {
@@ -336,7 +341,7 @@ void ClientTagBasedModelTypeProcessor::ReportErrorImpl(const ModelError& error,
   // becomes available which happens in ConnectIfReady() upon OnSyncStarting().
 }
 
-base::Optional<ModelError> ClientTagBasedModelTypeProcessor::GetError() const {
+absl::optional<ModelError> ClientTagBasedModelTypeProcessor::GetError() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return model_error_;
 }
@@ -669,7 +674,7 @@ void ClientTagBasedModelTypeProcessor::OnCommitCompleted(
   // to clear.
   entity_tracker_->ClearTransientSyncState();
 
-  base::Optional<ModelError> error = bridge_->ApplySyncChanges(
+  absl::optional<ModelError> error = bridge_->ApplySyncChanges(
       std::move(metadata_change_list), std::move(entity_change_list));
 
   if (!error_response_list.empty()) {
@@ -693,14 +698,19 @@ void ClientTagBasedModelTypeProcessor::OnCommitFailed(
     SyncCommitError commit_error) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (base::FeatureList::IsEnabled(
-          switches::kSyncResetEntitiesStateOnCommitFailure)) {
-    // Entities weren't committed. Reset their
-    // |commit_requested_sequence_number| to commit them again on next sync
-    // cycle.
-    entity_tracker_->ClearTransientSyncState();
+  switch (bridge_->OnCommitAttemptFailed(commit_error)) {
+    case ModelTypeSyncBridge::CommitAttemptFailedBehavior::
+        kShouldRetryOnNextCycle:
+      // Entities weren't committed. Reset their
+      // |commit_requested_sequence_number| to commit them again on next sync
+      // cycle.
+      entity_tracker_->ClearTransientSyncState();
+      break;
+    case ModelTypeSyncBridge::CommitAttemptFailedBehavior::
+        kDontRetryOnNextCycle:
+      // Do nothing and leave all entities in a transient state.
+      break;
   }
-  bridge_->OnCommitAttemptFailed(commit_error);
 }
 
 void ClientTagBasedModelTypeProcessor::OnUpdateReceived(
@@ -710,11 +720,15 @@ void ClientTagBasedModelTypeProcessor::OnUpdateReceived(
   DCHECK(model_ready_to_sync_);
   DCHECK(!model_error_);
 
+  const bool is_initial_sync = !IsTrackingMetadata();
+  LogUpdatesReceivedByProcessorHistogram(type_, is_initial_sync,
+                                         updates.size());
+
   if (!ValidateUpdate(model_type_state, updates)) {
     return;
   }
 
-  base::Optional<ModelError> error;
+  absl::optional<ModelError> error;
 
   // We call OnFullUpdateReceived when it's the first sync cycle, or when
   // we get a garbage collection directive from the server telling us to clear
@@ -723,7 +737,6 @@ void ClientTagBasedModelTypeProcessor::OnUpdateReceived(
   // always clear all data. We do this to allow the server to replace all data
   // on the client, without having to know exactly which entities the client
   // has.
-  const bool is_initial_sync = !IsTrackingMetadata();
   const bool treating_as_full_update =
       is_initial_sync || HasClearAllDirective(model_type_state);
   if (treating_as_full_update) {
@@ -750,8 +763,8 @@ void ClientTagBasedModelTypeProcessor::OnUpdateReceived(
                 : "Persistent",
             ModelTypeToHistogramSuffix(type_)),
         configuration_duration,
-        /*min=*/base::TimeDelta::FromMilliseconds(1),
-        /*min=*/base::TimeDelta::FromSeconds(60),
+        /*min=*/base::Milliseconds(1),
+        /*min=*/base::Seconds(60),
         /*buckets=*/50);
   }
 
@@ -800,7 +813,7 @@ bool ClientTagBasedModelTypeProcessor::ValidateUpdate(
   return true;
 }
 
-base::Optional<ModelError>
+absl::optional<ModelError>
 ClientTagBasedModelTypeProcessor::OnFullUpdateReceived(
     const sync_pb::ModelTypeState& model_type_state,
     UpdateResponseDataList updates) {
@@ -888,12 +901,12 @@ ClientTagBasedModelTypeProcessor::OnFullUpdateReceived(
   }
 
   // Let the bridge handle associating and merging the data.
-  base::Optional<ModelError> error = bridge_->MergeSyncData(
+  absl::optional<ModelError> error = bridge_->MergeSyncData(
       std::move(metadata_changes), std::move(entity_data));
   return error;
 }
 
-base::Optional<ModelError>
+absl::optional<ModelError>
 ClientTagBasedModelTypeProcessor::OnIncrementalUpdateReceived(
     const sync_pb::ModelTypeState& model_type_state,
     UpdateResponseDataList updates) {
@@ -1197,12 +1210,6 @@ void ClientTagBasedModelTypeProcessor::
       GetSpecificsFieldNumberFromModelType(type_);
   if (valid_cache_guid && valid_data_type_id) {
     return;
-  }
-
-  // TODO(crbug.com/1079314): add UMA for each case of inconsistent data.
-  if (!valid_data_type_id) {
-    UMA_HISTOGRAM_ENUMERATION("Sync.PersistedModelTypeIdMismatch",
-                              ModelTypeHistogramValue(type_));
   }
 
   ClearAllTrackedMetadataAndResetState();

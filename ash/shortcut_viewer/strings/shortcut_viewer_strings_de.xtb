@@ -5,7 +5,6 @@
 <translation id="104962181688258143">App "Dateien" öffnen</translation>
 <translation id="1122869341872663659"><ph name="N" /> Suchergebnisse für <ph name="QUERY" /> werden angezeigt</translation>
 <translation id="1195667586424773550">Link in Adressleiste des Tabs ziehen</translation>
-<translation id="1204450209689312104">Neues Fenster im Inkognitomodus öffnen</translation>
 <translation id="1251638888133819822">Vollbildlupe ein- oder ausschalten</translation>
 <translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /></translation>
 <translation id="1293699935367580298">Esc</translation>
@@ -15,6 +14,7 @@
 <translation id="1477442857810932985">Zum Zeilenende springen</translation>
 <translation id="1499072997694708844">Alle geöffneten Fenster schließen oder das Laden der aktuellen Seite beenden</translation>
 <translation id="1510238584712386396">Launcher</translation>
+<translation id="1516966594427080024">Neues Fenster im Inkognitomodus öffnen</translation>
 <translation id="152892567002884378">Lauter</translation>
 <translation id="1560480564179555003">"<ph name="SHIFT" />" <ph name="SEPARATOR1" /> "<ph name="ALT" />" <ph name="SEPARATOR2" /> "<ph name="L" />", dann "<ph name="ESC" />"</translation>
 <translation id="1652741121070700329">Zum Anfang des vorherigen Wortes springen</translation>
@@ -29,6 +29,7 @@
 <translation id="1996162290124031907">Zum nächsten Tab wechseln</translation>
 <translation id="2010818616644390445">Auf den letzten Tab im Fenster klicken</translation>
 <translation id="2040706009561734834">Launcher öffnen/schließen</translation>
+<translation id="2086334242442703436">Emoji-Auswahl öffnen</translation>
 <translation id="2088054208777350526">Tastenkombinationen suchen</translation>
 <translation id="2125211348069077981"><ph name="ALT" /><ph name="SEPARATOR" /><ph name="E" /> oder <ph name="F" /></translation>
 <translation id="2145908266289632567">Textbearbeitung</translation>
@@ -51,7 +52,6 @@
 <translation id="2530339807289914946">Auf der Webseite nach unten scrollen</translation>
 <translation id="2530896289327917474">Tastaturnavigation aktivieren oder deaktivieren</translation>
 <translation id="2574014812750545982">Zoomfaktor auf der Seite zurücksetzen</translation>
-<translation id="2596078834055697711">Screenshot von Fenster erstellen</translation>
 <translation id="2685170433750953446">"<ph name="SHIFT" />" <ph name="SEPARATOR1" /> "<ph name="ALT" />" <ph name="SEPARATOR2" /> "<ph name="L" />", dann "<ph name="TAB" />" oder "<ph name="RIGHT" />"</translation>
 <translation id="2750942583782703988">Aktuelle Seite neu laden</translation>
 <translation id="2764005613199379871">Fokus auf Such- und Adressleiste setzen</translation>
@@ -66,12 +66,13 @@
 <translation id="3020183492814296499">Verknüpfungen</translation>
 <translation id="3084301071537457911">Nächstes Element in der Ablage markieren</translation>
 <translation id="309173601632226815">Launcher-Symbol in der Ablage markieren</translation>
-<translation id="3105917916468784889">Screenshot aufnehmen</translation>
 <translation id="3126026824346185272">Strg</translation>
 <translation id="3140353188828248647">Adressleiste fokussieren</translation>
 <translation id="3256109297135787951">Markierung eines Elements in der Ablage entfernen</translation>
 <translation id="3288816184963444640">Aktuelles Fenster schließen</translation>
+<translation id="3350805006883559974">Aktives Fenster im Vordergrund anzeigen</translation>
 <translation id="3407560819924487926">Task-Manager aufrufen</translation>
+<translation id="3417835166382867856">Tabs suchen</translation>
 <translation id="3422679037938588196">Vorherigen Treffer für die Suchanfrage aufrufen</translation>
 <translation id="353037708190149633">Alle geöffneten Webseiten im aktuellen Fenster als Lesezeichen in einem neuen Ordner speichern</translation>
 <translation id="355103131818127604">Link in einem neuen Tab im Hintergrund öffnen</translation>
@@ -107,7 +108,6 @@
 <translation id="4556221320735744018">Hilfe zu Tastenkombinationen öffnen</translation>
 <translation id="4609344656788228519"><ph name="CTRL1" /><ph name="SEPARATOR1" /><ph name="BACK1" /> oder <ph name="CTRL2" /><ph name="SEPARATOR2" /><ph name="SHIFT" /><ph name="SEPARATOR3" /><ph name="BACK2" /></translation>
 <translation id="4628718545549558538">Statusbereich mit dem Kontobild öffnen</translation>
-<translation id="4642092649622328492">Screenshot eines Bildschirmausschnitts erstellen</translation>
 <translation id="4698850295812410683">Eingabestift-Tools einblenden</translation>
 <translation id="4801989101741319327">Zum Ende des nächsten Wortes springen</translation>
 <translation id="4866066940972151697">Nächsten Desktop rechts aktivieren</translation>
@@ -123,6 +123,7 @@
 <translation id="526651782186312376">Text bis zum Zeilenanfang markieren</translation>
 <translation id="5316716239522500219">Monitore spiegeln</translation>
 <translation id="539072479502328326">Angedockte Lupe ein- oder ausschalten</translation>
+<translation id="5466615362193675484">Menü für den Sperrmodus zur Größenänderung öffnen/schließen</translation>
 <translation id="5541719484267030947">Beim Ziehen des Tabs die Taste "<ph name="ESC" />" drücken</translation>
 <translation id="5554139136362089836">Auf der aktuellen Seite suchen</translation>
 <translation id="5563050856984839829">"<ph name="CTRL" />" <ph name="SEPARATOR" /> "<ph name="SHIFT" />" gedrückt halten und auf einen Link klicken</translation>
@@ -146,6 +147,7 @@
 <translation id="6276708887952587684">Seiten-Quelltext anzeigen</translation>
 <translation id="6321940490215594447">Verlauf öffnen</translation>
 <translation id="6340769215862220182">Display heranzoomen</translation>
+<translation id="634687982629734605">Fokus wechseln zwischen: Statusbereich (Bereich mit Kontobild), Launcher, Adressleiste, Lesezeichenleiste (falls sichtbar), offene Webseite und Downloadleiste (falls sichtbar). Wenn ein fokussierbares Dialogfeld angezeigt wird, können Sie den Fokus stattdessen darauf richten.</translation>
 <translation id="6359811074279051077">"<ph name="MODIFIER" />" <ph name="SEPARATOR" /> "<ph name="KEY" />"</translation>
 <translation id="6395172954772765143">Text bis zum Zeilenende markieren</translation>
 <translation id="6425378783626925378">Auf Symbole 1 bis 8 in der Ablage klicken</translation>
@@ -189,7 +191,6 @@
 <translation id="8026334261755873520">Browserdaten löschen</translation>
 <translation id="8130528849632411619">Zum Anfang des Dokuments springen</translation>
 <translation id="8147954207400281792">"<ph name="CTRL" />" <ph name="SEPARATOR" /> "<ph name="K" />" oder "<ph name="E" />"</translation>
-<translation id="8232835244134740473">Fokus wechseln zwischen vorherigen und nächsten Wörtern: Statusbereich (Bereich mit Kontobild), Launcher, Adressleiste, Lesezeichenleiste (falls sichtbar), offene Webseite und Downloadleiste (falls sichtbar).</translation>
 <translation id="8234414138295101081">Bildschirm um 90 Grad drehen</translation>
 <translation id="8241665785394195545">schließende eckige Klammer</translation>
 <translation id="8264941229485248811">Entwicklertools-Inspector ein- oder ausblenden</translation>
@@ -207,6 +208,7 @@
 <translation id="8881584919399569791">Aktives Fenster in nächsten Desktop links verschieben</translation>
 <translation id="88986195241502842">Bildlauf nach unten</translation>
 <translation id="8924883688469390268">Zum vorherigen Nutzer wechseln</translation>
+<translation id="8941626538514548667">Fokus auf Webinhalte im Browser bewegen</translation>
 <translation id="8977648847395357314">Inhalt der Adressleiste auswählen</translation>
 <translation id="8982190978301344584">Menü mit einer Liste der verfügbaren IMEs einblenden</translation>
 <translation id="8990356943438003669"><ph name="ALT" /><ph name="SEPARATOR" /> 1 bis 8</translation>

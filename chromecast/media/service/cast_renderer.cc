@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chromecast/base/task_runner_impl.h"
 #include "chromecast/common/mojom/constants.mojom.h"
 #include "chromecast/media/base/audio_device_ids.h"
@@ -40,7 +40,7 @@ namespace {
 
 // Maximum difference between audio frame PTS and video frame PTS
 // for frames read from the DemuxerStream.
-const base::TimeDelta kMaxDeltaFetcher(base::TimeDelta::FromMilliseconds(2000));
+const base::TimeDelta kMaxDeltaFetcher(base::Milliseconds(2000));
 
 void VideoModeSwitchCompletionCb(::media::PipelineStatusCallback init_cb,
                                  bool success) {
@@ -60,13 +60,15 @@ CastRenderer::CastRenderer(
     VideoModeSwitcher* video_mode_switcher,
     VideoResolutionPolicy* video_resolution_policy,
     const base::UnguessableToken& overlay_plane_id,
-    ::media::mojom::FrameInterfaceFactory* frame_interfaces)
+    ::media::mojom::FrameInterfaceFactory* frame_interfaces,
+    external_service_support::ExternalConnector* connector)
     : backend_factory_(backend_factory),
       task_runner_(task_runner),
       video_mode_switcher_(video_mode_switcher),
       video_resolution_policy_(video_resolution_policy),
       overlay_plane_id_(overlay_plane_id),
       frame_interfaces_(frame_interfaces),
+      connector_(connector),
       client_(nullptr),
       cast_cdm_context_(nullptr),
       media_task_runner_factory_(
@@ -160,8 +162,8 @@ void CastRenderer::OnApplicationMediaInfoReceived(
                        chromecast::mojom::MultiroomInfo::New());
     return;
   }
-  service_connector_->Connect(chromecast::mojom::kChromecastServiceName,
-                              multiroom_manager_.BindNewPipeAndPassReceiver());
+  connector_->BindInterface(chromecast::mojom::kChromecastServiceName,
+                            multiroom_manager_.BindNewPipeAndPassReceiver());
   multiroom_manager_.set_disconnect_handler(
       base::BindOnce(&CastRenderer::OnGetMultiroomInfo, base::Unretained(this),
                      media_resource, client, application_media_info.Clone(),
@@ -198,9 +200,12 @@ void CastRenderer::OnGetMultiroomInfo(
           ? MediaPipelineDeviceParams::kModeIgnorePts
           : MediaPipelineDeviceParams::kModeSyncPts;
 
-  MediaPipelineDeviceParams params(
-      sync_type, backend_task_runner_.get(), AudioContentType::kMedia,
-      ::media::AudioDeviceDescription::kDefaultDeviceId);
+  const std::string& device_id =
+      (multiroom_info->output_device_id.empty()
+           ? ::media::AudioDeviceDescription::kDefaultDeviceId
+           : multiroom_info->output_device_id);
+  MediaPipelineDeviceParams params(sync_type, backend_task_runner_.get(),
+                                   AudioContentType::kMedia, device_id);
   params.session_id = application_media_info->application_session_id;
   params.multiroom = multiroom_info->multiroom;
   params.audio_channel = multiroom_info->audio_channel;
@@ -342,7 +347,7 @@ void CastRenderer::SetCdm(::media::CdmContext* cdm_context,
 }
 
 void CastRenderer::SetLatencyHint(
-    base::Optional<base::TimeDelta> latency_hint) {}
+    absl::optional<base::TimeDelta> latency_hint) {}
 
 void CastRenderer::Flush(base::OnceClosure flush_cb) {
   DCHECK(task_runner_->BelongsToCurrentThread());

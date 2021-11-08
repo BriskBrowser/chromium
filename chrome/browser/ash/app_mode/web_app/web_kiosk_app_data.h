@@ -36,7 +36,8 @@ class WebKioskAppData : public KioskAppDataBase {
                   const GURL url,
                   const std::string& title,
                   const GURL icon_url);
-
+  WebKioskAppData(const WebKioskAppData&) = delete;
+  WebKioskAppData& operator=(const WebKioskAppData&) = delete;
   ~WebKioskAppData() override;
 
   // Loads the locally cached data. Returns true on success.
@@ -45,13 +46,20 @@ class WebKioskAppData : public KioskAppDataBase {
   // Updates |icon_| from either |KioskAppDataBase::icon_path_| or |icon_url_|.
   void LoadIcon();
 
+  // Get a proper URL to launch according to the app status.
+  GURL GetLaunchableUrl() const;
+
   // KioskAppDataBase overrides:
   void OnIconLoadSuccess(const gfx::ImageSkia& icon) override;
   void OnIconLoadFailure() override;
 
-  void SetStatus(Status status);
+  // Updates |status_|. Based on |notify|, we will notify |delegate_| about data
+  // update.
+  void SetStatus(Status status, bool notify = true);
 
   void UpdateFromWebAppInfo(std::unique_ptr<WebApplicationInfo> app_info);
+
+  void SetOnLoadedCallbackForTesting(base::OnceClosure callback);
 
   Status status() const { return status_; }
   const GURL& install_url() const { return install_url_; }
@@ -76,9 +84,9 @@ class WebKioskAppData : public KioskAppDataBase {
   // Used to download icon from |icon_url_|.
   std::unique_ptr<IconFetcher> icon_fetcher_;
 
-  base::WeakPtrFactory<WebKioskAppData> weak_ptr_factory_{this};
+  base::OnceClosure on_loaded_closure_for_testing_;
 
-  DISALLOW_COPY_AND_ASSIGN(WebKioskAppData);
+  base::WeakPtrFactory<WebKioskAppData> weak_ptr_factory_{this};
 };
 
 }  // namespace ash

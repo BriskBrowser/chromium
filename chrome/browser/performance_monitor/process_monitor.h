@@ -16,15 +16,19 @@
 #include "build/build_config.h"
 #include "content/public/common/process_type.h"
 
+#if defined(OS_MAC)
+#include "chrome/browser/performance_monitor/resource_coalition_mac.h"
+#endif
+
 namespace performance_monitor {
 
 class ProcessMetricsHistory;
 
 enum ProcessSubtypes {
   kProcessSubtypeUnknown,
-  kProcessSubtypePPAPIFlash,
   kProcessSubtypeExtensionPersistent,
-  kProcessSubtypeExtensionEvent
+  kProcessSubtypeExtensionEvent,
+  kProcessSubtypeNetworkProcess,
 };
 
 struct ProcessMetadata {
@@ -38,18 +42,19 @@ struct ProcessMetadata {
 // upon noticing serious performance degradation.
 class ProcessMonitor {
  public:
+  // The interval at which ProcessMonitor performs its timed collections.
+  static constexpr base::TimeDelta kGatherInterval = base::Minutes(2);
+
   struct Metrics {
+    Metrics();
+    Metrics(const Metrics& other);
+    Metrics& operator=(const Metrics& other);
+    ~Metrics();
+
     // The percentage of time spent executing, across all threads of the
     // process, in the interval since the last time the metric was sampled. This
     // can exceed 100% in multi-thread processes running on multi-core systems.
     double cpu_usage = 0.0;
-
-#if defined(OS_WIN)
-    // The number of bytes transferred to/from disk per second, across all
-    // threads of the process, in the interval since the last time the metric
-    // was sampled.
-    uint64_t disk_usage = 0;
-#endif
 
 #if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS) || \
     defined(OS_AIX)
@@ -67,6 +72,11 @@ class ProcessMonitor {
     // "Energy Impact" is a synthetic power estimation metric displayed by macOS
     // in Activity Monitor and the battery menu.
     double energy_impact = 0.0;
+
+    // Process coalition data. Only available for aggregated metrics (not
+    // individual processes), on some Mac devices. absl::nullopt if not
+    // available.
+    absl::optional<ResourceCoalition::DataRate> coalition_data;
 #endif
   };
 
@@ -93,6 +103,9 @@ class ProcessMonitor {
   // returns nullptr.
   static ProcessMonitor* Get();
 
+  ProcessMonitor(const ProcessMonitor&) = delete;
+  ProcessMonitor& operator=(const ProcessMonitor&) = delete;
+
   virtual ~ProcessMonitor();
 
   // Start the cycle of metrics gathering.
@@ -116,23 +129,15 @@ class ProcessMonitor {
   void MarkProcessAsAlive(const ProcessMetadata& process_data,
                           int current_update_sequence);
 
-  // Returns the ProcessMetadata for every Chrome processes accessible from the
-  // UI thread.
-  static std::vector<ProcessMetadata> GatherProcessesOnUIThread();
+  // Returns the ProcessMetadata for renderer processes.
+  static std::vector<ProcessMetadata> GatherRendererProcesses();
 
-  // Returns the ProcessMetadata for every Chrome processes accessible from the
-  // UI thread.
-  static std::vector<ProcessMetadata> GatherProcessesOnIOThread();
+  // Returns the ProcessMetadata for non renderers.
+  static std::vector<ProcessMetadata> GatherNonRendererProcesses();
 
-  // Gather all the processes from both threads and then invokes GatherMetrics()
-  // back on the calling thread.
+  // Gather all the processes and updates the ProcessMetrics map with the
+  // current list of processes and gathers metrics from each entry.
   void GatherProcesses();
-
-  // Updates the ProcessMetrics map with the current list of processes and
-  // gathers metrics from each entry.
-  void GatherMetrics(int current_update_sequence,
-                     std::vector<ProcessMetadata> ui_thread_processes,
-                     std::vector<ProcessMetadata> io_thread_processes);
 
   // A map of currently running ProcessHandles to ProcessMetrics.
   std::map<base::ProcessHandle, std::unique_ptr<ProcessMetricsHistory>>
@@ -143,9 +148,11 @@ class ProcessMonitor {
 
   base::ObserverList<Observer> observer_list_;
 
-  base::WeakPtrFactory<ProcessMonitor> weak_ptr_factory_{this};
+#if defined(OS_MAC)
+  ResourceCoalition coalition_data_provider_;
+#endif
 
-  DISALLOW_COPY_AND_ASSIGN(ProcessMonitor);
+  base::WeakPtrFactory<ProcessMonitor> weak_ptr_factory_{this};
 };
 
 }  // namespace performance_monitor

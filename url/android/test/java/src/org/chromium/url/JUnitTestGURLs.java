@@ -23,10 +23,14 @@ public class JUnitTestGURLs {
     // 3. Run JUnitTestGURLsTest (eg. './tools/autotest.py -C out/Debug JUnitTestGURLsTest').
     // 4. Check logcat output or test exception for the correct serialization String, and place it
     //    in the map.
-    public static final String EXAMPLE_URL = "https://www.example.com";
-    public static final String URL_1 = "https://www.one.com";
+    public static final String EXAMPLE_URL = "https://www.example.com/";
+    public static final String HTTP_URL = "http://www.example.com/";
+    public static final String URL_1 = "https://www.one.com/";
+    public static final String URL_1_NUMERAL = "https://www.1.com/";
     public static final String URL_1_WITH_PATH = "https://www.one.com/some_path.html";
-    public static final String URL_2 = "https://www.two.com";
+    public static final String URL_2 = "https://www.two.com/";
+    public static final String URL_3 = "https://www.three.com/";
+    public static final String MAPS_URL = "https://maps.google.com/";
     public static final String SEARCH_URL = "https://www.google.com/search?q=test";
     public static final String SEARCH_2_URL = "https://www.google.com/search?q=query";
     public static final String INITIAL_URL = "https://initial.com";
@@ -39,6 +43,10 @@ public class JUnitTestGURLs {
     public static final String BLUE_1 = "https://www.blue.com/page1";
     public static final String BLUE_2 = "https://www.blue.com/page2";
     public static final String BLUE_3 = "https://www.blue.com/page3";
+    public static final String AMP_URL =
+            "https://www.google.com/amp/www.nyt.com/ampthml/blogs.html";
+    public static final String AMP_CACHE_URL =
+            "https://www.google.com/amp/s/www.nyt.com/ampthml/blogs.html";
 
     // Map of URL string to GURL serialization.
     /* package */ static final Map<String, String> sGURLMap;
@@ -47,15 +55,23 @@ public class JUnitTestGURLs {
         map.put(EXAMPLE_URL,
                 "82,1,true,0,5,0,-1,0,-1,8,15,0,-1,23,1,0,-1,0,-1,"
                         + "false,false,https://www.example.com/");
+        map.put(HTTP_URL,
+                "81,1,true,0,4,0,-1,0,-1,7,15,0,-1,22,1,0,-1,0,-1,"
+                        + "false,false,http://www.example.com/");
         map.put(URL_1,
                 "78,1,true,0,5,0,-1,0,-1,8,11,0,-1,19,1,0,-1,0,-1,"
                         + "false,false,https://www.one.com/");
+        map.put(URL_1_NUMERAL,
+                "75,1,true,0,5,0,-1,0,-1,8,9,0,-1,17,1,0,-1,0,-1,"
+                        + "false,false,https://www.1.com/");
         map.put(URL_1_WITH_PATH,
                 "93,1,true,0,5,0,-1,0,-1,8,11,0,-1,19,15,0,-1,0,-1,"
                         + "false,false,https://www.one.com/some_path.html");
         map.put(URL_2,
                 "78,1,true,0,5,0,-1,0,-1,8,11,0,-1,19,1,0,-1,0,-1,"
                         + "false,false,https://www.two.com/");
+        map.put(URL_3,
+                "80,1,true,0,5,0,-1,0,-1,8,13,0,-1,21,1,0,-1,0,-1,false,false,https://www.three.com/");
         map.put(RED_1,
                 "83,1,true,0,5,0,-1,0,-1,8,11,0,-1,19,6,0,-1,0,-1,"
                         + "false,false,https://www.red.com/page1");
@@ -92,7 +108,12 @@ public class JUnitTestGURLs {
         map.put(DOM_DISILLER_URL,
                 "73,1,true,0,9,0,-1,0,-1,0,-1,0,-1,10,5,0,-1,0,-1,"
                         + "false,false,distiller://url");
-
+        map.put(MAPS_URL,
+                "82,1,true,0,5,0,-1,0,-1,8,15,0,-1,23,1,0,-1,0,-1,false,false,https://maps.google.com/");
+        map.put(AMP_URL,
+                "116,1,true,0,5,0,-1,0,-1,8,14,0,-1,22,35,0,-1,0,-1,false,false,https://www.google.com/amp/www.nyt.com/ampthml/blogs.html");
+        map.put(AMP_CACHE_URL,
+                "118,1,true,0,5,0,-1,0,-1,8,14,0,-1,22,37,0,-1,0,-1,false,false,https://www.google.com/amp/s/www.nyt.com/ampthml/blogs.html");
         sGURLMap = Collections.unmodifiableMap(map);
     }
 

@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "base/check_op.h"
@@ -17,6 +18,7 @@
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if defined(OS_ANDROID)
 #include "base/os_compat_android.h"
@@ -39,7 +41,13 @@ bool IsOpenAppend(PlatformFile file) {
 }
 
 int CallFtruncate(PlatformFile file, int64_t length) {
+#if defined(OS_BSD) || defined(OS_APPLE) || defined(OS_FUCHSIA)
+  static_assert(sizeof(off_t) >= sizeof(int64_t),
+                "off_t is not a 64-bit integer");
   return HANDLE_EINTR(ftruncate(file, length));
+#else
+  return HANDLE_EINTR(ftruncate64(file, length));
+#endif
 }
 
 int CallFutimes(PlatformFile file, const struct timeval times[2]) {
@@ -60,7 +68,7 @@ int CallFutimes(PlatformFile file, const struct timeval times[2]) {
 }
 
 #if !defined(OS_FUCHSIA)
-short FcntlFlockType(base::Optional<File::LockMode> mode) {
+short FcntlFlockType(absl::optional<File::LockMode> mode) {
   if (!mode.has_value())
     return F_UNLCK;
   switch (mode.value()) {
@@ -73,7 +81,7 @@ short FcntlFlockType(base::Optional<File::LockMode> mode) {
 }
 
 File::Error CallFcntlFlock(PlatformFile file,
-                           base::Optional<File::LockMode> mode) {
+                           absl::optional<File::LockMode> mode) {
   struct flock lock;
   lock.l_type = FcntlFlockType(std::move(mode));
   lock.l_whence = SEEK_SET;
@@ -105,7 +113,7 @@ int CallFutimes(PlatformFile file, const struct timeval times[2]) {
 }
 
 File::Error CallFcntlFlock(PlatformFile file,
-                           base::Optional<File::LockMode> mode) {
+                           absl::optional<File::LockMode> mode) {
   NOTIMPLEMENTED();  // NaCl doesn't implement flock struct.
   return File::FILE_ERROR_INVALID_OPERATION;
 }
@@ -164,18 +172,15 @@ void File::Info::FromStat(const stat_wrapper_t& stat_info) {
 
   last_modified =
       Time::FromTimeT(last_modified_sec) +
-      TimeDelta::FromMicroseconds(last_modified_nsec /
-                                  Time::kNanosecondsPerMicrosecond);
+      Microseconds(last_modified_nsec / Time::kNanosecondsPerMicrosecond);
 
   last_accessed =
       Time::FromTimeT(last_accessed_sec) +
-      TimeDelta::FromMicroseconds(last_accessed_nsec /
-                                  Time::kNanosecondsPerMicrosecond);
+      Microseconds(last_accessed_nsec / Time::kNanosecondsPerMicrosecond);
 
   creation_time =
       Time::FromTimeT(creation_time_sec) +
-      TimeDelta::FromMicroseconds(creation_time_nsec /
-                                  Time::kNanosecondsPerMicrosecond);
+      Microseconds(creation_time_nsec / Time::kNanosecondsPerMicrosecond);
 }
 
 bool File::IsValid() const {
@@ -397,7 +402,7 @@ File::Error File::Lock(File::LockMode mode) {
 
 File::Error File::Unlock() {
   SCOPED_FILE_TRACE("Unlock");
-  return CallFcntlFlock(file_.get(), base::Optional<File::LockMode>());
+  return CallFcntlFlock(file_.get(), absl::optional<File::LockMode>());
 }
 #endif
 
@@ -488,10 +493,11 @@ void File::DoInitialize(const FilePath& path, uint32_t flags) {
     open_flags |= O_RDWR;
   } else if (flags & FLAG_WRITE) {
     open_flags |= O_WRONLY;
-  } else if (!(flags & FLAG_READ) &&
-             !(flags & FLAG_WRITE_ATTRIBUTES) &&
-             !(flags & FLAG_APPEND) &&
-             !(flags & FLAG_OPEN_ALWAYS)) {
+  } else if (!(flags & FLAG_READ) && !(flags & FLAG_WRITE_ATTRIBUTES) &&
+             !(flags & FLAG_APPEND) && !(flags & FLAG_OPEN_ALWAYS)) {
+    // Note: For FLAG_WRITE_ATTRIBUTES and no other read/write flags, we'll
+    // open the file in O_RDONLY mode (== 0, see static_assert below), so that
+    // we get a fd that can be used for SetTimes().
     NOTREACHED();
   }
 
@@ -515,9 +521,6 @@ void File::DoInitialize(const FilePath& path, uint32_t flags) {
   if (flags & FLAG_OPEN_ALWAYS) {
     if (descriptor < 0) {
       open_flags |= O_CREAT;
-      if (flags & FLAG_EXCLUSIVE_READ || flags & FLAG_EXCLUSIVE_WRITE)
-        open_flags |= O_EXCL;   // together with O_CREAT implies O_NOFOLLOW
-
       descriptor = HANDLE_EINTR(open(path.value().c_str(), open_flags, mode));
       if (descriptor >= 0)
         created_ = true;

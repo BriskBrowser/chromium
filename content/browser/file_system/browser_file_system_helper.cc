@@ -13,10 +13,10 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/lazy_thread_pool_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "build/chromeos_buildflags.h"
 #include "content/browser/child_process_security_policy_impl.h"
@@ -39,6 +39,8 @@
 #include "storage/browser/file_system/file_system_url.h"
 #include "storage/browser/file_system/isolated_context.h"
 #include "storage/browser/quota/quota_manager.h"
+#include "storage/browser/quota/quota_manager_proxy.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/leveldatabase/leveldb_chrome.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
@@ -48,14 +50,6 @@ using storage::FileSystemOptions;
 namespace content {
 
 namespace {
-
-// All FileSystemContexts currently need to share the same sequence per sharing
-// global objects: https://codereview.chromium.org/2883403002#msg14.
-base::LazyThreadPoolSequencedTaskRunner g_fileapi_task_runner =
-    LAZY_THREAD_POOL_SEQUENCED_TASK_RUNNER_INITIALIZER(
-        base::TaskTraits(base::MayBlock(),
-                         base::TaskPriority::USER_VISIBLE,
-                         base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN));
 
 FileSystemOptions CreateBrowserFileSystemOptions(bool is_incognito) {
   FileSystemOptions::ProfileMode profile_mode =
@@ -120,7 +114,7 @@ scoped_refptr<storage::FileSystemContext> CreateFileSystemContext(
     BrowserContext* browser_context,
     const base::FilePath& profile_path,
     bool is_incognito,
-    storage::QuotaManagerProxy* quota_manager_proxy) {
+    scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy) {
   // Setting up additional filesystem backends.
   std::vector<std::unique_ptr<storage::FileSystemBackend>> additional_backends;
   GetContentClient()->browser()->GetAdditionalFileSystemBackends(
@@ -134,13 +128,15 @@ scoped_refptr<storage::FileSystemContext> CreateFileSystemContext(
 
   auto options = CreateBrowserFileSystemOptions(
       browser_context->CanUseDiskWhenOffTheRecord() ? false : is_incognito);
-  scoped_refptr<storage::FileSystemContext> file_system_context =
-      new storage::FileSystemContext(
-          GetIOThreadTaskRunner({}).get(), g_fileapi_task_runner.Get().get(),
-          BrowserContext::GetMountPoints(browser_context),
-          browser_context->GetSpecialStoragePolicy(), quota_manager_proxy,
-          std::move(additional_backends), url_request_auto_mount_handlers,
-          profile_path, options);
+  auto file_system_context = storage::FileSystemContext::Create(
+      GetIOThreadTaskRunner({}),
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}),
+      browser_context->GetMountPoints(),
+      browser_context->GetSpecialStoragePolicy(),
+      std::move(quota_manager_proxy), std::move(additional_backends),
+      url_request_auto_mount_handlers, profile_path, options);
 
   for (const storage::FileSystemType& type :
        file_system_context->GetFileSystemTypes()) {
@@ -163,9 +159,10 @@ bool FileSystemURLIsValid(storage::FileSystemContext* context,
 void SyncGetPlatformPath(storage::FileSystemContext* context,
                          int process_id,
                          const GURL& path,
+                         const blink::StorageKey& storage_key,
                          SyncGetPlatformPathCB callback) {
   DCHECK(context->default_file_task_runner()->RunsTasksInCurrentSequence());
-  storage::FileSystemURL url(context->CrackURL(path));
+  storage::FileSystemURL url(context->CrackURL(path, storage_key));
   if (!FileSystemURLIsValid(context, url)) {
     // Note: Posting a task here so this function always returns
     // before the callback is called no matter which path is taken.
@@ -201,9 +198,51 @@ void PrepareDropDataForChildProcess(
     security_policy->GrantCommitURL(child_id, drop_data->url);
 #endif
 
+  std::string filesystem_id = PrepareDataTransferFilenamesForChildProcess(
+      drop_data->filenames, security_policy, child_id, file_system_context);
+  drop_data->filesystem_id = base::UTF8ToUTF16(filesystem_id);
+
+  storage::IsolatedContext* isolated_context =
+      storage::IsolatedContext::GetInstance();
+  DCHECK(isolated_context);
+
+  for (auto& file_system_file : drop_data->file_system_files) {
+    // TODO(https://crbug.com/1221308): determine whether StorageKey should be
+    // replaced with a more meaningful value
+    storage::FileSystemURL file_system_url = file_system_context->CrackURL(
+        file_system_file.url,
+        blink::StorageKey(url::Origin::Create(file_system_file.url)));
+
+    std::string register_name;
+    storage::IsolatedContext::ScopedFSHandle filesystem =
+        isolated_context->RegisterFileSystemForPath(
+            file_system_url.type(), file_system_url.filesystem_id(),
+            file_system_url.path(), &register_name);
+
+    if (filesystem.is_valid()) {
+      // Grant the permission iff the ID is valid. This will also keep the FS
+      // alive after |filesystem| goes out of scope.
+      security_policy->GrantReadFileSystem(child_id, filesystem.id());
+    }
+
+    // Note: We are using the origin URL provided by the sender here. It may be
+    // different from the receiver's.
+    file_system_file.url = GURL(
+        storage::GetIsolatedFileSystemRootURIString(
+            file_system_url.origin().GetURL(), filesystem.id(), std::string())
+            .append(register_name));
+    file_system_file.filesystem_id = filesystem.id();
+  }
+}
+
+std::string PrepareDataTransferFilenamesForChildProcess(
+    std::vector<ui::FileInfo>& filenames,
+    ChildProcessSecurityPolicyImpl* security_policy,
+    int child_id,
+    const storage::FileSystemContext* file_system_context) {
   // The filenames vector represents a capability to access the given files.
   storage::IsolatedContext::FileInfoSet files;
-  for (auto& filename : drop_data->filenames) {
+  for (auto& filename : filenames) {
     // Make sure we have the same display_name as the one we register.
     if (filename.display_name.empty()) {
       std::string name;
@@ -235,40 +274,15 @@ void PrepareDropDataForChildProcess(
       storage::IsolatedContext::GetInstance();
   DCHECK(isolated_context);
 
+  std::string filesystem_id;
   if (!files.fileset().empty()) {
-    std::string filesystem_id =
-        isolated_context->RegisterDraggedFileSystem(files);
+    filesystem_id = isolated_context->RegisterDraggedFileSystem(files);
     if (!filesystem_id.empty()) {
       // Grant the permission iff the ID is valid.
       security_policy->GrantReadFileSystem(child_id, filesystem_id);
     }
-    drop_data->filesystem_id = base::UTF8ToUTF16(filesystem_id);
   }
-
-  for (auto& file_system_file : drop_data->file_system_files) {
-    storage::FileSystemURL file_system_url =
-        file_system_context->CrackURL(file_system_file.url);
-
-    std::string register_name;
-    storage::IsolatedContext::ScopedFSHandle filesystem =
-        isolated_context->RegisterFileSystemForPath(
-            file_system_url.type(), file_system_url.filesystem_id(),
-            file_system_url.path(), &register_name);
-
-    if (filesystem.is_valid()) {
-      // Grant the permission iff the ID is valid. This will also keep the FS
-      // alive after |filesystem| goes out of scope.
-      security_policy->GrantReadFileSystem(child_id, filesystem.id());
-    }
-
-    // Note: We are using the origin URL provided by the sender here. It may be
-    // different from the receiver's.
-    file_system_file.url = GURL(
-        storage::GetIsolatedFileSystemRootURIString(
-            file_system_url.origin().GetURL(), filesystem.id(), std::string())
-            .append(register_name));
-    file_system_file.filesystem_id = filesystem.id();
-  }
+  return filesystem_id;
 }
 
 }  // namespace content

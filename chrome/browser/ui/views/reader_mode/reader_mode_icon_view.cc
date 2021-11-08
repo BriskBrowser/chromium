@@ -18,7 +18,8 @@
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/views/animation/ink_drop.h"
 
 using dom_distiller::UMAHelper;
 using dom_distiller::url_utils::IsDistilledPage;
@@ -31,7 +32,7 @@ UMAHelper::ReaderModePageType GetPageType(content::WebContents* contents) {
   if (IsDistilledPage(contents->GetLastCommittedURL())) {
     page_type = UMAHelper::ReaderModePageType::kDistilled;
   } else {
-    base::Optional<dom_distiller::DistillabilityResult> distillability =
+    absl::optional<dom_distiller::DistillabilityResult> distillability =
         dom_distiller::GetLatestResult(contents);
     if (distillability && distillability.value().is_distillable)
       page_type = UMAHelper::ReaderModePageType::kDistillable;
@@ -62,13 +63,15 @@ ReaderModeIconView::~ReaderModeIconView() {
 void ReaderModeIconView::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   if (GetVisible())
-    AnimateInkDrop(views::InkDropState::HIDDEN, nullptr);
+    views::InkDrop::Get(this)->AnimateToState(views::InkDropState::HIDDEN,
+                                              nullptr);
 }
 
 void ReaderModeIconView::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
   content::WebContents* web_contents = GetWebContents();
-  if (!navigation_handle->IsInMainFrame() || !web_contents)
+  // Only primary main frame navigations are relevant for tracking time stats.
+  if (!navigation_handle->IsInPrimaryMainFrame() || !web_contents)
     return;
   // When navigation is about to happen, ensure timers are appropriately stopped
   // and reset.
@@ -76,7 +79,8 @@ void ReaderModeIconView::ReadyToCommitNavigation(
                                       GetPageType(web_contents));
 }
 
-void ReaderModeIconView::DocumentAvailableInMainFrame() {
+void ReaderModeIconView::DocumentAvailableInMainFrame(
+    content::RenderFrameHost* render_frame_host) {
   content::WebContents* web_contents = GetWebContents();
   if (!web_contents)
     return;
@@ -130,7 +134,7 @@ const gfx::VectorIcon& ReaderModeIconView::GetVectorIcon() const {
   return GetActive() ? kReaderModeIcon : kReaderModeDisabledIcon;
 }
 
-base::string16 ReaderModeIconView::GetTextForTooltipAndAccessibleName() const {
+std::u16string ReaderModeIconView::GetTextForTooltipAndAccessibleName() const {
   return l10n_util::GetStringUTF16(GetActive() ? IDS_EXIT_DISTILLED_PAGE
                                                : IDS_DISTILL_PAGE);
 }

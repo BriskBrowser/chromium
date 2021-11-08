@@ -285,7 +285,7 @@ void WebSettingsImpl::SetDOMPasteAllowed(bool enabled) {
 
 void WebSettingsImpl::SetShrinksViewportContentToFit(
     bool shrink_viewport_content) {
-  settings_->SetShrinksViewportContentToFit(shrink_viewport_content);
+  dev_tools_emulator_->SetShrinksViewportContentToFit(shrink_viewport_content);
 }
 
 void WebSettingsImpl::SetSpatialNavigationEnabled(bool enabled) {
@@ -537,12 +537,6 @@ void WebSettingsImpl::SetStrictlyBlockBlockableMixedContent(bool enabled) {
   settings_->SetStrictlyBlockBlockableMixedContent(enabled);
 }
 
-void WebSettingsImpl::SetPassiveEventListenerDefault(
-    PassiveEventListenerDefault default_value) {
-  settings_->SetPassiveListenerDefault(
-      static_cast<PassiveListenerDefault>(default_value));
-}
-
 void WebSettingsImpl::SetPasswordEchoEnabled(bool flag) {
   settings_->SetPasswordEchoEnabled(flag);
 }
@@ -613,11 +607,11 @@ void WebSettingsImpl::SetImmersiveModeEnabled(bool enabled) {
 }
 
 void WebSettingsImpl::SetViewportEnabled(bool enabled) {
-  settings_->SetViewportEnabled(enabled);
+  dev_tools_emulator_->SetViewportEnabled(enabled);
 }
 
 void WebSettingsImpl::SetViewportMetaEnabled(bool enabled) {
-  settings_->SetViewportMetaEnabled(enabled);
+  dev_tools_emulator_->SetViewportMetaEnabled(enabled);
 }
 
 void WebSettingsImpl::SetSyncXHRInDocumentsEnabled(bool enabled) {
@@ -813,6 +807,11 @@ void WebSettingsImpl::SetAccessibilityIncludeSvgGElement(bool include) {
 void WebSettingsImpl::SetWebXRImmersiveArAllowed(
     bool webxr_immersive_ar_allowed) {
   settings_->SetWebXRImmersiveArAllowed(webxr_immersive_ar_allowed);
+}
+
+void WebSettingsImpl::SetLitePageSubresourceRedirectOrigin(
+    const WebString& origin) {
+  settings_->SetLitePageSubresourceRedirectOrigin(origin);
 }
 
 }  // namespace blink

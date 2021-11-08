@@ -6,7 +6,7 @@
 
 #import "base/ios/block_types.h"
 #include "base/memory/ptr_util.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
 #import "ios/web/common/uikit_ui_util.h"
@@ -19,6 +19,7 @@
 #error "This file requires ARC support."
 #endif
 
+using base::test::ios::kWaitForClearBrowsingDataTimeout;
 using base::test::ios::kWaitForPageLoadTimeout;
 using base::test::ios::WaitUntilConditionOrTimeout;
 
@@ -31,6 +32,9 @@ class IntTestWebStateObserver : public WebStateObserver {
  public:
   // Instructs the observer to listen for page loads for |url|.
   explicit IntTestWebStateObserver(const GURL& url) : expected_url_(url) {}
+
+  IntTestWebStateObserver(const IntTestWebStateObserver&) = delete;
+  IntTestWebStateObserver& operator=(const IntTestWebStateObserver&) = delete;
 
   // Whether |expected_url_| has been loaded successfully.
   bool IsExpectedPageLoaded() { return page_loaded_; }
@@ -47,8 +51,6 @@ class IntTestWebStateObserver : public WebStateObserver {
  private:
   GURL expected_url_;
   bool page_loaded_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(IntTestWebStateObserver);
 };
 
 #pragma mark - WebIntTest
@@ -81,21 +83,14 @@ void WebIntTest::TearDown() {
   WebTest::TearDown();
 }
 
-std::unique_ptr<base::Value> WebIntTest::ExecuteJavaScript(NSString* script) {
-  return web::test::ExecuteJavaScript(web_state(),
-                                      base::SysNSStringToUTF8(script));
-  //  web_state()->ExecuteJavaScript
-  //  return web::test::ExecuteJavaScript(web_state()->GetJSInjectionReceiver(),
-  //                                      script);
-}
-
 bool WebIntTest::ExecuteBlockAndWaitForLoad(const GURL& url,
                                             ProceduralBlock block) {
   DCHECK(block);
 
   IntTestWebStateObserver observer(url);
-  ScopedObserver<WebState, WebStateObserver> scoped_observer(&observer);
-  scoped_observer.Add(web_state());
+  base::ScopedObservation<WebState, WebStateObserver> scoped_observer(
+      &observer);
+  scoped_observer.Observe(web_state());
 
   block();
 
@@ -150,9 +145,10 @@ void WebIntTest::RemoveWKWebViewCreatedData(WKWebsiteDataStore* data_store,
     remove_data();
   }
 
-  base::test::ios::WaitUntilCondition(^bool {
-    return data_removed;
-  });
+  EXPECT_TRUE(
+      WaitUntilConditionOrTimeout(kWaitForClearBrowsingDataTimeout * 2, ^{
+        return data_removed;
+      }));
 }
 
 NSInteger WebIntTest::GetIndexOfNavigationItem(

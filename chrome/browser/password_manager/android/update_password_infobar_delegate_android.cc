@@ -6,15 +6,15 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
-#include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/password_manager/android/password_infobar_utils.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/android/infobars/update_password_infobar.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/infobars/content/content_infobar_manager.h"
 #include "components/infobars/core/infobar.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/password_manager/core/browser/password_form_metrics_recorder.h"
@@ -34,9 +34,9 @@ void UpdatePasswordInfoBarDelegate::Create(
   // passwords to their Google Account.
   const bool is_smartlock_branding_enabled =
       password_bubble_experiment::IsSmartLockUser(
-          ProfileSyncServiceFactory::GetForProfile(
+          SyncServiceFactory::GetForProfile(
               Profile::FromBrowserContext(web_contents->GetBrowserContext())));
-  InfoBarService::FromWebContents(web_contents)
+  infobars::ContentInfoBarManager::FromWebContents(web_contents)
       ->AddInfoBar(std::make_unique<UpdatePasswordInfoBar>(
           base::WrapUnique(new UpdatePasswordInfoBarDelegate(
               web_contents, std::move(form_to_save),
@@ -46,13 +46,16 @@ void UpdatePasswordInfoBarDelegate::Create(
 }
 
 UpdatePasswordInfoBarDelegate::~UpdatePasswordInfoBarDelegate() {
-  password_manager::metrics_util::LogUpdateUIDismissalReason(infobar_response_);
+  auto submission_event =
+      passwords_state_.form_manager()->GetPendingCredentials().submission_event;
+  password_manager::metrics_util::LogUpdateUIDismissalReason(infobar_response_,
+                                                             submission_event);
   if (auto* recorder = passwords_state_.form_manager()->GetMetricsRecorder()) {
     recorder->RecordUIDismissalReason(infobar_response_);
   }
 }
 
-base::string16 UpdatePasswordInfoBarDelegate::GetBranding() const {
+std::u16string UpdatePasswordInfoBarDelegate::GetBranding() const {
   return l10n_util::GetStringUTF16(is_smartlock_branding_enabled_
                                        ? IDS_PASSWORD_MANAGER_SMART_LOCK
                                        : IDS_PASSWORD_MANAGER_TITLE_BRAND);
@@ -67,7 +70,7 @@ UpdatePasswordInfoBarDelegate::GetCurrentForms() const {
   return passwords_state_.GetCurrentForms();
 }
 
-const base::string16& UpdatePasswordInfoBarDelegate::GetDefaultUsername()
+const std::u16string& UpdatePasswordInfoBarDelegate::GetDefaultUsername()
     const {
   return passwords_state_.form_manager()
       ->GetPendingCredentials()
@@ -75,7 +78,7 @@ const base::string16& UpdatePasswordInfoBarDelegate::GetDefaultUsername()
 }
 
 unsigned int UpdatePasswordInfoBarDelegate::GetDisplayUsernames(
-    std::vector<base::string16>* usernames) {
+    std::vector<std::u16string>* usernames) {
   return UpdatePasswordInfoBarDelegate::GetDisplayUsernames(
       GetCurrentForms(), GetDefaultUsername(), usernames);
 }
@@ -84,8 +87,8 @@ unsigned int UpdatePasswordInfoBarDelegate::GetDisplayUsernames(
 unsigned int UpdatePasswordInfoBarDelegate::GetDisplayUsernames(
     const std::vector<std::unique_ptr<password_manager::PasswordForm>>&
         current_forms,
-    const base::string16& default_username,
-    std::vector<base::string16>* usernames) {
+    const std::u16string& default_username,
+    std::vector<std::u16string>* usernames) {
   unsigned int selected_username = 0;
   // TODO(crbug.com/1054410): Fix the update logic to use all best matches,
   // rather than current_forms which is best_matches without PSL-matched
@@ -141,7 +144,7 @@ int UpdatePasswordInfoBarDelegate::GetButtons() const {
   return BUTTON_OK;
 }
 
-base::string16 UpdatePasswordInfoBarDelegate::GetButtonLabel(
+std::u16string UpdatePasswordInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
   return l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_UPDATE_BUTTON);
 }

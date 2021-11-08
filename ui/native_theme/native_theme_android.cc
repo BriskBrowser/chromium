@@ -41,8 +41,10 @@ gfx::Size NativeThemeAndroid::GetPartSize(Part part,
   return NativeThemeBase::GetPartSize(part, state, extra);
 }
 
-SkColor NativeThemeAndroid::GetSystemColor(ColorId color_id,
-                                           ColorScheme color_scheme) const {
+SkColor NativeThemeAndroid::GetSystemColorDeprecated(
+    ColorId color_id,
+    ColorScheme color_scheme,
+    bool apply_processing) const {
   NOTIMPLEMENTED();
   return SK_ColorBLACK;
 }
@@ -53,6 +55,11 @@ void NativeThemeAndroid::AdjustCheckboxRadioRectForPadding(SkRect* rect) const {
                 static_cast<int>(rect->y()) + 1,
                 static_cast<int>(rect->right()) - 1,
                 static_cast<int>(rect->bottom()) - 1);
+}
+
+float NativeThemeAndroid::AdjustBorderWidthByZoom(float border_width,
+                                                  float zoom_level) const {
+  return border_width * zoom_level;
 }
 
 SkColor NativeThemeAndroid::ControlsAccentColorForState(

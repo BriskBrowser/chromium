@@ -11,7 +11,7 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
+#include "chrome/browser/permissions/permission_update_requester_android.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 
@@ -23,7 +23,6 @@ class WebContents;
 // permissions for previously allowed ContentSettingsTypes.
 class PermissionUpdateInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
-  using PermissionUpdatedCallback = base::OnceCallback<void(bool)>;
 
   // Creates an infobar to resolve conflicts in Android runtime permissions.
   // The necessary runtime permissions are generated based on the list of
@@ -50,25 +49,35 @@ class PermissionUpdateInfoBarDelegate : public ConfirmInfoBarDelegate {
   // The |callback| will not be triggered if this is deleted.
   static infobars::InfoBar* Create(
       content::WebContents* web_contents,
-      const std::vector<std::string>& android_permissions,
+      const std::vector<std::string>& required_android_permissions,
       int permission_msg_id,
       PermissionUpdatedCallback callback);
 
-  void OnPermissionResult(JNIEnv* env,
-                          const base::android::JavaParamRef<jobject>& obj,
-                          jboolean all_permissions_granted);
+  PermissionUpdateInfoBarDelegate(const PermissionUpdateInfoBarDelegate&) =
+      delete;
+  PermissionUpdateInfoBarDelegate& operator=(
+      const PermissionUpdateInfoBarDelegate&) = delete;
+
+  void OnPermissionResult(bool all_permissions_granted);
 
  private:
   static infobars::InfoBar* Create(
       content::WebContents* web_contents,
-      const std::vector<std::string>& android_permissions,
+      const std::vector<std::string>& required_android_permissions,
+      const std::vector<std::string>& optional_android_permissions,
       const std::vector<ContentSettingsType> content_settings_types,
       int permission_msg_id,
       PermissionUpdatedCallback callback);
 
+  static int GetPermissionUpdateUiTitleId(
+      const std::vector<ContentSettingsType>& content_settings_types,
+      std::vector<std::string>& required_permissions,
+      std::vector<std::string>& optional_permissions);
+
   PermissionUpdateInfoBarDelegate(
       content::WebContents* web_contents,
-      const std::vector<std::string>& android_permissions,
+      const std::vector<std::string>& required_android_permissions,
+      const std::vector<std::string>& optional_android_permissions,
       const std::vector<ContentSettingsType>& content_settings_types,
       int permission_msg_id,
       PermissionUpdatedCallback callback);
@@ -79,24 +88,21 @@ class PermissionUpdateInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   // PermissionInfoBarDelegate:
   int GetIconId() const override;
-  base::string16 GetMessageText() const override;
+  std::u16string GetMessageText() const override;
 
   // ConfirmInfoBarDelegate:
   int GetButtons() const override;
-  base::string16 GetButtonLabel(InfoBarButton button) const override;
+  std::u16string GetButtonLabel(InfoBarButton button) const override;
   bool Accept() override;
   bool Cancel() override;
 
   // InfoBarDelegate:
   void InfoBarDismissed() override;
 
-  base::android::ScopedJavaGlobalRef<jobject> java_delegate_;
-  std::vector<std::string> android_permissions_;
+  std::unique_ptr<PermissionUpdateRequester> permission_update_requester_;
   std::vector<ContentSettingsType> content_settings_types_;
   int permission_msg_id_;
   PermissionUpdatedCallback callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(PermissionUpdateInfoBarDelegate);
 };
 
 #endif  // CHROME_BROWSER_PERMISSIONS_PERMISSION_UPDATE_INFOBAR_DELEGATE_ANDROID_H_

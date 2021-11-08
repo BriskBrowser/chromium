@@ -12,7 +12,7 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "remoting/protocol/channel_dispatcher_base.h"
 #include "remoting/protocol/connection_to_client.h"
@@ -22,6 +22,7 @@
 namespace remoting {
 namespace protocol {
 
+class WebrtcVideoEncoderFactory;
 class HostControlDispatcher;
 class HostEventDispatcher;
 
@@ -33,8 +34,11 @@ class WebrtcConnectionToClient : public ConnectionToClient,
   WebrtcConnectionToClient(
       std::unique_ptr<Session> session,
       scoped_refptr<protocol::TransportContext> transport_context,
-      scoped_refptr<base::SingleThreadTaskRunner> video_encode_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> audio_task_runner);
+
+  WebrtcConnectionToClient(const WebrtcConnectionToClient&) = delete;
+  WebrtcConnectionToClient& operator=(const WebrtcConnectionToClient&) = delete;
+
   ~WebrtcConnectionToClient() override;
 
   // ConnectionToClient interface.
@@ -87,7 +91,8 @@ class WebrtcConnectionToClient : public ConnectionToClient,
 
   std::unique_ptr<Session> session_;
 
-  scoped_refptr<base::SingleThreadTaskRunner> video_encode_task_runner_;
+  WebrtcVideoEncoderFactory* video_encoder_factory_;
+
   scoped_refptr<base::SingleThreadTaskRunner> audio_task_runner_;
 
   SessionOptions session_options_;
@@ -95,8 +100,6 @@ class WebrtcConnectionToClient : public ConnectionToClient,
   std::unique_ptr<HostControlDispatcher> control_dispatcher_;
   std::unique_ptr<HostEventDispatcher> event_dispatcher_;
   base::WeakPtrFactory<WebrtcConnectionToClient> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(WebrtcConnectionToClient);
 };
 
 }  // namespace protocol

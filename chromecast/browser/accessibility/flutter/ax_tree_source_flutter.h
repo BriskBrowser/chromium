@@ -48,13 +48,14 @@ class FlutterSemanticsNode;
 // OnAccessibilityEventRequest proto into a tree update Chrome's accessibility
 // API can work with.
 class AXTreeSourceFlutter : public ui::AXTreeSource<FlutterSemanticsNode*>,
-                            public CastWebContents::Observer,
+                            public CastWebContentsObserver,
                             public ui::AXActionHandler {
  public:
   class Delegate {
    public:
     virtual ~Delegate() {}
     virtual void OnAction(const ui::AXActionData& data) = 0;
+    virtual void OnVirtualKeyboardBoundsChange(const gfx::Rect& bounds) = 0;
   };
 
   AXTreeSourceFlutter(
@@ -91,9 +92,8 @@ class AXTreeSourceFlutter : public ui::AXTreeSource<FlutterSemanticsNode*>,
 
   void UpdateTree();
 
-  // CastWebContents::Observer
-  void OnPageStopped(CastWebContents* cast_web_contents,
-                     int error_code) override;
+  // CastWebContentsObserver
+  void PageStopped(PageState page_state, int error_code) override;
 
   void SetAccessibilityEnabled(bool value);
 
@@ -104,13 +104,17 @@ class AXTreeSourceFlutter : public ui::AXTreeSource<FlutterSemanticsNode*>,
         content::WebContents* web_contents,
         chromecast::accessibility::AXTreeSourceFlutter* ax_tree_source);
 
+    AXTreeWebContentsObserver(const AXTreeWebContentsObserver&) = delete;
+    AXTreeWebContentsObserver& operator=(const AXTreeWebContentsObserver&) =
+        delete;
+
     void RenderFrameHostChanged(content::RenderFrameHost* old_host,
                                 content::RenderFrameHost* new_host) override;
 
+    void AXTreeIDForMainFrameHasChanged() override;
+
    private:
     chromecast::accessibility::AXTreeSourceFlutter* ax_tree_source_;
-
-    DISALLOW_COPY_AND_ASSIGN(AXTreeWebContentsObserver);
   };
 
   using AXTreeFlutterSerializer = ui::AXTreeSerializer<FlutterSemanticsNode*>;
@@ -151,6 +155,9 @@ class AXTreeSourceFlutter : public ui::AXTreeSource<FlutterSemanticsNode*>,
 
   // Detects rapidly changing nodes and use native TTS instead.
   void HandleNativeTTS();
+
+  // Handle the virtual keyboard nodes and calculate the bounds of it.
+  void HandleVirtualKeyboardNodes();
 
   // Depth first search for a node under 'parent' with names route flag.
   FlutterSemanticsNode* FindRoutesNode(FlutterSemanticsNode* parent);
@@ -201,10 +208,16 @@ class AXTreeSourceFlutter : public ui::AXTreeSource<FlutterSemanticsNode*>,
   base::flat_map<int32_t, std::unique_ptr<AXTreeWebContentsObserver>>
       child_tree_observers_;
 
+  // Observed CastWebContents for this tree node.
+  CastWebContents* cast_web_contents_;
+
   // Copy of most recent tree data
   gallium::castos::OnAccessibilityEventRequest last_event_data_;
 
   bool accessibility_enabled_ = false;
+
+  // The bounds of virtual keyboard.
+  gfx::Rect keyboard_bounds_;
 };
 
 }  // namespace accessibility

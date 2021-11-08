@@ -13,14 +13,13 @@
 #include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
-ConsoleMessage::ConsoleMessage(mojom::ConsoleMessageSource source,
-                               mojom::ConsoleMessageLevel level,
+ConsoleMessage::ConsoleMessage(mojom::blink::ConsoleMessageSource source,
+                               mojom::blink::ConsoleMessageLevel level,
                                const String& message,
                                const String& url,
                                DocumentLoader* loader,
@@ -33,11 +32,11 @@ ConsoleMessage::ConsoleMessage(mojom::ConsoleMessageSource source,
       IdentifiersFactory::RequestId(loader, request_identifier);
 }
 
-ConsoleMessage::ConsoleMessage(mojom::ConsoleMessageLevel level,
+ConsoleMessage::ConsoleMessage(mojom::blink::ConsoleMessageLevel level,
                                const String& message,
                                std::unique_ptr<SourceLocation> location,
                                WorkerThread* worker_thread)
-    : ConsoleMessage(mojom::ConsoleMessageSource::kWorker,
+    : ConsoleMessage(mojom::blink::ConsoleMessageSource::kWorker,
                      level,
                      message,
                      std::move(location)) {
@@ -48,8 +47,8 @@ ConsoleMessage::ConsoleMessage(mojom::ConsoleMessageLevel level,
 ConsoleMessage::ConsoleMessage(const WebConsoleMessage& message,
                                LocalFrame* local_frame)
     : ConsoleMessage(message.nodes.empty()
-                         ? mojom::ConsoleMessageSource::kOther
-                         : mojom::ConsoleMessageSource::kRecommendation,
+                         ? mojom::blink::ConsoleMessageSource::kOther
+                         : mojom::blink::ConsoleMessageSource::kRecommendation,
                      message.level,
                      message.text,
                      std::make_unique<SourceLocation>(message.url,
@@ -64,8 +63,8 @@ ConsoleMessage::ConsoleMessage(const WebConsoleMessage& message,
   }
 }
 
-ConsoleMessage::ConsoleMessage(mojom::ConsoleMessageSource source,
-                               mojom::ConsoleMessageLevel level,
+ConsoleMessage::ConsoleMessage(mojom::blink::ConsoleMessageSource source,
+                               mojom::blink::ConsoleMessageLevel level,
                                const String& message,
                                std::unique_ptr<SourceLocation> location)
     : source_(source),
@@ -91,11 +90,11 @@ double ConsoleMessage::Timestamp() const {
   return timestamp_;
 }
 
-mojom::ConsoleMessageSource ConsoleMessage::Source() const {
+mojom::blink::ConsoleMessageSource ConsoleMessage::Source() const {
   return source_;
 }
 
-mojom::ConsoleMessageLevel ConsoleMessage::Level() const {
+mojom::blink::ConsoleMessageLevel ConsoleMessage::Level() const {
   return level_;
 }
 
@@ -121,6 +120,16 @@ Vector<DOMNodeId>& ConsoleMessage::Nodes() {
 void ConsoleMessage::SetNodes(LocalFrame* frame, Vector<DOMNodeId> nodes) {
   frame_ = frame;
   nodes_ = std::move(nodes);
+}
+
+const absl::optional<mojom::blink::ConsoleMessageCategory>&
+ConsoleMessage::Category() const {
+  return category_;
+}
+
+void ConsoleMessage::SetCategory(
+    mojom::blink::ConsoleMessageCategory category) {
+  category_ = category;
 }
 
 void ConsoleMessage::Trace(Visitor* visitor) const {

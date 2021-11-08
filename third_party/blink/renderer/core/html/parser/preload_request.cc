@@ -61,7 +61,6 @@ std::unique_ptr<PreloadRequest> PreloadRequest::CreateIfNeeded(
     const KURL& base_url,
     ResourceType resource_type,
     const network::mojom::ReferrerPolicy referrer_policy,
-    ReferrerSource referrer_source,
     ResourceFetcher::IsImageSet is_image_set,
     const ExclusionInfo* exclusion_info,
     const FetchParameters::ResourceWidth& resource_width,
@@ -82,7 +81,7 @@ std::unique_ptr<PreloadRequest> PreloadRequest::CreateIfNeeded(
   return base::WrapUnique(new PreloadRequest(
       initiator_name, initiator_position, resource_url, base_url, resource_type,
       resource_width, client_hints_preferences, request_type, referrer_policy,
-      referrer_source, is_image_set));
+      is_image_set));
 }
 
 Resource* PreloadRequest::Start(Document* document) {
@@ -98,9 +97,6 @@ Resource* PreloadRequest::Start(Document* document) {
 
   ResourceRequest resource_request(url);
   resource_request.SetReferrerPolicy(referrer_policy_);
-  if (referrer_source_ == kBaseUrlIsReferrer) {
-    resource_request.SetReferrerString(base_url_.StrippedForUseAsReferrer());
-  }
 
   resource_request.SetRequestContext(
       ResourceFetcher::DetermineRequestContext(resource_type_, is_image_set_));
@@ -121,10 +117,6 @@ Resource* PreloadRequest::Start(Document* document) {
   FetchParameters params(std::move(resource_request), options);
 
   auto* origin = document->domWindow()->GetSecurityOrigin();
-  if (resource_type_ == ResourceType::kImportResource) {
-    params.SetCrossOriginAccessControl(origin, kCrossOriginAttributeAnonymous);
-  }
-
   if (script_type_ == mojom::blink::ScriptType::kModule) {
     DCHECK_EQ(resource_type_, ResourceType::kScript);
     params.SetCrossOriginAccessControl(
@@ -148,8 +140,7 @@ Resource* PreloadRequest::Start(Document* document) {
     DCHECK_EQ(resource_type_, ResourceType::kScript);
     params.SetDecoderOptions(TextResourceDecoderOptions::CreateUTF8Decode());
   } else if (resource_type_ == ResourceType::kScript ||
-             resource_type_ == ResourceType::kCSSStyleSheet ||
-             resource_type_ == ResourceType::kImportResource) {
+             resource_type_ == ResourceType::kCSSStyleSheet) {
     params.SetCharset(charset_.IsEmpty() ? document->Encoding()
                                          : WTF::TextEncoding(charset_));
   }

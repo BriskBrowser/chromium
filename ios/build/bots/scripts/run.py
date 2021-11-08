@@ -27,6 +27,7 @@ import traceback
 
 import shard_util
 import test_runner
+import variations_runner
 import wpr_runner
 import xcodebuild_runner
 import xcode_util as xcode
@@ -49,39 +50,82 @@ class Runner():
     if args:
       self.parse_args(args)
 
-  def install_xcode(self, xcode_build_version, mac_toolchain_cmd,
-                    xcode_app_path):
+  def install_xcode(self):
     """Installs the requested Xcode build version.
 
-    Args:
-      xcode_build_version: (string) Xcode build version to install.
-      mac_toolchain_cmd: (string) Path to mac_toolchain command to install Xcode
-      See https://chromium.googlesource.com/infra/infra/+/master/go/src/infra/cmd/mac_toolchain/
-      xcode_app_path: (string) Path to install the contents of Xcode.app.
-
     Returns:
-      True if installation was successful. False otherwise.
+      (bool, bool)
+        First bool: True if installation was successful. False otherwise.
+        Second bool: True if Xcode is legacy package. False if it's new.
     """
     try:
-      if not mac_toolchain_cmd:
-        raise test_runner.MacToolchainNotFoundError(mac_toolchain_cmd)
+      if not self.args.mac_toolchain_cmd:
+        raise test_runner.MacToolchainNotFoundError(self.args.mac_toolchain_cmd)
       # Guard against incorrect install paths. On swarming, this path
       # should be a requested named cache, and it must exist.
-      if not os.path.exists(xcode_app_path):
-        raise test_runner.XcodePathNotFoundError(xcode_app_path)
+      if not os.path.exists(self.args.xcode_path):
+        raise test_runner.XcodePathNotFoundError(self.args.xcode_path)
 
-      xcode.install(mac_toolchain_cmd, xcode_build_version, xcode_app_path)
-      xcode.select(xcode_app_path)
+      runtime_cache_folder = None
+      # Runner script only utilizes runtime cache when it's a simulator task.
+      if self.args.version:
+        runtime_cache_folder = xcode.construct_runtime_cache_folder(
+            self.args.runtime_cache_prefix, self.args.version)
+        if not os.path.exists(runtime_cache_folder):
+          # Depending on infra project, runtime named cache might not be
+          # deployed. Create the dir if it doesn't exist since xcode_util
+          # assumes it exists.
+          # TODO(crbug.com/1191260): Raise error instead of creating dirs after
+          # runtime named cache is deployed everywhere.
+          os.makedirs(runtime_cache_folder)
+      # xcode.install() installs the Xcode & iOS runtime, and returns a bool
+      # indicating if the Xcode version in CIPD is a legacy Xcode package (which
+      # includes iOS runtimes).
+      is_legacy_xcode = xcode.install(
+          self.args.mac_toolchain_cmd,
+          self.args.xcode_build_version,
+          self.args.xcode_path,
+          runtime_cache_folder=runtime_cache_folder,
+          ios_version=self.args.version)
+      xcode.select(self.args.xcode_path)
     except subprocess.CalledProcessError as e:
       # Flush buffers to ensure correct output ordering.
       sys.stdout.flush()
       sys.stderr.write('Xcode build version %s failed to install: %s\n' %
-                       (xcode_build_version, e))
+                       (self.args.xcode_build_version, e))
       sys.stderr.flush()
-      return False
+      return (False, False)
+    else:
+      return (True, is_legacy_xcode)
 
-    return True
+  def resolve_test_cases(self):
+    """Forms |self.args.test_cases| considering swarming shard and cmd inputs.
 
+    Note:
+    - Xcode intallation is required before invoking this method since it
+      requires otool to parse test names from compiled targets.
+    - It's validated in |parse_args| that test filters won't work in sharding
+      environment.
+    """
+    args_json = json.loads(self.args.args_json)
+
+    # GTEST_SHARD_INDEX and GTEST_TOTAL_SHARDS are additional test environment
+    # variables, set by Swarming, that are only set for a swarming task
+    # shard count is > 1.
+    #
+    # For a given test on a given run, otool should return the same total
+    # counts and thus, should generate the same sublists. With the shard
+    # index, each shard would then know the exact test case to run.
+    gtest_shard_index = shard_util.shard_index()
+    gtest_total_shards = shard_util.total_shards()
+    if gtest_total_shards > 1:
+      self.args.test_cases = shard_util.shard_test_cases(
+          self.args, gtest_shard_index, gtest_total_shards)
+    else:
+      self.args.test_cases = self.args.test_cases or []
+      if self.args.gtest_filter:
+        self.args.test_cases.extend(self.args.gtest_filter.split(':'))
+      self.args.test_cases.extend(args_json.get('test_cases', []))
 
   def run(self, args):
     """
@@ -91,23 +135,11 @@ class Runner():
 
     # This logic is run by default before the otool command is invoked such that
     # otool has the correct Xcode selected for command line dev tools.
-    if not self.install_xcode(self.args.xcode_build_version,
-                              self.args.mac_toolchain_cmd,
-                              self.args.xcode_path):
+    install_success, is_legacy_xcode = self.install_xcode()
+    if not install_success:
       raise test_runner.XcodeVersionNotFoundError(self.args.xcode_build_version)
 
-    # GTEST_SHARD_INDEX and GTEST_TOTAL_SHARDS are additional test environment
-    # variables, set by Swarming, that are only set for a swarming task
-    # shard count is > 1.
-    #
-    # For a given test on a given run, otool should return the same total
-    # counts and thus, should generate the same sublists. With the shard index,
-    # each shard would then know the exact test case to run.
-    gtest_shard_index = os.getenv('GTEST_SHARD_INDEX', 0)
-    gtest_total_shards = os.getenv('GTEST_TOTAL_SHARDS', 0)
-    if gtest_shard_index and gtest_total_shards:
-      self.args.test_cases = shard_util.shard_test_cases(
-          self.args, gtest_shard_index, gtest_total_shards)
+    self.resolve_test_cases()
 
     summary = {}
     tr = None
@@ -125,11 +157,25 @@ class Runner():
             self.args.platform,
             out_dir=self.args.out_dir,
             release=self.args.release,
+            repeat_count=self.args.gtest_repeat,
             retries=self.args.retries,
             shards=self.args.shards,
             test_cases=self.args.test_cases,
             test_args=self.test_args,
             use_clang_coverage=self.args.use_clang_coverage,
+            env_vars=self.args.env_var)
+      elif self.args.variations_seed_path != 'NO_PATH':
+        tr = variations_runner.VariationsSimulatorParallelTestRunner(
+            self.args.app,
+            self.args.host_app,
+            self.args.iossim,
+            self.args.version,
+            self.args.platform,
+            self.args.out_dir,
+            self.args.variations_seed_path,
+            release=self.args.release,
+            test_cases=self.args.test_cases,
+            test_args=self.test_args,
             env_vars=self.args.env_var)
       elif self.args.replay_path != 'NO_PATH':
         tr = wpr_runner.WprProxySimulatorTestRunner(
@@ -156,6 +202,7 @@ class Runner():
             self.args.version,
             self.args.out_dir,
             env_vars=self.args.env_var,
+            repeat_count=self.args.gtest_repeat,
             retries=self.args.retries,
             shards=self.args.shards,
             test_args=self.test_args,
@@ -170,6 +217,7 @@ class Runner():
             host_app_path=self.args.host_app,
             out_dir=self.args.out_dir,
             release=self.args.release,
+            repeat_count=self.args.gtest_repeat,
             retries=self.args.retries,
             test_cases=self.args.test_cases,
             test_args=self.test_args,
@@ -179,6 +227,7 @@ class Runner():
             self.args.app,
             self.args.out_dir,
             env_vars=self.args.env_var,
+            repeat_count=self.args.gtest_repeat,
             restart=self.args.restart,
             retries=self.args.retries,
             test_args=self.test_args,
@@ -230,12 +279,22 @@ class Runner():
         with open(output_json_path, 'w') as f:
           json.dump(tr.test_results, f)
 
+      # Move the iOS runtime back to cache dir if the Xcode package is not
+      # legacy (i.e. Xcode program & runtimes are in different CIPD packages.)
+      # and it's a simulator task.
+      if not is_legacy_xcode and self.args.version:
+        runtime_cache_folder = xcode.construct_runtime_cache_folder(
+            self.args.runtime_cache_prefix, self.args.version)
+        xcode.move_runtime(runtime_cache_folder, self.args.xcode_path, False)
+
       test_runner.defaults_delete('com.apple.CoreSimulator',
                                   'FramebufferServerRendererPolicy')
 
   def parse_args(self, args):
-    """
-    Parse the args into args and test_args.
+    """Parse the args into args and test_args.
+
+    Note: test_cases related arguments are handled in |resolve_test_cases|
+    instead of this function.
     """
     parser = argparse.ArgumentParser()
 
@@ -264,6 +323,21 @@ class Runner():
         action='append',
         help='Environment variable to pass to the test itself.',
         metavar='ENV=val',
+    )
+    parser.add_argument(
+        '--gtest_filter',
+        help='List of test names to run. (In GTest filter format but not '
+        'necessarily for GTests). Note: Specifying test cases is not supported '
+        'in multiple swarming shards environment. Will be merged with tests'
+        'specified in --test-cases and --args-json.',
+        metavar='gtest_filter',
+    )
+    parser.add_argument(
+        '--gtest_repeat',
+        help='Number of times to repeat each test case. (Not necessarily for '
+        'GTests)',
+        metavar='n',
+        type=int,
     )
     parser.add_argument(
         '--host-app',
@@ -332,6 +406,17 @@ class Runner():
         type=int,
     )
     parser.add_argument(
+        '--runtime-cache-prefix',
+        metavar='PATH',
+        help=(
+            'Path prefix for runtime cache folder. The prefix will be appended '
+            'with iOS version to construct the path. iOS simulator will be '
+            'installed to the path and further copied into Xcode. Default: '
+            '%(default)s. WARNING: this folder will be overwritten! This '
+            'folder is intended to be a cached CIPD installation.'),
+        default='Runtime-ios-',
+    )
+    parser.add_argument(
         '-s',
         '--shards',
         help='Number of shards to split test cases.',
@@ -343,7 +428,10 @@ class Runner():
         '--test-cases',
         action='append',
         help=('Tests that should be included in the test run. All other tests '
-              'will be excluded from this run. If unspecified, run all tests.'),
+              'will be excluded from this run. If unspecified, run all tests. '
+              'Note: Specifying test cases is not supported in multiple '
+              'swarming shards environment. Will be merged with tests '
+              'specified in --gtest_filter and --args-json.'),
         metavar='testcase',
     )
     parser.add_argument(
@@ -362,6 +450,13 @@ class Runner():
         '--version',
         help='Version of iOS the simulator should run.',
         metavar='ver',
+    )
+    parser.add_argument(
+        '--variations-seed-path',
+        help=('Path to a JSON file with variations seed used in variations '
+              'smoke testing. Default: %(default)s'),
+        default='NO_PATH',
+        metavar='variations-seed-path',
     )
     parser.add_argument(
         '--wpr-tools-path',
@@ -397,15 +492,15 @@ class Runner():
         'collect_task.py and merge scripts.')
 
     def load_from_json(args):
-      """
-      Load and set arguments from args_json
+      """Loads and sets arguments from args_json.
+
+      Note: |test_cases| in --args-json is handled in
+      |Runner.resolve_test_cases()| instead of this function.
       """
       args_json = json.loads(args.args_json)
       args.env_var = args.env_var or []
       args.env_var.extend(args_json.get('env_var', []))
       args.restart = args_json.get('restart', args.restart)
-      args.test_cases = args.test_cases or []
-      args.test_cases.extend(args_json.get('test_cases', []))
       args.xctest = args_json.get('xctest', args.xctest)
       args.xcode_parallelization = args_json.get('xcode_parallelization',
                                                  args.xcode_parallelization)
@@ -430,6 +525,13 @@ class Runner():
       if args.xcode_parallelization and not (args.platform and args.version):
         parser.error('--xcode-parallelization also requires '
                      'both -p/--platform and -v/--version')
+
+      args_json = json.loads(args.args_json)
+      if (args.gtest_filter or args.test_cases or
+          args_json.get('test_cases')) and shard_util.total_shards() > 1:
+        parser.error(
+            'Specifying test cases is not supported in multiple swarming '
+            'shards environment.')
 
     args, test_args = parser.parse_known_args(args)
     load_from_json(args)

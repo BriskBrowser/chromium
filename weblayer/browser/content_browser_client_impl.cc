@@ -15,12 +15,13 @@
 #include "base/path_service.h"
 #include "base/strings/string_piece.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/blocked_content/popup_blocker.h"
 #include "components/captive_portal/core/buildflags.h"
-#include "components/content_capture/browser/content_capture_receiver_manager.h"
+#include "components/content_capture/browser/onscreen_content_provider.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/embedder_support/content_settings_utils.h"
 #include "components/embedder_support/switches.h"
@@ -28,17 +29,20 @@
 #include "components/error_page/common/error.h"
 #include "components/error_page/common/localized_error.h"
 #include "components/error_page/content/browser/net_error_auto_reloader.h"
+#include "components/metrics/metrics_service.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
 #include "components/no_state_prefetch/common/prerender_url_loader_throttle.h"
 #include "components/page_load_metrics/browser/metrics_navigation_throttle.h"
 #include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
+#include "components/performance_manager/embedder/performance_manager_registry.h"
 #include "components/permissions/quota_permission_context_impl.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service_factory.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/security_interstitials/content/insecure_form_navigation_throttle.h"
+#include "components/security_interstitials/content/security_interstitial_tab_helper.h"
 #include "components/security_interstitials/content/ssl_cert_reporter.h"
 #include "components/security_interstitials/content/ssl_error_handler.h"
 #include "components/security_interstitials/content/ssl_error_navigation_throttle.h"
@@ -59,19 +63,22 @@
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/page_navigator.h"
+#include "content/public/browser/permission_controller.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/window_container_type.mojom.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
+#include "net/cert/x509_certificate.h"
+#include "net/cookies/site_for_cookies.h"
 #include "net/proxy_resolution/proxy_config.h"
 #include "net/ssl/client_cert_identity.h"
+#include "net/ssl/ssl_private_key.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/network_service.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
-#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
@@ -91,7 +98,7 @@
 #include "weblayer/browser/navigation_error_navigation_throttle.h"
 #include "weblayer/browser/navigation_ui_data_impl.h"
 #include "weblayer/browser/no_state_prefetch/no_state_prefetch_manager_factory.h"
-#include "weblayer/browser/no_state_prefetch/prerender_utils.h"
+#include "weblayer/browser/no_state_prefetch/no_state_prefetch_utils.h"
 #include "weblayer/browser/page_specific_content_settings_delegate.h"
 #include "weblayer/browser/password_manager_driver_factory.h"
 #include "weblayer/browser/popup_navigation_delegate_impl.h"
@@ -105,7 +112,6 @@
 #include "weblayer/browser/weblayer_speech_recognition_manager_delegate.h"
 #include "weblayer/common/features.h"
 #include "weblayer/common/weblayer_paths.h"
-#include "weblayer/public/common/switches.h"
 #include "weblayer/public/fullscreen_delegate.h"
 #include "weblayer/public/main.h"
 
@@ -122,15 +128,19 @@
 #include "components/embedder_support/android/metrics/android_metrics_service_client.h"
 #include "components/media_router/browser/presentation/presentation_service_delegate_impl.h"  // nogncheck
 #include "components/navigation_interception/intercept_navigation_delegate.h"
-#include "components/safe_browsing/core/realtime/policy_engine.h"  // nogncheck
-#include "components/safe_browsing/core/realtime/url_lookup_service.h"  // nogncheck
+#include "components/permissions/bluetooth_delegate_impl.h"
+#include "components/safe_browsing/core/browser/realtime/policy_engine.h"  // nogncheck
+#include "components/safe_browsing/core/browser/realtime/url_lookup_service.h"  // nogncheck
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/spellcheck/browser/spell_check_host_impl.h"  // nogncheck
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "ui/base/resource/resource_bundle_android.h"
+#include "weblayer/browser/android/metrics/weblayer_metrics_navigation_throttle.h"
 #include "weblayer/browser/android/metrics/weblayer_metrics_service_client.h"
 #include "weblayer/browser/android_descriptors.h"
+#include "weblayer/browser/bluetooth/weblayer_bluetooth_delegate_impl_client.h"
 #include "weblayer/browser/browser_context_impl.h"
 #include "weblayer/browser/devtools_manager_delegate_android.h"
 #include "weblayer/browser/http_auth_handler_impl.h"
@@ -157,6 +167,10 @@
 #include "weblayer/browser/captive_portal_service_factory.h"
 #endif
 
+#if BUILDFLAG(ENABLE_ARCORE)
+#include "weblayer/browser/xr/xr_integration_client_impl.h"
+#endif  // BUILDFLAG(ENABLE_ARCORE)
+
 namespace switches {
 // Specifies a list of hosts for whom we bypass proxy settings and use direct
 // connections. Ignored if --proxy-auto-detect or --no-proxy-server are also
@@ -175,16 +189,17 @@ bool IsSafebrowsingSupported() {
   // TODO(timvolodine): consider refactoring this out into safe_browsing/.
 #if defined(OS_ANDROID)
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 bool IsNetworkErrorAutoReloadEnabled() {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kEnableAutoReload))
+  if (command_line.HasSwitch(embedder_support::kEnableAutoReload))
     return true;
-  if (command_line.HasSwitch(switches::kDisableAutoReload))
+  if (command_line.HasSwitch(embedder_support::kDisableAutoReload))
     return false;
   return true;
 }
@@ -262,6 +277,15 @@ void RegisterPrefs(PrefRegistrySimple* pref_registry) {
   pref_registry->RegisterIntegerPref(kDownloadNextIDPref, 0);
 #if defined(OS_ANDROID)
   metrics::AndroidMetricsServiceClient::RegisterPrefs(pref_registry);
+  safe_browsing::RegisterLocalStatePrefs(pref_registry);
+#else
+  // Call MetricsService::RegisterPrefs() as VariationsService::RegisterPrefs()
+  // CHECKs that kVariationsCrashStreak has already been registered.
+  //
+  // Note that the above call to AndroidMetricsServiceClient::RegisterPrefs()
+  // implicitly calls MetricsService::RegisterPrefs(), so the below call is
+  // necessary only on non-Android platforms.
+  metrics::MetricsService::RegisterPrefs(pref_registry);
 #endif
   variations::VariationsService::RegisterPrefs(pref_registry);
   subresource_filter::IndexedRulesetVersion::RegisterPrefs(pref_registry);
@@ -305,20 +329,10 @@ std::string ContentBrowserClientImpl::GetAcceptLangs(
   return i18n::GetAcceptLangs();
 }
 
-bool ContentBrowserClientImpl::AllowAppCache(
-    const GURL& manifest_url,
-    const GURL& site_for_cookies,
-    const base::Optional<url::Origin>& top_frame_origin,
-    content::BrowserContext* context) {
-  return embedder_support::AllowAppCache(
-      manifest_url, site_for_cookies, top_frame_origin,
-      CookieSettingsFactory::GetForBrowserContext(context).get());
-}
-
 content::AllowServiceWorkerResult ContentBrowserClientImpl::AllowServiceWorker(
     const GURL& scope,
-    const GURL& site_for_cookies,
-    const base::Optional<url::Origin>& top_frame_origin,
+    const net::SiteForCookies& site_for_cookies,
+    const absl::optional<url::Origin>& top_frame_origin,
     const GURL& script_url,
     content::BrowserContext* context) {
   return embedder_support::AllowServiceWorker(
@@ -329,47 +343,51 @@ content::AllowServiceWorkerResult ContentBrowserClientImpl::AllowServiceWorker(
 
 bool ContentBrowserClientImpl::AllowSharedWorker(
     const GURL& worker_url,
-    const GURL& site_for_cookies,
-    const base::Optional<url::Origin>& top_frame_origin,
+    const net::SiteForCookies& site_for_cookies,
+    const absl::optional<url::Origin>& top_frame_origin,
     const std::string& name,
-    const url::Origin& constructor_origin,
+    const blink::StorageKey& storage_key,
     content::BrowserContext* context,
     int render_process_id,
     int render_frame_id) {
   return embedder_support::AllowSharedWorker(
-      worker_url, site_for_cookies, top_frame_origin,
+      worker_url, site_for_cookies, top_frame_origin, name, storage_key,
+      render_process_id, render_frame_id,
       CookieSettingsFactory::GetForBrowserContext(context).get());
 }
 
 void ContentBrowserClientImpl::AllowWorkerFileSystem(
     const GURL& url,
     content::BrowserContext* browser_context,
-    const std::vector<content::GlobalFrameRoutingId>& render_frames,
+    const std::vector<content::GlobalRenderFrameHostId>& render_frames,
     base::OnceCallback<void(bool)> callback) {
   std::move(callback).Run(embedder_support::AllowWorkerFileSystem(
-      url, CookieSettingsFactory::GetForBrowserContext(browser_context).get()));
+      url, render_frames,
+      CookieSettingsFactory::GetForBrowserContext(browser_context).get()));
 }
 
 bool ContentBrowserClientImpl::AllowWorkerIndexedDB(
     const GURL& url,
     content::BrowserContext* browser_context,
-    const std::vector<content::GlobalFrameRoutingId>& render_frames) {
+    const std::vector<content::GlobalRenderFrameHostId>& render_frames) {
   return embedder_support::AllowWorkerIndexedDB(
-      url, CookieSettingsFactory::GetForBrowserContext(browser_context).get());
+      url, render_frames,
+      CookieSettingsFactory::GetForBrowserContext(browser_context).get());
 }
 
 bool ContentBrowserClientImpl::AllowWorkerCacheStorage(
     const GURL& url,
     content::BrowserContext* browser_context,
-    const std::vector<content::GlobalFrameRoutingId>& render_frames) {
+    const std::vector<content::GlobalRenderFrameHostId>& render_frames) {
   return embedder_support::AllowWorkerCacheStorage(
-      url, CookieSettingsFactory::GetForBrowserContext(browser_context).get());
+      url, render_frames,
+      CookieSettingsFactory::GetForBrowserContext(browser_context).get());
 }
 
 bool ContentBrowserClientImpl::AllowWorkerWebLocks(
     const GURL& url,
     content::BrowserContext* browser_context,
-    const std::vector<content::GlobalFrameRoutingId>& render_frames) {
+    const std::vector<content::GlobalRenderFrameHostId>& render_frames) {
   return embedder_support::AllowWorkerWebLocks(
       url, CookieSettingsFactory::GetForBrowserContext(browser_context).get());
 }
@@ -377,6 +395,8 @@ bool ContentBrowserClientImpl::AllowWorkerWebLocks(
 content::WebContentsViewDelegate*
 ContentBrowserClientImpl::GetWebContentsViewDelegate(
     content::WebContents* web_contents) {
+  performance_manager::PerformanceManagerRegistry::GetInstance()
+      ->MaybeCreatePageNodeForWebContents(web_contents);
   return new WebContentsViewDelegateImpl(web_contents);
 }
 
@@ -384,21 +404,20 @@ bool ContentBrowserClientImpl::CanShutdownGpuProcessNowOnIOThread() {
   return true;
 }
 
-content::DevToolsManagerDelegate*
-ContentBrowserClientImpl::GetDevToolsManagerDelegate() {
+std::unique_ptr<content::DevToolsManagerDelegate>
+ContentBrowserClientImpl::CreateDevToolsManagerDelegate() {
 #if defined(OS_ANDROID)
-  return new DevToolsManagerDelegateAndroid();
+  return std::make_unique<DevToolsManagerDelegateAndroid>();
 #else
-  return new content::DevToolsManagerDelegate();
+  return std::make_unique<content::DevToolsManagerDelegate>();
 #endif
 }
 
 void ContentBrowserClientImpl::LogWebFeatureForCurrentPage(
     content::RenderFrameHost* render_frame_host,
     blink::mojom::WebFeature feature) {
-  page_load_metrics::mojom::PageLoadFeatures new_features({feature}, {}, {});
   page_load_metrics::MetricsWebContentsObserver::RecordFeatureUsage(
-      render_frame_host, new_features);
+      render_frame_host, feature);
 }
 
 std::string ContentBrowserClientImpl::GetProduct() {
@@ -407,6 +426,10 @@ std::string ContentBrowserClientImpl::GetProduct() {
 
 std::string ContentBrowserClientImpl::GetUserAgent() {
   return embedder_support::GetUserAgent();
+}
+
+std::string ContentBrowserClientImpl::GetReducedUserAgent() {
+  return embedder_support::GetReducedUserAgent();
 }
 
 blink::UserAgentMetadata ContentBrowserClientImpl::GetUserAgentMetadata() {
@@ -437,9 +460,10 @@ void ContentBrowserClientImpl::ConfigureNetworkContextParams(
   context_params->allow_any_cors_exempt_header_for_browser = true;
   context_params->accept_language = GetAcceptLangs(context);
   if (!context->IsOffTheRecord()) {
-    base::FilePath cookie_path = context->GetPath();
-    cookie_path = cookie_path.Append(FILE_PATH_LITERAL("Cookies"));
-    context_params->cookie_path = cookie_path;
+    context_params->file_paths = network::mojom::NetworkContextFilePaths::New();
+    context_params->file_paths->data_path = context->GetPath();
+    context_params->file_paths->cookie_database_name =
+        base::FilePath(FILE_PATH_LITERAL("Cookies"));
     context_params->http_cache_path =
         ProfileImpl::GetCachePath(context).Append(FILE_PATH_LITERAL("Cache"));
   }
@@ -457,6 +481,9 @@ void ContentBrowserClientImpl::ConfigureNetworkContextParams(
     context_params->initial_proxy_config = net::ProxyConfigWithAnnotation(
         proxy_config,
         net::DefineNetworkTrafficAnnotation("undefined", "Nothing here yet."));
+  }
+  if (command_line->HasSwitch(embedder_support::kShortReportingDelay)) {
+    context_params->reporting_delivery_interval = base::Milliseconds(100);
   }
 }
 
@@ -563,13 +590,6 @@ bool ContentBrowserClientImpl::IsHandledURL(const GURL& url) {
       return true;
   }
 
-#if !BUILDFLAG(DISABLE_FTP_SUPPORT)
-  if (scheme == url::kFtpScheme &&
-      base::FeatureList::IsEnabled(blink::features::kFtpProtocol)) {
-    return true;
-  }
-#endif  // !BUILDFLAG(DISABLE_FTP_SUPPORT)
-
   return false;
 }
 
@@ -612,9 +632,10 @@ void ContentBrowserClientImpl::OverridePageVisibilityState(
   }
 }
 
-bool ContentBrowserClientImpl::ShouldDisableSiteIsolation() {
+bool ContentBrowserClientImpl::ShouldDisableSiteIsolation(
+    content::SiteIsolationMode site_isolation_mode) {
   return site_isolation::SiteIsolationPolicy::
-      ShouldDisableSiteIsolationDueToMemoryThreshold();
+      ShouldDisableSiteIsolationDueToMemoryThreshold(site_isolation_mode);
 }
 
 std::vector<std::string>
@@ -626,14 +647,10 @@ ContentBrowserClientImpl::GetAdditionalSiteIsolationModes() {
 
 void ContentBrowserClientImpl::PersistIsolatedOrigin(
     content::BrowserContext* context,
-    const url::Origin& origin) {
-  DCHECK(!context->IsOffTheRecord());
-  ListPrefUpdate update(user_prefs::UserPrefs::Get(context),
-                        site_isolation::prefs::kUserTriggeredIsolatedOrigins);
-  base::ListValue* list = update.Get();
-  base::Value value(origin.Serialize());
-  if (!base::Contains(list->GetList(), value))
-    list->Append(std::move(value));
+    const url::Origin& origin,
+    content::ChildProcessSecurityPolicy::IsolatedOriginSource source) {
+  site_isolation::SiteIsolationPolicy::PersistIsolatedOrigin(context, origin,
+                                                             source);
 }
 
 base::OnceClosure ContentBrowserClientImpl::SelectClientCertificate(
@@ -697,7 +714,7 @@ bool ContentBrowserClientImpl::CanCreateWindow(
   }
 
   GURL popup_url(target_url);
-  web_contents->GetMainFrame()->GetProcess()->FilterURL(false, &popup_url);
+  opener->GetProcess()->FilterURL(false, &popup_url);
   // Use ui::PAGE_TRANSITION_LINK to match the similar logic in //chrome.
   content::OpenURLParams params(popup_url, referrer, disposition,
                                 ui::PAGE_TRANSITION_LINK,
@@ -736,6 +753,15 @@ ContentBrowserClientImpl::GetControllerPresentationServiceDelegate(
   return nullptr;
 }
 
+void ContentBrowserClientImpl::OpenURL(
+    content::SiteInstance* site_instance,
+    const content::OpenURLParams& params,
+    base::OnceCallback<void(content::WebContents*)> callback) {
+  std::move(callback).Run(
+      ProfileImpl::FromBrowserContext(site_instance->GetBrowserContext())
+          ->OpenUrl(params));
+}
+
 std::vector<std::unique_ptr<content::NavigationThrottle>>
 ContentBrowserClientImpl::CreateThrottlesForNavigation(
     content::NavigationHandle* handle) {
@@ -747,15 +773,16 @@ ContentBrowserClientImpl::CreateThrottlesForNavigation(
     navigation_controller =
         static_cast<NavigationControllerImpl*>(tab->GetNavigationController());
   }
+
+  NavigationImpl* navigation_impl = nullptr;
+  if (navigation_controller) {
+    navigation_impl =
+        navigation_controller->GetNavigationImplFromHandle(handle);
+  }
+
   if (handle->IsInMainFrame()) {
     NavigationUIDataImpl* navigation_ui_data =
         static_cast<NavigationUIDataImpl*>(handle->GetNavigationUIData());
-
-    NavigationImpl* navigation_impl = nullptr;
-    if (navigation_controller) {
-      navigation_impl =
-          navigation_controller->GetNavigationImplFromHandle(handle);
-    }
 
     if ((!navigation_ui_data ||
          !navigation_ui_data->disable_network_error_auto_reload()) &&
@@ -767,6 +794,11 @@ ContentBrowserClientImpl::CreateThrottlesForNavigation(
       if (auto_reload_throttle)
         throttles.push_back(std::move(auto_reload_throttle));
     }
+
+#if defined(OS_ANDROID)
+    throttles.push_back(
+        std::make_unique<WebLayerMetricsNavigationThrottle>(handle));
+#endif
 
     // MetricsNavigationThrottle requires that it runs before
     // NavigationThrottles that may delay or cancel navigations, so only
@@ -806,22 +838,26 @@ ContentBrowserClientImpl::CreateThrottlesForNavigation(
 
   if (auto* throttle_manager =
           subresource_filter::ContentSubresourceFilterThrottleManager::
-              FromWebContents(handle->GetWebContents())) {
+              FromNavigationHandle(*handle)) {
     throttle_manager->MaybeAppendNavigationThrottles(handle, &throttles);
   }
 
 #if defined(OS_ANDROID)
-  if (handle->IsInMainFrame()) {
-    if (base::FeatureList::IsEnabled(features::kWebLayerSafeBrowsing) &&
-        IsSafebrowsingSupported()) {
-      throttles.push_back(
-          GetSafeBrowsingService()->CreateSafeBrowsingNavigationThrottle(
-              handle));
-    }
+  if (IsSafebrowsingSupported()) {
+    std::unique_ptr<content::NavigationThrottle> safe_browsing_throttle =
+        GetSafeBrowsingService()->MaybeCreateSafeBrowsingNavigationThrottleFor(
+            handle);
+    if (safe_browsing_throttle)
+      throttles.push_back(std::move(safe_browsing_throttle));
+  }
 
-    throttles.push_back(
-        navigation_interception::InterceptNavigationDelegate::CreateThrottleFor(
-            handle, navigation_interception::SynchronyMode::kAsync));
+  if (!navigation_impl || !navigation_impl->disable_intent_processing()) {
+    std::unique_ptr<content::NavigationThrottle> intercept_navigation_throttle =
+        navigation_interception::InterceptNavigationDelegate::
+            MaybeCreateThrottleFor(
+                handle, navigation_interception::SynchronyMode::kAsync);
+    if (intercept_navigation_throttle)
+      throttles.push_back(std::move(intercept_navigation_throttle));
   }
 #endif
   return throttles;
@@ -857,9 +893,35 @@ bool ContentBrowserClientImpl::BindAssociatedReceiverFromFrame(
     return true;
   }
   if (interface_name == content_capture::mojom::ContentCaptureReceiver::Name_) {
-    content_capture::ContentCaptureReceiverManager::BindContentCaptureReceiver(
+    content_capture::OnscreenContentProvider::BindContentCaptureReceiver(
         mojo::PendingAssociatedReceiver<
             content_capture::mojom::ContentCaptureReceiver>(std::move(*handle)),
+        render_frame_host);
+    return true;
+  }
+  if (interface_name == page_load_metrics::mojom::PageLoadMetrics::Name_) {
+    page_load_metrics::MetricsWebContentsObserver::BindPageLoadMetrics(
+        mojo::PendingAssociatedReceiver<
+            page_load_metrics::mojom::PageLoadMetrics>(std::move(*handle)),
+        render_frame_host);
+    return true;
+  }
+  if (interface_name ==
+      security_interstitials::mojom::InterstitialCommands::Name_) {
+    security_interstitials::SecurityInterstitialTabHelper::
+        BindInterstitialCommands(
+            mojo::PendingAssociatedReceiver<
+                security_interstitials::mojom::InterstitialCommands>(
+                std::move(*handle)),
+            render_frame_host);
+    return true;
+  }
+  if (interface_name ==
+      subresource_filter::mojom::SubresourceFilterHost::Name_) {
+    subresource_filter::ContentSubresourceFilterThrottleManager::BindReceiver(
+        mojo::PendingAssociatedReceiver<
+            subresource_filter::mojom::SubresourceFilterHost>(
+            std::move(*handle)),
         render_frame_host);
     return true;
   }
@@ -871,6 +933,9 @@ void ContentBrowserClientImpl::ExposeInterfacesToRenderer(
     service_manager::BinderRegistry* registry,
     blink::AssociatedInterfaceRegistry* associated_registry,
     content::RenderProcessHost* render_process_host) {
+  performance_manager::PerformanceManagerRegistry::GetInstance()
+      ->CreateProcessNodeAndExposeInterfacesToRendererProcess(
+          registry, render_process_host);
 #if defined(OS_ANDROID)
   auto create_spellcheck_host =
       [](mojo::PendingReceiver<spellcheck::mojom::SpellCheckHost> receiver) {
@@ -902,6 +967,8 @@ void ContentBrowserClientImpl::RegisterBrowserInterfaceBindersForFrame(
     content::RenderFrameHost* render_frame_host,
     mojo::BinderMapWithContext<content::RenderFrameHost*>* map) {
   PopulateWebLayerFrameBinders(render_frame_host, map);
+  performance_manager::PerformanceManagerRegistry::GetInstance()
+      ->ExposeInterfacesToRenderFrame(map);
 }
 
 void ContentBrowserClientImpl::RenderProcessWillLaunch(
@@ -911,7 +978,7 @@ void ContentBrowserClientImpl::RenderProcessWillLaunch(
       !host->GetBrowserContext()->IsOffTheRecord(),
       /*force_to_support_secure_codecs*/ false));
 #endif
-  PageSpecificContentSettingsDelegate::UpdateRendererContentSettingRules(host);
+  PageSpecificContentSettingsDelegate::InitializeRenderer(host);
 }
 
 scoped_refptr<content::QuotaPermissionContext>
@@ -1020,7 +1087,7 @@ bool ContentBrowserClientImpl::WillCreateURLLoaderFactory(
     int render_process_id,
     URLLoaderFactoryType type,
     const url::Origin& request_initiator,
-    base::Optional<int64_t> navigation_id,
+    absl::optional<int64_t> navigation_id,
     ukm::SourceIdObj ukm_source_id,
     mojo::PendingReceiver<network::mojom::URLLoaderFactory>* factory_receiver,
     mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
@@ -1078,7 +1145,7 @@ ContentBrowserClientImpl::CreateLoginDelegate(
     const net::AuthChallengeInfo& auth_info,
     content::WebContents* web_contents,
     const content::GlobalRequestID& request_id,
-    bool is_main_frame,
+    bool is_request_for_primary_main_frame,
     const GURL& url,
     scoped_refptr<net::HttpResponseHeaders> response_headers,
     bool first_auth_attempt,
@@ -1093,12 +1160,40 @@ ContentBrowserClientImpl::CreateTtsEnvironmentAndroid() {
   return std::make_unique<TtsEnvironmentAndroidImpl>();
 }
 
+bool ContentBrowserClientImpl::
+    ShouldObserveContainerViewLocationForDialogOverlays() {
+  // Observe location changes of the container view as WebLayer might be
+  // embedded in a scrollable container and we need to update the position of
+  // any DialogOverlays.
+  return true;
+}
+
+content::BluetoothDelegate* ContentBrowserClientImpl::GetBluetoothDelegate() {
+  if (!bluetooth_delegate_) {
+    bluetooth_delegate_ = std::make_unique<permissions::BluetoothDelegateImpl>(
+        std::make_unique<WebLayerBluetoothDelegateImplClient>());
+  }
+  return bluetooth_delegate_.get();
+}
+
 #endif  // OS_ANDROID
 
 content::SpeechRecognitionManagerDelegate*
 ContentBrowserClientImpl::CreateSpeechRecognitionManagerDelegate() {
   return new WebLayerSpeechRecognitionManagerDelegate();
 }
+
+#if BUILDFLAG(ENABLE_ARCORE)
+content::XrIntegrationClient*
+ContentBrowserClientImpl::GetXrIntegrationClient() {
+  if (!XrIntegrationClientImpl::IsEnabled())
+    return nullptr;
+
+  if (!xr_integration_client_)
+    xr_integration_client_ = std::make_unique<XrIntegrationClientImpl>();
+  return xr_integration_client_.get();
+}
+#endif  // BUILDFLAG(ENABLE_ARCORE)
 
 ukm::UkmService* ContentBrowserClientImpl::GetUkmService() {
 #if defined(OS_ANDROID)
@@ -1112,6 +1207,31 @@ bool ContentBrowserClientImpl::HasErrorPage(int http_status_code) {
   // Use an internal error page, if we have one for the status code.
   return error_page::LocalizedError::HasStrings(
       error_page::Error::kHttpErrorDomain, http_status_code);
+}
+
+bool ContentBrowserClientImpl::IsClipboardPasteAllowed(
+    content::RenderFrameHost* render_frame_host) {
+  DCHECK(render_frame_host);
+
+  const GURL& url = render_frame_host->GetLastCommittedOrigin().GetURL();
+  content::BrowserContext* browser_context =
+      render_frame_host->GetBrowserContext();
+  DCHECK(browser_context);
+
+  content::PermissionController* permission_controller =
+      browser_context->GetPermissionController();
+  blink::mojom::PermissionStatus status =
+      permission_controller->GetPermissionStatusForFrame(
+          content::PermissionType::CLIPBOARD_READ_WRITE, render_frame_host,
+          url);
+
+  if (!render_frame_host->HasTransientUserActivation() &&
+      status != blink::mojom::PermissionStatus::GRANTED) {
+    // Paste requires either user activation, or granted web permission.
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace weblayer

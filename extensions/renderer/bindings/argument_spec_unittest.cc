@@ -6,7 +6,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "extensions/renderer/bindings/api_binding_test_util.h"
@@ -38,6 +37,10 @@ using api_errors::MissingRequiredProperty;
 using V8Validator = base::OnceCallback<void(v8::Local<v8::Value>)>;
 
 class ArgumentSpecUnitTest : public gin::V8Test {
+ public:
+  ArgumentSpecUnitTest(const ArgumentSpecUnitTest&) = delete;
+  ArgumentSpecUnitTest& operator=(const ArgumentSpecUnitTest&) = delete;
+
  protected:
   ArgumentSpecUnitTest()
       : type_refs_(APITypeReferenceMap::InitializeTypeCallback()) {}
@@ -137,8 +140,6 @@ class ArgumentSpecUnitTest : public gin::V8Test {
   void RunTest(RunTestParams& params);
 
   APITypeReferenceMap type_refs_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArgumentSpecUnitTest);
 };
 
 void ArgumentSpecUnitTest::RunTest(RunTestParams& params) {

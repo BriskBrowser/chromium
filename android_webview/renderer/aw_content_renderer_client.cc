@@ -62,10 +62,10 @@ AwContentRendererClient::~AwContentRendererClient() = default;
 
 void AwContentRendererClient::RenderThreadStarted() {
   RenderThread* thread = RenderThread::Get();
-  aw_render_thread_observer_.reset(new AwRenderThreadObserver);
+  aw_render_thread_observer_ = std::make_unique<AwRenderThreadObserver>();
   thread->AddObserver(aw_render_thread_observer_.get());
 
-  visited_link_reader_.reset(new visitedlink::VisitedLinkReader);
+  visited_link_reader_ = std::make_unique<visitedlink::VisitedLinkReader>();
 
   browser_interface_broker_ =
       blink::Platform::Current()->GetBrowserInterfaceBroker();
@@ -86,7 +86,6 @@ void AwContentRendererClient::ExposeInterfacesToBrowser(
 
 bool AwContentRendererClient::HandleNavigation(
     content::RenderFrame* render_frame,
-    bool is_content_initiated,
     bool render_view_was_created_by_renderer,
     blink::WebFrame* frame,
     const blink::WebURLRequest& request,
@@ -101,12 +100,7 @@ bool AwContentRendererClient::HandleNavigation(
   // initiated and hence will not yield a shouldOverrideUrlLoading() callback.
   // Webview classic does not consider reload application-initiated so we
   // continue the same behavior.
-  // TODO(sgurun) is_content_initiated is normally false for cross-origin
-  // navigations but since android_webview does not swap out renderers, this
-  // works fine. This will stop working if android_webview starts swapping out
-  // renderers on navigation.
-  bool application_initiated =
-      !is_content_initiated || type == blink::kWebNavigationTypeBackForward;
+  bool application_initiated = type == blink::kWebNavigationTypeBackForward;
 
   // Don't offer application-initiated navigations unless it's a redirect.
   if (application_initiated && !is_redirect)
@@ -136,7 +130,7 @@ bool AwContentRendererClient::HandleNavigation(
   }
 
   bool ignore_navigation = false;
-  base::string16 url = request.Url().GetString().Utf16();
+  std::u16string url = request.Url().GetString().Utf16();
   bool has_user_gesture = request.HasUserGesture();
 
   mojo::AssociatedRemote<mojom::FrameHost> frame_host_remote;
@@ -157,14 +151,11 @@ void AwContentRendererClient::RenderFrameCreated(
   new js_injection::JsCommunication(render_frame);
   new AwSafeBrowsingErrorPageControllerDelegateImpl(render_frame);
 
-  // TODO(jam): when the frame tree moves into content and parent() works at
-  // RenderFrame construction, simplify this by just checking parent().
-  content::RenderFrame* parent_frame =
-      render_frame->GetRenderView()->GetMainRenderFrame();
-  if (parent_frame && parent_frame != render_frame) {
+  content::RenderFrame* main_frame = render_frame->GetMainRenderFrame();
+  if (main_frame && main_frame != render_frame) {
     // Avoid any race conditions from having the browser's UI thread tell the IO
     // thread that a subframe was created.
-    GetRenderMessageFilter()->SubFrameCreated(parent_frame->GetRoutingID(),
+    GetRenderMessageFilter()->SubFrameCreated(main_frame->GetRoutingID(),
                                               render_frame->GetRoutingID());
   }
 
@@ -176,9 +167,8 @@ void AwContentRendererClient::RenderFrameCreated(
   new page_load_metrics::MetricsRenderFrameObserver(render_frame);
 }
 
-void AwContentRendererClient::RenderViewCreated(
-    content::RenderView* render_view) {
-  AwRenderViewExt::WebViewCreated(render_view->GetWebView());
+void AwContentRendererClient::WebViewCreated(blink::WebView* web_view) {
+  AwRenderViewExt::WebViewCreated(web_view);
 }
 
 void AwContentRendererClient::PrepareErrorPage(
@@ -213,15 +203,15 @@ void AwContentRendererClient::AddSupportedKeySystems(
   AwAddKeySystems(key_systems);
 }
 
-std::unique_ptr<content::WebSocketHandshakeThrottleProvider>
+std::unique_ptr<blink::WebSocketHandshakeThrottleProvider>
 AwContentRendererClient::CreateWebSocketHandshakeThrottleProvider() {
   return std::make_unique<AwWebSocketHandshakeThrottleProvider>(
       browser_interface_broker_.get());
 }
 
-std::unique_ptr<content::URLLoaderThrottleProvider>
+std::unique_ptr<blink::URLLoaderThrottleProvider>
 AwContentRendererClient::CreateURLLoaderThrottleProvider(
-    content::URLLoaderThrottleProviderType provider_type) {
+    blink::URLLoaderThrottleProviderType provider_type) {
   return std::make_unique<AwURLLoaderThrottleProvider>(
       browser_interface_broker_.get(), provider_type);
 }

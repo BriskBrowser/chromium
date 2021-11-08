@@ -14,7 +14,6 @@
 #include "chrome/browser/ui/extensions/accelerator_priority.h"
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_action_view_delegate_views.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/common/extensions/command.h"
@@ -88,12 +87,6 @@ void ExtensionActionPlatformDelegateViews::ShowPopup(
   ExtensionPopup::ShowPopup(std::move(host),
                             GetDelegateViews()->GetReferenceButtonForPopup(),
                             arrow, popup_show_action);
-}
-
-void ExtensionActionPlatformDelegateViews::ShowContextMenu() {
-  views::View* view = GetDelegateViews()->GetAsView();
-  view->context_menu_controller()->ShowContextMenuForView(
-      view, view->GetKeyboardContextMenuLocation(), ui::MENU_SOURCE_NONE);
 }
 
 void ExtensionActionPlatformDelegateViews::OnExtensionCommandAdded(

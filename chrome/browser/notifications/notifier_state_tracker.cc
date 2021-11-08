@@ -6,9 +6,11 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -39,12 +41,7 @@ void NotifierStateTracker::RegisterProfilePrefs(
 }
 
 NotifierStateTracker::NotifierStateTracker(Profile* profile)
-    : profile_(profile)
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-      ,
-      extension_registry_observer_(this)
-#endif
-{
+    : profile_(profile) {
   OnStringListPrefChanged(
       prefs::kMessageCenterDisabledExtensionIds, &disabled_extension_ids_);
 
@@ -57,7 +54,7 @@ NotifierStateTracker::NotifierStateTracker(Profile* profile)
           base::Unretained(&disabled_extension_ids_)));
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  extension_registry_observer_.Add(
+  extension_registry_observation_.Observe(
       extensions::ExtensionRegistry::Get(profile_));
 #endif
 }
@@ -115,13 +112,13 @@ void NotifierStateTracker::SetNotifierEnabled(
 
   bool add_new_item = false;
   const char* pref_name = NULL;
-  std::unique_ptr<base::Value> id;
+  base::Value id;
   switch (notifier_id.type) {
     case message_center::NotifierType::APPLICATION:
 #if BUILDFLAG(ENABLE_EXTENSIONS)
       pref_name = prefs::kMessageCenterDisabledExtensionIds;
       add_new_item = !enabled;
-      id.reset(new base::Value(notifier_id.id));
+      id = base::Value(notifier_id.id);
       FirePermissionLevelChangedEvent(notifier_id, enabled);
 #else
       NOTREACHED();
@@ -133,11 +130,11 @@ void NotifierStateTracker::SetNotifierEnabled(
   DCHECK(pref_name != NULL);
 
   ListPrefUpdate update(profile_->GetPrefs(), pref_name);
-  base::ListValue* const list = update.Get();
   if (add_new_item) {
-    list->AppendIfNotPresent(std::move(id));
+    if (!base::Contains(update->GetList(), id))
+      update->Append(std::move(id));
   } else {
-    list->Remove(*id, nullptr);
+    update->EraseListValue(id);
   }
 }
 
@@ -148,7 +145,7 @@ void NotifierStateTracker::OnStringListPrefChanged(
   const PrefService* pref_service = profile_->GetPrefs();
   CHECK(pref_service);
   const base::ListValue* pref_list = pref_service->GetList(pref_name);
-  for (size_t i = 0; i < pref_list->GetSize(); ++i) {
+  for (size_t i = 0; i < pref_list->GetList().size(); ++i) {
     std::string element;
     if (pref_list->GetString(i, &element) && !element.empty())
       ids_field->insert(element);
@@ -183,8 +180,9 @@ void NotifierStateTracker::FirePermissionLevelChangedEvent(
   extensions::api::notifications::PermissionLevel permission =
       enabled ? extensions::api::notifications::PERMISSION_LEVEL_GRANTED
               : extensions::api::notifications::PERMISSION_LEVEL_DENIED;
-  std::unique_ptr<base::ListValue> args(new base::ListValue());
-  args->AppendString(extensions::api::notifications::ToString(permission));
+  std::vector<base::Value> args;
+  args.push_back(
+      base::Value(extensions::api::notifications::ToString(permission)));
   std::unique_ptr<extensions::Event> event(new extensions::Event(
       extensions::events::NOTIFICATIONS_ON_PERMISSION_LEVEL_CHANGED,
       extensions::api::notifications::OnPermissionLevelChanged::kEventName,

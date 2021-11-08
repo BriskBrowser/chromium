@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include <limits>
+#include <memory>
 
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -19,7 +20,6 @@
 #include "ui/compositor/paint_recorder.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/managed_display_info.h"
-#include "ui/display/screen.h"
 #include "ui/gfx/canvas.h"
 
 namespace ash {
@@ -124,11 +124,9 @@ OverscanCalibrator::OverscanCalibrator(const display::Display& target_display,
   Shell::Get()->window_tree_host_manager()->SetOverscanInsets(display_.id(),
                                                               gfx::Insets());
   UpdateUILayer();
-  display::Screen::GetScreen()->AddObserver(this);
 }
 
 OverscanCalibrator::~OverscanCalibrator() {
-  display::Screen::GetScreen()->RemoveObserver(this);
   // Overscan calibration has finished without commit, so the display has to
   // be the original offset.
   if (!committed_) {
@@ -195,7 +193,7 @@ void OverscanCalibrator::UpdateUILayer() {
   aura::Window* root = Shell::GetRootWindowForDisplayId(display_.id());
   ui::Layer* parent_layer =
       Shell::GetContainer(root, kShellWindowId_OverlayContainer)->layer();
-  calibration_layer_.reset(new ui::Layer());
+  calibration_layer_ = std::make_unique<ui::Layer>();
   calibration_layer_->SetOpacity(0.5f);
   calibration_layer_->SetBounds(parent_layer->bounds());
   calibration_layer_->set_delegate(this);

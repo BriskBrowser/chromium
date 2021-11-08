@@ -18,8 +18,7 @@ namespace data_snapshotd {
 namespace {
 
 // Interval between successful connection attempts.
-constexpr base::TimeDelta kConnectionAttemptInterval =
-    base::TimeDelta::FromSeconds(1);
+constexpr base::TimeDelta kConnectionAttemptInterval = base::Seconds(1);
 
 // The maximum number of consecutive connection attempts before giving up.
 constexpr int kMaxConnectionAttemptCount = 5;
@@ -150,6 +149,30 @@ void ArcDataSnapshotdBridge::Update(int percent,
   VLOG(1) << "Update via D-Bus";
   chromeos::DBusThreadManager::Get()->GetArcDataSnapshotdClient()->Update(
       percent, std::move(callback));
+}
+
+void ArcDataSnapshotdBridge::ConnectToUiCancelledSignal(
+    base::RepeatingClosure signal_callback) {
+  if (!is_available_) {
+    LOG(ERROR) << "Connection to UiCancelled signal when D-Bus service is not "
+               << "available.";
+    return;
+  }
+  VLOG(1) << "Connect to UiCancelled D-Bus signal.";
+  chromeos::DBusThreadManager::Get()
+      ->GetArcDataSnapshotdClient()
+      ->ConnectToUiCancelledSignal(
+          std::move(signal_callback),
+          base::BindOnce(
+              &ArcDataSnapshotdBridge::OnUiCancelledSignalConnectedCallback,
+              weak_ptr_factory_.GetWeakPtr()));
+}
+
+void ArcDataSnapshotdBridge::OnUiCancelledSignalConnectedCallback(
+    bool success) {
+  if (!success)
+    LOG(ERROR) << "UiCancelled signal connection failed, will not cancel "
+               << "snapshot generation from UI";
 }
 
 }  // namespace data_snapshotd

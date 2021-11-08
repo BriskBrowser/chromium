@@ -4,7 +4,6 @@
 
 package org.chromium.chrome.browser.omnibox.suggestions.basic;
 
-import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
@@ -32,8 +31,6 @@ import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.omnibox.OmniboxSuggestionType;
 import org.chromium.chrome.browser.omnibox.UrlBarEditingTextStateProvider;
 import org.chromium.chrome.browser.omnibox.suggestions.SuggestionHost;
@@ -41,13 +38,13 @@ import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionViewPr
 import org.chromium.chrome.browser.omnibox.suggestions.base.SuggestionDrawableState;
 import org.chromium.chrome.browser.omnibox.suggestions.basic.SuggestionViewProperties.SuggestionIcon;
 import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.components.favicon.LargeIconBridge;
 import org.chromium.components.favicon.LargeIconBridge.LargeIconCallback;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.omnibox.AutocompleteMatchBuilder;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.ui.modelutil.PropertyModel;
+import org.chromium.url.GURL;
 
 import java.util.List;
 
@@ -91,7 +88,6 @@ public class BasicSuggestionProcessorUnitTest {
                     put(OmniboxSuggestionType.NAVSUGGEST_PERSONALIZED, "NAVSUGGEST_PERSONALIZED");
                     put(OmniboxSuggestionType.VOICE_SUGGEST, "VOICE_SUGGEST");
                     put(OmniboxSuggestionType.DOCUMENT_SUGGESTION, "DOCUMENT_SUGGESTION");
-                    put(OmniboxSuggestionType.PEDAL, "PEDAL");
                     // Note: CALCULATOR suggestions are not handled by basic suggestion processor.
                     // These suggestions are now processed by AnswerSuggestionProcessor instead.
                 }
@@ -106,13 +102,22 @@ public class BasicSuggestionProcessorUnitTest {
     LargeIconBridge mIconBridge;
     @Mock
     UrlBarEditingTextStateProvider mUrlBarText;
-    @Mock
-    BookmarkBridge mBookmarkBridge;
 
     private Bitmap mBitmap;
     private BasicSuggestionProcessor mProcessor;
     private AutocompleteMatch mSuggestion;
     private PropertyModel mModel;
+
+    private class BookmarkPredicate implements BasicSuggestionProcessor.BookmarkState {
+        boolean mState;
+
+        @Override
+        public boolean isBookmarked(GURL url) {
+            return mState;
+        }
+    }
+
+    private final BookmarkPredicate mIsBookmarked = new BookmarkPredicate();
 
     @Before
     public void setUp() {
@@ -121,7 +126,7 @@ public class BasicSuggestionProcessorUnitTest {
         doReturn("").when(mUrlBarText).getTextWithoutAutocomplete();
         mBitmap = Bitmap.createBitmap(1, 1, Config.ALPHA_8);
         mProcessor = new BasicSuggestionProcessor(ContextUtils.getApplicationContext(),
-                mSuggestionHost, mUrlBarText, () -> mIconBridge, () -> mBookmarkBridge);
+                mSuggestionHost, mUrlBarText, () -> mIconBridge, mIsBookmarked);
     }
 
     /**
@@ -165,7 +170,6 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void getSuggestionIconTypeForSearch_Default() {
         int[][] testCases = {
                 {OmniboxSuggestionType.URL_WHAT_YOU_TYPED, SuggestionIcon.MAGNIFIER},
@@ -185,7 +189,6 @@ public class BasicSuggestionProcessorUnitTest {
                 {OmniboxSuggestionType.NAVSUGGEST_PERSONALIZED, SuggestionIcon.MAGNIFIER},
                 {OmniboxSuggestionType.VOICE_SUGGEST, SuggestionIcon.VOICE},
                 {OmniboxSuggestionType.DOCUMENT_SUGGESTION, SuggestionIcon.MAGNIFIER},
-                {OmniboxSuggestionType.PEDAL, SuggestionIcon.MAGNIFIER},
         };
 
         mProcessor.onNativeInitialized();
@@ -199,7 +202,6 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void getSuggestionIconTypeForUrl_Default() {
         int[][] testCases = {
                 {OmniboxSuggestionType.URL_WHAT_YOU_TYPED, SuggestionIcon.GLOBE},
@@ -219,7 +221,6 @@ public class BasicSuggestionProcessorUnitTest {
                 {OmniboxSuggestionType.NAVSUGGEST_PERSONALIZED, SuggestionIcon.GLOBE},
                 {OmniboxSuggestionType.VOICE_SUGGEST, SuggestionIcon.GLOBE},
                 {OmniboxSuggestionType.DOCUMENT_SUGGESTION, SuggestionIcon.GLOBE},
-                {OmniboxSuggestionType.PEDAL, SuggestionIcon.GLOBE},
         };
 
         mProcessor.onNativeInitialized();
@@ -233,7 +234,6 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void getSuggestionIconTypeForBookmarks_Default() {
         int[][] testCases = {
                 {OmniboxSuggestionType.URL_WHAT_YOU_TYPED, SuggestionIcon.BOOKMARK},
@@ -253,10 +253,9 @@ public class BasicSuggestionProcessorUnitTest {
                 {OmniboxSuggestionType.NAVSUGGEST_PERSONALIZED, SuggestionIcon.BOOKMARK},
                 {OmniboxSuggestionType.VOICE_SUGGEST, SuggestionIcon.BOOKMARK},
                 {OmniboxSuggestionType.DOCUMENT_SUGGESTION, SuggestionIcon.BOOKMARK},
-                {OmniboxSuggestionType.PEDAL, SuggestionIcon.BOOKMARK},
         };
 
-        doReturn(true).when(mBookmarkBridge).isBookmarked(any());
+        mIsBookmarked.mState = true;
 
         mProcessor.onNativeInitialized();
         for (int[] testCase : testCases) {
@@ -269,7 +268,6 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void getSuggestionIconTypeForTrendingQueries() {
         int[][] testCases = {
                 {OmniboxSuggestionType.URL_WHAT_YOU_TYPED, SuggestionIcon.TRENDS},
@@ -349,7 +347,6 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void suggestionFavicons_showFaviconWhenAvailable() {
         final ArgumentCaptor<LargeIconCallback> callback =
                 ArgumentCaptor.forClass(LargeIconCallback.class);
@@ -371,7 +368,6 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void suggestionFavicons_doNotReplaceFallbackIconWhenNoFaviconIsAvailable() {
         final ArgumentCaptor<LargeIconCallback> callback =
                 ArgumentCaptor.forClass(LargeIconCallback.class);
@@ -392,7 +388,6 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void searchSuggestions_searchQueriesCanWrapAroundWithFeatureEnabled() {
         mProcessor.onNativeInitialized();
         createSearchSuggestion(OmniboxSuggestionType.SEARCH_WHAT_YOU_TYPED, "");

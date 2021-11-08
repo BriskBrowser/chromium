@@ -7,7 +7,6 @@
 
 #include <list>
 #include <memory>
-#include <string>
 #include <utility>
 
 #include "base/containers/flat_map.h"
@@ -40,6 +39,11 @@ class DesktopCaptureAccessHandler : public CaptureAccessHandlerBase,
   DesktopCaptureAccessHandler();
   explicit DesktopCaptureAccessHandler(
       std::unique_ptr<DesktopMediaPickerFactory> picker_factory);
+
+  DesktopCaptureAccessHandler(const DesktopCaptureAccessHandler&) = delete;
+  DesktopCaptureAccessHandler& operator=(const DesktopCaptureAccessHandler&) =
+      delete;
+
   ~DesktopCaptureAccessHandler() override;
 
   // MediaAccessHandler implementation.
@@ -81,6 +85,10 @@ class DesktopCaptureAccessHandler : public CaptureAccessHandlerBase,
   // approved.
   static bool IsDefaultApproved(const extensions::Extension* extension);
 
+  // Returns whether desktop capture is always approved for |url|.
+  // Currently chrome://feedback/ is default approved.
+  static bool IsDefaultApproved(const GURL& url);
+
   // WebContentsCollection::Observer:
   void WebContentsDestroyed(content::WebContents* web_contents) override;
 
@@ -107,8 +115,6 @@ class DesktopCaptureAccessHandler : public CaptureAccessHandlerBase,
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   aura::Window* primary_root_window_for_testing_ = nullptr;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(DesktopCaptureAccessHandler);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_WEBRTC_DESKTOP_CAPTURE_ACCESS_HANDLER_H_

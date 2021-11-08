@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "build/build_config.h"
+#include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/switches.h"
 
 #if defined(OS_ANDROID)
@@ -18,7 +19,6 @@
 
 #if defined(OS_MAC)
 #include "sandbox/mac/seatbelt.h"
-#include "sandbox/policy/mac/sandbox_mac.h"
 #endif  // defined(OS_MAC)
 
 #if defined(OS_WIN)
@@ -31,7 +31,7 @@ namespace sandbox {
 namespace policy {
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
-bool Sandbox::Initialize(SandboxType sandbox_type,
+bool Sandbox::Initialize(sandbox::mojom::Sandbox sandbox_type,
                          SandboxLinux::PreSandboxHook hook,
                          const SandboxLinux::Options& options) {
   return SandboxLinux::GetInstance()->InitializeSandbox(
@@ -39,22 +39,8 @@ bool Sandbox::Initialize(SandboxType sandbox_type,
 }
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
-#if defined(OS_MAC)
-bool Sandbox::Initialize(SandboxType sandbox_type, base::OnceClosure hook) {
-  // Warm up APIs before turning on the sandbox.
-  SandboxMac::Warmup(sandbox_type);
-
-  // Execute the post warmup callback.
-  if (!hook.is_null())
-    std::move(hook).Run();
-
-  // Actually sandbox the process.
-  return SandboxMac::Enable(sandbox_type);
-}
-#endif  // defined(OS_MAC)
-
 #if defined(OS_WIN)
-bool Sandbox::Initialize(SandboxType sandbox_type,
+bool Sandbox::Initialize(sandbox::mojom::Sandbox sandbox_type,
                          SandboxInterfaceInfo* sandbox_info) {
   BrokerServices* broker_services = sandbox_info->broker_services;
   if (broker_services) {

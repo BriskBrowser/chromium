@@ -48,6 +48,9 @@ class SpdyBuffer::SharedFrameIOBuffer : public IOBuffer {
       : IOBuffer(shared_frame->data->data() + offset),
         shared_frame_(shared_frame) {}
 
+  SharedFrameIOBuffer(const SharedFrameIOBuffer&) = delete;
+  SharedFrameIOBuffer& operator=(const SharedFrameIOBuffer&) = delete;
+
  private:
   ~SharedFrameIOBuffer() override {
     // Prevent ~IOBuffer() from trying to delete |data_|.
@@ -55,8 +58,6 @@ class SpdyBuffer::SharedFrameIOBuffer : public IOBuffer {
   }
 
   const scoped_refptr<SharedFrame> shared_frame_;
-
-  DISALLOW_COPY_AND_ASSIGN(SharedFrameIOBuffer);
 };
 
 SpdyBuffer::SpdyBuffer(std::unique_ptr<spdy::SpdySerializedFrame> frame)
@@ -95,11 +96,6 @@ void SpdyBuffer::Consume(size_t consume_size) {
 
 scoped_refptr<IOBuffer> SpdyBuffer::GetIOBufferForRemainingData() {
   return base::MakeRefCounted<SharedFrameIOBuffer>(shared_frame_, offset_);
-}
-
-size_t SpdyBuffer::EstimateMemoryUsage() const {
-  // TODO(xunjieli): Estimate |consume_callbacks_|. https://crbug.com/669108.
-  return base::trace_event::EstimateMemoryUsage(shared_frame_->data);
 }
 
 void SpdyBuffer::ConsumeHelper(size_t consume_size,

@@ -6,14 +6,12 @@
 #define CHROME_BROWSER_SUPERVISED_USER_CHILD_ACCOUNTS_CHILD_ACCOUNT_SERVICE_H_
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/callback_forward.h"
 #include "base/callback_list.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/supervised_user/child_accounts/family_info_fetcher.h"
@@ -37,6 +35,9 @@ class ChildAccountService : public KeyedService,
                             public SupervisedUserService::Delegate {
  public:
   enum class AuthState { AUTHENTICATED, NOT_AUTHENTICATED, PENDING };
+
+  ChildAccountService(const ChildAccountService&) = delete;
+  ChildAccountService& operator=(const ChildAccountService&) = delete;
 
   ~ChildAccountService() override;
 
@@ -118,14 +119,12 @@ class ChildAccountService : public KeyedService,
 
   signin::IdentityManager* identity_manager_;
 
-  base::CallbackList<void()> google_auth_state_observers_;
+  base::RepeatingClosureList google_auth_state_observers_;
 
   // Callbacks to run when the user status becomes known.
   std::vector<base::OnceClosure> status_received_callback_list_;
 
   base::WeakPtrFactory<ChildAccountService> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ChildAccountService);
 };
 
 #endif  // CHROME_BROWSER_SUPERVISED_USER_CHILD_ACCOUNTS_CHILD_ACCOUNT_SERVICE_H_

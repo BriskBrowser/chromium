@@ -18,6 +18,8 @@ namespace updater {
 struct RegistrationRequest;
 struct RegistrationResponse;
 
+enum class UpdaterScope;
+
 // The UpdateService is the cross-platform core of the updater.
 // All functions and callbacks must be called on the same sequence.
 class UpdateService : public base::RefCountedThreadSafe<UpdateService> {
@@ -156,28 +158,24 @@ class UpdateService : public base::RefCountedThreadSafe<UpdateService> {
     kForeground = 2,
   };
 
-  // Scope of the update service invocation.
-  enum class Scope {
-    // The updater is running in the logged in user's scope.
-    kUser = 1,
-
-    // The updater is running in the system's scope.
-    kSystem = 2,
-  };
-
-  using StateChangeCallback = base::RepeatingCallback<void(UpdateState)>;
   using Callback = base::OnceCallback<void(Result)>;
+  using StateChangeCallback = base::RepeatingCallback<void(UpdateState)>;
+  using RegisterAppCallback =
+      base::OnceCallback<void(const RegistrationResponse&)>;
 
   // Returns the version of the active updater. In the current implementation,
-  // this value corresponds to UPDATER_VERSION. The version object is invalid
-  // ]if an error occurs.
+  // this value corresponds to kUpdaterVersion. The version object is invalid
+  // if an error occurs.
   virtual void GetVersion(
       base::OnceCallback<void(const base::Version&)>) const = 0;
 
   // Registers given request to the updater.
-  virtual void RegisterApp(
-      const RegistrationRequest& request,
-      base::OnceCallback<void(const RegistrationResponse&)> callback) = 0;
+  virtual void RegisterApp(const RegistrationRequest& request,
+                           RegisterAppCallback callback) = 0;
+
+  // Runs periodic tasks such as checking for uninstallation of registered
+  // applications or doing background updates for registered applications.
+  virtual void RunPeriodicTasks(base::OnceClosure callback) = 0;
 
   // Initiates an update check for all registered applications. Receives state
   // change notifications through the repeating |state_update| callback.
@@ -246,9 +244,6 @@ inline std::ostream& operator<<(std::ostream& os,
 
 std::ostream& operator<<(std::ostream& os,
                          const UpdateService::UpdateState& update_state);
-
-// A factory method to create an UpdateService class instance.
-scoped_refptr<UpdateService> CreateUpdateService();
 
 }  // namespace updater
 

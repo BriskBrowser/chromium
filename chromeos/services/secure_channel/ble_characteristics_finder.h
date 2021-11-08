@@ -64,6 +64,11 @@ class BluetoothLowEnergyCharacteristicsFinder
       scoped_refptr<base::TaskRunner> task_runner =
           base::ThreadTaskRunnerHandle::Get());
 
+  BluetoothLowEnergyCharacteristicsFinder(
+      const BluetoothLowEnergyCharacteristicsFinder&) = delete;
+  BluetoothLowEnergyCharacteristicsFinder& operator=(
+      const BluetoothLowEnergyCharacteristicsFinder&) = delete;
+
   ~BluetoothLowEnergyCharacteristicsFinder() override;
 
  protected:
@@ -96,11 +101,10 @@ class BluetoothLowEnergyCharacteristicsFinder
   void NotifyFailureIfNoPendingEidCharReads();
 
   void TryToVerifyEid(device::BluetoothRemoteGattCharacteristic* eid_char);
-  void OnRemoteCharacteristicRead(const std::string& service_id,
-                                  const std::vector<uint8_t>& value);
-  void OnReadRemoteCharacteristicError(
+  void OnRemoteCharacteristicRead(
       const std::string& service_id,
-      device::BluetoothRemoteGattService::GattErrorCode error);
+      absl::optional<device::BluetoothGattService::GattErrorCode> error_code,
+      const std::vector<uint8_t>& value);
   bool DoesEidMatchExpectedDevice(const std::vector<uint8_t>& eid_value_read);
 
   // The Bluetooth adapter where the connection was established.
@@ -141,12 +145,10 @@ class BluetoothLowEnergyCharacteristicsFinder
 
   base::WeakPtrFactory<BluetoothLowEnergyCharacteristicsFinder>
       weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BluetoothLowEnergyCharacteristicsFinder);
 };
 
 }  // namespace secure_channel
 
 }  // namespace chromeos
 
-#endif  // CHROMEOS_SERVICES_SECURE_CHANNEL_BLE_BLUETOOTH_CHARACTERISTICS_FINDER_H_
+#endif  // CHROMEOS_SERVICES_SECURE_CHANNEL_BLE_CHARACTERISTICS_FINDER_H_

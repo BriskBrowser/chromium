@@ -19,12 +19,11 @@ class OnRequestCanvasDrawListener : public AutoCanvasDrawListener {
   explicit OnRequestCanvasDrawListener(std::unique_ptr<CanvasCaptureHandler>);
   ~OnRequestCanvasDrawListener() override;
 
-  void SendNewFrame(scoped_refptr<StaticBitmapImage>,
-                    base::WeakPtr<WebGraphicsContext3DProviderWrapper>) final;
+  NewFrameCallback GetNewFrameCallback() final;
 
   void Trace(Visitor*) const override;
 };
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIACAPTUREFROMELEMENT_ON_REQUEST_CANVAS_DRAW_LISTENER_H_

@@ -12,12 +12,12 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "cc/layers/surface_layer.h"
 #include "cc/layers/video_frame_provider.h"
 #include "media/base/media_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/web_media_player.h"
 #include "third_party/blink/public/platform/web_video_frame_submitter.h"
 #include "third_party/blink/renderer/modules/mediastream/video_renderer_algorithm_wrapper.h"
@@ -70,6 +70,10 @@ class MODULES_EXPORT WebMediaPlayerMSCompositor
       std::unique_ptr<WebVideoFrameSubmitter> submitter,
       WebMediaPlayer::SurfaceLayerMode surface_layer_mode,
       const base::WeakPtr<WebMediaPlayerMS>& player);
+
+  WebMediaPlayerMSCompositor(const WebMediaPlayerMSCompositor&) = delete;
+  WebMediaPlayerMSCompositor& operator=(const WebMediaPlayerMSCompositor&) =
+      delete;
 
   // Can be called from any thread.
   cc::UpdateSubmissionStateCB GetUpdateSubmissionStateCallback() {
@@ -186,14 +190,14 @@ class MODULES_EXPORT WebMediaPlayerMSCompositor
   void SetCurrentFrame(
       scoped_refptr<media::VideoFrame> frame,
       bool is_copy,
-      base::Optional<base::TimeTicks> expected_presentation_time);
+      absl::optional<base::TimeTicks> expected_presentation_time);
   // Following the update to |current_frame_|, this will check for changes that
   // require updating video layer.
   void CheckForFrameChanges(
       bool is_first_frame,
       bool has_frame_size_changed,
-      base::Optional<media::VideoRotation> new_frame_rotation,
-      base::Optional<bool> new_frame_opacity);
+      absl::optional<media::VideoTransformation> new_frame_transform,
+      absl::optional<bool> new_frame_opacity);
 
   void StartRenderingInternal();
   void StopRenderingInternal();
@@ -289,8 +293,6 @@ class MODULES_EXPORT WebMediaPlayerMSCompositor
   base::Lock current_frame_lock_;
 
   base::WeakPtrFactory<WebMediaPlayerMSCompositor> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(WebMediaPlayerMSCompositor);
 };
 
 struct WebMediaPlayerMSCompositorTraits {

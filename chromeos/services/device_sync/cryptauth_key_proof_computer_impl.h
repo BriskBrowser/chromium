@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "chromeos/services/device_sync/cryptauth_key_proof_computer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -33,29 +33,31 @@ class CryptAuthKeyProofComputerImpl : public CryptAuthKeyProofComputer {
     static Factory* test_factory_;
   };
 
+  CryptAuthKeyProofComputerImpl(const CryptAuthKeyProofComputerImpl&) = delete;
+  CryptAuthKeyProofComputerImpl& operator=(
+      const CryptAuthKeyProofComputerImpl&) = delete;
+
   ~CryptAuthKeyProofComputerImpl() override;
 
   // CryptAuthKeyProofComputer:
-  base::Optional<std::string> ComputeKeyProof(
+  absl::optional<std::string> ComputeKeyProof(
       const CryptAuthKey& key,
       const std::string& payload,
       const std::string& salt,
-      const base::Optional<std::string>& info) override;
+      const absl::optional<std::string>& info) override;
 
  private:
   CryptAuthKeyProofComputerImpl();
 
-  base::Optional<std::string> ComputeSymmetricKeyProof(
+  absl::optional<std::string> ComputeSymmetricKeyProof(
       const CryptAuthKey& symmetric_key,
       const std::string& payload,
       const std::string& salt,
       const std::string& info);
-  base::Optional<std::string> ComputeAsymmetricKeyProof(
+  absl::optional<std::string> ComputeAsymmetricKeyProof(
       const CryptAuthKey& asymmetric_key,
       const std::string& payload,
       const std::string& salt);
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthKeyProofComputerImpl);
 };
 
 }  // namespace device_sync

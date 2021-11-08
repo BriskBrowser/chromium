@@ -113,7 +113,7 @@ void GrandfatheredEasyUnlockHostDisabler::OnHostChangedOnBackend() {
 void GrandfatheredEasyUnlockHostDisabler::DisableEasyUnlockHostIfNecessary() {
   timer_->Stop();
 
-  base::Optional<multidevice::RemoteDeviceRef> host_to_disable =
+  absl::optional<multidevice::RemoteDeviceRef> host_to_disable =
       GetEasyUnlockHostToDisable();
 
   if (!host_to_disable)
@@ -170,21 +170,20 @@ void GrandfatheredEasyUnlockHostDisabler::OnDisableEasyUnlockHostResult(
     return;
 
   if (success) {
-    SetPotentialEasyUnlockHostToDisable(base::nullopt);
+    SetPotentialEasyUnlockHostToDisable(absl::nullopt);
     return;
   }
 
   PA_LOG(WARNING) << "Retrying in " << kNumMinutesBetweenRetries
                   << " minutes if necessary.";
-  timer_->Start(FROM_HERE,
-                base::TimeDelta::FromMinutes(kNumMinutesBetweenRetries),
+  timer_->Start(FROM_HERE, base::Minutes(kNumMinutesBetweenRetries),
                 base::BindOnce(&GrandfatheredEasyUnlockHostDisabler::
                                    DisableEasyUnlockHostIfNecessary,
                                base::Unretained(this)));
 }
 
 void GrandfatheredEasyUnlockHostDisabler::SetPotentialEasyUnlockHostToDisable(
-    base::Optional<multidevice::RemoteDeviceRef> device) {
+    absl::optional<multidevice::RemoteDeviceRef> device) {
   pref_service_->SetString(kEasyUnlockHostIdToDisablePrefName,
                            !device || device->GetDeviceId().empty()
                                ? kNoDevice
@@ -195,14 +194,14 @@ void GrandfatheredEasyUnlockHostDisabler::SetPotentialEasyUnlockHostToDisable(
                                : device->instance_id());
 }
 
-base::Optional<multidevice::RemoteDeviceRef>
+absl::optional<multidevice::RemoteDeviceRef>
 GrandfatheredEasyUnlockHostDisabler::GetEasyUnlockHostToDisable() {
   std::string legacy_device_id =
       pref_service_->GetString(kEasyUnlockHostIdToDisablePrefName);
   std::string instance_id =
       pref_service_->GetString(kEasyUnlockHostInstanceIdToDisablePrefName);
   if (legacy_device_id == kNoDevice && instance_id == kNoDevice)
-    return base::nullopt;
+    return absl::nullopt;
 
   multidevice::RemoteDeviceRefList synced_devices =
       device_sync_client_->GetSyncedDevices();
@@ -222,8 +221,8 @@ GrandfatheredEasyUnlockHostDisabler::GetEasyUnlockHostToDisable() {
   //   - the device is the BetterTogether host.
   if (it == synced_devices.end() || !IsEasyUnlockHost(*it) ||
       *it == current_better_together_host_) {
-    SetPotentialEasyUnlockHostToDisable(base::nullopt);
-    return base::nullopt;
+    SetPotentialEasyUnlockHostToDisable(absl::nullopt);
+    return absl::nullopt;
   }
 
   return *it;

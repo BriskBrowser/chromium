@@ -10,7 +10,6 @@
 #include "ash/display/screen_orientation_controller.h"
 #include "ash/display/screen_orientation_controller_test_api.h"
 #include "ash/display/window_tree_host_manager.h"
-#include "ash/public/cpp/ash_switches.h"
 #include "ash/rotator/screen_rotation_animator_observer.h"
 #include "ash/rotator/screen_rotation_animator_test_api.h"
 #include "ash/shell.h"
@@ -22,7 +21,6 @@
 #include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
@@ -62,6 +60,9 @@ class AnimationObserver : public ScreenRotationAnimatorObserver {
  public:
   AnimationObserver() = default;
 
+  AnimationObserver(const AnimationObserver&) = delete;
+  AnimationObserver& operator=(const AnimationObserver&) = delete;
+
   bool copy_notified() const { return copy_notified_; }
   bool finish_notified() const { return finish_notified_; }
 
@@ -74,8 +75,6 @@ class AnimationObserver : public ScreenRotationAnimatorObserver {
  private:
   bool copy_notified_ = false;
   bool finish_notified_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(AnimationObserver);
 };
 
 class TestScreenRotationAnimator : public ScreenRotationAnimator {
@@ -83,6 +82,11 @@ class TestScreenRotationAnimator : public ScreenRotationAnimator {
   TestScreenRotationAnimator(aura::Window* root_window,
                              const base::RepeatingClosure& before_callback,
                              const base::RepeatingClosure& after_callback);
+
+  TestScreenRotationAnimator(const TestScreenRotationAnimator&) = delete;
+  TestScreenRotationAnimator& operator=(const TestScreenRotationAnimator&) =
+      delete;
+
   ~TestScreenRotationAnimator() override = default;
 
  private:
@@ -98,8 +102,6 @@ class TestScreenRotationAnimator : public ScreenRotationAnimator {
 
   base::RepeatingClosure intersect_before_callback_;
   base::RepeatingClosure intersect_after_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestScreenRotationAnimator);
 };
 
 TestScreenRotationAnimator::TestScreenRotationAnimator(
@@ -149,6 +151,12 @@ void TestScreenRotationAnimator::IntersectAfter(
 class ScreenRotationAnimatorSlowAnimationTest : public AshTestBase {
  public:
   ScreenRotationAnimatorSlowAnimationTest() = default;
+
+  ScreenRotationAnimatorSlowAnimationTest(
+      const ScreenRotationAnimatorSlowAnimationTest&) = delete;
+  ScreenRotationAnimatorSlowAnimationTest& operator=(
+      const ScreenRotationAnimatorSlowAnimationTest&) = delete;
+
   ~ScreenRotationAnimatorSlowAnimationTest() override = default;
 
   // AshTestBase:
@@ -169,8 +177,6 @@ class ScreenRotationAnimatorSlowAnimationTest : public AshTestBase {
   std::unique_ptr<ScreenRotationAnimatorTestApi> test_api_;
 
   std::unique_ptr<ui::ScopedAnimationDurationScaleMode> non_zero_duration_mode_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScreenRotationAnimatorSlowAnimationTest);
 };
 
 void ScreenRotationAnimatorSlowAnimationTest::SetUp() {
@@ -194,6 +200,12 @@ class ScreenRotationAnimatorSmoothAnimationTest
       public testing::WithParamInterface<bool> {
  public:
   ScreenRotationAnimatorSmoothAnimationTest() = default;
+
+  ScreenRotationAnimatorSmoothAnimationTest(
+      const ScreenRotationAnimatorSmoothAnimationTest&) = delete;
+  ScreenRotationAnimatorSmoothAnimationTest& operator=(
+      const ScreenRotationAnimatorSmoothAnimationTest&) = delete;
+
   ~ScreenRotationAnimatorSmoothAnimationTest() override = default;
 
   // AshTestBase:
@@ -236,8 +248,6 @@ class ScreenRotationAnimatorSmoothAnimationTest
   std::unique_ptr<ScreenRotationAnimatorTestApi> test_api_;
 
   std::unique_ptr<ui::ScopedAnimationDurationScaleMode> non_zero_duration_mode_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScreenRotationAnimatorSmoothAnimationTest);
 };
 
 void ScreenRotationAnimatorSmoothAnimationTest::RemoveSecondaryDisplay(
@@ -277,7 +287,7 @@ void ScreenRotationAnimatorSmoothAnimationTest::SetScreenRotationAnimator(
 }
 
 void ScreenRotationAnimatorSmoothAnimationTest::WaitForCopyCallback() {
-  run_loop_.reset(new base::RunLoop());
+  run_loop_ = std::make_unique<base::RunLoop>();
   run_loop_->Run();
 }
 

@@ -9,11 +9,11 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "components/exo/surface_observer.h"
 #include "components/exo/surface_tree_host.h"
 #include "components/exo/wm_helper.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/aura/client/cursor_client_observer.h"
 #include "ui/aura/client/focus_change_observer.h"
@@ -53,6 +53,10 @@ class Pointer : public SurfaceTreeHost,
                 public aura::client::FocusChangeObserver {
  public:
   Pointer(PointerDelegate* delegate, Seat* seat);
+
+  Pointer(const Pointer&) = delete;
+  Pointer& operator=(const Pointer&) = delete;
+
   ~Pointer() override;
 
   PointerDelegate* delegate() const { return delegate_; }
@@ -160,7 +164,7 @@ class Pointer : public SurfaceTreeHost,
   bool HandleRelativePointerMotion(
       base::TimeTicks time_stamp,
       gfx::PointF location_in_target,
-      const base::Optional<gfx::Vector2dF>& ordinal_motion);
+      const absl::optional<gfx::Vector2dF>& ordinal_motion);
 
   // The delegate instance that all events are dispatched to.
   PointerDelegate* const delegate_;
@@ -186,11 +190,11 @@ class Pointer : public SurfaceTreeHost,
   gfx::PointF location_;
 
   // The location of the pointer when pointer capture is first enabled.
-  base::Optional<gfx::Point> location_when_pointer_capture_enabled_;
+  absl::optional<gfx::Point> location_when_pointer_capture_enabled_;
 
   // If this is not nullptr, a synthetic move was sent and this points to the
   // location of a generated move that was sent which should not be forwarded.
-  base::Optional<gfx::Point> location_synthetic_move_;
+  absl::optional<gfx::Point> location_synthetic_move_;
 
   // The window with pointer capture. Pointer capture is enabled if and only if
   // this is not null.
@@ -224,8 +228,6 @@ class Pointer : public SurfaceTreeHost,
 
   // Weak pointer factory used for cursor capture callbacks.
   base::WeakPtrFactory<Pointer> cursor_capture_weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(Pointer);
 };
 
 }  // namespace exo

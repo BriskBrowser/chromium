@@ -53,12 +53,12 @@ class MockIpcMessageSender : public IPC::Sender {
         .WillByDefault(DoAll(Invoke(MessageDeleter), Return(true)));
   }
 
+  MockIpcMessageSender(const MockIpcMessageSender&) = delete;
+  MockIpcMessageSender& operator=(const MockIpcMessageSender&) = delete;
+
   ~MockIpcMessageSender() override = default;
 
   MOCK_METHOD1(Send, bool(IPC::Message* message));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockIpcMessageSender);
 };
 
 class MockRequestPeer : public blink::WebRequestPeer {
@@ -66,6 +66,9 @@ class MockRequestPeer : public blink::WebRequestPeer {
   MockRequestPeer()
       : body_watcher_(FROM_HERE, mojo::SimpleWatcher::ArmingPolicy::AUTOMATIC) {
   }
+
+  MockRequestPeer(const MockRequestPeer&) = delete;
+  MockRequestPeer& operator=(const MockRequestPeer&) = delete;
 
   MOCK_METHOD2(OnUploadProgress, void(uint64_t position, uint64_t size));
   MOCK_METHOD3(OnReceivedRedirect,
@@ -128,17 +131,13 @@ class MockRequestPeer : public blink::WebRequestPeer {
   mojo::SimpleWatcher body_watcher_;
   mojo::ScopedDataPipeConsumerHandle body_handle_;
   base::OnceClosure wait_for_body_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockRequestPeer);
 };
 
 }  // namespace
 
 class ExtensionLocalizationPeerTest : public testing::Test {
  protected:
-  void SetUp() override {
-    sender_.reset(new MockIpcMessageSender());
-  }
+  void SetUp() override { sender_ = std::make_unique<MockIpcMessageSender>(); }
 
   void SetUpExtensionLocalizationPeer(const std::string& mime_type,
                                       const GURL& request_url) {
@@ -162,7 +161,7 @@ class ExtensionLocalizationPeerTest : public testing::Test {
     options.capacity_num_bytes = data.size();
     mojo::ScopedDataPipeProducerHandle producer;
     mojo::ScopedDataPipeConsumerHandle consumer;
-    MojoResult result = mojo::CreateDataPipe(&options, &producer, &consumer);
+    MojoResult result = mojo::CreateDataPipe(&options, producer, consumer);
     EXPECT_EQ(MOJO_RESULT_OK, result);
     filter_peer_->OnStartLoadingResponseBody(std::move(consumer));
     mojo::BlockingCopyFromString(data, producer);
@@ -172,7 +171,7 @@ class ExtensionLocalizationPeerTest : public testing::Test {
   mojo::ScopedDataPipeConsumerHandle CreateEmptyBodyDataPipe() const {
     mojo::ScopedDataPipeConsumerHandle consumer;
     mojo::ScopedDataPipeProducerHandle producer;
-    MojoResult result = mojo::CreateDataPipe(nullptr, &producer, &consumer);
+    MojoResult result = mojo::CreateDataPipe(nullptr, producer, consumer);
     DCHECK_EQ(MOJO_RESULT_OK, result);
     return consumer;
   }

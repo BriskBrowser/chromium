@@ -6,9 +6,9 @@
 #define CHROME_BROWSER_UI_VIEWS_CHROME_CLEANER_REBOOT_DIALOG_WIN_H_
 
 #include "base/macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 class Browser;
@@ -40,7 +40,7 @@ class ChromeCleanerRebootDialog : public views::DialogDelegateView {
   void Show(Browser* browser);
 
   // views::WidgetDelegate overrides.
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   views::View* GetInitiallyFocusedView() override;
 
  private:

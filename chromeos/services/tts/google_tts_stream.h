@@ -6,6 +6,7 @@
 #define CHROMEOS_SERVICES_TTS_GOOGLE_TTS_STREAM_H_
 
 #include "chromeos/services/tts/public/mojom/tts_service.mojom.h"
+#include "chromeos/services/tts/tts_player.h"
 #include "library_loaders/libchrometts.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -17,8 +18,10 @@ class TtsService;
 
 class GoogleTtsStream : public mojom::GoogleTtsStream {
  public:
-  GoogleTtsStream(TtsService* owner,
-                  mojo::PendingReceiver<mojom::GoogleTtsStream> receiver);
+  GoogleTtsStream(
+      TtsService* owner,
+      mojo::PendingReceiver<mojom::GoogleTtsStream> receiver,
+      mojo::PendingRemote<media::mojom::AudioStreamFactory> factory);
   ~GoogleTtsStream() override;
 
   bool IsBound() const;
@@ -31,7 +34,7 @@ class GoogleTtsStream : public mojom::GoogleTtsStream {
   void SelectVoice(const std::string& voice_name,
                    SelectVoiceCallback callback) override;
   void Speak(const std::vector<uint8_t>& text_jspb,
-             const std::string& speaker_name,
+             const std::vector<uint8_t>& speaker_params_jspb,
              SpeakCallback callback) override;
   void Stop() override;
   void SetVolume(float volume) override;
@@ -51,6 +54,9 @@ class GoogleTtsStream : public mojom::GoogleTtsStream {
 
   // Whether buffering is in progress.
   bool is_buffering_ = false;
+
+  // Plays raw tts audio samples.
+  TtsPlayer tts_player_;
 
   base::WeakPtrFactory<GoogleTtsStream> weak_factory_{this};
 };

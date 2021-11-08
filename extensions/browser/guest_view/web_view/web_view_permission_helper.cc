@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/metrics/user_metrics.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/guest_view/browser/guest_view_event.h"
@@ -261,18 +261,11 @@ void WebViewPermissionHelper::RequestPointerLockPermission(
 }
 
 void WebViewPermissionHelper::RequestGeolocationPermission(
-    int bridge_id,
     const GURL& requesting_frame,
     bool user_gesture,
     base::OnceCallback<void(bool)> callback) {
   web_view_permission_helper_delegate_->RequestGeolocationPermission(
-      bridge_id, requesting_frame, user_gesture, std::move(callback));
-}
-
-void WebViewPermissionHelper::CancelGeolocationPermissionRequest(
-    int bridge_id) {
-  web_view_permission_helper_delegate_->CancelGeolocationPermissionRequest(
-      bridge_id);
+      requesting_frame, user_gesture, std::move(callback));
 }
 
 void WebViewPermissionHelper::RequestFileSystemPermission(

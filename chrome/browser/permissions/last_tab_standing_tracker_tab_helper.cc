@@ -20,7 +20,10 @@ void LastTabStandingTrackerTabHelper::WebContentsDestroyed() {
 
 void LastTabStandingTrackerTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame() ||
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       !navigation_handle->HasCommitted() ||
       navigation_handle->IsSameDocument()) {
     return;
@@ -45,4 +48,4 @@ LastTabStandingTrackerTabHelper::LastTabStandingTrackerTabHelper(
     content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents) {}
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(LastTabStandingTrackerTabHelper)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(LastTabStandingTrackerTabHelper);

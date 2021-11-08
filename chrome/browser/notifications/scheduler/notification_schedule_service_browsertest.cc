@@ -156,8 +156,7 @@ class NotificationScheduleServiceTest : public InProcessBrowserTest {
         std::make_unique<TestBackgroundTaskScheduler>();
     task_scheduler_ = background_task_scheduler.get();
     auto* db_provider =
-        content::BrowserContext::GetDefaultStoragePartition(profile)
-            ->GetProtoDatabaseProvider();
+        profile->GetDefaultStoragePartition()->GetProtoDatabaseProvider();
     service_ = CreateNotificationScheduleService(
         std::move(client_registrar), std::move(background_task_scheduler),
         std::move(display_agent), db_provider,
@@ -168,11 +167,10 @@ class NotificationScheduleServiceTest : public InProcessBrowserTest {
   void ScheduleNotification() {
     ScheduleParams schedule_params;
     schedule_params.deliver_time_start = base::Time::Now();
-    schedule_params.deliver_time_end =
-        base::Time::Now() + base::TimeDelta::FromMinutes(5);
+    schedule_params.deliver_time_end = base::Time::Now() + base::Minutes(5);
     NotificationData data;
-    data.title = base::UTF8ToUTF16("title");
-    data.message = base::UTF8ToUTF16("message");
+    data.title = u"title";
+    data.message = u"message";
     auto params = std::make_unique<notifications::NotificationParams>(
         notifications::SchedulerClientType::kTest1, std::move(data),
         std::move(schedule_params));

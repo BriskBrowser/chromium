@@ -11,11 +11,11 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
+#include "base/containers/cxx20_erase.h"
 #include "base/location.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
@@ -167,7 +167,7 @@ const char kTimeoutForLoadingIndicatorSecondsParamName[] =
 const int kDefaultTimeoutForLoadingIndicatorSeconds = 5;
 
 base::TimeDelta GetTimeoutForLoadingIndicator() {
-  return base::TimeDelta::FromSeconds(base::GetFieldTrialParamByFeatureAsInt(
+  return base::Seconds(base::GetFieldTrialParamByFeatureAsInt(
       ntp_snippets::kArticleSuggestionsFeature,
       kTimeoutForLoadingIndicatorSecondsParamName,
       kDefaultTimeoutForLoadingIndicatorSeconds));
@@ -332,7 +332,7 @@ RemoteSuggestionsProviderImpl::RemoteSuggestionsProviderImpl(
   // TODO(treib): Rethink this.
   category_contents_.insert(
       std::make_pair(articles_category_,
-                     CategoryContent(BuildArticleCategoryInfo(base::nullopt))));
+                     CategoryContent(BuildArticleCategoryInfo(absl::nullopt))));
   // Tell the observer about all the categories.
   for (const auto& entry : category_contents_) {
     observer->OnCategoryStatusChanged(this, entry.first, entry.second.status);
@@ -507,7 +507,7 @@ void RemoteSuggestionsProviderImpl::FetchSuggestions(
 
   // |count_to_fetch| is actually ignored, because the server does not support
   // this functionality.
-  RequestParams params = BuildFetchParams(/*fetched_category=*/base::nullopt,
+  RequestParams params = BuildFetchParams(/*fetched_category=*/absl::nullopt,
                                           /*count_to_fetch=*/10);
   params.interactive_request = interactive_request;
   suggestions_fetcher_->FetchSnippets(
@@ -556,7 +556,7 @@ void RemoteSuggestionsProviderImpl::Fetch(
 
 // Builds default fetcher params.
 RequestParams RemoteSuggestionsProviderImpl::BuildFetchParams(
-    base::Optional<Category> fetched_category,
+    absl::optional<Category> fetched_category,
     int count_to_fetch) const {
   RequestParams result;
   result.language_code = application_language_code_;
@@ -879,8 +879,7 @@ void RemoteSuggestionsProviderImpl::OnFetchFinished(
         if (ShouldForceFetchedSuggestionsNotifications() &&
             IsFetchedSuggestionsNotificationsEnabled()) {
           suggestion->set_should_notify(true);
-          suggestion->set_notification_deadline(clock_->Now() +
-                                                base::TimeDelta::FromDays(7));
+          suggestion->set_notification_deadline(clock_->Now() + base::Days(7));
         }
         if (!IsFetchedSuggestionsNotificationsEnabled()) {
           suggestion->set_should_notify(false);
@@ -1558,37 +1557,36 @@ void RemoteSuggestionsProviderImpl::RestoreCategoriesFromPrefs() {
 
   const base::ListValue* list =
       pref_service_->GetList(prefs::kRemoteSuggestionCategories);
-  for (const base::Value& entry : *list) {
+  for (const base::Value& entry : list->GetList()) {
     const base::DictionaryValue* dict = nullptr;
     if (!entry.GetAsDictionary(&dict)) {
       DLOG(WARNING) << "Invalid category pref value: " << entry;
       continue;
     }
-    int id = 0;
-    if (!dict->GetInteger(kCategoryContentId, &id)) {
+    absl::optional<int> id = dict->FindIntKey(kCategoryContentId);
+    if (!id) {
       DLOG(WARNING) << "Invalid category pref value, missing '"
                     << kCategoryContentId << "': " << entry;
       continue;
     }
-    base::string16 title;
+    std::u16string title;
     if (!dict->GetString(kCategoryContentTitle, &title)) {
       DLOG(WARNING) << "Invalid category pref value, missing '"
                     << kCategoryContentTitle << "': " << entry;
       continue;
     }
-    bool included_in_last_server_response = false;
-    if (!dict->GetBoolean(kCategoryContentProvidedByServer,
-                          &included_in_last_server_response)) {
+    absl::optional<bool> included_in_last_server_response =
+        dict->FindBoolKey(kCategoryContentProvidedByServer);
+    if (!included_in_last_server_response) {
       DLOG(WARNING) << "Invalid category pref value, missing '"
                     << kCategoryContentProvidedByServer << "': " << entry;
       continue;
     }
-    bool allow_fetching_more_results = false;
     // This wasn't always around, so it's okay if it's missing.
-    dict->GetBoolean(kCategoryContentAllowFetchingMore,
-                     &allow_fetching_more_results);
+    bool allow_fetching_more_results =
+        dict->FindBoolKey(kCategoryContentAllowFetchingMore).value_or(false);
 
-    Category category = Category::FromIDValue(id);
+    Category category = Category::FromIDValue(*id);
     // The ranker may not persist the order of remote categories.
     category_ranker_->AppendCategoryIfNecessary(category);
     // TODO(tschumann): The following has a bad smell that category
@@ -1599,11 +1597,11 @@ void RemoteSuggestionsProviderImpl::RestoreCategoriesFromPrefs() {
     // avoid using a title that was calculated for a stale locale.
     CategoryInfo info =
         category == articles_category_
-            ? BuildArticleCategoryInfo(base::nullopt)
+            ? BuildArticleCategoryInfo(absl::nullopt)
             : BuildRemoteCategoryInfo(title, allow_fetching_more_results);
     CategoryContent* content = UpdateCategoryInfo(category, info);
     content->included_in_last_server_response =
-        included_in_last_server_response;
+        included_in_last_server_response.value();
   }
 }
 

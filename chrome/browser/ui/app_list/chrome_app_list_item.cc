@@ -7,19 +7,20 @@
 #include <utility>
 
 #include "ash/public/cpp/tablet_mode.h"
+#include "base/notreached.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_model_updater.h"
-#include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
+#include "chrome/browser/ui/ash/notification_badge_color_cache.h"
 #include "extensions/browser/app_sorting.h"
 #include "extensions/browser/extension_system.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_skia_operations.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #endif
 
 namespace {
@@ -41,13 +42,6 @@ void ChromeAppListItem::OverrideAppListControllerDelegateForTesting(
   g_controller_for_test = controller;
 }
 
-// static
-gfx::ImageSkia ChromeAppListItem::CreateDisabledIcon(
-    const gfx::ImageSkia& icon) {
-  const color_utils::HSL shift = {-1, 0, 0.6};
-  return gfx::ImageSkiaOperations::CreateHSLShiftedImage(icon, shift);
-}
-
 // ChromeAppListItem::TestApi
 ChromeAppListItem::TestApi::TestApi(ChromeAppListItem* item) : item_(item) {}
 
@@ -58,6 +52,10 @@ void ChromeAppListItem::TestApi::SetFolderId(const std::string& folder_id) {
 void ChromeAppListItem::TestApi::SetPosition(
     const syncer::StringOrdinal& position) {
   item_->SetPosition(position);
+}
+
+void ChromeAppListItem::TestApi::SetName(const std::string& name) {
+  item_->SetName(name);
 }
 
 // ChromeAppListItem
@@ -87,8 +85,8 @@ std::unique_ptr<ash::AppListItemMetadata> ChromeAppListItem::CloneMetadata()
 void ChromeAppListItem::PerformActivate(int event_flags) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Handle recording app launch source from the AppList in Demo Mode.
-  chromeos::DemoSession::RecordAppLaunchSourceIfInDemoMode(
-      chromeos::DemoSession::AppLaunchSource::kAppList);
+  ash::DemoSession::RecordAppLaunchSourceIfInDemoMode(
+      ash::DemoSession::AppLaunchSource::kAppList);
 #endif
   Activate(event_flags);
   MaybeDismissAppList();
@@ -129,7 +127,7 @@ AppListControllerDelegate* ChromeAppListItem::GetController() {
                                           : AppListClientImpl::GetInstance();
 }
 
-void ChromeAppListItem::UpdateFromSync(
+void ChromeAppListItem::InitFromSync(
     const app_list::AppListSyncableService::SyncItem* sync_item) {
   DCHECK(sync_item && sync_item->item_ordinal.IsValid());
   // An existing synced position exists, use that.
@@ -139,7 +137,7 @@ void ChromeAppListItem::UpdateFromSync(
     SetName(sync_item->item_name);
 }
 
-void ChromeAppListItem::SetDefaultPositionIfApplicable(
+syncer::StringOrdinal ChromeAppListItem::CalculateDefaultPositionIfApplicable(
     AppListModelUpdater* model_updater) {
   syncer::StringOrdinal page_ordinal;
   syncer::StringOrdinal launch_ordinal;
@@ -147,57 +145,45 @@ void ChromeAppListItem::SetDefaultPositionIfApplicable(
   if (app_sorting->GetDefaultOrdinals(id(), &page_ordinal, &launch_ordinal) &&
       page_ordinal.IsValid() && launch_ordinal.IsValid()) {
     // Set the default position if it exists.
-    SetPosition(syncer::StringOrdinal(page_ordinal.ToInternalValue() +
-                                      launch_ordinal.ToInternalValue()));
-    return;
+    return syncer::StringOrdinal(page_ordinal.ToInternalValue() +
+                                 launch_ordinal.ToInternalValue());
   }
 
-  if (model_updater) {
-    // Set the first available position in the app list.
-    SetPosition(model_updater->GetFirstAvailablePosition());
-    return;
-  }
+  if (model_updater)
+    return model_updater->CalculatePositionForNewItem(*this);
 
   // Set the natural position.
   app_sorting->EnsureValidOrdinals(id(), syncer::StringOrdinal());
   page_ordinal = app_sorting->GetPageOrdinal(id());
   launch_ordinal = app_sorting->GetAppLaunchOrdinal(id());
-  SetPosition(syncer::StringOrdinal(page_ordinal.ToInternalValue() +
-                                    launch_ordinal.ToInternalValue()));
+  return syncer::StringOrdinal(page_ordinal.ToInternalValue() +
+                               launch_ordinal.ToInternalValue());
+}
+
+void ChromeAppListItem::LoadIcon() {
+  NOTIMPLEMENTED();
+}
+
+void ChromeAppListItem::IncrementIconVersion() {
+  ++metadata_->icon_version;
+
+  AppListModelUpdater* updater = model_updater();
+  if (updater)
+    updater->SetItemIconVersion(id(), metadata_->icon_version);
 }
 
 void ChromeAppListItem::SetIcon(const gfx::ImageSkia& icon) {
   metadata_->icon = icon;
   metadata_->icon.EnsureRepsForSupportedScales();
-  AppListModelUpdater* updater = model_updater();
-  if (updater)
-    updater->SetItemIcon(id(), metadata_->icon);
-
-  // Calculate and set the notification badge color.
-  ChromeLauncherController* chrome_launcher_controller =
-      ChromeLauncherController::instance();
-  if (chrome_launcher_controller) {
-    SkColor current_badge_color =
-        chrome_launcher_controller->CalculateNotificationBadgeColorForApp(id(),
+  metadata_->badge_color =
+      ash::NotificationBadgeColorCache::GetInstance().GetBadgeColorForApp(id(),
                                                                           icon);
-    if (updater)
-      updater->SetNotificationBadgeColor(id(), current_badge_color);
+
+  AppListModelUpdater* updater = model_updater();
+  if (updater) {
+    updater->SetItemIcon(id(), metadata_->icon);
+    updater->SetNotificationBadgeColor(id(), metadata_->badge_color);
   }
-}
-
-void ChromeAppListItem::SetName(const std::string& name) {
-  metadata_->name = name;
-  AppListModelUpdater* updater = model_updater();
-  if (updater)
-    updater->SetItemName(id(), name);
-}
-
-void ChromeAppListItem::SetNameAndShortName(const std::string& name,
-                                            const std::string& short_name) {
-  metadata_->name = name;
-  AppListModelUpdater* updater = model_updater();
-  if (updater)
-    updater->SetItemNameAndShortName(id(), name, short_name);
 }
 
 void ChromeAppListItem::SetAppStatus(ash::AppStatus app_status) {
@@ -209,16 +195,20 @@ void ChromeAppListItem::SetAppStatus(ash::AppStatus app_status) {
 
 void ChromeAppListItem::SetFolderId(const std::string& folder_id) {
   metadata_->folder_id = folder_id;
-  AppListModelUpdater* updater = model_updater();
-  if (updater)
-    updater->SetItemFolderId(id(), folder_id);
+}
+
+void ChromeAppListItem::SetName(const std::string& name) {
+  metadata_->name = name;
+}
+
+void ChromeAppListItem::SetNameAndShortName(const std::string& name,
+                                            const std::string& short_name) {
+  metadata_->name = name;
+  metadata_->short_name = short_name;
 }
 
 void ChromeAppListItem::SetPosition(const syncer::StringOrdinal& position) {
   metadata_->position = position;
-  AppListModelUpdater* updater = model_updater();
-  if (updater)
-    updater->SetItemPosition(id(), position);
 }
 
 void ChromeAppListItem::SetIsPersistent(bool is_persistent) {

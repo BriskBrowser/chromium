@@ -25,9 +25,12 @@ for use with the corresponding arguments to `builder`. Can also be accessed
 through `builders.cpu`, `builders.os` and `builders.goma` respectively.
 """
 
+load("@stdlib//internal/graph.star", "graph")
 load("//project.star", "settings")
 load("./args.star", "args")
 load("./branches.star", "branches")
+load("./builder_config.star", "builder_config", "register_builder_config")
+load("./listify.star", "listify")
 
 ################################################################################
 # Constants for use with the builder function                                  #
@@ -35,6 +38,7 @@ load("./branches.star", "branches")
 
 # The cpu constants to be used with the builder function
 cpu = struct(
+    ARM64 = "arm64",
     X86 = "x86",
     X86_64 = "x86-64",
 )
@@ -59,18 +63,47 @@ os = struct(
     ANDROID = os_enum("Android", os_category.ANDROID),
     LINUX_TRUSTY = os_enum("Ubuntu-14.04", os_category.LINUX),
     LINUX_XENIAL = os_enum("Ubuntu-16.04", os_category.LINUX),
+    LINUX_BIONIC = os_enum("Ubuntu-18.04", os_category.LINUX),
+    # xenial -> bionic migration
+    # * If a builder does not already explicitly set an os value, use
+    #   LINUX_BIONIC_REMOVE or LINUX_XENIAL_OR_BIONIC_REMOVE
+    # * If a builder explicitly sets LINUX_DEFAULT, use
+    #   LINUX_BIONIC_SWITCH_TO_DEFAULT or
+    #   LINUX_XENIAL_OR_BIONIC_SWITCH_TO_DEFAULT
+    #
+    # When the migration is complete, LINUX_DEFAULT can be switched to
+    # Ubunutu-18.04, all instances of LINUX_BIONIC_REMOVE can be removed and all
+    # instances of LINUX_BIONIC_SWITCH_TO_DEFAULT can be replaced with
+    # LINUX_DEFAULT, the only changes to the generated files should be
+    # Ubuntu-16.04|Ubuntu-18.04 -> Ubuntu-18.04
     LINUX_DEFAULT = os_enum("Ubuntu-16.04", os_category.LINUX),
+    # 100% switch to bionic
+    LINUX_BIONIC_REMOVE = os_enum("Ubuntu-18.04", os_category.LINUX),
+    LINUX_BIONIC_SWITCH_TO_DEFAULT = os_enum("Ubuntu-18.04", os_category.LINUX),
+    # Staged switch to bionic: we can gradually shift the matching capacity
+    # towards bionic and the builder will continue to run on whatever is
+    # available
+    LINUX_XENIAL_OR_BIONIC_REMOVE = os_enum(
+        "Ubuntu-16.04|Ubuntu-18.04",
+        os_category.LINUX,
+    ),
+    LINUX_XENIAL_OR_BIONIC_SWITCH_TO_DEFAULT = os_enum(
+        "Ubuntu-16.04|Ubuntu-18.04",
+        os_category.LINUX,
+    ),
     MAC_10_12 = os_enum("Mac-10.12", os_category.MAC),
     MAC_10_13 = os_enum("Mac-10.13", os_category.MAC),
     MAC_10_14 = os_enum("Mac-10.14", os_category.MAC),
     MAC_10_15 = os_enum("Mac-10.15", os_category.MAC),
-    MAC_11_0 = os_enum("Mac-11.0|Mac-10.16", os_category.MAC),
-    MAC_DEFAULT = os_enum("Mac-10.15", os_category.MAC),
+    MAC_11 = os_enum("Mac-11", os_category.MAC),
+    # TODO(crbug.com/1254953) Remove 10.15 once builders have been migrated to Mac11
+    MAC_DEFAULT = os_enum("Mac-10.15|Mac-11", os_category.MAC),
     MAC_ANY = os_enum("Mac", os_category.MAC),
     WINDOWS_7 = os_enum("Windows-7", os_category.WINDOWS),
     WINDOWS_8_1 = os_enum("Windows-8.1", os_category.WINDOWS),
     WINDOWS_10 = os_enum("Windows-10", os_category.WINDOWS),
     WINDOWS_10_1703 = os_enum("Windows-10-15063", os_category.WINDOWS),
+    WINDOWS_10_20h2 = os_enum("Windows-10-19042", os_category.WINDOWS),
     WINDOWS_10_1909 = os_enum("Windows-10-18363", os_category.WINDOWS),
     WINDOWS_DEFAULT = os_enum("Windows-10", os_category.WINDOWS),
     WINDOWS_ANY = os_enum("Windows", os_category.WINDOWS),
@@ -123,6 +156,19 @@ goma = struct(
     ),
 )
 
+def _rotation(name):
+    return branches.value({branches.MAIN: [name]})
+
+# Sheriff rotations that a builder can be added to (only takes effect on trunk)
+# Arbitrary elements can't be added, new rotations must be added in SoM code
+sheriff_rotations = struct(
+    ANDROID = _rotation("android"),
+    CHROMIUM = _rotation("chromium"),
+    CHROMIUM_CLANG = _rotation("chromium.clang"),
+    CHROMIUM_GPU = _rotation("chromium.gpu"),
+    IOS = _rotation("ios"),
+)
+
 def xcode_enum(version):
     return struct(
         version = version,
@@ -132,17 +178,33 @@ def xcode_enum(version):
 
 # Keep this in-sync with the versions of bots in //ios/build/bots/.
 xcode = struct(
-    # in use by webrtc mac builders
-    x11c29 = xcode_enum("11c29"),
-    # in use by ci/ios-simulator-cronet and try/ios-simulator-cronet
-    x11e146 = xcode_enum("11e146"),
-    # in use by ios-webkit-tot
-    x11e608cwk = xcode_enum("11e608cwk"),
     # (current default for other projects) xc12.0 gm seed
     x12a7209 = xcode_enum("12a7209"),
-    # (current default for iOS) xc12.4 gm seed
+    # xc12.4 gm seed
     x12d4e = xcode_enum("12d4e"),
+    # Xcode 12.5. Requires Mac11+ OS.
+    x12e262 = xcode_enum("12e262"),
+    # Default Xcode 13 for chromium iOS (release candidate).
+    x13main = xcode_enum("13a233"),
+    # Xcode 13.0 latest beta (release candidate).
+    x13latestbeta = xcode_enum("13a233"),
+    # in use by ios-webkit-tot
+    x13wk = xcode_enum("13a1030dwk"),
 )
+
+# Git revision of the compilator_watcher luciexe sub_build binary for chromium
+# orchestrators to use
+compilator_watcher_git_revision = "d5bee0e7798a40c3c6261c3dbc14becf1fbb693f"
+
+def builder_url(bucket, builder, project = None):
+    """A simple utility for constructing the milo URL for a builder."""
+    project = project or settings.project
+    url = "https://ci.chromium.org/p/%s/builders/%s/%s" % (
+        project,
+        bucket,
+        builder,
+    )
+    return url
 
 ################################################################################
 # Implementation details                                                       #
@@ -163,31 +225,20 @@ def _chromium_tests_property(*, project_trigger_overrides):
 
     return chromium_tests or None
 
-def _goma_property(*, goma_backend, goma_debug, goma_enable_ats, goma_jobs, os):
+def _goma_property(*, goma_backend, goma_debug, goma_enable_ats, goma_jobs):
     goma_properties = {}
 
     goma_backend = defaults.get_value("goma_backend", goma_backend)
-    if goma_backend != None:
-        goma_properties.update(goma_backend)
+    if goma_backend == None:
+        return None
+    goma_properties.update(goma_backend)
 
     goma_debug = defaults.get_value("goma_debug", goma_debug)
     if goma_debug:
         goma_properties["debug"] = True
 
-    goma_enable_ats = defaults.get_value("goma_enable_ats", goma_enable_ats)
-
-    # TODO(crbug.com/1040754): Remove this flag.
-    if goma_enable_ats == args.COMPUTE:
-        goma_enable_ats = (
-            os and os.category in (os_category.LINUX, os_category.WINDOWS) and
-            goma_backend in (
-                goma.backend.RBE_TOT,
-                goma.backend.RBE_STAGING,
-                goma.backend.RBE_PROD,
-            )
-        )
-    if goma_enable_ats:
-        goma_properties["enable_ats"] = True
+    if goma_enable_ats != None:
+        goma_properties["enable_ats"] = goma_enable_ats
 
     goma_jobs = defaults.get_value("goma_jobs", goma_jobs)
     if goma_jobs != None:
@@ -203,7 +254,8 @@ def _code_coverage_property(
         use_java_coverage,
         use_javascript_coverage,
         coverage_exclude_sources,
-        coverage_test_types):
+        coverage_test_types,
+        coverage_reference_commit):
     code_coverage = {}
 
     use_clang_coverage = defaults.get_value(
@@ -235,18 +287,16 @@ def _code_coverage_property(
     if coverage_test_types:
         code_coverage["coverage_test_types"] = coverage_test_types
 
+    coverage_reference_commit = defaults.get_value(
+        "coverage_reference_commit",
+        coverage_reference_commit,
+    )
+    if coverage_reference_commit:
+        code_coverage["coverage_reference_commit"] = coverage_reference_commit
+
     return code_coverage or None
 
-def _isolated_property(*, isolated_server):
-    isolated = {}
-
-    isolated_server = defaults.get_value("isolated_server", isolated_server)
-    if isolated_server:
-        isolated["server"] = isolated_server
-
-    return isolated or None
-
-def _reclient_property(*, instance, service, jobs, rewrapper_env):
+def _reclient_property(*, instance, service, jobs, rewrapper_env, profiler_service, publish_trace, cache_silo, ensure_verified):
     reclient = {}
     instance = defaults.get_value("reclient_instance", instance)
     if instance:
@@ -265,6 +315,17 @@ def _reclient_property(*, instance, service, jobs, rewrapper_env):
                 fail("Environment variables in rewrapper_env must start with " +
                      "'RBE_', got '%s'" % k)
         reclient["rewrapper_env"] = rewrapper_env
+    profiler_service = defaults.get_value("reclient_profiler_service", profiler_service)
+    if profiler_service:
+        reclient["profiler_service"] = profiler_service
+    publish_trace = defaults.get_value("reclient_publish_trace", publish_trace)
+    if publish_trace:
+        reclient["publish_trace"] = True
+    if cache_silo:
+        reclient["cache_silo"] = cache_silo
+    ensure_verified = defaults.get_value("reclient_ensure_verified", ensure_verified)
+    if ensure_verified:
+        reclient["ensure_verified"] = True
     return reclient or None
 
 ################################################################################
@@ -279,8 +340,6 @@ defaults = args.defaults(
     auto_builder_dimension = args.COMPUTE,
     builder_group = None,
     builderless = args.COMPUTE,
-    configure_kitchen = False,
-    kitchen_emulate_gce = False,
     cores = None,
     cpu = None,
     fully_qualified_builder_dimension = False,
@@ -292,6 +351,7 @@ defaults = args.defaults(
     os = None,
     project_trigger_overrides = None,
     pool = None,
+    sheriff_rotations = None,
     xcode = None,
     ssd = args.COMPUTE,
     use_clang_coverage = False,
@@ -299,13 +359,17 @@ defaults = args.defaults(
     use_javascript_coverage = False,
     coverage_exclude_sources = None,
     coverage_test_types = None,
+    coverage_reference_commit = None,
     resultdb_bigquery_exports = [],
     resultdb_index_by_timestamp = False,
-    isolated_server = "https://isolateserver.appspot.com",
     reclient_instance = None,
     reclient_service = None,
     reclient_jobs = None,
     reclient_rewrapper_env = None,
+    reclient_profiler_service = None,
+    reclient_publish_trace = None,
+    reclient_cache_silo = None,
+    reclient_ensure_verified = None,
 
     # Provide vars for bucket and executable so users don't have to
     # unnecessarily make wrapper functions
@@ -327,15 +391,17 @@ def builder(
         fully_qualified_builder_dimension = args.DEFAULT,
         cores = args.DEFAULT,
         cpu = args.DEFAULT,
+        bootstrap = False,
         builder_group = args.DEFAULT,
+        builder_spec = None,
+        mirrors = None,
         pool = args.DEFAULT,
         ssd = args.DEFAULT,
+        sheriff_rotations = None,
         xcode = args.DEFAULT,
         console_view_entry = None,
         list_view = args.DEFAULT,
         project_trigger_overrides = args.DEFAULT,
-        configure_kitchen = args.DEFAULT,
-        kitchen_emulate_gce = args.DEFAULT,
         goma_backend = args.DEFAULT,
         goma_debug = args.DEFAULT,
         goma_enable_ats = args.DEFAULT,
@@ -345,140 +411,177 @@ def builder(
         use_javascript_coverage = args.DEFAULT,
         coverage_exclude_sources = args.DEFAULT,
         coverage_test_types = args.DEFAULT,
+        coverage_reference_commit = args.DEFAULT,
         resultdb_bigquery_exports = args.DEFAULT,
         resultdb_index_by_timestamp = args.DEFAULT,
-        isolated_server = args.DEFAULT,
         reclient_instance = args.DEFAULT,
         reclient_service = args.DEFAULT,
         reclient_jobs = args.DEFAULT,
         reclient_rewrapper_env = args.DEFAULT,
+        reclient_profiler_service = args.DEFAULT,
+        reclient_publish_trace = args.DEFAULT,
+        reclient_cache_silo = None,
+        reclient_ensure_verified = None,
         **kwargs):
     """Define a builder.
 
     For all of the optional parameters defined by this method, passing None will
-    prevent the emission of any dimensions or property fields associated with that
-    parameter.
+    prevent the emission of any dimensions or property fields associated with
+    that parameter.
 
     All parameters defined by this function except for `name` and `kwargs` support
     module-level defaults. The `defaults` struct defined in this module has an
     attribute with a `lucicfg.var` for all of the fields defined here as well as
     all of the parameters of `luci.builder` that support module-level defaults.
 
-    See https://chromium.googlesource.com/infra/luci/luci-go/+/refs/heads/master/lucicfg/doc/README.md#luci.builder
+    See https://chromium.googlesource.com/infra/luci/luci-go/+/HEAD/lucicfg/doc/README.md#luci.builder
     for more information.
 
-    Arguments:
-      * name - name of the builder, will show up in UIs and logs. Required.
-      * branch_selector - A branch selector value controlling whether the
-        builder definition is executed. See branches.star for more information.
-      * bucket - a bucket the build is in, see luci.bucket(...) rule. Required
-        (may be specified by module-level default).
-      * executable - an executable to run, e.g. a luci.recipe(...). Required (may
-        be specified by module-level default).
-      * os - a member of the `os` enum indicating the OS the builder requires for
-        the machines that run it. Emits a dimension of the form 'os:os'. By
-        default considered None.
-      * builderless - a boolean indicating whether the builder runs on builderless
-        machines. If True, emits a 'builderless:1' dimension. By default,
-        considered True iff `os` refers to a linux OS.
-      * auto_builder_dimension - a boolean indicating whether the builder runs on
-        machines devoted to the builder. If True, a dimension will be emitted of
-        the form 'builder:<name>'. By default, considered True iff `builderless`
-        is considered False.
-      * fully_qualified_builder_dimension - a boolean modifying the behavior of
-        auto_builder_dimension to generate a builder dimensions that is
-        fully-qualified with the project and bucket of the builder. If True, and
-        `auto_builder_dimension` is considered True, a dimension will be emitted
-        of the form 'builder:<project>/<bucket>/<name>'. By default, considered
-        False.
-      * builder_group - a string with the group of the builder. Emits a property
-        of the form 'builder_group:<builder_group>'. By default, considered None.
-      * cores - an int indicating the number of cores the builder requires for the
-        machines that run it. Emits a dimension of the form 'cores:<cores>' will
-        be emitted. By default, considered None.
-      * cpu - a member of the `cpu` enum indicating the cpu the builder requires
-        for the machines that run it. Emits a dimension of the form 'cpu:<cpu>'.
-        By default, considered None.
-      * pool - a string indicating the pool of the machines that run the builder.
-        Emits a dimension of the form 'pool:<pool>'. By default, considered None.
-        When running a builder that has no explicit pool dimension, buildbucket
-        inserts one of the form 'pool:luci.<project>.<bucket>'.
-      * ssd - a boolean indicating whether the builder runs on machines with ssd.
-        If True, emits a 'ssd:1' dimension. If False, emits a 'ssd:0' parameter.
-        By default, considered False if builderless is considered True and
-        otherwise None.
-      * xcode - a member of the `xcode` enum indicating the xcode version the
-        builder requires. Emits a cache declaration of the form
-        ```{
-          name: <xcode.cache_name>
-          path: <xcode.cache_path>
-        }```. Also emits a 'xcode_build_version:<xcode.version>' property if the
-        property is not already set.
-      * console_view_entry - A `consoles.console_view_entry` struct or a list of
-        them describing console view entries to create for the builder.
-        See `consoles.console_view_entry` for details.
-      * list_view - A string or a list of strings identifying the ID(s) of the
-        list view(s) to add an entry to. Supports a module-level default that
-        defaults to no list views.
-      * project_trigger_overrides - a dict mapping the LUCI projects declared in
-        recipe BotSpecs to the LUCI project to use when triggering builders. When
-        this builder triggers another builder, if the BotSpec for that builder has
-        a LUCI project that is a key in this mapping, the corresponding value will
-        be used instead.
-      * configure_kitchen - a boolean indicating whether to configure kitchen. If
-        True, emits a property to set the 'git_auth' and 'devshell' fields of the
-        '$kitchen' property. By default, considered False.
-      * kitchen_emulate_gce - a boolean indicating whether to set 'emulate_gce'
-        of the '$kitchen' property. This is effective only when
-        configure_kitchen is True. By default, considered False.
-      * goma_backend - a member of the `goma.backend` enum indicating the goma
-        backend the builder should use. Will be incorporated into the
-        '$build/goma' property. By default, considered None.
-      * goma_debug - a boolean indicating whether goma should be debugged. If
-        True, the 'debug' field will be set in the '$build/goma' property. By
-        default, considered False.
-      * goma_enable_ats - a boolean indicating whether ats should be enabled for
-        goma. If True, the 'enable_ats' field will be set in the '$build/goma'
-        property. By default, considered False.
-      * goma_jobs - a member of the `goma.jobs` enum indicating the number of jobs
-        to be used by the builder. Sets the 'jobs' field of the '$build/goma'
-        property will be set according to the enum member. By default, the 'jobs'
-        considered None.
-      * use_clang_coverage - a boolean indicating whether clang coverage should be
-        used. If True, the 'use_clang_coverage" field will be set in the
-        '$build/code_coverage' property. By default, considered False.
-      * use_java_coverage - a boolean indicating whether java coverage should be
-        used. If True, the 'use_java_coverage" field will be set in the
-        '$build/code_coverage' property. By default, considered False.
-      * use_javascript_coverage - a boolean indicating whether javascript coverage
-        should be enabled. If True the 'use_javascript_coverage' field will be set
-        in the '$build/code_coverage' property. By default, considered False.
-      * coverage_exclude_sources - a string as the key to find the source file
-        exclusion pattern in code_coverage recipe module. Will be copied to
-        '$build/code_coverage' property if set. By default, considered None.
-      * coverage_test_types - a list of string as test types to process data for
-        in code_coverage recipe module. Will be copied to '$build/code_coverage'
-        property. By default, considered None.
-      * resultdb_bigquery_exports - a list of resultdb.export_test_results(...)
-        specifying parameters for exporting test results to BigQuery. By default,
-        do not export.
-      * resultdb_index_by_timestamp - a boolean specifying whether ResultDB should
-        index the results of the tests run on this builder by timestamp, i.e.
-        for purposes of retrieving a test's history. If false, the results will not
-        be searchable by timestamp on ResultDB's test history api.
-      * isolated_server - a string indicating the host of the isolated server.
-        Will be incorporated into the '$recipe_engine/isolated' property. By
-        default, this is "https://isolateserver.appspot.com".
-      * reclient_instance - a string indicating the GCP project hosting the RBE
-        instance for re-client to use.
-      * reclient_service - a string indicating the RBE service to dial via gRPC.
-        By default, this is "remotebuildexecution.googleapis.com:443" (set in
-        the reclient recipe module).
-      * reclient_jobs - an integer indicating the number of concurrent
-        compilations to run when using re-client as the compiler.
-      * reclient_rewrapper_env - a map that sets the rewrapper flags via the
-        environment variables. All such vars must start with the "RBE_" prefix.
-      * kwargs - Additional keyword arguments to forward on to `luci.builder`.
+    Args:
+        name: name of the builder, will show up in UIs and logs. Required.
+        branch_selector: A branch selector value controlling whether the
+            builder definition is executed. See branches.star for more
+            information.
+        bucket: a bucket the build is in, see luci.bucket(...) rule. Required
+            (may be specified by module-level default).
+        executable: an executable to run, e.g. a luci.recipe(...). Required (may
+            be specified by module-level default).
+        triggered_by: an optional poller or builder that triggers the builder or
+            a list of pollers and/or builders that trigger the builder. Supports
+            a module-level default.
+        bootstrap: a boolean indicating whether the builder should have its
+            properties bootstrapped. If True, the builder's properties will be
+            written to a separate file and its definition will be updated with
+            new properties and executable that cause a bootstrapping binary to
+            be used. The build's default values for properties will be taken
+            from the properties file at the version that the build will check
+            out.
+        os: a member of the `os` enum indicating the OS the builder requires for
+            the machines that run it. Emits a dimension of the form 'os:os'. By
+            default considered None.
+        builderless: a boolean indicating whether the builder runs on
+            builderless machines. If True, emits a 'builderless:1' dimension. By
+            default, considered True iff `os` refers to a linux OS.
+        auto_builder_dimension: a boolean indicating whether the builder runs on
+            machines devoted to the builder. If True, a dimension will be
+            emitted of the form 'builder:<name>'. By default, considered True
+            iff `builderless` is considered False.
+        fully_qualified_builder_dimension: a boolean modifying the behavior of
+            auto_builder_dimension to generate a builder dimensions that is
+            fully-qualified with the project and bucket of the builder. If True,
+            and `auto_builder_dimension` is considered True, a dimension will be
+            emitted of the form 'builder:<project>/<bucket>/<name>'. By default,
+            considered False.
+        builder_group: a string with the group of the builder. Emits a property
+            of the form 'builder_group:<builder_group>'. By default, considered
+            None.
+        builder_spec: The spec describing the configuration for the builder.
+            Cannot be set if `mirrors` is set.
+        mirrors: References to the builders that the builder should mirror.
+            Cannot be set if `builder_spec` is set.
+        cores: an int indicating the number of cores the builder requires for
+            the machines that run it. Emits a dimension of the form
+            'cores:<cores>' will be emitted. By default, considered None.
+        cpu: a member of the `cpu` enum indicating the cpu the builder requires
+            for the machines that run it. Emits a dimension of the form
+            'cpu:<cpu>'. By default, considered None.
+        pool: a string indicating the pool of the machines that run the builder.
+            Emits a dimension of the form 'pool:<pool>'. By default, considered
+            None. When running a builder that has no explicit pool dimension,
+            buildbucket inserts one of the form 'pool:luci.<project>.<bucket>'.
+        ssd: a boolean indicating whether the builder runs on machines with ssd.
+            If True, emits a 'ssd:1' dimension. If False, emits a 'ssd:0'
+            parameter. By default, considered False if builderless is considered
+            True and otherwise None.
+        sheriff_rotations: A string or list of strings identifying the sheriff
+            rotations that the builder should be included in. Will be merged
+            with the module-level default.
+        xcode: a member of the `xcode` enum indicating the xcode version the
+            builder requires. Emits a cache declaration of the form
+            ```{
+              name: <xcode.cache_name>
+              path: <xcode.cache_path>
+            }```.
+            Also emits a 'xcode_build_version:<xcode.version>' property if the
+            property is not already set.
+        console_view_entry: A `consoles.console_view_entry` struct or a list of
+            them describing console view entries to create for the builder.
+            See `consoles.console_view_entry` for details.
+        list_view: A string or a list of strings identifying the ID(s) of the
+            list view(s) to add an entry to. Supports a module-level default
+            that defaults to no list views.
+        project_trigger_overrides: a dict mapping the LUCI projects declared in
+            recipe BotSpecs to the LUCI project to use when triggering builders.
+            When this builder triggers another builder, if the BotSpec for that
+            builder has a LUCI project that is a key in this mapping, the
+            corresponding value will be used instead.
+        goma_backend: a member of the `goma.backend` enum indicating the goma
+            backend the builder should use. Will be incorporated into the
+            '$build/goma' property. By default, considered None.
+        goma_debug: a boolean indicating whether goma should be debugged. If
+            True, the 'debug' field will be set in the '$build/goma' property.
+            By default, considered False.
+        goma_enable_ats: a boolean indicating whether ats should be enabled for
+            goma or args.COMPUTE if ats should be enabled where it is needed.
+            If True or False are explicitly set, the 'enable_ats' field will be
+            set in the '$build/goma' property.  By default, args.COMPUTE is set
+            and 'enable_ats' fields is set only if ats need to be enabled by
+            default. The 'enable_ats' on Windows will control cross compiling in
+            server side. cross compile if `enable_ats` is False.
+            Note: if goma_enable_ats is not set, goma recipe modules sets
+            GOMA_ARBITRARY_TOOLCHAIN_SUPPORT=true on windows by default.
+        goma_jobs: a member of the `goma.jobs` enum indicating the number of
+            jobs to be used by the builder. Sets the 'jobs' field of the
+            '$build/goma' property will be set according to the enum member. By
+            default, the 'jobs' considered None.
+        use_clang_coverage: a boolean indicating whether clang coverage should
+            be used. If True, the 'use_clang_coverage" field will be set in the
+            '$build/code_coverage' property. By default, considered False.
+        use_java_coverage: a boolean indicating whether java coverage should be
+            used. If True, the 'use_java_coverage" field will be set in the
+            '$build/code_coverage' property. By default, considered False.
+        use_javascript_coverage: a boolean indicating whether javascript
+            coverage should be enabled. If True the 'use_javascript_coverage'
+            field will be set in the '$build/code_coverage' property. By
+            default, considered False.
+        coverage_exclude_sources: a string as the key to find the source file
+            exclusion pattern in code_coverage recipe module. Will be copied to
+            '$build/code_coverage' property if set. By default, considered None.
+        coverage_test_types: a list of string as test types to process data for
+            in code_coverage recipe module. Will be copied to
+            '$build/code_coverage' property. By default, considered None.
+        coverage_reference_commit: a string representing the hash of a past
+            commit used to generate additional coverge reports i.e.
+            referenced_reports. Will be copied to '$build/code_coverage'
+            property. By default, considered None.
+        resultdb_bigquery_exports: a list of resultdb.export_test_results(...)
+            specifying parameters for exporting test results to BigQuery. By
+            default, do not export.
+        resultdb_index_by_timestamp: a boolean specifying whether ResultDB
+            should index the results of the tests run on this builder by
+            timestamp, i.e. for purposes of retrieving a test's history. If
+            false, the results will not be searchable by timestamp on ResultDB's
+            test history api.
+        reclient_instance: a string indicating the GCP project hosting the RBE
+            instance for re-client to use.
+        reclient_service: a string indicating the RBE service to dial via gRPC.
+            By default, this is "remotebuildexecution.googleapis.com:443" (set
+            in the reclient recipe module).
+        reclient_jobs: an integer indicating the number of concurrent
+            compilations to run when using re-client as the compiler.
+        reclient_rewrapper_env: a map that sets the rewrapper flags via the
+            environment variables. All such vars must start with the "RBE_"
+            prefix.
+        reclient_profiler_service: a string indicating service name for
+            re-client's cloud profiler.
+        reclient_publish_trace: If True, it publish trace by rpl2cloudtrace.
+        reclient_cache_silo: A string indicating a cache siling key to use for
+            remote caching.
+        reclient_ensure_verified: If True, it verifies build artifacts.
+        **kwargs: Additional keyword arguments to forward on to `luci.builder`.
+
+    Returns:
+        The lucicfg keyset for the builder
     """
 
     # We don't have any need of an explicit dimensions dict,
@@ -487,22 +590,23 @@ def builder(
         fail("Explicit dimensions are not supported: " +
              "use builderless, cores, cpu, os or ssd instead")
 
+    if builder_spec and mirrors:
+        fail("Only one of builder_spec or mirrors can be set")
+
     dimensions = {}
 
     properties = kwargs.pop("properties", {})
-    if "$kitchen" in properties:
-        fail('Setting "$kitchen" property is not supported: ' +
-             "use configure_kitchen instead")
+    if "sheriff_rotations" in properties:
+        fail('Setting "sheriff_rotations" property is not supported: ' +
+             "use sheriff_rotations instead")
     if "$build/goma" in properties:
         fail('Setting "$build/goma" property is not supported: ' +
              "use goma_backend, goma_dbug, goma_enable_ats and goma_jobs instead")
     if "$build/code_coverage" in properties:
         fail('Setting "$build/code_coverage" property is not supported: ' +
              "use use_clang_coverage, use_java_coverage, use_javascript_coverage " +
-             " coverage_exclude_sources and/or coverage_test_types instead")
-    if "$recipe_engine/isolated" in properties:
-        fail('Setting "$recipe_engine/isolated" property is not supported: ' +
-             "use isolated_server instead")
+             " coverage_exclude_sources, coverage_test_types" +
+             " and/or coverage_reference_commit instead")
     if "$build/reclient" in properties:
         fail('Setting "$build/reclient" property is not supported: ' +
              "use reclient_instance and reclient_rewrapper_env instead")
@@ -553,6 +657,10 @@ def builder(
     if pool:
         dimensions["pool"] = pool
 
+    sheriff_rotations = listify(defaults.sheriff_rotations.get(), sheriff_rotations)
+    if sheriff_rotations:
+        properties["sheriff_rotations"] = sheriff_rotations
+
     ssd = defaults.get_value("ssd", ssd)
     if ssd == args.COMPUTE:
         ssd = None
@@ -562,30 +670,28 @@ def builder(
     if ssd != None:
         dimensions["ssd"] = str(int(ssd))
 
-    configure_kitchen = defaults.get_value("configure_kitchen", configure_kitchen)
-    if configure_kitchen:
-        properties["$kitchen"] = {
-            "devshell": True,
-            "git_auth": True,
-        }
-        if defaults.get_value("kitchen_emulate_gce", kitchen_emulate_gce):
-            properties["$kitchen"]["emulate_gce"] = True
-
     chromium_tests = _chromium_tests_property(
         project_trigger_overrides = project_trigger_overrides,
     )
     if chromium_tests != None:
         properties["$build/chromium_tests"] = chromium_tests
 
-    goma = _goma_property(
+    goma_enable_ats = defaults.get_value("goma_enable_ats", goma_enable_ats)
+
+    # Enable ATS on linux by default.
+    if goma_enable_ats == args.COMPUTE:
+        if os and os.category == os_category.LINUX:
+            goma_enable_ats = True
+        else:
+            goma_enable_ats = None
+    gp = _goma_property(
         goma_backend = goma_backend,
         goma_debug = goma_debug,
         goma_enable_ats = goma_enable_ats,
         goma_jobs = goma_jobs,
-        os = os,
     )
-    if goma != None:
-        properties["$build/goma"] = goma
+    if gp != None:
+        properties["$build/goma"] = gp
 
     code_coverage = _code_coverage_property(
         use_clang_coverage = use_clang_coverage,
@@ -593,21 +699,20 @@ def builder(
         use_javascript_coverage = use_javascript_coverage,
         coverage_exclude_sources = coverage_exclude_sources,
         coverage_test_types = coverage_test_types,
+        coverage_reference_commit = coverage_reference_commit,
     )
     if code_coverage != None:
         properties["$build/code_coverage"] = code_coverage
-
-    isolated = _isolated_property(
-        isolated_server = isolated_server,
-    )
-    if isolated != None:
-        properties["$recipe_engine/isolated"] = isolated
 
     reclient = _reclient_property(
         instance = reclient_instance,
         service = reclient_service,
         jobs = reclient_jobs,
         rewrapper_env = reclient_rewrapper_env,
+        profiler_service = reclient_profiler_service,
+        publish_trace = reclient_publish_trace,
+        cache_silo = reclient_cache_silo,
+        ensure_verified = reclient_ensure_verified,
     )
     if reclient != None:
         properties["$build/reclient"] = reclient
@@ -618,9 +723,6 @@ def builder(
     executable = defaults.get_value("executable", executable)
     if executable != args.COMPUTE:
         kwargs["executable"] = executable
-    triggered_by = defaults.get_value("triggered_by", triggered_by)
-    if triggered_by != args.COMPUTE:
-        kwargs["triggered_by"] = triggered_by
     xcode = defaults.get_value("xcode", xcode)
     if xcode:
         kwargs["caches"] = (kwargs.get("caches") or []) + [swarming.cache(
@@ -639,6 +741,15 @@ def builder(
             by_timestamp = resultdb_index_by_timestamp,
         )
 
+    if builder_spec and builder_spec.execution_mode == builder_config.execution_mode.TEST:
+        if triggered_by != args.DEFAULT:
+            fail("triggered testers cannot specify triggered_by")
+        triggered_by = [builder_spec.parent]
+
+    triggered_by = defaults.get_value("triggered_by", triggered_by)
+    if triggered_by != args.COMPUTE:
+        kwargs["triggered_by"] = triggered_by
+
     builder = branches.builder(
         name = name,
         branch_selector = branch_selector,
@@ -654,6 +765,18 @@ def builder(
         ),
         **kwargs
     )
+
+    # builder will be None if the builder isn't being defined due to the project
+    # settings and the branch selector
+    if builder == None:
+        return None
+
+    register_builder_config(bucket, name, builder_group, builder_spec, mirrors)
+
+    # Add a bootstrap node for the builder so the _bootstrap_properties
+    # generator can determine which builders are being bootstrapped
+    if executable in _BOOTSTRAPPABLE_RECIPES:
+        graph.add_node(_bootstrap_key(bucket, name), props = {"bootstrap": bootstrap})
 
     builder_name = "{}/{}".format(bucket, name)
 
@@ -706,11 +829,117 @@ def builder(
 
     return builder
 
+# A recipe can (but doesn't have to) be marked as bootstrappable if the
+# following conditions are true:
+# * chromium_bootstrap.update_gclient_config is called to update the gclient
+#   config that is used for bot_update.
+# * If the recipe does analysis to reduce compilation/testing, it skips analysis
+#   and performs a full build if chromium_bootstrap.skip_analysis_reasons is
+#   non-empty.
+_BOOTSTRAPPABLE_RECIPES = [
+    "recipe:chromium",
+    "recipe:chromium/orchestrator",
+    "recipe:chromium_trybot",
+]
+
+_NON_BOOTSTRAPPED_PROPERTIES = [
+    # Sheriff-o-Matic queries for builder_group in the input properties to find
+    # builds for the main sheriff rotation. Bootstrapped properties don't appear
+    # in the build's input properties, so don't bootstrap this property.
+    # TODO(gbeaty) When finalized input properties are exported to BQ, remove
+    # this.
+    "builder_group",
+    "sheriff_rotations",
+]
+
+def _bootstrap_key(bucket_name, builder_name):
+    return graph.key("@chromium", "", "bootstrap", "{}/{}".format(bucket_name, builder_name))
+
+def _bootstrap_properties(ctx):
+    """Update builder properties for bootstrapping.
+
+    For builders whose recipe supports bootstrapping, their properties will be
+    written out to a separate file. This is done even if the builder is not
+    being bootstrapped so that the properties file will exist already when it is
+    flipped to being bootstrapped.
+
+    For builders that have opted in to bootstrapping, this file will be read at
+    build-time and update the build's properties with the contents of the file.
+    The builder's properties within the buildbucket configuration will be
+    modified with the properties that control the bootstrapper itself.
+
+    The builders that have opted in to bootstrapping is determined by examining
+    the lucicfg graph to find a bootstrap node for a given builder. These nodes
+    will be added by the builder function. This is done rather than writing out
+    the properties file in the builder function so that the bootstrapped
+    properties have any final modifications that luci.builder would perform
+    (merging module-level defaults, setting global defaults, etc.).
+    """
+    cfg = None
+    for f in ctx.output:
+        if f.startswith("luci/cr-buildbucket"):
+            cfg = ctx.output[f]
+            break
+    if cfg == None:
+        fail("There is no buildbucket configuration file to reformat properties")
+
+    for bucket in cfg.buckets:
+        bucket_name = bucket.name
+        for builder in bucket.swarming.builders:
+            builder_name = builder.name
+            bootstrap_node = graph.node(_bootstrap_key(bucket_name, builder_name))
+            if not bootstrap_node:
+                continue
+
+            bootstrap = bootstrap_node.props.bootstrap
+
+            properties_file = "builders/{}/{}/properties.textpb".format(bucket_name, builder_name)
+            properties_property = {
+                "top_level_project": {
+                    "repo": {
+                        "host": "chromium.googlesource.com",
+                        "project": "chromium/src",
+                    },
+                    "ref": settings.ref,
+                },
+                "properties_file": "infra/config/generated/{}".format(properties_file),
+            }
+            exe_property = {
+                "exe": builder.exe,
+            }
+
+            # TODO(crbug.com/1261886) Once bootstrapper is changed to use
+            # $bootstrap/properties and $bootstrap/exe, we can remove code for
+            # setting $bootstrap
+            bootstrap_property = dict(properties_property)
+            bootstrap_property.update(exe_property)
+            non_bootstrapped_properties = {
+                "$bootstrap/properties": properties_property,
+                "$bootstrap/exe": exe_property,
+                "$bootstrap": bootstrap_property,
+                "led_builder_is_bootstrapped": True,
+            }
+            builder_properties = json.decode(builder.properties)
+            for p in _NON_BOOTSTRAPPED_PROPERTIES:
+                if p in builder_properties:
+                    non_bootstrapped_properties[p] = builder_properties.pop(p)
+            ctx.output[properties_file] = json.indent(json.encode(builder_properties), indent = "  ")
+
+            if bootstrap:
+                builder.properties = json.encode(non_bootstrapped_properties)
+
+                builder.exe.cipd_package = "infra/chromium/bootstrapper/${platform}"
+                builder.exe.cipd_version = "latest"
+                builder.exe.cmd = ["bootstrapper"]
+
+lucicfg.generator(_bootstrap_properties)
+
 builders = struct(
     builder = builder,
     cpu = cpu,
     defaults = defaults,
     goma = goma,
     os = os,
+    sheriff_rotations = sheriff_rotations,
     xcode = xcode,
 )

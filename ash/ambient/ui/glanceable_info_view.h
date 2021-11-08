@@ -34,6 +34,9 @@ class GlanceableInfoView : public views::View,
   GlanceableInfoView& operator=(const GlanceableInfoView&) = delete;
   ~GlanceableInfoView() override;
 
+  // views::View:
+  void OnThemeChanged() override;
+
   // AmbientBackendModelObserver:
   void OnWeatherInfoUpdated() override;
 
@@ -42,7 +45,7 @@ class GlanceableInfoView : public views::View,
  private:
   void InitLayout();
 
-  base::string16 GetTemperatureText() const;
+  std::u16string GetTemperatureText() const;
 
   // View for the time info. Owned by the view hierarchy.
   ash::tray::TimeView* time_view_ = nullptr;

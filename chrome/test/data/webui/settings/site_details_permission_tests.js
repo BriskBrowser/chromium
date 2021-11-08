@@ -5,8 +5,8 @@
 // clang-format off
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {ContentSetting,ContentSettingsTypes,SiteSettingSource,SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
-import {TestSiteSettingsPrefsBrowserProxy} from 'chrome://test/settings/test_site_settings_prefs_browser_proxy.js';
-import {createContentSettingTypeToValuePair,createDefaultContentSetting,createRawSiteException,createSiteSettingsPrefs} from 'chrome://test/settings/test_util.js';
+import {TestSiteSettingsPrefsBrowserProxy} from './test_site_settings_prefs_browser_proxy.js';
+import {createContentSettingTypeToValuePair,createDefaultContentSetting,createRawSiteException,createSiteSettingsPrefs} from './test_util.js';
 // clang-format on
 
 /** @fileoverview Suite of tests for site-details. */
@@ -41,7 +41,7 @@ suite('SiteDetailsPermission', function() {
             [createRawSiteException('https://www.example.com')])]);
 
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
     PolymerTest.clearBody();
     testElement = document.createElement('site-details-permission');
     document.body.appendChild(testElement);
@@ -56,7 +56,7 @@ suite('SiteDetailsPermission', function() {
 
     return browserProxy.whenCalled('setOriginPermissions').then((args) => {
       assertEquals(origin, args[0]);
-      assertDeepEquals([testElement.category], args[1]);
+      assertDeepEquals(testElement.category, args[1]);
       assertEquals(expectedContentSetting, args[2]);
     });
   }
@@ -245,24 +245,6 @@ suite('SiteDetailsPermission', function() {
         testElement.$.permissionItem.innerText.trim());
     assertFalse(testElement.$.permissionItem.classList.contains('two-line'));
     assertFalse(testElement.$.permission.disabled);
-  });
-
-  test('info string correct for drm disabled source', function() {
-    const origin = 'https://www.example.com';
-    testElement.category = ContentSettingsTypes.PROTECTED_CONTENT;
-    testElement.$.details.hidden = false;
-    testElement.site = {
-      origin: origin,
-      embeddingOrigin: origin,
-      setting: ContentSetting.BLOCK,
-      source: SiteSettingSource.DRM_DISABLED,
-    };
-    assertEquals(
-        'To change this setting, first turn on identifiers' +
-            '\nAllow\nBlock\nAsk',
-        testElement.$.permissionItem.innerText.trim());
-    assertTrue(testElement.$.permissionItem.classList.contains('two-line'));
-    assertTrue(testElement.$.permission.disabled);
   });
 
   test('info string correct for ads', function() {
@@ -502,4 +484,37 @@ suite('SiteDetailsPermission', function() {
         assertFalse(testElement.$.permission.disabled);
         assertFalse(testElement.$.permission.options.block.hidden);
       });
+
+  test('settingDetail string is respected', function() {
+    const origin = 'https://www.example.com';
+    browserProxy.setPrefs(prefs);
+
+    testElement.category = ContentSettingsTypes.SOUND;
+    testElement.label = 'Sound';
+    testElement.site = {
+      origin: origin,
+      embeddingOrigin: '',
+      setting: ContentSetting.ALLOW,
+      source: SiteSettingSource.PREFERENCE,
+    };
+
+    // Typically, the secondary text is hidden.
+    assertTrue(testElement.$.permissionSecondary.hidden);
+
+    testElement.category = ContentSettingsTypes.FILE_HANDLING;
+    testElement.label = 'File handlers';
+    testElement.site = {
+      origin: origin,
+      embeddingOrigin: '',
+      setting: ContentSetting.ALLOW,
+      source: SiteSettingSource.PREFERENCE,
+      settingDetail: '.txt',
+    };
+
+    // For file handlers with a `settingDetail`, the secondary text is shown.
+    assertFalse(testElement.$.permissionSecondary.hidden);
+    assertEquals(
+        '.txt', testElement.$.permissionSecondary.innerText,
+        'settingDetail should be displayed');
+  });
 });

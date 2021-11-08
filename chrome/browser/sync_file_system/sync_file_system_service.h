@@ -55,6 +55,9 @@ class SyncFileSystemService
   using ExtensionStatusMapCallback =
       base::OnceCallback<void(const RemoteFileSyncService::OriginStatusMap&)>;
 
+  SyncFileSystemService(const SyncFileSystemService&) = delete;
+  SyncFileSystemService& operator=(const SyncFileSystemService&) = delete;
+
   // KeyedService implementation.
   void Shutdown() override;
 
@@ -158,8 +161,8 @@ class SyncFileSystemService
 
   // Check the profile's sync preference settings and call
   // remote_file_service_->SetSyncEnabled() to update the status.
-  // |profile_sync_service| must be non-null.
-  void UpdateSyncEnabledStatus(syncer::SyncService* profile_sync_service);
+  // |sync_service| must be non-null.
+  void UpdateSyncEnabledStatus(syncer::SyncService* sync_service);
 
   // Runs the SyncProcessRunner method of all sync runners (e.g. for Local sync
   // and Remote sync).
@@ -182,8 +185,6 @@ class SyncFileSystemService
 
   bool promoting_demoted_changes_;
   base::OnceClosure idle_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyncFileSystemService);
 };
 
 }  // namespace sync_file_system

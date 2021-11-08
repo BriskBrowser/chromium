@@ -134,9 +134,33 @@ std::string TransferUpdateMetaDataToString(
     case TransferMetadata::Status::kUnsupportedAttachmentType:
       return "Transfer status: Unsupported Attachment Type";
     case TransferMetadata::Status::kExternalProviderLaunched:
-      return "'Transfer status: External Provider Launched";
+      return "Transfer status: External Provider Launched";
     case TransferMetadata::Status::kConnecting:
-      return "'Transfer status: Connecting";
+      return "Transfer status: Connecting";
+    case TransferMetadata::Status::kDecodeAdvertisementFailed:
+      return "Transfer status: Decode Advertistement Failed";
+    case TransferMetadata::Status::kMissingTransferUpdateCallback:
+      return "Transfer status: Missing Transfer Update Callback";
+    case TransferMetadata::Status::kMissingShareTarget:
+      return "Transfer status: Missing Share Target";
+    case TransferMetadata::Status::kMissingEndpointId:
+      return "Transfer status: Missing Endpoint Id";
+    case TransferMetadata::Status::kMissingPayloads:
+      return "Transfer status: Missing Payloads";
+    case TransferMetadata::Status::kPairedKeyVerificationFailed:
+      return "Transfer status: Paired Key Verification Failed";
+    case TransferMetadata::Status::kInvalidIntroductionFrame:
+      return "Transfer status: Invalid Introduction Frame";
+    case TransferMetadata::Status::kIncompletePayloads:
+      return "Transfer status: Incomplete Payloads";
+    case TransferMetadata::Status::kFailedToCreateShareTarget:
+      return "Transfer status: Failed To Create Share Target";
+    case TransferMetadata::Status::kFailedToInitiateOutgoingConnection:
+      return "Transfer status: Failed To Initiate Outgoing Connection";
+    case TransferMetadata::Status::kFailedToReadOutgoingConnectionResponse:
+      return "Transfer status: Failed To Read Outgoing Connection Response.";
+    case TransferMetadata::Status::kUnexpectedDisconnection:
+      return "Transfer status: Unexpected Disconnection";
   }
 }
 
@@ -219,57 +243,57 @@ NearbyInternalsUiTriggerHandler::NearbyInternalsUiTriggerHandler(
 NearbyInternalsUiTriggerHandler::~NearbyInternalsUiTriggerHandler() = default;
 
 void NearbyInternalsUiTriggerHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "initializeUiTrigger",
       base::BindRepeating(&NearbyInternalsUiTriggerHandler::InitializeContents,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "sendText",
       base::BindRepeating(&NearbyInternalsUiTriggerHandler::SendText,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "accept", base::BindRepeating(&NearbyInternalsUiTriggerHandler::Accept,
                                     base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "reject", base::BindRepeating(&NearbyInternalsUiTriggerHandler::Reject,
                                     base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "cancel", base::BindRepeating(&NearbyInternalsUiTriggerHandler::Cancel,
                                     base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "open", base::BindRepeating(&NearbyInternalsUiTriggerHandler::Open,
                                   base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "registerSendSurfaceForeground",
       base::BindRepeating(
           &NearbyInternalsUiTriggerHandler::RegisterSendSurfaceForeground,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "registerSendSurfaceBackground",
       base::BindRepeating(
           &NearbyInternalsUiTriggerHandler::RegisterSendSurfaceBackground,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "unregisterSendSurface",
       base::BindRepeating(
           &NearbyInternalsUiTriggerHandler::UnregisterSendSurface,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "registerReceiveSurfaceForeground",
       base::BindRepeating(
           &NearbyInternalsUiTriggerHandler::RegisterReceiveSurfaceForeground,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "registerReceiveSurfaceBackground",
       base::BindRepeating(
           &NearbyInternalsUiTriggerHandler::RegisterReceiveSurfaceBackground,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "unregisterReceiveSurface",
       base::BindRepeating(
           &NearbyInternalsUiTriggerHandler::UnregisterReceiveSurface,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getStates",
       base::BindRepeating(&NearbyInternalsUiTriggerHandler::GetState,
                           base::Unretained(this)));
@@ -453,7 +477,8 @@ void NearbyInternalsUiTriggerHandler::SendText(const base::ListValue* args) {
 
   std::vector<std::unique_ptr<Attachment>> attachments;
   attachments.push_back(std::make_unique<TextAttachment>(
-      TextAttachment::Type::kText, kPayloadExample));
+      TextAttachment::Type::kText, kPayloadExample, /*title=*/absl::nullopt,
+      /*mime_type=*/absl::nullopt));
 
   const base::Value& callback_id = args->GetList()[0];
   ResolveJavascriptCallback(

@@ -10,7 +10,6 @@
 #include <memory>
 #include <string>
 
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
@@ -60,9 +59,14 @@ class POLICY_EXPORT CloudPolicyStore {
 
     // Called upon encountering errors.
     virtual void OnStoreError(CloudPolicyStore* store) = 0;
+
+    // Called upon store destruction.
+    virtual void OnStoreDestruction(CloudPolicyStore* store);
   };
 
   CloudPolicyStore();
+  CloudPolicyStore(const CloudPolicyStore&) = delete;
+  CloudPolicyStore& operator=(const CloudPolicyStore&) = delete;
   virtual ~CloudPolicyStore();
 
   // Indicates whether the store has been fully initialized. This is
@@ -88,6 +92,11 @@ class POLICY_EXPORT CloudPolicyStore {
   const enterprise_management::PolicyData* policy() const {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return policy_.get();
+  }
+  const enterprise_management::PolicyFetchResponse* policy_fetch_response()
+      const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return policy_fetch_response_.get();
   }
   bool is_managed() const;
   Status status() const {
@@ -150,14 +159,6 @@ class POLICY_EXPORT CloudPolicyStore {
   void SetExternalDataManager(
       base::WeakPtr<CloudExternalDataManager> external_data_manager);
 
-  // Replaces |policy_map_| and calls the registered observers, simulating a
-  // successful load of |policy_map| from persistent storage.
-  // TODO(bartfab): This override is only needed because there are no policies
-  // that reference external data and therefore, no ExternalDataFetchers in the
-  // |policy_map_|. Once the first such policy is added, use that policy in
-  // tests and remove the override.
-  void SetPolicyMapForTesting(const PolicyMap& policy_map);
-
   // Sets whether or not the first policies for this policy store were loaded.
   void SetFirstPoliciesLoaded(bool loaded);
 
@@ -169,6 +170,10 @@ class POLICY_EXPORT CloudPolicyStore {
   // Invokes the corresponding callback on all registered observers.
   void NotifyStoreLoaded();
   void NotifyStoreError();
+  void NotifyStoreDestruction();
+
+  // Updates whether or not the first policies were loaded.
+  virtual void UpdateFirstPoliciesLoaded();
 
   // Assert non-concurrent usage in debug builds.
   SEQUENCE_CHECKER(sequence_checker_);
@@ -181,6 +186,8 @@ class POLICY_EXPORT CloudPolicyStore {
 
   // Currently effective policy.
   std::unique_ptr<enterprise_management::PolicyData> policy_;
+  std::unique_ptr<enterprise_management::PolicyFetchResponse>
+      policy_fetch_response_;
 
   // Latest status code.
   Status status_ = STATUS_OK;
@@ -207,8 +214,6 @@ class POLICY_EXPORT CloudPolicyStore {
   bool is_initialized_ = false;
 
   base::ObserverList<Observer, true>::Unchecked observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(CloudPolicyStore);
 };
 
 }  // namespace policy

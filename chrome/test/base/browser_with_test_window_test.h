@@ -24,16 +24,12 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/test/ash_test_helper.h"
 #include "ash/test/ash_test_views_delegate.h"
-#include "chrome/browser/chromeos/login/users/scoped_test_user_manager.h"
-#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
+#include "chrome/browser/ash/login/users/scoped_test_user_manager.h"
+#include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
 #include "chromeos/tpm/stub_install_attributes.h"
 #else
 #include "ui/views/test/scoped_views_test_helper.h"
 #endif
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chromeos/ui/base/tablet_state.h"
 #endif
 
 #if defined(OS_WIN)
@@ -42,9 +38,20 @@
 
 class GURL;
 
+namespace chromeos {
+class ScopedLacrosServiceTestHelper;
+class TabletState;
+}  // namespace chromeos
+
 namespace content {
 class NavigationController;
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+namespace crosapi {
+class CrosapiManager;
+}
+#endif
 
 class TestingProfileManager;
 
@@ -55,18 +62,17 @@ class TestingProfileManager;
 //
 //   // Add a new tab and navigate it. This will be at index 0.
 //   AddTab(browser(), GURL("http://foo/1"));
-//   NavigationController* controller =
-//       &browser()->tab_strip_model()->GetWebContentsAt(0)->GetController();
+//   WebContents* contents = browser()->tab_strip_model()->GetWebContentsAt(0);
 //
 //   // Navigate somewhere else.
 //   GURL url2("http://foo/2");
-//   NavigateAndCommit(controller, url2);
+//   NavigateAndCommit(contents, url2);
 //
 //   // This is equivalent to the above, and lets you test pending navigations.
 //   browser()->OpenURL(OpenURLParams(
 //       GURL("http://foo/2"), GURL(), WindowOpenDisposition::CURRENT_TAB,
 //       ui::PAGE_TRANSITION_TYPED, false));
-//   CommitPendingLoad(controller);
+//   CommitPendingLoad(&contents->GetController());
 //
 // Subclasses must invoke BrowserWithTestWindowTest::SetUp as it is responsible
 // for creating the various objects of this class.
@@ -152,12 +158,10 @@ class BrowserWithTestWindowTest : public testing::Test {
   // URL of the pending load. If there is no pending load, this does nothing.
   void CommitPendingLoad(content::NavigationController* controller);
 
-  // Creates a pending navigation on the given navigation controller to the
-  // given URL with the default parameters and the commits the load with a page
-  // ID one larger than any seen. This emulates what happens on a new
-  // navigation.
-  void NavigateAndCommit(content::NavigationController* controller,
-                         const GURL& url);
+  // Creates a pending navigation on the given WebContents to the given URL with
+  // the default parameters and the commits the load with a page ID one larger
+  // than any seen. This emulates what happens on a new navigation.
+  void NavigateAndCommit(content::WebContents* web_contents, const GURL& url);
 
   // Navigates the current tab. This is a wrapper around NavigateAndCommit.
   void NavigateAndCommitActiveTab(const GURL& url);
@@ -165,7 +169,7 @@ class BrowserWithTestWindowTest : public testing::Test {
   // Set the |title| of the current tab.
   void NavigateAndCommitActiveTabWithTitle(Browser* browser,
                                            const GURL& url,
-                                           const base::string16& title);
+                                           const std::u16string& title);
 
   // Creates the profile used by this test. The caller doesn't own the return
   // value.
@@ -198,7 +202,7 @@ class BrowserWithTestWindowTest : public testing::Test {
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::ScopedCrosSettingsTestHelper* GetCrosSettingsHelper();
+  ash::ScopedCrosSettingsTestHelper* GetCrosSettingsHelper();
   chromeos::StubInstallAttributes* GetInstallAttributes();
 #endif
 
@@ -213,9 +217,15 @@ class BrowserWithTestWindowTest : public testing::Test {
   // We need to create a MessageLoop, otherwise a bunch of things fails.
   std::unique_ptr<content::BrowserTaskEnvironment> task_environment_;
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  std::unique_ptr<chromeos::ScopedLacrosServiceTestHelper>
+      lacros_service_test_helper_;
+#endif
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
-  chromeos::ScopedTestUserManager test_user_manager_;
+  ash::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
+  ash::ScopedTestUserManager test_user_manager_;
+  std::unique_ptr<crosapi::CrosapiManager> manager_;
 #endif
 
   TestingProfile* profile_;

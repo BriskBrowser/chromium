@@ -284,6 +284,10 @@ class MessageMemoryDumpProvider : public base::trace_event::MemoryDumpProvider {
         this, "MojoMessages", nullptr);
   }
 
+  MessageMemoryDumpProvider(const MessageMemoryDumpProvider&) = delete;
+  MessageMemoryDumpProvider& operator=(const MessageMemoryDumpProvider&) =
+      delete;
+
   ~MessageMemoryDumpProvider() override {
     base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
         this);
@@ -299,8 +303,6 @@ class MessageMemoryDumpProvider : public base::trace_event::MemoryDumpProvider {
                     base::subtle::NoBarrier_Load(&g_message_count));
     return true;
   }
-
-  DISALLOW_COPY_AND_ASSIGN(MessageMemoryDumpProvider);
 };
 
 void EnsureMemoryDumpProviderExists() {
@@ -417,7 +419,14 @@ Channel::MessagePtr UserMessageImpl::FinalizeEventMessage(
   if (channel_message) {
     void* data;
     size_t size;
-    NodeChannel::GetEventMessageData(channel_message.get(), &data, &size);
+    // The `channel_message` must either be produced locally or must have
+    // already been validated by the caller, as is done for example by
+    // NodeController::DeserializeEventMessage before
+    // NodeController::OnBroadcast re-serializes each copy of the message it
+    // received.
+    bool result =
+        NodeChannel::GetEventMessageData(*channel_message, &data, &size);
+    DCHECK(result);
     message_event->Serialize(data);
   }
 
@@ -504,8 +513,9 @@ MojoResult UserMessageImpl::AppendData(uint32_t additional_payload_size,
       size_t user_payload_offset =
           static_cast<uint8_t*>(user_payload_) -
           static_cast<const uint8_t*>(channel_message_->payload());
-      channel_message_->ExtendPayload(user_payload_offset + user_payload_size_ +
-                                      additional_payload_size);
+      Channel::Message::ExtendPayload(
+          channel_message_,
+          user_payload_offset + user_payload_size_ + additional_payload_size);
       header_ = static_cast<uint8_t*>(channel_message_->mutable_payload()) +
                 header_offset;
       user_payload_ =

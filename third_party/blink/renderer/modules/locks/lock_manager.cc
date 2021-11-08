@@ -86,6 +86,9 @@ class LockManager::LockRequestImpl final
         manager->GetExecutionContext()->GetTaskRunner(TaskType::kWebLocks));
   }
 
+  LockRequestImpl(const LockRequestImpl&) = delete;
+  LockRequestImpl& operator=(const LockRequestImpl&) = delete;
+
   ~LockRequestImpl() override = default;
 
   void Trace(Visitor* visitor) const {
@@ -160,6 +163,11 @@ class LockManager::LockRequestImpl final
         std::move(lock_lifetime_), manager_);
     manager_->held_locks_.insert(lock);
 
+    // Note that either invoking `callback` or calling ScriptPromise::Cast to
+    // convert the resulting value to a Promise can or will execute javascript.
+    // This means that the ExecutionContext could be synchronously destroyed,
+    // and the `lock` might be released before HoldUntil is called. This is
+    // safe, as releasing a lock twice is harmless.
     ScriptState::Scope scope(script_state);
     v8::TryCatch try_catch(script_state->GetIsolate());
     v8::Maybe<ScriptValue> result = callback->Invoke(nullptr, lock);
@@ -198,8 +206,6 @@ class LockManager::LockRequestImpl final
   // registered. If the context is destroyed then |manager_| will dispose of
   // |this| which terminates the request on the service side.
   Member<LockManager> manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(LockRequestImpl);
 };
 
 const char LockManager::kSupplementName[] = "LockManager";

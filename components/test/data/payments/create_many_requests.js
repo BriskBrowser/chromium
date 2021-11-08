@@ -8,8 +8,7 @@ const supportedInstruments = [{
   supportedMethods: 'secure-payment-confirmation',
   data: {
     'credentialIds': [new ArrayBuffer(4)],
-    'fallbackUrl': 'localhost:8000',
-    'networkData': new ArrayBuffer(4),
+    'challenge': new ArrayBuffer(4),
   },
 }];
 

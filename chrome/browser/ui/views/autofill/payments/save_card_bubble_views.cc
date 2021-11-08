@@ -92,11 +92,12 @@ void SaveCardBubbleViews::AddedToWidget() {
     return;
 
   GetBubbleFrameView()->SetTitleView(
-      std::make_unique<TitleWithIconAndSeparatorView>(GetWindowTitle()));
+      std::make_unique<TitleWithIconAndSeparatorView>(
+          GetWindowTitle(), TitleWithIconAndSeparatorView::Icon::GOOGLE_PAY));
 }
 
-base::string16 SaveCardBubbleViews::GetWindowTitle() const {
-  return controller_ ? controller_->GetWindowTitle() : base::string16();
+std::u16string SaveCardBubbleViews::GetWindowTitle() const {
+  return controller_ ? controller_->GetWindowTitle() : std::u16string();
 }
 
 void SaveCardBubbleViews::WindowClosing() {
@@ -116,7 +117,7 @@ views::View* SaveCardBubbleViews::GetFootnoteViewForTesting() {
   return footnote_view_;
 }
 
-const base::string16 SaveCardBubbleViews::GetCardIdentifierString() const {
+const std::u16string SaveCardBubbleViews::GetCardIdentifierString() const {
   return controller_->GetCard().CardIdentifierStringForAutofillDisplay();
 }
 
@@ -133,7 +134,7 @@ std::unique_ptr<views::View> SaveCardBubbleViews::CreateMainContentView() {
 
   // If applicable, add the upload explanation label.  Appears above the card
   // info.
-  base::string16 explanation = controller_->GetExplanatoryMessage();
+  std::u16string explanation = controller_->GetExplanatoryMessage();
   if (!explanation.empty()) {
     auto* const explanation_label =
         view->AddChildView(std::make_unique<views::Label>(
@@ -199,13 +200,15 @@ void SaveCardBubbleViews::Init() {
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical));
   // For server cards, there is an explanation between the title and the
-  // controls; use views::TEXT. For local cards, since there is no explanation,
-  // use views::CONTROL instead.
+  // controls; use DialogContentType::kText. For local cards, since there is no
+  // explanation, use DialogContentType::kControl instead.
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-      controller_->GetExplanatoryMessage().empty() ? views::CONTROL
-                                                   : views::TEXT,
-      GetDialogButtons() == ui::DIALOG_BUTTON_NONE ? views::TEXT
-                                                   : views::CONTROL));
+      controller_->GetExplanatoryMessage().empty()
+          ? views::DialogContentType::kControl
+          : views::DialogContentType::kText,
+      GetDialogButtons() == ui::DIALOG_BUTTON_NONE
+          ? views::DialogContentType::kText
+          : views::DialogContentType::kControl));
   AddChildView(CreateMainContentView().release());
 }
 

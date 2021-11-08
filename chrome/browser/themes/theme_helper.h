@@ -6,8 +6,9 @@
 #define CHROME_BROWSER_THEMES_THEME_HELPER_H_
 
 #include "base/sequence_checker.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/base/resource/scale_factor.h"
+#include "ui/base/resource/resource_scale_factor.h"
 #include "ui/base/theme_provider.h"
 
 class CustomThemeSupplier;
@@ -61,7 +62,7 @@ class ThemeHelper {
   static base::RefCountedMemory* GetRawData(
       int id,
       const CustomThemeSupplier* theme_supplier,
-      ui::ScaleFactor scale_factor);
+      ui::ResourceScaleFactor scale_factor);
 
   ThemeHelper();
   virtual ~ThemeHelper();
@@ -149,16 +150,16 @@ class ThemeHelper {
                            const CustomThemeSupplier* theme_supplier) const;
 
   // Given a theme property ID |id|, returns the corresponding omnibox color
-  // overridden by the system theme.  Returns base::nullopt if the color is not
+  // overridden by the system theme.  Returns absl::nullopt if the color is not
   // overridden, or if |id| does not correspond to an omnibox color.
-  base::Optional<SkColor> GetOmniboxColor(
+  absl::optional<SkColor> GetOmniboxColor(
       int id,
       bool incognito,
       const CustomThemeSupplier* theme_supplier,
       bool* has_custom_color) const;
 
   // Helper function that contains the main implementation of GetOmniboxColor().
-  base::Optional<OmniboxColor> GetOmniboxColorImpl(
+  absl::optional<OmniboxColor> GetOmniboxColorImpl(
       int id,
       bool incognito,
       const CustomThemeSupplier* theme_supplier) const;

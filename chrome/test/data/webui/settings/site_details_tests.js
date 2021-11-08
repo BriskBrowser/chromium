@@ -3,16 +3,17 @@
 // found in the LICENSE file.
 
 // clang-format off
-import {isChromeOS, webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {isChromeOS, isWindows, webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {listenOnce} from 'chrome://resources/js/util.m.js';
 import {flush,Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {ChooserType,ContentSetting,ContentSettingsTypes,SiteSettingSource,SiteSettingsPrefsBrowserProxyImpl,WebsiteUsageBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
 import {MetricsBrowserProxyImpl, PrivacyElementInteractions, Route,Router,routes} from 'chrome://settings/settings.js';
-import {TestSiteSettingsPrefsBrowserProxy} from 'chrome://test/settings/test_site_settings_prefs_browser_proxy.js';
-import {createContentSettingTypeToValuePair,createRawChooserException,createRawSiteException,createSiteSettingsPrefs} from 'chrome://test/settings/test_util.js';
-import {TestBrowserProxy} from 'chrome://test/test_browser_proxy.m.js';
+import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
+
 import {TestMetricsBrowserProxy} from './test_metrics_browser_proxy.js';
+import {TestSiteSettingsPrefsBrowserProxy} from './test_site_settings_prefs_browser_proxy.js';
+import {createContentSettingTypeToValuePair,createRawChooserException,createRawSiteException,createSiteSettingsPrefs} from './test_util.js';
 
 // clang-format on
 
@@ -160,6 +161,9 @@ suite('SiteDetails', function() {
           createContentSettingTypeToValuePair(
               ContentSettingsTypes.IDLE_DETECTION,
               [createRawSiteException('https://foo.com:443')]),
+          createContentSettingTypeToValuePair(
+              ContentSettingsTypes.FILE_HANDLING,
+              [createRawSiteException('https://foo.com:443')]),
         ],
         [
           createContentSettingTypeToValuePair(
@@ -175,11 +179,11 @@ suite('SiteDetails', function() {
         ]);
 
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
     testMetricsBrowserProxy = new TestMetricsBrowserProxy();
-    MetricsBrowserProxyImpl.instance_ = testMetricsBrowserProxy;
+    MetricsBrowserProxyImpl.setInstance(testMetricsBrowserProxy);
     websiteUsageProxy = new TestWebsiteUsageBrowserProxy();
-    WebsiteUsageBrowserProxyImpl.instance_ = websiteUsageProxy;
+    WebsiteUsageBrowserProxyImpl.setInstance(websiteUsageProxy);
 
     PolymerTest.clearBody();
   });
@@ -194,104 +198,27 @@ suite('SiteDetails', function() {
     return siteDetailsElement;
   }
 
-  test('all site settings are shown', function() {
-    // Add ContentsSettingsTypes which are not supposed to be shown on the Site
-    // Details page here.
-    const nonSiteDetailsContentSettingsTypes = [
-      ContentSettingsTypes.COOKIES,
-      ContentSettingsTypes.PROTOCOL_HANDLERS,
-      ContentSettingsTypes.ZOOM_LEVELS,
-    ];
-    if (!isChromeOS) {
-      nonSiteDetailsContentSettingsTypes.push(
-          ContentSettingsTypes.PROTECTED_CONTENT);
-    }
-
-    // A list of optionally shown content settings mapped to their loadTimeData
-    // flag string.
-    const optionalSiteDetailsContentSettingsTypes =
-        /** @type {!ContentSettingsType : string} */ ({});
-    optionalSiteDetailsContentSettingsTypes[ContentSettingsTypes
-                                                .BLUETOOTH_SCANNING] =
-        'enableExperimentalWebPlatformFeatures';
-    optionalSiteDetailsContentSettingsTypes[ContentSettingsTypes
-                                                .WINDOW_PLACEMENT] =
-        'enableExperimentalWebPlatformFeatures';
-    optionalSiteDetailsContentSettingsTypes[ContentSettingsTypes
-                                                .PAYMENT_HANDLER] =
-        'enablePaymentHandlerContentSetting';
-    optionalSiteDetailsContentSettingsTypes[ContentSettingsTypes.ADS] =
-        'enableSafeBrowsingSubresourceFilter';
-    optionalSiteDetailsContentSettingsTypes[ContentSettingsTypes
-                                                .BLUETOOTH_DEVICES] =
-        'enableWebBluetoothNewPermissionsBackend';
-    optionalSiteDetailsContentSettingsTypes[ContentSettingsTypes.FONT_ACCESS] =
-        'enableFontAccessContentSetting';
-
-    const controlledSettingsCount = /** @type{string : int } */ ({});
-
-    controlledSettingsCount['enableExperimentalWebPlatformFeatures'] = 2;
-    controlledSettingsCount['enableFontAccessContentSetting'] = 1;
-    controlledSettingsCount['enablePaymentHandlerContentSetting'] = 1;
-    controlledSettingsCount['enableSafeBrowsingSubresourceFilter'] = 1;
-    controlledSettingsCount['enableWebBluetoothNewPermissionsBackend'] = 1;
-
-    browserProxy.setPrefs(prefs);
-
-    // First, explicitly set all the optional settings to false.
-    for (const contentSetting in optionalSiteDetailsContentSettingsTypes) {
-      const loadTimeDataOverride = {};
-      loadTimeDataOverride[optionalSiteDetailsContentSettingsTypes
-                               [contentSetting]] = false;
-      loadTimeData.overrideValues(loadTimeDataOverride);
-    }
-
-    // Iterate over each flag in on / off state, assuming that the on state
-    // means the content setting will show, and off hides it.
-    for (const contentSetting in optionalSiteDetailsContentSettingsTypes) {
-      const numContentSettings = Object.keys(ContentSettingsTypes).length -
-          nonSiteDetailsContentSettingsTypes.length -
-          Object.keys(optionalSiteDetailsContentSettingsTypes).length;
-
-      const loadTimeDataOverride = {};
-      loadTimeDataOverride[optionalSiteDetailsContentSettingsTypes
-                               [contentSetting]] = true;
-      loadTimeData.overrideValues(loadTimeDataOverride);
-      testElement = createSiteDetails('https://foo.com:443');
-      assertEquals(
-          numContentSettings +
-              controlledSettingsCount[optionalSiteDetailsContentSettingsTypes[
-                  [contentSetting]]],
-          testElement.getCategoryList().length);
-
-      // Check for setting = off at the end to ensure that the setting does
-      // not carry over for the next iteration.
-      loadTimeDataOverride[optionalSiteDetailsContentSettingsTypes
-                               [contentSetting]] = false;
-      loadTimeData.overrideValues(loadTimeDataOverride);
-      testElement = createSiteDetails('https://foo.com:443');
-      assertEquals(numContentSettings, testElement.getCategoryList().length);
-    }
-  });
-
   test('usage heading shows properly', function() {
     browserProxy.setPrefs(prefs);
     testElement = createSiteDetails('https://foo.com:443');
     flush();
-    assertTrue(!!testElement.$$('#usage'));
+    assertTrue(!!testElement.shadowRoot.querySelector('#usage'));
 
     // When there's no usage, there should be a string that says so.
     assertEquals('', testElement.storedData_);
-    assertFalse(testElement.$$('#noStorage').hidden);
-    assertTrue(testElement.$$('#storage').hidden);
+    assertFalse(testElement.shadowRoot.querySelector('#noStorage').hidden);
+    assertTrue(testElement.shadowRoot.querySelector('#storage').hidden);
     assertTrue(
-        testElement.$$('#usage').innerText.indexOf('No usage data') !== -1);
+        testElement.shadowRoot.querySelector('#usage').innerText.indexOf(
+            'No usage data') !== -1);
 
     // If there is, check the correct amount of usage is specified.
     testElement.storedData_ = '1 KB';
-    assertTrue(testElement.$$('#noStorage').hidden);
-    assertFalse(testElement.$$('#storage').hidden);
-    assertTrue(testElement.$$('#usage').innerText.indexOf('1 KB') !== -1);
+    assertTrue(testElement.shadowRoot.querySelector('#noStorage').hidden);
+    assertFalse(testElement.shadowRoot.querySelector('#storage').hidden);
+    assertTrue(
+        testElement.shadowRoot.querySelector('#usage').innerText.indexOf(
+            '1 KB') !== -1);
   });
 
   test('storage gets trashed properly', function() {
@@ -314,10 +241,12 @@ suite('SiteDetails', function() {
           webUIListenerCallback(
               'usage-total-changed', hostRequested, '1 KB', '10 cookies');
           assertEquals('1 KB', testElement.storedData_);
-          assertTrue(testElement.$$('#noStorage').hidden);
-          assertFalse(testElement.$$('#storage').hidden);
+          assertTrue(testElement.shadowRoot.querySelector('#noStorage').hidden);
+          assertFalse(testElement.shadowRoot.querySelector('#storage').hidden);
 
-          testElement.$$('#confirmClearStorageNew .action-button').click();
+          testElement.shadowRoot
+              .querySelector('#confirmClearStorage .action-button')
+              .click();
           return websiteUsageProxy.whenCalled('clearUsage');
         })
         .then(originCleared => {
@@ -345,10 +274,12 @@ suite('SiteDetails', function() {
           webUIListenerCallback(
               'usage-total-changed', hostRequested, '1 KB', '10 cookies');
           assertEquals('10 cookies', testElement.numCookies_);
-          assertTrue(testElement.$$('#noStorage').hidden);
-          assertFalse(testElement.$$('#storage').hidden);
+          assertTrue(testElement.shadowRoot.querySelector('#noStorage').hidden);
+          assertFalse(testElement.shadowRoot.querySelector('#storage').hidden);
 
-          testElement.$$('#confirmClearStorageNew .action-button').click();
+          testElement.shadowRoot
+              .querySelector('#confirmClearStorage .action-button')
+              .click();
           return websiteUsageProxy.whenCalled('clearUsage');
         })
         .then(originCleared => {
@@ -364,15 +295,6 @@ suite('SiteDetails', function() {
 
   test('correct pref settings are shown', function() {
     browserProxy.setPrefs(prefs);
-    // Make sure all the possible content settings are shown for this test.
-    loadTimeData.overrideValues({
-      enableExperimentalWebPlatformFeatures: true,
-      enableFileSystemWriteContentSetting: true,
-      enableFontAccessContentSetting: true,
-      enablePaymentHandlerContentSetting: true,
-      enableSafeBrowsingSubresourceFilter: true,
-      enableWebBluetoothNewPermissionsBackend: true,
-    });
     testElement = createSiteDetails('https://foo.com:443');
 
     return browserProxy.whenCalled('isOriginValid')
@@ -426,6 +348,31 @@ suite('SiteDetails', function() {
         });
   });
 
+  test('categories can be hidden', function() {
+    browserProxy.setPrefs(prefs);
+    // Only the categories in this list should be visible to the user.
+    browserProxy.setCategoryList(
+        [ContentSettingsTypes.NOTIFICATIONS, ContentSettingsTypes.GEOLOCATION]);
+    testElement = createSiteDetails('https://foo.com:443');
+
+    return browserProxy.whenCalled('isOriginValid')
+        .then(() => {
+          return browserProxy.whenCalled('getOriginPermissions');
+        })
+        .then(() => {
+          testElement.root.querySelectorAll('site-details-permission')
+              .forEach((siteDetailsPermission) => {
+                const shouldBeVisible = siteDetailsPermission.category ===
+                        ContentSettingsTypes.NOTIFICATIONS ||
+                    siteDetailsPermission.category ===
+                        ContentSettingsTypes.GEOLOCATION;
+                assertEquals(
+                    !shouldBeVisible, siteDetailsPermission.$.details.hidden);
+              });
+        });
+  });
+
+
   test('show confirmation dialog on reset settings', function() {
     browserProxy.setPrefs(prefs);
     testElement = createSiteDetails('https://foo.com:443');
@@ -433,7 +380,7 @@ suite('SiteDetails', function() {
 
     // Check both cancelling and accepting the dialog closes it.
     ['cancel-button', 'action-button'].forEach(buttonType => {
-      testElement.$$('#resetSettingsButton').click();
+      testElement.shadowRoot.querySelector('#resetSettingsButton').click();
       assertTrue(testElement.$.confirmResetSettings.open);
       const actionButtonList =
           testElement.$.confirmResetSettings.getElementsByClassName(buttonType);
@@ -445,7 +392,7 @@ suite('SiteDetails', function() {
     // Accepting the dialog will make a call to setOriginPermissions.
     return browserProxy.whenCalled('setOriginPermissions').then((args) => {
       assertEquals(testElement.origin, args[0]);
-      assertDeepEquals(testElement.getCategoryList(), args[1]);
+      assertDeepEquals(null, args[1]);
       assertEquals(ContentSetting.DEFAULT, args[2]);
     });
   });
@@ -457,15 +404,14 @@ suite('SiteDetails', function() {
 
     // Check both cancelling and accepting the dialog closes it.
     ['cancel-button', 'action-button'].forEach(buttonType => {
-      testElement.$$('#usage cr-button').click();
-      assertTrue(testElement.$.confirmClearStorageNew.open);
+      testElement.shadowRoot.querySelector('#usage cr-button').click();
+      assertTrue(testElement.$.confirmClearStorage.open);
       const actionButtonList =
-          testElement.$.confirmClearStorageNew.getElementsByClassName(
-              buttonType);
+          testElement.$.confirmClearStorage.getElementsByClassName(buttonType);
       assertEquals(1, actionButtonList.length);
       testElement.storedData_ = '';
       actionButtonList[0].click();
-      assertFalse(testElement.$.confirmClearStorageNew.open);
+      assertFalse(testElement.$.confirmClearStorage.open);
     });
   });
 

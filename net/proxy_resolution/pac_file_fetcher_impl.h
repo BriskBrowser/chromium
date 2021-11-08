@@ -14,10 +14,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "net/base/completion_once_callback.h"
-#include "net/base/isolation_info.h"
 #include "net/base/net_export.h"
 #include "net/proxy_resolution/pac_file_fetcher.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
@@ -51,6 +49,9 @@ class NET_EXPORT PacFileFetcherImpl : public PacFileFetcher,
   static std::unique_ptr<PacFileFetcherImpl> Create(
       URLRequestContext* url_request_context);
 
+  PacFileFetcherImpl(const PacFileFetcherImpl&) = delete;
+  PacFileFetcherImpl& operator=(const PacFileFetcherImpl&) = delete;
+
   ~PacFileFetcherImpl() override;
 
   // Used by unit-tests to modify the default limits.
@@ -61,7 +62,7 @@ class NET_EXPORT PacFileFetcherImpl : public PacFileFetcher,
 
   // PacFileFetcher methods:
   int Fetch(const GURL& url,
-            base::string16* text,
+            std::u16string* text,
             CompletionOnceCallback callback,
             const NetworkTrafficAnnotationTag traffic_annotation) override;
   void Cancel() override;
@@ -80,8 +81,6 @@ class NET_EXPORT PacFileFetcherImpl : public PacFileFetcher,
                              bool is_hsts_ok) override;
   void OnResponseStarted(URLRequest* request, int net_error) override;
   void OnReadCompleted(URLRequest* request, int num_bytes) override;
-
-  const IsolationInfo& isolation_info_for_testing() { return isolation_info_; }
 
  private:
   enum { kBufSize = 4096 };
@@ -113,9 +112,6 @@ class NET_EXPORT PacFileFetcherImpl : public PacFileFetcher,
   // OnShutdown.
   URLRequestContext* url_request_context_;
 
-  // Transient IsolationInfo used to fetch PAC scripts.
-  const IsolationInfo isolation_info_;
-
   // Buffer that URLRequest writes into.
   scoped_refptr<IOBuffer> buf_;
 
@@ -141,7 +137,7 @@ class NET_EXPORT PacFileFetcherImpl : public PacFileFetcher,
 
   // This buffer is owned by the owner of |callback|, and will be filled with
   // UTF16 response on completion.
-  base::string16* result_text_;
+  std::u16string* result_text_;
 
   // The maximum number of bytes to allow in responses.
   size_t max_response_bytes_;
@@ -158,8 +154,6 @@ class NET_EXPORT PacFileFetcherImpl : public PacFileFetcher,
   // Factory for creating the time-out task. This takes care of revoking
   // outstanding tasks when |this| is deleted.
   base::WeakPtrFactory<PacFileFetcherImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PacFileFetcherImpl);
 };
 
 }  // namespace net

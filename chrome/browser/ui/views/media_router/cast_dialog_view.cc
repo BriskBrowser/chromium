@@ -5,8 +5,8 @@
 #include "chrome/browser/ui/views/media_router/cast_dialog_view.h"
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/location.h"
-#include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -23,14 +23,16 @@
 #include "chrome/browser/ui/views/media_router/cast_dialog_no_sinks_view.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_sink_button.h"
 #include "chrome/browser/ui/views/media_router/cast_toolbar_button.h"
-#include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/media_router/browser/media_router_metrics.h"
 #include "components/media_router/common/media_sink.h"
+#include "components/media_router/common/mojom/media_route_provider_id.mojom-shared.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/vector_icon_types.h"
@@ -39,7 +41,6 @@
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 namespace media_router {
@@ -106,7 +107,7 @@ views::Widget* CastDialogView::GetCurrentDialogWidget() {
   return instance_ ? instance_->GetWidget() : nullptr;
 }
 
-base::string16 CastDialogView::GetWindowTitle() const {
+std::u16string CastDialogView::GetWindowTitle() const {
   switch (selected_source_) {
     case SourceType::kTab:
       return dialog_title_;
@@ -118,7 +119,7 @@ base::string16 CastDialogView::GetWindowTitle() const {
                                         local_file_name_.value());
     default:
       NOTREACHED();
-      return base::string16();
+      return std::u16string();
   }
 }
 
@@ -220,7 +221,6 @@ CastDialogView::CastDialogView(views::View* anchor_view,
                                const base::Time& start_time,
                                MediaRouterDialogOpenOrigin activation_location)
     : BubbleDialogDelegateView(anchor_view, anchor_position),
-      selected_source_(SourceType::kTab),
       controller_(controller),
       profile_(profile),
       metrics_(start_time, activation_location, profile) {
@@ -327,16 +327,6 @@ void CastDialogView::PopulateScrollView(const std::vector<UIMediaSink>& sinks) {
                                 base::Unretained(this), i),
             sinks.at(i)));
     sink_buttons_.push_back(sink_button);
-
-    // This could potentially add a lot of warnings to the receiver list, but in
-    // practice a user is unlikely to have more than one or two meetings in the
-    // list at any given time, and repeating the warning is probably better than
-    // having the user ignore possibly the warning if it's only shown for a
-    // meeting they're not trying to cast to.
-    auto warning_view =
-        sink_button->MakeCastToMeetingDeprecationWarningView(profile_);
-    if (warning_view)
-      sink_list_view->AddChildView(std::move(warning_view));
   }
   scroll_view_->SetContents(std::move(sink_list_view));
 
@@ -376,7 +366,9 @@ void CastDialogView::SinkPressed(size_t index) {
     return;
 
   selected_sink_index_ = index;
-  const UIMediaSink& sink = sink_buttons_.at(index)->sink();
+  // sink() may get invalidated during CastDialogController::StartCasting()
+  // due to a model update, so make a copy here.
+  const UIMediaSink sink = sink_buttons_.at(index)->sink();
   if (sink.route) {
     metrics_.OnStopCasting(sink.route->is_local());
     // StopCasting() may trigger a model update and invalidate |sink|.
@@ -384,22 +376,20 @@ void CastDialogView::SinkPressed(size_t index) {
   } else if (sink.issue) {
     controller_->ClearIssue(sink.issue->id());
   } else {
-    // |sink| may get invalidated during CastDialogController::StartCasting()
-    // due to a model update, so we must use a copy of its |id| field.
-    const std::string sink_id = sink.id;
-    base::Optional<MediaCastMode> cast_mode = GetCastModeToUse(sink);
+    absl::optional<MediaCastMode> cast_mode = GetCastModeToUse(sink);
     if (cast_mode) {
       // Starting local file casting may open a new tab synchronously on the UI
       // thread, which deactivates the dialog. So we must prevent it from
       // closing and getting destroyed.
       if (cast_mode.value() == LOCAL_FILE)
         set_close_on_deactivate(false);
-      controller_->StartCasting(sink_id, cast_mode.value());
+      controller_->StartCasting(sink.id, cast_mode.value());
       // Re-enable close on deactivate so the user can click elsewhere to close
       // the dialog.
       if (cast_mode.value() == LOCAL_FILE)
         set_close_on_deactivate(!keep_shown_for_testing_);
-      metrics_.OnStartCasting(base::Time::Now(), index, cast_mode.value());
+      metrics_.OnStartCasting(base::Time::Now(), index, cast_mode.value(),
+                              sink.icon_type, HasCastAndDialSinks());
     }
   }
 }
@@ -410,27 +400,27 @@ void CastDialogView::MaybeSizeToContents() {
     SizeToContents();
 }
 
-base::Optional<MediaCastMode> CastDialogView::GetCastModeToUse(
+absl::optional<MediaCastMode> CastDialogView::GetCastModeToUse(
     const UIMediaSink& sink) const {
   // Go through cast modes in the order of preference to find one that is
   // supported and selected.
   switch (selected_source_) {
     case SourceType::kTab:
       if (base::Contains(sink.cast_modes, PRESENTATION))
-        return base::make_optional<MediaCastMode>(PRESENTATION);
+        return absl::make_optional<MediaCastMode>(PRESENTATION);
       if (base::Contains(sink.cast_modes, TAB_MIRROR))
-        return base::make_optional<MediaCastMode>(TAB_MIRROR);
+        return absl::make_optional<MediaCastMode>(TAB_MIRROR);
       break;
     case SourceType::kDesktop:
       if (base::Contains(sink.cast_modes, DESKTOP_MIRROR))
-        return base::make_optional<MediaCastMode>(DESKTOP_MIRROR);
+        return absl::make_optional<MediaCastMode>(DESKTOP_MIRROR);
       break;
     case SourceType::kLocalFile:
       if (base::Contains(sink.cast_modes, LOCAL_FILE))
-        return base::make_optional<MediaCastMode>(LOCAL_FILE);
+        return absl::make_optional<MediaCastMode>(LOCAL_FILE);
       break;
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 void CastDialogView::DisableUnsupportedSinks() {
@@ -451,11 +441,11 @@ void CastDialogView::RecordSinkCountWithDelay() {
       FROM_HERE,
       base::BindOnce(&CastDialogView::RecordSinkCount,
                      weak_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSeconds(3));
+      MediaRouterMetrics::kDeviceCountMetricDelay);
 }
 
 void CastDialogView::RecordSinkCount() {
-  metrics_.OnRecordSinkCount(sink_buttons_.size());
+  metrics_.OnRecordSinkCount(sink_buttons_);
 }
 
 void CastDialogView::OnFilePickerClosed(const ui::SelectedFileInfo* file_info) {
@@ -469,6 +459,29 @@ void CastDialogView::OnFilePickerClosed(const ui::SelectedFileInfo* file_info) {
 #endif  // defined(OS_WIN)
     SelectSource(SourceType::kLocalFile);
   }
+}
+
+bool CastDialogView::HasCastAndDialSinks() const {
+  bool has_cast = false;
+  bool has_dial = false;
+  for (const auto* sink_button : sink_buttons_) {
+    // A sink gets disabled while we're trying to connect to it, but we consider
+    // those sinks available.
+    if (!sink_button->GetEnabled() &&
+        sink_button->sink().state != UIMediaSinkState::CONNECTING) {
+      continue;
+    }
+    if (sink_button->sink().provider == mojom::MediaRouteProviderId::CAST) {
+      has_cast = true;
+    } else if (sink_button->sink().provider ==
+               mojom::MediaRouteProviderId::DIAL) {
+      has_dial = true;
+    }
+    if (has_cast && has_dial) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // static

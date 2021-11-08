@@ -6,11 +6,11 @@
 #define UI_VIEWS_CONTROLS_TABBED_PANE_TABBED_PANE_H_
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/linear_animation.h"
 #include "ui/views/view.h"
@@ -49,6 +49,10 @@ class VIEWS_EXPORT TabbedPane : public View {
 
   explicit TabbedPane(Orientation orientation = Orientation::kHorizontal,
                       TabStripStyle style = TabStripStyle::kBorder);
+
+  TabbedPane(const TabbedPane&) = delete;
+  TabbedPane& operator=(const TabbedPane&) = delete;
+
   ~TabbedPane() override;
 
   TabbedPaneListener* listener() const { return listener_; }
@@ -65,7 +69,7 @@ class VIEWS_EXPORT TabbedPane : public View {
   // |contents| is the view displayed when the tab is selected and is owned by
   // the TabbedPane.
   template <typename T>
-  T* AddTab(const base::string16& title, std::unique_ptr<T> contents) {
+  T* AddTab(const std::u16string& title, std::unique_ptr<T> contents) {
     return AddTabAtIndex(GetTabCount(), title, std::move(contents));
   }
 
@@ -74,7 +78,7 @@ class VIEWS_EXPORT TabbedPane : public View {
   // is currently empty, the new tab is selected.
   template <typename T>
   T* AddTabAtIndex(size_t index,
-                   const base::string16& title,
+                   const std::u16string& title,
                    std::unique_ptr<T> contents) {
     T* result = contents.get();
     AddTabInternal(index, title, std::move(contents));
@@ -107,7 +111,7 @@ class VIEWS_EXPORT TabbedPane : public View {
   // when the tab is selected and is owned by the TabbedPane. If the tabbed pane
   // is currently empty, the new tab is selected.
   void AddTabInternal(size_t index,
-                      const base::string16& title,
+                      const std::u16string& title,
                       std::unique_ptr<View> contents);
 
   // Get the Tab (the tabstrip view, not its content) at the selected index.
@@ -133,8 +137,6 @@ class VIEWS_EXPORT TabbedPane : public View {
   // correspond to match each Tab with its respective content View.
   TabStrip* tab_strip_ = nullptr;
   View* contents_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(TabbedPane);
 };
 
 // The tab view shown in the tab strip.
@@ -142,7 +144,11 @@ class VIEWS_EXPORT Tab : public View {
  public:
   METADATA_HEADER(Tab);
 
-  Tab(TabbedPane* tabbed_pane, const base::string16& title, View* contents);
+  Tab(TabbedPane* tabbed_pane, const std::u16string& title, View* contents);
+
+  Tab(const Tab&) = delete;
+  Tab& operator=(const Tab&) = delete;
+
   ~Tab() override;
 
   View* contents() const { return contents_; }
@@ -150,8 +156,8 @@ class VIEWS_EXPORT Tab : public View {
   bool selected() const { return contents_->GetVisible(); }
   void SetSelected(bool selected);
 
-  const base::string16& GetTitleText() const;
-  void SetTitleText(const base::string16& text);
+  const std::u16string& GetTitleText() const;
+  void SetTitleText(const std::u16string& text);
 
   // Overridden from View:
   bool OnMousePressed(const ui::MouseEvent& event) override;
@@ -164,6 +170,7 @@ class VIEWS_EXPORT Tab : public View {
   void OnFocus() override;
   void OnBlur() override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
+  void OnThemeChanged() override;
 
  private:
   enum class State {
@@ -181,6 +188,7 @@ class VIEWS_EXPORT Tab : public View {
   void OnPaint(gfx::Canvas* canvas) override;
 
   void UpdatePreferredTitleWidth();
+  void UpdateTitleColor();
 
   TabbedPane* tabbed_pane_;
   Label* title_ = nullptr;
@@ -188,8 +196,6 @@ class VIEWS_EXPORT Tab : public View {
   State state_ = State::kActive;
   // The content view associated with this tab.
   View* contents_;
-
-  DISALLOW_COPY_AND_ASSIGN(Tab);
 };
 
 // The tab strip shown above/left of the tab contents.
@@ -198,10 +204,14 @@ class TabStrip : public View, public gfx::AnimationDelegate {
   METADATA_HEADER(TabStrip);
 
   // The return value of GetSelectedTabIndex() when no tab is selected.
-  static constexpr size_t kNoSelectedTab = size_t{-1};
+  static constexpr size_t kNoSelectedTab = static_cast<size_t>(-1);
 
   TabStrip(TabbedPane::Orientation orientation,
            TabbedPane::TabStripStyle style);
+
+  TabStrip(const TabStrip&) = delete;
+  TabStrip& operator=(const TabStrip&) = delete;
+
   ~TabStrip() override;
 
   // AnimationDelegate:
@@ -247,8 +257,6 @@ class TabStrip : public View, public gfx::AnimationDelegate {
   // The x-coordinate ranges of the old selection and the new selection.
   gfx::Range animating_from_;
   gfx::Range animating_to_;
-
-  DISALLOW_COPY_AND_ASSIGN(TabStrip);
 };
 
 }  // namespace views

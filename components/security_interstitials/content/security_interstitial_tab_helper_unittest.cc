@@ -57,8 +57,7 @@ class TestInterstitialPage : public SecurityInterstitialPage {
   void OnInterstitialClosing() override {}
 
  protected:
-  void PopulateInterstitialStrings(
-      base::DictionaryValue* load_time_data) override {}
+  void PopulateInterstitialStrings(base::Value* load_time_data) override {}
 
  private:
   bool* destroyed_tracker_;
@@ -67,7 +66,7 @@ class TestInterstitialPage : public SecurityInterstitialPage {
 class SecurityInterstitialTabHelperTest
     : public content::RenderViewHostTestHarness {
  protected:
-  std::unique_ptr<content::NavigationHandle> CreateHandle(
+  std::unique_ptr<content::MockNavigationHandle> CreateHandle(
       bool committed,
       bool is_same_document) {
     std::unique_ptr<content::MockNavigationHandle> handle =
@@ -84,9 +83,8 @@ class SecurityInterstitialTabHelperTest
   void CreateAssociatedBlockingPage(content::NavigationHandle* handle,
                                     bool* destroyed_tracker) {
     SecurityInterstitialTabHelper::AssociateBlockingPage(
-        web_contents(), handle->GetNavigationId(),
-        std::make_unique<TestInterstitialPage>(web_contents(), GURL(),
-                                               destroyed_tracker));
+        handle, std::make_unique<TestInterstitialPage>(web_contents(), GURL(),
+                                                       destroyed_tracker));
   }
 };
 
@@ -214,6 +212,19 @@ TEST_F(SecurityInterstitialTabHelperTest, NavigationDoesNotCommit) {
       CreateHandle(true, false);
   helper->DidFinishNavigation(next_committed_handle.get());
   EXPECT_TRUE(committed_blocking_page_destroyed);
+}
+
+// Tests that a security interstital created for a non-primary main frame
+// navigation is immediately discarded.
+TEST_F(SecurityInterstitialTabHelperTest, DiscardedOnNonPrimaryMainFrame) {
+  std::unique_ptr<content::MockNavigationHandle> blocking_page_handle =
+      CreateHandle(true, false);
+  blocking_page_handle->set_is_in_primary_main_frame(false);
+  bool blocking_page_destroyed = false;
+  CreateAssociatedBlockingPage(blocking_page_handle.get(),
+                               &blocking_page_destroyed);
+  // Interstitial should be discarded immediately.
+  EXPECT_TRUE(blocking_page_destroyed);
 }
 
 }  // namespace security_interstitials

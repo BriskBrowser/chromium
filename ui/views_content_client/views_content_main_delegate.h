@@ -19,12 +19,16 @@ class ViewsContentClient;
 class ViewsContentMainDelegate : public content::ContentMainDelegate {
  public:
   explicit ViewsContentMainDelegate(ViewsContentClient* views_content_client);
+
+  ViewsContentMainDelegate(const ViewsContentMainDelegate&) = delete;
+  ViewsContentMainDelegate& operator=(const ViewsContentMainDelegate&) = delete;
+
   ~ViewsContentMainDelegate() override;
 
   // content::ContentMainDelegate implementation
   bool BasicStartupComplete(int* exit_code) override;
   void PreSandboxStartup() override;
-  void PreCreateMainMessageLoop() override;
+  void PreBrowserMain() override;
   content::ContentClient* CreateContentClient() override;
   content::ContentBrowserClient* CreateContentBrowserClient() override;
 
@@ -32,8 +36,6 @@ class ViewsContentMainDelegate : public content::ContentMainDelegate {
   std::unique_ptr<ViewsContentBrowserClient> browser_client_;
   content::ShellContentClient content_client_;
   ViewsContentClient* views_content_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewsContentMainDelegate);
 };
 
 }  // namespace ui

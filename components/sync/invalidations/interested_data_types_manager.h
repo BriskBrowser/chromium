@@ -5,8 +5,9 @@
 #ifndef COMPONENTS_SYNC_INVALIDATIONS_INTERESTED_DATA_TYPES_MANAGER_H_
 #define COMPONENTS_SYNC_INVALIDATIONS_INTERESTED_DATA_TYPES_MANAGER_H_
 
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
+#include "base/sequence_checker.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/invalidations/sync_invalidations_service.h"
 
@@ -28,18 +29,20 @@ class InterestedDataTypesManager {
 
   // Get the interested data types. Returns nullopt if SetInterestedDataTypes()
   // has never been called.
-  base::Optional<ModelTypeSet> GetInterestedDataTypes() const;
+  absl::optional<ModelTypeSet> GetInterestedDataTypes() const;
 
   // Set interested data types. The first call of the method initializes this
   // object.
-  void SetInterestedDataTypes(
-      const ModelTypeSet& data_types,
+  void SetInterestedDataTypes(const ModelTypeSet& data_types);
+
+  void SetCommittedAdditionalInterestedDataTypesCallback(
       SyncInvalidationsService::InterestedDataTypesAppliedCallback callback);
 
  private:
+  SEQUENCE_CHECKER(sequence_checker_);
   InterestedDataTypesHandler* interested_data_types_handler_ = nullptr;
 
-  base::Optional<ModelTypeSet> data_types_;
+  absl::optional<ModelTypeSet> data_types_;
 };
 
 }  // namespace syncer

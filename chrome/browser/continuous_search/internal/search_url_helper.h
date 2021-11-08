@@ -5,16 +5,23 @@
 #ifndef CHROME_BROWSER_CONTINUOUS_SEARCH_INTERNAL_SEARCH_URL_HELPER_H_
 #define CHROME_BROWSER_CONTINUOUS_SEARCH_INTERNAL_SEARCH_URL_HELPER_H_
 
-#include "base/optional.h"
-#include "base/strings/string16.h"
-#include "chrome/browser/continuous_search/internal/search_result_category.h"
+#include <string>
+
+#include "chrome/browser/continuous_search/page_category.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
+
+namespace content {
+class WebContents;
+}  // namespace content
 
 namespace continuous_search {
 
-base::Optional<std::string> ExtractSearchQueryIfValidUrl(const GURL& url);
+absl::optional<std::string> ExtractSearchQueryIfValidUrl(const GURL& url);
 
-SearchResultCategory GetResultCategoryForUrl(const GURL& url);
+PageCategory GetSrpPageCategoryForUrl(const GURL& url);
+
+GURL GetOriginalUrlFromWebContents(content::WebContents* web_contents);
 
 }  // namespace continuous_search
 

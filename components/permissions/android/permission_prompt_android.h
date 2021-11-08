@@ -6,10 +6,9 @@
 #define COMPONENTS_PERMISSIONS_ANDROID_PERMISSION_PROMPT_ANDROID_H_
 
 #include <memory>
-#include <vector>
+#include <string>
 
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/infobars/core/infobar_manager.h"
 #include "components/permissions/permission_prompt.h"
@@ -28,6 +27,10 @@ class PermissionPromptAndroid : public permissions::PermissionPrompt,
  public:
   PermissionPromptAndroid(content::WebContents* web_contents,
                           Delegate* delegate);
+
+  PermissionPromptAndroid(const PermissionPromptAndroid&) = delete;
+  PermissionPromptAndroid& operator=(const PermissionPromptAndroid&) = delete;
+
   ~PermissionPromptAndroid() override;
 
   // permissions::PermissionPrompt:
@@ -45,8 +48,8 @@ class PermissionPromptAndroid : public permissions::PermissionPrompt,
   size_t PermissionCount() const;
   ContentSettingsType GetContentSettingType(size_t position) const;
   int GetIconId() const;
-  base::string16 GetTitleText() const;
-  base::string16 GetMessageText() const;
+  std::u16string GetTitleText() const;
+  std::u16string GetMessageText() const;
 
   const content::WebContents* web_contents() { return web_contents_; }
 
@@ -67,8 +70,6 @@ class PermissionPromptAndroid : public permissions::PermissionPrompt,
   infobars::InfoBar* permission_infobar_;
 
   base::WeakPtrFactory<PermissionPromptAndroid> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PermissionPromptAndroid);
 };
 
 }  // namespace permissions

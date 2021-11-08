@@ -13,7 +13,6 @@
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "chrome/test/payments/payment_request_test_controller.h"
 #include "chrome/test/payments/personal_data_manager_test_util.h"
@@ -83,8 +82,8 @@ class PaymentRequestPlatformBrowserTestBase
   void OnNotSupportedError() override;
   void OnAbortCalled() override;
   void OnAppListReady() override;
+  void OnErrorDisplayed() override;
   void OnCompleteCalled() override;
-  void OnMinimalUIReady() override;
   void OnUIDisplayed() override;
 
   // Resets the event waiter for a given |event| or |event_sequence|.

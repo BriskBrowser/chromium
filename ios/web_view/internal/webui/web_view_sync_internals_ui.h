@@ -19,15 +19,15 @@ namespace ios_web_view {
 // ios/web_view specific SyncInternalsUI.
 class WebViewSyncInternalsUI : public SyncInternalsUI {
  public:
-  explicit WebViewSyncInternalsUI(web::WebUIIOS* web_ui,
-                                  const std::string& host);
+  WebViewSyncInternalsUI(web::WebUIIOS* web_ui, const std::string& host);
+
+  WebViewSyncInternalsUI(const WebViewSyncInternalsUI&) = delete;
+  WebViewSyncInternalsUI& operator=(const WebViewSyncInternalsUI&) = delete;
+
   ~WebViewSyncInternalsUI() override;
   bool OverrideHandleWebUIIOSMessage(const GURL& source_url,
                                      const std::string& message,
-                                     const base::ListValue& args) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebViewSyncInternalsUI);
+                                     const base::Value& args) override;
 };
 
 }  // namespace ios_web_view

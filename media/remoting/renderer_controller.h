@@ -9,7 +9,6 @@
 
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
@@ -25,7 +24,8 @@
 #include "mojo/public/cpp/bindings/remote.h"
 
 #if BUILDFLAG(ENABLE_MEDIA_REMOTING_RPC)
-#include "media/remoting/rpc_broker.h"  // nogncheck
+#include "third_party/openscreen/src/cast/streaming/rpc_messenger.h"  // nogncheck
+#include "third_party/openscreen/src/util/weak_ptr.h"  // nogncheck
 #endif
 
 namespace base {
@@ -44,6 +44,10 @@ class RendererController final : public mojom::RemotingSource,
   RendererController(
       mojo::PendingReceiver<mojom::RemotingSource> source_receiver,
       mojo::PendingRemote<mojom::Remoter> remoter);
+
+  RendererController(const RendererController&) = delete;
+  RendererController& operator=(const RendererController&) = delete;
+
   ~RendererController() override;
 
   // mojom::RemotingSource implementations.
@@ -90,7 +94,7 @@ class RendererController final : public mojom::RemotingSource,
                      DataPipeStartCallback done_callback);
 
 #if BUILDFLAG(ENABLE_MEDIA_REMOTING_RPC)
-  base::WeakPtr<RpcBroker> GetRpcBroker();
+  openscreen::WeakPtr<openscreen::cast::RpcMessenger> GetRpcMessenger();
 #endif
 
   // Called by CourierRenderer when it encountered a fatal error. This will
@@ -164,8 +168,8 @@ class RendererController final : public mojom::RemotingSource,
   bool HasFeatureCapability(mojom::RemotingSinkFeature capability) const;
   bool SinkSupportsRemoting() const;
 
-  // Callback from RpcBroker when sending message to remote sink.
-  void SendMessageToSink(std::unique_ptr<std::vector<uint8_t>> message);
+  // Callback from RpcMessenger when sending message to remote sink.
+  void SendMessageToSink(std::vector<uint8_t> message);
 
 #if defined(OS_ANDROID)
   bool IsAudioRemotePlaybackSupported() const;
@@ -175,7 +179,7 @@ class RendererController final : public mojom::RemotingSource,
 
 #if BUILDFLAG(ENABLE_MEDIA_REMOTING_RPC)
   // Handles dispatching of incoming and outgoing RPC messages.
-  RpcBroker rpc_broker_;
+  openscreen::cast::RpcMessenger rpc_messenger_;
 #endif
 
   const mojo::Receiver<mojom::RemotingSource> receiver_;
@@ -245,8 +249,6 @@ class RendererController final : public mojom::RemotingSource,
   const base::TickClock* clock_;
 
   base::WeakPtrFactory<RendererController> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(RendererController);
 };
 
 }  // namespace remoting

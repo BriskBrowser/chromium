@@ -35,6 +35,10 @@ class WebContentsViewAndroid : public WebContentsView,
  public:
   WebContentsViewAndroid(WebContentsImpl* web_contents,
                          WebContentsViewDelegate* delegate);
+
+  WebContentsViewAndroid(const WebContentsViewAndroid&) = delete;
+  WebContentsViewAndroid& operator=(const WebContentsViewAndroid&) = delete;
+
   ~WebContentsViewAndroid() override;
 
   void SetContentUiEventHandler(std::unique_ptr<ContentUiEventHandler> handler);
@@ -73,14 +77,15 @@ class WebContentsViewAndroid : public WebContentsView,
       RenderWidgetHost* render_widget_host) override;
   RenderWidgetHostViewBase* CreateViewForChildWidget(
       RenderWidgetHost* render_widget_host) override;
-  void SetPageTitle(const base::string16& title) override;
+  void SetPageTitle(const std::u16string& title) override;
   void RenderViewReady() override;
   void RenderViewHostChanged(RenderViewHost* old_host,
                              RenderViewHost* new_host) override;
   void SetOverscrollControllerEnabled(bool enabled) override;
+  void OnCapturerCountChanged() override;
 
   // Backend implementation of RenderViewHostDelegateView.
-  void ShowContextMenu(RenderFrameHost* render_frame_host,
+  void ShowContextMenu(RenderFrameHost& render_frame_host,
                        const ContextMenuParams& params) override;
   void ShowPopupMenu(
       RenderFrameHost* render_frame_host,
@@ -122,7 +127,7 @@ class WebContentsViewAndroid : public WebContentsView,
   bool ScrollTo(float x, float y) override;
   void OnSizeChanged() override;
   void OnPhysicalBackingSizeChanged(
-      base::Optional<base::TimeDelta> deadline_override) override;
+      absl::optional<base::TimeDelta> deadline_override) override;
   void OnBrowserControlsHeightChanged() override;
   void OnControlsResizeViewChanged() override;
   void NotifyVirtualKeyboardOverlayRect(
@@ -175,8 +180,6 @@ class WebContentsViewAndroid : public WebContentsView,
 
   gfx::PointF drag_location_;
   gfx::PointF drag_screen_location_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebContentsViewAndroid);
 };
 
 } // namespace content

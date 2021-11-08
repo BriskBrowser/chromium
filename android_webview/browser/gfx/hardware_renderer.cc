@@ -171,18 +171,19 @@ void HardwareRenderer::ReturnChildFrame(
 
   // The child frame's frame_sink_id is not necessarily same as
   // |child_frame_sink_id_|.
-  ReturnResourcesToCompositor(resources_to_return, child_frame->frame_sink_id,
+  ReturnResourcesToCompositor(std::move(resources_to_return),
+                              child_frame->frame_sink_id,
                               child_frame->layer_tree_frame_sink_id);
 }
 
 void HardwareRenderer::ReturnResourcesToCompositor(
-    const std::vector<viz::ReturnedResource>& resources,
+    std::vector<viz::ReturnedResource> resources,
     const viz::FrameSinkId& frame_sink_id,
     uint32_t layer_tree_frame_sink_id) {
   if (layer_tree_frame_sink_id != last_committed_layer_tree_frame_sink_id_)
     return;
-  render_thread_manager_->InsertReturnedResourcesOnRT(resources, frame_sink_id,
-                                                      layer_tree_frame_sink_id);
+  render_thread_manager_->InsertReturnedResourcesOnRT(
+      std::move(resources), frame_sink_id, layer_tree_frame_sink_id);
 }
 
 namespace {
@@ -236,6 +237,11 @@ ChildFrameQueue HardwareRenderer::WaitAndPruneFrameQueue(
       pruned_frames.emplace_back(std::move(frame));
   }
   return pruned_frames;
+}
+
+void HardwareRenderer::SetChildFrameForTesting(
+    std::unique_ptr<ChildFrame> child_frame) {
+  child_frame_ = std::move(child_frame);
 }
 
 }  // namespace android_webview

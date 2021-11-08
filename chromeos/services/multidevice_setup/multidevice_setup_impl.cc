@@ -17,7 +17,6 @@
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/services/multidevice_setup/account_status_change_delegate_notifier_impl.h"
 #include "chromeos/services/multidevice_setup/android_sms_app_installing_status_observer.h"
-#include "chromeos/services/multidevice_setup/device_reenroller.h"
 #include "chromeos/services/multidevice_setup/eligible_host_devices_provider_impl.h"
 #include "chromeos/services/multidevice_setup/feature_state_manager_impl.h"
 #include "chromeos/services/multidevice_setup/grandfathered_easy_unlock_host_disabler.h"
@@ -148,9 +147,6 @@ MultiDeviceSetupImpl::MultiDeviceSetupImpl(
           android_sms_pairing_state_tracker,
           wifi_sync_feature_manager_.get(),
           is_secondary_user)),
-      device_reenroller_(
-          DeviceReenroller::Factory::Create(device_sync_client,
-                                            gcm_device_info_provider)),
       android_sms_app_installing_host_observer_(
           android_sms_app_helper_delegate
               ? AndroidSmsAppInstallingStatusObserver::Factory::Create(
@@ -243,7 +239,7 @@ void MultiDeviceSetupImpl::RemoveHostDevice() {
       VerifyAndForgetHostConfirmationState::kButtonClickedState);
 
   host_backend_delegate_->AttemptToSetMultiDeviceHostOnBackend(
-      base::nullopt /* host_device */);
+      absl::nullopt /* host_device */);
 }
 
 void MultiDeviceSetupImpl::GetHostStatus(GetHostStatusCallback callback) {
@@ -252,7 +248,7 @@ void MultiDeviceSetupImpl::GetHostStatus(GetHostStatusCallback callback) {
 
   // The Mojo API requires a raw multidevice::RemoteDevice instead of a
   // multidevice::RemoteDeviceRef.
-  base::Optional<multidevice::RemoteDevice> device_for_callback;
+  absl::optional<multidevice::RemoteDevice> device_for_callback;
   if (host_status_with_device.host_device()) {
     device_for_callback =
         host_status_with_device.host_device()->GetRemoteDevice();
@@ -265,10 +261,12 @@ void MultiDeviceSetupImpl::GetHostStatus(GetHostStatusCallback callback) {
 void MultiDeviceSetupImpl::SetFeatureEnabledState(
     mojom::Feature feature,
     bool enabled,
-    const base::Optional<std::string>& auth_token,
+    const absl::optional<std::string>& auth_token,
     SetFeatureEnabledStateCallback callback) {
   if (IsAuthTokenRequiredForFeatureStateChange(feature, enabled) &&
       (!auth_token || !auth_token_validator_->IsAuthTokenValid(*auth_token))) {
+    PA_LOG(ERROR) << __func__ << " Cannot " << (enabled ? "enable" : "disable")
+                  << " " << feature << "; auth token invalid";
     std::move(callback).Run(false /* success */);
     return;
   }
@@ -353,7 +351,7 @@ void MultiDeviceSetupImpl::OnHostStatusChange(
 
   // The Mojo API requires a raw multidevice::RemoteDevice instead of a
   // multidevice::RemoteDeviceRef.
-  base::Optional<multidevice::RemoteDevice> device_for_callback;
+  absl::optional<multidevice::RemoteDevice> device_for_callback;
   if (host_status_with_device.host_device()) {
     device_for_callback =
         host_status_with_device.host_device()->GetRemoteDevice();

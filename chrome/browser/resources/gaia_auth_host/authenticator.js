@@ -38,11 +38,21 @@ cr.define('cr.login', function() {
   /* #export */ let SyncTrustedVaultKey;
 
   /**
+   * Individual sync trusted recovery method.
+   * @typedef {{
+   *   publicKey: ArrayBuffer,
+   *   type: number,
+   * }}
+   */
+  /* #export */ let SyncTrustedRecoveryMethod;
+
+  /**
    * Sync trusted vault encryption keys optionally passed with 'authCompleted'
    * message.
    * @typedef {{
+   *   obfuscatedGaiaId: string,
    *   encryptionKeys: Array<SyncTrustedVaultKey>,
-   *   trustedPublicKeys: Array<SyncTrustedVaultKey>
+   *   trustedRecoveryMethods: Array<SyncTrustedRecoveryMethod>
    * }}
    */
   /* #export */ let SyncTrustedVaultKeys;
@@ -87,11 +97,12 @@ cr.define('cr.login', function() {
    *   flow: string,
    *   ignoreCrOSIdpSetting: boolean,
    *   enableGaiaActionButtons: boolean,
-   *   enableSyncTrustedVaultKeys: boolean,
    *   enterpriseEnrollmentDomain: string,
    *   samlAclUrl: string,
    *   isSupervisedUser: boolean,
    *   isDeviceOwner: boolean,
+   *   ssoProfile: string,
+   *   enableCloseView: boolean,
    * }}
    */
   /* #export */ let AuthParams;
@@ -107,6 +118,12 @@ cr.define('cr.login', function() {
   const EMBEDDED_SETUP_CHROMEOS_ENDPOINT_V2 = 'embedded/setup/v2/chromeos';
   const SAML_REDIRECTION_PATH = 'samlredirect';
   const BLANK_PAGE_URL = 'about:blank';
+
+  // Metric names for messages we get from Gaia.
+  const GAIA_MESSAGE_SAML_USER_INFO = 'ChromeOS.Gaia.Message.Saml.UserInfo';
+  const GAIA_MESSAGE_GAIA_USER_INFO = 'ChromeOS.Gaia.Message.Gaia.UserInfo';
+  const GAIA_MESSAGE_SAML_CLOSE_VIEW = 'ChromeOS.Gaia.Message.Saml.CloseView';
+  const GAIA_MESSAGE_GAIA_CLOSE_VIEW = 'ChromeOS.Gaia.Message.Gaia.CloseView';
 
   /**
    * The source URL parameter for the constrained signin flow.
@@ -147,12 +164,8 @@ cr.define('cr.login', function() {
                      // If this set to |false|, |confirmPasswordCallback| is
                      // not called before dispatching |authCopleted|.
                      // Default is |true|.
-    'enableSyncTrustedVaultKeys',  // Whether the host is interested in getting
-                                   // sync trusted vault keys.
-                                   // Default is |false|.
-    'flow',                        // One of 'default', 'enterprise', or
-                                   // 'theftprotection'.
-    'enterpriseDisplayDomain',     // Current domain name to be displayed.
+    'flow',          // One of 'default', 'enterprise', or
+                     // 'cfm' or 'enterpriseLicense'.
     'enterpriseDomainManager',     // Manager of the current domain. Can be
                                    // either a domain name (foo.com) or an email
                                    // address (admin@foo.com).
@@ -174,6 +187,9 @@ cr.define('cr.login', function() {
     'ignoreCrOSIdpSetting',  // If set to true, causes Gaia to ignore 3P
                              // SAML IdP SSO redirection policies (and
                              // redirect to SAML IdPs by default).
+    'ssoProfile',            // An identifier for the device's managing OU's
+                             // SAML SSO setting. Used by the login screen to
+                             // pass to Gaia.
 
     // The email fields allow for the following possibilities:
     //
@@ -190,9 +206,7 @@ cr.define('cr.login', function() {
     // can still change it and then proceed.  This is used on desktop when the
     // user disconnects their profile then reconnects, to encourage them to use
     // the same account.
-    'email',
-    'readOnlyEmail',
-    'realm',
+    'email', 'readOnlyEmail', 'realm',
     // If the authentication is done via external IdP, 'startsOnSamlPage'
     // indicates whether the flow should start on the IdP page.
     'startsOnSamlPage',
@@ -201,7 +215,17 @@ cr.define('cr.login', function() {
     'samlAclUrl',
     'isSupervisedUser',  // True if the user is supervised user.
     'isDeviceOwner',     // True if the user is device owner.
+    'doSamlRedirect',    // True if the authentication is done via external IdP.
+    'enableCloseView',   // True if authenticator should wait for the closeView
+                         // message from Gaia.
+    'rart',              // Encrypted reauth request token.
   ];
+
+  // Timeout in ms to wait for the message from Gaia indicating end of the flow.
+  // Could be userInfo (The message is used to extract user services and to
+  // define whether or not the account is a child one) or closeView (specific
+  // message to indicate the end of the flow).
+  const GAIA_DONE_WAIT_TIMEOUT_MS = 5 * 1000;
 
   /**
    * Extract domain name from an URL.
@@ -257,6 +281,12 @@ cr.define('cr.login', function() {
     },
     'userInfo'(msg) {
       this.services_ = msg.services;
+      if (!this.authCompletedFired_) {
+        const metric = this.authFlow == AuthFlow.SAML ?
+            GAIA_MESSAGE_SAML_USER_INFO :
+            GAIA_MESSAGE_GAIA_USER_INFO;
+        chrome.send('metricsHandler:recordBooleanHistogram', [metric, true]);
+      }
       if (this.email_ && this.gaiaId_ && this.sessionIndex_) {
         this.maybeCompleteAuth_();
       }
@@ -307,10 +337,28 @@ cr.define('cr.login', function() {
       this.dispatchEvent(new CustomEvent('exit'));
     },
     'syncTrustedVaultKeys'(msg) {
-      if (!this.enableSyncTrustedVaultKeys_) {
+      this.syncTrustedVaultKeys_ = msg.value;
+    },
+    'closeView'(msg) {
+      if (!this.enableCloseView_) {
         return;
       }
-      this.syncTrustedVaultKeys_ = msg.value;
+
+      if (!this.services_) {
+        console.error('Authenticator: UserInfo should come before closeView');
+      }
+
+      if (!this.authCompletedFired_) {
+        const metric = this.authFlow == AuthFlow.SAML ?
+            GAIA_MESSAGE_SAML_CLOSE_VIEW :
+            GAIA_MESSAGE_GAIA_CLOSE_VIEW;
+        chrome.send('metricsHandler:recordBooleanHistogram', [metric, true]);
+      }
+
+      this.closeViewReceived_ = true;
+      if (this.email_ && this.gaiaId_ && this.sessionIndex_) {
+        this.maybeCompleteAuth_();
+      }
     }
   };
 
@@ -367,6 +415,7 @@ cr.define('cr.login', function() {
           webview;
       assert(this.webview_);
       this.enableGaiaActionButtons_ = false;
+      this.enableCloseView_ = false;
       this.webviewEventManager_ = WebviewEventManager.create();
 
       this.clientId_ = null;
@@ -387,8 +436,8 @@ cr.define('cr.login', function() {
        */
       this.getIsSamlUserPasswordlessCallback = null;
       this.needPassword = true;
-      this.enableSyncTrustedVaultKeys_ = false;
       this.services_ = null;
+      this.gaiaDoneTimer_ = null;
       /**
        * Caches the result of |getIsSamlUserPasswordlessCallback| invocation for
        * the current user. Null if no result is obtained yet.
@@ -401,11 +450,12 @@ cr.define('cr.login', function() {
       this.samlAclUrl_ = null;
       /** @private {?SyncTrustedVaultKeys} */
       this.syncTrustedVaultKeys_ = null;
+      this.closeViewReceived_ = false;
 
       window.addEventListener(
-          'message', this.onMessageFromWebview_.bind(this), false);
-      window.addEventListener('focus', this.onFocus_.bind(this), false);
-      window.addEventListener('popstate', this.onPopState_.bind(this), false);
+          'message', e => this.onMessageFromWebview_(e), false);
+      window.addEventListener('focus', () => this.onFocus_(), false);
+      window.addEventListener('popstate', e => this.onPopState_(e), false);
 
       /**
        * @type {boolean}
@@ -416,7 +466,7 @@ cr.define('cr.login', function() {
         this.initializeAfterDomLoaded_();
       } else {
         document.addEventListener(
-            'DOMContentLoaded', this.initializeAfterDomLoaded_.bind(this));
+            'DOMContentLoaded', () => this.initializeAfterDomLoaded_());
       }
     }
 
@@ -438,8 +488,10 @@ cr.define('cr.login', function() {
       this.samlHandler_.reset();
       this.videoEnabled = false;
       this.services_ = null;
+      this.gaiaDoneTimer_ = null;
       this.isSamlUserPasswordless_ = null;
       this.syncTrustedVaultKeys_ = null;
+      this.closeViewReceived_ = false;
     }
 
     /**
@@ -474,37 +526,36 @@ cr.define('cr.login', function() {
           new cr.login.SamlHandler(this.webview_, false /* startsOnSamlPage */);
       this.webviewEventManager_.addEventListener(
           this.samlHandler_, 'insecureContentBlocked',
-          this.onInsecureContentBlocked_.bind(this));
+          e => this.onInsecureContentBlocked_(e));
       this.webviewEventManager_.addEventListener(
-          this.samlHandler_, 'authPageLoaded',
-          this.onAuthPageLoaded_.bind(this));
+          this.samlHandler_, 'authPageLoaded', e => this.onAuthPageLoaded_(e));
       this.webviewEventManager_.addEventListener(
-          this.samlHandler_, 'videoEnabled', this.onVideoEnabled_.bind(this));
+          this.samlHandler_, 'videoEnabled', e => this.onVideoEnabled_(e));
       this.webviewEventManager_.addEventListener(
           this.samlHandler_, 'apiPasswordAdded',
-          this.onSamlApiPasswordAdded_.bind(this));
+          e => this.onSamlApiPasswordAdded_(e));
       this.webviewEventManager_.addEventListener(
           this.samlHandler_, 'challengeMachineKeyRequired',
-          this.onChallengeMachineKeyRequired_.bind(this));
+          e => this.onChallengeMachineKeyRequired_(e));
 
       this.webviewEventManager_.addEventListener(
-          this.webview_, 'droplink', this.onDropLink_.bind(this));
+          this.webview_, 'droplink', e => this.onDropLink_(e));
       this.webviewEventManager_.addEventListener(
-          this.webview_, 'newwindow', this.onNewWindow_.bind(this));
+          this.webview_, 'newwindow', e => this.onNewWindow_(e));
       this.webviewEventManager_.addEventListener(
-          this.webview_, 'contentload', this.onContentLoad_.bind(this));
+          this.webview_, 'contentload', e => this.onContentLoad_(e));
       this.webviewEventManager_.addEventListener(
-          this.webview_, 'loadabort', this.onLoadAbort_.bind(this));
+          this.webview_, 'loadabort', e => this.onLoadAbort_(e));
       this.webviewEventManager_.addEventListener(
-          this.webview_, 'loadcommit', this.onLoadCommit_.bind(this));
+          this.webview_, 'loadcommit', e => this.onLoadCommit_(e));
 
       this.webviewEventManager_.addWebRequestEventListener(
           this.webview_.request.onCompleted,
-          this.onRequestCompleted_.bind(this),
+          details => this.onRequestCompleted_(details),
           {urls: ['<all_urls>'], types: ['main_frame']}, ['responseHeaders']);
       this.webviewEventManager_.addWebRequestEventListener(
           this.webview_.request.onHeadersReceived,
-          this.onHeadersReceived_.bind(this),
+          details => this.onHeadersReceived_(details),
           {urls: ['<all_urls>'], types: ['main_frame', 'xmlhttprequest']},
           ['responseHeaders']);
     }
@@ -604,7 +655,7 @@ cr.define('cr.login', function() {
       this.clientId_ = data.clientId;
       this.dontResizeNonEmbeddedPages = data.dontResizeNonEmbeddedPages;
       this.enableGaiaActionButtons_ = data.enableGaiaActionButtons;
-      this.enableSyncTrustedVaultKeys_ = !!data.enableSyncTrustedVaultKeys;
+      this.enableCloseView_ = !!data.enableCloseView;
 
       this.initialFrameUrl_ = this.constructInitialFrameUrl_(data);
       this.reloadUrl_ = data.frameUrl || this.initialFrameUrl_;
@@ -661,6 +712,9 @@ cr.define('cr.login', function() {
       if (data.doSamlRedirect) {
         let url = this.idpOrigin_ + SAML_REDIRECTION_PATH;
         url = appendParam(url, 'domain', data.enterpriseEnrollmentDomain);
+        if (data.ssoProfile) {
+          url = appendParam(url, 'sso_profile', data.ssoProfile);
+        }
         url = appendParam(
             url, 'continue',
             data.gaiaUrl + 'programmatic_auth_chromeos?hl=' + data.hl +
@@ -683,9 +737,6 @@ cr.define('cr.login', function() {
       }
       if (data.clientId) {
         url = appendParam(url, 'client_id', data.clientId);
-      }
-      if (data.enterpriseDisplayDomain) {
-        url = appendParam(url, 'manageddomain', data.enterpriseDisplayDomain);
       }
       if (data.enterpriseDomainManager) {
         url = appendParam(url, 'devicemanager', data.enterpriseDomainManager);
@@ -753,8 +804,8 @@ cr.define('cr.login', function() {
       if (data.isDeviceOwner) {
         url = appendParam(url, 'is_device_owner', '1');
       }
-      if (data.enableSyncTrustedVaultKeys) {
-        url = appendParam(url, 'szkr', '1');
+      if (data.rart) {
+        url = appendParam(url, 'rart', data.rart);
       }
 
       return url;
@@ -964,11 +1015,8 @@ cr.define('cr.login', function() {
         // does not expect it to be called immediately.
         // TODO(xiyuan): Change to synchronous call when iframe based code
         // is removed.
-        const invokeConfirmPassword =
-            (function() {
-              this.confirmPasswordCallback(
-                  this.email_, this.samlHandler_.scrapedPasswordCount);
-            }).bind(this);
+        const invokeConfirmPassword = () => this.confirmPasswordCallback(
+            this.email_, this.samlHandler_.scrapedPasswordCount);
         window.setTimeout(invokeConfirmPassword, 0);
         return;
       }
@@ -996,15 +1044,28 @@ cr.define('cr.login', function() {
         this.webview_.src = this.initialFrameUrl_;
         return;
       }
-      // TODO(https://crbug.com/837107): remove this once API is fully
-      // stabilized.
-      // @example.com is used in tests.
-      if (!this.services_ && !this.email_.endsWith('@gmail.com') &&
-          !this.email_.endsWith('@example.com')) {
-        console.warn('Forcing empty services.');
-        this.services_ = [];
+
+      // Could be set either by `userInfo` message or by the
+      // `onGaiaDoneTimeout_`.
+      const userInfoAvailable = !!this.services_;
+
+      const gaiaDone = userInfoAvailable &&
+          (!this.enableCloseView_ || this.closeViewReceived_);
+
+      if (gaiaDone && this.gaiaDoneTimer_) {
+        window.clearTimeout(this.gaiaDoneTimer_);
+        this.gaiaDoneTimer_ = null;
       }
-      if (!this.services_) {
+
+      if (this.gaiaDoneTimer_) {
+        // Early out if `gaiaDoneTimer_` is running.
+        return;
+      }
+
+      if (!gaiaDone) {
+        // Start `gaiaDoneTimer_` if user info is not available.
+        this.gaiaDoneTimer_ = window.setTimeout(
+            () => this.onGaiaDoneTimeout_(), GAIA_DONE_WAIT_TIMEOUT_MS);
         return;
       }
 
@@ -1232,10 +1293,12 @@ cr.define('cr.login', function() {
     }
 
     /**
-     * Invoked when |samlHandler_| fires 'apiPasswordAdded' event.
+     * Invoked when |samlHandler_| fires 'apiPasswordAdded' event. Could be from
+     * 3rd-party SAML IdP or Gaia which also uses the API.
      * @private
      */
     onSamlApiPasswordAdded_(e) {
+      this.dispatchEvent(new Event('apiPasswordAdded'));
       // Saml API 'add' password might be received after the 'loadcommit'
       // event. In such case, maybeCompleteAuth_ should be attempted again if
       // GAIA ID is available.
@@ -1354,6 +1417,34 @@ cr.define('cr.login', function() {
       // TODO(dzhioev): remove the message. http://crbug.com/469522
       const webviewWindow = this.webview_.contentWindow;
       return !!webviewWindow && webviewWindow === e.source;
+    }
+
+    /**
+     * Callback for the user info message waiting timeout.
+     * @private
+     */
+    onGaiaDoneTimeout_() {
+      if (!this.services_) {
+        console.error('Gaia done timeout: Forcing empty services.');
+        this.services_ = [];
+        const metric = this.authFlow == AuthFlow.SAML ?
+            GAIA_MESSAGE_SAML_USER_INFO :
+            GAIA_MESSAGE_GAIA_USER_INFO;
+        chrome.send('metricsHandler:recordBooleanHistogram', [metric, false]);
+      }
+
+      if (this.enableCloseView_ && !this.closeViewReceived_) {
+        console.error('Gaia done timeout: closeView was not called.');
+        this.closeViewReceived_ = true;
+
+        const metric = this.authFlow == AuthFlow.SAML ?
+            GAIA_MESSAGE_SAML_CLOSE_VIEW :
+            GAIA_MESSAGE_GAIA_CLOSE_VIEW;
+        chrome.send('metricsHandler:recordBooleanHistogram', [metric, false]);
+      }
+
+      this.gaiaDoneTimer_ = null;
+      this.maybeCompleteAuth_();
     }
   }
 

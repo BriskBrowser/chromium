@@ -32,7 +32,7 @@
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/policy/dlp/mock_dlp_content_manager.h"
+#include "chrome/browser/ash/policy/dlp/mock_dlp_content_manager.h"
 #include "ui/aura/window.h"
 #endif
 
@@ -100,7 +100,8 @@ class DesktopCaptureAccessHandlerTest : public ChromeRenderViewHostTestHarness {
       bool request_audio) {
     FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
         {false /* expect_screens */, false /* expect_windows*/,
-         true /* expect_tabs */, request_audio /* expect_audio */,
+         true /* expect_tabs */, false /* expect_current_tab */,
+         request_audio /* expect_audio */,
          fake_desktop_media_id_response /* selected_source */}};
     picker_factory_->SetTestFlags(test_flags, base::size(test_flags));
     blink::mojom::MediaStreamType audio_type =
@@ -204,8 +205,9 @@ TEST_F(DesktopCaptureAccessHandlerTest,
       blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE;
   FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
       {false /* expect_screens */, false /* expect_windows*/,
-       true /* expect_tabs */, false /* expect_audio */,
-       content::DesktopMediaID(), true /* cancelled */}};
+       true /* expect_tabs */, false /* expect_current_tab */,
+       false /* expect_audio */, content::DesktopMediaID(),
+       true /* cancelled */}};
   picker_factory_->SetTestFlags(test_flags, base::size(test_flags));
   content::MediaStreamRequest request(
       render_process_id, render_frame_id, page_request_id,
@@ -235,8 +237,9 @@ TEST_F(DesktopCaptureAccessHandlerTest,
 TEST_F(DesktopCaptureAccessHandlerTest, ChangeSourceWebContentsDestroyed) {
   FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
       {false /* expect_screens */, false /* expect_windows*/,
-       true /* expect_tabs */, false /* expect_audio */,
-       content::DesktopMediaID(), true /* cancelled */}};
+       true /* expect_tabs */, false /* expect_current_tab */,
+       false /* expect_audio */, content::DesktopMediaID(),
+       true /* cancelled */}};
   picker_factory_->SetTestFlags(test_flags, base::size(test_flags));
   content::MediaStreamRequest request(
       0, 0, 0, GURL("http://origin/"), false, blink::MEDIA_DEVICE_UPDATE,
@@ -260,12 +263,14 @@ TEST_F(DesktopCaptureAccessHandlerTest, ChangeSourceWebContentsDestroyed) {
 TEST_F(DesktopCaptureAccessHandlerTest, ChangeSourceMultipleRequests) {
   FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
       {false /* expect_screens */, false /* expect_windows*/,
-       true /* expect_tabs */, false /* expect_audio */,
+       true /* expect_tabs */, false /* expect_current_tab */,
+       false /* expect_audio */,
        content::DesktopMediaID(
            content::DesktopMediaID::TYPE_SCREEN,
            content::DesktopMediaID::kFakeId) /* selected_source */},
       {false /* expect_screens */, false /* expect_windows*/,
-       true /* expect_tabs */, false /* expect_audio */,
+       true /* expect_tabs */, false /* expect_current_tab */,
+       false /* expect_audio */,
        content::DesktopMediaID(
            content::DesktopMediaID::TYPE_WINDOW,
            content::DesktopMediaID::kNullId) /* selected_source */}};
@@ -347,7 +352,7 @@ TEST_F(DesktopCaptureAccessHandlerTest, ScreenCaptureAccessSuccess) {
       switches::kAllowHttpScreenCapture);
 
   extensions::ExtensionBuilder extensionBuilder("Component Extension");
-  extensionBuilder.SetLocation(extensions::Manifest::COMPONENT);
+  extensionBuilder.SetLocation(extensions::mojom::ManifestLocation::kComponent);
   auto extension = extensionBuilder.Build();
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -384,7 +389,7 @@ TEST_F(DesktopCaptureAccessHandlerTest, ScreenCaptureAccessDlpRestricted) {
       switches::kAllowHttpScreenCapture);
 
   extensions::ExtensionBuilder extensionBuilder("Component Extension");
-  extensionBuilder.SetLocation(extensions::Manifest::COMPONENT);
+  extensionBuilder.SetLocation(extensions::mojom::ManifestLocation::kComponent);
   auto extension = extensionBuilder.Build();
 
   std::unique_ptr<aura::Window> primary_root_window =

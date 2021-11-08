@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+#include "chrome/browser/enterprise/signals/signals_common.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
 namespace enterprise_signals {
 
 struct DeviceInfo {
@@ -16,13 +19,6 @@ struct DeviceInfo {
   ~DeviceInfo();
   DeviceInfo(const DeviceInfo&);
   DeviceInfo(DeviceInfo&&);
-
-  enum class SettingValue {
-    NONE,
-    UNKNOWN,
-    DISABLED,
-    ENABLED,
-  };
 
   std::string os_name;
   std::string os_version;
@@ -33,6 +29,8 @@ struct DeviceInfo {
   SettingValue disk_encrypted;
 
   std::vector<std::string> mac_addresses;
+  absl::optional<std::string> windows_machine_domain;
+  absl::optional<std::string> windows_user_domain;
 };
 
 // Interface used by the chrome.enterprise.reportingPrivate.getDeviceInfo()
@@ -48,6 +46,14 @@ class DeviceInfoFetcher {
 
   // Returns a platform specific instance of DeviceInfoFetcher.
   static std::unique_ptr<DeviceInfoFetcher> CreateInstance();
+
+  // Returns a stub instance so tests can validate attributes independently of
+  // the platform.
+  static std::unique_ptr<DeviceInfoFetcher> CreateStubInstanceForTesting();
+
+  // Sets a value controlling whether DeviceInfoFetcher::CreateInstance should
+  // return a stubbed instance. Used for testing.
+  static void SetForceStubForTesting(bool should_force);
 
   // Fetches the device information for the current platform.
   virtual DeviceInfo Fetch() = 0;

@@ -31,6 +31,11 @@ class RemoteChangeProcessorOnWorker : public RemoteChangeProcessor {
       const base::WeakPtr<RemoteChangeProcessorWrapper>& wrapper,
       base::SingleThreadTaskRunner* ui_task_runner,
       base::SequencedTaskRunner* worker_task_runner);
+
+  RemoteChangeProcessorOnWorker(const RemoteChangeProcessorOnWorker&) = delete;
+  RemoteChangeProcessorOnWorker& operator=(
+      const RemoteChangeProcessorOnWorker&) = delete;
+
   ~RemoteChangeProcessorOnWorker() override;
 
   void PrepareForProcessRemoteChange(const storage::FileSystemURL& url,
@@ -41,7 +46,7 @@ class RemoteChangeProcessorOnWorker : public RemoteChangeProcessor {
                          SyncStatusCallback callback) override;
   void FinalizeRemoteSync(const storage::FileSystemURL& url,
                           bool clear_local_changes,
-                          const base::Closure& completion_callback) override;
+                          base::OnceClosure completion_callback) override;
   void RecordFakeLocalChange(const storage::FileSystemURL& url,
                              const FileChange& change,
                              SyncStatusCallback callback) override;
@@ -54,8 +59,6 @@ class RemoteChangeProcessorOnWorker : public RemoteChangeProcessor {
   scoped_refptr<base::SequencedTaskRunner> worker_task_runner_;
 
   base::SequenceChecker sequence_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(RemoteChangeProcessorOnWorker);
 };
 
 }  // namespace drive_backend

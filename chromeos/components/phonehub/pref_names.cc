@@ -27,10 +27,31 @@ const char kHideOnboardingUi[] =
 const char kIsAwaitingVerifiedHost[] =
     "cros.phonehub.is_awaiting_verified_host";
 
+// Whether the Camera Roll onboarding dialog in the PhoneHub UI has
+// been dismissed.
+const char kHasDismissedCameraRollOnboardingUi[] =
+    "cros.phonehub.has_dismissed_camera_roll_onboarding_ui";
+
 // Whether the Notification access setup banner in the PhoneHub UI has
 // been dismissed.
 const char kHasDismissedSetupRequiredUi[] =
     "cros.phonehub.has_dismissed_setup_required_ui";
+
+// TODO(http://crbug.com/1215559): Deprecate when there are no more active Phone
+// Hub notification users on M89. Some users had notifications automatically
+// disabled when updating from M89 to M90+ because the notification feature
+// state went from enabled-by-default to disabled-by-default. To re-enable those
+// users, we once and only once notify observers if access has been granted by
+// the phone. Notably, the MultideviceSetupStateUpdate will decide whether or
+// not the notification feature should be enabled. See
+// MultideviceSetupStateUpdater's method
+// IsWaitingForAccessToInitiallyEnableNotifications() for more details.
+const char kNeedsOneTimeNotificationAccessUpdate[] =
+    "cros.phonehub.needs_one_time_notification_access_update";
+
+// The last provided screen lock status provided by the phone. This pref stores
+// the numerical value associated with the ScreenLockManager::LockStatus enum.
+const char kScreenLockStatus[] = "cros.phonehub.screen_lock_status";
 
 }  // namespace prefs
 }  // namespace phonehub

@@ -6,11 +6,11 @@
 
 #include <stddef.h>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/json/json_reader.h"
-#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
@@ -19,6 +19,8 @@
 #include "chrome/browser/ui/autofill/autofill_bubble_base.h"
 #include "chrome/browser/ui/autofill/payments/save_card_ui.h"
 #include "chrome/browser/ui/autofill/test/test_autofill_bubble_handler.h"
+#include "chrome/browser/ui/hats/mock_trust_safety_sentiment_service.h"
+#include "chrome/browser/ui/hats/trust_safety_sentiment_service_factory.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
@@ -29,8 +31,6 @@
 #include "components/autofill/core/browser/test_autofill_clock.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
-#include "components/autofill/core/common/autofill_prefs.h"
-#include "components/user_prefs/user_prefs.h"
 #include "content/public/test/mock_navigation_handle.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -83,7 +83,10 @@ class TestSaveCardBubbleControllerImpl : public SaveCardBubbleControllerImpl {
 
 class SaveCardBubbleControllerImplTest : public BrowserWithTestWindowTest {
  public:
-  SaveCardBubbleControllerImplTest() {}
+  SaveCardBubbleControllerImplTest() = default;
+  SaveCardBubbleControllerImplTest(SaveCardBubbleControllerImplTest&) = delete;
+  SaveCardBubbleControllerImplTest& operator=(
+      SaveCardBubbleControllerImplTest&) = delete;
 
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
@@ -91,11 +94,12 @@ class SaveCardBubbleControllerImplTest : public BrowserWithTestWindowTest {
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     TestSaveCardBubbleControllerImpl::CreateForTesting(web_contents);
-    user_prefs::UserPrefs::Get(web_contents->GetBrowserContext())
-        ->SetInteger(
-            prefs::kAutofillAcceptSaveCreditCardPromptState,
-            prefs::PREVIOUS_SAVE_CREDIT_CARD_PROMPT_USER_DECISION_NONE);
     test_clock_.SetNow(kArbitraryTime);
+    mock_sentiment_service_ = static_cast<MockTrustSafetySentimentService*>(
+        TrustSafetySentimentServiceFactory::GetInstance()
+            ->SetTestingFactoryAndUse(
+                profile(),
+                base::BindRepeating(&BuildMockTrustSafetySentimentService)));
   }
 
   void SetLegalMessage(
@@ -162,6 +166,7 @@ class SaveCardBubbleControllerImplTest : public BrowserWithTestWindowTest {
 
   TestAutofillClock test_clock_;
   base::test::ScopedFeatureList scoped_feature_list_;
+  MockTrustSafetySentimentService* mock_sentiment_service_;
 
  private:
   static void UploadSaveCardCallback(
@@ -170,8 +175,6 @@ class SaveCardBubbleControllerImplTest : public BrowserWithTestWindowTest {
           user_provided_card_details) {}
   static void LocalSaveCardCallback(
       AutofillClient::SaveCardOfferUserDecision user_decision) {}
-
-  DISALLOW_COPY_AND_ASSIGN(SaveCardBubbleControllerImplTest);
 };
 
 // Tests that the legal message lines vector is empty when doing a local save so
@@ -504,6 +507,7 @@ class SaveCardBubbleControllerImplTestWithoutStatusChip
 
 TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
        Local_FirstShow_SaveButton_SigninPromo_Close_Reshow_ManageCards) {
+  EXPECT_CALL(*mock_sentiment_service_, SavedCard()).Times(1);
   ShowLocalBubble();
   ClickSaveButton();
   CloseAndReshowBubble();
@@ -515,6 +519,7 @@ TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
 
 TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
        Metrics_Local_ClickManageCardsDoneButton) {
+  EXPECT_CALL(*mock_sentiment_service_, SavedCard()).Times(1);
   base::HistogramTester histogram_tester;
   ShowLocalBubble();
   ClickSaveButton();
@@ -530,6 +535,7 @@ TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
 
 TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
        Metrics_Local_ClickManageCardsManageCardsButton) {
+  EXPECT_CALL(*mock_sentiment_service_, SavedCard()).Times(1);
   base::HistogramTester histogram_tester;
   ShowLocalBubble();
   ClickSaveButton();
@@ -544,6 +550,7 @@ TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
 TEST_F(
     SaveCardBubbleControllerImplTestWithoutStatusChip,
     Metrics_Local_FirstShow_SaveButton_Close_Reshow_Close_Reshow_ManageCards) {
+  EXPECT_CALL(*mock_sentiment_service_, SavedCard()).Times(1);
   base::HistogramTester histogram_tester;
   ShowLocalBubble();
   ClickSaveButton();
@@ -559,6 +566,7 @@ TEST_F(
 TEST_F(
     SaveCardBubbleControllerImplTestWithoutStatusChip,
     Metrics_Local_FirstShow_SaveButton_SigninPromo_Close_Reshow_ManageCards) {
+  EXPECT_CALL(*mock_sentiment_service_, SavedCard()).Times(1);
   base::HistogramTester histogram_tester;
   ShowLocalBubble();
   ClickSaveButton();
@@ -572,6 +580,7 @@ TEST_F(
 
 TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
        Upload_FirstShow_SaveButton_NoSigninPromo) {
+  EXPECT_CALL(*mock_sentiment_service_, SavedCard()).Times(1);
   ShowUploadBubble();
   ClickSaveButton();
   // Icon should disappear after an upload save,
@@ -582,6 +591,7 @@ TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
 
 TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
        Metrics_Upload_FirstShow_SaveButton_NoSigninPromo) {
+  EXPECT_CALL(*mock_sentiment_service_, SavedCard()).Times(1);
   base::HistogramTester histogram_tester;
   ShowUploadBubble();
   ClickSaveButton();
@@ -593,6 +603,7 @@ TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
 
 TEST_F(SaveCardBubbleControllerImplTestWithoutStatusChip,
        Metrics_Upload_FirstShow_ManageCards) {
+  EXPECT_CALL(*mock_sentiment_service_, SavedCard()).Times(1);
   base::HistogramTester histogram_tester;
   ShowUploadBubble();
   ClickSaveButton();

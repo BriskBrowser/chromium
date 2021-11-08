@@ -176,7 +176,7 @@ void UkmManager::RecordAggregateThroughput(AggregationType aggregation_type,
 void UkmManager::RecordCompositorLatencyUKM(
     CompositorFrameReporter::FrameReportType report_type,
     const std::vector<CompositorFrameReporter::StageData>& stage_history,
-    const CompositorFrameReporter::ActiveTrackers& active_trackers,
+    const ActiveTrackers& active_trackers,
     const CompositorFrameReporter::ProcessedBlinkBreakdown&
         processed_blink_breakdown,
     const CompositorFrameReporter::ProcessedVizBreakdown&
@@ -321,6 +321,9 @@ void UkmManager::RecordEventLatencyUKM(
             (processed_viz_breakdown.swap_start() - generated_timestamp)
                 .InMicroseconds());
       }
+    } else if (event_metrics->pinch_type()) {
+      builder.SetPinchInputType(
+          static_cast<int64_t>(*event_metrics->pinch_type()));
     }
 
     // Record event dispatch metrics.

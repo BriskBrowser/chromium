@@ -12,8 +12,8 @@
 #include "base/bind.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "dbus/message.h"
 #include "dbus/object_path.h"
@@ -51,11 +51,11 @@ std::unique_ptr<base::Value> PopStringToStringDictionary(
 }  // namespace
 
 ValueMatcher::ValueMatcher(const base::Value& value)
-    : expected_value_(value.DeepCopy()) {}
+    : expected_value_(base::Value::ToUniquePtrValue(value.Clone())) {}
 
 bool ValueMatcher::MatchAndExplain(const base::Value& value,
                                    MatchResultListener* listener) const {
-  return expected_value_->Equals(&value);
+  return *expected_value_ == value;
 }
 
 void ValueMatcher::DescribeTo(::std::ostream* os) const {
@@ -99,13 +99,12 @@ void ShillClientUnittestBase::SetUp() {
   mock_proxy_ = new dbus::MockObjectProxy(
       mock_bus_.get(), shill::kFlimflamServiceName, object_path_);
 
-  // Set an expectation so mock_proxy's CallMethod() will use OnCallMethod()
-  // to return responses.
+  // Set expectations so that mock_proxy's Call methods will return responses.
   EXPECT_CALL(*mock_proxy_.get(), DoCallMethod(_, _, _))
       .WillRepeatedly(Invoke(this, &ShillClientUnittestBase::OnCallMethod));
-
-  // Set an expectation so mock_proxy's CallMethodWithErrorCallback() will use
-  // OnCallMethodWithErrorCallback() to return responses.
+  EXPECT_CALL(*mock_proxy_.get(), DoCallMethodWithErrorResponse(_, _, _))
+      .WillRepeatedly(Invoke(
+          this, &ShillClientUnittestBase::OnCallMethodWithErrorResponse));
   EXPECT_CALL(*mock_proxy_.get(), DoCallMethodWithErrorCallback(_, _, _, _))
       .WillRepeatedly(Invoke(
           this, &ShillClientUnittestBase::OnCallMethodWithErrorCallback));
@@ -181,7 +180,7 @@ void ShillClientUnittestBase::ExpectPropertyChanged(
     const std::string& name,
     const base::Value& value) {
   EXPECT_EQ(expected_name, name);
-  EXPECT_TRUE(expected_value->Equals(&value));
+  EXPECT_EQ(*expected_value, value);
 }
 
 // static
@@ -243,7 +242,7 @@ void ShillClientUnittestBase::ExpectStringAndValueArguments(
   EXPECT_EQ(expected_string, str);
   std::unique_ptr<base::Value> value(dbus::PopDataAsValue(reader));
   ASSERT_TRUE(value.get());
-  EXPECT_TRUE(value->Equals(expected_value));
+  EXPECT_EQ(*value, *expected_value);
   EXPECT_FALSE(reader->HasMoreData());
 }
 
@@ -289,7 +288,7 @@ void ShillClientUnittestBase::ExpectValueDictionaryArgument(
     ASSERT_TRUE(value.get());
     const base::Value* expected_value = expected_dictionary->FindKey(key);
     ASSERT_TRUE(expected_value);
-    EXPECT_TRUE(value->Equals(expected_value));
+    EXPECT_EQ(*value, *expected_value);
   }
 }
 
@@ -348,7 +347,7 @@ void ShillClientUnittestBase::ExpectValueResultWithoutStatus(
 // static
 void ShillClientUnittestBase::ExpectValueResult(
     const base::Value* expected_result,
-    base::Optional<base::Value> result) {
+    absl::optional<base::Value> result) {
   EXPECT_TRUE(result);
   ExpectValueResultWithoutStatus(expected_result,
                                  std::move(result).value_or(base::Value()));
@@ -400,6 +399,19 @@ void ShillClientUnittestBase::OnCallMethod(
   argument_checker_.Run(&reader);
   task_environment_.GetMainThreadTaskRunner()->PostTask(
       FROM_HERE, base::BindOnce(std::move(*response_callback), response_));
+}
+
+void ShillClientUnittestBase::OnCallMethodWithErrorResponse(
+    dbus::MethodCall* method_call,
+    int timeout_ms,
+    dbus::ObjectProxy::ResponseOrErrorCallback* response_callback) {
+  EXPECT_EQ(interface_name_, method_call->GetInterface());
+  EXPECT_EQ(expected_method_name_, method_call->GetMember());
+  dbus::MessageReader reader(method_call);
+  argument_checker_.Run(&reader);
+  task_environment_.GetMainThreadTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(*response_callback), response_, nullptr));
 }
 
 void ShillClientUnittestBase::OnCallMethodWithErrorCallback(

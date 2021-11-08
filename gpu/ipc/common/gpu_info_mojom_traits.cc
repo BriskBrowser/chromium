@@ -20,9 +20,11 @@ bool StructTraits<gpu::mojom::GpuDeviceDataView, gpu::GPUInfo::GPUDevice>::Read(
     gpu::GPUInfo::GPUDevice* out) {
   out->vendor_id = data.vendor_id();
   out->device_id = data.device_id();
+#if defined(OS_WIN) || defined(OS_CHROMEOS)
+  out->revision = data.revision();
+#endif  // OS_WIN || OS_CHROMEOS
 #if defined(OS_WIN)
   out->sub_sys_id = data.sub_sys_id();
-  out->revision = data.revision();
 #endif  // OS_WIN
   out->active = data.active();
   out->cuda_compute_capability_major = data.cuda_compute_capability_major();
@@ -394,6 +396,7 @@ bool StructTraits<gpu::mojom::GpuInfoDataView, gpu::GPUInfo>::Read(
 
   out->oop_rasterization_supported = data.oop_rasterization_supported();
   out->subpixel_font_rendering = data.subpixel_font_rendering();
+  out->visibility_callback_call_count = data.visibility_callback_call_count();
 
 #if defined(OS_WIN)
   out->d3d12_feature_level = data.d3d12_feature_level();
@@ -422,6 +425,7 @@ bool StructTraits<gpu::mojom::GpuInfoDataView, gpu::GPUInfo>::Read(
 #endif
          data.ReadVideoDecodeAcceleratorCapabilities(
              &out->video_decode_accelerator_capabilities) &&
+         data.ReadVideoDecoderCapabilities(&out->video_decoder_capabilities) &&
          data.ReadVideoEncodeAcceleratorSupportedProfiles(
              &out->video_encode_accelerator_supported_profiles) &&
          data.ReadImageDecodeAcceleratorSupportedProfiles(

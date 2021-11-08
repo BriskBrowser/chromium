@@ -22,6 +22,11 @@ class TestShellContentUtilityClient : public content::ContentUtilityClient {
           std::make_unique<content::NetworkServiceTestHelper>();
     }
   }
+
+  TestShellContentUtilityClient(const TestShellContentUtilityClient&) = delete;
+  TestShellContentUtilityClient& operator=(
+      const TestShellContentUtilityClient&) = delete;
+
   ~TestShellContentUtilityClient() override {}
 
   // content::ContentUtilityClient implementation.
@@ -33,8 +38,6 @@ class TestShellContentUtilityClient : public content::ContentUtilityClient {
  private:
   std::unique_ptr<content::NetworkServiceTestHelper>
       network_service_test_helper_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestShellContentUtilityClient);
 };
 
 }  // namespace
@@ -44,6 +47,13 @@ namespace extensions {
 TestShellMainDelegate::TestShellMainDelegate() {}
 
 TestShellMainDelegate::~TestShellMainDelegate() {}
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+void TestShellMainDelegate::PostEarlyInitialization(bool is_running_tests) {
+  // Browser tests on Lacros requires a non-null LacrosService.
+  lacros_service_ = std::make_unique<chromeos::LacrosService>();
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 content::ContentUtilityClient*
 TestShellMainDelegate::CreateContentUtilityClient() {

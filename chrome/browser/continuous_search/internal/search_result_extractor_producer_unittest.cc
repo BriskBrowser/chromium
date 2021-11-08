@@ -13,8 +13,8 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/callback.h"
-#include "chrome/browser/continuous_search/internal/search_result_category.h"
 #include "chrome/browser/continuous_search/internal/search_result_extractor_producer_interface.h"
+#include "chrome/browser/continuous_search/page_category.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "components/continuous_search/browser/test/fake_search_result_extractor.h"
 #include "components/continuous_search/common/public/mojom/continuous_search.mojom.h"
@@ -36,12 +36,11 @@ mojom::CategoryResultsPtr GenerateValidResults(const GURL& document_url) {
   expected_results->category_type = mojom::Category::kOrganic;
   {
     mojom::ResultGroupPtr result_group = mojom::ResultGroup::New();
-    result_group->label = "Group 1";
-    result_group->is_ad_group = false;
+    result_group->type = mojom::ResultType::kSearchResults;
     {
       mojom::SearchResultPtr result = mojom::SearchResult::New();
       result->link = GURL("https://www.bar.com/");
-      result->title = "Bar";
+      result->title = u"Bar";
       result_group->results.push_back(std::move(result));
     }
     expected_results->groups.push_back(std::move(result_group));
@@ -68,8 +67,7 @@ class MockSearchResultExtractorProducerInterface
                const base::android::JavaRef<jobject>& url,
                const base::android::JavaRef<jstring>& query,
                jint result_type,
-               const base::android::JavaRef<jobjectArray>& group_label,
-               const base::android::JavaRef<jbooleanArray>& is_ad_group,
+               const base::android::JavaRef<jintArray>& group_type,
                const base::android::JavaRef<jintArray>& group_size,
                const base::android::JavaRef<jobjectArray>& titles,
                const base::android::JavaRef<jobjectArray>& urls),
@@ -179,9 +177,8 @@ TEST_F(SearchResultExtractorProducerRenderViewHostTest, FetchSuccess) {
               OnResultsAvailable(
                   ::testing::_, ::testing::_, EqualsJavaGURL(GURL(kUrl)),
                   EqualsJavaString(kQuery),
-                  static_cast<jint>(SearchResultCategory::kOrganic),
-                  EqualsJavaStringArray(std::vector<std::string>({"Group 1"})),
-                  EqualsJavaBooleanArray(std::vector<bool>({false})),
+                  static_cast<jint>(PageCategory::kOrganicSrp),
+                  EqualsJavaIntArray(std::vector<int>({0})),
                   EqualsJavaIntArray(std::vector<int>({1})),
                   EqualsJavaStringArray(std::vector<std::string>({"Bar"})),
                   EqualsJavaGURLArray(

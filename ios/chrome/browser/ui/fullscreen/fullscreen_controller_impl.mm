@@ -12,28 +12,19 @@
 #import "ios/chrome/browser/ui/broadcaster/chrome_broadcaster.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_system_notification_observer.h"
-#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#import "ios/public/provider/chrome/browser/ui/fullscreen_provider.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-namespace {
-
-// Key used to associate the stored FullscreenControllerImpl.
-const char kFullscreenControllerUserDataKey[] = "fullscreen_controller";
-
-}  // namespace
-
 // static
 FullscreenController* FullscreenController::FromBrowser(Browser* browser) {
-  FullscreenControllerImpl* fullscreen_controller =
-      static_cast<FullscreenControllerImpl*>(
-          browser->GetUserData(kFullscreenControllerUserDataKey));
+  FullscreenController* fullscreen_controller =
+      static_cast<FullscreenController*>(
+          browser->GetUserData(FullscreenController::UserDataKey()));
   if (!fullscreen_controller) {
     fullscreen_controller = new FullscreenControllerImpl(browser);
-    browser->SetUserData(kFullscreenControllerUserDataKey,
+    browser->SetUserData(FullscreenController::UserDataKey(),
                          base::WrapUnique(fullscreen_controller));
   }
   return fullscreen_controller;

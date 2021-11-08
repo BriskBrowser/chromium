@@ -59,12 +59,12 @@ bool IsExcludedHeaderForServiceWorkerFetchEvent(const String& header_name) {
     return true;
   }
 
-  if (Platform::Current()->IsExcludedHeaderForServiceWorkerFetchEvent(
-          header_name)) {
-    return true;
-  }
-
   return false;
+}
+
+void SignalError(
+    Persistent<DataPipeBytesConsumer::CompletionNotifier> notifier) {
+  notifier->SignalError(BytesConsumer::Error());
 }
 
 void SignalSize(
@@ -123,7 +123,7 @@ FetchRequestData* FetchRequestData::Create(
     MojoCreateDataPipeOptions options{sizeof(MojoCreateDataPipeOptions),
                                       MOJO_CREATE_DATA_PIPE_FLAG_NONE, 1, 0};
     const MojoResult result =
-        mojo::CreateDataPipe(&options, &writable, &readable);
+        mojo::CreateDataPipe(&options, writable, readable);
     if (result == MOJO_RESULT_OK) {
       DataPipeBytesConsumer::CompletionNotifier* completion_notifier = nullptr;
       // Explicitly creating a ReadableStream here in order to remember
@@ -144,6 +144,8 @@ FetchRequestData* FetchRequestData::Create(
       auto body_remote = std::make_unique<
           mojo::Remote<network::mojom::blink::ChunkedDataPipeGetter>>(
           fetch_api_request->body.TakeStreamBody());
+      body_remote->set_disconnect_handler(
+          WTF::Bind(SignalError, WrapPersistent(completion_notifier)));
       auto* body_remote_raw = body_remote.get();
       (*body_remote_raw)
           ->GetSize(WTF::Bind(SignalSize, std::move(body_remote),
@@ -162,6 +164,8 @@ FetchRequestData* FetchRequestData::Create(
   // we deprecate SetContext.
 
   request->SetDestination(fetch_api_request->destination);
+  if (fetch_api_request->request_initiator)
+    request->SetOrigin(fetch_api_request->request_initiator);
   request->SetReferrerString(AtomicString(Referrer::NoReferrer()));
   if (fetch_api_request->referrer) {
     if (!fetch_api_request->referrer->url.IsEmpty()) {
@@ -182,6 +186,7 @@ FetchRequestData* FetchRequestData::Create(
       fetch_api_request->priority));
   if (fetch_api_request->fetch_window_id)
     request->SetWindowId(fetch_api_request->fetch_window_id.value());
+
   return request;
 }
 
@@ -203,6 +208,7 @@ FetchRequestData* FetchRequestData::CloneExceptBody() {
   request->integrity_ = integrity_;
   request->priority_ = priority_;
   request->importance_ = importance_;
+  request->original_destination_ = original_destination_;
   request->keepalive_ = keepalive_;
   request->is_history_navigation_ = is_history_navigation_;
   request->window_id_ = window_id_;

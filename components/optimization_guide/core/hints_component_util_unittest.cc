@@ -27,6 +27,9 @@ class HintsComponentUtilTest : public testing::Test {
  public:
   HintsComponentUtilTest() {}
 
+  HintsComponentUtilTest(const HintsComponentUtilTest&) = delete;
+  HintsComponentUtilTest& operator=(const HintsComponentUtilTest&) = delete;
+
   ~HintsComponentUtilTest() override {}
 
   void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
@@ -44,8 +47,6 @@ class HintsComponentUtilTest : public testing::Test {
 
  private:
   base::ScopedTempDir temp_dir_;
-
-  DISALLOW_COPY_AND_ASSIGN(HintsComponentUtilTest);
 };
 
 TEST_F(HintsComponentUtilTest, RecordProcessHintsComponentResult) {
@@ -347,10 +348,10 @@ TEST_F(HintsComponentUtilTest,
       optimization_filter_proto.mutable_bloom_filter();
   bloom_filter_proto->set_num_hash_functions(num_hash_functions);
   bloom_filter_proto->set_num_bits(num_bits);
-  std::string blacklist_data(
+  std::string blocklist_data(
       reinterpret_cast<const char*>(&bloom_filter.bytes()[0]),
       bloom_filter.bytes().size());
-  bloom_filter_proto->set_data(blacklist_data);
+  bloom_filter_proto->set_data(blocklist_data);
 
   std::unique_ptr<OptimizationFilter> optimization_filter =
       ProcessOptimizationFilter(optimization_filter_proto,

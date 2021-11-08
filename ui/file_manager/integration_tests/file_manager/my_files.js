@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {addEntries, ENTRIES, EntryType, RootPath, sendTestMessage, TestEntryInfo} from '../test_util.js';
+import {testcase} from '../testcase.js';
+
+import {expandTreeItem, mountCrostini, navigateWithDirectoryTree, remoteCall, setupAndWaitUntilReady} from './background.js';
+
 /**
  * Select My files in directory tree and wait for load.
  *
@@ -18,9 +23,8 @@ async function selectMyFiles(appId) {
   const downloadsRow = ['Downloads', '--', 'Folder'];
   const playFilesRow = ['Play files', '--', 'Folder'];
   const crostiniRow = ['Linux files', '--', 'Folder'];
-  const trashRow = ['Trash', '--', 'Folder'];
   await remoteCall.waitForFiles(
-      appId, [downloadsRow, playFilesRow, crostiniRow, trashRow],
+      appId, [downloadsRow, playFilesRow, crostiniRow],
       {ignoreFileSize: true, ignoreLastModifiedTime: true});
 }
 
@@ -30,16 +34,22 @@ async function selectMyFiles(appId) {
 testcase.showMyFiles = async () => {
   const expectedElementLabels = [
     'Recent: FakeItem',
+    'Audio: FakeItem',
+    'Images: FakeItem',
+    'Videos: FakeItem',
     'My files: EntryListItem',
     'Downloads: SubDirectoryItem',
     'Linux files: FakeItem',
     'Play files: SubDirectoryItem',
-    'Trash: SubDirectoryItem',
     'Google Drive: DriveVolumeItem',
     'My Drive: SubDirectoryItem',
     'Shared with me: SubDirectoryItem',
     'Offline: SubDirectoryItem',
+    'Trash: EntryListItem',
   ];
+  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
+    expectedElementLabels.pop();  // Remove 'Trash: ...'.
+  }
 
   // Open Files app on local Downloads.
   const appId =
@@ -244,8 +254,7 @@ testcase.myFilesFolderRename = async () => {
   await remoteCall.waitForElement(appId, textInput);
 
   // Type new name.
-  await remoteCall.callRemoteTestUtil(
-      'inputText', appId, [textInput, 'new name']);
+  await remoteCall.inputText(appId, textInput, 'new name');
 
   // Send Enter key to the text input.
   const key3 = [textInput, 'Enter', false, false, false];
@@ -308,7 +317,7 @@ testcase.myFilesUpdatesWhenAndroidVolumeMounts = async () => {
   await sendTestMessage({name: 'mountDownloads'});
 
   // Wait until Downloads is mounted.
-  await remoteCall.waitFor('getVolumesCount', null, (count) => count === 1, []);
+  await remoteCall.waitForVolumesCount(1);
 
   // Open Files app on local Downloads.
   const appId =
@@ -319,10 +328,10 @@ testcase.myFilesUpdatesWhenAndroidVolumeMounts = async () => {
   const downloadsRow = ['Downloads', '--', 'Folder'];
   const playFilesRow = ['Play files', '--', 'Folder'];
   const crostiniRow = ['Linux files', '--', 'Folder'];
-  const trashRow = ['Trash', '--', 'Folder'];
+  const expectedRows = [downloadsRow, crostiniRow];
   await remoteCall.waitAndClickElement(appId, myFiles);
   await remoteCall.waitForFiles(
-      appId, [downloadsRow, crostiniRow, trashRow],
+      appId, [downloadsRow, crostiniRow],
       {ignoreFileSize: true, ignoreLastModifiedTime: true});
 
   // Mount Play files volume.
@@ -334,7 +343,7 @@ testcase.myFilesUpdatesWhenAndroidVolumeMounts = async () => {
   // Android volume should automatically appear on directory tree and file list.
   await remoteCall.waitForElement(appId, playFilesTreeItem);
   await remoteCall.waitForFiles(
-      appId, [downloadsRow, crostiniRow, playFilesRow, trashRow],
+      appId, [downloadsRow, playFilesRow, crostiniRow],
       {ignoreFileSize: true, ignoreLastModifiedTime: true});
 
   // Un-mount Play files volume.
@@ -345,7 +354,7 @@ testcase.myFilesUpdatesWhenAndroidVolumeMounts = async () => {
 
   // Check: Play files should disappear from file list.
   await remoteCall.waitForFiles(
-      appId, [downloadsRow, crostiniRow, trashRow],
+      appId, [downloadsRow, crostiniRow],
       {ignoreFileSize: true, ignoreLastModifiedTime: true});
 
   // Check: Play files should disappear from directory tree.

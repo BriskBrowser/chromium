@@ -8,7 +8,7 @@
 #include <cstdint>
 
 #include "base/macros.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/ozone/platform/wayland/test/global_object.h"
 
@@ -18,10 +18,15 @@ namespace wl {
 class TestOutput : public GlobalObject {
  public:
   TestOutput();
+
+  TestOutput(const TestOutput&) = delete;
+  TestOutput& operator=(const TestOutput&) = delete;
+
   ~TestOutput() override;
 
   const gfx::Rect GetRect() { return rect_; }
   void SetRect(const gfx::Rect& rect);
+  int32_t GetScale() const { return scale_; }
   void SetScale(int32_t factor);
 
   void Flush();
@@ -33,10 +38,8 @@ class TestOutput : public GlobalObject {
   gfx::Rect rect_;
   int32_t scale_;
 
-  base::Optional<gfx::Rect> pending_rect_ = base::nullopt;
-  base::Optional<int32_t> pending_scale_ = base::nullopt;
-
-  DISALLOW_COPY_AND_ASSIGN(TestOutput);
+  absl::optional<gfx::Rect> pending_rect_ = absl::nullopt;
+  absl::optional<int32_t> pending_scale_ = absl::nullopt;
 };
 
 }  // namespace wl

@@ -5,8 +5,8 @@
 #include "third_party/blink/renderer/core/css/cssom/paint_worklet_style_property_map.h"
 
 #include <memory>
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
 #include "third_party/blink/renderer/core/css/css_test_helpers.h"
@@ -14,7 +14,7 @@
 #include "third_party/blink/renderer/core/css/cssom/css_paint_worklet_input.h"
 #include "third_party/blink/renderer/core/css/cssom/css_unit_value.h"
 #include "third_party/blink/renderer/core/css/cssom/css_unparsed_value.h"
-#include "third_party/blink/renderer/core/css/cssom/css_unsupported_color_value.h"
+#include "third_party/blink/renderer/core/css/cssom/css_unsupported_color.h"
 #include "third_party/blink/renderer/core/css/properties/longhands/custom_property.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
@@ -98,9 +98,9 @@ class PaintWorkletStylePropertyMapTest : public PageTestBase {
               "test");
     EXPECT_EQ(data.at("--gar")->ToCSSStyleValue()->GetType(),
               CSSStyleValue::StyleValueType::kUnsupportedColorType);
-    EXPECT_EQ(To<CSSUnsupportedColorValue>(data.at("--gar")->ToCSSStyleValue())
-                  ->Value(),
-              Color(255, 0, 0));
+    EXPECT_EQ(
+        To<CSSUnsupportedColor>(data.at("--gar")->ToCSSStyleValue())->Value(),
+        Color(255, 0, 0));
     EXPECT_EQ(data.at("display")->ToCSSStyleValue()->GetType(),
               CSSStyleValue::StyleValueType::kKeywordType);
     waitable_event->Signal();

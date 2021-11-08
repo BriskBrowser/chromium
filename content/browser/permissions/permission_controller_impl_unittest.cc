@@ -32,9 +32,13 @@ constexpr char kTestUrl[] = "https://google.com";
 class MockManagerWithRequests : public MockPermissionManager {
  public:
   MockManagerWithRequests() {}
+
+  MockManagerWithRequests(const MockManagerWithRequests&) = delete;
+  MockManagerWithRequests& operator=(const MockManagerWithRequests&) = delete;
+
   ~MockManagerWithRequests() override {}
   MOCK_METHOD(
-      int,
+      void,
       RequestPermissions,
       (const std::vector<PermissionType>& permission,
        RenderFrameHost* render_frame_host,
@@ -45,17 +49,14 @@ class MockManagerWithRequests : public MockPermissionManager {
       (override));
   MOCK_METHOD(void,
               SetPermissionOverridesForDevTools,
-              (const base::Optional<url::Origin>& origin,
+              (const absl::optional<url::Origin>& origin,
                const PermissionOverrides& overrides),
               (override));
   MOCK_METHOD(void, ResetPermissionOverridesForDevTools, (), (override));
   MOCK_METHOD(bool,
               IsPermissionOverridableByDevTools,
-              (PermissionType, const base::Optional<url::Origin>&),
+              (PermissionType, const absl::optional<url::Origin>&),
               (override));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockManagerWithRequests);
 };
 
 class PermissionControllerImplTest : public ::testing::Test {
@@ -66,6 +67,11 @@ class PermissionControllerImplTest : public ::testing::Test {
     permission_controller_ =
         std::make_unique<PermissionControllerImpl>(&browser_context_);
   }
+
+  PermissionControllerImplTest(const PermissionControllerImplTest&) = delete;
+  PermissionControllerImplTest& operator=(const PermissionControllerImplTest&) =
+      delete;
+
   ~PermissionControllerImplTest() override {}
 
   void SetUp() override {
@@ -88,8 +94,6 @@ class PermissionControllerImplTest : public ::testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   TestBrowserContext browser_context_;
   std::unique_ptr<PermissionControllerImpl> permission_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(PermissionControllerImplTest);
 };
 
 TEST_F(PermissionControllerImplTest, ResettingOverridesForwardsReset) {
@@ -98,7 +102,7 @@ TEST_F(PermissionControllerImplTest, ResettingOverridesForwardsReset) {
 }
 
 TEST_F(PermissionControllerImplTest, SettingOverridesForwardsUpdates) {
-  auto kTestOrigin = base::make_optional(url::Origin::Create(GURL(kTestUrl)));
+  auto kTestOrigin = absl::make_optional(url::Origin::Create(GURL(kTestUrl)));
   EXPECT_CALL(*mock_manager(),
               SetPermissionOverridesForDevTools(
                   kTestOrigin, testing::ElementsAre(testing::Pair(

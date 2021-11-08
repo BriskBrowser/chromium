@@ -10,8 +10,8 @@
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/string_util.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/prefs/browser_prefs.h"
@@ -153,7 +153,7 @@ ProfilePrefStoreManager::CreateTrackedPrefStoreConfiguration(
                            ? *g_preference_validation_registry_path_for_testing
                            : install_static::GetRegistryPath()),
 #else
-      base::string16(),
+      std::u16string(),
 #endif
       std::move(validation_delegate), std::move(reset_on_load_observer));
 }

@@ -11,8 +11,9 @@
 #include "base/logging.h"
 #include "base/time/time.h"
 #include "base/win/scoped_handle.h"
-#include "chrome/updater/win/constants.h"
-#include "chrome/updater/win/util.h"
+#include "chrome/updater/updater_scope.h"
+#include "chrome/updater/win/win_constants.h"
+#include "chrome/updater/win/win_util.h"
 
 namespace updater {
 
@@ -23,7 +24,7 @@ class ScopedPrefsLockImpl {
   ScopedPrefsLockImpl& operator=(const ScopedPrefsLockImpl&) = delete;
   ~ScopedPrefsLockImpl();
 
-  bool Initialize(bool is_machine, base::TimeDelta timeout);
+  bool Initialize(UpdaterScope scope, base::TimeDelta timeout);
 
  private:
   base::win::ScopedHandle mutex_;
@@ -35,21 +36,22 @@ ScopedPrefsLock::ScopedPrefsLock(std::unique_ptr<ScopedPrefsLockImpl> impl)
 ScopedPrefsLock::~ScopedPrefsLock() = default;
 
 std::unique_ptr<ScopedPrefsLock> AcquireGlobalPrefsLock(
+    UpdaterScope scope,
     base::TimeDelta timeout) {
   auto lock = std::make_unique<ScopedPrefsLockImpl>();
 
-  // TODO(crbug.com/1096654): need to pass is_machine instead of 'false' here.
   DVLOG(2) << "Trying to acquire the lock.";
-  if (!lock->Initialize(false, timeout))
+  if (!lock->Initialize(scope, timeout))
     return nullptr;
   DVLOG(2) << "Lock acquired.";
 
   return std::make_unique<ScopedPrefsLock>(std::move(lock));
 }
 
-bool ScopedPrefsLockImpl::Initialize(bool is_machine, base::TimeDelta timeout) {
+bool ScopedPrefsLockImpl::Initialize(UpdaterScope scope,
+                                     base::TimeDelta timeout) {
   NamedObjectAttributes lock_attr;
-  GetNamedObjectAttributes(kPrefsAccessMutex, is_machine, &lock_attr);
+  GetNamedObjectAttributes(kPrefsAccessMutex, scope, &lock_attr);
   mutex_.Set(::CreateMutex(&lock_attr.sa, false, lock_attr.name.c_str()));
   if (!mutex_.IsValid())
     return false;

@@ -24,7 +24,7 @@ namespace history {
 struct PrepopulatedPage {
   PrepopulatedPage();
   PrepopulatedPage(const GURL& url,
-                   const base::string16& title,
+                   const std::u16string& title,
                    int favicon_id,
                    SkColor color);
 
@@ -44,6 +44,9 @@ typedef std::vector<PrepopulatedPage> PrepopulatedPageList;
 class TopSites : public RefcountedKeyedService {
  public:
   TopSites();
+
+  TopSites(const TopSites&) = delete;
+  TopSites& operator=(const TopSites&) = delete;
 
   using GetMostVisitedURLsCallback =
       base::OnceCallback<void(const MostVisitedURLList&)>;
@@ -86,7 +89,7 @@ class TopSites : public RefcountedKeyedService {
   // Returns the set of prepopulated pages.
   virtual PrepopulatedPageList GetPrepopulatedPages() = 0;
 
-  // Called when user has navigated to |url|.
+  // Called when user has navigated to `url`.
   virtual void OnNavigationCommitted(const GURL& url) = 0;
 
   // Add Observer to the list.
@@ -104,8 +107,6 @@ class TopSites : public RefcountedKeyedService {
   friend class base::RefCountedThreadSafe<TopSites>;
 
   base::ObserverList<TopSitesObserver, true>::Unchecked observer_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(TopSites);
 };
 
 }  // namespace history

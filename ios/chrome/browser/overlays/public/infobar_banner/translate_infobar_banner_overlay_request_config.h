@@ -5,6 +5,8 @@
 #ifndef IOS_CHROME_BROWSER_OVERLAYS_PUBLIC_INFOBAR_BANNER_TRANSLATE_INFOBAR_BANNER_OVERLAY_REQUEST_CONFIG_H_
 #define IOS_CHROME_BROWSER_OVERLAYS_PUBLIC_INFOBAR_BANNER_TRANSLATE_INFOBAR_BANNER_OVERLAY_REQUEST_CONFIG_H_
 
+#include <CoreFoundation/CoreFoundation.h>
+
 #include "components/translate/core/browser/translate_step.h"
 #include "ios/chrome/browser/overlays/public/overlay_request_config.h"
 #include "ios/chrome/browser/overlays/public/overlay_user_data.h"
@@ -23,9 +25,9 @@ class TranslateBannerRequestConfig
   ~TranslateBannerRequestConfig() override;
 
   // The source language name.
-  base::string16 source_language() const { return source_language_; }
+  std::u16string source_language() const { return source_language_; }
   // The target language name.
-  base::string16 target_language() const { return target_language_; }
+  std::u16string target_language() const { return target_language_; }
   // The current TranslateStep Translate is in.
   translate::TranslateStep translate_step() const { return translate_step_; }
   // The name of the banner's icon image.
@@ -41,8 +43,8 @@ class TranslateBannerRequestConfig
   // The InfoBar causing this banner.
   infobars::InfoBar* infobar_ = nullptr;
   // Configuration data extracted from |infobar_|'s translate delegate.
-  base::string16 source_language_;
-  base::string16 target_language_;
+  std::u16string source_language_;
+  std::u16string target_language_;
   NSString* icon_image_name_ = nil;
   translate::TranslateStep translate_step_;
 };

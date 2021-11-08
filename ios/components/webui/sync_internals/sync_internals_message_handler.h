@@ -13,8 +13,6 @@
 #include "base/values.h"
 #include "components/sync/driver/sync_service_observer.h"
 #include "components/sync/engine/events/protocol_event_observer.h"
-#include "components/sync/js/js_controller.h"
-#include "components/sync/js/js_event_handler.h"
 #include "ios/web/public/webui/web_ui_ios_message_handler.h"
 
 namespace syncer {
@@ -24,11 +22,15 @@ struct TypeEntitiesCount;
 
 // The implementation for the chrome://sync-internals page.
 class SyncInternalsMessageHandler : public web::WebUIIOSMessageHandler,
-                                    public syncer::JsEventHandler,
                                     public syncer::SyncServiceObserver,
                                     public syncer::ProtocolEventObserver {
  public:
   SyncInternalsMessageHandler();
+
+  SyncInternalsMessageHandler(const SyncInternalsMessageHandler&) = delete;
+  SyncInternalsMessageHandler& operator=(const SyncInternalsMessageHandler&) =
+      delete;
+
   ~SyncInternalsMessageHandler() override;
 
   void RegisterMessages() override;
@@ -62,12 +64,8 @@ class SyncInternalsMessageHandler : public web::WebUIIOSMessageHandler,
   // Handler for triggerRefresh message.
   void HandleTriggerRefresh(const base::ListValue* args);
 
-  // syncer::JsEventHandler implementation.
-  void HandleJsEvent(const std::string& name,
-                     const syncer::JsEventDetails& details) override;
-
   // Callback used in GetAllNodes.
-  void OnReceivedAllNodes(int request_id,
+  void OnReceivedAllNodes(const std::string& callback_id,
                           std::unique_ptr<base::ListValue> nodes);
 
   // syncer::SyncServiceObserver implementation.
@@ -90,9 +88,7 @@ class SyncInternalsMessageHandler : public web::WebUIIOSMessageHandler,
 
   void DispatchEvent(const std::string& name, const base::Value& details_value);
 
-  base::WeakPtr<syncer::JsController> js_controller_;
-
-  // A flag used to prevent double-registration with ProfileSyncService.
+  // A flag used to prevent double-registration with SyncService.
   bool is_registered_ = false;
 
   // Whether specifics should be included when converting protocol events to a
@@ -100,8 +96,6 @@ class SyncInternalsMessageHandler : public web::WebUIIOSMessageHandler,
   bool include_specifics_ = false;
 
   base::WeakPtrFactory<SyncInternalsMessageHandler> weak_ptr_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyncInternalsMessageHandler);
 };
 
 #endif  // IOS_COMPONENTS_WEBUI_SYNC_INTERNALS_SYNC_INTERNALS_MESSAGE_HANDLER_H_

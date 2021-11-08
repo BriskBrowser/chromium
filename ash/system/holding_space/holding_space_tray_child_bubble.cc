@@ -7,12 +7,15 @@
 #include <set>
 
 #include "ash/public/cpp/holding_space/holding_space_constants.h"
+#include "ash/public/cpp/style/color_provider.h"
 #include "ash/style/ash_color_provider.h"
-#include "ash/system/holding_space/holding_space_item_view_delegate.h"
 #include "ash/system/holding_space/holding_space_item_views_section.h"
 #include "ash/system/holding_space/holding_space_util.h"
+#include "ash/system/holding_space/holding_space_view_delegate.h"
 #include "ash/system/tray/tray_constants.h"
+#include "base/bind.h"
 #include "ui/compositor/callback_layer_animation_observer.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/views/layout/box_layout.h"
@@ -22,8 +25,7 @@ namespace ash {
 namespace {
 
 // Animation.
-constexpr base::TimeDelta kAnimationDuration =
-    base::TimeDelta::FromMilliseconds(167);
+constexpr base::TimeDelta kAnimationDuration = base::Milliseconds(167);
 
 // Helpers ---------------------------------------------------------------------
 
@@ -44,16 +46,17 @@ DeleteObserverAfterRunning(AnimationCompletedCallback callback) {
       base::Passed(std::move(callback)));
 }
 
-// Returns whether the given holding space `model` contains any finalized items
-// which are supported by the specified holding space item views `section`.
-bool ModelContainsFinalizedItemsForSection(
+// Returns whether the given holding space `model` contains any initialized
+// items which are supported by the specified holding space item views
+// `section`.
+bool ModelContainsInitializedItemsForSection(
     const HoldingSpaceModel* model,
     const HoldingSpaceItemViewsSection* section) {
   const auto& supported_types = section->supported_types();
   return std::any_of(
       supported_types.begin(), supported_types.end(),
       [&model](HoldingSpaceItem::Type supported_type) {
-        return model->ContainsFinalizedItemOfType(supported_type);
+        return model->ContainsInitializedItemOfType(supported_type);
       });
 }
 
@@ -110,7 +113,7 @@ class TopAlignedBoxLayout : public views::BoxLayout {
 // HoldingSpaceTrayChildBubble -------------------------------------------------
 
 HoldingSpaceTrayChildBubble::HoldingSpaceTrayChildBubble(
-    HoldingSpaceItemViewDelegate* delegate)
+    HoldingSpaceViewDelegate* delegate)
     : delegate_(delegate) {
   controller_observer_.Observe(HoldingSpaceController::Get());
   if (HoldingSpaceController::Get()->model())
@@ -128,9 +131,7 @@ void HoldingSpaceTrayChildBubble::Init() {
   SetPaintToLayer(ui::LAYER_SOLID_COLOR);
   layer()->GetAnimator()->set_preemption_strategy(
       ui::LayerAnimator::PreemptionStrategy::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
-  layer()->SetBackgroundBlur(kUnifiedMenuBackgroundBlur);
-  layer()->SetColor(AshColorProvider::Get()->GetBaseLayerColor(
-      AshColorProvider::BaseLayerType::kTransparent80));
+  layer()->SetBackgroundBlur(ColorProvider::kBackgroundBlurSigma);
   layer()->SetFillsBoundsOpaquely(false);
   layer()->SetIsFastRoundedCorner(true);
   layer()->SetOpacity(0.f);
@@ -154,6 +155,16 @@ void HoldingSpaceTrayChildBubble::Reset() {
 
   for (HoldingSpaceItemViewsSection* section : sections_)
     section->Reset();
+}
+
+std::vector<HoldingSpaceItemView*>
+HoldingSpaceTrayChildBubble::GetHoldingSpaceItemViews() {
+  std::vector<HoldingSpaceItemView*> views;
+  for (HoldingSpaceItemViewsSection* section : sections_) {
+    auto section_views = section->GetHoldingSpaceItemViews();
+    views.insert(views.end(), section_views.begin(), section_views.end());
+  }
+  return views;
 }
 
 void HoldingSpaceTrayChildBubble::OnHoldingSpaceModelAttached(
@@ -192,14 +203,14 @@ void HoldingSpaceTrayChildBubble::OnHoldingSpaceItemsRemoved(
   DCHECK(model);
 
   // This child bubble should animate out if the attached model does not
-  // contain finalized items supported by any of its sections. The exception is
-  // if a section has a placeholder to show in lieu of holding space items. If
-  // a placeholder exists, the child bubble should persist.
+  // contain initialized items supported by any of its sections. The exception
+  // is if a section has a placeholder to show in lieu of holding space items.
+  // If a placeholder exists, the child bubble should persist.
   const bool animate_out = std::none_of(
       sections_.begin(), sections_.end(),
       [&model](const HoldingSpaceItemViewsSection* section) {
         return section->has_placeholder() ||
-               ModelContainsFinalizedItemsForSection(model, section);
+               ModelContainsInitializedItemsForSection(model, section);
       });
 
   if (animate_out) {
@@ -211,14 +222,14 @@ void HoldingSpaceTrayChildBubble::OnHoldingSpaceItemsRemoved(
     section->OnHoldingSpaceItemsRemoved(items);
 }
 
-void HoldingSpaceTrayChildBubble::OnHoldingSpaceItemFinalized(
+void HoldingSpaceTrayChildBubble::OnHoldingSpaceItemInitialized(
     const HoldingSpaceItem* item) {
-  // Ignore item finalization while the bubble is animating out. The bubble
+  // Ignore item initialized while the bubble is animating out. The bubble
   // content will be updated to match the model after the out animation
   // completes.
   if (!is_animating_out_) {
     for (HoldingSpaceItemViewsSection* section : sections_)
-      section->OnHoldingSpaceItemFinalized(item);
+      section->OnHoldingSpaceItemInitialized(item);
   }
 }
 
@@ -264,6 +275,12 @@ void HoldingSpaceTrayChildBubble::OnGestureEvent(ui::GestureEvent* event) {
 bool HoldingSpaceTrayChildBubble::OnMousePressed(const ui::MouseEvent& event) {
   delegate_->OnHoldingSpaceTrayChildBubbleMousePressed(event);
   return true;
+}
+
+void HoldingSpaceTrayChildBubble::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  layer()->SetColor(AshColorProvider::Get()->GetBaseLayerColor(
+      AshColorProvider::BaseLayerType::kTransparent80));
 }
 
 void HoldingSpaceTrayChildBubble::MaybeAnimateIn() {
@@ -314,11 +331,16 @@ void HoldingSpaceTrayChildBubble::AnimateIn(
     ui::LayerAnimationObserver* observer) {
   DCHECK(!is_animating_out_);
 
+  // Animation is only necessary if this view is visible to the user.
+  const base::TimeDelta animation_duration =
+      IsDrawn() ? kAnimationDuration : base::TimeDelta();
+
   // Delay in animations to give the holding space bubble time to animate its
   // layout changes. This ensures that there is sufficient space to display the
   // child bubble before it is displayed to the user.
-  const base::TimeDelta animation_delay = kAnimationDuration;
-  holding_space_util::AnimateIn(this, kAnimationDuration, animation_delay,
+  const base::TimeDelta animation_delay =
+      IsDrawn() ? kAnimationDuration : base::TimeDelta();
+  holding_space_util::AnimateIn(this, animation_duration, animation_delay,
                                 observer);
 }
 
@@ -375,7 +397,7 @@ void HoldingSpaceTrayChildBubble::OnAnimateOutCompleted(bool aborted) {
     item_ptrs.push_back(item.get());
 
   // Populating a `section` may cause it's visibility to change if the `model`
-  // contains finalized items of types which it supports. This, in turn, will
+  // contains initialized items of types which it supports. This, in turn, will
   // cause visibility of this child bubble to update and animate in if needed.
   for (HoldingSpaceItemViewsSection* section : sections_)
     section->OnHoldingSpaceItemsAdded(item_ptrs);

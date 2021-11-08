@@ -8,16 +8,17 @@
 #include <memory>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_metrics.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/shell_dialogs/selected_file_info.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/menu/menu_runner.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 class Browser;
 class Profile;
@@ -88,7 +89,7 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   static views::Widget* GetCurrentDialogWidget();
 
   // views::WidgetDelegate:
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
 
   // CastDialogController::Observer:
   void OnModelUpdated(const CastDialogModel& model) override;
@@ -126,7 +127,7 @@ class CastDialogView : public views::BubbleDialogDelegateView,
 
  private:
   friend class CastDialogViewTest;
-  friend class MediaRouterUiForTest;
+  friend class MediaRouterCastUiForTest;
   FRIEND_TEST_ALL_PREFIXES(CastDialogViewTest, CancelLocalFileSelection);
   FRIEND_TEST_ALL_PREFIXES(CastDialogViewTest, CastLocalFile);
   FRIEND_TEST_ALL_PREFIXES(CastDialogViewTest, DisableUnsupportedSinks);
@@ -176,7 +177,7 @@ class CastDialogView : public views::BubbleDialogDelegateView,
 
   // Returns the cast mode that is selected in the sources menu and supported by
   // |sink|. Returns nullopt if no such cast mode exists.
-  base::Optional<MediaCastMode> GetCastModeToUse(const UIMediaSink& sink) const;
+  absl::optional<MediaCastMode> GetCastModeToUse(const UIMediaSink& sink) const;
 
   // Disables sink buttons for sinks that do not support the currently selected
   // source.
@@ -192,12 +193,15 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   // Sets local file as the selected source if |file_info| is not null.
   void OnFilePickerClosed(const ui::SelectedFileInfo* file_info);
 
+  // Returns true if there are active Cast and DIAL sinks.
+  bool HasCastAndDialSinks() const;
+
   // The singleton dialog instance. This is a nullptr when a dialog is not
   // shown.
   static CastDialogView* instance_;
 
   // Title shown at the top of the dialog.
-  base::string16 dialog_title_;
+  std::u16string dialog_title_;
 
   // The source selected in the sources menu. This defaults to "tab"
   // (presentation or tab mirroring). "Tab" is represented by a single item in
@@ -232,10 +236,10 @@ class CastDialogView : public views::BubbleDialogDelegateView,
 
   // The sink that the user has selected to cast to. If the user is using
   // multiple sinks at the same time, the last activated sink is used.
-  base::Optional<size_t> selected_sink_index_;
+  absl::optional<size_t> selected_sink_index_;
 
   // This value is set if the user has chosen a local file to cast.
-  base::Optional<base::string16> local_file_name_;
+  absl::optional<std::u16string> local_file_name_;
 
   base::ObserverList<Observer> observers_;
 

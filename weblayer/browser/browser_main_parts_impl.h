@@ -16,6 +16,10 @@
 
 class PrefService;
 
+namespace performance_manager {
+class PerformanceManagerLifetime;
+}
+
 namespace weblayer {
 class BrowserProcess;
 struct MainParams;
@@ -25,21 +29,28 @@ class BrowserMainPartsImpl : public content::BrowserMainParts {
   BrowserMainPartsImpl(MainParams* params,
                        const content::MainFunctionParams& main_function_params,
                        std::unique_ptr<PrefService> local_state);
+
+  BrowserMainPartsImpl(const BrowserMainPartsImpl&) = delete;
+  BrowserMainPartsImpl& operator=(const BrowserMainPartsImpl&) = delete;
+
   ~BrowserMainPartsImpl() override;
 
   // BrowserMainParts overrides.
   int PreCreateThreads() override;
   int PreEarlyInitialization() override;
-  void PreMainMessageLoopStart() override;
-  void PreMainMessageLoopRun() override;
+  void PostCreateThreads() override;
+  int PreMainMessageLoopRun() override;
+  void WillRunMainMessageLoop(
+      std::unique_ptr<base::RunLoop>& run_loop) override;
+  void OnFirstIdle() override;
   void PostMainMessageLoopRun() override;
-  bool MainMessageLoopRun(int* result_code) override;
-  void PreDefaultMainMessageLoopRun(base::OnceClosure quit_closure) override;
 
  private:
   MainParams* params_;
 
   std::unique_ptr<BrowserProcess> browser_process_;
+  std::unique_ptr<performance_manager::PerformanceManagerLifetime>
+      performance_manager_lifetime_;
 #if defined(OS_ANDROID)
   std::unique_ptr<metrics::MemoryMetricsLogger> memory_metrics_logger_;
 #endif  // defined(OS_ANDROID)
@@ -51,8 +62,6 @@ class BrowserMainPartsImpl : public content::BrowserMainParts {
   // Ownership of this moves to BrowserProcess. See
   // ContentBrowserClientImpl::local_state_ for details.
   std::unique_ptr<PrefService> local_state_;
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserMainPartsImpl);
 };
 
 }  // namespace weblayer

@@ -9,7 +9,7 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
@@ -21,6 +21,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/color_parser.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_client.h"
@@ -144,7 +145,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
   if (ExtensionsBrowserClient::Get()->IsShuttingDown())
     return RespondNow(Error(kUnknownErrorDoNotUse));
 
-  std::unique_ptr<Create::Params> params(Create::Params::Create(*args_));
+  std::unique_ptr<Create::Params> params(Create::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   GURL url = extension()->GetResourceURL(params->url);
@@ -153,7 +154,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
   // TODO(devlin): Investigate if this is still used. If not, kill it dead!
   GURL absolute = GURL(params->url);
   if (absolute.has_scheme()) {
-    if (extension()->location() == Manifest::COMPONENT) {
+    if (extension()->location() == mojom::ManifestLocation::kComponent) {
       url = absolute;
     } else {
       // Show error when url passed isn't local.
@@ -240,7 +241,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
       // Whitelisted IME extensions are allowed to use this API to create IME
       // specific windows to show accented characters or suggestions.
       if (!extension()->permissions_data()->HasAPIPermission(
-              APIPermission::kImeWindowEnabled)) {
+              mojom::APIPermissionID::kImeWindowEnabled)) {
         return RespondNow(
             Error(app_window_constants::kImeWindowMissingPermission));
       }
@@ -292,7 +293,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
             Error(app_window_constants::kAlphaEnabledWrongChannel));
       }
       if (!extension()->permissions_data()->HasAPIPermission(
-              APIPermission::kAlphaEnabled)) {
+              mojom::APIPermissionID::kAlphaEnabled)) {
         return RespondNow(
             Error(app_window_constants::kAlphaEnabledMissingPermission));
       }
@@ -319,7 +320,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
 
       if (create_params.always_on_top &&
           !extension()->permissions_data()->HasAPIPermission(
-              APIPermission::kAlwaysOnTopWindows)) {
+              mojom::APIPermissionID::kAlwaysOnTopWindows)) {
         return RespondNow(Error(app_window_constants::kAlwaysOnTopPermission));
       }
     }
@@ -377,7 +378,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
     }
 
     if (!extension()->permissions_data()->HasAPIPermission(
-            APIPermission::kLockScreen)) {
+            mojom::APIPermissionID::kLockScreen)) {
       return RespondNow(Error(
           app_window_constants::kLockScreenActionRequiresLockScreenPermission));
     }
@@ -599,9 +600,8 @@ bool AppWindowCreateFunction::GetFrameOptions(
       return false;
     }
 
-    if (!image_util::ParseHexColorString(
-            *options.frame->as_frame_options->color,
-            &create_params->active_frame_color)) {
+    if (!content::ParseHexColorString(*options.frame->as_frame_options->color,
+                                      &create_params->active_frame_color)) {
       *error = app_window_constants::kInvalidColorSpecification;
       return false;
     }
@@ -610,7 +610,7 @@ bool AppWindowCreateFunction::GetFrameOptions(
     create_params->inactive_frame_color = create_params->active_frame_color;
 
     if (options.frame->as_frame_options->inactive_color.get()) {
-      if (!image_util::ParseHexColorString(
+      if (!content::ParseHexColorString(
               *options.frame->as_frame_options->inactive_color,
               &create_params->inactive_frame_color)) {
         *error = app_window_constants::kInvalidColorSpecification;

@@ -46,14 +46,13 @@ class TestButton : public Button {
 
 class AXVirtualViewTest : public ViewsTestBase {
  public:
-  AXVirtualViewTest() = default;
+  AXVirtualViewTest() : ax_mode_setter_(ui::kAXModeComplete) {}
   AXVirtualViewTest(const AXVirtualViewTest&) = delete;
   AXVirtualViewTest& operator=(const AXVirtualViewTest&) = delete;
   ~AXVirtualViewTest() override = default;
 
   void SetUp() override {
     ViewsTestBase::SetUp();
-    ui::AXPlatformNode::NotifyAddAXModeFlags(ui::kAXModeComplete);
 
     widget_ = new Widget;
     Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
@@ -112,12 +111,13 @@ class AXVirtualViewTest : public ViewsTestBase {
   std::vector<
       std::pair<const ui::AXPlatformNodeDelegate*, const ax::mojom::Event>>
       accessibility_events_;
+  ui::testing::ScopedAxModeSetter ax_mode_setter_;
 };
 
 TEST_F(AXVirtualViewTest, AccessibilityRoleAndName) {
-  EXPECT_EQ(ax::mojom::Role::kButton, GetButtonAccessibility()->GetData().role);
-  EXPECT_EQ(ax::mojom::Role::kStaticText, virtual_label_->GetData().role);
-  EXPECT_EQ("Label", virtual_label_->GetData().GetStringAttribute(
+  EXPECT_EQ(ax::mojom::Role::kButton, GetButtonAccessibility()->GetRole());
+  EXPECT_EQ(ax::mojom::Role::kStaticText, virtual_label_->GetRole());
+  EXPECT_EQ("Label", virtual_label_->GetStringAttribute(
                          ax::mojom::StringAttribute::kName));
 }
 
@@ -125,27 +125,26 @@ TEST_F(AXVirtualViewTest, AccessibilityRoleAndName) {
 // state of the real view ancestor, however the enabled state should.
 TEST_F(AXVirtualViewTest, FocusableAndEnabledState) {
   virtual_label_->GetCustomData().AddState(ax::mojom::State::kFocusable);
-  EXPECT_TRUE(GetButtonAccessibility()->GetData().HasState(
-      ax::mojom::State::kFocusable));
-  EXPECT_TRUE(virtual_label_->GetData().HasState(ax::mojom::State::kFocusable));
+  EXPECT_TRUE(GetButtonAccessibility()->HasState(ax::mojom::State::kFocusable));
+  EXPECT_TRUE(virtual_label_->HasState(ax::mojom::State::kFocusable));
   EXPECT_EQ(ax::mojom::Restriction::kNone,
             GetButtonAccessibility()->GetData().GetRestriction());
   EXPECT_EQ(ax::mojom::Restriction::kNone,
             virtual_label_->GetData().GetRestriction());
 
   button_->SetFocusBehavior(View::FocusBehavior::NEVER);
-  EXPECT_FALSE(GetButtonAccessibility()->GetData().HasState(
-      ax::mojom::State::kFocusable));
-  EXPECT_TRUE(virtual_label_->GetData().HasState(ax::mojom::State::kFocusable));
+  EXPECT_FALSE(
+      GetButtonAccessibility()->HasState(ax::mojom::State::kFocusable));
+  EXPECT_TRUE(virtual_label_->HasState(ax::mojom::State::kFocusable));
   EXPECT_EQ(ax::mojom::Restriction::kNone,
             GetButtonAccessibility()->GetData().GetRestriction());
   EXPECT_EQ(ax::mojom::Restriction::kNone,
             virtual_label_->GetData().GetRestriction());
 
   button_->SetEnabled(false);
-  EXPECT_FALSE(GetButtonAccessibility()->GetData().HasState(
-      ax::mojom::State::kFocusable));
-  EXPECT_TRUE(virtual_label_->GetData().HasState(ax::mojom::State::kFocusable));
+  EXPECT_FALSE(
+      GetButtonAccessibility()->HasState(ax::mojom::State::kFocusable));
+  EXPECT_TRUE(virtual_label_->HasState(ax::mojom::State::kFocusable));
   EXPECT_EQ(ax::mojom::Restriction::kDisabled,
             GetButtonAccessibility()->GetData().GetRestriction());
   EXPECT_EQ(ax::mojom::Restriction::kDisabled,
@@ -154,10 +153,8 @@ TEST_F(AXVirtualViewTest, FocusableAndEnabledState) {
   button_->SetEnabled(true);
   button_->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   virtual_label_->GetCustomData().RemoveState(ax::mojom::State::kFocusable);
-  EXPECT_TRUE(GetButtonAccessibility()->GetData().HasState(
-      ax::mojom::State::kFocusable));
-  EXPECT_FALSE(
-      virtual_label_->GetData().HasState(ax::mojom::State::kFocusable));
+  EXPECT_TRUE(GetButtonAccessibility()->HasState(ax::mojom::State::kFocusable));
+  EXPECT_FALSE(virtual_label_->HasState(ax::mojom::State::kFocusable));
   EXPECT_EQ(ax::mojom::Restriction::kNone,
             GetButtonAccessibility()->GetData().GetRestriction());
   EXPECT_EQ(ax::mojom::Restriction::kNone,
@@ -342,15 +339,13 @@ TEST_F(AXVirtualViewTest, GetIndexOfVirtualChild) {
 // ax::mojom::State::kInvisible state.
 TEST_F(AXVirtualViewTest, InvisibleVirtualViews) {
   EXPECT_TRUE(widget_->IsVisible());
-  EXPECT_FALSE(GetButtonAccessibility()->GetData().HasState(
-      ax::mojom::State::kInvisible));
   EXPECT_FALSE(
-      virtual_label_->GetData().HasState(ax::mojom::State::kInvisible));
+      GetButtonAccessibility()->HasState(ax::mojom::State::kInvisible));
+  EXPECT_FALSE(virtual_label_->HasState(ax::mojom::State::kInvisible));
 
   button_->SetVisible(false);
-  EXPECT_TRUE(GetButtonAccessibility()->GetData().HasState(
-      ax::mojom::State::kInvisible));
-  EXPECT_TRUE(virtual_label_->GetData().HasState(ax::mojom::State::kInvisible));
+  EXPECT_TRUE(GetButtonAccessibility()->HasState(ax::mojom::State::kInvisible));
+  EXPECT_TRUE(virtual_label_->HasState(ax::mojom::State::kInvisible));
   button_->SetVisible(true);
 }
 
@@ -585,7 +580,7 @@ TEST_F(AXVirtualViewTest, TreeNavigationWithIgnoredVirtualViews) {
             virtual_child_2->ChildAtIndex(1));
 
   // Try ignoring a node by changing its role, instead of its state.
-  virtual_child_2->GetCustomData().role = ax::mojom::Role::kIgnored;
+  virtual_child_2->GetCustomData().role = ax::mojom::Role::kNone;
 
   EXPECT_EQ(button_->GetNativeViewAccessible(), virtual_label_->GetParent());
   EXPECT_EQ(virtual_label_->GetNativeObject(), virtual_child_1->GetParent());
@@ -744,15 +739,6 @@ TEST_F(AXVirtualViewTest, HitTesting) {
   EXPECT_EQ(virtual_child_4->GetNativeObject(),
             virtual_label_->HitTestSync(point_3.x(), point_3.y()));
 }
-
-#if defined(USE_AURA)
-TEST_F(AXVirtualViewTest, GetOrCreateWrapper) {
-  std::unique_ptr<AXAuraObjCache> cache;
-  auto* wrapper1 = virtual_label_->GetOrCreateWrapper(cache.get());
-  cache = std::make_unique<AXAuraObjCache>();
-  EXPECT_NE(wrapper1, virtual_label_->GetOrCreateWrapper(cache.get()));
-}
-#endif
 
 // Test for GetTargetForNativeAccessibilityEvent().
 #if defined(OS_WIN)

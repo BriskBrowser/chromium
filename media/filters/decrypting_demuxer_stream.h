@@ -18,6 +18,7 @@
 #include "media/base/pipeline_status.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/waiting.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -39,6 +40,9 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
       const scoped_refptr<base::SequencedTaskRunner>& task_runner,
       MediaLog* media_log,
       const WaitingCB& waiting_cb);
+
+  DecryptingDemuxerStream(const DecryptingDemuxerStream&) = delete;
+  DecryptingDemuxerStream& operator=(const DecryptingDemuxerStream&) = delete;
 
   // Cancels all pending operations immediately and fires all pending callbacks.
   ~DecryptingDemuxerStream() override;
@@ -65,6 +69,9 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   Liveness liveness() const override;
   void EnableBitstreamConverter() override;
   bool SupportsConfigChanges() override;
+
+  // Returns whether the stream has clear lead.
+  bool HasClearLead() const;
 
  private:
   // See this link for a detailed state diagram: http://shortn/_1nXgoVIrps
@@ -144,6 +151,8 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   void CompletePendingDecrypt(Decryptor::Status status);
   void CompleteWaitingForDecryptionKey();
 
+  void LogMetadata();
+
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   SEQUENCE_CHECKER(sequence_checker_);
   MediaLog* const media_log_;
@@ -163,6 +172,8 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
 
   Decryptor* decryptor_ = nullptr;
 
+  absl::optional<bool> has_clear_lead_;
+
   // The buffer returned by the demuxer that needs to be decrypted.
   scoped_refptr<media::DecoderBuffer> pending_buffer_to_decrypt_;
 
@@ -176,8 +187,6 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   std::unique_ptr<CallbackRegistration> event_cb_registration_;
 
   base::WeakPtrFactory<DecryptingDemuxerStream> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DecryptingDemuxerStream);
 };
 
 }  // namespace media

@@ -126,6 +126,9 @@ class Buffer {
     DEBUG_CHECK(size <= kSSizeMax);
   }
 
+  Buffer(const Buffer&) = delete;
+  Buffer& operator=(const Buffer&) = delete;
+
   ~Buffer() {
     // The code calling the constructor guaranteed that there was enough space
     // to store a trailing NUL -- and in debug builds, we are actually
@@ -270,8 +273,6 @@ class Buffer {
   // was sufficiently big. This number always excludes the trailing NUL byte
   // and it is guaranteed to never grow bigger than kSSizeMax-1.
   size_t count_;
-
-  DISALLOW_COPY_AND_ASSIGN(Buffer);
 };
 
 
@@ -490,7 +491,6 @@ ssize_t SafeSNPrintf(char* buf, size_t sz, const char* fmt, const Arg* args,
             goto format_character_found;
           }
         }
-        break;
       case 'c': {  // Output an ASCII character.
         // Check that there are arguments left to be inserted.
         if (cur_arg >= max_args) {

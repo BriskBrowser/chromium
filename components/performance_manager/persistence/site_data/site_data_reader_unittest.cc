@@ -25,6 +25,10 @@ namespace {
 class MockSiteDataStore : public testing::NoopSiteDataStore {
  public:
   MockSiteDataStore() = default;
+
+  MockSiteDataStore(const MockSiteDataStore&) = delete;
+  MockSiteDataStore& operator=(const MockSiteDataStore&) = delete;
+
   ~MockSiteDataStore() = default;
 
   // Note: As move-only parameters (e.g. OnceCallback) aren't supported by mock
@@ -40,9 +44,6 @@ class MockSiteDataStore : public testing::NoopSiteDataStore {
 
   MOCK_METHOD2(WriteSiteDataIntoStore,
                void(const url::Origin&, const SiteDataProto&));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockSiteDataStore);
 };
 
 void InitializeSiteDataProto(SiteDataProto* site_data) {
@@ -65,14 +66,19 @@ void InitializeSiteDataProto(SiteDataProto* site_data) {
 }  // namespace
 
 class SiteDataReaderTest : public ::testing::Test {
+ public:
+  SiteDataReaderTest(const SiteDataReaderTest&) = delete;
+  SiteDataReaderTest& operator=(const SiteDataReaderTest&) = delete;
+
  protected:
   // The constructors needs to call 'new' directly rather than using the
   // base::MakeRefCounted helper function because the constructor of
   // SiteDataImpl is protected and not visible to
   // base::MakeRefCounted.
   SiteDataReaderTest() {
-    test_impl_ = base::WrapRefCounted(new internal::SiteDataImpl(
-        url::Origin::Create(GURL("foo.com")), &delegate_, &data_store_));
+    test_impl_ = base::WrapRefCounted(
+        new internal::SiteDataImpl(url::Origin::Create(GURL("foo.com")),
+                                   delegate_.GetWeakPtr(), &data_store_));
     test_impl_->NotifySiteLoaded();
     test_impl_->NotifyLoadedSiteBackgrounded();
     SiteDataReader* reader = new SiteDataReader(test_impl_.get());
@@ -102,8 +108,6 @@ class SiteDataReaderTest : public ::testing::Test {
   std::unique_ptr<SiteDataReader> reader_;
 
   testing::NoopSiteDataStore data_store_;
-
-  DISALLOW_COPY_AND_ASSIGN(SiteDataReaderTest);
 };
 
 TEST_F(SiteDataReaderTest, TestAccessors) {
@@ -123,7 +127,7 @@ TEST_F(SiteDataReaderTest, TestAccessors) {
 
   // Advance the clock by a large amount of time, enough for the unused features
   // observation windows to expire.
-  AdvanceClock(base::TimeDelta::FromDays(31));
+  AdvanceClock(base::Days(31));
 
   EXPECT_EQ(performance_manager::SiteFeatureUsage::kSiteFeatureNotInUse,
             reader_->UpdatesFaviconInBackground());
@@ -144,7 +148,7 @@ TEST_F(SiteDataReaderTest, FreeingReaderDoesntCauseWriteOperation) {
   auto read_from_store_mock_impl =
       [&](const url::Origin& origin,
           SiteDataStore::ReadSiteDataFromStoreCallback& callback) {
-        std::move(callback).Run(base::Optional<SiteDataProto>(proto));
+        std::move(callback).Run(absl::optional<SiteDataProto>(proto));
       };
 
   EXPECT_CALL(data_store, OnReadSiteDataFromStore(
@@ -153,9 +157,9 @@ TEST_F(SiteDataReaderTest, FreeingReaderDoesntCauseWriteOperation) {
                               ::testing::_))
       .WillOnce(::testing::Invoke(read_from_store_mock_impl));
 
-  std::unique_ptr<SiteDataReader> reader =
-      base::WrapUnique(new SiteDataReader(base::WrapRefCounted(
-          new internal::SiteDataImpl(kOrigin, &delegate_, &data_store))));
+  std::unique_ptr<SiteDataReader> reader = base::WrapUnique(
+      new SiteDataReader(base::WrapRefCounted(new internal::SiteDataImpl(
+          kOrigin, delegate_.GetWeakPtr(), &data_store))));
   ::testing::Mock::VerifyAndClear(&data_store);
 
   EXPECT_TRUE(reader->impl_for_testing()->fully_initialized_for_testing());
@@ -177,7 +181,7 @@ TEST_F(SiteDataReaderTest, OnDataLoadedCallbackInvoked) {
                                                   kOrigin.Serialize()),
                               ::testing::_));
   scoped_refptr<internal::SiteDataImpl> impl = base::WrapRefCounted(
-      new internal::SiteDataImpl(kOrigin, &delegate_, &data_store));
+      new internal::SiteDataImpl(kOrigin, delegate_.GetWeakPtr(), &data_store));
 
   // Create the reader.
   std::unique_ptr<SiteDataReader> reader =
@@ -208,7 +212,7 @@ TEST_F(SiteDataReaderTest, DestroyingReaderCancelsPendingCallbacks) {
                                                   kOrigin.Serialize()),
                               ::testing::_));
   scoped_refptr<internal::SiteDataImpl> impl = base::WrapRefCounted(
-      new internal::SiteDataImpl(kOrigin, &delegate_, &data_store));
+      new internal::SiteDataImpl(kOrigin, delegate_.GetWeakPtr(), &data_store));
 
   // Create the reader.
   std::unique_ptr<SiteDataReader> reader =

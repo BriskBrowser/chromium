@@ -29,8 +29,9 @@
 #include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
+#include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
-#include "third_party/blink/renderer/platform/graphics/paint/display_item.h"
+#include "third_party/blink/renderer/platform/graphics/paint/display_item_client.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
@@ -63,12 +64,12 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
             ScrollbarTheme* = nullptr);
   ~Scrollbar() override;
 
-  int X() const { return frame_rect_.X(); }
-  int Y() const { return frame_rect_.Y(); }
-  int Width() const { return frame_rect_.Width(); }
-  int Height() const { return frame_rect_.Height(); }
-  IntSize Size() const { return frame_rect_.Size(); }
-  IntPoint Location() const { return frame_rect_.Location(); }
+  int X() const { return frame_rect_.x(); }
+  int Y() const { return frame_rect_.y(); }
+  int Width() const { return frame_rect_.width(); }
+  int Height() const { return frame_rect_.height(); }
+  IntSize Size() const { return frame_rect_.size(); }
+  gfx::Point Location() const { return frame_rect_.origin(); }
 
   void SetFrameRect(const IntRect&);
   const IntRect& FrameRect() const { return frame_rect_; }
@@ -78,7 +79,7 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   Vector<IntRect> GetTickmarks() const;
   bool IsScrollableAreaActive() const;
 
-  IntPoint ConvertFromRootFrame(const IntPoint&) const;
+  gfx::Point ConvertFromRootFrame(const gfx::Point&) const;
 
   virtual bool IsCustomScrollbar() const { return false; }
   ScrollbarOrientation Orientation() const { return orientation_; }
@@ -115,7 +116,7 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   void SetProportion(int visible_size, int total_size);
   void SetPressedPos(int p) { pressed_pos_ = p; }
 
-  void Paint(GraphicsContext&, const IntPoint& paint_offset) const;
+  void Paint(GraphicsContext&, const gfx::Vector2d& paint_offset) const;
 
   virtual bool IsSolidColor() const;
 
@@ -150,7 +151,7 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   ScrollbarTheme& GetTheme() const { return theme_; }
 
   IntRect ConvertToContainingEmbeddedContentView(const IntRect&) const;
-  IntPoint ConvertFromContainingEmbeddedContentView(const IntPoint&) const;
+  gfx::Point ConvertFromContainingEmbeddedContentView(const gfx::Point&) const;
 
   void MoveThumb(int pos, bool dragging_document = false);
 
@@ -194,6 +195,9 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   float EffectiveZoom() const;
   bool ContainerIsRightToLeft() const;
 
+  // scrollbar-width CSS property
+  EScrollbarWidth CSSScrollbarWidth() const;
+
   // The Element that supplies our style information. If the scrollbar is
   // for a document, this is either the <body> or <html> element. Otherwise, it
   // is the element that owns our PaintLayerScrollableArea.
@@ -201,7 +205,7 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
 
   mojom::blink::ColorScheme UsedColorScheme() const;
 
-  virtual void Trace(Visitor*) const;
+  void Trace(Visitor*) const override;
 
  protected:
   void AutoscrollTimerFired(TimerBase*);
@@ -259,6 +263,13 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
 
   IntRect frame_rect_;
   Member<Element> style_source_;
+
+  // Tracks scroll delta that has been injected into the compositor thread as a
+  // GestureScrollUpdate but hasn't yet updated the scroll position on main.
+  // Scrollbar::MouseMoved needs this to calculate deltas during thumb drags.
+  // In particular we often process two mousemoves in the same frame thanks to
+  // MouseEventManager::RecomputeMouseHoverState sending fake ones.
+  ScrollOffset pending_injected_delta_;
 };
 
 }  // namespace blink

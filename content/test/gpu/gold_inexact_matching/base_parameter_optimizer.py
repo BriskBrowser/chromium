@@ -2,9 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 import glob
+import hashlib
 import itertools
 import io
+import json
 import logging
 import multiprocessing
 import os
@@ -12,7 +16,6 @@ from PIL import Image
 import requests
 import shutil
 import subprocess
-import sys
 import tempfile
 
 from gold_inexact_matching import parameter_set
@@ -233,14 +236,26 @@ class BaseParameterOptimizer(object):
     assert self._working_dir
     logging.info('Downloading images')
     if self._args.group_images_by_resolution:
-      self._DownloadExpectations('%s/json/expectations' % self._gold_url)
+      self._DownloadExpectations('%s/json/v2/expectations' % self._gold_url)
       self._DownloadImagesForResolutionGrouping()
     else:
-      self._DownloadExpectations(
-          '%s/json/debug/digestsbytestname/%s/%s' %
-          (self._gold_url, self._args.corpus, self._test_name))
+      # A grouping ID is an MD5 hash of a JSON object containing the corpus and
+      # name of a test with its keys sorted alphabetically.
+      grouping_dict = {
+          'name': self._test_name,
+          'source_type': self._args.corpus,
+      }
+      # Specify separators to avoid the automatic whitespace, which Go/Gold
+      # does.
+      json_str = json.dumps(grouping_dict,
+                            sort_keys=True,
+                            separators=(',', ':'))
+      md5 = hashlib.md5()
+      md5.update(json_str)
+      self._DownloadExpectations('%s/json/v1/positivedigestsbygrouping/%s' %
+                                 (self._gold_url, md5.hexdigest()))
       self._DownloadImagesForTraceGrouping()
-    for grouping, digests in self._images.iteritems():
+    for grouping, digests in self._images.items():
       logging.info('Found %d images for group %s', len(digests), grouping)
       logging.debug('Digests: %r', digests)
 
@@ -257,10 +272,21 @@ class BaseParameterOptimizer(object):
     Images are grouped by resolution.
     """
     assert self._expectations
-    test_expectations = self._expectations.get('master', {}).get(
-        self._test_name, {})
+    # The downloaded expectations are in the following format:
+    # {
+    #   branch (str): {
+    #     test_name (str): {
+    #       digest1 (str): status (str),
+    #       digest2 (str): status (str),
+    #       ...
+    #     }
+    #   }
+    # }
+    test_expectations = self._expectations.get('primary',
+                                               {}).get(self._test_name, {})
     positive_digests = [
-        digest for digest, val in test_expectations.items() if val == 1
+        digest for digest, status in test_expectations.items()
+        if status == 'positive'
     ]
     if not positive_digests:
       raise RuntimeError('Failed to find any positive digests for test %s',
@@ -278,21 +304,21 @@ class BaseParameterOptimizer(object):
     combination is a separate group.
     """
     assert self._expectations
-    # The downloaded trace data maps a trace ID (string) to a list of digests.
-    # The digests can be empty (which we don't care about) or duplicated, so
-    # convert to a set and filter out the empty strings.
+    # The downloaded trace data contains a list of traces, each with a list of
+    # digests. The digests should be unique within each trace, but convert to
+    # sets just to be sure.
     filtered_traces = {}
-    for trace, digests in self._expectations.iteritems():
-      filtered_digests = set(digests)
-      filtered_digests.discard('')
-      if not filtered_digests:
+    for trace in self._expectations['traces']:
+      trace_id = trace['trace_id']
+      digests = set(trace['digests'])
+      if not digests:
         logging.warning(
             'Failed to find any positive digests for test %s and trace %s. '
             'This is likely due to the trace being old.', self._test_name,
-            trace)
-      filtered_traces[trace] = filtered_digests
-      for digest in filtered_digests:
-        self._DownloadImageWithDigest(digest)
+            trace_id)
+      filtered_traces[trace_id] = digests
+      for d in digests:
+        self._DownloadImageWithDigest(d)
     self._images = filtered_traces
 
   def _DownloadImageWithDigest(self, digest):
@@ -358,7 +384,7 @@ class BaseParameterOptimizer(object):
     max_num_pixels = -1
     max_max_delta = -1
 
-    for resolution, digest_list in self._images.iteritems():
+    for resolution, digest_list in self._images.items():
       logging.debug('Resolution/trace: %s, digests: %s', resolution,
                     digest_list)
       cmds = [
@@ -431,6 +457,8 @@ def RunCommandAndExtractData(cmd):
     per-channel delta sum in the comparison.
   """
   output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+  if not isinstance(output, str):
+    output = output.decode('utf-8')
   success = False
   num_pixels = 0
   max_delta = 0

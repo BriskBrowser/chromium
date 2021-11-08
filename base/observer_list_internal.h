@@ -5,11 +5,17 @@
 #ifndef BASE_OBSERVER_LIST_INTERNAL_H_
 #define BASE_OBSERVER_LIST_INTERNAL_H_
 
+#include <string>
+
 #include "base/base_export.h"
 #include "base/check_op.h"
 #include "base/containers/linked_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list_types.h"
+
+#if DCHECK_IS_ON()
+#include "base/debug/stack_trace.h"
+#endif
 
 namespace base {
 namespace internal {
@@ -38,8 +44,15 @@ class BASE_EXPORT UncheckedObserverAdapter {
     return static_cast<ObserverType*>(adapter.ptr_);
   }
 
+#if EXPENSIVE_DCHECKS_ARE_ON()
+  std::string GetCreationStackString() const { return stack_.ToString(); }
+#endif  // EXPENSIVE_DCHECKS_ARE_ON()
+
  private:
   void* ptr_;
+#if EXPENSIVE_DCHECKS_ARE_ON()
+  base::debug::StackTrace stack_;
+#endif  // EXPENSIVE_DCHECKS_ARE_ON()
 };
 
 // Adapter for CheckedObserver types so that they can use the same syntax as a
@@ -91,8 +104,15 @@ class BASE_EXPORT CheckedObserverAdapter {
     return static_cast<ObserverType*>(adapter.weak_ptr_.get());
   }
 
+#if DCHECK_IS_ON()
+  std::string GetCreationStackString() const { return stack_.ToString(); }
+#endif
+
  private:
   WeakPtr<CheckedObserver> weak_ptr_;
+#if DCHECK_IS_ON()
+  base::debug::StackTrace stack_;
+#endif
 };
 
 // Wraps a pointer in a stack-allocated, base::LinkNode. The node is

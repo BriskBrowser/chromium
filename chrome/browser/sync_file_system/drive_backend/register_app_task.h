@@ -12,7 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/sync_file_system/drive_backend/sync_task.h"
 #include "chrome/browser/sync_file_system/sync_callbacks.h"
-#include "google_apis/drive/drive_api_error_codes.h"
+#include "google_apis/common/api_error_codes.h"
 
 namespace drive {
 class DriveServiceInterface;
@@ -30,6 +30,10 @@ class TrackerIDSet;
 class RegisterAppTask : public ExclusiveTask {
  public:
   RegisterAppTask(SyncEngineContext* sync_context, const std::string& app_id);
+
+  RegisterAppTask(const RegisterAppTask&) = delete;
+  RegisterAppTask& operator=(const RegisterAppTask&) = delete;
+
   ~RegisterAppTask() override;
 
   bool CanFinishImmediately();
@@ -40,8 +44,7 @@ class RegisterAppTask : public ExclusiveTask {
   void DidCreateAppRootFolder(SyncStatusCallback callback,
                               const std::string& file_id,
                               SyncStatusCode status);
-  bool FilterCandidates(const TrackerIDSet& trackers,
-                        FileTracker* candidate);
+  bool FilterCandidates(const TrackerIDSet& trackers, FileTracker* candidate);
   void RegisterAppIntoDatabase(const FileTracker& tracker,
                                SyncStatusCallback callback);
 
@@ -56,8 +59,6 @@ class RegisterAppTask : public ExclusiveTask {
   std::unique_ptr<FolderCreator> folder_creator_;
 
   base::WeakPtrFactory<RegisterAppTask> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(RegisterAppTask);
 };
 
 }  // namespace drive_backend

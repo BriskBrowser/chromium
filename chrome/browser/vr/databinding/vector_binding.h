@@ -11,9 +11,9 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "chrome/browser/vr/databinding/binding_base.h"
 #include "chrome/browser/vr/databinding/vector_element_binding.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace vr {
 
@@ -31,6 +31,9 @@ class VectorBinding : public BindingBase {
       : models_(models),
         added_callback_(added_callback),
         removed_callback_(removed_callback) {}
+
+  VectorBinding(const VectorBinding&) = delete;
+  VectorBinding& operator=(const VectorBinding&) = delete;
 
   ~VectorBinding() {}
 
@@ -74,11 +77,9 @@ class VectorBinding : public BindingBase {
  private:
   std::vector<M>* models_ = nullptr;
   std::vector<std::unique_ptr<ElementBinding>> bindings_;
-  base::Optional<size_t> last_size_;
+  absl::optional<size_t> last_size_;
   ModelAddedCallback added_callback_;
   ModelRemovedCallback removed_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(VectorBinding);
 };
 
 }  // namespace vr

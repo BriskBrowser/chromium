@@ -51,8 +51,9 @@
 #include "base/files/scoped_file.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/x/error.h"
+#include "ui/gfx/x/ref_counted_fd.h"
 #include "xproto.h"
 
 namespace x11 {
@@ -127,6 +128,10 @@ class COMPONENT_EXPORT(X11) ScreenSaver {
 
   Future<QueryVersionReply> QueryVersion(const QueryVersionRequest& request);
 
+  Future<QueryVersionReply> QueryVersion(
+      const uint8_t& client_major_version = {},
+      const uint8_t& client_minor_version = {});
+
   struct QueryInfoRequest {
     Drawable drawable{};
   };
@@ -145,6 +150,8 @@ class COMPONENT_EXPORT(X11) ScreenSaver {
 
   Future<QueryInfoReply> QueryInfo(const QueryInfoRequest& request);
 
+  Future<QueryInfoReply> QueryInfo(const Drawable& drawable = {});
+
   struct SelectInputRequest {
     Drawable drawable{};
     Event event_mask{};
@@ -153,6 +160,9 @@ class COMPONENT_EXPORT(X11) ScreenSaver {
   using SelectInputResponse = Response<void>;
 
   Future<void> SelectInput(const SelectInputRequest& request);
+
+  Future<void> SelectInput(const Drawable& drawable = {},
+                           const Event& event_mask = {});
 
   struct SetAttributesRequest {
     Drawable drawable{};
@@ -164,26 +174,52 @@ class COMPONENT_EXPORT(X11) ScreenSaver {
     WindowClass c_class{};
     uint8_t depth{};
     VisualId visual{};
-    base::Optional<Pixmap> background_pixmap{};
-    base::Optional<uint32_t> background_pixel{};
-    base::Optional<Pixmap> border_pixmap{};
-    base::Optional<uint32_t> border_pixel{};
-    base::Optional<Gravity> bit_gravity{};
-    base::Optional<Gravity> win_gravity{};
-    base::Optional<BackingStore> backing_store{};
-    base::Optional<uint32_t> backing_planes{};
-    base::Optional<uint32_t> backing_pixel{};
-    base::Optional<Bool32> override_redirect{};
-    base::Optional<Bool32> save_under{};
-    base::Optional<EventMask> event_mask{};
-    base::Optional<EventMask> do_not_propogate_mask{};
-    base::Optional<ColorMap> colormap{};
-    base::Optional<Cursor> cursor{};
+    absl::optional<Pixmap> background_pixmap{};
+    absl::optional<uint32_t> background_pixel{};
+    absl::optional<Pixmap> border_pixmap{};
+    absl::optional<uint32_t> border_pixel{};
+    absl::optional<Gravity> bit_gravity{};
+    absl::optional<Gravity> win_gravity{};
+    absl::optional<BackingStore> backing_store{};
+    absl::optional<uint32_t> backing_planes{};
+    absl::optional<uint32_t> backing_pixel{};
+    absl::optional<Bool32> override_redirect{};
+    absl::optional<Bool32> save_under{};
+    absl::optional<EventMask> event_mask{};
+    absl::optional<EventMask> do_not_propogate_mask{};
+    absl::optional<ColorMap> colormap{};
+    absl::optional<Cursor> cursor{};
   };
 
   using SetAttributesResponse = Response<void>;
 
   Future<void> SetAttributes(const SetAttributesRequest& request);
+
+  Future<void> SetAttributes(
+      const Drawable& drawable = {},
+      const int16_t& x = {},
+      const int16_t& y = {},
+      const uint16_t& width = {},
+      const uint16_t& height = {},
+      const uint16_t& border_width = {},
+      const WindowClass& c_class = {},
+      const uint8_t& depth = {},
+      const VisualId& visual = {},
+      const absl::optional<Pixmap>& background_pixmap = absl::nullopt,
+      const absl::optional<uint32_t>& background_pixel = absl::nullopt,
+      const absl::optional<Pixmap>& border_pixmap = absl::nullopt,
+      const absl::optional<uint32_t>& border_pixel = absl::nullopt,
+      const absl::optional<Gravity>& bit_gravity = absl::nullopt,
+      const absl::optional<Gravity>& win_gravity = absl::nullopt,
+      const absl::optional<BackingStore>& backing_store = absl::nullopt,
+      const absl::optional<uint32_t>& backing_planes = absl::nullopt,
+      const absl::optional<uint32_t>& backing_pixel = absl::nullopt,
+      const absl::optional<Bool32>& override_redirect = absl::nullopt,
+      const absl::optional<Bool32>& save_under = absl::nullopt,
+      const absl::optional<EventMask>& event_mask = absl::nullopt,
+      const absl::optional<EventMask>& do_not_propogate_mask = absl::nullopt,
+      const absl::optional<ColorMap>& colormap = absl::nullopt,
+      const absl::optional<Cursor>& cursor = absl::nullopt);
 
   struct UnsetAttributesRequest {
     Drawable drawable{};
@@ -193,6 +229,8 @@ class COMPONENT_EXPORT(X11) ScreenSaver {
 
   Future<void> UnsetAttributes(const UnsetAttributesRequest& request);
 
+  Future<void> UnsetAttributes(const Drawable& drawable = {});
+
   struct SuspendRequest {
     uint32_t suspend{};
   };
@@ -200,6 +238,8 @@ class COMPONENT_EXPORT(X11) ScreenSaver {
   using SuspendResponse = Response<void>;
 
   Future<void> Suspend(const SuspendRequest& request);
+
+  Future<void> Suspend(const uint32_t& suspend = {});
 
  private:
   Connection* const connection_;

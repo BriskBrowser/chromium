@@ -32,7 +32,7 @@ export class MenuManager {
     /** @private {!EventHandler} */
     this.clickHandler_ = new EventHandler(
         [], chrome.automation.EventType.CLICKED,
-        this.onButtonClicked_.bind(this));
+        event => this.onButtonClicked_(event));
   }
 
   static get instance() {
@@ -71,7 +71,7 @@ export class MenuManager {
     MenuManager.instance.actionNode_ = null;
     MenuManager.instance.displayedActions_ = null;
     MenuManager.instance.displayedLocation_ = null;
-    Navigator.instance.exitIfInGroup(MenuManager.instance.menuAutomationNode_);
+    Navigator.byItem.exitIfInGroup(MenuManager.instance.menuAutomationNode_);
     MenuManager.instance.menuAutomationNode_ = null;
 
     chrome.accessibilityPrivate.updateSwitchAccessBubble(
@@ -134,7 +134,7 @@ export class MenuManager {
           role: chrome.automation.RoleType.MENU,
           attributes: {className: 'SwitchAccessMenuView'}
         },
-        this.jumpToMenuAutomationNode_.bind(this));
+        node => this.jumpToMenuAutomationNode_(node));
   }
 
   /** @private */
@@ -163,7 +163,7 @@ export class MenuManager {
             chrome.automation.EventType.CHILDREN_CHANGED,
             chrome.automation.EventType.LOCATION_CHANGED
           ],
-          this.jumpToMenuAutomationNode_.bind(this, node), {listenOnce: true})
+          () => this.jumpToMenuAutomationNode_(node), {listenOnce: true})
           .start();
       return;
     }
@@ -171,7 +171,7 @@ export class MenuManager {
     this.menuAutomationNode_ = node;
     this.clickHandler_.setNodes(this.menuAutomationNode_);
     this.clickHandler_.start();
-    Navigator.instance.jumpToSwitchAccessMenu();
+    Navigator.byItem.jumpToSwitchAccessMenu();
   }
 
   /**

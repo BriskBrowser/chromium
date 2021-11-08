@@ -10,7 +10,6 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/test/simple_test_clock.h"
@@ -35,6 +34,10 @@ extern const int kPrefetchStoreCommandFailed;
 class PrefetchStoreTestUtil {
  public:
   PrefetchStoreTestUtil();
+
+  PrefetchStoreTestUtil(const PrefetchStoreTestUtil&) = delete;
+  PrefetchStoreTestUtil& operator=(const PrefetchStoreTestUtil&) = delete;
+
   ~PrefetchStoreTestUtil();
 
   // Builds a new store in a temporary directory.
@@ -92,8 +95,6 @@ class PrefetchStoreTestUtil {
   std::unique_ptr<PrefetchStore> owned_store_;
   PrefetchStore* store_;
   base::SimpleTestClock clock_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrefetchStoreTestUtil);
 };
 
 }  // namespace offline_pages

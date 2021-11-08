@@ -78,10 +78,15 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
 
   // Mappings from roles and states to human readable strings. Initialize
   // with |InitializeStringMaps|.
-  static std::map<int32_t, base::string16> role_string_map;
-  static std::map<int32_t, base::string16> state_string_map;
+  static std::map<int32_t, std::u16string> role_string_map;
+  static std::map<int32_t, std::u16string> state_string_map;
 
   CONTENT_EXPORT BrowserAccessibilityComWin();
+
+  BrowserAccessibilityComWin(const BrowserAccessibilityComWin&) = delete;
+  BrowserAccessibilityComWin& operator=(const BrowserAccessibilityComWin&) =
+      delete;
+
   CONTENT_EXPORT ~BrowserAccessibilityComWin() override;
 
   // Called after an atomic tree update completes. See
@@ -445,8 +450,6 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   // Give BrowserAccessibility::Create access to our constructor.
   friend class BrowserAccessibility;
   friend class BrowserAccessibilityWin;
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserAccessibilityComWin);
 };
 
 CONTENT_EXPORT BrowserAccessibilityComWin* ToBrowserAccessibilityComWin(

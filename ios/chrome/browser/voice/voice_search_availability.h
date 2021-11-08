@@ -6,7 +6,6 @@
 #define IOS_CHROME_BROWSER_VOICE_VOICE_SEARCH_AVAILABILITY_H_
 
 #import <UIKit/UIKit.h>
-#include <memory>
 
 #import "base/ios/crb_protocol_observers.h"
 
@@ -14,7 +13,7 @@
 
 // Helper object that determines the availability of the voice search feature.
 // Voice search is only enabled if:
-// - the VoiceSearchProvider is enabled, and
+// - the `voice_search` API is enabled, and
 // - VoiceOver is disabled.
 class VoiceSearchAvailability {
  public:

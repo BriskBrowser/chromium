@@ -6,9 +6,9 @@
 #define ASH_CAPTURE_MODE_CAPTURE_MODE_SETTINGS_VIEW_H_
 
 #include "ash/ash_export.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/toggle_button.h"
 #include "ui/views/controls/image_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace ash {
@@ -36,10 +36,17 @@ class ASH_EXPORT CaptureModeSettingsView : public views::View {
  public:
   METADATA_HEADER(CaptureModeSettingsView);
 
-  CaptureModeSettingsView();
+  // |projector_mode| specifies whether the current capture mode session was
+  // started for the projector workflow. In this mode, only a limited set of
+  // capture mode settings are exposed to the user.
+  explicit CaptureModeSettingsView(bool projector_mode);
   CaptureModeSettingsView(const CaptureModeSettingsView&) = delete;
   CaptureModeSettingsView& operator=(const CaptureModeSettingsView&) = delete;
   ~CaptureModeSettingsView() override;
+
+  CaptureModeSettingsEntryView* microphone_view() const {
+    return microphone_view_;
+  }
 
   // Gets the ideal bounds in screen coordinates of the settings widget on
   // the given |capture_mode_bar_view|.
@@ -47,10 +54,6 @@ class ASH_EXPORT CaptureModeSettingsView : public views::View {
 
   // Called when the settings change.
   void OnMicrophoneChanged(bool microphone_enabled);
-
-  CaptureModeSettingsEntryView* microphone_view_for_testing() const {
-    return microphone_view_;
-  }
 
  private:
   void OnMicrophoneToggled();

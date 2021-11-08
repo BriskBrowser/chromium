@@ -21,7 +21,6 @@ XML below will generate the following five histograms:
   <owner>person@chromium.org</owner>
   <owner>some-team@chromium.org</owner>
   <summary>A brief description.</summary>
-  <details>This is a more thorough description of this histogram.</details>
 </histogram>
 
 <histogram name="HistogramEnum" enum="MyEnumType">
@@ -299,6 +298,12 @@ def ExtractEnumsFromXmlTree(tree):
 
     nodes = list(IterElementsWithTag(enum, 'int'))
 
+    obsolete_nodes = list(IterElementsWithTag(enum, 'obsolete', 1))
+    if not nodes and not obsolete_nodes:
+      logging.error('Non-obsolete enum %s should have at least one <int>', name)
+      have_errors = True
+      continue
+
     for int_tag in nodes:
       value_dict = {}
       int_value = int(int_tag.getAttribute('value'))
@@ -375,8 +380,9 @@ def _ExtractComponents(histogram):
 
   Components are present when a histogram has a component tag, e.g.
   <component>UI&gt;Browser</component>. Components may also be present when an
-  OWNERS file is given as a histogram owner, e.g. <owner>src/dir/OWNERS</owner>.
-  See _ExtractComponentFromOWNERS() in the following file for details:
+  OWNERS file is given as a histogram owner, e.g. <owner>src/dir/OWNERS</owner>;
+  in this case the component is extracted from adjacent DIR_METADATA files.
+  See _ExtractComponentViaDirmd() in the following file for details:
   chromium/src/tools/metrics/histograms/expand_owners.py.
 
   Args:
@@ -622,11 +628,6 @@ def _ExtractHistogramsFromXmlTree(tree, enums):
     # Handle units.
     if histogram.hasAttribute('units'):
       histogram_entry['units'] = histogram.getAttribute('units')
-
-    # Find <details> tag.
-    for node in IterElementsWithTag(histogram, 'details'):
-      histogram_entry['details'] = _GetTextFromChildNodes(node)
-      break
 
     # Handle enum types.
     if histogram.hasAttribute('enum'):

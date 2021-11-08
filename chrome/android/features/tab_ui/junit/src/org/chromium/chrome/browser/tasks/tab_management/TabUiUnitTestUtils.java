@@ -53,16 +53,13 @@ public class TabUiUnitTestUtils {
         doReturn(userDataHost).when(tab).getUserDataHost();
     }
 
-    public static TabImpl prepareTab(int id, String title, String urlString) {
+    public static TabImpl prepareTab(int id, String title, GURL url) {
         CriticalPersistedTabData criticalPersistedTabData = mock(CriticalPersistedTabData.class);
         TabImpl tab = prepareTab(id, criticalPersistedTabData);
         doReturn(id).when(criticalPersistedTabData).getRootId();
-        doReturn(urlString).when(tab).getUrlString();
         doReturn(title).when(tab).getTitle();
-
-        GURL gurl = mock(GURL.class);
-        doReturn(urlString).when(gurl).getSpec();
-        doReturn(gurl).when(tab).getOriginalUrl();
+        doReturn(url).when(tab).getOriginalUrl();
+        doReturn(url).when(tab).getUrl();
         return tab;
     }
 
@@ -87,7 +84,7 @@ public class TabUiUnitTestUtils {
         userDataHost.setUserData(CriticalPersistedTabData.class, criticalPersistedTabData);
         doReturn(userDataHost).when(tab).getUserDataHost();
         doReturn(rootId).when(criticalPersistedTabData).getRootId();
-        doReturn("").when(tab).getUrlString();
+        doReturn(GURL.emptyGURL()).when(tab).getUrl();
         return tab;
     }
 

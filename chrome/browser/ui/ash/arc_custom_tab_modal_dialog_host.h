@@ -33,7 +33,6 @@ class ModalDialogHostObserver;
 
 // Implements a WebContentsModalDialogHost for an ARC Custom Tab. This allows a
 // web contents modal dialog to be drawn in the ARC Custom Tab.
-// The WebContents hosted by this object must outlive it.
 class ArcCustomTabModalDialogHost
     : public content::WebContentsObserver,
       public web_modal::WebContentsModalDialogHost,
@@ -41,10 +40,15 @@ class ArcCustomTabModalDialogHost
  public:
   ArcCustomTabModalDialogHost(std::unique_ptr<arc::CustomTab> custom_tab,
                               content::WebContents* web_contents);
+
+  ArcCustomTabModalDialogHost(const ArcCustomTabModalDialogHost&) = delete;
+  ArcCustomTabModalDialogHost& operator=(const ArcCustomTabModalDialogHost&) =
+      delete;
+
   ~ArcCustomTabModalDialogHost() override = 0;
 
   // content::WebContentsObserver:
-  void MainFrameWasResized(bool width_changed) override;
+  void PrimaryMainFrameWasResized(bool width_changed) override;
 
   // web_modal::WebContentsModalDialogManagerDelegate:
   web_modal::WebContentsModalDialogHost* GetWebContentsModalDialogHost()
@@ -64,8 +68,6 @@ class ArcCustomTabModalDialogHost
  private:
   base::ObserverList<web_modal::ModalDialogHostObserver>::Unchecked
       observer_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArcCustomTabModalDialogHost);
 };
 
 #endif  // CHROME_BROWSER_UI_ASH_ARC_CUSTOM_TAB_MODAL_DIALOG_HOST_H_

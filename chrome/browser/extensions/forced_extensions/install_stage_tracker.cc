@@ -18,10 +18,10 @@
 namespace extensions {
 
 namespace {
-// Returns true if the |current_stage| should be overridden by the
-// |new_stage|.
+// Returns true if the `current_stage` should be overridden by the
+// `new_stage`.
 bool ShouldOverrideCurrentStage(
-    base::Optional<InstallStageTracker::Stage> current_stage,
+    absl::optional<InstallStageTracker::Stage> current_stage,
     InstallStageTracker::Stage new_stage) {
   if (!current_stage)
     return true;
@@ -36,10 +36,14 @@ bool ShouldOverrideCurrentStage(
 }  // namespace
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+InstallStageTracker::UserInfo::UserInfo() = default;
 InstallStageTracker::UserInfo::UserInfo(const UserInfo&) = default;
 InstallStageTracker::UserInfo::UserInfo(user_manager::UserType user_type,
-                                        bool is_new_user)
-    : user_type(user_type), is_new_user(is_new_user) {}
+                                        bool is_new_user,
+                                        bool is_user_present)
+    : user_type(user_type),
+      is_new_user(is_new_user),
+      is_user_present(is_user_present) {}
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // InstallStageTracker::InstallationData implementation.
@@ -131,10 +135,12 @@ InstallStageTracker::UserInfo InstallStageTracker::GetUserInfo(
     Profile* profile) {
   const user_manager::User* user =
       chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
-  DCHECK(user);
+  if (!user)
+    return UserInfo();
+
   bool is_new_user = user_manager::UserManager::Get()->IsCurrentUserNew() ||
                      profile->IsNewProfile();
-  UserInfo current_user(user->GetType(), is_new_user);
+  UserInfo current_user(user->GetType(), is_new_user, /*is_user_present=*/true);
   return current_user;
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -264,6 +270,15 @@ InstallStageTracker::GetManifestInvalidAppStatusError(
   return AppStatusError::kUnknown;
 }
 
+void InstallStageTracker::ReportFetchErrorCodes(
+    const ExtensionId& id,
+    const ExtensionDownloaderDelegate::FailureData& failure_data) {
+  InstallationData& data = installation_data_map_[id];
+  data.network_error_code = failure_data.network_error_code;
+  data.response_code = failure_data.response_code;
+  data.fetch_tries = failure_data.fetch_tries;
+}
+
 void InstallStageTracker::ReportFetchError(
     const ExtensionId& id,
     FailureReason reason,
@@ -272,9 +287,7 @@ void InstallStageTracker::ReportFetchError(
          reason == FailureReason::CRX_FETCH_FAILED);
   InstallationData& data = installation_data_map_[id];
   data.failure_reason = reason;
-  data.network_error_code = failure_data.network_error_code;
-  data.response_code = failure_data.response_code;
-  data.fetch_tries = failure_data.fetch_tries;
+  ReportFetchErrorCodes(id, failure_data);
   NotifyObserversOfFailure(id, reason, data);
 }
 
@@ -307,7 +320,7 @@ void InstallStageTracker::ReportCrxInstallError(
 void InstallStageTracker::ReportSandboxedUnpackerFailureReason(
     const ExtensionId& id,
     const CrxInstallError& crx_install_error) {
-  base::Optional<SandboxedUnpackerFailureReason> unpacker_failure_reason =
+  absl::optional<SandboxedUnpackerFailureReason> unpacker_failure_reason =
       crx_install_error.sandbox_failure_detail();
   DCHECK(unpacker_failure_reason);
   InstallationData& data = installation_data_map_[id];

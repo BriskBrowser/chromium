@@ -5,6 +5,8 @@
 #ifndef CONTENT_PUBLIC_BROWSER_HID_CHOOSER_H_
 #define CONTENT_PUBLIC_BROWSER_HID_CHOOSER_H_
 
+#include <vector>
+
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "content/common/content_export.h"
@@ -22,10 +24,11 @@ class CONTENT_EXPORT HidChooser {
       base::OnceCallback<void(std::vector<device::mojom::HidDeviceInfoPtr>)>;
 
   HidChooser() = default;
-  virtual ~HidChooser() = default;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(HidChooser);
+  HidChooser(const HidChooser&) = delete;
+  HidChooser& operator=(const HidChooser&) = delete;
+
+  virtual ~HidChooser() = default;
 };
 
 }  // namespace content

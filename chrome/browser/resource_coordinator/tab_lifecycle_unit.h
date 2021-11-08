@@ -8,7 +8,6 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
-#include "base/timer/timer.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_base.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_source.h"
@@ -32,11 +31,10 @@ class TabLifecycleObserver;
 // Time during which backgrounded tabs are protected from urgent discarding
 // (not on ChromeOS).
 static constexpr base::TimeDelta kBackgroundUrgentProtectionTime =
-    base::TimeDelta::FromMinutes(10);
+    base::Minutes(10);
 
 // Time during which a tab cannot be discarded after having played audio.
-static constexpr base::TimeDelta kTabAudioProtectionTime =
-    base::TimeDelta::FromMinutes(1);
+static constexpr base::TimeDelta kTabAudioProtectionTime = base::Minutes(1);
 
 class TabLifecycleUnitExternalImpl;
 
@@ -58,6 +56,10 @@ class TabLifecycleUnitSource::TabLifecycleUnit
       UsageClock* usage_clock,
       content::WebContents* web_contents,
       TabStripModel* tab_strip_model);
+
+  TabLifecycleUnit(const TabLifecycleUnit&) = delete;
+  TabLifecycleUnit& operator=(const TabLifecycleUnit&) = delete;
+
   ~TabLifecycleUnit() override;
 
   // Sets the TabStripModel associated with this tab. The source that created
@@ -86,7 +88,7 @@ class TabLifecycleUnitSource::TabLifecycleUnit
 
   // LifecycleUnit:
   TabLifecycleUnitExternal* AsTabLifecycleUnitExternal() override;
-  base::string16 GetTitle() const override;
+  std::u16string GetTitle() const override;
   base::TimeTicks GetLastFocusedTime() const override;
   base::ProcessHandle GetProcessHandle() const override;
   SortKey GetSortKey() const override;
@@ -169,8 +171,6 @@ class TabLifecycleUnitSource::TabLifecycleUnit
   base::TimeTicks recently_audible_time_;
 
   std::unique_ptr<TabLifecycleUnitExternalImpl> external_impl_;
-
-  DISALLOW_COPY_AND_ASSIGN(TabLifecycleUnit);
 };
 
 }  // namespace resource_coordinator

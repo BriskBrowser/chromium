@@ -5,13 +5,14 @@
 #include <stddef.h>
 
 #include <limits>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -43,12 +44,14 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/text_input_test_utils.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "third_party/blink/public/common/switches.h"
 #include "ui/base/buildflags.h"
 #include "ui/base/ime/composition_text.h"
 #include "ui/base/ime/ime_text_span.h"
@@ -84,7 +87,7 @@ class NewSubViewAddedObserver : content::RenderWidgetHostViewCocoaObserver {
     if (did_receive_rect_)
       return;
 
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
   }
 
@@ -114,6 +117,13 @@ class WebViewInteractiveTest : public extensions::PlatformAppBrowserTest {
         mouse_click_result_(false),
         first_click_(true) {
     GuestViewManager::set_factory_for_testing(&factory_);
+  }
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    extensions::PlatformAppBrowserTest::SetUpCommandLine(command_line);
+    // Some bots are flaky due to slower loading interacting with
+    // deferred commits.
+    command_line->AppendSwitch(blink::switches::kAllowPreCommitInput);
   }
 
   TestGuestViewManager* GetGuestViewManager() {
@@ -244,13 +254,13 @@ class WebViewInteractiveTest : public extensions::PlatformAppBrowserTest {
     // For serving guest pages.
     if ((test_server == NEEDS_TEST_SERVER) && !StartEmbeddedTestServer()) {
       LOG(ERROR) << "FAILED TO START TEST SERVER.";
-      return std::unique_ptr<ExtensionTestMessageListener>();
+      return nullptr;
     }
 
     LoadAndLaunchPlatformApp(app_location.c_str(), "Launched");
     if (!ui_test_utils::ShowAndFocusNativeWindow(GetPlatformAppWindow())) {
       LOG(ERROR) << "UNABLE TO FOCUS TEST WINDOW.";
-      return std::unique_ptr<ExtensionTestMessageListener>();
+      return nullptr;
     }
 
     // Flush any pending events to make sure we start with a clean slate.
@@ -265,7 +275,7 @@ class WebViewInteractiveTest : public extensions::PlatformAppBrowserTest {
             *embedder_web_contents,
             base::StringPrintf("runTest('%s')", test_name.c_str()))) {
       LOG(ERROR) << "UNABLE TO START TEST";
-      return std::unique_ptr<ExtensionTestMessageListener>();
+      return nullptr;
     }
 
     return done_listener;
@@ -308,12 +318,12 @@ class WebViewInteractiveTest : public extensions::PlatformAppBrowserTest {
     guest_observer.Wait();
     content::Source<content::NavigationController> source =
         guest_observer.source();
-    EXPECT_TRUE(source->GetWebContents()
+    EXPECT_TRUE(source->DeprecatedGetWebContents()
                     ->GetMainFrame()
                     ->GetProcess()
                     ->IsForGuestsOnly());
 
-    guest_web_contents_ = source->GetWebContents();
+    guest_web_contents_ = source->DeprecatedGetWebContents();
     embedder_web_contents_ =
         GuestViewBase::FromWebContents(guest_web_contents_)->
             embedder_web_contents();
@@ -360,7 +370,11 @@ class WebViewInteractiveTest : public extensions::PlatformAppBrowserTest {
 
     ~PopupCreatedObserver() = default;
 
-    void Wait() {
+    void Wait(int wait_retry_left = 10) {
+      if (wait_retry_left <= 0) {
+        LOG(ERROR) << "Wait failed";
+        return;
+      }
       if (CountWidgets() == initial_widget_count_ + 1 &&
           last_render_widget_host_->GetView()->GetNativeView()) {
         gfx::Rect popup_bounds =
@@ -374,7 +388,7 @@ class WebViewInteractiveTest : public extensions::PlatformAppBrowserTest {
 
       // If we haven't seen any new widget or we get 0 size widget, we need to
       // schedule waiting.
-      ScheduleWait();
+      ScheduleWait(wait_retry_left - 1);
 
       if (!message_loop_.get()) {
         message_loop_ = new content::MessageLoopRunner;
@@ -390,11 +404,12 @@ class WebViewInteractiveTest : public extensions::PlatformAppBrowserTest {
     }
 
    private:
-    void ScheduleWait() {
+    void ScheduleWait(int wait_retry_left) {
       base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
           FROM_HERE,
-          base::BindOnce(&PopupCreatedObserver::Wait, base::Unretained(this)),
-          base::TimeDelta::FromMilliseconds(200));
+          base::BindOnce(&PopupCreatedObserver::Wait, base::Unretained(this),
+                         wait_retry_left),
+          base::Milliseconds(200));
     }
 
     size_t CountWidgets() {
@@ -505,7 +520,7 @@ class WebViewImeInteractiveTest : public WebViewInteractiveTest {
           last_composition_range_length_.value() == length)
         return;
       expected_length_ = length;
-      run_loop_.reset(new base::RunLoop());
+      run_loop_ = std::make_unique<base::RunLoop>();
       run_loop_->Run();
     }
 
@@ -521,7 +536,7 @@ class WebViewImeInteractiveTest : public WebViewInteractiveTest {
 
     content::TextInputManagerTester tester_;
     std::unique_ptr<base::RunLoop> run_loop_;
-    base::Optional<uint32_t> last_composition_range_length_;
+    absl::optional<uint32_t> last_composition_range_length_;
     uint32_t expected_length_ = 0;
   };
 };
@@ -1125,7 +1140,7 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, MAYBE_Focus_InputMethod) {
   // user input via IME.
   {
     ui::CompositionText composition;
-    composition.text = base::UTF8ToUTF16("InputTest123");
+    composition.text = u"InputTest123";
     text_input_client->SetCompositionText(composition);
     EXPECT_TRUE(content::ExecuteScript(
                     embedder_web_contents,
@@ -1140,7 +1155,7 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, MAYBE_Focus_InputMethod) {
     next_step_listener.Reset();
 
     ui::CompositionText composition;
-    composition.text = base::UTF8ToUTF16("InputTest456");
+    composition.text = u"InputTest456";
     text_input_client->SetCompositionText(composition);
     text_input_client->ConfirmCompositionText(/* keep_selection */ false);
     EXPECT_TRUE(content::ExecuteScript(
@@ -1206,8 +1221,7 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, MAYBE_LongPressSelection) {
   scoped_refptr<content::MessageLoopRunner> message_loop_runner =
       new content::MessageLoopRunner;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, message_loop_runner->QuitClosure(),
-      base::TimeDelta::FromMilliseconds(200));
+      FROM_HERE, message_loop_runner->QuitClosure(), base::Milliseconds(200));
   message_loop_runner->Run();
 
   gfx::Rect guest_rect = guest_web_contents()->GetContainerBounds();
@@ -1227,8 +1241,7 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, MAYBE_LongPressSelection) {
   // Give enough time for the quick menu to fire.
   message_loop_runner = new content::MessageLoopRunner;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, message_loop_runner->QuitClosure(),
-      base::TimeDelta::FromMilliseconds(200));
+      FROM_HERE, message_loop_runner->QuitClosure(), base::Milliseconds(200));
   message_loop_runner->Run();
 
 // TODO: Fix quick menu opening on Windows.
@@ -1498,6 +1511,7 @@ IN_PROC_BROWSER_TEST_F(WebViewImeInteractiveTest,
   ExtensionTestMessageListener focus_listener("WebViewImeTest.InputFocused",
                                               false);
   content::WebContents* target_web_contents = guest_web_contents;
+  WaitForHitTestData(guest_web_contents);
 
   // The guest page has a large input box and (50, 50) lies inside the box.
   content::SimulateMouseClickAt(target_web_contents, 0,
@@ -1521,9 +1535,9 @@ IN_PROC_BROWSER_TEST_F(WebViewImeInteractiveTest,
                                               false);
   content::RenderWidgetHost* target_rwh_for_input =
       target_web_contents->GetRenderWidgetHostView()->GetRenderWidgetHost();
-  content::SendImeCommitTextToWidget(
-      target_rwh_for_input, base::UTF8ToUTF16("C"),
-      std::vector<ui::ImeTextSpan>(), gfx::Range(4, 5), 0);
+  content::SendImeCommitTextToWidget(target_rwh_for_input, u"C",
+                                     std::vector<ui::ImeTextSpan>(),
+                                     gfx::Range(4, 5), 0);
   EXPECT_TRUE(input_listener.WaitUntilSatisfied());
 
   // Get the input value from the guest.
@@ -1564,6 +1578,7 @@ IN_PROC_BROWSER_TEST_F(WebViewImeInteractiveTest, CompositionRangeUpdates) {
   // mode where input is always sent to the embedder process first (then hops
   // back to the browser and then to the guest).
   content::WebContents* target_web_contents = guest_web_contents;
+  WaitForHitTestData(guest_web_contents);
 
   // The guest page has a large input box and (50, 50) lies inside the box.
   content::SimulateMouseClickAt(target_web_contents, 0,
@@ -1588,8 +1603,7 @@ IN_PROC_BROWSER_TEST_F(WebViewImeInteractiveTest, CompositionRangeUpdates) {
   CompositionRangeUpdateObserver observer(embedder_web_contents);
   content::SendImeSetCompositionTextToWidget(
       target_web_contents->GetRenderWidgetHostView()->GetRenderWidgetHost(),
-      base::UTF8ToUTF16("ABC"), std::vector<ui::ImeTextSpan>(),
-      gfx::Range::InvalidRange(), 0, 3);
+      u"ABC", std::vector<ui::ImeTextSpan>(), gfx::Range::InvalidRange(), 0, 3);
   observer.WaitForCompositionRangeLength(3U);
 }
 

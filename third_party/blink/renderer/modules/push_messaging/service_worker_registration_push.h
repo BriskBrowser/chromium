@@ -23,6 +23,11 @@ class ServiceWorkerRegistrationPush final
 
   explicit ServiceWorkerRegistrationPush(
       ServiceWorkerRegistration* registration);
+
+  ServiceWorkerRegistrationPush(const ServiceWorkerRegistrationPush&) = delete;
+  ServiceWorkerRegistrationPush& operator=(
+      const ServiceWorkerRegistrationPush&) = delete;
+
   virtual ~ServiceWorkerRegistrationPush();
   static ServiceWorkerRegistrationPush& From(
       ServiceWorkerRegistration& registration);
@@ -33,10 +38,7 @@ class ServiceWorkerRegistrationPush final
   void Trace(Visitor* visitor) const override;
 
  private:
-  Member<ServiceWorkerRegistration> registration_;
   Member<PushManager> push_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(ServiceWorkerRegistrationPush);
 };
 
 }  // namespace blink

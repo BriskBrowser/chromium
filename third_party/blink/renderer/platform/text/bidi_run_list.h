@@ -24,7 +24,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_BIDI_RUN_LIST_H_
 
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
 
@@ -38,6 +37,8 @@ class BidiRunList final {
         last_run_(nullptr),
         logically_last_run_(nullptr),
         run_count_(0) {}
+  BidiRunList(const BidiRunList&) = delete;
+  BidiRunList& operator=(const BidiRunList&) = delete;
 
   // FIXME: Once BidiResolver no longer owns the BidiRunList,
   // then ~BidiRunList should call deleteRuns() automatically.
@@ -53,7 +54,7 @@ class BidiRunList final {
   void MoveRunToEnd(Run*);
   void MoveRunToBeginning(Run*);
 
-  void ClearRuns();
+  void DeleteRuns();
   void ReverseRuns(unsigned start, unsigned end);
   void ReorderRunsFromLevels();
 
@@ -62,12 +63,12 @@ class BidiRunList final {
   void ReplaceRunWithRuns(Run* to_replace, BidiRunList<Run>& new_runs);
 
  private:
+  void ClearWithoutDestroyingRuns();
+
   Run* first_run_;
   Run* last_run_;
   Run* logically_last_run_;
   unsigned run_count_;
-
-  DISALLOW_COPY_AND_ASSIGN(BidiRunList);
 };
 
 template <class Run>
@@ -164,15 +165,31 @@ void BidiRunList<Run>::ReplaceRunWithRuns(Run* to_replace,
   run_count_ +=
       new_runs.RunCount() - 1;  // We added the new runs and removed toReplace.
 
-  new_runs.ClearRuns();
+  delete to_replace;
+  new_runs.ClearWithoutDestroyingRuns();
 }
 
 template <class Run>
-void BidiRunList<Run>::ClearRuns() {
+void BidiRunList<Run>::ClearWithoutDestroyingRuns() {
   first_run_ = nullptr;
   last_run_ = nullptr;
   logically_last_run_ = nullptr;
   run_count_ = 0;
+}
+
+template <class Run>
+void BidiRunList<Run>::DeleteRuns() {
+  if (!first_run_)
+    return;
+
+  Run* curr = first_run_;
+  while (curr) {
+    Run* s = curr->Next();
+    delete curr;
+    curr = s;
+  }
+
+  ClearWithoutDestroyingRuns();
 }
 
 template <class Run>
@@ -227,4 +244,4 @@ void BidiRunList<Run>::ReverseRuns(unsigned start, unsigned end) {
 
 }  // namespace blink
 
-#endif  // BidiRunList
+#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_BIDI_RUN_LIST_H_

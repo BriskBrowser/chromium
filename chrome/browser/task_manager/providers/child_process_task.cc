@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/numerics/safe_conversions.h"
@@ -36,10 +37,10 @@ namespace task_manager {
 
 namespace {
 
-base::string16 GetLocalizedTitle(const base::string16& title,
+std::u16string GetLocalizedTitle(const std::u16string& title,
                                  int process_type,
                                  ChildProcessTask::ProcessSubtype subtype) {
-  base::string16 result_title = title;
+  std::u16string result_title = title;
   if (result_title.empty()) {
     switch (process_type) {
       case content::PROCESS_TYPE_PPAPI_PLUGIN:
@@ -119,33 +120,18 @@ base::string16 GetLocalizedTitle(const base::string16& title,
   return result_title;
 }
 
-// Connects the |resource_reporter| to the InterfaceRegistry of the
-// BrowserChildProcessHost whose unique ID is |unique_child_process_id|.
-void ConnectResourceReporterOnIOThread(
-    int unique_child_process_id,
-    mojo::PendingReceiver<content::mojom::ResourceUsageReporter>
-        resource_reporter) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-
-  content::BrowserChildProcessHost* host =
-      content::BrowserChildProcessHost::FromID(unique_child_process_id);
-  if (!host)
-    return;
-
-  host->GetHost()->BindReceiver(std::move(resource_reporter));
-}
-
 // Creates the Mojo service wrapper that will be used to sample the V8 memory
 // usage of the browser child process whose unique ID is
 // |unique_child_process_id|.
 ProcessResourceUsage* CreateProcessResourcesSampler(
     int unique_child_process_id) {
   mojo::PendingRemote<content::mojom::ResourceUsageReporter> usage_reporter;
-  content::GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE,
-      base::BindOnce(&ConnectResourceReporterOnIOThread,
-                     unique_child_process_id,
-                     usage_reporter.InitWithNewPipeAndPassReceiver()));
+  content::BrowserChildProcessHost* host =
+      content::BrowserChildProcessHost::FromID(unique_child_process_id);
+  auto receiver = usage_reporter.InitWithNewPipeAndPassReceiver();
+  if (host)
+    host->GetHost()->BindReceiver(std::move(receiver));
+
   return new ProcessResourceUsage(std::move(usage_reporter));
 }
 

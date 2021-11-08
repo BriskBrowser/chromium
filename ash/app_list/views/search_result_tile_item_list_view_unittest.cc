@@ -8,12 +8,13 @@
 #include <memory>
 #include <utility>
 
+#include "ash/app_list/app_list_test_view_delegate.h"
 #include "ash/app_list/model/app_list_model.h"
-#include "ash/app_list/test/app_list_test_view_delegate.h"
-#include "ash/app_list/test/test_search_result.h"
+#include "ash/app_list/model/search/test_search_result.h"
 #include "ash/app_list/views/search_result_tile_item_view.h"
 #include "ash/app_list/views/search_result_view.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/test/test_app_list_color_provider.h"
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -42,6 +43,12 @@ class SearchResultTileItemListViewTest
       public ::testing::WithParamInterface<std::pair<bool, bool>> {
  public:
   SearchResultTileItemListViewTest() = default;
+
+  SearchResultTileItemListViewTest(const SearchResultTileItemListViewTest&) =
+      delete;
+  SearchResultTileItemListViewTest& operator=(
+      const SearchResultTileItemListViewTest&) = delete;
+
   ~SearchResultTileItemListViewTest() override = default;
 
   // Overridden from testing::Test:
@@ -69,7 +76,7 @@ class SearchResultTileItemListViewTest
     widget_->SetBounds(gfx::Rect(0, 0, 300, 200));
     widget_->GetContentsView()->AddChildView(view_.get());
     widget_->Show();
-    view_->SetResults(view_delegate_.GetSearchModel()->results());
+    view_->SetResults(GetResults());
   }
 
   bool IsReinstallAppRecommendationEnabled() const { return GetParam().first; }
@@ -77,7 +84,7 @@ class SearchResultTileItemListViewTest
   SearchResultTileItemListView* view() { return view_.get(); }
 
   SearchModel::SearchResults* GetResults() {
-    return view_delegate_.GetSearchModel()->results();
+    return AppListModelProvider::Get()->search_model()->results();
   }
 
   void SetUpSearchResults() {
@@ -90,8 +97,7 @@ class SearchResultTileItemListViewTest
       result->set_result_id("InstalledApp " + base::NumberToString(i));
       result->set_display_type(SearchResultDisplayType::kTile);
       result->set_result_type(AppListSearchResultType::kInstalledApp);
-      result->set_title(base::ASCIIToUTF16("InstalledApp ") +
-                        base::NumberToString16(i));
+      result->set_title(u"InstalledApp " + base::NumberToString16(i));
       results->Add(std::move(result));
     }
 
@@ -102,11 +108,9 @@ class SearchResultTileItemListViewTest
       result->set_result_id("PlayStoreApp " + base::NumberToString(i));
       result->set_display_type(SearchResultDisplayType::kTile);
       result->set_result_type(AppListSearchResultType::kPlayStoreApp);
-      result->set_title(base::ASCIIToUTF16("PlayStoreApp ") +
-                        base::NumberToString16(i));
+      result->set_title(u"PlayStoreApp " + base::NumberToString16(i));
       result->SetRating(1 + i);
-      result->SetFormattedPrice(base::ASCIIToUTF16("Price ") +
-                                base::NumberToString16(i));
+      result->SetFormattedPrice(u"Price " + base::NumberToString16(i));
       results->Add(std::move(result));
     }
 
@@ -120,8 +124,7 @@ class SearchResultTileItemListViewTest
         result->set_result_type(
             AppListSearchResultType::kPlayStoreReinstallApp);
         result->set_display_index(SearchResultDisplayIndex::kSixthIndex);
-        result->set_title(base::ASCIIToUTF16("RecommendedApp ") +
-                          base::NumberToString16(i));
+        result->set_title(u"RecommendedApp " + base::NumberToString16(i));
         result->SetRating(1 + i);
         results->Add(std::move(result));
       }
@@ -142,8 +145,7 @@ class SearchResultTileItemListViewTest
       result->set_result_id("InstalledApp " + base::NumberToString(i));
       result->set_display_type(SearchResultDisplayType::kTile);
       result->set_result_type(AppListSearchResultType::kInstalledApp);
-      result->set_title(base::ASCIIToUTF16("InstalledApp ") +
-                        base::NumberToString16(i));
+      result->set_title(u"InstalledApp " + base::NumberToString16(i));
       results->Add(std::move(result));
     }
 
@@ -154,11 +156,9 @@ class SearchResultTileItemListViewTest
       result->set_result_id("PlayStoreApp " + base::NumberToString(i));
       result->set_display_type(SearchResultDisplayType::kTile);
       result->set_result_type(AppListSearchResultType::kPlayStoreApp);
-      result->set_title(base::ASCIIToUTF16("PlayStoreApp ") +
-                        base::NumberToString16(i));
+      result->set_title(u"PlayStoreApp " + base::NumberToString16(i));
       result->SetRating(1 + i);
-      result->SetFormattedPrice(base::ASCIIToUTF16("Price ") +
-                                base::NumberToString16(i));
+      result->SetFormattedPrice(u"Price " + base::NumberToString16(i));
       results->Add(std::move(result));
     }
 
@@ -179,8 +179,7 @@ class SearchResultTileItemListViewTest
         result->set_result_type(
             AppListSearchResultType::kPlayStoreReinstallApp);
         result->set_display_index(display_indexes[i]);
-        result->set_title(base::ASCIIToUTF16("RecommendedApp ") +
-                          base::NumberToString16(i));
+        result->set_title(u"RecommendedApp " + base::NumberToString16(i));
         result->SetRating(1 + i);
         results->AddAt(display_indexes[i], std::move(result));
       }
@@ -202,13 +201,12 @@ class SearchResultTileItemListViewTest
   size_t GetResultCount() const { return view_->num_results(); }
 
  private:
+  TestAppListColorProvider color_provider_;  // Needed by AppListView.
   test::AppListTestViewDelegate view_delegate_;
   std::unique_ptr<SearchResultTileItemListView> view_;
   views::Widget* widget_;
   std::unique_ptr<views::Textfield> textfield_;
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(SearchResultTileItemListViewTest);
 };
 
 TEST_P(SearchResultTileItemListViewTest, Basic) {

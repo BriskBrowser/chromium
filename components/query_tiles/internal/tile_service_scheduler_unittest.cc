@@ -96,6 +96,13 @@ class TileServiceSchedulerTest : public testing::Test {
     return result;
   }
 
+  void ResetTileServiceScheduler() {
+    auto policy = std::make_unique<net::BackoffEntry::Policy>(kTestPolicy);
+    tile_service_scheduler_ = std::make_unique<TileServiceSchedulerImpl>(
+        &mocked_native_scheduler_, &prefs_, &clock_, &tick_clock_,
+        std::move(policy), log_sink_.get());
+  }
+
  private:
   base::test::TaskEnvironment task_environment_;
 
@@ -154,11 +161,24 @@ TEST_F(TileServiceSchedulerTest, OnFetchCompletedSuccessInstantFetchOn) {
 }
 
 TEST_F(TileServiceSchedulerTest, OnFetchCompletedSuspend) {
-  EXPECT_CALL(*native_scheduler(), Schedule(TaskInfoEq(4000, 4000)));
+  EXPECT_CALL(*native_scheduler(), Schedule(_)).Times(0);
   tile_service_scheduler()->OnFetchCompleted(
       TileInfoRequestStatus::kShouldSuspend);
   auto backoff = GetBackoffPolicy();
-  EXPECT_EQ(backoff->GetTimeUntilRelease().InMilliseconds(), 4000);
+  EXPECT_EQ(backoff->GetTimeUntilRelease().InMilliseconds(), 0);
+
+  // Scheduler is in a suspended state, initializing the tile manager will not
+  // schedule any tasks.
+  tile_service_scheduler()->OnTileManagerInitialized(TileGroupStatus::kNoTiles);
+
+  ResetTileServiceScheduler();
+  // A task is rescheduled when scheduler is recreated.
+  auto expected_range_start = TileConfig::GetScheduleIntervalInMs();
+  auto expected_range_end =
+      expected_range_start + TileConfig::GetMaxRandomWindowInMs();
+  EXPECT_CALL(*native_scheduler(),
+              Schedule(TaskInfoEq(expected_range_start, expected_range_end)));
+  tile_service_scheduler()->OnTileManagerInitialized(TileGroupStatus::kNoTiles);
 }
 
 // Verify the failure will add delay that using test backoff policy.
@@ -200,9 +220,18 @@ TEST_F(TileServiceSchedulerTest, OnTileGroupLoadedInstantFetchOn) {
 }
 
 TEST_F(TileServiceSchedulerTest, OnTileGroupLoadedWithFailure) {
-  EXPECT_CALL(*native_scheduler(), Schedule(TaskInfoEq(4000, 4000)));
+  EXPECT_CALL(*native_scheduler(), Schedule(_)).Times(0);
   tile_service_scheduler()->OnTileManagerInitialized(
       TileGroupStatus::kFailureDbOperation);
+
+  // A task is rescheduled when scheduler is recreated.
+  ResetTileServiceScheduler();
+  auto expected_range_start = TileConfig::GetScheduleIntervalInMs();
+  auto expected_range_end =
+      expected_range_start + TileConfig::GetMaxRandomWindowInMs();
+  EXPECT_CALL(*native_scheduler(),
+              Schedule(TaskInfoEq(expected_range_start, expected_range_end)));
+  tile_service_scheduler()->OnTileManagerInitialized(TileGroupStatus::kNoTiles);
 }
 
 TEST_F(TileServiceSchedulerTest, OnTileGroupLoadedWithOtherStatus) {
@@ -225,7 +254,7 @@ TEST_F(TileServiceSchedulerTest, FirstKickoffNotOverride) {
   auto now = clock()->Now();
   tile_service_scheduler()->OnTileManagerInitialized(TileGroupStatus::kNoTiles);
   EXPECT_EQ(prefs()->GetTime(kFirstScheduleTimeKey), now);
-  auto two_hours_later = now + base::TimeDelta::FromHours(2);
+  auto two_hours_later = now + base::Hours(2);
   clock()->SetNow(two_hours_later);
   tile_service_scheduler()->OnTileManagerInitialized(TileGroupStatus::kNoTiles);
   tile_service_scheduler()->OnTileManagerInitialized(TileGroupStatus::kNoTiles);
@@ -255,7 +284,7 @@ TEST_F(TileServiceSchedulerTest, FirstRunFinishedAfterInstantFetchComplete) {
   // tiles, the scheduler should start a new first kickoff flow.
   scoped_command_line.GetProcessCommandLine()->RemoveSwitch(
       query_tiles::switches::kQueryTilesInstantBackgroundTask);
-  auto two_hours_later = now + base::TimeDelta::FromHours(2);
+  auto two_hours_later = now + base::Hours(2);
   clock()->SetNow(two_hours_later);
   EXPECT_CALL(*native_scheduler(), Schedule(_)).Times(1);
   tile_service_scheduler()->OnTileManagerInitialized(TileGroupStatus::kNoTiles);

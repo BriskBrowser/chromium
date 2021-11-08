@@ -12,7 +12,7 @@
 #include "ui/compositor/compositor.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
-#include "ui/gfx/transform.h"
+#include "ui/gfx/geometry/transform.h"
 
 namespace ui {
 
@@ -51,7 +51,7 @@ void CheckApproximatelyEqual(const gfx::RoundedCornersF& lhs,
 }
 
 bool WaitForNextFrameToBePresented(ui::Compositor* compositor,
-                                   base::Optional<base::TimeDelta> timeout) {
+                                   absl::optional<base::TimeDelta> timeout) {
   bool frames_presented = false;
   base::RunLoop runloop;
   base::CancelableOnceCallback<void(const gfx::PresentationFeedback&)>
@@ -63,7 +63,7 @@ bool WaitForNextFrameToBePresented(ui::Compositor* compositor,
   compositor->RequestPresentationTimeForNextFrame(
       cancelable_callback.callback());
 
-  base::Optional<base::OneShotTimer> timer;
+  absl::optional<base::OneShotTimer> timer;
   if (timeout.has_value()) {
     timer.emplace();
     timer->Start(FROM_HERE, timeout.value(), runloop.QuitClosure());

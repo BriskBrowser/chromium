@@ -17,9 +17,7 @@
 #include "base/files/file_util.h"
 #include "base/hash/sha1.h"
 #include "base/i18n/case_conversion.h"
-#include "base/optional.h"
 #include "base/path_service.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_path_override.h"
 #include "base/test/task_environment.h"
@@ -33,13 +31,13 @@
 #include "chrome/install_static/install_util.h"
 #include "content/public/common/process_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace {
 
 constexpr base::FilePath::CharType kCertificatePath[] =
     FILE_PATH_LITERAL("CertificatePath");
-constexpr base::FilePath::CharType kCertificateSubject[] =
-    FILE_PATH_LITERAL("CertificateSubject");
+constexpr char16_t kCertificateSubject[] = u"CertificateSubject";
 
 constexpr base::FilePath::CharType kDllPath1[] =
     FILE_PATH_LITERAL("c:\\path\\to\\module.dll");
@@ -52,7 +50,7 @@ ModuleInfoData CreateLoadedModuleInfoData() {
   ModuleInfoData module_data;
   module_data.module_properties |= ModuleInfoData::kPropertyLoadedModule;
   module_data.process_types |= ProcessTypeToBit(content::PROCESS_TYPE_BROWSER);
-  module_data.inspection_result = base::make_optional<ModuleInspectionResult>();
+  module_data.inspection_result = absl::make_optional<ModuleInspectionResult>();
   return module_data;
 }
 
@@ -95,6 +93,12 @@ bool RegistryKeyExists() {
 
 class ModuleBlocklistCacheUpdaterTest : public testing::Test,
                                         public ModuleDatabaseEventSource {
+ public:
+  ModuleBlocklistCacheUpdaterTest(const ModuleBlocklistCacheUpdaterTest&) =
+      delete;
+  ModuleBlocklistCacheUpdaterTest& operator=(
+      const ModuleBlocklistCacheUpdaterTest&) = delete;
+
  protected:
   ModuleBlocklistCacheUpdaterTest()
       : dll1_(kDllPath1),
@@ -193,8 +197,6 @@ class ModuleBlocklistCacheUpdaterTest : public testing::Test,
   base::FilePath module_blocklist_cache_path_;
 
   bool on_cache_updated_callback_invoked_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(ModuleBlocklistCacheUpdaterTest);
 };
 
 TEST_F(ModuleBlocklistCacheUpdaterTest, OneThirdPartyModule) {
@@ -350,7 +352,7 @@ TEST_F(ModuleBlocklistCacheUpdaterTest, RegisteredModules) {
 
   third_party_dlls::PackedListModule expected;
   const std::string module_basename = base::UTF16ToUTF8(
-      base::i18n::ToLower(module_key2.module_path.BaseName().value()));
+      base::i18n::ToLower(module_key2.module_path.BaseName().AsUTF16Unsafe()));
   base::SHA1HashBytes(reinterpret_cast<const uint8_t*>(module_basename.data()),
                       module_basename.length(), &expected.basename_hash[0]);
   const std::string module_code_id = GenerateCodeId(module_key2);

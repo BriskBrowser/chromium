@@ -8,7 +8,10 @@
 #include <memory>
 
 #import "base/test/ios/wait_util.h"
+#include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/passwords/password_manager_app_interface.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui_test_util.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_constants.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
@@ -25,28 +28,22 @@
 #error "This file requires ARC support."
 #endif
 
-#if defined(CHROME_EARL_GREY_2)
-// TODO(crbug.com/1015113): The EG2 macro is breaking indexing for some reason
-// without the trailing semicolon.  For now, disable the extra semi warning
-// so Xcode indexing works for the egtest.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
-GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(PasswordManagerAppInterface);
-#endif  // defined(CHROME_EARL_GREY_2)
-
 constexpr char kFormUsername[] = "un";
 constexpr char kFormPassword[] = "pw";
 NSString* const kSavedCredentialLabel = @"Eguser, Hidden, Password";
 
 namespace {
 
+using base::test::ios::kWaitForActionTimeout;
 using base::test::ios::kWaitForUIElementTimeout;
 using base::test::ios::WaitUntilConditionOrTimeout;
 using base::test::ios::kWaitForActionTimeout;
+using chrome_test_util::TapWebElementWithId;
+using chrome_test_util::UseSuggestedPasswordMatcher;
 
 id<GREYMatcher> PasswordInfobar(int prompt_id) {
   NSString* bannerLabel =
-      [NSString stringWithFormat:@"%@, %@", l10n_util::GetNSString(prompt_id),
+      [NSString stringWithFormat:@"%@,%@", l10n_util::GetNSString(prompt_id),
                                  kSavedCredentialLabel];
   return grey_allOf(grey_accessibilityID(kInfobarBannerViewIdentifier),
                     grey_accessibilityLabel(bannerLabel), nil);
@@ -54,6 +51,21 @@ id<GREYMatcher> PasswordInfobar(int prompt_id) {
 
 id<GREYMatcher> PasswordInfobarButton(int button_id) {
   return chrome_test_util::ButtonWithAccessibilityLabelId(button_id);
+}
+
+id<GREYMatcher> SuggestPasswordChip() {
+  return grey_allOf(
+      grey_accessibilityLabel(l10n_util::GetNSString(IDS_IOS_SUGGEST_PASSWORD)),
+      nil);
+}
+
+BOOL WaitForKeyboardToAppear() {
+  GREYCondition* waitForKeyboard = [GREYCondition
+      conditionWithName:@"Wait for keyboard"
+                  block:^BOOL {
+                    return [EarlGrey isKeyboardShownWithError:nil];
+                  }];
+  return [waitForKeyboard waitWithTimeout:kWaitForActionTimeout];
 }
 
 }  // namespace
@@ -88,7 +100,8 @@ id<GREYMatcher> PasswordInfobarButton(int button_id) {
 #pragma mark - Tests
 
 // Tests that save password prompt is shown on new login.
-- (void)testSavePromptAppearsOnFormSubmission {
+// TODO(crbug.com/1192446): Reenable this test.
+- (void)DISABLED_testSavePromptAppearsOnFormSubmission {
   [self loadLoginPage];
 
   // Simulate user interacting with fields.
@@ -156,6 +169,49 @@ id<GREYMatcher> PasswordInfobarButton(int button_id) {
 
   credentialsCount = [PasswordManagerAppInterface storedCredentialsCount];
   GREYAssertEqual(1, credentialsCount, @"Wrong number of final credentials.");
+}
+
+// Tests password generation flow.
+// TODO(crbug.com/1221635) This fails on iPhone 14.5+
+- (void)DISABLED_testPasswordGeneration {
+#if TARGET_IPHONE_SIMULATOR
+  // TODO(crbug.com/1194134): Reenable this test.
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_SKIPPED(@"Skipped for iPad (test is flaky)");
+  }
+#endif
+  [SigninEarlGreyUI signinWithFakeIdentity:[SigninEarlGrey fakeIdentity1]];
+  [ChromeEarlGrey waitForSyncInitialized:YES syncTimeout:10.0];
+
+  [ChromeEarlGrey loadURL:self.testServer->GetURL("/simple_signup_form.html")];
+  [ChromeEarlGrey waitForWebStateContainingText:"Signup form."];
+
+  // Verify that the target field is empty.
+  NSString* emptyFieldCondition =
+      [NSString stringWithFormat:@"document.getElementById('%s').value === ''",
+                                 kFormPassword];
+  [ChromeEarlGrey waitForJavaScriptCondition:emptyFieldCondition];
+
+  // Bring up the keyboard.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
+      performAction:TapWebElementWithId(kFormPassword)];
+
+  // Wait for the accessory icon to appear.
+  WaitForKeyboardToAppear();
+
+  // Tap on a 'Suggest Password...' chip.
+  [[EarlGrey selectElementWithMatcher:SuggestPasswordChip()]
+      performAction:grey_tap()];
+
+  // Confirm by tapping on the 'Use Suggested Password' button.
+  [[EarlGrey selectElementWithMatcher:UseSuggestedPasswordMatcher()]
+      performAction:grey_tap()];
+
+  // Verify that the target field is not empty.
+  NSString* filledFieldCondition =
+      [NSString stringWithFormat:@"document.getElementById('%s').value !== ''",
+                                 kFormPassword];
+  [ChromeEarlGrey waitForJavaScriptCondition:filledFieldCondition];
 }
 
 @end

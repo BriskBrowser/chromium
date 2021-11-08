@@ -7,13 +7,14 @@
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/crostini/crostini_features.h"
-#include "chrome/browser/chromeos/crostini/crostini_manager.h"
+#include "chrome/browser/ash/crostini/crostini_features.h"
+#include "chrome/browser/ash/crostini/crostini_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "ui/strings/grit/ui_strings.h"
@@ -22,7 +23,6 @@
 #include "ui/views/controls/progress_bar.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_provider.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -34,7 +34,7 @@ bool g_crostini_update_filesystem_should_show = false;
 // The time to delay before showing the upgrade container dialog (to decrease
 // flashiness).
 constexpr base::TimeDelta kDelayBeforeUpgradeContainerDialog =
-    base::TimeDelta::FromMilliseconds(400);
+    base::Milliseconds(400);
 
 constexpr char kCrostiniUpgradeContainerSourceHistogram[] =
     "Crostini.UpgradeContainerSource";
@@ -53,7 +53,7 @@ void PrepareShowCrostiniUpdateFilesystemView(
 
   base::TimeDelta delay =
       g_crostini_update_filesystem_should_skip_delay_for_testing
-          ? base::TimeDelta::FromMilliseconds(0)
+          ? base::Milliseconds(0)
           : kDelayBeforeUpgradeContainerDialog;
 
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
@@ -116,7 +116,7 @@ CrostiniUpdateFilesystemView::CrostiniUpdateFilesystemView() {
       provider->GetInsetsMetric(views::InsetsMetric::INSETS_DIALOG),
       kDialogSpacingVertical));
 
-  const base::string16 message =
+  const std::u16string message =
       l10n_util::GetStringUTF16(IDS_CROSTINI_UPGRADING_SUBTEXT);
   views::Label* message_label = new views::Label(message);
   message_label->SetMultiLine(true);

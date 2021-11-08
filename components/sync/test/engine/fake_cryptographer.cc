@@ -4,7 +4,7 @@
 
 #include "components/sync/test/engine/fake_cryptographer.h"
 
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 
@@ -42,13 +42,6 @@ void FakeCryptographer::SelectDefaultEncryptionKey(
 
 void FakeCryptographer::ClearDefaultEncryptionKey() {
   default_key_name_.clear();
-}
-
-std::unique_ptr<Cryptographer> FakeCryptographer::Clone() const {
-  auto new_cryptographer = std::make_unique<FakeCryptographer>();
-  new_cryptographer->known_key_names_ = known_key_names_;
-  new_cryptographer->default_key_name_ = default_key_name_;
-  return new_cryptographer;
 }
 
 bool FakeCryptographer::CanEncrypt() const {

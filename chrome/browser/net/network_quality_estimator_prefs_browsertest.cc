@@ -2,20 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <string>
 
 #include "base/bind.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/deferred_sequenced_task_runner.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/process/memory.h"
 #include "base/run_loop.h"
+#include "base/task/deferred_sequenced_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
+#include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/chrome_content_browser_client.h"
@@ -98,6 +101,10 @@ class TestNetworkQualityObserver
     tracker_->AddEffectiveConnectionTypeObserver(this);
   }
 
+  TestNetworkQualityObserver(const TestNetworkQualityObserver&) = delete;
+  TestNetworkQualityObserver& operator=(const TestNetworkQualityObserver&) =
+      delete;
+
   ~TestNetworkQualityObserver() override {
     tracker_->RemoveEffectiveConnectionTypeObserver(this);
   }
@@ -126,7 +133,7 @@ class TestNetworkQualityObserver
     run_loop_wait_effective_connection_type_ =
         run_loop_wait_effective_connection_type;
     run_loop_->Run();
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
   }
 
  private:
@@ -134,8 +141,6 @@ class TestNetworkQualityObserver
   std::unique_ptr<base::RunLoop> run_loop_;
   network::NetworkQualityTracker* tracker_;
   net::EffectiveConnectionType effective_connection_type_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestNetworkQualityObserver);
 };
 
 }  // namespace
@@ -153,8 +158,7 @@ class NetworkQualityEstimatorPrefsBrowserTest : public InProcessBrowserTest {
 
     mojo::ScopedAllowSyncCallForTesting allow_sync_call;
     content::StoragePartition* partition =
-        content::BrowserContext::GetDefaultStoragePartition(
-            browser()->profile());
+        browser()->profile()->GetDefaultStoragePartition();
     DCHECK(partition->GetNetworkContext());
     DCHECK(content::GetNetworkService());
 
@@ -184,6 +188,7 @@ IN_PROC_BROWSER_TEST_F(NetworkQualityEstimatorPrefsBrowserTest,
 // Verify that prefs are read at startup.
 IN_PROC_BROWSER_TEST_F(NetworkQualityEstimatorPrefsBrowserTest,
                        ReadPrefsAtStartupCustomPrefFile) {
+  base::ScopedAllowBlockingForTesting scoped_allow_blocking;
   // The check below ensures that "NQE.Prefs.ReadSize" contains at least one
   // sample. This implies that NQE was notified of the read prefs.
   RetryForHistogramUntilCountReached(&histogram_tester, "NQE.Prefs.ReadSize",
@@ -197,17 +202,24 @@ IN_PROC_BROWSER_TEST_F(NetworkQualityEstimatorPrefsBrowserTest,
       network::mojom::NetworkContextParams::New();
   context_params->cert_verifier_params = content::GetCertVerifierParams(
       cert_verifier::mojom::CertVerifierCreationParams::New());
-  context_params->http_server_properties_path =
+  context_params->file_paths = network::mojom::NetworkContextFilePaths::New();
+  context_params->file_paths->data_path =
       browser()->profile()->GetPath().Append(
-          FILE_PATH_LITERAL("Temp Network Persistent State"));
+          FILE_PATH_LITERAL("Network For Testing"));
+  context_params->file_paths->unsandboxed_data_path =
+      browser()->profile()->GetPath();
+  context_params->file_paths->http_server_properties_file_name =
+      base::FilePath(FILE_PATH_LITERAL("Temp Network Persistent State"));
+  context_params->file_paths->trigger_migration = true;
 
+  base::CreateDirectory(context_params->file_paths->data_path);
   auto state = base::MakeRefCounted<JsonPrefStore>(
-      context_params->http_server_properties_path.value());
+      context_params->file_paths->data_path.Append(
+          *context_params->file_paths->http_server_properties_file_name));
 
   base::DictionaryValue pref_value;
   base::Value value("2G");
-  pref_value.Set("network_id_foo",
-                 base::Value::ToUniquePtrValue(value.Clone()));
+  pref_value.SetKey("network_id_foo", value.Clone());
   state->SetValue("net.network_qualities",
                   base::Value::ToUniquePtrValue(pref_value.Clone()), 0);
 
@@ -217,7 +229,7 @@ IN_PROC_BROWSER_TEST_F(NetworkQualityEstimatorPrefsBrowserTest,
       base::BindOnce([](base::RunLoop* loop) { loop->Quit(); }, &loop));
   loop.Run();
 
-  content::GetNetworkService()->CreateNetworkContext(
+  content::CreateNetworkContextInNetworkService(
       network_context.InitWithNewPipeAndPassReceiver(),
       std::move(context_params));
 

@@ -14,6 +14,7 @@
 #include "ash/wm/window_util.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/screen.h"
@@ -49,6 +50,10 @@ class SourceWindowAnimationObserver : public ui::ImplicitAnimationObserver,
     source_window_->AddObserver(this);
     dragged_window_->AddObserver(this);
   }
+
+  SourceWindowAnimationObserver(const SourceWindowAnimationObserver&) = delete;
+  SourceWindowAnimationObserver& operator=(
+      const SourceWindowAnimationObserver&) = delete;
 
   ~SourceWindowAnimationObserver() override { StopObserving(); }
 
@@ -94,8 +99,6 @@ class SourceWindowAnimationObserver : public ui::ImplicitAnimationObserver,
 
   aura::Window* source_window_;
   aura::Window* dragged_window_;
-
-  DISALLOW_COPY_AND_ASSIGN(SourceWindowAnimationObserver);
 };
 
 }  // namespace

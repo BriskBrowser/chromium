@@ -6,11 +6,13 @@
 
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/federated_learning/features/features.h"
 #include "components/history/content/browser/history_context_helper.h"
 #include "components/history/core/browser/history_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom.h"
 
 namespace federated_learning {
 
@@ -46,14 +48,16 @@ FlocEligibilityObserver::OnCommit(
 
   // If the IP was not publicly routable, the navigation history is not eligible
   // for floc. We can stop observing now.
-  if (!navigation_handle->GetSocketAddress().address().IsPubliclyRoutable())
+  if (!navigation_handle->GetSocketAddress().address().IsPubliclyRoutable() &&
+      !base::FeatureList::IsEnabled(kFlocBypassIPIsPubliclyRoutableCheck)) {
     return ObservePolicy::STOP_OBSERVING;
+  }
 
   // If the interest-cohort permissions policy in the main document disallows
   // the floc inclusion, the navigation history is not eligible for floc. We can
   // stop observing now.
   if (!navigation_handle->GetRenderFrameHost()->IsFeatureEnabled(
-          blink::mojom::FeaturePolicyFeature::kInterestCohort)) {
+          blink::mojom::PermissionsPolicyFeature::kInterestCohort)) {
     return ObservePolicy::STOP_OBSERVING;
   }
 
@@ -64,6 +68,11 @@ FlocEligibilityObserver::OnCommit(
 }
 
 void FlocEligibilityObserver::OnAdResource() {
+  if (!base::FeatureList::IsEnabled(
+          kFlocPagesWithAdResourcesDefaultIncludedInFlocComputation)) {
+    return;
+  }
+
   OnOptInSignalObserved();
 }
 
@@ -72,7 +81,8 @@ void FlocEligibilityObserver::OnInterestCohortApiUsed() {
 }
 
 FlocEligibilityObserver::FlocEligibilityObserver(content::RenderFrameHost* rfh)
-    : web_contents_(content::WebContents::FromRenderFrameHost(rfh)) {}
+    : content::DocumentUserData<FlocEligibilityObserver>(rfh),
+      web_contents_(content::WebContents::FromRenderFrameHost(rfh)) {}
 
 void FlocEligibilityObserver::OnOptInSignalObserved() {
   if (!eligible_commit_ || observed_opt_in_signal_)
@@ -88,6 +98,6 @@ void FlocEligibilityObserver::OnOptInSignalObserved() {
   observed_opt_in_signal_ = true;
 }
 
-RENDER_DOCUMENT_HOST_USER_DATA_KEY_IMPL(FlocEligibilityObserver)
+DOCUMENT_USER_DATA_KEY_IMPL(FlocEligibilityObserver);
 
 }  // namespace federated_learning

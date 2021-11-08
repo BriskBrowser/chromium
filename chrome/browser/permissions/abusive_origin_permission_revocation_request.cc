@@ -16,8 +16,8 @@
 #include "components/permissions/permission_uma_util.h"
 #include "components/permissions/permissions_client.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/core/browser/db/database_manager.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
-#include "components/safe_browsing/core/db/database_manager.h"
 
 namespace {
 constexpr char kExcludedKey[] = "exempted";
@@ -73,7 +73,7 @@ void SetOriginStatus(Profile* profile,
       ->GetSettingsMap(profile)
       ->SetWebsiteSettingDefaultScope(
           origin, GURL(), ContentSettingsType::PERMISSION_AUTOREVOCATION_DATA,
-          base::WrapUnique(dict.DeepCopy()));
+          base::Value::ToUniquePtrValue(dict.Clone()));
 }
 
 void RevokePermission(const GURL& origin, Profile* profile) {

@@ -17,11 +17,11 @@ class CrashesUI : public content::WebUIController {
  public:
   explicit CrashesUI(content::WebUI* web_ui);
 
-  static base::RefCountedMemory* GetFaviconResourceBytes(
-      ui::ScaleFactor scale_factor);
+  CrashesUI(const CrashesUI&) = delete;
+  CrashesUI& operator=(const CrashesUI&) = delete;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(CrashesUI);
+  static base::RefCountedMemory* GetFaviconResourceBytes(
+      ui::ResourceScaleFactor scale_factor);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CRASHES_UI_H_

@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/min_max_sizes.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
+#include "third_party/blink/renderer/core/layout/ng/list/layout_ng_list_item.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_cell.h"
@@ -76,6 +77,10 @@ bool NGLayoutInputNode::IsSliderThumb() const {
   return IsBlock() && blink::IsSliderThumb(GetDOMNode());
 }
 
+bool NGLayoutInputNode::IsSvgText() const {
+  return box_ && box_->IsNGSVGText();
+}
+
 bool NGLayoutInputNode::IsEmptyTableSection() const {
   return box_->IsTableSection() &&
          To<LayoutNGTableSection>(box_.Get())->IsEmpty();
@@ -100,18 +105,15 @@ bool NGLayoutInputNode::IsTextControlPlaceholder() const {
   return IsBlock() && blink::IsTextControlPlaceholder(GetDOMNode());
 }
 
-MinMaxSizesResult NGLayoutInputNode::ComputeMinMaxSizes(
-    WritingMode writing_mode,
-    const MinMaxSizesInput& input,
-    const NGConstraintSpace* space) const {
-  if (auto* inline_node = DynamicTo<NGInlineNode>(this))
-    return inline_node->ComputeMinMaxSizes(writing_mode, input, space);
-  return To<NGBlockNode>(*this).ComputeMinMaxSizes(writing_mode, input, space);
+NGBlockNode NGLayoutInputNode::ListMarkerBlockNodeIfListItem() const {
+  if (auto* list_item = DynamicTo<LayoutNGListItem>(box_.Get()))
+    return NGBlockNode(DynamicTo<LayoutBox>(list_item->Marker()));
+  return NGBlockNode(nullptr);
 }
 
 void NGLayoutInputNode::IntrinsicSize(
-    base::Optional<LayoutUnit>* computed_inline_size,
-    base::Optional<LayoutUnit>* computed_block_size) const {
+    absl::optional<LayoutUnit>* computed_inline_size,
+    absl::optional<LayoutUnit>* computed_block_size) const {
   DCHECK(IsReplaced());
 
   GetOverrideIntrinsicSize(computed_inline_size, computed_block_size);
@@ -123,9 +125,9 @@ void NGLayoutInputNode::IntrinsicSize(
   To<LayoutReplaced>(box_.Get())
       ->ComputeIntrinsicSizingInfo(legacy_sizing_info);
   if (!*computed_inline_size && legacy_sizing_info.has_width)
-    *computed_inline_size = LayoutUnit(legacy_sizing_info.size.Width());
+    *computed_inline_size = LayoutUnit(legacy_sizing_info.size.width());
   if (!*computed_block_size && legacy_sizing_info.has_height)
-    *computed_block_size = LayoutUnit(legacy_sizing_info.size.Height());
+    *computed_block_size = LayoutUnit(legacy_sizing_info.size.height());
 }
 
 NGLayoutInputNode NGLayoutInputNode::NextSibling() const {
@@ -148,6 +150,16 @@ String NGLayoutInputNode::ToString() const {
 
 #if DCHECK_IS_ON()
 void NGLayoutInputNode::ShowNodeTree() const {
+  if (getenv("RUNNING_UNDER_RR")) {
+    // Printing timestamps requires an IPC to get the local time, which
+    // does not work in an rr replay session. Just disable timestamp printing
+    // globally, since we don't need them. Affecting global state isn't a
+    // problem because invoking this from a rr session creates a temporary
+    // program environment that will be destroyed as soon as the invocation
+    // completes.
+    logging::SetLogItems(true, true, false, false);
+  }
+
   StringBuilder string_builder;
   string_builder.Append(".:: LayoutNG Node Tree ::.\n");
   AppendNodeToString(*this, &string_builder);
@@ -156,8 +168,8 @@ void NGLayoutInputNode::ShowNodeTree() const {
 #endif
 
 void NGLayoutInputNode::GetOverrideIntrinsicSize(
-    base::Optional<LayoutUnit>* computed_inline_size,
-    base::Optional<LayoutUnit>* computed_block_size) const {
+    absl::optional<LayoutUnit>* computed_inline_size,
+    absl::optional<LayoutUnit>* computed_block_size) const {
   DCHECK(IsReplaced());
 
   LayoutUnit override_inline_size = OverrideIntrinsicContentInlineSize();
@@ -188,3 +200,11 @@ void NGLayoutInputNode::GetOverrideIntrinsicSize(
 }
 
 }  // namespace blink
+
+#if DCHECK_IS_ON()
+
+CORE_EXPORT void ShowLayoutTree(const blink::NGLayoutInputNode& node) {
+  ShowLayoutTree(node.GetLayoutBox());
+}
+
+#endif  // DCHECK_IS_ON()

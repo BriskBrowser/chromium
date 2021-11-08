@@ -4,12 +4,15 @@
 
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_utils.h"
 
+#include <limits>
 #include <string>
 #include <tuple>
 
 #include "base/files/file_path.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/enterprise/connectors/common.h"
+#include "components/crash/core/common/crash_buildflags.h"
+#include "components/crash/core/common/crash_key.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace safe_browsing {
@@ -30,9 +33,9 @@ constexpr BinaryUploadService::Result kAllBinaryUploadServiceResults[]{
 
 constexpr int64_t kTotalBytes = 1000;
 
-constexpr base::TimeDelta kDuration = base::TimeDelta::FromSeconds(10);
+constexpr base::TimeDelta kDuration = base::Seconds(10);
 
-constexpr base::TimeDelta kInvalidDuration = base::TimeDelta::FromSeconds(0);
+constexpr base::TimeDelta kInvalidDuration = base::Seconds(0);
 
 }  // namespace
 
@@ -83,7 +86,7 @@ TEST_P(DeepScanningUtilsUMATest, SuccessfulScanVerdicts) {
   RecordDeepScanMetrics(access_point(), kDuration, kTotalBytes, result(),
                         SimpleContentAnalysisResponseForTesting(
                             /*dlp_success*/ true,
-                            /*malware_success*/ base::nullopt));
+                            /*malware_success*/ absl::nullopt));
   for (const std::string& verdict : {"malware", "uws", "safe"}) {
     enterprise_connectors::ContentAnalysisResponse response;
     auto* malware_result = response.add_results();
@@ -231,7 +234,7 @@ TEST_P(DeepScanningUtilsUMATest, InvalidDuration) {
       histograms().GetTotalCountsForPrefix("SafeBrowsing.DeepScan.").size());
 }
 
-class DeepScanningUtilsFileTypeSupportedTest : public testing::Test {
+class DeepScanningUtilsDlpFileSupportedTest : public testing::Test {
  protected:
   std::vector<base::FilePath::StringType> UnsupportedDlpFileTypes() {
     return {FILE_PATH_LITERAL(".these"), FILE_PATH_LITERAL(".types"),
@@ -239,12 +242,16 @@ class DeepScanningUtilsFileTypeSupportedTest : public testing::Test {
             FILE_PATH_LITERAL(".supported")};
   }
 
+  std::vector<std::string> UnsupportedDlpMimeTypes() {
+    return {"image/png", "video/webm", "audio/wav", "i/made", "this/up", "foo"};
+  }
+
   base::FilePath FilePath(const base::FilePath::StringType& type) {
     return base::FilePath(FILE_PATH_LITERAL("foo") + type);
   }
 };
 
-TEST_F(DeepScanningUtilsFileTypeSupportedTest, DLP) {
+TEST_F(DeepScanningUtilsDlpFileSupportedTest, FileExtension) {
   // With a DLP-only scan, only the types returned by SupportedDlpFileTypes()
   // will be supported, and other types will fail.
   for (const base::FilePath::StringType& type : SupportedDlpFileTypes()) {
@@ -254,5 +261,84 @@ TEST_F(DeepScanningUtilsFileTypeSupportedTest, DLP) {
     EXPECT_FALSE(FileTypeSupportedForDlp(FilePath(type)));
   }
 }
+
+TEST_F(DeepScanningUtilsDlpFileSupportedTest, MimeType) {
+  for (const std::string& type : SupportedDlpMimeTypes()) {
+    EXPECT_TRUE(MimeTypeSupportedForDlp(type));
+  }
+  for (const std::string& type : UnsupportedDlpMimeTypes()) {
+    EXPECT_FALSE(MimeTypeSupportedForDlp(type));
+  }
+}
+
+#if !BUILDFLAG(USE_CRASH_KEY_STUBS)
+class DeepScanningUtilsCrashKeysTest : public testing::Test {
+ public:
+  void SetUp() override {
+    crash_reporter::ResetCrashKeysForTesting();
+    crash_reporter::InitializeCrashKeysForTesting();
+  }
+
+  void TearDown() override { crash_reporter::ResetCrashKeysForTesting(); }
+};
+
+TEST_F(DeepScanningUtilsCrashKeysTest, SmallModifications) {
+  // The key implicitly starts at 0.
+  IncrementCrashKey(ScanningCrashKey::PENDING_FILE_DOWNLOADS, 1);
+  EXPECT_EQ("1",
+            crash_reporter::GetCrashKeyValue("pending-file-download-scans"));
+
+  IncrementCrashKey(ScanningCrashKey::PENDING_FILE_DOWNLOADS, 1);
+  EXPECT_EQ("2",
+            crash_reporter::GetCrashKeyValue("pending-file-download-scans"));
+
+  DecrementCrashKey(ScanningCrashKey::PENDING_FILE_DOWNLOADS, 1);
+  EXPECT_EQ("1",
+            crash_reporter::GetCrashKeyValue("pending-file-download-scans"));
+
+  DecrementCrashKey(ScanningCrashKey::PENDING_FILE_DOWNLOADS, 1);
+  EXPECT_TRUE(
+      crash_reporter::GetCrashKeyValue("pending-file-download-scans").empty());
+}
+
+TEST_F(DeepScanningUtilsCrashKeysTest, LargeModifications) {
+  // The key implicitly starts at 0.
+  IncrementCrashKey(ScanningCrashKey::PENDING_FILE_UPLOADS, 100);
+  EXPECT_EQ("100",
+            crash_reporter::GetCrashKeyValue("pending-file-upload-scans"));
+
+  IncrementCrashKey(ScanningCrashKey::PENDING_FILE_UPLOADS, 100);
+  EXPECT_EQ("200",
+            crash_reporter::GetCrashKeyValue("pending-file-upload-scans"));
+
+  DecrementCrashKey(ScanningCrashKey::PENDING_FILE_UPLOADS, 100);
+  EXPECT_EQ("100",
+            crash_reporter::GetCrashKeyValue("pending-file-upload-scans"));
+
+  DecrementCrashKey(ScanningCrashKey::PENDING_FILE_UPLOADS, 100);
+  EXPECT_TRUE(
+      crash_reporter::GetCrashKeyValue("pending-file-upload-scans").empty());
+}
+
+TEST_F(DeepScanningUtilsCrashKeysTest, InvalidModifications) {
+  // The crash key value cannot be negative.
+  DecrementCrashKey(ScanningCrashKey::PENDING_TEXT_UPLOADS, 1);
+  EXPECT_TRUE(
+      crash_reporter::GetCrashKeyValue("pending-text-upload-scans").empty());
+  DecrementCrashKey(ScanningCrashKey::PENDING_TEXT_UPLOADS, 100);
+  EXPECT_TRUE(
+      crash_reporter::GetCrashKeyValue("pending-text-upload-scans").empty());
+
+  // The crash key value is restricted to 6 digits. If a modification would
+  // exceed it, it is clamped so crashes will indicate that the key was set at a
+  // very high value.
+  IncrementCrashKey(ScanningCrashKey::PENDING_TEXT_UPLOADS, 123456789);
+  EXPECT_EQ("999999",
+            crash_reporter::GetCrashKeyValue("pending-text-upload-scans"));
+  IncrementCrashKey(ScanningCrashKey::PENDING_TEXT_UPLOADS, 123456789);
+  EXPECT_EQ("999999",
+            crash_reporter::GetCrashKeyValue("pending-text-upload-scans"));
+}
+#endif  // !BUILDFLAG(USE_CRASH_KEY_STUBS)
 
 }  // namespace safe_browsing

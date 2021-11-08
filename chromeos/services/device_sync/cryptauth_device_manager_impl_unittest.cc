@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/base64url.h"
+#include "base/containers/contains.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
@@ -186,8 +187,8 @@ void ExpectSyncedDevicesAndPrefAreEqual(
 
   const base::ListValue* synced_devices_pref =
       pref_service.GetList(prefs::kCryptAuthDeviceSyncUnlockKeys);
-  ASSERT_EQ(expected_devices.size(), synced_devices_pref->GetSize());
-  for (size_t i = 0; i < synced_devices_pref->GetSize(); ++i) {
+  ASSERT_EQ(expected_devices.size(), synced_devices_pref->GetList().size());
+  for (size_t i = 0; i < synced_devices_pref->GetList().size(); ++i) {
     SCOPED_TRACE(base::StringPrintf("Compare pref dictionary at index=%d",
                                     static_cast<int>(i)));
     const base::DictionaryValue* device_dictionary;
@@ -289,8 +290,8 @@ void ExpectSyncedDevicesAndPrefAreEqual(
     const base::ListValue* beacon_seeds_from_prefs;
     if (device_dictionary->GetList("beacon_seeds", &beacon_seeds_from_prefs)) {
       ASSERT_EQ(static_cast<size_t>(expected_device.beacon_seeds_size()),
-                beacon_seeds_from_prefs->GetSize());
-      for (size_t i = 0; i < beacon_seeds_from_prefs->GetSize(); i++) {
+                beacon_seeds_from_prefs->GetList().size());
+      for (size_t i = 0; i < beacon_seeds_from_prefs->GetList().size(); i++) {
         const base::DictionaryValue* seed;
         ASSERT_TRUE(beacon_seeds_from_prefs->GetDictionary(i, &seed));
 
@@ -340,14 +341,13 @@ void ExpectSyncedDevicesAndPrefAreEqual(
       std::vector<cryptauth::SoftwareFeature> supported_software_features;
       std::vector<cryptauth::SoftwareFeature> enabled_software_features;
 
-      for (const auto& it : software_features_from_prefs->DictItems()) {
-        int software_feature_state;
-        ASSERT_TRUE(it.second.GetAsInteger(&software_feature_state));
+      for (const auto it : software_features_from_prefs->DictItems()) {
+        ASSERT_TRUE(it.second.is_int());
 
         cryptauth::SoftwareFeature software_feature =
             SoftwareFeatureStringToEnum(it.first);
         switch (static_cast<multidevice::SoftwareFeatureState>(
-            software_feature_state)) {
+            it.second.GetInt())) {
           case multidevice::SoftwareFeatureState::kEnabled:
             enabled_software_features.push_back(software_feature);
             FALLTHROUGH;
@@ -400,6 +400,10 @@ class TestCryptAuthDeviceManager : public CryptAuthDeviceManagerImpl {
     SetSyncSchedulerForTest(base::WrapUnique(scoped_sync_scheduler_));
   }
 
+  TestCryptAuthDeviceManager(const TestCryptAuthDeviceManager&) = delete;
+  TestCryptAuthDeviceManager& operator=(const TestCryptAuthDeviceManager&) =
+      delete;
+
   ~TestCryptAuthDeviceManager() override {}
 
   base::WeakPtr<MockSyncScheduler> GetSyncScheduler() {
@@ -416,8 +420,6 @@ class TestCryptAuthDeviceManager : public CryptAuthDeviceManagerImpl {
   // This should be safe because the life-time this SyncScheduler will always be
   // within the life of the TestCryptAuthDeviceManager object.
   base::WeakPtrFactory<MockSyncScheduler> weak_sync_scheduler_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestCryptAuthDeviceManager);
 };
 
 }  // namespace
@@ -426,6 +428,12 @@ class DeviceSyncCryptAuthDeviceManagerImplTest
     : public testing::Test,
       public CryptAuthDeviceManager::Observer,
       public MockCryptAuthClientFactory::Observer {
+ public:
+  DeviceSyncCryptAuthDeviceManagerImplTest(
+      const DeviceSyncCryptAuthDeviceManagerImplTest&) = delete;
+  DeviceSyncCryptAuthDeviceManagerImplTest& operator=(
+      const DeviceSyncCryptAuthDeviceManagerImplTest&) = delete;
+
  protected:
   DeviceSyncCryptAuthDeviceManagerImplTest()
       : client_factory_(std::make_unique<MockCryptAuthClientFactory>(
@@ -524,9 +532,8 @@ class DeviceSyncCryptAuthDeviceManagerImplTest
     device_dictionary->SetString("device_name", device_name_b64);
     device_dictionary->SetString("bluetooth_address", bluetooth_address_b64);
     device_dictionary->SetBoolean("unlockable", kStoredUnlockable);
-    device_dictionary->Set("beacon_seeds", std::make_unique<base::ListValue>());
-    device_dictionary->Set("software_features",
-                           std::make_unique<base::DictionaryValue>());
+    device_dictionary->SetKey("beacon_seeds", base::ListValue());
+    device_dictionary->SetKey("software_features", base::DictionaryValue());
 
     {
       ListPrefUpdate update(&pref_service_,
@@ -534,8 +541,8 @@ class DeviceSyncCryptAuthDeviceManagerImplTest
       update.Get()->Append(std::move(device_dictionary));
     }
 
-    device_manager_.reset(new TestCryptAuthDeviceManager(
-        &clock_, client_factory_.get(), &gcm_manager_, &pref_service_));
+    device_manager_ = std::make_unique<TestCryptAuthDeviceManager>(
+        &clock_, client_factory_.get(), &gcm_manager_, &pref_service_);
     device_manager_->AddObserver(this);
 
     get_my_devices_response_.add_devices()->CopyFrom(devices_in_response_[0]);
@@ -617,8 +624,6 @@ class DeviceSyncCryptAuthDeviceManagerImplTest
   CryptAuthClient::GetMyDevicesCallback success_callback_;
 
   CryptAuthClient::ErrorCallback error_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceSyncCryptAuthDeviceManagerImplTest);
 };
 
 TEST_F(DeviceSyncCryptAuthDeviceManagerImplTest, RegisterPrefs) {
@@ -644,7 +649,7 @@ TEST_F(DeviceSyncCryptAuthDeviceManagerImplTest, GetSyncState) {
       .WillByDefault(Return(SyncScheduler::Strategy::AGGRESSIVE_RECOVERY));
   EXPECT_TRUE(device_manager_->IsRecoveringFromFailure());
 
-  base::TimeDelta time_to_next_sync = base::TimeDelta::FromMinutes(60);
+  base::TimeDelta time_to_next_sync = base::Minutes(60);
   ON_CALL(*sync_scheduler(), GetTimeToNextSync())
       .WillByDefault(Return(time_to_next_sync));
   EXPECT_EQ(time_to_next_sync, device_manager_->GetTimeToNextAttempt());
@@ -705,7 +710,7 @@ TEST_F(
     InitWithExistingPrefs_MigrateDeprecateBooleansFromPrefsToSoftwareFeature) {
   ListPrefUpdate update_clear(&pref_service_,
                               prefs::kCryptAuthDeviceSyncUnlockKeys);
-  update_clear.Get()->Clear();
+  update_clear.Get()->ClearList();
 
   // Simulate a deprecated device being persisted to prefs.
   auto device_dictionary = std::make_unique<base::DictionaryValue>();
@@ -716,14 +721,13 @@ TEST_F(
   device_dictionary->SetString("public_key", public_key_b64);
   device_dictionary->SetBoolean("unlock_key", true);
   device_dictionary->SetBoolean("mobile_hotspot_supported", true);
-  device_dictionary->Set("software_features",
-                         std::make_unique<base::DictionaryValue>());
+  device_dictionary->SetKey("software_features", base::DictionaryValue());
 
   ListPrefUpdate update(&pref_service_, prefs::kCryptAuthDeviceSyncUnlockKeys);
   update.Get()->Append(std::move(device_dictionary));
 
-  device_manager_.reset(new TestCryptAuthDeviceManager(
-      &clock_, client_factory_.get(), &gcm_manager_, &pref_service_));
+  device_manager_ = std::make_unique<TestCryptAuthDeviceManager>(
+      &clock_, client_factory_.get(), &gcm_manager_, &pref_service_);
   device_manager_->Start();
 
   // Ensure that the deprecated booleans are not exposed in the final
@@ -936,9 +940,9 @@ TEST_F(DeviceSyncCryptAuthDeviceManagerImplTest, SyncThreeDevices) {
 
   device_manager_->Start();
   EXPECT_EQ(1u, device_manager_->GetSyncedDevices().size());
-  EXPECT_EQ(
-      1u,
-      pref_service_.GetList(prefs::kCryptAuthDeviceSyncUnlockKeys)->GetSize());
+  EXPECT_EQ(1u, pref_service_.GetList(prefs::kCryptAuthDeviceSyncUnlockKeys)
+                    ->GetList()
+                    .size());
 
   FireSchedulerForSync(cryptauth::INVOCATION_REASON_PERIODIC);
   ASSERT_FALSE(success_callback_.is_null());
@@ -955,8 +959,8 @@ TEST_F(DeviceSyncCryptAuthDeviceManagerImplTest, SyncOnGCMPushMessage) {
   device_manager_->Start();
 
   EXPECT_CALL(*sync_scheduler(), ForceSync());
-  gcm_manager_.PushResyncMessage(base::nullopt /* session_id */,
-                                 base::nullopt /* feature_type */);
+  gcm_manager_.PushResyncMessage(absl::nullopt /* session_id */,
+                                 absl::nullopt /* feature_type */);
 
   FireSchedulerForSync(cryptauth::INVOCATION_REASON_SERVER_INITIATED);
 
@@ -973,8 +977,8 @@ TEST_F(DeviceSyncCryptAuthDeviceManagerImplTest, SyncDeviceWithNoContents) {
   device_manager_->Start();
 
   EXPECT_CALL(*sync_scheduler(), ForceSync());
-  gcm_manager_.PushResyncMessage(base::nullopt /* session_id */,
-                                 base::nullopt /* feature_type */);
+  gcm_manager_.PushResyncMessage(absl::nullopt /* session_id */,
+                                 absl::nullopt /* feature_type */);
 
   FireSchedulerForSync(cryptauth::INVOCATION_REASON_SERVER_INITIATED);
 

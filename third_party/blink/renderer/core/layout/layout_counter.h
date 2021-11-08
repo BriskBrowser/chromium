@@ -22,6 +22,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_COUNTER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_COUNTER_H_
 
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
 #include "third_party/blink/renderer/core/style/content_data.h"
 
@@ -30,7 +31,7 @@ namespace blink {
 class CounterNode;
 class PseudoElement;
 
-using CounterMap = HashMap<AtomicString, scoped_refptr<CounterNode>>;
+using CounterMap = HeapHashMap<AtomicString, Member<CounterNode>>;
 
 // LayoutCounter is used to represent the text of a counter.
 // See http://www.w3.org/TR/CSS21/generate.html#counters
@@ -50,7 +51,7 @@ using CounterMap = HashMap<AtomicString, scoped_refptr<CounterNode>>;
 //
 // Keeping the map up to date is the reason why LayoutObjects need to call into
 // LayoutCounter during their lifetime (see the static functions below).
-class LayoutCounter final : public LayoutText {
+class LayoutCounter : public LayoutText {
  public:
   LayoutCounter(PseudoElement&, const CounterContentData&);
   ~LayoutCounter() override;
@@ -93,7 +94,7 @@ class LayoutCounter final : public LayoutText {
   void Invalidate();
 
   Member<const CounterContentData> counter_;
-  CounterNode* counter_node_;
+  Member<CounterNode> counter_node_;
   Member<LayoutCounter> next_for_same_counter_;
   friend class CounterNode;
 };
@@ -109,7 +110,7 @@ struct DowncastTraits<LayoutCounter> {
 
 #if DCHECK_IS_ON()
 // Outside the blink namespace for ease of invocation from gdb.
-void showCounterLayoutTree(const blink::LayoutObject*, const char* counterName);
+void ShowCounterLayoutTree(const blink::LayoutObject*, const char* counterName);
 #endif
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_COUNTER_H_

@@ -7,17 +7,21 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/supports_user_data.h"
 #include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/policy/cloud/user_policy_signin_service_internal.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/signin/signin_features.h"
 #include "chrome/browser/ui/simple_message_box.h"
 #include "chrome/browser/ui/startup/startup_types.h"
 #include "chrome/browser/ui/webui/profile_helper.h"
@@ -47,7 +51,6 @@ namespace signin_util {
 namespace {
 
 constexpr char kSignoutSettingKey[] = "signout_setting";
-constexpr char kGuestSignedInUserDataKey[] = "guest_signin";
 
 #if defined(CAN_DELETE_PROFILE)
 // Manager that presents the profile will be deleted dialog on the first active
@@ -67,6 +70,10 @@ class DeleteProfileDialogManager : public BrowserListObserver {
       : profile_(profile),
         primary_account_email_(primary_account_email),
         delegate_(delegate) {}
+
+  DeleteProfileDialogManager(const DeleteProfileDialogManager&) = delete;
+  DeleteProfileDialogManager& operator=(const DeleteProfileDialogManager&) =
+      delete;
 
   ~DeleteProfileDialogManager() override { BrowserList::RemoveObserver(this); }
 
@@ -102,8 +109,6 @@ class DeleteProfileDialogManager : public BrowserListObserver {
   Profile* profile_;
   std::string primary_account_email_;
   Delegate* delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeleteProfileDialogManager);
 };
 #endif  // defined(CAN_DELETE_PROFILE)
 
@@ -247,7 +252,7 @@ void EnsurePrimaryAccountAllowedForProfile(Profile* profile) {
           identity_manager->GetPrimaryAccountMutator();
       primary_account_mutator->ClearPrimaryAccount(
           signin_metrics::SIGNIN_NOT_ALLOWED_ON_PROFILE_INIT,
-          signin_metrics::SignoutDelete::IGNORE_METRIC);
+          signin_metrics::SignoutDelete::kIgnoreMetric);
       break;
     }
     case UserSignoutSetting::State::kDisallowed:
@@ -270,27 +275,41 @@ void EnsurePrimaryAccountAllowedForProfile(Profile* profile) {
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
-// TODO(crbug.com/1134111): Remove GuestSignedInUserData when Ephemeral Guest
-// sign in functioncality is implemented.
-void GuestSignedInUserData::SetIsSignedIn(Profile* profile, bool is_signed_in) {
-  GuestSignedInUserData* data = GetForProfile(profile);
-  data->is_signed_in_ = is_signed_in;
-}
+#if !defined(OS_ANDROID)
+bool ProfileSeparationEnforcedByPolicy(
+    Profile* profile,
+    const std::string& intercepted_account_level_policy_value) {
+  if (!base::FeatureList::IsEnabled(kAccountPoliciesLoadedWithoutSync))
+    return false;
+  std::string current_profile_account_restriction =
+      profile->GetPrefs()->GetString(prefs::kManagedAccountsSigninRestriction);
 
-bool GuestSignedInUserData::IsSignedIn(Profile* profile) {
-  return GetForProfile(profile)->is_signed_in_;
-}
+  bool is_machine_level_policy = profile->GetPrefs()->GetBoolean(
+      prefs::kManagedAccountsSigninRestrictionScopeMachine);
 
-GuestSignedInUserData* GuestSignedInUserData::GetForProfile(Profile* profile) {
-  GuestSignedInUserData* data = static_cast<GuestSignedInUserData*>(
-      profile->GetUserData(kGuestSignedInUserDataKey));
-  if (!data) {
-    profile->SetUserData(kGuestSignedInUserDataKey,
-                         std::make_unique<GuestSignedInUserData>());
-    data = static_cast<GuestSignedInUserData*>(
-        profile->GetUserData(kGuestSignedInUserDataKey));
+  // Enforce profile separation for all new signins if any restriction is
+  // applied at a machine level.
+  if (is_machine_level_policy) {
+    return !current_profile_account_restriction.empty() &&
+           current_profile_account_restriction != "none";
   }
-  return data;
+
+  // Enforce profile separation for all new signins if "primary_account_strict"
+  // is set at the user account level.
+  return current_profile_account_restriction == "primary_account_strict" ||
+         base::StartsWith(intercepted_account_level_policy_value,
+                          "primary_account");
 }
+
+void RecordEnterpriseProfileCreationUserChoice(bool enforced_by_policy,
+                                               bool created) {
+  base::UmaHistogramBoolean(
+      enforced_by_policy
+          ? "Signin.Enterprise.WorkProfile.ProfileCreatedWithPolicySet"
+          : "Signin.Enterprise.WorkProfile.ProfileCreatedwithPolicyUnset",
+      created);
+}
+
+#endif
 
 }  // namespace signin_util

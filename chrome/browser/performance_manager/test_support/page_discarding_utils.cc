@@ -10,6 +10,7 @@
 #include "components/performance_manager/decorators/freezing_vote_decorator.h"
 #include "components/performance_manager/freezing/freezing_vote_aggregator.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
+#include "components/performance_manager/graph/graph_impl.h"
 #include "components/performance_manager/graph/page_node_impl.h"
 #include "components/performance_manager/public/decorators/page_live_state_decorator.h"
 #include "components/performance_manager/test_support/graph_test_harness.h"
@@ -20,10 +21,15 @@ namespace testing {
 LenientMockPageDiscarder::LenientMockPageDiscarder() = default;
 LenientMockPageDiscarder::~LenientMockPageDiscarder() = default;
 
-void LenientMockPageDiscarder::DiscardPageNode(
-    const PageNode* page_node,
+void LenientMockPageDiscarder::DiscardPageNodes(
+    const std::vector<const PageNode*>& page_nodes,
     base::OnceCallback<void(bool)> post_discard_cb) {
-  std::move(post_discard_cb).Run(DiscardPageNodeImpl(page_node));
+  bool result = false;
+  for (auto* node : page_nodes) {
+    if (DiscardPageNodeImpl(node))
+      result = true;
+  }
+  std::move(post_discard_cb).Run(result);
 }
 
 GraphTestHarnessWithMockDiscarder::GraphTestHarnessWithMockDiscarder() {
@@ -76,7 +82,7 @@ void MakePageNodeDiscardable(PageNodeImpl* page_node,
   page_node->OnMainFrameNavigationCommitted(false, base::TimeTicks::Now(), 42,
                                             kUrl, "text/html");
   (*page_node->main_frame_nodes().begin())->OnNavigationCommitted(kUrl, false);
-  task_env.FastForwardBy(base::TimeDelta::FromMinutes(10));
+  task_env.FastForwardBy(base::Minutes(10));
   DCHECK(policies::PageDiscardingHelper::GetFromGraph(page_node->graph())
              ->CanUrgentlyDiscardForTesting(page_node));
 }

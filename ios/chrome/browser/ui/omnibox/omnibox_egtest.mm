@@ -28,14 +28,6 @@
 #error "This file requires ARC support."
 #endif
 
-// TODO(crbug.com/1015113) The EG2 macro is breaking indexing for some reason
-// without the trailing semicolon.  For now, disable the extra semi warning
-// so Xcode indexing works for the egtest.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
-GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(OmniboxAppInterface);
-#pragma clang diagnostic pop
-
 using base::test::ios::kWaitForUIElementTimeout;
 
 namespace {
@@ -224,11 +216,9 @@ id<GREYMatcher> SearchCopiedTextButton() {
 // Tests that in compact, a share button is visible.
 // Voice search is not enabled on the bots, so the voice search button is
 // not tested here.
-- (void)testTrailingButton {
-  // TODO(crbug.com/996541) Starting in Xcode 11 beta 6, the share button does
-  // not appear (even with a delay) flakily.
-  if (@available(iOS 13, *))
-    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS13.");
+// TODO(crbug.com/996541) Starting in Xcode 11 beta 6, the share button does
+// not appear (even with a delay) flakily.
+- (void)DISABLED_testTrailingButton {
   [self openPage1];
 
   if ([ChromeEarlGrey isCompactWidth]) {
@@ -298,13 +288,6 @@ id<GREYMatcher> SearchCopiedTextButton() {
 }
 
 - (void)testFocusingOmniboxDismissesEditMenu {
-// TODO(crbug.com/1129095): Re-enable test for iOS 12 device.
-#if !TARGET_IPHONE_SIMULATOR
-  if (!base::ios::IsRunningOnIOS13OrLater()) {
-    EARL_GREY_TEST_DISABLED(@"Fails on iOS 12 devices.");
-  }
-#endif
-
   [self openPage1];
 
   // Long pressing should open edit menu.
@@ -451,6 +434,12 @@ id<GREYMatcher> SearchCopiedTextButton() {
 }
 
 - (void)testOmniboxDefocusesOnTabSwitchIncognito {
+#if !TARGET_IPHONE_SIMULATOR
+  // Test flaky, see TODO:(crbug.com/1211373).
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_DISABLED(@"Test disable on iPad device.");
+  }
+#endif
   [ChromeEarlGrey openNewIncognitoTab];
   [ChromeEarlGrey waitForIncognitoTabCount:1];
   [self openPage1];
@@ -533,6 +522,12 @@ id<GREYMatcher> SearchCopiedTextButton() {
 // it should be displayed. Select & SelectAll buttons should be hidden when the
 // omnibox is empty.
 - (void)testEmptyOmnibox {
+// TODO(crbug.com/1209342): test failing on ipad device
+#if !TARGET_IPHONE_SIMULATOR
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
+  }
+#endif
   // Focus omnibox.
   [self focusFakebox];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
@@ -628,6 +623,12 @@ id<GREYMatcher> SearchCopiedTextButton() {
 // If the selected text is the entire omnibox field, select & SelectAll button
 // should be hidden.
 - (void)testSelection {
+// TODO(crbug.com/1209342): test failing on ipad device
+#if !TARGET_IPHONE_SIMULATOR
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
+  }
+#endif
   // Focus omnibox.
   [self focusFakebox];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
@@ -678,18 +679,8 @@ id<GREYMatcher> SearchCopiedTextButton() {
 }
 
 // TODO(crbug.com/1067815): Test can't pass on devices.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testNoDefaultMatch testNoDefaultMatch
-#else
-#define MAYBE_testNoDefaultMatch DISABLED_testNoDefaultMatch
-#endif
-- (void)MAYBE_testNoDefaultMatch {
-  // TODO(crbug.com/1105869) Omnibox pasteboard suggestions are currently
-  // disabled on iOS14.
-  if (@available(iOS 14, *)) {
-    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS14.");
-  }
-
+// TODO(crbug.com/1253345) Re-enable this test
+- (void)DISABLED_testNoDefaultMatch {
   NSString* copiedText = @"test no default match1";
 
   // Put some text in pasteboard.
@@ -720,9 +711,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
   // Returns the popup row containing the |url| as suggestion.
   id<GREYMatcher> textYouCopiedMatch =
       grey_allOf(grey_kindOfClassName(@"OmniboxPopupRowCell"),
-                 grey_descendant(grey_accessibilityLabel(
-                     [NSString stringWithFormat:@"\"%@\"", copiedText])),
-                 nil);
+                 grey_descendant(grey_accessibilityLabel(copiedText)), nil);
   [[EarlGrey selectElementWithMatcher:textYouCopiedMatch]
       assertWithMatcher:grey_notNil()];
 }

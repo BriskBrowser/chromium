@@ -7,12 +7,14 @@
 #import <Foundation/Foundation.h>
 
 #include "base/metrics/histogram_macros.h"
+#include "components/prefs/pref_service.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/application_delegate/startup_information.h"
 #import "ios/chrome/app/application_delegate/tab_opening.h"
 #import "ios/chrome/app/application_delegate/url_opener_params.h"
 #include "ios/chrome/app/startup/chrome_app_startup_parameters.h"
 #import "ios/chrome/browser/chrome_url_util.h"
+#import "ios/chrome/browser/policy/policy_util.h"
 #import "ios/chrome/browser/ui/main/connection_information.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
 #include "url/gurl.h"
@@ -35,7 +37,9 @@ const char* const kUMAMobileSessionStartFromAppsHistogram =
         applicationActive:(BOOL)applicationActive
                 tabOpener:(id<TabOpening>)tabOpener
     connectionInformation:(id<ConnectionInformation>)connectionInformation
-       startupInformation:(id<StartupInformation>)startupInformation {
+       startupInformation:(id<StartupInformation>)startupInformation
+              prefService:(PrefService*)prefService
+                initStage:(InitStage)initStage {
   NSURL* URL = options.URL;
   NSString* sourceApplication = options.sourceApplication;
 
@@ -43,12 +47,18 @@ const char* const kUMAMobileSessionStartFromAppsHistogram =
       newChromeAppStartupParametersWithURL:URL
                      fromSourceApplication:sourceApplication];
 
+  if (IsIncognitoModeDisabled(prefService)) {
+    params.launchInIncognito = NO;
+  } else if (IsIncognitoModeForced(prefService)) {
+    params.launchInIncognito = YES;
+  }
+
   MobileSessionCallerApp callerApp = [params callerApp];
 
   UMA_HISTOGRAM_ENUMERATION(kUMAMobileSessionStartFromAppsHistogram, callerApp,
                             MOBILE_SESSION_CALLER_APP_COUNT);
 
-  if (startupInformation.isPresentingFirstRunUI) {
+  if (initStage == InitStageFirstRun) {
     UMA_HISTOGRAM_ENUMERATION("FirstRun.LaunchSource", [params launchSource],
                               first_run::LAUNCH_SIZE);
   } else if (applicationActive) {
@@ -115,18 +125,20 @@ const char* const kUMAMobileSessionStartFromAppsHistogram =
                   tabOpener:(id<TabOpening>)tabOpener
       connectionInformation:(id<ConnectionInformation>)connectionInformation
          startupInformation:(id<StartupInformation>)startupInformation
-                   appState:(AppState*)appState {
+                   appState:(AppState*)appState
+                prefService:(PrefService*)prefService {
   if (options.URL) {
     // This method is always called when the SceneState transitions to
     // SceneActivationLevelForegroundActive, and before the handling of
     // startupInformation is done.
     // Pass |NO| as active to avoid double processing.
-    BOOL openURLResult = [URLOpener openURL:options
-                          applicationActive:NO
-                                  tabOpener:tabOpener
-                      connectionInformation:connectionInformation
-                         startupInformation:startupInformation];
-    [appState launchFromURLHandled:openURLResult];
+    [URLOpener openURL:options
+            applicationActive:NO
+                    tabOpener:tabOpener
+        connectionInformation:connectionInformation
+           startupInformation:startupInformation
+                  prefService:prefService
+                    initStage:appState.initStage];
   }
 }
 

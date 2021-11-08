@@ -12,12 +12,13 @@
 #include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "build/build_config.h"
 #include "components/viz/service/display/output_surface.h"
+#include "components/viz/service/display/output_surface_frame.h"
 #include "components/viz/service/display/overlay_processor_interface.h"
 #include "components/viz/service/display/skia_output_surface.h"
 #include "gpu/command_buffer/common/swap_buffers_complete_params.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/src/gpu/GrSemaphore.h"
 #include "ui/gfx/swap_result.h"
@@ -57,6 +58,10 @@ class SkiaOutputDevice {
     ScopedPaint(std::vector<GrBackendSemaphore> end_semaphores,
                 SkiaOutputDevice* device,
                 SkSurface* sk_surface);
+
+    ScopedPaint(const ScopedPaint&) = delete;
+    ScopedPaint& operator=(const ScopedPaint&) = delete;
+
     ~ScopedPaint();
 
     // This can be null.
@@ -81,26 +86,32 @@ class SkiaOutputDevice {
     SkiaOutputDevice* const device_;
     // Null when using vulkan secondary command buffer.
     SkSurface* const sk_surface_;
-
-    DISALLOW_COPY_AND_ASSIGN(ScopedPaint);
   };
 
   using BufferPresentedCallback =
       base::OnceCallback<void(const gfx::PresentationFeedback& feedback)>;
   using DidSwapBufferCompleteCallback =
       base::RepeatingCallback<void(gpu::SwapBuffersCompleteParams,
-                                   const gfx::Size& pixel_size)>;
+                                   const gfx::Size& pixel_size,
+                                   gfx::GpuFenceHandle release_fence)>;
   SkiaOutputDevice(
       GrDirectContext* gr_context,
       gpu::MemoryTracker* memory_tracker,
       DidSwapBufferCompleteCallback did_swap_buffer_complete_callback);
+
+  SkiaOutputDevice(const SkiaOutputDevice&) = delete;
+  SkiaOutputDevice& operator=(const SkiaOutputDevice&) = delete;
+
   virtual ~SkiaOutputDevice();
 
   // Begins a paint scope. The base implementation fails when the SkSurface
   // cannot be initialized, but devices that don't draw to a SkSurface (i.e
   // |SkiaOutputDeviceVulkanSecondaryCB|) can override this to bypass the
   // check.
-  virtual std::unique_ptr<SkiaOutputDevice::ScopedPaint> BeginScopedPaint();
+  // `allocate_frame_buffer` indicates a new frame buffer should be allocated
+  // for this paint. Is set only when `UseDynamicFrameBufferAllocation` is set.
+  virtual std::unique_ptr<SkiaOutputDevice::ScopedPaint> BeginScopedPaint(
+      bool allocate_frame_buffer);
 
   // Changes the size of draw surface and invalidates it's contents.
   virtual bool Reshape(const gfx::Size& size,
@@ -117,12 +128,16 @@ class SkiaOutputDevice {
 
   // Presents the back buffer.
   virtual void SwapBuffers(BufferPresentedCallback feedback,
-                           std::vector<ui::LatencyInfo> latency_info) = 0;
+                           OutputSurfaceFrame frame) = 0;
   virtual void PostSubBuffer(const gfx::Rect& rect,
                              BufferPresentedCallback feedback,
-                             std::vector<ui::LatencyInfo> latency_info);
+                             OutputSurfaceFrame frame);
   virtual void CommitOverlayPlanes(BufferPresentedCallback feedback,
-                                   std::vector<ui::LatencyInfo> latency_info);
+                                   OutputSurfaceFrame frame);
+
+  // Release one frame buffer. Only called if `UseDynamicFrameBufferAllocation`
+  // is true.
+  virtual void ReleaseOneFrameBuffer();
 
   // Set the rectangle that will be drawn into on the surface.
   virtual bool SetDrawRectangle(const gfx::Rect& draw_rectangle);
@@ -140,7 +155,7 @@ class SkiaOutputDevice {
   // primary plane will be on screen when SwapBuffers() or PostSubBuffer() is
   // called.
   virtual void SchedulePrimaryPlane(
-      const base::Optional<
+      const absl::optional<
           OverlayProcessorInterface::OutputSurfaceOverlayPlane>& plane);
 
   // Schedule overlays which will be on screen when SwapBuffers() or
@@ -157,9 +172,18 @@ class SkiaOutputDevice {
   virtual void EnsureBackbuffer();
   virtual void DiscardBackbuffer();
 
+  // Acknowledges a SwapBuffers request without actually attempting to swap.
+  // This should be called when the GPU thread decides to skip a swap that was
+  // invoked by the viz thread to ensure that we still run the relevant metrics
+  // bookkeeping.
+  virtual void SwapBuffersSkipped(BufferPresentedCallback feedback,
+                                  OutputSurfaceFrame frame);
+
   bool is_emulated_rgbx() const { return is_emulated_rgbx_; }
 
   void SetDrawTimings(base::TimeTicks submitted, base::TimeTicks started);
+
+  void SetDependencyTimings(base::TimeTicks task_ready);
 
  protected:
   // Only valid between StartSwapBuffers and FinishSwapBuffers.
@@ -168,12 +192,14 @@ class SkiaOutputDevice {
     SwapInfo(uint64_t swap_id,
              BufferPresentedCallback feedback,
              base::TimeTicks viz_scheduled_draw,
-             base::TimeTicks gpu_started_draw);
+             base::TimeTicks gpu_started_draw,
+             base::TimeTicks task_ready);
     SwapInfo(SwapInfo&& other);
     ~SwapInfo();
+    uint64_t SwapId();
     const gpu::SwapBuffersCompleteParams& Complete(
         gfx::SwapCompletionResult result,
-        const base::Optional<gfx::Rect>& damage_area,
+        const absl::optional<gfx::Rect>& damage_area,
         std::vector<gpu::Mailbox> released_overlays,
         const gpu::Mailbox& primary_plane_mailbox);
     void CallFeedback();
@@ -185,6 +211,7 @@ class SkiaOutputDevice {
 
   // Begin paint the back buffer.
   virtual SkSurface* BeginPaint(
+      bool allocate_frame_buffer,
       std::vector<GrBackendSemaphore>* end_semaphores) = 0;
 
   // End paint the back buffer.
@@ -213,8 +240,8 @@ class SkiaOutputDevice {
   void FinishSwapBuffers(
       gfx::SwapCompletionResult result,
       const gfx::Size& size,
-      std::vector<ui::LatencyInfo> latency_info,
-      const base::Optional<gfx::Rect>& damage_area = base::nullopt,
+      OutputSurfaceFrame frame,
+      const absl::optional<gfx::Rect>& damage_area = absl::nullopt,
       std::vector<gpu::Mailbox> released_overlays = {},
       const gpu::Mailbox& primary_plane_mailbox = gpu::Mailbox());
 
@@ -228,6 +255,7 @@ class SkiaOutputDevice {
   base::queue<SwapInfo> pending_swaps_;
   base::TimeTicks viz_scheduled_draw_;
   base::TimeTicks gpu_started_draw_;
+  base::TimeTicks gpu_task_ready_;
 
   // RGBX format is emulated with RGBA.
   bool is_emulated_rgbx_ = false;
@@ -238,8 +266,8 @@ class SkiaOutputDevice {
   std::unique_ptr<ui::LatencyTracker> latency_tracker_;
   // task runner for latency tracker.
   scoped_refptr<base::SequencedTaskRunner> latency_tracker_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(SkiaOutputDevice);
+  // A mapping from skipped swap ID to its corresponding OutputSurfaceFrame.
+  base::flat_map<uint64_t, OutputSurfaceFrame> skipped_swap_info_;
 };
 
 }  // namespace viz

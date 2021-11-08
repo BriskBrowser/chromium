@@ -17,11 +17,20 @@
     outline: none;
   }
 
-  #input-row {
+  #inputRow {
     align-items: center;
     box-sizing: border-box;
     display: flex;
     height: 48px;
+    width: 100%;
+  }
+
+  #noResults {
+    border-top: 1px #aaa;
+    box-sizing: border-box;
+    font-weight: bold;
+    height: 48px;
+    padding: 1em;
     width: 100%;
   }
 
@@ -47,16 +56,26 @@
     --iron-icon-fill-color: #999;
   }
 </style>
-<div id="input-row">
+<div id="inputRow" aria-owns="options"
+    aria-expanded="[[computeExpanded_(options_)]]" role="combobox" >
   <iron-icon icon="cr:search"></iron-icon>
   <template is="dom-if" if="[[computeShowChip_(promptText_)]]">
     <div class="chip">[[promptText_]]</div>
   </template>
   <input id="input" type="text" on-input="onInput_"
-      on-keydown="onKeydown_" autofocus></input>
+      on-keydown="onKeydown_" aria-autocomplete="list" aria-controls="options"
+      placeholder="$i18n{placeholder}"></input>
 </div>
-<template id="options" is="dom-repeat" on-dom-change="onDomChange_"
-      items="[[options_]]">
-  <commander-option class$="[[getOptionClass_(index, focusedIndex_)]]"
-        model="[[item]]" on-click="onOptionClick_"></commander-option>
+<div id="options" role="listbox">
+<template is="dom-repeat" on-dom-change="onDomChange_" items="[[options_]]">
+  <commander-option
+      aria-selected="[[computeAriaSelected_(index, focusedIndex_)]]"
+      role="option" id="[[getOptionId_(index)]]"
+      class$="[[getOptionClass_(index, focusedIndex_)]]"
+      model="[[item]]" on-click="onOptionClick_"></commander-option>
 </template>
+<template is="dom-if" if="[[showNoResults_]]"
+    on-dom-change="onDomChange_">
+  <div id="noResults">$i18n{noResults}</div>
+</template>
+</div>

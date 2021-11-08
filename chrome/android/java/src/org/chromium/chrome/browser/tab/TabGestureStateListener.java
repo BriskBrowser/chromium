@@ -43,6 +43,8 @@ public final class TabGestureStateListener extends TabWebContentsUserData {
     public void initWebContents(WebContents webContents) {
         GestureListenerManager manager = GestureListenerManager.fromWebContents(webContents);
         mGestureListener = new GestureStateListener() {
+            private int mLastScrollOffsetY;
+
             @Override
             public void onFlingStartGesture(int scrollOffsetY, int scrollExtentY) {
                 onScrollingStateChanged();
@@ -56,11 +58,17 @@ public final class TabGestureStateListener extends TabWebContentsUserData {
             @Override
             public void onScrollStarted(int scrollOffsetY, int scrollExtentY) {
                 onScrollingStateChanged();
+                mLastScrollOffsetY = scrollOffsetY;
             }
 
             @Override
             public void onScrollEnded(int scrollOffsetY, int scrollExtentY) {
                 onScrollingStateChanged();
+                RewindableIterator<TabObserver> observers = ((TabImpl) mTab).getTabObservers();
+                while (observers.hasNext()) {
+                    observers.next().onContentViewScrollingEnded(
+                            mLastScrollOffsetY - scrollOffsetY);
+                }
             }
 
             private void onScrollingStateChanged() {

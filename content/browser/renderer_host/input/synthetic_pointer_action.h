@@ -24,6 +24,10 @@ class CONTENT_EXPORT SyntheticPointerAction : public SyntheticGesture {
  public:
   explicit SyntheticPointerAction(
       const SyntheticPointerActionListParams& params);
+
+  SyntheticPointerAction(const SyntheticPointerAction&) = delete;
+  SyntheticPointerAction& operator=(const SyntheticPointerAction&) = delete;
+
   ~SyntheticPointerAction() override;
 
   SyntheticGesture::Result ForwardInputEvents(
@@ -56,11 +60,9 @@ class CONTENT_EXPORT SyntheticPointerAction : public SyntheticGesture {
   // previous synthetic events when a sequence of actions are dispatched one by
   // one.
   SyntheticPointerDriver* synthetic_pointer_driver_ = nullptr;
-  SyntheticGestureParams::GestureSourceType gesture_source_type_;
+  content::mojom::GestureSourceType gesture_source_type_;
   GestureState state_;
   size_t num_actions_dispatched_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyntheticPointerAction);
 };
 
 }  // namespace content

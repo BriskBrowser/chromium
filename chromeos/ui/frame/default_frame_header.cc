@@ -11,6 +11,7 @@
 #include "chromeos/ui/frame/caption_buttons/caption_button_model.h"
 #include "chromeos/ui/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "third_party/skia/include/core/SkPath.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/rect.h"
@@ -27,7 +28,7 @@ namespace {
 
 // Duration of animation scheduled when frame color is changed.
 constexpr base::TimeDelta kFrameColorChangeAnimationDuration =
-    base::TimeDelta::FromMilliseconds(240);
+    base::Milliseconds(240);
 
 // Tiles an image into an area, rounding the top corners.
 void TileRoundRect(gfx::Canvas* canvas,

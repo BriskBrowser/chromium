@@ -1,21 +1,21 @@
 # Code Reviews
 
 Code reviews are a central part of developing high-quality code for Chromium.
-All changes must be reviewed.
+All change lists (CLs) must be reviewed.
 
 The general patch, upload, and land process is covered in more detail in the
-[contributing code](contributing.md) page. To learn about upcoming code review
-and OWNERS policy changes, see
-[Mandatory code review and OWNERS](code_review_owners.md).
+[contributing code](contributing.md) page. To learn about the code review changes
+and OWNERS policy changes launched on March 24, 2021, see
+[Mandatory Code Review and Native OWNERS](code_review_owners.md).
 
 # Code review policies
 
 Ideally the reviewer is someone who is familiar with the area of code you are
 touching. Any committer can review code, but an owner must provide a review
-for each directory you are touching. If you have doubts, look at the git blame
-for the file and the `OWNERS` files (see below).
+for each directory you are touching. If you have doubts, look at the `git blame`
+for the file and the `OWNERS` files ([more info](#owners-files)).
 
-To indicate a positive review, the reviewer provides a "Code-Review +1" in
+To indicate a positive review, the reviewer provides a `Code-Review +1` in
 Gerrit, also known as an LGTM ("Looks Good To Me"). A score of "-1" indicates
 the change should not be submitted as-is.
 
@@ -52,10 +52,10 @@ the reviewers in the `//chrome/browser/component_name/OWNERS` file will likely
 be more familiar with code in `//chrome/browser/component_name/sub_component`
 than reviewers in the higher-level `//chrome/OWNERS` file.
 
-More detail on the owners file format is provided in the "More information"
-section below.
+More detail on the owners file format is provided [here](#owners-file-details).
 
-*Tip:* The `git cl owners` command can help find owners.
+*Tip:* The `git cl owners` command can help find owners. Gerrit also provides
+this functionality in the Reviewers field of CLs.
 
 While owners must approve all patches, any committer can contribute to the
 review. In some directories the owners can be overloaded or there might be
@@ -104,7 +104,7 @@ the code is updated.
 
 ### OWNERS file details
 
-Refer to the [source code](https://chromium.googlesource.com/chromium/tools/depot_tools/+/master/owners.py)
+Refer to the [source code](https://chromium.googlesource.com/chromium/tools/depot_tools/+/main/owners.py)
 for all details on the file format.
 
 This example indicates that two people are owners, in addition to any owners
@@ -168,15 +168,54 @@ per-file *_messages*.h=file://ipc/SECURITY_OWNERS
 
 ### Owners-Override
 
-Setting the `Owners-Override` label will bypass OWNERS enforcement. Active
-sheriffs and Large Scale Changes (see below) reviewers have this power.
+Setting the `Owners-Override +1` label will bypass OWNERS enforcement. Active
+[sheriffs](sheriffs.md), Release Program Managers, 
+[Large Scale Changes](#large-scale-changes), 
+[Global Approvers](#global-approvals) reviewers, 
+[Chrome Eng Review members](https://chromium.googlesource.com/chromium/src/+/HEAD/ENG_REVIEW_OWNERS) 
+have this capability. The power to use Owners-Override should be restricted 
+as follows:
+
+  * Active sheriffs can set Owners-Override only on sheriffing CLs (e.g.,
+    revert, reland, test fix).
+  * Release Program Managers can set Owners-Override only on sheriffing CLs and
+    CLs needed for releasing (e.g., cherry-pick).
+  * Large Scale Change reviewers can set Owners-Override only on sheriffing CLs
+    and CLs about the approved Large Scale Change.
+  * Global approvers can set Owners-Override only on sheriffing CLs and
+    mechanical CLs associated with their API changes. For example,
+    //base/OWNERS can set Owners-Override on mechanical CLs associated with
+    //base/ API changes.
+  * Chrome Eng Review members can set Owners-Override on any changes to help 
+    with cases that cannot be handled by the above groups and expedite CLs
+    when LSC is too heavyweight.. However, please use one of the above groups
+    before asking Chrome Eng Review members.
+
+When you need Owners-Override on sheriffing CLs, please reach out to the
+Active Sheriffs and Release Program Managers first. If none of them is
+available, please send an email to lsc-owners-override@chromium.org for help.
+
+Note that Owners-Override by itself is not enough on your own CLs. Where this 
+matters is when you are sheriffing. For example, if you want to revert or 
+disable a test, your Owners-Override on the CL is not enough. You need 
+another committer to LGTM the CL.
 
 ## Mechanical changes
 
+### Global Approvals
+For one-off CLs, API owners of `base`, `build`, `content`, `third_party/blink`
+and `url` can `Owners-Override +1` a change to their APIs to avoid waiting for
+rubberstamp +1s from affected directories' owners. This should only be used for
+mechanical updates to the affected directories.
+
+If you are making one-off CLs that touch many directories and cannot be 
+handled by the global approvers, you can ask one of Chrome Eng Review members.
+
+### Large Scale Changes
 You can use the [Large Scale Changes](process/lsc/large_scale_changes.md)
 process to get approval to bypass OWNERS enforcement for large changes like
 refactoring, architectural changes, or other repetitive code changes across the
-whole codebase.
+whole codebase. This is used for work that span many dozen CLs.
 
 ## Documentation updates
 
@@ -193,8 +232,15 @@ activate this automation. It will scan the CL after about 1 minute and reply
 with its verdict. `Bot-Commit` votes are not sticky between patchsets and so
 only add the bot once the CL is finalized.
 
-When combined with the [`Owners-Override`](#owners_override) power discussed
-above, sheriffs can effectively revert and reland on their own.
+When combined with the [`Owners-Override`](#owners_override) power, sheriffs can
+effectively revert and reland on their own.
 
-Changes not supported by Rubber Stamper still need a +1 from another
+Rubber Stamper never provides OWNERS approval, by design. It's intended to be
+used by those who have owners in the directory modified or who are sheriffs. If
+it provided both code review and OWNERS approval, that would be an abuse vector:
+that would allow anyone who can create a revert or cherry-pick to land it
+without any other person being involved (e.g. the silent revert of security
+patches).
+
+Changes not supported by `Rubber Stamper` always need a +1 from another
 committer.

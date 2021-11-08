@@ -18,6 +18,7 @@
 
 using ::testing::_;
 using ::testing::SaveArg;
+using ::testing::Values;
 
 namespace ui {
 
@@ -32,6 +33,9 @@ ACTION_P(CloneEvent, ptr) {
 class WaylandTouchTest : public WaylandTest {
  public:
   WaylandTouchTest() {}
+
+  WaylandTouchTest(const WaylandTouchTest&) = delete;
+  WaylandTouchTest& operator=(const WaylandTouchTest&) = delete;
 
   void SetUp() override {
     WaylandTest::SetUp();
@@ -55,9 +59,6 @@ class WaylandTouchTest : public WaylandTest {
   }
 
   wl::TestTouch* touch_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WaylandTouchTest);
 };
 
 TEST_P(WaylandTouchTest, KeypressAndMotion) {
@@ -158,9 +159,11 @@ TEST_P(WaylandTouchTest, CheckTouchFocus) {
 
 INSTANTIATE_TEST_SUITE_P(XdgVersionStableTest,
                          WaylandTouchTest,
-                         ::testing::Values(kXdgShellStable));
+                         Values(wl::ServerConfig{
+                             .shell_version = wl::ShellVersion::kStable}));
 INSTANTIATE_TEST_SUITE_P(XdgVersionV6Test,
                          WaylandTouchTest,
-                         ::testing::Values(kXdgShellV6));
+                         Values(wl::ServerConfig{
+                             .shell_version = wl::ShellVersion::kV6}));
 
 }  // namespace ui

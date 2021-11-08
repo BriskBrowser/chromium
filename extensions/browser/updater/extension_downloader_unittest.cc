@@ -5,7 +5,7 @@
 #include "extensions/browser/updater/extension_downloader.h"
 
 #include "base/callback_helpers.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extensions_test.h"
@@ -46,7 +46,7 @@ class ExtensionDownloaderTest : public ExtensionsTest {
         CreateManifestFetchData(kUpdateUrl));
     ManifestFetchData::PingData zero_days(0, 0, true, 0);
     fetch->AddExtension(kTestExtensionId, "1.0", &zero_days, "", "",
-                        Manifest::Location::INTERNAL,
+                        mojom::ManifestLocation::kInternal,
                         ManifestFetchData::FetchPriority::BACKGROUND);
     return fetch;
   }

@@ -15,10 +15,6 @@
 
 class AccountId;
 
-namespace content {
-class BrowserContext;
-}
-
 namespace chromeos {
 
 class UserContext;
@@ -33,16 +29,17 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) Authenticator
  public:
   explicit Authenticator(AuthStatusConsumer* consumer);
 
+  Authenticator(const Authenticator&) = delete;
+  Authenticator& operator=(const Authenticator&) = delete;
+
   // Given externally authenticated username and password (part of
   // |user_context|), this method attempts to complete authentication process.
-  virtual void CompleteLogin(content::BrowserContext* browser_context,
-                             const UserContext& user_context) = 0;
+  virtual void CompleteLogin(const UserContext& user_context) = 0;
 
   // Given a user credentials in |user_context|,
   // this method attempts to authenticate to login.
   // Must be called on the UI thread.
-  virtual void AuthenticateToLogin(content::BrowserContext* browser_context,
-                                   const UserContext& user_context) = 0;
+  virtual void AuthenticateToLogin(const UserContext& user_context) = 0;
 
   // Initiates incognito ("browse without signing in") login.
   virtual void LoginOffTheRecord() = 0;
@@ -52,10 +49,8 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) Authenticator
 
   // Initiates login into kiosk mode account identified by |app_account_id|.
   // The |app_account_id| is a generated account id for the account.
-  // |use_guest_mount| specifies whether to force the session to use a
-  // guest mount. If this is false, we use mount a public cryptohome.
-  virtual void LoginAsKioskAccount(const AccountId& app_account_id,
-                                   bool use_guest_mount) = 0;
+  // So called Public mount is used to mount cryptohome.
+  virtual void LoginAsKioskAccount(const AccountId& app_account_id) = 0;
 
   // Initiates login into ARC kiosk mode account identified by |app_account_id|.
   // The |app_account_id| is a generated account id for the account.
@@ -86,12 +81,6 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) Authenticator
   // and create a new cryptohome.
   virtual void ResyncEncryptedData() = 0;
 
-  // BrowserContext (usually off the record) that was used to perform the last
-  // authentication process.
-  content::BrowserContext* authentication_context() {
-    return authentication_context_;
-  }
-
   // Sets consumer explicitly.
   void SetConsumer(AuthStatusConsumer* consumer);
 
@@ -99,14 +88,17 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) Authenticator
   virtual ~Authenticator();
 
   AuthStatusConsumer* consumer_;
-  content::BrowserContext* authentication_context_;
 
  private:
   friend class base::RefCountedThreadSafe<Authenticator>;
-
-  DISALLOW_COPY_AND_ASSIGN(Authenticator);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::Authenticator;
+}
 
 #endif  // CHROMEOS_LOGIN_AUTH_AUTHENTICATOR_H_

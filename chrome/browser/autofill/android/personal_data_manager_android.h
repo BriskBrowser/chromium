@@ -5,7 +5,6 @@
 #ifndef CHROME_BROWSER_AUTOFILL_ANDROID_PERSONAL_DATA_MANAGER_ANDROID_H_
 #define CHROME_BROWSER_AUTOFILL_ANDROID_PERSONAL_DATA_MANAGER_ANDROID_H_
 
-#include <string>
 #include <vector>
 
 #include "base/android/jni_weak_ref.h"
@@ -23,6 +22,10 @@ namespace autofill {
 class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
  public:
   PersonalDataManagerAndroid(JNIEnv* env, jobject obj);
+
+  PersonalDataManagerAndroid(const PersonalDataManagerAndroid&) = delete;
+  PersonalDataManagerAndroid& operator=(const PersonalDataManagerAndroid&) =
+      delete;
 
   static base::android::ScopedJavaLocalRef<jobject>
   CreateJavaCreditCardFromNative(JNIEnv* env, const CreditCard& card);
@@ -303,6 +306,11 @@ class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& unused_obj);
 
+  // Clears server profiles and cards, to be used in tests only.
+  void ClearServerDataForTesting(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& unused_obj);
+
   // These functions help address normalization.
   // --------------------
 
@@ -403,8 +411,6 @@ class PersonalDataManagerAndroid : public PersonalDataManagerObserver {
 
   // Used for subkey request.
   SubKeyRequester subkey_requester_;
-
-  DISALLOW_COPY_AND_ASSIGN(PersonalDataManagerAndroid);
 };
 
 }  // namespace autofill

@@ -22,12 +22,12 @@ import org.chromium.base.annotations.JNINamespace;
 import org.chromium.chrome.autofill_assistant.R;
 import org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiController;
 import org.chromium.chrome.browser.autofill_assistant.drawable.AssistantDrawableIcon;
-import org.chromium.chrome.browser.image_fetcher.ImageFetcher;
-import org.chromium.chrome.browser.image_fetcher.ImageFetcherConfig;
-import org.chromium.chrome.browser.image_fetcher.ImageFetcherFactory;
 import org.chromium.chrome.browser.ui.favicon.FaviconUtils;
 import org.chromium.components.browser_ui.widget.RoundedIconGenerator;
 import org.chromium.components.favicon.LargeIconBridge;
+import org.chromium.components.image_fetcher.ImageFetcher;
+import org.chromium.components.image_fetcher.ImageFetcherConfig;
+import org.chromium.components.image_fetcher.ImageFetcherFactory;
 import org.chromium.url.GURL;
 
 /** Represents a view background. */
@@ -80,7 +80,7 @@ public abstract class AssistantDrawable {
 
     @CalledByNative
     public static AssistantDrawable createFromFavicon(
-            String url, int diameterSizeInPixel, boolean forceMonogram) {
+            GURL url, int diameterSizeInPixel, boolean forceMonogram) {
         return new AssistantFaviconDrawable(url, diameterSizeInPixel, forceMonogram);
     }
 
@@ -115,8 +115,9 @@ public abstract class AssistantDrawable {
     }
 
     private static class AssistantBitmapDrawable extends AssistantDrawable {
-        private final ImageFetcher mImageFetcher = ImageFetcherFactory.createImageFetcher(
-                ImageFetcherConfig.DISK_CACHE_ONLY, AutofillAssistantUiController.getProfile());
+        private final ImageFetcher mImageFetcher =
+                ImageFetcherFactory.createImageFetcher(ImageFetcherConfig.DISK_CACHE_ONLY,
+                        AutofillAssistantUiController.getProfile().getProfileKey());
         private final String mUrl;
         private final int mWidthInPixels;
         private final int mHeightInPixels;
@@ -231,11 +232,11 @@ public abstract class AssistantDrawable {
     }
 
     private static class AssistantFaviconDrawable extends AssistantDrawable {
-        private final String mUrl;
+        private final GURL mUrl;
         private final int mDiameterSizeInPixel;
         private final Boolean mForceMonogram;
 
-        AssistantFaviconDrawable(String url, int diameterSizeInPixel, boolean forceMonogram) {
+        AssistantFaviconDrawable(GURL url, int diameterSizeInPixel, boolean forceMonogram) {
             mUrl = url;
             mDiameterSizeInPixel = diameterSizeInPixel;
             mForceMonogram = forceMonogram;
@@ -245,7 +246,7 @@ public abstract class AssistantDrawable {
         public void getDrawable(Context context, Callback<Drawable> callback) {
             final LargeIconBridge iconBridge =
                     new LargeIconBridge(AutofillAssistantUiController.getProfile());
-            iconBridge.getLargeIconForUrl(new GURL(mUrl), mDiameterSizeInPixel,
+            iconBridge.getLargeIconForUrl(mUrl, mDiameterSizeInPixel,
                     (Bitmap icon, int fallbackColor, boolean isFallbackColorDefault,
                             int iconType) -> {
                         float fontSize = mDiameterSizeInPixel * 7f / 10f;

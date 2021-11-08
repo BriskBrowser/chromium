@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EXECUTION_CONTEXT_AGENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EXECUTION_CONTEXT_AGENT_H_
 
+#include "base/dcheck_is_on.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/unguessable_token.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -62,6 +63,15 @@ class CORE_EXPORT Agent : public GarbageCollected<Agent> {
   // Only called from blink::SetIsCrossOriginIsolated.
   static void SetIsCrossOriginIsolated(bool value);
 
+  // Represents adherence to an additional set of restrictions above and beyond
+  // "cross-origin isolated".
+  //
+  // TODO(mkwst): We need a specification for these restrictions:
+  // https://crbug.com/1206150.
+  static bool IsDirectSocketEnabled();
+  // Only called from blink::SetIsDirectSocketEnabled.
+  static void SetIsDirectSocketEnabled(bool value);
+
   // Representing agent cluster's "is origin-keyed" concept:
   // https://html.spec.whatwg.org/C/#is-origin-keyed
   //
@@ -73,6 +83,11 @@ class CORE_EXPORT Agent : public GarbageCollected<Agent> {
   // URL to create an iframe, would have an origin-keyed data: URL Agent,
   // plus a site-keyed outer page Agent, both in the same process.
   bool IsOriginKeyed();
+
+  // TODO(domenic,wjmaclean): once logical cross-origin isolation is implemented
+  // and unified with origin-keyed agent clusters, then this should no longer be
+  // necessary; we can just check IsOriginKeyed().
+  bool IsExplicitlyOriginKeyed() const { return is_explicitly_origin_keyed_; }
 
   // This sets whether the agent cluster is explicitly requested to be
   // origin-keyed via the Origin-Agent-Cluster header. It can also be

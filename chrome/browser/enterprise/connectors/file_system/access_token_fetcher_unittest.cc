@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "chrome/browser/enterprise/connectors/connectors_prefs.h"
+#include "chrome/browser/enterprise/connectors/file_system/account_info_utils.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/os_crypt/os_crypt.h"
 #include "components/os_crypt/os_crypt_mocker.h"
@@ -50,8 +51,9 @@ class AccessTokenFetcherForTest : public AccessTokenFetcher {
   using AccessTokenFetcher::OnGetTokenFailure;
   using AccessTokenFetcher::OnGetTokenSuccess;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(AccessTokenFetcherForTest);
+  AccessTokenFetcherForTest(const AccessTokenFetcherForTest&) = delete;
+  AccessTokenFetcherForTest& operator=(const AccessTokenFetcherForTest&) =
+      delete;
 };
 
 class AccessTokenFetcherTest : public testing::Test {
@@ -61,14 +63,15 @@ class AccessTokenFetcherTest : public testing::Test {
         url_loader_factory_.GetSafeWeakWrapper(),  // dummy; not for unit tests.
         "box", GURL(kTokenEndpoint), "refresh token",
         "",  // use existing refresh token to get access token.
+        /*consumer_name=*/"file_system_access_token_fetcher_unittest",
         base::BindOnce(&AccessTokenFetcherTest::OnResponse,
                        factory_.GetWeakPtr()));
   }
 
-  void OnResponse(bool success,
+  void OnResponse(const GoogleServiceAuthError& status,
                   const std::string& access_token,
                   const std::string& refresh_token) {
-    fetch_success_ = success;
+    fetch_success_ = (status.state() == GoogleServiceAuthError::State::NONE);
     access_token_fetched_ = access_token;
     refresh_token_fetched_ = refresh_token;
   }
@@ -79,8 +82,7 @@ class AccessTokenFetcherTest : public testing::Test {
     OAuth2AccessTokenConsumer::TokenResponse::Builder builder;
     builder.WithAccessToken(access_token);
     builder.WithRefreshToken(refresh_token);
-    builder.WithExpirationTime(base::Time::Now() +
-                               base::TimeDelta::FromDays(1));
+    builder.WithExpirationTime(base::Time::Now() + base::Days(1));
     builder.WithIdToken("id token");
     return builder.build();
   }

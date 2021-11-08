@@ -10,7 +10,6 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_samples.h"
@@ -112,10 +111,8 @@ class CloudPolicyInvalidatorTestBase : public testing::Test {
   void StorePolicy(PolicyObject object,
                    int64_t invalidation_version,
                    bool policy_changed) {
-    StorePolicy(object,
-                invalidation_version,
-                policy_changed,
-                Now() - base::TimeDelta::FromMinutes(5));
+    StorePolicy(object, invalidation_version, policy_changed,
+                Now() - base::Minutes(5));
   }
   void StorePolicy(PolicyObject object, int64_t invalidation_version) {
     StorePolicy(object, invalidation_version, false);
@@ -240,8 +237,7 @@ CloudPolicyInvalidatorTestBase::CloudPolicyInvalidatorTestBase()
       policy_value_b_("zxcv"),
       policy_value_cur_(policy_value_a_),
       account_id_("test_account") {
-  clock_.SetNow(base::Time::UnixEpoch() +
-                base::TimeDelta::FromSeconds(987654321));
+  clock_.SetNow(base::Time::UnixEpoch() + base::Seconds(987654321));
 }
 
 void CloudPolicyInvalidatorTestBase::TearDown() {
@@ -254,9 +250,9 @@ void CloudPolicyInvalidatorTestBase::StartInvalidator(
     bool initialize,
     bool start_refresh_scheduler,
     int64_t highest_handled_invalidation_version) {
-  invalidator_.reset(new CloudPolicyInvalidator(
+  invalidator_ = std::make_unique<CloudPolicyInvalidator>(
       GetPolicyInvalidationScope(), &core_, task_runner_, &clock_,
-      highest_handled_invalidation_version, account_id_));
+      highest_handled_invalidation_version, account_id_);
   if (start_refresh_scheduler) {
     ConnectCore();
     StartRefreshScheduler();
@@ -373,8 +369,8 @@ bool CloudPolicyInvalidatorTestBase::IsUnsent(
 }
 
 bool CloudPolicyInvalidatorTestBase::CheckPolicyRefreshedWithUnknownVersion() {
-  return CheckPolicyRefreshed(base::TimeDelta::FromMinutes(
-        CloudPolicyInvalidator::kMissingPayloadDelay));
+  return CheckPolicyRefreshed(
+      base::Minutes(CloudPolicyInvalidator::kMissingPayloadDelay));
 }
 
 bool CloudPolicyInvalidatorTestBase::InvalidationsEnabled() {
@@ -426,8 +422,8 @@ CloudPolicyInvalidatorTestBase::GetPolicyInvalidationScope() const {
 
 bool CloudPolicyInvalidatorTestBase::CheckPolicyRefreshed(
     base::TimeDelta delay) {
-  base::TimeDelta max_delay = delay + base::TimeDelta::FromMilliseconds(
-      CloudPolicyInvalidator::kMaxFetchDelayMin);
+  base::TimeDelta max_delay =
+      delay + base::Milliseconds(CloudPolicyInvalidator::kMaxFetchDelayMin);
 
   if (!task_runner_->HasPendingTask())
     return false;
@@ -928,6 +924,12 @@ TEST_F(CloudPolicyInvalidatorOwnerNameTest,
 class CloudPolicyInvalidatorUserTypedTest
     : public CloudPolicyInvalidatorTestBase,
       public testing::WithParamInterface<PolicyInvalidationScope> {
+ public:
+  CloudPolicyInvalidatorUserTypedTest(
+      const CloudPolicyInvalidatorUserTypedTest&) = delete;
+  CloudPolicyInvalidatorUserTypedTest& operator=(
+      const CloudPolicyInvalidatorUserTypedTest&) = delete;
+
  protected:
   CloudPolicyInvalidatorUserTypedTest() = default;
 
@@ -942,8 +944,6 @@ class CloudPolicyInvalidatorUserTypedTest
   PolicyInvalidationScope GetPolicyInvalidationScope() const override;
 
   base::HistogramTester histogram_tester_;
-
-  DISALLOW_COPY_AND_ASSIGN(CloudPolicyInvalidatorUserTypedTest);
 };
 
 base::HistogramBase::Count CloudPolicyInvalidatorUserTypedTest::GetCount(
@@ -1020,7 +1020,7 @@ TEST_P(CloudPolicyInvalidatorUserTypedTest, RefreshMetricsNoInvalidations) {
             GetCountFcm(METRIC_POLICY_REFRESH_CHANGED_NO_INVALIDATIONS));
 
   // If the clock advances less than the grace period, invalidations are OFF.
-  AdvanceClock(base::TimeDelta::FromSeconds(1));
+  AdvanceClock(base::Seconds(1));
   StorePolicy(POLICY_OBJECT_A, 0, false /* policy_changed */);
   StorePolicy(POLICY_OBJECT_A, 0, true /* policy_changed */);
   EXPECT_EQ(2, GetCount(METRIC_POLICY_REFRESH_CHANGED_NO_INVALIDATIONS));
@@ -1028,8 +1028,7 @@ TEST_P(CloudPolicyInvalidatorUserTypedTest, RefreshMetricsNoInvalidations) {
             GetCountFcm(METRIC_POLICY_REFRESH_CHANGED_NO_INVALIDATIONS));
 
   // After the grace period elapses, invalidations are ON.
-  AdvanceClock(base::TimeDelta::FromSeconds(
-      CloudPolicyInvalidator::kInvalidationGracePeriod));
+  AdvanceClock(base::Seconds(CloudPolicyInvalidator::kInvalidationGracePeriod));
   StorePolicy(POLICY_OBJECT_A, 0, false /* policy_changed */);
   StorePolicy(POLICY_OBJECT_A, 0, true /* policy_changed */);
   EXPECT_EQ(1, GetCount(METRIC_POLICY_REFRESH_CHANGED));
@@ -1054,8 +1053,7 @@ TEST_P(CloudPolicyInvalidatorUserTypedTest, RefreshMetricsNoInvalidations) {
             GetCountFcm(METRIC_POLICY_REFRESH_CHANGED_NO_INVALIDATIONS));
 
   // After the grace period elapses, invalidations are ON.
-  AdvanceClock(base::TimeDelta::FromSeconds(
-      CloudPolicyInvalidator::kInvalidationGracePeriod));
+  AdvanceClock(base::Seconds(CloudPolicyInvalidator::kInvalidationGracePeriod));
   StorePolicy(POLICY_OBJECT_A, 0, false /* policy_changed */);
   StorePolicy(POLICY_OBJECT_A, 0, true /* policy_changed */);
 
@@ -1083,8 +1081,7 @@ TEST_P(CloudPolicyInvalidatorUserTypedTest, RefreshMetricsInvalidation) {
   // Store loads after an invalidation are not counted as invalidated.
   StartInvalidator();
   StorePolicy(POLICY_OBJECT_A);
-  AdvanceClock(base::TimeDelta::FromSeconds(
-      CloudPolicyInvalidator::kInvalidationGracePeriod));
+  AdvanceClock(base::Seconds(CloudPolicyInvalidator::kInvalidationGracePeriod));
   FireInvalidation(POLICY_OBJECT_A, V(5), "test");
   StorePolicy(POLICY_OBJECT_A, 0, false /* policy_changed */);
   StorePolicy(POLICY_OBJECT_A, 0, true /* policy_changed */);
@@ -1129,29 +1126,29 @@ TEST_P(CloudPolicyInvalidatorUserTypedTest, ExpiredInvalidations) {
   // Invalidations fired before the last fetch time (adjusted by max time delta)
   // should be ignored.
   base::Time time = Now() - (invalidation_timeouts::kMaxInvalidationTimeDelta +
-                             base::TimeDelta::FromSeconds(300));
+                             base::Seconds(300));
   invalidation::Invalidation inv =
       FireInvalidation(POLICY_OBJECT_A, GetVersion(time), "test");
   ASSERT_TRUE(IsInvalidationAcknowledged(inv));
   ASSERT_TRUE(CheckPolicyNotRefreshed());
 
-  time += base::TimeDelta::FromMinutes(5) - base::TimeDelta::FromSeconds(1);
+  time += base::Minutes(5) - base::Seconds(1);
   inv = FireInvalidation(POLICY_OBJECT_A, GetVersion(time), "test");
   ASSERT_TRUE(IsInvalidationAcknowledged(inv));
   ASSERT_TRUE(CheckPolicyNotRefreshed());
 
   // Invalidations fired after the last fetch should not be ignored.
-  time += base::TimeDelta::FromSeconds(1);
+  time += base::Seconds(1);
   inv = FireInvalidation(POLICY_OBJECT_A, GetVersion(time), "test");
   ASSERT_FALSE(IsInvalidationAcknowledged(inv));
   ASSERT_TRUE(CheckPolicyRefreshed());
 
-  time += base::TimeDelta::FromMinutes(10);
+  time += base::Minutes(10);
   inv = FireInvalidation(POLICY_OBJECT_A, GetVersion(time), "test");
   ASSERT_FALSE(IsInvalidationAcknowledged(inv));
   ASSERT_TRUE(CheckPolicyRefreshed());
 
-  time += base::TimeDelta::FromMinutes(10);
+  time += base::Minutes(10);
   inv = FireInvalidation(POLICY_OBJECT_A, GetVersion(time), "test");
   ASSERT_FALSE(IsInvalidationAcknowledged(inv));
   ASSERT_TRUE(CheckPolicyRefreshed());
@@ -1163,14 +1160,14 @@ TEST_P(CloudPolicyInvalidatorUserTypedTest, ExpiredInvalidations) {
   ASSERT_TRUE(CheckPolicyNotRefreshed());
 
   AdvanceClock(invalidation_timeouts::kUnknownVersionIgnorePeriod -
-               base::TimeDelta::FromSeconds(1));
+               base::Seconds(1));
   inv = FireUnknownVersionInvalidation(POLICY_OBJECT_A);
   ASSERT_TRUE(IsInvalidationAcknowledged(inv));
   ASSERT_TRUE(CheckPolicyNotRefreshed());
 
   // Unknown version invalidations fired past the ignore period should not be
   // ignored.
-  AdvanceClock(base::TimeDelta::FromSeconds(1));
+  AdvanceClock(base::Seconds(1));
   inv = FireUnknownVersionInvalidation(POLICY_OBJECT_A);
   ASSERT_FALSE(IsInvalidationAcknowledged(inv));
   ASSERT_TRUE(CheckPolicyRefreshedWithUnknownVersion());

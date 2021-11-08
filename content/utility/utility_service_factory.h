@@ -10,7 +10,7 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 
 namespace content {
@@ -19,13 +19,14 @@ namespace content {
 class UtilityServiceFactory {
  public:
   UtilityServiceFactory();
+
+  UtilityServiceFactory(const UtilityServiceFactory&) = delete;
+  UtilityServiceFactory& operator=(const UtilityServiceFactory&) = delete;
+
   ~UtilityServiceFactory();
 
   void RunService(const std::string& service_name,
                   mojo::ScopedMessagePipeHandle service_pipe);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(UtilityServiceFactory);
 };
 
 }  // namespace content

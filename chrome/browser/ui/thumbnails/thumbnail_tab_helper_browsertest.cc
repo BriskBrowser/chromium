@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/optional.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/resource_coordinator/session_restore_policy.h"
@@ -21,6 +20,7 @@
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/test/browser_test.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_SESSION_SERVICE)
@@ -34,7 +34,7 @@ class ThumbnailWaiter {
   ThumbnailWaiter() = default;
   ~ThumbnailWaiter() = default;
 
-  base::Optional<gfx::ImageSkia> WaitForThumbnail(ThumbnailImage* thumbnail) {
+  absl::optional<gfx::ImageSkia> WaitForThumbnail(ThumbnailImage* thumbnail) {
     std::unique_ptr<ThumbnailImage::Subscription> subscription =
         thumbnail->Subscribe();
     subscription->SetUncompressedImageCallback(base::BindRepeating(
@@ -52,7 +52,7 @@ class ThumbnailWaiter {
 
  private:
   base::RunLoop run_loop_;
-  base::Optional<gfx::ImageSkia> image_;
+  absl::optional<gfx::ImageSkia> image_;
 };
 
 }  // anonymous namespace
@@ -69,6 +69,10 @@ class ThumbnailTabHelperBrowserTest : public InProcessBrowserTest {
         base::FilePath().AppendASCII("session_history"),
         base::FilePath().AppendASCII("bot2.html"));
   }
+
+  ThumbnailTabHelperBrowserTest(const ThumbnailTabHelperBrowserTest&) = delete;
+  ThumbnailTabHelperBrowserTest& operator=(
+      const ThumbnailTabHelperBrowserTest&) = delete;
 
 #if BUILDFLAG(ENABLE_SESSION_SERVICE)
   void ConfigureTabLoader(TabLoader* tab_loader) {
@@ -114,7 +118,7 @@ class ThumbnailTabHelperBrowserTest : public InProcessBrowserTest {
   void EnsureTabLoaded(content::WebContents* tab) {
     content::NavigationController* controller = &tab->GetController();
     if (!controller->NeedsReload() && !controller->GetPendingEntry() &&
-        !controller->GetWebContents()->IsLoading())
+        !tab->IsLoading())
       return;
 
     content::WindowedNotificationObserver observer(
@@ -132,7 +136,7 @@ class ThumbnailTabHelperBrowserTest : public InProcessBrowserTest {
         << " tab at index " << tab_index << " already has data.";
 
     ThumbnailWaiter waiter;
-    const base::Optional<gfx::ImageSkia> data =
+    const absl::optional<gfx::ImageSkia> data =
         waiter.WaitForThumbnail(thumbnail.get());
     EXPECT_TRUE(thumbnail->has_data())
         << " tab at index " << tab_index << " thumbnail has no data.";
@@ -149,8 +153,6 @@ class ThumbnailTabHelperBrowserTest : public InProcessBrowserTest {
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThumbnailTabHelperBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(ThumbnailTabHelperBrowserTest,
@@ -167,10 +169,17 @@ IN_PROC_BROWSER_TEST_F(ThumbnailTabHelperBrowserTest,
 // with ENABLE_SESSION_SERVICE.
 #if BUILDFLAG(ENABLE_SESSION_SERVICE)
 
+// Flaky on Win: https://crbug.com/1211377
+#if defined(OS_WIN)
+#define MAYBE_CapturesRestoredTabWhenRequested \
+  DISABLED_CapturesRestoredTabWhenRequested
+#else
+#define MAYBE_CapturesRestoredTabWhenRequested CapturesRestoredTabWhenRequested
+#endif
 // On browser restore, some tabs may not be loaded. Requesting a
 // thumbnail for one of these tabs should trigger load and capture.
 IN_PROC_BROWSER_TEST_F(ThumbnailTabHelperBrowserTest,
-                       CapturesRestoredTabWhenRequested) {
+                       MAYBE_CapturesRestoredTabWhenRequested) {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url2_, WindowOpenDisposition::NEW_WINDOW,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_BROWSER);

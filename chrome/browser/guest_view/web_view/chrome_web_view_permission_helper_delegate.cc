@@ -37,6 +37,27 @@ void CallbackWrapper(base::OnceCallback<void(bool)> callback,
 
 }  // anonymous namespace
 
+#if BUILDFLAG(ENABLE_PLUGINS)
+// static
+void ChromeWebViewPermissionHelperDelegate::BindPluginAuthHost(
+    mojo::PendingAssociatedReceiver<chrome::mojom::PluginAuthHost> receiver,
+    content::RenderFrameHost* rfh) {
+  auto* web_contents = content::WebContents::FromRenderFrameHost(rfh);
+  if (!web_contents)
+    return;
+  auto* permission_helper =
+      extensions::WebViewPermissionHelper::FromWebContents(web_contents);
+  if (!permission_helper)
+    return;
+  WebViewPermissionHelperDelegate* delegate = permission_helper->delegate();
+  if (!delegate)
+    return;
+  auto* chrome_delegate =
+      static_cast<ChromeWebViewPermissionHelperDelegate*>(delegate);
+  chrome_delegate->plugin_auth_host_receivers_.Bind(rfh, std::move(receiver));
+}
+#endif
+
 ChromeWebViewPermissionHelperDelegate::ChromeWebViewPermissionHelperDelegate(
     WebViewPermissionHelper* web_view_permission_helper)
     : WebViewPermissionHelperDelegate(web_view_permission_helper)
@@ -53,7 +74,7 @@ ChromeWebViewPermissionHelperDelegate::~ChromeWebViewPermissionHelperDelegate()
 #if BUILDFLAG(ENABLE_PLUGINS)
 
 void ChromeWebViewPermissionHelperDelegate::BlockedUnauthorizedPlugin(
-    const base::string16& name,
+    const std::u16string& name,
     const std::string& identifier) {
   const char kPluginName[] = "name";
   const char kPluginIdentifier[] = "identifier";
@@ -131,7 +152,6 @@ void ChromeWebViewPermissionHelperDelegate::OnPointerLockPermissionResponse(
 }
 
 void ChromeWebViewPermissionHelperDelegate::RequestGeolocationPermission(
-    int bridge_id,
     const GURL& requesting_frame,
     bool user_gesture,
     base::OnceCallback<void(bool)> callback) {
@@ -145,67 +165,35 @@ void ChromeWebViewPermissionHelperDelegate::RequestGeolocationPermission(
   WebViewPermissionHelper::PermissionResponseCallback permission_callback =
       base::BindOnce(&ChromeWebViewPermissionHelperDelegate::
                          OnGeolocationPermissionResponse,
-                     weak_factory_.GetWeakPtr(), bridge_id, user_gesture,
+                     weak_factory_.GetWeakPtr(), user_gesture,
                      base::BindOnce(&CallbackWrapper, std::move(callback)));
-  int request_id = web_view_permission_helper()->RequestPermission(
+  web_view_permission_helper()->RequestPermission(
       WEB_VIEW_PERMISSION_TYPE_GEOLOCATION, request_info,
       std::move(permission_callback), false /* allowed_by_default */);
-  bridge_id_to_request_id_map_[bridge_id] = request_id;
 }
 
 void ChromeWebViewPermissionHelperDelegate::OnGeolocationPermissionResponse(
-    int bridge_id,
     bool user_gesture,
     base::OnceCallback<void(ContentSetting)> callback,
     bool allow,
     const std::string& user_input) {
   // The <webview> embedder has allowed the permission. We now need to make sure
   // that the embedder has geolocation permission.
-  RemoveBridgeID(bridge_id);
-
   if (!allow || !web_view_guest()->attached()) {
     std::move(callback).Run(CONTENT_SETTING_BLOCK);
     return;
   }
 
-  content::WebContents* web_contents =
-      web_view_guest()->embedder_web_contents();
-  int render_process_id = web_contents->GetMainFrame()->GetProcess()->GetID();
-  int render_frame_id = web_contents->GetMainFrame()->GetRoutingID();
-
-  const permissions::PermissionRequestID request_id(
-      render_process_id, render_frame_id,
-      // The geolocation permission request here is not initiated
-      // through WebGeolocationPermissionRequest. We are only interested
-      // in the fact whether the embedder/app has geolocation
-      // permission. Therefore we use an invalid |bridge_id|.
-      -1);
-
   Profile* profile = Profile::FromBrowserContext(
       web_view_guest()->browser_context());
   PermissionManagerFactory::GetForProfile(profile)->RequestPermission(
-      ContentSettingsType::GEOLOCATION, web_contents->GetMainFrame(),
+      ContentSettingsType::GEOLOCATION,
+      web_view_guest()->embedder_web_contents()->GetMainFrame(),
       web_view_guest()
           ->embedder_web_contents()
           ->GetLastCommittedURL()
-          .GetOrigin(),
+          .DeprecatedGetOriginAsURL(),
       user_gesture, std::move(callback));
-}
-
-void ChromeWebViewPermissionHelperDelegate::CancelGeolocationPermissionRequest(
-    int bridge_id) {
-  int request_id = RemoveBridgeID(bridge_id);
-  web_view_permission_helper()->CancelPendingPermissionRequest(request_id);
-}
-
-int ChromeWebViewPermissionHelperDelegate::RemoveBridgeID(int bridge_id) {
-  auto bridge_itr = bridge_id_to_request_id_map_.find(bridge_id);
-  if (bridge_itr == bridge_id_to_request_id_map_.end())
-    return webview::kInvalidPermissionRequestID;
-
-  int request_id = bridge_itr->second;
-  bridge_id_to_request_id_map_.erase(bridge_itr);
-  return request_id;
 }
 
 void ChromeWebViewPermissionHelperDelegate::RequestFileSystemPermission(

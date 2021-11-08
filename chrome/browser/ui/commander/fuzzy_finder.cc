@@ -6,7 +6,6 @@
 
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/char_iterator.h"
-#include "base/i18n/uchar.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "third_party/icu/source/common/unicode/uchar.h"
@@ -29,9 +28,15 @@ static constexpr size_t kMaxHaystack = 1024;
 static constexpr size_t kMaxNeedle = 16;
 
 struct MatchRecord {
-  MatchRecord(int start, int end, bool is_boundary, int gap_before)
-      : range(start, end), gap_before(gap_before), is_boundary(is_boundary) {}
+  MatchRecord(int start, int end, int length, bool is_boundary, int gap_before)
+      : range(start, end),
+        length(length),
+        gap_before(gap_before),
+        is_boundary(is_boundary) {}
   gfx::Range range;
+  // This can't be inferred from `range` since range is in code units for
+  // display, but `length` is in code points.
+  int length;
   int gap_before;
   bool is_boundary;
 };
@@ -63,14 +68,14 @@ double ScoreForMatches(const std::vector<MatchRecord>& matches,
       score += base_score * kRegularMultiplier * penalty_multiplier;
     }
     // ...then the rest of a contiguous match.
-    score += (match.range.length() - 1) * base_score * kRegularMultiplier;
+    score += (match.length - 1) * base_score * kRegularMultiplier;
   }
   DCHECK(score <= 1.0);
   return score;
 }
 
-size_t LengthInCodePoints(const base::string16& str) {
-  return u_countChar32(base::i18n::ToUCharPtr(str.data()), str.size());
+size_t LengthInCodePoints(const std::u16string& str) {
+  return u_countChar32(str.data(), str.size());
 }
 
 // Returns a positive score if every code point in |needle| is present in
@@ -83,8 +88,8 @@ size_t LengthInCodePoints(const base::string16& str) {
 // use is to filter nonmatches before a more comprehensive algorithm, and as a
 // fallback for when the inputs are too high for a more comprehensive algorithm
 // to be performant.
-double ConsecutiveMatchWithGaps(const base::string16& needle,
-                                const base::string16& haystack,
+double ConsecutiveMatchWithGaps(const std::u16string& needle,
+                                const std::u16string& haystack,
                                 std::vector<gfx::Range>* matched_ranges) {
   DCHECK(needle == base::i18n::FoldCase(needle));
   DCHECK(haystack == base::i18n::FoldCase(haystack));
@@ -100,27 +105,27 @@ double ConsecutiveMatchWithGaps(const base::string16& needle,
   std::vector<MatchRecord> matches;
   int gap_size_before_match = 0;
   int match_began_on_boundary = true;
-  bool in_match = false;
   int match_start = -1;
+  int match_length = 0;
 
   // Find matching ranges.
   while (!n_iter.end() && !h_iter.end()) {
     if (n_iter.get() == h_iter.get()) {
       // There's a match.
-      if (!in_match) {
+      if (match_length == 0) {
         // Match start.
-        in_match = true;
         match_start = h_iter.array_pos();
         match_began_on_boundary =
             h_iter.start() || u_isUWhiteSpace(h_iter.PreviousCodePoint());
       }
+      ++match_length;
       h_iter.Advance();
       n_iter.Advance();
     } else {
-      if (in_match) {
+      if (match_length > 0) {
         DCHECK(match_start != -1);
-        in_match = false;
-        matches.emplace_back(match_start, h_iter.array_pos(),
+        match_length = 0;
+        matches.emplace_back(match_start, h_iter.array_pos(), match_length,
                              match_began_on_boundary, gap_size_before_match);
         gap_size_before_match = 1;
         match_start = -1;
@@ -135,9 +140,9 @@ double ConsecutiveMatchWithGaps(const base::string16& needle,
     matched_ranges->clear();
     return 0;
   }
-  if (in_match) {
+  if (match_length > 0) {
     DCHECK(match_start != -1);
-    matches.emplace_back(match_start, h_iter.array_pos(),
+    matches.emplace_back(match_start, h_iter.array_pos(), match_length,
                          match_began_on_boundary, gap_size_before_match);
   }
   for (const MatchRecord& match : matches) {
@@ -218,7 +223,7 @@ int ScoreForMatrix(const std::vector<int> score_matrix,
 
 namespace commander {
 
-FuzzyFinder::FuzzyFinder(const base::string16& needle)
+FuzzyFinder::FuzzyFinder(const std::u16string& needle)
     : needle_(base::i18n::FoldCase(needle)) {
   if (needle_.size() <= kMaxNeedle) {
     score_matrix_.reserve(needle_.size() * kMaxHaystack);
@@ -228,12 +233,12 @@ FuzzyFinder::FuzzyFinder(const base::string16& needle)
 
 FuzzyFinder::~FuzzyFinder() = default;
 
-double FuzzyFinder::Find(const base::string16& haystack,
+double FuzzyFinder::Find(const std::u16string& haystack,
                          std::vector<gfx::Range>* matched_ranges) {
   matched_ranges->clear();
   if (needle_.size() == 0)
     return 0;
-  const base::string16& folded = base::i18n::FoldCase(haystack);
+  const std::u16string& folded = base::i18n::FoldCase(haystack);
   size_t m = needle_.size();
   size_t n = folded.size();
   // Special case 0: M > N. We don't allow skipping anything in |needle|, so
@@ -317,8 +322,8 @@ double FuzzyFinder::Find(const base::string16& haystack,
   return MatrixMatch(needle_, folded, matched_ranges);
 }
 
-double FuzzyFinder::MatrixMatch(const base::string16& needle_string,
-                                const base::string16& haystack_string,
+double FuzzyFinder::MatrixMatch(const std::u16string& needle_string,
+                                const std::u16string& haystack_string,
                                 std::vector<gfx::Range>* matched_ranges) {
   static constexpr int kMatchScore = 16;
   static constexpr int kBoundaryBonus = 8;

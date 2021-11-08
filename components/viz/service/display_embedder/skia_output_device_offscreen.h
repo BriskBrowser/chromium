@@ -23,6 +23,11 @@ class SkiaOutputDeviceOffscreen : public SkiaOutputDevice {
       bool has_alpha,
       gpu::MemoryTracker* memory_tracker,
       DidSwapBufferCompleteCallback did_swap_buffer_complete_callback);
+
+  SkiaOutputDeviceOffscreen(const SkiaOutputDeviceOffscreen&) = delete;
+  SkiaOutputDeviceOffscreen& operator=(const SkiaOutputDeviceOffscreen&) =
+      delete;
+
   ~SkiaOutputDeviceOffscreen() override;
 
   // SkiaOutputDevice implementation:
@@ -32,13 +37,14 @@ class SkiaOutputDeviceOffscreen : public SkiaOutputDevice {
                gfx::BufferFormat format,
                gfx::OverlayTransform transform) override;
   void SwapBuffers(BufferPresentedCallback feedback,
-                   std::vector<ui::LatencyInfo> latency_info) override;
+                   OutputSurfaceFrame frame) override;
   void PostSubBuffer(const gfx::Rect& rect,
                      BufferPresentedCallback feedback,
-                     std::vector<ui::LatencyInfo> latency_info) override;
+                     OutputSurfaceFrame frame) override;
   void EnsureBackbuffer() override;
   void DiscardBackbuffer() override;
   SkSurface* BeginPaint(
+      bool allocate_frame_buffer,
       std::vector<GrBackendSemaphore>* end_semaphores) override;
   void EndPaint() override;
 
@@ -54,8 +60,6 @@ class SkiaOutputDeviceOffscreen : public SkiaOutputDevice {
 
  private:
   uint64_t backbuffer_estimated_size_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(SkiaOutputDeviceOffscreen);
 };
 
 }  // namespace viz

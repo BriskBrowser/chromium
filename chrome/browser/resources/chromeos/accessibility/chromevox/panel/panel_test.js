@@ -49,11 +49,14 @@ ChromeVoxPanelTest = class extends ChromeVoxPanelTestBase {
     });
   }
 
-  assertActiveMenuItem(menuMsg, menuItemTitle) {
+  assertActiveMenuItem(menuMsg, menuItemTitle, opt_menuItemShortcut) {
     const menu = this.getPanel().activeMenu_;
     const menuItem = menu.items_[menu.activeIndex_];
     assertEquals(menuMsg, menu.menuMsg);
     assertEquals(menuItemTitle, menuItem.menuItemTitle);
+    if (opt_menuItemShortcut) {
+      assertEquals(opt_menuItemShortcut, menuItem.menuItemShortcut);
+    }
   }
 
   assertActiveSearchMenuItem(menuItemTitle) {
@@ -150,12 +153,12 @@ TEST_F('ChromeVoxPanelTest', 'SearchMenu', function() {
 
 // TODO(crbug.com/1088438): flaky crashes.
 TEST_F('ChromeVoxPanelTest', 'DISABLED_Gestures', function() {
-  const doGesture = async (gesture) => {
-    GestureCommandHandler.onAccessibilityGesture_(gesture);
+  const doGestureAsync = async (gesture) => {
+    doGesture(gesture)();
   };
   this.runWithLoadedTree(
       `<button>Cancel</button><button>OK</button>`, async function(root) {
-        doGesture('tap4');
+        doGestureAsync(Gesture.TAP4);
         await this.waitForMenu('panel_search_menu');
         // GestureCommandHandler behaves in special ways only with range over
         // the panel. Fake this out by setting range there.
@@ -165,13 +168,13 @@ TEST_F('ChromeVoxPanelTest', 'DISABLED_Gestures', function() {
         ChromeVoxState.instance.setCurrentRange(
             cursors.Range.fromNode(panelNode));
 
-        doGesture('swipeRight1');
+        doGestureAsync(Gesture.SWIPE_RIGHT1);
         await this.waitForMenu('panel_menu_jump');
 
-        doGesture('swipeRight1');
+        doGestureAsync(Gesture.SWIPE_RIGHT1);
         await this.waitForMenu('panel_menu_speech');
 
-        doGesture('swipeLeft1');
+        doGestureAsync(Gesture.SWIPE_LEFT1);
         await this.waitForMenu('panel_menu_jump');
       });
 });
@@ -189,5 +192,36 @@ TEST_F('ChromeVoxPanelTest', 'InternationalFormControlsMenu', function() {
         'panel_menu_form_controls', 'español: Prueba Button');
     this.fireMockEvent('ArrowUp')();
     this.assertActiveMenuItem('panel_menu_form_controls', 'Test Button');
+  });
+});
+
+TEST_F('ChromeVoxPanelTest', 'ActionsMenu', function() {
+  this.runWithLoadedTree(this.linksDoc, async function(root) {
+    CommandHandler.onCommand('showActionsMenu');
+    await this.waitForMenu('panel_menu_actions');
+    this.fireMockEvent('ArrowDown')();
+    this.assertActiveMenuItem('panel_menu_actions', 'Start Or End Selection');
+    this.fireMockEvent('ArrowUp')();
+    this.assertActiveMenuItem('panel_menu_actions', 'Click On Current Item');
+  });
+});
+
+TEST_F('ChromeVoxPanelTest', 'ShortcutsAreInternationalized', function() {
+  this.runWithLoadedTree(this.linksDoc, async function(root) {
+    new PanelCommand(PanelCommandType.OPEN_MENUS).send();
+    await this.waitForMenu('panel_search_menu');
+    this.fireMockEvent('ArrowRight')();
+    this.assertActiveMenuItem(
+        'panel_menu_jump', 'Go To Beginning Of Table',
+        'Search+Alt+Shift+ArrowLeft');
+    this.fireMockEvent('ArrowRight')();
+    this.assertActiveMenuItem(
+        'panel_menu_speech', 'Announce Current Battery Status',
+        'Search+O, then B');
+    // Skip the tabs menu.
+    this.fireMockEvent('ArrowRight')();
+    this.fireMockEvent('ArrowRight')();
+    this.assertActiveMenuItem(
+        'panel_menu_chromevox', 'Open keyboard shortcuts menu', 'Ctrl+Alt+/');
   });
 });

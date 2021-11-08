@@ -8,9 +8,13 @@
 #include <string>
 #include <vector>
 
-#include "base/strings/string16.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/test/base/in_process_browser_test.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/test/base/chromeos/ash_browser_test_starter.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // A base class providing construction of javascript testing assets.
 class JavaScriptBrowserTest : public InProcessBrowserTest {
@@ -28,19 +32,25 @@ class JavaScriptBrowserTest : public InProcessBrowserTest {
   ~JavaScriptBrowserTest() override;
 
   // InProcessBrowserTest overrides.
+  void SetUpInProcessBrowserTestFixture() override;
+  void TearDownInProcessBrowserTestFixture() override;
   void SetUpOnMainThread() override;
 
   // Builds a vector of strings of all added javascript libraries suitable for
   // execution by subclasses.
-  void BuildJavascriptLibraries(std::vector<base::string16>* libraries);
+  void BuildJavascriptLibraries(std::vector<std::u16string>* libraries);
 
   // Builds a string with a call to the runTest JS function, passing the
   // given |is_async|, |test_name| and its |args|.
   // This is then suitable for execution by subclasses in a
   // |RunJavaScriptBrowserTestF| call.
-  base::string16 BuildRunTestJSCall(bool is_async,
+  std::u16string BuildRunTestJSCall(bool is_async,
                                     const std::string& test_name,
                                     std::vector<base::Value> args);
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  test::AshBrowserTestStarter* ash_starter() { return ash_starter_.get(); }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
  private:
   // User added libraries.
@@ -48,6 +58,10 @@ class JavaScriptBrowserTest : public InProcessBrowserTest {
 
   // User library search paths.
   std::vector<base::FilePath> library_search_paths_;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  std::unique_ptr<test::AshBrowserTestStarter> ash_starter_;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 };
 
 #endif  // CHROME_TEST_BASE_JAVASCRIPT_BROWSER_TEST_H_

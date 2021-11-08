@@ -13,11 +13,11 @@
 #include "components/search_engines/template_url_service.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -50,7 +50,7 @@ class RemoveSuggestionBubbleDialogDelegateView
     layout_manager->set_between_child_spacing(16);
 
     // Get the Search Provider name associated with this match.
-    base::string16 search_provider_short_name;
+    std::u16string search_provider_short_name;
     const TemplateURL* template_url =
         match.GetTemplateURL(template_url_service, false);
     // If the match has no associated Search Provider, get the default one,
@@ -92,7 +92,7 @@ class RemoveSuggestionBubbleDialogDelegateView
   }
 
   // views::WidgetDelegate:
-  base::string16 GetWindowTitle() const override {
+  std::u16string GetWindowTitle() const override {
     return l10n_util::GetStringUTF16(
         IDS_OMNIBOX_REMOVE_SUGGESTION_BUBBLE_TITLE);
   }

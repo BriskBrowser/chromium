@@ -6,14 +6,15 @@
 
 #import <Foundation/Foundation.h>
 
+#include <string>
+
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/run_loop.h"
-#include "base/strings/string16.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/ui/webui/help/version_updater.h"
 #include "chrome/browser/updater/browser_updater_client_util.h"

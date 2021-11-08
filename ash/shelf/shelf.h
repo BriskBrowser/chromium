@@ -70,6 +70,10 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   };
 
   Shelf();
+
+  Shelf(const Shelf&) = delete;
+  Shelf& operator=(const Shelf&) = delete;
+
   ~Shelf() override;
 
   // Returns the shelf for the display that |window| is on. Note that the shelf
@@ -171,10 +175,8 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   // Handles a scroll |event| coming from the Shelf.
   void ProcessScrollEvent(ui::ScrollEvent* event);
 
-  // Handles a mousewheel scroll event coming from the shelf. We use
-  // |from_touchpad| to distinguish if an event originated from a touchpad
-  // scroll or a mousewheel scroll.
-  void ProcessMouseWheelEvent(ui::MouseWheelEvent* event, bool from_touchpad);
+  // Handles a mousewheel scroll event coming from the shelf.
+  void ProcessMouseWheelEvent(ui::MouseWheelEvent* event);
 
   void AddObserver(ShelfObserver* observer);
   void RemoveObserver(ShelfObserver* observer);
@@ -324,8 +326,6 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   int auto_hide_lock_ = 0;
 
   std::unique_ptr<ShelfTooltipManager> tooltip_;
-
-  DISALLOW_COPY_AND_ASSIGN(Shelf);
 };
 
 }  // namespace ash

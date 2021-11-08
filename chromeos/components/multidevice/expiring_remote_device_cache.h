@@ -10,10 +10,10 @@
 
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "chromeos/components/multidevice/remote_device.h"
 #include "chromeos/components/multidevice/remote_device_cache.h"
 #include "chromeos/components/multidevice/remote_device_ref.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -36,6 +36,11 @@ class RemoteDeviceCache;
 class ExpiringRemoteDeviceCache {
  public:
   ExpiringRemoteDeviceCache();
+
+  ExpiringRemoteDeviceCache(const ExpiringRemoteDeviceCache&) = delete;
+  ExpiringRemoteDeviceCache& operator=(const ExpiringRemoteDeviceCache&) =
+      delete;
+
   virtual ~ExpiringRemoteDeviceCache();
 
   void SetRemoteDevicesAndInvalidateOldEntries(
@@ -53,9 +58,9 @@ class ExpiringRemoteDeviceCache {
   //
   // For best results, pass in both IDs when available since the device could
   // have been written to the cache with one of the IDs missing.
-  base::Optional<RemoteDeviceRef> GetRemoteDevice(
-      const base::Optional<std::string>& instance_id,
-      const base::Optional<std::string>& legacy_device_id) const;
+  absl::optional<RemoteDeviceRef> GetRemoteDevice(
+      const absl::optional<std::string>& instance_id,
+      const absl::optional<std::string>& legacy_device_id) const;
 
  private:
   void RememberIdsFromLastSetCall(const RemoteDevice& device);
@@ -64,8 +69,6 @@ class ExpiringRemoteDeviceCache {
 
   base::flat_set<std::string> legacy_device_ids_from_last_set_call_;
   base::flat_set<std::string> instance_ids_from_last_set_call_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExpiringRemoteDeviceCache);
 };
 
 }  // namespace multidevice

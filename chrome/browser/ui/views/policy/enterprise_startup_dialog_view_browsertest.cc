@@ -12,8 +12,8 @@
 
 namespace policy {
 namespace {
-constexpr char kMessage[] = "message";
-constexpr char kButton[] = "button";
+constexpr char16_t kMessage[] = u"message";
+constexpr char16_t kButton[] = u"button";
 
 void DialogResultCallback(bool result, bool can_show_browser_window) {}
 }  // namespace
@@ -21,6 +21,12 @@ void DialogResultCallback(bool result, bool can_show_browser_window) {}
 class EnterpriseStartupDialogViewBrowserTest : public DialogBrowserTest {
  public:
   EnterpriseStartupDialogViewBrowserTest() = default;
+
+  EnterpriseStartupDialogViewBrowserTest(
+      const EnterpriseStartupDialogViewBrowserTest&) = delete;
+  EnterpriseStartupDialogViewBrowserTest& operator=(
+      const EnterpriseStartupDialogViewBrowserTest&) = delete;
+
   ~EnterpriseStartupDialogViewBrowserTest() override = default;
 
   // override DialogBrowserTest
@@ -28,16 +34,12 @@ class EnterpriseStartupDialogViewBrowserTest : public DialogBrowserTest {
     dialog =
         new EnterpriseStartupDialogView(base::BindOnce(&DialogResultCallback));
     if (name == "Information") {
-      dialog->DisplayLaunchingInformationWithThrobber(
-          base::ASCIIToUTF16(kMessage));
+      dialog->DisplayLaunchingInformationWithThrobber(kMessage);
     } else if (name == "Error") {
-      dialog->DisplayErrorMessage(base::ASCIIToUTF16(kMessage),
-                                  base::ASCIIToUTF16(kButton));
+      dialog->DisplayErrorMessage(kMessage, kButton);
     } else if (name == "Switch") {
-      dialog->DisplayLaunchingInformationWithThrobber(
-          base::ASCIIToUTF16(kMessage));
-      dialog->DisplayErrorMessage(base::ASCIIToUTF16(kMessage),
-                                  base::ASCIIToUTF16(kButton));
+      dialog->DisplayLaunchingInformationWithThrobber(kMessage);
+      dialog->DisplayErrorMessage(kMessage, kButton);
     }
   }
 
@@ -53,8 +55,6 @@ class EnterpriseStartupDialogViewBrowserTest : public DialogBrowserTest {
 
  private:
   EnterpriseStartupDialogView* dialog;
-
-  DISALLOW_COPY_AND_ASSIGN(EnterpriseStartupDialogViewBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(EnterpriseStartupDialogViewBrowserTest,

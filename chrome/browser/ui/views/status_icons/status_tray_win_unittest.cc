@@ -24,6 +24,11 @@ class FakeStatusTrayStateChangerProxy : public StatusTrayStateChangerProxy {
   FakeStatusTrayStateChangerProxy()
       : enqueue_called_(false), icon_id_(0), window_(NULL) {}
 
+  FakeStatusTrayStateChangerProxy(const FakeStatusTrayStateChangerProxy&) =
+      delete;
+  FakeStatusTrayStateChangerProxy& operator=(
+      const FakeStatusTrayStateChangerProxy&) = delete;
+
   void EnqueueChange(UINT icon_id, HWND window) override {
     enqueue_called_ = true;
     icon_id_ = icon_id;
@@ -38,8 +43,6 @@ class FakeStatusTrayStateChangerProxy : public StatusTrayStateChangerProxy {
   bool enqueue_called_;
   UINT icon_id_;
   HWND window_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeStatusTrayStateChangerProxy);
 };
 
 class FakeStatusIconObserver : public StatusIconObserver {
@@ -61,7 +64,7 @@ class FakeStatusIconObserver : public StatusIconObserver {
 StatusIconWin* CreateStatusIcon(StatusTray* tray) {
   return static_cast<StatusIconWin*>(tray->CreateStatusIcon(
       StatusTray::OTHER_ICON, gfx::test::CreateImageSkia(16, 16),
-      base::string16()));
+      std::u16string()));
 }
 
 }  // namespace
@@ -77,7 +80,7 @@ TEST(StatusTrayWinTest, CreateIconAndMenu) {
   StatusTrayWin tray;
   StatusIcon* icon = CreateStatusIcon(&tray);
   std::unique_ptr<StatusIconMenuModel> menu(new StatusIconMenuModel(NULL));
-  menu->AddItem(0, STRING16_LITERAL("foo"));
+  menu->AddItem(0, u"foo");
   icon->SetContextMenu(std::move(menu));
 }
 

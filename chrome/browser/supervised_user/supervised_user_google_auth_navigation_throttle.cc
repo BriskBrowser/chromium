@@ -14,7 +14,7 @@
 #include "chrome/browser/supervised_user/child_accounts/child_account_service.h"
 #include "chrome/browser/supervised_user/child_accounts/child_account_service_factory.h"
 #include "components/google/core/common/google_util.h"
-#include "components/signin/public/identity_manager/consent_level.h"
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
@@ -68,6 +68,11 @@ const char* SupervisedUserGoogleAuthNavigationThrottle::GetNameForLogging() {
 
 content::NavigationThrottle::ThrottleCheckResult
 SupervisedUserGoogleAuthNavigationThrottle::WillStartOrRedirectRequest() {
+  // We do not yet support prerendering for supervised users.
+  if (navigation_handle()->IsInPrerenderedMainFrame()) {
+    return content::NavigationThrottle::CANCEL;
+  }
+
   const GURL& url = navigation_handle()->GetURL();
   if (!google_util::IsGoogleSearchUrl(url) &&
       !google_util::IsGoogleHomePageUrl(url) &&
@@ -138,8 +143,8 @@ SupervisedUserGoogleAuthNavigationThrottle::ShouldProceed() {
         Profile::FromBrowserContext(web_contents->GetBrowserContext());
     auto* identity_manager = IdentityManagerFactory::GetForProfile(profile);
     // This class doesn't care about browser sync consent.
-    CoreAccountInfo account_info = identity_manager->GetPrimaryAccountInfo(
-        signin::ConsentLevel::kNotRequired);
+    CoreAccountInfo account_info =
+        identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
     if (account_info.IsEmpty()) {
       // No primary account (can happen when it was removed from the device).
       return content::NavigationThrottle::DEFER;

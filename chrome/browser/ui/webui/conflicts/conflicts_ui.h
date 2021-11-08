@@ -18,11 +18,11 @@ class ConflictsUI : public content::WebUIController {
  public:
   explicit ConflictsUI(content::WebUI* web_ui);
 
-  static base::RefCountedMemory* GetFaviconResourceBytes(
-      ui::ScaleFactor scale_factor);
+  ConflictsUI(const ConflictsUI&) = delete;
+  ConflictsUI& operator=(const ConflictsUI&) = delete;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(ConflictsUI);
+  static base::RefCountedMemory* GetFaviconResourceBytes(
+      ui::ResourceScaleFactor scale_factor);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CONFLICTS_CONFLICTS_UI_H_

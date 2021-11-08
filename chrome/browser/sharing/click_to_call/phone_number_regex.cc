@@ -11,7 +11,6 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
-#include "chrome/browser/sharing/click_to_call/feature.h"
 #include "third_party/re2/src/re2/re2.h"
 
 namespace {
@@ -35,14 +34,12 @@ void PrecompilePhoneNumberRegexes() {
 }  // namespace
 
 const re2::RE2& GetPhoneNumberRegex() {
-  static const re2::LazyRE2 kRegexSimple = {kPhoneNumberRegexPatternSimple};
-  return *kRegexSimple;
+  static const re2::LazyRE2 regex_simple = {kPhoneNumberRegexPatternSimple};
+  return *regex_simple;
 }
 
 void PrecompilePhoneNumberRegexesAsync() {
-  if (!base::FeatureList::IsEnabled(kClickToCallUI))
-    return;
-  constexpr auto kParseDelay = base::TimeDelta::FromSeconds(15);
+  constexpr auto kParseDelay = base::Seconds(15);
   base::ThreadPool::PostDelayedTask(
       FROM_HERE,
       {base::TaskPriority::BEST_EFFORT,

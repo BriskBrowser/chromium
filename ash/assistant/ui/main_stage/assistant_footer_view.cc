@@ -15,6 +15,7 @@
 #include "base/bind.h"
 #include "base/time/time.h"
 #include "ui/compositor/callback_layer_animation_observer.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_element.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/views/layout/fill_layout.h"
@@ -27,12 +28,9 @@ namespace {
 constexpr int kPreferredHeightDip = 48;
 
 // Animation.
-constexpr base::TimeDelta kAnimationFadeInDelay =
-    base::TimeDelta::FromMilliseconds(167);
-constexpr base::TimeDelta kAnimationFadeInDuration =
-    base::TimeDelta::FromMilliseconds(167);
-constexpr base::TimeDelta kAnimationFadeOutDuration =
-    base::TimeDelta::FromMilliseconds(167);
+constexpr base::TimeDelta kAnimationFadeInDelay = base::Milliseconds(167);
+constexpr base::TimeDelta kAnimationFadeInDuration = base::Milliseconds(167);
+constexpr base::TimeDelta kAnimationFadeOutDuration = base::Milliseconds(167);
 
 }  // namespace
 

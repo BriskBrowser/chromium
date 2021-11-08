@@ -8,9 +8,9 @@
 #include "base/callback.h"
 #include "base/callback_forward.h"
 #include "base/scoped_observation.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/layout/flex_layout_types.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/view.h"
 #include "ui/views/view_observer.h"
@@ -47,7 +47,7 @@ class TipMarqueeView : public views::View, public views::WidgetObserver {
   //
   // Returns true if there is sufficient space in the parent view's layout to
   // display the fully expanded tip text and (if applicable) Learn More link.
-  bool SetTip(const base::string16& tip_text,
+  bool SetTip(const std::u16string& tip_text,
               LearnMoreLinkClickedCallback learn_more_link_clicked_callback =
                   LearnMoreLinkClickedCallback());
 
@@ -56,7 +56,7 @@ class TipMarqueeView : public views::View, public views::WidgetObserver {
 
   // views::View:
   gfx::Size GetMinimumSize() const override;
-  base::string16 GetTooltipText(const gfx::Point& p) const override;
+  std::u16string GetTooltipText(const gfx::Point& p) const override;
   void Layout() override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
 
@@ -80,7 +80,7 @@ class TipMarqueeView : public views::View, public views::WidgetObserver {
 
   void ToggleOverflowWidget();
 
-  base::string16 tip_text_;
+  std::u16string tip_text_;
   views::StyledLabel* tip_text_label_ = nullptr;
   LearnMoreLinkClickedCallback learn_more_link_clicked_callback_;
   bool collapsed_ = false;

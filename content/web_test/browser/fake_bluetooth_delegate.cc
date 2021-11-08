@@ -4,6 +4,7 @@
 
 #include "content/web_test/browser/fake_bluetooth_delegate.h"
 
+#include "base/containers/contains.h"
 #include "content/public/browser/web_contents.h"
 #include "content/web_test/browser/web_test_control_host.h"
 #include "device/bluetooth/bluetooth_device.h"
@@ -45,6 +46,13 @@ FakeBluetoothDelegate::ShowBluetoothScanningPrompt(
     RenderFrameHost* frame,
     const BluetoothScanningPrompt::EventHandler& event_handler) {
   return std::make_unique<AlwaysAllowBluetoothScanning>(event_handler);
+}
+
+void FakeBluetoothDelegate::ShowDeviceCredentialsPrompt(
+    RenderFrameHost* frame,
+    const std::u16string& device_identifier,
+    CredentialsCallback callback) {
+  std::move(callback).Run(DeviceCredentialsPromptResult::kCancelled, u"");
 }
 
 WebBluetoothDeviceId FakeBluetoothDelegate::GetWebBluetoothDeviceId(

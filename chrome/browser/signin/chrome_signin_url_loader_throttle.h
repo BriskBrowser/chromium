@@ -8,6 +8,7 @@
 #include "base/macros.h"
 #include "base/supports_user_data.h"
 #include "content/public/browser/web_contents.h"
+#include "net/http/http_request_headers.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 
@@ -25,6 +26,9 @@ class URLLoaderThrottle : public blink::URLLoaderThrottle,
   static std::unique_ptr<URLLoaderThrottle> MaybeCreate(
       std::unique_ptr<HeaderModificationDelegate> delegate,
       content::WebContents::Getter web_contents_getter);
+
+  URLLoaderThrottle(const URLLoaderThrottle&) = delete;
+  URLLoaderThrottle& operator=(const URLLoaderThrottle&) = delete;
 
   ~URLLoaderThrottle() override;
 
@@ -62,8 +66,6 @@ class URLLoaderThrottle : public blink::URLLoaderThrottle,
   bool request_is_fetch_like_api_ = false;
 
   base::OnceClosure destruction_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(URLLoaderThrottle);
 };
 
 }  // namespace signin

@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "cc/paint/paint_flags.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/dip_util.h"
 #include "ui/gfx/geometry/insets_conversions.h"
@@ -28,6 +29,9 @@ class SolidSidedBorder : public Border {
  public:
   SolidSidedBorder(const gfx::Insets& insets, SkColor color);
 
+  SolidSidedBorder(const SolidSidedBorder&) = delete;
+  SolidSidedBorder& operator=(const SolidSidedBorder&) = delete;
+
   // Overridden from Border:
   void Paint(const View& view, gfx::Canvas* canvas) override;
   gfx::Insets GetInsets() const override;
@@ -35,8 +39,6 @@ class SolidSidedBorder : public Border {
 
  private:
   const gfx::Insets insets_;
-
-  DISALLOW_COPY_AND_ASSIGN(SolidSidedBorder);
 };
 
 SolidSidedBorder::SolidSidedBorder(const gfx::Insets& insets, SkColor color)
@@ -82,6 +84,9 @@ class RoundedRectBorder : public Border {
                     const gfx::Insets& paint_insets,
                     SkColor color);
 
+  RoundedRectBorder(const RoundedRectBorder&) = delete;
+  RoundedRectBorder& operator=(const RoundedRectBorder&) = delete;
+
   // Overridden from Border:
   void Paint(const View& view, gfx::Canvas* canvas) override;
   gfx::Insets GetInsets() const override;
@@ -91,8 +96,6 @@ class RoundedRectBorder : public Border {
   const int thickness_;
   const int corner_radius_;
   const gfx::Insets paint_insets_;
-
-  DISALLOW_COPY_AND_ASSIGN(RoundedRectBorder);
 };
 
 RoundedRectBorder::RoundedRectBorder(int thickness,
@@ -130,6 +133,9 @@ class EmptyBorder : public Border {
  public:
   explicit EmptyBorder(const gfx::Insets& insets);
 
+  EmptyBorder(const EmptyBorder&) = delete;
+  EmptyBorder& operator=(const EmptyBorder&) = delete;
+
   // Overridden from Border:
   void Paint(const View& view, gfx::Canvas* canvas) override;
   gfx::Insets GetInsets() const override;
@@ -137,8 +143,6 @@ class EmptyBorder : public Border {
 
  private:
   const gfx::Insets insets_;
-
-  DISALLOW_COPY_AND_ASSIGN(EmptyBorder);
 };
 
 EmptyBorder::EmptyBorder(const gfx::Insets& insets) : insets_(insets) {}
@@ -157,6 +161,9 @@ class ExtraInsetsBorder : public Border {
  public:
   ExtraInsetsBorder(std::unique_ptr<Border> border, const gfx::Insets& insets);
 
+  ExtraInsetsBorder(const ExtraInsetsBorder&) = delete;
+  ExtraInsetsBorder& operator=(const ExtraInsetsBorder&) = delete;
+
   // Overridden from Border:
   void Paint(const View& view, gfx::Canvas* canvas) override;
   gfx::Insets GetInsets() const override;
@@ -165,8 +172,6 @@ class ExtraInsetsBorder : public Border {
  private:
   std::unique_ptr<Border> border_;
   const gfx::Insets extra_insets_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtraInsetsBorder);
 };
 
 ExtraInsetsBorder::ExtraInsetsBorder(std::unique_ptr<Border> border,
@@ -193,6 +198,9 @@ class BorderPainter : public Border {
  public:
   BorderPainter(std::unique_ptr<Painter> painter, const gfx::Insets& insets);
 
+  BorderPainter(const BorderPainter&) = delete;
+  BorderPainter& operator=(const BorderPainter&) = delete;
+
   // Overridden from Border:
   void Paint(const View& view, gfx::Canvas* canvas) override;
   gfx::Insets GetInsets() const override;
@@ -201,8 +209,6 @@ class BorderPainter : public Border {
  private:
   std::unique_ptr<Painter> painter_;
   const gfx::Insets insets_;
-
-  DISALLOW_COPY_AND_ASSIGN(BorderPainter);
 };
 
 BorderPainter::BorderPainter(std::unique_ptr<Painter> painter,

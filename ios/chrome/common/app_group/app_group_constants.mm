@@ -17,7 +17,7 @@ namespace app_group {
 
 const char kChromeAppGroupXCallbackCommand[] = "app-group-command";
 
-const char kChromeExtensionFieldTrialPreference[] = "Extension.FieldTrial";
+NSString* const kChromeExtensionFieldTrialPreference = @"Extension.FieldTrial";
 
 const char kChromeAppGroupCommandPreference[] =
     "GroupApp.ChromeAppGroupCommand";
@@ -138,6 +138,16 @@ NSURL* ContentWidgetFaviconsFolder() {
       [chromeURL URLByAppendingPathComponent:@"ContentWidgetFavicons"
                                  isDirectory:YES];
   return contentWidgetFaviconsURL;
+}
+
+NSURL* CrashpadFolder() {
+  NSURL* groupURL = [[NSFileManager defaultManager]
+      containerURLForSecurityApplicationGroupIdentifier:ApplicationGroup()];
+  NSURL* chromeURL = [groupURL URLByAppendingPathComponent:@"Chrome"
+                                               isDirectory:YES];
+  NSURL* crashpadURL = [chromeURL URLByAppendingPathComponent:@"Crashpad"
+                                                  isDirectory:YES];
+  return crashpadURL;
 }
 
 }  // namespace app_group

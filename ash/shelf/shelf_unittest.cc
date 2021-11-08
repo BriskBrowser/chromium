@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <utility>
 
 #include "ash/public/cpp/shelf_model.h"
+#include "ash/public/cpp/test/test_shelf_item_delegate.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/session/test_session_controller_client.h"
@@ -16,7 +18,9 @@
 #include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
+#include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/session_manager/session_manager_types.h"
 
@@ -26,6 +30,10 @@ namespace {
 class ShelfTest : public AshTestBase {
  public:
   ShelfTest() = default;
+
+  ShelfTest(const ShelfTest&) = delete;
+  ShelfTest& operator=(const ShelfTest&) = delete;
+
   ~ShelfTest() override = default;
 
   void SetUp() override {
@@ -34,7 +42,7 @@ class ShelfTest : public AshTestBase {
     shelf_view_ = GetPrimaryShelf()->GetShelfViewForTesting();
     shelf_model_ = shelf_view_->model();
 
-    test_.reset(new ShelfViewTestAPI(shelf_view_));
+    test_ = std::make_unique<ShelfViewTestAPI>(shelf_view_);
   }
 
   ShelfView* shelf_view() { return shelf_view_; }
@@ -53,8 +61,6 @@ class ShelfTest : public AshTestBase {
   ShelfView* shelf_view_ = nullptr;
   ShelfModel* shelf_model_ = nullptr;
   std::unique_ptr<ShelfViewTestAPI> test_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShelfTest);
 };
 
 // Confirms that ShelfItem reflects the appropriated state.
@@ -67,7 +73,8 @@ TEST_F(ShelfTest, StatusReflection) {
   item.id = ShelfID("foo");
   item.type = TYPE_APP;
   item.status = STATUS_RUNNING;
-  int index = shelf_model()->Add(item);
+  int index = shelf_model()->Add(
+      item, std::make_unique<TestShelfItemDelegate>(item.id));
   ASSERT_EQ(++button_count, test_api()->GetButtonCount());
   ShelfAppButton* button = test_api()->GetButton(index);
   EXPECT_EQ(ShelfAppButton::STATE_RUNNING, button->state());
@@ -88,7 +95,8 @@ TEST_F(ShelfTest, CheckHoverAfterMenu) {
   item.id = ShelfID("foo");
   item.type = TYPE_APP;
   item.status = STATUS_RUNNING;
-  int index = shelf_model()->Add(item);
+  int index = shelf_model()->Add(
+      item, std::make_unique<TestShelfItemDelegate>(item.id));
 
   ASSERT_EQ(++button_count, test_api()->GetButtonCount());
   ShelfAppButton* button = test_api()->GetButton(index);

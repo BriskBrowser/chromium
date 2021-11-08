@@ -3,16 +3,16 @@
 // found in the LICENSE file.
 
 import 'chrome://new-tab-page/lazy_load.js';
-import {$$, BrowserProxy} from 'chrome://new-tab-page/new_tab_page.js';
+
+import {$$, NewTabPageProxy, VoiceAction as Action, VoiceError as Error, WindowProxy} from 'chrome://new-tab-page/new_tab_page.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {flushTasks, isVisible} from 'chrome://test/test_util.m.js';
-import {assertNotStyle, assertStyle, createTestProxy, keydown} from './test_support.js';
+import {fakeMetricsPrivate, MetricsTracker} from 'chrome://test/new_tab_page/metrics_test_support.js';
+import {TestBrowserProxy} from 'chrome://test/test_browser_proxy.js';
+import {flushTasks, isVisible} from 'chrome://test/test_util.js';
 
-/** @typedef {newTabPage.mojom.VoiceSearchAction} */
-const Action = newTabPage.mojom.VoiceSearchAction;
+import {assertEquals} from '../chai_assert.js';
 
-/** @typedef {newTabPage.mojom.VoiceSearchError} */
-const Error = newTabPage.mojom.VoiceSearchError;
+import {assertNotStyle, assertStyle, installMock, keydown} from './test_support.js';
 
 function createResults(n) {
   return {
@@ -52,20 +52,28 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
   /** @type {!VoiceSearchOverlayElement} */
   let voiceSearchOverlay;
 
-  /**
-   * @implements {BrowserProxy}
-   * @extends {TestBrowserProxy}
-   */
-  let testProxy;
+  /** @type {!TestBrowserProxy} */
+  let windowProxy;
+
+  /** @type {!TestBrowserProxy} */
+  let handler;
+
+  /** @type {!MetricsTracker} */
+  let metrics;
 
   setup(async () => {
     PolymerTest.clearBody();
 
     window.webkitSpeechRecognition = MockSpeechRecognition;
 
-    testProxy = createTestProxy();
-    testProxy.setResultFor('setTimeout', 0);
-    BrowserProxy.instance_ = testProxy;
+    windowProxy = installMock(WindowProxy);
+    windowProxy.setResultFor('setTimeout', 0);
+    handler = installMock(
+        newTabPage.mojom.PageHandlerRemote,
+        mock => NewTabPageProxy.setInstance(
+            mock, new newTabPage.mojom.PageCallbackRouter()));
+
+    metrics = fakeMetricsPrivate();
 
     voiceSearchOverlay = document.createElement('ntp-voice-search-overlay');
     document.body.appendChild(voiceSearchOverlay);
@@ -107,7 +115,7 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
 
   test('on speech received starts volume animation', () => {
     // Arrange.
-    testProxy.setResultFor('random', 0.5);
+    windowProxy.setResultFor('random', 0.5);
 
     // Act.
     mockSpeechRecognition.onspeechstart();
@@ -120,7 +128,7 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
 
   test('on result received shows recognized text', () => {
     // Arrange.
-    testProxy.setResultFor('random', 0.5);
+    windowProxy.setResultFor('random', 0.5);
     const result = createResults(2);
     result.results[1][0].confidence = 0;
     result.results[0][0].transcript = 'hello';
@@ -146,7 +154,7 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
     // Arrange.
     const googleBaseUrl = 'https://google.com';
     loadTimeData.overrideValues({googleBaseUrl: googleBaseUrl});
-    testProxy.setResultFor('random', 0);
+    windowProxy.setResultFor('random', 0);
     const result = createResults(1);
     result.results[0].isFinal = true;
     result.results[0][0].transcript = 'hello world';
@@ -155,16 +163,16 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
     mockSpeechRecognition.onresult(result);
 
     // Assert.
-    const href = await testProxy.whenCalled('navigate');
+    const href = await windowProxy.whenCalled('navigate');
     assertEquals(href, `${googleBaseUrl}/search?q=hello+world&gs_ivs=1`);
     assertFalse(
         voiceSearchOverlay.$.micContainer.classList.contains('listening'));
     assertFalse(
         voiceSearchOverlay.$.micContainer.classList.contains('receiving'));
     assertStyle(voiceSearchOverlay.$.micVolume, '--mic-volume-level', '0');
+    assertEquals(1, metrics.count('NewTabPage.VoiceActions'));
     assertEquals(
-        Action.kQuerySubmitted,
-        await testProxy.handler.whenCalled('onVoiceSearchAction'));
+        1, metrics.count('NewTabPage.VoiceActions', Action.kQuerySubmitted));
   });
 
   [['no-speech', 'no-speech', 'learn-more', Error.kNoSpeech],
@@ -203,8 +211,8 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
       assertFalse(
           voiceSearchOverlay.$.micContainer.classList.contains('receiving'));
       assertStyle(voiceSearchOverlay.$.micVolume, '--mic-volume-level', '0');
-      assertEquals(
-          logError, await testProxy.handler.whenCalled('onVoiceSearchError'));
+      assertEquals(1, metrics.count('NewTabPage.VoiceErrors'));
+      assertEquals(1, metrics.count('NewTabPage.VoiceErrors', logError));
     });
   });
 
@@ -264,17 +272,17 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
     test(`${param.functionName} received resets timer`, async () => {
       // Act.
       // Need to account for previously set timers.
-      testProxy.resetResolver('setTimeout');
+      windowProxy.resetResolver('setTimeout');
       mockSpeechRecognition[param.functionName](...param.arguments);
 
       // Assert.
-      await testProxy.whenCalled('setTimeout');
+      await windowProxy.whenCalled('setTimeout');
     });
   });
 
   test('on idle timeout shows error text', async () => {
     // Arrange.
-    const [callback, _] = await testProxy.whenCalled('setTimeout');
+    const [callback, _] = await windowProxy.whenCalled('setTimeout');
 
     // Act.
     callback();
@@ -287,11 +295,11 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
   test('on error timeout closes overlay', async () => {
     // Arrange.
     // Need to account for previously set idle timer.
-    testProxy.resetResolver('setTimeout');
+    windowProxy.resetResolver('setTimeout');
     mockSpeechRecognition.onerror({error: 'audio-capture'});
 
     // Act.
-    const [callback, _] = await testProxy.whenCalled('setTimeout');
+    const [callback, _] = await windowProxy.whenCalled('setTimeout');
     callback();
 
     // Assert.
@@ -300,7 +308,7 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
 
   test('on idle timeout stops voice search', async () => {
     // Arrange.
-    const [callback, _] = await testProxy.whenCalled('setTimeout');
+    const [callback, _] = await windowProxy.whenCalled('setTimeout');
 
     // Act.
     callback();
@@ -312,7 +320,7 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
   [['#retryLink', Action.kTryAgainLink],
    ['#micButton', Action.kTryAgainMicButton],
   ].forEach(([id, action]) => {
-    test(`clicking '${id}' starts voice search if in retry state`, async () => {
+    test(`clicking '${id}' starts voice search if in retry state`, () => {
       // Arrange.
       mockSpeechRecognition.onnomatch();
       mockSpeechRecognition.startCalled = false;
@@ -322,8 +330,8 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
 
       // Assert.
       assertTrue(mockSpeechRecognition.startCalled);
-      assertEquals(
-          action, await testProxy.handler.whenCalled('onVoiceSearchAction'));
+      assertEquals(1, metrics.count('NewTabPage.VoiceActions'));
+      assertEquals(1, metrics.count('NewTabPage.VoiceActions', action));
     });
   });
 
@@ -331,13 +339,13 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
     test(`'${key}' submits query if result`, () => {
       // Arrange.
       mockSpeechRecognition.onresult(createResults(1));
-      assertEquals(0, testProxy.getCallCount('navigate'));
+      assertEquals(0, windowProxy.getCallCount('navigate'));
 
       // Act.
       keydown(voiceSearchOverlay.shadowRoot.activeElement, key);
 
       // Assert.
-      assertEquals(1, testProxy.getCallCount('navigate'));
+      assertEquals(1, windowProxy.getCallCount('navigate'));
       assertTrue(voiceSearchOverlay.$.dialog.open);
     });
 
@@ -346,7 +354,7 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
       keydown(voiceSearchOverlay.shadowRoot.activeElement, key);
 
       // Assert.
-      assertEquals(0, testProxy.getCallCount('navigate'));
+      assertEquals(0, windowProxy.getCallCount('navigate'));
       assertTrue(voiceSearchOverlay.$.dialog.open);
     });
 
@@ -364,34 +372,34 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
 
       // Assert.
       assertTrue(clicked);
-      assertEquals(0, testProxy.getCallCount('navigate'));
+      assertEquals(0, windowProxy.getCallCount('navigate'));
       assertFalse(voiceSearchOverlay.$.dialog.open);
     });
   });
 
-  test('\'Escape\' closes overlay', async () => {
+  test('\'Escape\' closes overlay', () => {
     // Act.
     keydown(voiceSearchOverlay.shadowRoot.activeElement, 'Escape');
 
     // Assert.
     assertFalse(voiceSearchOverlay.$.dialog.open);
+    assertEquals(1, metrics.count('NewTabPage.VoiceActions'));
     assertEquals(
-        Action.kCloseOverlay,
-        await testProxy.handler.whenCalled('onVoiceSearchAction'));
+        1, metrics.count('NewTabPage.VoiceActions', Action.kCloseOverlay));
   });
 
-  test('Click closes overlay', async () => {
+  test('Click closes overlay', () => {
     // Act.
     voiceSearchOverlay.$.dialog.click();
 
     // Assert.
     assertFalse(voiceSearchOverlay.$.dialog.open);
+    assertEquals(1, metrics.count('NewTabPage.VoiceActions'));
     assertEquals(
-        Action.kCloseOverlay,
-        await testProxy.handler.whenCalled('onVoiceSearchAction'));
+        1, metrics.count('NewTabPage.VoiceActions', Action.kCloseOverlay));
   });
 
-  test('Clicking learn more logs action', async () => {
+  test('Clicking learn more logs action', () => {
     // Arrange.
     mockSpeechRecognition.onerror({error: 'audio-capture'});
     const link = $$(voiceSearchOverlay, '[link=learn-more]');
@@ -403,7 +411,7 @@ suite('NewTabPageVoiceSearchOverlayTest', () => {
 
     // Assert.
     assertEquals(
-        Action.kSupportLinkClicked,
-        await testProxy.handler.whenCalled('onVoiceSearchAction'));
+        1,
+        metrics.count('NewTabPage.VoiceActions', Action.kSupportLinkClicked));
   });
 });

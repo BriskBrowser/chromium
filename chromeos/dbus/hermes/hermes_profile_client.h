@@ -27,8 +27,17 @@ class COMPONENT_EXPORT(HERMES_CLIENT) HermesProfileClient {
  public:
   class TestInterface {
    public:
+    enum class EnableProfileBehavior {
+      kNotConnectable,
+      kConnectableButNotConnected,
+      kConnectableAndConnected
+    };
+
     // Clears the Profile properties for the given path.
     virtual void ClearProfile(const dbus::ObjectPath& carrier_profile_path) = 0;
+    // Sets service state to connected after eSIM profiles are enabled.
+    virtual void SetEnableProfileBehavior(
+        EnableProfileBehavior enable_profile_behavior) = 0;
   };
 
   // Hermes profile properties.
@@ -90,6 +99,13 @@ class COMPONENT_EXPORT(HERMES_CLIENT) HermesProfileClient {
   virtual void DisableCarrierProfile(
       const dbus::ObjectPath& carrier_profile_path,
       HermesResponseCallback callback) = 0;
+
+  // Rename the profile's nick name to |new_name| with given
+  // |carrier_profile_path|. |callback| will receive status code indicating
+  // response status.
+  virtual void RenameProfile(const dbus::ObjectPath& carrier_profile_path,
+                             const std::string& new_name,
+                             HermesResponseCallback callback) = 0;
 
   // Returns properties for eSIM carrier profile with given
   // |carrier_profile_path|.

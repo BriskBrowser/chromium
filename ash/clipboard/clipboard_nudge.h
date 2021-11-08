@@ -6,43 +6,35 @@
 #define ASH_CLIPBOARD_CLIPBOARD_NUDGE_H_
 
 #include "ash/ash_export.h"
+#include "ash/clipboard/clipboard_nudge_constants.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_observer.h"
+#include "ash/system/tray/system_nudge.h"
 #include "base/scoped_observation.h"
+#include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/widget/unique_widget_ptr.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
 
 // Implements a contextual nudge for multipaste.
-class ASH_EXPORT ClipboardNudge : public ShelfObserver {
+class ASH_EXPORT ClipboardNudge : public SystemNudge {
  public:
-  ClipboardNudge();
+  explicit ClipboardNudge(ClipboardNudgeType nudge_type);
   ClipboardNudge(const ClipboardNudge&) = delete;
   ClipboardNudge& operator=(const ClipboardNudge&) = delete;
   ~ClipboardNudge() override;
 
-  // ShelfObserver overrides:
-  void OnAutoHideStateChanged(ShelfAutoHideState new_state) override;
-  void OnHotseatStateChanged(HotseatState old_state,
-                             HotseatState new_state) override;
-  void Close();
+  ClipboardNudgeType nudge_type() { return nudge_type_; }
 
-  views::Widget* widget() { return widget_.get(); }
+ protected:
+  // SystemNudge:
+  std::unique_ptr<views::View> CreateLabelView() const override;
+  const gfx::VectorIcon& GetIcon() const override;
+  std::u16string GetAccessibilityText() const override;
 
  private:
-  class ClipboardNudgeView;
-
-  // Calculate and set widget bounds based ona fixed width and a variable
-  // height to correctly fit the text.
-  void CalculateAndSetWidgetBounds();
-
-  std::unique_ptr<views::Widget> widget_;
-
-  ClipboardNudgeView* nudge_view_ = nullptr;  // not_owned
-
-  aura::Window* const root_window_;
-
-  base::ScopedObservation<Shelf, ShelfObserver> shelf_observation_{this};
+  ClipboardNudgeType nudge_type_;
 };
 
 }  // namespace ash

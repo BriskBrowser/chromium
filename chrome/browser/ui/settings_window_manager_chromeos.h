@@ -12,6 +12,7 @@
 #include "base/memory/singleton.h"
 #include "base/observer_list.h"
 #include "components/sessions/core/session_id.h"
+#include "ui/display/types/display_constants.h"
 
 class Browser;
 class GURL;
@@ -27,6 +28,9 @@ class SettingsWindowManagerObserver;
 
 class SettingsWindowManager {
  public:
+  SettingsWindowManager(const SettingsWindowManager&) = delete;
+  SettingsWindowManager& operator=(const SettingsWindowManager&) = delete;
+
   static SettingsWindowManager* GetInstance();
 
   // Caller is responsible for |manager|'s life time.
@@ -41,14 +45,19 @@ class SettingsWindowManager {
 
   // Shows a chrome:// page (e.g. Settings, About) in an an existing system
   // Browser window for |profile| or creates a new one.
-  virtual void ShowChromePageForProfile(Profile* profile, const GURL& gurl);
+  virtual void ShowChromePageForProfile(Profile* profile,
+                                        const GURL& gurl,
+                                        int64_t display_id);
 
   // Shows the OS settings window for |profile|. When feature SplitSettings is
   // disabled, this behaves like ShowChromePageForProfile().
-  void ShowOSSettings(Profile* profile);
+  void ShowOSSettings(Profile* profile,
+                      int64_t display_id = display::kInvalidDisplayId);
 
   // As above, but shows a settings sub-page.
-  void ShowOSSettings(Profile* profile, const std::string& sub_page);
+  void ShowOSSettings(Profile* profile,
+                      const std::string& sub_page,
+                      int64_t display_id = display::kInvalidDisplayId);
 
   // If a Browser settings window for |profile| has already been created,
   // returns it, otherwise returns NULL.
@@ -69,8 +78,6 @@ class SettingsWindowManager {
 
   // TODO(calamity): Remove when SystemWebApps are enabled by default.
   ProfileSessionMap settings_session_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(SettingsWindowManager);
 };
 
 }  // namespace chrome

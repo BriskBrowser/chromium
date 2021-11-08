@@ -5,8 +5,6 @@
 #ifndef NET_QUIC_MOCK_CRYPTO_CLIENT_STREAM_H_
 #define NET_QUIC_MOCK_CRYPTO_CLIENT_STREAM_H_
 
-#include <string>
-
 #include "base/macros.h"
 #include "net/quic/crypto/proof_verifier_chromium.h"
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake.h"
@@ -58,6 +56,10 @@ class MockCryptoClientStream : public quic::QuicCryptoClientStream,
       HandshakeMode handshake_mode,
       const net::ProofVerifyDetailsChromium* proof_verify_details_,
       bool use_mock_crypter);
+
+  MockCryptoClientStream(const MockCryptoClientStream&) = delete;
+  MockCryptoClientStream& operator=(const MockCryptoClientStream&) = delete;
+
   ~MockCryptoClientStream() override;
 
   // CryptoFramerVisitorInterface implementation.
@@ -67,6 +69,7 @@ class MockCryptoClientStream : public quic::QuicCryptoClientStream,
   bool CryptoConnect() override;
   bool encryption_established() const override;
   bool one_rtt_keys_available() const override;
+  quic::HandshakeState GetHandshakeState() const override;
   const quic::QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   quic::CryptoMessageParser* crypto_message_parser() override;
@@ -106,8 +109,6 @@ class MockCryptoClientStream : public quic::QuicCryptoClientStream,
   const quic::QuicServerId server_id_;
   const net::ProofVerifyDetailsChromium* proof_verify_details_;
   const quic::QuicConfig config_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockCryptoClientStream);
 };
 
 }  // namespace net

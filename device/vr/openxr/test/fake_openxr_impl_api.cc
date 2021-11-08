@@ -4,7 +4,7 @@
 
 #include <wrl.h>
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "device/vr/openxr/openxr_util.h"
 #include "device/vr/openxr/test/openxr_negotiate.h"
 #include "device/vr/openxr/test/openxr_test_helper.h"
@@ -497,7 +497,7 @@ XrResult xrEnumerateSwapchainImages(XrSwapchain swapchain,
   return XR_SUCCESS;
 }
 
-XrResult xrGetD3D11GraphicsRequirementsKHR(
+__stdcall XrResult xrGetD3D11GraphicsRequirementsKHR(
     XrInstance instance,
     XrSystemId system_id,
     XrGraphicsRequirementsD3D11KHR* graphics_requirements) {
@@ -707,6 +707,25 @@ XrResult xrGetSystem(XrInstance instance,
   RETURN_IF(system_id == nullptr, XR_ERROR_VALIDATION_FAILURE,
             "XrSystemId is nullptr");
   *system_id = g_test_helper.GetSystemId();
+
+  return XR_SUCCESS;
+}
+
+XrResult xrGetSystemProperties(XrInstance instance,
+                               XrSystemId system_id,
+                               XrSystemProperties* system_properties) {
+  DVLOG(2) << __FUNCTION__;
+  RETURN_IF_XR_FAILED(g_test_helper.ValidateInstance(instance));
+  RETURN_IF_XR_FAILED(g_test_helper.ValidateSystemId(system_id));
+  RETURN_IF(system_properties == nullptr, XR_ERROR_VALIDATION_FAILURE,
+            "XrSystemProperties is nullptr");
+  RETURN_IF(system_properties->type != XR_TYPE_SYSTEM_PROPERTIES,
+            XR_ERROR_VALIDATION_FAILURE, "XrSystemProperties type invalid");
+  RETURN_IF(system_properties->next != nullptr, XR_ERROR_VALIDATION_FAILURE,
+            "XrSystemProperties next is not nullptr");
+
+  *system_properties = g_test_helper.GetSystemProperties();
+  system_properties->systemId = system_id;
 
   return XR_SUCCESS;
 }
@@ -1012,6 +1031,8 @@ XrResult XRAPI_PTR xrGetInstanceProcAddr(XrInstance instance,
         reinterpret_cast<PFN_xrVoidFunction>(xrGetViewConfigurationProperties);
   } else if (strcmp(name, "xrGetSystem") == 0) {
     *function = reinterpret_cast<PFN_xrVoidFunction>(xrGetSystem);
+  } else if (strcmp(name, "xrGetSystemProperties") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrGetSystemProperties);
   } else if (strcmp(name, "xrLocateSpace") == 0) {
     *function = reinterpret_cast<PFN_xrVoidFunction>(xrLocateSpace);
   } else if (strcmp(name, "xrLocateViews") == 0) {

@@ -536,10 +536,6 @@
         "name": "blink_perf.layout/auto-grid-lots-of-spanning-data.html"
     },
     {
-        "duration": "11.0",
-        "name": "blink_perf.layout/change-text-css-contain.html"
-    },
-    {
         "duration": "9.0",
         "name": "blink_perf.layout/chapter-reflow-once-random.html"
     },
@@ -1390,14 +1386,6 @@
     {
         "duration": "304.0",
         "name": "desktop_ui/tab_search:scroll_up_and_down:2020"
-    },
-    {
-        "duration": "313.0",
-        "name": "desktop_ui/tab_search:top100:2020"
-    },
-    {
-        "duration": "312.0",
-        "name": "desktop_ui/tab_search:top100:loading:2020"
     },
     {
         "duration": "92.0",
@@ -3425,7 +3413,7 @@
     },
     {
         "duration": "45.0",
-        "name": "system_health.common_desktop/browse:media:googleplaystore:2018"
+        "name": "system_health.common_desktop/browse:media:googleplaystore:2021"
     },
     {
         "duration": "74.0",
@@ -3737,7 +3725,7 @@
     },
     {
         "duration": "39.0",
-        "name": "system_health.memory_desktop/browse:media:googleplaystore:2018"
+        "name": "system_health.memory_desktop/browse:media:googleplaystore:2021"
     },
     {
         "duration": "66.0",
@@ -4089,7 +4077,7 @@
     },
     {
         "duration": "50.0",
-        "name": "v8.browsing_desktop-future/browse:media:googleplaystore:2018"
+        "name": "v8.browsing_desktop-future/browse:media:googleplaystore:2021"
     },
     {
         "duration": "13.0",
@@ -4193,7 +4181,7 @@
     },
     {
         "duration": "54.0",
-        "name": "v8.browsing_desktop/browse:media:googleplaystore:2018"
+        "name": "v8.browsing_desktop/browse:media:googleplaystore:2021"
     },
     {
         "duration": "16.0",

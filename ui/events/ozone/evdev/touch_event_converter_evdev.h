@@ -48,6 +48,10 @@ class COMPONENT_EXPORT(EVDEV) TouchEventConverterEvdev
                            const EventDeviceInfo& devinfo,
                            SharedPalmDetectionFilterState* shared_palm_state,
                            DeviceEventDispatcherEvdev* dispatcher);
+
+  TouchEventConverterEvdev(const TouchEventConverterEvdev&) = delete;
+  TouchEventConverterEvdev& operator=(const TouchEventConverterEvdev&) = delete;
+
   ~TouchEventConverterEvdev() override;
 
   static std::unique_ptr<TouchEventConverterEvdev> Create(
@@ -118,6 +122,9 @@ class COMPONENT_EXPORT(EVDEV) TouchEventConverterEvdev
   // Normalize pressure value to [0, 1].
   float ScalePressure(int32_t value) const;
 
+  bool SupportsOrientation() const;
+  void UpdateRadiusFromTouchWithOrientation(InProgressTouchEvdev* event) const;
+
   int NextTrackingId();
 
   // Input device file descriptor.
@@ -142,6 +149,10 @@ class COMPONENT_EXPORT(EVDEV) TouchEventConverterEvdev
   int pressure_min_;
   int pressure_max_;  // Used to normalize pressure values.
 
+  // Orientation values.
+  int orientation_min_;
+  int orientation_max_;
+
   // Input range for tilt.
   int tilt_x_min_;
   int tilt_x_range_;
@@ -159,8 +170,16 @@ class COMPONENT_EXPORT(EVDEV) TouchEventConverterEvdev
   // The resolution of ABS_MT_TOUCH_MAJOR/MINOR might be different from the
   // resolution of ABS_MT_POSITION_X/Y. As we use the (position range, display
   // pixels) to resize touch event radius, we have to scale major/minor.
-  float touch_major_scale_ = 1.0f;
-  float touch_minor_scale_ = 1.0f;
+
+  // When the major axis is X, we precompute the scale for x_radius/y_radius
+  // from ABS_MT_TOUCH_MAJOR/ABS_MT_TOUCH_MINOR respectively.
+  float x_scale_ = 0.5f;
+  float y_scale_ = 0.5f;
+  // Since the x and y resolution can differ, we pre-compute the
+  // x_radius/y_radius scale from ABS_MT_TOUCH_MINOR/ABS_MT_TOUCH_MAJOR
+  // resolution respectively when ABS_MT_ORIENTATION is rotated.
+  float rotated_x_scale_ = 0.5f;
+  float rotated_y_scale_ = 0.5f;
 
   // Number of touch points reported by driver
   int touch_points_ = 0;
@@ -202,8 +221,6 @@ class COMPONENT_EXPORT(EVDEV) TouchEventConverterEvdev
 
   // Do we mark a touch as palm when the tool type is marked as TOOL_TYPE_PALM ?
   bool palm_on_tool_type_palm_;
-
-  DISALLOW_COPY_AND_ASSIGN(TouchEventConverterEvdev);
 };
 
 }  // namespace ui

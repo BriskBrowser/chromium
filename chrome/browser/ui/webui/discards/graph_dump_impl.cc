@@ -50,6 +50,9 @@ class DiscardsGraphDumpImpl::FaviconRequestHelper {
   FaviconRequestHelper(base::WeakPtr<DiscardsGraphDumpImpl> graph_dump,
                        scoped_refptr<base::SequencedTaskRunner> task_runner);
 
+  FaviconRequestHelper(const FaviconRequestHelper&) = delete;
+  FaviconRequestHelper& operator=(const FaviconRequestHelper&) = delete;
+
   void RequestFavicon(GURL page_url,
                       performance_manager::WebContentsProxy contents_proxy,
                       int64_t serialization_id);
@@ -63,8 +66,6 @@ class DiscardsGraphDumpImpl::FaviconRequestHelper {
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(FaviconRequestHelper);
 };
 
 DiscardsGraphDumpImpl::FaviconRequestHelper::FaviconRequestHelper(
@@ -293,8 +294,15 @@ void DiscardsGraphDumpImpl::OnBeforePageNodeRemoved(
 
 void DiscardsGraphDumpImpl::OnOpenerFrameNodeChanged(
     const performance_manager::PageNode* page_node,
+    const performance_manager::FrameNode* previous_opener) {
+  DCHECK(HasNode(page_node));
+  SendPageNotification(page_node, false);
+}
+
+void DiscardsGraphDumpImpl::OnEmbedderFrameNodeChanged(
+    const performance_manager::PageNode* page_node,
     const performance_manager::FrameNode*,
-    OpenedType) {
+    EmbeddingType) {
   DCHECK(HasNode(page_node));
   SendPageNotification(page_node, false);
 }
@@ -506,6 +514,7 @@ void DiscardsGraphDumpImpl::SendPageNotification(
   page_info->id = GetNodeId(page_node);
   page_info->main_frame_url = page_node->GetMainFrameUrl();
   page_info->opener_frame_id = GetNodeId(page_node->GetOpenerFrameNode());
+  page_info->embedder_frame_id = GetNodeId(page_node->GetEmbedderFrameNode());
   page_info->description_json = ToJSON(
       graph_->GetNodeDataDescriberRegistry()->DescribeNodeData(page_node));
 

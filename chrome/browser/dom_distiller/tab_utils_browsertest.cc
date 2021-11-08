@@ -4,8 +4,12 @@
 
 #include <string.h>
 
+#include <memory>
+
 #include "base/command_line.h"
 #include "base/run_loop.h"
+#include "base/scoped_observation.h"
+#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -14,11 +18,13 @@
 #include "build/build_config.h"
 #include "chrome/browser/dom_distiller/dom_distiller_service_factory.h"
 #include "chrome/browser/dom_distiller/tab_utils.h"
+#include "chrome/browser/dom_distiller/test_distillation_observers.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/back_forward_cache/back_forward_cache_disable.h"
 #include "components/dom_distiller/content/browser/distillable_page_utils.h"
 #include "components/dom_distiller/content/browser/distiller_javascript_utils.h"
 #include "components/dom_distiller/content/browser/test_distillability_observer.h"
@@ -46,6 +52,7 @@
 #include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/request_handler_util.h"
+#include "services/network/public/cpp/network_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
@@ -76,82 +83,19 @@ std::unique_ptr<content::WebContents> NewContentsWithSameParamsAs(
   return new_web_contents;
 }
 
-// Helper class that blocks test execution until |observed_contents| enters a
-// certain state. Subclasses specify the precise state by calling
-// |new_url_loaded_runner_|.QuitClosure().Run() when |observed_contents| is
-// ready.
-class NavigationObserver : public content::WebContentsObserver {
- public:
-  explicit NavigationObserver(content::WebContents* observed_contents) {
-    content::WebContentsObserver::Observe(observed_contents);
-  }
-
-  void WaitUntilFinishedLoading() { new_url_loaded_runner_.Run(); }
-
- protected:
-  base::RunLoop new_url_loaded_runner_;
-};
-
-class OriginalPageNavigationObserver : public NavigationObserver {
- public:
-  using NavigationObserver::NavigationObserver;
-
-  void DidFinishLoad(content::RenderFrameHost* render_frame_host,
-                     const GURL& validated_url) override {
-    if (!render_frame_host->GetParent())
-      new_url_loaded_runner_.QuitClosure().Run();
-  }
-};
-
-// DistilledPageObserver is used to detect if a distilled page has
-// finished loading. This is done by checking how many times the title has
-// been set rather than using "DidFinishLoad" directly due to the content
-// being set by JavaScript.
-class DistilledPageObserver : public NavigationObserver {
- public:
-  explicit DistilledPageObserver(content::WebContents* observed_contents)
-      : NavigationObserver(observed_contents),
-        title_set_count_(0),
-        loaded_distiller_page_(false) {}
-
-  void DidFinishLoad(content::RenderFrameHost* render_frame_host,
-                     const GURL& validated_url) override {
-    if (!render_frame_host->GetParent() &&
-        validated_url.scheme() == kDomDistillerScheme) {
-      loaded_distiller_page_ = true;
-      MaybeNotifyLoaded();
-    }
-  }
-
-  void TitleWasSet(content::NavigationEntry* entry) override {
-    // The title will be set twice on distilled pages; once for the placeholder
-    // and once when the distillation has finished. Watch for the second time
-    // as a signal that the JavaScript that sets the content has run.
-    title_set_count_++;
-    MaybeNotifyLoaded();
-  }
-
- private:
-  int title_set_count_;
-  bool loaded_distiller_page_;
-
-  // DidFinishLoad() can come after the two title settings.
-  void MaybeNotifyLoaded() {
-    if (title_set_count_ >= 2 && loaded_distiller_page_) {
-      new_url_loaded_runner_.QuitClosure().Run();
-    }
-  }
-};
-
 // FaviconUpdateWaiter waits for favicons to be changed after navigation.
 // TODO(1064318): Combine with FaviconUpdateWaiter in
 // chrome/browser/chrome_service_worker_browsertest.cc.
 class FaviconUpdateWaiter : public favicon::FaviconDriverObserver {
  public:
   explicit FaviconUpdateWaiter(content::WebContents* web_contents) {
-    scoped_observer_.Add(
+    scoped_observation_.Observe(
         favicon::ContentFaviconDriver::FromWebContents(web_contents));
   }
+
+  FaviconUpdateWaiter(const FaviconUpdateWaiter&) = delete;
+  FaviconUpdateWaiter& operator=(const FaviconUpdateWaiter&) = delete;
+
   ~FaviconUpdateWaiter() override = default;
 
   void Wait() {
@@ -163,7 +107,7 @@ class FaviconUpdateWaiter : public favicon::FaviconDriverObserver {
     run_loop.Run();
   }
 
-  void StopObserving() { scoped_observer_.RemoveAll(); }
+  void StopObserving() { scoped_observation_.Reset(); }
 
  private:
   void OnFaviconUpdated(favicon::FaviconDriver* favicon_driver,
@@ -177,11 +121,10 @@ class FaviconUpdateWaiter : public favicon::FaviconDriverObserver {
   }
 
   bool updated_ = false;
-  ScopedObserver<favicon::FaviconDriver, favicon::FaviconDriverObserver>
-      scoped_observer_{this};
+  base::ScopedObservation<favicon::FaviconDriver,
+                          favicon::FaviconDriverObserver>
+      scoped_observation_{this};
   base::OnceClosure quit_closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(FaviconUpdateWaiter);
 };
 
 class DomDistillerTabUtilsBrowserTest : public InProcessBrowserTest {
@@ -204,8 +147,8 @@ class DomDistillerTabUtilsBrowserTest : public InProcessBrowserTest {
   }
 
   void SetUpInProcessBrowserTestFixture() override {
-    https_server_.reset(
-        new net::EmbeddedTestServer(net::EmbeddedTestServer::TYPE_HTTPS));
+    https_server_ = std::make_unique<net::EmbeddedTestServer>(
+        net::EmbeddedTestServer::TYPE_HTTPS);
     https_server_->ServeFilesFromSourceDirectory(GetChromeTestDataDir());
   }
   const GURL& article_url() const { return article_url_; }
@@ -241,7 +184,7 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
   expected_result.is_mobile_friendly = false;
 
   // This blocks until the navigation has completely finished.
-  ui_test_utils::NavigateToURL(browser(), article_url());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
   // This blocks until the page is found to be distillable.
   distillability_observer.WaitForResult(expected_result);
 
@@ -276,7 +219,7 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest, UMATimesAreLogged) {
   expected_result.is_mobile_friendly = false;
 
   // This blocks until the navigation has completely finished.
-  ui_test_utils::NavigateToURL(browser(), article_url());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
   // This blocks until the page is found to be distillable.
   distillability_observer.WaitForResult(expected_result);
 
@@ -293,7 +236,7 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest, UMATimesAreLogged) {
   histogram_tester.ExpectTotalCount(kDistilledPageHistogram, 0);
 
   // Go back to the article, check UMA exists for distilled page now.
-  ui_test_utils::NavigateToURL(browser(), article_url());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
   histogram_tester.ExpectTotalCount(kDistilledPageHistogram, 1);
   // However, there should not be a second distillable histogram.
   histogram_tester.ExpectTotalCount(kDistillablePageHistogram, 1);
@@ -305,7 +248,7 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
       browser()->tab_strip_model()->GetActiveWebContents();
 
   // This blocks until the navigation has completely finished.
-  ui_test_utils::NavigateToURL(browser(), article_url());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
 
   // Create destination WebContents and add it to the tab strip.
   browser()->tab_strip_model()->AppendWebContents(
@@ -339,7 +282,7 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest, ToggleOriginalPage) {
       browser()->tab_strip_model()->GetActiveWebContents();
 
   // This blocks until the navigation has completely finished.
-  ui_test_utils::NavigateToURL(browser(), article_url());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
 
   // Create and navigate to the distilled page.
   browser()->tab_strip_model()->AppendWebContents(
@@ -381,17 +324,19 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
   expected_result.is_mobile_friendly = false;
 
   // Navigate to the page
-  ui_test_utils::NavigateToURL(browser(), url1);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url1));
   distillability_observer.WaitForResult(expected_result);
 
   DistillCurrentPageAndView(initial_web_contents);
 
   // Navigate away while starting distillation. This should block bfcache.
-  ui_test_utils::NavigateToURL(browser(), url2);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url2));
 
   EXPECT_TRUE(tester.IsDisabledForFrameWithReason(
       process_id, frame_routing_id,
-      "browser::DomDistiller_SelfDeletingRequestDelegate"));
+      back_forward_cache::DisabledReason(
+          back_forward_cache::DisabledReasonId::
+              kDomDistiller_SelfDeletingRequestDelegate)));
 }
 
 IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest, SecurityStateIsNone) {
@@ -402,7 +347,7 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest, SecurityStateIsNone) {
   expected_result.is_distillable = true;
   expected_result.is_last = false;
   expected_result.is_mobile_friendly = false;
-  ui_test_utils::NavigateToURL(browser(), article_url());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
   distillability_observer.WaitForResult(expected_result);
 
   // Check security state is not NONE.
@@ -420,8 +365,14 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest, SecurityStateIsNone) {
   ASSERT_EQ(security_state::NONE, helper->GetSecurityLevel());
 }
 
+// TODO(crbug.com/1227141): Flaky on Mac.
+#if defined(OS_MAC)
+#define MAYBE_FaviconFromOriginalPage DISABLED_FaviconFromOriginalPage
+#else
+#define MAYBE_FaviconFromOriginalPage FaviconFromOriginalPage
+#endif
 IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
-                       FaviconFromOriginalPage) {
+                       MAYBE_FaviconFromOriginalPage) {
   content::WebContents* initial_web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -432,7 +383,7 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
   expected_result.is_mobile_friendly = false;
   FaviconUpdateWaiter waiter(initial_web_contents);
 
-  ui_test_utils::NavigateToURL(browser(), article_url());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
   // Ensure the favicon is loaded and the distillability result has also
   // loaded before proceeding with the test.
   waiter.Wait();
@@ -473,7 +424,7 @@ class DistilledPageImageLoadWaiter {
 
   void Wait() {
     base::RepeatingTimer check_timer;
-    check_timer.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(10), this,
+    check_timer.Start(FROM_HERE, base::Milliseconds(10), this,
                       &DistilledPageImageLoadWaiter::OnTimer);
     runner_.Run();
   }
@@ -517,13 +468,20 @@ class DomDistillerTabUtilsBrowserTestInsecureContent
     if (!DistillerJavaScriptWorldIdIsSet()) {
       SetDistillerJavaScriptWorldId(content::ISOLATED_WORLD_ID_CONTENT_END);
     }
-    ASSERT_TRUE(https_server_->Start());
-    ASSERT_TRUE(https_server_expired_->Start());
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kEnableDomDistiller);
     command_line->AppendSwitch(switches::kAllowInsecureLocalhost);
+
+    // Distilled documents are placed in the `public` address space, whence they
+    // cannot load subresources from the `local` address space. See also:
+    // https://bit.ly/3v0MsaY. This prevents distilled documents from loading
+    // images from localhost. Instruct the browser to treat the HTTPS server as
+    // `public` to avoid this.
+    command_line->AppendSwitchASCII(
+        network::switches::kIpAddressSpaceOverrides,
+        base::StrCat({https_server_->host_port_pair().ToString(), "=public"}));
   }
 
   void CheckImageWidthById(content::WebContents* contents,
@@ -538,17 +496,24 @@ class DomDistillerTabUtilsBrowserTestInsecureContent
   DomDistillerTabUtilsBrowserTestInsecureContent() {
     feature_list_.InitWithFeatures({dom_distiller::kReaderMode},
                                    {blink::features::kMixedContentAutoupgrade});
-  }
 
-  void SetUpInProcessBrowserTestFixture() override {
-    https_server_.reset(
-        new net::EmbeddedTestServer(net::EmbeddedTestServer::TYPE_HTTPS));
+    https_server_ = std::make_unique<net::EmbeddedTestServer>(
+        net::EmbeddedTestServer::TYPE_HTTPS);
     https_server_->ServeFilesFromSourceDirectory(GetChromeTestDataDir());
-    https_server_expired_.reset(
-        new net::EmbeddedTestServer(net::EmbeddedTestServer::TYPE_HTTPS));
+
+    https_server_expired_ = std::make_unique<net::EmbeddedTestServer>(
+        net::EmbeddedTestServer::TYPE_HTTPS);
     https_server_expired_->SetSSLConfig(net::EmbeddedTestServer::CERT_EXPIRED);
     https_server_expired_->ServeFilesFromSourceDirectory(
         GetChromeTestDataDir());
+
+    StartServers();
+  }
+
+  // Constructor helper: ASSERT_* macros can only be used in `void` functions.
+  void StartServers() {
+    ASSERT_TRUE(https_server_->Start());
+    ASSERT_TRUE(https_server_expired_->Start());
   }
 
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
@@ -562,9 +527,9 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTestInsecureContent,
                        DoesNotLoadMixedContent) {
   content::WebContents* initial_web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  ui_test_utils::NavigateToURL(
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(),
-      https_server_->GetURL("/dom_distiller/simple_article_mixed_image.html"));
+      https_server_->GetURL("/dom_distiller/simple_article_mixed_image.html")));
   // Security state should be downgraded.
   SecurityStateTabHelper* helper =
       SecurityStateTabHelper::FromWebContents(initial_web_contents);
@@ -621,7 +586,8 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTestInsecureContent,
                 https_server_expired_->host_port_pair().ToString()));
   std::string path = net::test_server::GetFilePathWithReplacements(
       "/dom_distiller/simple_article_bad_cert_image.html", replacement_text);
-  ui_test_utils::NavigateToURL(browser(), https_server_->GetURL(path));
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), https_server_->GetURL(path)));
   // Should have loaded the image with the cert errors.
   SecurityStateTabHelper* helper =
       SecurityStateTabHelper::FromWebContents(initial_web_contents);

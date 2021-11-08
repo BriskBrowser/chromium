@@ -5,9 +5,7 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_DOWNLOADS_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_DOWNLOADS_HANDLER_H_
 
-#include <memory>
-#include <vector>
-
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
@@ -23,6 +21,10 @@ class DownloadsHandler : public SettingsPageUIHandler,
                          public ui::SelectFileDialog::Listener {
  public:
   explicit DownloadsHandler(Profile* profile);
+
+  DownloadsHandler(const DownloadsHandler&) = delete;
+  DownloadsHandler& operator=(const DownloadsHandler&) = delete;
+
   ~DownloadsHandler() override;
 
   // SettingsPageUIHandler implementation.
@@ -51,6 +53,7 @@ class DownloadsHandler : public SettingsPageUIHandler,
   void FileSelected(const base::FilePath& path,
                     int index,
                     void* params) override;
+  void FileSelectionCanceled(void* params) override;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Callback for the "getDownloadLocationText" message.  Converts actual
@@ -59,13 +62,28 @@ class DownloadsHandler : public SettingsPageUIHandler,
   void HandleGetDownloadLocationText(const base::ListValue* args);
 #endif
 
+  bool IsDownloadsConnectionPolicyEnabled() const;
+  void SendDownloadsConnectionPolicyToJavascript();
+
+  // Callback for the "setDownloadsConnectionAccountLink" message. If there is
+  // no account linked and arg is true, this prompts the user to sign in; if
+  // there is an existing linked account and arg is false, this removes the
+  // linked account info and stored authentication tokens; otherwise, this
+  // merely sends the latest stored account info.
+  void HandleSetDownloadsConnectionAccountLink(const base::ListValue* args);
+  // Callback for file system connector code, since prompting the user to sign
+  // in is async.
+  void OnDownloadsConnectionAccountLinkSet(bool success);
+  // Sends the latest stored account info to the settings page.
+  void SendDownloadsConnectionInfoToJavascript();
+
   Profile* profile_;
 
   PrefChangeRegistrar pref_registrar_;
 
   scoped_refptr<ui::SelectFileDialog> select_folder_dialog_;
 
-  DISALLOW_COPY_AND_ASSIGN(DownloadsHandler);
+  base::WeakPtrFactory<DownloadsHandler> weak_factory_{this};
 };
 
 }  // namespace settings

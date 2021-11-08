@@ -9,7 +9,6 @@
 
 #include <string>
 
-#include "base/strings/string16.h"
 #include "components/omnibox/common/omnibox_focus_state.h"
 #include "components/security_state/core/security_state.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
@@ -31,19 +30,22 @@ class LocationBarModel {
   //   - The scheme and/or trailing slash may be dropped.
   // This method specifically keeps the URL suitable for editing by not
   // applying any elisions that change the meaning of the URL.
-  virtual base::string16 GetFormattedFullURL() const = 0;
+  virtual std::u16string GetFormattedFullURL() const = 0;
 
   // Returns a simplified URL for display (but not editing) on the toolbar.
   // This formatting is generally a superset of GetFormattedFullURL, and may
   // include some destructive elisions that change the meaning of the URL.
   // The returned string is not suitable for editing, and is for display only.
-  virtual base::string16 GetURLForDisplay() const = 0;
+  virtual std::u16string GetURLForDisplay() const = 0;
 
   // Returns the URL of the current navigation entry.
   virtual GURL GetURL() const = 0;
 
   // Returns the security level that the toolbar should display.
   virtual security_state::SecurityLevel GetSecurityLevel() const = 0;
+
+  // Returns the cert status of the current navigation entry.
+  virtual net::CertStatus GetCertStatus() const = 0;
 
   // Classify the current page being viewed as, for example, the new tab
   // page or a normal web page.  Used for logging omnibox events for
@@ -59,10 +61,10 @@ class LocationBarModel {
 
   // Returns text for the omnibox secure verbose chip, displayed next to the
   // security icon on certain platforms.
-  virtual base::string16 GetSecureDisplayText() const = 0;
+  virtual std::u16string GetSecureDisplayText() const = 0;
 
   // Returns text describing the security state for accessibility.
-  virtual base::string16 GetSecureAccessibilityText() const = 0;
+  virtual std::u16string GetSecureAccessibilityText() const = 0;
 
   // Returns whether the URL for the current navigation entry should be
   // in the location bar.
@@ -76,6 +78,10 @@ class LocationBarModel {
   // user has a specified extension or pref enabled. If true, the only elisions
   // should be username/password and trailing slash on bare hostname.
   virtual bool ShouldPreventElision() const = 0;
+
+  // Returns whether the omnibox should use the new security indicators for
+  // secure HTTPS connections.
+  virtual bool ShouldUseUpdatedConnectionSecurityIndicators() const = 0;
 
  protected:
   LocationBarModel() = default;

@@ -13,12 +13,10 @@
 #include <ostream>
 #include <utility>
 
-#include "base/bit_cast.h"
 #include "base/containers/checked_iterators.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/memory_usage_estimator.h"
@@ -64,7 +62,11 @@ struct ResolvedSearchTerm {
                      const std::string& search_url_full,
                      const std::string& search_url_preload,
                      int coca_card_tag,
-                     const std::vector<std::string>& related_searches);
+                     const std::string& related_searches_json);
+
+  ResolvedSearchTerm(const ResolvedSearchTerm&) = delete;
+  ResolvedSearchTerm& operator=(const ResolvedSearchTerm&) = delete;
+
   ~ResolvedSearchTerm();
 
   // TODO(donnd): switch to member-initialization style instead of initializers.
@@ -88,9 +90,7 @@ struct ResolvedSearchTerm {
   const std::string search_url_full;
   const std::string search_url_preload;
   const int coca_card_tag;
-  std::vector<std::string> related_searches;
-
-  DISALLOW_COPY_AND_ASSIGN(ResolvedSearchTerm);
+  const std::string related_searches_json;
 };
 
 #endif  // CHROME_BROWSER_ANDROID_CONTEXTUALSEARCH_RESOLVED_SEARCH_TERM_H_

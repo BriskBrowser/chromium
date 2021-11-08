@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "base/callback.h"
+#include "base/location.h"
 #include "base/macros.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -43,12 +44,17 @@ class WEBVIEW_EXPORT WebView : public View,
   METADATA_HEADER(WebView);
 
   explicit WebView(content::BrowserContext* browser_context = nullptr);
+
+  WebView(const WebView&) = delete;
+  WebView& operator=(const WebView&) = delete;
+
   ~WebView() override;
 
-  // This creates a WebContents if |kBrowserContext| has been set and there is
+  // This creates a WebContents if |browser_context_| has been set and there is
   // not yet a WebContents associated with this WebView, otherwise it will
   // return a nullptr.
-  content::WebContents* GetWebContents();
+  content::WebContents* GetWebContents(
+      base::Location creator_location = base::Location::Current());
 
   // WebView does not assume ownership of WebContents set via this method, only
   // those it implicitly creates via GetWebContents() above.
@@ -108,10 +114,13 @@ class WEBVIEW_EXPORT WebView : public View,
   class WEBVIEW_EXPORT ScopedWebContentsCreatorForTesting {
    public:
     explicit ScopedWebContentsCreatorForTesting(WebContentsCreator creator);
-    ~ScopedWebContentsCreatorForTesting();
 
-   private:
-    DISALLOW_COPY_AND_ASSIGN(ScopedWebContentsCreatorForTesting);
+    ScopedWebContentsCreatorForTesting(
+        const ScopedWebContentsCreatorForTesting&) = delete;
+    ScopedWebContentsCreatorForTesting& operator=(
+        const ScopedWebContentsCreatorForTesting&) = delete;
+
+    ~ScopedWebContentsCreatorForTesting();
   };
 
  protected:
@@ -144,14 +153,10 @@ class WEBVIEW_EXPORT WebView : public View,
                               content::RenderFrameHost* new_host) override;
   void DidToggleFullscreenModeForTab(bool entered_fullscreen,
                                      bool will_cause_resize) override;
-  // Workaround for MSVC++ linker bug/feature that requires
-  // instantiation of the inline IPC::Listener methods in all translation units.
-  void OnChannelConnected(int32_t peer_id) override {}
-  void OnChannelError() override {}
-  void OnBadMessageReceived(const IPC::Message& message) override {}
   void OnWebContentsFocused(
       content::RenderWidgetHost* render_widget_host) override;
   void AXTreeIDForMainFrameHasChanged() override;
+  void WebContentsDestroyed() override;
 
   // Override from ui::AXModeObserver
   void OnAXModeAdded(ui::AXMode mode) override;
@@ -178,7 +183,8 @@ class WEBVIEW_EXPORT WebView : public View,
   // Create a regular or test web contents (based on whether we're running
   // in a unit test or not).
   std::unique_ptr<content::WebContents> CreateWebContents(
-      content::BrowserContext* browser_context);
+      content::BrowserContext* browser_context,
+      base::Location creator_location = base::Location::Current());
 
   NativeViewHost* const holder_ =
       AddChildView(std::make_unique<NativeViewHost>());
@@ -196,12 +202,6 @@ class WEBVIEW_EXPORT WebView : public View,
   // Empty if auto resize is not enabled.
   gfx::Size min_size_;
   gfx::Size max_size_;
-
-  // Tracks the child accessibility tree id which is associated with the
-  // WebContents's main RenderFrameHost.
-  ui::AXTreeID child_ax_tree_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebView);
 };
 
 }  // namespace views

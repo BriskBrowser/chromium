@@ -10,18 +10,10 @@
 
 #include "base/callback.h"
 #include "base/synchronization/lock.h"
-#include "base/time/time.h"
 #include "media/base/buffering_state.h"
 #include "media/base/pipeline_status.h"
 
 namespace media {
-
-using ErrorCB = base::RepeatingCallback<void(PipelineStatus)>;
-using EndedCB = base::RepeatingClosure;
-using BufferingStateChangedCB =
-    base::RepeatingCallback<void(BufferingState, BufferingStateChangeReason)>;
-using VideoNaturalSizeChangedCB = base::RepeatingClosure;
-using TimeUpdateCB = base::RepeatingClosure;
 
 // Implements IMFMediaEngineNotify required by IMFMediaEngine
 // (https://docs.microsoft.com/en-us/windows/win32/api/mfmediaengine/nn-mfmediaengine-imfmediaengine).
@@ -34,6 +26,13 @@ class MediaEngineNotifyImpl
  public:
   MediaEngineNotifyImpl();
   ~MediaEngineNotifyImpl() override;
+
+  using ErrorCB = base::RepeatingCallback<void(PipelineStatus, HRESULT)>;
+  using EndedCB = base::RepeatingClosure;
+  using BufferingStateChangedCB =
+      base::RepeatingCallback<void(BufferingState, BufferingStateChangeReason)>;
+  using VideoNaturalSizeChangedCB = base::RepeatingClosure;
+  using TimeUpdateCB = base::RepeatingClosure;
 
   HRESULT RuntimeClassInitialize(
       ErrorCB error_cb,

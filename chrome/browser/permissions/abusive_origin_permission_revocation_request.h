@@ -9,6 +9,7 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/permissions/crowd_deny_preload_data.h"
 #include "chrome/browser/permissions/crowd_deny_safe_browsing_request.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 class Profile;
@@ -63,14 +64,14 @@ class AbusiveOriginPermissionRevocationRequest {
       CrowdDenySafeBrowsingRequest::Verdict verdict);
   void NotifyCallback(Outcome outcome);
 
-  base::Optional<CrowdDenySafeBrowsingRequest> safe_browsing_request_;
+  absl::optional<CrowdDenySafeBrowsingRequest> safe_browsing_request_;
   Profile* profile_;
   const GURL origin_;
   OutcomeCallback callback_;
   // The time when the Crowd Deny request starts.
-  base::Optional<base::TimeTicks> crowd_deny_request_start_time_;
+  absl::optional<base::TimeTicks> crowd_deny_request_start_time_;
   // The Crowd Deny component load duration.
-  base::Optional<base::TimeDelta> crowd_deny_request_duration_;
+  absl::optional<base::TimeDelta> crowd_deny_request_duration_;
   base::WeakPtrFactory<AbusiveOriginPermissionRevocationRequest> weak_factory_{
       this};
 };

@@ -9,8 +9,7 @@
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_constants.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
-#import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#import "ios/public/provider/chrome/browser/signin/signin_resources_provider.h"
+#import "ios/public/provider/chrome/browser/signin/signin_resources_api.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -66,11 +65,10 @@ using l10n_util::GetNSStringF;
 
   NSString* name =
       self.userGivenName.length ? self.userGivenName : self.userEmail;
-  base::string16 name16 = SysNSStringToUTF16(name);
+  std::u16string name16 = SysNSStringToUTF16(name);
   switch (self.signinPromoViewMode) {
     case SigninPromoViewModeNoAccounts: {
-      NSString* signInString =
-          GetNSString(IDS_IOS_OPTIONS_IMPORT_DATA_TITLE_SIGNIN);
+      NSString* signInString = GetNSString(IDS_IOS_SYNC_PROMO_TURN_ON_SYNC);
       signinPromoView.accessibilityLabel = signInString;
       [signinPromoView.primaryButton setTitle:signInString
                                      forState:UIControlStateNormal];
@@ -89,7 +87,7 @@ using l10n_util::GetNSStringF;
     }
     case SigninPromoViewModeSyncWithPrimaryAccount: {
       [signinPromoView.primaryButton
-          setTitle:GetNSString(IDS_IOS_TAB_SWITCHER_ENABLE_SYNC_BUTTON)
+          setTitle:GetNSString(IDS_IOS_SYNC_PROMO_TURN_ON_SYNC)
           forState:UIControlStateNormal];
       signinPromoView.accessibilityLabel =
           GetNSStringF(IDS_IOS_SIGNIN_PROMO_ACCESSIBILITY_LABEL, name16);
@@ -99,11 +97,8 @@ using l10n_util::GetNSStringF;
 
   DCHECK_NE(self.signinPromoViewMode, SigninPromoViewModeNoAccounts);
   UIImage* image = self.userImage;
-  if (!image) {
-    image = ios::GetChromeBrowserProvider()
-                ->GetSigninResourcesProvider()
-                ->GetDefaultAvatar();
-  }
+  if (!image)
+    image = ios::provider::GetSigninDefaultAvatar();
   [signinPromoView setProfileImage:image];
 }
 

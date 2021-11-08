@@ -15,12 +15,11 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
-#include "components/image_fetcher/ios/ios_image_data_fetcher_wrapper.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/image_util/image_util.h"
-#import "ios/chrome/browser/web/image_fetch_tab_helper.h"
+#import "ios/chrome/browser/web/image_fetch/image_fetch_tab_helper.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "net/base/mime_util.h"
@@ -49,15 +48,9 @@ const base::Feature kPhotoLibrarySaveImage{"PhotoLibrarySaveImage",
 
 @implementation ImageSaver
 
-@synthesize alertCoordinator = _alertCoordinator;
-@synthesize baseViewController = _baseViewController;
-@synthesize browser = _browser;
-
-- (instancetype)initWithBaseViewController:(UIViewController*)baseViewController
-                                   browser:(Browser*)browser {
+- (instancetype)initWithBrowser:(Browser*)browser {
   self = [super init];
   if (self) {
-    _baseViewController = baseViewController;
     _browser = browser;
   }
   return self;
@@ -65,7 +58,10 @@ const base::Feature kPhotoLibrarySaveImage{"PhotoLibrarySaveImage",
 
 - (void)saveImageAtURL:(const GURL&)url
               referrer:(const web::Referrer&)referrer
-              webState:(web::WebState*)webState {
+              webState:(web::WebState*)webState
+    baseViewController:(UIViewController*)baseViewController {
+  self.baseViewController = baseViewController;
+
   ImageFetchTabHelper* tabHelper = ImageFetchTabHelper::FromWebState(webState);
   DCHECK(tabHelper);
 
@@ -92,8 +88,7 @@ const base::Feature kPhotoLibrarySaveImage{"PhotoLibrarySaveImage",
       return;
     }
 
-    if (base::FeatureList::IsEnabled(kPhotoLibrarySaveImage) &&
-        base::ios::IsRunningOnIOS14OrLater()) {
+    if (base::FeatureList::IsEnabled(kPhotoLibrarySaveImage)) {
       // Dump |data| into the photo library. Requires the usage of
       // NSPhotoLibraryAddUsageDescription.
       [[PHPhotoLibrary sharedPhotoLibrary]
@@ -124,17 +119,20 @@ const base::Feature kPhotoLibrarySaveImage{"PhotoLibrarySaveImage",
 // Shows a privacy alert on the main queue, allowing the user to go to Chrome's
 // settings. Dismiss previous alert if it has not been dismissed yet.
 - (void)displayImageErrorAlertWithSettingsOnMainQueue {
-  NSURL* settingURL = [NSURL URLWithString:UIApplicationOpenSettingsURLString];
-  BOOL canGoToSetting =
-      [[UIApplication sharedApplication] canOpenURL:settingURL];
-  if (canGoToSetting) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [self displayImageErrorAlertWithSettings:settingURL];
-    });
-  } else {
-    [self displayPrivacyErrorAlertOnMainQueue:
+  __weak ImageSaver* weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSURL* settingURL =
+        [NSURL URLWithString:UIApplicationOpenSettingsURLString];
+    BOOL canGoToSetting =
+        [[UIApplication sharedApplication] canOpenURL:settingURL];
+    if (canGoToSetting) {
+      [weakSelf displayImageErrorAlertWithSettings:settingURL];
+    } else {
+      [weakSelf
+          displayPrivacyErrorAlertOnMainQueue:
               l10n_util::GetNSString(IDS_IOS_SAVE_IMAGE_PRIVACY_ALERT_MESSAGE)];
-  }
+    }
+  });
 }
 
 // Shows a privacy alert allowing the user to go to Chrome's settings. Dismiss
@@ -173,25 +171,31 @@ const base::Feature kPhotoLibrarySaveImage{"PhotoLibrarySaveImage",
 
 // Called when Chrome has been denied access to the photos or videos and the
 // user cannot change it.
+- (void)displayPrivacyErrorAlertOnMainQueue:(NSString*)errorContent {
+  __weak ImageSaver* weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [weakSelf asyncDisplayPrivacyErrorAlertOnMainQueue:errorContent];
+  });
+}
+
+// Async helper implementation of displayPrivacyErrorAlertOnMainQueue.
 // Shows a privacy alert on the main queue, with errorContent as the message.
 // Dismisses previous alert if it has not been dismissed yet.
-- (void)displayPrivacyErrorAlertOnMainQueue:(NSString*)errorContent {
-  dispatch_async(dispatch_get_main_queue(), ^{
-    NSString* title =
-        l10n_util::GetNSString(IDS_IOS_SAVE_IMAGE_PRIVACY_ALERT_TITLE);
-    // Dismiss current alert.
-    [self.alertCoordinator stop];
+- (void)asyncDisplayPrivacyErrorAlertOnMainQueue:(NSString*)errorContent {
+  NSString* title =
+      l10n_util::GetNSString(IDS_IOS_SAVE_IMAGE_PRIVACY_ALERT_TITLE);
+  // Dismiss current alert.
+  [self.alertCoordinator stop];
 
-    self.alertCoordinator = [[AlertCoordinator alloc]
-        initWithBaseViewController:self.baseViewController
-                           browser:_browser
-                             title:title
-                           message:errorContent];
-    [self.alertCoordinator addItemWithTitle:l10n_util::GetNSString(IDS_OK)
-                                     action:nil
-                                      style:UIAlertActionStyleDefault];
-    [self.alertCoordinator start];
-  });
+  self.alertCoordinator = [[AlertCoordinator alloc]
+      initWithBaseViewController:self.baseViewController
+                         browser:_browser
+                           title:title
+                         message:errorContent];
+  [self.alertCoordinator addItemWithTitle:l10n_util::GetNSString(IDS_OK)
+                                   action:nil
+                                    style:UIAlertActionStyleDefault];
+  [self.alertCoordinator start];
 }
 
 // Called after the system attempts to write the image to the saved photos

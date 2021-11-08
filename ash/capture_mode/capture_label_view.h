@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "ash/capture_mode/capture_mode_session_focus_cycler.h"
+#include "base/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/views/view.h"
 
@@ -27,14 +29,19 @@ class CaptureModeSession;
 // A view that displays (optional) icon and text message to the user depending
 // on current capture source and type. In video capture mode, it will later
 // transform into a 3 second countdown timer.
-class ASH_EXPORT CaptureLabelView : public views::View {
+class ASH_EXPORT CaptureLabelView
+    : public views::View,
+      public CaptureModeSessionFocusCycler::HighlightableView {
  public:
   METADATA_HEADER(CaptureLabelView);
 
-  explicit CaptureLabelView(CaptureModeSession* capture_mode_session);
+  CaptureLabelView(CaptureModeSession* capture_mode_session,
+                   base::RepeatingClosure on_capture_button_pressed);
   CaptureLabelView(const CaptureLabelView&) = delete;
   CaptureLabelView& operator=(const CaptureLabelView&) = delete;
   ~CaptureLabelView() override;
+
+  views::LabelButton* label_button() { return label_button_; }
 
   // Update icon and text according to current capture source and type.
   void UpdateIconAndText();
@@ -54,6 +61,10 @@ class ASH_EXPORT CaptureLabelView : public views::View {
   void Layout() override;
   gfx::Size CalculatePreferredSize() const override;
 
+  // CaptureModeSessionFocusCycler::HighlightableView:
+  views::View* GetView() override;
+  std::unique_ptr<views::HighlightPathGenerator> CreatePathGenerator() override;
+
  private:
   // Start performing countdown to number |timout_count_down_| animation.
   void ScheduleCountDownAnimation();
@@ -65,9 +76,6 @@ class ASH_EXPORT CaptureLabelView : public views::View {
   void StartLabelLayerAnimationSequences();
   // Starts the layer animation sequences for the entire widget if applicable.
   void StartWidgetLayerAnimationSequences();
-
-  // Called when |label_button_| is pressed.
-  void OnButtonPressed();
 
   // The label button that displays an icon and a text message. Can be user
   // interactable. When clicking/tapping on the button, start perform image or

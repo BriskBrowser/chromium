@@ -13,11 +13,12 @@
 #include "ui/views/examples/examples_window_with_content.h"
 #include "ui/views_content_client/views_content_client.h"
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
 #include "sandbox/mac/seatbelt_exec.h"
 #endif
 
 #if defined(OS_WIN)
+#include "base/win/windows_types.h"
 #include "content/public/app/sandbox_helper_win.h"
 #include "sandbox/win/src/sandbox_types.h"
 #endif
@@ -31,7 +32,7 @@ void OnResourcesLoaded() {
   ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
       views_examples_resources_pak_path.AppendASCII(
           "views_examples_resources.pak"),
-      ui::SCALE_FACTOR_100P);
+      ui::k100Percent);
 }
 
 void ShowContentExampleWindow(ui::ViewsContentClient* views_content_client,
@@ -48,7 +49,7 @@ void ShowContentExampleWindow(ui::ViewsContentClient* views_content_client,
   // dlsym search path, which breaks (usually valid) assumptions made in
   // sandbox::InitLibcUrandomOverrides(). See http://crbug.com/374712.
   if (!browser_context) {
-    content::BrowserContext::SaveSessionState(nullptr);
+    browser_context->SaveSessionState();
     NOTREACHED();
   }
 }
@@ -69,7 +70,7 @@ int main(int argc, const char** argv) {
   if (views::examples::CheckCommandLineUsage())
     return 0;
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   // ViewsContentClient expects a const char** argv and
   // CreateFromArgumentsResult expects a regular char** argv. Given this is a

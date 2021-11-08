@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_bubble_hide_callback.h"
@@ -35,6 +35,12 @@ class TickClock;
 class FullscreenNotificationObserver : public FullscreenObserver {
  public:
   explicit FullscreenNotificationObserver(Browser* browser);
+
+  FullscreenNotificationObserver(const FullscreenNotificationObserver&) =
+      delete;
+  FullscreenNotificationObserver& operator=(
+      const FullscreenNotificationObserver&) = delete;
+
   ~FullscreenNotificationObserver() override;
 
   // Runs a loop until a fullscreen change is seen (unless one has already been
@@ -46,15 +52,18 @@ class FullscreenNotificationObserver : public FullscreenObserver {
 
  protected:
   bool observed_change_ = false;
-  ScopedObserver<FullscreenController, FullscreenObserver> observer_{this};
+  base::ScopedObservation<FullscreenController, FullscreenObserver>
+      observation_{this};
   base::RunLoop run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(FullscreenNotificationObserver);
 };
 
 // Test fixture with convenience functions for fullscreen, keyboard lock, and
 // mouse lock.
 class ExclusiveAccessTest : public InProcessBrowserTest {
+ public:
+  ExclusiveAccessTest(const ExclusiveAccessTest&) = delete;
+  ExclusiveAccessTest& operator=(const ExclusiveAccessTest&) = delete;
+
  protected:
   ExclusiveAccessTest();
   ~ExclusiveAccessTest() override;
@@ -117,8 +126,6 @@ class ExclusiveAccessTest : public InProcessBrowserTest {
   base::test::ScopedFeatureList scoped_feature_list_;
 
   base::WeakPtrFactory<ExclusiveAccessTest> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ExclusiveAccessTest);
 };
 
 #endif  // CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_EXCLUSIVE_ACCESS_TEST_H_

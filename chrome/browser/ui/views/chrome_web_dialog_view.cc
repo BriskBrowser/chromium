@@ -49,17 +49,24 @@ gfx::NativeWindow CreateWebDialogWidget(views::Widget::InitParams params,
 // Declared in browser_dialogs.h so that others don't need to depend on our .h.
 gfx::NativeWindow ShowWebDialog(gfx::NativeView parent,
                                 content::BrowserContext* context,
-                                ui::WebDialogDelegate* delegate) {
-  return ShowWebDialogWithParams(parent, context, delegate, base::nullopt);
+                                ui::WebDialogDelegate* delegate,
+                                bool show) {
+  return ShowWebDialogWithParams(parent, context, delegate, absl::nullopt,
+                                 show);
 }
 
 gfx::NativeWindow ShowWebDialogWithParams(
     gfx::NativeView parent,
     content::BrowserContext* context,
     ui::WebDialogDelegate* delegate,
-    base::Optional<views::Widget::InitParams> extra_params) {
+    absl::optional<views::Widget::InitParams> extra_params,
+    bool show) {
   views::WebDialogView* view = new views::WebDialogView(
       context, delegate, std::make_unique<ChromeWebContentsHandler>());
+  // If the corner radius is specified, set it to |views::DialogDelegate|.
+  if (extra_params && extra_params->corner_radius)
+    view->set_corner_radius(*(extra_params->corner_radius));
+
   views::Widget::InitParams params;
   if (extra_params)
     params = std::move(*extra_params);
@@ -71,7 +78,8 @@ gfx::NativeWindow ShowWebDialogWithParams(
     ash_util::SetupWidgetInitParamsForContainer(&params, container_id);
   }
 #endif
-  gfx::NativeWindow window = CreateWebDialogWidget(std::move(params), view);
+  gfx::NativeWindow window =
+      CreateWebDialogWidget(std::move(params), view, show);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   const user_manager::User* user =
       chromeos::ProfileHelper::Get()->GetUserByProfile(

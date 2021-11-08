@@ -11,6 +11,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "services/viz/privileged/mojom/compositing/display_private.mojom.h"
 #include "services/viz/privileged/mojom/compositing/frame_sink_manager.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -19,6 +20,10 @@ namespace viz {
 class MockDisplayClient : public mojom::DisplayClient {
  public:
   MockDisplayClient();
+
+  MockDisplayClient(const MockDisplayClient&) = delete;
+  MockDisplayClient& operator=(const MockDisplayClient&) = delete;
+
   ~MockDisplayClient() override;
 
   mojo::PendingRemote<mojom::DisplayClient> BindRemote();
@@ -45,8 +50,6 @@ class MockDisplayClient : public mojom::DisplayClient {
 
  private:
   mojo::Receiver<mojom::DisplayClient> receiver_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MockDisplayClient);
 };
 
 }  // namespace viz

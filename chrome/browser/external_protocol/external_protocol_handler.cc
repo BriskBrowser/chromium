@@ -18,7 +18,6 @@
 #include "chrome/browser/external_protocol/auto_launch_protocols_policy_handler.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/pref_names.h"
 #include "components/policy/core/browser/url_util.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -29,12 +28,17 @@
 #include "content/public/browser/web_contents.h"
 #include "net/base/escape.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
-#if !defined(OS_ANDROID)
+#if !defined(OS_ANDROID) && !defined(OS_FUCHSIA) && !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/sharing/click_to_call/click_to_call_ui_controller.h"
 #include "chrome/browser/sharing/click_to_call/click_to_call_utils.h"
+#endif
+
+#if !defined(OS_ANDROID)
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #endif
@@ -64,6 +68,7 @@ constexpr const char* kDeniedSchemes[] = {
     "hcp",
     "ie.http",
     "javascript",
+    "mk",
     "ms-help",
     "nntp",
     "res",
@@ -107,7 +112,7 @@ void RunExternalProtocolDialogWithDelegate(
     content::WebContents* web_contents,
     ui::PageTransition page_transition,
     bool has_user_gesture,
-    const base::Optional<url::Origin>& initiating_origin,
+    const absl::optional<url::Origin>& initiating_origin,
     ExternalProtocolHandler::Delegate* delegate) {
   DCHECK(web_contents);
   if (delegate) {
@@ -173,12 +178,11 @@ void LaunchUrlWithoutSecurityCheckWithDelegate(
 // request.
 void OnDefaultProtocolClientWorkerFinished(
     const GURL& escaped_url,
-    int render_process_host_id,
-    int render_view_routing_id,
+    content::WebContents::Getter web_contents_getter,
     bool prompt_user,
     ui::PageTransition page_transition,
     bool has_user_gesture,
-    const base::Optional<url::Origin>& initiating_origin,
+    const absl::optional<url::Origin>& initiating_origin,
     ExternalProtocolHandler::Delegate* delegate,
     shell_integration::DefaultWebClientState state) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -186,8 +190,7 @@ void OnDefaultProtocolClientWorkerFinished(
   if (delegate)
     delegate->FinishedProcessingCheck();
 
-  content::WebContents* web_contents = tab_util::GetWebContentsByID(
-      render_process_host_id, render_view_routing_id);
+  content::WebContents* web_contents = web_contents_getter.Run();
 
   // The default handler is hidden if it is Chrome itself, as nothing will
   // happen if it is selected (since this is invoked by the external protocol
@@ -195,7 +198,7 @@ void OnDefaultProtocolClientWorkerFinished(
   bool chrome_is_default_handler = state == shell_integration::IS_DEFAULT;
 
   // On ChromeOS, Click to Call is integrated into the external protocol dialog.
-#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !defined(OS_ANDROID) && !defined(OS_FUCHSIA) && !BUILDFLAG(IS_CHROMEOS_ASH)
   if (web_contents && ShouldOfferClickToCallForURL(
                           web_contents->GetBrowserContext(), escaped_url)) {
     // Handle tel links by opening the Click to Call dialog. This will call back
@@ -330,7 +333,7 @@ ExternalProtocolHandler::BlockState ExternalProtocolHandler::GetBlockState(
           allowed_origin_protocol_pairs->FindDictKey(
               initiating_origin->Serialize());
       if (allowed_protocols_for_origin) {
-        base::Optional<bool> allow =
+        absl::optional<bool> allow =
             allowed_protocols_for_origin->FindBoolKey(scheme);
         if (allow.has_value() && allow.value())
           return DONT_BLOCK;
@@ -389,11 +392,10 @@ void ExternalProtocolHandler::SetBlockState(
 // static
 void ExternalProtocolHandler::LaunchUrl(
     const GURL& url,
-    int render_process_host_id,
-    int render_view_routing_id,
+    content::WebContents::Getter web_contents_getter,
     ui::PageTransition page_transition,
     bool has_user_gesture,
-    const base::Optional<url::Origin>& initiating_origin) {
+    const absl::optional<url::Origin>& initiating_origin) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // Disable anti-flood protection if the user is invoking a bookmark or
@@ -414,8 +416,7 @@ void ExternalProtocolHandler::LaunchUrl(
   std::string escaped_url_string = net::EscapeExternalHandlerValue(url.spec());
   GURL escaped_url(escaped_url_string);
 
-  content::WebContents* web_contents = tab_util::GetWebContentsByID(
-      render_process_host_id, render_view_routing_id);
+  content::WebContents* web_contents = web_contents_getter.Run();
   Profile* profile = nullptr;
   if (web_contents)  // Maybe NULL during testing.
     profile = Profile::FromBrowserContext(web_contents->GetBrowserContext());
@@ -435,7 +436,7 @@ void ExternalProtocolHandler::LaunchUrl(
 
   g_accept_requests = false;
 
-  base::Optional<url::Origin> initiating_origin_or_precursor;
+  absl::optional<url::Origin> initiating_origin_or_precursor;
   if (initiating_origin) {
     // Transform the initiating origin to its precursor origin if it is
     // opaque. |initiating_origin| is shown in the UI to attribute the external
@@ -453,8 +454,8 @@ void ExternalProtocolHandler::LaunchUrl(
   // message loops.
   shell_integration::DefaultWebClientWorkerCallback callback = base::BindOnce(
       &OnDefaultProtocolClientWorkerFinished, escaped_url,
-      render_process_host_id, render_view_routing_id, block_state == UNKNOWN,
-      page_transition, has_user_gesture, initiating_origin_or_precursor,
+      std::move(web_contents_getter), block_state == UNKNOWN, page_transition,
+      has_user_gesture, initiating_origin_or_precursor,
       g_external_protocol_handler_delegate);
 
   // Start the check process running. This will send tasks to a worker task

@@ -11,11 +11,13 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "chromecast/chromecast_buildflags.h"
+#include "chromecast/external_mojo/broker_service/broker_service.h"
+#include "chromecast/external_mojo/external_service_support/external_connector.h"
 #include "chromecast/metrics/cast_metrics_service_client.h"
 #include "content/public/browser/certificate_request_result_type.h"
 #include "content/public/browser/content_browser_client.h"
@@ -96,7 +98,18 @@ class CastContentBrowserClient
   // preflight checks.
   static std::vector<std::string> GetCorsExemptHeadersList();
 
+  CastContentBrowserClient(const CastContentBrowserClient&) = delete;
+  CastContentBrowserClient& operator=(const CastContentBrowserClient&) = delete;
+
   ~CastContentBrowserClient() override;
+
+  // Generally we discourage Initialize methods. Unfortunately, we can't do
+  // total RAII in ContentBrowserClient subclasses because we're missing a lot
+  // of foundational browser state/context at creation time, such as task
+  // runners. The earliest time that we can create most Cast objects is in
+  // CastBrowserMainParts::PostCreateThreads(), which is when this method is
+  // called.
+  void InitializeExternalConnector();
 
   // Creates a ServiceConnector for routing Cast-related service interface
   // binding requests.
@@ -115,6 +128,8 @@ class CastContentBrowserClient
   virtual media::VideoModeSwitcher* GetVideoModeSwitcher();
 
   virtual void InitializeURLLoaderThrottleDelegate();
+
+  virtual void SetPersistentCookieAccessSettings(PrefService* pref_service);
 
   // Returns the task runner that must be used for media IO.
   scoped_refptr<base::SingleThreadTaskRunner> GetMediaTaskRunner();
@@ -159,7 +174,7 @@ class CastContentBrowserClient
   virtual void RunServiceInstance(
       const service_manager::Identity& identity,
       mojo::PendingReceiver<service_manager::mojom::Service>* receiver);
-  virtual base::Optional<service_manager::Manifest> GetServiceManifestOverlay(
+  virtual absl::optional<service_manager::Manifest> GetServiceManifestOverlay(
       base::StringPiece service_name);
   std::vector<service_manager::Manifest> GetExtraServiceManifests();
   std::vector<std::string> GetStartupServices();
@@ -226,7 +241,8 @@ class CastContentBrowserClient
       content::PosixFileDescriptorInfo* mappings) override;
   void GetAdditionalWebUISchemes(
       std::vector<std::string>* additional_schemes) override;
-  content::DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
+  std::unique_ptr<content::DevToolsManagerDelegate>
+  CreateDevToolsManagerDelegate() override;
   std::unique_ptr<content::NavigationUIData> GetNavigationUIData(
       content::NavigationHandle* navigation_handle) override;
   bool ShouldEnableStrictSiteIsolation() override;
@@ -273,6 +289,18 @@ class CastContentBrowserClient
 
   CastNetworkContexts* cast_network_contexts() {
     return cast_network_contexts_.get();
+  }
+  external_mojo::BrokerService* broker_service() {
+    CHECK(broker_service_);
+    return broker_service_.get();
+  }
+  external_service_support::ExternalConnector* connector() {
+    CHECK(connector_);
+    return connector_.get();
+  }
+  external_service_support::ExternalConnector* media_connector() {
+    CHECK(media_connector_);
+    return media_connector_.get();
   }
 
  protected:
@@ -352,9 +380,15 @@ class CastContentBrowserClient
   std::unique_ptr<GeneralAudienceBrowsingService>
       general_audience_browsing_service_;
 
-  CastFeatureListCreator* cast_feature_list_creator_;
+  // These need to be accessible from internal code, so they live here instead
+  // of CastBrowserMainParts.
+  std::unique_ptr<external_mojo::BrokerService> broker_service_;
+  std::unique_ptr<external_service_support::ExternalConnector> connector_;
 
-  DISALLOW_COPY_AND_ASSIGN(CastContentBrowserClient);
+  // ExternalConnector for running on the media task runner.
+  std::unique_ptr<external_service_support::ExternalConnector> media_connector_;
+
+  CastFeatureListCreator* cast_feature_list_creator_;
 };
 
 }  // namespace shell

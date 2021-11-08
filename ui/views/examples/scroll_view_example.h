@@ -5,7 +5,6 @@
 #ifndef UI_VIEWS_EXAMPLES_SCROLL_VIEW_EXAMPLE_H_
 #define UI_VIEWS_EXAMPLES_SCROLL_VIEW_EXAMPLE_H_
 
-#include <string>
 
 #include "base/macros.h"
 #include "ui/views/controls/scroll_view.h"
@@ -17,6 +16,10 @@ namespace examples {
 class VIEWS_EXAMPLES_EXPORT ScrollViewExample : public ExampleBase {
  public:
   ScrollViewExample();
+
+  ScrollViewExample(const ScrollViewExample&) = delete;
+  ScrollViewExample& operator=(const ScrollViewExample&) = delete;
+
   ~ScrollViewExample() override;
 
   // ExampleBase:
@@ -32,8 +35,6 @@ class VIEWS_EXAMPLES_EXPORT ScrollViewExample : public ExampleBase {
 
   // The scroll view to test.
   ScrollView* scroll_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScrollViewExample);
 };
 
 }  // namespace examples

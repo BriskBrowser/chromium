@@ -49,12 +49,12 @@ def PrintNoLn(msg):
 
 def CursorErase(length):
   """Erase |length| chars starting from cursor."""
-  for _ in xrange(length):
+  for _ in range(length):
     sys.stdout.write('\b')
   # Add 80 spaces, because \b only moves back the cursor.
-  for _ in xrange(80):
+  for _ in range(80):
     sys.stdout.write(' ')
-  for _ in xrange(80):
+  for _ in range(80):
     sys.stdout.write('\b')
   sys.stdout.flush()
 
@@ -226,7 +226,10 @@ def RunTBMv2Metric(tbmv2_metric, json_trace, force_recompute=False):
 def RunTBMv3Metric(tp_path, tbmv3_metric, proto_trace):
   message = 'Running TBMv3 Metric...'
   PrintNoLn(message)
-  histograms = trace_processor.RunMetric(tp_path, proto_trace, tbmv3_metric)
+  histograms = trace_processor.RunMetric(tp_path,
+                                         proto_trace,
+                                         tbmv3_metric,
+                                         retain_all_samples=True)
   CursorErase(len(message))
   return histograms
 

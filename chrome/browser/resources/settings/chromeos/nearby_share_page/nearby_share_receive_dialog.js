@@ -52,7 +52,14 @@ Polymer({
     /** @type {nearby_share.NearbySettings} */
     settings: {
       type: Object,
+      notify: true,
       value: {},
+    },
+
+    /** @private */
+    isSettingsRetreived: {
+      type: Boolean,
+      value: false,
     },
 
     /**
@@ -62,7 +69,23 @@ Polymer({
     transferStatus_: {
       type: nearbyShare.mojom.TransferStatus,
       value: null,
-    }
+    },
+
+    /**
+     * @private {boolean}
+     */
+    nearbyProcessStopped_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * @private {boolean}
+     */
+    startAdvertisingFailed_: {
+      type: Boolean,
+      value: false,
+    },
   },
 
   listeners: {
@@ -71,10 +94,11 @@ Polymer({
     'change-page': 'onChangePage_',
     'onboarding-complete': 'onOnboardingComplete_',
     'reject': 'onReject_',
+    'close': 'close_',
   },
 
   observers: [
-    'onSettingsChanged_(settings.*)',
+    'onSettingsLoaded_(isSettingsRetreived)',
   ],
 
   /** @private {boolean} */
@@ -97,9 +121,6 @@ Polymer({
 
   /** @private {?nearbyShare.mojom.ReceiveObserverReceiver} */
   observerReceiver_: null,
-
-  /** @private {number} */
-  closeTimeoutId_: 0,
 
   /**
    * Timestamp in milliseconds since unix epoch of when high visibility will
@@ -128,6 +149,21 @@ Polymer({
   },
 
   /**
+   * Records via Standard Feature Usage Logging whether or not advertising
+   * successfully starts when the user clicks the "Device nearby is sharing"
+   * notification.
+   * @param {boolean} success
+   * @private
+   */
+  recordFastInitiationNotificationUsage_(success) {
+    const url = new URL(document.URL);
+    const urlParams = new URLSearchParams(url.search);
+    if (urlParams.get('entrypoint') === 'notification') {
+      this.receiveManager_.recordFastInitiationNotificationUsage(success);
+    }
+  },
+
+  /**
    * Mojo callback when high visibility changes. If high visibility is false
    * due to a user cancel, we force this dialog to close as well.
    * @param {boolean} inHighVisibility
@@ -136,17 +172,19 @@ Polymer({
     const now = performance.now();
 
     if (inHighVisibility === false &&
-        now < this.highVisibilityShutoffTimestamp_) {
-      // TODO(crbug/1134745): Exiting high visibility can happen for multiple
-      // reasons (timeout, user cancel, etc). During a receive transfer, it
-      // happens before we start connecting (because we need to stop
-      // advertising) so we need to wait a bit to see if we see an
-      // onTransferUpdate event within a reasonable timeout. This is the normal
-      // case and it should happen quickly when it is a real connection. In the
-      // timeout case, we are just exiting high visibility normally and can
-      // close for now, and the small timeout won't impact UX. Ideally we should
-      // refactor to not require the use of a timeout.
-      this.closeTimeoutId_ = setTimeout(this.close_.bind(this), 25);
+        now < this.highVisibilityShutoffTimestamp_ &&
+        this.transferStatus_ !==
+            nearbyShare.mojom.TransferStatus.kAwaitingLocalConfirmation) {
+      this.close_();
+      return;
+    }
+
+    // If high visibility has been attained, then the process must be up and
+    // advertising must be on.
+    if (inHighVisibility) {
+      this.startAdvertisingFailed_ = false;
+      this.nearbyProcessStopped_ = false;
+      this.recordFastInitiationNotificationUsage_(/*success=*/ true);
     }
   },
 
@@ -160,7 +198,6 @@ Polymer({
 
     if (metadata.status ===
         nearbyShare.mojom.TransferStatus.kAwaitingLocalConfirmation) {
-      clearTimeout(this.closeTimeoutId_);
       this.shareTarget = shareTarget;
       this.connectionToken =
           (metadata && metadata.token) ? metadata.token : null;
@@ -169,14 +206,24 @@ Polymer({
   },
 
   /**
-   * @param {PolymerDeepPropertyChange} change a change record
+   * Mojo callback when the Nearby utility process stops.
+   */
+  onNearbyProcessStopped() {
+    this.nearbyProcessStopped_ = true;
+  },
+
+  /**
+   * Mojo callback when advertising fails to start.
+   */
+  onStartAdvertisingFailure() {
+    this.startAdvertisingFailed_ = true;
+    this.recordFastInitiationNotificationUsage_(/*success=*/ false);
+  },
+
+  /**
    * @private
    */
-  onSettingsChanged_(change) {
-    if (change.path !== 'settings.enabled') {
-      return;
-    }
-
+  onSettingsLoaded_() {
     if (this.postSettingsCallback) {
       this.postSettingsCallback();
       this.postSettingsCallback = null;
@@ -217,21 +264,27 @@ Polymer({
    *     if it did not need to be deferred and can be called now.
    */
   deferCallIfNecessary(callback) {
-    const haveSettings = !this.settings || this.settings.enabled === undefined;
-    if (haveSettings) {
-      // Let onSettingsChanged_ handle the navigation because we don't know yet
+    if (!this.isSettingsRetreived) {
+      // Let onSettingsLoaded_ handle the navigation because we don't know yet
       // if the feature is enabled and we might need to show onboarding.
       this.postSettingsCallback = callback;
       return true;
     }
 
-    if (!this.settings.enabled) {
-      // We need to show onboarding first because nearby is not enabled, but we
-      // need to run the callback post onboarding.
+    if (!this.settings.isOnboardingComplete) {
+      // We need to show onboarding first if onboarding is not yet complete, but
+      // we need to run the callback afterward.
       this.postOnboardingCallback = callback;
       this.getViewManager_().switchView(Page.ONBOARDING);
       return true;
     }
+
+    // If onboarding is already complete but Nearby is disabled we re-enable
+    // Nearby.
+    if (!this.settings.enabled) {
+      this.set('settings.enabled', true);
+    }
+
     // We know the feature is enabled so no need to defer the call.
     return false;
   },

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
+#import "ios/web/public/navigation/navigation_item.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -54,11 +55,6 @@ NavigationItem* FakeNavigationManager::GetPendingItem() const {
 
 void FakeNavigationManager::SetPendingItem(NavigationItem* item) {
   pending_item_ = item;
-}
-
-web::NavigationItem* FakeNavigationManager::GetTransientItem() const {
-  NOTREACHED();
-  return nullptr;
 }
 
 void FakeNavigationManager::DiscardNonCommittedItems() {
@@ -148,12 +144,12 @@ void FakeNavigationManager::ReloadWithUserAgentType(
   NOTREACHED();
 }
 
-NavigationItemList FakeNavigationManager::GetBackwardItems() const {
-  return NavigationItemList();
+std::vector<NavigationItem*> FakeNavigationManager::GetBackwardItems() const {
+  return std::vector<NavigationItem*>();
 }
 
-NavigationItemList FakeNavigationManager::GetForwardItems() const {
-  return NavigationItemList();
+std::vector<NavigationItem*> FakeNavigationManager::GetForwardItems() const {
+  return std::vector<NavigationItem*>();
 }
 
 void FakeNavigationManager::Restore(

@@ -5,9 +5,9 @@
 // clang-format off
 // #import 'chrome://os-settings/chromeos/os_settings.js';
 
-// #import {AppManagementStore, updateArcSupported, FakePageHandler, ArcPermissionType, updateSelectedAppId, getPermissionValueBool} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {AppManagementStore, FakePageHandler, PermissionType, updateSelectedAppId, getPermissionValueBool} from 'chrome://os-settings/chromeos/os_settings.js';
 // #import {setupFakeHandler, replaceStore, replaceBody, isHiddenByDomIf, isHidden, getPermissionItemByType, getPermissionCrToggleByType} from './test_util.m.js';
-// #import {flushTasks} from 'chrome://test/test_util.m.js';
+// #import {flushTasks} from 'chrome://test/test_util.js';
 // clang-format on
 
 'use strict';
@@ -38,18 +38,16 @@ suite('<app-management-arc-detail-view>', () => {
   setup(async () => {
     fakeHandler = setupFakeHandler();
     replaceStore();
-    app_management.AppManagementStore.getInstance().dispatch(
-        app_management.actions.updateArcSupported(true));
 
     // Create an ARC app without microphone permissions.
     const arcOptions = {
       type: apps.mojom.AppType.kArc,
       permissions: app_management.FakePageHandler.createArcPermissions([
-        ArcPermissionType.CAMERA,
-        ArcPermissionType.LOCATION,
-        ArcPermissionType.NOTIFICATIONS,
-        ArcPermissionType.CONTACTS,
-        ArcPermissionType.STORAGE,
+        PermissionType.kCamera,
+        PermissionType.kLocation,
+        PermissionType.kNotifications,
+        PermissionType.kContacts,
+        PermissionType.kStorage,
       ])
     };
 
@@ -72,13 +70,15 @@ suite('<app-management-arc-detail-view>', () => {
   test('Permissions are hidden correctly', () => {
     expandPermissions();
     assertTrue(
-        isHidden(getPermissionItemByType(arcPermissionView, 'MICROPHONE')));
+        isHidden(getPermissionItemByType(arcPermissionView, 'kMicrophone')));
     assertFalse(
-        isHidden(getPermissionItemByType(arcPermissionView, 'LOCATION')));
-    assertFalse(isHidden(getPermissionItemByType(arcPermissionView, 'CAMERA')));
+        isHidden(getPermissionItemByType(arcPermissionView, 'kLocation')));
     assertFalse(
-        isHidden(getPermissionItemByType(arcPermissionView, 'STORAGE')));
-    assertFalse(isHidden(getPermissionItemByType(arcPermissionView, 'CAMERA')));
+        isHidden(getPermissionItemByType(arcPermissionView, 'kCamera')));
+    assertFalse(
+        isHidden(getPermissionItemByType(arcPermissionView, 'kStorage')));
+    assertFalse(
+        isHidden(getPermissionItemByType(arcPermissionView, 'kCamera')));
   });
 
   test('Toggle works correctly', async () => {
@@ -101,9 +101,9 @@ suite('<app-management-arc-detail-view>', () => {
     };
 
     expandPermissions();
-    await checkPermissionToggle('LOCATION');
-    await checkPermissionToggle('CAMERA');
-    await checkPermissionToggle('NOTIFICATIONS');
+    await checkPermissionToggle('kLocation');
+    await checkPermissionToggle('kCamera');
+    await checkPermissionToggle('kNotifications');
   });
 
 
@@ -127,29 +127,11 @@ suite('<app-management-arc-detail-view>', () => {
     };
 
     expandPermissions();
-    await checkPermissionItemOnClick('LOCATION');
-    await checkPermissionItemOnClick('CAMERA');
-    await checkPermissionItemOnClick('NOTIFICATIONS');
-    await checkPermissionItemOnClick('CONTACTS');
-    await checkPermissionItemOnClick('STORAGE');
-  });
-
-  test('Unsupported Arc hides correctly', () => {
-    assertFalse(
-        isHidden(getPermissionItemByType(arcPermissionView, 'NOTIFICATIONS')));
-    assertFalse(
-        isHidden(arcPermissionView.root.getElementById('permissions-card')));
-
-    app_management.AppManagementStore.getInstance().dispatch(
-        app_management.actions.updateArcSupported(false));
-
-    assertTrue(
-        isHidden(getPermissionItemByType(arcPermissionView, 'NOTIFICATIONS')));
-    assertTrue(
-        isHidden(arcPermissionView.root.getElementById('permissions-card')));
-
-    app_management.AppManagementStore.getInstance().dispatch(
-        app_management.actions.updateArcSupported(true));
+    await checkPermissionItemOnClick('kLocation');
+    await checkPermissionItemOnClick('kCamera');
+    await checkPermissionItemOnClick('kNotifications');
+    await checkPermissionItemOnClick('kContacts');
+    await checkPermissionItemOnClick('kStorage');
   });
 
   test('No permissions requested label', async () => {

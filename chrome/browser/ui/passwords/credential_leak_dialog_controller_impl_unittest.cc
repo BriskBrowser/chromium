@@ -26,18 +26,18 @@ class MockCredentialLeakPrompt : public CredentialLeakPrompt {
  public:
   MockCredentialLeakPrompt() = default;
 
+  MockCredentialLeakPrompt(const MockCredentialLeakPrompt&) = delete;
+  MockCredentialLeakPrompt& operator=(const MockCredentialLeakPrompt&) = delete;
+
   MOCK_METHOD0(ShowCredentialLeakPrompt, void());
   MOCK_METHOD0(ControllerGone, void());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockCredentialLeakPrompt);
 };
 
 class CredentialLeakDialogControllerTest : public testing::Test {
  public:
   void SetUpController(password_manager::CredentialLeakType leak_type) {
     controller_ = std::make_unique<CredentialLeakDialogControllerImpl>(
-        &ui_controller_mock_, leak_type, GURL("https://example.com"));
+        &ui_controller_mock_, leak_type);
   }
 
   base::HistogramTester& histogram_tester() { return histogram_tester_; }

@@ -25,9 +25,9 @@
 
 #include "build/build_config.h"
 #include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/common/widget/screen_info.h"
 #include "third_party/blink/public/mojom/scroll/scrollbar_mode.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
@@ -38,11 +38,11 @@
 #include "third_party/blink/renderer/core/html/html_iframe_element.h"
 #include "third_party/blink/renderer/core/html/plugin_document.h"
 #include "third_party/blink/renderer/core/input/event_handler.h"
+#include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/layout/geometry/transform_state.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/layout_counter.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
-#include "third_party/blink/renderer/core/layout/layout_geometry_map.h"
 #include "third_party/blink/renderer/core/layout/layout_list_item.h"
 #include "third_party/blink/renderer/core/layout/ng/list/layout_ng_list_item.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_root.h"
@@ -62,6 +62,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "ui/display/screen_info.h"
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "third_party/blink/renderer/platform/fonts/font_cache.h"
@@ -130,6 +131,7 @@ LayoutView::~LayoutView() = default;
 
 void LayoutView::Trace(Visitor* visitor) const {
   visitor->Trace(frame_view_);
+  visitor->Trace(fragmentation_context_);
   visitor->Trace(compositor_);
   visitor->Trace(layout_quote_head_);
   visitor->Trace(hit_test_cache_);
@@ -150,6 +152,12 @@ bool LayoutView::HitTest(const HitTestLocation& location,
   if (!GetFrameView()->UpdateLifecycleToPrePaintClean(
           DocumentUpdateReason::kHitTest))
     return false;
+
+  // This means the LayoutView is not updated for PrePaint above, probably
+  // because the frame is detached.
+  if (!FirstFragment().HasLocalBorderBoxProperties())
+    return false;
+
   HitTestLatencyRecorder hit_test_latency_recorder(
       result.GetHitTestRequest().AllowsChildFrameContent());
   return HitTestNoLifecycleUpdate(location, result);
@@ -213,8 +221,11 @@ bool LayoutView::HitTestNoLifecycleUpdate(const HitTestLocation& location,
   }
 
   TRACE_EVENT_END1("blink,devtools.timeline", "HitTest", "endData",
-                   inspector_hit_test_event::EndData(result.GetHitTestRequest(),
-                                                     location, result));
+                   [&](perfetto::TracedValue context) {
+                     inspector_hit_test_event::EndData(
+                         std::move(context), result.GetHitTestRequest(),
+                         location, result);
+                   });
   return hit_layer;
 }
 
@@ -340,11 +351,11 @@ void LayoutView::UpdateLayout() {
     intrinsic_logical_widths_ = LogicalWidth();
     if (!fragmentation_context_) {
       fragmentation_context_ =
-          std::make_unique<ViewFragmentationContext>(*this);
+          MakeGarbageCollected<ViewFragmentationContext>(*this);
       pagination_state_changed_ = true;
     }
   } else if (fragmentation_context_) {
-    fragmentation_context_.reset();
+    fragmentation_context_.Clear();
     pagination_state_changed_ = true;
   }
 
@@ -422,37 +433,6 @@ void LayoutView::MapLocalToAncestor(const LayoutBoxModelObject* ancestor,
         GetFrameView()->MapLocalToRemoteMainFrame(transform_state);
     }
   }
-}
-
-const LayoutObject* LayoutView::PushMappingToContainer(
-    const LayoutBoxModelObject* ancestor_to_stop_at,
-    LayoutGeometryMap& geometry_map) const {
-  NOT_DESTROYED();
-  PhysicalOffset offset;
-  LayoutObject* container = nullptr;
-
-  if (geometry_map.GetMapCoordinatesFlags() & kTraverseDocumentBoundaries) {
-    if (auto* parent_doc_layout_object = GetFrame()->OwnerLayoutObject()) {
-      offset += parent_doc_layout_object->PhysicalContentBoxOffset();
-      container = parent_doc_layout_object;
-    }
-  }
-
-  // If a container was specified, and was not 0 or the LayoutView, then we
-  // should have found it by now unless we're traversing to a parent document.
-  DCHECK(!ancestor_to_stop_at || ancestor_to_stop_at == this || container);
-
-  if ((!ancestor_to_stop_at || container) &&
-      ShouldUseTransformFromContainer(container)) {
-    TransformationMatrix t;
-    GetTransformFromContainer(container, PhysicalOffset(), t);
-    geometry_map.Push(this, t, kContainsFixedPosition,
-                      OffsetForFixedPosition());
-  } else {
-    geometry_map.Push(this, offset, 0, OffsetForFixedPosition());
-  }
-
-  return container;
 }
 
 void LayoutView::MapAncestorToLocal(const LayoutBoxModelObject* ancestor,
@@ -603,13 +583,12 @@ bool LayoutView::MapToVisualRectInAncestorSpaceInternal(
 
 PhysicalOffset LayoutView::OffsetForFixedPosition() const {
   NOT_DESTROYED();
-  return IsScrollContainer() ? PhysicalOffset(ScrolledContentOffset())
-                             : PhysicalOffset();
+  return IsScrollContainer() ? ScrolledContentOffset() : PhysicalOffset();
 }
 
 PhysicalOffset LayoutView::PixelSnappedOffsetForFixedPosition() const {
   NOT_DESTROYED();
-  return PhysicalOffset(FlooredIntPoint(OffsetForFixedPosition()));
+  return PhysicalOffset(ToFlooredPoint(OffsetForFixedPosition()));
 }
 
 void LayoutView::AbsoluteQuads(Vector<FloatQuad>& quads,
@@ -638,15 +617,8 @@ PhysicalRect LayoutView::ViewRect() const {
   NOT_DESTROYED();
   if (ShouldUsePrintingLayout())
     return PhysicalRect(PhysicalOffset(), Size());
-  if (frame_view_) {
-    IntRect view_rect(IntPoint(), frame_view_->Size());
-    auto& frame = frame_view_->GetFrame();
-    if (frame.IsMainFrame()) {
-      frame.GetChromeClient().OverrideVisibleRectForMainFrame(frame,
-                                                              &view_rect);
-    }
-    return PhysicalRect(view_rect);
-  }
+  if (frame_view_)
+    return PhysicalRect(PhysicalOffset(), PhysicalSize(frame_view_->Size()));
   return PhysicalRect();
 }
 
@@ -824,11 +796,6 @@ LayoutUnit LayoutView::ViewLogicalHeightForPercentages() const {
   return LayoutUnit(ViewLogicalHeight());
 }
 
-float LayoutView::ZoomFactor() const {
-  NOT_DESTROYED();
-  return frame_view_->GetFrame().PageZoomFactor();
-}
-
 const LayoutBox& LayoutView::RootBox() const {
   NOT_DESTROYED();
   Element* document_element = GetDocument().documentElement();
@@ -869,11 +836,6 @@ void LayoutView::UpdateHitTestResult(HitTestResult& result,
     OffsetForContents(adjusted_point);
     result.SetNodeAndPosition(node, adjusted_point);
   }
-}
-
-bool LayoutView::UsesCompositing() const {
-  NOT_DESTROYED();
-  return compositor_ && compositor_->StaleInCompositingMode();
 }
 
 PaintLayerCompositor* LayoutView::Compositor() {
@@ -966,17 +928,35 @@ CompositingReasons LayoutView::AdditionalCompositingReasons() const {
   return CompositingReason::kNone;
 }
 
-void LayoutView::UpdateMarkersAndCountersAfterStyleChange() {
+void LayoutView::UpdateMarkersAndCountersAfterStyleChange(
+    LayoutObject* container) {
   NOT_DESTROYED();
   if (!needs_marker_counter_update_)
     return;
+
+  DCHECK(!container ||
+         (container->View() == this && container->IsDescendantOf(this) &&
+          GetDocument().GetStyleEngine().InContainerQueryStyleRecalc()))
+      << "The container parameter is currently only for scoping updates for "
+         "container query style recalcs";
 
   needs_marker_counter_update_ = false;
   if (!HasLayoutCounters() && !HasLayoutListItems())
     return;
 
-  for (LayoutObject* layout_object = this; layout_object;
-       layout_object = layout_object->NextInPreOrder()) {
+  // For container queries style recalc, we know the counter styles didn't
+  // change outside the container. Hence, we can start the update traversal from
+  // the container.
+  LayoutObject* start = container ? container : this;
+  // Additionally, if the container contains style, we know counters inside the
+  // container cannot affect counters outside the container, which means we can
+  // limit the traversal to the container subtree.
+  LayoutObject* stay_within =
+      container && container->ShouldApplyStyleContainment() ? container
+                                                            : nullptr;
+
+  for (LayoutObject* layout_object = start; layout_object;
+       layout_object = layout_object->NextInPreOrder(stay_within)) {
     if (auto* list_item = DynamicTo<LayoutListItem>(layout_object)) {
       list_item->UpdateCounterStyle();
     } else if (auto* ng_list_item =

@@ -10,7 +10,8 @@
 
 void DiscoverFeedProvider::StartFeed(
     DiscoverFeedConfiguration* discover_config) {}
-void DiscoverFeedProvider::StartFeed(AuthenticationService* auth_service) {}
+
+void DiscoverFeedProvider::StopFeed() {}
 
 bool DiscoverFeedProvider::IsDiscoverFeedEnabled() {
   return false;
@@ -21,9 +22,8 @@ UIViewController* DiscoverFeedProvider::NewFeedViewController(
   return nil;
 }
 
-UIViewController* DiscoverFeedProvider::NewFeedViewControllerWithScrollDelegate(
-    Browser* browser,
-    id<UIScrollViewDelegate> scrollDelegate) {
+UIViewController* DiscoverFeedProvider::NewFeedViewControllerWithConfiguration(
+    DiscoverFeedViewControllerConfiguration* configuration) {
   return nil;
 }
 

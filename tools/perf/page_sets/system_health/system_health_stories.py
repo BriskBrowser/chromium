@@ -96,7 +96,7 @@ def IterAllSystemHealthStoryClasses():
   for unused_cls_name, cls in sorted(discover.DiscoverClasses(
       start_dir=start_dir,
       top_level_dir=os.path.dirname(start_dir),
-      base_class=system_health_story.SystemHealthStory).iteritems()):
+      base_class=system_health_story.SystemHealthStory).items()):
     yield cls
 
 
@@ -105,4 +105,4 @@ class SystemHealthPCScanStorySet(story.StorySet):
 
   def __init__(self, take_memory_measurement=False):
     super(SystemHealthPCScanStorySet, self).__init__()
-    self.AddStory(browsing_stories.CnnStory2020(self, take_memory_measurement))
+    self.AddStory(browsing_stories.CnnStory2021(self, take_memory_measurement))

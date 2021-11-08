@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef MEDIA_BASE_MEDIA_FILE_CHECKER_H_
-#define MEDIA_BASE_MEDIA_FILE_CHECKER_H_
+#ifndef MEDIA_FILTERS_MEDIA_FILE_CHECKER_H_
+#define MEDIA_FILTERS_MEDIA_FILE_CHECKER_H_
 
 #include "base/files/file.h"
 #include "base/macros.h"
@@ -21,6 +21,10 @@ namespace media {
 class MEDIA_EXPORT MediaFileChecker {
  public:
   explicit MediaFileChecker(base::File file);
+
+  MediaFileChecker(const MediaFileChecker&) = delete;
+  MediaFileChecker& operator=(const MediaFileChecker&) = delete;
+
   ~MediaFileChecker();
 
   // After opening |file|, up to |check_time| amount of wall-clock time is spent
@@ -30,10 +34,8 @@ class MEDIA_EXPORT MediaFileChecker {
 
  private:
   base::File file_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaFileChecker);
 };
 
 }  // namespace media
 
-#endif  // MEDIA_BASE_MEDIA_FILE_CHECKER_H_
+#endif  // MEDIA_FILTERS_MEDIA_FILE_CHECKER_H_

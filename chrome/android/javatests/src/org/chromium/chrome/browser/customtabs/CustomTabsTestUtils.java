@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser.customtabs;
 
+import static org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule.LONG_TIMEOUT_MS;
+
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
@@ -14,8 +16,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Process;
 import android.support.test.InstrumentationRegistry;
-import android.view.Menu;
-import android.view.MenuItem;
 
 import androidx.browser.customtabs.CustomTabsCallback;
 import androidx.browser.customtabs.CustomTabsClient;
@@ -23,15 +23,20 @@ import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.browser.customtabs.CustomTabsServiceConnection;
 import androidx.browser.customtabs.CustomTabsSession;
 
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 
 import org.chromium.base.IntentUtils;
+import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
+import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
@@ -42,6 +47,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Utility class that contains convenience calls related with custom tabs testing.
  */
+@JNINamespace("customtabs")
 public class CustomTabsTestUtils {
     /** Intent extra to specify an id to a custom tab.*/
     public static final String EXTRA_CUSTOM_TAB_ID =
@@ -123,6 +129,29 @@ public class CustomTabsTestUtils {
         return intent;
     }
 
+    /**
+     * Creates the simplest intent that is sufficient to let {@link ChromeLauncherActivity} launch
+     * the {@link CustomTabActivity}. Allows specification of a theme.
+     * @param context The instrumentation context to use.
+     * @param url The URL to load in the incognito CCT.
+     * @param inNightMode Whether the CCT should be launched in night mode.
+     * @return Returns the intent to launch the incognito CCT.
+     */
+    public static Intent createMinimalCustomTabIntentWithTheme(
+            Context context, String url, boolean inNightMode) {
+        CustomTabsIntent.Builder builder =
+                new CustomTabsIntent.Builder(CustomTabsSession.createMockSessionForTesting(
+                        new ComponentName(context, ChromeLauncherActivity.class)));
+        builder.setColorScheme(inNightMode ? CustomTabsIntent.COLOR_SCHEME_DARK
+                                           : CustomTabsIntent.COLOR_SCHEME_LIGHT);
+        CustomTabsIntent customTabsIntent = builder.build();
+        Intent intent = customTabsIntent.intent;
+        intent.setAction(Intent.ACTION_VIEW);
+        intent.setData(Uri.parse(url));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return intent;
+    }
+
     public static CustomTabsConnection setUpConnection() {
         CustomTabsConnection connection = CustomTabsConnection.getInstance();
         connection.resetThrottling(Process.myUid());
@@ -183,15 +212,6 @@ public class CustomTabsTestUtils {
                 "App menu was not shown");
     }
 
-    public static int getVisibleMenuSize(Menu menu) {
-        int visibleMenuSize = 0;
-        for (int i = 0; i < menu.size(); i++) {
-            MenuItem item = menu.getItem(i);
-            if (item.isVisible()) visibleMenuSize++;
-        }
-        return visibleMenuSize;
-    }
-
     /**
      * Add a bundle specifying a a number of custom menu entries.
      *
@@ -250,7 +270,7 @@ public class CustomTabsTestUtils {
         bundle.putParcelable(CustomTabsIntent.KEY_ICON, icon);
         bundle.putString(CustomTabsIntent.KEY_DESCRIPTION, description);
         bundle.putParcelable(CustomTabsIntent.KEY_PENDING_INTENT, pi);
-        bundle.putBoolean(CustomButtonParams.SHOW_ON_TOOLBAR, true);
+        bundle.putBoolean(CustomButtonParamsImpl.SHOW_ON_TOOLBAR, true);
         return bundle;
     }
 
@@ -290,5 +310,29 @@ public class CustomTabsTestUtils {
      */
     public static void setShareState(Intent intent, int shareState) {
         intent.putExtra(CustomTabsIntent.EXTRA_SHARE_STATE, shareState);
+    }
+
+    /**
+     * @param id Id of the variation to search for.
+     *
+     * @return true Whether id is a registered variation id.
+     */
+    public static boolean hasVariationId(int id) {
+        return CustomTabsTestUtilsJni.get().hasVariationId(id);
+    }
+
+    /** Waits for the speculation of |url| for the |connection| to complete. */
+    public static void ensureCompletedSpeculationForUrl(
+            final CustomTabsConnection connection, final String url) {
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat("Tab was not created", connection.getSpeculationParamsForTesting(),
+                    Matchers.notNullValue());
+        }, LONG_TIMEOUT_MS, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+        ChromeTabUtils.waitForTabPageLoaded(connection.getSpeculationParamsForTesting().tab, url);
+    }
+
+    @NativeMethods
+    interface Natives {
+        boolean hasVariationId(int id);
     }
 }

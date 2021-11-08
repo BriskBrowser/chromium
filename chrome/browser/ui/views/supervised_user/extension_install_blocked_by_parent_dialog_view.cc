@@ -23,13 +23,13 @@
 #include "extensions/common/extension.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace chrome {
 
@@ -84,7 +84,7 @@ ExtensionInstallBlockedByParentDialogView::
 }
 
 void ExtensionInstallBlockedByParentDialogView::ConfigureTitle() {
-  base::string16 title_string;
+  std::u16string title_string;
   switch (action_) {
     case chrome::ExtensionInstalledBlockedByParentDialogAction::kAdd:
       // The user is trying to add/install the extension/app
@@ -105,7 +105,7 @@ void ExtensionInstallBlockedByParentDialogView::ConfigureTitle() {
 void ExtensionInstallBlockedByParentDialogView::CreateContents() {
   SetLayoutManager(std::make_unique<views::FillLayout>());
 
-  base::string16 body_string;
+  std::u16string body_string;
   switch (action_) {
     case chrome::ExtensionInstalledBlockedByParentDialogAction::kAdd:
       // The user is trying to add/install the extension/app
@@ -125,8 +125,8 @@ void ExtensionInstallBlockedByParentDialogView::CreateContents() {
                                 SK_ColorDKGRAY);
 
   const ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
-  const gfx::Insets content_insets =
-      provider->GetDialogInsetsForContentType(views::TEXT, views::TEXT);
+  const gfx::Insets content_insets = provider->GetDialogInsetsForContentType(
+      views::DialogContentType::kText, views::DialogContentType::kText);
 
   set_margins(gfx::Insets(content_insets.top(), content_insets.left(),
                           content_insets.bottom(), content_insets.right()));
@@ -137,7 +137,7 @@ void ExtensionInstallBlockedByParentDialogView::CreateContents() {
   message_body_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 }
 
-base::string16
+std::u16string
 ExtensionInstallBlockedByParentDialogView::GetExtensionTypeString() const {
   return l10n_util::GetStringUTF16(
       extension_->is_app()
@@ -147,5 +147,5 @@ ExtensionInstallBlockedByParentDialogView::GetExtensionTypeString() const {
 
 BEGIN_METADATA(ExtensionInstallBlockedByParentDialogView,
                views::DialogDelegateView)
-ADD_READONLY_PROPERTY_METADATA(base::string16, ExtensionTypeString)
+ADD_READONLY_PROPERTY_METADATA(std::u16string, ExtensionTypeString)
 END_METADATA

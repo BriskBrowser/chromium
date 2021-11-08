@@ -5,8 +5,7 @@
 #ifndef UI_VIEWS_ANIMATION_COMPOSITOR_ANIMATION_RUNNER_H_
 #define UI_VIEWS_ANIMATION_COMPOSITOR_ANIMATION_RUNNER_H_
 
-#include <memory>
-
+#include "base/location.h"
 #include "base/time/time.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/compositor_animation_observer.h"
@@ -24,7 +23,9 @@ class VIEWS_EXPORT CompositorAnimationRunner
       public ui::CompositorAnimationObserver,
       public WidgetObserver {
  public:
-  explicit CompositorAnimationRunner(Widget* widget);
+  explicit CompositorAnimationRunner(
+      Widget* widget,
+      const base::Location& location = FROM_HERE);
   CompositorAnimationRunner(CompositorAnimationRunner&) = delete;
   CompositorAnimationRunner& operator=(CompositorAnimationRunner&) = delete;
   ~CompositorAnimationRunner() override;

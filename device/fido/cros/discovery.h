@@ -7,10 +7,14 @@
 
 #include <memory>
 
+#include "base/callback.h"
 #include "base/component_export.h"
 #include "base/memory/weak_ptr.h"
+#include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
 #include "device/fido/cros/authenticator.h"
+#include "device/fido/ctap_get_assertion_request.h"
 #include "device/fido/fido_discovery_base.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace device {
 
@@ -19,7 +23,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoChromeOSDiscovery
  public:
   FidoChromeOSDiscovery(
       base::RepeatingCallback<uint32_t()> generate_request_id_callback,
-      base::Optional<CtapGetAssertionRequest> get_assertion_request_);
+      absl::optional<CtapGetAssertionRequest> get_assertion_request_);
   ~FidoChromeOSDiscovery() override;
 
   void set_require_power_button_mode(bool require);
@@ -28,13 +32,15 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoChromeOSDiscovery
   void Start() override;
 
  private:
-  void AddAuthenticatorIfIsUVPAA();
-  void MaybeAddAuthenticator(bool is_available);
+  void OnU2FServiceAvailable(bool u2f_service_available);
+  void CheckAuthenticators();
+  void CheckUVPlatformAuthenticatorAvailable(bool is_enabled);
+  void MaybeAddAuthenticator(bool power_button_enabled, bool uv_available);
   void OnHasLegacyU2fCredential(bool has_credential);
 
   base::RepeatingCallback<uint32_t()> generate_request_id_callback_;
   bool require_power_button_mode_ = false;
-  base::Optional<CtapGetAssertionRequest> get_assertion_request_;
+  absl::optional<CtapGetAssertionRequest> get_assertion_request_;
   std::unique_ptr<ChromeOSAuthenticator> authenticator_;
   base::WeakPtrFactory<FidoChromeOSDiscovery> weak_factory_;
 };

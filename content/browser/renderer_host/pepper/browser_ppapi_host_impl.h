@@ -52,6 +52,10 @@ class CONTENT_EXPORT BrowserPpapiHostImpl : public BrowserPpapiHost {
                        const base::FilePath& profile_data_directory,
                        bool in_process,
                        bool external_plugin);
+
+  BrowserPpapiHostImpl(const BrowserPpapiHostImpl&) = delete;
+  BrowserPpapiHostImpl& operator=(const BrowserPpapiHostImpl&) = delete;
+
   ~BrowserPpapiHostImpl() override;
 
   // BrowserPpapiHost.
@@ -111,8 +115,6 @@ class CONTENT_EXPORT BrowserPpapiHostImpl : public BrowserPpapiHost {
    private:
     ~HostMessageFilter() override;
 
-    void OnHostMsgLogInterfaceUsage(int hash) const;
-
     // Non owning pointers cleared in OnHostDestroyed()
     ppapi::host::PpapiHost* ppapi_host_;
     BrowserPpapiHostImpl* browser_ppapi_host_impl_;
@@ -144,8 +146,6 @@ class CONTENT_EXPORT BrowserPpapiHostImpl : public BrowserPpapiHost {
   std::unordered_map<PP_Instance, std::unique_ptr<InstanceData>> instance_map_;
 
   scoped_refptr<HostMessageFilter> message_filter_;
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserPpapiHostImpl);
 };
 
 }  // namespace content

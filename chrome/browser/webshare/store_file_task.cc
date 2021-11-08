@@ -6,6 +6,8 @@
 
 #include "base/strings/string_util.h"
 #include "base/threading/scoped_blocking_call.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "net/base/net_errors.h"
 
 namespace {
 bool g_skip_copying_for_testing = false;
@@ -56,7 +58,7 @@ void StoreFileTask::StartRead() {
   options.capacity_num_bytes = kDataPipeCapacity;
 
   mojo::ScopedDataPipeProducerHandle producer_handle;
-  MojoResult rv = CreateDataPipe(&options, &producer_handle, &consumer_handle_);
+  MojoResult rv = CreateDataPipe(&options, producer_handle, consumer_handle_);
   if (rv != MOJO_RESULT_OK) {
     std::move(callback_).Run(blink::mojom::ShareError::INTERNAL_ERROR);
     return;
@@ -131,7 +133,8 @@ void StoreFileTask::OnCalculatedSize(uint64_t total_size,
                                      uint64_t expected_content_size) {
   DCHECK_EQ(total_size, expected_content_size);
 
-  if (expected_content_size > available_space_) {
+  if (expected_content_size > available_space_ ||
+      expected_content_size != file_->blob->size) {
     VLOG(1) << "Share too large: " << expected_content_size << " bytes";
     std::move(callback_).Run(blink::mojom::ShareError::PERMISSION_DENIED);
     return;

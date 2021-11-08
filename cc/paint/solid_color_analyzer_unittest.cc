@@ -4,15 +4,15 @@
 
 #include "cc/paint/solid_color_analyzer.h"
 
+#include "base/cxx17_backports.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
-#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/paint_filter.h"
 #include "cc/paint/record_paint_canvas.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/gfx/skia_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 
 namespace cc {
 namespace {
@@ -70,8 +70,8 @@ class SolidColorAnalyzerTest : public testing::Test {
   gfx::Rect rect_;
   scoped_refptr<DisplayItemList> display_item_list_;
   sk_sp<PaintOpBuffer> buffer_;
-  base::Optional<RecordPaintCanvas> canvas_;
-  base::Optional<SolidColorAnalyzer> analyzer_;
+  absl::optional<RecordPaintCanvas> canvas_;
+  absl::optional<SolidColorAnalyzer> analyzer_;
 };
 
 TEST_F(SolidColorAnalyzerTest, Empty) {

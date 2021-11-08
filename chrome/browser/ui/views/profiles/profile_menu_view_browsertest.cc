@@ -4,6 +4,7 @@
 
 #include <stddef.h>
 
+#include "base/callback_list.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
@@ -19,46 +20,48 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
+#include "chrome/browser/feature_engagement/tracker_factory.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/sync/test/integration/secondary_account_helper.h"
 #include "chrome/browser/sync/test/integration/status_change_checker.h"
+#include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
+#include "chrome/browser/themes/test/theme_service_changed_waiter.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
-#include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/ui/user_education/feature_promo_controller.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/profiles/profile_menu_view.h"
-#include "chrome/browser/ui/views/profiles/user_manager_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/browser/ui/views/user_education/feature_promo_controller_views.h"
 #include "chrome/browser/ui/webui/signin/login_ui_test_utils.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
-#include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
+#include "components/feature_engagement/public/feature_constants.h"
+#include "components/feature_engagement/public/tracker.h"
+#include "components/feature_engagement/test/test_tracker.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/base/signin_pref_names.h"
-#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "components/sync/test/fake_server/fake_server_network_resources.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
@@ -91,8 +94,7 @@ class UnconsentedPrimaryAccountChecker
   // StatusChangeChecker overrides:
   bool IsExitConditionSatisfied(std::ostream* os) override {
     *os << "Waiting for unconsented primary account";
-    return identity_manager_->HasPrimaryAccount(
-        signin::ConsentLevel::kNotRequired);
+    return identity_manager_->HasPrimaryAccount(signin::ConsentLevel::kSignin);
   }
 
   // signin::IdentityManager::Observer overrides:
@@ -122,12 +124,16 @@ Profile* CreateTestingProfile(const base::FilePath& path) {
   return profile_ptr;
 }
 
+std::unique_ptr<KeyedService> CreateTestTracker(content::BrowserContext*) {
+  return feature_engagement::CreateTestTracker();
+}
+
 }  // namespace
 
 class ProfileMenuViewTestBase {
  public:
  protected:
-  void OpenProfileMenu(Browser* browser, bool use_mouse = true) {
+  void OpenProfileMenu(Browser* browser) {
     BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(
         target_browser_ ? target_browser_ : browser);
 
@@ -135,15 +141,7 @@ class ProfileMenuViewTestBase {
     views::View* avatar_button =
         browser_view->toolbar_button_provider()->GetAvatarToolbarButton();
     ASSERT_TRUE(avatar_button);
-    if (use_mouse) {
-      Click(avatar_button);
-    } else {
-      avatar_button->RequestFocus();
-      avatar_button->OnKeyPressed(
-          ui::KeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_SPACE, ui::EF_NONE));
-      avatar_button->OnKeyReleased(
-          ui::KeyEvent(ui::ET_KEY_RELEASED, ui::VKEY_SPACE, ui::EF_NONE));
-    }
+    Click(avatar_button);
 
     ASSERT_TRUE(profile_menu_view());
     profile_menu_view()->set_close_on_deactivate(false);
@@ -188,6 +186,26 @@ class ProfileMenuViewTestBase {
 
 class ProfileMenuViewExtensionsTest : public ProfileMenuViewTestBase,
                                       public extensions::ExtensionBrowserTest {
+ public:
+  ProfileMenuViewExtensionsTest() {
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
+    // The IPH is not implemented on Lacros.
+    scoped_feature_list_.InitAndEnableFeature(
+        feature_engagement::kIPHProfileSwitchFeature);
+#endif
+    subscription_ =
+        BrowserContextDependencyManager::GetInstance()
+            ->RegisterCreateServicesCallbackForTesting(base::BindRepeating(
+                &ProfileMenuViewExtensionsTest::RegisterTestTracker));
+  }
+
+ private:
+  static void RegisterTestTracker(content::BrowserContext* context) {
+    feature_engagement::TrackerFactory::GetInstance()->SetTestingFactory(
+        context, base::BindRepeating(&CreateTestTracker));
+  }
+  base::CallbackListSubscription subscription_;
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 // Make sure nothing bad happens when the browser theme changes while the
@@ -197,12 +215,10 @@ IN_PROC_BROWSER_TEST_F(ProfileMenuViewExtensionsTest, ThemeChanged) {
 
   // The theme change destroys the avatar button. Make sure the profile chooser
   // widget doesn't try to reference a stale observer during its shutdown.
+  test::ThemeServiceChangedWaiter waiter(
+      ThemeServiceFactory::GetForProfile(profile()));
   InstallExtension(test_data_dir_.AppendASCII("theme"), 1);
-  content::WindowedNotificationObserver theme_change_observer(
-      chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
-      content::Source<ThemeService>(
-          ThemeServiceFactory::GetForProfile(profile())));
-  theme_change_observer.Wait();
+  waiter.WaitForThemeChanged();
 
   EXPECT_TRUE(ProfileMenuView::IsShowing());
   profile_menu_view()->GetWidget()->Close();
@@ -271,6 +287,45 @@ IN_PROC_BROWSER_TEST_F(ProfileMenuViewExtensionsTest,
   EXPECT_FALSE(ProfileMenuView::IsShowing());
 }
 
+// Opening the profile menu dismisses any existing IPH.
+// Regression test for https://crbug.com/1205901
+IN_PROC_BROWSER_TEST_F(ProfileMenuViewExtensionsTest, CloseIPH) {
+  // Display the IPH.
+  FeaturePromoControllerViews::BlockActiveWindowCheckForTesting();
+  FeaturePromoControllerViews* promo_controller =
+      BrowserView::GetBrowserViewForBrowser(browser())
+          ->feature_promo_controller();
+  feature_engagement::Tracker* tracker =
+      promo_controller->feature_engagement_tracker();
+  base::RunLoop loop;
+  tracker->AddOnInitializedCallback(
+      base::BindLambdaForTesting([&loop](bool success) {
+        DCHECK(success);
+        loop.Quit();
+      }));
+  loop.Run();
+  ASSERT_TRUE(tracker->IsInitialized());
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // The IPH is not implemented on Lacros.
+  bool should_show = false;
+#else
+  bool should_show = true;
+#endif
+  EXPECT_EQ(should_show, promo_controller->MaybeShowPromo(
+                             feature_engagement::kIPHProfileSwitchFeature));
+  EXPECT_EQ(should_show, promo_controller->BubbleIsShowing(
+                             feature_engagement::kIPHProfileSwitchFeature));
+
+  // Open the menu.
+  ASSERT_NO_FATAL_FAILURE(OpenProfileMenu(browser()));
+
+  // Check the IPH is no longer showing.
+  EXPECT_FALSE(promo_controller->BubbleIsShowing(
+      feature_engagement::kIPHProfileSwitchFeature));
+}
+
+// Signing out on Lacros is not possible.
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
 // Test that sets up a primary account (without sync) and simulates a click on
 // the signout button.
 class ProfileMenuViewSignoutTest : public ProfileMenuViewTestBase,
@@ -306,7 +361,8 @@ class ProfileMenuViewSignoutTest : public ProfileMenuViewTestBase,
 // Checks that signout opens a new logout tab.
 IN_PROC_BROWSER_TEST_F(ProfileMenuViewSignoutTest, OpenLogoutTab) {
   // Start from a page that is not the NTP.
-  ui_test_utils::NavigateToURL(browser(), GURL("https://www.google.com"));
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GURL("https://www.google.com")));
   TabStripModel* tab_strip = browser()->tab_strip_model();
   EXPECT_EQ(1, tab_strip->count());
   EXPECT_EQ(0, tab_strip->active_index());
@@ -334,7 +390,8 @@ IN_PROC_BROWSER_TEST_F(ProfileMenuViewSignoutTest, OpenLogoutTab) {
 #endif
 IN_PROC_BROWSER_TEST_F(ProfileMenuViewSignoutTest, MAYBE_SignoutFromNTP) {
   // Start from the NTP.
-  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUINewTabURL));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(),
+                                           GURL(chrome::kChromeUINewTabURL)));
   TabStripModel* tab_strip = browser()->tab_strip_model();
   EXPECT_EQ(1, tab_strip->count());
   EXPECT_EQ(0, tab_strip->active_index());
@@ -438,6 +495,7 @@ IN_PROC_BROWSER_TEST_P(ProfileMenuViewSignoutTestWithNetwork, Signout) {
 INSTANTIATE_TEST_SUITE_P(NetworkOnOrOff,
                          ProfileMenuViewSignoutTestWithNetwork,
                          ::testing::Bool());
+#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // This class is used to test the existence, the correct order and the call to
 // the correct action of the buttons in the profile menu. This is done by
@@ -472,6 +530,10 @@ class ProfileMenuClickTestBase : public SyncTest,
                                  public ProfileMenuViewTestBase {
  public:
   ProfileMenuClickTestBase() : SyncTest(SINGLE_CLIENT) {}
+
+  ProfileMenuClickTestBase(const ProfileMenuClickTestBase&) = delete;
+  ProfileMenuClickTestBase& operator=(const ProfileMenuClickTestBase&) = delete;
+
   ~ProfileMenuClickTestBase() override = default;
 
   void SetUpInProcessBrowserTestFixture() override {
@@ -485,21 +547,21 @@ class ProfileMenuClickTestBase : public SyncTest,
     sync_service()->OverrideNetworkForTest(
         fake_server::CreateFakeServerHttpPostProviderFactory(
             GetFakeServer()->AsWeakPtr()));
-    sync_harness_ = ProfileSyncServiceHarness::Create(
+    sync_harness_ = SyncServiceImplHarness::Create(
         browser()->profile(), "user@example.com", "password",
-        ProfileSyncServiceHarness::SigninType::FAKE_SIGNIN);
+        SyncServiceImplHarness::SigninType::FAKE_SIGNIN);
   }
 
   signin::IdentityManager* identity_manager() {
     return IdentityManagerFactory::GetForProfile(browser()->profile());
   }
 
-  syncer::ProfileSyncService* sync_service() {
-    return ProfileSyncServiceFactory::GetAsProfileSyncServiceForProfile(
+  syncer::SyncServiceImpl* sync_service() {
+    return SyncServiceFactory::GetAsSyncServiceImplForProfile(
         browser()->profile());
   }
 
-  ProfileSyncServiceHarness* sync_harness() { return sync_harness_.get(); }
+  SyncServiceImplHarness* sync_harness() { return sync_harness_.get(); }
 
  protected:
   void AdvanceFocus(int count) {
@@ -515,15 +577,17 @@ class ProfileMenuClickTestBase : public SyncTest,
 
   base::HistogramTester histogram_tester_;
 
-  std::unique_ptr<ProfileSyncServiceHarness> sync_harness_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileMenuClickTestBase);
+  std::unique_ptr<SyncServiceImplHarness> sync_harness_;
 };
 
 class ProfileMenuClickTest : public ProfileMenuClickTestBase,
                              public testing::WithParamInterface<size_t> {
  public:
   ProfileMenuClickTest() = default;
+
+  ProfileMenuClickTest(const ProfileMenuClickTest&) = delete;
+  ProfileMenuClickTest& operator=(const ProfileMenuClickTest&) = delete;
+
   ~ProfileMenuClickTest() override = default;
 
   virtual ProfileMenuViewBase::ActionableItem GetExpectedActionableItemAtIndex(
@@ -546,22 +610,19 @@ class ProfileMenuClickTest : public ProfileMenuClickTestBase,
         "Profile.Menu.ClickedActionableItem",
         GetExpectedActionableItemAtIndex(GetParam()), /*count=*/1);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProfileMenuClickTest);
 };
 
 #define PROFILE_MENU_CLICK_TEST(actionable_item_list, test_case_name)     \
   class test_case_name : public ProfileMenuClickTest {                    \
    public:                                                                \
     test_case_name() = default;                                           \
+    test_case_name(const test_case_name&) = delete;                       \
+    test_case_name& operator=(const test_case_name&) = delete;            \
                                                                           \
     ProfileMenuViewBase::ActionableItem GetExpectedActionableItemAtIndex( \
         size_t index) override {                                          \
       return actionable_item_list[index];                                 \
     }                                                                     \
-                                                                          \
-    DISALLOW_COPY_AND_ASSIGN(test_case_name);                             \
   };                                                                      \
                                                                           \
   INSTANTIATE_TEST_SUITE_P(                                               \
@@ -586,12 +647,9 @@ constexpr ProfileMenuViewBase::ActionableItem
         // there are no other buttons at the end.
         ProfileMenuViewBase::ActionableItem::kEditProfileButton};
 
-// This test is disabled due to being flaky. See https://crbug.com/1025493.
-PROFILE_MENU_CLICK_TEST(
-    kActionableItems_SingleProfileWithCustomName,
-    DISABLED_ProfileMenuClickTest_SingleProfileWithCustomName) {
-  profiles::UpdateProfileName(browser()->profile(),
-                              base::UTF8ToUTF16("Custom name"));
+PROFILE_MENU_CLICK_TEST(kActionableItems_SingleProfileWithCustomName,
+                        ProfileMenuClickTest_SingleProfileWithCustomName) {
+  profiles::UpdateProfileName(browser()->profile(), u"Custom name");
   RunTest();
 }
 
@@ -642,15 +700,8 @@ constexpr ProfileMenuViewBase::ActionableItem kActionableItems_SyncEnabled[] = {
     // there are no other buttons at the end.
     ProfileMenuViewBase::ActionableItem::kEditProfileButton};
 
-#if defined(OS_WIN)
-// TODO(crbug.com/1068103): Flaky on Windows
-#define MAYBE_ProfileMenuClickTest_SyncEnabled \
-  DISABLED_ProfileMenuClickTest_SyncEnabled
-#else
-#define MAYBE_ProfileMenuClickTest_SyncEnabled ProfileMenuClickTest_SyncEnabled
-#endif
 PROFILE_MENU_CLICK_TEST(kActionableItems_SyncEnabled,
-                        MAYBE_ProfileMenuClickTest_SyncEnabled) {
+                        ProfileMenuClickTest_SyncEnabled) {
   ASSERT_TRUE(sync_harness()->SetupSync());
   // Check that the sync setup was successful.
   ASSERT_TRUE(
@@ -676,15 +727,8 @@ constexpr ProfileMenuViewBase::ActionableItem kActionableItems_SyncError[] = {
     // there are no other buttons at the end.
     ProfileMenuViewBase::ActionableItem::kEditProfileButton};
 
-#if defined(OS_WIN)
-// TODO(crbug.com/1021930): Failure on Windows
-#define MAYBE_ProfileMenuClickTest_SyncError \
-  DISABLED_ProfileMenuClickTest_SyncError
-#else
-#define MAYBE_ProfileMenuClickTest_SyncError ProfileMenuClickTest_SyncError
-#endif
 PROFILE_MENU_CLICK_TEST(kActionableItems_SyncError,
-                        MAYBE_ProfileMenuClickTest_SyncError) {
+                        ProfileMenuClickTest_SyncError) {
   ASSERT_TRUE(sync_harness()->SignInPrimaryAccount());
   // Check that the setup was successful.
   ASSERT_TRUE(
@@ -709,15 +753,8 @@ constexpr ProfileMenuViewBase::ActionableItem kActionableItems_SyncPaused[] = {
     // there are no other buttons at the end.
     ProfileMenuViewBase::ActionableItem::kEditProfileButton};
 
-// TODO(https://crbug.com/1079012): Test is flaky on Windows.
-#if defined(OS_WIN)
-#define MAYBE_ProfileMenuClickTest_SyncPaused \
-  DISABLED_ProfileMenuClickTest_SyncPaused
-#else
-#define MAYBE_ProfileMenuClickTest_SyncPaused ProfileMenuClickTest_SyncPaused
-#endif
 PROFILE_MENU_CLICK_TEST(kActionableItems_SyncPaused,
-                        MAYBE_ProfileMenuClickTest_SyncPaused) {
+                        ProfileMenuClickTest_SyncPaused) {
   ASSERT_TRUE(sync_harness()->SetupSync());
   sync_harness()->EnterSyncPausedStateForPrimaryAccount();
   // Check that the setup was successful.
@@ -729,10 +766,15 @@ PROFILE_MENU_CLICK_TEST(kActionableItems_SyncPaused,
   RunTest();
 }
 
+// Lacros doesn't allow to disable sign-in in regular profiles yet.
+// TODO(https://crbug.com/1220066): re-enable this test once kSigninAllowed is
+// no longer force set to true on Lacros.
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
 // List of actionable items in the correct order as they appear in the menu.
 // If a new button is added to the menu, it should also be added to this list.
 constexpr ProfileMenuViewBase::ActionableItem
     kActionableItems_SigninDisallowed[] = {
+        ProfileMenuViewBase::ActionableItem::kEditProfileButton,
         ProfileMenuViewBase::ActionableItem::kPasswordsButton,
         ProfileMenuViewBase::ActionableItem::kCreditCardsButton,
         ProfileMenuViewBase::ActionableItem::kAddressesButton,
@@ -741,11 +783,10 @@ constexpr ProfileMenuViewBase::ActionableItem
         ProfileMenuViewBase::ActionableItem::kAddNewProfileButton,
         // The first button is added again to finish the cycle and test that
         // there are no other buttons at the end.
-        ProfileMenuViewBase::ActionableItem::kPasswordsButton};
+        ProfileMenuViewBase::ActionableItem::kEditProfileButton};
 
-// This test is disabled due to being flaky. See https://crbug.com/1049014.
 PROFILE_MENU_CLICK_TEST(kActionableItems_SigninDisallowed,
-                        DISABLED_ProfileMenuClickTest_SigninDisallowed) {
+                        ProfileMenuClickTest_SigninDisallowed) {
   // Check that the setup was successful.
   ASSERT_FALSE(
       browser()->profile()->GetPrefs()->GetBoolean(prefs::kSigninAllowed));
@@ -753,12 +794,12 @@ PROFILE_MENU_CLICK_TEST(kActionableItems_SigninDisallowed,
   RunTest();
 }
 
-// Setup for the above test.
-IN_PROC_BROWSER_TEST_P(DISABLED_ProfileMenuClickTest_SigninDisallowed,
-                       DISABLED_PRE_ProfileMenuClickTest_SigninDisallowed) {
+IN_PROC_BROWSER_TEST_P(ProfileMenuClickTest_SigninDisallowed,
+                       PRE_ProfileMenuClickTest_SigninDisallowed) {
   browser()->profile()->GetPrefs()->SetBoolean(
       prefs::kSigninAllowedOnNextStartup, false);
 }
+#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // List of actionable items in the correct order as they appear in the menu.
 // If a new button is added to the menu, it should also be added to this list.
@@ -778,25 +819,16 @@ constexpr ProfileMenuViewBase::ActionableItem
         // there are no other buttons at the end.
         ProfileMenuViewBase::ActionableItem::kEditProfileButton};
 
-// TODO(https://crbug.com/1021930) flakey on Linux and Windows.
-#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_WIN)
-#define MAYBE_ProfileMenuClickTest_WithUnconsentedPrimaryAccount \
-  DISABLED_ProfileMenuClickTest_WithUnconsentedPrimaryAccount
-#else
-#define MAYBE_ProfileMenuClickTest_WithUnconsentedPrimaryAccount \
-  ProfileMenuClickTest_WithUnconsentedPrimaryAccount
-#endif
-PROFILE_MENU_CLICK_TEST(
-    kActionableItems_WithUnconsentedPrimaryAccount,
-    MAYBE_ProfileMenuClickTest_WithUnconsentedPrimaryAccount) {
-  secondary_account_helper::SignInSecondaryAccount(
+PROFILE_MENU_CLICK_TEST(kActionableItems_WithUnconsentedPrimaryAccount,
+                        ProfileMenuClickTest_WithUnconsentedPrimaryAccount) {
+  secondary_account_helper::SignInUnconsentedAccount(
       browser()->profile(), &test_url_loader_factory_, "user@example.com");
   UnconsentedPrimaryAccountChecker(identity_manager()).Wait();
   // Check that the setup was successful.
   ASSERT_FALSE(
       identity_manager()->HasPrimaryAccount(signin::ConsentLevel::kSync));
-  ASSERT_TRUE(identity_manager()->HasPrimaryAccount(
-      signin::ConsentLevel::kNotRequired));
+  ASSERT_TRUE(
+      identity_manager()->HasPrimaryAccount(signin::ConsentLevel::kSignin));
 
   RunTest();
 }
@@ -830,125 +862,9 @@ constexpr ProfileMenuViewBase::ActionableItem kActionableItems_GuestProfile[] =
      // this array triggers the same action as the first one.
      ProfileMenuViewBase::ActionableItem::kExitProfileButton};
 
-// TODO(https://crbug.com/1125474): Revert to using PROFILE_MENU_CLICK_TEST when
-// non-ephemeral Guest profiles are removed.
-class GuestProfileMenuClickTest : public ProfileMenuClickTest {
- public:
-  GuestProfileMenuClickTest() {
-    TestingProfile::SetScopedFeatureListForEphemeralGuestProfiles(
-        scoped_feature_list_, false);
-  }
-
-  ProfileMenuViewBase::ActionableItem GetExpectedActionableItemAtIndex(
-      size_t index) override {
-    return kActionableItems_GuestProfile[index];
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(GuestProfileMenuClickTest);
-};
-
-IN_PROC_BROWSER_TEST_P(GuestProfileMenuClickTest,
-                       ProfileMenuClickTest_GuestProfile) {
-  Browser* browser = CreateGuestBrowser();
-  ASSERT_TRUE(browser);
-
-  // Open a second guest browser window, so the ExitProfileButton is shown.
+PROFILE_MENU_CLICK_TEST(kActionableItems_GuestProfile,
+                        ProfileMenuClickTest_GuestProfile) {
   SetTargetBrowser(CreateGuestBrowser());
 
   RunTest();
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    GuestProfileMenuClickTest,
-    ::testing::Range(size_t(0), base::size(kActionableItems_GuestProfile)));
-
-// TODO(https://crbug.com/1125474): Remove OS_CHROMEOS and enable for Lacros
-// when supported.
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if defined(OS_WIN) || defined(OS_MAC) || \
-    (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
-// List of actionable items in the correct order as they appear in the menu.
-// If a new button is added to the menu, it should also be added to this list.
-constexpr ProfileMenuViewBase::ActionableItem
-    kActionableItems_EphemeralGuestProfile[] = {
-        ProfileMenuViewBase::ActionableItem::kExitProfileButton};
-
-class EphemeralGuestProfileMenuClickTest : public ProfileMenuClickTest {
- public:
-  EphemeralGuestProfileMenuClickTest() {
-    EXPECT_TRUE(TestingProfile::SetScopedFeatureListForEphemeralGuestProfiles(
-        scoped_feature_list_, true));
-  }
-
-  ProfileMenuViewBase::ActionableItem GetExpectedActionableItemAtIndex(
-      size_t index) override {
-    return kActionableItems_EphemeralGuestProfile[index];
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(EphemeralGuestProfileMenuClickTest);
-};
-
-IN_PROC_BROWSER_TEST_P(EphemeralGuestProfileMenuClickTest,
-                       ProfileMenuClickTest_GuestProfile) {
-  Browser* browser = CreateGuestBrowser();
-  ASSERT_TRUE(browser);
-
-  // Open a second guest browser window, so the ExitProfileButton is shown.
-  SetTargetBrowser(CreateGuestBrowser());
-
-  RunTest();
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    EphemeralGuestProfileMenuClickTest,
-    ::testing::Range(size_t(0),
-                     base::size(kActionableItems_EphemeralGuestProfile)));
-#endif  // defined(OS_WIN) || defined(OS_MAC) || (defined(OS_LINUX) ||
-        // BUILDFLAG(IS_CHROMEOS_LACROS))
-
-class ProfileMenuClickKeyAcceleratorTest : public ProfileMenuClickTestBase {
- public:
-  ProfileMenuClickKeyAcceleratorTest() = default;
-  ~ProfileMenuClickKeyAcceleratorTest() override = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProfileMenuClickKeyAcceleratorTest);
-};
-
-IN_PROC_BROWSER_TEST_F(ProfileMenuClickKeyAcceleratorTest, FocusOtherProfile) {
-  // Add an additional profiles.
-  ProfileManager* profile_manager = g_browser_process->profile_manager();
-  CreateTestingProfile(profile_manager->GenerateNextProfileDirectoryPath());
-
-  // Open the menu using the keyboard.
-  ASSERT_NO_FATAL_FAILURE(OpenProfileMenu(browser(), /*use_mouse=*/false));
-
-  // This test doesn't care about performing the actual menu actions, only
-  // about the histogram recorded.
-  ASSERT_TRUE(profile_menu_view());
-  profile_menu_view()->set_perform_menu_actions_for_testing(false);
-
-  // The first other profile menu should be focused when the menu is opened
-  // via a key event.
-  views::View* focused_view = GetFocusedItem();
-  ASSERT_TRUE(focused_view);
-  focused_view->OnKeyPressed(
-      ui::KeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_RETURN, ui::EF_NONE));
-  focused_view->OnKeyReleased(
-      ui::KeyEvent(ui::ET_KEY_RELEASED, ui::VKEY_RETURN, ui::EF_NONE));
-  base::RunLoop().RunUntilIdle();
-
-  histogram_tester_.ExpectUniqueSample(
-      "Profile.Menu.ClickedActionableItem",
-      ProfileMenuViewBase::ActionableItem::kOtherProfileButton,
-      /*expected_count=*/1);
 }

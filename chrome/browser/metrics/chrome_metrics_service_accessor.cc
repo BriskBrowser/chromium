@@ -14,7 +14,7 @@
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "components/metrics/structured/neutrino_logging.h"  // nogncheck
 #endif
 
 namespace {
@@ -54,6 +54,11 @@ bool ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled(
   // false.
   if (!local_state) {
     DLOG(WARNING) << "Local state has not been set and pref cannot be read";
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    metrics::structured::NeutrinoDevicesLog(
+        metrics::structured::NeutrinoDevicesLocation::
+            kIsMetricsAndCrashReportingEnabled);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     return false;
   }
 

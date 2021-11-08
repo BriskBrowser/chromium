@@ -34,8 +34,12 @@ class TabModalConfirmDialogViews : public TabModalConfirmDialog,
       std::unique_ptr<TabModalConfirmDialogDelegate> delegate,
       content::WebContents* web_contents);
 
+  TabModalConfirmDialogViews(const TabModalConfirmDialogViews&) = delete;
+  TabModalConfirmDialogViews& operator=(const TabModalConfirmDialogViews&) =
+      delete;
+
   // views::DialogDelegate:
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
   views::View* GetContentsView() override;
   views::Widget* GetWidget() override;
@@ -57,8 +61,6 @@ class TabModalConfirmDialogViews : public TabModalConfirmDialog,
 
   // The message box view whose commands we handle.
   views::MessageBoxView* message_box_view_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(TabModalConfirmDialogViews);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_TAB_MODAL_CONFIRM_DIALOG_VIEWS_H_

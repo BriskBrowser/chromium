@@ -15,6 +15,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/permissions/request_type.h"
 #include "components/permissions/test/mock_permission_request.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -30,11 +31,25 @@ TestPermissionBubbleViewDelegate::Requests() {
 }
 
 GURL TestPermissionBubbleViewDelegate::GetRequestingOrigin() const {
-  return requests_.front()->GetOrigin();
+  return requests_.front()->requesting_origin();
 }
 
 GURL TestPermissionBubbleViewDelegate::GetEmbeddingOrigin() const {
   return GURL("https://embedder.example.com");
+}
+
+absl::optional<permissions::PermissionUiSelector::QuietUiReason>
+TestPermissionBubbleViewDelegate::ReasonForUsingQuietUi() const {
+  return absl::nullopt;
+}
+
+bool TestPermissionBubbleViewDelegate::ShouldCurrentRequestUseQuietUI() const {
+  return false;
+}
+
+bool TestPermissionBubbleViewDelegate::
+    ShouldDropCurrentRequestIfCannotShowQuietly() const {
+  return false;
 }
 
 bool TestPermissionBubbleViewDelegate::WasCurrentRequestAlreadyDisplayed() {
@@ -50,8 +65,7 @@ void PermissionBubbleBrowserTest::SetUpOnMainThread() {
 
   // Add a single permission request.
   requests_.push_back(std::make_unique<permissions::MockPermissionRequest>(
-      "Request 1", l10n_util::GetStringUTF8(IDS_PERMISSION_ALLOW),
-      l10n_util::GetStringUTF8(IDS_PERMISSION_DENY)));
+      permissions::RequestType::kNotifications));
 
   std::vector<permissions::PermissionRequest*> raw_requests;
   raw_requests.push_back(requests_[0].get());
@@ -66,8 +80,7 @@ content::WebContents* PermissionBubbleBrowserTest::OpenExtensionAppWindow() {
   apps::AppLaunchParams params(
       extension->id(),
       apps::mojom::LaunchContainer::kLaunchContainerPanelDeprecated,
-      WindowOpenDisposition::NEW_WINDOW,
-      apps::mojom::AppLaunchSource::kSourceTest);
+      WindowOpenDisposition::NEW_WINDOW, apps::mojom::LaunchSource::kFromTest);
 
   content::WebContents* app_contents =
       apps::AppServiceProxyFactory::GetForProfile(browser()->profile())

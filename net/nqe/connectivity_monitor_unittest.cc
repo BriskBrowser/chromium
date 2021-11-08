@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -22,15 +21,14 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace net {
 namespace {
 
-constexpr base::TimeDelta kInactivityThreshold{base::TimeDelta::FromSeconds(1)};
-constexpr base::TimeDelta kUpdateInterval{
-    base::TimeDelta::FromMilliseconds(100)};
-constexpr base::TimeDelta kMinFailureLoggingInterval{
-    base::TimeDelta::FromSeconds(45)};
+constexpr base::TimeDelta kInactivityThreshold{base::Seconds(1)};
+constexpr base::TimeDelta kUpdateInterval{base::Milliseconds(100)};
+constexpr base::TimeDelta kMinFailureLoggingInterval{base::Seconds(45)};
 
 class ConnectivityMonitorTest
     : public testing::Test,
@@ -108,7 +106,7 @@ class ConnectivityMonitorTest
   ConnectivityMonitor connectivity_monitor_{kInactivityThreshold,
                                             kMinFailureLoggingInterval};
   TestDelegate test_url_request_delegate_;
-  base::Optional<base::RunLoop> network_change_wait_loop_;
+  absl::optional<base::RunLoop> network_change_wait_loop_;
 };
 
 INSTANTIATE_TEST_SUITE_P(, ConnectivityMonitorTest, testing::Bool());
@@ -139,10 +137,10 @@ TEST_P(ConnectivityMonitorTest, NetworkChangeResetsState) {
   FastForwardTimeBy(kInactivityThreshold);
   EXPECT_EQ(base::TimeDelta(), monitor().GetTimeSinceLastFailureForTesting());
 
-  FastForwardTimeBy(base::TimeDelta::FromDays(42));
+  FastForwardTimeBy(base::Days(42));
   SimulateSwitchToMobileNetwork();
   EXPECT_EQ(0u, monitor().num_active_requests_for_testing());
-  EXPECT_EQ(base::nullopt, monitor().GetTimeSinceLastFailureForTesting());
+  EXPECT_EQ(absl::nullopt, monitor().GetTimeSinceLastFailureForTesting());
 }
 
 TEST_P(ConnectivityMonitorTest, BasicStalledRequest) {
@@ -158,7 +156,7 @@ TEST_P(ConnectivityMonitorTest, BasicStalledRequest) {
   // Pass some time, but not enough to suspect connectivity issues.
   FastForwardTimeBy(kUpdateInterval);
   EXPECT_FALSE(deadline_reached);
-  EXPECT_EQ(base::nullopt, monitor().GetTimeSinceLastFailureForTesting());
+  EXPECT_EQ(absl::nullopt, monitor().GetTimeSinceLastFailureForTesting());
 
   // Simulate additional passage of time to trigger connectivity failure
   // observation.
@@ -191,13 +189,13 @@ TEST_P(ConnectivityMonitorTest, MultipleRequests) {
 
   // Pass some time, but not enough to suspect connectivity issues.
   FastForwardTimeBy(kUpdateInterval);
-  EXPECT_EQ(base::nullopt, monitor().GetTimeSinceLastFailureForTesting());
+  EXPECT_EQ(absl::nullopt, monitor().GetTimeSinceLastFailureForTesting());
 
   // Simulate progress on one but not both requests. Connectivity failure should
   // still not be detected due to the first request's progress.
   monitor().NotifyRequestProgress(*request1);
   FastForwardTimeBy(kInactivityThreshold - kUpdateInterval);
-  EXPECT_EQ(base::nullopt, monitor().GetTimeSinceLastFailureForTesting());
+  EXPECT_EQ(absl::nullopt, monitor().GetTimeSinceLastFailureForTesting());
 
   // Pass enough time to trigger a failure.
   FastForwardTimeBy(kUpdateInterval);
@@ -221,7 +219,7 @@ TEST_P(ConnectivityMonitorTest, HistogramLogging) {
 
   // Now trigger a network change after a long delay. This should log a
   // histogram sample conveying the time since the failure was first detected.
-  constexpr base::TimeDelta kArbitraryDelay{base::TimeDelta::FromSeconds(60)};
+  constexpr base::TimeDelta kArbitraryDelay{base::Seconds(60)};
   FastForwardTimeBy(kArbitraryDelay);
   SimulateSwitchToMobileNetwork();
   histograms.ExpectTotalCount(kHistogramName, 1);
@@ -241,7 +239,7 @@ TEST_P(ConnectivityMonitorTest, OnlyReportToOSWithFeatureEnabled) {
   // Pass some time, but not enough to suspect connectivity issues.
   FastForwardTimeBy(kUpdateInterval);
   EXPECT_FALSE(reported_to_os);
-  EXPECT_EQ(base::nullopt, monitor().GetTimeSinceLastFailureForTesting());
+  EXPECT_EQ(absl::nullopt, monitor().GetTimeSinceLastFailureForTesting());
 
   // Simulate additional passage of time to trigger connectivity failure
   // observation. If the ReportPoorConnectivity feature is enabled, this should

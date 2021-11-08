@@ -62,16 +62,23 @@ void FakeAccessibilityController::StartPointScan() {}
 
 void FakeAccessibilityController::StopPointScan() {}
 
+void FakeAccessibilityController::SetPointScanSpeedDipsPerSecond(
+    int point_scan_speed_dips_per_second) {}
+
 void FakeAccessibilityController::SetDictationActive(bool is_active) {}
 
 void FakeAccessibilityController::ToggleDictationFromSource(
     ash::DictationToggleSource source) {}
 
+void FakeAccessibilityController::ShowDictationLanguageUpgradedNudge(
+    const std::string& dictation_locale,
+    const std::string& application_locale) {}
+
 void FakeAccessibilityController::HandleAutoclickScrollableBoundsFound(
     gfx::Rect& bounds_in_screen) {}
 
-base::string16 FakeAccessibilityController::GetBatteryDescription() const {
-  return base::string16();
+std::u16string FakeAccessibilityController::GetBatteryDescription() const {
+  return std::u16string();
 }
 
 void FakeAccessibilityController::SetVirtualKeyboardVisible(bool is_visible) {}
@@ -88,3 +95,12 @@ bool FakeAccessibilityController::IsAccessibilityFeatureVisibleInTrayMenu(
 
 void FakeAccessibilityController::
     DisableSwitchAccessDisableConfirmationDialogTesting() {}
+
+void FakeAccessibilityController::
+    UpdateDictationButtonOnSpeechRecognitionDownloadChanged(
+        bool download_in_progress) {}
+
+void FakeAccessibilityController::
+    ShowSpeechRecognitionDownloadNotificationForDictation(
+        bool succeeded,
+        const std::u16string& display_language) {}

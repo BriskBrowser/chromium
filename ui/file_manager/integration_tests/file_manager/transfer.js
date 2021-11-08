@@ -2,7 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-'use strict';
+import {ENTRIES, EntryType, getCaller, pending, repeatUntil, RootPath, sendTestMessage, TestEntryInfo} from '../test_util.js';
+import {testcase} from '../testcase.js';
+
+import {expandTreeItem, isSinglePartitionFormat, navigateWithDirectoryTree, remoteCall, setupAndWaitUntilReady} from './background.js';
+import {waitAndAcceptDialog} from './keyboard_operations.js';
+import {BASIC_DRIVE_ENTRY_SET, BASIC_LOCAL_ENTRY_SET, OFFLINE_ENTRY_SET, SHARED_DRIVE_ENTRY_SET, SHARED_WITH_ME_ENTRY_SET} from './test_data.js';
 
 /**
  * Info for the source or destination of a transfer.
@@ -136,7 +141,10 @@ async function transferBetweenVolumes(transferInfo) {
   const driveFiles = (transferInfo.source.isTeamDrive ||
                       transferInfo.destination.isTeamDrive) ?
       SHARED_DRIVE_ENTRY_SET :
-      BASIC_DRIVE_ENTRY_SET;
+      BASIC_DRIVE_ENTRY_SET.concat([
+        ENTRIES.sharedDirectory,
+        ENTRIES.sharedDirectoryFile,
+      ]);
 
   // Open files app.
   const appId =
@@ -235,13 +243,21 @@ const TRANSFER_LOCATIONS = {
   drive: new TransferLocationInfo({
     breadcrumbsPath: '/My Drive',
     volumeName: 'drive',
-    initialEntries: BASIC_DRIVE_ENTRY_SET
+    initialEntries: BASIC_DRIVE_ENTRY_SET.concat([
+      ENTRIES.sharedDirectory,
+    ])
   }),
 
   driveWithTeamDriveEntries: new TransferLocationInfo({
     breadcrumbsPath: '/My Drive',
     volumeName: 'drive',
     initialEntries: SHARED_DRIVE_ENTRY_SET
+  }),
+
+  driveSharedDirectory: new TransferLocationInfo({
+    breadcrumbsPath: '/My Drive/Shared',
+    volumeName: 'drive',
+    initialEntries: [ENTRIES.sharedDirectoryFile]
   }),
 
   downloads: new TransferLocationInfo({
@@ -253,7 +269,10 @@ const TRANSFER_LOCATIONS = {
   sharedWithMe: new TransferLocationInfo({
     breadcrumbsPath: '/Shared with me',
     volumeName: 'drive_shared_with_me',
-    initialEntries: SHARED_WITH_ME_ENTRY_SET
+    initialEntries: SHARED_WITH_ME_ENTRY_SET.concat([
+      ENTRIES.sharedDirectory,
+      ENTRIES.sharedDirectoryFile,
+    ])
   }),
 
   driveOffline: new TransferLocationInfo({
@@ -331,7 +350,11 @@ testcase.transferFromDriveToDownloads = () => {
 /**
  * Tests moving files from MyFiles/Downloads to MyFiles crbug.com/925175.
  */
-testcase.transferFromDownloadsToMyFilesMove = () => {
+testcase.transferFromDownloadsToMyFilesMove = async () => {
+  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
+    TRANSFER_LOCATIONS.my_files.initialEntries.pop();
+  }
+
   return transferBetweenVolumes(new TransferInfo({
     fileToTransfer: ENTRIES.hello,
     source: TRANSFER_LOCATIONS.downloads,
@@ -343,7 +366,11 @@ testcase.transferFromDownloadsToMyFilesMove = () => {
 /**
  * Tests copying files from MyFiles/Downloads to MyFiles crbug.com/925175.
  */
-testcase.transferFromDownloadsToMyFiles = () => {
+testcase.transferFromDownloadsToMyFiles = async () => {
+  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
+    TRANSFER_LOCATIONS.my_files.initialEntries.pop();
+  }
+
   return transferBetweenVolumes(new TransferInfo({
     fileToTransfer: ENTRIES.hello,
     source: TRANSFER_LOCATIONS.downloads,
@@ -364,9 +391,9 @@ testcase.transferFromDownloadsToDrive = () => {
 };
 
 /**
- * Tests copying from Drive shared with me to Downloads.
+ * Tests copying from Drive "Shared with me" to Downloads.
  */
-testcase.transferFromSharedToDownloads = () => {
+testcase.transferFromSharedWithMeToDownloads = () => {
   return transferBetweenVolumes(new TransferInfo({
     fileToTransfer: ENTRIES.testSharedFile,
     source: TRANSFER_LOCATIONS.sharedWithMe,
@@ -375,13 +402,54 @@ testcase.transferFromSharedToDownloads = () => {
 };
 
 /**
- * Tests copying from Drive shared with me to Drive.
+ * Tests copying from Drive "Shared with me" to Drive.
  */
-testcase.transferFromSharedToDrive = () => {
+testcase.transferFromSharedWithMeToDrive = () => {
   return transferBetweenVolumes(new TransferInfo({
     fileToTransfer: ENTRIES.testSharedDocument,
     source: TRANSFER_LOCATIONS.sharedWithMe,
     destination: TRANSFER_LOCATIONS.drive,
+  }));
+};
+
+
+/**
+ * Tests copying from Downloads to a shared folder on Drive.
+ */
+testcase.transferFromDownloadsToSharedFolder = () => {
+  return transferBetweenVolumes(new TransferInfo({
+    fileToTransfer: ENTRIES.hello,
+    source: TRANSFER_LOCATIONS.downloads,
+    destination: TRANSFER_LOCATIONS.driveSharedDirectory,
+    expectedDialogText:
+        'Copying this item will share it with everyone who can see the ' +
+        'shared folder \'Shared\'.CopyCancel',
+  }));
+};
+
+/**
+ * Tests moving from Downloads to a shared folder on Drive.
+ */
+testcase.transferFromDownloadsToSharedFolderMove = () => {
+  return transferBetweenVolumes(new TransferInfo({
+    fileToTransfer: ENTRIES.hello,
+    source: TRANSFER_LOCATIONS.downloads,
+    destination: TRANSFER_LOCATIONS.driveSharedDirectory,
+    expectedDialogText:
+        'Moving this item will share it with everyone who can see the ' +
+        'shared folder \'Shared\'.MoveCancel',
+    isMove: true,
+  }));
+};
+
+/**
+ * Tests copying from a shared folder on Drive to Downloads.
+ */
+testcase.transferFromSharedFolderToDownloads = () => {
+  return transferBetweenVolumes(new TransferInfo({
+    fileToTransfer: ENTRIES.sharedDirectoryFile,
+    source: TRANSFER_LOCATIONS.driveSharedDirectory,
+    destination: TRANSFER_LOCATIONS.downloads,
   }));
 };
 
@@ -892,6 +960,25 @@ testcase.transferDragAndHover = async () => {
 };
 
 /**
+ * Tests dropping a file originated from the browser.
+ */
+testcase.transferDropBrowserFile = async () => {
+  const appId =
+      await setupAndWaitUntilReady(RootPath.DOWNLOADS, [ENTRIES.hello], []);
+
+  // Send drop event on current directory.
+  chrome.test.assertTrue(
+      await remoteCall.callRemoteTestUtil(
+          'fakeDropBrowserFile', appId,
+          ['browserfile', 'content', 'text/plain', '#file-list']),
+      'fakeDropBrowserFile failed');
+
+  // File should be created.
+  await remoteCall.waitForElement(
+      appId, '#file-list [file-name="browserfile"]');
+};
+
+/**
  * Tests that copying a deleted file shows an error.
  */
 testcase.transferDeletedFile = async () => {
@@ -912,6 +999,11 @@ testcase.transferDeletedFile = async () => {
   chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
       'deleteFile', appId, [entry.nameText]));
 
+  // Confirm deletion.
+  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
+    await waitAndAcceptDialog(appId);
+  }
+
   // Wait for completion of file deletion.
   await remoteCall.waitForElementLost(
       appId, `#file-list [file-name="${entry.nameText}"]`);
@@ -921,11 +1013,22 @@ testcase.transferDeletedFile = async () => {
       await remoteCall.callRemoteTestUtil('execCommand', appId, ['paste']));
 
   // Check that the error appears in the feedback panel.
-  const element = await remoteCall.waitForElement(
-      appId, ['#progress-panel', 'xf-panel-item']);
-  chrome.test.assertEq(
-      `Whoops, ${entry.nameText} no longer exists.`,
-      element.attributes['primary-text']);
+  let element = {};
+  const caller = getCaller();
+  await repeatUntil(async () => {
+    element = await remoteCall.waitForElement(
+        appId, ['#progress-panel', 'xf-panel-item']);
+    const expectedMsg = `Whoops, ${entry.nameText} no longer exists.`;
+    const actualMsg = element.attributes['primary-text'];
+
+    if (actualMsg === expectedMsg) {
+      return;
+    }
+
+    return pending(
+        caller,
+        `Expected feedback panel msg: "${expectedMsg}", got "${actualMsg}"`);
+  });
 
   // Check that only one line of text is shown.
   chrome.test.assertFalse(!!element.attributes['secondary-text']);
@@ -1018,17 +1121,9 @@ testcase.transferToUsbHasDestinationText = async () => {
   const panel = await remoteCall.waitForElement(
       appId, ['#progress-panel', 'xf-panel-item']);
 
-  // Get FilesTransferDetails enabled state by checking detailed-panel
-  // attribute.
-  const isTransferDetailsEnabled = panel.attributes['detailed-panel'];
-
-  if (isTransferDetailsEnabled) {
-    chrome.test.assertTrue(
-        panel.attributes['primary-text'].includes('to fake-usb'),
-        'Feedback panel does not contain device name.');
-  } else {
-    chrome.test.assertEq('To fake-usb', panel.attributes['secondary-text']);
-  }
+  chrome.test.assertTrue(
+      panel.attributes['primary-text'].includes('to fake-usb'),
+      'Feedback panel does not contain device name.');
 };
 
 /**

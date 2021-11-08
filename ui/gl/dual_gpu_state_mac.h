@@ -13,7 +13,6 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/no_destructor.h"
 #include "base/synchronization/lock.h"
-#include "base/time/time.h"
 #include "build/build_config.h"
 #include "ui/gl/dual_gpu_state.h"
 #include "ui/gl/gl_bindings.h"
@@ -24,6 +23,9 @@ namespace gl {
 class GL_EXPORT DualGPUStateMac : public DualGPUState {
  public:
   static DualGPUStateMac* GetInstance();
+
+  DualGPUStateMac(const DualGPUStateMac&) = delete;
+  DualGPUStateMac& operator=(const DualGPUStateMac&) = delete;
 
  private:
   friend base::NoDestructor<DualGPUStateMac>;
@@ -41,8 +43,6 @@ class GL_EXPORT DualGPUStateMac : public DualGPUState {
 
   CGLPixelFormatObj discrete_pixelformat_ = nullptr;
   base::CancelableOnceClosure cancelable_delay_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(DualGPUStateMac);
 };
 
 }  // namespace gl

@@ -16,13 +16,11 @@ namespace features {
 // Keep sorted!
 
 COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kClipboardFilenames;
-COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kColorProviderRedirection;
-COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kCompositorThreadedScrollbarScrolling;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kExperimentalFlingAnimation;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kFocusFollowsCursor;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kSettingsShowsPerKeyboardSettings;
@@ -38,37 +36,66 @@ extern const base::Feature kSystemCaptionStyle;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kSystemKeyboardLock;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kNotificationIndicator;
-COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kUiCompositorScrollWithLayers;
-
-COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsNotificationIndicatorEnabled();
 
 COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsUiGpuRasterizationEnabled();
 
+#if defined(OS_WIN) || defined(OS_ANDROID)
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kElasticOverscroll;
+#endif  // defined(OS_WIN) || defined(OS_ANDROID)
+
+#if defined(OS_ANDROID)
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const char kElasticOverscrollType[];
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const char kElasticOverscrollTypeFilter[];
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const char kElasticOverscrollTypeTransform[];
+#endif  // defined(OS_ANDROID)
+
 #if defined(OS_WIN)
 COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kCalculateNativeWinOcclusion;
+extern const base::Feature kApplyNativeOccludedRegionToWindowTracker;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kElasticOverscrollWin;
+extern const base::Feature kApplyNativeOcclusionToCompositor;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const char kApplyNativeOcclusionToCompositorType[];
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const char kApplyNativeOcclusionToCompositorTypeApplyOnly[];
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const char kApplyNativeOcclusionToCompositorTypeApplyAndEvict[];
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const char kApplyNativeOcclusionToCompositorTypeEvictOnly[];
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kCalculateNativeWinOcclusion;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kInputPaneOnScreenKeyboard;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kPointerEventsForTouch;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kPrecisionTouchpadLogging;
+extern const base::Feature kScreenPowerListenerForNativeWinOcclusion;
 COMPONENT_EXPORT(UI_BASE_FEATURES) extern const base::Feature kTSFImeSupport;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kWin11StyleMenus;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const char kWin11StyleMenuAllWindowsVersionsName[];
 
 // Returns true if the system should use WM_POINTER events for touch events.
 COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsUsingWMPointerForTouch();
 #endif  // defined(OS_WIN)
 
-#if defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) || \
-    defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS)
+// This flag is intended to supercede kNewShortcutMapping.
 COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kDirectManipulationStylus;
-#endif  // defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) ||
-        // defined(OS_CHROMEOS)
+extern const base::Feature kImprovedKeyboardShortcuts;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+bool IsImprovedKeyboardShortcutsEnabled();
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kDeprecateAltBasedSixPack;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+bool IsDeprecateAltBasedSixPackEnabled();
+#endif  // defined(OS_CHROMEOS)
 
 // Used to enable forced colors mode for web content.
 COMPONENT_EXPORT(UI_BASE_FEATURES) extern const base::Feature kForcedColors;
@@ -77,16 +104,6 @@ COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsForcedColorsEnabled();
 // Used to enable the eye-dropper in the refresh color-picker.
 COMPONENT_EXPORT(UI_BASE_FEATURES) extern const base::Feature kEyeDropper;
 COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsEyeDropperEnabled();
-
-// Used to enable form controls and scrollbar dark mode rendering.
-COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kCSSColorSchemeUARendering;
-COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsCSSColorSchemeUARenderingEnabled();
-
-// Used to enable the new controls UI.
-COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kFormControlsRefresh;
-COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsFormControlsRefreshEnabled();
 
 // Used to enable the common select popup.
 COMPONENT_EXPORT(UI_BASE_FEATURES)
@@ -108,12 +125,17 @@ extern const base::Feature kNewShortcutMapping;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 bool IsNewShortcutMappingEnabled();
 
-// This flag is intended to supercede kNewShortcutMapping above.
 COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kImprovedKeyboardShortcuts;
+extern const base::Feature kDeprecateAltClick;
 
 COMPONENT_EXPORT(UI_BASE_FEATURES)
-bool IsImprovedKeyboardShortcutsEnabled();
+bool IsDeprecateAltClickEnabled();
+
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kShortcutCustomizationApp;
+
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+bool IsShortcutCustomizationAppEnabled();
 
 #endif
 
@@ -126,17 +148,12 @@ COMPONENT_EXPORT(UI_BASE_FEATURES)
 bool IsSynchronousPageFlipTestingEnabled();
 
 #if defined(USE_X11) || defined(USE_OZONE)
-// Indicates whether the OzonePlatform feature is used on Linux. Although, it is
-// available for all Ozone platforms, this always resolves to true for
-// non-desktop Linux builds. The reason why it is needed for all Ozone builds is
-// that we have many places in the code that Ozone takes independently of the
-// platform, and it's highly important that when USE_X11 && USE_OZONE are true
-// and the OzonePlatform feature is not enabled, the Ozone path is never taken.
-// This will be removed as soon as Ozone/Linux is default and USE_X11 is
-// removed.  More info at
-// https://docs.google.com/document/d/1PvKquOHWySbvbe4bgduAcpW0Pda4BBhXI7xphtyDtPQ
-COMPONENT_EXPORT(UI_BASE_FEATURES) extern const base::Feature kUseOzonePlatform;
-
+// This is going to be removed once USE_X11 is removed. This used to control
+// Ozone/X11 vs non-Ozone/X11 paths. At the moment, only Ozone path is
+// supported, but we still rely on some USE_X11 defines for Ozone/X11 and have
+// to keep use_x11 == ozone_platform_x11. Whenever that is enabled, we still
+// have to check IsUsingOzonePlatform to ensure correct path is chosen (even
+// though it's always true).
 COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsUsingOzonePlatform();
 #endif
 

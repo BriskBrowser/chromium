@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_box_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
+#include "third_party/blink/renderer/core/layout/ng/svg/ng_svg_text_layout_algorithm.h"
 
 namespace blink {
 
@@ -36,7 +37,15 @@ NGFragmentItemsBuilder::NGFragmentItemsBuilder(
     items_.ReserveInitialCapacity(estimated_item_count);
 }
 
-NGFragmentItemsBuilder::~NGFragmentItemsBuilder() = default;
+NGFragmentItemsBuilder::~NGFragmentItemsBuilder() {
+  ReleaseCurrentLogicalLineItems();
+
+  // Delete leftovers that were associated, but were not added.
+  for (const auto& i : line_items_map_) {
+    if (i.value != line_items_pool_)
+      delete i.value;
+  }
+}
 
 void NGFragmentItemsBuilder::AddLogicalLineItemsPool(
     NGLogicalLineItems* line_items) {
@@ -52,6 +61,8 @@ void NGFragmentItemsBuilder::ReleaseCurrentLogicalLineItems() {
   if (current_line_items_ == line_items_pool_) {
     DCHECK(is_line_items_pool_acquired_);
     is_line_items_pool_acquired_ = false;
+  } else {
+    delete current_line_items_;
   }
   current_line_items_ = nullptr;
 }
@@ -74,8 +85,19 @@ NGLogicalLineItems* NGFragmentItemsBuilder::AcquireLogicalLineItems() {
   }
   MoveCurrentLogicalLineItemsToMap();
   DCHECK(!current_line_items_);
-  current_line_items_ = MakeGarbageCollected<NGLogicalLineItems>();
+  current_line_items_ = new NGLogicalLineItems();
   return current_line_items_;
+}
+
+const NGLogicalLineItems& NGFragmentItemsBuilder::LogicalLineItems(
+    const NGPhysicalLineBoxFragment& line_fragment) const {
+  if (&line_fragment == current_line_fragment_) {
+    DCHECK(current_line_items_);
+    return *current_line_items_;
+  }
+  const NGLogicalLineItems* items = line_items_map_.at(&line_fragment);
+  DCHECK(items);
+  return *items;
 }
 
 void NGFragmentItemsBuilder::AssociateLogicalLineItems(
@@ -210,7 +232,9 @@ NGFragmentItemsBuilder::AddPreviousItems(
   }
 
   DCHECK(items_.IsEmpty());
-  const wtf_size_t estimated_size = items.Items().size();
+  const NGFragmentItems::Span source_items = items.Items();
+  const wtf_size_t estimated_size =
+      base::checked_cast<wtf_size_t>(source_items.size());
   items_.ReserveCapacity(estimated_size);
 
   // Convert offsets to logical. The logic is opposite to |ConvertToPhysical|.
@@ -242,6 +266,8 @@ NGFragmentItemsBuilder::AddPreviousItems(
       if (end_item) {
         // Check if this line has valid item_index and offset.
         const NGPhysicalLineBoxFragment* line_fragment = item.LineBoxFragment();
+        // Block-in-inline should have been prevented by |EndOfReusableItems|.
+        DCHECK(!line_fragment->IsBlockInInline());
         const NGInlineBreakToken* break_token =
             To<NGInlineBreakToken>(line_fragment->BreakToken());
         DCHECK(break_token);
@@ -346,13 +372,13 @@ void NGFragmentItemsBuilder::ConvertToPhysical(const PhysicalSize& outer_size) {
   is_converted_to_physical_ = true;
 }
 
-base::Optional<LogicalOffset> NGFragmentItemsBuilder::LogicalOffsetFor(
+absl::optional<LogicalOffset> NGFragmentItemsBuilder::LogicalOffsetFor(
     const LayoutObject& layout_object) const {
   for (const ItemWithOffset& item : items_) {
     if (item->GetLayoutObject() == &layout_object)
       return item.offset;
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 void NGFragmentItemsBuilder::MoveChildrenInBlockDirection(LayoutUnit delta) {
@@ -372,6 +398,10 @@ void NGFragmentItemsBuilder::ToFragmentItems(const PhysicalSize& outer_size,
                                              void* data) {
   DCHECK(text_content_);
   ConvertToPhysical(outer_size);
+  if (node_.IsSvgText()) {
+    NGSvgTextLayoutAlgorithm(node_, GetWritingMode())
+        .Layout(TextContent(false), items_);
+  }
   new (data) NGFragmentItems(this);
 }
 

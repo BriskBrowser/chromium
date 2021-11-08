@@ -7,7 +7,6 @@
 
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 
 #include "base/macros.h"
@@ -33,6 +32,10 @@ class NetworkHostScanCache : public HostScanCache,
       NetworkStateHandler* network_state_handler,
       TetherHostResponseRecorder* tether_host_response_recorder,
       DeviceIdTetherNetworkGuidMap* device_id_tether_network_guid_map);
+
+  NetworkHostScanCache(const NetworkHostScanCache&) = delete;
+  NetworkHostScanCache& operator=(const NetworkHostScanCache&) = delete;
+
   ~NetworkHostScanCache() override;
 
   // HostScanCache:
@@ -56,8 +59,6 @@ class NetworkHostScanCache : public HostScanCache,
   NetworkStateHandler* network_state_handler_;
   TetherHostResponseRecorder* tether_host_response_recorder_;
   DeviceIdTetherNetworkGuidMap* device_id_tether_network_guid_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkHostScanCache);
 };
 
 }  // namespace tether

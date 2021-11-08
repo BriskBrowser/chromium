@@ -93,29 +93,29 @@ class CWVTranslationControllerTest : public TestWithLocaleAndResources {
 
     pref_service_.registry()->RegisterStringPref(
         language::prefs::kAcceptLanguages, "en");
+    pref_service_.registry()->RegisterStringPref(
+        language::prefs::kSelectedLanguages, "");
     pref_service_.registry()->RegisterListPref(
-        language::prefs::kFluentLanguages,
-        language::LanguagePrefs::GetDefaultFluentLanguages());
-    pref_service_.registry()->RegisterBooleanPref(prefs::kOfferTranslateEnabled,
-                                                  true);
+        language::prefs::kForcedLanguages);
+    pref_service_.registry()->RegisterListPref(
+        translate::prefs::kBlockedLanguages,
+        translate::TranslatePrefs::GetDefaultBlockedLanguages());
+    pref_service_.registry()->RegisterBooleanPref(
+        translate::prefs::kOfferTranslateEnabled, true);
     pref_service_.registry()->RegisterListPref(
         translate::TranslatePrefs::kPrefNeverPromptSitesDeprecated);
     pref_service_.registry()->RegisterDictionaryPref(
         translate::TranslatePrefs::kPrefNeverPromptSitesWithTime);
     pref_service_.registry()->RegisterDictionaryPref(
-        translate::TranslatePrefs::kPrefAlwaysTranslateLists);
+        translate::prefs::kPrefAlwaysTranslateList);
     pref_service_.registry()->RegisterDictionaryPref(
         translate::TranslatePrefs::kPrefTranslateDeniedCount);
     pref_service_.registry()->RegisterDictionaryPref(
         translate::TranslatePrefs::kPrefTranslateIgnoredCount);
     pref_service_.registry()->RegisterDictionaryPref(
         translate::TranslatePrefs::kPrefTranslateAcceptedCount);
-    pref_service_.registry()->RegisterDictionaryPref(
-        translate::TranslatePrefs::kPrefTranslateLastDeniedTimeForLanguage);
-    pref_service_.registry()->RegisterDictionaryPref(
-        translate::TranslatePrefs::kPrefTranslateTooOftenDeniedForLanguage);
     pref_service_.registry()->RegisterStringPref(
-        translate::TranslatePrefs::kPrefTranslateRecentTarget, "");
+        translate::prefs::kPrefTranslateRecentTarget, "");
     // Using string literal here because kForceTriggerTranslateCount is private
     // in translate::TranslatePrefs.
     pref_service_.registry()->RegisterIntegerPref(

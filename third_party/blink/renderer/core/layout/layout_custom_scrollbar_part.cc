@@ -101,7 +101,7 @@ int LayoutCustomScrollbarPart::ComputeSize(SizeType size_type,
   if (length.IsSpecified() || (size_type == kMinSize && length.IsAuto()))
     return MinimumValueForLength(length, LayoutUnit(container_size)).ToInt();
   return CustomScrollbarTheme::GetCustomScrollbarTheme()->ScrollbarThickness(
-      scrollbar_->ScaleFromDIP());
+      scrollbar_->ScaleFromDIP(), StyleRef().ScrollbarWidth());
 }
 
 int LayoutCustomScrollbarPart::ComputeWidth(int container_width) const {
@@ -153,8 +153,8 @@ int LayoutCustomScrollbarPart::ComputeLength() const {
   IntRect visible_content_rect =
       scrollbar_->GetScrollableArea()->VisibleContentRect(kIncludeScrollbars);
   if (scrollbar_->Orientation() == kHorizontalScrollbar)
-    return ComputeWidth(visible_content_rect.Width());
-  return ComputeHeight(visible_content_rect.Height());
+    return ComputeWidth(visible_content_rect.width());
+  return ComputeHeight(visible_content_rect.height());
 }
 
 static LayoutUnit ComputeMargin(const Length& style_margin) {

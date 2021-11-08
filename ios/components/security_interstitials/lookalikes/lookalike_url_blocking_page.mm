@@ -47,8 +47,8 @@ LookalikeUrlBlockingPage::LookalikeUrlBlockingPage(
 LookalikeUrlBlockingPage::~LookalikeUrlBlockingPage() {
   // Update metrics when the interstitial is closed or user navigates away.
   ReportUkmForLookalikeUrlBlockingPageIfNeeded(
-      source_id_, match_type_,
-      LookalikeUrlBlockingPageUserAction::kCloseOrBack);
+      source_id_, match_type_, LookalikeUrlBlockingPageUserAction::kCloseOrBack,
+      /*triggered_by_initial_url=*/false);
 }
 
 bool LookalikeUrlBlockingPage::ShouldCreateNewNavigation() const {
@@ -56,14 +56,14 @@ bool LookalikeUrlBlockingPage::ShouldCreateNewNavigation() const {
 }
 
 void LookalikeUrlBlockingPage::PopulateInterstitialStrings(
-    base::DictionaryValue* load_time_data) const {
+    base::Value* load_time_data) const {
   CHECK(load_time_data);
 
   // Set a value if backwards navigation is not available, used
   // to change the button text to 'Close page' when there is no
   // suggested URL.
   if (!controller_->CanGoBack()) {
-    load_time_data->SetBoolean("cant_go_back", true);
+    load_time_data->SetBoolKey("cant_go_back", true);
   }
 
   PopulateLookalikeUrlBlockingPageStrings(load_time_data, safe_url_,
@@ -74,46 +74,26 @@ bool LookalikeUrlBlockingPage::ShouldDisplayURL() const {
   return false;
 }
 
-void LookalikeUrlBlockingPage::HandleScriptCommand(
-    const base::DictionaryValue& message,
+void LookalikeUrlBlockingPage::HandleCommand(
+    security_interstitials::SecurityInterstitialCommand command,
     const GURL& origin_url,
     bool user_is_interacting,
     web::WebFrame* sender_frame) {
-  std::string command_string;
-  if (!message.GetString("command", &command_string)) {
-    LOG(ERROR) << "JS message parameter not found: command";
-    return;
-  }
-
-  // Remove the command prefix so that the string value can be converted to a
-  // SecurityInterstitialCommand enum value.
-  std::size_t delimiter = command_string.find(".");
-  if (delimiter == std::string::npos) {
-    return;
-  }
-
-  // Parse the command int value from the text after the delimiter.
-  int command = 0;
-  if (!base::StringToInt(command_string.substr(delimiter + 1), &command)) {
-    NOTREACHED() << "Command cannot be parsed to an int : " << command_string;
-    return;
-  }
-
   if (command == security_interstitials::CMD_DONT_PROCEED) {
     controller_->metrics_helper()->RecordUserDecision(
         security_interstitials::MetricsHelper::DONT_PROCEED);
     ReportUkmForLookalikeUrlBlockingPageIfNeeded(
         source_id_, match_type_,
-        LookalikeUrlBlockingPageUserAction::kAcceptSuggestion);
-      controller_->GoBack();
+        LookalikeUrlBlockingPageUserAction::kAcceptSuggestion,
+        /*triggered_by_initial_url=*/false);
+    controller_->GoBack();
   } else if (command == security_interstitials::CMD_PROCEED) {
     controller_->metrics_helper()->RecordUserDecision(
         security_interstitials::MetricsHelper::PROCEED);
     ReportUkmForLookalikeUrlBlockingPageIfNeeded(
         source_id_, match_type_,
-        LookalikeUrlBlockingPageUserAction::kClickThrough);
+        LookalikeUrlBlockingPageUserAction::kClickThrough,
+        /*triggered_by_initial_url=*/false);
     controller_->Proceed();
   }
 }
-
-void LookalikeUrlBlockingPage::AfterShow() {}

@@ -90,24 +90,10 @@ class AssistantCollectUserDataDelegate {
                          const base::android::JavaParamRef<jstring>& jkey,
                          const base::android::JavaParamRef<jobject>& jvalue);
 
-  void OnTextFocusLost(JNIEnv* env,
-                       const base::android::JavaParamRef<jobject>& jcaller);
-
-  bool IsContactComplete(
+  void OnInputTextFocusChanged(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& jcaller,
-      const base::android::JavaParamRef<jobject>& jcontact_profile);
-
-  bool IsShippingAddressComplete(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& jcaller,
-      const base::android::JavaParamRef<jobject>& jaddress);
-
-  bool IsPaymentInstrumentComplete(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& jcaller,
-      const base::android::JavaParamRef<jobject>& jcard,
-      const base::android::JavaParamRef<jobject>& jaddress);
+      jboolean jis_focused);
 
   base::android::ScopedJavaGlobalRef<jobject> GetJavaObject();
 

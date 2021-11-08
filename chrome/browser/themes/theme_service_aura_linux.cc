@@ -20,6 +20,9 @@ class SystemThemeX11 : public CustomThemeSupplier {
  public:
   explicit SystemThemeX11(PrefService* pref_service);
 
+  SystemThemeX11(const SystemThemeX11&) = delete;
+  SystemThemeX11& operator=(const SystemThemeX11&) = delete;
+
   // Overridden from CustomThemeSupplier:
   void StartUsingTheme() override;
   void StopUsingTheme() override;
@@ -35,8 +38,6 @@ class SystemThemeX11 : public CustomThemeSupplier {
   // These pointers are not owned by us.
   views::LinuxUI* const linux_ui_;
   PrefService* const pref_service_;
-
-  DISALLOW_COPY_AND_ASSIGN(SystemThemeX11);
 };
 
 SystemThemeX11::SystemThemeX11(PrefService* pref_service)
@@ -47,14 +48,14 @@ SystemThemeX11::SystemThemeX11(PrefService* pref_service)
 void SystemThemeX11::StartUsingTheme() {
   pref_service_->SetBoolean(prefs::kUsesSystemTheme, true);
   // Have the former theme notify its observers of change.
-  ui::NativeTheme::GetInstanceForNativeUi()->NotifyObservers();
+  ui::NativeTheme::GetInstanceForNativeUi()->NotifyOnNativeThemeUpdated();
 }
 
 void SystemThemeX11::StopUsingTheme() {
   pref_service_->SetBoolean(prefs::kUsesSystemTheme, false);
   // Have the former theme notify its observers of change.
   if (linux_ui_)
-    linux_ui_->GetNativeTheme(nullptr)->NotifyObservers();
+    linux_ui_->GetNativeTheme(nullptr)->NotifyOnNativeThemeUpdated();
 }
 
 bool SystemThemeX11::GetTint(int id, color_utils::HSL* hsl) const {

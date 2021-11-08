@@ -19,7 +19,6 @@
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
-#include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "components/search_engines/template_url.h"
@@ -201,7 +200,7 @@ void AddSearchEngine(int profile_index, const std::string& keyword) {
 
 void EditSearchEngine(int profile_index,
                       const std::string& keyword,
-                      const base::string16& short_name,
+                      const std::u16string& short_name,
                       const std::string& new_keyword,
                       const std::string& url) {
   ASSERT_FALSE(url.empty());
@@ -266,11 +265,11 @@ std::string GetDefaultSearchEngineKeyword(int profile_index) {
 
 SearchEnginesMatchChecker::SearchEnginesMatchChecker() {
   if (test()->UseVerifier()) {
-    observer_.Add(GetVerifierService());
+    observations_.AddObservation(GetVerifierService());
   }
 
   for (int i = 0; i < test()->num_clients(); ++i) {
-    observer_.Add(GetServiceForBrowserContext(i));
+    observations_.AddObservation(GetServiceForBrowserContext(i));
   }
 }
 
@@ -288,7 +287,7 @@ HasSearchEngineChecker::HasSearchEngineChecker(int profile_index,
                                                const std::string& keyword)
     : service_(GetServiceForBrowserContext(profile_index)),
       keyword_(base::UTF8ToUTF16(keyword)) {
-  observer_.Add(service_);
+  observations_.AddObservation(service_);
 }
 
 HasSearchEngineChecker::~HasSearchEngineChecker() = default;

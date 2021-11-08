@@ -20,13 +20,8 @@ class PictureInPictureWindowManager::ContentsObserver final
 
   ~ContentsObserver() final = default;
 
-  void DidFinishNavigation(content::NavigationHandle* navigation_handle) final {
+  void PrimaryPageChanged(content::Page& page) final {
     // Closes the active Picture-in-Picture window if user navigates away.
-    if (!navigation_handle->IsInMainFrame() ||
-        !navigation_handle->HasCommitted() ||
-        navigation_handle->IsSameDocument()) {
-      return;
-    }
     owner_->CloseWindowInternal();
   }
 

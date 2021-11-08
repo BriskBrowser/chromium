@@ -4,6 +4,10 @@
 
 package org.chromium.chrome.features.start_surface;
 
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
+import static androidx.test.espresso.matcher.ViewMatchers.withParent;
+
+import static org.hamcrest.Matchers.allOf;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -19,7 +23,6 @@ import androidx.annotation.Nullable;
 import androidx.test.espresso.Espresso;
 import androidx.test.espresso.action.ViewActions;
 import androidx.test.espresso.contrib.RecyclerViewActions;
-import androidx.test.espresso.matcher.ViewMatchers;
 
 import org.hamcrest.Matchers;
 import org.junit.Before;
@@ -146,7 +149,11 @@ public class StartSurfaceLayoutPerfTest {
     @Test
     @EnormousTest
     @CommandLineFlags.Add({BASE_PARAMS + "/cleanup-delay/10000"})
-    public void testTabToGridFromLiveTabWith10TabsSoft() throws InterruptedException {
+    @DisableIf.Build(message = "Flaky on Android P, see https://crbug.com/1184787",
+            supported_abis_includes = "x86", sdk_is_greater_than = VERSION_CODES.O_MR1,
+            sdk_is_less_than = VERSION_CODES.Q)
+    public void
+    testTabToGridFromLiveTabWith10TabsSoft() throws InterruptedException {
         prepareTabs(10, NTP_URL);
         reportTabToGridPerf(mUrl, "Tab-to-Grid from live tab with 10 tabs (soft)");
     }
@@ -316,6 +323,9 @@ public class StartSurfaceLayoutPerfTest {
     @Test
     @EnormousTest
     @CommandLineFlags.Add({BASE_PARAMS})
+    @DisableIf.Build(message = "Flaky on Android P, see https://crbug.com/1184787",
+            supported_abis_includes = "x86", sdk_is_greater_than = VERSION_CODES.O_MR1,
+            sdk_is_less_than = VERSION_CODES.Q)
     public void testGridToTabToCurrentNTP() throws InterruptedException {
         prepareTabs(1, NTP_URL);
         reportGridToTabPerf(false, false, "Grid-to-Tab to current NTP");
@@ -342,6 +352,7 @@ public class StartSurfaceLayoutPerfTest {
     @Test
     @EnormousTest
     @CommandLineFlags.Add({BASE_PARAMS})
+    @FlakyTest(message = "https://crbug.com/1225926")
     public void testGridToTabToOtherLive() throws InterruptedException {
         prepareTabs(2, mUrl);
         reportGridToTabPerf(true, false, "Grid-to-Tab to other live tab");
@@ -390,7 +401,9 @@ public class StartSurfaceLayoutPerfTest {
 
             mStartSurfaceLayout.setPerfListenerForTesting(collector);
             Thread.sleep(mWaitingTime);
-            Espresso.onView(ViewMatchers.withId(org.chromium.chrome.tab_ui.R.id.tab_list_view))
+            Espresso.onView(allOf(withParent(withId(
+                                          org.chromium.chrome.tab_ui.R.id.compositor_view_holder)),
+                                    withId(org.chromium.chrome.tab_ui.R.id.tab_list_view)))
                     .perform(RecyclerViewActions.actionOnItemAtPosition(
                             targetIndex, ViewActions.click()));
 

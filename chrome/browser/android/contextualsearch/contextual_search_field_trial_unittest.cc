@@ -13,6 +13,12 @@
 class ContextualSearchFieldTrialTest : public testing::Test {
  public:
   ContextualSearchFieldTrialTest() {}
+
+  ContextualSearchFieldTrialTest(const ContextualSearchFieldTrialTest&) =
+      delete;
+  ContextualSearchFieldTrialTest& operator=(
+      const ContextualSearchFieldTrialTest&) = delete;
+
   ~ContextualSearchFieldTrialTest() override {}
 
   // Inner class that stubs out access to Variations and command-line switches.
@@ -39,13 +45,10 @@ class ContextualSearchFieldTrialTest : public testing::Test {
 
  protected:
   void SetUp() override {
-    field_trial_.reset(new ContextualSearchFieldTrialStubbed());
+    field_trial_ = std::make_unique<ContextualSearchFieldTrialStubbed>();
   }
 
   void TearDown() override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ContextualSearchFieldTrialTest);
 };
 
 bool ContextualSearchFieldTrialTest::ContextualSearchFieldTrialStubbed::

@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "build/build_config.h"
-#include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/elevation_icon_setter.h"
 #include "ui/base/window_open_disposition.h"
@@ -18,16 +17,6 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/view_class_properties.h"
-
-// InfoBarService -------------------------------------------------------------
-
-std::unique_ptr<infobars::InfoBar> InfoBarService::CreateConfirmInfoBar(
-    std::unique_ptr<ConfirmInfoBarDelegate> delegate) {
-  return std::make_unique<ConfirmInfoBar>(std::move(delegate));
-}
-
-
-// ConfirmInfoBar -------------------------------------------------------------
 
 ConfirmInfoBar::ConfirmInfoBar(std::unique_ptr<ConfirmInfoBarDelegate> delegate)
     : InfoBarView(std::move(delegate)) {
@@ -46,7 +35,6 @@ ConfirmInfoBar::ConfirmInfoBar(std::unique_ptr<ConfirmInfoBarDelegate> delegate)
         gfx::Insets(ChromeLayoutProvider::Get()->GetDistanceMetric(
                         DISTANCE_TOAST_CONTROL_VERTICAL),
                     0));
-    button->SizeToPreferredSize();
     return button;
   };
 
@@ -67,6 +55,9 @@ ConfirmInfoBar::ConfirmInfoBar(std::unique_ptr<ConfirmInfoBarDelegate> delegate)
                                    &ConfirmInfoBar::CancelButtonPressed);
     if (buttons == ConfirmInfoBarDelegate::BUTTON_CANCEL)
       cancel_button_->SetProminent(true);
+    cancel_button_->SetImageModel(
+        views::Button::STATE_NORMAL,
+        delegate_ptr->GetButtonImage(ConfirmInfoBarDelegate::BUTTON_CANCEL));
   }
 
   link_ = CreateLink(delegate_ptr->GetLinkText());
@@ -80,6 +71,14 @@ ConfirmInfoBar::~ConfirmInfoBar() {
 
 void ConfirmInfoBar::Layout() {
   InfoBarView::Layout();
+
+  if (ok_button_) {
+    ok_button_->SizeToPreferredSize();
+  }
+
+  if (cancel_button_) {
+    cancel_button_->SizeToPreferredSize();
+  }
 
   int x = GetStartX();
   Views views;

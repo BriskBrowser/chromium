@@ -12,7 +12,6 @@
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/send_tab_to_self_sync_service_factory.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "components/send_tab_to_self/send_tab_to_self_sync_service.h"
@@ -61,7 +60,8 @@ class SendTabToSelfUtilTest : public BrowserWithTestWindowTest {
 
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
-    incognito_profile_ = profile()->GetPrimaryOTRProfile();
+    incognito_profile_ =
+        profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true);
     url_ = GURL("https://www.google.com");
     title_ = base::UTF8ToUTF16(base::StringPiece("Google"));
   }
@@ -70,7 +70,7 @@ class SendTabToSelfUtilTest : public BrowserWithTestWindowTest {
   base::test::ScopedFeatureList scoped_feature_list_;
   Profile* incognito_profile_;
   GURL url_;
-  base::string16 title_;
+  std::u16string title_;
 };
 
 TEST_F(SendTabToSelfUtilTest, HasValidTargetDevice) {
@@ -109,7 +109,7 @@ TEST_F(SendTabToSelfUtilTest, IncognitoMode) {
 }
 
 TEST_F(SendTabToSelfUtilTest, ShouldNotOfferFeatureForTelephoneLink) {
-  url_ = GURL("tel:07387252578");
+  url_ = GURL("tel:07399999999");
 
   AddTab(browser(), url_);
   SendTabToSelfSyncServiceFactory::GetInstance()->SetTestingFactory(

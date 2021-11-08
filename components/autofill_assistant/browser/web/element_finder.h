@@ -18,6 +18,7 @@
 #include "components/autofill_assistant/browser/devtools/devtools/domains/types_runtime.h"
 #include "components/autofill_assistant/browser/devtools/devtools_client.h"
 #include "components/autofill_assistant/browser/selector.h"
+#include "components/autofill_assistant/browser/user_data.h"
 #include "components/autofill_assistant/browser/web/element.h"
 #include "components/autofill_assistant/browser/web/js_snippets.h"
 #include "components/autofill_assistant/browser/web/web_controller_worker.h"
@@ -30,7 +31,10 @@ class RenderFrameHost;
 namespace autofill_assistant {
 class DevtoolsClient;
 
-// Worker class to find element(s) matching a selector.
+// Worker class to find element(s) matching a selector. This will keep entering
+// iFrames until the element is found in the last frame, then returns the
+// element together with the owning frame. All subsequent operations should
+// be performed on that frame.
 class ElementFinder : public WebControllerWorker {
  public:
   enum ResultType {
@@ -75,10 +79,12 @@ class ElementFinder : public WebControllerWorker {
     }
   };
 
-  // |web_contents| and |devtools_client| must be valid for the lifetime of the
-  // instance.
+  // |web_contents|, |devtools_client| and |user_data| must be valid for the
+  // lifetime of the instance.
   ElementFinder(content::WebContents* web_contents,
                 DevtoolsClient* devtools_client,
+                const UserData* user_data,
+                ProcessedActionStatusDetailsProto* log_info,
                 const Selector& selector,
                 ResultType result_type);
   ~ElementFinder() override;
@@ -170,10 +176,15 @@ class ElementFinder : public WebControllerWorker {
                      const std::string& frame_id,
                      const std::string& document_object_id);
 
-  // Sends a result with the given status and no data.
-  void SendResult(const ClientStatus& status);
+  // Update the log info with details about the current run.
+  void UpdateLogInfo(const ClientStatus& status);
 
-  // Builds a result from the current state of the finder and returns it.
+  // Sends a result with the given status and no data. This expects an error
+  // status and will add details to |log_info_|.
+  void SendErrorResult(const ClientStatus& status);
+
+  // Builds a result from the current state of the finder and returns it. This
+  // will add details to |log_info_|.
   void SendSuccessResult(const std::string& object_id);
 
   // Report |object_id| as result in |result| and initialize the frame-related
@@ -302,17 +313,6 @@ class ElementFinder : public WebControllerWorker {
   void OnResolveNode(const DevtoolsClient::ReplyStatus& reply_status,
                      std::unique_ptr<dom::ResolveNodeResult> result);
 
-  // Handle TaskType::PROXIMITY
-  void ApplyProximityFilter(int filter_index,
-                            const std::string& array_object_id);
-  void OnProximityFilterTarget(int filter_index,
-                               const std::string& array_object_id,
-                               const ClientStatus& status,
-                               std::unique_ptr<Result> result);
-  void OnProximityFilterJs(
-      const DevtoolsClient::ReplyStatus& reply_status,
-      std::unique_ptr<runtime::CallFunctionOnResult> result);
-
   // Fill |current_matches_js_array_| with the values in |current_matches_|
   // starting from |index|, then clear |current_matches_| and call
   // ExecuteNextTask().
@@ -325,12 +325,24 @@ class ElementFinder : public WebControllerWorker {
 
   content::WebContents* const web_contents_;
   DevtoolsClient* const devtools_client_;
+  const UserData* const user_data_;
+  ProcessedActionStatusDetailsProto* const log_info_;
   const Selector selector_;
   const ResultType result_type_;
   Callback callback_;
 
-  // The index of the next filter to process, in selector_.proto.filters.
+  // The modified selector to use going forward. This is guaranteed to have
+  // resolved any filters that need a data lookup.
+  SelectorProto selector_proto_;
+
+  // The index of the next filter to process, in selector__proto_.filters.
   int next_filter_index_ = 0;
+
+  // Getting the document failed. Used for error reporting.
+  bool get_document_failed_ = false;
+
+  // The currently worked on filters are starting at this index..
+  int current_filter_index_range_start_ = -1;
 
   // Pointer to the current frame
   content::RenderFrameHost* current_frame_ = nullptr;

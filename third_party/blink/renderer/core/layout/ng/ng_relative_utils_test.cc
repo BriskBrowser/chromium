@@ -22,7 +22,7 @@ const LayoutUnit kZero{0};
 class NGRelativeUtilsTest : public testing::Test {
  protected:
   void SetUp() override {
-    style_ = ComputedStyle::Create();
+    style_ = ComputedStyle::CreateInitialStyleSingleton();
     style_->SetPosition(EPosition::kRelative);
   }
 
@@ -39,7 +39,7 @@ class NGRelativeUtilsTest : public testing::Test {
                                   : Length::Fixed(left.ToInt()));
   }
 
-  Persistent<ComputedStyle> style_;
+  scoped_refptr<ComputedStyle> style_;
   LogicalSize container_size_;
 };
 

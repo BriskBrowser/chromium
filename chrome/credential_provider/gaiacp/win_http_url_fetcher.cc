@@ -17,10 +17,10 @@
 #include "base/containers/span.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "chrome/credential_provider/gaiacp/logging.h"
 
 namespace {
@@ -68,9 +68,9 @@ class HttpServiceRequest {
   // within the given |request_timeout|. If the background thread returns before
   // the timeout expires, it is guaranteed that a result can be returned and the
   // requester will delete itself.
-  base::Optional<base::Value> WaitForResponseFromHttpService(
+  absl::optional<base::Value> WaitForResponseFromHttpService(
       const base::TimeDelta& request_timeout) {
-    base::Optional<base::Value> result;
+    absl::optional<base::Value> result;
 
     // Start the thread and wait on its handle until |request_timeout| expires
     // or the thread finishes.
@@ -423,7 +423,7 @@ HRESULT WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
     const base::Value& request_dict,
     const base::TimeDelta& request_timeout,
     unsigned int request_retries,
-    base::Optional<base::Value>* request_result) {
+    absl::optional<base::Value>* request_result) {
   DCHECK(request_result);
   HRESULT hr = S_OK;
 
@@ -458,7 +458,7 @@ HRESULT WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
       LOGFN(ERROR) << "error: " << *error_detail;
 
       // If error code is known, retry only on retryable server errors.
-      base::Optional<int> error_code =
+      absl::optional<int> error_code =
           error_detail->FindIntKey(kHttpErrorCodeKeyNameInResponse);
       if (error_code.has_value() &&
           kRetryableHttpErrorCodes.find(error_code.value()) ==

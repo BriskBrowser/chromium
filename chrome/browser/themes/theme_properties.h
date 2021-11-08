@@ -19,10 +19,12 @@
 class ThemeProperties {
  public:
   // ---------------------------------------------------------------------------
-  // The int values of OverwritableByUserThemeProperties, Alignment, and Tiling
-  // are used as a key to store the property in the browser theme pack. If you
-  // modify any of these enums, increment the version number in
-  // browser_theme_pack.cc.
+  // The int values of the enums below are used as keys to store properties in
+  // the browser theme pack.
+  //
+  // /!\ If you make any changes to these enums, you must also increment
+  // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+  // incorrectly.
 
   enum OverwritableByUserThemeProperty {
     COLOR_FRAME_ACTIVE,
@@ -63,14 +65,18 @@ class ThemeProperties {
     NTP_BACKGROUND_ALIGNMENT,
     NTP_BACKGROUND_TILING,
     NTP_LOGO_ALTERNATE,
+
+    // /!\ If you make any changes to this enum, you must also increment
+    // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+    // incorrectly.
   };
 
   // A bitfield mask for alignments.
   enum Alignment {
     ALIGN_CENTER = 0,
-    ALIGN_LEFT   = 1 << 0,
-    ALIGN_TOP    = 1 << 1,
-    ALIGN_RIGHT  = 1 << 2,
+    ALIGN_LEFT = 1 << 0,
+    ALIGN_TOP = 1 << 1,
+    ALIGN_RIGHT = 1 << 2,
     ALIGN_BOTTOM = 1 << 3,
   };
 
@@ -87,6 +93,10 @@ class ThemeProperties {
   // has no special meaning. Modify the enum to your heart's content.
   // The enum takes on values >= 1000 as not to overlap with
   // OverwritableByUserThemeProperties.
+  //
+  // /!\ If you make any changes to this enum, you must also increment
+  // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+  // incorrectly.
   enum NotOverwritableByUserThemeProperty {
     // The color of the border drawn around the location bar.
     COLOR_LOCATION_BAR_BORDER = 1000,
@@ -109,6 +119,10 @@ class ThemeProperties {
     COLOR_TOOLBAR_TOP_SEPARATOR,
     COLOR_TOOLBAR_TOP_SEPARATOR_INACTIVE,
 
+    // /!\ If you make any changes to this enum, you must also increment
+    // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+    // incorrectly.
+
     // Colors of vertical separators, such as on the bookmark bar or on the DL
     // shelf.
     COLOR_TOOLBAR_VERTICAL_SEPARATOR,
@@ -116,10 +130,21 @@ class ThemeProperties {
     // Opaque base color for toolbar button ink drops.
     COLOR_TOOLBAR_INK_DROP,
 
-    // Color used for various 'shelves' and 'bars'.
+    // Colors used for various 'shelves' and 'bars'.
+    // Download shelf colors.
     COLOR_DOWNLOAD_SHELF,
+    COLOR_DOWNLOAD_SHELF_BUTTON_BACKGROUND,
+    COLOR_DOWNLOAD_SHELF_BUTTON_TEXT,
+
+    // Infobar colors.
     COLOR_INFOBAR,
+
+    // Status bubble colors.
     COLOR_STATUS_BUBBLE,
+
+    // /!\ If you make any changes to this enum, you must also increment
+    // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+    // incorrectly.
 
     // Colors used when displaying hover cards.
     COLOR_HOVER_CARD_NO_PREVIEW_FOREGROUND,
@@ -137,10 +162,13 @@ class ThemeProperties {
 
     // The throbber colors for tabs or anything on a toolbar (currently, only
     // the download shelf). If you're adding a throbber elsewhere, such as in
-    // a dialog or bubble, you likely want
-    // NativeTheme::kColorId_ThrobberSpinningColor.
+    // a dialog or bubble, you likely want ui::kColorThrobber.
     COLOR_TAB_THROBBER_SPINNING,
     COLOR_TAB_THROBBER_WAITING,
+
+    // /!\ If you make any changes to this enum, you must also increment
+    // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+    // incorrectly.
 
     // Note: All tab group color ids must be grouped together consecutively and
     // grouped together by use (eg grouped by dialog, context menu etc).
@@ -183,6 +211,19 @@ class ThemeProperties {
     COLOR_TAB_GROUP_CONTEXT_MENU_PINK,
     COLOR_TAB_GROUP_CONTEXT_MENU_PURPLE,
     COLOR_TAB_GROUP_CONTEXT_MENU_CYAN,
+    // The colors used for saved tab group chips on the bookmark bar.
+    COLOR_TAB_GROUP_BOOKMARK_BAR_GREY,
+    COLOR_TAB_GROUP_BOOKMARK_BAR_BLUE,
+    COLOR_TAB_GROUP_BOOKMARK_BAR_RED,
+    COLOR_TAB_GROUP_BOOKMARK_BAR_YELLOW,
+    COLOR_TAB_GROUP_BOOKMARK_BAR_GREEN,
+    COLOR_TAB_GROUP_BOOKMARK_BAR_PINK,
+    COLOR_TAB_GROUP_BOOKMARK_BAR_PURPLE,
+    COLOR_TAB_GROUP_BOOKMARK_BAR_CYAN,
+
+    // /!\ If you make any changes to this enum, you must also increment
+    // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+    // incorrectly.
 
     // Calculated representative colors for the background of window control
     // buttons.
@@ -208,6 +249,10 @@ class ThemeProperties {
     COLOR_FEATURE_PROMO_BUBBLE_TEXT,
     COLOR_FEATURE_PROMO_BUBBLE_BACKGROUND,
 
+    // /!\ If you make any changes to this enum, you must also increment
+    // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+    // incorrectly.
+
     COLOR_OMNIBOX_BACKGROUND_HOVERED,
     COLOR_OMNIBOX_SELECTED_KEYWORD,
     COLOR_OMNIBOX_TEXT_DIMMED,
@@ -221,13 +266,16 @@ class ThemeProperties {
     COLOR_OMNIBOX_RESULTS_ICON_SELECTED,
     COLOR_OMNIBOX_RESULTS_URL,
     COLOR_OMNIBOX_RESULTS_URL_SELECTED,
-    COLOR_OMNIBOX_RESULTS_FOCUS_BAR,
     COLOR_OMNIBOX_RESULTS_BUTTON_BORDER,
     COLOR_OMNIBOX_BUBBLE_OUTLINE,
     COLOR_OMNIBOX_BUBBLE_OUTLINE_EXPERIMENTAL_KEYWORD_MODE,
     COLOR_OMNIBOX_SECURITY_CHIP_DEFAULT,
     COLOR_OMNIBOX_SECURITY_CHIP_SECURE,
     COLOR_OMNIBOX_SECURITY_CHIP_DANGEROUS,
+
+    // /!\ If you make any changes to this enum, you must also increment
+    // kThemePackVersion in browser_theme_pack.cc, or else themes will display
+    // incorrectly.
   };
 
   // Themes are hardcoded to draw frame images as if they start this many DIPs
@@ -238,6 +286,10 @@ class ThemeProperties {
   // the tabs in Refresh (since frame heights above the tabs are never greater
   // than this).
   static constexpr int kFrameHeightAboveTabs = 16;
+
+  ThemeProperties() = delete;
+  ThemeProperties(const ThemeProperties&) = delete;
+  ThemeProperties& operator=(const ThemeProperties&) = delete;
 
   // Used by the browser theme pack to parse alignments from something like
   // "top left" into a bitmask of Alignment.
@@ -266,9 +318,6 @@ class ThemeProperties {
   static SkColor GetDefaultColor(int id,
                                  bool incognito,
                                  bool dark_mode = false);
-
- private:
-  DISALLOW_IMPLICIT_CONSTRUCTORS(ThemeProperties);
 };
 
 #endif  // CHROME_BROWSER_THEMES_THEME_PROPERTIES_H_

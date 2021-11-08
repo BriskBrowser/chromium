@@ -5,6 +5,7 @@
 #include "chromeos/services/assistant/media_host.h"
 
 #include "base/notreached.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "chromeos/services/assistant/media_session/assistant_media_session.h"
@@ -12,7 +13,7 @@
 #include "chromeos/services/assistant/public/shared/utils.h"
 #include "chromeos/services/assistant/test_support/libassistant_media_controller_mock.h"
 #include "chromeos/services/assistant/test_support/mock_assistant_interaction_subscriber.h"
-#include "chromeos/services/assistant/test_support/scoped_assistant_client.h"
+#include "chromeos/services/assistant/test_support/scoped_assistant_browser_delegate.h"
 #include "chromeos/services/libassistant/public/mojom/android_app_info.mojom-shared.h"
 #include "chromeos/services/libassistant/public/mojom/android_app_info.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -23,9 +24,9 @@ namespace assistant {
 
 namespace {
 
-using libassistant::mojom::MediaState;
-using libassistant::mojom::MediaStatePtr;
-using libassistant::mojom::PlaybackState;
+using chromeos::libassistant::mojom::MediaState;
+using chromeos::libassistant::mojom::MediaStatePtr;
+using chromeos::libassistant::mojom::PlaybackState;
 using media_session::mojom::MediaSessionInfo;
 using ::testing::_;
 
@@ -88,13 +89,18 @@ class MediaControllerMock : public media_session::mojom::MediaController {
       (::media_session::mojom::MediaSessionImageType type,
        int32_t minimum_size_px,
        int32_t desired_size_px,
-       ::mojo::PendingRemote<media_session::mojom::MediaControllerImageObserver>
+       mojo::PendingRemote<media_session::mojom::MediaControllerImageObserver>
            observer));
   MOCK_METHOD(void, SeekTo, (::base::TimeDelta seek_time));
   MOCK_METHOD(void, ScrubTo, (::base::TimeDelta seek_time));
   MOCK_METHOD(void, EnterPictureInPicture, ());
   MOCK_METHOD(void, ExitPictureInPicture, ());
-  MOCK_METHOD(void, SetAudioSinkId, (const base::Optional<std::string>& id));
+  MOCK_METHOD(void, SetAudioSinkId, (const absl::optional<std::string>& id));
+  MOCK_METHOD(void, ToggleMicrophone, ());
+  MOCK_METHOD(void, ToggleCamera, ());
+  MOCK_METHOD(void, HangUp, ());
+  MOCK_METHOD(void, Raise, ());
+  MOCK_METHOD(void, SetMute, (bool mute));
   void AddObserver(
       mojo::PendingRemote<media_session::mojom::MediaControllerObserver> remote)
       override {
@@ -132,12 +138,12 @@ class FakeMediaControllerManager
 
   // media_session::mojom::MediaControllerManager implementation:
   void CreateMediaControllerForSession(
-      ::mojo::PendingReceiver<media_session::mojom::MediaController> receiver,
+      mojo::PendingReceiver<media_session::mojom::MediaController> receiver,
       const ::base::UnguessableToken& request_id) override {
     NOTIMPLEMENTED();
   }
   void CreateActiveMediaController(
-      ::mojo::PendingReceiver<media_session::mojom::MediaController> receiver)
+      mojo::PendingReceiver<media_session::mojom::MediaController> receiver)
       override {
     media_controller_.Bind(std::move(receiver));
   }
@@ -162,7 +168,7 @@ class MediaSessionObserverMock
               (media_session::mojom::MediaSessionInfoPtr info));
   MOCK_METHOD(void,
               MediaSessionMetadataChanged,
-              (const base::Optional<::media_session::MediaMetadata>& metadata));
+              (const absl::optional<::media_session::MediaMetadata>& metadata));
   MOCK_METHOD(
       void,
       MediaSessionActionsChanged,
@@ -174,7 +180,7 @@ class MediaSessionObserverMock
                   std::vector<::media_session::MediaImage>>& images)));
   MOCK_METHOD(void,
               MediaSessionPositionChanged,
-              (const base::Optional<::media_session::MediaPosition>& position));
+              (const absl::optional<::media_session::MediaPosition>& position));
 
   mojo::PendingRemote<media_session::mojom::MediaSessionObserver>
   BindNewPipeAndPassRemote() {
@@ -197,10 +203,9 @@ class MediaHostTest : public testing::Test {
   ~MediaHostTest() override = default;
 
   void SetUp() override {
-    assistant_client_.SetMediaControllerManager(
-        &media_controller_manager_.receiver());
+    delegate_.SetMediaControllerManager(&media_controller_manager_.receiver());
 
-    media_host_ = std::make_unique<MediaHost>(AssistantClient::Get(),
+    media_host_ = std::make_unique<MediaHost>(AssistantBrowserDelegate::Get(),
                                               &interaction_subscribers_);
     media_host().Initialize(
         &libassistant_controller_,
@@ -211,7 +216,7 @@ class MediaHostTest : public testing::Test {
     return libassistant_controller_;
   }
 
-  libassistant::mojom::MediaDelegate& libassistant_media_delegate() {
+  chromeos::libassistant::mojom::MediaDelegate& libassistant_media_delegate() {
     return *libassistant_media_delegate_;
   }
 
@@ -282,9 +287,10 @@ class MediaHostTest : public testing::Test {
 
   base::ObserverList<AssistantInteractionSubscriber> interaction_subscribers_;
   FakeMediaControllerManager media_controller_manager_;
-  ScopedAssistantClient assistant_client_;
+  ScopedAssistantBrowserDelegate delegate_;
   testing::StrictMock<LibassistantMediaControllerMock> libassistant_controller_;
-  mojo::Remote<libassistant::mojom::MediaDelegate> libassistant_media_delegate_;
+  mojo::Remote<chromeos::libassistant::mojom::MediaDelegate>
+      libassistant_media_delegate_;
   std::unique_ptr<MediaHost> media_host_;
 };
 
@@ -332,7 +338,7 @@ TEST_F(MediaHostTest, ShouldSetTitleWhenCallingSetExternalPlaybackState) {
       .WillOnce([&](MediaStatePtr state) { actual_state = std::move(state); });
 
   media_session::MediaMetadata meta_data;
-  meta_data.title = base::UTF8ToUTF16("the title");
+  meta_data.title = u"the title";
   MediaSessionMetadataChanged(meta_data);
 
   ASSERT_FALSE(actual_state.is_null());
@@ -468,16 +474,16 @@ TEST_F(MediaHostTest, ShouldForwardLibassistantMediaSessionUpdates) {
   testing::StrictMock<MediaSessionObserverMock> media_session_observer;
   AddMediaSessionObserver(media_session_observer);
 
-  base::Optional<media_session::MediaMetadata> expected_output =
+  absl::optional<media_session::MediaMetadata> expected_output =
       media_session::MediaMetadata();
-  expected_output->title = base::UTF8ToUTF16("the title");
-  expected_output->artist = base::UTF8ToUTF16("the artist");
-  expected_output->album = base::UTF8ToUTF16("the album");
+  expected_output->title = u"the title";
+  expected_output->artist = u"the artist";
+  expected_output->album = u"the album";
   EXPECT_CALL(media_session_observer,
               MediaSessionMetadataChanged(expected_output));
 
   auto input = MediaState::New();
-  input->metadata = libassistant::mojom::MediaMetadata::New();
+  input->metadata = chromeos::libassistant::mojom::MediaMetadata::New();
   input->metadata->title = "the title";
   input->metadata->artist = "the artist";
   input->metadata->album = "the album";

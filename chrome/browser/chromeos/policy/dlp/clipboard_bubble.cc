@@ -4,17 +4,22 @@
 
 #include "chrome/browser/chromeos/policy/dlp/clipboard_bubble.h"
 
-#include "ash/public/cpp/ash_features.h"
+#include "ash/constants/ash_features.h"
+#include "ash/public/cpp/new_window_delegate.h"
 #include "ash/public/cpp/style/color_provider.h"
+#include "base/bind.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_clipboard_bubble_constants.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/controls/button/label_button.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+#include "ui/views/controls/link.h"
+#include "ui/views/controls/styled_label.h"
 
 namespace policy {
 
@@ -66,7 +71,7 @@ constexpr int kButtonsSpacing = 8;
 class Button : public views::LabelButton {
  public:
   METADATA_HEADER(Button);
-  explicit Button(const base::string16& button_label) {
+  explicit Button(const std::u16string& button_label) {
     SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_CENTER);
 
     SetText(button_label);
@@ -95,17 +100,23 @@ class Button : public views::LabelButton {
   }
 };
 
+void OnLearnMoreLinkClicked() {
+  ash::NewWindowDelegate::GetInstance()->OpenUrl(
+      GURL(kDlpLearnMoreUrl), /*from_user_interaction=*/true);
+}
+
 }  // namespace
 
 BEGIN_METADATA(Button, views::LabelButton)
 ADD_READONLY_PROPERTY_METADATA(int, LabelWidth)
 END_METADATA
 
-ClipboardBubbleView::ClipboardBubbleView(const base::string16& text) {
+ClipboardBubbleView::ClipboardBubbleView(const std::u16string& text) {
   SetPaintToLayer(ui::LAYER_SOLID_COLOR);
   ash::ColorProvider* color_provider = ash::ColorProvider::Get();
-  layer()->SetColor(color_provider->GetBaseLayerColor(
-      ash::ColorProvider::BaseLayerType::kTransparent80));
+  SkColor background_color = color_provider->GetBaseLayerColor(
+      ash::ColorProvider::BaseLayerType::kTransparent80);
+  layer()->SetColor(background_color);
   if (ash::features::IsBackgroundBlurEnabled())
     layer()->SetBackgroundBlur(kBubbleBlurRadius);
   layer()->SetRoundedCornerRadius(kCornerRadii);
@@ -122,25 +133,43 @@ ClipboardBubbleView::ClipboardBubbleView(const base::string16& text) {
                                                 kManagedIconSize, icon_color));
 
   // Add the bubble text.
-  label_ = AddChildView(std::make_unique<views::Label>());
+  label_ = AddChildView(std::make_unique<views::StyledLabel>());
   label_->SetPaintToLayer();
   label_->layer()->SetFillsBoundsOpaquely(false);
   label_->SetPosition(gfx::Point(
       kBubblePadding + kManagedIconSize + kIconLabelSpacing, kBubblePadding));
+  label_->SetTextContext(views::style::CONTEXT_DIALOG_BODY_TEXT);
 
-  // Set the styling of the text.
+  std::u16string learn_more_link_text =
+      l10n_util::GetStringUTF16(IDS_LEARN_MORE);
+  std::u16string full_text = l10n_util::GetStringFUTF16(
+      IDS_POLICY_DLP_CLIPBOARD_BUBBLE_MESSAGE, text, learn_more_link_text);
+  const int main_message_length =
+      full_text.size() - learn_more_link_text.size();
+
+  // Set the styling of the main text.
   // TODO(crbug.com/1150741): Handle RTL.
-  label_->SetText(text);
-  label_->SetFontList(gfx::FontList({kTextFontName}, gfx::Font::NORMAL,
-                                    kTextFontSize, gfx::Font::Weight::NORMAL));
-  label_->SetEnabledColor(color_provider->GetContentLayerColor(
-      ash::ColorProvider::ContentLayerType::kTextColorPrimary));
+  views::StyledLabel::RangeStyleInfo message_style;
+  message_style.override_color = color_provider->GetContentLayerColor(
+      ash::ColorProvider::ContentLayerType::kTextColorPrimary);
+
+  label_->SetDisplayedOnBackgroundColor(background_color);
+  label_->SetText(full_text);
+  label_->AddStyleRange(gfx::Range(0, main_message_length), message_style);
+
+  // Add "Learn more" link.
+  views::StyledLabel::RangeStyleInfo link_style =
+      views::StyledLabel::RangeStyleInfo::CreateForLink(
+          base::BindRepeating(&OnLearnMoreLinkClicked));
+  link_style.override_color = color_provider->GetContentLayerColor(
+      ash::ColorProvider::ContentLayerType::kTextColorURL);
+
+  label_->AddStyleRange(gfx::Range(main_message_length, full_text.size()),
+                        link_style);
   label_->SetLineHeight(kLineHeight);
-  label_->SetMultiLine(true);
   label_->SizeToFit(kBubbleWidth - 2 * kBubblePadding - kManagedIconSize -
                     kIconLabelSpacing);
   label_->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
-  label_->SetAutoColorReadabilityEnabled(false);
 
   // Bubble borders
   border_ = AddChildView(std::make_unique<views::ImageView>());
@@ -154,6 +183,7 @@ ClipboardBubbleView::ClipboardBubbleView(const base::string16& text) {
   shadow_border->set_insets(kBubbleBorderInsets);
   border_->SetSize({kBubbleWidth, INT_MAX});
   border_->SetBorder(std::move(shadow_border));
+  border_->SetCanProcessEventsWithinSubtree(false);
 }
 
 ClipboardBubbleView::~ClipboardBubbleView() = default;
@@ -166,10 +196,10 @@ BEGIN_METADATA(ClipboardBubbleView, views::View)
 ADD_READONLY_PROPERTY_METADATA(gfx::Size, BubbleSize)
 END_METADATA
 
-ClipboardBlockBubble::ClipboardBlockBubble(const base::string16& text)
+ClipboardBlockBubble::ClipboardBlockBubble(const std::u16string& text)
     : ClipboardBubbleView(text) {
   // Add "Got it" button.
-  base::string16 button_label =
+  std::u16string button_label =
       l10n_util::GetStringUTF16(IDS_POLICY_DLP_CLIPBOARD_BLOCK_DISMISS_BUTTON);
   button_ = AddChildView(std::make_unique<Button>(button_label));
   button_->SetPaintToLayer();
@@ -199,10 +229,10 @@ void ClipboardBlockBubble::SetDismissCallback(
 BEGIN_METADATA(ClipboardBlockBubble, ClipboardBubbleView)
 END_METADATA
 
-ClipboardWarnBubble::ClipboardWarnBubble(const base::string16& text)
+ClipboardWarnBubble::ClipboardWarnBubble(const std::u16string& text)
     : ClipboardBubbleView(text) {
   // Add paste button.
-  base::string16 paste_label =
+  std::u16string paste_label =
       l10n_util::GetStringUTF16(IDS_POLICY_DLP_CLIPBOARD_WARN_PROCEED_BUTTON);
   paste_button_ = AddChildView(std::make_unique<Button>(paste_label));
   paste_button_->SetPaintToLayer();
@@ -212,7 +242,7 @@ ClipboardWarnBubble::ClipboardWarnBubble(const base::string16& text)
                  kBubblePadding + label_->height() + kButtonLabelSpacing));
 
   // Add cancel button.
-  base::string16 cancel_label =
+  std::u16string cancel_label =
       l10n_util::GetStringUTF16(IDS_POLICY_DLP_CLIPBOARD_WARN_DISMISS_BUTTON);
   cancel_button_ = AddChildView(std::make_unique<Button>(cancel_label));
   cancel_button_->SetPaintToLayer();

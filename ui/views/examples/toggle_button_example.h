@@ -17,18 +17,18 @@ namespace examples {
 class VIEWS_EXAMPLES_EXPORT ToggleButtonExample : public ExampleBase {
  public:
   ToggleButtonExample();
+
+  ToggleButtonExample(const ToggleButtonExample&) = delete;
+  ToggleButtonExample& operator=(const ToggleButtonExample&) = delete;
+
   ~ToggleButtonExample() override;
 
   // ExampleBase:
   void CreateExampleView(View* container) override;
 
  private:
-  // The only control in this test.
-  ToggleButton* button_ = nullptr;
-
-  int count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(ToggleButtonExample);
+  int count_1_ = 0;
+  int count_2_ = 0;
 };
 
 }  // namespace examples

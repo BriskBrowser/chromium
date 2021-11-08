@@ -4,16 +4,113 @@
 
 #include "components/viz/service/display/display_resource_provider_skia.h"
 
+#include <memory>
 #include <utility>
+#include <vector>
+
+#include "base/containers/contains.h"
+#include "build/build_config.h"
+#include "gpu/ipc/scheduler_sequence.h"
 
 namespace viz {
 
-DisplayResourceProviderSkia::DisplayResourceProviderSkia(
-    SharedBitmapManager* shared_bitmap_manager)
-    : DisplayResourceProvider(DisplayResourceProvider::kGpu,
-                              /*compositor_context_provider=*/nullptr,
-                              shared_bitmap_manager,
-                              /*enable_shared_images=*/true) {}
+class ScopedAllowGpuAccessForDisplayResourceProvider {
+ public:
+  ~ScopedAllowGpuAccessForDisplayResourceProvider() = default;
+
+  explicit ScopedAllowGpuAccessForDisplayResourceProvider(
+      DisplayResourceProvider* provider) {
+    DCHECK(provider->can_access_gpu_thread_);
+  }
+
+ private:
+  gpu::ScopedAllowScheduleGpuTask allow_gpu_;
+};
+
+DisplayResourceProviderSkia::DisplayResourceProviderSkia()
+    : DisplayResourceProvider(DisplayResourceProvider::kGpu) {}
+
+DisplayResourceProviderSkia::~DisplayResourceProviderSkia() {
+  Destroy();
+}
+
+std::vector<ReturnedResource>
+DisplayResourceProviderSkia::DeleteAndReturnUnusedResourcesToChildImpl(
+    Child& child_info,
+    DeleteStyle style,
+    const std::vector<ResourceId>& unused) {
+  std::vector<ReturnedResource> to_return;
+  std::vector<std::unique_ptr<ExternalUseClient::ImageContext>>
+      image_contexts_to_return;
+  std::vector<ReturnedResource*> external_used_resources;
+
+  // Reserve enough space to avoid re-allocating, so we can keep item pointers
+  // for later using.
+  to_return.reserve(unused.size());
+  image_contexts_to_return.reserve(unused.size());
+  external_used_resources.reserve(unused.size());
+
+  DCHECK(external_use_client_);
+  std::vector<ResourceId>* batch_return = nullptr;
+
+  for (ResourceId local_id : unused) {
+    auto it = resources_.find(local_id);
+    CHECK(it != resources_.end());
+    ChildResource& resource = it->second;
+
+    if (!can_access_gpu_thread_) {
+      // We should always has access to gpu thread during shutdown.
+      DCHECK(style != DeleteStyle::FOR_SHUTDOWN);
+
+      // If we don't have access to gpu thread, we can't free it right now.
+      if (resource.image_context) {
+        if (!batch_return) {
+          batch_return = &batched_returning_resources_[child_info.id];
+        }
+        batch_return->push_back(local_id);
+        continue;
+      }
+    }
+
+    ResourceId child_id = resource.transferable.id;
+    DCHECK(child_info.child_to_parent_map.count(child_id));
+    DCHECK(resource.is_gpu_resource_type());
+
+    auto can_delete = CanDeleteNow(child_info, resource, style);
+    if (can_delete == CanDeleteNowResult::kNo) {
+      // Defer this resource deletion.
+      resource.marked_for_deletion = true;
+      continue;
+    }
+
+    const bool is_lost = can_delete == CanDeleteNowResult::kYesButLoseResource;
+
+    to_return.emplace_back(child_id, resource.sync_token(),
+                           std::move(resource.release_fence),
+                           resource.imported_count, is_lost);
+    auto& returned = to_return.back();
+
+    if (resource.image_context) {
+      image_contexts_to_return.emplace_back(std::move(resource.image_context));
+      external_used_resources.push_back(&returned);
+    }
+
+    child_info.child_to_parent_map.erase(child_id);
+    resource.imported_count = 0;
+    resources_.erase(it);
+  }
+
+  if (!image_contexts_to_return.empty()) {
+    ScopedAllowGpuAccessForDisplayResourceProvider allow_gpu(this);
+    gpu::SyncToken sync_token = external_use_client_->ReleaseImageContexts(
+        std::move(image_contexts_to_return));
+    for (auto* resource : external_used_resources) {
+      resource->sync_token = sync_token;
+    }
+  }
+
+  return to_return;
+}
 
 DisplayResourceProviderSkia::LockSetForExternalUse::LockSetForExternalUse(
     DisplayResourceProviderSkia* resource_provider,
@@ -32,7 +129,7 @@ DisplayResourceProviderSkia::LockSetForExternalUse::LockResource(
     ResourceId id,
     bool maybe_concurrent_reads,
     bool is_video_plane,
-    const gfx::ColorSpace& color_space) {
+    const absl::optional<gfx::ColorSpace>& override_color_space) {
   auto it = resource_provider_->resources_.find(id);
   DCHECK(it != resource_provider_->resources_.end());
 
@@ -50,9 +147,8 @@ DisplayResourceProviderSkia::LockSetForExternalUse::LockResource(
         // using a special color filter and |color_space| is set to destination
         // color space so that Skia doesn't perform implicit color conversion.
         image_color_space =
-            color_space.IsValid()
-                ? color_space.ToSkColorSpace()
-                : resource.transferable.color_space.ToSkColorSpace();
+            override_color_space.value_or(resource.transferable.color_space)
+                .ToSkColorSpace();
       }
       resource.image_context =
           resource_provider_->external_use_client_->CreateImageContext(
@@ -97,5 +193,34 @@ void DisplayResourceProviderSkia::LockSetForExternalUse::UnlockResources(
   }
   resources_.clear();
 }
+
+DisplayResourceProviderSkia::ScopedExclusiveReadLockSharedImage::
+    ScopedExclusiveReadLockSharedImage(
+        DisplayResourceProviderSkia* resource_provider,
+        ResourceId resource_id)
+    : ScopedReadLockSharedImage(resource_provider, resource_id) {
+  ChildResource& resource = *this->resource();
+  if (resource.image_context) {
+    DCHECK(!resource.locked_for_external_use)
+        << "Resource already locked, can't get exclusive lock!";
+    DCHECK(resource_provider->can_access_gpu_thread_)
+        << "Can't release |image_context| without access to gpu thread";
+
+    std::vector<std::unique_ptr<ExternalUseClient::ImageContext>>
+        image_contexts;
+    image_contexts.push_back(std::move(resource.image_context));
+
+    gpu::SyncToken sync_token =
+        resource_provider->external_use_client_->ReleaseImageContexts(
+            std::move(image_contexts));
+    resource.UpdateSyncToken(sync_token);
+  }
+}
+DisplayResourceProviderSkia::ScopedExclusiveReadLockSharedImage::
+    ~ScopedExclusiveReadLockSharedImage() = default;
+
+DisplayResourceProviderSkia::ScopedExclusiveReadLockSharedImage::
+    ScopedExclusiveReadLockSharedImage(
+        ScopedExclusiveReadLockSharedImage&& other) = default;
 
 }  // namespace viz

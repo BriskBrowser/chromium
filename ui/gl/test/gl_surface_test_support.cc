@@ -22,13 +22,6 @@
 #include "ui/ozone/public/ozone_platform.h"
 #endif
 
-#if defined(USE_X11)
-#endif
-
-#if defined(USE_X11) || defined(USE_OZONE)
-#include "ui/base/ui_base_features.h"
-#endif
-
 namespace gl {
 
 namespace {
@@ -36,11 +29,9 @@ void InitializeOneOffHelper(bool init_extensions) {
   DCHECK_EQ(kGLImplementationNone, GetGLImplementation());
 
 #if defined(USE_OZONE)
-  if (features::IsUsingOzonePlatform()) {
-    ui::OzonePlatform::InitParams params;
-    params.single_process = true;
-    ui::OzonePlatform::InitializeForGPU(params);
-  }
+  ui::OzonePlatform::InitParams params;
+  params.single_process = true;
+  ui::OzonePlatform::InitializeForGPU(params);
 #endif
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
@@ -61,33 +52,13 @@ void InitializeOneOffHelper(bool init_extensions) {
   use_software_gl = false;
 #endif
 
-  std::vector<GLImplementation> allowed_impls =
+  std::vector<GLImplementationParts> allowed_impls =
       init::GetAllowedGLImplementations();
   DCHECK(!allowed_impls.empty());
 
-  GLImplementation impl = allowed_impls[0];
+  GLImplementationParts impl = allowed_impls[0];
   if (use_software_gl) {
-    impl = gl::GetSoftwareGLImplementation();
-
-#if !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
-#if defined(USE_OZONE)
-    if (!features::IsUsingOzonePlatform())
-#endif
-    {
-      // If ANGLE is available use it with SwiftShader Vulkan instead of using
-      // SwiftShader GL
-      for (auto i : allowed_impls) {
-        if (i == kGLImplementationEGLANGLE) {
-          impl = kGLImplementationEGLANGLE;
-          base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-              switches::kUseANGLE, kANGLEImplementationSwiftShaderName);
-          base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-              switches::kUseCmdDecoder, kCmdDecoderValidatingName);
-          break;
-        }
-      }
-    }
-#endif
+    impl = gl::init::GetSoftwareGLImplementationForPlatform();
   }
 
   DCHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kUseGL))
@@ -115,7 +86,7 @@ void GLSurfaceTestSupport::InitializeNoExtensionsOneOff() {
 
 // static
 void GLSurfaceTestSupport::InitializeOneOffImplementation(
-    GLImplementation impl,
+    GLImplementationParts impl,
     bool fallback_to_software_gl) {
   DCHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kUseGL))
       << "kUseGL has not effect in tests";
@@ -135,27 +106,25 @@ void GLSurfaceTestSupport::InitializeOneOffImplementation(
 // static
 void GLSurfaceTestSupport::InitializeOneOffWithMockBindings() {
 #if defined(USE_OZONE)
-  if (features::IsUsingOzonePlatform()) {
-    ui::OzonePlatform::InitParams params;
-    params.single_process = true;
-    ui::OzonePlatform::InitializeForGPU(params);
-  }
+  ui::OzonePlatform::InitParams params;
+  params.single_process = true;
+  ui::OzonePlatform::InitializeForGPU(params);
 #endif
 
-  InitializeOneOffImplementation(kGLImplementationMockGL, false);
+  InitializeOneOffImplementation(GLImplementationParts(kGLImplementationMockGL),
+                                 false);
 }
 
 // static
 void GLSurfaceTestSupport::InitializeOneOffWithStubBindings() {
 #if defined(USE_OZONE)
-  if (features::IsUsingOzonePlatform()) {
-    ui::OzonePlatform::InitParams params;
-    params.single_process = true;
-    ui::OzonePlatform::InitializeForGPU(params);
-  }
+  ui::OzonePlatform::InitParams params;
+  params.single_process = true;
+  ui::OzonePlatform::InitializeForGPU(params);
 #endif
 
-  InitializeOneOffImplementation(kGLImplementationStubGL, false);
+  InitializeOneOffImplementation(GLImplementationParts(kGLImplementationStubGL),
+                                 false);
 }
 
 // static

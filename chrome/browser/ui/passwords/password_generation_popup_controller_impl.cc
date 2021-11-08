@@ -33,6 +33,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -206,14 +207,14 @@ void PasswordGenerationPopupControllerImpl::PasswordAccepted() {
     weak_this->HideImpl();
 }
 
-void PasswordGenerationPopupControllerImpl::Show(GenerationUIState state) {
+bool PasswordGenerationPopupControllerImpl::Show(GenerationUIState state) {
   // When switching from editing to generation state, regenerate the password.
   if (state == kOfferGeneration &&
       (state_ != state || current_password_.empty())) {
     current_password_ =
         driver_->GetPasswordGenerationHelper()->GeneratePassword(
-            web_contents()->GetLastCommittedURL().GetOrigin(), form_signature_,
-            field_signature_, max_length_);
+            web_contents()->GetLastCommittedURL().DeprecatedGetOriginAsURL(),
+            form_signature_, field_signature_, max_length_);
   }
   state_ = state;
 
@@ -223,7 +224,7 @@ void PasswordGenerationPopupControllerImpl::Show(GenerationUIState state) {
     // Treat popup as being hidden if creation fails.
     if (!view_) {
       HideImpl();
-      return;
+      return false;
     }
     key_press_handler_manager_->RegisterKeyPressHandler(base::BindRepeating(
         [](base::WeakPtr<PasswordGenerationPopupControllerImpl> weak_this,
@@ -231,18 +232,26 @@ void PasswordGenerationPopupControllerImpl::Show(GenerationUIState state) {
           return weak_this && weak_this->HandleKeyPressEvent(event);
         },
         GetWeakPtr()));
-    view_->Show();
+    if (!view_->Show()) {
+      // The instance is deleted after this point.
+      return false;
+    }
   } else {
     view_->UpdateState();
-    view_->UpdateBoundsAndRedrawPopup();
+    if (!view_->UpdateBoundsAndRedrawPopup()) {
+      // The instance is deleted after this point.
+      return false;
+    }
   }
 
   if (observer_)
     observer_->OnPopupShown(state_);
+
+  return true;
 }
 
 void PasswordGenerationPopupControllerImpl::UpdatePassword(
-    base::string16 new_password) {
+    std::u16string new_password) {
   current_password_ = std::move(new_password);
   if (view_)
     view_->UpdatePasswordValue();
@@ -266,7 +275,8 @@ void PasswordGenerationPopupControllerImpl::WebContentsDestroyed() {
 
 void PasswordGenerationPopupControllerImpl::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (navigation_handle->HasCommitted() && navigation_handle->IsInMainFrame() &&
+  if (navigation_handle->HasCommitted() &&
+      navigation_handle->IsInPrimaryMainFrame() &&
       !navigation_handle->IsSameDocument()) {
     HideImpl();
   }
@@ -338,16 +348,16 @@ bool PasswordGenerationPopupControllerImpl::password_selected() const {
   return password_selected_;
 }
 
-const base::string16& PasswordGenerationPopupControllerImpl::password() const {
+const std::u16string& PasswordGenerationPopupControllerImpl::password() const {
   return current_password_;
 }
 
-base::string16 PasswordGenerationPopupControllerImpl::SuggestedText() {
+std::u16string PasswordGenerationPopupControllerImpl::SuggestedText() {
   return l10n_util::GetStringUTF16(
       state_ == kOfferGeneration ? IDS_PASSWORD_GENERATION_SUGGESTION
                                  : IDS_PASSWORD_GENERATION_EDITING_SUGGESTION);
 }
 
-const base::string16& PasswordGenerationPopupControllerImpl::HelpText() {
+const std::u16string& PasswordGenerationPopupControllerImpl::HelpText() {
   return help_text_;
 }

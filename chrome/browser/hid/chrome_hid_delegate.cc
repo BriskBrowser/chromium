@@ -13,14 +13,20 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/hid/hid_chooser.h"
 #include "chrome/browser/ui/hid/hid_chooser_controller.h"
-#include "content/public/browser/web_contents.h"
+#include "content/public/browser/render_frame_host.h"
+#include "extensions/buildflags/buildflags.h"
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "base/containers/contains.h"
+#include "base/containers/fixed_flat_set.h"
+#include "base/strings/string_piece.h"
+#include "extensions/common/constants.h"
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 namespace {
 
 HidChooserContext* GetChooserContext(content::RenderFrameHost* frame) {
-  auto* web_contents = content::WebContents::FromRenderFrameHost(frame);
-  auto* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  auto* profile = Profile::FromBrowserContext(frame->GetBrowserContext());
   return HidChooserContextFactory::GetForProfile(profile);
 }
 
@@ -31,83 +37,87 @@ ChromeHidDelegate::ChromeHidDelegate() = default;
 ChromeHidDelegate::~ChromeHidDelegate() = default;
 
 std::unique_ptr<content::HidChooser> ChromeHidDelegate::RunChooser(
-    content::RenderFrameHost* frame,
+    content::RenderFrameHost* render_frame_host,
     std::vector<blink::mojom::HidDeviceFilterPtr> filters,
     content::HidChooser::Callback callback) {
-  auto* chooser_context = GetChooserContext(frame);
-  if (!device_observer_.IsObservingSources())
-    device_observer_.Add(chooser_context);
-  if (!permission_observer_.IsObservingSources())
-    permission_observer_.Add(chooser_context);
+  auto* chooser_context = GetChooserContext(render_frame_host);
+  if (!device_observation_.IsObserving())
+    device_observation_.Observe(chooser_context);
+  if (!permission_observation_.IsObserving())
+    permission_observation_.Observe(chooser_context);
 
   return std::make_unique<HidChooser>(chrome::ShowDeviceChooserDialog(
-      frame, std::make_unique<HidChooserController>(frame, std::move(filters),
-                                                    std::move(callback))));
+      render_frame_host,
+      std::make_unique<HidChooserController>(
+          render_frame_host, std::move(filters), std::move(callback))));
 }
 
 bool ChromeHidDelegate::CanRequestDevicePermission(
-    content::WebContents* web_contents,
-    const url::Origin& requesting_origin) {
-  auto* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
-  auto* chooser_context = HidChooserContextFactory::GetForProfile(profile);
-  const auto& embedding_origin =
-      web_contents->GetMainFrame()->GetLastCommittedOrigin();
-  return chooser_context->CanRequestObjectPermission(requesting_origin,
-                                                     embedding_origin);
+    content::RenderFrameHost* render_frame_host) {
+  auto* chooser_context = GetChooserContext(render_frame_host);
+  const auto& origin =
+      render_frame_host->GetMainFrame()->GetLastCommittedOrigin();
+  return chooser_context->CanRequestObjectPermission(origin);
 }
 
 bool ChromeHidDelegate::HasDevicePermission(
-    content::WebContents* web_contents,
-    const url::Origin& requesting_origin,
+    content::RenderFrameHost* render_frame_host,
     const device::mojom::HidDeviceInfo& device) {
-  auto* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
-  auto* chooser_context = HidChooserContextFactory::GetForProfile(profile);
-  const auto& embedding_origin =
-      web_contents->GetMainFrame()->GetLastCommittedOrigin();
-  return chooser_context->HasDevicePermission(requesting_origin,
-                                              embedding_origin, device);
+  auto* chooser_context = GetChooserContext(render_frame_host);
+  const auto& origin =
+      render_frame_host->GetMainFrame()->GetLastCommittedOrigin();
+  return chooser_context->HasDevicePermission(origin, device);
 }
 
 device::mojom::HidManager* ChromeHidDelegate::GetHidManager(
-    content::WebContents* web_contents) {
-  auto* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
-  auto* chooser_context = HidChooserContextFactory::GetForProfile(profile);
+    content::RenderFrameHost* render_frame_host) {
+  auto* chooser_context = GetChooserContext(render_frame_host);
   return chooser_context->GetHidManager();
 }
 
-void ChromeHidDelegate::AddObserver(content::RenderFrameHost* frame,
+void ChromeHidDelegate::AddObserver(content::RenderFrameHost* render_frame_host,
                                     Observer* observer) {
   observer_list_.AddObserver(observer);
-  auto* chooser_context = GetChooserContext(frame);
-  if (!device_observer_.IsObservingSources())
-    device_observer_.Add(chooser_context);
-  if (!permission_observer_.IsObservingSources())
-    permission_observer_.Add(chooser_context);
+  auto* chooser_context = GetChooserContext(render_frame_host);
+  if (!device_observation_.IsObserving())
+    device_observation_.Observe(chooser_context);
+  if (!permission_observation_.IsObserving())
+    permission_observation_.Observe(chooser_context);
 }
 
 void ChromeHidDelegate::RemoveObserver(
-    content::RenderFrameHost* frame,
+    content::RenderFrameHost* render_frame_host,
     content::HidDelegate::Observer* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
 const device::mojom::HidDeviceInfo* ChromeHidDelegate::GetDeviceInfo(
-    content::WebContents* web_contents,
+    content::RenderFrameHost* render_frame_host,
     const std::string& guid) {
-  auto* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
-  auto* chooser_context = HidChooserContextFactory::GetForProfile(profile);
+  auto* chooser_context = GetChooserContext(render_frame_host);
   return chooser_context->GetDeviceInfo(guid);
 }
 
-void ChromeHidDelegate::OnPermissionRevoked(
-    const url::Origin& requesting_origin,
-    const url::Origin& embedding_origin) {
+bool ChromeHidDelegate::IsFidoAllowedForOrigin(const url::Origin& origin) {
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  static constexpr auto kPrivilegedExtensionIds =
+      base::MakeFixedFlatSet<base::StringPiece>({
+          "ckcendljdlmgnhghiaomidhiiclmapok",  // gnubbyd-v3 dev
+          "lfboplenmmjcmpbkeemecobbadnmpfhi",  // gnubbyd-v3 prod
+      });
+
+  if (origin.scheme() == extensions::kExtensionScheme &&
+      base::Contains(kPrivilegedExtensionIds, origin.host())) {
+    return true;
+  }
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
+
+  return false;
+}
+
+void ChromeHidDelegate::OnPermissionRevoked(const url::Origin& origin) {
   for (auto& observer : observer_list_)
-    observer.OnPermissionRevoked(requesting_origin, embedding_origin);
+    observer.OnPermissionRevoked(origin);
 }
 
 void ChromeHidDelegate::OnDeviceAdded(
@@ -122,15 +132,21 @@ void ChromeHidDelegate::OnDeviceRemoved(
     observer.OnDeviceRemoved(device_info);
 }
 
+void ChromeHidDelegate::OnDeviceChanged(
+    const device::mojom::HidDeviceInfo& device_info) {
+  for (auto& observer : observer_list_)
+    observer.OnDeviceChanged(device_info);
+}
+
 void ChromeHidDelegate::OnHidManagerConnectionError() {
-  device_observer_.RemoveAll();
-  permission_observer_.RemoveAll();
+  device_observation_.Reset();
+  permission_observation_.Reset();
 
   for (auto& observer : observer_list_)
     observer.OnHidManagerConnectionError();
 }
 
 void ChromeHidDelegate::OnHidChooserContextShutdown() {
-  device_observer_.RemoveAll();
-  permission_observer_.RemoveAll();
+  device_observation_.Reset();
+  permission_observation_.Reset();
 }

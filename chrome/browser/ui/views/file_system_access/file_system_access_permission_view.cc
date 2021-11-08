@@ -6,6 +6,7 @@
 
 #include "base/files/file_path.h"
 #include "base/memory/ptr_util.h"
+#include "chrome/browser/file_system_access/chrome_file_system_access_permission_context.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/file_system_access/file_system_access_ui_helpers.h"
@@ -15,12 +16,12 @@
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/file_system_access_permission_context.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 using AccessType = FileSystemAccessPermissionRequestManager::Access;
@@ -29,16 +30,30 @@ using HandleType = content::FileSystemAccessPermissionContext::HandleType;
 int GetMessageText(const FileSystemAccessPermissionView::Request& request) {
   switch (request.access) {
     case AccessType::kRead:
-      return request.handle_type == HandleType::kDirectory
-                 ? IDS_FILE_SYSTEM_ACCESS_ORIGIN_SCOPED_READ_PERMISSION_DIRECTORY_TEXT
-                 : IDS_FILE_SYSTEM_ACCESS_ORIGIN_SCOPED_READ_PERMISSION_FILE_TEXT;
+      if (base::FeatureList::IsEnabled(
+              features::kFileSystemAccessPersistentPermissions)) {
+        return request.handle_type == HandleType::kDirectory
+                   ? IDS_FILE_SYSTEM_ACCESS_READ_PERMISSION_DIRECTORY_TEXT
+                   : IDS_FILE_SYSTEM_ACCESS_READ_PERMISSION_FILE_TEXT;
+      } else {
+        return request.handle_type == HandleType::kDirectory
+                   ? IDS_FILE_SYSTEM_ACCESS_ORIGIN_SCOPED_READ_PERMISSION_DIRECTORY_TEXT
+                   : IDS_FILE_SYSTEM_ACCESS_ORIGIN_SCOPED_READ_PERMISSION_FILE_TEXT;
+      }
     case AccessType::kWrite:
     case AccessType::kReadWrite:
       // Only difference between write and read-write access dialog is in button
       // label and dialog title.
-      return request.handle_type == HandleType::kDirectory
-                 ? IDS_FILE_SYSTEM_ACCESS_ORIGIN_SCOPED_WRITE_PERMISSION_DIRECTORY_TEXT
-                 : IDS_FILE_SYSTEM_ACCESS_ORIGIN_SCOPED_WRITE_PERMISSION_FILE_TEXT;
+      if (base::FeatureList::IsEnabled(
+              features::kFileSystemAccessPersistentPermissions)) {
+        return request.handle_type == HandleType::kDirectory
+                   ? IDS_FILE_SYSTEM_ACCESS_WRITE_PERMISSION_DIRECTORY_TEXT
+                   : IDS_FILE_SYSTEM_ACCESS_WRITE_PERMISSION_FILE_TEXT;
+      } else {
+        return request.handle_type == HandleType::kDirectory
+                   ? IDS_FILE_SYSTEM_ACCESS_ORIGIN_SCOPED_WRITE_PERMISSION_DIRECTORY_TEXT
+                   : IDS_FILE_SYSTEM_ACCESS_ORIGIN_SCOPED_WRITE_PERMISSION_FILE_TEXT;
+      }
   }
   NOTREACHED();
 }
@@ -87,7 +102,8 @@ FileSystemAccessPermissionView::FileSystemAccessPermissionView(
   const views::LayoutProvider* provider = ChromeLayoutProvider::Get();
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical,
-      provider->GetDialogInsetsForContentType(views::TEXT, views::TEXT),
+      provider->GetDialogInsetsForContentType(views::DialogContentType::kText,
+                                              views::DialogContentType::kText),
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_VERTICAL)));
 
   AddChildView(file_system_access_ui_helper::CreateOriginPathLabel(
@@ -112,7 +128,7 @@ views::Widget* FileSystemAccessPermissionView::ShowDialog(
                                                      web_contents);
 }
 
-base::string16 FileSystemAccessPermissionView::GetWindowTitle() const {
+std::u16string FileSystemAccessPermissionView::GetWindowTitle() const {
   switch (request_.access) {
     case AccessType::kRead:
       if (request_.handle_type == HandleType::kDirectory) {
@@ -121,12 +137,12 @@ base::string16 FileSystemAccessPermissionView::GetWindowTitle() const {
       } else {
         return l10n_util::GetStringFUTF16(
             IDS_FILE_SYSTEM_ACCESS_READ_FILE_PERMISSION_TITLE,
-            request_.path.BaseName().LossyDisplayName());
+            file_system_access_ui_helper::GetPathForDisplay(request_.path));
       }
     case AccessType::kWrite:
       return l10n_util::GetStringFUTF16(
           IDS_FILE_SYSTEM_ACCESS_WRITE_PERMISSION_TITLE,
-          request_.path.BaseName().LossyDisplayName());
+          file_system_access_ui_helper::GetPathForDisplay(request_.path));
     case AccessType::kReadWrite:
       if (request_.handle_type == HandleType::kDirectory) {
         return l10n_util::GetStringUTF16(
@@ -134,7 +150,7 @@ base::string16 FileSystemAccessPermissionView::GetWindowTitle() const {
       } else {
         return l10n_util::GetStringFUTF16(
             IDS_FILE_SYSTEM_ACCESS_EDIT_FILE_PERMISSION_TITLE,
-            request_.path.BaseName().LossyDisplayName());
+            file_system_access_ui_helper::GetPathForDisplay(request_.path));
       }
   }
   NOTREACHED();

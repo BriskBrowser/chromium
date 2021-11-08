@@ -26,6 +26,10 @@ class PictureBufferManagerImplTest : public testing::Test {
     pbm_ = PictureBufferManager::Create(reuse_cb_.Get());
   }
 
+  PictureBufferManagerImplTest(const PictureBufferManagerImplTest&) = delete;
+  PictureBufferManagerImplTest& operator=(const PictureBufferManagerImplTest&) =
+      delete;
+
   ~PictureBufferManagerImplTest() override {
     // Drop ownership of anything that may have an async destruction process,
     // then allow destruction to complete.
@@ -42,20 +46,17 @@ class PictureBufferManagerImplTest : public testing::Test {
 
   std::vector<PictureBuffer> CreateARGBPictureBuffers(
       uint32_t count,
-      bool use_shared_image = false,
       VideoDecodeAccelerator::TextureAllocationMode mode =
           VideoDecodeAccelerator::TextureAllocationMode::kAllocateGLTextures) {
     return pbm_->CreatePictureBuffers(count, PIXEL_FORMAT_ARGB, 1,
-                                      gfx::Size(320, 240), GL_TEXTURE_2D,
-                                      use_shared_image, mode);
+                                      gfx::Size(320, 240), GL_TEXTURE_2D, mode);
   }
 
   PictureBuffer CreateARGBPictureBuffer(
-      bool use_shared_image = false,
       VideoDecodeAccelerator::TextureAllocationMode mode =
           VideoDecodeAccelerator::TextureAllocationMode::kAllocateGLTextures) {
     std::vector<PictureBuffer> picture_buffers =
-        CreateARGBPictureBuffers(1, use_shared_image, mode);
+        CreateARGBPictureBuffers(1, mode);
     DCHECK_EQ(picture_buffers.size(), 1U);
     return picture_buffers[0];
   }
@@ -68,8 +69,8 @@ class PictureBufferManagerImplTest : public testing::Test {
                 gfx::ColorSpace::CreateSRGB(),  // color_space
                 false),                         // allow_overlay
         base::TimeDelta(),                      // timestamp
-        gfx::Rect(),                            // visible_rect
-        gfx::Size());                           // natural_size
+        gfx::Rect(1, 1),                        // visible_rect
+        gfx::Size(1, 1));                       // natural_size
   }
 
   gpu::SyncToken GenerateSyncToken(scoped_refptr<VideoFrame> video_frame) {
@@ -89,8 +90,6 @@ class PictureBufferManagerImplTest : public testing::Test {
       reuse_cb_;
   scoped_refptr<FakeCommandBufferHelper> cbh_;
   scoped_refptr<PictureBufferManager> pbm_;
-
-  DISALLOW_COPY_AND_ASSIGN(PictureBufferManagerImplTest);
 };
 
 TEST_F(PictureBufferManagerImplTest, CreateAndDestroy) {}
@@ -108,12 +107,10 @@ TEST_F(PictureBufferManagerImplTest, CreatePictureBuffer) {
 TEST_F(PictureBufferManagerImplTest, CreatePictureBuffer_SharedImage) {
   Initialize();
   PictureBuffer pb1 = CreateARGBPictureBuffer(
-      true /* use_shared_image */,
       VideoDecodeAccelerator::TextureAllocationMode::kDoNotAllocateGLTextures);
   EXPECT_EQ(pb1.client_texture_ids().size(), 0u);
 
   PictureBuffer pb2 = CreateARGBPictureBuffer(
-      true /* use_shared_image */,
       VideoDecodeAccelerator::TextureAllocationMode::kAllocateGLTextures);
   EXPECT_TRUE(cbh_->HasTexture(pb2.client_texture_ids()[0]));
 }

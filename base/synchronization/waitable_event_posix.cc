@@ -9,7 +9,6 @@
 
 #include "base/check_op.h"
 #include "base/debug/activity_tracker.h"
-#include "base/optional.h"
 #include "base/ranges/algorithm.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
@@ -18,6 +17,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "base/time/time_override.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 // -----------------------------------------------------------------------------
 // A WaitableEvent on POSIX is implemented as a wait-list. Currently we don't
@@ -165,8 +165,8 @@ bool WaitableEvent::TimedWait(const TimeDelta& wait_delta) {
   // Record the event that this thread is blocking upon (for hang diagnosis) and
   // consider it blocked for scheduling purposes. Ignore this for non-blocking
   // WaitableEvents.
-  Optional<debug::ScopedEventWaitActivity> event_activity;
-  Optional<internal::ScopedBlockingCallWithBaseSyncPrimitives>
+  absl::optional<debug::ScopedEventWaitActivity> event_activity;
+  absl::optional<internal::ScopedBlockingCallWithBaseSyncPrimitives>
       scoped_blocking_call;
   if (waiting_is_blocking_) {
     event_activity.emplace(this);
@@ -203,7 +203,7 @@ bool WaitableEvent::TimedWait(const TimeDelta& wait_delta) {
   const TimeTicks end_time =
       wait_delta.is_max() ? TimeTicks::Max()
                           : subtle::TimeTicksNowIgnoringOverride() + wait_delta;
-  for (TimeDelta remaining = wait_delta; remaining > TimeDelta() && !sw.fired();
+  for (TimeDelta remaining = wait_delta; remaining.is_positive() && !sw.fired();
        remaining = end_time.is_max()
                        ? TimeDelta::Max()
                        : end_time - subtle::TimeTicksNowIgnoringOverride()) {

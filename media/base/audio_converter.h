@@ -23,7 +23,6 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/time/time.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/media_export.h"
 
@@ -73,6 +72,10 @@ class MEDIA_EXPORT AudioConverter {
   AudioConverter(const AudioParameters& input_params,
                  const AudioParameters& output_params,
                  bool disable_fifo);
+
+  AudioConverter(const AudioConverter&) = delete;
+  AudioConverter& operator=(const AudioConverter&) = delete;
+
   ~AudioConverter();
 
   // Converts audio from all inputs into the |dest|. If |frames_delayed| is
@@ -149,8 +152,6 @@ class MEDIA_EXPORT AudioConverter {
   // value from the input AudioParameters class.  Preserved to recreate internal
   // AudioBus structures on demand in response to varying frame size requests.
   const int input_channel_count_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioConverter);
 };
 
 }  // namespace media

@@ -28,6 +28,7 @@ NavigatorUAData* NavigatorUA::userAgentData() {
   ua_data->SetArchitecture(String::FromUTF8(metadata.architecture));
   ua_data->SetModel(String::FromUTF8(metadata.model));
   ua_data->SetUAFullVersion(String::FromUTF8(metadata.full_version));
+  ua_data->SetBitness(String::FromUTF8(metadata.bitness));
 
   MaybeRecordMetrics(*ua_data);
 
@@ -60,7 +61,7 @@ void NavigatorUA::MaybeRecordMetrics(const NavigatorUAData& ua_data) {
       token_builder.AddAtomic(brand->version().Utf8());
   }
   IdentifiabilityMetricBuilder(context->UkmSourceID())
-      .Set(identifiable_surface, token_builder.GetToken())
+      .Add(identifiable_surface, token_builder.GetToken())
       .Record(context->UkmRecorder());
 }
 

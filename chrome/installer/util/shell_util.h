@@ -22,10 +22,11 @@
 #include <vector>
 
 #include "base/check.h"
+#include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/installer/util/work_item_list.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class RegistryEntry;
 
@@ -225,8 +226,48 @@ class ShellUtil {
     std::wstring app_name;
   };
 
+  // Details about a Windows application, to be entered into the registry for
+  // the purpose of file associations.
+  struct ApplicationInfo {
+    ApplicationInfo();
+    ApplicationInfo(ApplicationInfo&& other) noexcept;
+    ~ApplicationInfo();
+
+    // The ProgId used by Windows for file associations with this application.
+    // Must not be empty or start with a '.'.
+    std::wstring prog_id;
+    // The friendly name, and the path of the icon that will be used for files
+    // of these types when associated with this application by default. (They
+    // are NOT the name/icon that will represent the application under the Open
+    // With menu.)
+    std::wstring file_type_name;
+    base::FilePath file_type_icon_path;
+    int file_type_icon_index = 0;
+    // The command to execute when opening a file via this association. It
+    // should contain "%1" (to tell Windows to pass the filename as an
+    // argument).
+    // TODO(mgiuca): |command_line| should be a base::CommandLine.
+    std::wstring command_line;
+    // The AppUserModelId used by Windows 8 for this application. Distinct from
+    // |prog_id|.
+    std::wstring app_id;
+
+    // User-visible details about this application. Any of these may be empty.
+    std::wstring application_name;
+    base::FilePath application_icon_path;
+    int application_icon_index = 0;
+    std::wstring application_description;
+    std::wstring publisher_name;
+
+    // The CLSID for the application's DelegateExecute handler. May be empty.
+    std::wstring delegate_clsid;
+  };
+
   // Relative path of the URL Protocol registry entry (prefixed with '\').
   static const wchar_t* kRegURLProtocol;
+
+  // Registry key under which web app protocol handler prog_ids are stored.
+  static const wchar_t* kRegAppProtocolHandlers;
 
   // Relative path of DefaultIcon registry entry (prefixed with '\').
   static const wchar_t* kRegDefaultIcon;
@@ -237,6 +278,9 @@ class ShellUtil {
   // Relative path of shell open command in Windows registry
   // (i.e. \\shell\\open\\command).
   static const wchar_t* kRegShellOpen;
+
+  // Relative path of registry key under which applications need to register.
+  static const wchar_t* kRegSoftware;
 
   // Relative path of registry key under which applications need to register
   // to control Windows Start menu links.
@@ -316,6 +360,9 @@ class ShellUtil {
   // Registry value name for the OpenWithProgids entry for file associations.
   static const wchar_t* kRegOpenWithProgids;
 
+  ShellUtil(const ShellUtil&) = delete;
+  ShellUtil& operator=(const ShellUtil&) = delete;
+
   // Returns true if |chrome_exe| is registered in HKLM with |suffix|.
   // Note: This only checks one deterministic key in HKLM for |chrome_exe| and
   // doesn't otherwise validate a full Chrome install in HKLM.
@@ -361,6 +408,13 @@ class ShellUtil {
   // http://msdn.microsoft.com/library/windows/desktop/dd391573.aspx).
   static std::wstring FormatIconLocation(const base::FilePath& icon_path,
                                          int icon_index);
+
+  // Returns the pair <|icon_path|,|icon_index|> given a properly formatted icon
+  // location. The input should be formatted by FormatIconLocation above,
+  // or follow one of the formats specified in
+  // http://msdn.microsoft.com/library/windows/desktop/dd391573.aspx.
+  static absl::optional<std::pair<base::FilePath, int>> ParseIconLocation(
+      const std::wstring& argument);
 
   // This method returns the command to open URLs/files using chrome. Typically
   // this command is written to the registry under shell\open\command key.
@@ -537,10 +591,33 @@ class ShellUtil {
   // |elevate_if_not_admin| is false and unique_suffix is empty.
   static void RegisterChromeBrowserBestEffort(const base::FilePath& chrome_exe);
 
+  // Stores a map of protocol associations that can be registered in the browser
+  // process or passed as command line arguments to an elevated setup.exe.
+  // Protocol associations map a protocol to a handler progid.
+  struct ProtocolAssociations {
+    ProtocolAssociations();
+    explicit ProtocolAssociations(
+        const std::vector<std::pair<std::wstring, std::wstring>>&&
+            protocol_associations);
+    ProtocolAssociations(ProtocolAssociations&& other);
+    ~ProtocolAssociations();
+
+    // Converts the protocol associations map to the command line arg format
+    // expected by setup.exe.
+    std::wstring ToCommandLineArgument() const;
+
+    // Parses a ProtocolAssociations instance from a string command line arg.
+    static absl::optional<ProtocolAssociations> FromCommandLineArgument(
+        const std::wstring& argument);
+
+    base::flat_map<std::wstring, std::wstring> associations;
+  };
+
   // This method declares to Windows that Chrome is capable of handling the
-  // given protocol. This function will call the RegisterChromeBrowser function
-  // to register with Windows as capable of handling the protocol, if it isn't
-  // currently registered as capable.
+  // given protocols, either directly in a tab or indirectly through a web app.
+  // This function will call the RegisterChromeBrowser function
+  // to register the browser with Windows as capable of handling the protocol,
+  // if it isn't currently registered as capable.
   // Declaring the capability of handling a protocol is necessary to register
   // as the default handler for the protocol in Vista and later versions of
   // Windows.
@@ -551,25 +628,36 @@ class ShellUtil {
   // |chrome_exe| full path to chrome.exe.
   // |unique_suffix| Optional input. If given, this function appends the value
   // to default browser entries names that it creates in the registry.
-  // |protocol| The protocol to register as being capable of handling.s
+  // |protocol_associations| The protocol associations to register under the
+  // browser registration.
   // |elevate_if_not_admin| if true will make this method try alternate methods
   // as described above.
-  static bool RegisterChromeForProtocol(const base::FilePath& chrome_exe,
-                                        const std::wstring& unique_suffix,
-                                        const std::wstring& protocol,
-                                        bool elevate_if_not_admin);
+  static bool RegisterChromeForProtocols(
+      const base::FilePath& chrome_exe,
+      const std::wstring& unique_suffix,
+      const ProtocolAssociations& protocol_associations,
+      bool elevate_if_not_admin);
 
   // Removes installed shortcut(s) at |location|.
   // |level|: CURRENT_USER to remove per-user shortcuts, or SYSTEM_LEVEL to
   // remove all-users shortcuts.
-  // |target_exe|: Shortcut target exe; shortcuts will only be deleted when
-  // their target is |target_exe|.
+  // |target_paths|: A vector of shortcut target exe paths; shortcuts will only
+  // be deleted when their target is one of |target_paths|.
   // If |location| is a Chrome-specific folder, it will be deleted as well.
   // Returns true if all shortcuts pointing to |target_exe| are successfully
   // deleted, including the case where no such shortcuts are found.
   static bool RemoveShortcuts(ShortcutLocation location,
                               ShellChange level,
-                              const base::FilePath& target_exe);
+                              const std::vector<base::FilePath>& target_paths);
+
+  // Removes installed shortcut(s) from all ShellUtil::ShortcutLocations.
+  // |level|: CURRENT_USER to remove per-user shortcuts, or SYSTEM_LEVEL to
+  // remove all-users shortcuts.
+  // |target_paths|: A vector of shortcut target exe paths; shortcuts will only
+  // be deleted when their target is one of |target_paths|.
+  static void RemoveAllShortcuts(
+      ShellChange level,
+      const std::vector<base::FilePath>& target_paths);
 
   // Updates the target of all shortcuts in |location| that satisfy the
   // following:
@@ -621,6 +709,21 @@ class ShellUtil {
   // should call GetCurrentInstallationSuffix().
   static bool GetUserSpecificRegistrySuffix(std::wstring* suffix);
 
+  // Stores the given list of `file_handler_prog_ids` registered for an app as a
+  // subkey under the app's `prog_id`. This is used to remove the registry
+  // entries for the file handler ProgIds when the app is uninstalled.
+  // `prog_id` - Windows ProgId for the app.
+  // `file_handler_prog_ids` - ProgIds of the file handlers registered for the
+  // app.
+  static bool RegisterFileHandlerProgIdsForAppId(
+      const std::wstring& prog_id,
+      const std::vector<std::wstring>& file_handler_prog_ids);
+
+  // Returns the list of file-handler ProgIds registered for the app with
+  // ProgId `prog_id`.
+  static std::vector<std::wstring> GetFileHandlerProgIdsForAppId(
+      const std::wstring& prog_id);
+
   // Sets |suffix| to this user's username preceded by a dot. This suffix should
   // only be used to support legacy installs that used this suffixing
   // style.
@@ -630,10 +733,8 @@ class ShellUtil {
   static bool GetOldUserSpecificRegistrySuffix(std::wstring* suffix);
 
   // Associates a set of file extensions with a particular application in the
-  // Windows registry, for the current user only. If an extension has no
-  // existing default association, the given application becomes the default.
-  // Otherwise, the application is added to the Open With menu for this type,
-  // but does not become the default.
+  // Windows registry, for the current user only. The application is added to
+  // the Open With menu for these types, but does not become the default.
   //
   // |prog_id| is the ProgId used by Windows for file associations with this
   // application. Must not be empty or start with a '.'.
@@ -644,9 +745,10 @@ class ShellUtil {
   // the Open With menu.
   // |file_type_name| is the friendly name for files of these types when
   // associated with this application by default.
-  // |icon_path| is the path of the icon displayed for this application in the
-  // Open With menu, and used for files of these types when associated with this
-  // application by default.
+  // |application_icon_path| is the path of the icon displayed for this
+  // application in the Open With menu.
+  // |file_type_icon_path| is the path of the icon used for files of these
+  // types when associated with this application by default.
   // |file_extensions| is the set of extensions to associate. They must not be
   // empty or start with a '.'.
   // Returns true on success, false on failure.
@@ -655,12 +757,13 @@ class ShellUtil {
       const base::CommandLine& command_line,
       const std::wstring& application_name,
       const std::wstring& file_type_name,
-      const base::FilePath& icon_path,
+      const base::FilePath& application_icon_path,
+      const base::FilePath& file_type_icon_path,
       const std::set<std::wstring>& file_extensions);
 
   // Deletes all associations with a particular application in the Windows
   // registry, for the current user only.
-  // |prog_id| is the ProgId used by Windows for file associations with this
+  // `prog_id` is the ProgId used by Windows for file associations with this
   // application, as given to AddFileAssociations. All information associated
   // with this name will be deleted.
   static bool DeleteFileAssociations(const std::wstring& prog_id);
@@ -669,7 +772,7 @@ class ShellUtil {
   // HKCU\SOFTWARE\classes\<prog_id> capable of handling file type /
   // protocol associations.
   //
-  // |prog_id| is the ProgId used by Windows to uniquely identity this
+  // |prog_id| is the ProgId used by Windows to uniquely identify this
   // application. Must not be empty or start with a '.'.
   // |shell_open_command_line| is the command to execute when opening the app
   // via association.
@@ -690,11 +793,34 @@ class ShellUtil {
   // Removes all entries of an application at HKCU\SOFTWARE\classes\<prog_id>.
   static bool DeleteApplicationClass(const std::wstring& prog_id);
 
+  // Returns application details for HKCU\SOFTWARE\classes\|prog_id|. The
+  // returned instance's members will be empty if not found.
+  static ApplicationInfo GetApplicationInfoForProgId(
+      const std::wstring& prog_id);
+
   // Returns the app name and file associations registered for a particular
   // application in the Windows registry. If there is no entry in the registry
   // for |prog_id|, nothing will be returned.
   static FileAssociationsAndAppName GetFileAssociationsAndAppName(
       const std::wstring& prog_id);
+
+  // For each protocol in |protocols|, the web app represented by |prog_id| is
+  // designated as the non-default handler for the corresponding protocol. For
+  // protocols uncontested by other handlers on the OS, the app will be
+  // promoted to default handler.
+  //
+  // This method is not supported and should not be called in Windows versions
+  // prior to Win8, where write access to HKLM is required.
+  static bool AddAppProtocolAssociations(
+      const std::vector<std::wstring>& protocols,
+      const std::wstring& prog_id);
+
+  // Removes all protocol associations for a particular web app from the Windows
+  // registry.
+  //
+  // This method is not supported and should not be called in Windows versions
+  // prior to Win8, where write access to HKLM is required.
+  static bool RemoveAppProtocolAssociations(const std::wstring& prog_id);
 
   // Retrieves the file path of the application registered as the
   // shell->open->command for |prog_id|. This only queries the user's
@@ -712,9 +838,6 @@ class ShellUtil {
       HKEY root,
       const std::vector<std::unique_ptr<RegistryEntry>>& entries,
       bool best_effort_no_rollback = false);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ShellUtil);
 };
 
 #endif  // CHROME_INSTALLER_UTIL_SHELL_UTIL_H_

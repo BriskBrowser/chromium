@@ -13,7 +13,6 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "content/public/browser/web_contents_receiver_set.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "services/metrics/public/cpp/delegating_ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
@@ -22,21 +21,6 @@
 #include "url/gurl.h"
 
 namespace ukm {
-
-namespace {
-
-// -1 indicates no max number of same document sources per full source.
-int kUnlimitedSameDocumentSourcesPerFullSource = -1;
-
-// Returns the maximum number of same document sources that are allowed to be
-// recorded for a full source.
-int GetMaxSameDocumentSourcesPerFullSource() {
-  return base::GetFieldTrialParamByFeatureAsInt(
-      kUkmFeature, "MaxSameDocumentSourcesPerFullSource",
-      kUnlimitedSameDocumentSourcesPerFullSource);
-}
-
-}  // namespace
 
 namespace internal {
 
@@ -54,6 +38,11 @@ class SourceUrlRecorderWebContentsObserver
       public content::WebContentsUserData<
           SourceUrlRecorderWebContentsObserver> {
  public:
+  SourceUrlRecorderWebContentsObserver(
+      const SourceUrlRecorderWebContentsObserver&) = delete;
+  SourceUrlRecorderWebContentsObserver& operator=(
+      const SourceUrlRecorderWebContentsObserver&) = delete;
+
   // content::WebContentsObserver:
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override;
@@ -111,11 +100,9 @@ class SourceUrlRecorderWebContentsObserver
   int num_same_document_sources_for_full_navigation_source_;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(SourceUrlRecorderWebContentsObserver);
 };
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(SourceUrlRecorderWebContentsObserver)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SourceUrlRecorderWebContentsObserver);
 
 SourceUrlRecorderWebContentsObserver::SourceUrlRecorderWebContentsObserver(
     content::WebContents* web_contents)
@@ -141,7 +128,7 @@ void SourceUrlRecorderWebContentsObserver::DidStartNavigation(
   // non-main frame navs. Additionally, at least for the time being, we don't
   // track metrics for same-document navigations (e.g. changes in URL fragment,
   // or URL changes due to history.pushState) in UKM.
-  if (!navigation_handle->IsInMainFrame() ||
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       navigation_handle->IsSameDocument()) {
     return;
   }
@@ -158,7 +145,7 @@ void SourceUrlRecorderWebContentsObserver::DidStartNavigation(
 void SourceUrlRecorderWebContentsObserver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   auto it = pending_navigations_.find(navigation_handle->GetNavigationId());
-  if (!navigation_handle->IsInMainFrame()) {
+  if (!navigation_handle->IsInPrimaryMainFrame()) {
     DCHECK(it == pending_navigations_.end());
     return;
   }
@@ -201,15 +188,7 @@ void SourceUrlRecorderWebContentsObserver::HandleSameDocumentNavigation(
         GetLastCommittedFullNavigationOrSameDocumentSourceId());
   }
 
-  const int max_same_document_sources_per_full_source =
-      GetMaxSameDocumentSourcesPerFullSource();
-
-  if (max_same_document_sources_per_full_source ==
-          kUnlimitedSameDocumentSourcesPerFullSource ||
-      num_same_document_sources_for_full_navigation_source_ <
-          max_same_document_sources_per_full_source) {
-    MaybeRecordUrl(navigation_handle, GURL::EmptyGURL());
-  }
+  MaybeRecordUrl(navigation_handle, GURL::EmptyGURL());
 
   last_committed_full_navigation_or_same_document_source_id_ =
       ukm::ConvertToSourceId(navigation_handle->GetNavigationId(),
@@ -293,7 +272,7 @@ ukm::SourceId SourceUrlRecorderWebContentsObserver::
 void SourceUrlRecorderWebContentsObserver::MaybeRecordUrl(
     content::NavigationHandle* navigation_handle,
     const GURL& initial_url) {
-  DCHECK(navigation_handle->IsInMainFrame());
+  DCHECK(navigation_handle->IsInPrimaryMainFrame());
 
   // TODO(crbug/1078355): If ShouldRecordURLs is false, we should still create a
   // UKM source, but not add any URLs to it.
@@ -316,6 +295,22 @@ void SourceUrlRecorderWebContentsObserver::MaybeRecordUrl(
 
   navigation_data.is_same_document_navigation =
       navigation_handle->IsSameDocument();
+
+  navigation_data.same_origin_status =
+      UkmSource::NavigationData::SameOriginStatus::UNSET;
+  // Only set the same origin flag for committed non-error,
+  // non-same-document navigations.
+  if (navigation_handle->HasCommitted() && !navigation_handle->IsErrorPage() &&
+      !navigation_handle->IsSameDocument()) {
+    navigation_data.same_origin_status =
+        navigation_handle->IsSameOrigin()
+            ? UkmSource::NavigationData::SameOriginStatus::SAME_ORIGIN
+            : UkmSource::NavigationData::SameOriginStatus::CROSS_ORIGIN;
+  }
+  navigation_data.is_renderer_initiated =
+      navigation_handle->IsRendererInitiated();
+  navigation_data.is_error_page = navigation_handle->IsErrorPage();
+
   navigation_data.previous_source_id =
       last_committed_full_navigation_source_id_;
 

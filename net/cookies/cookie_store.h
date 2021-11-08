@@ -14,22 +14,15 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/optional.h"
-#include "base/time/time.h"
 #include "net/base/net_export.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_access_delegate.h"
 #include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_deletion_info.h"
 #include "net/cookies/cookie_options.h"
+#include "net/cookies/cookie_partition_keychain.h"
 
 class GURL;
-
-namespace base {
-namespace trace_event {
-class ProcessMemoryDump;
-}
-}  // namespace base
 
 namespace net {
 
@@ -57,6 +50,8 @@ class NET_EXPORT CookieStore {
   using SetCookiesCallback =
       base::OnceCallback<void(CookieAccessResult access_result)>;
   using DeleteCallback = base::OnceCallback<void(uint32_t num_deleted)>;
+  using DeletePredicate =
+      base::RepeatingCallback<bool(const CanonicalCookie& cookie)>;
   using SetCookieableSchemesCallback = base::OnceCallback<void(bool success)>;
 
   CookieStore();
@@ -79,9 +74,13 @@ class NET_EXPORT CookieStore {
   // creation date.
   // To get all the cookies for a URL, use this method with an all-inclusive
   // |options|.
+  // If |cookie_partition_keychain| is not empty, then this function will return
+  // the partitioned cookies for that URL whose partition keys are in the
+  // keychain *in addition to* the unpartitioned cookies for that URL.
   virtual void GetCookieListWithOptionsAsync(
       const GURL& url,
       const CookieOptions& options,
+      const CookiePartitionKeychain& cookie_partition_keychain,
       GetCookieListCallback callback) = 0;
 
   // Returns all the cookies, for use in management UI, etc. This does not mark
@@ -121,7 +120,13 @@ class NET_EXPORT CookieStore {
   virtual void DeleteAllMatchingInfoAsync(CookieDeletionInfo delete_info,
                                           DeleteCallback callback) = 0;
 
-  virtual void DeleteSessionCookiesAsync(DeleteCallback) = 0;
+  // Deletes all cookies without expiration data.
+  virtual void DeleteSessionCookiesAsync(DeleteCallback callback) = 0;
+
+  // Deletes all cookies where |predicate| returns true.
+  // Calls |callback| with the number of cookies deleted.
+  virtual void DeleteMatchingCookiesAsync(DeletePredicate predicate,
+                                          DeleteCallback callback) = 0;
 
   // Deletes all cookies in the store.
   void DeleteAllAsync(DeleteCallback callback);
@@ -148,10 +153,6 @@ class NET_EXPORT CookieStore {
 
   // Transfer ownership of a CookieAccessDelegate.
   void SetCookieAccessDelegate(std::unique_ptr<CookieAccessDelegate> delegate);
-
-  // Reports the estimate of dynamically allocated memory in bytes.
-  virtual void DumpMemoryStats(base::trace_event::ProcessMemoryDump* pmd,
-                               const std::string& parent_absolute_name) const;
 
   // This may be null if no delegate has been set yet, or the delegate has been
   // reset to null.

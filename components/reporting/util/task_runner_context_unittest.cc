@@ -12,8 +12,9 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/sequenced_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/reporting/util/status.h"
@@ -110,7 +111,7 @@ TEST_F(TaskRunner, SeriesOfDelays) {
         : TaskRunnerContext<uint32_t>(std::move(callback),
                                       std::move(task_runner)),
           init_value_(init_value),
-          delay_(base::TimeDelta::FromSecondsD(0.1)) {}
+          delay_(base::Seconds(0.1)) {}
 
    private:
     void Halve(uint32_t value, uint32_t log) {
@@ -119,7 +120,7 @@ TEST_F(TaskRunner, SeriesOfDelays) {
         Response(log);
         return;
       }
-      delay_ += base::TimeDelta::FromSecondsD(0.1);
+      delay_ += base::Seconds(0.1);
       ScheduleAfter(delay_, &SeriesOfDelaysContext::Halve,
                     base::Unretained(this), value / 2, log + 1);
     }
@@ -158,7 +159,7 @@ TEST_F(TaskRunner, SeriesOfAsyncs) {
         : TaskRunnerContext<uint32_t>(std::move(callback),
                                       std::move(task_runner)),
           init_value_(init_value),
-          delay_(base::TimeDelta::FromSecondsD(0.1)) {}
+          delay_(base::Seconds(0.1)) {}
 
    private:
     void Halve(uint32_t value, uint32_t log) {
@@ -169,7 +170,7 @@ TEST_F(TaskRunner, SeriesOfAsyncs) {
       }
       // Perform a calculation on a generic thread pool with delay,
       // then get back to the sequence by calling Schedule from there.
-      delay_ += base::TimeDelta::FromSecondsD(0.1);
+      delay_ += base::Seconds(0.1);
       base::ThreadPool::PostDelayedTask(
           FROM_HERE,
           base::BindOnce(

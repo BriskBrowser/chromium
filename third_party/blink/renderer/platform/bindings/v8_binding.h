@@ -46,6 +46,8 @@
 
 namespace blink {
 
+class ExceptionState;
+
 namespace bindings {
 class DictionaryBase;
 }
@@ -159,66 +161,6 @@ inline void V8SetReturnValueStringOrNull(const CallbackInfo& info,
   }
   V8PerIsolateData::From(isolate)->GetStringCache()->SetReturnValueFromString(
       info.GetReturnValue(), string.Impl());
-}
-
-template <typename CallbackInfo>
-inline void V8SetReturnValue(const CallbackInfo& callback_info,
-                             ScriptWrappable* impl,
-                             v8::Local<v8::Object> creation_context) {
-  if (UNLIKELY(!impl)) {
-    V8SetReturnValueNull(callback_info);
-    return;
-  }
-  if (DOMDataStore::SetReturnValue(callback_info.GetReturnValue(), impl))
-    return;
-  v8::Local<v8::Value> wrapper =
-      impl->Wrap(callback_info.GetIsolate(), creation_context);
-  V8SetReturnValue(callback_info, wrapper);
-}
-
-template <typename CallbackInfo>
-inline void V8SetReturnValue(const CallbackInfo& callback_info,
-                             ScriptWrappable* impl) {
-  V8SetReturnValue(callback_info, impl, callback_info.Holder());
-}
-
-template <typename CallbackInfo>
-inline void V8SetReturnValueForMainWorld(const CallbackInfo& callback_info,
-                                         ScriptWrappable* impl) {
-  DCHECK(DOMWrapperWorld::Current(callback_info.GetIsolate()).IsMainWorld());
-  if (UNLIKELY(!impl)) {
-    V8SetReturnValueNull(callback_info);
-    return;
-  }
-  if (DOMDataStore::SetReturnValueForMainWorld(callback_info.GetReturnValue(),
-                                               impl))
-    return;
-  v8::Local<v8::Value> wrapper =
-      impl->Wrap(callback_info.GetIsolate(), callback_info.Holder());
-  V8SetReturnValue(callback_info, wrapper);
-}
-
-template <typename CallbackInfo>
-inline void V8SetReturnValueFast(const CallbackInfo& callback_info,
-                                 ScriptWrappable* impl,
-                                 const ScriptWrappable* wrappable) {
-  if (UNLIKELY(!impl)) {
-    V8SetReturnValueNull(callback_info);
-    return;
-  }
-  if (DOMDataStore::SetReturnValueFast(callback_info.GetReturnValue(), impl,
-                                       callback_info.Holder(), wrappable))
-    return;
-  v8::Local<v8::Value> wrapper =
-      impl->Wrap(callback_info.GetIsolate(), callback_info.Holder());
-  V8SetReturnValue(callback_info, wrapper);
-}
-
-template <typename CallbackInfo, typename T>
-inline void V8SetReturnValueFast(const CallbackInfo& callback_info,
-                                 const v8::Local<T> handle,
-                                 const ScriptWrappable*) {
-  V8SetReturnValue(callback_info, handle);
 }
 
 // Dictionary
@@ -404,6 +346,38 @@ enum class NamedPropertyDeleterResult {
 // script is executing (e.g. during parsing of a meta tag in markup), or the
 // script context is otherwise unavailable.
 PLATFORM_EXPORT String GetCurrentScriptUrl(int max_stack_depth);
+
+namespace bindings {
+
+struct V8PropertyDescriptorBag {
+ private:
+  STACK_ALLOCATED();
+
+ public:
+  bool has_enumerable = false;
+  bool has_configurable = false;
+  bool has_value = false;
+  bool has_writable = false;
+  bool has_get = false;
+  bool has_set = false;
+
+  bool enumerable = false;
+  bool configurable = false;
+  bool writable = false;
+  v8::Local<v8::Value> value;
+  v8::Local<v8::Value> get;
+  v8::Local<v8::Value> set;
+};
+
+// ToPropertyDescriptor
+// https://tc39.es/ecma262/#sec-topropertydescriptor
+PLATFORM_EXPORT void V8ObjectToPropertyDescriptor(
+    v8::Isolate* isolate,
+    v8::Local<v8::Value> descriptor_object,
+    V8PropertyDescriptorBag& descriptor_bag,
+    ExceptionState& exception_state);
+
+}  // namespace bindings
 
 }  // namespace blink
 

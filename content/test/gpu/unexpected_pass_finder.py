@@ -29,15 +29,21 @@ using an inline `# finder:disable` comment for a single expectation or a pair of
 `# finder:disable`/`# finder:enable` comments for a block of expectations.
 """
 
+from __future__ import print_function
+
 import argparse
-import logging
 import os
 import sys
 
-from unexpected_passes import builders
-from unexpected_passes import expectations
-from unexpected_passes import queries
-from unexpected_passes import result_output
+CHROMIUM_SRC_DIR = os.path.join(os.path.dirname(__file__), '..', '..', '..')
+sys.path.append(os.path.join(CHROMIUM_SRC_DIR, 'testing'))
+
+from unexpected_passes import gpu_builders
+from unexpected_passes import gpu_expectations
+from unexpected_passes import gpu_queries
+from unexpected_passes_common import argument_parsing
+from unexpected_passes_common import builders
+from unexpected_passes_common import result_output
 
 SUITE_TO_EXPECTATIONS_MAP = {
     'power': 'power_measurement',
@@ -55,6 +61,8 @@ def ParseArgs():
   parser = argparse.ArgumentParser(
       description=('Script for finding cases of stale expectations that can '
                    'be removed/modified.'))
+  argument_parsing.AddCommonArguments(parser)
+
   input_group = parser.add_mutually_exclusive_group()
   input_group.add_argument(
       '--expectation-file',
@@ -82,51 +90,19 @@ def ParseArgs():
           'gpu_process',
           'info_collection',
           'maps',
+          'mediapipe',
           'pixel',
           'power',
           'screenshot_sync',
           'trace_test',
+          'webcodecs',
           'webgl_conformance1',
           'webgl_conformance2',
       ],
       help='The test suite being checked.')
-  parser.add_argument('--project',
-                      required=True,
-                      help='The billing project to use for BigQuery queries. '
-                      'Must have access to the ResultDB BQ tables, e.g. '
-                      '"luci-resultdb.chromium.gpu_ci_test_results".')
-  parser.add_argument('--num-samples',
-                      type=int,
-                      default=100,
-                      help='The number of recent builds to query.')
-  parser.add_argument('--output-format',
-                      choices=[
-                          'html',
-                          'print',
-                      ],
-                      default='html',
-                      help='How to output script results.')
-  parser.add_argument('--remove-stale-expectations',
-                      action='store_true',
-                      default=False,
-                      help='Automatically remove any expectations that are '
-                      'determined to be stale from the expectation file.')
-  parser.add_argument('-v',
-                      '--verbose',
-                      action='count',
-                      default=0,
-                      help='Increase logging verbosity, can be passed multiple '
-                      'times.')
-  parser.add_argument('-q',
-                      '--quiet',
-                      action='store_true',
-                      default=False,
-                      help='Disable logging for non-errors.')
 
   args = parser.parse_args()
-  if args.quiet:
-    args.verbose = -1
-  SetLoggingVerbosity(args.verbose)
+  argument_parsing.SetLoggingVerbosity(args)
 
   if not (args.tests or args.expectation_file):
     args.expectation_file = os.path.join(
@@ -141,53 +117,60 @@ def ParseArgs():
   return args
 
 
-def SetLoggingVerbosity(verbosity_level):
-  if verbosity_level == -1:
-    level = logging.ERROR
-  elif verbosity_level == 0:
-    level = logging.WARNING
-  elif verbosity_level == 1:
-    level = logging.INFO
-  else:
-    level = logging.DEBUG
-  logging.getLogger().setLevel(level)
-
-
 def main():
   args = ParseArgs()
-  test_expectation_map = expectations.CreateTestExpectationMap(
+
+  builders_instance = gpu_builders.GpuBuilders()
+  builders.RegisterInstance(builders_instance)
+  expectations_instance = gpu_expectations.GpuExpectations()
+
+  test_expectation_map = expectations_instance.CreateTestExpectationMap(
       args.expectation_file, args.tests)
-  ci_builders = builders.GetCiBuilders(
+  ci_builders = builders_instance.GetCiBuilders(
       SUITE_TO_TELEMETRY_SUITE_MAP.get(args.suite, args.suite))
+
+  querier = gpu_queries.GpuBigQueryQuerier(args.suite, args.project,
+                                           args.num_samples,
+                                           args.large_query_mode)
   # Unmatched results are mainly useful for script maintainers, as they don't
   # provide any additional information for the purposes of finding unexpectedly
   # passing tests or unused expectations.
-  unmatched = queries.FillExpectationMapForCiBuilders(test_expectation_map,
-                                                      ci_builders, args.suite,
-                                                      args.project,
-                                                      args.num_samples)
-  try_builders = builders.GetTryBuilders(ci_builders)
+  unmatched = querier.FillExpectationMapForCiBuilders(test_expectation_map,
+                                                      ci_builders)
+  try_builders = builders_instance.GetTryBuilders(ci_builders)
   unmatched.update(
-      queries.FillExpectationMapForTryBuilders(test_expectation_map,
-                                               try_builders, args.suite,
-                                               args.project, args.num_samples))
-  unused_expectations = expectations.FilterOutUnusedExpectations(
-      test_expectation_map)
-  stale, semi_stale, active = expectations.SplitExpectationsByStaleness(
-      test_expectation_map)
+      querier.FillExpectationMapForTryBuilders(test_expectation_map,
+                                               try_builders))
+  unused_expectations = test_expectation_map.FilterOutUnusedExpectations()
+  stale, semi_stale, active = test_expectation_map.SplitByStaleness()
   result_output.OutputResults(stale, semi_stale, active, unmatched,
                               unused_expectations, args.output_format)
 
+  affected_urls = set()
+  stale_message = ''
   if args.remove_stale_expectations:
     stale_expectations = []
-    for _, expectation_map in stale.iteritems():
+    for expectation_file, expectation_map in stale.items():
       stale_expectations.extend(expectation_map.keys())
-    stale_expectations.extend(unused_expectations)
-    removed_urls = expectations.RemoveExpectationsFromFile(
+      stale_expectations.extend(unused_expectations.get(expectation_file, []))
+    affected_urls |= expectations_instance.RemoveExpectationsFromFile(
         stale_expectations, args.expectation_file)
-    print('Stale expectations removed from %s. Stale comments, etc. may still '
-          'need to be removed.' % args.expectation_file)
-    result_output.OutputRemovedUrls(removed_urls)
+    stale_message += ('Stale expectations removed from %s. Stale comments, '
+                      'etc. may still need to be removed.\n' %
+                      args.expectation_file)
+
+  if args.modify_semi_stale_expectations:
+    affected_urls |= expectations_instance.ModifySemiStaleExpectations(
+        semi_stale)
+    stale_message += ('Semi-stale expectations modified in %s. Stale '
+                      'comments, etc. may still need to be removed.\n' %
+                      args.expectation_file)
+
+  if stale_message:
+    print(stale_message)
+  if affected_urls:
+    orphaned_urls = expectations_instance.FindOrphanedBugs(affected_urls)
+    result_output.OutputAffectedUrls(affected_urls, orphaned_urls)
 
 
 if __name__ == '__main__':

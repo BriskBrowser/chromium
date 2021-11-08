@@ -7,7 +7,7 @@
 #include <numeric>
 
 #include "ash/accessibility/accessibility_controller_impl.h"
-#include "ash/public/cpp/ash_pref_names.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/ash_view_ids.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
@@ -15,19 +15,23 @@
 #include "ash/shutdown_controller_impl.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/button_style.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/unified/collapse_button.h"
-#include "ash/system/unified/sign_out_button.h"
 #include "ash/system/unified/top_shortcut_button.h"
 #include "ash/system/unified/unified_system_tray_controller.h"
 #include "ash/system/unified/user_chooser_detailed_view_controller.h"
 #include "ash/system/unified/user_chooser_view.h"
-#include "base/numerics/ranges.h"
+#include "ash/system/user/login_status.h"
+#include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
@@ -40,10 +44,11 @@ namespace {
 class UserAvatarButton : public views::Button {
  public:
   explicit UserAvatarButton(PressedCallback callback);
-  ~UserAvatarButton() override = default;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(UserAvatarButton);
+  UserAvatarButton(const UserAvatarButton&) = delete;
+  UserAvatarButton& operator=(const UserAvatarButton&) = delete;
+
+  ~UserAvatarButton() override = default;
 };
 
 UserAvatarButton::UserAvatarButton(PressedCallback callback)
@@ -57,8 +62,9 @@ UserAvatarButton::UserAvatarButton(PressedCallback callback)
   SetInstallFocusRingOnFocus(true);
 
   views::InstallCircleHighlightPathGenerator(this);
-  focus_ring()->SetColor(AshColorProvider::Get()->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kFocusRingColor));
+  views::FocusRing::Get(this)->SetColor(
+      AshColorProvider::Get()->GetControlsLayerColor(
+          AshColorProvider::ControlsLayerType::kFocusRingColor));
 }
 
 }  // namespace
@@ -89,9 +95,9 @@ void TopShortcutButtonContainer::Layout() {
   int spacing = 0;
   if (visible_children.size() > 1) {
     spacing = (child_area.width() - visible_child_width) /
-              (int{visible_children.size()} - 1);
-    spacing = base::ClampToRange(spacing, kUnifiedTopShortcutButtonMinSpacing,
-                                 kUnifiedTopShortcutButtonDefaultSpacing);
+              (static_cast<int>(visible_children.size()) - 1);
+    spacing = base::clamp(spacing, kUnifiedTopShortcutButtonMinSpacing,
+                          kUnifiedTopShortcutButtonDefaultSpacing);
   }
 
   int x = child_area.x();
@@ -105,10 +111,11 @@ void TopShortcutButtonContainer::Layout() {
       child_y -= kUnifiedCircularButtonFocusPadding.bottom();
     } else if (child == sign_out_button_) {
       // When there's not enough space, shrink the sign-out button.
-      const int remainder = child_area.width() -
-                            (int{visible_children.size()} - 1) * spacing -
-                            (visible_child_width - width);
-      width = base::ClampToRange(width, 0, remainder);
+      const int remainder =
+          child_area.width() -
+          (static_cast<int>(visible_children.size()) - 1) * spacing -
+          (visible_child_width - width);
+      width = base::clamp(width, 0, std::max(0, remainder));
     }
 
     child->SetBounds(x, child_y, width, child->GetHeightForWidth(width));
@@ -183,9 +190,14 @@ TopShortcutsView::TopShortcutsView(UnifiedSystemTrayController* controller) {
         UserChooserDetailedViewController::IsUserChooserEnabled());
     container_->AddUserAvatarButton(user_avatar_button_);
 
-    sign_out_button_ = new SignOutButton(
+    sign_out_button_ = new PillButton(
         base::BindRepeating(&UnifiedSystemTrayController::HandleSignOutAction,
-                            base::Unretained(controller)));
+                            base::Unretained(controller)),
+        user::GetLocalizedSignOutStringForStatus(
+            Shell::Get()->session_controller()->login_status(),
+            /*multiline=*/false),
+        PillButton::Type::kIconless,
+        /*icon=*/nullptr);
     container_->AddSignOutButton(sign_out_button_);
   }
 

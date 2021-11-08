@@ -135,11 +135,6 @@ void BrowserPluginGuest::CreateInWebContents(
   web_contents->SetBrowserPluginGuest(std::move(guest));
 }
 
-// static
-bool BrowserPluginGuest::IsGuest(WebContentsImpl* web_contents) {
-  return web_contents && web_contents->GetBrowserPluginGuest();
-}
-
 WebContentsImpl* BrowserPluginGuest::GetWebContents() const {
   return static_cast<WebContentsImpl*>(web_contents());
 }
@@ -158,6 +153,8 @@ void BrowserPluginGuest::SendTextInputTypeChangedToView(
     // content::InterstitialPageImpl::DontProceed().
     //
     // TODO(lazyboy): Write a WebUI test once http://crbug.com/463674 is fixed.
+    // TODO(falken): Check whether this code is dead, since InterstitialPageImpl
+    // does not exist.
     return;
   }
 
@@ -196,7 +193,8 @@ void BrowserPluginGuest::DidFinishNavigation(
     RecordAction(base::UserMetricsAction("BrowserPlugin.Guest.DidNavigate"));
 }
 
-void BrowserPluginGuest::RenderProcessGone(base::TerminationStatus status) {
+void BrowserPluginGuest::PrimaryMainFrameRenderProcessGone(
+    base::TerminationStatus status) {
   switch (status) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
@@ -220,7 +218,7 @@ void BrowserPluginGuest::RenderProcessGone(base::TerminationStatus status) {
 }
 
 #if defined(OS_MAC)
-bool BrowserPluginGuest::ShowPopupMenu(
+void BrowserPluginGuest::ShowPopupMenu(
     RenderFrameHost* render_frame_host,
     mojo::PendingRemote<blink::mojom::PopupMenuClient>* popup_client,
     const gfx::Rect& bounds,
@@ -241,7 +239,6 @@ bool BrowserPluginGuest::ShowPopupMenu(
   popup_menu_helper.ShowPopupMenu(translated_bounds, item_height, font_size,
                                   selected_item, std::move(*menu_items),
                                   right_aligned, allow_multiple_selection);
-  return true;
 }
 #endif
 

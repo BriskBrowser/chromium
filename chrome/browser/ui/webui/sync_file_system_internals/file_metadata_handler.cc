@@ -31,11 +31,11 @@ FileMetadataHandler::FileMetadataHandler(Profile* profile)
 FileMetadataHandler::~FileMetadataHandler() {}
 
 void FileMetadataHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getExtensions",
       base::BindRepeating(&FileMetadataHandler::HandleGetExtensions,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getFileMetadata",
       base::BindRepeating(&FileMetadataHandler::HandleGetFileMetadata,
                           base::Unretained(this)));
@@ -61,9 +61,8 @@ void FileMetadataHandler::HandleGetFileMetadata(const base::ListValue* args) {
   if (!sync_service)
     return;
   sync_service->DumpFiles(
-      origin, base::AdaptCallbackForRepeating(
-                  base::BindOnce(&FileMetadataHandler::DidGetFileMetadata,
-                                 weak_factory_.GetWeakPtr(), callback_id)));
+      origin, base::BindOnce(&FileMetadataHandler::DidGetFileMetadata,
+                             weak_factory_.GetWeakPtr(), callback_id));
 }
 
 void FileMetadataHandler::HandleGetExtensions(const base::ListValue* args) {

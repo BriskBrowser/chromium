@@ -86,7 +86,7 @@ void PaymentRequestPlatformBrowserTestBase::
   content::BrowserContext* context =
       GetActiveWebContents()->GetBrowserContext();
   auto downloader = std::make_unique<TestDownloader>(
-      content::BrowserContext::GetDefaultStoragePartition(context)
+      context->GetDefaultStoragePartition()
           ->GetURLLoaderFactoryForBrowserProcess());
   for (const auto& method : payment_methods) {
     downloader->AddTestServerURL("https://" + method.first + "/",
@@ -138,14 +138,13 @@ void PaymentRequestPlatformBrowserTestBase::OnAppListReady() {
   if (event_waiter_)
     event_waiter_->OnEvent(TestEvent::kAppListReady);
 }
+void PaymentRequestPlatformBrowserTestBase::OnErrorDisplayed() {
+  if (event_waiter_)
+    event_waiter_->OnEvent(TestEvent::kErrorDisplayed);
+}
 void PaymentRequestPlatformBrowserTestBase::OnCompleteCalled() {
   if (event_waiter_)
     event_waiter_->OnEvent(TestEvent::kPaymentCompleted);
-}
-
-void PaymentRequestPlatformBrowserTestBase::OnMinimalUIReady() {
-  if (event_waiter_)
-    event_waiter_->OnEvent(TestEvent::kMinimalUIReady);
 }
 
 void PaymentRequestPlatformBrowserTestBase::OnUIDisplayed() {

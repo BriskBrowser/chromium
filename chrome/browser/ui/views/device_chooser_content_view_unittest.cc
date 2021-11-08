@@ -8,9 +8,9 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "chrome/browser/chooser_controller/fake_bluetooth_chooser_controller.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/views/chrome_views_test_base.h"
+#include "components/permissions/fake_bluetooth_chooser_controller.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -25,6 +25,8 @@
 #include "ui/views/controls/throbber.h"
 #include "ui/views/test/button_test_api.h"
 
+using permissions::FakeBluetoothChooserController;
+
 namespace {
 
 class MockTableViewObserver : public views::TableViewObserver {
@@ -38,6 +40,10 @@ class MockTableViewObserver : public views::TableViewObserver {
 class DeviceChooserContentViewTest : public ChromeViewsTestBase {
  public:
   DeviceChooserContentViewTest() {}
+
+  DeviceChooserContentViewTest(const DeviceChooserContentViewTest&) = delete;
+  DeviceChooserContentViewTest& operator=(const DeviceChooserContentViewTest&) =
+      delete;
 
   void SetUp() override {
     ChromeViewsTestBase::SetUp();
@@ -107,11 +113,11 @@ class DeviceChooserContentViewTest : public ChromeViewsTestBase {
          FakeBluetoothChooserController::kSignalStrengthUnknown});
   }
 
-  base::string16 GetUnpairedDeviceTextAtRow(size_t row_index) {
+  std::u16string GetUnpairedDeviceTextAtRow(size_t row_index) {
     return controller()->GetOption(row_index);
   }
 
-  base::string16 GetPairedDeviceTextAtRow(size_t row_index) {
+  std::u16string GetPairedDeviceTextAtRow(size_t row_index) {
     return l10n_util::GetStringFUTF16(
         IDS_DEVICE_CHOOSER_DEVICE_NAME_AND_PAIRED_STATUS_TEXT,
         GetUnpairedDeviceTextAtRow(row_index));
@@ -144,8 +150,6 @@ class DeviceChooserContentViewTest : public ChromeViewsTestBase {
   FakeBluetoothChooserController* controller_ = nullptr;
   DeviceChooserContentView* content_view_ = nullptr;
   std::unique_ptr<views::Widget> widget_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceChooserContentViewTest);
 };
 
 TEST_F(DeviceChooserContentViewTest, InitialState) {
@@ -225,6 +229,20 @@ TEST_F(DeviceChooserContentViewTest, SelectAndDeselectAnOption) {
   table_view()->Select(-1);
   EXPECT_FALSE(IsDeviceSelected());
   EXPECT_EQ(-1, table_view()->GetFirstSelectedRow());
+}
+
+TEST_F(DeviceChooserContentViewTest, BluetoothIsOff) {
+  controller()->SetBluetoothStatus(
+      FakeBluetoothChooserController::BluetoothStatus::UNAVAILABLE);
+
+  content_view()->OnOptionsInitialized();
+  EXPECT_FALSE(table_parent()->GetVisible());
+  EXPECT_FALSE(no_options_view()->GetVisible());
+  EXPECT_TRUE(adapter_off_view()->GetVisible());
+  EXPECT_FALSE(throbber()->GetVisible());
+  EXPECT_FALSE(throbber_label()->GetVisible());
+  EXPECT_TRUE(re_scan_button()->GetVisible());
+  EXPECT_FALSE(re_scan_button()->GetEnabled());
 }
 
 TEST_F(DeviceChooserContentViewTest, TurnBluetoothOffAndOn) {

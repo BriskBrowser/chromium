@@ -8,11 +8,14 @@
 
 #include "base/i18n/rtl.h"
 #include "base/metrics/user_metrics.h"
+#include "chromeos/ui/base/display_util.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "chromeos/ui/frame/caption_buttons/snap_controller.h"
+#include "chromeos/ui/wm/features.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/hit_test.h"
+#include "ui/display/screen.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/views/widget/widget.h"
 
@@ -44,11 +47,19 @@ bool HitTestButton(const views::FrameCaptionButton* button,
 
 SnapDirection GetSnapDirection(const views::FrameCaptionButton* to_hover) {
   if (to_hover) {
+    const bool is_primary_display_layout = chromeos::IsDisplayLayoutPrimary(
+        display::Screen::GetScreen()->GetDisplayNearestWindow(
+            to_hover->GetWidget()->GetNativeWindow()));
+    const bool is_primary_snap =
+        is_primary_display_layout ||
+        !chromeos::wm::features::IsVerticalSnapEnabled();
     switch (to_hover->GetIcon()) {
-      case views::CAPTION_BUTTON_ICON_LEFT_SNAPPED:
-        return SnapDirection::kLeft;
-      case views::CAPTION_BUTTON_ICON_RIGHT_SNAPPED:
-        return SnapDirection::kRight;
+      case views::CAPTION_BUTTON_ICON_LEFT_TOP_SNAPPED:
+        return is_primary_snap ? SnapDirection::kPrimary
+                               : SnapDirection::kSecondary;
+      case views::CAPTION_BUTTON_ICON_RIGHT_BOTTOM_SNAPPED:
+        return is_primary_snap ? SnapDirection::kSecondary
+                               : SnapDirection::kPrimary;
       case views::CAPTION_BUTTON_ICON_MAXIMIZE_RESTORE:
       case views::CAPTION_BUTTON_ICON_MINIMIZE:
       case views::CAPTION_BUTTON_ICON_CLOSE:
@@ -56,6 +67,8 @@ SnapDirection GetSnapDirection(const views::FrameCaptionButton* to_hover) {
       case views::CAPTION_BUTTON_ICON_LOCATION:
       case views::CAPTION_BUTTON_ICON_MENU:
       case views::CAPTION_BUTTON_ICON_ZOOM:
+      case views::CAPTION_BUTTON_ICON_CENTER:
+      case views::CAPTION_BUTTON_ICON_CUSTOM:
       case views::CAPTION_BUTTON_ICON_COUNT:
         NOTREACHED();
         break;
@@ -76,6 +89,10 @@ class FrameSizeButton::SnappingWindowObserver : public aura::WindowObserver {
       : window_(window), size_button_(size_button) {
     window_->AddObserver(this);
   }
+
+  SnappingWindowObserver(const SnappingWindowObserver&) = delete;
+  SnappingWindowObserver& operator=(const SnappingWindowObserver&) = delete;
+
   ~SnappingWindowObserver() override {
     if (window_) {
       window_->RemoveObserver(this);
@@ -107,8 +124,6 @@ class FrameSizeButton::SnappingWindowObserver : public aura::WindowObserver {
  private:
   aura::Window* window_;
   FrameSizeButton* size_button_;
-
-  DISALLOW_COPY_AND_ASSIGN(SnappingWindowObserver);
 };
 
 FrameSizeButton::FrameSizeButton(PressedCallback callback,
@@ -152,7 +167,7 @@ void FrameSizeButton::OnMouseReleased(const ui::MouseEvent& event) {
 }
 
 void FrameSizeButton::OnMouseCaptureLost() {
-  SetButtonsToNormalMode(FrameSizeButtonDelegate::ANIMATE_YES);
+  SetButtonsToNormalMode(FrameSizeButtonDelegate::Animate::kYes);
   views::FrameCaptionButton::OnMouseCaptureLost();
 }
 
@@ -164,7 +179,7 @@ void FrameSizeButton::OnMouseMoved(const ui::MouseEvent& event) {
 
 void FrameSizeButton::OnGestureEvent(ui::GestureEvent* event) {
   if (event->details().touch_points() > 1) {
-    SetButtonsToNormalMode(FrameSizeButtonDelegate::ANIMATE_YES);
+    SetButtonsToNormalMode(FrameSizeButtonDelegate::Animate::kYes);
     return;
   }
   if (event->type() == ui::ET_GESTURE_TAP_DOWN && delegate_->CanSnap()) {
@@ -201,14 +216,13 @@ void FrameSizeButton::StartSetButtonsToSnapModeTimer(
     AnimateButtonsToSnapMode();
   } else {
     set_buttons_to_snap_mode_timer_.Start(
-        FROM_HERE,
-        base::TimeDelta::FromMilliseconds(set_buttons_to_snap_mode_delay_ms_),
-        this, &FrameSizeButton::AnimateButtonsToSnapMode);
+        FROM_HERE, base::Milliseconds(set_buttons_to_snap_mode_delay_ms_), this,
+        &FrameSizeButton::AnimateButtonsToSnapMode);
   }
 }
 
 void FrameSizeButton::AnimateButtonsToSnapMode() {
-  SetButtonsToSnapMode(FrameSizeButtonDelegate::ANIMATE_YES);
+  SetButtonsToSnapMode(FrameSizeButtonDelegate::Animate::kYes);
 
   // Start observing the to-be-snapped window.
   snapping_window_observer_ = std::make_unique<SnappingWindowObserver>(
@@ -222,11 +236,12 @@ void FrameSizeButton::SetButtonsToSnapMode(
   // When using a right-to-left layout the close button is left of the size
   // button and the minimize button is right of the size button.
   if (base::i18n::IsRTL()) {
-    delegate_->SetButtonIcons(views::CAPTION_BUTTON_ICON_RIGHT_SNAPPED,
-                              views::CAPTION_BUTTON_ICON_LEFT_SNAPPED, animate);
+    delegate_->SetButtonIcons(views::CAPTION_BUTTON_ICON_RIGHT_BOTTOM_SNAPPED,
+                              views::CAPTION_BUTTON_ICON_LEFT_TOP_SNAPPED,
+                              animate);
   } else {
-    delegate_->SetButtonIcons(views::CAPTION_BUTTON_ICON_LEFT_SNAPPED,
-                              views::CAPTION_BUTTON_ICON_RIGHT_SNAPPED,
+    delegate_->SetButtonIcons(views::CAPTION_BUTTON_ICON_LEFT_TOP_SNAPPED,
+                              views::CAPTION_BUTTON_ICON_RIGHT_BOTTOM_SNAPPED,
                               animate);
   }
 }
@@ -258,7 +273,7 @@ void FrameSizeButton::UpdateSnapPreview(const ui::LocatedEvent& event) {
   if (to_hover) {
     // Progress the minimize and close icon morph animations to the end if they
     // are in progress.
-    SetButtonsToSnapMode(FrameSizeButtonDelegate::ANIMATE_NO);
+    SetButtonsToSnapMode(FrameSizeButtonDelegate::Animate::kNo);
   }
 
   delegate_->SetHoveredAndPressedButtons(to_hover,
@@ -272,8 +287,10 @@ const views::FrameCaptionButton* FrameSizeButton::GetButtonToHover(
   views::View::ConvertPointToScreen(this, &event_location_in_screen);
   const views::FrameCaptionButton* closest_button =
       delegate_->GetButtonClosestTo(event_location_in_screen);
-  if ((closest_button->GetIcon() == views::CAPTION_BUTTON_ICON_LEFT_SNAPPED ||
-       closest_button->GetIcon() == views::CAPTION_BUTTON_ICON_RIGHT_SNAPPED) &&
+  if ((closest_button->GetIcon() ==
+           views::CAPTION_BUTTON_ICON_LEFT_TOP_SNAPPED ||
+       closest_button->GetIcon() ==
+           views::CAPTION_BUTTON_ICON_RIGHT_BOTTOM_SNAPPED) &&
       HitTestButton(closest_button, event_location_in_screen)) {
     return closest_button;
   }
@@ -286,16 +303,16 @@ bool FrameSizeButton::CommitSnap(const ui::LocatedEvent& event) {
   delegate_->CommitSnap(snap);
   delegate_->SetHoveredAndPressedButtons(nullptr, nullptr);
 
-  if (snap == SnapDirection::kLeft) {
+  if (snap == SnapDirection::kPrimary) {
     base::RecordAction(base::UserMetricsAction("MaxButton_MaxLeft"));
-  } else if (snap == SnapDirection::kRight) {
+  } else if (snap == SnapDirection::kSecondary) {
     base::RecordAction(base::UserMetricsAction("MaxButton_MaxRight"));
   } else {
-    SetButtonsToNormalMode(FrameSizeButtonDelegate::ANIMATE_YES);
+    SetButtonsToNormalMode(FrameSizeButtonDelegate::Animate::kYes);
     return false;
   }
 
-  SetButtonsToNormalMode(FrameSizeButtonDelegate::ANIMATE_NO);
+  SetButtonsToNormalMode(FrameSizeButtonDelegate::Animate::kNo);
   return true;
 }
 
@@ -303,7 +320,7 @@ void FrameSizeButton::CancelSnap() {
   snapping_window_observer_.reset();
   delegate_->CommitSnap(SnapDirection::kNone);
   delegate_->SetHoveredAndPressedButtons(nullptr, nullptr);
-  SetButtonsToNormalMode(FrameSizeButtonDelegate::ANIMATE_YES);
+  SetButtonsToNormalMode(FrameSizeButtonDelegate::Animate::kYes);
 }
 
 void FrameSizeButton::SetButtonsToNormalMode(

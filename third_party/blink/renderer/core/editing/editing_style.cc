@@ -27,7 +27,7 @@
 #include "third_party/blink/renderer/core/editing/editing_style.h"
 
 #include "base/stl_util.h"
-#include "third_party/blink/renderer/core/css/css_color_value.h"
+#include "third_party/blink/renderer/core/css/css_color.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
@@ -426,7 +426,7 @@ static Color CssValueToColor(const CSSValue* value) {
   if (!value)
     return Color::kTransparent;
 
-  auto* color_value = DynamicTo<cssvalue::CSSColorValue>(value);
+  auto* color_value = DynamicTo<cssvalue::CSSColor>(value);
   if (!color_value && !value->IsPrimitiveValue() && !value->IsIdentifierValue())
     return Color::kTransparent;
 
@@ -1982,7 +1982,7 @@ int LegacyFontSizeFromCSSValue(Document* document,
             CSSPrimitiveValue::ConversionToCanonicalUnitsScaleFactor(
                 length_unit);
         int pixel_font_size =
-            clampTo<int>(primitive_value->GetDoubleValue() * conversion);
+            ClampTo<int>(primitive_value->GetDoubleValue() * conversion);
         int legacy_font_size = FontSizeFunctions::LegacyFontSize(
             document, pixel_font_size, is_monospace_font);
         // Use legacy font size only if pixel value matches exactly to that of

@@ -11,9 +11,9 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/containers/cxx20_erase.h"
 #include "base/feature_list.h"
 #include "base/i18n/case_conversion.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
@@ -28,6 +28,7 @@
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -157,7 +158,7 @@ bool BaseSearchProvider::ShouldPrefetch(const AutocompleteMatch& match) {
 
 // static
 AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
-    const base::string16& suggestion,
+    const std::u16string& suggestion,
     AutocompleteMatchType::Type type,
     bool from_keyword,
     const TemplateURL* template_url,
@@ -169,7 +170,7 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
   SearchSuggestionParser::SuggestResult suggest_result(
       suggestion, type, /*subtypes=*/{}, from_keyword,
       /*relevance=*/0, /*relevance_from_server=*/false,
-      /*input_text=*/base::string16());
+      /*input_text=*/std::u16string());
   suggest_result.set_received_after_last_keystroke(false);
   return CreateSearchSuggestion(nullptr, AutocompleteInput(), from_keyword,
                                 suggest_result, template_url, search_terms_data,
@@ -180,7 +181,7 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
 AutocompleteMatch BaseSearchProvider::CreateOnDeviceSearchSuggestion(
     AutocompleteProvider* autocomplete_provider,
     const AutocompleteInput& input,
-    const base::string16& suggestion,
+    const std::u16string& suggestion,
     int relevance,
     const TemplateURL* template_url,
     const SearchTermsData& search_terms_data,
@@ -223,7 +224,10 @@ bool BaseSearchProvider::IsNTPPage(
          (classification == OEP::OBSOLETE_INSTANT_NTP) ||
          (classification == OEP::INSTANT_NTP_WITH_FAKEBOX_AS_STARTING_FOCUS) ||
          (classification == OEP::INSTANT_NTP_WITH_OMNIBOX_AS_STARTING_FOCUS) ||
-         (classification == OEP::NTP_REALBOX);
+         (classification == OEP::NTP_REALBOX) ||
+         (classification == OEP::START_SURFACE_HOMEPAGE) ||
+         (classification == OEP::START_SURFACE_NEW_TAB) ||
+         (classification == OEP::ANDROID_SHORTCUTS_WIDGET);
 }
 
 // static
@@ -327,7 +331,7 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
         &match.description_class, 0, ACMatchClassification::NONE);
   }
 
-  const base::string16 input_lower = base::i18n::ToLower(input.text());
+  const std::u16string input_lower = base::i18n::ToLower(input.text());
   // suggestion.match_contents() should have already been collapsed.
   match.allowed_to_be_default_match =
       (!in_keyword_mode || suggestion.from_keyword()) &&
@@ -352,15 +356,16 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
 
   const TemplateURLRef& search_url = template_url->url_ref();
   DCHECK(search_url.SupportsReplacement(search_terms_data));
-  base::string16 query(suggestion.suggestion());
-  base::string16 original_query(input.text());
+  std::u16string query(suggestion.suggestion());
+  std::u16string original_query(input.text());
   if (suggestion.type() == AutocompleteMatchType::CALCULATOR) {
     // Use query text, rather than the calculator answer suggestion, to search.
     query = original_query;
     original_query.clear();
   }
   match.fill_into_edit = GetFillIntoEdit(suggestion, template_url);
-  match.search_terms_args.reset(new TemplateURLRef::SearchTermsArgs(query));
+  match.search_terms_args =
+      std::make_unique<TemplateURLRef::SearchTermsArgs>(query);
   match.search_terms_args->original_query = original_query;
   match.search_terms_args->accepted_suggestion = accepted_suggestion;
   match.search_terms_args->additional_query_params =
@@ -381,13 +386,13 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
 }
 
 // static
-base::string16 BaseSearchProvider::GetFillIntoEdit(
+std::u16string BaseSearchProvider::GetFillIntoEdit(
     const SearchSuggestionParser::SuggestResult& suggest_result,
     const TemplateURL* template_url) {
-  base::string16 fill_into_edit;
+  std::u16string fill_into_edit;
 
   if (suggest_result.from_keyword())
-    fill_into_edit.append(template_url->keyword() + base::char16(' '));
+    fill_into_edit.append(template_url->keyword() + u' ');
 
   fill_into_edit.append(suggest_result.suggestion());
 
@@ -471,7 +476,7 @@ void BaseSearchProvider::SetDeletionURL(const std::string& deletion_url,
   GURL url =
       template_url_service->GetDefaultSearchProvider()->GenerateSearchURL(
           template_url_service->search_terms_data());
-  url = url.GetOrigin().Resolve(deletion_url);
+  url = url.DeprecatedGetOriginAsURL().Resolve(deletion_url);
   if (url.is_valid()) {
     match->RecordAdditionalInfo(BaseSearchProvider::kDeletionUrlKey,
                                 url.spec());

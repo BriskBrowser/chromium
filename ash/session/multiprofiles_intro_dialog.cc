@@ -6,6 +6,7 @@
 
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "base/bind.h"
 #include "base/macros.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -68,8 +69,8 @@ MultiprofilesIntroDialog::~MultiprofilesIntroDialog() = default;
 
 void MultiprofilesIntroDialog::InitDialog() {
   const views::LayoutProvider* provider = views::LayoutProvider::Get();
-  SetBorder(views::CreateEmptyBorder(
-      provider->GetDialogInsetsForContentType(views::TEXT, views::CONTROL)));
+  SetBorder(views::CreateEmptyBorder(provider->GetDialogInsetsForContentType(
+      views::DialogContentType::kText, views::DialogContentType::kControl)));
 
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical, gfx::Insets(),

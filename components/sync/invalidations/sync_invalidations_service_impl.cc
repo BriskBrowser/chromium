@@ -61,10 +61,10 @@ void SyncInvalidationsServiceImpl::RemoveTokenObserver(
   fcm_handler_->RemoveTokenObserver(observer);
 }
 
-base::Optional<std::string>
+absl::optional<std::string>
 SyncInvalidationsServiceImpl::GetFCMRegistrationToken() const {
   if (fcm_handler_->IsWaitingForToken()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
   return fcm_handler_->GetFCMRegistrationToken();
 }
@@ -74,15 +74,21 @@ void SyncInvalidationsServiceImpl::SetInterestedDataTypesHandler(
   data_types_manager_.SetInterestedDataTypesHandler(handler);
 }
 
-base::Optional<ModelTypeSet>
+absl::optional<ModelTypeSet>
 SyncInvalidationsServiceImpl::GetInterestedDataTypes() const {
   return data_types_manager_.GetInterestedDataTypes();
 }
 
 void SyncInvalidationsServiceImpl::SetInterestedDataTypes(
-    const ModelTypeSet& data_types,
-    InterestedDataTypesAppliedCallback callback) {
-  data_types_manager_.SetInterestedDataTypes(data_types, std::move(callback));
+    const ModelTypeSet& data_types) {
+  data_types_manager_.SetInterestedDataTypes(data_types);
+}
+
+void SyncInvalidationsServiceImpl::
+    SetCommittedAdditionalInterestedDataTypesCallback(
+        InterestedDataTypesAppliedCallback callback) {
+  data_types_manager_.SetCommittedAdditionalInterestedDataTypesCallback(
+      std::move(callback));
 }
 
 void SyncInvalidationsServiceImpl::Shutdown() {

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// #import {Route} from '../router.m.js';
+// #import {Route} from '../router.js';
 
 /**
  * Specifies all possible os routes in settings.
@@ -15,6 +15,7 @@
  *   ADVANCED: !settings.Route,
  *   AMBIENT_MODE: !settings.Route,
  *   AMBIENT_MODE_PHOTOS: !settings.Route,
+ *   APP_NOTIFICATIONS: !settings.Route,
  *   APP_MANAGEMENT: !settings.Route,
  *   APP_MANAGEMENT_DETAIL: !settings.Route,
  *   APP_MANAGEMENT_PLUGIN_VM_SHARED_PATHS: !settings.Route,
@@ -26,14 +27,17 @@
  *   CROSTINI_DETAILS: !settings.Route,
  *   CROSTINI_DISK_RESIZE: !settings.Route,
  *   CROSTINI_EXPORT_IMPORT: !settings.Route,
+ *   CROSTINI_EXTRA_CONTAINERS: !settings.Route,
  *   CROSTINI_PORT_FORWARDING: !settings.Route,
  *   CROSTINI_SHARED_PATHS: !settings.Route,
  *   CROSTINI_SHARED_USB_DEVICES: !settings.Route,
  *   BASIC: !settings.Route,
  *   BLUETOOTH: !settings.Route,
  *   BLUETOOTH_DEVICES: !settings.Route,
+ *   BLUETOOTH_DEVICE_DETAIL: !settings.Route,
  *   CHANGE_PICTURE: !settings.Route,
  *   CUPS_PRINTERS: !settings.Route,
+ *   DARK_MODE: !settings.Route,
  *   DATETIME: !settings.Route,
  *   DATETIME_TIMEZONE_SUBPAGE: !settings.Route,
  *   DETAILED_BUILD_INFO: !settings.Route,
@@ -46,7 +50,6 @@
  *   INTERNET: !settings.Route,
  *   INTERNET_NETWORKS: !settings.Route,
  *   KERBEROS: !settings.Route,
- *   KERBEROS_ACCOUNTS: !settings.Route,
  *   KERBEROS_ACCOUNTS_V2: !settings.Route,
  *   KEYBOARD: !settings.Route,
  *   KNOWN_NETWORKS: !settings.Route,
@@ -62,10 +65,8 @@
  *   ON_STARTUP: !settings.Route,
  *   OS_ACCESSIBILITY: !settings.Route,
  *   OS_LANGUAGES: !settings.Route,
- *   OS_LANGUAGES_DETAILS: !settings.Route,
  *   OS_LANGUAGES_EDIT_DICTIONARY: !settings.Route,
  *   OS_LANGUAGES_INPUT: !settings.Route,
- *   OS_LANGUAGES_INPUT_METHODS: !settings.Route,
  *   OS_LANGUAGES_INPUT_METHOD_OPTIONS: !settings.Route,
  *   OS_LANGUAGES_LANGUAGES: !settings.Route,
  *   OS_LANGUAGES_SMART_INPUTS: !settings.Route,
@@ -81,13 +82,14 @@
  *   POWER: !settings.Route,
  *   PRIVACY: !settings.Route,
  *   SEARCH: !settings.Route,
+ *   SEARCH_SUBPAGE: !settings.Route,
  *   SMART_LOCK: !settings.Route,
+ *   SMART_PRIVACY: !settings.Route,
  *   SMB_SHARES: !settings.Route,
  *   STORAGE: !settings.Route,
  *   STYLUS: !settings.Route,
  *   SYNC: !settings.Route,
  *   SYNC_ADVANCED: !settings.Route,
- *   WALLPAPER: !settings.Route,
  * }}
  */
 /* #export */ let OsSettingsRoutes;

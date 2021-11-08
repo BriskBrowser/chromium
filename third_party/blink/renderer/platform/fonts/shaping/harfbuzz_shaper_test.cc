@@ -6,7 +6,8 @@
 
 #include <unicode/uscript.h>
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -24,6 +25,14 @@
 #include "third_party/blink/renderer/platform/text/text_run.h"
 #include "third_party/blink/renderer/platform/web_test_support.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+
+#if defined(OS_ANDROID)
+#include "base/android/build_info.h"
+#endif
+
+#if defined(OS_MAC)
+#include "base/mac/mac_util.h"
+#endif
 
 using testing::ElementsAre;
 
@@ -90,13 +99,15 @@ class HarfBuzzShaperTest : public testing::Test {
   void SelectDevanagariFont() {
     FontFamily devanagari_family;
     // Windows 10
-    devanagari_family.SetFamily("Nirmala UI");
+    devanagari_family.SetFamily("Nirmala UI", FontFamily::Type::kFamilyName);
     // Windows 7
-    devanagari_family.AppendFamily("Mangal");
+    devanagari_family.AppendFamily("Mangal", FontFamily::Type::kFamilyName);
     // Linux
-    devanagari_family.AppendFamily("Lohit Devanagari");
+    devanagari_family.AppendFamily("Lohit Devanagari",
+                                   FontFamily::Type::kFamilyName);
     // Mac
-    devanagari_family.AppendFamily("ITF Devanagari");
+    devanagari_family.AppendFamily("ITF Devanagari",
+                                   FontFamily::Type::kFamilyName);
 
     font_description.SetFamily(devanagari_family);
     font = Font(font_description);
@@ -107,6 +118,14 @@ class HarfBuzzShaperTest : public testing::Test {
     return blink::test::CreateTestFont(
         "Ahem", blink::test::PlatformTestDataPath("Ahem.woff"), size,
         &ligatures);
+  }
+
+  Font CreateNotoColorEmoji() {
+    return blink::test::CreateTestFont(
+        "NotoColorEmoji",
+        blink::test::BlinkRootDir() +
+            "/web_tests/third_party/NotoColorEmoji/NotoColorEmoji.ttf",
+        12);
   }
 
   scoped_refptr<ShapeResult> SplitRun(scoped_refptr<ShapeResult> shape_result,
@@ -140,15 +159,11 @@ class HarfBuzzShaperTest : public testing::Test {
 
 class ScopedSubpixelOverride {
  public:
-  ScopedSubpixelOverride(bool b) {
-    prev_web_test_ = WebTestSupport::IsRunningWebTest();
+  explicit ScopedSubpixelOverride(bool b) {
     prev_subpixel_allowed_ =
         WebTestSupport::IsTextSubpixelPositioningAllowedForTest();
     prev_antialias_ = WebTestSupport::IsFontAntialiasingEnabledForTest();
     prev_fd_subpixel_ = FontDescription::SubpixelPositioning();
-
-    // This is required for all WebTestSupport settings to have effects.
-    WebTestSupport::SetIsRunningWebTest(true);
 
     if (b) {
       // Allow subpixel positioning.
@@ -174,7 +189,6 @@ class ScopedSubpixelOverride {
     WebTestSupport::SetFontAntialiasingEnabledForTest(prev_antialias_);
     WebTestSupport::SetTextSubpixelPositioningAllowedForTest(
         prev_subpixel_allowed_);
-    WebTestSupport::SetIsRunningWebTest(prev_web_test_);
 
     // Fonts cached with a different subpixel positioning state are not
     // automatically invalidated and need to be cleared between test
@@ -183,10 +197,12 @@ class ScopedSubpixelOverride {
   }
 
  private:
-  bool prev_web_test_;
   bool prev_subpixel_allowed_;
   bool prev_antialias_;
   bool prev_fd_subpixel_;
+  // Web test mode (which is enabled by default for unit tests) is required
+  // for all WebTestSupport settings to have effects.
+  ScopedWebTestMode web_test_mode_{true};
 };
 
 class ShapeParameterTest : public HarfBuzzShaperTest,
@@ -270,7 +286,7 @@ TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsUnicodeVariants) {
 TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsDevanagariCommon) {
   SelectDevanagariFont();
   UChar devanagari_common_string[] = {0x915, 0x94d, 0x930, 0x28, 0x20, 0x29};
-  String devanagari_common_latin(devanagari_common_string, 6);
+  String devanagari_common_latin(devanagari_common_string, 6u);
   HarfBuzzShaper shaper(devanagari_common_latin);
   scoped_refptr<ShapeResult> result = shaper.Shape(&font, TextDirection::kLtr);
 
@@ -291,7 +307,7 @@ TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsDevanagariCommonLatinCommon) {
   SelectDevanagariFont();
   UChar devanagari_common_latin_string[] = {0x915, 0x94d, 0x930, 0x20,
                                             0x61,  0x62,  0x2E};
-  HarfBuzzShaper shaper(String(devanagari_common_latin_string, 7));
+  HarfBuzzShaper shaper(String(devanagari_common_latin_string, 7u));
   scoped_refptr<ShapeResult> result = shaper.Shape(&font, TextDirection::kLtr);
 
   // Ensure that there are only two scripts, Devanagari first, then Latin.
@@ -310,7 +326,7 @@ TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsDevanagariCommonLatinCommon) {
 
 TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsArabicThaiHanLatin) {
   UChar mixed_string[] = {0x628, 0x64A, 0x629, 0xE20, 0x65E5, 0x62};
-  HarfBuzzShaper shaper(String(mixed_string, 6));
+  HarfBuzzShaper shaper(String(mixed_string, 6u));
   scoped_refptr<ShapeResult> result = shaper.Shape(&font, TextDirection::kLtr);
 
   EXPECT_EQ(4u, TestInfo(result)->NumberOfRunsForTesting());
@@ -341,7 +357,7 @@ TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsArabicThaiHanLatin) {
 
 TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsArabicThaiHanLatinTwice) {
   UChar mixed_string[] = {0x628, 0x64A, 0x629, 0xE20, 0x65E5, 0x62};
-  HarfBuzzShaper shaper(String(mixed_string, 6));
+  HarfBuzzShaper shaper(String(mixed_string, 6u));
   scoped_refptr<ShapeResult> result = shaper.Shape(&font, TextDirection::kLtr);
   EXPECT_EQ(4u, TestInfo(result)->NumberOfRunsForTesting());
 
@@ -353,7 +369,7 @@ TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsArabicThaiHanLatinTwice) {
 
 TEST_F(HarfBuzzShaperTest, ResolveCandidateRunsArabic) {
   UChar arabic_string[] = {0x628, 0x64A, 0x629};
-  HarfBuzzShaper shaper(String(arabic_string, 3));
+  HarfBuzzShaper shaper(String(arabic_string, 3u));
   scoped_refptr<ShapeResult> result = shaper.Shape(&font, TextDirection::kRtl);
 
   EXPECT_EQ(1u, TestInfo(result)->NumberOfRunsForTesting());
@@ -427,7 +443,7 @@ TEST_F(HarfBuzzShaperTest, ShapeLatinSegment) {
 #endif
 TEST_F(HarfBuzzShaperTest, MAYBE_ShapeArabicWithContext) {
   UChar arabic_string[] = {0x647, 0x64A};
-  HarfBuzzShaper shaper(String(arabic_string, 2));
+  HarfBuzzShaper shaper(String(arabic_string, 2u));
 
   scoped_refptr<ShapeResult> combined =
       shaper.Shape(&font, TextDirection::kRtl);
@@ -689,6 +705,17 @@ TEST_P(ShapeParameterTest, ZeroWidthSpace) {
 #endif
 }
 
+TEST_F(HarfBuzzShaperTest, IdeographicSpace) {
+  String string(
+      u"\u3001"    // IDEOGRAPHIC COMMA
+      u"\u3000");  // IDEOGRAPHIC SPACE
+  HarfBuzzShaper shaper(string);
+  scoped_refptr<ShapeResult> result = shaper.Shape(&font, TextDirection::kLtr);
+  Vector<ShapeResult::RunFontData> run_font_data;
+  result->GetRunFontData(&run_font_data);
+  EXPECT_EQ(run_font_data.size(), 1u);
+}
+
 TEST_F(HarfBuzzShaperTest, NegativeLetterSpacing) {
   String string(u"Hello");
   HarfBuzzShaper shaper(string);
@@ -698,7 +725,7 @@ TEST_F(HarfBuzzShaperTest, NegativeLetterSpacing) {
   ShapeResultSpacing<String> spacing(string);
   FontDescription font_description;
   font_description.SetLetterSpacing(-5);
-  spacing.SetSpacing(Font(font_description));
+  spacing.SetSpacing(font_description);
   result->ApplySpacing(spacing);
 
   EXPECT_EQ(5 * 5, width - result->Width());
@@ -713,7 +740,7 @@ TEST_F(HarfBuzzShaperTest, NegativeLetterSpacingTo0) {
   ShapeResultSpacing<String> spacing(string);
   FontDescription font_description;
   font_description.SetLetterSpacing(-char_width);
-  spacing.SetSpacing(Font(font_description));
+  spacing.SetSpacing(font_description);
   result->ApplySpacing(spacing);
 
   // EXPECT_EQ(0.0f, result->Width());
@@ -728,7 +755,7 @@ TEST_F(HarfBuzzShaperTest, NegativeLetterSpacingToNegative) {
   ShapeResultSpacing<String> spacing(string);
   FontDescription font_description;
   font_description.SetLetterSpacing(-2 * char_width);
-  spacing.SetSpacing(Font(font_description));
+  spacing.SetSpacing(font_description);
   result->ApplySpacing(spacing);
 
   // CSS does not allow negative width, it should be clampled to 0.
@@ -842,9 +869,10 @@ TEST_P(OffsetForPositionTest, Data) {
   scoped_refptr<ShapeResult> result =
       SplitRun(shaper.Shape(&ahem, TextDirection::kLtr), 2);
   EXPECT_EQ(data.offset_ltr,
-            result->OffsetForPosition(data.position, DontBreakGlyphs));
-  EXPECT_EQ(data.hit_test_ltr, result->CaretOffsetForHitTest(
-                                   data.position, string, DontBreakGlyphs));
+            result->OffsetForPosition(data.position, BreakGlyphsOption(false)));
+  EXPECT_EQ(data.hit_test_ltr,
+            result->CaretOffsetForHitTest(data.position, string,
+                                          BreakGlyphsOption(false)));
   EXPECT_EQ(data.fit_ltr_ltr,
             result->OffsetToFit(data.position, TextDirection::kLtr));
   EXPECT_EQ(data.fit_ltr_rtl,
@@ -852,9 +880,10 @@ TEST_P(OffsetForPositionTest, Data) {
 
   result = SplitRun(shaper.Shape(&ahem, TextDirection::kRtl), 3);
   EXPECT_EQ(data.offset_rtl,
-            result->OffsetForPosition(data.position, DontBreakGlyphs));
-  EXPECT_EQ(data.hit_test_rtl, result->CaretOffsetForHitTest(
-                                   data.position, string, DontBreakGlyphs));
+            result->OffsetForPosition(data.position, BreakGlyphsOption(false)));
+  EXPECT_EQ(data.hit_test_rtl,
+            result->CaretOffsetForHitTest(data.position, string,
+                                          BreakGlyphsOption(false)));
   EXPECT_EQ(data.fit_rtl_ltr,
             result->OffsetToFit(data.position, TextDirection::kLtr));
   EXPECT_EQ(data.fit_rtl_rtl,
@@ -883,7 +912,7 @@ TEST_F(HarfBuzzShaperTest, PositionForOffsetArabic) {
   UChar arabic_string[] = {0x628, 0x64A, 0x629};
   TextDirection direction = TextDirection::kRtl;
 
-  HarfBuzzShaper shaper(String(arabic_string, 3));
+  HarfBuzzShaper shaper(String(arabic_string, 3u));
   scoped_refptr<ShapeResult> result = shaper.Shape(&font, direction);
 
   EXPECT_EQ(0.0f, result->PositionForOffset(3));
@@ -909,8 +938,8 @@ class IncludePartialGlyphsTest
 INSTANTIATE_TEST_SUITE_P(
     HarfBuzzShaperTest,
     IncludePartialGlyphsTest,
-    ::testing::Values(IncludePartialGlyphsOption::OnlyFullGlyphs,
-                      IncludePartialGlyphsOption::IncludePartialGlyphs));
+    ::testing::Values(IncludePartialGlyphsOption::kOnlyFullGlyphs,
+                      IncludePartialGlyphsOption::kIncludePartialGlyphs));
 
 TEST_P(IncludePartialGlyphsTest,
        OffsetForPositionMatchesPositionForOffsetLatin) {
@@ -922,37 +951,40 @@ TEST_P(IncludePartialGlyphsTest,
 
   IncludePartialGlyphsOption partial = GetParam();
   EXPECT_EQ(0u, result->OffsetForPosition(result->PositionForOffset(0), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(1u, result->OffsetForPosition(result->PositionForOffset(1), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(2u, result->OffsetForPosition(result->PositionForOffset(2), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(3u, result->OffsetForPosition(result->PositionForOffset(3), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(4u, result->OffsetForPosition(result->PositionForOffset(4), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(5u, result->OffsetForPosition(result->PositionForOffset(5), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(6u, result->OffsetForPosition(result->PositionForOffset(6), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(7u, result->OffsetForPosition(result->PositionForOffset(7), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(8u, result->OffsetForPosition(result->PositionForOffset(8), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(9u, result->OffsetForPosition(result->PositionForOffset(9), string,
-                                          partial, DontBreakGlyphs));
-  EXPECT_EQ(10u, result->OffsetForPosition(result->PositionForOffset(10),
-                                           string, partial, DontBreakGlyphs));
-  EXPECT_EQ(11u, result->OffsetForPosition(result->PositionForOffset(11),
-                                           string, partial, DontBreakGlyphs));
-  EXPECT_EQ(12u, result->OffsetForPosition(result->PositionForOffset(12),
-                                           string, partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
+  EXPECT_EQ(10u,
+            result->OffsetForPosition(result->PositionForOffset(10), string,
+                                      partial, BreakGlyphsOption(false)));
+  EXPECT_EQ(11u,
+            result->OffsetForPosition(result->PositionForOffset(11), string,
+                                      partial, BreakGlyphsOption(false)));
+  EXPECT_EQ(12u,
+            result->OffsetForPosition(result->PositionForOffset(12), string,
+                                      partial, BreakGlyphsOption(false)));
 }
 
 TEST_P(IncludePartialGlyphsTest,
        OffsetForPositionMatchesPositionForOffsetArabic) {
   UChar arabic_string[] = {0x628, 0x64A, 0x629};
-  String string(arabic_string, 3);
+  String string(arabic_string, 3u);
   TextDirection direction = TextDirection::kRtl;
 
   HarfBuzzShaper shaper(string);
@@ -960,37 +992,37 @@ TEST_P(IncludePartialGlyphsTest,
 
   IncludePartialGlyphsOption partial = GetParam();
   EXPECT_EQ(0u, result->OffsetForPosition(result->PositionForOffset(0), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(1u, result->OffsetForPosition(result->PositionForOffset(1), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(2u, result->OffsetForPosition(result->PositionForOffset(2), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(3u, result->OffsetForPosition(result->PositionForOffset(3), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
 }
 
 TEST_P(IncludePartialGlyphsTest,
        OffsetForPositionMatchesPositionForOffsetMixed) {
   UChar mixed_string[] = {0x628, 0x64A, 0x629, 0xE20, 0x65E5, 0x62};
-  String string(mixed_string, 6);
+  String string(mixed_string, 6u);
   HarfBuzzShaper shaper(string);
   scoped_refptr<ShapeResult> result = shaper.Shape(&font, TextDirection::kLtr);
 
   IncludePartialGlyphsOption partial = GetParam();
   EXPECT_EQ(0u, result->OffsetForPosition(result->PositionForOffset(0), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(1u, result->OffsetForPosition(result->PositionForOffset(1), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(2u, result->OffsetForPosition(result->PositionForOffset(2), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(3u, result->OffsetForPosition(result->PositionForOffset(3), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(4u, result->OffsetForPosition(result->PositionForOffset(4), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(5u, result->OffsetForPosition(result->PositionForOffset(5), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
   EXPECT_EQ(6u, result->OffsetForPosition(result->PositionForOffset(6), string,
-                                          partial, DontBreakGlyphs));
+                                          partial, BreakGlyphsOption(false)));
 }
 
 TEST_F(HarfBuzzShaperTest, CachedOffsetPositionMappingForOffsetLatin) {
@@ -1020,7 +1052,7 @@ TEST_F(HarfBuzzShaperTest, CachedOffsetPositionMappingArabic) {
   UChar arabic_string[] = {0x628, 0x64A, 0x629};
   TextDirection direction = TextDirection::kRtl;
 
-  HarfBuzzShaper shaper(String(arabic_string, 3));
+  HarfBuzzShaper shaper(String(arabic_string, 3u));
   scoped_refptr<ShapeResult> sr = shaper.Shape(&font, direction);
   sr->EnsurePositionData();
 
@@ -1032,7 +1064,7 @@ TEST_F(HarfBuzzShaperTest, CachedOffsetPositionMappingArabic) {
 
 TEST_F(HarfBuzzShaperTest, CachedOffsetPositionMappingMixed) {
   UChar mixed_string[] = {0x628, 0x64A, 0x629, 0xE20, 0x65E5, 0x62};
-  HarfBuzzShaper shaper(String(mixed_string, 6));
+  HarfBuzzShaper shaper(String(mixed_string, 6u));
   scoped_refptr<ShapeResult> sr = shaper.Shape(&font, TextDirection::kLtr);
   sr->EnsurePositionData();
 
@@ -1228,7 +1260,7 @@ TEST_F(HarfBuzzShaperTest, ShapeResultCopyRangeIntoArabicThaiHanLatin) {
   UChar mixed_string[] = {0x628, 0x20, 0x64A, 0x629, 0x20, 0xE20, 0x65E5, 0x62};
   TextDirection direction = TextDirection::kLtr;
 
-  HarfBuzzShaper shaper(String(mixed_string, 8));
+  HarfBuzzShaper shaper(String(mixed_string, 8u));
   scoped_refptr<ShapeResult> result = shaper.Shape(&font, direction);
 
   scoped_refptr<ShapeResult> composite_result =
@@ -1482,13 +1514,13 @@ TEST_F(HarfBuzzShaperTest, MAYBE_SafeToBreakArabicCommonLigatures) {
   EXPECT_EQ(3u, result->NextSafeToBreakOffset(3));
   EXPECT_EQ(4u, result->NextSafeToBreakOffset(4));
 #if defined(OS_MAC)
-  EXPECT_EQ(12u, result->NextSafeToBreakOffset(5));
-  EXPECT_EQ(12u, result->NextSafeToBreakOffset(6));
-  EXPECT_EQ(12u, result->NextSafeToBreakOffset(7));
-  EXPECT_EQ(12u, result->NextSafeToBreakOffset(8));
-  EXPECT_EQ(12u, result->NextSafeToBreakOffset(9));
-  EXPECT_EQ(12u, result->NextSafeToBreakOffset(10));
-  EXPECT_EQ(12u, result->NextSafeToBreakOffset(11));
+  EXPECT_EQ(5u, result->NextSafeToBreakOffset(5));
+  EXPECT_EQ(11u, result->NextSafeToBreakOffset(6));
+  EXPECT_EQ(11u, result->NextSafeToBreakOffset(7));
+  EXPECT_EQ(11u, result->NextSafeToBreakOffset(8));
+  EXPECT_EQ(11u, result->NextSafeToBreakOffset(9));
+  EXPECT_EQ(11u, result->NextSafeToBreakOffset(10));
+  EXPECT_EQ(11u, result->NextSafeToBreakOffset(11));
 #else
   EXPECT_EQ(5u, result->NextSafeToBreakOffset(5));
   EXPECT_EQ(7u, result->NextSafeToBreakOffset(6));
@@ -1506,13 +1538,13 @@ TEST_F(HarfBuzzShaperTest, MAYBE_SafeToBreakArabicCommonLigatures) {
   EXPECT_EQ(3u, result->PreviousSafeToBreakOffset(3));
   EXPECT_EQ(4u, result->PreviousSafeToBreakOffset(4));
 #if defined(OS_MAC)
-  EXPECT_EQ(4u, result->PreviousSafeToBreakOffset(5));
-  EXPECT_EQ(4u, result->PreviousSafeToBreakOffset(6));
-  EXPECT_EQ(4u, result->PreviousSafeToBreakOffset(7));
-  EXPECT_EQ(4u, result->PreviousSafeToBreakOffset(8));
-  EXPECT_EQ(4u, result->PreviousSafeToBreakOffset(9));
-  EXPECT_EQ(4u, result->PreviousSafeToBreakOffset(10));
-  EXPECT_EQ(4u, result->PreviousSafeToBreakOffset(11));
+  EXPECT_EQ(5u, result->PreviousSafeToBreakOffset(5));
+  EXPECT_EQ(5u, result->PreviousSafeToBreakOffset(6));
+  EXPECT_EQ(5u, result->PreviousSafeToBreakOffset(7));
+  EXPECT_EQ(5u, result->PreviousSafeToBreakOffset(8));
+  EXPECT_EQ(5u, result->PreviousSafeToBreakOffset(9));
+  EXPECT_EQ(5u, result->PreviousSafeToBreakOffset(10));
+  EXPECT_EQ(11u, result->PreviousSafeToBreakOffset(11));
 #else
   EXPECT_EQ(5u, result->PreviousSafeToBreakOffset(5));
   EXPECT_EQ(5u, result->PreviousSafeToBreakOffset(6));
@@ -1628,10 +1660,10 @@ TEST_P(ShapeParameterTest, CopyRangeNoRuns) {
   result->CopyRanges(ranges.data(), ranges.size());
   for (unsigned i = 0; i < ranges.size(); i++) {
     const ShapeResult::ShapeRange& range = ranges[i];
-    const ShapeResult& result = *range_results[i];
-    EXPECT_EQ(result.StartIndex(), range.start);
-    EXPECT_EQ(result.EndIndex(), range.end);
-    EXPECT_EQ(result.NumCharacters(), range.end - range.start);
+    const ShapeResult& range_result = *range_results[i];
+    EXPECT_EQ(range_result.StartIndex(), range.start);
+    EXPECT_EQ(range_result.EndIndex(), range.end);
+    EXPECT_EQ(range_result.NumCharacters(), range.end - range.start);
   }
 }
 
@@ -1757,8 +1789,15 @@ TEST_F(HarfBuzzShaperTest,
   }
 }
 
+#if defined(OS_ANDROID)
+#define MAYBE_ShapeHorizontalWithSubpixelPositionWithKerningIsNotRounded \
+  DISABLED_ShapeHorizontalWithSubpixelPositionWithKerningIsNotRounded
+#else
+#define MAYBE_ShapeHorizontalWithSubpixelPositionWithKerningIsNotRounded \
+  ShapeHorizontalWithSubpixelPositionWithKerningIsNotRounded
+#endif
 TEST_F(HarfBuzzShaperTest,
-       ShapeHorizontalWithSubpixelPositionWithKerningIsNotRounded) {
+       MAYBE_ShapeHorizontalWithSubpixelPositionWithKerningIsNotRounded) {
   ScopedSubpixelOverride subpixel_override(true);
 
   String string(u"AVOID");
@@ -1814,6 +1853,53 @@ TEST_F(HarfBuzzShaperTest, ShapeVerticalWithSubpixelPositionIsRounded) {
     EXPECT_EQ(round(position), position)
         << "Position not rounded at offset " << i;
   }
+}
+
+TEST_F(HarfBuzzShaperTest, EmojiPercentage) {
+#if defined(OS_MAC)
+  if (base::mac::IsOS11())
+    GTEST_SKIP() << "Broken on macOS 11: https://crbug.com/1194323";
+#endif
+  // This test relies on Noto Color Emoji from the third_party directory to not
+  // contain sequences and single codepoint emoji from Unicode 13 and 13.1 such
+  // as:
+  // * Couple with Heart: Woman, Man, Medium-Light Skin Tone, Medium-Dark Skin
+  // Tone
+  // * Disguised Face U+1F978
+  // * Anatomical Heart U+1FAC0
+  String string(
+      u"aa👩🏼‍❤️‍👨🏾😶👩🏼‍❤️‍👨🏾aa👩🏼‍❤️‍👨🏾😶"
+      u"👩🏼‍❤️‍👨🏾aa🫀🫀🥸🥸😶😶");
+
+  struct Expectation {
+    unsigned expected_clusters;
+    unsigned expected_broken_clusters;
+  };
+
+  Expectation expectations[] = {{3, 2}, {3, 2}, {6, 4}};
+#if defined(OS_ANDROID)
+  // On Android 11, SDK level 30, fallback occurs to an emoji
+  // font that has coverage for the last segment. Adjust the expectation.
+  if (base::android::BuildInfo::GetInstance()->sdk_int() >=
+      base::android::SdkVersion::SDK_VERSION_R) {
+    expectations[2].expected_broken_clusters = 0;
+  }
+#endif
+  unsigned num_calls = 0;
+  HarfBuzzShaper::EmojiMetricsCallback metrics_callback =
+      base::BindLambdaForTesting(
+          [&](unsigned num_clusters, unsigned num_broken_clusters) {
+            CHECK_EQ(num_clusters, expectations[num_calls].expected_clusters);
+            CHECK_EQ(num_broken_clusters,
+                     expectations[num_calls].expected_broken_clusters);
+
+            num_calls++;
+          });
+  HarfBuzzShaper shaper(string, metrics_callback);
+  Font emoji_font = CreateNotoColorEmoji();
+  scoped_refptr<ShapeResult> result =
+      shaper.Shape(&emoji_font, TextDirection::kLtr);
+  CHECK_EQ(num_calls, base::size(expectations));
 }
 
 }  // namespace blink

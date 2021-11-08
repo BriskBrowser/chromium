@@ -12,7 +12,6 @@
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/accessibility/accessibility_state_utils.h"
@@ -21,13 +20,17 @@
 #include "components/autofill/core/browser/ui/autofill_popup_delegate.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
+#include "components/password_manager/content/browser/content_password_manager_driver.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_active_popup.h"
 #include "ui/accessibility/ax_tree_id.h"
 #include "ui/accessibility/ax_tree_manager_map.h"
 #include "ui/accessibility/platform/ax_platform_node.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/text_elider.h"
@@ -105,13 +108,13 @@ void AutofillPopupControllerImpl::Show(
     just_created = true;
   }
 
+  WeakPtr<AutofillPopupControllerImpl> weak_this = GetWeakPtr();
   if (just_created) {
 #if defined(OS_ANDROID)
     ManualFillingController::GetOrCreate(web_contents_)
         ->UpdateSourceAvailability(FillingSource::AUTOFILL,
                                    !suggestions.empty());
 #endif
-    WeakPtr<AutofillPopupControllerImpl> weak_this = GetWeakPtr();
     view_->Show();
     // crbug.com/1055981. |this| can be destroyed synchronously at this point.
     if (!weak_this)
@@ -128,22 +131,30 @@ void AutofillPopupControllerImpl::Show(
       selected_line_.reset();
 
     OnSuggestionsChanged();
+    // crbug.com/1200766. |this| can be destroyed synchronously at this point.
+    if (!weak_this)
+      return;
   }
 
-  static_cast<ContentAutofillDriver*>(delegate_->GetAutofillDriver())
-      ->RegisterKeyPressHandler(base::BindRepeating(
-          [](base::WeakPtr<AutofillPopupControllerImpl> weak_this,
-             const content::NativeWebKeyboardEvent& event) {
-            return weak_this && weak_this->HandleKeyPressEvent(event);
-          },
-          GetWeakPtr()));
+  absl::visit(
+      [&](auto* driver) {
+        driver->SetKeyPressHandler(base::BindRepeating(
+            // Cannot bind HandleKeyPressEvent() directly because of its
+            // return value.
+            [](base::WeakPtr<AutofillPopupControllerImpl> weak_this,
+               const content::NativeWebKeyboardEvent& event) {
+              return weak_this && weak_this->HandleKeyPressEvent(event);
+            },
+            weak_this));
+      },
+      GetDriver());
 
   delegate_->OnPopupShown();
 }
 
 void AutofillPopupControllerImpl::UpdateDataListValues(
-    const std::vector<base::string16>& values,
-    const std::vector<base::string16>& labels) {
+    const std::vector<std::u16string>& values,
+    const std::vector<std::u16string>& labels) {
   selected_line_.reset();
   // Remove all the old data list values, which should always be at the top of
   // the list if they are present.
@@ -211,8 +222,8 @@ void AutofillPopupControllerImpl::Hide(PopupHidingReason reason) {
   if (delegate_) {
     delegate_->ClearPreviewedForm();
     delegate_->OnPopupHidden();
-    static_cast<ContentAutofillDriver*>(delegate_->GetAutofillDriver())
-        ->RemoveKeyPressHandler();
+    absl::visit([](auto* driver) { driver->UnsetKeyPressHandler(); },
+                GetDriver());
   }
 
   HideViewAndDie();
@@ -237,7 +248,7 @@ bool AutofillPopupControllerImpl::HandleKeyPressEvent(
     case ui::VKEY_PRIOR:  // Page up.
       // Set no line and then select the next line in case the first line is not
       // selectable.
-      SetSelectedLine(base::nullopt);
+      SetSelectedLine(absl::nullopt);
       SelectNextLine();
       return true;
     case ui::VKEY_NEXT:  // Page down.
@@ -277,7 +288,7 @@ void AutofillPopupControllerImpl::OnSuggestionsChanged() {
 }
 
 void AutofillPopupControllerImpl::SelectionCleared() {
-  SetSelectedLine(base::nullopt);
+  SetSelectedLine(absl::nullopt);
 }
 
 void AutofillPopupControllerImpl::AcceptSuggestion(int index) {
@@ -291,7 +302,7 @@ void AutofillPopupControllerImpl::AcceptSuggestion(int index) {
   mf_controller->Hide();
 #endif
   delegate_->DidAcceptSuggestion(suggestion.value, suggestion.frontend_id,
-                                 index);
+                                 suggestion.backend_id, index);
 }
 
 gfx::NativeView AutofillPopupControllerImpl::container_view() const {
@@ -327,26 +338,43 @@ const Suggestion& AutofillPopupControllerImpl::GetSuggestionAt(int row) const {
   return suggestions_[row];
 }
 
-const base::string16& AutofillPopupControllerImpl::GetSuggestionValueAt(
+std::u16string AutofillPopupControllerImpl::GetSuggestionMainTextAt(
     int row) const {
-  return suggestions_[row].value;
+  return suggestions_[row].frontend_id ==
+                 POPUP_ITEM_ID_VIRTUAL_CREDIT_CARD_ENTRY
+             ? l10n_util::GetStringUTF16(
+                   IDS_AUTOFILL_VIRTUAL_CARD_SUGGESTION_OPTION_VALUE)
+             : suggestions_[row].value;
 }
 
-const base::string16& AutofillPopupControllerImpl::GetSuggestionLabelAt(
+std::u16string AutofillPopupControllerImpl::GetSuggestionMinorTextAt(
+    int row) const {
+  return suggestions_[row].frontend_id ==
+                 POPUP_ITEM_ID_VIRTUAL_CREDIT_CARD_ENTRY
+             ? suggestions_[row].value
+             : std::u16string();
+}
+
+const std::u16string& AutofillPopupControllerImpl::GetSuggestionLabelAt(
     int row) const {
   return suggestions_[row].label;
 }
 
 bool AutofillPopupControllerImpl::GetRemovalConfirmationText(
     int list_index,
-    base::string16* title,
-    base::string16* body) {
+    std::u16string* title,
+    std::u16string* body) {
   return delegate_->GetDeletionConfirmationText(
       suggestions_[list_index].value, suggestions_[list_index].frontend_id,
       title, body);
 }
 
 bool AutofillPopupControllerImpl::RemoveSuggestion(int list_index) {
+  // This function might be called in a callback, so ensure the list index is
+  // still in bounds. If not, terminate the removing and consider it failed.
+  // TODO(crbug.com/1209792): Replace these checks with a stronger identifier.
+  if (list_index < 0 || static_cast<size_t>(list_index) >= suggestions_.size())
+    return false;
   if (!delegate_->RemoveSuggestion(suggestions_[list_index].value,
                                    suggestions_[list_index].frontend_id)) {
     return false;
@@ -367,7 +395,7 @@ bool AutofillPopupControllerImpl::RemoveSuggestion(int list_index) {
   return true;
 }
 
-base::Optional<int> AutofillPopupControllerImpl::selected_line() const {
+absl::optional<int> AutofillPopupControllerImpl::selected_line() const {
   return selected_line_;
 }
 
@@ -376,14 +404,14 @@ PopupType AutofillPopupControllerImpl::GetPopupType() const {
 }
 
 void AutofillPopupControllerImpl::SetSelectedLine(
-    base::Optional<int> selected_line) {
+    absl::optional<int> selected_line) {
   if (selected_line_ == selected_line)
     return;
 
   if (selected_line) {
     DCHECK_LT(*selected_line, GetLineCount());
     if (!CanAccept(suggestions_[*selected_line].frontend_id))
-      selected_line = base::nullopt;
+      selected_line = absl::nullopt;
   }
 
   auto previous_selected_line(selected_line_);
@@ -504,13 +532,33 @@ void AutofillPopupControllerImpl::HideViewAndDie() {
   delete this;
 }
 
+absl::variant<ContentAutofillDriver*,
+              password_manager::ContentPasswordManagerDriver*>
+AutofillPopupControllerImpl::GetDriver() {
+  using PasswordManagerDriver = password_manager::PasswordManagerDriver;
+  using ContentPasswordManagerDriver =
+      password_manager::ContentPasswordManagerDriver;
+  absl::variant<AutofillDriver*, PasswordManagerDriver*> driver =
+      delegate_->GetDriver();
+  DCHECK(absl::holds_alternative<AutofillDriver*>(driver) ||
+         absl::holds_alternative<PasswordManagerDriver*>(driver));
+  if (absl::holds_alternative<AutofillDriver*>(driver)) {
+    return static_cast<ContentAutofillDriver*>(
+        absl::get<AutofillDriver*>(driver));
+  } else {
+    return static_cast<ContentPasswordManagerDriver*>(
+        absl::get<PasswordManagerDriver*>(driver));
+  }
+}
+
 void AutofillPopupControllerImpl::FireControlsChangedEvent(bool is_show) {
   if (!accessibility_state_utils::IsScreenReaderEnabled())
     return;
   DCHECK(view_);
 
   // Retrieve the ax tree id associated with the current web contents.
-  ui::AXTreeID tree_id = delegate_->GetAutofillDriver()->GetAxTreeId();
+  ui::AXTreeID tree_id = absl::visit(
+      [](auto* driver) { return driver->GetAxTreeId(); }, GetDriver());
 
   // Retrieve the ax node id associated with the current web contents' element
   // that has a controller relation to the current autofill popup.
@@ -531,7 +579,7 @@ void AutofillPopupControllerImpl::FireControlsChangedEvent(bool is_show) {
   // Now get the target node from its tree ID and node ID.
   ui::AXPlatformNode* target_node =
       root_platform_node_delegate->GetFromTreeIDAndNodeID(tree_id, node_id);
-  base::Optional<int32_t> popup_ax_id = view_->GetAxUniqueId();
+  absl::optional<int32_t> popup_ax_id = view_->GetAxUniqueId();
   if (!target_node || !popup_ax_id)
     return;
 

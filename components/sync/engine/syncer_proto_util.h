@@ -18,7 +18,6 @@ namespace sync_pb {
 class ClientToServerMessage;
 class ClientToServerResponse;
 class ClientToServerResponse_Error;
-class CommitResponse_EntryResponse;
 class SyncEntity;
 }  // namespace sync_pb
 
@@ -36,6 +35,9 @@ SyncProtocolError ConvertErrorPBToSyncProtocolError(
 
 class SyncerProtoUtil {
  public:
+  SyncerProtoUtil(const SyncerProtoUtil&) = delete;
+  SyncerProtoUtil& operator=(const SyncerProtoUtil&) = delete;
+
   // Adds all fields that must be sent on every request, which includes store
   // birthday, protocol version, client chips, api keys, etc. |msg| must be not
   // null. Must be called before calling PostClientToServerMessage().
@@ -60,14 +62,6 @@ class SyncerProtoUtil {
   // Specifies where entity's parent ID should be updated from the data in
   // GetUpdates message.
   static bool ShouldMaintainHierarchy(const sync_pb::SyncEntity& sync_entity);
-
-  // Extract the name field from a sync entity.
-  static const std::string& NameFromSyncEntity(
-      const sync_pb::SyncEntity& entry);
-
-  // Extract the name field from a commit entry response.
-  static const std::string& NameFromCommitEntryResponse(
-      const sync_pb::CommitResponse_EntryResponse& entry);
 
   // Get a debug string representation of the client to server response.
   static std::string ClientToServerResponseDebugString(
@@ -113,8 +107,6 @@ class SyncerProtoUtil {
   FRIEND_TEST_ALL_PREFIXES(SyncerProtoUtilTest, PostAndProcessHeaders);
   FRIEND_TEST_ALL_PREFIXES(SyncerProtoUtilTest, HandleThrottlingNoDatatypes);
   FRIEND_TEST_ALL_PREFIXES(SyncerProtoUtilTest, HandleThrottlingWithDatatypes);
-
-  DISALLOW_COPY_AND_ASSIGN(SyncerProtoUtil);
 };
 
 }  // namespace syncer

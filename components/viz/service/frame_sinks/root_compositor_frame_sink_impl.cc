@@ -11,10 +11,10 @@
 #include "base/compiler_specific.h"
 #include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
-#include "components/viz/service/display/delegated_ink_point_renderer_base.h"
 #include "components/viz/service/display/display.h"
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/display_embedder/output_surface_provider.h"
@@ -38,7 +38,8 @@ RootCompositorFrameSinkImpl::Create(
     OutputSurfaceProvider* output_surface_provider,
     uint32_t restart_id,
     bool run_all_compositor_stages_before_draw,
-    const DebugRendererSettings* debug_settings) {
+    const DebugRendererSettings* debug_settings,
+    gfx::RenderingPipeline* gpu_pipeline) {
   // First create an output surface.
   mojo::Remote<mojom::DisplayClient> display_client(
       std::move(params->display_client));
@@ -71,7 +72,9 @@ RootCompositorFrameSinkImpl::Create(
   std::unique_ptr<SyntheticBeginFrameSource> synthetic_begin_frame_source;
   ExternalBeginFrameSourceMojo* external_begin_frame_source_mojo = nullptr;
   bool hw_support_for_multiple_refresh_rates = false;
+#if !defined(OS_APPLE)
   bool wants_vsync_updates = false;
+#endif
 
   if (params->external_begin_frame_controller) {
     auto owned_external_begin_frame_source_mojo =
@@ -102,7 +105,9 @@ RootCompositorFrameSinkImpl::Create(
 #endif
       // Vsync updates are required to update the FrameRateDecider with
       // supported refresh rates.
+#if !defined(OS_APPLE)
       wants_vsync_updates = params->use_preferred_interval_for_video;
+#endif
       external_begin_frame_source = std::make_unique<GpuVSyncBeginFrameSource>(
           restart_id, output_surface.get());
     } else {
@@ -122,12 +127,14 @@ RootCompositorFrameSinkImpl::Create(
 
   auto task_runner = base::ThreadTaskRunnerHandle::Get();
 
-  int max_frames_pending = output_surface->capabilities().max_frames_pending;
+  const auto& capabilities = output_surface->capabilities();
+  int max_frames_pending = capabilities.max_frames_pending;
   DCHECK_GT(max_frames_pending, 0);
 
   auto scheduler = std::make_unique<DisplayScheduler>(
       begin_frame_source, task_runner.get(), max_frames_pending,
-      run_all_compositor_stages_before_draw);
+      capabilities.max_frames_pending_120hz,
+      run_all_compositor_stages_before_draw, gpu_pipeline);
 
 #if !defined(OS_APPLE)
   auto* output_surface_ptr = output_surface.get();
@@ -161,7 +168,8 @@ RootCompositorFrameSinkImpl::Create(
       std::move(synthetic_begin_frame_source),
       std::move(external_begin_frame_source), std::move(display),
       params->use_preferred_interval_for_video,
-      hw_support_for_multiple_refresh_rates));
+      hw_support_for_multiple_refresh_rates,
+      params->renderer_settings.apply_simple_frame_rate_throttling));
 
 #if !defined(OS_APPLE)
   // On Mac vsync parameter updates come from the browser process. We don't need
@@ -181,6 +189,22 @@ RootCompositorFrameSinkImpl::Create(
 RootCompositorFrameSinkImpl::~RootCompositorFrameSinkImpl() {
   support_->frame_sink_manager()->UnregisterBeginFrameSource(
       begin_frame_source());
+}
+
+void RootCompositorFrameSinkImpl::DidEvictSurface(const SurfaceId& surface_id) {
+  const SurfaceId& current_surface_id = display_->CurrentSurfaceId();
+  if (!current_surface_id.is_valid())
+    return;
+  DCHECK_EQ(surface_id.frame_sink_id(), surface_id.frame_sink_id());
+  // This matches CompositorFrameSinkSupport's eviction logic.
+  if (surface_id.local_surface_id().parent_sequence_number() >=
+      current_surface_id.local_surface_id().parent_sequence_number()) {
+    display_->InvalidateCurrentSurfaceId();
+  }
+}
+
+const SurfaceId& RootCompositorFrameSinkImpl::CurrentSurfaceId() const {
+  return display_->CurrentSurfaceId();
 }
 
 void RootCompositorFrameSinkImpl::SetDisplayVisible(bool visible) {
@@ -263,6 +287,7 @@ void RootCompositorFrameSinkImpl::SetDisplayVSyncParameters(
 
 void RootCompositorFrameSinkImpl::UpdateVSyncParameters() {
   base::TimeTicks timebase = display_frame_timebase_;
+
   // Overwrite the interval with a meaningful one here if
   // |use_preferred_interval_|
   base::TimeDelta interval =
@@ -271,6 +296,19 @@ void RootCompositorFrameSinkImpl::UpdateVSyncParameters() {
                   FrameRateDecider::UnspecifiedFrameInterval()
           ? preferred_frame_interval_
           : display_frame_interval_;
+
+  // Throttle rendering to 30hz.
+  constexpr base::TimeDelta kThrottledInterval = base::Hertz(30);
+
+  // Only throttle if the frame interval is smaller than |kThrottledInterval|
+  // meaning the refresh rate is higher than the target of 30hz.
+  if (apply_simple_frame_rate_throttling_ &&
+      display_frame_interval_ <= kThrottledInterval) {
+    interval = kThrottledInterval;
+    // timebase remains constant while throttling.
+    timebase = base::TimeTicks();
+  }
+
   if (synthetic_begin_frame_source_) {
     synthetic_begin_frame_source_->OnUpdateVSyncParameters(timebase, interval);
     if (vsync_listener_)
@@ -301,10 +339,19 @@ void RootCompositorFrameSinkImpl::SetSupportedRefreshRates(
       supported_refresh_rates.size());
   for (size_t i = 0; i < supported_refresh_rates.size(); ++i) {
     supported_frame_intervals[i] =
-        base::TimeDelta::FromSecondsD(1 / supported_refresh_rates[i]);
+        base::Seconds(1 / supported_refresh_rates[i]);
   }
 
   display_->SetSupportedFrameIntervals(supported_frame_intervals);
+}
+
+void RootCompositorFrameSinkImpl::PreserveChildSurfaceControls() {
+  display_->PreserveChildSurfaceControls();
+}
+
+void RootCompositorFrameSinkImpl::SetSwapCompletionCallbackEnabled(
+    bool enable) {
+  enable_swap_competion_callback_ = enable;
 }
 
 #endif  // defined(OS_ANDROID)
@@ -316,9 +363,8 @@ void RootCompositorFrameSinkImpl::AddVSyncParameterObserver(
 }
 
 void RootCompositorFrameSinkImpl::SetDelegatedInkPointRenderer(
-    mojo::PendingReceiver<mojom::DelegatedInkPointRenderer> receiver) {
-  if (auto* ink_renderer = display_->GetDelegatedInkPointRenderer())
-    ink_renderer->InitMessagePipeline(std::move(receiver));
+    mojo::PendingReceiver<gfx::mojom::DelegatedInkPointRenderer> receiver) {
+  display_->InitDelegatedInkPointRendererReceiver(std::move(receiver));
 }
 
 void RootCompositorFrameSinkImpl::SetNeedsBeginFrame(bool needs_begin_frame) {
@@ -332,9 +378,10 @@ void RootCompositorFrameSinkImpl::SetWantsAnimateOnlyBeginFrames() {
 void RootCompositorFrameSinkImpl::SubmitCompositorFrame(
     const LocalSurfaceId& local_surface_id,
     CompositorFrame frame,
-    base::Optional<HitTestRegionList> hit_test_region_list,
+    absl::optional<HitTestRegionList> hit_test_region_list,
     uint64_t submit_time) {
-  if (support_->last_activated_local_surface_id() != local_surface_id) {
+  if (support_->last_activated_local_surface_id() != local_surface_id &&
+      !support_->IsEvicted(local_surface_id)) {
     display_->SetLocalSurfaceId(local_surface_id, frame.device_scale_factor());
     // Resize the |display_| to the root compositor frame |output_rect| so that
     // we won't show root surface gutters.
@@ -359,7 +406,7 @@ void RootCompositorFrameSinkImpl::SubmitCompositorFrame(
 void RootCompositorFrameSinkImpl::SubmitCompositorFrameSync(
     const LocalSurfaceId& local_surface_id,
     CompositorFrame frame,
-    base::Optional<HitTestRegionList> hit_test_region_list,
+    absl::optional<HitTestRegionList> hit_test_region_list,
     uint64_t submit_time,
     SubmitCompositorFrameSyncCallback callback) {
   NOTIMPLEMENTED();
@@ -402,7 +449,8 @@ RootCompositorFrameSinkImpl::RootCompositorFrameSinkImpl(
     std::unique_ptr<ExternalBeginFrameSource> external_begin_frame_source,
     std::unique_ptr<Display> display,
     bool use_preferred_interval_for_video,
-    bool hw_support_for_multiple_refresh_rates)
+    bool hw_support_for_multiple_refresh_rates,
+    bool apply_simple_frame_rate_throttling)
     : compositor_frame_sink_client_(std::move(frame_sink_client)),
       compositor_frame_sink_receiver_(this, std::move(frame_sink_receiver)),
       display_client_(std::move(display_client)),
@@ -414,7 +462,8 @@ RootCompositorFrameSinkImpl::RootCompositorFrameSinkImpl(
           /*is_root=*/true)),
       synthetic_begin_frame_source_(std::move(synthetic_begin_frame_source)),
       external_begin_frame_source_(std::move(external_begin_frame_source)),
-      display_(std::move(display)) {
+      display_(std::move(display)),
+      apply_simple_frame_rate_throttling_(apply_simple_frame_rate_throttling) {
   DCHECK(display_);
   DCHECK(begin_frame_source());
   frame_sink_manager->RegisterBeginFrameSource(begin_frame_source(),
@@ -468,7 +517,7 @@ void RootCompositorFrameSinkImpl::DisplayDidReceiveCALayerParams(
 void RootCompositorFrameSinkImpl::DisplayDidCompleteSwapWithSize(
     const gfx::Size& pixel_size) {
 #if defined(OS_ANDROID)
-  if (display_client_)
+  if (display_client_ && enable_swap_competion_callback_)
     display_client_->DidCompleteSwapWithSize(pixel_size);
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.

@@ -46,7 +46,7 @@ message ContentIdEmbeddingTokenPairProto {
 }
 
 // A paint preview of a single frame.
-// NEXT_TAG = 10
+// NEXT_TAG = 11
 message PaintPreviewFrameProto {
   // The embedding token for this frame to its parent. Every frame other than
   // the main frame should have a non-zero value here.
@@ -73,10 +73,23 @@ message PaintPreviewFrameProto {
   // Position information for this frame.
   optional uint32 scroll_offset_x = 7;
   optional uint32 scroll_offset_y = 8;
+
+  // Position information for this frame if it is clipped.
+  optional uint32 frame_offset_x = 9;
+  optional uint32 frame_offset_y = 10;
+}
+
+// Stores Chrome version.
+// NEXT_TAG = 5
+message ChromeVersionProto {
+  optional uint64 major = 1;
+  optional uint64 minor = 2;
+  optional uint64 build = 3;
+  optional uint64 patch = 4;
 }
 
 // Metadata for the capture.
-// NEXT_TAG = 3
+// NEXT_TAG = 4
 message MetadataProto {
   // URL of the root frame.
   // required
@@ -86,6 +99,9 @@ message MetadataProto {
   // is a breaking change to the custorm SkPicture deserialization or storage
   // system.
   optional uint64 version = 2;
+
+  // Records the version of Chrome when the capture occurred.
+  optional ChromeVersionProto chrome_version = 3;
 }
 
 // A paint preview of the entire page.

@@ -8,11 +8,12 @@
 
 #include "base/ios/ios_util.h"
 #include "base/mac/foundation_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/common/autofill_features.h"
-#import "components/autofill/ios/browser/js_suggestion_manager.h"
 #include "components/keyed_service/core/service_access_type.h"
+#include "components/password_manager/core/browser/manage_passwords_referrer.h"
 #include "components/password_manager/core/browser/password_ui_utils.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/autofill/personal_data_manager_factory.h"
@@ -30,16 +31,19 @@
 #import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_injection_handler.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_password_coordinator.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
+#import "ios/chrome/browser/ui/commands/browser_coordinator_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/commands/security_alert_commands.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
 #import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
+#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_module.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/web_state.h"
+#include "ui/base/device_form_factor.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -49,7 +53,7 @@
 @interface FormInputAccessoryCoordinator () <
     AddressCoordinatorDelegate,
     CardCoordinatorDelegate,
-    FormInputAccessoryMediatorDelegate,
+    FormInputAccessoryMediatorHandler,
     ManualFillAccessoryViewControllerDelegate,
     PasswordCoordinatorDelegate,
     SecurityAlertCommands>
@@ -75,6 +79,9 @@
 
 // Modal alert.
 @property(nonatomic, strong) AlertCoordinator* alertCoordinator;
+
+// Active Form Input View Controller.
+@property(nonatomic, strong) UIViewController* formInputViewController;
 
 @end
 
@@ -112,18 +119,14 @@
       autofill::PersonalDataManagerFactory::GetForBrowserState(
           self.browser->GetBrowserState()->GetOriginalChromeBrowserState());
 
-  AppState* appState = SceneStateBrowserAgent::FromBrowser(self.browser)
-                           ->GetSceneState()
-                           .appState;
   __weak id<SecurityAlertCommands> securityAlertHandler = HandlerForProtocol(
       self.browser->GetCommandDispatcher(), SecurityAlertCommands);
   self.formInputAccessoryMediator = [[FormInputAccessoryMediator alloc]
             initWithConsumer:self.formInputAccessoryViewController
-                    delegate:self
+                     handler:self
                 webStateList:self.browser->GetWebStateList()
          personalDataManager:personalDataManager
                passwordStore:passwordStore
-                    appState:appState
         securityAlertHandler:securityAlertHandler
       reauthenticationModule:self.reauthenticationModule];
   self.formInputAccessoryViewController.formSuggestionClient =
@@ -132,9 +135,9 @@
 
 - (void)stop {
   [self stopChildren];
-
-  [self.formInputAccessoryViewController restoreOriginalKeyboardView];
   self.formInputAccessoryViewController = nil;
+  self.formInputViewController = nil;
+  [GetFirstResponder() reloadInputViews];
 
   [self.formInputAccessoryMediator disconnect];
   self.formInputAccessoryMediator = nil;
@@ -145,8 +148,12 @@
 
 - (void)reset {
   [self stopChildren];
+
   [self.formInputAccessoryMediator enableSuggestions];
   [self.formInputAccessoryViewController reset];
+
+  self.formInputViewController = nil;
+  [GetFirstResponder() reloadInputViews];
 }
 
 #pragma mark - Presenting Children
@@ -158,7 +165,8 @@
   [self.childCoordinators removeAllObjects];
 }
 
-- (void)startPasswordsFromButton:(UIButton*)button {
+- (void)startPasswordsFromButton:(UIButton*)button
+          invokedOnPasswordField:(BOOL)invokedOnPasswordField {
   WebStateList* webStateList = self.browser->GetWebStateList();
   DCHECK(webStateList->GetActiveWebState());
   const GURL& URL = webStateList->GetActiveWebState()->GetLastCommittedURL();
@@ -167,13 +175,14 @@
           initWithBaseViewController:self.baseViewController
                              browser:self.browser
                                  URL:URL
-                    injectionHandler:self.injectionHandler];
+                    injectionHandler:self.injectionHandler
+              invokedOnPasswordField:invokedOnPasswordField];
   passwordCoordinator.delegate = self;
-  if (IsIPadIdiom()) {
+  if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET) {
     [passwordCoordinator presentFromButton:button];
   } else {
-    [self.formInputAccessoryViewController
-        presentView:passwordCoordinator.viewController.view];
+    self.formInputViewController = passwordCoordinator.viewController;
+    [GetFirstResponder() reloadInputViews];
   }
 
   [self.childCoordinators addObject:passwordCoordinator];
@@ -185,11 +194,11 @@
                          browser:self.browser
                 injectionHandler:self.injectionHandler];
   cardCoordinator.delegate = self;
-  if (IsIPadIdiom()) {
+  if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET) {
     [cardCoordinator presentFromButton:button];
   } else {
-    [self.formInputAccessoryViewController
-        presentView:cardCoordinator.viewController.view];
+    self.formInputViewController = cardCoordinator.viewController;
+    [GetFirstResponder() reloadInputViews];
   }
 
   [self.childCoordinators addObject:cardCoordinator];
@@ -201,29 +210,19 @@
                          browser:self.browser
                 injectionHandler:self.injectionHandler];
   addressCoordinator.delegate = self;
-  if (IsIPadIdiom()) {
+  if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET) {
     [addressCoordinator presentFromButton:button];
   } else {
-    [self.formInputAccessoryViewController
-        presentView:addressCoordinator.viewController.view];
+    self.formInputViewController = addressCoordinator.viewController;
+    [GetFirstResponder() reloadInputViews];
   }
 
   [self.childCoordinators addObject:addressCoordinator];
 }
 
-#pragma mark - FormInputAccessoryMediatorDelegate
+#pragma mark - FormInputAccessoryMediatorHandler
 
-- (void)mediatorDidDetectKeyboardHide:(FormInputAccessoryMediator*)mediator {
-  // On iOS 13, beta 3, the popover is not dismissed when the keyboard hides.
-  // This explicitly dismiss any popover.
-  // TODO(crbug.com/1116037): Verify if this workaround is still needed.
-  if (base::ios::IsRunningOnIOS13OrLater() && IsIPadIdiom()) {
-    [self reset];
-  }
-}
-
-- (void)mediatorDidDetectMovingToBackground:
-    (FormInputAccessoryMediator*)mediator {
+- (void)resetFormInputView {
   [self reset];
 }
 
@@ -249,7 +248,10 @@
 
 - (void)passwordButtonPressed:(UIButton*)sender {
   [self stopChildren];
-  [self startPasswordsFromButton:sender];
+  BOOL invokedOnPasswordField =
+      [self.formInputAccessoryMediator lastFocusedFieldWasPassword];
+  [self startPasswordsFromButton:sender
+          invokedOnPasswordField:invokedOnPasswordField];
   [self.formInputAccessoryViewController lockManualFallbackView];
   [self.formInputAccessoryMediator disableSuggestions];
 }
@@ -266,6 +268,9 @@
 - (void)openPasswordSettings {
   [self reset];
   [self.navigator openPasswordSettings];
+  UMA_HISTOGRAM_ENUMERATION(
+      "PasswordManager.ManagePasswordsReferrer",
+      password_manager::ManagePasswordsReferrer::kPasswordsAccessorySheet);
 }
 
 - (void)openAllPasswordsPicker {
@@ -277,6 +282,14 @@
 - (void)openCardSettings {
   [self reset];
   [self.navigator openCreditCardSettings];
+}
+
+- (void)openAddCreditCard {
+  [self reset];
+  CommandDispatcher* dispatcher = self.browser->GetCommandDispatcher();
+  id<BrowserCoordinatorCommands> handler =
+      HandlerForProtocol(dispatcher, BrowserCoordinatorCommands);
+  [handler showAddCreditCard];
 }
 
 #pragma mark - AddressCoordinatorDelegate
@@ -345,13 +358,27 @@
                                       completion:nil];
 }
 
+#pragma mark - CRWResponderInputView
+
+- (UIView*)inputView {
+  BOOL isIPad = ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET;
+  return isIPad ? nil : self.formInputViewController.view;
+}
+
+- (UIView*)inputAccessoryView {
+  if (self.formInputAccessoryMediator.inputAccessoryViewActive) {
+    return self.formInputAccessoryViewController.view;
+  }
+  return nil;
+}
+
 #pragma mark - Private
 
 // Shows confirmation dialog before opening Other passwords.
 - (void)showConfirmationDialogToUseOtherPassword {
   WebStateList* webStateList = self.browser->GetWebStateList();
   const GURL& URL = webStateList->GetActiveWebState()->GetLastCommittedURL();
-  base::string16 origin = base::ASCIIToUTF16(
+  std::u16string origin = base::ASCIIToUTF16(
       password_manager::GetShownOrigin(url::Origin::Create(URL)));
   NSString* title =
       l10n_util::GetNSString(IDS_IOS_CONFIRM_USING_OTHER_PASSWORD_TITLE);

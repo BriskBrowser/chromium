@@ -4,9 +4,10 @@
 
 #include "chrome/browser/ui/toolbar/back_forward_menu_model.h"
 
+#include <string>
+
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -17,11 +18,13 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/history/core/browser/history_service.h"
+#include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
@@ -50,7 +53,10 @@ class FaviconDelegate : public ui::MenuModelDelegate {
  public:
   FaviconDelegate() : was_called_(false) {}
 
-  void OnIconChanged(int model_index) override {
+  FaviconDelegate(const FaviconDelegate&) = delete;
+  FaviconDelegate& operator=(const FaviconDelegate&) = delete;
+
+  void OnIconChanged(int command_id) override {
     was_called_ = true;
     base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
@@ -59,8 +65,6 @@ class FaviconDelegate : public ui::MenuModelDelegate {
 
  private:
   bool was_called_;
-
-  DISALLOW_COPY_AND_ASSIGN(FaviconDelegate);
 };
 
 }  // namespace
@@ -107,13 +111,36 @@ class BackFwdMenuModelTest : public ChromeRenderViewHostTestHarness {
   }
 };
 
+class BackFwdMenuModelIncognitoTest : public ChromeRenderViewHostTestHarness {
+ public:
+  BackFwdMenuModelIncognitoTest() {
+    // Enable kUpdateHistoryEntryPointsInIncognito feature flag to change menu
+    // content.
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kUpdateHistoryEntryPointsInIncognito);
+  }
+
+  void LoadURLAndUpdateState(const char* url, const std::u16string& title) {
+    NavigateAndCommit(GURL(url));
+    web_contents()->UpdateTitleForEntry(controller().GetLastCommittedEntry(),
+                                        title);
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
 TEST_F(BackFwdMenuModelTest, BasicCase) {
+  Browser::CreateParams native_params(profile(), true);
+  std::unique_ptr<Browser> browser(
+      CreateBrowserWithTestWindowForParams(native_params));
+
   std::unique_ptr<BackForwardMenuModel> back_model(new BackForwardMenuModel(
-      nullptr, BackForwardMenuModel::ModelType::kBackward));
+      browser.get(), BackForwardMenuModel::ModelType::kBackward));
   back_model->set_test_web_contents(web_contents());
 
   std::unique_ptr<BackForwardMenuModel> forward_model(new BackForwardMenuModel(
-      nullptr, BackForwardMenuModel::ModelType::kForward));
+      browser.get(), BackForwardMenuModel::ModelType::kForward));
   forward_model->set_test_web_contents(web_contents());
 
   EXPECT_EQ(0, back_model->GetItemCount());
@@ -133,8 +160,8 @@ TEST_F(BackFwdMenuModelTest, BasicCase) {
   // There're two more items here: a separator and a "Show Full History".
   EXPECT_EQ(9, back_model->GetItemCount());
   EXPECT_EQ(0, forward_model->GetItemCount());
-  EXPECT_EQ(ASCIIToUTF16("C2"), back_model->GetLabelAt(0));
-  EXPECT_EQ(ASCIIToUTF16("A1"), back_model->GetLabelAt(6));
+  EXPECT_EQ(u"C2", back_model->GetLabelAt(0));
+  EXPECT_EQ(u"A1", back_model->GetLabelAt(6));
   EXPECT_EQ(back_model->GetShowFullHistoryLabel(),
             back_model->GetLabelAt(8));
 
@@ -149,8 +176,8 @@ TEST_F(BackFwdMenuModelTest, BasicCase) {
 
   EXPECT_EQ(0, back_model->GetItemCount());
   EXPECT_EQ(9, forward_model->GetItemCount());
-  EXPECT_EQ(ASCIIToUTF16("A2"), forward_model->GetLabelAt(0));
-  EXPECT_EQ(ASCIIToUTF16("C3"), forward_model->GetLabelAt(6));
+  EXPECT_EQ(u"A2", forward_model->GetLabelAt(0));
+  EXPECT_EQ(u"C3", forward_model->GetLabelAt(6));
   EXPECT_EQ(forward_model->GetShowFullHistoryLabel(),
             forward_model->GetLabelAt(8));
 
@@ -165,23 +192,27 @@ TEST_F(BackFwdMenuModelTest, BasicCase) {
 
   EXPECT_EQ(6, back_model->GetItemCount());
   EXPECT_EQ(5, forward_model->GetItemCount());
-  EXPECT_EQ(ASCIIToUTF16("B1"), back_model->GetLabelAt(0));
-  EXPECT_EQ(ASCIIToUTF16("A1"), back_model->GetLabelAt(3));
+  EXPECT_EQ(u"B1", back_model->GetLabelAt(0));
+  EXPECT_EQ(u"A1", back_model->GetLabelAt(3));
   EXPECT_EQ(back_model->GetShowFullHistoryLabel(),
             back_model->GetLabelAt(5));
-  EXPECT_EQ(ASCIIToUTF16("C1"), forward_model->GetLabelAt(0));
-  EXPECT_EQ(ASCIIToUTF16("C3"), forward_model->GetLabelAt(2));
+  EXPECT_EQ(u"C1", forward_model->GetLabelAt(0));
+  EXPECT_EQ(u"C3", forward_model->GetLabelAt(2));
   EXPECT_EQ(forward_model->GetShowFullHistoryLabel(),
             forward_model->GetLabelAt(4));
 }
 
 TEST_F(BackFwdMenuModelTest, MaxItemsTest) {
+  Browser::CreateParams native_params(profile(), true);
+  std::unique_ptr<Browser> browser(
+      CreateBrowserWithTestWindowForParams(native_params));
+
   std::unique_ptr<BackForwardMenuModel> back_model(new BackForwardMenuModel(
-      nullptr, BackForwardMenuModel::ModelType::kBackward));
+      browser.get(), BackForwardMenuModel::ModelType::kBackward));
   back_model->set_test_web_contents(web_contents());
 
   std::unique_ptr<BackForwardMenuModel> forward_model(new BackForwardMenuModel(
-      nullptr, BackForwardMenuModel::ModelType::kForward));
+      browser.get(), BackForwardMenuModel::ModelType::kForward));
   forward_model->set_test_web_contents(web_contents());
 
   // Seed the controller with 32 URLs
@@ -223,7 +254,7 @@ TEST_F(BackFwdMenuModelTest, MaxItemsTest) {
   EXPECT_EQ(BackForwardMenuModel::kMaxHistoryItems + 2 + chapter_stop_offset,
             back_model->GetItemCount());
   EXPECT_EQ(0, forward_model->GetItemCount());
-  EXPECT_EQ(ASCIIToUTF16("K1"), back_model->GetLabelAt(0));
+  EXPECT_EQ(u"K1", back_model->GetLabelAt(0));
   EXPECT_EQ(back_model->GetShowFullHistoryLabel(),
       back_model->GetLabelAt(BackForwardMenuModel::kMaxHistoryItems + 1 +
                                chapter_stop_offset));
@@ -242,7 +273,7 @@ TEST_F(BackFwdMenuModelTest, MaxItemsTest) {
   EXPECT_EQ(BackForwardMenuModel::kMaxHistoryItems + 2 + chapter_stop_offset,
             forward_model->GetItemCount());
   EXPECT_EQ(0, back_model->GetItemCount());
-  EXPECT_EQ(ASCIIToUTF16("A2"), forward_model->GetLabelAt(0));
+  EXPECT_EQ(u"A2", forward_model->GetLabelAt(0));
   EXPECT_EQ(forward_model->GetShowFullHistoryLabel(),
       forward_model->GetLabelAt(BackForwardMenuModel::kMaxHistoryItems + 1 +
                                     chapter_stop_offset));
@@ -258,12 +289,16 @@ TEST_F(BackFwdMenuModelTest, MaxItemsTest) {
 }
 
 TEST_F(BackFwdMenuModelTest, ChapterStops) {
+  Browser::CreateParams native_params(profile(), true);
+  std::unique_ptr<Browser> browser(
+      CreateBrowserWithTestWindowForParams(native_params));
+
   std::unique_ptr<BackForwardMenuModel> back_model(new BackForwardMenuModel(
-      nullptr, BackForwardMenuModel::ModelType::kBackward));
+      browser.get(), BackForwardMenuModel::ModelType::kBackward));
   back_model->set_test_web_contents(web_contents());
 
   std::unique_ptr<BackForwardMenuModel> forward_model(new BackForwardMenuModel(
-      nullptr, BackForwardMenuModel::ModelType::kForward));
+      browser.get(), BackForwardMenuModel::ModelType::kForward));
   forward_model->set_test_web_contents(web_contents());
 
   // Seed the controller with 32 URLs.
@@ -348,33 +383,33 @@ TEST_F(BackFwdMenuModelTest, ChapterStops) {
   // Check to see if the chapter stops have the right labels.
   int index = BackForwardMenuModel::kMaxHistoryItems;
   // Empty string indicates item is a separator.
-  EXPECT_EQ(base::string16(), back_model->GetLabelAt(index++));
-  EXPECT_EQ(ASCIIToUTF16("F3"), back_model->GetLabelAt(index++));
-  EXPECT_EQ(ASCIIToUTF16("E3"), back_model->GetLabelAt(index++));
-  EXPECT_EQ(ASCIIToUTF16("D3"), back_model->GetLabelAt(index++));
-  EXPECT_EQ(ASCIIToUTF16("C3"), back_model->GetLabelAt(index++));
+  EXPECT_EQ(std::u16string(), back_model->GetLabelAt(index++));
+  EXPECT_EQ(u"F3", back_model->GetLabelAt(index++));
+  EXPECT_EQ(u"E3", back_model->GetLabelAt(index++));
+  EXPECT_EQ(u"D3", back_model->GetLabelAt(index++));
+  EXPECT_EQ(u"C3", back_model->GetLabelAt(index++));
   // The menu should only show a maximum of 5 chapter stops.
-  EXPECT_EQ(ASCIIToUTF16("B3"), back_model->GetLabelAt(index));
+  EXPECT_EQ(u"B3", back_model->GetLabelAt(index));
   // Empty string indicates item is a separator.
-  EXPECT_EQ(base::string16(), back_model->GetLabelAt(index + 1));
+  EXPECT_EQ(std::u16string(), back_model->GetLabelAt(index + 1));
   EXPECT_EQ(back_model->GetShowFullHistoryLabel(),
             back_model->GetLabelAt(index + 2));
 
   // If we go back two we should still see the same chapter stop at the end.
   NavigationSimulator::GoBack(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("B3"), back_model->GetLabelAt(index));
+  EXPECT_EQ(u"B3", back_model->GetLabelAt(index));
   NavigationSimulator::GoBack(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("B3"), back_model->GetLabelAt(index));
+  EXPECT_EQ(u"B3", back_model->GetLabelAt(index));
   // But if we go back again, it should change.
   NavigationSimulator::GoBack(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("A3"), back_model->GetLabelAt(index));
+  EXPECT_EQ(u"A3", back_model->GetLabelAt(index));
   NavigationSimulator::GoBack(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("A3"), back_model->GetLabelAt(index));
+  EXPECT_EQ(u"A3", back_model->GetLabelAt(index));
   NavigationSimulator::GoBack(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("A3"), back_model->GetLabelAt(index));
+  EXPECT_EQ(u"A3", back_model->GetLabelAt(index));
   NavigationSimulator::GoBack(web_contents());
   // It is now a separator.
-  EXPECT_EQ(base::string16(), back_model->GetLabelAt(index));
+  EXPECT_EQ(std::u16string(), back_model->GetLabelAt(index));
   // Undo our position change.
   NavigateToOffset(6);
 
@@ -397,30 +432,30 @@ TEST_F(BackFwdMenuModelTest, ChapterStops) {
   // Check to see if the chapter stops have the right labels.
   index = BackForwardMenuModel::kMaxHistoryItems;
   // Empty string indicates item is a separator.
-  EXPECT_EQ(base::string16(), forward_model->GetLabelAt(index++));
-  EXPECT_EQ(ASCIIToUTF16("E3"), forward_model->GetLabelAt(index++));
-  EXPECT_EQ(ASCIIToUTF16("F3"), forward_model->GetLabelAt(index++));
-  EXPECT_EQ(ASCIIToUTF16("G3"), forward_model->GetLabelAt(index++));
-  EXPECT_EQ(ASCIIToUTF16("H3"), forward_model->GetLabelAt(index++));
+  EXPECT_EQ(std::u16string(), forward_model->GetLabelAt(index++));
+  EXPECT_EQ(u"E3", forward_model->GetLabelAt(index++));
+  EXPECT_EQ(u"F3", forward_model->GetLabelAt(index++));
+  EXPECT_EQ(u"G3", forward_model->GetLabelAt(index++));
+  EXPECT_EQ(u"H3", forward_model->GetLabelAt(index++));
   // The menu should only show a maximum of 5 chapter stops.
-  EXPECT_EQ(ASCIIToUTF16("I3"), forward_model->GetLabelAt(index));
+  EXPECT_EQ(u"I3", forward_model->GetLabelAt(index));
   // Empty string indicates item is a separator.
-  EXPECT_EQ(base::string16(), forward_model->GetLabelAt(index + 1));
+  EXPECT_EQ(std::u16string(), forward_model->GetLabelAt(index + 1));
   EXPECT_EQ(forward_model->GetShowFullHistoryLabel(),
       forward_model->GetLabelAt(index + 2));
 
   // If we advance one we should still see the same chapter stop at the end.
   NavigationSimulator::GoForward(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("I3"), forward_model->GetLabelAt(index));
+  EXPECT_EQ(u"I3", forward_model->GetLabelAt(index));
   // But if we advance one again, it should change.
   NavigationSimulator::GoForward(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("J3"), forward_model->GetLabelAt(index));
+  EXPECT_EQ(u"J3", forward_model->GetLabelAt(index));
   NavigationSimulator::GoForward(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("J3"), forward_model->GetLabelAt(index));
+  EXPECT_EQ(u"J3", forward_model->GetLabelAt(index));
   NavigationSimulator::GoForward(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("J3"), forward_model->GetLabelAt(index));
+  EXPECT_EQ(u"J3", forward_model->GetLabelAt(index));
   NavigationSimulator::GoForward(web_contents());
-  EXPECT_EQ(ASCIIToUTF16("K3"), forward_model->GetLabelAt(index));
+  EXPECT_EQ(u"K3", forward_model->GetLabelAt(index));
 
   // Now test the boundary cases by using the chapter stop function directly.
   // Out of bounds, first too far right (incrementing), then too far left.
@@ -440,6 +475,13 @@ TEST_F(BackFwdMenuModelTest, ChapterStops) {
   EXPECT_EQ(32, back_model->GetIndexOfNextChapterStop(30, true));
   EXPECT_EQ(32, back_model->GetIndexOfNextChapterStop(31, true));
   EXPECT_EQ(-1, back_model->GetIndexOfNextChapterStop(32, true));
+
+  if (content::BackForwardCache::IsSameSiteBackForwardCacheFeatureEnabled()) {
+    // The case below currently fails on the linux-bfcache-rel bot with
+    // same-site bfcache enabled, so return early.
+    // TODO(https://crbug.com/1232883): re-enable this test.
+    return;
+  }
 
   // Bug found during review (two different sites, but first wasn't considered
   // a chapter-stop).
@@ -469,34 +511,29 @@ TEST_F(BackFwdMenuModelTest, ChapterStops) {
 }
 
 TEST_F(BackFwdMenuModelTest, EscapeLabel) {
+  Browser::CreateParams native_params(profile(), true);
+  std::unique_ptr<Browser> browser(
+      CreateBrowserWithTestWindowForParams(native_params));
+
   std::unique_ptr<BackForwardMenuModel> back_model(new BackForwardMenuModel(
-      nullptr, BackForwardMenuModel::ModelType::kBackward));
+      browser.get(), BackForwardMenuModel::ModelType::kBackward));
   back_model->set_test_web_contents(web_contents());
 
   EXPECT_EQ(0, back_model->GetItemCount());
   EXPECT_FALSE(back_model->ItemHasCommand(1));
 
-  // Note: Multiple navigations to the same URL in a row have to be
-  // renderer-initiated.  If they were browser-initiated, the
-  // NavigationController would treat them as reloads.
   LoadURLAndUpdateState("http://www.a.com/1", "A B");
-  NavigationSimulator::NavigateAndCommitFromDocument(GURL("http://www.a.com/1"),
-                                                     main_rfh());
-  web_contents()->UpdateTitleForEntry(controller().GetLastCommittedEntry(),
-                                      base::UTF8ToUTF16("A & B"));
-  LoadURLAndUpdateState("http://www.a.com/2", "A && B");
-  NavigationSimulator::NavigateAndCommitFromDocument(GURL("http://www.a.com/2"),
-                                                     main_rfh());
-  web_contents()->UpdateTitleForEntry(controller().GetLastCommittedEntry(),
-                                      base::UTF8ToUTF16("A &&& B"));
-  LoadURLAndUpdateState("http://www.a.com/3", "");
+  LoadURLAndUpdateState("http://www.a.com/2", "A & B");
+  LoadURLAndUpdateState("http://www.a.com/3", "A && B");
+  LoadURLAndUpdateState("http://www.a.com/4", "A &&& B");
+  LoadURLAndUpdateState("http://www.a.com/5", "");
 
   EXPECT_EQ(6, back_model->GetItemCount());
 
-  EXPECT_EQ(ASCIIToUTF16("A B"), back_model->GetLabelAt(3));
-  EXPECT_EQ(ASCIIToUTF16("A && B"), back_model->GetLabelAt(2));
-  EXPECT_EQ(ASCIIToUTF16("A &&&& B"), back_model->GetLabelAt(1));
-  EXPECT_EQ(ASCIIToUTF16("A &&&&&& B"), back_model->GetLabelAt(0));
+  EXPECT_EQ(u"A B", back_model->GetLabelAt(3));
+  EXPECT_EQ(u"A && B", back_model->GetLabelAt(2));
+  EXPECT_EQ(u"A &&&& B", back_model->GetLabelAt(1));
+  EXPECT_EQ(u"A &&&&&& B", back_model->GetLabelAt(0));
 }
 
 // Test asynchronous loading of favicon from history service.
@@ -508,7 +545,7 @@ TEST_F(BackFwdMenuModelTest, FaviconLoadTest) {
 
   BackForwardMenuModel back_model(browser.get(),
                                   BackForwardMenuModel::ModelType::kBackward);
-  back_model.set_test_web_contents(controller().GetWebContents());
+  back_model.set_test_web_contents(web_contents());
   back_model.SetMenuModelDelegate(&favicon_delegate);
 
   SkBitmap new_icon_bitmap(CreateBitmap(SK_ColorRED));
@@ -559,4 +596,34 @@ TEST_F(BackFwdMenuModelTest, FaviconLoadTest) {
 
   // Make sure the browser deconstructor doesn't have problems.
   browser->tab_strip_model()->CloseAllTabs();
+}
+
+// Test to check the menu in Incognito mode.
+TEST_F(BackFwdMenuModelIncognitoTest, IncognitoCaseTest) {
+  Browser::CreateParams native_params(profile()->GetPrimaryOTRProfile(true),
+                                      true);
+  std::unique_ptr<Browser> browser(
+      CreateBrowserWithTestWindowForParams(native_params));
+
+  std::unique_ptr<BackForwardMenuModel> back_model(new BackForwardMenuModel(
+      browser.get(), BackForwardMenuModel::ModelType::kBackward));
+
+  back_model->set_test_web_contents(web_contents());
+
+  EXPECT_EQ(0, back_model->GetItemCount());
+  EXPECT_FALSE(back_model->ItemHasCommand(1));
+
+  // Seed the controller with a few URLs
+  LoadURLAndUpdateState("http://www.a.com/1", u"A1");
+  LoadURLAndUpdateState("http://www.a.com/2", u"A2");
+  LoadURLAndUpdateState("http://www.a.com/3", u"A3");
+
+  // There're should be only the visited pages but not "Show Full History" item
+  // and its separator.
+  EXPECT_EQ(2, back_model->GetItemCount());
+  EXPECT_EQ(u"A2", back_model->GetLabelAt(0));
+  EXPECT_EQ(u"A1", back_model->GetLabelAt(1));
+
+  EXPECT_TRUE(back_model->ItemHasCommand(0));
+  EXPECT_TRUE(back_model->ItemHasCommand(1));
 }

@@ -17,11 +17,11 @@
 
 #include "base/containers/adapters.h"
 #include "base/containers/contains.h"
+#include "base/cxx17_backports.h"
 #include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/json/json_writer.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/numerics/ranges.h"
 #include "base/strings/stringprintf.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/trace_event/trace_event.h"
@@ -82,12 +82,11 @@ class ViewportAnchor {
     scroll_tree().ClampScrollToMaxScrollOffset(*inner_, tree_impl_);
     scroll_tree().ClampScrollToMaxScrollOffset(*outer_, tree_impl_);
 
-    gfx::ScrollOffset viewport_location =
+    gfx::Vector2dF viewport_location =
         scroll_tree().current_scroll_offset(inner_->element_id) +
         scroll_tree().current_scroll_offset(outer_->element_id);
 
-    gfx::Vector2dF delta =
-        viewport_in_content_coordinates_.DeltaFrom(viewport_location);
+    gfx::Vector2dF delta = viewport_in_content_coordinates_ - viewport_location;
 
     delta = scroll_tree().ScrollBy(*inner_, delta, tree_impl_);
     scroll_tree().ScrollBy(*outer_, delta, tree_impl_);
@@ -101,17 +100,16 @@ class ViewportAnchor {
   ScrollNode* inner_;
   ScrollNode* outer_;
   LayerTreeImpl* tree_impl_;
-  gfx::ScrollOffset viewport_in_content_coordinates_;
+  gfx::Vector2dF viewport_in_content_coordinates_;
 };
 
 std::pair<gfx::PointF, gfx::PointF> GetVisibleSelectionEndPoints(
     const gfx::RectF& rect,
     const gfx::PointF& top,
     const gfx::PointF& bottom) {
-  gfx::PointF start(base::ClampToRange(top.x(), rect.x(), rect.right()),
-                    base::ClampToRange(top.y(), rect.y(), rect.bottom()));
-  gfx::PointF end =
-      start + gfx::Vector2dF(bottom.x() - top.x(), bottom.y() - top.y());
+  gfx::PointF start(base::clamp(top.x(), rect.x(), rect.right()),
+                    base::clamp(top.y(), rect.y(), rect.bottom()));
+  gfx::PointF end = start + (bottom - top);
   return {start, end};
 }
 
@@ -275,7 +273,7 @@ void LayerTreeImpl::UpdateScrollbarGeometries() {
     auto* scroll_node = scroll_tree.FindNodeFromElementId(scrolling_element_id);
     if (!scroll_node)
       continue;
-    gfx::ScrollOffset current_offset =
+    gfx::Vector2dF current_offset =
         scroll_tree.current_scroll_offset(scrolling_element_id);
     gfx::SizeF scrolling_size(scroll_node->bounds);
     gfx::Size bounds_size(scroll_tree.container_bounds(scroll_node->id));
@@ -470,8 +468,8 @@ bool LayerTreeImpl::IsRootLayer(const LayerImpl* layer) const {
   return !layer_list_.empty() && layer_list_[0].get() == layer;
 }
 
-gfx::ScrollOffset LayerTreeImpl::TotalScrollOffset() const {
-  gfx::ScrollOffset offset;
+gfx::Vector2dF LayerTreeImpl::TotalScrollOffset() const {
+  gfx::Vector2dF offset;
   const auto& scroll_tree = property_trees()->scroll_tree;
 
   if (auto* inner_scroll = InnerViewportScrollNode()) {
@@ -484,8 +482,8 @@ gfx::ScrollOffset LayerTreeImpl::TotalScrollOffset() const {
   return offset;
 }
 
-gfx::ScrollOffset LayerTreeImpl::TotalMaxScrollOffset() const {
-  gfx::ScrollOffset offset;
+gfx::Vector2dF LayerTreeImpl::TotalMaxScrollOffset() const {
+  gfx::Vector2dF offset;
   const auto& scroll_tree = property_trees()->scroll_tree;
 
   if (viewport_property_ids_.inner_scroll != ScrollTree::kInvalidNodeId)
@@ -617,6 +615,8 @@ void LayerTreeImpl::PushPropertiesTo(LayerTreeImpl* target_tree) {
   if (TakeNewLocalSurfaceIdRequest())
     target_tree->RequestNewLocalSurfaceId();
   target_tree->SetLocalSurfaceIdFromParent(local_surface_id_from_parent());
+  target_tree->SetVisualPropertiesUpdateDuration(
+      visual_properties_update_duration());
 
   target_tree->pending_page_scale_animation_ =
       std::move(pending_page_scale_animation_);
@@ -651,7 +651,7 @@ void LayerTreeImpl::PushPropertiesTo(LayerTreeImpl* target_tree) {
 
   // Note: this needs to happen after SetPropertyTrees.
   target_tree->HandleTickmarksVisibilityChange();
-  target_tree->HandleScrollbarShowRequestsFromMain();
+  target_tree->HandleScrollbarShowRequests();
   target_tree->AddPresentationCallbacks(std::move(presentation_callbacks_));
   presentation_callbacks_.clear();
 
@@ -689,7 +689,7 @@ void LayerTreeImpl::HandleTickmarksVisibilityChange() {
   }
 }
 
-void LayerTreeImpl::HandleScrollbarShowRequestsFromMain() {
+void LayerTreeImpl::HandleScrollbarShowRequests() {
   for (auto* layer : *this) {
     if (!layer->needs_show_scrollbars())
       continue;
@@ -697,7 +697,7 @@ void LayerTreeImpl::HandleScrollbarShowRequestsFromMain() {
         host_impl_->ScrollbarAnimationControllerForElementId(
             layer->element_id());
     if (controller) {
-      controller->DidRequestShowFromMainThread();
+      controller->DidRequestShow();
       layer->set_needs_show_scrollbars(false);
     }
   }
@@ -805,15 +805,15 @@ void LayerTreeImpl::SetBackdropFilterMutated(
 }
 
 void LayerTreeImpl::AddPresentationCallbacks(
-    std::vector<LayerTreeHost::PresentationTimeCallback> callbacks) {
+    std::vector<PresentationTimeCallbackBuffer::MainCallback> callbacks) {
   std::copy(std::make_move_iterator(callbacks.begin()),
             std::make_move_iterator(callbacks.end()),
             std::back_inserter(presentation_callbacks_));
 }
 
-std::vector<LayerTreeHost::PresentationTimeCallback>
+std::vector<PresentationTimeCallbackBuffer::MainCallback>
 LayerTreeImpl::TakePresentationCallbacks() {
-  std::vector<LayerTreeHost::PresentationTimeCallback> callbacks;
+  std::vector<PresentationTimeCallbackBuffer::MainCallback> callbacks;
   callbacks.swap(presentation_callbacks_);
   return callbacks;
 }
@@ -1070,7 +1070,7 @@ bool LayerTreeImpl::ClampTopControlsShownRatio() {
         host_impl_->browser_controls_manager()->TopControlsShownRatioRange();
   }
   return top_controls_shown_ratio_->SetCurrent(
-      base::ClampToRange(ratio, range.first, range.second));
+      base::clamp(ratio, range.first, range.second));
 }
 
 bool LayerTreeImpl::ClampBottomControlsShownRatio() {
@@ -1083,7 +1083,7 @@ bool LayerTreeImpl::ClampBottomControlsShownRatio() {
         host_impl_->browser_controls_manager()->BottomControlsShownRatioRange();
   }
   return bottom_controls_shown_ratio_->SetCurrent(
-      base::ClampToRange(ratio, range.first, range.second));
+      base::clamp(ratio, range.first, range.second));
 }
 
 bool LayerTreeImpl::SetCurrentBrowserControlsShownRatio(float top_ratio,
@@ -1192,6 +1192,11 @@ bool LayerTreeImpl::TakeNewLocalSurfaceIdRequest() {
   return new_local_surface_id_request;
 }
 
+void LayerTreeImpl::SetVisualPropertiesUpdateDuration(
+    base::TimeDelta visual_properties_update_duration) {
+  visual_properties_update_duration_ = visual_properties_update_duration;
+}
+
 void LayerTreeImpl::SetDeviceViewportRect(
     const gfx::Rect& device_viewport_rect) {
   if (device_viewport_rect == device_viewport_rect_)
@@ -1242,11 +1247,12 @@ const SyncedProperty<ScaleGroup>* LayerTreeImpl::page_scale_factor() const {
 }
 
 gfx::SizeF LayerTreeImpl::ScrollableViewportSize() const {
-  auto* inner_node = InnerViewportScrollNode();
-  if (!inner_node)
+  if (!InnerViewportScrollNode())
     return gfx::SizeF();
 
-  return gfx::ScaleSize(gfx::SizeF(inner_node->container_bounds),
+  gfx::Size container_bounds = property_trees()->scroll_tree.container_bounds(
+      viewport_property_ids_.inner_scroll);
+  return gfx::ScaleSize(gfx::SizeF(container_bounds),
                         1.0f / page_scale_factor_for_scroll());
 }
 
@@ -1290,6 +1296,10 @@ void LayerTreeImpl::SetViewportPropertyIds(const ViewportPropertyIds& ids) {
 const TransformNode* LayerTreeImpl::OverscrollElasticityTransformNode() const {
   return property_trees()->transform_tree.Node(
       viewport_property_ids_.overscroll_elasticity_transform);
+}
+
+ElementId LayerTreeImpl::OverscrollElasticityEffectElementId() const {
+  return viewport_property_ids_.overscroll_elasticity_effect;
 }
 
 const TransformNode* LayerTreeImpl::PageScaleTransformNode() const {
@@ -1391,6 +1401,8 @@ bool LayerTreeImpl::UpdateDrawProperties(
                 layer->DrawTransform());
       }
 
+      // TODO(khushalsagar) : Skip computing occlusion for shared elements. See
+      // crbug.com/1258058.
       if (it.state() ==
           EffectTreeLayerListIterator::State::CONTRIBUTING_SURFACE) {
         const RenderSurfaceImpl* occlusion_surface =
@@ -1491,7 +1503,7 @@ LayerImpl* LayerTreeImpl::LayerById(int id) const {
   return iter != layer_id_map_.end() ? iter->second : nullptr;
 }
 
-// TODO(masonfreed): If this shows up on profiles, this could use
+// TODO(masonf): If this shows up on profiles, this could use
 // a layer_element_map_ approach similar to LayerById().
 LayerImpl* LayerTreeImpl::LayerByElementId(ElementId element_id) const {
   auto it =

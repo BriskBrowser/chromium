@@ -5,9 +5,6 @@
 #ifndef COMPONENTS_AUTOFILL_ASSISTANT_BROWSER_ACTIONS_HIGHLIGHT_ELEMENT_ACTION_H_
 #define COMPONENTS_AUTOFILL_ASSISTANT_BROWSER_ACTIONS_HIGHLIGHT_ELEMENT_ACTION_H_
 
-#include <string>
-#include <vector>
-
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/autofill_assistant/browser/actions/action.h"
@@ -21,6 +18,10 @@ class HighlightElementAction : public Action {
  public:
   explicit HighlightElementAction(ActionDelegate* delegate,
                                   const ActionProto& proto);
+
+  HighlightElementAction(const HighlightElementAction&) = delete;
+  HighlightElementAction& operator=(const HighlightElementAction&) = delete;
+
   ~HighlightElementAction() override;
 
  private:
@@ -34,8 +35,6 @@ class HighlightElementAction : public Action {
                           const ClientStatus& status);
 
   base::WeakPtrFactory<HighlightElementAction> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(HighlightElementAction);
 };
 
 }  // namespace autofill_assistant

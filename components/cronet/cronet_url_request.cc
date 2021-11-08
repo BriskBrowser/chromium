@@ -6,7 +6,6 @@
 
 #include <limits>
 #include <utility>
-#include <vector>
 
 #include "base/bind.h"
 #include "base/location.h"
@@ -19,11 +18,14 @@
 #include "net/base/net_errors.h"
 #include "net/base/proxy_server.h"
 #include "net/base/request_priority.h"
+#include "net/base/upload_data_stream.h"
 #include "net/cert/cert_status_flags.h"
+#include "net/cert/x509_certificate.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
 #include "net/http/http_util.h"
 #include "net/ssl/ssl_info.h"
+#include "net/ssl/ssl_private_key.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/redirect_info.h"
@@ -289,6 +291,10 @@ void CronetURLRequest::NetworkTasks::Start(
   url_request_->SetExtraRequestHeaders(*request_headers);
   url_request_->SetPriority(initial_priority_);
   url_request_->SetIdempotency(idempotency_);
+  std::string referer;
+  if (request_headers->GetHeader(net::HttpRequestHeaders::kReferer, &referer)) {
+    url_request_->SetReferrer(referer);
+  }
   if (upload)
     url_request_->set_upload(std::move(upload));
   if (traffic_stats_tag_set_ || traffic_stats_uid_set_) {
@@ -320,8 +326,8 @@ void CronetURLRequest::NetworkTasks::GetStatus(
 void CronetURLRequest::NetworkTasks::FollowDeferredRedirect() {
   DCHECK_CALLED_ON_VALID_THREAD(network_thread_checker_);
   url_request_->FollowDeferredRedirect(
-      base::nullopt /* removed_request_headers */,
-      base::nullopt /* modified_request_headers */);
+      absl::nullopt /* removed_request_headers */,
+      absl::nullopt /* modified_request_headers */);
 }
 
 void CronetURLRequest::NetworkTasks::ReadData(

@@ -12,17 +12,23 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
 
 /**
  * Test for TranslateOptions.
  */
 @RunWith(BaseJUnit4ClassRunner.class)
+@Batch(Batch.UNIT_TESTS)
 public class TranslateOptionsTest {
+    private static final boolean NEVER_LANGUAGE = false;
+    private static final boolean NEVER_DOMAIN = false;
     private static final boolean ALWAYS_TRANSLATE = true;
-    private static final String[] LANGUAGES = {"English", "Spanish", "French"};
-    private static final String[] CODES = {"en", "es", "fr"};
+    private static final String[] LANGUAGES = {"English", "French", "Spanish"};
+    private static final String[] CODES = {"en", "fr", "es"};
     private static final int[] UMA_HASH_CODES = {10, 20, 30};
+
+    private static final String[] CONTENT_LANGUAGES_CODES = {"es", "fr"};
 
     @Before
     public void setUp() {}
@@ -31,8 +37,9 @@ public class TranslateOptionsTest {
     @SmallTest
     @Feature({"Translate"})
     public void testNoChanges() {
-        TranslateOptions options = TranslateOptions.create(
-                "en", "es", LANGUAGES, CODES, ALWAYS_TRANSLATE, false, null);
+        TranslateOptions options = TranslateOptions.create("en", "es", LANGUAGES, CODES,
+                NEVER_LANGUAGE, NEVER_DOMAIN, ALWAYS_TRANSLATE,
+                /*triggeredFromMenu */ false, /*hashCodes*/ null, CONTENT_LANGUAGES_CODES);
         Assert.assertEquals("English", options.sourceLanguageName());
         Assert.assertEquals("Spanish", options.targetLanguageName());
         Assert.assertEquals("en", options.sourceLanguageCode());
@@ -48,8 +55,10 @@ public class TranslateOptionsTest {
     @SmallTest
     @Feature({"Translate"})
     public void testBasicLanguageChanges() {
-        TranslateOptions options = TranslateOptions.create(
-                "en", "es", LANGUAGES, CODES, !ALWAYS_TRANSLATE, true, UMA_HASH_CODES);
+        TranslateOptions options = TranslateOptions.create("en", "es", LANGUAGES, CODES,
+                NEVER_LANGUAGE, NEVER_DOMAIN, !ALWAYS_TRANSLATE,
+                /*triggeredFromMenu */ true, UMA_HASH_CODES, CONTENT_LANGUAGES_CODES);
+        // Charge target and source languages.
         options.setTargetLanguage("fr");
         options.setSourceLanguage("en");
         Assert.assertEquals("English", options.sourceLanguageName());
@@ -79,8 +88,9 @@ public class TranslateOptionsTest {
     @SmallTest
     @Feature({"Translate"})
     public void testInvalidLanguageChanges() {
-        TranslateOptions options = TranslateOptions.create(
-                "en", "es", LANGUAGES, CODES, ALWAYS_TRANSLATE, false, null);
+        TranslateOptions options = TranslateOptions.create("en", "es", LANGUAGES, CODES,
+                NEVER_LANGUAGE, NEVER_DOMAIN, ALWAYS_TRANSLATE, /* triggeredFromMenu */ false,
+                /* hashCodes*/ null, CONTENT_LANGUAGES_CODES);
 
         // Target language does not exist
         Assert.assertFalse(options.setTargetLanguage("aaa"));
@@ -95,8 +105,9 @@ public class TranslateOptionsTest {
     @SmallTest
     @Feature({"Translate"})
     public void testBasicOptionsChanges() {
-        TranslateOptions options = TranslateOptions.create(
-                "en", "es", LANGUAGES, CODES, !ALWAYS_TRANSLATE, false, null);
+        TranslateOptions options = TranslateOptions.create("en", "es", LANGUAGES, CODES,
+                NEVER_LANGUAGE, NEVER_DOMAIN, !ALWAYS_TRANSLATE, /* triggeredFromMenu */ false,
+                /* hashCodes*/ null, CONTENT_LANGUAGES_CODES);
         Assert.assertFalse(options.optionsChanged());
         options.toggleNeverTranslateDomainState(true);
         Assert.assertTrue(options.getTranslateState(TranslateOptions.Type.NEVER_DOMAIN));
@@ -115,28 +126,65 @@ public class TranslateOptionsTest {
         Assert.assertFalse(options.getTranslateState(TranslateOptions.Type.NEVER_LANGUAGE));
         Assert.assertTrue(options.getTranslateState(TranslateOptions.Type.ALWAYS_LANGUAGE));
         Assert.assertTrue(options.optionsChanged());
+
+        // Toggle never translate language and check that always translate is toggled.
+        options.toggleNeverTranslateLanguageState(true);
+        Assert.assertFalse(options.getTranslateState(TranslateOptions.Type.NEVER_DOMAIN));
+        Assert.assertTrue(options.getTranslateState(TranslateOptions.Type.NEVER_LANGUAGE));
+        Assert.assertFalse(options.getTranslateState(TranslateOptions.Type.ALWAYS_LANGUAGE));
+
+        // Toggle always translate language and check that never translate is toggled.
+        options.toggleAlwaysTranslateLanguageState(true);
+        Assert.assertFalse(options.getTranslateState(TranslateOptions.Type.NEVER_DOMAIN));
+        Assert.assertFalse(options.getTranslateState(TranslateOptions.Type.NEVER_LANGUAGE));
+        Assert.assertTrue(options.getTranslateState(TranslateOptions.Type.ALWAYS_LANGUAGE));
     }
 
     @Test
     @SmallTest
     @Feature({"Translate"})
-    public void testInvalidOptionsChanges() {
-        TranslateOptions options = TranslateOptions.create(
-                "en", "es", LANGUAGES, CODES, ALWAYS_TRANSLATE, false, null);
+    public void testContentLanguagesAreFilledAsExpected() {
+        TranslateOptions options = TranslateOptions.create("en", "es", LANGUAGES, CODES,
+                NEVER_LANGUAGE, NEVER_DOMAIN, ALWAYS_TRANSLATE, /* triggeredFromMenu */ false,
+                /* hashCodes*/ UMA_HASH_CODES, CONTENT_LANGUAGES_CODES);
 
-        // Never translate language should not work, but never translate domain
-        // should
-        Assert.assertFalse(options.toggleNeverTranslateLanguageState(true));
-        options.toggleNeverTranslateDomainState(true);
-        Assert.assertTrue(options.optionsChanged());
+        Assert.assertEquals(2, options.contentLanguages().length);
 
-        Assert.assertTrue(options.toggleAlwaysTranslateLanguageState(false));
+        Assert.assertEquals("es", options.contentLanguages()[0]);
+        Assert.assertEquals(
+                "Spanish", options.getRepresentationFromCode(options.contentLanguages()[0]));
+        Assert.assertEquals(
+                "español", options.getNativeRepresentationFromCode(options.contentLanguages()[0]));
+        Assert.assertTrue(30 == options.getUMAHashCodeFromCode(options.contentLanguages()[0]));
 
-        // Never options are ok
-        Assert.assertTrue(options.toggleNeverTranslateLanguageState(true));
-        options.toggleNeverTranslateDomainState(true);
+        Assert.assertEquals("fr", options.contentLanguages()[1]);
+        Assert.assertEquals(
+                "French", options.getRepresentationFromCode(options.contentLanguages()[1]));
+        Assert.assertEquals(
+                "français", options.getNativeRepresentationFromCode(options.contentLanguages()[1]));
+        Assert.assertTrue(20 == options.getUMAHashCodeFromCode(options.contentLanguages()[1]));
+    }
 
-        // But always is not now
-        Assert.assertFalse(options.toggleAlwaysTranslateLanguageState(true));
+    @Test
+    @SmallTest
+    @Feature({"Translate"})
+    public void testupdateContentLanguages() {
+        TranslateOptions options = TranslateOptions.create("en", "es", LANGUAGES, CODES,
+                NEVER_LANGUAGE, NEVER_DOMAIN, ALWAYS_TRANSLATE, /* triggeredFromMenu */ false,
+                /* hashCodes*/ UMA_HASH_CODES, CONTENT_LANGUAGES_CODES);
+
+        Assert.assertEquals(2, options.contentLanguages().length);
+
+        Assert.assertEquals("es", options.contentLanguages()[0]);
+        Assert.assertEquals("fr", options.contentLanguages()[1]);
+
+        options.updateContentLanguages(new String[] {"en"});
+        Assert.assertEquals(1, options.contentLanguages().length);
+
+        Assert.assertEquals("en", options.contentLanguages()[0]);
+        Assert.assertEquals(
+                "English", options.getRepresentationFromCode(options.contentLanguages()[0]));
+        Assert.assertEquals(
+                "English", options.getNativeRepresentationFromCode(options.contentLanguages()[0]));
     }
 }

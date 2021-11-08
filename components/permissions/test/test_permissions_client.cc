@@ -5,6 +5,8 @@
 #include "components/permissions/test/test_permissions_client.h"
 
 #include "components/content_settings/core/browser/cookie_settings.h"
+#include "components/permissions/permission_actions_history.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "components/ukm/content/source_url_recorder.h"
 
 namespace permissions {
@@ -22,7 +24,10 @@ scoped_refptr<HostContentSettingsMap> CreateSettingsMap(
 
 TestPermissionsClient::TestPermissionsClient()
     : settings_map_(CreateSettingsMap(&prefs_)),
-      autoblocker_(settings_map_.get()) {}
+      autoblocker_(settings_map_.get()),
+      permission_actions_history_(&prefs_) {
+  PermissionActionsHistory::RegisterProfilePrefs(prefs_.registry());
+}
 
 TestPermissionsClient::~TestPermissionsClient() {
   settings_map_->ShutdownOnUIThread();
@@ -45,6 +50,11 @@ bool TestPermissionsClient::IsSubresourceFilterActivated(
   return false;
 }
 
+PermissionActionsHistory* TestPermissionsClient::GetPermissionActionsHistory(
+    content::BrowserContext* browser_context) {
+  return &permission_actions_history_;
+}
+
 PermissionDecisionAutoBlocker*
 TestPermissionsClient::GetPermissionDecisionAutoBlocker(
     content::BrowserContext* browser_context) {
@@ -56,7 +66,7 @@ PermissionManager* TestPermissionsClient::GetPermissionManager(
   return nullptr;
 }
 
-ChooserContextBase* TestPermissionsClient::GetChooserContext(
+ObjectPermissionContextBase* TestPermissionsClient::GetChooserContext(
     content::BrowserContext* browser_context,
     ContentSettingsType type) {
   return nullptr;
@@ -72,7 +82,7 @@ void TestPermissionsClient::GetUkmSourceId(
         ukm::GetSourceIdForWebContentsDocument(web_contents);
     std::move(callback).Run(source_id);
   } else {
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
   }
 }
 

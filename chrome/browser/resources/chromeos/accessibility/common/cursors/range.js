@@ -95,6 +95,13 @@ cursors.Range = class {
     return this.start_.equals(rhs.start) && this.end_.equals(rhs.end);
   }
 
+
+  /**
+   * Similar to above equals(), but does not trigger recovery in either start or
+   * end cursor. Use this for strict equality between ranges.
+   * @param {!cursors.Range} rhs
+   * @return {boolean}
+   */
   equalsWithoutRecovery(rhs) {
     return this.start_.equalsWithoutRecovery(rhs.start) &&
         this.end_.equalsWithoutRecovery(rhs.end);
@@ -120,6 +127,14 @@ cursors.Range = class {
    */
   getBound(dir) {
     return dir === Dir.FORWARD ? this.end_ : this.start_;
+  }
+
+  /**
+   * Returns true if either start or end of this range requires recovery.
+   * @return {boolean}
+   */
+  requiresRecovery() {
+    return this.start_.requiresRecovery() || this.end_.requiresRecovery();
   }
 
   /**
@@ -285,6 +300,16 @@ cursors.Range = class {
       return new cursors.Range(this.end, this.start);
     }
     return this;
+  }
+
+  /**
+   * Returns true if this range was created after wrapping. For example, moving
+   * from a range at the end of a web contents to [this] range at the beginning
+   * of the document.
+   * @return {boolean}
+   */
+  get wrapped() {
+    return this.start_.wrapped || this.end_.wrapped;
   }
 };
 });  // goog.scope

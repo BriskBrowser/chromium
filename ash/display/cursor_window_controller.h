@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
-#include "ash/public/cpp/ash_constants.h"
+#include "ash/constants/ash_constants.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
@@ -18,6 +18,11 @@
 #include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 #include "ui/display/display.h"
 #include "ui/views/widget/unique_widget_ptr.h"
+
+namespace gfx {
+class ImageSkia;
+class ImageSkiaRep;
+}  // namespace gfx
 
 namespace ash {
 
@@ -39,6 +44,10 @@ class ASH_EXPORT CursorWindowController {
   };
 
   CursorWindowController();
+
+  CursorWindowController(const CursorWindowController&) = delete;
+  CursorWindowController& operator=(const CursorWindowController&) = delete;
+
   ~CursorWindowController();
 
   bool is_cursor_compositing_enabled() const {
@@ -132,8 +141,6 @@ class ASH_EXPORT CursorWindowController {
   views::UniqueWidgetPtr cursor_view_widget_;
 
   const bool is_cursor_motion_blur_enabled_;
-
-  DISALLOW_COPY_AND_ASSIGN(CursorWindowController);
 };
 
 }  // namespace ash

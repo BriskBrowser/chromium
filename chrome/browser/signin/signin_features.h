@@ -6,10 +6,14 @@
 #define CHROME_BROWSER_SIGNIN_SIGNIN_FEATURES_H_
 
 #include "base/feature_list.h"
-#include "components/signin/public/base/signin_buildflags.h"
+#include "build/chromeos_buildflags.h"
 
-#if BUILDFLAG(ENABLE_DICE_SUPPORT)
-extern const base::Feature kDiceWebSigninInterceptionFeature;
-#endif  // ENABLE_DICE_SUPPORT
+extern const base::Feature kProcessGaiaRemoveLocalAccountHeader;
+
+extern const base::Feature kAccountPoliciesLoadedWithoutSync;
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+extern const base::Feature kMultiProfileAccountConsistency;
+#endif
 
 #endif  // CHROME_BROWSER_SIGNIN_SIGNIN_FEATURES_H_

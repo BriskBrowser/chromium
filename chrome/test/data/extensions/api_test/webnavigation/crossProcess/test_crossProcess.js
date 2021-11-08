@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-onload = async function() {
+const scriptUrl = '_test_resources/api_test/webnavigation/framework.js';
+let loadScript = chrome.test.loadScript(scriptUrl);
+
+loadScript.then(async function() {
   let tab = await promise(chrome.tabs.create, {"url": "about:blank"});
   let config = await promise(chrome.test.getConfig);
   let port = config.testServer.port;
@@ -91,7 +94,7 @@ onload = async function() {
                 processId: 1,
                 tabId: 0,
                 timeStamp: 0,
-                transitionQualifiers: ['client_redirect'],
+                transitionQualifiers: [],
                 transitionType: 'link',
                 url: URL_REGULAR
               }
@@ -201,7 +204,7 @@ onload = async function() {
                 processId: 1,
                 tabId: 0,
                 timeStamp: 0,
-                transitionQualifiers: ['client_redirect', 'server_redirect'],
+                transitionQualifiers: ['server_redirect'],
                 transitionType: 'link',
                 url: URL_REGULAR
               }
@@ -331,7 +334,7 @@ onload = async function() {
                      processId: 0,
                      tabId: 0,
                      timeStamp: 0,
-                     transitionQualifiers: ["client_redirect"],
+                     transitionQualifiers: [],
                      transitionType: "link",
                      url: getURL('empty.html') }},
         { label: "c-onDOMContentLoaded",
@@ -437,7 +440,7 @@ onload = async function() {
                      processId: 0,
                      tabId: 0,
                      timeStamp: 0,
-                     transitionQualifiers: ["client_redirect"],
+                     transitionQualifiers: [],
                      transitionType: "link",
                      url: getURL('empty.html') }},
         { label: "c-onDOMContentLoaded",
@@ -466,4 +469,4 @@ onload = async function() {
       chrome.tabs.update(tab.id, {url: getURL('d.html?' + port + "/test2")});
     },
   ]);
-};
+});

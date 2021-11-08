@@ -5,8 +5,6 @@
 #ifndef CHROMECAST_MEDIA_CMA_BASE_DEMUXER_STREAM_ADAPTER_H_
 #define CHROMECAST_MEDIA_CMA_BASE_DEMUXER_STREAM_ADAPTER_H_
 
-#include <memory>
-
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -38,6 +36,10 @@ class DemuxerStreamAdapter : public CodedFrameProvider {
       const scoped_refptr<BalancedMediaTaskRunnerFactory>&
           media_task_runner_factory,
       ::media::DemuxerStream* demuxer_stream);
+
+  DemuxerStreamAdapter(const DemuxerStreamAdapter&) = delete;
+  DemuxerStreamAdapter& operator=(const DemuxerStreamAdapter&) = delete;
+
   ~DemuxerStreamAdapter() override;
 
   // CodedFrameProvider implementation.
@@ -85,8 +87,6 @@ class DemuxerStreamAdapter : public CodedFrameProvider {
 
   base::WeakPtr<DemuxerStreamAdapter> weak_this_;
   base::WeakPtrFactory<DemuxerStreamAdapter> weak_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(DemuxerStreamAdapter);
 };
 
 }  // namespace media

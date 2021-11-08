@@ -60,9 +60,9 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
                             mCoordinator.getMessageItems();
                     for (int i = 0; i < messageList.size(); i++) {
                         MessageCardProviderMediator.Message message = messageList.get(i);
-                        if (message.type == MessageService.MessageType.PRICE_WELCOME) {
+                        if (message.type == MessageService.MessageType.PRICE_MESSAGE) {
                             mModelList.add(new MVCListAdapter.ListItem(
-                                    TabProperties.UiType.PRICE_WELCOME, message.model));
+                                    TabProperties.UiType.LARGE_MESSAGE, message.model));
                         } else {
                             mModelList.add(new MVCListAdapter.ListItem(
                                     TabProperties.UiType.MESSAGE, message.model));
@@ -85,18 +85,15 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
                 public void finishedHiding() {}
             };
 
-    private TabListModel mModelList = new TabListModel();
+    private TabListModel mModelList;
     private SimpleRecyclerViewAdapter mAdapter;
 
     private AtomicBoolean mFinishedShowing = new AtomicBoolean(false);
 
-    private MessageService mTestingService =
-            new MessageService(MessageService.MessageType.FOR_TESTING);
-    private MessageService mSuggestionService =
-            new MessageService(MessageService.MessageType.TAB_SUGGESTION);
     private MessageCardProviderCoordinator mCoordinator;
-    private MessageService mPriceService =
-            new MessageService(MessageService.MessageType.PRICE_WELCOME);
+    private MessageService mTestingService;
+    private MessageService mSuggestionService;
+    private MessageService mPriceService;
 
     private MessageCardView.DismissActionProvider mUiDismissActionProvider = (messageType) -> {};
 
@@ -104,7 +101,7 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
     private TabSuggestionMessageService.TabSuggestionMessageData mTabSuggestionMessageData;
 
     @Mock
-    private PriceWelcomeMessageService.PriceWelcomeMessageData mPriceWelcomeMessageData;
+    private PriceMessageService.PriceMessageData mPriceMessageData;
 
     @Override
     public void setUpTest() throws Exception {
@@ -112,10 +109,11 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
         MockitoAnnotations.initMocks(this);
         // TODO(meiliang): Replace with TabSwitcher instead when ready to integrate with
         // TabSwitcher.
-        ViewGroup view = new FrameLayout(getActivity());
-        mAdapter = new SimpleRecyclerViewAdapter(mModelList);
-
         TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModelList = new TabListModel();
+            ViewGroup view = new FrameLayout(getActivity());
+            mAdapter = new SimpleRecyclerViewAdapter(mModelList);
+
             getActivity().setContentView(view);
 
             mRecyclerView = (TabListRecyclerView) getActivity().getLayoutInflater().inflate(
@@ -127,9 +125,9 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
                     new LayoutViewBuilder(R.layout.tab_grid_message_card_item),
                     MessageCardViewBinder::bind);
 
-            mAdapter.registerType(TabProperties.UiType.PRICE_WELCOME,
-                    new LayoutViewBuilder(R.layout.price_welcome_message_card_item),
-                    PriceWelcomeMessageCardViewBinder::bind);
+            mAdapter.registerType(TabProperties.UiType.LARGE_MESSAGE,
+                    new LayoutViewBuilder(R.layout.large_message_card_item),
+                    LargeMessageCardViewBinder::bind);
 
             GridLayoutManager layoutManager = new GridLayoutManager(mRecyclerView.getContext(), 2);
             layoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
@@ -138,7 +136,7 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
                     int itemType = mAdapter.getItemViewType(i);
 
                     if (itemType == TabProperties.UiType.MESSAGE
-                            || itemType == TabProperties.UiType.PRICE_WELCOME) {
+                            || itemType == TabProperties.UiType.LARGE_MESSAGE) {
                         return 2;
                     }
                     return 1;
@@ -148,13 +146,17 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
             mRecyclerView.setAdapter(mAdapter);
 
             view.addView(mRecyclerView);
-        });
 
-        mCoordinator = new MessageCardProviderCoordinator(
-                getActivity(), () -> false, mUiDismissActionProvider);
-        mCoordinator.subscribeMessageService(mTestingService);
-        mCoordinator.subscribeMessageService(mSuggestionService);
-        mCoordinator.subscribeMessageService(mPriceService);
+            mTestingService = new MessageService(MessageService.MessageType.FOR_TESTING);
+            mSuggestionService = new MessageService(MessageService.MessageType.TAB_SUGGESTION);
+            mPriceService = new MessageService(MessageService.MessageType.PRICE_MESSAGE);
+
+            mCoordinator = new MessageCardProviderCoordinator(
+                    getActivity(), () -> false, mUiDismissActionProvider);
+            mCoordinator.subscribeMessageService(mTestingService);
+            mCoordinator.subscribeMessageService(mSuggestionService);
+            mCoordinator.subscribeMessageService(mPriceService);
+        });
 
         when(mTabSuggestionMessageData.getActionType())
                 .thenReturn(TabSuggestion.TabSuggestionAction.CLOSE);
@@ -164,9 +166,10 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
     @SmallTest
     public void testShowingTabSuggestionMessage() {
         when(mTabSuggestionMessageData.getSize()).thenReturn(SUGGESTED_TAB_COUNT);
-        mSuggestionService.sendAvailabilityNotification(mTabSuggestionMessageData);
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> mRecyclerView.startShowing(false));
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mSuggestionService.sendAvailabilityNotification(mTabSuggestionMessageData);
+            mRecyclerView.startShowing(false);
+        });
 
         CriteriaHelper.pollUiThread(
                 () -> mRecyclerView.getVisibility() == View.VISIBLE && mFinishedShowing.get());
@@ -181,9 +184,11 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
         when(mTabSuggestionMessageData.getSize()).thenReturn(SUGGESTED_TAB_COUNT);
         when(mTabSuggestionMessageData.getReviewActionProvider())
                 .thenReturn(() -> reviewed.set(true));
-        mSuggestionService.sendAvailabilityNotification(mTabSuggestionMessageData);
 
-        TestThreadUtils.runOnUiThreadBlocking(() -> mRecyclerView.startShowing(false));
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mSuggestionService.sendAvailabilityNotification(mTabSuggestionMessageData);
+            mRecyclerView.startShowing(false);
+        });
 
         CriteriaHelper.pollUiThread(
                 () -> mRecyclerView.getVisibility() == View.VISIBLE && mFinishedShowing.get());
@@ -202,9 +207,11 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
         when(mTabSuggestionMessageData.getSize()).thenReturn(SUGGESTED_TAB_COUNT);
         when(mTabSuggestionMessageData.getDismissActionProvider())
                 .thenReturn((type) -> dismissed.set(true));
-        mSuggestionService.sendAvailabilityNotification(mTabSuggestionMessageData);
 
-        TestThreadUtils.runOnUiThreadBlocking(() -> mRecyclerView.startShowing(false));
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mSuggestionService.sendAvailabilityNotification(mTabSuggestionMessageData);
+            mRecyclerView.startShowing(false);
+        });
 
         CriteriaHelper.pollUiThread(
                 () -> mRecyclerView.getVisibility() == View.VISIBLE && mFinishedShowing.get());
@@ -218,31 +225,33 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
 
     @Test
     @SmallTest
-    public void testPriceWelcomeMessage() {
-        mPriceService.sendAvailabilityNotification(mPriceWelcomeMessageData);
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> mRecyclerView.startShowing(false));
+    public void testPriceMessage() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mPriceService.sendAvailabilityNotification(mPriceMessageData);
+            mRecyclerView.startShowing(false);
+        });
 
         CriteriaHelper.pollUiThread(
                 () -> mRecyclerView.getVisibility() == View.VISIBLE && mFinishedShowing.get());
 
-        onView(withId(R.id.tab_grid_price_welcome_message_item)).check(matches(isDisplayed()));
+        onView(withId(R.id.large_message_card_item)).check(matches(isDisplayed()));
     }
 
     @Test
     @SmallTest
-    public void testReviewPriceWelcomeMessage() {
+    public void testReviewPriceMessage() {
         AtomicBoolean reviewed = new AtomicBoolean();
-        when(mPriceWelcomeMessageData.getReviewActionProvider())
-                .thenReturn(() -> reviewed.set(true));
-        mPriceService.sendAvailabilityNotification(mPriceWelcomeMessageData);
+        when(mPriceMessageData.getReviewActionProvider()).thenReturn(() -> reviewed.set(true));
 
-        TestThreadUtils.runOnUiThreadBlocking(() -> mRecyclerView.startShowing(false));
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mPriceService.sendAvailabilityNotification(mPriceMessageData);
+            mRecyclerView.startShowing(false);
+        });
 
         CriteriaHelper.pollUiThread(
                 () -> mRecyclerView.getVisibility() == View.VISIBLE && mFinishedShowing.get());
 
-        onView(withId(R.id.tab_grid_price_welcome_message_item)).check(matches(isDisplayed()));
+        onView(withId(R.id.large_message_card_item)).check(matches(isDisplayed()));
 
         assertFalse(reviewed.get());
         onView(withId(R.id.action_button)).perform(click());
@@ -251,18 +260,20 @@ public class MessageCardProviderTest extends DummyUiActivityTestCase {
 
     @Test
     @SmallTest
-    public void testDismissPriceWelcomeMessage() {
+    public void testDismissPriceMessage() {
         AtomicBoolean dismissed = new AtomicBoolean();
-        when(mPriceWelcomeMessageData.getDismissActionProvider())
+        when(mPriceMessageData.getDismissActionProvider())
                 .thenReturn((type) -> dismissed.set(true));
-        mPriceService.sendAvailabilityNotification(mPriceWelcomeMessageData);
 
-        TestThreadUtils.runOnUiThreadBlocking(() -> mRecyclerView.startShowing(false));
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mPriceService.sendAvailabilityNotification(mPriceMessageData);
+            mRecyclerView.startShowing(false);
+        });
 
         CriteriaHelper.pollUiThread(
                 () -> mRecyclerView.getVisibility() == View.VISIBLE && mFinishedShowing.get());
 
-        onView(withId(R.id.tab_grid_price_welcome_message_item)).check(matches(isDisplayed()));
+        onView(withId(R.id.large_message_card_item)).check(matches(isDisplayed()));
 
         assertFalse(dismissed.get());
         onView(withId(R.id.close_button)).perform(click());

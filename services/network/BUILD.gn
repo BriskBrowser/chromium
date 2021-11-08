@@ -24,14 +24,14 @@ component("network_service") {
     "cors/cors_url_loader.h",
     "cors/cors_url_loader_factory.cc",
     "cors/cors_url_loader_factory.h",
+    "cors/cors_util.cc",
+    "cors/cors_util.h",
     "cors/preflight_cache.cc",
     "cors/preflight_cache.h",
     "cors/preflight_controller.cc",
     "cors/preflight_controller.h",
     "cors/preflight_result.cc",
     "cors/preflight_result.h",
-    "crash_keys.cc",
-    "crash_keys.h",
     "crl_set_distributor.cc",
     "crl_set_distributor.h",
     "data_pipe_element_reader.cc",
@@ -54,8 +54,6 @@ component("network_service") {
     "ignore_errors_cert_verifier.h",
     "keepalive_statistics_recorder.cc",
     "keepalive_statistics_recorder.h",
-    "legacy_tls_config_distributor.cc",
-    "legacy_tls_config_distributor.h",
     "mojo_host_resolver_impl.cc",
     "mojo_host_resolver_impl.h",
     "net_log_exporter.cc",
@@ -76,8 +74,6 @@ component("network_service") {
     "network_service_network_delegate.h",
     "network_service_proxy_delegate.cc",
     "network_service_proxy_delegate.h",
-    "network_usage_accumulator.cc",
-    "network_usage_accumulator.h",
     "origin_policy/origin_policy_constants.h",
     "origin_policy/origin_policy_fetcher.cc",
     "origin_policy/origin_policy_fetcher.h",
@@ -89,20 +85,10 @@ component("network_service") {
     "origin_policy/origin_policy_parsed_header.h",
     "origin_policy/origin_policy_parser.cc",
     "origin_policy/origin_policy_parser.h",
-    "p2p/socket.cc",
-    "p2p/socket.h",
-    "p2p/socket_manager.cc",
-    "p2p/socket_manager.h",
-    "p2p/socket_tcp.cc",
-    "p2p/socket_tcp.h",
-    "p2p/socket_tcp_server.cc",
-    "p2p/socket_tcp_server.h",
-    "p2p/socket_throttler.cc",
-    "p2p/socket_throttler.h",
-    "p2p/socket_udp.cc",
-    "p2p/socket_udp.h",
     "pending_callback_chain.cc",
     "pending_callback_chain.h",
+    "private_network_access_check.cc",
+    "private_network_access_check.h",
     "proxy_auto_config_library.cc",
     "proxy_auto_config_library.h",
     "proxy_config_service_mojo.cc",
@@ -121,8 +107,6 @@ component("network_service") {
     "proxy_resolving_socket_mojo.h",
     "proxy_service_mojo.cc",
     "proxy_service_mojo.h",
-    "quic_transport.cc",
-    "quic_transport.h",
     "resolve_host_request.cc",
     "resolve_host_request.h",
     "resource_scheduler/resource_scheduler.cc",
@@ -183,14 +167,31 @@ component("network_service") {
     "url_request_context_builder_mojo.h",
     "url_request_context_owner.cc",
     "url_request_context_owner.h",
-    "web_bundle_chunked_buffer.cc",
-    "web_bundle_chunked_buffer.h",
-    "web_bundle_manager.cc",
-    "web_bundle_manager.h",
-    "web_bundle_memory_quota_consumer.h",
-    "web_bundle_url_loader_factory.cc",
-    "web_bundle_url_loader_factory.h",
+    "web_bundle/web_bundle_chunked_buffer.cc",
+    "web_bundle/web_bundle_chunked_buffer.h",
+    "web_bundle/web_bundle_manager.cc",
+    "web_bundle/web_bundle_manager.h",
+    "web_bundle/web_bundle_memory_quota_consumer.h",
+    "web_bundle/web_bundle_url_loader_factory.cc",
+    "web_bundle/web_bundle_url_loader_factory.h",
+    "web_transport.cc",
+    "web_transport.h",
   ]
+
+  if (is_p2p_enabled) {
+    sources += [
+      "p2p/socket.cc",
+      "p2p/socket.h",
+      "p2p/socket_manager.cc",
+      "p2p/socket_manager.h",
+      "p2p/socket_tcp.cc",
+      "p2p/socket_tcp.h",
+      "p2p/socket_throttler.cc",
+      "p2p/socket_throttler.h",
+      "p2p/socket_udp.cc",
+      "p2p/socket_udp.h",
+    ]
+  }
 
   if (enable_mdns) {
     sources += [
@@ -205,6 +206,8 @@ component("network_service") {
       "websocket.h",
       "websocket_factory.cc",
       "websocket_factory.h",
+      "websocket_interceptor.cc",
+      "websocket_interceptor.h",
       "websocket_throttler.cc",
       "websocket_throttler.h",
     ]
@@ -218,13 +221,6 @@ component("network_service") {
       "dhcp_pac_file_fetcher_mojo.h",
       "nss_temp_certs_cache_chromeos.cc",
       "nss_temp_certs_cache_chromeos.h",
-    ]
-  }
-
-  if (is_linux || is_chromeos) {
-    sources += [
-      "network_sandbox_hook_linux.cc",
-      "network_sandbox_hook_linux.h",
     ]
   }
 
@@ -242,7 +238,7 @@ component("network_service") {
     "//components/os_crypt",
     "//components/prefs",
     "//components/web_package",
-    "//jingle:fake_ssl_socket",
+    "//jingle/glue:fake_ssl_socket",
     "//mojo/public/cpp/bindings",
     "//mojo/public/cpp/system",
     "//net",
@@ -256,18 +252,23 @@ component("network_service") {
     "//services/network/trust_tokens",
     "//services/service_manager/public/cpp",
     "//services/service_manager/public/mojom",
-    "//third_party/webrtc_overrides:webrtc_component",
     "//url",
   ]
+
+  if (is_linux || is_chromeos) {
+    deps += [ ":network_sandbox_hook" ]
+  }
 
   public_deps = [ "//services/network/public/cpp:buildflags" ]
 
   if (is_ct_supported) {
     sources += [
+      "ct_log_list_distributor.cc",
+      "ct_log_list_distributor.h",
       "expect_ct_reporter.cc",
       "expect_ct_reporter.h",
-      "sct_auditing_cache.cc",
-      "sct_auditing_cache.h",
+      "sct_auditing/sct_auditing_cache.cc",
+      "sct_auditing/sct_auditing_cache.h",
     ]
     deps += [
       "//components/certificate_transparency",
@@ -275,17 +276,19 @@ component("network_service") {
     ]
   }
 
-  if (is_linux || is_chromeos) {
-    deps += [
-      "//sandbox/linux:sandbox_services",
-      "//sandbox/policy",
-    ]
+  if (is_p2p_enabled) {
+    deps += [ "//third_party/webrtc_overrides:webrtc_component" ]
   }
 
   if (is_android) {
     deps += [
       "//crypto",
       "//third_party/boringssl",
+    ]
+
+    sources += [
+      "radio_monitor_android.cc",
+      "radio_monitor_android.h",
     ]
   }
 
@@ -294,6 +297,20 @@ component("network_service") {
   }
 
   defines = [ "IS_NETWORK_SERVICE_IMPL" ]
+}
+
+if (is_linux || is_chromeos) {
+  source_set("network_sandbox_hook") {
+    sources = [
+      "network_sandbox_hook_linux.cc",
+      "network_sandbox_hook_linux.h",
+    ]
+    deps = [
+      "//base:base",
+      "//sandbox/linux:sandbox_services",
+      "//sandbox/policy:policy",
+    ]
+  }
 }
 
 source_set("tests") {
@@ -305,6 +322,7 @@ source_set("tests") {
     "cookie_settings_unittest.cc",
     "cors/cors_url_loader_factory_unittest.cc",
     "cors/cors_url_loader_unittest.cc",
+    "cors/cors_util_unittest.cc",
     "cors/preflight_cache_unittest.cc",
     "cors/preflight_controller_unittest.cc",
     "cors/preflight_result_unittest.cc",
@@ -323,21 +341,15 @@ source_set("tests") {
     "network_quality_estimator_manager_unittest.cc",
     "network_service_proxy_delegate_unittest.cc",
     "network_service_unittest.cc",
-    "network_usage_accumulator_unittest.cc",
     "origin_policy/origin_policy_manager_unittest.cc",
     "origin_policy/origin_policy_parsed_header_unittest.cc",
     "origin_policy/origin_policy_parser_unittest.cc",
-    "p2p/socket_tcp_server_unittest.cc",
-    "p2p/socket_tcp_unittest.cc",
-    "p2p/socket_test_utils.cc",
-    "p2p/socket_test_utils.h",
-    "p2p/socket_udp_unittest.cc",
     "pending_callback_chain_unittest.cc",
+    "private_network_access_check_unittest.cc",
     "proxy_auto_config_library_unittest.cc",
     "proxy_config_service_mojo_unittest.cc",
     "proxy_resolving_client_socket_unittest.cc",
     "proxy_resolving_socket_mojo_unittest.cc",
-    "quic_transport_unittest.cc",
     "resource_scheduler/resource_scheduler_params_manager_unittest.cc",
     "resource_scheduler/resource_scheduler_unittest.cc",
     "restricted_cookie_manager_unittest.cc",
@@ -356,10 +368,20 @@ source_set("tests") {
     "udp_socket_unittest.cc",
     "upload_progress_tracker_unittest.cc",
     "url_loader_unittest.cc",
-    "web_bundle_chunked_buffer_unittest.cc",
-    "web_bundle_manager_unittest.cc",
-    "web_bundle_url_loader_factory_unittest.cc",
+    "web_bundle/web_bundle_chunked_buffer_unittest.cc",
+    "web_bundle/web_bundle_manager_unittest.cc",
+    "web_bundle/web_bundle_url_loader_factory_unittest.cc",
+    "web_transport_unittest.cc",
   ]
+
+  if (is_p2p_enabled) {
+    sources += [
+      "p2p/socket_tcp_unittest.cc",
+      "p2p/socket_test_utils.cc",
+      "p2p/socket_test_utils.h",
+      "p2p/socket_udp_unittest.cc",
+    ]
+  }
 
   if (enable_mdns) {
     sources += [ "mdns_responder_unittest.cc" ]
@@ -372,6 +394,7 @@ source_set("tests") {
       "test_mojo_proxy_resolver_factory.cc",
       "test_mojo_proxy_resolver_factory.h",
       "url_request_context_builder_mojo_unittest.cc",
+      "websocket_interceptor_unittest.cc",
       "websocket_throttler_unittest.cc",
     ]
 
@@ -399,11 +422,12 @@ source_set("tests") {
     "//components/network_session_configurator/browser",
     "//components/prefs:test_support",
     "//components/variations:test_support",
-    "//components/web_package:test_support",
-    "//crypto:test_support",
-    "//jingle:fake_ssl_socket",
+    "//components/web_package",
+    "//crypto",
+    "//jingle/glue:fake_ssl_socket",
     "//mojo/public/cpp/bindings",
     "//mojo/public/cpp/system",
+    "//mojo/public/cpp/test_support:test_utils",
     "//net",
     "//net:extras",
     "//net:quic_test_tools",
@@ -414,7 +438,6 @@ source_set("tests") {
     "//services/network/first_party_sets:tests",
     "//services/network/public/cpp",
     "//services/network/public/cpp:buildflags",
-    "//services/network/public/cpp/cert_verifier:cert_verifier_creation",
     "//services/network/public/mojom",
     "//services/network/public/proto",
     "//services/network/trust_tokens",
@@ -427,8 +450,9 @@ source_set("tests") {
 
   if (is_ct_supported) {
     sources += [
+      "ct_log_list_distributor_unittest.cc",
       "expect_ct_reporter_unittest.cc",
-      "sct_auditing_cache_unittest.cc",
+      "sct_auditing/sct_auditing_cache_unittest.cc",
     ]
     deps += [ "//components/certificate_transparency" ]
   }
@@ -446,8 +470,8 @@ source_set("test_support") {
     "mojo_socket_test_util.h",
     "test/fake_test_cert_verifier_params_factory.cc",
     "test/fake_test_cert_verifier_params_factory.h",
-    "test/test_auth_cert_observer.cc",
-    "test/test_auth_cert_observer.h",
+    "test/mock_devtools_observer.cc",
+    "test/mock_devtools_observer.h",
     "test/test_cookie_manager.cc",
     "test/test_cookie_manager.h",
     "test/test_data_pipe_getter.cc",
@@ -461,8 +485,6 @@ source_set("test_support") {
     "test/test_network_context_client.h",
     "test/test_network_quality_tracker.cc",
     "test/test_network_quality_tracker.h",
-    "test/test_network_service_client.cc",
-    "test/test_network_service_client.h",
     "test/test_resource_scheduler.h",
     "test/test_shared_url_loader_factory.cc",
     "test/test_shared_url_loader_factory.h",
@@ -470,6 +492,8 @@ source_set("test_support") {
     "test/test_url_loader_client.h",
     "test/test_url_loader_factory.cc",
     "test/test_url_loader_factory.h",
+    "test/test_url_loader_network_observer.cc",
+    "test/test_url_loader_network_observer.h",
     "test/test_utils.cc",
     "test/test_utils.h",
     "test/udp_socket_test_util.cc",

@@ -5,16 +5,18 @@
 #ifndef CHROME_BROWSER_UI_AUTOFILL_PAYMENTS_OFFER_NOTIFICATION_BUBBLE_CONTROLLER_H_
 #define CHROME_BROWSER_UI_AUTOFILL_PAYMENTS_OFFER_NOTIFICATION_BUBBLE_CONTROLLER_H_
 
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "components/autofill/core/browser/ui/payments/payments_bubble_closed_reasons.h"
 #include "content/public/browser/web_contents.h"
 
 namespace autofill {
 
 class AutofillBubbleBase;
+struct AutofillOfferData;
+class CreditCard;
 
 // Interface that exposes controller functionality to offer notification related
 // UIs.
@@ -40,19 +42,33 @@ class OfferNotificationBubbleController {
       content::WebContents* web_contents);
 
   // Returns the title that should be displayed in the bubble.
-  virtual base::string16 GetWindowTitle() const = 0;
+  virtual std::u16string GetWindowTitle() const = 0;
 
   // Returns the label text for the Ok button.
-  virtual base::string16 GetOkButtonLabel() const = 0;
+  virtual std::u16string GetOkButtonLabel() const = 0;
+
+  // Returns the tooltip text for the promo code offer button, which can differ
+  // depending on whether it has been clicked yet or not.
+  virtual std::u16string GetPromoCodeButtonTooltip() const = 0;
 
   // Returns the reference to the offer notification bubble view.
   virtual AutofillBubbleBase* GetOfferNotificationBubbleView() const = 0;
+
+  // Returns the related card if the offer is a card linked offer.
+  virtual const CreditCard* GetLinkedCard() const = 0;
+
+  // Returns the related offer, from which the UI can extract display strings.
+  virtual const AutofillOfferData* GetOffer() const = 0;
 
   // Returns whether the omnibox icon should be visible.
   virtual bool IsIconVisible() const = 0;
 
   // Removes the reference the controller has to the bubble.
   virtual void OnBubbleClosed(PaymentsBubbleClosedReason closed_reason) = 0;
+
+  // Handles the event of clicking the promo code offer button, including
+  // logging metrics for the successful copy-to-clipboard event.
+  virtual void OnPromoCodeButtonClicked() = 0;
 };
 
 }  // namespace autofill

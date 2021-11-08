@@ -3,12 +3,12 @@ import os
 import platform
 import sys
 from distutils.spawn import find_executable
-from six.moves import input
+from typing import ClassVar, Type
 
 wpt_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 sys.path.insert(0, os.path.abspath(os.path.join(wpt_root, "tools")))
 
-from . import browser, install, testfiles, utils, virtualenv
+from . import browser, install, testfiles, virtualenv
 from ..serve import serve
 
 logger = None
@@ -68,10 +68,16 @@ def exit(msg=None):
 
 
 def args_general(kwargs):
-    kwargs.set_if_none("tests_root", wpt_root)
-    kwargs.set_if_none("metadata_root", wpt_root)
-    kwargs.set_if_none("manifest_update", True)
-    kwargs.set_if_none("manifest_download", True)
+
+    def set_if_none(name, value):
+        if kwargs.get(name) is None:
+            kwargs[name] = value
+            logger.info("Set %s to %s" % (name, value))
+
+    set_if_none("tests_root", wpt_root)
+    set_if_none("metadata_root", wpt_root)
+    set_if_none("manifest_update", True)
+    set_if_none("manifest_download", True)
 
     if kwargs["ssl_type"] in (None, "pregenerated"):
         cert_root = os.path.join(wpt_root, "tools", "certs")
@@ -115,7 +121,8 @@ def check_environ(product):
 
         missing_hosts = set(expected_hosts)
         if is_windows:
-            hosts_path = r"%s\System32\drivers\etc\hosts" % os.environ.get("SystemRoot", r"C:\Windows")
+            hosts_path = r"%s\System32\drivers\etc\hosts" % os.environ.get(
+                "SystemRoot", r"C:\Windows")
         else:
             hosts_path = "/etc/hosts"
 
@@ -147,8 +154,8 @@ in PowerShell with Administrator privileges.""" % (wpt_path, hosts_path)
 
 
 class BrowserSetup(object):
-    name = None
-    browser_cls = None
+    name = None  # type: ClassVar[str]
+    browser_cls = None  # type: ClassVar[Type[browser.Browser]]
 
     def __init__(self, venv, prompt=True):
         self.browser = self.browser_cls(logger)
@@ -171,7 +178,8 @@ class BrowserSetup(object):
 
     def install_requirements(self):
         if not self.venv.skip_virtualenv_setup:
-            self.venv.install_requirements(os.path.join(wpt_root, "tools", "wptrunner", self.browser.requirements))
+            self.venv.install_requirements(os.path.join(
+                wpt_root, "tools", "wptrunner", self.browser.requirements))
 
     def setup(self, kwargs):
         self.setup_kwargs(kwargs)
@@ -280,7 +288,7 @@ class FirefoxAndroid(BrowserSetup):
             kwargs["prefs_root"] = prefs_root
 
         if kwargs["package_name"] is None:
-            kwargs["package_name"] = "org.mozilla.geckoview.test"
+            kwargs["package_name"] = "org.mozilla.geckoview.test_runner"
         app = kwargs["package_name"]
 
         if kwargs["device_serial"] is None:
@@ -365,10 +373,13 @@ class Chrome(BrowserSetup):
             else:
                 raise WptrunError("Unable to locate or install matching ChromeDriver binary")
         if browser_channel in self.experimental_channels:
-            logger.info("Automatically turning on experimental features for Chrome Dev/Canary or Chromium trunk")
+            logger.info(
+                "Automatically turning on experimental features for Chrome Dev/Canary or Chromium trunk")
             kwargs["binary_args"].append("--enable-experimental-web-platform-features")
             # HACK(Hexcles): work around https://github.com/web-platform-tests/wpt/issues/16448
             kwargs["webdriver_args"].append("--disable-build-check")
+            # To start the WebTransport over HTTP/3 test server.
+            kwargs["enable_webtransport_h3"] = True
         if os.getenv("TASKCLUSTER_ROOT_URL"):
             # We are on Taskcluster, where our Docker container does not have
             # enough capabilities to run Chrome with sandboxing. (gh-20133)
@@ -523,6 +534,7 @@ class EdgeChromium(BrowserSetup):
         if kwargs["binary"] is None:
             binary = self.browser.find_binary(channel=browser_channel)
             if binary:
+                logger.info("Using Edge binary %s" % binary)
                 kwargs["binary"] = binary
             else:
                 raise WptrunError("Unable to locate Edge binary")
@@ -677,14 +689,16 @@ class WebKitGTKMiniBrowser(BrowserSetup):
 
     def setup_kwargs(self, kwargs):
         if kwargs["binary"] is None:
-            binary = self.browser.find_binary(venv_path=self.venv.path, channel=kwargs["browser_channel"])
+            binary = self.browser.find_binary(
+                venv_path=self.venv.path, channel=kwargs["browser_channel"])
 
             if binary is None:
                 raise WptrunError("Unable to find MiniBrowser binary")
             kwargs["binary"] = binary
 
         if kwargs["webdriver_binary"] is None:
-            webdriver_binary = self.browser.find_webdriver(venv_path=self.venv.path, channel=kwargs["browser_channel"])
+            webdriver_binary = self.browser.find_webdriver(
+                venv_path=self.venv.path, channel=kwargs["browser_channel"])
 
             if webdriver_binary is None:
                 raise WptrunError("Unable to find WebKitWebDriver in PATH")
@@ -757,9 +771,8 @@ def setup_logging(kwargs, default_config=None, formatter_defaults=None):
 
 def setup_wptrunner(venv, **kwargs):
     from wptrunner import wptcommandline
-    from six import iteritems
 
-    kwargs = utils.Kwargs(iteritems(kwargs))
+    kwargs = kwargs.copy()
 
     kwargs["product"] = kwargs["product"].replace("-", "_")
 
@@ -799,7 +812,8 @@ def setup_wptrunner(venv, **kwargs):
                                                                    channel))
             kwargs["browser_channel"] = channel
         else:
-            logger.info("Valid channels for %s not known; using argument unmodified" % kwargs["product"])
+            logger.info("Valid channels for %s not known; using argument unmodified" %
+                        kwargs["product"])
             kwargs["browser_channel"] = kwargs["channel"]
 
     if kwargs["install_browser"]:
@@ -862,13 +876,13 @@ def main():
 
         return run(venv, vars(args))
     except WptrunError as e:
-        exit(e.message)
+        exit(e)
 
 
 if __name__ == "__main__":
     import pdb
     from tools import localpaths  # noqa: F401
     try:
-        main()
+        main()  # type: ignore
     except Exception:
         pdb.post_mortem()

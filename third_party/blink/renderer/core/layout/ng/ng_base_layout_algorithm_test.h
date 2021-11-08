@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NG_BASE_LAYOUT_ALGORITHM_TEST_H_
-#define NG_BASE_LAYOUT_ALGORITHM_TEST_H_
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_BASE_LAYOUT_ALGORITHM_TEST_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_BASE_LAYOUT_ALGORITHM_TEST_H_
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
@@ -33,20 +33,21 @@ class NGBaseLayoutAlgorithmTest
   // RunBlockLayoutAlgorithmForElement.
   void AdvanceToLayoutPhase();
 
-  const NGPhysicalBoxFragment* RunBlockLayoutAlgorithm(
+  scoped_refptr<const NGPhysicalBoxFragment> RunBlockLayoutAlgorithm(
       NGBlockNode node,
       const NGConstraintSpace& space,
       const NGBreakToken* break_token = nullptr);
 
-  std::pair<const NGPhysicalBoxFragment*, NGConstraintSpace>
+  std::pair<scoped_refptr<const NGPhysicalBoxFragment>, NGConstraintSpace>
   RunBlockLayoutAlgorithmForElement(Element* element);
 
-  const NGPhysicalBoxFragment* RunFieldsetLayoutAlgorithm(
+  scoped_refptr<const NGPhysicalBoxFragment> RunFieldsetLayoutAlgorithm(
       NGBlockNode node,
       const NGConstraintSpace& space,
       const NGBreakToken* break_token = nullptr);
 
-  const NGPhysicalBoxFragment* GetBoxFragmentByElementId(const char*);
+  scoped_refptr<const NGPhysicalBoxFragment> GetBoxFragmentByElementId(
+      const char*);
 
   static const NGPhysicalBoxFragment* CurrentFragmentFor(
       const LayoutNGBlockFlow*);
@@ -81,4 +82,4 @@ NGConstraintSpace ConstructBlockLayoutTestConstraintSpace(
 
 }  // namespace blink
 
-#endif  // NG_BASE_LAYOUT_ALGORITHM_TEST_H_
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_BASE_LAYOUT_ALGORITHM_TEST_H_

@@ -18,7 +18,7 @@
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
 namespace {
-base::Optional<nearby_share::mojom::TransferStatus> GetTransferStatus(
+absl::optional<nearby_share::mojom::TransferStatus> GetTransferStatus(
     const TransferMetadata& transfer_metadata) {
   switch (transfer_metadata.status()) {
     case TransferMetadata::Status::kAwaitingLocalConfirmation:
@@ -50,10 +50,37 @@ base::Optional<nearby_share::mojom::TransferStatus> GetTransferStatus(
       return nearby_share::mojom::TransferStatus::kConnecting;
     case TransferMetadata::Status::kCancelled:
       return nearby_share::mojom::TransferStatus::kCancelled;
+    case TransferMetadata::Status::kDecodeAdvertisementFailed:
+      return nearby_share::mojom::TransferStatus::kDecodeAdvertisementFailed;
+    case TransferMetadata::Status::kMissingTransferUpdateCallback:
+      return nearby_share::mojom::TransferStatus::
+          kMissingTransferUpdateCallback;
+    case TransferMetadata::Status::kMissingShareTarget:
+      return nearby_share::mojom::TransferStatus::kMissingShareTarget;
+    case TransferMetadata::Status::kMissingEndpointId:
+      return nearby_share::mojom::TransferStatus::kMissingEndpointId;
+    case TransferMetadata::Status::kMissingPayloads:
+      return nearby_share::mojom::TransferStatus::kMissingPayloads;
+    case TransferMetadata::Status::kPairedKeyVerificationFailed:
+      return nearby_share::mojom::TransferStatus::kPairedKeyVerificationFailed;
+    case TransferMetadata::Status::kInvalidIntroductionFrame:
+      return nearby_share::mojom::TransferStatus::kInvalidIntroductionFrame;
+    case TransferMetadata::Status::kIncompletePayloads:
+      return nearby_share::mojom::TransferStatus::kIncompletePayloads;
+    case TransferMetadata::Status::kFailedToCreateShareTarget:
+      return nearby_share::mojom::TransferStatus::kFailedToCreateShareTarget;
+    case TransferMetadata::Status::kFailedToInitiateOutgoingConnection:
+      return nearby_share::mojom::TransferStatus::
+          kFailedToInitiateOutgoingConnection;
+    case TransferMetadata::Status::kFailedToReadOutgoingConnectionResponse:
+      return nearby_share::mojom::TransferStatus::
+          kFailedToReadOutgoingConnectionResponse;
+    case TransferMetadata::Status::kUnexpectedDisconnection:
+      return nearby_share::mojom::TransferStatus::kUnexpectedDisconnection;
     case TransferMetadata::Status::kMediaDownloading:
     case TransferMetadata::Status::kExternalProviderLaunched:
       // Ignore all other transfer status updates.
-      return base::nullopt;
+      return absl::nullopt;
   }
 }
 
@@ -70,10 +97,14 @@ NearbyPerSessionDiscoveryManager::NearbyPerSessionDiscoveryManager(
     NearbySharingService* nearby_sharing_service,
     std::vector<std::unique_ptr<Attachment>> attachments)
     : nearby_sharing_service_(nearby_sharing_service),
-      attachments_(std::move(attachments)) {}
+      attachments_(std::move(attachments)) {
+  nearby_sharing_service_->AddObserver(this);
+}
 
 NearbyPerSessionDiscoveryManager::~NearbyPerSessionDiscoveryManager() {
-  UnregisterSendSurface();
+  StopDiscovery(base::DoNothing());
+  observers_set_.Clear();
+  nearby_sharing_service_->RemoveObserver(this);
   base::UmaHistogramEnumeration(
       "Nearby.Share.Discovery.FurthestDiscoveryProgress", furthest_progress_);
   base::UmaHistogramCounts100(
@@ -100,7 +131,7 @@ void NearbyPerSessionDiscoveryManager::OnTransferUpdate(
                   << TransferMetadata::StatusToString(
                          transfer_metadata.status());
 
-  base::Optional<nearby_share::mojom::TransferStatus> status =
+  absl::optional<nearby_share::mojom::TransferStatus> status =
       GetTransferStatus(transfer_metadata);
 
   if (!status) {
@@ -155,6 +186,11 @@ void NearbyPerSessionDiscoveryManager::OnShareTargetDiscovered(
   share_target_listener_->OnShareTargetDiscovered(share_target);
 }
 
+void NearbyPerSessionDiscoveryManager::AddDiscoveryObserver(
+    ::mojo::PendingRemote<nearby_share::mojom::DiscoveryObserver> observer) {
+  observers_set_.Add(std::move(observer));
+}
+
 void NearbyPerSessionDiscoveryManager::OnShareTargetLost(
     ShareTarget share_target) {
   NS_LOG(VERBOSE) << "NearbyPerSessionDiscoveryManager::" << __func__
@@ -178,7 +214,9 @@ void NearbyPerSessionDiscoveryManager::OnShareTargetLost(
 void NearbyPerSessionDiscoveryManager::StartDiscovery(
     mojo::PendingRemote<nearby_share::mojom::ShareTargetListener> listener,
     StartDiscoveryCallback callback) {
-  if (nearby_sharing_service_->IsTransferring()) {
+  if (nearby_sharing_service_->IsTransferring() ||
+      nearby_sharing_service_->IsScanning() ||
+      nearby_sharing_service_->IsConnecting()) {
     // Is there is currently a file transfer ongoing, return early with the
     // corresponding error code.
     std::move(callback).Run(nearby_share::mojom::StartDiscoveryResult::
@@ -206,8 +244,18 @@ void NearbyPerSessionDiscoveryManager::StartDiscovery(
     UpdateFurthestDiscoveryProgressIfNecessary(
         DiscoveryProgress::kFailedToStartDiscovery);
     share_target_listener_.reset();
-    std::move(callback).Run(
-        nearby_share::mojom::StartDiscoveryResult::kErrorGeneric);
+
+    nearby_share::mojom::StartDiscoveryResult errorStatus;
+    switch (status) {
+      case NearbySharingService::StatusCodes::kNoAvailableConnectionMedium:
+        errorStatus =
+            nearby_share::mojom::StartDiscoveryResult::kNoConnectionMedium;
+        break;
+      default:
+        errorStatus = nearby_share::mojom::StartDiscoveryResult::kErrorGeneric;
+    }
+    std::move(callback).Run(errorStatus);
+
     return;
   }
 
@@ -219,6 +267,23 @@ void NearbyPerSessionDiscoveryManager::StartDiscovery(
   // get updates even if Discovery is stopped.
   registered_as_send_surface_ = true;
   std::move(callback).Run(nearby_share::mojom::StartDiscoveryResult::kSuccess);
+}
+
+void NearbyPerSessionDiscoveryManager::StopDiscovery(
+    base::OnceClosure callback) {
+  if (registered_as_send_surface_) {
+    NearbySharingService::StatusCodes status =
+        nearby_sharing_service_->UnregisterSendSurface(this, this);
+    base::UmaHistogramEnumeration(
+        "Nearby.Share.Discovery.UnregisterSendSurface", status);
+    if (status != NearbySharingService::StatusCodes::kOk) {
+      NS_LOG(WARNING) << __func__ << ": Failed to unregister send surface";
+    }
+    registered_as_send_surface_ = false;
+  }
+
+  share_target_listener_.reset();
+  std::move(callback).Run();
 }
 
 void NearbyPerSessionDiscoveryManager::SelectShareTarget(
@@ -310,19 +375,16 @@ void NearbyPerSessionDiscoveryManager::GetPayloadPreview(
   std::move(callback).Run(std::move(payload_preview));
 }
 
-void NearbyPerSessionDiscoveryManager::UnregisterSendSurface() {
-  if (registered_as_send_surface_) {
-    NearbySharingService::StatusCodes status =
-        nearby_sharing_service_->UnregisterSendSurface(this, this);
-    base::UmaHistogramEnumeration(
-        "Nearby.Share.Discovery.UnregisterSendSurface", status);
-    if (status != NearbySharingService::StatusCodes::kOk) {
-      NS_LOG(WARNING) << __func__ << ": Failed to unregister send surface";
-    }
-    registered_as_send_surface_ = false;
+void NearbyPerSessionDiscoveryManager::OnNearbyProcessStopped() {
+  for (auto& remote : observers_set_) {
+    remote->OnNearbyProcessStopped();
   }
+}
 
-  share_target_listener_.reset();
+void NearbyPerSessionDiscoveryManager::OnStartDiscoveryResult(bool success) {
+  for (auto& remote : observers_set_) {
+    remote->OnStartDiscoveryResult(success);
+  }
 }
 
 void NearbyPerSessionDiscoveryManager::

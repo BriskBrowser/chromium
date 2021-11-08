@@ -48,6 +48,10 @@ class KidsChromeManagementClient : public KeyedService {
 
   explicit KidsChromeManagementClient(Profile* profile);
 
+  KidsChromeManagementClient(const KidsChromeManagementClient&) = delete;
+  KidsChromeManagementClient& operator=(const KidsChromeManagementClient&) =
+      delete;
+
   ~KidsChromeManagementClient() override;
 
   // Each of the next three methods is the interface to an RPC client.
@@ -103,12 +107,10 @@ class KidsChromeManagementClient : public KeyedService {
       ErrorCode error);
 
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
-  signin::IdentityManager* identity_manager_;
+  signin::IdentityManager* identity_manager_ = nullptr;
 
   // List of requests in execution.
   KidsChromeRequestList requests_in_progress_;
-
-  DISALLOW_COPY_AND_ASSIGN(KidsChromeManagementClient);
 };
 
 #endif  // CHROME_BROWSER_SUPERVISED_USER_KIDS_CHROME_MANAGEMENT_KIDS_CHROME_MANAGEMENT_CLIENT_H_

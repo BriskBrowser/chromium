@@ -27,6 +27,10 @@ class TestDistillabilityObserver : public DistillabilityObserver {
   // blocks and waits until that result is observed.
   void WaitForResult(const DistillabilityResult& result);
 
+  // Returns true if the timer is currently running for the associated
+  // WebContents, and false otherwise.
+  bool IsDistillabilityDriverTimerRunning();
+
  private:
   void OnResult(const DistillabilityResult& result) override;
 
@@ -34,7 +38,7 @@ class TestDistillabilityObserver : public DistillabilityObserver {
 
   content::WebContents* web_contents_;
   std::unique_ptr<base::RunLoop> run_loop_;
-  base::Optional<DistillabilityResult> result_to_wait_for_;
+  absl::optional<DistillabilityResult> result_to_wait_for_;
   std::vector<DistillabilityResult> results_;
 };
 

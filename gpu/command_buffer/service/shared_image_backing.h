@@ -9,16 +9,15 @@
 
 #include <memory>
 
-#include "base/containers/flat_map.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/optional.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "build/build_config.h"
 #include "components/viz/common/resources/resource_format.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/gpu_gles2_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/include/gpu/GrTypes.h"
 #include "ui/gfx/color_space.h"
@@ -53,6 +52,7 @@ class SharedImageRepresentationDawn;
 class SharedImageRepresentationOverlay;
 class SharedImageRepresentationMemory;
 class SharedImageRepresentationVaapi;
+class SharedImageRepresentationRaster;
 class MemoryTypeTracker;
 class SharedImageFactory;
 class VaapiDependenciesFactory;
@@ -112,6 +112,13 @@ class GPU_GLES2_EXPORT SharedImageBacking {
 
   virtual void Update(std::unique_ptr<gfx::GpuFence> in_fence) = 0;
 
+  // Copy from the backing's GPU texture to its GpuMemoryBuffer if present. This
+  // is needed on Windows where the renderer process can only create shared
+  // memory GMBs and an explicit copy is needed. Returns true on success.
+  virtual bool CopyToGpuMemoryBuffer();
+
+  // Present the swap chain corresponding to this backing. Presents only if the
+  // backing is the back buffer of the swap chain. Returns true on success.
   virtual bool PresentSwapChain();
 
   virtual void MarkForDestruction() {}
@@ -144,7 +151,7 @@ class GPU_GLES2_EXPORT SharedImageBacking {
   // Helper to determine if the entire SharedImage is cleared.
   bool IsCleared() const { return ClearedRect() == gfx::Rect(size()); }
 
-  // Helper function which clears the entire image.
+  // Marks the entire image as cleared.
   void SetCleared() { SetClearedRect(gfx::Rect(size())); }
 
  protected:
@@ -166,7 +173,8 @@ class GPU_GLES2_EXPORT SharedImageBacking {
   virtual std::unique_ptr<SharedImageRepresentationDawn> ProduceDawn(
       SharedImageManager* manager,
       MemoryTypeTracker* tracker,
-      WGPUDevice device);
+      WGPUDevice device,
+      WGPUBackendType backend_type);
   virtual std::unique_ptr<SharedImageRepresentationOverlay> ProduceOverlay(
       SharedImageManager* manager,
       MemoryTypeTracker* tracker);
@@ -175,6 +183,9 @@ class GPU_GLES2_EXPORT SharedImageBacking {
       MemoryTypeTracker* tracker,
       VaapiDependenciesFactory* dep_factory);
   virtual std::unique_ptr<SharedImageRepresentationMemory> ProduceMemory(
+      SharedImageManager* manager,
+      MemoryTypeTracker* tracker);
+  virtual std::unique_ptr<SharedImageRepresentationRaster> ProduceRaster(
       SharedImageManager* manager,
       MemoryTypeTracker* tracker);
 
@@ -207,12 +218,16 @@ class GPU_GLES2_EXPORT SharedImageBacking {
   // Protects non-const members here and in derived classes. Protected access
   // to allow GUARDED_BY macros in derived classes. Should not be used
   // directly. Use AutoLock instead.
-  mutable base::Optional<base::Lock> lock_;
+  mutable absl::optional<base::Lock> lock_;
 
  private:
   class ScopedWriteUMA {
    public:
     ScopedWriteUMA() = default;
+
+    ScopedWriteUMA(const ScopedWriteUMA&) = delete;
+    ScopedWriteUMA& operator=(const ScopedWriteUMA&) = delete;
+
     ~ScopedWriteUMA() {
       UMA_HISTOGRAM_BOOLEAN("GPU.SharedImage.ContentConsumed",
                             content_consumed_);
@@ -223,7 +238,6 @@ class GPU_GLES2_EXPORT SharedImageBacking {
 
    private:
     bool content_consumed_ = false;
-    DISALLOW_COPY_AND_ASSIGN(ScopedWriteUMA);
   };
 
   const Mailbox mailbox_;
@@ -244,7 +258,7 @@ class GPU_GLES2_EXPORT SharedImageBacking {
   bool have_context_ GUARDED_BY(lock_) = true;
 
   // A scoped object for recording write UMA.
-  base::Optional<ScopedWriteUMA> scoped_write_uma_ GUARDED_BY(lock_);
+  absl::optional<ScopedWriteUMA> scoped_write_uma_ GUARDED_BY(lock_);
 
   // A vector of SharedImageRepresentations which hold references to this
   // backing. The first reference is considered the owner, and the vector is

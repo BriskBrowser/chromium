@@ -23,20 +23,22 @@ class WebTestDevToolsBindings : public ShellDevToolsBindings {
 
   void Attach() override;
 
+  WebTestDevToolsBindings(const WebTestDevToolsBindings&) = delete;
+  WebTestDevToolsBindings& operator=(const WebTestDevToolsBindings&) = delete;
+
   ~WebTestDevToolsBindings() override;
 
  private:
   class SecondaryObserver;
 
   // WebContentsObserver implementation.
-  void DocumentAvailableInMainFrame() override;
+  void DocumentAvailableInMainFrame(
+      RenderFrameHost* render_frame_host) override;
 
   void NavigateDevToolsFrontend();
 
   GURL frontend_url_;
   std::unique_ptr<SecondaryObserver> secondary_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebTestDevToolsBindings);
 };
 
 }  // namespace content

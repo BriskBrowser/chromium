@@ -16,6 +16,7 @@ namespace chrome_pdf {
 
 namespace {
 
+constexpr char kDirection[] = "direction";
 constexpr char kDefaultPageOrientation[] = "defaultPageOrientation";
 constexpr char kTwoUpViewEnabled[] = "twoUpViewEnabled";
 
@@ -51,17 +52,24 @@ DocumentLayout::Options::~Options() = default;
 
 base::Value DocumentLayout::Options::ToValue() const {
   base::Value dictionary(base::Value::Type::DICTIONARY);
+  dictionary.SetIntKey(kDirection, direction_);
   dictionary.SetIntKey(kDefaultPageOrientation,
                        static_cast<int32_t>(default_page_orientation_));
-  dictionary.SetBoolKey(kTwoUpViewEnabled, two_up_view_enabled_);
+  dictionary.SetBoolKey(kTwoUpViewEnabled,
+                        page_spread_ == PageSpread::kTwoUpOdd);
   return dictionary;
 }
 
 void DocumentLayout::Options::FromValue(const base::Value& value) {
   DCHECK(value.is_dict());
 
+  int32_t direction = value.FindIntKey(kDirection).value();
+  DCHECK_GE(direction, base::i18n::UNKNOWN_DIRECTION);
+  DCHECK_LE(direction, base::i18n::TEXT_DIRECTION_MAX);
+  direction_ = static_cast<base::i18n::TextDirection>(direction);
+
   int32_t default_page_orientation =
-      value.FindKey(kDefaultPageOrientation)->GetInt();
+      value.FindIntKey(kDefaultPageOrientation).value();
   DCHECK_GE(default_page_orientation,
             static_cast<int32_t>(PageOrientation::kOriginal));
   DCHECK_LE(default_page_orientation,
@@ -69,7 +77,9 @@ void DocumentLayout::Options::FromValue(const base::Value& value) {
   default_page_orientation_ =
       static_cast<PageOrientation>(default_page_orientation);
 
-  two_up_view_enabled_ = value.FindKey(kTwoUpViewEnabled)->GetBool();
+  page_spread_ = value.FindBoolKey(kTwoUpViewEnabled).value()
+                     ? PageSpread::kTwoUpOdd
+                     : PageSpread::kOneUp;
 }
 
 void DocumentLayout::Options::RotatePagesClockwise() {
@@ -98,7 +108,16 @@ void DocumentLayout::SetOptions(const Options& options) {
   options_ = options;
 }
 
-void DocumentLayout::ComputeSingleViewLayout(
+void DocumentLayout::ComputeLayout(const std::vector<gfx::Size>& page_sizes) {
+  switch (options_.page_spread()) {
+    case PageSpread::kOneUp:
+      return ComputeOneUpLayout(page_sizes);
+    case PageSpread::kTwoUpOdd:
+      return ComputeTwoUpOddLayout(page_sizes);
+  }
+}
+
+void DocumentLayout::ComputeOneUpLayout(
     const std::vector<gfx::Size>& page_sizes) {
   gfx::Size document_size(GetWidestPageWidth(page_sizes), 0);
 
@@ -130,7 +149,7 @@ void DocumentLayout::ComputeSingleViewLayout(
   }
 }
 
-void DocumentLayout::ComputeTwoUpViewLayout(
+void DocumentLayout::ComputeTwoUpOddLayout(
     const std::vector<gfx::Size>& page_sizes) {
   gfx::Size document_size(GetWidestPageWidth(page_sizes), 0);
 

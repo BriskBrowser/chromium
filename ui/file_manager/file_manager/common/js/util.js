@@ -6,21 +6,20 @@
  * @fileoverview This file should contain utility functions used only by the
  * files app. Other shared utility functions can be found in base/*_util.js,
  * which allows finer-grained control over introducing dependencies.
- * @suppress {uselessCode} Temporary suppress because of the line exporting.
  */
 
-// clang-format off
-// #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-// #import {queryRequiredElement} from 'chrome://resources/js/util.m.js';
-// #import {assert} from 'chrome://resources/js/assert.m.js';
-// #import * as wrappedVolumeManagerCommon from '../../../base/js/volume_manager_types.m.js'; const {VolumeManagerCommon} = wrappedVolumeManagerCommon;
-// #import {decorate} from 'chrome://resources/js/cr/ui.m.js';
-// #import {FilesAppEntry, FakeEntry} from '../../../externs/files_app_entry_interfaces.m.js';
-// #import {EntryList} from './files_app_entry_types.m.js';
-// #import {VolumeInfo} from '../../../externs/volume_info.m.js';
-// #import {EntryLocation} from '../../../externs/entry_location.m.js';
-// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
-// clang-format on
+import {assert} from 'chrome://resources/js/assert.m.js';
+import {decorate} from 'chrome://resources/js/cr/ui.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {queryRequiredElement} from 'chrome://resources/js/util.m.js';
+
+import {EntryLocation} from '../../externs/entry_location.js';
+import {FakeEntry, FilesAppEntry} from '../../externs/files_app_entry_interfaces.js';
+import {VolumeInfo} from '../../externs/volume_info.js';
+import {VolumeManager} from '../../externs/volume_manager.js';
+
+import {EntryList} from './files_app_entry_types.js';
+import {VolumeManagerCommon} from './volume_manager_types.js';
 
 /**
  * Namespace for utility functions.
@@ -325,12 +324,12 @@ util.applyTransform = (element, transform) => {
 
 /**
  * Extracts path from filesystem: URL.
- * @param {string} url Filesystem URL.
- * @return {?string} The path.
+ * @param {?string=} url Filesystem URL.
+ * @return {?string} The path if it can be parsed, null if it cannot.
  */
 util.extractFilePath = url => {
   const match =
-      /^filesystem:[\w-]*:\/\/[\w]*\/(external|persistent|temporary)(\/.*)$/
+      /^filesystem:[\w-]*:\/\/[\w-]*\/(external|persistent|temporary)(\/.*)$/
           .exec(url);
   const path = match && match[2];
   if (!path) {
@@ -366,7 +365,7 @@ util.createChild = (parent, opt_className, opt_tag) => {
  */
 util.queryDecoratedElement = (query, type) => {
   const element = queryRequiredElement(query);
-  cr.ui.decorate(element, type);
+  decorate(element, type);
   return element;
 };
 
@@ -379,8 +378,13 @@ util.queryDecoratedElement = (query, type) => {
  * @param {string} id The id of the string to return.
  * @return {string} The translated string.
  */
-/* #export */ function str(id) {
-  return loadTimeData.getString(id);
+export function str(id) {
+  try {
+    return loadTimeData.getString(id);
+  } catch (e) {
+    console.warn('Failed to get string for ', id);
+    return id;
+  }
 }
 
 /**
@@ -393,7 +397,7 @@ util.queryDecoratedElement = (query, type) => {
  * @param {...*} var_args The values to replace into the string.
  * @return {string} The translated string with replaced values.
  */
-/* #export */ function strf(id, var_args) {
+export function strf(id, var_args) {
   return loadTimeData.getStringF.apply(loadTimeData, arguments);
 }
 
@@ -629,6 +633,26 @@ util.isComputersEntry = entry => {
   const tree = entry.fullPath.split('/');
   return tree[0] == '' &&
       tree[1] == VolumeManagerCommon.COMPUTERS_DIRECTORY_NAME;
+};
+
+/**
+ * Returns true if the given entry is the root folder of Trash.
+ * @param {!Entry|!FilesAppEntry} entry Entry or a fake entry.
+ * @returns {boolean}
+ */
+util.isTrashRoot = entry => {
+  return entry.fullPath === '/' &&
+      entry.rootType == VolumeManagerCommon.RootType.TRASH;
+};
+
+/**
+ * Returns true if the given entry is a descendent of Trash.
+ * @param {!Entry|!FilesAppEntry} entry Entry or a fake entry.
+ * @returns {boolean}
+ */
+util.isTrashEntry = entry => {
+  return entry.fullPath !== '/' &&
+      entry.rootType == VolumeManagerCommon.RootType.TRASH;
 };
 
 /**
@@ -1162,7 +1186,6 @@ util.getRootTypeLabel = locationInfo => {
       }
       console.error('Unsupported media view root type: ' + mediaViewRootType);
       return locationInfo.volumeInfo.label;
-    case VolumeManagerCommon.RootType.DRIVE_OTHER:
     case VolumeManagerCommon.RootType.ARCHIVE:
     case VolumeManagerCommon.RootType.REMOVABLE:
     case VolumeManagerCommon.RootType.MTP:
@@ -1204,7 +1227,7 @@ util.getEntryLabel = (locationInfo, entry) => {
     if (entry.fullPath == '/PvmDefault') {
       return str('PLUGIN_VM_DIRECTORY_LABEL');
     }
-    if (util.isFilesCameraFolderEnabled() && entry.fullPath == '/Camera') {
+    if (entry.fullPath == '/Camera') {
       return str('CAMERA_DIRECTORY_LABEL');
     }
   }
@@ -1260,7 +1283,7 @@ util.isNonModifiable = (volumeManager, entry) => {
       return true;
     }
 
-    if (fullPath === '/Camera' && util.isFilesCameraFolderEnabled()) {
+    if (fullPath === '/Camera') {
       return true;
     }
 
@@ -1445,35 +1468,11 @@ util.timeoutPromise = (promise, ms, opt_message) => {
 };
 
 /**
- * Returns true when FilesCameraFolder is enabled.
- * @return {boolean}
- */
-util.isFilesCameraFolderEnabled = () => {
-  return loadTimeData.getBoolean('FILES_CAMERA_FOLDER_ENABLED');
-};
-
-/**
- * Returns true when FilesNG is enabled.
- * @return {boolean}
- */
-util.isFilesNg = () => {
-  return true;
-};
-
-/**
  * Returns true when copy image to clipboard is enabled.
  * @return {boolean}
  */
 util.isCopyImageEnabled = () => {
   return loadTimeData.getBoolean('COPY_IMAGE_ENABLED');
-};
-
-/**
- * Returns true if the unified media view is enabled.
- * @return {boolean}
- */
-util.isUnifiedMediaViewEnabled = () => {
-  return loadTimeData.getBoolean('UNIFIED_MEDIA_VIEW_ENABLED');
 };
 
 /**
@@ -1485,21 +1484,11 @@ util.isRecentsFilterEnabled = () => {
 };
 
 /**
- * Returns true when FilesZipMount feature is enabled.
- * TODO(crbug.com/912236) Remove once transition to new ZIP system is finished.
+ * Returns true if Files SWA feature flag is enabled.
  * @return {boolean}
  */
-util.isZipMountEnabled = () => {
-  return loadTimeData.getBoolean('ZIP_MOUNT');
-};
-
-/**
- * Returns true when FilesZipPack feature is enabled.
- * TODO(crbug.com/912236) Remove once transition to new ZIP system is finished.
- * @return {boolean}
- */
-util.isZipPackEnabled = () => {
-  return loadTimeData.getBoolean('ZIP_PACK');
+util.isSwaEnabled = () => {
+  return loadTimeData.getBoolean('FILES_SWA');
 };
 
 /**
@@ -1523,24 +1512,16 @@ util.isSinglePartitionFormatEnabled = () => {
  * Returns true if  flag is enabled.
  * @return {boolean}
  */
-util.isFilesJsModulesEnabled = () => {
-  return loadTimeData.getBoolean('FILES_JS_MODULES_ENABLED');
-};
-
-/**
- * Returns true if  flag is enabled.
- * @return {boolean}
- */
-util.isAudioPlayerJsModulesEnabled = () => {
-  return loadTimeData.getBoolean('AUDIO_PLAYER_JS_MODULES_ENABLED');
-};
-
-/**
- * Returns true if  flag is enabled.
- * @return {boolean}
- */
 util.isVideoPlayerJsModulesEnabled = () => {
   return loadTimeData.getBoolean('VIDEO_PLAYER_JS_MODULES_ENABLED');
+};
+
+/**
+ * Returns true if FilesBannerFramework flag is enabled.
+ * @return {boolean}
+ */
+util.isBannerFrameworkEnabled = () => {
+  return loadTimeData.getBoolean('FILES_BANNER_FRAMEWORK');
 };
 
 /**
@@ -1824,16 +1805,30 @@ util.getFilesAppModalDialogInstance = () => {
   return /** @type {!HTMLDialogElement} */ (dialogElement);
 };
 
-/** @return {boolean} */
-util.isSharesheetEnabled = () => {
-  return loadTimeData.valueExists('SHARESHEET_ENABLED') &&
-      loadTimeData.getBoolean('SHARESHEET_ENABLED');
-};
-
 util.isDriveDssPinEnabled = () => {
   return loadTimeData.valueExists('DRIVE_DSS_PIN_ENABLED') &&
       loadTimeData.getBoolean('DRIVE_DSS_PIN_ENABLED');
 };
 
-// eslint-disable-next-line semi,no-extra-semi
-/* #export */ {util};
+/**
+ *
+ * @param {!chrome.fileManagerPrivate.FileTaskDescriptor} left
+ * @param {!chrome.fileManagerPrivate.FileTaskDescriptor} right
+ * @returns {boolean}
+ */
+util.descriptorEqual = function(left, right) {
+  return left.appId === right.appId && left.taskType === right.taskType &&
+      left.actionId === right.actionId;
+};
+
+/**
+ * Create a taskID which is a string unique-ID for a task. This is temporary
+ * and will be removed once we use task.descriptor everywhere instead.
+ * @param {!chrome.fileManagerPrivate.FileTaskDescriptor} descriptor
+ * @returns {string}
+ */
+util.makeTaskID = function({appId, taskType, actionId}) {
+  return `${appId}|${taskType}|${actionId}`;
+};
+
+export {util};

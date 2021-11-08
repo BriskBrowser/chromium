@@ -4,10 +4,11 @@
 
 #include "remoting/host/security_key/security_key_socket.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/timer/timer.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -33,7 +34,7 @@ SecurityKeySocket::SecurityKeySocket(std::unique_ptr<net::StreamSocket> socket,
     : socket_(std::move(socket)),
       read_buffer_(base::MakeRefCounted<net::IOBufferWithSize>(
           kRequestReadBufferLength)) {
-  timer_.reset(new base::OneShotTimer());
+  timer_ = std::make_unique<base::OneShotTimer>();
   timer_->Start(FROM_HERE, timeout, std::move(timeout_callback));
 }
 

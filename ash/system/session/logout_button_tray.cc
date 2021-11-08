@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "ash/public/cpp/ash_pref_names.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/ash_typography.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
@@ -39,8 +39,9 @@ LogoutButtonTray::LogoutButtonTray(Shelf* shelf) : TrayBackgroundView(shelf) {
       tray_container()->AddChildView(std::make_unique<views::MdTextButton>(
           base::BindRepeating(&LogoutButtonTray::ButtonPressed,
                               base::Unretained(this)),
-          base::string16(), CONTEXT_LAUNCHER_BUTTON));
+          std::u16string(), CONTEXT_LAUNCHER_BUTTON));
   button_->SetProminent(true);
+  set_use_bounce_in_animation(false);
 }
 
 LogoutButtonTray::~LogoutButtonTray() {
@@ -88,8 +89,11 @@ const char* LogoutButtonTray::GetClassName() const {
 
 void LogoutButtonTray::OnThemeChanged() {
   TrayBackgroundView::OnThemeChanged();
-  button_->SetBgColorOverride(AshColorProvider::Get()->GetControlsLayerColor(
+  auto* color_provider = AshColorProvider::Get();
+  button_->SetBgColorOverride(color_provider->GetControlsLayerColor(
       AshColorProvider::ControlsLayerType::kControlBackgroundColorAlert));
+  button_->SetEnabledTextColors(color_provider->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kButtonLabelColorPrimary));
 }
 
 void LogoutButtonTray::UpdateShowLogoutButtonInTray() {
@@ -101,7 +105,7 @@ void LogoutButtonTray::UpdateShowLogoutButtonInTray() {
 void LogoutButtonTray::UpdateLogoutDialogDuration() {
   const int duration_ms = pref_change_registrar_->prefs()->GetInteger(
       prefs::kLogoutDialogDurationMs);
-  dialog_duration_ = base::TimeDelta::FromMilliseconds(duration_ms);
+  dialog_duration_ = base::Milliseconds(duration_ms);
 }
 
 void LogoutButtonTray::UpdateAfterLoginStatusChange() {
@@ -112,7 +116,7 @@ void LogoutButtonTray::ClickedOutsideBubble() {}
 
 void LogoutButtonTray::HideBubbleWithView(const TrayBubbleView* bubble_view) {}
 
-base::string16 LogoutButtonTray::GetAccessibleNameForTray() {
+std::u16string LogoutButtonTray::GetAccessibleNameForTray() {
   return button_->GetText();
 }
 
@@ -129,14 +133,14 @@ void LogoutButtonTray::UpdateVisibility() {
 
 void LogoutButtonTray::UpdateButtonTextAndImage() {
   LoginStatus login_status = shelf()->GetStatusAreaWidget()->login_status();
-  const base::string16 title =
+  const std::u16string title =
       user::GetLocalizedSignOutStringForStatus(login_status, false);
   if (shelf()->IsHorizontalAlignment()) {
     button_->SetText(title);
     button_->SetImage(views::Button::STATE_NORMAL, gfx::ImageSkia());
     button_->SetMinSize(gfx::Size(0, kTrayItemSize));
   } else {
-    button_->SetText(base::string16());
+    button_->SetText(std::u16string());
     button_->SetAccessibleName(title);
     button_->SetImage(
         views::Button::STATE_NORMAL,

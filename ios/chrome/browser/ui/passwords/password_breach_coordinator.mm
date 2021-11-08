@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/passwords/password_breach_coordinator.h"
 
+#include "base/metrics/histogram_macros.h"
+#include "components/password_manager/core/browser/manage_passwords_referrer.h"
 #include "components/password_manager/core/browser/ui/password_check_referrer.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/main/browser.h"
@@ -47,11 +49,9 @@ using password_manager::CredentialLeakType;
 
 - (instancetype)initWithBaseViewController:(UIViewController*)baseViewController
                                    browser:(Browser*)browser
-                                  leakType:(CredentialLeakType)leakType
-                                       URL:(const GURL&)URL {
+                                  leakType:(CredentialLeakType)leakType {
   self = [super initWithBaseViewController:baseViewController browser:browser];
   if (self) {
-    _url = URL;
     _leakType = leakType;
   }
   return self;
@@ -60,13 +60,10 @@ using password_manager::CredentialLeakType;
 - (void)start {
   self.viewController = [[PasswordBreachViewController alloc] init];
   self.viewController.modalPresentationStyle = UIModalPresentationFormSheet;
-  if (@available(iOS 13, *)) {
-    self.viewController.modalInPresentation = YES;
-  }
+  self.viewController.modalInPresentation = YES;
   self.mediator =
       [[PasswordBreachMediator alloc] initWithConsumer:self.viewController
                                              presenter:self
-                                                   URL:_url
                                               leakType:self.leakType];
   self.viewController.actionHandler = self.mediator;
 
@@ -106,6 +103,9 @@ using password_manager::CredentialLeakType;
       self.browser->GetCommandDispatcher(), ApplicationCommands);
   password_manager::LogPasswordCheckReferrer(
       password_manager::PasswordCheckReferrer::kPasswordBreachDialog);
+  UMA_HISTOGRAM_ENUMERATION(
+      "PasswordManager.ManagePasswordsReferrer",
+      password_manager::ManagePasswordsReferrer::kPasswordBreachDialog);
   [handler showSavedPasswordsSettingsAndStartPasswordCheckFromViewController:
                self.baseViewController];
 }

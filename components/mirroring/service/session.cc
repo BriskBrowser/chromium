@@ -14,14 +14,13 @@
 #include "base/cpu.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/rand_util.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
@@ -32,6 +31,7 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/mirroring/service/captured_audio_input.h"
+#include "components/mirroring/service/mirroring_features.h"
 #include "components/mirroring/service/udp_socket_client.h"
 #include "components/mirroring/service/video_capture_client.h"
 #include "crypto/random.h"
@@ -72,17 +72,15 @@ namespace {
 
 // The interval for CastTransport to send Frame/PacketEvents to Session for
 // logging.
-constexpr base::TimeDelta kSendEventsInterval = base::TimeDelta::FromSeconds(1);
+constexpr base::TimeDelta kSendEventsInterval = base::Seconds(1);
 
 // The duration for OFFER/ANSWER exchange. If timeout, notify the client that
 // the session failed to start.
-constexpr base::TimeDelta kOfferAnswerExchangeTimeout =
-    base::TimeDelta::FromSeconds(15);
+constexpr base::TimeDelta kOfferAnswerExchangeTimeout = base::Seconds(15);
 
 // Amount of time to wait before assuming the Cast Receiver does not support
 // querying for capabilities via GET_CAPABILITIES.
-constexpr base::TimeDelta kGetCapabilitiesTimeout =
-    base::TimeDelta::FromSeconds(30);
+constexpr base::TimeDelta kGetCapabilitiesTimeout = base::Seconds(30);
 
 // Used for OFFER/ANSWER message exchange. Some receivers will error out on
 // payloadType values other than the ones hard-coded here.
@@ -100,6 +98,10 @@ constexpr int kSupportedRemotingVersion = 2;
 class TransportClient final : public media::cast::CastTransport::Client {
  public:
   explicit TransportClient(Session* session) : session_(session) {}
+
+  TransportClient(const TransportClient&) = delete;
+  TransportClient& operator=(const TransportClient&) = delete;
+
   ~TransportClient() override {}
 
   // media::cast::CastTransport::Client implementation.
@@ -121,8 +123,6 @@ class TransportClient final : public media::cast::CastTransport::Client {
 
  private:
   Session* const session_;  // Outlives this class.
-
-  DISALLOW_COPY_AND_ASSIGN(TransportClient);
 };
 
 // Generates a string with cryptographically secure random bytes.
@@ -259,25 +259,6 @@ void AddStreamObject(int stream_index,
   stream_list->emplace_back(std::move(stream));
 }
 
-// Checks whether receiver's build version is less than "1.|base_version|.xxxx".
-// Returns true if given version doesn't have the format of "1.xx.xxxx", so that
-// we don't assume that the receiver has the required new capabilities.
-bool NeedsWorkaroundForOlder1DotXVersions(
-    const std::string& receiver_build_version,
-    int base_version) {
-  if (!base::StartsWith(receiver_build_version, "1.",
-                        base::CompareCase::SENSITIVE)) {
-    return true;
-  }
-  const size_t end_pos = receiver_build_version.find_first_of('.', 2);
-  if (end_pos == std::string::npos)
-    return false;
-  int version = 0;
-  return (base::StringToInt(receiver_build_version.substr(2, end_pos - 2),
-                            &version) &&
-          version < base_version);
-}
-
 // Convert the sink capabilities to media::mojom::RemotingSinkMetadata.
 media::mojom::RemotingSinkMetadata ToRemotingSinkMetadata(
     const std::vector<std::string>& capabilities,
@@ -310,19 +291,15 @@ media::mojom::RemotingSinkMetadata ToRemotingSinkMetadata(
       sink_metadata.video_capabilities.push_back(
           RemotingSinkVideoCapability::CODEC_VP8);
     } else if (capability == "vp9") {
-      // Before 1.27 Earth receivers report "vp9" even though they don't support
-      // remoting the VP9 encoded video.
-      if (!NeedsWorkaroundForOlder1DotXVersions(receiver_build_version, 27) ||
-          base::StartsWith(params.receiver_model_name, "Chromecast Ultra",
+      // TODO(crbug.com/1198616): receiver_model_name hacks should be removed.
+      if (base::StartsWith(params.receiver_model_name, "Chromecast Ultra",
                            base::CompareCase::SENSITIVE)) {
         sink_metadata.video_capabilities.push_back(
             RemotingSinkVideoCapability::CODEC_VP9);
       }
     } else if (capability == "hevc") {
-      // Before 1.27 Earth receivers report "hevc" even though they don't
-      // support remoting the HEVC encoded video.
-      if (!NeedsWorkaroundForOlder1DotXVersions(receiver_build_version, 27) ||
-          base::StartsWith(params.receiver_model_name, "Chromecast Ultra",
+      // TODO(crbug.com/1198616): receiver_model_name hacks should be removed.
+      if (base::StartsWith(params.receiver_model_name, "Chromecast Ultra",
                            base::CompareCase::SENSITIVE)) {
         sink_metadata.video_capabilities.push_back(
             RemotingSinkVideoCapability::CODEC_HEVC);
@@ -334,7 +311,7 @@ media::mojom::RemotingSinkMetadata ToRemotingSinkMetadata(
 
   // Enable remoting 1080p 30fps or higher resolution/fps content for Chromecast
   // Ultra receivers only.
-  // TODO(crbug.com/1015467): Receiver should report this capability.
+  // TODO(crbug.com/1198616): receiver_model_name hacks should be removed.
   if (params.receiver_model_name == "Chromecast Ultra") {
     sink_metadata.video_capabilities.push_back(
         RemotingSinkVideoCapability::SUPPORT_4K);
@@ -358,6 +335,9 @@ class Session::AudioCapturingCallback final
     DCHECK(!audio_data_callback_.is_null());
   }
 
+  AudioCapturingCallback(const AudioCapturingCallback&) = delete;
+  AudioCapturingCallback& operator=(const AudioCapturingCallback&) = delete;
+
   ~AudioCapturingCallback() override {}
 
  private:
@@ -377,7 +357,8 @@ class Session::AudioCapturingCallback final
     audio_data_callback_.Run(std::move(captured_audio), audio_capture_time);
   }
 
-  void OnCaptureError(const std::string& message) override {
+  void OnCaptureError(media::AudioCapturerSource::ErrorCode code,
+                      const std::string& message) override {
     if (!error_callback_.is_null())
       std::move(error_callback_).Run();
   }
@@ -386,8 +367,6 @@ class Session::AudioCapturingCallback final
 
   const AudioDataCallback audio_data_callback_;
   base::OnceClosure error_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioCapturingCallback);
 };
 
 Session::Session(
@@ -436,7 +415,7 @@ Session::Session(
     gpu_channel_host_ = gpu_->EstablishGpuChannelSync();
     if (gpu_channel_host_ &&
         gpu_channel_host_->gpu_feature_info().status_values
-                [gpu::GPU_FEATURE_TYPE_ACCELERATED_VIDEO_DECODE] ==
+                [gpu::GPU_FEATURE_TYPE_ACCELERATED_VIDEO_ENCODE] ==
             gpu::kGpuFeatureStatusEnabled) {
       supported_profiles_ =
           media::GpuVideoAcceleratorUtil::ConvertGpuToMediaEncodeProfiles(
@@ -571,25 +550,12 @@ void Session::CreateVideoEncodeAccelerator(
     vea_provider_->CreateVideoEncodeAccelerator(
         vea.InitWithNewPipeAndPassReceiver());
     // std::make_unique doesn't work to create a unique pointer of the subclass.
-    mojo_vea.reset(new media::MojoVideoEncodeAccelerator(std::move(vea),
-                                                         supported_profiles_));
+    mojo_vea = base::WrapUnique<media::VideoEncodeAccelerator>(
+        new media::MojoVideoEncodeAccelerator(std::move(vea),
+                                              supported_profiles_));
   }
   std::move(callback).Run(base::ThreadTaskRunnerHandle::Get(),
                           std::move(mojo_vea));
-}
-
-void Session::CreateVideoEncodeMemory(
-    size_t size,
-    media::cast::ReceiveVideoEncodeMemoryCallback callback) {
-  DVLOG(1) << __func__;
-
-  base::UnsafeSharedMemoryRegion buf =
-      base::UnsafeSharedMemoryRegion::Create(size);
-
-  if (!buf.IsValid())
-    LOG(WARNING) << "Browser failed to allocate shared memory.";
-
-  std::move(callback).Run(std::move(buf));
 }
 
 void Session::OnTransportStatusChanged(CastTransportStatus status) {
@@ -641,9 +607,10 @@ void Session::SetConstraints(const openscreen::cast::Answer& answer,
         std::min(video_config->max_bitrate, video.bit_rate_limits.maximum);
     video_config->max_playout_delay =
         std::min(video_config->max_playout_delay,
-                 base::TimeDelta::FromMilliseconds(video.max_delay.count()));
+                 base::Milliseconds(video.max_delay.count()));
     video_config->max_frame_rate =
-        std::min(video_config->max_frame_rate, video.maximum.frame_rate);
+        std::min(video_config->max_frame_rate,
+                 static_cast<double>(video.maximum.frame_rate));
 
     // We only do sender-side letterboxing if the receiver doesn't support it.
     mirror_settings_.SetSenderSideLetterboxingEnabled(!video.supports_scaling);
@@ -657,7 +624,7 @@ void Session::SetConstraints(const openscreen::cast::Answer& answer,
         std::min(audio_config->max_bitrate, audio.bit_rate_limits.maximum);
     audio_config->max_playout_delay =
         std::min(audio_config->max_playout_delay,
-                 base::TimeDelta::FromMilliseconds(audio.max_delay.count()));
+                 base::Milliseconds(audio.max_delay.count()));
     // Currently, Chrome only supports stereo, so audio.max_channels is ignored.
   }
 }
@@ -797,8 +764,6 @@ void Session::OnAnswer(const std::vector<FrameSenderConfig>& audio_configs,
                               weak_factory_.GetWeakPtr()),
           base::BindRepeating(&Session::CreateVideoEncodeAccelerator,
                               weak_factory_.GetWeakPtr()),
-          base::BindRepeating(&Session::CreateVideoEncodeMemory,
-                              weak_factory_.GetWeakPtr()),
           cast_transport_.get(),
           base::BindRepeating(&Session::SetTargetPlayoutDelay,
                               weak_factory_.GetWeakPtr()),
@@ -826,24 +791,15 @@ void Session::OnAnswer(const std::vector<FrameSenderConfig>& audio_configs,
       media_remoter_->OnMirroringResumed();
   }
 
-  std::unique_ptr<WifiStatusMonitor> wifi_status_monitor;
-  if (answer.supports_wifi_status_reporting) {
-    wifi_status_monitor =
-        std::make_unique<WifiStatusMonitor>(message_dispatcher_.get());
-    // Nest Hub devices do not support remoting despite having a relatively new
-    // build version, so we cannot filter with
-    // NeedsWorkaroundForOlder1DotXVersions() here.
-    if (initially_starting_session &&
-        (base::StartsWith(session_params_.receiver_model_name, "Chromecast",
-                          base::CompareCase::SENSITIVE) ||
-         base::StartsWith(session_params_.receiver_model_name, "Eureka Dongle",
-                          base::CompareCase::SENSITIVE))) {
-      QueryCapabilitiesForRemoting();
-    }
-  } else {
-    LogInfoMessage(
-        base::StrCat({"Remoting is not supported on this receiver model: ",
-                      session_params_.receiver_model_name}));
+  // This is a workaround for Nest Hub devices, which do not support remoting.
+  // TODO(crbug.com/1198616): filtering hack should be removed. See
+  // issuetracker.google.com/135725157 for more information.
+  if (initially_starting_session &&
+      (base::StartsWith(session_params_.receiver_model_name, "Chromecast",
+                        base::CompareCase::SENSITIVE) ||
+       base::StartsWith(session_params_.receiver_model_name, "Eureka Dongle",
+                        base::CompareCase::SENSITIVE))) {
+    QueryCapabilitiesForRemoting();
   }
 
   if (initially_starting_session && observer_)
@@ -869,7 +825,7 @@ void Session::SetTargetPlayoutDelay(base::TimeDelta playout_delay) {
     video_stream_->SetTargetPlayoutDelay(playout_delay);
 }
 
-void Session::ProcessFeedback(const media::VideoFrameFeedback& feedback) {
+void Session::ProcessFeedback(const media::VideoCaptureFeedback& feedback) {
   if (video_capture_client_) {
     video_capture_client_->ProcessFeedback(feedback);
   }
@@ -929,7 +885,24 @@ void Session::CreateAndSendOffer() {
         AddStreamObject(stream_index++, "H264", video_configs.back(),
                         mirror_settings_, &stream_list);
       }
+      if (mirroring::features::IsCastStreamingAV1Enabled()) {
+        FrameSenderConfig config = MirrorSettings::GetDefaultVideoConfig(
+            RtpPayloadType::VIDEO_AV1, Codec::CODEC_VIDEO_AV1);
+        config.use_external_encoder = false;
+        AddSenderConfig(video_ssrc, config, aes_key, aes_iv, session_params_,
+                        &video_configs);
+        AddStreamObject(stream_index++, "AV1", video_configs.back(),
+                        mirror_settings_, &stream_list);
+      }
       if (video_configs.empty()) {
+        if (base::FeatureList::IsEnabled(features::kCastStreamingVp9)) {
+          FrameSenderConfig config = MirrorSettings::GetDefaultVideoConfig(
+              RtpPayloadType::VIDEO_VP9, Codec::CODEC_VIDEO_VP9);
+          AddSenderConfig(video_ssrc, config, aes_key, aes_iv, session_params_,
+                          &video_configs);
+          AddStreamObject(stream_index++, "VP9", video_configs.back(),
+                          mirror_settings_, &stream_list);
+        }
         FrameSenderConfig config = MirrorSettings::GetDefaultVideoConfig(
             RtpPayloadType::VIDEO_VP8, Codec::CODEC_VIDEO_VP8);
         AddSenderConfig(video_ssrc, config, aes_key, aes_iv, session_params_,

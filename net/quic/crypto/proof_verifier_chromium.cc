@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -57,6 +58,10 @@ class ProofVerifierChromium::Job {
       SCTAuditingDelegate* sct_auditing_delegate,
       int cert_verify_flags,
       const NetLogWithSource& net_log);
+
+  Job(const Job&) = delete;
+  Job& operator=(const Job&) = delete;
+
   ~Job();
 
   // Starts the proof verification.  If |quic::QUIC_PENDING| is returned, then
@@ -163,8 +168,6 @@ class ProofVerifierChromium::Job {
   base::TimeTicks start_time_;
 
   NetLogWithSource net_log_;
-
-  DISALLOW_COPY_AND_ASSIGN(Job);
 };
 
 ProofVerifierChromium::Job::Job(

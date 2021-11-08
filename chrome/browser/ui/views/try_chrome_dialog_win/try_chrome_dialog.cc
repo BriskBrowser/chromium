@@ -8,16 +8,16 @@
 
 #include <shellapi.h>
 
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "cc/paint/paint_flags.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -34,6 +34,8 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/display/win/screen_win.h"
@@ -64,8 +66,6 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_removals_observer.h"
@@ -173,7 +173,7 @@ enum class TryChromeButtonType { OPEN_CHROME, NO_THANKS };
 // the browser.
 std::unique_ptr<views::LabelButton> CreateWin10StyleButton(
     views::Button::PressedCallback callback,
-    const base::string16& text,
+    const std::u16string& text,
     TryChromeButtonType button_type) {
   auto button = std::make_unique<views::LabelButton>(std::move(callback), text,
                                                      CONTEXT_WINDOWS10_NATIVE);
@@ -744,8 +744,8 @@ void TryChromeDialog::Context::TaskbarCalculator::OnWidgetBoundsChanged(
   // the border without the arrow).
   const gfx::Insets border_insets_in_pixels = gfx::ToFlooredInsets(
       gfx::ConvertInsetsToPixels(gfx::Insets(kTryChromeBorderThickness), dsf));
-  gfx::Insets scaled_insets = gfx::ToFlooredInsets(gfx::ConvertInsetsToPixels(
-      popup->GetContentsView()->border()->GetInsets(), dsf));
+  gfx::Insets scaled_insets = gfx::ToFlooredInsets(
+      gfx::ConvertInsetsToPixels(popup->GetContentsView()->GetInsets(), dsf));
   scaled_insets -= border_insets_in_pixels;
   gfx::Rect dialog_bounds(window_size);
   dialog_bounds.Inset(scaled_insets);
@@ -1049,7 +1049,7 @@ void TryChromeDialog::OnContextInitialized() {
   const gfx::Size logo_size = logo->GetPreferredSize();
 
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
-  params.activatable = views::Widget::InitParams::ACTIVATABLE_YES;
+  params.activatable = views::Widget::InitParams::Activatable::kYes;
   // An approximate window size. Layout() can adjust.
   params.bounds = gfx::Rect(kToastWidth, 120);
   params.name = "TryChromeDialog";

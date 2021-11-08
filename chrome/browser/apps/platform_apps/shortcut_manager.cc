@@ -4,12 +4,13 @@
 
 #include "chrome/browser/apps/platform_apps/shortcut_manager.h"
 
+#include <string>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/one_shot_event.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
@@ -96,7 +97,7 @@ AppShortcutManager::AppShortcutManager(Profile* profile) : profile_(profile) {
              content::BrowserThread::UI) ||
          content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
 
-  extension_registry_observer_.Add(
+  extension_registry_observation_.Observe(
       extensions::ExtensionRegistry::Get(profile_));
   // Wait for extensions to be ready before running
   // UpdateShortcutsForAllAppsIfNeeded.
@@ -108,7 +109,7 @@ AppShortcutManager::AppShortcutManager(Profile* profile) : profile_(profile) {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   // profile_manager might be NULL in testing environments.
   if (profile_manager) {
-    profile_storage_observer_.Add(
+    profile_storage_observation_.Observe(
         &profile_manager->GetProfileAttributesStorage());
   }
 }
@@ -197,5 +198,5 @@ void AppShortcutManager::UpdateShortcutsForAllAppsIfNeeded() {
       FROM_HERE,
       base::BindOnce(&AppShortcutManager::UpdateShortcutsForAllAppsNow,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSeconds(kUpdateShortcutsForAllAppsDelay));
+      base::Seconds(kUpdateShortcutsForAllAppsDelay));
 }

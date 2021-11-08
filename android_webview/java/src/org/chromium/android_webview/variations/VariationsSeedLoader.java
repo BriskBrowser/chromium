@@ -104,7 +104,7 @@ public class VariationsSeedLoader {
 
     private static void recordLoadSeedResult(@LoadSeedResult int result) {
         RecordHistogram.recordEnumeratedHistogram(
-                SEED_LOAD_RESULT_HISTOGRAM_NAME, result, LoadSeedResult.ENUM_SIZE);
+                SEED_LOAD_RESULT_HISTOGRAM_NAME, result, LoadSeedResult.MAX_VALUE + 1);
     }
 
     private static void recordSeedLoadBlockingTime(long timeMs) {
@@ -327,13 +327,14 @@ public class VariationsSeedLoader {
     }
 
     @VisibleForTesting
-    protected void requestSeedFromService(long oldSeedDate) {
+    // Returns false if it didn't connect to the service.
+    protected boolean requestSeedFromService(long oldSeedDate) {
         File newSeedFile = VariationsUtils.getNewSeedFile();
         try {
             newSeedFile.createNewFile(); // Silently returns false if already exists.
         } catch (IOException e) {
             Log.e(TAG, "Failed to create seed file " + newSeedFile);
-            return;
+            return false;
         }
         ParcelFileDescriptor newSeedFd = null;
         try {
@@ -341,12 +342,14 @@ public class VariationsSeedLoader {
                     ParcelFileDescriptor.open(newSeedFile, ParcelFileDescriptor.MODE_WRITE_ONLY);
         } catch (FileNotFoundException e) {
             Log.e(TAG, "Failed to open seed file " + newSeedFile);
-            return;
+            return false;
         }
 
         VariationsUtils.debugLog("Requesting new seed from IVariationsSeedServer");
         SeedServerConnection connection = new SeedServerConnection(newSeedFd, oldSeedDate);
         connection.start();
+
+        return true;
     }
 
     // Begin asynchronously loading the variations seed. ContextUtils.getApplicationContext() and
@@ -357,8 +360,8 @@ public class VariationsSeedLoader {
     }
 
     // Block on loading the seed with a timeout. Then if a seed was successfully loaded, initialize
-    // variations.
-    public void finishVariationsInit() {
+    // variations. Returns whether or not variations was initialized.
+    public boolean finishVariationsInit() {
         long start = SystemClock.elapsedRealtime();
         try {
             try {
@@ -369,7 +372,7 @@ public class VariationsSeedLoader {
                     long seedAge = TimeUnit.MILLISECONDS.toSeconds(new Date().getTime() - seedDate);
                     VariationsUtils.debugLog("Loaded seed with age " + seedAge + "s");
                 }
-                return;
+                return gotSeed;
             } finally {
                 long end = SystemClock.elapsedRealtime();
                 recordSeedLoadBlockingTime(end - start);
@@ -382,6 +385,7 @@ public class VariationsSeedLoader {
             recordLoadSeedResult(LoadSeedResult.LOAD_OTHER_FAILURE);
         }
         Log.e(TAG, "Failed loading variations seed. Variations disabled.");
+        return false;
     }
 
     @NativeMethods

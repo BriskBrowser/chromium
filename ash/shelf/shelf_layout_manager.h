@@ -8,13 +8,13 @@
 #include <memory>
 
 #include "ash/ash_export.h"
-#include "ash/home_screen/drag_window_from_shelf_controller.h"
 #include "ash/public/cpp/app_list/app_list_controller_observer.h"
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_types.h"
-#include "ash/public/cpp/wallpaper_controller.h"
-#include "ash/public/cpp/wallpaper_controller_observer.h"
+#include "ash/public/cpp/wallpaper/wallpaper_controller.h"
+#include "ash/public/cpp/wallpaper/wallpaper_controller_observer.h"
+#include "ash/shelf/drag_window_from_shelf_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_metrics.h"
 #include "ash/shelf/shelf_widget.h"
@@ -28,17 +28,17 @@
 #include "ash/wm/wm_default_layout_manager.h"
 #include "ash/wm/workspace/workspace_types.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/scoped_observation.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/timer/timer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/display/display.h"
 #include "ui/display/display_observer.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/message_center/message_center_observer.h"
 #include "ui/wm/public/activation_change_observer.h"
 
 namespace ui {
@@ -56,6 +56,7 @@ class HomeToOverviewNudgeController;
 class InAppToHomeNudgeController;
 class PanelLayoutManagerTest;
 class PresentationTimeRecorder;
+class ScopedDragDropObserver;
 class Shelf;
 class ShelfLayoutManagerObserver;
 class ShelfLayoutManagerTestBase;
@@ -82,7 +83,6 @@ class ASH_EXPORT ShelfLayoutManager
       public WallpaperControllerObserver,
       public LocaleChangeObserver,
       public DesksController::Observer,
-      public message_center::MessageCenterObserver,
       public ShelfConfig::Observer {
  public:
   // Suspend work area updates within its scope. Note that relevant
@@ -91,14 +91,33 @@ class ASH_EXPORT ShelfLayoutManager
    public:
     // |manager| is the ShelfLayoutManager whose visibility update is suspended.
     explicit ScopedSuspendWorkAreaUpdate(ShelfLayoutManager* manager);
+
+    ScopedSuspendWorkAreaUpdate(const ScopedSuspendWorkAreaUpdate&) = delete;
+    ScopedSuspendWorkAreaUpdate& operator=(const ScopedSuspendWorkAreaUpdate&) =
+        delete;
+
     ~ScopedSuspendWorkAreaUpdate();
 
    private:
     ShelfLayoutManager* const manager_;
-    DISALLOW_COPY_AND_ASSIGN(ScopedSuspendWorkAreaUpdate);
+  };
+
+  // Used to maintain a lock for the shelf visibility state. If locked, then we
+  // should not update the state of the shelf visibility.
+  class ScopedVisibilityLock {
+   public:
+    explicit ScopedVisibilityLock(ShelfLayoutManager* shelf);
+    ~ScopedVisibilityLock();
+
+   private:
+    base::WeakPtr<ShelfLayoutManager> shelf_;
   };
 
   ShelfLayoutManager(ShelfWidget* shelf_widget, Shelf* shelf);
+
+  ShelfLayoutManager(const ShelfLayoutManager&) = delete;
+  ShelfLayoutManager& operator=(const ShelfLayoutManager&) = delete;
+
   ~ShelfLayoutManager() override;
 
   // Initializes observers.
@@ -140,7 +159,7 @@ class ASH_EXPORT ShelfLayoutManager
   void HideContextualNudges();
 
   // Called by AutoHideEventHandler to process the gesture events when shelf is
-  // auto hide.
+  // auto hidden.
   void ProcessGestureEventOfAutoHideShelf(ui::GestureEvent* event,
                                           aura::Window* target);
 
@@ -166,11 +185,14 @@ class ASH_EXPORT ShelfLayoutManager
   // Handles events from ShelfWidget.
   void ProcessGestureEventFromShelfWidget(ui::GestureEvent* event_in_screen);
 
-  // Handles mouse wheel events from the shelf. We use |from_touchpad| to
-  // distinguish if a event originated from a touchpad scroll or a mousewheel
-  // scroll.
-  void ProcessMouseWheelEventFromShelf(ui::MouseWheelEvent* event,
-                                       bool from_touchpad);
+  // Handles mouse wheel events from the shelf.
+  void ProcessMouseWheelEventFromShelf(ui::MouseWheelEvent* event);
+
+  // Handles scroll events from the shelf.
+  void ProcessScrollEventFromShelf(ui::ScrollEvent* event);
+
+  // Contains logic that is the same between mouse wheel and gesture scrolling.
+  void ProcessScrollOffset(int offset, base::TimeTicks time_stamp);
 
   // Returns how the shelf background should be painted.
   ShelfBackgroundType GetShelfBackgroundType() const;
@@ -256,6 +278,8 @@ class ASH_EXPORT ShelfLayoutManager
                                const Desk* deactivated) override {}
   void OnDeskSwitchAnimationLaunching() override;
   void OnDeskSwitchAnimationFinished() override;
+  void OnDeskNameChanged(const Desk* desk,
+                         const std::u16string& new_name) override {}
 
   ShelfVisibilityState visibility_state() const {
     return state_.visibility_state;
@@ -267,6 +291,10 @@ class ASH_EXPORT ShelfLayoutManager
 
   void LockAutoHideState(bool lock_auto_hide_state) {
     is_auto_hide_state_locked_ = lock_auto_hide_state;
+  }
+
+  ShelfAutoHideBehavior auto_hide_behavior() const {
+    return shelf_->auto_hide_behavior();
   }
 
   // ShelfConfig::Observer:
@@ -304,6 +332,10 @@ class ASH_EXPORT ShelfLayoutManager
   HotseatState CalculateHotseatState(ShelfVisibilityState visibility_state,
                                      ShelfAutoHideState auto_hide_state) const;
 
+  // Called when the visibility for a tray bubble in the shelf's status area
+  // changes.
+  void OnShelfTrayBubbleVisibilityChanged(bool bubble_shown);
+
  private:
   class UpdateShelfObserver;
   friend class DimShelfLayoutManagerTestBase;
@@ -312,6 +344,7 @@ class ASH_EXPORT ShelfLayoutManager
   friend class ShelfLayoutManagerWindowDraggingTest;
   friend class NotificationTrayTest;
   friend class UnifiedSystemTrayTest;
+  friend class TrayBackgroundViewTest;
   friend class Shelf;
 
   struct State {
@@ -325,7 +358,7 @@ class ASH_EXPORT ShelfLayoutManager
     // Returns whether the session is in an active state.
     bool IsActiveSessionState() const;
 
-    // Returns whether shelf is in auto hide mode and is currently hidden.
+    // Returns whether shelf is in auto-hide mode and is currently hidden.
     bool IsShelfAutoHidden() const;
 
     // Returns whether shelf is currently visible.
@@ -355,10 +388,6 @@ class ASH_EXPORT ShelfLayoutManager
     kMoving,  // Laying out and animating to target bounds
   };
 
-  // MessageCenterObserver:
-  void OnCenterVisibilityChanged(
-      message_center::Visibility visibility) override;
-
   // Suspends/resumes work area updates.
   void SuspendWorkAreaUpdate();
   void ResumeWorkAreaUpdate();
@@ -366,7 +395,7 @@ class ASH_EXPORT ShelfLayoutManager
   // Sets the visibility of the shelf to |state|.
   void SetState(ShelfVisibilityState visibility_state);
 
-  // Returns shelf visibility state based on current value of auto hide
+  // Returns shelf visibility state based on current value of auto-hide
   // behavior setting.
   ShelfVisibilityState CalculateShelfVisibility();
 
@@ -395,14 +424,17 @@ class ASH_EXPORT ShelfLayoutManager
   // used by |CalculateTargetBounds()|.
   void UpdateTargetBoundsForGesture(HotseatState target_hotseat_state);
 
-  // Updates the auto hide state immediately.
+  // Updates the auto-hide state for drag-drop actions.
+  void UpdateAutoHideForDragDrop(const ui::DropTargetEvent* event);
+
+  // Updates the auto-hide state immediately.
   void UpdateAutoHideStateNow();
 
-  // Starts the auto hide timer, so that the shelf will be hidden after the
+  // Starts the auto-hide timer, so that the shelf will be hidden after the
   // timeout (unless something else happens to interrupt / reset it).
   void StartAutoHideTimer();
 
-  // Stops the auto hide timer and clears
+  // Stops the auto-hide timer and clears
   // |mouse_over_shelf_when_auto_hide_timer_started_|.
   void StopAutoHideTimer();
 
@@ -412,12 +444,17 @@ class ASH_EXPORT ShelfLayoutManager
   // two displays.
   gfx::Rect GetAutoHideShowShelfRegionInScreen() const;
 
-  // Returns the AutoHideState. This value is determined from the shelf and
+  // Returns the auto-hide state. This value is determined from the shelf and
   // tray.
   ShelfAutoHideState CalculateAutoHideState(
       ShelfVisibilityState visibility_state) const;
 
-  base::Optional<ShelfAutoHideState>
+  // Returns the auto-hide state based on the position of an ongoing drag-drop.
+  ShelfAutoHideState CalculateAutoHideStateBasedOnDragLocation() const;
+
+  // Returns the auto-hide state if the cursor's current position can be used to
+  // make a decision, or no value if its position gives no useful information.
+  absl::optional<ShelfAutoHideState>
   CalculateAutoHideStateBasedOnCursorLocation() const;
 
   // Returns true if |window| is a descendant of the shelf.
@@ -437,7 +474,7 @@ class ASH_EXPORT ShelfLayoutManager
   bool IsShelfHiddenForFullscreen() const;
 
   // Returns true if there is a fullscreen or maximized window open that causes
-  // the shelf to be autohidden.
+  // the shelf to be auto hidden.
   bool IsShelfAutoHideForFullscreenMaximized() const;
 
   // Returns true if the home gesture handler should handle the event.
@@ -467,7 +504,7 @@ class ASH_EXPORT ShelfLayoutManager
   void CompleteDrag(const ui::LocatedEvent& event_in_screen);
   void CompleteAppListDrag(const ui::LocatedEvent& event_in_screen);
   void CompleteDragHomeToOverview(const ui::LocatedEvent& event_in_screen);
-  void CancelDrag(base::Optional<ShelfWindowDragResult> window_drag_result);
+  void CancelDrag(absl::optional<ShelfWindowDragResult> window_drag_result);
   void CompleteDragWithChangedVisibility();
 
   float GetAppListBackgroundOpacityOnShelfOpacity();
@@ -495,7 +532,7 @@ class ASH_EXPORT ShelfLayoutManager
                                      const gfx::Vector2dF& scroll);
   void MaybeUpdateWindowDrag(const ui::LocatedEvent& event_in_screen,
                              const gfx::Vector2dF& scroll);
-  base::Optional<ShelfWindowDragResult> MaybeEndWindowDrag(
+  absl::optional<ShelfWindowDragResult> MaybeEndWindowDrag(
       const ui::LocatedEvent& event_in_screen);
   // If overview session is active, goes to home screen if the gesture should
   // initiate transition to home. It handles the gesture only if the
@@ -505,14 +542,18 @@ class ASH_EXPORT ShelfLayoutManager
   void MaybeCancelWindowDrag();
   bool IsWindowDragInProgress() const;
 
-  // Updates the visibility state because of the change on the system tray.
-  void UpdateVisibilityStateForSystemTrayChange(
-      message_center::Visibility visibility);
+  // Updates the visibility state because of the change on a status area tray.
+  void UpdateVisibilityStateForTrayBubbleChange(bool bubble_shown);
+
+  bool IsShelfContainerAnimating() const;
 
   bool in_shutdown_ = false;
 
   // True if the last mouse event was a mouse drag.
   bool in_mouse_drag_ = false;
+
+  // True if a mouse or gesture drag is in progress.
+  bool in_drag_drop_ = false;
 
   // Current state.
   State state_;
@@ -534,19 +575,26 @@ class ASH_EXPORT ShelfLayoutManager
 
   base::OneShotTimer auto_hide_timer_;
 
-  // Whether the mouse was over the shelf when the auto hide timer started.
-  // False when neither the auto hide timer nor the timer task are running.
+  // Whether the mouse was over the shelf when the auto-hide timer started.
+  // False when neither the auto-hide timer nor the timer task are running.
   bool mouse_over_shelf_when_auto_hide_timer_started_ = false;
+
+  // Whether a drag was over the shelf when the auto-hide timer started.
+  // False when neither the auto-hide timer nor the timer task are running.
+  bool drag_over_shelf_when_auto_hide_timer_started_ = false;
 
   // Whether the mouse pointer (not the touch pointer) was over the shelf last
   // time we saw it. This is used to differentiate between mouse and touch in
-  // the shelf autohide behavior.
+  // the shelf auto-hide behavior.
   bool last_seen_mouse_position_was_over_shelf_ = false;
+
+  // Whether the last location update from a drag-drop was over the shelf.
+  bool last_seen_drag_position_was_over_shelf_ = false;
 
   base::ObserverList<ShelfLayoutManagerObserver>::Unchecked observers_;
 
   // The enum keeps track of the present status of the drag (from gesture or
-  // mouse). The shelf reacts to drags, and can be set to auto-hide for certain
+  // mouse). The shelf reacts to drags, and can be set to auto hide for certain
   // events. For example, swiping up from the shelf in tablet mode can open the
   // fullscreen app list. Some shelf behaviour (e.g. visibility state,
   // background color etc.) are affected by various stages of the drag.
@@ -590,6 +638,9 @@ class ASH_EXPORT ShelfLayoutManager
   // Whether background blur is enabled.
   const bool is_background_blur_enabled_;
 
+  // Whether the feature ProductivityLauncher is enabled.
+  const bool is_productivity_launcher_enabled_;
+
   // Pretarget handler responsible for hiding the hotseat.
   std::unique_ptr<ui::EventHandler> hotseat_event_handler_;
 
@@ -616,13 +667,21 @@ class ASH_EXPORT ShelfLayoutManager
   base::ScopedObservation<WallpaperController, WallpaperControllerObserver>
       wallpaper_controller_observation_{this};
 
-  // Location of the most recent mouse drag event in screen coordinate.
-  gfx::Point last_mouse_drag_position_;
+  display::ScopedDisplayObserver display_observer_{this};
+
+  // Observer that allows drag events to un-hide an auto-hidden shelf.
+  std::unique_ptr<ScopedDragDropObserver> drag_drop_observer_;
+
+  // Location of the most recent mouse drag event in screen coordinates.
+  gfx::Point last_mouse_drag_position_in_screen_;
+
+  // Location of the most recent drag-drop event in screen coordinates.
+  gfx::Point last_drag_drop_position_in_screen_;
 
   // Location of the beginning of a drag in screen coordinates.
   gfx::Point drag_start_point_in_screen_;
 
-  // When it is true, |CalculateAutoHideState| returns the current auto hide
+  // When it is true, |CalculateAutoHideState| returns the current auto-hide
   // state.
   bool is_auto_hide_state_locked_ = false;
 
@@ -630,7 +689,7 @@ class ASH_EXPORT ShelfLayoutManager
   // visibility update is requested for overview and resets when overview no
   // longer needs it. It is used because OnOverviewModeStarting() and
   // OnOverviewModeStartingAnimationComplete() calls are not balanced.
-  base::Optional<ScopedSuspendWorkAreaUpdate>
+  absl::optional<ScopedSuspendWorkAreaUpdate>
       overview_suspend_work_area_update_;
 
   // The window drag controller that will be used when a window can be dragged
@@ -649,12 +708,11 @@ class ASH_EXPORT ShelfLayoutManager
   std::unique_ptr<InAppToHomeNudgeController> in_app_to_home_nudge_controller_;
 
   // Whether upward fling from shelf should be handled as potential gesture from
-  // overview to home. This is set when the swipe would otherwise be handled by
-  // |window_drag_controller_|, but the swipe cannot be associated with a window
-  // to drag (for example, because the swipe started in split view mode on a
-  // side which is showing overview). Note that the gesture will be handled only
-  // if the overview session is active.
-  bool allow_fling_from_overview_to_home_ = false;
+  // overview to home. This is set to false when the swipe is handled by
+  // |window_drag_controller_|, when the swipe is associated with a window
+  // to drag. Note that the gesture will be handled only when the overview
+  // session is active.
+  bool allow_fling_from_overview_to_home_ = true;
 
   // Indicates whether shelf drag gesture can start window drag from shelf to
   // overview or home when hotseat is in extended state (the window drag will
@@ -675,7 +733,7 @@ class ASH_EXPORT ShelfLayoutManager
   // Records the presentation time for hotseat dragging.
   std::unique_ptr<PresentationTimeRecorder> hotseat_presentation_time_recorder_;
 
-  DISALLOW_COPY_AND_ASSIGN(ShelfLayoutManager);
+  base::WeakPtrFactory<ShelfLayoutManager> weak_factory_{this};
 };
 
 }  // namespace ash

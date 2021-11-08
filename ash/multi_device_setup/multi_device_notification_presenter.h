@@ -13,7 +13,6 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -22,6 +21,7 @@
 namespace message_center {
 class MessageCenter;
 class Notification;
+class RichNotificationData;
 }  // namespace message_center
 
 namespace ash {
@@ -47,6 +47,12 @@ class ASH_EXPORT MultiDeviceNotificationPresenter
  public:
   explicit MultiDeviceNotificationPresenter(
       message_center::MessageCenter* message_center);
+
+  MultiDeviceNotificationPresenter(const MultiDeviceNotificationPresenter&) =
+      delete;
+  MultiDeviceNotificationPresenter& operator=(
+      const MultiDeviceNotificationPresenter&) = delete;
+
   ~MultiDeviceNotificationPresenter() override;
 
   // Removes the notification created by NotifyPotentialHostExists() or does
@@ -73,8 +79,8 @@ class ASH_EXPORT MultiDeviceNotificationPresenter
 
   void OnNotificationClicked(
       const std::string& notification_id,
-      const base::Optional<int>& button_index,
-      const base::Optional<base::string16>& reply) override;
+      const absl::optional<int>& button_index,
+      const absl::optional<std::u16string>& reply) override;
 
  private:
   friend class MultiDeviceNotificationPresenterTest;
@@ -113,11 +119,12 @@ class ASH_EXPORT MultiDeviceNotificationPresenter
 
   void ObserveMultiDeviceSetupIfPossible();
   void ShowSetupNotification(const Status notification_status,
-                             const base::string16& title,
-                             const base::string16& message);
+                             const std::u16string& title,
+                             const std::u16string& message);
   void ShowNotification(const std::string& id,
-                        const base::string16& title,
-                        const base::string16& message);
+                        const std::u16string& title,
+                        const std::u16string& message,
+                        message_center::RichNotificationData optional_fields);
 
   void FlushForTesting();
 
@@ -135,8 +142,6 @@ class ASH_EXPORT MultiDeviceNotificationPresenter
 
   base::WeakPtrFactory<MultiDeviceNotificationPresenter> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(MultiDeviceNotificationPresenter);
 };
 
 }  // namespace ash

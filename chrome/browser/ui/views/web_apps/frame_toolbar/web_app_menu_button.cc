@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_menu_button.h"
 
+#include "base/bind.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -18,26 +19,29 @@
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/window/hit_test_utils.h"
 
 WebAppMenuButton::WebAppMenuButton(BrowserView* browser_view,
-                                   base::string16 accessible_name)
+                                   std::u16string accessible_name)
     : AppMenuButton(base::BindRepeating(&WebAppMenuButton::ButtonPressed,
                                         base::Unretained(this))),
       browser_view_(browser_view) {
-  views::SetHitTestComponent(this, static_cast<int>(HTMENU));
+  views::SetHitTestComponent(this, static_cast<int>(HTCLIENT));
 
-  SetInkDropMode(InkDropMode::ON);
+  views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
+  views::InkDrop::Get(this)->SetBaseColorCallback(base::BindRepeating(
+      [](WebAppMenuButton* host) { return host->GetColor(); }, this));
+
   SetFocusBehavior(FocusBehavior::ALWAYS);
 
-  base::string16 application_name = accessible_name;
+  std::u16string application_name = accessible_name;
   if (application_name.empty() && browser_view->browser()->app_controller()) {
     application_name =
         browser_view->browser()->app_controller()->GetAppShortName();
@@ -71,10 +75,12 @@ SkColor WebAppMenuButton::GetColor() const {
 }
 
 void WebAppMenuButton::StartHighlightAnimation() {
-  GetInkDrop()->SetHoverHighlightFadeDuration(
+  views::InkDrop::Get(this)->GetInkDrop()->SetHoverHighlightFadeDuration(
       WebAppToolbarButtonContainer::kOriginFadeInDuration);
-  GetInkDrop()->SetHovered(true);
-  GetInkDrop()->UseDefaultHoverHighlightFadeDuration();
+  views::InkDrop::Get(this)->GetInkDrop()->SetHovered(true);
+  views::InkDrop::Get(this)
+      ->GetInkDrop()
+      ->UseDefaultHoverHighlightFadeDuration();
 
   highlight_off_timer_.Start(
       FROM_HERE,
@@ -95,19 +101,17 @@ void WebAppMenuButton::ButtonPressed(const ui::Event& event) {
       base::UserMetricsAction("HostedAppMenuButtonButton_Clicked"));
 }
 
-SkColor WebAppMenuButton::GetInkDropBaseColor() const {
-  return GetColor();
-}
-
 void WebAppMenuButton::FadeHighlightOff() {
   if (!ShouldEnterHoveredState()) {
-    GetInkDrop()->SetHoverHighlightFadeDuration(
+    views::InkDrop::Get(this)->GetInkDrop()->SetHoverHighlightFadeDuration(
         WebAppToolbarButtonContainer::kOriginFadeOutDuration);
-    GetInkDrop()->SetHovered(false);
-    GetInkDrop()->UseDefaultHoverHighlightFadeDuration();
+    views::InkDrop::Get(this)->GetInkDrop()->SetHovered(false);
+    views::InkDrop::Get(this)
+        ->GetInkDrop()
+        ->UseDefaultHoverHighlightFadeDuration();
   }
 }
 
 BEGIN_METADATA(WebAppMenuButton, AppMenuButton)
-ADD_PROPERTY_METADATA(SkColor, Color, views::metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(SkColor, Color, ui::metadata::SkColorConverter)
 END_METADATA

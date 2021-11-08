@@ -9,11 +9,11 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/safe_ref.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/sample_vector.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "net/base/isolation_info.h"
 #include "net/base/net_export.h"
@@ -176,6 +176,10 @@ class NET_EXPORT_PRIVATE ResolveContext : public base::CheckedObserver {
   // (alternative service info if it supports QUIC, for instance).
   const IsolationInfo& isolation_info() const { return isolation_info_; }
 
+  base::SafeRef<ResolveContext> AsSafeRef() const {
+    return weak_ptr_factory_.GetSafeRef();
+  }
+
  private:
   friend DohDnsServerIterator;
   friend ClassicDnsServerIterator;
@@ -275,6 +279,8 @@ class NET_EXPORT_PRIVATE ResolveContext : public base::CheckedObserver {
   std::vector<ServerStats> doh_server_stats_;
 
   const IsolationInfo isolation_info_;
+
+  base::WeakPtrFactory<ResolveContext> weak_ptr_factory_{this};
 };
 
 }  // namespace net

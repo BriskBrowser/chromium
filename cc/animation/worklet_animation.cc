@@ -23,34 +23,16 @@ WorkletAnimation::WorkletAnimation(
     std::unique_ptr<AnimationOptions> options,
     std::unique_ptr<AnimationEffectTimings> effect_timings,
     bool is_controlling_instance)
-    : WorkletAnimation(cc_animation_id,
-                       worklet_animation_id,
-                       name,
-                       playback_rate,
-                       std::move(options),
-                       std::move(effect_timings),
-                       is_controlling_instance,
-                       nullptr) {}
-
-WorkletAnimation::WorkletAnimation(
-    int cc_animation_id,
-    WorkletAnimationId worklet_animation_id,
-    const std::string& name,
-    double playback_rate,
-    std::unique_ptr<AnimationOptions> options,
-    std::unique_ptr<AnimationEffectTimings> effect_timings,
-    bool is_controlling_instance,
-    std::unique_ptr<KeyframeEffect> effect)
-    : Animation(cc_animation_id, std::move(effect)),
+    : Animation(cc_animation_id),
       worklet_animation_id_(worklet_animation_id),
       name_(name),
       playback_rate_(playback_rate),
       options_(std::move(options)),
       effect_timings_(std::move(effect_timings)),
-      local_time_(base::nullopt),
-      last_synced_local_time_(base::nullopt),
-      start_time_(base::nullopt),
-      last_current_time_(base::nullopt),
+      local_time_(absl::nullopt),
+      last_synced_local_time_(absl::nullopt),
+      start_time_(absl::nullopt),
+      last_current_time_(absl::nullopt),
       has_pending_tree_lock_(false),
       state_(State::PENDING),
       is_impl_instance_(is_controlling_instance) {}
@@ -140,7 +122,7 @@ void WorkletAnimation::UpdateInputState(MutatorInputState* input_state,
   // TODO(https://crbug.com/1011138): Initialize current_time to null if the
   // timeline is inactive. It might be inactive here when state is
   // State::REMOVED.
-  base::Optional<base::TimeDelta> current_time =
+  absl::optional<base::TimeDelta> current_time =
       CurrentTime(monotonic_time, scroll_tree, is_active_tree);
 
   // When the timeline is inactive (only the case with scroll timelines), the
@@ -212,18 +194,18 @@ void WorkletAnimation::UpdatePlaybackRate(double playback_rate) {
   SetNeedsPushProperties();
 }
 
-base::Optional<base::TimeDelta> WorkletAnimation::CurrentTime(
+absl::optional<base::TimeDelta> WorkletAnimation::CurrentTime(
     base::TimeTicks monotonic_time,
     const ScrollTree& scroll_tree,
     bool is_active_tree) {
   DCHECK(IsTimelineActive(scroll_tree, is_active_tree));
   base::TimeTicks timeline_time;
   if (animation_timeline_->IsScrollTimeline()) {
-    base::Optional<base::TimeTicks> scroll_monotonic_time =
+    absl::optional<base::TimeTicks> scroll_monotonic_time =
         ToScrollTimeline(animation_timeline_)
             ->CurrentTime(scroll_tree, is_active_tree);
     if (!scroll_monotonic_time)
-      return base::nullopt;
+      return absl::nullopt;
     timeline_time = scroll_monotonic_time.value();
   } else {
     timeline_time = monotonic_time;
@@ -242,7 +224,7 @@ bool WorkletAnimation::NeedsUpdate(base::TimeTicks monotonic_time,
   if (!IsTimelineActive(scroll_tree, is_active_tree))
     return false;
 
-  base::Optional<base::TimeDelta> current_time =
+  absl::optional<base::TimeDelta> current_time =
       CurrentTime(monotonic_time, scroll_tree, is_active_tree);
   bool needs_update = last_current_time_ != current_time;
   return needs_update;

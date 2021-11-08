@@ -37,7 +37,7 @@ namespace {
 
 constexpr int kAudioDecoderLimit = std::numeric_limits<int>::max();
 constexpr int kVideoDecoderLimit = 1;
-constexpr base::TimeDelta kPowerSaveWaitTime = base::TimeDelta::FromSeconds(5);
+constexpr base::TimeDelta kPowerSaveWaitTime = base::Seconds(5);
 
 }  // namespace
 
@@ -263,6 +263,19 @@ void MediaPipelineBackendManager::SetPowerSaveEnabled(bool power_save_enabled) {
   } else if (!power_save_timer_.IsRunning() &&
              TotalPlayingAudioStreamsCount() == 0) {
     EnterPowerSaveMode();
+  }
+}
+
+void MediaPipelineBackendManager::TemporaryDisablePowerSave() {
+  MAKE_SURE_MEDIA_THREAD(TemporaryDisablePowerSave);
+  int playing_audio_streams = TotalPlayingAudioStreamsCount();
+  if (playing_audio_streams == 0) {
+    if (VolumeControl::SetPowerSaveMode) {
+      LOG(INFO) << "Temporarily disable power save";
+      VolumeControl::SetPowerSaveMode(false);
+      power_save_timer_.Start(FROM_HERE, kPowerSaveWaitTime, this,
+                              &MediaPipelineBackendManager::EnterPowerSaveMode);
+    }
   }
 }
 

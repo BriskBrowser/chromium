@@ -2,14 +2,19 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 import logging
 import os
 import sys
 import time
 
+from devil.android.sdk import version_codes
 from gpu_tests import common_browser_args as cba
 from gpu_tests import gpu_integration_test
 from gpu_tests import path_util
+
+_GPU_PAGE_TIMEOUT = 30
 
 data_path = os.path.join(path_util.GetChromiumSrcDir(), 'content', 'test',
                          'data')
@@ -43,7 +48,8 @@ def _GetBrowserBridgeProperty(tab, path):
   """The GPU WebUI uses JS modules and may not have initialized the global
     browserBridge object by the time we can start injecting JavaScript. This
     ensures we don't have that problem."""
-  tab.WaitForJavaScriptCondition('window.gpuPagePopulated', timeout=10)
+  tab.WaitForJavaScriptCondition('window.gpuPagePopulated',
+                                 timeout=_GPU_PAGE_TIMEOUT)
   return tab.EvaluateJavaScript('browserBridge.' + path)
 
 
@@ -121,7 +127,8 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
              ('GpuProcess_webgl_disabled_extension',
               'gpu/functional_webgl_disabled_extension.html'),
              ('GpuProcess_webgpu_iframe_removed',
-              'gpu/webgpu-iframe-removed.html'))
+              'gpu/webgpu-iframe-removed.html'), ('GpuProcess_visibility',
+                                                  'about:blank'))
 
     for t in tests:
       yield (t[0], t[1], ('_' + t[0]))
@@ -172,8 +179,8 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
       error_message = "is not expected"
 
     if failure:
-      print 'Test failed. Printing page contents:'
-      print tab.EvaluateJavaScript('document.body.innerHTML')
+      print('Test failed. Printing page contents:')
+      print(tab.EvaluateJavaScript('document.body.innerHTML'))
       self.fail('%s %s workarounds: %s' % (workaround_name, error_message,
                                            gpu_driver_bug_workarounds))
 
@@ -276,7 +283,8 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     self.RestartBrowserIfNecessaryWithArgs(
         ['--use_gpu_driver_workaround_for_testing'])
     self._Navigate(test_path)
-    self.tab.WaitForJavaScriptCondition('window.gpuPagePopulated', timeout=10)
+    self.tab.WaitForJavaScriptCondition('window.gpuPagePopulated',
+                                        timeout=_GPU_PAGE_TIMEOUT)
     self._ValidateDriverBugWorkarounds('use_gpu_driver_workaround_for_testing',
                                        None)
 
@@ -332,7 +340,8 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     self.RestartBrowserIfNecessaryWithArgs([])
     self._Navigate(test_path)
     self._VerifyGpuProcessPresent()
-    self.tab.WaitForJavaScriptCondition('window.gpuPagePopulated', timeout=10)
+    self.tab.WaitForJavaScriptCondition('window.gpuPagePopulated',
+                                        timeout=_GPU_PAGE_TIMEOUT)
     recorded_workarounds, recorded_disabled_gl_extensions = (
         self._CompareAndCaptureDriverBugWorkarounds())
     # Relaunch the browser enabling test group 1 with entry 215, where
@@ -345,20 +354,21 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     self.RestartBrowserIfNecessaryWithArgs(additional_args)
     self._Navigate(test_path)
     self._VerifyGpuProcessPresent()
-    self.tab.WaitForJavaScriptCondition('window.gpuPagePopulated', timeout=10)
+    self.tab.WaitForJavaScriptCondition('window.gpuPagePopulated',
+                                        timeout=_GPU_PAGE_TIMEOUT)
     new_workarounds, new_disabled_gl_extensions = (
         self._CompareAndCaptureDriverBugWorkarounds())
     diff = set(recorded_workarounds).symmetric_difference(new_workarounds)
     tab = self.tab
     if len(diff) > 0:
-      print 'Test failed. Printing page contents:'
-      print tab.EvaluateJavaScript('document.body.innerHTML')
+      print('Test failed. Printing page contents:')
+      print(tab.EvaluateJavaScript('document.body.innerHTML'))
       self.fail('GPU process and expected list of driver bug '
                 'workarounds are not equal: %s != %s, diff: %s' %
                 (recorded_workarounds, new_workarounds, list(diff)))
     if recorded_disabled_gl_extensions != new_disabled_gl_extensions:
-      print 'Test failed. Printing page contents:'
-      print tab.EvaluateJavaScript('document.body.innerHTML')
+      print('Test failed. Printing page contents:')
+      print(tab.EvaluateJavaScript('document.body.innerHTML'))
       self.fail('The expected disabled gl extensions are '
                 'incorrect: %s != %s:' % (recorded_disabled_gl_extensions,
                                           new_disabled_gl_extensions))
@@ -374,29 +384,71 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     if not has_gpu_process:
       self.fail('GPU process not detected')
 
+  def _GpuProcess_visibility(self, test_path):
+    os_name = self.browser.platform.GetOSName()
+    if os_name != 'android':
+      logging.info('Skipping test because not running on Android')
+      return
+
+    sdk_version = \
+        self.browser.platform._platform_backend.device.build_version_sdk
+    if sdk_version < version_codes.PIE:
+      logging.info('Skipping test because not running on Android P+')
+      return
+
+    has_gpu_process = self.tab.EvaluateJavaScript(
+        'chrome.gpuBenchmarking.hasGpuProcess()')
+    if not has_gpu_process:
+      logging.info('Skipping test because no out-of-process GPU service')
+      return
+
+    self.RestartBrowserIfNecessaryWithArgs([])
+    self._Navigate(test_path)
+    system_info = self.browser.GetSystemInfo()
+    callback_count = system_info.gpu.aux_attributes[
+        'visibility_callback_call_count']
+    # initial callback count should be 1 since the app became visible
+    if callback_count != 1:
+      self.fail('Visibility callback call count expected 1, got %d' %
+                callback_count)
+
+    self.browser.platform.android_action_runner.TurnScreenOff()
+    self.tab.WaitForJavaScriptCondition('document.visibilityState == "hidden"',
+                                        timeout=_GPU_PAGE_TIMEOUT)
+    system_info = self.browser.GetSystemInfo()
+    callback_count = system_info.gpu.aux_attributes[
+        'visibility_callback_call_count']
+    if callback_count != 2:
+      self.fail('Visibility callback call count expected 2, got %d' %
+                callback_count)
+
+    self.browser.platform.android_action_runner.TurnScreenOn()
+    self.tab.WaitForJavaScriptCondition('document.visibilityState == "visible"',
+                                        timeout=_GPU_PAGE_TIMEOUT)
+    system_info = self.browser.GetSystemInfo()
+    callback_count = system_info.gpu.aux_attributes[
+        'visibility_callback_call_count']
+    if callback_count != 3:
+      self.fail('Visibility callback call count expected 3, got %d' %
+                callback_count)
+
   def _GpuProcess_disable_gpu_and_swiftshader(self, test_path):
-    # Disable SwiftShader, so GPU process should not launch anywhere.
+    # Disable SwiftShader, GPU process should launch for display compositing.
     self.RestartBrowserIfNecessaryWithArgs(
         [cba.DISABLE_GPU, cba.DISABLE_SOFTWARE_RASTERIZER])
     self._NavigateAndWait(test_path)
-
-    # Windows will run the display compositor in the browser process if
-    # accelerated GL and Swiftshader are both disabled.
-    should_have_gpu_process = sys.platform != 'win32'
     has_gpu_process = self.tab.EvaluateJavaScript(
         'chrome.gpuBenchmarking.hasGpuProcess()')
-
-    if should_have_gpu_process and not has_gpu_process:
+    if not has_gpu_process:
       self.fail('GPU process not detected')
-    elif not should_have_gpu_process and has_gpu_process:
-      self.fail('GPU process detected')
 
   def _GpuProcess_disable_swiftshader(self, test_path):
     # Disable SwiftShader, GPU process should be able to launch.
     self.RestartBrowserIfNecessaryWithArgs([cba.DISABLE_SOFTWARE_RASTERIZER])
     self._NavigateAndWait(test_path)
-    if not self.tab.EvaluateJavaScript(
-        'chrome.gpuBenchmarking.hasGpuProcess()'):
+    has_gpu_process = self.tab.EvaluateJavaScript(
+        'chrome.gpuBenchmarking.hasGpuProcess()')
+    if not has_gpu_process:
       self.fail('GPU process not detected')
 
   def _GpuProcess_disabling_workarounds_works(self, test_path):
@@ -406,7 +458,8 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
         '--use_gpu_driver_workaround_for_testing=0'
     ])
     self._Navigate(test_path)
-    self.tab.WaitForJavaScriptCondition('window.gpuPagePopulated', timeout=10)
+    self.tab.WaitForJavaScriptCondition('window.gpuPagePopulated',
+                                        timeout=_GPU_PAGE_TIMEOUT)
     workarounds, _ = (self._CompareAndCaptureDriverBugWorkarounds())
     if 'use_gpu_driver_workaround_for_testing' in workarounds:
       self.fail('use_gpu_driver_workaround_for_testing erroneously present')
@@ -461,7 +514,6 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
           'OES_vertex_array_object',
           'WEBGL_compressed_texture_etc1',
           'WEBGL_debug_renderer_info',
-          'WEBGL_debug_shaders',
           'WEBGL_depth_texture',
           'WEBKIT_WEBGL_depth_texture',
           'WEBGL_draw_buffers',

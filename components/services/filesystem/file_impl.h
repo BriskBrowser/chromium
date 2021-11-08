@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "components/services/filesystem/public/mojom/directory.mojom.h"
+#include "components/services/filesystem/public/mojom/file.mojom.h"
 
 namespace base {
 class FilePath;
@@ -32,6 +33,10 @@ class FileImpl : public mojom::File {
            base::File file,
            scoped_refptr<SharedTempDir> temp_dir,
            scoped_refptr<LockTable> lock_table);
+
+  FileImpl(const FileImpl&) = delete;
+  FileImpl& operator=(const FileImpl&) = delete;
+
   ~FileImpl() override;
 
   // Returns whether the underlying file handle is valid.
@@ -77,8 +82,6 @@ class FileImpl : public mojom::File {
   base::FilePath path_;
   scoped_refptr<SharedTempDir> temp_dir_;
   scoped_refptr<LockTable> lock_table_;
-
-  DISALLOW_COPY_AND_ASSIGN(FileImpl);
 };
 
 }  // namespace filesystem

@@ -71,6 +71,14 @@
           {
             "match": "android.webkit.cts.WebViewTest#testLoadDataWithBaseUrl",
             "_bug_id": "crbug.com/900915"
+          },
+          {
+            "match": "android.webkit.cts.WebViewTest#testFlingScroll",
+            "_bug_id": "crbug.com/1230911"
+          },
+          {
+            "match": "android.webkit.cts.WebSettingsTest#testAppCacheEnabled",
+            "_bug_id": "crbug.com/1246334"
           }
         ]
       },
@@ -156,6 +164,14 @@
           {
             "match": "android.webkit.cts.WebViewTest#testLoadDataWithBaseUrl",
             "_bug_id": "crbug.com/900915"
+          },
+          {
+            "match": "android.webkit.cts.WebViewTest#testFlingScroll",
+            "_bug_id": "crbug.com/1230911"
+          },
+          {
+            "match": "android.webkit.cts.WebSettingsTest#testAppCacheEnabled",
+            "_bug_id": "crbug.com/1246334"
           }
         ]
       },
@@ -184,7 +200,17 @@
     },
     "test_runs": [
       {
-        "apk": "android-cts/testcases/CtsWebkitTestCases.apk"
+        "apk": "android-cts/testcases/CtsWebkitTestCases.apk",
+        "excludes": [
+          {
+            "match": "android.webkit.cts.WebViewTest#testFlingScroll",
+            "_bug_id": "crbug.com/1230911"
+          },
+          {
+            "match": "android.webkit.cts.WebSettingsTest#testAppCacheEnabled",
+            "_bug_id": "crbug.com/1246334"
+          }
+        ]
       },
       {
         "apk": "android-cts/testcases/CtsWidgetTestCases.apk",

@@ -34,6 +34,10 @@
             (CRUUpdateStateObserver* _Nonnull)updateState
                                  reply:(void (^_Nonnull)(int rc))reply;
 
+// Runs periodic updater tasks like checking for uninstalls and background
+// update checks.
+- (void)runPeriodicTasksWithReply:(void (^_Nullable)(void))reply;
+
 // Checks for update of a given app, with specified priority. Sends repeated
 // updates of progress and returns the result in the reply block.
 - (void)checkForUpdateWithAppID:(NSString* _Nonnull)appID
@@ -44,7 +48,7 @@
 // Registers app and returns the result in the reply block.
 - (void)registerForUpdatesWithAppId:(NSString* _Nullable)appId
                           brandCode:(NSString* _Nullable)brandCode
-                                tag:(NSString* _Nullable)tag
+                                tag:(NSString* _Nullable)ap
                             version:(NSString* _Nullable)version
                existenceCheckerPath:(NSString* _Nullable)existenceCheckerPath
                               reply:(void (^_Nonnull)(int rc))reply;

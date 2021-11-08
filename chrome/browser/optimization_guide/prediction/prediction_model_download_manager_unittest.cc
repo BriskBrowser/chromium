@@ -6,11 +6,10 @@
 
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/sequence_checker.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/thread_pool/thread_pool_instance.h"
+#include "base/test/gmock_move_support.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
@@ -24,13 +23,13 @@
 #include "components/services/unzip/content/unzip_service.h"
 #include "components/services/unzip/in_process_unzipper.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/zlib/google/zip.h"
 
 namespace optimization_guide {
 
 using ::testing::_;
 using ::testing::Eq;
-using ::testing::SaveArg;
 
 class TestPredictionModelDownloadObserver
     : public PredictionModelDownloadObserver {
@@ -42,12 +41,12 @@ class TestPredictionModelDownloadObserver
     last_ready_model_ = model;
   }
 
-  base::Optional<proto::PredictionModel> last_ready_model() const {
+  absl::optional<proto::PredictionModel> last_ready_model() const {
     return last_ready_model_;
   }
 
  private:
-  base::Optional<proto::PredictionModel> last_ready_model_;
+  absl::optional<proto::PredictionModel> last_ready_model_;
 };
 
 enum class PredictionModelDownloadFileStatus {
@@ -70,7 +69,7 @@ class PredictionModelDownloadManagerTest : public testing::Test {
     mock_download_service_ =
         std::make_unique<download::test::MockDownloadService>();
     download_manager_ = std::make_unique<PredictionModelDownloadManager>(
-        mock_download_service_.get(), temp_dir_.GetPath(),
+        mock_download_service_.get(),
         task_environment_.GetMainThreadTaskRunner());
 
     unzip::SetUnzipperLaunchOverrideForTesting(
@@ -119,15 +118,7 @@ class PredictionModelDownloadManagerTest : public testing::Test {
     download_manager()->OnDownloadFailed(guid);
   }
 
-  void RunUntilIdle() {
-    task_environment_.RunUntilIdle();
-
-    // Wait for all delayed tasks to finish.
-    base::RunLoop run_loop;
-    base::ThreadPoolInstance::Get()->FlushAsyncForTesting(
-        run_loop.QuitClosure());
-    run_loop.Run();
-  }
+  void RunUntilIdle() { task_environment_.RunUntilIdle(); }
 
   base::FilePath GetFilePathForDownloadFileStatus(
       PredictionModelDownloadFileStatus file_status) {
@@ -258,9 +249,9 @@ TEST_F(PredictionModelDownloadManagerTest, DownloadServiceReadyPersistsGuids) {
   EXPECT_CALL(*download_service(), CancelDownload(Eq("pending3")));
   download_manager()->CancelAllPendingDownloads();
 
-  histogram_tester.ExpectUniqueSample(
-      "OptimizationGuide.PredictionModelDownloadManager.DownloadSucceeded",
-      true, 3);
+  // The successful downloads should not trigger us to do anything with them.
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.PredictionModelDownloadManager.DownloadSucceeded", 0);
 }
 
 TEST_F(PredictionModelDownloadManagerTest, StartDownloadRestrictedDownloading) {
@@ -273,8 +264,8 @@ TEST_F(PredictionModelDownloadManagerTest, StartDownloadRestrictedDownloading) {
       /*disabled_features=*/{});
 
   download::DownloadParams download_params;
-  EXPECT_CALL(*download_service(), StartDownload(_))
-      .WillOnce(SaveArg<0>(&download_params));
+  EXPECT_CALL(*download_service(), StartDownload_(_))
+      .WillOnce(MoveArg<0>(&download_params));
   download_manager()->StartDownload(GURL("someurl"));
 
   // Validate parameters - basically that we attach the correct client, just do
@@ -285,13 +276,14 @@ TEST_F(PredictionModelDownloadManagerTest, StartDownloadRestrictedDownloading) {
   EXPECT_EQ(download_params.request_params.method, "GET");
   EXPECT_TRUE(download_params.request_params.request_headers.HasHeader(
       "X-Goog-Api-Key"));
+  EXPECT_FALSE(download_params.request_params.require_safety_checks);
   EXPECT_EQ(download_params.scheduling_params.priority,
             download::SchedulingParams::Priority::NORMAL);
   EXPECT_EQ(
       download_params.scheduling_params.battery_requirements,
       download::SchedulingParams::BatteryRequirements::BATTERY_INSENSITIVE);
   EXPECT_EQ(download_params.scheduling_params.network_requirements,
-            download::SchedulingParams::NetworkRequirements::OPTIMISTIC);
+            download::SchedulingParams::NetworkRequirements::NONE);
 
   // Now invoke start callback.
   std::move(download_params.callback)
@@ -313,8 +305,8 @@ TEST_F(PredictionModelDownloadManagerTest,
       /*disabled_features=*/{});
 
   download::DownloadParams download_params;
-  EXPECT_CALL(*download_service(), StartDownload(_))
-      .WillOnce(SaveArg<0>(&download_params));
+  EXPECT_CALL(*download_service(), StartDownload_(_))
+      .WillOnce(MoveArg<0>(&download_params));
   download_manager()->StartDownload(GURL("someurl"));
 
   // Validate parameters - basically that we attach the correct client, just do
@@ -325,6 +317,7 @@ TEST_F(PredictionModelDownloadManagerTest,
   EXPECT_EQ(download_params.request_params.method, "GET");
   EXPECT_TRUE(download_params.request_params.request_headers.HasHeader(
       "X-Goog-Api-Key"));
+  EXPECT_FALSE(download_params.request_params.require_safety_checks);
   EXPECT_EQ(download_params.scheduling_params.priority,
             download::SchedulingParams::Priority::HIGH);
   EXPECT_EQ(
@@ -344,8 +337,8 @@ TEST_F(PredictionModelDownloadManagerTest,
 
 TEST_F(PredictionModelDownloadManagerTest, StartDownloadFailedToSchedule) {
   download::DownloadParams download_params;
-  EXPECT_CALL(*download_service(), StartDownload(_))
-      .WillOnce(SaveArg<0>(&download_params));
+  EXPECT_CALL(*download_service(), StartDownload_(_))
+      .WillOnce(MoveArg<0>(&download_params));
   download_manager()->StartDownload(GURL("someurl"));
 
   // Now invoke start callback.
@@ -533,7 +526,13 @@ TEST_F(PredictionModelDownloadManagerTest,
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.PredictionModelDownloadManager."
       "DownloadStatus",
-      PredictionModelDownloadStatus::kFailedModelFileNotFound, 1);
+      PredictionModelDownloadStatus::kFailedModelFileOtherError, 1);
+  // The error code for ReplaceFile varies by platform for this test, only
+  // care that the error code is recorded.
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.PredictionModelDownloadManager.ReplaceFileError."
+      "PainfulPageLoad",
+      1);
 }
 
 TEST_F(
@@ -550,16 +549,23 @@ TEST_F(
       PredictionModelDownloadFileStatus::kVerifiedCrxWithGoodModelFiles);
   RunUntilIdle();
 
-  EXPECT_TRUE(observer.last_ready_model().has_value());
+  ASSERT_TRUE(observer.last_ready_model().has_value());
   EXPECT_EQ(observer.last_ready_model()->model_info().optimization_target(),
             proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD);
   EXPECT_EQ(observer.last_ready_model()->model_info().version(), 123);
-  EXPECT_EQ(
-      GetFilePathFromPredictionModel(observer.last_ready_model().value())
-          .value()
-          .BaseName()
-          .value(),
-      FILE_PATH_LITERAL("OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD_123.tflite"));
+  EXPECT_EQ(StringToFilePath(
+                observer.last_ready_model().value().model().download_url())
+                .value()
+                .DirName()
+                .BaseName()
+                .value(),
+            FILE_PATH_LITERAL("OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD_123"));
+  EXPECT_EQ(StringToFilePath(
+                observer.last_ready_model().value().model().download_url())
+                .value()
+                .BaseName()
+                .value(),
+            FILE_PATH_LITERAL("model.tflite"));
   // Downloaded file should still be deleted.
   EXPECT_TRUE(HasPathBeenDeleted(GetFilePathForDownloadFileStatus(
       PredictionModelDownloadFileStatus::kVerifiedCrxWithGoodModelFiles)));

@@ -5,7 +5,12 @@
 #ifndef COMPONENTS_VIZ_TEST_TEST_FRAME_SINK_MANAGER_H_
 #define COMPONENTS_VIZ_TEST_TEST_FRAME_SINK_MANAGER_H_
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "base/macros.h"
+#include "components/viz/common/surfaces/frame_sink_bundle_id.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -17,6 +22,10 @@ namespace viz {
 class TestFrameSinkManagerImpl : public mojom::FrameSinkManager {
  public:
   TestFrameSinkManagerImpl();
+
+  TestFrameSinkManagerImpl(const TestFrameSinkManagerImpl&) = delete;
+  TestFrameSinkManagerImpl& operator=(const TestFrameSinkManagerImpl&) = delete;
+
   ~TestFrameSinkManagerImpl() override;
 
   void BindReceiver(mojo::PendingReceiver<mojom::FrameSinkManager> receiver,
@@ -31,8 +40,13 @@ class TestFrameSinkManagerImpl : public mojom::FrameSinkManager {
                               const std::string& debug_label) override {}
   void CreateRootCompositorFrameSink(
       mojom::RootCompositorFrameSinkParamsPtr params) override {}
+  void CreateFrameSinkBundle(
+      const FrameSinkBundleId& bundle_id,
+      mojo::PendingReceiver<mojom::FrameSinkBundle> receiver,
+      mojo::PendingRemote<mojom::FrameSinkBundleClient> client) override {}
   void CreateCompositorFrameSink(
       const FrameSinkId& frame_sink_id,
+      const absl::optional<FrameSinkBundleId>& bundle_id,
       mojo::PendingReceiver<mojom::CompositorFrameSink> receiver,
       mojo::PendingRemote<mojom::CompositorFrameSinkClient> client) override {}
   void DestroyCompositorFrameSink(
@@ -62,14 +76,11 @@ class TestFrameSinkManagerImpl : public mojom::FrameSinkManager {
                        EvictBackBufferCallback callback) override {}
   void UpdateDebugRendererSettings(
       const DebugRendererSettings& debug_settings) override {}
-  void StartThrottling(const std::vector<FrameSinkId>& frame_sink_ids,
-                       base::TimeDelta interval) override {}
-  void EndThrottling() override {}
+  void Throttle(const std::vector<FrameSinkId>& ids,
+                base::TimeDelta interval) override {}
 
   mojo::Receiver<mojom::FrameSinkManager> receiver_{this};
   mojo::Remote<mojom::FrameSinkManagerClient> client_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestFrameSinkManagerImpl);
 };
 
 }  // namespace viz

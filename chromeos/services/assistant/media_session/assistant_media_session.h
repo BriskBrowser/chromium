@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/timer/timer.h"
 #include "base/unguessable_token.h"
 #include "chromeos/services/libassistant/public/mojom/media_controller.mojom-forward.h"
@@ -28,6 +28,10 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) AssistantMediaSession
     : public media_session::mojom::MediaSession {
  public:
   explicit AssistantMediaSession(MediaHost* host);
+
+  AssistantMediaSession(const AssistantMediaSession&) = delete;
+  AssistantMediaSession& operator=(const AssistantMediaSession&) = delete;
+
   ~AssistantMediaSession() override;
 
   // media_session.mojom.MediaSession overrides:
@@ -53,14 +57,19 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) AssistantMediaSession
   void ScrubTo(base::TimeDelta seek_time) override {}
   void EnterPictureInPicture() override {}
   void ExitPictureInPicture() override {}
-  void SetAudioSinkId(const base::Optional<std::string>& sink_id) override {}
+  void SetAudioSinkId(const absl::optional<std::string>& sink_id) override {}
+  void ToggleMicrophone() override {}
+  void ToggleCamera() override {}
+  void HangUp() override {}
+  void Raise() override {}
+  void SetMute(bool mute) override {}
 
   // Requests/abandons audio focus to the AudioFocusManager.
   void RequestAudioFocus(media_session::mojom::AudioFocusType audio_focus_type);
   void AbandonAudioFocusIfNeeded();
 
   void NotifyMediaSessionMetadataChanged(
-      const libassistant::mojom::MediaState& status);
+      const chromeos::libassistant::mojom::MediaState& status);
 
   base::WeakPtr<AssistantMediaSession> GetWeakPtr();
 
@@ -126,8 +135,6 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) AssistantMediaSession
       base::UnguessableToken::Null();
 
   base::WeakPtrFactory<AssistantMediaSession> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantMediaSession);
 };
 
 }  // namespace assistant

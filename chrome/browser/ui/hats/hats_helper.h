@@ -20,6 +20,9 @@ class Profile;
 class HatsHelper : public content::WebContentsObserver,
                    public content::WebContentsUserData<HatsHelper> {
  public:
+  HatsHelper(const HatsHelper&) = delete;
+  HatsHelper& operator=(const HatsHelper&) = delete;
+
   ~HatsHelper() override;
 
  private:
@@ -28,14 +31,12 @@ class HatsHelper : public content::WebContentsObserver,
   explicit HatsHelper(content::WebContents* web_contents);
 
   // contents::WebContentsObserver:
-  void DidFinishLoad(content::RenderFrameHost* render_frame_host,
-                     const GURL& validated_url) override;
+  void DidFinishNavigation(
+      content::NavigationHandle* navigation_handle) override;
 
   Profile* profile() const;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(HatsHelper);
 };
 
 #endif  // CHROME_BROWSER_UI_HATS_HATS_HELPER_H_

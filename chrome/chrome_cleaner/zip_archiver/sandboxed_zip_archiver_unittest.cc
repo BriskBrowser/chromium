@@ -10,8 +10,8 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/strcat.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/multiprocess_test.h"
 #include "base/test/task_environment.h"
 #include "base/win/scoped_handle.h"
@@ -115,6 +115,10 @@ class ArgumentVerifyingFakeArchiver : public mojom::ZipArchiver {
         [] { FAIL() << "ZipArchiver sandbox connection error"; }));
   }
 
+  ArgumentVerifyingFakeArchiver(const ArgumentVerifyingFakeArchiver&) = delete;
+  ArgumentVerifyingFakeArchiver& operator=(
+      const ArgumentVerifyingFakeArchiver&) = delete;
+
   ~ArgumentVerifyingFakeArchiver() override = default;
 
   void Archive(mojo::PlatformHandle src_file_handle,
@@ -173,8 +177,6 @@ class ArgumentVerifyingFakeArchiver : public mojom::ZipArchiver {
   }
 
   mojo::Receiver<mojom::ZipArchiver> receiver_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArgumentVerifyingFakeArchiver);
 };
 
 }  // namespace

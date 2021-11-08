@@ -12,22 +12,10 @@
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 namespace {
 
-constexpr char kNetworkTrafficAnnotationProto[] = R"(
-    semantics {
-      sender: "Trial Group Lookup"
-      description:
-        "Obtains whether user is in the Google group for a dogfood trial."
-      trigger: "On boot."
-      data: "Dogfood enum identifier and credentials."
-      destination: GOOGLE_OWNED_SERVICE
-    }
-    policy {
-      cookies_allowed: NO
-    }
-)";
 constexpr int kIsMember = 1;
 constexpr char kServerUrl[] =
     "https://crosdogpack-pa.googleapis.com/v1/isMember";
@@ -100,7 +88,19 @@ TrialGroupChecker::Status TrialGroupChecker::LookUpMembership(
 
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("trial_group_lookup",
-                                          kNetworkTrafficAnnotationProto);
+                                          R"(
+          semantics {
+            sender: "Trial Group Lookup"
+            description:
+              "Obtains whether user is in the Google group for a dogfood trial."
+            trigger: "On boot."
+            data: "Dogfood enum identifier and credentials."
+            destination: GOOGLE_OWNED_SERVICE
+          }
+          policy {
+            cookies_allowed: NO
+          }
+      )");
 
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = server_url_;

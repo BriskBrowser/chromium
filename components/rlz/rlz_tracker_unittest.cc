@@ -6,9 +6,9 @@
 
 #include <memory>
 
+#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -41,6 +41,9 @@ class TestRLZTrackerDelegate : public RLZTrackerDelegate {
   TestRLZTrackerDelegate()
       : request_context_getter_(new net::TestURLRequestContextGetter(
             base::ThreadTaskRunnerHandle::Get())) {}
+
+  TestRLZTrackerDelegate(const TestRLZTrackerDelegate&) = delete;
+  TestRLZTrackerDelegate& operator=(const TestRLZTrackerDelegate&) = delete;
 
   void set_brand(const char* brand) { brand_override_ = brand; }
 
@@ -89,9 +92,9 @@ class TestRLZTrackerDelegate : public RLZTrackerDelegate {
 
   bool ShouldEnableZeroDelayForTesting() override { return true; }
 
-  bool GetLanguage(base::string16* language) override { return true; }
+  bool GetLanguage(std::u16string* language) override { return true; }
 
-  bool GetReferral(base::string16* referral) override { return true; }
+  bool GetReferral(std::u16string* referral) override { return true; }
 
   bool ClearReferral() override { return true; }
 
@@ -115,8 +118,6 @@ class TestRLZTrackerDelegate : public RLZTrackerDelegate {
   std::string reactivation_brand_override_;
   base::OnceClosure on_omnibox_search_callback_;
   base::OnceClosure on_homepage_search_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestRLZTrackerDelegate);
 };
 
 // Dummy RLZ string for the access points.
@@ -174,6 +175,9 @@ class TestRLZTracker : public RLZTracker {
 
   TestRLZTracker() : assume_not_ui_thread_(true) { set_tracker(this); }
 
+  TestRLZTracker(const TestRLZTracker&) = delete;
+  TestRLZTracker& operator=(const TestRLZTracker&) = delete;
+
   ~TestRLZTracker() override { set_tracker(nullptr); }
 
   bool was_ping_sent_for_brand(const std::string& brand) const {
@@ -213,8 +217,8 @@ class TestRLZTracker : public RLZTracker {
 #endif
 
   bool SendFinancialPing(const std::string& brand,
-                         const base::string16& lang,
-                         const base::string16& referral) override {
+                         const std::u16string& lang,
+                         const std::u16string& referral) override {
     // Don't ping the server during tests, just pretend as if we did.
     EXPECT_FALSE(brand.empty());
     pinged_brands_.insert(brand);
@@ -234,8 +238,6 @@ class TestRLZTracker : public RLZTracker {
 
   std::set<std::string> pinged_brands_;
   bool assume_not_ui_thread_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestRLZTracker);
 };
 
 class RlzLibTest : public testing::Test {
@@ -271,7 +273,7 @@ void RlzLibTest::SetUp() {
   m_rlz_test_helper_.SetUp();
 
   delegate_ = new TestRLZTrackerDelegate;
-  tracker_.reset(new TestRLZTracker());
+  tracker_ = std::make_unique<TestRLZTracker>();
   RLZTracker::SetRlzDelegate(base::WrapUnique(delegate_));
 
   // Make sure a non-organic brand code is set in the registry or the RLZTracker
@@ -409,7 +411,7 @@ const char kOmniboxFirstSearchPhone[] = "CDF";
 const char kOmniboxInstallTablet[] = "C9I";
 const char kOmniboxSetToGoogleTablet[] = "C9S";
 const char kOmniboxFirstSearchTablet[] = "C9F";
-#elif defined(OS_APPLE)
+#elif defined(OS_MAC)
 const char kOmniboxInstall[] = "C5I";
 const char kOmniboxSetToGoogle[] = "C5S";
 const char kOmniboxFirstSearch[] = "C5F";
@@ -465,7 +467,7 @@ const char* OmniboxFirstSearch() {
 #endif
 }
 
-const base::TimeDelta kDelay = base::TimeDelta::FromMilliseconds(20);
+const base::TimeDelta kDelay = base::Milliseconds(20);
 
 TEST_F(RlzLibTest, RecordProductEvent) {
   RLZTracker::RecordProductEvent(rlz_lib::CHROME, RLZTracker::ChromeOmnibox(),
@@ -875,7 +877,7 @@ TEST_F(RlzLibTest, GetAccessPointRlzOnIoThread) {
   // Set dummy RLZ string.
   rlz_lib::SetAccessPointRlz(RLZTracker::ChromeOmnibox(), kOmniboxRlzString);
 
-  base::string16 rlz;
+  std::u16string rlz;
 
   tracker_->set_assume_not_ui_thread(true);
   EXPECT_TRUE(RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
@@ -886,7 +888,7 @@ TEST_F(RlzLibTest, GetAccessPointRlzNotOnIoThread) {
   // Set dummy RLZ string.
   rlz_lib::SetAccessPointRlz(RLZTracker::ChromeOmnibox(), kOmniboxRlzString);
 
-  base::string16 rlz;
+  std::u16string rlz;
 
   tracker_->set_assume_not_ui_thread(false);
   EXPECT_FALSE(
@@ -897,7 +899,7 @@ TEST_F(RlzLibTest, GetAccessPointRlzIsCached) {
   // Set dummy RLZ string.
   rlz_lib::SetAccessPointRlz(RLZTracker::ChromeOmnibox(), kOmniboxRlzString);
 
-  base::string16 rlz;
+  std::u16string rlz;
 
   tracker_->set_assume_not_ui_thread(false);
   EXPECT_FALSE(
@@ -923,7 +925,7 @@ TEST_F(RlzLibTest, PingUpdatesRlzCache) {
   rlz_lib::SetAccessPointRlz(RLZTracker::ChromeAppList(), kAppListRlzString);
 #endif  // !defined(OS_IOS)
 
-  base::string16 rlz;
+  std::u16string rlz;
 
   // Prime the cache.
   tracker_->set_assume_not_ui_thread(true);

@@ -41,6 +41,10 @@ class AXObjectCacheImpl;
 class AXImageMapLink final : public AXNodeObject {
  public:
   explicit AXImageMapLink(HTMLAreaElement*, AXObjectCacheImpl&);
+
+  AXImageMapLink(const AXImageMapLink&) = delete;
+  AXImageMapLink& operator=(const AXImageMapLink&) = delete;
+
   ~AXImageMapLink() override;
   void Trace(Visitor*) const override;
 
@@ -50,7 +54,7 @@ class AXImageMapLink final : public AXNodeObject {
 
   HTMLMapElement* MapElement() const;
 
-  ax::mojom::blink::Role DetermineAccessibilityRole() override;
+  ax::mojom::blink::Role NativeRoleIgnoringAria() const override;
   bool ComputeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
   bool CanHaveChildren() const override {
     // If the area has child nodes, those will be rendered, and the combination
@@ -63,16 +67,15 @@ class AXImageMapLink final : public AXNodeObject {
   Element* ActionElement() const override;
   KURL Url() const override;
   bool IsLinked() const override { return true; }
-  AXObject* ComputeParentImpl() const override;
+  // For an <area>, return an <img> that should be used as its parent, or null.
+  static AXObject* GetAXObjectForImageMap(AXObjectCacheImpl& cache, Node* area);
   void GetRelativeBounds(AXObject** out_container,
                          FloatRect& out_bounds_in_container,
-                         SkMatrix44& out_container_transform,
+                         skia::Matrix44& out_container_transform,
                          bool* clips_children = nullptr) const override;
 
  private:
   bool IsImageMapLink() const override;
-
-  DISALLOW_COPY_AND_ASSIGN(AXImageMapLink);
 };
 
 template <>

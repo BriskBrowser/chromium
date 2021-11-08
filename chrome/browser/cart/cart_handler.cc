@@ -3,8 +3,11 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/cart/cart_handler.h"
+
+#include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "chrome/browser/cart/cart_db_content.pb.h"
+#include "chrome/browser/cart/cart_features.h"
 #include "chrome/browser/cart/cart_service.h"
 #include "chrome/browser/cart/cart_service_factory.h"
 #include "components/search/ntp_features.h"
@@ -40,14 +43,6 @@ void CartHandler::RestoreHiddenCartModule() {
   cart_service_->RestoreHidden();
 }
 
-void CartHandler::RemoveCartModule() {
-  cart_service_->Remove();
-}
-
-void CartHandler::RestoreRemovedCartModule() {
-  cart_service_->RestoreRemoved();
-}
-
 void CartHandler::HideCart(const GURL& cart_url, HideCartCallback callback) {
   cart_service_->HideCart(cart_url, std::move(callback));
 }
@@ -71,34 +66,69 @@ void CartHandler::GetCartDataCallback(GetMerchantCartsCallback callback,
                                       bool success,
                                       std::vector<CartDB::KeyAndValue> res) {
   std::vector<chrome_cart::mojom::MerchantCartPtr> carts;
+  bool show_discount = cart_service_->IsCartDiscountEnabled();
   for (CartDB::KeyAndValue proto_pair : res) {
     auto cart = chrome_cart::mojom::MerchantCart::New();
     cart->merchant = std::move(proto_pair.second.merchant());
-    cart->cart_url = GURL(std::move(proto_pair.second.merchant_cart_url()));
+
+    if (cart_features::IsRuleDiscountPartnerMerchant(
+            GURL(proto_pair.second.merchant_cart_url()))) {
+      cart->cart_url = CartService::AppendUTM(
+          GURL(std::move(proto_pair.second.merchant_cart_url())),
+          show_discount);
+    } else {
+      cart->cart_url = GURL(std::move(proto_pair.second.merchant_cart_url()));
+    }
+
     std::vector<std::string> image_urls;
     // Not show product images when showing welcome surface.
-    if (!cart_service_->ShouldShowWelcomSurface()) {
+    if (!cart_service_->ShouldShowWelcomeSurface()) {
       for (std::string image_url : proto_pair.second.product_image_urls()) {
         cart->product_image_urls.emplace_back(std::move(image_url));
+      }
+      if (show_discount &&
+          (proto_pair.second.discount_info().rule_discount_info_size() > 0 ||
+           proto_pair.second.discount_info().has_coupons())) {
+        cart->discount_text =
+            std::move(proto_pair.second.discount_info().discount_text());
       }
     }
     carts.push_back(std::move(cart));
   }
+  if (carts.size() > 0) {
+    cart_service_->IncreaseWelcomeSurfaceCounter();
+  }
   std::move(callback).Run(std::move(carts));
-  cart_service_->IncreaseWelcomeSurfaceCounter();
 }
 
 void CartHandler::GetWarmWelcomeVisible(
     GetWarmWelcomeVisibleCallback callback) {
-  std::move(callback).Run(cart_service_->ShouldShowWelcomSurface());
+  std::move(callback).Run(cart_service_->ShouldShowWelcomeSurface());
 }
 
-// TODO(crbug.com/1174281): Below metrics collection can be moved to JS to avoid
-// cross-process calls.
-void CartHandler::OnCartItemClicked(uint32_t index) {
-  base::UmaHistogramCounts100("NewTabPage.Carts.ClickCart", index);
+void CartHandler::GetDiscountURL(const GURL& cart_url,
+                                 GetDiscountURLCallback callback) {
+  cart_service_->GetDiscountURL(cart_url, std::move(callback));
 }
 
-void CartHandler::OnModuleCreated(uint32_t count) {
-  base::UmaHistogramCounts100("NewTabPage.Carts.CartCount", count);
+void CartHandler::GetDiscountConsentCardVisible(
+    GetDiscountConsentCardVisibleCallback callback) {
+  cart_service_->ShouldShowDiscountConsent(std::move(callback));
+}
+
+void CartHandler::OnDiscountConsentAcknowledged(bool accept) {
+  cart_service_->AcknowledgeDiscountConsent(accept);
+}
+
+void CartHandler::GetDiscountEnabled(GetDiscountEnabledCallback callback) {
+  std::move(callback).Run(cart_service_->IsCartDiscountEnabled());
+}
+
+void CartHandler::SetDiscountEnabled(bool enabled) {
+  cart_service_->SetCartDiscountEnabled(enabled);
+}
+
+void CartHandler::PrepareForNavigation(const GURL& cart_url,
+                                       bool is_navigating) {
+  cart_service_->PrepareForNavigation(cart_url, is_navigating);
 }

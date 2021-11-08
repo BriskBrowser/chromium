@@ -14,7 +14,7 @@
 #include "chrome/browser/ui/views/accessibility/non_accessible_image_view.h"
 #include "chrome/browser/ui/views/bubble_anchor_util_views.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
-#include "chrome/browser/ui/views/page_info/page_info_bubble_view.h"
+#include "chrome/browser/ui/views/page_info/page_info_view_factory.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/security_state/core/security_state.h"
 #include "components/strings/grit/components_strings.h"
@@ -43,6 +43,7 @@ int GetSafetyTipBannerId(security_state::SafetyTipStatus safety_tip_status,
                      : IDR_SAFETY_TIP_ILLUSTRATION_LIGHT;
     case security_state::SafetyTipStatus::kBadReputationIgnored:
     case security_state::SafetyTipStatus::kLookalikeIgnored:
+    case security_state::SafetyTipStatus::kDigitalAssetLinkMatch:
     case security_state::SafetyTipStatus::kBadKeyword:
     case security_state::SafetyTipStatus::kUnknown:
     case security_state::SafetyTipStatus::kNone:
@@ -73,7 +74,7 @@ SafetyTipPageInfoBubbleView::SafetyTipPageInfoBubbleView(
   // created over it, etc).
   set_close_on_deactivate(false);
 
-  const base::string16 title_text =
+  const std::u16string title_text =
       GetSafetyTipTitle(safety_tip_status, suggested_url);
   SetTitle(title_text);
 
@@ -99,8 +100,8 @@ SafetyTipPageInfoBubbleView::SafetyTipPageInfoBubbleView(
 
   ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
 
-  gfx::Insets insets =
-      layout_provider->GetDialogInsetsForContentType(views::TEXT, views::TEXT);
+  gfx::Insets insets = layout_provider->GetDialogInsetsForContentType(
+      views::DialogContentType::kText, views::DialogContentType::kText);
   set_margins(gfx::Insets(0, 0, insets.bottom(), 0));
 
   // Configure layout.
@@ -186,7 +187,8 @@ void SafetyTipPageInfoBubbleView::OnWidgetDestroying(views::Widget* widget) {
       action_taken_ = SafetyTipInteraction::kDismissWithClose;
       break;
     case views::Widget::ClosedReason::kCancelButtonClicked:
-      NOTREACHED();
+      // I don't know why, but ESC sometimes generates kCancelButtonClicked.
+      action_taken_ = SafetyTipInteraction::kDismissWithEsc;
       break;
   }
   std::move(close_callback_).Run(action_taken_);
@@ -236,14 +238,9 @@ void SafetyTipPageInfoBubbleView::OnVisibilityChanged(
   GetWidget()->CloseWithReason(views::Widget::ClosedReason::kUnspecified);
 }
 
-void SafetyTipPageInfoBubbleView::DidStartNavigation(
-    content::NavigationHandle* handle) {
-  if (!handle->IsInMainFrame() || handle->IsSameDocument()) {
-    return;
-  }
-
+void SafetyTipPageInfoBubbleView::PrimaryPageChanged(content::Page& page) {
   if (action_taken_ == SafetyTipInteraction::kNoAction) {
-    action_taken_ = SafetyTipInteraction::kStartNewNavigation;
+    action_taken_ = SafetyTipInteraction::kChangePrimaryPage;
   }
 
   // There's no great ClosedReason for this, so we use kUnspecified to signal
@@ -305,7 +302,7 @@ void SafetyTipPageInfoBubbleView::MaybeAddButtons(
           this),
       l10n_util::GetStringUTF16(GetSafetyTipLeaveButtonId(safety_tip_status)));
   leave_button->SetProminent(true);
-  leave_button->SetID(PageInfoBubbleView::VIEW_ID_PAGE_INFO_BUTTON_LEAVE_SITE);
+  leave_button->SetID(PageInfoViewFactory::VIEW_ID_PAGE_INFO_BUTTON_LEAVE_SITE);
   leave_button_ = button_layout->AddView(std::move(leave_button));
 
   bottom_layout->StartRowWithPadding(views::GridLayout::kFixedSize, column_id,

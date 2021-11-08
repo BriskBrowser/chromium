@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_RENDERER_CONTEXT_MENU_SPELLING_OPTIONS_SUBMENU_OBSERVER_H_
 
 #include <cstddef>
-#include <string>
 #include <vector>
 
 #include "base/macros.h"
@@ -24,6 +23,12 @@ class SpellingOptionsSubMenuObserver : public RenderViewContextMenuObserver {
   SpellingOptionsSubMenuObserver(RenderViewContextMenuProxy* proxy,
                                  ui::SimpleMenuModel::Delegate* delegate,
                                  int group_id);
+
+  SpellingOptionsSubMenuObserver(const SpellingOptionsSubMenuObserver&) =
+      delete;
+  SpellingOptionsSubMenuObserver& operator=(
+      const SpellingOptionsSubMenuObserver&) = delete;
+
   ~SpellingOptionsSubMenuObserver() override;
 
   // RenderViewContextMenuObserver implementation.
@@ -52,8 +57,6 @@ class SpellingOptionsSubMenuObserver : public RenderViewContextMenuObserver {
 
   // Flag indicating whether the server-powered spellcheck service is enabled.
   BooleanPrefMember use_spelling_service_;
-
-  DISALLOW_COPY_AND_ASSIGN(SpellingOptionsSubMenuObserver);
 };
 
 #endif  // CHROME_BROWSER_RENDERER_CONTEXT_MENU_SPELLING_OPTIONS_SUBMENU_OBSERVER_H_

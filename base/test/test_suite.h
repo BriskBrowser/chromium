@@ -10,7 +10,6 @@
 // any gtest based tests that are linked into your executable.
 
 #include <memory>
-#include <string>
 
 #include "base/at_exit.h"
 #include "base/check.h"
@@ -46,6 +45,10 @@ class TestSuite {
 #if defined(OS_WIN)
   TestSuite(int argc, wchar_t** argv);
 #endif  // defined(OS_WIN)
+
+  TestSuite(const TestSuite&) = delete;
+  TestSuite& operator=(const TestSuite&) = delete;
+
   virtual ~TestSuite();
 
   int Run();
@@ -103,8 +106,6 @@ class TestSuite {
   bool check_for_leaked_globals_ = true;
   bool check_for_thread_and_process_priority_ = true;
   bool is_initialized_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(TestSuite);
 };
 
 }  // namespace base

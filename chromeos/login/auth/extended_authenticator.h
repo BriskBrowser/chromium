@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
+#include "chromeos/dbus/cryptohome/UserDataAuth.pb.h"
 
 namespace chromeos {
 
@@ -42,6 +43,9 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) ExtendedAuthenticator
   static scoped_refptr<ExtendedAuthenticator> Create(
       AuthStatusConsumer* consumer);
 
+  ExtendedAuthenticator(const ExtendedAuthenticator&) = delete;
+  ExtendedAuthenticator& operator=(const ExtendedAuthenticator&) = delete;
+
   // Updates consumer of the class.
   virtual void SetConsumer(AuthStatusConsumer* consumer) = 0;
 
@@ -67,7 +71,8 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) ExtendedAuthenticator
   // actions are taken after authentication.
   virtual void AuthenticateWithFingerprint(
       const UserContext& context,
-      base::OnceCallback<void(cryptohome::CryptohomeErrorCode)> callback) = 0;
+      base::OnceCallback<void(user_data_auth::CryptohomeErrorCode)>
+          callback) = 0;
 
   // Attempts to add a new |key| for the user identified/authorized by
   // |context|. If a key with the same label already exists, the behavior
@@ -98,10 +103,14 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) ExtendedAuthenticator
 
  private:
   friend class base::RefCountedThreadSafe<ExtendedAuthenticator>;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtendedAuthenticator);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::ExtendedAuthenticator;
+}
 
 #endif  // CHROMEOS_LOGIN_AUTH_EXTENDED_AUTHENTICATOR_H_

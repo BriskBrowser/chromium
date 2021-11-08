@@ -5,54 +5,112 @@
 #include "components/sync/engine/cycle/data_type_tracker.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
 #include "base/check.h"
 #include "base/notreached.h"
+#include "components/sync/engine/polling_constants.h"
+#include "components/sync/protocol/data_type_progress_marker.pb.h"
 
 namespace syncer {
 
 namespace {
 
-#define ENUM_CASE(x) \
-  case x:            \
-    return #x;       \
-    break;
+// Possible nudge delays for local changes.
+constexpr base::TimeDelta kMinLocalChangeNudgeDelay = base::Milliseconds(50);
+constexpr base::TimeDelta kMediumLocalChangeNudgeDelay =
+    base::Milliseconds(200);
+constexpr base::TimeDelta kBigLocalChangeNudgeDelay = base::Milliseconds(2000);
+constexpr base::TimeDelta kVeryBigLocalChangeNudgeDelay = kDefaultPollInterval;
+
+constexpr base::TimeDelta kDefaultLocalChangeNudgeDelayForSessions =
+    base::Seconds(11);
+
+const size_t kDefaultMaxPayloadsPerType = 10;
+
+base::TimeDelta GetDefaultLocalChangeNudgeDelay(ModelType model_type) {
+  switch (model_type) {
+    case AUTOFILL:
+    case USER_EVENTS:
+      // Accompany types rely on nudges from other types, and hence have long
+      // nudge delays.
+      return kVeryBigLocalChangeNudgeDelay;
+    case SESSIONS:
+      // Sessions is the type that causes the most commit traffic. It gets a
+      // custom nudge delay, tuned for a reasonable trade-off between traffic
+      // and freshness.
+      return kDefaultLocalChangeNudgeDelayForSessions;
+    case BOOKMARKS:
+    case PREFERENCES:
+      // Types with sometimes automatic changes get longer delays to allow more
+      // coalescing.
+      return kBigLocalChangeNudgeDelay;
+    case SHARING_MESSAGE:
+      // Sharing messages are time-sensitive, so use a small nudge delay.
+      return kMinLocalChangeNudgeDelay;
+    case PASSWORDS:
+    case AUTOFILL_PROFILE:
+    case AUTOFILL_WALLET_DATA:
+    case AUTOFILL_WALLET_METADATA:
+    case AUTOFILL_WALLET_OFFER:
+    case THEMES:
+    case TYPED_URLS:
+    case EXTENSIONS:
+    case SEARCH_ENGINES:
+    case APPS:
+    case APP_SETTINGS:
+    case EXTENSION_SETTINGS:
+    case HISTORY_DELETE_DIRECTIVES:
+    case DICTIONARY:
+    case DEVICE_INFO:
+    case PRIORITY_PREFERENCES:
+    case SUPERVISED_USER_SETTINGS:
+    case APP_LIST:
+    case ARC_PACKAGE:
+    case PRINTERS:
+    case READING_LIST:
+    case USER_CONSENTS:
+    case SEND_TAB_TO_SELF:
+    case SECURITY_EVENTS:
+    case WIFI_CONFIGURATIONS:
+    case WEB_APPS:
+    case OS_PREFERENCES:
+    case OS_PRIORITY_PREFERENCES:
+    case WORKSPACE_DESK:
+    case NIGORI:
+    case PROXY_TABS:
+      return kMediumLocalChangeNudgeDelay;
+    case UNSPECIFIED:
+      NOTREACHED();
+      return base::TimeDelta();
+  }
+}
 
 }  // namespace
 
-WaitInterval::WaitInterval() : mode(UNKNOWN) {}
+WaitInterval::WaitInterval() : mode(BlockingMode::kUnknown) {}
 
 WaitInterval::WaitInterval(BlockingMode mode, base::TimeDelta length)
     : mode(mode), length(length) {}
 
-WaitInterval::~WaitInterval() {}
+WaitInterval::~WaitInterval() = default;
 
-const char* WaitInterval::GetModeString(BlockingMode mode) {
-  switch (mode) {
-    ENUM_CASE(UNKNOWN);
-    ENUM_CASE(EXPONENTIAL_BACKOFF);
-    ENUM_CASE(THROTTLED);
-    ENUM_CASE(EXPONENTIAL_BACKOFF_RETRYING);
-  }
-  NOTREACHED();
-  return "";
-}
-
-#undef ENUM_CASE
-
-DataTypeTracker::DataTypeTracker(size_t initial_payload_buffer_size)
+DataTypeTracker::DataTypeTracker(ModelType type)
     : local_nudge_count_(0),
       local_refresh_request_count_(0),
-      payload_buffer_size_(initial_payload_buffer_size),
+      payload_buffer_size_(kDefaultMaxPayloadsPerType),
       initial_sync_required_(false),
-      sync_required_to_resolve_conflict_(false) {}
+      sync_required_to_resolve_conflict_(false),
+      local_change_nudge_delay_(GetDefaultLocalChangeNudgeDelay(type)) {
+  // Sanity check the hardcode value for kMinLocalChangeNudgeDelay.
+  DCHECK_GE(local_change_nudge_delay_, kMinLocalChangeNudgeDelay);
+}
 
-DataTypeTracker::~DataTypeTracker() {}
+DataTypeTracker::~DataTypeTracker() = default;
 
-base::TimeDelta DataTypeTracker::RecordLocalChange() {
+void DataTypeTracker::RecordLocalChange() {
   local_nudge_count_++;
-  return nudge_delay_;
 }
 
 void DataTypeTracker::RecordLocalRefreshRequest() {
@@ -67,7 +125,7 @@ void DataTypeTracker::RecordRemoteInvalidation(
   //
   // We won't use STL algorithms here because our concept of equality doesn't
   // quite fit the expectations of set_intersection.  In particular, two
-  // invalidations can be equal according to the SingleObjectInvalidationSet's
+  // invalidations can be equal according to the SingleTopicInvalidationSet's
   // rules (ie. have equal versions), but still have different AckHandle values
   // and need to be acknowledged separately.
   //
@@ -142,9 +200,9 @@ void DataTypeTracker::RecordSuccessfulSyncCycle() {
   // crash before writing all our state, we should wait until the results of
   // this sync cycle have been written to disk before updating the invalidations
   // state.  See crbug.com/324996.
-  for (auto it = pending_invalidations_.begin();
-       it != pending_invalidations_.end(); ++it) {
-    (*it)->Acknowledge();
+  for (const std::unique_ptr<InvalidationInterface>& pending_invalidation :
+       pending_invalidations_) {
+    pending_invalidation->Acknowledge();
   }
   pending_invalidations_.clear();
 
@@ -235,10 +293,10 @@ void DataTypeTracker::FillGetUpdatesTriggersMessage(
   // Fill the list of payloads, if applicable.  The payloads must be ordered
   // oldest to newest, so we insert them in the same order as we've been storing
   // them internally.
-  for (auto it = pending_invalidations_.begin();
-       it != pending_invalidations_.end(); ++it) {
-    if (!(*it)->IsUnknownVersion()) {
-      msg->add_notification_hint((*it)->GetPayload());
+  for (const std::unique_ptr<InvalidationInterface>& pending_invalidation :
+       pending_invalidations_) {
+    if (!pending_invalidation->IsUnknownVersion()) {
+      msg->add_notification_hint(pending_invalidation->GetPayload());
     }
   }
 
@@ -255,20 +313,21 @@ void DataTypeTracker::FillGetUpdatesTriggersMessage(
 
 bool DataTypeTracker::IsBlocked() const {
   return wait_interval_.get() &&
-         (wait_interval_->mode == WaitInterval::THROTTLED ||
-          wait_interval_->mode == WaitInterval::EXPONENTIAL_BACKOFF);
+         (wait_interval_->mode == WaitInterval::BlockingMode::kThrottled ||
+          wait_interval_->mode ==
+              WaitInterval::BlockingMode::kExponentialBackoff);
 }
 
 base::TimeDelta DataTypeTracker::GetTimeUntilUnblock() const {
   DCHECK(IsBlocked());
-  return std::max(base::TimeDelta::FromSeconds(0),
-                  unblock_time_ - base::TimeTicks::Now());
+  return std::max(base::Seconds(0), unblock_time_ - base::TimeTicks::Now());
 }
 
 base::TimeDelta DataTypeTracker::GetLastBackoffInterval() const {
-  if (GetBlockingMode() != WaitInterval::EXPONENTIAL_BACKOFF_RETRYING) {
+  if (GetBlockingMode() !=
+      WaitInterval::BlockingMode::kExponentialBackoffRetrying) {
     NOTREACHED();
-    return base::TimeDelta::FromSeconds(0);
+    return base::Seconds(0);
   }
   return wait_interval_->length;
 }
@@ -276,23 +335,26 @@ base::TimeDelta DataTypeTracker::GetLastBackoffInterval() const {
 void DataTypeTracker::ThrottleType(base::TimeDelta duration,
                                    base::TimeTicks now) {
   unblock_time_ = std::max(unblock_time_, now + duration);
-  wait_interval_ =
-      std::make_unique<WaitInterval>(WaitInterval::THROTTLED, duration);
+  wait_interval_ = std::make_unique<WaitInterval>(
+      WaitInterval::BlockingMode::kThrottled, duration);
 }
 
 void DataTypeTracker::BackOffType(base::TimeDelta duration,
                                   base::TimeTicks now) {
   unblock_time_ = std::max(unblock_time_, now + duration);
   wait_interval_ = std::make_unique<WaitInterval>(
-      WaitInterval::EXPONENTIAL_BACKOFF, duration);
+      WaitInterval::BlockingMode::kExponentialBackoff, duration);
 }
 
 void DataTypeTracker::UpdateThrottleOrBackoffState() {
   if (base::TimeTicks::Now() >= unblock_time_) {
     if (wait_interval_.get() &&
-        (wait_interval_->mode == WaitInterval::EXPONENTIAL_BACKOFF ||
-         wait_interval_->mode == WaitInterval::EXPONENTIAL_BACKOFF_RETRYING)) {
-      wait_interval_->mode = WaitInterval::EXPONENTIAL_BACKOFF_RETRYING;
+        (wait_interval_->mode ==
+             WaitInterval::BlockingMode::kExponentialBackoff ||
+         wait_interval_->mode ==
+             WaitInterval::BlockingMode::kExponentialBackoffRetrying)) {
+      wait_interval_->mode =
+          WaitInterval::BlockingMode::kExponentialBackoffRetrying;
     } else {
       unblock_time_ = base::TimeTicks();
       wait_interval_.reset();
@@ -300,15 +362,27 @@ void DataTypeTracker::UpdateThrottleOrBackoffState() {
   }
 }
 
-void DataTypeTracker::UpdateLocalNudgeDelay(base::TimeDelta delay) {
-  nudge_delay_ = delay;
+void DataTypeTracker::UpdateLocalChangeNudgeDelay(base::TimeDelta delay) {
+  // Protect against delays too small being set.
+  if (delay >= kMinLocalChangeNudgeDelay) {
+    local_change_nudge_delay_ = delay;
+  }
+}
+
+base::TimeDelta DataTypeTracker::GetLocalChangeNudgeDelay() const {
+  return local_change_nudge_delay_;
 }
 
 WaitInterval::BlockingMode DataTypeTracker::GetBlockingMode() const {
   if (!wait_interval_) {
-    return WaitInterval::UNKNOWN;
+    return WaitInterval::BlockingMode::kUnknown;
   }
   return wait_interval_->mode;
+}
+
+void DataTypeTracker::SetLocalChangeNudgeDelayIgnoringMinForTest(
+    base::TimeDelta delay) {
+  local_change_nudge_delay_ = delay;
 }
 
 }  // namespace syncer

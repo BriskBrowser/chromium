@@ -8,6 +8,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "content/public/browser/google_streaming_api.pb.h"
 #include "google_apis/google_api_keys.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -23,13 +24,11 @@ namespace speech {
 
 // The maximum duration a stream can be open for. The Open Speech API supports 5
 // minutes of continuous recognition.
-constexpr base::TimeDelta kMaximumStreamDuration =
-    base::TimeDelta::FromSeconds(295);
+constexpr base::TimeDelta kMaximumStreamDuration = base::Seconds(295);
 
 // The Open Speech API will not return any recognition events if 30 seconds have
 // elapsed since the last audio upload.
-constexpr base::TimeDelta kMaximumPauseDuration =
-    base::TimeDelta::FromSeconds(28);
+constexpr base::TimeDelta kMaximumPauseDuration = base::Seconds(28);
 
 constexpr char kWebServiceBaseUrl[] =
     "https://www.google.com/speech-api/full-duplex/v1";
@@ -114,7 +113,8 @@ void CloudSpeechRecognitionClient::OnDownstreamDataReceived(
       result = previous_result_;
 
     previous_result_ = result;
-    recognition_event_callback().Run(result, is_final);
+    recognition_event_callback().Run(
+        media::SpeechRecognitionResult(result, is_final));
   }
 }
 

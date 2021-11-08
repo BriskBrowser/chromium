@@ -35,6 +35,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/rand_util.h"
 #include "base/system/sys_info.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
@@ -598,6 +599,17 @@ BPF_DEATH_TEST_C(NaClNonSfiSandboxTest,
   sandbox::Syscall::InvalidCall();
 }
 
+BPF_TEST_C(NaClNonSfiSandboxTest,
+           random,
+           nacl::nonsfi::NaClNonSfiBPFSandboxPolicy) {
+  // Ensure that UrandomFD is valid.
+  int urandom_fd = base::GetUrandomFD();
+  BPF_ASSERT_NE(-1, urandom_fd);
+
+  // The test should pass if the base::Rand*() don't crash.
+  base::RandDouble();
+}
+
 // The following tests check for several restrictions in tgkill(). A delegate is
 // needed to be able to call getpid() from inside the process that will be
 // sandboxed, but before the sandbox is installed.
@@ -605,6 +617,10 @@ template<void(*callback)(int pid, int tid)>
 class TgkillDelegate : public sandbox::BPFTesterDelegate {
  public:
   TgkillDelegate() {}
+
+  TgkillDelegate(const TgkillDelegate&) = delete;
+  TgkillDelegate& operator=(const TgkillDelegate&) = delete;
+
   ~TgkillDelegate() override {}
 
   std::unique_ptr<sandbox::bpf_dsl::Policy> GetSandboxBPFPolicy() override {
@@ -625,9 +641,6 @@ class TgkillDelegate : public sandbox::BPFTesterDelegate {
   // These are longs as a temporary workaround for crbug.com/532992.
   long pid_;
   long tid_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TgkillDelegate);
 };
 
 void BPF_TEST_D_tgkill_with_invalid_signal(int pid, int tid) {

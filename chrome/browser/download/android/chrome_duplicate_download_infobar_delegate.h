@@ -13,7 +13,9 @@
 #include "components/download/public/common/download_item.h"
 #include "components/infobars/core/infobar_delegate.h"
 
-class InfoBarService;
+namespace infobars {
+class ContentInfoBarManager;
+}
 
 namespace android {
 
@@ -22,9 +24,14 @@ class ChromeDuplicateDownloadInfoBarDelegate
     : public DuplicateDownloadInfoBarDelegate,
       public download::DownloadItem::Observer {
  public:
+  ChromeDuplicateDownloadInfoBarDelegate(
+      const ChromeDuplicateDownloadInfoBarDelegate&) = delete;
+  ChromeDuplicateDownloadInfoBarDelegate& operator=(
+      const ChromeDuplicateDownloadInfoBarDelegate&) = delete;
+
   ~ChromeDuplicateDownloadInfoBarDelegate() override;
 
-  static void Create(InfoBarService* infobar_service,
+  static void Create(infobars::ContentInfoBarManager* infobar_manager,
                      download::DownloadItem* download_item,
                      const base::FilePath& file_path,
                      DownloadTargetDeterminerDelegate::ConfirmationCallback
@@ -45,7 +52,7 @@ class ChromeDuplicateDownloadInfoBarDelegate
   bool Cancel() override;
   std::string GetFilePath() const override;
   void InfoBarDismissed() override;
-  bool IsOffTheRecord() const override;
+  absl::optional<Profile::OTRProfileID> GetOTRProfileID() const override;
 
   // The download item that is requesting the infobar. Could get deleted while
   // the infobar is showing.
@@ -55,15 +62,10 @@ class ChromeDuplicateDownloadInfoBarDelegate
   // file name that will be used.
   base::FilePath file_path_;
 
-  // Whether the download is off the record.
-  bool is_off_the_record_;
-
   // A callback to download target determiner to notify that file selection
   // is made (or cancelled).
   DownloadTargetDeterminerDelegate::ConfirmationCallback
       file_selected_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeDuplicateDownloadInfoBarDelegate);
 };
 
 }  // namespace android

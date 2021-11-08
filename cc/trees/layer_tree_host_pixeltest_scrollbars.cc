@@ -78,6 +78,9 @@ INSTANTIATE_TEST_SUITE_P(All,
                          ::testing::ValuesIn(viz::GetGpuRendererTypes()),
                          ::testing::PrintToStringParamName());
 
+// viz::GetGpuRendererTypes() can return an empty list on some platforms.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(LayerTreeHostScrollbarsPixelTest);
+
 TEST_P(LayerTreeHostScrollbarsPixelTest, NoScale) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(200, 200), SK_ColorWHITE);
@@ -151,9 +154,8 @@ TEST_P(LayerTreeHostScrollbarsPixelTest, MAYBE_HugeTransformScale) {
   background->AddChild(layer);
 
   auto context = base::MakeRefCounted<viz::TestInProcessContextProvider>(
-      /*enable_gpu_rasterization=*/false,
-      /*enable_oop_rasterization=*/false,
-      /*support_locking=*/false);
+      /*enable_gles2_interface=*/true, /*support_locking=*/false,
+      viz::RasterInterfaceType::None);
   gpu::ContextResult result = context->BindToCurrentThread();
   DCHECK_EQ(result, gpu::ContextResult::kSuccess);
   int max_texture_size = 0;
@@ -257,6 +259,10 @@ INSTANTIATE_TEST_SUITE_P(All,
                          LayerTreeHostOverlayScrollbarsPixelTest,
                          ::testing::ValuesIn(viz::GetGpuRendererTypes()),
                          ::testing::PrintToStringParamName());
+
+// viz::GetGpuRendererTypes() can return an empty list on some platforms.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(
+    LayerTreeHostOverlayScrollbarsPixelTest);
 
 // Simulate increasing the thickness of a painted overlay scrollbar. Ensure that
 // the scrollbar border remains crisp.

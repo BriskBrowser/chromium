@@ -17,6 +17,7 @@
 #include "media/base/mock_audio_renderer_sink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/platform/audio/web_audio_device_source_type.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_renderer.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -56,7 +57,7 @@ class MockAudioRendererSource : public blink::WebRtcAudioRendererSource {
   MOCK_METHOD4(RenderData,
                void(media::AudioBus* audio_bus,
                     int sample_rate,
-                    int audio_delay_milliseconds,
+                    base::TimeDelta audio_delay,
                     base::TimeDelta* current_time));
   MOCK_METHOD1(RemoveAudioRenderer, void(blink::WebRtcAudioRenderer* renderer));
   MOCK_METHOD0(AudioRendererThreadStopped, void());
@@ -138,19 +139,25 @@ class MAYBE_WebRtcAudioRendererTest : public testing::Test {
         agent_group_scheduler_(
             blink::scheduler::WebThreadScheduler::MainThreadScheduler()
                 ->CreateAgentGroupScheduler()),
-        web_view_(blink::WebView::Create(/*client=*/nullptr,
-                                         /*is_hidden=*/false,
-                                         /*is_inside_portal=*/false,
-                                         /*compositing_enabled=*/false,
-                                         /*opener=*/nullptr,
-                                         mojo::NullAssociatedReceiver(),
-                                         *agent_group_scheduler_)),
-        web_local_frame_(blink::WebLocalFrame::CreateMainFrame(
-            web_view_,
-            &web_local_frame_client_,
-            nullptr,
-            base::UnguessableToken::Create(),
-            /*policy_container=*/nullptr))
+        web_view_(blink::WebView::Create(
+            /*client=*/nullptr,
+            /*is_hidden=*/false,
+            /*is_prerendering=*/false,
+            /*is_inside_portal=*/false,
+            /*is_fenced_frame=*/false,
+            /*compositing_enabled=*/false,
+            /*widgets_never_composited=*/false,
+            /*opener=*/nullptr,
+            mojo::NullAssociatedReceiver(),
+            *agent_group_scheduler_,
+            /*session_storage_namespace_id=*/base::EmptyString(),
+            /*page_base_background_color=*/absl::nullopt)),
+        web_local_frame_(
+            blink::WebLocalFrame::CreateMainFrame(web_view_,
+                                                  &web_local_frame_client_,
+                                                  nullptr,
+                                                  LocalFrameToken(),
+                                                  /*policy_container=*/nullptr))
 #endif
   {
     MediaStreamSourceVector dummy_components;
@@ -201,7 +208,7 @@ class MAYBE_WebRtcAudioRendererTest : public testing::Test {
                     int,
                     const base::UnguessableToken&,
                     const std::string&,
-                    const base::Optional<base::UnguessableToken>&));
+                    const absl::optional<base::UnguessableToken>&));
 
   media::MockAudioRendererSink* mock_sink() {
     return audio_device_factory_platform_->mock_sink();
@@ -219,7 +226,7 @@ class MAYBE_WebRtcAudioRendererTest : public testing::Test {
 
   blink::ScopedTestingPlatformSupport<AudioDeviceFactoryTestingPlatformSupport>
       audio_device_factory_platform_;
-  const base::Optional<base::UnguessableToken> kAudioProcessingId =
+  const absl::optional<base::UnguessableToken> kAudioProcessingId =
       base::UnguessableToken::Create();
   std::unique_ptr<MockAudioRendererSource> source_;
   Persistent<MediaStreamDescriptor> stream_descriptor_;

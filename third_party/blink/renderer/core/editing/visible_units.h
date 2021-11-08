@@ -31,13 +31,16 @@
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
-#include "third_party/blink/renderer/platform/wtf/text/unicode.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_uchar.h"
+
+namespace gfx {
+class Point;
+}
 
 namespace blink {
 
 class LayoutObject;
 class Node;
-class IntPoint;
 class IntRect;
 class LocalFrame;
 
@@ -101,6 +104,9 @@ CORE_EXPORT UChar32 CharacterBefore(const VisiblePosition&);
 CORE_EXPORT UChar32 CharacterBefore(const VisiblePositionInFlatTree&);
 
 CORE_EXPORT VisiblePosition
+NextPositionOf(const Position&,
+               EditingBoundaryCrossingRule = kCanCrossEditingBoundary);
+CORE_EXPORT VisiblePosition
 NextPositionOf(const VisiblePosition&,
                EditingBoundaryCrossingRule = kCanCrossEditingBoundary);
 CORE_EXPORT VisiblePositionInFlatTree
@@ -132,6 +138,7 @@ CORE_EXPORT PositionWithAffinity NextWordPosition(
 CORE_EXPORT PositionInFlatTreeWithAffinity NextWordPosition(
     const PositionInFlatTree&,
     PlatformWordBehavior = PlatformWordBehavior::kWordDontSkipSpaces);
+bool IsWordBreak(UChar);
 
 // sentences
 CORE_EXPORT Position StartOfSentencePosition(const Position&);
@@ -202,7 +209,7 @@ EndOfParagraph(const VisiblePosition&,
 CORE_EXPORT VisiblePositionInFlatTree
 EndOfParagraph(const VisiblePositionInFlatTree&,
                EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
-VisiblePosition StartOfNextParagraph(const VisiblePosition&);
+CORE_EXPORT VisiblePosition StartOfNextParagraph(const VisiblePosition&);
 CORE_EXPORT bool IsStartOfParagraph(
     const VisiblePosition&,
     EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
@@ -238,7 +245,8 @@ bool HasRenderedNonAnonymousDescendantsWithHeight(const LayoutObject*);
 // Returns a hit-tested PositionWithAffinity for the given point in
 // contents-space coordinates.
 CORE_EXPORT PositionWithAffinity
-PositionForContentsPointRespectingEditingBoundary(const IntPoint&, LocalFrame*);
+PositionForContentsPointRespectingEditingBoundary(const gfx::Point&,
+                                                  LocalFrame*);
 
 CORE_EXPORT bool RendersInDifferentPosition(const Position&, const Position&);
 

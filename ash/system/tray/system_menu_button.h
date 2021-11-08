@@ -7,7 +7,6 @@
 
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
@@ -33,6 +32,10 @@ class SystemMenuButton : public views::ImageButton {
   SystemMenuButton(PressedCallback callback,
                    const gfx::VectorIcon& icon,
                    int accessible_name_id);
+
+  SystemMenuButton(const SystemMenuButton&) = delete;
+  SystemMenuButton& operator=(const SystemMenuButton&) = delete;
+
   ~SystemMenuButton() override;
 
   // Sets the normal and disabled icons based on that using default menu icon
@@ -40,17 +43,11 @@ class SystemMenuButton : public views::ImageButton {
   void SetVectorIcon(const gfx::VectorIcon& icon);
 
   // views::ImageButton:
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
-  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override;
   const char* GetClassName() const override;
 
  private:
   // Returns the size that the ink drop should be constructed with.
   gfx::Size GetInkDropSize() const;
-
-  DISALLOW_COPY_AND_ASSIGN(SystemMenuButton);
 };
 
 }  // namespace ash

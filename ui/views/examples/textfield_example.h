@@ -5,7 +5,6 @@
 #ifndef UI_VIEWS_EXAMPLES_TEXTFIELD_EXAMPLE_H_
 #define UI_VIEWS_EXAMPLES_TEXTFIELD_EXAMPLE_H_
 
-#include <string>
 
 #include "base/macros.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
@@ -22,6 +21,10 @@ class VIEWS_EXAMPLES_EXPORT TextfieldExample : public ExampleBase,
                                                public TextfieldController {
  public:
   TextfieldExample();
+
+  TextfieldExample(const TextfieldExample&) = delete;
+  TextfieldExample& operator=(const TextfieldExample&) = delete;
+
   ~TextfieldExample() override;
 
   // ExampleBase:
@@ -54,8 +57,6 @@ class VIEWS_EXAMPLES_EXPORT TextfieldExample : public ExampleBase,
   LabelButton* append_ = nullptr;
   LabelButton* set_ = nullptr;
   LabelButton* set_style_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(TextfieldExample);
 };
 
 }  // namespace examples

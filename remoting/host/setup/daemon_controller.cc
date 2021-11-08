@@ -4,12 +4,13 @@
 
 #include "remoting/host/setup/daemon_controller.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/message_loop/message_pump_type.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -25,7 +26,7 @@ DaemonController::DaemonController(std::unique_ptr<Delegate> delegate)
     : caller_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       delegate_(std::move(delegate)) {
   // Launch the delegate thread.
-  delegate_thread_.reset(new AutoThread(kDaemonControllerThreadName));
+  delegate_thread_ = std::make_unique<AutoThread>(kDaemonControllerThreadName);
 #if defined(OS_WIN)
   delegate_thread_->SetComInitType(AutoThread::COM_INIT_STA);
   delegate_task_runner_ =
@@ -68,7 +69,7 @@ void DaemonController::SetConfigAndStart(
                      this, std::move(done));
   base::OnceClosure request =
       base::BindOnce(&DaemonController::DoSetConfigAndStart, this,
-                     base::Passed(&config), consent, std::move(wrapped_done));
+                     std::move(config), consent, std::move(wrapped_done));
   ServiceOrQueueRequest(std::move(request));
 }
 
@@ -81,8 +82,8 @@ void DaemonController::UpdateConfig(
       base::BindOnce(&DaemonController::InvokeCompletionCallbackAndScheduleNext,
                      this, std::move(done));
   base::OnceClosure request =
-      base::BindOnce(&DaemonController::DoUpdateConfig, this,
-                     base::Passed(&config), std::move(wrapped_done));
+      base::BindOnce(&DaemonController::DoUpdateConfig, this, std::move(config),
+                     std::move(wrapped_done));
   ServiceOrQueueRequest(std::move(request));
 }
 

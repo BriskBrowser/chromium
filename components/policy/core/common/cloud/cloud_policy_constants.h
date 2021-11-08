@@ -34,14 +34,17 @@ POLICY_EXPORT extern const char kEnrollmentTokenAuthHeaderPrefix[];
 
 // String extern constants for the device and app type we report to the server.
 POLICY_EXPORT extern const char kValueAppType[];
+POLICY_EXPORT extern const char kValueBrowserUploadPublicKey[];
 POLICY_EXPORT extern const char kValueDeviceType[];
 POLICY_EXPORT extern const char kValueRequestAutoEnrollment[];
 POLICY_EXPORT extern const char kValueRequestPsmHasDeviceState[];
+POLICY_EXPORT extern const char kValueCheckUserAccount[];
 POLICY_EXPORT extern const char kValueRequestPolicy[];
 POLICY_EXPORT extern const char kValueRequestRegister[];
 POLICY_EXPORT extern const char kValueRequestApiAuthorization[];
 POLICY_EXPORT extern const char kValueRequestUnregister[];
 POLICY_EXPORT extern const char kValueRequestUploadCertificate[];
+POLICY_EXPORT extern const char kValueRequestUploadEuiccInfo[];
 POLICY_EXPORT extern const char kValueRequestDeviceStateRetrieval[];
 POLICY_EXPORT extern const char kValueRequestUploadStatus[];
 POLICY_EXPORT extern const char kValueRequestRemoteCommands[];
@@ -68,6 +71,7 @@ POLICY_EXPORT extern const char kChromePublicAccountPolicyType[];
 POLICY_EXPORT extern const char kChromeExtensionPolicyType[];
 POLICY_EXPORT extern const char kChromeSigninExtensionPolicyType[];
 POLICY_EXPORT extern const char kChromeMachineLevelUserCloudPolicyType[];
+POLICY_EXPORT extern const char kChromeMachineLevelUserCloudPolicyAndroidType[];
 POLICY_EXPORT extern const char kChromeMachineLevelUserCloudPolicyIOSType[];
 POLICY_EXPORT extern const char kChromeMachineLevelExtensionCloudPolicyType[];
 POLICY_EXPORT extern const char kChromeRemoteCommandPolicyType[];
@@ -147,27 +151,23 @@ enum DeviceManagementStatus {
 
 // List of modes that the device can be locked into.
 enum DeviceMode {
-  DEVICE_MODE_PENDING,             // The device mode is not yet available.
-  DEVICE_MODE_NOT_SET,             // The device is not yet enrolled or owned.
-  DEVICE_MODE_CONSUMER,            // The device is locally owned as consumer
-                                   // device.
-  DEVICE_MODE_ENTERPRISE,          // The device is enrolled as an enterprise
-                                   // device.
-  DEVICE_MODE_ENTERPRISE_AD,       // The device has joined AD.
-  DEVICE_MODE_LEGACY_RETAIL_MODE,  // The device is enrolled as a retail kiosk
-                                   // device. Even though retail mode is
-                                   // deprecated, we still check for this device
-                                   // mode so that if an existing device is
-                                   // still enrolled in retail mode, we take the
-                                   // appropriate action (currently, launching
-                                   // offline demo mode).
-  DEVICE_MODE_CONSUMER_KIOSK_AUTOLAUNCH,  // The device is locally owned as
+  DEVICE_MODE_PENDING,        // The device mode is not yet available.
+  DEVICE_MODE_NOT_SET,        // The device is not yet enrolled or owned.
+  DEVICE_MODE_CONSUMER,       // The device is locally owned as consumer
+                              // device.
+  DEVICE_MODE_ENTERPRISE,     // The device is enrolled as an enterprise
+                              // device.
+  DEVICE_MODE_ENTERPRISE_AD,  // The device has joined AD.
+  DEPRECATED_DEVICE_MODE_LEGACY_RETAIL_MODE,  // The device is enrolled as a
+                                              // retail kiosk device. This is
+                                              // deprecated.
+  DEVICE_MODE_CONSUMER_KIOSK_AUTOLAUNCH,      // The device is locally owned as
                                           // consumer kiosk with ability to auto
                                           // launch a kiosk webapp.
-  DEVICE_MODE_DEMO,                       // The device is in demo mode. It was
-                                          // either enrolled online or setup
-                                          // offline into demo mode domain -
-                                          // see kDemoModeDomain.
+  DEVICE_MODE_DEMO,  // The device is in demo mode. It was
+                     // either enrolled online or setup
+                     // offline into demo mode domain -
+                     // see kDemoModeDomain.
 };
 
 // Domain that demo mode devices are enrolled into: cros-demo-mode.com

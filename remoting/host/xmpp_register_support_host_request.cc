@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -70,7 +71,7 @@ void XmppRegisterSupportHostRequest::StartRequest(
   key_pair_ = key_pair;
   callback_ = std::move(callback);
   signal_strategy_->AddListener(this);
-  iq_sender_.reset(new IqSender(signal_strategy_));
+  iq_sender_ = std::make_unique<IqSender>(signal_strategy_);
 }
 
 void XmppRegisterSupportHostRequest::OnSignalStrategyStateChange(
@@ -93,8 +94,7 @@ void XmppRegisterSupportHostRequest::OnSignalStrategyStateChange(
       return;
     }
 
-    request_->SetTimeout(
-        base::TimeDelta::FromSeconds(kRegisterRequestTimeoutInSeconds));
+    request_->SetTimeout(base::Seconds(kRegisterRequestTimeoutInSeconds));
 
   } else if (state == SignalStrategy::DISCONNECTED) {
     // We will reach here if signaling fails to connect.
@@ -225,7 +225,7 @@ void XmppRegisterSupportHostRequest::ParseResponse(const XmlElement* response,
   }
 
   *support_id = support_id_element->BodyText();
-  *lifetime = base::TimeDelta::FromSeconds(lifetime_int);
+  *lifetime = base::Seconds(lifetime_int);
   return;
 }
 

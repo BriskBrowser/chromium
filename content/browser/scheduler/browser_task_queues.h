@@ -64,7 +64,16 @@ class CONTENT_EXPORT BrowserTaskQueues {
     // system) but they are not an immediate response to a user interaction.
     kUserVisible,
 
-    kMaxValue = kUserVisible
+    // For tasks directly related to handling input events. This also changes
+    // the priority of yielding to native (to get the user input events faster).
+    // This is higher priority than kUserBlocking.
+    kUserInput,
+
+    // For tasks processing navigation network request's response from the
+    // network service.
+    kNavigationNetworkResponse,
+
+    kMaxValue = kNavigationNetworkResponse
   };
 
   static constexpr size_t kNumQueueTypes =

@@ -4,6 +4,8 @@
 
 #include "media/remoting/end2end_test_renderer.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
@@ -28,6 +30,8 @@
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 
+using openscreen::cast::RpcMessenger;
+
 namespace media {
 namespace remoting {
 
@@ -48,6 +52,9 @@ class TestStreamSender final : public mojom::RemotingDataStreamSender {
         data_pipe_reader_(std::move(handle)),
         type_(type),
         send_frame_to_sink_cb_(std::move(callback)) {}
+
+  TestStreamSender(const TestStreamSender&) = delete;
+  TestStreamSender& operator=(const TestStreamSender&) = delete;
 
   ~TestStreamSender() override = default;
 
@@ -76,8 +83,6 @@ class TestStreamSender final : public mojom::RemotingDataStreamSender {
   const DemuxerStream::Type type_;
   const SendFrameToSinkCallback send_frame_to_sink_cb_;
   std::vector<uint8_t> next_frame_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestStreamSender);
 };
 
 class TestRemoter final : public mojom::Remoter {
@@ -90,6 +95,9 @@ class TestRemoter final : public mojom::Remoter {
       : source_(std::move(source)),
         send_message_to_sink_cb_(std::move(send_message_to_sink_cb)),
         send_frame_to_sink_cb_(std::move(send_frame_to_sink_cb)) {}
+
+  TestRemoter(const TestRemoter&) = delete;
+  TestRemoter& operator=(const TestRemoter&) = delete;
 
   ~TestRemoter() override = default;
 
@@ -104,14 +112,14 @@ class TestRemoter final : public mojom::Remoter {
                         mojo::PendingReceiver<mojom::RemotingDataStreamSender>
                             video_sender_receiver) override {
     if (audio_pipe.is_valid()) {
-      audio_stream_sender_.reset(new TestStreamSender(
+      audio_stream_sender_ = std::make_unique<TestStreamSender>(
           std::move(audio_sender_receiver), std::move(audio_pipe),
-          DemuxerStream::AUDIO, send_frame_to_sink_cb_));
+          DemuxerStream::AUDIO, send_frame_to_sink_cb_);
     }
     if (video_pipe.is_valid()) {
-      video_stream_sender_.reset(new TestStreamSender(
+      video_stream_sender_ = std::make_unique<TestStreamSender>(
           std::move(video_sender_receiver), std::move(video_pipe),
-          DemuxerStream::VIDEO, send_frame_to_sink_cb_));
+          DemuxerStream::VIDEO, send_frame_to_sink_cb_);
     }
   }
 
@@ -140,8 +148,6 @@ class TestRemoter final : public mojom::Remoter {
   const TestStreamSender::SendFrameToSinkCallback send_frame_to_sink_cb_;
   std::unique_ptr<TestStreamSender> audio_stream_sender_;
   std::unique_ptr<TestStreamSender> video_stream_sender_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestRemoter);
 };
 
 std::unique_ptr<RendererController> CreateController(
@@ -264,13 +270,17 @@ End2EndTestRenderer::End2EndTestRenderer(std::unique_ptr<Renderer> renderer)
   receiver_controller_ = ReceiverController::GetInstance();
   ResetForTesting(receiver_controller_);
 
-  receiver_rpc_broker_ = receiver_controller_->rpc_broker();
-  receiver_renderer_handle_ = receiver_rpc_broker_->GetUniqueHandle();
+  receiver_rpc_messenger_ = receiver_controller_->rpc_messenger();
+  receiver_renderer_handle_ = receiver_rpc_messenger_->GetUniqueHandle();
 
-  receiver_rpc_broker_->RegisterMessageReceiverCallback(
-      RpcBroker::kAcquireRendererHandle,
-      base::BindRepeating(&End2EndTestRenderer::OnReceivedRpc,
-                          weak_factory_.GetWeakPtr()));
+  receiver_rpc_messenger_->RegisterMessageReceiverCallback(
+      RpcMessenger::kAcquireRendererHandle,
+      [ptr = weak_factory_.GetWeakPtr()](
+          std::unique_ptr<openscreen::cast::RpcMessage> message) {
+        if (ptr) {
+          ptr->OnReceivedRpc(std::move(message));
+        }
+      });
 
   receiver_ = std::make_unique<Receiver>(
       receiver_renderer_handle_, sender_renderer_handle_, receiver_controller_,
@@ -286,8 +296,8 @@ End2EndTestRenderer::End2EndTestRenderer(std::unique_ptr<Renderer> renderer)
 }
 
 End2EndTestRenderer::~End2EndTestRenderer() {
-  receiver_rpc_broker_->UnregisterMessageReceiverCallback(
-      RpcBroker::kAcquireRendererHandle);
+  receiver_rpc_messenger_->UnregisterMessageReceiverCallback(
+      RpcMessenger::kAcquireRendererHandle);
 }
 
 void End2EndTestRenderer::Initialize(MediaResource* media_resource,
@@ -333,34 +343,34 @@ void End2EndTestRenderer::CompleteInitialize() {
 }
 
 void End2EndTestRenderer::OnReceivedRpc(
-    std::unique_ptr<media::remoting::pb::RpcMessage> message) {
+    std::unique_ptr<openscreen::cast::RpcMessage> message) {
   DCHECK(message);
   DCHECK_EQ(message->proc(),
-            media::remoting::pb::RpcMessage::RPC_ACQUIRE_RENDERER);
+            openscreen::cast::RpcMessage::RPC_ACQUIRE_RENDERER);
   OnAcquireRenderer(std::move(message));
 }
 
 void End2EndTestRenderer::OnAcquireRenderer(
-    std::unique_ptr<media::remoting::pb::RpcMessage> message) {
+    std::unique_ptr<openscreen::cast::RpcMessage> message) {
   DCHECK(message->has_integer_value());
-  DCHECK(message->integer_value() != RpcBroker::kInvalidHandle);
+  DCHECK(message->integer_value() != RpcMessenger::kInvalidHandle);
 
-  if (sender_renderer_handle_ == RpcBroker::kInvalidHandle) {
+  if (sender_renderer_handle_ == RpcMessenger::kInvalidHandle) {
     sender_renderer_handle_ = message->integer_value();
     receiver_->SetRemoteHandle(sender_renderer_handle_);
   }
 }
 
 void End2EndTestRenderer::OnAcquireRendererDone(int receiver_renderer_handle) {
-  auto rpc = std::make_unique<pb::RpcMessage>();
-  rpc->set_handle(sender_renderer_handle_);
-  rpc->set_proc(pb::RpcMessage::RPC_ACQUIRE_RENDERER_DONE);
-  rpc->set_integer_value(receiver_renderer_handle);
-  receiver_rpc_broker_->SendMessageToRemote(std::move(rpc));
+  openscreen::cast::RpcMessage rpc;
+  rpc.set_handle(sender_renderer_handle_);
+  rpc.set_proc(openscreen::cast::RpcMessage::RPC_ACQUIRE_RENDERER_DONE);
+  rpc.set_integer_value(receiver_renderer_handle);
+  receiver_rpc_messenger_->SendMessageToRemote(rpc);
 }
 
 void End2EndTestRenderer::SetLatencyHint(
-    base::Optional<base::TimeDelta> latency_hint) {
+    absl::optional<base::TimeDelta> latency_hint) {
   courier_renderer_->SetLatencyHint(latency_hint);
 }
 

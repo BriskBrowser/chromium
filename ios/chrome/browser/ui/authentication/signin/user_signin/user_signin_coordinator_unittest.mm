@@ -14,6 +14,7 @@
 #import "ios/chrome/browser/ui/authentication/signin/user_signin/logging/user_signin_logger.h"
 #import "ios/chrome/browser/ui/authentication/signin/user_signin/user_signin_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/signin/user_signin/user_signin_view_controller.h"
+#include "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gmock/include/gmock/gmock.h"
 #import "testing/platform_test.h"
@@ -30,11 +31,16 @@
 @property(nonatomic, strong)
     UserSigninViewController* userSigninViewControllerMock;
 
+@property(nonatomic, strong) UIViewController* unifiedConsentViewController;
+
 @end
 
 @implementation TestUserSigninCoordinator
 
-- (UserSigninViewController*)generateUserSigninViewController {
+- (UserSigninViewController*)
+    generateUserSigninViewControllerWithUnifiedConsentViewController:
+        (UIViewController*)viewController {
+  self.unifiedConsentViewController = viewController;
   return self.userSigninViewControllerMock;
 }
 
@@ -110,8 +116,6 @@ class UserSigninCoordinatorTest : public PlatformTest {
     OCMExpect([user_signin_view_controller_mock_ setDelegate:[OCMArg any]]);
     OCMExpect([user_signin_view_controller_mock_ setUseFirstRunSkipButton:NO]);
     OCMExpect([user_signin_view_controller_mock_
-        setUnifiedConsentViewController:[OCMArg any]]);
-    OCMExpect([user_signin_view_controller_mock_
         setModalPresentationStyle:UIModalPresentationFormSheet]);
     // Method not used on iOS 12.
     OCMStub([user_signin_view_controller_mock_ presentationController])
@@ -139,6 +143,7 @@ class UserSigninCoordinatorTest : public PlatformTest {
   // Needed for test browser state created by TestChromeBrowserState().
   web::WebTaskEnvironment task_environment_;
 
+  IOSChromeScopedTestingLocalState local_state_;
   std::unique_ptr<Browser> browser_;
   std::unique_ptr<TestChromeBrowserState> browser_state_;
 
@@ -166,9 +171,11 @@ TEST_F(UserSigninCoordinatorTest, StartAndInterruptCoordinator) {
         EXPECT_FALSE(completion_done);
         EXPECT_FALSE(interrupt_done);
         EXPECT_EQ(SigninCoordinatorResultInterrupted, signinResult);
+        EXPECT_EQ(nil, signinCompletionInfo.identity);
         completion_done = true;
       };
   [coordinator_ start];
+  EXPECT_NE(nil, coordinator_.unifiedConsentViewController);
   EXPECT_NE(nil, view_controller_present_completion_);
   [coordinator_
       interruptWithAction:SigninCoordinatorInterruptActionDismissWithAnimation

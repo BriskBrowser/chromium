@@ -9,8 +9,8 @@
 #include "base/i18n/case_conversion.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -20,8 +20,8 @@
 #include "chrome/browser/ui/views/exclusive_access_bubble_views_context.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
-#include "chrome/browser/ui/views/subtle_notification_view.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/fullscreen_control/subtle_notification_view.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -29,7 +29,6 @@
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/strings/grit/ui_strings.h"
-#include "ui/views/bubble/bubble_border.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -177,7 +176,7 @@ void ExclusiveAccessBubbleViews::HideImmediately() {
 
   RunHideCallbackIfNeeded(ExclusiveAccessBubbleHideReason::kInterrupted);
 
-  animation_->SetSlideDuration(base::TimeDelta::FromMilliseconds(150));
+  animation_->SetSlideDuration(base::Milliseconds(150));
   animation_->Hide();
 }
 
@@ -213,7 +212,7 @@ void ExclusiveAccessBubbleViews::UpdateViewContent(
     ExclusiveAccessBubbleType bubble_type) {
   DCHECK_NE(EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE, bubble_type);
 
-  base::string16 accelerator;
+  std::u16string accelerator;
   if (bubble_type ==
           EXCLUSIVE_ACCESS_BUBBLE_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION ||
       bubble_type ==
@@ -274,8 +273,8 @@ gfx::Rect ExclusiveAccessBubbleViews::GetPopupRect(
         bubble_view_context_->GetTopContainerBoundsInScreen().bottom();
   }
   // |desired_top| is the top of the bubble area including the shadow.
-  int desired_top = kSimplifiedPopupTopPx - view_->border()->GetInsets().top();
-  int y = top_container_bottom + desired_top;
+  const int desired_top = kSimplifiedPopupTopPx - view_->GetInsets().top();
+  const int y = top_container_bottom + desired_top;
 
   return gfx::Rect(gfx::Point(x, y), size);
 }
@@ -299,14 +298,14 @@ void ExclusiveAccessBubbleViews::Hide() {
   DCHECK(!IsHideTimeoutRunning());
   RunHideCallbackIfNeeded(ExclusiveAccessBubbleHideReason::kTimeout);
 
-  animation_->SetSlideDuration(base::TimeDelta::FromMilliseconds(700));
+  animation_->SetSlideDuration(base::Milliseconds(700));
   animation_->Hide();
 }
 
 void ExclusiveAccessBubbleViews::Show() {
   if (animation_->IsShowing())
     return;
-  animation_->SetSlideDuration(base::TimeDelta::FromMilliseconds(350));
+  animation_->SetSlideDuration(base::Milliseconds(350));
   animation_->Show();
 }
 

@@ -27,6 +27,10 @@ class TaskForwardingSequence : public gpu::SingleTaskSequence {
  public:
   explicit TaskForwardingSequence(TaskQueueWebView* task_queue,
                                   gpu::SyncPointManager* sync_point_manager);
+
+  TaskForwardingSequence(const TaskForwardingSequence&) = delete;
+  TaskForwardingSequence& operator=(const TaskForwardingSequence&) = delete;
+
   ~TaskForwardingSequence() override;
 
   // SingleTaskSequence implementation.
@@ -35,11 +39,14 @@ class TaskForwardingSequence : public gpu::SingleTaskSequence {
   // There is only one task queue. ShouldYield always return false.
   bool ShouldYield() override;
 
-  void ScheduleTask(base::OnceClosure task,
-                    std::vector<gpu::SyncToken> sync_token_fences) override;
+  void ScheduleTask(
+      base::OnceClosure task,
+      std::vector<gpu::SyncToken> sync_token_fences,
+      ReportingCallback report_callback = ReportingCallback()) override;
   void ScheduleOrRetainTask(
       base::OnceClosure task,
-      std::vector<gpu::SyncToken> sync_token_fences) override;
+      std::vector<gpu::SyncToken> sync_token_fences,
+      ReportingCallback report_callback = ReportingCallback()) override;
 
   // Should not be called because tasks aren't reposted to wait for sync tokens,
   // or for yielding execution since ShouldYield() returns false.
@@ -59,8 +66,6 @@ class TaskForwardingSequence : public gpu::SingleTaskSequence {
   TaskQueueWebView* const task_queue_;
   gpu::SyncPointManager* const sync_point_manager_;
   scoped_refptr<gpu::SyncPointOrderData> sync_point_order_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(TaskForwardingSequence);
 };
 
 }  // namespace android_webview

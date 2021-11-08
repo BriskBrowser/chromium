@@ -31,6 +31,8 @@ void MetricsProvider::OnRecordingEnabled() {
 void MetricsProvider::OnRecordingDisabled() {
 }
 
+void MetricsProvider::OnClientStateCleared() {}
+
 void MetricsProvider::OnAppEnterBackground() {
 }
 
@@ -70,6 +72,8 @@ void MetricsProvider::ProvideCurrentSessionData(
     ChromeUserMetricsExtension* uma_proto) {
   ProvideStabilityMetrics(uma_proto->mutable_system_profile());
 }
+
+void MetricsProvider::ProvideCurrentSessionUKMData() {}
 
 void MetricsProvider::ProvideStabilityMetrics(
     SystemProfileProto* system_profile_proto) {

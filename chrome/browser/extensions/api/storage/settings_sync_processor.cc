@@ -11,7 +11,7 @@
 #include "components/sync/model/sync_data.h"
 #include "components/sync/protocol/extension_setting_specifics.pb.h"
 #include "extensions/browser/api/storage/backend_task_runner.h"
-#include "extensions/browser/value_store/settings_namespace.h"
+#include "extensions/browser/api/storage/settings_namespace.h"
 
 namespace extensions {
 
@@ -32,19 +32,19 @@ SettingsSyncProcessor::~SettingsSyncProcessor() {
   DCHECK(IsOnBackendSequence());
 }
 
-void SettingsSyncProcessor::Init(const base::DictionaryValue& initial_state) {
+void SettingsSyncProcessor::Init(const base::Value& initial_state) {
   DCHECK(IsOnBackendSequence());
   CHECK(!initialized_) << "Init called multiple times";
 
-  for (base::DictionaryValue::Iterator i(initial_state); !i.IsAtEnd();
-       i.Advance())
-    synced_keys_.insert(i.key());
+  for (auto iter : initial_state.DictItems()) {
+    synced_keys_.insert(iter.first);
+  }
 
   initialized_ = true;
 }
 
-base::Optional<syncer::ModelError> SettingsSyncProcessor::SendChanges(
-    const ValueStoreChangeList& changes) {
+absl::optional<syncer::ModelError> SettingsSyncProcessor::SendChanges(
+    const value_store::ValueStoreChangeList& changes) {
   DCHECK(IsOnBackendSequence());
   CHECK(initialized_) << "Init not called";
 
@@ -79,9 +79,9 @@ base::Optional<syncer::ModelError> SettingsSyncProcessor::SendChanges(
   }
 
   if (sync_changes.empty())
-    return base::nullopt;
+    return absl::nullopt;
 
-  base::Optional<syncer::ModelError> error =
+  absl::optional<syncer::ModelError> error =
       sync_processor_->ProcessSyncChanges(FROM_HERE, sync_changes);
   if (error.has_value())
     return error;
@@ -91,10 +91,11 @@ base::Optional<syncer::ModelError> SettingsSyncProcessor::SendChanges(
     synced_keys_.erase(*i);
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-void SettingsSyncProcessor::NotifyChanges(const ValueStoreChangeList& changes) {
+void SettingsSyncProcessor::NotifyChanges(
+    const value_store::ValueStoreChangeList& changes) {
   DCHECK(IsOnBackendSequence());
   CHECK(initialized_) << "Init not called";
 

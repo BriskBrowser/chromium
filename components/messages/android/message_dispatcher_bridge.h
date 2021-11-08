@@ -7,6 +7,7 @@
 
 #include "components/messages/android/message_enums.h"
 #include "components/messages/android/message_wrapper.h"
+#include "ui/android/window_android.h"
 
 namespace content {
 class WebContents;
@@ -18,11 +19,36 @@ namespace messages {
 // enqueue/dismiss messages with MessageDispatcher.java.
 class MessageDispatcherBridge {
  public:
-  static void EnqueueMessage(MessageWrapper* message,
-                             content::WebContents* web_contents);
-  static void DismissMessage(MessageWrapper* message,
-                             content::WebContents* web_contents,
-                             DismissReason dismiss_reason);
+  using ResourceIdMapper = base::RepeatingCallback<int(int)>;
+
+  static MessageDispatcherBridge* Get();
+
+  static void SetInstanceForTesting(MessageDispatcherBridge* instance);
+
+  MessageDispatcherBridge();
+
+  virtual bool EnqueueMessage(MessageWrapper* message,
+                              content::WebContents* web_contents,
+                              MessageScopeType scope_type,
+                              MessagePriority priority);
+  virtual bool EnqueueWindowScopedMessage(MessageWrapper* message,
+                                          ui::WindowAndroid* window_android,
+                                          MessagePriority priority);
+  virtual void DismissMessage(MessageWrapper* message,
+                              DismissReason dismiss_reason);
+
+  // Helper method for mapping native resource id to Java Drawable resource id.
+  // This is useful for setting icon resource ids in MessageWrapper from the
+  // code that doesn't have access to ResourceMapper, e.g. code in //components.
+  virtual int MapToJavaDrawableId(int resource_id);
+
+  void SetResourceIdMapper(ResourceIdMapper resource_id_mapper);
+
+ protected:
+  virtual ~MessageDispatcherBridge();
+
+ private:
+  ResourceIdMapper resource_id_mapper_;
 };
 
 }  // namespace messages

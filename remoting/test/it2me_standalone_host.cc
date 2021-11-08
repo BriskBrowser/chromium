@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 #include "base/bind.h"
@@ -78,7 +79,7 @@ void It2MeStandaloneHost::Run() {
 }
 
 void It2MeStandaloneHost::StartOutputTimer() {
-  timer_.Start(FROM_HERE, base::TimeDelta::FromSeconds(1),
+  timer_.Start(FROM_HERE, base::Seconds(1),
                base::BindRepeating(&OutputFakeConnectionEventLogger,
                                    std::cref(event_logger_)));
 }
@@ -87,11 +88,11 @@ void It2MeStandaloneHost::Connect() {
   DesktopEnvironmentOptions options =
       DesktopEnvironmentOptions::CreateDefault();
   options.set_enable_user_interface(false);
-  session_.reset(new ClientSession(
+  session_ = std::make_unique<ClientSession>(
       &handler_, std::unique_ptr<protocol::ConnectionToClient>(&connection_),
       &factory_, options, base::TimeDelta(),
       scoped_refptr<protocol::PairingRegistry>(),
-      std::vector<HostExtension*>()));
+      std::vector<HostExtension*>());
   session_->OnConnectionAuthenticated();
   session_->OnConnectionChannelsConnected();
   session_->CreateMediaStreams();

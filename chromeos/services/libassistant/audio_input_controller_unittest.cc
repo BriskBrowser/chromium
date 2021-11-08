@@ -8,9 +8,9 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
-#include "chromeos/services/assistant/public/cpp/migration/fake_platform_delegate.h"
 #include "chromeos/services/libassistant/audio/audio_input_impl.h"
 #include "chromeos/services/libassistant/public/mojom/audio_input_controller.mojom.h"
+#include "chromeos/services/libassistant/test_support/fake_platform_delegate.h"
 #include "media/audio/audio_device_description.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -22,6 +22,7 @@ namespace libassistant {
 
 namespace {
 using mojom::LidState;
+using Resolution = assistant_client::ConversationStateListener::Resolution;
 
 class FakeAudioInputObserver : public assistant_client::AudioInput::Observer {
  public:
@@ -95,17 +96,19 @@ class AssistantAudioInputControllerTest : public testing::Test {
     return audio_input().GetOpenDeviceIdForTesting().value_or("<none>");
   }
 
+  bool IsMicOpen() { return audio_input().IsMicOpenForTesting(); }
+
   void SetLidState(LidState new_state) {
     client()->SetLidState(new_state);
     client().FlushForTesting();
   }
 
-  void SetDeviceId(const base::Optional<std::string>& value) {
+  void SetDeviceId(const absl::optional<std::string>& value) {
     client()->SetDeviceId(value);
     client().FlushForTesting();
   }
 
-  void SetHotwordDeviceId(const base::Optional<std::string>& value) {
+  void SetHotwordDeviceId(const absl::optional<std::string>& value) {
     client()->SetHotwordDeviceId(value);
     client().FlushForTesting();
   }
@@ -126,12 +129,12 @@ class AssistantAudioInputControllerTest : public testing::Test {
 
   void OnConversationTurnStarted() { controller().OnConversationTurnStarted(); }
 
-  void OnConversationTurnFinished() {
-    controller().OnConversationTurnFinished();
+  void OnConversationTurnFinished(Resolution resolution = Resolution::NORMAL) {
+    controller().OnInteractionFinished(resolution);
   }
 
  private:
-  base::test::SingleThreadTaskEnvironment environment_;
+  base::test::TaskEnvironment environment_;
   base::test::ScopedFeatureList scoped_feature_list_;
   mojo::Remote<mojom::AudioInputController> client_;
   AudioInputController controller_;
@@ -163,7 +166,7 @@ TEST_F(AssistantAudioInputControllerTest, ShouldOnlyRecordWhenDeviceIdIsSet) {
   SetDeviceId("device-id");
   EXPECT_TRUE(IsRecordingAudio());
 
-  SetDeviceId(base::nullopt);
+  SetDeviceId(absl::nullopt);
   EXPECT_FALSE(IsRecordingAudio());
 }
 
@@ -236,8 +239,8 @@ TEST_F(AssistantAudioInputControllerTest,
   // Mic must be open, otherwise we will not start recording audio if the
   // device id is not set.
   SetMicOpen(true);
-  SetDeviceId(base::nullopt);
-  SetHotwordDeviceId(base::nullopt);
+  SetDeviceId(absl::nullopt);
+  SetHotwordDeviceId(absl::nullopt);
 
   EXPECT_TRUE(IsRecordingAudio());
   EXPECT_EQ(media::AudioDeviceDescription::kDefaultDeviceId, GetOpenDeviceId());
@@ -247,7 +250,7 @@ TEST_F(AssistantAudioInputControllerTest,
        DeadStreamDetectionShouldBeDisabledWhenUsingHotwordDevice) {
   InitializeForTestOfType(kHotwordDeviceIdTest);
 
-  SetHotwordDeviceId(base::nullopt);
+  SetHotwordDeviceId(absl::nullopt);
   EXPECT_TRUE(IsUsingDeadStreamDetection());
 
   SetHotwordDeviceId("fake-hotword-device");
@@ -283,6 +286,40 @@ TEST_F(AssistantAudioInputControllerTest,
   // hotword device.
   OnConversationTurnFinished();
   EXPECT_EQ("hotword-device-id", GetOpenDeviceId());
+}
+
+TEST_F(AssistantAudioInputControllerTest,
+       ShouldCloseMicWhenConversationIsFinishedNormally) {
+  InitializeForTestOfType(kDeviceIdTest);
+  SetMicOpen(true);
+  SetDeviceId("normal-device-id");
+  SetHotwordDeviceId("hotword-device-id");
+
+  // Mic should keep opened during the conversation.
+  OnConversationTurnStarted();
+  EXPECT_EQ(true, IsMicOpen());
+
+  // Once the conversation has finished normally without needing mic to keep
+  // opened, we should close it.
+  OnConversationTurnFinished();
+  EXPECT_EQ(false, IsMicOpen());
+}
+
+TEST_F(AssistantAudioInputControllerTest,
+       ShouldKeepMicOpenedIfNeededWhenConversationIsFinished) {
+  InitializeForTestOfType(kDeviceIdTest);
+  SetMicOpen(true);
+  SetDeviceId("normal-device-id");
+  SetHotwordDeviceId("hotword-device-id");
+
+  // Mic should keep opened during the conversation.
+  OnConversationTurnStarted();
+  EXPECT_EQ(true, IsMicOpen());
+
+  // If the conversation is finished where mic should still be kept opened
+  // (i.e. there's a follow-up interaction), we should keep mic opened.
+  OnConversationTurnFinished(Resolution::NORMAL_WITH_FOLLOW_ON);
+  EXPECT_EQ(true, IsMicOpen());
 }
 
 }  // namespace libassistant

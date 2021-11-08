@@ -11,7 +11,6 @@
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
-#include "base/time/time.h"
 #include "components/sync/protocol/device_info_specifics.pb.h"
 
 namespace syncer {
@@ -21,6 +20,10 @@ class DeviceInfo;
 class SharingDeviceSource {
  public:
   SharingDeviceSource();
+
+  SharingDeviceSource(const SharingDeviceSource&) = delete;
+  SharingDeviceSource& operator=(const SharingDeviceSource&) = delete;
+
   virtual ~SharingDeviceSource();
 
   // Returns if the source is ready. Calling GetAllDevices before this is true
@@ -46,8 +49,6 @@ class SharingDeviceSource {
 
  private:
   std::vector<base::OnceClosure> ready_callbacks_;
-
-  DISALLOW_COPY_AND_ASSIGN(SharingDeviceSource);
 };
 
 #endif  // CHROME_BROWSER_SHARING_SHARING_DEVICE_SOURCE_H_

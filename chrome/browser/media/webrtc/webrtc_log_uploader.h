@@ -16,10 +16,10 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/media/webrtc/webrtc_log_buffer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace network {
@@ -73,6 +73,10 @@ class WebRtcLogUploader {
   };
 
   WebRtcLogUploader();
+
+  WebRtcLogUploader(const WebRtcLogUploader&) = delete;
+  WebRtcLogUploader& operator=(const WebRtcLogUploader&) = delete;
+
   ~WebRtcLogUploader();
 
   // Returns true is number of logs limit is not reached yet. Increases log
@@ -193,7 +197,7 @@ class WebRtcLogUploader {
   // |response_code| not having a value means that no response code could be
   // retrieved, in which case |network_error_code| should be something other
   // than net::OK.
-  void NotifyUploadDoneAndLogStats(base::Optional<int> response_code,
+  void NotifyUploadDoneAndLogStats(absl::optional<int> response_code,
                                    int network_error_code,
                                    const std::string& report_id,
                                    UploadDoneData upload_done_data);
@@ -230,8 +234,6 @@ class WebRtcLogUploader {
 
   // When true, don't create new URL loaders.
   bool shutdown_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(WebRtcLogUploader);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_WEBRTC_WEBRTC_LOG_UPLOADER_H_

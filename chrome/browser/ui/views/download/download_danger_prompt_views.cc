@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/compiler_specific.h"
+#include "base/feature_list.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/download/download_danger_prompt.h"
 #include "chrome/browser/download/download_stats.h"
@@ -17,6 +18,7 @@
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -24,11 +26,11 @@
 #include "content/public/browser/web_contents.h"
 #include "ui/base/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 #include "url/gurl.h"
 
@@ -54,13 +56,13 @@ class DownloadDangerPromptViews : public DownloadDangerPrompt,
   void InvokeActionForTesting(Action action) override;
 
   // views::DialogDelegateView:
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
 
   // download::DownloadItem::Observer:
   void OnDownloadUpdated(download::DownloadItem* download) override;
 
  private:
-  base::string16 GetMessageBody() const;
+  std::u16string GetMessageBody() const;
   void RunDone(Action action);
 
   download::DownloadItem* download_;
@@ -108,7 +110,7 @@ DownloadDangerPromptViews::DownloadDangerPromptViews(
   download_->AddObserver(this);
 
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-      views::TEXT, views::TEXT));
+      views::DialogContentType::kText, views::DialogContentType::kText));
   SetUseDefaultFillLayout(true);
 
   auto message_body_label = std::make_unique<views::Label>(GetMessageBody());
@@ -152,7 +154,7 @@ void DownloadDangerPromptViews::InvokeActionForTesting(Action action) {
 }
 
 // views::DialogDelegate methods:
-base::string16 DownloadDangerPromptViews::GetWindowTitle() const {
+std::u16string DownloadDangerPromptViews::GetWindowTitle() const {
   if (show_context_ || !download_)  // |download_| may be null in tests.
     return l10n_util::GetStringUTF16(IDS_CONFIRM_KEEP_DANGEROUS_DOWNLOAD_TITLE);
   switch (download_->GetDangerType()) {
@@ -163,6 +165,15 @@ base::string16 DownloadDangerPromptViews::GetWindowTitle() const {
       return l10n_util::GetStringUTF16(IDS_KEEP_DANGEROUS_DOWNLOAD_TITLE);
     case download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT:
       return l10n_util::GetStringUTF16(IDS_KEEP_UNCOMMON_DOWNLOAD_TITLE);
+    case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE: {
+      if (base::FeatureList::IsEnabled(
+              safe_browsing::kSafeBrowsingCTDownloadWarning)) {
+        return l10n_util::GetStringUTF16(
+            IDS_CONFIRM_DANGEROUS_DOWNLOAD_ACCOUNT_COMPROMISE_TITLE);
+      } else {
+        return l10n_util::GetStringUTF16(IDS_KEEP_DANGEROUS_DOWNLOAD_TITLE);
+      }
+    }
     default: {
       return l10n_util::GetStringUTF16(
           IDS_CONFIRM_KEEP_DANGEROUS_DOWNLOAD_TITLE);
@@ -182,7 +193,7 @@ void DownloadDangerPromptViews::OnDownloadUpdated(
   }
 }
 
-base::string16 DownloadDangerPromptViews::GetMessageBody() const {
+std::u16string DownloadDangerPromptViews::GetMessageBody() const {
   if (show_context_) {
     switch (download_->GetDangerType()) {
       case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE: {
@@ -196,6 +207,18 @@ base::string16 DownloadDangerPromptViews::GetMessageBody() const {
         return l10n_util::GetStringFUTF16(
             IDS_PROMPT_MALICIOUS_DOWNLOAD_CONTENT,
             download_->GetFileNameToReportUser().LossyDisplayName());
+      }
+      case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE: {
+        if (base::FeatureList::IsEnabled(
+                safe_browsing::kSafeBrowsingCTDownloadWarning)) {
+          return l10n_util::GetStringFUTF16(
+              IDS_PROMPT_DANGEROUS_DOWNLOAD_ACCOUNT_COMPROMISE,
+              download_->GetFileNameToReportUser().LossyDisplayName());
+        } else {
+          return l10n_util::GetStringFUTF16(
+              IDS_PROMPT_MALICIOUS_DOWNLOAD_CONTENT,
+              download_->GetFileNameToReportUser().LossyDisplayName());
+        }
       }
       case download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT: {
         if (safe_browsing::AdvancedProtectionStatusManagerFactory::
@@ -248,6 +271,14 @@ base::string16 DownloadDangerPromptViews::GetMessageBody() const {
         return l10n_util::GetStringUTF16(
             IDS_PROMPT_CONFIRM_KEEP_MALICIOUS_DOWNLOAD_BODY);
       }
+      case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE: {
+        return base::FeatureList::IsEnabled(
+                   safe_browsing::kSafeBrowsingCTDownloadWarning)
+                   ? l10n_util::GetStringUTF16(
+                         IDS_PROMPT_CONFIRM_DANGEROUS_DOWNLOAD_ACCOUNT_COMPROMISE_BODY)
+                   : l10n_util::GetStringUTF16(
+                         IDS_PROMPT_CONFIRM_KEEP_MALICIOUS_DOWNLOAD_BODY);
+      }
       default: {
         return l10n_util::GetStringUTF16(
             IDS_PROMPT_CONFIRM_KEEP_DANGEROUS_DOWNLOAD);
@@ -255,7 +286,7 @@ base::string16 DownloadDangerPromptViews::GetMessageBody() const {
     }
   }
   NOTREACHED();
-  return base::string16();
+  return std::u16string();
 }
 
 void DownloadDangerPromptViews::RunDone(Action action) {
@@ -271,10 +302,10 @@ void DownloadDangerPromptViews::RunDone(Action action) {
       if (!download_->GetURL().is_empty() &&
           !content::DownloadItemUtils::GetBrowserContext(download_)
                ->IsOffTheRecord()) {
-        ClientSafeBrowsingReportRequest::ReportType report_type
-            = show_context_ ?
-                ClientSafeBrowsingReportRequest::DANGEROUS_DOWNLOAD_BY_API :
-                ClientSafeBrowsingReportRequest::DANGEROUS_DOWNLOAD_RECOVERY;
+        ClientSafeBrowsingReportRequest::ReportType report_type =
+            show_context_
+                ? ClientSafeBrowsingReportRequest::DANGEROUS_DOWNLOAD_BY_API
+                : ClientSafeBrowsingReportRequest::DANGEROUS_DOWNLOAD_RECOVERY;
         SendSafeBrowsingDownloadReport(report_type, accept, *download_);
       }
     }
@@ -286,7 +317,7 @@ void DownloadDangerPromptViews::RunDone(Action action) {
 }
 
 BEGIN_METADATA(DownloadDangerPromptViews, views::DialogDelegateView)
-ADD_READONLY_PROPERTY_METADATA(base::string16, MessageBody)
+ADD_READONLY_PROPERTY_METADATA(std::u16string, MessageBody)
 END_METADATA
 
 }  // namespace

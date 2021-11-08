@@ -8,7 +8,8 @@
 #include "chromeos/components/phonehub/browser_tabs_metadata_fetcher.h"
 #include "chromeos/components/phonehub/browser_tabs_model_controller.h"
 #include "chromeos/components/phonehub/browser_tabs_model_provider.h"
-#include "chromeos/components/phonehub/connection_manager_impl.h"
+#include "chromeos/components/phonehub/camera_roll_download_manager.h"
+#include "chromeos/components/phonehub/camera_roll_manager_impl.h"
 #include "chromeos/components/phonehub/connection_scheduler_impl.h"
 #include "chromeos/components/phonehub/cros_state_sender.h"
 #include "chromeos/components/phonehub/do_not_disturb_controller_impl.h"
@@ -26,25 +27,40 @@
 #include "chromeos/components/phonehub/onboarding_ui_tracker_impl.h"
 #include "chromeos/components/phonehub/phone_model.h"
 #include "chromeos/components/phonehub/phone_status_processor.h"
+#include "chromeos/components/phonehub/recent_apps_interaction_handler.h"
+#include "chromeos/components/phonehub/screen_lock_manager_impl.h"
 #include "chromeos/components/phonehub/tether_controller_impl.h"
 #include "chromeos/components/phonehub/user_action_recorder_impl.h"
 #include "chromeos/dbus/power/power_manager_client.h"
+#include "chromeos/services/secure_channel/public/cpp/client/connection_manager_impl.h"
 #include "components/session_manager/core/session_manager.h"
 
 namespace chromeos {
+namespace {
+const char kSecureChannelFeatureName[] = "phone_hub";
+const char kConnectionResultMetricName[] = "PhoneHub.Connection.Result";
+const char kConnectionDurationMetricName[] = "PhoneHub.Connection.Duration";
+const char kConnectionLatencyMetricName[] = "PhoneHub.Connectivity.Latency";
+}  // namespace
 namespace phonehub {
 
 PhoneHubManagerImpl::PhoneHubManagerImpl(
     PrefService* pref_service,
     device_sync::DeviceSyncClient* device_sync_client,
     multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client,
-    chromeos::secure_channel::SecureChannelClient* secure_channel_client,
+    secure_channel::SecureChannelClient* secure_channel_client,
     std::unique_ptr<BrowserTabsModelProvider> browser_tabs_model_provider,
+    std::unique_ptr<CameraRollDownloadManager> camera_roll_download_manager,
     const base::RepeatingClosure& show_multidevice_setup_dialog_callback)
     : connection_manager_(
-          std::make_unique<ConnectionManagerImpl>(multidevice_setup_client,
-                                                  device_sync_client,
-                                                  secure_channel_client)),
+          std::make_unique<secure_channel::ConnectionManagerImpl>(
+              multidevice_setup_client,
+              device_sync_client,
+              secure_channel_client,
+              kSecureChannelFeatureName,
+              kConnectionResultMetricName,
+              kConnectionLatencyMetricName,
+              kConnectionDurationMetricName)),
       feature_status_provider_(std::make_unique<FeatureStatusProviderImpl>(
           device_sync_client,
           multidevice_setup_client,
@@ -78,6 +94,10 @@ PhoneHubManagerImpl::PhoneHubManagerImpl(
               feature_status_provider_.get(),
               message_sender_.get(),
               connection_scheduler_.get())),
+      screen_lock_manager_(
+          features::IsEcheSWAEnabled()
+              ? std::make_unique<ScreenLockManagerImpl>(pref_service)
+              : nullptr),
       notification_interaction_handler_(
           features::IsEcheSWAEnabled()
               ? std::make_unique<NotificationInteractionHandlerImpl>()
@@ -99,9 +119,14 @@ PhoneHubManagerImpl::PhoneHubManagerImpl(
           message_receiver_.get(),
           find_my_device_controller_.get(),
           notification_access_manager_.get(),
+          screen_lock_manager_.get(),
           notification_processor_.get(),
           multidevice_setup_client,
           phone_model_.get())),
+      recent_apps_interaction_handler_(
+          features::IsPhoneHubRecentAppsEnabled()
+              ? std::make_unique<RecentAppsInteractionHandler>()
+              : nullptr),
       tether_controller_(
           std::make_unique<TetherControllerImpl>(phone_model_.get(),
                                                  user_action_recorder_.get(),
@@ -120,12 +145,25 @@ PhoneHubManagerImpl::PhoneHubManagerImpl(
       invalid_connection_disconnector_(
           std::make_unique<InvalidConnectionDisconnector>(
               connection_manager_.get(),
-              phone_model_.get())) {}
+              phone_model_.get())),
+      camera_roll_manager_(features::IsPhoneHubCameraRollEnabled()
+                               ? std::make_unique<CameraRollManagerImpl>(
+                                     pref_service,
+                                     message_receiver_.get(),
+                                     message_sender_.get(),
+                                     multidevice_setup_client,
+                                     connection_manager_.get(),
+                                     std::move(camera_roll_download_manager))
+                               : nullptr) {}
 
 PhoneHubManagerImpl::~PhoneHubManagerImpl() = default;
 
 BrowserTabsModelProvider* PhoneHubManagerImpl::GetBrowserTabsModelProvider() {
   return browser_tabs_model_provider_.get();
+}
+
+CameraRollManager* PhoneHubManagerImpl::GetCameraRollManager() {
+  return camera_roll_manager_.get();
 }
 
 ConnectionScheduler* PhoneHubManagerImpl::GetConnectionScheduler() {
@@ -165,6 +203,15 @@ PhoneModel* PhoneHubManagerImpl::GetPhoneModel() {
   return phone_model_.get();
 }
 
+RecentAppsInteractionHandler*
+PhoneHubManagerImpl::GetRecentAppsInteractionHandler() {
+  return recent_apps_interaction_handler_.get();
+}
+
+ScreenLockManager* PhoneHubManagerImpl::GetScreenLockManager() {
+  return screen_lock_manager_.get();
+}
+
 TetherController* PhoneHubManagerImpl::GetTetherController() {
   return tether_controller_.get();
 }
@@ -173,19 +220,22 @@ UserActionRecorder* PhoneHubManagerImpl::GetUserActionRecorder() {
   return user_action_recorder_.get();
 }
 
-// These should be destroyed in the opposite order of how these objects are
-// initialized in the constructor.
+// NOTE: These should be destroyed in the opposite order of how these objects
+// are initialized in the constructor.
 void PhoneHubManagerImpl::Shutdown() {
+  camera_roll_manager_.reset();
   invalid_connection_disconnector_.reset();
   multidevice_setup_state_updater_.reset();
   browser_tabs_model_controller_.reset();
   browser_tabs_model_provider_.reset();
   tether_controller_.reset();
+  recent_apps_interaction_handler_.reset();
   phone_status_processor_.reset();
   notification_processor_.reset();
   onboarding_ui_tracker_.reset();
   notification_manager_.reset();
   notification_interaction_handler_.reset();
+  screen_lock_manager_.reset();
   notification_access_manager_.reset();
   find_my_device_controller_.reset();
   connection_scheduler_.reset();

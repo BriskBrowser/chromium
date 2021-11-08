@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_FILE_SYSTEM_ACCESS_FILE_SYSTEM_ACCESS_ICON_VIEW_H_
 
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 
 // Page action icon indicating if the current page is using the File System
 // Access API. Shows different icons for read access to directories and write
@@ -23,7 +23,7 @@ class FileSystemAccessIconView : public PageActionIconView {
   // PageActionIconView:
   views::BubbleDialogDelegate* GetBubble() const override;
   void UpdateImpl() override;
-  base::string16 GetTextForTooltipAndAccessibleName() const override;
+  std::u16string GetTextForTooltipAndAccessibleName() const override;
   void OnExecuting(ExecuteSource execute_source) override;
   const gfx::VectorIcon& GetVectorIcon() const override;
 

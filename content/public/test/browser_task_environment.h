@@ -31,7 +31,7 @@ class TestBrowserThread;
 // - Public APIs of base::test::TaskEnvironment.
 //
 // Only tests that need the BrowserThread API should instantiate a
-// BrowserTaskEnvironment. Use base::test::SingleThhreadTaskEnvironment or
+// BrowserTaskEnvironment. Use base::test::SingleThreadTaskEnvironment or
 // base::test::TaskEnvironment otherwise.
 //
 // By default, BrowserThread::UI/IO are backed by a single shared message loop
@@ -113,7 +113,7 @@ class TestBrowserThread;
 //    protected:
 //     // Use this protected member directly from the test body to drive tasks
 //     // posted within a FooBase-based test.
-//     base::Optional<base::test::TaskEnvironment> task_environment_;
+//     absl::optional<base::test::TaskEnvironment> task_environment_;
 //   };
 //
 //   class ChromeFooBase : public FooBase {
@@ -169,6 +169,9 @@ class BrowserTaskEnvironment : public base::test::TaskEnvironment {
   // RunLoop+QuitClosure() to await an async condition.
   void RunIOThreadUntilIdle();
 
+  BrowserTaskEnvironment(const BrowserTaskEnvironment&) = delete;
+  BrowserTaskEnvironment& operator=(const BrowserTaskEnvironment&) = delete;
+
   ~BrowserTaskEnvironment() override;
 
  private:
@@ -179,7 +182,7 @@ class BrowserTaskEnvironment : public base::test::TaskEnvironment {
 
   void Init();
 
-  static constexpr bool UseRealIOThread(base::Optional<Options> options) {
+  static constexpr bool UseRealIOThread(absl::optional<Options> options) {
     if (!options)
       return false;
     return *options == Options::REAL_IO_THREAD;
@@ -196,8 +199,6 @@ class BrowserTaskEnvironment : public base::test::TaskEnvironment {
 #if defined(OS_WIN)
   std::unique_ptr<base::win::ScopedCOMInitializer> com_initializer_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserTaskEnvironment);
 };
 
 }  // namespace content

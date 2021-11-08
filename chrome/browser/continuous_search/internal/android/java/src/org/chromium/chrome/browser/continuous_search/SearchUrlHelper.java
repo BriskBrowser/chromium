@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.continuous_search;
 
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.url.GURL;
 
 /**
@@ -37,20 +38,41 @@ public class SearchUrlHelper {
     }
 
     /**
-     * Returns the appropriate histogram suffix (".Organic", ".News") based on the given URL.
-     * @param url the url to determine the histogram suffix with
+     * Gets the result category from the given URL
+     * @param url the url to get the category from
+     * @return the appropriate category
+     */
+    public static @PageCategory int getSrpPageCategoryFromUrl(GURL url) {
+        return SearchUrlHelperJni.get().getSrpPageCategoryFromUrl(url);
+    }
+
+    /**
+     * Returns the appropriate histogram suffix (".Organic", ".News") based on the given page
+     * category.
+     * @param category the page category to determine the histogram suffix with
      * @return the suffix string
      */
-    public static String getHistogramSuffixForUrl(GURL url) {
-        String suffix = SearchUrlHelperJni.get().getHistogramSuffixForUrl(url);
-        assert suffix != null;
-        return suffix;
+    public static String getHistogramSuffixForPageCategory(@PageCategory int category) {
+        switch (category) {
+            case PageCategory.ORGANIC_SRP:
+                return ".Organic";
+            case PageCategory.NEWS_SRP:
+                return ".News";
+            default:
+                assert false : "No histogram suffix for type " + category;
+                return null;
+        }
+    }
+
+    public static GURL getOriginalUrlFromWebContents(WebContents webContents) {
+        return SearchUrlHelperJni.get().getOriginalUrlFromWebContents(webContents);
     }
 
     @NativeMethods
     interface Natives {
         boolean isGoogleDomainUrl(GURL url);
         String getQueryIfValidSrpUrl(GURL url);
-        String getHistogramSuffixForUrl(GURL url);
+        int getSrpPageCategoryFromUrl(GURL url);
+        GURL getOriginalUrlFromWebContents(WebContents webContents);
     }
 }

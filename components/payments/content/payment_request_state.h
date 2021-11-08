@@ -12,7 +12,6 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "components/autofill/core/browser/address_normalizer.h"
 #include "components/payments/content/initialization_task.h"
 #include "components/payments/content/payment_app_factory.h"
 #include "components/payments/content/payment_request_spec.h"
@@ -28,6 +27,7 @@
 #include "url/origin.h"
 
 namespace autofill {
+class AddressNormalizer;
 class AutofillProfile;
 class CreditCard;
 class PersonalDataManager;
@@ -98,21 +98,27 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
                               const std::string& error_message)>;
 
   // The `spec` parameter should not be null.
-  PaymentRequestState(content::RenderFrameHost* initiator_render_frame_host,
-                      const GURL& top_level_origin,
-                      const GURL& frame_origin,
-                      const url::Origin& frame_security_origin,
-                      base::WeakPtr<PaymentRequestSpec> spec,
-                      base::WeakPtr<Delegate> delegate,
-                      const std::string& app_locale,
-                      autofill::PersonalDataManager* personal_data_manager,
-                      ContentPaymentRequestDelegate* payment_request_delegate,
-                      JourneyLogger* journey_logger);
+  PaymentRequestState(
+      content::RenderFrameHost* initiator_render_frame_host,
+      const GURL& top_level_origin,
+      const GURL& frame_origin,
+      const url::Origin& frame_security_origin,
+      base::WeakPtr<PaymentRequestSpec> spec,
+      base::WeakPtr<Delegate> delegate,
+      const std::string& app_locale,
+      autofill::PersonalDataManager* personal_data_manager,
+      base::WeakPtr<ContentPaymentRequestDelegate> payment_request_delegate,
+      base::WeakPtr<JourneyLogger> journey_logger);
+
+  PaymentRequestState(const PaymentRequestState&) = delete;
+  PaymentRequestState& operator=(const PaymentRequestState&) = delete;
+
   ~PaymentRequestState() override;
 
   // PaymentAppFactory::Delegate
   content::WebContents* GetWebContents() override;
-  ContentPaymentRequestDelegate* GetPaymentRequestDelegate() const override;
+  base::WeakPtr<ContentPaymentRequestDelegate> GetPaymentRequestDelegate()
+      const override;
   void ShowProcessingSpinner() override;
   base::WeakPtr<PaymentRequestSpec> GetSpec() const override;
   std::string GetTwaPackageName() const override;
@@ -120,9 +126,11 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
   const GURL& GetFrameOrigin() override;
   const url::Origin& GetFrameSecurityOrigin() override;
   content::RenderFrameHost* GetInitiatorRenderFrameHost() const override;
+  content::GlobalRenderFrameHostId GetInitiatorRenderFrameHostId()
+      const override;
   const std::vector<mojom::PaymentMethodDataPtr>& GetMethodData()
       const override;
-  std::unique_ptr<autofill::InternalAuthenticator> CreateInternalAuthenticator()
+  std::unique_ptr<webauthn::InternalAuthenticator> CreateInternalAuthenticator()
       const override;
   scoped_refptr<PaymentManifestWebDataService>
   GetPaymentManifestWebDataService() const override;
@@ -332,7 +340,7 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
   bool GetCanMakePaymentValue() const;
   bool GetHasEnrolledInstrumentValue() const;
 
-  content::GlobalFrameRoutingId frame_routing_id_;
+  content::GlobalRenderFrameHostId frame_routing_id_;
   const GURL top_origin_;
   const GURL frame_origin_;
   const url::Origin frame_security_origin_;
@@ -369,10 +377,10 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
 
   base::WeakPtr<PaymentRequestSpec> spec_;
   base::WeakPtr<Delegate> delegate_;
+  base::WeakPtr<JourneyLogger> journey_logger_;
 
   // Not owned. Never null. Will outlive this object.
   autofill::PersonalDataManager* personal_data_manager_;
-  JourneyLogger* journey_logger_;
 
   StatusCallback can_make_payment_callback_;
   StatusCallback has_enrolled_instrument_callback_;
@@ -397,7 +405,7 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
   // Credit cards are directly owned by the apps in this list.
   std::vector<std::unique_ptr<PaymentApp>> available_apps_;
 
-  ContentPaymentRequestDelegate* payment_request_delegate_;
+  base::WeakPtr<ContentPaymentRequestDelegate> payment_request_delegate_;
 
   std::unique_ptr<PaymentResponseHelper> response_helper_;
 
@@ -418,8 +426,6 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
   bool can_make_payment_even_without_apps_ = false;
 
   base::WeakPtrFactory<PaymentRequestState> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestState);
 };
 
 }  // namespace payments

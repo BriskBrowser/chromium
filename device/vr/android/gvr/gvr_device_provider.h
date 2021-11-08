@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef DEVICE_VR_ANDROID_GVR_DEVICE_PROVIDER_H
-#define DEVICE_VR_ANDROID_GVR_DEVICE_PROVIDER_H
+#ifndef DEVICE_VR_ANDROID_GVR_GVR_DEVICE_PROVIDER_H_
+#define DEVICE_VR_ANDROID_GVR_GVR_DEVICE_PROVIDER_H_
 
 #include <memory>
 
@@ -19,6 +19,10 @@ class GvrDevice;
 class DEVICE_VR_EXPORT GvrDeviceProvider : public VRDeviceProvider {
  public:
   GvrDeviceProvider();
+
+  GvrDeviceProvider(const GvrDeviceProvider&) = delete;
+  GvrDeviceProvider& operator=(const GvrDeviceProvider&) = delete;
+
   ~GvrDeviceProvider() override;
 
   void Initialize(
@@ -28,17 +32,16 @@ class DEVICE_VR_EXPORT GvrDeviceProvider : public VRDeviceProvider {
                                    mojo::PendingRemote<mojom::XRRuntime>)>
           add_device_callback,
       base::RepeatingCallback<void(mojom::XRDeviceId)> remove_device_callback,
-      base::OnceClosure initialization_complete) override;
+      base::OnceClosure initialization_complete,
+      XrFrameSinkClientFactory xr_frame_sink_client_factory) override;
 
   bool Initialized() override;
 
  private:
   std::unique_ptr<GvrDevice> vr_device_;
   bool initialized_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(GvrDeviceProvider);
 };
 
 }  // namespace device
 
-#endif  // DEVICE_VR_ANDROID_GVR_DEVICE_PROVIDER_H
+#endif  // DEVICE_VR_ANDROID_GVR_GVR_DEVICE_PROVIDER_H_

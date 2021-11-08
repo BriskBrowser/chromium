@@ -14,6 +14,7 @@
 #include "base/unguessable_token.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/common/content_export.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 
 namespace content {
 
@@ -38,9 +39,12 @@ class CONTENT_EXPORT RenderFrameHostFactory {
       FrameTreeNode* frame_tree_node,
       int32_t routing_id,
       mojo::PendingAssociatedRemote<mojom::Frame> frame_remote,
-      const base::UnguessableToken& frame_token,
+      const blink::LocalFrameToken& frame_token,
       bool renderer_initiated_creation,
-      RenderFrameHostImpl::LifecycleState lifecycle_state);
+      RenderFrameHostImpl::LifecycleStateImpl lifecycle_state);
+
+  RenderFrameHostFactory(const RenderFrameHostFactory&) = delete;
+  RenderFrameHostFactory& operator=(const RenderFrameHostFactory&) = delete;
 
   // Returns true if there is currently a globally-registered factory.
   static bool has_factory() { return !!factory_; }
@@ -59,9 +63,9 @@ class CONTENT_EXPORT RenderFrameHostFactory {
       FrameTreeNode* frame_tree_node,
       int32_t routing_id,
       mojo::PendingAssociatedRemote<mojom::Frame> frame_remote,
-      const base::UnguessableToken& frame_token,
+      const blink::LocalFrameToken& frame_token,
       bool renderer_initiated_creation,
-      RenderFrameHostImpl::LifecycleState lifecycle_state) = 0;
+      RenderFrameHostImpl::LifecycleStateImpl lifecycle_state) = 0;
 
   // Registers a factory to be called when new RenderFrameHostImpls are created.
   // We have only one global factory, so there must be no factory registered
@@ -76,8 +80,6 @@ class CONTENT_EXPORT RenderFrameHostFactory {
   // The current globally registered factory. This is null when we should create
   // regular RenderFrameHostImpls.
   static RenderFrameHostFactory* factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(RenderFrameHostFactory);
 };
 
 }  // namespace content

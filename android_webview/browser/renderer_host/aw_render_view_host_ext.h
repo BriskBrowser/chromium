@@ -11,7 +11,8 @@
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/sequence_checker.h"
-#include "content/public/browser/web_contents_receiver_set.h"
+#include "content/public/browser/global_routing_id.h"
+#include "content/public/browser/render_frame_host_receiver_set.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -37,11 +38,20 @@ class AwRenderViewHostExtClient {
 class AwRenderViewHostExt : public content::WebContentsObserver,
                             mojom::FrameHost {
  public:
+  // Binds the Mojo receiver for the FrameHost endpoint to the
+  // AwRenderViewHostExt associated with the RenderFrameHost.
+  static void BindFrameHost(
+      mojo::PendingAssociatedReceiver<mojom::FrameHost> receiver,
+      content::RenderFrameHost* rfh);
 
   // To send receive messages to a RenderView we take the WebContents instance,
   // as it internally handles RenderViewHost instances changing underneath us.
   AwRenderViewHostExt(
       AwRenderViewHostExtClient* client, content::WebContents* contents);
+
+  AwRenderViewHostExt(const AwRenderViewHostExt&) = delete;
+  AwRenderViewHostExt& operator=(const AwRenderViewHostExt&) = delete;
+
   ~AwRenderViewHostExt() override;
 
   // |result| will be invoked with the outcome of the request.
@@ -71,14 +81,12 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
   // Sets the initial page scale. This overrides initial scale set by
   // the meta viewport tag.
   void SetInitialPageScale(double page_scale_factor);
-  void SetBackgroundColor(SkColor c);
   void SetWillSuppressErrorPage(bool suppress);
 
   void SmoothScroll(int target_x, int target_y, base::TimeDelta duration);
 
  private:
   // content::WebContentsObserver implementation.
-  void RenderFrameCreated(content::RenderFrameHost* frame_host) override;
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(
@@ -90,17 +98,15 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
       android_webview::mojom::HitTestDataPtr hit_test_data) override;
   void ContentsSizeChanged(const gfx::Size& contents_size) override;
   void ShouldOverrideUrlLoading(
-      const base::string16& url,
+      const std::u16string& url,
       bool has_user_gesture,
       bool is_redirect,
       bool is_main_frame,
       ShouldOverrideUrlLoadingCallback callback) override;
 
-  bool IsRenderViewReady() const;
+  mojom::LocalMainFrame* GetLocalMainFrameRemote();
 
   AwRenderViewHostExtClient* client_;
-
-  SkColor background_color_;
 
   // Authoritative copy of hit test data on the browser side. This is updated
   // as a result of DoHitTest called explicitly or when the FocusedNodeChanged
@@ -112,14 +118,14 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
   // Some WebView users might want to show their own error pages / logic.
   bool will_suppress_error_page_ = false;
 
-  content::WebContentsFrameReceiverSet<mojom::FrameHost> frame_host_receivers_;
+  content::GlobalRenderFrameHostId main_frame_global_id_;
+
+  content::RenderFrameHostReceiverSet<mojom::FrameHost> frame_host_receivers_;
 
   // Associated channel to the webview LocalMainFrame extensions.
   mojo::AssociatedRemote<mojom::LocalMainFrame> local_main_frame_remote_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(AwRenderViewHostExt);
 };
 
 }  // namespace android_webview

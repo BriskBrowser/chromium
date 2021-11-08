@@ -61,6 +61,10 @@ class DialMediaRouteProvider : public mojom::MediaRouteProvider,
       DialMediaSinkServiceImpl* media_sink_service,
       const std::string& hash_token,
       const scoped_refptr<base::SequencedTaskRunner>& task_runner);
+
+  DialMediaRouteProvider(const DialMediaRouteProvider&) = delete;
+  DialMediaRouteProvider& operator=(const DialMediaRouteProvider&) = delete;
+
   ~DialMediaRouteProvider() override;
 
   // mojom::MediaRouteProvider:
@@ -124,13 +128,15 @@ class DialMediaRouteProvider : public mojom::MediaRouteProvider,
 
   struct MediaSinkQuery {
     MediaSinkQuery();
+
+    MediaSinkQuery(const MediaSinkQuery&) = delete;
+    MediaSinkQuery& operator=(const MediaSinkQuery&) = delete;
+
     ~MediaSinkQuery();
 
     // Set of registered media sources for current sink query.
     base::flat_set<MediaSource> media_sources;
     base::CallbackListSubscription subscription;
-
-    DISALLOW_COPY_AND_ASSIGN(MediaSinkQuery);
   };
 
   // MediaSinkServiceBase::Observer:
@@ -170,7 +176,7 @@ class DialMediaRouteProvider : public mojom::MediaRouteProvider,
                         TerminateRouteCallback callback);
   void HandleStopAppResult(const MediaRoute::Id& route_id,
                            TerminateRouteCallback callback,
-                           const base::Optional<std::string>& message,
+                           const absl::optional<std::string>& message,
                            RouteRequestResult::ResultCode result_code);
   void NotifyAllOnRoutesUpdated();
   void NotifyOnRoutesUpdated(const MediaSource::Id& source_id,
@@ -210,7 +216,6 @@ class DialMediaRouteProvider : public mojom::MediaRouteProvider,
 
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<DialMediaRouteProvider> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(DialMediaRouteProvider);
 };
 
 }  // namespace media_router

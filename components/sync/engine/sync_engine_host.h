@@ -5,8 +5,6 @@
 #ifndef COMPONENTS_SYNC_ENGINE_SYNC_ENGINE_HOST_H_
 #define COMPONENTS_SYNC_ENGINE_SYNC_ENGINE_HOST_H_
 
-#include <string>
-
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/weak_handle.h"
 #include "components/sync/engine/sync_encryption_handler.h"
@@ -16,7 +14,6 @@
 namespace syncer {
 
 class DataTypeDebugInfoListener;
-class JsBackend;
 class ProtocolEvent;
 
 // SyncEngineHost is the interface used by SyncEngine to communicate with the
@@ -35,7 +32,6 @@ class SyncEngineHost {
   // initialized only if |success| is true.
 
   virtual void OnEngineInitialized(
-      const WeakHandle<JsBackend>& js_backend,
       const WeakHandle<DataTypeDebugInfoListener>& debug_info_listener,
       bool success,
       bool is_first_time_sync_configure) = 0;

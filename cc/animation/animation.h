@@ -5,16 +5,17 @@
 #ifndef CC_ANIMATION_ANIMATION_H_
 #define CC_ANIMATION_ANIMATION_H_
 
+#include <memory>
+#include <string>
 #include <vector>
 
-#include <memory>
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
-#include "cc/animation/animation_curve.h"
 #include "cc/animation/animation_export.h"
 #include "cc/animation/element_animations.h"
 #include "cc/animation/keyframe_model.h"
 #include "cc/paint/element_id.h"
+#include "ui/gfx/animation/keyframe/animation_curve.h"
 
 namespace cc {
 
@@ -115,7 +116,12 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
   // to be dispatched.
   void DispatchAndDelegateAnimationEvent(const AnimationEvent& event);
 
-  bool AffectsCustomProperty() const;
+  // Returns true if this animation effects pending tree, such as a custom
+  // property animation with paint worklet.
+  bool RequiresInvalidation() const;
+  // Returns true if this animation effects active tree, such as a transform
+  // animation.
+  bool AffectsNativeProperty() const;
 
   void SetNeedsPushProperties();
 
@@ -134,6 +140,8 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
 
   virtual bool IsWorkletAnimation() const;
 
+  void SetKeyframeEffectForTesting(std::unique_ptr<KeyframeEffect>);
+
  private:
   friend class base::RefCounted<Animation>;
 
@@ -148,7 +156,6 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
 
  protected:
   explicit Animation(int id);
-  Animation(int id, std::unique_ptr<KeyframeEffect>);
   virtual ~Animation();
 
   AnimationHost* animation_host_;

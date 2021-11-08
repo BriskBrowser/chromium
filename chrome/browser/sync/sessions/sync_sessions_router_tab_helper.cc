@@ -13,6 +13,7 @@
 #include "components/sync_sessions/synced_tab_delegate.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/page.h"
 #include "content/public/browser/render_frame_host.h"
 #include "ui/gfx/image/image_skia.h"
 
@@ -39,7 +40,7 @@ SyncSessionsRouterTabHelper::~SyncSessionsRouterTabHelper() {}
 
 void SyncSessionsRouterTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (navigation_handle && navigation_handle->IsInMainFrame())
+  if (navigation_handle && navigation_handle->IsInPrimaryMainFrame())
     NotifyRouter();
 }
 
@@ -59,10 +60,10 @@ void SyncSessionsRouterTabHelper::WebContentsDestroyed() {
 void SyncSessionsRouterTabHelper::DidFinishLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url) {
-  // Only notify when the main frame finishes loading; only the main frame
-  // doesn't have a parent.
-  if (render_frame_host && !render_frame_host->GetParent())
+  // Only notify when the primary main frame finishes loading.
+  if (render_frame_host && render_frame_host->IsInPrimaryMainFrame()) {
     NotifyRouter(true);
+  }
 }
 
 void SyncSessionsRouterTabHelper::DidOpenRequestedURL(
@@ -101,6 +102,6 @@ void SyncSessionsRouterTabHelper::OnFaviconUpdated(
   }
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(SyncSessionsRouterTabHelper)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SyncSessionsRouterTabHelper);
 
 }  // namespace sync_sessions

@@ -5,8 +5,6 @@
 #ifndef COMPONENTS_SYNC_TEST_MODEL_FAKE_SYNC_CHANGE_PROCESSOR_H_
 #define COMPONENTS_SYNC_TEST_MODEL_FAKE_SYNC_CHANGE_PROCESSOR_H_
 
-#include <string>
-
 #include "base/macros.h"
 #include "components/sync/model/sync_change_processor.h"
 
@@ -15,32 +13,25 @@ namespace syncer {
 class FakeSyncChangeProcessor : public SyncChangeProcessor {
  public:
   FakeSyncChangeProcessor();
+
+  FakeSyncChangeProcessor(const FakeSyncChangeProcessor&) = delete;
+  FakeSyncChangeProcessor& operator=(const FakeSyncChangeProcessor&) = delete;
+
   ~FakeSyncChangeProcessor() override;
 
   // SyncChangeProcessor implementation.
   //
   // ProcessSyncChanges will accumulate changes in changes() until they are
   // cleared.
-  base::Optional<ModelError> ProcessSyncChanges(
+  absl::optional<ModelError> ProcessSyncChanges(
       const base::Location& from_here,
       const SyncChangeList& change_list) override;
 
-  // SyncChangeProcessor implementation.
-  //
-  // Returns data().
-  SyncDataList GetAllSyncData(ModelType type) const override;
-
-  virtual const SyncChangeList& changes() const;
-  virtual SyncChangeList& changes();
-
-  virtual const SyncDataList& data() const;
-  virtual SyncDataList& data();
+  const SyncChangeList& changes() const;
+  SyncChangeList& changes();
 
  private:
   SyncChangeList changes_;
-  SyncDataList data_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeSyncChangeProcessor);
 };
 
 }  // namespace syncer

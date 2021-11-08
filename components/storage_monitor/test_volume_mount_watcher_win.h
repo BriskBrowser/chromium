@@ -15,7 +15,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "base/synchronization/waitable_event.h"
 #include "components/storage_monitor/volume_mount_watcher_win.h"
 
@@ -28,6 +27,11 @@ namespace storage_monitor {
 class TestVolumeMountWatcherWin : public VolumeMountWatcherWin {
  public:
   TestVolumeMountWatcherWin();
+
+  TestVolumeMountWatcherWin(const TestVolumeMountWatcherWin&) = delete;
+  TestVolumeMountWatcherWin& operator=(const TestVolumeMountWatcherWin&) =
+      delete;
+
   ~TestVolumeMountWatcherWin() override;
 
   static bool GetDeviceRemovable(const base::FilePath& device_path,
@@ -35,7 +39,7 @@ class TestVolumeMountWatcherWin : public VolumeMountWatcherWin {
 
   void AddDeviceForTesting(const base::FilePath& device_path,
                            const std::string& device_id,
-                           const base::string16& device_name,
+                           const std::u16string& device_name,
                            uint64_t total_size_in_bytes);
 
   void SetAttachedDevicesFake();
@@ -57,8 +61,6 @@ class TestVolumeMountWatcherWin : public VolumeMountWatcherWin {
   std::vector<base::FilePath> devices_checked_;
   std::unique_ptr<base::WaitableEvent> device_check_complete_event_;
   bool attached_devices_fake_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestVolumeMountWatcherWin);
 };
 
 }  // namespace storage_monitor

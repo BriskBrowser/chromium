@@ -6,7 +6,6 @@
 #define UI_GFX_WIN_SINGLETON_HWND_H_
 
 #include <windows.h>
-#include <vector>
 
 #include "base/macros.h"
 #include "base/observer_list.h"
@@ -26,6 +25,9 @@ class SingletonHwndObserver;
 class GFX_EXPORT SingletonHwnd : public WindowImpl {
  public:
   static SingletonHwnd* GetInstance();
+
+  SingletonHwnd(const SingletonHwnd&) = delete;
+  SingletonHwnd& operator=(const SingletonHwnd&) = delete;
 
   // Windows callback for WM_* notifications.
   BOOL ProcessWindowMessage(HWND window,
@@ -48,8 +50,6 @@ class GFX_EXPORT SingletonHwnd : public WindowImpl {
 
   // List of registered observers.
   base::ObserverList<SingletonHwndObserver, true>::Unchecked observer_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(SingletonHwnd);
 };
 
 }  // namespace gfx

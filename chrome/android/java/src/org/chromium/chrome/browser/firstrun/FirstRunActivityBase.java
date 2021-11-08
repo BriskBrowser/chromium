@@ -42,7 +42,9 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
             "Extra.FreChromeLaunchIntentExtras";
     static final String SHOW_DATA_REDUCTION_PAGE = "ShowDataReduction";
     static final String SHOW_SEARCH_ENGINE_PAGE = "ShowSearchEnginePage";
-    static final String SHOW_SIGNIN_PAGE = "ShowSignIn";
+    static final String SHOW_SYNC_CONSENT_PAGE = "ShowSyncConsent";
+
+    static final String OPEN_ADVANCED_SYNC_SETTINGS = "OpenAdvancedSyncSettings";
 
     public static final boolean DEFAULT_METRICS_AND_CRASH_REPORTING = true;
 
@@ -164,10 +166,13 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
     }
 
     protected void onPolicyLoadListenerAvailable(boolean onDevicePolicyFound) {
-        long delayAfterNative = Math.max(0, SystemClock.elapsedRealtime() - mNativeInitializedTime);
+        if (!mNativeInitialized) return;
+
+        assert mNativeInitializedTime != 0;
+        long delayAfterNative = SystemClock.elapsedRealtime() - mNativeInitializedTime;
         String histogramName = onDevicePolicyFound
-                ? "MobileFre.PolicyServiceInitDelayAfterNative.WithPolicy"
-                : "MobileFre.PolicyServiceInitDelayAfterNative.WithoutPolicy";
+                ? "MobileFre.PolicyServiceInitDelayAfterNative.WithPolicy2"
+                : "MobileFre.PolicyServiceInitDelayAfterNative.WithoutPolicy2";
         RecordHistogram.recordTimesHistogram(histogramName, delayAfterNative);
     }
 

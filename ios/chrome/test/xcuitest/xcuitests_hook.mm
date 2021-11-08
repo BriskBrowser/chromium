@@ -18,6 +18,10 @@ bool DisableContentSuggestions() {
   return true;
 }
 
+bool DisableDiscoverFeed() {
+  return true;
+}
+
 bool DisableFirstRun() {
   return true;
 }
@@ -26,7 +30,7 @@ bool DisableGeolocation() {
   return true;
 }
 
-bool DisableSigninRecallPromo() {
+bool DisableUpgradeSigninPromo() {
   return true;
 }
 

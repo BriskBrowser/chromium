@@ -11,13 +11,13 @@
 #include "chrome/browser/profiles/profile.h"
 #include "components/policy/core/common/cloud/dm_token.h"
 #include "components/prefs/pref_service.h"
-#include "components/safe_browsing/core/common/thread_utils.h"
-#include "components/safe_browsing/core/features.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
-#include "components/safe_browsing/core/proto/realtimeapi.pb.h"
-#include "components/safe_browsing/core/realtime/policy_engine.h"
-#include "components/safe_browsing/core/realtime/url_lookup_service_base.h"
-#include "components/safe_browsing/core/verdict_cache_manager.h"
+#include "components/safe_browsing/core/browser/realtime/policy_engine.h"
+#include "components/safe_browsing/core/browser/realtime/url_lookup_service_base.h"
+#include "components/safe_browsing/core/browser/referrer_chain_provider.h"
+#include "components/safe_browsing/core/browser/verdict_cache_manager.h"
+#include "components/safe_browsing/core/common/features.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
+#include "components/safe_browsing/core/common/proto/realtimeapi.pb.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "url/gurl.h"
@@ -29,20 +29,14 @@ ChromeEnterpriseRealTimeUrlLookupService::
         scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
         VerdictCacheManager* cache_manager,
         Profile* profile,
-        const IsHistorySyncEnabledCallback& is_history_sync_enabled_callback,
+        base::RepeatingCallback<ChromeUserPopulation()>
+            get_user_population_callback,
         enterprise_connectors::ConnectorsService* connectors_service,
-        PrefService* pref_service,
-        const ChromeUserPopulation::ProfileManagementStatus&
-            profile_management_status,
-        bool is_under_advanced_protection,
-        bool is_off_the_record)
+        ReferrerChainProvider* referrer_chain_provider)
     : RealTimeUrlLookupServiceBase(url_loader_factory,
                                    cache_manager,
-                                   is_history_sync_enabled_callback,
-                                   pref_service,
-                                   profile_management_status,
-                                   is_under_advanced_protection,
-                                   is_off_the_record),
+                                   get_user_population_callback,
+                                   referrer_chain_provider),
       profile_(profile),
       connectors_service_(connectors_service) {}
 
@@ -62,6 +56,21 @@ bool ChromeEnterpriseRealTimeUrlLookupService::
   return false;
 }
 
+bool ChromeEnterpriseRealTimeUrlLookupService::CanAttachReferrerChain() const {
+  return base::FeatureList::IsEnabled(
+      kRealTimeUrlLookupReferrerChainForEnterprise);
+}
+
+int ChromeEnterpriseRealTimeUrlLookupService::GetReferrerUserGestureLimit()
+    const {
+  return 2;
+}
+
+bool ChromeEnterpriseRealTimeUrlLookupService::CanSendPageLoadToken() const {
+  // Page load token is disabled for enterprise users.
+  return false;
+}
+
 bool ChromeEnterpriseRealTimeUrlLookupService::CanCheckSubresourceURL() const {
   return false;
 }
@@ -72,25 +81,24 @@ bool ChromeEnterpriseRealTimeUrlLookupService::CanCheckSafeBrowsingDb() const {
 
 void ChromeEnterpriseRealTimeUrlLookupService::GetAccessToken(
     const GURL& url,
+    const GURL& last_committed_url,
+    bool is_mainframe,
     RTLookupRequestCallback request_callback,
-    RTLookupResponseCallback response_callback) {
+    RTLookupResponseCallback response_callback,
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner) {
   NOTREACHED() << "URL lookup with token is disabled for enterprise users.";
 }
 
-base::Optional<std::string>
+absl::optional<std::string>
 ChromeEnterpriseRealTimeUrlLookupService::GetDMTokenString() const {
   DCHECK(connectors_service_);
   return connectors_service_->GetDMTokenForRealTimeUrlCheck();
 }
 
 GURL ChromeEnterpriseRealTimeUrlLookupService::GetRealTimeLookupUrl() const {
-  bool is_ga_endpoint_enabled =
-      base::FeatureList::IsEnabled(kRealTimeUrlLookupEnterpriseGaEndpoint);
-  std::string endpoint = is_ga_endpoint_enabled
-                             ? "https://enterprise-safebrowsing.googleapis.com/"
-                               "safebrowsing/clientreport/realtime"
-                             : "https://safebrowsing.google.com/safebrowsing/"
-                               "clientreport/realtime";
+  std::string endpoint =
+      "https://enterprise-safebrowsing.googleapis.com/"
+      "safebrowsing/clientreport/realtime";
   return GURL(endpoint);
 }
 
@@ -137,7 +145,14 @@ std::string ChromeEnterpriseRealTimeUrlLookupService::GetMetricSuffix() const {
 
 bool ChromeEnterpriseRealTimeUrlLookupService::ShouldIncludeCredentials()
     const {
-  return !base::FeatureList::IsEnabled(kSafeBrowsingRemoveCookies);
+  return false;
+}
+
+double ChromeEnterpriseRealTimeUrlLookupService::
+    GetMinAllowedTimestampForReferrerChains() const {
+  // Enterprise URL lookup is enabled at startup and managed by the admin, so
+  // all referrer URLs should be included in the referrer chain.
+  return 0;
 }
 
 }  // namespace safe_browsing

@@ -23,7 +23,7 @@ Test following keys:
 <script>
 description("Multiple fields UI of time input type with keyboard events");
 if (window.internals)
-    internals.settings.setLangAttributeAwareFormControlUIEnabled(true);
+    internals.runtimeFlags.langAttributeAwareFormControlUIEnabled = true;
 var input = document.getElementById("input");
 
 function shadowPseudoIdOfFocusedSubField(host)
@@ -177,7 +177,7 @@ keyDown('\t');
 keyDown('ArrowUp');
 keyDown('\t');
 keyDown('ArrowUp');
-shouldBeEqualToString('input.value', '13:00');
+shouldBeEqualToString('input.value', '13:00:00.000');
 
 beginTest('Down key on minimum value', '01:00');
 input.step = 0.001;

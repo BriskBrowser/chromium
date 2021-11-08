@@ -9,7 +9,6 @@
 
 #include "ash/constants/ash_switches.h"
 #include "ash/display/event_transformation_handler.h"
-#include "ash/public/cpp/ash_features.h"
 #include "ash/shell.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -45,6 +44,10 @@ class ImmersiveRevealEndedWaiter : public ImmersiveModeController::Observer {
     immersive_controller_->AddObserver(this);
   }
 
+  ImmersiveRevealEndedWaiter(const ImmersiveRevealEndedWaiter&) = delete;
+  ImmersiveRevealEndedWaiter& operator=(const ImmersiveRevealEndedWaiter&) =
+      delete;
+
   ~ImmersiveRevealEndedWaiter() override {
     if (immersive_controller_)
       immersive_controller_->RemoveObserver(this);
@@ -76,8 +79,6 @@ class ImmersiveRevealEndedWaiter : public ImmersiveModeController::Observer {
 
   ImmersiveModeController* immersive_controller_;
   base::OnceClosure quit_closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(ImmersiveRevealEndedWaiter);
 };
 
 }  // namespace
@@ -87,15 +88,11 @@ class TabScrubberTest : public InProcessBrowserTest,
  public:
   TabScrubberTest() = default;
 
+  TabScrubberTest(const TabScrubberTest&) = delete;
+  TabScrubberTest& operator=(const TabScrubberTest&) = delete;
+
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(chromeos::switches::kNaturalScrollDefault);
-  }
-
-  // InProcessBrowserTest:
-  void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(
-        ash::features::kInteractiveWindowCycleList);
-    InProcessBrowserTest::SetUp();
   }
 
   void SetUpOnMainThread() override {
@@ -286,6 +283,9 @@ class TabScrubberTest : public InProcessBrowserTest,
         TabScrubber::GetInstance()->FinishScrub(true);
     }
 
+    ScrollGenerator(const ScrollGenerator&) = delete;
+    ScrollGenerator& operator=(const ScrollGenerator&) = delete;
+
     ~ScrollGenerator() {
       ui::ScrollEvent fling_start(
           ui::ET_SCROLL_FLING_START, gfx::Point(), time_for_next_event_, 0,
@@ -296,7 +296,7 @@ class TabScrubberTest : public InProcessBrowserTest,
     }
 
     void GenerateScroll(int x_offset) {
-      time_for_next_event_ += base::TimeDelta::FromMilliseconds(100);
+      time_for_next_event_ += base::Milliseconds(100);
       ui::ScrollEvent scroll(ui::ET_SCROLL, gfx::Point(), time_for_next_event_,
                              0, x_offset, 0, x_offset, 0,
                              kScrubbingGestureFingerCount);
@@ -310,8 +310,6 @@ class TabScrubberTest : public InProcessBrowserTest,
     ui::test::EventGenerator* event_generator_;
     base::TimeTicks time_for_next_event_ = ui::EventTimeForNow();
     int last_x_offset_ = 0;
-
-    DISALLOW_COPY_AND_ASSIGN(ScrollGenerator);
   };
 
   std::unique_ptr<ui::test::EventGenerator> CreateEventGenerator(
@@ -320,10 +318,6 @@ class TabScrubberTest : public InProcessBrowserTest,
     aura::Window* root = window->GetRootWindow();
     return std::make_unique<ui::test::EventGenerator>(root, window);
   }
-
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(TabScrubberTest);
 };
 
 // Swipe a single tab in each direction.

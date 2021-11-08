@@ -4,6 +4,7 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
@@ -37,7 +38,7 @@ class FindInPageInteractiveTest : public InProcessBrowserTest {
                       bool forward,
                       bool case_sensitive,
                       int* ordinal) {
-    base::string16 search_str16(ASCIIToUTF16(search_str));
+    std::u16string search_str16(base::ASCIIToUTF16(search_str));
     Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
     browser->GetFindBarController()->find_bar()->SetFindTextAndSelectedRange(
         search_str16, gfx::Range());
@@ -71,7 +72,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageInteractiveTest, FindInPageEndState) {
 
   // First we navigate to our special focus tracking page.
   GURL url = embedded_test_server()->GetURL(kEndState);
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();

@@ -10,8 +10,7 @@ import os
 
 class QualityCheckError(Exception):
   def __init__(self, msg):
-    super(QualityCheckError,
-          self).__init__('--check-data-quality assertion failed: ' + msg)
+    super().__init__('--check-data-quality assertion failed: ' + msg)
 
 
 def CheckDataQuality(size_info, track_string_literals):
@@ -169,7 +168,7 @@ def _DescribeSizeInfoContainerCoverage(raw_symbols, container):
     yield '* {} have a component assigned. {}'.format(len(syms), size_msg(syms))
 
     syms = in_section.WhereNameMatches(r'^\*')
-    if len(syms):
+    if syms:
       yield '* {} placeholders exist (symbols that start with **). {}'.format(
           len(syms), size_msg(syms))
 
@@ -184,7 +183,7 @@ def _DescribeSizeInfoContainerCoverage(raw_symbols, container):
           len(syms), size_msg(syms, show_padding=True))
 
     syms = in_section.Filter(lambda s: s.aliases)
-    if len(syms):
+    if syms:
       uniques = sum(1 for s in syms.IterUniqueSymbols())
       saved = sum(s.size_without_padding * (s.num_aliases - 1)
                   for s in syms.IterUniqueSymbols())
@@ -192,7 +191,7 @@ def _DescribeSizeInfoContainerCoverage(raw_symbols, container):
              '({} bytes saved)').format(len(syms), uniques, saved)
 
     syms = in_section.WhereObjectPathMatches('{shared}')
-    if len(syms):
+    if syms:
       yield '* {} symbols have shared ownership. {}'.format(
           len(syms), size_msg(syms))
     else:
@@ -205,17 +204,23 @@ def _DescribeSizeInfoContainerCoverage(raw_symbols, container):
                        (models.FLAG_GENERATED_SOURCE,
                         'from generated sources')):
       syms = in_section.WhereHasFlag(flag)
-      if len(syms):
+      if syms:
         yield '* {} symbols are {}. {}'.format(len(syms), desc, size_msg(syms))
 
-    # These thresholds were found by experimenting with arm32 Chrome.
-    # E.g.: Set them to 0 and see what warnings get logged, then take max value.
     spam_counter = 0
-    for i in range(len(in_section) - 1):
-      sym = in_section[i + 1]
+    i = 1
+    count = len(in_section)
+    while i < count:
+      prev_sym = in_section[i - 1]
+      sym = in_section[i]
       if (not sym.full_name.startswith('*')
-          and not sym.source_path.endswith('.S')  # Assembly symbol are iffy.
-          and not sym.IsStringLiteral()
+          # Assembly symbol are iffy.
+          and not prev_sym.source_path.endswith('.S') and
+          not sym.source_path.endswith('.S')
+          # String literal symbol creation is imperfect.
+          and not prev_sym.IsStringLiteral() and not sym.IsStringLiteral()
+          # Thresholds found by experimenting with arm32 Chrome.
+          # E.g.: Set to 0 and see what warnings appear, then take max value.
           and ((sym.section in 'rd' and sym.padding >= 256) or
                (sym.section in 't' and sym.padding >= 64))):
         # TODO(crbug.com/959906): We should synthesize symbols for these gaps
@@ -224,8 +229,10 @@ def _DescribeSizeInfoContainerCoverage(raw_symbols, container):
         if spam_counter > 5:
           break
         yield 'Large padding of {} between:'.format(sym.padding)
-        yield '  A) ' + repr(in_section[i])
+        yield '  A) ' + repr(in_section[i - 1])
         yield '  B) ' + repr(sym)
+      # All aliases will have the same padding.
+      i += sym.num_aliases
 
 
 def DescribeSizeInfoCoverage(size_info):

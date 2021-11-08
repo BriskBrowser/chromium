@@ -23,6 +23,10 @@ class AshWindowTreeHostUnified : public AshWindowTreeHostPlatform,
  public:
   AshWindowTreeHostUnified(const gfx::Rect& initial_bounds,
                            AshWindowTreeHostMirroringDelegate* delegate);
+
+  AshWindowTreeHostUnified(const AshWindowTreeHostUnified&) = delete;
+  AshWindowTreeHostUnified& operator=(const AshWindowTreeHostUnified&) = delete;
+
   ~AshWindowTreeHostUnified() override;
 
  private:
@@ -35,7 +39,7 @@ class AshWindowTreeHostUnified : public AshWindowTreeHostPlatform,
   void OnCursorVisibilityChangedNative(bool show) override;
 
   // ui::PlatformWindow:
-  void OnBoundsChanged(const gfx::Rect& bounds) override;
+  void OnBoundsChanged(const BoundsChange& bounds) override;
 
   // aura::WindowObserver:
   void OnWindowDestroying(aura::Window* window) override;
@@ -43,8 +47,6 @@ class AshWindowTreeHostUnified : public AshWindowTreeHostPlatform,
   AshWindowTreeHostMirroringDelegate* delegate_;  // Not owned.
 
   std::vector<AshWindowTreeHost*> mirroring_hosts_;
-
-  DISALLOW_COPY_AND_ASSIGN(AshWindowTreeHostUnified);
 };
 
 }  // namespace ash

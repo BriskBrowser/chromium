@@ -12,12 +12,16 @@ import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
 
 import org.chromium.android_webview.common.services.ServiceNames;
+import org.chromium.android_webview.nonembedded.AwComponentUpdateService;
 import org.chromium.android_webview.services.AwMinidumpUploadJobService;
+import org.chromium.android_webview.services.ComponentsProviderService;
 import org.chromium.android_webview.services.CrashReceiverService;
 import org.chromium.android_webview.services.DeveloperModeContentProvider;
 import org.chromium.android_webview.services.DeveloperUiService;
 import org.chromium.android_webview.services.MetricsBridgeService;
+import org.chromium.android_webview.services.MetricsUploadService;
 import org.chromium.android_webview.services.VariationsSeedServer;
+import org.chromium.components.component_updater.EmbeddedComponentLoader;
 import org.chromium.testing.local.LocalRobolectricTestRunner;
 
 /** Tests the constants in ServiceNames. */
@@ -39,7 +43,14 @@ public class ServiceNamesTest {
                 ServiceNames.DEVELOPER_UI_SERVICE);
         Assert.assertEquals("Incorrect class name constant", MetricsBridgeService.class.getName(),
                 ServiceNames.METRICS_BRIDGE_SERVICE);
+        Assert.assertEquals("Incorrect class name constant", MetricsUploadService.class.getName(),
+                ServiceNames.METRICS_UPLOAD_SERVICE);
         Assert.assertEquals("Incorrect class name constant", VariationsSeedServer.class.getName(),
                 ServiceNames.VARIATIONS_SEED_SERVER);
+        Assert.assertEquals("Incorrect class name constant",
+                AwComponentUpdateService.class.getName(), ServiceNames.AW_COMPONENT_UPDATE_SERVICE);
+        Assert.assertEquals("Incorrect class name constant",
+                ComponentsProviderService.class.getName(),
+                EmbeddedComponentLoader.AW_COMPONENTS_PROVIDER_SERVICE);
     }
 }

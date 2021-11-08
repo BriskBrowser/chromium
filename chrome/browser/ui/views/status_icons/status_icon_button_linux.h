@@ -8,11 +8,11 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/linux_ui/status_icon_linux.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace aura {
@@ -35,7 +35,7 @@ class StatusIconButtonLinux : public views::StatusIconLinux,
 
   // views::StatusIcon:
   void SetIcon(const gfx::ImageSkia& image) override;
-  void SetToolTip(const base::string16& tool_tip) override;
+  void SetToolTip(const std::u16string& tool_tip) override;
   void UpdatePlatformContextMenu(ui::MenuModel* model) override;
   void OnSetDelegate() override;
 

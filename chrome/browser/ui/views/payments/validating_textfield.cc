@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/payments/validating_textfield.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 
 #include <utility>
 
@@ -44,7 +44,7 @@ void ValidatingTextfield::OnContentsChanged() {
 }
 
 bool ValidatingTextfield::IsValid() {
-  base::string16 unused;
+  std::u16string unused;
   return delegate_->IsValidTextfield(this, &unused);
 }
 

@@ -24,19 +24,19 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/xr_runtime_manager.h"
 #include "device/base/features.h"
+#include "device/vr/public/mojom/vr_service.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace vr {
 
 namespace {
-static constexpr base::TimeDelta kPermissionPromptTimeout =
-    base::TimeDelta::FromSeconds(5);
+static constexpr base::TimeDelta kPermissionPromptTimeout = base::Seconds(5);
 
 #if defined(OS_WIN)
 // Some runtimes on Windows have quite lengthy lengthy startup animations that
 // may cause indicators/permissions to not be visible during the normal timeout.
 static constexpr base::TimeDelta kFirstWindowsPermissionPromptTimeout =
-    base::TimeDelta::FromSeconds(10);
+    base::Seconds(10);
 #endif
 
 base::TimeDelta GetPermissionPromptTimeout(bool first_time) {
@@ -48,7 +48,7 @@ base::TimeDelta GetPermissionPromptTimeout(bool first_time) {
 }
 
 static constexpr base::TimeDelta kPollCapturingStateInterval =
-    base::TimeDelta::FromSecondsD(0.2);
+    base::Seconds(0.2);
 
 const CapturingStateModel g_default_capturing_state;
 }  // namespace
@@ -158,13 +158,14 @@ VRUiHostImpl::~VRUiHostImpl() {
 
 bool IsValidInfo(device::mojom::VRDisplayInfoPtr& info) {
   // Numeric properties are validated elsewhere, but we expect a stereo headset.
-  if (!info)
+  if (!info) {
     return false;
-  if (!info->left_eye)
-    return false;
-  if (!info->right_eye)
-    return false;
-  return true;
+  }
+
+  return base::Contains(info->views, device::mojom::XREye::kLeft,
+                        &device::mojom::XRView::eye) &&
+         base::Contains(info->views, device::mojom::XREye::kRight,
+                        &device::mojom::XRView::eye);
 }
 
 void VRUiHostImpl::SetWebXRWebContents(content::WebContents* contents) {

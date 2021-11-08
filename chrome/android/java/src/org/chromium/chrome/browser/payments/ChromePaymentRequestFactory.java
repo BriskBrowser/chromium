@@ -4,22 +4,26 @@
 
 package org.chromium.chrome.browser.payments;
 
+import android.app.Activity;
+
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.ActivityUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.payments.BrowserPaymentRequest;
 import org.chromium.components.payments.InvalidPaymentRequest;
 import org.chromium.components.payments.MojoPaymentRequestGateKeeper;
 import org.chromium.components.payments.OriginSecurityChecker;
+import org.chromium.components.payments.PaymentAppServiceBridge;
 import org.chromium.components.payments.PaymentFeatureList;
 import org.chromium.components.payments.PaymentRequestService;
 import org.chromium.components.payments.PaymentRequestServiceUtil;
 import org.chromium.components.payments.SslValidityChecker;
 import org.chromium.components.user_prefs.UserPrefs;
-import org.chromium.content_public.browser.FeaturePolicyFeature;
+import org.chromium.content_public.browser.PermissionsPolicyFeature;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsStatics;
@@ -55,8 +59,6 @@ public class ChromePaymentRequestFactory implements InterfaceFactory<PaymentRequ
     @VisibleForTesting
     public static class ChromePaymentRequestDelegateImpl
             implements ChromePaymentRequestService.Delegate {
-        private final TwaPackageManagerDelegate mPackageManagerDelegate =
-                new TwaPackageManagerDelegate();
         private final RenderFrameHost mRenderFrameHost;
         private boolean mSkipUiForBasicCard;
 
@@ -112,8 +114,12 @@ public class ChromePaymentRequestFactory implements InterfaceFactory<PaymentRequ
             WebContents liveWebContents =
                     PaymentRequestServiceUtil.getLiveWebContents(mRenderFrameHost);
             if (liveWebContents == null) return null;
-            ChromeActivity activity = ChromeActivity.fromWebContents(liveWebContents);
-            return activity != null ? mPackageManagerDelegate.getTwaPackageName(activity) : null;
+            Activity activity = ActivityUtils.getActivityFromWebContents(liveWebContents);
+            if (!(activity instanceof CustomTabActivity)) return null;
+
+            CustomTabActivity customTabActivity = ((CustomTabActivity) activity);
+            if (!customTabActivity.isInTwaMode()) return null;
+            return customTabActivity.getTwaPackage();
         }
 
         @VisibleForTesting
@@ -142,7 +148,7 @@ public class ChromePaymentRequestFactory implements InterfaceFactory<PaymentRequ
     @Override
     public PaymentRequest createImpl() {
         if (mRenderFrameHost == null) return new InvalidPaymentRequest();
-        if (!mRenderFrameHost.isFeatureEnabled(FeaturePolicyFeature.PAYMENT)) {
+        if (!mRenderFrameHost.isFeatureEnabled(PermissionsPolicyFeature.PAYMENT)) {
             mRenderFrameHost.terminateRendererDueToBadMessage(241 /*PAYMENTS_WITHOUT_PERMISSION*/);
             return null;
         }
@@ -169,6 +175,7 @@ public class ChromePaymentRequestFactory implements InterfaceFactory<PaymentRequ
 
         return new MojoPaymentRequestGateKeeper(
                 (client, onClosed)
-                        -> new PaymentRequestService(mRenderFrameHost, client, onClosed, delegate));
+                        -> new PaymentRequestService(mRenderFrameHost, client, onClosed, delegate,
+                                PaymentAppServiceBridge::new));
     }
 }

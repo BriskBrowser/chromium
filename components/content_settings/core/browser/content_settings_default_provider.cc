@@ -6,13 +6,13 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/content_settings/core/browser/content_settings_info.h"
 #include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
@@ -47,14 +47,16 @@ const char kObsoletePluginsDataDefaultPref[] =
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)
 
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
+// This setting was moved and should be migrated on profile startup.
+const char kDeprecatedEnableDRM[] = "settings.privacy.drm_enabled";
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
+
 ContentSetting GetDefaultValue(const WebsiteSettingsInfo* info) {
   const base::Value* initial_default = info->initial_default_value();
   if (!initial_default)
     return CONTENT_SETTING_DEFAULT;
-  int result = 0;
-  bool success = initial_default->GetAsInteger(&result);
-  DCHECK(success);
-  return static_cast<ContentSetting>(result);
+  return static_cast<ContentSetting>(initial_default->GetInt());
 }
 
 ContentSetting GetDefaultValue(ContentSettingsType type) {
@@ -76,6 +78,9 @@ class DefaultRuleIterator : public RuleIterator {
       is_done_ = true;
   }
 
+  DefaultRuleIterator(const DefaultRuleIterator&) = delete;
+  DefaultRuleIterator& operator=(const DefaultRuleIterator&) = delete;
+
   bool HasNext() const override { return !is_done_; }
 
   Rule Next() override {
@@ -89,8 +94,6 @@ class DefaultRuleIterator : public RuleIterator {
  private:
   bool is_done_ = false;
   base::Value value_;
-
-  DISALLOW_COPY_AND_ASSIGN(DefaultRuleIterator);
 };
 
 }  // namespace
@@ -123,6 +126,10 @@ void DefaultProvider::RegisterProfilePrefs(
   registry->RegisterIntegerPref(kObsoletePluginsDefaultPref, 0);
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
+  registry->RegisterBooleanPref(kDeprecatedEnableDRM, true);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
 }
 
 DefaultProvider::DefaultProvider(PrefService* prefs, bool off_the_record)
@@ -204,6 +211,19 @@ DefaultProvider::DefaultProvider(PrefService* prefs, bool off_the_record)
                                 ContentSettingsType::IDLE_DETECTION))),
                             CONTENT_SETTING_NUM_SETTINGS);
 #endif
+
+#if defined(OS_ANDROID)
+  UMA_HISTOGRAM_ENUMERATION("ContentSettings.DefaultAutoDarkWebContentSetting",
+                            IntToContentSetting(prefs_->GetInteger(GetPrefName(
+                                ContentSettingsType::AUTO_DARK_WEB_CONTENT))),
+                            CONTENT_SETTING_NUM_SETTINGS);
+
+  UMA_HISTOGRAM_ENUMERATION("ContentSettings.DefaultRequestDesktopSiteSetting",
+                            IntToContentSetting(prefs_->GetInteger(GetPrefName(
+                                ContentSettingsType::REQUEST_DESKTOP_SITE))),
+                            CONTENT_SETTING_NUM_SETTINGS);
+#endif
+
   pref_change_registrar_.Init(prefs_);
   PrefChangeRegistrar::NamedChangeCallback callback = base::BindRepeating(
       &DefaultProvider::OnPreferenceChanged, base::Unretained(this));
@@ -253,8 +273,8 @@ bool DefaultProvider::SetWebsiteSetting(
     WriteToPref(content_type, value.get());
   }
 
-  NotifyObservers(ContentSettingsPattern(), ContentSettingsPattern(),
-                  content_type);
+  NotifyObservers(ContentSettingsPattern::Wildcard(),
+                  ContentSettingsPattern::Wildcard(), content_type);
 
   return true;
 }
@@ -312,7 +332,7 @@ void DefaultProvider::ChangeSetting(ContentSettingsType content_type,
   DCHECK(!info || !value ||
          info->IsDefaultSettingValid(ValueToContentSetting(value)));
   default_settings_[content_type] =
-      value ? base::WrapUnique(value->DeepCopy())
+      value ? base::Value::ToUniquePtrValue(value->Clone())
             : ContentSettingToValue(GetDefaultValue(content_type));
 }
 
@@ -323,10 +343,7 @@ void DefaultProvider::WriteToPref(ContentSettingsType content_type,
     return;
   }
 
-  int int_value = GetDefaultValue(content_type);
-  bool is_integer = value->GetAsInteger(&int_value);
-  DCHECK(is_integer);
-  prefs_->SetInteger(GetPrefName(content_type), int_value);
+  prefs_->SetInteger(GetPrefName(content_type), value->GetInt());
 }
 
 void DefaultProvider::OnPreferenceChanged(const std::string& name) {
@@ -365,8 +382,8 @@ void DefaultProvider::OnPreferenceChanged(const std::string& name) {
     }
   }
 
-  NotifyObservers(ContentSettingsPattern(), ContentSettingsPattern(),
-                  content_type);
+  NotifyObservers(ContentSettingsPattern::Wildcard(),
+                  ContentSettingsPattern::Wildcard(), content_type);
 }
 
 std::unique_ptr<base::Value> DefaultProvider::ReadFromPref(
@@ -388,6 +405,22 @@ void DefaultProvider::DiscardOrMigrateObsoletePreferences() {
   prefs_->ClearPref(kObsoletePluginsDataDefaultPref);
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
+  // TODO(crbug.com/1191642): Remove this migration logic in M100.
+  WebsiteSettingsRegistry* website_settings =
+      WebsiteSettingsRegistry::GetInstance();
+  const base::Value* deprecated_enable_drm_value =
+      prefs_->GetUserPrefValue(kDeprecatedEnableDRM);
+  if (deprecated_enable_drm_value) {
+    prefs_->SetInteger(
+        website_settings->Get(ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER)
+            ->default_value_pref_name(),
+        deprecated_enable_drm_value->GetBool() ? CONTENT_SETTING_ALLOW
+                                               : CONTENT_SETTING_BLOCK);
+  }
+  prefs_->ClearPref(kDeprecatedEnableDRM);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
 }
 
 }  // namespace content_settings

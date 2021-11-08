@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/toolbar/test_toolbar_actions_bar_bubble_delegate.h"
 
+#include "base/callback.h"
 #include "base/check.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -14,6 +15,10 @@ class TestToolbarActionsBarBubbleDelegate::DelegateImpl
  public:
   explicit DelegateImpl(TestToolbarActionsBarBubbleDelegate* parent)
       : parent_(parent) {}
+
+  DelegateImpl(const DelegateImpl&) = delete;
+  DelegateImpl& operator=(const DelegateImpl&) = delete;
+
   ~DelegateImpl() override {}
 
  private:
@@ -21,13 +26,13 @@ class TestToolbarActionsBarBubbleDelegate::DelegateImpl
   bool ShouldCloseOnDeactivate() override {
     return parent_->close_on_deactivate_;
   }
-  base::string16 GetHeadingText() override { return parent_->heading_; }
-  base::string16 GetBodyText(bool anchored_to_action) override {
+  std::u16string GetHeadingText() override { return parent_->heading_; }
+  std::u16string GetBodyText(bool anchored_to_action) override {
     return parent_->body_;
   }
-  base::string16 GetItemListText() override { return parent_->item_list_; }
-  base::string16 GetActionButtonText() override { return parent_->action_; }
-  base::string16 GetDismissButtonText() override { return parent_->dismiss_; }
+  std::u16string GetItemListText() override { return parent_->item_list_; }
+  std::u16string GetActionButtonText() override { return parent_->action_; }
+  std::u16string GetDismissButtonText() override { return parent_->dismiss_; }
   ui::DialogButton GetDefaultDialogButton() override {
     return parent_->default_button_;
   }
@@ -38,7 +43,7 @@ class TestToolbarActionsBarBubbleDelegate::DelegateImpl
           *parent_->info_);
     return nullptr;
   }
-  std::string GetAnchorActionId() override { return std::string(); }
+  std::string GetAnchorActionId() override { return parent_->action_id_; }
   void OnBubbleShown(base::OnceClosure close_bubble_callback) override {
     CHECK(!parent_->shown_);
     parent_->shown_ = true;
@@ -49,14 +54,12 @@ class TestToolbarActionsBarBubbleDelegate::DelegateImpl
   }
 
   TestToolbarActionsBarBubbleDelegate* parent_;
-
-  DISALLOW_COPY_AND_ASSIGN(DelegateImpl);
 };
 
 TestToolbarActionsBarBubbleDelegate::TestToolbarActionsBarBubbleDelegate(
-    const base::string16& heading,
-    const base::string16& body,
-    const base::string16& action)
+    const std::u16string& heading,
+    const std::u16string& body,
+    const std::u16string& action)
     : shown_(false),
       heading_(heading),
       body_(body),

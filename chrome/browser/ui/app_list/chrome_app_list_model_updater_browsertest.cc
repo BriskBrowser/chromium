@@ -7,12 +7,11 @@
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/ash/login/login_manager_test.h"
+#include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/login/login_manager_test.h"
-#include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -35,7 +34,7 @@ constexpr char kOemAppId[] = "emfkafnhnpcmabnnkckkchdilgeoekbo";
 
 }  // namespace
 
-class OemAppPositionTest : public chromeos::LoginManagerTest {
+class OemAppPositionTest : public ash::LoginManagerTest {
  public:
   OemAppPositionTest() : LoginManagerTest() {
     login_mixin_.AppendRegularUsers(1);
@@ -69,7 +68,7 @@ class OemAppPositionTest : public chromeos::LoginManagerTest {
     return true;
   }
 
-  chromeos::LoginManagerMixin login_mixin_{&mixin_host_};
+  ash::LoginManagerMixin login_mixin_{&mixin_host_};
 };
 
 class AppPositionReorderingTest : public extensions::ExtensionBrowserTest {

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,10 +31,13 @@ class VpxVideoDecoderTest : public testing::Test {
       : decoder_(new VpxVideoDecoder()),
         i_frame_buffer_(ReadTestDataFile("vp9-I-frame-320x240")) {}
 
+  VpxVideoDecoderTest(const VpxVideoDecoderTest&) = delete;
+  VpxVideoDecoderTest& operator=(const VpxVideoDecoderTest&) = delete;
+
   ~VpxVideoDecoderTest() override { Destroy(); }
 
   void Initialize() {
-    InitializeWithConfig(TestVideoConfig::Normal(kCodecVP9));
+    InitializeWithConfig(TestVideoConfig::Normal(VideoCodec::kVP9));
   }
 
   void InitializeWithConfigWithResult(const VideoDecoderConfig& config,
@@ -55,7 +59,7 @@ class VpxVideoDecoderTest : public testing::Test {
   }
 
   void Reinitialize() {
-    InitializeWithConfig(TestVideoConfig::Large(kCodecVP9));
+    InitializeWithConfig(TestVideoConfig::Large(VideoCodec::kVP9));
   }
 
   void Reset() {
@@ -171,9 +175,6 @@ class VpxVideoDecoderTest : public testing::Test {
 
   scoped_refptr<DecoderBuffer> i_frame_buffer_;
   OutputFrames output_frames_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(VpxVideoDecoderTest);
 };
 
 TEST_F(VpxVideoDecoderTest, Initialize_Normal) {
@@ -195,6 +196,14 @@ TEST_F(VpxVideoDecoderTest, DecodeFrame_Normal) {
   ASSERT_EQ(1U, output_frames_.size());
 }
 
+TEST_F(VpxVideoDecoderTest, DecodeFrame_OOM) {
+  Initialize();
+  static_cast<VpxVideoDecoder*>(decoder_.get())
+      ->force_allocation_error_for_testing();
+  EXPECT_FALSE(DecodeSingleFrame(i_frame_buffer_).is_ok());
+  EXPECT_TRUE(output_frames_.empty());
+}
+
 // Decode |i_frame_buffer_| and then a frame with a larger width and verify
 // the output size was adjusted.
 TEST_F(VpxVideoDecoderTest, DecodeFrame_LargerWidth) {
@@ -204,7 +213,7 @@ TEST_F(VpxVideoDecoderTest, DecodeFrame_LargerWidth) {
 // Decode |i_frame_buffer_| and then a frame with a larger width and verify
 // the output size was adjusted.
 TEST_F(VpxVideoDecoderTest, Offloaded_DecodeFrame_LargerWidth) {
-  decoder_.reset(new OffloadingVpxVideoDecoder());
+  decoder_ = std::make_unique<OffloadingVpxVideoDecoder>();
   DecodeIFrameThenTestFile("vp9-I-frame-1280x720", gfx::Size(1280, 720));
 }
 

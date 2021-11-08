@@ -15,9 +15,7 @@
 
 #include "base/hash/hash.h"
 #include "base/logging.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_com_initializer.h"
 #include "base/win/scoped_hstring.h"
@@ -69,9 +67,8 @@ class NotificationPlatformBridgeWinTest : public testing::Test {
 
     GURL origin(kOrigin);
     auto notification = std::make_unique<message_center::Notification>(
-        message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId,
-        STRING16_LITERAL("title"), STRING16_LITERAL("message"), gfx::Image(),
-        STRING16_LITERAL("display_source"), origin,
+        message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId, u"title",
+        u"message", gfx::Image(), u"display_source", origin,
         message_center::NotifierId(origin),
         message_center::RichNotificationData(), nullptr /* delegate */);
     notification->set_renotify(renotify);
@@ -268,8 +265,10 @@ TEST_F(NotificationPlatformBridgeWinTest, Suppress) {
   ASSERT_TRUE(suppress);
   toast2.Reset();
 
-  bridge.SetDisplayedNotificationsForTesting(nullptr);
-
   // Let tasks on |notification_task_runner_| of |bridge| run before its dtor.
   task_environment_.RunUntilIdle();
+
+  // Do this after we've finished running tasks to avoid touching
+  // synchronize_displayed_notifications_timer_. See crbug.com/1220122.
+  bridge.SetDisplayedNotificationsForTesting(nullptr);
 }

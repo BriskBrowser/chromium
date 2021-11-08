@@ -14,7 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -23,6 +22,7 @@
 #include "content/test/test_render_view_host.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom-forward.h"
 #include "ui/base/page_transition_types.h"
 
@@ -57,16 +57,15 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   // Overrides to avoid establishing Mojo connection with renderer process.
   int DownloadImage(const GURL& url,
                     bool is_favicon,
-                    uint32_t preferred_size,
+                    const gfx::Size& preferred_size,
                     uint32_t max_bitmap_size,
                     bool bypass_cache,
                     ImageDownloadCallback callback) override;
   const GURL& GetLastCommittedURL() override;
-  const base::string16& GetTitle() override;
+  const std::u16string& GetTitle() override;
 
   // WebContentsTester implementation.
   void CommitPendingNavigation() override;
-  TestRenderFrameHost* GetPendingMainFrame() override;
 
   void NavigateAndCommit(
       const GURL& url,
@@ -77,7 +76,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   void SetOpener(WebContents* opener) override;
   void SetIsCrashed(base::TerminationStatus status, int error_code) override;
   const std::string& GetSaveFrameHeaders() override;
-  const base::string16& GetSuggestedFileName() override;
+  const std::u16string& GetSuggestedFileName() override;
   bool HasPendingDownloadImage(const GURL& url) override;
   bool TestDidDownloadImage(
       const GURL& url,
@@ -85,7 +84,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
       const std::vector<SkBitmap>& bitmaps,
       const std::vector<gfx::Size>& original_bitmap_sizes) override;
   void SetLastCommittedURL(const GURL& url) override;
-  void SetTitle(const base::string16& new_title) override;
+  void SetTitle(const std::u16string& new_title) override;
   void SetMainFrameMimeType(const std::string& mime_type) override;
   const std::string& GetContentsMimeType() override;
   void SetIsCurrentlyAudible(bool audible) override;
@@ -99,7 +98,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   // Prevent interaction with views.
   bool CreateRenderViewForRenderManager(
       RenderViewHost* render_view_host,
-      const base::Optional<base::UnguessableToken>& opener_frame_token,
+      const absl::optional<blink::FrameToken>& opener_frame_token,
       RenderFrameProxyHost* proxy_host) override;
 
   // Returns a clone of this TestWebContents. The returned object is also a
@@ -139,7 +138,17 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
     web_preferences_changed_counter_ = counter;
   }
 
+  void SetBackForwardCacheSupported(bool supported);
+
   bool IsPageFrozen() override;
+
+  TestRenderFrameHost* GetSpeculativePrimaryMainFrame();
+
+  int AddPrerender(const GURL& url) override;
+  TestRenderFrameHost* AddPrerenderAndCommitNavigation(
+      const GURL& url) override;
+  std::unique_ptr<NavigationSimulator> AddPrerenderAndStartNavigation(
+      const GURL& url) override;
 
  protected:
   // The deprecated WebContentsTester still needs to subclass this.
@@ -147,8 +156,8 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
 
  private:
   // WebContentsImpl overrides
-  RenderFrameHostDelegate* CreateNewWindow(
-      RenderFrameHost* opener,
+  FrameTree* CreateNewWindow(
+      RenderFrameHostImpl* opener,
       const mojom::CreateNewWindowParams& params,
       bool is_new_browsing_instance,
       bool has_user_gesture,
@@ -162,35 +171,39 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
           blink_widget_host,
       mojo::PendingAssociatedRemote<blink::mojom::Widget> blink_widget)
       override;
-  void ShowCreatedWindow(RenderFrameHost* opener,
+  void ShowCreatedWindow(RenderFrameHostImpl* opener,
                          int route_id,
                          WindowOpenDisposition disposition,
                          const gfx::Rect& initial_rect,
                          bool user_gesture) override;
   void ShowCreatedWidget(int process_id,
                          int route_id,
-                         const gfx::Rect& initial_rect) override;
+                         const gfx::Rect& initial_rect,
+                         const gfx::Rect& initial_anchor_rect) override;
   void SaveFrameWithHeaders(const GURL& url,
                             const Referrer& referrer,
                             const std::string& headers,
-                            const base::string16& suggested_filename) override;
+                            const std::u16string& suggested_filename,
+                            RenderFrameHost* rfh) override;
   void ReattachToOuterWebContentsFrame() override {}
   void SetPageFrozen(bool frozen) override;
+  bool IsBackForwardCacheSupported() override;
 
   RenderViewHostDelegateView* delegate_view_override_;
 
   // See set_web_preferences_changed_counter() above. May be nullptr.
   int* web_preferences_changed_counter_;
   std::string save_frame_headers_;
-  base::string16 suggested_filename_;
+  std::u16string suggested_filename_;
   // Map keyed by image URL. Values are <id, callback> pairs.
   std::map<GURL, std::list<std::pair<int, ImageDownloadCallback>>>
       pending_image_downloads_;
   GURL last_committed_url_;
-  base::Optional<base::string16> title_;
+  absl::optional<std::u16string> title_;
   bool pause_subresource_loading_called_;
   base::UnguessableToken audio_group_id_;
   bool is_page_frozen_;
+  bool back_forward_cache_supported_ = true;
 };
 
 }  // namespace content

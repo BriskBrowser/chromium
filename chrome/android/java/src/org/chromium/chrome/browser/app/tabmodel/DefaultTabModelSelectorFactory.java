@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.app.tabmodel;
 import android.app.Activity;
 
 import org.chromium.base.annotations.VerifiesOnN;
+import org.chromium.chrome.browser.flags.ActivityType;
 import org.chromium.chrome.browser.tabmodel.AsyncTabParamsManager;
 import org.chromium.chrome.browser.tabmodel.NextTabPolicy.NextTabPolicySupplier;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
@@ -25,11 +26,11 @@ public class DefaultTabModelSelectorFactory implements TabModelSelectorFactory {
     @Override
     public TabModelSelector buildSelector(Activity activity, TabCreatorManager tabCreatorManager,
             NextTabPolicySupplier nextTabPolicySupplier, int selectorIndex) {
-        TabModelFilterFactory tabModelFilterFactory = new ChromeTabModelFilterFactory();
+        TabModelFilterFactory tabModelFilterFactory = new ChromeTabModelFilterFactory(activity);
         AsyncTabParamsManager asyncTabParamsManager = AsyncTabParamsManagerSingleton.getInstance();
 
         return new TabModelSelectorImpl(/*windowAndroidSupplier=*/null, tabCreatorManager,
-                tabModelFilterFactory, nextTabPolicySupplier, asyncTabParamsManager, true, true,
-                false);
+                tabModelFilterFactory, nextTabPolicySupplier, asyncTabParamsManager, true,
+                ActivityType.TABBED, false);
     }
 }

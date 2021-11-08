@@ -27,20 +27,22 @@ class ImageSkia;
 
 class StatusIcon;
 
-// Interface to display custom UI during stream capture.
+// Interface to display custom UI during screen-capture (tab/window/screen).
 class MediaStreamUI {
  public:
   // Called when stream capture is stopped.
   virtual ~MediaStreamUI() = default;
 
-  // Called when stream capture starts.
+  // Called when screen capture starts.
   // |stop_callback| is a callback to stop the stream.
   // |source_callback| is a callback to change the desktop capture source.
   // Returns the platform-dependent window ID for the UI, or 0 if not
   // applicable.
+  // |media_ids| represent the display-surfaces whose capture has started.
   virtual gfx::NativeViewId OnStarted(
       base::OnceClosure stop_callback,
-      content::MediaStreamUI::SourceCallback source_callback) = 0;
+      content::MediaStreamUI::SourceCallback source_callback,
+      const std::vector<content::DesktopMediaID>& media_ids) = 0;
 };
 
 // Keeps track of which WebContents are capturing media streams. Used to display
@@ -71,6 +73,10 @@ class MediaStreamCaptureIndicator
 
   MediaStreamCaptureIndicator();
 
+  MediaStreamCaptureIndicator(const MediaStreamCaptureIndicator&) = delete;
+  MediaStreamCaptureIndicator& operator=(const MediaStreamCaptureIndicator&) =
+      delete;
+
   // Registers a new media stream for |web_contents| and returns an object used
   // by the content layer to notify about the state of the stream. Optionally,
   // |ui| is used to display custom UI while the stream is captured.
@@ -78,7 +84,7 @@ class MediaStreamCaptureIndicator
       content::WebContents* web_contents,
       const blink::MediaStreamDevices& devices,
       std::unique_ptr<MediaStreamUI> ui = nullptr,
-      const base::string16 application_title = base::string16());
+      const std::u16string application_title = std::u16string());
 
   // Overrides from StatusIconMenuModel::Delegate implementation.
   void ExecuteCommand(int command_id, int event_flags) override;
@@ -138,7 +144,7 @@ class MediaStreamCaptureIndicator
   void GetStatusTrayIconInfo(bool audio,
                              bool video,
                              gfx::ImageSkia* image,
-                             base::string16* tool_tip);
+                             std::u16string* tool_tip);
 
   // Checks if |web_contents| or any portal WebContents in its tree is using
   // a device for capture. The type of capture is specified using |pred|.
@@ -164,8 +170,6 @@ class MediaStreamCaptureIndicator
   CommandTargets command_targets_;
 
   base::ObserverList<Observer, /* check_empty =*/true> observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaStreamCaptureIndicator);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_WEBRTC_MEDIA_STREAM_CAPTURE_INDICATOR_H_

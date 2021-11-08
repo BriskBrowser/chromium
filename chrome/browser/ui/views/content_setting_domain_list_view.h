@@ -5,13 +5,13 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_CONTENT_SETTING_DOMAIN_LIST_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_CONTENT_SETTING_DOMAIN_LIST_VIEW_H_
 
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 class ContentSettingDomainListView : public views::View {
  public:
   METADATA_HEADER(ContentSettingDomainListView);
-  ContentSettingDomainListView(const base::string16& title,
+  ContentSettingDomainListView(const std::u16string& title,
                                const std::set<std::string>& domains);
   ContentSettingDomainListView(const ContentSettingDomainListView&) = delete;
   ContentSettingDomainListView& operator=(const ContentSettingDomainListView&) =

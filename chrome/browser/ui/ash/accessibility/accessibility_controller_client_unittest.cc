@@ -4,34 +4,39 @@
 
 #include "chrome/browser/ui/ash/accessibility/accessibility_controller_client.h"
 
+#include "ash/components/audio/sounds.h"
 #include "ash/public/cpp/accessibility_controller_enums.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "chrome/browser/ui/ash/accessibility/fake_accessibility_controller.h"
-#include "chromeos/audio/chromeos_sounds.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/gfx/geometry/point_f.h"
 
 namespace {
 
-constexpr base::TimeDelta kShutdownSoundDuration =
-    base::TimeDelta::FromMilliseconds(1000);
+using ::ash::Sound;
+
+constexpr base::TimeDelta kShutdownSoundDuration = base::Milliseconds(1000);
 
 class FakeAccessibilityControllerClient : public AccessibilityControllerClient {
  public:
   FakeAccessibilityControllerClient() = default;
+
+  FakeAccessibilityControllerClient(const FakeAccessibilityControllerClient&) =
+      delete;
+  FakeAccessibilityControllerClient& operator=(
+      const FakeAccessibilityControllerClient&) = delete;
+
   ~FakeAccessibilityControllerClient() override = default;
 
   // AccessibilityControllerClient:
   void TriggerAccessibilityAlert(ash::AccessibilityAlert alert) override {
     last_a11y_alert_ = alert;
   }
-  void PlayEarcon(chromeos::Sound sound_key) override {
-    last_sound_key_ = sound_key;
-  }
+  void PlayEarcon(Sound sound_key) override { last_sound_key_ = sound_key; }
   base::TimeDelta PlayShutdownSound() override {
     return kShutdownSoundDuration;
   }
@@ -62,7 +67,7 @@ class FakeAccessibilityControllerClient : public AccessibilityControllerClient {
   }
 
   ash::AccessibilityAlert last_a11y_alert_ = ash::AccessibilityAlert::NONE;
-  base::Optional<chromeos::Sound> last_sound_key_;
+  absl::optional<Sound> last_sound_key_;
   ax::mojom::Gesture last_a11y_gesture_ = ax::mojom::Gesture::kNone;
   gfx::PointF last_a11y_gesture_point_;
   int toggle_dictation_count_ = 0;
@@ -77,7 +82,6 @@ class FakeAccessibilityControllerClient : public AccessibilityControllerClient {
 
  private:
   bool dictation_on_ = false;
-  DISALLOW_COPY_AND_ASSIGN(FakeAccessibilityControllerClient);
 };
 
 }  // namespace
@@ -85,12 +89,16 @@ class FakeAccessibilityControllerClient : public AccessibilityControllerClient {
 class AccessibilityControllerClientTest : public testing::Test {
  public:
   AccessibilityControllerClientTest() = default;
+
+  AccessibilityControllerClientTest(const AccessibilityControllerClientTest&) =
+      delete;
+  AccessibilityControllerClientTest& operator=(
+      const AccessibilityControllerClientTest&) = delete;
+
   ~AccessibilityControllerClientTest() override = default;
 
  private:
   content::BrowserTaskEnvironment task_environment_;
-
-  DISALLOW_COPY_AND_ASSIGN(AccessibilityControllerClientTest);
 };
 
 TEST_F(AccessibilityControllerClientTest, MethodCalls) {
@@ -106,7 +114,7 @@ TEST_F(AccessibilityControllerClientTest, MethodCalls) {
   EXPECT_EQ(alert, client.last_a11y_alert_);
 
   // Tests PlayEarcon method call.
-  const chromeos::Sound sound_key = chromeos::Sound::kShutdown;
+  const Sound sound_key = Sound::kShutdown;
   client.PlayEarcon(sound_key);
   EXPECT_EQ(sound_key, client.last_sound_key_);
 

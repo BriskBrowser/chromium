@@ -8,7 +8,6 @@
 #include <memory>
 #include <set>
 
-#include "base/optional.h"
 #include "base/scoped_multi_source_observation.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -17,12 +16,14 @@
 #include "chrome/browser/ui/webui/tab_strip/tab_strip_ui_metrics.h"
 #include "chrome/common/buildflags.h"
 #include "components/tab_groups/tab_group_id.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
+#include "ui/views/widget/widget_observer.h"
 
 #if !BUILDFLAG(ENABLE_WEBUI_TAB_STRIP)
 #error
@@ -47,7 +48,9 @@ class ImmersiveRevealedLock;
 class WebUITabStripContainerView : public TabStripUIEmbedder,
                                    public gfx::AnimationDelegate,
                                    public views::AccessiblePaneView,
-                                   public views::ViewObserver {
+                                   public views::ViewObserver,
+                                   public views::WidgetObserver,
+                                   public content::WebContentsObserver {
  public:
   WebUITabStripContainerView(BrowserView* browser_view,
                              views::View* tab_contents_container,
@@ -69,6 +72,7 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   views::NativeViewHost* GetNativeViewHost();
 
   // Control button. Must only be called once.
+  std::unique_ptr<views::View> CreateNewTabButton();
   std::unique_ptr<views::View> CreateTabCounter();
 
   views::View* tab_counter() const { return tab_counter_; }
@@ -78,10 +82,15 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   // should be called instead. View::SetVisible() isn't sufficient since
   // the container's preferred size will change.
   void SetVisibleForTesting(bool visible);
+  views::View* new_tab_button_for_testing() const { return new_tab_button_; }
   views::WebView* web_view_for_testing() const { return web_view_; }
 
   // Finish the open or close animation if it's active.
   void FinishAnimationForTesting();
+
+  // content::WebContentsObserver:
+  void PrimaryMainFrameRenderProcessGone(
+      base::TerminationStatus status) override;
 
  private:
   class AutoCloser;
@@ -94,8 +103,10 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   // Called when drag-to-open finishes. If |fling_direction| is present,
   // the user released their touch with a high velocity. We should use
   // just this direction to animate open or closed.
-  void EndDragToOpen(base::Optional<WebUITabStripDragDirection>
-                         fling_direction = base::nullopt);
+  void EndDragToOpen(absl::optional<WebUITabStripDragDirection>
+                         fling_direction = absl::nullopt);
+
+  void NewTabButtonPressed(const ui::Event& event);
 
   void TabCounterPressed(const ui::Event& event);
 
@@ -105,17 +116,23 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   // Passed to the AutoCloser to handle closing.
   void CloseForEventOutsideTabStrip(TabStripUICloseAction reason);
 
-  // TabStripUI::Embedder:
+  void InitializeWebView();
+
+  // TabStripUIEmbedder:
   const ui::AcceleratorProvider* GetAcceleratorProvider() const override;
   void CloseContainer() override;
   void ShowContextMenuAtPoint(
       gfx::Point point,
-      std::unique_ptr<ui::MenuModel> menu_model) override;
+      std::unique_ptr<ui::MenuModel> menu_model,
+      base::RepeatingClosure on_menu_closed_callback) override;
+  void CloseContextMenu() override;
   void ShowEditDialogForGroupAtPoint(gfx::Point point,
                                      gfx::Rect rect,
                                      tab_groups::TabGroupId group) override;
+  void HideEditDialogForGroup() override;
   TabStripUILayout GetLayout() override;
   SkColor GetColor(int id) const override;
+  SkColor GetColorProviderColor(ui::ColorId id) const override;
 
   // views::View:
   int GetHeightForWidth(int w) const override;
@@ -131,6 +148,9 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   void OnViewBoundsChanged(View* observed_view) override;
   void OnViewIsDeleting(View* observed_view) override;
 
+  // views::WidgetObserver:
+  void OnWidgetDestroying(views::Widget* widget) override;
+
   // views::AccessiblePaneView
   bool SetPaneFocusAndFocusDefault() override;
 
@@ -139,6 +159,7 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   views::View* const top_container_;
   views::View* tab_contents_container_;
   views::View* tab_counter_ = nullptr;
+  views::View* new_tab_button_ = nullptr;
 
 #if defined(OS_WIN)
   // If the user interacts with Windows in a way that changes the width of the
@@ -151,11 +172,11 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   int old_top_container_width_ = 0;
 #endif  // defined(OS_WIN)
 
-  base::Optional<float> current_drag_height_;
+  absl::optional<float> current_drag_height_;
 
   // When opened, if currently open. Used to calculate metric for how
   // long the tab strip is kept open.
-  base::Optional<base::TimeTicks> time_at_open_;
+  absl::optional<base::TimeTicks> time_at_open_;
 
   // Used to keep the toolbar revealed while the tab strip is open.
   std::unique_ptr<ImmersiveRevealedLock> immersive_revealed_lock_;
@@ -170,6 +191,10 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
 
   base::ScopedMultiSourceObservation<views::View, views::ViewObserver>
       view_observations_{this};
+  base::ScopedObservation<views::Widget, views::WidgetObserver>
+      scoped_widget_observation_{this};
+
+  views::Widget* editor_bubble_widget_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_FRAME_WEBUI_TAB_STRIP_CONTAINER_VIEW_H_

@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/callback_helpers.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/path_service.h"
@@ -19,13 +20,16 @@
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_icon_manager.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
+#include "chrome/browser/extensions/extension_install_prompt_show_params.h"
 #include "chrome/browser/extensions/extension_install_prompt_test_helper.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/grit/generated_resources.h"
@@ -38,6 +42,7 @@
 #include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_features.h"
+#include "extensions/common/extension_urls.h"
 #include "extensions/common/permissions/permission_message_provider.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -65,6 +70,12 @@ void CloseAndWait(views::Widget* widget) {
 
 class ExtensionInstallDialogViewTestBase
     : public extensions::ExtensionBrowserTest {
+ public:
+  ExtensionInstallDialogViewTestBase(
+      const ExtensionInstallDialogViewTestBase&) = delete;
+  ExtensionInstallDialogViewTestBase& operator=(
+      const ExtensionInstallDialogViewTestBase&) = delete;
+
  protected:
   ExtensionInstallDialogViewTestBase();
 
@@ -82,8 +93,6 @@ class ExtensionInstallDialogViewTestBase
  private:
   const extensions::Extension* extension_;
   content::WebContents* web_contents_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionInstallDialogViewTestBase);
 };
 
 ExtensionInstallDialogViewTestBase::ExtensionInstallDialogViewTestBase()
@@ -120,21 +129,22 @@ ExtensionInstallDialogViewTestBase::CreatePrompt(
 }
 
 class ScrollbarTest : public ExtensionInstallDialogViewTestBase {
+ public:
+  ScrollbarTest(const ScrollbarTest&) = delete;
+  ScrollbarTest& operator=(const ScrollbarTest&) = delete;
+
  protected:
   ScrollbarTest() {}
 
   bool IsScrollbarVisible(
       std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ScrollbarTest);
 };
 
 bool ScrollbarTest::IsScrollbarVisible(
     std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt) {
   ExtensionInstallDialogView* dialog = new ExtensionInstallDialogView(
-      profile(), web_contents(), ExtensionInstallPrompt::DoneCallback(),
-      std::move(prompt));
+      std::make_unique<ExtensionInstallPromptShowParams>(web_contents()),
+      base::DoNothing(), std::move(prompt));
 
   // Create the modal view around the install dialog view.
   views::Widget* modal = constrained_window::CreateBrowserModalDialogViews(
@@ -149,7 +159,7 @@ bool ScrollbarTest::IsScrollbarVisible(
 // Tests that a scrollbar _is_ shown for an excessively long extension
 // install prompt.
 IN_PROC_BROWSER_TEST_F(ScrollbarTest, LongPromptScrollbar) {
-  base::string16 permission_string(base::ASCIIToUTF16("Test"));
+  std::u16string permission_string(u"Test");
   PermissionMessages permissions;
   for (int i = 0; i < 20; i++) {
     permissions.push_back(PermissionMessage(permission_string,
@@ -171,8 +181,8 @@ IN_PROC_BROWSER_TEST_F(ScrollbarTest, LongPromptScrollbar) {
 #define MAYBE_ScrollbarRegression ScrollbarRegression
 #endif
 IN_PROC_BROWSER_TEST_F(ScrollbarTest, MAYBE_ScrollbarRegression) {
-  base::string16 permission_string(base::ASCIIToUTF16(
-      "Read and modify your data on *.facebook.com"));
+  std::u16string permission_string(
+      u"Read and modify your data on *.facebook.com");
   PermissionMessages permissions;
   permissions.push_back(PermissionMessage(permission_string,
                                           PermissionIDSet()));
@@ -195,7 +205,8 @@ class ExtensionInstallDialogViewTest
   ExtensionInstallDialogView* CreateAndShowPrompt(
       ExtensionInstallPromptTestHelper* helper) {
     auto dialog = std::make_unique<ExtensionInstallDialogView>(
-        profile(), web_contents(), helper->GetCallback(),
+        std::make_unique<ExtensionInstallPromptShowParams>(web_contents()),
+        helper->GetCallback(),
         CreatePrompt(ExtensionInstallPrompt::INSTALL_PROMPT));
     ExtensionInstallDialogView* delegate_view = dialog.get();
 
@@ -265,6 +276,89 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewTest, InstallButtonDelay) {
   CloseAndWait(delegate_view->GetWidget());
 }
 
+// Regression test for https://crbug.com/1201031: Ensures that while an
+// ExtensionInstallDialogView is visible, it does not (and cannot) refer to its
+// originator tab/WebContents after the tab's closure.
+//
+// Note that the tab's closure is not typically possible by user interaction.
+// However, it can occur by other means:
+//   a) chrome.tabs.remove() or
+//   b) window.close() from devtools (See repro in crbug).
+// This test uses CloseWebContentsAt to mimic that behavior.
+IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewTest,
+                       TabClosureClearsWebContentsFromDialogView) {
+  ExtensionInstallPromptTestHelper helper;
+  ExtensionInstallDialogView* delegate_view = CreateAndShowPrompt(&helper);
+  TabStripModel* tab_strip_model = browser()->tab_strip_model();
+  content::WebContents* originator_contents =
+      tab_strip_model->GetActiveWebContents();
+  ASSERT_TRUE(delegate_view->GetShowParamsForTesting());
+  EXPECT_EQ(originator_contents,
+            delegate_view->GetShowParamsForTesting()->GetParentWebContents());
+
+  // Add a second tab.
+  chrome::AddTabAt(browser(), GURL(url::kAboutBlankURL), -1, true);
+  {
+    // Close the first tab that results in install dialog moving to the second
+    // tab.
+    int tab1_idx = tab_strip_model->GetIndexOfWebContents(originator_contents);
+    content::WebContentsDestroyedWatcher tab_destroyed_watcher(
+        tab_strip_model->GetWebContentsAt(tab1_idx));
+    EXPECT_TRUE(tab_strip_model->CloseWebContentsAt(tab1_idx,
+                                                    TabStripModel::CLOSE_NONE));
+    tab_destroyed_watcher.Wait();
+  }
+
+  class TabAddedObserver : public TabStripModelObserver {
+   public:
+    explicit TabAddedObserver(TabStripModel* tab_strip_model) {
+      tab_strip_model->AddObserver(this);
+    }
+
+    void WaitForWebstoreTabAdded() { run_loop_.Run(); }
+
+    // TabStripModelObserver:
+    void OnTabStripModelChanged(
+        TabStripModel* tab_strip_model,
+        const TabStripModelChange& change,
+        const TabStripSelectionChange& selection) override {
+      if (change.type() != TabStripModelChange::kInserted)
+        return;
+
+      for (const auto& contents : change.GetInsert()->contents) {
+        // Note: GetVisibleURL() is used instead of GetLastCommittedURL() for
+        // simplicity's sake as this test doesn't serve webstore url and
+        // the url doesn't commit.
+        const GURL& url = contents.contents->GetVisibleURL();
+        if (url.host() == extension_urls::GetWebstoreLaunchURL().host()) {
+          run_loop_.Quit();
+          return;
+        }
+      }
+    }
+
+   private:
+    base::RunLoop run_loop_;
+  };
+
+  // The dialog remains visible even though |originator_contents| is gone. Note
+  // that this doesn't seem quite intuitive, but this is how things are at the
+  // moment. See crbug.com/1201031 for details.
+  EXPECT_TRUE(delegate_view->GetVisible());
+
+  EXPECT_EQ(nullptr,
+            delegate_view->GetShowParamsForTesting()->GetParentWebContents());
+
+  // Click webstore link.
+  {
+    TabAddedObserver observer(tab_strip_model);
+    delegate_view->ClickLinkForTesting();
+    observer.WaitForWebstoreTabAdded();
+  }
+
+  CloseAndWait(delegate_view->GetWidget());
+}
+
 class ExtensionInstallDialogViewInteractiveBrowserTest
     : public DialogBrowserTest {
  public:
@@ -272,6 +366,11 @@ class ExtensionInstallDialogViewInteractiveBrowserTest
     feature_list_.InitAndEnableFeature(
         extensions_features::kAllowWithholdingExtensionPermissionsOnInstall);
   }
+
+  ExtensionInstallDialogViewInteractiveBrowserTest(
+      const ExtensionInstallDialogViewInteractiveBrowserTest&) = delete;
+  ExtensionInstallDialogViewInteractiveBrowserTest& operator=(
+      const ExtensionInstallDialogViewInteractiveBrowserTest&) = delete;
 
   // DialogBrowserTest:
   void ShowUi(const std::string& name) override {
@@ -300,12 +399,14 @@ class ExtensionInstallDialogViewInteractiveBrowserTest
     if (from_webstore_)
       prompt->SetWebstoreData("69,420", true, 2.5, 37);
 
+    ExtensionInstallDialogView::SetInstallButtonDelayForTesting(0);
     auto* web_contents = browser()->tab_strip_model()->GetActiveWebContents();
     auto install_prompt =
         std::make_unique<ExtensionInstallPrompt>(web_contents);
     install_prompt->ShowDialog(base::DoNothing(), extension.get(), &icon,
                                std::move(prompt),
                                ExtensionInstallPrompt::ShowDialogCallback());
+    base::RunLoop().RunUntilIdle();
   }
 
   void set_from_webstore() { from_webstore_ = true; }
@@ -331,7 +432,7 @@ class ExtensionInstallDialogViewInteractiveBrowserTest
 
   void AddPermissionWithDetails(
       std::string main_permission,
-      std::vector<base::string16> detailed_permissions) {
+      std::vector<std::u16string> detailed_permissions) {
     permission_messages_.push_back(
         PermissionMessage(base::ASCIIToUTF16(main_permission),
                           PermissionIDSet(), std::move(detailed_permissions)));
@@ -344,11 +445,9 @@ class ExtensionInstallDialogViewInteractiveBrowserTest
   std::unique_ptr<PermissionSet> permission_set_;
   PermissionMessages permission_messages_;
   std::vector<base::FilePath> retained_files_;
-  std::vector<base::string16> retained_devices_;
+  std::vector<std::u16string> retained_devices_;
 
   base::test::ScopedFeatureList feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionInstallDialogViewInteractiveBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
@@ -421,12 +520,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
 #endif
 IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
                        MAYBE_InvokeUi_DetailedPermission) {
-  AddPermissionWithDetails(
-      "Example header permission",
-      {base::ASCIIToUTF16("Detailed permission 1"),
-       base::ASCIIToUTF16("Detailed permission 2"),
-       base::ASCIIToUTF16("Very very very very very very long detailed "
-                          "permission that wraps to a new line")});
+  AddPermissionWithDetails("Example header permission",
+                           {u"Detailed permission 1", u"Detailed permission 2",
+                            u"Very very very very very very long detailed "
+                            u"permission that wraps to a new line"});
   ShowAndVerifyUi();
 }
 
@@ -475,9 +572,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
 IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
                        InvokeUi_AllInfoTypes) {
   AddPermission("Example permission");
-  AddPermissionWithDetails("This permission has details",
-                           {base::ASCIIToUTF16("Detailed permission 1"),
-                            base::ASCIIToUTF16("Detailed permission 2")});
+  AddPermissionWithDetails(
+      "This permission has details",
+      {u"Detailed permission 1", u"Detailed permission 2"});
   AddRetainedDevice("USB Device");
   AddRetainedFile(base::FilePath(FILE_PATH_LITERAL("/dev/null")));
   ShowAndVerifyUi();
@@ -517,18 +614,18 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewOnUninstallationTest,
   std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt =
       CreatePrompt(ExtensionInstallPrompt::REPAIR_PROMPT, extension);
   ExtensionInstallDialogView* dialog = new ExtensionInstallDialogView(
-      profile(), web_contents(), base::DoNothing(), std::move(prompt));
+      std::make_unique<ExtensionInstallPromptShowParams>(web_contents()),
+      base::DoNothing(), std::move(prompt));
 
   views::Widget* modal_dialog = views::DialogDelegate::CreateDialogWidget(
       dialog, nullptr,
       platform_util::GetViewForWindow(browser()->window()->GetNativeWindow()));
   ASSERT_TRUE(modal_dialog);
-  views::test::WidgetClosingObserver dialog_observer(modal_dialog);
+  views::test::WidgetDestroyedWaiter dialog_observer(modal_dialog);
   modal_dialog->Show();
   EXPECT_FALSE(modal_dialog->IsClosed());
   UninstallExtension(extension->id());
   dialog_observer.Wait();
-  EXPECT_TRUE(dialog_observer.widget_closed());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewOnUninstallationTest,
@@ -544,13 +641,14 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewOnUninstallationTest,
   std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt =
       CreatePrompt(ExtensionInstallPrompt::REPAIR_PROMPT, extension);
   ExtensionInstallDialogView* dialog = new ExtensionInstallDialogView(
-      profile(), web_contents(), base::DoNothing(), std::move(prompt));
+      std::make_unique<ExtensionInstallPromptShowParams>(web_contents()),
+      base::DoNothing(), std::move(prompt));
 
   views::Widget* modal_dialog = views::DialogDelegate::CreateDialogWidget(
       dialog, nullptr,
       platform_util::GetViewForWindow(browser()->window()->GetNativeWindow()));
   ASSERT_TRUE(modal_dialog);
-  views::test::WidgetClosingObserver dialog_observer(modal_dialog);
+  views::test::WidgetDestroyedWaiter dialog_observer(modal_dialog);
   modal_dialog->Show();
   EXPECT_FALSE(modal_dialog->IsClosed());
   UninstallExtension(other_extension->id());
@@ -564,12 +662,14 @@ class ExtensionInstallDialogRatingsSectionTest
  public:
   ExtensionInstallDialogRatingsSectionTest() {}
 
+  ExtensionInstallDialogRatingsSectionTest(
+      const ExtensionInstallDialogRatingsSectionTest&) = delete;
+  ExtensionInstallDialogRatingsSectionTest& operator=(
+      const ExtensionInstallDialogRatingsSectionTest&) = delete;
+
   void TestRatingsSectionA11y(int num_ratings,
                               double average_rating,
                               const std::string& expected_text);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ExtensionInstallDialogRatingsSectionTest);
 };
 
 void ExtensionInstallDialogRatingsSectionTest::TestRatingsSectionA11y(
@@ -584,7 +684,8 @@ void ExtensionInstallDialogRatingsSectionTest::TestRatingsSectionA11y(
   prompt->SetWebstoreData("1,234", true, average_rating, num_ratings);
 
   ExtensionInstallDialogView* dialog = new ExtensionInstallDialogView(
-      profile(), web_contents(), base::DoNothing(), std::move(prompt));
+      std::make_unique<ExtensionInstallPromptShowParams>(web_contents()),
+      base::DoNothing(), std::move(prompt));
 
   views::Widget* modal_dialog = views::DialogDelegate::CreateDialogWidget(
       dialog, nullptr,
@@ -605,7 +706,7 @@ void ExtensionInstallDialogRatingsSectionTest::TestRatingsSectionA11y(
   for (views::View* child : rating_view->children()) {
     ui::AXNodeData node_data;
     child->GetAccessibleNodeData(&node_data);
-    EXPECT_EQ(ax::mojom::Role::kIgnored, node_data.role);
+    EXPECT_EQ(ax::mojom::Role::kNone, node_data.role);
   }
 
   CloseAndWait(modal_dialog);
@@ -626,9 +727,13 @@ class ExtensionInstallDialogWithWithholdPermissionsUI
         extensions_features::kAllowWithholdingExtensionPermissionsOnInstall);
   }
 
+  ExtensionInstallDialogWithWithholdPermissionsUI(
+      const ExtensionInstallDialogWithWithholdPermissionsUI&) = delete;
+  ExtensionInstallDialogWithWithholdPermissionsUI& operator=(
+      const ExtensionInstallDialogWithWithholdPermissionsUI&) = delete;
+
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-  DISALLOW_COPY_AND_ASSIGN(ExtensionInstallDialogWithWithholdPermissionsUI);
 };
 
 // Verifies that some UI is displayed in the extra view for withholding
@@ -647,7 +752,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogWithWithholdPermissionsUI,
       extensions::URLPatternSet());
   prompt->AddPermissionSet(permissions);
   auto dialog = std::make_unique<ExtensionInstallDialogView>(
-      profile(), web_contents(), helper.GetCallback(), std::move(prompt));
+      std::make_unique<ExtensionInstallPromptShowParams>(web_contents()),
+      helper.GetCallback(), std::move(prompt));
   views::BubbleDialogDelegateView* delegate_view = dialog.get();
 
   views::Widget* modal_dialog = views::DialogDelegate::CreateDialogWidget(
@@ -658,6 +764,112 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogWithWithholdPermissionsUI,
   const views::View* const extra_view = delegate_view->GetExtraView();
   EXPECT_TRUE(extra_view);
   EXPECT_EQ("Checkbox", std::string(extra_view->GetClassName()));
+
+  CloseAndWait(delegate_view->GetWidget());
+}
+
+class ExtensionInstallDialogViewRequestTest
+    : public ExtensionInstallDialogViewTestBase {
+ public:
+  ExtensionInstallDialogViewRequestTest() {
+    feature_list_.InitAndEnableFeature(
+        features::kExtensionWorkflowJustification);
+  }
+  ExtensionInstallDialogViewRequestTest(
+      const ExtensionInstallDialogViewRequestTest&) = delete;
+  ExtensionInstallDialogViewRequestTest& operator=(
+      const ExtensionInstallDialogViewRequestTest&) = delete;
+
+ protected:
+  ExtensionInstallDialogView* CreateAndShowRequestPrompt(
+      ExtensionInstallPromptTestHelper* helper) {
+    PermissionMessages permissions;
+    permissions.push_back(
+        PermissionMessage(u"Permission message", PermissionIDSet()));
+    std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt =
+        CreatePrompt(ExtensionInstallPrompt::EXTENSION_REQUEST_PROMPT);
+    prompt->AddPermissionMessages(permissions);
+
+    auto dialog = std::make_unique<ExtensionInstallDialogView>(
+        std::make_unique<ExtensionInstallPromptShowParams>(web_contents()),
+        helper->GetCallback(), std::move(prompt));
+    ExtensionInstallDialogView* delegate_view = dialog.get();
+
+    views::Widget* modal_dialog = views::DialogDelegate::CreateDialogWidget(
+        dialog.release(), nullptr,
+        platform_util::GetViewForWindow(
+            browser()->window()->GetNativeWindow()));
+    modal_dialog->Show();
+
+    return delegate_view;
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewRequestTest, NotifyDelegate) {
+  {
+    // User presses request. Note that we have to wait for the 0ms delay for
+    // the request button to become enabled, hence the RunLoop later.
+    ExtensionInstallDialogView::SetInstallButtonDelayForTesting(0);
+    ExtensionInstallPromptTestHelper helper;
+    ExtensionInstallDialogView* delegate_view =
+        CreateAndShowRequestPrompt(&helper);
+    EXPECT_TRUE(delegate_view->IsJustificationFieldVisibleForTesting());
+
+    base::RunLoop().RunUntilIdle();
+    delegate_view->AcceptDialog();
+    EXPECT_EQ(ExtensionInstallPrompt::Result::ACCEPTED, helper.result());
+    EXPECT_EQ(std::string(), helper.justification());
+  }
+  {
+    // User presses cancel.
+    ExtensionInstallPromptTestHelper helper;
+    ExtensionInstallDialogView* delegate_view =
+        CreateAndShowRequestPrompt(&helper);
+    EXPECT_TRUE(delegate_view->IsJustificationFieldVisibleForTesting());
+    delegate_view->CancelDialog();
+    EXPECT_EQ(ExtensionInstallPrompt::Result::USER_CANCELED, helper.result());
+    EXPECT_EQ(std::string(), helper.justification());
+  }
+  {
+    // Dialog is closed without the user explicitly choosing to proceed or
+    // cancel.
+    ExtensionInstallPromptTestHelper helper;
+    ExtensionInstallDialogView* delegate_view =
+        CreateAndShowRequestPrompt(&helper);
+    EXPECT_TRUE(delegate_view->IsJustificationFieldVisibleForTesting());
+    // Note that the close button isn't present, but the dialog can still be
+    // closed this way using Esc.
+    EXPECT_FALSE(delegate_view->ShouldShowCloseButton());
+    CloseAndWait(delegate_view->GetWidget());
+    // TODO(devlin): Should this be ABORTED?
+    EXPECT_EQ(ExtensionInstallPrompt::Result::USER_CANCELED, helper.result());
+    EXPECT_EQ(std::string(), helper.justification());
+  }
+}
+
+// Verifies that the "Request" button is disabled initially, but re-enabled
+// after a short time delay.
+IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewRequestTest,
+                       RequestButtonDelay) {
+  ExtensionInstallDialogView::SetInstallButtonDelayForTesting(0);
+  ExtensionInstallPromptTestHelper helper;
+  ExtensionInstallDialogView* delegate_view =
+      CreateAndShowRequestPrompt(&helper);
+
+  // Check that dialog and justification textfield are visible.
+  EXPECT_TRUE(delegate_view->GetVisible());
+  EXPECT_TRUE(delegate_view->IsJustificationFieldVisibleForTesting());
+
+  // Check initial button states.
+  EXPECT_FALSE(delegate_view->IsDialogButtonEnabled(ui::DIALOG_BUTTON_OK));
+  EXPECT_TRUE(delegate_view->IsDialogButtonEnabled(ui::DIALOG_BUTTON_CANCEL));
+
+  // Check OK button state after timeout to verify that it is re-enabled.
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(delegate_view->IsDialogButtonEnabled(ui::DIALOG_BUTTON_OK));
 
   CloseAndWait(delegate_view->GetWidget());
 }

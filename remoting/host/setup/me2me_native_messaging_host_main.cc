@@ -47,6 +47,8 @@
 #include "base/process/process_info.h"
 #include "base/win/registry.h"
 #include "remoting/host/pairing_registry_delegate_win.h"
+
+#include <windows.h>
 #endif  // defined(OS_WIN)
 
 #if defined(USE_GLIB) && !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -187,7 +189,7 @@ int Me2MeNativeMessagingHostMain(int argc, char** argv) {
     read_file = base::File(GetStdHandle(STD_INPUT_HANDLE));
     write_file = base::File(GetStdHandle(STD_OUTPUT_HANDLE));
 
-    // After the native messaging channel starts the native messaging reader
+    // After the native messaging channel starts, the native messaging reader
     // will keep doing blocking read operations on the input named pipe.
     // If any other thread tries to perform any operation on STDIN, it will also
     // block because the input named pipe is synchronous (non-overlapped).

@@ -12,17 +12,14 @@
 #include <vector>
 
 #include "base/check.h"
-#include "base/optional.h"
 #include "components/cast_channel/cast_message_util.h"
 #include "components/cast_channel/cast_socket.h"
 #include "components/media_router/common/media_source.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 using cast_channel::ReceiverAppType;
 
 namespace media_router {
-
-static constexpr char kCastStreamingAppId[] = "0F5096E8";
-static constexpr char kCastStreamingAudioAppId[] = "85CDB22F";
 
 // Placeholder app ID advertised by the multizone leader in a receiver status
 // message.
@@ -35,8 +32,7 @@ static const constexpr char* const kMultizoneMemberAppIds[] = {
     "705D30C6"  // MultizoneFollower
 };
 
-static constexpr base::TimeDelta kDefaultLaunchTimeout =
-    base::TimeDelta::FromSeconds(60);
+static constexpr base::TimeDelta kDefaultLaunchTimeout = base::Seconds(60);
 
 // Class for storing a bitwise OR of enum values.
 //
@@ -134,7 +130,7 @@ bool IsAutoJoinAllowed(AutoJoinPolicy policy,
                        const url::Origin& origin2,
                        int tab_id2);
 
-// Returns true if |source_id| is a valid origin for site-initiated mirroring.
+// Returns true if |source_id| is valid for site-initiated mirroring.
 bool IsSiteInitiatedMirroringSource(const MediaSource::Id& source_id);
 
 // Represents a MediaSource parsed into structured, Cast specific data. The
@@ -151,6 +147,8 @@ class CastMediaSource {
       const MediaSource::Id& source);
 
   static std::unique_ptr<CastMediaSource> FromAppId(const std::string& app_id);
+
+  static std::unique_ptr<CastMediaSource> ForSiteInitiatedMirroring();
 
   CastMediaSource(const MediaSource::Id& source_id,
                   const std::vector<CastAppInfo>& app_infos,
@@ -182,7 +180,7 @@ class CastMediaSource {
   void set_launch_timeout(base::TimeDelta launch_timeout) {
     launch_timeout_ = launch_timeout;
   }
-  const base::Optional<cast_channel::BroadcastRequest>& broadcast_request()
+  const absl::optional<cast_channel::BroadcastRequest>& broadcast_request()
       const {
     return broadcast_request_;
   }
@@ -193,11 +191,11 @@ class CastMediaSource {
   DefaultActionPolicy default_action_policy() const {
     return default_action_policy_;
   }
-  base::Optional<base::TimeDelta> target_playout_delay() const {
+  absl::optional<base::TimeDelta> target_playout_delay() const {
     return target_playout_delay_;
   }
   void set_target_playout_delay(
-      const base::Optional<base::TimeDelta>& target_playout_delay) {
+      const absl::optional<base::TimeDelta>& target_playout_delay) {
     target_playout_delay_ = target_playout_delay;
   }
   // See also: ProvidesStreamingAudioCapture().
@@ -231,8 +229,8 @@ class CastMediaSource {
   base::TimeDelta launch_timeout_ = kDefaultLaunchTimeout;
   // Optional parameters.
   std::string client_id_;
-  base::Optional<cast_channel::BroadcastRequest> broadcast_request_;
-  base::Optional<base::TimeDelta> target_playout_delay_;
+  absl::optional<cast_channel::BroadcastRequest> broadcast_request_;
+  absl::optional<base::TimeDelta> target_playout_delay_;
   bool site_requested_audio_capture_ = true;
   std::vector<ReceiverAppType> supported_app_types_ = {ReceiverAppType::kWeb};
   std::string app_params_;

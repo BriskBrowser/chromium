@@ -9,7 +9,6 @@
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 
 namespace network {
 class SharedURLLoaderFactory;
@@ -22,6 +21,10 @@ namespace rlz {
 class RLZTrackerDelegate {
  public:
   RLZTrackerDelegate() {}
+
+  RLZTrackerDelegate(const RLZTrackerDelegate&) = delete;
+  RLZTrackerDelegate& operator=(const RLZTrackerDelegate&) = delete;
+
   virtual ~RLZTrackerDelegate() {}
 
   // Invoked during RLZTracker cleanup, to request the cleanup of the delegate.
@@ -50,11 +53,11 @@ class RLZTrackerDelegate {
 
   // Returns the installation language in |language| and a boolean indicating
   // whether the operation was a success or not.
-  virtual bool GetLanguage(base::string16* language) = 0;
+  virtual bool GetLanguage(std::u16string* language) = 0;
 
   // Returns the referral code in |referral| and a boolean indicating whether
   // the operation was a success or not. Deprecated.
-  virtual bool GetReferral(base::string16* referral) = 0;
+  virtual bool GetReferral(std::u16string* referral) = 0;
 
   // Clears the referral code. Deprecated.
   virtual bool ClearReferral() = 0;
@@ -72,9 +75,6 @@ class RLZTrackerDelegate {
   // Returns true if the existing access point RLZ strings in the data file
   // should be updated.
   virtual bool ShouldUpdateExistingAccessPointRlz() = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(RLZTrackerDelegate);
 };
 
 }  // namespace rlz

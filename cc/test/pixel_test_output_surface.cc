@@ -13,9 +13,9 @@
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/gfx/buffer_format_util.h"
+#include "ui/gfx/geometry/transform.h"
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/gfx/swap_result.h"
-#include "ui/gfx/transform.h"
 
 namespace cc {
 
@@ -79,7 +79,8 @@ void PixelTestOutputSurface::SwapBuffers(viz::OutputSurfaceFrame frame) {
 void PixelTestOutputSurface::SwapBuffersCallback() {
   base::TimeTicks now = base::TimeTicks::Now();
   gfx::SwapTimings timings = {now, now};
-  client_->DidReceiveSwapBuffersAck(timings);
+  client_->DidReceiveSwapBuffersAck(timings,
+                                    /*release_fence=*/gfx::GpuFenceHandle());
   client_->DidReceivePresentationFeedback(
       gfx::PresentationFeedback(base::TimeTicks::Now(), base::TimeDelta(), 0));
 }

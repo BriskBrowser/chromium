@@ -5,8 +5,9 @@
 #ifndef CHROME_BROWSER_SPEECH_SPEECH_RECOGNITION_CLIENT_BROWSER_INTERFACE_H_
 #define CHROME_BROWSER_SPEECH_SPEECH_RECOGNITION_CLIENT_BROWSER_INTERFACE_H_
 
-#include "chrome/browser/accessibility/soda_installer.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/soda/constants.h"
+#include "components/soda/soda_installer.h"
 #include "media/mojo/mojom/speech_recognition_service.mojom.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
@@ -38,20 +39,21 @@ class SpeechRecognitionClientBrowserInterface
           media::mojom::SpeechRecognitionClientBrowserInterface> receiver);
 
   // media::mojom::SpeechRecognitionClientBrowserInterface
-  void BindSpeechRecognitionAvailabilityObserver(
-      mojo::PendingRemote<media::mojom::SpeechRecognitionAvailabilityObserver>
+  void BindSpeechRecognitionBrowserObserver(
+      mojo::PendingRemote<media::mojom::SpeechRecognitionBrowserObserver>
           pending_remote) override;
 
   // SodaInstaller::Observer:
   void OnSodaInstalled() override;
-  void OnSodaProgress(int progress) override {}
+  void OnSodaProgress(int combined_progress) override {}
   void OnSodaError() override {}
 
  private:
   void OnSpeechRecognitionAvailabilityChanged();
+  void OnSpeechRecognitionLanguageChanged();
   void NotifyObservers(bool enabled);
 
-  mojo::RemoteSet<media::mojom::SpeechRecognitionAvailabilityObserver>
+  mojo::RemoteSet<media::mojom::SpeechRecognitionBrowserObserver>
       speech_recognition_availibility_observers_;
 
   mojo::ReceiverSet<media::mojom::SpeechRecognitionClientBrowserInterface>

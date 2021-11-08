@@ -25,7 +25,10 @@
 class DevToolsEventsLogger : public DevToolsEventListener {
  public:
   // Creates a |DevToolsEventsLogger| with specific preferences.
-  DevToolsEventsLogger(Log* log, const base::ListValue* prefs);
+  DevToolsEventsLogger(Log* log, const base::Value& prefs);
+
+  DevToolsEventsLogger(const DevToolsEventsLogger&) = delete;
+  DevToolsEventsLogger& operator=(const DevToolsEventsLogger&) = delete;
 
   ~DevToolsEventsLogger() override;
 
@@ -38,10 +41,8 @@ class DevToolsEventsLogger : public DevToolsEventListener {
  private:
   Log* log_;  // The log where to create entries.
 
-  const base::ListValue* prefs_;
+  const base::Value& prefs_;
   std::unordered_set<std::string> events_;
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsEventsLogger);
 };
 
 #endif  // CHROME_TEST_CHROMEDRIVER_DEVTOOLS_EVENTS_LOGGER_H_

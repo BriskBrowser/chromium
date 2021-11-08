@@ -10,7 +10,6 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "base/time/time.h"
 #include "url/gurl.h"
 
 namespace history {
@@ -81,6 +80,10 @@ class MetricsHelper {
   MetricsHelper(const GURL& url,
                 const ReportDetails settings,
                 history::HistoryService* history_service);
+
+  MetricsHelper(const MetricsHelper&) = delete;
+  MetricsHelper& operator=(const MetricsHelper&) = delete;
+
   virtual ~MetricsHelper();
 
   // Records a user decision or interaction to the appropriate UMA metrics
@@ -110,8 +113,6 @@ class MetricsHelper {
   const ReportDetails settings_;
   int num_visits_;
   base::CancelableTaskTracker request_tracker_;
-
-  DISALLOW_COPY_AND_ASSIGN(MetricsHelper);
 };
 
 }  // namespace security_interstitials

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef COMPONENTS_DATA_USE_MEASUREMENT_CONTENT_DATA_USE_MEASUREMENT_H_
-#define COMPONENTS_DATA_USE_MEASUREMENT_CONTENT_DATA_USE_MEASUREMENT_H_
+#ifndef COMPONENTS_DATA_USE_MEASUREMENT_CORE_DATA_USE_MEASUREMENT_H_
+#define COMPONENTS_DATA_USE_MEASUREMENT_CORE_DATA_USE_MEASUREMENT_H_
 
 #include <stdint.h>
 
@@ -15,7 +15,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
-#include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/data_use_measurement/core/data_use_tracker_prefs.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
@@ -62,6 +61,10 @@ class DataUseMeasurement
   DataUseMeasurement(
       PrefService* pref_service,
       network::NetworkConnectionTracker* network_connection_tracker);
+
+  DataUseMeasurement(const DataUseMeasurement&) = delete;
+  DataUseMeasurement& operator=(const DataUseMeasurement&) = delete;
+
   ~DataUseMeasurement() override;
 
 #if defined(OS_ANDROID)
@@ -192,10 +195,8 @@ class DataUseMeasurement
   DataUseTrackerPrefs data_use_tracker_prefs_;
 
   base::WeakPtrFactory<DataUseMeasurement> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DataUseMeasurement);
 };
 
 }  // namespace data_use_measurement
 
-#endif  // COMPONENTS_DATA_USE_MEASUREMENT_CONTENT_DATA_USE_MEASUREMENT_H_
+#endif  // COMPONENTS_DATA_USE_MEASUREMENT_CORE_DATA_USE_MEASUREMENT_H_

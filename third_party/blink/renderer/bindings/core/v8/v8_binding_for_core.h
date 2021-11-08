@@ -32,6 +32,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_V8_BINDING_FOR_CORE_H_
 #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_V8_BINDING_FOR_CORE_H_
 
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
@@ -75,7 +76,7 @@ class XPathNSResolver;
 // JavaScript value being converted is either undefined or null, kNullable will
 // stop the conversion attempt and the union's IsNull() method will return true.
 // If kNotNullable is used, the other conversion steps listed in
-// https://heycam.github.io/webidl/#es-union will continue being attempted.
+// https://webidl.spec.whatwg.org/#es-union will continue being attempted.
 enum class UnionTypeConversionMode {
   kNullable,
   kNotNullable,
@@ -245,7 +246,7 @@ inline uint64_t ToUInt64(v8::Isolate* isolate,
 }
 
 // NaNs and +/-Infinity should be 0, otherwise modulo 2^64.
-// Step 8 - 12 of https://heycam.github.io/webidl/#abstract-opdef-converttoint
+// Step 8 - 12 of https://webidl.spec.whatwg.org/#abstract-opdef-converttoint
 inline uint64_t DoubleToInteger(double d) {
   if (std::isnan(d) || std::isinf(d))
     return 0;
@@ -304,7 +305,7 @@ CORE_EXPORT float ToRestrictedFloat(v8::Isolate*,
                                     v8::Local<v8::Value>,
                                     ExceptionState&);
 
-inline base::Optional<base::Time> ToCoreNullableDate(
+inline absl::optional<base::Time> ToCoreNullableDate(
     v8::Isolate* isolate,
     v8::Local<v8::Value> object,
     ExceptionState& exception_state) {
@@ -313,14 +314,14 @@ inline base::Optional<base::Time> ToCoreNullableDate(
   //   NaN time value, then set the value of the element to the empty string;
   // We'd like to return same values for |null| and an invalid Date object.
   if (object->IsNull())
-    return base::nullopt;
+    return absl::nullopt;
   if (!object->IsDate()) {
     exception_state.ThrowTypeError("The provided value is not a Date.");
-    return base::nullopt;
+    return absl::nullopt;
   }
   double time_value = object.As<v8::Date>()->ValueOf();
   if (!std::isfinite(time_value))
-    return base::nullopt;
+    return absl::nullopt;
   return base::Time::FromJsTime(time_value);
 }
 

@@ -65,12 +65,13 @@ class AXRangePhysicalPixelRectDelegate : public AXRangeRectDelegate {
       AXNodeID node_id,
       int start_offset,
       int end_offset,
+      ui::AXClippingBehavior clipping_behavior,
       AXOffscreenResult* offscreen_result) override {
     AXPlatformNodeDelegate* delegate = host_->GetDelegate(tree_id, node_id);
     DCHECK(delegate);
     return delegate->GetInnerTextRangeBoundsRect(
         start_offset, end_offset, ui::AXCoordinateSystem::kScreenPhysicalPixels,
-        ui::AXClippingBehavior::kClipped, offscreen_result);
+        clipping_behavior, offscreen_result);
   }
 
   gfx::Rect GetBoundsRect(AXTreeID tree_id,
@@ -160,7 +161,7 @@ HRESULT AXPlatformNodeTextRangeProviderWin::CompareEndpoints(
           ? other_provider->start()
           : other_provider->end();
 
-  base::Optional<int> comparison =
+  absl::optional<int> comparison =
       this_provider_endpoint->CompareTo(*other_provider_endpoint);
   if (!comparison)
     return UIA_E_INVALIDOPERATION;
@@ -184,11 +185,13 @@ HRESULT AXPlatformNodeTextRangeProviderWin::ExpandToEnclosingUnit(
 HRESULT AXPlatformNodeTextRangeProviderWin::ExpandToEnclosingUnitImpl(
     TextUnit unit) {
   UIA_VALIDATE_TEXTRANGEPROVIDER_CALL();
-  AXPositionInstance normalized_start = start()->Clone();
-  AXPositionInstance normalized_end = end()->Clone();
-  NormalizeTextRange(normalized_start, normalized_end);
-  SetStart(std::move(normalized_start));
-  SetEnd(std::move(normalized_end));
+  {
+    AXPositionInstance normalized_start = start()->Clone();
+    AXPositionInstance normalized_end = end()->Clone();
+    NormalizeTextRange(normalized_start, normalized_end);
+    SetStart(std::move(normalized_start));
+    SetEnd(std::move(normalized_end));
+  }
 
   // Determine if start is on a boundary of the specified TextUnit, if it is
   // not, move backwards until it is. Move the end forwards from start until it
@@ -266,10 +269,11 @@ HRESULT AXPlatformNodeTextRangeProviderWin::ExpandToEnclosingUnitImpl(
           base::BindRepeating(&AtEndOfLinePredicate)));
       break;
     case TextUnit_Paragraph:
-      SetStart(start()->CreatePreviousParagraphStartPosition(
-          AXBoundaryBehavior::StopIfAlreadyAtBoundary));
-      SetEnd(start()->CreateNextParagraphEndPosition(
-          AXBoundaryBehavior::StopIfAlreadyAtBoundary));
+      SetStart(
+          start()->CreatePreviousParagraphStartPositionSkippingEmptyParagraphs(
+              AXBoundaryBehavior::StopIfAlreadyAtBoundary));
+      SetEnd(start()->CreateNextParagraphStartPositionSkippingEmptyParagraphs(
+          AXBoundaryBehavior::StopAtLastAnchorBoundary));
       break;
     case TextUnit_Page: {
       // Per UIA spec, if the document containing the current range doesn't
@@ -436,12 +440,12 @@ HRESULT AXPlatformNodeTextRangeProviderWin::FindText(
   WIN_ACCESSIBILITY_API_PERF_HISTOGRAM(UMA_API_TEXTRANGE_FINDTEXT);
   UIA_VALIDATE_TEXTRANGEPROVIDER_CALL_1_IN_1_OUT(string, result);
 
-  base::string16 search_string = base::WideToUTF16(string);
+  std::u16string search_string = base::WideToUTF16(string);
   if (search_string.length() <= 0)
     return E_INVALIDARG;
 
   size_t appended_newlines_count = 0;
-  base::string16 text_range = GetString(-1, &appended_newlines_count);
+  std::u16string text_range = GetString(-1, &appended_newlines_count);
   size_t find_start;
   size_t find_length;
   if (base::i18n::StringSearch(search_string, text_range, &find_start,
@@ -531,13 +535,13 @@ HRESULT AXPlatformNodeTextRangeProviderWin::GetAttributeValue(
     const bool at_end_leaf_text_anchor =
         it->anchor_id() == end_leaf_text_position->anchor_id() &&
         it->tree_id() == end_leaf_text_position->tree_id();
-    const base::Optional<int> start_offset =
-        it->IsTextPosition() ? base::make_optional(it->text_offset())
-                             : base::nullopt;
-    const base::Optional<int> end_offset =
+    const absl::optional<int> start_offset =
+        it->IsTextPosition() ? absl::make_optional(it->text_offset())
+                             : absl::nullopt;
+    const absl::optional<int> end_offset =
         at_end_leaf_text_anchor
-            ? base::make_optional(end_leaf_text_position->text_offset())
-            : base::nullopt;
+            ? absl::make_optional(end_leaf_text_position->text_offset())
+            : absl::nullopt;
     HRESULT hr = platform_node->GetTextAttributeValue(
         attribute_id, start_offset, end_offset, &current_value);
     if (FAILED(hr))
@@ -612,15 +616,6 @@ HRESULT AXPlatformNodeTextRangeProviderWin::GetEnclosingElement(
   AXPlatformNodeWin* enclosing_node = GetLowestAccessibleCommonPlatformNode();
   if (!enclosing_node)
     return UIA_E_ELEMENTNOTAVAILABLE;
-
-  while (enclosing_node->GetData().IsIgnored() ||
-         enclosing_node->GetData().role == ax::mojom::Role::kInlineTextBox ||
-         enclosing_node->IsChildOfLeaf()) {
-    AXPlatformNodeWin* parent = static_cast<AXPlatformNodeWin*>(
-        AXPlatformNode::FromNativeViewAccessible(enclosing_node->GetParent()));
-    DCHECK(parent);
-    enclosing_node = parent;
-  }
 
   enclosing_node->GetNativeViewAccessible()->QueryInterface(
       IID_PPV_ARGS(element));
@@ -756,7 +751,8 @@ HRESULT AXPlatformNodeTextRangeProviderWin::MoveEndpointByUnitImpl(
           MoveEndpointByCharacter(position_to_move, count, units_moved);
       break;
     case TextUnit_Format:
-      new_position = MoveEndpointByFormat(position_to_move, count, units_moved);
+      new_position = MoveEndpointByFormat(position_to_move, is_start_endpoint,
+                                          count, units_moved);
       break;
     case TextUnit_Word:
       new_position = MoveEndpointByWord(position_to_move, count, units_moved);
@@ -787,7 +783,7 @@ HRESULT AXPlatformNodeTextRangeProviderWin::MoveEndpointByUnitImpl(
 
   // If the start was moved past the end, create a degenerate range with the end
   // equal to the start; do the equivalent if the end moved past the start.
-  base::Optional<int> endpoint_comparison =
+  absl::optional<int> endpoint_comparison =
       AXNodeRange::CompareEndpoints(start().get(), end().get());
   DCHECK(endpoint_comparison.has_value());
 
@@ -971,27 +967,28 @@ HRESULT AXPlatformNodeTextRangeProviderWin::ScrollIntoView(BOOL align_to_top) {
   return S_OK;
 }
 
+// This function is expected to return a subset of the *direct* children of the
+// common ancestor node. The subset should only include the direct children
+// included - fully or partially - in the range.
 HRESULT AXPlatformNodeTextRangeProviderWin::GetChildren(SAFEARRAY** children) {
   WIN_ACCESSIBILITY_API_HISTOGRAM(UMA_API_TEXTRANGE_GETCHILDREN);
   WIN_ACCESSIBILITY_API_PERF_HISTOGRAM(UMA_API_TEXTRANGE_GETCHILDREN);
   UIA_VALIDATE_TEXTRANGEPROVIDER_CALL_1_OUT(children);
   std::vector<gfx::NativeViewAccessible> descendants;
 
-  const AXNode* common_anchor = start()->LowestCommonAnchor(*end());
-  if (!common_anchor)
+  AXPlatformNodeWin* start_anchor =
+      GetPlatformNodeFromAXNode(start()->GetAnchor());
+  AXPlatformNodeWin* end_anchor = GetPlatformNodeFromAXNode(end()->GetAnchor());
+  AXPlatformNodeWin* common_anchor = GetLowestAccessibleCommonPlatformNode();
+  if (!common_anchor || !start_anchor || !end_anchor)
     return UIA_E_ELEMENTNOTAVAILABLE;
-  const AXTreeID tree_id = common_anchor->tree()->GetAXTreeID();
-  const AXNodeID node_id = common_anchor->id();
-  AXPlatformNodeDelegate* delegate = GetDelegate(tree_id, node_id);
-  DCHECK(delegate);
-  while (delegate->GetData().IsIgnored()) {
-    auto* node = static_cast<AXPlatformNodeWin*>(
-        AXPlatformNode::FromNativeViewAccessible(delegate->GetParent()));
-    DCHECK(node);
-    delegate = node->GetDelegate();
-  }
-  if (delegate->GetChildCount())
-    descendants = delegate->GetUIADescendants();
+
+  AXPlatformNodeDelegate* start_delegate = start_anchor->GetDelegate();
+  AXPlatformNodeDelegate* end_delegate = end_anchor->GetDelegate();
+  AXPlatformNodeDelegate* common_delegate = common_anchor->GetDelegate();
+
+  descendants = common_delegate->GetUIADirectChildrenInRange(start_delegate,
+                                                             end_delegate);
 
   SAFEARRAY* safe_array =
       SafeArrayCreateVector(VT_UNKNOWN, 0, descendants.size());
@@ -1057,7 +1054,7 @@ AXPlatformNodeTextRangeProviderWin::GetNextTextBoundaryPosition(
   }
 }
 
-base::string16 AXPlatformNodeTextRangeProviderWin::GetString(
+std::u16string AXPlatformNodeTextRangeProviderWin::GetString(
     int max_count,
     size_t* appended_newlines_count) {
   AXNodeRange range(start()->Clone(), end()->Clone());
@@ -1121,11 +1118,14 @@ AXPlatformNodeTextRangeProviderWin::MoveEndpointByLine(
 AXPlatformNodeTextRangeProviderWin::AXPositionInstance
 AXPlatformNodeTextRangeProviderWin::MoveEndpointByFormat(
     const AXPositionInstance& endpoint,
+    const bool is_start_endpoint,
     const int count,
     int* units_moved) {
   return MoveEndpointByUnitHelper(std::move(endpoint),
-                                  ax::mojom::TextBoundary::kFormat, count,
-                                  units_moved);
+                                  is_start_endpoint
+                                      ? ax::mojom::TextBoundary::kFormatStart
+                                      : ax::mojom::TextBoundary::kFormatEnd,
+                                  count, units_moved);
 }
 
 AXPlatformNodeTextRangeProviderWin::AXPositionInstance
@@ -1134,11 +1134,10 @@ AXPlatformNodeTextRangeProviderWin::MoveEndpointByParagraph(
     const bool is_start_endpoint,
     const int count,
     int* units_moved) {
-  return MoveEndpointByUnitHelper(std::move(endpoint),
-                                  is_start_endpoint
-                                      ? ax::mojom::TextBoundary::kParagraphStart
-                                      : ax::mojom::TextBoundary::kParagraphEnd,
-                                  count, units_moved);
+  return MoveEndpointByUnitHelper(
+      std::move(endpoint),
+      ax::mojom::TextBoundary::kParagraphStartSkippingEmptyParagraphs, count,
+      units_moved);
 }
 
 AXPlatformNodeTextRangeProviderWin::AXPositionInstance
@@ -1227,7 +1226,6 @@ AXPlatformNodeTextRangeProviderWin::MoveEndpointByUnitHelper(
   return current_endpoint;
 }
 
-// TODO(vicfei): Make static.
 void AXPlatformNodeTextRangeProviderWin::NormalizeTextRange(
     AXPositionInstance& start,
     AXPositionInstance& end) {
@@ -1238,14 +1236,12 @@ void AXPlatformNodeTextRangeProviderWin::NormalizeTextRange(
   // first snap them both to be unignored positions.
   NormalizeAsUnignoredTextRange(start, end);
 
-  // When carets are visible or selections are occurring, the precise state of
-  // the TextPattern must be preserved so that the UIA client can handle
-  // scenarios such as determining which characters were deleted. So
-  // normalization must be bypassed.
-  if (HasCaretOrSelectionInPlainTextField(start) ||
-      HasCaretOrSelectionInPlainTextField(end)) {
+  // When a text range or one end of AXTree::Selection is inside the atomic text
+  // field, the precise state of the TextPattern must be preserved so that the
+  // UIA client can handle scenarios such as determining which characters were
+  // deleted. So normalization must be bypassed.
+  if (HasTextRangeOrSelectionInAtomicTextField(start, end))
     return;
-  }
 
   AXPositionInstance normalized_start =
       start->AsLeafTextPositionBeforeCharacter();
@@ -1365,8 +1361,8 @@ void AXPlatformNodeTextRangeProviderWin::
     return;
 
   if (!new_selection_node ||
-      (old_selection_node->data().HasState(ax::mojom::State::kFocusable) &&
-       !new_selection_node->data().HasState(ax::mojom::State::kFocusable))) {
+      (old_selection_node->HasState(ax::mojom::State::kFocusable) &&
+       !new_selection_node->HasState(ax::mojom::State::kFocusable))) {
     AXPlatformNodeDelegate* root_delegate =
         GetRootDelegate(old_selection_node->tree()->GetAXTreeID());
     DCHECK(root_delegate);
@@ -1378,44 +1374,73 @@ void AXPlatformNodeTextRangeProviderWin::
 }
 
 AXPlatformNodeWin*
+AXPlatformNodeTextRangeProviderWin::GetPlatformNodeFromAXNode(
+    const AXNode* node) const {
+  if (!node)
+    return nullptr;
+
+  // TODO(kschmi): Update to use AXTreeManager.
+  AXPlatformNodeWin* platform_node =
+      static_cast<AXPlatformNodeWin*>(AXPlatformNode::FromNativeViewAccessible(
+          GetDelegate(node->tree()->GetAXTreeID(), node->id())
+              ->GetNativeViewAccessible()));
+  DCHECK(platform_node);
+
+  return platform_node;
+}
+
+AXPlatformNodeWin*
 AXPlatformNodeTextRangeProviderWin::GetLowestAccessibleCommonPlatformNode()
     const {
   AXNode* common_anchor = start()->LowestCommonAnchor(*end());
   if (!common_anchor)
     return nullptr;
 
-  const AXTreeID tree_id = common_anchor->tree()->GetAXTreeID();
-  const AXNodeID node_id = common_anchor->id();
-  AXPlatformNodeWin* platform_node =
-      static_cast<AXPlatformNodeWin*>(AXPlatformNode::FromNativeViewAccessible(
-          GetDelegate(tree_id, node_id)->GetNativeViewAccessible()));
-  DCHECK(platform_node);
-
-  return platform_node->GetLowestAccessibleElement();
+  return GetPlatformNodeFromAXNode(common_anchor)
+      ->GetLowestAccessibleElementForUIA();
 }
 
-bool AXPlatformNodeTextRangeProviderWin::HasCaretOrSelectionInPlainTextField(
-    const AXPositionInstance& position) const {
-  // This condition fixes issues when the caret is inside a plain text field,
-  // but causes more issues when used inside of a rich text field. For this
-  // reason, if we have a caret or a selection inside of an editable node,
-  // restrict this to a plain text field as we gain nothing from using it in a
-  // rich text field.
+bool AXPlatformNodeTextRangeProviderWin::
+    HasTextRangeOrSelectionInAtomicTextField(
+        const AXPositionInstance& start_position,
+        const AXPositionInstance& end_position) const {
+  // This condition fixes issues when the caret is inside an atomic text field,
+  // but causes more issues when used inside of a non-atomic text field. An
+  // atomic text field does not expose its internal implementation to assistive
+  // software, appearing as a single leaf node in the accessibility tree. It
+  // includes <input>, <textarea> and Views-based text fields.
   //
-  // Note that "AXPlatformNodeDelegate::IsDescendantOfPlainTextField()" also
-  // returns true when this node is at the root of a plain text field, i.e. the
-  // node could either be a descendant or it could be equivalent to the field's
-  // root node.
-  AXPlatformNodeDelegate* delegate = GetDelegate(position.get());
-  return delegate && delegate->HasVisibleCaretOrSelection() &&
-         delegate->IsDescendantOfPlainTextField();
+  // For this reason, if we have a caret or a selection inside of an editable
+  // node, restrict this to an atomic text field as we gain nothing from using
+  // it in a non-atomic text field.
+  //
+  // Note that "AXPlatformNodeDelegate::IsDescendantOfAtomicTextField()" also
+  // returns true when this node is at the root of an atomic text field, i.e.
+  // the node could either be a descendant or it could be equivalent to the
+  // field's root node.
+  bool is_start_in_text_field =
+      start_position->GetAnchor()->IsDescendantOfAtomicTextField();
+  bool is_end_in_text_field =
+      end_position->GetAnchor()->IsDescendantOfAtomicTextField();
+  AXPlatformNodeDelegate* start_delegate = GetDelegate(start_position.get());
+  AXPlatformNodeDelegate* end_delegate = GetDelegate(start_position.get());
+
+  // Return true when both ends of a text range are inside the atomic
+  // text field (e.g. a caret perceived by the AT), or when either endpoint of
+  // the AXTree::Selection is inside the atomic text field.
+  return (is_start_in_text_field && is_end_in_text_field) ||
+         (is_start_in_text_field && start_delegate &&
+          start_delegate->HasVisibleCaretOrSelection()) ||
+         (is_end_in_text_field && end_delegate &&
+          end_delegate->HasVisibleCaretOrSelection());
 }
 
 // static
 bool AXPlatformNodeTextRangeProviderWin::TextAttributeIsArrayType(
     TEXTATTRIBUTEID attribute_id) {
   // https://docs.microsoft.com/en-us/windows/win32/winauto/uiauto-textattribute-ids
-  return attribute_id == UIA_AnnotationTypesAttributeId ||
+  return attribute_id == UIA_AnnotationObjectsAttributeId ||
+         attribute_id == UIA_AnnotationTypesAttributeId ||
          attribute_id == UIA_TabsAttributeId;
 }
 
@@ -1567,6 +1592,18 @@ void AXPlatformNodeTextRangeProviderWin::TextRangeEndpoints::
       new_end = start_->Clone();
     SetEnd(std::move(new_end));
   }
+}
+
+void AXPlatformNodeTextRangeProviderWin::TextRangeEndpoints::OnNodeDeleted(
+    AXTree* tree,
+    AXNodeID node_id) {
+  // When the deleted node is a descendant of the common anchor of our range,
+  // it might create an invalid position. Ensure that our position is valid when
+  // necessary.
+  if (tree->GetAXTreeID() == start_->tree_id())
+    SetStart(start_->AsValidPosition());
+  if (tree->GetAXTreeID() == end_->tree_id())
+    SetEnd(end_->AsValidPosition());
 }
 
 void AXPlatformNodeTextRangeProviderWin::TextRangeEndpoints::

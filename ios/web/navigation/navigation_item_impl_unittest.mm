@@ -51,18 +51,17 @@ TEST_F(NavigationItemTest, Dummy) {
 #ifndef NDEBUG
 // Tests that the debug description is as expected.
 TEST_F(NavigationItemTest, Description) {
-  item_->SetTitle(base::UTF8ToUTF16("Title"));
+  item_->SetTitle(u"Title");
   NSString* description = item_->GetDescription();
   EXPECT_TRUE([description containsString:@"url:http://init.test/"]);
   EXPECT_TRUE([description containsString:@"originalurl:http://init.test/"]);
   EXPECT_TRUE([description containsString:@"title:Title"]);
   EXPECT_TRUE([description containsString:@"transition:2"]);
   EXPECT_TRUE([description containsString:@"userAgent:NONE"]);
-  EXPECT_TRUE([description containsString:@"is_create_from_push_state: false"]);
-  EXPECT_TRUE([description containsString:@"has_state_been_replaced: false"]);
   EXPECT_TRUE(
       [description containsString:@"is_created_from_hash_change: false"]);
   EXPECT_TRUE([description containsString:@"navigation_initiation_type: 0"]);
+  EXPECT_TRUE([description containsString:@"is_upgraded_to_https: false"]);
 }
 #endif
 
@@ -168,7 +167,7 @@ TEST_F(NavigationItemTest, ExtraLongTitle) {
 
 // Tests NavigationItemImpl::GetDisplayTitleForURL method.
 TEST_F(NavigationItemTest, GetDisplayTitleForURL) {
-  base::string16 title;
+  std::u16string title;
 
   title = NavigationItemImpl::GetDisplayTitleForURL(GURL("http://foo.org/"));
   EXPECT_EQ("foo.org", base::UTF16ToUTF8(title));

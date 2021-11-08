@@ -10,6 +10,7 @@
 #include "chrome/browser/chrome_browser_main_linux.h"
 
 class MetricsReportingObserver;
+class PrefsAshObserver;
 
 // Startup and shutdown code for Lacros. See ChromeBrowserMainParts for details.
 class ChromeBrowserMainPartsLacros : public ChromeBrowserMainPartsLinux {
@@ -23,9 +24,12 @@ class ChromeBrowserMainPartsLacros : public ChromeBrowserMainPartsLinux {
 
   // ChromeBrowserMainParts:
   int PreEarlyInitialization() override;
+  void PreProfileInit() override;
+  void PostDestroyThreads() override;
 
  private:
   std::unique_ptr<MetricsReportingObserver> metrics_reporting_observer_;
+  std::unique_ptr<PrefsAshObserver> prefs_ash_observer_;
 };
 
 #endif  // CHROME_BROWSER_CHROME_BROWSER_MAIN_PARTS_LACROS_H_

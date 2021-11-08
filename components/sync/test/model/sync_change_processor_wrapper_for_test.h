@@ -24,21 +24,24 @@ class SyncChangeProcessorWrapperForTest : public SyncChangeProcessor {
   explicit SyncChangeProcessorWrapperForTest(SyncChangeProcessor* wrapped);
   // Overload for SyncableService.
   explicit SyncChangeProcessorWrapperForTest(SyncableService* wrapped);
+
+  SyncChangeProcessorWrapperForTest(const SyncChangeProcessorWrapperForTest&) =
+      delete;
+  SyncChangeProcessorWrapperForTest& operator=(
+      const SyncChangeProcessorWrapperForTest&) = delete;
+
   ~SyncChangeProcessorWrapperForTest() override;
 
   // SyncChangeProcessor implementation.
-  base::Optional<ModelError> ProcessSyncChanges(
+  absl::optional<ModelError> ProcessSyncChanges(
       const base::Location& from_here,
       const SyncChangeList& change_list) override;
-  SyncDataList GetAllSyncData(ModelType type) const override;
 
  private:
-  const base::RepeatingCallback<base::Optional<ModelError>(
+  const base::RepeatingCallback<absl::optional<ModelError>(
       const base::Location& from_here,
       const SyncChangeList& change_list)>
       process_sync_changes_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyncChangeProcessorWrapperForTest);
 };
 
 }  // namespace syncer

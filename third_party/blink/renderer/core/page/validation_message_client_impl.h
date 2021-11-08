@@ -88,7 +88,7 @@ class CORE_EXPORT ValidationMessageClientImpl final
   base::TimeTicks finish_time_;
   Member<DisallowNewWrapper<HeapTaskRunnerTimer<ValidationMessageClientImpl>>>
       timer_;
-  std::unique_ptr<FrameOverlay> overlay_;
+  Member<FrameOverlay> overlay_;
   // Raw pointer. This pointer is valid unless overlay_ is nullptr.
   ValidationMessageOverlayDelegate* overlay_delegate_ = nullptr;
   bool allow_initial_empty_anchor_ = false;
@@ -96,4 +96,4 @@ class CORE_EXPORT ValidationMessageClientImpl final
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_VALIDATION_MESSAGE_CLIENT_IMPL_H_

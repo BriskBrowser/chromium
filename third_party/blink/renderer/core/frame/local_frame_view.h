@@ -29,9 +29,11 @@
 #include <memory>
 
 #include "base/callback_forward.h"
+#include "base/dcheck_is_on.h"
+#include "base/gtest_prod_util.h"
 #include "third_party/blink/public/common/metrics/document_update_reason.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink-forward.h"
-#include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/document_transition/document_transition.h"
@@ -47,7 +49,6 @@
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/geometry/layout_size.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
-#include "third_party/blink/renderer/platform/graphics/compositing/paint_artifact_compositor.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_controller.h"
@@ -74,6 +75,7 @@ namespace blink {
 class AXObjectCache;
 class ChromeClient;
 class CompositorAnimationTimeline;
+class DarkModeFilter;
 class DocumentLifecycle;
 class FloatSize;
 class FragmentAnchor;
@@ -83,7 +85,6 @@ class GraphicsLayer;
 class HTMLVideoElement;
 class JSONObject;
 class KURL;
-class LayoutAnalyzer;
 class LayoutBox;
 class LayoutEmbeddedObject;
 class LayoutObject;
@@ -93,6 +94,8 @@ class LayoutView;
 class LocalFrame;
 class MobileFriendlinessChecker;
 class Page;
+class PaintArtifactCompositor;
+class PaintController;
 class PaintLayer;
 class PaintLayerScrollableArea;
 class PaintTimingDetector;
@@ -101,7 +104,6 @@ class ScrollableArea;
 class Scrollbar;
 class ScrollingCoordinator;
 class ScrollingCoordinatorContext;
-class TracedValue;
 class TransformState;
 class LocalFrameUkmAggregator;
 class WebPluginContainerImpl;
@@ -110,6 +112,9 @@ struct IntrinsicSizingInfo;
 struct MobileFriendliness;
 struct PhysicalOffset;
 struct PhysicalRect;
+struct PreCompositedLayerInfo;
+
+enum class PaintBenchmarkMode;
 
 typedef uint64_t DOMTimeStamp;
 using LayerTreeFlags = unsigned;
@@ -144,9 +149,6 @@ class CORE_EXPORT LocalFrameView final
   LocalFrameView(LocalFrame&, const IntSize& initial_size);
   ~LocalFrameView() override;
 
-  void Invalidate() { InvalidateRect(IntRect(0, 0, Width(), Height())); }
-  void InvalidateRect(const IntRect&);
-
   LocalFrame& GetFrame() const {
     DCHECK(frame_);
     return *frame_;
@@ -164,7 +166,6 @@ class CORE_EXPORT LocalFrameView final
 
   void SetLayoutOverflowSize(const IntSize&);
 
-  void UpdateLayout();
   bool DidFirstLayout() const;
   bool LifecycleUpdatesActive() const;
   void SetLifecycleUpdatesThrottledForTesting(bool throttled = true);
@@ -185,6 +186,9 @@ class CORE_EXPORT LocalFrameView final
   void ScheduleOrthogonalWritingModeRootsForLayout();
   void MarkOrthogonalWritingModeRootsForLayout();
 
+  // Returns true if commits will be deferred for first contentful paint.
+  bool WillDoPaintHoldingForFCP() const;
+
   unsigned LayoutCountForTesting() const { return layout_count_for_testing_; }
   unsigned LifecycleUpdateCountForTesting() const {
     return lifecycle_update_count_for_testing_;
@@ -200,6 +204,8 @@ class CORE_EXPORT LocalFrameView final
 
   void SetNeedsUpdateGeometries() { needs_update_geometries_ = true; }
   void UpdateGeometry() override;
+
+  void UpdateStyleAndLayout();
 
   // Marks this frame, and ancestor frames, as needing one intersection
   // observervation. This overrides throttling for one frame, up to
@@ -246,7 +252,9 @@ class CORE_EXPORT LocalFrameView final
   // If this is set to false, the layout size will need to be explicitly set by
   // the owner.  E.g. WebViewImpl sets its mainFrame's layout size manually
   void SetLayoutSizeFixedToFrameSize(bool);
-  bool LayoutSizeFixedToFrameSize() { return layout_size_fixed_to_frame_size_; }
+  bool LayoutSizeFixedToFrameSize() const {
+    return layout_size_fixed_to_frame_size_;
+  }
 
   void SetInitialViewportSize(const IntSize&);
   int InitialViewportWidth() const;
@@ -279,7 +287,6 @@ class CORE_EXPORT LocalFrameView final
   bool ShouldPaintBaseBackgroundColor() const;
 
   void AdjustViewSize();
-  void AdjustViewSizeAndLayout();
 
   // Scale used to convert incoming input events.
   float InputEventsScaleFactor() const;
@@ -340,7 +347,7 @@ class CORE_EXPORT LocalFrameView final
 
   void AddPartToUpdate(LayoutEmbeddedObject&);
 
-  Color DocumentBackgroundColor() const;
+  Color DocumentBackgroundColor();
 
   // Called when this view is going to be removed from its owning
   // LocalFrame.
@@ -374,14 +381,6 @@ class CORE_EXPORT LocalFrameView final
   void UpdateLifecyclePhasesForPrinting();
 
   bool UpdateLifecycleToPrePaintClean(DocumentUpdateReason reason);
-
-  // After calling this method, all frames will be in a lifecycle
-  // state >= CompositingClean, and scrolling has been updated (unless
-  // throttling is allowed), unless the frame was throttled or inactive.
-  // Returns whether the lifecycle was successfully updated to the
-  // desired state.
-  bool UpdateLifecycleToCompositingCleanPlusScrolling(
-      DocumentUpdateReason reason);
 
   // Computes the style, layout, and compositing inputs lifecycle stages if
   // needed. After calling this method, all frames will be in a lifecycle state
@@ -505,8 +504,8 @@ class CORE_EXPORT LocalFrameView final
   // http://www.chromium.org/developers/design-documents/blink-coordinate-spaces
   IntRect ViewportToFrame(const IntRect&) const;
   IntRect FrameToViewport(const IntRect&) const;
-  IntPoint FrameToViewport(const IntPoint&) const;
-  IntPoint ViewportToFrame(const IntPoint&) const;
+  gfx::Point FrameToViewport(const gfx::Point&) const;
+  gfx::Point ViewportToFrame(const gfx::Point&) const;
   FloatPoint ViewportToFrame(const FloatPoint&) const;
   PhysicalOffset ViewportToFrame(const PhysicalOffset&) const;
 
@@ -514,32 +513,32 @@ class CORE_EXPORT LocalFrameView final
   // in viewport space, but sized in CSS pixels. This is an artifact of the
   // old pinch-zoom path. These callers should be converted to expect a rect
   // fully in viewport space. crbug.com/459591.
-  IntPoint SoonToBeRemovedUnscaledViewportToContents(const IntPoint&) const;
+  gfx::Point SoonToBeRemovedUnscaledViewportToContents(const gfx::Point&) const;
 
   // Functions for converting to screen coordinates.
   IntRect FrameToScreen(const IntRect&) const;
 
   // Converts from/to local frame coordinates to the root frame coordinates.
   IntRect ConvertToRootFrame(const IntRect&) const;
-  IntPoint ConvertToRootFrame(const IntPoint&) const;
+  gfx::Point ConvertToRootFrame(const gfx::Point&) const;
   PhysicalOffset ConvertToRootFrame(const PhysicalOffset&) const;
   FloatPoint ConvertToRootFrame(const FloatPoint&) const;
   PhysicalRect ConvertToRootFrame(const PhysicalRect&) const;
   IntRect ConvertFromRootFrame(const IntRect&) const;
-  IntPoint ConvertFromRootFrame(const IntPoint&) const;
+  gfx::Point ConvertFromRootFrame(const gfx::Point&) const;
   FloatPoint ConvertFromRootFrame(const FloatPoint&) const;
   PhysicalOffset ConvertFromRootFrame(const PhysicalOffset&) const;
 
   IntRect RootFrameToDocument(const IntRect&);
-  IntPoint RootFrameToDocument(const IntPoint&);
+  gfx::Point RootFrameToDocument(const gfx::Point&);
   FloatPoint RootFrameToDocument(const FloatPoint&);
-  IntPoint DocumentToFrame(const IntPoint&) const;
+  gfx::Point DocumentToFrame(const gfx::Point&) const;
   FloatPoint DocumentToFrame(const FloatPoint&) const;
   DoublePoint DocumentToFrame(const DoublePoint&) const;
   PhysicalOffset DocumentToFrame(const PhysicalOffset&) const;
   IntRect DocumentToFrame(const IntRect&) const;
   PhysicalRect DocumentToFrame(const PhysicalRect&) const;
-  IntPoint FrameToDocument(const IntPoint&) const;
+  gfx::Point FrameToDocument(const gfx::Point&) const;
   PhysicalOffset FrameToDocument(const PhysicalOffset&) const;
   IntRect FrameToDocument(const IntRect&) const;
   PhysicalRect FrameToDocument(const PhysicalRect&) const;
@@ -595,9 +594,10 @@ class CORE_EXPORT LocalFrameView final
 
   int ViewportWidth() const;
 
-  LayoutAnalyzer* GetLayoutAnalyzer() { return analyzer_.get(); }
+  int ViewportHeight() const;
 
   bool LocalFrameTreeAllowsThrottling() const;
+  bool LocalFrameTreeForcesThrottling() const;
 
   // Returns true if this frame should not render or schedule visual updates.
   bool ShouldThrottleRendering() const;
@@ -664,15 +664,8 @@ class CORE_EXPORT LocalFrameView final
   void CrossOriginToMainFrameChanged();
   void CrossOriginToParentFrameChanged();
 
-  // The visual viewport can supply scrollbars.
-  void VisualViewportScrollbarsChanged();
-
-  void SetVisualViewportNeedsRepaint() {
-    visual_viewport_needs_repaint_ = true;
-  }
-  bool VisualViewportNeedsRepaint() const {
-    return visual_viewport_needs_repaint_;
-  }
+  void SetVisualViewportOrOverlayNeedsRepaint();
+  bool VisualViewportOrOverlayNeedsRepaintForTesting() const;
 
   LayoutUnit CaretWidth() const;
 
@@ -690,6 +683,7 @@ class CORE_EXPORT LocalFrameView final
 
   PaintArtifactCompositor* GetPaintArtifactCompositor() const;
 
+  cc::Layer* RootCcLayer();
   const cc::Layer* RootCcLayer() const;
 
   ScrollingCoordinatorContext* GetScrollingContext() const;
@@ -701,8 +695,8 @@ class CORE_EXPORT LocalFrameView final
     return *paint_timing_detector_;
   }
 
-  MobileFriendlinessChecker& GetMobileFriendlinessChecker() const {
-    return *mobile_friendliness_checker_;
+  MobileFriendlinessChecker* GetMobileFriendlinessChecker() const {
+    return mobile_friendliness_checker_;
   }
   void DidChangeMobileFriendliness(const MobileFriendliness& mf);
 
@@ -744,6 +738,7 @@ class CORE_EXPORT LocalFrameView final
 
   bool HasDominantVideoElement() const;
 
+  // Gets the fullscreen overlay layer if present, or nullptr if there is none.
   PaintLayer* GetFullScreenOverlayLayer() const;
 
   void RunPaintBenchmark(int repeat_count, cc::PaintBenchmarkResult& result);
@@ -752,13 +747,18 @@ class CORE_EXPORT LocalFrameView final
     return EnsurePaintController();
   }
 
+  bool PaintDebugInfoEnabled() const {
+    return layer_debug_info_enabled_ ||
+           RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled();
+  }
+
  protected:
   void FrameRectsChanged(const IntRect&) override;
   void SelfVisibleChanged() override;
   void ParentVisibleChanged() override;
   void NotifyFrameRectsChangedIfNeeded();
   void SetViewportIntersection(const mojom::blink::ViewportIntersectionState&
-                                   intersection_state) override;
+                                   intersection_state) override {}
   void VisibilityForThrottlingChanged() override;
   bool LifecycleUpdatesThrottled() const override {
     return lifecycle_updates_throttled_;
@@ -813,14 +813,28 @@ class CORE_EXPORT LocalFrameView final
     base::AutoReset<bool> value_;
   };
 
+  // The logic to determine whether a view can be render throttled is delicate,
+  // but in some cases we want to unconditionally force all views in a local
+  // frame tree to be throttled. Having ForceThrottlingScope on the stack will
+  // do that; it supercedes any DisallowThrottlingScope on the stack.
+  class ForceThrottlingScope {
+    STACK_ALLOCATED();
+
+   public:
+    explicit ForceThrottlingScope(const LocalFrameView& frame_view);
+    ForceThrottlingScope(const ForceThrottlingScope&) = delete;
+    ForceThrottlingScope& operator=(const ForceThrottlingScope&) = delete;
+    ~ForceThrottlingScope() = default;
+
+   private:
+    AllowThrottlingScope allow_scope_;
+    base::AutoReset<bool> value_;
+  };
   friend class AllowThrottlingScope;
   friend class DisallowThrottlingScope;
+  friend class ForceThrottlingScope;
 
-  PaintController& EnsurePaintController() {
-    if (!paint_controller_)
-      paint_controller_ = std::make_unique<PaintController>();
-    return *paint_controller_;
-  }
+  PaintController& EnsurePaintController();
 
   // A paint preview is a copy of the visual contents of a webpage recorded as
   // a set of SkPictures. This sends an IPC to the browser to trigger a
@@ -867,18 +881,19 @@ class CORE_EXPORT LocalFrameView final
       DocumentLifecycle::LifecycleState target_state);
   bool RunPrePaintLifecyclePhase(
       DocumentLifecycle::LifecycleState target_state);
-  void RunPaintLifecyclePhase(PaintBenchmarkMode = PaintBenchmarkMode::kNormal);
+  void RunPaintLifecyclePhase(PaintBenchmarkMode);
 
   void UpdateStyleAndLayoutIfNeededRecursive();
+  bool UpdateStyleAndLayoutInternal();
+  void UpdateLayout();
+  void PerformLayout();
+  void PerformPostLayoutTasks(bool view_size_changed);
 
-  bool PaintTree(PaintBenchmarkMode);
+  bool PaintTree(PaintBenchmarkMode, PaintController::CycleScope&);
   void PushPaintArtifactToCompositor(bool repainted);
+  void CreatePaintTimelineEvents();
 
   void ClearLayoutSubtreeRootsAndMarkContainingBlocks();
-
-  void PerformPreLayoutTasks();
-  void PerformLayout(bool in_subtree_layout);
-  void PerformPostLayoutTasks();
 
   DocumentLifecycle& Lifecycle() const;
 
@@ -888,12 +903,12 @@ class CORE_EXPORT LocalFrameView final
   // Methods to do point conversion via layoutObjects, in order to take
   // transforms into account.
   IntRect ConvertToContainingEmbeddedContentView(const IntRect&) const;
-  IntPoint ConvertToContainingEmbeddedContentView(const IntPoint&) const;
+  gfx::Point ConvertToContainingEmbeddedContentView(const gfx::Point&) const;
   PhysicalOffset ConvertToContainingEmbeddedContentView(
       const PhysicalOffset&) const;
   FloatPoint ConvertToContainingEmbeddedContentView(const FloatPoint&) const;
   IntRect ConvertFromContainingEmbeddedContentView(const IntRect&) const;
-  IntPoint ConvertFromContainingEmbeddedContentView(const IntPoint&) const;
+  gfx::Point ConvertFromContainingEmbeddedContentView(const gfx::Point&) const;
   PhysicalOffset ConvertFromContainingEmbeddedContentView(
       const PhysicalOffset&) const;
   FloatPoint ConvertFromContainingEmbeddedContentView(const FloatPoint&) const;
@@ -901,8 +916,6 @@ class CORE_EXPORT LocalFrameView final
       const DoublePoint&) const;
 
   void UpdateGeometriesIfNeeded();
-  bool WasViewportResized();
-  void SendResizeEventIfNeeded();
 
   void ScheduleUpdatePluginsIfNecessary();
   void UpdatePluginsTimerFired(TimerBase*);
@@ -916,9 +929,6 @@ class CORE_EXPORT LocalFrameView final
   void SetLayoutSizeInternal(const IntSize&);
 
   ScrollingCoordinator* GetScrollingCoordinator() const;
-
-  void PrepareLayoutAnalyzer();
-  std::unique_ptr<TracedValue> AnalyzerCounters();
 
   void CollectAnnotatedRegions(LayoutObject&,
                                Vector<AnnotatedRegionValue>&) const;
@@ -943,7 +953,9 @@ class CORE_EXPORT LocalFrameView final
   template <typename Function>
   void ForAllRemoteFrameViews(const Function&);
 
-  bool UpdateViewportIntersectionsForSubtree(unsigned parent_flags) override;
+  bool UpdateViewportIntersectionsForSubtree(
+      unsigned parent_flags,
+      absl::optional<base::TimeTicks>& monotonic_time) override;
   void DeliverSynchronousIntersectionObservations();
 
   bool RunScrollTimelineSteps();
@@ -961,13 +973,16 @@ class CORE_EXPORT LocalFrameView final
   bool RunPostLayoutIntersectionObserverSteps();
   // This is a recursive helper for determining intersection observations which
   // need to happen in post-layout.
-  void ComputePostLayoutIntersections(unsigned parent_flags);
+  void ComputePostLayoutIntersections(
+      unsigned parent_flags,
+      absl::optional<base::TimeTicks>& monotonic_time);
 
   // Returns true if the root object was laid out. Returns false if the layout
   // was prevented (e.g. by ancestor display-lock) or not needed.
   bool LayoutFromRootObject(LayoutObject& root);
 
-  void UpdateLayerDebugInfoEnabled();
+  // Returns true if the value of layer_debug_info_enabled_ changed.
+  bool UpdateLayerDebugInfoEnabled();
 
   // Return the interstitial-ad detector for this frame, creating it if
   // necessary.
@@ -982,11 +997,15 @@ class CORE_EXPORT LocalFrameView final
   // StyleEngine instead of the base background color.
   bool ShouldUseColorAdjustBackground() const;
 
-  // Appends the document transition from this view into the given vector.
+  // Verifies the shared elements for the document transition on this view.
+  void VerifySharedElementsForDocumentTransition();
+  // Append document transition requests from this view into the given vector.
   void AppendDocumentTransitionRequests(
       WTF::Vector<std::unique_ptr<DocumentTransition::Request>>&);
 
   bool AnyFrameIsPrintingOrPaintingPreview();
+
+  DarkModeFilter& EnsureDarkModeFilter();
 
   LayoutSize size_;
 
@@ -1004,19 +1023,16 @@ class CORE_EXPORT LocalFrameView final
   bool layout_scheduling_enabled_;
   unsigned layout_count_for_testing_;
   unsigned lifecycle_update_count_for_testing_;
-  unsigned nested_layout_count_;
   HeapTaskRunnerTimer<LocalFrameView> update_plugins_timer_;
 
   bool first_layout_;
   UseColorAdjustBackground use_color_adjust_background_{
       UseColorAdjustBackground::kNo};
   Color base_background_color_;
-  IntSize last_viewport_size_;
-  float last_zoom_factor_;
 
   // Used for tracking the frame's size and replicating it to the browser
   // process when it changes.
-  base::Optional<IntSize> frame_size_;
+  absl::optional<IntSize> frame_size_;
 
   AtomicString media_type_;
   AtomicString media_type_when_not_printing_;
@@ -1058,8 +1074,6 @@ class CORE_EXPORT LocalFrameView final
 
   bool root_layer_did_scroll_;
 
-  std::unique_ptr<LayoutAnalyzer> analyzer_;
-
   // Mark if something has changed in the mapping from Frame to GraphicsLayer
   // and the Frame Timing regions should be recalculated.
   bool frame_timing_requests_dirty_;
@@ -1073,6 +1087,8 @@ class CORE_EXPORT LocalFrameView final
 
   // Used by AllowThrottlingScope and DisallowThrottlingScope
   bool allow_throttling_ = false;
+  // Used by ForceThrottlingScope
+  bool force_throttling_ = false;
 
   // This is set on the local root frame view only.
   DocumentLifecycle::LifecycleState target_state_;
@@ -1098,7 +1114,7 @@ class CORE_EXPORT LocalFrameView final
   // We won't defer again for the same document.
   bool have_deferred_commits_ = false;
 
-  bool visual_viewport_needs_repaint_ = false;
+  bool visual_viewport_or_overlay_needs_repaint_ = false;
 
   // Whether to collect layer debug information for debugging, tracing,
   // inspection, etc. Applies to local root only.
@@ -1120,7 +1136,7 @@ class CORE_EXPORT LocalFrameView final
   // frame updates and repaints.
   std::unique_ptr<PaintController> paint_controller_;
   std::unique_ptr<PaintArtifactCompositor> paint_artifact_compositor_;
-  Vector<PreCompositedLayerInfo> pre_composited_layers_;
+  HeapVector<PreCompositedLayerInfo> pre_composited_layers_;
 
   MainThreadScrollingReasons main_thread_scrolling_reasons_;
 
@@ -1134,6 +1150,8 @@ class CORE_EXPORT LocalFrameView final
   UniqueObjectId unique_id_;
   Member<LayoutShiftTracker> layout_shift_tracker_;
   Member<PaintTimingDetector> paint_timing_detector_;
+
+  // This will be nullptr iff !frame_->IsMainFrame().
   Member<MobileFriendlinessChecker> mobile_friendliness_checker_;
 
   HeapHashSet<WeakMember<LifecycleNotificationObserver>> lifecycle_observers_;
@@ -1148,8 +1166,12 @@ class CORE_EXPORT LocalFrameView final
   // These tasks will be run at the beginning of the next lifecycle.
   WTF::Vector<base::OnceClosure> start_of_lifecycle_tasks_;
 
+  // Filter used for inverting the document background for forced darkening.
+  std::unique_ptr<DarkModeFilter> dark_mode_filter_;
+
 #if DCHECK_IS_ON()
   bool is_updating_descendant_dependent_flags_;
+  bool is_updating_layout_;
 #endif
 
   FRIEND_TEST_ALL_PREFIXES(FrameThrottlingTest, ForAllThrottledLocalFrameViews);

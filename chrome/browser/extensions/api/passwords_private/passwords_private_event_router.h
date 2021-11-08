@@ -5,14 +5,15 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_PASSWORDS_PRIVATE_PASSWORDS_PRIVATE_EVENT_ROUTER_H_
 #define CHROME_BROWSER_EXTENSIONS_API_PASSWORDS_PRIVATE_PASSWORDS_PRIVATE_EVENT_ROUTER_H_
 
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "base/macros.h"
+#include "base/values.h"
 #include "chrome/common/extensions/api/passwords_private.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "extensions/browser/event_router.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 class BrowserContext;
@@ -27,6 +28,11 @@ class PasswordsPrivateEventRouter : public KeyedService {
  public:
   static PasswordsPrivateEventRouter* Create(
       content::BrowserContext* browser_context);
+
+  PasswordsPrivateEventRouter(const PasswordsPrivateEventRouter&) = delete;
+  PasswordsPrivateEventRouter& operator=(const PasswordsPrivateEventRouter&) =
+      delete;
+
   ~PasswordsPrivateEventRouter() override;
 
   // Notifies listeners of updated passwords.
@@ -85,10 +91,9 @@ class PasswordsPrivateEventRouter : public KeyedService {
 
   // Cached parameters which are saved so that when new listeners are added, the
   // most up-to-date lists can be sent to them immediately.
-  std::unique_ptr<base::ListValue> cached_saved_password_parameters_;
-  std::unique_ptr<base::ListValue> cached_password_exception_parameters_;
-
-  DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateEventRouter);
+  absl::optional<std::vector<base::Value>> cached_saved_password_parameters_;
+  absl::optional<std::vector<base::Value>>
+      cached_password_exception_parameters_;
 };
 
 }  // namespace extensions

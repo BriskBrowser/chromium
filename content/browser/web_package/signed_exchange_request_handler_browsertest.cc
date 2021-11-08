@@ -8,6 +8,7 @@
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
@@ -16,6 +17,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "content/browser/loader/prefetch_url_loader_service.h"
 #include "content/browser/renderer_host/navigation_request.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
@@ -34,7 +36,6 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/network_service_instance.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -54,6 +55,7 @@
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_content_browser_client.h"
 #include "content/shell/browser/shell_download_manager_delegate.h"
+#include "content/test/content_browser_test_utils_internal.h"
 #include "media/media_buildflags.h"
 #include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "net/base/features.h"
@@ -80,7 +82,7 @@ namespace content {
 namespace {
 
 constexpr char kExpectedSXGEnabledAcceptHeaderForPrefetch[] =
-    "application/signed-exchange;v=b3;q=0.9,*/*;q=0.8";
+    "application/signed-exchange;v=b3;q=0.7,*/*;q=0.8";
 
 constexpr char kLoadResultHistogram[] = "SignedExchange.LoadResult2";
 constexpr char kPrefetchResultHistogram[] =
@@ -91,6 +93,10 @@ class RedirectObserver : public WebContentsObserver {
  public:
   explicit RedirectObserver(WebContents* web_contents)
       : WebContentsObserver(web_contents) {}
+
+  RedirectObserver(const RedirectObserver&) = delete;
+  RedirectObserver& operator=(const RedirectObserver&) = delete;
+
   ~RedirectObserver() override = default;
 
   void DidRedirectNavigation(NavigationHandle* handle) override {
@@ -99,26 +105,27 @@ class RedirectObserver : public WebContentsObserver {
       response_code_ = response->response_code();
   }
 
-  const base::Optional<int>& response_code() const { return response_code_; }
+  const absl::optional<int>& response_code() const { return response_code_; }
 
  private:
-  base::Optional<int> response_code_;
-
-  DISALLOW_COPY_AND_ASSIGN(RedirectObserver);
+  absl::optional<int> response_code_;
 };
 
 class AssertNavigationHandleFlagObserver : public WebContentsObserver {
  public:
   explicit AssertNavigationHandleFlagObserver(WebContents* web_contents)
       : WebContentsObserver(web_contents) {}
+
+  AssertNavigationHandleFlagObserver(
+      const AssertNavigationHandleFlagObserver&) = delete;
+  AssertNavigationHandleFlagObserver& operator=(
+      const AssertNavigationHandleFlagObserver&) = delete;
+
   ~AssertNavigationHandleFlagObserver() override = default;
 
   void DidFinishNavigation(NavigationHandle* handle) override {
     EXPECT_TRUE(handle->IsSignedExchangeInnerResponse());
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AssertNavigationHandleFlagObserver);
 };
 
 class FinishNavigationObserver : public WebContentsObserver {
@@ -127,18 +134,19 @@ class FinishNavigationObserver : public WebContentsObserver {
                            base::OnceClosure done_closure)
       : WebContentsObserver(contents), done_closure_(std::move(done_closure)) {}
 
+  FinishNavigationObserver(const FinishNavigationObserver&) = delete;
+  FinishNavigationObserver& operator=(const FinishNavigationObserver&) = delete;
+
   void DidFinishNavigation(NavigationHandle* navigation_handle) override {
     error_code_ = navigation_handle->GetNetErrorCode();
     std::move(done_closure_).Run();
   }
 
-  const base::Optional<net::Error>& error_code() const { return error_code_; }
+  const absl::optional<net::Error>& error_code() const { return error_code_; }
 
  private:
   base::OnceClosure done_closure_;
-  base::Optional<net::Error> error_code_;
-
-  DISALLOW_COPY_AND_ASSIGN(FinishNavigationObserver);
+  absl::optional<net::Error> error_code_;
 };
 
 class MockContentBrowserClient final : public ContentBrowserClient {
@@ -153,66 +161,6 @@ class MockContentBrowserClient final : public ContentBrowserClient {
   std::string accept_langs_ = "en";
 };
 
-// Histograms: PrefetchedSignedExchangeCache.* are recorded when the current
-// document is replaced by a new one:
-// (a) If the new document is loaded in a new RenderFrameHost. The histogram is
-//     recorded in the old RenderFrameHost destructor.
-// (b) If the new document is loaded inside the same RenderFrameHost, it is
-//     recorded in RenderFrameHost::CommitNavigation().
-//
-// Note: The RenderDocument project will remove code path (b).
-//
-// In (a), since the deletion of a RenderFrameHost is asynchronous, it caused
-// several tests to be flaky. The tests weren't waiting for the RenderFrameHost
-// deletion before checking the histograms. See https://crbug.com/1016865
-//
-// Use this class for waiting any RenderFrameHost pending deletion or inside the
-// BackForwardCache to be deleted
-class InactiveRenderFrameHostDeletionObserver : public WebContentsObserver {
- public:
-  InactiveRenderFrameHostDeletionObserver(WebContents* content)
-      : WebContentsObserver(content) {
-    // |rfh_count_| starts at zero, because we expect to start counting when
-    // there are zero active RenderFrameHost.
-    EXPECT_EQ(1u, content->GetAllFrames().size());
-    EXPECT_FALSE(content->GetAllFrames()[0]->IsRenderFrameLive());
-  }
-  ~InactiveRenderFrameHostDeletionObserver() override = default;
-
-  void Wait() {
-    // Some RenderFrameHost may remain in the BackForwardCache. Request
-    // releasing them. This is asynchronous.
-    static_cast<WebContentsImpl*>(web_contents())
-        ->GetController()
-        .GetBackForwardCache()
-        .Flush();
-
-    loop_ = std::make_unique<base::RunLoop>();
-    target_rfh_count_ = web_contents()->GetAllFrames().size();
-    CheckCondition();
-    loop_->Run();
-  }
-
- private:
-  void RenderFrameCreated(RenderFrameHost*) override { rfh_count_++; }
-
-  void RenderFrameDeleted(RenderFrameHost*) override {
-    rfh_count_--;
-    CheckCondition();
-  }
-
-  void CheckCondition() {
-    if (loop_ && rfh_count_ == target_rfh_count_)
-      loop_->Quit();
-  }
-
-  std::unique_ptr<base::RunLoop> loop_;
-  int rfh_count_ = 0;
-  int target_rfh_count_;
-
-  DISALLOW_COPY_AND_ASSIGN(InactiveRenderFrameHostDeletionObserver);
-};
-
 }  // namespace
 
 class SignedExchangeRequestHandlerBrowserTestBase
@@ -225,6 +173,11 @@ class SignedExchangeRequestHandlerBrowserTestBase
     net::EmbeddedTestServer::RegisterTestCerts();
     feature_list_.InitWithFeatures({features::kSignedHTTPExchange}, {});
   }
+
+  SignedExchangeRequestHandlerBrowserTestBase(
+      const SignedExchangeRequestHandlerBrowserTestBase&) = delete;
+  SignedExchangeRequestHandlerBrowserTestBase& operator=(
+      const SignedExchangeRequestHandlerBrowserTestBase&) = delete;
 
   void SetUp() override {
     sxg_test_helper_.SetUp();
@@ -260,9 +213,11 @@ class SignedExchangeRequestHandlerBrowserTestBase
 
   void SetAcceptLangs(const std::string langs) {
     client_.SetAcceptLangs(langs);
-    StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
-        BrowserContext::GetDefaultStoragePartition(
-            shell()->web_contents()->GetBrowserContext()));
+    StoragePartitionImpl* partition =
+        static_cast<StoragePartitionImpl*>(shell()
+                                               ->web_contents()
+                                               ->GetBrowserContext()
+                                               ->GetDefaultStoragePartition());
     partition->GetPrefetchURLLoaderService()->SetAcceptLanguages(langs);
   }
 
@@ -278,8 +233,6 @@ class SignedExchangeRequestHandlerBrowserTestBase
 
   base::test::ScopedFeatureList feature_list_;
   SignedExchangeBrowserTestHelper sxg_test_helper_;
-
-  DISALLOW_COPY_AND_ASSIGN(SignedExchangeRequestHandlerBrowserTestBase);
 };
 
 class SignedExchangeRequestHandlerBrowserTest
@@ -299,6 +252,12 @@ class SignedExchangeRequestHandlerBrowserTest
     }
     feature_list_.InitWithFeatures(enable_features, disabled_features);
   }
+
+  SignedExchangeRequestHandlerBrowserTest(
+      const SignedExchangeRequestHandlerBrowserTest&) = delete;
+  SignedExchangeRequestHandlerBrowserTest& operator=(
+      const SignedExchangeRequestHandlerBrowserTest&) = delete;
+
   ~SignedExchangeRequestHandlerBrowserTest() = default;
 
  protected:
@@ -312,7 +271,7 @@ class SignedExchangeRequestHandlerBrowserTest
       return;
     const GURL prefetch_html_url = embedded_test_server()->GetURL(
         std::string("/sxg/prefetch.html#") + url.spec());
-    base::string16 expected_title =
+    std::u16string expected_title =
         base::ASCIIToUTF16(expect_success ? "OK" : "FAIL");
     TitleWatcher title_watcher(shell()->web_contents(), expected_title);
     EXPECT_TRUE(NavigateToURL(shell(), prefetch_html_url));
@@ -327,6 +286,10 @@ class SignedExchangeRequestHandlerBrowserTest
    public:
     CacheObserver(const GURL& outer_url, base::OnceClosure quit_closure)
         : outer_url_(outer_url), quit_closure_(std::move(quit_closure)) {}
+
+    CacheObserver(const CacheObserver&) = delete;
+    CacheObserver& operator=(const CacheObserver&) = delete;
+
     ~CacheObserver() override = default;
 
     void OnStored(PrefetchedSignedExchangeCache* cache,
@@ -339,17 +302,12 @@ class SignedExchangeRequestHandlerBrowserTest
    private:
     const GURL outer_url_;
     base::OnceClosure quit_closure_;
-
-    DISALLOW_COPY_AND_ASSIGN(CacheObserver);
   };
 
   void WaitUntilSXGIsCached(const GURL& url) {
     scoped_refptr<PrefetchedSignedExchangeCache> cache =
-        static_cast<RenderFrameHostImpl*>(shell()
-                                              ->web_contents()
-                                              ->GetMainFrame()
-                                              ->GetRenderViewHost()
-                                              ->GetMainFrame())
+        static_cast<RenderFrameHostImpl*>(
+            shell()->web_contents()->GetMainFrame())
             ->EnsurePrefetchedSignedExchangeCache();
 
     if (cache->GetExchanges().find(url) != cache->GetExchanges().end())
@@ -365,11 +323,10 @@ class SignedExchangeRequestHandlerBrowserTest
   bool use_prefetch_ = false;
   bool sxg_subresource_prefetch_enabled_ = false;
   base::test::ScopedFeatureList feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(SignedExchangeRequestHandlerBrowserTest);
 };
 
-IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, Simple) {
+IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
+                       DISABLED_Simple) {
   InstallMockCert();
   InstallMockCertChainInterceptor();
 
@@ -386,7 +343,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, Simple) {
         NavigateToURL(shell(), embedded_test_server()->GetURL("/empty.html")));
   }
 
-  base::string16 title = base::ASCIIToUTF16("https://test.example.org/test/");
+  std::u16string title = u"https://test.example.org/test/";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   RedirectObserver redirect_observer(shell()->web_contents());
   AssertNavigationHandleFlagObserver assert_navigation_handle_flag_observer(
@@ -394,9 +351,9 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, Simple) {
 
   // PrefetchedSignedExchangeCache is used only for renderer initiated
   // navigation. So use JavaScript to trigger renderer initiated navigation.
-  EXPECT_TRUE(ExecuteScript(
-      shell()->web_contents(),
-      base::StringPrintf("location.href = '%s';", url.spec().c_str())));
+  EXPECT_TRUE(
+      ExecJs(shell()->web_contents(),
+             base::StringPrintf("location.href = '%s';", url.spec().c_str())));
   EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
   EXPECT_EQ(303, redirect_observer.response_code());
 
@@ -420,6 +377,8 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, Simple) {
           original_cert->cert_buffer());
   EXPECT_EQ(original_fingerprint, fingerprint);
 
+  // Wait for the previous page's RFH to be deleted (if it changed) so that the
+  // histograms will get updated.
   inactive_rfh_deletion_observer_->Wait();
   histogram_tester_.ExpectUniqueSample(
       kLoadResultHistogram, SignedExchangeLoadResult::kSuccess,
@@ -445,7 +404,8 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, Simple) {
   }
 }
 
-IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, VariantMatch) {
+IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
+                       DISABLED_VariantMatch) {
   SetAcceptLangs("en-US,fr");
   InstallUrlInterceptor(
       GURL("https://cert.example.org/cert.msg"),
@@ -466,15 +426,17 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, VariantMatch) {
         NavigateToURL(shell(), embedded_test_server()->GetURL("/empty.html")));
   }
 
-  base::string16 title = base::ASCIIToUTF16("https://test.example.org/test/");
+  std::u16string title = u"https://test.example.org/test/";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   // PrefetchedSignedExchangeCache is used only for renderer initiated
   // navigation. So use JavaScript to trigger renderer initiated navigation.
-  EXPECT_TRUE(ExecuteScript(
-      shell()->web_contents(),
-      base::StringPrintf("location.href = '%s';", url.spec().c_str())));
+  EXPECT_TRUE(
+      ExecJs(shell()->web_contents(),
+             base::StringPrintf("location.href = '%s';", url.spec().c_str())));
   EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
 
+  // Wait for the previous page's RFH to be deleted (if it changed) so that the
+  // histograms will get updated.
   inactive_rfh_deletion_observer_->Wait();
   histogram_tester_.ExpectUniqueSample(
       kLoadResultHistogram, SignedExchangeLoadResult::kSuccess,
@@ -501,7 +463,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
       embedded_test_server()->GetURL("/sxg/test.example.org_fr_variant.sxg");
   MaybeTriggerPrefetchSXG(url, false);
 
-  base::string16 title = base::ASCIIToUTF16("Fallback URL response");
+  std::u16string title = u"Fallback URL response";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   GURL expected_commit_url = GURL("https://test.example.org/test/");
   EXPECT_TRUE(NavigateToURL(shell(), url, expected_commit_url));
@@ -523,7 +485,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
       "/sxg/test.example.org_test_missing_nosniff.sxg");
   MaybeTriggerPrefetchSXG(url, false);
 
-  base::string16 title = base::ASCIIToUTF16("Fallback URL response");
+  std::u16string title = u"Fallback URL response";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   RedirectObserver redirect_observer(shell()->web_contents());
   GURL expected_commit_url = GURL("https://test.example.org/test/");
@@ -548,7 +510,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
       "/sxg/test.example.org_test_invalid_content_type.sxg");
   MaybeTriggerPrefetchSXG(url, false);
 
-  base::string16 title = base::ASCIIToUTF16("Fallback URL response");
+  std::u16string title = u"Fallback URL response";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   RedirectObserver redirect_observer(shell()->web_contents());
   GURL expected_commit_url = GURL("https://test.example.org/test/");
@@ -563,8 +525,8 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
 IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, Expired) {
   signed_exchange_utils::SetVerificationTimeForTesting(
       base::Time::UnixEpoch() +
-      base::TimeDelta::FromSeconds(
-          SignedExchangeBrowserTestHelper::kSignatureHeaderExpires + 1));
+      base::Seconds(SignedExchangeBrowserTestHelper::kSignatureHeaderExpires +
+                    1));
 
   InstallMockCertChainInterceptor();
   InstallUrlInterceptor(GURL("https://test.example.org/test/"),
@@ -575,7 +537,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, Expired) {
   ASSERT_TRUE(embedded_test_server()->Start());
   GURL url = embedded_test_server()->GetURL("/sxg/test.example.org_test.sxg");
 
-  base::string16 title = base::ASCIIToUTF16("Fallback URL response");
+  std::u16string title = u"Fallback URL response";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   RedirectObserver redirect_observer(shell()->web_contents());
   GURL expected_commit_url = GURL("https://test.example.org/test/");
@@ -611,7 +573,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
 
     MaybeTriggerPrefetchSXG(url, false);
 
-    base::string16 title = base::ASCIIToUTF16("Fallback URL response");
+    std::u16string title = u"Fallback URL response";
     TitleWatcher title_watcher(shell()->web_contents(), title);
     GURL expected_commit_url = GURL("https://test.example.org/test/");
     EXPECT_TRUE(NavigateToURL(shell(), url, expected_commit_url));
@@ -627,13 +589,11 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
       UsePrefetch() ? 2 : 1);
 }
 
-#if defined(OS_ANDROID)
-// https://crbug.com/966820. Fails pretty often on Android.
-#define MAYBE_BadMICE DISABLED_BadMICE
-#else
-#define MAYBE_BadMICE BadMICE
-#endif
-IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, MAYBE_BadMICE) {
+// TODO(crbug.com/966820): Fails pretty often on Android.
+// TODO(crbug.com/1258886): Fails flakily on all platforms with Synchronous HTML
+// Parsing enabled.
+IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
+                       DISABLED_BadMICE) {
   InstallMockCertChainInterceptor();
   InstallMockCert();
 
@@ -645,8 +605,8 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, MAYBE_BadMICE) {
 
   MaybeTriggerPrefetchSXG(url, false);
 
-  const base::string16 title_good = base::ASCIIToUTF16("Reached End: false");
-  const base::string16 title_bad = base::ASCIIToUTF16("Reached End: true");
+  const std::u16string title_good = u"Reached End: false";
+  const std::u16string title_bad = u"Reached End: true";
   TitleWatcher title_watcher(shell()->web_contents(), title_good);
   title_watcher.AlsoWaitForTitle(title_bad);
   GURL expected_commit_url = GURL("https://test.example.org/test/");
@@ -704,7 +664,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest, CertNotFound) {
 
   MaybeTriggerPrefetchSXG(url, false);
 
-  base::string16 title = base::ASCIIToUTF16("Fallback URL response");
+  std::u16string title = u"Fallback URL response";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   GURL expected_commit_url = GURL("https://test.example.org/test/");
   EXPECT_TRUE(NavigateToURL(shell(), url, expected_commit_url));
@@ -776,8 +736,8 @@ class SignedExchangeRequestHandlerDownloadBrowserTest
 IN_PROC_BROWSER_TEST_F(SignedExchangeRequestHandlerDownloadBrowserTest,
                        Download) {
   std::unique_ptr<DownloadObserver> observer =
-      std::make_unique<DownloadObserver>(BrowserContext::GetDownloadManager(
-          shell()->web_contents()->GetBrowserContext()));
+      std::make_unique<DownloadObserver>(
+          shell()->web_contents()->GetBrowserContext()->GetDownloadManager());
 
   embedded_test_server()->ServeFilesFromSourceDirectory("content/test/data");
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -788,7 +748,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeRequestHandlerDownloadBrowserTest,
       "const iframe = document.createElement('iframe');"
       "iframe.src = './sxg/test.example.org_test_download.sxg';"
       "document.body.appendChild(iframe);";
-  EXPECT_TRUE(ExecuteScript(shell()->web_contents(), load_sxg));
+  EXPECT_TRUE(ExecJs(shell()->web_contents(), load_sxg));
   observer->WaitUntilDownloadCreated();
   EXPECT_EQ(
       embedded_test_server()->GetURL("/sxg/test.example.org_test_download.sxg"),
@@ -802,8 +762,8 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeRequestHandlerDownloadBrowserTest,
   InstallMockCert();
   InstallMockCertChainInterceptor();
   std::unique_ptr<DownloadObserver> observer =
-      std::make_unique<DownloadObserver>(BrowserContext::GetDownloadManager(
-          shell()->web_contents()->GetBrowserContext()));
+      std::make_unique<DownloadObserver>(
+          shell()->web_contents()->GetBrowserContext()->GetDownloadManager());
 
   embedded_test_server()->ServeFilesFromSourceDirectory("content/test/data");
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -817,7 +777,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeRequestHandlerDownloadBrowserTest,
   // Since the inner response has an invalid Content-Type and MIME sniffing
   // is disabled for Signed Exchange inner response, this should download the
   // inner response of the exchange.
-  EXPECT_TRUE(ExecuteScript(shell()->web_contents(), load_sxg));
+  EXPECT_TRUE(ExecJs(shell()->web_contents(), load_sxg));
   observer->WaitUntilDownloadCreated();
   EXPECT_EQ(GURL("https://test.example.org/test/"), observer->observed_url());
 }
@@ -826,8 +786,8 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeRequestHandlerDownloadBrowserTest,
                        DataURLDownload) {
   const GURL sxg_url = GURL("data:application/signed-exchange,");
   std::unique_ptr<DownloadObserver> observer =
-      std::make_unique<DownloadObserver>(BrowserContext::GetDownloadManager(
-          shell()->web_contents()->GetBrowserContext()));
+      std::make_unique<DownloadObserver>(
+          shell()->web_contents()->GetBrowserContext()->GetDownloadManager());
 
   embedded_test_server()->ServeFilesFromSourceDirectory("content/test/data");
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -839,7 +799,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeRequestHandlerDownloadBrowserTest,
       "iframe.src = '%s';"
       "document.body.appendChild(iframe);",
       sxg_url.spec().c_str());
-  EXPECT_TRUE(ExecuteScript(shell()->web_contents(), load_sxg));
+  EXPECT_TRUE(ExecJs(shell()->web_contents(), load_sxg));
   observer->WaitUntilDownloadCreated();
   EXPECT_EQ(sxg_url, observer->observed_url());
 }
@@ -885,7 +845,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeRequestHandlerRealCertVerifierBrowserTest,
   // TODO(https://crbug.com/815024): Make this test pass the OCSP check. We'll
   // need to either generate an OCSP response on the fly, or override the OCSP
   // verification time.
-  base::string16 title = base::ASCIIToUTF16("Fallback URL response");
+  std::u16string title = u"Fallback URL response";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   GURL expected_commit_url = GURL("https://test.example.org/test/");
   EXPECT_TRUE(NavigateToURL(shell(), url, expected_commit_url));
@@ -912,7 +872,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
       GURL("https://test.example.org/test/publisher-service-worker.js"),
       "content/test/data/sxg/publisher-service-worker.js");
   {
-    base::string16 title = base::ASCIIToUTF16("Done");
+    std::u16string title = u"Done";
     TitleWatcher title_watcher(shell()->web_contents(), title);
     EXPECT_TRUE(NavigateToURL(shell(), install_sw_url));
     EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
@@ -922,9 +882,9 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
 
   GURL url = embedded_test_server()->GetURL("/sxg/test.example.org_test.sxg");
 
-  base::string16 title = base::ASCIIToUTF16("https://test.example.org/test/");
+  std::u16string title = u"https://test.example.org/test/";
   TitleWatcher title_watcher(shell()->web_contents(), title);
-  title_watcher.AlsoWaitForTitle(base::ASCIIToUTF16("Generated"));
+  title_watcher.AlsoWaitForTitle(u"Generated");
   GURL expected_commit_url = GURL("https://test.example.org/test/");
   EXPECT_TRUE(NavigateToURL(shell(), url, expected_commit_url));
   // The page content shoud be served from the signed exchange.
@@ -945,13 +905,13 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
       "/sxg/no-respond-with-service-worker.html");
 
   {
-    base::string16 title = base::ASCIIToUTF16("Done");
+    std::u16string title = u"Done";
     TitleWatcher title_watcher(shell()->web_contents(), title);
     EXPECT_TRUE(NavigateToURL(shell(), install_sw_url));
     EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
   }
 
-  base::string16 title = base::ASCIIToUTF16("https://test.example.org/test/");
+  std::u16string title = u"https://test.example.org/test/";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   EXPECT_TRUE(NavigateToURL(
       shell(), embedded_test_server()->GetURL("/sxg/test.example.org_test.sxg"),
@@ -984,13 +944,13 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
       "content/test/data/sxg/no-respond-with-service-worker.js");
 
   {
-    base::string16 title = base::ASCIIToUTF16("Done");
+    std::u16string title = u"Done";
     TitleWatcher title_watcher(shell()->web_contents(), title);
     EXPECT_TRUE(NavigateToURL(shell(), install_sw_url));
     EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
   }
 
-  base::string16 title = base::ASCIIToUTF16("https://test.example.org/test/");
+  std::u16string title = u"https://test.example.org/test/";
   TitleWatcher title_watcher(shell()->web_contents(), title);
   EXPECT_TRUE(NavigateToURL(
       shell(), GURL("https://test.example.org/scope/test.sxg"),
@@ -1019,7 +979,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
   GURL expected_commit_url = GURL("https://test.example.org/test/");
 
   {
-    base::string16 title = base::ASCIIToUTF16("https://test.example.org/test/");
+    std::u16string title = u"https://test.example.org/test/";
     TitleWatcher title_watcher(shell()->web_contents(), title);
     EXPECT_TRUE(NavigateToURL(shell(), url, expected_commit_url));
     EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
@@ -1035,12 +995,10 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeRequestHandlerBrowserTest,
       "    window.domAutomationController.send(false);"
       "  }"
       "})();";
-  bool result = false;
-  EXPECT_TRUE(ExecuteScriptAndExtractBool(shell()->web_contents(),
-                                          register_sw_script, &result));
   // serviceWorker.register() fails because the document URL of
   // ServiceWorkerHost is empty.
-  EXPECT_FALSE(result);
+  EXPECT_EQ(false, EvalJs(shell()->web_contents(), register_sw_script,
+                          EXECUTE_SCRIPT_USE_MANUAL_REPLY));
 }
 
 class SignedExchangeAcceptHeaderBrowserTest
@@ -1073,7 +1031,7 @@ class SignedExchangeAcceptHeaderBrowserTest
   }
 
   void NavigateAndWaitForTitle(const GURL& url, const std::string title) {
-    base::string16 expected_title = base::ASCIIToUTF16(title);
+    std::u16string expected_title = base::ASCIIToUTF16(title);
     TitleWatcher title_watcher(shell()->web_contents(), expected_title);
     EXPECT_TRUE(NavigateToURL(shell(), url));
     EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
@@ -1082,7 +1040,7 @@ class SignedExchangeAcceptHeaderBrowserTest
   void NavigateWithRedirectAndWaitForTitle(const GURL& url,
                                            const GURL& expected_commit_url,
                                            const std::string& title) {
-    base::string16 expected_title = base::ASCIIToUTF16(title);
+    std::u16string expected_title = base::ASCIIToUTF16(title);
     TitleWatcher title_watcher(shell()->web_contents(), expected_title);
     EXPECT_TRUE(NavigateToURL(shell(), url, expected_commit_url));
     EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
@@ -1129,12 +1087,12 @@ class SignedExchangeAcceptHeaderBrowserTest
     }
   }
 
-  base::Optional<std::string> GetInterceptedAcceptHeader(
+  absl::optional<std::string> GetInterceptedAcceptHeader(
       const GURL& url) const {
     base::AutoLock lock(url_accept_header_map_lock_);
     const auto it = url_accept_header_map_.find(url);
     if (it == url_accept_header_map_.end())
-      return base::nullopt;
+      return absl::nullopt;
     return it->second;
   }
 
@@ -1150,7 +1108,7 @@ class SignedExchangeAcceptHeaderBrowserTest
   RedirectResponseHandler(const net::test_server::HttpRequest& request) {
     if (!base::StartsWith(request.relative_url, "/r?",
                           base::CompareCase::SENSITIVE)) {
-      return std::unique_ptr<net::test_server::HttpResponse>();
+      return nullptr;
     }
     std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
         new net::test_server::BasicHttpResponse);
@@ -1167,7 +1125,7 @@ class SignedExchangeAcceptHeaderBrowserTest
     const std::string prefix = "/fallback_sxg?";
     if (!base::StartsWith(request.relative_url, prefix,
                           base::CompareCase::SENSITIVE)) {
-      return std::unique_ptr<net::test_server::HttpResponse>();
+      return nullptr;
     }
     std::string fallback_url(request.relative_url.substr(prefix.length()));
     if (fallback_url.empty()) {
@@ -1310,10 +1268,10 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeAcceptHeaderBrowserTest, ServiceWorker) {
         is_generated_scope
             ? (IsSignedExchangeEnabled() ? frame_accept_with_sxg : frame_accept)
             : "Done";
-    const base::Optional<std::string> expected_target_accept_header =
+    const absl::optional<std::string> expected_target_accept_header =
         is_generated_scope
-            ? base::nullopt
-            : base::Optional<std::string>(IsSignedExchangeEnabled()
+            ? absl::nullopt
+            : absl::optional<std::string>(IsSignedExchangeEnabled()
                                               ? frame_accept_with_sxg
                                               : frame_accept);
 
@@ -1371,11 +1329,10 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeAcceptHeaderBrowserTest,
       "  check();"
       "})(['%s'])",
       prefetch_target.spec().c_str());
-  bool unused = false;
 
   NavigateAndWaitForTitle(target_url, "Done");
-  EXPECT_TRUE(ExecuteScriptAndExtractBool(shell()->web_contents(),
-                                          load_prefetch_script, &unused));
+  EXPECT_EQ(true, EvalJs(shell()->web_contents(), load_prefetch_script,
+                         EXECUTE_SCRIPT_USE_MANUAL_REPLY));
   CheckPrefetchAcceptHeader({prefetch_target});
   ClearInterceptedAcceptHeaders();
 }
@@ -1485,11 +1442,13 @@ class SignedExchangeExpectCTReportBrowserTest
                       const net::NetworkIsolationKey& network_isolation_key) {
     base::RunLoop run_loop;
     network::mojom::NetworkContext* network_context =
-        BrowserContext::GetDefaultStoragePartition(
-            shell()->web_contents()->GetBrowserContext())
+        shell()
+            ->web_contents()
+            ->GetBrowserContext()
+            ->GetDefaultStoragePartition()
             ->GetNetworkContext();
     network_context->AddExpectCT(
-        domain, base::Time::Now() + base::TimeDelta::FromDays(1) /* expiry */,
+        domain, base::Time::Now() + base::Days(1) /* expiry */,
         true /* enforce */, report_uri, network_isolation_key,
         base::BindLambdaForTesting([&](bool success) {
           EXPECT_TRUE(success);
@@ -1620,7 +1579,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeExpectCTReportBrowserTest,
   const GURL prefetch_html_url = embedded_test_server()->GetURL(
       kPrefetcherHost,
       std::string("/sxg/prefetch-document.html#") + sxg_url().spec());
-  base::string16 expected_title = base::ASCIIToUTF16("FAIL");
+  std::u16string expected_title = u"FAIL";
   TitleWatcher title_watcher(shell()->web_contents(), expected_title);
   EXPECT_TRUE(NavigateToURL(shell(), prefetch_html_url));
   EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
@@ -1754,7 +1713,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangeReportingBrowserTest,
     // embedded_test_server().
     const GURL prefetch_html_url = ssl_server_.GetURL(
         std::string("/sxg/prefetch.html#") + sxg_url().spec());
-    base::string16 expected_title = base::ASCIIToUTF16("FAIL");
+    std::u16string expected_title = u"FAIL";
     TitleWatcher title_watcher(shell()->web_contents(), expected_title);
     EXPECT_TRUE(NavigateToURL(shell(), prefetch_html_url));
     EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());

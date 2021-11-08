@@ -46,6 +46,9 @@ class OfflinePageURLLoader : public network::mojom::URLLoader,
       const network::ResourceRequest& tentative_resource_request,
       content::URLLoaderRequestInterceptor::LoaderCallback callback);
 
+  OfflinePageURLLoader(const OfflinePageURLLoader&) = delete;
+  OfflinePageURLLoader& operator=(const OfflinePageURLLoader&) = delete;
+
   ~OfflinePageURLLoader() override;
 
   void SetTabIdGetterForTesting(
@@ -63,7 +66,7 @@ class OfflinePageURLLoader : public network::mojom::URLLoader,
       const std::vector<std::string>& removed_headers,
       const net::HttpRequestHeaders& modified_headers,
       const net::HttpRequestHeaders& modified_cors_exempt_headers,
-      const base::Optional<GURL>& new_url) override;
+      const absl::optional<GURL>& new_url) override;
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override;
   void PauseReadingBodyFromNet() override;
@@ -118,8 +121,6 @@ class OfflinePageURLLoader : public network::mojom::URLLoader,
   OfflinePageRequestHandler::Delegate::TabIdGetter tab_id_getter_;
 
   base::WeakPtrFactory<OfflinePageURLLoader> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(OfflinePageURLLoader);
 };
 
 }  // namespace offline_pages

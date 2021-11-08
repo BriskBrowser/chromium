@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/views/chrome_views_delegate.h"
 
+#include <memory>
+
 #include "base/check_op.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -25,7 +27,7 @@
 #include "ui/views/widget/widget.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/public/cpp/app_types.h"
+#include "ash/constants/app_types.h"
 #include "chrome/browser/ui/views/touch_selection_menu_runner_chromeos.h"
 #include "chromeos/ui/frame/frame_utils.h"
 #include "ui/aura/client/aura_constants.h"
@@ -116,17 +118,16 @@ bool ChromeViewsDelegate::GetSavedWindowPlacement(
 
   DCHECK(prefs->FindPreference(window_name));
   const base::DictionaryValue* dictionary = prefs->GetDictionary(window_name);
-  int left = 0;
-  int top = 0;
-  int right = 0;
-  int bottom = 0;
-  if (!dictionary || !dictionary->GetInteger("left", &left) ||
-      !dictionary->GetInteger("top", &top) ||
-      !dictionary->GetInteger("right", &right) ||
-      !dictionary->GetInteger("bottom", &bottom))
+  if (!dictionary)
+    return false;
+  absl::optional<int> left = dictionary->FindIntKey("left");
+  absl::optional<int> top = dictionary->FindIntKey("top");
+  absl::optional<int> right = dictionary->FindIntKey("right");
+  absl::optional<int> bottom = dictionary->FindIntKey("bottom");
+  if (!left || !top || !right || !bottom)
     return false;
 
-  bounds->SetRect(left, top, right - left, bottom - top);
+  bounds->SetRect(*left, *top, *right - *left, *bottom - *top);
 
   bool maximized = false;
   if (dictionary)
@@ -145,9 +146,9 @@ bool ChromeViewsDelegate::IsShuttingDown() const {
 
 void ChromeViewsDelegate::AddRef() {
   if (ref_count_ == 0u) {
-    keep_alive_.reset(
-        new ScopedKeepAlive(KeepAliveOrigin::CHROME_VIEWS_DELEGATE,
-                            KeepAliveRestartOption::DISABLED));
+    keep_alive_ = std::make_unique<ScopedKeepAlive>(
+        KeepAliveOrigin::CHROME_VIEWS_DELEGATE,
+        KeepAliveRestartOption::DISABLED);
   }
 
   // There's no easy way to know which Profile caused this menu to open, so

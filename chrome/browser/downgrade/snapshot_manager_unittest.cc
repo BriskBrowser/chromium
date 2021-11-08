@@ -181,8 +181,8 @@ TEST_F(SnapshotManagerTest, TakeSnapshot) {
       TestFolderAndFiles::CreateFilesAndFolders(user_data_dir()));
 
   // Files and folders at User Data level that should be snapshotted.
-  base::File file(user_data_dir().Append(kUserDataFile),
-                  base::File::FLAG_CREATE | base::File::FLAG_WRITE);
+  base::File user_data_file(user_data_dir().Append(kUserDataFile),
+                            base::File::FLAG_CREATE | base::File::FLAG_WRITE);
   ASSERT_NO_FATAL_FAILURE(TestFolderAndFiles::CreateFilesAndFolders(
       user_data_dir().Append(kUserDataFolder)));
 
@@ -389,7 +389,7 @@ TEST_F(SnapshotManagerTest, PurgeInvalidAndOldSnapshotsKeepsMaxValidSnapshots) {
   int max_number_of_snapshots = 3;
   SnapshotManager snapshot_manager(user_data_dir());
   snapshot_manager.PurgeInvalidAndOldSnapshots(max_number_of_snapshots,
-                                               base::nullopt);
+                                               absl::nullopt);
 
   const base::FilePath deletion_directory =
       user_data_dir()
@@ -427,7 +427,7 @@ TEST_F(SnapshotManagerTest, PurgeInvalidAndOldSnapshotsKeepsValidSnapshots) {
   int max_number_of_snapshots = 3;
   SnapshotManager snapshot_manager(user_data_dir());
   snapshot_manager.PurgeInvalidAndOldSnapshots(max_number_of_snapshots,
-                                               base::nullopt);
+                                               absl::nullopt);
 
   for (const auto& path : valid_snapshot_paths)
     EXPECT_TRUE(base::PathExists(path));

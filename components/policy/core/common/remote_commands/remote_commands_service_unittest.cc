@@ -12,7 +12,6 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/containers/queue.h"
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -22,7 +21,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
-#include "components/policy/core/common/cloud/policy_builder.h"
+#include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "components/policy/core/common/remote_commands/remote_command_job.h"
 #include "components/policy/core/common/remote_commands/remote_commands_factory.h"
 #include "components/policy/core/common/remote_commands/remote_commands_queue.h"
@@ -67,9 +66,11 @@ class MockTestRemoteCommandFactory : public RemoteCommandsFactory {
   MockTestRemoteCommandFactory() {
     ON_CALL(*this, BuildTestCommand())
         .WillByDefault(ReturnNew<TestRemoteCommandJob>(
-            true,
-            base::TimeDelta::FromSeconds(kTestCommandExecutionTimeInSeconds)));
+            true, base::Seconds(kTestCommandExecutionTimeInSeconds)));
   }
+  MockTestRemoteCommandFactory(const MockTestRemoteCommandFactory&) = delete;
+  MockTestRemoteCommandFactory& operator=(const MockTestRemoteCommandFactory&) =
+      delete;
 
   MOCK_METHOD0(BuildTestCommand, TestRemoteCommandJob*());
 
@@ -84,8 +85,6 @@ class MockTestRemoteCommandFactory : public RemoteCommandsFactory {
     }
     return base::WrapUnique<RemoteCommandJob>(BuildTestCommand());
   }
-
-  DISALLOW_COPY_AND_ASSIGN(MockTestRemoteCommandFactory);
 };
 
 // Expectations for a single FetchRemoteCommands() call.
@@ -126,6 +125,10 @@ class TestingCloudPolicyClientForRemoteCommands : public CloudPolicyClient {
         server_(server) {
     dm_token_ = kDMToken;
   }
+  TestingCloudPolicyClientForRemoteCommands(
+      const TestingCloudPolicyClientForRemoteCommands&) = delete;
+  TestingCloudPolicyClientForRemoteCommands& operator=(
+      const TestingCloudPolicyClientForRemoteCommands&) = delete;
 
   ~TestingCloudPolicyClientForRemoteCommands() override {
     EXPECT_TRUE(expected_fetch_commands_calls_.empty());
@@ -154,8 +157,7 @@ class TestingCloudPolicyClientForRemoteCommands : public CloudPolicyClient {
             &TestingCloudPolicyClientForRemoteCommands::DoFetchRemoteCommands,
             base::Unretained(this), std::move(last_command_id), command_results,
             std::move(callback), fetch_call_expectation),
-        base::TimeDelta::FromSeconds(
-            kTestClientServerCommunicationDelayInSeconds));
+        base::Seconds(kTestClientServerCommunicationDelayInSeconds));
   }
 
   void DoFetchRemoteCommands(
@@ -187,19 +189,21 @@ class TestingCloudPolicyClientForRemoteCommands : public CloudPolicyClient {
         FROM_HERE,
         base::BindOnce(std::move(callback), DM_STATUS_SUCCESS, fetched_commands,
                        signed_commands),
-        base::TimeDelta::FromSeconds(
-            kTestClientServerCommunicationDelayInSeconds));
+        base::Seconds(kTestClientServerCommunicationDelayInSeconds));
   }
 
   base::queue<FetchCallExpectation> expected_fetch_commands_calls_;
   TestingRemoteCommandsServer* server_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestingCloudPolicyClientForRemoteCommands);
 };
 
 // Base class for unit tests regarding remote commands service.
 class RemoteCommandsServiceTest
     : public testing::TestWithParam<PolicyInvalidationScope> {
+ public:
+  RemoteCommandsServiceTest(const RemoteCommandsServiceTest&) = delete;
+  RemoteCommandsServiceTest& operator=(const RemoteCommandsServiceTest&) =
+      delete;
+
  protected:
   RemoteCommandsServiceTest()
       : server_(std::make_unique<TestingRemoteCommandsServer>()) {
@@ -230,9 +234,6 @@ class RemoteCommandsServiceTest
       cloud_policy_client_;
   MockCloudPolicyStore store_;
   std::unique_ptr<RemoteCommandsService> remote_commands_service_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(RemoteCommandsServiceTest);
 };
 
 // Tests that no command will be fetched if no commands is issued.
@@ -400,6 +401,8 @@ TEST_P(RemoteCommandsServiceTest, AckedCallback) {
 class EnsureCalled {
  public:
   EnsureCalled() = default;
+  EnsureCalled(const EnsureCalled&) = delete;
+  EnsureCalled& operator=(const EnsureCalled&) = delete;
   ~EnsureCalled() { CHECK(called_times_ == 1); }
 
   void Bind(ResultReportedCallback callback) {
@@ -414,11 +417,15 @@ class EnsureCalled {
  private:
   int called_times_ = 0;
   ResultReportedCallback callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(EnsureCalled);
 };
 
 class SignedRemoteCommandsServiceTest : public RemoteCommandsServiceTest {
+ public:
+  SignedRemoteCommandsServiceTest(const SignedRemoteCommandsServiceTest&) =
+      delete;
+  SignedRemoteCommandsServiceTest& operator=(
+      const SignedRemoteCommandsServiceTest&) = delete;
+
  protected:
   SignedRemoteCommandsServiceTest() {
     StartService(std::make_unique<MockTestRemoteCommandFactory>());
@@ -446,9 +453,6 @@ class SignedRemoteCommandsServiceTest : public RemoteCommandsServiceTest {
   }
 
   EnsureCalled ensure_called_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SignedRemoteCommandsServiceTest);
 };
 
 // Tests that signed remote commands work.

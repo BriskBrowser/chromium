@@ -13,11 +13,12 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/one_shot_event.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "chrome/browser/apps/platform_apps/app_load_service.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
@@ -91,8 +92,12 @@ class CrashNotificationDelegate : public message_center::NotificationDelegate {
         is_platform_app_(extension->is_platform_app()),
         extension_id_(extension->id()) {}
 
-  void Click(const base::Optional<int>& button_index,
-             const base::Optional<base::string16>& reply) override {
+  CrashNotificationDelegate(const CrashNotificationDelegate&) = delete;
+  CrashNotificationDelegate& operator=(const CrashNotificationDelegate&) =
+      delete;
+
+  void Click(const absl::optional<int>& button_index,
+             const absl::optional<std::u16string>& reply) override {
     // Pass arguments by value as HandleClick() might destroy *this.
     HandleClick(is_hosted_app_, is_platform_app_, extension_id_, profile_);
     // *this might be destroyed now, do not access any members anymore!
@@ -112,8 +117,6 @@ class CrashNotificationDelegate : public message_center::NotificationDelegate {
     // indirectly destroys the CrashNotificationDelegate, invalidating all its
     // member variables. Make sure to pass arguments by value when adding new
     // ones to this method.
-    // TODO(knollr): Write a test for the flow of clicking on an extension
-    // crashed notification.
     if (is_hosted_app) {
       // There can be a race here: user clicks the balloon, and simultaneously
       // reloads the sad tab for the app. So we check here to be safe before
@@ -137,13 +140,11 @@ class CrashNotificationDelegate : public message_center::NotificationDelegate {
   bool is_hosted_app_;
   bool is_platform_app_;
   std::string extension_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(CrashNotificationDelegate);
 };
 
 void NotificationImageReady(const std::string extension_name,
                             const std::string extension_id,
-                            const base::string16 message,
+                            const std::u16string message,
                             scoped_refptr<CrashNotificationDelegate> delegate,
                             Profile* profile,
                             const gfx::Image& icon) {
@@ -161,8 +162,8 @@ void NotificationImageReady(const std::string extension_name,
   // the same origin when OnExtensionUnloaded() is called.
   std::string id = kCrashedNotificationPrefix + extension_id;
   message_center::Notification notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, id, base::string16(), message,
-      notification_icon, base::string16(), GURL("chrome://extension-crash"),
+      message_center::NOTIFICATION_TYPE_SIMPLE, id, std::u16string(), message,
+      notification_icon, std::u16string(), GURL("chrome://extension-crash"),
       message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
                                  kNotifierId),
       {}, delegate);
@@ -174,7 +175,7 @@ void NotificationImageReady(const std::string extension_name,
 // Show a popup notification balloon with a crash message for a given app/
 // extension.
 void ShowBalloon(const Extension* extension, Profile* profile) {
-  const base::string16 message = l10n_util::GetStringFUTF16(
+  const std::u16string message = l10n_util::GetStringFUTF16(
       extension->is_app() ? IDS_BACKGROUND_CRASHED_APP_BALLOON_MESSAGE
                           : IDS_BACKGROUND_CRASHED_EXTENSION_BALLOON_MESSAGE,
       base::UTF8ToUTF16(extension->name()));
@@ -313,7 +314,7 @@ void BackgroundContentsService::StartObserving() {
                  content::Source<Profile>(profile_));
 
   // Listen for extension uninstall, load, unloaded notification.
-  extension_registry_observer_.Add(
+  extension_registry_observation_.Observe(
       extensions::ExtensionRegistry::Get(profile_));
 }
 
@@ -369,7 +370,7 @@ void BackgroundContentsService::OnExtensionLoaded(
           base::BindOnce(&BackgroundContentsService::MaybeClearBackoffEntry,
                          weak_ptr_factory_.GetWeakPtr(), extension->id(),
                          entry->failure_count()),
-          base::TimeDelta::FromSeconds(60));
+          base::Seconds(60));
     }
   }
 
@@ -452,7 +453,7 @@ void BackgroundContentsService::RestartForceInstalledExtensionOnCrash(
 
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, base::BindOnce(&ReloadExtension, extension->id(), profile_),
-      base::TimeDelta::FromMilliseconds(restart_delay));
+      base::Milliseconds(restart_delay));
 }
 
 // Loads all background contents whose urls have been stored in prefs.
@@ -575,7 +576,7 @@ void BackgroundContentsService::LoadBackgroundContents(
 
   BackgroundContents* contents = CreateBackgroundContents(
       SiteInstance::CreateForURL(profile_, url), nullptr, true, frame_name,
-      application_id, std::string(), nullptr);
+      application_id, content::StoragePartitionId(profile_), nullptr);
 
   contents->CreateRendererSoon(url);
 }
@@ -586,7 +587,7 @@ BackgroundContents* BackgroundContentsService::CreateBackgroundContents(
     bool is_new_browsing_instance,
     const std::string& frame_name,
     const std::string& application_id,
-    const std::string& partition_id,
+    const content::StoragePartitionId& partition_id,
     content::SessionStorageNamespace* session_storage_namespace) {
   auto contents = std::make_unique<BackgroundContents>(
       std::move(site), opener, is_new_browsing_instance, this, partition_id,
@@ -633,7 +634,7 @@ void BackgroundContentsService::RegisterBackgroundContents(
   auto dict = std::make_unique<base::DictionaryValue>();
   dict->SetString(kUrlKey, background_contents->GetURL().spec());
   dict->SetString(kFrameNameKey, contents_map_[appid].frame_name);
-  pref->SetWithoutPathExpansion(appid, std::move(dict));
+  pref->SetKey(appid, base::Value::FromUniquePtrValue(std::move(dict)));
 }
 
 bool BackgroundContentsService::HasRegisteredBackgroundContents(
@@ -652,7 +653,7 @@ void BackgroundContentsService::UnregisterBackgroundContents(
   DCHECK(IsTracked(background_contents));
   const std::string& appid = GetParentApplicationId(background_contents);
   DictionaryPrefUpdate update(prefs_, prefs::kRegisteredBackgroundContents);
-  update.Get()->RemoveWithoutPathExpansion(appid, nullptr);
+  update.Get()->RemoveKey(appid);
 }
 
 void BackgroundContentsService::ShutdownAssociatedBackgroundContents(
@@ -753,6 +754,8 @@ void BackgroundContentsService::OnBackgroundContentsClosed(
   DCHECK(IsTracked(contents));
   UnregisterBackgroundContents(contents);
   DeleteBackgroundContents(contents);
+  for (auto& observer : observers_)
+    observer.OnBackgroundContentsClosed();
 }
 
 void BackgroundContentsService::Shutdown() {

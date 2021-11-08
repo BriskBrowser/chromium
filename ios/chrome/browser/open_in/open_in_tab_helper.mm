@@ -9,7 +9,6 @@
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
-#import "ios/chrome/browser/open_in/features.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/navigation/navigation_context.h"
@@ -71,6 +70,7 @@ OpenInTabHelper::~OpenInTabHelper() {
   // In case that the destructor is called before WebStateDestroyed. stop
   // observing the WebState.
   if (web_state_) {
+    [delegate_ destroyOpenInForWebState:web_state_];
     web_state_->RemoveObserver(this);
     web_state_ = nullptr;
   }
@@ -105,12 +105,8 @@ OpenInMimeType OpenInTabHelper::GetUmaResult(
 
 void OpenInTabHelper::HandleExportableFile() {
   OpenInMimeType mime_type = GetUmaResult(web_state_->GetContentsMimeType());
-  if (base::FeatureList::IsEnabled(kExtendOpenInFilesSupport)) {
-    if (mime_type == OpenInMimeType::kMimeTypeNotHandled)
-      return;
-  } else if (web_state_->GetContentsMimeType() != "application/pdf") {
+  if (mime_type == OpenInMimeType::kMimeTypeNotHandled)
     return;
-  }
 
   DCHECK_NE(mime_type, OpenInMimeType::kMimeTypeNotHandled);
   base::UmaHistogramEnumeration("IOS.OpenIn.MimeType", mime_type);
@@ -128,7 +124,7 @@ void OpenInTabHelper::HandleExportableFile() {
   web::NavigationItem* item =
       web_state_->GetNavigationManager()->GetLastCommittedItem();
   const GURL& last_committed_url = item ? item->GetURL() : GURL::EmptyGURL();
-  base::string16 file_name =
+  std::u16string file_name =
       net::GetSuggestedFilename(last_committed_url, content_disposition,
                                 "",  // referrer-charset
                                 "",  // suggested-name

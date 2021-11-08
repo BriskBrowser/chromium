@@ -17,6 +17,11 @@ BrowserTabsModelProvider* FakePhoneHubManager::GetBrowserTabsModelProvider() {
   return &fake_browser_tabs_model_provider_;
 }
 
+CameraRollManager* FakePhoneHubManager::GetCameraRollManager() {
+  return features::IsPhoneHubCameraRollEnabled() ? &fake_camera_roll_manager_
+                                                 : nullptr;
+}
+
 DoNotDisturbController* FakePhoneHubManager::GetDoNotDisturbController() {
   return &fake_do_not_disturb_controller_;
 }
@@ -49,6 +54,17 @@ OnboardingUiTracker* FakePhoneHubManager::GetOnboardingUiTracker() {
 
 PhoneModel* FakePhoneHubManager::GetPhoneModel() {
   return &mutable_phone_model_;
+}
+
+RecentAppsInteractionHandler*
+FakePhoneHubManager::GetRecentAppsInteractionHandler() {
+  return features::IsPhoneHubRecentAppsEnabled()
+             ? &fake_recent_apps_interaction_handler_
+             : nullptr;
+}
+
+ScreenLockManager* FakePhoneHubManager::GetScreenLockManager() {
+  return features::IsEcheSWAEnabled() ? &fake_screen_lock_manager_ : nullptr;
 }
 
 TetherController* FakePhoneHubManager::GetTetherController() {

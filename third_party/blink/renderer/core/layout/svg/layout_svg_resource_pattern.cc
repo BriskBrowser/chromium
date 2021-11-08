@@ -24,6 +24,7 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
+#include "third_party/blink/renderer/core/display_lock/display_lock_utilities.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_resources.h"
 #include "third_party/blink/renderer/core/paint/svg_object_painter.h"
@@ -120,7 +121,7 @@ bool LayoutSVGResourcePattern::FindCycleFromSelf() const {
 }
 
 std::unique_ptr<PatternData> LayoutSVGResourcePattern::BuildPatternData(
-    const FloatRect& object_bounding_box) {
+    const gfx::RectF& object_bounding_box) {
   NOT_DESTROYED();
   auto pattern_data = std::make_unique<PatternData>();
 
@@ -139,7 +140,7 @@ std::unique_ptr<PatternData> LayoutSVGResourcePattern::BuildPatternData(
 
   // Compute tile metrics.
   FloatRect tile_bounds = SVGLengthContext::ResolveRectangle(
-      GetElement(), attributes.PatternUnits(), object_bounding_box,
+      GetElement(), attributes.PatternUnits(), FloatRect(object_bounding_box),
       *attributes.X(), *attributes.Y(), *attributes.Width(),
       *attributes.Height());
   if (tile_bounds.IsEmpty())
@@ -152,22 +153,22 @@ std::unique_ptr<PatternData> LayoutSVGResourcePattern::BuildPatternData(
       return pattern_data;
     tile_transform = SVGFitToViewBox::ViewBoxToViewTransform(
         attributes.ViewBox(), attributes.PreserveAspectRatio(),
-        tile_bounds.Size());
+        ToGfxSizeF(tile_bounds.size()));
   } else {
     // A viewBox overrides patternContentUnits, per spec.
     if (attributes.PatternContentUnits() ==
         SVGUnitTypes::kSvgUnitTypeObjectboundingbox) {
-      tile_transform.Scale(object_bounding_box.Width(),
-                           object_bounding_box.Height());
+      tile_transform.Scale(object_bounding_box.width(),
+                           object_bounding_box.height());
     }
   }
 
   pattern_data->pattern = Pattern::CreatePaintRecordPattern(
-      AsPaintRecord(tile_bounds.Size(), tile_transform),
-      FloatRect(FloatPoint(), tile_bounds.Size()));
+      AsPaintRecord(tile_bounds.size(), tile_transform),
+      FloatRect(FloatPoint(), tile_bounds.size()));
 
   // Compute pattern space transformation.
-  pattern_data->transform.Translate(tile_bounds.X(), tile_bounds.Y());
+  pattern_data->transform.Translate(tile_bounds.x(), tile_bounds.y());
   pattern_data->transform.PreMultiply(attributes.PatternTransform());
 
   return pattern_data;
@@ -175,7 +176,7 @@ std::unique_ptr<PatternData> LayoutSVGResourcePattern::BuildPatternData(
 
 bool LayoutSVGResourcePattern::ApplyShader(
     const SVGResourceClient& client,
-    const FloatRect& reference_box,
+    const gfx::RectF& reference_box,
     const AffineTransform* additional_transform,
     PaintFlags& flags) {
   NOT_DESTROYED();
@@ -194,7 +195,7 @@ bool LayoutSVGResourcePattern::ApplyShader(
     transform = *additional_transform * transform;
   pattern_data->pattern->ApplyToFlags(flags,
                                       AffineTransformToSkMatrix(transform));
-  flags.setFilterQuality(kLow_SkFilterQuality);
+  flags.setFilterQuality(cc::PaintFlags::FilterQuality::kLow);
   return true;
 }
 
@@ -210,22 +211,32 @@ sk_sp<PaintRecord> LayoutSVGResourcePattern::AsPaintRecord(
     content_transform = tile_transform;
 
   FloatRect bounds(FloatPoint(), size);
+  PaintRecorder paint_recorder;
+  cc::PaintCanvas* canvas = paint_recorder.beginRecording(bounds);
+
+  auto* pattern_content_element = Attributes().PatternContentElement();
+  DCHECK(pattern_content_element);
+  // If the element or some of its ancestor prevents us from doing paint, we can
+  // early out. Note that any locked ancestor would prevent paint.
+  if (DisplayLockUtilities::LockedInclusiveAncestorPreventingPaint(
+          *pattern_content_element)) {
+    return paint_recorder.finishRecordingAsPicture();
+  }
+
   const auto* pattern_layout_object = To<LayoutSVGResourceContainer>(
-      Attributes().PatternContentElement()->GetLayoutObject());
+      pattern_content_element->GetLayoutObject());
   DCHECK(pattern_layout_object);
   DCHECK(!pattern_layout_object->NeedsLayout());
 
   SubtreeContentTransformScope content_transform_scope(content_transform);
 
-  PaintRecordBuilder builder;
+  auto* builder = MakeGarbageCollected<PaintRecordBuilder>();
   for (LayoutObject* child = pattern_layout_object->FirstChild(); child;
        child = child->NextSibling())
-    SVGObjectPainter(*child).PaintResourceSubtree(builder.Context());
-  PaintRecorder paint_recorder;
-  cc::PaintCanvas* canvas = paint_recorder.beginRecording(bounds);
+    SVGObjectPainter(*child).PaintResourceSubtree(builder->Context());
   canvas->save();
   canvas->concat(AffineTransformToSkMatrix(tile_transform));
-  builder.EndRecording(*canvas);
+  builder->EndRecording(*canvas);
   canvas->restore();
   return paint_recorder.finishRecordingAsPicture();
 }

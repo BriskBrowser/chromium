@@ -2,12 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import '../../settings_page/settings_animated_pages.js';
+import '../../settings_page/settings_subpage.js';
+import '../../settings_shared_css.js';
+import './cups_printers.js';
+
+import {assert, assertNotReached} from '//resources/js/assert.m.js';
+import {loadTimeData} from '//resources/js/load_time_data.m.js';
+import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {Route, Router} from '../../router.js';
+import {DeepLinkingBehavior} from '../deep_linking_behavior.m.js';
+import {recordClick, recordNavigation, recordPageBlur, recordPageFocus, recordSearch, recordSettingChange, setUserActionRecorderForTesting} from '../metrics_recorder.m.js';
+import {routes} from '../os_route.m.js';
+import {RouteObserverBehavior} from '../route_observer_behavior.js';
+
+import {CupsPrinterInfo, CupsPrintersBrowserProxy, CupsPrintersBrowserProxyImpl, CupsPrintersList, ManufacturersInfo, ModelsInfo, PrinterMakeModel, PrinterPpdMakeModel, PrinterSetupResult, PrintServerResult} from './cups_printers_browser_proxy.js';
+
 Polymer({
+  _template: html`{__html_template__}`,
   is: 'os-settings-printing-page',
 
   behaviors: [
     DeepLinkingBehavior,
-    settings.RouteObserverBehavior,
+    RouteObserverBehavior,
   ],
 
   properties: {
@@ -27,19 +45,11 @@ Polymer({
       type: Object,
       value() {
         const map = new Map();
-        if (settings.routes.CUPS_PRINTERS) {
-          map.set(settings.routes.CUPS_PRINTERS.path, '#cupsPrinters');
+        if (routes.CUPS_PRINTERS) {
+          map.set(routes.CUPS_PRINTERS.path, '#cupsPrinters');
         }
         return map;
       },
-    },
-
-    /** @private */
-    isScanningAppEnabled_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('scanningAppEnabled');
-      }
     },
 
     /**
@@ -56,12 +66,12 @@ Polymer({
   },
 
   /**
-   * @param {!settings.Route} route
-   * @param {!settings.Route} oldRoute
+   * @param {!Route} route
+   * @param {!Route} oldRoute
    */
   currentRouteChanged(route, oldRoute) {
     // Does not apply to this page.
-    if (route !== settings.routes.OS_PRINTING) {
+    if (route !== routes.OS_PRINTING) {
       return;
     }
 
@@ -70,19 +80,17 @@ Polymer({
 
   /** @private */
   onTapCupsPrinters_() {
-    settings.Router.getInstance().navigateTo(settings.routes.CUPS_PRINTERS);
+    Router.getInstance().navigateTo(routes.CUPS_PRINTERS);
   },
 
   /** @private */
   onOpenPrintManagement_() {
-    settings.CupsPrintersBrowserProxyImpl.getInstance()
-        .openPrintManagementApp();
+    CupsPrintersBrowserProxyImpl.getInstance().openPrintManagementApp();
   },
 
   /** @private */
   onOpenScanningApp_() {
-    assert(this.isScanningAppEnabled_);
-    settings.CupsPrintersBrowserProxyImpl.getInstance().openScanningApp();
-    settings.recordSettingChange(chromeos.settings.mojom.Setting.kScanningApp);
+    CupsPrintersBrowserProxyImpl.getInstance().openScanningApp();
+    recordSettingChange(chromeos.settings.mojom.Setting.kScanningApp);
   }
 });

@@ -53,9 +53,8 @@ class NaClGdbTest : public PPAPINaClNewlibTest {
     // to either add suspended process support to base::LaunchProcess or use
     // Win API.
 #if defined(OS_WIN)
-    if (base::win::OSInfo::GetInstance()->wow64_status() ==
-      base::win::OSInfo::WOW64_DISABLED) {
-        return;
+    if (base::win::OSInfo::GetInstance()->IsWowDisabled()) {
+      return;
     }
 #endif
     base::ScopedAllowBlockingForTesting allow_blocking;
@@ -79,7 +78,8 @@ class NaClGdbTest : public PPAPINaClNewlibTest {
 };
 
 // Fails on the ASAN test bot. See http://crbug.com/122219
-#if defined(ADDRESS_SANITIZER)
+// Flaky on Linux and CrOS test bots. See http://crbug.com/1126321
+#if defined(ADDRESS_SANITIZER) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_Empty DISABLED_Empty
 #else
 #define MAYBE_Empty Empty

@@ -147,7 +147,7 @@ TEST_F(PaintPreviewTabServiceTest, CaptureTab) {
   OverrideInterface(&recorder);
 
   auto* service = GetService();
-  service->CaptureTab(kTabId, web_contents(),
+  service->CaptureTab(kTabId, web_contents(), false,
                       base::BindOnce([](PaintPreviewTabService::Status status) {
                         EXPECT_EQ(status, PaintPreviewTabService::Status::kOk);
                       }));
@@ -181,7 +181,7 @@ TEST_F(PaintPreviewTabServiceTest, CaptureTabFailed) {
 
   auto* service = GetService();
   service->CaptureTab(
-      kTabId, web_contents(),
+      kTabId, web_contents(), false,
       base::BindOnce([](PaintPreviewTabService::Status status) {
         EXPECT_EQ(status, PaintPreviewTabService::Status::kCaptureFailed);
       }));
@@ -214,7 +214,7 @@ TEST_F(PaintPreviewTabServiceTest, CaptureTabTwice) {
   OverrideInterface(&recorder);
 
   auto* service = GetService();
-  service->CaptureTab(kTabId, web_contents(),
+  service->CaptureTab(kTabId, web_contents(), false,
                       base::BindOnce([](PaintPreviewTabService::Status status) {
                         EXPECT_EQ(status, PaintPreviewTabService::Status::kOk);
                       }));
@@ -232,7 +232,7 @@ TEST_F(PaintPreviewTabServiceTest, CaptureTabTwice) {
       base::BindOnce(&FileManager::CreateOrGetDirectory, file_manager, key,
                      false),
       base::BindOnce(
-          [](base::FilePath* out, const base::Optional<base::FilePath>& path) {
+          [](base::FilePath* out, const absl::optional<base::FilePath>& path) {
             EXPECT_TRUE(path.has_value());
             *out = path.value();
           },
@@ -241,7 +241,7 @@ TEST_F(PaintPreviewTabServiceTest, CaptureTabTwice) {
   auto files_1 = ListDir(path_1);
   ASSERT_EQ(1U, files_1.size());
 
-  service->CaptureTab(kTabId, web_contents(),
+  service->CaptureTab(kTabId, web_contents(), false,
                       base::BindOnce([](PaintPreviewTabService::Status status) {
                         EXPECT_EQ(status, PaintPreviewTabService::Status::kOk);
                       }));
@@ -257,7 +257,7 @@ TEST_F(PaintPreviewTabServiceTest, CaptureTabTwice) {
       base::BindOnce(&FileManager::CreateOrGetDirectory, file_manager, key,
                      false),
       base::BindOnce(
-          [](base::FilePath* out, const base::Optional<base::FilePath>& path) {
+          [](base::FilePath* out, const absl::optional<base::FilePath>& path) {
             EXPECT_TRUE(path.has_value());
             *out = path.value();
           },
@@ -367,7 +367,7 @@ TEST_F(PaintPreviewTabServiceTest, EarlyDeletion) {
   EXPECT_FALSE(service->CacheInitialized());
   EXPECT_FALSE(service->HasCaptureForTab(1));
   task_environment()->RunUntilIdle();
-  task_environment()->AdvanceClock(base::TimeDelta::FromSeconds(10));
+  task_environment()->AdvanceClock(base::Seconds(10));
   task_environment()->RunUntilIdle();
 
   EXPECT_TRUE(service->CacheInitialized());
@@ -384,7 +384,7 @@ TEST_F(PaintPreviewTabServiceTest, EarlyAudit) {
   EXPECT_FALSE(service->HasCaptureForTab(1));
   EXPECT_FALSE(service->HasCaptureForTab(3));
   task_environment()->RunUntilIdle();
-  task_environment()->AdvanceClock(base::TimeDelta::FromSeconds(10));
+  task_environment()->AdvanceClock(base::Seconds(10));
   task_environment()->RunUntilIdle();
 
   EXPECT_TRUE(service->CacheInitialized());
@@ -400,7 +400,7 @@ TEST_F(PaintPreviewTabServiceTest, EarlyCapture) {
   OverrideInterface(&recorder);
 
   auto service = BuildServiceWithCache({});
-  service->CaptureTab(kTabId, web_contents(),
+  service->CaptureTab(kTabId, web_contents(), false,
                       base::BindOnce([](PaintPreviewTabService::Status status) {
                         EXPECT_EQ(status, PaintPreviewTabService::Status::kOk);
                       }));
@@ -447,7 +447,7 @@ TEST_F(PaintPreviewTabServiceTest, CaptureTabAndCleanup) {
   EXPECT_TRUE(base::PathExists(old_path));
   EXPECT_TRUE(service->HasCaptureForTab(kTabId + 1));
 
-  service->CaptureTab(kTabId, web_contents(),
+  service->CaptureTab(kTabId, web_contents(), false,
                       base::BindOnce([](PaintPreviewTabService::Status status) {
                         EXPECT_EQ(status, PaintPreviewTabService::Status::kOk);
                       }));

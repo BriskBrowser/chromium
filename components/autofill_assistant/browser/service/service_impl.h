@@ -5,7 +5,6 @@
 #ifndef COMPONENTS_AUTOFILL_ASSISTANT_BROWSER_SERVICE_SERVICE_IMPL_H_
 #define COMPONENTS_AUTOFILL_ASSISTANT_BROWSER_SERVICE_SERVICE_IMPL_H_
 
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -95,7 +94,7 @@ class ServiceImpl : public Service {
 
   // The script store config used for GetActions request. This is set by the
   // controller, obtained from the GetScriptsForUrl's response.
-  base::Optional<ScriptStoreConfig> script_store_config_;
+  absl::optional<ScriptStoreConfig> script_store_config_;
 
   base::WeakPtrFactory<ServiceImpl> weak_ptr_factory_{this};
 };

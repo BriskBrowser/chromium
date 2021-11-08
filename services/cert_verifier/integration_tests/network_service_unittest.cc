@@ -7,7 +7,7 @@
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/run_loop.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
@@ -109,7 +109,7 @@ class NetworkServiceIntegrationTest : public testing::Test {
 
     loader_.reset();
     loader_factory->CreateLoaderAndStart(
-        loader_.BindNewPipeAndPassReceiver(), 1, 1, options, request,
+        loader_.BindNewPipeAndPassReceiver(), 1, options, request,
         client_->CreateRemote(),
         net::MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS));
   }

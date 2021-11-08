@@ -6,6 +6,7 @@
 
 #include "components/autofill_assistant/browser/devtools/devtools_client.h"
 #include "components/autofill_assistant/browser/service.pb.h"
+#include "components/autofill_assistant/browser/user_data_util.h"
 #include "components/autofill_assistant/browser/web/element.h"
 #include "components/autofill_assistant/browser/web/web_controller_util.h"
 #include "content/public/browser/render_frame_host.h"
@@ -73,6 +74,66 @@ bool ConvertPseudoType(const PseudoType pseudo_type,
   }
   return false;
 }
+
+ClientStatus MoveAutofillValueRegexpToTextFilter(
+    const UserData* user_data,
+    SelectorProto::PropertyFilter* value) {
+  if (!value->has_autofill_value_regexp()) {
+    return OkClientStatus();
+  }
+  if (user_data == nullptr) {
+    return ClientStatus(PRECONDITION_FAILED);
+  }
+  const AutofillValueRegexp& autofill_value_regexp =
+      value->autofill_value_regexp();
+  TextFilter text_filter;
+  text_filter.set_case_sensitive(
+      autofill_value_regexp.value_expression_re2().case_sensitive());
+  std::string re2;
+  ClientStatus re2_status = user_data::GetFormattedClientValue(
+      autofill_value_regexp, *user_data, &re2);
+  text_filter.set_re2(re2);
+  // Assigning text_filter will clear autofill_value_regexp.
+  *value->mutable_text_filter() = text_filter;
+  return re2_status;
+}
+
+ClientStatus GetUserDataResolvedSelector(const Selector& selector,
+                                         const UserData* user_data,
+                                         SelectorProto* out_selector) {
+  SelectorProto copy = selector.proto;
+  for (auto& filter : *copy.mutable_filters()) {
+    switch (filter.filter_case()) {
+      case SelectorProto::Filter::kProperty: {
+        ClientStatus filter_status = MoveAutofillValueRegexpToTextFilter(
+            user_data, filter.mutable_property());
+        if (!filter_status.ok()) {
+          return filter_status;
+        }
+        break;
+      }
+      case SelectorProto::Filter::kInnerText:
+      case SelectorProto::Filter::kValue:
+      case SelectorProto::Filter::kPseudoElementContent:
+      case SelectorProto::Filter::kCssStyle:
+      case SelectorProto::Filter::kCssSelector:
+      case SelectorProto::Filter::kEnterFrame:
+      case SelectorProto::Filter::kPseudoType:
+      case SelectorProto::Filter::kBoundingBox:
+      case SelectorProto::Filter::kNthMatch:
+      case SelectorProto::Filter::kLabelled:
+      case SelectorProto::Filter::kMatchCssSelector:
+      case SelectorProto::Filter::kOnTop:
+      case SelectorProto::Filter::FILTER_NOT_SET:
+        break;
+        // Do not add default here. In case a new filter gets added (that may
+        // contain a RegexpFilter) we want this to fail at compilation here.
+    }
+  }
+  *out_selector = copy;
+  return OkClientStatus();
+}
+
 }  // namespace
 
 ElementFinder::JsFilterBuilder::JsFilterBuilder() = default;
@@ -126,6 +187,11 @@ bool ElementFinder::JsFilterBuilder::AddFilter(
 
     case SelectorProto::Filter::kValue:
       AddRegexpFilter(filter.value(), "value");
+      return true;
+
+    case SelectorProto::Filter::kProperty:
+      AddRegexpFilter(filter.property().text_filter(),
+                      filter.property().property());
       return true;
 
     case SelectorProto::Filter::kBoundingBox:
@@ -205,7 +271,6 @@ bool ElementFinder::JsFilterBuilder::AddFilter(
     case SelectorProto::Filter::kEnterFrame:
     case SelectorProto::Filter::kPseudoType:
     case SelectorProto::Filter::kNthMatch:
-    case SelectorProto::Filter::kClosest:
     case SelectorProto::Filter::FILTER_NOT_SET:
       return false;
   }
@@ -275,10 +340,14 @@ ElementFinder::Result::Result(const Result&) = default;
 
 ElementFinder::ElementFinder(content::WebContents* web_contents,
                              DevtoolsClient* devtools_client,
+                             const UserData* user_data,
+                             ProcessedActionStatusDetailsProto* log_info,
                              const Selector& selector,
                              ResultType result_type)
     : web_contents_(web_contents),
       devtools_client_(devtools_client),
+      user_data_(user_data),
+      log_info_(log_info),
       selector_(selector),
       result_type_(result_type) {}
 
@@ -296,7 +365,14 @@ void ElementFinder::StartInternal(Callback callback,
   callback_ = std::move(callback);
 
   if (selector_.empty()) {
-    SendResult(ClientStatus(INVALID_SELECTOR));
+    SendErrorResult(ClientStatus(INVALID_SELECTOR));
+    return;
+  }
+
+  ClientStatus resolve_status =
+      GetUserDataResolvedSelector(selector_, user_data_, &selector_proto_);
+  if (!resolve_status.ok()) {
+    SendErrorResult(resolve_status);
     return;
   }
 
@@ -311,9 +387,30 @@ void ElementFinder::StartInternal(Callback callback,
   }
 }
 
-void ElementFinder::SendResult(const ClientStatus& status) {
+void ElementFinder::UpdateLogInfo(const ClientStatus& status) {
+  if (log_info_ == nullptr) {
+    return;
+  }
+
+  ElementFinderInfoProto* info = log_info_->add_element_finder_info();
+  info->set_status(status.proto_status());
+  if (!status.ok()) {
+    info->set_failed_filter_index_range_start(
+        current_filter_index_range_start_);
+    info->set_failed_filter_index_range_end(next_filter_index_);
+    info->set_get_document_failed(get_document_failed_);
+  }
+  if (selector_.proto.has_tracking_id()) {
+    info->set_tracking_id(selector_.proto.tracking_id());
+  }
+}
+
+void ElementFinder::SendErrorResult(const ClientStatus& status) {
   if (!callback_)
     return;
+
+  DCHECK(!status.ok());
+  UpdateLogInfo(status);
 
   std::move(callback_).Run(status, std::make_unique<Result>());
 }
@@ -321,6 +418,8 @@ void ElementFinder::SendResult(const ClientStatus& status) {
 void ElementFinder::SendSuccessResult(const std::string& object_id) {
   if (!callback_)
     return;
+
+  UpdateLogInfo(OkClientStatus());
 
   // Fill in result and return
   std::unique_ptr<Result> result =
@@ -338,7 +437,7 @@ ElementFinder::Result ElementFinder::BuildResult(const std::string& object_id) {
 }
 
 void ElementFinder::ExecuteNextTask() {
-  const auto& filters = selector_.proto.filters();
+  const auto& filters = selector_proto_.filters();
 
   if (next_filter_index_ >= filters.size()) {
     std::string object_id;
@@ -365,6 +464,7 @@ void ElementFinder::ExecuteNextTask() {
     return;
   }
 
+  current_filter_index_range_start_ = next_filter_index_;
   const auto& filter = filters.Get(next_filter_index_);
   switch (filter.filter_case()) {
     case SelectorProto::Filter::kEnterFrame: {
@@ -406,6 +506,7 @@ void ElementFinder::ExecuteNextTask() {
     case SelectorProto::Filter::kCssSelector:
     case SelectorProto::Filter::kInnerText:
     case SelectorProto::Filter::kValue:
+    case SelectorProto::Filter::kProperty:
     case SelectorProto::Filter::kBoundingBox:
     case SelectorProto::Filter::kPseudoElementContent:
     case SelectorProto::Filter::kMatchCssSelector:
@@ -427,19 +528,10 @@ void ElementFinder::ExecuteNextTask() {
       return;
     }
 
-    case SelectorProto::Filter::kClosest: {
-      std::string array_object_id;
-      if (!ConsumeMatchArrayOrFail(array_object_id))
-        return;
-
-      ApplyProximityFilter(next_filter_index_++, array_object_id);
-      return;
-    }
-
     case SelectorProto::Filter::FILTER_NOT_SET:
       VLOG(1) << __func__ << " Unset or unknown filter in " << filter << " in "
               << selector_;
-      SendResult(ClientStatus(INVALID_SELECTOR));
+      SendErrorResult(ClientStatus(INVALID_SELECTOR));
       return;
   }
 }
@@ -448,11 +540,11 @@ bool ElementFinder::ConsumeOneMatchOrFail(std::string& object_id_out) {
   if (current_matches_.size() > 1) {
     VLOG(1) << __func__ << " Got " << current_matches_.size() << " matches for "
             << selector_ << ", when only 1 was expected.";
-    SendResult(ClientStatus(TOO_MANY_ELEMENTS));
+    SendErrorResult(ClientStatus(TOO_MANY_ELEMENTS));
     return false;
   }
   if (current_matches_.empty()) {
-    SendResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
+    SendErrorResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
     return false;
   }
 
@@ -469,7 +561,7 @@ bool ElementFinder::ConsumeMatchAtOrFail(size_t index,
     return true;
   }
 
-  SendResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
+  SendErrorResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
   return false;
 }
 
@@ -480,7 +572,7 @@ bool ElementFinder::ConsumeAllMatchesOrFail(
     current_matches_.clear();
     return true;
   }
-  SendResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
+  SendErrorResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
   return false;
 }
 
@@ -492,7 +584,7 @@ bool ElementFinder::ConsumeMatchArrayOrFail(std::string& array_object_id) {
   }
 
   if (current_matches_.empty()) {
-    SendResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
+    SendErrorResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
     return false;
   }
 
@@ -538,7 +630,7 @@ void ElementFinder::OnMoveMatchesToJSArrayRecursive(
       CheckJavaScriptResult(reply_status, result.get(), __FILE__, __LINE__);
   if (!status.ok()) {
     VLOG(1) << __func__ << ": Failed to push value to JS array.";
-    SendResult(status);
+    SendErrorResult(status);
     return;
   }
 
@@ -547,7 +639,7 @@ void ElementFinder::OnMoveMatchesToJSArrayRecursive(
   if (index == 0 &&
       !SafeGetObjectId(result->GetResult(), &current_matches_js_array_)) {
     VLOG(1) << __func__ << " Failed to get array ID.";
-    SendResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
+    SendErrorResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
     return;
   }
 
@@ -569,13 +661,15 @@ void ElementFinder::OnGetDocumentElement(
       CheckJavaScriptResult(reply_status, result.get(), __FILE__, __LINE__);
   if (!status.ok()) {
     VLOG(1) << __func__ << " Failed to get document root element.";
-    SendResult(status);
+    get_document_failed_ = true;
+    SendErrorResult(status);
     return;
   }
   std::string object_id;
   if (!SafeGetObjectId(result->GetResult(), &object_id)) {
     VLOG(1) << __func__ << " Failed to get document root element.";
-    SendResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
+    get_document_failed_ = true;
+    SendErrorResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
     return;
   }
 
@@ -615,7 +709,7 @@ void ElementFinder::OnApplyJsFilters(
     // call, it is expected.
     VLOG(1) << __func__ << ": Context doesn't exist yet to query frame "
             << frame_stack_.size() << " of " << selector_;
-    SendResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
+    SendErrorResult(ClientStatus(ELEMENT_RESOLUTION_FAILED));
     return;
   }
   ClientStatus status =
@@ -623,7 +717,7 @@ void ElementFinder::OnApplyJsFilters(
   if (!status.ok()) {
     VLOG(1) << __func__ << ": Failed to query selector for frame "
             << frame_stack_.size() << " of " << selector_ << ": " << status;
-    SendResult(status);
+    SendErrorResult(status);
     return;
   }
 
@@ -652,7 +746,7 @@ void ElementFinder::ResolvePseudoElement(
   if (!ConvertPseudoType(proto_pseudo_type, &pseudo_type)) {
     VLOG(1) << __func__ << ": Unsupported pseudo-type "
             << PseudoTypeName(proto_pseudo_type);
-    SendResult(ClientStatus(INVALID_ACTION));
+    SendErrorResult(ClientStatus(INVALID_ACTION));
     return;
   }
 
@@ -676,7 +770,8 @@ void ElementFinder::OnDescribeNodeForPseudoElement(
     std::unique_ptr<dom::DescribeNodeResult> result) {
   if (!result || !result->GetNode()) {
     VLOG(1) << __func__ << " Failed to describe the node for pseudo element.";
-    SendResult(UnexpectedDevtoolsErrorStatus(reply_status, __FILE__, __LINE__));
+    SendErrorResult(
+        UnexpectedDevtoolsErrorStatus(reply_status, __FILE__, __LINE__));
     return;
   }
 
@@ -726,7 +821,8 @@ void ElementFinder::OnDescribeNodeForFrame(
     std::unique_ptr<dom::DescribeNodeResult> result) {
   if (!result || !result->GetNode()) {
     VLOG(1) << __func__ << " Failed to describe the node.";
-    SendResult(UnexpectedDevtoolsErrorStatus(reply_status, __FILE__, __LINE__));
+    SendErrorResult(
+        UnexpectedDevtoolsErrorStatus(reply_status, __FILE__, __LINE__));
     return;
   }
 
@@ -742,7 +838,7 @@ void ElementFinder::OnDescribeNodeForFrame(
         FindCorrespondingRenderFrameHost(node->GetFrameId(), web_contents_);
     if (!frame) {
       VLOG(1) << __func__ << " Failed to find corresponding owner frame.";
-      SendResult(ClientStatus(FRAME_HOST_NOT_FOUND));
+      SendErrorResult(ClientStatus(FRAME_HOST_NOT_FOUND));
       return;
     }
     current_frame_ = frame;
@@ -790,7 +886,8 @@ void ElementFinder::OnResolveNode(
     std::unique_ptr<dom::ResolveNodeResult> result) {
   if (!result || !result->GetObject() || !result->GetObject()->HasObjectId()) {
     VLOG(1) << __func__ << " Failed to resolve object id from backend id.";
-    SendResult(UnexpectedDevtoolsErrorStatus(reply_status, __FILE__, __LINE__));
+    SendErrorResult(
+        UnexpectedDevtoolsErrorStatus(reply_status, __FILE__, __LINE__));
     return;
   }
 
@@ -800,163 +897,6 @@ void ElementFinder::OnResolveNode(
   }
   // Use the node as root for the rest of the evaluation.
   current_matches_.emplace_back(object_id);
-  ExecuteNextTask();
-}
-
-void ElementFinder::ApplyProximityFilter(int filter_index,
-                                         const std::string& array_object_id) {
-  Selector target_selector;
-  target_selector.proto.mutable_filters()->MergeFrom(
-      selector_.proto.filters(filter_index).closest().target());
-  proximity_target_filter_ =
-      std::make_unique<ElementFinder>(web_contents_, devtools_client_,
-                                      target_selector, ResultType::kMatchArray);
-  proximity_target_filter_->StartInternal(
-      base::BindOnce(&ElementFinder::OnProximityFilterTarget,
-                     weak_ptr_factory_.GetWeakPtr(), filter_index,
-                     array_object_id),
-      current_frame_, current_frame_id_, current_frame_root_);
-}
-
-void ElementFinder::OnProximityFilterTarget(int filter_index,
-                                            const std::string& array_object_id,
-                                            const ClientStatus& status,
-                                            std::unique_ptr<Result> result) {
-  if (!status.ok()) {
-    VLOG(1) << __func__
-            << " Could not find proximity filter target for resolving "
-            << selector_.proto.filters(filter_index);
-    SendResult(status);
-    return;
-  }
-  if (result->container_frame_host != current_frame_) {
-    VLOG(1) << __func__ << " Cannot compare elements on different frames.";
-    SendResult(ClientStatus(INVALID_SELECTOR));
-    return;
-  }
-
-  const auto& filter = selector_.proto.filters(filter_index).closest();
-
-  std::string function = R"(function(targets, maxPairs) {
-  const candidates = this;
-  const pairs = candidates.length * targets.length;
-  if (pairs > maxPairs) {
-    return pairs;
-  }
-  const candidateBoxes = candidates.map((e) => e.getBoundingClientRect());
-  let closest = null;
-  let shortestDistance = Number.POSITIVE_INFINITY;
-  for (target of targets) {
-    const targetBox = target.getBoundingClientRect();
-    for (let i = 0; i < candidates.length; i++) {
-      const box = candidateBoxes[i];
-)";
-
-  if (filter.in_alignment()) {
-    // Rejects candidates that are not on the same row or or the same column as
-    // the target.
-    function.append("if ((box.bottom <= targetBox.top || ");
-    function.append("     box.top >= targetBox.bottom) && ");
-    function.append("    (box.right <= targetBox.left || ");
-    function.append("     box.left >= targetBox.right)) continue;");
-  }
-  switch (filter.relative_position()) {
-    case SelectorProto::ProximityFilter::UNSPECIFIED_POSITION:
-      // No constraints.
-      break;
-
-    case SelectorProto::ProximityFilter::ABOVE:
-      // Candidate must be above target
-      function.append("if (box.bottom > targetBox.top) continue;");
-      break;
-
-    case SelectorProto::ProximityFilter::BELOW:
-      // Candidate must be below target
-      function.append("if (box.top < targetBox.bottom) continue;");
-      break;
-
-    case SelectorProto::ProximityFilter::LEFT:
-      // Candidate must be left of target
-      function.append("if (box.right > targetBox.left) continue;");
-      break;
-
-    case SelectorProto::ProximityFilter::RIGHT:
-      // Candidate must be right of target
-      function.append("if (box.left < targetBox.right) continue;");
-      break;
-  }
-
-  // The algorithm below computes distance to the closest border. If the
-  // distance is 0, then we have got our closest element and can stop there.
-  function.append(R"(
-      let w = 0;
-      if (targetBox.right < box.left) {
-        w = box.left - targetBox.right;
-      } else if (box.right < targetBox.left) {
-        w = targetBox.left - box.right;
-      }
-      let h = 0;
-      if (targetBox.bottom < box.top) {
-        h = box.top - targetBox.bottom;
-      } else if (box.bottom < targetBox.top) {
-        h = targetBox.top - box.bottom;
-      }
-      const dist = Math.sqrt(h * h + w * w);
-      if (dist == 0) return candidates[i];
-      if (dist < shortestDistance) {
-        closest = candidates[i];
-        shortestDistance = dist;
-      }
-    }
-  }
-  return closest;
-})");
-
-  std::vector<std::unique_ptr<runtime::CallArgument>> arguments;
-  AddRuntimeCallArgumentObjectId(result->object_id(), &arguments);
-  AddRuntimeCallArgument(filter.max_pairs(), &arguments);
-
-  devtools_client_->GetRuntime()->CallFunctionOn(
-      runtime::CallFunctionOnParams::Builder()
-          .SetObjectId(array_object_id)
-          .SetArguments(std::move(arguments))
-          .SetFunctionDeclaration(function)
-          .Build(),
-      current_frame_id_,
-      base::BindOnce(&ElementFinder::OnProximityFilterJs,
-                     weak_ptr_factory_.GetWeakPtr()));
-}
-
-void ElementFinder::OnProximityFilterJs(
-    const DevtoolsClient::ReplyStatus& reply_status,
-    std::unique_ptr<runtime::CallFunctionOnResult> result) {
-  ClientStatus status =
-      CheckJavaScriptResult(reply_status, result.get(), __FILE__, __LINE__);
-  if (!status.ok()) {
-    VLOG(1) << __func__ << ": Failed to execute proximity filter " << status;
-    SendResult(status);
-    return;
-  }
-
-  std::string object_id;
-  if (SafeGetObjectId(result->GetResult(), &object_id)) {
-    // Function found a match.
-    current_matches_.push_back(object_id);
-    ExecuteNextTask();
-    return;
-  }
-
-  int pair_count = 0;
-  if (SafeGetIntValue(result->GetResult(), &pair_count)) {
-    // Function got too many pairs to check.
-    VLOG(1) << __func__ << ": Too many pairs to consider for proximity checks: "
-            << pair_count;
-    SendResult(ClientStatus(TOO_MANY_CANDIDATES));
-    return;
-  }
-
-  // Function found nothing, which is possible if the relative position
-  // constraints forced the algorithm to discard all candidates.
   ExecuteNextTask();
 }
 
@@ -1018,7 +958,7 @@ void ElementFinder::OnReportMatchingElementsArrayRecursive(
   if (!status.ok()) {
     VLOG(1) << __func__ << ": Failed to get element from array for "
             << selector_;
-    SendResult(status);
+    SendErrorResult(status);
     return;
   }
 

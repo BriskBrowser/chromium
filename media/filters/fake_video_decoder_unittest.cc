@@ -37,7 +37,7 @@ class FakeVideoDecoderTest
  public:
   FakeVideoDecoderTest()
       : decoder_(new FakeVideoDecoder(
-            "FakeVideoDecoder",
+            0xFACCE,
             GetParam().decoding_delay,
             GetParam().max_decode_requests,
             base::BindRepeating(&FakeVideoDecoderTest::OnBytesDecoded,
@@ -49,6 +49,9 @@ class FakeVideoDecoderTest
         last_decode_status_(DecodeStatus::OK),
         pending_decode_requests_(0),
         is_reset_pending_(false) {}
+
+  FakeVideoDecoderTest(const FakeVideoDecoderTest&) = delete;
+  FakeVideoDecoderTest& operator=(const FakeVideoDecoderTest&) = delete;
 
   virtual ~FakeVideoDecoderTest() {
     Destroy();
@@ -135,9 +138,8 @@ class FakeVideoDecoderTest
 
     if (num_input_buffers_ < kTotalBuffers) {
       buffer = CreateFakeVideoBufferForTest(
-          current_config_,
-          base::TimeDelta::FromMilliseconds(kDurationMs * num_input_buffers_),
-          base::TimeDelta::FromMilliseconds(kDurationMs));
+          current_config_, base::Milliseconds(kDurationMs * num_input_buffers_),
+          base::Milliseconds(kDurationMs));
       total_bytes_in_buffers_ += buffer->data_size();
     } else {
       buffer = DecoderBuffer::CreateEOSBuffer();
@@ -244,9 +246,6 @@ class FakeVideoDecoderTest
   scoped_refptr<VideoFrame> last_decoded_frame_;
   int pending_decode_requests_;
   bool is_reset_pending_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FakeVideoDecoderTest);
 };
 
 INSTANTIATE_TEST_SUITE_P(NoParallelDecode,
@@ -288,7 +287,7 @@ TEST_P(FakeVideoDecoderTest, Read_DecodingDelay) {
 
 TEST_P(FakeVideoDecoderTest, Read_ZeroDelay) {
   decoder_ = std::make_unique<FakeVideoDecoder>(
-      "FakeVideoDecoder", 0, 1,
+      999, 0, 1,
       base::BindRepeating(&FakeVideoDecoderTest::OnBytesDecoded,
                           base::Unretained(this)));
   Initialize();

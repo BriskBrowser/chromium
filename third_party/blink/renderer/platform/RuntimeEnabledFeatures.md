@@ -76,10 +76,20 @@ If a feature is not stable and no longer under active development, remove `statu
 
 ### Relationship between a Chromium Feature and a Blink Feature
 
-In some cases, e.g. for finch expeirment, you may need to define a Chromium feature for a blink feature. Their relationship is
+In some cases, e.g. for finch experiment, you may need to define a Chromium feature for a blink feature. Their relationship is
 defined in [content/child/runtime_features.cc]. See the [initialize blink features] doc for more details.
 
 **Note:** If a feature is implemented at both Chromium side and blink side, as the blink feature doesn't fully work by itself, we normally don't set the blink feature's status so that the Chromium feature can fully control the blink feature ([example][controlled by chromium feature]).
+
+### Introducing dependencies among Runtime Enabled Features
+
+The parameters of `implied_by` and `depends_on` can be used to specify the relationship to other features.
+
+* "implied_by": With this field specified, this feature is enabled automatically if any of the implied_by features is enabled.
+
+* "depends_on": With this field specified, this feature is enabled only if all of the depends_on features are enabled.
+
+**Note:** Only one of `implied_by` and `depends_on` can be specified.
 
 ### Runtime Enabled CSS Properties
 
@@ -153,6 +163,8 @@ internals.runtimeFlags.amazingNewFeatureEnabled
 This attribute is read only and cannot be changed, unless `settable_from_internals: true` is specified for the feature.
 
 **Note:** The `internals` JavaScript API is only available in content_shell for use by web tests and does not appear in Chromium. In content_shell's browser mode, `--expose-internals-for-testing` is needed to have the `internals` JavaScript API.
+
+**Note:** If your runtime feature is called `AmazingNewFeature`, the Javascript variable name is `internals.runtimeFlags.amazingNewFeatureEnabled`.
 
 ### Running Web Tests
 When content_shell is run for web tests with `--stable-release-mode` flag, test-only and experimental features (ones listed in [runtime_enabled_features.json5] with `status: "test"` or `status: "experimental"`) are turned off. The [virtual/stable] suite runs with the flag, which is one of the ways to ensure test coverage of production code path for these features.

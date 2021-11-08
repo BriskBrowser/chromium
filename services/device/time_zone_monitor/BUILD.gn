@@ -46,7 +46,7 @@ source_set("time_zone_monitor") {
 
   if (is_chromeos_ash) {
     sources += [ "time_zone_monitor_chromeos.cc" ]
-    deps += [ "//chromeos/settings" ]
+    deps += [ "//ash/components/settings" ]
   }
 
   if (is_mac) {
@@ -71,10 +71,7 @@ if (is_android) {
     # result of //services/device:java depending on it.
     visibility = [ "//services/device:*" ]
     sources = [ "android/java/src/org/chromium/device/time_zone_monitor/TimeZoneMonitor.java" ]
-    deps = [
-      "//base:base_java",
-      "//base:jni_java",
-    ]
+    deps = [ "//base:base_java" ]
     annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]
   }
 }

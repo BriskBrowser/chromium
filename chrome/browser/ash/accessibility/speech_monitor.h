@@ -15,6 +15,7 @@
 
 // TODO(katie): This may need to move into Content as part of the TTS refactor.
 
+namespace ash {
 namespace test {
 
 struct SpeechMonitorUtterance {
@@ -30,6 +31,10 @@ struct SpeechMonitorUtterance {
 class SpeechMonitor : public content::TtsPlatform {
  public:
   SpeechMonitor();
+
+  SpeechMonitor(const SpeechMonitor&) = delete;
+  SpeechMonitor& operator=(const SpeechMonitor&) = delete;
+
   virtual ~SpeechMonitor();
 
   // Use these apis if you want to write an async test e.g.
@@ -66,6 +71,8 @@ class SpeechMonitor : public content::TtsPlatform {
   // Delayed utterances.
   double GetDelayForLastUtteranceMS();
 
+  int stop_count() { return stop_count_; }
+
  private:
   typedef std::pair<std::function<bool()>, std::string> ReplayArgs;
 
@@ -81,6 +88,10 @@ class SpeechMonitor : public content::TtsPlatform {
   bool StopSpeaking() override;
   bool IsSpeaking() override;
   void GetVoices(std::vector<content::VoiceData>* out_voices) override;
+  void GetVoicesForBrowserContext(
+      content::BrowserContext* browser_context,
+      const GURL& source_url,
+      std::vector<content::VoiceData>* out_voices) override {}
   void Pause() override {}
   void Resume() override {}
   void WillSpeakUtteranceWithVoice(
@@ -91,6 +102,7 @@ class SpeechMonitor : public content::TtsPlatform {
   void ClearError() override;
   void SetError(const std::string& error) override;
   void Shutdown() override;
+  bool PreferEngineDelegateVoices() override;
 
   void MaybeContinueReplay();
   void MaybePrintExpectations();
@@ -124,11 +136,21 @@ class SpeechMonitor : public content::TtsPlatform {
   // Whether |Replay| was called.
   bool replay_called_ = false;
 
-  base::WeakPtrFactory<SpeechMonitor> weak_factory_{this};
+  // The number of times StopSpeaking() has been called.
+  int stop_count_ = 0;
 
-  DISALLOW_COPY_AND_ASSIGN(SpeechMonitor);
+  base::WeakPtrFactory<SpeechMonitor> weak_factory_{this};
 };
 
 }  // namespace test
+}  // namespace ash
+
+// TODO(https://crbug.com/1164001): remove after the Chrome OS source code
+// directory migration is finished.
+namespace chromeos {
+namespace test {
+using ::ash::test::SpeechMonitor;
+}
+}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_ACCESSIBILITY_SPEECH_MONITOR_H_

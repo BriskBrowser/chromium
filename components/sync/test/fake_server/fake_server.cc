@@ -14,7 +14,6 @@
 #include "base/hash/hash.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -24,11 +23,13 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/sync/engine/net/server_connection_manager.h"
+#include "components/sync/protocol/data_type_progress_marker.pb.h"
 #include "components/sync/protocol/proto_value_conversions.h"
+#include "components/sync/protocol/sync_entity.pb.h"
+#include "components/sync/protocol/sync_enums.pb.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_status_code.h"
 
-using syncer::GetModelType;
 using syncer::GetModelTypeFromSpecifics;
 using syncer::LoopbackServer;
 using syncer::LoopbackServerEntity;
@@ -156,7 +157,7 @@ HashAndTime UnpackProgressMarkerToken(const std::string& token) {
   }
 
   hash_and_time.time = base::Time::FromDeltaSinceWindowsEpoch(
-      base::TimeDelta::FromMicroseconds(micros_since_windows_epoch));
+      base::Microseconds(micros_since_windows_epoch));
   return hash_and_time;
 }
 
@@ -254,8 +255,12 @@ net::HttpStatusCode FakeServer::HandleParsedCommand(
     case sync_pb::ClientToServerMessage::COMMIT:
       last_commit_message_ = message;
       break;
-    default:
+    case sync_pb::ClientToServerMessage::CLEAR_SERVER_DATA:
       // Don't care.
+      break;
+    case sync_pb::ClientToServerMessage::DEPRECATED_3:
+    case sync_pb::ClientToServerMessage::DEPRECATED_4:
+      NOTREACHED();
       break;
   }
 
@@ -327,6 +332,12 @@ net::HttpStatusCode FakeServer::HandleParsedCommand(
       response->error_code() == sync_pb::SyncEnums::SUCCESS) {
     DCHECK(!response->has_client_command());
     *response->mutable_client_command() = client_command_;
+
+    if (message.has_get_updates()) {
+      for (Observer& observer : observers_) {
+        observer.OnSuccessfulGetUpdates();
+      }
+    }
   }
 
   return http_status_code;
@@ -519,7 +530,7 @@ void FakeServer::SetHttpError(net::HttpStatusCode http_status_code) {
 
 void FakeServer::ClearHttpError() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  http_error_status_code_ = base::nullopt;
+  http_error_status_code_ = absl::nullopt;
 }
 
 void FakeServer::SetClientCommand(
@@ -529,14 +540,14 @@ void FakeServer::SetClientCommand(
 }
 
 void FakeServer::TriggerCommitError(
-    const sync_pb::SyncEnums::ErrorType& error_type) {
+    const sync_pb::SyncEnums_ErrorType& error_type) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(error_type == sync_pb::SyncEnums::SUCCESS || !HasTriggeredError());
 
   commit_error_type_ = error_type;
 }
 
-void FakeServer::TriggerError(const sync_pb::SyncEnums::ErrorType& error_type) {
+void FakeServer::TriggerError(const sync_pb::SyncEnums_ErrorType& error_type) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(error_type == sync_pb::SyncEnums::SUCCESS || !HasTriggeredError());
 
@@ -544,7 +555,7 @@ void FakeServer::TriggerError(const sync_pb::SyncEnums::ErrorType& error_type) {
 }
 
 void FakeServer::TriggerActionableError(
-    const sync_pb::SyncEnums::ErrorType& error_type,
+    const sync_pb::SyncEnums_ErrorType& error_type,
     const std::string& description,
     const std::string& url,
     const sync_pb::SyncEnums::Action& action) {

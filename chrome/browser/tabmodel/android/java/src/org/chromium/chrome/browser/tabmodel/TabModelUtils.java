@@ -103,7 +103,7 @@ public class TabModelUtils {
         int count = model.getCount();
 
         for (int i = 0; i < count; i++) {
-            if (model.getTabAt(i).getUrlString().contentEquals(url)) return i;
+            if (model.getTabAt(i).getUrl().getSpec().contentEquals(url)) return i;
         }
 
         return TabModel.INVALID_TAB_INDEX;
@@ -172,5 +172,17 @@ public class TabModelUtils {
         }
 
         return childTabs;
+    }
+
+    /**
+     * @return all regular {@link Tab} ids from a {@link TabModelSelectoor}
+     */
+    public static List<Integer> getRegularTabIds(TabModelSelector tabModelSelector) {
+        List<Integer> tabIds = new ArrayList<>();
+        int numTabs = tabModelSelector.getModel(false).getCount();
+        for (int i = 0; i < numTabs; i++) {
+            tabIds.add(tabModelSelector.getModel(false).getTabAt(i).getId());
+        }
+        return tabIds;
     }
 }

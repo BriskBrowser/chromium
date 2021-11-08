@@ -7,8 +7,9 @@
 
 #import <UIKit/UIKit.h>
 
+#include <string>
+
 #include "base/ios/block_types.h"
-#include "base/strings/string16.h"
 
 @class AlertCoordinator;
 @class ActionSheetCoordinator;
@@ -29,22 +30,7 @@ using SignoutActionSheetCoordinatorCompletion =
     void (^)(SignoutActionSheetCoordinatorResult result);
 
 // Returns the hosted domain for the primary account.
-base::string16 HostedDomainForPrimaryAccount(Browser* browser);
-
-// Returns ActionSheetCoordinator to ask the sign-out confirmation from the
-// user. The alert sheet dialog choices are based if the primary account is
-// managed account or not, and if the user turned on sync or not.
-// The caller is in charge to start the coordinator.
-// The caller is in charge to sign-out the user and wipe the data from the
-// device according to |signout_completion| value.
-// |view_controller| view controller to present the action sheet.
-// |view| to position the action sheet for iPad.
-// |signout_completion| invoked when the user confirms or cancels sign-out.
-ActionSheetCoordinator* SignoutActionSheetCoordinator(
-    UIViewController* view_controller,
-    Browser* browser,
-    UIView* view,
-    SignoutActionSheetCoordinatorCompletion signout_completion);
+std::u16string HostedDomainForPrimaryAccount(Browser* browser);
 
 // Returns the sign in alert coordinator for |error|. |dismissAction| is called
 // when the dialog is dismissed (the user taps on the Ok button) or cancelled

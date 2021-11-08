@@ -9,8 +9,8 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/form_structure.h"
@@ -19,6 +19,7 @@
 #include "components/autofill/core/browser/payments/payments_client.h"
 #include "components/autofill/core/browser/payments/upi_vpa_save_manager.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class SaveCardOfferObserver;
 
@@ -28,7 +29,7 @@ class AddressProfileSaveManager;
 
 // Manages logic for importing address profiles and credit card information from
 // web forms into the user's Autofill profile via the PersonalDataManager.
-// Owned by AutofillManager.
+// Owned by BrowserAutofillManager.
 class FormDataImporter {
  public:
   // Record type of the credit card imported from the form, if one exists.
@@ -43,11 +44,16 @@ class FormDataImporter {
     // The imported card is not currently stored with the browser.
     NEW_CARD,
   };
+
   // The parameters should outlive the FormDataImporter.
   FormDataImporter(AutofillClient* client,
                    payments::PaymentsClient* payments_client,
                    PersonalDataManager* personal_data_manager,
                    const std::string& app_locale);
+
+  FormDataImporter(const FormDataImporter&) = delete;
+  FormDataImporter& operator=(const FormDataImporter&) = delete;
+
   ~FormDataImporter();
 
   // Imports the form data, submitted by the user, into
@@ -67,6 +73,10 @@ class FormDataImporter {
                                       const std::string& finch_country_code,
                                       const std::string& app_locale,
                                       LogBuffer* import_log_buffer);
+
+  // Cache the last four of the fetched virtual card so we don't offer saving
+  // them.
+  void CacheFetchedVirtualCard(const std::u16string& last_four);
 
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
   LocalCardMigrationManager* local_card_migration_manager() {
@@ -90,6 +100,20 @@ class FormDataImporter {
 #endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
 
  private:
+  // Defines a candidate for address profile import.
+  struct AddressProfileImportCandidate {
+    // The profile that was extracted from the form.
+    AutofillProfile profile;
+    // The URL the profile was extracted from.
+    GURL url;
+    // Indicates if all import requirements have been fulfilled.
+    bool all_requirements_fulfilled;
+    AddressProfileImportCandidate(AddressProfileImportCandidate&& other) =
+        default;
+    AddressProfileImportCandidate& operator=(
+        AddressProfileImportCandidate&& other) = default;
+  };
+
   // Scans the given |form| for importable Autofill data. If the form includes
   // sufficient address data for a new profile, it is immediately imported. If
   // the form includes sufficient credit card data for a new credit card and
@@ -107,21 +131,27 @@ class FormDataImporter {
                       bool credit_card_autofill_enabled,
                       bool should_return_local_card,
                       std::unique_ptr<CreditCard>* imported_credit_card,
-                      base::Optional<std::string>* imported_upi_id);
+                      std::vector<AddressProfileImportCandidate>&
+                          address_profile_import_candidates,
+                      absl::optional<std::string>* imported_upi_id);
 
   // Go through the |form| fields and attempt to extract and import valid
   // address profiles. Returns true on extraction success of at least one
   // profile. There are many reasons that extraction may fail (see
-  // implementation). The function returns true if at least one complete address
-  // profile was found.
-  bool ImportAddressProfiles(const FormStructure& form);
+  // implementation).  The function returns true if at least one complete
+  // address profile was found.
+  bool ImportAddressProfiles(
+      const FormStructure& form,
+      std::vector<AddressProfileImportCandidate>& import_candidates);
 
   // Helper method for ImportAddressProfiles which only considers the fields for
   // a specified |section|. If |section| is the empty string, the import is
   // performed on the union of all sections.
-  bool ImportAddressProfileForSection(const FormStructure& form,
-                                      const std::string& section,
-                                      LogBuffer* import_log_buffer);
+  bool ImportAddressProfileForSection(
+      const FormStructure& form,
+      const std::string& section,
+      std::vector<AddressProfileImportCandidate>& import_candidates,
+      LogBuffer* import_log_buffer);
 
   // Go through the |form| fields and attempt to extract a new credit card in
   // |imported_credit_card|, or update an existing card.
@@ -132,6 +162,27 @@ class FormDataImporter {
                         bool should_return_local_card,
                         std::unique_ptr<CreditCard>* imported_credit_card);
 
+  // Tries to initiate the saving of |imported_credit_card| if applicable.
+  // |submitted_form| is the form from which the card was imported.
+  // If a UPI id was found it is stored in |detected_upi_id|.
+  // |credit_card_autofill_enabled| indicates if credit card filling is enabled
+  // and |is_credit_card_upstream_enabled| indicates if server card storage is
+  // enabled. Returns true if a save is initiated.
+  bool ProcessCreditCardImportCandidate(
+      const FormStructure& submitted_form,
+      std::unique_ptr<CreditCard> imported_credit_card,
+      absl::optional<std::string> detected_upi_id,
+      bool credit_card_autofill_enabled,
+      bool is_credit_card_upstream_enabled);
+
+  // Processes the address profile import candidates.
+  // |import_candidates| contains the addresses extracted from the form.
+  // |allow_prompt| denotes if a prompt can be shown.
+  // Returns true if the import of a complete profile is initiated.
+  bool ProcessAddressProfileImportCandidates(
+      const std::vector<AddressProfileImportCandidate>& import_candidates,
+      bool allow_prompt = true);
+
   // Extracts credit card from the form structure. |hasDuplicateFieldType| will
   // be set as true if there are duplicated field types in the form.
   CreditCard ExtractCreditCardFromForm(const FormStructure& form,
@@ -139,7 +190,7 @@ class FormDataImporter {
 
   // Go through the |form| fields and find a UPI ID to import. The return value
   // will be empty if no UPI ID was found.
-  base::Optional<std::string> ImportUpiId(const FormStructure& form);
+  absl::optional<std::string> ImportUpiId(const FormStructure& form);
 
   // Whether a dynamic change form is imported.
   bool from_dynamic_change_form_ = false;
@@ -166,7 +217,7 @@ class FormDataImporter {
 #endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
 
   // The personal data manager, used to save and load personal data to/from the
-  // web database.  This is overridden by the AutofillManagerTest.
+  // web database.  This is overridden by the BrowserAutofillManagerTest.
   // Weak reference.
   // May be NULL.  NULL indicates OTR.
   PersonalDataManager* personal_data_manager_;
@@ -177,6 +228,9 @@ class FormDataImporter {
   ImportedCreditCardRecordType imported_credit_card_record_type_;
 
   std::string app_locale_;
+
+  // Used to store the last four digits of the fetched virtual cards.
+  base::flat_set<std::u16string> fetched_virtual_cards_;
 
   friend class AutofillMergeTest;
   friend class FormDataImporterTest;
@@ -217,6 +271,9 @@ class FormDataImporter {
       ImportFormData_ImportCreditCardRecordType_NoCard_InvalidCardNumber);
   FRIEND_TEST_ALL_PREFIXES(
       FormDataImporterTest,
+      ImportFormData_ImportCreditCardRecordType_NoCard_VirtualCard);
+  FRIEND_TEST_ALL_PREFIXES(
+      FormDataImporterTest,
       ImportFormData_ImportCreditCardRecordType_NoCard_NoCardOnForm);
   FRIEND_TEST_ALL_PREFIXES(FormDataImporterTest,
                            ImportFormData_OneAddressCreditCardDisabled);
@@ -253,8 +310,6 @@ class FormDataImporter {
   FRIEND_TEST_ALL_PREFIXES(FormDataImporterTest, ImportUpiId);
   FRIEND_TEST_ALL_PREFIXES(FormDataImporterTest, ImportUpiIdDisabled);
   FRIEND_TEST_ALL_PREFIXES(FormDataImporterTest, ImportUpiIdIgnoreNonUpiId);
-
-  DISALLOW_COPY_AND_ASSIGN(FormDataImporter);
 };
 
 }  // namespace autofill

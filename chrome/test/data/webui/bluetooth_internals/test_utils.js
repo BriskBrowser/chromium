@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 import {assert} from 'chrome://resources/js/assert.m.js';
-import {TestBrowserProxy} from '../test_browser_proxy.m.js';
+import {TestBrowserProxy} from '../test_browser_proxy.js';
 
 /**
  * A mojom.BluetoothInternalsHandler for the chrome://bluetooth-internals
@@ -204,9 +204,10 @@ export function fakeDeviceInfo1() {
     name: 'AAA',
     nameForDisplay: 'AAA',
     rssi: {value: -40},
+    serviceUuids: [{uuid: '00002a05-0000-1000-8000-00805f9b34fb'}],
     isGattConnected: false,
+    manufacturerDataMap: {'1': [1, 2], '2': [3, 4]},
     serviceDataMap: {},
-    services: [],
   };
 }
 
@@ -220,15 +221,16 @@ export function fakeDeviceInfo2() {
     name: 'BBB',
     nameForDisplay: 'BBB',
     rssi: null,
+    serviceUuids: [],
     isGattConnected: false,
+    manufacturerDataMap: {},
     serviceDataMap: {},
-    services: [],
   };
 }
 
 /**
  * Returns a copy of fake device info object. The returned device info lack
- * rssi and services properties.
+ * rssi and serviceUuids properties.
  * @return {!Object}
  */
 export function fakeDeviceInfo3() {
@@ -236,6 +238,7 @@ export function fakeDeviceInfo3() {
     address: 'CC:CC:84:96:92:84',
     name: 'CCC',
     nameForDisplay: 'CCC',
+    manufacturerDataMap: {},
     serviceDataMap: {},
     isGattConnected: false,
   };

@@ -6,9 +6,8 @@
 #include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/location.h"
-#include "base/macros.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/autofill/payments/card_unmask_prompt_view_tester.h"
@@ -38,9 +37,12 @@ constexpr const char kExpiryValidPermanentError[] = "valid_PermanentError";
 
 class TestCardUnmaskDelegate : public CardUnmaskDelegate {
  public:
-  TestCardUnmaskDelegate() {}
+  TestCardUnmaskDelegate() = default;
 
-  virtual ~TestCardUnmaskDelegate() {}
+  TestCardUnmaskDelegate(const TestCardUnmaskDelegate&) = delete;
+  TestCardUnmaskDelegate& operator=(const TestCardUnmaskDelegate&) = delete;
+
+  virtual ~TestCardUnmaskDelegate() = default;
 
   // CardUnmaskDelegate:
   void OnUnmaskPromptAccepted(
@@ -60,8 +62,6 @@ class TestCardUnmaskDelegate : public CardUnmaskDelegate {
   UserProvidedUnmaskDetails details_;
 
   base::WeakPtrFactory<TestCardUnmaskDelegate> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TestCardUnmaskDelegate);
 };
 
 class TestCardUnmaskPromptController : public CardUnmaskPromptControllerImpl {
@@ -72,26 +72,28 @@ class TestCardUnmaskPromptController : public CardUnmaskPromptControllerImpl {
       : CardUnmaskPromptControllerImpl(
             user_prefs::UserPrefs::Get(contents->GetBrowserContext())),
         runner_(runner) {}
+  TestCardUnmaskPromptController(const TestCardUnmaskPromptController&) =
+      delete;
+  TestCardUnmaskPromptController& operator=(
+      const TestCardUnmaskPromptController&) = delete;
 
   // CardUnmaskPromptControllerImpl:.
   // When the confirm button is clicked.
-  void OnUnmaskPromptAccepted(const base::string16& cvc,
-                              const base::string16& exp_month,
-                              const base::string16& exp_year,
-                              bool should_store_pan,
+  void OnUnmaskPromptAccepted(const std::u16string& cvc,
+                              const std::u16string& exp_month,
+                              const std::u16string& exp_year,
                               bool enable_fido_auth) override {
     // Call the original implementation.
     CardUnmaskPromptControllerImpl::OnUnmaskPromptAccepted(
-        cvc, exp_month, exp_year, should_store_pan, enable_fido_auth);
+        cvc, exp_month, exp_year, enable_fido_auth);
 
     // Wait some time and show verification result. An empty message means
     // success is shown.
-    base::string16 verification_message;
+    std::u16string verification_message;
     if (expected_failure_temporary_) {
-      verification_message = base::ASCIIToUTF16("Check your CVC and try again");
+      verification_message = u"Check your CVC and try again";
     } else if (expected_failure_permanent_) {
-      verification_message =
-          base::ASCIIToUTF16("This card can't be verified right now.");
+      verification_message = u"This card can't be verified right now.";
     }
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
@@ -104,16 +106,16 @@ class TestCardUnmaskPromptController : public CardUnmaskPromptControllerImpl {
   base::TimeDelta GetSuccessMessageDuration() const override {
     // Change this to ~4000 if you're in --test-launcher-interactive mode and
     // would like to see the progress/success overlay.
-    return base::TimeDelta::FromMilliseconds(10);
+    return base::Milliseconds(10);
   }
 
   AutofillClient::PaymentsRpcResult GetVerificationResult() const override {
     if (expected_failure_temporary_)
-      return AutofillClient::TRY_AGAIN_FAILURE;
+      return AutofillClient::PaymentsRpcResult::kTryAgainFailure;
     if (expected_failure_permanent_)
-      return AutofillClient::PERMANENT_FAILURE;
+      return AutofillClient::PaymentsRpcResult::kPermanentFailure;
 
-    return AutofillClient::SUCCESS;
+    return AutofillClient::PaymentsRpcResult::kSuccess;
   }
 
   void set_expected_verification_failure(bool allow_retry) {
@@ -127,7 +129,7 @@ class TestCardUnmaskPromptController : public CardUnmaskPromptControllerImpl {
   using CardUnmaskPromptControllerImpl::view;
 
  private:
-  void ShowVerificationResult(const base::string16 verification_message,
+  void ShowVerificationResult(const std::u16string verification_message,
                               bool allow_retry) {
     // It's possible the prompt has been closed.
     if (!view())
@@ -139,15 +141,18 @@ class TestCardUnmaskPromptController : public CardUnmaskPromptControllerImpl {
   bool expected_failure_permanent_ = false;
   scoped_refptr<content::MessageLoopRunner> runner_;
   base::WeakPtrFactory<TestCardUnmaskPromptController> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TestCardUnmaskPromptController);
 };
 
 class CardUnmaskPromptViewBrowserTest : public DialogBrowserTest {
  public:
-  CardUnmaskPromptViewBrowserTest() {}
+  CardUnmaskPromptViewBrowserTest() = default;
 
-  ~CardUnmaskPromptViewBrowserTest() override {}
+  CardUnmaskPromptViewBrowserTest(const CardUnmaskPromptViewBrowserTest&) =
+      delete;
+  CardUnmaskPromptViewBrowserTest& operator=(
+      const CardUnmaskPromptViewBrowserTest&) = delete;
+
+  ~CardUnmaskPromptViewBrowserTest() override = default;
 
   // DialogBrowserTest:
   void SetUpOnMainThread() override {
@@ -166,7 +171,7 @@ class CardUnmaskPromptViewBrowserTest : public DialogBrowserTest {
     controller()->ShowPrompt(base::BindOnce(&CreateCardUnmaskPromptView,
                                             base::Unretained(controller()),
                                             base::Unretained(contents())),
-                             card, AutofillClient::UNMASK_FOR_AUTOFILL,
+                             card, AutofillClient::UnmaskCardReason::kAutofill,
                              delegate()->GetWeakPtr());
     // Setting error expectations and confirming the dialogs for some test
     // cases.
@@ -193,8 +198,6 @@ class CardUnmaskPromptViewBrowserTest : public DialogBrowserTest {
   content::WebContents* contents_;
   std::unique_ptr<TestCardUnmaskPromptController> controller_;
   std::unique_ptr<TestCardUnmaskDelegate> delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(CardUnmaskPromptViewBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(CardUnmaskPromptViewBrowserTest, InvokeUi_expired) {
@@ -226,12 +229,12 @@ IN_PROC_BROWSER_TEST_F(CardUnmaskPromptViewBrowserTest, DisplayUI) {
 IN_PROC_BROWSER_TEST_F(CardUnmaskPromptViewBrowserTest,
                        EarlyCloseAfterSuccess) {
   ShowUi(kExpiryExpired);
-  controller()->OnUnmaskPromptAccepted(
-      base::ASCIIToUTF16("123"), base::ASCIIToUTF16("10"),
-      base::ASCIIToUTF16(test::NextYear()), /*should_store_locally=*/false,
-      /*enable_fido_auth=*/false);
-  EXPECT_EQ(base::ASCIIToUTF16("123"), delegate()->details().cvc);
-  controller()->OnVerificationResult(AutofillClient::SUCCESS);
+  controller()->OnUnmaskPromptAccepted(u"123", u"10",
+                                       base::ASCIIToUTF16(test::NextYear()),
+                                       /*enable_fido_auth=*/false);
+  EXPECT_EQ(u"123", delegate()->details().cvc);
+  controller()->OnVerificationResult(
+      AutofillClient::PaymentsRpcResult::kSuccess);
 
   // Simulate the user clicking [x] before the "Success!" message disappears.
   CardUnmaskPromptViewTester::For(controller()->view())->Close();
@@ -249,8 +252,9 @@ IN_PROC_BROWSER_TEST_F(CardUnmaskPromptViewBrowserTest,
 IN_PROC_BROWSER_TEST_F(CardUnmaskPromptViewBrowserTest,
                        CloseTabWhileDialogShowing) {
   ShowUi(kExpiryExpired);
-  // Simulate AutofillManager (the delegate in production code) being destroyed
-  // before CardUnmaskPromptViewBridge::OnConstrainedWindowClosed() is called.
+  // Simulate BrowserAutofillManager (the delegate in production code) being
+  // destroyed before CardUnmaskPromptViewBridge::OnConstrainedWindowClosed() is
+  // called.
   FreeDelegate();
   browser()->tab_strip_model()->GetActiveWebContents()->Close();
 

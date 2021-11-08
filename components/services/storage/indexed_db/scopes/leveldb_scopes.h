@@ -20,7 +20,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/numerics/checked_math.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/services/storage/indexed_db/scopes/leveldb_scopes_coding.h"
 #include "components/services/storage/indexed_db/scopes/scope_lock.h"
 #include "components/services/storage/indexed_db/scopes/scope_lock_range.h"
@@ -36,7 +36,6 @@ class LevelDBScopes {
  public:
   using TearDownCallback = base::RepeatingCallback<void(leveldb::Status)>;
   using EmptyRange = std::pair<std::string, std::string>;
-  static constexpr const size_t kDefaultMaxWriteBatchSizeBytes = 1024 * 1024;
 
   enum class TaskRunnerMode {
     // No new sequence runners are created. Both the cleanup and the revert
@@ -55,6 +54,10 @@ class LevelDBScopes {
                 scoped_refptr<LevelDBState> level_db,
                 ScopesLockManager* lock_manager,
                 TearDownCallback tear_down_callback);
+
+  LevelDBScopes(const LevelDBScopes&) = delete;
+  LevelDBScopes& operator=(const LevelDBScopes&) = delete;
+
   ~LevelDBScopes();
 
   // This method needs to be called before any other method on this class. If
@@ -148,7 +151,6 @@ class LevelDBScopes {
 #endif
 
   base::WeakPtrFactory<LevelDBScopes> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(LevelDBScopes);
 };
 
 }  // namespace content

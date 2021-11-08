@@ -9,12 +9,14 @@
 
 // clang-format off
 import 'chrome://settings/lazy_load.js';
+
 import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {PrivacyPageBrowserProxyImpl, SecureDnsMode, SecureDnsUiManagementMode} from 'chrome://settings/settings.js';
-import {TestPrivacyPageBrowserProxy} from 'chrome://test/settings/test_privacy_page_browser_proxy.js';
-import {flushTasks} from 'chrome://test/test_util.m.js';
+import {flushTasks} from 'chrome://webui-test/test_util.js';
+
+import {TestPrivacyPageBrowserProxy} from './test_privacy_page_browser_proxy.js';
 
 // clang-format on
 
@@ -45,12 +47,12 @@ suite('SettingsSecureDnsInput', function() {
 
   setup(function() {
     testBrowserProxy = new TestPrivacyPageBrowserProxy();
-    PrivacyPageBrowserProxyImpl.instance_ = testBrowserProxy;
+    PrivacyPageBrowserProxyImpl.setInstance(testBrowserProxy);
     PolymerTest.clearBody();
     testElement = document.createElement('secure-dns-input');
     document.body.appendChild(testElement);
     flush();
-    crInput = testElement.$$('#input');
+    crInput = testElement.shadowRoot.querySelector('#input');
     assertFalse(crInput.invalid);
     assertEquals('', testElement.value);
   });
@@ -169,7 +171,7 @@ suite('SettingsSecureDns', function() {
    */
   function assertRadioButtonsShown() {
     assertTrue(secureDnsToggle.hasAttribute('checked'));
-    assertFalse(secureDnsToggle.$$('cr-toggle').disabled);
+    assertFalse(secureDnsToggle.shadowRoot.querySelector('cr-toggle').disabled);
     assertFalse(secureDnsRadioGroup.hidden);
   }
 
@@ -185,7 +187,7 @@ suite('SettingsSecureDns', function() {
   setup(async function() {
     testBrowserProxy = new TestPrivacyPageBrowserProxy();
     testBrowserProxy.setResolverList(resolverList);
-    PrivacyPageBrowserProxyImpl.instance_ = testBrowserProxy;
+    PrivacyPageBrowserProxyImpl.setInstance(testBrowserProxy);
     PolymerTest.clearBody();
     testElement = document.createElement('settings-secure-dns');
     testElement.prefs = {
@@ -196,8 +198,9 @@ suite('SettingsSecureDns', function() {
 
     await testBrowserProxy.whenCalled('getSecureDnsSetting');
     await flushTasks();
-    secureDnsToggle = testElement.$$('#secureDnsToggle');
-    secureDnsRadioGroup = testElement.$$('#secureDnsRadioGroup');
+    secureDnsToggle = testElement.shadowRoot.querySelector('#secureDnsToggle');
+    secureDnsRadioGroup =
+        testElement.shadowRoot.querySelector('#secureDnsRadioGroup');
     assertRadioButtonsShown();
     assertEquals(
         testBrowserProxy.secureDnsSetting.mode, secureDnsRadioGroup.selected);
@@ -215,10 +218,11 @@ suite('SettingsSecureDns', function() {
     });
     flush();
     assertFalse(secureDnsToggle.hasAttribute('checked'));
-    assertFalse(secureDnsToggle.$$('cr-toggle').disabled);
+    assertFalse(secureDnsToggle.shadowRoot.querySelector('cr-toggle').disabled);
     assertTrue(secureDnsRadioGroup.hidden);
     assertEquals(defaultDescription, secureDnsToggle.subLabel);
-    assertFalse(!!secureDnsToggle.$$('cr-policy-pref-indicator'));
+    assertFalse(
+        !!secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator'));
   });
 
   test('SecureDnsAutomatic', function() {
@@ -230,7 +234,8 @@ suite('SettingsSecureDns', function() {
     flush();
     assertRadioButtonsShown();
     assertEquals(defaultDescription, secureDnsToggle.subLabel);
-    assertFalse(!!secureDnsToggle.$$('cr-policy-pref-indicator'));
+    assertFalse(
+        !!secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator'));
     assertEquals(SecureDnsMode.AUTOMATIC, secureDnsRadioGroup.selected);
   });
 
@@ -243,7 +248,8 @@ suite('SettingsSecureDns', function() {
     flush();
     assertRadioButtonsShown();
     assertEquals(defaultDescription, secureDnsToggle.subLabel);
-    assertFalse(!!secureDnsToggle.$$('cr-policy-pref-indicator'));
+    assertFalse(
+        !!secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator'));
     assertEquals(SecureDnsMode.SECURE, secureDnsRadioGroup.selected);
   });
 
@@ -255,13 +261,15 @@ suite('SettingsSecureDns', function() {
     });
     flush();
     assertFalse(secureDnsToggle.hasAttribute('checked'));
-    assertTrue(secureDnsToggle.$$('cr-toggle').disabled);
+    assertTrue(secureDnsToggle.shadowRoot.querySelector('cr-toggle').disabled);
     assertTrue(secureDnsRadioGroup.hidden);
     assertEquals(managedEnvironmentDescription, secureDnsToggle.subLabel);
-    assertTrue(!!secureDnsToggle.$$('cr-policy-pref-indicator'));
-    assertTrue(secureDnsToggle.$$('cr-policy-pref-indicator')
-                   .$$('cr-tooltip-icon')
-                   .hidden);
+    assertTrue(
+        !!secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator'));
+    assertTrue(
+        secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator')
+            .shadowRoot.querySelector('cr-tooltip-icon')
+            .hidden);
   });
 
   test('SecureDnsParentalControl', function() {
@@ -272,13 +280,15 @@ suite('SettingsSecureDns', function() {
     });
     flush();
     assertFalse(secureDnsToggle.hasAttribute('checked'));
-    assertTrue(secureDnsToggle.$$('cr-toggle').disabled);
+    assertTrue(secureDnsToggle.shadowRoot.querySelector('cr-toggle').disabled);
     assertTrue(secureDnsRadioGroup.hidden);
     assertEquals(parentalControlDescription, secureDnsToggle.subLabel);
-    assertTrue(!!secureDnsToggle.$$('cr-policy-pref-indicator'));
-    assertTrue(secureDnsToggle.$$('cr-policy-pref-indicator')
-                   .$$('cr-tooltip-icon')
-                   .hidden);
+    assertTrue(
+        !!secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator'));
+    assertTrue(
+        secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator')
+            .shadowRoot.querySelector('cr-tooltip-icon')
+            .hidden);
   });
 
   test('SecureDnsManaged', function() {
@@ -294,12 +304,14 @@ suite('SettingsSecureDns', function() {
     });
     flush();
     assertTrue(secureDnsToggle.hasAttribute('checked'));
-    assertTrue(secureDnsToggle.$$('cr-toggle').disabled);
+    assertTrue(secureDnsToggle.shadowRoot.querySelector('cr-toggle').disabled);
     assertTrue(secureDnsRadioGroup.hidden);
     assertEquals(defaultDescription, secureDnsToggle.subLabel);
-    assertTrue(!!secureDnsToggle.$$('cr-policy-pref-indicator'));
-    assertFalse(secureDnsToggle.$$('cr-policy-pref-indicator')
-                    .$$('cr-tooltip-icon')
-                    .hidden);
+    assertTrue(
+        !!secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator'));
+    assertFalse(
+        secureDnsToggle.shadowRoot.querySelector('cr-policy-pref-indicator')
+            .shadowRoot.querySelector('cr-tooltip-icon')
+            .hidden);
   });
 });

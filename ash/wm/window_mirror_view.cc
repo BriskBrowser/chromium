@@ -15,7 +15,7 @@
 #include "ui/aura/window_occlusion_tracker.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_tree_owner.h"
-#include "ui/gfx/transform.h"
+#include "ui/gfx/geometry/transform.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/window_util.h"
 
@@ -131,7 +131,8 @@ ui::Layer* WindowMirrorView::GetMirrorLayerForTesting() {
 }
 
 void WindowMirrorView::InitLayerOwner() {
-  layer_owner_ = ::wm::MirrorLayers(source_, false /* sync_bounds */);
+  layer_owner_ = wm::MirrorLayers(source_, /*sync_bounds=*/false);
+  layer_owner_->root()->SetOpacity(1.f);
 
   SetPaintToLayer();
 

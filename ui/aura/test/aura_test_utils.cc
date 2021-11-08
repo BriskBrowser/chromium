@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/macros.h"
+#include "ui/aura/native_window_occlusion_tracker.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_tree_host.h"
 
@@ -16,6 +16,9 @@ namespace test {
 class WindowTreeHostTestApi {
  public:
   explicit WindowTreeHostTestApi(WindowTreeHost* host) : host_(host) {}
+
+  WindowTreeHostTestApi(const WindowTreeHostTestApi&) = delete;
+  WindowTreeHostTestApi& operator=(const WindowTreeHostTestApi&) = delete;
 
   const gfx::Point& last_cursor_request_position_in_host() {
     return host_->last_cursor_request_position_in_host_;
@@ -29,8 +32,6 @@ class WindowTreeHostTestApi {
 
  private:
   WindowTreeHost* host_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowTreeHostTestApi);
 };
 
 const gfx::Point& QueryLatestMousePositionRequestInHost(WindowTreeHost* host) {
@@ -46,6 +47,10 @@ void SetHostDispatcher(WindowTreeHost* host,
 
 void DisableIME(WindowTreeHost* host) {
   WindowTreeHostTestApi(host).disable_ime();
+}
+
+void DisableNativeWindowOcclusionTracking(WindowTreeHost* host) {
+  NativeWindowOcclusionTracker::DisableNativeWindowOcclusionTracking(host);
 }
 
 }  // namespace test

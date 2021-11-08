@@ -11,7 +11,7 @@
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/chromecast_buildflags.h"
 #include "build/chromeos_buildflags.h"
@@ -55,13 +55,8 @@
 #include "ui/base/cocoa/remote_layer_api.h"
 #endif
 
-#if defined(USE_X11)
-#include "components/viz/service/display_embedder/software_output_device_x11.h"
-#endif
-
 #if defined(USE_OZONE)
 #include "components/viz/service/display_embedder/software_output_device_ozone.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/display/types/display_snapshot.h"
 #include "ui/ozone/public/ozone_platform.h"
 #include "ui/ozone/public/platform_window_surface.h"
@@ -150,6 +145,16 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
       output_surface = SkiaOutputSurfaceImpl::Create(
           gpu_dependency, renderer_settings, debug_settings);
     }
+
+#if defined(OS_ANDROID)
+    // As with non-skia-renderer case, communicate the creation result to
+    // CompositorImplAndroid so that it can attempt to recreate the surface on
+    // failure.
+    display_client->OnContextCreationResult(
+        output_surface ? gpu::ContextResult::kSuccess
+                       : gpu::ContextResult::kSurfaceFailure);
+#endif  // defined(OS_ANDROID)
+
     if (!output_surface) {
 #if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMECAST)
       // GPU compositing is expected to always work on Chrome OS so we should
@@ -207,10 +212,6 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
           std::move(context_provider));
     } else if (context_provider->ContextCapabilities().surfaceless) {
 #if defined(USE_OZONE) || defined(OS_APPLE) || defined(OS_ANDROID)
-#if defined(USE_OZONE)
-      if (!features::IsUsingOzonePlatform())
-        NOTREACHED();
-#endif
       output_surface = std::make_unique<GLOutputSurfaceBufferQueue>(
           std::move(context_provider), surface_handle,
           std::make_unique<BufferQueue>(
@@ -255,7 +256,6 @@ OutputSurfaceProviderImpl::CreateSoftwareOutputDeviceForPlatform(
   NOTREACHED();
   return nullptr;
 #elif defined(USE_OZONE)
-  if (features::IsUsingOzonePlatform()) {
     ui::SurfaceFactoryOzone* factory =
         ui::OzonePlatform::GetInstance()->GetSurfaceFactoryOzone();
     std::unique_ptr<ui::PlatformWindowSurface> platform_window_surface =
@@ -265,11 +265,6 @@ OutputSurfaceProviderImpl::CreateSoftwareOutputDeviceForPlatform(
     CHECK(surface_ozone);
     return std::make_unique<SoftwareOutputDeviceOzone>(
         std::move(platform_window_surface), std::move(surface_ozone));
-  }
-#endif
-
-#if defined(USE_X11)
-  return std::make_unique<SoftwareOutputDeviceX11>(surface_handle);
 #else
   NOTREACHED();
   return nullptr;

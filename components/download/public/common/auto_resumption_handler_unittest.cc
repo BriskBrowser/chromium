@@ -8,8 +8,8 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
-#include "base/optional.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -20,6 +20,7 @@
 #include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 using TaskParams = download::TaskManager::TaskParams;
 using network::mojom::ConnectionType;
@@ -60,6 +61,10 @@ class AutoResumptionHandlerTest : public testing::Test {
  public:
   AutoResumptionHandlerTest()
       : task_runner_(new base::TestMockTimeTaskRunner), handle_(task_runner_) {}
+
+  AutoResumptionHandlerTest(const AutoResumptionHandlerTest&) = delete;
+  AutoResumptionHandlerTest& operator=(const AutoResumptionHandlerTest&) =
+      delete;
 
   ~AutoResumptionHandlerTest() override = default;
 
@@ -107,11 +112,11 @@ class AutoResumptionHandlerTest : public testing::Test {
             : download::DOWNLOAD_INTERRUPT_REASON_NONE;
     ON_CALL(*download, GetLastReason()).WillByDefault(Return(last_reason));
     ON_CALL(*download, GetDownloadSchedule())
-        .WillByDefault(ReturnRefOfCopy(base::Optional<DownloadSchedule>()));
+        .WillByDefault(ReturnRefOfCopy(absl::optional<DownloadSchedule>()));
 
     // Make sure the item won't be expired and ignored.
     ON_CALL(*download, GetStartTime())
-        .WillByDefault(Return(GetNow() - base::TimeDelta::FromDays(1)));
+        .WillByDefault(Return(GetNow() - base::Days(1)));
   }
 
   void SetNetworkConnectionType(ConnectionType connection_type) {
@@ -121,7 +126,7 @@ class AutoResumptionHandlerTest : public testing::Test {
 
   void SetDownloadSchedule(MockDownloadItem* download,
                            DownloadSchedule download_schedule) {
-    base::Optional<DownloadSchedule> copy = download_schedule;
+    absl::optional<DownloadSchedule> copy = download_schedule;
     ON_CALL(*download, GetDownloadSchedule())
         .WillByDefault(ReturnRefOfCopy(copy));
   }
@@ -131,8 +136,6 @@ class AutoResumptionHandlerTest : public testing::Test {
   download::test::MockTaskManager* task_manager_;
   std::unique_ptr<AutoResumptionHandler> auto_resumption_handler_;
   base::SimpleTestClock clock_;
-
-  DISALLOW_COPY_AND_ASSIGN(AutoResumptionHandlerTest);
 };
 
 TEST_F(AutoResumptionHandlerTest, ScheduleTaskCalledOnDownloadStart) {
@@ -288,7 +291,7 @@ TEST_F(AutoResumptionHandlerTest, ExpiredDownloadNotAutoResumed) {
   SetNetworkConnectionType(ConnectionType::CONNECTION_WIFI);
 
   // Create a normal expired download.
-  base::Time expired_start_time = GetNow() - base::TimeDelta::FromDays(100);
+  base::Time expired_start_time = GetNow() - base::Days(100);
   auto item0 = std::make_unique<NiceMock<MockDownloadItem>>();
   SetDownloadState(item0.get(), DownloadItem::INTERRUPTED, false, false);
   ON_CALL(*item0.get(), GetStartTime())
@@ -298,7 +301,7 @@ TEST_F(AutoResumptionHandlerTest, ExpiredDownloadNotAutoResumed) {
   auto item1 = std::make_unique<NiceMock<MockDownloadItem>>();
   SetDownloadState(item1.get(), DownloadItem::INTERRUPTED, false, false);
   SetDownloadSchedule(item1.get(),
-                      DownloadSchedule(true /*only_on_wifi*/, base::nullopt));
+                      DownloadSchedule(true /*only_on_wifi*/, absl::nullopt));
   ON_CALL(*item1.get(), GetStartTime())
       .WillByDefault(Return(expired_start_time));
 
@@ -334,7 +337,7 @@ TEST_F(AutoResumptionHandlerTest, DownloadWithoutTargetPathNotAutoResumed) {
 TEST_F(AutoResumptionHandlerTest, DownloadLaterStartFutureNotAutoResumed) {
   SetNetworkConnectionType(ConnectionType::CONNECTION_WIFI);
   auto item = std::make_unique<NiceMock<MockDownloadItem>>();
-  auto delta = base::TimeDelta::FromDays(10);
+  auto delta = base::Days(10);
   base::Time future_time = GetNow() + delta;
   SetDownloadState(item.get(), DownloadItem::INTERRUPTED, false, false);
   SetDownloadSchedule(item.get(),
@@ -366,7 +369,7 @@ TEST_F(AutoResumptionHandlerTest, DownloadLaterMeteredAutoResumed) {
   SetDownloadState(item.get(), DownloadItem::INTERRUPTED, false,
                    true /*allow_metered*/);
   SetDownloadSchedule(item.get(),
-                      DownloadSchedule(true /*only_on_wifi*/, base::nullopt));
+                      DownloadSchedule(true /*only_on_wifi*/, absl::nullopt));
 
   auto_resumption_handler_->OnDownloadStarted(item.get());
   task_runner_->FastForwardUntilNoTasksRemain();

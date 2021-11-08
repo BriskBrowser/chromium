@@ -4,6 +4,7 @@
 
 #include "chrome/browser/supervised_user/child_accounts/child_account_service.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/callback.h"
@@ -21,12 +22,15 @@
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/supervised_user/web_approvals_manager.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/base/consent_level.h"
+#include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
-#include "components/signin/public/identity_manager/consent_level.h"
+#include "components/signin/public/identity_manager/tribool.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "content/public/browser/browser_context.h"
@@ -102,13 +106,11 @@ void ChildAccountService::Init() {
   // If we're already signed in, check the account immediately just to be sure.
   // (We might have missed an update before registering as an observer.)
   // "Unconsented" because this class doesn't care about browser sync consent.
-  base::Optional<AccountInfo> primary_account_info =
-      identity_manager_->FindExtendedAccountInfoForAccountWithRefreshToken(
-          identity_manager_->GetPrimaryAccountInfo(
-              signin::ConsentLevel::kNotRequired));
+  AccountInfo primary_account_info = identity_manager_->FindExtendedAccountInfo(
+      identity_manager_->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin));
 
-  if (primary_account_info.has_value())
-    OnExtendedAccountInfoUpdated(primary_account_info.value());
+  if (!primary_account_info.IsEmpty())
+    OnExtendedAccountInfoUpdated(primary_account_info);
 }
 
 bool ChildAccountService::IsChildAccountStatusKnown() {
@@ -190,7 +192,7 @@ bool ChildAccountService::SetActive(bool active) {
 
     SupervisedUserService* service =
         SupervisedUserServiceFactory::GetForProfile(profile_);
-    service->AddPermissionRequestCreator(
+    service->web_approvals_manager().AddRemoteApprovalRequestCreator(
         PermissionRequestCreatorApiary::CreateWithProfile(profile_));
   } else {
     SupervisedUserSettingsService* settings_service =
@@ -217,7 +219,7 @@ bool ChildAccountService::SetActive(bool active) {
   // TODO(crbug.com/946473): Get rid of this hack and instead call
   // DataTypePreconditionChanged from the controller.
   syncer::SyncService* sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile_);
+      SyncServiceFactory::GetForProfile(profile_);
   if (sync_service->GetUserSettings()->IsFirstSetupComplete()) {
     // Trigger a reconfig by grabbing a SyncSetupInProgressHandle and
     // immediately releasing it again (via the temporary unique_ptr going away).
@@ -248,13 +250,12 @@ void ChildAccountService::SetIsChildAccount(bool is_child_account) {
 
 void ChildAccountService::OnPrimaryAccountChanged(
     const signin::PrimaryAccountChangeEvent& event_details) {
-  if (event_details.GetEventTypeFor(signin::ConsentLevel::kNotRequired) ==
+  if (event_details.GetEventTypeFor(signin::ConsentLevel::kSignin) ==
       signin::PrimaryAccountChangeEvent::Type::kSet) {
-    auto account_info =
-        identity_manager_->FindExtendedAccountInfoForAccountWithRefreshToken(
-            event_details.GetCurrentState().primary_account);
-    if (account_info.has_value()) {
-      OnExtendedAccountInfoUpdated(account_info.value());
+    AccountInfo account_info = identity_manager_->FindExtendedAccountInfo(
+        event_details.GetCurrentState().primary_account);
+    if (!account_info.IsEmpty()) {
+      OnExtendedAccountInfoUpdated(account_info);
     }
     // Otherwise OnExtendedAccountInfoUpdated will be notified once
     // the account info is available.
@@ -273,19 +274,19 @@ void ChildAccountService::OnExtendedAccountInfoUpdated(
   }
 
   // This class doesn't care about browser sync consent.
-  CoreAccountId auth_account_id = identity_manager_->GetPrimaryAccountId(
-      signin::ConsentLevel::kNotRequired);
+  CoreAccountId auth_account_id =
+      identity_manager_->GetPrimaryAccountId(signin::ConsentLevel::kSignin);
   if (info.account_id != auth_account_id)
     return;
 
-  SetIsChildAccount(info.is_child_account);
+  SetIsChildAccount(info.is_child_account == signin::Tribool::kTrue);
 }
 
 void ChildAccountService::OnExtendedAccountInfoRemoved(
     const AccountInfo& info) {
   // This class doesn't care about browser sync consent.
-  if (info.account_id != identity_manager_->GetPrimaryAccountId(
-                             signin::ConsentLevel::kNotRequired))
+  if (info.account_id !=
+      identity_manager_->GetPrimaryAccountId(signin::ConsentLevel::kSignin))
     return;
 
   SetIsChildAccount(false);
@@ -316,8 +317,7 @@ void ChildAccountService::OnGetFamilyMembersSuccess(
 
   family_fetch_backoff_.InformOfRequest(true);
 
-  ScheduleNextFamilyInfoUpdate(
-      base::TimeDelta::FromSeconds(kUpdateIntervalSeconds));
+  ScheduleNextFamilyInfoUpdate(base::Seconds(kUpdateIntervalSeconds));
 }
 
 void ChildAccountService::OnFailure(FamilyInfoFetcher::ErrorCode error) {
@@ -334,10 +334,10 @@ void ChildAccountService::OnAccountsInCookieUpdated(
 }
 
 void ChildAccountService::StartFetchingFamilyInfo() {
-  family_fetcher_.reset(new FamilyInfoFetcher(
+  family_fetcher_ = std::make_unique<FamilyInfoFetcher>(
       this, identity_manager_,
-      content::BrowserContext::GetDefaultStoragePartition(profile_)
-          ->GetURLLoaderFactoryForBrowserProcess()));
+      profile_->GetDefaultStoragePartition()
+          ->GetURLLoaderFactoryForBrowserProcess());
   family_fetcher_->StartGetFamilyMembers();
 }
 
@@ -355,16 +355,10 @@ void ChildAccountService::PropagateChildStatusToUser(bool is_child) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   user_manager::User* user =
       chromeos::ProfileHelper::Get()->GetUserByProfile(profile_);
-  if (user) {
-    // Note that deprecated legacy supervised users are allowed to change type
-    // due to legacy initialization.
-    if (user->GetType() != user_manager::USER_TYPE_SUPERVISED_DEPRECATED) {
-      if (is_child != (user->GetType() == user_manager::USER_TYPE_CHILD))
-        LOG(FATAL) << "User child flag has changed: " << is_child;
-    }
-  } else if (chromeos::ProfileHelper::IsRegularProfile(profile_)) {
+  if (user && is_child != (user->GetType() == user_manager::USER_TYPE_CHILD))
+    LOG(FATAL) << "User child flag has changed: " << is_child;
+  if (!user && chromeos::ProfileHelper::IsRegularProfile(profile_))
     LOG(DFATAL) << "User instance not found while setting child account flag.";
-  }
 #endif
 }
 

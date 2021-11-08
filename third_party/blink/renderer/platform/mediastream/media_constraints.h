@@ -269,7 +269,6 @@ struct MediaTrackConstraintSetPlatform {
   BooleanConstraint voice_activity_detection;
   BooleanConstraint ice_restart;
   BooleanConstraint goog_use_rtp_mux;
-  BooleanConstraint enable_dtls_srtp;
   BooleanConstraint enable_rtp_data_channels;
   BooleanConstraint enable_dscp;
   BooleanConstraint enable_i_pv6;
@@ -278,11 +277,6 @@ struct MediaTrackConstraintSetPlatform {
   BooleanConstraint goog_combined_audio_video_bwe;
   LongConstraint goog_screencast_min_bitrate;
   BooleanConstraint goog_cpu_overuse_detection;
-  LongConstraint goog_cpu_underuse_threshold;
-  LongConstraint goog_cpu_overuse_threshold;
-  LongConstraint goog_cpu_underuse_encode_rsd_threshold;
-  LongConstraint goog_cpu_overuse_encode_rsd_threshold;
-  BooleanConstraint goog_cpu_overuse_encode_usage;
   LongConstraint goog_high_start_bitrate;
   BooleanConstraint goog_payload_padding;
   LongConstraint goog_latency_ms;

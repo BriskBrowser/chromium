@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/test/gtest_util.h"
@@ -31,6 +32,11 @@ class FakeMultiplexedChannelFactory : public MultiplexedChannelImpl::Factory {
   explicit FakeMultiplexedChannelFactory(
       MultiplexedChannel::Delegate* expected_delegate)
       : expected_delegate_(expected_delegate) {}
+
+  FakeMultiplexedChannelFactory(const FakeMultiplexedChannelFactory&) = delete;
+  FakeMultiplexedChannelFactory& operator=(
+      const FakeMultiplexedChannelFactory&) = delete;
+
   ~FakeMultiplexedChannelFactory() override = default;
 
   base::flat_map<ConnectionDetails, FakeMultiplexedChannel*>&
@@ -82,8 +88,6 @@ class FakeMultiplexedChannelFactory : public MultiplexedChannelImpl::Factory {
 
   base::flat_map<ConnectionDetails, FakeMultiplexedChannel*>
       connection_details_to_active_channel_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeMultiplexedChannelFactory);
 };
 
 std::vector<base::UnguessableToken> ClientListToIdList(
@@ -99,6 +103,12 @@ std::vector<base::UnguessableToken> ClientListToIdList(
 }  // namespace
 
 class SecureChannelActiveConnectionManagerImplTest : public testing::Test {
+ public:
+  SecureChannelActiveConnectionManagerImplTest(
+      const SecureChannelActiveConnectionManagerImplTest&) = delete;
+  SecureChannelActiveConnectionManagerImplTest& operator=(
+      const SecureChannelActiveConnectionManagerImplTest&) = delete;
+
  protected:
   SecureChannelActiveConnectionManagerImplTest() = default;
   ~SecureChannelActiveConnectionManagerImplTest() override = default;
@@ -225,8 +235,6 @@ class SecureChannelActiveConnectionManagerImplTest : public testing::Test {
   std::unique_ptr<FakeActiveConnectionManagerDelegate> fake_delegate_;
 
   std::unique_ptr<ActiveConnectionManager> manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(SecureChannelActiveConnectionManagerImplTest);
 };
 
 TEST_F(SecureChannelActiveConnectionManagerImplTest, EdgeCases) {

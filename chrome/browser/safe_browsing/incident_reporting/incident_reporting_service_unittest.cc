@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -34,8 +35,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/quota_service.h"
@@ -75,9 +76,7 @@ class IncidentReportingServiceTest : public testing::Test {
         const CollectEnvironmentCallback& collect_environment_callback,
         const CreateDownloadFinderCallback& create_download_finder_callback,
         const StartUploadCallback& start_upload_callback)
-        : IncidentReportingService(nullptr,
-                                   base::TimeDelta::FromMilliseconds(5),
-                                   task_runner),
+        : IncidentReportingService(nullptr, base::Milliseconds(5), task_runner),
           pre_profile_add_callback_(pre_profile_add_callback),
           collect_environment_callback_(collect_environment_callback),
           create_download_finder_callback_(create_download_finder_callback),
@@ -222,7 +221,7 @@ class IncidentReportingServiceTest : public testing::Test {
     scoped_feature_list_.InitAndEnableFeature(
         safe_browsing::kIncidentReportingEnableUpload);
 
-    instance_.reset(new TestIncidentReportingService(
+    instance_ = std::make_unique<TestIncidentReportingService>(
         base::ThreadTaskRunnerHandle::Get(),
         base::BindRepeating(&IncidentReportingServiceTest::PreProfileAdd,
                             base::Unretained(this)),
@@ -232,7 +231,7 @@ class IncidentReportingServiceTest : public testing::Test {
         base::BindRepeating(&IncidentReportingServiceTest::CreateDownloadFinder,
                             base::Unretained(this)),
         base::BindRepeating(&IncidentReportingServiceTest::StartUpload,
-                            base::Unretained(this))));
+                            base::Unretained(this)));
   }
 
   // Sets the action to be taken by the test fixture when the service creates a
@@ -377,6 +376,10 @@ class IncidentReportingServiceTest : public testing::Test {
           FROM_HERE,
           base::BindOnce(&FakeUploader::FinishUpload, base::Unretained(this)));
     }
+
+    FakeUploader(const FakeUploader&) = delete;
+    FakeUploader& operator=(const FakeUploader&) = delete;
+
     ~FakeUploader() override { std::move(on_deleted_).Run(); }
 
    private:
@@ -389,8 +392,6 @@ class IncidentReportingServiceTest : public testing::Test {
 
     base::OnceClosure on_deleted_;
     safe_browsing::IncidentReportUploader::Result result_;
-
-    DISALLOW_COPY_AND_ASSIGN(FakeUploader);
   };
 
   class FakeDownloadFinder : public safe_browsing::LastDownloadFinder {
@@ -412,6 +413,9 @@ class IncidentReportingServiceTest : public testing::Test {
           new FakeDownloadFinder(std::move(on_deleted)));
     }
 
+    FakeDownloadFinder(const FakeDownloadFinder&) = delete;
+    FakeDownloadFinder& operator=(const FakeDownloadFinder&) = delete;
+
     ~FakeDownloadFinder() override { std::move(on_deleted_).Run(); }
 
    private:
@@ -419,8 +423,6 @@ class IncidentReportingServiceTest : public testing::Test {
         : on_deleted_(std::move(on_deleted)) {}
 
     base::OnceClosure on_deleted_;
-
-    DISALLOW_COPY_AND_ASSIGN(FakeDownloadFinder);
   };
 
   // Confirms that the test incident(s) was/were uploaded by the service, then
@@ -524,22 +526,22 @@ class IncidentReportingServiceTest : public testing::Test {
         non_binary_download;
     if (on_create_download_finder_action_ ==
         ON_CREATE_DOWNLOAD_FINDER_NO_PROFILES) {
-      return std::unique_ptr<safe_browsing::LastDownloadFinder>();
+      return nullptr;
     }
     if (on_create_download_finder_action_ ==
             ON_CREATE_DOWNLOAD_FINDER_DOWNLOADS_FOUND ||
         on_create_download_finder_action_ ==
             ON_CREATE_DOWNLOAD_FINDER_BINARY_DOWNLOAD_FOUND) {
-      binary_download.reset(
-          new safe_browsing::ClientIncidentReport_DownloadDetails);
+      binary_download = std::make_unique<
+          safe_browsing::ClientIncidentReport_DownloadDetails>();
       binary_download->set_token(kFakeDownloadToken);
     }
     if (on_create_download_finder_action_ ==
             ON_CREATE_DOWNLOAD_FINDER_DOWNLOADS_FOUND ||
         on_create_download_finder_action_ ==
             ON_CREATE_DOWNLOAD_FINDER_NON_BINARY_DOWNLOAD_FOUND) {
-      non_binary_download.reset(
-          new safe_browsing::ClientIncidentReport_NonBinaryDownloadDetails);
+      non_binary_download = std::make_unique<
+          safe_browsing::ClientIncidentReport_NonBinaryDownloadDetails>();
       non_binary_download->set_host(kFakeDownloadHost);
     }
 
@@ -557,7 +559,8 @@ class IncidentReportingServiceTest : public testing::Test {
       safe_browsing::IncidentReportUploader::OnResultCallback callback,
       const safe_browsing::ClientIncidentReport& report) {
     // Remember the report that is being uploaded.
-    uploaded_report_.reset(new safe_browsing::ClientIncidentReport(report));
+    uploaded_report_ =
+        std::make_unique<safe_browsing::ClientIncidentReport>(report);
     // Run and clear the OnStartUpload callback, if provided.
     if (!on_start_upload_callback_.is_null()) {
       std::move(on_start_upload_callback_).Run();
@@ -1317,12 +1320,12 @@ TEST_F(IncidentReportingServiceTest, CleanLegacyPruneState) {
       new base::DictionaryValue());
   auto type_dict = std::make_unique<base::DictionaryValue>();
   type_dict->SetKey("foo", base::Value("47"));
-  incidents_sent->SetWithoutPathExpansion(blocklist_load_type,
-                                          std::move(type_dict));
+  incidents_sent->SetKey(blocklist_load_type,
+                         base::Value::FromUniquePtrValue(std::move(type_dict)));
   type_dict = std::make_unique<base::DictionaryValue>();
   type_dict->SetKey("bar", base::Value("43"));
-  incidents_sent->SetWithoutPathExpansion(preference_type,
-                                          std::move(type_dict));
+  incidents_sent->SetKey(preference_type,
+                         base::Value::FromUniquePtrValue(std::move(type_dict)));
 
   // Add a profile.
   Profile* profile =

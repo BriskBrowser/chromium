@@ -74,7 +74,7 @@ PixelTest::PixelTest(GraphicsBackend backend)
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
     init_vulkan = true;
 #elif defined(OS_WIN)
-    // TODO(sgilhuly): Initialize D3D12 for Windows.
+    // TODO(rivr): Initialize D3D12 for Windows.
 #else
     NOTREACHED();
 #endif
@@ -118,7 +118,8 @@ bool PixelTest::RunPixelTestWithReadbackTargetAndArea(
 
   std::unique_ptr<viz::CopyOutputRequest> request =
       std::make_unique<viz::CopyOutputRequest>(
-          viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+          viz::CopyOutputRequest::ResultFormat::RGBA,
+          viz::CopyOutputRequest::ResultDestination::kSystemMemory,
           base::BindOnce(&PixelTest::ReadbackResult, base::Unretained(this),
                          run_loop.QuitClosure()));
   if (copy_rect)
@@ -156,7 +157,8 @@ bool PixelTest::RunPixelTest(viz::AggregatedRenderPassList* pass_list,
 
   std::unique_ptr<viz::CopyOutputRequest> request =
       std::make_unique<viz::CopyOutputRequest>(
-          viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+          viz::CopyOutputRequest::ResultFormat::RGBA,
+          viz::CopyOutputRequest::ResultDestination::kSystemMemory,
           base::BindOnce(&PixelTest::ReadbackResult, base::Unretained(this),
                          run_loop.QuitClosure()));
   target->copy_requests.push_back(std::move(request));
@@ -203,8 +205,12 @@ bool PixelTest::RunPixelTest(viz::AggregatedRenderPassList* pass_list,
 void PixelTest::ReadbackResult(base::OnceClosure quit_run_loop,
                                std::unique_ptr<viz::CopyOutputResult> result) {
   ASSERT_FALSE(result->IsEmpty());
-  EXPECT_EQ(result->format(), viz::CopyOutputResult::Format::RGBA_BITMAP);
-  result_bitmap_ = std::make_unique<SkBitmap>(result->AsSkBitmap());
+  EXPECT_EQ(result->format(), viz::CopyOutputResult::Format::RGBA);
+  EXPECT_EQ(result->destination(),
+            viz::CopyOutputResult::Destination::kSystemMemory);
+  auto scoped_sk_bitmap = result->ScopedAccessSkBitmap();
+  result_bitmap_ =
+      std::make_unique<SkBitmap>(scoped_sk_bitmap.GetOutScopedBitmap());
   EXPECT_TRUE(result_bitmap_->readyToDraw());
   std::move(quit_run_loop).Run();
 }
@@ -250,7 +256,7 @@ viz::ResourceId PixelTest::AllocateAndFillSoftwareResource(
   return child_resource_provider_->ImportResource(
       viz::TransferableResource::MakeSoftware(shared_bitmap_id, size,
                                               viz::RGBA_8888),
-      viz::SingleReleaseCallback::Create(base::DoNothing()));
+      base::DoNothing());
 }
 
 void PixelTest::SetUpGLWithoutRenderer(
@@ -259,19 +265,18 @@ void PixelTest::SetUpGLWithoutRenderer(
 
   auto context_provider =
       base::MakeRefCounted<viz::TestInProcessContextProvider>(
-          /*enable_gpu_rasterization=*/false,
-          /*enable_oop_rasterization=*/false, /*support_locking=*/false);
+          /*enable_gles2_interface=*/true, /*support_locking=*/false,
+          viz::RasterInterfaceType::None);
   gpu::ContextResult result = context_provider->BindToCurrentThread();
   DCHECK_EQ(result, gpu::ContextResult::kSuccess);
   output_surface_ = std::make_unique<PixelTestOutputSurface>(
       std::move(context_provider), output_surface_origin);
   output_surface_->BindToClient(output_surface_client_.get());
 
-  shared_bitmap_manager_ = std::make_unique<viz::TestSharedBitmapManager>();
   child_context_provider_ =
       base::MakeRefCounted<viz::TestInProcessContextProvider>(
-          /*enable_gpu_rasterization=*/false,
-          /*enable_oop_rasterization=*/false, /*support_locking=*/false);
+          /*enable_gles2_interface=*/true, /*support_locking=*/false,
+          viz::RasterInterfaceType::None);
   result = child_context_provider_->BindToCurrentThread();
   DCHECK_EQ(result, gpu::ContextResult::kSuccess);
   child_resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
@@ -280,7 +285,7 @@ void PixelTest::SetUpGLWithoutRenderer(
 void PixelTest::SetUpGLRenderer(gfx::SurfaceOrigin output_surface_origin) {
   SetUpGLWithoutRenderer(output_surface_origin);
   auto resource_provider = std::make_unique<viz::DisplayResourceProviderGL>(
-      output_surface_->context_provider(), shared_bitmap_manager_.get());
+      output_surface_->context_provider());
   renderer_ = std::make_unique<viz::GLRenderer>(
       &renderer_settings_, &debug_settings_, output_surface_.get(),
       resource_provider.get(), nullptr, base::ThreadTaskRunnerHandle::Get());
@@ -304,8 +309,7 @@ void PixelTest::SetUpSkiaRenderer(gfx::SurfaceOrigin output_surface_origin) {
   output_surface_->BindToClient(output_surface_client_.get());
   static_cast<viz::SkiaOutputSurfaceImpl*>(output_surface_.get())
       ->SetCapabilitiesForTesting(output_surface_origin);
-  auto resource_provider = std::make_unique<viz::DisplayResourceProviderSkia>(
-      /*shared_bitmap_manager=*/nullptr);
+  auto resource_provider = std::make_unique<viz::DisplayResourceProviderSkia>();
   renderer_ = std::make_unique<viz::SkiaRenderer>(
       &renderer_settings_, &debug_settings_, output_surface_.get(),
       resource_provider.get(), nullptr,
@@ -317,8 +321,8 @@ void PixelTest::SetUpSkiaRenderer(gfx::SurfaceOrigin output_surface_origin) {
   // Set up the client side context provider, etc
   child_context_provider_ =
       base::MakeRefCounted<viz::TestInProcessContextProvider>(
-          /*enable_gpu_rasterization=*/false,
-          /*enable_oop_rasterization=*/false, /*support_locking=*/false);
+          /*enable_gles2_interface=*/true, /*support_locking=*/false,
+          viz::RasterInterfaceType::None);
   gpu::ContextResult result = child_context_provider_->BindToCurrentThread();
   DCHECK_EQ(result, gpu::ContextResult::kSuccess);
   child_resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
@@ -342,8 +346,8 @@ void PixelTest::EnableExternalStencilTest() {
 }
 
 void PixelTest::SetUpSoftwareRenderer() {
-  output_surface_.reset(new PixelTestOutputSurface(
-      std::make_unique<viz::SoftwareOutputDevice>()));
+  output_surface_ = std::make_unique<PixelTestOutputSurface>(
+      std::make_unique<viz::SoftwareOutputDevice>());
   output_surface_->BindToClient(output_surface_client_.get());
   shared_bitmap_manager_ = std::make_unique<viz::TestSharedBitmapManager>();
   auto resource_provider =

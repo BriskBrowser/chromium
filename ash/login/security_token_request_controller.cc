@@ -4,32 +4,33 @@
 
 #include "ash/login/security_token_request_controller.h"
 
+#include <string>
 #include <utility>
 
+#include "ash/components/security_token_pin/error_generator.h"
 #include "ash/login/ui/pin_request_widget.h"
 #include "ash/public/cpp/login_types.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/i18n/number_formatting.h"
-#include "base/strings/string16.h"
-#include "chromeos/components/security_token_pin/error_generator.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace ash {
 
 namespace {
 
-base::string16 GetTitle() {
+std::u16string GetTitle() {
   return l10n_util::GetStringUTF16(
       IDS_ASH_LOGIN_SECURITY_TOKEN_REQUEST_DIALOG_TITLE);
 }
 
-base::string16 GetDescription() {
+std::u16string GetDescription() {
   return l10n_util::GetStringUTF16(
       IDS_ASH_LOGIN_SECURITY_TOKEN_REQUEST_DIALOG_DESCRIPTION);
 }
 
-base::string16 GetAccessibleTitle() {
+std::u16string GetAccessibleTitle() {
   return l10n_util::GetStringUTF16(
       IDS_ASH_LOGIN_SECURITY_TOKEN_REQUEST_DIALOG_TITLE);
 }
@@ -62,7 +63,7 @@ void SecurityTokenRequestController::OnBack() {
   ClosePinUi();
 }
 
-void SecurityTokenRequestController::OnHelp(gfx::NativeWindow parent_window) {
+void SecurityTokenRequestController::OnHelp() {
   NOTREACHED();
 }
 
@@ -88,7 +89,7 @@ bool SecurityTokenRequestController::SetPinUiState(
   if (!security_token_request_in_progress_) {
     security_token_request_in_progress_ = true;
     PinRequest pin_request;
-    pin_request.on_pin_request_done = base::DoNothing::Once<bool>();
+    pin_request.on_pin_request_done = base::DoNothing();
     pin_request.pin_keyboard_always_enabled = true;
     pin_request.extra_dimmer = true;
     pin_request.title = GetTitle();
@@ -100,17 +101,17 @@ bool SecurityTokenRequestController::SetPinUiState(
   PinRequestWidget::Get()->ClearInput();
   PinRequestWidget::Get()->SetPinInputEnabled(request.enable_user_input);
 
-  if (request.error_label == chromeos::security_token_pin::ErrorLabel::kNone) {
+  if (request.error_label == security_token_pin::ErrorLabel::kNone) {
     PinRequestWidget::Get()->UpdateState(PinRequestViewState::kNormal,
                                          GetTitle(), GetDescription());
   } else {
     PinRequestWidget::Get()->UpdateState(
         PinRequestViewState::kError,
         /*title=*/
-        chromeos::security_token_pin::GenerateErrorMessage(
-            request.error_label, request.attempts_left,
-            request.enable_user_input),
-        /*description=*/base::string16());
+        security_token_pin::GenerateErrorMessage(request.error_label,
+                                                 request.attempts_left,
+                                                 request.enable_user_input),
+        /*description=*/std::u16string());
   }
   return true;
 }

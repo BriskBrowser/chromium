@@ -31,6 +31,10 @@ class StatusTrayStateChangerProxy {
 class StatusTrayWin : public StatusTray {
  public:
   StatusTrayWin();
+
+  StatusTrayWin(const StatusTrayWin&) = delete;
+  StatusTrayWin& operator=(const StatusTrayWin&) = delete;
+
   ~StatusTrayWin() override;
 
   void UpdateIconVisibilityInBackground(StatusIconWin* status_icon);
@@ -44,7 +48,7 @@ class StatusTrayWin : public StatusTray {
   std::unique_ptr<StatusIcon> CreatePlatformStatusIcon(
       StatusIconType type,
       const gfx::ImageSkia& image,
-      const base::string16& tool_tip) override;
+      const std::u16string& tool_tip) override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(StatusTrayWinTest, EnsureVisibleTest);
@@ -77,9 +81,6 @@ class StatusTrayWin : public StatusTray {
   // Manages changes performed on a background thread to manipulate visibility
   // of notification icons.
   std::unique_ptr<StatusTrayStateChangerProxy> state_changer_proxy_;
-
-  DISALLOW_COPY_AND_ASSIGN(StatusTrayWin);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_STATUS_ICONS_STATUS_TRAY_WIN_H_
-

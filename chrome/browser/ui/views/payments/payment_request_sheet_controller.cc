@@ -7,11 +7,17 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/views/payments/payment_request_dialog_view.h"
 #include "chrome/browser/ui/views/payments/payment_request_views_util.h"
 #include "components/payments/content/payment_request.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/background.h"
@@ -22,20 +28,11 @@
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/painter.h"
 
 namespace payments {
 
 namespace {
-
-// This event is used to run the Button callback when its event parameter
-// doesn't matter, only the sender.
-class DummyEvent : public ui::Event {
- public:
-  DummyEvent() : ui::Event(ui::ET_UNKNOWN, base::TimeTicks(), 0) {}
-};
 
 // This class is the actual sheet that gets pushed on the view_stack_. It
 // implements views::FocusTraversable to trap focus within its hierarchy. This
@@ -178,14 +175,8 @@ class BorderedScrollView : public views::ScrollView {
   };
 
   BorderedScrollView() {
-    SetBackground(views::CreateThemedSolidBackground(
-        this, ui::NativeTheme::kColorId_DialogBackground));
-    SetBorder(views::CreateBorderPainter(
-        std::make_unique<BorderedScrollViewBorderPainter>(
-            GetNativeTheme()->GetSystemColor(
-                ui::NativeTheme::kColorId_SeparatorColor),
-            this),
-        gfx::Insets(1, 0)));
+    SetBackground(
+        views::CreateThemedSolidBackground(this, ui::kColorDialogBackground));
   }
 
   bool GetTopBorder() const { return GetVisibleRect().y() > 0; }
@@ -198,6 +189,13 @@ class BorderedScrollView : public views::ScrollView {
   void ScrollToPosition(views::ScrollBar* source, int position) override {
     views::ScrollView::ScrollToPosition(source, position);
     SchedulePaint();
+  }
+  void OnThemeChanged() override {
+    ScrollView::OnThemeChanged();
+    SetBorder(views::CreateBorderPainter(
+        std::make_unique<BorderedScrollViewBorderPainter>(
+            GetColorProvider()->GetColor(ui::kColorSeparator), this),
+        gfx::Insets(1, 0)));
   }
 };
 
@@ -233,7 +231,7 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
     view->SetID(static_cast<int>(sheet_id));
 
   view->SetBackground(views::CreateThemedSolidBackground(
-      view.get(), ui::NativeTheme::kColorId_DialogBackground));
+      view.get(), ui::kColorDialogBackground));
 
   // Paint the sheets to layers, otherwise the MD buttons (which do paint to a
   // layer) won't do proper clipping.
@@ -284,7 +282,7 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   content_view_->SetPaintToLayer();
   content_view_->layer()->SetFillsBoundsOpaquely(true);
   content_view_->SetBackground(views::CreateThemedSolidBackground(
-      content_view_, ui::NativeTheme::kColorId_DialogBackground));
+      content_view_, ui::kColorDialogBackground));
   content_view_->SetID(static_cast<int>(DialogViewID::CONTENT_VIEW));
   pane_->SizeToPreferredSize();
 
@@ -304,7 +302,7 @@ void PaymentRequestSheetController::UpdateContentView() {
   if (!is_active_)
     return;
 
-  content_view_->RemoveAllChildViews(true);
+  content_view_->RemoveAllChildViews();
   FillContentView(content_view_);
   RelayoutPane();
 }
@@ -314,7 +312,7 @@ void PaymentRequestSheetController::UpdateHeaderView() {
   if (!is_active_)
     return;
 
-  header_view_->RemoveAllChildViews(true);
+  header_view_->RemoveAllChildViews();
   PopulateSheetHeaderView(
       ShouldShowHeaderBackArrow(), CreateHeaderContentView(header_view_),
       base::BindRepeating(&PaymentRequestSheetController::BackButtonPressed,
@@ -354,7 +352,7 @@ bool PaymentRequestSheetController::ShouldShowPrimaryButton() {
   return true;
 }
 
-base::string16 PaymentRequestSheetController::GetPrimaryButtonLabel() {
+std::u16string PaymentRequestSheetController::GetPrimaryButtonLabel() {
   const bool continue_button =
       state()->selected_app() &&
       state()->selected_app()->type() != PaymentApp::Type::AUTOFILL;
@@ -362,7 +360,7 @@ base::string16 PaymentRequestSheetController::GetPrimaryButtonLabel() {
       continue_button ? IDS_PAYMENTS_CONTINUE_BUTTON : IDS_PAYMENTS_PAY_BUTTON);
 }
 
-views::Button::PressedCallback
+PaymentRequestSheetController::ButtonCallback
 PaymentRequestSheetController::GetPrimaryButtonCallback() {
   return base::BindRepeating(
       [](const base::WeakPtr<PaymentRequestDialogView>& dialog) {
@@ -384,11 +382,11 @@ bool PaymentRequestSheetController::ShouldShowSecondaryButton() {
   return true;
 }
 
-base::string16 PaymentRequestSheetController::GetSecondaryButtonLabel() {
+std::u16string PaymentRequestSheetController::GetSecondaryButtonLabel() {
   return l10n_util::GetStringUTF16(IDS_PAYMENTS_CANCEL_PAYMENT);
 }
 
-views::Button::PressedCallback
+PaymentRequestSheetController::ButtonCallback
 PaymentRequestSheetController::GetSecondaryButtonCallback() {
   return base::BindRepeating(&PaymentRequestSheetController::CloseButtonPressed,
                              base::Unretained(this));
@@ -420,8 +418,8 @@ PaymentRequestSheetController::CreateHeaderContentView(
 
 std::unique_ptr<views::Background>
 PaymentRequestSheetController::GetHeaderBackground(views::View* header_view) {
-  return views::CreateThemedSolidBackground(
-      header_view, ui::NativeTheme::kColorId_DialogBackground);
+  return views::CreateThemedSolidBackground(header_view,
+                                            ui::kColorDialogBackground);
 }
 
 std::unique_ptr<views::View> PaymentRequestSheetController::CreateFooterView() {
@@ -528,9 +526,9 @@ void PaymentRequestSheetController::PerformPrimaryButtonAction(
 
   if (dialog()->IsInteractive() && primary_button_ &&
       primary_button_->GetEnabled()) {
-    views::Button::PressedCallback callback = GetPrimaryButtonCallback();
+    ButtonCallback callback = GetPrimaryButtonCallback();
     if (callback)
-      callback.Run(DummyEvent());
+      callback.Run();
   }
 }
 

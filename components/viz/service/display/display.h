@@ -9,12 +9,14 @@
 #include <utility>
 #include <vector>
 
+#include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "cc/base/rolling_time_delta_history.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/gpu/context_lost_observer.h"
 #include "components/viz/common/resources/returned_resource.h"
@@ -48,7 +50,6 @@ class ScopedAllowScheduleGpuTask;
 
 namespace viz {
 class AggregatedFrame;
-class DelegatedInkPointRendererBase;
 class DirectRenderer;
 class DisplayClient;
 class DisplayResourceProvider;
@@ -93,12 +94,13 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
       std::unique_ptr<DisplaySchedulerBase> scheduler,
       scoped_refptr<base::SingleThreadTaskRunner> current_task_runner);
 
+  Display(const Display&) = delete;
+  Display& operator=(const Display&) = delete;
+
   ~Display() override;
 
-  static constexpr base::TimeDelta kDrawToSwapMin =
-      base::TimeDelta::FromMicroseconds(5);
-  static constexpr base::TimeDelta kDrawToSwapMax =
-      base::TimeDelta::FromMilliseconds(50);
+  static constexpr base::TimeDelta kDrawToSwapMin = base::Microseconds(5);
+  static constexpr base::TimeDelta kDrawToSwapMax = base::Milliseconds(50);
   static constexpr uint32_t kDrawToSwapUsBuckets = 50;
 
   // TODO(cblume, crbug.com/900973): |enable_shared_images| is a temporary
@@ -122,6 +124,10 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void SetVisible(bool visible);
   void Resize(const gfx::Size& new_size);
 
+  // Sets the current SurfaceId to an invalid value. Additionally, the display
+  // will fail to draw until SetLocalSurfaceId() is called.
+  void InvalidateCurrentSurfaceId();
+
   // This disallows resource provider to access GPU thread to unlock resources
   // outside of Initialize, DrawAndSwap and dtor.
   void DisableGPUAccessByDefault();
@@ -136,21 +142,25 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
 
   // Sets the color matrix that will be used to transform the output of this
   // display. This is only supported for GPU compositing.
-  void SetColorMatrix(const SkMatrix44& matrix);
+  void SetColorMatrix(const skia::Matrix44& matrix);
 
   void SetDisplayColorSpaces(
       const gfx::DisplayColorSpaces& display_color_spaces);
   void SetOutputIsSecure(bool secure);
 
-  const SurfaceId& CurrentSurfaceId();
+  const SurfaceId& CurrentSurfaceId() const;
 
   // DisplaySchedulerClient implementation.
   bool DrawAndSwap(base::TimeTicks expected_display_time) override;
   void DidFinishFrame(const BeginFrameAck& ack) override;
+  base::TimeDelta GetEstimatedDisplayDrawTime(const base::TimeDelta interval,
+                                              double percentile) const override;
+  void OnObservingBeginFrameSourceChanged(bool observing) override;
 
   // OutputSurfaceClient implementation.
   void SetNeedsRedrawRect(const gfx::Rect& damage_rect) override;
-  void DidReceiveSwapBuffersAck(const gfx::SwapTimings& timings) override;
+  void DidReceiveSwapBuffersAck(const gfx::SwapTimings& timings,
+                                gfx::GpuFenceHandle release_fence) override;
   void DidReceiveTextureInUseResponses(
       const gpu::TextureInUseResponses& responses) override;
   void DidReceiveCALayerParams(
@@ -187,18 +197,25 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void RemoveOverdrawQuads(AggregatedFrame* frame);
 
   void SetSupportedFrameIntervals(std::vector<base::TimeDelta> intervals);
+  void PreserveChildSurfaceControls();
 
   base::ScopedClosureRunner GetCacheBackBufferCb();
 
   bool IsRootFrameMissing() const;
   bool HasPendingSurfaces(const BeginFrameArgs& args) const;
 
-  // Return the delegated ink point renderer from |renderer_|, creating it if
-  // one doesn't exist. Should only be used when the delegated ink trails web
-  // API has been used.
-  DelegatedInkPointRendererBase* GetDelegatedInkPointRenderer();
+  bool DoesPlatformSupportDelegatedInk() const {
+    return output_surface_->capabilities().supports_delegated_ink;
+  }
 
- private:
+  // If the platform supports delegated ink trails, then forward the pending
+  // receiver to the gpu main thread where it will be bound so that points can
+  // be sent directly there from the browser process and bypass viz.
+  void InitDelegatedInkPointRendererReceiver(
+      mojo::PendingReceiver<gfx::mojom::DelegatedInkPointRenderer>
+          pending_receiver);
+
+ protected:
   friend class DisplayTest;
   // PresentationGroupTiming stores rendering pipeline stage timings associated
   // with a call to Display::DrawAndSwap along with a list of
@@ -208,6 +225,10 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
    public:
     PresentationGroupTiming();
     PresentationGroupTiming(PresentationGroupTiming&& other);
+
+    PresentationGroupTiming(const PresentationGroupTiming&) = delete;
+    PresentationGroupTiming& operator=(const PresentationGroupTiming&) = delete;
+
     ~PresentationGroupTiming();
 
     void AddPresentationHelper(
@@ -215,7 +236,8 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
     void OnDraw(base::TimeTicks draw_start_timestamp);
     void OnSwap(gfx::SwapTimings timings);
     bool HasSwapped() const { return !swap_timings_.is_null(); }
-    void OnPresent(const gfx::PresentationFeedback& feedback);
+    void OnPresent(const gfx::PresentationFeedback& feedback,
+                   DisplaySchedulerBase* scheduler);
 
     base::TimeTicks draw_start_timestamp() const {
       return draw_start_timestamp_;
@@ -226,8 +248,6 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
     gfx::SwapTimings swap_timings_;
     std::vector<std::unique_ptr<Surface::PresentationHelper>>
         presentation_helpers_;
-
-    DISALLOW_COPY_AND_ASSIGN(PresentationGroupTiming);
   };
 
   // TODO(cblume, crbug.com/900973): |enable_shared_images| is a temporary
@@ -301,7 +321,9 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   // The height of the top-controls in the previously drawn frame.
   float last_top_controls_visible_height_ = 0.f;
 
-  DISALLOW_COPY_AND_ASSIGN(Display);
+  // The historical drawing times of the most recent 100 frames. Recorded
+  // without the delays caused by waiting for scheduling.
+  cc::RollingTimeDeltaHistory draw_time_without_scheduling_waits_{100};
 };
 
 }  // namespace viz

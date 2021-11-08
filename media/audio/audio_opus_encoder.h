@@ -8,11 +8,11 @@
 #include <memory>
 #include <vector>
 
-#include "base/optional.h"
 #include "media/base/audio_bus.h"
 #include "media/base/audio_converter.h"
 #include "media/base/audio_encoder.h"
 #include "media/base/audio_push_fifo.h"
+#include "media/base/audio_timestamp_helper.h"
 #include "third_party/opus/src/include/opus.h"
 
 namespace media {
@@ -25,35 +25,34 @@ using OwnedOpusEncoder = std::unique_ptr<OpusEncoder, OpusEncoderDeleterType>;
 // instance to do the actual encoding.
 class MEDIA_EXPORT AudioOpusEncoder : public AudioEncoder {
  public:
-  AudioOpusEncoder(const AudioParameters& input_params,
-                   EncodeCB encode_callback,
-                   StatusCB status_callback,
-                   int32_t opus_bitrate);
+  AudioOpusEncoder();
   AudioOpusEncoder(const AudioOpusEncoder&) = delete;
   AudioOpusEncoder& operator=(const AudioOpusEncoder&) = delete;
   ~AudioOpusEncoder() override;
 
-  const std::vector<uint8_t>& GetExtraData() override;
-
- protected:
   // AudioEncoder:
-  void EncodeAudioImpl(const AudioBus& audio_bus,
-                       base::TimeTicks capture_time) override;
-  void FlushImpl() override;
+  void Initialize(const Options& options,
+                  OutputCB output_callback,
+                  StatusCB done_cb) override;
+
+  void Encode(std::unique_ptr<AudioBus> audio_bus,
+              base::TimeTicks capture_time,
+              StatusCB done_cb) override;
+
+  void Flush(StatusCB done_cb) override;
+
+  static constexpr int kMinBitrate = 6000;
 
  private:
   // Called synchronously by |fifo_| once enough audio frames have been
-  // buffered.
+  // buffered. Calls libopus to do actual encoding.
   void OnFifoOutput(const AudioBus& output_bus, int frame_delay);
 
-  void PrepareExtraData();
+  CodecDescription PrepareExtraData();
 
-  // Target bitrate for Opus. If 0, Opus-provided automatic bitrate is used.
-  // Note: As of 2013-10-31, the encoder in "auto bitrate" mode would use a
-  // variable bitrate up to 102 kbps for 2-channel, 48 kHz audio and a 10 ms
-  // buffer duration. The Opus library authors may, of course, adjust this in
-  // later versions.
-  const int32_t bits_per_second_;
+  StatusOr<OwnedOpusEncoder> CreateOpusEncoder();
+
+  AudioParameters input_params_;
 
   // Output parameters after audio conversion. This may differ from the input
   // params in the number of channels, sample rate, and the frames per buffer.
@@ -61,11 +60,11 @@ class MEDIA_EXPORT AudioOpusEncoder : public AudioEncoder {
   AudioParameters converted_params_;
 
   // Sample rate adapter from the input audio to what OpusEncoder desires.
-  AudioConverter converter_;
+  std::unique_ptr<AudioConverter> converter_;
 
   // Buffer for holding the original input audio before it goes to the
   // converter.
-  AudioPushFifo fifo_;
+  std::unique_ptr<AudioPushFifo> fifo_;
 
   // This is the destination AudioBus where the |converter_| teh audio into.
   std::unique_ptr<AudioBus> converted_audio_bus_;
@@ -77,15 +76,15 @@ class MEDIA_EXPORT AudioOpusEncoder : public AudioEncoder {
   // encoder fails.
   OwnedOpusEncoder opus_encoder_;
 
-  // If FlushImpl() was called while |fifo_| has some frames but not full yet,
-  // this will be the number of flushed frames, which is used to compute the
-  // timestamp provided in the output |EncodedAudioBuffer|.
-  base::Optional<int> number_of_flushed_frames_;
+  // Keeps track of the timestamps for the each |output_callback_|
+  std::unique_ptr<AudioTimestampHelper> timestamp_tracker_;
 
-  // Timestamp that should be reported by the next call of encode_callback()
-  base::TimeTicks next_timestamp_;
+  // Callback for reporting completion and status of the current Flush() or
+  // Encoder()
+  StatusCB current_done_cb_;
 
-  std::vector<uint8_t> extra_data_;
+  // True if the next output needs to have extra_data in it, only happens once.
+  bool need_to_emit_extra_data_ = true;
 };
 
 }  // namespace media

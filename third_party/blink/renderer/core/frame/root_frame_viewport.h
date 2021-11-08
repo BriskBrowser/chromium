@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_ROOT_FRAME_VIEWPORT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_ROOT_FRAME_VIEWPORT_H_
 
-#include "base/single_thread_task_runner.h"
+#include "base/gtest_prod_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
@@ -86,6 +87,7 @@ class CORE_EXPORT RootFrameViewport final
   IntSize ClampScrollOffset(const IntSize&) const override;
   ScrollOffset ClampScrollOffset(const ScrollOffset&) const override;
   IntSize ContentsSize() const override;
+  bool UsesCompositedScrolling() const override;
   bool ShouldScrollOnMainThread() const override;
   bool ScrollbarsCanBeActive() const override;
   bool UserInputScrollable(ScrollbarOrientation) const override;
@@ -124,13 +126,13 @@ class CORE_EXPORT RootFrameViewport final
   // RootFrameViewport delegates these scroll-snap methods to its layout
   // viewport.
   const cc::SnapContainerData* GetSnapContainerData() const override;
-  void SetSnapContainerData(base::Optional<cc::SnapContainerData>) override;
+  void SetSnapContainerData(absl::optional<cc::SnapContainerData>) override;
   bool SetTargetSnapAreaElementIds(cc::TargetSnapAreaElementIds) override;
   bool SnapContainerDataNeedsUpdate() const override;
   void SetSnapContainerDataNeedsUpdate(bool) override;
   bool NeedsResnap() const override;
   void SetNeedsResnap(bool) override;
-  base::Optional<FloatPoint> GetSnapPositionAndSetTarget(
+  absl::optional<FloatPoint> GetSnapPositionAndSetTarget(
       const cc::SnapSelectionStrategy& strategy) override;
 
   void SetPendingHistoryRestoreScrollOffset(
@@ -174,7 +176,7 @@ class CORE_EXPORT RootFrameViewport final
 
   Member<ScrollableArea> visual_viewport_;
   Member<ScrollableArea> layout_viewport_;
-  base::Optional<HistoryItem::ViewState> pending_view_state_;
+  absl::optional<HistoryItem::ViewState> pending_view_state_;
   bool should_restore_scroll_;
 };
 

@@ -4,7 +4,7 @@
 
 (async function() {
   TestRunner.addResult(`Tests that breakpoints work in anonymous scripts with >1 targets.\n`);
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.showPanel('sources');
   await TestRunner.evaluateInPagePromise(`
       function testFunction()
@@ -31,7 +31,7 @@
   function waitForPausedUISourceCode() {
     return new Promise(resolve => {
       TestRunner.addSniffer(
-          Sources.DebuggerPlugin.prototype, '_executionLineChanged',
+          Sources.DebuggerPlugin.prototype, 'executionLineChanged',
           function() {
             resolve(UI.panels.sources.visibleView);
           });

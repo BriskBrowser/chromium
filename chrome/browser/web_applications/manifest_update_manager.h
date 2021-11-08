@@ -9,13 +9,13 @@
 
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
-#include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/time/time.h"
-#include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/app_registrar_observer.h"
-#include "chrome/browser/web_applications/components/web_app_id.h"
+#include "chrome/browser/web_applications/app_registrar_observer.h"
 #include "chrome/browser/web_applications/manifest_update_task.h"
+#include "chrome/browser/web_applications/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 class WebContents;
@@ -24,8 +24,10 @@ class WebContents;
 namespace web_app {
 
 class WebAppUiManager;
-class InstallManager;
+class WebAppInstallFinalizer;
+class OsIntegrationManager;
 class SystemWebAppManager;
+class WebAppSyncBridge;
 
 // Checks for updates to a web app's manifest and triggers a reinstall if the
 // current installation is out of date.
@@ -43,17 +45,20 @@ class ManifestUpdateManager final : public AppRegistrarObserver {
   ManifestUpdateManager();
   ~ManifestUpdateManager() override;
 
-  void SetSubsystems(AppRegistrar* registrar,
-                     AppIconManager* icon_manager,
+  void SetSubsystems(WebAppRegistrar* registrar,
+                     WebAppIconManager* icon_manager,
                      WebAppUiManager* ui_manager,
-                     InstallManager* install_manager,
-                     SystemWebAppManager* system_web_app_manager);
+                     WebAppInstallFinalizer* install_finalizer,
+                     SystemWebAppManager* system_web_app_manager,
+                     OsIntegrationManager* os_integration_manager,
+                     WebAppSyncBridge* sync_bridge);
   void Start();
   void Shutdown();
 
   void MaybeUpdate(const GURL& url,
                    const AppId& app_id,
                    content::WebContents* web_contents);
+  bool IsUpdateConsumed(const AppId& app_id);
 
   // AppRegistrarObserver:
   void OnWebAppWillBeUninstalled(const AppId& app_id) override;
@@ -72,8 +77,7 @@ class ManifestUpdateManager final : public AppRegistrarObserver {
 
  private:
   bool MaybeConsumeUpdateCheck(const GURL& origin, const AppId& app_id);
-  base::Optional<base::Time> GetLastUpdateCheckTime(const GURL& origin,
-                                                    const AppId& app_id) const;
+  absl::optional<base::Time> GetLastUpdateCheckTime(const AppId& app_id) const;
   void SetLastUpdateCheckTime(const GURL& origin,
                               const AppId& app_id,
                               base::Time time);
@@ -83,19 +87,22 @@ class ManifestUpdateManager final : public AppRegistrarObserver {
                     const AppId& app_id,
                     ManifestUpdateResult result);
 
-  AppRegistrar* registrar_ = nullptr;
-  AppIconManager* icon_manager_ = nullptr;
+  WebAppRegistrar* registrar_ = nullptr;
+  WebAppIconManager* icon_manager_ = nullptr;
   WebAppUiManager* ui_manager_ = nullptr;
-  InstallManager* install_manager_ = nullptr;
+  WebAppInstallFinalizer* install_finalizer_ = nullptr;
   SystemWebAppManager* system_web_app_manager_ = nullptr;
+  OsIntegrationManager* os_integration_manager_ = nullptr;
+  WebAppSyncBridge* sync_bridge_ = nullptr;
 
-  ScopedObserver<AppRegistrar, AppRegistrarObserver> registrar_observer_{this};
+  base::ScopedObservation<WebAppRegistrar, AppRegistrarObserver>
+      registrar_observation_{this};
 
   base::flat_map<AppId, std::unique_ptr<ManifestUpdateTask>> tasks_;
 
   base::flat_map<AppId, base::Time> last_update_check_;
 
-  base::Optional<base::Time> time_override_for_testing_;
+  absl::optional<base::Time> time_override_for_testing_;
   ResultCallback result_callback_for_testing_;
 
   bool started_ = false;

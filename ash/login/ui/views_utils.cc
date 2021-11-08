@@ -27,6 +27,10 @@ class ContainerView : public NonAccessibleView,
   ContainerView() {
     SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
   }
+
+  ContainerView(const ContainerView&) = delete;
+  ContainerView& operator=(const ContainerView&) = delete;
+
   ~ContainerView() override = default;
 
   // views::ViewTargeterDelegate:
@@ -41,9 +45,6 @@ class ContainerView : public NonAccessibleView,
     };
     return std::any_of(children.cbegin(), children.cend(), hits_child);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ContainerView);
 };
 
 }  // namespace
@@ -98,7 +99,7 @@ bool HasFocusInAnyChildView(views::View* view) {
   return search == view;
 }
 
-views::Label* CreateBubbleLabel(const base::string16& message,
+views::Label* CreateBubbleLabel(const std::u16string& message,
                                 views::View* view_defining_max_width,
                                 SkColor color,
                                 const gfx::FontList& font_list,
@@ -176,7 +177,7 @@ gfx::Point CalculateBubblePositionAfterBeforeStrategy(gfx::Rect anchor,
 
 void ConfigureRectFocusRingCircleInkDrop(views::View* view,
                                          views::FocusRing* focus_ring,
-                                         base::Optional<int> radius) {
+                                         absl::optional<int> radius) {
   DCHECK(view);
   DCHECK(focus_ring);
   focus_ring->SetColor(ShelfConfig::Get()->shelf_focus_border_color());

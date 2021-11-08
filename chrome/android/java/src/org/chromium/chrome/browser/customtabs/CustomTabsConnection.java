@@ -10,7 +10,6 @@ import android.app.ActivityManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.Uri;
@@ -48,11 +47,11 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.task.ChainedTasks;
 import org.chromium.base.task.PostTask;
-import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.AppHooks;
-import org.chromium.chrome.browser.ChromeApplication;
+import org.chromium.chrome.browser.ChromeApplicationImpl;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.browserservices.PostMessageHandler;
@@ -60,9 +59,9 @@ import org.chromium.chrome.browser.browserservices.SessionDataHolder;
 import org.chromium.chrome.browser.browserservices.SessionHandler;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.init.ChainedTasks;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.metrics.PageLoadMetrics;
+import org.chromium.chrome.browser.metrics.UmaSessionStats;
 import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -96,7 +95,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Implementation of the ICustomTabsService interface.
  *
  * Note: This class is meant to be package private, and is public to be
- * accessible from {@link ChromeApplication}.
+ * accessible from {@link ChromeApplicationImpl}.
  */
 @JNINamespace("customtabs")
 public class CustomTabsConnection {
@@ -164,6 +163,9 @@ public class CustomTabsConnection {
     static final String RESOURCE_PREFETCH_URL_LIST_KEY =
             "androidx.browser.RESOURCE_PREFETCH_URL_LIST";
 
+    private static final String ON_RESIZED_CALLBACK = "onResized";
+    private static final String ON_RESIZED_SIZE_EXTRA = "size";
+
     @IntDef({ParallelRequestStatus.NO_REQUEST, ParallelRequestStatus.SUCCESS,
             ParallelRequestStatus.FAILURE_NOT_INITIALIZED,
             ParallelRequestStatus.FAILURE_NOT_AUTHORIZED, ParallelRequestStatus.FAILURE_INVALID_URL,
@@ -216,14 +218,14 @@ public class CustomTabsConnection {
 
     /**
      * <strong>DO NOT CALL</strong>
-     * Public to be instanciable from {@link ChromeApplication}. This is however
+     * Public to be instanciable from {@link ChromeApplicationImpl}. This is however
      * intended to be private.
      */
     public CustomTabsConnection() {
         super();
         mClientManager = new ClientManager();
         mLogRequests = CommandLine.getInstance().hasSwitch(LOG_SERVICE_REQUESTS);
-        mSessionDataHolder = ChromeApplication.getComponent().resolveSessionDataHolder();
+        mSessionDataHolder = ChromeApplicationImpl.getComponent().resolveSessionDataHolder();
     }
 
     /**
@@ -334,7 +336,7 @@ public class CustomTabsConnection {
 
                 // TODO(pshmakov): invert this dependency by moving event dispatching to a separate
                 // class.
-                ChromeApplication.getComponent()
+                ChromeApplicationImpl.getComponent()
                         .resolveCustomTabsFileProcessor()
                         .onSessionDisconnected(session);
             }
@@ -360,7 +362,7 @@ public class CustomTabsConnection {
         String originalPackage = getClientPackageNameForSession(session);
         String selfPackage = ContextUtils.getApplicationContext().getPackageName();
         if (TextUtils.isEmpty(originalPackage) || !selfPackage.equals(originalPackage)) return;
-        mClientManager.overridePackageNameForSession(session, packageName);
+        mClientManager.overridePackageNameForSessionForTesting(session, packageName); // IN-TEST
     }
 
     /** Warmup activities that should only happen once. */
@@ -491,7 +493,11 @@ public class CustomTabsConnection {
         }
 
         if (maySpeculate(session)) {
-            boolean canUseHiddenTab = mClientManager.getCanUseHiddenTab(session);
+            // Hidden tabs are created always with regular profile, so we need to block hidden tab
+            // creation in incognito mode not to have inconsistent modes between tab model and
+            // hidden tab. (crbug.com/1190971)
+            boolean canUseHiddenTab = mClientManager.getCanUseHiddenTab(session)
+                    && !IntentHandler.hasAnyIncognitoExtra(extras);
             startSpeculation(session, url, canUseHiddenTab, extras, uid);
         }
         preconnectUrls(otherLikelyBundles);
@@ -508,6 +514,11 @@ public class CustomTabsConnection {
         if (!preconnectUrls(likelyBundles)) return false;
         createSpareWebContents();
         return true;
+    }
+
+    @VisibleForTesting
+    public Tab getHiddenTab() {
+        return mHiddenTabHolder != null ? mHiddenTabHolder.getHiddenTab() : null;
     }
 
     private boolean preconnectUrls(List<Bundle> likelyBundles) {
@@ -541,16 +552,17 @@ public class CustomTabsConnection {
 
     private boolean mayLaunchUrlInternal(final CustomTabsSessionToken session, final Uri url,
             final Bundle extras, final List<Bundle> otherLikelyBundles) {
+        // mayLaunchUrl should not be executed for Incognito CCT since all setup is created with
+        // regular profile. If we need to enable mayLaunchUrl for off-the-record profiles, we need
+        // to update the profile used. Please see crbug.com/1106757.
+        if (IntentHandler.hasAnyIncognitoExtra(extras)) return false;
+
         final boolean lowConfidence =
                 (url == null || TextUtils.isEmpty(url.toString())) && otherLikelyBundles != null;
         final String urlString = isValid(url) ? url.toString() : null;
         if (url != null && urlString == null && !lowConfidence) return false;
 
         final int uid = Binder.getCallingUid();
-
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
-            reportNextLikelyNavigationsOnUiThread(uid, urlString, otherLikelyBundles);
-        });
 
         // Things below need the browser process to be initialized.
 
@@ -571,57 +583,16 @@ public class CustomTabsConnection {
         return true;
     }
 
-    /**
-     * Reports the set of URLs of next likely navigations in the UI thread.
-     *
-     * @param uid: UID of the external Android app that reported the set of URLs.
-     * @param url: URL of the next likely navigation as reported by the external Android app.
-     * @param otherLikelyBundles: Bundle reported by the external Android app.
-     */
-    private static void reportNextLikelyNavigationsOnUiThread(
-            final int uid, final String url, final List<Bundle> otherLikelyBundles) {
+    private void enableExperimentIdsIfNecessary(Bundle extras) {
         ThreadUtils.assertOnUiThread();
-
-        ChromeBrowserInitializer.getInstance().runNowOrAfterFullBrowserStarted(() -> {
-            PostTask.postTask(TaskTraits.BEST_EFFORT,
-                    () -> { reportNextLikelyNavigationsToNative(uid, url, otherLikelyBundles); });
-        }
-
-        );
-    }
-
-    /**
-     * Reports the set of URLs of next likely navigations to native.
-     *
-     * @param uid: UID of the external Android app that reported the set of URLs.
-     * @param url: URL of the next likely navigation as reported by the external Android app.
-     * @param otherLikelyBundles: Bundle reported by the external Android app.
-     */
-    private static void reportNextLikelyNavigationsToNative(
-            final int uid, final String url, final List<Bundle> otherLikelyBundles) {
-        ThreadUtils.assertOnBackgroundThread();
-
-        Context context = ContextUtils.getApplicationContext();
-        PackageManager pm = context.getApplicationContext().getPackageManager();
-        String[] packages = pm.getPackagesForUid(uid);
-
-        if (packages == null || packages.length == 0) return;
-
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
-            List<String> urlsList = new ArrayList<String>();
-            if (url != null) urlsList.add(url);
-
-            if (otherLikelyBundles != null) {
-                for (Bundle bundle : otherLikelyBundles) {
-                    Uri uri = IntentUtils.safeGetParcelable(bundle, CustomTabsService.KEY_URL);
-                    if (isValid(uri)) urlsList.add(uri.toString());
-                }
-            }
-
-            String[] urlsArray = urlsList.toArray(new String[0]);
-            WarmupManager.reportNextLikelyNavigationsOnUiThread(
-                    Profile.getLastUsedRegularProfile(), packages, urlsArray);
-        });
+        if (extras == null) return;
+        int[] experimentIds =
+                IntentUtils.safeGetIntArray(extras, CustomTabIntentDataProvider.EXPERIMENT_IDS);
+        if (experimentIds == null) return;
+        // When ids are set through cct, they should not override existing ids.
+        boolean override = false;
+        UmaSessionStats.registerExternalExperiment(
+                BaseCustomTabActivity.GSA_FALLBACK_STUDY_NAME, experimentIds, override);
     }
 
     private void doMayLaunchUrlOnUiThread(final boolean lowConfidence,
@@ -643,6 +614,8 @@ public class CustomTabsConnection {
                 }
                 return;
             }
+
+            enableExperimentIdsIfNecessary(extras);
 
             if (lowConfidence) {
                 lowConfidenceMayLaunchUrl(otherLikelyBundles);
@@ -670,8 +643,9 @@ public class CustomTabsConnection {
         if (actionButtonBundle != null) {
             int id = IntentUtils.safeGetInt(actionButtonBundle, CustomTabsIntent.KEY_ID,
                     CustomTabsIntent.TOOLBAR_ACTION_BUTTON_ID);
-            Bitmap bitmap = CustomButtonParams.parseBitmapFromBundle(actionButtonBundle);
-            String description = CustomButtonParams.parseDescriptionFromBundle(actionButtonBundle);
+            Bitmap bitmap = CustomButtonParamsImpl.parseBitmapFromBundle(actionButtonBundle);
+            String description =
+                    CustomButtonParamsImpl.parseDescriptionFromBundle(actionButtonBundle);
             if (bitmap != null && description != null) {
                 ids.add(id);
                 descriptions.add(description);
@@ -687,11 +661,11 @@ public class CustomTabsConnection {
                         CustomTabsIntent.TOOLBAR_ACTION_BUTTON_ID);
                 if (ids.contains(id)) continue;
 
-                Bitmap bitmap = CustomButtonParams.parseBitmapFromBundle(toolbarItemBundle);
+                Bitmap bitmap = CustomButtonParamsImpl.parseBitmapFromBundle(toolbarItemBundle);
                 if (bitmap == null) continue;
 
                 String description =
-                        CustomButtonParams.parseDescriptionFromBundle(toolbarItemBundle);
+                        CustomButtonParamsImpl.parseDescriptionFromBundle(toolbarItemBundle);
                 if (description == null) continue;
 
                 ids.add(id);
@@ -1100,7 +1074,7 @@ public class CustomTabsConnection {
     }
 
     @VisibleForTesting
-    void setCanUseHiddenTabForSession(CustomTabsSessionToken session, boolean value) {
+    public void setCanUseHiddenTabForSession(CustomTabsSessionToken session, boolean value) {
         mClientManager.setCanUseHiddenTab(session, value);
     }
 
@@ -1153,6 +1127,18 @@ public class CustomTabsConnection {
 
         if (safeExtraCallback(session, BOTTOM_BAR_SCROLL_STATE_CALLBACK, args) && mLogRequests) {
             logCallback("extraCallback(" + BOTTOM_BAR_SCROLL_STATE_CALLBACK + ")", hidden);
+        }
+    }
+
+    /**
+     * Called when a resizable Custom Tab is resized.
+     */
+    public void onResized(@Nullable CustomTabsSessionToken session, int size) {
+        Bundle args = new Bundle();
+        args.putInt(ON_RESIZED_SIZE_EXTRA, size);
+
+        if (safeExtraCallback(session, ON_RESIZED_CALLBACK, args) && mLogRequests) {
+            logCallback("extraCallback(" + ON_RESIZED_CALLBACK + ")", args);
         }
     }
 
@@ -1451,7 +1437,7 @@ public class CustomTabsConnection {
     public static void onTrimMemory(int level) {
         if (!hasInstance()) return;
 
-        if (ChromeApplication.isSevereMemorySignal(level)) {
+        if (ChromeApplicationImpl.isSevereMemorySignal(level)) {
             getInstance().mClientManager.cleanupUnusedSessions();
         }
     }
@@ -1527,7 +1513,10 @@ public class CustomTabsConnection {
     private void launchUrlInHiddenTab(
             CustomTabsSessionToken session, String url, @Nullable Bundle extras) {
         ThreadUtils.assertOnUiThread();
-        mHiddenTabHolder.launchUrlInHiddenTab(session, mClientManager, url, extras);
+        mHiddenTabHolder.launchUrlInHiddenTab(
+                (Tab tab)
+                        -> setClientDataHeaderForNewTab(session, tab.getWebContents()),
+                session, mClientManager, url, extras);
     }
 
     @VisibleForTesting
@@ -1606,7 +1595,7 @@ public class CustomTabsConnection {
 
     public boolean receiveFile(
             CustomTabsSessionToken sessionToken, Uri uri, int purpose, Bundle extras) {
-        return ChromeApplication.getComponent().resolveCustomTabsFileProcessor().processFile(
+        return ChromeApplicationImpl.getComponent().resolveCustomTabsFileProcessor().processFile(
                 sessionToken, uri, purpose, extras);
     }
 

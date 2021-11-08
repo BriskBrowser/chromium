@@ -14,11 +14,10 @@
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/printing/print_job.h"
@@ -30,8 +29,11 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "printing/backend/print_backend.h"
+#include "printing/buildflags/buildflags.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 #include "printing/printed_document.h"
+#include "printing/printing_context.h"
 #include "printing/printing_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -44,6 +46,15 @@
 #if defined(OS_WIN)
 #include "base/threading/thread_restrictions.h"
 #include "printing/printed_page_win.h"
+#endif
+
+#if BUILDFLAG(ENABLE_OOP_PRINTING)
+#include "chrome/browser/printing/print_backend_service_manager.h"
+#include "chrome/services/printing/public/mojom/print_backend_service.mojom.h"
+#include "components/device_event_log/device_event_log.h"
+#endif
+
+#if defined(OS_WIN) || BUILDFLAG(ENABLE_OOP_PRINTING)
 #include "printing/printing_features.h"
 #endif
 
@@ -56,6 +67,10 @@ namespace {
 class PrintingContextDelegate : public PrintingContext::Delegate {
  public:
   PrintingContextDelegate(int render_process_id, int render_frame_id);
+
+  PrintingContextDelegate(const PrintingContextDelegate&) = delete;
+  PrintingContextDelegate& operator=(const PrintingContextDelegate&) = delete;
+
   ~PrintingContextDelegate() override;
 
   gfx::NativeView GetParentView() override;
@@ -70,8 +85,6 @@ class PrintingContextDelegate : public PrintingContext::Delegate {
  private:
   const int render_process_id_;
   const int render_frame_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrintingContextDelegate);
 };
 
 PrintingContextDelegate::PrintingContextDelegate(int render_process_id,
@@ -149,6 +162,33 @@ PrintJobWorker::~PrintJobWorker() {
   Stop();
 }
 
+#if BUILDFLAG(ENABLE_OOP_PRINTING)
+
+void PrintJobWorker::OnDidUpdatePrintSettings(
+    const std::string& device_name,
+    SettingsCallback callback,
+    mojom::PrintSettingsResultPtr print_settings) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  mojom::ResultCode result;
+  if (print_settings->is_result_code()) {
+    result = print_settings->get_result_code();
+    DCHECK_NE(result, mojom::ResultCode::kSuccess);
+    PRINTER_LOG(ERROR) << "Failure to update print settings for " << device_name
+                       << " - error " << result;
+
+    // TODO(crbug.com/809738)  Fill in support for handling of access-denied
+    // result code.
+  } else {
+    VLOG(1) << "Update print settings from service complete for "
+            << device_name;
+    result = mojom::ResultCode::kSuccess;
+    printing_context_->ApplyPrintSettings(print_settings->get_settings());
+  }
+  GetSettingsDone(std::move(callback), result);
+}
+
+#endif  // BUILDFLAG(ENABLE_OOP_PRINTING)
+
 void PrintJobWorker::SetPrintJob(PrintJob* print_job) {
   DCHECK_EQ(page_number_, PageNumber::npos());
   print_job_ = print_job;
@@ -192,9 +232,9 @@ void PrintJobWorker::SetSettings(base::Value new_settings,
                                 std::move(callback)));
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 void PrintJobWorker::SetSettingsFromPOD(
-    std::unique_ptr<printing::PrintSettings> new_settings,
+    std::unique_ptr<PrintSettings> new_settings,
     SettingsCallback callback) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
 
@@ -209,10 +249,33 @@ void PrintJobWorker::UpdatePrintSettings(base::Value new_settings,
                                          SettingsCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
+#if BUILDFLAG(ENABLE_OOP_PRINTING)
+  if (features::kEnableOopPrintDriversJobPrint.Get()) {
+    // Don't use as a const reference, since that reference into `new_settings`
+    // isn't safe after TakeDict() destroys the internal dictionary for it.
+    std::string device_name = *new_settings.FindStringKey(kSettingDeviceName);
+
+    VLOG(1) << "Updating print settings via service for " << device_name;
+    PrintBackendServiceManager& service_mgr =
+        PrintBackendServiceManager::GetInstance();
+
+    // Safe to use base::Unretained(this) since the callback owns `this`, and
+    // `service_mgr` is a global instance which never exits and simply wraps
+    // `callback` so that it is still called should the service terminate
+    // unexpectedly.
+    service_mgr.UpdatePrintSettings(
+        device_name, std::move(new_settings).TakeDict(),
+        base::BindOnce(&PrintJobWorker::OnDidUpdatePrintSettings,
+                       base::Unretained(this), device_name,
+                       std::move(callback)));
+    return;
+  }
+#endif  // BUILDFLAG(ENABLE_OOP_PRINTING)
+
   std::unique_ptr<crash_keys::ScopedPrinterInfo> crash_key;
-  PrinterType type = static_cast<PrinterType>(
+  mojom::PrinterType type = static_cast<mojom::PrinterType>(
       new_settings.FindIntKey(kSettingPrinterType).value());
-  if (type == PrinterType::kLocal) {
+  if (type == mojom::PrinterType::kLocal) {
 #if defined(OS_WIN)
     // Blocking is needed here because Windows printer drivers are oftentimes
     // not thread-safe and have to be accessed on the UI thread.
@@ -224,9 +287,10 @@ void PrintJobWorker::UpdatePrintSettings(base::Value new_settings,
     crash_key = std::make_unique<crash_keys::ScopedPrinterInfo>(
         print_backend->GetPrinterDriverInfo(printer_name));
 
-#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && defined(USE_CUPS)
+#if defined(OS_LINUX) && defined(USE_CUPS)
     PrinterBasicInfo basic_info;
-    if (print_backend->GetPrinterBasicInfo(printer_name, &basic_info)) {
+    if (print_backend->GetPrinterBasicInfo(printer_name, &basic_info) ==
+        mojom::ResultCode::kSuccess) {
       base::Value advanced_settings(base::Value::Type::DICTIONARY);
       for (const auto& pair : basic_info.options)
         advanced_settings.SetStringKey(pair.first, pair.second);
@@ -234,11 +298,10 @@ void PrintJobWorker::UpdatePrintSettings(base::Value new_settings,
       new_settings.SetKey(kSettingAdvancedSettings,
                           std::move(advanced_settings));
     }
-#endif  // (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) &&
-        // defined(USE_CUPS)
+#endif  // defined(OS_LINUX) && defined(USE_CUPS)
   }
 
-  PrintingContext::Result result;
+  mojom::ResultCode result;
   {
 #if defined(OS_WIN)
     // Blocking is needed here because Windows printer drivers are oftentimes
@@ -250,19 +313,19 @@ void PrintJobWorker::UpdatePrintSettings(base::Value new_settings,
   GetSettingsDone(std::move(callback), result);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 void PrintJobWorker::UpdatePrintSettingsFromPOD(
-    std::unique_ptr<printing::PrintSettings> new_settings,
+    std::unique_ptr<PrintSettings> new_settings,
     SettingsCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  PrintingContext::Result result =
+  mojom::ResultCode result =
       printing_context_->UpdatePrintSettingsFromPOD(std::move(new_settings));
   GetSettingsDone(std::move(callback), result);
 }
 #endif
 
 void PrintJobWorker::GetSettingsDone(SettingsCallback callback,
-                                     PrintingContext::Result result) {
+                                     mojom::ResultCode result) {
   std::move(callback).Run(printing_context_->TakeAndResetSettings(), result);
 }
 
@@ -273,7 +336,7 @@ void PrintJobWorker::GetSettingsWithUI(uint32_t document_page_count,
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (document_page_count > kMaxPageCount) {
-    GetSettingsDone(std::move(callback), PrintingContext::Result::FAILED);
+    GetSettingsDone(std::move(callback), mojom::ResultCode::kFailed);
     return;
   }
 
@@ -311,7 +374,7 @@ void PrintJobWorker::GetSettingsWithUI(uint32_t document_page_count,
 }
 
 void PrintJobWorker::UseDefaultSettings(SettingsCallback callback) {
-  PrintingContext::Result result;
+  mojom::ResultCode result;
   {
 #if defined(OS_WIN)
     // Blocking is needed here because Windows printer drivers are oftentimes
@@ -341,14 +404,13 @@ void PrintJobWorker::StartPrinting(PrintedDocument* new_document) {
     return;
   }
 
-  base::string16 document_name = SimplifyDocumentTitle(document_->name());
+  std::u16string document_name = SimplifyDocumentTitle(document_->name());
   if (document_name.empty()) {
     document_name = SimplifyDocumentTitle(
         l10n_util::GetStringUTF16(IDS_DEFAULT_PRINT_DOCUMENT_TITLE));
   }
-  PrintingContext::Result result =
-      printing_context_->NewDocument(document_name);
-  if (result != PrintingContext::OK) {
+  mojom::ResultCode result = printing_context_->NewDocument(document_name);
+  if (result != mojom::ResultCode::kSuccess) {
     OnFailure();
     return;
   }
@@ -377,7 +439,7 @@ void PrintJobWorker::PostWaitForPage() {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&PrintJobWorker::OnNewPage, weak_factory_.GetWeakPtr()),
-      base::TimeDelta::FromMilliseconds(500));
+      base::Milliseconds(500));
 }
 
 void PrintJobWorker::OnNewPage() {
@@ -390,7 +452,7 @@ void PrintJobWorker::OnNewPage() {
 #if defined(OS_WIN)
   const bool source_is_pdf =
       !print_job_->document()->settings().is_modifiable();
-  if (!printing::features::ShouldPrintUsingXps(source_is_pdf)) {
+  if (!features::ShouldPrintUsingXps(source_is_pdf)) {
     // Using the Windows GDI print API.
     if (!OnNewPageHelperGdi())
       return;
@@ -478,7 +540,7 @@ void PrintJobWorker::OnDocumentDone() {
   DCHECK(print_job_);
 
   int job_id = printing_context_->job_id();
-  if (printing_context_->DocumentDone() != PrintingContext::OK) {
+  if (printing_context_->DocumentDone() != mojom::ResultCode::kSuccess) {
     OnFailure();
     return;
   }
@@ -499,7 +561,7 @@ void PrintJobWorker::SpoolPage(PrintedPage* page) {
   DCHECK_NE(page_number_, PageNumber::npos());
 
   // Preprocess.
-  if (printing_context_->NewPage() != PrintingContext::OK) {
+  if (printing_context_->NewPage() != mojom::ResultCode::kSuccess) {
     OnFailure();
     return;
   }
@@ -508,7 +570,7 @@ void PrintJobWorker::SpoolPage(PrintedPage* page) {
   document_->RenderPrintedPage(*page, printing_context_->context());
 
   // Postprocess.
-  if (printing_context_->PageDone() != PrintingContext::OK) {
+  if (printing_context_->PageDone() != mojom::ResultCode::kSuccess) {
     OnFailure();
     return;
   }

@@ -21,17 +21,24 @@ namespace metrics {
 // noop functions are provided.
 class TabStatsObserver : public base::CheckedObserver {
  public:
-  // Functions used to update the window/tab count.
+  // Functions used to update the window count.
   virtual void OnWindowAdded() {}
   virtual void OnWindowRemoved() {}
+
+  // Functions used to update the tab count.
+  // NOTE: It's not guaranteed that the observer methods related to the tab
+  // state will be called before receiving a |OnTabRemoved| call. E.g. if
+  // an observer is interested in tracking all the visible tabs it should
+  // check |web_contents| when receiving a |OnTabRemoved| call to maintain its
+  // internal state.
   virtual void OnTabAdded(content::WebContents* web_contents) {}
   virtual void OnTabRemoved(content::WebContents* web_contents) {}
   virtual void OnTabReplaced(content::WebContents* old_contents,
                              content::WebContents* new_contents) {}
 
-  // Called whenever a main frame navigation is committed in any of the observed
-  // tabs.
-  virtual void OnMainFrameNavigationCommitted(
+  // Called whenever a main frame navigation to a different document is
+  // committed in any of the observed tabs.
+  virtual void OnPrimaryMainFrameNavigationCommitted(
       content::WebContents* web_contents) {}
 
   // Records that there's been a direct user interaction with a tab, see the
@@ -40,12 +47,11 @@ class TabStatsObserver : public base::CheckedObserver {
   // type of interactions.
   virtual void OnTabInteraction(content::WebContents* web_contents) {}
 
-  // Records that a tab became audible.
-  virtual void OnTabAudible(content::WebContents* web_contents) {}
+  // Records that a tab's audible state changed.
+  virtual void OnTabIsAudibleChanged(content::WebContents* web_contents) {}
 
   // Records that a tab's visibility changed.
-  virtual void OnTabVisibilityChanged(content::WebContents* web_contents,
-                                      content::Visibility visibility) {}
+  virtual void OnTabVisibilityChanged(content::WebContents* web_contents) {}
 
   // Invoked when media enters or exits fullscreen, see
   // WebContentsImpl::MediaEffectivelyFullscreenChanged for more details.

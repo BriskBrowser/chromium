@@ -7,6 +7,7 @@
 #include "base/memory/ptr_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/commander/bookmark_command_source.h"
+#include "chrome/browser/ui/commander/command_source.h"
 #include "chrome/browser/ui/commander/commander_view_model.h"
 #include "chrome/browser/ui/commander/open_url_command_source.h"
 #include "chrome/browser/ui/commander/simple_command_source.h"
@@ -40,7 +41,7 @@ CommanderController::CommanderController(CommandSources sources)
 
 CommanderController::~CommanderController() = default;
 
-void CommanderController::OnTextChanged(const base::string16& text,
+void CommanderController::OnTextChanged(const std::u16string& text,
                                         Browser* browser) {
   std::vector<std::unique_ptr<CommandItem>> items;
   if (composite_command_provider_) {
@@ -53,11 +54,12 @@ void CommanderController::OnTextChanged(const base::string16& text,
     }
   }
 
-  // Just sort for now.
+  // Sort by score, then alphabetically.
   std::sort(std::begin(items), std::end(items),
             [](const std::unique_ptr<CommandItem>& left,
                const std::unique_ptr<CommandItem>& right) {
-              return left->score > right->score;
+              return (left->score == right->score) ? left->title < right->title
+                                                   : left->score > right->score;
             });
   if (items.size() > kMaxResults)
     items.resize(kMaxResults);

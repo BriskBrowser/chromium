@@ -87,7 +87,7 @@ TEST_F(HTMLFormControlElementTest, customValidationMessageTextDirection) {
   EXPECT_EQ(TextDirection::kRtl, message_dir);
   EXPECT_EQ(TextDirection::kLtr, sub_message_dir);
 
-  ComputedStyle* rtl_style =
+  scoped_refptr<ComputedStyle> rtl_style =
       ComputedStyle::Clone(input->GetLayoutObject()->StyleRef());
   rtl_style->SetDirection(TextDirection::kRtl);
   input->GetLayoutObject()->SetStyle(std::move(rtl_style));
@@ -152,7 +152,7 @@ TEST_F(HTMLFormControlElementTest, DoNotUpdateLayoutDuringDOMMutation) {
 TEST_F(HTMLFormControlElementTest, UniqueRendererFormControlId) {
   SetHtmlInnerHTML("<body><input id=input1><input id=input2></body>");
   auto* form_control1 = To<HTMLFormControlElement>(GetElementById("input1"));
-  unsigned first_id = form_control1->UniqueRendererFormControlId();
+  uint64_t first_id = form_control1->UniqueRendererFormControlId();
   auto* form_control2 = To<HTMLFormControlElement>(GetElementById("input2"));
   EXPECT_EQ(first_id + 1, form_control2->UniqueRendererFormControlId());
   SetHtmlInnerHTML("<body><select id=select1></body>");

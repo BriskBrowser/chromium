@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_PHYSICAL_LINE_BOX_FRAGMENT_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_physical_container_fragment.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h"
 #include "third_party/blink/renderer/platform/fonts/font_height.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
@@ -15,8 +15,7 @@ namespace blink {
 class NGFragmentItem;
 class NGLineBoxFragmentBuilder;
 
-class CORE_EXPORT NGPhysicalLineBoxFragment final
-    : public NGPhysicalContainerFragment {
+class CORE_EXPORT NGPhysicalLineBoxFragment final : public NGPhysicalFragment {
  public:
   enum NGLineBoxType {
     kNormalLineBox,
@@ -28,14 +27,16 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
     kEmptyLineBox
   };
 
-  static const NGPhysicalLineBoxFragment* Create(
+  static scoped_refptr<const NGPhysicalLineBoxFragment> Create(
       NGLineBoxFragmentBuilder* builder);
 
   using PassKey = base::PassKey<NGPhysicalLineBoxFragment>;
   NGPhysicalLineBoxFragment(PassKey, NGLineBoxFragmentBuilder* builder);
-  ~NGPhysicalLineBoxFragment() = default;
 
-  void Trace(Visitor*) const final;
+  ~NGPhysicalLineBoxFragment() {
+    for (const NGLink& child : Children())
+      child.fragment->Release();
+  }
 
   NGLineBoxType LineBoxType() const {
     return static_cast<NGLineBoxType>(sub_type_);
@@ -54,7 +55,7 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
   // This may be different from the direction of the container box when
   // first-line style is used, or when 'unicode-bidi: plaintext' is used.
   TextDirection BaseDirection() const {
-    return static_cast<TextDirection>(base_or_resolved_direction_);
+    return static_cast<TextDirection>(base_direction_);
   }
 
   // Compute the baseline metrics for this linebox.
@@ -82,7 +83,6 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
 
  private:
   FontHeight metrics_;
-  NGLink children_[];
 };
 
 template <>

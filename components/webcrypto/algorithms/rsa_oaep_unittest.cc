@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #include "base/base64url.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "components/webcrypto/algorithm_dispatch.h"
 #include "components/webcrypto/algorithms/test_helpers.h"
 #include "components/webcrypto/crypto_data.h"
@@ -158,7 +158,8 @@ TEST_F(WebCryptoRsaOaepTest, EncryptDecryptKnownAnswerTest) {
   base::ListValue tests;
   ASSERT_TRUE(ReadJsonTestFileToList("rsa_oaep.json", &tests));
 
-  for (size_t test_index = 0; test_index < tests.GetSize(); ++test_index) {
+  for (size_t test_index = 0; test_index < tests.GetList().size();
+       ++test_index) {
     SCOPED_TRACE(test_index);
 
     base::DictionaryValue* test = nullptr;

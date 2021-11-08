@@ -13,8 +13,10 @@
 
 #include "ash/public/cpp/ash_public_export.h"
 #include "ash/public/cpp/holding_space/holding_space_item.h"
+#include "ash/public/cpp/holding_space/holding_space_progress.h"
 #include "base/callback.h"
 #include "base/observer_list.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -36,6 +38,63 @@ class ASH_PUBLIC_EXPORT HoldingSpaceModel {
  public:
   using ItemList = std::vector<std::unique_ptr<HoldingSpaceItem>>;
 
+  // A class which performs an atomic update of a single holding space item on
+  // destruction, notifying model observers of the event if a change in state
+  // did in fact occur.
+  class ScopedItemUpdate {
+   public:
+    ScopedItemUpdate(const ScopedItemUpdate&) = delete;
+    ScopedItemUpdate& operator=(const ScopedItemUpdate&) = delete;
+    ~ScopedItemUpdate();
+
+    // Sets the accessible name that should be used for the item and returns a
+    // reference to `this`.
+    ScopedItemUpdate& SetAccessibleName(
+        const absl::optional<std::u16string>& accessible_name);
+
+    // Sets the backing file for the item and returns a reference to `this`.
+    ScopedItemUpdate& SetBackingFile(const base::FilePath& file_path,
+                                     const GURL& file_system_url);
+
+    // Sets whether the image for the item should be forcibly invalidated and
+    // returns a reference to `this`.
+    ScopedItemUpdate& SetInvalidateImage(bool invalidate_image);
+
+    // Sets if progress of the item is `paused` and returns a ref to `this`.
+    // NOTE: Only in-progress holding space items can be paused.
+    ScopedItemUpdate& SetPaused(bool paused);
+
+    // Sets the `progress` of the item and returns a reference to `this`.
+    // NOTE: Only in-progress holding space items can be progressed.
+    ScopedItemUpdate& SetProgress(const HoldingSpaceProgress& progress);
+
+    // Sets the secondary text that should be shown for the item and returns a
+    // reference to `this`.
+    ScopedItemUpdate& SetSecondaryText(
+        const absl::optional<std::u16string>& secondary_text);
+
+    // Sets the text that should be shown for the item and returns a reference
+    // to `this`. If absent, the lossy display name of the backing file will be
+    // used.
+    ScopedItemUpdate& SetText(const absl::optional<std::u16string>& text);
+
+   private:
+    friend class HoldingSpaceModel;
+    ScopedItemUpdate(HoldingSpaceModel* model, HoldingSpaceItem* item);
+
+    HoldingSpaceModel* const model_;
+    HoldingSpaceItem* const item_;
+
+    absl::optional<absl::optional<std::u16string>> accessible_name_;
+    absl::optional<base::FilePath> file_path_;
+    absl::optional<GURL> file_system_url_;
+    absl::optional<bool> paused_;
+    absl::optional<HoldingSpaceProgress> progress_;
+    absl::optional<absl::optional<std::u16string>> secondary_text_;
+    absl::optional<absl::optional<std::u16string>> text_;
+    bool invalidate_image_ = false;
+  };
+
   HoldingSpaceModel();
   HoldingSpaceModel(const HoldingSpaceModel& other) = delete;
   HoldingSpaceModel& operator=(const HoldingSpaceModel& other) = delete;
@@ -53,15 +112,15 @@ class ASH_PUBLIC_EXPORT HoldingSpaceModel {
   // Removes multiple holding space items from the model.
   void RemoveItems(const std::set<std::string>& ids);
 
-  // Finalizes a partially initialized holding space item using the provided
-  // file system URL. The item will be removed if the file system url is empty.
-  void FinalizeOrRemoveItem(const std::string& id, const GURL& file_system_url);
+  // Fully initializes a partially initialized holding space item using the
+  // provided `file_system_url`. The item will be removed if `file_system_url`
+  // is empty.
+  void InitializeOrRemoveItem(const std::string& id,
+                              const GURL& file_system_url);
 
-  // Updates the backing file for a single holding space item to the specified
-  // `file_path` and `file_system_url`.
-  void UpdateBackingFileForItem(const std::string& id,
-                                const base::FilePath& file_path,
-                                const GURL& file_system_url);
+  // Returns an object which, upon its destruction, performs an atomic update to
+  // the holding space item associated with the specified `id`.
+  std::unique_ptr<ScopedItemUpdate> UpdateItem(const std::string& id);
 
   // Removes all holding space items from the model for which the specified
   // `predicate` returns true.
@@ -90,9 +149,9 @@ class ASH_PUBLIC_EXPORT HoldingSpaceModel {
   bool ContainsItem(HoldingSpaceItem::Type type,
                     const base::FilePath& file_path) const;
 
-  // Returns true if the model contains any finalized items of the specified
-  // `type`, false otherwise.
-  bool ContainsFinalizedItemOfType(HoldingSpaceItem::Type type) const;
+  // Returns `true` if the model contains any initialized items of the specified
+  // `type`, `false` otherwise.
+  bool ContainsInitializedItemOfType(HoldingSpaceItem::Type type) const;
 
   const ItemList& items() const { return items_; }
 
@@ -104,10 +163,10 @@ class ASH_PUBLIC_EXPORT HoldingSpaceModel {
   // the model.
   ItemList items_;
 
-  // Caches the count of finalized items in the model for each holding space
-  // item type. Used to quickly look up whether the model contains any finalized
-  // items of a given type.
-  std::map<HoldingSpaceItem::Type, size_t> finalized_item_counts_by_type_;
+  // Caches the count of initialized items in the model for each holding space
+  // item type. Used to quickly look up whether the model contains any
+  // initialized items of a given type.
+  std::map<HoldingSpaceItem::Type, size_t> initialized_item_counts_by_type_;
 
   base::ObserverList<HoldingSpaceModelObserver> observers_;
 };

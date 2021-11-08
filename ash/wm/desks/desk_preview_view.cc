@@ -7,8 +7,6 @@
 #include <memory>
 #include <utility>
 
-#include "ash/multi_user/multi_user_window_manager_impl.h"
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wallpaper/wallpaper_base_view.h"
@@ -18,9 +16,15 @@
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/window_state.h"
+#include "ash/wm/window_util.h"
 #include "ash/wm/wm_highlight_item_border.h"
+#include "ash/wm/workspace/backdrop_controller.h"
+#include "ash/wm/workspace/workspace_layout_manager.h"
+#include "ash/wm/workspace_controller.h"
+#include "base/containers/contains.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/cxx17_backports.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_tree_owner.h"
@@ -30,14 +34,13 @@
 #include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 #include "ui/gfx/skia_paint_util.h"
+#include "ui/views/accessibility/accessibility_paint_checks.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
 
 namespace ash {
 
 namespace {
-
-// The height of the preview view in dips when using a compact layout.
-constexpr int kDeskPreviewHeightInCompactLayout = 48;
 
 // In non-compact layouts, the height of the preview is a percentage of the
 // total display height, with a max of |kDeskPreviewMaxHeight| dips and a min of
@@ -56,15 +59,6 @@ constexpr int kCornerRadius = 4;
 constexpr gfx::RoundedCornersF kCornerRadii(kCornerRadius);
 
 constexpr int kShadowElevation = 4;
-
-int GetHeightDivider(const int root_width) {
-  if (!features::IsBentoEnabled())
-    return kRootHeightDivider;
-
-  return root_width <= kUseSmallerHeightDividerWidthThreshold
-             ? kRootHeightDividerForSmallScreen
-             : kRootHeightDivider;
-}
 
 // Holds data about the original desk's layers to determine what we should do
 // when we attempt to mirror those layers.
@@ -92,18 +86,19 @@ struct LayerData {
 // multi-profile ownership status (i.e. can only be shown if it belongs to the
 // active user).
 bool CanShowWindowForMultiProfile(aura::Window* window) {
-  MultiUserWindowManager* multi_user_window_manager =
-      MultiUserWindowManagerImpl::Get();
-  if (!multi_user_window_manager)
-    return true;
+  aura::Window* window_to_check = window;
+  // If |window| is a backdrop, check the window which has this backdrop
+  // instead.
+  WorkspaceController* workspace_controller =
+      GetWorkspaceControllerForContext(window_to_check);
+  if (workspace_controller) {
+    BackdropController* backdrop_controller =
+        workspace_controller->layout_manager()->backdrop_controller();
+    if (backdrop_controller->backdrop_window() == window_to_check)
+      window_to_check = backdrop_controller->window_having_backdrop();
+  }
 
-  const AccountId account_id =
-      multi_user_window_manager->GetUserPresentingWindow(window);
-  // An empty account ID is returned if the window is presented for all users.
-  if (!account_id.is_valid())
-    return true;
-
-  return account_id == multi_user_window_manager->CurrentAccountId();
+  return window_util::ShouldShowForCurrentUser(window_to_check);
 }
 
 // Returns the LayerData entry for |target_layer| in |layer_data|. Returns an
@@ -237,7 +232,7 @@ void GetLayersData(aura::Window* window,
   // so mark them explicitly to clear overview transforms. Additionally, windows
   // in overview mode are transformed into their positions in the grid, but we
   // want to show a preview of the windows in their untransformed state.
-  if (window->GetProperty(aura::client::kVisibleOnAllWorkspacesKey) ||
+  if (desks_util::IsWindowVisibleOnAllWorkspaces(window) ||
       desks_util::IsDeskContainer(window->parent())) {
     layer_data.should_clear_transform = true;
   }
@@ -257,6 +252,9 @@ class DeskPreviewView::ShadowRenderer : public ui::LayerDelegate {
   ShadowRenderer()
       : shadow_values_(gfx::ShadowValue::MakeMdShadowValues(kShadowElevation)) {
   }
+
+  ShadowRenderer(const ShadowRenderer&) = delete;
+  ShadowRenderer& operator=(const ShadowRenderer&) = delete;
 
   ~ShadowRenderer() override = default;
 
@@ -291,8 +289,6 @@ class DeskPreviewView::ShadowRenderer : public ui::LayerDelegate {
 
   gfx::Rect bounds_;
   const gfx::ShadowValues shadow_values_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShadowRenderer);
 };
 
 // -----------------------------------------------------------------------------
@@ -311,8 +307,13 @@ DeskPreviewView::DeskPreviewView(PressedCallback callback,
   DCHECK(mini_view_);
 
   SetFocusPainter(nullptr);
-  SetInkDropMode(InkDropMode::OFF);
+  views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::OFF);
   SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
+
+  // TODO(crbug.com/1218186): Remove this, this is in place temporarily to be
+  // able to submit accessibility checks, but this focusable View needs to
+  // add a name so that the screen reader knows what to announce.
+  SetProperty(views::kSkipAccessibilityPaintChecks, true);
 
   SetPaintToLayer(ui::LAYER_TEXTURED);
   layer()->SetFillsBoundsOpaquely(false);
@@ -347,16 +348,16 @@ DeskPreviewView::DeskPreviewView(PressedCallback callback,
 DeskPreviewView::~DeskPreviewView() = default;
 
 // static
-int DeskPreviewView::GetHeight(aura::Window* root, bool compact) {
-  if (compact)
-    return kDeskPreviewHeightInCompactLayout;
-
+int DeskPreviewView::GetHeight(aura::Window* root) {
   DCHECK(root);
   DCHECK(root->IsRootWindow());
-  return std::min(kDeskPreviewMaxHeight,
-                  std::max(kDeskPreviewMinHeight,
-                           root->bounds().height() /
-                               GetHeightDivider(root->bounds().width())));
+
+  const int height_divider =
+      root->bounds().width() <= kUseSmallerHeightDividerWidthThreshold
+          ? kRootHeightDividerForSmallScreen
+          : kRootHeightDivider;
+  return base::clamp(root->bounds().height() / height_divider,
+                     kDeskPreviewMinHeight, kDeskPreviewMaxHeight);
 }
 
 void DeskPreviewView::SetBorderColor(SkColor color) {
@@ -384,8 +385,7 @@ void DeskPreviewView::RecreateDeskContentsMirrorLayers() {
   GetLayersData(desk_container, &layers_data);
 
   base::flat_set<aura::Window*> visible_on_all_desks_windows_to_mirror;
-  if (features::IsBentoEnabled() &&
-      !desks_util::IsActiveDeskContainer(desk_container)) {
+  if (!desks_util::IsActiveDeskContainer(desk_container)) {
     // Since visible on all desks windows reside on the active desk, only mirror
     // them in the layer tree if |this| is not the preview view for the active
     // desk.
@@ -441,21 +441,14 @@ void DeskPreviewView::Layout() {
   Button::Layout();
 }
 
+bool DeskPreviewView::OnMousePressed(const ui::MouseEvent& event) {
+  mini_view_->owner_bar()->HandlePressEvent(mini_view_, event);
+  return Button::OnMousePressed(event);
+}
+
 bool DeskPreviewView::OnMouseDragged(const ui::MouseEvent& event) {
-  if (!features::IsBentoEnabled())
-    return Button::OnMouseDragged(event);
-
-  DesksBarView* owner_bar = mini_view_->owner_bar();
-
-  if (!owner_bar->IsDraggingDesk()) {
-    owner_bar->HandleStartDragEvent(mini_view_, event);
-    return true;
-  }
-
-  if (!owner_bar->HandleDragEvent(mini_view_, event))
-    return Button::OnMouseDragged(event);
-
-  return true;
+  mini_view_->owner_bar()->HandleDragEvent(mini_view_, event);
+  return Button::OnMouseDragged(event);
 }
 
 void DeskPreviewView::OnMouseReleased(const ui::MouseEvent& event) {
@@ -464,23 +457,19 @@ void DeskPreviewView::OnMouseReleased(const ui::MouseEvent& event) {
 }
 
 void DeskPreviewView::OnGestureEvent(ui::GestureEvent* event) {
-  if (!features::IsBentoEnabled()) {
-    Button::OnGestureEvent(event);
-    return;
-  }
-
   DesksBarView* owner_bar = mini_view_->owner_bar();
 
   switch (event->type()) {
+    // Only long press can trigger drag & drop.
     case ui::ET_GESTURE_LONG_PRESS:
-      owner_bar->HandleStartDragEvent(mini_view_, *event);
+      owner_bar->HandleLongPressEvent(mini_view_, *event);
       event->SetHandled();
       break;
     case ui::ET_GESTURE_SCROLL_BEGIN:
       FALLTHROUGH;
     case ui::ET_GESTURE_SCROLL_UPDATE:
-      if (owner_bar->HandleDragEvent(mini_view_, *event))
-        event->SetHandled();
+      owner_bar->HandleDragEvent(mini_view_, *event);
+      event->SetHandled();
       break;
     case ui::ET_GESTURE_END:
       if (owner_bar->HandleReleaseEvent(mini_view_, *event))

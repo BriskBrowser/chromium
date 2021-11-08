@@ -5,10 +5,6 @@
 #ifndef CONTENT_BROWSER_ANDROID_DATE_TIME_CHOOSER_ANDROID_H_
 #define CONTENT_BROWSER_ANDROID_DATE_TIME_CHOOSER_ANDROID_H_
 
-#include <memory>
-#include <string>
-#include <vector>
-
 #include "base/android/jni_weak_ref.h"
 #include "base/macros.h"
 #include "content/public/browser/web_contents_user_data.h"
@@ -25,6 +21,10 @@ class DateTimeChooserAndroid
       public WebContentsUserData<DateTimeChooserAndroid> {
  public:
   explicit DateTimeChooserAndroid(WebContents* web_contents);
+
+  DateTimeChooserAndroid(const DateTimeChooserAndroid&) = delete;
+  DateTimeChooserAndroid& operator=(const DateTimeChooserAndroid&) = delete;
+
   ~DateTimeChooserAndroid() override;
 
   void OnDateTimeChooserReceiver(
@@ -55,8 +55,6 @@ class DateTimeChooserAndroid
   mojo::Receiver<blink::mojom::DateTimeChooser> date_time_chooser_receiver_;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(DateTimeChooserAndroid);
 };
 
 }  // namespace content

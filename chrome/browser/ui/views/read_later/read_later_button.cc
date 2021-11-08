@@ -4,34 +4,39 @@
 
 #include "chrome/browser/ui/views/read_later/read_later_button.h"
 
+#include <string>
+
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
-#include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "chrome/app/vector_icons/vector_icons.h"
+#include "chrome/browser/feature_engagement/tracker_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/read_later/reading_list_model_factory.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/views/bubble/webui_bubble_dialog_view.h"
+#include "chrome/browser/ui/views/bubble/bubble_contents_wrapper.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/side_panel.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/feature_engagement/public/event_constants.h"
+#include "components/feature_engagement/public/tracker.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
-#include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_impl.h"
@@ -40,8 +45,8 @@
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/button_controller.h"
+#include "ui/views/controls/dot_indicator.h"
 #include "ui/views/controls/highlight_path_generator.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "url/gurl.h"
 
 namespace {
@@ -61,11 +66,16 @@ void RecordBookmarkBarState(Browser* browser) {
       browser->tab_strip_model()->GetActiveWebContents();
   BookmarkBarPrefAndState state = BookmarkBarPrefAndState::kVisibleAndNotOnNTP;
   if (web_contents) {
-    const GURL site_origin = web_contents->GetLastCommittedURL().GetOrigin();
+    const GURL site_origin =
+        web_contents->GetLastCommittedURL().DeprecatedGetOriginAsURL();
     // These are also the NTP urls checked for showing the bookmark bar on the
     // NTP.
-    if (site_origin == GURL(chrome::kChromeUINewTabURL).GetOrigin() ||
-        site_origin == GURL(chrome::kChromeUINewTabPageURL).GetOrigin()) {
+    if (site_origin ==
+            GURL(chrome::kChromeUINewTabURL).DeprecatedGetOriginAsURL() ||
+        site_origin ==
+            GURL(chrome::kChromeUINewTabPageURL).DeprecatedGetOriginAsURL() ||
+        site_origin == GURL(chrome::kChromeUINewTabPageThirdPartyURL)
+                           .DeprecatedGetOriginAsURL()) {
       if (browser->profile()->GetPrefs()->GetBoolean(
               bookmarks::prefs::kShowBookmarkBar)) {
         state = BookmarkBarPrefAndState::kVisibleAndOnNTP;
@@ -80,12 +90,9 @@ void RecordBookmarkBarState(Browser* browser) {
 
 // Note this matches the background base layer alpha used in ToolbarButton.
 constexpr SkAlpha kBackgroundBaseLayerAlpha = 204;
-constexpr base::TimeDelta kHighlightShowDuration =
-    base::TimeDelta::FromMilliseconds(150);
-constexpr base::TimeDelta kHighlightHideDuration =
-    base::TimeDelta::FromMilliseconds(650);
-constexpr base::TimeDelta kHighlightDuration =
-    base::TimeDelta::FromMilliseconds(2250);
+constexpr base::TimeDelta kHighlightShowDuration = base::Milliseconds(150);
+constexpr base::TimeDelta kHighlightHideDuration = base::Milliseconds(650);
+constexpr base::TimeDelta kHighlightDuration = base::Milliseconds(2250);
 
 }  // namespace
 
@@ -106,6 +113,14 @@ ReadLaterButton::ReadLaterButton(Browser* browser)
       })),
       highlight_color_animation_(
           std::make_unique<HighlightColorAnimation>(this)) {
+  ConfigureInkDropForToolbar(this);
+  // Note: BrowserView may not exist during tests.
+  if (BrowserView::GetBrowserViewForBrowser(browser_))
+    DCHECK(!BrowserView::GetBrowserViewForBrowser(browser_)
+                ->right_aligned_side_panel());
+
+  dot_indicator_ = views::DotIndicator::Install(image());
+
   reading_list_model_ =
       ReadingListModelFactory::GetForBrowserContext(browser_->profile());
   if (reading_list_model_)
@@ -115,9 +130,6 @@ ReadLaterButton::ReadLaterButton(Browser* browser)
       DISTANCE_RELATED_LABEL_HORIZONTAL_LIST));
 
   views::InstallPillHighlightPathGenerator(this);
-  SetInkDropMode(InkDropMode::ON);
-  SetHasInkDropActionOnClick(true);
-  SetInkDropVisibleOpacity(kToolbarInkDropVisibleOpacity);
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
   SetTooltipText(l10n_util::GetStringUTF16(IDS_READ_LATER_TITLE));
   GetViewAccessibility().OverrideHasPopup(ax::mojom::HasPopup::kMenu);
@@ -133,23 +145,9 @@ void ReadLaterButton::CloseBubble() {
     webui_bubble_manager_->CloseBubble();
 }
 
-std::unique_ptr<views::InkDrop> ReadLaterButton::CreateInkDrop() {
-  std::unique_ptr<views::InkDropImpl> ink_drop =
-      CreateDefaultFloodFillInkDropImpl();
-  ink_drop->SetShowHighlightOnFocus(false);
-  return std::move(ink_drop);
-}
-
-std::unique_ptr<views::InkDropHighlight>
-ReadLaterButton::CreateInkDropHighlight() const {
-  return CreateToolbarInkDropHighlight(this);
-}
-
-SkColor ReadLaterButton::GetInkDropBaseColor() const {
-  return GetToolbarInkDropBaseColor(this);
-}
-
 void ReadLaterButton::OnThemeChanged() {
+  LabelButton::OnThemeChanged();
+
   // We don't always have a theme provider (ui tests, for example).
   const ui::ThemeProvider* theme_provider = GetThemeProvider();
   if (!theme_provider)
@@ -158,13 +156,21 @@ void ReadLaterButton::OnThemeChanged() {
       ToolbarButton::AdjustHighlightColorForContrast(
           theme_provider, gfx::kGoogleBlue300, gfx::kGoogleBlue600,
           gfx::kGoogleBlue050, gfx::kGoogleBlue900));
-  SetEnabledTextColors(highlight_color_animation_->GetTextColor());
-  SetImageModel(
-      views::Button::STATE_NORMAL,
-      ui::ImageModel::FromVectorIcon(
-          kReadLaterIcon, highlight_color_animation_->GetIconColor()));
 
-  LabelButton::OnThemeChanged();
+  dot_indicator_->SetColor(
+      /*dot_color=*/GetColorProvider()->GetColor(ui::kColorAlertHighSeverity),
+      /*border_color=*/theme_provider->GetColor(
+          ThemeProperties::COLOR_TOOLBAR));
+}
+
+void ReadLaterButton::Layout() {
+  LabelButton::Layout();
+
+  // Set |dot_indicator_| bounds.
+  constexpr int kDotIndicatorSize = 8;
+  gfx::Rect bounds = gfx::Rect(0, 0, kDotIndicatorSize, kDotIndicatorSize);
+  bounds.Offset(-2, -2);
+  dot_indicator_->SetBoundsRect(bounds);
 }
 
 void ReadLaterButton::OnWidgetDestroying(views::Widget* widget) {
@@ -172,6 +178,11 @@ void ReadLaterButton::OnWidgetDestroying(views::Widget* widget) {
   DCHECK(bubble_widget_observation_.IsObservingSource(
       webui_bubble_manager_->GetBubbleWidget()));
   bubble_widget_observation_.Reset();
+}
+
+void ReadLaterButton::ReadingListModelLoaded(const ReadingListModel* model) {
+  if (model->unseen_size())
+    dot_indicator_->Show();
 }
 
 void ReadLaterButton::ReadingListModelBeingDeleted(
@@ -190,47 +201,31 @@ void ReadLaterButton::ReadingListDidAddEntry(const ReadingListModel* model,
       BrowserView::GetBrowserViewForBrowser(browser_)->IsActive()) {
     highlight_color_animation_->Show();
   }
+  dot_indicator_->Show();
 }
 
 void ReadLaterButton::ButtonPressed() {
-  BrowserView* const browser_view =
-      BrowserView::GetBrowserViewForBrowser(browser_);
   highlight_color_animation_->Hide();
 
-  if (browser_view->side_panel()) {
-    if (!read_later_side_panel_bubble_) {
-      browser_view->side_panel()->RemoveContent(read_later_side_panel_bubble_);
-      read_later_side_panel_bubble_ = nullptr;
-      // TODO(pbos): Observe read_later_side_panel_bubble_ so we don't need to
-      // SetHighlighted(false) here.
-      SetHighlighted(false);
-    } else {
-      contents_wrapper_ = std::make_unique<BubbleContentsWrapperT<ReadLaterUI>>(
-          GURL(chrome::kChromeUIReadLaterURL), browser_->profile(),
-          IDS_READ_LATER_TITLE, true);
-
-      DCHECK(!contents_wrapper_->GetHost());
-      auto bubble_view = std::make_unique<WebUIBubbleDialogView>(
-          this, contents_wrapper_.get());
-      read_later_side_panel_bubble_ = bubble_view.get();
-      browser_view->side_panel()->AddContent(std::move(bubble_view));
-      SetHighlighted(true);
-    }
+  if (webui_bubble_manager_->GetBubbleWidget()) {
+    webui_bubble_manager_->CloseBubble();
   } else {
-    if (webui_bubble_manager_->GetBubbleWidget()) {
-      webui_bubble_manager_->CloseBubble();
-    } else {
-      base::RecordAction(
-          base::UserMetricsAction("DesktopReadingList.OpenReadingList"));
-      RecordBookmarkBarState(browser_);
-      webui_bubble_manager_->ShowBubble();
-      // There should only ever be a single bubble widget active for the
-      // ReadLaterButton.
-      DCHECK(!bubble_widget_observation_.IsObserving());
-      bubble_widget_observation_.Observe(
-          webui_bubble_manager_->GetBubbleWidget());
-      widget_open_timer_.Reset(webui_bubble_manager_->GetBubbleWidget());
-    }
+    base::RecordAction(
+        base::UserMetricsAction("DesktopReadingList.OpenReadingList"));
+    feature_engagement::Tracker* tracker =
+        feature_engagement::TrackerFactory::GetForBrowserContext(
+            browser_->profile());
+    tracker->NotifyEvent(feature_engagement::events::kReadingListMenuOpened);
+    RecordBookmarkBarState(browser_);
+    webui_bubble_manager_->ShowBubble();
+    reading_list_model_->MarkAllSeen();
+    dot_indicator_->Hide();
+    // There should only ever be a single bubble widget active for the
+    // ReadLaterButton.
+    DCHECK(!bubble_widget_observation_.IsObserving());
+    bubble_widget_observation_.Observe(
+        webui_bubble_manager_->GetBubbleWidget());
+    widget_open_timer_.Reset(webui_bubble_manager_->GetBubbleWidget());
   }
 }
 
@@ -240,13 +235,13 @@ void ReadLaterButton::UpdateColors() {
 
   const int highlight_radius =
       ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
-          views::EMPHASIS_MAXIMUM, size());
+          views::Emphasis::kMaximum, size());
   SetEnabledTextColors(highlight_color_animation_->GetTextColor());
   SetImageModel(
       views::Button::STATE_NORMAL,
       ui::ImageModel::FromVectorIcon(
           kReadLaterIcon, highlight_color_animation_->GetIconColor()));
-  base::Optional<SkColor> background_color =
+  absl::optional<SkColor> background_color =
       highlight_color_animation_->GetBackgroundColor();
   if (background_color) {
     SetBackground(views::CreateBackgroundFromPainter(
@@ -260,15 +255,19 @@ void ReadLaterButton::UpdateColors() {
 ReadLaterButton::HighlightColorAnimation::HighlightColorAnimation(
     ReadLaterButton* parent)
     : parent_(parent),
-      highlight_color_animation_(
-          std::vector<gfx::MultiAnimation::Part>{
-              gfx::MultiAnimation::Part(kHighlightShowDuration,
-                                        gfx::Tween::FAST_OUT_SLOW_IN),
-              gfx::MultiAnimation::Part(kHighlightDuration,
-                                        gfx::Tween::Type::LINEAR),
-              gfx::MultiAnimation::Part(kHighlightHideDuration,
-                                        gfx::Tween::FAST_OUT_SLOW_IN)},
-          gfx::MultiAnimation::kDefaultTimerInterval) {
+      highlight_color_animation_(std::vector<gfx::MultiAnimation::Part>{
+          gfx::MultiAnimation::Part(kHighlightShowDuration,
+                                    gfx::Tween::FAST_OUT_SLOW_IN,
+                                    0.0,
+                                    1.0),
+          gfx::MultiAnimation::Part(kHighlightDuration,
+                                    gfx::Tween::Type::LINEAR,
+                                    1.0,
+                                    1.0),
+          gfx::MultiAnimation::Part(kHighlightHideDuration,
+                                    gfx::Tween::FAST_OUT_SLOW_IN,
+                                    1.0,
+                                    0.0)}) {
   highlight_color_animation_.set_delegate(this);
   highlight_color_animation_.set_continuous(false);
 }
@@ -288,16 +287,21 @@ void ReadLaterButton::HighlightColorAnimation::Hide() {
   ClearHighlightColor();
 }
 
+void ReadLaterButton::HighlightColorAnimation::SetColor(SkColor color) {
+  highlight_color_ = color;
+  parent_->UpdateColors();
+}
+
 SkColor ReadLaterButton::HighlightColorAnimation::GetTextColor() const {
   SkColor original_text_color = color_utils::GetColorWithMaxContrast(
       parent_->GetThemeProvider()->GetColor(ThemeProperties::COLOR_TOOLBAR));
   return FadeWithAnimation(highlight_color_, original_text_color);
 }
 
-base::Optional<SkColor>
+absl::optional<SkColor>
 ReadLaterButton::HighlightColorAnimation::GetBackgroundColor() const {
   if (!highlight_color_animation_.is_animating())
-    return base::nullopt;
+    return absl::nullopt;
   SkColor original_bg_color = SkColorSetA(
       ToolbarButton::GetDefaultBackgroundColor(parent_->GetThemeProvider()),
       kBackgroundBaseLayerAlpha);
@@ -330,27 +334,9 @@ SkColor ReadLaterButton::HighlightColorAnimation::FadeWithAnimation(
   if (!highlight_color_animation_.is_animating())
     return original_color;
 
-  switch (highlight_color_animation_.current_part_index()) {
-    case 0:
-      // Fade in.
-      return gfx::Tween::ColorValueBetween(
-          highlight_color_animation_.GetCurrentValue(), original_color,
-          target_color);
-      break;
-    case 1:
-      // Highlight shown.
-      return target_color;
-      break;
-    case 2:
-      // Fade out.
-      return gfx::Tween::ColorValueBetween(
-          highlight_color_animation_.GetCurrentValue(), target_color,
-          original_color);
-      break;
-    default:
-      NOTREACHED();
-  }
-  return original_color;
+  return gfx::Tween::ColorValueBetween(
+      highlight_color_animation_.GetCurrentValue(), original_color,
+      target_color);
 }
 
 void ReadLaterButton::HighlightColorAnimation::ClearHighlightColor() {

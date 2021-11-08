@@ -48,7 +48,6 @@ using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
 
 - (instancetype)initWithConsumer:(id<PasswordBreachConsumer>)consumer
                        presenter:(id<PasswordBreachPresenter>)presenter
-                             URL:(const GURL&)URL
                         leakType:(CredentialLeakType)leakType {
   self = [super init];
   if (self) {
@@ -56,13 +55,14 @@ using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
     _leakType = GetLeakDialogType(leakType);
     _dismissReason = LeakDialogDismissalReason::kNoDirectInteraction;
 
-    NSString* subtitle = SysUTF16ToNSString(GetDescription(leakType, URL));
+    NSString* subtitle = SysUTF16ToNSString(GetDescription(leakType));
     NSString* primaryActionString =
-        SysUTF16ToNSString(GetAcceptButtonLabel(leakType));
+        ShouldCheckPasswords(leakType)
+            ? SysUTF16ToNSString(GetAcceptButtonLabel(leakType))
+            : nil;
     [consumer setTitleString:SysUTF16ToNSString(GetTitle(leakType))
-                subtitleString:subtitle
-           primaryActionString:primaryActionString
-        primaryActionAvailable:ShouldCheckPasswords(leakType)];
+              subtitleString:subtitle
+         primaryActionString:primaryActionString];
   }
   return self;
 }
@@ -83,10 +83,6 @@ using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
   // Opening Password page will stop the presentation in the presenter.
   // No need to send |stop|.
   [self.presenter startPasswordCheck];
-}
-
-- (void)confirmationAlertSecondaryAction {
-  // No-op.
 }
 
 - (void)confirmationAlertLearnMoreAction {

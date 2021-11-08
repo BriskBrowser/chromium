@@ -8,6 +8,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "chrome/browser/apps/app_service/app_service_proxy_forward.h"
+// TODO(https://crbug.com/1164001): move to forward declaration.
+#include "chrome/browser/ash/android_sms/android_sms_service.h"
+// TODO(https://crbug.com/1164001): forward declare when moved ash
+#include "chrome/browser/ash/kerberos/kerberos_credentials_manager.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_section.h"
 
@@ -26,11 +31,6 @@ class SyncService;
 namespace chromeos {
 
 class CupsPrintersManager;
-class KerberosCredentialsManager;
-
-namespace android_sms {
-class AndroidSmsService;
-}  // namespace android_sms
 
 namespace multidevice_setup {
 class MultiDeviceSetupClient;
@@ -56,7 +56,8 @@ class OsSettingsSections {
       ArcAppListPrefs* arc_app_list_prefs,
       signin::IdentityManager* identity_manager,
       android_sms::AndroidSmsService* android_sms_service,
-      CupsPrintersManager* printers_manager);
+      CupsPrintersManager* printers_manager,
+      apps::AppServiceProxy* app_service_proxy);
   OsSettingsSections(const OsSettingsSections& other) = delete;
   OsSettingsSections& operator=(const OsSettingsSections& other) = delete;
   virtual ~OsSettingsSections();

@@ -56,6 +56,10 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
     static Factory* test_factory_;
   };
 
+  CryptAuthDeviceNotifierImpl(const CryptAuthDeviceNotifierImpl&) = delete;
+  CryptAuthDeviceNotifierImpl& operator=(const CryptAuthDeviceNotifierImpl&) =
+      delete;
+
   ~CryptAuthDeviceNotifierImpl() override;
 
  private:
@@ -63,7 +67,7 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
 
   friend std::ostream& operator<<(std::ostream& stream, const State& state);
 
-  static base::Optional<base::TimeDelta> GetTimeoutForState(State state);
+  static absl::optional<base::TimeDelta> GetTimeoutForState(State state);
 
   struct Request {
     Request(const base::flat_set<std::string>& device_ids,
@@ -103,7 +107,7 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
   void OnBatchNotifyGroupDevicesSuccess(
       const cryptauthv2::BatchNotifyGroupDevicesResponse& response);
   void OnBatchNotifyGroupDevicesFailure(NetworkRequestError error);
-  void FinishAttempt(base::Optional<NetworkRequestError> error);
+  void FinishAttempt(absl::optional<NetworkRequestError> error);
 
   State state_ = State::kIdle;
   base::TimeTicks last_state_change_timestamp_;
@@ -115,8 +119,6 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
   std::unique_ptr<CryptAuthClient> cryptauth_client_;
   std::unique_ptr<base::OneShotTimer> timer_;
   base::WeakPtrFactory<CryptAuthDeviceNotifierImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthDeviceNotifierImpl);
 };
 
 }  // namespace device_sync

@@ -5,34 +5,24 @@
 package org.chromium.chrome.test.util;
 
 import android.content.Context;
-import android.util.Pair;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 
 import org.hamcrest.Matchers;
-import org.junit.Assert;
 
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.omnibox.LocationBarLayout;
 import org.chromium.chrome.browser.omnibox.UrlBar;
-import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteController;
-import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteController.OnSuggestionsReceivedListener;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteCoordinator;
 import org.chromium.chrome.browser.omnibox.suggestions.DropdownItemViewInfo;
 import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestionUiType;
 import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestionsDropdown;
 import org.chromium.chrome.browser.omnibox.suggestions.header.HeaderView;
-import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.components.omnibox.AutocompleteResult;
-import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.Callable;
 
 /**
@@ -40,108 +30,6 @@ import java.util.concurrent.Callable;
  */
 public class OmniboxTestUtils {
     private OmniboxTestUtils() {}
-
-    /**
-     * AutocompleteController instance that allows for easy testing.
-     */
-    public static class TestAutocompleteController extends AutocompleteController {
-        private final Map<String, Pair<String, AutocompleteResult>> mAutocompleteResults;
-        private final AutocompleteResult mEmptyResult;
-
-        /**
-         * Create new Autocomplete controller.
-         * @param listener
-         */
-        public TestAutocompleteController(OnSuggestionsReceivedListener listener) {
-            mAutocompleteResults = new HashMap<>();
-            mEmptyResult = new AutocompleteResult(null, null);
-            setOnSuggestionsReceivedListener(listener);
-        }
-
-        /**
-         * Register new AutocompleteResult offered when the test user input matches the
-         * forInputText.
-         *
-         * @param forInputText String to match against: user query.
-         * @param autocompleteText Recommended default autocompletion.
-         * @param autocompleteResult List of suggestions associated with the query.
-         */
-        public void addAutocompleteResult(String forInputText, String autocompleteText,
-                AutocompleteResult autocompleteResult) {
-            mAutocompleteResults.put(forInputText, new Pair(autocompleteText, autocompleteResult));
-        }
-
-        /**
-         * Suppress any suggestion logging mechanisms so that artificially created suggestions
-         * do not attempt to log selection.
-         */
-        @Override
-        public void onSuggestionSelected(int selectedIndex, int disposition, int hashCode, int type,
-                String currentPageUrl, int pageClassification, long elapsedTimeSinceModified,
-                int completedLength, WebContents webContents) {}
-
-        @Override
-        public void start(Profile profile, String url, int pageClassification, final String text,
-                int cursorPosition, boolean preventInlineAutocomplete, String queryTileId,
-                boolean isQueryStartedFromTiles) {
-            if (sendSuggestions(text)) return;
-            super.start(profile, url, pageClassification, text, cursorPosition,
-                    preventInlineAutocomplete, queryTileId, isQueryStartedFromTiles);
-        }
-
-        @Override
-        public void groupSuggestionsBySearchVsURL(int firstIndex, int lastIndex) {}
-
-        @Override
-        public void startZeroSuggest(Profile profile, String omniboxText, String url,
-                int pageClassification, String title) {
-            if (sendSuggestions(omniboxText)) return;
-            super.startZeroSuggest(profile, omniboxText, url, pageClassification, title);
-        }
-
-        private boolean sendSuggestions(String forText) {
-            String autocompleteText = forText.toLowerCase(Locale.US);
-            Pair<String, AutocompleteResult> autocompleteSet =
-                    mAutocompleteResults.get(autocompleteText);
-            if (autocompleteSet == null) return false;
-            onSuggestionsReceived(autocompleteSet.second, autocompleteSet.first, 0);
-            return true;
-        }
-    }
-
-    /**
-     * AutocompleteController instance that will trigger no suggestions.
-     */
-    public static class StubAutocompleteController extends AutocompleteController {
-        public StubAutocompleteController() {
-            super();
-            setOnSuggestionsReceivedListener(new OnSuggestionsReceivedListener() {
-                @Override
-                public void onSuggestionsReceived(
-                        AutocompleteResult autocompleteResult, String inlineAutocompleteText) {
-                    Assert.fail("No autocomplete suggestions should be received");
-                }
-            });
-        }
-
-        @Override
-        public void start(Profile profile, String url, int pageClassification, String text,
-                int cursorPosition, boolean preventInlineAutocomplete, String queryTileId,
-                boolean isQueryStartedFromTiles) {}
-
-        @Override
-        public void startZeroSuggest(Profile profile, String omniboxText, String url,
-                int pageClassification, String title) {}
-
-        @Override
-        public void groupSuggestionsBySearchVsURL(int firstIndex, int lastIndex) {}
-
-        @Override
-        public void stop(boolean clear) {}
-
-        @Override
-        public void setProfile(Profile profile) {}
-    }
 
     /**
      * Checks and verifies that the URL bar can request and release focus X times without issue.

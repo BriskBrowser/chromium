@@ -34,10 +34,14 @@ class ScenicWindowCanvas : public SurfaceOzoneCanvas {
   // |scenic_surface| must outlive the canvas. ScenicSurface owns the
   // scenic::Session used in this class for all drawing operations.
   explicit ScenicWindowCanvas(ScenicSurface* scenic_surface);
+
+  ScenicWindowCanvas(const ScenicWindowCanvas&) = delete;
+  ScenicWindowCanvas& operator=(const ScenicWindowCanvas&) = delete;
+
   ~ScenicWindowCanvas() override;
 
   // SurfaceOzoneCanvas implementation.
-  void ResizeCanvas(const gfx::Size& viewport_size) override;
+  void ResizeCanvas(const gfx::Size& viewport_size, float scale) override;
   SkCanvas* GetCanvas() override;
   void PresentCanvas(const gfx::Rect& damage) override;
   std::unique_ptr<gfx::VSyncProvider> CreateVSyncProvider() override;
@@ -85,8 +89,6 @@ class ScenicWindowCanvas : public SurfaceOzoneCanvas {
   gfx::Size viewport_size_;
 
   ScenicSurface* const scenic_surface_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScenicWindowCanvas);
 };
 
 }  // namespace ui

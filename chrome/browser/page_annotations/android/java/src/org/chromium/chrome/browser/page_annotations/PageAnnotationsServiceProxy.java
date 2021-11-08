@@ -14,6 +14,8 @@ import org.chromium.base.Log;
 import org.chromium.chrome.browser.endpoint_fetcher.EndpointFetcher;
 import org.chromium.chrome.browser.endpoint_fetcher.EndpointResponse;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.components.embedder_support.util.UrlUtilities;
+import org.chromium.net.NetworkTrafficAnnotationTag;
 import org.chromium.url.GURL;
 
 import java.util.ArrayList;
@@ -56,15 +58,18 @@ public class PageAnnotationsServiceProxy {
             return;
         }
 
+        // TODO(crbug.com/995852): Replace MISSING_TRAFFIC_ANNOTATION with a real traffic
+        // annotation.
         EndpointFetcher.fetchUsingChromeAPIKey(
                 (endpointResponse)
                         -> { fetchCallback(endpointResponse, callback); },
                 mProfile,
                 String.format(PageAnnotationsServiceConfig.PAGE_ANNOTATIONS_BASE_URL.getValue()
                                 + GET_ANNOTATIONS_QUERY_PARAMS_TEMPLATE,
-                        url.getSpec()),
+                        UrlUtilities.escapeQueryParamValue(url.getSpec(), false)),
                 HTTPS_METHOD, CONTENT_TYPE, EMPTY_POST_DATA, TIMEOUT_MS,
-                new String[] {ACCEPT_LANGUAGE_KEY, LocaleUtils.getDefaultLocaleListString()});
+                new String[] {ACCEPT_LANGUAGE_KEY, LocaleUtils.getDefaultLocaleListString()},
+                NetworkTrafficAnnotationTag.MISSING_TRAFFIC_ANNOTATION);
     }
 
     private void fetchCallback(EndpointResponse response,

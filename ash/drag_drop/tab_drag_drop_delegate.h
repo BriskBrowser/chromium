@@ -21,6 +21,7 @@ class OSExchangeData;
 
 namespace ash {
 
+class PresentationTimeRecorder;
 class SplitViewDragIndicators;
 class TabletModeBrowserWindowDragSessionWindowsHider;
 
@@ -55,18 +56,24 @@ class ASH_EXPORT TabDragDropDelegate {
 
   // Must be called on drop if it was not accepted by the drop target. After
   // calling this, this delegate must not be used.
-  void Drop(const gfx::Point& location_in_screen,
-            const ui::OSExchangeData& drop_data);
+  void DropAndDeleteSelf(const gfx::Point& location_in_screen,
+                         const ui::OSExchangeData& drop_data);
 
  private:
   // Scales or transforms the source window if appropriate for this drag.
   // |candidate_snap_position| is where the dragged tab will be snapped
   // if dropped immediately.
   void UpdateSourceWindowBoundsIfNecessary(
-      SplitViewController::SnapPosition candidate_snap_position);
+      SplitViewController::SnapPosition candidate_snap_position,
+      const gfx::Point& location_in_screen);
 
   // Puts the source window back into its original position.
   void RestoreSourceWindowBounds();
+
+  // Effectively handles the new window creation in DropAndDeleteSelf(). This
+  // method can be called asynchronously in case of Lacros.
+  void OnNewBrowserWindowCreated(const gfx::Point& location_in_screen,
+                                 aura::Window* new_window);
 
   aura::Window* const root_window_;
   aura::Window* const source_window_;
@@ -75,6 +82,10 @@ class ASH_EXPORT TabDragDropDelegate {
   std::unique_ptr<SplitViewDragIndicators> split_view_drag_indicators_;
   std::unique_ptr<TabletModeBrowserWindowDragSessionWindowsHider>
       windows_hider_;
+
+  // Presentation time recorder for tab dragging in tablet mode with webui
+  // tab strip enable.
+  std::unique_ptr<PresentationTimeRecorder> tab_dragging_recorder_;
 };
 
 }  // namespace ash

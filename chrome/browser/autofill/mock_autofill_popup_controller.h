@@ -9,12 +9,12 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "base/no_destructor.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/gfx/test/scoped_default_font_description.h"
 
 namespace autofill {
 
@@ -36,8 +36,8 @@ class MockAutofillPopupController
   MOCK_CONST_METHOD0(container_view, gfx::NativeView());
   MOCK_CONST_METHOD0(GetWebContents, content::WebContents*());
   const gfx::RectF& element_bounds() const override {
-    static base::NoDestructor<gfx::RectF> bounds({100, 100, 250, 50});
-    return *bounds;
+    static const gfx::RectF bounds(100, 100, 250, 50);
+    return bounds;
   }
   MOCK_CONST_METHOD0(IsRTL, bool());
 
@@ -54,11 +54,15 @@ class MockAutofillPopupController
     return suggestions_[row];
   }
 
-  const base::string16& GetSuggestionValueAt(int i) const override {
-    return suggestions_[i].value;
+  std::u16string GetSuggestionMainTextAt(int row) const override {
+    return suggestions_[row].value;
   }
 
-  const base::string16& GetSuggestionLabelAt(int row) const override {
+  std::u16string GetSuggestionMinorTextAt(int row) const override {
+    return std::u16string();
+  }
+
+  const std::u16string& GetSuggestionLabelAt(int row) const override {
     return suggestions_[row].label;
   }
 
@@ -67,10 +71,10 @@ class MockAutofillPopupController
   }
 
   MOCK_METHOD3(GetRemovalConfirmationText,
-               bool(int index, base::string16* title, base::string16* body));
+               bool(int index, std::u16string* title, std::u16string* body));
   MOCK_METHOD1(RemoveSuggestion, bool(int index));
-  MOCK_METHOD1(SetSelectedLine, void(base::Optional<int> selected_line));
-  MOCK_CONST_METHOD0(selected_line, base::Optional<int>());
+  MOCK_METHOD1(SetSelectedLine, void(absl::optional<int> selected_line));
+  MOCK_CONST_METHOD0(selected_line, absl::optional<int>());
   MOCK_CONST_METHOD0(GetPopupType, PopupType());
 
   void set_suggestions(const std::vector<int>& ids) {
@@ -84,6 +88,7 @@ class MockAutofillPopupController
 
  private:
   std::vector<autofill::Suggestion> suggestions_;
+  gfx::ScopedDefaultFontDescription default_font_desc_setter_;
 
   base::WeakPtrFactory<MockAutofillPopupController> weak_ptr_factory_{this};
 };

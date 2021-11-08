@@ -4,6 +4,8 @@
 
 #include "ash/system/holding_space/pinned_files_section.h"
 
+#include "ash/bubble/bubble_utils.h"
+#include "ash/bubble/simple_grid_layout.h"
 #include "ash/public/cpp/holding_space/holding_space_client.h"
 #include "ash/public/cpp/holding_space/holding_space_constants.h"
 #include "ash/public/cpp/holding_space/holding_space_controller.h"
@@ -16,13 +18,17 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/holding_space/holding_space_item_chip_view.h"
-#include "ash/system/holding_space/holding_space_item_chips_container.h"
-#include "ash/system/holding_space/holding_space_util.h"
+#include "ash/system/holding_space/holding_space_view_delegate.h"
+#include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -39,23 +45,15 @@ constexpr int kFilesAppChipIconSize = 20;
 constexpr gfx::Insets kFilesAppChipInsets(0, 8, 0, 16);
 constexpr int kPlaceholderChildSpacing = 16;
 
-// Helpers ---------------------------------------------------------------------
-
-// Returns whether the active user has ever pinned a file to holding space.
-bool HasEverPinnedHoldingSpaceItem() {
-  PrefService* active_pref_service =
-      Shell::Get()->session_controller()->GetActivePrefService();
-  return active_pref_service
-             ? holding_space_prefs::GetTimeOfFirstPin(active_pref_service)
-                   .has_value()
-             : false;
-}
-
 // FilesAppChip ----------------------------------------------------------------
 
 class FilesAppChip : public views::Button {
  public:
-  FilesAppChip() { Init(); }
+  explicit FilesAppChip(views::Button::PressedCallback pressed_callback)
+      : views::Button(std::move(pressed_callback)) {
+    Init();
+  }
+
   FilesAppChip(const FilesAppChip&) = delete;
   FilesAppChip& operator=(const FilesAppChip&) = delete;
   ~FilesAppChip() override = default;
@@ -71,15 +69,11 @@ class FilesAppChip : public views::Button {
     return kFilesAppChipHeight;
   }
 
-  void Init() {
-    SetAccessibleName(l10n_util::GetStringUTF16(
-        IDS_ASH_HOLDING_SPACE_PINNED_FILES_APP_CHIP_TEXT));
-    SetCallback(
-        base::BindRepeating(&FilesAppChip::OnPressed, base::Unretained(this)));
-    SetID(kHoldingSpaceFilesAppChipId);
+  void OnThemeChanged() override {
+    views::Button::OnThemeChanged();
+    AshColorProvider* const ash_color_provider = AshColorProvider::Get();
 
     // Background.
-    AshColorProvider* const ash_color_provider = AshColorProvider::Get();
     SetBackground(views::CreateRoundedRectBackground(
         ash_color_provider->GetControlsLayerColor(
             AshColorProvider::ControlsLayerType::
@@ -87,15 +81,25 @@ class FilesAppChip : public views::Button {
         kFilesAppChipHeight / 2));
 
     // Focus ring.
-    focus_ring()->SetColor(ash_color_provider->GetControlsLayerColor(
-        AshColorProvider::ControlsLayerType::kFocusRingColor));
+    views::FocusRing::Get(this)->SetColor(
+        ash_color_provider->GetControlsLayerColor(
+            AshColorProvider::ControlsLayerType::kFocusRingColor));
 
     // Ink drop.
     const AshColorProvider::RippleAttributes ripple_attributes =
         ash_color_provider->GetRippleAttributes();
-    SetInkDropMode(InkDropMode::ON);
-    SetInkDropBaseColor(ripple_attributes.base_color);
-    SetInkDropVisibleOpacity(ripple_attributes.inkdrop_opacity);
+    views::InkDrop::Get(this)->SetBaseColor(ripple_attributes.base_color);
+    views::InkDrop::Get(this)->SetVisibleOpacity(
+        ripple_attributes.inkdrop_opacity);
+  }
+
+  void Init() {
+    SetAccessibleName(l10n_util::GetStringUTF16(
+        IDS_ASH_HOLDING_SPACE_PINNED_FILES_APP_CHIP_TEXT));
+    SetID(kHoldingSpaceFilesAppChipId);
+
+    // Ink drop.
+    views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
     views::InstallRoundRectHighlightPathGenerator(this, gfx::Insets(),
                                                   kFilesAppChipHeight / 2);
 
@@ -113,17 +117,10 @@ class FilesAppChip : public views::Button {
 
     // Label.
     auto* label = AddChildView(
-        holding_space_util::CreateLabel(holding_space_util::LabelStyle::kChip));
+        bubble_utils::CreateLabel(bubble_utils::LabelStyle::kChipTitle));
     label->SetText(l10n_util::GetStringUTF16(
         IDS_ASH_HOLDING_SPACE_PINNED_FILES_APP_CHIP_TEXT));
     layout->SetFlexForView(label, 1);
-  }
-
-  void OnPressed(const ui::Event& event) {
-    holding_space_metrics::RecordFilesAppChipAction(
-        holding_space_metrics::FilesAppChipAction::kClick);
-
-    HoldingSpaceController::Get()->client()->OpenMyFiles(base::DoNothing());
   }
 };
 
@@ -131,13 +128,24 @@ class FilesAppChip : public views::Button {
 
 // PinnedFilesSection ----------------------------------------------------------
 
-PinnedFilesSection::PinnedFilesSection(HoldingSpaceItemViewDelegate* delegate)
+PinnedFilesSection::PinnedFilesSection(HoldingSpaceViewDelegate* delegate)
     : HoldingSpaceItemViewsSection(delegate,
                                    /*supported_types=*/
                                    {HoldingSpaceItem::Type::kPinnedFile},
-                                   /*max_count=*/base::nullopt) {}
+                                   /*max_count=*/absl::nullopt) {}
 
 PinnedFilesSection::~PinnedFilesSection() = default;
+
+// static
+bool PinnedFilesSection::ShouldShowPlaceholder(PrefService* prefs) {
+  // The placeholder should only be shown if:
+  // * a holding space item has been added at some point in time,
+  // * a holding space item has *never* been pinned, and
+  // * the user has never pressed the Files app chip in the placeholder.
+  return holding_space_prefs::GetTimeOfFirstAdd(prefs) &&
+         !holding_space_prefs::GetTimeOfFirstPin(prefs) &&
+         !holding_space_prefs::GetTimeOfFirstFilesAppChipPress(prefs);
+}
 
 const char* PinnedFilesSection::GetClassName() const {
   return "PinnedFilesSection";
@@ -150,8 +158,8 @@ gfx::Size PinnedFilesSection::GetMinimumSize() const {
 }
 
 std::unique_ptr<views::View> PinnedFilesSection::CreateHeader() {
-  auto header = holding_space_util::CreateLabel(
-      holding_space_util::LabelStyle::kHeader,
+  auto header = bubble_utils::CreateLabel(
+      bubble_utils::LabelStyle::kHeader,
       l10n_util::GetStringUTF16(IDS_ASH_HOLDING_SPACE_PINNED_TITLE));
   header->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
   header->SetPaintToLayer();
@@ -160,7 +168,12 @@ std::unique_ptr<views::View> PinnedFilesSection::CreateHeader() {
 }
 
 std::unique_ptr<views::View> PinnedFilesSection::CreateContainer() {
-  return std::make_unique<HoldingSpaceItemChipsContainer>();
+  auto container = std::make_unique<views::View>();
+  container->SetLayoutManager(std::make_unique<SimpleGridLayout>(
+      kHoldingSpaceChipCountPerRow,
+      /*column_spacing=*/kHoldingSpaceSectionContainerChildSpacing,
+      /*row_spacing=*/kHoldingSpaceSectionContainerChildSpacing));
+  return container;
 }
 
 std::unique_ptr<HoldingSpaceItemView> PinnedFilesSection::CreateView(
@@ -173,7 +186,8 @@ std::unique_ptr<HoldingSpaceItemView> PinnedFilesSection::CreateView(
 }
 
 std::unique_ptr<views::View> PinnedFilesSection::CreatePlaceholder() {
-  if (HasEverPinnedHoldingSpaceItem())
+  auto* prefs = Shell::Get()->session_controller()->GetActivePrefService();
+  if (!PinnedFilesSection::ShouldShowPlaceholder(prefs))
     return nullptr;
 
   auto placeholder = std::make_unique<views::View>();
@@ -188,16 +202,35 @@ std::unique_ptr<views::View> PinnedFilesSection::CreatePlaceholder() {
       views::BoxLayout::CrossAxisAlignment::kStart);
 
   // Prompt.
-  auto* prompt = placeholder->AddChildView(holding_space_util::CreateLabel(
-      holding_space_util::LabelStyle::kBody,
+  auto* prompt = placeholder->AddChildView(bubble_utils::CreateLabel(
+      bubble_utils::LabelStyle::kBody,
       l10n_util::GetStringUTF16(IDS_ASH_HOLDING_SPACE_PINNED_EMPTY_PROMPT)));
   prompt->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
   prompt->SetMultiLine(true);
 
   // Files app chip.
-  placeholder->AddChildView(std::make_unique<FilesAppChip>());
+  placeholder->AddChildView(std::make_unique<FilesAppChip>(base::BindRepeating(
+      &PinnedFilesSection::OnFilesAppChipPressed, base::Unretained(this))));
 
   return placeholder;
+}
+
+void PinnedFilesSection::OnFilesAppChipPressed(const ui::Event& event) {
+  holding_space_metrics::RecordFilesAppChipAction(
+      holding_space_metrics::FilesAppChipAction::kClick);
+
+  // NOTE: This no-ops if the Files app chip was previously pressed.
+  holding_space_prefs::MarkTimeOfFirstFilesAppChipPress(
+      Shell::Get()->session_controller()->GetActivePrefService());
+
+  HoldingSpaceController::Get()->client()->OpenMyFiles(base::DoNothing());
+
+  // Once the user has pressed the Files app chip, the placeholder should no
+  // longer be displayed. This is accomplished by destroying it. If the holding
+  // space model is empty, the holding space tray will also need to update its
+  // visibility to become hidden.
+  DestroyPlaceholder();
+  delegate()->UpdateTrayVisibility();
 }
 
 }  // namespace ash

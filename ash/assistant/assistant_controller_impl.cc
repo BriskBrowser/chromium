@@ -9,13 +9,15 @@
 
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/assistant/util/deep_link_util.h"
+#include "ash/capture_mode/capture_mode_controller.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/android_intent_helper.h"
-#include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/new_window_delegate.h"
+#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
 #include "ash/public/mojom/assistant_volume_control.mojom.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
-#include "ash/utility/screenshot_controller.h"
+#include "ash/style/ash_color_provider.h"
 #include "base/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
@@ -30,7 +32,7 @@ namespace ash {
 
 AssistantControllerImpl::AssistantControllerImpl() {
   assistant_state_controller_.AddObserver(this);
-  chromeos::CrasAudioHandler::Get()->AddAudioObserver(this);
+  CrasAudioHandler::Get()->AddAudioObserver(this);
   AddObserver(this);
 
   // The Assistant service needs to have accessibility state synced with ash
@@ -38,13 +40,15 @@ AssistantControllerImpl::AssistantControllerImpl() {
   // provide an opportunity to turn on/off A11Y features.
   Shell::Get()->accessibility_controller()->AddObserver(this);
 
+  color_mode_observer_.Observe(AshColorProvider::Get());
+
   NotifyConstructed();
 }
 
 AssistantControllerImpl::~AssistantControllerImpl() {
   NotifyDestroying();
 
-  chromeos::CrasAudioHandler::Get()->RemoveAudioObserver(this);
+  CrasAudioHandler::Get()->RemoveAudioObserver(this);
   Shell::Get()->accessibility_controller()->RemoveObserver(this);
   assistant_state_controller_.RemoveObserver(this);
   RemoveObserver(this);
@@ -75,6 +79,9 @@ void AssistantControllerImpl::SetAssistant(
 
   OnAccessibilityStatusChanged();
 
+  ScopedAssistantLightModeAsDefault scoped_light_mode_as_default;
+  OnColorModeChanged(AshColorProvider::Get()->IsDarkModeEnabled());
+
   if (assistant) {
     for (AssistantControllerObserver& observer : observers_)
       observer.OnAssistantReady();
@@ -104,7 +111,7 @@ void AssistantControllerImpl::DownloadImage(
     ImageDownloader::DownloadCallback callback) {
   constexpr net::NetworkTrafficAnnotationTag kNetworkTrafficAnnotationTag =
       net::DefineNetworkTrafficAnnotation("image_downloader", R"(
-            "semantics: {
+            semantics {
               sender: "Google Assistant"
               description:
                 "The Google Assistant requires dynamic loading of images to "
@@ -116,7 +123,7 @@ void AssistantControllerImpl::DownloadImage(
                 "multiple images."
               destination: GOOGLE_OWNED_SERVICE
             }
-            "policy": {
+            policy {
               cookies_allowed: NO
               setting:
                 "The Google Assistant can be enabled/disabled in Chrome "
@@ -164,8 +171,8 @@ void AssistantControllerImpl::OpenUrl(const GURL& url,
     // such, the browser will always be instructed to open |url| in a new
     // browser tab and Assistant UI state will be updated downstream to respect
     // |in_background|.
-    NewWindowDelegate::GetInstance()->NewTabWithUrl(
-        url, /*from_user_interaction=*/true);
+    NewWindowDelegate::GetInstance()->OpenUrl(url,
+                                              /*from_user_interaction=*/true);
   }
   NotifyUrlOpened(url, from_server);
 }
@@ -197,7 +204,7 @@ void AssistantControllerImpl::OnDeepLinkReceived(
     }
     case DeepLinkType::kFeedback:
       NewWindowDelegate::GetInstance()->OpenFeedbackPage(
-          /*from_assistant=*/true);
+          NewWindowDelegate::FeedbackSource::kFeedbackSourceAssistant);
 
       // Close the assistant UI so that the feedback page is visible.
       assistant_ui_controller_.CloseUi(
@@ -208,7 +215,7 @@ void AssistantControllerImpl::OnDeepLinkReceived(
       // user's intention to include the Assistant in the picture.
       assistant_ui_controller_.CloseUi(
           chromeos::assistant::AssistantExitPoint::kScreenshot);
-      Shell::Get()->screenshot_controller()->TakeScreenshotForAllRootWindows();
+      CaptureModeController::Get()->CaptureScreenshotsOfAllDisplays();
       break;
     case DeepLinkType::kTaskManager:
       // Open task manager window.
@@ -219,7 +226,6 @@ void AssistantControllerImpl::OnDeepLinkReceived(
     case DeepLinkType::kLists:
     case DeepLinkType::kNotes:
     case DeepLinkType::kOnboarding:
-    case DeepLinkType::kProactiveSuggestions:
     case DeepLinkType::kQuery:
     case DeepLinkType::kReminders:
     case DeepLinkType::kSettings:
@@ -232,20 +238,19 @@ void AssistantControllerImpl::OnDeepLinkReceived(
 void AssistantControllerImpl::SetVolume(int volume, bool user_initiated) {
   volume = std::min(100, volume);
   volume = std::max(volume, 0);
-  chromeos::CrasAudioHandler::Get()->SetOutputVolumePercent(volume);
+  CrasAudioHandler::Get()->SetOutputVolumePercent(volume);
 }
 
 void AssistantControllerImpl::SetMuted(bool muted) {
-  chromeos::CrasAudioHandler::Get()->SetOutputMute(muted);
+  CrasAudioHandler::Get()->SetOutputMute(muted);
 }
 
 void AssistantControllerImpl::AddVolumeObserver(
     mojo::PendingRemote<mojom::VolumeObserver> observer) {
   volume_observers_.Add(std::move(observer));
 
-  int output_volume =
-      chromeos::CrasAudioHandler::Get()->GetOutputVolumePercent();
-  bool mute = chromeos::CrasAudioHandler::Get()->IsOutputMuted();
+  int output_volume = CrasAudioHandler::Get()->GetOutputVolumePercent();
+  bool mute = CrasAudioHandler::Get()->IsOutputMuted();
   OnOutputMuteChanged(mute);
   OnOutputNodeVolumeChanged(0 /* node */, output_volume);
 }
@@ -270,6 +275,13 @@ void AssistantControllerImpl::OnAccessibilityStatusChanged() {
   // state so that it can turn on/off A11Y features appropriately.
   assistant_->OnAccessibilityStatusChanged(
       Shell::Get()->accessibility_controller()->spoken_feedback().enabled());
+}
+
+void AssistantControllerImpl::OnColorModeChanged(bool dark_mode_enabled) {
+  if (!assistant_)
+    return;
+
+  assistant_->OnColorModeChanged(dark_mode_enabled);
 }
 
 bool AssistantControllerImpl::IsAssistantReady() const {

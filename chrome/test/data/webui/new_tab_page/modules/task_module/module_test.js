@@ -2,37 +2,35 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {shoppingTasksDescriptor, TaskModuleHandlerProxy} from 'chrome://new-tab-page/new_tab_page.js';
-import {TestBrowserProxy} from 'chrome://test/test_browser_proxy.m.js';
-import {eventToPromise, flushTasks} from 'chrome://test/test_util.m.js';
+import {$$, shoppingTasksDescriptor, TaskModuleHandlerProxy} from 'chrome://new-tab-page/new_tab_page.js';
+import {assert} from 'chrome://resources/js/assert.m.js';
+import {assertDeepEquals, assertEquals, assertTrue} from 'chrome://test/chai_assert.js';
+import {installMock} from 'chrome://test/new_tab_page/test_support.js';
+import {TestBrowserProxy} from 'chrome://test/test_browser_proxy.js';
+import {eventToPromise, flushTasks} from 'chrome://test/test_util.js';
 
 suite('NewTabPageModulesTaskModuleTest', () => {
-  /**
-   * @implements {TaskModuleHandlerProxy}
-   * @extends {TestBrowserProxy}
-   */
-  let testProxy;
+  /** @type {!TestBrowserProxy} */
+  let handler;
 
   setup(() => {
-    PolymerTest.clearBody();
+    document.body.innerHTML = '';
 
-    testProxy = TestBrowserProxy.fromClass(TaskModuleHandlerProxy);
-    testProxy.handler =
-        TestBrowserProxy.fromClass(taskModule.mojom.TaskModuleHandlerRemote);
-    TaskModuleHandlerProxy.instance_ = testProxy;
+    handler = installMock(
+        taskModule.mojom.TaskModuleHandlerRemote,
+        TaskModuleHandlerProxy.setHandler);
   });
 
   test('creates no module if no task', async () => {
     // Arrange.
-    testProxy.handler.setResultFor(
-        'getPrimaryTask', Promise.resolve({task: null}));
+    handler.setResultFor('getPrimaryTask', Promise.resolve({task: null}));
 
     // Act.
-    await shoppingTasksDescriptor.initialize();
+    const moduleElement = await shoppingTasksDescriptor.initialize(0);
 
     // Assert.
-    assertEquals(1, testProxy.handler.getCallCount('getPrimaryTask'));
-    assertEquals(null, shoppingTasksDescriptor.element);
+    assertEquals(1, handler.getCallCount('getPrimaryTask'));
+    assertEquals(null, moduleElement);
   });
 
   test('creates module if task', async () => {
@@ -66,21 +64,20 @@ suite('NewTabPageModulesTaskModuleTest', () => {
         },
       ],
     };
-    testProxy.handler.setResultFor('getPrimaryTask', Promise.resolve({task}));
+    handler.setResultFor('getPrimaryTask', Promise.resolve({task}));
 
     // Act.
-    await shoppingTasksDescriptor.initialize();
-    const moduleElement = shoppingTasksDescriptor.element;
+    const moduleElement = assert(await shoppingTasksDescriptor.initialize(0));
     document.body.append(moduleElement);
-    moduleElement.$.taskItemsRepeat.render();
-    moduleElement.$.relatedSearchesRepeat.render();
+    $$(moduleElement, '#taskItemsRepeat').render();
+    $$(moduleElement, '#relatedSearchesRepeat').render();
 
     // Assert.
     const products =
         Array.from(moduleElement.shadowRoot.querySelectorAll('.task-item'));
     const pills =
         Array.from(moduleElement.shadowRoot.querySelectorAll('.pill'));
-    assertEquals(1, testProxy.handler.getCallCount('getPrimaryTask'));
+    assertEquals(1, handler.getCallCount('getPrimaryTask'));
     assertEquals(2, products.length);
     assertEquals(2, pills.length);
     assertEquals('https://foo.com/', products[0].href);
@@ -107,7 +104,7 @@ suite('NewTabPageModulesTaskModuleTest', () => {
 
   test('products and pills are hidden when cutoff', async () => {
     const repeat = (n, fn) => Array(n).fill(0).map(fn);
-    testProxy.handler.setResultFor('getPrimaryTask', Promise.resolve({
+    handler.setResultFor('getPrimaryTask', Promise.resolve({
       task: {
         title: 'Hello world',
         taskItems: repeat(20, () => ({
@@ -123,11 +120,10 @@ suite('NewTabPageModulesTaskModuleTest', () => {
                                     })),
       }
     }));
-    await shoppingTasksDescriptor.initialize();
-    const moduleElement = shoppingTasksDescriptor.element;
+    const moduleElement = assert(await shoppingTasksDescriptor.initialize(0));
     document.body.append(moduleElement);
-    moduleElement.$.taskItemsRepeat.render();
-    moduleElement.$.relatedSearchesRepeat.render();
+    $$(moduleElement, '#taskItemsRepeat').render();
+    $$(moduleElement, '#relatedSearchesRepeat').render();
     const getElements = () => Array.from(
         moduleElement.shadowRoot.querySelectorAll('.task-item, .pill'));
     assertEquals(40, getElements().length);
@@ -178,11 +174,10 @@ suite('NewTabPageModulesTaskModuleTest', () => {
         },
       ],
     };
-    testProxy.handler.setResultFor('getPrimaryTask', Promise.resolve({task}));
+    handler.setResultFor('getPrimaryTask', Promise.resolve({task}));
 
     // Arrange.
-    await shoppingTasksDescriptor.initialize();
-    const moduleElement = shoppingTasksDescriptor.element;
+    const moduleElement = assert(await shoppingTasksDescriptor.initialize(0));
     document.body.append(moduleElement);
     await flushTasks();
 
@@ -197,10 +192,10 @@ suite('NewTabPageModulesTaskModuleTest', () => {
     const restoreCallback = dismissEvent.detail.restoreCallback;
 
     // Assert.
-    assertEquals('Removed Hello world', toastMessage);
+    assertEquals('Hello world hidden', toastMessage);
     assertDeepEquals(
         [taskModule.mojom.TaskModuleType.kShopping, 'Hello world'],
-        await testProxy.handler.whenCalled('dismissTask'));
+        await handler.whenCalled('dismissTask'));
 
     // Act.
     restoreCallback();
@@ -208,6 +203,25 @@ suite('NewTabPageModulesTaskModuleTest', () => {
     // Assert.
     assertDeepEquals(
         [taskModule.mojom.TaskModuleType.kShopping, 'Hello world'],
-        await testProxy.handler.whenCalled('restoreTask'));
+        await handler.whenCalled('restoreTask'));
+  });
+
+  test('info button click opens info dialog', async () => {
+    // Arrange.
+    const task = {
+      title: '',
+      taskItems: [],
+      relatedSearches: [],
+    };
+    handler.setResultFor('getPrimaryTask', Promise.resolve({task}));
+    const moduleElement = assert(await shoppingTasksDescriptor.initialize(0));
+    document.body.append(moduleElement);
+
+    // Act.
+    $$(moduleElement, 'ntp-module-header')
+        .dispatchEvent(new Event('info-button-click'));
+
+    // Assert.
+    assertTrue(!!$$(moduleElement, 'ntp-info-dialog'));
   });
 });

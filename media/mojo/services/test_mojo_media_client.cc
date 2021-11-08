@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -56,7 +57,7 @@ std::unique_ptr<Renderer> TestMojoMediaClient::CreateRenderer(
     const std::string& /* audio_device_id */) {
   // If called the first time, do one time initialization.
   if (!decoder_factory_) {
-    decoder_factory_.reset(new media::DefaultDecoderFactory(nullptr));
+    decoder_factory_ = std::make_unique<media::DefaultDecoderFactory>(nullptr);
   }
 
   if (!renderer_factory_) {
@@ -75,8 +76,7 @@ std::unique_ptr<Renderer> TestMojoMediaClient::CreateRenderer(
   // RendererImpls. Thus create one for each Renderer creation.
   auto audio_sink = base::MakeRefCounted<AudioOutputStreamSink>();
   auto video_sink = std::make_unique<NullVideoSink>(
-      false, base::TimeDelta::FromSecondsD(1.0 / 60),
-      NullVideoSink::NewFrameCB(), task_runner);
+      false, base::Seconds(1.0 / 60), NullVideoSink::NewFrameCB(), task_runner);
   auto* video_sink_ptr = video_sink.get();
 
   // Hold created sinks since DefaultRendererFactory only takes raw pointers to

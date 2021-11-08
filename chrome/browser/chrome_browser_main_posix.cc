@@ -19,9 +19,9 @@
 #include "base/notreached.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/app/shutdown_signal_handlers_posix.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/sessions/session_restore.h"
+#include "chrome/browser/shutdown_signal_handlers_posix.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/result_codes.h"
@@ -40,6 +40,9 @@ void SIGCHLDHandler(int signal) {
 // way through startup which causes all sorts of problems.
 class ExitHandler {
  public:
+  ExitHandler(const ExitHandler&) = delete;
+  ExitHandler& operator=(const ExitHandler&) = delete;
+
   // Invokes exit when appropriate.
   static void ExitWhenPossibleOnUIThread(int signal);
 
@@ -48,7 +51,7 @@ class ExitHandler {
   ~ExitHandler();
 
   // Called when a session restore has finished.
-  void OnSessionRestoreDone(int num_tabs_restored);
+  void OnSessionRestoreDone(Profile* profile, int num_tabs_restored);
 
   // Does the appropriate call to Exit.
   static void Exit();
@@ -59,8 +62,6 @@ class ExitHandler {
   // SessionRestore, so that the callback list does not contain any obsolete
   // callbacks.
   base::CallbackListSubscription on_session_restored_callback_subscription_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExitHandler);
 };
 
 // static
@@ -110,7 +111,7 @@ ExitHandler::ExitHandler() {
 ExitHandler::~ExitHandler() {
 }
 
-void ExitHandler::OnSessionRestoreDone(int /* num_tabs */) {
+void ExitHandler::OnSessionRestoreDone(Profile* profile, int /* num_tabs */) {
   if (!SessionRestore::IsRestoringSynchronously()) {
     // At this point the message loop may not be running (meaning we haven't
     // gotten through browser startup, but are close). Post the task to at which
@@ -155,8 +156,8 @@ int ChromeBrowserMainPartsPosix::PreEarlyInitialization() {
   return content::RESULT_CODE_NORMAL_EXIT;
 }
 
-void ChromeBrowserMainPartsPosix::PostMainMessageLoopStart() {
-  ChromeBrowserMainParts::PostMainMessageLoopStart();
+void ChromeBrowserMainPartsPosix::PostCreateMainMessageLoop() {
+  ChromeBrowserMainParts::PostCreateMainMessageLoop();
 
   // Exit in response to SIGINT, SIGTERM, etc.
   InstallShutdownSignalHandlers(

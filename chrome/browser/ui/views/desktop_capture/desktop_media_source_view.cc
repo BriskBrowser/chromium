@@ -9,13 +9,14 @@
 #include "chrome/browser/ui/views/desktop_capture/desktop_media_picker_views.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/canvas.h"
-#include "ui/native_theme/native_theme.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_utils.h"
 
 using content::DesktopMediaID;
@@ -58,7 +59,7 @@ DesktopMediaSourceView::DesktopMediaSourceView(
 
 DesktopMediaSourceView::~DesktopMediaSourceView() {}
 
-void DesktopMediaSourceView::SetName(const base::string16& name) {
+void DesktopMediaSourceView::SetName(const std::u16string& name) {
   label_->SetText(name);
 }
 
@@ -88,9 +89,8 @@ void DesktopMediaSourceView::SetSelected(bool selected) {
       }
     }
 
-    image_view_->SetBackground(
-        views::CreateSolidBackground(GetNativeTheme()->GetSystemColor(
-            ui::NativeTheme::kColorId_FocusedMenuItemBackgroundColor)));
+    image_view_->SetBackground(views::CreateSolidBackground(
+        GetColorProvider()->GetColor(ui::kColorMenuItemBackgroundSelected)));
     label_->SetFontList(label_->font_list().Derive(0, gfx::Font::NORMAL,
                                                    gfx::Font::Weight::BOLD));
     parent_->OnSelectionChanged();

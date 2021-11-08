@@ -68,10 +68,8 @@ public interface TabObserver {
      * @param params   The params describe the page being loaded.
      * @param loadType The type of load that was performed.
      *
-     * @see TabLoadStatus#PAGE_LOAD_FAILED
-     * @see TabLoadStatus#DEFAULT_PAGE_LOAD
-     * @see TabLoadStatus#PARTIAL_PRERENDERED_PAGE_LOAD
-     * @see TabLoadStatus#FULL_PRERENDERED_PAGE_LOAD
+     * @see Tab$TabLoadStatus#PAGE_LOAD_FAILED
+     * @see Tab$TabLoadStatus#DEFAULT_PAGE_LOAD
      */
     void onLoadUrl(Tab tab, LoadUrlParams params, int loadType);
 
@@ -210,15 +208,6 @@ public interface TabObserver {
     // WebContentsObserver methods ---------------------------------------------------------
 
     /**
-     * Called when an error occurs while loading a page and/or the page fails to load.
-     * @param tab               The notifying {@link Tab}.
-     * @param isMainFrame       Whether failed load happened for the main frame.
-     * @param errorCode         Code for the occurring error.
-     * @param failingUrl        The url that was loading when the error occurred.
-     */
-    void onDidFailLoad(Tab tab, boolean isMainFrame, int errorCode, GURL failingUrl);
-
-    /**
      * Called when a navigation is started in the WebContents.
      * @param tab The notifying {@link Tab}.
      * @param navigationHandle Pointer to a NavigationHandle representing the navigation.
@@ -331,4 +320,11 @@ public interface TabObserver {
      * @param scrolling {@code true} if scrolling started; {@code false} if stopped.
      */
     void onContentViewScrollingStateChanged(boolean scrolling);
+
+    /**
+     * Called when the Tab stops scrolling.
+     * @param verticalScrollDelta The delta between the vertical offsets when the scroll started and
+     *         currently. It is negative when the tab scrolled down and positive when scrolled up.
+     */
+    void onContentViewScrollingEnded(int verticalScrollDelta);
 }

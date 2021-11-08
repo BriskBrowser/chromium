@@ -11,7 +11,7 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/common/chrome_paths.h"
@@ -30,9 +30,13 @@ namespace extensions {
 class ExtensionUnloadedObserver : public ExtensionRegistryObserver {
  public:
   explicit ExtensionUnloadedObserver(ExtensionRegistry* registry)
-      : unloaded_count_(0), observer_(this) {
-    observer_.Add(registry);
+      : unloaded_count_(0) {
+    observation_.Observe(registry);
   }
+
+  ExtensionUnloadedObserver(const ExtensionUnloadedObserver&) = delete;
+  ExtensionUnloadedObserver& operator=(const ExtensionUnloadedObserver&) =
+      delete;
 
   size_t unloaded_count() const { return unloaded_count_; }
 
@@ -46,9 +50,8 @@ class ExtensionUnloadedObserver : public ExtensionRegistryObserver {
 
  private:
   size_t unloaded_count_;
-  ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver> observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionUnloadedObserver);
+  base::ScopedObservation<ExtensionRegistry, ExtensionRegistryObserver>
+      observation_{this};
 };
 
 class ComponentLoaderTest : public testing::Test {
@@ -129,14 +132,11 @@ TEST_F(ComponentLoaderTest, ParseManifest) {
 
   // Test parsing valid JSON.
 
-  int value = 0;
   manifest = component_loader_.ParseManifest(
       "{ \"test\": { \"one\": 1 }, \"two\": 2 }");
   ASSERT_TRUE(manifest);
-  EXPECT_TRUE(manifest->GetInteger("test.one", &value));
-  EXPECT_EQ(1, value);
-  ASSERT_TRUE(manifest->GetInteger("two", &value));
-  EXPECT_EQ(2, value);
+  EXPECT_EQ(1, manifest->FindIntPath("test.one"));
+  EXPECT_EQ(2, manifest->FindIntKey("two"));
 
   std::string string_value;
   manifest = component_loader_.ParseManifest(manifest_contents_);
@@ -214,6 +214,10 @@ TEST_F(ComponentLoaderTest, AddOrReplace) {
   ExtensionRegistry* registry = ExtensionRegistry::Get(&profile_);
   ExtensionUnloadedObserver unload_observer(registry);
   EXPECT_EQ(0u, component_loader_.registered_extensions_count());
+
+  // Allow the Feedback extension, which has a background page, to be loaded.
+  component_loader_.EnableBackgroundExtensionsForTesting();
+
   component_loader_.AddDefaultComponentExtensions(false);
   size_t const default_count = component_loader_.registered_extensions_count();
   base::FilePath known_extension = GetBasePath()

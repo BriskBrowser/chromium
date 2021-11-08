@@ -41,6 +41,12 @@ class AssistantAlarmTimerControllerImpl
  public:
   explicit AssistantAlarmTimerControllerImpl(
       AssistantControllerImpl* assistant_controller);
+
+  AssistantAlarmTimerControllerImpl(const AssistantAlarmTimerControllerImpl&) =
+      delete;
+  AssistantAlarmTimerControllerImpl& operator=(
+      const AssistantAlarmTimerControllerImpl&) = delete;
+
   ~AssistantAlarmTimerControllerImpl() override;
 
   // Provides a pointer to the |assistant| owned by AssistantService.
@@ -48,7 +54,8 @@ class AssistantAlarmTimerControllerImpl
 
   // AssistantAlarmTimerController:
   const AssistantAlarmTimerModel* GetModel() const override;
-  void OnTimerStateChanged(std::vector<AssistantTimerPtr> timers) override;
+  void OnTimerStateChanged(
+      const std::vector<chromeos::assistant::AssistantTimer>& timers) override;
 
   // AssistantControllerObserver:
   void OnAssistantControllerConstructed() override;
@@ -62,16 +69,18 @@ class AssistantAlarmTimerControllerImpl
       chromeos::assistant::AssistantStatus status) override;
 
   // AssistantAlarmTimerModelObserver:
-  void OnTimerAdded(const AssistantTimer& timer) override;
-  void OnTimerUpdated(const AssistantTimer& timer) override;
-  void OnTimerRemoved(const AssistantTimer& timer) override;
+  void OnTimerAdded(const chromeos::assistant::AssistantTimer& timer) override;
+  void OnTimerUpdated(
+      const chromeos::assistant::AssistantTimer& timer) override;
+  void OnTimerRemoved(
+      const chromeos::assistant::AssistantTimer& timer) override;
 
  private:
   void PerformAlarmTimerAction(const assistant::util::AlarmTimerAction& action,
                                const std::string& alarm_timer_id,
-                               const base::Optional<base::TimeDelta>& duration);
+                               const absl::optional<base::TimeDelta>& duration);
 
-  void ScheduleNextTick(const AssistantTimer& timer);
+  void ScheduleNextTick(const chromeos::assistant::AssistantTimer& timer);
   void Tick(const std::string& timer_id);
 
   AssistantControllerImpl* const assistant_controller_;  // Owned by Shell.
@@ -87,8 +96,6 @@ class AssistantAlarmTimerControllerImpl
 
   base::ScopedObservation<AssistantController, AssistantControllerObserver>
       assistant_controller_observation_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantAlarmTimerControllerImpl);
 };
 
 }  // namespace ash

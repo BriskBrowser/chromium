@@ -74,6 +74,9 @@ class CORE_EXPORT FontBuilder {
   void SetVariantEastAsian(const FontVariantEastAsian);
   void SetVariantLigatures(const FontDescription::VariantLigatures&);
   void SetVariantNumeric(const FontVariantNumeric&);
+  void SetFontSynthesisWeight(FontDescription::FontSynthesisWeight);
+  void SetFontSynthesisStyle(FontDescription::FontSynthesisStyle);
+  void SetFontSynthesisSmallCaps(FontDescription::FontSynthesisSmallCaps);
   void SetTextRendering(TextRenderingMode);
   void SetKerning(FontDescription::Kerning);
   void SetFontOpticalSizing(OpticalSizing);
@@ -84,7 +87,7 @@ class CORE_EXPORT FontBuilder {
   void UpdateFontDescription(FontDescription&,
                              FontOrientation = FontOrientation::kHorizontal);
   void CreateFont(ComputedStyle&, const ComputedStyle* parent_style);
-  void CreateFontForDocument(ComputedStyle&);
+  void CreateInitialFont(ComputedStyle&);
 
   bool FontDirty() const { return flags_; }
 
@@ -124,6 +127,16 @@ class CORE_EXPORT FontBuilder {
   static FontSelectionValue InitialStretch() { return NormalWidthValue(); }
   static FontSelectionValue InitialStyle() { return NormalSlopeValue(); }
   static FontSelectionValue InitialWeight() { return NormalWeightValue(); }
+  static FontDescription::FontSynthesisWeight InitialFontSynthesisWeight() {
+    return FontDescription::kAutoFontSynthesisWeight;
+  }
+  static FontDescription::FontSynthesisStyle InitialFontSynthesisStyle() {
+    return FontDescription::kAutoFontSynthesisStyle;
+  }
+  static FontDescription::FontSynthesisSmallCaps
+  InitialFontSynthesisSmallCaps() {
+    return FontDescription::kAutoFontSynthesisSmallCaps;
+  }
 
  private:
   void SetFamilyDescription(FontDescription&,
@@ -169,6 +182,9 @@ class CORE_EXPORT FontBuilder {
     kKerning,
     kFontOpticalSizing,
     kFontSmoothing,
+    kFontSynthesisWeight,
+    kFontSynthesisStyle,
+    kFontSynthesisSmallCaps,
 
     kEffectiveZoom,
     kTextOrientation,
@@ -185,4 +201,4 @@ class CORE_EXPORT FontBuilder {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CSS_RESOLVER_FONT_BUILDER_H_

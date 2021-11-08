@@ -11,8 +11,8 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/browsing_data/cookies_tree_model.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
 
@@ -24,6 +24,10 @@ class CookiesViewHandler : public SettingsPageUIHandler,
                            public CookiesTreeModel::Observer {
  public:
   CookiesViewHandler();
+
+  CookiesViewHandler(const CookiesViewHandler&) = delete;
+  CookiesViewHandler& operator=(const CookiesViewHandler&) = delete;
+
   ~CookiesViewHandler() override;
 
   // SettingsPageUIHandler:
@@ -69,7 +73,7 @@ class CookiesViewHandler : public SettingsPageUIHandler,
 
   // Set |filter_| and get a portion (or all) of the list items.
   void HandleGetDisplayList(const base::ListValue* args);
-  void GetDisplayList(std::string callback_id, const base::string16& filter);
+  void GetDisplayList(std::string callback_id, const std::u16string& filter);
 
   // Remove all items matching the current |filter_|.
   void HandleRemoveShownItems(const base::ListValue* args);
@@ -77,7 +81,7 @@ class CookiesViewHandler : public SettingsPageUIHandler,
 
   // Remove selected sites data.
   void HandleRemoveSite(const base::ListValue* args);
-  void RemoveSite(const base::string16& site);
+  void RemoveSite(const std::u16string& site);
 
   // Retrieve cookie details for a specific site.
   void HandleGetCookieDetails(const base::ListValue* args);
@@ -115,7 +119,7 @@ class CookiesViewHandler : public SettingsPageUIHandler,
   std::unique_ptr<CookiesTreeModel> cookies_tree_model_for_testing_;
 
   // Only show items that contain |filter|.
-  base::string16 filter_;
+  std::u16string filter_;
 
   struct Request {
     // Specifies the batch behavior of the tree model when this request is run
@@ -174,15 +178,13 @@ class CookiesViewHandler : public SettingsPageUIHandler,
   void RequestComplete();
 
   // Sorted index list, by site. Indexes refer to |model->GetRoot()| children.
-  typedef std::pair<base::string16, size_t> LabelAndIndex;
+  typedef std::pair<std::u16string, size_t> LabelAndIndex;
   std::vector<LabelAndIndex> sorted_sites_;
 
   std::unique_ptr<CookiesTreeModelUtil> model_util_;
 
   // Used to cancel callbacks when JavaScript becomes disallowed.
   base::WeakPtrFactory<CookiesViewHandler> callback_weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CookiesViewHandler);
 };
 
 }  // namespace settings

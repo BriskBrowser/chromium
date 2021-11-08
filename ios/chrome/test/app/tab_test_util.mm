@@ -16,6 +16,7 @@
 #import "ios/chrome/browser/tabs/tab_title_util.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
+#import "ios/chrome/browser/ui/commands/show_signin_command.h"
 #import "ios/chrome/browser/ui/main/scene_controller.h"
 #import "ios/chrome/browser/ui/main/scene_controller_testing.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_coordinator.h"
@@ -23,6 +24,7 @@
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_usage_enabler/web_usage_enabler_browser_agent.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
+#import "ios/testing/open_url_context.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -70,19 +72,25 @@ void OpenNewTab() {
 
 NSURL* SimulateExternalAppURLOpening() {
   NSURL* url = [NSURL URLWithString:@"http://www.example.com"];
+  TestOpenURLContext* context = [[TestOpenURLContext alloc] init];
+  context.URL = url;
+
   UIApplication* application = UIApplication.sharedApplication;
-  id<UIApplicationDelegate> applicationDelegate = application.delegate;
-  [applicationDelegate application:application openURL:url options:@{}];
+  UIScene* scene = application.connectedScenes.anyObject;
+  [scene.delegate scene:scene openURLContexts:[NSSet setWithObject:context]];
+
   return url;
 }
 
 void SimulateAddAccountFromWeb() {
   id<ApplicationCommands, BrowserCommands> handler =
       chrome_test_util::HandlerForActiveBrowser();
-  [handler showAddAccountFromViewController:(UIViewController*)
-                                                GetForegroundActiveScene()
-                                                    .interfaceProvider
-                                                    .mainInterface.bvc];
+  ShowSigninCommand* command = [[ShowSigninCommand alloc]
+      initWithOperation:AUTHENTICATION_OPERATION_ADD_ACCOUNT
+            accessPoint:signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN];
+  UIViewController* baseViewController = base::mac::ObjCCast<UIViewController>(
+      GetForegroundActiveScene().interfaceProvider.mainInterface.bvc);
+  [handler showSignin:command baseViewController:baseViewController];
 }
 
 void OpenNewIncognitoTab() {
@@ -238,7 +246,7 @@ void SaveSessionImmediately() {
       ->SaveSession(true);
 }
 
-void EvictOtherTabModelTabs() {
+void EvictOtherBrowserTabs() {
   id<BrowserInterfaceProvider> provider = GetMainController().interfaceProvider;
   Browser* otherBrowser = IsIncognitoMode()
                               ? provider.mainInterface.browser

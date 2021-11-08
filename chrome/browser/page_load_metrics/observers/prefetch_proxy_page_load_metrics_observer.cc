@@ -16,9 +16,7 @@
 #include "components/page_load_metrics/browser/page_load_tracker.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
-#include "net/cookies/cookie_options.h"
 #include "services/metrics/public/cpp/metrics_utils.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -57,17 +55,12 @@ PrefetchProxyPageLoadMetricsObserver::OnStart(
     const GURL& currently_committed_url,
     bool started_in_foreground) {
   navigation_start_ = base::Time::Now();
-
-  CheckForCookiesOnURL(navigation_handle->GetWebContents()->GetBrowserContext(),
-                       navigation_handle->GetURL());
   return CONTINUE_OBSERVING;
 }
 
 page_load_metrics::PageLoadMetricsObserver::ObservePolicy
 PrefetchProxyPageLoadMetricsObserver::OnRedirect(
     content::NavigationHandle* navigation_handle) {
-  CheckForCookiesOnURL(navigation_handle->GetWebContents()->GetBrowserContext(),
-                       navigation_handle->GetURL());
   return CONTINUE_OBSERVING;
 }
 
@@ -80,7 +73,7 @@ PrefetchProxyPageLoadMetricsObserver::OnCommit(
   if (!navigation_handle->GetURL().SchemeIsHTTPOrHTTPS())
     return STOP_OBSERVING;
 
-  if (!navigation_handle->IsInMainFrame())
+  if (!navigation_handle->IsInPrimaryMainFrame())
     return STOP_OBSERVING;
 
   if (!page_load_metrics::IsNavigationUserInitiated(navigation_handle))
@@ -101,10 +94,6 @@ PrefetchProxyPageLoadMetricsObserver::OnCommit(
     return STOP_OBSERVING;
   after_srp_metrics_ = tab_helper->after_srp_metrics();
 
-  data_saver_enabled_at_commit_ = data_reduction_proxy::
-      DataReductionProxySettings::IsDataSaverEnabledByUser(
-          profile->IsOffTheRecord(), profile->GetPrefs());
-
   history::HistoryService* history_service =
       HistoryServiceFactory::GetForProfileIfExists(
           profile, ServiceAccessType::IMPLICIT_ACCESS);
@@ -114,8 +103,8 @@ PrefetchProxyPageLoadMetricsObserver::OnCommit(
     return CONTINUE_OBSERVING;
 
   for (const GURL& url : navigation_handle->GetRedirectChain()) {
-    history_service->GetLastVisitToHost(
-        url.GetOrigin(), base::Time() /* before_time */,
+    history_service->GetLastVisitToOrigin(
+        url::Origin::Create(url), base::Time() /* before_time */,
         navigation_start_ /* end_time */,
         base::BindOnce(
             &PrefetchProxyPageLoadMetricsObserver::OnOriginLastVisitResult,
@@ -146,11 +135,8 @@ void PrefetchProxyPageLoadMetricsObserver::OnDidInternalNavigationAbort(
   RecordAfterSRPEvent();
 }
 
-void PrefetchProxyPageLoadMetricsObserver::OnEventOccurred(
-    page_load_metrics::PageLoadMetricsEvent event) {
-  if (event == page_load_metrics::PageLoadMetricsEvent::PREFETCH_LIKELY) {
-    GetPrefetchMetrics();
-  }
+void PrefetchProxyPageLoadMetricsObserver::OnPrefetchLikely() {
+  GetPrefetchMetrics();
 }
 
 void PrefetchProxyPageLoadMetricsObserver::GetPrefetchMetrics() {
@@ -164,7 +150,7 @@ void PrefetchProxyPageLoadMetricsObserver::GetPrefetchMetrics() {
 
 void PrefetchProxyPageLoadMetricsObserver::OnOriginLastVisitResult(
     base::Time query_start_time,
-    history::HistoryLastVisitToHostResult result) {
+    history::HistoryLastVisitResult result) {
   if (!result.success)
     return;
 
@@ -182,26 +168,6 @@ void PrefetchProxyPageLoadMetricsObserver::OnOriginLastVisitResult(
       min_days_since_last_visit_to_origin_.value() > last_visit_in_days) {
     min_days_since_last_visit_to_origin_ = last_visit_in_days;
   }
-}
-
-void PrefetchProxyPageLoadMetricsObserver::CheckForCookiesOnURL(
-    content::BrowserContext* browser_context,
-    const GURL& url) {
-  content::StoragePartition* partition =
-      content::BrowserContext::GetStoragePartitionForSite(browser_context, url);
-
-  partition->GetCookieManagerForBrowserProcess()->GetCookieList(
-      url, net::CookieOptions::MakeAllInclusive(),
-      base::BindOnce(&PrefetchProxyPageLoadMetricsObserver::OnCookieResult,
-                     weak_factory_.GetWeakPtr(), base::Time::Now()));
-}
-
-void PrefetchProxyPageLoadMetricsObserver::OnCookieResult(
-    base::Time query_start_time,
-    const net::CookieAccessResultList& cookies,
-    const net::CookieAccessResultList& excluded_cookies) {
-  mainframe_had_cookies_ =
-      mainframe_had_cookies_.value_or(false) || !cookies.empty();
 }
 
 void PrefetchProxyPageLoadMetricsObserver::OnResourceDataUseObserved(
@@ -235,12 +201,6 @@ void PrefetchProxyPageLoadMetricsObserver::RecordMetrics() {
 
   task_tracker_.TryCancelAll();
 
-  if (mainframe_had_cookies_.has_value()) {
-    LOCAL_HISTOGRAM_BOOLEAN(
-        "PageLoad.Clients.SubresourceLoading.MainFrameHadCookies",
-        mainframe_had_cookies_.value());
-  }
-
   if (min_days_since_last_visit_to_origin_.has_value()) {
     int days_since_last_visit = min_days_since_last_visit_to_origin_.value();
 
@@ -262,10 +222,6 @@ void PrefetchProxyPageLoadMetricsObserver::RecordMetrics() {
       "PageLoad.Clients.SubresourceLoading.LoadedCSSJSBeforeFCP.Noncached",
       loaded_css_js_from_network_before_fcp_);
 
-  // Only record UKM for Data Saver users.
-  if (!data_saver_enabled_at_commit_)
-    return;
-
   RecordPrefetchProxyEvent();
   RecordAfterSRPEvent();
 }
@@ -285,10 +241,6 @@ void PrefetchProxyPageLoadMetricsObserver::RecordPrefetchProxyEvent() {
           maxxed_days_since_last_visit, kDaysSinceLastVisitBucketSpacing);
       builder.Setdays_since_last_visit_to_origin(ukm_days_since_last_visit);
     }
-  }
-  if (mainframe_had_cookies_.has_value()) {
-    int ukm_mainpage_had_cookies = mainframe_had_cookies_.value() ? 1 : 0;
-    builder.Setmainpage_request_had_cookies(ukm_mainpage_had_cookies);
   }
 
   int ukm_loaded_css_js_from_cache_before_fcp =

@@ -21,6 +21,10 @@ class COMPONENT_EXPORT(CHROMEOS_SYSTEM) FakeStatisticsProvider
     : public StatisticsProvider {
  public:
   FakeStatisticsProvider();
+
+  FakeStatisticsProvider(const FakeStatisticsProvider&) = delete;
+  FakeStatisticsProvider& operator=(const FakeStatisticsProvider&) = delete;
+
   ~FakeStatisticsProvider() override;
 
   // StatisticsProvider implementation:
@@ -40,8 +44,6 @@ class COMPONENT_EXPORT(CHROMEOS_SYSTEM) FakeStatisticsProvider
  private:
   std::map<std::string, std::string> machine_statistics_;
   std::map<std::string, bool> machine_flags_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeStatisticsProvider);
 };
 
 // A convenience subclass that automatically registers itself as the test
@@ -50,13 +52,23 @@ class COMPONENT_EXPORT(CHROMEOS_SYSTEM) ScopedFakeStatisticsProvider
     : public FakeStatisticsProvider {
  public:
   ScopedFakeStatisticsProvider();
-  ~ScopedFakeStatisticsProvider() override;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(ScopedFakeStatisticsProvider);
+  ScopedFakeStatisticsProvider(const ScopedFakeStatisticsProvider&) = delete;
+  ScopedFakeStatisticsProvider& operator=(const ScopedFakeStatisticsProvider&) =
+      delete;
+
+  ~ScopedFakeStatisticsProvider() override;
 };
 
 }  // namespace system
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+namespace system {
+using ::chromeos::system::ScopedFakeStatisticsProvider;
+}
+}  // namespace ash
 
 #endif  // CHROMEOS_SYSTEM_FAKE_STATISTICS_PROVIDER_H_

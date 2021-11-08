@@ -9,8 +9,8 @@
 #include <utility>
 
 #include "base/check_op.h"
+#include "base/cxx17_backports.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "components/content_settings/core/common/content_settings_utils.h"
 
@@ -32,7 +32,7 @@ constexpr HistogramValue kHistogramValue[] = {
     {ContentSettingsType::COOKIES, 0},
     {ContentSettingsType::IMAGES, 1},
     {ContentSettingsType::JAVASCRIPT, 2},
-    {ContentSettingsType::DEPRECATED_PLUGINS, 3},
+    // Removed PLUGINS in M91.
     {ContentSettingsType::POPUPS, 4},
     {ContentSettingsType::GEOLOCATION, 5},
     {ContentSettingsType::NOTIFICATIONS, 6},
@@ -41,7 +41,6 @@ constexpr HistogramValue kHistogramValue[] = {
     {ContentSettingsType::MEDIASTREAM_MIC, 12},
     {ContentSettingsType::MEDIASTREAM_CAMERA, 13},
     {ContentSettingsType::PROTOCOL_HANDLERS, 14},
-    {ContentSettingsType::PPAPI_BROKER, 15},
     {ContentSettingsType::AUTOMATIC_DOWNLOADS, 16},
     {ContentSettingsType::MIDI_SYSEX, 17},
     {ContentSettingsType::SSL_CERT_DECISIONS, 19},
@@ -94,6 +93,16 @@ constexpr HistogramValue kHistogramValue[] = {
     {ContentSettingsType::PERMISSION_AUTOREVOCATION_DATA, 72},
     {ContentSettingsType::FILE_SYSTEM_LAST_PICKED_DIRECTORY, 73},
     {ContentSettingsType::DISPLAY_CAPTURE, 74},
+    {ContentSettingsType::FILE_HANDLING, 75},
+    {ContentSettingsType::FILE_SYSTEM_ACCESS_CHOOSER_DATA, 76},
+    {ContentSettingsType::FEDERATED_IDENTITY_SHARING, 77},
+    {ContentSettingsType::FEDERATED_IDENTITY_REQUEST, 78},
+    {ContentSettingsType::JAVASCRIPT_JIT, 79},
+    {ContentSettingsType::HTTP_ALLOWED, 80},
+    {ContentSettingsType::FORMFILL_METADATA, 81},
+    {ContentSettingsType::FEDERATED_IDENTITY_ACTIVE_SESSION, 82},
+    {ContentSettingsType::AUTO_DARK_WEB_CONTENT, 83},
+    {ContentSettingsType::REQUEST_DESKTOP_SITE, 84},
 };
 
 }  // namespace
@@ -180,7 +189,8 @@ bool RendererContentSettingRules::IsRendererContentSetting(
          content_type == ContentSettingsType::JAVASCRIPT ||
          content_type == ContentSettingsType::CLIENT_HINTS ||
          content_type == ContentSettingsType::POPUPS ||
-         content_type == ContentSettingsType::MIXEDSCRIPT;
+         content_type == ContentSettingsType::MIXEDSCRIPT ||
+         content_type == ContentSettingsType::AUTO_DARK_WEB_CONTENT;
 }
 
 RendererContentSettingRules::RendererContentSettingRules() {}

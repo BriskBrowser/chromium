@@ -31,7 +31,7 @@ bool NavigationRateLimiter::CanProceed() {
   // can increase this threshold somewhat.
   static constexpr int kStateUpdateLimit = 200;
   static constexpr base::TimeDelta kStateUpdateLimitResetInterval =
-      base::TimeDelta::FromSeconds(10);
+      base::Seconds(10);
 
   if (++count_ <= kStateUpdateLimit)
     return true;
@@ -53,7 +53,7 @@ bool NavigationRateLimiter::CanProceed() {
           mojom::ConsoleMessageSource::kJavaScript,
           mojom::ConsoleMessageLevel::kWarning,
           "Throttling navigation to prevent the browser from hanging. See "
-          "https://crbug.com/882238. Command line switch "
+          "https://crbug.com/1038223. Command line switch "
           "--disable-ipc-flooding-protection can be used to bypass the "
           "protection"));
     }

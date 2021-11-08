@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <chrome/browser/ash/app_mode/arc/arc_kiosk_app_service.h>
+#include "chrome/browser/ash/app_mode/arc/arc_kiosk_app_service.h"
 
 #include <memory>
 
@@ -11,7 +11,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/ash/app_mode/arc/arc_kiosk_app_manager.h"
 #include "chrome/browser/ash/app_mode/arc/arc_kiosk_app_service_factory.h"
-#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
@@ -30,7 +30,7 @@ constexpr int kNonComplianceReasonAppNotInstalled = 5;
 
 // Timeout maintenance session after 30 minutes.
 constexpr base::TimeDelta kArcKioskMaintenanceSessionTimeout =
-    base::TimeDelta::FromMinutes(30);
+    base::Minutes(30);
 
 // static
 ArcKioskAppService* ArcKioskAppService::Create(Profile* profile) {
@@ -79,7 +79,8 @@ void ArcKioskAppService::OnKioskAppsSettingsChanged() {
 void ArcKioskAppService::OnTaskCreated(int32_t task_id,
                                        const std::string& package_name,
                                        const std::string& activity,
-                                       const std::string& intent) {
+                                       const std::string& intent,
+                                       int32_t session_id) {
   // Store task id of the app to stop it later when needed.
   if (app_info_ && package_name == app_info_->package_name &&
       activity == app_info_->activity) {
@@ -191,9 +192,9 @@ void ArcKioskAppService::RequestNameAndIconUpdate() {
   if (!app_info_ || !app_info_->ready || app_icon_)
     return;
   app_icon_ = std::make_unique<ArcAppIcon>(
-      profile_, app_id_, ash::AppListConfig::instance().grid_icon_dimension(),
-      this);
-  app_icon_->image_skia().GetRepresentation(ui::GetSupportedScaleFactor(
+      profile_, app_id_,
+      ash::SharedAppListConfig::instance().default_grid_icon_dimension(), this);
+  app_icon_->image_skia().GetRepresentation(ui::GetSupportedResourceScaleFactor(
       display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor()));
   // Apply default image now and in case icon is updated then OnIconUpdated()
   // will be called additionally.

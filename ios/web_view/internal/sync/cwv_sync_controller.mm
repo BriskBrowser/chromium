@@ -183,7 +183,8 @@ __weak id<CWVSyncControllerDataSource> gSyncDataSource;
       base::SysNSStringToUTF8(identity.email));
   CHECK(_identityManager->HasAccountWithRefreshToken(accountId));
 
-  _identityManager->GetPrimaryAccountMutator()->SetPrimaryAccount(accountId);
+  _identityManager->GetPrimaryAccountMutator()->SetPrimaryAccount(
+      accountId, signin::ConsentLevel::kSync);
   CHECK_EQ(_identityManager->GetPrimaryAccountId(signin::ConsentLevel::kSync),
            accountId);
 
@@ -200,7 +201,7 @@ __weak id<CWVSyncControllerDataSource> gSyncDataSource;
   auto* primaryAccountMutator = _identityManager->GetPrimaryAccountMutator();
   primaryAccountMutator->ClearPrimaryAccount(
       signin_metrics::ProfileSignout::USER_CLICKED_SIGNOUT_SETTINGS,
-      signin_metrics::SignoutDelete::IGNORE_METRIC);
+      signin_metrics::SignoutDelete::kIgnoreMetric);
 }
 
 - (BOOL)unlockWithPassphrase:(NSString*)passphrase {

@@ -32,13 +32,17 @@ class AwContentRendererClient : public content::ContentRendererClient,
                                 public service_manager::LocalInterfaceProvider {
  public:
   AwContentRendererClient();
+
+  AwContentRendererClient(const AwContentRendererClient&) = delete;
+  AwContentRendererClient& operator=(const AwContentRendererClient&) = delete;
+
   ~AwContentRendererClient() override;
 
   // ContentRendererClient implementation.
   void RenderThreadStarted() override;
   void ExposeInterfacesToBrowser(mojo::BinderMap* binders) override;
   void RenderFrameCreated(content::RenderFrame* render_frame) override;
-  void RenderViewCreated(content::RenderView* render_view) override;
+  void WebViewCreated(blink::WebView* web_view) override;
   void PrepareErrorPage(content::RenderFrame* render_frame,
                         const blink::WebURLError& error,
                         const std::string& http_method,
@@ -49,19 +53,18 @@ class AwContentRendererClient : public content::ContentRendererClient,
   void AddSupportedKeySystems(
       std::vector<std::unique_ptr<::media::KeySystemProperties>>* key_systems)
       override;
-  std::unique_ptr<content::WebSocketHandshakeThrottleProvider>
+  std::unique_ptr<blink::WebSocketHandshakeThrottleProvider>
   CreateWebSocketHandshakeThrottleProvider() override;
   bool HandleNavigation(content::RenderFrame* render_frame,
-                        bool is_content_initiated,
                         bool render_view_was_created_by_renderer,
                         blink::WebFrame* frame,
                         const blink::WebURLRequest& request,
                         blink::WebNavigationType type,
                         blink::WebNavigationPolicy default_policy,
                         bool is_redirect) override;
-  std::unique_ptr<content::URLLoaderThrottleProvider>
+  std::unique_ptr<blink::URLLoaderThrottleProvider>
   CreateURLLoaderThrottleProvider(
-      content::URLLoaderThrottleProviderType provider_type) override;
+      blink::URLLoaderThrottleProviderType provider_type) override;
 
   visitedlink::VisitedLinkReader* visited_link_reader() {
     return visited_link_reader_.get();
@@ -85,8 +88,6 @@ class AwContentRendererClient : public content::ContentRendererClient,
 #if BUILDFLAG(ENABLE_SPELLCHECK)
   std::unique_ptr<SpellCheck> spellcheck_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(AwContentRendererClient);
 };
 
 }  // namespace android_webview

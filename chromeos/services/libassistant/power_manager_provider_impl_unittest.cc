@@ -7,7 +7,7 @@
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
-#include "chromeos/services/assistant/public/cpp/migration/fake_platform_delegate.h"
+#include "chromeos/services/libassistant/test_support/fake_platform_delegate.h"
 #include "services/device/public/cpp/test/test_wake_lock_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -44,6 +44,12 @@ class AssistantPowerManagerProviderImplTest : public testing::Test {
   AssistantPowerManagerProviderImplTest()
       : task_environment_(base::test::TaskEnvironment::MainThreadType::IO,
                           base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+
+  AssistantPowerManagerProviderImplTest(
+      const AssistantPowerManagerProviderImplTest&) = delete;
+  AssistantPowerManagerProviderImplTest& operator=(
+      const AssistantPowerManagerProviderImplTest&) = delete;
+
   ~AssistantPowerManagerProviderImplTest() override = default;
 
   void SetUp() override {
@@ -112,8 +118,7 @@ class AssistantPowerManagerProviderImplTest : public testing::Test {
         power_manager_provider_impl_->AddWakeAlarm(
             relative_time_ms, max_delay_ms,
             std::move(wake_alarm_expiration_cb));
-    task_environment_.FastForwardBy(
-        base::TimeDelta::FromMilliseconds(relative_time_ms));
+    task_environment_.FastForwardBy(base::Milliseconds(relative_time_ms));
 
     if (id <= 0UL)
       return false;
@@ -128,8 +133,6 @@ class AssistantPowerManagerProviderImplTest : public testing::Test {
   FakePlatformDelegateImpl platform_delegate_{&wake_lock_provider_};
 
   std::unique_ptr<PowerManagerProviderImpl> power_manager_provider_impl_;
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantPowerManagerProviderImplTest);
 };
 
 TEST_F(AssistantPowerManagerProviderImplTest, CheckAcquireAndReleaseWakeLock) {

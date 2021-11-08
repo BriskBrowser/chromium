@@ -13,6 +13,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
+#include "chrome/common/chrome_resource_request_blocked_reason.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/chrome_extensions_api_provider.h"
 #include "chrome/common/extensions/manifest_handlers/theme_handler.h"
@@ -47,8 +48,6 @@ const char kExtensionBlocklistUrlPrefix[] =
     "http://www.gstatic.com/chrome/extensions/blocklist";
 const char kExtensionBlocklistHttpsUrlPrefix[] =
     "https://www.gstatic.com/chrome/extensions/blocklist";
-
-const char kThumbsWhiteListedExtension[] = "khopmbdjffemhegeeobelklnbglcdgfh";
 
 }  // namespace
 
@@ -110,7 +109,7 @@ void ChromeExtensionsClient::FilterHostPermissions(
       // We should not add any additional "host" here.
       if (GURL(chrome::kChromeUIFaviconURL).host() != i->host())
         continue;
-      permissions->insert(APIPermission::kFavicon);
+      permissions->insert(mojom::APIPermissionID::kFavicon);
     } else {
       new_hosts->AddPattern(*i);
     }
@@ -140,19 +139,6 @@ URLPatternSet ChromeExtensionsClient::GetPermittedChromeSchemeHosts(
   hosts.AddPattern(URLPattern(URLPattern::SCHEME_CHROMEUI,
                               chrome::kChromeUIFaviconURL));
 
-  // Experimental extensions are also allowed chrome://thumb.
-  //
-  // TODO: A public API should be created for retrieving thumbnails.
-  // See http://crbug.com/222856. A temporary hack is implemented here to
-  // make chrome://thumbs available to NTP Russia extension as
-  // non-experimental.
-  if ((api_permissions.find(APIPermission::kExperimental) !=
-       api_permissions.end()) ||
-      (extension->id() == kThumbsWhiteListedExtension &&
-       extension->from_webstore())) {
-    hosts.AddPattern(URLPattern(URLPattern::SCHEME_CHROMEUI,
-                                chrome::kChromeUIThumbnailURL));
-  }
   return hosts;
 }
 
@@ -203,9 +189,9 @@ std::set<base::FilePath> ChromeExtensionsClient::GetBrowserImagePaths(
   if (theme_images) {
     for (base::DictionaryValue::Iterator it(*theme_images); !it.IsAtEnd();
          it.Advance()) {
-      std::string path;
-      if (it.value().GetAsString(&path))
-        image_paths.insert(base::FilePath::FromUTF8Unsafe(path));
+      if (it.value().is_string())
+        image_paths.insert(
+            base::FilePath::FromUTF8Unsafe(it.value().GetString()));
     }
   }
 
@@ -242,13 +228,18 @@ void ChromeExtensionsClient::AddOriginAccessPermissions(
   // whitelist entries need to be updated when the kManagement permission
   // changes.
   if (is_extension_active && extension.permissions_data()->HasAPIPermission(
-                                 extensions::APIPermission::kManagement)) {
+                                 mojom::APIPermissionID::kManagement)) {
     origin_patterns->push_back(network::mojom::CorsOriginPattern::New(
         content::kChromeUIScheme, chrome::kChromeUIExtensionIconHost,
         /*port=*/0, network::mojom::CorsDomainMatchMode::kDisallowSubdomains,
         network::mojom::CorsPortMatchMode::kAllowAnyPort,
         network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority));
   }
+}
+
+absl::optional<int> ChromeExtensionsClient::GetExtensionExtendedErrorCode()
+    const {
+  return static_cast<int>(ChromeResourceRequestBlockedReason::kExtension);
 }
 
 }  // namespace extensions

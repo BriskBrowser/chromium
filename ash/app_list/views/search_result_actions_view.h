@@ -7,8 +7,8 @@
 
 #include <list>
 
-#include "ash/app_list/app_list_export.h"
 #include "ash/app_list/model/search/search_result.h"
+#include "ash/ash_export.h"
 #include "base/macros.h"
 #include "ui/views/view.h"
 
@@ -19,9 +19,13 @@ class SearchResultView;
 
 // SearchResultActionsView displays a SearchResult::Actions in a button
 // strip. Each action is presented as a button and horizontally laid out.
-class APP_LIST_EXPORT SearchResultActionsView : public views::View {
+class ASH_EXPORT SearchResultActionsView : public views::View {
  public:
   explicit SearchResultActionsView(SearchResultActionsViewDelegate* delegate);
+
+  SearchResultActionsView(const SearchResultActionsView&) = delete;
+  SearchResultActionsView& operator=(const SearchResultActionsView&) = delete;
+
   ~SearchResultActionsView() override;
 
   void SetActions(const SearchResult::Actions& actions);
@@ -76,12 +80,10 @@ class APP_LIST_EXPORT SearchResultActionsView : public views::View {
   void ChildVisibilityChanged(views::View* child) override;
 
   // If an action is currently selected, the selected action index.
-  base::Optional<int> selected_action_;
+  absl::optional<int> selected_action_;
 
   SearchResultActionsViewDelegate* const delegate_;  // Not owned.
   std::list<base::CallbackListSubscription> subscriptions_;
-
-  DISALLOW_COPY_AND_ASSIGN(SearchResultActionsView);
 };
 
 }  // namespace ash

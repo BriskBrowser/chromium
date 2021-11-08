@@ -9,7 +9,7 @@
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/thread_test_helper.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -48,10 +48,7 @@ class FileSystemBrowserTest : public ContentBrowserTest,
     VLOG(0) << "Navigation done.";
     std::string result = browser()->web_contents()->GetLastCommittedURL().ref();
     if (result != "pass") {
-      std::string js_result;
-      ASSERT_TRUE(ExecuteScriptAndExtractString(
-          browser(), "window.domAutomationController.send(getLog())",
-          &js_result));
+      std::string js_result = EvalJs(browser(), "getLog()").ExtractString();
       FAIL() << "Failed: " << js_result;
     }
   }
@@ -76,8 +73,10 @@ class FileSystemBrowserTestWithLowQuota : public FileSystemBrowserTest {
  public:
   void SetUpOnMainThread() override {
     FileSystemBrowserTest::SetUpOnMainThread();
-    SetLowQuota(BrowserContext::GetDefaultStoragePartition(
-                    browser()->web_contents()->GetBrowserContext())
+    SetLowQuota(browser()
+                    ->web_contents()
+                    ->GetBrowserContext()
+                    ->GetDefaultStoragePartition()
                     ->GetQuotaManager());
   }
 

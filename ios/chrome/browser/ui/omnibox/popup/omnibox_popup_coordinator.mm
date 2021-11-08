@@ -5,7 +5,7 @@
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_coordinator.h"
 
 #include "base/feature_list.h"
-#import "components/image_fetcher/ios/ios_image_data_fetcher_wrapper.h"
+#import "components/image_fetcher/core/image_data_fetcher.h"
 #include "components/omnibox/browser/autocomplete_result.h"
 #include "components/omnibox/common/omnibox_features.h"
 #import "components/search_engines/template_url_service.h"
@@ -14,6 +14,8 @@
 #import "ios/chrome/browser/main/browser.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/main/default_browser_scene_agent.h"
+#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/ui/ntp/ntp_util.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_mediator.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_presenter.h"
@@ -56,8 +58,8 @@
 }
 
 - (void)start {
-  std::unique_ptr<image_fetcher::IOSImageDataFetcherWrapper> imageFetcher =
-      std::make_unique<image_fetcher::IOSImageDataFetcherWrapper>(
+  std::unique_ptr<image_fetcher::ImageDataFetcher> imageFetcher =
+      std::make_unique<image_fetcher::ImageDataFetcher>(
           self.browser->GetBrowserState()->GetSharedURLLoaderFactory());
 
   self.mediator = [[OmniboxPopupMediator alloc]
@@ -85,6 +87,10 @@
   BOOL isIncognito = self.browser->GetBrowserState()->IsOffTheRecord();
   self.mediator.incognito = isIncognito;
   self.mediator.consumer = self.popupViewController;
+  SceneState* sceneState =
+      SceneStateBrowserAgent::FromBrowser(self.browser)->GetSceneState();
+  self.mediator.promoScheduler =
+      [DefaultBrowserSceneAgent agentFromScene:sceneState].nonModalScheduler;
   self.mediator.presenter = [[OmniboxPopupPresenter alloc]
       initWithPopupPresenterDelegate:self.presenterDelegate
                  popupViewController:self.popupViewController

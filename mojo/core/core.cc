@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -86,6 +87,9 @@ class ProcessDisconnectHandler {
   ProcessDisconnectHandler(MojoProcessErrorHandler handler, uintptr_t context)
       : handler_(handler), context_(context) {}
 
+  ProcessDisconnectHandler(const ProcessDisconnectHandler&) = delete;
+  ProcessDisconnectHandler& operator=(const ProcessDisconnectHandler&) = delete;
+
   ~ProcessDisconnectHandler() {
     InvokeProcessErrorCallback(handler_, context_, std::string(),
                                MOJO_PROCESS_ERROR_FLAG_DISCONNECTED);
@@ -94,8 +98,6 @@ class ProcessDisconnectHandler {
  private:
   const MojoProcessErrorHandler handler_;
   const uintptr_t context_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProcessDisconnectHandler);
 };
 
 void RunMojoProcessErrorHandler(
@@ -110,7 +112,7 @@ void RunMojoProcessErrorHandler(
 }  // namespace
 
 Core::Core() {
-  handles_.reset(new HandleTable);
+  handles_ = std::make_unique<HandleTable>();
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       handles_.get(), "MojoHandleTable", nullptr);
 }
@@ -448,8 +450,11 @@ MojoResult Core::GetMessageData(MojoMessageHandle message_handle,
   }
 
   RequestContext request_context;
-  return message->ExtractSerializedHandles(
+  Dispatcher::SetExtractingHandlesFromMessage(true);
+  MojoResult result = message->ExtractSerializedHandles(
       UserMessageImpl::ExtractBadHandlePolicy::kAbort, handles);
+  Dispatcher::SetExtractingHandlesFromMessage(false);
+  return result;
 }
 
 MojoResult Core::SetMessageContext(
@@ -1235,7 +1240,7 @@ MojoResult Core::ExtractMessagePipeFromInvitation(
   }
 
   *message_pipe_handle =
-      ExtractMessagePipeFromInvitation(name_string.as_string());
+      ExtractMessagePipeFromInvitation(std::string(name_string));
   if (*message_pipe_handle == MOJO_HANDLE_INVALID)
     return MOJO_RESULT_RESOURCE_EXHAUSTED;
   return MOJO_RESULT_OK;

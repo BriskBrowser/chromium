@@ -14,6 +14,11 @@
 #include "base/macros.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
+#include "ppapi/buildflags/buildflags.h"
+
+#if !BUILDFLAG(ENABLE_PLUGINS)
+#error "Plugins should be enabled"
+#endif
 
 namespace base {
 class DictionaryValue;
@@ -32,6 +37,9 @@ class PluginMetadata;
 class PluginFinder {
  public:
   static PluginFinder* GetInstance();
+
+  PluginFinder(const PluginFinder&) = delete;
+  PluginFinder& operator=(const PluginFinder&) = delete;
 
   // It should be called on the UI thread.
   void Init();
@@ -75,8 +83,6 @@ class PluginFinder {
   // Synchronization for the above member variables is required since multiple
   // threads can be accessing them concurrently.
   base::Lock mutex_;
-
-  DISALLOW_COPY_AND_ASSIGN(PluginFinder);
 };
 
 #endif  // CHROME_BROWSER_PLUGINS_PLUGIN_FINDER_H_

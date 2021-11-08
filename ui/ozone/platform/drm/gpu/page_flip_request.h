@@ -5,7 +5,6 @@
 #ifndef UI_OZONE_PLATFORM_DRM_GPU_PAGE_FLIP_REQUEST_H_
 #define UI_OZONE_PLATFORM_DRM_GPU_PAGE_FLIP_REQUEST_H_
 
-#include <memory>
 
 #include "base/atomic_ref_count.h"
 #include "base/callback.h"
@@ -22,6 +21,9 @@ class PageFlipRequest : public base::RefCounted<PageFlipRequest> {
                               base::TimeTicks /* timestamp */)>;
 
   PageFlipRequest(const base::TimeDelta& refresh_interval);
+
+  PageFlipRequest(const PageFlipRequest&) = delete;
+  PageFlipRequest& operator=(const PageFlipRequest&) = delete;
 
   // Takes ownership of the swap completion callback to allow
   // asynchronous notification of completion.
@@ -46,8 +48,6 @@ class PageFlipRequest : public base::RefCounted<PageFlipRequest> {
   PresentationOnceCallback callback_;
   int page_flip_count_ = 0;
   const base::TimeDelta refresh_interval_;
-
-  DISALLOW_COPY_AND_ASSIGN(PageFlipRequest);
 };
 
 }  // namespace ui

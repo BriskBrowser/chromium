@@ -31,7 +31,6 @@ import org.chromium.base.UserDataHost;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.omnibox.OmniboxSuggestionType;
 import org.chromium.chrome.browser.omnibox.suggestions.SuggestionHost;
 import org.chromium.chrome.browser.omnibox.suggestions.UrlBarDelegate;
@@ -40,12 +39,10 @@ import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionViewPr
 import org.chromium.chrome.browser.omnibox.suggestions.basic.SuggestionViewProperties;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.share.ShareDelegate;
-import org.chromium.chrome.browser.share.ShareDelegateImpl.ShareOrigin;
+import org.chromium.chrome.browser.share.ShareDelegate.ShareOrigin;
 import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.favicon.LargeIconBridge;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.search_engines.TemplateUrlService;
@@ -156,6 +153,7 @@ public final class EditUrlSuggestionUnitTest {
         doReturn(mUserDataHost).when(mTab).getUserDataHost();
         doReturn(false).when(mSadTab).isShowing();
         doReturn(OmniboxSuggestionType.URL_WHAT_YOU_TYPED).when(mWhatYouTypedSuggestion).getType();
+        doReturn(mTestUrl.getSpec()).when(mWhatYouTypedSuggestion).getDisplayText();
         doReturn(mTestUrl).when(mWhatYouTypedSuggestion).getUrl();
 
         doReturn(OmniboxSuggestionType.SEARCH_WHAT_YOU_TYPED).when(mSearchSuggestion).getType();
@@ -185,7 +183,6 @@ public final class EditUrlSuggestionUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @EnableFeatures(ChromeFeatureList.OMNIBOX_SEARCH_READY_INCOGNITO)
     public void testSuggestionTriggered_Incognito() {
         verifyUrlSuggestionTriggered(/* isIncognito */ true);
     }
@@ -205,7 +202,6 @@ public final class EditUrlSuggestionUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @EnableFeatures(ChromeFeatureList.OMNIBOX_SEARCH_READY_INCOGNITO)
     public void testWhatYouTypedWrongUrl_Incognito() {
         verifyWhatYouTypedWrongUrl(/* isIncognito */ true);
     }
@@ -225,7 +221,6 @@ public final class EditUrlSuggestionUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @EnableFeatures(ChromeFeatureList.OMNIBOX_SEARCH_READY_INCOGNITO)
     public void testEditButtonPress_Incognito() {
         verifyEditButtonPress(/* isIncognito */ true);
     }
@@ -242,7 +237,6 @@ public final class EditUrlSuggestionUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @EnableFeatures(ChromeFeatureList.OMNIBOX_SEARCH_READY_INCOGNITO)
     public void testShareButtonPress_Incognito() {
         verifyShareButtonPress(/* isIncognito */ true);
     }
@@ -259,7 +253,6 @@ public final class EditUrlSuggestionUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @EnableFeatures(ChromeFeatureList.OMNIBOX_SEARCH_READY_INCOGNITO)
     public void testCopyButtonPress_Incognito() {
         verifyCopyButtonPress(/* isIncognito */ true);
     }
@@ -274,21 +267,8 @@ public final class EditUrlSuggestionUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @EnableFeatures(ChromeFeatureList.OMNIBOX_SEARCH_READY_INCOGNITO)
     public void testSearchSuggestionTriggered_Incognito() {
         verifySearchSuggestionTriggered(/* isIncognito */ true);
-    }
-
-    @Test
-    @SmallTest
-    @UiThreadTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_SEARCH_READY_INCOGNITO)
-    public void testSuggestionNotTriggering_IncognitoDisabled() {
-        setIncognito(true);
-
-        mProcessor.onUrlFocusChange(true);
-        Assert.assertFalse("The processor shouldn't handle the \"what you typed\" suggestion.",
-                mProcessor.doesProcessSuggestion(mWhatYouTypedSuggestion, 0));
     }
 
     public void verifyUrlSuggestionTriggered(boolean isIncognito) {

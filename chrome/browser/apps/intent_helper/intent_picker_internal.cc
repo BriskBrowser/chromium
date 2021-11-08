@@ -12,12 +12,14 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/intent_picker_tab_helper.h"
-#include "chrome/browser/web_applications/components/app_icon_manager.h"
-#include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_icon_manager.h"
+#include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
+#include "chrome/browser/web_applications/web_app_utils.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_contents.h"
 #include "components/page_load_metrics/browser/page_load_metrics_util.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
@@ -39,10 +41,10 @@ bool IsGoogleRedirectorUrl(const GURL& url) {
 }  // namespace
 
 bool ShouldCheckAppsForUrl(content::WebContents* web_contents) {
-  // Do not check apps for url if no apps can be installed.
-  // Do not check apps for url in incognito or for a no-state prefetcher
-  // navigation.
-  if (web_contents->GetBrowserContext()->IsOffTheRecord() ||
+  // Do not check apps for url if no apps can be installed, e.g. in incognito.
+  // Do not check apps for a no-state prefetcher navigation.
+  if (!web_app::AreWebAppsUserInstallable(
+          Profile::FromBrowserContext(web_contents->GetBrowserContext())) ||
       prerender::ChromeNoStatePrefetchContentsDelegate::FromWebContents(
           web_contents) != nullptr) {
     return false;
@@ -54,7 +56,7 @@ bool ShouldCheckAppsForUrl(content::WebContents* web_contents) {
   // find a browser at this moment, skip the check and this will be handled
   // in later stage.
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
-  if (browser && browser->deprecated_is_app())
+  if (browser && (browser->is_type_app() || browser->is_type_app_popup()))
     return false;
 
   return true;
@@ -69,19 +71,25 @@ std::vector<IntentPickerAppInfo> FindPwaForUrl(
   Profile* const profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
 
-  base::Optional<web_app::AppId> app_id =
+  absl::optional<web_app::AppId> app_id =
       web_app::FindInstalledAppWithUrlInScope(profile, url,
                                               /*window_only=*/true);
   if (!app_id)
     return apps;
 
-  auto* const provider = web_app::WebAppProviderBase::GetProviderBase(profile);
-  gfx::Image icon = gfx::Image::CreateFrom1xBitmap(
-      provider->icon_manager().GetFavicon(*app_id));
+  auto* const provider = web_app::WebAppProvider::GetForWebApps(profile);
+  if (provider->registrar().GetAppUserDisplayMode(*app_id) ==
+      web_app::DisplayMode::kBrowser) {
+    return apps;
+  }
+
+  ui::ImageModel icon_model =
+      ui::ImageModel::FromImage(gfx::Image::CreateFrom1xBitmap(
+          provider->icon_manager().GetFavicon(*app_id)));
 
   // Prefer the web and place apps of type PWA before apps of type ARC.
   // TODO(crbug.com/824598): deterministically sort this list.
-  apps.emplace(apps.begin(), PickerEntryType::kWeb, icon, *app_id,
+  apps.emplace(apps.begin(), PickerEntryType::kWeb, icon_model, *app_id,
                provider->registrar().GetAppShortName(*app_id));
 
   return apps;
@@ -102,15 +110,14 @@ void ShowIntentPickerBubbleForApps(content::WebContents* web_contents,
   if (!browser)
     return;
 
-  IntentPickerTabHelper::SetShouldShowIcon(web_contents, true);
   browser->window()->ShowIntentPickerBubble(
       std::move(apps), show_stay_in_chrome, show_remember_selection,
-      PageActionIconType::kIntentPicker, base::nullopt, std::move(callback));
+      PageActionIconType::kIntentPicker, absl::nullopt, std::move(callback));
 }
 
 bool InAppBrowser(content::WebContents* web_contents) {
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
-  return !browser || browser->deprecated_is_app();
+  return !browser || browser->is_type_app() || browser->is_type_app_popup();
 }
 
 // Compares the host name of the referrer and target URL to decide whether
@@ -192,6 +199,33 @@ void CloseOrGoBack(content::WebContents* web_contents) {
     web_contents->GetController().GoBack();
   else
     web_contents->ClosePage();
+}
+
+PickerEntryType GetPickerEntryType(mojom::AppType app_type) {
+  PickerEntryType picker_entry_type = PickerEntryType::kUnknown;
+  switch (app_type) {
+    case mojom::AppType::kUnknown:
+    case mojom::AppType::kBuiltIn:
+    case mojom::AppType::kCrostini:
+    case mojom::AppType::kPluginVm:
+    case mojom::AppType::kExtension:
+    case mojom::AppType::kStandaloneBrowser:
+    case mojom::AppType::kStandaloneBrowserExtension:
+    case mojom::AppType::kRemote:
+    case mojom::AppType::kBorealis:
+      break;
+    case mojom::AppType::kArc:
+      picker_entry_type = PickerEntryType::kArc;
+      break;
+    case mojom::AppType::kWeb:
+    case mojom::AppType::kSystemWeb:
+      picker_entry_type = PickerEntryType::kWeb;
+      break;
+    case mojom::AppType::kMacOs:
+      picker_entry_type = PickerEntryType::kMacOs;
+      break;
+  }
+  return picker_entry_type;
 }
 
 }  // namespace apps

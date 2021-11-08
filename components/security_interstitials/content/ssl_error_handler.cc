@@ -21,7 +21,6 @@
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "components/captive_portal/core/captive_portal_types.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/prefs/pref_service.h"
 #include "components/security_interstitials/content/bad_clock_blocking_page.h"
@@ -91,6 +90,11 @@ class CommonNameMismatchRedirectObserver
     : public content::WebContentsObserver,
       public content::WebContentsUserData<CommonNameMismatchRedirectObserver> {
  public:
+  CommonNameMismatchRedirectObserver(
+      const CommonNameMismatchRedirectObserver&) = delete;
+  CommonNameMismatchRedirectObserver& operator=(
+      const CommonNameMismatchRedirectObserver&) = delete;
+
   ~CommonNameMismatchRedirectObserver() override {}
 
   static void AddToConsoleAfterNavigation(
@@ -142,11 +146,9 @@ class CommonNameMismatchRedirectObserver
   const std::string suggested_url_hostname_;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(CommonNameMismatchRedirectObserver);
 };
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(CommonNameMismatchRedirectObserver)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(CommonNameMismatchRedirectObserver);
 
 void RecordUMA(SSLErrorHandler::UMAEvent event) {
   UMA_HISTOGRAM_ENUMERATION(kHistogram, event,
@@ -186,7 +188,7 @@ class ConfigSingleton {
 
   // Returns a DynamicInterstitialInfo that matches with |ssl_info|. If is no
   // match, return null.
-  base::Optional<DynamicInterstitialInfo> MatchDynamicInterstitial(
+  absl::optional<DynamicInterstitialInfo> MatchDynamicInterstitial(
       const net::SSLInfo& ssl_info,
       bool is_overridable);
 
@@ -241,8 +243,7 @@ class ConfigSingleton {
 };
 
 ConfigSingleton::ConfigSingleton()
-    : interstitial_delay_(
-          base::TimeDelta::FromMilliseconds(kInterstitialDelayInMilliseconds)),
+    : interstitial_delay_(base::Milliseconds(kInterstitialDelayInMilliseconds)),
       os_captive_portal_status_for_testing_(OS_CAPTIVE_PORTAL_STATUS_NOT_SET),
       ssl_error_assistant_(std::make_unique<SSLErrorAssistant>()) {}
 
@@ -265,8 +266,7 @@ ConfigSingleton::on_blocking_page_shown_callback() const {
 }
 
 void ConfigSingleton::ResetForTesting() {
-  interstitial_delay_ =
-      base::TimeDelta::FromMilliseconds(kInterstitialDelayInMilliseconds);
+  interstitial_delay_ = base::Milliseconds(kInterstitialDelayInMilliseconds);
   timer_started_callback_ = nullptr;
   on_blocking_page_shown_callback_ =
       SSLErrorHandler::OnBlockingPageShownCallback();
@@ -331,7 +331,7 @@ const std::string ConfigSingleton::MatchKnownMITMSoftware(
   return ssl_error_assistant_->MatchKnownMITMSoftware(cert);
 }
 
-base::Optional<DynamicInterstitialInfo>
+absl::optional<DynamicInterstitialInfo>
 ConfigSingleton::MatchDynamicInterstitial(const net::SSLInfo& ssl_info,
                                           bool is_overridable) {
   return ssl_error_assistant_->MatchDynamicInterstitial(ssl_info,
@@ -424,8 +424,7 @@ SSLErrorHandlerDelegateImpl::~SSLErrorHandlerDelegateImpl() {
 
 void SSLErrorHandlerDelegateImpl::CheckForCaptivePortal() {
 #if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
-  captive_portal_service_->DetectCaptivePortal(
-      captive_portal::CaptivePortalProbeReason::kCertificateError);
+  captive_portal_service_->DetectCaptivePortal();
 #else
   NOTREACHED();
 #endif
@@ -450,10 +449,10 @@ void SSLErrorHandlerDelegateImpl::CheckSuggestedUrl(
     const GURL& suggested_url,
     CommonNameMismatchHandler::CheckUrlCallback callback) {
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory(
-      content::BrowserContext::GetDefaultStoragePartition(browser_context_)
+      browser_context_->GetDefaultStoragePartition()
           ->GetURLLoaderFactoryForBrowserProcess());
-  common_name_mismatch_handler_.reset(
-      new CommonNameMismatchHandler(request_url_, url_loader_factory));
+  common_name_mismatch_handler_ = std::make_unique<CommonNameMismatchHandler>(
+      request_url_, url_loader_factory);
 
   common_name_mismatch_handler_->CheckSuggestedUrl(suggested_url,
                                                    std::move(callback));
@@ -698,7 +697,7 @@ void SSLErrorHandler::StartHandlingError() {
     return;
   }
 
-  base::Optional<DynamicInterstitialInfo> dynamic_interstitial =
+  absl::optional<DynamicInterstitialInfo> dynamic_interstitial =
       g_config.Pointer()->MatchDynamicInterstitial(
           ssl_info_, delegate_->IsErrorOverridable());
   if (dynamic_interstitial) {
@@ -930,7 +929,7 @@ void SSLErrorHandler::Observe(
 
 void SSLErrorHandler::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame() ||
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       navigation_handle->IsSameDocument()) {
     return;
   }
@@ -979,9 +978,8 @@ void SSLErrorHandler::HandleCertDateInvalidErrorImpl(
     base::TimeTicks started_handling_error) {
   UMA_HISTOGRAM_CUSTOM_TIMES(
       "interstitial.ssl_error_handler.cert_date_error_delay",
-      base::TimeTicks::Now() - started_handling_error,
-      base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(4),
-      50);
+      base::TimeTicks::Now() - started_handling_error, base::Milliseconds(1),
+      base::Seconds(4), 50);
 
   timer_.Stop();
   base::Clock* testing_clock = g_config.Pointer()->clock();
@@ -1014,4 +1012,4 @@ bool SSLErrorHandler::IsOnlyCertError(
          !net::IsCertStatusError(other_errors);
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(SSLErrorHandler)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SSLErrorHandler);

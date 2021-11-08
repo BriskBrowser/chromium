@@ -19,6 +19,7 @@
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "ui/aura/env_observer.h"
+#include "ui/gfx/geometry/vector3d_f.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
 
 class PrefRegistrySimple;
@@ -86,6 +87,10 @@ class ASH_EXPORT NightLightControllerImpl
   };
 
   NightLightControllerImpl();
+
+  NightLightControllerImpl(const NightLightControllerImpl&) = delete;
+  NightLightControllerImpl& operator=(const NightLightControllerImpl&) = delete;
+
   ~NightLightControllerImpl() override;
 
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
@@ -186,8 +191,8 @@ class ASH_EXPORT NightLightControllerImpl
 
   // message_center::NotificationObserver:
   void Close(bool by_user) override;
-  void Click(const base::Optional<int>& button_index,
-             const base::Optional<base::string16>& reply) override;
+  void Click(const absl::optional<int>& button_index,
+             const absl::optional<std::u16string>& reply) override;
 
   void SetDelegateForTesting(std::unique_ptr<Delegate> delegate);
 
@@ -344,8 +349,6 @@ class ASH_EXPORT NightLightControllerImpl
   gfx::Vector3dF ambient_rgb_scaling_factors_ = {1.f, 1.f, 1.f};
 
   base::WeakPtrFactory<NightLightControllerImpl> weak_ptr_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(NightLightControllerImpl);
 };
 
 }  // namespace ash

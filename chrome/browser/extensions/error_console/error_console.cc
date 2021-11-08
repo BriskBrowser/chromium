@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/lazy_instance.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/error_console/error_console_factory.h"
 #include "chrome/common/pref_names.h"
@@ -19,11 +18,11 @@
 #include "components/version_info/version_info.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_system.h"
-#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/feature_switch.h"
 #include "extensions/common/features/feature_channel.h"
+#include "extensions/common/logging_constants.h"
 
 namespace extensions {
 
@@ -62,7 +61,7 @@ ErrorConsole::ErrorConsole(Profile* profile)
                       base::BindRepeating(&ErrorConsole::OnPrefChanged,
                                           base::Unretained(this)));
 
-  registry_observer_.Add(ExtensionRegistry::Get(profile_));
+  registry_observation_.Observe(ExtensionRegistry::Get(profile_));
 
   CheckEnabled();
 }
@@ -193,9 +192,10 @@ void ErrorConsole::Enable() {
   // also create an ExtensionPrefs object.
   prefs_ = ExtensionPrefs::Get(profile_);
 
-  profile_observer_.Add(profile_);
+  profile_observations_.AddObservation(profile_);
   if (profile_->HasPrimaryOTRProfile())
-    profile_observer_.Add(profile_->GetPrimaryOTRProfile());
+    profile_observations_.AddObservation(
+        profile_->GetPrimaryOTRProfile(/*create_if_needed=*/true));
 
   const ExtensionSet& extensions =
       ExtensionRegistry::Get(profile_)->enabled_extensions();
@@ -207,7 +207,7 @@ void ErrorConsole::Enable() {
 }
 
 void ErrorConsole::Disable() {
-  profile_observer_.RemoveAll();
+  profile_observations_.RemoveAllObservations();
   errors_.RemoveAllErrors();
   enabled_ = false;
 }
@@ -259,11 +259,11 @@ void ErrorConsole::AddManifestErrorsForExtension(const Extension* extension) {
 }
 
 void ErrorConsole::OnOffTheRecordProfileCreated(Profile* off_the_record) {
-  profile_observer_.Add(off_the_record);
+  profile_observations_.AddObservation(off_the_record);
 }
 
 void ErrorConsole::OnProfileWillBeDestroyed(Profile* profile) {
-  profile_observer_.Remove(profile);
+  profile_observations_.RemoveObservation(profile);
   // If incognito profile which we are associated with is destroyed, also
   // destroy all incognito errors.
   if (profile->IsOffTheRecord() && profile_->IsSameOrParent(profile))
@@ -280,7 +280,7 @@ int ErrorConsole::GetMaskForExtension(const std::string& extension_id) const {
   const Extension* extension =
       ExtensionRegistry::Get(profile_)->GetExtensionById(
           extension_id, ExtensionRegistry::EVERYTHING);
-  if (extension && extension->location() == Manifest::UNPACKED)
+  if (extension && extension->location() == mojom::ManifestLocation::kUnpacked)
     return (1 << ExtensionError::NUM_ERROR_TYPES) - 1;
 
   // Otherwise, use the default mask.

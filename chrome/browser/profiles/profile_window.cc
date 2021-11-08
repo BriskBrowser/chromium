@@ -15,9 +15,9 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/metrics/user_metrics.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -67,62 +67,22 @@
 #include "chrome/browser/ui/profile_picker.h"
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chrome/browser/profiles/profiles_state.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
 using base::UserMetricsAction;
 using content::BrowserThread;
 
 namespace {
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-void BlockExtensions(Profile* profile) {
-  extensions::ExtensionService* extension_service =
-      extensions::ExtensionSystem::Get(profile)->extension_service();
-  extension_service->BlockAllExtensions();
-}
-
 void UnblockExtensions(Profile* profile) {
   extensions::ExtensionService* extension_service =
       extensions::ExtensionSystem::Get(profile)->extension_service();
   extension_service->UnblockAllExtensions();
 }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
-
-// Called after a |system_profile| is available to be used by the user manager.
-// Runs |callback|, if it exists. Depending on the value of
-// |user_manager_action|, executes an action once the user manager displays or
-// after a profile is opened.
-void OnUserManagerSystemProfileCreated(
-    const base::FilePath& profile_path_to_focus,
-    profiles::UserManagerAction user_manager_action,
-    base::OnceCallback<void(Profile*, const std::string&)> callback,
-    Profile* system_profile,
-    Profile::CreateStatus status) {
-  if (status != Profile::CREATE_STATUS_INITIALIZED || callback.is_null())
-    return;
-
-  // Tell the webui which user should be focused.
-  std::string page = chrome::kChromeUIMdUserManagerUrl;
-
-  if (!profile_path_to_focus.empty()) {
-    // The file path is processed in the same way as base::CreateFilePathValue
-    // (i.e. convert to std::string with AsUTF8Unsafe()), and then URI encoded.
-    page += "#";
-    page += net::EscapeUrlEncodedData(profile_path_to_focus.AsUTF8Unsafe(),
-                                      false);
-  } else if (user_manager_action ==
-             profiles::USER_MANAGER_OPEN_CREATE_USER_PAGE) {
-    page += profiles::kUserManagerOpenCreateUserPage;
-  } else if (user_manager_action ==
-             profiles::USER_MANAGER_SELECT_PROFILE_TASK_MANAGER) {
-    page += profiles::kUserManagerSelectProfileTaskManager;
-  } else if (user_manager_action ==
-             profiles::USER_MANAGER_SELECT_PROFILE_ABOUT_CHROME) {
-    page += profiles::kUserManagerSelectProfileAboutChrome;
-  } else if (user_manager_action ==
-             profiles::USER_MANAGER_SELECT_PROFILE_CHROME_SETTINGS) {
-    page += profiles::kUserManagerSelectProfileChromeSettings;
-  }
-  std::move(callback).Run(system_profile, page);
-}
 
 // Called in profiles::LoadProfileAsync once profile is loaded. It runs
 // |callback| if it isn't null.
@@ -142,15 +102,9 @@ void ProfileLoadedCallback(ProfileManager::CreateCallback callback,
 
 namespace profiles {
 
-// User Manager parameters are prefixed with hash.
-const char kUserManagerOpenCreateUserPage[] = "#create-user";
-const char kUserManagerSelectProfileTaskManager[] = "#task-manager";
-const char kUserManagerSelectProfileAboutChrome[] = "#about-chrome";
-const char kUserManagerSelectProfileChromeSettings[] = "#chrome-settings";
-
 base::FilePath GetPathOfProfileWithEmail(ProfileManager* profile_manager,
                                          const std::string& email) {
-  base::string16 profile_email = base::UTF8ToUTF16(email);
+  std::u16string profile_email = base::UTF8ToUTF16(email);
   std::vector<ProfileAttributesEntry*> entries =
       profile_manager->GetProfileAttributesStorage().GetAllProfilesAttributes();
   for (ProfileAttributesEntry* entry : entries) {
@@ -184,7 +138,7 @@ void FindOrCreateNewWindowForProfile(
                                 /*launch_mode_recorder=*/nullptr);
 }
 
-void OpenBrowserWindowForProfile(ProfileManager::CreateCallback callback,
+void OpenBrowserWindowForProfile(CreateOnceCallback callback,
                                  bool always_create,
                                  bool is_new_profile,
                                  bool unblock_extensions,
@@ -206,7 +160,7 @@ void OpenBrowserWindowForProfile(ProfileManager::CreateCallback callback,
   }
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  if (!profile->IsGuestSession() && !profile->IsEphemeralGuestProfile()) {
+  if (!profile->IsGuestSession()) {
     ProfileAttributesEntry* entry =
         g_browser_process->profile_manager()
             ->GetProfileAttributesStorage()
@@ -217,6 +171,13 @@ void OpenBrowserWindowForProfile(ProfileManager::CreateCallback callback,
     }
   }
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  if (!AreSecondaryProfilesAllowed() && !profile->IsMainProfile()) {
+    ProfilePicker::Show(ProfilePicker::EntryPoint::kProfileLocked);
+    return;
+  }
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   if (unblock_extensions)
@@ -232,8 +193,8 @@ void OpenBrowserWindowForProfile(ProfileManager::CreateCallback callback,
     Browser* browser = chrome::FindTabbedBrowser(profile, false);
     if (browser) {
       browser->window()->Activate();
-      if (!callback.is_null())
-        callback.Run(profile, Profile::CREATE_STATUS_INITIALIZED);
+      if (callback)
+        std::move(callback).Run(profile, Profile::CREATE_STATUS_INITIALIZED);
       return;
     }
   }
@@ -245,8 +206,8 @@ void OpenBrowserWindowForProfile(ProfileManager::CreateCallback callback,
   // up calling LaunchBrowser and opens a new window. If for whatever reason
   // that fails, either something has crashed, or the observer will be cleaned
   // up when a different browser for this profile is opened.
-  if (!callback.is_null())
-    new BrowserAddedForProfileObserver(profile, callback);
+  if (callback)
+    new BrowserAddedForProfileObserver(profile, std::move(callback));
 
   // We already dealt with the case when |always_create| was false and a browser
   // existed, which means that here a browser definitely needs to be created.
@@ -261,98 +222,30 @@ void OpenBrowserWindowForProfile(ProfileManager::CreateCallback callback,
 void LoadProfileAsync(const base::FilePath& path,
                       ProfileManager::CreateCallback callback) {
   g_browser_process->profile_manager()->CreateProfileAsync(
-      path, base::BindRepeating(&ProfileLoadedCallback, callback),
-      base::string16(), std::string());
+      path, base::BindRepeating(&ProfileLoadedCallback, callback));
 }
 
 void SwitchToProfile(const base::FilePath& path,
                      bool always_create,
                      ProfileManager::CreateCallback callback) {
   g_browser_process->profile_manager()->CreateProfileAsync(
-      path,
-      base::BindRepeating(&profiles::OpenBrowserWindowForProfile, callback,
-                          always_create, false, false),
-      base::string16(), std::string());
+      path, base::BindRepeating(&profiles::OpenBrowserWindowForProfile,
+                                callback, always_create, false, false));
 }
 
 void SwitchToGuestProfile(ProfileManager::CreateCallback callback) {
   g_browser_process->profile_manager()->CreateProfileAsync(
       ProfileManager::GetGuestProfilePath(),
       base::BindRepeating(&profiles::OpenBrowserWindowForProfile, callback,
-                          false, false, false),
-      base::string16(), std::string());
+                          false, false, false));
 }
 #endif
 
 bool HasProfileSwitchTargets(Profile* profile) {
-  size_t min_profiles =
-      (profile->IsGuestSession() || profile->IsEphemeralGuestProfile()) ? 1 : 2;
+  size_t min_profiles = profile->IsGuestSession() ? 1 : 2;
   size_t number_of_profiles =
       g_browser_process->profile_manager()->GetNumberOfProfiles();
   return number_of_profiles >= min_profiles;
-}
-
-void LockBrowserCloseSuccess(const base::FilePath& profile_path) {
-  ProfileManager* profile_manager = g_browser_process->profile_manager();
-  ProfileAttributesEntry* entry =
-      profile_manager->GetProfileAttributesStorage()
-          .GetProfileAttributesWithPath(profile_path);
-  DCHECK(entry);
-  entry->SetIsSigninRequired(true);
-
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-  // Profile guaranteed to exist for it to have been locked.
-  BlockExtensions(profile_manager->GetProfileByPath(profile_path));
-#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
-
-  chrome::HideTaskManager();
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
-  ProfilePicker::Show(ProfilePicker::EntryPoint::kProfileLocked);
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
-}
-
-void LockProfile(Profile* profile) {
-  DCHECK(profile);
-  if (profile) {
-    BrowserList::CloseAllBrowsersWithProfile(
-        profile, base::BindRepeating(&LockBrowserCloseSuccess),
-        BrowserList::CloseCallback(), false);
-  }
-}
-
-bool IsLockAvailable(Profile* profile) {
-  DCHECK(profile);
-  if (profile->IsGuestSession() || profile->IsSystemProfile() ||
-      profile->IsEphemeralGuestProfile()) {
-    return false;
-  }
-
-  signin::IdentityManager* identity_manager =
-      IdentityManagerFactory::GetForProfile(profile);
-  if (!identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync))
-    return false;
-  base::Optional<AccountInfo> primary_account_info =
-      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-          identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSync));
-  std::string hosted_domain = primary_account_info.has_value()
-                                  ? primary_account_info.value().hosted_domain
-                                  : "";
-
-  // TODO(mlerman): Prohibit only users who authenticate using SAML. Until then,
-  // prohibited users who use hosted domains (aside from google.com).
-  if (hosted_domain != kNoHostedDomainFound && hosted_domain != "google.com") {
-    return false;
-  }
-
-  // Lock only when there is at least one supervised user on the machine.
-  std::vector<ProfileAttributesEntry*> entries =
-      g_browser_process->profile_manager()->GetProfileAttributesStorage().
-          GetAllProfilesAttributes();
-  for (ProfileAttributesEntry* entry : entries) {
-    if (entry->IsSupervised())
-      return true;
-  }
-  return false;
 }
 
 void CloseProfileWindows(Profile* profile) {
@@ -360,20 +253,6 @@ void CloseProfileWindows(Profile* profile) {
   BrowserList::CloseAllBrowsersWithProfile(profile,
                                            BrowserList::CloseCallback(),
                                            BrowserList::CloseCallback(), false);
-}
-
-void CreateSystemProfileForUserManager(
-    const base::FilePath& profile_path_to_focus,
-    profiles::UserManagerAction user_manager_action,
-    base::RepeatingCallback<void(Profile*, const std::string&)> callback) {
-  // Create the system profile, if necessary, and open the User Manager
-  // from the system profile.
-  g_browser_process->profile_manager()->CreateProfileAsync(
-      ProfileManager::GetSystemProfilePath(),
-      base::BindRepeating(&OnUserManagerSystemProfileCreated,
-                          profile_path_to_focus, user_manager_action,
-                          std::move(callback)),
-      base::string16(), std::string());
 }
 
 void BubbleViewModeFromAvatarBubbleMode(BrowserWindow::AvatarBubbleMode mode,
@@ -401,9 +280,9 @@ void BubbleViewModeFromAvatarBubbleMode(BrowserWindow::AvatarBubbleMode mode,
 
 BrowserAddedForProfileObserver::BrowserAddedForProfileObserver(
     Profile* profile,
-    ProfileManager::CreateCallback callback)
-    : profile_(profile), callback_(callback) {
-  DCHECK(!callback_.is_null());
+    CreateOnceCallback callback)
+    : profile_(profile), callback_(std::move(callback)) {
+  DCHECK(callback_);
   BrowserList::AddObserver(this);
 }
 
@@ -416,7 +295,7 @@ void BrowserAddedForProfileObserver::OnBrowserAdded(Browser* browser) {
     // added. Post the callback to the message loop so it gets executed after
     // the tabs are created.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(callback_, profile_,
+        FROM_HERE, base::BindOnce(std::move(callback_), profile_,
                                   Profile::CREATE_STATUS_INITIALIZED));
     base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
   }

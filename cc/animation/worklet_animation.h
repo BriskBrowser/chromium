@@ -5,19 +5,18 @@
 #ifndef CC_ANIMATION_WORKLET_ANIMATION_H_
 #define CC_ANIMATION_WORKLET_ANIMATION_H_
 
+#include <memory>
+#include <string>
+
 #include "base/gtest_prod_util.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "cc/animation/animation.h"
 #include "cc/animation/animation_export.h"
 #include "cc/animation/animation_host.h"
 #include "cc/trees/property_tree.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace cc {
-
-namespace {
-FORWARD_DECLARE_TEST(WorkletAnimationTest, NonImplInstanceDoesNotTickKeyframe);
-}  // namespace
 
 class AnimationOptions;
 class AnimationEffectTimings;
@@ -79,24 +78,13 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
   void ReleasePendingTreeLock() { has_pending_tree_lock_ = false; }
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(WorkletAnimationTest,
-                           NonImplInstanceDoesNotTickKeyframe);
-  WorkletAnimation(int cc_animation_id,
-                   WorkletAnimationId worklet_animation_id,
-                   const std::string& name,
-                   double playback_rate,
-                   std::unique_ptr<AnimationOptions> options,
-                   std::unique_ptr<AnimationEffectTimings> effect_timings,
-                   bool is_controlling_instance,
-                   std::unique_ptr<KeyframeEffect> effect);
-
   ~WorkletAnimation() override;
 
   // Returns the current time to be passed into the underlying AnimationWorklet.
   // The current time is based on the timeline associated with the animation and
   // in case of scroll timeline it may be nullopt when the associated scrolling
   // node is not available in the particular ScrollTree.
-  base::Optional<base::TimeDelta> CurrentTime(base::TimeTicks monotonic_time,
+  absl::optional<base::TimeDelta> CurrentTime(base::TimeTicks monotonic_time,
                                               const ScrollTree& scroll_tree,
                                               bool is_active_tree);
 
@@ -139,18 +127,18 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
   // Local time is used as an input to the keyframe effect of this animation.
   // The value comes from the user script that runs inside the animation worklet
   // global scope.
-  base::Optional<base::TimeDelta> local_time_;
+  absl::optional<base::TimeDelta> local_time_;
   // Local time passed to the main thread worklet animation to update its
   // keyframe effect. We only set the most recent local time, meaning that if
   // there are multiple compositor frames without a single main frame only
   // the local time associated with the latest frame is sent to the main thread.
-  base::Optional<base::TimeDelta> last_synced_local_time_;
+  absl::optional<base::TimeDelta> last_synced_local_time_;
 
-  base::Optional<base::TimeTicks> start_time_;
+  absl::optional<base::TimeTicks> start_time_;
 
   // Last current time used for updating. We use this to skip updating if
   // current time has not changed since last update.
-  base::Optional<base::TimeDelta> last_current_time_;
+  absl::optional<base::TimeDelta> last_current_time_;
 
   // To ensure that 'time' progresses forward for scroll animations, we guard
   // against allowing active tree mutations while the pending tree has a

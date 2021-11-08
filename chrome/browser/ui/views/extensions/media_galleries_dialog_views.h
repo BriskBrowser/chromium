@@ -31,13 +31,17 @@ class MediaGalleriesDialogViews : public MediaGalleriesDialog,
  public:
   explicit MediaGalleriesDialogViews(
       MediaGalleriesDialogController* controller);
+
+  MediaGalleriesDialogViews(const MediaGalleriesDialogViews&) = delete;
+  MediaGalleriesDialogViews& operator=(const MediaGalleriesDialogViews&) =
+      delete;
+
   ~MediaGalleriesDialogViews() override;
 
   // MediaGalleriesDialog:
   void UpdateGalleries() override;
 
   // views::DialogDelegate:
-  void DeleteDelegate() override;
   views::Widget* GetWidget() override;
   const views::Widget* GetWidget() const override;
   views::View* GetContentsView() override;
@@ -49,8 +53,8 @@ class MediaGalleriesDialogViews : public MediaGalleriesDialog,
                                   ui::MenuSourceType source_type) override;
 
  private:
+  friend class MediaGalleriesDialogTest;
   FRIEND_TEST_ALL_PREFIXES(MediaGalleriesDialogTest, InitializeCheckboxes);
-  FRIEND_TEST_ALL_PREFIXES(MediaGalleriesDialogTest, ToggleCheckboxes);
   FRIEND_TEST_ALL_PREFIXES(MediaGalleriesDialogTest, UpdateAdds);
   FRIEND_TEST_ALL_PREFIXES(MediaGalleriesDialogTest, ForgetDeletes);
 
@@ -104,8 +108,6 @@ class MediaGalleriesDialogViews : public MediaGalleriesDialog,
   bool accepted_;
 
   std::unique_ptr<views::MenuRunner> context_menu_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaGalleriesDialogViews);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_MEDIA_GALLERIES_DIALOG_VIEWS_H_

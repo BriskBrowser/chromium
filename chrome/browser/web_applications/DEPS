@@ -1,6 +1,9 @@
-specific_include_rules = {
-  # App Service is needed for tests.
-  "system_web_app_manager_browsertest\.cc": [
-    "+components/services/app_service/public/cpp",
-  ],
+include_rules = {
+  "+base",
+  "+chrome/browser",
+  "+components/webapps/services/web_app_origin_association",
+  "+mojo/public/cpp/bindings",
+  "+services/network/public/cpp",
+  "+third_party/blink/public/common",
+  "+url",
 }

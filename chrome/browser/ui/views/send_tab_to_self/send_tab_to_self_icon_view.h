@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_SEND_TAB_TO_SELF_SEND_TAB_TO_SELF_ICON_VIEW_H_
 
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 
 class CommandUpdater;
 
@@ -30,7 +30,7 @@ class SendTabToSelfIconView : public PageActionIconView {
   // PageActionIconView:
   views::BubbleDialogDelegate* GetBubble() const override;
   void UpdateImpl() override;
-  base::string16 GetTextForTooltipAndAccessibleName() const override;
+  std::u16string GetTextForTooltipAndAccessibleName() const override;
 
   // gfx::AnimationDelegate:
   void AnimationProgressed(const gfx::Animation* animation) override;

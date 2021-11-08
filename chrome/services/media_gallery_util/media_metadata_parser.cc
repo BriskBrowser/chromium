@@ -4,12 +4,13 @@
 
 #include "chrome/services/media_gallery_util/media_metadata_parser.h"
 
+#include <memory>
 #include <string>
 
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/strings/string_util.h"
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "base/threading/thread.h"
 #include "media/base/data_source.h"
 #include "media/filters/audio_video_metadata_extractor.h"
@@ -121,7 +122,7 @@ void MediaMetadataParser::Start(MetadataCallback callback) {
 
   auto* images = new std::vector<metadata::AttachedImage>();
 
-  media_thread_.reset(new base::Thread("media_thread"));
+  media_thread_ = std::make_unique<base::Thread>("media_thread");
   CHECK(media_thread_->Start());
 
   base::PostTaskAndReplyWithResult(

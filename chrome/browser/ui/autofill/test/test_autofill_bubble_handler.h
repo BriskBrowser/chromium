@@ -25,6 +25,11 @@ class TestSaveUPIBubble final : public SaveUPIBubble {
 class TestAutofillBubbleHandler : public AutofillBubbleHandler {
  public:
   TestAutofillBubbleHandler();
+
+  TestAutofillBubbleHandler(const TestAutofillBubbleHandler&) = delete;
+  TestAutofillBubbleHandler& operator=(const TestAutofillBubbleHandler&) =
+      delete;
+
   ~TestAutofillBubbleHandler() override;
 
   // AutofillBubbleHandler:
@@ -45,7 +50,18 @@ class TestAutofillBubbleHandler : public AutofillBubbleHandler {
       SaveUPIBubbleController* controller) override;
   AutofillBubbleBase* ShowSaveAddressProfileBubble(
       content::WebContents* contents,
-      SaveAddressProfileBubbleController* controller,
+      SaveUpdateAddressProfileBubbleController* controller,
+      bool is_user_gesture) override;
+  AutofillBubbleBase* ShowUpdateAddressProfileBubble(
+      content::WebContents* contents,
+      SaveUpdateAddressProfileBubbleController* controller,
+      bool is_user_gesture) override;
+  AutofillBubbleBase* ShowEditAddressProfileDialog(
+      content::WebContents* contents,
+      EditAddressProfileDialogController* controller) override;
+  AutofillBubbleBase* ShowVirtualCardManualFallbackBubble(
+      content::WebContents* web_contents,
+      VirtualCardManualFallbackBubbleController* controller,
       bool is_user_gesture) override;
   void OnPasswordSaved() override;
 
@@ -55,8 +71,9 @@ class TestAutofillBubbleHandler : public AutofillBubbleHandler {
   std::unique_ptr<TestAutofillBubble> save_card_bubble_view_;
   std::unique_ptr<TestSaveUPIBubble> save_upi_bubble_;
   std::unique_ptr<TestAutofillBubble> save_address_profile_bubble_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestAutofillBubbleHandler);
+  std::unique_ptr<TestAutofillBubble> update_address_profile_bubble_view_;
+  std::unique_ptr<TestAutofillBubble> edit_address_profile_bubble_view_;
+  std::unique_ptr<TestAutofillBubble> virtual_card_manual_fallback_bubble_view_;
 };
 
 }  // namespace autofill

@@ -13,14 +13,13 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
@@ -41,7 +40,10 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/transport_security_state.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/switches.h"
 
 namespace {
 
@@ -55,6 +57,11 @@ class CustomManagePasswordsUIController : public ManagePasswordsUIController {
  public:
   explicit CustomManagePasswordsUIController(
       content::WebContents* web_contents);
+
+  CustomManagePasswordsUIController(const CustomManagePasswordsUIController&) =
+      delete;
+  CustomManagePasswordsUIController& operator=(
+      const CustomManagePasswordsUIController&) = delete;
 
   void WaitForState(password_manager::ui::State target_state);
 
@@ -112,15 +119,13 @@ class CustomManagePasswordsUIController : public ManagePasswordsUIController {
   base::RunLoop* run_loop_;
 
   // The state CustomManagePasswordsUIController is currently waiting for.
-  base::Optional<password_manager::ui::State> target_state_;
+  absl::optional<password_manager::ui::State> target_state_;
 
   // True iff showing fallback is waited.
   bool wait_for_fallback_;
 
   // True iff a prompt was automatically shown.
   bool was_prompt_automatically_shown_;
-
-  DISALLOW_COPY_AND_ASSIGN(CustomManagePasswordsUIController);
 };
 
 CustomManagePasswordsUIController::CustomManagePasswordsUIController(
@@ -462,6 +467,14 @@ void PasswordManagerBrowserTestBase::TearDownOnMainThread() {
   ASSERT_TRUE(embedded_test_server()->ShutdownAndWaitUntilComplete());
 }
 
+void PasswordManagerBrowserTestBase::SetUpCommandLine(
+    base::CommandLine* command_line) {
+  CertVerifierBrowserTest::SetUpCommandLine(command_line);
+  // Some builders are flaky due to slower loading interacting
+  // with deferred commits.
+  command_line->AppendSwitch(blink::switches::kAllowPreCommitInput);
+}
+
 // static
 void PasswordManagerBrowserTestBase::GetNewTab(
     Browser* browser,
@@ -498,16 +511,16 @@ void PasswordManagerBrowserTestBase::GetNewTab(
 
 // static
 void PasswordManagerBrowserTestBase::WaitForPasswordStore(Browser* browser) {
-  scoped_refptr<password_manager::PasswordStore> profile_password_store =
-      PasswordStoreFactory::GetForProfile(browser->profile(),
-                                          ServiceAccessType::IMPLICIT_ACCESS);
+  scoped_refptr<password_manager::PasswordStoreInterface>
+      profile_password_store = PasswordStoreFactory::GetForProfile(
+          browser->profile(), ServiceAccessType::IMPLICIT_ACCESS);
   PasswordStoreResultsObserver profile_syncer;
   profile_password_store->GetAllLoginsWithAffiliationAndBrandingInformation(
       &profile_syncer);
   profile_syncer.WaitForResults();
 
-  scoped_refptr<password_manager::PasswordStore> account_password_store =
-      AccountPasswordStoreFactory::GetForProfile(
+  scoped_refptr<password_manager::PasswordStoreInterface>
+      account_password_store = AccountPasswordStoreFactory::GetForProfile(
           browser->profile(), ServiceAccessType::IMPLICIT_ACCESS);
   if (account_password_store) {
     PasswordStoreResultsObserver account_syncer;
@@ -531,7 +544,7 @@ void PasswordManagerBrowserTestBase::NavigateToFile(const std::string& path) {
             browser()->tab_strip_model()->GetActiveWebContents());
   NavigationObserver observer(WebContents());
   GURL url = embedded_test_server()->GetURL(path);
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   observer.Wait();
 }
 
@@ -545,6 +558,9 @@ void PasswordManagerBrowserTestBase::WaitForElementValue(
     const std::string& iframe_id,
     const std::string& element_id,
     const std::string& expected_value) {
+  SCOPED_TRACE(::testing::Message()
+               << "iframe_id=" << iframe_id << ", element_id=" << element_id
+               << ", expected_value=" << expected_value);
   const std::string value_check_function = base::StringPrintf(
       "function valueCheck() {"
       "  if (%s)"
@@ -588,10 +604,10 @@ void PasswordManagerBrowserTestBase::WaitForElementValue(
           RETURN_CODE_OK, iframe_id.c_str(), iframe_id.c_str(),
           element_id.c_str(), element_id.c_str(), RETURN_CODE_NO_ELEMENT,
           RETURN_CODE_OK, RETURN_CODE_WRONG_VALUE);
-  int return_value = RETURN_CODE_INVALID;
-  ASSERT_TRUE(content::ExecuteScriptWithoutUserGestureAndExtractInt(
-      RenderFrameHost(), script, &return_value));
-  EXPECT_EQ(RETURN_CODE_OK, return_value)
+  EXPECT_EQ(RETURN_CODE_OK,
+            content::EvalJs(RenderFrameHost(), script,
+                            content::EXECUTE_SCRIPT_NO_USER_GESTURE |
+                                content::EXECUTE_SCRIPT_USE_MANUAL_REPLY))
       << "element_id = " << element_id
       << ", expected_value = " << expected_value;
 }
@@ -609,6 +625,8 @@ void PasswordManagerBrowserTestBase::WaitForElementValue(
 void PasswordManagerBrowserTestBase::WaitForJsElementValue(
     const std::string& element_selector,
     const std::string& expected_value) {
+  SCOPED_TRACE(::testing::Message() << "element_selector=" << element_selector
+                                    << ", expected_value=" << expected_value);
   const std::string value_check_function = base::StringPrintf(
       "function valueCheck() {"
       "  var element = %s;"
@@ -642,10 +660,10 @@ void PasswordManagerBrowserTestBase::WaitForJsElementValue(
           "}",
           RETURN_CODE_OK, element_selector.c_str(), RETURN_CODE_NO_ELEMENT,
           RETURN_CODE_OK, RETURN_CODE_WRONG_VALUE);
-  int return_value = RETURN_CODE_INVALID;
-  ASSERT_TRUE(content::ExecuteScriptWithoutUserGestureAndExtractInt(
-      RenderFrameHost(), script, &return_value));
-  EXPECT_EQ(RETURN_CODE_OK, return_value)
+  EXPECT_EQ(RETURN_CODE_OK,
+            content::EvalJs(RenderFrameHost(), script,
+                            content::EXECUTE_SCRIPT_NO_USER_GESTURE |
+                                content::EXECUTE_SCRIPT_USE_MANUAL_REPLY))
       << "element_selector = " << element_selector
       << ", expected_value = " << expected_value;
 }
@@ -689,7 +707,7 @@ void PasswordManagerBrowserTestBase::SetUpInProcessBrowserTestFixture() {
                 // Set up a TestSyncService which will happily return
                 // "everything is active" so that password generation is
                 // considered enabled.
-                ProfileSyncServiceFactory::GetInstance()->SetTestingFactory(
+                SyncServiceFactory::GetInstance()->SetTestingFactory(
                     context, base::BindRepeating(&BuildTestSyncService));
 
                 PasswordStoreFactory::GetInstance()->SetTestingFactory(
@@ -723,9 +741,8 @@ void PasswordManagerBrowserTestBase::SetUpInProcessBrowserTestFixture() {
 
 void PasswordManagerBrowserTestBase::AddHSTSHost(const std::string& host) {
   network::mojom::NetworkContext* network_context =
-      content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
-          ->GetNetworkContext();
-  base::Time expiry = base::Time::Now() + base::TimeDelta::FromDays(1000);
+      browser()->profile()->GetDefaultStoragePartition()->GetNetworkContext();
+  base::Time expiry = base::Time::Now() + base::Days(1000);
   bool include_subdomains = false;
   base::RunLoop run_loop;
   network_context->AddHSTS(host, expiry, include_subdomains,

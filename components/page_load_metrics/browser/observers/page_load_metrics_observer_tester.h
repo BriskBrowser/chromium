@@ -36,7 +36,6 @@ struct GlobalRequestID;
 
 namespace mojom {
 class FrameRenderDataUpdate;
-class PageLoadFeatures;
 class FrameMetadata;
 class PageLoadTiming;
 }  // namespace mojom
@@ -66,6 +65,11 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
       content::WebContents* web_contents,
       content::RenderViewHostTestHarness* rfh_test_harness,
       const RegisterObserversCallback& callback);
+
+  PageLoadMetricsObserverTester(const PageLoadMetricsObserverTester&) = delete;
+  PageLoadMetricsObserverTester& operator=(
+      const PageLoadMetricsObserverTester&) = delete;
+
   ~PageLoadMetricsObserverTester() override;
 
   // Simulates starting a navigation to the given gurl, without committing the
@@ -95,11 +99,15 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
   void SimulateInputTimingUpdate(const mojom::InputTiming& input_timing);
   void SimulateInputTimingUpdate(const mojom::InputTiming& input_timing,
                                  content::RenderFrameHost* rfh);
+  void SimulateMobileFriendlinessUpdate(
+      const blink::MobileFriendliness& mobile_friendliness,
+      content::RenderFrameHost* rfh);
   void SimulateTimingAndMetadataUpdate(const mojom::PageLoadTiming& timing,
                                        const mojom::FrameMetadata& metadata);
   void SimulateMetadataUpdate(const mojom::FrameMetadata& metadata,
                               content::RenderFrameHost* rfh);
-  void SimulateFeaturesUpdate(const mojom::PageLoadFeatures& new_features);
+  void SimulateFeaturesUpdate(
+      const std::vector<blink::UseCounterFeature>& new_features);
   void SimulateResourceDataUseUpdate(
       const std::vector<mojom::ResourceDataUpdatePtr>& resources);
   void SimulateResourceDataUseUpdate(
@@ -119,8 +127,8 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
   void SimulateLoadedResource(const ExtraRequestCompleteInfo& info,
                               const content::GlobalRequestID& request_id);
 
-  // Simulate the first user interaction for a frame.
-  void SimulateFrameReceivedFirstUserActivation(
+  // Simulate the user interaction for a frame.
+  void SimulateFrameReceivedUserActivation(
       content::RenderFrameHost* render_frame_host);
 
   // Simulates a user input.
@@ -164,7 +172,7 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
   void SimulatePageLoadTimingUpdate(
       const mojom::PageLoadTiming& timing,
       const mojom::FrameMetadata& metadata,
-      const mojom::PageLoadFeatures& new_features,
+      const std::vector<blink::UseCounterFeature>& new_features,
       const mojom::FrameRenderDataUpdate& render_data,
       const mojom::CpuTiming& cpu_timing,
       const mojom::DeferredResourceCounts& new_deferred_resource_data,
@@ -180,8 +188,6 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
   MetricsWebContentsObserver* metrics_web_contents_observer_;
   base::HistogramTester histogram_tester_;
   ukm::TestAutoSetUkmRecorder test_ukm_recorder_;
-
-  DISALLOW_COPY_AND_ASSIGN(PageLoadMetricsObserverTester);
 };
 
 }  // namespace page_load_metrics

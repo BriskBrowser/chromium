@@ -17,6 +17,7 @@
 #include "android_webview/browser/gfx/browser_view_renderer_client.h"
 #include "android_webview/browser/icon_helper.h"
 #include "android_webview/browser/metrics/visibility_metrics_logger.h"
+#include "android_webview/browser/permission/permission_callback.h"
 #include "android_webview/browser/permission/permission_request_handler_client.h"
 #include "android_webview/browser/renderer_host/aw_render_view_host_ext.h"
 #include "android_webview/browser/safe_browsing/aw_safe_browsing_ui_manager.h"
@@ -28,10 +29,6 @@
 #include "content/public/browser/web_contents_observer.h"
 
 class SkBitmap;
-
-namespace autofill {
-class AutofillProvider;
-}
 
 namespace content {
 class WebContents;
@@ -73,6 +70,10 @@ class AwContents : public FindHelper::Listener,
   static std::string GetLocaleList();
 
   AwContents(std::unique_ptr<content::WebContents> web_contents);
+
+  AwContents(const AwContents&) = delete;
+  AwContents& operator=(const AwContents&) = delete;
+
   ~AwContents() override;
 
   AwRenderViewHostExt* render_view_host_ext() {
@@ -95,8 +96,9 @@ class AwContents : public FindHelper::Listener,
       const base::android::JavaParamRef<jobject>& web_contents_delegate,
       const base::android::JavaParamRef<jobject>& contents_client_bridge,
       const base::android::JavaParamRef<jobject>& io_thread_client,
-      const base::android::JavaParamRef<jobject>& intercept_navigation_delegate,
-      const base::android::JavaParamRef<jobject>& autofill_provider);
+      const base::android::JavaParamRef<jobject>&
+          intercept_navigation_delegate);
+  void InitializeAndroidAutofill(JNIEnv* env);
   base::android::ScopedJavaLocalRef<jobject> GetWebContents(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
@@ -143,6 +145,7 @@ class AwContents : public FindHelper::Listener,
                      int h,
                      int ow,
                      int oh);
+  void OnConfigurationChanged(JNIEnv* env);
   void SetViewVisibility(JNIEnv* env,
                          const base::android::JavaParamRef<jobject>& obj,
                          bool visible);
@@ -271,16 +274,14 @@ class AwContents : public FindHelper::Listener,
   // AwBrowserPermissionRequestDelegate implementation.
   void RequestProtectedMediaIdentifierPermission(
       const GURL& origin,
-      base::OnceCallback<void(bool)> callback) override;
+      PermissionCallback callback) override;
   void CancelProtectedMediaIdentifierPermissionRequests(
       const GURL& origin) override;
-  void RequestGeolocationPermission(
-      const GURL& origin,
-      base::OnceCallback<void(bool)> callback) override;
+  void RequestGeolocationPermission(const GURL& origin,
+                                    PermissionCallback callback) override;
   void CancelGeolocationPermissionRequests(const GURL& origin) override;
-  void RequestMIDISysexPermission(
-      const GURL& origin,
-      base::OnceCallback<void(bool)> callback) override;
+  void RequestMIDISysexPermission(const GURL& origin,
+                                  PermissionCallback callback) override;
   void CancelMIDISysexPermissionRequests(const GURL& origin) override;
 
   // Find-in-page API and related methods.
@@ -383,9 +384,6 @@ class AwContents : public FindHelper::Listener,
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
 
-  jlong GetAutofillProvider(JNIEnv* env,
-                            const base::android::JavaParamRef<jobject>& obj);
-
   void RendererUnresponsive(content::RenderProcessHost* render_process_host);
   void RendererResponsive(content::RenderProcessHost* render_process_host);
 
@@ -410,8 +408,7 @@ class AwContents : public FindHelper::Listener,
   void InitAutofillIfNecessary(bool autocomplete_enabled);
 
   // Geolocation API support
-  void ShowGeolocationPrompt(const GURL& origin,
-                             base::OnceCallback<void(bool)>);
+  void ShowGeolocationPrompt(const GURL& origin, PermissionCallback);
   void HideGeolocationPrompt(const GURL& origin);
 
   void SetDipScaleInternal(float dip_scale);
@@ -429,7 +426,6 @@ class AwContents : public FindHelper::Listener,
   std::unique_ptr<AwContents> pending_contents_;
   std::unique_ptr<AwPdfExporter> pdf_exporter_;
   std::unique_ptr<PermissionRequestHandler> permission_request_handler_;
-  std::unique_ptr<autofill::AutofillProvider> autofill_provider_;
   std::unique_ptr<js_injection::JsCommunicationHost> js_communication_host_;
 
   bool view_tree_force_dark_state_ = false;
@@ -438,11 +434,9 @@ class AwContents : public FindHelper::Listener,
   // GURL is supplied by the content layer as requesting frame.
   // Callback is supplied by the content layer, and is invoked with the result
   // from the permission prompt.
-  typedef std::pair<const GURL, base::OnceCallback<void(bool)>> OriginCallback;
+  typedef std::pair<const GURL, PermissionCallback> OriginCallback;
   // The first element in the list is always the currently pending request.
   std::list<OriginCallback> pending_geolocation_prompts_;
-
-  DISALLOW_COPY_AND_ASSIGN(AwContents);
 };
 
 }  // namespace android_webview

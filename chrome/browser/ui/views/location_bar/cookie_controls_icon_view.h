@@ -12,7 +12,7 @@
 #include "components/content_settings/browser/ui/cookie_controls_controller.h"
 #include "components/content_settings/browser/ui/cookie_controls_view.h"
 #include "components/content_settings/core/common/cookie_controls_status.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 
 // View for the cookie control icon in the Omnibox.
 class CookieControlsIconView : public PageActionIconView,
@@ -36,7 +36,7 @@ class CookieControlsIconView : public PageActionIconView,
   // PageActionIconView:
   views::BubbleDialogDelegate* GetBubble() const override;
   void UpdateImpl() override;
-  base::string16 GetTextForTooltipAndAccessibleName() const override;
+  std::u16string GetTextForTooltipAndAccessibleName() const override;
 
  protected:
   void OnExecuting(PageActionIconView::ExecuteSource source) override;

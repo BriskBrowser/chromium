@@ -47,7 +47,7 @@ class DistillabilityServiceImpl : public mojom::DistillabilityService {
 };
 
 DistillabilityDriver::DistillabilityDriver(content::WebContents* web_contents)
-    : latest_result_(base::nullopt), web_contents_(web_contents) {
+    : latest_result_(absl::nullopt), web_contents_(web_contents) {
   if (!web_contents)
     return;
 }
@@ -87,6 +87,6 @@ void DistillabilityDriver::OnDistillability(
     observer.OnResult(result);
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(DistillabilityDriver)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(DistillabilityDriver);
 
 }  // namespace dom_distiller

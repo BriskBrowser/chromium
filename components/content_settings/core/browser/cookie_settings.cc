@@ -18,6 +18,7 @@
 #include "components/prefs/pref_service.h"
 #include "extensions/buildflags/buildflags.h"
 #include "net/cookies/cookie_util.h"
+#include "net/cookies/site_for_cookies.h"
 #include "url/gurl.h"
 
 #if defined(OS_IOS)
@@ -90,9 +91,7 @@ bool CookieSettings::IsThirdPartyAccessAllowed(
     content_settings::SettingSource* source) {
   // Use GURL() as an opaque primary url to check if any site
   // could access cookies in a 3p context on |first_party_url|.
-  ContentSetting setting;
-  GetCookieSetting(GURL(), first_party_url, source, &setting);
-  return IsAllowed(setting);
+  return IsAllowed(GetCookieSetting(GURL(), first_party_url, source));
 }
 
 void CookieSettings::SetThirdPartyCookieSetting(const GURL& first_party_url,
@@ -136,8 +135,8 @@ void CookieSettings::GetSettingForLegacyCookieAccess(
 
 bool CookieSettings::ShouldIgnoreSameSiteRestrictions(
     const GURL& url,
-    const GURL& site_for_cookies) const {
-  return site_for_cookies.SchemeIs(kChromeUIScheme) &&
+    const net::SiteForCookies& site_for_cookies) const {
+  return site_for_cookies.RepresentativeUrl().SchemeIs(kChromeUIScheme) &&
          url.SchemeIsCryptographic();
 }
 
@@ -164,17 +163,14 @@ bool CookieSettings::ShouldAlwaysAllowCookies(
   return false;
 }
 
-void CookieSettings::GetCookieSettingInternal(
+ContentSetting CookieSettings::GetCookieSettingInternal(
     const GURL& url,
     const GURL& first_party_url,
     bool is_third_party_request,
-    content_settings::SettingSource* source,
-    ContentSetting* cookie_setting) const {
-  DCHECK(cookie_setting);
+    content_settings::SettingSource* source) const {
   // Auto-allow in extensions or for WebUI embedding a secure origin.
   if (ShouldAlwaysAllowCookies(url, first_party_url)) {
-    *cookie_setting = CONTENT_SETTING_ALLOW;
-    return;
+    return CONTENT_SETTING_ALLOW;
   }
 
   // First get any host-specific settings.
@@ -211,10 +207,10 @@ void CookieSettings::GetCookieSettingInternal(
   // performing extra work in scenarios we already allow.
   if (block &&
       base::FeatureList::IsEnabled(blink::features::kStorageAccessAPI)) {
-    ContentSetting setting = host_content_settings_map_->GetContentSetting(
+    ContentSetting host_setting = host_content_settings_map_->GetContentSetting(
         url, first_party_url, ContentSettingsType::STORAGE_ACCESS);
 
-    if (setting == CONTENT_SETTING_ALLOW) {
+    if (host_setting == CONTENT_SETTING_ALLOW) {
       block = false;
       FireStorageAccessHistogram(net::cookie_util::StorageAccessResult::
                                      ACCESS_ALLOWED_STORAGE_ACCESS_GRANT);
@@ -227,7 +223,7 @@ void CookieSettings::GetCookieSettingInternal(
         net::cookie_util::StorageAccessResult::ACCESS_BLOCKED);
   }
 
-  *cookie_setting = block ? CONTENT_SETTING_BLOCK : setting;
+  return block ? CONTENT_SETTING_BLOCK : setting;
 }
 
 CookieSettings::~CookieSettings() = default;
@@ -257,8 +253,8 @@ bool CookieSettings::ShouldBlockThirdPartyCookiesInternal() {
 void CookieSettings::OnContentSettingChanged(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type) {
-  if (content_type == ContentSettingsType::COOKIES) {
+    ContentSettingsTypeSet content_type_set) {
+  if (content_type_set.Contains(ContentSettingsType::COOKIES)) {
     for (auto& observer : observers_)
       observer.OnCookieSettingChanged();
   }
@@ -269,17 +265,14 @@ void CookieSettings::OnCookiePreferencesChanged() {
 
   bool new_block_third_party_cookies = ShouldBlockThirdPartyCookiesInternal();
 
-  // Safe to read |block_third_party_cookies_| without locking here because the
-  // only place that writes to it is this method and it will always be run on
-  // the same thread.
-  if (block_third_party_cookies_ != new_block_third_party_cookies) {
-    {
-      base::AutoLock auto_lock(lock_);
-      block_third_party_cookies_ = new_block_third_party_cookies;
-    }
-    for (Observer& obs : observers_)
-      obs.OnThirdPartyCookieBlockingChanged(new_block_third_party_cookies);
+  {
+    base::AutoLock auto_lock(lock_);
+    if (block_third_party_cookies_ == new_block_third_party_cookies)
+      return;
+    block_third_party_cookies_ = new_block_third_party_cookies;
   }
+  for (Observer& obs : observers_)
+    obs.OnThirdPartyCookieBlockingChanged(new_block_third_party_cookies);
 }
 
 bool CookieSettings::ShouldBlockThirdPartyCookies() const {

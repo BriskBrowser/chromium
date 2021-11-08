@@ -29,6 +29,10 @@ class Window;
 class AURA_EXPORT WindowTargeter : public ui::EventTargeter {
  public:
   WindowTargeter();
+
+  WindowTargeter(const WindowTargeter&) = delete;
+  WindowTargeter& operator=(const WindowTargeter&) = delete;
+
   ~WindowTargeter() override;
 
   using HitTestRects = std::vector<gfx::Rect>;
@@ -115,8 +119,6 @@ class AURA_EXPORT WindowTargeter : public ui::EventTargeter {
   // Returns whether the location of the event is in an actionable region of the
   // target. Note that the location etc. of |event| is in the |window|'s
   // parent's coordinate system.
-  // Deprecated. As an alternative, override GetHitTestRects.
-  // TODO(varkha): Make this non-overridable.
   virtual bool EventLocationInsideBounds(Window* target,
                                          const ui::LocatedEvent& event) const;
 
@@ -126,6 +128,10 @@ class AURA_EXPORT WindowTargeter : public ui::EventTargeter {
 
   const gfx::Insets& mouse_extend() const { return mouse_extend_; }
   const gfx::Insets& touch_extend() const { return touch_extend_; }
+
+  static gfx::Point ConvertEventLocationToWindowCoordinates(
+      Window* window,
+      const ui::LocatedEvent& event);
 
  private:
   // To call OnInstalled().
@@ -153,8 +159,6 @@ class AURA_EXPORT WindowTargeter : public ui::EventTargeter {
 
   gfx::Insets mouse_extend_;
   gfx::Insets touch_extend_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowTargeter);
 };
 
 }  // namespace aura

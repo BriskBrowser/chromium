@@ -21,7 +21,6 @@
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
-#include "components/signin/public/base/account_consistency_method.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/base/test_signin_client.h"
 #include "components/signin/public/identity_manager/device_accounts_synchronizer.h"
@@ -87,8 +86,8 @@ TEST_F(CWVSyncControllerTest, StartSyncWithIdentity) {
   // Preconfigure TestSyncService as if it was enabled in transport mode.
   sync_service_.SetFirstSetupComplete(false);
   sync_service_.SetTransportState(syncer::SyncService::TransportState::ACTIVE);
-  sync_service_.SetIsUsingSecondaryPassphrase(false);
-  sync_service_.SetAuthenticatedAccountInfo(account_info);
+  sync_service_.SetIsUsingExplicitPassphrase(false);
+  sync_service_.SetAccountInfo(account_info);
 
   CWVSyncController* sync_controller = [[CWVSyncController alloc]
       initWithSyncService:&sync_service_
@@ -114,7 +113,8 @@ TEST_F(CWVSyncControllerTest, StartSyncWithIdentity) {
 
 TEST_F(CWVSyncControllerTest, StopSyncAndClearIdentity) {
   CoreAccountInfo account_info =
-      identity_test_environment_.MakePrimaryAccountAvailable(kTestEmail);
+      identity_test_environment_.MakePrimaryAccountAvailable(
+          kTestEmail, signin::ConsentLevel::kSync);
 
   CWVSyncController* sync_controller = [[CWVSyncController alloc]
       initWithSyncService:&sync_service_

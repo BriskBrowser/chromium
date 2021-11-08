@@ -26,19 +26,20 @@ class WM_CORE_EXPORT EasyResizeWindowTargeter : public aura::WindowTargeter {
   EasyResizeWindowTargeter(const gfx::Insets& mouse_extend,
                            const gfx::Insets& touch_extend);
 
+  EasyResizeWindowTargeter(const EasyResizeWindowTargeter&) = delete;
+  EasyResizeWindowTargeter& operator=(const EasyResizeWindowTargeter&) = delete;
+
   ~EasyResizeWindowTargeter() override;
 
  private:
   // aura::WindowTargeter:
   // Delegates to WindowTargeter's impl and prevents overriding in subclasses.
   bool EventLocationInsideBounds(aura::Window* target,
-                                 const ui::LocatedEvent& event) const override;
+                                 const ui::LocatedEvent& event) const final;
 
   // Returns true if the hit testing (GetHitTestRects()) should use the
   // extended bounds.
   bool ShouldUseExtendedBounds(const aura::Window* w) const override;
-
-  DISALLOW_COPY_AND_ASSIGN(EasyResizeWindowTargeter);
 };
 
 }  // namespace wm

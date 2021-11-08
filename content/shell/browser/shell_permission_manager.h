@@ -14,16 +14,21 @@ namespace content {
 class ShellPermissionManager : public PermissionControllerDelegate {
  public:
   ShellPermissionManager();
+
+  ShellPermissionManager(const ShellPermissionManager&) = delete;
+  ShellPermissionManager& operator=(const ShellPermissionManager&) = delete;
+
   ~ShellPermissionManager() override;
 
   // PermissionManager implementation.
-  int RequestPermission(PermissionType permission,
-                        RenderFrameHost* render_frame_host,
-                        const GURL& requesting_origin,
-                        bool user_gesture,
-                        base::OnceCallback<void(blink::mojom::PermissionStatus)>
-                            callback) override;
-  int RequestPermissions(
+  void RequestPermission(
+      PermissionType permission,
+      RenderFrameHost* render_frame_host,
+      const GURL& requesting_origin,
+      bool user_gesture,
+      base::OnceCallback<void(blink::mojom::PermissionStatus)> callback)
+      override;
+  void RequestPermissions(
       const std::vector<PermissionType>& permission,
       RenderFrameHost* render_frame_host,
       const GURL& requesting_origin,
@@ -42,18 +47,16 @@ class ShellPermissionManager : public PermissionControllerDelegate {
       content::PermissionType permission,
       content::RenderFrameHost* render_frame_host,
       const GURL& requesting_origin) override;
-  int SubscribePermissionStatusChange(
+  SubscriptionId SubscribePermissionStatusChange(
       PermissionType permission,
       RenderFrameHost* render_frame_host,
       const GURL& requesting_origin,
       base::RepeatingCallback<void(blink::mojom::PermissionStatus)> callback)
       override;
-  void UnsubscribePermissionStatusChange(int subscription_id) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ShellPermissionManager);
+  void UnsubscribePermissionStatusChange(
+      SubscriptionId subscription_id) override;
 };
 
 }  // namespace content
 
-#endif // CONTENT_SHELL_BROWSER_SHELL_PERMISSION_MANAGER_H
+#endif  // CONTENT_SHELL_BROWSER_SHELL_PERMISSION_MANAGER_H_

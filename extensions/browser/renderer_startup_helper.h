@@ -43,6 +43,10 @@ class RendererStartupHelper : public KeyedService,
  public:
   // This class sends messages to all renderers started for |browser_context|.
   explicit RendererStartupHelper(content::BrowserContext* browser_context);
+
+  RendererStartupHelper(const RendererStartupHelper&) = delete;
+  RendererStartupHelper& operator=(const RendererStartupHelper&) = delete;
+
   ~RendererStartupHelper() override;
 
   // content::RenderProcessHostCreationObserver:
@@ -81,6 +85,7 @@ class RendererStartupHelper : public KeyedService,
 
  private:
   friend class RendererStartupHelperTest;
+  friend class RendererStartupHelperInterceptor;
 
   // Initializes the specified process, informing it of system state and loaded
   // extensions.
@@ -108,8 +113,6 @@ class RendererStartupHelper : public KeyedService,
   // happens.
   std::map<content::RenderProcessHost*, mojo::AssociatedRemote<mojom::Renderer>>
       process_mojo_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(RendererStartupHelper);
 };
 
 // Factory for RendererStartupHelpers. Declared here because this header is
@@ -117,6 +120,10 @@ class RendererStartupHelper : public KeyedService,
 // compiler generate another object file.
 class RendererStartupHelperFactory : public BrowserContextKeyedServiceFactory {
  public:
+  RendererStartupHelperFactory(const RendererStartupHelperFactory&) = delete;
+  RendererStartupHelperFactory& operator=(const RendererStartupHelperFactory&) =
+      delete;
+
   static RendererStartupHelper* GetForBrowserContext(
       content::BrowserContext* context);
   static RendererStartupHelperFactory* GetInstance();
@@ -133,8 +140,6 @@ class RendererStartupHelperFactory : public BrowserContextKeyedServiceFactory {
   content::BrowserContext* GetBrowserContextToUse(
       content::BrowserContext* context) const override;
   bool ServiceIsCreatedWithBrowserContext() const override;
-
-  DISALLOW_COPY_AND_ASSIGN(RendererStartupHelperFactory);
 };
 
 }  // namespace extensions

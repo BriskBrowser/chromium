@@ -21,7 +21,7 @@ class ProcessMetricsRecorder final : public ProcessMonitor::Observer {
   ProcessMetricsRecorder& operator=(const ProcessMetricsRecorder&) = delete;
 
  private:
-  // ProcessMonitorObserver:
+  // ProcessMonitor::Observer:
   void OnMetricsSampled(const ProcessMetadata& process_metadata,
                         const ProcessMonitor::Metrics& metrics) override;
 

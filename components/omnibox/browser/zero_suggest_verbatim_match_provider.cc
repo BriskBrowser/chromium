@@ -9,6 +9,8 @@
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
 #include "components/omnibox/browser/verbatim_match.h"
 #include "components/omnibox/common/omnibox_features.h"
+#include "components/url_formatter/url_formatter.h"
+#include "net/base/escape.h"
 
 namespace {
 // The relevance score for verbatim match.
@@ -20,19 +22,13 @@ const int kVerbatimMatchRelevanceScore = 1600;
 bool IsVerbatimMatchEligible(
     metrics::OmniboxEventProto::PageClassification context) {
   // Only offer verbatim match on a site visit and SRP (no NTP etc).
-  switch (context) {
-    case metrics::OmniboxEventProto::
-        SEARCH_RESULT_PAGE_DOING_SEARCH_TERM_REPLACEMENT:
-    case metrics::OmniboxEventProto::
-        SEARCH_RESULT_PAGE_NO_SEARCH_TERM_REPLACEMENT:
-      return base::FeatureList::IsEnabled(
-          omnibox::kOmniboxSearchReadyIncognito);
-    case metrics::OmniboxEventProto::ANDROID_SEARCH_WIDGET:
-    case metrics::OmniboxEventProto::OTHER:
-      return true;
-    default:
-      return false;
-  }
+  return context == metrics::OmniboxEventProto::
+                        SEARCH_RESULT_PAGE_DOING_SEARCH_TERM_REPLACEMENT ||
+         context == metrics::OmniboxEventProto::
+                        SEARCH_RESULT_PAGE_NO_SEARCH_TERM_REPLACEMENT ||
+         context == metrics::OmniboxEventProto::ANDROID_SEARCH_WIDGET ||
+         context == metrics::OmniboxEventProto::ANDROID_SHORTCUTS_WIDGET ||
+         context == metrics::OmniboxEventProto::OTHER;
 }
 
 }  // namespace
@@ -51,7 +47,8 @@ void ZeroSuggestVerbatimMatchProvider::Start(const AutocompleteInput& input,
 
   // Only offer verbatim match after the user just focused the Omnibox,
   // or if the input field is empty.
-  if (input.focus_type() == OmniboxFocusType::DEFAULT)
+  if (input.focus_type() == OmniboxFocusType::DEFAULT ||
+      input.focus_type() == OmniboxFocusType::DELETED_PERMANENT_TEXT)
     return;
 
   // For consistency with other zero-prefix providers.
@@ -70,9 +67,14 @@ void ZeroSuggestVerbatimMatchProvider::Start(const AutocompleteInput& input,
   verbatim_input.set_prevent_inline_autocomplete(true);
   verbatim_input.set_allow_exact_keyword_match(false);
 
-  AutocompleteMatch match = VerbatimMatchForURL(
-      client_, verbatim_input, page_url, input.current_title(), nullptr,
-      kVerbatimMatchRelevanceScore);
+  AutocompleteMatch match =
+      VerbatimMatchForURL(this, client_, verbatim_input, page_url,
+                          input.current_title(), kVerbatimMatchRelevanceScore);
+  // Make sure the URL is formatted the same was as most visited sites.
+  auto format_types = AutocompleteMatch::GetFormatTypes(false, false);
+  match.contents = url_formatter::FormatUrl(page_url, format_types,
+                                            net::UnescapeRule::SPACES, nullptr,
+                                            nullptr, nullptr);
 
   // In the case of native pages, the classifier may replace the URL with an
   // empty content, resulting with a verbatim match that does not point
@@ -86,5 +88,6 @@ void ZeroSuggestVerbatimMatchProvider::Start(const AutocompleteInput& input,
 
 void ZeroSuggestVerbatimMatchProvider::Stop(bool clear_cached_results,
                                             bool due_to_user_inactivity) {
-  matches_.clear();
+  if (clear_cached_results)
+    matches_.clear();
 }

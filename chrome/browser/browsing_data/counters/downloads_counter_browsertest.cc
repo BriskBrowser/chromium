@@ -4,6 +4,7 @@
 
 #include "chrome/browser/browsing_data/counters/downloads_counter.h"
 
+#include <memory>
 #include <set>
 
 #include "base/bind.h"
@@ -39,15 +40,16 @@ class DownloadsCounterTest : public InProcessBrowserTest,
   void SetUpOnMainThread() override {
     time_ = base::Time::Now();
     items_count_ = 0;
-    manager_ =
-        content::BrowserContext::GetDownloadManager(browser()->profile());
+    manager_ = browser()->profile()->GetDownloadManager();
     history_ =
         DownloadCoreServiceFactory::GetForBrowserContext(browser()->profile())
             ->GetDownloadHistory();
     history_->AddObserver(this);
 
-    otr_manager_ = content::BrowserContext::GetDownloadManager(
-        browser()->profile()->GetPrimaryOTRProfile());
+    otr_manager_ = browser()
+                       ->profile()
+                       ->GetPrimaryOTRProfile(/*create_if_needed=*/true)
+                       ->GetDownloadManager();
     SetDownloadsDeletionPref(true);
     SetDeletionPeriodPref(browsing_data::TimePeriod::ALL_TIME);
   }
@@ -126,7 +128,8 @@ class DownloadsCounterTest : public InProcessBrowserTest,
         GURL(), GURL(), GURL(), url::Origin(), mime_type, std::string(), time_,
         time_, std::string(), std::string(), 1, 1, std::string(), state, danger,
         reason, false, time_, false,
-        std::vector<download::DownloadItem::ReceivedSlice>());
+        std::vector<download::DownloadItem::ReceivedSlice>(),
+        download::DownloadItemRerouteInfo());
 
     return guid;
   }
@@ -149,9 +152,7 @@ class DownloadsCounterTest : public InProcessBrowserTest,
         browsing_data::prefs::kDeleteTimePeriod, static_cast<int>(period));
   }
 
-  void RevertTimeInHours(int days) {
-    time_ -= base::TimeDelta::FromHours(days);
-  }
+  void RevertTimeInHours(int days) { time_ -= base::Hours(days); }
 
   // Waiting for downloads to be stored. ---------------------------------------
 
@@ -186,7 +187,7 @@ class DownloadsCounterTest : public InProcessBrowserTest,
       return;
 
     DCHECK(!run_loop_ || !run_loop_->running());
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
   }
 

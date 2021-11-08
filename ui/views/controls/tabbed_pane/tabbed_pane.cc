@@ -17,14 +17,17 @@
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/default_style.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/insets.h"
-#include "ui/native_theme/native_theme.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
@@ -33,14 +36,14 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/layout_manager.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
 
-Tab::Tab(TabbedPane* tabbed_pane, const base::string16& title, View* contents)
+Tab::Tab(TabbedPane* tabbed_pane, const std::u16string& title, View* contents)
     : tabbed_pane_(tabbed_pane), contents_(contents) {
+  set_suppress_default_focus_handling();
   // Calculate the size while the font list is bold.
   auto title_label = std::make_unique<Label>(title, style::CONTEXT_LABEL,
                                              style::STYLE_TAB_ACTIVE);
@@ -78,7 +81,7 @@ void Tab::SetSelected(bool selected) {
   contents_->SetVisible(selected);
   contents_->parent()->InvalidateLayout();
   SetState(selected ? State::kActive : State::kInactive);
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
   SetFocusBehavior(selected ? FocusBehavior::ACCESSIBLE_ONLY
                             : FocusBehavior::NEVER);
 #else
@@ -86,11 +89,11 @@ void Tab::SetSelected(bool selected) {
 #endif
 }
 
-const base::string16& Tab::GetTitleText() const {
+const std::u16string& Tab::GetTitleText() const {
   return title_->GetText();
 }
 
-void Tab::SetTitleText(const base::string16& text) {
+void Tab::SetTitleText(const std::u16string& text) {
   title_->SetText(text);
   UpdatePreferredTitleWidth();
   PreferredSizeChanged();
@@ -155,9 +158,8 @@ void Tab::OnFocus() {
     // Maintain the current Insets with CreatePaddedBorder.
     int border_size = 2;
     SetBorder(CreatePaddedBorder(
-        CreateSolidBorder(border_size,
-                          GetNativeTheme()->GetSystemColor(
-                              ui::NativeTheme::kColorId_FocusedBorderColor)),
+        CreateSolidBorder(border_size, GetColorProvider()->GetColor(
+                                           ui::kColorFocusableBorderFocused)),
         GetInsets() - gfx::Insets(border_size)));
   }
 
@@ -189,6 +191,11 @@ bool Tab::OnKeyPressed(const ui::KeyEvent& event) {
          tabbed_pane_->MoveSelectionBy(key == ui::VKEY_DOWN ? 1 : -1);
 }
 
+void Tab::OnThemeChanged() {
+  View::OnThemeChanged();
+  UpdateTitleColor();
+}
+
 void Tab::SetState(State state) {
   if (state == state_)
     return;
@@ -198,11 +205,9 @@ void Tab::SetState(State state) {
 }
 
 void Tab::OnStateChanged() {
-  const SkColor font_color = GetNativeTheme()->GetSystemColor(
-      state_ == State::kActive
-          ? ui::NativeTheme::kColorId_TabTitleColorActive
-          : ui::NativeTheme::kColorId_TabTitleColorInactive);
-  title_->SetEnabledColor(font_color);
+  // Update colors that depend on state if present in a Widget hierarchy.
+  if (GetWidget())
+    UpdateTitleColor();
 
   // Tab design spec dictates special handling of font weight for the windows
   // platform when dealing with border style tabs.
@@ -254,9 +259,9 @@ void Tab::OnPaint(gfx::Canvas* canvas) {
 
   cc::PaintFlags fill_flags;
   fill_flags.setAntiAlias(true);
-  fill_flags.setColor(GetNativeTheme()->GetSystemColor(
-      HasFocus() ? ui::NativeTheme::kColorId_TabHighlightFocusedBackground
-                 : ui::NativeTheme::kColorId_TabHighlightBackground));
+  fill_flags.setColor(GetColorProvider()->GetColor(
+      HasFocus() ? ui::kColorTabBackgroundHighlightedFocused
+                 : ui::kColorTabBackgroundHighlighted));
   canvas->DrawPath(path, fill_flags);
 }
 
@@ -270,6 +275,14 @@ void Tab::UpdatePreferredTitleWidth() {
   preferred_title_width_ =
       std::max(preferred_title_width_, title_->GetPreferredSize().width());
   SetState(old_state);
+}
+
+void Tab::UpdateTitleColor() {
+  DCHECK(GetWidget());
+  const SkColor font_color = GetColorProvider()->GetColor(
+      state_ == State::kActive ? ui::kColorTabForegroundSelected
+                               : ui::kColorTabForeground);
+  title_->SetEnabledColor(font_color);
 }
 
 BEGIN_METADATA(Tab, View)
@@ -298,13 +311,13 @@ TabStrip::TabStrip(TabbedPane::Orientation orientation,
   }
   SetLayoutManager(std::move(layout));
 
-  GetViewAccessibility().OverrideRole(ax::mojom::Role::kIgnored);
+  GetViewAccessibility().OverrideRole(ax::mojom::Role::kNone);
 
   // These durations are taken from the Paper Tabs source:
   // https://github.com/PolymerElements/paper-tabs/blob/master/paper-tabs.html
   // See |selectionBar.expand| and |selectionBar.contract|.
-  expand_animation_->SetDuration(base::TimeDelta::FromMilliseconds(150));
-  contract_animation_->SetDuration(base::TimeDelta::FromMilliseconds(180));
+  expand_animation_->SetDuration(base::Milliseconds(150));
+  contract_animation_->SetDuration(base::Milliseconds(180));
 }
 
 TabStrip::~TabStrip() = default;
@@ -321,7 +334,7 @@ void TabStrip::AnimationEnded(const gfx::Animation* animation) {
 void TabStrip::OnSelectedTabChanged(Tab* from_tab, Tab* to_tab, bool animate) {
   DCHECK(!from_tab->selected());
   DCHECK(to_tab->selected());
-  if (!animate)
+  if (!animate || !GetWidget())
     return;
 
   if (GetOrientation() == TabbedPane::Orientation::kHorizontal) {
@@ -413,8 +426,8 @@ void TabStrip::OnPaintBorder(gfx::Canvas* canvas) {
     rect = gfx::Rect(max_cross_axis - kUnselectedBorderThickness, 0,
                      kUnselectedBorderThickness, height());
   }
-  canvas->FillRect(rect, GetNativeTheme()->GetSystemColor(
-                             ui::NativeTheme::kColorId_TabBottomBorder));
+  canvas->FillRect(rect,
+                   GetColorProvider()->GetColor(ui::kColorTabContentSeparator));
 
   Tab* tab = GetSelectedTab();
   if (!tab)
@@ -472,21 +485,9 @@ void TabStrip::OnPaintBorder(gfx::Canvas* canvas) {
                    max_main_axis - min_main_axis, kSelectedBorderThickness);
   if (!is_horizontal)
     rect.Transpose();
-  canvas->FillRect(rect, GetNativeTheme()->GetSystemColor(
-                             ui::NativeTheme::kColorId_TabSelectedBorderColor));
+  canvas->FillRect(rect,
+                   GetColorProvider()->GetColor(ui::kColorTabBorderSelected));
 }
-
-DEFINE_ENUM_CONVERTERS(TabbedPane::Orientation,
-                       {TabbedPane::Orientation::kHorizontal,
-                        base::ASCIIToUTF16("HORIZONTAL")},
-                       {TabbedPane::Orientation::kVertical,
-                        base::ASCIIToUTF16("VERTICAL")})
-
-DEFINE_ENUM_CONVERTERS(TabbedPane::TabStripStyle,
-                       {TabbedPane::TabStripStyle::kBorder,
-                        base::ASCIIToUTF16("BORDER")},
-                       {TabbedPane::TabStripStyle::kHighlight,
-                        base::ASCIIToUTF16("HIGHLIGHT")})
 
 BEGIN_METADATA(TabStrip, View)
 ADD_READONLY_PROPERTY_METADATA(int, SelectedTabIndex)
@@ -527,7 +528,7 @@ size_t TabbedPane::GetTabCount() {
 }
 
 void TabbedPane::AddTabInternal(size_t index,
-                                const base::string16& title,
+                                const std::u16string& title,
                                 std::unique_ptr<View> contents) {
   DCHECK_LE(index, GetTabCount());
   contents->SetVisible(false);
@@ -620,3 +621,13 @@ BEGIN_METADATA(TabbedPane, View)
 END_METADATA
 
 }  // namespace views
+
+DEFINE_ENUM_CONVERTERS(views::TabbedPane::Orientation,
+                       {views::TabbedPane::Orientation::kHorizontal,
+                        u"HORIZONTAL"},
+                       {views::TabbedPane::Orientation::kVertical, u"VERTICAL"})
+
+DEFINE_ENUM_CONVERTERS(views::TabbedPane::TabStripStyle,
+                       {views::TabbedPane::TabStripStyle::kBorder, u"BORDER"},
+                       {views::TabbedPane::TabStripStyle::kHighlight,
+                        u"HIGHLIGHT"})

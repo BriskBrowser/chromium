@@ -16,8 +16,8 @@
 #include "base/containers/span.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "net/base/net_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class GURL;
 
@@ -37,6 +37,9 @@ struct WebSocketHandshakeResponseInfo;
 class NET_EXPORT WebSocketEventInterface {
  public:
   typedef int WebSocketMessageType;
+
+  WebSocketEventInterface(const WebSocketEventInterface&) = delete;
+  WebSocketEventInterface& operator=(const WebSocketEventInterface&) = delete;
 
   virtual ~WebSocketEventInterface() {}
 
@@ -99,13 +102,13 @@ class NET_EXPORT WebSocketEventInterface {
   // |message| is a human readable string describing the failure. (It may be
   // empty.) |net_error| contains the network error code for the failure, which
   // may be |OK| if the failure was at a higher level. |response_code| contains
-  // the HTTP status code that caused the failure, or |base::nullopt| if the
+  // the HTTP status code that caused the failure, or |absl::nullopt| if the
   // attempt didn't get that far.
   //
   // This function deletes the Channel.
   virtual void OnFailChannel(const std::string& message,
                              int net_error,
-                             base::Optional<int> response_code) = 0;
+                             absl::optional<int> response_code) = 0;
 
   // Called when the browser starts the WebSocket Opening Handshake.
   virtual void OnStartOpeningHandshake(
@@ -152,13 +155,10 @@ class NET_EXPORT WebSocketEventInterface {
       scoped_refptr<HttpResponseHeaders> response_headers,
       const IPEndPoint& socket_address,
       base::OnceCallback<void(const AuthCredentials*)> callback,
-      base::Optional<AuthCredentials>* credentials) = 0;
+      absl::optional<AuthCredentials>* credentials) = 0;
 
  protected:
   WebSocketEventInterface() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebSocketEventInterface);
 };
 
 }  // namespace net

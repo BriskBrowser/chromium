@@ -7,12 +7,8 @@ package org.chromium.chrome.browser.app.appmenu;
 import android.content.res.Configuration;
 import android.support.test.InstrumentationRegistry;
 import android.view.KeyEvent;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
-import android.widget.LinearLayout;
 import android.widget.ListView;
-import android.widget.TextView;
 
 import androidx.test.filters.SmallTest;
 
@@ -20,6 +16,7 @@ import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -39,20 +36,24 @@ import org.chromium.chrome.browser.compositor.layouts.EmptyOverviewModeObserver;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.layouts.animation.CompositorAnimationHandler;
+import org.chromium.chrome.browser.read_later.ReadingListUtils;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuHandler;
+import org.chromium.chrome.browser.ui.appmenu.AppMenuItemProperties;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuTestSupport;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.ActivityUtils;
+import org.chromium.chrome.test.util.ActivityTestUtils;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.content_public.browser.test.util.TestTouchUtils;
-import org.chromium.ui.modaldialog.ModalDialogProperties;
+import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.ui.modelutil.PropertyModel;
+import org.chromium.ui.test.util.DisableAnimationsTestRule;
 import org.chromium.ui.test.util.UiRestriction;
 
 import java.io.IOException;
@@ -64,11 +65,14 @@ import java.util.concurrent.TimeoutException;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class TabbedAppMenuTest {
+    @ClassRule
+    public static DisableAnimationsTestRule sDisableAnimationsRule =
+            new DisableAnimationsTestRule();
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
     @Rule
     public ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().build();
+            ChromeRenderTestRule.Builder.withPublicCorpus().setRevision(1).build();
 
     private static final String TEST_URL = UrlUtils.encodeHtmlDataUri("<html>foo</html>");
     private static final String TEST_URL2 = UrlUtils.encodeHtmlDataUri("<html>bar</html>");
@@ -76,13 +80,14 @@ public class TabbedAppMenuTest {
     private AppMenuHandler mAppMenuHandler;
 
     int mLastSelectedItemId = -1;
-    private Callback<MenuItem> mItemSelectedCallback =
-            (item) -> mLastSelectedItemId = item.getItemId();
+    private Callback<Integer> mItemSelectedCallback = (itemId) -> mLastSelectedItemId = itemId;
 
     @Before
     public void setUp() {
         // We need list selection; ensure we are not in touch mode.
         InstrumentationRegistry.getInstrumentation().setInTouchMode(false);
+
+        CompositorAnimationHandler.setTestingMode(true);
 
         mActivityTestRule.startMainActivityWithURL(TEST_URL);
 
@@ -100,7 +105,9 @@ public class TabbedAppMenuTest {
 
     @After
     public void tearDown() {
-        ActivityUtils.clearActivityOrientation(mActivityTestRule.getActivity());
+        ActivityTestUtils.clearActivityOrientation(mActivityTestRule.getActivity());
+
+        CompositorAnimationHandler.setTestingMode(false);
     }
 
     /**
@@ -177,7 +184,7 @@ public class TabbedAppMenuTest {
     @Feature({"Browser", "Main"})
     @Test
     public void testKeyboardMenuEnterOnTopItemLandscape() {
-        ActivityUtils.rotateActivityToOrientation(
+        ActivityTestUtils.rotateActivityToOrientation(
                 mActivityTestRule.getActivity(), Configuration.ORIENTATION_LANDSCAPE);
         showAppMenuAndAssertMenuShown();
         moveToBoundary(true, false);
@@ -192,7 +199,7 @@ public class TabbedAppMenuTest {
     @SmallTest
     @Feature({"Browser", "Main"})
     public void testKeyboardMenuEnterOnTopItemPortrait() {
-        ActivityUtils.rotateActivityToOrientation(
+        ActivityTestUtils.rotateActivityToOrientation(
                 mActivityTestRule.getActivity(), Configuration.ORIENTATION_PORTRAIT);
         showAppMenuAndAssertMenuShown();
         moveToBoundary(true, false);
@@ -247,32 +254,31 @@ public class TabbedAppMenuTest {
     @Test
     @SmallTest
     @Feature({"Browser", "Main", "Bookmark", "RenderTest"})
-    @DisableFeatures({ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_REGROUP,
-            ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_ICONS})
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    public void
-    testBookmarkMenuItem() throws IOException {
-        MenuItem bookmarkStar =
-                AppMenuTestSupport.getMenu(mActivityTestRule.getAppMenuCoordinator())
-                        .findItem(R.id.bookmark_this_page_id);
-        Assert.assertFalse("Bookmark item should not be checked.", bookmarkStar.isChecked());
+    public void testBookmarkMenuItem() throws IOException {
+        PropertyModel bookmarkStarPropertyModel = AppMenuTestSupport.getMenuItemPropertyModel(
+                mActivityTestRule.getAppMenuCoordinator(), R.id.bookmark_this_page_id);
+        Assert.assertFalse("Bookmark item should not be checked.",
+                bookmarkStarPropertyModel.get(AppMenuItemProperties.CHECKED));
         Assert.assertEquals("Incorrect content description.",
                 mActivityTestRule.getActivity().getString(R.string.menu_bookmark),
-                bookmarkStar.getTitleCondensed());
-        mRenderTestRule.render(getListView().getChildAt(0), "icon_row");
+                bookmarkStarPropertyModel.get(AppMenuItemProperties.TITLE_CONDENSED));
+        mRenderTestRule.render(getListView().getChildAt(0), "rounded_corner_icon_row");
 
         TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
         AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(true);
         showAppMenuAndAssertMenuShown();
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
 
-        bookmarkStar = AppMenuTestSupport.getMenu(mActivityTestRule.getAppMenuCoordinator())
-                               .findItem(R.id.bookmark_this_page_id);
-        Assert.assertTrue("Bookmark item should be checked.", bookmarkStar.isChecked());
+        bookmarkStarPropertyModel = AppMenuTestSupport.getMenuItemPropertyModel(
+                mActivityTestRule.getAppMenuCoordinator(), R.id.bookmark_this_page_id);
+        Assert.assertTrue("Bookmark item should be checked.",
+                bookmarkStarPropertyModel.get(AppMenuItemProperties.CHECKED));
         Assert.assertEquals("Incorrect content description for bookmarked page.",
                 mActivityTestRule.getActivity().getString(R.string.edit_bookmark),
-                bookmarkStar.getTitleCondensed());
-        mRenderTestRule.render(getListView().getChildAt(0), "icon_row_page_bookmarked");
+                bookmarkStarPropertyModel.get(AppMenuItemProperties.TITLE_CONDENSED));
+        mRenderTestRule.render(
+                getListView().getChildAt(0), "rounded_corner_icon_row_page_bookmarked");
 
         AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(null);
     }
@@ -280,164 +286,167 @@ public class TabbedAppMenuTest {
     @Test
     @SmallTest
     @Feature({"Browser", "Main", "RenderTest"})
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    @EnableFeatures({ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_THREE_BUTTON_ACTIONBAR + "<Study"})
-    @CommandLineFlags.Add({"force-fieldtrials=Study/Group",
-            "force-fieldtrial-params=Study.Group:three_button_action_bar/action_chip_view"})
-    public void
-    testActionChipViewMenuItem() throws IOException {
-        LinearLayout actionBar = (LinearLayout) getListView().getChildAt(0);
-        Assert.assertEquals(3, actionBar.getChildCount());
-        mRenderTestRule.render(getListView().getChildAt(0), "tinted_icon_row_three_buttons");
-
-        int downloadRowIndex = findIndexOfMenuItemById(R.id.downloads_row_menu_id);
-        Assert.assertNotEquals("No download row found.", -1, downloadRowIndex);
-        mRenderTestRule.render(getListView().getChildAt(downloadRowIndex),
-                "download_row_rounded_action_chip_view");
-
-        MenuItem bookmarkRow = AppMenuTestSupport.getMenu(mActivityTestRule.getAppMenuCoordinator())
-                                       .findItem(R.id.all_bookmarks_row_menu_id);
-        MenuItem bookmarkMenuItem = bookmarkRow.getSubMenu().getItem(1);
-        Assert.assertFalse("Bookmark item should not be checked.", bookmarkMenuItem.isChecked());
-        int bookmarkRowIndex = findIndexOfMenuItemById(R.id.all_bookmarks_row_menu_id);
-        Assert.assertTrue("No bookmark row found.", bookmarkRowIndex != -1);
-        mRenderTestRule.render(getListView().getChildAt(bookmarkRowIndex),
-                "bookmark_row_rounded_action_chip_view");
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
-        AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(true);
-        showAppMenuAndAssertMenuShown();
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-
-        bookmarkRow = AppMenuTestSupport.getMenu(mActivityTestRule.getAppMenuCoordinator())
-                              .findItem(R.id.all_bookmarks_row_menu_id);
-        bookmarkMenuItem = bookmarkRow.getSubMenu().getItem(1);
-        Assert.assertTrue("Bookmark item should be checked.", bookmarkMenuItem.isChecked());
-        mRenderTestRule.render(getListView().getChildAt(bookmarkRowIndex),
-                "bookmark_row_rounded_action_chip_view_bookmarked");
-
-        AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(null);
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"Browser", "Main", "RenderTest"})
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    @EnableFeatures({ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_THREE_BUTTON_ACTIONBAR + "<Study"})
-    @CommandLineFlags.Add({"force-fieldtrials=Study/Group",
-            "force-fieldtrial-params=Study.Group:three_button_action_bar/destination_chip_view"})
-    public void
-    testDestinationChipViewMenuItem() throws IOException {
-        LinearLayout actionBar = (LinearLayout) getListView().getChildAt(0);
-        Assert.assertEquals(3, actionBar.getChildCount());
-        mRenderTestRule.render(getListView().getChildAt(0), "tinted_icon_row_three_buttons");
-
-        int downloadRowIndex = findIndexOfMenuItemById(R.id.downloads_row_menu_id);
-        Assert.assertNotEquals("No download row found.", -1, downloadRowIndex);
-        mRenderTestRule.render(getListView().getChildAt(downloadRowIndex),
-                "download_row_rounded_destination_chip_view");
-
-        MenuItem bookmarkRow = AppMenuTestSupport.getMenu(mActivityTestRule.getAppMenuCoordinator())
-                                       .findItem(R.id.all_bookmarks_row_menu_id);
-        MenuItem bookmarkMenuItem = bookmarkRow.getSubMenu().getItem(1);
-        Assert.assertFalse("Bookmark item should not be checked.", bookmarkMenuItem.isChecked());
-        int bookmarkRowIndex = findIndexOfMenuItemById(R.id.all_bookmarks_row_menu_id);
-        Assert.assertTrue("No bookmark row found.", bookmarkRowIndex != -1);
-        mRenderTestRule.render(getListView().getChildAt(bookmarkRowIndex),
-                "bookmark_row_rounded_destination_chip_view");
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
-        AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(true);
-        showAppMenuAndAssertMenuShown();
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-
-        bookmarkRow = AppMenuTestSupport.getMenu(mActivityTestRule.getAppMenuCoordinator())
-                              .findItem(R.id.all_bookmarks_row_menu_id);
-        bookmarkMenuItem = bookmarkRow.getSubMenu().getItem(1);
-        Assert.assertTrue("Bookmark item should be checked.", bookmarkMenuItem.isChecked());
-        mRenderTestRule.render(getListView().getChildAt(bookmarkRowIndex),
-                "bookmark_row_rounded_destination_chip_view_bookmarked");
-
-        AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(null);
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"Browser", "Main", "RenderTest"})
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    @EnableFeatures({ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_THREE_BUTTON_ACTIONBAR + "<Study"})
-    @CommandLineFlags.Add({"force-fieldtrials=Study/Group",
-            "force-fieldtrial-params=Study.Group:three_button_action_bar/add_to_option"})
-    public void
-    testAddToMenuItem_not_bookmarked() throws IOException {
-        LinearLayout actionBar = (LinearLayout) getListView().getChildAt(0);
-        Assert.assertEquals(3, actionBar.getChildCount());
-        mRenderTestRule.render(getListView().getChildAt(0), "tinted_icon_row_three_buttons");
-
-        int addToIndex = findIndexOfMenuItemById(R.id.add_to_menu_id);
-        Assert.assertNotEquals("No add to row found.", -1, addToIndex);
-        mRenderTestRule.render(getListView().getChildAt(addToIndex), "add_to_menu_item");
-
-        View addToItem = getListView().getChildAt(addToIndex);
-        PropertyModel dialogModel = clickAndGetCurrentDialog(addToItem);
-        Assert.assertNotNull("No add to dialog found.", dialogModel);
-        LinearLayout addToCustomView =
-                (LinearLayout) dialogModel.get(ModalDialogProperties.CUSTOM_VIEW);
-        Assert.assertEquals("The dialog should have 2 children, one is title, another is ListView.",
-                2, addToCustomView.getChildCount());
-        TextView addToTitle = (TextView) addToCustomView.getChildAt(0);
-        mRenderTestRule.render(addToTitle, "menu_add_to_dialog_title");
-        ListView addToList = (ListView) addToCustomView.getChildAt(1);
-        Assert.assertEquals(3, addToList.getChildCount());
-        mRenderTestRule.render(addToList, "items_in_add_to_dialog_not_bookmarked");
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"Browser", "Main", "RenderTest"})
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    @EnableFeatures({ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_THREE_BUTTON_ACTIONBAR + "<Study"})
-    @CommandLineFlags.Add({"force-fieldtrials=Study/Group",
-            "force-fieldtrial-params=Study.Group:three_button_action_bar/add_to_option"})
-    public void
-    testAddToMenuItem_bookmarked() throws IOException {
-        TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
-        AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(true);
-        showAppMenuAndAssertMenuShown();
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        LinearLayout actionBar = (LinearLayout) getListView().getChildAt(0);
-        Assert.assertEquals("Add to Bookmarks/Downloads/Home screen should be shown", 3,
-                actionBar.getChildCount());
-        mRenderTestRule.render(getListView().getChildAt(0), "tinted_icon_row_three_buttons");
-
-        int addToIndex = findIndexOfMenuItemById(R.id.add_to_menu_id);
-        Assert.assertNotEquals("No add to row found.", -1, addToIndex);
-        mRenderTestRule.render(getListView().getChildAt(addToIndex), "add_to_menu_item");
-
-        View addToItem = getListView().getChildAt(addToIndex);
-        PropertyModel dialogModel = clickAndGetCurrentDialog(addToItem);
-        Assert.assertNotNull("No add to dialog found.", dialogModel);
-        LinearLayout addToCustomView =
-                (LinearLayout) dialogModel.get(ModalDialogProperties.CUSTOM_VIEW);
-        Assert.assertEquals("The dialog should have 2 children, one is title, another is ListView.",
-                2, addToCustomView.getChildCount());
-        TextView addToTitle = (TextView) addToCustomView.getChildAt(0);
-        mRenderTestRule.render(addToTitle, "menu_add_to_dialog_title");
-        ListView addToList = (ListView) addToCustomView.getChildAt(1);
-        Assert.assertEquals(3, addToList.getChildCount());
-        mRenderTestRule.render(addToList, "items_in_add_to_dialog_bookmarked");
-
-        AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(null);
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"Browser", "Main", "RenderTest"})
-    @EnableFeatures({ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_REGROUP})
     public void testDividerLineMenuItem() throws IOException {
         int firstDividerLineIndex = findIndexOfMenuItemById(R.id.divider_line_id);
         Assert.assertTrue("No divider line found.", firstDividerLineIndex != -1);
         mRenderTestRule.render(getListView().getChildAt(firstDividerLineIndex), "divider_line");
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Browser", "Main", "RenderTest"})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @EnableFeatures(ChromeFeatureList.APP_MENU_MOBILE_SITE_OPTION)
+    public void testRequestDesktopSiteMenuItem() throws IOException {
+        Tab tab = mActivityTestRule.getActivity().getTabModelSelector().getCurrentTab();
+        boolean isRequestDesktopSite =
+                tab.getWebContents().getNavigationController().getUseDesktopUserAgent();
+        Assert.assertFalse("Default to request mobile site.", isRequestDesktopSite);
+
+        int requestDesktopSiteIndex =
+                findIndexOfMenuItemById(R.id.request_desktop_site_row_menu_id);
+        Assert.assertNotEquals("No request desktop site row found.", -1, requestDesktopSiteIndex);
+        mRenderTestRule.render(
+                getListView().getChildAt(requestDesktopSiteIndex), "request_desktop_site");
+
+        TestThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> tab.getWebContents().getNavigationController().setUseDesktopUserAgent(
+                                true /* useDesktop */, true /* reloadOnChange */));
+        ChromeTabUtils.waitForTabPageLoaded(tab, TEST_URL);
+        isRequestDesktopSite =
+                tab.getWebContents().getNavigationController().getUseDesktopUserAgent();
+        Assert.assertTrue("Should request desktop site.", isRequestDesktopSite);
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
+        showAppMenuAndAssertMenuShown();
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+        mRenderTestRule.render(
+                getListView().getChildAt(requestDesktopSiteIndex), "request_mobile_site");
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Browser", "Main", "RenderTest"})
+    @DisableFeatures(ChromeFeatureList.APP_MENU_MOBILE_SITE_OPTION)
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    public void testRequestDesktopSiteMenuItem_checkbox() throws IOException {
+        Tab tab = mActivityTestRule.getActivity().getTabModelSelector().getCurrentTab();
+        boolean isRequestDesktopSite =
+                tab.getWebContents().getNavigationController().getUseDesktopUserAgent();
+        Assert.assertFalse("Default to request mobile site.", isRequestDesktopSite);
+
+        int requestDesktopSiteIndex =
+                findIndexOfMenuItemById(R.id.request_desktop_site_row_menu_id);
+        Assert.assertNotEquals("No request desktop site row found.", -1, requestDesktopSiteIndex);
+        mRenderTestRule.render(
+                getListView().getChildAt(requestDesktopSiteIndex), "request_desktop_site_uncheck");
+
+        TestThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> tab.getWebContents().getNavigationController().setUseDesktopUserAgent(
+                                true /* useDesktop */, true /* reloadOnChange */));
+        ChromeTabUtils.waitForTabPageLoaded(tab, TEST_URL);
+        isRequestDesktopSite =
+                tab.getWebContents().getNavigationController().getUseDesktopUserAgent();
+        Assert.assertTrue("Should request desktop site.", isRequestDesktopSite);
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
+        showAppMenuAndAssertMenuShown();
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+        mRenderTestRule.render(
+                getListView().getChildAt(requestDesktopSiteIndex), "request_mobile_site_check");
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Browser", "Main"})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @EnableFeatures({ChromeFeatureList.BOOKMARKS_REFRESH + "<Study"})
+    @CommandLineFlags.Add({"force-fieldtrials=Study/Group",
+            "force-fieldtrial-params=Study.Group:bookmark_in_app_menu/true"})
+    public void
+    testAddBookmarkMenuItem() throws IOException {
+        int addBookmark = findIndexOfMenuItemById(R.id.add_bookmark_menu_id);
+        Assert.assertNotEquals("No add bookmark found.", -1, addBookmark);
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Browser", "Main", "RenderTest"})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @EnableFeatures({ChromeFeatureList.BOOKMARKS_REFRESH + "<Study"})
+    @CommandLineFlags.Add({"force-fieldtrials=Study/Group",
+            "force-fieldtrial-params=Study.Group:bookmark_in_app_menu/true"})
+    public void
+    testEditBookmarkMenuItem() throws IOException {
+        TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
+        AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(true);
+        showAppMenuAndAssertMenuShown();
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+        PropertyModel bookmarkStarPropertyModel = AppMenuTestSupport.getMenuItemPropertyModel(
+                mActivityTestRule.getAppMenuCoordinator(), R.id.edit_bookmark_menu_id);
+        Assert.assertEquals("Add Bookmark item should be tint blue.",
+                R.color.default_icon_color_accent1_tint_list,
+                bookmarkStarPropertyModel.get(AppMenuItemProperties.ICON_COLOR_RES));
+
+        int editBookmarkMenuItemIndex = findIndexOfMenuItemById(R.id.edit_bookmark_menu_id);
+        Assert.assertNotEquals("No add bookmark menu item found.", -1, editBookmarkMenuItemIndex);
+        mRenderTestRule.render(
+                getListView().getChildAt(editBookmarkMenuItemIndex), "edit_bookmark_list_item");
+
+        AppMenuPropertiesDelegateImpl.setPageBookmarkedForTesting(null);
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Browser", "Main"})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @EnableFeatures({ChromeFeatureList.READ_LATER + "<Study"})
+    @CommandLineFlags.Add({"force-fieldtrials=Study/Group",
+            "force-fieldtrial-params=Study.Group:reading_list_in_app_menu/true"})
+    public void
+    testAddReadingListMenuItem() throws IOException {
+        TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
+        ReadingListUtils.setReadingListSupportedForTesting(true);
+        showAppMenuAndAssertMenuShown();
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+        int addToReadingList = findIndexOfMenuItemById(R.id.add_to_reading_list_menu_id);
+        Assert.assertNotEquals("No add reading list item found.", -1, addToReadingList);
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Browser", "Main", "RenderTest"})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @EnableFeatures({ChromeFeatureList.READ_LATER + "<Study"})
+    @CommandLineFlags.Add({"force-fieldtrials=Study/Group",
+            "force-fieldtrial-params=Study.Group:reading_list_in_app_menu/true"})
+    public void
+    testDeleteReadingListMenuItem() throws IOException {
+        TestThreadUtils.runOnUiThreadBlocking(() -> mAppMenuHandler.hideAppMenu());
+        AppMenuPropertiesDelegateImpl.setPageInReadingListForTesting(true);
+        ReadingListUtils.setReadingListSupportedForTesting(true);
+        showAppMenuAndAssertMenuShown();
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+        PropertyModel deleteReadingListPropertyModel = AppMenuTestSupport.getMenuItemPropertyModel(
+                mActivityTestRule.getAppMenuCoordinator(), R.id.delete_from_reading_list_menu_id);
+        Assert.assertEquals("Delete reading list item should be tint blue.",
+                R.color.default_icon_color_accent1_tint_list,
+                deleteReadingListPropertyModel.get(AppMenuItemProperties.ICON_COLOR_RES));
+
+        int deleteFromReadingList = findIndexOfMenuItemById(R.id.delete_from_reading_list_menu_id);
+        Assert.assertNotEquals("No delete reading list item found.", -1, deleteFromReadingList);
+        mRenderTestRule.render(
+                getListView().getChildAt(deleteFromReadingList), "delete_reading_list_menu_item");
+
+        AppMenuPropertiesDelegateImpl.setPageInReadingListForTesting(null);
+        ReadingListUtils.setReadingListSupportedForTesting(null);
     }
 
     private void showAppMenuAndAssertMenuShown() {
@@ -508,35 +517,17 @@ public class TabbedAppMenuTest {
     }
 
     private int findIndexOfMenuItemById(int id) {
-        Menu menu = AppMenuTestSupport.getMenu(mActivityTestRule.getAppMenuCoordinator());
-        int firstMenuItemIndex = -1;
-        boolean foundMenuItem = false;
-        for (int i = 0; i < menu.size(); i++) {
-            MenuItem item = menu.getItem(i);
-            if (item.isVisible()) {
-                firstMenuItemIndex++;
-            }
-            if (item.getItemId() == id) {
-                foundMenuItem = true;
-                break;
+        ModelList menuModelList =
+                AppMenuTestSupport.getMenuModelList(mActivityTestRule.getAppMenuCoordinator());
+        if (menuModelList == null) return -1;
+
+        for (int i = 0; i < menuModelList.size(); i++) {
+            PropertyModel model = menuModelList.get(i).model;
+            if (model.get(AppMenuItemProperties.MENU_ITEM_ID) == id) {
+                return i;
             }
         }
 
-        return foundMenuItem ? firstMenuItemIndex : -1;
-    }
-
-    private PropertyModel clickAndGetCurrentDialog(View view) {
-        TestTouchUtils.performClickOnMainSync(InstrumentationRegistry.getInstrumentation(), view);
-        CriteriaHelper.pollUiThread(() -> {
-            PropertyModel propertyModel = mActivityTestRule.getActivity()
-                                                  .getModalDialogManager()
-                                                  .getCurrentDialogForTest();
-            Criteria.checkThat(propertyModel, Matchers.notNullValue());
-        });
-        return TestThreadUtils.runOnUiThreadBlockingNoException(
-                ()
-                        -> mActivityTestRule.getActivity()
-                                   .getModalDialogManager()
-                                   .getCurrentDialogForTest());
+        return -1;
     }
 }

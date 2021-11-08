@@ -5,14 +5,17 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TABS_TAB_GROUP_EDITOR_BUBBLE_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_TABS_TAB_GROUP_EDITOR_BUBBLE_VIEW_H_
 
-#include "base/optional.h"
-#include "base/strings/string16.h"
+#include <string>
+
 #include "chrome/browser/ui/views/tabs/tab_group_header.h"
 #include "components/tab_groups/tab_group_color.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+#include "ui/views/controls/button/label_button.h"
+#include "ui/views/controls/button/toggle_button.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 class Browser;
 
@@ -21,6 +24,10 @@ enum class TabGroupColorId;
 class TabGroupId;
 }  // namespace tab_groups
 
+namespace views {
+class ToggleButton;
+}  // namespace views
+
 class ColorPickerView;
 class TabGroupHeader;
 
@@ -28,15 +35,18 @@ class TabGroupHeader;
 class TabGroupEditorBubbleView : public views::BubbleDialogDelegateView {
  public:
   METADATA_HEADER(TabGroupEditorBubbleView);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(TabGroupEditorBubbleView,
+                                         kEditorBubbleIdentifier);
 
-  static constexpr int TAB_GROUP_HEADER_CXMENU_NEW_TAB_IN_GROUP = 13;
-  static constexpr int TAB_GROUP_HEADER_CXMENU_UNGROUP = 14;
-  static constexpr int TAB_GROUP_HEADER_CXMENU_CLOSE_GROUP = 15;
-  static constexpr int TAB_GROUP_HEADER_CXMENU_MOVE_GROUP_TO_NEW_WINDOW = 16;
-  static constexpr int TAB_GROUP_HEADER_CXMENU_FEEDBACK = 17;
+  static constexpr int TAB_GROUP_HEADER_CXMENU_SAVE_GROUP = 13;
+  static constexpr int TAB_GROUP_HEADER_CXMENU_NEW_TAB_IN_GROUP = 14;
+  static constexpr int TAB_GROUP_HEADER_CXMENU_UNGROUP = 15;
+  static constexpr int TAB_GROUP_HEADER_CXMENU_CLOSE_GROUP = 16;
+  static constexpr int TAB_GROUP_HEADER_CXMENU_MOVE_GROUP_TO_NEW_WINDOW = 17;
+  static constexpr int TAB_GROUP_HEADER_CXMENU_FEEDBACK = 18;
 
   using Colors =
-      std::vector<std::pair<tab_groups::TabGroupColorId, base::string16>>;
+      std::vector<std::pair<tab_groups::TabGroupColorId, std::u16string>>;
 
   // Shows the editor for |group|. Returns a *non-owning* pointer to the
   // bubble's widget.
@@ -44,7 +54,7 @@ class TabGroupEditorBubbleView : public views::BubbleDialogDelegateView {
       const Browser* browser,
       const tab_groups::TabGroupId& group,
       TabGroupHeader* header_view,
-      base::Optional<gfx::Rect> anchor_rect = base::nullopt,
+      absl::optional<gfx::Rect> anchor_rect = absl::nullopt,
       // If not provided, will be set to |header_view|.
       views::View* anchor_view = nullptr,
       bool stop_context_menu_propagation = false);
@@ -52,18 +62,22 @@ class TabGroupEditorBubbleView : public views::BubbleDialogDelegateView {
   // views::BubbleDialogDelegateView:
   views::View* GetInitiallyFocusedView() override;
   gfx::Rect GetAnchorRect() const override;
+  // This needs to be added as it does not know the correct theme color until it
+  // is added to widget.
+  void AddedToWidget() override;
 
  private:
   TabGroupEditorBubbleView(const Browser* browser,
                            const tab_groups::TabGroupId& group,
                            views::View* anchor_view,
-                           base::Optional<gfx::Rect> anchor_rect,
+                           absl::optional<gfx::Rect> anchor_rect,
                            TabGroupHeader* header_view,
                            bool stop_context_menu_propagation);
   ~TabGroupEditorBubbleView() override;
 
   void UpdateGroup();
 
+  void OnSaveTogglePressed();
   void NewTabInGroupPressed();
   void UngroupPressed(TabGroupHeader* header_view);
   void CloseGroupPressed();
@@ -83,7 +97,7 @@ class TabGroupEditorBubbleView : public views::BubbleDialogDelegateView {
 
     // views::TextfieldController:
     void ContentsChanged(views::Textfield* sender,
-                         const base::string16& new_contents) override;
+                         const std::u16string& new_contents) override;
     bool HandleKeyEvent(views::Textfield* sender,
                         const ui::KeyEvent& key_event) override;
 
@@ -117,6 +131,9 @@ class TabGroupEditorBubbleView : public views::BubbleDialogDelegateView {
   Colors colors_;
   ColorPickerView* color_selector_;
 
+  views::ToggleButton* save_group_toggle_ = nullptr;
+  views::LabelButton* move_menu_item_ = nullptr;
+
   // If true will use the |anchor_rect_| provided in the constructor, otherwise
   // fall back to using the anchor view bounds.
   const bool use_set_anchor_rect_;
@@ -125,7 +142,7 @@ class TabGroupEditorBubbleView : public views::BubbleDialogDelegateView {
   // is initially selected.
   tab_groups::TabGroupColorId InitColorSet();
 
-  base::string16 title_at_opening_;
+  std::u16string title_at_opening_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_TABS_TAB_GROUP_EDITOR_BUBBLE_VIEW_H_

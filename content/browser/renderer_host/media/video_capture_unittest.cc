@@ -13,9 +13,8 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/no_destructor.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/media/fake_video_capture_provider.h"
@@ -70,9 +69,9 @@ void VideoInputDevicesEnumerated(base::OnceClosure quit_closure,
 // Id used to identify the capture session between renderer and
 // video_capture_host. This is an arbitrary value.
 const base::UnguessableToken& DeviceId() {
-  static const base::NoDestructor<base::UnguessableToken> device_id(
+  static const base::UnguessableToken device_id(
       base::UnguessableToken::Deserialize(555, 555));
-  return *device_id;
+  return device_id;
 }
 
 }  // namespace
@@ -101,6 +100,10 @@ class VideoCaptureTest : public testing::Test,
         audio_system_(
             std::make_unique<media::AudioSystemImpl>(audio_manager_.get())),
         task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
+
+  VideoCaptureTest(const VideoCaptureTest&) = delete;
+  VideoCaptureTest& operator=(const VideoCaptureTest&) = delete;
+
   ~VideoCaptureTest() override { audio_manager_->Shutdown(); }
 
   void SetUp() override {
@@ -113,8 +116,8 @@ class VideoCaptureTest : public testing::Test,
         &VideoCaptureTest::CreateFakeUI, base::Unretained(this)));
 
     // Create a Host and connect it to a simulated IPC channel.
-    host_.reset(new VideoCaptureHost(0 /* render_process_id */,
-                                     media_stream_manager_.get()));
+    host_ = std::make_unique<VideoCaptureHost>(0 /* render_process_id */,
+                                               media_stream_manager_.get());
 
     OpenSession();
   }
@@ -319,8 +322,6 @@ class VideoCaptureTest : public testing::Test,
 
   std::unique_ptr<VideoCaptureHost> host_;
   mojo::Receiver<media::mojom::VideoCaptureObserver> observer_receiver_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(VideoCaptureTest);
 };
 
 // Construct and destruct all objects. This is a non trivial sequence.
@@ -349,7 +350,7 @@ TEST_F(VideoCaptureTest, StartAndCaptureAndError) {
   StartCapture();
   WaitForOneCapturedBuffer();
   SimulateError();
-  base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(200));
+  base::PlatformThread::Sleep(base::Milliseconds(200));
 }
 
 TEST_F(VideoCaptureTest, StartAndPauseAndResumeAndStop) {

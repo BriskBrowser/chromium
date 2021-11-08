@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_MEDIA_ROUTER_PROVIDERS_CAST_CAST_SESSION_TRACKER_H_
 
 #include "base/containers/flat_map.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
@@ -36,8 +37,11 @@ class CastSessionTracker : public MediaSinkServiceBase::Observer,
     virtual void OnSessionRemoved(const MediaSinkInternal& sink) = 0;
     virtual void OnMediaStatusUpdated(const MediaSinkInternal& sink,
                                       const base::Value& media_status,
-                                      base::Optional<int> request_id) = 0;
+                                      absl::optional<int> request_id) = 0;
   };
+
+  CastSessionTracker(const CastSessionTracker&) = delete;
+  CastSessionTracker& operator=(const CastSessionTracker&) = delete;
 
   ~CastSessionTracker() override;
 
@@ -101,7 +105,6 @@ class CastSessionTracker : public MediaSinkServiceBase::Observer,
   base::ObserverList<Observer> observers_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-  DISALLOW_COPY_AND_ASSIGN(CastSessionTracker);
   FRIEND_TEST_ALL_PREFIXES(AppActivityTest, SendAppMessageToReceiver);
   FRIEND_TEST_ALL_PREFIXES(CastMediaRouteProviderTest, GetState);
   FRIEND_TEST_ALL_PREFIXES(CastSessionTrackerTest, RemoveSession);

@@ -22,9 +22,11 @@ class CrostiniUpgraderUI
     : public ui::MojoWebDialogUI,
       public chromeos::crostini_upgrader::mojom::PageHandlerFactory {
  public:
-  static bool IsEnabled();
-
   explicit CrostiniUpgraderUI(content::WebUI* web_ui);
+
+  CrostiniUpgraderUI(const CrostiniUpgraderUI&) = delete;
+  CrostiniUpgraderUI& operator=(const CrostiniUpgraderUI&) = delete;
+
   ~CrostiniUpgraderUI() override;
 
   // Send a close request to the web page. Return true if the page is already
@@ -62,8 +64,6 @@ class CrostiniUpgraderUI
   bool page_closed_ = false;
 
   WEB_UI_CONTROLLER_TYPE_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(CrostiniUpgraderUI);
 };
 
 }  // namespace chromeos

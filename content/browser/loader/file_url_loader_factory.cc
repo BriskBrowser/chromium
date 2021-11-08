@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/command_line.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
@@ -18,10 +17,8 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
@@ -170,12 +167,15 @@ class FileURLDirectoryLoader
                            std::move(observer), std::move(response_headers));
   }
 
+  FileURLDirectoryLoader(const FileURLDirectoryLoader&) = delete;
+  FileURLDirectoryLoader& operator=(const FileURLDirectoryLoader&) = delete;
+
   // network::mojom::URLLoader:
   void FollowRedirect(
       const std::vector<std::string>& removed_headers,
       const net::HttpRequestHeaders& modified_headers,
       const net::HttpRequestHeaders& modified_cors_exempt_headers,
-      const base::Optional<GURL>& new_url) override {}
+      const absl::optional<GURL>& new_url) override {}
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override {}
   void PauseReadingBodyFromNet() override {}
@@ -194,7 +194,7 @@ class FileURLDirectoryLoader
              scoped_refptr<net::HttpResponseHeaders> response_headers) {
     receiver_.Bind(std::move(loader));
     receiver_.set_disconnect_handler(base::BindOnce(
-        &FileURLDirectoryLoader::OnMojoDisconnct, base::Unretained(this)));
+        &FileURLDirectoryLoader::OnMojoDisconnect, base::Unretained(this)));
 
     mojo::Remote<network::mojom::URLLoaderClient> client(
         std::move(client_remote));
@@ -241,7 +241,7 @@ class FileURLDirectoryLoader
         std::make_unique<mojo::DataPipeProducer>(std::move(producer_handle));
   }
 
-  void OnMojoDisconnct() {
+  void OnMojoDisconnect() {
     lister_.reset();
     data_producer_.reset();
     receiver_.reset();
@@ -260,7 +260,7 @@ class FileURLDirectoryLoader
     if (!wrote_header_) {
       wrote_header_ = true;
 
-      const base::string16& title = path_.AsUTF16Unsafe();
+      const std::u16string& title = path_.AsUTF16Unsafe();
       pending_data_.append(net::GetDirectoryListingHeader(title));
 
       // If not a top-level directory, add a link to the parent directory. To
@@ -358,8 +358,6 @@ class FileURLDirectoryLoader
   std::unique_ptr<mojo::DataPipeProducer> data_producer_;
   std::string pending_data_;
   bool transfer_in_progress_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(FileURLDirectoryLoader);
 };
 
 class FileURLLoader : public network::mojom::URLLoader {
@@ -386,12 +384,15 @@ class FileURLLoader : public network::mojom::URLLoader {
                            std::move(extra_response_headers));
   }
 
+  FileURLLoader(const FileURLLoader&) = delete;
+  FileURLLoader& operator=(const FileURLLoader&) = delete;
+
   // network::mojom::URLLoader:
   void FollowRedirect(
       const std::vector<std::string>& removed_headers,
       const net::HttpRequestHeaders& modified_headers,
       const net::HttpRequestHeaders& modified_cors_exempt_headers,
-      const base::Optional<GURL>& new_url) override {
+      const absl::optional<GURL>& new_url) override {
     // |removed_headers| and |modified_headers| are unused. It doesn't make
     // sense for files. The FileURLLoader can redirect only to another file.
     std::unique_ptr<RedirectData> redirect_data = std::move(redirect_data_);
@@ -461,7 +462,7 @@ class FileURLLoader : public network::mojom::URLLoader {
     head->headers = extra_response_headers;
     receiver_.Bind(std::move(loader));
     receiver_.set_disconnect_handler(base::BindOnce(
-        &FileURLLoader::OnMojoDisconnct, base::Unretained(this)));
+        &FileURLLoader::OnMojoDisconnect, base::Unretained(this)));
 
     client_.Bind(std::move(client_remote));
 
@@ -703,7 +704,7 @@ class FileURLLoader : public network::mojom::URLLoader {
                                          base::Unretained(this), nullptr));
   }
 
-  void OnMojoDisconnct() {
+  void OnMojoDisconnect() {
     data_producer_.reset();
     receiver_.reset();
     client_.reset();
@@ -762,8 +763,6 @@ class FileURLLoader : public network::mojom::URLLoader {
   // It is used to set some of the URLLoaderCompletionStatus data passed back
   // to the URLLoaderClients (eg SimpleURLLoader).
   uint64_t total_bytes_written_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(FileURLLoader);
 };
 
 }  // namespace
@@ -785,7 +784,6 @@ FileURLLoaderFactory::~FileURLLoaderFactory() = default;
 
 void FileURLLoaderFactory::CreateLoaderAndStart(
     mojo::PendingReceiver<network::mojom::URLLoader> loader,
-    int32_t routing_id,
     int32_t request_id,
     uint32_t options,
     const network::ResourceRequest& request,
@@ -793,7 +791,7 @@ void FileURLLoaderFactory::CreateLoaderAndStart(
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  // CORS mode requires a valid |request_inisiator|.
+  // CORS mode requires a valid |request_initiator|.
   if (network::cors::IsCorsEnabledRequestMode(request.mode) &&
       !request.request_initiator) {
     mojo::Remote<network::mojom::URLLoaderClient>(std::move(client))

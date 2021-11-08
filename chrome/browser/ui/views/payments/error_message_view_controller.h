@@ -28,20 +28,23 @@ class ErrorMessageViewController : public PaymentRequestSheetController {
   ErrorMessageViewController(base::WeakPtr<PaymentRequestSpec> spec,
                              base::WeakPtr<PaymentRequestState> state,
                              base::WeakPtr<PaymentRequestDialogView> dialog);
+
+  ErrorMessageViewController(const ErrorMessageViewController&) = delete;
+  ErrorMessageViewController& operator=(const ErrorMessageViewController&) =
+      delete;
+
   ~ErrorMessageViewController() override;
 
  private:
   // PaymentRequestSheetController:
-  base::string16 GetPrimaryButtonLabel() override;
-  views::Button::PressedCallback GetPrimaryButtonCallback() override;
+  std::u16string GetPrimaryButtonLabel() override;
+  ButtonCallback GetPrimaryButtonCallback() override;
   int GetPrimaryButtonId() override;
   bool GetPrimaryButtonEnabled() override;
   bool ShouldShowHeaderBackArrow() override;
   bool ShouldShowSecondaryButton() override;
-  base::string16 GetSheetTitle() override;
+  std::u16string GetSheetTitle() override;
   void FillContentView(views::View* content_view) override;
-
-  DISALLOW_COPY_AND_ASSIGN(ErrorMessageViewController);
 };
 
 }  // namespace payments

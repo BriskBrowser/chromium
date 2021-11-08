@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/android/jni_android.h"
-#include "base/strings/string16.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -16,6 +15,10 @@
 class InstantAppsInfoBarDelegate : public ConfirmInfoBarDelegate,
                                    public content::WebContentsObserver {
  public:
+  InstantAppsInfoBarDelegate(const InstantAppsInfoBarDelegate&) = delete;
+  InstantAppsInfoBarDelegate& operator=(const InstantAppsInfoBarDelegate&) =
+      delete;
+
   ~InstantAppsInfoBarDelegate() override;
 
   static void Create(content::WebContents* web_contents,
@@ -42,7 +45,7 @@ class InstantAppsInfoBarDelegate : public ConfirmInfoBarDelegate,
 
   // ConfirmInfoBarDelegate:
   infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
-  base::string16 GetMessageText() const override;
+  std::u16string GetMessageText() const override;
   bool Accept() override;
   bool EqualsDelegate(infobars::InfoBarDelegate* delegate) const override;
   void InfoBarDismissed() override;
@@ -52,8 +55,6 @@ class InstantAppsInfoBarDelegate : public ConfirmInfoBarDelegate,
   std::string url_;
   bool user_navigated_away_from_launch_url_;
   bool instant_app_is_default_;
-
-  DISALLOW_COPY_AND_ASSIGN(InstantAppsInfoBarDelegate);
 };
 
 #endif  // CHROME_BROWSER_ANDROID_INSTANTAPPS_INSTANT_APPS_INFOBAR_DELEGATE_H_

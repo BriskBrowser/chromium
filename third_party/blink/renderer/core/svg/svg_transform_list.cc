@@ -23,7 +23,7 @@
 
 #include "third_party/blink/renderer/core/svg/svg_transform_list.h"
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "third_party/blink/renderer/core/css/css_function_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
@@ -216,9 +216,9 @@ CSSValue* CreateTransformCSSValue(const SVGTransform& transform) {
       FloatPoint rotation_origin = transform.RotationCenter();
       if (!ToFloatSize(rotation_origin).IsZero()) {
         transform_value->Append(*CSSNumericLiteralValue::Create(
-            rotation_origin.X(), CSSPrimitiveValue::UnitType::kUserUnits));
+            rotation_origin.x(), CSSPrimitiveValue::UnitType::kUserUnits));
         transform_value->Append(*CSSNumericLiteralValue::Create(
-            rotation_origin.Y(), CSSPrimitiveValue::UnitType::kUserUnits));
+            rotation_origin.y(), CSSPrimitiveValue::UnitType::kUserUnits));
       }
       break;
     }

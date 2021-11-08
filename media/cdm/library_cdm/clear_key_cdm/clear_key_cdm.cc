@@ -6,15 +6,16 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <sstream>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
@@ -90,8 +91,7 @@ static scoped_refptr<media::DecoderBuffer> CopyDecoderBufferFrom(
   // TODO(xhwang): Get rid of this copy.
   scoped_refptr<media::DecoderBuffer> output_buffer =
       media::DecoderBuffer::CopyFrom(input_buffer.data, input_buffer.data_size);
-  output_buffer->set_timestamp(
-      base::TimeDelta::FromMicroseconds(input_buffer.timestamp));
+  output_buffer->set_timestamp(base::Microseconds(input_buffer.timestamp));
 
   if (input_buffer.encryption_scheme == cdm::EncryptionScheme::kUnencrypted)
     return output_buffer;
@@ -456,7 +456,7 @@ void ClearKeyCdm::OnUpdateSuccess(uint32_t promise_id,
 
     if (!has_set_timer_) {
       // Make sure the CDM can get time and sleep if necessary.
-      constexpr auto kSleepDuration = base::TimeDelta::FromSeconds(1);
+      constexpr auto kSleepDuration = base::Seconds(1);
       auto start_time = base::Time::Now();
       base::PlatformThread::Sleep(kSleepDuration);
       auto time_elapsed = base::Time::Now() - start_time;
@@ -592,9 +592,10 @@ cdm::Status ClearKeyCdm::InitializeAudioDecoder(
     return cdm::kInitializationError;
 
 #if defined(CLEAR_KEY_CDM_USE_FFMPEG_DECODER)
-  if (!audio_decoder_)
-    audio_decoder_.reset(
-        new media::FFmpegCdmAudioDecoder(cdm_host_proxy_.get()));
+  if (!audio_decoder_) {
+    audio_decoder_ =
+        std::make_unique<media::FFmpegCdmAudioDecoder>(cdm_host_proxy_.get());
+  }
 
   if (!audio_decoder_->Initialize(audio_decoder_config))
     return cdm::kInitializationError;
@@ -886,7 +887,8 @@ void ClearKeyCdm::OnSessionKeysChange(const std::string& session_id,
                                        keys_vector.data(), keys_vector.size());
 }
 
-void ClearKeyCdm::OnSessionClosed(const std::string& session_id) {
+void ClearKeyCdm::OnSessionClosed(const std::string& session_id,
+                                  CdmSessionClosedReason /*reason*/) {
   cdm_host_proxy_->OnSessionClosed(session_id.data(), session_id.length());
 }
 
@@ -928,8 +930,8 @@ void ClearKeyCdm::OnUnitTestComplete(bool success) {
 }
 
 void ClearKeyCdm::StartFileIOTest() {
-  file_io_test_runner_.reset(new FileIOTestRunner(base::BindRepeating(
-      &CdmHostProxy::CreateFileIO, base::Unretained(cdm_host_proxy_.get()))));
+  file_io_test_runner_ = std::make_unique<FileIOTestRunner>(base::BindRepeating(
+      &CdmHostProxy::CreateFileIO, base::Unretained(cdm_host_proxy_.get())));
   file_io_test_runner_->RunAllTests(base::BindOnce(
       &ClearKeyCdm::OnFileIOTestComplete, base::Unretained(this)));
 }

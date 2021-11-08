@@ -22,6 +22,10 @@ class MEDIA_EXPORT AudioManagerAndroid : public AudioManagerBase {
  public:
   AudioManagerAndroid(std::unique_ptr<AudioThread> audio_thread,
                       AudioLogFactory* audio_log_factory);
+
+  AudioManagerAndroid(const AudioManagerAndroid&) = delete;
+  AudioManagerAndroid& operator=(const AudioManagerAndroid&) = delete;
+
   ~AudioManagerAndroid() override;
 
   void InitializeIfNeeded();
@@ -122,13 +126,11 @@ class MEDIA_EXPORT AudioManagerAndroid : public AudioManagerBase {
   // input stream is destroyed. Also affects the stream type of output streams.
   bool communication_mode_is_on_;
 
-  base::Optional<bool> is_aaudio_available_;
+  absl::optional<bool> is_aaudio_available_;
 
   // If set, overrides volume level on output streams
   bool output_volume_override_set_;
   double output_volume_override_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioManagerAndroid);
 };
 
 }  // namespace media

@@ -31,6 +31,10 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
  public:
   explicit ChromeOSMetricsProvider(
       metrics::MetricsLogUploader::MetricServiceType service_type);
+
+  ChromeOSMetricsProvider(const ChromeOSMetricsProvider&) = delete;
+  ChromeOSMetricsProvider& operator=(const ChromeOSMetricsProvider&) = delete;
+
   ~ChromeOSMetricsProvider() override;
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
@@ -78,7 +82,7 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
 
   // Updates ARC-related system profile fields, then calls the callback.
   void OnArcFeaturesParsed(base::OnceClosure callback,
-                           base::Optional<arc::ArcFeatures> features);
+                           absl::optional<arc::ArcFeatures> features);
 
   // Called from the ProvideCurrentSessionData(...) to record UserType.
   void UpdateUserTypeUMA();
@@ -106,11 +110,9 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
   std::string full_hardware_class_;
 
   // ARC release version obtained from build properties.
-  base::Optional<std::string> arc_release_ = base::nullopt;
+  absl::optional<std::string> arc_release_ = absl::nullopt;
 
   base::WeakPtrFactory<ChromeOSMetricsProvider> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeOSMetricsProvider);
 };
 
 #endif  // CHROME_BROWSER_METRICS_CHROMEOS_METRICS_PROVIDER_H_

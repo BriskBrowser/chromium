@@ -9,7 +9,7 @@
 #include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/chromeos/login/users/mock_user_manager.h"
+#include "chrome/browser/ash/login/users/mock_user_manager.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
@@ -25,7 +25,7 @@ namespace {
 // profile's name.
 const char kNotificationId[] = "chrome://settings/sync/testing_profile";
 
-class FakeLoginUIService: public LoginUIService {
+class FakeLoginUIService : public LoginUIService {
  public:
   FakeLoginUIService() : LoginUIService(nullptr) {}
   ~FakeLoginUIService() override = default;
@@ -47,6 +47,10 @@ std::unique_ptr<KeyedService> BuildFakeLoginUIService(
 class SyncErrorNotifierTest : public BrowserWithTestWindowTest {
  public:
   SyncErrorNotifierTest() = default;
+
+  SyncErrorNotifierTest(const SyncErrorNotifierTest&) = delete;
+  SyncErrorNotifierTest& operator=(const SyncErrorNotifierTest&) = delete;
+
   ~SyncErrorNotifierTest() override = default;
 
   void SetUp() override {
@@ -71,7 +75,7 @@ class SyncErrorNotifierTest : public BrowserWithTestWindowTest {
 
  protected:
   void ExpectNotificationShown(bool expected_notification) {
-    base::Optional<message_center::Notification> notification =
+    absl::optional<message_center::Notification> notification =
         display_service_->GetNotification(kNotificationId);
     if (expected_notification) {
       ASSERT_TRUE(notification);
@@ -87,10 +91,7 @@ class SyncErrorNotifierTest : public BrowserWithTestWindowTest {
   FakeLoginUI login_ui_;
   std::unique_ptr<NotificationDisplayServiceTester> display_service_;
   user_manager::ScopedUserManager scoped_user_manager_{
-      std::make_unique<chromeos::MockUserManager>()};
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SyncErrorNotifierTest);
+      std::make_unique<ash::MockUserManager>()};
 };
 
 TEST_F(SyncErrorNotifierTest, NoNotificationWhenNoPassphrase) {
@@ -117,7 +118,11 @@ TEST_F(SyncErrorNotifierTest, NotificationShownWhenBrowserSyncEnabled) {
 
 TEST_F(SyncErrorNotifierTest, NotificationShownWhenOsSyncEnabled) {
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(chromeos::features::kSplitSettingsSync);
+  // SyncConsentOptional requires SyncSettingsCategorization.
+  feature_list.InitWithFeatures(
+      {chromeos::features::kSyncSettingsCategorization,
+       chromeos::features::kSyncConsentOptional},
+      {});
   service_.SetPassphraseRequiredForPreferredDataTypes(true);
   service_.GetUserSettings()->SetOsSyncFeatureEnabled(true);
   service_.SetFirstSetupComplete(false);

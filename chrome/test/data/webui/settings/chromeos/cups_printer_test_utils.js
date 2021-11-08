@@ -7,19 +7,19 @@ cr.define('cups_printer_test_util', function() {
    * @param {string} printerName
    * @param {string} printerAddress
    * @param {string} printerId
+   * @param {boolean} isManaged
    * @return {!CupsPrinterInfo}
    * @private
    */
   /* #export */ function createCupsPrinterInfo(
-      printerName, printerAddress, printerId) {
+      printerName, printerAddress, printerId, isManaged = false) {
     const printer = {
+      isManaged: isManaged,
       ppdManufacturer: '',
       ppdModel: '',
       printerAddress: printerAddress,
       printerDescription: '',
       printerId: printerId,
-      printerManufacturer: '',
-      printerModel: '',
       printerMakeAndModel: '',
       printerName: printerName,
       printerPPDPath: '',
@@ -53,8 +53,6 @@ cr.define('cups_printer_test_util', function() {
         printerAddress: printerAddress,
         printerDescription: '',
         printerId: printerId,
-        printerManufacturer: '',
-        printerModel: '',
         printerMakeAndModel: '',
         printerName: printerName,
         printerPPDPath: '',

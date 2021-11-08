@@ -32,18 +32,19 @@
 namespace blink {
 
 class Document;
-class FetchParameters;
 
 // This class represents an <image> that loads a single image resource (the
 // url(...) function.)
 class StyleFetchedImage final : public StyleImage,
                                 public ImageResourceObserver {
-  USING_PRE_FINALIZER(StyleFetchedImage, Dispose);
 
  public:
-  StyleFetchedImage(const Document&,
-                    FetchParameters&,
-                    bool is_lazyload_deferred);
+  StyleFetchedImage(ImageResourceContent* image,
+                    const Document&,
+                    bool is_lazyload_possibly_deferred,
+                    bool origin_clean,
+                    bool is_ad_related,
+                    const KURL&);
   ~StyleFetchedImage() override;
 
   WrappedImagePtr Data() const override;
@@ -55,8 +56,9 @@ class StyleFetchedImage final : public StyleImage,
   bool CanRender() const override;
   bool IsLoaded() const override;
   bool ErrorOccurred() const override;
-  FloatSize ImageSize(const Document&,
-                      float multiplier,
+  bool IsAccessAllowed(String&) const override;
+
+  FloatSize ImageSize(float multiplier,
                       const FloatSize& default_object_size,
                       RespectImageOrientationEnum) const override;
   bool HasIntrinsicSize() const override;
@@ -70,8 +72,6 @@ class StyleFetchedImage final : public StyleImage,
   bool KnownToBeOpaque(const Document&, const ComputedStyle&) const override;
   ImageResourceContent* CachedImage() const override;
 
-  const KURL& Url() const { return url_; }
-
   void LoadDeferredImage(const Document& document);
 
   RespectImageOrientationEnum ForceOrientationIfNecessary(
@@ -81,7 +81,6 @@ class StyleFetchedImage final : public StyleImage,
 
  private:
   bool IsEqual(const StyleImage&) const override;
-  void Dispose();
 
   // ImageResourceObserver overrides
   void ImageNotifyFinished(ImageResourceContent*) override;
@@ -104,4 +103,4 @@ struct DowncastTraits<StyleFetchedImage> {
 };
 
 }  // namespace blink
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_STYLE_FETCHED_IMAGE_H_

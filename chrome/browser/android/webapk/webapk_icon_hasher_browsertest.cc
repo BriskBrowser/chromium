@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/android/webapk/webapk_icon_hasher.h"
+#include "components/webapps/browser/android/webapk/webapk_icon_hasher.h"
 
 #include <limits>
 #include <set>
@@ -32,11 +32,14 @@ class WebApkIconHasherBrowserTest : public PlatformBrowserTest {
  public:
   WebApkIconHasherBrowserTest()
       : http_server_(net::EmbeddedTestServer::TYPE_HTTP) {
-    scoped_feature_list_.InitWithFeatures(
-        {net::features::kSplitCacheByNetworkIsolationKey,
-         net::features::kAppendFrameOriginToNetworkIsolationKey},
-        {});
+    scoped_feature_list_.InitAndEnableFeature(
+        net::features::kSplitCacheByNetworkIsolationKey);
   }
+
+  WebApkIconHasherBrowserTest(const WebApkIconHasherBrowserTest&) = delete;
+  WebApkIconHasherBrowserTest& operator=(const WebApkIconHasherBrowserTest&) =
+      delete;
+
   ~WebApkIconHasherBrowserTest() override = default;
 
   void SetUpOnMainThread() override {
@@ -67,8 +70,6 @@ class WebApkIconHasherBrowserTest : public PlatformBrowserTest {
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebApkIconHasherBrowserTest);
 };
 
 namespace {
@@ -80,7 +81,8 @@ void OnDownloadedManifestIcon(base::OnceClosure callback,
 
 void OnGotMurmur2Hash(
     base::OnceClosure callback,
-    base::Optional<std::map<std::string, WebApkIconHasher::Icon>> hashes) {
+    absl::optional<std::map<std::string, webapps::WebApkIconHasher::Icon>>
+        hashes) {
   std::move(callback).Run();
 }
 
@@ -110,13 +112,14 @@ IN_PROC_BROWSER_TEST_F(WebApkIconHasherBrowserTest,
 
   {
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
-        content::BrowserContext::GetDefaultStoragePartition(
-            web_contents->GetBrowserContext())
+        web_contents->GetBrowserContext()
+            ->GetDefaultStoragePartition()
             ->GetURLLoaderFactoryForBrowserProcess();
 
     base::RunLoop run_loop;
-    WebApkIconHasher::DownloadAndComputeMurmur2Hash(
-        url_loader_factory.get(), url::Origin::Create(kIconUrl), {kIconUrl},
+    webapps::WebApkIconHasher::DownloadAndComputeMurmur2Hash(
+        url_loader_factory.get(), web_contents->GetWeakPtr(),
+        url::Origin::Create(kIconUrl), {kIconUrl},
         base::BindOnce(&OnGotMurmur2Hash, run_loop.QuitClosure()));
     run_loop.Run();
   }

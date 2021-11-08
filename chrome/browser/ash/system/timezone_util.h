@@ -6,11 +6,7 @@
 #define CHROME_BROWSER_ASH_SYSTEM_TIMEZONE_UTIL_H_
 
 #include <memory>
-
-#include "base/strings/string16.h"
-// TODO(https://crbug.com/1164001): move TimeZoneResponseData to forward
-// declaration when moved to chrome/browser/ash/.
-#include "chromeos/timezone/timezone_request.h"
+#include <string>
 
 class Profile;
 
@@ -23,10 +19,13 @@ class User;
 }
 
 namespace ash {
+
+struct TimeZoneResponseData;
+
 namespace system {
 
 // Gets the current timezone's display name.
-base::string16 GetCurrentTimezoneName();
+std::u16string GetCurrentTimezoneName();
 
 // Creates a list of pairs of each timezone's ID and name.
 std::unique_ptr<base::ListValue> GetTimezoneList();

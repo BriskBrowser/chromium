@@ -15,21 +15,23 @@ namespace ios {
 class UIThreadSearchTermsData : public SearchTermsData {
  public:
   UIThreadSearchTermsData();
+
+  UIThreadSearchTermsData(const UIThreadSearchTermsData&) = delete;
+  UIThreadSearchTermsData& operator=(const UIThreadSearchTermsData&) = delete;
+
   ~UIThreadSearchTermsData() override;
 
   // SearchTermsData implementation.
   std::string GoogleBaseURLValue() const override;
   std::string GetApplicationLocale() const override;
-  base::string16 GetRlzParameterValue(bool from_app_list) const override;
+  std::u16string GetRlzParameterValue(bool from_app_list) const override;
   std::string GetSearchClient() const override;
-  std::string GetSuggestClient(bool from_ntp) const override;
+  std::string GetSuggestClient() const override;
   std::string GetSuggestRequestIdentifier() const override;
   std::string GoogleImageSearchSource() const override;
 
  private:
   base::ThreadChecker thread_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(UIThreadSearchTermsData);
 };
 
 }  // namespace ios

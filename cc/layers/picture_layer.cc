@@ -10,7 +10,9 @@
 #include "base/auto_reset.h"
 #include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
+#include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
+#include "cc/base/features.h"
 #include "cc/layers/content_layer_client.h"
 #include "cc/layers/picture_layer_impl.h"
 #include "cc/layers/recording_source.h"
@@ -49,20 +51,22 @@ std::unique_ptr<LayerImpl> PictureLayer::CreateLayerImpl(
   return PictureLayerImpl::Create(tree_impl, id());
 }
 
-void PictureLayer::PushPropertiesTo(LayerImpl* base_layer) {
+void PictureLayer::PushPropertiesTo(LayerImpl* base_layer,
+                                    const CommitState& commit_state) {
   // TODO(enne): http://crbug.com/918126 debugging
   CHECK(this);
 
   PictureLayerImpl* layer_impl = static_cast<PictureLayerImpl*>(base_layer);
 
-  Layer::PushPropertiesTo(base_layer);
+  Layer::PushPropertiesTo(base_layer, commit_state);
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("cc.debug"),
                "PictureLayer::PushPropertiesTo");
-  DropRecordingSourceContentIfInvalid();
+  DropRecordingSourceContentIfInvalid(
+      base_layer->layer_tree_impl()->source_frame_number());
 
   layer_impl->SetNearestNeighbor(picture_layer_inputs_.nearest_neighbor);
   layer_impl->set_gpu_raster_max_texture_size(
-      layer_tree_host()->device_viewport_rect().size());
+      commit_state.device_viewport_rect.size());
   layer_impl->SetIsBackdropFilterMask(is_backdrop_filter_mask());
   layer_impl->SetDirectlyCompositedImageSize(
       picture_layer_inputs_.directly_composited_image_size);
@@ -94,7 +98,7 @@ void PictureLayer::SetLayerTreeHost(LayerTreeHost* host) {
     return;
 
   if (!recording_source_)
-    recording_source_.reset(new RecordingSource);
+    recording_source_ = std::make_unique<RecordingSource>();
   recording_source_->SetSlowdownRasterScaleFactor(
       host->GetDebugState().slow_down_raster_scale_factor);
 
@@ -104,7 +108,7 @@ void PictureLayer::SetLayerTreeHost(LayerTreeHost* host) {
 }
 
 void PictureLayer::SetNeedsDisplayRect(const gfx::Rect& layer_rect) {
-  DCHECK(!layer_tree_host() || !layer_tree_host()->in_paint_layer_contents());
+  DCHECK(IsPropertyChangeAllowed());
   if (recording_source_)
     recording_source_->SetNeedsDisplayRect(layer_rect);
   Layer::SetNeedsDisplayRect(layer_rect);
@@ -151,9 +155,9 @@ bool PictureLayer::Update() {
 
     // Clear out previous directly composited image state - if the layer
     // qualifies we'll set up the state below.
-    picture_layer_inputs_.directly_composited_image_size = base::nullopt;
+    picture_layer_inputs_.directly_composited_image_size = absl::nullopt;
     picture_layer_inputs_.nearest_neighbor = false;
-    base::Optional<DisplayItemList::DirectlyCompositedImageResult> result =
+    absl::optional<DisplayItemList::DirectlyCompositedImageResult> result =
         picture_layer_inputs_.display_list->GetDirectlyCompositedImageResult(
             bounds());
     if (result) {
@@ -181,7 +185,7 @@ bool PictureLayer::Update() {
   return updated;
 }
 
-sk_sp<SkPicture> PictureLayer::GetPicture() const {
+sk_sp<const SkPicture> PictureLayer::GetPicture() const {
   if (!DrawsContent() || bounds().IsEmpty())
     return nullptr;
 
@@ -196,11 +200,13 @@ sk_sp<SkPicture> PictureLayer::GetPicture() const {
 }
 
 void PictureLayer::ClearClient() {
+  DCHECK(IsMutationAllowed());
   picture_layer_inputs_.client = nullptr;
   UpdateDrawsContent(HasDrawableContent());
 }
 
 void PictureLayer::SetNearestNeighbor(bool nearest_neighbor) {
+  DCHECK(IsMutationAllowed());
   if (picture_layer_inputs_.nearest_neighbor == nearest_neighbor)
     return;
 
@@ -213,6 +219,7 @@ bool PictureLayer::HasDrawableContent() const {
 }
 
 void PictureLayer::SetIsBackdropFilterMask(bool is_backdrop_filter_mask) {
+  DCHECK(IsMutationAllowed());
   if (picture_layer_inputs_.is_backdrop_filter_mask == is_backdrop_filter_mask)
     return;
 
@@ -225,7 +232,7 @@ void PictureLayer::RunMicroBenchmark(MicroBenchmark* benchmark) {
 }
 
 void PictureLayer::CaptureContent(const gfx::Rect& rect,
-                                  std::vector<NodeInfo>* content) {
+                                  std::vector<NodeInfo>* content) const {
   if (!DrawsContent())
     return;
 
@@ -266,8 +273,8 @@ void PictureLayer::CaptureContent(const gfx::Rect& rect,
   }
 }
 
-void PictureLayer::DropRecordingSourceContentIfInvalid() {
-  int source_frame_number = layer_tree_host()->SourceFrameNumber();
+void PictureLayer::DropRecordingSourceContentIfInvalid(
+    int source_frame_number) {
   gfx::Size recording_source_bounds = recording_source_->GetSize();
 
   gfx::Size layer_bounds = bounds();
@@ -289,7 +296,7 @@ void PictureLayer::DropRecordingSourceContentIfInvalid() {
   }
 }
 
-const DisplayItemList* PictureLayer::GetDisplayItemList() {
+const DisplayItemList* PictureLayer::GetDisplayItemList() const {
   return picture_layer_inputs_.display_list.get();
 }
 

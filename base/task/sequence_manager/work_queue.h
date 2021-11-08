@@ -6,7 +6,7 @@
 #define BASE_TASK_SEQUENCE_MANAGER_WORK_QUEUE_H_
 
 #include "base/base_export.h"
-#include "base/task/common/intrusive_heap.h"
+#include "base/containers/intrusive_heap.h"
 #include "base/task/sequence_manager/enqueue_order.h"
 #include "base/task/sequence_manager/sequenced_task_source.h"
 #include "base/task/sequence_manager/task_queue_impl.h"
@@ -65,6 +65,7 @@ class BASE_EXPORT WorkQueue {
   // Pushes the task onto the |tasks_| and if a fence hasn't been reached
   // it informs the WorkQueueSets if the head changed.
   void Push(Task task);
+  void Push(std::unique_ptr<Task> task);
 
   // RAII helper that helps efficiently push N Tasks to a WorkQueue.
   class BASE_EXPORT TaskPusher {
@@ -73,7 +74,7 @@ class BASE_EXPORT WorkQueue {
     TaskPusher(TaskPusher&& other);
     ~TaskPusher();
 
-    void Push(Task* task);
+    void Push(std::unique_ptr<Task> task);
 
    private:
     friend class WorkQueue;
@@ -118,11 +119,9 @@ class BASE_EXPORT WorkQueue {
 
   size_t work_queue_set_index() const { return work_queue_set_index_; }
 
-  base::internal::HeapHandle heap_handle() const { return heap_handle_; }
+  HeapHandle heap_handle() const { return heap_handle_; }
 
-  void set_heap_handle(base::internal::HeapHandle handle) {
-    heap_handle_ = handle;
-  }
+  void set_heap_handle(HeapHandle handle) { heap_handle_ = handle; }
 
   QueueType queue_type() const { return queue_type_; }
 
@@ -156,9 +155,6 @@ class BASE_EXPORT WorkQueue {
   // Shrinks |tasks_| if it's wasting memory.
   void MaybeShrinkQueue();
 
-  // Delete all tasks within this WorkQueue.
-  void DeletePendingTasks();
-
   // Test support function. This should not be used in production code.
   void PopTaskForTesting();
 
@@ -170,6 +166,11 @@ class BASE_EXPORT WorkQueue {
  private:
   bool InsertFenceImpl(EnqueueOrder fence);
 
+  // Pushes |task| onto the |tasks_|. If a fence hasn't been reached and
+  // |should_notify_work_queue_sets| is set, this informs the WorkQueueSets if
+  // the head changed.
+  void PushImpl(Task& task, bool should_notify_work_queue_sets);
+
   TaskQueueImpl::TaskDeque tasks_;
   WorkQueueSets* work_queue_sets_ = nullptr;  // NOT OWNED.
   TaskQueueImpl* const task_queue_;           // NOT OWNED.
@@ -178,7 +179,7 @@ class BASE_EXPORT WorkQueue {
   // Iff the queue isn't empty (or appearing to be empty due to a fence) then
   // |heap_handle_| will be valid and correspond to this queue's location within
   // an IntrusiveHeap inside the WorkQueueSet.
-  base::internal::HeapHandle heap_handle_;
+  HeapHandle heap_handle_;
   const char* const name_;
   EnqueueOrder fence_;
   const QueueType queue_type_;

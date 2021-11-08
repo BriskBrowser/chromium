@@ -19,6 +19,11 @@ class PairingClientAuthenticator : public PairingAuthenticatorBase {
       const ClientAuthenticationConfig& client_auth_config,
       const CreateBaseAuthenticatorCallback&
           create_base_authenticator_callback);
+
+  PairingClientAuthenticator(const PairingClientAuthenticator&) = delete;
+  PairingClientAuthenticator& operator=(const PairingClientAuthenticator&) =
+      delete;
+
   ~PairingClientAuthenticator() override;
 
   // Start() or StartPaired() must be called after the authenticator is created.
@@ -52,11 +57,9 @@ class PairingClientAuthenticator : public PairingAuthenticatorBase {
   bool waiting_for_pin_ = false;
 
   base::WeakPtrFactory<PairingClientAuthenticator> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PairingClientAuthenticator);
 };
 
 }  // namespace protocol
 }  // namespace remoting
 
-#endif  // REMOTING_PROTOCOL_PAIRING_AUTHENTICATOR_H_
+#endif  // REMOTING_PROTOCOL_PAIRING_CLIENT_AUTHENTICATOR_H_

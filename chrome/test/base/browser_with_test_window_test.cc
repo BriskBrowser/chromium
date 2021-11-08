@@ -35,6 +35,16 @@
 #endif
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/crosapi/crosapi_manager.h"
+#include "chrome/browser/ash/crosapi/idle_service_ash.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/lacros/lacros_test_helper.h"
+#include "chromeos/ui/base/tablet_state.h"
+#endif
+
 using content::NavigationController;
 using content::RenderFrameHost;
 using content::RenderFrameHostTester;
@@ -49,6 +59,10 @@ void BrowserWithTestWindowTest::SetUp() {
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
+  if (!chromeos::LacrosService::Get()) {
+    lacros_service_test_helper_ =
+        std::make_unique<chromeos::ScopedLacrosServiceTestHelper>();
+  }
   tablet_state_ = std::make_unique<chromeos::TabletState>();
 #endif
 
@@ -63,6 +77,11 @@ void BrowserWithTestWindowTest::SetUp() {
   profile_manager_ = std::make_unique<TestingProfileManager>(
       TestingBrowserProcess::GetGlobal());
   ASSERT_TRUE(profile_manager_->SetUp());
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  crosapi::IdleServiceAsh::DisableForTesting();
+  manager_ = std::make_unique<crosapi::CrosapiManager>();
+#endif
 
   // Subclasses can provide their own Profile.
   profile_ = CreateProfile();
@@ -98,10 +117,15 @@ void BrowserWithTestWindowTest::TearDown() {
     SystemNetworkContextManager::DeleteInstance();
   }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  manager_.reset();
+#endif
+
   profile_manager_.reset();
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
   tablet_state_.reset();
+  lacros_service_test_helper_.reset();
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -150,33 +174,29 @@ void BrowserWithTestWindowTest::CommitPendingLoad(
   RenderFrameHostTester::CommitPendingLoad(controller);
 }
 
-void BrowserWithTestWindowTest::NavigateAndCommit(
-    NavigationController* controller,
-    const GURL& url) {
-  content::NavigationSimulator::NavigateAndCommitFromBrowser(
-      controller->GetWebContents(), url);
+void BrowserWithTestWindowTest::NavigateAndCommit(WebContents* web_contents,
+                                                  const GURL& url) {
+  content::NavigationSimulator::NavigateAndCommitFromBrowser(web_contents, url);
 }
 
 void BrowserWithTestWindowTest::NavigateAndCommitActiveTab(const GURL& url) {
-  NavigateAndCommit(&browser()->tab_strip_model()->GetActiveWebContents()->
-                        GetController(),
-                    url);
+  NavigateAndCommit(browser()->tab_strip_model()->GetActiveWebContents(), url);
 }
 
 void BrowserWithTestWindowTest::NavigateAndCommitActiveTabWithTitle(
     Browser* navigating_browser,
     const GURL& url,
-    const base::string16& title) {
+    const std::u16string& title) {
   WebContents* contents =
       navigating_browser->tab_strip_model()->GetActiveWebContents();
-  NavigationController* controller = &contents->GetController();
-  NavigateAndCommit(controller, url);
-  contents->UpdateTitleForEntry(controller->GetActiveEntry(), title);
+  NavigateAndCommit(contents, url);
+  contents->UpdateTitleForEntry(contents->GetController().GetActiveEntry(),
+                                title);
 }
 
 TestingProfile* BrowserWithTestWindowTest::CreateProfile() {
   return profile_manager_->CreateTestingProfile(
-      "testing_profile", nullptr, base::string16(), 0, std::string(),
+      "testing_profile", nullptr, std::u16string(), 0, std::string(),
       GetTestingFactories());
 }
 
@@ -209,7 +229,7 @@ std::unique_ptr<Browser> BrowserWithTestWindowTest::CreateBrowser(
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-chromeos::ScopedCrosSettingsTestHelper*
+ash::ScopedCrosSettingsTestHelper*
 BrowserWithTestWindowTest::GetCrosSettingsHelper() {
   return &cros_settings_test_helper_;
 }

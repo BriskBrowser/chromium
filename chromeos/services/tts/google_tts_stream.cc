@@ -41,8 +41,16 @@ void HandleLibraryLogging(int severity, const char* message) {
 
 GoogleTtsStream::GoogleTtsStream(
     TtsService* owner,
-    mojo::PendingReceiver<mojom::GoogleTtsStream> receiver)
-    : owner_(owner), stream_receiver_(this, std::move(receiver)) {
+    mojo::PendingReceiver<mojom::GoogleTtsStream> receiver,
+    mojo::PendingRemote<media::mojom::AudioStreamFactory> factory)
+    : owner_(owner),
+      stream_receiver_(this, std::move(receiver)),
+      tts_player_(
+          std::move(factory),
+          media::AudioParameters(media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
+                                 media::CHANNEL_LAYOUT_MONO,
+                                 kDefaultSampleRate,
+                                 kDefaultBufferSize)) {
   bool loaded = libchrometts_.Load(kLibchromettsPath);
   if (!loaded) {
     LOG(ERROR) << "Unable to load libchrometts.so.";
@@ -52,15 +60,18 @@ GoogleTtsStream::GoogleTtsStream(
   }
 
   stream_receiver_.set_disconnect_handler(base::BindOnce(
-      [](TtsService* owner) {
+      [](TtsService* owner, mojo::Receiver<mojom::GoogleTtsStream>* receiver) {
         // The remote which lives in component extension js has been
         // disconnected due to destruction or error.
+        receiver->reset();
         owner->MaybeExit();
       },
-      owner));
+      owner, &stream_receiver_));
 }
 
-GoogleTtsStream::~GoogleTtsStream() = default;
+GoogleTtsStream::~GoogleTtsStream() {
+  libchrometts_.GoogleTtsShutdown();
+}
 
 bool GoogleTtsStream::IsBound() const {
   return stream_receiver_.is_bound();
@@ -96,17 +107,18 @@ void GoogleTtsStream::SelectVoice(const std::string& voice_name,
 }
 
 void GoogleTtsStream::Speak(const std::vector<uint8_t>& text_jspb,
-                            const std::string& speaker_name,
+                            const std::vector<uint8_t>& speaker_params_jspb,
                             SpeakCallback callback) {
   bool status = libchrometts_.GoogleTtsInitBuffered(
-      &text_jspb[0], speaker_name.c_str(), text_jspb.size());
+      &text_jspb[0], &speaker_params_jspb[0], text_jspb.size(),
+      speaker_params_jspb.size());
   if (!status) {
     stream_receiver_.reset();
     owner_->MaybeExit();
     return;
   }
 
-  owner_->Play(std::move(callback));
+  tts_player_.Play(std::move(callback));
   is_buffering_ = true;
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -116,29 +128,27 @@ void GoogleTtsStream::Speak(const std::vector<uint8_t>& text_jspb,
 }
 
 void GoogleTtsStream::Stop() {
-  owner_->Stop();
+  tts_player_.Stop();
   is_buffering_ = false;
-  libchrometts_.GoogleTtsFinalizeBuffered();
 }
 
 void GoogleTtsStream::SetVolume(float volume) {
-  owner_->SetVolume(volume);
+  tts_player_.SetVolume(volume);
 }
 
 void GoogleTtsStream::Pause() {
-  owner_->Pause();
+  tts_player_.Pause();
 }
 
 void GoogleTtsStream::Resume() {
-  owner_->Resume();
+  tts_player_.Resume();
 }
 
 void GoogleTtsStream::ReadMoreFrames(bool is_first_buffer) {
-  if (!is_buffering_) {
+  if (!is_buffering_)
     return;
-  }
 
-  TtsService::AudioBuffer buf;
+  TtsPlayer::AudioBuffer buf;
   buf.frames.resize(libchrometts_.GoogleTtsGetFramesInAudioBuffer());
   size_t frames_in_buf = 0;
   const int status =
@@ -150,20 +160,22 @@ void GoogleTtsStream::ReadMoreFrames(bool is_first_buffer) {
   buf.char_index = -1;
   buf.is_first_buffer = is_first_buffer;
 
-  owner_->AddAudioBuffer(std::move(buf));
+  tts_player_.AddAudioBuffer(std::move(buf));
 
   for (size_t timepoint_index = 0;
        timepoint_index < libchrometts_.GoogleTtsGetTimepointsCount();
        timepoint_index++) {
-    owner_->AddExplicitTimepoint(
+    tts_player_.AddExplicitTimepoint(
         libchrometts_.GoogleTtsGetTimepointsCharIndexAtIndex(timepoint_index),
-        base::TimeDelta::FromSecondsD(
-            libchrometts_.GoogleTtsGetTimepointsTimeInSecsAtIndex(
-                timepoint_index)));
+        base::Seconds(libchrometts_.GoogleTtsGetTimepointsTimeInSecsAtIndex(
+            timepoint_index)));
   }
 
-  if (status <= 0)
+  // Ensure we always clean up given status 0 (done) or -1 (error).
+  if (status <= 0) {
+    is_buffering_ = false;
     return;
+  }
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,

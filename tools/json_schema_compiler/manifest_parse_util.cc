@@ -24,7 +24,7 @@ bool ParseHelper(const base::DictionaryValue& dict,
                  base::Value::Type expected_type,
                  ValueTypeConverter<U> type_converter,
                  T* out,
-                 base::string16* error,
+                 std::u16string* error,
                  std::vector<base::StringPiece>* error_path_reversed) {
   DCHECK(type_converter);
   DCHECK(out);
@@ -43,7 +43,7 @@ bool ParseHelper(const base::DictionaryValue& dict,
 void PopulateInvalidEnumValueError(
     base::StringPiece key,
     const std::string& value,
-    base::string16* error,
+    std::u16string* error,
     std::vector<base::StringPiece>* error_path_reversed) {
   DCHECK(error);
   DCHECK(error->empty());
@@ -55,7 +55,14 @@ void PopulateInvalidEnumValueError(
       base::StringPrintf("Specified value '%s' is invalid.", value.c_str()));
 }
 
-void PopulateFinalError(base::string16* error,
+std::u16string GetArrayParseError(size_t error_index,
+                                  const std::u16string& item_error) {
+  return base::ASCIIToUTF16(
+      base::StringPrintf("Parsing array failed at index %" PRIuS ": %s",
+                         error_index, base::UTF16ToASCII(item_error).c_str()));
+}
+
+void PopulateFinalError(std::u16string* error,
                         std::vector<base::StringPiece>* error_path_reversed) {
   DCHECK(error);
   DCHECK(error_path_reversed);
@@ -74,7 +81,7 @@ const base::Value* FindKeyOfType(
     const base::DictionaryValue& dict,
     base::StringPiece key,
     base::Value::Type expected_type,
-    base::string16* error,
+    std::u16string* error,
     std::vector<base::StringPiece>* error_path_reversed) {
   DCHECK(error);
   DCHECK(error->empty());
@@ -84,7 +91,7 @@ const base::Value* FindKeyOfType(
   const base::Value* value = dict.FindKey(key);
   if (!value) {
     error_path_reversed->push_back(key);
-    *error = base::ASCIIToUTF16("Manifest key is required.");
+    *error = u"Manifest key is required.";
     return nullptr;
   }
 
@@ -103,7 +110,7 @@ const base::Value* FindKeyOfType(
 bool ParseFromDictionary(const base::DictionaryValue& dict,
                          base::StringPiece key,
                          int* out,
-                         base::string16* error,
+                         std::u16string* error,
                          std::vector<base::StringPiece>* error_path_reversed) {
   return ParseHelper(dict, key, base::Value::Type::INTEGER,
                      &base::Value::GetInt, out, error, error_path_reversed);
@@ -112,7 +119,7 @@ bool ParseFromDictionary(const base::DictionaryValue& dict,
 bool ParseFromDictionary(const base::DictionaryValue& dict,
                          base::StringPiece key,
                          bool* out,
-                         base::string16* error,
+                         std::u16string* error,
                          std::vector<base::StringPiece>* error_path_reversed) {
   return ParseHelper(dict, key, base::Value::Type::BOOLEAN,
                      &base::Value::GetBool, out, error, error_path_reversed);
@@ -121,7 +128,7 @@ bool ParseFromDictionary(const base::DictionaryValue& dict,
 bool ParseFromDictionary(const base::DictionaryValue& dict,
                          base::StringPiece key,
                          double* out,
-                         base::string16* error,
+                         std::u16string* error,
                          std::vector<base::StringPiece>* error_path_reversed) {
   return ParseHelper(dict, key, base::Value::Type::DOUBLE,
                      &base::Value::GetDouble, out, error, error_path_reversed);
@@ -130,7 +137,7 @@ bool ParseFromDictionary(const base::DictionaryValue& dict,
 bool ParseFromDictionary(const base::DictionaryValue& dict,
                          base::StringPiece key,
                          std::string* out,
-                         base::string16* error,
+                         std::u16string* error,
                          std::vector<base::StringPiece>* error_path_reversed) {
   return ParseHelper(dict, key, base::Value::Type::STRING,
                      &base::Value::GetString, out, error, error_path_reversed);

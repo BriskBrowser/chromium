@@ -19,8 +19,13 @@ namespace chromeos {
 class COMPONENT_EXPORT(CHROMEOS_NETWORK) DeviceState : public ManagedState {
  public:
   typedef std::vector<CellularScanResult> CellularScanResults;
+  typedef std::vector<CellularSIMSlotInfo> CellularSIMSlotInfos;
 
   explicit DeviceState(const std::string& path);
+
+  DeviceState(const DeviceState&) = delete;
+  DeviceState& operator=(const DeviceState&) = delete;
+
   ~DeviceState() override;
 
   // ManagedState overrides
@@ -40,7 +45,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) DeviceState : public ManagedState {
   // Cellular specific accessors
   const std::string& operator_name() const { return operator_name_; }
   const std::string& country_code() const { return country_code_; }
-  bool allow_roaming() const { return allow_roaming_; }
   bool provider_requires_roaming() const { return provider_requires_roaming_; }
   bool support_network_scan() const { return support_network_scan_; }
   const std::string& technology_family() const { return technology_family_; }
@@ -79,6 +83,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) DeviceState : public ManagedState {
     available_managed_network_path_ = available_managed_network_path;
   }
 
+  // Non-cellular devices return an empty list.
+  CellularSIMSlotInfos GetSimSlotInfos() const;
+
   // Returns a human readable string for the device.
   std::string GetName() const;
 
@@ -100,7 +107,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) DeviceState : public ManagedState {
   // Cellular specific properties
   std::string operator_name_;
   std::string country_code_;
-  bool allow_roaming_ = false;
   bool provider_requires_roaming_ = false;
   bool support_network_scan_ = false;
   bool scanning_ = false;
@@ -114,6 +120,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) DeviceState : public ManagedState {
   std::string iccid_;
   std::string mdn_;
   CellularScanResults scan_results_;
+  CellularSIMSlotInfos sim_slot_infos_;
   bool inhibited_ = false;
 
   // Ethernet specific properties
@@ -133,8 +140,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) DeviceState : public ManagedState {
 
   // Dictionary of IPConfig properties, keyed by IpConfig path.
   base::DictionaryValue ip_configs_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceState);
 };
 
 }  // namespace chromeos

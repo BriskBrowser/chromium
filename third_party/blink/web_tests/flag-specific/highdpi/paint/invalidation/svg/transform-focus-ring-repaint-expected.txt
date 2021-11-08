@@ -9,11 +9,11 @@
     {
       "name": "LayoutNGBlockFlow (positioned) DIV id='target'",
       "position": [-2, -2],
-      "bounds": [604, 814],
+      "bounds": [304, 304],
       "backfaceVisibility": "hidden",
       "backgroundColor": "#FFFF00",
       "invalidations": [
-        [0, 0, 604, 814]
+        [0, 0, 304, 304]
       ],
       "transform": 1
     },
@@ -21,6 +21,7 @@
       "name": "Squashing Layer (first squashed layer: LayoutNGBlockFlow (positioned) DIV)",
       "position": [150, 150],
       "bounds": [450, 660],
+      "backgroundColor": "#0000FF",
       "transform": 1
     }
   ],

@@ -7,19 +7,14 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/optional.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "media/base/media_export.h"
 #include "media/media_buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
-#if defined(OS_WIN)
-#include <wrl/client.h>
-struct IMFCdmProxy;
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 namespace chromeos {
 class ChromeOsCdmContext;
 }
@@ -33,6 +28,10 @@ class MediaCryptoContext;
 
 #if defined(OS_FUCHSIA)
 class FuchsiaCdmContext;
+#endif
+
+#if defined(OS_WIN)
+class MediaFoundationCdmProxy;
 #endif
 
 // An interface representing the context that a media player needs from a
@@ -56,11 +55,14 @@ class MEDIA_EXPORT CdmContext {
 
     // A hardware reset happened. Some hardware context, e.g. hardware decoder
     // context may be lost.
-    kHardwareContextLost,
+    kHardwareContextReset,
   };
 
   // Callback to notify the occurrence of an Event.
   using EventCB = base::RepeatingCallback<void(Event)>;
+
+  CdmContext(const CdmContext&) = delete;
+  CdmContext& operator=(const CdmContext&) = delete;
 
   virtual ~CdmContext();
 
@@ -76,8 +78,9 @@ class MEDIA_EXPORT CdmContext {
   // CallbackRegistration object can be destructed on any thread.
   // - Thread Model: Can be called on any thread. The registered callback will
   // always be called on the thread where RegisterEventCB() is called.
-  // - TODO(xhwang): Not using base::CallbackList because it is not thread-
-  // safe. Consider refactoring base::CallbackList to avoid code duplication.
+  // - TODO(xhwang): Not using base::RepeatingCallbackList because it is not
+  // thread- safe. Consider refactoring base::RepeatingCallbackList to avoid
+  // code duplication.
   virtual std::unique_ptr<CallbackRegistration> RegisterEventCB(
       EventCB event_cb);
 
@@ -86,20 +89,21 @@ class MEDIA_EXPORT CdmContext {
   // occurs implicitly along with decoding).
   virtual Decryptor* GetDecryptor();
 
-  // Returns whether the CDM requires Media Foundation-based media Renderer.
-  // Should only return true on Windows.
-  virtual bool RequiresMediaFoundationRenderer();
-
   // Returns an ID that can be used to find a remote CDM, in which case this CDM
-  // serves as a proxy to the remote one. Returns base::nullopt when remote CDM
+  // serves as a proxy to the remote one. Returns absl::nullopt when remote CDM
   // is not supported (e.g. this CDM is a local CDM).
-  virtual base::Optional<base::UnguessableToken> GetCdmId() const;
+  virtual absl::optional<base::UnguessableToken> GetCdmId() const;
 
   static std::string CdmIdToString(const base::UnguessableToken* cdm_id);
 
 #if defined(OS_WIN)
+  // Returns whether the CDM requires Media Foundation-based media Renderer.
+  // This is separate from GetMediaFoundationCdmProxy() since it needs to be
+  // a sync call called in the render process to setup the media pipeline.
+  virtual bool RequiresMediaFoundationRenderer();
+
   using GetMediaFoundationCdmProxyCB =
-      base::OnceCallback<void(Microsoft::WRL::ComPtr<IMFCdmProxy>)>;
+      base::OnceCallback<void(scoped_refptr<MediaFoundationCdmProxy>)>;
   // This allows a CdmContext to expose an IMFTrustedInput instance for use in
   // a Media Foundation rendering pipeline. This method is asynchronous because
   // the underlying MF-based CDM might not have a native session created yet.
@@ -122,7 +126,7 @@ class MEDIA_EXPORT CdmContext {
   virtual FuchsiaCdmContext* GetFuchsiaCdmContext();
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
   // Returns a ChromeOsCdmContext interface when the context is backed by the
   // ChromeOS CdmFactoryDaemon. Otherwise return nullptr.
   virtual chromeos::ChromeOsCdmContext* GetChromeOsCdmContext();
@@ -130,9 +134,6 @@ class MEDIA_EXPORT CdmContext {
 
  protected:
   CdmContext();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CdmContext);
 };
 
 // A reference holder to make sure the CdmContext is always valid as long as

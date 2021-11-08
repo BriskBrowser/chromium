@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 import {Commands} from './commands.js';
-import {ItemScanManager} from './item_scan_manager.js';
 import {Navigator} from './navigator.js';
 import {KeyboardRootNode} from './nodes/keyboard_node.js';
 import {PreferenceManager} from './preference_manager.js';
@@ -21,12 +20,36 @@ export class SwitchAccess {
     SwitchAccess.instance = new SwitchAccess();
 
     chrome.automation.getDesktop((desktop) => {
-      // ItemScanManager must be initialized first.
-      Navigator.setSingletonInstance(new ItemScanManager(desktop));
+      chrome.automation.getFocus(focus => {
+        // Focus is available. Finish init without waiting for further events.
+        // Disallow web view nodes, which indicate a root web area is still
+        // loading and pending focus.
+        if (focus && focus.role !== chrome.automation.RoleType.WEB_VIEW) {
+          SwitchAccess.finishInit_(desktop);
+          return;
+        }
 
-      Commands.initialize();
-      KeyboardRootNode.startWatchingVisibility();
-      PreferenceManager.initialize();
+        // Wait for the focus to be sent. If |focus| was undefined, this is
+        // guaranteed. Otherwise, also set a timed callback to ensure we do
+        // eventually init.
+        let callbackId = 0;
+        const listener = maybeEvent => {
+          if (maybeEvent &&
+              maybeEvent.target.role === chrome.automation.RoleType.WEB_VIEW) {
+            return;
+          }
+
+          desktop.removeEventListener(
+              chrome.automation.EventType.FOCUS, listener, false);
+          window.clearTimeout(callbackId);
+
+          SwitchAccess.finishInit_(desktop);
+        };
+
+        desktop.addEventListener(
+            chrome.automation.EventType.FOCUS, listener, false);
+        callbackId = window.setTimeout(listener, 5000);
+      });
     });
   }
 
@@ -38,10 +61,22 @@ export class SwitchAccess {
      */
     this.enableImprovedTextInput_ = false;
 
+    /** @private {boolean} */
+    this.enableMultistepAutomationFeatures_ = false;
+
     chrome.commandLinePrivate.hasSwitch(
         'enable-experimental-accessibility-switch-access-text', (result) => {
           this.enableImprovedTextInput_ = result;
         });
+
+    chrome.commandLinePrivate.hasSwitch(
+        'enable-experimental-accessibility-switch-access-multistep-automation',
+        (enabled) => {
+          this.enableMultistepAutomationFeatures_ = enabled;
+        });
+
+    /* @private {!SAConstants.Mode} */
+    this.mode_ = SAConstants.Mode.ITEM_SCAN;
   }
 
   /**
@@ -53,6 +88,21 @@ export class SwitchAccess {
     return this.enableImprovedTextInput_;
   }
 
+  /** @return {boolean} */
+  multistepAutomationFeaturesEnabled() {
+    return this.enableMultistepAutomationFeatures_;
+  }
+
+  /** @return {!SAConstants.Mode} */
+  get mode() {
+    return this.mode_;
+  }
+
+  /** @param {!SAConstants.Mode} newMode */
+  set mode(newMode) {
+    this.mode_ = newMode;
+  }
+
   /**
    * Helper function to robustly find a node fitting a given FindParams, even if
    * that node has not yet been created.
@@ -61,7 +111,7 @@ export class SwitchAccess {
    * @param {!function(!AutomationNode): void} foundCallback
    */
   static findNodeMatching(findParams, foundCallback) {
-    const desktop = Navigator.instance.desktopNode;
+    const desktop = Navigator.byItem.desktopNode;
     // First, check if the node is currently in the tree.
     let node = desktop.find(findParams);
     if (node) {
@@ -102,13 +152,25 @@ export class SwitchAccess {
    */
   static error(errorType, errorString, shouldRecover = false) {
     if (shouldRecover) {
-      setTimeout(
-          Navigator.instance.moveToValidNode.bind(Navigator.instance), 0);
+      setTimeout(Navigator.byItem.moveToValidNode.bind(Navigator.byItem), 0);
     }
     const errorTypeCountForUMA = Object.keys(SAConstants.ErrorType).length;
     chrome.metricsPrivate.recordEnumerationValue(
         'Accessibility.CrosSwitchAccess.Error',
         /** @type {number} */ (errorType), errorTypeCountForUMA);
     return new Error(errorString);
+  }
+
+  /**
+   * @param {!chrome.automation.AutomationNode} desktop
+   * @private
+   */
+  static finishInit_(desktop) {
+    // Navigator must be initialized first.
+    Navigator.initializeSingletonInstance(desktop);
+
+    Commands.initialize();
+    KeyboardRootNode.startWatchingVisibility();
+    PreferenceManager.initialize();
   }
 }

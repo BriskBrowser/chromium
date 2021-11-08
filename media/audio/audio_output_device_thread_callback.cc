@@ -57,12 +57,10 @@ void AudioOutputDeviceThreadCallback::Process(uint32_t control_signal) {
                      "callback_num", callback_num_, "frames skipped",
                      frames_skipped);
 
-  base::TimeDelta delay =
-      base::TimeDelta::FromMicroseconds(buffer->params.delay_us);
+  base::TimeDelta delay = base::Microseconds(buffer->params.delay_us);
 
   base::TimeTicks delay_timestamp =
-      base::TimeTicks() +
-      base::TimeDelta::FromMicroseconds(buffer->params.delay_timestamp_us);
+      base::TimeTicks() + base::Microseconds(buffer->params.delay_timestamp_us);
 
   DVLOG(4) << __func__ << " delay:" << delay << " delay_timestamp:" << delay
            << " frames_skipped:" << frames_skipped;
@@ -71,7 +69,8 @@ void AudioOutputDeviceThreadCallback::Process(uint32_t control_signal) {
   // that we have some data, we'll get another one after the device is awake and
   // ingesting data, which is what we want to track with this trace.
   if (callback_num_ == 2)
-    TRACE_EVENT_ASYNC_END0("audio", "StartingPlayback", this);
+    TRACE_EVENT_NESTABLE_ASYNC_END0("audio", "StartingPlayback",
+                                    TRACE_ID_LOCAL(this));
 
   // Update the audio-delay measurement, inform about the number of skipped
   // frames, and ask client to render audio.  Since |output_bus_| is wrapping

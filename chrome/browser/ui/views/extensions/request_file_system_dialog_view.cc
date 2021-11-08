@@ -16,11 +16,11 @@
 #include "components/constrained_window/constrained_window_views.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/range/range.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -77,15 +77,15 @@ RequestFileSystemDialogView::RequestFileSystemDialogView(
 
   DCHECK(!callback_.is_null());
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-      views::TEXT, views::TEXT));
+      views::DialogContentType::kText, views::DialogContentType::kText));
 
-  const base::string16 app_name = base::UTF8ToUTF16(extension_name);
+  const std::u16string app_name = base::UTF8ToUTF16(extension_name);
   // TODO(mtomasz): Improve the dialog contents, so it's easier for the user
   // to understand what device is being requested.
-  const base::string16 volume_name = base::UTF8ToUTF16(volume_label);
+  const std::u16string volume_name = base::UTF8ToUTF16(volume_label);
 
   std::vector<size_t> placeholder_offsets;
-  const base::string16 message = l10n_util::GetStringFUTF16(
+  const std::u16string message = l10n_util::GetStringFUTF16(
       writable ? IDS_FILE_SYSTEM_REQUEST_FILE_SYSTEM_DIALOG_WRITABLE_MESSAGE
                : IDS_FILE_SYSTEM_REQUEST_FILE_SYSTEM_DIALOG_MESSAGE,
       app_name, volume_name, &placeholder_offsets);

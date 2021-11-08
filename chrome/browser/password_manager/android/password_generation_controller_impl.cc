@@ -16,8 +16,8 @@
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/password_generation_util.h"
-#include "components/autofill/core/common/renderer_id.h"
 #include "components/autofill/core/common/signatures.h"
+#include "components/autofill/core/common/unique_ids.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_generation_frame_helper.h"
 #include "components/password_manager/core/browser/password_manager.h"
@@ -96,7 +96,7 @@ void PasswordGenerationControllerImpl::OnAutomaticGenerationAvailable(
 
   active_frame_driver_->GetPasswordManager()
       ->SetGenerationElementAndTypeForForm(
-          active_frame_driver_.get(), ui_data.form_data,
+          active_frame_driver_.get(), ui_data.form_data.unique_renderer_id,
           ui_data.generation_element_id, PasswordGenerationType::kAutomatic);
 
   if (!base::FeatureList::IsEnabled(
@@ -146,7 +146,7 @@ void PasswordGenerationControllerImpl::OnGenerationRequested(
 }
 
 void PasswordGenerationControllerImpl::GeneratedPasswordAccepted(
-    const base::string16& password,
+    const std::u16string& password,
     base::WeakPtr<password_manager::PasswordManagerDriver> driver,
     PasswordGenerationType type) {
   if (!driver)
@@ -169,6 +169,10 @@ void PasswordGenerationControllerImpl::GeneratedPasswordRejected(
 gfx::NativeWindow PasswordGenerationControllerImpl::top_level_native_window()
     const {
   return web_contents_->GetTopLevelNativeWindow();
+}
+
+content::WebContents* PasswordGenerationControllerImpl::web_contents() const {
+  return web_contents_;
 }
 
 // static
@@ -220,9 +224,9 @@ void PasswordGenerationControllerImpl::ShowDialog(PasswordGenerationType type) {
 
   dialog_view_ = create_dialog_factory_.Run(this);
 
-  base::string16 password =
+  std::u16string password =
       active_frame_driver_->GetPasswordGenerationHelper()->GeneratePassword(
-          web_contents_->GetLastCommittedURL().GetOrigin(),
+          web_contents_->GetLastCommittedURL().DeprecatedGetOriginAsURL(),
           generation_element_data_->form_signature,
           generation_element_data_->field_signature,
           generation_element_data_->max_password_length);
@@ -245,4 +249,4 @@ void PasswordGenerationControllerImpl::ResetState() {
   manual_generation_requested_ = false;
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(PasswordGenerationControllerImpl)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(PasswordGenerationControllerImpl);

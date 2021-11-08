@@ -14,7 +14,6 @@
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/tabs/tab_types.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
-#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/tabs/alert_indicator.h"
 #include "chrome/browser/ui/views/tabs/fake_base_tab_strip_controller.h"
 #include "chrome/browser/ui/views/tabs/tab_close_button.h"
@@ -54,8 +53,6 @@ class FakeTabController : public TabController {
   const ui::ListSelectionModel& GetSelectionModel() const override {
     return selection_model_;
   }
-  bool SupportsMultipleSelection() override { return false; }
-  bool ShouldHideCloseButtonForTab(Tab* tab) const override { return false; }
   void SelectTab(Tab* tab, const ui::Event& event) override {}
   void ExtendSelectionTo(Tab* tab) override {}
   void ToggleSelected(Tab* tab) override {}
@@ -86,7 +83,7 @@ class FakeTabController : public TabController {
   }
   void OnMouseEventInTab(views::View* source,
                          const ui::MouseEvent& event) override {}
-  void UpdateHoverCard(Tab* tab) override {}
+  void UpdateHoverCard(Tab* tab, HoverCardUpdateType update_type) override {}
   bool ShowDomainInHoverCards() const override { return true; }
   bool HoverCardIsShowingForTab(Tab* tab) override { return false; }
   int GetBackgroundOffset() const override { return 0; }
@@ -109,24 +106,24 @@ class FakeTabController : public TabController {
     return active == TabActive::kActive ? tab_fg_color_active_
                                         : tab_fg_color_inactive_;
   }
-  base::Optional<int> GetCustomBackgroundId(
+  absl::optional<int> GetCustomBackgroundId(
       BrowserFrameActiveState active_state) const override {
-    return base::nullopt;
+    return absl::nullopt;
   }
   gfx::Rect GetTabAnimationTargetBounds(const Tab* tab) override {
     return tab->bounds();
   }
-  base::string16 GetAccessibleTabName(const Tab* tab) const override {
-    return base::string16();
+  std::u16string GetAccessibleTabName(const Tab* tab) const override {
+    return std::u16string();
   }
   float GetHoverOpacityForTab(float range_parameter) const override {
     return 1.0f;
   }
   float GetHoverOpacityForRadialHighlight() const override { return 1.0f; }
 
-  base::string16 GetGroupTitle(
+  std::u16string GetGroupTitle(
       const tab_groups::TabGroupId& group_id) const override {
-    return base::string16();
+    return std::u16string();
   }
 
   tab_groups::TabGroupColorId GetGroupColorId(
@@ -164,7 +161,7 @@ class TabTest : public ChromeViewsTestBase {
  public:
   TabTest() {
     // Prevent the fake clock from starting at 0 which is the null time.
-    fake_clock_.Advance(base::TimeDelta::FromMilliseconds(2000));
+    fake_clock_.Advance(base::Milliseconds(2000));
   }
   ~TabTest() override {}
 
@@ -425,8 +422,8 @@ TEST_F(TabTest, HitTestTopPixel) {
 }
 
 TEST_F(TabTest, LayoutAndVisibilityOfElements) {
-  static const base::Optional<TabAlertState> kAlertStatesToTest[] = {
-      base::nullopt,
+  static const absl::optional<TabAlertState> kAlertStatesToTest[] = {
+      absl::nullopt,
       TabAlertState::TAB_CAPTURING,
       TabAlertState::AUDIO_PLAYING,
       TabAlertState::AUDIO_MUTING,
@@ -446,7 +443,7 @@ TEST_F(TabTest, LayoutAndVisibilityOfElements) {
   // results.
   for (bool is_pinned_tab : {false, true}) {
     for (bool is_active_tab : {false, true}) {
-      for (base::Optional<TabAlertState> alert_state : kAlertStatesToTest) {
+      for (absl::optional<TabAlertState> alert_state : kAlertStatesToTest) {
         SCOPED_TRACE(
             ::testing::Message()
             << (is_active_tab ? "Active " : "Inactive ")
@@ -479,64 +476,6 @@ TEST_F(TabTest, LayoutAndVisibilityOfElements) {
           CheckForExpectedLayoutAndVisibilityOfElements(*tab);
         }
       }
-    }
-  }
-}
-
-// Regression test for http://crbug.com/420313: Confirms that any child Views of
-// Tab do not attempt to provide their own tooltip behavior/text.
-TEST_F(TabTest, TooltipProvidedByTab) {
-  // This test isn't relevant when tab hover cards are enabled since tab
-  // tooltips are then disabled.
-  if (base::FeatureList::IsEnabled(features::kTabHoverCards))
-    return;
-
-  auto controller = std::make_unique<FakeTabController>();
-  std::unique_ptr<views::Widget> widget = CreateTestWidget();
-  Tab* tab = widget->SetContentsView(std::make_unique<Tab>(controller.get()));
-  tab->SizeToPreferredSize();
-
-  SkBitmap bitmap;
-  bitmap.allocN32Pixels(16, 16);
-  TabRendererData data;
-  data.favicon = gfx::ImageSkia::CreateFrom1xBitmap(bitmap);
-
-  data.title = base::UTF8ToUTF16(
-      "This is a really long tab title that would cause views::Label to "
-      "provide its own tooltip; but Tab should disable that feature so it can "
-      "provide the tooltip instead.");
-
-  // Test both with and without an indicator showing since the tab tooltip text
-  // should include a description of the alert state when the indicator is
-  // present.
-  for (int i = 0; i < 2; ++i) {
-    data.alert_state =
-        (i == 0 ? std::vector<TabAlertState>()
-                : std::vector<TabAlertState>({TabAlertState::AUDIO_PLAYING}));
-    const auto alert_state_to_show = Tab::GetAlertStateToShow(data.alert_state);
-    SCOPED_TRACE(::testing::Message()
-                 << "Tab with alert indicator state "
-                 << (alert_state_to_show
-                         ? static_cast<int>(alert_state_to_show.value())
-                         : -1));
-    tab->SetData(data);
-    const base::string16 expected_tooltip =
-        Tab::GetTooltipText(data.title, alert_state_to_show);
-
-    for (auto j = tab->children().begin(); j != tab->children().end(); ++j) {
-      if (!strcmp((*j)->GetClassName(), "TabCloseButton"))
-        continue;  // Close button is excepted.
-      if (!(*j)->GetVisible())
-        continue;
-      SCOPED_TRACE(::testing::Message()
-                   << "child " << std::distance(tab->children().begin(), j)
-                   << ": " << (*j)->GetClassName());
-
-      const gfx::Point midpoint((*j)->width() / 2, (*j)->height() / 2);
-      EXPECT_FALSE((*j)->GetTooltipHandlerForPoint(midpoint));
-      const gfx::Point mouse_hover_point =
-          midpoint + (*j)->GetMirroredPosition().OffsetFromOrigin();
-      EXPECT_EQ(expected_tooltip, tab->GetTooltipText(mouse_hover_point));
     }
   }
 }
@@ -654,11 +593,11 @@ TEST_F(TabTest, LayeredThrobber) {
   EXPECT_TRUE(icon->GetShowingLoadingAnimation());
   EXPECT_TRUE(icon->layer());
   tab_controller->set_paint_throbber_to_layer(false);
-  tab->StepLoadingAnimation(base::TimeDelta::FromMilliseconds(100));
+  tab->StepLoadingAnimation(base::Milliseconds(100));
   EXPECT_TRUE(icon->GetShowingLoadingAnimation());
   EXPECT_FALSE(icon->layer());
   tab_controller->set_paint_throbber_to_layer(true);
-  tab->StepLoadingAnimation(base::TimeDelta::FromMilliseconds(100));
+  tab->StepLoadingAnimation(base::Milliseconds(100));
   EXPECT_TRUE(icon->GetShowingLoadingAnimation());
   EXPECT_TRUE(icon->layer());
   data.network_state = TabNetworkState::kNone;

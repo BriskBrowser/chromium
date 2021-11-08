@@ -5,6 +5,7 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -24,6 +25,10 @@
 #include "ui/shell_dialogs/select_file_dialog.h"
 #include "ui/shell_dialogs/select_file_dialog_factory.h"
 #include "ui/shell_dialogs/select_file_policy.h"
+
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
 
 namespace content {
 
@@ -131,7 +136,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessFileWriterBrowserTest,
   }
 
   // Contents now in destination file.
-  EXPECT_EQ(int{file_contents.size()},
+  EXPECT_EQ(static_cast<int>(file_contents.size()),
             EvalJs(shell(),
                    "(async () => {"
                    "  await self.writer.close();"
@@ -167,7 +172,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessFileWriterBrowserTest,
     EXPECT_EQ(initial_contents, swap_contents);
   }
 
-  EXPECT_EQ(int{expected_contents.size()},
+  EXPECT_EQ(static_cast<int>(expected_contents.size()),
             EvalJs(shell(),
                    "(async () => {"
                    "  await self.writer.write(new Blob(['bar']));"
@@ -202,7 +207,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessFileWriterBrowserTest,
     EXPECT_EQ("", swap_contents);
   }
 
-  EXPECT_EQ(int{expected_contents.size()},
+  EXPECT_EQ(static_cast<int>(expected_contents.size()),
             EvalJs(shell(),
                    "(async () => {"
                    "  await self.writer.write(new Blob(['bar']));"
@@ -303,5 +308,34 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessFileWriterBrowserTest,
     EXPECT_TRUE(quarantine::IsFileQuarantined(test_file, GURL(), test_url_));
   }
 }
+
+#if defined(OS_POSIX) || defined(OS_WIN)
+IN_PROC_BROWSER_TEST_F(FileSystemAccessFileWriterBrowserTest,
+                       RespectOSPermissions) {
+  base::FilePath test_file, swap_file;
+  std::tie(test_file, swap_file) = CreateTestFilesAndEntry("");
+
+  // Make the file read-only.
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+#if defined(OS_POSIX)
+    int mode = 0444;
+    EXPECT_TRUE(base::SetPosixFilePermissions(test_file, mode));
+#elif defined(OS_WIN)
+    DWORD attributes = ::GetFileAttributes(test_file.value().c_str());
+    ASSERT_NE(attributes, INVALID_FILE_ATTRIBUTES);
+    attributes |= FILE_ATTRIBUTE_READONLY;
+    EXPECT_TRUE(::SetFileAttributes(test_file.value().c_str(), attributes));
+#endif  // defined(OS_POSIX)
+  }
+
+  auto result = EvalJs(
+      shell(), JsReplace("(async () => {"
+                         "  return (await self.entry.createWritable()); })()"));
+  EXPECT_TRUE(result.error.find("Cannot write to a read-only file.") !=
+              std::string::npos)
+      << result.error;
+}
+#endif  // defined(OS_POSIX) || defined(OS_WIN)
 
 }  // namespace content

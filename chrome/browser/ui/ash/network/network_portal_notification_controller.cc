@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ash/public/cpp/notification_utils.h"
@@ -16,11 +17,10 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/strings/string16.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ash/mobile/mobile_activator.h"
+#include "chrome/browser/ash/net/network_portal_web_dialog.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/net/network_portal_web_dialog.h"
 #include "chrome/browser/notifications/notification_handler.h"
 #include "chrome/browser/notifications/system_notification_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -61,9 +61,14 @@ class NetworkPortalNotificationControllerDelegate
       base::WeakPtr<NetworkPortalNotificationController> controller)
       : guid_(guid), clicked_(false), controller_(controller) {}
 
+  NetworkPortalNotificationControllerDelegate(
+      const NetworkPortalNotificationControllerDelegate&) = delete;
+  NetworkPortalNotificationControllerDelegate& operator=(
+      const NetworkPortalNotificationControllerDelegate&) = delete;
+
   // Overridden from message_center::NotificationDelegate:
-  void Click(const base::Optional<int>& button_index,
-             const base::Optional<base::string16>& reply) override;
+  void Click(const absl::optional<int>& button_index,
+             const absl::optional<std::u16string>& reply) override;
 
  private:
   ~NetworkPortalNotificationControllerDelegate() override {}
@@ -74,13 +79,11 @@ class NetworkPortalNotificationControllerDelegate
   bool clicked_;
 
   base::WeakPtr<NetworkPortalNotificationController> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkPortalNotificationControllerDelegate);
 };
 
 void NetworkPortalNotificationControllerDelegate::Click(
-    const base::Optional<int>& button_index,
-    const base::Optional<base::string16>& reply) {
+    const absl::optional<int>& button_index,
+    const absl::optional<std::u16string>& reply) {
   clicked_ = true;
 
   Profile* profile = ProfileManager::GetActiveUserProfile();
@@ -214,7 +217,7 @@ NetworkPortalNotificationController::CreateDefaultCaptivePortalNotification(
               is_wifi ? IDS_PORTAL_DETECTION_NOTIFICATION_MESSAGE_WIFI
                       : IDS_PORTAL_DETECTION_NOTIFICATION_MESSAGE_WIRED,
               base::UTF8ToUTF16(network->name())),
-          /*display_source=*/base::string16(), /*origin_url=*/GURL(),
+          /*display_source=*/std::u16string(), /*origin_url=*/GURL(),
           notifier_id, message_center::RichNotificationData(),
           std::move(delegate), kNotificationCaptivePortalIcon,
           message_center::SystemNotificationWarningLevel::WARNING);

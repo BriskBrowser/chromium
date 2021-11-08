@@ -8,15 +8,13 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/chromeos_camera/common/mjpeg_decode_accelerator.mojom.h"
 #include "media/capture/video/chromeos/camera_hal_delegate.h"
 #include "media/capture/video/video_capture_device_factory.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 
 namespace media {
-
-class CameraAppDeviceBridgeImpl;
 
 using MojoMjpegDecodeAcceleratorFactoryCB = base::RepeatingCallback<void(
     mojo::PendingReceiver<chromeos_camera::mojom::MjpegDecodeAccelerator>)>;
@@ -26,8 +24,12 @@ class CAPTURE_EXPORT VideoCaptureDeviceFactoryChromeOS final
  public:
   explicit VideoCaptureDeviceFactoryChromeOS(
       scoped_refptr<base::SingleThreadTaskRunner>
-          task_runner_for_screen_observer,
-      CameraAppDeviceBridgeImpl* camera_app_device_bridge);
+          task_runner_for_screen_observer);
+
+  VideoCaptureDeviceFactoryChromeOS(const VideoCaptureDeviceFactoryChromeOS&) =
+      delete;
+  VideoCaptureDeviceFactoryChromeOS& operator=(
+      const VideoCaptureDeviceFactoryChromeOS&) = delete;
 
   ~VideoCaptureDeviceFactoryChromeOS() override;
 
@@ -35,10 +37,6 @@ class CAPTURE_EXPORT VideoCaptureDeviceFactoryChromeOS final
   std::unique_ptr<VideoCaptureDevice> CreateDevice(
       const VideoCaptureDeviceDescriptor& device_descriptor) final;
   void GetDevicesInfo(GetDevicesInfoCallback callback) override;
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  bool IsSupportedCameraAppDeviceBridge() override;
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   static gpu::GpuMemoryBufferManager* GetBufferManager();
   static void SetGpuBufferManager(gpu::GpuMemoryBufferManager* buffer_manager);
@@ -61,14 +59,10 @@ class CAPTURE_EXPORT VideoCaptureDeviceFactoryChromeOS final
   // |camera_hal_ipc_thread_|.
   scoped_refptr<CameraHalDelegate> camera_hal_delegate_;
 
-  CameraAppDeviceBridgeImpl* camera_app_device_bridge_;  // Weak.
-
   bool initialized_;
 
   base::WeakPtrFactory<VideoCaptureDeviceFactoryChromeOS> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(VideoCaptureDeviceFactoryChromeOS);
 };
 
 }  // namespace media

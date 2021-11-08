@@ -5,8 +5,6 @@
 #ifndef COMPONENTS_SYNC_TEST_MODEL_TEST_MODEL_TYPE_STORE_SERVICE_H_
 #define COMPONENTS_SYNC_TEST_MODEL_TEST_MODEL_TYPE_STORE_SERVICE_H_
 
-#include <memory>
-
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_refptr.h"
@@ -22,6 +20,11 @@ class ModelTypeStoreBackend;
 class TestModelTypeStoreService : public ModelTypeStoreService {
  public:
   TestModelTypeStoreService();
+
+  TestModelTypeStoreService(const TestModelTypeStoreService&) = delete;
+  TestModelTypeStoreService& operator=(const TestModelTypeStoreService&) =
+      delete;
+
   ~TestModelTypeStoreService() override;
 
   // ModelTypeStoreService:
@@ -32,8 +35,6 @@ class TestModelTypeStoreService : public ModelTypeStoreService {
  private:
   const scoped_refptr<ModelTypeStoreBackend> store_backend_;
   base::ScopedTempDir sync_data_path_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestModelTypeStoreService);
 };
 
 }  // namespace syncer

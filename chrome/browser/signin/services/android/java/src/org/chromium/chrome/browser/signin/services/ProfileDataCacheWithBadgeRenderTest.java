@@ -4,15 +4,12 @@
 
 package org.chromium.chrome.browser.signin.services;
 
-import static org.mockito.Mockito.mockingDetails;
-import static org.mockito.Mockito.when;
-import static org.mockito.MockitoAnnotations.initMocks;
-
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.text.TextUtils;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -25,18 +22,15 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Mock;
 
 import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
-import org.chromium.components.signin.ProfileDataSource;
-import org.chromium.components.signin.identitymanager.IdentityManager;
-import org.chromium.components.signin.test.util.FakeProfileDataSource;
+import org.chromium.components.signin.test.util.FakeAccountInfoService;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.DummyUiActivityTestCase;
 import org.chromium.ui.widget.ChromeImageView;
@@ -50,27 +44,15 @@ import java.io.IOException;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @Batch(ProfileDataCacheRenderTest.PROFILE_DATA_BATCH_NAME)
 public class ProfileDataCacheWithBadgeRenderTest extends DummyUiActivityTestCase {
+    private static final String TEST_ACCOUNT_NAME = "test@example.com";
+
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =
             ChromeRenderTestRule.Builder.withPublicCorpus().build();
 
     @Rule
     public final AccountManagerTestRule mAccountManagerTestRule =
-            new AccountManagerTestRule(new FakeProfileDataSource());
-
-    @Mock
-    private Profile mProfileMock;
-
-    @Mock
-    private IdentityServicesProvider mIdentityServicesProviderMock;
-
-    @Mock
-    private ProfileDataCache.Observer mObserver;
-
-    private static final String TEST_ACCOUNT_NAME = "test@example.com";
-
-    private final IdentityManager mIdentityManager =
-            new IdentityManager(0 /* nativeIdentityManager */, null /* OAuth2TokenService */);
+            new AccountManagerTestRule(new FakeAccountInfoService());
 
     private FrameLayout mContentView;
     private ImageView mImageView;
@@ -78,11 +60,9 @@ public class ProfileDataCacheWithBadgeRenderTest extends DummyUiActivityTestCase
 
     @Before
     public void setUp() {
-        initMocks(this);
-        Profile.setLastUsedProfileForTesting(mProfileMock);
-        when(mIdentityServicesProviderMock.getIdentityManager(mProfileMock))
-                .thenReturn(mIdentityManager);
-        IdentityServicesProvider.setInstanceForTests(mIdentityServicesProviderMock);
+        mAccountManagerTestRule.addAccount(
+                TEST_ACCOUNT_NAME, "Full Name", "Given Name", createAvatar());
+
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Activity activity = getActivity();
             mContentView = new FrameLayout(activity);
@@ -96,54 +76,80 @@ public class ProfileDataCacheWithBadgeRenderTest extends DummyUiActivityTestCase
     @Test
     @MediumTest
     @Feature("RenderTest")
-    public void testProfileDataCacheWithChildBadge() throws IOException {
+    public void testProfileDataWithChildBadge() throws IOException {
         setUpProfileDataCache(R.drawable.ic_account_child_20dp);
-
         mRenderTestRule.render(mImageView, "profile_data_cache_with_child_badge");
     }
 
     @Test
     @MediumTest
     @Feature("RenderTest")
-    public void testAddBadgeInProfileDataCache() throws IOException {
+    public void testProfileDataWithSyncErrorBadge() throws IOException {
+        setUpProfileDataCache(R.drawable.ic_sync_badge_error_20dp);
+        mRenderTestRule.render(mImageView, "profile_data_cache_with_sync_error_badge");
+    }
+
+    @Test
+    @MediumTest
+    @Feature("RenderTest")
+    public void testProfileDataWithoutBadge() throws IOException {
         setUpProfileDataCache(0);
-
         mRenderTestRule.render(mImageView, "profile_data_cache_without_badge");
-        setBadgeInProfileDataCache(R.drawable.ic_account_child_20dp);
+    }
+
+    @Test
+    @MediumTest
+    @Feature("RenderTest")
+    public void testProfileDataWithSettingBadgeDynamically() throws IOException {
+        setUpProfileDataCache(0);
+        mRenderTestRule.render(mImageView, "profile_data_cache_without_badge");
+        setBadgeConfig(R.drawable.ic_sync_badge_error_20dp);
         mRenderTestRule.render(mImageView, "profile_data_cache_with_child_badge");
     }
 
     @Test
     @MediumTest
     @Feature("RenderTest")
-    public void testRemoveBadgeInProfileDataCache() throws IOException {
+    public void testProfileDataWithRemovingBadgeDynamically() throws IOException {
         setUpProfileDataCache(R.drawable.ic_account_child_20dp);
-
         mRenderTestRule.render(mImageView, "profile_data_cache_with_child_badge");
-        setBadgeInProfileDataCache(0);
+        setBadgeConfig(0);
         mRenderTestRule.render(mImageView, "profile_data_cache_without_badge");
+    }
+
+    @Test
+    @MediumTest
+    @Feature("RenderTest")
+    public void testProfileDataWithExistingBadge() throws IOException {
+        setUpProfileDataCache(R.drawable.ic_account_child_20dp);
+        mRenderTestRule.render(mImageView, "profile_data_cache_with_child_badge");
+        setBadgeConfig(R.drawable.ic_sync_badge_error_20dp);
+        mRenderTestRule.render(mImageView, "profile_data_cache_with_sync_error_badge");
     }
 
     private void setUpProfileDataCache(@DrawableRes int badgeResId) {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            mProfileDataCache = ProfileDataCache.createProfileDataCache(getActivity(), badgeResId);
-            // ProfileDataCache only populates the cache when an observer is added.
-            mProfileDataCache.addObserver(mObserver);
-
-            ProfileDataSource.ProfileData profileData = new ProfileDataSource.ProfileData(
-                    TEST_ACCOUNT_NAME, createAvatar(), "Full Name", "Given Name");
-            mAccountManagerTestRule.addAccount(profileData);
+            mProfileDataCache = badgeResId != 0
+                    ? ProfileDataCache.createWithDefaultImageSize(getActivity(), badgeResId)
+                    : ProfileDataCache.createWithoutBadge(getActivity(), R.dimen.user_picture_size);
+        });
+        CriteriaHelper.pollUiThread(() -> {
+            return !TextUtils.isEmpty(
+                    mProfileDataCache.getProfileDataOrDefault(TEST_ACCOUNT_NAME).getFullName());
+        });
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
             mImageView.setImageDrawable(
                     mProfileDataCache.getProfileDataOrDefault(TEST_ACCOUNT_NAME).getImage());
         });
     }
 
-    private void setBadgeInProfileDataCache(@DrawableRes int badgeResId) {
+    private void setBadgeConfig(@DrawableRes int badgeResId) {
+        TestThreadUtils.runOnUiThreadBlocking(() -> { mProfileDataCache.setBadge(badgeResId); });
+        CriteriaHelper.pollUiThread(() -> {
+            return !TextUtils.isEmpty(
+                    mProfileDataCache.getProfileDataOrDefault(TEST_ACCOUNT_NAME).getFullName());
+        });
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            int count = mockingDetails(mObserver).getInvocations().size();
-            mProfileDataCache.updateBadgeConfig(badgeResId);
-            Assert.assertEquals("Observers should be notified after updating badge config",
-                    count + 1, mockingDetails(mObserver).getInvocations().size());
             mImageView.setImageDrawable(
                     mProfileDataCache.getProfileDataOrDefault(TEST_ACCOUNT_NAME).getImage());
         });

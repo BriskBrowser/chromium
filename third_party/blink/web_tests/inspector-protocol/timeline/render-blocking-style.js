@@ -1,6 +1,6 @@
 (async function(testRunner) {
   // The number includes the 2 imported CSS files
-  const numberOfURLs = 9;
+  const numberOfURLs = 11;
 
   // Test traces
   var {page, session, dp} = await testRunner.startHTML(`
@@ -16,8 +16,28 @@
   session.evaluate(`
     (function performActions() {
       // Add a dynamic style with DOM API
-      const link = document.createElement("link");
+      let link = document.createElement("link");
       link.href = "../resources/style.css?dynamicDOM";
+      link.rel = "stylesheet";
+      document.head.appendChild(link);
+
+      // Add a style preload with DOM API
+      link = document.createElement("link");
+      link.href = "../resources/style.css?preload";
+      link.rel = "preload";
+      link.as = "style";
+      document.head.appendChild(link);
+
+      // Add a style preload with DOM API to be used later
+      link = document.createElement("link");
+      link.href = "../resources/style.css?preload_used";
+      link.rel = "preload";
+      link.as = "style";
+      document.head.appendChild(link);
+
+      // Use the preload
+      link = document.createElement("link");
+      link.href = "../resources/style.css?preload_used";
       link.rel = "stylesheet";
       document.head.appendChild(link);
 
@@ -41,7 +61,9 @@
   }
 
   const events = await tracingHelper.stopTracing();
-  const requestEvents = events.filter(e => e.name == "ResourceSendRequest");
+  const requestEvents = events.filter(e =>
+      (e.name == "ResourceSendRequest" ||
+       e.name == "PreloadRenderBlockingStatusChange"));
 
   const resources = new Map();
   for (let e of requestEvents) {
@@ -49,10 +71,17 @@
     const url_list = data['url'].split('/');
     const url = url_list[url_list.length - 1];
     if (url.includes("css")) {
-      resources.set(url, data['renderBlocking']);
+      const previousValue = resources.get(url);
+      if (previousValue) {
+        const descriptor = (previousValue[1] === data['requestId']) ?
+          "identical" : "different";
+        testRunner.log(`Previous value requestId is ${descriptor} to the ` +
+          `current one`);
+      }
+      resources.set(url, [data['renderBlocking'], data['requestId']]);
     }
   }
   for (const resource of Array.from(resources.keys()).sort())
-    testRunner.log(`${resource}: ${resources.get(resource)}`);
+    testRunner.log(`${resource}: ${resources.get(resource)[0]}`);
   testRunner.completeTest();
 })

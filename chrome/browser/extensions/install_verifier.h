@@ -40,6 +40,10 @@ class InstallVerifier : public KeyedService,
                         public ManagementPolicy::Provider {
  public:
   InstallVerifier(ExtensionPrefs* prefs, content::BrowserContext* context);
+
+  InstallVerifier(const InstallVerifier&) = delete;
+  InstallVerifier& operator=(const InstallVerifier&) = delete;
+
   ~InstallVerifier() override;
 
   // Convenience method to return the InstallVerifier for a given |context|.
@@ -92,7 +96,7 @@ class InstallVerifier : public KeyedService,
   std::string GetDebugPolicyProviderName() const override;
   bool MustRemainDisabled(const Extension* extension,
                           disable_reason::DisableReason* reason,
-                          base::string16* error) const override;
+                          std::u16string* error) const override;
 
  private:
   // We keep a list of operations to the current set of extensions.
@@ -174,8 +178,6 @@ class InstallVerifier : public KeyedService,
   ExtensionIdSet provisional_;
 
   base::WeakPtrFactory<InstallVerifier> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(InstallVerifier);
 };
 
 // Instances of this class can be constructed to disable install verification
@@ -188,13 +190,17 @@ class ScopedInstallVerifierBypassForTest {
   };
 
   explicit ScopedInstallVerifierBypassForTest(ForceType force_type = kForceOff);
+
+  ScopedInstallVerifierBypassForTest(
+      const ScopedInstallVerifierBypassForTest&) = delete;
+  ScopedInstallVerifierBypassForTest& operator=(
+      const ScopedInstallVerifierBypassForTest&) = delete;
+
   ~ScopedInstallVerifierBypassForTest();
 
  private:
   ForceType value_;
   ForceType* old_value_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedInstallVerifierBypassForTest);
 };
 
 }  // namespace extensions

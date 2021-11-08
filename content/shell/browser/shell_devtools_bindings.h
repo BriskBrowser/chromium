@@ -8,6 +8,7 @@
 #include <memory>
 #include <set>
 
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/containers/span.h"
 #include "base/containers/unique_ptr_adapters.h"
@@ -61,6 +62,10 @@ class ShellDevToolsBindings : public WebContentsObserver,
       const base::Value arg2 = {},
       const base::Value arg3 = {},
       base::OnceCallback<void(base::Value)> cb = base::NullCallback());
+
+  ShellDevToolsBindings(const ShellDevToolsBindings&) = delete;
+  ShellDevToolsBindings& operator=(const ShellDevToolsBindings&) = delete;
+
   ~ShellDevToolsBindings() override;
 
   WebContents* inspected_contents() { return inspected_contents_; }
@@ -71,7 +76,7 @@ class ShellDevToolsBindings : public WebContentsObserver,
   void DispatchProtocolMessage(DevToolsAgentHost* agent_host,
                                base::span<const uint8_t> message) override;
 
-  void HandleMessageFromDevToolsFrontend(const std::string& message);
+  void HandleMessageFromDevToolsFrontend(base::Value);
 
   // WebContentsObserver overrides
   void ReadyToCommitNavigation(NavigationHandle* navigation_handle) override;
@@ -98,8 +103,6 @@ class ShellDevToolsBindings : public WebContentsObserver,
   using ExtensionsAPIs = std::map<std::string, std::string>;
   ExtensionsAPIs extensions_api_;
   base::WeakPtrFactory<ShellDevToolsBindings> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ShellDevToolsBindings);
 };
 
 }  // namespace content

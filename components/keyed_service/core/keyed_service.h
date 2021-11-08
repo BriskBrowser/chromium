@@ -26,14 +26,16 @@ class KEYED_SERVICE_EXPORT KeyedService {
  public:
   KeyedService();
 
+  KeyedService(const KeyedService&) = delete;
+  KeyedService& operator=(const KeyedService&) = delete;
+
   // The second pass is the actual deletion of each object.
   virtual ~KeyedService();
 
   // The first pass is to call Shutdown on a KeyedService.
+  // Shutdown will be called automatically for you. Don't directly invoke this
+  // unless you have a specific reason and understand the implications.
   virtual void Shutdown();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(KeyedService);
 };
 
 #endif  // COMPONENTS_KEYED_SERVICE_CORE_KEYED_SERVICE_H_

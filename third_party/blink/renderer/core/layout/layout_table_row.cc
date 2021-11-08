@@ -28,7 +28,6 @@
 
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
-#include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/core/layout/layout_state.h"
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
@@ -70,7 +69,7 @@ void LayoutTableRow::StyleDidChange(StyleDifference diff,
 
   // Legacy tables cannont handle relative/fixed rows.
   if (StyleRef().HasInFlowPosition()) {
-    ComputedStyle* new_style = ComputedStyle::Clone(StyleRef());
+    scoped_refptr<ComputedStyle> new_style = ComputedStyle::Clone(StyleRef());
     new_style->SetPosition(EPosition::kStatic);
     SetModifiedStyleOutsideStyleRecalc(new_style,
                                        LayoutObject::ApplyStyleChanges::kNo);
@@ -230,7 +229,6 @@ void LayoutTableRow::AddChild(LayoutObject* child, LayoutObject* before_child) {
 void LayoutTableRow::UpdateLayout() {
   NOT_DESTROYED();
   DCHECK(NeedsLayout());
-  LayoutAnalyzer::Scope analyzer(*this);
   bool paginated = View()->GetLayoutState()->IsPaginated();
 
   for (LayoutTableCell* cell = FirstCell(); cell; cell = cell->NextCell()) {

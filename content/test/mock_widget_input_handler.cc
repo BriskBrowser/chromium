@@ -11,7 +11,6 @@
 #include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
 #include "third_party/blink/public/common/input/web_touch_event.h"
 
-using base::TimeDelta;
 using blink::WebGestureEvent;
 using blink::WebInputEvent;
 using blink::WebMouseEvent;
@@ -57,17 +56,20 @@ void MockWidgetInputHandler::CursorVisibilityChanged(bool visible) {
 }
 
 void MockWidgetInputHandler::ImeSetComposition(
-    const base::string16& text,
+    const std::u16string& text,
     const std::vector<ui::ImeTextSpan>& ime_text_spans,
     const gfx::Range& range,
     int32_t start,
-    int32_t end) {
+    int32_t end,
+    ImeSetCompositionCallback callback) {
   dispatched_messages_.emplace_back(std::make_unique<DispatchedIMEMessage>(
       "SetComposition", text, ime_text_spans, range, start, end));
+  if (callback)
+    std::move(callback).Run();
 }
 
 void MockWidgetInputHandler::ImeCommitText(
-    const base::string16& text,
+    const std::u16string& text,
     const std::vector<ui::ImeTextSpan>& ime_text_spans,
     const gfx::Range& range,
     int32_t relative_cursor_position,
@@ -81,7 +83,7 @@ void MockWidgetInputHandler::ImeCommitText(
 
 void MockWidgetInputHandler::ImeFinishComposingText(bool keep_selection) {
   dispatched_messages_.emplace_back(
-      std::make_unique<DispatchedMessage>("FinishComposingText"));
+      std::make_unique<DispatchedFinishComposingMessage>(keep_selection));
 }
 
 void MockWidgetInputHandler::RequestTextInputStateUpdate() {
@@ -121,12 +123,14 @@ MockWidgetInputHandler::GetAndResetDispatchedMessages() {
   return dispatched_events;
 }
 
+#if defined(OS_ANDROID)
 void MockWidgetInputHandler::AttachSynchronousCompositor(
     mojo::PendingRemote<blink::mojom::SynchronousCompositorControlHost>
         control_host,
     mojo::PendingAssociatedRemote<blink::mojom::SynchronousCompositorHost> host,
     mojo::PendingAssociatedReceiver<blink::mojom::SynchronousCompositor>
         compositor_request) {}
+#endif
 
 void MockWidgetInputHandler::GetFrameWidgetInputHandler(
     mojo::PendingAssociatedReceiver<blink::mojom::FrameWidgetInputHandler>
@@ -160,9 +164,14 @@ MockWidgetInputHandler::DispatchedMessage::ToRequestCompositionUpdates() {
   return nullptr;
 }
 
+MockWidgetInputHandler::DispatchedFinishComposingMessage*
+MockWidgetInputHandler::DispatchedMessage::ToFinishComposing() {
+  return nullptr;
+}
+
 MockWidgetInputHandler::DispatchedIMEMessage::DispatchedIMEMessage(
     const std::string& name,
-    const base::string16& text,
+    const std::u16string& text,
     const std::vector<ui::ImeTextSpan>& text_spans,
     const gfx::Range& range,
     int32_t start,
@@ -182,7 +191,7 @@ MockWidgetInputHandler::DispatchedIMEMessage::ToIME() {
 }
 
 bool MockWidgetInputHandler::DispatchedIMEMessage::Matches(
-    const base::string16& text,
+    const std::u16string& text,
     const std::vector<ui::ImeTextSpan>& ime_text_spans,
     const gfx::Range& range,
     int32_t start,
@@ -285,6 +294,19 @@ MockWidgetInputHandler::DispatchedFocusMessage::~DispatchedFocusMessage() {}
 
 MockWidgetInputHandler::DispatchedFocusMessage*
 MockWidgetInputHandler::DispatchedFocusMessage::ToFocus() {
+  return this;
+}
+
+MockWidgetInputHandler::DispatchedFinishComposingMessage::
+    DispatchedFinishComposingMessage(bool keep_selection)
+    : DispatchedMessage("FinishComposingText"),
+      keep_selection_(keep_selection) {}
+
+MockWidgetInputHandler::DispatchedFinishComposingMessage::
+    ~DispatchedFinishComposingMessage() = default;
+
+MockWidgetInputHandler::DispatchedFinishComposingMessage*
+MockWidgetInputHandler::DispatchedFinishComposingMessage::ToFinishComposing() {
   return this;
 }
 

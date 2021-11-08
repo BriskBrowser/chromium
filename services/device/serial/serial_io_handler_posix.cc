@@ -127,28 +127,18 @@ scoped_refptr<SerialIoHandler> SerialIoHandler::Create(
 
 void SerialIoHandlerPosix::ReadImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(pending_read_buffer());
-
-  if (!file().IsValid()) {
-    QueueReadCompleted(0, mojom::SerialReceiveError::DISCONNECTED);
-    return;
-  }
+  DCHECK(IsReadPending());
 
   // Try to read immediately. This is needed because on some platforms
   // (e.g., OSX) there may not be a notification from the message loop
   // when the fd is ready to read immediately after it is opened. There
   // is no danger of blocking because the fd is opened with async flag.
-  AttemptRead(true);
+  AttemptRead();
 }
 
 void SerialIoHandlerPosix::WriteImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(pending_write_buffer());
-
-  if (!file().IsValid()) {
-    QueueWriteCompleted(0, mojom::SerialSendError::DISCONNECTED);
-    return;
-  }
+  DCHECK(IsWritePending());
 
   EnsureWatchingWrites();
 }
@@ -156,13 +146,13 @@ void SerialIoHandlerPosix::WriteImpl() {
 void SerialIoHandlerPosix::CancelReadImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   StopWatchingFileRead();
-  QueueReadCompleted(0, read_cancel_reason());
+  ReadCompleted(0, read_cancel_reason());
 }
 
 void SerialIoHandlerPosix::CancelWriteImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   StopWatchingFileWrite();
-  QueueWriteCompleted(0, write_cancel_reason());
+  WriteCompleted(0, write_cancel_reason());
 }
 
 bool SerialIoHandlerPosix::ConfigurePortImpl() {
@@ -297,7 +287,7 @@ bool SerialIoHandlerPosix::ConfigurePortImpl() {
 }
 
 bool SerialIoHandlerPosix::PostOpen() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // The Chrome OS permission broker does not open devices in async mode.
   return base::SetNonBlocking(file().GetPlatformFile());
 #else
@@ -317,44 +307,39 @@ SerialIoHandlerPosix::SerialIoHandlerPosix(
 
 SerialIoHandlerPosix::~SerialIoHandlerPosix() = default;
 
-void SerialIoHandlerPosix::AttemptRead(bool within_read) {
+void SerialIoHandlerPosix::AttemptRead() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (pending_read_buffer()) {
-    int bytes_read =
-        HANDLE_EINTR(read(file().GetPlatformFile(), pending_read_buffer(),
-                          pending_read_buffer_len()));
+  if (IsReadPending()) {
+    int bytes_read = HANDLE_EINTR(read(file().GetPlatformFile(),
+                                       pending_read_buffer().data(),
+                                       pending_read_buffer().size()));
     if (bytes_read < 0) {
       if (errno == EAGAIN) {
         // The fd does not have data to read yet so continue waiting.
         EnsureWatchingReads();
       } else if (errno == ENXIO) {
-        RunReadCompleted(within_read, 0,
-                         mojom::SerialReceiveError::DEVICE_LOST);
         StopWatchingFileRead();
+        ReadCompleted(0, mojom::SerialReceiveError::DEVICE_LOST);
       } else {
         SERIAL_PLOG(DEBUG) << "Read failed";
-        RunReadCompleted(within_read, 0,
-                         mojom::SerialReceiveError::SYSTEM_ERROR);
+        ReadCompleted(0, mojom::SerialReceiveError::SYSTEM_ERROR);
       }
     } else if (bytes_read == 0) {
-      RunReadCompleted(within_read, 0, mojom::SerialReceiveError::DEVICE_LOST);
       StopWatchingFileRead();
+      ReadCompleted(0, mojom::SerialReceiveError::DEVICE_LOST);
     } else {
       bool break_detected = false;
       bool parity_error_detected = false;
       int new_bytes_read =
-          CheckReceiveError(pending_read_buffer(), pending_read_buffer_len(),
-                            bytes_read, break_detected, parity_error_detected);
+          CheckReceiveError(pending_read_buffer(), bytes_read, break_detected,
+                            parity_error_detected);
 
       if (break_detected) {
-        RunReadCompleted(within_read, new_bytes_read,
-                         mojom::SerialReceiveError::BREAK);
+        ReadCompleted(new_bytes_read, mojom::SerialReceiveError::BREAK);
       } else if (parity_error_detected) {
-        RunReadCompleted(within_read, new_bytes_read,
-                         mojom::SerialReceiveError::PARITY_ERROR);
+        ReadCompleted(new_bytes_read, mojom::SerialReceiveError::PARITY_ERROR);
       } else {
-        RunReadCompleted(within_read, new_bytes_read,
-                         mojom::SerialReceiveError::NONE);
+        ReadCompleted(new_bytes_read, mojom::SerialReceiveError::NONE);
       }
     }
   } else {
@@ -364,30 +349,16 @@ void SerialIoHandlerPosix::AttemptRead(bool within_read) {
   }
 }
 
-void SerialIoHandlerPosix::RunReadCompleted(bool within_read,
-                                            int bytes_read,
-                                            mojom::SerialReceiveError error) {
-  if (within_read) {
-    // Stop watching the fd to avoid more reads until the queued ReadCompleted()
-    // completes and releases the pending_read_buffer.
-    StopWatchingFileRead();
-
-    QueueReadCompleted(bytes_read, error);
-  } else {
-    ReadCompleted(bytes_read, error);
-  }
-}
-
 void SerialIoHandlerPosix::OnFileCanWriteWithoutBlocking() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (pending_write_buffer()) {
-    int bytes_written =
-        HANDLE_EINTR(write(file().GetPlatformFile(), pending_write_buffer(),
-                           pending_write_buffer_len()));
+  if (IsWritePending()) {
+    int bytes_written = HANDLE_EINTR(write(file().GetPlatformFile(),
+                                           pending_write_buffer().data(),
+                                           pending_write_buffer().size()));
     if (bytes_written < 0) {
-      if (errno == ENXIO) {
-        WriteCompleted(0, mojom::SerialSendError::DISCONNECTED);
+      if (errno == EIO || errno == ENXIO) {
         StopWatchingFileWrite();
+        WriteCompleted(0, mojom::SerialSendError::DISCONNECTED);
       } else {
         SERIAL_PLOG(DEBUG) << "Write failed";
         WriteCompleted(0, mojom::SerialSendError::SYSTEM_ERROR);
@@ -409,7 +380,7 @@ void SerialIoHandlerPosix::EnsureWatchingReads() {
     file_read_watcher_ = base::FileDescriptorWatcher::WatchReadable(
         file().GetPlatformFile(),
         base::BindRepeating(&SerialIoHandlerPosix::AttemptRead,
-                            base::Unretained(this), false));
+                            base::Unretained(this)));
   }
 }
 
@@ -593,8 +564,7 @@ mojom::SerialConnectionInfoPtr SerialIoHandlerPosix::GetPortInfo() const {
 //
 // break/parity error sequences are removed from the byte stream
 // '\377' '\377' sequence is replaced with '\377'
-int SerialIoHandlerPosix::CheckReceiveError(char* buffer,
-                                            int buffer_len,
+int SerialIoHandlerPosix::CheckReceiveError(base::span<uint8_t> buffer,
                                             int bytes_read,
                                             bool& break_detected,
                                             bool& parity_error_detected) {
@@ -602,7 +572,7 @@ int SerialIoHandlerPosix::CheckReceiveError(char* buffer,
   DCHECK_LE(new_bytes_read, 2);
 
   for (int i = 0; i < bytes_read; ++i) {
-    char ch = buffer[i];
+    uint8_t ch = buffer[i];
     if (new_bytes_read == 0) {
       chars_stashed_[0] = ch;
     } else if (new_bytes_read == 1) {
@@ -613,16 +583,16 @@ int SerialIoHandlerPosix::CheckReceiveError(char* buffer,
     ++new_bytes_read;
     switch (error_detect_state_) {
       case ErrorDetectState::NO_ERROR:
-        if (ch == '\377') {
+        if (ch == 0377) {
           error_detect_state_ = ErrorDetectState::MARK_377_SEEN;
         }
         break;
       case ErrorDetectState::MARK_377_SEEN:
         DCHECK_GE(new_bytes_read, 2);
-        if (ch == '\0') {
+        if (ch == 0) {
           error_detect_state_ = ErrorDetectState::MARK_0_SEEN;
         } else {
-          if (ch == '\377') {
+          if (ch == 0377) {
             // receive two bytes '\377' '\377', since ISTRIP is not set and
             // PARMRK is set, a valid byte '\377' is passed to the program as
             // two bytes, '\377' '\377'. Replace these two bytes with one byte
@@ -635,7 +605,7 @@ int SerialIoHandlerPosix::CheckReceiveError(char* buffer,
         break;
       case ErrorDetectState::MARK_0_SEEN:
         DCHECK_GE(new_bytes_read, 3);
-        if (ch == '\0') {
+        if (ch == 0) {
           break_detected = true;
           new_bytes_read -= 3;
           error_detect_state_ = ErrorDetectState::NO_ERROR;
@@ -644,7 +614,7 @@ int SerialIoHandlerPosix::CheckReceiveError(char* buffer,
             parity_error_detected = true;
             new_bytes_read -= 3;
             error_detect_state_ = ErrorDetectState::NO_ERROR;
-          } else if (ch == '\377') {
+          } else if (ch == 0377) {
             error_detect_state_ = ErrorDetectState::MARK_377_SEEN;
           } else {
             error_detect_state_ = ErrorDetectState::NO_ERROR;
@@ -660,10 +630,10 @@ int SerialIoHandlerPosix::CheckReceiveError(char* buffer,
   // Stash up to 2 characters that are potentially part of a break/parity error
   // sequence. The buffer may also not be large enough to store all the bytes.
   // tmp[] stores the characters that need to be stashed for this read.
-  char tmp[2];
+  uint8_t tmp[2];
   num_chars_stashed_ = 0;
   if (error_detect_state_ == ErrorDetectState::MARK_0_SEEN ||
-      new_bytes_read - buffer_len == 2) {
+      new_bytes_read - buffer.size() == 2) {
     // need to stash the last two characters
     if (new_bytes_read == 2) {
       memcpy(tmp, chars_stashed_, new_bytes_read);
@@ -677,7 +647,7 @@ int SerialIoHandlerPosix::CheckReceiveError(char* buffer,
     }
     num_chars_stashed_ = 2;
   } else if (error_detect_state_ == ErrorDetectState::MARK_377_SEEN ||
-             new_bytes_read - buffer_len == 1) {
+             new_bytes_read - buffer.size() == 1) {
     // need to stash the last character
     if (new_bytes_read <= 2) {
       tmp[0] = chars_stashed_[new_bytes_read - 1];
@@ -690,9 +660,9 @@ int SerialIoHandlerPosix::CheckReceiveError(char* buffer,
   new_bytes_read -= num_chars_stashed_;
   if (new_bytes_read > 2) {
     // right shift two bytes to store bytes from chars_stashed_[]
-    memmove(buffer + 2, buffer, new_bytes_read - 2);
+    memmove(&buffer[2], &buffer[0], new_bytes_read - 2);
   }
-  memcpy(buffer, chars_stashed_, std::min(new_bytes_read, 2));
+  memcpy(&buffer[0], chars_stashed_, std::min(new_bytes_read, 2));
   memcpy(chars_stashed_, tmp, num_chars_stashed_);
   return new_bytes_read;
 }

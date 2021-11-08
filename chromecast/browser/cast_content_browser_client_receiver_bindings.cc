@@ -10,7 +10,6 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/no_destructor.h"
 #include "base/threading/sequence_local_storage_slot.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -19,6 +18,7 @@
 #include "chromecast/browser/cast_browser_main_parts.h"
 #include "chromecast/browser/cast_browser_process.h"
 #include "chromecast/browser/media/media_caps_impl.h"
+#include "chromecast/browser/metrics/metrics_helper_impl.h"
 #include "chromecast/browser/service_connector.h"
 #include "chromecast/chromecast_buildflags.h"
 #include "chromecast/media/cdm/cast_cdm_factory.h"
@@ -43,6 +43,13 @@
 #if !defined(OS_ANDROID)
 #include "chromecast/browser/memory_pressure_controller_impl.h"
 #endif  // !defined(OS_ANDROID)
+
+#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
+#include "extensions/browser/event_router.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
+#endif
 
 namespace chromecast {
 namespace shell {
@@ -88,6 +95,12 @@ void CastContentBrowserClient::ExposeInterfacesToRenderer(
           base::Unretained(cast_browser_main_parts_->media_caps())),
       base::ThreadTaskRunnerHandle::Get());
 
+  registry->AddInterface(
+      base::BindRepeating(
+          &metrics::MetricsHelperImpl::AddReceiver,
+          base::Unretained(cast_browser_main_parts_->metrics_helper())),
+      base::ThreadTaskRunnerHandle::Get());
+
 #if !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
   if (!memory_pressure_controller_) {
     memory_pressure_controller_.reset(new MemoryPressureControllerImpl());
@@ -98,6 +111,11 @@ void CastContentBrowserClient::ExposeInterfacesToRenderer(
                           base::Unretained(memory_pressure_controller_.get())),
       base::ThreadTaskRunnerHandle::Get());
 #endif  // !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
+
+#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
+  associated_registry->AddInterface(base::BindRepeating(
+      &extensions::EventRouter::BindForRenderer, render_process_host->GetID()));
+#endif
 }
 
 void CastContentBrowserClient::BindMediaServiceReceiver(
@@ -155,14 +173,12 @@ void CastContentBrowserClient::CreateMediaService(
       GetCmaBackendFactory(),
       base::BindRepeating(&CastContentBrowserClient::CreateCdmFactory,
                           base::Unretained(this)),
-      GetVideoModeSwitcher(), GetVideoResolutionPolicy());
+      GetVideoModeSwitcher(), GetVideoResolutionPolicy(), media_connector());
   mojo_media_client->SetVideoGeometrySetterService(
       video_geometry_setter_service_.get());
 
-  static base::NoDestructor<
-      base::SequenceLocalStorageSlot<::media::MediaService>>
-      service;
-  service->emplace(std::move(mojo_media_client), std::move(receiver));
+  static base::SequenceLocalStorageSlot<::media::MediaService> service;
+  service.emplace(std::move(mojo_media_client), std::move(receiver));
 }
 
 void CastContentBrowserClient::CreateVideoGeometrySetterServiceOnMediaThread() {

@@ -35,6 +35,16 @@
 // Request the scribble target to be focused.
 - (void)locationBarRequestScribbleTargetFocus;
 
+// Notifies the delegate about a tap on the share button to record metrics.
+- (void)recordShareButtonPressed;
+
+// Notifies the delegate about a tap on the Visit Copied Link context menu
+// action.
+- (void)locationBarVisitCopyLinkTapped;
+
+// Starts a reverse image search for the image currently in the pasteboard.
+- (void)searchCopiedImage;
+
 @end
 
 // The view controller displaying the location bar. Manages the two states of

@@ -16,7 +16,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/threading/thread_checker.h"
 #include "base/values.h"
 #include "components/sync/base/model_type.h"
@@ -29,12 +28,20 @@
 #include "components/sync/protocol/sync.pb.h"
 #include "net/http/http_status_code.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace switches {
 
 extern const char kDisableFakeServerFailureOutput[];
 
 }  // namespace switches
+
+namespace sync_pb {
+class EntitySpecifics;
+class DataTypeProgressMarker;
+class SyncEntity;
+enum SyncEnums_ErrorType : int;
+}  // namespace sync_pb
 
 namespace fake_server {
 
@@ -56,12 +63,15 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
  public:
   class Observer {
    public:
-    virtual ~Observer() {}
+    virtual ~Observer() = default;
 
     // Called after FakeServer has processed a successful commit. The types
     // updated as part of the commit are passed in |committed_model_types|.
     virtual void OnCommit(const std::string& committer_invalidator_client_id,
-                          syncer::ModelTypeSet committed_model_types) = 0;
+                          syncer::ModelTypeSet committed_model_types) {}
+
+    // Called after FakeServer has processed a successful get updates request.
+    virtual void OnSuccessfulGetUpdates() {}
   };
 
   FakeServer();
@@ -172,18 +182,18 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
   // ClientToServerResponse on all subsequent commit requests. If any of errors
   // triggerings currently configured it must be called only with
   // sync_pb::SyncEnums::SUCCESS.
-  void TriggerCommitError(const sync_pb::SyncEnums::ErrorType& error_type);
+  void TriggerCommitError(const sync_pb::SyncEnums_ErrorType& error_type);
 
   // Force the server to return |error_type| in the error_code field of
   // ClientToServerResponse on all subsequent sync requests. If any of errors
   // triggerings currently configured it must be called only with
   // sync_pb::SyncEnums::SUCCESS.
-  void TriggerError(const sync_pb::SyncEnums::ErrorType& error_type);
+  void TriggerError(const sync_pb::SyncEnums_ErrorType& error_type);
 
   // Force the server to return the given data as part of the error field of
   // ClientToServerResponse on all subsequent sync requests. Must not be called
   // if any of errors triggerings currently configured.
-  void TriggerActionableError(const sync_pb::SyncEnums::ErrorType& error_type,
+  void TriggerActionableError(const sync_pb::SyncEnums_ErrorType& error_type,
                               const std::string& description,
                               const std::string& url,
                               const sync_pb::SyncEnums::Action& action);
@@ -269,17 +279,17 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
   std::vector<std::unique_ptr<testing::ScopedTrace>> gtest_scoped_traces_;
 
   // If set, the server will return HTTP errors.
-  base::Optional<net::HttpStatusCode> http_error_status_code_;
+  absl::optional<net::HttpStatusCode> http_error_status_code_;
 
   // All URLs received via history sync (powered by SESSIONS).
   std::set<std::string> committed_history_urls_;
 
   // Used as the error_code field of ClientToServerResponse on all commit
   // requests.
-  sync_pb::SyncEnums::ErrorType commit_error_type_;
+  sync_pb::SyncEnums_ErrorType commit_error_type_;
 
   // Used as the error_code field of ClientToServerResponse on all responses.
-  sync_pb::SyncEnums::ErrorType error_type_;
+  sync_pb::SyncEnums_ErrorType error_type_;
 
   // Used as the error field of ClientToServerResponse when its pointer is not
   // null.

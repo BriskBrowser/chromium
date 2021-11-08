@@ -6,8 +6,7 @@
 #include <string>
 
 #include "base/test/metrics/histogram_tester.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
+#include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "chrome/browser/ui/browser.h"
@@ -27,6 +26,11 @@ namespace {
 class UnifiedConsentBrowserTest : public SyncTest {
  public:
   UnifiedConsentBrowserTest() : SyncTest(TWO_CLIENT) {}
+
+  UnifiedConsentBrowserTest(const UnifiedConsentBrowserTest&) = delete;
+  UnifiedConsentBrowserTest& operator=(const UnifiedConsentBrowserTest&) =
+      delete;
+
   ~UnifiedConsentBrowserTest() override = default;
 
   void EnableSync(int client_id) {
@@ -67,8 +71,6 @@ class UnifiedConsentBrowserTest : public SyncTest {
   }
 
   std::unique_ptr<syncer::SyncSetupInProgressHandle> sync_blocker_;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedConsentBrowserTest);
 };
 
 // Tests that the settings histogram is recorded if unified consent is enabled.

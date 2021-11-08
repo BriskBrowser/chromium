@@ -4,15 +4,15 @@
 
 #include "chrome/browser/win/conflicts/enumerate_shell_extensions.h"
 
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
-#include "base/sequenced_task_runner.h"
-#include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"

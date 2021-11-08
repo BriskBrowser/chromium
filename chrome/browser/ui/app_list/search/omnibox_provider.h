@@ -8,10 +8,11 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/optional.h"
-#include "chrome/browser/ui/app_list/search/score_normalizer/score_normalizer.h"
+#include "chrome/browser/ui/app_list/search/ranking/score_normalizer.h"
 #include "chrome/browser/ui/app_list/search/search_provider.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
+#include "components/omnibox/browser/favicon_cache.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class AppListControllerDelegate;
 class AutocompleteController;
@@ -26,10 +27,14 @@ class OmniboxProvider : public SearchProvider,
  public:
   explicit OmniboxProvider(Profile* profile,
                            AppListControllerDelegate* list_controller);
+
+  OmniboxProvider(const OmniboxProvider&) = delete;
+  OmniboxProvider& operator=(const OmniboxProvider&) = delete;
+
   ~OmniboxProvider() override;
 
   // SearchProvider overrides:
-  void Start(const base::string16& query) override;
+  void Start(const std::u16string& query) override;
   ash::AppListSearchResultType ResultType() override;
 
  private:
@@ -52,10 +57,10 @@ class OmniboxProvider : public SearchProvider,
   // eliminates the results as they come in.
   std::unique_ptr<AutocompleteController> controller_;
 
-  // The normalizer normalizes the relevance scores of Results
-  base::Optional<ScoreNormalizer> normalizer_;
+  FaviconCache favicon_cache_;
 
-  DISALLOW_COPY_AND_ASSIGN(OmniboxProvider);
+  // Score normalizer for Finch experiment. Nullopt if experiment disabled.
+  absl::optional<ScoreNormalizer> normalizer_;
 };
 
 }  // namespace app_list

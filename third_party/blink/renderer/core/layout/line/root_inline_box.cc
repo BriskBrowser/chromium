@@ -40,8 +40,8 @@ namespace blink {
 
 struct SameSizeAsRootInlineBox : public InlineFlowBox {
   unsigned unsigned_variable;
-  void* pointers[2];
-  UntracedMember<void*> members[1];
+  void* pointers[1];
+  Member<void*> members[2];
   LayoutUnit layout_variables[6];
 };
 
@@ -217,7 +217,7 @@ void RootInlineBox::Move(const LayoutSize& delta) {
 }
 
 void RootInlineBox::ChildRemoved(InlineBox* box) {
-  if (box->GetLineLayoutItem() == line_break_obj_)
+  if (box->GetLineLayoutItem() == LineBreakObj())
     SetLineBreakInfo(nullptr, 0, BidiStatus());
 
   for (RootInlineBox* prev = PrevRootBox();
@@ -300,8 +300,6 @@ LayoutUnit RootInlineBox::AlignBoxesInBlockDirection(
 
   LayoutUnit annotations_adjustment = BeforeAnnotationsAdjustment();
   if (annotations_adjustment) {
-    // FIXME: Need to handle pagination here. We might have to move to the next
-    // page/column as a result of the ruby expansion.
     MoveInBlockDirection(annotations_adjustment);
     height_of_block += annotations_adjustment;
   }
@@ -482,6 +480,16 @@ InlineBox* RootInlineBox::ClosestLeafChildForLogicalLeftPosition(
   return closest_leaf ? closest_leaf : last_leaf;
 }
 
+void RootInlineBox::AppendFloat(LayoutBox* floating_box) {
+  DCHECK(!IsDirty());
+  if (floats_) {
+    floats_->push_back(floating_box);
+  } else {
+    floats_ =
+        MakeGarbageCollected<HeapVector<Member<LayoutBox>>>(1, floating_box);
+  }
+}
+
 BidiStatus RootInlineBox::LineBreakBidiStatus() const {
   return BidiStatus(
       static_cast<WTF::unicode::CharDirection>(line_break_bidi_status_eor_),
@@ -503,7 +511,7 @@ void RootInlineBox::SetLineBreakInfo(LineLayoutItem obj,
                   !(obj.IsLayoutInline() && obj.IsBox() &&
                     !LineLayoutBox(obj).InlineBoxWrapper()));
 
-  line_break_obj_ = obj;
+  line_break_obj_ = obj.GetLayoutObject();
   line_break_pos_ = break_pos;
   line_break_bidi_status_eor_ = status.eor;
   line_break_bidi_status_last_strong_ = status.last_strong;
@@ -838,6 +846,12 @@ const InlineBox* RootInlineBox::GetLogicalEndNonPseudoBox() const {
 
 const char* RootInlineBox::BoxName() const {
   return "RootInlineBox";
+}
+
+void RootInlineBox::Trace(Visitor* visitor) const {
+  visitor->Trace(line_break_obj_);
+  visitor->Trace(floats_);
+  InlineFlowBox::Trace(visitor);
 }
 
 }  // namespace blink

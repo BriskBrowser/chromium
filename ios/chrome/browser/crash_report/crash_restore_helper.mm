@@ -130,6 +130,10 @@ class SessionCrashedInfoBarDelegate : public ConfirmInfoBarDelegate {
   static bool Create(infobars::InfoBarManager* infobar_manager,
                      CrashRestoreHelper* crash_restore_helper);
 
+  SessionCrashedInfoBarDelegate(const SessionCrashedInfoBarDelegate&) = delete;
+  SessionCrashedInfoBarDelegate& operator=(
+      const SessionCrashedInfoBarDelegate&) = delete;
+
  private:
   SessionCrashedInfoBarDelegate(CrashRestoreHelper* crash_restore_helper);
   ~SessionCrashedInfoBarDelegate() override;
@@ -138,9 +142,9 @@ class SessionCrashedInfoBarDelegate : public ConfirmInfoBarDelegate {
   InfoBarIdentifier GetIdentifier() const override;
 
   // ConfirmInfoBarDelegate:
-  base::string16 GetMessageText() const override;
+  std::u16string GetMessageText() const override;
   int GetButtons() const override;
-  base::string16 GetButtonLabel(InfoBarButton button) const override;
+  std::u16string GetButtonLabel(InfoBarButton button) const override;
   bool Accept() override;
   void InfoBarDismissed() override;
   bool ShouldExpire(const NavigationDetails& details) const override;
@@ -151,8 +155,6 @@ class SessionCrashedInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   // The CrashRestoreHelper to restore sessions.
   CrashRestoreHelper* crash_restore_helper_;
-
-  DISALLOW_COPY_AND_ASSIGN(SessionCrashedInfoBarDelegate);
 };
 
 SessionCrashedInfoBarDelegate::SessionCrashedInfoBarDelegate(
@@ -181,7 +183,7 @@ SessionCrashedInfoBarDelegate::GetIdentifier() const {
   return SESSION_CRASHED_INFOBAR_DELEGATE_IOS;
 }
 
-base::string16 SessionCrashedInfoBarDelegate::GetMessageText() const {
+std::u16string SessionCrashedInfoBarDelegate::GetMessageText() const {
   return l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_MESSAGE);
 }
 
@@ -189,7 +191,7 @@ int SessionCrashedInfoBarDelegate::GetButtons() const {
   return BUTTON_OK;
 }
 
-base::string16 SessionCrashedInfoBarDelegate::GetButtonLabel(
+std::u16string SessionCrashedInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
   DCHECK_EQ(BUTTON_OK, button);
   return l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_RESTORE_BUTTON);
@@ -332,11 +334,6 @@ int SessionCrashedInfoBarDelegate::GetIconId() const {
 
 + (NSString*)backupPathForSessionID:(NSString*)sessionID
                           directory:(const base::FilePath&)directory {
-  // TODO(crbug.com/1165798): remove when the sessionID is guaranteed to
-  // always be an non-empty string.
-  if (!sessionID.length)
-    return PathAsNSString(directory.Append(kSessionBackupFileName));
-
   return PathAsNSString(directory.Append(kSessionBackupDirectory)
                             .Append(base::SysNSStringToUTF8(sessionID))
                             .Append(kSessionBackupFileName));
@@ -344,8 +341,6 @@ int SessionCrashedInfoBarDelegate::GetIconId() const {
 
 + (NSArray<NSString*>*)backedupSessionIDsForBrowserState:
     (ChromeBrowserState*)browserState {
-  if (!base::ios::IsMultiwindowSupported())
-    return @[ @"" ];
   const base::FilePath backupDirectory =
       browserState->GetStatePath().Append(kSessionBackupDirectory);
   return [[NSFileManager defaultManager]
@@ -501,7 +496,7 @@ int SessionCrashedInfoBarDelegate::GetIconId() const {
     for (CRWSessionStorage* session in sessions) {
       auto live_tab = std::make_unique<sessions::RestoreIOSLiveTab>(session);
       // Add all tabs at the 0 position as the position is relative to an old
-      // tabModel.
+      // webStateList.
       tabRestoreService->CreateHistoricalTab(live_tab.get(), 0);
     }
     if (base::ios::IsMultiwindowSupported()) {
@@ -510,7 +505,6 @@ int SessionCrashedInfoBarDelegate::GetIconId() const {
                      error:&error];
     }
   }
-  return;
 }
 
 @end

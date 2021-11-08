@@ -11,11 +11,11 @@
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/sequence_checker.h"
-#include "base/single_thread_task_runner.h"
 #include "base/task/common/task_annotator.h"
 #include "base/task/sequence_manager/associated_thread_id.h"
 #include "base/task/sequence_manager/thread_controller.h"
 #include "base/task/sequence_manager/work_deduplicator.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 
 namespace base {
@@ -67,6 +67,7 @@ class BASE_EXPORT ThreadControllerImpl : public ThreadController,
 #if defined(OS_IOS)
   void DetachFromMessagePump() override;
 #endif
+  void PrioritizeYieldingToNative(base::TimeTicks prioritize_until) override;
   bool ShouldQuitRunLoopWhenIdle() override;
 
   // RunLoop::NestingObserver:
@@ -120,7 +121,7 @@ class BASE_EXPORT ThreadControllerImpl : public ThreadController,
   const TickClock* time_source_;
   RepeatingClosure immediate_do_work_closure_;
   RepeatingClosure delayed_do_work_closure_;
-  CancelableClosure cancelable_delayed_do_work_closure_;
+  CancelableRepeatingClosure cancelable_delayed_do_work_closure_;
   SequencedTaskSource* sequence_ = nullptr;  // Not owned.
   TaskAnnotator task_annotator_;
   WorkDeduplicator work_deduplicator_;

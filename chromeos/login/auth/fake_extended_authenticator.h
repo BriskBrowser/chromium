@@ -20,6 +20,10 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) FakeExtendedAuthenticator
   FakeExtendedAuthenticator(AuthStatusConsumer* consumer,
                             const UserContext& expected_user_context);
 
+  FakeExtendedAuthenticator(const FakeExtendedAuthenticator&) = delete;
+  FakeExtendedAuthenticator& operator=(const FakeExtendedAuthenticator&) =
+      delete;
+
   // ExtendedAuthenticator:
   void SetConsumer(AuthStatusConsumer* consumer) override;
   void AuthenticateToCheck(const UserContext& context,
@@ -30,7 +34,7 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) FakeExtendedAuthenticator
   void EndFingerprintAuthSession() override;
   void AuthenticateWithFingerprint(
       const UserContext& context,
-      base::OnceCallback<void(cryptohome::CryptohomeErrorCode)> callback)
+      base::OnceCallback<void(::user_data_auth::CryptohomeErrorCode)> callback)
       override;
   void AddKey(const UserContext& context,
               const cryptohome::KeyDefinition& key,
@@ -51,10 +55,14 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) FakeExtendedAuthenticator
   AuthStatusConsumer* consumer_;
 
   UserContext expected_user_context_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeExtendedAuthenticator);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::FakeExtendedAuthenticator;
+}
 
 #endif  // CHROMEOS_LOGIN_AUTH_FAKE_EXTENDED_AUTHENTICATOR_H_

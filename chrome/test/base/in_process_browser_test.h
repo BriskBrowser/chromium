@@ -24,6 +24,10 @@
 #include "ui/base/test/scoped_fake_full_keyboard_access.h"
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/app_restore/full_restore_app_launch_handler.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 namespace base {
 
 class CommandLine;
@@ -209,12 +213,15 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // successful.
   virtual bool SetUpUserDataDirectory() WARN_UNUSED_RESULT;
 
-  // Initializes the display::Screen instance on X11.
-  virtual void SetScreenInstance();
+  // Initializes the display::Screen instance.
+  virtual void SetScreenInstance() {}
 
   // BrowserTestBase:
   void PreRunTestOnMainThread() override;
   void PostRunTestOnMainThread() override;
+#if defined(OS_MAC)
+  void CreatedBrowserMainParts(content::BrowserMainParts* parts) override;
+#endif
 
   // Ensures that no devtools are open, and then opens the devtools.
   void OpenDevToolsWindow(content::WebContents* web_contents);
@@ -233,9 +240,9 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // is omitted, the currently active profile will be used.
   Browser* CreateIncognitoBrowser(Profile* profile = nullptr);
 
-#if !defined(OS_ANDROID) && !defined(CHROME_OS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
   // Similar to |CreateBrowser|, but creates a Guest browser.
-  // To create a Guest browser for ChromeOS, you need to add proper switches to
+  // To create a ChromeOS Guest user session, you need to add proper switches to
   // commandline while setting up the test. For an example see
   // AppListClientGuestModeBrowserTest::SetUpCommandLine.
   Browser* CreateGuestBrowser();
@@ -283,7 +290,11 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  void set_skip_initial_restore(bool value) { skip_initial_restore_ = value; }
+  void set_launch_browser_for_testing(
+      std::unique_ptr<ash::full_restore::ScopedLaunchBrowserForTesting>
+          launch_browser_for_testing) {
+    launch_browser_for_testing_ = std::move(launch_browser_for_testing);
+  }
 #endif
 
   // Runs scheduled layouts on all Widgets using
@@ -345,9 +356,12 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   std::unique_ptr<MainThreadStackSamplingProfiler> sampling_profiler_;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // False to create a browser by default before tests code run for browser
-  // tests. To run or test the full restore logic, sets the value as true.
-  bool skip_initial_restore_ = false;
+  // ChromeOS does not create a browser by default when the full restore feature
+  // is enabled. However almost all existing browser tests assume a browser is
+  // created. Add ScopedLaunchBrowserForTesting to force creating a browser for
+  // testing, when the full restore feature is enabled.
+  std::unique_ptr<ash::full_restore::ScopedLaunchBrowserForTesting>
+      launch_browser_for_testing_;
 #endif
 };
 

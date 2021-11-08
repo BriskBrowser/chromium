@@ -4,7 +4,6 @@
 
 #include "chrome/browser/nearby_sharing/nearby_receive_manager.h"
 
-#include "base/optional.h"
 #include "base/test/bind.h"
 #include "base/test/mock_callback.h"
 #include "chrome/browser/nearby_sharing/mock_nearby_sharing_service.h"
@@ -14,6 +13,7 @@
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace {
 
@@ -30,9 +30,19 @@ class FakeReceiveObserver : public nearby_share::mojom::ReceiveObserver {
     last_metadata_ = *metadata;
   }
 
-  base::Optional<nearby_share::mojom::TransferMetadata> last_metadata_;
-  base::Optional<bool> in_high_visibility_;
+  void OnNearbyProcessStopped() override {
+    on_nearby_process_stopped_called_ = true;
+  }
+
+  void OnStartAdvertisingFailure() override {
+    on_start_advertising_failure_called_ = true;
+  }
+
+  absl::optional<nearby_share::mojom::TransferMetadata> last_metadata_;
+  absl::optional<bool> in_high_visibility_;
   ShareTarget last_share_target_;
+  bool on_nearby_process_stopped_called_ = false;
+  bool on_start_advertising_failure_called_ = false;
   mojo::Receiver<nearby_share::mojom::ReceiveObserver> receiver_{this};
 };
 
@@ -203,7 +213,7 @@ TEST_F(NearbyReceiveManagerTest,
   // Simulate the sender canceling before we accept the share target and causing
   // the accept to fail before hitting the service.
   TransferMetadata transfer_metadata_final(TransferMetadata::Status::kCancelled,
-                                           1.f, base::nullopt, true, true);
+                                           1.f, absl::nullopt, true, true);
   receive_manager_.OnTransferUpdate(share_target_, transfer_metadata_final);
   FlushMojoMessages();
 
@@ -225,7 +235,7 @@ TEST_F(NearbyReceiveManagerTest,
   // Simulate the sender canceling before we reject the share target and causing
   // the reject to fail before hitting the service.
   TransferMetadata transfer_metadata_final(TransferMetadata::Status::kCancelled,
-                                           1.f, base::nullopt, true, true);
+                                           1.f, absl::nullopt, true, true);
   receive_manager_.OnTransferUpdate(share_target_, transfer_metadata_final);
   FlushMojoMessages();
 
@@ -258,12 +268,21 @@ TEST_F(NearbyReceiveManagerTest, OnHighVisibilityChangedObserver) {
   ASSERT_TRUE(observer_.in_high_visibility_.has_value());
   EXPECT_FALSE(*observer_.in_high_visibility_);
 
-  observer_.in_high_visibility_ = base::nullopt;
+  observer_.in_high_visibility_ = absl::nullopt;
 
   receive_manager_.OnHighVisibilityChanged(true);
   FlushMojoMessages();
   ASSERT_TRUE(observer_.in_high_visibility_.has_value());
   EXPECT_TRUE(*observer_.in_high_visibility_);
+
+  ExpectUnregister();
+}
+
+TEST_F(NearbyReceiveManagerTest, OnStartAdvertisingFailureObserver) {
+  EXPECT_FALSE(observer_.on_start_advertising_failure_called_);
+  receive_manager_.OnStartAdvertisingFailure();
+  FlushMojoMessages();
+  EXPECT_TRUE(observer_.on_start_advertising_failure_called_);
 
   ExpectUnregister();
 }

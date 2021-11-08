@@ -8,13 +8,13 @@
 #include <string>
 
 #include "base/check_op.h"
-#include "base/containers/flat_set.h"
+#include "base/containers/fixed_flat_set.h"
 #include "base/feature_list.h"
-#include "base/no_destructor.h"
 #include "base/strings/string_piece.h"
 #include "content/common/url_schemes.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/url_constants.h"
+#include "third_party/blink/public/common/chrome_debug_urls.h"
 #include "url/gurl.h"
 #include "url/url_util.h"
 
@@ -48,7 +48,7 @@ bool IsURLHandledByNetworkStack(const GURL& url) {
 
   // Renderer debug URLs (e.g. chrome://kill) are handled in the renderer
   // process directly and should not be sent to the network stack.
-  if (IsRendererDebugURL(url))
+  if (blink::IsRendererDebugURL(url))
     return false;
 
   // For you information, even though a "data:" url doesn't generate actual
@@ -63,54 +63,9 @@ bool IsURLHandledByNetworkStack(const GURL& url) {
   return true;
 }
 
-bool IsRendererDebugURL(const GURL& url) {
-  if (!url.is_valid())
-    return false;
-
-  if (url.SchemeIs(url::kJavaScriptScheme))
-    return true;
-
-  if (!url.SchemeIs(kChromeUIScheme))
-    return false;
-
-  if (url == kChromeUICheckCrashURL || url == kChromeUIBadCastCrashURL ||
-      url == kChromeUICrashURL || url == kChromeUIDumpURL ||
-      url == kChromeUIKillURL || url == kChromeUIHangURL ||
-      url == kChromeUIShorthangURL || url == kChromeUIMemoryExhaustURL) {
-    return true;
-  }
-
-#if defined(ADDRESS_SANITIZER)
-  if (url == kChromeUICrashHeapOverflowURL ||
-      url == kChromeUICrashHeapUnderflowURL ||
-      url == kChromeUICrashUseAfterFreeURL) {
-    return true;
-  }
-#endif
-
-#if defined(OS_WIN)
-  if (url == kChromeUIHeapCorruptionCrashURL)
-    return true;
-#endif
-
-#if DCHECK_IS_ON()
-  if (url == kChromeUICrashDcheckURL)
-    return true;
-#endif
-
-#if defined(OS_WIN) && defined(ADDRESS_SANITIZER)
-  if (url == kChromeUICrashCorruptHeapBlockURL ||
-      url == kChromeUICrashCorruptHeapURL) {
-    return true;
-  }
-#endif
-
-  return false;
-}
-
 bool IsSafeRedirectTarget(const GURL& from_url, const GURL& to_url) {
-  static const base::NoDestructor<base::flat_set<base::StringPiece>>
-      kUnsafeSchemes(base::flat_set<base::StringPiece>({
+  static const auto kUnsafeSchemes =
+      base::MakeFixedFlatSet<base::StringPiece>({
         url::kAboutScheme, url::kFileScheme,
             url::kFileSystemScheme, url::kBlobScheme,
 #if !defined(CHROMECAST_BUILD)
@@ -119,10 +74,10 @@ bool IsSafeRedirectTarget(const GURL& from_url, const GURL& to_url) {
 #if defined(OS_ANDROID)
             url::kContentScheme,
 #endif
-      }));
+      });
   if (HasWebUIScheme(to_url))
     return false;
-  if (!kUnsafeSchemes->contains(to_url.scheme_piece()))
+  if (!kUnsafeSchemes.contains(to_url.scheme_piece()))
     return true;
   if (from_url.is_empty())
     return false;

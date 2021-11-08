@@ -7,9 +7,9 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
 #import "base/test/ios/wait_util.h"
 #include "base/test/task_environment.h"
 #include "components/reading_list/core/offline_url_utils.h"
@@ -18,6 +18,7 @@
 #include "ios/chrome/browser/reading_list/offline_url_utils.h"
 #include "ios/chrome/browser/reading_list/reading_list_distiller_page.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "services/network/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -183,6 +184,9 @@ class URLDownloaderTest : public PlatformTest {
         new MockURLDownloader(data_dir, test_shared_url_loader_factory_));
   }
 
+  URLDownloaderTest(const URLDownloaderTest&) = delete;
+  URLDownloaderTest& operator=(const URLDownloaderTest&) = delete;
+
   ~URLDownloaderTest() override {}
 
   void TearDown() override {
@@ -200,9 +204,6 @@ class URLDownloaderTest : public PlatformTest {
       test_shared_url_loader_factory_;
 
   std::unique_ptr<MockURLDownloader> downloader_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(URLDownloaderTest);
 };
 
 TEST_F(URLDownloaderTest, SingleDownload) {

@@ -6,7 +6,7 @@
 
 #include <stddef.h>
 
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/renderer/modules/peerconnection/mock_peer_connection_impl.h"
 #include "third_party/blink/renderer/modules/peerconnection/mock_rtc_peer_connection_handler_platform.h"
 #include "third_party/webrtc/api/media_stream_interface.h"
@@ -335,9 +335,7 @@ class MockIceCandidate : public IceCandidateInterface {
 };
 
 MockPeerConnectionDependencyFactory::MockPeerConnectionDependencyFactory()
-    : blink::PeerConnectionDependencyFactory(
-          /*create_p2p_socket_dispatcher =*/false),
-      signaling_thread_("MockPCFactory WebRtc Signaling Thread") {
+    : signaling_thread_("MockPCFactory WebRtc Signaling Thread") {
   EnsureWebRtcAudioDeviceImpl();
   CHECK(signaling_thread_.Start());
 }
@@ -350,14 +348,16 @@ MockPeerConnectionDependencyFactory::CreatePeerConnection(
     blink::WebLocalFrame* frame,
     webrtc::PeerConnectionObserver* observer,
     ExceptionState& exception_state) {
+  ++open_peer_connections_;
   return new rtc::RefCountedObject<MockPeerConnectionImpl>(this, observer);
 }
 
 scoped_refptr<webrtc::VideoTrackSourceInterface>
 MockPeerConnectionDependencyFactory::CreateVideoTrackSourceProxy(
     webrtc::VideoTrackSourceInterface* source) {
-  return nullptr;
+  return source;
 }
+
 scoped_refptr<webrtc::MediaStreamInterface>
 MockPeerConnectionDependencyFactory::CreateLocalMediaStream(
     const String& label) {

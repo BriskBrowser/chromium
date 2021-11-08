@@ -9,7 +9,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/protocol/model_type_state.pb.h"
@@ -17,7 +16,7 @@
 
 namespace syncer {
 
-// Matcher for base::Optional<ModelError>: verifies that it contains no error.
+// Matcher for absl::optional<ModelError>: verifies that it contains no error.
 MATCHER(NoModelError, "") {
   if (arg.has_value()) {
     *result_listener << "which represents error: " << arg->ToString();

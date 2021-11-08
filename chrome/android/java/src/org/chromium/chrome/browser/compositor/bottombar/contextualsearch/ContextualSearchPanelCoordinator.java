@@ -10,6 +10,7 @@ import android.graphics.Rect;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
+import androidx.annotation.Nullable;
 import androidx.core.content.res.ResourcesCompat;
 
 import org.chromium.base.supplier.Supplier;
@@ -29,8 +30,11 @@ import org.chromium.components.thinwebview.ThinWebViewConstraints;
 import org.chromium.components.thinwebview.ThinWebViewFactory;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.ui.base.IntentRequestTracker;
 import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
+
+import java.util.List;
 
 /**
  * Coordinator for the {@link BottomSheet} and {@link ThinWebView} based Contextual Search panel.
@@ -44,6 +48,7 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
     private final float mFullHeightFraction;
 
     private final ContextualSearchPanelMetrics mPanelMetrics;
+    private final IntentRequestTracker mIntentRequestTracker;
 
     private ContextualSearchSheetContent mSheetContent;
     private ViewGroup mSheetContentView;
@@ -62,9 +67,11 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
      * @param windowAndroid The associated {@link WindowAndroid}.
      * @param bottomSheetController The {@link BottomSheetController} that will manage the sheet.
      * @param tabHeightSupplier The {@link Supplier} for the tab height.
+     * @param intentRequestTracker The {@link IntentRequestTracker} of the current activity.
      */
     public ContextualSearchPanelCoordinator(Context context, WindowAndroid windowAndroid,
-            BottomSheetController bottomSheetController, Supplier<Integer> tabHeightSupplier) {
+            BottomSheetController bottomSheetController, Supplier<Integer> tabHeightSupplier,
+            IntentRequestTracker intentRequestTracker) {
         mContext = context;
         mWindowAndroid = windowAndroid;
         mPanelMetrics = new ContextualSearchPanelMetrics();
@@ -76,6 +83,7 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
                 org.chromium.chrome.R.dimen.sheet_tab_toolbar_height);
         mFullHeightFraction = ResourcesCompat.getFloat(resources,
                 org.chromium.chrome.R.dimen.contextual_search_sheet_full_height_fraction);
+        mIntentRequestTracker = intentRequestTracker;
     }
 
     private void createWebContents() {
@@ -86,7 +94,7 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
                 ViewAndroidDelegate.createBasicDelegate(mWebContentView);
         mWebContents.initialize(ChromeVersionInfo.getProductVersion(), delegate, mWebContentView,
                 mWindowAndroid, WebContents.createDefaultInternalsHolder());
-        ContentUtils.setUserAgentOverride(mWebContents);
+        ContentUtils.setUserAgentOverride(mWebContents, /* overrideInNewTabs= */ false);
     }
 
     private void destroyWebContents() {
@@ -108,7 +116,8 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
         }
 
         final int maxHeight = (int) (mTabHeightSupplier.get() * mFullHeightFraction);
-        mThinWebView = ThinWebViewFactory.create(mContext, new ThinWebViewConstraints());
+        mThinWebView = ThinWebViewFactory.create(
+                mContext, new ThinWebViewConstraints(), mIntentRequestTracker);
         mThinWebView.getView().setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, maxHeight - mToolbarHeightPx));
         mThinWebView.attachWebContents(mWebContents, mWebContentView, null);
@@ -149,10 +158,22 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
 
     @Override
     public void onSearchTermResolved(String searchTerm, String thumbnailUrl, String quickActionUri,
-            int quickActionCategory, int cardTagEnum) {}
+            int quickActionCategory, int cardTagEnum, @Nullable List<String> inBarRelatedSearches,
+            boolean showDefaultSearchInBar, @Nullable List<String> inContentRelatedSearches,
+            boolean showDefaultSearchInContent) {}
+
+    @Override
+    public void onSearchTermResolved(String searchTerm, String thumbnailUrl, String quickActionUri,
+            int quickActionCategory, int cardTagEnum, @Nullable List<String> inBarRelatedSearches,
+            boolean showDefaultSearchInBar, int defaultQueryInBarTextMaxWidthPx,
+            @Nullable List<String> inContentRelatedSearches, boolean showDefaultSearchInContent,
+            int defaultQueryInContentTextMaxWidthPx) {}
 
     @Override
     public void setCaption(String caption) {}
+
+    @Override
+    public void ensureCaption() {}
 
     @Override
     public void setManagementDelegate(ContextualSearchManagementDelegate delegate) {
@@ -196,6 +217,9 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
     public void setIsPanelHelpActive(boolean isActive) {}
 
     @Override
+    public void clearRelatedSearches() {}
+
+    @Override
     public void requestPanelShow(int reason) {
         if (mWebContents == null) {
             createWebContents();
@@ -207,7 +231,7 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
                 }
 
                 @Override
-                public void onSheetStateChanged(int newState) {
+                public void onSheetStateChanged(int newState, int reason) {
                     if (newState == SheetState.HIDDEN) {
                         mIsActive = false;
                         destroyWebContents();
@@ -266,6 +290,11 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
     @Override
     public WebContents getWebContents() {
         return mWebContents;
+    }
+
+    @Override
+    public ViewGroup getContainerView() {
+        return null;
     }
 
     @Override

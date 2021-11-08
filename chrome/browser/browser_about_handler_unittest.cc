@@ -17,6 +17,7 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/common/referrer.h"
 #include "content/public/test/browser_task_environment.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -112,7 +113,7 @@ TEST_F(BrowserAboutHandlerTest, NoVirtualURLForFixup) {
   TestingProfile profile;
   std::unique_ptr<NavigationEntry> entry(
       NavigationController::CreateNavigationEntry(
-          url, Referrer(), base::nullopt, ui::PAGE_TRANSITION_RELOAD, false,
+          url, Referrer(), absl::nullopt, ui::PAGE_TRANSITION_RELOAD, false,
           std::string(), &profile, nullptr /* blob_url_loader_factory */));
   EXPECT_EQ(expected_virtual_url, entry->GetVirtualURL());
   EXPECT_EQ(expected_url, entry->GetURL());

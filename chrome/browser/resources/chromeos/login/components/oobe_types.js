@@ -8,7 +8,7 @@
  * This file contains typedefs for chromeOS OOBE properties.
  */
 
-var OobeTypes = {};
+/* #export */ var OobeTypes = {};
 
 /**
  * ChromeOS OOBE language descriptor.
@@ -59,14 +59,8 @@ OobeTypes.DemoCountryDsc;
 OobeTypes.A11yStatuses;
 
 /**
- * OOBE screen object (which is created in ui/login/screen.js )
- * @typedef {!Object}
- */
-OobeTypes.Screen;
-
-/**
  * Timezone ID.
- * @typedef {!String}
+ * @typedef {!string}
  */
 OobeTypes.Timezone;
 
@@ -74,7 +68,7 @@ OobeTypes.Timezone;
  * ChromeOS timezone descriptor.
  * @typedef {{
  *   value: (OobeTypes.Timezone|undefined),
- *   title: (String|undefined),
+ *   title: (string|undefined),
  *   selected: (boolean|undefined),
  * }}
  */
@@ -82,7 +76,7 @@ OobeTypes.TimezoneDsc;
 
 /**
  * OOBE configuration, allows automation during OOBE.
- * Keys are also listed in chrome/browser/chromeos/login/configuration_keys.h
+ * Keys are also listed in chrome/browser/ash/login/configuration_keys.h
  * @typedef {{
  *   language: (string|undefined),
  *   inputMethod: (string|undefined),
@@ -95,6 +89,7 @@ OobeTypes.TimezoneDsc;
  *   eulaSendStatistics: (boolean|undefined),
  *   networkUseConnected: (boolean|undefined),
  *   arcTosAutoAccept: (boolean|undefined),
+ *   networkConfig: (string|undefined),
  * }}
  */
 OobeTypes.OobeConfiguration;
@@ -103,6 +98,7 @@ OobeTypes.OobeConfiguration;
  * Parameters passed to show PIN setup screen
  * @typedef {{
  *   auth_token: string,
+ *   is_child_account: boolean,
  * }}
  */
 OobeTypes.PinSetupScreenParameters;
@@ -147,4 +143,5 @@ OobeTypes.FatalErrorCode = {
   SCRAPED_PASSWORD_VERIFICATION_FAILURE: 1,
   INSECURE_CONTENT_BLOCKED: 2,
   MISSING_GAIA_INFO: 3,
+  CUSTOM: 4,
 };

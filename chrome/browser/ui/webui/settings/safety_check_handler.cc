@@ -4,6 +4,9 @@
 
 #include "chrome/browser/ui/webui/settings/safety_check_handler.h"
 
+#include <memory>
+#include <string>
+
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/i18n/number_formatting.h"
@@ -11,7 +14,6 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
@@ -31,6 +33,7 @@
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
+#include "extensions/browser/blocklist_extension_prefs.h"
 #include "extensions/browser/extension_prefs_factory.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension_id.h"
@@ -88,6 +91,8 @@ SafetyCheckHandler::UpdateStatus ConvertToUpdateStatus(
     case VersionUpdater::DISABLED:
       return SafetyCheckHandler::UpdateStatus::kUnknown;
     case VersionUpdater::FAILED:
+    case VersionUpdater::FAILED_HTTP:
+    case VersionUpdater::FAILED_DOWNLOAD:
     case VersionUpdater::FAILED_CONNECTION_TYPE_DISALLOWED:
       return SafetyCheckHandler::UpdateStatus::kFailed;
     case VersionUpdater::FAILED_OFFLINE:
@@ -198,8 +203,8 @@ base::Time TimestampDelegate::FetchChromeCleanerScanCompletionTimestamp() {
   // TODO(crbug.com/1139806): Part of the above workaround. If the timestamp in
   // prefs is null or older than the one from the registry, then return the one
   // from the registry. Otherwise return the one from prefs.
-  base::Time end_time_from_registry = base::Time::FromDeltaSinceWindowsEpoch(
-      base::TimeDelta::FromMicroseconds(end_time));
+  base::Time end_time_from_registry =
+      base::Time::FromDeltaSinceWindowsEpoch(base::Microseconds(end_time));
   if (end_time_from_prefs.is_null() ||
       end_time_from_prefs < end_time_from_registry) {
     return end_time_from_registry;
@@ -278,18 +283,25 @@ void SafetyCheckHandler::SendSafetyCheckStartedWebUiUpdates() {
 void SafetyCheckHandler::PerformSafetyCheck() {
   // Checks common to desktop, Android, and iOS are handled by
   // safety_check::SafetyCheck.
-  safety_check_.reset(new safety_check::SafetyCheck(this));
-  safety_check_->CheckSafeBrowsing(Profile::FromWebUI(web_ui())->GetPrefs());
+  safe_browsing_status_ =
+      safety_check::CheckSafeBrowsing(Profile::FromWebUI(web_ui())->GetPrefs());
+  if (safe_browsing_status_ != SafeBrowsingStatus::kChecking) {
+    base::UmaHistogramEnumeration("Settings.SafetyCheck.SafeBrowsingResult",
+                                  safe_browsing_status_);
+  }
+  FireBasicSafetyCheckWebUiListener(
+      kSafeBrowsingEvent, static_cast<int>(safe_browsing_status_),
+      GetStringForSafeBrowsing(safe_browsing_status_));
 
   if (!version_updater_) {
     version_updater_.reset(VersionUpdater::Create(web_ui()->GetWebContents()));
   }
   DCHECK(version_updater_);
   if (!update_helper_) {
-    update_helper_.reset(new safety_check::UpdateCheckHelper(
-        content::BrowserContext::GetDefaultStoragePartition(
-            Profile::FromWebUI(web_ui()))
-            ->GetURLLoaderFactoryForBrowserProcess()));
+    update_helper_ = std::make_unique<safety_check::UpdateCheckHelper>(
+        Profile::FromWebUI(web_ui())
+            ->GetDefaultStoragePartition()
+            ->GetURLLoaderFactoryForBrowserProcess());
   }
   DCHECK(update_helper_);
   CheckUpdates();
@@ -356,13 +368,12 @@ void SafetyCheckHandler::HandlePerformSafetyCheck(const base::ListValue* args) {
       FROM_HERE,
       base::BindOnce(&SafetyCheckHandler::PerformSafetyCheck,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSeconds(1));
+      base::Seconds(1));
 }
 
 void SafetyCheckHandler::HandleGetParentRanDisplayString(
     const base::ListValue* args) {
-  const base::Value* callback_id;
-  CHECK(args->Get(0, &callback_id));
+  const base::Value& callback_id = args->GetList()[0];
 
   // Send updated timestamp-based display strings to all SC children who have
   // such strings.
@@ -381,7 +392,7 @@ void SafetyCheckHandler::HandleGetParentRanDisplayString(
 
   // String update for the parent.
   ResolveJavascriptCallback(
-      *callback_id,
+      callback_id,
       base::Value(GetStringForParentRan(safety_check_completion_time_)));
 }
 
@@ -416,17 +427,10 @@ void SafetyCheckHandler::CheckExtensions() {
   int reenabled_by_user = 0;
   int reenabled_by_admin = 0;
   for (auto extension_id : extensions) {
-    extensions::BlocklistState state =
-        extension_prefs_->GetExtensionBlocklistState(extension_id);
-    if (state == extensions::BLOCKLISTED_UNKNOWN) {
-      // If any of the extensions are in the unknown blocklist state, that means
-      // there was an error the last time the blocklist was fetched. That means
-      // the results cannot be relied upon.
-      OnExtensionsCheckResult(ExtensionsStatus::kError, Blocklisted(0),
-                              ReenabledUser(0), ReenabledAdmin(0));
-      return;
-    }
-    if (state == extensions::NOT_BLOCKLISTED) {
+    extensions::BitMapBlocklistState state =
+        extensions::blocklist_prefs::GetExtensionBlocklistState(
+            extension_id, extension_prefs_);
+    if (state == extensions::BitMapBlocklistState::NOT_BLOCKLISTED) {
       continue;
     }
     ++blocklisted;
@@ -552,7 +556,7 @@ void SafetyCheckHandler::OnChromeCleanerCheckResult(
 }
 #endif
 
-base::string16 SafetyCheckHandler::GetStringForParent(ParentStatus status) {
+std::u16string SafetyCheckHandler::GetStringForParent(ParentStatus status) {
   switch (status) {
     case ParentStatus::kBefore:
       return l10n_util::GetStringUTF16(
@@ -565,10 +569,10 @@ base::string16 SafetyCheckHandler::GetStringForParent(ParentStatus status) {
   }
 }
 
-base::string16 SafetyCheckHandler::GetStringForUpdates(UpdateStatus status) {
+std::u16string SafetyCheckHandler::GetStringForUpdates(UpdateStatus status) {
   switch (status) {
     case UpdateStatus::kChecking:
-      return base::UTF8ToUTF16("");
+      return u"";
     case UpdateStatus::kUpdated:
 #if BUILDFLAG(IS_CHROMEOS_ASH)
       return ui::SubstituteChromeOSDeviceType(IDS_SETTINGS_UPGRADE_UP_TO_DATE);
@@ -598,20 +602,21 @@ base::string16 SafetyCheckHandler::GetStringForUpdates(UpdateStatus status) {
           l10n_util::GetStringUTF16(version_info::IsOfficialBuild()
                                         ? IDS_VERSION_UI_OFFICIAL
                                         : IDS_VERSION_UI_UNOFFICIAL),
-          base::UTF8ToUTF16(chrome::GetChannelName()),
+          base::UTF8ToUTF16(
+              chrome::GetChannelName(chrome::WithExtendedStable(true))),
           l10n_util::GetStringUTF16(VersionUI::VersionProcessorVariation()));
     // This state is only used on Android for recording metrics. This codepath
     // is unreachable.
     case UpdateStatus::kOutdated:
-      return base::UTF8ToUTF16("");
+      return u"";
   }
 }
 
-base::string16 SafetyCheckHandler::GetStringForSafeBrowsing(
+std::u16string SafetyCheckHandler::GetStringForSafeBrowsing(
     SafeBrowsingStatus status) {
   switch (status) {
     case SafeBrowsingStatus::kChecking:
-      return base::UTF8ToUTF16("");
+      return u"";
     case SafeBrowsingStatus::kEnabled:
     case SafeBrowsingStatus::kEnabledStandard:
       return l10n_util::GetStringUTF16(
@@ -635,7 +640,7 @@ base::string16 SafetyCheckHandler::GetStringForSafeBrowsing(
   }
 }
 
-base::string16 SafetyCheckHandler::GetStringForPasswords(
+std::u16string SafetyCheckHandler::GetStringForPasswords(
     PasswordsStatus status,
     Compromised compromised,
     Weak weak,
@@ -645,7 +650,7 @@ base::string16 SafetyCheckHandler::GetStringForPasswords(
     case PasswordsStatus::kChecking: {
       // Unable to get progress for some reason.
       if (total.value() == 0) {
-        return base::UTF8ToUTF16("");
+        return u"";
       }
       return l10n_util::GetStringFUTF16(IDS_SETTINGS_CHECK_PASSWORDS_PROGRESS,
                                         base::FormatNumber(done.value()),
@@ -655,11 +660,6 @@ base::string16 SafetyCheckHandler::GetStringForPasswords(
       return l10n_util::GetPluralStringFUTF16(
           IDS_SETTINGS_COMPROMISED_PASSWORDS_COUNT, 0);
     case PasswordsStatus::kCompromisedExist:
-      // TODO(crbug.com/1128904): Clean up the old code path.
-      if (!base::FeatureList::IsEnabled(features::kSafetyCheckWeakPasswords)) {
-        return l10n_util::GetPluralStringFUTF16(
-            IDS_SETTINGS_COMPROMISED_PASSWORDS_COUNT, compromised.value());
-      }
       if (weak.value() == 0) {
         // Only compromised passwords, no weak passwords.
         return l10n_util::GetPluralStringFUTF16(
@@ -700,17 +700,14 @@ base::string16 SafetyCheckHandler::GetStringForPasswords(
   }
 }
 
-base::string16 SafetyCheckHandler::GetStringForExtensions(
+std::u16string SafetyCheckHandler::GetStringForExtensions(
     ExtensionsStatus status,
     Blocklisted blocklisted,
     ReenabledUser reenabled_user,
     ReenabledAdmin reenabled_admin) {
   switch (status) {
     case ExtensionsStatus::kChecking:
-      return base::UTF8ToUTF16("");
-    case ExtensionsStatus::kError:
-      return l10n_util::GetStringUTF16(
-          IDS_SETTINGS_SAFETY_CHECK_EXTENSIONS_ERROR);
+      return u"";
     case ExtensionsStatus::kNoneBlocklisted:
       return l10n_util::GetStringUTF16(
           IDS_SETTINGS_SAFETY_CHECK_EXTENSIONS_SAFE);
@@ -739,14 +736,14 @@ base::string16 SafetyCheckHandler::GetStringForExtensions(
 }
 
 #if defined(OS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
-base::string16 SafetyCheckHandler::GetStringForChromeCleaner(
+std::u16string SafetyCheckHandler::GetStringForChromeCleaner(
     ChromeCleanerStatus status,
     base::Time cct_completion_time,
     base::Time system_time) {
   switch (status) {
     case ChromeCleanerStatus::kHidden:
     case ChromeCleanerStatus::kChecking:
-      return base::UTF8ToUTF16("");
+      return u"";
     case ChromeCleanerStatus::kInfected:
       return l10n_util::GetStringUTF16(
           IDS_SETTINGS_SAFETY_CHECK_CHROME_CLEANER_INFECTED);
@@ -776,7 +773,7 @@ base::string16 SafetyCheckHandler::GetStringForChromeCleaner(
 }
 #endif
 
-base::string16 SafetyCheckHandler::GetStringForTimePassed(
+std::u16string SafetyCheckHandler::GetStringForTimePassed(
     base::Time completion_timestamp,
     base::Time system_time,
     int less_than_one_minute_ago_message_id,
@@ -790,7 +787,7 @@ base::string16 SafetyCheckHandler::GetStringForTimePassed(
   base::Time::Exploded system_time_exploded;
   system_time.LocalExplode(&system_time_exploded);
 
-  const base::Time time_yesterday = system_time - base::TimeDelta::FromDays(1);
+  const base::Time time_yesterday = system_time - base::Days(1);
   base::Time::Exploded time_yesterday_exploded;
   time_yesterday.LocalExplode(&time_yesterday_exploded);
 
@@ -827,7 +824,7 @@ base::string16 SafetyCheckHandler::GetStringForTimePassed(
   }
 }
 
-base::string16 SafetyCheckHandler::GetStringForParentRan(
+std::u16string SafetyCheckHandler::GetStringForParentRan(
     base::Time safety_check_completion_time,
     base::Time system_time) {
   return SafetyCheckHandler::GetStringForTimePassed(
@@ -839,14 +836,14 @@ base::string16 SafetyCheckHandler::GetStringForParentRan(
       IDS_SETTINGS_SAFETY_CHECK_PARENT_PRIMARY_LABEL_AFTER_DAYS);
 }
 
-base::string16 SafetyCheckHandler::GetStringForParentRan(
+std::u16string SafetyCheckHandler::GetStringForParentRan(
     base::Time safety_check_completion_time) {
   return SafetyCheckHandler::GetStringForParentRan(safety_check_completion_time,
                                                    base::Time::Now());
 }
 
 #if defined(OS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
-base::string16 SafetyCheckHandler::GetStringForChromeCleanerRan(
+std::u16string SafetyCheckHandler::GetStringForChromeCleanerRan(
     base::Time cct_completion_time,
     base::Time system_time) {
   if (cct_completion_time.is_null()) {
@@ -880,10 +877,7 @@ void SafetyCheckHandler::UpdatePasswordsResultOnCheckIdle() {
   size_t num_compromised =
       passwords_delegate_->GetCompromisedCredentials().size();
   size_t num_weak = passwords_delegate_->GetWeakCredentials().size();
-  // TODO(crbug.com/1128904): Clean up the old code path.
-  if (num_compromised == 0 &&
-      (num_weak == 0 ||
-       !base::FeatureList::IsEnabled(features::kSafetyCheckWeakPasswords))) {
+  if (num_compromised == 0 && num_weak == 0) {
     // If there are no |OnCredentialDone| callbacks with is_leaked = true, no
     // need to wait for InsecureCredentialsManager callbacks any longer, since
     // there should be none for the current password check.
@@ -912,7 +906,7 @@ void SafetyCheckHandler::OnVersionUpdaterResult(VersionUpdater::Status status,
                                                 bool powerwash,
                                                 const std::string& version,
                                                 int64_t update_size,
-                                                const base::string16& message) {
+                                                const std::u16string& message) {
   if (status == VersionUpdater::FAILED) {
     update_helper_->CheckConnectivity(
         base::BindOnce(&SafetyCheckHandler::DetermineIfOfflineOrError,
@@ -920,19 +914,6 @@ void SafetyCheckHandler::OnVersionUpdaterResult(VersionUpdater::Status status,
     return;
   }
   OnUpdateCheckResult(ConvertToUpdateStatus(status));
-}
-
-void SafetyCheckHandler::OnSafeBrowsingCheckResult(
-    SafetyCheckHandler::SafeBrowsingStatus status) {
-  safe_browsing_status_ = status;
-  if (safe_browsing_status_ != SafeBrowsingStatus::kChecking) {
-    base::UmaHistogramEnumeration("Settings.SafetyCheck.SafeBrowsingResult",
-                                  safe_browsing_status_);
-  }
-  FireBasicSafetyCheckWebUiListener(
-      kSafeBrowsingEvent, static_cast<int>(safe_browsing_status_),
-      GetStringForSafeBrowsing(safe_browsing_status_));
-  CompleteParentIfChildrenCompleted();
 }
 
 void SafetyCheckHandler::OnStateChanged(
@@ -1064,8 +1045,6 @@ void SafetyCheckHandler::OnJavascriptDisallowed() {
   // Destroy the version updater to prevent getting a callback and firing a
   // WebUI event, which would cause a crash.
   version_updater_.reset();
-  // Stop observing safety check events.
-  safety_check_.reset(nullptr);
 #if defined(OS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // Remove |this| as an observer for the Chrome cleaner.
   safe_browsing::ChromeCleanerController::GetInstance()->RemoveObserver(this);
@@ -1075,11 +1054,11 @@ void SafetyCheckHandler::OnJavascriptDisallowed() {
 void SafetyCheckHandler::RegisterMessages() {
   // Usage of base::Unretained(this) is safe, because web_ui() owns `this` and
   // won't release ownership until destruction.
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       kPerformSafetyCheck,
       base::BindRepeating(&SafetyCheckHandler::HandlePerformSafetyCheck,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       kGetParentRanDisplayString,
       base::BindRepeating(&SafetyCheckHandler::HandleGetParentRanDisplayString,
                           base::Unretained(this)));
@@ -1111,7 +1090,7 @@ void SafetyCheckHandler::CompleteParentIfChildrenCompleted() {
 void SafetyCheckHandler::FireBasicSafetyCheckWebUiListener(
     const std::string& event_name,
     int new_state,
-    const base::string16& display_string) {
+    const std::u16string& display_string) {
   base::DictionaryValue event;
   event.SetIntKey(kNewState, new_state);
   event.SetStringKey(kDisplayString, display_string);

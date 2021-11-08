@@ -118,6 +118,12 @@ public class ChromeTabCreatorTest {
         // Verify that the background tab is loaded.
         Assert.assertNotNull(bgTab.getView());
         ChromeTabUtils.waitForTabPageLoaded(bgTab, mTestServer.getURL(TEST_PATH));
+
+        // Both foreground and background do not request desktop sites.
+        Assert.assertFalse("Should not request desktop sites by default.",
+                fgTab.getWebContents().getNavigationController().getUseDesktopUserAgent());
+        Assert.assertFalse("Should not request desktop sites by default.",
+                bgTab.getWebContents().getNavigationController().getUseDesktopUserAgent());
     }
 
     /**

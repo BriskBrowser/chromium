@@ -33,7 +33,6 @@
 #include <memory>
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_data.h"
-#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -355,14 +354,14 @@ TEST(GIFImageDecoderTest, firstFrameHasGreaterSizeThanScreenSize) {
         SharedBuffer::Create(full_data.data(), i);
     decoder->SetData(data.get(), i == full_data.size());
 
-    if (decoder->IsSizeAvailable() && !frame_size.Width() &&
-        !frame_size.Height()) {
+    if (decoder->IsSizeAvailable() && !frame_size.width() &&
+        !frame_size.height()) {
       frame_size = decoder->DecodedSize();
       continue;
     }
 
-    ASSERT_EQ(frame_size.Width(), decoder->DecodedSize().Width());
-    ASSERT_EQ(frame_size.Height(), decoder->DecodedSize().Height());
+    ASSERT_EQ(frame_size.width(), decoder->DecodedSize().width());
+    ASSERT_EQ(frame_size.height(), decoder->DecodedSize().height());
   }
 }
 
@@ -470,7 +469,7 @@ TEST(GIFImageDecoderTest, externalAllocator) {
   decoder->SetMemoryAllocator(nullptr);
 
   ASSERT_TRUE(frame);
-  EXPECT_EQ(IntRect(IntPoint(), decoder->Size()), frame->OriginalFrameRect());
+  EXPECT_EQ(IntRect(gfx::Point(), decoder->Size()), frame->OriginalFrameRect());
   EXPECT_FALSE(frame->HasAlpha());
 }
 

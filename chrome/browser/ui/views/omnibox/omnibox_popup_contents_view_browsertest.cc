@@ -10,6 +10,7 @@
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
+#include "chrome/browser/themes/test/theme_service_changed_waiter.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -19,11 +20,12 @@
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 #include "chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/omnibox/browser/omnibox_popup_model.h"
+#include "components/omnibox/browser/omnibox_popup_selection.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -62,10 +64,10 @@ class ClickTrackingOverlayView : public views::View {
     last_click_ = event->location();
   }
 
-  base::Optional<gfx::Point> last_click() const { return last_click_; }
+  absl::optional<gfx::Point> last_click() const { return last_click_; }
 
  private:
-  base::Optional<gfx::Point> last_click_;
+  absl::optional<gfx::Point> last_click_;
 };
 
 // Helper to wait for theme changes. The wait is triggered when an instance of
@@ -73,25 +75,28 @@ class ClickTrackingOverlayView : public views::View {
 class ThemeChangeWaiter {
  public:
   explicit ThemeChangeWaiter(ThemeService* theme_service)
-      : theme_change_observer_(chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
-                               content::Source<ThemeService>(theme_service)) {}
+      : waiter_(theme_service) {}
+
+  ThemeChangeWaiter(const ThemeChangeWaiter&) = delete;
+  ThemeChangeWaiter& operator=(const ThemeChangeWaiter&) = delete;
 
   ~ThemeChangeWaiter() {
-    theme_change_observer_.Wait();
+    waiter_.WaitForThemeChanged();
     // Theme changes propagate asynchronously in DesktopWindowTreeHostX11::
     // FrameTypeChanged(), so ensure all tasks are consumed.
     content::RunAllPendingInMessageLoop();
   }
 
  private:
-  content::WindowedNotificationObserver theme_change_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThemeChangeWaiter);
+  test::ThemeServiceChangedWaiter waiter_;
 };
 
 class TestAXEventObserver : public views::AXEventObserver {
  public:
   TestAXEventObserver() { views::AXEventManager::Get()->AddObserver(this); }
+
+  TestAXEventObserver(const TestAXEventObserver&) = delete;
+  TestAXEventObserver& operator=(const TestAXEventObserver&) = delete;
 
   ~TestAXEventObserver() override {
     views::AXEventManager::Get()->RemoveObserver(this);
@@ -149,8 +154,6 @@ class TestAXEventObserver : public views::AXEventObserver {
   int active_descendant_changed_count_ = 0;
   std::string omnibox_value_;
   std::string selected_option_name_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestAXEventObserver);
 };
 
 }  // namespace
@@ -158,6 +161,10 @@ class TestAXEventObserver : public views::AXEventObserver {
 class OmniboxPopupContentsViewTest : public InProcessBrowserTest {
  public:
   OmniboxPopupContentsViewTest() {}
+
+  OmniboxPopupContentsViewTest(const OmniboxPopupContentsViewTest&) = delete;
+  OmniboxPopupContentsViewTest& operator=(const OmniboxPopupContentsViewTest&) =
+      delete;
 
   views::Widget* CreatePopupForTestQuery();
   views::Widget* GetPopupWidget() { return popup_view()->GetWidget(); }
@@ -171,30 +178,57 @@ class OmniboxPopupContentsViewTest : public InProcessBrowserTest {
   }
   OmniboxViewViews* omnibox_view() { return location_bar()->omnibox_view(); }
   OmniboxEditModel* edit_model() { return omnibox_view()->model(); }
-  OmniboxPopupModel* popup_model() { return edit_model()->popup_model(); }
   OmniboxPopupContentsView* popup_view() {
-    return static_cast<OmniboxPopupContentsView*>(popup_model()->view());
+    return static_cast<OmniboxPopupContentsView*>(
+        edit_model()->get_popup_view());
   }
 
- private:
-  base::test::ScopedFeatureList feature_list_;
+  SkColor GetSelectedColor(Browser* browser) {
+    return GetOmniboxColor(
+        BrowserView::GetBrowserViewForBrowser(browser)->GetThemeProvider(),
+        OmniboxPart::RESULTS_BACKGROUND, OmniboxPartState::SELECTED);
+  }
 
-  DISALLOW_COPY_AND_ASSIGN(OmniboxPopupContentsViewTest);
+  SkColor GetNormalColor(Browser* browser) {
+    return GetOmniboxColor(
+        BrowserView::GetBrowserViewForBrowser(browser)->GetThemeProvider(),
+        OmniboxPart::RESULTS_BACKGROUND);
+  }
+
+  void SetUseDarkColor(bool use_dark) {
+    BrowserView* browser_view =
+        BrowserView::GetBrowserViewForBrowser(browser());
+    browser_view->GetNativeTheme()->set_use_dark_colors(use_dark);
+  }
+
+  void UseDefaultTheme() {
+    // Some test relies on the light/dark variants of the result background to
+    // be different. But when using the GTK theme on Linux, these colors will be
+    // the same. Ensure we're not using the system (GTK) theme, which may be
+    // conditionally enabled depending on the environment.
+    ThemeService* theme_service =
+        ThemeServiceFactory::GetForProfile(browser()->profile());
+    if (!theme_service->UsingDefaultTheme()) {
+      ThemeChangeWaiter wait(theme_service);
+      theme_service->UseDefaultTheme();
+    }
+    ASSERT_TRUE(theme_service->UsingDefaultTheme());
+  }
 };
 
 views::Widget* OmniboxPopupContentsViewTest::CreatePopupForTestQuery() {
-  EXPECT_TRUE(popup_model()->result().empty());
+  EXPECT_TRUE(edit_model()->result().empty());
   EXPECT_FALSE(popup_view()->IsOpen());
   EXPECT_FALSE(GetPopupWidget());
 
-  edit_model()->SetUserText(base::ASCIIToUTF16("foo"));
+  edit_model()->SetUserText(u"foo");
   AutocompleteInput input(
-      base::ASCIIToUTF16("foo"), metrics::OmniboxEventProto::BLANK,
+      u"foo", metrics::OmniboxEventProto::BLANK,
       ChromeAutocompleteSchemeClassifier(browser()->profile()));
   input.set_want_asynchronous_matches(false);
-  popup_model()->autocomplete_controller()->Start(input);
+  edit_model()->autocomplete_controller()->Start(input);
 
-  EXPECT_FALSE(popup_model()->result().empty());
+  EXPECT_FALSE(edit_model()->result().empty());
   EXPECT_TRUE(popup_view()->IsOpen());
   views::Widget* popup = GetPopupWidget();
   EXPECT_TRUE(popup);
@@ -220,54 +254,27 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest, PopupAlignment) {
   EXPECT_EQ(popup_rect.right(), alignment_rect.right());
 }
 
-// Integration test for omnibox popup theming.
+// Integration test for omnibox popup theming in regular.
 IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest, ThemeIntegration) {
-  // This test relies on the light/dark variants of the result background to be
-  // different. But when using the GTK theme on Linux, these colors will be the
-  // same. Ensure we're not using the system (GTK) theme, which may be
-  // conditionally enabled depending on the environment.
   ThemeService* theme_service =
       ThemeServiceFactory::GetForProfile(browser()->profile());
-  if (!theme_service->UsingDefaultTheme()) {
-    ThemeChangeWaiter wait(theme_service);
-    theme_service->UseDefaultTheme();
-  }
-  ASSERT_TRUE(theme_service->UsingDefaultTheme());
+  UseDefaultTheme();
 
-  Browser* regular_browser = browser();
-  BrowserView* browser_view =
-      BrowserView::GetBrowserViewForBrowser(regular_browser);
-  browser_view->GetNativeTheme()->set_use_dark_colors(true);
-  const ui::ThemeProvider* theme_provider = browser_view->GetThemeProvider();
-  const SkColor selection_color_dark =
-      GetOmniboxColor(theme_provider, OmniboxPart::RESULTS_BACKGROUND,
-                      OmniboxPartState::SELECTED);
+  SetUseDarkColor(true);
+  const SkColor selection_color_dark = GetSelectedColor(browser());
 
-  browser_view->GetNativeTheme()->set_use_dark_colors(false);
-  const SkColor selection_color_light =
-      GetOmniboxColor(theme_provider, OmniboxPart::RESULTS_BACKGROUND,
-                      OmniboxPartState::SELECTED);
+  SetUseDarkColor(false);
+  const SkColor selection_color_light = GetSelectedColor(browser());
 
   // Unthemed, non-incognito always has a white background. Exceptions: Inverted
   // color themes on Windows and GTK (not tested here).
-  EXPECT_EQ(SK_ColorWHITE,
-            GetOmniboxColor(theme_provider, OmniboxPart::RESULTS_BACKGROUND));
-
-  auto get_selection_color = [](const Browser* browser) {
-    return GetOmniboxColor(
-        BrowserView::GetBrowserViewForBrowser(browser)->GetThemeProvider(),
-        OmniboxPart::RESULTS_BACKGROUND, OmniboxPartState::SELECTED);
-  };
+  EXPECT_EQ(SK_ColorWHITE, GetNormalColor(browser()));
 
   // Tests below are mainly interested just whether things change, so ensure
   // that can be detected.
   EXPECT_NE(selection_color_dark, selection_color_light);
 
-  EXPECT_EQ(selection_color_light, get_selection_color(regular_browser));
-
-  // Check unthemed incognito windows.
-  Browser* incognito_browser = CreateIncognitoBrowser();
-  EXPECT_EQ(selection_color_dark, get_selection_color(incognito_browser));
+  EXPECT_EQ(selection_color_light, GetSelectedColor(browser()));
 
   // Install a theme (in both browsers, since it's the same profile).
   extensions::ChromeTestExtensionLoader loader(browser()->profile());
@@ -279,22 +286,72 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest, ThemeIntegration) {
     loader.LoadExtension(path);
   }
 
-  // Check the incognito browser first. Everything should now be light.
-  EXPECT_EQ(selection_color_light, get_selection_color(incognito_browser));
-
   // Same in the non-incognito browser.
-  EXPECT_EQ(selection_color_light, get_selection_color(regular_browser));
+  EXPECT_EQ(selection_color_light, GetSelectedColor(browser()));
 
   // Switch to the default theme without installing a custom theme. E.g. this is
   // what gets used on KDE or when switching to the "classic" theme in settings.
+  UseDefaultTheme();
+
+  EXPECT_EQ(selection_color_light, GetSelectedColor(browser()));
+}
+
+class OmniboxPopupContentsViewInIncognitoTest
+    : public OmniboxPopupContentsViewTest,
+      public testing::WithParamInterface<bool> {
+ public:
+  OmniboxPopupContentsViewInIncognitoTest() {
+    feature_list_.InitWithFeatureState(
+        features::kIncognitoBrandConsistencyForDesktop, GetParam());
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+INSTANTIATE_TEST_SUITE_P(OmniboxPopupContentsViewInIncognitoWithFeatureFlagTest,
+                         OmniboxPopupContentsViewInIncognitoTest,
+                         testing::Bool());
+
+// Integration test for omnibox popup theming in Incognito.
+IN_PROC_BROWSER_TEST_P(OmniboxPopupContentsViewInIncognitoTest,
+                       ThemeIntegration) {
+  ThemeService* theme_service =
+      ThemeServiceFactory::GetForProfile(browser()->profile());
+  UseDefaultTheme();
+
+  SetUseDarkColor(true);
+  const SkColor selection_color_dark = GetSelectedColor(browser());
+
+  SetUseDarkColor(false);
+  const SkColor selection_color_light = GetSelectedColor(browser());
+
+  // Install a theme (in both browsers, since it's the same profile).
+  extensions::ChromeTestExtensionLoader loader(browser()->profile());
   {
     ThemeChangeWaiter wait(theme_service);
-    theme_service->UseDefaultTheme();
+    base::FilePath path = ui_test_utils::GetTestFilePath(
+        base::FilePath().AppendASCII("extensions"),
+        base::FilePath().AppendASCII("theme"));
+    loader.LoadExtension(path);
   }
-  EXPECT_EQ(selection_color_light, get_selection_color(regular_browser));
+
+  // Check unthemed incognito windows.
+  Browser* incognito_browser = CreateIncognitoBrowser();
+
+  if (GetParam() /*Incognito brand consistency enabled*/) {
+    EXPECT_EQ(selection_color_dark, GetSelectedColor(incognito_browser));
+  } else {
+    // The previous theme installation should make it light.
+    EXPECT_EQ(selection_color_light, GetSelectedColor(incognito_browser));
+  }
+
+  // Switch to the default theme without installing a custom theme. E.g. this is
+  // what gets used on KDE or when switching to the "classic" theme in settings.
+  UseDefaultTheme();
 
   // Check incognito again. It should now use a dark theme, even on Linux.
-  EXPECT_EQ(selection_color_dark, get_selection_color(incognito_browser));
+  EXPECT_EQ(selection_color_dark, GetSelectedColor(incognito_browser));
 }
 
 // TODO(tapted): https://crbug.com/905508 Fix and enable on Mac.
@@ -335,11 +392,11 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest, MAYBE_ClickOmnibox) {
   // should deselect the text);
   omnibox_view()->SelectAll(true);
   views::Textfield* textfield = omnibox_view();
-  EXPECT_EQ(base::ASCIIToUTF16("foo"), textfield->GetSelectedText());
+  EXPECT_EQ(u"foo", textfield->GetSelectedText());
 
   generator.MoveMouseTo(location_bar()->GetBoundsInScreen().CenterPoint());
   generator.ClickLeftButton();
-  EXPECT_EQ(base::string16(), textfield->GetSelectedText());
+  EXPECT_EQ(std::u16string(), textfield->GetSelectedText());
 
   // Clicking the result should dismiss the popup (asynchronously).
   generator.MoveMouseTo(result->GetBoundsInScreen().CenterPoint());
@@ -358,8 +415,16 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest, MAYBE_ClickOmnibox) {
 // Check that the location bar background (and the background of the textfield
 // it contains) changes when it receives focus, and matches the popup background
 // color.
+// Flaky on Linux and Windows. See https://crbug.com/1120701
+#if defined(OS_LINUX) || defined(OS_WIN)
+#define MAYBE_PopupMatchesLocationBarBackground \
+  DISABLED_PopupMatchesLocationBarBackground
+#else
+#define MAYBE_PopupMatchesLocationBarBackground \
+  PopupMatchesLocationBarBackground
+#endif
 IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
-                       PopupMatchesLocationBarBackground) {
+                       MAYBE_PopupMatchesLocationBarBackground) {
   // In dark mode the omnibox focused and unfocused colors are the same, which
   // makes this test fail; see comments below.
   BrowserView::GetBrowserViewForBrowser(browser())
@@ -408,12 +473,12 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   ACMatches matches;
   AutocompleteMatch match(nullptr, 500, false,
                           AutocompleteMatchType::HISTORY_TITLE);
-  AutocompleteController* controller = popup_model()->autocomplete_controller();
-  match.contents = base::ASCIIToUTF16("https://foobar.com");
-  match.description = base::ASCIIToUTF16("FooBarCom");
+  AutocompleteController* controller = edit_model()->autocomplete_controller();
+  match.contents = u"https://foobar.com";
+  match.description = u"FooBarCom";
   matches.push_back(match);
-  match.contents = base::ASCIIToUTF16("https://foobarbaz.com");
-  match.description = base::ASCIIToUTF16("FooBarBazCom");
+  match.contents = u"https://foobarbaz.com";
+  match.description = u"FooBarBazCom";
   matches.push_back(match);
   controller->result_.AppendMatches(controller->input_, matches);
   popup_view()->UpdatePopupAppearance();
@@ -421,7 +486,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
 
   // Changing the user text while in the input rather than the list should not
   // result in a text/name change accessibility event.
-  edit_model()->SetUserText(base::ASCIIToUTF16("bar"));
+  edit_model()->SetUserText(u"bar");
   edit_model()->StartAutocomplete(false, false);
   popup_view()->UpdatePopupAppearance();
   EXPECT_EQ(observer.text_changed_on_listboxoption_count(), 0);
@@ -433,7 +498,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   // Each time the selection changes, we should have a text/name change event.
   // This makes it possible for screen readers to have the updated match content
   // when they are notified the selection changed.
-  popup_view()->model()->SetSelection(OmniboxPopupModel::Selection(1));
+  edit_model()->SetPopupSelection(OmniboxPopupSelection(1));
   EXPECT_EQ(observer.text_changed_on_listboxoption_count(), 1);
   EXPECT_EQ(observer.selected_children_changed_count(), 2);
   EXPECT_EQ(observer.selection_changed_count(), 2);
@@ -448,7 +513,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   EXPECT_TRUE(
       contains(observer.selected_option_name(), "location from history"));
 
-  popup_view()->model()->SetSelection(OmniboxPopupModel::Selection(2));
+  edit_model()->SetPopupSelection(OmniboxPopupSelection(2));
   EXPECT_EQ(observer.text_changed_on_listboxoption_count(), 2);
   EXPECT_EQ(observer.selected_children_changed_count(), 3);
   EXPECT_EQ(observer.selection_changed_count(), 3);
@@ -482,15 +547,15 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   ACMatches matches;
   AutocompleteMatch match(nullptr, 500, false,
                           AutocompleteMatchType::HISTORY_TITLE);
-  AutocompleteController* controller = popup_model()->autocomplete_controller();
-  match.contents = base::ASCIIToUTF16("https://foobar.com");
-  match.description = base::ASCIIToUTF16("The Foo Of All Bars");
+  AutocompleteController* controller = edit_model()->autocomplete_controller();
+  match.contents = u"https://foobar.com";
+  match.description = u"The Foo Of All Bars";
   match.has_tab_match = true;
   matches.push_back(match);
   controller->result_.AppendMatches(controller->input_, matches);
   popup_view()->UpdatePopupAppearance();
 
-  popup_view()->model()->SetSelection(OmniboxPopupModel::Selection(1));
+  edit_model()->SetPopupSelection(OmniboxPopupSelection(1));
   EXPECT_EQ(observer.selected_children_changed_count(), 2);
   EXPECT_EQ(observer.selection_changed_count(), 2);
   EXPECT_EQ(observer.active_descendant_changed_count(), 2);
@@ -503,8 +568,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
       contains(observer.selected_option_name(), "press Tab then Enter"));
   EXPECT_FALSE(contains(observer.selected_option_name(), "2 of 2"));
 
-  popup_view()->model()->SetSelection(OmniboxPopupModel::Selection(
-      1, OmniboxPopupModel::FOCUSED_BUTTON_TAB_SWITCH));
+  edit_model()->SetPopupSelection(OmniboxPopupSelection(
+      1, OmniboxPopupSelection::FOCUSED_BUTTON_TAB_SWITCH));
   EXPECT_TRUE(contains(observer.omnibox_value(), "The Foo Of All Bars"));
   EXPECT_EQ(observer.selected_children_changed_count(), 3);
   EXPECT_EQ(observer.selection_changed_count(), 3);
@@ -516,8 +581,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
       contains(observer.selected_option_name(), "press Enter to switch"));
   EXPECT_FALSE(contains(observer.selected_option_name(), "2 of 2"));
 
-  popup_view()->model()->SetSelection(
-      OmniboxPopupModel::Selection(1, OmniboxPopupModel::NORMAL));
+  edit_model()->SetPopupSelection(
+      OmniboxPopupSelection(1, OmniboxPopupSelection::NORMAL));
   EXPECT_TRUE(contains(observer.omnibox_value(), "The Foo Of All Bars"));
   EXPECT_TRUE(contains(observer.selected_option_name(), "foobar.com"));
   EXPECT_EQ(observer.selected_children_changed_count(), 4);
@@ -535,26 +600,26 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
                        EmitSelectedChildrenChangedAccessibilityEvent) {
   // Create a popup for the matches.
   GetPopupWidget();
-  edit_model()->SetUserText(base::ASCIIToUTF16("foo"));
+  edit_model()->SetUserText(u"foo");
   AutocompleteInput input(
-      base::ASCIIToUTF16("foo"), metrics::OmniboxEventProto::BLANK,
+      u"foo", metrics::OmniboxEventProto::BLANK,
       ChromeAutocompleteSchemeClassifier(browser()->profile()));
   input.set_want_asynchronous_matches(false);
-  popup_model()->autocomplete_controller()->Start(input);
+  edit_model()->autocomplete_controller()->Start(input);
 
   // Create a match to populate the autocomplete.
-  base::string16 match_url = base::ASCIIToUTF16("https://foobar.com");
+  std::u16string match_url = u"https://foobar.com";
   AutocompleteMatch match(nullptr, 500, false,
                           AutocompleteMatchType::HISTORY_TITLE);
   match.contents = match_url;
   match.contents_class.push_back(
       ACMatchClassification(0, ACMatchClassification::URL));
   match.destination_url = GURL(match_url);
-  match.description = base::ASCIIToUTF16("Foobar");
+  match.description = u"Foobar";
   match.allowed_to_be_default_match = true;
 
   AutocompleteController* autocomplete_controller =
-      popup_model()->autocomplete_controller();
+      edit_model()->autocomplete_controller();
   AutocompleteResult& results = autocomplete_controller->result_;
   ACMatches matches;
   matches.push_back(match);
@@ -570,14 +635,14 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   EXPECT_EQ(observer.active_descendant_changed_count(), 0);
 
   // This is equiverlent of the user arrowing down in the omnibox.
-  popup_view()->model()->SetSelection(OmniboxPopupModel::Selection(1));
+  edit_model()->SetPopupSelection(OmniboxPopupSelection(1));
   EXPECT_EQ(observer.selected_children_changed_count(), 1);
   EXPECT_EQ(observer.selection_changed_count(), 1);
   EXPECT_EQ(observer.value_changed_count(), 1);
   EXPECT_EQ(observer.active_descendant_changed_count(), 1);
 
   // This is equivalent of the user arrowing up in the omnibox.
-  popup_view()->model()->SetSelection(OmniboxPopupModel::Selection(0));
+  edit_model()->SetPopupSelection(OmniboxPopupSelection(0));
   EXPECT_EQ(observer.selected_children_changed_count(), 2);
   EXPECT_EQ(observer.selection_changed_count(), 2);
   EXPECT_EQ(observer.value_changed_count(), 2);

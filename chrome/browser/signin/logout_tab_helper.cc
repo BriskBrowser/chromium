@@ -11,7 +11,7 @@
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/navigation_handle.h"
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(LogoutTabHelper)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(LogoutTabHelper);
 
 LogoutTabHelper::LogoutTabHelper(content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents) {}
@@ -20,7 +20,10 @@ LogoutTabHelper::~LogoutTabHelper() = default;
 
 void LogoutTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame())
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (!navigation_handle->IsInPrimaryMainFrame())
     return;
 
   if (navigation_handle->IsErrorPage()) {

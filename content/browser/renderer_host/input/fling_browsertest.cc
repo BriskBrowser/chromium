@@ -57,6 +57,11 @@ namespace content {
 class BrowserSideFlingBrowserTest : public ContentBrowserTest {
  public:
   BrowserSideFlingBrowserTest() {}
+
+  BrowserSideFlingBrowserTest(const BrowserSideFlingBrowserTest&) = delete;
+  BrowserSideFlingBrowserTest& operator=(const BrowserSideFlingBrowserTest&) =
+      delete;
+
   ~BrowserSideFlingBrowserTest() override {}
 
   void OnSyntheticGestureCompleted(SyntheticGesture::Result result) {
@@ -95,7 +100,7 @@ class BrowserSideFlingBrowserTest : public ContentBrowserTest {
     RenderWidgetHostImpl* host = GetWidgetHost();
     host->GetView()->SetSize(gfx::Size(400, 400));
 
-    base::string16 ready_title(base::ASCIIToUTF16("ready"));
+    std::u16string ready_title(u"ready");
     TitleWatcher watcher(shell()->web_contents(), ready_title);
     ignore_result(watcher.WaitAndGetTitle());
     SynchronizeThreads();
@@ -108,8 +113,8 @@ class BrowserSideFlingBrowserTest : public ContentBrowserTest {
     EXPECT_TRUE(NavigateToURL(shell(), main_url));
 
     FrameTreeNode* root = static_cast<WebContentsImpl*>(shell()->web_contents())
-                              ->GetFrameTree()
-                              ->root();
+                              ->GetPrimaryFrameTree()
+                              .root();
     ASSERT_EQ(1U, root->child_count());
 
     // Navigate oopif to URL.
@@ -259,8 +264,7 @@ class BrowserSideFlingBrowserTest : public ContentBrowserTest {
   void GiveItSomeTime(int64_t time_delta_ms = 10) {
     base::RunLoop run_loop;
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, run_loop.QuitClosure(),
-        base::TimeDelta::FromMilliseconds(time_delta_ms));
+        FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(time_delta_ms));
     run_loop.Run();
   }
 
@@ -285,8 +289,8 @@ class BrowserSideFlingBrowserTest : public ContentBrowserTest {
 
   FrameTreeNode* GetRootNode() {
     return static_cast<WebContentsImpl*>(shell()->web_contents())
-        ->GetFrameTree()
-        ->root();
+        ->GetPrimaryFrameTree()
+        .root();
   }
 
   FrameTreeNode* GetChildNode() {
@@ -297,9 +301,6 @@ class BrowserSideFlingBrowserTest : public ContentBrowserTest {
   std::unique_ptr<base::RunLoop> run_loop_;
   RenderWidgetHostViewBase* child_view_ = nullptr;
   RenderWidgetHostViewBase* root_view_ = nullptr;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BrowserSideFlingBrowserTest);
 };
 
 // On Mac we don't have any touchscreen/touchpad fling events (GFS/GFC).
@@ -372,8 +373,8 @@ IN_PROC_BROWSER_TEST_F(BrowserSideFlingBrowserTest,
   // Wait for 100ms. Then check that the second page has not scrolled.
   GiveItSomeTime(100);
   FrameTreeNode* root = static_cast<WebContentsImpl*>(shell()->web_contents())
-                            ->GetFrameTree()
-                            ->root();
+                            ->GetPrimaryFrameTree()
+                            .root();
   EXPECT_EQ(
       0, EvalJs(root->current_frame_host(), "window.scrollY").ExtractDouble());
 }
@@ -490,7 +491,7 @@ IN_PROC_BROWSER_TEST_F(BrowserSideFlingBrowserTest,
   auto input_msg_watcher = std::make_unique<InputMsgWatcher>(
       GetWidgetHost(), blink::WebInputEvent::Type::kGestureScrollEnd);
   SyntheticSmoothScrollGestureParams params;
-  params.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+  params.gesture_source_type = content::mojom::GestureSourceType::kTouchInput;
   const gfx::PointF location_in_widget(10, 10);
   const gfx::PointF location_in_root =
       child_view_->TransformPointToRootCoordSpaceF(location_in_widget);
@@ -528,8 +529,8 @@ IN_PROC_BROWSER_TEST_F(BrowserSideFlingBrowserTest,
                        NoFlingWhenViewIsDestroyed) {
   LoadURL(kBrowserFlingDataURL);
   FrameTreeNode* root = static_cast<WebContentsImpl*>(shell()->web_contents())
-                            ->GetFrameTree()
-                            ->root();
+                            ->GetPrimaryFrameTree()
+                            .root();
 
   GetWidgetHost()->GetView()->Destroy();
   SimulateTouchscreenFling(GetWidgetHost());
@@ -546,6 +547,12 @@ IN_PROC_BROWSER_TEST_F(BrowserSideFlingBrowserTest,
 class PhysicsBasedFlingCurveBrowserTest : public BrowserSideFlingBrowserTest {
  public:
   PhysicsBasedFlingCurveBrowserTest() {}
+
+  PhysicsBasedFlingCurveBrowserTest(const PhysicsBasedFlingCurveBrowserTest&) =
+      delete;
+  PhysicsBasedFlingCurveBrowserTest& operator=(
+      const PhysicsBasedFlingCurveBrowserTest&) = delete;
+
   ~PhysicsBasedFlingCurveBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -556,7 +563,6 @@ class PhysicsBasedFlingCurveBrowserTest : public BrowserSideFlingBrowserTest {
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-  DISALLOW_COPY_AND_ASSIGN(PhysicsBasedFlingCurveBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(PhysicsBasedFlingCurveBrowserTest,

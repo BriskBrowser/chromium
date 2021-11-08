@@ -31,13 +31,12 @@ class ServiceWorkerDiskCacheTest : public testing::Test {
 
   void InitializeDiskCache(ServiceWorkerDiskCache* disk_cache) {
     base::RunLoop loop;
-    disk_cache->InitWithDiskBackend(
-        GetPath(), false,
-        /*post_cleanup_callback=*/base::DoNothing::Once(),
-        base::BindLambdaForTesting([&](int rv) {
-          ASSERT_EQ(rv, net::OK);
-          loop.Quit();
-        }));
+    disk_cache->InitWithDiskBackend(GetPath(),
+                                    /*post_cleanup_callback=*/base::DoNothing(),
+                                    base::BindLambdaForTesting([&](int rv) {
+                                      ASSERT_EQ(rv, net::OK);
+                                      loop.Quit();
+                                    }));
     loop.Run();
   }
 
@@ -96,7 +95,7 @@ TEST_F(ServiceWorkerDiskCacheTest, DisablePriorToInitCompletion) {
         EXPECT_FALSE(entry);
         ++callback_count;
       });
-  disk_cache->InitWithDiskBackend(GetPath(), false,
+  disk_cache->InitWithDiskBackend(GetPath(),
                                   /*post_cleanup_callback=*/base::DoNothing(),
                                   completion_callback);
   disk_cache->CreateEntry(1, entry_callback);
@@ -164,7 +163,7 @@ TEST_F(ServiceWorkerDiskCacheTest, CleanupCallback) {
   net::TestCompletionCallback init_done;
   auto disk_cache = std::make_unique<ServiceWorkerDiskCache>();
   EXPECT_FALSE(disk_cache->is_disabled());
-  disk_cache->InitWithDiskBackend(GetPath(), false, cleanup_done.closure(),
+  disk_cache->InitWithDiskBackend(GetPath(), cleanup_done.closure(),
                                   init_done.callback());
   EXPECT_EQ(net::OK, init_done.WaitForResult());
 

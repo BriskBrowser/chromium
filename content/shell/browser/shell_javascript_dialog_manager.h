@@ -20,14 +20,19 @@ class ShellJavaScriptDialog;
 class ShellJavaScriptDialogManager : public JavaScriptDialogManager {
  public:
   ShellJavaScriptDialogManager();
+
+  ShellJavaScriptDialogManager(const ShellJavaScriptDialogManager&) = delete;
+  ShellJavaScriptDialogManager& operator=(const ShellJavaScriptDialogManager&) =
+      delete;
+
   ~ShellJavaScriptDialogManager() override;
 
   // JavaScriptDialogManager:
   void RunJavaScriptDialog(WebContents* web_contents,
                            RenderFrameHost* render_frame_host,
                            JavaScriptDialogType dialog_type,
-                           const base::string16& message_text,
-                           const base::string16& default_prompt_text,
+                           const std::u16string& message_text,
+                           const std::u16string& default_prompt_text,
                            DialogClosedCallback callback,
                            bool* did_suppress_message) override;
 
@@ -67,8 +72,6 @@ class ShellJavaScriptDialogManager : public JavaScriptDialogManager {
   bool beforeunload_success_;
 
   DialogClosedCallback before_unload_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShellJavaScriptDialogManager);
 };
 
 }  // namespace content

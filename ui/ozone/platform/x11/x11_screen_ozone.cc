@@ -4,8 +4,9 @@
 
 #include "ui/ozone/platform/x11/x11_screen_ozone.h"
 
+#include "ui/base/linux/linux_desktop.h"
 #include "ui/base/x/x11_idle_query.h"
-#include "ui/base/x/x11_screensaver_window_finder.h"
+#include "ui/base/x/x11_screensaver.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/display/display_finder.h"
 #include "ui/display/util/display_util.h"
@@ -21,20 +22,6 @@
 
 namespace ui {
 
-namespace {
-
-float GetDeviceScaleFactor() {
-  float device_scale_factor = 1.0f;
-  // TODO(crbug.com/891175): Implement PlatformScreen for X11
-  // Get device scale factor using scale factor and resolution like
-  // 'GtkUi::GetRawDeviceScaleFactor'.
-  if (display::Display::HasForceDeviceScaleFactor())
-    device_scale_factor = display::Display::GetForcedDeviceScaleFactor();
-  return device_scale_factor;
-}
-
-}  // namespace
-
 X11ScreenOzone::X11ScreenOzone()
     : window_manager_(X11WindowManager::GetInstance()),
       x11_display_manager_(std::make_unique<XDisplayManager>(this)) {
@@ -47,6 +34,7 @@ X11ScreenOzone::~X11ScreenOzone() {
 }
 
 void X11ScreenOzone::Init() {
+  initialized_ = true;
   if (x11_display_manager_->IsXrandrAvailable())
     x11::Connection::Get()->AddEventObserver(this);
   x11_display_manager_->Init();
@@ -66,38 +54,48 @@ display::Display X11ScreenOzone::GetDisplayForAcceleratedWidget(
     return GetPrimaryDisplay();
 
   X11Window* window = window_manager_->GetWindow(widget);
-  return window ? GetDisplayMatching(window->GetBounds()) : GetPrimaryDisplay();
+  if (window) {
+    gfx::Rect bounds_dip = gfx::ToEnclosingRect(
+        gfx::ConvertRectToDips(window->GetBounds(), GetXDisplayScaleFactor()));
+    return GetDisplayMatching(bounds_dip);
+  }
+  return GetPrimaryDisplay();
 }
 
 gfx::Point X11ScreenOzone::GetCursorScreenPoint() const {
-  base::Optional<gfx::Point> point_in_pixels;
+  absl::optional<gfx::Point> point_in_pixels;
   if (ui::X11EventSource::HasInstance()) {
     point_in_pixels = ui::X11EventSource::GetInstance()
                           ->GetRootCursorLocationFromCurrentEvent();
   }
   if (!point_in_pixels) {
     // This call is expensive so we explicitly only call it when
-    // |point_in_pixels| is not set. We note that base::Optional::value_or()
+    // |point_in_pixels| is not set. We note that absl::optional::value_or()
     // would cause it to be called regardless.
     point_in_pixels = GetCursorLocation();
   }
   // TODO(danakj): Should this be rounded? Or kept as a floating point?
   return gfx::ToFlooredPoint(
-      gfx::ConvertPointToDips(*point_in_pixels, GetDeviceScaleFactor()));
+      gfx::ConvertPointToDips(*point_in_pixels, GetXDisplayScaleFactor()));
 }
 
 gfx::AcceleratedWidget X11ScreenOzone::GetAcceleratedWidgetAtScreenPoint(
     const gfx::Point& point) const {
+  gfx::Point point_in_pixels = gfx::ToFlooredPoint(
+      gfx::ConvertPointToPixels(point, GetXDisplayScaleFactor()));
   X11TopmostWindowFinder finder;
-  return static_cast<gfx::AcceleratedWidget>(finder.FindWindowAt(point));
+  return static_cast<gfx::AcceleratedWidget>(
+      finder.FindWindowAt(point_in_pixels));
 }
 
 gfx::AcceleratedWidget X11ScreenOzone::GetLocalProcessWidgetAtPoint(
     const gfx::Point& point,
     const std::set<gfx::AcceleratedWidget>& ignore) const {
+  gfx::Point point_in_pixels = gfx::ToFlooredPoint(
+      gfx::ConvertPointToPixels(point, GetXDisplayScaleFactor()));
   X11TopmostWindowFinder finder;
   return static_cast<gfx::AcceleratedWidget>(
-      finder.FindLocalProcessWindowAt(point, ignore));
+      finder.FindLocalProcessWindowAt(point_in_pixels, ignore));
 }
 
 display::Display X11ScreenOzone::GetDisplayNearestPoint(
@@ -109,9 +107,7 @@ display::Display X11ScreenOzone::GetDisplayNearestPoint(
 }
 
 display::Display X11ScreenOzone::GetDisplayMatching(
-    const gfx::Rect& match_rect_in_pixels) const {
-  gfx::Rect match_rect = gfx::ToEnclosingRect(
-      gfx::ConvertRectToDips(match_rect_in_pixels, GetDeviceScaleFactor()));
+    const gfx::Rect& match_rect) const {
   const display::Display* matching_display =
       display::FindDisplayWithBiggestIntersection(
           x11_display_manager_->displays(), match_rect);
@@ -124,12 +120,12 @@ void X11ScreenOzone::SetScreenSaverSuspended(bool suspend) {
 
 bool X11ScreenOzone::IsScreenSaverActive() const {
   // Usually the screensaver is used to lock the screen.
-  return ScreensaverWindowFinder::ScreensaverWindowExists();
+  return IsXScreensaverActive();
 }
 
 base::TimeDelta X11ScreenOzone::CalculateIdleTime() const {
   IdleQueryX11 idle_query;
-  return base::TimeDelta::FromSeconds(idle_query.IdleTime());
+  return base::Seconds(idle_query.IdleTime());
 }
 
 void X11ScreenOzone::AddObserver(display::DisplayObserver* observer) {
@@ -144,10 +140,22 @@ std::string X11ScreenOzone::GetCurrentWorkspace() {
   return x11_display_manager_->GetCurrentWorkspace();
 }
 
-base::Value X11ScreenOzone::GetGpuExtraInfoAsListValue(
+std::vector<base::Value> X11ScreenOzone::GetGpuExtraInfo(
     const gfx::GpuExtraInfo& gpu_extra_info) {
-  return ui::GpuExtraInfoAsListValue(gpu_extra_info.system_visual,
-                                     gpu_extra_info.rgba_visual);
+  auto result = GetDesktopEnvironmentInfo();
+  StorePlatformNameIntoListOfValues(result, "x11");
+  return result;
+}
+
+void X11ScreenOzone::SetDeviceScaleFactor(float scale) {
+  if (device_scale_factor_ == scale)
+    return;
+
+  device_scale_factor_ = scale;
+  // See DesktopScreenLinux, which sets the |device_scale_factor| before |this|
+  // is initialized.
+  if (initialized_)
+    x11_display_manager_->DispatchDelayedDisplayListUpdate();
 }
 
 void X11ScreenOzone::OnEvent(const x11::Event& xev) {
@@ -165,7 +173,9 @@ void X11ScreenOzone::OnXDisplayListUpdated() {
 }
 
 float X11ScreenOzone::GetXDisplayScaleFactor() const {
-  return GetDeviceScaleFactor();
+  return display::Display::HasForceDeviceScaleFactor()
+             ? display::Display::GetForcedDeviceScaleFactor()
+             : device_scale_factor_;
 }
 
 }  // namespace ui

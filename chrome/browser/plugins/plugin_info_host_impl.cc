@@ -11,11 +11,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/cxx20_erase.h"
 #include "base/memory/singleton.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -78,6 +78,11 @@ class PluginInfoHostImplShutdownNotifierFactory
     return base::Singleton<PluginInfoHostImplShutdownNotifierFactory>::get();
   }
 
+  PluginInfoHostImplShutdownNotifierFactory(
+      const PluginInfoHostImplShutdownNotifierFactory&) = delete;
+  PluginInfoHostImplShutdownNotifierFactory& operator=(
+      const PluginInfoHostImplShutdownNotifierFactory&) = delete;
+
  private:
   friend struct base::DefaultSingletonTraits<
       PluginInfoHostImplShutdownNotifierFactory>;
@@ -87,8 +92,6 @@ class PluginInfoHostImplShutdownNotifierFactory
             "PluginInfoHostImpl") {}
 
   ~PluginInfoHostImplShutdownNotifierFactory() override {}
-
-  DISALLOW_COPY_AND_ASSIGN(PluginInfoHostImplShutdownNotifierFactory);
 };
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -135,8 +138,6 @@ PluginInfoHostImpl::Context::Context(int render_process_id, Profile* profile)
       plugin_prefs_(PluginPrefs::GetForProfile(profile)) {
   allow_outdated_plugins_.Init(prefs::kPluginsAllowOutdated,
                                profile->GetPrefs());
-  run_all_flash_in_allow_mode_.Init(prefs::kRunAllFlashInAllowMode,
-                                    profile->GetPrefs());
 }
 
 PluginInfoHostImpl::Context::~Context() {}
@@ -144,7 +145,6 @@ PluginInfoHostImpl::Context::~Context() {}
 void PluginInfoHostImpl::Context::ShutdownOnUIThread() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   allow_outdated_plugins_.Destroy();
-  run_all_flash_in_allow_mode_.Destroy();
 }
 
 PluginInfoHostImpl::PluginInfoHostImpl(int render_process_id, Profile* profile)
@@ -166,7 +166,6 @@ void PluginInfoHostImpl::ShutdownOnUIThread() {
 void PluginInfoHostImpl::RegisterUserPrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kPluginsAllowOutdated, false);
-  registry->RegisterBooleanPref(prefs::kRunAllFlashInAllowMode, false);
 }
 
 PluginInfoHostImpl::~PluginInfoHostImpl() {}
@@ -244,14 +243,6 @@ void PluginInfoHostImpl::Context::DecidePluginStatus(
 
   DCHECK(plugin_setting != CONTENT_SETTING_DEFAULT);
 
-  if (*status == chrome::mojom::PluginStatus::kFlashHiddenPreferHtml) {
-    if (plugin_setting == CONTENT_SETTING_BLOCK) {
-      *status = is_managed ? chrome::mojom::PluginStatus::kBlockedByPolicy
-                           : chrome::mojom::PluginStatus::kBlockedNoLoading;
-    }
-    return;
-  }
-
 #if BUILDFLAG(ENABLE_PLUGINS)
   // Check if the plugin is outdated.
   if (security_status == PluginMetadata::SECURITY_STATUS_OUT_OF_DATE &&
@@ -285,8 +276,7 @@ void PluginInfoHostImpl::Context::DecidePluginStatus(
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
   if (plugin_setting == CONTENT_SETTING_ASK ||
-      (plugin_setting == CONTENT_SETTING_ALLOW &&
-       !run_all_flash_in_allow_mode_.GetValue())) {
+      plugin_setting == CONTENT_SETTING_ALLOW) {
     *status = chrome::mojom::PluginStatus::kPlayImportantContent;
   } else if (plugin_setting == CONTENT_SETTING_BLOCK) {
     *status = is_managed ? chrome::mojom::PluginStatus::kBlockedByPolicy
@@ -308,10 +298,11 @@ void PluginInfoHostImpl::Context::DecidePluginStatus(
 #endif
 }
 
+// TODO(crbug.com/850278): Remove unused parameters.
 bool PluginInfoHostImpl::Context::FindEnabledPlugin(
-    int render_frame_id,
+    int /*render_frame_id*/,
     const GURL& url,
-    const url::Origin& main_frame_origin,
+    const url::Origin& /*main_frame_origin*/,
     const std::string& mime_type,
     chrome::mojom::PluginStatus* status,
     WebPluginInfo* plugin,
@@ -339,8 +330,7 @@ bool PluginInfoHostImpl::Context::FindEnabledPlugin(
   size_t i = 0;
   for (; i < matching_plugins.size(); ++i) {
     if (!filter ||
-        filter->IsPluginAvailable(render_process_id_, render_frame_id, url,
-                                  main_frame_origin, &matching_plugins[i])) {
+        filter->IsPluginAvailable(render_process_id_, matching_plugins[i])) {
       break;
     }
   }

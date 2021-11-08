@@ -51,6 +51,9 @@ class MEDIA_EXPORT RendererImpl final : public Renderer {
                std::unique_ptr<AudioRenderer> audio_renderer,
                std::unique_ptr<VideoRenderer> video_renderer);
 
+  RendererImpl(const RendererImpl&) = delete;
+  RendererImpl& operator=(const RendererImpl&) = delete;
+
   ~RendererImpl() final;
 
   // Renderer implementation.
@@ -58,7 +61,7 @@ class MEDIA_EXPORT RendererImpl final : public Renderer {
                   RendererClient* client,
                   PipelineStatusCallback init_cb) final;
   void SetCdm(CdmContext* cdm_context, CdmAttachedCB cdm_attached_cb) final;
-  void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint) final;
+  void SetLatencyHint(absl::optional<base::TimeDelta> latency_hint) final;
   void SetPreservesPitch(bool preserves_pitch) final;
   void SetAutoplayInitiated(bool autoplay_initiated) final;
   void Flush(base::OnceClosure flush_cb) final;
@@ -152,7 +155,7 @@ class MEDIA_EXPORT RendererImpl final : public Renderer {
                             base::OnceClosure restart_completed_cb);
 
   // Fix state booleans after the stream switching is finished.
-  void CleanUpTrackChange(base::RepeatingClosure on_finished,
+  void CleanUpTrackChange(base::OnceClosure on_finished,
                           bool* ended,
                           bool* playing);
 
@@ -199,7 +202,7 @@ class MEDIA_EXPORT RendererImpl final : public Renderer {
   void OnAudioConfigChange(const AudioDecoderConfig& config);
   void OnVideoConfigChange(const VideoDecoderConfig& config);
   void OnVideoOpacityChange(bool opaque);
-  void OnVideoFrameRateChange(base::Optional<int> fps);
+  void OnVideoFrameRateChange(absl::optional<int> fps);
 
   void OnStreamRestartCompleted();
 
@@ -256,9 +259,8 @@ class MEDIA_EXPORT RendererImpl final : public Renderer {
   // The amount of time to wait before declaring underflow if the video renderer
   // runs out of data but the audio renderer still has enough.
   Tuneable<base::TimeDelta> video_underflow_threshold_ = {
-      "MediaVideoUnderflowThreshold", base::TimeDelta::FromMilliseconds(1000),
-      base::TimeDelta::FromMilliseconds(3000),
-      base::TimeDelta::FromMilliseconds(8000)};
+      "MediaVideoUnderflowThreshold", base::Milliseconds(1000),
+      base::Milliseconds(3000), base::Milliseconds(8000)};
 
   // Lock used to protect access to the |restarting_audio_| flag and
   // |restarting_audio_time_|.
@@ -272,8 +274,6 @@ class MEDIA_EXPORT RendererImpl final : public Renderer {
 
   base::WeakPtr<RendererImpl> weak_this_;
   base::WeakPtrFactory<RendererImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(RendererImpl);
 };
 
 }  // namespace media

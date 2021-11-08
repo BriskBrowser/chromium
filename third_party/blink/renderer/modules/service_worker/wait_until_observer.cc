@@ -17,7 +17,6 @@
 #include "third_party/blink/renderer/platform/scheduler/public/event_loop.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/web_test_support.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -30,9 +29,9 @@ const unsigned kWindowInteractionTimeout = 10;
 const unsigned kWindowInteractionTimeoutForTest = 1;
 
 base::TimeDelta WindowInteractionTimeout() {
-  return base::TimeDelta::FromSeconds(WebTestSupport::IsRunningWebTest()
-                                          ? kWindowInteractionTimeoutForTest
-                                          : kWindowInteractionTimeout);
+  return base::Seconds(WebTestSupport::IsRunningWebTest()
+                           ? kWindowInteractionTimeoutForTest
+                           : kWindowInteractionTimeout);
 }
 
 }  // anonymous namespace

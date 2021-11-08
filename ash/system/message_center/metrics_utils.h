@@ -5,6 +5,7 @@
 #ifndef ASH_SYSTEM_MESSAGE_CENTER_METRICS_UTILS_H_
 #define ASH_SYSTEM_MESSAGE_CENTER_METRICS_UTILS_H_
 
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/message_center/public/cpp/notification.h"
 
 namespace ash {
@@ -65,7 +66,7 @@ NotificationTypeDetailed GetNotificationType(
     const message_center::Notification& notification);
 
 // Returns the detailed notification type enum for a notification id.
-base::Optional<NotificationTypeDetailed> GetNotificationType(
+absl::optional<NotificationTypeDetailed> GetNotificationType(
     const std::string& notification_id);
 
 // Logs a ClickedBody event.
@@ -103,6 +104,10 @@ void LogClosedByClearAll(const std::string& notification_id);
 
 // Logs a notification added event.
 void LogNotificationAdded(const std::string& notification_id);
+
+// Logs the count of notifications displayed during the first minute after a
+// user logs in.
+void LogNotificationsShownInFirstMinute(int notifications_count);
 
 }  // namespace metrics_utils
 

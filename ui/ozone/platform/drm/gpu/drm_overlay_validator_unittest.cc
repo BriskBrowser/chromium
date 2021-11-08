@@ -49,6 +49,9 @@ class DrmOverlayValidatorTest : public testing::Test {
  public:
   DrmOverlayValidatorTest() = default;
 
+  DrmOverlayValidatorTest(const DrmOverlayValidatorTest&) = delete;
+  DrmOverlayValidatorTest& operator=(const DrmOverlayValidatorTest&) = delete;
+
   void SetUp() override;
   void TearDown() override;
 
@@ -81,15 +84,16 @@ class DrmOverlayValidatorTest : public testing::Test {
   bool ModesetController(ui::HardwareDisplayController* controller) {
     ui::CommitRequest commit_request;
 
-    ui::DrmOverlayPlane plane(CreateBuffer(), nullptr);
+    ui::DrmOverlayPlaneList modeset_planes;
+    modeset_planes.emplace_back(CreateBuffer(), nullptr);
 
-    controller->GetModesetProps(&commit_request, plane, kDefaultMode);
+    controller->GetModesetProps(&commit_request, modeset_planes, kDefaultMode);
     ui::CommitRequest request_for_update = commit_request;
     bool status = drm_->plane_manager()->Commit(std::move(commit_request),
                                                 DRM_MODE_ATOMIC_ALLOW_MODESET);
-    controller->UpdateState(
-        /*enable_requested=*/true,
-        ui::DrmOverlayPlane::GetPrimaryPlane(request_for_update[0].overlays()));
+
+    for (const ui::CrtcCommitRequest& crtc_request : request_for_update)
+      controller->UpdateState(crtc_request);
 
     return status;
   }
@@ -123,8 +127,6 @@ class DrmOverlayValidatorTest : public testing::Test {
 
  private:
   void SetupControllers();
-
-  DISALLOW_COPY_AND_ASSIGN(DrmOverlayValidatorTest);
 };
 
 void DrmOverlayValidatorTest::SetUp() {

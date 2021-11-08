@@ -6,17 +6,12 @@
 #define CHROME_BROWSER_SAFE_BROWSING_SERVICES_DELEGATE_H_
 
 #include <memory>
-#include <string>
 
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
-#include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
 #include "chrome/browser/safe_browsing/incident_reporting/delayed_analysis_callback.h"
-#include "components/safe_browsing/content/password_protection/password_protection_service.h"
-#include "services/network/public/mojom/network_context.mojom.h"
 
 class Profile;
-class ProxyConfigMonitor;
 
 namespace content {
 class DownloadManager;
@@ -38,11 +33,9 @@ namespace safe_browsing {
 class DownloadProtectionService;
 #endif
 class IncidentReportingService;
-class PasswordProtectionService;
 class SafeBrowsingService;
 class SafeBrowsingDatabaseManager;
 struct V4ProtocolConfig;
-class SafeBrowsingNetworkContext;
 
 // Abstraction to help organize code for mobile vs full safe browsing modes.
 // This helper class should be owned by a SafeBrowsingService, and it handles
@@ -114,51 +107,22 @@ class ServicesDelegate {
   virtual DownloadProtectionService* GetDownloadService() = 0;
 #endif
 
-  // Takes a SharedURLLoaderFactory with the Safe Browsing NetworkContext and
-  // one from the BrowserProcess.
+  // Takes a SharedURLLoaderFactory from the BrowserProcess, for use in the
+  // database manager.
   virtual void StartOnIOThread(
-      scoped_refptr<network::SharedURLLoaderFactory> sb_url_loader_factory,
       scoped_refptr<network::SharedURLLoaderFactory> browser_url_loader_factory,
       const V4ProtocolConfig& v4_config) = 0;
   virtual void StopOnIOThread(bool shutdown) = 0;
 
-  void CreatePasswordProtectionService(Profile* profile);
-  void RemovePasswordProtectionService(Profile* profile);
-  PasswordProtectionService* GetPasswordProtectionService(
-      Profile* profile) const;
-
   virtual void CreateTelemetryService(Profile* profile) {}
   virtual void RemoveTelemetryService(Profile* profile) {}
 
-  virtual void CreateSafeBrowsingNetworkContext(Profile* profile);
-  virtual void RemoveSafeBrowsingNetworkContext(Profile* profile);
-  virtual SafeBrowsingNetworkContext* GetSafeBrowsingNetworkContext(
-      Profile* profile) const;
-
  protected:
-  network::mojom::NetworkContextParamsPtr CreateNetworkContextParams(
-      Profile* profile);
-
   // Unowned pointer
   SafeBrowsingService* const safe_browsing_service_;
 
   // Unowned pointer
   ServicesCreator* const services_creator_;
-
-  std::unique_ptr<ProxyConfigMonitor> proxy_config_monitor_;
-
-  // Tracks existing Profiles, and their corresponding
-  // ChromePasswordProtectionService instances.
-  // Accessed on UI thread.
-  base::flat_map<Profile*, std::unique_ptr<ChromePasswordProtectionService>>
-      password_protection_service_map_;
-
-  // Tracks existing Profiles, and their corresponding
-  // SafeBrowsingNetworkContexts. Accessed on UI thread.
-  base::flat_map<Profile*, std::unique_ptr<SafeBrowsingNetworkContext>>
-      network_context_map_;
-  base::flat_map<Profile*, std::unique_ptr<ProxyConfigMonitor>>
-      proxy_config_monitor_map_;
 };
 
 }  // namespace safe_browsing

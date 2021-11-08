@@ -8,6 +8,7 @@
 
 #include "base/time/time.h"
 #include "chrome/browser/sharing/features.h"
+#include "chrome/browser/sharing/sharing_constants.h"
 #include "chrome/browser/sharing/sharing_dialog.h"
 #include "chrome/browser/sharing/sharing_dialog_data.h"
 #include "chrome/browser/sharing/sharing_service_factory.h"
@@ -51,7 +52,7 @@ SharingUiController::SharingUiController(content::WebContents* web_contents)
 
 SharingUiController::~SharingUiController() = default;
 
-base::string16 SharingUiController::GetTitle(SharingDialogType dialog_type) {
+std::u16string SharingUiController::GetTitle(SharingDialogType dialog_type) {
   // We only handle error messages generically.
   DCHECK_EQ(SharingDialogType::kErrorDialog, dialog_type);
   switch (send_result()) {
@@ -64,6 +65,7 @@ base::string16 SharingUiController::GetTitle(SharingDialogType dialog_type) {
           base::ToLowerASCII(GetContentType()));
 
     case SharingSendMessageResult::kSuccessful:
+    case SharingSendMessageResult::kCancelled:
       NOTREACHED();
       FALLTHROUGH;
 
@@ -76,7 +78,7 @@ base::string16 SharingUiController::GetTitle(SharingDialogType dialog_type) {
   }
 }
 
-base::string16 SharingUiController::GetErrorDialogText() const {
+std::u16string SharingUiController::GetErrorDialogText() const {
   switch (send_result()) {
     case SharingSendMessageResult::kDeviceNotFound:
       return l10n_util::GetStringFUTF16(
@@ -94,7 +96,8 @@ base::string16 SharingUiController::GetErrorDialogText() const {
           GetTargetDeviceName());
 
     case SharingSendMessageResult::kSuccessful:
-      return base::string16();
+    case SharingSendMessageResult::kCancelled:
+      return std::u16string();
 
     case SharingSendMessageResult::kPayloadTooLarge:
     case SharingSendMessageResult::kInternalError:
@@ -126,7 +129,7 @@ void SharingUiController::ClearLastDialog() {
 }
 
 void SharingUiController::UpdateAndShowDialog(
-    const base::Optional<url::Origin>& initiating_origin) {
+    const absl::optional<url::Origin>& initiating_origin) {
   ClearLastDialog();
   DoUpdateApps(base::BindOnce(&SharingUiController::OnAppsReceived,
                               weak_ptr_factory_.GetWeakPtr(), last_dialog_id_,
@@ -134,12 +137,13 @@ void SharingUiController::UpdateAndShowDialog(
 }
 
 std::vector<std::unique_ptr<syncer::DeviceInfo>>
-SharingUiController::GetDevices() {
+SharingUiController::GetDevices() const {
   return sharing_service_->GetDeviceCandidates(GetRequiredFeature());
 }
 
 bool SharingUiController::HasSendFailed() const {
-  return send_result_ != SharingSendMessageResult::kSuccessful;
+  return send_result_ != SharingSendMessageResult::kSuccessful &&
+         send_result_ != SharingSendMessageResult::kCancelled;
 }
 
 void SharingUiController::MaybeShowErrorDialog() {
@@ -166,20 +170,29 @@ SharingDialogData SharingUiController::CreateDialogData(
   return data;
 }
 
-void SharingUiController::SendMessageToDevice(
+bool SharingUiController::ShouldShowLoadingIcon() const {
+  return true;
+}
+
+base::OnceClosure SharingUiController::SendMessageToDevice(
     const syncer::DeviceInfo& device,
-    chrome_browser_sharing::SharingMessage sharing_message) {
-  last_dialog_id_++;
-  is_loading_ = true;
+    absl::optional<base::TimeDelta> response_timeout,
+    chrome_browser_sharing::SharingMessage sharing_message,
+    absl::optional<SharingMessageSender::ResponseCallback> custom_callback) {
   send_result_ = SharingSendMessageResult::kSuccessful;
   target_device_name_ = device.client_name();
-  UpdateIcon();
+  if (ShouldShowLoadingIcon()) {
+    last_dialog_id_++;
+    is_loading_ = true;
+    UpdateIcon();
+  }
 
-  sharing_service_->SendMessageToDevice(
-      device, base::TimeDelta::FromSeconds(kSharingMessageTTLSeconds.Get()),
-      std::move(sharing_message),
-      base::BindOnce(&SharingUiController::OnMessageSentToDevice,
-                     weak_ptr_factory_.GetWeakPtr(), last_dialog_id_));
+  SharingMessageSender::ResponseCallback response_callback = base::BindOnce(
+      &SharingUiController::OnResponse, weak_ptr_factory_.GetWeakPtr(),
+      last_dialog_id_, std::move(custom_callback));
+  return sharing_service_->SendMessageToDevice(
+      device, response_timeout.value_or(kSharingMessageTTL),
+      std::move(sharing_message), std::move(response_callback));
 }
 
 void SharingUiController::UpdateIcon() {
@@ -217,25 +230,30 @@ void SharingUiController::ShowNewDialog(SharingDialogData dialog_data) {
   OnDialogShown(has_devices, has_apps);
 }
 
-base::string16 SharingUiController::GetTargetDeviceName() const {
+std::u16string SharingUiController::GetTargetDeviceName() const {
   return base::UTF8ToUTF16(target_device_name_);
 }
 
-void SharingUiController::OnMessageSentToDevice(
+void SharingUiController::OnResponse(
     int dialog_id,
+    absl::optional<SharingMessageSender::ResponseCallback> custom_callback,
     SharingSendMessageResult result,
     std::unique_ptr<chrome_browser_sharing::ResponseMessage> response) {
+  if (custom_callback)
+    std::move(custom_callback.value()).Run(result, std::move(response));
   if (dialog_id != last_dialog_id_)
     return;
 
-  is_loading_ = false;
   send_result_ = result;
-  UpdateIcon();
+  if (ShouldShowLoadingIcon()) {
+    is_loading_ = false;
+    UpdateIcon();
+  }
 }
 
 void SharingUiController::OnAppsReceived(
     int dialog_id,
-    const base::Optional<url::Origin>& initiating_origin,
+    const absl::optional<url::Origin>& initiating_origin,
     std::vector<SharingApp> apps) {
   if (dialog_id != last_dialog_id_)
     return;

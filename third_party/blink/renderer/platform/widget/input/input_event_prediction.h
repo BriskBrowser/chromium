@@ -8,6 +8,7 @@
 #include <list>
 #include <unordered_map>
 
+#include "base/gtest_prod_util.h"
 #include "third_party/blink/public/common/input/pointer_id.h"
 #include "third_party/blink/public/common/input/web_coalesced_input_event.h"
 #include "third_party/blink/public/platform/input/predictor_factory.h"
@@ -22,6 +23,8 @@ class PLATFORM_EXPORT InputEventPrediction {
  public:
   // enable_resampling is true when kResamplingInputEvents is enabled.
   explicit InputEventPrediction(bool enable_resampling);
+  InputEventPrediction(const InputEventPrediction&) = delete;
+  InputEventPrediction& operator=(const InputEventPrediction&) = delete;
   ~InputEventPrediction();
 
   // Handle Resampling/Prediction of WebInputEvents. This function is mainly
@@ -93,8 +96,6 @@ class PLATFORM_EXPORT InputEventPrediction {
 
   // Records the timestamp for last event added to predictor.
   base::TimeTicks last_event_timestamp_;
-
-  DISALLOW_COPY_AND_ASSIGN(InputEventPrediction);
 };
 
 }  // namespace blink

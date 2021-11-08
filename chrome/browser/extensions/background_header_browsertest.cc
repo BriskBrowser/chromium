@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/json/json_reader.h"
+#include "base/strings/stringprintf.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/net/profile_network_context_service.h"
 #include "chrome/browser/net/profile_network_context_service_factory.h"
@@ -68,16 +69,16 @@ class BackgroundHeaderTest : public ExtensionBrowserTest {
         content::JsReplace("executeFetch($1);", url));
     std::string json;
     EXPECT_TRUE(message_queue.WaitForMessage(&json));
-    base::Optional<base::Value> value =
+    absl::optional<base::Value> value =
         base::JSONReader::Read(json, base::JSON_ALLOW_TRAILING_COMMAS);
-    std::string result;
     if (!value) {
       ADD_FAILURE() << "Received invalid response: " << json;
       return std::string();
     }
-    EXPECT_TRUE(value->GetAsString(&result));
+    EXPECT_TRUE(value->is_string());
     std::string trimmed_result;
-    base::TrimWhitespaceASCII(result, base::TRIM_ALL, &trimmed_result);
+    base::TrimWhitespaceASCII(value->GetString(), base::TRIM_ALL,
+                              &trimmed_result);
     return trimmed_result;
   }
 

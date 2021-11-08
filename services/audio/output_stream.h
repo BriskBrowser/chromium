@@ -40,6 +40,7 @@ class AudioParameters;
 }  // namespace media
 
 namespace audio {
+class OutputStreamActivityMonitor;
 
 class OutputStream final : public media::mojom::AudioOutputStream,
                            public OutputController::EventHandler {
@@ -56,10 +57,14 @@ class OutputStream final : public media::mojom::AudioOutputStream,
           observer,
       mojo::PendingRemote<media::mojom::AudioLog> log,
       media::AudioManager* audio_manager,
+      OutputStreamActivityMonitor* activity_monitor,
       const std::string& output_device_id,
       const media::AudioParameters& params,
       LoopbackCoordinator* coordinator,
       const base::UnguessableToken& loopback_group_id);
+
+  OutputStream(const OutputStream&) = delete;
+  OutputStream& operator=(const OutputStream&) = delete;
 
   ~OutputStream() final;
 
@@ -112,8 +117,6 @@ class OutputStream final : public media::mojom::AudioOutputStream,
   bool is_audible_ = false;
 
   base::WeakPtrFactory<OutputStream> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(OutputStream);
 };
 
 }  // namespace audio

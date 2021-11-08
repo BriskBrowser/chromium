@@ -98,7 +98,7 @@ class MockNetworkContext : public network::TestNetworkContext {
             .second);
     if (!enabled_proxy_testing_) {
       // We don't want to test proxy, return that the proxy is disabled.
-      CompleteProxyLookup(url, base::nullopt);
+      CompleteProxyLookup(url, absl::nullopt);
     }
   }
 
@@ -113,14 +113,14 @@ class MockNetworkContext : public network::TestNetworkContext {
       return;
     }
     it->second->OnComplete(result, net::ResolveErrorInfo(result),
-                           base::nullopt);
+                           absl::nullopt);
     resolve_host_clients_.erase(it);
     // Wait for OnComplete() to be executed on the UI thread.
     base::RunLoop().RunUntilIdle();
   }
 
   void CompleteProxyLookup(const GURL& url,
-                           const base::Optional<net::ProxyInfo>& result) {
+                           const absl::optional<net::ProxyInfo>& result) {
     if (IsHangingHost(url))
       return;
 
@@ -181,6 +181,10 @@ net::NetworkIsolationKey CreateNetworkIsolationKey(const GURL& main_frame_url) {
 class PreconnectManagerTest : public testing::Test {
  public:
   PreconnectManagerTest();
+
+  PreconnectManagerTest(const PreconnectManagerTest&) = delete;
+  PreconnectManagerTest& operator=(const PreconnectManagerTest&) = delete;
+
   ~PreconnectManagerTest() override;
 
   void VerifyAndClearExpectations() const {
@@ -195,9 +199,6 @@ class PreconnectManagerTest : public testing::Test {
   std::unique_ptr<StrictMock<MockNetworkContext>> mock_network_context_;
   std::unique_ptr<StrictMock<MockPreconnectManagerDelegate>> mock_delegate_;
   std::unique_ptr<PreconnectManager> preconnect_manager_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PreconnectManagerTest);
 };
 
 PreconnectManagerTest::PreconnectManagerTest()
@@ -787,15 +788,17 @@ TEST_F(PreconnectManagerTest, TestStartPreresolveHost) {
 TEST_F(PreconnectManagerTest, TestStartPreresolveHosts) {
   GURL cdn("http://cdn.google.com");
   GURL fonts("http://fonts.google.com");
+  net::NetworkIsolationKey network_isolation_key =
+      CreateNetworkIsolationKey(cdn);
 
   EXPECT_CALL(*mock_network_context_, ResolveHostProxy(cdn.host()));
   EXPECT_CALL(*mock_network_context_, ResolveHostProxy(fonts.host()));
   preconnect_manager_->StartPreresolveHosts({cdn.host(), fonts.host()},
-                                            net::NetworkIsolationKey());
-  mock_network_context_->CompleteHostLookup(
-      cdn.host(), net::NetworkIsolationKey(), net::OK);
-  mock_network_context_->CompleteHostLookup(
-      fonts.host(), net::NetworkIsolationKey(), net::OK);
+                                            network_isolation_key);
+  mock_network_context_->CompleteHostLookup(cdn.host(), network_isolation_key,
+                                            net::OK);
+  mock_network_context_->CompleteHostLookup(fonts.host(), network_isolation_key,
+                                            net::OK);
 }
 
 TEST_F(PreconnectManagerTest, TestStartPreconnectUrl) {
@@ -943,7 +946,7 @@ TEST_F(PreconnectManagerTest, TestSuccessfulHostLookupAfterProxyLookupFailure) {
                                              GetDirectProxyInfo());
   // Second URL proxy lookup failed.
   mock_network_context_->CompleteProxyLookup(origin_to_preconnect2.GetURL(),
-                                             base::nullopt);
+                                             absl::nullopt);
   Mock::VerifyAndClearExpectations(mock_network_context_.get());
 
   EXPECT_CALL(
@@ -980,7 +983,7 @@ TEST_F(PreconnectManagerTest, TestBothProxyAndHostLookupFailed) {
   EXPECT_CALL(*mock_network_context_,
               ResolveHostProxy(origin_to_preconnect.host()));
   mock_network_context_->CompleteProxyLookup(origin_to_preconnect.GetURL(),
-                                             base::nullopt);
+                                             absl::nullopt);
   Mock::VerifyAndClearExpectations(mock_network_context_.get());
 
   EXPECT_CALL(*mock_delegate_, PreconnectFinishedProxy(main_frame_url));

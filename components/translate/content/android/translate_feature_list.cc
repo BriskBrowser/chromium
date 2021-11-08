@@ -17,16 +17,17 @@ namespace {
 // Array of translate features exposed through the Java TranslateFeatureList
 // API. Entries in this array refer to features defined in
 // components/language/core/common/language_experiments.h.
-const base::Feature* kFeaturesExposedToJava[] = {
+const base::Feature* const kFeaturesExposedToJava[] = {
+    &language::kContentLanguagesInLanguagePicker,
     &language::kDetectedSourceLanguageOption,
 };
 
 // TODO(crbug.com/1060097): Remove/update this once a generalized FeatureList
 // exists.
 const base::Feature* FindFeatureExposedToJava(const std::string& feature_name) {
-  for (size_t i = 0; i < base::size(kFeaturesExposedToJava); ++i) {
-    if (kFeaturesExposedToJava[i]->name == feature_name)
-      return kFeaturesExposedToJava[i];
+  for (const base::Feature* feature : kFeaturesExposedToJava) {
+    if (feature->name == feature_name)
+      return feature;
   }
   NOTREACHED() << "Queried feature cannot be found in TranslateFeatureList: "
                << feature_name;
@@ -41,6 +42,18 @@ static jboolean JNI_TranslateFeatureList_IsEnabled(
   const base::Feature* feature = FindFeatureExposedToJava(
       base::android::ConvertJavaStringToUTF8(env, jfeature_name));
   return base::FeatureList::IsEnabled(*feature);
+}
+
+static jboolean JNI_TranslateFeatureList_GetFieldTrialParamByFeatureAsBoolean(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jstring>& jfeature_name,
+    const base::android::JavaParamRef<jstring>& jparam_name,
+    const jboolean jdefault_value) {
+  const base::Feature* feature = FindFeatureExposedToJava(
+      base::android::ConvertJavaStringToUTF8(env, jfeature_name));
+  const std::string& param_name = ConvertJavaStringToUTF8(env, jparam_name);
+  return base::GetFieldTrialParamByFeatureAsBool(*feature, param_name,
+                                                 jdefault_value);
 }
 
 }  // namespace android

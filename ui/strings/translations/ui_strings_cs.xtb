@@ -30,6 +30,7 @@
 <translation id="1710340000377843106">teď</translation>
 <translation id="1752946267035950200">{MINUTES,plural, =1{1 minuta}few{# minuty}many{# minuty}other{# minut}}</translation>
 <translation id="1761785978543082658"><ph name="QUANTITY" /> B</translation>
+<translation id="1770726142253415363">Přesunuto na řádek <ph name="ROW_NUMBER" /> do sloupce <ph name="COLUMN_NUMBER" />.</translation>
 <translation id="1801827354178857021">Tečka</translation>
 <translation id="1803208670097017349">{MONTHS,plural, =1{1 měsíc}few{# měsíce}many{# měsíce}other{# měsíců}}</translation>
 <translation id="1809410197924942083"><ph name="QUANTITY" /> MB/s</translation>
@@ -53,11 +54,13 @@
 <translation id="2192232475740621500">Použít nízkou hustotu</translation>
 <translation id="219905428774326614">Spouštěč, všechny aplikace</translation>
 <translation id="2267918077332197517">Blokovat všechna oznámení z tohoto webu</translation>
+<translation id="2283117145434822734">F6</translation>
 <translation id="2289052229480071835">Klepněte na cíle klepnutí na obrazovce.</translation>
 <translation id="2295140143284145483">Průzkum</translation>
 <translation id="2297836609126180313"><ph name="QUANTITY" /> TB/s</translation>
 <translation id="2353636109065292463">Kontrola připojení k internetu</translation>
 <translation id="2388990488038464401">Zavolat toto číslo z vašeho telefonu?</translation>
+<translation id="2435457462613246316">Zobrazit heslo</translation>
 <translation id="24452542372838207">Rozbalit oznámení</translation>
 <translation id="2445449901874883781">Použít vysokou hustotu</translation>
 <translation id="2482878487686419369">Oznámení</translation>
@@ -79,6 +82,7 @@
 <translation id="2824719307700604149">{YEARS,plural, =1{před 1 rokem}few{před # lety}many{před # roku}other{před # lety}}</translation>
 <translation id="2878511608894704031">Smazat vše</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{za 1 d}few{za # d}many{za # d}other{za # d}}</translation>
+<translation id="2922712708897119705">Sloupec <ph name="COLUMN_NAME" /> je seřazen sestupně.</translation>
 <translation id="2931838996092594335">kliknout</translation>
 <translation id="2981684127883932071">Jsou zobrazeny návrhy</translation>
 <translation id="3036649622769666520">Otevřít soubory</translation>
@@ -114,6 +118,7 @@
 <translation id="3897092660631435901">Nabídka</translation>
 <translation id="3909791450649380159">Vyjmou&amp;t</translation>
 <translation id="3990502903496589789">Pravý okraj</translation>
+<translation id="3994749195054421561">Sloupec <ph name="COLUMN_NAME" /> je seřazen vzestupně.</translation>
 <translation id="40579289237549812">{UNREAD_NOTIFICATIONS,plural, =1{1 nepřečtené oznámení}few{# nepřečtená oznámení}many{# nepřečteného oznámení}other{# nepřečtených oznámení}}</translation>
 <translation id="4202807286478387388">přejít</translation>
 <translation id="4250229828105606438">Snímek obrazovky</translation>
@@ -123,6 +128,7 @@
 <translation id="4306392492252714209">Odstranit ze schránky.</translation>
 <translation id="4316910396681052118">VŠECHNY APLIKACE</translation>
 <translation id="4491109536499578614">Obrázek</translation>
+<translation id="4565377596337484307">Skrýt heslo</translation>
 <translation id="4588090240171750605">Posuv doprava</translation>
 <translation id="4631891353005174729"><ph name="APP_NAME_TYPE" />, hodnocení hvězdičkami <ph name="RATING_SCORE" /></translation>
 <translation id="4648249871170053485"><ph name="APP_NAME" />, doporučení aplikace</translation>
@@ -165,6 +171,7 @@
 <translation id="6012623610530968780">Stránka <ph name="SELECTED_PAGE" /> z <ph name="TOTAL_PAGE_NUM" /></translation>
 <translation id="6022924867608035986">Vymazat text z vyhledávacího pole</translation>
 <translation id="6040143037577758943">Zavřít</translation>
+<translation id="6117103120090651229">Tlačítko vycentrování</translation>
 <translation id="6119846243427417423">aktivovat</translation>
 <translation id="6129953537138746214">Mezera</translation>
 <translation id="6134259848159370930">Prohledejte zařízení, aplikace, nastavení a internet.</translation>
@@ -173,6 +180,7 @@
 <translation id="6156262341071374681">Rozšířit na všechny aplikace</translation>
 <translation id="6165508094623778733">Další informace</translation>
 <translation id="6166852626429024716">Prohledejte zařízení, aplikace, nastavení, internet…</translation>
+<translation id="6237461503717005873">Je vybrán řádek <ph name="ROW_NAME" />.</translation>
 <translation id="6264365405983206840">Vybr&amp;at vše</translation>
 <translation id="6351032674660237738">NÁVRHY APLIKACÍ</translation>
 <translation id="6364916375976753737">Posuv doleva</translation>
@@ -213,6 +221,7 @@
 <translation id="7389409599945284130">– <ph name="MESSAGE" /></translation>
 <translation id="7410957453383678442">{MINUTES,plural, =1{Zbývá 1 minuta}few{Zbývají # minuty}many{Zbývá # minuty}other{Zbývá # minut}}</translation>
 <translation id="7430878839542012341">Vymazat toto vyhledávání z historie?</translation>
+<translation id="7437971918971306061">Seřazení sloupce <ph name="COLUMN_NAME" /> bylo zrušeno.</translation>
 <translation id="7460907917090416791"><ph name="QUANTITY" /> TB</translation>
 <translation id="7507604095951736240">Emodži</translation>
 <translation id="7620655452534002301">Odstraněno.</translation>

@@ -20,10 +20,6 @@ extern const base::FilePath::CharType kBrowserProcessExecutableName[];
 extern const base::FilePath::CharType kHelperProcessExecutableName[];
 extern const base::FilePath::CharType kBrowserProcessExecutablePath[];
 extern const base::FilePath::CharType kHelperProcessExecutablePath[];
-extern const base::FilePath::CharType kBrowserProcessExecutableNameChromium[];
-extern const base::FilePath::CharType kHelperProcessExecutableNameChromium[];
-extern const base::FilePath::CharType kBrowserProcessExecutablePathChromium[];
-extern const base::FilePath::CharType kHelperProcessExecutablePathChromium[];
 #if defined(OS_MAC)
 // NOTE: if you change the value of kFrameworkName, please don't forget to
 // update components/test/run_all_unittests.cc as well.
@@ -31,6 +27,9 @@ extern const base::FilePath::CharType kHelperProcessExecutablePathChromium[];
 // on Mac.
 extern const base::FilePath::CharType kFrameworkName[];
 extern const base::FilePath::CharType kFrameworkExecutableName[];
+// Suffix added to the helper app name to display alert notifications. Must be
+// kept in sync with the value in alert_helper_params (//chrome/BUILD.gn).
+extern const char kMacHelperSuffixAlerts[];
 #endif  // OS_MAC
 #if defined(OS_WIN)
 extern const base::FilePath::CharType kBrowserResourcesDll[];
@@ -40,7 +39,6 @@ extern const base::FilePath::CharType kStatusTrayWindowClass[];
 
 extern const char kInitialProfile[];
 extern const char kMultiProfileDirPrefix[];
-extern const char kEphemeralGuestProfileDirPrefix[];
 extern const base::FilePath::CharType kGuestProfileDir[];
 extern const base::FilePath::CharType kSystemProfileDir[];
 
@@ -55,10 +53,10 @@ extern const base::FilePath::CharType kExtensionsCookieFilename[];
 extern const base::FilePath::CharType kFeatureEngagementTrackerStorageDirname[];
 extern const base::FilePath::CharType kFirstRunSentinel[];
 extern const base::FilePath::CharType kGCMStoreDirname[];
-extern const base::FilePath::CharType kHeavyAdInterventionOptOutDBFilename[];
 extern const base::FilePath::CharType kLocalStateFilename[];
 extern const base::FilePath::CharType kMediaCacheDirname[];
 extern const base::FilePath::CharType kNetworkPersistentStateFilename[];
+extern const base::FilePath::CharType kNetworkDataDirname[];
 extern const base::FilePath::CharType kNotificationSchedulerStorageDirname[];
 extern const base::FilePath::CharType kOfflinePageArchivesDirname[];
 extern const base::FilePath::CharType kOfflinePageMetadataDirname[];
@@ -67,18 +65,20 @@ extern const base::FilePath::CharType kOfflinePageRequestQueueDirname[];
 extern const base::FilePath::CharType kPreferencesFilename[];
 extern const base::FilePath::CharType kPreviewsOptOutDBFilename[];
 extern const base::FilePath::CharType kQueryTileStorageDirname[];
-extern const base::FilePath::CharType kVideoTutorialsStorageDirname[];
 extern const base::FilePath::CharType kReadmeFilename[];
+extern const base::FilePath::CharType kReportingAndNelStoreFilename[];
 extern const base::FilePath::CharType kSecurePreferencesFilename[];
+extern const base::FilePath::CharType kSegmentationPlatformStorageDirName[];
 extern const base::FilePath::CharType kServiceStateFileName[];
 extern const base::FilePath::CharType kSingletonCookieFilename[];
 extern const base::FilePath::CharType kSingletonLockFilename[];
 extern const base::FilePath::CharType kSingletonSocketFilename[];
 extern const base::FilePath::CharType kSupervisedUserSettingsFilename[];
 extern const base::FilePath::CharType kThemePackFilename[];
+extern const base::FilePath::CharType kTransportSecurityPersisterFilename[];
 extern const base::FilePath::CharType kTrustTokenFilename[];
+extern const base::FilePath::CharType kVideoTutorialsStorageDirname[];
 extern const base::FilePath::CharType kWebAppDirname[];
-extern const base::FilePath::CharType kReportingAndNelStoreFilename[];
 
 #if defined(OS_WIN)
 extern const base::FilePath::CharType kJumpListIconDirname[];

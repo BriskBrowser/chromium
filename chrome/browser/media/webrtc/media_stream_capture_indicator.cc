@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/macros.h"
 #include "base/notreached.h"
 #include "build/build_config.h"
@@ -31,6 +32,7 @@
 #include "ui/gfx/image/image_skia.h"
 
 #if !defined(OS_ANDROID)
+#include "chrome/browser/media/webrtc/media_stream_focus_delegate.h"
 #include "chrome/grit/chromium_strings.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -46,7 +48,7 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/policy/dlp/dlp_content_manager.h"
+#include "chrome/browser/ash/policy/dlp/dlp_content_manager.h"
 #endif
 
 using content::BrowserThread;
@@ -69,11 +71,11 @@ const extensions::Extension* GetExtension(WebContents* web_contents) {
 
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-base::string16 GetTitle(WebContents* web_contents) {
+std::u16string GetTitle(WebContents* web_contents) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (!web_contents)
-    return base::string16();
+    return std::u16string();
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   const extensions::Extension* const extension = GetExtension(web_contents);
@@ -140,6 +142,11 @@ class MediaStreamCaptureIndicator::WebContentsDeviceUsage
                          WebContents* web_contents)
       : WebContentsObserver(web_contents), indicator_(std::move(indicator)) {}
 
+  WebContentsDeviceUsage(const WebContentsDeviceUsage&) = delete;
+  WebContentsDeviceUsage& operator=(const WebContentsDeviceUsage&) = delete;
+
+  ~WebContentsDeviceUsage() override = default;
+
   bool IsCapturingAudio() const { return audio_stream_count_ > 0; }
   bool IsCapturingVideo() const { return video_stream_count_ > 0; }
   bool IsMirroring() const { return mirroring_stream_count_ > 0; }
@@ -149,7 +156,7 @@ class MediaStreamCaptureIndicator::WebContentsDeviceUsage
   std::unique_ptr<content::MediaStreamUI> RegisterMediaStream(
       const blink::MediaStreamDevices& devices,
       std::unique_ptr<MediaStreamUI> ui,
-      const base::string16 application_title);
+      const std::u16string application_title);
 
   // Increment ref-counts up based on the type of each device provided.
   void AddDevices(const blink::MediaStreamDevices& devices,
@@ -178,8 +185,6 @@ class MediaStreamCaptureIndicator::WebContentsDeviceUsage
 
   base::OnceClosure stop_callback_;
   base::WeakPtrFactory<WebContentsDeviceUsage> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(WebContentsDeviceUsage);
 };
 
 // Implements MediaStreamUI interface. Instances of this class are created for
@@ -189,16 +194,24 @@ class MediaStreamCaptureIndicator::WebContentsDeviceUsage
 // the stream.
 class MediaStreamCaptureIndicator::UIDelegate : public content::MediaStreamUI {
  public:
-  UIDelegate(base::WeakPtr<WebContentsDeviceUsage> device_usage,
+  UIDelegate(WebContents* web_contents,
+             base::WeakPtr<WebContentsDeviceUsage> device_usage,
              const blink::MediaStreamDevices& devices,
              std::unique_ptr<::MediaStreamUI> ui,
-             const base::string16 application_title)
+             const std::u16string application_title)
       : device_usage_(device_usage),
         devices_(devices),
         ui_(std::move(ui)),
+#if !defined(OS_ANDROID)
+        focus_delegate_(web_contents),
+#endif
         application_title_(std::move(application_title)) {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(!devices_.empty());
   }
+
+  UIDelegate(const UIDelegate&) = delete;
+  UIDelegate& operator=(const UIDelegate&) = delete;
 
   ~UIDelegate() override {
     if (started_ && device_usage_)
@@ -236,7 +249,7 @@ class MediaStreamCaptureIndicator::UIDelegate : public content::MediaStreamUI {
     // it handle the |stop_callback| and |source_callback|.
     if (ui_)
       return ui_->OnStarted(std::move(stop_callback),
-                            std::move(source_callback));
+                            std::move(source_callback), screen_capture_ids);
 
     return 0;
   }
@@ -248,23 +261,35 @@ class MediaStreamCaptureIndicator::UIDelegate : public content::MediaStreamUI {
 #endif
   }
 
+#if !defined(OS_ANDROID)
+  void SetFocus(const content::DesktopMediaID& media_id,
+                bool focus,
+                bool is_from_microtask,
+                bool is_from_timer) override {
+    focus_delegate_.SetFocus(media_id, focus, is_from_microtask, is_from_timer);
+  }
+#endif
+
   base::WeakPtr<WebContentsDeviceUsage> device_usage_;
   const blink::MediaStreamDevices devices_;
   const std::unique_ptr<::MediaStreamUI> ui_;
-  const base::string16 application_title_;
+#if !defined(OS_ANDROID)
+  MediaStreamFocusDelegate focus_delegate_;
+#endif
+  const std::u16string application_title_;
   bool started_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(UIDelegate);
 };
 
 std::unique_ptr<content::MediaStreamUI>
 MediaStreamCaptureIndicator::WebContentsDeviceUsage::RegisterMediaStream(
     const blink::MediaStreamDevices& devices,
     std::unique_ptr<MediaStreamUI> ui,
-    const base::string16 application_title) {
-  return std::make_unique<UIDelegate>(weak_factory_.GetWeakPtr(), devices,
-                                      std::move(ui),
-                                      std::move(application_title));
+    const std::u16string application_title) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  return std::make_unique<UIDelegate>(
+      web_contents(), weak_factory_.GetWeakPtr(), devices, std::move(ui),
+      std::move(application_title));
 }
 
 void MediaStreamCaptureIndicator::WebContentsDeviceUsage::AddDevices(
@@ -305,7 +330,7 @@ void MediaStreamCaptureIndicator::WebContentsDeviceUsage::RemoveDevices(
     }
   }
 
-  if (web_contents()) {
+  if (web_contents() && !web_contents()->IsBeingDestroyed()) {
     web_contents()->NotifyNavigationStateChanged(content::INVALIDATE_TYPE_TAB);
     content_settings::UpdateLocationBarUiForWebContents(web_contents());
   }
@@ -367,8 +392,10 @@ MediaStreamCaptureIndicator::RegisterMediaStream(
     content::WebContents* web_contents,
     const blink::MediaStreamDevices& devices,
     std::unique_ptr<MediaStreamUI> ui,
-    const base::string16 application_title) {
+    const std::u16string application_title) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(web_contents);
+
   auto& usage = usage_map_[web_contents];
   if (!usage)
     usage = std::make_unique<WebContentsDeviceUsage>(this, web_contents);
@@ -508,7 +535,7 @@ void MediaStreamCaptureIndicator::MaybeCreateStatusTrayIcon(bool audio,
     return;
 
   gfx::ImageSkia image;
-  base::string16 tool_tip;
+  std::u16string tool_tip;
   GetStatusTrayIconInfo(audio, video, &image, &tool_tip);
   DCHECK(!image.isNull());
   DCHECK(!tool_tip.empty());
@@ -590,7 +617,7 @@ void MediaStreamCaptureIndicator::GetStatusTrayIconInfo(
     bool audio,
     bool video,
     gfx::ImageSkia* image,
-    base::string16* tool_tip) {
+    std::u16string* tool_tip) {
 #if defined(OS_ANDROID)
   NOTREACHED();
 #else   // !defined(OS_ANDROID)

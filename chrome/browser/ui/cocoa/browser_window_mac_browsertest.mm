@@ -23,8 +23,8 @@ class BrowserWindowMacTest : public InProcessBrowserTest {
  public:
   BrowserWindowMacTest() {}
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(BrowserWindowMacTest);
+  BrowserWindowMacTest(const BrowserWindowMacTest&) = delete;
+  BrowserWindowMacTest& operator=(const BrowserWindowMacTest&) = delete;
 };
 
 // Test that mainMenu commands do not attempt to validate against a Browser*
@@ -63,21 +63,22 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowMacTest, MenuCommandsAfterDestroy) {
 class BrowserWindowMacA11yTest : public BrowserWindowMacTest {
  public:
   BrowserWindowMacA11yTest() = default;
+
+  BrowserWindowMacA11yTest(const BrowserWindowMacA11yTest&) = delete;
+  BrowserWindowMacA11yTest& operator=(const BrowserWindowMacA11yTest&) = delete;
+
   ~BrowserWindowMacA11yTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     BrowserWindowMacTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kForceRendererAccessibility);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BrowserWindowMacA11yTest);
 };
 
 IN_PROC_BROWSER_TEST_F(BrowserWindowMacA11yTest, A11yTreeIsWellFormed) {
   NSWindow* window = browser()->window()->GetNativeWindow().GetNativeNSWindow();
   size_t nodes_visited = 0;
-  base::Optional<ui::NSAXTreeProblemDetails> details =
+  absl::optional<ui::NSAXTreeProblemDetails> details =
       ui::ValidateNSAXTree(window, &nodes_visited);
   EXPECT_FALSE(details.has_value()) << details->ToString();
 

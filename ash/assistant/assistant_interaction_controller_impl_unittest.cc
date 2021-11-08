@@ -46,16 +46,13 @@ using ::testing::Mock;
 using ::testing::Return;
 using ::testing::StrictMock;
 
-constexpr bool kErrorResult = false;
-constexpr bool kSuccessResult = true;
-
 // Mocks -----------------------------------------------------------------------
 
 class AssistantInteractionSubscriberMock
     : public chromeos::assistant::AssistantInteractionSubscriber {
  public:
   explicit AssistantInteractionSubscriberMock(Assistant* service) {
-    scoped_subscriber_.Add(service);
+    scoped_subscriber_.Observe(service);
   }
 
   ~AssistantInteractionSubscriberMock() override = default;
@@ -117,30 +114,25 @@ TEST_F(AssistantInteractionControllerImplTest,
 }
 
 TEST_F(AssistantInteractionControllerImplTest,
-       ShouldReturnErrorWhenOpenAppIsCalledWhileInactive) {
+       ShouldBeNoOpWhenOpenAppIsCalledWhileInactive) {
   EXPECT_EQ(interaction_model()->interaction_state(),
             InteractionState::kInactive);
 
-  auto result =
-      interaction_controller()->OnOpenAppResponse(CreateAndroidAppInfo());
-  EXPECT_EQ(result, kErrorResult);
+  FakeAndroidIntentHelper fake_helper;
+  fake_helper.AddApp("app-name", "app-intent");
+  interaction_controller()->OnOpenAppResponse(CreateAndroidAppInfo("app-name"));
+
+  EXPECT_FALSE(fake_helper.last_launched_android_intent().has_value());
 }
 
 TEST_F(AssistantInteractionControllerImplTest,
-       ShouldReturnErrorWhenOpenAppIsCalledWithoutAnAndroidIntentHelper) {
-  StartInteraction();
-
-  auto result =
-      interaction_controller()->OnOpenAppResponse(CreateAndroidAppInfo());
-  EXPECT_EQ(result, kErrorResult);
-}
-
-TEST_F(AssistantInteractionControllerImplTest,
-       ShouldReturnErrorWhenOpenAppIsCalledForUnknownAndroidApp) {
+       ShouldBeNoOpWhenOpenAppIsCalledForUnknownAndroidApp) {
   StartInteraction();
   FakeAndroidIntentHelper fake_helper;
-  EXPECT_EQ(kErrorResult, interaction_controller()->OnOpenAppResponse(
-                              CreateAndroidAppInfo("unknown-app-name")));
+  interaction_controller()->OnOpenAppResponse(
+      CreateAndroidAppInfo("unknown-app-name"));
+
+  EXPECT_FALSE(fake_helper.last_launched_android_intent().has_value());
 }
 
 TEST_F(AssistantInteractionControllerImplTest,
@@ -152,8 +144,7 @@ TEST_F(AssistantInteractionControllerImplTest,
   FakeAndroidIntentHelper fake_helper;
   fake_helper.AddApp(app_name, intent);
 
-  EXPECT_EQ(kSuccessResult, interaction_controller()->OnOpenAppResponse(
-                                CreateAndroidAppInfo(app_name)));
+  interaction_controller()->OnOpenAppResponse(CreateAndroidAppInfo(app_name));
 
   EXPECT_EQ(intent, fake_helper.last_launched_android_intent());
 }
@@ -168,8 +159,7 @@ TEST_F(AssistantInteractionControllerImplTest,
   FakeAndroidIntentHelper fake_helper;
   fake_helper.AddApp(app_name, intent);
 
-  EXPECT_EQ(kSuccessResult, interaction_controller()->OnOpenAppResponse(
-                                CreateAndroidAppInfo(app_name)));
+  interaction_controller()->OnOpenAppResponse(CreateAndroidAppInfo(app_name));
 
   EXPECT_EQ(intent_with_scheme, fake_helper.last_launched_android_intent());
 }
@@ -243,7 +233,7 @@ TEST_F(AssistantInteractionControllerImplTest,
        ShouldUpdateTimeOfLastInteraction) {
   MockAssistantInteractionSubscriber mock_subscriber;
   ScopedAssistantInteractionSubscriber scoped_subscriber{&mock_subscriber};
-  scoped_subscriber.Add(assistant_service());
+  scoped_subscriber.Observe(assistant_service());
 
   base::RunLoop run_loop;
   base::Time actual_time_of_last_interaction;

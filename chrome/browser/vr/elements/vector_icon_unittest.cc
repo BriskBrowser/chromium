@@ -26,12 +26,13 @@ static constexpr int kMaximumWidth = 512;
 class TestVectorIcon : public VectorIcon {
  public:
   explicit TestVectorIcon(int maximum_width) : VectorIcon(maximum_width) {}
+
+  TestVectorIcon(const TestVectorIcon&) = delete;
+  TestVectorIcon& operator=(const TestVectorIcon&) = delete;
+
   ~TestVectorIcon() override {}
 
   UiTexture* GetTexture() const override { return VectorIcon::GetTexture(); }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestVectorIcon);
 };
 
 }  // namespace
@@ -42,7 +43,7 @@ TEST(VectorIcon, SmokeTest) {
   icon->SetIcon(vector_icons::kCloseRoundedIcon);
   UiTexture* texture = icon->GetTexture();
   scene.AddUiElement(kRoot, std::move(icon));
-  base::TimeTicks start_time = MsToTicks(1);
+  base::TimeTicks start_time = gfx::MsToTicks(1);
   scene.OnBeginFrame(start_time, kStartHeadPose);
 
   InSequence scope;

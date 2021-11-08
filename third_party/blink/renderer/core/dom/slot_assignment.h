@@ -11,7 +11,6 @@
 
 namespace blink {
 
-class HTMLElement;
 class HTMLSlotElement;
 class Node;
 class ShadowRoot;
@@ -42,22 +41,13 @@ class SlotAssignment final : public GarbageCollected<SlotAssignment> {
                                   const AtomicString& new_value);
 
   bool FindHostChildBySlotName(const AtomicString& slot_name) const;
-  void CallSlotChangeAfterRemovedFromAssignFunction(HTMLSlotElement& slot);
-  void CallSlotChangeAfterAdditionFromAssignFunction(
-      HTMLSlotElement& slot,
-      const HeapVector<Member<Node>>& added_assign_nodes);
-  void CallSlotChangeAfterAddition(HTMLSlotElement& slot);
-  void CallSlotChangeAfterRemoved(HTMLSlotElement& slot);
-  void CallSlotChangeIfNeeded(HTMLSlotElement& slot, Node& child);
 
   void Trace(Visitor*) const;
 
   bool NeedsAssignmentRecalc() const { return needs_assignment_recalc_; }
   void SetNeedsAssignmentRecalc();
   void RecalcAssignment();
-  bool UpdateCandidateNodeAssignedSlot(Node&, HTMLSlotElement&);
-  void ClearCandidateNodes(const HeapLinkedHashSet<Member<Node>>& candidates);
-  HeapHashSet<Member<HTMLElement>>& GetCandidateDirectionality() {
+  HeapHashSet<Member<Node>>& GetCandidateDirectionality() {
     return candidate_directionality_set_;
   }
 
@@ -67,8 +57,7 @@ class SlotAssignment final : public GarbageCollected<SlotAssignment> {
     kRenamed,
   };
 
-  HTMLSlotElement* FindSlotInManualSlotting(const Node&);
-  HTMLSlotElement* FindSlotInUserAgentShadow(const Node&) const;
+  HTMLSlotElement* FindSlotInManualSlotting(Node&);
 
   void CollectSlots();
   HTMLSlotElement* GetCachedFirstSlotWithoutAccessingNodeTree(
@@ -85,12 +74,9 @@ class SlotAssignment final : public GarbageCollected<SlotAssignment> {
   unsigned needs_collect_slots_ : 1;
   unsigned needs_assignment_recalc_ : 1;
   unsigned slot_count_ : 30;
-  // TODO: (1067157) Ensure references inside the map are GCed.
-  HeapHashMap<Member<Node>, Member<HTMLSlotElement>>
-      candidate_assigned_slot_map_;
-  HeapHashSet<Member<HTMLElement>> candidate_directionality_set_;
+  HeapHashSet<Member<Node>> candidate_directionality_set_;
 };
 
 }  // namespace blink
 
-#endif  // HTMLSlotAssignment_h
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_DOM_SLOT_ASSIGNMENT_H_

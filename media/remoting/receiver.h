@@ -10,14 +10,20 @@
 #include "base/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/timer/timer.h"
 #include "media/base/buffering_state.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/renderer.h"
 #include "media/base/renderer_client.h"
-#include "media/remoting/media_remoting_rpc.pb.h"
-#include "media/remoting/rpc_broker.h"
+#include "third_party/openscreen/src/cast/streaming/remoting.pb.h"
+#include "third_party/openscreen/src/cast/streaming/rpc_messenger.h"
+
+namespace openscreen {
+namespace cast {
+class RpcMessenger;
+}
+}  // namespace openscreen
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -27,7 +33,6 @@ namespace media {
 namespace remoting {
 
 class ReceiverController;
-class RpcBroker;
 
 // Receiver runs on a remote device, and forwards the information sent from a
 // CourierRenderer to |renderer_|, which actually renders the media.
@@ -54,7 +59,7 @@ class Receiver final : public Renderer, public RendererClient {
                   RendererClient* client,
                   PipelineStatusCallback init_cb) override;
   void SetCdm(CdmContext* cdm_context, CdmAttachedCB cdm_attached_cb) override;
-  void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint) override;
+  void SetLatencyHint(absl::optional<base::TimeDelta> latency_hint) override;
   void Flush(base::OnceClosure flush_cb) override;
   void StartPlayingFrom(base::TimeDelta time) override;
   void SetPlaybackRate(double playback_rate) override;
@@ -72,7 +77,7 @@ class Receiver final : public Renderer, public RendererClient {
   void OnVideoConfigChange(const VideoDecoderConfig& config) override;
   void OnVideoNaturalSizeChange(const gfx::Size& size) override;
   void OnVideoOpacityChange(bool opaque) override;
-  void OnVideoFrameRateChange(base::Optional<int>) override;
+  void OnVideoFrameRateChange(absl::optional<int>) override;
 
   // Used to set |remote_handle_| after Receiver is created, because the remote
   // handle might be received after Receiver is created.
@@ -82,17 +87,20 @@ class Receiver final : public Renderer, public RendererClient {
 
  private:
   // Send RPC message on |main_task_runner_|.
-  void SendRpcMessageOnMainThread(std::unique_ptr<pb::RpcMessage> message);
+  void SendRpcMessageOnMainThread(
+      std::unique_ptr<openscreen::cast::RpcMessage> message);
 
   // Callback function when RPC message is received.
-  void OnReceivedRpc(std::unique_ptr<pb::RpcMessage> message);
+  void OnReceivedRpc(std::unique_ptr<openscreen::cast::RpcMessage> message);
 
   // RPC message handlers.
-  void RpcInitialize(std::unique_ptr<pb::RpcMessage> message);
-  void RpcSetPlaybackRate(std::unique_ptr<pb::RpcMessage> message);
-  void RpcFlushUntil(std::unique_ptr<pb::RpcMessage> message);
-  void RpcStartPlayingFrom(std::unique_ptr<pb::RpcMessage> message);
-  void RpcSetVolume(std::unique_ptr<pb::RpcMessage> message);
+  void RpcInitialize(std::unique_ptr<openscreen::cast::RpcMessage> message);
+  void RpcSetPlaybackRate(
+      std::unique_ptr<openscreen::cast::RpcMessage> message);
+  void RpcFlushUntil(std::unique_ptr<openscreen::cast::RpcMessage> message);
+  void RpcStartPlayingFrom(
+      std::unique_ptr<openscreen::cast::RpcMessage> message);
+  void RpcSetVolume(std::unique_ptr<openscreen::cast::RpcMessage> message);
 
   void ShouldInitializeRenderer();
   void OnRendererInitialized(PipelineStatus status);
@@ -120,9 +128,9 @@ class Receiver final : public Renderer, public RendererClient {
   int remote_handle_;
 
   ReceiverController* const receiver_controller_;  // Outlives this class.
-  RpcBroker* const rpc_broker_;                    // Outlives this class.
+  openscreen::cast::RpcMessenger* const rpc_messenger_;  // Outlives this class.
 
-  // Calling SendMessageCallback() of |rpc_broker_| should be on main thread.
+  // Calling SendMessageCallback() of |rpc_messenger_| should be on main thread.
   const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
 
   // Media tasks should run on media thread.

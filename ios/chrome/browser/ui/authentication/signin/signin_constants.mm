@@ -8,26 +8,22 @@
 #error "This file requires ARC support."
 #endif
 
-NSString* const kUserSigninAttemptedNotification = @"kUserSigninAttempted";
+NSString* const kUserSigninAttemptedNotification = @"UserSigninAttempted";
 NSString* const kSkipSigninAccessibilityIdentifier =
-    @"kSkipSigninAccessibilityIdentifier";
+    @"SkipSigninAccessibilityIdentifier";
 NSString* const kAddAccountAccessibilityIdentifier =
-    @"kAddAccountAccessibilityIdentifier";
+    @"AddAccountAccessibilityIdentifier";
 NSString* const kConfirmationAccessibilityIdentifier =
-    @"kConfirmationAccessibilityIdentifier";
-NSString* const kMoreAccessibilityIdentifier = @"kMoreAccessibilityIdentifier";
+    @"ConfirmationAccessibilityIdentifier";
+NSString* const kMoreAccessibilityIdentifier = @"MoreAccessibilityIdentifier";
+NSString* const kWebSigninAccessibilityIdentifier =
+    @"WebSigninAccessibilityIdentifier";
+NSString* const kWebSigninContinueAsButtonAccessibilityIdentifier =
+    @"WebSigninContinueAsButtonAccessibilityIdentifier";
+NSString* const kWebSigninSkipButtonAccessibilityIdentifier =
+    @"WebSigninSkipButtonAccessibilityIdentifier";
 
-@implementation SigninCompletionInfo
+const char* kWebSigninConsistencyConsecutiveActiveDismissalLimitParam =
+    "consecutive_active_dismissal_limit";
 
-- (instancetype)initWithIdentity:(ChromeIdentity*)identity
-          signinCompletionAction:
-              (SigninCompletionAction)signinCompletionAction {
-  self = [super init];
-  if (self) {
-    _identity = identity;
-    _signinCompletionAction = signinCompletionAction;
-  }
-  return self;
-}
-
-@end
+const int kDefaultWebSignInDismissalCount = 3;

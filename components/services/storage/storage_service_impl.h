@@ -12,7 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "components/services/storage/partition_impl.h"
 #include "components/services/storage/public/mojom/filesystem/directory.mojom.h"
@@ -36,6 +36,10 @@ class StorageServiceImpl : public mojom::StorageService {
   // browser.
   StorageServiceImpl(mojo::PendingReceiver<mojom::StorageService> receiver,
                      scoped_refptr<base::SequencedTaskRunner> io_task_runner);
+
+  StorageServiceImpl(const StorageServiceImpl&) = delete;
+  StorageServiceImpl& operator=(const StorageServiceImpl&) = delete;
+
   ~StorageServiceImpl() override;
 
   const auto& partitions() const { return partitions_; }
@@ -47,7 +51,7 @@ class StorageServiceImpl : public mojom::StorageService {
       const base::FilePath& path,
       mojo::PendingRemote<mojom::Directory> directory) override;
 #endif
-  void BindPartition(const base::Optional<base::FilePath>& path,
+  void BindPartition(const absl::optional<base::FilePath>& path,
                      mojo::PendingReceiver<mojom::Partition> receiver) override;
   void BindTestApi(mojo::ScopedMessagePipeHandle test_api_receiver) override;
 
@@ -87,8 +91,6 @@ class StorageServiceImpl : public mojom::StorageService {
   std::map<base::FilePath, PartitionImpl*> persistent_partition_map_;
 
   base::WeakPtrFactory<StorageServiceImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(StorageServiceImpl);
 };
 
 }  // namespace storage

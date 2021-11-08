@@ -6,15 +6,15 @@
 #define UI_VIEWS_WINDOW_DIALOG_DELEGATE_H_
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/ui_base_types.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/metadata/view_factory.h"
 #include "ui/views/view.h"
 #include "ui/views/views_export.h"
@@ -43,8 +43,10 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   struct Params {
     Params();
     ~Params();
-    base::Optional<int> default_button = base::nullopt;
+    absl::optional<int> default_button = absl::nullopt;
     bool round_corners = true;
+    absl::optional<int> corner_radius = absl::nullopt;
+
     bool draggable = false;
 
     // Whether to use the Views-styled frame (if true) or a platform-native
@@ -61,7 +63,7 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
     // here will get the default text for its type from GetDialogButtonLabel.
     // Prefer to use this field (via SetButtonLabel) rather than override
     // GetDialogButtonLabel - see https://crbug.com/1011446
-    base::string16 button_labels[ui::DIALOG_BUTTON_LAST + 1];
+    std::u16string button_labels[ui::DIALOG_BUTTON_LAST + 1];
 
     // A bitmask of buttons (from ui::DialogButton) that are enabled in this
     // dialog. It's legal for a button to be marked enabled that isn't present
@@ -103,16 +105,6 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
                                                       gfx::NativeView parent,
                                                       const gfx::Rect& bounds);
 
-  // Called when the DialogDelegate and its frame have finished initializing but
-  // not been shown yet. Override this to perform customizations to the dialog
-  // that need to happen after the dialog's widget, border, buttons, and so on
-  // are ready.
-  //
-  // Overrides of this method should be quite rare - prefer to do dialog
-  // customization before the frame/widget/etc are ready if at all possible, via
-  // other setters on this class.
-  virtual void OnDialogInitialized() {}
-
   // Returns a mask specifying which of the available DialogButtons are visible
   // for the dialog.
   // TODO(https://crbug.com/1011446): Rename this to buttons().
@@ -127,7 +119,7 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   int GetDefaultDialogButton() const;
 
   // Returns the label of the specified dialog button.
-  base::string16 GetDialogButtonLabel(ui::DialogButton button) const;
+  std::u16string GetDialogButtonLabel(ui::DialogButton button) const;
 
   // Returns whether the specified dialog button is enabled.
   virtual bool IsDialogButtonEnabled(ui::DialogButton button) const;
@@ -182,13 +174,13 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   BubbleFrameView* GetBubbleFrameView() const;
 
   // Helpers for accessing parts of the DialogClientView without needing to know
-  // about DialogClientView. Do not call these before OnDialogInitialized.
+  // about DialogClientView. Do not call these before OnWidgetInitialized().
   views::LabelButton* GetOkButton() const;
   views::LabelButton* GetCancelButton() const;
   views::View* GetExtraView() const;
 
   // Helper for accessing the footnote view. Unlike the three methods just
-  // above, this *is* safe to call before OnDialogInitialized.
+  // above, this *is* safe to call before OnWidgetInitialized().
   views::View* GetFootnoteViewForTesting() const;
 
   // Add or remove an observer notified by calls to DialogModelChanged().
@@ -203,6 +195,12 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   void DialogModelChanged();
 
   void set_use_round_corners(bool round) { params_.round_corners = round; }
+  void set_corner_radius(int corner_radius) {
+    params_.corner_radius = corner_radius;
+  }
+  const absl::optional<int> corner_radius() const {
+    return params_.corner_radius;
+  }
   void set_draggable(bool draggable) { params_.draggable = draggable; }
   bool draggable() const { return params_.draggable; }
   void set_use_custom_frame(bool use) { params_.custom_frame = use; }
@@ -212,7 +210,7 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // necessary to call DialogModelChanged() yourself after calling them.
   void SetDefaultButton(int button);
   void SetButtons(int buttons);
-  void SetButtonLabel(ui::DialogButton button, base::string16 label);
+  void SetButtonLabel(ui::DialogButton button, std::u16string label);
   void SetButtonEnabled(ui::DialogButton button, bool enabled);
 
   // Called when the user presses the dialog's "OK" button or presses the dialog
@@ -271,7 +269,9 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // 2) Depending on their return value, close the dialog's widget.
   // Neither of these methods can be called before the dialog has been
   // initialized.
-  void AcceptDialog();
+  // NOT_TAIL_CALLED forces the calling function to appear on the stack in
+  // crash dumps. https://crbug.com/1215247
+  void NOT_TAIL_CALLED AcceptDialog();
   void CancelDialog();
 
   // This method invokes the behavior that *would* happen if this dialog's
@@ -294,6 +294,10 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // closing. Don't call this yourself.
   void WindowWillClose();
 
+  // Returns whether the delegate's CancelDialog() should be called instead of
+  // closing the Widget when Esc is pressed. Called by DialogClientView.
+  bool EscShouldCancelDialog() const;
+
  protected:
   // Overridden from WidgetDelegate:
   ax::mojom::Role GetAccessibleWindowRole() override;
@@ -307,10 +311,6 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   std::unique_ptr<View> DisownFootnoteView();
 
  private:
-  // Overridden from WidgetDelegate. If you need to hook after widget
-  // initialization, use OnDialogInitialized above.
-  void OnWidgetInitialized() final;
-
   // A helper for accessing the DialogClientView object contained by this
   // delegate's Window.
   const DialogClientView* GetDialogClientView() const;
@@ -336,10 +336,10 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   Params params_;
 
   // The extra view for this dialog, if there is one.
-  std::unique_ptr<View> extra_view_ = nullptr;
+  std::unique_ptr<View> extra_view_;
 
   // The footnote view for this dialog, if there is one.
-  std::unique_ptr<View> footnote_view_ = nullptr;
+  std::unique_ptr<View> footnote_view_;
 
   // Observers for DialogModel changes.
   base::ObserverList<DialogObserver>::Unchecked observer_list_;
@@ -373,6 +373,62 @@ class VIEWS_EXPORT DialogDelegateView : public DialogDelegate, public View {
 };
 
 BEGIN_VIEW_BUILDER(VIEWS_EXPORT, DialogDelegateView, View)
+VIEW_BUILDER_PROPERTY(ax::mojom::Role, AccessibleRole)
+VIEW_BUILDER_PROPERTY(std::u16string, AccessibleTitle)
+VIEW_BUILDER_PROPERTY(bool, CanMaximize)
+VIEW_BUILDER_PROPERTY(bool, CanMinimize)
+VIEW_BUILDER_PROPERTY(bool, CanResize)
+VIEW_BUILDER_PROPERTY(bool, FocusTraversesOut)
+VIEW_BUILDER_PROPERTY(bool, EnableArrowKeyTraversal)
+VIEW_BUILDER_PROPERTY(const gfx::ImageSkia&, Icon)
+VIEW_BUILDER_PROPERTY(const gfx::ImageSkia&, AppIcon)
+VIEW_BUILDER_PROPERTY(ui::ModalType, ModalType)
+VIEW_BUILDER_PROPERTY(bool, OwnedByWidget)
+VIEW_BUILDER_PROPERTY(bool, ShowCloseButton)
+VIEW_BUILDER_PROPERTY(bool, ShowIcon)
+VIEW_BUILDER_PROPERTY(bool, ShowTitle)
+// Manually define the SetTitle methods to resolve the overloads properly.
+BuilderT& SetTitle(const std::u16string& value) & {
+  auto setter = std::make_unique<::views::internal::PropertySetter<
+      ViewClass_, std::u16string,
+      decltype((static_cast<void (WidgetDelegate::*)(const std::u16string&)>(
+          &ViewClass_::SetTitle))),
+      &WidgetDelegate::SetTitle>>(value);
+  ::views::internal::ViewBuilderCore::AddPropertySetter(std::move(setter));
+  return *static_cast<BuilderT*>(this);
+}
+BuilderT&& SetTitle(const std::u16string& value) && {
+  return std::move(this->SetTitle(value));
+}
+BuilderT& SetTitle(int value) & {
+  auto setter = std::make_unique<::views::internal::PropertySetter<
+      ViewClass_, int,
+      decltype(
+          (static_cast<void (WidgetDelegate::*)(int)>(&ViewClass_::SetTitle))),
+      &WidgetDelegate::SetTitle>>(value);
+  ::views::internal::ViewBuilderCore::AddPropertySetter(std::move(setter));
+  return *static_cast<BuilderT*>(this);
+}
+BuilderT&& SetTitle(int value) && {
+  return std::move(this->SetTitle(value));
+}
+#if defined(USE_AURA)
+VIEW_BUILDER_PROPERTY(bool, CenterTitle)
+#endif
+VIEW_BUILDER_PROPERTY(int, Buttons)
+VIEW_BUILDER_PROPERTY(int, DefaultButton)
+VIEW_BUILDER_METHOD(SetButtonLabel, ui::DialogButton, std::u16string)
+VIEW_BUILDER_METHOD(SetButtonEnabled, ui::DialogButton, bool)
+VIEW_BUILDER_METHOD(set_margins, gfx::Insets)
+VIEW_BUILDER_METHOD(set_use_round_corners, bool)
+VIEW_BUILDER_METHOD(set_corner_radius, int)
+VIEW_BUILDER_METHOD(set_draggable, bool)
+VIEW_BUILDER_METHOD(set_use_custom_frame, bool)
+VIEW_BUILDER_METHOD(set_fixed_width, int)
+VIEW_BUILDER_PROPERTY(base::OnceClosure, AcceptCallback)
+VIEW_BUILDER_PROPERTY(base::OnceClosure, CancelCallback)
+VIEW_BUILDER_PROPERTY(base::OnceClosure, CloseCallback)
+VIEW_BUILDER_PROPERTY(const gfx::Insets&, ButtonRowInsets)
 END_VIEW_BUILDER
 
 }  // namespace views

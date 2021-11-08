@@ -13,7 +13,7 @@
 #include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "ui/gfx/codec/png_codec.h"
-#include "ui/gfx/skia_util.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/vsync_provider.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/vsync_provider_win.h"
@@ -29,6 +29,10 @@ namespace {
 class GLOzoneEGLWindows : public GLOzoneEGL {
  public:
   GLOzoneEGLWindows() = default;
+
+  GLOzoneEGLWindows(const GLOzoneEGLWindows&) = delete;
+  GLOzoneEGLWindows& operator=(const GLOzoneEGLWindows&) = delete;
+
   ~GLOzoneEGLWindows() override = default;
 
   // GLOzone:
@@ -50,12 +54,10 @@ class GLOzoneEGLWindows : public GLOzoneEGL {
     return gl::EGLDisplayPlatform(GetWindowDC(nullptr));
   }
 
-  bool LoadGLES2Bindings(gl::GLImplementation implementation) override {
+  bool LoadGLES2Bindings(
+      const gl::GLImplementationParts& implementation) override {
     return LoadDefaultEGLGLES2Bindings(implementation);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GLOzoneEGLWindows);
 };
 
 }  // namespace
@@ -65,17 +67,20 @@ WindowsSurfaceFactory::WindowsSurfaceFactory()
 
 WindowsSurfaceFactory::~WindowsSurfaceFactory() = default;
 
-std::vector<gl::GLImplementation>
+std::vector<gl::GLImplementationParts>
 WindowsSurfaceFactory::GetAllowedGLImplementations() {
-  return std::vector<gl::GLImplementation>{gl::kGLImplementationEGLGLES2,
-                                           gl::kGLImplementationSwiftShaderGL};
+  return std::vector<gl::GLImplementationParts>{
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2),
+      gl::GLImplementationParts(gl::kGLImplementationSwiftShaderGL),
+      gl::GLImplementationParts(gl::kGLImplementationEGLANGLE)};
 }
 
 GLOzone* WindowsSurfaceFactory::GetGLOzone(
-    gl::GLImplementation implementation) {
-  switch (implementation) {
+    const gl::GLImplementationParts& implementation) {
+  switch (implementation.gl) {
     case gl::kGLImplementationSwiftShaderGL:
     case gl::kGLImplementationEGLGLES2:
+    case gl::kGLImplementationEGLANGLE:
       return egl_implementation_.get();
     default:
       return nullptr;

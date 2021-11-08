@@ -4,6 +4,7 @@
 
 #include "chromeos/components/phonehub/phone_status_processor.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/containers/flat_set.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/components/phonehub/do_not_disturb_controller.h"
@@ -12,6 +13,7 @@
 #include "chromeos/components/phonehub/mutable_phone_model.h"
 #include "chromeos/components/phonehub/notification_access_manager.h"
 #include "chromeos/components/phonehub/notification_processor.h"
+#include "chromeos/components/phonehub/screen_lock_manager_impl.h"
 #include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
 
 #include <algorithm>
@@ -96,6 +98,20 @@ NotificationAccessManager::AccessStatus ComputeNotificationAccessState(
   return NotificationAccessManager::AccessStatus::kAvailableButNotGranted;
 }
 
+ScreenLockManager::LockStatus ComputeScreenLockState(
+    const proto::PhoneProperties& phone_properties) {
+  switch (phone_properties.screen_lock_state()) {
+    case proto::ScreenLockState::SCREEN_LOCK_UNKNOWN:
+      return ScreenLockManager::LockStatus::kUnknown;
+    case proto::ScreenLockState::SCREEN_LOCK_OFF:
+      return ScreenLockManager::LockStatus::kLockedOff;
+    case proto::ScreenLockState::SCREEN_LOCK_ON:
+      return ScreenLockManager::LockStatus::kLockedOn;
+    default:
+      return ScreenLockManager::LockStatus::kUnknown;
+  }
+}
+
 FindMyDeviceController::Status ComputeFindMyDeviceStatus(
     const proto::PhoneProperties& phone_properties) {
   if (phone_properties.find_my_device_capability() ==
@@ -129,6 +145,7 @@ PhoneStatusProcessor::PhoneStatusProcessor(
     MessageReceiver* message_receiver,
     FindMyDeviceController* find_my_device_controller,
     NotificationAccessManager* notification_access_manager,
+    ScreenLockManager* screen_lock_manager,
     NotificationProcessor* notification_processor_,
     MultiDeviceSetupClient* multidevice_setup_client,
     MutablePhoneModel* phone_model)
@@ -137,6 +154,7 @@ PhoneStatusProcessor::PhoneStatusProcessor(
       message_receiver_(message_receiver),
       find_my_device_controller_(find_my_device_controller),
       notification_access_manager_(notification_access_manager),
+      screen_lock_manager_(screen_lock_manager),
       notification_processor_(notification_processor_),
       multidevice_setup_client_(multidevice_setup_client),
       phone_model_(phone_model) {
@@ -175,8 +193,18 @@ void PhoneStatusProcessor::ProcessReceivedNotifications(
 
   std::vector<proto::Notification> inline_replyable_protos;
 
-  for (const auto& proto : notification_protos)
+  for (const auto& proto : notification_protos) {
+    if (!features::IsPhoneHubCallNotificationEnabled() &&
+        (proto.category() == proto::Notification::Category::
+                                 Notification_Category_INCOMING_CALL ||
+         proto.category() == proto::Notification::Category::
+                                 Notification_Category_ONGOING_CALL ||
+         proto.category() == proto::Notification::Category::
+                                 Notification_Category_SCREEN_CALL)) {
+      continue;
+    }
     inline_replyable_protos.emplace_back(proto);
+  }
 
   notification_processor_->AddNotifications(inline_replyable_protos);
 }
@@ -193,14 +221,19 @@ void PhoneStatusProcessor::SetReceivedPhoneStatusModelStates(
   notification_access_manager_->SetAccessStatusInternal(
       ComputeNotificationAccessState(phone_properties));
 
+  if (screen_lock_manager_) {
+    screen_lock_manager_->SetLockStatusInternal(
+        ComputeScreenLockState(phone_properties));
+  }
+
   find_my_device_controller_->SetPhoneRingingStatusInternal(
       ComputeFindMyDeviceStatus(phone_properties));
 }
 
 void PhoneStatusProcessor::MaybeSetPhoneModelName(
-    const base::Optional<multidevice::RemoteDeviceRef>& remote_device) {
+    const absl::optional<multidevice::RemoteDeviceRef>& remote_device) {
   if (!remote_device.has_value()) {
-    phone_model_->SetPhoneName(base::nullopt);
+    phone_model_->SetPhoneName(absl::nullopt);
     return;
   }
 
@@ -211,13 +244,17 @@ void PhoneStatusProcessor::OnFeatureStatusChanged() {
   // Reset phone model instance when but still keep the phone's name.
   if (feature_status_provider_->GetStatus() !=
       FeatureStatus::kEnabledAndConnected) {
-    phone_model_->SetPhoneStatusModel(base::nullopt);
+    phone_model_->SetPhoneStatusModel(absl::nullopt);
     notification_processor_->ClearNotificationsAndPendingUpdates();
   }
 }
 
 void PhoneStatusProcessor::OnPhoneStatusSnapshotReceived(
     proto::PhoneStatusSnapshot phone_status_snapshot) {
+  PA_LOG(INFO) << "Received snapshot from phone with Android version "
+               << phone_status_snapshot.properties().android_version()
+               << " and GmsCore version "
+               << phone_status_snapshot.properties().gmscore_version();
   ProcessReceivedNotifications(phone_status_snapshot.notifications());
   SetReceivedPhoneStatusModelStates(phone_status_snapshot.properties());
 }

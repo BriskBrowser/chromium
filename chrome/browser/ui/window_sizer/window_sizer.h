@@ -38,10 +38,13 @@ class WindowSizer {
    public:
     virtual ~StateProvider() = default;
 
-    // Retrieve the persisted bounds of the window. Returns true if there was
-    // persisted data to retrieve state information, false otherwise.
-    // The |show_state| variable will only be touched if there was persisted
-    // data and the |show_state| variable is SHOW_STATE_DEFAULT.
+    // Retrieve the persisted bounds of the window. Returns true if there were
+    // persisted bounds and false otherwise. If this method returns false, none
+    // of the out parameters are touched. If it returns true, |bounds| was
+    // overwritten, and |work_area| may have been overwritten if there was also
+    // a saved work area.  The |show_state| variable will only be touched if
+    // there was persisted data and the |show_state| variable is
+    // SHOW_STATE_DEFAULT.
     virtual bool GetPersistentState(gfx::Rect* bounds,
                                     gfx::Rect* work_area,
                                     ui::WindowShowState* show_state) const = 0;
@@ -55,6 +58,9 @@ class WindowSizer {
         gfx::Rect* bounds,
         ui::WindowShowState* show_state) const = 0;
   };
+
+  WindowSizer(const WindowSizer&) = delete;
+  WindowSizer& operator=(const WindowSizer&) = delete;
 
   // Determines the position and size for a window as it is created as well
   // as the initial state. This function uses several strategies to figure out
@@ -156,8 +162,6 @@ class WindowSizer {
 
   // Note that this browser handle might be NULL.
   const Browser* const browser_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowSizer);
 };
 
 #endif  // CHROME_BROWSER_UI_WINDOW_SIZER_WINDOW_SIZER_H_

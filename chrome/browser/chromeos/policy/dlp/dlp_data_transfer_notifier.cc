@@ -6,12 +6,12 @@
 
 #include "ash/public/cpp/window_tree_host_lookup.h"
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "chrome/browser/chromeos/policy/dlp/clipboard_bubble.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_clipboard_bubble_constants.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_client.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -24,8 +24,7 @@ namespace {
 // The name of the bubble.
 constexpr char kBubbleName[] = "ClipboardDlpBubble";
 
-constexpr base::TimeDelta kBubbleBoundsAnimationTime =
-    base::TimeDelta::FromMilliseconds(250);
+constexpr base::TimeDelta kBubbleBoundsAnimationTime = base::Milliseconds(250);
 
 bool IsRectContainedByAnyDisplay(const gfx::Rect& rect) {
   const std::vector<display::Display>& displays =
@@ -65,9 +64,10 @@ void CalculateAndSetWidgetBounds(views::Widget* widget,
         display::Screen::GetScreen()->GetCursorScreenPoint());
   }
 
-  const gfx::Rect widget_bounds =
+  gfx::Rect widget_bounds =
       gfx::Rect(caret_bounds.x(), caret_bounds.y(), bubble_size.width(),
                 bubble_size.height());
+  widget_bounds.AdjustToFit(display.work_area());
 
   std::unique_ptr<ui::ScopedLayerAnimationSettings> settings;
   if (widget->GetWindowBoundsInScreen().size() != gfx::Size()) {
@@ -86,7 +86,7 @@ views::Widget::InitParams GetWidgetInitParams() {
   views::Widget::InitParams params(
       views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.z_order = ui::ZOrderLevel::kNormal;
-  params.activatable = views::Widget::InitParams::ACTIVATABLE_YES;
+  params.activatable = views::Widget::InitParams::Activatable::kYes;
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.name = kBubbleName;
   params.layer_type = ui::LAYER_NOT_DRAWN;
@@ -105,7 +105,7 @@ DlpDataTransferNotifier::~DlpDataTransferNotifier() {
   }
 }
 
-void DlpDataTransferNotifier::ShowBlockBubble(const base::string16& text) {
+void DlpDataTransferNotifier::ShowBlockBubble(const std::u16string& text) {
   InitWidget();
   ClipboardBlockBubble* bubble =
       widget_->SetContentsView(std::make_unique<ClipboardBlockBubble>(text));
@@ -116,38 +116,40 @@ void DlpDataTransferNotifier::ShowBlockBubble(const base::string16& text) {
 }
 
 void DlpDataTransferNotifier::ShowWarningBubble(
-    const base::string16& text,
-    base::RepeatingCallback<void(views::Widget*)> proceed_cb) {
+    const std::u16string& text,
+    base::RepeatingCallback<void(views::Widget*)> proceed_cb,
+    base::RepeatingCallback<void(views::Widget*)> cancel_cb) {
   InitWidget();
   ClipboardWarnBubble* bubble =
       widget_->SetContentsView(std::make_unique<ClipboardWarnBubble>(text));
   bubble->SetProceedCallback(
       base::BindRepeating(std::move(proceed_cb), widget_.get()));
-  bubble->SetDismissCallback(base::BindRepeating(
-      &DlpDataTransferNotifier::CloseWidget, base::Unretained(this),
-      widget_.get(), views::Widget::ClosedReason::kCancelButtonClicked));
+  bubble->SetDismissCallback(
+      base::BindRepeating(std::move(cancel_cb), widget_.get()));
   ResizeAndShowWidget(bubble->GetBubbleSize(), kClipboardDlpWarnDurationMs);
 }
 
 void DlpDataTransferNotifier::CloseWidget(views::Widget* widget,
                                           views::Widget::ClosedReason reason) {
-  if (widget && widget == widget_.get())
-    widget->CloseWithReason(reason);
+  if (widget_) {
+    DCHECK_EQ(widget, widget_.get());
+    widget_closing_timer_.Stop();
+    widget_->CloseWithReason(reason);
+  }
 }
 
 void DlpDataTransferNotifier::OnWidgetClosing(views::Widget* widget) {
-  if (widget == widget_.get())
-    widget_.reset();
-}
+  if (widget != widget_.get())
+    return;
 
-void DlpDataTransferNotifier::OnWidgetDestroyed(views::Widget* widget) {
-  if (widget == widget_.get())
-    widget_.reset();
+  widget_->RemoveObserver(this);
+  widget_.reset();
+  widget_closing_timer_.Stop();
 }
 
 void DlpDataTransferNotifier::OnWidgetActivationChanged(views::Widget* widget,
                                                         bool active) {
-  if (!active)
+  if (!active && widget->IsVisible())
     CloseWidget(widget, views::Widget::ClosedReason::kLostFocus);
 }
 
@@ -165,14 +167,13 @@ void DlpDataTransferNotifier::ResizeAndShowWidget(const gfx::Size& bubble_size,
 
   widget_->Show();
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE,
+  widget_closing_timer_.Start(
+      FROM_HERE, base::Milliseconds(timeout_duration_ms),
       base::BindOnce(&DlpDataTransferNotifier::CloseWidget,
                      base::Unretained(this),
                      widget_.get(),  // Safe as DlpClipboardNotificationHelper
                                      // owns `widget_` and outlives it.
-                     views::Widget::ClosedReason::kUnspecified),
-      base::TimeDelta::FromMilliseconds(timeout_duration_ms));
+                     views::Widget::ClosedReason::kUnspecified));
 }
 
 }  // namespace policy

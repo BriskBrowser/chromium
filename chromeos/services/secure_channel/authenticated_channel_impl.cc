@@ -5,9 +5,13 @@
 #include "chromeos/services/secure_channel/authenticated_channel_impl.h"
 
 #include "base/bind.h"
+#include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "chromeos/components/multidevice/logging/logging.h"
+#include "chromeos/services/secure_channel/file_transfer_update_callback.h"
+#include "chromeos/services/secure_channel/public/mojom/secure_channel_types.mojom.h"
 
 namespace chromeos {
 
@@ -83,6 +87,17 @@ void AuthenticatedChannelImpl::PerformSendMessage(
       std::move(on_sent_callback);
 }
 
+void AuthenticatedChannelImpl::PerformRegisterPayloadFile(
+    int64_t payload_id,
+    mojom::PayloadFilesPtr payload_files,
+    FileTransferUpdateCallback file_transfer_update_callback,
+    base::OnceCallback<void(bool)> registration_result_callback) {
+  DCHECK_EQ(secure_channel_->status(), SecureChannel::Status::AUTHENTICATED);
+  secure_channel_->RegisterPayloadFile(payload_id, std::move(payload_files),
+                                       std::move(file_transfer_update_callback),
+                                       std::move(registration_result_callback));
+}
+
 void AuthenticatedChannelImpl::PerformDisconnection() {
   secure_channel_->Disconnect();
 }
@@ -134,7 +149,7 @@ void AuthenticatedChannelImpl::OnMessageSent(SecureChannel* secure_channel,
 
 void AuthenticatedChannelImpl::OnRssiFetched(
     base::OnceCallback<void(mojom::ConnectionMetadataPtr)> callback,
-    base::Optional<int32_t> current_rssi) {
+    absl::optional<int32_t> current_rssi) {
   mojom::BluetoothConnectionMetadataPtr bluetooth_connection_metadata_ptr;
   if (current_rssi) {
     bluetooth_connection_metadata_ptr =

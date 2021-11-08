@@ -12,7 +12,6 @@
 #include <algorithm>
 
 #include "base/logging.h"
-#include "base/numerics/ranges.h"
 #include "base/trace_event/trace_event.h"
 #include "base/win/scoped_variant.h"
 #include "ui/base/ime/text_input_client.h"
@@ -90,6 +89,8 @@ HRESULT TSFTextStore::QueryInterface(REFIID iid, void** result) {
     *result = static_cast<ITextStoreACP*>(this);
   } else if (iid == IID_ITfContextOwnerCompositionSink) {
     *result = static_cast<ITfContextOwnerCompositionSink*>(this);
+  } else if (iid == IID_ITfLanguageProfileNotifySink) {
+    *result = static_cast<ITfLanguageProfileNotifySink*>(this);
   } else if (iid == IID_ITfTextEditSink) {
     *result = static_cast<ITfTextEditSink*>(this);
   } else if (iid == IID_ITfKeyTraceEventSink) {
@@ -194,8 +195,8 @@ HRESULT TSFTextStore::GetScreenExt(TsViewCookie view_cookie, RECT* rect) {
 
   // {0, 0, 0, 0} means that the document rect is not currently displayed.
   SetRect(rect, 0, 0, 0, 0);
-  base::Optional<gfx::Rect> result_rect;
-  base::Optional<gfx::Rect> tmp_rect;
+  absl::optional<gfx::Rect> result_rect;
+  absl::optional<gfx::Rect> tmp_rect;
   // If the EditContext is active, then fetch the layout bounds from
   // the active EditContext, else get it from the focused element's
   // bounding client rect.
@@ -286,7 +287,7 @@ HRESULT TSFTextStore::GetText(LONG acp_start,
   acp_end = std::min(acp_end, acp_start + static_cast<LONG>(text_buffer_size));
   *text_buffer_copied = acp_end - acp_start;
 
-  const base::string16& result =
+  const std::u16string& result =
       string_buffer_document_.substr(acp_start, *text_buffer_copied);
   for (size_t i = 0; i < result.size(); ++i) {
     text_buffer[i] = result[i];
@@ -328,20 +329,9 @@ HRESULT TSFTextStore::GetTextExt(TsViewCookie view_cookie,
   // indicates a last character's one.
   // TODO(IME): add tests for scenario that left position is bigger than right
   // position.
-  base::Optional<gfx::Rect> result_rect;
-  base::Optional<gfx::Rect> tmp_opt_rect;
+  absl::optional<gfx::Rect> result_rect;
   const uint32_t start_pos = acp_start - composition_start_;
   const uint32_t end_pos = acp_end - composition_start_;
-  // If there is an active EditContext, then fetch the layout bounds from it.
-  text_input_client_->GetActiveTextInputControlLayoutBounds(&tmp_opt_rect,
-                                                            &result_rect);
-  if (result_rect) {
-    *rect = display::win::ScreenWin::DIPToScreenRect(window_handle_,
-                                                     result_rect.value())
-                .ToRECT();
-    *clipped = FALSE;
-    return S_OK;
-  }
 
   gfx::Rect tmp_rect;
   if (start_pos == end_pos) {
@@ -495,7 +485,7 @@ HRESULT TSFTextStore::InsertTextAtSelection(DWORD flags,
   DCHECK_LE(start_pos, end_pos);
   string_buffer_document_ =
       string_buffer_document_.substr(0, start_pos) +
-      base::string16(text_buffer, text_buffer + text_buffer_size) +
+      std::u16string(text_buffer, text_buffer + text_buffer_size) +
       string_buffer_document_.substr(end_pos);
 
   // reconstruct string that needs to be inserted.
@@ -526,9 +516,10 @@ HRESULT TSFTextStore::QueryInsert(LONG acp_test_start,
   const LONG composition_start = static_cast<LONG>(composition_start_);
   const LONG buffer_size = static_cast<LONG>(string_buffer_document_.size());
   *acp_result_start =
-      base::ClampToRange(acp_test_start, composition_start, buffer_size);
+      std::min(std::max(acp_test_start, composition_start), buffer_size);
   *acp_result_end =
-      base::ClampToRange(acp_test_end, composition_start, buffer_size);
+      std::min(std::max(acp_test_end, composition_start), buffer_size) +
+      text_size;
   return S_OK;
 }
 
@@ -698,7 +689,7 @@ HRESULT TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
     is_tic_write_in_progress_ = false;
   }
 
-  const base::string16& composition_string = string_buffer_document_.substr(
+  const std::u16string& composition_string = string_buffer_document_.substr(
       composition_range_.GetMin(), composition_range_.length());
 
   // Only need to set composition if the current composition string
@@ -864,6 +855,17 @@ HRESULT TSFTextStore::OnEndComposition(ITfCompositionView* composition_view) {
   return S_OK;
 }
 
+HRESULT TSFTextStore::OnLanguageChange(LANGID langid, BOOL* pfAccept) {
+  *pfAccept = TRUE;
+  return S_OK;
+}
+
+HRESULT TSFTextStore::OnLanguageChanged() {
+  if (text_input_client_)
+    text_input_client_->OnInputMethodChanged();
+  return S_OK;
+}
+
 HRESULT TSFTextStore::OnKeyTraceDown(WPARAM wParam, LPARAM lParam) {
   // fire the event right away if we're in composition
   if (has_composition_range_) {
@@ -910,7 +912,8 @@ void TSFTextStore::DispatchKeyEvent(ui::EventType type,
 
   // prepare ui::KeyEvent.
   UINT message = type == ui::ET_KEY_PRESSED ? WM_KEYDOWN : WM_KEYUP;
-  const MSG key_event_MSG = {window_handle_, message, VK_PROCESSKEY, lparam};
+  const CHROME_MSG key_event_MSG = {window_handle_, message, VK_PROCESSKEY,
+                                    lparam};
   ui::KeyEvent key_event = KeyEventFromMSG(key_event_MSG);
 
   if (input_method_delegate_) {
@@ -1105,7 +1108,6 @@ void TSFTextStore::ResetCompositionState() {
   previous_text_spans_.clear();
 
   string_pending_insertion_.clear();
-  has_composition_range_ = false;
   composition_range_.set_start(0);
   composition_range_.set_end(0);
 
@@ -1121,6 +1123,7 @@ bool TSFTextStore::TerminateComposition() {
 
     if (SUCCEEDED(context_->QueryInterface(IID_PPV_ARGS(&service)))) {
       service->TerminateComposition(nullptr);
+      has_composition_range_ = false;
       return true;
     }
   }
@@ -1141,7 +1144,7 @@ void TSFTextStore::CalculateTextandSelectionDiffAndNotifyIfNeeded() {
   TRACE_EVENT0("ime",
                "TSFTextStore::CalculateTextandSelectionDiffAndNotifyIfNeeded");
   gfx::Range latest_buffer_range_from_client;
-  base::string16 latest_buffer_from_client;
+  std::u16string latest_buffer_from_client;
   gfx::Range latest_selection_from_client;
 
   if (text_input_client_->GetTextRange(&latest_buffer_range_from_client) &&
@@ -1402,6 +1405,10 @@ void TSFTextStore::CommitTextAndEndCompositionIfAny(size_t old_size,
     // the new text if replacement text has already been inserted into Blink.
     if (new_text_inserted_ && (old_size > replace_text_range_.start()) &&
         !replace_text_range_.is_empty()) {
+      // Delete text that has already been inserted into blink.
+      text_input_client_->ExtendSelectionAndDelete(
+          replace_text_range_.end() - replace_text_range_.start(), 0);
+
       new_committed_string_offset = replace_text_range_.start();
       new_committed_string_size = replace_text_size_;
     }
@@ -1421,7 +1428,7 @@ void TSFTextStore::CommitTextAndEndCompositionIfAny(size_t old_size,
   }
 
   // Construct string to be committed.
-  const base::string16& new_committed_string = string_buffer_document_.substr(
+  const std::u16string& new_committed_string = string_buffer_document_.substr(
       new_committed_string_offset, new_committed_string_size);
   // TODO(crbug.com/978678): Unify the behavior of
   //     |TextInputClient::InsertText(text)| for the empty text.
@@ -1456,7 +1463,7 @@ void TSFTextStore::CommitTextAndEndCompositionIfAny(size_t old_size,
 
 void TSFTextStore::StartCompositionOnNewText(
     size_t start_offset,
-    const base::string16& composition_string) {
+    const std::u16string& composition_string) {
   CompositionText composition_text;
   composition_text.text = composition_string;
   composition_text.ime_text_spans = text_spans_;
@@ -1488,7 +1495,7 @@ void TSFTextStore::StartCompositionOnNewText(
           /*is_composition_committed*/ false);
     } else {
       // User wants to commit the current composition
-      const base::string16& committed_string = string_buffer_document_.substr(
+      const std::u16string& committed_string = string_buffer_document_.substr(
           composition_range_.GetMin(), composition_range_.length());
       text_input_client_->SetActiveCompositionForAccessibility(
           composition_range_, committed_string,

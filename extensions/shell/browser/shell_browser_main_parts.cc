@@ -4,6 +4,7 @@
 
 #include "extensions/shell/browser/shell_browser_main_parts.h"
 
+#include <memory>
 #include <string>
 
 #include "apps/browser_context_keyed_service_factories.h"
@@ -12,6 +13,7 @@
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chromeos/dbus/hermes/hermes_clients.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/nacl/common/buildflags.h"
 #include "components/prefs/pref_service.h"
@@ -49,8 +51,8 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/audio/audio_devices_pref_handler_impl.h"
-#include "chromeos/audio/cras_audio_handler.h"
+#include "ash/components/audio/audio_devices_pref_handler_impl.h"
+#include "ash/components/audio/cras_audio_handler.h"
 #include "chromeos/disks/disk_mount_manager.h"
 #include "chromeos/network/network_handler.h"
 #include "extensions/shell/browser/shell_audio_controller_chromeos.h"
@@ -70,16 +72,15 @@
 #include "device/bluetooth/dbus/bluez_dbus_thread_manager.h"
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/lacros/lacros_dbus_thread_manager.h"
+#endif
+
 #if BUILDFLAG(ENABLE_NACL)
 #include "components/nacl/browser/nacl_browser.h"
 #include "components/nacl/browser/nacl_process_host.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/shell/browser/shell_nacl_browser_delegate.h"
-#endif
-
-#if defined(USE_AURA) && defined(USE_X11)
-#include "ui/base/ui_base_features.h"
-#include "ui/events/devices/x11/touch_factory_x11.h"  // nogncheck
 #endif
 
 using base::CommandLine;
@@ -109,17 +110,9 @@ ShellBrowserMainParts::ShellBrowserMainParts(
       browser_main_delegate_(browser_main_delegate) {
 }
 
-ShellBrowserMainParts::~ShellBrowserMainParts() {
-}
+ShellBrowserMainParts::~ShellBrowserMainParts() = default;
 
-void ShellBrowserMainParts::PreMainMessageLoopStart() {
-#if defined(USE_AURA) && defined(USE_X11)
-  if (!features::IsUsingOzonePlatform())
-    ui::TouchFactory::SetTouchDeviceListFromCommandLine();
-#endif
-}
-
-void ShellBrowserMainParts::PostMainMessageLoopStart() {
+void ShellBrowserMainParts::PostCreateMainMessageLoop() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Perform initialization of D-Bus objects here rather than in the below
   // helper classes so those classes' tests can initialize stub versions of the
@@ -127,10 +120,12 @@ void ShellBrowserMainParts::PostMainMessageLoopStart() {
   chromeos::DBusThreadManager::Initialize();
   dbus::Bus* bus = chromeos::DBusThreadManager::Get()->GetSystemBus();
   if (bus) {
+    chromeos::hermes_clients::Initialize(bus);
     bluez::BluezDBusManager::Initialize(bus);
     chromeos::CrasAudioClient::Initialize(bus);
     chromeos::PowerManagerClient::Initialize(bus);
   } else {
+    chromeos::hermes_clients::InitializeFakes();
     bluez::BluezDBusManager::InitializeFake();
     chromeos::CrasAudioClient::InitializeFake();
     chromeos::PowerManagerClient::InitializeFake();
@@ -139,9 +134,9 @@ void ShellBrowserMainParts::PostMainMessageLoopStart() {
   chromeos::disks::DiskMountManager::Initialize();
 
   chromeos::NetworkHandler::Initialize();
-  network_controller_.reset(new ShellNetworkController(
+  network_controller_ = std::make_unique<ShellNetworkController>(
       base::CommandLine::ForCurrentProcess()->GetSwitchValueNative(
-          switches::kAppShellPreferredNetwork)));
+          switches::kAppShellPreferredNetwork));
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kAppShellAllowRoaming)) {
@@ -157,6 +152,9 @@ void ShellBrowserMainParts::PostMainMessageLoopStart() {
 #else
   ui::InitializeInputMethodForTesting();
 #endif
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  chromeos::LacrosDBusThreadManager::Initialize();
+#endif
 }
 
 int ShellBrowserMainParts::PreEarlyInitialization() {
@@ -164,7 +162,7 @@ int ShellBrowserMainParts::PreEarlyInitialization() {
 }
 
 int ShellBrowserMainParts::PreCreateThreads() {
-  // TODO(jamescook): Initialize chromeos::CrosSettings here?
+  // TODO(jamescook): Initialize ash::CrosSettings here?
 
   content::ChildProcessSecurityPolicy::GetInstance()->RegisterWebSafeScheme(
       kExtensionScheme);
@@ -173,7 +171,7 @@ int ShellBrowserMainParts::PreCreateThreads() {
   return 0;
 }
 
-void ShellBrowserMainParts::PreMainMessageLoopRun() {
+int ShellBrowserMainParts::PreMainMessageLoopRun() {
   extensions_client_ = std::make_unique<ShellExtensionsClient>();
   ExtensionsClient::Set(extensions_client_.get());
 
@@ -202,11 +200,11 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
       media_controller_manager;
   content::GetMediaSessionService().BindMediaControllerManager(
       media_controller_manager.InitWithNewPipeAndPassReceiver());
-  chromeos::CrasAudioHandler::Initialize(
+  ash::CrasAudioHandler::Initialize(
       std::move(media_controller_manager),
-      base::MakeRefCounted<chromeos::AudioDevicesPrefHandlerImpl>(
+      base::MakeRefCounted<ash::AudioDevicesPrefHandlerImpl>(
           local_state_.get()));
-  audio_controller_.reset(new ShellAudioController());
+  audio_controller_ = std::make_unique<ShellAudioController>();
 #endif
 
   // Create BrowserContextKeyedServices now that we have an
@@ -225,7 +223,8 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
 
   // TODO(jamescook): Initialize user_manager::UserManager.
 
-  update_query_params_delegate_.reset(new ShellUpdateQueryParamsDelegate);
+  update_query_params_delegate_ =
+      std::make_unique<ShellUpdateQueryParamsDelegate>();
   update_client::UpdateQueryParams::SetDelegate(
       update_query_params_delegate_.get());
 
@@ -234,10 +233,7 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
 #if BUILDFLAG(ENABLE_NACL)
   nacl::NaClBrowser::SetDelegate(
       std::make_unique<ShellNaClBrowserDelegate>(browser_context_.get()));
-  // Track the task so it can be canceled if app_shell shuts down very quickly,
-  // such as in browser tests.
-  task_tracker_.PostTask(content::GetIOThreadTaskRunner({}).get(), FROM_HERE,
-                         base::BindOnce(nacl::NaClProcessHost::EarlyStartup));
+  nacl::NaClProcessHost::EarlyStartup();
 #endif
 
   content::ShellDevToolsManagerDelegate::StartHttpHandler(
@@ -255,27 +251,29 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
   } else {
     browser_main_delegate_->Start(browser_context_.get());
   }
+
+  desktop_controller_->PreMainMessageLoopRun();
+
+  return content::RESULT_CODE_NORMAL_EXIT;
 }
 
-bool ShellBrowserMainParts::MainMessageLoopRun(int* result_code) {
-  if (!run_message_loop_)
-    return true;
-  desktop_controller_->Run();
-  *result_code = content::RESULT_CODE_NORMAL_EXIT;
-  return true;
+void ShellBrowserMainParts::WillRunMainMessageLoop(
+    std::unique_ptr<base::RunLoop>& run_loop) {
+  if (run_message_loop_)
+    desktop_controller_->WillRunMainMessageLoop(run_loop);
+  else
+    run_loop.reset();
 }
 
 void ShellBrowserMainParts::PostMainMessageLoopRun() {
+  desktop_controller_->PostMainMessageLoopRun();
+
   // Close apps before shutting down browser context and extensions system.
   desktop_controller_->CloseAppWindows();
 
   // NOTE: Please destroy objects in the reverse order of their creation.
   browser_main_delegate_->Shutdown();
   content::ShellDevToolsManagerDelegate::StopHttpHandler();
-
-#if BUILDFLAG(ENABLE_NACL)
-  task_tracker_.TryCancelAll();
-#endif
 
   BrowserContextDependencyManager::GetInstance()->DestroyBrowserContextServices(
       browser_context_.get());
@@ -287,7 +285,7 @@ void ShellBrowserMainParts::PostMainMessageLoopRun() {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   audio_controller_.reset();
-  chromeos::CrasAudioHandler::Shutdown();
+  ash::CrasAudioHandler::Shutdown();
 #endif
 
   sessions::SessionIdGenerator::GetInstance()->Shutdown();
@@ -304,6 +302,9 @@ void ShellBrowserMainParts::PostDestroyThreads() {
   extensions_browser_client_.reset();
   ExtensionsBrowserClient::Set(nullptr);
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  chromeos::LacrosDBusThreadManager::Shutdown();
+#endif
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   network_controller_.reset();
   chromeos::NetworkHandler::Shutdown();

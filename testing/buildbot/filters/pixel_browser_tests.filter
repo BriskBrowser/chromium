@@ -1,11 +1,14 @@
 # This is the filter for browser_tests that supports pixel tests.
 *EyeDropperBrowserTest.*
 *PasswordBubbleBrowserTest.*
+AccuracyTipBubbleViewDialogBrowserTest.*
 AppInfoDialogBrowserTest.*
 AskGoogleForSuggestionsDialogTest.*
 BookmarkBubbleViewBrowserTest.*
 BookmarkEditorViewBrowserTest.*
+ChromeLabsUiTest.*
 ContentSettingBubbleDialogTest.*
+CookieControlsBubbleViewTest.*
 ExtensionInstallDialogViewInteractiveBrowserTest.*
 ExtensionUninstallDialogViewInteractiveBrowserTest.*
 FeaturePromoDialogTest.*
@@ -14,10 +17,14 @@ GlobalErrorBubbleTest.*
 HatsBubbleTest.*
 HungRendererDialogViewBrowserTest.*
 ImportLockDialogViewBrowserTest.*
+NewTabPageTest.*
 OneTimePermissionPromptBubbleViewBrowserTest.*
 OutdatedUpgradeBubbleTest.*
-PageInfoBubbleViewBrowserTest.*
+PageInfoBubbleViewAboutThisSiteDialogBrowserTest.*
+PageInfoBubbleViewDialogBrowserTest.*
 PasswordReuseModalWarningTest.*
+PermissionRequestChipBrowserTest.*
+All/PermissionPromptBubbleViewBrowserTest.*
 ProfileSigninConfirmationDialogTest.*
 RelaunchRecommendedBubbleViewDialogTest.*
 RelaunchRequiredDialogViewDialogTest.*
@@ -38,3 +45,6 @@ ZoomBubbleDialogTest.*
 # TODO(crbug.com/2666206): Flaky
 -ContentSettingBubbleDialogTest.InvokeUi_mediastream_camera
 -ContentSettingBubbleDialogTest.InvokeUi_mediastream_mic_and_camera
+
+# TODO(crbug.com/1164574): Flaky
+-ContentSettingBubbleDialogTest.InvokeUi_mediastream_mic

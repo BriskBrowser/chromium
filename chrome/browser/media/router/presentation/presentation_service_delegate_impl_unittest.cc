@@ -5,14 +5,16 @@
 #include "components/media_router/browser/presentation/presentation_service_delegate_impl.h"
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/test/mock_callback.h"
 #include "build/build_config.h"
-#include "chrome/browser/media/router/media_router_factory.h"
+#include "chrome/browser/media/router/presentation/chrome_local_presentation_manager_factory.h"
 #include "chrome/browser/media/router/test/provider_test_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/media_router/browser/media_router_factory.h"
 #include "components/media_router/browser/presentation/local_presentation_manager.h"
 #include "components/media_router/browser/presentation/local_presentation_manager_factory.h"
 #include "components/media_router/browser/presentation/web_contents_presentation_manager.h"
@@ -41,6 +43,7 @@ using blink::mojom::PresentationInfo;
 using ::testing::_;
 using ::testing::Invoke;
 using ::testing::Mock;
+using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::StrictMock;
 using ::testing::WithArgs;
@@ -57,6 +60,17 @@ constexpr char kPresentationId[] = "presentation_id";
 MATCHER_P(InfoEquals, expected, "") {
   return expected.url == arg.url && expected.id == arg.id;
 }
+
+#if !defined(OS_ANDROID)
+// Set the user preference for |origin| to prefer tab mirroring.
+void EnableTabMirroringForOrigin(PrefService* prefs,
+                                 const std::string& origin) {
+  ListPrefUpdate update(prefs,
+                        media_router::prefs::kMediaRouterTabMirroringSources);
+  if (!base::Contains(update->GetList(), base::Value(origin)))
+    update->Append(origin);
+}
+#endif
 
 }  // namespace
 
@@ -104,7 +118,7 @@ class MockLocalPresentationManager : public LocalPresentationManager {
  public:
   void RegisterLocalPresentationController(
       const PresentationInfo& presentation_info,
-      const content::GlobalFrameRoutingId& render_frame_id,
+      const content::GlobalRenderFrameHostId& render_frame_id,
       mojo::PendingRemote<PresentationConnection> controller,
       mojo::PendingReceiver<PresentationConnection> receiver,
       const MediaRoute& route) override {
@@ -114,17 +128,18 @@ class MockLocalPresentationManager : public LocalPresentationManager {
 
   MOCK_METHOD5(RegisterLocalPresentationControllerInternal,
                void(const PresentationInfo& presentation_info,
-                    const content::GlobalFrameRoutingId& render_frame_id,
+                    const content::GlobalRenderFrameHostId& render_frame_id,
                     mojo::PendingRemote<PresentationConnection>& controller,
                     mojo::PendingReceiver<PresentationConnection>& receiver,
                     const MediaRoute& route));
   MOCK_METHOD2(UnregisterLocalPresentationController,
                void(const std::string& presentation_id,
-                    const content::GlobalFrameRoutingId& render_frame_id));
-  MOCK_METHOD2(OnLocalPresentationReceiverCreated,
+                    const content::GlobalRenderFrameHostId& render_frame_id));
+  MOCK_METHOD3(OnLocalPresentationReceiverCreated,
                void(const PresentationInfo& presentation_info,
                     const content::ReceiverConnectionAvailableCallback&
-                        receiver_callback));
+                        receiver_callback,
+                    content::WebContents* receiver_web_contents));
   MOCK_METHOD1(OnLocalPresentationReceiverTerminated,
                void(const std::string& presentation_id));
   MOCK_METHOD1(IsLocalPresentation, bool(const std::string& presentation_id));
@@ -133,7 +148,7 @@ class MockLocalPresentationManager : public LocalPresentationManager {
 
 std::unique_ptr<KeyedService> BuildMockLocalPresentationManager(
     content::BrowserContext* context) {
-  return std::make_unique<MockLocalPresentationManager>();
+  return std::make_unique<NiceMock<MockLocalPresentationManager>>();
 }
 
 class PresentationServiceDelegateImplTest
@@ -164,8 +179,8 @@ class PresentationServiceDelegateImplTest
     delegate_impl_ = PresentationServiceDelegateImpl::FromWebContents(wc);
     SetMainFrame();
     presentation_request_ = std::make_unique<content::PresentationRequest>(
-        content::GlobalFrameRoutingId(main_frame_process_id_,
-                                      main_frame_routing_id_),
+        content::GlobalRenderFrameHostId(main_frame_process_id_,
+                                         main_frame_routing_id_),
         presentation_urls_, frame_origin_);
     SetMockLocalPresentationManager();
   }
@@ -200,7 +215,7 @@ class PresentationServiceDelegateImplTest
 
     // Should not trigger callback since request doesn't match.
     content::PresentationRequest different_request(
-        content::GlobalFrameRoutingId(100, 200), {presentation_url2_},
+        content::GlobalRenderFrameHostId(100, 200), {presentation_url2_},
         frame_origin_);
     MediaRoute media_route("differentRouteId", source2_, "mediaSinkId", "",
                            true, true);
@@ -270,7 +285,8 @@ class PresentationServiceDelegateImplIncognitoTest
  protected:
   content::WebContents* GetWebContents() override {
     if (!off_the_record_web_contents_) {
-      Profile* incognito_profile = profile()->GetPrimaryOTRProfile();
+      Profile* incognito_profile =
+          profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true);
       off_the_record_web_contents_ =
           content::WebContentsTester::CreateTestWebContents(incognito_profile,
                                                             nullptr);
@@ -434,7 +450,7 @@ TEST_F(PresentationServiceDelegateImplTest, NotifyMediaRoutesChanged) {
   const int render_process_id = 100;
   const int render_frame_id = 200;
   content::PresentationRequest request(
-      content::GlobalFrameRoutingId(render_process_id, render_frame_id),
+      content::GlobalRenderFrameHostId(render_process_id, render_frame_id),
       {presentation_url1_}, frame_origin_);
   MediaRoute media_route("differentRouteId", source1_, "mediaSinkId", "", true,
                          true);
@@ -453,6 +469,7 @@ TEST_F(PresentationServiceDelegateImplTest, NotifyMediaRoutesChanged) {
 }
 
 TEST_F(PresentationServiceDelegateImplTest, ListenForConnnectionStateChange) {
+  const MediaRoute::Id route_id("routeId");
   content::WebContentsTester::For(GetWebContents())
       ->NavigateAndCommit(frame_url_);
 
@@ -484,7 +501,7 @@ TEST_F(PresentationServiceDelegateImplTest, ListenForConnnectionStateChange) {
   EXPECT_CALL(mock_create_connection_callbacks, OnCreateConnectionSuccess(_))
       .Times(1);
   std::unique_ptr<RouteRequestResult> result = RouteRequestResult::FromSuccess(
-      MediaRoute("routeId", source1_, "mediaSinkId", "description", true, true),
+      MediaRoute(route_id, source1_, "mediaSinkId", "description", true, true),
       kPresentationId);
   std::move(route_response_callback).Run(/** connection */ nullptr, *result);
 
@@ -493,9 +510,45 @@ TEST_F(PresentationServiceDelegateImplTest, ListenForConnnectionStateChange) {
   auto callback = mock_callback.Get();
   PresentationInfo connection(presentation_url1_, kPresentationId);
   EXPECT_CALL(*router_,
-              OnAddPresentationConnectionStateChangedCallbackInvoked(callback));
+              OnAddPresentationConnectionStateChangedCallbackInvoked(_));
   delegate_impl_->ListenForConnectionStateChange(
       main_frame_process_id_, main_frame_routing_id_, connection, callback);
+
+  EXPECT_CALL(mock_callback, Run(_));
+  router_->NotifyPresentationConnectionStateChange(
+      route_id, blink::mojom::PresentationConnectionState::TERMINATED);
+}
+
+TEST_F(PresentationServiceDelegateImplTest, GetMediaRoutes) {
+  EXPECT_TRUE(delegate_impl_->GetMediaRoutes().empty());
+
+  // Start a session.
+  content::PresentationRequest request(
+      content::GlobalRenderFrameHostId(main_frame_process_id_,
+                                       main_frame_routing_id_),
+      {presentation_url1_}, frame_origin_);
+  MediaRoute media_route("differentRouteId1", source1_, "mediaSinkId", "", true,
+                         true);
+  std::unique_ptr<RouteRequestResult> result =
+      RouteRequestResult::FromSuccess(media_route, kPresentationId);
+  delegate_impl_->OnPresentationResponse(request,
+                                         /** connection */ nullptr, *result);
+  EXPECT_EQ(delegate_impl_->GetMediaRoutes().size(), 1u);
+  EXPECT_EQ(delegate_impl_->GetMediaRoutes()[0], media_route);
+
+  NiceMock<
+      base::MockCallback<content::PresentationConnectionStateChangedCallback>>
+      mock_callback;
+  PresentationInfo connection(presentation_url1_, kPresentationId);
+  delegate_impl_->ListenForConnectionStateChange(
+      main_frame_process_id_, main_frame_routing_id_, connection,
+      mock_callback.Get());
+
+  // Terminate the session.
+  router_->NotifyPresentationConnectionStateChange(
+      media_route.media_route_id(),
+      blink::mojom::PresentationConnectionState::TERMINATED);
+  EXPECT_TRUE(delegate_impl_->GetMediaRoutes().empty());
 }
 
 TEST_F(PresentationServiceDelegateImplTest, Reset) {
@@ -541,8 +594,8 @@ TEST_F(PresentationServiceDelegateImplTest,
        TestCloseConnectionForLocalPresentation) {
   GURL presentation_url = GURL("http://www.example.com/presentation.html");
   PresentationInfo presentation_info(presentation_url, kPresentationId);
-  content::GlobalFrameRoutingId rfh_id(main_frame_process_id_,
-                                       main_frame_routing_id_);
+  content::GlobalRenderFrameHostId rfh_id(main_frame_process_id_,
+                                          main_frame_routing_id_);
   MediaRoute media_route("route_id",
                          MediaSource::ForPresentationUrl(presentation_url),
                          "mediaSinkId", "", true, true);
@@ -587,8 +640,8 @@ TEST_F(PresentationServiceDelegateImplTest,
   EXPECT_CALL(mock_local_manager,
               UnregisterLocalPresentationController(
                   kPresentationId,
-                  content::GlobalFrameRoutingId(main_frame_process_id_,
-                                                main_frame_routing_id_)));
+                  content::GlobalRenderFrameHostId(main_frame_process_id_,
+                                                   main_frame_routing_id_)));
 
   delegate_impl_->ReconnectPresentation(*presentation_request_, kPresentationId,
                                         success_cb.Get(), error_cb.Get());
@@ -596,8 +649,8 @@ TEST_F(PresentationServiceDelegateImplTest,
 }
 
 TEST_F(PresentationServiceDelegateImplTest, ConnectToLocalPresentation) {
-  content::GlobalFrameRoutingId rfh_id(main_frame_process_id_,
-                                       main_frame_routing_id_);
+  content::GlobalRenderFrameHostId rfh_id(main_frame_process_id_,
+                                          main_frame_routing_id_);
   PresentationInfo presentation_info(presentation_url1_, kPresentationId);
 
   MediaRoute media_route("route_id",
@@ -624,7 +677,7 @@ TEST_F(PresentationServiceDelegateImplTest, ConnectToLocalPresentation) {
                   InfoEquals(presentation_info), rfh_id, _, _, media_route))
       .WillOnce([&receiver_receiver, &connection_remote](
                     const PresentationInfo&,
-                    const content::GlobalFrameRoutingId&,
+                    const content::GlobalRenderFrameHostId&,
                     mojo::PendingRemote<PresentationConnection>& controller,
                     mojo::PendingReceiver<PresentationConnection>& receiver,
                     const MediaRoute&) {
@@ -661,8 +714,8 @@ TEST_F(PresentationServiceDelegateImplTest, ConnectToLocalPresentation) {
 }
 
 TEST_F(PresentationServiceDelegateImplTest, ConnectToPresentation) {
-  content::GlobalFrameRoutingId rfh_id(main_frame_process_id_,
-                                       main_frame_routing_id_);
+  content::GlobalRenderFrameHostId rfh_id(main_frame_process_id_,
+                                          main_frame_routing_id_);
   PresentationInfo presentation_info(presentation_url1_, kPresentationId);
 
   MediaRoute media_route("route_id",
@@ -670,7 +723,7 @@ TEST_F(PresentationServiceDelegateImplTest, ConnectToPresentation) {
                          "mediaSinkId", "", true, true);
 
   mojo::Remote<PresentationConnection> connection_remote;
-  MockPresentationConnectionProxy mock_proxy;
+  NiceMock<MockPresentationConnectionProxy> mock_proxy;
   mojo::Receiver<PresentationConnection> receiver(&mock_proxy);
   auto success_cb =
       [&receiver, &connection_remote](PresentationConnectionResultPtr result) {
@@ -704,7 +757,7 @@ TEST_F(PresentationServiceDelegateImplTest, ConnectToPresentation) {
   });
   std::vector<mojom::RouteMessagePtr> messages;
   messages.emplace_back(mojom::RouteMessage::New(
-      mojom::RouteMessage::Type::TEXT, "beta", base::nullopt));
+      mojom::RouteMessage::Type::TEXT, "beta", absl::nullopt));
   proxy_message_observer->OnMessagesReceived(std::move(messages));
   base::RunLoop().RunUntilIdle();
 
@@ -723,12 +776,7 @@ TEST_F(PresentationServiceDelegateImplTest, AutoJoinRequest) {
   const std::string kPresentationId("auto-join");
   ASSERT_TRUE(IsAutoJoinPresentationId(kPresentationId));
 
-  // Set the user preference for |origin| to prefer tab mirroring.
-  {
-    ListPrefUpdate update(profile()->GetPrefs(),
-                          prefs::kMediaRouterTabMirroringSources);
-    update->AppendIfNotPresent(std::make_unique<base::Value>(origin));
-  }
+  EnableTabMirroringForOrigin(profile()->GetPrefs(), origin);
 
   auto& mock_local_manager = GetMockLocalPresentationManager();
   EXPECT_CALL(mock_local_manager, IsLocalPresentation(kPresentationId))
@@ -751,7 +799,7 @@ TEST_F(PresentationServiceDelegateImplTest, AutoJoinRequest) {
   {
     ListPrefUpdate update(profile()->GetPrefs(),
                           prefs::kMediaRouterTabMirroringSources);
-    update->Remove(base::Value(origin), nullptr);
+    update->EraseListValue(base::Value(origin));
   }
 
   // Auto-join requests should now go through.
@@ -776,12 +824,9 @@ TEST_F(PresentationServiceDelegateImplIncognitoTest, AutoJoinRequest) {
   const std::string kPresentationId("auto-join");
   ASSERT_TRUE(IsAutoJoinPresentationId(kPresentationId));
 
-  // Set the user preference for |origin| to prefer tab mirroring.
-  {
-    ListPrefUpdate update(profile()->GetPrimaryOTRProfile()->GetPrefs(),
-                          prefs::kMediaRouterTabMirroringSources);
-    update->AppendIfNotPresent(std::make_unique<base::Value>(origin));
-  }
+  EnableTabMirroringForOrigin(
+      profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true)->GetPrefs(),
+      origin);
 
   auto& mock_local_manager = GetMockLocalPresentationManager();
   EXPECT_CALL(mock_local_manager, IsLocalPresentation(kPresentationId))
@@ -791,8 +836,8 @@ TEST_F(PresentationServiceDelegateImplIncognitoTest, AutoJoinRequest) {
   // profile.
   const base::ListValue* non_off_the_record_origins =
       profile()->GetPrefs()->GetList(prefs::kMediaRouterTabMirroringSources);
-  EXPECT_EQ(non_off_the_record_origins->Find(base::Value(origin)),
-            non_off_the_record_origins->end());
+  EXPECT_FALSE(base::Contains(non_off_the_record_origins->GetList(),
+                              base::Value(origin)));
 
   // Auto-join requests should be rejected.
   EXPECT_CALL(mock_create_connection_callbacks, OnCreateConnectionError(_));
@@ -809,9 +854,10 @@ TEST_F(PresentationServiceDelegateImplIncognitoTest, AutoJoinRequest) {
 
   // Remove the user preference for |origin| in OffTheRecord.
   {
-    ListPrefUpdate update(profile()->GetPrimaryOTRProfile()->GetPrefs(),
-                          prefs::kMediaRouterTabMirroringSources);
-    update->Remove(base::Value(origin), nullptr);
+    ListPrefUpdate update(
+        profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true)->GetPrefs(),
+        prefs::kMediaRouterTabMirroringSources);
+    update->EraseListValue(base::Value(origin));
   }
 
   // Auto-join requests should now go through.

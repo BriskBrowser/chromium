@@ -9,18 +9,17 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
+#include "base/json/values_util.h"
 #include "base/location.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "base/util/values/values_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_confirmation_result.h"
@@ -41,8 +40,8 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/prefs/pref_service.h"
-#include "components/safe_browsing/core/file_type_policies.h"
-#include "components/safe_browsing/core/file_type_policies_test_util.h"
+#include "components/safe_browsing/content/common/file_type_policies.h"
+#include "components/safe_browsing/content/common/file_type_policies_test_util.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/browser/download_item_utils.h"
 #include "content/public/browser/render_process_host.h"
@@ -55,6 +54,7 @@
 #include "ppapi/buildflags/buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -293,6 +293,10 @@ class DownloadTargetDeterminerTest : public ChromeRenderViewHostTestHarness {
  public:
   DownloadTargetDeterminerTest() = default;
 
+  DownloadTargetDeterminerTest(const DownloadTargetDeterminerTest&) = delete;
+  DownloadTargetDeterminerTest& operator=(const DownloadTargetDeterminerTest&) =
+      delete;
+
   // ::testing::Test
   void SetUp() override;
   void TearDown() override;
@@ -352,6 +356,13 @@ class DownloadTargetDeterminerTest : public ChromeRenderViewHostTestHarness {
     return download_prefs_.get();
   }
 
+ protected:
+  // ChromeRenderViewHostTestHarness overrides.
+  TestingProfile::TestingFactories GetTestingFactories() const override {
+    return {{HistoryServiceFactory::GetInstance(),
+             HistoryServiceFactory::GetDefaultFactory()}};
+  }
+
  private:
   void SetUpFileTypePolicies();
 
@@ -361,8 +372,6 @@ class DownloadTargetDeterminerTest : public ChromeRenderViewHostTestHarness {
   NullWebContentsDelegate web_contents_delegate_;
   base::FilePath test_virtual_dir_;
   safe_browsing::FileTypePoliciesTestOverlay file_type_configuration_;
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadTargetDeterminerTest);
 };
 
 void DownloadTargetDeterminerTest::SetUp() {
@@ -457,7 +466,7 @@ void DownloadTargetDeterminerTest::SetManagedDownloadPath(
     const base::FilePath& path) {
   profile()->GetTestingPrefService()->SetManagedPref(
       prefs::kDownloadDefaultDirectory,
-      base::Value::ToUniquePtrValue(util::FilePathToValue(path)));
+      base::Value::ToUniquePtrValue(base::FilePathToValue(path)));
 }
 
 void DownloadTargetDeterminerTest::SetPromptForDownload(bool prompt) {
@@ -606,7 +615,7 @@ void MockDownloadTargetDeterminerDelegate::NullPromptUser(
     DownloadConfirmationReason reason,
     ConfirmationCallback& callback) {
   std::move(callback).Run(DownloadConfirmationResult::CONFIRMED, suggested_path,
-                          base::nullopt);
+                          absl::nullopt);
 }
 
 // static
@@ -695,7 +704,7 @@ TEST_F(DownloadTargetDeterminerTest, CancelSaveAs) {
   ON_CALL(*delegate(), RequestConfirmation_(_, _, _, _))
       .WillByDefault(
           WithArg<3>(ScheduleCallback3(DownloadConfirmationResult::CANCELED,
-                                       base::FilePath(), base::nullopt)));
+                                       base::FilePath(), absl::nullopt)));
   RunTestCasesWithActiveItem(kCancelSaveAsTestCases,
                              base::size(kCancelSaveAsTestCases));
 }
@@ -968,7 +977,7 @@ TEST_F(DownloadTargetDeterminerTest, DefaultVirtual) {
                                  DownloadConfirmationReason::SAVE_AS, _))
         .WillOnce(WithArg<3>(ScheduleCallback3(
             DownloadConfirmationResult::CONFIRMED,
-            test_virtual_dir().AppendASCII("prompted.txt"), base::nullopt)));
+            test_virtual_dir().AppendASCII("prompted.txt"), absl::nullopt)));
     RunTestCasesWithActiveItem(&kSaveAsToVirtualDir, 1);
   }
 
@@ -993,7 +1002,7 @@ TEST_F(DownloadTargetDeterminerTest, DefaultVirtual) {
         .WillOnce(WithArg<3>(ScheduleCallback3(
             DownloadConfirmationResult::CONFIRMED,
             GetPathInDownloadDir(FILE_PATH_LITERAL("foo-x.txt")),
-            base::nullopt)));
+            absl::nullopt)));
     RunTestCasesWithActiveItem(&kSaveAsToLocalDir, 1);
   }
 
@@ -1192,14 +1201,11 @@ TEST_F(DownloadTargetDeterminerTest, VisitedReferrer) {
             safe_browsing::FileTypePolicies::GetInstance()->GetFileDangerLevel(
                 base::FilePath(FILE_PATH_LITERAL("foo.kindabad"))));
 
-  // First the history service must exist.
-  ASSERT_TRUE(profile()->CreateHistoryService());
-
   GURL url("http://visited.example.com/visited-link.html");
   // The time of visit is picked to be several seconds prior to the most recent
   // midnight.
-  base::Time time_of_visit(
-      base::Time::Now().LocalMidnight() - base::TimeDelta::FromSeconds(10));
+  base::Time time_of_visit(base::Time::Now().LocalMidnight() -
+                           base::Seconds(10));
   history::HistoryService* history_service =
       HistoryServiceFactory::GetForProfile(profile(),
                                            ServiceAccessType::EXPLICIT_ACCESS);
@@ -1440,7 +1446,7 @@ TEST_F(DownloadTargetDeterminerTest, ContinueWithoutConfirmation_SaveAs) {
       .WillOnce(WithArg<3>(ScheduleCallback3(
           DownloadConfirmationResult::CONTINUE_WITHOUT_CONFIRMATION,
           GetPathInDownloadDir(FILE_PATH_LITERAL("foo.kindabad")),
-          base::nullopt)));
+          absl::nullopt)));
   RunTestCasesWithActiveItem(&kTestCase, 1);
 }
 
@@ -1467,7 +1473,7 @@ TEST_F(DownloadTargetDeterminerTest, ContinueWithConfirmation_SaveAs) {
       .WillOnce(WithArg<3>(ScheduleCallback3(
           DownloadConfirmationResult::CONFIRMED,
           GetPathInDownloadDir(FILE_PATH_LITERAL("foo.kindabad")),
-          base::nullopt)));
+          absl::nullopt)));
   RunTestCasesWithActiveItem(&kTestCase, 1);
 }
 
@@ -1627,6 +1633,17 @@ TEST_F(DownloadTargetDeterminerTest, NotifyExtensionsSafe) {
        DownloadItem::TARGET_DISPOSITION_OVERWRITE,
 
        EXPECT_LOCAL_PATH},
+
+      {// 4: Use a file extension that doesn't match the MIME type, but matches
+       // the URL.
+       AUTOMATIC, download::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
+       DownloadFileType::NOT_DANGEROUS, "http://example.com/foo.xyz",
+       "text/plain", FILE_PATH_LITERAL(""),
+
+       FILE_PATH_LITERAL("overridden/foo.xyz"),
+       DownloadItem::TARGET_DISPOSITION_OVERWRITE,
+
+       EXPECT_CRDOWNLOAD},
   };
 
   ON_CALL(*delegate(), NotifyExtensions_(_, _, _))
@@ -2442,11 +2459,8 @@ class MockPluginServiceFilter : public content::PluginServiceFilter {
   MOCK_METHOD1(MockPluginAvailable, bool(const base::FilePath&));
 
   bool IsPluginAvailable(int render_process_id,
-                         int render_view_id,
-                         const GURL& url,
-                         const url::Origin& main_frame_origin,
-                         content::WebPluginInfo* plugin) override {
-    return MockPluginAvailable(plugin->path);
+                         const content::WebPluginInfo& plugin) override {
+    return MockPluginAvailable(plugin.path);
   }
 
   bool CanLoadPlugin(int render_process_id,
@@ -2467,10 +2481,8 @@ class ScopedRegisterInternalPlugin {
     content::WebPluginMimeType plugin_mime_type(mime_type,
                                                 extension,
                                                 "Test file");
-    content::WebPluginInfo plugin_info(base::string16(),
-                                       path,
-                                       base::string16(),
-                                       base::string16());
+    content::WebPluginInfo plugin_info(std::u16string(), path, std::u16string(),
+                                       std::u16string());
     plugin_info.mime_types.push_back(plugin_mime_type);
     plugin_info.type = type;
 

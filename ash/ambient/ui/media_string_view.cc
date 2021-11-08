@@ -5,38 +5,39 @@
 #include "ash/ambient/ui/media_string_view.h"
 
 #include <memory>
+#include <string>
 
 #include "ash/ambient/ambient_constants.h"
 #include "ash/ambient/ui/ambient_view_ids.h"
 #include "ash/ambient/util/ambient_util.h"
-#include "ash/public/cpp/ash_pref_names.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
-#include "base/strings/string16.h"
+#include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "components/prefs/pref_service.h"
 #include "services/media_session/public/cpp/media_session_service.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/font.h"
+#include "ui/gfx/geometry/transform.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/shadow_value.h"
 #include "ui/gfx/skia_paint_util.h"
 #include "ui/gfx/text_constants.h"
-#include "ui/gfx/transform.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -100,7 +101,7 @@ class FadeoutLayerDelegate : public ui::LayerDelegate {
 };
 
 // Typography.
-constexpr char kMiddleDotSeparator[] = " \u2022 ";
+constexpr char16_t kMiddleDotSeparator[] = u" • ";
 
 constexpr int kMusicNoteIconSizeDip = 20;
 
@@ -125,6 +126,11 @@ MediaStringView::MediaStringView() {
 
 MediaStringView::~MediaStringView() = default;
 
+void MediaStringView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  media_text_->SetShadows(
+      ambient::util::GetTextShadowValues(GetColorProvider()));
+}
 void MediaStringView::OnViewBoundsChanged(views::View* observed_view) {
   UpdateMaskLayer();
 }
@@ -151,12 +157,12 @@ void MediaStringView::MediaSessionInfoChanged(
 }
 
 void MediaStringView::MediaSessionMetadataChanged(
-    const base::Optional<media_session::MediaMetadata>& metadata) {
+    const absl::optional<media_session::MediaMetadata>& metadata) {
   media_session::MediaMetadata session_metadata =
       metadata.value_or(media_session::MediaMetadata());
 
-  base::string16 media_string;
-  base::string16 middle_dot = base::UTF8ToUTF16(kMiddleDotSeparator);
+  std::u16string media_string;
+  std::u16string middle_dot = kMiddleDotSeparator;
   if (!session_metadata.title.empty() && !session_metadata.artist.empty()) {
     media_string =
         session_metadata.title + middle_dot + session_metadata.artist;
@@ -167,7 +173,7 @@ void MediaStringView::MediaSessionMetadataChanged(
   }
 
   // Reset text and stop any ongoing animation.
-  media_text_->SetText(base::string16());
+  media_text_->SetText(std::u16string());
   media_text_->layer()->GetAnimator()->StopAnimating();
 
   media_text_->SetText(media_string);
@@ -241,10 +247,8 @@ void MediaStringView::InitLayout() {
           .DeriveWithSizeDelta(kMediaStringFontSizeDip - kDefaultFontSizeDip)
           .DeriveWithWeight(gfx::Font::Weight::MEDIUM));
   media_text_->SetElideBehavior(gfx::ElideBehavior::NO_ELIDE);
-
-  auto shadow_values = ambient::util::GetTextShadowValues();
-  media_text_->SetShadows(shadow_values);
-  gfx::Insets shadow_insets = gfx::ShadowValue::GetMargin(shadow_values);
+  gfx::Insets shadow_insets =
+      gfx::ShadowValue::GetMargin(ambient::util::GetTextShadowValues(nullptr));
   // Compensate the shadow insets to put the text middle align with the icon.
   media_text_->SetBorder(views::CreateEmptyBorder(
       /*top=*/-shadow_insets.bottom(),
@@ -321,14 +325,13 @@ void MediaStringView::StartScrolling(bool is_initial) {
     // Desired speed is 10 seconds for kMediaStringMaxWidthDip.
     const int text_width = media_text_->GetPreferredSize().width();
     const int shadow_width =
-        gfx::ShadowValue::GetMargin(ambient::util::GetTextShadowValues())
+        gfx::ShadowValue::GetMargin(ambient::util::GetTextShadowValues(nullptr))
             .width();
     const int start_x = text_layer->GetTargetTransform().To2dTranslation().x();
     const int end_x = -(text_width + shadow_width) / 2;
     const int transform_distance = start_x - end_x;
     const base::TimeDelta kScrollingDuration =
-        base::TimeDelta::FromSeconds(10) * transform_distance /
-        kMediaStringMaxWidthDip;
+        base::Seconds(10) * transform_distance / kMediaStringMaxWidthDip;
 
     ui::ScopedLayerAnimationSettings animation(text_layer->GetAnimator());
     animation.SetTransitionDuration(kScrollingDuration);

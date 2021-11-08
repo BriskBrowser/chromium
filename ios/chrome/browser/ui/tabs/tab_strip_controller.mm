@@ -39,6 +39,7 @@
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_long_press_delegate.h"
 #import "ios/chrome/browser/ui/tabs/requirements/tab_strip_constants.h"
 #import "ios/chrome/browser/ui/tabs/requirements/tab_strip_presentation.h"
+#import "ios/chrome/browser/ui/tabs/tab_strip_constants.h"
 #import "ios/chrome/browser/ui/tabs/tab_strip_container_view.h"
 #import "ios/chrome/browser/ui/tabs/tab_strip_view.h"
 #import "ios/chrome/browser/ui/tabs/tab_view.h"
@@ -46,7 +47,6 @@
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #include "ios/chrome/browser/ui/util/rtl_geometry.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
@@ -57,11 +57,10 @@
 #include "ios/chrome/browser/web_state_list/web_state_opener.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #include "ios/chrome/grit/ios_strings.h"
-#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#import "ios/public/provider/chrome/browser/ui/fullscreen_provider.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/public/web_state_observer_bridge.h"
+#include "ui/base/device_form_factor.h"
 #include "ui/gfx/image/image.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -151,9 +150,7 @@ UIColor* BackgroundColor() {
     self.titleLabel.minimumScaleFactor = 0.1;
     self.titleLabel.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
 
-    if (@available(iOS 13.4, *)) {
-        self.pointerInteractionEnabled = YES;
-    }
+    self.pointerInteractionEnabled = YES;
   }
   return self;
 }
@@ -469,7 +466,7 @@ UIColor* BackgroundColor() {
     _tabStripView.backgroundColor = _view.backgroundColor;
     _tabStripView.layoutDelegate = self;
     _tabStripView.accessibilityIdentifier =
-        style == INCOGNITO ? @"Incognito Tab Strip" : @"Tab Strip";
+        style == INCOGNITO ? kIncognitoTabStripId : kRegularTabStripId;
     [_view addSubview:_tabStripView];
     _view.tabStripView = _tabStripView;
 
@@ -505,9 +502,7 @@ UIColor* BackgroundColor() {
                       action:@selector(recordUserMetrics:)
             forControlEvents:UIControlEventTouchUpInside];
 
-    if (@available(iOS 13.4, *)) {
-        _buttonNewTab.pointerInteractionEnabled = YES;
-    }
+    _buttonNewTab.pointerInteractionEnabled = YES;
 
     [_tabStripView addSubview:_buttonNewTab];
 
@@ -522,18 +517,16 @@ UIColor* BackgroundColor() {
     self.highlightsSelectedTab = NO;
 
     // Register for VoiceOver notifications.
-    if (base::FeatureList::IsEnabled(kVoiceOverUnstackedTabstrip)) {
-      [[NSNotificationCenter defaultCenter]
-          addObserver:self
-             selector:@selector(voiceOverStatusDidChange)
-                 name:UIAccessibilityVoiceOverStatusDidChangeNotification
-               object:nil];
-    }
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(voiceOverStatusDidChange)
+               name:UIAccessibilityVoiceOverStatusDidChangeNotification
+             object:nil];
 
-      self.dragDropHandler = [[URLDragDropHandler alloc] init];
-      self.dragDropHandler.dropDelegate = self;
-      [_view addInteraction:[[UIDropInteraction alloc]
-                                initWithDelegate:self.dragDropHandler]];
+    self.dragDropHandler = [[URLDragDropHandler alloc] init];
+    self.dragDropHandler.dropDelegate = self;
+    [_view addInteraction:[[UIDropInteraction alloc]
+                              initWithDelegate:self.dragDropHandler]];
   }
   return self;
 }
@@ -670,29 +663,40 @@ UIColor* BackgroundColor() {
   [_tabStripView addSubview:_dimmingView];
 
   CGFloat duration = animate ? kTabStripFadeAnimationDuration : 0;
+  __weak TabStripController* weakSelf = self;
   [UIView animateWithDuration:duration
                    animations:^{
-                     [_dimmingView
-                         setBackgroundColor:[BackgroundColor()
-                                                colorWithAlphaComponent:0.6]];
+                     [weakSelf animateDimmingViewBackgroundColorWithAlpha:0.6];
                    }];
+}
+
+// Animation helper function to set the _dimmingView background color with
+// alpha.
+- (void)animateDimmingViewBackgroundColorWithAlpha:(CGFloat)alphaComponent {
+  [_dimmingView setBackgroundColor:[BackgroundColor()
+                                       colorWithAlphaComponent:alphaComponent]];
 }
 
 - (void)removeDimmingViewWithAnimation:(BOOL)animate {
   if (_dimmingView) {
+    __weak TabStripController* weakSelf = self;
     CGFloat duration = animate ? kTabStripFadeAnimationDuration : 0;
     [UIView animateWithDuration:duration
         animations:^{
-          [_dimmingView
-              setBackgroundColor:[BackgroundColor() colorWithAlphaComponent:0]];
+          [weakSelf animateDimmingViewBackgroundColorWithAlpha:0];
         }
         completion:^(BOOL finished) {
-          // Do not remove the dimming view if the animation was aborted.
-          if (finished) {
-            [_dimmingView removeFromSuperview];
-            _dimmingView = nil;
-          }
+          [weakSelf onDimmingViewAnimationFinished:finished];
         }];
+  }
+}
+
+// Completion function/helper for -removeDimmingViewWithAnimation
+- (void)onDimmingViewAnimationFinished:(BOOL)finished {
+  // Do not remove the dimming view if the animation was aborted.
+  if (finished) {
+    [_dimmingView removeFromSuperview];
+    _dimmingView = nil;
   }
 }
 
@@ -808,6 +812,7 @@ UIColor* BackgroundColor() {
 - (void)insertNewItemAtIndex:(NSUInteger)index withURL:(const GURL&)newTabURL {
   UrlLoadParams params =
       UrlLoadParams::InNewTab(newTabURL, base::checked_cast<int>(index));
+  params.in_incognito = _browser->GetBrowserState()->IsOffTheRecord();
   UrlLoadingBrowserAgent::FromBrowser(_browser)->Load(params);
 }
 
@@ -1163,17 +1168,22 @@ UIColor* BackgroundColor() {
   // sight.
   CGRect frame = [view frame];
   frame = CGRectOffset(frame, 0, CGRectGetHeight(frame));
+  __weak TabStripController* weakSelf = self;
   [UIView animateWithDuration:kTabAnimationDuration
       animations:^{
         [view setFrame:frame];
       }
       completion:^(BOOL finished) {
-        [view removeFromSuperview];
-        [_tabArray removeObject:view];
-        [_closingTabs removeObject:view];
+        [weakSelf tabViewAnimationCompletion:view];
       }];
 
   [self setNeedsLayoutWithAnimation];
+}
+
+- (void)tabViewAnimationCompletion:(UIView*)view {
+  [view removeFromSuperview];
+  [_tabArray removeObject:view];
+  [_closingTabs removeObject:view];
 }
 
 // Observer method. |webState| inserted on |webStateList|.
@@ -1685,19 +1695,28 @@ UIColor* BackgroundColor() {
                         object:nil];
     }
 
+    __weak TabStripController* weakSelf = self;
     [UIView animateWithDuration:kTabAnimationDuration
                           delay:delay
                         options:UIViewAnimationOptionAllowUserInteraction
                      animations:^{
-                       for (TabView* view in tabsNeedingAnimation) {
-                         DCHECK(_targetFrames.HasFrame(view));
-                         [view setFrame:_targetFrames.GetFrame(view)];
-                       }
-                       if (moveNewTab)
-                         [_buttonNewTab setFrame:newTabFrame];
+                       [weakSelf animateTabStripSubviews:tabsNeedingAnimation
+                                             newTabFrame:newTabFrame
+                                              moveNewTab:moveNewTab];
                      }
                      completion:nil];
   }
+}
+
+- (void)animateTabStripSubviews:(NSMutableArray*)tabsNeedingAnimation
+                    newTabFrame:(CGRect)newTabFrame
+                     moveNewTab:(BOOL)moveNewTab {
+  for (TabView* view in tabsNeedingAnimation) {
+    DCHECK(_targetFrames.HasFrame(view));
+    [view setFrame:_targetFrames.GetFrame(view)];
+  }
+  if (moveNewTab)
+    [_buttonNewTab setFrame:newTabFrame];
 }
 
 - (void)setNeedsLayoutWithAnimation {
@@ -1718,7 +1737,7 @@ UIColor* BackgroundColor() {
   if (index == WebStateList::kInvalidIndex)
     return;
 
-  if (IsIPadIdiom() &&
+  if ((ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET) &&
       (_webStateList->active_index() != static_cast<int>(index))) {
     SnapshotTabHelper::FromWebState(_webStateList->GetActiveWebState())
         ->UpdateSnapshotWithCallback(nil);
@@ -1756,14 +1775,12 @@ UIColor* BackgroundColor() {
 #pragma mark - Tab Stacking
 
 - (BOOL)shouldUseTabStacking {
-  BOOL useTabStacking = !IsIPadIdiom() || !IsCompactWidth(self.view);
-  if (base::FeatureList::IsEnabled(kVoiceOverUnstackedTabstrip) &&
-      UIAccessibilityIsVoiceOverRunning()) {
-    useTabStacking = NO;
+  if (UIAccessibilityIsVoiceOverRunning()) {
+    return NO;
   }
-  if (base::FeatureList::IsEnabled(kForceUnstackedTabstrip)) {
-    useTabStacking = NO;
-  }
+  BOOL useTabStacking =
+      (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_TABLET) ||
+      !IsCompactWidth(self.view);
   return useTabStacking;
 }
 

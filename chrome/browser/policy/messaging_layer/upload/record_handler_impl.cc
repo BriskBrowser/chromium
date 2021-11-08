@@ -11,45 +11,53 @@
 #include "base/callback.h"
 #include "base/containers/queue.h"
 #include "base/json/json_reader.h"
-#include "base/optional.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
-#include "base/task_runner.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/task_runner.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "chrome/browser/policy/messaging_layer/upload/dm_server_upload_service.h"
 #include "chrome/browser/policy/messaging_layer/upload/record_upload_request_builder.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/reporting_util.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
-#include "components/reporting/proto/record.pb.h"
-#include "components/reporting/proto/record_constants.pb.h"
+#include "components/reporting/proto/synced/record.pb.h"
+#include "components/reporting/proto/synced/record_constants.pb.h"
 #include "components/reporting/util/status.h"
 #include "components/reporting/util/status_macros.h"
 #include "components/reporting/util/statusor.h"
 #include "components/reporting/util/task_runner_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace reporting {
 namespace {
 
 // Priority could come back as an int or as a std::string, this function handles
 // both situations.
-base::Optional<Priority> GetPriorityProtoFromSequencingInformationValue(
-    const base::Value& sequencing_information) {
-  const base::Optional<int> int_priority_result =
-      sequencing_information.FindIntKey("priority");
+absl::optional<Priority> GetPriorityProtoFromSequenceInformationValue(
+    const base::Value& sequence_information) {
+  const absl::optional<int> int_priority_result =
+      sequence_information.FindIntKey("priority");
   if (int_priority_result.has_value()) {
     return Priority(int_priority_result.value());
   }
 
   const std::string* str_priority_result =
-      sequencing_information.FindStringKey("priority");
+      sequence_information.FindStringKey("priority");
+  if (!str_priority_result) {
+    LOG(ERROR) << "Field priority is missing from SequenceInformation: "
+               << sequence_information;
+    return absl::nullopt;
+  }
+
   Priority priority;
   if (!Priority_Parse(*str_priority_result, &priority)) {
-    return base::nullopt;
+    LOG(ERROR) << "Unable to parse field priority in SequenceInformation: "
+               << sequence_information;
+    return absl::nullopt;
   }
   return priority;
 }
@@ -75,7 +83,7 @@ class RecordHandlerImpl::ReportUploader
   void OnStart() override;
 
   void StartUpload();
-  void OnUploadComplete(base::Optional<base::Value> response);
+  void OnUploadComplete(absl::optional<base::Value> response);
   void HandleFailedUpload();
   void HandleSuccessfulUpload();
   void Complete(DmServerUploadService::CompletionResponse result);
@@ -87,13 +95,13 @@ class RecordHandlerImpl::ReportUploader
   //   "generationId": 4321
   //   "priority": 3
   // }
-  base::Optional<EncryptedRecord> HandleFailedUploadedSequencingInformation(
-      const base::Value& sequencing_information);
+  absl::optional<EncryptedRecord> HandleFailedUploadedSequenceInformation(
+      const base::Value& sequence_information);
 
   // Helper function for converting a base::Value representation of
-  // SequencingInformation into a proto. Will return an INVALID_ARGUMENT error
-  // if the base::Value is not convertable.
-  StatusOr<SequencingInformation> SequencingInformationValueToProto(
+  // SequenceInformation into a proto. Will return an INVALID_ARGUMENT error
+  // if the base::Value is not convertible.
+  StatusOr<SequenceInformation> SequenceInformationValueToProto(
       const base::Value& value);
 
   bool need_encryption_key_;
@@ -115,7 +123,7 @@ class RecordHandlerImpl::ReportUploader
   EncryptedRecord gap_record_;
 
   // Set for the highest record being uploaded.
-  base::Optional<SequencingInformation> highest_sequencing_information_;
+  absl::optional<SequenceInformation> highest_sequence_information_;
 
   // Set to |true| if force_confirm flag is present. |false| by default.
   bool force_confirm_{false};
@@ -135,7 +143,7 @@ RecordHandlerImpl::ReportUploader::ReportUploader(
       need_encryption_key_(need_encryption_key),
       records_(std::move(records)),
       client_(client),
-      encryption_key_attached_cb_(encryption_key_attached_cb) {}
+      encryption_key_attached_cb_(std::move(encryption_key_attached_cb)) {}
 
 RecordHandlerImpl::ReportUploader::~ReportUploader() = default;
 
@@ -154,7 +162,7 @@ void RecordHandlerImpl::ReportUploader::OnStart() {
     return;
   }
 
-  if (records_->empty()) {
+  if (records_->empty() && !need_encryption_key_) {
     Status empty_records =
         Status(error::INVALID_ARGUMENT, "records_ was empty");
     LOG(ERROR) << empty_records;
@@ -171,12 +179,12 @@ void RecordHandlerImpl::ReportUploader::StartUpload() {
                      base::Unretained(this));
 
   UploadEncryptedReportingRequestBuilder request_builder{need_encryption_key_};
-  for (const auto& record : *records_) {
-    request_builder.AddRecord(record);
+  for (auto record : *records_) {
+    request_builder.AddRecord((std::move(record)));
   }
   auto request_result = request_builder.Build();
   if (!request_result.has_value()) {
-    std::move(response_cb).Run(base::nullopt);
+    std::move(response_cb).Run(absl::nullopt);
     return;
   }
 
@@ -185,11 +193,11 @@ void RecordHandlerImpl::ReportUploader::StartUpload() {
 
   base::Value request = std::move(request_result.value());
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(
           [](policy::CloudPolicyClient* client, base::Value request,
-             base::OnceCallback<void(base::Optional<base::Value>)>
+             base::OnceCallback<void(absl::optional<base::Value>)>
                  response_cb) {
             client->UploadEncryptedReport(
                 std::move(request),
@@ -200,7 +208,7 @@ void RecordHandlerImpl::ReportUploader::StartUpload() {
 }
 
 void RecordHandlerImpl::ReportUploader::OnUploadComplete(
-    base::Optional<base::Value> response) {
+    absl::optional<base::Value> response) {
   if (!response.has_value()) {
     Schedule(&RecordHandlerImpl::ReportUploader::HandleFailedUpload,
              base::Unretained(this));
@@ -212,10 +220,10 @@ void RecordHandlerImpl::ReportUploader::OnUploadComplete(
 }
 
 void RecordHandlerImpl::ReportUploader::HandleFailedUpload() {
-  if (highest_sequencing_information_.has_value()) {
+  if (highest_sequence_information_.has_value()) {
     Complete(DmServerUploadService::SuccessfulUploadResponse{
-        .sequencing_information =
-            std::move(highest_sequencing_information_.value()),
+        .sequence_information =
+            std::move(highest_sequence_information_.value()),
         .force_confirm = force_confirm_});
     return;
   }
@@ -224,11 +232,18 @@ void RecordHandlerImpl::ReportUploader::HandleFailedUpload() {
 }
 
 void RecordHandlerImpl::ReportUploader::HandleSuccessfulUpload() {
-  // Decypher 'response' containing a base::Value dictionary that looks like:
+  if (!last_response_.is_dict()) {
+    LOG(ERROR) << "Server responded with a non-dictionary response: "
+               << last_response_;
+    Complete(
+        Status(error::FAILED_PRECONDITION, "Response is not a dictionary"));
+    return;
+  }
+
   //  {
-  //    "lastSucceedUploadedRecord": ... // SequencingInformation proto
+  //    "lastSucceedUploadedRecord": ... // SequenceInformation proto
   //    "firstFailedUploadedRecord": {
-  //      "failedUploadedRecord": ... // SequencingInformation proto
+  //      "failedUploadedRecord": ... // SequenceInformation proto
   //      "failureStatus": ... // Status proto
   //    }
   //    "forceConfirm": true  // if present, flag that lastSucceedUploadedRecord
@@ -239,11 +254,11 @@ void RecordHandlerImpl::ReportUploader::HandleSuccessfulUpload() {
       last_response_.FindDictKey("lastSucceedUploadedRecord");
   if (last_succeed_uploaded_record != nullptr) {
     auto seq_info_result =
-        SequencingInformationValueToProto(*last_succeed_uploaded_record);
+        SequenceInformationValueToProto(*last_succeed_uploaded_record);
     if (seq_info_result.ok()) {
-      highest_sequencing_information_ = std::move(seq_info_result.ValueOrDie());
+      highest_sequence_information_ = std::move(seq_info_result.ValueOrDie());
     } else {
-      LOG(ERROR) << "Server responded with an invalid SequencingInformation "
+      LOG(ERROR) << "Server responded with an invalid SequenceInformation "
                     "for lastSucceedUploadedRecord:"
                  << *last_succeed_uploaded_record;
     }
@@ -279,7 +294,7 @@ void RecordHandlerImpl::ReportUploader::HandleSuccessfulUpload() {
       signed_encryption_key.set_public_asymmetric_key(public_key);
       signed_encryption_key.set_public_key_id(public_key_id_result.value());
       signed_encryption_key.set_signature(public_key_signature);
-      encryption_key_attached_cb_.Run(signed_encryption_key);
+      std::move(encryption_key_attached_cb_).Run(signed_encryption_key);
       need_encryption_key_ = false;
     }
   }
@@ -289,14 +304,14 @@ void RecordHandlerImpl::ReportUploader::HandleSuccessfulUpload() {
       "firstFailedUploadedRecord.failedUploadedRecord");
   if (!force_confirm_ && failed_uploaded_record != nullptr) {
     // The record we uploaded previously was unprocessable by the server, if the
-    // record was after the current |highest_sequencing_information_| we should
+    // record was after the current |highest_sequence_information_| we should
     // return a gap record. A gap record consists of an EncryptedRecord with
-    // just SequencingInformation. The server will report success for the gap
-    // record and |highest_sequencing_information_| will be updated in the next
+    // just SequenceInformation. The server will report success for the gap
+    // record and |highest_sequence_information_| will be updated in the next
     // response. In the future there may be recoverable |failureStatus|, but
     // for now all the device can do is delete the record.
     auto gap_record_result =
-        HandleFailedUploadedSequencingInformation(*failed_uploaded_record);
+        HandleFailedUploadedSequenceInformation(*failed_uploaded_record);
     if (gap_record_result.has_value()) {
       LOG(ERROR) << "Data Loss. Record was unprocessable by the server: "
                  << *failed_uploaded_record;
@@ -310,12 +325,12 @@ void RecordHandlerImpl::ReportUploader::HandleSuccessfulUpload() {
     return;
   }
 
-  // No more records to process. Return the highest_sequencing_information_ if
+  // No more records to process. Return the highest_sequence_information_ if
   // available.
-  if (highest_sequencing_information_.has_value()) {
+  if (highest_sequence_information_.has_value()) {
     Complete(DmServerUploadService::SuccessfulUploadResponse{
-        .sequencing_information =
-            std::move(highest_sequencing_information_.value()),
+        .sequence_information =
+            std::move(highest_sequence_information_.value()),
         .force_confirm = force_confirm_});
     return;
   }
@@ -323,38 +338,37 @@ void RecordHandlerImpl::ReportUploader::HandleSuccessfulUpload() {
   Complete(Status(error::INTERNAL, "Unable to upload any records"));
 }
 
-base::Optional<EncryptedRecord>
-RecordHandlerImpl::ReportUploader::HandleFailedUploadedSequencingInformation(
-    const base::Value& sequencing_information) {
-  if (!highest_sequencing_information_.has_value()) {
-    LOG(ERROR) << "highest_sequencing_information_ has no value.";
-    return base::nullopt;
+absl::optional<EncryptedRecord>
+RecordHandlerImpl::ReportUploader::HandleFailedUploadedSequenceInformation(
+    const base::Value& sequence_information) {
+  if (!highest_sequence_information_.has_value()) {
+    LOG(ERROR) << "highest_sequence_information_ has no value.";
+    return absl::nullopt;
   }
 
-  auto seq_info_result =
-      SequencingInformationValueToProto(sequencing_information);
+  auto seq_info_result = SequenceInformationValueToProto(sequence_information);
   if (!seq_info_result.ok()) {
-    LOG(ERROR) << "Server responded with an invalid SequencingInformation for "
+    LOG(ERROR) << "Server responded with an invalid SequenceInformation for "
                   "firstFailedUploadedRecord.failedUploadedRecord:"
-               << sequencing_information;
-    return base::nullopt;
+               << sequence_information;
+    return absl::nullopt;
   }
 
-  SequencingInformation& seq_info = seq_info_result.ValueOrDie();
+  SequenceInformation& seq_info = seq_info_result.ValueOrDie();
 
   // |seq_info| should be of the same generation and priority as
-  // highest_sequencing_information_, and have the next sequencing_id.
+  // highest_sequence_information_, and have the next sequencing_id.
   if (seq_info.generation_id() !=
-          highest_sequencing_information_->generation_id() ||
-      seq_info.priority() != highest_sequencing_information_->priority() ||
+          highest_sequence_information_->generation_id() ||
+      seq_info.priority() != highest_sequence_information_->priority() ||
       seq_info.sequencing_id() !=
-          highest_sequencing_information_->sequencing_id() + 1) {
-    return base::nullopt;
+          highest_sequence_information_->sequencing_id() + 1) {
+    return absl::nullopt;
   }
 
   // Build a gap record and return it.
   EncryptedRecord encrypted_record;
-  *encrypted_record.mutable_sequencing_information() = std::move(seq_info);
+  *encrypted_record.mutable_sequence_information() = std::move(seq_info);
   return encrypted_record;
 }
 
@@ -364,13 +378,13 @@ void RecordHandlerImpl::ReportUploader::Complete(
            completion_result);
 }
 
-StatusOr<SequencingInformation>
-RecordHandlerImpl::ReportUploader::SequencingInformationValueToProto(
+StatusOr<SequenceInformation>
+RecordHandlerImpl::ReportUploader::SequenceInformationValueToProto(
     const base::Value& value) {
   const std::string* sequencing_id = value.FindStringKey("sequencingId");
   const std::string* generation_id = value.FindStringKey("generationId");
   const auto priority_result =
-      GetPriorityProtoFromSequencingInformationValue(value);
+      GetPriorityProtoFromSequenceInformationValue(value);
 
   // If any of the previous values don't exist, or are malformed, return error.
   int64_t seq_id;
@@ -380,7 +394,7 @@ RecordHandlerImpl::ReportUploader::SequencingInformationValueToProto(
       !Priority_IsValid(priority_result.value())) {
     return Status(error::INVALID_ARGUMENT,
                   base::StrCat({"Provided value lacks some fields required by "
-                                "SequencingInformation proto: ",
+                                "SequenceInformation proto: ",
                                 value.DebugString()}));
   }
 
@@ -397,14 +411,14 @@ RecordHandlerImpl::ReportUploader::SequencingInformationValueToProto(
         unsigned_gen_id == 0) {
       return Status(error::INVALID_ARGUMENT,
                     base::StrCat({"Provided value did not conform to a valid "
-                                  "SequencingInformation proto: ",
+                                  "SequenceInformation proto: ",
                                   value.DebugString()}));
     }
     seq_id = static_cast<int64_t>(unsigned_seq_id);
     gen_id = static_cast<int64_t>(unsigned_gen_id);
   }
 
-  SequencingInformation proto;
+  SequenceInformation proto;
   proto.set_sequencing_id(seq_id);
   proto.set_generation_id(gen_id);
   proto.set_priority(Priority(priority_result.value()));
@@ -425,7 +439,7 @@ void RecordHandlerImpl::HandleRecords(
         encryption_key_attached_cb) {
   Start<RecordHandlerImpl::ReportUploader>(
       need_encryption_key, std::move(records), GetClient(),
-      std::move(upload_complete_cb), encryption_key_attached_cb,
+      std::move(upload_complete_cb), std::move(encryption_key_attached_cb),
       sequenced_task_runner_);
 }
 

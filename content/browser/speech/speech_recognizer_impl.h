@@ -53,6 +53,9 @@ class CONTENT_EXPORT SpeechRecognizerImpl
                        bool provisional_results,
                        SpeechRecognitionEngine* engine);
 
+  SpeechRecognizerImpl(const SpeechRecognizerImpl&) = delete;
+  SpeechRecognizerImpl& operator=(const SpeechRecognizerImpl&) = delete;
+
   // SpeechRecognizer methods.
   void StartRecognition(const std::string& device_id) override;
   void AbortRecognition() override;
@@ -113,7 +116,7 @@ class CONTENT_EXPORT SpeechRecognizerImpl
   void ProcessAudioPipeline(const AudioChunk& raw_audio);
 
   // Callback from AudioSystem.
-  void OnDeviceInfo(const base::Optional<media::AudioParameters>& params);
+  void OnDeviceInfo(const absl::optional<media::AudioParameters>& params);
 
   // The methods below handle transitions of the recognizer FSM.
   FSMState PrepareRecognition(const FSMEventArgs&);
@@ -146,7 +149,8 @@ class CONTENT_EXPORT SpeechRecognizerImpl
                base::TimeTicks audio_capture_time,
                double volume,
                bool key_pressed) final;
-  void OnCaptureError(const std::string& message) final;
+  void OnCaptureError(media::AudioCapturerSource::ErrorCode code,
+                      const std::string& message) final;
   void OnCaptureMuted(bool is_muted) final {}
 
   // SpeechRecognitionEngineDelegate methods.
@@ -185,7 +189,6 @@ class CONTENT_EXPORT SpeechRecognizerImpl
   std::unique_ptr<SpeechRecognizerImpl::OnDataConverter> audio_converter_;
 
   base::WeakPtrFactory<SpeechRecognizerImpl> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(SpeechRecognizerImpl);
 };
 
 }  // namespace content

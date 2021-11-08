@@ -11,7 +11,7 @@
 #include "base/feature_list.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/cdm_context.h"
@@ -350,8 +350,9 @@ void DecoderStream<StreamType>::OnDecoderSelected(
     std::unique_ptr<Decoder> selected_decoder,
     std::unique_ptr<DecryptingDemuxerStream> decrypting_demuxer_stream) {
   FUNCTION_DVLOG(1) << ": "
-                    << (selected_decoder ? selected_decoder->GetDisplayName()
-                                         : "No decoder selected.");
+                    << (selected_decoder
+                            ? GetDecoderName(selected_decoder->GetDecoderType())
+                            : "No decoder selected.");
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(state_ == STATE_INITIALIZING || state_ == STATE_REINITIALIZING_DECODER)
       << state_;
@@ -422,7 +423,7 @@ void DecoderStream<StreamType>::OnDecoderSelected(
   }
 
   MEDIA_LOG(INFO, media_log_)
-      << "Selected " << decoder_->GetDisplayName() << " for "
+      << "Selected " << decoder_->GetDecoderType() << " for "
       << GetStreamTypeString() << " decoding, config: "
       << traits_->GetDecoderConfig(stream_).AsHumanReadableString();
 
@@ -503,7 +504,7 @@ void DecoderStream<StreamType>::DecodeInternal(
       std::move(buffer),
       base::BindOnce(&DecoderStream<StreamType>::OnDecodeDone,
                      fallback_weak_factory_.GetWeakPtr(), buffer_size,
-                     decoding_eos_, base::Passed(&trace_event)));
+                     decoding_eos_, std::move(trace_event)));
 }
 
 template <DemuxerStream::Type StreamType>
@@ -552,8 +553,7 @@ void DecoderStream<StreamType>::OnDecodeDone(
 
   switch (status.code()) {
     case StatusCode::kAborted:
-      // Decoder can return kAborted during Reset() or during
-      // destruction.
+      // Decoder can return kAborted during Reset() or during destruction.
       return;
 
     case StatusCode::kOk:
@@ -589,6 +589,7 @@ void DecoderStream<StreamType>::OnDecodeDone(
         // from being called back.
         fallback_weak_factory_.InvalidateWeakPtrs();
         pending_decode_requests_ = 0;
+        decoding_eos_ = false;
         state_ = STATE_REINITIALIZING_DECODER;
         SelectDecoder();
       } else {
@@ -822,6 +823,15 @@ void DecoderStream<StreamType>::OnBufferReady(
   }
 
   DCHECK(status == DemuxerStream::kOk) << status;
+
+  // Report encryption type of the stream. For simplicity, we only report it
+  // once on the first buffer of the first config, even if there may be config
+  // changes later, which is fine for metrics purposes.
+  if (!encryption_type_reported_) {
+    encryption_type_reported_ = true;
+    ReportEncryptionType(buffer);
+  }
+
   Decode(std::move(buffer));
 
   // Read more data if the decoder supports multiple parallel decoding requests.
@@ -996,6 +1006,30 @@ void DecoderStream<StreamType>::CompletePrepare(const Output* output) {
       "media", GetPrepareTraceString<StreamType>(), this, "timestamp_us",
       (output ? output->timestamp() : kNoTimestamp).InMicroseconds());
   preparing_output_ = false;
+}
+
+template <DemuxerStream::Type StreamType>
+void DecoderStream<StreamType>::ReportEncryptionType(
+    const scoped_refptr<DecoderBuffer>& buffer) {
+  auto encryption_type = EncryptionType::kClear;
+  if (decrypting_demuxer_stream_) {
+    encryption_type = decrypting_demuxer_stream_->HasClearLead()
+                          ? EncryptionType::kEncryptedWithClearLead
+                          : EncryptionType::kEncrypted;
+  } else if (traits_->GetDecoderConfig(stream_).is_encrypted()) {
+    bool is_buffer_encrypted = buffer->decrypt_config();
+    encryption_type = !is_buffer_encrypted
+                          ? EncryptionType::kEncryptedWithClearLead
+                          : EncryptionType::kEncrypted;
+  }
+
+  if (encryption_type == EncryptionType::kEncryptedWithClearLead) {
+    MEDIA_LOG(INFO, media_log_)
+        << GetStreamTypeString() << "stream is encrypted with clear lead";
+  }
+
+  traits_->SetEncryptionType(encryption_type);
+  traits_->ReportStatistics(statistics_cb_, 0);
 }
 
 template class DecoderStream<DemuxerStream::VIDEO>;

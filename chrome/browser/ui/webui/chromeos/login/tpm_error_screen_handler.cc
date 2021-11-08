@@ -5,13 +5,18 @@
 #include "chrome/browser/ui/webui/chromeos/login/tpm_error_screen_handler.h"
 
 #include "base/values.h"
-#include "chrome/browser/chromeos/login/oobe_screen.h"
-#include "chrome/browser/chromeos/login/screens/tpm_error_screen.h"
+#include "chrome/browser/ash/login/oobe_screen.h"
+#include "chrome/browser/ash/login/screens/tpm_error_screen.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/login/localized_values_builder.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace chromeos {
+namespace {
+const char kTPMErrorOwnedStep[] = "tpm-owned";
+const char kTPMErrorDbusStep[] = "dbus-error";
+}  // namespace
 
 constexpr StaticOobeScreenId TpmErrorView::kScreenId;
 
@@ -29,9 +34,17 @@ TpmErrorScreenHandler::~TpmErrorScreenHandler() {
 void TpmErrorScreenHandler::DeclareLocalizedValues(
     ::login::LocalizedValuesBuilder* builder) {
   builder->Add("errorTpmFailureTitle", IDS_LOGIN_ERROR_TPM_FAILURE_TITLE);
+  builder->Add("errorTpmDbusErrorTitle", IDS_LOGIN_ERROR_TPM_DBUS_ERROR_TITLE);
   builder->Add("errorTpmFailureReboot", IDS_LOGIN_ERROR_TPM_FAILURE_REBOOT);
   builder->Add("errorTpmFailureRebootButton",
                IDS_LOGIN_ERROR_TPM_FAILURE_REBOOT_BUTTON);
+
+  builder->Add("errorTPMOwnedTitle",
+               IDS_LOGIN_ERROR_ENROLLMENT_TPM_FAILURE_TITLE);
+  builder->Add("errorTPMOwnedSubtitle",
+               IDS_LOGIN_ERROR_ENROLLMENT_TPM_FAILURE_SUBTITLE);
+  builder->Add("errorTPMOwnedContent",
+               IDS_LOGIN_ERROR_ENROLLMENT_TPM_FAILURE_CONTENT);
 }
 
 void TpmErrorScreenHandler::Initialize() {
@@ -47,6 +60,21 @@ void TpmErrorScreenHandler::Show() {
     return;
   }
   ShowScreen(kScreenId);
+}
+
+void TpmErrorScreenHandler::SetTPMOwnedErrorStep() {
+  CallJS("login.TPMErrorMessageScreen.setStep",
+         std::string(kTPMErrorOwnedStep));
+}
+
+void TpmErrorScreenHandler::SetTPMDbusErrorStep() {
+  CallJS("login.TPMErrorMessageScreen.setStep", std::string(kTPMErrorDbusStep));
+}
+
+void TpmErrorScreenHandler::SetIsBrandedBuild(bool is_branded) {
+  CallJS("login.TPMErrorMessageScreen.setOsName",
+         is_branded ? l10n_util::GetStringUTF8(IDS_CLOUD_READY_OS_NAME)
+                    : l10n_util::GetStringUTF8(IDS_CHROMIUM_OS_NAME));
 }
 
 void TpmErrorScreenHandler::Bind(TpmErrorScreen* screen) {

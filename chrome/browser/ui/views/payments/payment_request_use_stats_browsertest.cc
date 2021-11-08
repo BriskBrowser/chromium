@@ -30,17 +30,21 @@ const base::Time kSomeLaterDate = base::Time::FromDoubleT(1497552271);
 
 class PaymentRequestAutofillInstrumentUseStatsTest
     : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestAutofillInstrumentUseStatsTest(
+      const PaymentRequestAutofillInstrumentUseStatsTest&) = delete;
+  PaymentRequestAutofillInstrumentUseStatsTest& operator=(
+      const PaymentRequestAutofillInstrumentUseStatsTest&) = delete;
+
  protected:
   PaymentRequestAutofillInstrumentUseStatsTest() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestAutofillInstrumentUseStatsTest);
 };
 
 // Tests that use stats for the autofill payment instrument used in a Payment
 // Request are properly updated upon completion.
+// TODO(crbug.com/938763): Flaky on Linux and Win10, at least
 IN_PROC_BROWSER_TEST_F(PaymentRequestAutofillInstrumentUseStatsTest,
-                       RecordUse) {
+                       DISABLED_RecordUse) {
   NavigateTo("/payment_request_no_shipping_test.html");
   autofill::TestAutofillClock test_clock;
   test_clock.SetNow(kSomeDate);
@@ -62,7 +66,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestAutofillInstrumentUseStatsTest,
   test_clock.SetNow(kSomeLaterDate);
   InvokePaymentRequestUI();
   ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
   WaitForOnPersonalDataChanged();
 
   // Check that the usage of the card was recorded.
@@ -74,11 +78,14 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestAutofillInstrumentUseStatsTest,
 
 class PaymentRequestShippingAddressUseStatsTest
     : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestShippingAddressUseStatsTest(
+      const PaymentRequestShippingAddressUseStatsTest&) = delete;
+  PaymentRequestShippingAddressUseStatsTest& operator=(
+      const PaymentRequestShippingAddressUseStatsTest&) = delete;
+
  protected:
   PaymentRequestShippingAddressUseStatsTest() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestShippingAddressUseStatsTest);
 };
 
 // Tests that use stats for the shipping address used in a Payment Request are
@@ -112,7 +119,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestShippingAddressUseStatsTest, RecordUse) {
   test_clock.SetNow(kSomeLaterDate);
   InvokePaymentRequestUI();
   ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
   WaitForOnPersonalDataChanged();
 
   // Check that the usage of the profile was recorded.
@@ -124,11 +131,14 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestShippingAddressUseStatsTest, RecordUse) {
 
 class PaymentRequestContactAddressUseStatsTest
     : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestContactAddressUseStatsTest(
+      const PaymentRequestContactAddressUseStatsTest&) = delete;
+  PaymentRequestContactAddressUseStatsTest& operator=(
+      const PaymentRequestContactAddressUseStatsTest&) = delete;
+
  protected:
   PaymentRequestContactAddressUseStatsTest() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestContactAddressUseStatsTest);
 };
 
 // Tests that use stats for the contact address used in a Payment Request are
@@ -161,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestContactAddressUseStatsTest, RecordUse) {
   test_clock.SetNow(kSomeLaterDate);
   InvokePaymentRequestUI();
   ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
   WaitForOnPersonalDataChanged();
 
   // Check that the usage of the profile was recorded.
@@ -173,12 +183,14 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestContactAddressUseStatsTest, RecordUse) {
 
 class PaymentRequestSameShippingAndContactAddressUseStatsTest
     : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestSameShippingAndContactAddressUseStatsTest(
+      const PaymentRequestSameShippingAndContactAddressUseStatsTest&) = delete;
+  PaymentRequestSameShippingAndContactAddressUseStatsTest& operator=(
+      const PaymentRequestSameShippingAndContactAddressUseStatsTest&) = delete;
+
  protected:
   PaymentRequestSameShippingAndContactAddressUseStatsTest() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(
-      PaymentRequestSameShippingAndContactAddressUseStatsTest);
 };
 
 // Tests that use stats for an address that was used both as a shipping and
@@ -212,7 +224,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestSameShippingAndContactAddressUseStatsTest,
   test_clock.SetNow(kSomeLaterDate);
   InvokePaymentRequestUI();
   ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
   WaitForOnPersonalDataChanged();
 
   // Check that the usage of the profile was only recorded once.

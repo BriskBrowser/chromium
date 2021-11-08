@@ -13,6 +13,7 @@
 #include "base/command_line.h"
 #include "base/no_destructor.h"
 #include "base/task/post_task.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/plugins/plugin_info_host_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/pepper/chrome_browser_pepper_host_factory.h"
@@ -36,6 +37,10 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/permissions/socket_permission.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/common/webui_url_constants.h"
 #endif
 
 namespace plugins {
@@ -141,8 +146,8 @@ bool ChromeContentBrowserClientPluginsPart::
         &extensions::ExtensionRegistry::Get(profile)->enabled_extensions();
   }
 
-  return IsExtensionOrSharedModuleWhitelisted(url, extension_set,
-                                              GetAllowedFileHandleOrigins()) ||
+  return IsExtensionOrSharedModuleAllowed(url, extension_set,
+                                          GetAllowedFileHandleOrigins()) ||
          IsHostAllowedByCommandLine(url, extension_set,
                                     ::switches::kAllowNaClFileHandleAPI);
 #else
@@ -164,11 +169,16 @@ bool ChromeContentBrowserClientPluginsPart::AllowPepperSocketAPI(
   }
 
   if (private_api) {
-    // Access to private socket APIs is controlled by the whitelist.
-    if (IsExtensionOrSharedModuleWhitelisted(url, extension_set,
-                                             GetAllowedSocketOrigins())) {
+    // Access to private socket APIs is controlled by the allowlist.
+    if (IsExtensionOrSharedModuleAllowed(url, extension_set,
+                                         GetAllowedSocketOrigins())) {
       return true;
     }
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    // Terminal SWA is not an extension, but runs SSH NaCL with sockets.
+    if (url == chrome::kChromeUIUntrustedTerminalURL)
+      return true;
+#endif
   } else {
     // Access to public socket APIs is controlled by extension permissions.
     if (url.is_valid() && url.SchemeIs(extensions::kExtensionScheme) &&
@@ -182,11 +192,11 @@ bool ChromeContentBrowserClientPluginsPart::AllowPepperSocketAPI(
           extensions::SocketPermission::CheckParam check_params(
               params->type, params->host, params->port);
           if (permissions_data->CheckAPIPermissionWithParam(
-                  extensions::APIPermission::kSocket, &check_params)) {
+                  extensions::mojom::APIPermissionID::kSocket, &check_params)) {
             return true;
           }
         } else if (permissions_data->HasAPIPermission(
-                       extensions::APIPermission::kSocket)) {
+                       extensions::mojom::APIPermissionID::kSocket)) {
           return true;
         }
       }
@@ -219,7 +229,7 @@ bool ChromeContentBrowserClientPluginsPart::IsPepperVpnProviderAPIAllowed(
     const extensions::Extension* extension = extension_set->GetByID(url.host());
     if (extension) {
       if (extension->permissions_data()->HasAPIPermission(
-              extensions::APIPermission::kVpnProvider)) {
+              extensions::mojom::APIPermissionID::kVpnProvider)) {
         return true;
       }
     }
@@ -246,9 +256,9 @@ bool ChromeContentBrowserClientPluginsPart::IsPluginAllowedToUseDevChannelAPIs(
         &extensions::ExtensionRegistry::Get(profile)->enabled_extensions();
   }
 
-  // Allow access for whitelisted applications.
-  if (IsExtensionOrSharedModuleWhitelisted(url, extension_set,
-                                           GetAllowedDevChannelOrigins())) {
+  // Allow access for allowlisted applications.
+  if (IsExtensionOrSharedModuleAllowed(url, extension_set,
+                                       GetAllowedDevChannelOrigins())) {
     return true;
   }
 #endif

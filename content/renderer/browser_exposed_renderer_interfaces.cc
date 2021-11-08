@@ -14,8 +14,8 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/post_task.h"
+#include "base/task/task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/common/frame.mojom.h"
@@ -30,7 +30,8 @@
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
-#include "v8/include/v8.h"
+#include "v8/include/v8-isolate.h"
+#include "v8/include/v8-statistics.h"
 
 namespace content {
 
@@ -120,7 +121,7 @@ class ResourceUsageReporterImpl : public content::mojom::ResourceUsageReporter {
           FROM_HERE,
           base::BindOnce(&ResourceUsageReporterImpl::SendResults,
                          weak_factory_.GetWeakPtr()),
-          base::TimeDelta::FromMilliseconds(kWaitForWorkersStatsTimeoutMS));
+          base::Milliseconds(kWaitForWorkersStatsTimeoutMS));
     } else {
       // No worker threads so just send out the main thread data right away.
       SendResults();
@@ -172,6 +173,10 @@ void ExposeRendererInterfacesToBrowser(
       base::ThreadPool::CreateSingleThreadTaskRunner(
           {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
+  // TODO(crbug.com/1186912): Bind on `task_runner_for_service_worker_startup`
+  // instead of the main thread, so startup isn't blocked on the main thread.
+  // Currently it's on the main thread as CreateEmbeddedWorker accesses
+  // `cors_exempt_header_list` from `render_thread`.
   binders->Add(base::BindRepeating(&CreateEmbeddedWorker,
                                    task_runner_for_service_worker_startup,
                                    render_thread),

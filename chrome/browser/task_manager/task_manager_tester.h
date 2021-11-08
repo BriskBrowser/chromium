@@ -8,9 +8,9 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
 
 #include "base/callback_forward.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/task_manager/task_manager_browsertest_util.h"
 #include "components/sessions/core/session_id.h"
 
@@ -38,7 +38,7 @@ class TaskManagerTester {
   int GetRowCount();
 
   // Get the title text of a particular |row|.
-  base::string16 GetRowTitle(int row);
+  std::u16string GetRowTitle(int row);
 
   // Hide or show a column. If a column is not visible its stats are not
   // necessarily gathered.
@@ -57,6 +57,10 @@ class TaskManagerTester {
   // Gets the start index and length of the group to which the task at
   // |row_index| belongs.
   void GetRowsGroupRange(int row, int* out_start, int* out_length);
+
+  // Get all task titles associated with a WebContents and return them in a
+  // vector.
+  std::vector<std::u16string> GetWebContentsTaskTitles();
 
  private:
   explicit TaskManagerTester(const base::RepeatingClosure& on_resource_change);

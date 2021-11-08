@@ -30,8 +30,12 @@ Polymer({
       type: Boolean,
     },
 
-    showLoadingIndicator: {
+    /**
+     * Indicates the UI is busy with an operation and cannot be interacted with.
+     */
+    showBusy: {
       type: Boolean,
+      value: false,
     },
 
     /**
@@ -41,6 +45,15 @@ Polymer({
     profileProperties_: {
       type: Object,
       value: null,
+    },
+
+    /**
+     * @type {boolean}
+     * @private
+     */
+    isDarkModeActive_: {
+      type: Boolean,
+      value: false,
     },
   },
 
@@ -53,6 +66,17 @@ Polymer({
     this.profile.getProperties().then(response => {
       this.profileProperties_ = response.properties;
     });
+  },
+
+  /**
+   * @param {KeyboardEvent} e
+   * @private
+   */
+  onKeyDown_(e) {
+    if (e.key === 'Enter') {
+      this.fire('forward-navigation-requested');
+    }
+    e.stopPropagation();
   },
 
   /**
@@ -72,5 +96,15 @@ Polymer({
       return '';
     }
     return String.fromCharCode(...this.profileProperties_.name.data);
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
+  getProfileImage_() {
+    return this.isDarkModeActive_ ?
+        'chrome://resources/cr_components/chromeos/cellular_setup/default_esim_profile_dark.svg' :
+        'chrome://resources/cr_components/chromeos/cellular_setup/default_esim_profile.svg';
   },
 });

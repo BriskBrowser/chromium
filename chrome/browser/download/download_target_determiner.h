@@ -13,13 +13,14 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_target_determiner_delegate.h"
 #include "chrome/browser/download/download_target_info.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
 #include "components/download/public/common/download_path_reservation_tracker.h"
-#include "components/safe_browsing/core/proto/download_file_types.pb.h"
+#include "components/safe_browsing/content/common/proto/download_file_types.pb.h"
 #include "content/public/browser/download_manager_delegate.h"
 #include "ppapi/buildflags/buildflags.h"
 
@@ -53,6 +54,9 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
  public:
   using CompletionCallback =
       base::OnceCallback<void(std::unique_ptr<DownloadTargetInfo>)>;
+
+  DownloadTargetDeterminer(const DownloadTargetDeterminer&) = delete;
+  DownloadTargetDeterminer& operator=(const DownloadTargetDeterminer&) = delete;
 
   // Start the process of determing the target of |download|.
   //
@@ -209,7 +213,7 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
   void RequestConfirmationDone(
       DownloadConfirmationResult result,
       const base::FilePath& virtual_path,
-      base::Optional<download::DownloadSchedule> download_schedule);
+      absl::optional<download::DownloadSchedule> download_schedule);
 
   // Up until this point, the path that was used is considered to be a virtual
   // path. This step determines the local file system path corresponding to this
@@ -326,6 +330,9 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
   safe_browsing::DownloadFileType::DangerLevel GetDangerLevel(
       PriorVisitsToReferrer visits) const;
 
+  // Returns the timestamp of the last download bypass.
+  absl::optional<base::Time> GetLastDownloadBypassTimestamp() const;
+
   // Generates the download file name based on information from URL, response
   // headers and sniffed mime type.
   base::FilePath GenerateFileName() const;
@@ -358,11 +365,9 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
   DownloadTargetDeterminerDelegate* delegate_;
   CompletionCallback completion_callback_;
   base::CancelableTaskTracker history_tracker_;
-  base::Optional<download::DownloadSchedule> download_schedule_;
+  absl::optional<download::DownloadSchedule> download_schedule_;
 
   base::WeakPtrFactory<DownloadTargetDeterminer> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadTargetDeterminer);
 };
 
 #endif  // CHROME_BROWSER_DOWNLOAD_DOWNLOAD_TARGET_DETERMINER_H_

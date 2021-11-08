@@ -24,14 +24,14 @@ COMPONENT_EXPORT(DEVICE_FIDO)
 extern const base::Feature kWebAuthUseNativeWinApi;
 #endif  // defined(OS_WIN)
 
-// Enable biometric enrollment in the security keys settings UI.
-COMPONENT_EXPORT(DEVICE_FIDO)
-extern const base::Feature kWebAuthBiometricEnrollment;
-
 // Support a special caBLEv2 mode where the server provides the linking
 // information.
 COMPONENT_EXPORT(DEVICE_FIDO)
 extern const base::Feature kWebAuthCableServerLink;
+
+// Enable synced Android devices to be a 2nd-factor security key.
+COMPONENT_EXPORT(DEVICE_FIDO)
+extern const base::Feature kWebAuthCableSecondFactor;
 
 // Enable using a phone as a generic security key.
 COMPONENT_EXPORT(DEVICE_FIDO)
@@ -41,23 +41,14 @@ extern const base::Feature kWebAuthPhoneSupport;
 COMPONENT_EXPORT(DEVICE_FIDO)
 extern const base::Feature kWebAuthCableExtensionAnywhere;
 
-// Enable WebAuthn GetAssertion calls in cross-origin iframes if allowed by
-// Feature Policy.
-COMPONENT_EXPORT(DEVICE_FIDO)
-extern const base::Feature kWebAuthGetAssertionFeaturePolicy;
-
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
-// Use a low connection latency BLE mode when connecting to caBLE
-// authenticators.
-COMPONENT_EXPORT(DEVICE_FIDO)
-extern const base::Feature kWebAuthCableLowLatency;
-#endif  // defined(OS_CHROMEOS) || defined(OS_LINUX)
-
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enable a ChromeOS platform authenticator
 COMPONENT_EXPORT(DEVICE_FIDO)
 extern const base::Feature kWebAuthCrosPlatformAuthenticator;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+COMPONENT_EXPORT(DEVICE_FIDO)
+extern const base::Feature kU2fPermissionPrompt;
 
 }  // namespace device
 

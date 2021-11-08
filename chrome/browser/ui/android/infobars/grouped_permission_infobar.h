@@ -5,16 +5,20 @@
 #ifndef CHROME_BROWSER_UI_ANDROID_INFOBARS_GROUPED_PERMISSION_INFOBAR_H_
 #define CHROME_BROWSER_UI_ANDROID_INFOBARS_GROUPED_PERMISSION_INFOBAR_H_
 
-#include "chrome/browser/ui/android/infobars/chrome_confirm_infobar.h"
+#include "components/infobars/android/confirm_infobar.h"
 
 class GroupedPermissionInfoBarDelegate;
 
 // TODO(andypaicu): rename this to PermissionInfoBar, grouped permissions are
 // not a thing anymore.
-class GroupedPermissionInfoBar : public ChromeConfirmInfoBar {
+class GroupedPermissionInfoBar : public infobars::ConfirmInfoBar {
  public:
   explicit GroupedPermissionInfoBar(
       std::unique_ptr<GroupedPermissionInfoBarDelegate> delegate);
+
+  GroupedPermissionInfoBar(const GroupedPermissionInfoBar&) = delete;
+  GroupedPermissionInfoBar& operator=(const GroupedPermissionInfoBar&) = delete;
+
   ~GroupedPermissionInfoBar() override;
 
  private:
@@ -24,8 +28,6 @@ class GroupedPermissionInfoBar : public ChromeConfirmInfoBar {
       const ResourceIdMapper& resource_id_mapper) override;
 
   GroupedPermissionInfoBarDelegate* GetDelegate();
-
-  DISALLOW_COPY_AND_ASSIGN(GroupedPermissionInfoBar);
 };
 
 #endif  // CHROME_BROWSER_UI_ANDROID_INFOBARS_GROUPED_PERMISSION_INFOBAR_H_

@@ -9,7 +9,6 @@
 
 #include "base/component_export.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 
 namespace base {
 class DictionaryValue;
@@ -41,6 +40,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnect {
     // Shows UI to setup a mobile network.
     virtual void ShowMobileSetupDialog(const std::string& network_id) = 0;
 
+    // Shows UI displaying carrier network account details.
+    virtual void ShowCarrierAccountDetail(const std::string& network_id) = 0;
+
     // Shows an error notification. |error_name| is an error defined in
     // NetworkConnectionHandler. |network_id| may be empty.
     virtual void ShowNetworkConnectError(const std::string& error_name,
@@ -66,6 +68,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnect {
   // Returns the global NetworkConnect object if initialized or null.
   static NetworkConnect* Get();
 
+  NetworkConnect(const NetworkConnect&) = delete;
+  NetworkConnect& operator=(const NetworkConnect&) = delete;
+
   virtual ~NetworkConnect();
 
   // Requests a network connection and handles any errors and notifications.
@@ -84,6 +89,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnect {
   // Determines whether or not a network requires a connection to activate or
   // setup and either shows a notification or opens the mobile setup dialog.
   virtual void ShowMobileSetup(const std::string& network_id) = 0;
+
+  // Opens the carrier account detail page.
+  virtual void ShowCarrierAccountDetail(const std::string& network_id) = 0;
 
   // Configures a network with a dictionary of Shill properties, then sends a
   // connect request. The profile is set according to 'shared' if allowed.
@@ -108,9 +116,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnect {
 
  protected:
   NetworkConnect();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NetworkConnect);
 };
 
 }  // namespace chromeos

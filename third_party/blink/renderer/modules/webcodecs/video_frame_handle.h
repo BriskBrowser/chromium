@@ -7,7 +7,7 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
-#include "third_party/blink/renderer/modules/webcodecs/video_frame_logger.h"
+#include "third_party/blink/renderer/modules/webcodecs/webcodecs_logger.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
@@ -36,14 +36,23 @@ class ExecutionContext;
 class MODULES_EXPORT VideoFrameHandle
     : public WTF::ThreadSafeRefCounted<VideoFrameHandle> {
  public:
-  VideoFrameHandle(scoped_refptr<media::VideoFrame>, ExecutionContext*);
+  VideoFrameHandle(scoped_refptr<media::VideoFrame>,
+                   ExecutionContext*,
+                   std::string monitoring_source_id = std::string());
   VideoFrameHandle(scoped_refptr<media::VideoFrame>,
                    sk_sp<SkImage> sk_image,
-                   ExecutionContext*);
+                   ExecutionContext*,
+                   std::string monitoring_source_id = std::string());
   VideoFrameHandle(scoped_refptr<media::VideoFrame>,
                    sk_sp<SkImage> sk_image,
-                   scoped_refptr<VideoFrameLogger::VideoFrameCloseAuditor>);
-  VideoFrameHandle(scoped_refptr<media::VideoFrame>, sk_sp<SkImage> sk_image);
+                   scoped_refptr<WebCodecsLogger::VideoFrameCloseAuditor>,
+                   std::string monitoring_source_id = std::string());
+  VideoFrameHandle(scoped_refptr<media::VideoFrame>,
+                   sk_sp<SkImage> sk_image,
+                   std::string monitoring_source_id = std::string());
+
+  VideoFrameHandle(const VideoFrameHandle&) = delete;
+  VideoFrameHandle& operator=(const VideoFrameHandle&) = delete;
 
   // Returns a copy of |frame_|, which should be re-used throughout the scope
   // of a function call, instead of calling frame() multiple times. Otherwise
@@ -58,6 +67,12 @@ class MODULES_EXPORT VideoFrameHandle
   // blink::VideoFrames and blink::Planes that hold a reference to |this|.
   void Invalidate();
 
+  // Temporary workaround for crbug.com/1182497.
+  // Overrides the next call to Clone() to return |this| without adding a new
+  // reference. This prevents cloning handles when internally posting frames to
+  // a transferred stream, which cannot be cleared.
+  void SetCloseOnClone();
+
   // Clones this VideoFrameHandle into a new VideoFrameHandle object.
   scoped_refptr<VideoFrameHandle> Clone();
 
@@ -69,10 +84,21 @@ class MODULES_EXPORT VideoFrameHandle
   friend class WTF::ThreadSafeRefCounted<VideoFrameHandle>;
   ~VideoFrameHandle();
 
+  // |mutex_| must be held before calling into this.
+  void InvalidateLocked();
+
+  void MaybeMonitorOpenFrame();
+  void MaybeMonitorCloseFrame();
+
+  // Flag that prevents the creation of a new handle during the next Clone()
+  // call. Used as a temporary workaround for crbug.com/1182497.
+  bool close_on_clone_ = false;
+
   WTF::Mutex mutex_;
   sk_sp<SkImage> sk_image_;
   scoped_refptr<media::VideoFrame> frame_;
-  scoped_refptr<VideoFrameLogger::VideoFrameCloseAuditor> close_auditor_;
+  scoped_refptr<WebCodecsLogger::VideoFrameCloseAuditor> close_auditor_;
+  std::string monitoring_source_id_;
 };
 
 }  // namespace blink

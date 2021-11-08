@@ -4,6 +4,7 @@
 
 #include "base/task/sequence_manager/work_queue.h"
 
+#include "base/containers/stack_container.h"
 #include "base/debug/alias.h"
 #include "base/task/sequence_manager/sequence_manager_impl.h"
 #include "base/task/sequence_manager/work_queue_sets.h"
@@ -64,6 +65,14 @@ bool WorkQueue::GetFrontTaskEnqueueOrder(EnqueueOrder* enqueue_order) const {
 }
 
 void WorkQueue::Push(Task task) {
+  PushImpl(task, /*should_notify_work_queue_sets*/ true);
+}
+
+void WorkQueue::Push(std::unique_ptr<Task> task) {
+  PushImpl(*task, /*should_notify_work_queue_sets*/ true);
+}
+
+void WorkQueue::PushImpl(Task& task, bool should_notify_work_queue_sets) {
   bool was_empty = tasks_.empty();
 #ifndef NDEBUG
   DCHECK(task.enqueue_order_set());
@@ -75,7 +84,7 @@ void WorkQueue::Push(Task task) {
   // Amortized O(1).
   tasks_.push_back(std::move(task));
 
-  if (!was_empty)
+  if (!was_empty || !should_notify_work_queue_sets)
     return;
 
   // If we hit the fence, pretend to WorkQueueSets that we're empty.
@@ -91,19 +100,10 @@ WorkQueue::TaskPusher::TaskPusher(TaskPusher&& other)
   other.work_queue_ = nullptr;
 }
 
-void WorkQueue::TaskPusher::Push(Task* task) {
+void WorkQueue::TaskPusher::Push(std::unique_ptr<Task> task) {
+  DCHECK(task);
   DCHECK(work_queue_);
-
-#ifndef NDEBUG
-  DCHECK(task->enqueue_order_set());
-#endif
-
-  // Make sure the |enqueue_order()| is monotonically increasing.
-  DCHECK(work_queue_->tasks_.empty() ||
-         work_queue_->tasks_.back().enqueue_order() < task->enqueue_order());
-
-  // Amortized O(1).
-  work_queue_->tasks_.push_back(std::move(*task));
+  work_queue_->PushImpl(*task, /*should_notify_work_queue_sets*/ false);
 }
 
 WorkQueue::TaskPusher::~TaskPusher() {
@@ -201,36 +201,20 @@ Task WorkQueue::TakeTaskFromWorkQueue() {
 bool WorkQueue::RemoveAllCanceledTasksFromFront() {
   if (!work_queue_sets_)
     return false;
-  bool task_removed = false;
+
+  // Since task destructors could have a side-effect of deleting this task queue
+  // we move cancelled tasks into a temporary container which can be emptied
+  // without accessing |this|.
+  StackVector<Task, 8> tasks_to_delete;
+
   while (!tasks_.empty()) {
     const auto& pending_task = tasks_.front();
-#if !defined(OS_NACL)
-    // Record some debugging information about the task.
-    // TODO(skyostil): Remove once crbug.com/1071475 is resolved.
-    DEBUG_ALIAS_FOR_CSTR(debug_file_name,
-                         pending_task.posted_from.file_name()
-                             ? pending_task.posted_from.file_name()
-                             : "",
-                         16);
-    DEBUG_ALIAS_FOR_CSTR(debug_function_name,
-                         pending_task.posted_from.function_name()
-                             ? pending_task.posted_from.function_name()
-                             : "",
-                         16);
-    int debug_line_number = pending_task.posted_from.line_number();
-    const void* debug_pc = pending_task.posted_from.program_counter();
-    const void* debug_bind_state =
-        reinterpret_cast<const void*>(&pending_task.task);
-    base::debug::Alias(&debug_line_number);
-    base::debug::Alias(&debug_pc);
-    base::debug::Alias(&debug_bind_state);
-#endif  // !defined(OS_NACL)
     if (pending_task.task && !pending_task.task.IsCancelled())
       break;
+    tasks_to_delete->push_back(std::move(tasks_.front()));
     tasks_.pop_front();
-    task_removed = true;
   }
-  if (task_removed) {
+  if (!tasks_to_delete->empty()) {
     if (tasks_.empty()) {
       // NB delayed tasks are inserted via Push, no don't need to reload those.
       if (queue_type_ == QueueType::kImmediate) {
@@ -248,7 +232,7 @@ bool WorkQueue::RemoveAllCanceledTasksFromFront() {
       work_queue_sets_->OnQueuesFrontTaskChanged(this);
     task_queue_->TraceQueueSize();
   }
-  return task_removed;
+  return !tasks_to_delete->empty();
 }
 
 void WorkQueue::AssignToWorkQueueSets(WorkQueueSets* work_queue_sets) {
@@ -314,14 +298,6 @@ bool WorkQueue::ShouldRunBefore(const WorkQueue* other_queue) const {
 
 void WorkQueue::MaybeShrinkQueue() {
   tasks_.MaybeShrinkQueue();
-}
-
-void WorkQueue::DeletePendingTasks() {
-  tasks_.clear();
-
-  if (work_queue_sets_ && heap_handle().IsValid())
-    work_queue_sets_->OnQueuesFrontTaskChanged(this);
-  DCHECK(!heap_handle_.IsValid());
 }
 
 void WorkQueue::PopTaskForTesting() {

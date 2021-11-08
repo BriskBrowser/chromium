@@ -19,9 +19,9 @@
 
 #include "base/bind.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/system/sys_info.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -36,10 +36,6 @@
 #include "sandbox/linux/system_headers/linux_syscalls.h"
 #include "sandbox/linux/system_headers/linux_time.h"
 #include "sandbox/linux/tests/unit_tests.h"
-
-#if !defined(OS_ANDROID)
-#include "third_party/lss/linux_syscall_support.h"  // for MAKE_PROCESS_CPUCLOCK
-#endif
 
 namespace sandbox {
 
@@ -59,8 +55,14 @@ class RestrictClockIdPolicy : public bpf_dsl::Policy {
   ResultExpr EvaluateSyscall(int sysno) const override {
     switch (sysno) {
       case __NR_clock_gettime:
+#if defined(__NR_clock_gettime64)
+      case __NR_clock_gettime64:
+#endif
       case __NR_clock_getres:
       case __NR_clock_nanosleep:
+#if defined(__NR_clock_nanosleep_time64)
+      case __NR_clock_nanosleep_time64:
+#endif
         return RestrictClockID();
       default:
         return Allow();
@@ -209,7 +211,7 @@ BPF_TEST_C(ParameterRestrictions,
   BPF_ASSERT(getparam_thread.Start());
   getparam_thread.task_runner()->PostTask(
       FROM_HERE, base::BindOnce(&SchedGetParamThread, &thread_run));
-  BPF_ASSERT(thread_run.TimedWait(base::TimeDelta::FromMilliseconds(5000)));
+  BPF_ASSERT(thread_run.TimedWait(base::Milliseconds(5000)));
   getparam_thread.Stop();
 }
 

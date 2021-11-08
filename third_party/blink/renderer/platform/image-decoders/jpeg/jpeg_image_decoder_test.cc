@@ -37,7 +37,6 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_data.h"
-#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/platform/graphics/bitmap_image_metrics.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_animation.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder_test_helpers.h"
@@ -70,8 +69,8 @@ void Downsample(size_t max_decoded_bytes,
 
   ImageFrame* frame = decoder->DecodeFrameBufferAtIndex(0);
   ASSERT_TRUE(frame);
-  EXPECT_EQ(expected_size.Width(), frame->Bitmap().width());
-  EXPECT_EQ(expected_size.Height(), frame->Bitmap().height());
+  EXPECT_EQ(expected_size.width(), frame->Bitmap().width());
+  EXPECT_EQ(expected_size.height(), frame->Bitmap().height());
   EXPECT_EQ(expected_size, decoder->DecodedSize());
 }
 
@@ -91,6 +90,7 @@ void ReadYUV(size_t max_decoded_bytes,
   ASSERT_TRUE(decoder->CanDecodeToYUV());
 
   IntSize size = decoder->DecodedSize();
+
   IntSize y_size = decoder->DecodedYUVSize(cc::YUVIndex::kY);
   IntSize u_size = decoder->DecodedYUVSize(cc::YUVIndex::kU);
   IntSize v_size = decoder->DecodedYUVSize(cc::YUVIndex::kV);
@@ -101,20 +101,20 @@ void ReadYUV(size_t max_decoded_bytes,
   EXPECT_EQ(expected_y_size, y_size);
   EXPECT_EQ(expected_uv_size, u_size);
 
-  size_t row_bytes[3];
+  wtf_size_t row_bytes[3];
   row_bytes[0] = decoder->DecodedYUVWidthBytes(cc::YUVIndex::kY);
   row_bytes[1] = decoder->DecodedYUVWidthBytes(cc::YUVIndex::kU);
   row_bytes[2] = decoder->DecodedYUVWidthBytes(cc::YUVIndex::kV);
 
-  size_t planes_data_size = row_bytes[0] * y_size.Height() +
-                            row_bytes[1] * u_size.Height() +
-                            row_bytes[2] * v_size.Height();
+  size_t planes_data_size = row_bytes[0] * y_size.height() +
+                            row_bytes[1] * u_size.height() +
+                            row_bytes[2] * v_size.height();
   auto planes_data = std::make_unique<char[]>(planes_data_size);
 
   void* planes[3];
   planes[0] = planes_data.get();
-  planes[1] = static_cast<char*>(planes[0]) + row_bytes[0] * y_size.Height();
-  planes[2] = static_cast<char*>(planes[1]) + row_bytes[1] * u_size.Height();
+  planes[1] = static_cast<char*>(planes[0]) + row_bytes[0] * y_size.height();
+  planes[2] = static_cast<char*>(planes[1]) + row_bytes[1] * u_size.height();
 
   decoder->SetImagePlanes(
       std::make_unique<ImagePlanes>(planes, row_bytes, kGray_8_SkColorType));
@@ -413,18 +413,38 @@ TEST(JPEGImageDecoderTest, SupportedSizesTruncatedIfMemoryBound) {
   }
 }
 
-struct ColorSpaceUMATestParam {
+TEST(JPEGImageDecoderTest, SupportedScaleNumeratorBound) {
+  auto numerator_default = JPEGImageDecoder::DesiredScaleNumerator(10, 9, 8);
+  ASSERT_EQ(numerator_default, static_cast<unsigned>(8));
+
+  auto numerator_normal =
+      JPEGImageDecoder::DesiredScaleNumerator(1024, 2048, 8);
+  ASSERT_EQ(numerator_normal, static_cast<unsigned>(5));
+
+  auto numerator_overflow =
+      JPEGImageDecoder::DesiredScaleNumerator(0x4000000, 0x4100000, 8);
+  ASSERT_EQ(numerator_overflow, static_cast<unsigned>(7));
+}
+
+struct ColorSpaceTestParam {
   std::string file;
-  bool expected_success;
+  bool expected_success = false;
   BitmapImageMetrics::JpegColorSpace expected_color_space;
+  bool expect_yuv_decoding = false;
+  IntSize expected_uv_size;
 };
 
-class ColorSpaceUMATest
-    : public ::testing::TestWithParam<ColorSpaceUMATestParam> {};
+void PrintTo(const ColorSpaceTestParam& param, std::ostream* os) {
+  *os << "{\"" << param.file << "\", " << param.expected_success << ","
+      << static_cast<int>(param.expected_color_space) << ","
+      << param.expected_uv_size << "," << param.expect_yuv_decoding << "}";
+}
+
+class ColorSpaceTest : public ::testing::TestWithParam<ColorSpaceTestParam> {};
 
 // Tests that the JPEG color space/subsampling is recorded correctly as a UMA
 // for a variety of images. When the decode fails, no UMA should be recorded.
-TEST_P(ColorSpaceUMATest, CorrectColorSpaceRecorded) {
+TEST_P(ColorSpaceTest, CorrectColorSpaceUMARecorded) {
   base::HistogramTester histogram_tester;
   scoped_refptr<SharedBuffer> data =
       ReadFile(("/images/resources/" + GetParam().file).c_str());
@@ -446,7 +466,49 @@ TEST_P(ColorSpaceUMATest, CorrectColorSpaceRecorded) {
   }
 }
 
-const ColorSpaceUMATest::ParamType kColorSpaceUMATestParams[] = {
+// Tests YUV decoding path with different color encodings (and chroma
+// subsamplings if applicable).
+TEST_P(ColorSpaceTest, YuvDecode) {
+  // Test only successful decoding
+  if (!GetParam().expected_success)
+    return;
+
+  if (GetParam().expect_yuv_decoding) {
+    const auto jpeg_file = ("/images/resources/" + GetParam().file);
+    ReadYUV(kLargeEnoughSize, jpeg_file.c_str(), IntSize(64, 64),
+            GetParam().expected_uv_size,
+            /*expect_decoding_failure=*/false);
+  }
+}
+
+// Tests RGB decoding path with different color encodings (and chroma
+// subsamplings if applicable).
+TEST_P(ColorSpaceTest, RgbDecode) {
+  // Test only successful decoding
+  if (!GetParam().expected_success)
+    return;
+
+  if (!GetParam().expect_yuv_decoding) {
+    const auto jpeg_file = ("/images/resources/" + GetParam().file);
+    scoped_refptr<SharedBuffer> data = ReadFile(jpeg_file.c_str());
+    ASSERT_TRUE(data);
+
+    std::unique_ptr<ImageDecoder> decoder = CreateJPEGDecoder(kLargeEnoughSize);
+    decoder->SetData(data.get(), true);
+
+    IntSize size = decoder->DecodedSize();
+    EXPECT_EQ(IntSize(64, 64), size);
+    ASSERT_FALSE(decoder->CanDecodeToYUV());
+
+    const ImageFrame* frame = decoder->DecodeFrameBufferAtIndex(0);
+    ASSERT_TRUE(frame);
+    EXPECT_EQ(frame->GetStatus(), ImageFrame::kFrameComplete);
+    EXPECT_FALSE(decoder->Failed());
+    return;
+  }
+}
+
+const ColorSpaceTest::ParamType kColorSpaceTestParams[] = {
     {"cs-uma-grayscale.jpg", true,
      BitmapImageMetrics::JpegColorSpace::kGrayscale},
     {"cs-uma-rgb.jpg", true, BitmapImageMetrics::JpegColorSpace::kRGB},
@@ -467,37 +529,37 @@ const ColorSpaceUMATest::ParamType kColorSpaceUMATestParams[] = {
     {"cs-uma-cmyk-unknown-transform.jpg", true,
      BitmapImageMetrics::JpegColorSpace::kYCCK},
     {"cs-uma-ycbcr-410.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr410},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr410, false},
     {"cs-uma-ycbcr-411.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr411},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr411, false},
     {"cs-uma-ycbcr-420.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr420},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr420, true, IntSize(32, 32)},
     // Each component is in a separate scan. Should not make a difference.
     {"cs-uma-ycbcr-420-non-interleaved.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr420},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr420, true, IntSize(32, 32)},
     // 3 components/both JFIF and Adobe markers, so we expect libjpeg_turbo to
     // guess YCbCr.
     {"cs-uma-ycbcr-420-both-jfif-adobe.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr420},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr420, true, IntSize(32, 32)},
     {"cs-uma-ycbcr-422.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr422},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr422, true, IntSize(32, 64)},
     {"cs-uma-ycbcr-440.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr440},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr440, false},
     {"cs-uma-ycbcr-444.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr444},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr444, true, IntSize(64, 64)},
     // Contains RGB data but uses a bad Adobe color transform, so libjpeg_turbo
     // will guess YCbCr.
     {"cs-uma-rgb-unknown-transform.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCr444},
+     BitmapImageMetrics::JpegColorSpace::kYCbCr444, true, IntSize(64, 64)},
     {"cs-uma-ycbcr-other.jpg", true,
-     BitmapImageMetrics::JpegColorSpace::kYCbCrOther},
+     BitmapImageMetrics::JpegColorSpace::kYCbCrOther, false},
     // Contains only 2 components. We expect the decode to fail and not produce
     // any samples.
     {"cs-uma-two-channels-jfif-marker.jpg", false}};
 
 INSTANTIATE_TEST_SUITE_P(JPEGImageDecoderTest,
-                         ColorSpaceUMATest,
-                         ::testing::ValuesIn(kColorSpaceUMATestParams));
+                         ColorSpaceTest,
+                         ::testing::ValuesIn(kColorSpaceTestParams));
 
 TEST(JPEGImageDecoderTest, PartialDataWithoutSize) {
   const char* jpeg_file = "/images/resources/gracehopper.jpg";
@@ -516,6 +578,38 @@ TEST(JPEGImageDecoderTest, PartialDataWithoutSize) {
   decoder->SetData(full_data.get(), true);
   EXPECT_TRUE(decoder->IsSizeAvailable());
   EXPECT_FALSE(decoder->Failed());
+}
+
+TEST(JPEGImageDecoderTest, PartialRgbDecodeBlocksYuvDecoding) {
+  const char* jpeg_file = "/images/resources/non-interleaved_progressive.jpg";
+  scoped_refptr<SharedBuffer> full_data = ReadFile(jpeg_file);
+  ASSERT_TRUE(full_data);
+
+  {
+    auto yuv_decoder = CreateJPEGDecoder();
+    yuv_decoder->SetData(full_data.get(), true);
+    EXPECT_TRUE(yuv_decoder->IsSizeAvailable());
+    EXPECT_FALSE(yuv_decoder->Failed());
+    EXPECT_TRUE(yuv_decoder->CanDecodeToYUV());
+  }
+
+  const size_t kJustEnoughDataToStartHeaderParsing =
+      (full_data->size() + 1) / 2;
+  auto partial_data = SharedBuffer::Create(full_data->Data(),
+                                           kJustEnoughDataToStartHeaderParsing);
+  ASSERT_TRUE(partial_data);
+
+  auto decoder = CreateJPEGDecoder();
+  decoder->SetData(partial_data.get(), false);
+  EXPECT_TRUE(decoder->IsSizeAvailable());
+  EXPECT_FALSE(decoder->Failed());
+  EXPECT_FALSE(decoder->CanDecodeToYUV());
+
+  const ImageFrame* frame = decoder->DecodeFrameBufferAtIndex(0);
+  ASSERT_TRUE(frame);
+  EXPECT_NE(frame->GetStatus(), ImageFrame::kFrameComplete);
+  decoder->SetData(full_data.get(), true);
+  EXPECT_FALSE(decoder->CanDecodeToYUV());
 }
 
 }  // namespace blink

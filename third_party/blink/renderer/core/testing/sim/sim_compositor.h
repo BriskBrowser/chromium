@@ -76,6 +76,9 @@ class SimCompositor final {
 
   base::TimeTicks LastFrameTime() const { return last_frame_time_; }
 
+  // Sets last_frame_time_ to now, to sync with external time.
+  void ResetLastFrameTime() { last_frame_time_ = base::TimeTicks::Now(); }
+
   // Called when the begin frame occured.
   void DidBeginMainFrame();
 
@@ -98,4 +101,4 @@ class SimCompositor final {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_TESTING_SIM_SIM_COMPOSITOR_H_

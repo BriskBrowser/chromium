@@ -8,11 +8,12 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "base/supports_user_data.h"
 #include "content/public/renderer/render_frame.h"
 #include "extensions/common/api/messaging/message.h"
 #include "extensions/common/api/messaging/port_id.h"
+#include "extensions/renderer/bindings/api_binding_types.h"
 #include "extensions/renderer/bindings/api_binding_util.h"
 #include "extensions/renderer/bindings/api_bindings_system.h"
 #include "extensions/renderer/bindings/api_event_handler.h"
@@ -29,6 +30,15 @@
 #include "gin/handle.h"
 #include "gin/per_context_data.h"
 #include "ipc/ipc_message.h"
+#include "v8/include/v8-container.h"
+#include "v8/include/v8-exception.h"
+#include "v8/include/v8-external.h"
+#include "v8/include/v8-function-callback.h"
+#include "v8/include/v8-function.h"
+#include "v8/include/v8-isolate.h"
+#include "v8/include/v8-object.h"
+#include "v8/include/v8-persistent-handle.h"
+#include "v8/include/v8-primitive.h"
 
 namespace extensions {
 
@@ -180,11 +190,12 @@ void OneTimeMessageHandler::SendMessage(
   bool wants_response = !response_callback.IsEmpty();
   int routing_id = RoutingIdForScriptContext(script_context);
   if (wants_response) {
-    int request_id =
+    APIRequestHandler::RequestDetails details =
         bindings_system_->api_system()->request_handler()->AddPendingRequest(
-            script_context->v8_context(), response_callback);
+            script_context->v8_context(), binding::AsyncResponseType::kCallback,
+            response_callback);
     OneTimeOpener& port = data->openers[new_port_id];
-    port.request_id = request_id;
+    port.request_id = details.request_id;
     port.routing_id = routing_id;
   }
 
@@ -274,11 +285,12 @@ bool OneTimeMessageHandler::DeliverMessageToReceiver(
   OneTimeReceiver& port = iter->second;
 
   // This port is a receiver, so we invoke the onMessage event and provide a
-  // callback through which the port can respond. The port stays open until
-  // we receive a response.
+  // callback through which the port can respond. The port stays open until we
+  // receive a response.
   // TODO(devlin): With chrome.runtime.sendMessage, we actually require that a
   // listener return `true` if they intend to respond asynchronously; otherwise
   // we close the port.
+
   auto callback = std::make_unique<OneTimeMessageCallback>(
       base::BindOnce(&OneTimeMessageHandler::OnOneTimeMessageResponse,
                      weak_factory_.GetWeakPtr(), target_port_id));
@@ -290,12 +302,6 @@ bool OneTimeMessageHandler::DeliverMessageToReceiver(
     NOTREACHED();
     return handled;
   }
-
-  // We shouldn't need to monitor context invalidation here. We store the ports
-  // for the context in PerContextData (cleaned up on context destruction), and
-  // the browser watches for frame navigation or destruction, and cleans up
-  // orphaned channels.
-  base::Closure on_context_invalidated;
 
   new GCCallback(
       script_context, response_function,
@@ -468,8 +474,8 @@ void OneTimeMessageHandler::OnOneTimeMessageResponse(
     value = v8::Undefined(isolate);
 
   std::string error;
-  std::unique_ptr<Message> message =
-      messaging_util::MessageFromV8(context, value, &error);
+  std::unique_ptr<Message> message = messaging_util::MessageFromV8(
+      context, value, port_id.serialization_format, &error);
   if (!message) {
     arguments->ThrowTypeError(error);
     return;

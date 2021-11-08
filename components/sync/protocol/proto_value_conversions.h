@@ -13,7 +13,6 @@ class DictionaryValue;
 
 namespace sync_pb {
 class AppListSpecifics;
-class AppNotificationSettings;
 class AppSettingSpecifics;
 class AppSpecifics;
 class ArcPackageSpecifics;
@@ -33,13 +32,11 @@ class DictionarySpecifics;
 class EncryptedData;
 class EntityMetadata;
 class EntitySpecifics;
-class ExperimentsSpecifics;
 class ExtensionSettingSpecifics;
 class ExtensionSpecifics;
 class HistoryDeleteDirectiveSpecifics;
 class LinkedAppIconInfo;
 class ManagedUserSettingSpecifics;
-class ManagedUserWhitelistSpecifics;
 class NavigationRedirect;
 class NigoriSpecifics;
 class OsPreferenceSpecifics;
@@ -75,6 +72,7 @@ class WalletMetadataSpecifics;
 class WalletPostalAddress;
 class WebAppSpecifics;
 class WifiConfigurationSpecifics;
+class WorkspaceDeskSpecifics;
 }  // namespace sync_pb
 
 // Keep this file in sync with the .proto files in this directory.
@@ -88,9 +86,6 @@ namespace syncer {
 
 std::unique_ptr<base::DictionaryValue> AppListSpecificsToValue(
     const sync_pb::AppListSpecifics& proto);
-
-std::unique_ptr<base::DictionaryValue> AppNotificationSettingsToValue(
-    const sync_pb::AppNotificationSettings& app_notification_settings);
 
 std::unique_ptr<base::DictionaryValue> AppSettingSpecificsToValue(
     const sync_pb::AppSettingSpecifics& app_setting_specifics);
@@ -143,9 +138,6 @@ std::unique_ptr<base::DictionaryValue> EntityMetadataToValue(
 std::unique_ptr<base::DictionaryValue> EntitySpecificsToValue(
     const sync_pb::EntitySpecifics& specifics);
 
-std::unique_ptr<base::DictionaryValue> ExperimentsSpecificsToValue(
-    const sync_pb::ExperimentsSpecifics& proto);
-
 std::unique_ptr<base::DictionaryValue> ExtensionSettingSpecificsToValue(
     const sync_pb::ExtensionSettingSpecifics& extension_setting_specifics);
 
@@ -161,10 +153,6 @@ std::unique_ptr<base::DictionaryValue> LinkedAppIconInfoToValue(
 
 std::unique_ptr<base::DictionaryValue> ManagedUserSettingSpecificsToValue(
     const sync_pb::ManagedUserSettingSpecifics& managed_user_setting_specifics);
-
-std::unique_ptr<base::DictionaryValue> ManagedUserWhitelistSpecificsToValue(
-    const sync_pb::ManagedUserWhitelistSpecifics&
-        managed_user_whitelist_specifics);
 
 std::unique_ptr<base::DictionaryValue> NavigationRedirectToValue(
     const sync_pb::NavigationRedirect& navigation_redirect);
@@ -267,6 +255,9 @@ std::unique_ptr<base::DictionaryValue> WebAppSpecificsToValue(
 
 std::unique_ptr<base::DictionaryValue> WifiConfigurationSpecificsToValue(
     const sync_pb::WifiConfigurationSpecifics& wifi_configuration_specifics);
+
+std::unique_ptr<base::DictionaryValue> WorkspaceDeskSpecificsToValue(
+    const sync_pb::WorkspaceDeskSpecifics& workspace_desk_specifics);
 
 // ToValue functions that allow omitting specifics.
 

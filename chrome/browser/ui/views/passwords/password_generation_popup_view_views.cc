@@ -6,14 +6,16 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/passwords/password_generation_popup_controller.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
@@ -24,8 +26,6 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -48,7 +48,7 @@ class PasswordGenerationPopupViewViews::GeneratedPasswordBox
   // Fills the view with strings provided by |controller|.
   void Init(PasswordGenerationPopupController* controller);
 
-  void UpdatePassword(const base::string16& password) {
+  void UpdatePassword(const std::u16string& password) {
     password_label_->SetText(password);
   }
 
@@ -173,8 +173,8 @@ PasswordGenerationPopupViewViews::PasswordGenerationPopupViewViews(
 
 PasswordGenerationPopupViewViews::~PasswordGenerationPopupViewViews() = default;
 
-void PasswordGenerationPopupViewViews::Show() {
-  DoShow();
+bool PasswordGenerationPopupViewViews::Show() {
+  return DoShow();
 }
 
 void PasswordGenerationPopupViewViews::Hide() {
@@ -186,7 +186,7 @@ void PasswordGenerationPopupViewViews::Hide() {
 }
 
 void PasswordGenerationPopupViewViews::UpdateState() {
-  RemoveAllChildViews(true);
+  RemoveAllChildViews();
   password_view_ = nullptr;
   help_label_ = nullptr;
   CreateLayoutAndChildren();
@@ -197,13 +197,16 @@ void PasswordGenerationPopupViewViews::UpdatePasswordValue() {
   Layout();
 }
 
-void PasswordGenerationPopupViewViews::UpdateBoundsAndRedrawPopup() {
-  DoUpdateBoundsAndRedrawPopup();
+bool PasswordGenerationPopupViewViews::UpdateBoundsAndRedrawPopup() {
+  return DoUpdateBoundsAndRedrawPopup();
 }
 
 void PasswordGenerationPopupViewViews::PasswordSelectionUpdated() {
   if (controller_->password_selected())
     NotifyAXSelection(this);
+
+  if (!GetWidget())
+    return;
 
   password_view_->UpdateBackground(controller_->password_selected()
                                        ? GetSelectedBackgroundColor()
@@ -269,9 +272,8 @@ void PasswordGenerationPopupViewViews::OnPaint(gfx::Canvas* canvas) {
 
 void PasswordGenerationPopupViewViews::GetAccessibleNodeData(
     ui::AXNodeData* node_data) {
-  node_data->SetName(
-      base::JoinString({controller_->SuggestedText(), controller_->password()},
-                       base::ASCIIToUTF16(" ")));
+  node_data->SetName(base::JoinString(
+      {controller_->SuggestedText(), controller_->password()}, u" "));
   node_data->SetDescription(controller_->HelpText());
   node_data->role = ax::mojom::Role::kMenuItem;
 }

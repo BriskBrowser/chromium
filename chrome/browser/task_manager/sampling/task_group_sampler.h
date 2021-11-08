@@ -10,13 +10,12 @@
 #include <memory>
 
 #include "base/callback.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
 #include "base/process/process_metrics.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 
 namespace task_manager {
@@ -47,6 +46,9 @@ class TaskGroupSampler : public base::RefCountedThreadSafe<TaskGroupSampler> {
       const OnOpenFdCountCallback& on_open_fd_count,
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC)
       const OnProcessPriorityCallback& on_process_priority);
+
+  TaskGroupSampler(const TaskGroupSampler&) = delete;
+  TaskGroupSampler& operator=(const TaskGroupSampler&) = delete;
 
   // Refreshes the expensive process' stats (CPU usage, memory usage, and idle
   // wakeups per second) on the worker thread.
@@ -91,8 +93,6 @@ class TaskGroupSampler : public base::RefCountedThreadSafe<TaskGroupSampler> {
 
   // To assert we're running on the correct thread.
   base::SequenceChecker worker_pool_sequenced_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(TaskGroupSampler);
 };
 
 }  // namespace task_manager

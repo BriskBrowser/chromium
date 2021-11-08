@@ -8,10 +8,16 @@
 #include "base/macros.h"
 #include "chrome/browser/ash/accessibility/accessibility_panel.h"
 
+namespace ash {
+
 // Displays spoken feedback UI controls for the ChromeVox component extension
 class ChromeVoxPanel : public AccessibilityPanel {
  public:
   explicit ChromeVoxPanel(content::BrowserContext* browser_context);
+
+  ChromeVoxPanel(const ChromeVoxPanel&) = delete;
+  ChromeVoxPanel& operator=(const ChromeVoxPanel&) = delete;
+
   ~ChromeVoxPanel() override;
 
   class ChromeVoxPanelWebContentsObserver;
@@ -28,8 +34,8 @@ class ChromeVoxPanel : public AccessibilityPanel {
   std::string GetUrlForContent();
 
   std::unique_ptr<ChromeVoxPanelWebContentsObserver> web_contents_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeVoxPanel);
 };
+
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_ACCESSIBILITY_CHROMEVOX_PANEL_H_

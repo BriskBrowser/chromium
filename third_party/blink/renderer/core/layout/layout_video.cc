@@ -25,7 +25,6 @@
 
 #include "third_party/blink/renderer/core/layout/layout_video.h"
 
-#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/paint/video_painter.h"
@@ -88,7 +87,16 @@ LayoutSize LayoutVideo::CalculateIntrinsicSize(float scale) {
     }
   }
 
-  switch (GetDisplayMode()) {
+  auto display_mode = GetDisplayMode();
+
+  // Special case: If the poster image is the "default poster image", we should
+  // NOT use that for calculating intrinsic size.
+  // TODO(1190335): Remove this once default poster image is removed
+  if (display_mode == kPoster && video->IsDefaultPosterImageURL()) {
+    display_mode = kVideo;
+  }
+
+  switch (display_mode) {
     // This implements the intrinsic width/height calculation from:
     // https://html.spec.whatwg.org/#the-video-element:dimension-attributes:~:text=The%20intrinsic%20width%20of%20a%20video%20element's%20playback%20area
     // If the video playback area is currently represented by the poster image,
@@ -188,18 +196,6 @@ void LayoutVideo::UpdatePlayer(bool is_in_layout) {
     return;
 
   VideoElement()->SetNeedsCompositingUpdate();
-}
-
-LayoutUnit LayoutVideo::ComputeReplacedLogicalWidth(
-    ShouldComputePreferred should_compute_preferred) const {
-  NOT_DESTROYED();
-  return LayoutReplaced::ComputeReplacedLogicalWidth(should_compute_preferred);
-}
-
-LayoutUnit LayoutVideo::ComputeReplacedLogicalHeight(
-    LayoutUnit estimated_used_width) const {
-  NOT_DESTROYED();
-  return LayoutReplaced::ComputeReplacedLogicalHeight(estimated_used_width);
 }
 
 LayoutUnit LayoutVideo::MinimumReplacedHeight() const {

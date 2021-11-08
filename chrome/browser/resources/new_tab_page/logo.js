@@ -10,16 +10,23 @@ import './doodle_share_dialog.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {skColorToRgba} from 'chrome://resources/js/color_utils.js';
 import {EventTracker} from 'chrome://resources/js/event_tracker.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {BrowserProxy} from './browser_proxy.js';
+import {I18nBehavior} from './i18n_setup.js';
+import {NewTabPageProxy} from './new_tab_page_proxy.js';
 import {$$} from './utils.js';
+import {WindowProxy} from './window_proxy.js';
 
 /** @type {number} */
 const SHARE_BUTTON_SIZE_PX = 26;
 
-// Shows the Google logo or a doodle if available.
-class LogoElement extends PolymerElement {
+/**
+ * Shows the Google logo or a doodle if available.
+ * @polymer
+ * @extends {PolymerElement}
+ */
+class LogoElement extends mixinBehaviors
+([I18nBehavior], PolymerElement) {
   static get is() {
     return 'ntp-logo';
   }
@@ -135,6 +142,12 @@ class LogoElement extends PolymerElement {
 
       /** @private */
       showShareDialog_: Boolean,
+
+      /** @private */
+      imageDoodleTabIndex_: {
+        type: Number,
+        computed: 'computeImageDoodleTabIndex_(doodle_, showAnimation_)',
+      },
     };
   }
 
@@ -144,7 +157,7 @@ class LogoElement extends PolymerElement {
     /** @private {!EventTracker} */
     this.eventTracker_ = new EventTracker();
     /** @private {newTabPage.mojom.PageHandlerRemote} */
-    this.pageHandler_ = BrowserProxy.getInstance().handler;
+    this.pageHandler_ = NewTabPageProxy.getInstance().handler;
     this.pageHandler_.getDoodle().then(({doodle}) => {
       this.doodle_ = doodle;
       this.loaded_ = true;
@@ -279,6 +292,9 @@ class LogoElement extends PolymerElement {
    * @private
    */
   onImageClick_() {
+    if ($$(this, '#imageDoodle').tabIndex < 0) {
+      return;
+    }
     if (this.isCtaImageShown_()) {
       this.showAnimation_ = true;
       this.pageHandler_.onDoodleImageClicked(
@@ -294,8 +310,13 @@ class LogoElement extends PolymerElement {
           /** @type {!url.mojom.Url} */
           (this.imageDoodle_.animationImpressionLogUrl));
 
+      if (!this.doodle_.image.onClickUrl) {
+        $$(this, '#imageDoodle').blur();
+      }
+
       return;
     }
+    assert(this.doodle_.image.onClickUrl);
     this.pageHandler_.onDoodleImageClicked(
         this.showAnimation_ ? newTabPage.mojom.DoodleImageType.kAnimation :
                               newTabPage.mojom.DoodleImageType.kStatic,
@@ -306,7 +327,7 @@ class LogoElement extends PolymerElement {
         onClickUrl.searchParams.append(param[0], param[1]);
       }
     }
-    BrowserProxy.getInstance().open(onClickUrl.toString());
+    WindowProxy.getInstance().open(onClickUrl.toString());
   }
 
   /** @private */
@@ -325,7 +346,7 @@ class LogoElement extends PolymerElement {
   async logImageRendered_(type, logUrl) {
     const {imageClickParams, interactionLogUrl, shareId} =
         await this.pageHandler_.onDoodleImageRendered(
-            type, BrowserProxy.getInstance().now(), logUrl);
+            type, WindowProxy.getInstance().now(), logUrl);
     this.imageClickParams_ = imageClickParams;
     this.interactionLogUrl_ = interactionLogUrl;
     this.shareId_ = shareId;
@@ -435,6 +456,17 @@ class LogoElement extends PolymerElement {
       '--height': this.height_,
       '--width': this.width_,
     });
+  }
+
+  /**
+   * @private
+   * @return {number}
+   */
+  computeImageDoodleTabIndex_() {
+    return (this.doodle_ && this.doodle_.image &&
+            (this.isCtaImageShown_() || this.doodle_.image.onClickUrl)) ?
+        0 :
+        -1;
   }
 }
 

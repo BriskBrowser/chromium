@@ -11,6 +11,7 @@
 #include "ash/shell_delegate.h"
 #include "ash/wm/gestures/back_gesture/back_gesture_contextual_nudge.h"
 #include "ash/wm/window_util.h"
+#include "base/bind.h"
 #include "components/prefs/pref_service.h"
 #include "ui/aura/client/window_types.h"
 #include "ui/wm/public/activation_client.h"
@@ -157,7 +158,7 @@ bool BackGestureContextualNudgeControllerImpl::CanShowNudge(
 void BackGestureContextualNudgeControllerImpl::MaybeShowNudgeUi(
     aura::Window* window) {
   if ((!nudge_ || !nudge_->ShouldNudgeCountAsShown()) &&
-      window->type() == aura::client::WINDOW_TYPE_NORMAL &&
+      window->GetType() == aura::client::WINDOW_TYPE_NORMAL &&
       !window->is_destroying() &&
       Shell::Get()->shell_delegate()->CanGoBack(window) &&
       CanShowNudge(nullptr)) {

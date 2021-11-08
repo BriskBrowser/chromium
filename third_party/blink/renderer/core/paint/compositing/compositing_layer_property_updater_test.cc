@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
 #include "third_party/blink/renderer/platform/testing/paint_property_test_helpers.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
 namespace blink {
 
@@ -22,6 +23,8 @@ class CompositingLayerPropertyUpdaterTest : public RenderingTest {
     EnableCompositing();
     RenderingTest::SetUp();
   }
+
+  ScopedCompositeAfterPaintForTest cap_{false};
 };
 
 TEST_F(CompositingLayerPropertyUpdaterTest, MaskLayerState) {
@@ -168,68 +171,6 @@ TEST_F(CompositingLayerPropertyUpdaterTest,
       ToUnaliased(vertical_scrollbar_layer->GetPropertyTreeState().Effect())
           .GetCompositorElementId(),
       vertical_scrollbar_layer->ContentsLayer()->element_id());
-}
-
-TEST_F(CompositingLayerPropertyUpdaterTest,
-       RootScrollbarShouldUseParentOfOverscrollNodeAsTransformNode) {
-  auto& document = GetDocument();
-  document.GetFrame()->GetSettings()->SetPreferCompositingToLCDTextEnabled(
-      true);
-  document.SetBaseURLOverride(KURL("http://test.com"));
-  SetBodyInnerHTML(R"HTML(
-    <style>
-    ::-webkit-scrollbar {
-      width: 12px;
-      background: darkblue;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: white;
-    }
-    #scroller {
-      height: 100px;
-      overflow-y: scroll;
-    }
-    .big {
-      height: 1000px;
-    }
-    </style>
-
-    <div class='big'></div>
-    <div id='scroller'>
-      <div class='big'></div>
-    </div>
-  )HTML");
-
-  {
-    const auto* root_scrollable = document.View()->LayoutViewport();
-    const auto& visual_viewport =
-        document.View()->GetPage()->GetVisualViewport();
-
-    auto* vertical_scrollbar_layer =
-        root_scrollable->GraphicsLayerForVerticalScrollbar();
-    ASSERT_TRUE(vertical_scrollbar_layer);
-    EXPECT_EQ(&vertical_scrollbar_layer->GetPropertyTreeState().Transform(),
-              visual_viewport.GetOverscrollElasticityTransformNode()->Parent());
-  }
-
-  // Non root scrollbar should use scroller's transform node.
-  {
-    PaintLayer* scroller_layer = GetPaintLayerByElementId("scroller");
-    PaintLayerScrollableArea* scrollable_area =
-        scroller_layer->GetScrollableArea();
-    ASSERT_TRUE(scrollable_area);
-
-    auto* vertical_scrollbar_layer =
-        scrollable_area->GraphicsLayerForVerticalScrollbar();
-    ASSERT_TRUE(vertical_scrollbar_layer);
-
-    auto paint_properties = scroller_layer->GetLayoutObject()
-                                .FirstFragment()
-                                .LocalBorderBoxProperties();
-
-    EXPECT_EQ(&vertical_scrollbar_layer->GetPropertyTreeState().Transform(),
-              &paint_properties.Transform());
-  }
 }
 
 TEST_F(CompositingLayerPropertyUpdaterTest, OverflowControlsClip) {

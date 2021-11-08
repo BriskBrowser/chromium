@@ -6,7 +6,6 @@
 #define CONTENT_BROWSER_SSL_SSL_MANAGER_H_
 
 #include <memory>
-#include <string>
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -57,6 +56,10 @@ class CONTENT_EXPORT SSLManager {
 
   // Construct an SSLManager for the specified tab.
   explicit SSLManager(NavigationControllerImpl* controller);
+
+  SSLManager(const SSLManager&) = delete;
+  SSLManager& operator=(const SSLManager&) = delete;
+
   virtual ~SSLManager();
 
   // The navigation controller associated with this SSLManager.  The
@@ -71,6 +74,7 @@ class CONTENT_EXPORT SSLManager {
   // appropriately. If the result could change the visible SSL state,
   // they notify the WebContents of the change via
   // DidChangeVisibleSecurityState();
+  // These methods are not called for resource preloads.
   void DidDisplayMixedContent();
   void DidContainInsecureFormAction();
   void DidDisplayContentWithCertErrors();
@@ -113,8 +117,6 @@ class CONTENT_EXPORT SSLManager {
 
   // Delegate that manages SSL state specific to each host.
   SSLHostStateDelegate* ssl_host_state_delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(SSLManager);
 };
 
 }  // namespace content

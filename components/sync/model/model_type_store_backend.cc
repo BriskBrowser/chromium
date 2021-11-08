@@ -7,6 +7,9 @@
 #include <utility>
 
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/strings/strcat.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/sync/protocol/model_type_store_schema_descriptor.pb.h"
 #include "third_party/leveldatabase/env_chromium.h"
 #include "third_party/leveldatabase/leveldb_chrome.h"
@@ -26,6 +29,36 @@ const int64_t ModelTypeStoreBackend::kLatestSchemaVersion = 1;
 const char ModelTypeStoreBackend::kDBSchemaDescriptorRecordId[] =
     "_mts_schema_descriptor";
 
+namespace {
+
+void LogDbStatusByCallingSiteIfNeeded(const std::string& calling_site,
+                                      leveldb::Status status) {
+  if (status.ok()) {
+    return;
+  }
+  const std::string histogram_name =
+      "Sync.ModelTypeStoreBackendError." + calling_site;
+  base::UmaHistogramEnumeration(histogram_name,
+                                leveldb_env::GetLevelDBStatusUMAValue(status),
+                                leveldb_env::LEVELDB_STATUS_MAX);
+}
+
+}  // namespace
+
+ModelTypeStoreBackend::CustomOnTaskRunnerDeleter::CustomOnTaskRunnerDeleter(
+    scoped_refptr<base::SequencedTaskRunner> task_runner)
+    : task_runner_(std::move(task_runner)) {}
+
+ModelTypeStoreBackend::CustomOnTaskRunnerDeleter::CustomOnTaskRunnerDeleter(
+    CustomOnTaskRunnerDeleter&&) = default;
+
+ModelTypeStoreBackend::CustomOnTaskRunnerDeleter&
+ModelTypeStoreBackend::CustomOnTaskRunnerDeleter::operator=(
+    CustomOnTaskRunnerDeleter&&) = default;
+
+ModelTypeStoreBackend::CustomOnTaskRunnerDeleter::~CustomOnTaskRunnerDeleter() =
+    default;
+
 // static
 scoped_refptr<ModelTypeStoreBackend>
 ModelTypeStoreBackend::CreateInMemoryForTest() {
@@ -40,7 +73,7 @@ ModelTypeStoreBackend::CreateInMemoryForTest() {
   scoped_refptr<ModelTypeStoreBackend> backend =
       new ModelTypeStoreBackend(std::move(env));
 
-  base::Optional<ModelError> error = backend->Init(path);
+  absl::optional<ModelError> error = backend->Init(path);
   DCHECK(!error);
   return backend;
 }
@@ -51,11 +84,13 @@ ModelTypeStoreBackend::CreateUninitialized() {
   return new ModelTypeStoreBackend(/*env=*/nullptr);
 }
 
-ModelTypeStoreBackend::~ModelTypeStoreBackend() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
+// This is a refcounted class and the destructor is safe on any sequence and
+// hence DCHECK_CALLED_ON_VALID_SEQUENCE is omitted. Note that blocking
+// operations in leveldb's DBImpl::~DBImpl are posted to the backend sequence
+// due to the custom deleter used for |db_|.
+ModelTypeStoreBackend::~ModelTypeStoreBackend() = default;
 
-base::Optional<ModelError> ModelTypeStoreBackend::Init(
+absl::optional<ModelError> ModelTypeStoreBackend::Init(
     const base::FilePath& path) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!IsInitialized());
@@ -68,6 +103,7 @@ base::Optional<ModelError> ModelTypeStoreBackend::Init(
     if (status.ok())
       status = OpenDatabase(path_str, env_.get());
   }
+  LogDbStatusByCallingSiteIfNeeded("Init", status);
   if (!status.ok()) {
     DCHECK(db_ == nullptr);
     return ModelError(FROM_HERE, status.ToString());
@@ -79,13 +115,13 @@ base::Optional<ModelError> ModelTypeStoreBackend::Init(
   }
 
   if (current_version != kLatestSchemaVersion) {
-    base::Optional<ModelError> error =
+    absl::optional<ModelError> error =
         Migrate(current_version, kLatestSchemaVersion);
     if (error) {
       return error;
     }
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 bool ModelTypeStoreBackend::IsInitialized() const {
@@ -93,7 +129,7 @@ bool ModelTypeStoreBackend::IsInitialized() const {
 }
 
 ModelTypeStoreBackend::ModelTypeStoreBackend(std::unique_ptr<leveldb::Env> env)
-    : env_(std::move(env)) {
+    : env_(std::move(env)), db_(nullptr, CustomOnTaskRunnerDeleter(nullptr)) {
   // It's OK to construct this class in a sequence and Init() it elsewhere.
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -108,7 +144,14 @@ leveldb::Status ModelTypeStoreBackend::OpenDatabase(const std::string& path,
   if (env)
     options.env = env;
 
-  return leveldb_env::OpenDB(options, path, &db_);
+  std::unique_ptr<leveldb::DB> tmp_db;
+  const leveldb::Status status = leveldb_env::OpenDB(options, path, &tmp_db);
+  // Make sure that the database is destroyed on the same sequence where it was
+  // created.
+  db_ = std::unique_ptr<leveldb::DB, CustomOnTaskRunnerDeleter>(
+      tmp_db.release(),
+      CustomOnTaskRunnerDeleter(base::SequencedTaskRunnerHandle::Get()));
+  return status;
 }
 
 leveldb::Status ModelTypeStoreBackend::DestroyDatabase(const std::string& path,
@@ -119,7 +162,7 @@ leveldb::Status ModelTypeStoreBackend::DestroyDatabase(const std::string& path,
   return leveldb::DestroyDB(path, options);
 }
 
-base::Optional<ModelError> ModelTypeStoreBackend::ReadRecordsWithPrefix(
+absl::optional<ModelError> ModelTypeStoreBackend::ReadRecordsWithPrefix(
     const std::string& prefix,
     const ModelTypeStore::IdList& id_list,
     ModelTypeStore::RecordList* record_list,
@@ -135,6 +178,7 @@ base::Optional<ModelError> ModelTypeStoreBackend::ReadRecordsWithPrefix(
   for (const std::string& id : id_list) {
     key = prefix + id;
     leveldb::Status status = db_->Get(read_options, key, &value);
+    LogDbStatusByCallingSiteIfNeeded("ReadRecords", status);
     if (status.ok()) {
       record_list->emplace_back(id, value);
     } else if (status.IsNotFound()) {
@@ -143,10 +187,10 @@ base::Optional<ModelError> ModelTypeStoreBackend::ReadRecordsWithPrefix(
       return ModelError(FROM_HERE, status.ToString());
     }
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-base::Optional<ModelError> ModelTypeStoreBackend::ReadAllRecordsWithPrefix(
+absl::optional<ModelError> ModelTypeStoreBackend::ReadAllRecordsWithPrefix(
     const std::string& prefix,
     ModelTypeStore::RecordList* record_list) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -163,26 +207,25 @@ base::Optional<ModelError> ModelTypeStoreBackend::ReadAllRecordsWithPrefix(
     key.remove_prefix(prefix_slice.size());
     record_list->emplace_back(key.ToString(), iter->value().ToString());
   }
-  return iter->status().ok() ? base::nullopt
-                             : base::Optional<ModelError>(
+  LogDbStatusByCallingSiteIfNeeded("ReadAllRecords", iter->status());
+  return iter->status().ok() ? absl::nullopt
+                             : absl::optional<ModelError>(
                                    {FROM_HERE, iter->status().ToString()});
 }
 
-base::Optional<ModelError> ModelTypeStoreBackend::WriteModifications(
-    std::unique_ptr<leveldb::WriteBatch> write_batch,
-    leveldb::Status* outcome) {
+absl::optional<ModelError> ModelTypeStoreBackend::WriteModifications(
+    std::unique_ptr<leveldb::WriteBatch> write_batch) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(db_);
   leveldb::Status status =
       db_->Write(leveldb::WriteOptions(), write_batch.get());
-  if (outcome)
-    *outcome = status;
+  LogDbStatusByCallingSiteIfNeeded("WriteModifications", status);
   return status.ok()
-             ? base::nullopt
-             : base::Optional<ModelError>({FROM_HERE, status.ToString()});
+             ? absl::nullopt
+             : absl::optional<ModelError>({FROM_HERE, status.ToString()});
 }
 
-base::Optional<ModelError>
+absl::optional<ModelError>
 ModelTypeStoreBackend::DeleteDataAndMetadataForPrefix(
     const std::string& prefix) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -199,12 +242,13 @@ ModelTypeStoreBackend::DeleteDataAndMetadataForPrefix(
     write_batch.Delete(key);
   }
   leveldb::Status status = db_->Write(leveldb::WriteOptions(), &write_batch);
+  LogDbStatusByCallingSiteIfNeeded("DeleteData", status);
   return status.ok()
-             ? base::nullopt
-             : base::Optional<ModelError>({FROM_HERE, status.ToString()});
+             ? absl::nullopt
+             : absl::optional<ModelError>({FROM_HERE, status.ToString()});
 }
 
-base::Optional<ModelError> ModelTypeStoreBackend::MigrateForTest(
+absl::optional<ModelError> ModelTypeStoreBackend::MigrateForTest(
     int64_t current_version,
     int64_t desired_version) {
   return Migrate(current_version, desired_version);
@@ -226,12 +270,13 @@ int64_t ModelTypeStoreBackend::GetStoreVersion() {
   if (status.IsNotFound()) {
     return 0;
   } else if (!status.ok() || !schema_descriptor.ParseFromString(value)) {
+    LogDbStatusByCallingSiteIfNeeded("GetStoreVersion", status);
     return kInvalidSchemaVersion;
   }
   return schema_descriptor.version_number();
 }
 
-base::Optional<ModelError> ModelTypeStoreBackend::Migrate(
+absl::optional<ModelError> ModelTypeStoreBackend::Migrate(
     int64_t current_version,
     int64_t desired_version) {
   DCHECK(db_);
@@ -241,7 +286,7 @@ base::Optional<ModelError> ModelTypeStoreBackend::Migrate(
     }
   }
   if (current_version == desired_version) {
-    return base::nullopt;
+    return absl::nullopt;
   } else if (current_version > desired_version) {
     return ModelError(FROM_HERE, "Schema version too high");
   } else {

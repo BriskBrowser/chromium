@@ -4,8 +4,8 @@
 
 #include "third_party/blink/renderer/core/paint/image_painter.h"
 
-#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
-#include "third_party/blink/public/mojom/feature_policy/policy_value.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/policy_value.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/html_area_element.h"
 #include "third_party/blink/renderer/core/html/html_image_element.h"
+#include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/layout/adjust_for_absolute_zoom.h"
 #include "third_party/blink/renderer/core/layout/layout_image.h"
 #include "third_party/blink/renderer/core/layout/layout_replaced.h"
@@ -21,6 +22,8 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/box_painter.h"
 #include "third_party/blink/renderer/core/paint/image_element_timing.h"
+#include "third_party/blink/renderer/core/paint/outline_painter.h"
+#include "third_party/blink/renderer/core/paint/paint_auto_dark_mode.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
 #include "third_party/blink/renderer/core/paint/scoped_paint_state.h"
@@ -57,9 +60,9 @@ bool CheckForOversizedImagesPolicy(const LayoutImage& layout_image,
   const double dsf =
       layout_image.GetDocument().GetPage()->DeviceScaleFactorDeprecated();
   const double downscale_ratio_width =
-      image_size.Width() / layout_size.Width() / dsf;
+      image_size.width() / layout_size.Width() / dsf;
   const double downscale_ratio_height =
-      image_size.Height() / layout_size.Height() / dsf;
+      image_size.height() / layout_size.Height() / dsf;
 
   const LayoutImageResource* image_resource = layout_image.ImageResource();
   const ImageResourceContent* cached_image =
@@ -111,7 +114,7 @@ void ImagePainter::PaintAreaElementFocusRing(const PaintInfo& paint_info) {
 
   ScopedPaintState paint_state(layout_image_, paint_info);
   auto paint_offset = paint_state.PaintOffset();
-  path.Translate(FloatSize(paint_offset));
+  path.Translate(gfx::Vector2dF(paint_offset));
 
   if (DrawingRecorder::UseCachedDrawingIfPossible(
           paint_info.context, layout_image_, DisplayItem::kImageAreaFocusRing))
@@ -127,11 +130,8 @@ void ImagePainter::PaintAreaElementFocusRing(const PaintInfo& paint_info) {
   PhysicalRect focus_rect = layout_image_.PhysicalContentBoxRect();
   focus_rect.Move(paint_offset);
   paint_info.context.Clip(PixelSnappedIntRect(focus_rect));
-  paint_info.context.DrawFocusRing(
-      path, area_element_style->GetOutlineStrokeWidthForFocusRing(),
-      area_element_style->OutlineOffsetInt(),
-      layout_image_.ResolveColor(*area_element_style,
-                                 GetCSSPropertyOutlineColor()));
+  OutlinePainter::PaintFocusRingPath(paint_info.context, path,
+                                     *area_element_style);
   paint_info.context.Restore();
 }
 
@@ -157,7 +157,7 @@ void ImagePainter::PaintReplaced(const PaintInfo& paint_info,
 
   // Disable cache in under-invalidation checking mode for animated image
   // because it may change before it's actually invalidated.
-  base::Optional<DisplayItemCacheSkipper> cache_skipper;
+  absl::optional<DisplayItemCacheSkipper> cache_skipper;
   if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled() &&
       layout_image_.ImageResource() &&
       layout_image_.ImageResource()->MaybeAnimated())
@@ -175,7 +175,9 @@ void ImagePainter::PaintReplaced(const PaintInfo& paint_info,
     context.SetStrokeStyle(kSolidStroke);
     context.SetStrokeColor(Color::kLightGray);
     context.SetFillColor(Color::kTransparent);
-    context.DrawRect(paint_rect);
+    context.DrawRect(paint_rect, PaintAutoDarkMode(
+                                     layout_image_.StyleRef(),
+                                     DarkModeFilter::ElementRole::kBackground));
     return;
   }
 
@@ -231,10 +233,10 @@ void ImagePainter::PaintIntoRect(GraphicsContext& context,
         image->SizeAsFloat(respect_orientation), src_rect);
   }
 
-  TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
-               "data",
-               inspector_paint_image_event::Data(layout_image_, src_rect,
-                                                 FloatRect(dest_rect)));
+  DEVTOOLS_TIMELINE_TRACE_EVENT_WITH_CATEGORIES(
+      TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
+      inspector_paint_image_event::Data, layout_image_, src_rect,
+      FloatRect(dest_rect));
 
   ScopedInterpolationQuality interpolation_quality_scope(
       context, layout_image_.StyleRef().GetInterpolationQuality());
@@ -254,7 +256,7 @@ void ImagePainter::PaintIntoRect(GraphicsContext& context,
       // Does not set an observer for the placeholder image, setting it to null.
       scoped_refptr<PlaceholderImage> placeholder_image =
           PlaceholderImage::Create(nullptr, image->Size(),
-                                   image->Data() ? image->Data()->size() : 0);
+                                   image->HasData() ? image->DataSize() : 0);
       placeholder_image->SetIconAndTextScaleFactor(
           layout_image_.GetFrame()->PageZoomFactor());
       image = std::move(placeholder_image);
@@ -262,8 +264,9 @@ void ImagePainter::PaintIntoRect(GraphicsContext& context,
   }
 
   context.DrawImage(image.get(), decode_mode,
+                    PaintAutoDarkMode(layout_image_.StyleRef(),
+                                      DarkModeFilter::ElementRole::kBackground),
                     FloatRect(pixel_snapped_dest_rect), &src_rect,
-                    layout_image_.StyleRef().HasFilterInducingProperty(),
                     SkBlendMode::kSrcOver, respect_orientation);
 
   if (ImageResourceContent* image_content = image_resource.CachedImage()) {
@@ -274,12 +277,12 @@ void ImagePainter::PaintIntoRect(GraphicsContext& context,
       ImageElementTiming::From(*window).NotifyImagePainted(
           layout_image_, *image_content,
           context.GetPaintController().CurrentPaintChunkProperties(),
-          pixel_snapped_dest_rect);
+          ToGfxRect(pixel_snapped_dest_rect));
     }
     PaintTimingDetector::NotifyImagePaint(
-        layout_image_, image->Size(), *image_content,
+        layout_image_, ToGfxSize(image->Size()), *image_content,
         context.GetPaintController().CurrentPaintChunkProperties(),
-        pixel_snapped_dest_rect);
+        ToGfxRect(pixel_snapped_dest_rect));
   }
 }
 

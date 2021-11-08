@@ -9,9 +9,10 @@
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/launch_utils.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"  // kSettingsAppId
+#include "components/services/app_service/public/cpp/intent_util.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -20,23 +21,21 @@
 namespace chromeos {
 namespace settings {
 
-AndroidAppsHandler::AndroidAppsHandler(Profile* profile) : profile_(profile) {}
+AndroidAppsHandler::AndroidAppsHandler(Profile* profile,
+                                       apps::AppServiceProxy* app_service_proxy)
+    : profile_(profile), app_service_proxy_(app_service_proxy) {}
 
 AndroidAppsHandler::~AndroidAppsHandler() {}
 
 void AndroidAppsHandler::RegisterMessages() {
   // Note: requestAndroidAppsInfo must be called before observers will be added.
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "requestAndroidAppsInfo",
       base::BindRepeating(&AndroidAppsHandler::HandleRequestAndroidAppsInfo,
                           weak_ptr_factory_.GetWeakPtr()));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "showAndroidAppsSettings",
       base::BindRepeating(&AndroidAppsHandler::ShowAndroidAppsSettings,
-                          weak_ptr_factory_.GetWeakPtr()));
-  web_ui()->RegisterMessageCallback(
-      "showAndroidManageAppLinks",
-      base::BindRepeating(&AndroidAppsHandler::ShowAndroidManageAppLinks,
                           weak_ptr_factory_.GetWeakPtr()));
 }
 
@@ -106,26 +105,16 @@ void AndroidAppsHandler::SendAndroidAppsInfo() {
 }
 
 void AndroidAppsHandler::ShowAndroidAppsSettings(const base::ListValue* args) {
-  CHECK_EQ(1U, args->GetSize());
+  CHECK_EQ(1U, args->GetList().size());
   bool activated_from_keyboard = false;
-  args->GetBoolean(0, &activated_from_keyboard);
+  if (args->GetList()[0].is_bool())
+    activated_from_keyboard = args->GetList()[0].GetBool();
   int flags = activated_from_keyboard ? ui::EF_NONE : ui::EF_LEFT_MOUSE_BUTTON;
 
-  DCHECK(
-      apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(profile_));
-  apps::AppServiceProxyFactory::GetForProfile(profile_)->Launch(
+  app_service_proxy_->Launch(
       arc::kSettingsAppId, flags,
       apps::mojom::LaunchSource::kFromParentalControls,
       apps::MakeWindowInfo(GetDisplayIdForCurrentProfile()));
-}
-
-void AndroidAppsHandler::ShowAndroidManageAppLinks(
-    const base::ListValue* args) {
-  DCHECK_EQ(0U, args->GetSize());
-
-  arc::LaunchSettingsAppActivity(profile_, arc::kSettingsAppDomainUrlActivity,
-                                 ui::EF_NONE /* flags */,
-                                 GetDisplayIdForCurrentProfile());
 }
 
 int64_t AndroidAppsHandler::GetDisplayIdForCurrentProfile() {

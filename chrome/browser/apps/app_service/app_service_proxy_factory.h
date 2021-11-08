@@ -6,13 +6,13 @@
 #define CHROME_BROWSER_APPS_APP_SERVICE_APP_SERVICE_PROXY_FACTORY_H_
 
 #include "base/memory/singleton.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_forward.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
 class Profile;
 
 namespace apps {
-
-class AppServiceProxy;
 
 // Singleton that owns all AppServiceProxy's and associates them with Profile.
 class AppServiceProxyFactory : public BrowserContextKeyedServiceFactory {
@@ -20,11 +20,6 @@ class AppServiceProxyFactory : public BrowserContextKeyedServiceFactory {
   static bool IsAppServiceAvailableForProfile(Profile* profile);
 
   static AppServiceProxy* GetForProfile(Profile* profile);
-
-  // Explicitly avoids DumpWithoutCrashing() when App Service is not available
-  // for a Profile. Avoid using this unless you have spoken with App Service
-  // OWNERs.
-  static AppServiceProxy* GetForProfileRedirectInIncognito(Profile* profile);
 
   static AppServiceProxyFactory* GetInstance();
 

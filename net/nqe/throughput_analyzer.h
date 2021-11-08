@@ -13,7 +13,6 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "net/base/net_export.h"
@@ -68,6 +67,10 @@ class NET_EXPORT_PRIVATE ThroughputAnalyzer {
       ThroughputObservationCallback throughput_observation_callback,
       const base::TickClock* tick_clock,
       const NetLogWithSource& net_log);
+
+  ThroughputAnalyzer(const ThroughputAnalyzer&) = delete;
+  ThroughputAnalyzer& operator=(const ThroughputAnalyzer&) = delete;
+
   virtual ~ThroughputAnalyzer();
 
   // Notifies |this| that the headers of |request| are about to be sent.
@@ -248,8 +251,6 @@ class NET_EXPORT_PRIVATE ThroughputAnalyzer {
   SEQUENCE_CHECKER(sequence_checker_);
 
   NetLogWithSource net_log_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThroughputAnalyzer);
 };
 
 }  // namespace internal

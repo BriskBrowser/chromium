@@ -4,10 +4,10 @@
 
 #include "components/nacl/browser/pnacl_host.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/debug/leak_annotations.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -34,7 +34,7 @@ void CloseBaseFile(base::File file) {
       FROM_HERE,
       {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::BindOnce(base::DoNothing::Once<base::File>(), std::move(file)));
+      base::BindOnce([](base::File) {}, std::move(file)));
 }
 
 }  // namespace
@@ -79,7 +79,6 @@ PnaclHost* PnaclHost::GetInstance() {
 
 PnaclHost::PendingTranslation::PendingTranslation()
     : process_handle(base::kNullProcessHandle),
-      render_view_id(0),
       nexe_fd(nullptr),
       got_nexe_fd(false),
       got_cache_reply(false),
@@ -138,14 +137,14 @@ void PnaclHost::OnCacheInitialized(int net_error) {
 }
 
 void PnaclHost::Init() {
-  // Extra check that we're on the real IO thread since this version of
+  // Extra check that we're on the real UI thread since this version of
   // Init isn't used in unit tests.
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(thread_checker_.CalledOnValidThread());
   base::FilePath cache_path(GetCachePath());
   if (cache_path.empty() || cache_state_ != CacheUninitialized)
     return;
-  disk_cache_.reset(new PnaclTranslationCache());
+  disk_cache_ = std::make_unique<PnaclTranslationCache>();
   cache_state_ = CacheInitializing;
   int rv = disk_cache_->InitOnDisk(
       cache_path,
@@ -161,7 +160,7 @@ void PnaclHost::InitForTest(base::FilePath temp_dir, bool in_memory) {
   DCHECK(thread_checker_.CalledOnValidThread());
   file_task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
-  disk_cache_.reset(new PnaclTranslationCache());
+  disk_cache_ = std::make_unique<PnaclTranslationCache>();
   cache_state_ = CacheInitializing;
   temp_dir_ = temp_dir;
   int rv;
@@ -200,7 +199,7 @@ void PnaclHost::DoCreateTemporaryFile(base::FilePath temp_dir,
     if (!file.IsValid())
       PLOG(ERROR) << "Temp file open failed: " << file.error_details();
   }
-  content::GetIOThreadTaskRunner({})->PostTask(
+  content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE, base::BindOnce(cb, std::move(file)));
 }
 
@@ -217,7 +216,6 @@ void PnaclHost::CreateTemporaryFile(TempFileCallback cb) {
 ////////////////////// Common steps
 
 void PnaclHost::GetNexeFd(int render_process_id,
-                          int render_view_id,
                           int pp_instance,
                           bool is_incognito,
                           const nacl::PnaclCacheInfo& cache_info,
@@ -228,13 +226,12 @@ void PnaclHost::GetNexeFd(int render_process_id,
   }
   if (cache_state_ != CacheReady) {
     // If the backend hasn't yet initialized, try the request again later.
-    content::GetIOThreadTaskRunner({})->PostDelayedTask(
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&PnaclHost::GetNexeFd, base::Unretained(this),
-                       render_process_id, render_view_id, pp_instance,
-                       is_incognito, cache_info, cb),
-        base::TimeDelta::FromMilliseconds(
-            kTranslationCacheInitializationDelayMs));
+                       render_process_id, pp_instance, is_incognito, cache_info,
+                       cb),
+        base::Milliseconds(kTranslationCacheInitializationDelayMs));
     return;
   }
 
@@ -254,7 +251,6 @@ void PnaclHost::GetNexeFd(int render_process_id,
   }
 
   PendingTranslation pt;
-  pt.render_view_id = render_view_id;
   pt.callback = cb;
   pt.cache_info = cache_info;
   pt.cache_key = cache_key;
@@ -448,7 +444,7 @@ void PnaclHost::TranslationFinished(int render_process_id,
 
     base::ThreadPool::PostTaskAndReplyWithResult(
         FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-        base::BindOnce(&PnaclHost::CopyFileToBuffer, Passed(&file)),
+        base::BindOnce(&PnaclHost::CopyFileToBuffer, std::move(file)),
         base::BindOnce(&PnaclHost::StoreTranslatedNexe, base::Unretained(this),
                        id));
   }
@@ -576,9 +572,7 @@ void PnaclHost::RendererClosing(int render_process_id) {
         RequeryMatchingTranslations(key);
     }
   }
-  content::GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE,
-      base::BindOnce(&PnaclHost::DeInitIfSafe, base::Unretained(this)));
+  DeInitIfSafe();
 }
 
 ////////////////// Cache data removal
@@ -592,35 +586,33 @@ void PnaclHost::ClearTranslationCacheEntriesBetween(
   }
   if (cache_state_ == CacheInitializing) {
     // If the backend hasn't yet initialized, try the request again later.
-    content::GetIOThreadTaskRunner({})->PostDelayedTask(
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&PnaclHost::ClearTranslationCacheEntriesBetween,
                        base::Unretained(this), initial_time, end_time,
                        std::move(callback)),
-        base::TimeDelta::FromMilliseconds(
-            kTranslationCacheInitializationDelayMs));
+        base::Milliseconds(kTranslationCacheInitializationDelayMs));
     return;
   }
   pending_backend_operations_++;
 
-  base::RepeatingClosure copyable_callback =
-      base::AdaptCallbackForRepeating(std::move(callback));
+  auto split_callback = base::SplitOnceCallback(std::move(callback));
   int rv = disk_cache_->DoomEntriesBetween(
       initial_time, end_time,
       base::BindOnce(&PnaclHost::OnEntriesDoomed, base::Unretained(this),
-                     copyable_callback));
+                     std::move(split_callback.first)));
   if (rv != net::ERR_IO_PENDING)
-    OnEntriesDoomed(copyable_callback, rv);
+    OnEntriesDoomed(std::move(split_callback.second), rv);
 }
 
 void PnaclHost::OnEntriesDoomed(base::OnceClosure callback, int net_error) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  content::GetIOThreadTaskRunner({})->PostTask(FROM_HERE, std::move(callback));
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(callback));
   pending_backend_operations_--;
   // When clearing the cache, the UI is blocked on all the cache-clearing
   // operations, and freeing the backend actually blocks the IO thread. So
   // instead of calling DeInitIfSafe directly, post it for later.
-  content::GetIOThreadTaskRunner({})->PostTask(
+  content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE,
       base::BindOnce(&PnaclHost::DeInitIfSafe, base::Unretained(this)));
 }

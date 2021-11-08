@@ -7,18 +7,23 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "chrome/browser/chooser_controller/fake_bluetooth_chooser_controller.h"
 #include "chrome/browser/ui/views/device_chooser_content_view.h"
 #include "chrome/test/views/chrome_views_test_base.h"
+#include "components/permissions/fake_bluetooth_chooser_controller.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/table/table_view.h"
 #include "ui/views/widget/widget.h"
 
+using permissions::FakeBluetoothChooserController;
+
 class ChooserDialogViewTest : public ChromeViewsTestBase {
  public:
   ChooserDialogViewTest() {}
+
+  ChooserDialogViewTest(const ChooserDialogViewTest&) = delete;
+  ChooserDialogViewTest& operator=(const ChooserDialogViewTest&) = delete;
 
   void SetUp() override {
     ChromeViewsTestBase::SetUp();
@@ -82,8 +87,6 @@ class ChooserDialogViewTest : public ChromeViewsTestBase {
  private:
   std::unique_ptr<views::Widget> parent_widget_;
   views::Widget* widget_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(ChooserDialogViewTest);
 };
 
 TEST_F(ChooserDialogViewTest, ButtonState) {

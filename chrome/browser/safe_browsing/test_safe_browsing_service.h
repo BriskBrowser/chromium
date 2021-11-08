@@ -6,11 +6,12 @@
 #define CHROME_BROWSER_SAFE_BROWSING_TEST_SAFE_BROWSING_SERVICE_H_
 
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "components/safe_browsing/content/browser/safe_browsing_blocking_page_factory.h"
 
 #include "chrome/browser/safe_browsing/services_delegate.h"
-#include "chrome/browser/safe_browsing/ui_manager.h"
 #include "components/safe_browsing/buildflags.h"
-#include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/content/browser/ui_manager.h"
+#include "components/safe_browsing/core/browser/db/v4_protocol_manager_util.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/test/test_url_loader_factory.h"
 
@@ -43,6 +44,10 @@ class TestSafeBrowsingService : public SafeBrowsingService,
                                 public ServicesDelegate::ServicesCreator {
  public:
   TestSafeBrowsingService();
+
+  TestSafeBrowsingService(const TestSafeBrowsingService&) = delete;
+  TestSafeBrowsingService& operator=(const TestSafeBrowsingService&) = delete;
+
   // SafeBrowsingService overrides
   V4ProtocolConfig GetV4ProtocolConfig() const override;
 
@@ -92,9 +97,8 @@ class TestSafeBrowsingService : public SafeBrowsingService,
 #endif
   IncidentReportingService* CreateIncidentReportingService() override;
 
-  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory(
-      Profile* profile) override;
+      content::BrowserContext* browser_context) override;
 
  private:
   std::unique_ptr<V4ProtocolConfig> v4_protocol_config_;
@@ -104,13 +108,17 @@ class TestSafeBrowsingService : public SafeBrowsingService,
   bool use_test_url_loader_factory_ = false;
   network::TestURLLoaderFactory test_url_loader_factory_;
   scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestSafeBrowsingService);
 };
 
 class TestSafeBrowsingServiceFactory : public SafeBrowsingServiceFactory {
  public:
   TestSafeBrowsingServiceFactory();
+
+  TestSafeBrowsingServiceFactory(const TestSafeBrowsingServiceFactory&) =
+      delete;
+  TestSafeBrowsingServiceFactory& operator=(
+      const TestSafeBrowsingServiceFactory&) = delete;
+
   ~TestSafeBrowsingServiceFactory() override;
 
   // Creates test safe browsing service, and configures test UI manager,
@@ -135,8 +143,6 @@ class TestSafeBrowsingServiceFactory : public SafeBrowsingServiceFactory {
   scoped_refptr<TestSafeBrowsingDatabaseManager> test_database_manager_;
   scoped_refptr<TestSafeBrowsingUIManager> test_ui_manager_;
   bool use_v4_local_db_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestSafeBrowsingServiceFactory);
 };
 
 // This is an implemenation of SafeBrowsingUIManager without actually
@@ -146,17 +152,19 @@ class TestSafeBrowsingUIManager : public SafeBrowsingUIManager {
  public:
   TestSafeBrowsingUIManager();
   explicit TestSafeBrowsingUIManager(
-      const scoped_refptr<SafeBrowsingService>& service);
+      std::unique_ptr<SafeBrowsingBlockingPageFactory> blocking_page_factory);
+
+  TestSafeBrowsingUIManager(const TestSafeBrowsingUIManager&) = delete;
+  TestSafeBrowsingUIManager& operator=(const TestSafeBrowsingUIManager&) =
+      delete;
+
   void SendSerializedThreatDetails(content::BrowserContext* browser_context,
                                    const std::string& serialized) override;
-  void SetSafeBrowsingService(SafeBrowsingService* sb_service);
   std::list<std::string>* GetThreatDetails();
 
  protected:
   ~TestSafeBrowsingUIManager() override;
   std::list<std::string> details_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestSafeBrowsingUIManager);
 };
 
 }  // namespace safe_browsing

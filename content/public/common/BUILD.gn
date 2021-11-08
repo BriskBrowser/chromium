@@ -13,6 +13,10 @@ import("//mojo/public/tools/bindings/mojom.gni")
 import("//ppapi/buildflags/buildflags.gni")
 import("//third_party/webrtc/webrtc.gni")
 
+if (is_android) {
+  import("//build/config/android/rules.gni")
+}
+
 # See //content/BUILD.gn for how this works.
 group("common") {
   if (is_component_build) {
@@ -84,7 +88,10 @@ source_set("static_features") {
     "//content/common:buildflags",
   ]
 
-  public_configs = [ ":static_switches_defines" ]
+  public_configs = [
+    ":static_switches_defines",
+    "//tools/v8_context_snapshot:use_v8_context_snapshot",
+  ]
 
   if (is_chromeos_ash) {
     public_deps += [ "//media/capture/video/chromeos/public" ]
@@ -100,6 +107,7 @@ source_set("common_sources") {
     "cdm_info.h",
     "child_process_host.h",
     "child_process_host_delegate.h",
+    "color_parser.h",
     "common_param_traits.cc",
     "common_param_traits.h",
     "common_param_traits_macros.h",
@@ -117,6 +125,8 @@ source_set("common_sources") {
     "content_switch_dependent_feature_overrides.h",
     "content_switches.cc",
     "content_switches.h",
+    "custom_handlers/protocol_handler.cc",
+    "custom_handlers/protocol_handler.h",
     "drop_data.cc",
     "drop_data.h",
     "input_event_ack_state.h",
@@ -137,10 +147,13 @@ source_set("common_sources") {
     "process_type.h",
     "profiling.cc",
     "profiling.h",
+    "pseudonymization_util.cc",
+    "pseudonymization_util.h",
     "referrer.cc",
     "referrer.h",
     "referrer_type_converters.cc",
     "referrer_type_converters.h",
+    "resource_request_blocked_reason.h",
     "resource_usage_reporter_type_converters.cc",
     "resource_usage_reporter_type_converters.h",
     "result_codes.h",
@@ -165,10 +178,7 @@ source_set("common_sources") {
   ]
 
   if (is_win) {
-    sources += [
-      "font_cache_dispatcher_win.h",
-      "injection_test_win.h",
-    ]
+    sources += [ "font_cache_dispatcher_win.h" ]
   }
 
   if (is_android) {
@@ -178,16 +188,15 @@ source_set("common_sources") {
     ]
   }
 
-  if (is_linux || is_chromeos) {
-    sources += [ "common_sandbox_support_linux.h" ]
-  }
-
   configs += [
     "//build/config:precompiled_headers",
     "//content:content_implementation",
   ]
 
-  public_configs = [ "//v8:external_startup_data" ]
+  public_configs = [
+    "//v8:external_startup_data",
+    "//tools/v8_context_snapshot:use_v8_context_snapshot",
+  ]
 
   public_deps = [
     ":interfaces",
@@ -244,7 +253,6 @@ source_set("common_sources") {
   }
 
   if (is_android) {
-    sources += [ "cpu_affinity.h" ]
     deps += [ "//content/public/android:jni" ]
   }
 
@@ -316,7 +324,6 @@ mojom("interfaces") {
   sources = [
     "drop_data.mojom",
     "resource_usage_reporter.mojom",
-    "was_activated_option.mojom",
     "webplugininfo.mojom",
     "window_container_type.mojom",
   ]
@@ -388,4 +395,19 @@ mojom("trust_tokens_mojo_bindings") {
 
 mojom("renderer_type") {
   sources = [ "media_playback_renderer_type.mojom" ]
+}
+
+if (is_android) {
+  java_cpp_features("java_features_srcjar") {
+    # External code should depend on ":common_java" instead.
+    visibility = [ ":*" ]
+    sources = [ "//content/public/common/content_features.cc" ]
+    template = "//content/public/common/android/java_templates/ContentFeatures.java.tmpl"
+  }
+
+  android_library("common_java") {
+    # Right now, this only includes the Java features. But if we need more Java
+    # files, they should be added here as necessary.
+    srcjar_deps = [ ":java_features_srcjar" ]
+  }
 }

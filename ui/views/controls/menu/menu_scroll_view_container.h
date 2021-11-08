@@ -24,6 +24,9 @@ class MenuScrollViewContainer : public View {
 
   explicit MenuScrollViewContainer(SubmenuView* content_view);
 
+  MenuScrollViewContainer(const MenuScrollViewContainer&) = delete;
+  MenuScrollViewContainer& operator=(const MenuScrollViewContainer&) = delete;
+
   // Returns the buttons for scrolling up/down.
   View* scroll_down_button() const { return scroll_down_button_; }
   View* scroll_up_button() const { return scroll_up_button_; }
@@ -42,6 +45,13 @@ class MenuScrollViewContainer : public View {
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
 
  private:
+  friend class MenuScrollView;
+
+  void DidScrollToTop();
+  void DidScrollToBottom();
+  void DidScrollAwayFromTop();
+  void DidScrollAwayFromBottom();
+
   // Create a default border or bubble border, as appropriate.
   void CreateBorder();
 
@@ -71,13 +81,8 @@ class MenuScrollViewContainer : public View {
   // If set the currently set border is a bubble border.
   BubbleBorder::Arrow arrow_ = BubbleBorder::NONE;
 
-  // Weak reference to the currently set border.
-  BubbleBorder* bubble_border_ = nullptr;
-
   // Corner radius of the background.
   int corner_radius_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(MenuScrollViewContainer);
 };
 
 }  // namespace views

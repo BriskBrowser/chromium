@@ -10,14 +10,21 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/sequenced_task_runner.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "net/dns/dns_config_service.h"
 
 #if defined(OS_IOS)
 #import <CoreTelephony/CTTelephonyNetworkInfo.h>
 #endif
+
+namespace {
+// The maximum number of seconds to wait for the connection type to be
+// determined.
+const double kMaxWaitForConnectionTypeInSeconds = 2.0;
+}  // namespace
 
 namespace net {
 
@@ -58,11 +65,10 @@ NetworkChangeNotifierMac::NetworkChangeCalculatorParamsMac() {
   NetworkChangeCalculatorParams params;
   // Delay values arrived at by simple experimentation and adjusted so as to
   // produce a single signal when switching between network connections.
-  params.ip_address_offline_delay_ = base::TimeDelta::FromMilliseconds(500);
-  params.ip_address_online_delay_ = base::TimeDelta::FromMilliseconds(500);
-  params.connection_type_offline_delay_ =
-      base::TimeDelta::FromMilliseconds(1000);
-  params.connection_type_online_delay_ = base::TimeDelta::FromMilliseconds(500);
+  params.ip_address_offline_delay_ = base::Milliseconds(500);
+  params.ip_address_online_delay_ = base::Milliseconds(500);
+  params.connection_type_offline_delay_ = base::Milliseconds(1000);
+  params.connection_type_online_delay_ = base::Milliseconds(500);
   return params;
 }
 
@@ -71,11 +77,32 @@ NetworkChangeNotifierMac::GetCurrentConnectionType() const {
   // https://crbug.com/125097
   base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
   base::AutoLock lock(connection_type_lock_);
-  // Make sure the initial connection type is set before returning.
-  while (!connection_type_initialized_) {
-    initial_connection_type_cv_.Wait();
+
+  if (connection_type_initialized_)
+    return connection_type_;
+
+  SCOPED_UMA_HISTOGRAM_TIMER(
+      "Net.NetworkChangeNotifierMac.GetCurrentConnectionTypeWaitTime");
+
+  // Wait up to a limited amount of time for the connection type to be
+  // determined, to avoid blocking the main thread indefinitely. Since
+  // ConditionVariables are susceptible to spurious wake-ups, each call to
+  // TimedWait can spuriously return even though the connection type hasn't been
+  // initialized and the timeout hasn't been reached; so TimedWait must be
+  // called repeatedly until either the timeout is reached or the connection
+  // type has been determined.
+  base::TimeDelta remaining_time =
+      base::Seconds(kMaxWaitForConnectionTypeInSeconds);
+  base::TimeTicks end_time = base::TimeTicks::Now() + remaining_time;
+  while (remaining_time.is_positive()) {
+    initial_connection_type_cv_.TimedWait(remaining_time);
+    if (connection_type_initialized_)
+      return connection_type_;
+
+    remaining_time = end_time - base::TimeTicks::Now();
   }
-  return connection_type_;
+
+  return CONNECTION_UNKNOWN;
 }
 
 void NetworkChangeNotifierMac::Forwarder::Init() {
@@ -101,7 +128,7 @@ NetworkChangeNotifierMac::CalculateConnectionType(
         service_current_radio_access_technology =
             [info serviceCurrentRadioAccessTechnology];
     NSSet<NSString*>* technologies_2g = [NSSet
-        setWithObjects:CTRadioAccessTechnologyGPRS, CTRadioAccessTechnologyGPRS,
+        setWithObjects:CTRadioAccessTechnologyGPRS, CTRadioAccessTechnologyEdge,
                        CTRadioAccessTechnologyCDMA1x, nil];
     NSSet<NSString*>* technologies_3g =
         [NSSet setWithObjects:CTRadioAccessTechnologyWCDMA,
@@ -136,7 +163,7 @@ NetworkChangeNotifierMac::CalculateConnectionType(
         current_network = 5;
       } else {
         // New technology?
-        NOTREACHED();
+        NOTREACHED() << "Unknown network technology: " << network_type;
         return CONNECTION_UNKNOWN;
       }
       if (current_network > best_network) {

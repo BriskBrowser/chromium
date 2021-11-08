@@ -7,8 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
+
+#include "base/cxx17_backports.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_byteorder.h"
 #include "base/test/bind.h"
@@ -45,8 +47,8 @@ class P2PSocketTcpTestBase : public testing::Test {
     mojo::PendingRemote<mojom::P2PSocket> socket;
     auto socket_receiver = socket.InitWithNewPipeAndPassReceiver();
 
-    fake_client_.reset(new FakeSocketClient(
-        std::move(socket), socket_client.InitWithNewPipeAndPassReceiver()));
+    fake_client_ = std::make_unique<FakeSocketClient>(
+        std::move(socket), socket_client.InitWithNewPipeAndPassReceiver());
 
     EXPECT_CALL(*fake_client_.get(), SocketCreated(_, _)).Times(1);
 
@@ -620,7 +622,7 @@ TEST(P2PSocketTcpWithPseudoTlsTest, Hostname) {
         context.host_resolver()->CreateRequest(kHostPortPair, other_nik,
                                                net::NetLogWithSource(), params);
     net::TestCompletionCallback callback2;
-    int result = request2->Start(callback2.callback());
+    result = request2->Start(callback2.callback());
     EXPECT_EQ(net::ERR_NAME_NOT_RESOLVED, callback2.GetResult(result));
   }
 }

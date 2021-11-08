@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/aura/scoped_window_targeter.h"
@@ -24,7 +25,10 @@ class ScopedWindowTargeter;
 }  // namespace aura
 
 namespace ui {
+class DeskExtension;
+class PinnedModeExtension;
 class X11Extension;
+class WaylandExtension;
 }  // namespace ui
 
 namespace views {
@@ -39,6 +43,11 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   DesktopWindowTreeHostLinux(
       internal::NativeWidgetDelegate* native_widget_delegate,
       DesktopNativeWidgetAura* desktop_native_widget_aura);
+
+  DesktopWindowTreeHostLinux(const DesktopWindowTreeHostLinux&) = delete;
+  DesktopWindowTreeHostLinux& operator=(const DesktopWindowTreeHostLinux&) =
+      delete;
+
   ~DesktopWindowTreeHostLinux() override;
 
   // Get all open top-level windows. This includes windows that may not be
@@ -49,6 +58,9 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   // Runs the |func| callback for each content-window, and deallocates the
   // internal list of open windows.
   static void CleanUpWindowList(void (*func)(aura::Window* window));
+
+  // Casts from a base WindowTreeHost instance.
+  static DesktopWindowTreeHostLinux* From(WindowTreeHost* wth);
 
   // Returns the current bounds in terms of the X11 Root Window including the
   // borders provided by the window manager (if any). Not in use for Wayland.
@@ -66,11 +78,19 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   // Disables event listening to make |dialog| modal.
   base::OnceClosure DisableEventListening();
 
+  ui::WaylandExtension* GetWaylandExtension();
+  const ui::WaylandExtension* GetWaylandExtension() const;
+
+  ui::DeskExtension* GetDeskExtension();
+  const ui::DeskExtension* GetDeskExtension() const;
+
+  ui::PinnedModeExtension* GetPinnedModeExtension();
+  const ui::PinnedModeExtension* GetPinnedModeExtension() const;
+
  protected:
   // Overridden from DesktopWindowTreeHost:
   void Init(const Widget::InitParams& params) override;
   void OnNativeWidgetCreated(const Widget::InitParams& params) override;
-  base::flat_map<std::string, std::string> GetKeyboardLayoutMap() override;
   void InitModalType(ui::ModalType modal_type) override;
   Widget::MoveLoopResult RunMoveLoop(
       const gfx::Vector2d& drag_offset,
@@ -108,7 +128,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
 #if BUILDFLAG(USE_ATK)
   bool OnAtkKeyEvent(AtkKeyEventStruct* atk_key_event, bool transient) override;
 #endif
-  bool IsOverrideRedirect(bool is_tiling_wm) const override;
+  bool IsOverrideRedirect() const override;
+  gfx::Rect GetGuessedFullScreenSizeInPx() const override;
 
   // Enables event listening after closing |dialog|.
   void EnableEventListening();
@@ -133,8 +154,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
 
   // The display and the native X window hosting the root window.
   base::WeakPtrFactory<DesktopWindowTreeHostLinux> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DesktopWindowTreeHostLinux);
 };
 
 }  // namespace views

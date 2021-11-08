@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/views/chrome_views_test_base.h"
+#include "components/media_router/common/mojom/media_router.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -21,21 +22,22 @@ namespace media_router {
 class CastDialogSinkButtonTest : public ChromeViewsTestBase {
  public:
   CastDialogSinkButtonTest() = default;
-  ~CastDialogSinkButtonTest() override = default;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(CastDialogSinkButtonTest);
+  CastDialogSinkButtonTest(const CastDialogSinkButtonTest&) = delete;
+  CastDialogSinkButtonTest& operator=(const CastDialogSinkButtonTest&) = delete;
+
+  ~CastDialogSinkButtonTest() override = default;
 };
 
 TEST_F(CastDialogSinkButtonTest, SetTitleLabel) {
-  UIMediaSink sink;
-  sink.friendly_name = base::UTF8ToUTF16("sink name");
+  UIMediaSink sink{mojom::MediaRouteProviderId::CAST};
+  sink.friendly_name = u"sink name";
   CastDialogSinkButton button(views::Button::PressedCallback(), sink);
   EXPECT_EQ(sink.friendly_name, button.title()->GetText());
 }
 
 TEST_F(CastDialogSinkButtonTest, SetStatusLabelForAvailableSink) {
-  UIMediaSink sink;
+  UIMediaSink sink{mojom::MediaRouteProviderId::CAST};
   sink.state = UIMediaSinkState::AVAILABLE;
   CastDialogSinkButton button(views::Button::PressedCallback(), sink);
   EXPECT_EQ(l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_SINK_AVAILABLE),
@@ -52,14 +54,14 @@ TEST_F(CastDialogSinkButtonTest, SetStatusLabelForAvailableSink) {
 }
 
 TEST_F(CastDialogSinkButtonTest, SetStatusLabelForActiveSink) {
-  UIMediaSink sink;
+  UIMediaSink sink{mojom::MediaRouteProviderId::CAST};
   sink.state = UIMediaSinkState::CONNECTING;
   CastDialogSinkButton button1(views::Button::PressedCallback(), sink);
   EXPECT_EQ(l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_SINK_CONNECTING),
             button1.subtitle()->GetText());
 
   sink.state = UIMediaSinkState::CONNECTED;
-  sink.status_text = base::UTF8ToUTF16("status text");
+  sink.status_text = u"status text";
   CastDialogSinkButton button2(views::Button::PressedCallback(), sink);
   EXPECT_EQ(sink.status_text, button2.subtitle()->GetText());
 
@@ -71,7 +73,7 @@ TEST_F(CastDialogSinkButtonTest, SetStatusLabelForActiveSink) {
 }
 
 TEST_F(CastDialogSinkButtonTest, SetStatusLabelForSinkWithIssue) {
-  UIMediaSink sink;
+  UIMediaSink sink{mojom::MediaRouteProviderId::CAST};
   sink.issue = Issue(IssueInfo("issue", IssueInfo::Action::DISMISS,
                                IssueInfo::Severity::WARNING));
   // Issue info should be the status text regardless of the sink state.
@@ -86,8 +88,7 @@ TEST_F(CastDialogSinkButtonTest, SetStatusLabelForSinkWithIssue) {
 }
 
 TEST_F(CastDialogSinkButtonTest, SetStatusLabelForDialSinks) {
-  UIMediaSink sink;
-  sink.provider = MediaRouteProviderId::DIAL;
+  UIMediaSink sink{mojom::MediaRouteProviderId::DIAL};
   sink.state = UIMediaSinkState::AVAILABLE;
   sink.cast_modes = {MediaCastMode::PRESENTATION};
   CastDialogSinkButton button1(views::Button::PressedCallback(), sink);
@@ -107,17 +108,17 @@ TEST_F(CastDialogSinkButtonTest, SetStatusLabelForDialSinks) {
   // If the sink is connected, we should show the session info, even if the
   // device is incompatible with the current sender page.
   sink.state = UIMediaSinkState::CONNECTED;
-  sink.status_text = base::ASCIIToUTF16("YouTube");
+  sink.status_text = u"YouTube";
   CastDialogSinkButton button3(views::Button::PressedCallback(), sink);
   EXPECT_EQ(sink.status_text, button3.subtitle()->GetText());
 }
 
 TEST_F(CastDialogSinkButtonTest, OverrideStatusText) {
-  UIMediaSink sink;
+  UIMediaSink sink{mojom::MediaRouteProviderId::CAST};
   CastDialogSinkButton button(views::Button::PressedCallback(), sink);
-  base::string16 status0 = base::ASCIIToUTF16("status0");
-  base::string16 status1 = base::ASCIIToUTF16("status1");
-  base::string16 status2 = base::ASCIIToUTF16("status2");
+  std::u16string status0 = u"status0";
+  std::u16string status1 = u"status1";
+  std::u16string status2 = u"status2";
 
   // Calling RestoreStatusText does nothing when status has not been overridden.
   button.subtitle()->SetText(status0);

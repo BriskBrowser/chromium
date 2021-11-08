@@ -12,10 +12,11 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.CallbackController;
+import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.OneshotSupplier;
 import org.chromium.base.supplier.OneshotSupplierImpl;
-import org.chromium.chrome.browser.policy.EnterpriseInfo;
+import org.chromium.chrome.browser.enterprise.util.EnterpriseInfo;
 import org.chromium.components.policy.PolicyService;
 
 /**
@@ -27,6 +28,7 @@ import org.chromium.components.policy.PolicyService;
  *  - Supplies [False] otherwise.
  */
 class SkipTosDialogPolicyListener implements OneshotSupplier<Boolean> {
+    private static final String TAG = "SkipTosPolicy";
     /**
      * Interface that provides histogram to be recorded when signals are available in this listener.
      */
@@ -138,7 +140,11 @@ class SkipTosDialogPolicyListener implements OneshotSupplier<Boolean> {
 
     @Override
     public Boolean onAvailable(Callback<Boolean> callback) {
-        return mSkipTosDialogPolicySupplier.onAvailable(callback);
+        // This supplier posts callbacks to an inner Handler to avoid reentrancy, but this opens the
+        // possibility of set -> destroy -> callback run, which would violate our public interface.
+        // Wrapping incoming callback to ensure it cannot be run after destroy().
+        return mSkipTosDialogPolicySupplier.onAvailable(
+                mCallbackController.makeCancelable(callback));
     }
 
     /**
@@ -191,8 +197,14 @@ class SkipTosDialogPolicyListener implements OneshotSupplier<Boolean> {
         boolean hasOutstandingSignal = mIsDeviceOwned == null || mTosDialogEnabled == null;
 
         if (!hasOutstandingSignal) {
+            Log.i(TAG,
+                    "Supplier available, <TosDialogEnabled>=" + mTosDialogEnabled
+                            + " <IsDeviceOwned>=" + mIsDeviceOwned);
             mSkipTosDialogPolicySupplier.set(!mTosDialogEnabled && mIsDeviceOwned);
         } else if (confirmedTosDialogEnabled || confirmedDeviceNotOwned) {
+            Log.i(TAG,
+                    "Supplier early out, <confirmedTosDialogEnabled>=" + confirmedTosDialogEnabled
+                            + " <confirmedDeviceNotOwned>=" + confirmedDeviceNotOwned);
             mSkipTosDialogPolicySupplier.set(false);
         }
     }

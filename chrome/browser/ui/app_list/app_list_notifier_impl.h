@@ -15,7 +15,7 @@
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class OneShotTimer;
@@ -31,18 +31,14 @@ class AppListController;
 // for observers. See the header comment in app_list_notifier.h for definitions
 // of these.
 //
-// This handles results on three UI views: the suggestion chips, app tiles,
-// and results list. These are just called _views_ in this comment.
-//
-// TODO(crbug.com/1076270): NotifyLaunch is incorrectly passed kTile when an app
-// chip is launched. This should be fixed at the NotifyLaunch call site.
+// This handles results on each search result view, which are are just called
+// _views_ in this comment.
 //
 // State machine
 // =============
 //
-// This class implements three state machines, one for each view,that are
-// mostly independent. Each state machine can be in one of three primary
-// states:
+// This class implements N state machines, one for each view, that are mostly
+// independent. Each state machine can be in one of three primary states:
 //
 //  - kNone: the view is not displayed.
 //  - kShown: the view is displayed.
@@ -144,7 +140,7 @@ class AppListNotifierImpl : public ash::AppListNotifier,
   void NotifyLaunched(Location location, const Result& result) override;
   void NotifyResultsUpdated(Location location,
                             const std::vector<Result>& results) override;
-  void NotifySearchQueryChanged(const base::string16& query) override;
+  void NotifySearchQueryChanged(const std::u16string& query) override;
   void NotifyUIStateChanged(ash::AppListViewState view) override;
 
   // AppListControllerObserver:
@@ -189,9 +185,9 @@ class AppListNotifierImpl : public ash::AppListNotifier,
   // The currently shown results for each UI view.
   base::flat_map<Location, std::vector<Result>> results_;
   // The current search query, may be empty.
-  base::string16 query_;
+  std::u16string query_;
   // The most recently launched result.
-  base::Optional<Result> launched_result_;
+  absl::optional<Result> launched_result_;
 
   base::WeakPtrFactory<AppListNotifierImpl> weak_ptr_factory_{this};
 };

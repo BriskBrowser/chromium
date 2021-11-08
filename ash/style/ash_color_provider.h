@@ -11,15 +11,13 @@
 #include "base/observer_list.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/color_palette.h"
-#include "ui/gfx/vector_icon_types.h"
 
 class PrefChangeRegistrar;
 class PrefRegistrySimple;
 class PrefService;
 
 namespace views {
-class ImageButton;
-class LabelButton;
+class InkDropHost;
 }  // namespace views
 
 namespace ash {
@@ -68,27 +66,36 @@ class ASH_EXPORT AshColorProvider : public SessionObserver,
       SkColor bg_color = gfx::kPlaceholderColor) const override;
   void AddObserver(ColorModeObserver* observer) override;
   void RemoveObserver(ColorModeObserver* observer) override;
+  // TODO(minch): Rename to ShouldUseDarkColors.
   bool IsDarkModeEnabled() const override;
+
+  // Gets the color of |type| of the corresponding layer based on the current
+  // inverted color mode. For views that need LIGHT colors while DARK mode is
+  // active, and vice versa.
+  SkColor GetInvertedShieldLayerColor(ShieldLayerType type) const;
+  SkColor GetInvertedBaseLayerColor(BaseLayerType type) const;
+  SkColor GetInvertedControlsLayerColor(ControlsLayerType type) const;
+  SkColor GetInvertedContentLayerColor(ContentLayerType type) const;
 
   // Gets the background color that can be applied on any layer. The returned
   // color will be different based on color mode and color theme (see
   // |is_themed_|).
   SkColor GetBackgroundColor() const;
+  // Same as above, but returns the color based on the current inverted color
+  // mode and color theme.
+  SkColor GetInvertedBackgroundColor() const;
 
-  // Helpers to style different types of buttons. Depending on the type may
-  // style text, icon and background colors for both enabled and disabled
-  // states. May overwrite an prior styles on |button|.
-  void DecoratePillButton(views::LabelButton* button,
-                          const gfx::VectorIcon* icon);
-  void DecorateCloseButton(views::ImageButton* button,
-                           int button_size,
-                           const gfx::VectorIcon& icon);
-  void DecorateIconButton(views::ImageButton* button,
-                          const gfx::VectorIcon& icon,
-                          bool toggled,
-                          int icon_size);
-  void DecorateFloatingIconButton(views::ImageButton* button,
-                                  const gfx::VectorIcon& icon);
+  // Decorates the ink drop managed by `host`. `ink_drop_config_flags` is a
+  // bitmask which specifies the ink drop attributes to modify. `bg_color` is
+  // the background color of the UI element that wants to show ink drop.
+  enum InkDropConfigParam {
+    kConfigBaseColor = 1,
+    kConfigVisibleOpacity = 1 << 1,
+    kConfigHighlightOpacity = 1 << 2
+  };
+  void DecorateInkDrop(views::InkDropHost* host,
+                       int ink_drop_config_flags,
+                       SkColor bg_color = gfx::kPlaceholderColor);
 
   // Whether the system color mode is themed, by default is true. If true, the
   // background color will be calculated based on extracted wallpaper color.
@@ -102,15 +109,35 @@ class ASH_EXPORT AshColorProvider : public SessionObserver,
 
  private:
   friend class ScopedLightModeAsDefault;
+  friend class ScopedAssistantLightModeAsDefault;
 
-  // Gets the background default color.
+  // Gets the color of |type| of the corresponding layer. Returns color based on
+  // the current inverted color mode if |inverted| is true.
+  SkColor GetShieldLayerColorImpl(ShieldLayerType type, bool inverted) const;
+  SkColor GetBaseLayerColorImpl(BaseLayerType type, bool inverted) const;
+  // Gets the color of |type| of the corresponding layer. Returns the color on
+  // dark mode if |use_dark_color| is true.
+  SkColor GetControlsLayerColorImpl(ControlsLayerType type,
+                                    bool use_dark_color) const;
+  SkColor GetContentLayerColorImpl(ContentLayerType type,
+                                   bool use_dark_color) const;
+
+  // Gets the background default color based on the current color mode.
   SkColor GetBackgroundDefaultColor() const;
+  // Gets the background default color based on the current inverted color mode.
+  SkColor GetInvertedBackgroundDefaultColor() const;
 
+  // Gets the background themed color based on the current color mode.
+  SkColor GetBackgroundThemedColor() const;
+  // Gets the background themed color based on the current inverted color mode.
+  SkColor GetInvertedBackgroundThemedColor() const;
   // Gets the background themed color that's calculated based on the color
   // extracted from wallpaper. For dark mode, it will be dark muted wallpaper
   // prominent color + SK_ColorBLACK 50%. For light mode, it will be light
-  // muted wallpaper prominent color + SK_ColorWHITE 75%.
-  SkColor GetBackgroundThemedColor() const;
+  // muted wallpaper prominent color + SK_ColorWHITE 75%. Extracts the color on
+  // dark mode if |use_dark_color| is true.
+  SkColor GetBackgroundThemedColorImpl(SkColor default_color,
+                                       bool use_dark_color) const;
 
   // Notifies all the observers on |kDarkModeEnabled|'s change.
   void NotifyDarkModeEnabledPrefChange();
@@ -118,12 +145,12 @@ class ASH_EXPORT AshColorProvider : public SessionObserver,
   // Notifies all the observers on |kColorModeThemed|'s change.
   void NotifyColorModeThemedPrefChange();
 
-  // Default color mode is dark, which is controlled by pref |kDarkModeEnabled|
-  // currently. But we can also override it to light through
-  // ScopedLightModeAsDefault. This is done to help keeping some of the UI
-  // elements as light by default before launching dark/light mode. Overriding
-  // only if the kDarkLightMode feature is disabled. This variable will be
-  // removed once enabled dark/light mode.
+  // The default color is DARK when the DarkLightMode feature is disabled. But
+  // we can also override it to LIGHT through ScopedLightModeAsDefault. This is
+  // done to help keeping some of the UI elements as LIGHT by default before
+  // launching the DarkLightMode feature. Overriding only if the DarkLightMode
+  // feature is disabled. This variable will be removed once fully launched the
+  // DarkLightMode feature.
   bool override_light_mode_as_default_ = false;
 
   base::ObserverList<ColorModeObserver> observers_;

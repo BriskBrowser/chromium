@@ -28,9 +28,12 @@ class InProcessImporterBridge : public ImporterBridge {
   InProcessImporterBridge(ProfileWriter* writer,
                           base::WeakPtr<ExternalProcessImporterHost> host);
 
+  InProcessImporterBridge(const InProcessImporterBridge&) = delete;
+  InProcessImporterBridge& operator=(const InProcessImporterBridge&) = delete;
+
   // Begin ImporterBridge implementation:
   void AddBookmarks(const std::vector<ImportedBookmarkEntry>& bookmarks,
-                    const base::string16& first_folder_name) override;
+                    const std::u16string& first_folder_name) override;
 
   void AddHomePage(const GURL& home_page) override;
 
@@ -53,7 +56,7 @@ class InProcessImporterBridge : public ImporterBridge {
   void NotifyItemEnded(importer::ImportItem item) override;
   void NotifyEnded() override;
 
-  base::string16 GetLocalizedString(int message_id) override;
+  std::u16string GetLocalizedString(int message_id) override;
   // End ImporterBridge implementation.
 
  private:
@@ -61,8 +64,6 @@ class InProcessImporterBridge : public ImporterBridge {
 
   ProfileWriter* const writer_;  // weak
   const base::WeakPtr<ExternalProcessImporterHost> host_;
-
-  DISALLOW_COPY_AND_ASSIGN(InProcessImporterBridge);
 };
 
 #endif  // CHROME_BROWSER_IMPORTER_IN_PROCESS_IMPORTER_BRIDGE_H_

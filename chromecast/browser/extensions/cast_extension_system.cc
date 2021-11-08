@@ -10,9 +10,12 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "chromecast/browser/extensions/api/tts/tts_extension_api.h"
+#include "components/services/app_service/public/mojom/types.mojom-shared.h"
+#include "components/value_store/value_store_factory_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -24,11 +27,9 @@
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/quota_service.h"
 #include "extensions/browser/renderer_startup_helper.h"
-#include "extensions/browser/runtime_data.h"
 #include "extensions/browser/service_worker_manager.h"
 #include "extensions/browser/unloaded_extension_reason.h"
 #include "extensions/browser/user_script_manager.h"
-#include "extensions/browser/value_store/value_store_factory_impl.h"
 #include "extensions/common/api/app_runtime.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/file_util.h"
@@ -72,7 +73,8 @@ namespace extensions {
 
 CastExtensionSystem::CastExtensionSystem(BrowserContext* browser_context)
     : browser_context_(browser_context),
-      store_factory_(new ValueStoreFactoryImpl(browser_context->GetPath())),
+      store_factory_(
+          new value_store::ValueStoreFactoryImpl(browser_context->GetPath())),
       weak_factory_(this) {}
 
 CastExtensionSystem::~CastExtensionSystem() {}
@@ -88,8 +90,8 @@ const Extension* CastExtensionSystem::LoadExtensionByManifest(
   }
 
   scoped_refptr<extensions::Extension> extension(extensions::Extension::Create(
-      base::FilePath(), extensions::Manifest::COMMAND_LINE, *manifest, 0,
-      std::string(), &error));
+      base::FilePath(), extensions::mojom::ManifestLocation::kCommandLine,
+      *manifest, 0, std::string(), &error));
   if (!extension.get()) {
     LOG(ERROR) << "Failed to create extension: " << error;
     return nullptr;
@@ -114,9 +116,9 @@ const Extension* CastExtensionSystem::LoadExtension(
   CHECK(base::DirectoryExists(extension_dir)) << extension_dir.AsUTF8Unsafe();
   int load_flags = Extension::FOLLOW_SYMLINKS_ANYWHERE;
   std::string load_error;
-  scoped_refptr<Extension> extension =
-      file_util::LoadExtension(extension_dir, manifest_file, std::string(),
-                               Manifest::COMPONENT, load_flags, &load_error);
+  scoped_refptr<Extension> extension = file_util::LoadExtension(
+      extension_dir, manifest_file, std::string(),
+      mojom::ManifestLocation::kComponent, load_flags, &load_error);
   if (!extension.get()) {
     LOG(ERROR) << "Loading extension at " << extension_dir.value()
                << " failed with: " << load_error;
@@ -179,8 +181,6 @@ void CastExtensionSystem::Shutdown() {}
 void CastExtensionSystem::InitForRegularProfile(bool extensions_enabled) {
   service_worker_manager_ =
       std::make_unique<ServiceWorkerManager>(browser_context_);
-  runtime_data_ =
-      std::make_unique<RuntimeData>(ExtensionRegistry::Get(browser_context_));
   quota_service_ = std::make_unique<QuotaService>();
   app_sorting_ = std::make_unique<NullAppSorting>();
 
@@ -194,10 +194,6 @@ void CastExtensionSystem::InitForRegularProfile(bool extensions_enabled) {
 
 ExtensionService* CastExtensionSystem::extension_service() {
   return nullptr;
-}
-
-RuntimeData* CastExtensionSystem::runtime_data() {
-  return runtime_data_.get();
 }
 
 ManagementPolicy* CastExtensionSystem::management_policy() {
@@ -220,7 +216,12 @@ StateStore* CastExtensionSystem::rules_store() {
   return nullptr;
 }
 
-scoped_refptr<ValueStoreFactory> CastExtensionSystem::store_factory() {
+StateStore* CastExtensionSystem::dynamic_user_scripts_store() {
+  return nullptr;
+}
+
+scoped_refptr<value_store::ValueStoreFactory>
+CastExtensionSystem::store_factory() {
   return store_factory_;
 }
 

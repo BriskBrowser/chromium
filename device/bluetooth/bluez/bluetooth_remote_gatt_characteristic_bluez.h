@@ -45,6 +45,11 @@ class BluetoothRemoteGattCharacteristicBlueZ
       public BluetoothGattDescriptorClient::Observer,
       public device::BluetoothRemoteGattCharacteristic {
  public:
+  BluetoothRemoteGattCharacteristicBlueZ(
+      const BluetoothRemoteGattCharacteristicBlueZ&) = delete;
+  BluetoothRemoteGattCharacteristicBlueZ& operator=(
+      const BluetoothRemoteGattCharacteristicBlueZ&) = delete;
+
   // device::BluetoothGattCharacteristic overrides.
   ~BluetoothRemoteGattCharacteristicBlueZ() override;
   device::BluetoothUUID GetUUID() const override;
@@ -55,8 +60,7 @@ class BluetoothRemoteGattCharacteristicBlueZ
   const std::vector<uint8_t>& GetValue() const override;
   device::BluetoothRemoteGattService* GetService() const override;
   bool IsNotifying() const override;
-  void ReadRemoteCharacteristic(ValueCallback callback,
-                                ErrorCallback error_callback) override;
+  void ReadRemoteCharacteristic(ValueCallback callback) override;
   void WriteRemoteCharacteristic(const std::vector<uint8_t>& value,
                                  WriteType write_type,
                                  base::OnceClosure callback,
@@ -124,7 +128,7 @@ class BluetoothRemoteGattCharacteristicBlueZ
 
   // Called by dbus:: on unsuccessful completion of a request to read
   // the characteristic value.
-  void OnReadError(ErrorCallback error_callback,
+  void OnReadError(ValueCallback callback,
                    const std::string& error_name,
                    const std::string& error_message);
 
@@ -147,8 +151,6 @@ class BluetoothRemoteGattCharacteristicBlueZ
   // invalidate its weak pointers before any other members are destroyed.
   base::WeakPtrFactory<BluetoothRemoteGattCharacteristicBlueZ>
       weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BluetoothRemoteGattCharacteristicBlueZ);
 };
 
 }  // namespace bluez

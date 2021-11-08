@@ -3,63 +3,43 @@
 // found in the LICENSE file.
 
 // clang-format off
-// #import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
-// #import {WallpaperCollection} from './wallpaper_constants.m.js';
+import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
 // clang-format on
 
-cr.define('settings', function() {
-  /** @interface */
-  /* #export */ class WallpaperBrowserProxy {
-    /**
-     * @return {!Promise<boolean>} Whether the wallpaper setting row should be
-     *     visible.
-     */
-    isWallpaperSettingVisible() {}
-
-    /**
-     * @return {!Promise<boolean>} Whether the wallpaper is policy controlled.
-     */
-    isWallpaperPolicyControlled() {}
-
-    openWallpaperManager() {}
-
-    /**
-     * @return {!Promise<?Array<!WallpaperCollection>>} Returns a promise to
-     * an array of wallpaper collections. Will reject with null on error.
-     */
-    fetchWallpaperCollections() {}
-  }
+/** @interface */
+export class WallpaperBrowserProxy {
+  /**
+   * @return {!Promise<boolean>} Whether the wallpaper setting row should be
+   *     visible.
+   */
+  isWallpaperSettingVisible() {}
 
   /**
-   * @implements {settings.WallpaperBrowserProxy}
+   * @return {!Promise<boolean>} Whether the wallpaper is policy controlled.
    */
-  /* #export */ class WallpaperBrowserProxyImpl {
-    /** @override */
-    isWallpaperSettingVisible() {
-      return cr.sendWithPromise('isWallpaperSettingVisible');
-    }
+  isWallpaperPolicyControlled() {}
 
-    /** @override */
-    isWallpaperPolicyControlled() {
-      return cr.sendWithPromise('isWallpaperPolicyControlled');
-    }
+  openWallpaperManager() {}
+}
 
-    /** @override */
-    openWallpaperManager() {
-      chrome.send('openWallpaperManager');
-    }
-
-    /** @override */
-    fetchWallpaperCollections() {
-      return cr.sendWithPromise('fetchWallpaperCollections');
-    }
+/**
+ * @implements {WallpaperBrowserProxy}
+ */
+export class WallpaperBrowserProxyImpl {
+  /** @override */
+  isWallpaperSettingVisible() {
+    return sendWithPromise('isWallpaperSettingVisible');
   }
 
-  cr.addSingletonGetter(WallpaperBrowserProxyImpl);
+  /** @override */
+  isWallpaperPolicyControlled() {
+    return sendWithPromise('isWallpaperPolicyControlled');
+  }
 
-  // #cr_define_end
-  return {
-    WallpaperBrowserProxy: WallpaperBrowserProxy,
-    WallpaperBrowserProxyImpl: WallpaperBrowserProxyImpl,
-  };
-});
+  /** @override */
+  openWallpaperManager() {
+    chrome.send('openWallpaperManager');
+  }
+}
+
+addSingletonGetter(WallpaperBrowserProxyImpl);

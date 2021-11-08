@@ -15,6 +15,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/ui/base/window_state_type.h"
 #include "components/exo/display.h"
+#include "components/exo/shell_surface_util.h"
 #include "components/exo/wayland/serial_tracker.h"
 #include "components/exo/wayland/server_util.h"
 #include "components/exo/wayland/wayland_positioner.h"
@@ -151,12 +152,13 @@ struct WaylandXdgSurface {
       : shell_surface(std::move(shell_surface)),
         serial_tracker(serial_tracker) {}
 
+  WaylandXdgSurface(const WaylandXdgSurface&) = delete;
+  WaylandXdgSurface& operator=(const WaylandXdgSurface&) = delete;
+
   std::unique_ptr<XdgShellSurface> shell_surface;
 
   // Owned by Server, which always outlives this surface.
   SerialTracker* const serial_tracker;
-
-  DISALLOW_COPY_AND_ASSIGN(WaylandXdgSurface);
 };
 
 // Wrapper around shell surface that allows us to handle the case where the
@@ -178,6 +180,9 @@ class WaylandToplevel : public aura::WindowObserver {
                                 weak_ptr_factory_.GetWeakPtr())));
   }
 
+  WaylandToplevel(const WaylandToplevel&) = delete;
+  WaylandToplevel& operator=(const WaylandToplevel&) = delete;
+
   ~WaylandToplevel() override {
     if (shell_surface_data_)
       shell_surface_data_->shell_surface->host_window()->RemoveObserver(this);
@@ -197,6 +202,16 @@ class WaylandToplevel : public aura::WindowObserver {
       return;
     }
 
+    if (this == parent) {
+      // Some apps e.g. crbug/1210235 try to be their own parent. Ignore them.
+      auto* app_id = GetShellApplicationId(
+          shell_surface_data_->shell_surface->host_window());
+      LOG(WARNING)
+          << "Client attempts to add itself as a transient parent: app_id="
+          << app_id;
+      return;
+    }
+
     // This is a no-op if parent is not mapped.
     if (parent->shell_surface_data_ &&
         parent->shell_surface_data_->shell_surface->GetWidget())
@@ -204,7 +219,7 @@ class WaylandToplevel : public aura::WindowObserver {
           parent->shell_surface_data_->shell_surface.get());
   }
 
-  void SetTitle(const base::string16& title) {
+  void SetTitle(const std::u16string& title) {
     if (shell_surface_data_)
       shell_surface_data_->shell_surface->SetTitle(title);
   }
@@ -262,6 +277,10 @@ class WaylandToplevel : public aura::WindowObserver {
       shell_surface_data_->shell_surface->OnSetFrame(type);
   }
 
+  ShellSurfaceBase* GetShellSurface() {
+    return shell_surface_data_->shell_surface.get();
+  }
+
  private:
   void OnClose() {
     xdg_toplevel_send_close(resource_);
@@ -283,8 +302,10 @@ class WaylandToplevel : public aura::WindowObserver {
     wl_array_init(&states);
     if (state_type == chromeos::WindowStateType::kMaximized)
       AddState(&states, XDG_TOPLEVEL_STATE_MAXIMIZED);
-    if (state_type == chromeos::WindowStateType::kFullscreen)
+    // TODO(crbug/1250129): Pinned states need to be handled properly.
+    if (IsFullscreenOrPinnedWindowStateType(state_type)) {
       AddState(&states, XDG_TOPLEVEL_STATE_FULLSCREEN);
+    }
     if (resizing)
       AddState(&states, XDG_TOPLEVEL_STATE_RESIZING);
     if (activated)
@@ -297,8 +318,6 @@ class WaylandToplevel : public aura::WindowObserver {
   wl_resource* const resource_;
   WaylandXdgSurface* shell_surface_data_;
   base::WeakPtrFactory<WaylandToplevel> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(WaylandToplevel);
 };
 
 void xdg_toplevel_destroy(wl_client* client, wl_resource* resource) {
@@ -319,7 +338,7 @@ void xdg_toplevel_set_title(wl_client* client,
                             wl_resource* resource,
                             const char* title) {
   GetUserDataAs<WaylandToplevel>(resource)->SetTitle(
-      base::string16(base::UTF8ToUTF16(title)));
+      std::u16string(base::UTF8ToUTF16(title)));
 }
 
 void xdg_toplevel_set_app_id(wl_client* client,
@@ -459,9 +478,17 @@ class WaylandPopup : aura::WindowObserver {
             base::BindRepeating(&WaylandPopup::OnConfigure,
                                 weak_ptr_factory_.GetWeakPtr())));
   }
+
+  WaylandPopup(const WaylandPopup&) = delete;
+  WaylandPopup& operator=(const WaylandPopup&) = delete;
+
   ~WaylandPopup() override {
     if (shell_surface_data_)
       shell_surface_data_->shell_surface->host_window()->RemoveObserver(this);
+  }
+
+  ShellSurfaceBase* GetShellSurface() {
+    return shell_surface_data_->shell_surface.get();
   }
 
   void Grab() {
@@ -499,8 +526,6 @@ class WaylandPopup : aura::WindowObserver {
   wl_resource* const resource_;
   WaylandXdgSurface* shell_surface_data_;
   base::WeakPtrFactory<WaylandPopup> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(WaylandPopup);
 };
 
 void xdg_popup_destroy(wl_client* client, wl_resource* resource) {
@@ -586,13 +611,7 @@ void xdg_surface_get_popup(wl_client* client,
   // Try layout using parent's flip state.
   WaylandPositioner* positioner =
       GetUserDataAs<WaylandPositioner>(positioner_resource);
-  WaylandPositioner::Result position = positioner->CalculateBounds(
-      work_area, parent_data->shell_surface->x_flipped(),
-      parent_data->shell_surface->y_flipped());
-
-  // Remember the new flip state for its child popups.
-  shell_surface_data->shell_surface->set_x_flipped(position.x_flipped);
-  shell_surface_data->shell_surface->set_y_flipped(position.y_flipped);
+  WaylandPositioner::Result position = positioner->CalculateBounds(work_area);
 
   // |position| is relative to the parent's contents view origin, and |origin|
   // is in screen coordinates.
@@ -623,6 +642,9 @@ void xdg_surface_get_popup(wl_client* client,
   xdg_popup_send_configure(xdg_popup_resource, position.origin.x(),
                            position.origin.y(), position.size.width(),
                            position.size.height());
+  uint32_t serial = shell_surface_data->serial_tracker->GetNextSerial(
+      SerialTracker::EventType::OTHER_EVENT);
+  xdg_surface_send_configure(resource, serial);
 }
 
 void xdg_surface_set_window_geometry(wl_client* client,
@@ -782,6 +804,16 @@ void bind_xdg_shell(wl_client* client,
 
   wl_resource_set_implementation(resource, &xdg_wm_base_implementation, data,
                                  nullptr);
+}
+
+ShellSurfaceBase* GetShellSurfaceFromToplevelResource(wl_resource* resource) {
+  auto* toplevel = GetUserDataAs<WaylandToplevel>(resource);
+  return toplevel->GetShellSurface();
+}
+
+ShellSurfaceBase* GetShellSurfaceFromPopupResource(wl_resource* resource) {
+  auto* popup = GetUserDataAs<WaylandPopup>(resource);
+  return popup->GetShellSurface();
 }
 
 }  // namespace wayland

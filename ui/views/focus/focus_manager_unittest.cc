@@ -18,6 +18,7 @@
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/accelerators/test_accelerator_target.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/views/accessibility/accessibility_paint_checks.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/buildflags.h"
@@ -51,6 +52,7 @@ class SimpleTestView : public View {
   SimpleTestView(std::vector<FocusTestEvent>* event_list, int view_id)
       : event_list_(event_list) {
     SetFocusBehavior(FocusBehavior::ALWAYS);
+    set_suppress_default_focus_handling();
     SetID(view_id);
   }
 
@@ -662,6 +664,60 @@ TEST_P(FocusManagerArrowKeyTraversalTest, ArrowKeyTraversal) {
   EXPECT_EQ(v[0], focus_manager->GetFocusedView());
 }
 
+TEST_F(FocusManagerTest, SkipViewsInArrowKeyTraversal) {
+  FocusManager* focus_manager = GetFocusManager();
+
+  // Test the focus on the views which are under same group.
+  std::vector<views::View*> v;
+  for (size_t i = 0; i < 5; ++i) {
+    auto* view =
+        GetContentsView()->AddChildView(std::make_unique<views::View>());
+    view->SetGroup(12345);
+    // Testing both kind of focuses (Always focusable and only accessibility
+    // focusable).
+    view->SetFocusBehavior((i == 0 || i == 4)
+                               ? View::FocusBehavior::ALWAYS
+                               : View::FocusBehavior::ACCESSIBLE_ONLY);
+    v.push_back(view);
+  }
+
+  // Disable view at index 1, and hide view at index 3.
+  v[1]->SetEnabled(false);
+  v[3]->SetVisible(false);
+
+  // Start with focusing on the first view which is always accessible.
+  v[0]->RequestFocus();
+  EXPECT_EQ(v[0], focus_manager->GetFocusedView());
+
+  // Check that focus does not go to a disabled/hidden view.
+  const ui::KeyEvent right_key(ui::ET_KEY_PRESSED, ui::VKEY_RIGHT, ui::EF_NONE);
+  focus_manager->OnKeyEvent(right_key);
+  EXPECT_EQ(v[2], focus_manager->GetFocusedView());
+
+  focus_manager->OnKeyEvent(right_key);
+  EXPECT_EQ(v[4], focus_manager->GetFocusedView());
+
+  const ui::KeyEvent left_key(ui::ET_KEY_PRESSED, ui::VKEY_LEFT, ui::EF_NONE);
+  focus_manager->OnKeyEvent(left_key);
+  EXPECT_EQ(v[2], focus_manager->GetFocusedView());
+
+  focus_manager->OnKeyEvent(left_key);
+  EXPECT_EQ(v[0], focus_manager->GetFocusedView());
+
+  // On making the views visible/enabled, the focus should start appearing.
+  v[1]->SetEnabled(true);
+  v[3]->SetVisible(true);
+
+  focus_manager->OnKeyEvent(right_key);
+  EXPECT_EQ(v[1], focus_manager->GetFocusedView());
+
+  focus_manager->OnKeyEvent(right_key);
+  EXPECT_EQ(v[2], focus_manager->GetFocusedView());
+
+  focus_manager->OnKeyEvent(right_key);
+  EXPECT_EQ(v[3], focus_manager->GetFocusedView());
+}
+
 TEST_F(FocusManagerTest, StoreFocusedView) {
   std::vector<FocusTestEvent> event_list;
   const int kView1ID = 1;
@@ -711,7 +767,7 @@ TEST_F(FocusManagerTest, StoreFocusedView) {
   GetFocusManager()->ClearFocus();
 }
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
 // Test that the correct view is restored if full keyboard access is changed.
 TEST_F(FocusManagerTest, StoreFocusedViewFullKeyboardAccess) {
   View* view1 = new View;
@@ -1092,6 +1148,13 @@ TEST_F(DesktopWidgetFocusManagerTest, AnchoredDialogInDesktopNativeWidgetAura) {
   View* child = new View();
   child->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   bubble_widget->GetRootView()->AddChildView(child);
+
+  // TODO(crbug.com/1218186): Remove this, this is in place temporarily to be
+  // able to submit accessibility checks, but this focusable View needs to
+  // add a name so that the screen reader knows what to announce.
+  parent1->SetProperty(views::kSkipAccessibilityPaintChecks, true);
+  parent2->SetProperty(views::kSkipAccessibilityPaintChecks, true);
+  child->SetProperty(views::kSkipAccessibilityPaintChecks, true);
 
   widget.Activate();
   parent1->RequestFocus();

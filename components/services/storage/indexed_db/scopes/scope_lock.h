@@ -6,7 +6,6 @@
 #define COMPONENTS_SERVICES_STORAGE_INDEXED_DB_SCOPES_SCOPE_LOCK_H_
 
 #include <iosfwd>
-#include <string>
 
 #include "base/callback.h"
 #include "base/callback_helpers.h"
@@ -28,6 +27,10 @@ class ScopeLock {
       base::OnceCallback<void(int level, ScopeLockRange range)>;
 
   ScopeLock();
+
+  ScopeLock(const ScopeLock&) = delete;
+  ScopeLock& operator=(const ScopeLock&) = delete;
+
   ~ScopeLock();
   ScopeLock(ScopeLock&&) noexcept;
   // |lock_released_callback| is called when the lock is released, either by
@@ -62,8 +65,6 @@ class ScopeLock {
   // Closure to run when the lock is released. The lock is held when this is
   // non-null.
   LockReleasedCallback lock_released_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopeLock);
 };
 
 // Logging support.

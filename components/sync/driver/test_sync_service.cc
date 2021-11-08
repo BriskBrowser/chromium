@@ -26,11 +26,11 @@ SyncCycleSnapshot MakeDefaultCycleSnapshot() {
       /*num_server_conflicts=*/7, /*notifications_enabled=*/false,
       /*num_entries=*/0, /*sync_start_time=*/base::Time::Now(),
       /*poll_finish_time=*/base::Time::Now(),
-      /*num_entries_by_type=*/std::vector<int>(ModelType::NUM_ENTRIES, 0),
+      /*num_entries_by_type=*/std::vector<int>(GetNumModelTypes(), 0),
       /*num_to_delete_entries_by_type=*/
-      std::vector<int>(ModelType::NUM_ENTRIES, 0),
+      std::vector<int>(GetNumModelTypes(), 0),
       /*get_updates_origin=*/sync_pb::SyncEnums::UNKNOWN_ORIGIN,
-      /*poll_interval=*/base::TimeDelta::FromMinutes(30),
+      /*poll_interval=*/base::Minutes(30),
       /*has_remaining_local_changes=*/false);
 }
 
@@ -56,8 +56,7 @@ void TestSyncService::SetLocalSyncEnabled(bool local_sync_enabled) {
   local_sync_enabled_ = local_sync_enabled;
 }
 
-void TestSyncService::SetAuthenticatedAccountInfo(
-    const CoreAccountInfo& account_info) {
+void TestSyncService::SetAccountInfo(const CoreAccountInfo& account_info) {
   account_info_ = account_info;
 }
 
@@ -65,8 +64,8 @@ void TestSyncService::SetSetupInProgress(bool in_progress) {
   setup_in_progress_ = in_progress;
 }
 
-void TestSyncService::SetIsAuthenticatedAccountPrimary(bool is_primary) {
-  account_is_primary_ = is_primary;
+void TestSyncService::SetHasSyncConsent(bool has_sync_consent) {
+  has_sync_consent_ = has_sync_consent;
 }
 
 void TestSyncService::SetAuthError(const GoogleServiceAuthError& auth_error) {
@@ -128,8 +127,8 @@ void TestSyncService::SetTrustedVaultRecoverabilityDegraded(bool degraded) {
   user_settings_.SetTrustedVaultRecoverabilityDegraded(degraded);
 }
 
-void TestSyncService::SetIsUsingSecondaryPassphrase(bool enabled) {
-  user_settings_.SetIsUsingSecondaryPassphrase(enabled);
+void TestSyncService::SetIsUsingExplicitPassphrase(bool enabled) {
+  user_settings_.SetIsUsingExplicitPassphrase(enabled);
 }
 
 void TestSyncService::FireStateChanged() {
@@ -162,12 +161,12 @@ bool TestSyncService::IsLocalSyncEnabled() const {
   return local_sync_enabled_;
 }
 
-CoreAccountInfo TestSyncService::GetAuthenticatedAccountInfo() const {
+CoreAccountInfo TestSyncService::GetAccountInfo() const {
   return account_info_;
 }
 
-bool TestSyncService::IsAuthenticatedAccountPrimary() const {
-  return account_is_primary_;
+bool TestSyncService::HasSyncConsent() const {
+  return has_sync_consent_;
 }
 
 GoogleServiceAuthError TestSyncService::GetAuthError() const {
@@ -277,10 +276,6 @@ void TestSyncService::AddProtocolEventObserver(
 void TestSyncService::RemoveProtocolEventObserver(
     ProtocolEventObserver* observer) {}
 
-base::WeakPtr<JsController> TestSyncService::GetJsController() {
-  return base::WeakPtr<JsController>();
-}
-
 void TestSyncService::GetAllNodesForDebugging(
     base::OnceCallback<void(std::unique_ptr<base::ListValue>)> callback) {}
 
@@ -294,6 +289,7 @@ void TestSyncService::AddTrustedVaultDecryptionKeysFromWeb(
 void TestSyncService::AddTrustedVaultRecoveryMethodFromWeb(
     const std::string& gaia_id,
     const std::vector<uint8_t>& public_key,
+    int method_type_hint,
     base::OnceClosure callback) {}
 
 void TestSyncService::Shutdown() {

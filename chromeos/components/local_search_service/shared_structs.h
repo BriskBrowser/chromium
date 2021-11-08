@@ -8,14 +8,16 @@
 #include <string>
 #include <vector>
 
-#include "base/strings/string16.h"
-
 namespace chromeos {
 namespace local_search_service {
 
-// These values are persisted to logs. Entries should not be renumbered and
-// numeric values should never be reused.
-enum class IndexId { kCrosSettings = 0, kHelpApp = 1, kMaxValue = kHelpApp };
+// This should be kept in sync with histogram_suffixes_list.xml.
+enum class IndexId {
+  kCrosSettings = 0,
+  kHelpApp = 1,
+  kHelpAppLauncher = 2,
+  kMaxValue = kHelpAppLauncher
+};
 
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
@@ -28,7 +30,7 @@ enum class Backend {
 struct Content {
   // An identifier for the content in Data.
   std::string id;
-  base::string16 content;
+  std::u16string content;
   // |weight| represents how important this Content is and is used in
   // calculating overall matching score of its enclosing Data item. When a query
   // matches a Data item it is matching some Content of the Data. If the
@@ -38,7 +40,7 @@ struct Content {
   // extending to kLinearMap.
   double weight = 1.0;
   Content(const std::string& id,
-          const base::string16& content,
+          const std::u16string& content,
           double weight = 1.0);
   Content();
   Content(const Content& content);
@@ -79,9 +81,8 @@ struct SearchParams {
   // will be considered relevant if either its prefix score is above
   // |prefix_threshold| or fuzzy score is above |fuzzy_threshold|. Both of these
   // thresholds should be in [0,1].
-  // TODO(jiameng): revise default values.
   double prefix_threshold = 0.6;
-  double fuzzy_threshold = 0.6;
+  double fuzzy_threshold = 0.7;
 };
 
 struct Position {
@@ -155,13 +156,25 @@ struct WeightedPosition {
 struct Token {
   Token();
   Token(const Token& token);
-  Token(const base::string16& text, const std::vector<WeightedPosition>& pos);
+  Token(const std::u16string& text, const std::vector<WeightedPosition>& pos);
   ~Token();
-  base::string16 content;
+  std::u16string content;
   std::vector<WeightedPosition> positions;
 };
 
 }  // namespace local_search_service
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+namespace local_search_service {
+using ::chromeos::local_search_service::Backend;
+using ::chromeos::local_search_service::Content;
+using ::chromeos::local_search_service::Data;
+using ::chromeos::local_search_service::IndexId;
+using ::chromeos::local_search_service::ResponseStatus;
+using ::chromeos::local_search_service::Result;
+}  // namespace local_search_service
+}  // namespace ash
 
 #endif  // CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_SHARED_STRUCTS_H_

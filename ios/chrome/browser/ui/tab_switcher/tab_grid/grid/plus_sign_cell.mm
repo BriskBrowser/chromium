@@ -5,6 +5,7 @@
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/plus_sign_cell.h"
 
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_constants.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -24,9 +25,8 @@
 - (instancetype)initWithFrame:(CGRect)frame {
   self = [super initWithFrame:frame];
   if (self) {
-    UIView* contentView = self.contentView;
-    contentView.layer.cornerRadius = kGridCellCornerRadius;
-    contentView.layer.masksToBounds = YES;
+    self.layer.cornerRadius = kGridCellCornerRadius;
+    self.layer.masksToBounds = YES;
     UIImageView* plusSignView = [[UIImageView alloc]
         initWithImage:[UIImage imageNamed:@"grid_cell_plus_sign"]];
     [self.contentView addSubview:plusSignView];
@@ -34,6 +34,8 @@
     _plusSignView = plusSignView;
 
     AddSameCenterConstraints(plusSignView, self.contentView);
+
+    self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
   }
   return self;
 }
@@ -64,8 +66,15 @@
       break;
   }
 
-  self.contentView.backgroundColor =
+  self.backgroundView = [[UIView alloc] init];
+  self.backgroundView.backgroundColor =
       [UIColor colorNamed:kPlusSignCellBackgroundColor];
+
+  // selectedBackgroundView is used for highlighting as well.
+  self.selectedBackgroundView = [[UIView alloc] init];
+  UIColor* highlightedBackgroundColor =
+      [UIColor colorNamed:kTertiaryBackgroundColor];
+  self.selectedBackgroundView.backgroundColor = highlightedBackgroundColor;
 
   _theme = theme;
 }

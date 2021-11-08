@@ -111,8 +111,6 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
   SyntheticEventType GetSyntheticEventType() const {
     return synthetic_event_type_;
   }
-  const String& region() const { return region_; }
-
   virtual Node* toElement() const;
   virtual Node* fromElement() const;
 
@@ -137,13 +135,13 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
 
   // Note that these values are adjusted to counter the effects of zoom, so that
   // values exposed via DOM APIs are invariant under zooming.
-  virtual double screenX() const { return std::trunc(screen_location_.X()); }
+  virtual double screenX() const { return std::floor(screen_location_.X()); }
 
-  virtual double screenY() const { return std::trunc(screen_location_.Y()); }
+  virtual double screenY() const { return std::floor(screen_location_.Y()); }
 
-  virtual double clientX() const { return std::trunc(client_location_.X()); }
+  virtual double clientX() const { return std::floor(client_location_.X()); }
 
-  virtual double clientY() const { return std::trunc(client_location_.Y()); }
+  virtual double clientY() const { return std::floor(client_location_.Y()); }
 
   int movementX() const { return movement_delta_.X(); }
   int movementY() const { return movement_delta_.Y(); }
@@ -154,9 +152,9 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
   virtual double offsetX() const;
   virtual double offsetY() const;
 
-  virtual double pageX() const { return std::trunc(page_location_.X()); }
+  virtual double pageX() const { return std::floor(page_location_.X()); }
 
-  virtual double pageY() const { return std::trunc(page_location_.Y()); }
+  virtual double pageY() const { return std::floor(page_location_.Y()); }
 
   double x() const { return clientX(); }
   double y() const { return clientY(); }
@@ -217,7 +215,6 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
   uint16_t buttons_;
   Member<EventTarget> related_target_;
   SyntheticEventType synthetic_event_type_;
-  String region_;
 
   // Only used for contextmenu events.
   WebMenuSourceType menu_source_type_;

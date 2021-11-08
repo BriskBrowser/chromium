@@ -38,6 +38,10 @@ class ProximityAuthSystem : public ScreenlockBridge::Observer {
       ScreenlockType screenlock_type,
       ProximityAuthClient* proximity_auth_client,
       chromeos::secure_channel::SecureChannelClient* secure_channel_client);
+
+  ProximityAuthSystem(const ProximityAuthSystem&) = delete;
+  ProximityAuthSystem& operator=(const ProximityAuthSystem&) = delete;
+
   ~ProximityAuthSystem() override;
 
   // Starts the system to connect and authenticate when a registered user is
@@ -54,7 +58,7 @@ class ProximityAuthSystem : public ScreenlockBridge::Observer {
   void SetRemoteDevicesForUser(
       const AccountId& account_id,
       const chromeos::multidevice::RemoteDeviceRefList& remote_devices,
-      base::Optional<chromeos::multidevice::RemoteDeviceRef> local_device);
+      absl::optional<chromeos::multidevice::RemoteDeviceRef> local_device);
 
   // Returns the RemoteDevices registered for |account_id|. Returns an empty
   // list
@@ -74,6 +78,12 @@ class ProximityAuthSystem : public ScreenlockBridge::Observer {
   // Called in order to disable attempts to get RemoteStatus from host devices.
   void CancelConnectionAttempt();
 
+  // The last value emitted to the SmartLock.GetRemoteStatus.Unlock(.Failure)
+  // metrics. Helps to understand whether/why not Smart Lock was an available
+  // choice for unlock. Returns the empty string if |unlock_manager_| is
+  // nullptr.
+  std::string GetLastRemoteStatusUnlockForLogging();
+
  protected:
   // Constructor which allows passing in a custom |unlock_manager_|.
   // Exposed for testing.
@@ -88,7 +98,7 @@ class ProximityAuthSystem : public ScreenlockBridge::Observer {
   // Exposed for testing.
   virtual std::unique_ptr<RemoteDeviceLifeCycle> CreateRemoteDeviceLifeCycle(
       chromeos::multidevice::RemoteDeviceRef remote_device,
-      base::Optional<chromeos::multidevice::RemoteDeviceRef> local_device);
+      absl::optional<chromeos::multidevice::RemoteDeviceRef> local_device);
 
   // ScreenlockBridge::Observer:
   void OnScreenDidLock(
@@ -122,8 +132,6 @@ class ProximityAuthSystem : public ScreenlockBridge::Observer {
 
   // True if the system is started_.
   bool started_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProximityAuthSystem);
 };
 
 }  // namespace proximity_auth

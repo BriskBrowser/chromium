@@ -34,6 +34,11 @@ namespace remoting {
 class SecurityKeyAuthHandlerWinTest : public testing::Test {
  public:
   SecurityKeyAuthHandlerWinTest();
+
+  SecurityKeyAuthHandlerWinTest(const SecurityKeyAuthHandlerWinTest&) = delete;
+  SecurityKeyAuthHandlerWinTest& operator=(
+      const SecurityKeyAuthHandlerWinTest&) = delete;
+
   ~SecurityKeyAuthHandlerWinTest() override;
 
   // Passed to the object used for testing to be called back to signal
@@ -109,8 +114,6 @@ class SecurityKeyAuthHandlerWinTest : public testing::Test {
 
  private:
   testing::NiceMock<MockClientSessionDetails> mock_client_session_details_;
-
-  DISALLOW_COPY_AND_ASSIGN(SecurityKeyAuthHandlerWinTest);
 };
 
 SecurityKeyAuthHandlerWinTest::SecurityKeyAuthHandlerWinTest()
@@ -130,7 +133,7 @@ void SecurityKeyAuthHandlerWinTest::OperationComplete() {
 
 void SecurityKeyAuthHandlerWinTest::WaitForOperationComplete() {
   run_loop_->Run();
-  run_loop_.reset(new base::RunLoop());
+  run_loop_ = std::make_unique<base::RunLoop>();
 }
 
 void SecurityKeyAuthHandlerWinTest::SendMessageToClient(

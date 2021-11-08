@@ -7,10 +7,9 @@
 
 #include <stdint.h>
 
-#include <string>
 #include <vector>
 
-#include "base/memory/ref_counted.h"
+#include "base/containers/span.h"
 #include "services/device/public/mojom/usb_device.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -22,6 +21,10 @@ namespace device {
 class MockUsbMojoDevice : public mojom::UsbDevice {
  public:
   MockUsbMojoDevice();
+
+  MockUsbMojoDevice(const MockUsbMojoDevice&) = delete;
+  MockUsbMojoDevice& operator=(const MockUsbMojoDevice&) = delete;
+
   ~MockUsbMojoDevice() override;
 
   // As current version of gmock in Chromium doesn't support move-only types,
@@ -86,14 +89,14 @@ class MockUsbMojoDevice : public mojom::UsbDevice {
                     ControlTransferInCallback*));
 
   void ControlTransferOut(mojom::UsbControlTransferParamsPtr params,
-                          const std::vector<uint8_t>& data,
+                          base::span<const uint8_t> data,
                           uint32_t timeout,
                           ControlTransferOutCallback callback) override {
     ControlTransferOutInternal(*params, data, timeout, &callback);
   }
   MOCK_METHOD4(ControlTransferOutInternal,
                void(const mojom::UsbControlTransferParams&,
-                    const std::vector<uint8_t>&,
+                    base::span<const uint8_t>,
                     uint32_t,
                     ControlTransferOutCallback*));
 
@@ -107,14 +110,14 @@ class MockUsbMojoDevice : public mojom::UsbDevice {
                void(uint8_t, uint32_t, uint32_t, GenericTransferInCallback*));
 
   void GenericTransferOut(uint8_t endpoint_number,
-                          const std::vector<uint8_t>& data,
+                          base::span<const uint8_t> data,
                           uint32_t timeout,
                           GenericTransferOutCallback callback) override {
     GenericTransferOutInternal(endpoint_number, data, timeout, &callback);
   }
   MOCK_METHOD4(GenericTransferOutInternal,
                void(uint8_t,
-                    const std::vector<uint8_t>&,
+                    base::span<const uint8_t>,
                     uint32_t,
                     GenericTransferOutCallback*));
 
@@ -129,19 +132,16 @@ class MockUsbMojoDevice : public mojom::UsbDevice {
                                                uint32_t));
 
   void IsochronousTransferOut(uint8_t endpoint_number,
-                              const std::vector<uint8_t>& data,
+                              base::span<const uint8_t> data,
                               const std::vector<uint32_t>& packet_lengths,
                               uint32_t timeout,
                               IsochronousTransferOutCallback callback) override;
   MOCK_METHOD4(
       IsochronousTransferOutInternal,
       std::vector<mojom::UsbIsochronousPacket>(uint8_t,
-                                               const std::vector<uint8_t>&,
+                                               base::span<const uint8_t>,
                                                const std::vector<uint32_t>&,
                                                uint32_t));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockUsbMojoDevice);
 };
 
 }  // namespace device

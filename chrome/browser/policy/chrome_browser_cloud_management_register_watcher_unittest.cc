@@ -4,11 +4,10 @@
 
 #include "chrome/browser/policy/chrome_browser_cloud_management_register_watcher.h"
 
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
-#include "base/macros.h"
-#include "base/strings/string16.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/policy/chrome_browser_cloud_management_controller_desktop.h"
@@ -42,18 +41,23 @@ class FakeChromeBrowserCloudManagementController
       std::unique_ptr<ChromeBrowserCloudManagementController::Delegate>
           delegate)
       : ChromeBrowserCloudManagementController(std::move(delegate)) {}
+  FakeChromeBrowserCloudManagementController(
+      const FakeChromeBrowserCloudManagementController&) = delete;
+  FakeChromeBrowserCloudManagementController& operator=(
+      const FakeChromeBrowserCloudManagementController&) = delete;
+
   void FireNotification(bool succeeded) {
     NotifyPolicyRegisterFinished(succeeded);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FakeChromeBrowserCloudManagementController);
 };
 
 // A mock EnterpriseStartDialog to mimic the behavior of real dialog.
 class MockEnterpriseStartupDialog : public EnterpriseStartupDialog {
  public:
   MockEnterpriseStartupDialog() = default;
+  MockEnterpriseStartupDialog(const MockEnterpriseStartupDialog&) = delete;
+  MockEnterpriseStartupDialog& operator=(const MockEnterpriseStartupDialog&) =
+      delete;
   ~MockEnterpriseStartupDialog() override {
     // |callback_| exists if we're mocking the process that dialog is dismissed
     // automatically.
@@ -64,10 +68,10 @@ class MockEnterpriseStartupDialog : public EnterpriseStartupDialog {
   }
 
   MOCK_METHOD1(DisplayLaunchingInformationWithThrobber,
-               void(const base::string16&));
+               void(const std::u16string&));
   MOCK_METHOD2(DisplayErrorMessage,
-               void(const base::string16&,
-                    const base::Optional<base::string16>&));
+               void(const std::u16string&,
+                    const absl::optional<std::u16string>&));
   MOCK_METHOD0(IsShowing, bool());
 
   void SetCallback(EnterpriseStartupDialog::DialogResultCallback callback) {
@@ -82,8 +86,6 @@ class MockEnterpriseStartupDialog : public EnterpriseStartupDialog {
 
  private:
   DialogResultCallback callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockEnterpriseStartupDialog);
 };
 
 }  // namespace
@@ -104,6 +106,10 @@ class ChromeBrowserCloudManagementRegisterWatcherTest : public ::testing::Test {
                            CreateEnterpriseStartupDialog,
                        base::Unretained(this)));
   }
+  ChromeBrowserCloudManagementRegisterWatcherTest(
+      const ChromeBrowserCloudManagementRegisterWatcherTest&) = delete;
+  ChromeBrowserCloudManagementRegisterWatcherTest& operator=(
+      const ChromeBrowserCloudManagementRegisterWatcherTest&) = delete;
 
  protected:
   FakeBrowserDMTokenStorage* storage() { return &storage_; }
@@ -127,8 +133,6 @@ class ChromeBrowserCloudManagementRegisterWatcherTest : public ::testing::Test {
   FakeBrowserDMTokenStorage storage_;
   std::unique_ptr<MockEnterpriseStartupDialog> dialog_;
   MockEnterpriseStartupDialog* dialog_ptr_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeBrowserCloudManagementRegisterWatcherTest);
 };
 
 TEST_F(ChromeBrowserCloudManagementRegisterWatcherTest,

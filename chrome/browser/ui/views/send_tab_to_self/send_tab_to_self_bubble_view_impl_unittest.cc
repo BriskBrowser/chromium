@@ -27,15 +27,14 @@ class SendTabToSelfBubbleControllerMock : public SendTabToSelfBubbleController {
 
   std::vector<TargetDeviceInfo> GetValidDevices() const override {
     base::SimpleTestClock clock;
-    return {{"Device_1", "Device_1", "device_guid_1",
-             sync_pb::SyncEnums_DeviceType_TYPE_LINUX,
-             clock.Now() - base::TimeDelta::FromDays(0)},
-            {"Device_2", "Device_2", "device_guid_2",
-             sync_pb::SyncEnums_DeviceType_TYPE_WIN,
-             clock.Now() - base::TimeDelta::FromDays(1)},
-            {"Device_3", "Device_3", "device_guid_3",
-             sync_pb::SyncEnums_DeviceType_TYPE_PHONE,
-             clock.Now() - base::TimeDelta::FromDays(5)}};
+    return {
+        {"Device_1", "Device_1", "device_guid_1",
+         sync_pb::SyncEnums_DeviceType_TYPE_LINUX, clock.Now() - base::Days(0)},
+        {"Device_2", "Device_2", "device_guid_2",
+         sync_pb::SyncEnums_DeviceType_TYPE_WIN, clock.Now() - base::Days(1)},
+        {"Device_3", "Device_3", "device_guid_3",
+         sync_pb::SyncEnums_DeviceType_TYPE_PHONE,
+         clock.Now() - base::Days(5)}};
   }
 
   MOCK_METHOD2(OnDeviceSelected,
@@ -72,8 +71,19 @@ class SendTabToSelfBubbleViewImplTest : public ChromeViewsTestBase {
   SendTabToSelfBubbleViewImpl* bubble_;
 };
 
-TEST_F(SendTabToSelfBubbleViewImplTest, Init) {
-  EXPECT_EQ(3U, bubble_->GetButtonContainerForTesting()->children().size());
+TEST_F(SendTabToSelfBubbleViewImplTest, KeyboardAccessibilityConfigured) {
+  auto* container = bubble_->GetButtonContainerForTesting();
+
+  ASSERT_EQ(3U, container->children().size());
+
+  // All three device entries should be grouped together, and the first one
+  // should receive initial keyboard focus.
+  EXPECT_EQ(container->children()[0], bubble_->GetInitiallyFocusedView());
+  EXPECT_NE(-1, container->children()[0]->GetGroup());
+  EXPECT_EQ(container->children()[0]->GetGroup(),
+            container->children()[1]->GetGroup());
+  EXPECT_EQ(container->children()[0]->GetGroup(),
+            container->children()[2]->GetGroup());
 }
 
 TEST_F(SendTabToSelfBubbleViewImplTest, ButtonPressed) {

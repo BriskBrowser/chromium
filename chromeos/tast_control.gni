@@ -9,38 +9,68 @@
 # To disable a specific test in chrome_all_tast_tests, add it the following
 # list and cite a bug.
 tast_disabled_tests_from_chrome_all = [
-  # crbug.com/1170669
-  "hwsec.ChapsRSAPSS",
+  # crbug.com/1184931
+  "health.ProbeBatteryMetrics",
 
-  # crbug.com/1167243
-  "ui.ChromeLogin",
+  # b/196705842
+  "apps.LaunchGalleryLanguage",
 
-  # crbug.com/1115622
-  "ui.ChromeLoginGAIA",
+  # crbug.com/1242415
+  "hwsec.AttestationEnrollOnly",
+  "hwsec.ChapsAttributePolicy",
+  "hwsec.ChapsPKCS1V15",
+  "policy.AccessibilityPolicies.sticky_keys",
+  "policy.AllowDinosaurEasterEgg",
+  "policy.DisableScreenshotsExtension",
 
-  # crbug.com/1099695
-  "platform.Drivefs",
+  # crbug.com/1238654
+  "lockscreen.KeyboardShortcut",
+  "apps.SystemWebAppsReinstall.all_apps_stable",
+  "apps.SystemWebAppsReinstall.default_enabled_apps_stable",
+  "camera.EncodeAccelJPEG",
 
-  # crbug.com/1131496
-  "apps.LaunchHelpApp.clamshell_oobe_stable",
-  "apps.LaunchHelpApp.tablet_oobe_stable",
+  # crbug.com/1247485
+  "inputs.PhysicalKeyboardInputFields.us_en",
+  "inputs.VirtualKeyboardAccent",
 
-  # crbug.com/1148036
-  "ui.ExistingUserLogin",
-  "ui.SigninProfileExtension",
+  # crbug.com/1247177
+  "inputs.PhysicalKeyboardEnglishTyping",
+  "inputs.PhysicalKeyboardEmoji",
 
-  # crbug.com/1154794
-  "policy.DefaultGeolocationSetting",
+  # https://crbug.com/1252352
+  "quicksettings.SignInScreen.battery",
+  "quicksettings.SignInScreen.noaudio_nobattery",
+  "quicksettings.SignInScreen.audio",
 
-  # crbug.com/1115622
-  "inputs.VirtualKeyboardOOBE",
+  # crbug.com/1263234
+  "quicksettings.ManagedDeviceInfo",
 
-  # crbug.com/1156006
-  "filemanager.DragDrop",
+  # b/201197372
+  "crostini.AppEmacs",
 
-  # crbug.com/1172179
-  "arc.IntentForward",
+  # crbug.com/1259127
+  "ui.TabletOperations",
 
-  # crbug.com/1171146
-  "session.LogoutCleanup",
+  # crbug.com/1257474
+  "shelf.OpenCloseSwitchApps",
+
+  # crbug.com/1239838
+  "graphics.FPS",
+
+  # crbug.com/1186991
+  "launcher.SearchBuiltInApps",
+
+  # crbug.com/1263561
+  "camera.CCAUILauncher",
+
+  # crbug.com/1263233
+  "security.SharedFilesystemState",
+]
+
+# To disable a specific test in lacros_all_tast_tests, add it the following
+# list and cite a bug.
+tast_disabled_tests_from_lacros_all = [
+  # crbug.com/1250036
+  "a11y.Smoke.lacros",
+  "a11y.Smoke.lacros_rootfs",
 ]

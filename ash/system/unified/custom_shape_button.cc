@@ -14,6 +14,7 @@
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_mask.h"
 #include "ui/views/border.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/highlight_path_generator.h"
 
 namespace {
@@ -22,13 +23,15 @@ class CustomShapeButtonHighlightPathGenerator
  public:
   CustomShapeButtonHighlightPathGenerator() = default;
 
+  CustomShapeButtonHighlightPathGenerator(
+      const CustomShapeButtonHighlightPathGenerator&) = delete;
+  CustomShapeButtonHighlightPathGenerator& operator=(
+      const CustomShapeButtonHighlightPathGenerator&) = delete;
+
   SkPath GetHighlightPath(const views::View* view) override {
     return static_cast<const ash::CustomShapeButton*>(view)
         ->CreateCustomShapePath(view->GetLocalBounds());
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CustomShapeButtonHighlightPathGenerator);
 };
 }  // namespace
 
@@ -48,30 +51,15 @@ void CustomShapeButton::PaintButtonContents(gfx::Canvas* canvas) {
   views::ImageButton::PaintButtonContents(canvas);
 }
 
-std::unique_ptr<views::InkDrop> CustomShapeButton::CreateInkDrop() {
-  return TrayPopupUtils::CreateInkDrop(this);
-}
-
-std::unique_ptr<views::InkDropRipple> CustomShapeButton::CreateInkDropRipple()
-    const {
-  return TrayPopupUtils::CreateInkDropRipple(
-      TrayPopupInkDropStyle::FILL_BOUNDS, this,
-      GetInkDropCenterBasedOnLastEvent());
-}
-
-std::unique_ptr<views::InkDropHighlight>
-CustomShapeButton::CreateInkDropHighlight() const {
-  return TrayPopupUtils::CreateInkDropHighlight(this);
-}
-
 const char* CustomShapeButton::GetClassName() const {
   return "CustomShapeButton";
 }
 
 void CustomShapeButton::OnThemeChanged() {
   ImageButton::OnThemeChanged();
-  focus_ring()->SetColor(AshColorProvider::Get()->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kFocusRingColor));
+  views::FocusRing::Get(this)->SetColor(
+      AshColorProvider::Get()->GetControlsLayerColor(
+          AshColorProvider::ControlsLayerType::kFocusRingColor));
   SchedulePaint();
 }
 

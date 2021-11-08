@@ -5,15 +5,20 @@
 #include "chrome/browser/ui/webui/settings/chromeos/privacy_section.h"
 
 #include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
 #include "base/feature_list.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
 #include "build/branding_buildflags.h"
-#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
+#include "chrome/browser/ui/webui/settings/chromeos/os_settings_features_util.h"
+#include "chrome/browser/ui/webui/settings/chromeos/peripheral_data_access_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/search/search_tag_registry.h"
+#include "chrome/browser/ui/webui/settings/settings_secure_dns_handler.h"
 #include "chrome/browser/ui/webui/settings/shared_settings_localized_strings_provider.h"
 #include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
@@ -42,7 +47,7 @@ const std::vector<SearchConcept>& GetPrivacySearchConcepts() {
          {.section = mojom::Section::kPrivacyAndSecurity}},
     });
 
-    if (chromeos::features::IsAccountManagementFlowsV2Enabled()) {
+    if (!features::IsGuestModeActive()) {
       all_tags.insert(
           all_tags.end(),
           {{IDS_OS_SETTINGS_TAG_GUEST_BROWSING,
@@ -96,13 +101,15 @@ const std::vector<SearchConcept>& GetPrivacySearchConcepts() {
             {.setting = mojom::Setting::kLockScreen},
             {IDS_OS_SETTINGS_TAG_LOCK_SCREEN_WHEN_WAKING_ALT1,
              SearchConcept::kAltTagEnd}},
-           {IDS_OS_SETTINGS_TAG_LOCK_SCREEN,
+           {IDS_OS_SETTINGS_TAG_LOCK_SCREEN_V2,
             mojom::kSecurityAndSignInSubpagePathV2,
             mojom::SearchResultIcon::kLock,
             mojom::SearchResultDefaultRank::kMedium,
             mojom::SearchResultType::kSubpage,
             {.subpage = mojom::Subpage::kSecurityAndSignIn}}});
     }
+
+    // TODO(chromium:1262869): add smart privacy search concepts.
 
     return all_tags;
   }());
@@ -147,7 +154,12 @@ const std::vector<SearchConcept>& GetPciguardSearchConcepts() {
        mojom::SearchResultIcon::kShield,
        mojom::SearchResultDefaultRank::kMedium,
        mojom::SearchResultType::kSetting,
-       {.setting = mojom::Setting::kPeripheralDataAccessProtection}},
+       {.setting = mojom::Setting::kPeripheralDataAccessProtection},
+       {IDS_OS_SETTINGS_TAG_PRIVACY_PERIPHERAL_DATA_ACCESS_PROTECTION_ALT1,
+        IDS_OS_SETTINGS_TAG_PRIVACY_PERIPHERAL_DATA_ACCESS_PROTECTION_ALT2,
+        IDS_OS_SETTINGS_TAG_PRIVACY_PERIPHERAL_DATA_ACCESS_PROTECTION_ALT3,
+        IDS_OS_SETTINGS_TAG_PRIVACY_PERIPHERAL_DATA_ACCESS_PROTECTION_ALT4,
+        IDS_OS_SETTINGS_TAG_PRIVACY_PERIPHERAL_DATA_ACCESS_PROTECTION_ALT5}},
   });
   return *tags;
 }
@@ -168,6 +180,15 @@ const std::vector<SearchConcept>& GetPrivacyGoogleChromeSearchConcepts() {
 }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
+bool IsSecureDnsAvailable() {
+  return
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      base::FeatureList::IsEnabled(chromeos::features::kEnableDnsProxy) &&
+      base::FeatureList::IsEnabled(::features::kDnsProxyEnableDOH) &&
+#endif
+      ::features::kDnsOverHttpsShowUiParam.Get();
+}
+
 }  // namespace
 
 PrivacySection::PrivacySection(Profile* profile,
@@ -183,13 +204,12 @@ PrivacySection::PrivacySection(Profile* profile,
 
   // Fingerprint search tags are added if necessary. Remove fingerprint search
   // tags update dynamically during a user session.
-  if (AreFingerprintSettingsAllowed() &&
-      chromeos::features::IsAccountManagementFlowsV2Enabled()) {
+  if (!features::IsGuestModeActive() && AreFingerprintSettingsAllowed()) {
     updater.AddSearchTags(GetFingerprintSearchConcepts());
 
     fingerprint_pref_change_registrar_.Init(pref_service_);
     fingerprint_pref_change_registrar_.Add(
-        ::prefs::kQuickUnlockFingerprintRecord,
+        prefs::kQuickUnlockFingerprintRecord,
         base::BindRepeating(&PrivacySection::UpdateRemoveFingerprintSearchTags,
                             base::Unretained(this)));
     UpdateRemoveFingerprintSearchTags();
@@ -201,6 +221,14 @@ PrivacySection::PrivacySection(Profile* profile,
 }
 
 PrivacySection::~PrivacySection() = default;
+
+void PrivacySection::AddHandlers(content::WebUI* web_ui) {
+  web_ui->AddMessageHandler(
+      std::make_unique<chromeos::settings::PeripheralDataAccessHandler>());
+
+  if (IsSecureDnsAvailable())
+    web_ui->AddMessageHandler(std::make_unique<::settings::SecureDnsHandler>());
+}
 
 void PrivacySection::AddLoadTimeData(content::WebUIDataSource* html_source) {
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
@@ -219,27 +247,24 @@ void PrivacySection::AddLoadTimeData(content::WebUIDataSource* html_source) {
        IDS_OS_SETTINGS_DISABLE_DATA_ACCESS_PROTECTION_CONFIRM_DIALOG_TITLE},
       {"peripheralDataAccessProtectionWarningDescription",
        IDS_OS_SETTINGS_DISABLE_DATA_ACCESS_PROTECTION_CONFIRM_DIALOG_DESCRIPTION},
-      {"peripheralDataAccessProtectionDisablingTitle",
-       IDS_OS_SETTINGS_DISABLING_DATA_ACCESS_PROTECTION_DIALOG_TITLE},
-      {"peripheralDataAccessProtectionDisablingDescription",
-       IDS_OS_SETTINGS_DISABLING_DATA_ACCESS_PROTECTION_DIALOG_DESCRIPTION},
+      {"peripheralDataAccessProtectionWarningSubDescription",
+       IDS_OS_SETTINGS_DISABLE_DATA_ACCESS_PROTECTION_CONFIRM_DIALOG_SUB_DESCRIPTION},
       {"peripheralDataAccessProtectionCancelButton",
        IDS_OS_SETTINGS_DATA_ACCESS_PROTECTION_CONFIRM_DIALOG_CANCEL_BUTTON_LABEL},
       {"peripheralDataAccessProtectionDisableButton",
        IDS_OS_SETTINGS_DATA_ACCESS_PROTECTION_CONFIRM_DIALOG_DISABLE_BUTTON_LABEL},
+      {"privacyPageTitle", IDS_SETTINGS_PRIVACY_V2},
+      {"smartPrivacyTitle", IDS_OS_SETTINGS_SMART_PRIVACY_TITLE},
+      {"smartPrivacySubtext", IDS_OS_SETTINGS_SMART_PRIVACY_SUBTEXT},
+      {"smartPrivacySnoopingTitle",
+       IDS_OS_SETTINGS_SMART_PRIVACY_SNOOPING_TITLE},
+      {"smartPrivacySnoopingSubtext",
+       IDS_OS_SETTINGS_SMART_PRIVACY_SNOOPING_SUBTEXT},
   };
   html_source->AddLocalizedStrings(kLocalizedStrings);
 
-  if (chromeos::features::IsAccountManagementFlowsV2Enabled()) {
-    html_source->AddLocalizedString("privacyPageTitle",
-                                    IDS_SETTINGS_PRIVACY_V2);
-  } else {
-    html_source->AddLocalizedString("privacyPageTitle", IDS_SETTINGS_PRIVACY);
-  }
-
-  html_source->AddBoolean(
-      "privacySettingsRedesignEnabled",
-      base::FeatureList::IsEnabled(::features::kPrivacySettingsRedesign));
+  html_source->AddBoolean("isSnoopingProtectionEnabled",
+                          ash::features::IsSnoopingProtectionEnabled());
 
   html_source->AddString("suggestedContentLearnMoreURL",
                          chrome::kSuggestedContentLearnMoreURL);
@@ -247,14 +272,21 @@ void PrivacySection::AddLoadTimeData(content::WebUIDataSource* html_source) {
   html_source->AddString("syncAndGoogleServicesLearnMoreURL",
                          chrome::kSyncAndGoogleServicesLearnMoreURL);
 
+  html_source->AddString("peripheralDataAccessLearnMoreURL",
+                         chrome::kPeripheralDataAccessHelpURL);
+
   html_source->AddBoolean("pciguardUiEnabled",
                           chromeos::features::IsPciguardUiEnabled());
 
+  html_source->AddBoolean("showSecureDnsSetting", IsSecureDnsAvailable());
+  html_source->AddBoolean("showSecureDnsOsSettingLink", false);
+
   ::settings::AddPersonalizationOptionsStrings(html_source);
+  ::settings::AddSecureDnsStrings(html_source);
 }
 
 int PrivacySection::GetSectionNameMessageId() const {
-  return IDS_SETTINGS_PRIVACY;
+  return IDS_SETTINGS_PRIVACY_V2;
 }
 
 mojom::Section PrivacySection::GetSection() const {
@@ -271,8 +303,15 @@ std::string PrivacySection::GetSectionPath() const {
 
 bool PrivacySection::LogMetric(mojom::Setting setting,
                                base::Value& value) const {
-  // Unimplemented.
-  return false;
+  switch (setting) {
+    case mojom::Setting::kPeripheralDataAccessProtection:
+      base::UmaHistogramBoolean(
+          "ChromeOS.Settings.Privacy.PeripheralDataAccessProtection",
+          value.GetBool());
+      return true;
+    default:
+      return false;
+  }
 }
 
 void PrivacySection::RegisterHierarchy(HierarchyGenerator* generator) const {
@@ -282,7 +321,7 @@ void PrivacySection::RegisterHierarchy(HierarchyGenerator* generator) const {
 
   // Security and sign-in.
   generator->RegisterTopLevelSubpage(
-      IDS_SETTINGS_PEOPLE_LOCK_SCREEN_TITLE_LOGIN_LOCK,
+      IDS_SETTINGS_PEOPLE_LOCK_SCREEN_TITLE_LOGIN_LOCK_V2,
       mojom::Subpage::kSecurityAndSignInV2, mojom::SearchResultIcon::kLock,
       mojom::SearchResultDefaultRank::kMedium,
       mojom::kSecurityAndSignInSubpagePathV2);
@@ -323,10 +362,16 @@ void PrivacySection::RegisterHierarchy(HierarchyGenerator* generator) const {
   };
   RegisterNestedSettingBulk(mojom::Subpage::kManageOtherPeopleV2,
                             kManageOtherPeopleSettings, generator);
+
+  // Smart privacy.
+  generator->RegisterTopLevelSubpage(
+      IDS_OS_SETTINGS_SMART_PRIVACY_TITLE, mojom::Subpage::kSmartPrivacy,
+      mojom::SearchResultIcon::kShield, mojom::SearchResultDefaultRank::kMedium,
+      mojom::kSmartPrivacySubpagePath);
 }
 
 bool PrivacySection::AreFingerprintSettingsAllowed() {
-  return chromeos::quick_unlock::IsFingerprintEnabled(profile());
+  return quick_unlock::IsFingerprintEnabled(profile());
 }
 
 void PrivacySection::UpdateRemoveFingerprintSearchTags() {
@@ -336,7 +381,7 @@ void PrivacySection::UpdateRemoveFingerprintSearchTags() {
   // "Remove fingerprint" search tag should exist only when 1 or more
   // fingerprints are registered.
   int registered_fingerprint_count =
-      pref_service_->GetInteger(::prefs::kQuickUnlockFingerprintRecord);
+      pref_service_->GetInteger(prefs::kQuickUnlockFingerprintRecord);
   if (registered_fingerprint_count > 0) {
     updater.AddSearchTags(GetRemoveFingerprintSearchConcepts());
   }

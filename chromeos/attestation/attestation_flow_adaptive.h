@@ -10,9 +10,9 @@
 
 #include "base/component_export.h"
 #include "base/memory/weak_ptr.h"
-#include "base/time/time.h"
 #include "chromeos/attestation/attestation_flow.h"
 #include "chromeos/attestation/attestation_flow_factory.h"
+#include "chromeos/attestation/attestation_flow_status_reporter.h"
 #include "chromeos/attestation/attestation_flow_type_decider.h"
 #include "chromeos/dbus/attestation/interface.pb.h"
 #include "chromeos/dbus/constants/attestation_constants.h"
@@ -53,15 +53,19 @@ class COMPONENT_EXPORT(CHROMEOS_ATTESTATION) AttestationFlowAdaptive
   // Called when the validity of the default attestation flow is checked.
   // Performs actions for verbosity, e.g., logging, before invoking
   // `StartGetCertificate()`.
-  void OnCheckAttestationFlowType(const GetCertificateParams& params,
-                                  CertificateCallback callback,
-                                  bool is_integrated_flow_possible);
+  void OnCheckAttestationFlowType(
+      const GetCertificateParams& params,
+      std::unique_ptr<AttestationFlowStatusReporter> status_reporter,
+      CertificateCallback callback,
+      bool is_integrated_flow_possible);
 
   // Starts the default attestation flow if valid, otherwise just use the
   // fallback flow.
-  void StartGetCertificate(const GetCertificateParams& params,
-                           CertificateCallback callback,
-                           bool is_default_flow_valid);
+  void StartGetCertificate(
+      const GetCertificateParams& params,
+      std::unique_ptr<AttestationFlowStatusReporter> status_reporter,
+      CertificateCallback callback,
+      bool is_default_flow_valid);
 
   // Initialize the factory if needed. This can be called multiple times. This
   // function is designed to be idempotent.
@@ -71,12 +75,14 @@ class COMPONENT_EXPORT(CHROMEOS_ATTESTATION) AttestationFlowAdaptive
   // `callback` if the flow succeeds; otherwise, try the fallback.
   void OnGetCertificateWithDefaultFlow(
       const GetCertificateParams& params,
+      std::unique_ptr<AttestationFlowStatusReporter> status_reporter,
       CertificateCallback callback,
       AttestationStatus status,
       const std::string& pem_certificate_chain);
 
   // Called when the fallback flow returns the result.
   void OnGetCertificateWithFallbackFlow(
+      std::unique_ptr<AttestationFlowStatusReporter> status_reporter,
       CertificateCallback callback,
       AttestationStatus status,
       const std::string& pem_certificate_chain);
@@ -88,6 +94,8 @@ class COMPONENT_EXPORT(CHROMEOS_ATTESTATION) AttestationFlowAdaptive
   // to gather proxy information, and the attestation flow factory to
   // initialize.
   std::unique_ptr<ServerProxy> server_proxy_;
+  // Owened by either `server_proxy_` or `attestation_flow_factory_`.
+  ServerProxy* const raw_server_proxy_;
 
   // `AttestationFlowTypeDecider` object that decides which attestation flow
   // type we can use.
@@ -101,5 +109,14 @@ class COMPONENT_EXPORT(CHROMEOS_ATTESTATION) AttestationFlowAdaptive
 
 }  // namespace attestation
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when //chromeos/attestation
+// moved to ash
+namespace ash {
+namespace attestation {
+using ::chromeos::attestation::AttestationFlowAdaptive;
+using ::chromeos::attestation::ServerProxy;
+}  // namespace attestation
+}  // namespace ash
 
 #endif  // CHROMEOS_ATTESTATION_ATTESTATION_FLOW_ADAPTIVE_H_

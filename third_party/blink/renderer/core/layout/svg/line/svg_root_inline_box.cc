@@ -84,14 +84,14 @@ void SVGRootInlineBox::ComputePerCharacterLayoutInformation() {
                             LogicalBottom());
 }
 
-FloatRect SVGRootInlineBox::LayoutInlineBoxes(InlineBox& box) {
-  FloatRect rect;
+gfx::RectF SVGRootInlineBox::LayoutInlineBoxes(InlineBox& box) {
+  gfx::RectF rect;
   if (auto* svg_inline_text_box = DynamicTo<SVGInlineTextBox>(box)) {
     rect = svg_inline_text_box->CalculateBoundaries();
   } else {
     for (InlineBox* child = To<InlineFlowBox>(box).FirstChild(); child;
          child = child->NextOnLine())
-      rect.Unite(LayoutInlineBoxes(*child));
+      rect.Union(LayoutInlineBoxes(*child));
   }
 
   LayoutRect logical_rect(EnclosingLayoutRect(rect));
@@ -189,6 +189,8 @@ static inline void ReverseInlineBoxRangeAndValueListsIfNeeded(
 
 void SVGRootInlineBox::ReorderValueLists() {
   HeapVector<Member<InlineBox>> leaf_boxes_in_logical_order;
+  ClearCollectionScope<HeapVector<Member<InlineBox>>> scope(
+      &leaf_boxes_in_logical_order);
   CollectLeafBoxesInLogicalOrder(leaf_boxes_in_logical_order,
                                  ReverseInlineBoxRangeAndValueListsIfNeeded);
 }

@@ -42,8 +42,8 @@ std::unique_ptr<PermissionPrompt> MockPermissionPromptFactory::Create(
   show_count_++;
   requests_count_ = delegate->Requests().size();
   for (const PermissionRequest* request : delegate->Requests()) {
-    request_types_seen_.push_back(request->GetRequestType());
-    request_origins_seen_.push_back(request->GetOrigin());
+    request_types_seen_.push_back(request->request_type());
+    request_origins_seen_.push_back(request->requesting_origin());
   }
 
   if (!show_bubble_quit_closure_.is_null())
@@ -60,8 +60,9 @@ void MockPermissionPromptFactory::ResetCounts() {
   request_origins_seen_.clear();
 }
 
-void MockPermissionPromptFactory::DocumentOnLoadCompletedInMainFrame() {
-  manager_->DocumentOnLoadCompletedInMainFrame();
+void MockPermissionPromptFactory::DocumentOnLoadCompletedInMainFrame(
+    content::RenderFrameHost* render_frame_host) {
+  manager_->DocumentOnLoadCompletedInMainFrame(render_frame_host);
 }
 
 bool MockPermissionPromptFactory::is_visible() {

@@ -20,6 +20,12 @@ class MODULES_EXPORT DeviceOrientationInspectorAgent final
     : public InspectorBaseAgent<protocol::DeviceOrientation::Metainfo> {
  public:
   explicit DeviceOrientationInspectorAgent(InspectedFrames*);
+
+  DeviceOrientationInspectorAgent(const DeviceOrientationInspectorAgent&) =
+      delete;
+  DeviceOrientationInspectorAgent& operator=(
+      const DeviceOrientationInspectorAgent&) = delete;
+
   ~DeviceOrientationInspectorAgent() override;
   void Trace(Visitor*) const override;
 
@@ -42,9 +48,8 @@ class MODULES_EXPORT DeviceOrientationInspectorAgent final
   InspectorAgentState::Double alpha_;
   InspectorAgentState::Double beta_;
   InspectorAgentState::Double gamma_;
-  DISALLOW_COPY_AND_ASSIGN(DeviceOrientationInspectorAgent);
 };
 
 }  // namespace blink
 
-#endif  // !defined(DeviceOrientationInspectorAgent_h)
+#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_DEVICE_ORIENTATION_DEVICE_ORIENTATION_INSPECTOR_AGENT_H_

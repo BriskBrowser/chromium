@@ -12,9 +12,9 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "components/webapps/browser/android/add_to_homescreen_installer.h"
-#include "components/webapps/browser/android/installable/installable_ambient_badge_infobar_delegate.h"
+#include "components/webapps/browser/android/installable/installable_ambient_badge_client.h"
+#include "components/webapps/browser/android/installable/installable_ambient_badge_message_controller.h"
 #include "components/webapps/browser/banners/app_banner_manager.h"
 #include "url/gurl.h"
 
@@ -46,9 +46,8 @@ struct AddToHomescreenParams;
 //
 // TODO(crbug.com/1147268): remove remaining Chrome-specific functionality and
 // move to //components/webapps.
-class AppBannerManagerAndroid
-    : public AppBannerManager,
-      public InstallableAmbientBadgeInfoBarDelegate::Client {
+class AppBannerManagerAndroid : public AppBannerManager,
+                                public InstallableAmbientBadgeClient {
  public:
   explicit AppBannerManagerAndroid(content::WebContents* web_contents);
   AppBannerManagerAndroid(const AppBannerManagerAndroid&) = delete;
@@ -68,6 +67,9 @@ class AppBannerManagerAndroid
   bool IsRunningForTesting(JNIEnv* env,
                            const base::android::JavaParamRef<jobject>& jobj);
 
+  // Returns the state of the processing pipeline for testing purposes.
+  int GetPipelineStatusForTesting(JNIEnv* env);
+
   // Called when the Java-side has retrieved information for the app.
   // Returns |false| if an icon fetch couldn't be kicked off.
   bool OnAppDetailsRetrieved(
@@ -81,7 +83,7 @@ class AppBannerManagerAndroid
   // AppBannerManager overrides.
   void RequestAppBanner(const GURL& validated_url) override;
 
-  // InstallableAmbientBadgeInfoBarDelegate::Client overrides.
+  // InstallableAmbientBadgeClient overrides.
   void AddToHomescreenFromBadge() override;
   void BadgeDismissed() override;
 
@@ -94,7 +96,7 @@ class AppBannerManagerAndroid
                    a2hs_event_callback);
 
   // Returns the appropriate app name based on whether we have a native/web app.
-  base::string16 GetAppName() const override;
+  std::u16string GetAppName() const override;
 
  protected:
   // AppBannerManager overrides.
@@ -109,7 +111,7 @@ class AppBannerManagerAndroid
   base::WeakPtr<AppBannerManager> GetWeakPtr() override;
   void InvalidateWeakPtrs() override;
   bool IsSupportedNonWebAppPlatform(
-      const base::string16& platform) const override;
+      const std::u16string& platform) const override;
   bool IsRelatedNonWebAppInstalled(
       const blink::Manifest::RelatedApplication& related_app) const override;
   bool IsWebAppConsideredInstalled() const override;
@@ -156,7 +158,7 @@ class AppBannerManagerAndroid
   // query may not necessarily succeed (e.g. |id| doesn't map to anything), but
   // if this method returns NO_ERROR_DETECTED, only a native app banner
   // may be shown, and the web app banner flow will not be run.
-  InstallableStatusCode QueryNativeApp(const base::string16& platform,
+  InstallableStatusCode QueryNativeApp(const std::u16string& platform,
                                        const GURL& url,
                                        const std::string& id);
 
@@ -176,11 +178,14 @@ class AppBannerManagerAndroid
   // The Java-side AppBannerManager.
   base::android::ScopedJavaGlobalRef<jobject> java_banner_manager_;
 
+  // Message controller for the ambient badge.
+  InstallableAmbientBadgeMessageController message_controller_;
+
   // App package name for a native app banner.
   std::string native_app_package_;
 
   // Title to display in the banner for native app.
-  base::string16 native_app_title_;
+  std::u16string native_app_title_;
 
   base::WeakPtrFactory<AppBannerManagerAndroid> weak_factory_{this};
 };

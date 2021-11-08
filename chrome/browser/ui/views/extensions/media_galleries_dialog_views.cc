@@ -19,6 +19,8 @@
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/border.h"
@@ -31,8 +33,6 @@
 #include "ui/views/controls/separator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 namespace {
@@ -83,8 +83,14 @@ MediaGalleriesDialogViews::MediaGalleriesDialogViews(
   SetModalType(ui::MODAL_TYPE_CHILD);
   SetShowCloseButton(false);
   SetTitle(controller_->GetHeader());
+  SetOwnedByWidget(false);
+  RegisterDeleteDelegateCallback(base::BindOnce(
+      [](MediaGalleriesDialogViews* dialog) {
+        dialog->controller_->DialogFinished(dialog->accepted_);
+      },
+      this));
 
-  base::string16 label = controller_->GetAuxiliaryButtonText();
+  std::u16string label = controller_->GetAuxiliaryButtonText();
   if (!label.empty()) {
     auxiliary_button_ = SetExtraView(std::make_unique<views::MdTextButton>(
         base::BindRepeating(
@@ -120,12 +126,14 @@ void MediaGalleriesDialogViews::AcceptDialogForTesting() {
 
 void MediaGalleriesDialogViews::InitChildViews() {
   // Outer dialog layout.
-  contents_->RemoveAllChildViews(true);
+  contents_->RemoveAllChildViews();
   checkbox_map_.clear();
 
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
-  contents_->SetBorder(views::CreateEmptyBorder(
-      provider->GetDialogInsetsForContentType(views::TEXT, views::CONTROL)));
+  contents_->SetBorder(
+      views::CreateEmptyBorder(provider->GetDialogInsetsForContentType(
+          views::DialogContentType::kText,
+          views::DialogContentType::kControl)));
 
   const int dialog_content_width = views::Widget::GetLocalizedContentsWidth(
       IDS_MEDIA_GALLERIES_DIALOG_CONTENT_WIDTH_CHARS);
@@ -163,7 +171,7 @@ void MediaGalleriesDialogViews::InitChildViews() {
   scroll_container->SetBorder(
       views::CreateEmptyBorder(vertical_padding, 0, vertical_padding, 0));
 
-  std::vector<base::string16> section_headers =
+  std::vector<std::u16string> section_headers =
       controller_->GetSectionHeaders();
   for (size_t i = 0; i < section_headers.size(); i++) {
     MediaGalleriesDialogController::Entries entries =
@@ -222,7 +230,7 @@ bool MediaGalleriesDialogViews::AddOrUpdateGallery(
     checkbox->SetChecked(gallery.selected);
     checkbox->SetText(gallery.pref_info.GetGalleryDisplayName());
     checkbox->SetTooltipText(gallery.pref_info.GetGalleryTooltip());
-    base::string16 details = gallery.pref_info.GetGalleryAdditionalDetails();
+    std::u16string details = gallery.pref_info.GetGalleryAdditionalDetails();
     iter->second->secondary_text()->SetText(details);
     iter->second->secondary_text()->SetVisible(details.length() > 0);
     return false;
@@ -242,10 +250,6 @@ bool MediaGalleriesDialogViews::AddOrUpdateGallery(
   gallery_view->checkbox()->SetChecked(gallery.selected);
   checkbox_map_[gallery.pref_info.pref_id] = gallery_view;
   return true;
-}
-
-void MediaGalleriesDialogViews::DeleteDelegate() {
-  controller_->DialogFinished(accepted_);
 }
 
 views::Widget* MediaGalleriesDialogViews::GetWidget() {

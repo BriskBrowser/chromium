@@ -30,6 +30,7 @@
 #include "net/url_request/url_request_test_util.h"
 #include "services/network/mojo_socket_test_util.h"
 #include "services/network/public/mojom/tcp_socket.mojom.h"
+#include "services/network/public/mojom/tls_socket.mojom.h"
 #include "services/network/socket_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -41,6 +42,10 @@ class TCPBoundSocketTest : public testing::Test {
   TCPBoundSocketTest()
       : task_environment_(base::test::TaskEnvironment::MainThreadType::IO),
         factory_(nullptr /* net_log */, &url_request_context_) {}
+
+  TCPBoundSocketTest(const TCPBoundSocketTest&) = delete;
+  TCPBoundSocketTest& operator=(const TCPBoundSocketTest&) = delete;
+
   ~TCPBoundSocketTest() override {}
 
   SocketFactory* factory() { return &factory_; }
@@ -55,7 +60,7 @@ class TCPBoundSocketTest : public testing::Test {
         bound_socket->BindNewPipeAndPassReceiver(),
         base::BindLambdaForTesting(
             [&](int net_error,
-                const base::Optional<net::IPEndPoint>& local_addr) {
+                const absl::optional<net::IPEndPoint>& local_addr) {
               bind_result = net_error;
               if (net_error == net::OK) {
                 *ip_endpoint_out = *local_addr;
@@ -125,8 +130,8 @@ class TCPBoundSocketTest : public testing::Test {
         std::move(socket_observer),
         base::BindLambdaForTesting(
             [&](int net_error,
-                const base::Optional<net::IPEndPoint>& local_addr,
-                const base::Optional<net::IPEndPoint>& remote_addr,
+                const absl::optional<net::IPEndPoint>& local_addr,
+                const absl::optional<net::IPEndPoint>& remote_addr,
                 mojo::ScopedDataPipeConsumerHandle receive_stream,
                 mojo::ScopedDataPipeProducerHandle send_stream) {
               connect_result = net_error;
@@ -195,8 +200,6 @@ class TCPBoundSocketTest : public testing::Test {
   base::test::TaskEnvironment task_environment_;
   net::TestURLRequestContext url_request_context_;
   SocketFactory factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(TCPBoundSocketTest);
 };
 
 // Try to bind a socket to an address already being listened on, which should
@@ -319,7 +322,7 @@ TEST_F(TCPBoundSocketTest, ReadWrite) {
   server_socket->Accept(
       mojo::NullRemote() /* ovserver */,
       base::BindLambdaForTesting(
-          [&](int net_error, const base::Optional<net::IPEndPoint>& remote_addr,
+          [&](int net_error, const absl::optional<net::IPEndPoint>& remote_addr,
               mojo::PendingRemote<mojom::TCPConnectedSocket> connected_socket,
               mojo::ScopedDataPipeConsumerHandle receive_stream,
               mojo::ScopedDataPipeProducerHandle send_stream) {
@@ -404,7 +407,7 @@ TEST_F(TCPBoundSocketTest, ConnectWithOptions) {
   server_socket->Accept(
       mojo::NullRemote() /* ovserver */,
       base::BindLambdaForTesting(
-          [&](int net_error, const base::Optional<net::IPEndPoint>& remote_addr,
+          [&](int net_error, const absl::optional<net::IPEndPoint>& remote_addr,
               mojo::PendingRemote<mojom::TCPConnectedSocket> connected_socket,
               mojo::ScopedDataPipeConsumerHandle receive_stream,
               mojo::ScopedDataPipeProducerHandle send_stream) {
@@ -472,7 +475,7 @@ TEST_F(TCPBoundSocketTest, UpgradeToTLS) {
           [&](int net_error,
               mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
               mojo::ScopedDataPipeProducerHandle send_pipe_handle,
-              const base::Optional<net::SSLInfo>& ssl_info) {
+              const absl::optional<net::SSLInfo>& ssl_info) {
             EXPECT_EQ(net::OK, net_error);
             client_socket_receive_handle = std::move(receive_pipe_handle);
             client_socket_send_handle = std::move(send_pipe_handle);

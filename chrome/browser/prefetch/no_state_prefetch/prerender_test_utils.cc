@@ -25,18 +25,21 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
 #include "components/prefs/pref_service.h"
-#include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/core/browser/db/v4_protocol_manager_util.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/ppapi_test_utils.h"
 #include "net/base/load_flags.h"
+#include "net/test/embedded_test_server/default_handlers.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/request_handler_util.h"
 #include "ppapi/shared_impl/ppapi_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/chrome_debug_urls.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using content::BrowserThread;
@@ -75,7 +78,7 @@ class NeverRunsExternalProtocolHandlerDelegate
       content::WebContents* web_contents,
       ui::PageTransition page_transition,
       bool has_user_gesture,
-      const base::Optional<url::Origin>& initiating_origin) override {
+      const absl::optional<url::Origin>& initiating_origin) override {
     NOTREACHED();
   }
 
@@ -95,7 +98,7 @@ TestNoStatePrefetchContents::TestNoStatePrefetchContents(
     content::BrowserContext* browser_context,
     const GURL& url,
     const content::Referrer& referrer,
-    const base::Optional<url::Origin>& initiator_origin,
+    const absl::optional<url::Origin>& initiator_origin,
     Origin origin,
     FinalStatus expected_final_status,
     bool ignore_final_status)
@@ -108,8 +111,6 @@ TestNoStatePrefetchContents::TestNoStatePrefetchContents(
           initiator_origin,
           origin),
       expected_final_status_(expected_final_status),
-      observer_(this),
-      should_be_shown_(expected_final_status == FINAL_STATUS_USED),
       skip_final_checks_(ignore_final_status) {}
 
 TestNoStatePrefetchContents::~TestNoStatePrefetchContents() {
@@ -126,14 +127,12 @@ TestNoStatePrefetchContents::~TestNoStatePrefetchContents() {
   // NavigateToURLImpl().
   if (final_status() == FINAL_STATUS_USED)
     EXPECT_TRUE(new_main_frame_);
-
-  EXPECT_EQ(should_be_shown_, was_shown_);
 }
 
 bool TestNoStatePrefetchContents::CheckURL(const GURL& url) {
   // Prevent FINAL_STATUS_UNSUPPORTED_SCHEME when navigating to about:crash in
   // the PrerenderRendererCrash test.
-  if (url.spec() != content::kChromeUICrashURL)
+  if (url.spec() != blink::kChromeUICrashURL)
     return NoStatePrefetchContents::CheckURL(url);
   return true;
 }
@@ -145,7 +144,7 @@ void TestNoStatePrefetchContents::RenderFrameHostChanged(
   if (!new_frame_host->GetParent()) {
     // Used to make sure the main frame widget is hidden and, if used,
     // subsequently shown.
-    observer_.Add(new_frame_host->GetRenderWidgetHost());
+    observations_.AddObservation(new_frame_host->GetRenderWidgetHost());
     new_main_frame_ = new_frame_host;
   }
 
@@ -156,19 +155,13 @@ void TestNoStatePrefetchContents::RenderFrameHostChanged(
 void TestNoStatePrefetchContents::RenderWidgetHostVisibilityChanged(
     content::RenderWidgetHost* widget_host,
     bool became_visible) {
-  EXPECT_EQ(new_main_frame_->GetRenderWidgetHost(), widget_host);
-
-  if (became_visible) {
-    // A prerendered main frame should only be shown after being removed
-    // from the NoStatePrefetchContents for display.
-    EXPECT_FALSE(GetMainFrame());
-    was_shown_ = true;
-  }
+  // The NoStatePrefetchContents should never be visible.
+  NOTREACHED();
 }
 
 void TestNoStatePrefetchContents::RenderWidgetHostDestroyed(
     content::RenderWidgetHost* widget_host) {
-  observer_.Remove(widget_host);
+  observations_.RemoveObservation(widget_host);
 }
 
 DestructionWaiter::DestructionWaiter(
@@ -258,7 +251,7 @@ void TestPrerender::WaitForLoads(int expected_number_of_loads) {
   DCHECK(!load_waiter_);
   DCHECK(!expected_number_of_loads_);
   if (number_of_loads_ < expected_number_of_loads) {
-    load_waiter_.reset(new base::RunLoop);
+    load_waiter_ = std::make_unique<base::RunLoop>();
     expected_number_of_loads_ = expected_number_of_loads;
     load_waiter_->Run();
     load_waiter_.reset();
@@ -352,7 +345,7 @@ TestNoStatePrefetchContentsFactory::CreateNoStatePrefetchContents(
     content::BrowserContext* browser_context,
     const GURL& url,
     const content::Referrer& referrer,
-    const base::Optional<url::Origin>& initiator_origin,
+    const absl::optional<url::Origin>& initiator_origin,
     Origin origin) {
   ExpectedContents expected;
   if (!expected_contents_queue_.empty()) {
@@ -423,7 +416,7 @@ bool PrerenderInProcessBrowserTest::UrlIsInNoStatePrefetchManager(
 
 bool PrerenderInProcessBrowserTest::UrlIsInNoStatePrefetchManager(
     const GURL& url) const {
-  return GetNoStatePrefetchManager()->FindPrerenderData(
+  return GetNoStatePrefetchManager()->FindNoStatePrefetchData(
              url, GetSessionStorageNamespace()) != nullptr;
 }
 
@@ -441,10 +434,10 @@ PrerenderInProcessBrowserTest::GetNoStatePrefetchManager() const {
 TestNoStatePrefetchContents*
 PrerenderInProcessBrowserTest::GetNoStatePrefetchContentsFor(
     const GURL& url) const {
-  NoStatePrefetchManager::PrerenderData* prerender_data =
-      GetNoStatePrefetchManager()->FindPrerenderData(url, nullptr);
+  NoStatePrefetchManager::NoStatePrefetchData* no_state_prefetch_data =
+      GetNoStatePrefetchManager()->FindNoStatePrefetchData(url, nullptr);
   return static_cast<TestNoStatePrefetchContents*>(
-      prerender_data ? prerender_data->contents() : nullptr);
+      no_state_prefetch_data ? no_state_prefetch_data->contents() : nullptr);
 }
 
 net::EmbeddedTestServer* PrerenderInProcessBrowserTest::src_server() {
@@ -465,7 +458,9 @@ PrerenderInProcessBrowserTest::GetFakeSafeBrowsingDatabaseManager() {
 void PrerenderInProcessBrowserTest::CreatedBrowserMainParts(
     content::BrowserMainParts* browser_main_parts) {
   safe_browsing_factory_->SetTestDatabaseManager(
-      new safe_browsing::FakeSafeBrowsingDatabaseManager());
+      new safe_browsing::FakeSafeBrowsingDatabaseManager(
+          content::GetUIThreadTaskRunner({}),
+          content::GetIOThreadTaskRunner({})));
   safe_browsing::SafeBrowsingService::RegisterFactory(
       safe_browsing_factory_.get());
 }
@@ -507,22 +502,23 @@ void PrerenderInProcessBrowserTest::SetUpOnMainThread() {
 void PrerenderInProcessBrowserTest::UseHttpsSrcServer() {
   if (https_src_server_)
     return;
-  https_src_server_.reset(
-      new net::EmbeddedTestServer(net::EmbeddedTestServer::TYPE_HTTPS));
+  https_src_server_ = std::make_unique<net::EmbeddedTestServer>(
+      net::EmbeddedTestServer::TYPE_HTTPS);
   https_src_server_->ServeFilesFromSourceDirectory("chrome/test/data");
   https_src_server_->RegisterRequestMonitor(base::BindRepeating(
       &PrerenderInProcessBrowserTest::MonitorResourceRequest,
       base::Unretained(this)));
+  net::test_server::RegisterDefaultHandlers(https_src_server_.get());
   CHECK(https_src_server_->Start());
 }
 
-base::string16 PrerenderInProcessBrowserTest::MatchTaskManagerTab(
+std::u16string PrerenderInProcessBrowserTest::MatchTaskManagerTab(
     const char* page_title) {
   return l10n_util::GetStringFUTF16(IDS_TASK_MANAGER_TAB_PREFIX,
                                     base::ASCIIToUTF16(page_title));
 }
 
-base::string16 PrerenderInProcessBrowserTest::MatchTaskManagerPrerender(
+std::u16string PrerenderInProcessBrowserTest::MatchTaskManagerPrerender(
     const char* page_title) {
   return l10n_util::GetStringFUTF16(IDS_TASK_MANAGER_PRERENDER_PREFIX,
                                     base::ASCIIToUTF16(page_title));
@@ -553,7 +549,7 @@ PrerenderInProcessBrowserTest::NavigateWithPrerenders(
 
   // Navigate to the loader URL and then wait for the first prerender to be
   // created.
-  ui_test_utils::NavigateToURL(current_browser(), loader_url);
+  EXPECT_TRUE(ui_test_utils::NavigateToURL(current_browser(), loader_url));
   prerenders[0]->WaitForCreate();
 
   return prerenders;

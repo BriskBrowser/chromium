@@ -119,18 +119,19 @@ void MockGnomeKeyringLoader::mock_gnome_keyring_free_password(gchar* password) {
 class GnomeKeyringTest : public testing::Test {
  public:
   GnomeKeyringTest();
+
+  GnomeKeyringTest(const GnomeKeyringTest&) = delete;
+  GnomeKeyringTest& operator=(const GnomeKeyringTest&) = delete;
+
   ~GnomeKeyringTest() override;
 
  protected:
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
   KeyStorageKeyring keyring_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GnomeKeyringTest);
 };
 
 GnomeKeyringTest::GnomeKeyringTest()
-    : task_runner_(new base::TestSimpleTaskRunner()), keyring_(task_runner_) {
+    : task_runner_(new base::TestSimpleTaskRunner()), keyring_(task_runner_, "chromium") {
   MockGnomeKeyringLoader::ResetForOSCrypt();
 }
 
@@ -139,18 +140,18 @@ GnomeKeyringTest::~GnomeKeyringTest() {
 }
 
 TEST_F(GnomeKeyringTest, KeyringRepeats) {
-  base::Optional<std::string> password = keyring_.GetKey();
+  absl::optional<std::string> password = keyring_.GetKey();
   EXPECT_TRUE(password.has_value());
   EXPECT_FALSE(password.value().empty());
-  base::Optional<std::string> password_repeat = keyring_.GetKey();
+  absl::optional<std::string> password_repeat = keyring_.GetKey();
   EXPECT_TRUE(password_repeat.has_value());
   EXPECT_EQ(password.value(), password_repeat.value());
 }
 
 TEST_F(GnomeKeyringTest, KeyringCreatesRandomised) {
-  base::Optional<std::string> password = keyring_.GetKey();
+  absl::optional<std::string> password = keyring_.GetKey();
   MockGnomeKeyringLoader::ResetForOSCrypt();
-  base::Optional<std::string> password_new = keyring_.GetKey();
+  absl::optional<std::string> password_new = keyring_.GetKey();
   EXPECT_TRUE(password.has_value());
   EXPECT_TRUE(password_new.has_value());
   EXPECT_NE(password.value(), password_new.value());

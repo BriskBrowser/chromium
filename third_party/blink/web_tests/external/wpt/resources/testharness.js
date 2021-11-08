@@ -1,14 +1,5 @@
 /*global self*/
 /*jshint latedef: nofunc*/
-/*
-Distributed under both the W3C Test Suite License [1] and the W3C
-3-clause BSD License [2]. To contribute to a W3C Test Suite, see the
-policies and contribution forms [3].
-
-[1] http://www.w3.org/Consortium/Legal/2008/04-testsuite-license
-[2] http://www.w3.org/Consortium/Legal/2008/03-bsd-license
-[3] http://www.w3.org/2004/10/27-testcases
-*/
 
 /* Documentation: https://web-platform-tests.org/writing-tests/testharness-api.html
  * (../docs/_writing-tests/testharness-api.md) */
@@ -1190,9 +1181,9 @@ policies and contribution forms [3].
                     console.debug("ASSERT", name, tests.current_test && tests.current_test.name, args);
                 }
                 if (tests.output) {
-                    tests.set_assert(name, ...args);
+                    tests.set_assert(name, args);
                 }
-                const rv = f(...args);
+                const rv = f.apply(undefined, args);
                 status = Test.statuses.PASS;
                 return rv;
             } catch(e) {
@@ -1566,7 +1557,8 @@ policies and contribution forms [3].
     function _assert_inherits(name) {
         return function (object, property_name, description)
         {
-            assert(typeof object === "object" || typeof object === "function" ||
+            assert((typeof object === "object" && object !== null) ||
+                   typeof object === "function" ||
                    // Or has [[IsHTMLDDA]] slot
                    String(object) === "[object HTMLAllCollection]",
                    name, description,
@@ -1682,7 +1674,7 @@ policies and contribution forms [3].
      *
      * @param {number|string} type The expected exception name or code.  See the
      *        table of names and codes at
-     *        https://heycam.github.io/webidl/#dfn-error-names-table
+     *        https://webidl.spec.whatwg.org/#dfn-error-names-table
      *        If a number is passed it should be one of the numeric code values
      *        in that table (e.g. 3, 4, etc).  If a string is passed it can
      *        either be an exception name (e.g. "HierarchyRequestError",
@@ -1929,7 +1921,10 @@ policies and contribution forms [3].
             throw new AssertionError(errors.join("\n\n"));
         }
     }
-    expose_assert(assert_any, "assert_any");
+    // FIXME: assert_any cannot use expose_assert, because assert_wrapper does
+    // not support nested assert calls (e.g. to assert_func). We need to
+    // support bypassing assert_wrapper for the inner asserts here.
+    expose(assert_any, "assert_any");
 
     /**
      * Assert that a feature is implemented, based on a 'truthy' condition.
@@ -2634,7 +2629,7 @@ policies and contribution forms [3].
     RemoteContext.prototype.remote_done = function(data) {
         if (tests.status.status === null &&
             data.status.status !== data.status.OK) {
-            tests.set_status(data.status.status, data.status.message, data.status.sack);
+            tests.set_status(data.status.status, data.status.message, data.status.stack);
         }
 
         for (let assert of data.asserts) {
@@ -2722,7 +2717,7 @@ policies and contribution forms [3].
         return this.formats[this.status];
     }
 
-    function AssertRecord(test, assert_name, ...args) {
+    function AssertRecord(test, assert_name, args = []) {
         this.assert_name = assert_name;
         this.test = test;
         // Avoid keeping complex objects alive
@@ -2947,7 +2942,8 @@ policies and contribution forms [3].
     };
 
     Tests.prototype.all_done = function() {
-        return this.tests.length > 0 && test_environment.all_loaded &&
+        return (this.tests.length > 0 || this.pending_remotes.length > 0) &&
+                test_environment.all_loaded &&
                 (this.num_pending === 0 || this.is_aborted) && !this.wait_for_finish &&
                 !this.processing_callbacks &&
                 !this.pending_remotes.some(function(w) { return w.running; });
@@ -3029,8 +3025,8 @@ policies and contribution forms [3].
                   all_complete);
     };
 
-    Tests.prototype.set_assert = function(assert_name, ...args) {
-        this.asserts_run.push(new AssertRecord(this.current_test, assert_name, ...args))
+    Tests.prototype.set_assert = function(assert_name, args) {
+        this.asserts_run.push(new AssertRecord(this.current_test, assert_name, args))
     }
 
     Tests.prototype.set_assert_status = function(status, stack) {
@@ -3418,7 +3414,12 @@ policies and contribution forms [3].
                                                 ["span", {"class":status_class(status)},
                                                  status
                                                 ],
-                                               ]
+                                               ],
+                                               ["button",
+                                                {"onclick": "let evt = new Event('__test_restart'); " +
+                                                 "let canceled = !window.dispatchEvent(evt);" +
+                                                 "if (!canceled) { location.reload() }"},
+                                                "Rerun"]
                                               ]];
 
                                     if (harness_status.status === harness_status.ERROR) {
@@ -3460,13 +3461,13 @@ policies and contribution forms [3].
                                      e.preventDefault();
                                      return;
                                  }
-                                 var result_class = element.parentNode.getAttribute("class");
+                                 var result_class = element.querySelector("span[class]").getAttribute("class");
                                  var style_element = output_document.querySelector("style#hide-" + result_class);
                                  var input_element = element.querySelector("input");
                                  if (!style_element && !input_element.checked) {
                                      style_element = output_document.createElementNS(xhtml_ns, "style");
                                      style_element.id = "hide-" + result_class;
-                                     style_element.textContent = "table#results > tbody > tr."+result_class+"{display:none}";
+                                     style_element.textContent = "table#results > tbody > tr.overall-"+result_class+"{display:none}";
                                      output_document.body.appendChild(style_element);
                                  } else if (style_element && input_element.checked) {
                                      style_element.parentNode.removeChild(style_element);
@@ -3538,10 +3539,11 @@ policies and contribution forms [3].
                 if (assert.stack) {
                     output_location = assert.stack.split("\n", 1)[0].replace(/@?\w+:\/\/[^ "\/]+(?::\d+)?/g, " ");
                 }
-                return "<tr><td class=" +
-                    status_class(Test.prototype.status_formats[assert.status]) + ">" +
+                return "<tr class='overall-" +
+                    status_class(Test.prototype.status_formats[assert.status]) + "'>" +
+                    "<td class='" +
+                    status_class(Test.prototype.status_formats[assert.status]) + "'>" +
                     Test.prototype.status_formats[assert.status] + "</td>" +
-                    "</td>" +
                     "<td><pre>" +
                     output_fn +
                     (output_location ? "\n" + escape_html(output_location) : "") +
@@ -3561,7 +3563,10 @@ policies and contribution forms [3].
             "<tbody>";
         for (var i = 0; i < tests.length; i++) {
             var test = tests[i];
-            html += '<tr><td class="' +
+            html += '<tr class="overall-' +
+                status_class(test.format_status()) +
+                '">' +
+                '<td class="' +
                 status_class(test.format_status()) +
                 '">' +
                 test.format_status() +

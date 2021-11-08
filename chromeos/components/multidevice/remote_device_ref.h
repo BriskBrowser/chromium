@@ -13,15 +13,17 @@
 #include "chromeos/components/multidevice/remote_device.h"
 #include "chromeos/components/multidevice/software_feature_state.h"
 
-namespace chromeos {
-
+namespace ash {
 class EasyUnlockServiceRegular;
+}
 
+namespace chromeos {
 namespace multidevice_setup {
 class MultiDeviceSetupImpl;
 }  // namespace multidevice_setup
 
 namespace secure_channel {
+class PresenceMonitorClientImpl;
 class SecureChannelClientImpl;
 }  // namespace secure_channel
 
@@ -91,6 +93,7 @@ class RemoteDeviceRef {
  private:
   friend class multidevice_setup::MultiDeviceSetupImpl;
   friend class secure_channel::SecureChannelClientImpl;
+  friend class secure_channel::PresenceMonitorClientImpl;
   friend class RemoteDeviceCache;
   friend class RemoteDeviceRefBuilder;
   friend class RemoteDeviceRefTest;
@@ -103,7 +106,7 @@ class RemoteDeviceRef {
 
   // TODO(crbug.com/752273): Remove these once clients have migrated to Device
   // Sync service.
-  friend class EasyUnlockServiceRegular;
+  friend class ash::EasyUnlockServiceRegular;
   friend class tether::TetherHostFetcherImpl;
   friend class tether::TetherHostFetcherImplTest;
   friend class ProximityAuthWebUIHandler;
@@ -123,5 +126,14 @@ typedef std::vector<RemoteDeviceRef> RemoteDeviceRefList;
 }  // namespace multidevice
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+namespace multidevice {
+using ::chromeos::multidevice::RemoteDeviceRef;
+typedef std::vector<RemoteDeviceRef> RemoteDeviceRefList;
+}  // namespace multidevice
+}  // namespace ash
 
 #endif  // CHROMEOS_COMPONENTS_MULTIDEVICE_REMOTE_DEVICE_REF_H_

@@ -26,6 +26,10 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothGattManagerClient
     // later as we know more about how this will be used.
   };
 
+  BluetoothGattManagerClient(const BluetoothGattManagerClient&) = delete;
+  BluetoothGattManagerClient& operator=(const BluetoothGattManagerClient&) =
+      delete;
+
   ~BluetoothGattManagerClient() override;
 
   // The ErrorCallback is used by GATT manager methods to indicate failure. It
@@ -65,12 +69,10 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothGattManagerClient
 
   // Constants used to indicate exceptional error conditions.
   static const char kNoResponseError[];
+  static const char kUnknownGattManager[];
 
  protected:
   BluetoothGattManagerClient();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BluetoothGattManagerClient);
 };
 
 }  // namespace bluez

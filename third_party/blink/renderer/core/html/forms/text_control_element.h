@@ -77,7 +77,6 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   void UpdatePlaceholderVisibility();
 
   VisiblePosition VisiblePositionForIndex(int) const;
-  int IndexForVisiblePosition(const VisiblePosition&) const;
   unsigned selectionStart() const;
   unsigned selectionEnd() const;
   const AtomicString& selectionDirection() const;
@@ -285,4 +284,4 @@ CORE_EXPORT TextControlElement* EnclosingTextControl(const Node*);
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_TEXT_CONTROL_ELEMENT_H_

@@ -83,6 +83,8 @@ struct ShapeResult::RunInfo : public RefCounted<ShapeResult::RunInfo> {
                                        unsigned start_index,
                                        unsigned num_glyphs,
                                        unsigned num_characters) {
+    CHECK_GT(num_glyphs, 0u);
+    CHECK_GT(num_characters, 0u);
     return base::AdoptRef(new RunInfo(font, dir, canvas_rotation, script,
                                       start_index, num_glyphs, num_characters));
   }
@@ -120,7 +122,8 @@ struct ShapeResult::RunInfo : public RefCounted<ShapeResult::RunInfo> {
         canvas_rotation_(other.canvas_rotation_) {}
 
   unsigned NumGlyphs() const { return glyph_data_.size(); }
-  bool Rtl() const { return HB_DIRECTION_IS_BACKWARD(direction_); }
+  bool IsLtr() const { return HB_DIRECTION_IS_FORWARD(direction_); }
+  bool IsRtl() const { return HB_DIRECTION_IS_BACKWARD(direction_); }
   bool IsHorizontal() const { return HB_DIRECTION_IS_HORIZONTAL(direction_); }
   CanvasRotationInVertical CanvasRotation() const { return canvas_rotation_; }
   unsigned NextSafeToBreakOffset(unsigned) const;
@@ -163,17 +166,20 @@ struct ShapeResult::RunInfo : public RefCounted<ShapeResult::RunInfo> {
   GlyphDataRange FindGlyphDataRange(unsigned start_character_index,
                                     unsigned end_character_index) const {
     GlyphDataRange range = GetGlyphDataRange().FindGlyphDataRange(
-        Rtl(), start_character_index, end_character_index);
+        IsRtl(), start_character_index, end_character_index);
     return range;
   }
 
   // Creates a new RunInfo instance representing a subset of the current run.
+  // Returns |nullptr| if there are no glyphs in the specified range.
   scoped_refptr<RunInfo> CreateSubRun(unsigned start, unsigned end) {
     DCHECK(end > start);
     unsigned number_of_characters = std::min(end - start, num_characters_);
     auto glyphs = FindGlyphDataRange(start, end);
     unsigned number_of_glyphs =
         static_cast<unsigned>(std::distance(glyphs.begin, glyphs.end));
+    if (UNLIKELY(!number_of_glyphs))
+      return nullptr;
 
     auto run =
         Create(font_data_.get(), direction_, canvas_rotation_, script_,
@@ -205,7 +211,7 @@ struct ShapeResult::RunInfo : public RefCounted<ShapeResult::RunInfo> {
                num_characters_ + other.num_characters_);
     // Note: We populate |graphemes_| on demand, e.g. hit testing.
     const int index_adjust = other.start_index_ - start_index_;
-    if (UNLIKELY(Rtl())) {
+    if (UNLIKELY(IsRtl())) {
       run->glyph_data_.CopyFrom(other.glyph_data_, glyph_data_);
       auto* const end = run->glyph_data_.begin() + other.glyph_data_.size();
       for (auto* it = run->glyph_data_.begin(); it < end; ++it)
@@ -232,27 +238,36 @@ struct ShapeResult::RunInfo : public RefCounted<ShapeResult::RunInfo> {
   }
 
   void ExpandRangeToIncludePartialGlyphs(int offset, int* from, int* to) const {
-    int start = !Rtl() ? offset : (offset + num_characters_);
     int end = offset + num_characters_;
+    int start;
 
-    for (unsigned i = 0; i < glyph_data_.size(); ++i) {
-      int index = offset + glyph_data_[i].character_index;
-      if (start == index)
-        continue;
-
-      if (!Rtl())
+    if (IsLtr()) {
+      start = offset + num_characters_;
+      for (unsigned i = 0; i < glyph_data_.size(); ++i) {
+        int index = offset + glyph_data_[i].character_index;
+        if (start == index)
+          continue;
         end = index;
-
-      if (end > *from && start < *to) {
-        *from = std::min(*from, start);
-        *to = std::max(*to, end);
-      }
-
-      if (!Rtl())
+        if (end > *from && start < *to) {
+          *from = std::min(*from, start);
+          *to = std::max(*to, end);
+        }
         end = offset + num_characters_;
-      else
+        start = index;
+      }
+    } else {
+      start = offset + num_characters_;
+      for (unsigned i = 0; i < glyph_data_.size(); ++i) {
+        int index = offset + glyph_data_[i].character_index;
+        if (start == index)
+          continue;
+        if (end > *from && start < *to) {
+          *from = std::min(*from, start);
+          *to = std::max(*to, end);
+        }
         end = start;
-      start = index;
+        start = index;
+      }
     }
 
     if (end > *from && start < *to) {
@@ -364,7 +379,7 @@ struct ShapeResult::RunInfo : public RefCounted<ShapeResult::RunInfo> {
       DCHECK_NE(delta, 0.0f);
       if (!storage_)
         AllocateStorage();
-      storage_[index].SetHeight(storage_[index].Height() + delta);
+      storage_[index].set_height(storage_[index].height() + delta);
     }
 
     void AddWidthAt(unsigned index, float delta) {
@@ -372,13 +387,13 @@ struct ShapeResult::RunInfo : public RefCounted<ShapeResult::RunInfo> {
       DCHECK_NE(delta, 0.0f);
       if (!storage_)
         AllocateStorage();
-      storage_[index].SetWidth(storage_[index].Width() + delta);
+      storage_[index].set_width(storage_[index].width() + delta);
     }
 
     void SetAt(unsigned index, GlyphOffset offset) {
       DCHECK_LT(index, size());
       if (!storage_) {
-        if (offset.Width() == 0 && offset.Height() == 0)
+        if (offset.width() == 0 && offset.height() == 0)
           return;
         AllocateStorage();
       }

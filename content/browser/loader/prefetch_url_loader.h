@@ -11,7 +11,6 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "content/browser/web_package/prefetched_signed_exchange_cache.h"
 #include "content/common/content_export.h"
@@ -21,8 +20,9 @@
 #include "mojo/public/cpp/system/data_pipe_drainer.h"
 #include "net/base/network_isolation_key.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
-#include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace network {
@@ -61,7 +61,6 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
   // additionally create a request (e.g. for fetching certificate if the
   // prefetch was for a signed exchange).
   PrefetchURLLoader(
-      int32_t routing_id,
       int32_t request_id,
       uint32_t options,
       int frame_tree_node_id,
@@ -78,6 +77,10 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
           prefetched_signed_exchange_cache,
       const std::string& accept_langs,
       RecursivePrefetchTokenGenerator recursive_prefetch_token_generator);
+
+  PrefetchURLLoader(const PrefetchURLLoader&) = delete;
+  PrefetchURLLoader& operator=(const PrefetchURLLoader&) = delete;
+
   ~PrefetchURLLoader() override;
 
   // Sends an empty response's body to |forwarding_client_|. If failed to create
@@ -94,13 +97,14 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
       const std::vector<std::string>& removed_headers,
       const net::HttpRequestHeaders& modified_headers,
       const net::HttpRequestHeaders& modified_cors_exempt_headers,
-      const base::Optional<GURL>& new_url) override;
+      const absl::optional<GURL>& new_url) override;
   void SetPriority(net::RequestPriority priority,
                    int intra_priority_value) override;
   void PauseReadingBodyFromNet() override;
   void ResumeReadingBodyFromNet() override;
 
   // network::mojom::URLLoaderClient overrides:
+  void OnReceiveEarlyHints(network::mojom::EarlyHintsPtr early_hints) override;
   void OnReceiveResponse(network::mojom::URLResponseHeadPtr head) override;
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
                          network::mojom::URLResponseHeadPtr head) override;
@@ -158,8 +162,6 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
   // TODO(kinuko): This value can become stale if the preference is updated.
   // Make this listen to the changes if it becomes a real concern.
   bool is_signed_exchange_handling_enabled_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(PrefetchURLLoader);
 };
 
 }  // namespace content

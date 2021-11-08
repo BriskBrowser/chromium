@@ -4,20 +4,25 @@
 
 #include "ash/services/recording/recording_encoder_muxer.h"
 
+#include "ash/services/recording/public/mojom/recording_service.mojom-shared.h"
 #include "ash/services/recording/recording_service_constants.h"
 #include "base/bind.h"
 #include "base/check_op.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/system/sys_info.h"
 #include "media/base/audio_codecs.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
+#include "media/muxers/file_webm_muxer_delegate.h"
 
 namespace recording {
 
 namespace {
 
-// The video encoder is initialized asynchronously, and until that happens, all
-// received video frames are added to |pending_video_frames_|. However, in order
+// The audio and video encoders are initialized asynchronously, and until that
+// happens, all received audio and video frames are added to
+// |pending_video_frames_| and |pending_audio_frames_|. However, in order
 // to avoid an OOM situation if the encoder takes too long to initialize or it
 // never does, we impose an upper-bound to the number of pending frames. The
 // below value is equal to the maximum number of in-flight frames that the
@@ -26,23 +31,111 @@ namespace {
 // |pending_video_frames_|, we will start dropping frames to let the capturer
 // proceed, with an upper limit of how many frames we can drop that is
 // equivalent to 4 seconds, after which we'll declare an encoder initialization
-// failure.
+// failure. For convenience the same limit is used for as a cap on number of
+// audio frames stored in |pending_audio_frames_|.
 constexpr size_t kMaxPendingFrames = 10;
 constexpr size_t kMaxDroppedFrames = 4 * kMaxFrameRate;
 
+// We use a threshold of 512 MB to end the video recording due to low disk
+// space, which is the same threshold as that used by the low disk space
+// notification (See low_disk_notification.cc).
+constexpr int64_t kLowDiskSpaceThresholdInBytes = 512 * 1024 * 1024;
+
+// To avoid checking the remaining desk space after every write operation, we do
+// it only once every 10 MB written of webm data.
+constexpr int64_t kMinNumBytesBetweenDiskSpaceChecks = 10 * 1024 * 1024;
+
 }  // namespace
+
+// -----------------------------------------------------------------------------
+// RecordingEncoderMuxer::RecordingMuxerDelegate:
+
+// Defines a delegate for the WebmMuxer which extends the capability of
+// |media::FileWebmMuxerDelegate| (which writes seekable webm chunks directly to
+// a file), by adding recording specific behavior such as ending the recording
+// when an IO file write fails, or when a critical disk space threshold is
+// reached. An instance of this object is owned by the WebmMuxer, which in turn
+// is owned by the RecordingEncoderMuxer instance.
+class RecordingEncoderMuxer::RecordingMuxerDelegate
+    : public media::FileWebmMuxerDelegate {
+ public:
+  RecordingMuxerDelegate(const base::FilePath& webm_file_path,
+                         RecordingEncoderMuxer* muxer_owner)
+      : FileWebmMuxerDelegate(base::File(
+            webm_file_path,
+            base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE)),
+        muxer_owner_(muxer_owner),
+        webm_file_path_(webm_file_path) {
+    DCHECK(muxer_owner_);
+  }
+
+  RecordingMuxerDelegate(const RecordingMuxerDelegate&) = delete;
+  RecordingMuxerDelegate& operator=(const RecordingMuxerDelegate&) = delete;
+
+  ~RecordingMuxerDelegate() override = default;
+
+ protected:
+  // media::FileWebmMuxerDelegate:
+  mkvmuxer::int32 DoWrite(const void* buf, mkvmuxer::uint32 len) override {
+    const auto result = FileWebmMuxerDelegate::DoWrite(buf, len);
+    num_bytes_till_next_disk_space_check_ -= len;
+    if (result != 0) {
+      muxer_owner_->NotifyFailure(mojom::RecordingStatus::kIoError);
+      return result;
+    }
+
+    if (num_bytes_till_next_disk_space_check_ <= 0) {
+      num_bytes_till_next_disk_space_check_ =
+          kMinNumBytesBetweenDiskSpaceChecks;
+      const int64_t remaining_disk_bytes =
+          base::SysInfo::AmountOfFreeDiskSpace(webm_file_path_);
+      if (remaining_disk_bytes >= 0 &&
+          remaining_disk_bytes < kLowDiskSpaceThresholdInBytes) {
+        muxer_owner_->NotifyFailure(mojom::RecordingStatus::kLowDiskSpace);
+      }
+    }
+
+    return result;
+  }
+
+ private:
+  // A reference to the owner of the WebmMuxer instance that owns |this|. It is
+  // used to notify with any IO or disk space errors while writing the webm
+  // chunks.
+  RecordingEncoderMuxer* const muxer_owner_;  // Not owned.
+
+  // The path of the webm file to which the muxer output will be written.
+  const base::FilePath webm_file_path_;
+
+  // Once this value becomes <= 0, we trigger a remaining disk space poll.
+  // Initialized to 0, so that we poll the disk space on the very first write
+  // operation.
+  int64_t num_bytes_till_next_disk_space_check_ = 0;
+};
+
+// -----------------------------------------------------------------------------
+// RecordingEncoderMuxer::AudioFrame:
+
+RecordingEncoderMuxer::AudioFrame::AudioFrame(
+    std::unique_ptr<media::AudioBus> audio_bus,
+    base::TimeTicks time)
+    : bus(std::move(audio_bus)), capture_time(time) {}
+RecordingEncoderMuxer::AudioFrame::AudioFrame(AudioFrame&&) = default;
+RecordingEncoderMuxer::AudioFrame::~AudioFrame() = default;
+
+// -----------------------------------------------------------------------------
+// RecordingEncoderMuxer:
 
 // static
 base::SequenceBound<RecordingEncoderMuxer> RecordingEncoderMuxer::Create(
     scoped_refptr<base::SequencedTaskRunner> blocking_task_runner,
     const media::VideoEncoder::Options& video_encoder_options,
     const media::AudioParameters* audio_input_params,
-    media::WebmMuxer::WriteDataCB muxer_output_callback,
-    FailureCallback on_failure_callback) {
+    const base::FilePath& webm_file_path,
+    OnFailureCallback on_failure_callback) {
   return base::SequenceBound<RecordingEncoderMuxer>(
       std::move(blocking_task_runner), video_encoder_options,
-      audio_input_params, std::move(muxer_output_callback),
-      std::move(on_failure_callback));
+      audio_input_params, webm_file_path, std::move(on_failure_callback));
 }
 
 void RecordingEncoderMuxer::InitializeVideoEncoder(
@@ -90,7 +183,7 @@ void RecordingEncoderMuxer::EncodeVideo(
 
     if (++num_dropped_frames_ >= kMaxDroppedFrames) {
       LOG(ERROR) << "Video encoder took too long to initialize.";
-      NotifyFailure(FailureType::kEncoderInitialization, /*for_video=*/true);
+      NotifyFailure(mojom::RecordingStatus::kVideoEncoderInitializationFailure);
     }
   }
 }
@@ -101,46 +194,49 @@ void RecordingEncoderMuxer::EncodeAudio(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(audio_encoder_);
 
-  if (!did_failure_occur())
-    audio_encoder_->EncodeAudio(*audio_bus, capture_time);
+  AudioFrame frame(std::move(audio_bus), capture_time);
+  if (is_audio_encoder_initialized_) {
+    EncodeAudioImpl(std::move(frame));
+    return;
+  }
+
+  pending_audio_frames_.push_back(std::move(frame));
+  if (pending_audio_frames_.size() == kMaxPendingFrames) {
+    pending_audio_frames_.pop_front();
+    DCHECK_LT(pending_audio_frames_.size(), kMaxPendingFrames);
+  }
 }
 
 void RecordingEncoderMuxer::FlushAndFinalize(base::OnceClosure on_done) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // Note that flushing the audio encoder is synchronous, so calling Flush() on
-  // it will result in OnAudioEncoded() being called directly (if any audio
-  // frames were still buffered and not processed). The video encoder responds
-  // asynchronously.
-  if (audio_encoder_)
-    audio_encoder_->Flush();
-  video_encoder_->Flush(
-      base::BindOnce(&RecordingEncoderMuxer::OnVideoEncoderFlushed,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(on_done)));
+  if (audio_encoder_) {
+    audio_encoder_->Flush(
+        base::BindOnce(&RecordingEncoderMuxer::OnAudioEncoderFlushed,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(on_done)));
+  } else {
+    OnAudioEncoderFlushed(std::move(on_done), media::OkStatus());
+  }
 }
 
 RecordingEncoderMuxer::RecordingEncoderMuxer(
     const media::VideoEncoder::Options& video_encoder_options,
     const media::AudioParameters* audio_input_params,
-    media::WebmMuxer::WriteDataCB muxer_output_callback,
-    FailureCallback on_failure_callback)
-    : webm_muxer_(media::kCodecOpus,
-                  /*has_video_=*/true,
-                  /*has_audio_=*/!!audio_input_params,
-                  muxer_output_callback),
-      on_failure_callback_(std::move(on_failure_callback)) {
+    const base::FilePath& webm_file_path,
+    OnFailureCallback on_failure_callback)
+    : on_failure_callback_(std::move(on_failure_callback)),
+      webm_muxer_(
+          media::AudioCodec::kOpus,
+          /*has_video_=*/true,
+          /*has_audio_=*/!!audio_input_params,
+          std::make_unique<RecordingMuxerDelegate>(webm_file_path, this)) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (audio_input_params) {
-    audio_encoder_ = std::make_unique<media::AudioOpusEncoder>(
-        *audio_input_params,
-        base::BindRepeating(&RecordingEncoderMuxer::OnAudioEncoded,
-                            weak_ptr_factory_.GetWeakPtr()),
-        base::BindRepeating(&RecordingEncoderMuxer::OnEncoderStatus,
-                            weak_ptr_factory_.GetWeakPtr(),
-                            /*for_video=*/false),
-        // 0 means the encoder picks bitrate automatically.
-        /*bits_per_second=*/0);
+    media::AudioEncoder::Options audio_encoder_options;
+    audio_encoder_options.channels = audio_input_params->channels();
+    audio_encoder_options.sample_rate = audio_input_params->sample_rate();
+    InitializeAudioEncoder(audio_encoder_options);
   }
 
   InitializeVideoEncoder(video_encoder_options);
@@ -148,6 +244,36 @@ RecordingEncoderMuxer::RecordingEncoderMuxer(
 
 RecordingEncoderMuxer::~RecordingEncoderMuxer() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
+
+void RecordingEncoderMuxer::InitializeAudioEncoder(
+    const media::AudioEncoder::Options& options) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  is_audio_encoder_initialized_ = false;
+  audio_encoder_ = std::make_unique<media::AudioOpusEncoder>();
+  audio_encoder_->Initialize(
+      options,
+      base::BindRepeating(&RecordingEncoderMuxer::OnAudioEncoded,
+                          weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&RecordingEncoderMuxer::OnAudioEncoderInitialized,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void RecordingEncoderMuxer::OnAudioEncoderInitialized(media::Status status) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (!status.is_ok()) {
+    LOG(ERROR) << "Could not initialize the audio encoder: "
+               << status.message();
+    NotifyFailure(mojom::RecordingStatus::kAudioEncoderInitializationFailure);
+    return;
+  }
+
+  is_audio_encoder_initialized_ = true;
+  for (auto& frame : pending_audio_frames_)
+    EncodeAudioImpl(std::move(frame));
+  pending_audio_frames_.clear();
 }
 
 void RecordingEncoderMuxer::OnVideoEncoderInitialized(
@@ -163,8 +289,7 @@ void RecordingEncoderMuxer::OnVideoEncoderInitialized(
   if (!status.is_ok()) {
     LOG(ERROR) << "Could not initialize the video encoder: "
                << status.message();
-    NotifyFailure(FailureType::kEncoderInitialization,
-                  /*for_video=*/true);
+    NotifyFailure(mojom::RecordingStatus::kVideoEncoderInitializationFailure);
     return;
   }
 
@@ -172,6 +297,19 @@ void RecordingEncoderMuxer::OnVideoEncoderInitialized(
   for (auto& frame : pending_video_frames_)
     EncodeVideoImpl(frame);
   pending_video_frames_.clear();
+}
+
+void RecordingEncoderMuxer::EncodeAudioImpl(AudioFrame frame) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(is_audio_encoder_initialized_);
+
+  if (did_failure_occur())
+    return;
+
+  audio_encoder_->Encode(
+      std::move(frame.bus), frame.capture_time,
+      base::BindOnce(&RecordingEncoderMuxer::OnEncoderStatus,
+                     weak_ptr_factory_.GetWeakPtr(), /*for_video=*/false));
 }
 
 void RecordingEncoderMuxer::EncodeVideoImpl(
@@ -191,12 +329,12 @@ void RecordingEncoderMuxer::EncodeVideoImpl(
 
 void RecordingEncoderMuxer::OnVideoEncoderOutput(
     media::VideoEncoderOutput output,
-    base::Optional<media::VideoEncoder::CodecDescription> codec_description) {
+    absl::optional<media::VideoEncoder::CodecDescription> codec_description) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  media::WebmMuxer::VideoParameters params(video_visible_rect_sizes_.front(),
-                                           kMaxFrameRate, media::kCodecVP8,
-                                           kColorSpace);
+  media::WebmMuxer::VideoParameters params(
+      video_visible_rect_sizes_.front(), kMaxFrameRate, media::VideoCodec::kVP8,
+      kColorSpace);
   video_visible_rect_sizes_.pop();
 
   // TODO(crbug.com/1143798): Explore changing the WebmMuxer so it doesn't work
@@ -209,7 +347,8 @@ void RecordingEncoderMuxer::OnVideoEncoderOutput(
 }
 
 void RecordingEncoderMuxer::OnAudioEncoded(
-    media::EncodedAudioBuffer encoded_audio) {
+    media::EncodedAudioBuffer encoded_audio,
+    absl::optional<media::AudioEncoder::CodecDescription> codec_description) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(audio_encoder_);
 
@@ -220,6 +359,19 @@ void RecordingEncoderMuxer::OnAudioEncoded(
       encoded_audio.encoded_data_size};
   webm_muxer_.OnEncodedAudio(encoded_audio.params, std::move(encoded_data),
                              encoded_audio.timestamp);
+}
+
+void RecordingEncoderMuxer::OnAudioEncoderFlushed(base::OnceClosure on_done,
+                                                  media::Status status) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (!status.is_ok())
+    LOG(ERROR) << "Could not flush audio encoder: " << status.message();
+
+  DCHECK(video_encoder_);
+  video_encoder_->Flush(
+      base::BindOnce(&RecordingEncoderMuxer::OnVideoEncoderFlushed,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(on_done)));
 }
 
 void RecordingEncoderMuxer::OnVideoEncoderFlushed(base::OnceClosure on_done,
@@ -244,14 +396,15 @@ void RecordingEncoderMuxer::OnEncoderStatus(bool for_video,
 
   LOG(ERROR) << "Failed to encode " << (for_video ? "video" : "audio")
              << " frame: " << status.message();
-  NotifyFailure(FailureType::kEncoding, for_video);
+  NotifyFailure(for_video ? mojom::RecordingStatus::kVideoEncodingError
+                          : mojom::RecordingStatus::kAudioEncodingError);
 }
 
-void RecordingEncoderMuxer::NotifyFailure(FailureType type, bool for_video) {
+void RecordingEncoderMuxer::NotifyFailure(mojom::RecordingStatus status) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (on_failure_callback_)
-    std::move(on_failure_callback_).Run(type, for_video);
+    std::move(on_failure_callback_).Run(status);
 }
 
 }  // namespace recording

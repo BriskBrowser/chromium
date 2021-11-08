@@ -31,8 +31,7 @@ FakePowerManagerClient* g_instance = nullptr;
 constexpr double kUsbMinAcWatts = 24;
 
 // The time power manager will wait before resuspending from a dark resume.
-constexpr base::TimeDelta kDarkSuspendDelayTimeout =
-    base::TimeDelta::FromSeconds(20);
+constexpr base::TimeDelta kDarkSuspendDelayTimeout = base::Seconds(20);
 
 // Callback fired when timer started through |StartArcTimer| expires. In
 // non-test environments this does a potentially blocking call on the UI
@@ -161,7 +160,7 @@ void FakePowerManagerClient::GetKeyboardBrightnessPercent(
       base::BindOnce(std::move(callback), keyboard_brightness_percent_));
 }
 
-const base::Optional<power_manager::PowerSupplyProperties>&
+const absl::optional<power_manager::PowerSupplyProperties>&
 FakePowerManagerClient::GetLastStatus() {
   return props_;
 }
@@ -174,6 +173,8 @@ void FakePowerManagerClient::RequestStatusUpdate() {
       FROM_HERE, base::BindOnce(&FakePowerManagerClient::NotifyObservers,
                                 weak_ptr_factory_.GetWeakPtr()));
 }
+
+void FakePowerManagerClient::RequestAllPeripheralBatteryUpdate() {}
 
 void FakePowerManagerClient::RequestThermalState() {}
 
@@ -392,8 +393,23 @@ void FakePowerManagerClient::RefreshBluetoothBattery(
   for (auto& observer : observers_) {
     observer.PeripheralBatteryStatusReceived(
         SysnameFromBluetoothAddress(address), "somename",
-        peripheral_battery_refresh_levels_[address]);
+        peripheral_battery_refresh_levels_[address],
+        power_manager::
+            PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_UNKNOWN,
+        /*serial_number=*/"",
+        /*active_update=*/true);
   }
+}
+
+void FakePowerManagerClient::SetExternalDisplayALSBrightness(bool enabled) {
+  external_display_als_brightness_enabled_ = enabled;
+}
+
+void FakePowerManagerClient::GetExternalDisplayALSBrightness(
+    DBusMethodCallback<bool> callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback),
+                                external_display_als_brightness_enabled_));
 }
 
 bool FakePowerManagerClient::PopVideoActivityReport() {

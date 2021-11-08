@@ -24,6 +24,9 @@ namespace chromeos {
 // initializes the DBusThreadManager instance.
 class COMPONENT_EXPORT(UPSTART_CLIENT) UpstartClient {
  public:
+  UpstartClient(const UpstartClient&) = delete;
+  UpstartClient& operator=(const UpstartClient&) = delete;
+
   virtual ~UpstartClient();
 
   // Creates and initializes the global instance. |bus| must not be null.
@@ -90,7 +93,9 @@ class COMPONENT_EXPORT(UPSTART_CLIENT) UpstartClient {
   virtual void StopWilcoDtcService(VoidDBusMethodCallback callback) = 0;
 
   // Starts arc-data-snapshotd daemon.
-  virtual void StartArcDataSnapshotd(VoidDBusMethodCallback callback) = 0;
+  virtual void StartArcDataSnapshotd(
+      const std::vector<std::string>& upstart_env,
+      VoidDBusMethodCallback callback) = 0;
 
   // Stops arc-data-snapshotd daemon.
   virtual void StopArcDataSnapshotd(VoidDBusMethodCallback callback) = 0;
@@ -98,11 +103,13 @@ class COMPONENT_EXPORT(UPSTART_CLIENT) UpstartClient {
  protected:
   // Initialize() should be used instead.
   UpstartClient();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(UpstartClient);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when //chromeos/dbus moved to ash.
+namespace ash {
+using ::chromeos::UpstartClient;
+}  // namespace ash
 
 #endif  // CHROMEOS_DBUS_UPSTART_UPSTART_CLIENT_H_

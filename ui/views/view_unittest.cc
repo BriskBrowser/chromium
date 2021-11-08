@@ -33,6 +33,7 @@
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_types.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/compositor_switches.h"
 #include "ui/compositor/layer.h"
@@ -46,7 +47,7 @@
 #include "ui/events/scoped_target_handler.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/transform.h"
+#include "ui/gfx/geometry/transform.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/native_theme/test_native_theme.h"
 #include "ui/strings/grit/ui_strings.h"
@@ -55,7 +56,6 @@
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_types.h"
 #include "ui/views/paint_info.h"
 #include "ui/views/test/view_metadata_test_utils.h"
 #include "ui/views/test/views_test_base.h"
@@ -65,7 +65,6 @@
 #include "ui/views/widget/root_view.h"
 #include "ui/views/window/dialog_delegate.h"
 
-using base::ASCIIToUTF16;
 using testing::ElementsAre;
 
 namespace {
@@ -183,8 +182,8 @@ void ScrambleTree(views::View* view) {
   size_t count = view->children().size();
   if (count > 1) {
     const uint64_t max = count - 1;
-    size_t a = size_t{base::RandGenerator(max)};
-    size_t b = size_t{base::RandGenerator(max)};
+    size_t a = static_cast<size_t>(base::RandGenerator(max));
+    size_t b = static_cast<size_t>(base::RandGenerator(max));
 
     if (a != b) {
       views::View* view_a = view->children()[a];
@@ -556,14 +555,15 @@ class ScopedTestPaintWidget {
     widget_->GetRootView()->SetBounds(0, 0, 25, 26);
   }
 
+  ScopedTestPaintWidget(const ScopedTestPaintWidget&) = delete;
+  ScopedTestPaintWidget& operator=(const ScopedTestPaintWidget&) = delete;
+
   ~ScopedTestPaintWidget() { widget_->CloseNow(); }
 
   Widget* operator->() { return widget_; }
 
  private:
   Widget* widget_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedTestPaintWidget);
 };
 
 }  // namespace
@@ -1237,14 +1237,16 @@ TEST_F(ViewTest, PaintInPromotedToLayer) {
   v2->SetBounds(3, 4, 6, 5);
   v1->AddChildView(v2);
 
-  // Paint everything once, since it has to build its cache. Then we can test
-  // invalidation.
-  gfx::Rect first_paint(1, 1);
-  auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  v1->Paint(PaintInfo::CreateRootPaintInfo(
-      ui::PaintContext(list.get(), 1.f, first_paint, false), v1->size()));
-  v1->Reset();
-  v2->Reset();
+  {
+    // Paint everything once, since it has to build its cache. Then we can test
+    // invalidation.
+    gfx::Rect first_paint(1, 1);
+    auto list = base::MakeRefCounted<cc::DisplayItemList>();
+    v1->Paint(PaintInfo::CreateRootPaintInfo(
+        ui::PaintContext(list.get(), 1.f, first_paint, false), v1->size()));
+    v1->Reset();
+    v2->Reset();
+  }
 
   {
     gfx::Rect paint_area(25, 26);
@@ -1964,9 +1966,9 @@ TEST_F(ViewTest, NotifyEnterExitOnChild) {
 }
 
 TEST_F(ViewTest, Textfield) {
-  const base::string16 kText = ASCIIToUTF16(
-      "Reality is that which, when you stop believing it, doesn't go away.");
-  const base::string16 kExtraText = ASCIIToUTF16("Pretty deep, Philip!");
+  const std::u16string kText =
+      u"Reality is that which, when you stop believing it, doesn't go away.";
+  const std::u16string kExtraText = u"Pretty deep, Philip!";
 
   Widget* widget = new Widget;
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
@@ -1982,7 +1984,7 @@ TEST_F(ViewTest, Textfield) {
   EXPECT_EQ(kText, textfield->GetText());
   textfield->AppendText(kExtraText);
   EXPECT_EQ(kText + kExtraText, textfield->GetText());
-  textfield->SetText(base::string16());
+  textfield->SetText(std::u16string());
   EXPECT_TRUE(textfield->GetText().empty());
 
   // Test selection related methods.
@@ -1998,10 +2000,9 @@ TEST_F(ViewTest, Textfield) {
 
 // Tests that the Textfield view respond appropiately to cut/copy/paste.
 TEST_F(ViewTest, TextfieldCutCopyPaste) {
-  const base::string16 kNormalText = ASCIIToUTF16("Normal");
-  const base::string16 kReadOnlyText = ASCIIToUTF16("Read only");
-  const base::string16 kPasswordText =
-      ASCIIToUTF16("Password! ** Secret stuff **");
+  const std::u16string kNormalText = u"Normal";
+  const std::u16string kReadOnlyText = u"Read only";
+  const std::u16string kPasswordText = u"Password! ** Secret stuff **";
 
   ui::Clipboard* clipboard = ui::Clipboard::GetForCurrentThread();
 
@@ -2031,7 +2032,7 @@ TEST_F(ViewTest, TextfieldCutCopyPaste) {
 
   normal->SelectAll(false);
   normal->ExecuteCommand(Textfield::kCut, 0);
-  base::string16 result;
+  std::u16string result;
   clipboard->ReadText(ui::ClipboardBuffer::kCopyPaste, /* data_dst = */ nullptr,
                       &result);
   EXPECT_EQ(kNormalText, result);
@@ -2106,6 +2107,10 @@ class ViewPaintOptimizationTest : public ViewsTestBase {
  public:
   ViewPaintOptimizationTest() = default;
 
+  ViewPaintOptimizationTest(const ViewPaintOptimizationTest&) = delete;
+  ViewPaintOptimizationTest& operator=(const ViewPaintOptimizationTest&) =
+      delete;
+
   ~ViewPaintOptimizationTest() override = default;
 
   void SetUp() override {
@@ -2116,8 +2121,6 @@ class ViewPaintOptimizationTest : public ViewsTestBase {
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewPaintOptimizationTest);
 };
 
 // Tests that only Views where SchedulePaint was invoked get repainted.
@@ -2206,14 +2209,15 @@ class TestViewWidget {
     EXPECT_TRUE(widget_.GetFocusManager());
   }
 
+  TestViewWidget(const TestViewWidget&) = delete;
+  TestViewWidget& operator=(const TestViewWidget&) = delete;
+
   TestView* view() { return view_; }
   Widget* widget() { return &widget_; }
 
  private:
   TestView* view_;
   Widget widget_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestViewWidget);
 };
 
 }  // namespace
@@ -2286,7 +2290,7 @@ TEST_F(ViewTest, HandleAccelerator) {
 // TODO(themblsha): Bring this up on non-Mac platforms. It currently fails
 // because TestView::AcceleratorPressed() is not called. See
 // http://crbug.com/667757.
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
 // Test that BridgedContentView correctly handles Accelerator key events when
 // subject to OS event dispatch.
 TEST_F(ViewTest, ActivateAcceleratorOnMac) {
@@ -2329,11 +2333,11 @@ TEST_F(ViewTest, ActivateAcceleratorOnMac) {
                              key_down_accelerator.modifiers());
   EXPECT_EQ(view->accelerator_count_map_[key_down_accelerator], 1);
 }
-#endif  // OS_APPLE
+#endif  // OS_MAC
 
 // TODO(crbug.com/667757): these tests were initially commented out when getting
 // aura to run. Figure out if still valuable and either nuke or fix.
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
 TEST_F(ViewTest, ActivateAccelerator) {
   ui::Accelerator return_accelerator(ui::VKEY_RETURN, ui::EF_NONE);
   TestViewWidget test_widget(CreateParams(Widget::InitParams::TYPE_POPUP),
@@ -2415,7 +2419,7 @@ TEST_F(ViewTest, ViewInHiddenWidgetWithAccelerator) {
   EXPECT_FALSE(focus_manager->ProcessAccelerator(return_accelerator));
   EXPECT_EQ(1, view->accelerator_count_map_[return_accelerator]);
 }
-#endif  // OS_APPLE
+#endif  // OS_MAC
 
 ////////////////////////////////////////////////////////////////////////////////
 // Native view hierachy
@@ -2423,6 +2427,11 @@ TEST_F(ViewTest, ViewInHiddenWidgetWithAccelerator) {
 class ToplevelWidgetObserverView : public View {
  public:
   ToplevelWidgetObserverView() = default;
+
+  ToplevelWidgetObserverView(const ToplevelWidgetObserverView&) = delete;
+  ToplevelWidgetObserverView& operator=(const ToplevelWidgetObserverView&) =
+      delete;
+
   ~ToplevelWidgetObserverView() override = default;
 
   // View overrides:
@@ -2442,8 +2451,6 @@ class ToplevelWidgetObserverView : public View {
 
  private:
   Widget* toplevel_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(ToplevelWidgetObserverView);
 };
 
 // Test that
@@ -2497,6 +2504,10 @@ TEST_F(ViewTest, NativeViewHierarchyChanged) {
 class TransformPaintView : public TestView {
  public:
   TransformPaintView() = default;
+
+  TransformPaintView(const TransformPaintView&) = delete;
+  TransformPaintView& operator=(const TransformPaintView&) = delete;
+
   ~TransformPaintView() override = default;
 
   void ClearScheduledPaintRect() { scheduled_paint_rect_ = gfx::Rect(); }
@@ -2511,8 +2522,6 @@ class TransformPaintView : public TestView {
 
  private:
   gfx::Rect scheduled_paint_rect_;
-
-  DISALLOW_COPY_AND_ASSIGN(TransformPaintView);
 };
 
 TEST_F(ViewTest, TransformPaint) {
@@ -2731,6 +2740,10 @@ TEST_F(ViewTest, TransformVisibleBound) {
 class VisibleBoundsView : public View {
  public:
   VisibleBoundsView() = default;
+
+  VisibleBoundsView(const VisibleBoundsView&) = delete;
+  VisibleBoundsView& operator=(const VisibleBoundsView&) = delete;
+
   ~VisibleBoundsView() override = default;
 
   bool received_notification() const { return received_notification_; }
@@ -2746,8 +2759,6 @@ class VisibleBoundsView : public View {
   void OnVisibleBoundsChanged() override { received_notification_ = true; }
 
   bool received_notification_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(VisibleBoundsView);
 };
 
 TEST_F(ViewTest, OnVisibleBoundsChanged) {
@@ -2890,26 +2901,28 @@ TEST_F(ViewTest, ConversionsWithTransform) {
   // View used to test a rotation transform.
   TestView* child_2 = new TestView;
 
-  top_view.AddChildView(child);
-  child->AddChildView(child_child);
+  {
+    top_view.AddChildView(child);
+    child->AddChildView(child_child);
 
-  top_view.SetBoundsRect(gfx::Rect(0, 0, 1000, 1000));
+    top_view.SetBoundsRect(gfx::Rect(0, 0, 1000, 1000));
 
-  child->SetBoundsRect(gfx::Rect(7, 19, 500, 500));
-  gfx::Transform transform;
-  transform.Scale(3.0, 4.0);
-  child->SetTransform(transform);
+    child->SetBoundsRect(gfx::Rect(7, 19, 500, 500));
+    gfx::Transform transform;
+    transform.Scale(3.0, 4.0);
+    child->SetTransform(transform);
 
-  child_child->SetBoundsRect(gfx::Rect(17, 13, 100, 100));
-  transform.MakeIdentity();
-  transform.Scale(5.0, 7.0);
-  child_child->SetTransform(transform);
+    child_child->SetBoundsRect(gfx::Rect(17, 13, 100, 100));
+    transform.MakeIdentity();
+    transform.Scale(5.0, 7.0);
+    child_child->SetTransform(transform);
 
-  top_view.AddChildView(child_2);
-  child_2->SetBoundsRect(gfx::Rect(700, 725, 100, 100));
-  transform.MakeIdentity();
-  RotateClockwise(&transform);
-  child_2->SetTransform(transform);
+    top_view.AddChildView(child_2);
+    child_2->SetBoundsRect(gfx::Rect(700, 725, 100, 100));
+    transform.MakeIdentity();
+    RotateClockwise(&transform);
+    child_2->SetTransform(transform);
+  }
 
   // Sanity check to make sure basic transforms act as expected.
   {
@@ -3148,6 +3161,10 @@ TEST_F(ViewTest, ConvertRectWithTransform) {
 class ObserverView : public View {
  public:
   ObserverView();
+
+  ObserverView(const ObserverView&) = delete;
+  ObserverView& operator=(const ObserverView&) = delete;
+
   ~ObserverView() override;
 
   void ResetTestState();
@@ -3172,8 +3189,6 @@ class ObserverView : public View {
   bool has_remove_details_ = false;
   ViewHierarchyChangedDetails add_details_;
   ViewHierarchyChangedDetails remove_details_;
-
-  DISALLOW_COPY_AND_ASSIGN(ObserverView);
 };
 
 ObserverView::ObserverView() = default;
@@ -3335,6 +3350,10 @@ TEST_F(ViewTest, ViewHierarchyChanged) {
 class WidgetObserverView : public View {
  public:
   WidgetObserverView();
+
+  WidgetObserverView(const WidgetObserverView&) = delete;
+  WidgetObserverView& operator=(const WidgetObserverView&) = delete;
+
   ~WidgetObserverView() override;
 
   void ResetTestState();
@@ -3348,8 +3367,6 @@ class WidgetObserverView : public View {
 
   int added_to_widget_count_ = 0;
   int removed_from_widget_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(WidgetObserverView);
 };
 
 WidgetObserverView::WidgetObserverView() {
@@ -3501,7 +3518,7 @@ TEST_F(ViewTest, RemoveAllChildViews) {
   EXPECT_EQ(3u, foo->children().size());
 
   // Now remove all child views from root.
-  root.RemoveAllChildViews(true);
+  root.RemoveAllChildViews();
 
   EXPECT_TRUE(root.children().empty());
 }
@@ -3760,12 +3777,13 @@ TEST_F(ViewTest, UseMirroredLayoutEnableMirroring) {
 class ActiveWidget : public Widget {
  public:
   ActiveWidget() = default;
+
+  ActiveWidget(const ActiveWidget&) = delete;
+  ActiveWidget& operator=(const ActiveWidget&) = delete;
+
   ~ActiveWidget() override = default;
 
   bool IsActive() const override { return true; }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ActiveWidget);
 };
 
 TEST_F(ViewTest, AdvanceFocusIfNecessaryForUnfocusableView) {
@@ -3822,6 +3840,9 @@ class TestLayerAnimator : public ui::LayerAnimator {
  public:
   TestLayerAnimator();
 
+  TestLayerAnimator(const TestLayerAnimator&) = delete;
+  TestLayerAnimator& operator=(const TestLayerAnimator&) = delete;
+
   const gfx::Rect& last_bounds() const { return last_bounds_; }
 
   // LayerAnimator.
@@ -3832,12 +3853,10 @@ class TestLayerAnimator : public ui::LayerAnimator {
 
  private:
   gfx::Rect last_bounds_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestLayerAnimator);
 };
 
 TestLayerAnimator::TestLayerAnimator()
-    : ui::LayerAnimator(base::TimeDelta::FromMilliseconds(0)) {}
+    : ui::LayerAnimator(base::Milliseconds(0)) {}
 
 void TestLayerAnimator::SetBounds(const gfx::Rect& bounds) {
   last_bounds_ = bounds;
@@ -3848,6 +3867,10 @@ class TestingLayerViewObserver : public ViewObserver {
   explicit TestingLayerViewObserver(View* view) : view_(view) {
     view_->AddObserver(this);
   }
+
+  TestingLayerViewObserver(const TestingLayerViewObserver&) = delete;
+  TestingLayerViewObserver& operator=(const TestingLayerViewObserver&) = delete;
+
   ~TestingLayerViewObserver() override { view_->RemoveObserver(this); }
 
   gfx::Rect GetLastLayerBoundsAndReset() {
@@ -3864,8 +3887,6 @@ class TestingLayerViewObserver : public ViewObserver {
 
   gfx::Rect last_layer_bounds_;
   View* view_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestingLayerViewObserver);
 };
 
 }  // namespace
@@ -4307,6 +4328,9 @@ class PaintTrackingView : public View {
  public:
   PaintTrackingView() = default;
 
+  PaintTrackingView(const PaintTrackingView&) = delete;
+  PaintTrackingView& operator=(const PaintTrackingView&) = delete;
+
   bool painted() const { return painted_; }
   void set_painted(bool value) { painted_ = value; }
 
@@ -4314,8 +4338,6 @@ class PaintTrackingView : public View {
 
  private:
   bool painted_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(PaintTrackingView);
 };
 
 // Makes sure child views with layers aren't painted when paint starts at an
@@ -4913,6 +4935,9 @@ class PaintLayerView : public View {
  public:
   PaintLayerView() = default;
 
+  PaintLayerView(const PaintLayerView&) = delete;
+  PaintLayerView& operator=(const PaintLayerView&) = delete;
+
   void PaintChildren(const PaintInfo& info) override {
     last_paint_info_ = std::make_unique<PaintInfo>(info);
     View::PaintChildren(info);
@@ -4924,8 +4949,6 @@ class PaintLayerView : public View {
 
  private:
   std::unique_ptr<PaintInfo> last_paint_info_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaintLayerView);
 };
 
 }  // namespace
@@ -4933,6 +4956,9 @@ class PaintLayerView : public View {
 class ViewLayerPixelCanvasTest : public ViewLayerTest {
  public:
   ViewLayerPixelCanvasTest() = default;
+
+  ViewLayerPixelCanvasTest(const ViewLayerPixelCanvasTest&) = delete;
+  ViewLayerPixelCanvasTest& operator=(const ViewLayerPixelCanvasTest&) = delete;
 
   ~ViewLayerPixelCanvasTest() override = default;
 
@@ -4958,8 +4984,6 @@ class ViewLayerPixelCanvasTest : public ViewLayerTest {
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewLayerPixelCanvasTest);
 };
 
 TEST_F(ViewLayerPixelCanvasTest, SnapLayerToPixel) {
@@ -5161,6 +5185,10 @@ TEST_F(ViewTest, ScopedTargetHandlerReceivesEvents) {
 class WidgetWithCustomTheme : public Widget {
  public:
   explicit WidgetWithCustomTheme(ui::NativeTheme* theme) : theme_(theme) {}
+
+  WidgetWithCustomTheme(const WidgetWithCustomTheme&) = delete;
+  WidgetWithCustomTheme& operator=(const WidgetWithCustomTheme&) = delete;
+
   ~WidgetWithCustomTheme() override = default;
 
   // Widget:
@@ -5168,14 +5196,18 @@ class WidgetWithCustomTheme : public Widget {
 
  private:
   ui::NativeTheme* theme_;
-
-  DISALLOW_COPY_AND_ASSIGN(WidgetWithCustomTheme);
 };
 
 // See comment above test for details.
 class ViewThatAddsViewInOnThemeChanged : public View {
  public:
   ViewThatAddsViewInOnThemeChanged() { SetPaintToLayer(); }
+
+  ViewThatAddsViewInOnThemeChanged(const ViewThatAddsViewInOnThemeChanged&) =
+      delete;
+  ViewThatAddsViewInOnThemeChanged& operator=(
+      const ViewThatAddsViewInOnThemeChanged&) = delete;
+
   ~ViewThatAddsViewInOnThemeChanged() override = default;
 
   bool on_native_theme_changed_called() const {
@@ -5191,8 +5223,6 @@ class ViewThatAddsViewInOnThemeChanged : public View {
 
  private:
   bool on_native_theme_changed_called_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewThatAddsViewInOnThemeChanged);
 };
 
 // Creates and adds a new child view to |parent| that has a layer.
@@ -5232,6 +5262,9 @@ class NoLayerWhenHiddenView : public View {
     SetBounds(0, 0, 100, 100);
   }
 
+  NoLayerWhenHiddenView(const NoLayerWhenHiddenView&) = delete;
+  NoLayerWhenHiddenView& operator=(const NoLayerWhenHiddenView&) = delete;
+
   bool was_hidden() const { return was_hidden_; }
 
   // View:
@@ -5250,8 +5283,6 @@ class NoLayerWhenHiddenView : public View {
  private:
   bool was_hidden_ = false;
   RemovedFromWidgetCallback removed_from_widget_;
-
-  DISALLOW_COPY_AND_ASSIGN(NoLayerWhenHiddenView);
 };
 
 // Test that Views can safely manipulate Layers during Widget closure.
@@ -5290,6 +5321,10 @@ class OrderableView : public View {
   static constexpr int VIEW_ID_RAISED = 1000;
 
   OrderableView() = default;
+
+  OrderableView(const OrderableView&) = delete;
+  OrderableView& operator=(const OrderableView&) = delete;
+
   ~OrderableView() override = default;
 
   View::Views GetChildrenInZOrder() override {
@@ -5299,9 +5334,6 @@ class OrderableView : public View {
         [](const View* child) { return child->GetID() != VIEW_ID_RAISED; });
     return children_in_z_order;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(OrderableView);
 };
 
 TEST_F(ViewTest, ChildViewZOrderChanged) {
@@ -5375,12 +5407,12 @@ TEST_F(ViewTest, TestEnabledPropertyMetadata) {
   auto subscription = test_view->AddEnabledChangedCallback(base::BindRepeating(
       [](bool* enabled_changed) { *enabled_changed = true; },
       &enabled_changed));
-  views::metadata::ClassMetaData* view_metadata = View::MetaData();
+  ui::metadata::ClassMetaData* view_metadata = View::MetaData();
   ASSERT_TRUE(view_metadata);
-  views::metadata::MemberMetaDataBase* enabled_property =
+  ui::metadata::MemberMetaDataBase* enabled_property =
       view_metadata->FindMemberData("Enabled");
   ASSERT_TRUE(enabled_property);
-  base::string16 false_value = base::ASCIIToUTF16("false");
+  std::u16string false_value = u"false";
   enabled_property->SetValueAsString(test_view.get(), false_value);
   EXPECT_TRUE(enabled_changed);
   EXPECT_FALSE(test_view->GetEnabled());
@@ -5389,12 +5421,12 @@ TEST_F(ViewTest, TestEnabledPropertyMetadata) {
 
 TEST_F(ViewTest, TestMarginsPropertyMetadata) {
   auto test_view = std::make_unique<View>();
-  views::metadata::ClassMetaData* view_metadata = View::MetaData();
+  ui::metadata::ClassMetaData* view_metadata = View::MetaData();
   ASSERT_TRUE(view_metadata);
-  views::metadata::MemberMetaDataBase* insets_property =
+  ui::metadata::MemberMetaDataBase* insets_property =
       view_metadata->FindMemberData("kMarginsKey");
   ASSERT_TRUE(insets_property);
-  base::string16 insets_value = base::ASCIIToUTF16("8,8,8,8");
+  std::u16string insets_value = u"8,8,8,8";
   insets_property->SetValueAsString(test_view.get(), insets_value);
   EXPECT_EQ(insets_property->GetValueAsString(test_view.get()), insets_value);
 }
@@ -5501,7 +5533,7 @@ TEST_F(ViewTest, RemoveAllChildViewsNullsFocusListPointers) {
   View* const second = parent.AddChildView(std::make_unique<View>());
   View* const last = parent.AddChildView(std::make_unique<View>());
 
-  parent.RemoveAllChildViews(false /* delete_children */);
+  parent.RemoveAllChildViewsWithoutDeleting();
 
   EXPECT_EQ(first->GetPreviousFocusableView(), nullptr);
   EXPECT_EQ(first->GetNextFocusableView(), nullptr);
@@ -5608,6 +5640,9 @@ class ViewObserverTest : public ViewTest, public ViewObserver {
  public:
   ViewObserverTest() = default;
 
+  ViewObserverTest(const ViewObserverTest&) = delete;
+  ViewObserverTest& operator=(const ViewObserverTest&) = delete;
+
   ~ViewObserverTest() override = default;
 
   // ViewObserver:
@@ -5682,8 +5717,6 @@ class ViewObserverTest : public ViewTest, public ViewObserver {
   View* view_visibility_changed_starting_ = nullptr;
   View* view_bounds_changed_ = nullptr;
   View* view_reordered_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewObserverTest);
 };
 
 TEST_F(ViewObserverTest, ViewParentChanged) {
@@ -5770,6 +5803,9 @@ class TestParentView : public View {
  public:
   TestParentView() = default;
 
+  TestParentView(const TestParentView&) = delete;
+  TestParentView& operator=(const TestParentView&) = delete;
+
   void Reset() {
     received_layer_change_notification_ = false;
     layer_change_count_ = 0;
@@ -5794,8 +5830,6 @@ class TestParentView : public View {
 
   // Contains the number of OnChildLayerChanged() notifications for a child.
   int layer_change_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(TestParentView);
 };
 
 // Tests the following cases.

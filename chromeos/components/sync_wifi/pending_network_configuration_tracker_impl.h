@@ -22,6 +22,12 @@ class PendingNetworkConfigurationTrackerImpl
     : public PendingNetworkConfigurationTracker {
  public:
   explicit PendingNetworkConfigurationTrackerImpl(PrefService* pref_service);
+
+  PendingNetworkConfigurationTrackerImpl(
+      const PendingNetworkConfigurationTrackerImpl&) = delete;
+  PendingNetworkConfigurationTrackerImpl& operator=(
+      const PendingNetworkConfigurationTrackerImpl&) = delete;
+
   ~PendingNetworkConfigurationTrackerImpl() override;
 
   // Registers preferences used by this class in the provided |registry|.
@@ -30,22 +36,20 @@ class PendingNetworkConfigurationTrackerImpl
   // sync_wifi::PendingNetworkConfigurationTracker::
   std::string TrackPendingUpdate(
       const NetworkIdentifier& id,
-      const base::Optional<sync_pb::WifiConfigurationSpecifics>& specifics)
+      const absl::optional<sync_pb::WifiConfigurationSpecifics>& specifics)
       override;
   void MarkComplete(const std::string& change_guid,
                     const NetworkIdentifier& id) override;
   void IncrementCompletedAttempts(const std::string& change_guid,
                                   const NetworkIdentifier& id) override;
   std::vector<PendingNetworkConfigurationUpdate> GetPendingUpdates() override;
-  base::Optional<PendingNetworkConfigurationUpdate> GetPendingUpdate(
+  absl::optional<PendingNetworkConfigurationUpdate> GetPendingUpdate(
       const std::string& change_guid,
       const NetworkIdentifier& id) override;
 
  private:
   PrefService* pref_service_;
   base::Value dict_;
-
-  DISALLOW_COPY_AND_ASSIGN(PendingNetworkConfigurationTrackerImpl);
 };
 
 }  // namespace sync_wifi

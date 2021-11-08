@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_ANDROID_VR_ANDROID_UI_GESTURE_TARGET_H_
 #define CHROME_BROWSER_ANDROID_VR_ANDROID_UI_GESTURE_TARGET_H_
 
+#include <memory>
+
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
@@ -26,6 +28,10 @@ class AndroidUiGestureTarget {
                          float scale_factor,
                          float scroll_ratio,
                          int touch_slop);
+
+  AndroidUiGestureTarget(const AndroidUiGestureTarget&) = delete;
+  AndroidUiGestureTarget& operator=(const AndroidUiGestureTarget&) = delete;
+
   ~AndroidUiGestureTarget();
 
   static AndroidUiGestureTarget* FromJavaObject(
@@ -50,8 +56,6 @@ class AndroidUiGestureTarget {
   int touch_slop_;
 
   JavaObjectWeakGlobalRef java_ref_;
-
-  DISALLOW_COPY_AND_ASSIGN(AndroidUiGestureTarget);
 };
 
 }  // namespace vr

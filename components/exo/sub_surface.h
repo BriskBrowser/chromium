@@ -11,6 +11,7 @@
 #include "components/exo/surface_delegate.h"
 #include "components/exo/surface_observer.h"
 #include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/size_f.h"
 
 namespace base {
 namespace trace_event {
@@ -26,6 +27,10 @@ class Surface;
 class SubSurface : public SurfaceDelegate, public SurfaceObserver {
  public:
   SubSurface(Surface* surface, Surface* parent);
+
+  SubSurface(const SubSurface&) = delete;
+  SubSurface& operator=(const SubSurface&) = delete;
+
   ~SubSurface() override;
 
   // This schedules a sub-surface position change. The sub-surface will be
@@ -62,6 +67,22 @@ class SubSurface : public SurfaceDelegate, public SurfaceObserver {
   void OnActivationRequested() override {}
   void OnNewOutputAdded() override {}
   void OnSetServerStartResize() override {}
+  void ShowSnapPreviewToPrimary() override {}
+  void ShowSnapPreviewToSecondary() override {}
+  void HideSnapPreview() override {}
+  void SetSnappedToPrimary() override {}
+  void SetSnappedToSecondary() override {}
+  void UnsetSnap() override {}
+  void SetCanGoBack() override {}
+  void UnsetCanGoBack() override {}
+  void SetPip() override {}
+  void UnsetPip() override {}
+  void SetAspectRatio(const gfx::SizeF& aspect_ratio) override {}
+  void MoveToDesk(int desk_index) override {}
+  void SetVisibleOnAllWorkspaces() override {}
+  void SetInitialWorkspace(const char* initial_workspace) override {}
+  void Pin(bool trusted) override {}
+  void Unpin() override {}
 
   // Overridden from SurfaceObserver:
   void OnSurfaceDestroying(Surface* surface) override;
@@ -70,8 +91,6 @@ class SubSurface : public SurfaceDelegate, public SurfaceObserver {
   Surface* surface_;
   Surface* parent_;
   bool is_synchronized_ = true;
-
-  DISALLOW_COPY_AND_ASSIGN(SubSurface);
 };
 
 }  // namespace exo

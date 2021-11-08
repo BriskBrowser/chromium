@@ -22,6 +22,11 @@ class CONTENT_EXPORT ScreenCaptureDeviceAndroid
     : public media::VideoCaptureDevice {
  public:
   ScreenCaptureDeviceAndroid();
+
+  ScreenCaptureDeviceAndroid(const ScreenCaptureDeviceAndroid&) = delete;
+  ScreenCaptureDeviceAndroid& operator=(const ScreenCaptureDeviceAndroid&) =
+      delete;
+
   ~ScreenCaptureDeviceAndroid() override;
 
   // VideoCaptureDevice implementation.
@@ -30,15 +35,13 @@ class CONTENT_EXPORT ScreenCaptureDeviceAndroid
   void StopAndDeAllocate() override;
   void RequestRefreshFrame() override;
   void OnUtilizationReport(int frame_feedback_id,
-                           media::VideoFrameFeedback feedback) override;
+                           media::VideoCaptureFeedback feedback) override;
 
  private:
   SEQUENCE_CHECKER(sequence_checker_);
 
   media::ScreenCaptureMachineAndroid capture_machine_;
   scoped_refptr<media::ThreadSafeCaptureOracle> oracle_proxy_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScreenCaptureDeviceAndroid);
 };
 
 }  // namespace content

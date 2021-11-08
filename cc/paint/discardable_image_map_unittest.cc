@@ -28,7 +28,7 @@
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/skia_util.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 
 namespace cc {
 namespace {
@@ -373,7 +373,8 @@ TEST_F(DiscardableImageMapTest, PaintDestroyedWhileImageIsDrawn) {
 // Check if SkNoDrawCanvas does not crash for large layers.
 TEST_F(DiscardableImageMapTest, RestoreSavedBigLayers) {
   PaintFlags flags;
-  SkRect rect = SkRect::MakeWH(INT_MAX, INT_MAX);
+  SkRect rect =
+      SkRect::MakeWH(static_cast<float>(INT_MAX), static_cast<float>(INT_MAX));
   scoped_refptr<DisplayItemList> display_list = new DisplayItemList;
   display_list->StartPaint();
   display_list->push<DrawRectOp>(rect, flags);
@@ -408,13 +409,13 @@ TEST_F(DiscardableImageMapTest, RestoreSavedTransformedLayers) {
       CreateDiscardablePaintImage(gfx::Size(25, 25));
   PaintImage discardable_image3 =
       CreateDiscardablePaintImage(gfx::Size(25, 25));
-  display_list->push<TranslateOp>(25, 25);
+  display_list->push<TranslateOp>(25.0f, 25.0f);
   display_list->push<DrawImageOp>(discardable_image1, 0.f, 0.f);
   display_list->push<SaveLayerOp>(nullptr, &paint);
-  display_list->push<TranslateOp>(100, 100);
+  display_list->push<TranslateOp>(100.0f, 100.0f);
   display_list->push<DrawImageOp>(discardable_image2, 0.f, 0.f);
   display_list->push<RestoreOp>();
-  display_list->push<TranslateOp>(0, 100);
+  display_list->push<TranslateOp>(0.0f, 100.0f);
   display_list->push<DrawImageOp>(discardable_image3, 0.f, 0.f);
   display_list->EndPaintOfUnpaired(visible_rect);
   display_list->Finalize();
@@ -725,8 +726,8 @@ TEST_F(DiscardableImageMapTest, GathersAnimatedImages) {
   content_layer_client.set_bounds(visible_rect.size());
 
   std::vector<FrameMetadata> frames = {
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(2)),
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(3))};
+      FrameMetadata(true, base::Milliseconds(2)),
+      FrameMetadata(true, base::Milliseconds(3))};
 
   gfx::Size image_size(100, 100);
   PaintImage static_image = CreateDiscardablePaintImage(image_size);
@@ -808,8 +809,8 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInPaintRecordShaders) {
   shader_record->push<DrawImageOp>(static_image, 0.f, 0.f);
 
   std::vector<FrameMetadata> frames = {
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(1)),
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(1))};
+      FrameMetadata(true, base::Milliseconds(1)),
+      FrameMetadata(true, base::Milliseconds(1))};
   PaintImage animated_image = CreateAnimatedImage(gfx::Size(100, 100), frames);
   shader_record->push<DrawImageOp>(animated_image, 0.f, 0.f);
 
@@ -855,8 +856,8 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInPaintFilters) {
   filter_record->push<DrawImageOp>(static_image, 0.f, 0.f);
 
   std::vector<FrameMetadata> frames = {
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(1)),
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(1))};
+      FrameMetadata(true, base::Milliseconds(1)),
+      FrameMetadata(true, base::Milliseconds(1))};
   PaintImage animated_image = CreateAnimatedImage(gfx::Size(100, 100), frames);
   filter_record->push<DrawImageOp>(animated_image, 0.f, 0.f);
 
@@ -922,8 +923,8 @@ TEST_F(DiscardableImageMapTest, EmbeddedShaderWithAnimatedImages) {
   SkRect tile = SkRect::MakeWH(100, 100);
   auto shader_record = sk_make_sp<PaintOpBuffer>();
   std::vector<FrameMetadata> frames = {
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(1)),
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(1))};
+      FrameMetadata(true, base::Milliseconds(1)),
+      FrameMetadata(true, base::Milliseconds(1))};
   PaintImage animated_image = CreateAnimatedImage(gfx::Size(100, 100), frames);
   shader_record->push<DrawImageOp>(animated_image, 0.f, 0.f);
   auto shader_with_image = PaintShader::MakePaintRecord(
@@ -1069,8 +1070,8 @@ TEST_F(DiscardableImageMapTest, TracksImageRegions) {
   content_layer_client.set_bounds(visible_rect.size());
 
   std::vector<FrameMetadata> frames = {
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(1)),
-      FrameMetadata(true, base::TimeDelta::FromMilliseconds(1)),
+      FrameMetadata(true, base::Milliseconds(1)),
+      FrameMetadata(true, base::Milliseconds(1)),
   };
   auto image = CreateAnimatedImage(gfx::Size(100, 100), frames);
   content_layer_client.add_draw_image(image, gfx::Point(0, 0));

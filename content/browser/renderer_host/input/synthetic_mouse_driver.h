@@ -14,6 +14,10 @@ namespace content {
 class CONTENT_EXPORT SyntheticMouseDriver : public SyntheticPointerDriver {
  public:
   SyntheticMouseDriver();
+
+  SyntheticMouseDriver(const SyntheticMouseDriver&) = delete;
+  SyntheticMouseDriver& operator=(const SyntheticMouseDriver&) = delete;
+
   ~SyntheticMouseDriver() override;
 
   void DispatchEvent(SyntheticGestureTarget* target,
@@ -29,7 +33,10 @@ class CONTENT_EXPORT SyntheticMouseDriver : public SyntheticPointerDriver {
       float width = 1.f,
       float height = 1.f,
       float rotation_angle = 0.f,
-      float force = 1.f,
+      float force = 0.5,
+      float tangential_pressure = 0.f,
+      int tilt_x = 0,
+      int tilt_y = 0,
       const base::TimeTicks& timestamp = base::TimeTicks::Now()) override;
   void Move(float x,
             float y,
@@ -38,7 +45,12 @@ class CONTENT_EXPORT SyntheticMouseDriver : public SyntheticPointerDriver {
             float width = 1.f,
             float height = 1.f,
             float rotation_angle = 0.f,
-            float force = 1.f) override;
+            float force = 0.5,
+            float tangential_pressure = 0.f,
+            int tilt_x = 0,
+            int tilt_y = 0,
+            SyntheticPointerActionParams::Button button =
+                SyntheticPointerActionParams::Button::NO_BUTTON) override;
   void Release(int index = 0,
                SyntheticPointerActionParams::Button button =
                    SyntheticPointerActionParams::Button::LEFT,
@@ -65,8 +77,6 @@ class CONTENT_EXPORT SyntheticMouseDriver : public SyntheticPointerDriver {
   base::TimeTicks last_mouse_click_time_ = base::TimeTicks::Now();
   float last_x_ = 0;
   float last_y_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(SyntheticMouseDriver);
 };
 
 }  // namespace content

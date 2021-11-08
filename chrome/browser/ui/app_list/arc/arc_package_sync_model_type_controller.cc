@@ -9,8 +9,8 @@
 
 #include "ash/constants/ash_features.h"
 #include "base/memory/ptr_util.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/ash/arc/arc_util.h"
+#include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/base/pref_names.h"
@@ -49,7 +49,7 @@ ArcPackageSyncModelTypeController::ArcPackageSyncModelTypeController(
   auto delegate_for_full_sync_mode =
       std::make_unique<ForwardingModelTypeControllerDelegate>(delegate);
 
-  if (chromeos::features::IsSplitSettingsSyncEnabled()) {
+  if (chromeos::features::IsSyncSettingsCategorizationEnabled()) {
     // Runs in transport-mode and full-sync mode, sharing the bridge's delegate.
     InitModelTypeController(
         std::move(delegate_for_full_sync_mode),
@@ -69,7 +69,7 @@ ArcPackageSyncModelTypeController::ArcPackageSyncModelTypeController(
   arc_prefs_->AddObserver(this);
 
   // See GetPreconditionState().
-  if (chromeos::features::IsSplitSettingsSyncEnabled()) {
+  if (chromeos::features::IsSyncSettingsCategorizationEnabled()) {
     pref_registrar_.Init(profile_->GetPrefs());
     pref_registrar_.Add(
         syncer::prefs::kOsSyncFeatureEnabled,
@@ -95,7 +95,7 @@ ArcPackageSyncModelTypeController::GetPreconditionState() const {
   }
   // Use OS sync feature consent for this ModelType because it can sync in
   // transport-only mode (and hence isn't tied to browser sync consent).
-  if (chromeos::features::IsSplitSettingsSyncEnabled() &&
+  if (chromeos::features::IsSyncSettingsCategorizationEnabled() &&
       !profile_->GetPrefs()->GetBoolean(syncer::prefs::kOsSyncFeatureEnabled)) {
     return PreconditionState::kMustStopAndClearData;
   }

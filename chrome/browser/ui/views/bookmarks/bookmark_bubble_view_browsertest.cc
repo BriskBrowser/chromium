@@ -25,21 +25,26 @@ class BookmarkBubbleViewBrowserTest : public DialogBrowserTest {
  public:
   BookmarkBubbleViewBrowserTest() {}
 
+  BookmarkBubbleViewBrowserTest(const BookmarkBubbleViewBrowserTest&) = delete;
+  BookmarkBubbleViewBrowserTest& operator=(
+      const BookmarkBubbleViewBrowserTest&) = delete;
+
   // DialogBrowserTest:
   void ShowUi(const std::string& name) override {
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !defined(OS_CHROMEOS)
     signin::IdentityManager* identity_manager =
         IdentityManagerFactory::GetForProfile(browser()->profile());
     if (name == "bookmark_details") {
       signin::ClearPrimaryAccount(identity_manager);
     } else {
       constexpr char kTestUserEmail[] = "testuser@gtest.com";
-      signin::MakePrimaryAccountAvailable(identity_manager, kTestUserEmail);
+      signin::MakePrimaryAccountAvailable(identity_manager, kTestUserEmail,
+                                          signin::ConsentLevel::kSync);
     }
 #endif
 
     const GURL url = GURL("https://www.google.com");
-    const base::string16 title = base::ASCIIToUTF16("Title");
+    const std::u16string title = u"Title";
     bookmarks::BookmarkModel* bookmark_model =
         BookmarkModelFactory::GetForBrowserContext(browser()->profile());
     bookmarks::test::WaitForBookmarkModelToLoad(bookmark_model);
@@ -49,13 +54,10 @@ class BookmarkBubbleViewBrowserTest : public DialogBrowserTest {
     if (name == "ios_promotion")
       BookmarkBubbleView::bookmark_bubble()->AcceptDialog();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BookmarkBubbleViewBrowserTest);
 };
 
 // ChromeOS is always signed in.
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(BookmarkBubbleViewBrowserTest,
                        InvokeUi_bookmark_details) {
   ShowAndVerifyUi();

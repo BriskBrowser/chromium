@@ -1,7 +1,12 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-'use strict';
+
+import {ENTRIES, getCaller, pending, repeatUntil, RootPath, sendTestMessage, TestEntryInfo} from '../test_util.js';
+import {testcase} from '../testcase.js';
+
+import {isSinglePartitionFormat, navigateWithDirectoryTree, remoteCall, setupAndWaitUntilReady, waitForMediaApp} from './background.js';
+import {BASIC_DRIVE_ENTRY_SET, FILE_MANAGER_EXTENSIONS_ID, OFFLINE_ENTRY_SET, SHARED_WITH_ME_ENTRY_SET} from './test_data.js';
 
 /**
  * Expected autocomplete results for 'hello'.
@@ -46,8 +51,7 @@ async function startDriveSearchWithAutoComplete() {
       'fakeEvent', appId, ['#search-box cr-input', 'focus']));
 
   // Input a text.
-  await remoteCall.callRemoteTestUtil(
-      'inputText', appId, ['#search-box cr-input', 'hello']);
+  await remoteCall.inputText(appId, '#search-box cr-input', 'hello');
 
   // Notify the element of the input.
   chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
@@ -101,6 +105,24 @@ async function waitForLastDriveDialogResult(expectedResult) {
 }
 
 /**
+ * Waits for a given notification to appear.
+ *
+ * @param {string} notification_id ID of notification to wait for.
+ */
+async function waitForNotification(notification_id) {
+  const caller = getCaller();
+  await repeatUntil(async () => {
+    const idSet =
+        await remoteCall.callRemoteTestUtil('getNotificationIDs', null, []);
+    return !idSet[notification_id] ?
+        pending(
+            caller, 'Waiting for notification "%s" to appear.',
+            notification_id) :
+        null;
+  });
+}
+
+/**
  * Tests opening the "Offline" on the sidebar navigation by clicking the icon,
  * and checks contents of the file list. Only the entries "available offline"
  * should be shown. "Available offline" entries are hosted documents and the
@@ -128,8 +150,8 @@ testcase.driveOpenSidebarSharedWithMe = async () => {
   // Open Files app on Drive containing "Shared with me" file entries.
   const appId = await setupAndWaitUntilReady(
       RootPath.DRIVE, [], BASIC_DRIVE_ENTRY_SET.concat([
-        ENTRIES.sharedDirectory,
-        ENTRIES.sharedDirectoryFile,
+        ENTRIES.sharedWithMeDirectory,
+        ENTRIES.sharedWithMeDirectoryFile,
       ]));
 
   // Click the icon of the Shared With Me volume.
@@ -144,7 +166,7 @@ testcase.driveOpenSidebarSharedWithMe = async () => {
   await remoteCall.waitForFiles(
       appId,
       TestEntryInfo.getExpectedRows(
-          SHARED_WITH_ME_ENTRY_SET.concat([ENTRIES.sharedDirectory])));
+          SHARED_WITH_ME_ENTRY_SET.concat([ENTRIES.sharedWithMeDirectory])));
 
   // Navigate to the directory within Shared with me.
   chrome.test.assertFalse(!await remoteCall.callRemoteTestUtil(
@@ -156,7 +178,8 @@ testcase.driveOpenSidebarSharedWithMe = async () => {
 
   // Verify the file list.
   await remoteCall.waitForFiles(
-      appId, TestEntryInfo.getExpectedRows([ENTRIES.sharedDirectoryFile]));
+      appId,
+      TestEntryInfo.getExpectedRows([ENTRIES.sharedWithMeDirectoryFile]));
 };
 
 /**
@@ -406,13 +429,7 @@ testcase.drivePinFileMobileNetwork = async () => {
   await remoteCall.waitForElement(appId, '[command="#toggle-pinned"][checked]');
   await remoteCall.waitForElement(
       appId, '#file-list .pinned[file-name="hello.txt"] .detail-pinned');
-  await repeatUntil(async () => {
-    const idSet =
-        await remoteCall.callRemoteTestUtil('getNotificationIDs', null, []);
-    return !idSet['disabled-mobile-sync'] ?
-        pending(caller, 'Sync disable notification is not found.') :
-        null;
-  });
+  await waitForNotification('disabled-mobile-sync');
   await sendTestMessage({
     name: 'clickNotificationButton',
     extensionId: FILE_MANAGER_EXTENSIONS_ID,
@@ -814,16 +831,35 @@ testcase.driveWelcomeBanner = async () => {
   // Open Files app on Drive.
   const appId = await setupAndWaitUntilReady(RootPath.DRIVE, []);
 
+  const isBannersFrameworkEnabled =
+      (await sendTestMessage({name: 'isBannersFrameworkEnabled'})) === 'true';
+
+  let driveWelcomeBannerQuery = '.drive-welcome-wrapper';
+  let driveWelcomeBannerDismissButtonQuery = ['cr-button.banner-close'];
+  if (isBannersFrameworkEnabled) {
+    await remoteCall.isolateBannerForTesting(appId, 'drive-welcome-banner');
+    driveWelcomeBannerQuery = '#banners > drive-welcome-banner';
+    driveWelcomeBannerDismissButtonQuery = [
+      '#banners > drive-welcome-banner', 'educational-banner', '#dismiss-button'
+    ];
+  }
+
   // Open the Drive volume in the files-list.
   chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
       'fakeMouseClick', appId, ['.drive-volume']));
 
   // Check: the Drive welcome banner should appear.
-  await remoteCall.waitForElement(appId, '.drive-welcome-wrapper');
+  await remoteCall.waitForElement(appId, driveWelcomeBannerQuery);
 
   // Close the Drive welcome banner.
-  chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
-      'fakeMouseClick', appId, ['cr-button.banner-close']));
+  await remoteCall.waitAndClickElement(
+      appId, driveWelcomeBannerDismissButtonQuery);
+
+  if (isBannersFrameworkEnabled) {
+    await remoteCall.waitForElement(
+        appId, '#banners > drive-welcome-banner[hidden]');
+    return;
+  }
 
   // Check: the Drive banner should close.
   const caller = getCaller();
@@ -845,20 +881,35 @@ testcase.driveOfflineInfoBanner = async () => {
   // Open Files app on Drive.
   const appId = await setupAndWaitUntilReady(RootPath.DRIVE, []);
 
+  let driveOfflineBannerShownQuery = '#offline-info-banner:not([hidden])';
+  let driveOfflineBannerHiddenQuery = '#offline-info-banner[hidden]';
+  let driveOfflineLearnMoreLinkQuery = '#offline-learn-more';
+
+  if ((await sendTestMessage({name: 'isBannersFrameworkEnabled'})) === 'true') {
+    await remoteCall.isolateBannerForTesting(
+        appId, 'drive-offline-pinning-banner');
+    driveOfflineBannerShownQuery =
+        '#banners > drive-offline-pinning-banner:not([hidden])';
+    driveOfflineBannerHiddenQuery =
+        '#banners > drive-offline-pinning-banner[hidden]';
+    driveOfflineLearnMoreLinkQuery =
+        ['#banners > drive-offline-pinning-banner', '[slot="extra-button"]'];
+  }
+
   // Check: the Drive Offline info banner should appear.
-  await remoteCall.waitForElement(appId, '#offline-info-banner:not([hidden])');
+  await remoteCall.waitForElement(appId, driveOfflineBannerShownQuery);
 
   // Click on the 'Learn more' button.
-  await remoteCall.waitAndClickElement(appId, '#offline-learn-more');
+  await remoteCall.waitAndClickElement(appId, driveOfflineLearnMoreLinkQuery);
 
   // Check: the Drive offline info banner should disappear.
-  await remoteCall.waitForElement(appId, '#offline-info-banner[hidden]');
+  await remoteCall.waitForElement(appId, driveOfflineBannerHiddenQuery);
 
   // Navigate to a different directory within Drive.
   await navigateWithDirectoryTree(appId, '/My Drive/photos');
 
   // Check: the Drive offline info banner should stay hidden.
-  await remoteCall.waitForElement(appId, '#offline-info-banner[hidden]');
+  await remoteCall.waitForElement(appId, driveOfflineBannerHiddenQuery);
 };
 
 /**
@@ -869,9 +920,16 @@ testcase.driveOfflineInfoBannerWithoutFlag = async () => {
   // Open Files app on Drive.
   const appId = await setupAndWaitUntilReady(RootPath.DRIVE, []);
 
+  let driveOfflineInfoBannerHiddenQuery = '#offline-info-banner:not([hidden])';
+  if ((await sendTestMessage({name: 'isBannersFrameworkEnabled'})) === 'true') {
+    await remoteCall.isolateBannerForTesting(
+        appId, 'drive-offline-pinning-banner');
+    driveOfflineInfoBannerHiddenQuery =
+        '#banners > drive-offline-pinning-banner';
+  }
+
   // Check: the Drive Offline info banner should not appear.
-  await remoteCall.waitForElementLost(
-      appId, '#offline-info-banner:not([hidden])');
+  await remoteCall.waitForElementLost(appId, driveOfflineInfoBannerHiddenQuery);
 };
 
 /**
@@ -912,8 +970,8 @@ testcase.driveEnableDocsOfflineDialog = async () => {
 };
 
 /**
- * Tests that the Enable Docs Offline dialog launches a Files App window if
- * there are none open.
+ * Tests that the Enable Docs Offline dialog launches a Chrome notification if
+ * there are no Files App windows open.
  */
 testcase.driveEnableDocsOfflineDialogWithoutWindow = async () => {
   // Wait for the background page to listen to events from the browser.
@@ -922,20 +980,61 @@ testcase.driveEnableDocsOfflineDialogWithoutWindow = async () => {
   // Simulate Drive signalling Files App to open a dialog.
   await sendTestMessage({name: 'displayEnableDocsOfflineDialog'});
 
-  // Check: A Files App window should appear.
-  const appId = await remoteCall.waitForWindow('files#');
+  // Check: the Enable Docs Offline notification should appear.
+  await waitForNotification('enable-docs-offline');
 
-  // Check: the Enable Docs Offline dialog should appear.
+  // Click on the ok button.
+  await sendTestMessage({
+    name: 'clickNotificationButton',
+    extensionId: FILE_MANAGER_EXTENSIONS_ID,
+    notificationId: 'enable-docs-offline',
+    index: 1
+  });
+
+  // Check: the last dialog result should be 1 (accept).
+  await waitForLastDriveDialogResult('1');
+
+  // Simulate Drive signalling Files App to open a dialog.
+  await sendTestMessage({name: 'displayEnableDocsOfflineDialog'});
+
+  // Check: the Enable Docs Offline notification should appear.
+  await waitForNotification('enable-docs-offline');
+
+  // Click on the cancel button.
+  await sendTestMessage({
+    name: 'clickNotificationButton',
+    extensionId: FILE_MANAGER_EXTENSIONS_ID,
+    notificationId: 'enable-docs-offline',
+    index: 0
+  });
+
+  // Check: the last dialog result should be 2 (reject).
+  await waitForLastDriveDialogResult('2');
+
+  // Simulate Drive signalling Files App to open a dialog.
+  await sendTestMessage({name: 'displayEnableDocsOfflineDialog'});
+
+  // Check: the Enable Docs Offline notification should appear.
+  await waitForNotification('enable-docs-offline');
+
+  // Open Files app on Drive.
+  const appId = await setupAndWaitUntilReady(RootPath.DRIVE, []);
+
+  // Check: the Enable Docs Offline dialog should appear in Files app.
   const dialogText = await remoteCall.waitForElement(
       appId, '.cr-dialog-container.shown .cr-dialog-text');
   chrome.test.assertEq(ENABLE_DOCS_OFFLINE_MESSAGE, dialogText.text);
 
-  // Click on the ok button.
-  await remoteCall.waitAndClickElement(
-      appId, '.cr-dialog-container.shown .cr-dialog-ok');
-
-  // Check: the last dialog result should be 1 (accept).
-  await waitForLastDriveDialogResult('1');
+  // Check: the Enable Docs Offline notification should disappear.
+  const caller = getCaller();
+  await repeatUntil(async () => {
+    const idSet =
+        await remoteCall.callRemoteTestUtil('getNotificationIDs', null, []);
+    return idSet['enable-docs-offline'] ?
+        pending(
+            caller, 'Waiting for Drive confirm notification to disappear.') :
+        null;
+  });
 };
 
 /**

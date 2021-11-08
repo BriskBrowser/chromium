@@ -19,6 +19,7 @@ class LayoutShiftNormalizationTest : public testing::Test {
     layout_shift_normalization_.AddNewLayoutShifts(
         new_shifts, current_time, cumulative_layoutshift_score_);
   }
+
   const page_load_metrics::NormalizedCLSData& normalized_cls_data() const {
     return layout_shift_normalization_.normalized_cls_data();
   }
@@ -29,7 +30,7 @@ class LayoutShiftNormalizationTest : public testing::Test {
       std::vector<std::pair<int, double>> shifts_data) {
     for (auto shift : shifts_data) {
       new_shifts.emplace_back(page_load_metrics::mojom::LayoutShift::New(
-          current_time - base::TimeDelta::FromMilliseconds(std::get<0>(shift)),
+          current_time - base::Milliseconds(std::get<0>(shift)),
           std::get<1>(shift)));
       // Update CLS.
       cumulative_layoutshift_score_ += std::get<1>(shift);
@@ -38,7 +39,7 @@ class LayoutShiftNormalizationTest : public testing::Test {
 
  private:
   page_load_metrics::LayoutShiftNormalization layout_shift_normalization_;
-  double cumulative_layoutshift_score_ = 0.0;
+  float cumulative_layoutshift_score_ = 0.0;
 };
 
 TEST_F(LayoutShiftNormalizationTest, MultipleShifts) {
@@ -50,13 +51,7 @@ TEST_F(LayoutShiftNormalizationTest, MultipleShifts) {
   // Update CLS normalization data.
   AddNewLayoutShifts(new_shifts, current_time);
 
-  EXPECT_EQ(normalized_cls_data().sliding_windows_duration300ms_max_cls, 3.0);
-  EXPECT_EQ(normalized_cls_data().sliding_windows_duration1000ms_max_cls, 4.5);
   EXPECT_EQ(normalized_cls_data().session_windows_gap1000ms_max5000ms_max_cls,
-            6.0);
-  EXPECT_EQ(normalized_cls_data().session_windows_gap1000ms_maxMax_max_cls,
-            6.0);
-  EXPECT_EQ(normalized_cls_data().session_windows_gap5000ms_maxMax_average_cls,
             6.0);
   EXPECT_EQ(normalized_cls_data().data_tainted, false);
 }
@@ -74,14 +69,7 @@ TEST_F(LayoutShiftNormalizationTest, MultipleShiftsWithOneStaleShift) {
                         {{1800, 1.5}, {1300, 1.5}, {1000, 1.5}});
   // Update CLS normalization data.
   AddNewLayoutShifts(new_shifts, current_time);
-
-  EXPECT_EQ(normalized_cls_data().sliding_windows_duration300ms_max_cls, 0.0);
-  EXPECT_EQ(normalized_cls_data().sliding_windows_duration1000ms_max_cls, 0.0);
   EXPECT_EQ(normalized_cls_data().session_windows_gap1000ms_max5000ms_max_cls,
-            0.0);
-  EXPECT_EQ(normalized_cls_data().session_windows_gap1000ms_maxMax_max_cls,
-            0.0);
-  EXPECT_EQ(normalized_cls_data().session_windows_gap5000ms_maxMax_average_cls,
             0.0);
   EXPECT_EQ(normalized_cls_data().data_tainted, true);
 }
@@ -99,21 +87,15 @@ TEST_F(LayoutShiftNormalizationTest, MultipleShiftsFromTwoRenderers) {
   InsertNewLayoutShifts(new_shifts_2, current_time, {{4100, 4.0}, {1000, 1.5}});
   AddNewLayoutShifts(new_shifts_2, current_time);
 
-  EXPECT_EQ(normalized_cls_data().sliding_windows_duration300ms_max_cls, 4.0);
-  EXPECT_EQ(normalized_cls_data().sliding_windows_duration1000ms_max_cls, 4.0);
   EXPECT_EQ(normalized_cls_data().session_windows_gap1000ms_max5000ms_max_cls,
             4.5);
-  EXPECT_EQ(normalized_cls_data().session_windows_gap1000ms_maxMax_max_cls,
-            4.5);
-  EXPECT_EQ(normalized_cls_data().session_windows_gap5000ms_maxMax_average_cls,
-            8.5);
   EXPECT_EQ(normalized_cls_data().data_tainted, false);
 }
 
 TEST_F(LayoutShiftNormalizationTest, MultipleShiftsFromDifferentTimes) {
   base::TimeTicks current_time = base::TimeTicks::Now();
   // Insert the first set of new layout shifts. The insertion order matters.
-  auto current_time_1 = current_time - base::TimeDelta::FromMilliseconds(5000);
+  auto current_time_1 = current_time - base::Milliseconds(5000);
   std::vector<page_load_metrics::mojom::LayoutShiftPtr> new_shifts_1;
   InsertNewLayoutShifts(new_shifts_1, current_time_1,
                         {{2100, 1.5}, {1800, 1.5}});
@@ -129,18 +111,11 @@ TEST_F(LayoutShiftNormalizationTest, MultipleShiftsFromDifferentTimes) {
 
   // Insert the third set of new layout shifts. The insertion order
   // matters.
-  auto current_time_3 = current_time + base::TimeDelta::FromMilliseconds(6000);
+  auto current_time_3 = current_time + base::Milliseconds(6000);
   std::vector<page_load_metrics::mojom::LayoutShiftPtr> new_shifts_3;
   InsertNewLayoutShifts(new_shifts_3, current_time_3, {{0, 0.5}});
   AddNewLayoutShifts(new_shifts_3, current_time_3);
-
-  EXPECT_EQ(normalized_cls_data().sliding_windows_duration300ms_max_cls, 3.0);
-  EXPECT_EQ(normalized_cls_data().sliding_windows_duration1000ms_max_cls, 3.0);
   EXPECT_EQ(normalized_cls_data().session_windows_gap1000ms_max5000ms_max_cls,
             3.0);
-  EXPECT_EQ(normalized_cls_data().session_windows_gap1000ms_maxMax_max_cls,
-            3.0);
-  EXPECT_EQ(normalized_cls_data().session_windows_gap5000ms_maxMax_average_cls,
-            3.5);
   EXPECT_EQ(normalized_cls_data().data_tainted, false);
 }

@@ -3,7 +3,10 @@
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_layout_algorithm.h"
+
+#include "build/build_config.h"
 #include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_placement.h"
+#include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_properties.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_base_layout_algorithm_test.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_length_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
@@ -43,40 +46,58 @@ class NGGridLayoutAlgorithmTest
 
   void BuildGridItemsAndTrackCollections(
       const NGGridLayoutAlgorithm& algorithm) {
-    // Measure items.
-    algorithm.ConstructAndAppendGridItems(&items_->grid_items_,
-                                          &items_->out_of_flow_items_);
-
     NGGridPlacement grid_placement(
         algorithm.Style(), algorithm.ComputeAutomaticRepetitions(kForColumns),
         algorithm.ComputeAutomaticRepetitions(kForRows));
 
-    algorithm.BuildAlgorithmTrackCollections(
-        &items_->grid_items_, &column_track_collection_, &row_track_collection_,
-        &grid_placement);
+    // Measure items.
+    NGGridProperties grid_properties;
+    algorithm.ConstructAndAppendGridItems(
+        &grid_items_, &grid_placement, &grid_properties, &out_of_flow_items_);
+
+    // Build block track collections.
+    NGGridBlockTrackCollection column_block_track_collection(kForColumns);
+    NGGridBlockTrackCollection row_block_track_collection(kForRows);
+    algorithm.BuildBlockTrackCollections(grid_placement, &grid_items_,
+                                         &column_block_track_collection,
+                                         &row_block_track_collection);
+
+    // Build algorithm track collections from the block track collections.
+    column_track_collection_ = NGGridLayoutAlgorithmTrackCollection(
+        column_block_track_collection,
+        algorithm.grid_available_size_.inline_size == kIndefiniteSize,
+        &grid_properties);
+
+    row_track_collection_ = NGGridLayoutAlgorithmTrackCollection(
+        row_block_track_collection,
+        algorithm.grid_available_size_.block_size == kIndefiniteSize,
+        &grid_properties);
+
+    for (auto& grid_item : grid_items_) {
+      grid_item.ComputeSetIndices(column_track_collection_);
+      grid_item.ComputeSetIndices(row_track_collection_);
+    }
 
     // Cache track span properties for grid items.
     algorithm.CacheGridItemsTrackSpanProperties(column_track_collection_,
-                                                &items_->grid_items_);
+                                                &grid_items_);
     algorithm.CacheGridItemsTrackSpanProperties(row_track_collection_,
-                                                &items_->grid_items_);
-
-    for (auto& grid_item : items_->grid_items_) {
-      grid_item.SetIndices(column_track_collection_);
-      grid_item.SetIndices(row_track_collection_);
-    }
+                                                &grid_items_);
 
     grid_geometry_ = {algorithm.InitializeTrackSizes(&column_track_collection_),
                       algorithm.InitializeTrackSizes(&row_track_collection_)};
 
     // Resolve inline size.
-    algorithm.ComputeUsedTrackSizes(
-        NGGridLayoutAlgorithm::SizingConstraint::kLayout, grid_geometry_,
-        &column_track_collection_, &items_->grid_items_);
+    grid_geometry_.column_geometry = algorithm.ComputeUsedTrackSizes(
+        grid_geometry_, grid_properties,
+        NGGridLayoutAlgorithm::SizingConstraint::kLayout,
+        &column_track_collection_, &grid_items_);
+
     // Resolve block size.
-    algorithm.ComputeUsedTrackSizes(
-        NGGridLayoutAlgorithm::SizingConstraint::kLayout, grid_geometry_,
-        &row_track_collection_, &items_->grid_items_);
+    grid_geometry_.row_geometry = algorithm.ComputeUsedTrackSizes(
+        grid_geometry_, grid_properties,
+        NGGridLayoutAlgorithm::SizingConstraint::kLayout,
+        &row_track_collection_, &grid_items_);
   }
 
   NGGridLayoutAlgorithmTrackCollection& TrackCollection(
@@ -88,27 +109,19 @@ class NGGridLayoutAlgorithmTest
   LayoutUnit BaseRowSizeForChild(const NGGridLayoutAlgorithm& algorithm,
                                  wtf_size_t index) {
     LayoutUnit offset, size;
-    algorithm.ComputeOffsetAndSize(items_->grid_items_.item_data[index],
-                                   grid_geometry_.row_geometry, kForRows,
-                                   kIndefiniteSize, &offset, &size);
+    algorithm.ComputeGridItemOffsetAndSize(grid_items_.item_data[index],
+                                           grid_geometry_.row_geometry,
+                                           kForRows, &offset, &size);
     return size;
   }
 
   // Helper methods to access private data on NGGridLayoutAlgorithm. This class
   // is a friend of NGGridLayoutAlgorithm but the individual tests are not.
-  wtf_size_t GridItemCount() { return items_->grid_items_.item_data.size(); }
-
-  Vector<LayoutUnit> GridItemInlineMarginSum(
-      const NGGridLayoutAlgorithm& algorithm) {
-    Vector<LayoutUnit> results;
-    for (const auto& item : items_->grid_items_.item_data)
-      results.push_back(item.margins.InlineSum());
-    return results;
-  }
+  wtf_size_t GridItemCount() { return grid_items_.item_data.size(); }
 
   Vector<GridArea> GridItemGridAreas(const NGGridLayoutAlgorithm& algorithm) {
     Vector<GridArea> results;
-    for (const auto& item : items_->grid_items_.item_data)
+    for (const auto& item : grid_items_.item_data)
       results.push_back(item.resolved_position);
     return results;
   }
@@ -118,8 +131,7 @@ class NGGridLayoutAlgorithmTest
       TrackSpanProperties::PropertyId property) {
     Vector<wtf_size_t> results;
     for (wtf_size_t i = 0; i < GridItemCount(); ++i) {
-      if (items_->grid_items_.item_data[i].column_span_properties.HasProperty(
-              property))
+      if (grid_items_.item_data[i].column_span_properties.HasProperty(property))
         results.push_back(i);
     }
     return results;
@@ -130,8 +142,7 @@ class NGGridLayoutAlgorithmTest
       TrackSpanProperties::PropertyId property) {
     Vector<wtf_size_t> results;
     for (wtf_size_t i = 0; i < GridItemCount(); ++i) {
-      if (items_->grid_items_.item_data[i].row_span_properties.HasProperty(
-              property))
+      if (grid_items_.item_data[i].row_span_properties.HasProperty(property))
         results.push_back(i);
     }
     return results;
@@ -163,7 +174,8 @@ class NGGridLayoutAlgorithmTest
     return growth_limits;
   }
 
-  const NGPhysicalBoxFragment* RunBlockLayoutAlgorithm(Element* element) {
+  scoped_refptr<const NGPhysicalBoxFragment> RunBlockLayoutAlgorithm(
+      Element* element) {
     NGBlockNode container(element->GetLayoutBox());
     NGConstraintSpace space = ConstructBlockLayoutTestConstraintSpace(
         {WritingMode::kHorizontalTb, TextDirection::kLtr},
@@ -172,8 +184,8 @@ class NGGridLayoutAlgorithmTest
   }
 
   String DumpFragmentTree(Element* element) {
-    auto* fragment = RunBlockLayoutAlgorithm(element);
-    return DumpFragmentTree(fragment);
+    auto fragment = RunBlockLayoutAlgorithm(element);
+    return DumpFragmentTree(fragment.get());
   }
 
   String DumpFragmentTree(const blink::NGPhysicalBoxFragment* fragment) {
@@ -185,23 +197,13 @@ class NGGridLayoutAlgorithmTest
     return fragment->DumpFragmentTree(flags);
   }
 
-  struct GCedGridItems final : public GarbageCollected<GCedGridItems> {
-   public:
-    NGGridLayoutAlgorithm::GridItems grid_items_;
-    HeapVector<NGGridLayoutAlgorithm::GridItemData> out_of_flow_items_;
-
-    void Trace(Visitor* visitor) const {
-      visitor->Trace(grid_items_);
-      visitor->Trace(out_of_flow_items_);
-    }
-  };
-
-  Persistent<GCedGridItems> items_ = MakeGarbageCollected<GCedGridItems>();
+  GridItems grid_items_;
+  GridItemStorageVector out_of_flow_items_;
 
   NGGridLayoutAlgorithmTrackCollection column_track_collection_;
   NGGridLayoutAlgorithmTrackCollection row_track_collection_;
 
-  NGGridLayoutAlgorithm::GridGeometry grid_geometry_;
+  NGGridGeometry grid_geometry_;
 };
 
 TEST_F(NGGridLayoutAlgorithmTest, NGGridLayoutAlgorithmBaseSetSizes) {
@@ -239,169 +241,11 @@ TEST_F(NGGridLayoutAlgorithmTest, NGGridLayoutAlgorithmBaseSetSizes) {
 
   NGGridLayoutAlgorithm algorithm({node, fragment_geometry, space});
   BuildGridItemsAndTrackCollections(algorithm);
-  EXPECT_EQ(BaseRowSizeForChild(algorithm, 0), kIndefiniteSize);
-  EXPECT_EQ(BaseRowSizeForChild(algorithm, 1), kIndefiniteSize);
+  EXPECT_EQ(BaseRowSizeForChild(algorithm, 0), LayoutUnit(0));
+  EXPECT_EQ(BaseRowSizeForChild(algorithm, 1), LayoutUnit(110));
   EXPECT_EQ(BaseRowSizeForChild(algorithm, 2), LayoutUnit(210));
   EXPECT_EQ(BaseRowSizeForChild(algorithm, 3), LayoutUnit(100));
-  EXPECT_EQ(BaseRowSizeForChild(algorithm, 4), kIndefiniteSize);
-}
-
-TEST_F(NGGridLayoutAlgorithmTest, NGGridLayoutAlgorithmMeasuring) {
-  if (!RuntimeEnabledFeatures::LayoutNGGridEnabled())
-    return;
-
-  LoadAhem();
-  SetBodyInnerHTML(R"HTML(
-    <style>
-    body {
-      font: 10px/1 Ahem;
-    }
-    #grid1 {
-      display: grid;
-      width: 200px;
-      height: 200px;
-      grid-template-columns: min-content min-content min-content;
-      grid-template-rows: 100px 100px 100px;
-    }
-    /*  Basic fixed width specified, evaluates to 150px (50px width + 50px
-        margin-left + 50px margin-right). */
-    #cell1 {
-      grid-column: 1;
-      grid-row: 1;
-      width: 50px;
-      height: 50px;
-      margin: 50px;
-    }
-    /*  100px content, with margin/border/padding. Evaluates to 146px
-        (100px width + 15px margin-left + 15px margin-righ + 5px border-left +
-        5px border-right + 3px padding-left + 3px padding-right). */
-    #cell2 {
-      grid-column: 2;
-      grid-row: 1;
-      min-width: 50px;
-      height: 100px;
-      border: 5px solid black;
-      margin: 15px;
-      padding: 3px;
-    }
-    /*  % resolution, needs another pass for the real computed value. For now,
-        this is evaluated based on the 200px grid content, so it evaluates
-        to the (currently incorrect) value of 50% of 200px = 100px. */
-    #cell3 {
-      grid-column: 3;
-      grid-row: 1;
-      width: 50%;
-      height: 50%;
-    }
-    /*  'auto' sizing, with fixed 100px child, evaluates to 100px. */
-    #cell4 {
-      grid-column: 1;
-      grid-row: 2;
-      width: auto;
-      height: auto;
-    }
-    /*  'auto' sizing replaced content, evaluates to default replaced width of
-        300px. */
-    #cell5 {
-      grid-column: 2;
-      grid-row: 2;
-      width: auto;
-      height: auto;
-    }
-    /*  'auto' sizing replaced content, max-width restricts 300px size to
-          evaluate to 100px. */
-    #cell6 {
-      grid-column: 3;
-      grid-row: 2;
-      width: auto;
-      height: auto;
-      max-width: 100px;
-    }
-    /*  'auto' sizing replaced content, min-width expands to 400px, which
-        in a total offset size of 410 (400px + 5px margin-left + 5px
-        margin-right). */
-    #cell7 {
-      grid-column: 1;
-      grid-row: 3;
-      width: auto;
-      height: auto;
-      margin: 5px;
-      min-width: 400px;
-    }
-    /*  'auto' sizing with 100px content, min-width and margin evaluates to
-        100px + 50px margin-left + 50px margin-right = 200px. */
-    #cell8 {
-      grid-column: 2;
-      grid-row: 3;
-      width: auto;
-      height: auto;
-      margin: 50px;
-      min-width: 100px;
-    }
-    /* 'auto' sizing with text content and vertical writing mode. In horizontal
-       writing-modes, this would be an expected inline size of 40px (at 10px
-       per character), but since it's set to a vertical writing mode, the
-       expected width is 10px (at 10px per character). */
-    #cell9 {
-      grid-column: 3;
-      grid-row: 3;
-      width: auto;
-      height: auto;
-      writing-mode: vertical-lr;
-    }
-    #block {
-      width: 100px;
-      height: 100px;
-    }
-    </style>
-    <div id="grid1">
-      <div id="cell1">Cell 1</div>
-      <div id="cell2"><div id="block"></div></div>
-      <div id="cell3">Cell 3</div>
-      <div id="cell4"><div id="block"></div></div>
-      <svg id="cell5">
-        <rect width="100%" height="100%" fill="blue" />
-      </svg>
-      <svg id="cell6">
-        <rect width="100%" height="100%" fill="blue" />
-      </svg>
-      <svg id="cell7">
-        <rect width="100%" height="100%" fill="blue" />
-      </svg>
-      <div id="cell8"><div id="block"></div></div>
-      <div id="cell9">Text</div>
-    </div>
-  )HTML");
-
-  NGBlockNode node(GetLayoutBoxByElementId("grid1"));
-
-  NGConstraintSpace space = ConstructBlockLayoutTestConstraintSpace(
-      {WritingMode::kHorizontalTb, TextDirection::kLtr},
-      LogicalSize(LayoutUnit(200), LayoutUnit(200)),
-      /* stretch_inline_size_if_auto */ true,
-      /* is_new_formatting_context */ true);
-
-  NGFragmentGeometry fragment_geometry =
-      CalculateInitialFragmentGeometry(space, node);
-
-  NGGridLayoutAlgorithm algorithm({node, fragment_geometry, space});
-  EXPECT_EQ(GridItemCount(), 0U);
-  BuildGridItemsAndTrackCollections(algorithm);
-  EXPECT_EQ(GridItemCount(), 9U);
-
-  Vector<LayoutUnit> actual_inline_margin_sums =
-      GridItemInlineMarginSum(algorithm);
-  EXPECT_EQ(GridItemCount(), actual_inline_margin_sums.size());
-
-  LayoutUnit expected_inline_margin_sums[] = {
-      LayoutUnit(100), LayoutUnit(30),  LayoutUnit(0),
-      LayoutUnit(0),   LayoutUnit(0),   LayoutUnit(0),
-      LayoutUnit(10),  LayoutUnit(100), LayoutUnit(0)};
-
-  for (size_t i = 0; i < GridItemCount(); ++i) {
-    EXPECT_EQ(actual_inline_margin_sums[i], expected_inline_margin_sums[i])
-        << " index: " << i;
-  }
+  EXPECT_EQ(BaseRowSizeForChild(algorithm, 4), LayoutUnit(110));
 }
 
 TEST_F(NGGridLayoutAlgorithmTest, NGGridLayoutAlgorithmRanges) {
@@ -1792,6 +1636,12 @@ TEST_F(NGGridLayoutAlgorithmTest, PositionedOutOfFlowItems) {
         background-color: purple;
       }
 
+      #seventhItem {
+        grid-column: -5 / 1;
+        grid-row: 3 / -1;
+        background-color: darkgreen;
+      }
+
       .descendant {
         background: blue;
         grid-column: 3;
@@ -1812,6 +1662,7 @@ TEST_F(NGGridLayoutAlgorithmTest, PositionedOutOfFlowItems) {
         <div class="absolute" id="fourthItem"></div>
         <div class="absolute" id="fifthItem"></div>
         <div class="absolute" id="sixthItem"></div>
+        <div class="absolute" id="seventhItem"></div>
         <div class="item">
           <div class="absolute descendant"></div>
         </div>
@@ -1850,6 +1701,7 @@ TEST_F(NGGridLayoutAlgorithmTest, PositionedOutOfFlowItems) {
       offset:5,5 size:50x50
       offset:5,110 size:50x50
       offset:310,110 size:50x50
+      offset:5,210 size:50x50
 )DUMP";
   EXPECT_EQ(expectation, dump);
 }

@@ -6,6 +6,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
+#include <memory>
 #include <utility>
 
 #include "base/base64.h"
@@ -128,7 +130,7 @@ void SetExtensionIdSet(base::DictionaryValue* dictionary,
                        const ExtensionIdSet& ids) {
   auto id_list = std::make_unique<base::ListValue>();
   for (auto i = ids.begin(); i != ids.end(); ++i)
-    id_list->AppendString(*i);
+    id_list->Append(*i);
   dictionary->Set(key, std::move(id_list));
 }
 
@@ -139,15 +141,14 @@ void SetExtensionIdSet(base::DictionaryValue* dictionary,
 bool GetExtensionIdSet(const base::DictionaryValue& dictionary,
                        const char* key,
                        ExtensionIdSet* ids) {
-  const base::ListValue* id_list = NULL;
+  const base::ListValue* id_list = nullptr;
   if (!dictionary.GetList(key, &id_list))
     return false;
-  for (auto i = id_list->begin(); i != id_list->end(); ++i) {
-    std::string id;
-    if (!i->GetAsString(&id)) {
+  for (const auto& entry : id_list->GetList()) {
+    if (!entry.is_string()) {
       return false;
     }
-    ids->insert(id);
+    ids->insert(entry.GetString());
   }
   return true;
 }
@@ -186,9 +187,9 @@ std::unique_ptr<InstallSignature> InstallSignature::FromValue(
 
   // For now we don't want to support any backwards compability, but in the
   // future if we do, we would want to put the migration code here.
-  int format_version = 0;
-  if (!value.GetInteger(kSignatureFormatVersionKey, &format_version) ||
-      format_version != kSignatureFormatVersion) {
+  absl::optional<int> format_version =
+      value.FindIntKey(kSignatureFormatVersionKey);
+  if (format_version != kSignatureFormatVersion) {
     result.reset();
     return result;
   }
@@ -347,7 +348,7 @@ void InstallSigner::GetSignature(SignatureCallback callback) {
   dictionary.SetString(kHashKey, hash_base64);
   std::unique_ptr<base::ListValue> id_list(new base::ListValue);
   for (auto i = ids_.begin(); i != ids_.end(); ++i) {
-    id_list->AppendString(*i);
+    id_list->Append(*i);
   }
   dictionary.Set(kIdsKey, std::move(id_list));
   std::string json;
@@ -408,12 +409,12 @@ void InstallSigner::ParseFetchResponse(
     return;
   }
 
-  int protocol_version = 0;
+  int protocol_version =
+      dictionary->FindIntKey(kProtocolVersionKey).value_or(0);
   std::string signature_base64;
   std::string signature;
   std::string expire_date;
 
-  dictionary->GetInteger(kProtocolVersionKey, &protocol_version);
   dictionary->GetString(kSignatureKey, &signature_base64);
   dictionary->GetString(kExpiryKey, &expire_date);
 
@@ -429,7 +430,7 @@ void InstallSigner::ParseFetchResponse(
   ExtensionIdSet invalid_ids;
   const base::ListValue* invalid_ids_list = NULL;
   if (dictionary->GetList(kInvalidIdsKey, &invalid_ids_list)) {
-    for (size_t i = 0; i < invalid_ids_list->GetSize(); i++) {
+    for (size_t i = 0; i < invalid_ids_list->GetList().size(); i++) {
       std::string id;
       if (!invalid_ids_list->GetString(i, &id)) {
         ReportErrorViaCallback();
@@ -450,7 +451,7 @@ void InstallSigner::HandleSignatureResult(const std::string& signature,
 
   std::unique_ptr<InstallSignature> result;
   if (!signature.empty()) {
-    result.reset(new InstallSignature);
+    result = std::make_unique<InstallSignature>();
     result->ids = valid_ids;
     result->invalid_ids = invalid_ids;
     result->salt = salt_;

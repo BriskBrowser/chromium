@@ -17,18 +17,25 @@
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/time/default_clock.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "components/crash/content/browser/error_reporting/javascript_error_report.h"
 #include "components/crash/core/app/client_upload_info.h"
 #include "components/crash/core/app/crashpad.h"
 #include "components/feedback/redaction_tool.h"
 #include "components/startup_metric_utils/browser/startup_metric_utils.h"
+#include "components/variations/variations_crash_keys.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "net/base/escape.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "url/gurl.h"
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "base/build_time.h"
+#endif
 
 namespace {
 
@@ -36,6 +43,11 @@ constexpr char kNoBrowserNoWindow[] = "NO_BROWSER";
 constexpr char kRegularTabbedWindow[] = "REGULAR_TABBED";
 constexpr char kWebAppWindow[] = "WEB_APP";
 constexpr char kSystemWebAppWindow[] = "SYSTEM_WEB_APP";
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+// Give up if crash_reporter hasn't finished in this long.
+constexpr base::TimeDelta kMaximumWaitForCrashReporter = base::Minutes(1);
+#endif
 
 // Sometimes, the stack trace will contain an error message as the first line,
 // which confuses the Crash server. This function deletes it if it is present.
@@ -79,20 +91,25 @@ std::string MapWindowTypeToString(WindowType window_type) {
 }  // namespace
 
 ChromeJsErrorReportProcessor::ChromeJsErrorReportProcessor()
-    : clock_(base::DefaultClock::GetInstance()) {}
+    :
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+      maximium_wait_for_crash_reporter_(kMaximumWaitForCrashReporter),
+#endif
+      clock_(base::DefaultClock::GetInstance()) {
+}
 ChromeJsErrorReportProcessor::~ChromeJsErrorReportProcessor() = default;
 
 // Returns the redacted, fixed-up error report if the user consented to have it
-// sent. Returns base::nullopt if the user did not consent or we otherwise
+// sent. Returns absl::nullopt if the user did not consent or we otherwise
 // should not send the report. All the MayBlock work should be done in here.
-base::Optional<JavaScriptErrorReport>
+absl::optional<JavaScriptErrorReport>
 ChromeJsErrorReportProcessor::CheckConsentAndRedact(
     JavaScriptErrorReport error_report) {
   // Consent is handled at the OS level by crash_reporter so we don't need to
   // check it here for Chrome OS.
 #if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
   if (!crash_reporter::GetClientCollectStatsConsent()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 #endif
 
@@ -128,13 +145,26 @@ ChromeJsErrorReportProcessor::GetPlatformInfo() {
   return info;
 }
 
+variations::ExperimentListInfo
+ChromeJsErrorReportProcessor::GetExperimentListInfo() const {
+  return variations::GetExperimentListInfo();
+}
+
+void ChromeJsErrorReportProcessor::AddExperimentIds(ParameterMap& params) {
+  variations::ExperimentListInfo experiment_info = GetExperimentListInfo();
+
+  params[variations::kNumExperimentsKey] =
+      base::NumberToString(experiment_info.num_experiments);
+  params[variations::kExperimentListKey] = experiment_info.experiment_list;
+}
+
 // Finishes sending process once the MayBlock processing is done. On UI thread.
 void ChromeJsErrorReportProcessor::OnConsentCheckCompleted(
     base::ScopedClosureRunner callback_runner,
     scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
     base::TimeDelta browser_process_uptime,
     base::Time report_time,
-    base::Optional<JavaScriptErrorReport> error_report) {
+    absl::optional<JavaScriptErrorReport> error_report) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!error_report) {
     // User didn't consent. This isn't an error so don't log an error.
@@ -156,6 +186,12 @@ void ChromeJsErrorReportProcessor::OnConsentCheckCompleted(
   params["browser"] = "Chrome";
   params["browser_version"] = platform.version;
   params["channel"] = platform.channel;
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  int64_t build_time =
+      (base::GetBuildTime() - base::Time::UnixEpoch()).InMilliseconds();
+  params["build_time_millis"] = base::NumberToString(build_time);
+#endif
+
 #if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // base::SysInfo::OperatingSystemName() returns "Linux" on ChromeOS devices.
   params["os"] = "ChromeOS";
@@ -181,6 +217,8 @@ void ChromeJsErrorReportProcessor::OnConsentCheckCompleted(
     params["line"] = base::NumberToString(*error_report->line_number);
   if (error_report->column_number)
     params["column"] = base::NumberToString(*error_report->column_number);
+  if (error_report->debug_id)
+    params["debug_id"] = std::move(*error_report->debug_id);
   // TODO(crbug/1121816): Chrome crashes have "Process uptime" and "Process
   // type" fields, eventually consider using that for process uptime.
   params["browser_process_uptime_ms"] =
@@ -195,6 +233,9 @@ void ChromeJsErrorReportProcessor::OnConsentCheckCompleted(
   }
   if (error_report->app_locale)
     params["app_locale"] = std::move(*error_report->app_locale);
+  if (error_report->page_url)
+    params["page_url"] = std::move(*error_report->page_url);
+  AddExperimentIds(params);
 
   SendReport(std::move(params), std::move(error_report->stack_trace),
              error_report->send_to_production_servers,
@@ -205,10 +246,8 @@ void ChromeJsErrorReportProcessor::CheckAndUpdateRecentErrorReports(
     const JavaScriptErrorReport& error_report,
     bool* should_send) {
   base::Time now = clock_->Now();
-  constexpr base::TimeDelta kTimeBetweenCleanings =
-      base::TimeDelta::FromHours(1);
-  constexpr base::TimeDelta kTimeBetweenDuplicateReports =
-      base::TimeDelta::FromHours(1);
+  constexpr base::TimeDelta kTimeBetweenCleanings = base::Hours(1);
+  constexpr base::TimeDelta kTimeBetweenDuplicateReports = base::Hours(1);
   // Check for cleaning.
   if (last_recent_error_reports_cleaning_.is_null()) {
     // First time in this function, no need to clean.
@@ -266,7 +305,7 @@ void ChromeJsErrorReportProcessor::CheckAndUpdateRecentErrorReports(
 void ChromeJsErrorReportProcessor::Create() {
   // Google only wants error reports from official builds. Don't install a
   // processor for other builds.
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   DCHECK(JsErrorReportProcessor::Get() == nullptr)
       << "Attempted to create multiple ChromeJsErrorReportProcessors";
   VLOG(3) << "Installing ChromeJsErrorReportProcessor as JavaScript error "
@@ -276,7 +315,7 @@ void ChromeJsErrorReportProcessor::Create() {
 #else
   VLOG(3) << "Not installing ChromeJsErrorReportProcessor as JavaScript error "
           << "processor; not a Google Chrome build";
-#endif  // defined(GOOGLE_CHROME_BUILD)
+#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 }
 
 void ChromeJsErrorReportProcessor::SendErrorReport(
@@ -307,9 +346,8 @@ void ChromeJsErrorReportProcessor::SendErrorReport(
 #if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
   // loader_factory must be created on UI thread. Get it now while we still
   // know the browser_context pointer is valid.
-  loader_factory =
-      content::BrowserContext::GetDefaultStoragePartition(browser_context)
-          ->GetURLLoaderFactoryForBrowserProcess();
+  loader_factory = browser_context->GetDefaultStoragePartition()
+                       ->GetURLLoaderFactoryForBrowserProcess();
 #endif
 
   // Get browser uptime before swapping threads to reduce lag time between the

@@ -65,6 +65,9 @@ class Display {
       std::unique_ptr<DataExchangeDelegate> data_exchange_delegate);
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
+  Display(const Display&) = delete;
+  Display& operator=(const Display&) = delete;
+
   ~Display();
 
   void Shutdown();
@@ -93,12 +96,14 @@ class Display {
   // Creates a xdg shell surface for an existing surface.
   std::unique_ptr<XdgShellSurface> CreateXdgShellSurface(Surface* surface);
 
-  // Creates a remote shell surface for an existing surface using |container|.
+  // Returns a remote shell surface for an existing surface using |container|.
+  // If the existing surface has window session id associated, the remote shell
+  // will be get from PropertyResolver. Or it will create a new remote shell.
   std::unique_ptr<ClientControlledShellSurface>
-  CreateClientControlledShellSurface(Surface* surface,
-                                     int container,
-                                     double default_device_scale_factor,
-                                     bool default_scale_cancellation);
+  CreateOrGetClientControlledShellSurface(Surface* surface,
+                                          int container,
+                                          double default_device_scale_factor,
+                                          bool default_scale_cancellation);
 
   // Creates a notification surface for a surface and notification id.
   std::unique_ptr<NotificationSurface> CreateNotificationSurface(
@@ -149,8 +154,6 @@ class Display {
 #if defined(USE_OZONE)
   std::unique_ptr<gfx::ClientNativePixmapFactory> client_native_pixmap_factory_;
 #endif  // defined(USE_OZONE)
-
-  DISALLOW_COPY_AND_ASSIGN(Display);
 };
 
 }  // namespace exo

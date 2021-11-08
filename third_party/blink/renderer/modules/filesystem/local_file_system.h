@@ -60,6 +60,11 @@ class LocalFileSystem final : public GarbageCollected<LocalFileSystem>,
 
   explicit LocalFileSystem(ExecutionContext&);
 
+  LocalFileSystem(const LocalFileSystem&) = delete;
+  LocalFileSystem& operator=(const LocalFileSystem&) = delete;
+
+  ~LocalFileSystem() final = default;
+
   void ResolveURL(const KURL&,
                   std::unique_ptr<ResolveURICallbacks>,
                   SynchronousType sync_type);
@@ -90,8 +95,6 @@ class LocalFileSystem final : public GarbageCollected<LocalFileSystem>,
   void ResolveURLInternal(const KURL&,
                           std::unique_ptr<ResolveURICallbacks>,
                           SynchronousType sync_type);
-
-  DISALLOW_COPY_AND_ASSIGN(LocalFileSystem);
 };
 
 }  // namespace blink

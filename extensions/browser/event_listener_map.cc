@@ -8,6 +8,7 @@
 
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "content/public/browser/render_process_host.h"
@@ -77,7 +78,7 @@ bool EventListener::Equals(const EventListener* other) const {
          service_worker_version_id_ == other->service_worker_version_id_ &&
          worker_thread_id_ == other->worker_thread_id_ &&
          ((!!filter_.get()) == (!!other->filter_.get())) &&
-         (!filter_.get() || filter_->Equals(other->filter_.get()));
+         (!filter_.get() || *filter_ == *other->filter_);
 }
 
 std::unique_ptr<EventListener> EventListener::Copy() const {
@@ -289,10 +290,11 @@ void EventListenerMap::LoadFilteredLazyListeners(
     const base::ListValue* filter_list = nullptr;
     if (!it.value().GetAsList(&filter_list))
       continue;
-    for (size_t i = 0; i < filter_list->GetSize(); i++) {
-      const DictionaryValue* filter = nullptr;
-      if (!filter_list->GetDictionary(i, &filter))
+    for (const base::Value& filter_value : filter_list->GetList()) {
+      if (!filter_value.is_dict())
         continue;
+      const base::DictionaryValue* filter =
+          static_cast<const base::DictionaryValue*>(&filter_value);
       if (is_for_service_worker) {
         AddListener(EventListener::ForExtensionServiceWorker(
             it.key(), extension_id, nullptr,

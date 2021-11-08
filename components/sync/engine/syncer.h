@@ -7,13 +7,11 @@
 
 #include <stdint.h>
 
-#include <vector>
-
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/syncer_error.h"
-#include "components/sync/protocol/sync.pb.h"
+#include "components/sync/protocol/sync_enums.pb.h"
 
 namespace syncer {
 
@@ -34,6 +32,10 @@ class SyncCycle;
 class Syncer {
  public:
   explicit Syncer(CancelationSignal* cancelation_signal);
+
+  Syncer(const Syncer&) = delete;
+  Syncer& operator=(const Syncer&) = delete;
+
   virtual ~Syncer();
 
   // Whether the syncer is in the middle of a sync cycle.
@@ -50,10 +52,10 @@ class Syncer {
                                SyncCycle* cycle);
 
   // Performs an initial download for the |request_types|.  It is assumed that
-  // the specified types have no local state, and that their associated change
-  // processors are in "passive" mode, so none of the downloaded updates will be
-  // applied to the model.  The |source| is sent up to the server for debug
-  // purposes.  It describes the reson for performing this initial download.
+  // the specified types have no local state, so none of the downloaded updates
+  // will be applied to the model.  The |source| is sent up to the server for
+  // debug purposes.  It describes the reason for performing this initial
+  // download.
   // Returns: false if an error occurred and retries should backoff, true
   // otherwise.
   virtual bool ConfigureSyncShare(const ModelTypeSet& request_types,
@@ -91,8 +93,6 @@ class Syncer {
 
   // Whether the syncer is in the middle of a sync attempt.
   bool is_syncing_;
-
-  DISALLOW_COPY_AND_ASSIGN(Syncer);
 };
 
 }  // namespace syncer

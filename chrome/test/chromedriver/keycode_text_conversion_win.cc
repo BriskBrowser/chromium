@@ -4,10 +4,12 @@
 
 #include "chrome/test/chromedriver/keycode_text_conversion.h"
 
-#include <VersionHelpers.h>
+// windows.h must be included before versionhelpers.h
+#include <windows.h>
+
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
+#include <versionhelpers.h>
 
 #include <memory>
 
@@ -38,9 +40,10 @@ bool ConvertKeyCodeToText(
   return true;
 }
 
-bool ConvertCharToKeyCode(
-    base::char16 key, ui::KeyboardCode* key_code, int *necessary_modifiers,
-    std::string* error_msg) {
+bool ConvertCharToKeyCode(char16_t key,
+                          ui::KeyboardCode* key_code,
+                          int* necessary_modifiers,
+                          std::string* error_msg) {
   short vkey_and_modifiers = ::VkKeyScanW(key);
   bool translated = vkey_and_modifiers != -1 &&
                     LOBYTE(vkey_and_modifiers) != 0xFF &&

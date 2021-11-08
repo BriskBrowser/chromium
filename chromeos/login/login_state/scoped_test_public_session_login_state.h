@@ -15,15 +15,19 @@ namespace chromeos {
 // (so it nicely cleans up after going out of scope).
 class ScopedTestPublicSessionLoginState {
  public:
-  ScopedTestPublicSessionLoginState(
+  explicit ScopedTestPublicSessionLoginState(
       LoginState::LoggedInUserType user_type =
           LoginState::LOGGED_IN_USER_PUBLIC_ACCOUNT);
+
+  ScopedTestPublicSessionLoginState(const ScopedTestPublicSessionLoginState&) =
+      delete;
+  ScopedTestPublicSessionLoginState& operator=(
+      const ScopedTestPublicSessionLoginState&) = delete;
+
   ~ScopedTestPublicSessionLoginState();
 
  private:
   bool needs_shutdown_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedTestPublicSessionLoginState);
 };
 
 }  // namespace chromeos

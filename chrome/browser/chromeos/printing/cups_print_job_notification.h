@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
 
 class Profile;
@@ -34,14 +33,18 @@ class CupsPrintJobNotification : public message_center::NotificationObserver {
   CupsPrintJobNotification(CupsPrintJobNotificationManager* manager,
                            base::WeakPtr<CupsPrintJob> print_job,
                            Profile* profile);
+
+  CupsPrintJobNotification(const CupsPrintJobNotification&) = delete;
+  CupsPrintJobNotification& operator=(const CupsPrintJobNotification&) = delete;
+
   virtual ~CupsPrintJobNotification();
 
   void OnPrintJobStatusUpdated();
 
   // message_center::NotificationObserver
   void Close(bool by_user) override;
-  void Click(const base::Optional<int>& button_index,
-             const base::Optional<base::string16>& reply) override;
+  void Click(const absl::optional<int>& button_index,
+             const absl::optional<std::u16string>& reply) override;
 
  private:
   // Update the notification based on the print job's status.
@@ -68,8 +71,6 @@ class CupsPrintJobNotification : public message_center::NotificationObserver {
   std::unique_ptr<base::OneShotTimer> success_timer_;
 
   base::WeakPtrFactory<CupsPrintJobNotification> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CupsPrintJobNotification);
 };
 
 }  // namespace chromeos

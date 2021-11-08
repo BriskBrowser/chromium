@@ -9,8 +9,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chromeos/components/phonehub/connection_manager.h"
 #include "chromeos/components/phonehub/util/histogram_util.h"
+#include "chromeos/services/secure_channel/public/cpp/client/connection_manager.h"
 
 namespace chromeos {
 namespace phonehub {
@@ -30,20 +30,26 @@ std::string SerializeMessage(proto::MessageType message_type,
 
 }  // namespace
 
-MessageSenderImpl::MessageSenderImpl(ConnectionManager* connection_manager)
+MessageSenderImpl::MessageSenderImpl(
+    secure_channel::ConnectionManager* connection_manager)
     : connection_manager_(connection_manager) {
   DCHECK(connection_manager_);
 }
 
 MessageSenderImpl::~MessageSenderImpl() = default;
 
-void MessageSenderImpl::SendCrosState(bool notification_setting_enabled) {
+void MessageSenderImpl::SendCrosState(bool notification_setting_enabled,
+                                      bool camera_roll_setting_enabled) {
   proto::NotificationSetting is_notification_enabled =
       notification_setting_enabled
           ? proto::NotificationSetting::NOTIFICATIONS_ON
           : proto::NotificationSetting::NOTIFICATIONS_OFF;
+  proto::CameraRollSetting is_camera_roll_enabled =
+      camera_roll_setting_enabled ? proto::CameraRollSetting::CAMERA_ROLL_ON
+                                  : proto::CameraRollSetting::CAMERA_ROLL_OFF;
   proto::CrosState request;
   request.set_notification_setting(is_notification_enabled);
+  request.set_camera_roll_setting(is_camera_roll_enabled);
 
   SendMessage(proto::MessageType::PROVIDE_CROS_STATE, &request);
 }
@@ -80,7 +86,7 @@ void MessageSenderImpl::SendDismissNotificationRequest(
 
 void MessageSenderImpl::SendNotificationInlineReplyRequest(
     int64_t notification_id,
-    const base::string16& reply_text) {
+    const std::u16string& reply_text) {
   proto::NotificationInlineReplyRequest request;
   request.set_notification_id(notification_id);
   request.set_reply_text(base::UTF16ToUTF8(reply_text));
@@ -105,8 +111,26 @@ void MessageSenderImpl::SendRingDeviceRequest(bool device_ringing_enabled) {
   SendMessage(proto::MessageType::RING_DEVICE_REQUEST, &request);
 }
 
-void MessageSenderImpl::SendMessage(proto::MessageType message_type,
-                                    google::protobuf::MessageLite* request) {
+void MessageSenderImpl::SendFetchCameraRollItemsRequest(
+    const proto::FetchCameraRollItemsRequest& request) {
+  SendMessage(proto::MessageType::FETCH_CAMERA_ROLL_ITEMS_REQUEST, &request);
+}
+
+void MessageSenderImpl::SendFetchCameraRollItemDataRequest(
+    const proto::FetchCameraRollItemDataRequest& request) {
+  SendMessage(proto::MessageType::FETCH_CAMERA_ROLL_ITEM_DATA_REQUEST,
+              &request);
+}
+
+void MessageSenderImpl::SendInitiateCameraRollItemTransferRequest(
+    const proto::InitiateCameraRollItemTransferRequest& request) {
+  SendMessage(proto::MessageType::INITIATE_CAMERA_ROLL_ITEM_TRANSFER_REQUEST,
+              &request);
+}
+
+void MessageSenderImpl::SendMessage(
+    proto::MessageType message_type,
+    const google::protobuf::MessageLite* request) {
   connection_manager_->SendMessage(SerializeMessage(message_type, request));
   UMA_HISTOGRAM_ENUMERATION("PhoneHub.Usage.SentMessageTypeCount", message_type,
                             proto::MessageType_MAX);

@@ -6,7 +6,6 @@
 #define SERVICES_DEVICE_TEST_USB_TEST_GADGET_H_
 
 #include <memory>
-#include <string>
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -33,6 +32,9 @@ class UsbTestGadget {
     ECHO,
   };
 
+  UsbTestGadget(const UsbTestGadget&) = delete;
+  UsbTestGadget& operator=(const UsbTestGadget&) = delete;
+
   virtual ~UsbTestGadget() {}
 
   static bool IsTestEnabled();
@@ -49,9 +51,6 @@ class UsbTestGadget {
 
  protected:
   UsbTestGadget() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(UsbTestGadget);
 };
 
 }  // namespace device

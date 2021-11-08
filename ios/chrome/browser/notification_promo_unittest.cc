@@ -29,7 +29,7 @@ namespace {
 const char kDateFormat[] = "dd MMM yyyy HH:mm:ss zzzz";
 
 bool YearFromNow(double* date_epoch, std::string* date_string) {
-  *date_epoch = (base::Time::Now() + base::TimeDelta::FromDays(365)).ToTimeT();
+  *date_epoch = (base::Time::Now() + base::Days(365)).ToTimeT();
 
   UErrorCode status = U_ZERO_ERROR;
   icu::SimpleDateFormat simple_formatter(icu::UnicodeString(kDateFormat),
@@ -78,7 +78,7 @@ class NotificationPromoTest : public PlatformTest {
 
     std::string json_with_end_date(
         base::ReplaceStringPlaceholders(json, replacements, NULL));
-    base::Optional<base::Value> value =
+    absl::optional<base::Value> value =
         base::JSONReader::Read(json_with_end_date);
     ASSERT_TRUE(value.has_value());
     ASSERT_TRUE(value.value().is_dict());
@@ -102,7 +102,7 @@ class NotificationPromoTest : public PlatformTest {
     ASSERT_TRUE(payload);
     ASSERT_TRUE(payload->is_dict());
 
-    for (const auto& pair : payload->DictItems()) {
+    for (const auto pair : payload->DictItems()) {
       field_trial_params[pair.first] =
           pair.second.is_string() ? pair.second.GetString() : std::string();
     }

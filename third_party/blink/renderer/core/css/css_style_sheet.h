@@ -22,6 +22,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_STYLE_SHEET_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_STYLE_SHEET_H_
 
+#include "base/gtest_prod_util.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_rule.h"
 #include "third_party/blink/renderer/core/css/media_query_evaluator.h"
@@ -60,7 +61,10 @@ class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
   static CSSStyleSheet* Create(Document&,
                                const CSSStyleSheetInit*,
                                ExceptionState&);
-
+  static CSSStyleSheet* Create(Document&,
+                               const KURL& base_url,
+                               const CSSStyleSheetInit*,
+                               ExceptionState&);
   static CSSStyleSheet* CreateInline(
       Node&,
       const KURL&,
@@ -73,6 +77,7 @@ class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
 
   explicit CSSStyleSheet(StyleSheetContents*,
                          CSSImportRule* owner_rule = nullptr);
+  CSSStyleSheet(StyleSheetContents*, Document&, const CSSStyleSheetInit*);
   CSSStyleSheet(
       StyleSheetContents*,
       Node& owner_node,
@@ -209,6 +214,8 @@ class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
   void SetAlternateFromConstructor(bool);
   bool CanBeActivated(const String& current_preferrable_name) const;
   bool IsConstructed() const { return ConstructorDocument(); }
+  void SetIsForCSSModuleScript() { is_for_css_module_script_ = true; }
+  bool IsForCSSModuleScript() const { return is_for_css_module_script_; }
 
   void Trace(Visitor*) const override;
 
@@ -247,6 +254,7 @@ class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
 
   Member<StyleSheetContents> contents_;
   bool is_inline_stylesheet_ = false;
+  bool is_for_css_module_script_ = false;
   bool is_disabled_ = false;
   bool load_completed_ = false;
   // This alternate variable is only used for constructed CSSStyleSheet.
@@ -298,4 +306,4 @@ struct DowncastTraits<CSSStyleSheet> {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_STYLE_SHEET_H_

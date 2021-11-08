@@ -63,8 +63,8 @@ DynamicsCompressorKernel::DynamicsCompressorKernel(float sample_rate,
   Reset();
 
   metering_release_k_ =
-      float{audio_utilities::DiscreteTimeConstantForSampleRate(
-          kMeteringReleaseTimeConstant, sample_rate)};
+      static_cast<float>(audio_utilities::DiscreteTimeConstantForSampleRate(
+          kMeteringReleaseTimeConstant, sample_rate));
 }
 
 void DynamicsCompressorKernel::SetNumberOfChannels(
@@ -98,17 +98,18 @@ void DynamicsCompressorKernel::SetPreDelayTime(float pre_delay_time) {
 // Exponential curve for the knee.
 // It is 1st derivative matched at m_linearThreshold and asymptotically
 // approaches the value m_linearThreshold + 1 / k.
-float DynamicsCompressorKernel::KneeCurve(float x, float k) {
+float DynamicsCompressorKernel::KneeCurve(float x, float k) const {
   // Linear up to threshold.
   if (x < linear_threshold_)
     return x;
 
-  return linear_threshold_ +
-         (1 - fdlibm::expf(-k * (x - linear_threshold_))) / k;
+  return linear_threshold_ + (1 - static_cast<float>(exp(static_cast<double>(
+                                      -k * (x - linear_threshold_))))) /
+                                 k;
 }
 
 // Full compression curve with constant ratio after knee.
-float DynamicsCompressorKernel::Saturate(float x, float k) {
+float DynamicsCompressorKernel::Saturate(float x, float k) const {
   float y;
 
   if (x < knee_threshold_)
@@ -127,7 +128,7 @@ float DynamicsCompressorKernel::Saturate(float x, float k) {
 // Approximate 1st derivative with input and output expressed in dB.
 // This slope is equal to the inverse of the compression "ratio".
 // In other words, a compression ratio of 20 would be a slope of 1/20.
-float DynamicsCompressorKernel::SlopeAt(float x, float k) {
+float DynamicsCompressorKernel::SlopeAt(float x, float k) const {
   if (x < linear_threshold_)
     return 1;
 
@@ -144,7 +145,7 @@ float DynamicsCompressorKernel::SlopeAt(float x, float k) {
   return m;
 }
 
-float DynamicsCompressorKernel::KAtSlope(float desired_slope) {
+float DynamicsCompressorKernel::KAtSlope(float desired_slope) const {
   float x_db = db_threshold_ + db_knee_;
   float x = audio_utilities::DecibelsToLinear(x_db);
 
@@ -220,7 +221,7 @@ void DynamicsCompressorKernel::Process(
     float release_zone4) {
   DCHECK_EQ(pre_delay_buffers_.size(), number_of_channels);
 
-  float sample_rate = this->SampleRate();
+  float sample_rate = SampleRate();
 
   float dry_mix = 1 - effect_blend;
   float wet_mix = effect_blend;
@@ -340,7 +341,7 @@ void DynamicsCompressorKernel::Process(
 
       // Contain within range: -12 -> 0 then scale to go from 0 -> 3
       float x = compression_diff_db;
-      x = clampTo(x, -12.0f, 0.0f);
+      x = ClampTo(x, -12.0f, 0.0f);
       x = 0.25f * (x + 12);
 
       // Compute adaptive release curve using 4th order polynomial.
@@ -452,15 +453,15 @@ void DynamicsCompressorKernel::Process(
 
         // Warp pre-compression gain to smooth out sharp exponential transition
         // points.
-        float post_warp_compressor_gain =
-            fdlibm::sinf(kPiOverTwoFloat * compressor_gain);
+        float post_warp_compressor_gain = static_cast<float>(
+            sin(static_cast<double>(kPiOverTwoFloat * compressor_gain)));
 
         // Calculate total gain using the linear post-gain and effect blend.
         float total_gain =
             dry_mix + wet_mix * linear_post_gain * post_warp_compressor_gain;
 
         // Calculate metering.
-        float db_real_gain = 20 * fdlibm::log10(post_warp_compressor_gain);
+        float db_real_gain = 20 * log10(post_warp_compressor_gain);
         if (db_real_gain < metering_gain_)
           metering_gain_ = db_real_gain;
         else

@@ -10,8 +10,8 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/safe_browsing/content/web_ui/safe_browsing_ui.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
+#include "components/safe_browsing/content/browser/web_ui/safe_browsing_ui.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/site_instance.h"
@@ -33,7 +33,7 @@ class DownloadProtectionServiceBrowserTest : public InProcessBrowserTest {
 
   void DownloadAndWait(GURL url) {
     content::DownloadManager* download_manager =
-        content::BrowserContext::GetDownloadManager(browser()->profile());
+        browser()->profile()->GetDownloadManager();
     content::DownloadTestObserverTerminal observer(
         download_manager, 1,
         content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_IGNORE);

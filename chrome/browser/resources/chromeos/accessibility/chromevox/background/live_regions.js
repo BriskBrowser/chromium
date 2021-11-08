@@ -6,11 +6,6 @@
  * @fileoverview Implements support for live regions in ChromeVox Next.
  */
 
-goog.provide('LiveRegions');
-
-goog.require('ChromeVoxState');
-
-goog.scope(function() {
 const AutomationNode = chrome.automation.AutomationNode;
 const RoleType = chrome.automation.RoleType;
 const StateType = chrome.automation.StateType;
@@ -21,7 +16,7 @@ const TreeChangeType = chrome.automation.TreeChangeType;
 /**
  * ChromeVox2 live region handler.
  */
-LiveRegions = class {
+export class LiveRegions {
   /**
    * @param {!ChromeVoxState} chromeVoxState The ChromeVox state object,
    *     keeping track of the current mode and current range.
@@ -114,13 +109,11 @@ LiveRegions = class {
     // Schedule all live regions after all events in the native C++
     // EventBundle.
     this.liveRegionNodeSet_ = new WeakSet();
-    setTimeout(function() {
-      for (let i = 0; i < this.changedNodes_.length; i++) {
-        const node = this.changedNodes_[i];
-        this.outputLiveRegionChange_(node, null);
-      }
-      this.changedNodes_ = [];
-    }.bind(this), 0);
+    for (let i = 0; i < this.changedNodes_.length; i++) {
+      const node = this.changedNodes_[i];
+      this.outputLiveRegionChange_(node, null);
+    }
+    this.changedNodes_ = [];
   }
 
   /**
@@ -182,7 +175,7 @@ LiveRegions = class {
     if (opt_prependFormatStr) {
       output.format(opt_prependFormatStr);
     }
-    output.withSpeech(range, range, Output.EventType.NAVIGATE);
+    output.withSpeech(range, range, OutputEventType.NAVIGATE);
 
     if (!output.hasSpeech && node.liveAtomic) {
       output.format('$joinedDescendants', node);
@@ -245,7 +238,7 @@ LiveRegions = class {
 
     return true;
   }
-};
+}
 
 /**
  * Live region events received in fewer than this many milliseconds will
@@ -269,4 +262,3 @@ LiveRegions.LIVE_REGION_MIN_SAME_NODE_MS = 20;
  * @private
  */
 LiveRegions.announceLiveRegionsFromBackgroundTabs_ = false;
-});  // goog.scope

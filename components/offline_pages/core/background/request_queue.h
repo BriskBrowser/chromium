@@ -9,7 +9,6 @@
 
 #include <memory>
 #include <set>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -64,6 +63,10 @@ class RequestQueue : public TaskQueue::Delegate {
   };
 
   explicit RequestQueue(std::unique_ptr<RequestQueueStore> store);
+
+  RequestQueue(const RequestQueue&) = delete;
+  RequestQueue& operator=(const RequestQueue&) = delete;
+
   ~RequestQueue() override;
 
   // TaskQueue::Delegate
@@ -168,8 +171,6 @@ class RequestQueue : public TaskQueue::Delegate {
 
   // Allows us to pass a weak pointer to callbacks.
   base::WeakPtrFactory<RequestQueue> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(RequestQueue);
 };
 
 }  // namespace offline_pages

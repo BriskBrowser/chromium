@@ -23,6 +23,10 @@ namespace {
 class TestBadMessagesImpl : public TestBadMessages {
  public:
   TestBadMessagesImpl() = default;
+
+  TestBadMessagesImpl(const TestBadMessagesImpl&) = delete;
+  TestBadMessagesImpl& operator=(const TestBadMessagesImpl&) = delete;
+
   ~TestBadMessagesImpl() override = default;
 
   void Bind(PendingReceiver<TestBadMessages> receiver) {
@@ -55,8 +59,6 @@ class TestBadMessagesImpl : public TestBadMessages {
 
   ReportBadMessageCallback bad_message_callback_;
   mojo::Receiver<TestBadMessages> receiver_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TestBadMessagesImpl);
 };
 
 class ReportBadMessageTest : public BindingsTestBase {
@@ -153,34 +155,6 @@ TEST_P(ReportBadMessageTest, ResponseAsync) {
   // handler immediately.
   std::move(bad_message_callback)
       .Run("this message is bad and should feel bad");
-  EXPECT_TRUE(error);
-}
-
-TEST_P(ReportBadMessageTest, ResponseSync) {
-  bool error = false;
-  SetErrorHandler(base::BindLambdaForTesting([&] { error = true; }));
-
-  SyncMessageResponseContext context;
-  remote()->RequestResponseSync();
-
-  EXPECT_FALSE(error);
-  context.ReportBadMessage("i don't like this response");
-  EXPECT_TRUE(error);
-}
-
-TEST_P(ReportBadMessageTest, ResponseSyncDeferred) {
-  bool error = false;
-  SetErrorHandler(base::BindLambdaForTesting([&] { error = true; }));
-
-  ReportBadMessageCallback bad_message_callback;
-  {
-    SyncMessageResponseContext context;
-    remote()->RequestResponseSync();
-    bad_message_callback = context.GetBadMessageCallback();
-  }
-
-  EXPECT_FALSE(error);
-  std::move(bad_message_callback).Run("nope nope nope");
   EXPECT_TRUE(error);
 }
 

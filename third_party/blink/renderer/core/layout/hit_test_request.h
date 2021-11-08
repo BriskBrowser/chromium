@@ -25,7 +25,6 @@
 
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
 
@@ -79,6 +78,11 @@ class HitTestRequest {
   }
   bool IsChildFrameHitTest() const {
     return request_type_ & kChildFrameHitTest;
+  }
+  // Returns true if this request is used for occlusion.
+  // See |LayoutObject::HitTestForOcclusion()|
+  bool IsHitTestVisualOverflow() const {
+    return request_type_ & kHitTestVisualOverflow;
   }
   bool IgnorePointerEventsNone() const {
     return request_type_ & kIgnorePointerEventsNone;

@@ -9,9 +9,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
@@ -30,6 +30,12 @@ namespace remoting {
 class SecurityKeyMessageWriterImplTest : public testing::Test {
  public:
   SecurityKeyMessageWriterImplTest();
+
+  SecurityKeyMessageWriterImplTest(const SecurityKeyMessageWriterImplTest&) =
+      delete;
+  SecurityKeyMessageWriterImplTest& operator=(
+      const SecurityKeyMessageWriterImplTest&) = delete;
+
   ~SecurityKeyMessageWriterImplTest() override;
 
   // Run on a separate thread, this method reads the message written to the
@@ -54,9 +60,6 @@ class SecurityKeyMessageWriterImplTest : public testing::Test {
 
   // Stores the result of the last read operation.
   std::string message_result_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SecurityKeyMessageWriterImplTest);
 };
 
 SecurityKeyMessageWriterImplTest::SecurityKeyMessageWriterImplTest() = default;
@@ -90,7 +93,8 @@ void SecurityKeyMessageWriterImplTest::OnReadComplete(
 
 void SecurityKeyMessageWriterImplTest::SetUp() {
   ASSERT_TRUE(MakePipe(&read_file_, &write_file_));
-  writer_.reset(new SecurityKeyMessageWriterImpl(std::move(write_file_)));
+  writer_ =
+      std::make_unique<SecurityKeyMessageWriterImpl>(std::move(write_file_));
 }
 
 void SecurityKeyMessageWriterImplTest::WriteMessageToOutput(
@@ -100,7 +104,7 @@ void SecurityKeyMessageWriterImplTest::WriteMessageToOutput(
 
   base::Thread::Options options;
   options.message_pump_type = base::MessagePumpType::IO;
-  reader_thread.StartWithOptions(options);
+  reader_thread.StartWithOptions(std::move(options));
 
   // Used to block until the read complete callback is triggered.
   base::test::SingleThreadTaskEnvironment task_environment(

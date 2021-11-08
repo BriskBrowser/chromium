@@ -9,14 +9,14 @@
 #include <string>
 #include <vector>
 
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_forward.h"
 #include "components/services/app_service/public/mojom/types.mojom-forward.h"
 #include "ui/gfx/image/image_skia.h"
 
 class Profile;
 
 namespace apps {
-
-class AppServiceProxy;
 
 // Helper class to initialize AppService in unit tests.
 class AppServiceTest {
@@ -48,8 +48,6 @@ class AppServiceTest {
 
  private:
   AppServiceProxy* app_service_proxy_ = nullptr;
-
-  Profile* profile_ = nullptr;
 };
 
 }  // namespace apps

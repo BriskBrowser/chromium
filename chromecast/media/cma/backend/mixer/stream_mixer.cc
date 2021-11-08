@@ -15,17 +15,17 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
+#include "base/cxx17_backports.h"
+#include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/message_loop/message_pump_type.h"
-#include "base/numerics/ranges.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chromecast/base/chromecast_switches.h"
-#include "chromecast/base/serializers.h"
 #include "chromecast/base/thread_health_checker.h"
 #include "chromecast/media/audio/audio_io_thread.h"
 #include "chromecast/media/audio/audio_log.h"
@@ -75,10 +75,8 @@ const int kMediaDuckFadeMs = 150;
 const int kMediaUnduckFadeMs = 700;
 const int kDefaultFilterFrameAlignment = 64;
 
-constexpr base::TimeDelta kMixerThreadCheckTimeout =
-    base::TimeDelta::FromSeconds(10);
-constexpr base::TimeDelta kHealthCheckInterval =
-    base::TimeDelta::FromSeconds(5);
+constexpr base::TimeDelta kMixerThreadCheckTimeout = base::Seconds(10);
+constexpr base::TimeDelta kHealthCheckInterval = base::Seconds(5);
 
 int GetFixedOutputSampleRate() {
   int fixed_sample_rate = GetSwitchValueNonNegativeInt(
@@ -103,7 +101,7 @@ base::TimeDelta GetNoInputCloseTimeout() {
   if (close_timeout_ms < 0) {
     return base::TimeDelta::Max();
   }
-  return base::TimeDelta::FromMilliseconds(close_timeout_ms);
+  return base::Milliseconds(close_timeout_ms);
 }
 
 void UseHighPriority() {
@@ -366,8 +364,9 @@ void StreamMixer::CreatePostProcessors(CastMediaShlib::ResultCallback callback,
   mixer_pipeline_.reset();
 
   if (!override_config.empty()) {
-    PostProcessingPipelineParser parser(
-        base::DictionaryValue::From(DeserializeFromJson(override_config)));
+    auto value = base::JSONReader::Read(override_config);
+    CHECK(value) << "Invalid JSON";
+    PostProcessingPipelineParser parser(std::move(*value));
     mixer_pipeline_ = MixerPipeline::CreateMixerPipeline(
         &parser, post_processing_pipeline_factory_.get(),
         expected_input_channels);
@@ -896,7 +895,7 @@ void StreamMixer::WriteMixedPcm(int frames, int64_t expected_playback_time) {
   // Hard limit to [1.0, -1.0]
   for (int i = 0; i < frames * loopback_channel_count; ++i) {
     // TODO(bshaya): Warn about clipping here.
-    loopback_data[i] = base::ClampToRange(loopback_data[i], -1.0f, 1.0f);
+    loopback_data[i] = base::clamp(loopback_data[i], -1.0f, 1.0f);
   }
 
   loopback_handler_->SendData(expected_playback_time,
@@ -908,7 +907,7 @@ void StreamMixer::WriteMixedPcm(int frames, int64_t expected_playback_time) {
 
   // Hard limit to [1.0, -1.0].
   for (int i = 0; i < frames * num_output_channels_; ++i) {
-    linearized_data[i] = base::ClampToRange(linearized_data[i], -1.0f, 1.0f);
+    linearized_data[i] = base::clamp(linearized_data[i], -1.0f, 1.0f);
   }
 
   bool playback_interrupted = false;

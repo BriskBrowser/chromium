@@ -46,6 +46,9 @@ class CONTENT_EXPORT VRServiceImpl : public device::mojom::VRService,
   // Constructor for tests.
   explicit VRServiceImpl(base::PassKey<XRRuntimeManagerTest>);
 
+  VRServiceImpl(const VRServiceImpl&) = delete;
+  VRServiceImpl& operator=(const VRServiceImpl&) = delete;
+
   ~VRServiceImpl() override;
 
   static void Create(content::RenderFrameHost* render_frame_host,
@@ -154,10 +157,10 @@ class CONTENT_EXPORT VRServiceImpl : public device::mojom::VRService,
 
   void OnInlineSessionCreated(
       SessionRequestData request,
-      device::mojom::XRSessionPtr session,
-      mojo::PendingRemote<device::mojom::XRSessionController> controller);
-  void OnImmersiveSessionCreated(SessionRequestData request,
-                                 device::mojom::XRSessionPtr session);
+      device::mojom::XRRuntimeSessionResultPtr session_result);
+  void OnImmersiveSessionCreated(
+      SessionRequestData request,
+      device::mojom::XRRuntimeSessionResultPtr session_result);
   void OnSessionCreated(
       SessionRequestData request,
       device::mojom::XRSessionPtr session,
@@ -183,8 +186,6 @@ class CONTENT_EXPORT VRServiceImpl : public device::mojom::VRService,
   std::vector<XrCompatibleCallback> xr_compatible_callbacks_;
 
   base::WeakPtrFactory<VRServiceImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(VRServiceImpl);
 };
 
 }  // namespace content

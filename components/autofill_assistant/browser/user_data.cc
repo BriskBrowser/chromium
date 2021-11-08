@@ -13,10 +13,10 @@ LoginChoice::LoginChoice(
     const std::string& _identifier,
     const std::string& _label,
     const std::string& _sublabel,
-    const base::Optional<std::string>& _sublabel_accessibility_hint,
+    const absl::optional<std::string>& _sublabel_accessibility_hint,
     int _preselect_priority,
-    const base::Optional<InfoPopupProto>& _info_popup,
-    const base::Optional<std::string>& _edit_button_content_description)
+    const absl::optional<InfoPopupProto>& _info_popup,
+    const absl::optional<std::string>& _edit_button_content_description)
     : identifier(_identifier),
       label(_label),
       sublabel(_sublabel),
@@ -24,8 +24,14 @@ LoginChoice::LoginChoice(
       preselect_priority(_preselect_priority),
       info_popup(_info_popup),
       edit_button_content_description(_edit_button_content_description) {}
+LoginChoice::LoginChoice() = default;
 LoginChoice::LoginChoice(const LoginChoice& another) = default;
 LoginChoice::~LoginChoice() = default;
+
+bool LoginChoice::CompareByPriority(const LoginChoice& lhs,
+                                    const LoginChoice& rhs) {
+  return lhs.preselect_priority < rhs.preselect_priority;
+}
 
 PaymentInstrument::PaymentInstrument() = default;
 PaymentInstrument::PaymentInstrument(
@@ -44,10 +50,6 @@ bool UserData::has_selected_address(const std::string& name) const {
   return selected_address(name) != nullptr;
 }
 
-bool UserData::has_additional_value(const std::string& key) const {
-  return additional_values_.find(key) != additional_values_.end();
-}
-
 const autofill::AutofillProfile* UserData::selected_address(
     const std::string& name) const {
   auto it = selected_addresses_.find(name);
@@ -58,7 +60,24 @@ const autofill::AutofillProfile* UserData::selected_address(
   return it->second.get();
 }
 
-const ValueProto* UserData::additional_value(const std::string& key) const {
+const autofill::CreditCard* UserData::selected_card() const {
+  return selected_card_.get();
+}
+
+const LoginChoice* UserData::selected_login_choice() const {
+  return selected_login_choice_.get();
+}
+
+void UserData::SetAdditionalValue(const std::string& key,
+                                  const ValueProto& value) {
+  additional_values_[key] = value;
+}
+
+bool UserData::HasAdditionalValue(const std::string& key) const {
+  return additional_values_.find(key) != additional_values_.end();
+}
+
+const ValueProto* UserData::GetAdditionalValue(const std::string& key) const {
   auto it = additional_values_.find(key);
   if (it == additional_values_.end()) {
     return nullptr;

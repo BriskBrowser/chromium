@@ -11,7 +11,6 @@
 
 #include "base/callback_forward.h"
 #include "base/containers/circular_deque.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/policy_invalidation_scope.h"
@@ -66,8 +65,9 @@ class POLICY_EXPORT RemoteCommandsService
     kDeviceRunDiagnosticRoutine = 16,
     kDeviceGetDiagnosticRoutineUpdate = 17,
     kBrowserClearBrowsingData = 18,
+    kDeviceResetEuicc = 19,
     // Used by UMA histograms. Shall refer to the last enumeration.
-    kMaxValue = kBrowserClearBrowsingData
+    kMaxValue = kDeviceResetEuicc
   };
 
   // Returns the metric name to report received commands.
@@ -84,6 +84,8 @@ class POLICY_EXPORT RemoteCommandsService
                         CloudPolicyClient* client,
                         CloudPolicyStore* store,
                         PolicyInvalidationScope scope);
+  RemoteCommandsService(const RemoteCommandsService&) = delete;
+  RemoteCommandsService& operator=(const RemoteCommandsService&) = delete;
   ~RemoteCommandsService() override;
 
   // Attempts to fetch remote commands, mainly supposed to be called by
@@ -174,8 +176,6 @@ class POLICY_EXPORT RemoteCommandsService
   const PolicyInvalidationScope scope_;
 
   base::WeakPtrFactory<RemoteCommandsService> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(RemoteCommandsService);
 };
 
 }  // namespace policy

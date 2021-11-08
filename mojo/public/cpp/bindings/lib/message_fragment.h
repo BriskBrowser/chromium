@@ -19,7 +19,7 @@ namespace internal {
 
 // Sentinel value used to denote an invalid index and thus a null fragment. Note
 // that we choose a sentinel value over something more explicit like
-// base::Optional because this is used heavily in generated code, so code size
+// absl::optional because this is used heavily in generated code, so code size
 // is particularly relevant.
 constexpr size_t kInvalidFragmentIndex = std::numeric_limits<size_t>::max();
 
@@ -146,12 +146,15 @@ class MessageFragment<Array_Data<T>> {
   // Allocates and claims enough memory for `num_elements` elements of type `T`,
   // plus an array header, and initializes a new `Array_Data<T>` in place.
   void AllocateArrayData(size_t num_elements) {
-    if (num_elements > Traits::kMaxNumElements)
-      return;
+    static_assert(
+        std::numeric_limits<uint32_t>::max() > Traits::kMaxNumElements,
+        "Max num elements castable to 32bit");
+    CHECK_LE(num_elements, Traits::kMaxNumElements);
 
-    const size_t num_bytes = Traits::GetStorageSize(num_elements);
+    const uint32_t num_bytes =
+        Traits::GetStorageSize(static_cast<uint32_t>(num_elements));
     index_ = message_.payload_buffer()->Allocate(num_bytes);
-    new (data()) Array_Data<T>(num_bytes, num_elements);
+    new (data()) Array_Data<T>(num_bytes, static_cast<uint32_t>(num_elements));
   }
 
  private:

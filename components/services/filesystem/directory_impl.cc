@@ -47,8 +47,8 @@ void DirectoryImpl::Read(ReadCallback callback) {
 
   std::move(callback).Run(base::File::Error::FILE_OK,
                           entries.empty()
-                              ? base::nullopt
-                              : base::make_optional(std::move(entries)));
+                              ? absl::nullopt
+                              : absl::make_optional(std::move(entries)));
 }
 
 // TODO(erg): Consider adding an implementation of Stat()/Touch() to the
@@ -139,7 +139,6 @@ void DirectoryImpl::OpenDirectory(
       return;
     }
 
-    base::File::Error error;
     if (!base::CreateDirectoryAndGetError(path, &error)) {
       std::move(callback).Run(error);
       return;

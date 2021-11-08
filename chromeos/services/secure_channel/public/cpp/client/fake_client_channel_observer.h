@@ -7,7 +7,6 @@
 
 #include "base/macros.h"
 #include "chromeos/services/secure_channel/public/cpp/client/client_channel.h"
-#include "chromeos/services/secure_channel/public/mojom/secure_channel.mojom.h"
 
 namespace chromeos {
 
@@ -17,6 +16,11 @@ namespace secure_channel {
 class FakeClientChannelObserver : public ClientChannel::Observer {
  public:
   FakeClientChannelObserver();
+
+  FakeClientChannelObserver(const FakeClientChannelObserver&) = delete;
+  FakeClientChannelObserver& operator=(const FakeClientChannelObserver&) =
+      delete;
+
   ~FakeClientChannelObserver() override;
 
   // ClientChannel::Observer:
@@ -33,8 +37,6 @@ class FakeClientChannelObserver : public ClientChannel::Observer {
  private:
   bool is_disconnected_ = false;
   std::vector<std::string> received_messages_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeClientChannelObserver);
 };
 
 }  // namespace secure_channel

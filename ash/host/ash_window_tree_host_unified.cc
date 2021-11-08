@@ -30,6 +30,9 @@ class UnifiedEventTargeter : public aura::WindowTargeter {
     DCHECK(delegate);
   }
 
+  UnifiedEventTargeter(const UnifiedEventTargeter&) = delete;
+  UnifiedEventTargeter& operator=(const UnifiedEventTargeter&) = delete;
+
   ui::EventTarget* FindTargetForEvent(ui::EventTarget* root,
                                       ui::Event* event) override {
     if (root == src_root_ && !event->target()) {
@@ -57,8 +60,6 @@ class UnifiedEventTargeter : public aura::WindowTargeter {
   aura::Window* src_root_;
   aura::Window* dst_root_;
   AshWindowTreeHostMirroringDelegate* delegate_;  // Not owned.
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedEventTargeter);
 };
 
 AshWindowTreeHostUnified::AshWindowTreeHostUnified(
@@ -103,9 +104,9 @@ void AshWindowTreeHostUnified::OnCursorVisibilityChangedNative(bool show) {
     host->AsWindowTreeHost()->OnCursorVisibilityChanged(show);
 }
 
-void AshWindowTreeHostUnified::OnBoundsChanged(const gfx::Rect& bounds) {
+void AshWindowTreeHostUnified::OnBoundsChanged(const BoundsChange& bounds) {
   if (platform_window())
-    OnHostResizedInPixels(bounds.size());
+    OnHostResizedInPixels(bounds.bounds.size());
 }
 
 void AshWindowTreeHostUnified::OnWindowDestroying(aura::Window* window) {

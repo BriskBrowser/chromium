@@ -6,7 +6,7 @@
 
 #include <iostream>
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -78,6 +78,8 @@ void PrintCertStatus(int cert_status) {
   }
 }
 
+}  // namespace
+
 void PrintCertVerifyResult(const net::CertVerifyResult& result) {
   PrintDebugData(&result);
   PrintCertStatus(result.cert_status);
@@ -109,8 +111,6 @@ void PrintCertVerifyResult(const net::CertVerifyResult& result) {
   }
 }
 
-}  // namespace
-
 bool VerifyUsingCertVerifyProc(
     net::CertVerifyProc* cert_verify_proc,
     const CertInput& target_der_cert,
@@ -119,10 +119,6 @@ bool VerifyUsingCertVerifyProc(
     const std::vector<CertInput>& root_der_certs,
     net::CRLSet* crl_set,
     const base::FilePath& dump_path) {
-  std::cout
-      << "NOTE: CertVerifyProc always uses OS trust settings (--roots are in "
-         "addition).\n";
-
   std::vector<base::StringPiece> der_cert_chain;
   der_cert_chain.push_back(target_der_cert.der_cert);
   for (const auto& cert : intermediate_der_certs)
@@ -143,8 +139,8 @@ bool VerifyUsingCertVerifyProc(
   net::CertificateList x509_additional_trust_anchors;
   for (const auto& cert : root_der_certs) {
     scoped_refptr<net::X509Certificate> x509_root =
-        net::X509Certificate::CreateFromBytes(cert.der_cert.data(),
-                                              cert.der_cert.size());
+        net::X509Certificate::CreateFromBytes(
+            base::as_bytes(base::make_span(cert.der_cert)));
 
     if (!x509_root)
       PrintCertError("ERROR: X509Certificate::CreateFromBytes failed:", cert);

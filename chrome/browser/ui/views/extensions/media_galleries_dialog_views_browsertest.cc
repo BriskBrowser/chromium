@@ -34,7 +34,7 @@ MediaGalleryPrefInfo MakePrefInfo(MediaGalleryPrefId id) {
   gallery.device_id = storage_monitor::StorageInfo::MakeDeviceId(
       storage_monitor::StorageInfo::FIXED_MASS_STORAGE,
       base::NumberToString(id));
-  gallery.display_name = base::ASCIIToUTF16("Display Name");
+  gallery.display_name = u"Display Name";
   return gallery;
 }
 
@@ -43,6 +43,12 @@ MediaGalleryPrefInfo MakePrefInfo(MediaGalleryPrefId id) {
 class MediaGalleriesInteractiveDialogTest : public DialogBrowserTest {
  public:
   MediaGalleriesInteractiveDialogTest() {}
+
+  MediaGalleriesInteractiveDialogTest(
+      const MediaGalleriesInteractiveDialogTest&) = delete;
+  MediaGalleriesInteractiveDialogTest& operator=(
+      const MediaGalleriesInteractiveDialogTest&) = delete;
+
   ~MediaGalleriesInteractiveDialogTest() override {}
 
   void PreRunTestOnMainThread() override {
@@ -58,8 +64,7 @@ class MediaGalleriesInteractiveDialogTest : public DialogBrowserTest {
   }
 
   void ShowUi(const std::string& name) override {
-    std::vector<base::string16> headers = {base::string16(),
-                                           base::ASCIIToUTF16("header2")};
+    std::vector<std::u16string> headers = {std::u16string(), u"header2"};
     MediaGalleriesDialogController::Entries attached_permissions = {
         MediaGalleriesDialogController::Entry(MakePrefInfo(1), true),
         MediaGalleriesDialogController::Entry(MakePrefInfo(2), false)};
@@ -76,8 +81,6 @@ class MediaGalleriesInteractiveDialogTest : public DialogBrowserTest {
  private:
   testing::NiceMock<MediaGalleriesDialogControllerMock> controller_;
   std::unique_ptr<MediaGalleriesDialogViews> dialog_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaGalleriesInteractiveDialogTest);
 };
 
 IN_PROC_BROWSER_TEST_F(MediaGalleriesInteractiveDialogTest,

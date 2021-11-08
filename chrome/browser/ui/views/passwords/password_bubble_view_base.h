@@ -37,6 +37,9 @@ class PasswordBubbleControllerBase;
 // make this base class significantly smaller.
 class PasswordBubbleViewBase : public LocationBarBubbleDelegateView {
  public:
+  PasswordBubbleViewBase(const PasswordBubbleViewBase&) = delete;
+  PasswordBubbleViewBase& operator=(const PasswordBubbleViewBase&) = delete;
+
   // Returns a pointer to the bubble.
   static PasswordBubbleViewBase* manage_password_bubble() {
     return g_manage_passwords_bubble_;
@@ -82,6 +85,10 @@ class PasswordBubbleViewBase : public LocationBarBubbleDelegateView {
   static std::unique_ptr<views::Label> CreatePasswordLabel(
       const password_manager::PasswordForm& form);
 
+  // Sets the resource ids of the images used in the header in light and dark
+  // mode.
+  void SetBubbleHeader(int light_image_id, int dark_image_id);
+
  private:
   // views::BubbleDialogDelegateView:
   void Init() override;
@@ -92,12 +99,6 @@ class PasswordBubbleViewBase : public LocationBarBubbleDelegateView {
   // Singleton instance of the Password bubble.The instance is owned by the
   // Bubble and will be deleted when the bubble closes.
   static PasswordBubbleViewBase* g_manage_passwords_bubble_;
-
-  // Listens for WebContentsView events and closes the bubble so the bubble gets
-  // dismissed when users keep using the web page.
-  std::unique_ptr<WebContentMouseHandler> mouse_handler_;
-
-  DISALLOW_COPY_AND_ASSIGN(PasswordBubbleViewBase);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PASSWORDS_PASSWORD_BUBBLE_VIEW_BASE_H_

@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "base/values.h"
-#include "content/common/frame_messages.h"
 #include "content/public/common/bindings_policy.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/renderer/chrome_object_extensions_utils.h"
@@ -25,7 +24,9 @@
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_view.h"
 #include "url/gurl.h"
-#include "v8/include/v8.h"
+#include "v8/include/v8-context.h"
+#include "v8/include/v8-local-handle.h"
+#include "v8/include/v8-object.h"
 
 namespace content {
 
@@ -107,7 +108,7 @@ void WebUIExtension::Send(gin::Arguments* args) {
   // Value to send to the browser process.
   std::unique_ptr<base::ListValue> content;
   if (args->PeekNext().IsEmpty() || args->PeekNext()->IsUndefined()) {
-    content.reset(new base::ListValue());
+    content = std::make_unique<base::ListValue>();
   } else {
     v8::Local<v8::Object> obj;
     if (!args->GetNext(&obj)) {

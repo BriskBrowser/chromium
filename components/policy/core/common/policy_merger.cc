@@ -27,18 +27,53 @@ constexpr std::array<const char*, 6> kDictionaryPoliciesToMerge{
 }  // namespace
 
 // static
-bool PolicyMerger::ConflictCanBeMerged(const PolicyMap::Entry& conflict,
-                                       const PolicyMap::Entry& policy) {
+bool PolicyMerger::EntriesCanBeMerged(
+    const PolicyMap::Entry& entry_1,
+    const PolicyMap::Entry& entry_2,
+    const bool is_user_cloud_merging_enabled) {
+  if (entry_1.ignored() || entry_2.ignored() ||
+      entry_1.source == POLICY_SOURCE_ENTERPRISE_DEFAULT ||
+      entry_2.source == POLICY_SOURCE_ENTERPRISE_DEFAULT ||
+      entry_1.level != entry_2.level)
+    return false;
+
+  // If the policies have matching scope and are non-user, they can be merged.
+  if (entry_1.scope == entry_2.scope && entry_1.scope != POLICY_SCOPE_USER)
+    return true;
+
+  // Merging of user-level GPO policies is not permitted to prevent unexpected
+  // behavior. If such merging is desired, it will be implemented in a similar
+  // way as user cloud merging.
+  if ((entry_1.scope == POLICY_SCOPE_USER &&
+       entry_1.source == POLICY_SOURCE_PLATFORM) ||
+      (entry_2.scope == POLICY_SCOPE_USER &&
+       entry_2.source == POLICY_SOURCE_PLATFORM))
+    return false;
+
   // On desktop, the user cloud policy potentially comes from a different
-  // domain than e.g. GPO policy or machine-level cloud policy, so prevent
-  // merging user cloud policy with other policy sources.
-  const bool is_conflict_user_cloud_policy =
-      conflict.scope == POLICY_SCOPE_USER &&
-      (conflict.source == POLICY_SOURCE_CLOUD ||
-       conflict.source == POLICY_SOURCE_PRIORITY_CLOUD);
-  return !is_conflict_user_cloud_policy && !conflict.ignored() &&
-         conflict.source != POLICY_SOURCE_ENTERPRISE_DEFAULT &&
-         conflict.level == policy.level && conflict.scope == policy.scope;
+  // domain than e.g. GPO policy or machine-level cloud policy. Merging a user
+  // cloud policy with policies from other sources is only permitted if both of
+  // the following conditions are met:
+  //   1. The CloudUserPolicyMerge metapolicy is set to True.
+  //   2. The user is affiliated with the machine-level cloud policy provider.
+  const bool has_user_cloud_policy = (entry_1.scope == POLICY_SCOPE_USER &&
+                                      entry_1.source == POLICY_SOURCE_CLOUD) ||
+                                     (entry_2.scope == POLICY_SCOPE_USER &&
+                                      entry_2.source == POLICY_SOURCE_CLOUD);
+  const bool is_user_cloud_condition_satisfied =
+      !has_user_cloud_policy || is_user_cloud_merging_enabled;
+
+  // For the scope condition to be satisfied, either the scopes of the two
+  // policies should match or the policy override should be enabled. The scope
+  // check override is only enabled when a user cloud policy is present and user
+  // cloud merging is enabled -- this allows user cloud policies to merge with
+  // machine-level policies.
+  const bool is_scope_overriden =
+      has_user_cloud_policy && is_user_cloud_merging_enabled;
+  const bool is_scope_condition_satisfied =
+      entry_1.scope == entry_2.scope || is_scope_overriden;
+
+  return is_user_cloud_condition_satisfied && is_scope_condition_satisfied;
 }
 
 PolicyMerger::PolicyMerger() = default;
@@ -52,12 +87,16 @@ PolicyListMerger::~PolicyListMerger() = default;
 PolicyGroupMerger::PolicyGroupMerger() = default;
 PolicyGroupMerger::~PolicyGroupMerger() = default;
 
-void PolicyListMerger::Merge(PolicyMap::PolicyMapType* policies) const {
+void PolicyListMerger::Merge(PolicyMap* policies) const {
   DCHECK(policies);
   for (auto& it : *policies) {
     if (CanMerge(it.first, it.second))
       DoMerge(&it.second);
   }
+}
+
+void PolicyListMerger::SetAllowUserCloudPolicyMerging(bool allowed) {
+  allow_user_cloud_policy_merging_ = allowed;
 }
 
 bool PolicyListMerger::CanMerge(const std::string& policy_name,
@@ -80,6 +119,10 @@ bool PolicyListMerger::CanMerge(const std::string& policy_name,
   return true;
 }
 
+bool PolicyListMerger::AllowUserCloudPolicyMerging() const {
+  return allow_user_cloud_policy_merging_;
+}
+
 void PolicyListMerger::DoMerge(PolicyMap::Entry* policy) const {
   std::vector<const base::Value*> merged_values;
   auto compare_value_ptr = [](const base::Value* a, const base::Value* b) {
@@ -99,7 +142,8 @@ void PolicyListMerger::DoMerge(PolicyMap::Entry* policy) const {
   // Concatenates the values from accepted conflicting sources to the policy
   // value while avoiding duplicates.
   for (const auto& it : policy->conflicts) {
-    if (!PolicyMerger::ConflictCanBeMerged(it.entry(), *policy)) {
+    if (!PolicyMerger::EntriesCanBeMerged(it.entry(), *policy,
+                                          AllowUserCloudPolicyMerging())) {
       continue;
     }
 
@@ -133,17 +177,21 @@ PolicyDictionaryMerger::PolicyDictionaryMerger(
                         kDictionaryPoliciesToMerge.end()) {}
 PolicyDictionaryMerger::~PolicyDictionaryMerger() = default;
 
-void PolicyDictionaryMerger::Merge(PolicyMap::PolicyMapType* policies) const {
+void PolicyDictionaryMerger::Merge(PolicyMap* policies) const {
   DCHECK(policies);
   for (auto& it : *policies) {
     if (CanMerge(it.first, it.second))
-      DoMerge(&it.second);
+      DoMerge(&it.second, *policies);
   }
 }
 
 void PolicyDictionaryMerger::SetAllowedPoliciesForTesting(
     base::flat_set<std::string> allowed_policies) {
   allowed_policies_ = std::move(allowed_policies);
+}
+
+void PolicyDictionaryMerger::SetAllowUserCloudPolicyMerging(bool allowed) {
+  allow_user_cloud_policy_merging_ = allowed;
 }
 
 bool PolicyDictionaryMerger::CanMerge(const std::string& policy_name,
@@ -176,24 +224,30 @@ bool PolicyDictionaryMerger::CanMerge(const std::string& policy_name,
   return true;
 }
 
-void PolicyDictionaryMerger::DoMerge(PolicyMap::Entry* policy) const {
+bool PolicyDictionaryMerger::AllowUserCloudPolicyMerging() const {
+  return allow_user_cloud_policy_merging_;
+}
+
+void PolicyDictionaryMerger::DoMerge(PolicyMap::Entry* policy,
+                                     const PolicyMap& policy_map) const {
   // Keep priority sorted list of potential merge targets.
   std::vector<const PolicyMap::Entry*> policies;
   policies.push_back(policy);
   for (const auto& it : policy->conflicts)
     policies.push_back(&it.entry());
-
-  std::sort(policies.begin(), policies.end(),
-            [](const PolicyMap::Entry* a, const PolicyMap::Entry* b) {
-              return b->has_higher_priority_than(*a);
-            });
+  std::sort(
+      policies.begin(), policies.end(),
+      [&policy_map](const PolicyMap::Entry* a, const PolicyMap::Entry* b) {
+        return policy_map.EntryHasHigherPriority(*b, *a);
+      });
 
   base::DictionaryValue merged_dictionary;
   bool value_changed = false;
 
   // Merges all the keys from the policies from different sources.
   for (const auto* it : policies) {
-    if (it != policy && !PolicyMerger::ConflictCanBeMerged(*it, *policy))
+    if (it != policy && !PolicyMerger::EntriesCanBeMerged(
+                            *it, *policy, AllowUserCloudPolicyMerging()))
       continue;
 
     const base::DictionaryValue* dict = nullptr;
@@ -201,10 +255,10 @@ void PolicyDictionaryMerger::DoMerge(PolicyMap::Entry* policy) const {
     it->value()->GetAsDictionary(&dict);
     DCHECK(dict);
 
-    for (const auto& pair : *dict) {
+    for (auto pair : dict->DictItems()) {
       const auto& key = pair.first;
       const auto& val = pair.second;
-      merged_dictionary.SetKey(key, val->Clone());
+      merged_dictionary.SetKey(key, val.Clone());
     }
 
     value_changed |= it != policy;
@@ -219,7 +273,7 @@ void PolicyDictionaryMerger::DoMerge(PolicyMap::Entry* policy) const {
   policy->source = POLICY_SOURCE_MERGED;
 }
 
-void PolicyGroupMerger::Merge(PolicyMap::PolicyMapType* policies) const {
+void PolicyGroupMerger::Merge(PolicyMap* policies) const {
   for (size_t i = 0; i < kPolicyAtomicGroupMappingsLength; ++i) {
     const AtomicGroup& group = kPolicyAtomicGroupMappings[i];
     bool use_highest_set_priority = false;
@@ -231,27 +285,25 @@ void PolicyGroupMerger::Merge(PolicyMap::PolicyMapType* policies) const {
     // |group.policies|, an array ending with a nullptr.
     for (const char* const* policy_name = group.policies; *policy_name;
          ++policy_name) {
-      auto policy_it = policies->find(*policy_name);
-
-      if (policy_it == policies->end())
+      const auto* policy = policies->Get(*policy_name);
+      if (!policy)
         continue;
 
       use_highest_set_priority = true;
 
-      PolicyMap::Entry& policy = policy_it->second;
-
-      if (!policy.has_higher_priority_than(highest_set_priority))
+      if (!policies->EntryHasHigherPriority(*policy, highest_set_priority))
         continue;
 
       // Do not set POLICY_SOURCE_MERGED as the highest acceptable source
       // because it is a computed source. In case of an already merged policy,
       // the highest acceptable source must be the highest of the ones used to
       // compute the merged value.
-      if (policy.source != POLICY_SOURCE_MERGED) {
-        highest_set_priority = policy.DeepCopy();
+      if (policy->source != POLICY_SOURCE_MERGED) {
+        highest_set_priority = policy->DeepCopy();
       } else {
-        for (const auto& conflict : policy.conflicts) {
-          if (conflict.entry().has_higher_priority_than(highest_set_priority) &&
+        for (const auto& conflict : policy->conflicts) {
+          if (policies->EntryHasHigherPriority(conflict.entry(),
+                                               highest_set_priority) &&
               conflict.entry().source > highest_set_priority.source) {
             highest_set_priority = conflict.entry().DeepCopy();
           }
@@ -267,14 +319,12 @@ void PolicyGroupMerger::Merge(PolicyMap::PolicyMapType* policies) const {
     // priority.
     for (const char* const* policy_name = group.policies; *policy_name;
          ++policy_name) {
-      auto policy_it = policies->find(*policy_name);
-      if (policy_it == policies->end())
+      auto* policy = policies->GetMutable(*policy_name);
+      if (!policy)
         continue;
 
-      PolicyMap::Entry& policy = policy_it->second;
-
-      if (policy.source < highest_set_priority.source)
-        policy.SetIgnoredByPolicyAtomicGroup();
+      if (policy->source < highest_set_priority.source)
+        policy->SetIgnoredByPolicyAtomicGroup();
     }
   }
 }

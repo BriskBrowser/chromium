@@ -10,18 +10,18 @@
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/app_list/page_break_constants.h"
-#include "chrome/browser/web_applications/components/web_app_id_constants.h"
+#include "chrome/browser/web_applications/web_app_id_constants.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/common/constants.h"
 
@@ -49,7 +49,11 @@ const char* const kDefaultAppOrder[] = {
     extension_misc::kGmailAppId,
     web_app::kGmailAppId,
 
-    extension_misc::kGoogleDocAppId,
+    web_app::kGoogleMeetAppId,
+
+    web_app::kGoogleChatAppId,
+
+    extension_misc::kGoogleDocsAppId,
     web_app::kGoogleDocsAppId,
 
     extension_misc::kGoogleSlidesAppId,
@@ -58,7 +62,7 @@ const char* const kDefaultAppOrder[] = {
     extension_misc::kGoogleSheetsAppId,
     web_app::kGoogleSheetsAppId,
 
-    extension_misc::kDriveHostedAppId,
+    extension_misc::kGoogleDriveAppId,
     web_app::kGoogleDriveAppId,
 
     extension_misc::kGoogleKeepAppId,
@@ -81,8 +85,6 @@ const char* const kDefaultAppOrder[] = {
 
     arc::kPlayMusicAppId,
     extension_misc::kGooglePlayMusicAppId,
-
-    arc::kPlayGamesAppId,
 
     arc::kPlayBooksAppId,
     extension_misc::kGooglePlayBooksAppId,
@@ -109,7 +111,11 @@ const char* const kDefaultAppOrder[] = {
     web_app::kOsSettingsAppId,
 
     web_app::kHelpAppId,
+
+    web_app::kCalculatorAppId,
     extension_misc::kCalculatorAppId,
+
+    web_app::kCursiveAppId,
     web_app::kCanvasAppId,
     extension_misc::kTextEditorAppId,
     web_app::kYoutubeTVAppId,
@@ -119,7 +125,6 @@ const char* const kDefaultAppOrder[] = {
     arc::kInfinitePainterAppId,
     web_app::kShowtimeAppId,
     extension_misc::kGooglePlusAppId,
-    extension_misc::kChromeRemoteDesktopAppId,
 };
 
 // Reads external ordinal json file and returned the parsed value. Returns NULL
@@ -226,7 +231,7 @@ void ExternalLoader::Load() {
       ReadExternalOrdinalFile(ordinals_file);
   if (ordinals_value) {
     std::string locale = g_browser_process->GetApplicationLocale();
-    for (size_t i = 0; i < ordinals_value->GetSize(); ++i) {
+    for (size_t i = 0; i < ordinals_value->GetList().size(); ++i) {
       std::string app_id;
       base::DictionaryValue* dict = NULL;
       if (ordinals_value->GetString(i, &app_id)) {

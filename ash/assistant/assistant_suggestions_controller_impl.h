@@ -5,8 +5,6 @@
 #ifndef ASH_ASSISTANT_ASSISTANT_SUGGESTIONS_CONTROLLER_IMPL_H_
 #define ASH_ASSISTANT_ASSISTANT_SUGGESTIONS_CONTROLLER_IMPL_H_
 
-#include <memory>
-
 #include "ash/assistant/model/assistant_suggestions_model.h"
 #include "ash/assistant/model/assistant_ui_model_observer.h"
 #include "ash/public/cpp/assistant/assistant_state.h"
@@ -26,6 +24,12 @@ class AssistantSuggestionsControllerImpl
       public AssistantStateObserver {
  public:
   AssistantSuggestionsControllerImpl();
+
+  AssistantSuggestionsControllerImpl(
+      const AssistantSuggestionsControllerImpl&) = delete;
+  AssistantSuggestionsControllerImpl& operator=(
+      const AssistantSuggestionsControllerImpl&) = delete;
+
   ~AssistantSuggestionsControllerImpl() override;
 
   // AssistantSuggestionsController:
@@ -39,8 +43,8 @@ class AssistantSuggestionsControllerImpl
   void OnUiVisibilityChanged(
       AssistantVisibility new_visibility,
       AssistantVisibility old_visibility,
-      base::Optional<AssistantEntryPoint> entry_point,
-      base::Optional<AssistantExitPoint> exit_point) override;
+      absl::optional<AssistantEntryPoint> entry_point,
+      absl::optional<AssistantExitPoint> exit_point) override;
 
  private:
   // AssistantStateObserver:
@@ -50,9 +54,6 @@ class AssistantSuggestionsControllerImpl
       override;
 
   void UpdateConversationStarters();
-  void FetchConversationStarters();
-  void ProvideConversationStarters();
-
   void UpdateOnboardingSuggestions();
 
   AssistantSuggestionsModel model_;
@@ -64,8 +65,6 @@ class AssistantSuggestionsControllerImpl
   // to the server (via the dedicated ConversationStartersClient).
   base::WeakPtrFactory<AssistantSuggestionsControllerImpl>
       conversation_starters_weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantSuggestionsControllerImpl);
 };
 
 }  // namespace ash

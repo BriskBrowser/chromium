@@ -6,8 +6,7 @@
 
 #include <tuple>
 
-#include "base/i18n/uchar.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/task_environment.h"
@@ -59,6 +58,9 @@ class GetFallbackFontTest
  public:
   GetFallbackFontTest() = default;
 
+  GetFallbackFontTest(const GetFallbackFontTest&) = delete;
+  GetFallbackFontTest& operator=(const GetFallbackFontTest&) = delete;
+
   static std::string ParamInfoToString(
       ::testing::TestParamInfo<FallbackFontTestParamInfo> param_info) {
     const FallbackFontTestCase& test_case = std::get<0>(param_info.param);
@@ -91,7 +93,7 @@ class GetFallbackFontTest
     return gfx::GetFallbackFont(font, language_tag, test_case_.text, result);
   }
 
-  bool EnsuresScriptSupportCodePoints(const base::string16& text,
+  bool EnsuresScriptSupportCodePoints(const std::u16string& text,
                                       UScriptCode script,
                                       const std::string& script_name) {
     size_t i = 0;
@@ -114,7 +116,7 @@ class GetFallbackFontTest
     return true;
   }
 
-  bool DoesFontSupportCodePoints(Font font, const base::string16& text) {
+  bool DoesFontSupportCodePoints(Font font, const std::u16string& text) {
     sk_sp<SkTypeface> skia_face = font.platform_font()->GetNativeSkTypeface();
     if (!skia_face) {
       ADD_FAILURE() << "Cannot create typeface for '" << font.GetFontName()
@@ -143,8 +145,6 @@ class GetFallbackFontTest
   // Needed to bypass DCHECK in GetFallbackFont.
   base::test::TaskEnvironment task_environment_{
       base::test::TaskEnvironment::MainThreadType::UI};
-
-  DISALLOW_COPY_AND_ASSIGN(GetFallbackFontTest);
 };
 
 }  // namespace
@@ -236,10 +236,10 @@ std::vector<FallbackFontTestCase> GetSampleFontTestCases() {
     const UScriptCode script = static_cast<UScriptCode>(i);
 
     // Make a sample text to test the script.
-    base::char16 text[8];
+    char16_t text[8];
     UErrorCode errorCode = U_ZERO_ERROR;
-    int text_length = uscript_getSampleString(
-        script, base::i18n::ToUCharPtr(text), base::size(text), &errorCode);
+    int text_length =
+        uscript_getSampleString(script, text, base::size(text), &errorCode);
     if (text_length <= 0 || errorCode != U_ZERO_ERROR)
       continue;
 

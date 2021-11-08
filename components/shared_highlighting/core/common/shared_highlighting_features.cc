@@ -8,7 +8,25 @@
 
 namespace shared_highlighting {
 
+const base::Feature kPreemptiveLinkToTextGeneration{
+    "PreemptiveLinkToTextGeneration", base::FEATURE_ENABLED_BY_DEFAULT};
+constexpr base::FeatureParam<int> kPreemptiveLinkGenTimeoutLengthMs{
+    &kPreemptiveLinkToTextGeneration, "TimeoutLengthMs", 500};
+
 const base::Feature kSharedHighlightingUseBlocklist{
     "SharedHighlightingUseBlocklist", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kSharedHighlightingV2{"SharedHighlightingV2",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kSharedHighlightingAmp{"SharedHighlightingAmp",
+                                           base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kSharedHighlightingLayoutObjectFix{
+    "SharedHighlightingLayoutObjectFix", base::FEATURE_ENABLED_BY_DEFAULT};
+
+int GetPreemptiveLinkGenTimeoutLengthMs() {
+  return kPreemptiveLinkGenTimeoutLengthMs.Get();
+}
 
 }  // namespace shared_highlighting

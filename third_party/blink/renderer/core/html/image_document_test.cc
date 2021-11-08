@@ -99,18 +99,15 @@ class ImageDocumentTest : public testing::Test {
   std::unique_ptr<DummyPageHolder> dummy_page_holder_;
   float page_zoom_factor_ = 0.0f;
   float viewport_scaling_factor_ = 0.0f;
-  base::Optional<bool> force_zero_layout_height_;
+  absl::optional<bool> force_zero_layout_height_;
 };
 
 void ImageDocumentTest::CreateDocumentWithoutLoadingImage(int view_width,
                                                           int view_height) {
-  Page::PageClients page_clients;
-  FillWithEmptyClients(page_clients);
   chrome_client_ = MakeGarbageCollected<WindowToViewportScalingChromeClient>();
-  page_clients.chrome_client = chrome_client_;
   dummy_page_holder_ = nullptr;
   dummy_page_holder_ = std::make_unique<DummyPageHolder>(
-      IntSize(view_width, view_height), &page_clients);
+      IntSize(view_width, view_height), chrome_client_);
 
   if (page_zoom_factor_)
     dummy_page_holder_->GetFrame().SetPageZoomFactor(page_zoom_factor_);
@@ -123,6 +120,7 @@ void ImageDocumentTest::CreateDocumentWithoutLoadingImage(int view_width,
 
   auto params = std::make_unique<WebNavigationParams>();
   params->url = KURL("http://www.example.com/image.jpg");
+  params->sandbox_flags = network::mojom::WebSandboxFlags::kNone;
 
   const Vector<unsigned char>& data = JpegImage();
   WebNavigationParams::FillStaticResponse(
@@ -259,8 +257,8 @@ TEST_F(ImageDocumentTest, MAYBE(ImageCenteredAtDeviceScaleFactor)) {
   GetDocument().ImageClicked(15, 27);
   ScrollOffset offset =
       GetDocument().GetFrame()->View()->LayoutViewport()->GetScrollOffset();
-  EXPECT_EQ(20, offset.Width());
-  EXPECT_EQ(20, offset.Height());
+  EXPECT_EQ(20, offset.width());
+  EXPECT_EQ(20, offset.height());
 
   GetDocument().ImageClicked(20, 20);
 
@@ -268,11 +266,11 @@ TEST_F(ImageDocumentTest, MAYBE(ImageCenteredAtDeviceScaleFactor)) {
   offset =
       GetDocument().GetFrame()->View()->LayoutViewport()->GetScrollOffset();
   if (RuntimeEnabledFeatures::FractionalScrollOffsetsEnabled()) {
-    EXPECT_EQ(11.25f, offset.Width());
-    EXPECT_EQ(20, offset.Height());
+    EXPECT_EQ(11.25f, offset.width());
+    EXPECT_EQ(20, offset.height());
   } else {
-    EXPECT_EQ(11, offset.Width());
-    EXPECT_EQ(20, offset.Height());
+    EXPECT_EQ(11, offset.width());
+    EXPECT_EQ(20, offset.height());
   }
 }
 

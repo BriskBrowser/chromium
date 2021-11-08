@@ -4,25 +4,25 @@
 
 (async function() {
   TestRunner.addResult(`Tests that color swatch positions are updated properly.\n`);
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.showPanel('sources');
   await TestRunner.addStylesheetTag('resources/color.css');
 
   SourcesTestRunner.showScriptSource('color.css', onSourceFrame);
 
   function onSourceFrame(sourceFrame) {
-    var cssPlugin = sourceFrame._plugins.find(plugin => plugin instanceof Sources.CSSPlugin);
+    var cssPlugin = sourceFrame.plugins.find(plugin => plugin instanceof Sources.CSSPlugin);
     TestRunner.addResult('Initial swatch positions:');
     SourcesTestRunner.dumpSwatchPositions(sourceFrame, Sources.CSSPlugin.SwatchBookmark);
 
     TestRunner.runTestSuite([
       function testEditSpectrum(next) {
-        var swatch = sourceFrame.textEditor._codeMirrorElement.querySelector('devtools-color-swatch');
+        var swatch = sourceFrame.textEditor.codeMirrorElement.querySelector('devtools-color-swatch');
         swatch.shadowRoot.querySelector('.color-swatch-inner').click();
-        cssPlugin._spectrum._innerSetColor(
+        cssPlugin.spectrum.innerSetColor(
             Common.Color.parse('#008000').hsva(), '', undefined /* colorName */, Common.Color.Format.HEX,
-            ColorPicker.Spectrum._ChangeSource.Other);
-        cssPlugin._swatchPopoverHelper.hide(true);
+            'Other');
+        cssPlugin.swatchPopoverHelper.hide(true);
         SourcesTestRunner.dumpSwatchPositions(sourceFrame, Sources.CSSPlugin.SwatchBookmark);
         next();
       },

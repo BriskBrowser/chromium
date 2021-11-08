@@ -118,7 +118,7 @@ SharingMessageBridgeImpl::CreateMetadataChangeList() {
   return std::make_unique<syncer::DummyMetadataChangeList>();
 }
 
-base::Optional<syncer::ModelError> SharingMessageBridgeImpl::MergeSyncData(
+absl::optional<syncer::ModelError> SharingMessageBridgeImpl::MergeSyncData(
     std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
     syncer::EntityChangeList entity_data) {
   DCHECK(entity_data.empty());
@@ -126,7 +126,7 @@ base::Optional<syncer::ModelError> SharingMessageBridgeImpl::MergeSyncData(
   return {};
 }
 
-base::Optional<syncer::ModelError> SharingMessageBridgeImpl::ApplySyncChanges(
+absl::optional<syncer::ModelError> SharingMessageBridgeImpl::ApplySyncChanges(
     std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
     syncer::EntityChangeList entity_changes) {
   sync_pb::SharingMessageCommitError no_error_message;
@@ -194,7 +194,8 @@ void SharingMessageBridgeImpl::OnCommitAttemptErrors(
   }
 }
 
-void SharingMessageBridgeImpl::OnCommitAttemptFailed(
+syncer::ModelTypeSyncBridge::CommitAttemptFailedBehavior
+SharingMessageBridgeImpl::OnCommitAttemptFailed(
     syncer::SyncCommitError commit_error) {
   // Full commit failed means we need to drop all entities and report an error
   // using callback.
@@ -207,7 +208,7 @@ void SharingMessageBridgeImpl::OnCommitAttemptFailed(
     case syncer::SyncCommitError::kAuthError:
       // Ignore the auth error because it may be a temporary error and the
       // message will be sent on the second attempt.
-      return;
+      return CommitAttemptFailedBehavior::kShouldRetryOnNextCycle;
     case syncer::SyncCommitError::kServerError:
     case syncer::SyncCommitError::kBadServerResponse:
       sharing_message_error_code =
@@ -222,6 +223,7 @@ void SharingMessageBridgeImpl::OnCommitAttemptFailed(
     cth_and_commit.second.timed_callback->Run(sync_error_message);
   }
   pending_commits_.clear();
+  return CommitAttemptFailedBehavior::kDontRetryOnNextCycle;
 }
 
 void SharingMessageBridgeImpl::ApplyStopSyncChanges(
@@ -263,7 +265,7 @@ SharingMessageBridgeImpl::TimedCallback::TimedCallback(
     base::OnceClosure timeout_callback)
     : commit_callback_(std::move(commit_callback)) {
   const base::TimeDelta time_delta =
-      base::TimeDelta::FromSeconds(kSharingMessageBridgeTimeoutSeconds.Get());
+      base::Seconds(kSharingMessageBridgeTimeoutSeconds.Get());
   timer_.Start(FROM_HERE, time_delta, std::move(timeout_callback));
 }
 

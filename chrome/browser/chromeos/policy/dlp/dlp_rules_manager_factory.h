@@ -6,10 +6,10 @@
 #define CHROME_BROWSER_CHROMEOS_POLICY_DLP_DLP_RULES_MANAGER_FACTORY_H_
 
 #include "base/no_destructor.h"
-#include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
 namespace policy {
+class DlpRulesManager;
 
 // Initializes an instance of DlpRulesManager when a primary managed profile is
 // being created, e.g. when managed user signs in.
@@ -33,5 +33,4 @@ class DlpRulesManagerFactory : public BrowserContextKeyedServiceFactory {
 };
 
 }  // namespace policy
-
 #endif  // CHROME_BROWSER_CHROMEOS_POLICY_DLP_DLP_RULES_MANAGER_FACTORY_H_

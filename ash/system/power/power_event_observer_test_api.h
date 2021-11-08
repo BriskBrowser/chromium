@@ -18,6 +18,11 @@ class PowerEventObserver;
 class PowerEventObserverTestApi {
  public:
   explicit PowerEventObserverTestApi(PowerEventObserver* power_event_observer);
+
+  PowerEventObserverTestApi(const PowerEventObserverTestApi&) = delete;
+  PowerEventObserverTestApi& operator=(const PowerEventObserverTestApi&) =
+      delete;
+
   ~PowerEventObserverTestApi();
 
   void CompositingDidCommit(ui::Compositor* compositor);
@@ -30,10 +35,10 @@ class PowerEventObserverTestApi {
 
   bool SimulateCompositorsReadyForSuspend();
 
+  bool TrackingLockOnSuspendUsage() const;
+
  private:
   PowerEventObserver* power_event_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(PowerEventObserverTestApi);
 };
 
 }  // namespace ash

@@ -20,6 +20,7 @@
 #include "chrome/browser/offline_pages/request_coordinator_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
+#include "components/back_forward_cache/back_forward_cache_disable.h"
 #include "components/offline_pages/core/background/request_coordinator.h"
 #include "components/offline_pages/core/model/offline_page_model_utils.h"
 #include "components/offline_pages/core/offline_page_client_policy.h"
@@ -76,6 +77,20 @@ OfflinePageTabHelper::LoadedOfflinePageInfo::~LoadedOfflinePageInfo() = default;
 OfflinePageTabHelper::LoadedOfflinePageInfo&
 OfflinePageTabHelper::LoadedOfflinePageInfo::operator=(
     OfflinePageTabHelper::LoadedOfflinePageInfo&& other) = default;
+
+// static
+void OfflinePageTabHelper::BindHtmlPageNotifier(
+    mojo::PendingAssociatedReceiver<offline_pages::mojom::MhtmlPageNotifier>
+        receiver,
+    content::RenderFrameHost* rfh) {
+  auto* web_contents = content::WebContents::FromRenderFrameHost(rfh);
+  if (!web_contents)
+    return;
+  auto* tab_helper = OfflinePageTabHelper::FromWebContents(web_contents);
+  if (!tab_helper)
+    return;
+  tab_helper->mhtml_page_notifier_receivers_.Bind(rfh, std::move(receiver));
+}
 
 // static
 OfflinePageTabHelper::LoadedOfflinePageInfo
@@ -191,7 +206,9 @@ void OfflinePageTabHelper::DidFinishNavigation(
     // full page on back navigation. If not, offline page is fast to load,
     // so back-forward cache is not going to be useful here.
     content::BackForwardCache::DisableForRenderFrameHost(
-        navigation_handle->GetPreviousRenderFrameHostId(), "OfflinePage");
+        navigation_handle->GetPreviousRenderFrameHostId(),
+        back_forward_cache::DisabledReason(
+            back_forward_cache::DisabledReasonId::kOfflinePage));
   }
 
   // This is a new navigation so we can invalidate any previously scheduled
@@ -475,6 +492,6 @@ void OfflinePageTabHelper::DoDownloadPageLater(
   }
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(OfflinePageTabHelper)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(OfflinePageTabHelper);
 
 }  // namespace offline_pages

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/api/permissions/permissions_api.h"
 
+#include <memory>
+
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/strings/stringprintf.h"
@@ -43,7 +45,7 @@ scoped_refptr<const Extension> CreateExtensionWithPermissions(
   if (allow_file_access)
     creation_flags |= Extension::ALLOW_FILE_ACCESS;
   return ExtensionBuilder()
-      .SetLocation(Manifest::INTERNAL)
+      .SetLocation(mojom::ManifestLocation::kInternal)
       .SetManifest(DictionaryBuilder()
                        .Set("name", name)
                        .Set("description", "foo")
@@ -97,6 +99,10 @@ bool RunRequestFunction(
 class PermissionsAPIUnitTest : public ExtensionServiceTestWithInstall {
  public:
   PermissionsAPIUnitTest() {}
+
+  PermissionsAPIUnitTest(const PermissionsAPIUnitTest&) = delete;
+  PermissionsAPIUnitTest& operator=(const PermissionsAPIUnitTest&) = delete;
+
   ~PermissionsAPIUnitTest() override {}
   Browser* browser() { return browser_.get(); }
 
@@ -118,9 +124,16 @@ class PermissionsAPIUnitTest : public ExtensionServiceTestWithInstall {
         function.get(), args_string, browser(), api_test_utils::NONE);
     EXPECT_TRUE(run_result) << function->GetError();
 
-    bool has_permission;
-    EXPECT_TRUE(function->GetResultList()->GetBoolean(0u, &has_permission));
-    return has_permission;
+    const auto args_list = function->GetResultList()->GetList();
+    if (args_list.empty()) {
+      ADD_FAILURE() << "Result unexpectedly empty.";
+      return false;
+    }
+    if (!args_list[0].is_bool()) {
+      ADD_FAILURE() << "Result is not a boolean.";
+      return false;
+    }
+    return args_list[0].GetBool();
   }
 
   // Adds the extension to the ExtensionService, and grants any inital
@@ -138,7 +151,7 @@ class PermissionsAPIUnitTest : public ExtensionServiceTestWithInstall {
     ExtensionServiceTestWithInstall::SetUp();
     PermissionsRequestFunction::SetAutoConfirmForTests(true);
     InitializeEmptyExtensionService();
-    browser_window_.reset(new TestBrowserWindow());
+    browser_window_ = std::make_unique<TestBrowserWindow>();
     Browser::CreateParams params(profile(), true);
     params.type = Browser::TYPE_NORMAL;
     params.window = browser_window_.get();
@@ -154,8 +167,6 @@ class PermissionsAPIUnitTest : public ExtensionServiceTestWithInstall {
 
   std::unique_ptr<TestBrowserWindow> browser_window_;
   std::unique_ptr<Browser> browser_;
-
-  DISALLOW_COPY_AND_ASSIGN(PermissionsAPIUnitTest);
 };
 
 TEST_F(PermissionsAPIUnitTest, Contains) {

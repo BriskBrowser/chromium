@@ -4,6 +4,8 @@
 
 #include "chrome/browser/performance_manager/policies/working_set_trimmer_policy.h"
 
+#include <memory>
+
 #include "components/performance_manager/graph/process_node_impl.h"
 #include "components/performance_manager/test_support/graph_test_harness.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -15,12 +17,14 @@ namespace policies {
 class MockWorkingSetTrimmerPolicy : public WorkingSetTrimmerPolicy {
  public:
   MockWorkingSetTrimmerPolicy() {}
+
+  MockWorkingSetTrimmerPolicy(const MockWorkingSetTrimmerPolicy&) = delete;
+  MockWorkingSetTrimmerPolicy& operator=(const MockWorkingSetTrimmerPolicy&) =
+      delete;
+
   ~MockWorkingSetTrimmerPolicy() override {}
 
   MOCK_METHOD1(TrimWorkingSet, bool(const ProcessNode*));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockWorkingSetTrimmerPolicy);
 };
 
 class WorkingSetTrimmerPolicyTest : public GraphTestHarness {
@@ -28,11 +32,16 @@ class WorkingSetTrimmerPolicyTest : public GraphTestHarness {
   using Super = GraphTestHarness;
 
   WorkingSetTrimmerPolicyTest() {}
+
+  WorkingSetTrimmerPolicyTest(const WorkingSetTrimmerPolicyTest&) = delete;
+  WorkingSetTrimmerPolicyTest& operator=(const WorkingSetTrimmerPolicyTest&) =
+      delete;
+
   ~WorkingSetTrimmerPolicyTest() override {}
 
   void SetUp() override {
     Super::SetUp();
-    policy_.reset(new WorkingSetTrimmerPolicy);
+    policy_ = std::make_unique<WorkingSetTrimmerPolicy>();
   }
 
   void SetLastTrimTime(const ProcessNode* node, base::TimeTicks time) {
@@ -45,9 +54,6 @@ class WorkingSetTrimmerPolicyTest : public GraphTestHarness {
 
  protected:
   std::unique_ptr<WorkingSetTrimmerPolicy> policy_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WorkingSetTrimmerPolicyTest);
 };
 
 // Validate that we can set and get the last trim time on a ProcessNode.

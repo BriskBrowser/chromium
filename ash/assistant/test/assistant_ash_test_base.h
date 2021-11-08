@@ -19,6 +19,12 @@ namespace aura {
 class Window;
 }  // namespace aura
 
+namespace chromeos {
+namespace assistant {
+class ScopedAssistantBrowserDelegate;
+}  // namespace assistant
+}  // namespace chromeos
+
 namespace views {
 class Textfield;
 class View;
@@ -31,10 +37,9 @@ class AppListView;
 class AssistantOnboardingSuggestionView;
 class AssistantTestApi;
 class SuggestionChipView;
-class TestAssistantClient;
 class TestAssistantService;
 class TestAssistantSetup;
-class TestAssistantWebViewFactory;
+class TestAshWebViewFactory;
 
 // Helper class to make testing the Assistant Ash UI easier.
 class AssistantAshTestBase : public AshTestBase {
@@ -47,6 +52,10 @@ class AssistantAshTestBase : public AshTestBase {
 
   AssistantAshTestBase();
   explicit AssistantAshTestBase(base::test::TaskEnvironment::TimeSource time);
+
+  AssistantAshTestBase(const AssistantAshTestBase&) = delete;
+  AssistantAshTestBase& operator=(const AssistantAshTestBase&) = delete;
+
   ~AssistantAshTestBase() override;
 
   // AshTestBase:
@@ -97,14 +106,17 @@ class AssistantAshTestBase : public AshTestBase {
 
   // Return the actual displayed Assistant main view.
   // Can only be used after |ShowAssistantUi| has been called.
+  // Only exists for fullscreen launcher.
   views::View* main_view();
 
   // This is the top-level Assistant specific view.
   // Can only be used after |ShowAssistantUi| has been called.
+  // Exists for both bubble launcher and fullscreen launcher.
   views::View* page_view();
 
   // Return the app list view hosting the Assistant page view.
   // Can only be used after |ShowAssistantUi| has been called.
+  // Only exists for fullscreen launcher.
   AppListView* app_list_view();
 
   // Return the root view hosting the Assistant page view.
@@ -139,9 +151,9 @@ class AssistantAshTestBase : public AshTestBase {
   void ClickOnAndWait(const views::View* view,
                       bool check_if_view_can_process_events = true);
 
-  // Return the current interaction. Returns |base::nullopt| if no interaction
+  // Return the current interaction. Returns |absl::nullopt| if no interaction
   // is in progress.
-  base::Optional<chromeos::assistant::AssistantInteractionMetadata>
+  absl::optional<chromeos::assistant::AssistantInteractionMetadata>
   current_interaction();
 
   // Create a new App window, and activate it.
@@ -207,14 +219,13 @@ class AssistantAshTestBase : public AshTestBase {
 
   std::unique_ptr<AssistantTestApi> test_api_;
   std::unique_ptr<TestAssistantSetup> test_setup_;
-  std::unique_ptr<TestAssistantWebViewFactory> test_web_view_factory_;
+  std::unique_ptr<TestAshWebViewFactory> test_web_view_factory_;
 
   std::vector<std::unique_ptr<aura::Window>> windows_;
   std::vector<std::unique_ptr<views::Widget>> widgets_;
 
-  std::unique_ptr<TestAssistantClient> assistant_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantAshTestBase);
+  std::unique_ptr<chromeos::assistant::ScopedAssistantBrowserDelegate>
+      delegate_;
 };
 
 }  // namespace ash

@@ -50,6 +50,9 @@ class CertNodeBuilder {
   // string, then delegates to the other constructor.
   explicit CertNodeBuilder(int label_id);
 
+  CertNodeBuilder(const CertNodeBuilder&) = delete;
+  CertNodeBuilder& operator=(const CertNodeBuilder&) = delete;
+
   // Builder methods all return |*this| so that they can be chained in single
   // expressions.
 
@@ -73,8 +76,6 @@ class CertNodeBuilder {
   // |built_| is false until Build() is called. Once it is |true|, |node_| and
   // |children_| are no longer valid for use.
   bool built_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(CertNodeBuilder);
 };
 
 CertNodeBuilder::CertNodeBuilder(base::StringPiece label) {
@@ -105,7 +106,7 @@ CertNodeBuilder& CertNodeBuilder::ChildIfNotNull(
 
 std::unique_ptr<base::DictionaryValue> CertNodeBuilder::Build() {
   DCHECK(!built_);
-  if (!children_.empty()) {
+  if (!children_.GetList().empty()) {
     node_.SetKey("children", std::move(children_));
   }
   built_ = true;
@@ -174,7 +175,7 @@ ui::ModalType CertificateViewerDialog::GetDialogModalType() const {
   return ui::MODAL_TYPE_NONE;
 }
 
-base::string16 CertificateViewerDialog::GetDialogTitle() const {
+std::u16string CertificateViewerDialog::GetDialogTitle() const {
   return title_;
 }
 
@@ -308,12 +309,12 @@ CertificateViewerDialogHandler::~CertificateViewerDialogHandler() {
 }
 
 void CertificateViewerDialogHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "exportCertificate",
       base::BindRepeating(
           &CertificateViewerDialogHandler::HandleExportCertificate,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "requestCertificateFields",
       base::BindRepeating(
           &CertificateViewerDialogHandler::HandleRequestCertificateFields,

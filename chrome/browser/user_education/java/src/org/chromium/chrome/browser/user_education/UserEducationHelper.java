@@ -8,12 +8,17 @@ import android.app.Activity;
 import android.os.Handler;
 import android.view.View;
 
-import org.chromium.base.Function;
+import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter;
+import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightParams;
 import org.chromium.components.browser_ui.widget.textbubble.TextBubble;
+import org.chromium.components.feature_engagement.SnoozeAction;
 import org.chromium.components.feature_engagement.Tracker;
+import org.chromium.components.feature_engagement.TriggerDetails;
+import org.chromium.ui.widget.RectProvider;
 import org.chromium.ui.widget.ViewRectProvider;
 
 /**
@@ -40,13 +45,10 @@ import org.chromium.ui.widget.ViewRectProvider;
 public class UserEducationHelper {
     private final Activity mActivity;
     private final Handler mHandler;
-    private final Function<Profile, Tracker> mTrackerFromProfileFactory;
 
-    public UserEducationHelper(Activity activity, Handler handler,
-            Function<Profile, Tracker> trackerFromProfileFactory) {
+    public UserEducationHelper(Activity activity, Handler handler) {
         mActivity = activity;
         mHandler = handler;
-        mTrackerFromProfileFactory = trackerFromProfileFactory;
     }
 
     /**
@@ -60,49 +62,86 @@ public class UserEducationHelper {
         // incognito profile) instead of always using regular profile. Currently always original
         // profile is used not to start popping IPH messages as soon as opening an incognito tab.
         Profile profile = Profile.getLastUsedRegularProfile();
-        final Tracker tracker = mTrackerFromProfileFactory.apply(profile);
+        final Tracker tracker = TrackerFactory.getTrackerForProfile(profile);
         tracker.addOnInitializedCallback(success -> showIPH(tracker, iphCommand));
     }
 
     private void showIPH(Tracker tracker, IPHCommand iphCommand) {
         // Activity was destroyed; don't show IPH.
         View anchorView = iphCommand.anchorView;
-        if (mActivity.isFinishing() || mActivity.isDestroyed() || anchorView == null) return;
-
-        if (mActivity.isFinishing() || mActivity.isDestroyed()) return;
+        if (mActivity.isFinishing() || mActivity.isDestroyed() || anchorView == null) {
+            iphCommand.onBlockedCallback.run();
+            return;
+        }
 
         String featureName = iphCommand.featureName;
-        if (featureName != null && !tracker.shouldTriggerHelpUI(featureName)) return;
         String contentString = iphCommand.contentString;
         String accessibilityString = iphCommand.accessibilityText;
         assert (!contentString.isEmpty());
         assert (!accessibilityString.isEmpty());
-        ViewRectProvider rectProvider = iphCommand.viewRectProvider != null
-                ? iphCommand.viewRectProvider
-                : new ViewRectProvider(anchorView);
+        assert (featureName != null);
 
-        TextBubble textBubble =
-                new TextBubble(mActivity, anchorView, contentString, accessibilityString, true,
-                        rectProvider, ChromeAccessibilityUtil.get().isAccessibilityEnabled());
+        ViewRectProvider viewRectProvider = iphCommand.viewRectProvider;
+        RectProvider rectProvider =
+                iphCommand.anchorRect != null ? new RectProvider(iphCommand.anchorRect) : null;
+        if (viewRectProvider == null && rectProvider == null) {
+            viewRectProvider = new ViewRectProvider(anchorView);
+        }
+
+        HighlightParams highlightParams = iphCommand.highlightParams;
+        TextBubble textBubble = null;
+        TriggerDetails triggerDetails = ChromeFeatureList.isEnabled(ChromeFeatureList.SNOOZABLE_IPH)
+                ? tracker.shouldTriggerHelpUIWithSnooze(featureName)
+                : new TriggerDetails(
+                        tracker.shouldTriggerHelpUI(featureName), /*shouldShowSnooze=*/false);
+
+        assert (triggerDetails != null);
+        if (!triggerDetails.shouldTriggerIph) {
+            iphCommand.onBlockedCallback.run();
+            return;
+        }
+
+        if (triggerDetails.shouldShowSnooze) {
+            // TODO(crbug.com/1243973): Implement explicit dismiss.
+            boolean showExplicitDismiss = false;
+            Runnable snoozeRunnable = showExplicitDismiss
+                    ? null
+                    : () -> tracker.dismissedWithSnooze(featureName, SnoozeAction.SNOOZED);
+            Runnable snoozeDismissRunnable = showExplicitDismiss ? ()
+                    -> tracker.dismissedWithSnooze(featureName, SnoozeAction.DISMISSED)
+                    : null;
+
+            textBubble = new TextBubble(mActivity, anchorView, contentString, accessibilityString,
+                    iphCommand.removeArrow ? false : true,
+                    viewRectProvider != null ? viewRectProvider : rectProvider, null, false, false,
+                    ChromeAccessibilityUtil.get().isAccessibilityEnabled(), snoozeRunnable,
+                    snoozeDismissRunnable);
+
+        } else {
+            textBubble = new TextBubble(mActivity, anchorView, contentString, accessibilityString,
+                    iphCommand.removeArrow ? false : true,
+                    viewRectProvider != null ? viewRectProvider : rectProvider,
+                    ChromeAccessibilityUtil.get().isAccessibilityEnabled());
+        }
+
+        textBubble.setPreferredVerticalOrientation(iphCommand.preferredVerticalOrientation);
         textBubble.setDismissOnTouchInteraction(iphCommand.dismissOnTouch);
         textBubble.addOnDismissListener(() -> mHandler.postDelayed(() -> {
             if (featureName != null) tracker.dismissed(featureName);
             iphCommand.onDismissCallback.run();
-            if (iphCommand.shouldHighlight) {
+            if (highlightParams != null) {
                 ViewHighlighter.turnOffHighlight(anchorView);
             }
         }, ViewHighlighter.IPH_MIN_DELAY_BETWEEN_TWO_HIGHLIGHTS));
         textBubble.setAutoDismissTimeout(iphCommand.autoDismissTimeout);
 
-        if (iphCommand.shouldHighlight) {
-            if (iphCommand.circleHighlight) {
-                ViewHighlighter.turnOnCircularHighlight(anchorView);
-            } else {
-                ViewHighlighter.turnOnRectangularHighlight(anchorView);
-            }
+        if (highlightParams != null) {
+            ViewHighlighter.turnOnHighlight(anchorView, highlightParams);
         }
 
-        rectProvider.setInsetPx(iphCommand.insetRect);
+        if (viewRectProvider != null) {
+            viewRectProvider.setInsetPx(iphCommand.insetRect);
+        }
         textBubble.show();
         iphCommand.onShowCallback.run();
     }

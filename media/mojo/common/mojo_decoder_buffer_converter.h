@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef MEDIA_MOJO_COMMON_MOJO_DECODER_BUFFER_CONVERTER_
-#define MEDIA_MOJO_COMMON_MOJO_DECODER_BUFFER_CONVERTER_
+#ifndef MEDIA_MOJO_COMMON_MOJO_DECODER_BUFFER_CONVERTER_H_
+#define MEDIA_MOJO_COMMON_MOJO_DECODER_BUFFER_CONVERTER_H_
 
 #include <memory>
 
@@ -44,6 +44,9 @@ class MojoDecoderBufferReader {
   // Hold the consumer handle to read DecoderBuffer data.
   explicit MojoDecoderBufferReader(
       mojo::ScopedDataPipeConsumerHandle consumer_handle);
+
+  MojoDecoderBufferReader(const MojoDecoderBufferReader&) = delete;
+  MojoDecoderBufferReader& operator=(const MojoDecoderBufferReader&) = delete;
 
   ~MojoDecoderBufferReader();
 
@@ -97,8 +100,6 @@ class MojoDecoderBufferReader {
 
   // Number of bytes already read into the current buffer.
   uint32_t bytes_read_;
-
-  DISALLOW_COPY_AND_ASSIGN(MojoDecoderBufferReader);
 };
 
 // Converts media::DecoderBuffers to mojom::DecoderBuffers, writing the data
@@ -122,6 +123,9 @@ class MojoDecoderBufferWriter {
   // Hold the producer handle to write DecoderBuffer data.
   explicit MojoDecoderBufferWriter(
       mojo::ScopedDataPipeProducerHandle producer_handle);
+
+  MojoDecoderBufferWriter(const MojoDecoderBufferWriter&) = delete;
+  MojoDecoderBufferWriter& operator=(const MojoDecoderBufferWriter&) = delete;
 
   ~MojoDecoderBufferWriter();
 
@@ -150,10 +154,8 @@ class MojoDecoderBufferWriter {
 
   // Number of bytes already written from the current buffer.
   uint32_t bytes_written_;
-
-  DISALLOW_COPY_AND_ASSIGN(MojoDecoderBufferWriter);
 };
 
 }  // namespace media
 
-#endif  // MEDIA_MOJO_COMMON_MOJO_DECODER_BUFFER_CONVERTER_
+#endif  // MEDIA_MOJO_COMMON_MOJO_DECODER_BUFFER_CONVERTER_H_

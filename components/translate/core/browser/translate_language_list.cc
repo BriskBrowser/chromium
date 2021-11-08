@@ -14,8 +14,6 @@
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
 #include "base/notreached.h"
-#include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
@@ -27,6 +25,7 @@
 #include "components/translate/core/browser/translate_url_util.h"
 #include "components/translate/core/common/translate_util.h"
 #include "net/base/url_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -79,9 +78,9 @@ const char* const kDefaultSupportedLanguages[] = {
     "ig",     // Igbo
     "is",     // Icelandic
     "it",     // Italian
-    "iw",     // Hebrew
+    "iw",     // Hebrew - Chrome uses "he"
     "ja",     // Japanese
-    "jv",     // Javanese
+    "jw",     // Javanese - Chrome uses "jv"
     "ka",     // Georgian
     "kk",     // Kazakh
     "km",     // Khmer
@@ -105,7 +104,7 @@ const char* const kDefaultSupportedLanguages[] = {
     "my",     // Burmese
     "ne",     // Nepali
     "nl",     // Dutch
-    "no",     // Norwegian
+    "no",     // Norwegian - Chrome uses "nb"
     "ny",     // Nyanja
     "or",     // Odia (Oriya)
     "pa",     // Punjabi
@@ -133,7 +132,7 @@ const char* const kDefaultSupportedLanguages[] = {
     "tg",     // Tajik
     "th",     // Thai
     "tk",     // Turkmen
-    "tl",     // Tagalog
+    "tl",     // Tagalog - Chrome uses "fil"
     "tr",     // Turkish
     "tt",     // Tatar
     "ug",     // Uyghur
@@ -313,7 +312,7 @@ bool TranslateLanguageList::SetSupportedLanguages(
   //   "tl": {"XX": "LanguageName", ...}
   // }
   // Where "tl" is set in kTargetLanguagesKey.
-  base::Optional<base::Value> json_value =
+  absl::optional<base::Value> json_value =
       base::JSONReader::Read(language_list, base::JSON_ALLOW_TRAILING_COMMAS);
 
   if (!json_value || !json_value->is_dict()) {
@@ -338,7 +337,7 @@ bool TranslateLanguageList::SetSupportedLanguages(
   // Now we can clear language list.
   supported_languages_.clear();
   // ... and replace it with the values we just fetched from the server.
-  for (const auto& kv_pair : target_languages->DictItems()) {
+  for (auto kv_pair : target_languages->DictItems()) {
     const std::string& lang = kv_pair.first;
     if (!l10n_util::IsLocaleNameTranslated(lang.c_str(), locale)) {
       // Don't include languages not displayable in current UI language.

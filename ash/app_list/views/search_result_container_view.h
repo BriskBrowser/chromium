@@ -7,11 +7,11 @@
 
 #include <stddef.h>
 
-#include "ash/app_list/app_list_export.h"
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/model/app_list_model.h"
 #include "ash/app_list/model/search/search_model.h"
 #include "ash/app_list/views/search_result_base_view.h"
+#include "ash/ash_export.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_multi_source_observation.h"
@@ -25,9 +25,9 @@ namespace ash {
 // selected. There can be one result within one SearchResultContainerView
 // selected at a time; moving off the end of one container view selects the
 // first element of the next container view, and vice versa
-class APP_LIST_EXPORT SearchResultContainerView : public views::View,
-                                                  public views::ViewObserver,
-                                                  public ui::ListModelObserver {
+class ASH_EXPORT SearchResultContainerView : public views::View,
+                                             public views::ViewObserver,
+                                             public ui::ListModelObserver {
  public:
   class Delegate {
    public:
@@ -40,6 +40,11 @@ class APP_LIST_EXPORT SearchResultContainerView : public views::View,
     virtual void OnSearchResultContainerResultsChanged() = 0;
   };
   explicit SearchResultContainerView(AppListViewDelegate* view_delegate);
+
+  SearchResultContainerView(const SearchResultContainerView&) = delete;
+  SearchResultContainerView& operator=(const SearchResultContainerView&) =
+      delete;
+
   ~SearchResultContainerView() override;
 
   void set_delegate(Delegate* delegate) { delegate_ = delegate; }
@@ -58,9 +63,6 @@ class APP_LIST_EXPORT SearchResultContainerView : public views::View,
   void set_horizontally_traversable(bool horizontally_traversable) {
     horizontally_traversable_ = horizontally_traversable;
   }
-
-  void set_container_score(double score) { container_score_ = score; }
-  double container_score() const { return container_score_; }
 
   // Batching method that actually performs the update and updates layout.
   void Update();
@@ -108,8 +110,6 @@ class APP_LIST_EXPORT SearchResultContainerView : public views::View,
   // If true, left/right key events will traverse this container
   bool horizontally_traversable_ = false;
 
-  double container_score_ = -1.0;
-
   SearchModel::SearchResults* results_ = nullptr;  // Owned by SearchModel.
 
   // view delegate for notifications.
@@ -121,8 +121,6 @@ class APP_LIST_EXPORT SearchResultContainerView : public views::View,
 
   // The factory that consolidates multiple Update calls into one.
   base::WeakPtrFactory<SearchResultContainerView> update_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SearchResultContainerView);
 };
 
 }  // namespace ash

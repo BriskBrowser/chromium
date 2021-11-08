@@ -96,16 +96,16 @@ bool CompositingLayerAssigner::SquashingWouldExceedSparsityTolerance(
     const CompositingLayerAssigner::SquashingState& squashing_state) {
   IntRect bounds = candidate->ClippedAbsoluteBoundingBox();
   IntRect new_bounding_rect = squashing_state.bounding_rect;
-  new_bounding_rect.Unite(bounds);
-  const uint64_t new_bounding_rect_area = new_bounding_rect.Size().Area();
+  new_bounding_rect.Union(bounds);
+  const uint64_t new_bounding_rect_area = new_bounding_rect.size().Area();
   const uint64_t new_squashed_area =
-      squashing_state.total_area_of_squashed_rects + bounds.Size().Area();
+      squashing_state.total_area_of_squashed_rects + bounds.size().Area();
   return new_bounding_rect_area >
          kSquashingSparsityTolerance * new_squashed_area;
 }
 
 bool CompositingLayerAssigner::NeedsOwnBacking(const PaintLayer* layer) const {
-  if (!compositor_->CanBeComposited(layer))
+  if (!layer->CanBeComposited())
     return false;
 
   return RequiresCompositing(layer->GetCompositingReasons()) ||
@@ -123,7 +123,7 @@ CompositingLayerAssigner::ComputeCompositedLayerUpdate(PaintLayer* layer) {
     if (layer->HasCompositedLayerMapping())
       update = kRemoveOwnCompositedLayerMapping;
 
-    if (!layer->SubtreeIsInvisible() && compositor_->CanBeComposited(layer) &&
+    if (!layer->SubtreeIsInvisible() && layer->CanBeComposited() &&
         RequiresSquashing(layer->GetCompositingReasons())) {
       // We can't compute at this time whether the squashing layer update is a
       // no-op, since that requires walking the paint layer tree.
@@ -133,6 +133,15 @@ CompositingLayerAssigner::ComputeCompositedLayerUpdate(PaintLayer* layer) {
     }
   }
   return update;
+}
+
+static unsigned GetRenderingContextId(const PaintLayer* layer) {
+  const auto& fragment = layer->GetLayoutObject().PrimaryStitchingFragment();
+  DCHECK(fragment.HasLocalBorderBoxProperties());
+  return fragment.LocalBorderBoxProperties()
+      .Transform()
+      .Unalias()
+      .RenderingContextId();
 }
 
 SquashingDisallowedReasons
@@ -192,6 +201,13 @@ CompositingLayerAssigner::GetReasonsPreventingSquashing(
 
   if (layer->TransformAncestor() != squashing_layer.TransformAncestor())
     return SquashingDisallowedReason::kTransformAncestorMismatch;
+
+  // A PaintLayer can generate multiple compositor layers that have
+  // *different* sorting contexts (because they point to different
+  // TransformTree nodes).  We are only checking one here, which will not be
+  // accurate in all cases.
+  if (GetRenderingContextId(layer) != GetRenderingContextId(&squashing_layer))
+    return SquashingDisallowedReason::kPreserve3DSortingContextMismatch;
 
   if (layer->HasFilterInducingProperty() ||
       layer->FilterAncestor() != squashing_layer.FilterAncestor())
@@ -262,8 +278,6 @@ void CompositingLayerAssigner::UpdateSquashingAssignment(
     squashing_state.most_recent_mapping->SetNeedsGraphicsLayerUpdate(
         kGraphicsLayerUpdateSubtree);
 
-    layer->ClearClipRects();
-
     // Issue a paint invalidation, since |layer| may have been added to an
     // already-existing squashing layer.
     layers_needing_paint_invalidation.push_back(layer);
@@ -317,16 +331,8 @@ void CompositingLayerAssigner::AssignLayersToBackingsInternal(
     }
 
     if (composited_layer_update != kNoCompositingStateChange) {
-      // A change in the compositing state of a ScrollTimeline's scroll source
-      // can cause the compositor's view of the scroll source to become out of
-      // date. We inform the WorkletAnimationController about any such changes
-      // so that it can schedule a compositing animations update.
-      Node* node = layer->GetLayoutObject().GetNode();
-      if (node && ScrollTimeline::HasActiveScrollTimeline(node)) {
-        node->GetDocument()
-            .GetWorkletAnimationController()
-            .ScrollSourceCompositingStateChanged(node);
-      }
+      if (Node* node = layer->GetLayoutObject().GetNode())
+        ScrollTimeline::InvalidateCompositingState(node);
     }
 
     // Add this layer to a squashing backing if needed.
@@ -346,8 +352,8 @@ void CompositingLayerAssigner::AssignLayersToBackingsInternal(
         squashing_state.next_layer_may_squash_into_scrolling_contents = false;
         IntRect layer_bounds = layer->ClippedAbsoluteBoundingBox();
         squashing_state.total_area_of_squashed_rects +=
-            layer_bounds.Size().Area();
-        squashing_state.bounding_rect.Unite(layer_bounds);
+            layer_bounds.size().Area();
+        squashing_state.bounding_rect.Union(layer_bounds);
       }
     }
   }

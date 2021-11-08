@@ -5,8 +5,8 @@
 #include "chrome/browser/ui/webui/sanitized_image_source.h"
 
 #include "base/memory/ref_counted_memory.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/strcat.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/image_fetcher/image_decoder_impl.h"
@@ -16,19 +16,20 @@
 #include "content/public/browser/storage_partition.h"
 #include "net/base/url_util.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
 #include "url/url_util.h"
 
 SanitizedImageSource::SanitizedImageSource(Profile* profile)
-    : SanitizedImageSource(
-          profile,
-          content::BrowserContext::GetDefaultStoragePartition(profile)
-              ->GetURLLoaderFactoryForBrowserProcess(),
-          std::make_unique<ImageDecoderImpl>()) {}
+    : SanitizedImageSource(profile,
+                           profile->GetDefaultStoragePartition()
+                               ->GetURLLoaderFactoryForBrowserProcess(),
+                           std::make_unique<ImageDecoderImpl>()) {}
 
 SanitizedImageSource::SanitizedImageSource(
     Profile* profile,
@@ -95,6 +96,12 @@ void SanitizedImageSource::StartDataRequest(
 
 std::string SanitizedImageSource::GetMimeType(const std::string& path) {
   return "image/png";
+}
+
+bool SanitizedImageSource::ShouldReplaceExistingSource() {
+  // Leave the existing DataSource in place, otherwise we'll drop any pending
+  // requests on the floor.
+  return false;
 }
 
 void SanitizedImageSource::OnImageLoaded(

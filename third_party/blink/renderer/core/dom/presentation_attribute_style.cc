@@ -32,7 +32,6 @@
 
 #include <algorithm>
 
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/element.h"
@@ -101,6 +100,8 @@ static unsigned MakePresentationAttributeCacheKey(
   // Interpretation of the size attributes on <input> depends on the type
   // attribute.
   if (IsA<HTMLInputElement>(element))
+    return 0;
+  if (element.HasExtraStyleForPresentationAttribute())
     return 0;
   AttributeCollection attributes = element.AttributesWithoutUpdate();
   for (const Attribute& attr : attributes) {

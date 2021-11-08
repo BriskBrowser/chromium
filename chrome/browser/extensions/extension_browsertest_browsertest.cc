@@ -4,15 +4,14 @@
 
 #include "chrome/browser/extensions/extension_browsertest.h"
 
+#include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "chrome/browser/extensions/unpacked_installer.h"
-#include "components/version_info/channel.h"
 #include "content/public/test/browser_test.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_host_queue.h"
 #include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/features/feature_channel.h"
 #include "extensions/test/test_extension_dir.h"
 
 namespace extensions {
@@ -40,8 +39,7 @@ IN_PROC_BROWSER_TEST_P(MultiBackgroundExtensionBrowserTestBrowserTest,
   // We add a custom delay here to force the background page of the extension to
   // load a little later; this helps ensure we are properly waiting on it in the
   // LoadExtension() method.
-  ExtensionHostQueue::GetInstance().SetCustomDelayForTesting(
-      base::TimeDelta::FromSeconds(1));
+  ExtensionHostQueue::GetInstance().SetCustomDelayForTesting(base::Seconds(1));
 
   constexpr char kPersistentBackgroundPage[] =
       R"("scripts": ["background.js"])";
@@ -51,7 +49,6 @@ IN_PROC_BROWSER_TEST_P(MultiBackgroundExtensionBrowserTestBrowserTest,
 
   const char* background_key = nullptr;
   int manifest_version = 2;
-  base::Optional<ScopedCurrentChannel> channel_override;
   switch (GetParam()) {
     case BackgroundType::kPersistentPage:
       background_key = kPersistentBackgroundPage;
@@ -61,9 +58,6 @@ IN_PROC_BROWSER_TEST_P(MultiBackgroundExtensionBrowserTestBrowserTest,
       break;
     case BackgroundType::kWorker:
       background_key = kWorkerBackground;
-      // Worker-based background scripts are channel-restricted, and available
-      // in manifest v3.
-      channel_override.emplace(version_info::Channel::UNKNOWN);
       manifest_version = 3;
       break;
   }
@@ -90,8 +84,7 @@ IN_PROC_BROWSER_TEST_P(MultiBackgroundExtensionBrowserTestBrowserTest,
   EventRouter* event_router = EventRouter::Get(profile());
   EXPECT_TRUE(event_router->ExtensionHasEventListener(extension->id(),
                                                       "tabs.onCreated"));
-  ExtensionHostQueue::GetInstance().SetCustomDelayForTesting(
-      base::TimeDelta::FromSeconds(0));
+  ExtensionHostQueue::GetInstance().SetCustomDelayForTesting(base::Seconds(0));
 }
 
 // TODO(devlin): Add support for ServiceWorker-based extensions here as well.

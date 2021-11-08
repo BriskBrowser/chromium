@@ -12,7 +12,6 @@
 #include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "components/sync/base/weak_handle.h"
 #include "components/sync/driver/configure_context.h"
@@ -30,14 +29,16 @@ struct DataTypeConfigurationStats;
 class DataTypeManagerImpl : public DataTypeManager,
                             public ModelLoadManagerDelegate {
  public:
-  // TODO(crbug.com/1170318): Get rid of the |initial_types| param, it doesn't
-  // seem to actually do anything.
   DataTypeManagerImpl(
       const WeakHandle<DataTypeDebugInfoListener>& debug_info_listener,
       const DataTypeController::TypeMap* controllers,
       const DataTypeEncryptionHandler* encryption_handler,
       ModelTypeConfigurer* configurer,
       DataTypeManagerObserver* observer);
+
+  DataTypeManagerImpl(const DataTypeManagerImpl&) = delete;
+  DataTypeManagerImpl& operator=(const DataTypeManagerImpl&) = delete;
+
   ~DataTypeManagerImpl() override;
 
   // DataTypeManager interface.
@@ -113,9 +114,6 @@ class DataTypeManagerImpl : public DataTypeManager,
   ModelTypeConfigurer::ConfigureParams PrepareConfigureParams(
       const AssociationTypesInfo& association_types_info);
 
-  // Abort configuration and stop all data types due to configuration errors.
-  void Abort(ConfigureStatus status);
-
   // Divide |types| into sets by their priorities and return the sets from
   // high priority to low priority.
   base::queue<ModelTypeSet> PrioritizeTypes(const ModelTypeSet& types);
@@ -143,8 +141,8 @@ class DataTypeManagerImpl : public DataTypeManager,
   void ConfigureImpl(ModelTypeSet desired_types,
                      const ConfigureContext& context);
 
-  // Calls data type controllers of requested types to activate.
-  void ActivateDataTypes();
+  // Calls data type controllers of requested types to connect.
+  void ConnectDataTypes();
 
   DataTypeConfigStateMap BuildDataTypeConfigStateMap(
       const ModelTypeSet& types_being_configured) const;
@@ -177,7 +175,13 @@ class DataTypeManagerImpl : public DataTypeManager,
   State state_ = DataTypeManager::STOPPED;
 
   // The set of types whose initial download of sync data has completed.
-  ModelTypeSet downloaded_types_;
+  // Note: This class mostly doesn't handle control types (i.e. NIGORI) -
+  // |controllers_| doesn't contain an entry for NIGORI, and by the time this
+  // class gets instantiated, NIGORI is already up and running. It still has to
+  // be maintained as part of |downloaded_types_|, however, since in some edge
+  // cases (notably PurgeForMigration()), this class might have to trigger a
+  // re-download of NIGORI data.
+  ModelTypeSet downloaded_types_ = ControlTypes();
 
   // Types that requested in current configuration cycle.
   ModelTypeSet last_requested_types_;
@@ -190,9 +194,6 @@ class DataTypeManagerImpl : public DataTypeManager,
 
   // A set of types that should be redownloaded even if initial sync is
   // completed for them.
-  // TODO(crbug.com/967677): Once all datatypes are in USS, we should redesign
-  // this class and for example compute |downloaded_types_|'s initial value
-  // only after all datatypes have loaded for the first time.
   ModelTypeSet force_redownload_types_;
 
   // Whether an attempt to reconfigure was made while we were busy configuring.
@@ -209,7 +210,7 @@ class DataTypeManagerImpl : public DataTypeManager,
   // The manager that loads the local models of the data types.
   ModelLoadManager model_load_manager_;
 
-  // DataTypeManager must have only one observer -- the ProfileSyncService that
+  // DataTypeManager must have only one observer -- the SyncServiceImpl that
   // created it and manages its lifetime.
   DataTypeManagerObserver* const observer_;
 
@@ -228,8 +229,6 @@ class DataTypeManagerImpl : public DataTypeManager,
   std::map<ModelType, DataTypeConfigurationStats> configuration_stats_;
 
   base::WeakPtrFactory<DataTypeManagerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DataTypeManagerImpl);
 };
 
 }  // namespace syncer

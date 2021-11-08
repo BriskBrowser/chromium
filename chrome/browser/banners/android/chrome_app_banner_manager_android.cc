@@ -4,11 +4,12 @@
 
 #include "chrome/browser/banners/android/chrome_app_banner_manager_android.h"
 
+#include <string>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/android/webapk/webapk_metrics.h"
 #include "chrome/browser/android/webapk/webapk_ukm_recorder.h"
@@ -20,9 +21,11 @@
 #include "components/feature_engagement/public/feature_constants.h"
 #include "components/feature_engagement/public/tracker.h"
 #include "components/site_engagement/content/site_engagement_service.h"
+#include "components/webapps/browser/banners/app_banner_settings_helper.h"
 #include "components/webapps/browser/installable/installable_data.h"
 #include "content/public/browser/manifest_icon_downloader.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 
 using base::android::ConvertJavaStringToUTF16;
 using base::android::ConvertJavaStringToUTF8;
@@ -70,13 +73,20 @@ void ChromeAppBannerManagerAndroid::OnDidPerformInstallableWebAppCheck(
   AppBannerManagerAndroid::OnDidPerformInstallableWebAppCheck(data);
 }
 
+void ChromeAppBannerManagerAndroid::ResetCurrentPageData() {
+  AppBannerManagerAndroid::ResetCurrentPageData();
+  screenshots_.clear();
+}
+
 void ChromeAppBannerManagerAndroid::MaybeShowAmbientBadge() {
-  if (MaybeShowInProductHelp() &&
-      base::GetFieldTrialParamByFeatureAsBool(
-          feature_engagement::kIPHPwaInstallAvailableFeature,
-          kIphReplacesToolbar, false)) {
-    DVLOG(2) << "Install infobar overridden by IPH, as per experiment.";
-    return;
+  if (MaybeShowInProductHelp()) {
+    TrackIphWasShown();
+    if (base::GetFieldTrialParamByFeatureAsBool(
+            feature_engagement::kIPHPwaInstallAvailableFeature,
+            kIphReplacesToolbar, false)) {
+      DVLOG(2) << "Install infobar overridden by IPH, as per experiment.";
+      return;
+    }
   }
 
   AppBannerManagerAndroid::MaybeShowAmbientBadge();
@@ -110,12 +120,18 @@ void ChromeAppBannerManagerAndroid::ShowBannerUi(
 bool ChromeAppBannerManagerAndroid::MaybeShowPwaBottomSheetController(
     bool expand_sheet,
     WebappInstallSource install_source) {
+  // Do not show the peeked bottom sheet if it was recently dismissed.
+  if (!expand_sheet && AppBannerSettingsHelper::WasBannerRecentlyBlocked(
+                           web_contents(), validated_url_, GetAppIdentifier(),
+                           GetCurrentTime())) {
+    return false;
+  }
+
   auto a2hs_params = CreateAddToHomescreenParams(install_source);
   return PwaBottomSheetController::MaybeShow(
       web_contents(), GetAppName(), primary_icon_, has_maskable_primary_icon_,
-      manifest_.start_url, screenshots_,
-      manifest_.description.value_or(base::string16()), expand_sheet,
-      std::move(a2hs_params),
+      manifest().start_url, screenshots_, manifest().description.value_or(u""),
+      expand_sheet, std::move(a2hs_params),
       base::BindRepeating(&ChromeAppBannerManagerAndroid::OnInstallEvent,
                           ChromeAppBannerManagerAndroid::GetAndroidWeakPtr()));
 }
@@ -166,6 +182,6 @@ bool ChromeAppBannerManagerAndroid::MaybeShowInProductHelp() const {
   return true;
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(ChromeAppBannerManagerAndroid)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(ChromeAppBannerManagerAndroid);
 
 }  // namespace webapps

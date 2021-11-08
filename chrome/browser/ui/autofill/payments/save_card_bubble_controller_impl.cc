@@ -14,7 +14,6 @@
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/autofill/autofill_bubble_base.h"
 #include "chrome/browser/ui/autofill/autofill_bubble_handler.h"
 #include "chrome/browser/ui/autofill/payments/payments_ui_constants.h"
@@ -23,6 +22,8 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/hats/trust_safety_sentiment_service.h"
+#include "chrome/browser/ui/hats/trust_safety_sentiment_service_factory.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/page_action/page_action_icon_type.h"
 #include "chrome/browser/ui/sync/sync_promo_ui.h"
@@ -35,14 +36,11 @@
 #include "components/autofill/core/common/autofill_constants.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
-#include "components/autofill/core/common/autofill_prefs.h"
-#include "components/prefs/pref_service.h"
 #include "components/signin/public/base/signin_buildflags.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/driver/sync_service.h"
-#include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/navigation_handle.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -50,9 +48,7 @@ namespace autofill {
 
 SaveCardBubbleControllerImpl::SaveCardBubbleControllerImpl(
     content::WebContents* web_contents)
-    : AutofillBubbleControllerBase(web_contents),
-      pref_service_(
-          user_prefs::UserPrefs::Get(web_contents->GetBrowserContext())) {
+    : AutofillBubbleControllerBase(web_contents) {
   security_level_ =
       SecurityStateTabHelper::FromWebContents(web_contents)->GetSecurityLevel();
 
@@ -164,7 +160,7 @@ void SaveCardBubbleControllerImpl::ReshowBubble() {
   ShowBubble();
 }
 
-base::string16 SaveCardBubbleControllerImpl::GetWindowTitle() const {
+std::u16string SaveCardBubbleControllerImpl::GetWindowTitle() const {
   switch (current_bubble_type_) {
     case BubbleType::LOCAL_SAVE:
       return l10n_util::GetStringUTF16(
@@ -182,16 +178,16 @@ base::string16 SaveCardBubbleControllerImpl::GetWindowTitle() const {
     case BubbleType::UPLOAD_IN_PROGRESS:
     case BubbleType::INACTIVE:
       NOTREACHED();
-      return base::string16();
+      return std::u16string();
   }
 }
 
-base::string16 SaveCardBubbleControllerImpl::GetExplanatoryMessage() const {
+std::u16string SaveCardBubbleControllerImpl::GetExplanatoryMessage() const {
   if (current_bubble_type_ == BubbleType::FAILURE)
     return l10n_util::GetStringUTF16(IDS_AUTOFILL_FAILURE_BUBBLE_EXPLANATION);
 
   if (current_bubble_type_ != BubbleType::UPLOAD_SAVE)
-    return base::string16();
+    return std::u16string();
 
   if (options_.should_request_name_from_user) {
     return l10n_util::GetStringUTF16(
@@ -202,7 +198,7 @@ base::string16 SaveCardBubbleControllerImpl::GetExplanatoryMessage() const {
       IDS_AUTOFILL_SAVE_CARD_PROMPT_UPLOAD_EXPLANATION_V3);
 }
 
-base::string16 SaveCardBubbleControllerImpl::GetAcceptButtonText() const {
+std::u16string SaveCardBubbleControllerImpl::GetAcceptButtonText() const {
   switch (current_bubble_type_) {
     case BubbleType::LOCAL_SAVE:
       return l10n_util::GetStringUTF16(
@@ -215,11 +211,11 @@ base::string16 SaveCardBubbleControllerImpl::GetAcceptButtonText() const {
     case BubbleType::UPLOAD_IN_PROGRESS:
     case BubbleType::FAILURE:
     case BubbleType::INACTIVE:
-      return base::string16();
+      return std::u16string();
   }
 }
 
-base::string16 SaveCardBubbleControllerImpl::GetDeclineButtonText() const {
+std::u16string SaveCardBubbleControllerImpl::GetDeclineButtonText() const {
   switch (current_bubble_type_) {
     case BubbleType::LOCAL_SAVE:
       return l10n_util::GetStringUTF16(
@@ -231,7 +227,7 @@ base::string16 SaveCardBubbleControllerImpl::GetDeclineButtonText() const {
     case BubbleType::MANAGE_CARDS:
     case BubbleType::FAILURE:
     case BubbleType::INACTIVE:
-      return base::string16();
+      return std::u16string();
   }
 }
 
@@ -264,13 +260,14 @@ bool SaveCardBubbleControllerImpl::ShouldRequestExpirationDateFromUser() const {
 
 void SaveCardBubbleControllerImpl::OnSaveButton(
     const AutofillClient::UserProvidedCardDetails& user_provided_card_details) {
-  set_bubble_view(nullptr);
-
   switch (current_bubble_type_) {
     case BubbleType::UPLOAD_SAVE: {
       DCHECK(!upload_save_card_prompt_callback_.is_null());
-
-      base::string16 name_provided_by_user;
+      if (auto* sentiment_service =
+              TrustSafetySentimentServiceFactory::GetForProfile(GetProfile())) {
+        sentiment_service->SavedCard();
+      }
+      std::u16string name_provided_by_user;
       if (!user_provided_card_details.cardholder_name.empty()) {
         // Log whether the name was changed by the user or simply accepted
         // without edits.
@@ -284,15 +281,21 @@ void SaveCardBubbleControllerImpl::OnSaveButton(
                              base::TRIM_ALL, &name_provided_by_user);
       }
       std::move(upload_save_card_prompt_callback_)
-          .Run(AutofillClient::ACCEPTED, user_provided_card_details);
+          .Run(AutofillClient::SaveCardOfferUserDecision::kAccepted,
+               user_provided_card_details);
       break;
     }
     case BubbleType::LOCAL_SAVE:
       DCHECK(!local_save_card_prompt_callback_.is_null());
+      if (auto* sentiment_service =
+              TrustSafetySentimentServiceFactory::GetForProfile(GetProfile())) {
+        sentiment_service->SavedCard();
+      }
       // Show an animated card saved confirmation message next time
       // UpdatePageActionIcon() is called.
       should_show_card_saved_label_animation_ = true;
-      std::move(local_save_card_prompt_callback_).Run(AutofillClient::ACCEPTED);
+      std::move(local_save_card_prompt_callback_)
+          .Run(AutofillClient::SaveCardOfferUserDecision::kAccepted);
       break;
     case BubbleType::MANAGE_CARDS:
       AutofillMetrics::LogManageCardsPromptMetric(
@@ -307,10 +310,11 @@ void SaveCardBubbleControllerImpl::OnSaveButton(
 
 void SaveCardBubbleControllerImpl::OnCancelButton() {
   if (current_bubble_type_ == BubbleType::LOCAL_SAVE) {
-    std::move(local_save_card_prompt_callback_).Run(AutofillClient::DECLINED);
+    std::move(local_save_card_prompt_callback_)
+        .Run(AutofillClient::SaveCardOfferUserDecision::kDeclined);
   } else if (current_bubble_type_ == BubbleType::UPLOAD_SAVE) {
     std::move(upload_save_card_prompt_callback_)
-        .Run(AutofillClient::DECLINED, {});
+        .Run(AutofillClient::SaveCardOfferUserDecision::kDeclined, {});
   }
 }
 
@@ -345,15 +349,9 @@ void SaveCardBubbleControllerImpl::OnBubbleClosed(
     switch (closed_reason) {
       case PaymentsBubbleClosedReason::kAccepted:
         metric = AutofillMetrics::SAVE_CARD_PROMPT_ACCEPTED;
-        pref_service_->SetInteger(
-            prefs::kAutofillAcceptSaveCreditCardPromptState,
-            prefs::PREVIOUS_SAVE_CREDIT_CARD_PROMPT_USER_DECISION_ACCEPTED);
         break;
       case PaymentsBubbleClosedReason::kCancelled:
         metric = AutofillMetrics::SAVE_CARD_PROMPT_CANCELLED;
-        pref_service_->SetInteger(
-            prefs::kAutofillAcceptSaveCreditCardPromptState,
-            prefs::PREVIOUS_SAVE_CREDIT_CARD_PROMPT_USER_DECISION_DENIED);
         break;
       case PaymentsBubbleClosedReason::kClosed:
         metric = AutofillMetrics::SAVE_CARD_PROMPT_CLOSED;
@@ -370,8 +368,6 @@ void SaveCardBubbleControllerImpl::OnBubbleClosed(
     }
     AutofillMetrics::LogSaveCardPromptResultMetric(
         metric, is_upload_save_, is_reshow_, options_,
-        pref_service_->GetInteger(
-            prefs::kAutofillAcceptSaveCreditCardPromptState),
         GetSecurityLevel(), GetSyncState());
   }
 
@@ -431,7 +427,7 @@ AutofillSyncSigninState SaveCardBubbleControllerImpl::GetSyncState() const {
   return personal_data_manager_->GetSyncSigninState();
 }
 
-base::string16 SaveCardBubbleControllerImpl::GetSavePaymentIconTooltipText()
+std::u16string SaveCardBubbleControllerImpl::GetSavePaymentIconTooltipText()
     const {
   switch (current_bubble_type_) {
     case BubbleType::LOCAL_SAVE:
@@ -447,7 +443,7 @@ base::string16 SaveCardBubbleControllerImpl::GetSavePaymentIconTooltipText()
     case BubbleType::FAILURE:
       return l10n_util::GetStringUTF16(IDS_TOOLTIP_SAVE_CREDIT_CARD_FAILURE);
     case BubbleType::INACTIVE:
-      return base::string16();
+      return std::u16string();
   }
 }
 
@@ -499,8 +495,6 @@ void SaveCardBubbleControllerImpl::DoShowBubble() {
       AutofillMetrics::LogSaveCardPromptOfferMetric(
           AutofillMetrics::SAVE_CARD_PROMPT_SHOWN, is_upload_save_, is_reshow_,
           options_,
-          pref_service_->GetInteger(
-              prefs::kAutofillAcceptSaveCreditCardPromptState),
           GetSecurityLevel(), GetSyncState());
       break;
     case BubbleType::MANAGE_CARDS:
@@ -532,10 +526,8 @@ void SaveCardBubbleControllerImpl::FetchAccountInfo() {
       PersonalDataManagerFactory::GetForProfile(profile);
   if (!personal_data_manager)
     return;
-  base::Optional<AccountInfo> account_info =
-      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-          personal_data_manager->GetAccountInfoForPaymentsServer());
-  account_info_ = account_info.value_or(AccountInfo{});
+  account_info_ = identity_manager->FindExtendedAccountInfo(
+      personal_data_manager->GetAccountInfoForPaymentsServer());
 }
 
 void SaveCardBubbleControllerImpl::ShowBubble() {
@@ -570,8 +562,6 @@ void SaveCardBubbleControllerImpl::ShowIconOnly() {
       AutofillMetrics::LogSaveCardPromptOfferMetric(
           AutofillMetrics::SAVE_CARD_PROMPT_NOT_SHOWN_MAX_STRIKES_REACHED,
           is_upload_save_, is_reshow_, options_,
-          pref_service_->GetInteger(
-              prefs::kAutofillAcceptSaveCreditCardPromptState),
           GetSecurityLevel(), GetSyncState());
       break;
     case BubbleType::FAILURE:
@@ -599,6 +589,6 @@ security_state::SecurityLevel SaveCardBubbleControllerImpl::GetSecurityLevel()
   return security_level_;
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(SaveCardBubbleControllerImpl)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SaveCardBubbleControllerImpl);
 
 }  // namespace autofill

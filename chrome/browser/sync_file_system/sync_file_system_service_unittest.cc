@@ -5,14 +5,15 @@
 #include "chrome/browser/sync_file_system/sync_file_system_service.h"
 
 #include <stddef.h>
+
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -76,10 +77,9 @@ void AssignValueAndQuit(base::RunLoop* run_loop,
 }
 
 // This is called on IO thread. Posts |callback| to be called on UI thread.
-void VerifyFileError(base::Closure callback,
-                     base::File::Error error) {
+void VerifyFileError(base::OnceClosure callback, base::File::Error error) {
   EXPECT_EQ(base::File::FILE_OK, error);
-  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, callback);
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(callback));
 }
 
 }  // namespace
@@ -133,9 +133,9 @@ class SyncFileSystemServiceTest : public testing::Test {
 
   void SetUp() override {
     in_memory_env_ = leveldb_chrome::NewMemEnv("SyncFileSystemServiceTest");
-    file_system_.reset(new CannedSyncableFileSystem(
+    file_system_ = std::make_unique<CannedSyncableFileSystem>(
         GURL(kOrigin), in_memory_env_.get(), content::GetIOThreadTaskRunner({}),
-        base::ThreadPool::CreateSingleThreadTaskRunner({base::MayBlock()})));
+        base::ThreadPool::CreateSingleThreadTaskRunner({base::MayBlock()}));
 
     std::unique_ptr<LocalFileSyncService> local_service =
         LocalFileSyncService::CreateForTesting(&profile_, in_memory_env_.get());
@@ -302,7 +302,8 @@ TEST_F(SyncFileSystemServiceTest, InitializeForAppWithNetworkFailure) {
       SYNC_STATUS_NETWORK_ERROR);
 }
 
-TEST_F(SyncFileSystemServiceTest, InitializeForAppWithError) {
+// Disabled due to flakiness: crbug.com/1222929
+TEST_F(SyncFileSystemServiceTest, DISABLED_InitializeForAppWithError) {
   std::vector<SyncServiceState> expected_states;
   expected_states.push_back(SYNC_SERVICE_DISABLED);
 
@@ -430,8 +431,8 @@ TEST_F(SyncFileSystemServiceTest, SimpleSyncFlowWithFileBusy) {
       FROM_HERE,
       base::BindOnce(&CannedSyncableFileSystem::DoCreateFile,
                      base::Unretained(file_system_.get()), kFile,
-                     base::Bind(&VerifyFileError,
-                                verify_file_error_run_loop.QuitClosure())));
+                     base::BindOnce(&VerifyFileError,
+                                    verify_file_error_run_loop.QuitClosure())));
 
   run_loop.Run();
 
@@ -461,9 +462,8 @@ TEST_F(SyncFileSystemServiceTest, MAYBE_GetFileSyncStatus) {
     status = SYNC_STATUS_UNKNOWN;
     sync_file_status = SYNC_FILE_STATUS_UNKNOWN;
     sync_service_->GetFileSyncStatus(
-        kFile,
-        base::Bind(&AssignValueAndQuit<SyncFileStatus>,
-                   &run_loop, &status, &sync_file_status));
+        kFile, base::BindOnce(&AssignValueAndQuit<SyncFileStatus>, &run_loop,
+                              &status, &sync_file_status));
     run_loop.Run();
 
     EXPECT_EQ(SYNC_STATUS_OK, status);
@@ -478,9 +478,8 @@ TEST_F(SyncFileSystemServiceTest, MAYBE_GetFileSyncStatus) {
     status = SYNC_STATUS_UNKNOWN;
     sync_file_status = SYNC_FILE_STATUS_UNKNOWN;
     sync_service_->GetFileSyncStatus(
-        kFile,
-        base::Bind(&AssignValueAndQuit<SyncFileStatus>,
-                   &run_loop, &status, &sync_file_status));
+        kFile, base::BindOnce(&AssignValueAndQuit<SyncFileStatus>, &run_loop,
+                              &status, &sync_file_status));
     run_loop.Run();
 
     EXPECT_EQ(SYNC_STATUS_OK, status);

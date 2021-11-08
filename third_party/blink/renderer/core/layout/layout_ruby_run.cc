@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/core/layout/layout_ruby_run.h"
 
+#include "third_party/blink/renderer/core/layout/layout_object_inlines.h"
 #include "third_party/blink/renderer/core/layout/layout_ruby_base.h"
 #include "third_party/blink/renderer/core/layout/layout_ruby_text.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
@@ -194,8 +195,9 @@ LayoutRubyBase* LayoutRubyRun::CreateRubyBase() const {
   NOT_DESTROYED();
   LayoutRubyBase* layout_object =
       LayoutRubyBase::CreateAnonymous(&GetDocument(), *this);
-  ComputedStyle* new_style = ComputedStyle::CreateAnonymousStyleWithDisplay(
-      StyleRef(), EDisplay::kBlock);
+  scoped_refptr<ComputedStyle> new_style =
+      GetDocument().GetStyleResolver().CreateAnonymousStyleWithDisplay(
+          StyleRef(), EDisplay::kBlock);
   new_style->SetTextAlign(ETextAlign::kCenter);  // FIXME: use WEBKIT_CENTER?
   layout_object->SetStyle(std::move(new_style));
   return layout_object;
@@ -213,8 +215,11 @@ LayoutRubyRun* LayoutRubyRun::StaticCreateRubyRun(
     rr = MakeGarbageCollected<LayoutRubyRun>(nullptr);
   }
   rr->SetDocumentForAnonymous(&parent_ruby->GetDocument());
-  ComputedStyle* new_style = ComputedStyle::CreateAnonymousStyleWithDisplay(
-      parent_ruby->StyleRef(), EDisplay::kInlineBlock);
+  scoped_refptr<ComputedStyle> new_style =
+      parent_ruby->GetDocument()
+          .GetStyleResolver()
+          .CreateAnonymousStyleWithDisplay(parent_ruby->StyleRef(),
+                                           EDisplay::kInlineBlock);
   rr->SetStyle(std::move(new_style));
   return rr;
 }

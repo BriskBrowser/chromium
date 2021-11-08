@@ -7,9 +7,8 @@
 
 #include <memory>
 
-#include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_multi_source_observation.h"
 #include "components/embedder_support/android/delegate/web_contents_delegate_android.h"
 #include "components/find_in_page/find_result_observer.h"
 #include "components/find_in_page/find_tab_helper.h"
@@ -41,6 +40,11 @@ class TabWebContentsDelegateAndroid
       public find_in_page::FindResultObserver {
  public:
   TabWebContentsDelegateAndroid(JNIEnv* env, jobject obj);
+
+  TabWebContentsDelegateAndroid(const TabWebContentsDelegateAndroid&) = delete;
+  TabWebContentsDelegateAndroid& operator=(
+      const TabWebContentsDelegateAndroid&) = delete;
+
   ~TabWebContentsDelegateAndroid() override;
 
   void PortalWebContentsCreated(content::WebContents* portal_contents) override;
@@ -76,11 +80,6 @@ class TabWebContentsDelegateAndroid
                                   const GURL& security_origin,
                                   blink::mojom::MediaStreamType type) override;
   void SetOverlayMode(bool use_overlay_mode) override;
-  void RequestPpapiBrokerPermission(
-      content::WebContents* web_contents,
-      const GURL& url,
-      const base::FilePath& plugin_path,
-      base::OnceCallback<void(bool)> callback) override;
   content::WebContents* OpenURLFromTab(
       content::WebContents* source,
       const content::OpenURLParams& params) override;
@@ -93,8 +92,7 @@ class TabWebContentsDelegateAndroid
                       bool user_gesture,
                       bool* was_blocked) override;
   blink::SecurityStyle GetSecurityStyle(
-      content::WebContents* web_contents,
-      content::SecurityStyleExplanations* security_style_explanations) override;
+      content::WebContents* web_contents) override;
   void OnDidBlockNavigation(
       content::WebContents* web_contents,
       const GURL& blocked_url,
@@ -107,6 +105,8 @@ class TabWebContentsDelegateAndroid
       const viz::SurfaceId&,
       const gfx::Size&) override;
   void ExitPictureInPicture() override;
+  bool IsBackForwardCacheSupported() override;
+  bool IsPrerender2Supported() override;
   std::unique_ptr<content::WebContents> ActivatePortalWebContents(
       content::WebContents* predecessor_contents,
       std::unique_ptr<content::WebContents> portal_contents) override;
@@ -136,7 +136,9 @@ class TabWebContentsDelegateAndroid
   bool ShouldEnableEmbeddedMediaExperience() const;
   bool IsPictureInPictureEnabled() const;
   bool IsNightModeEnabled() const;
+  bool IsForceDarkWebContentEnabled() const;
   bool CanShowAppBanners() const;
+  bool IsTabLargeEnoughForDesktopSite() const;
 
   // Returns true if this tab is currently presented in the context of custom
   // tabs. Tabs can be moved between different activities so the returned value
@@ -149,10 +151,9 @@ class TabWebContentsDelegateAndroid
   std::unique_ptr<device::mojom::GeolocationContext>
       installed_webapp_geolocation_context_;
 
-  ScopedObserver<find_in_page::FindTabHelper, find_in_page::FindResultObserver>
-      find_result_observer_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TabWebContentsDelegateAndroid);
+  base::ScopedMultiSourceObservation<find_in_page::FindTabHelper,
+                                     find_in_page::FindResultObserver>
+      find_result_observations_{this};
 };
 
 }  // namespace android

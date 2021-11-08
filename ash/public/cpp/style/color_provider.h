@@ -24,14 +24,15 @@ class ASH_PUBLIC_EXPORT ColorProvider {
     kShield60,
     kShield80,
     kShield90,
+    kShield95,
   };
 
   // Blur sigma for system UI layers.
-  enum class LayerBlurSigma {
-    kBlurDefault = 30,  // Default blur sigma is 30.
-    kBlurSigma20 = 20,
-    kBlurSigma10 = 10,
-  };
+  static constexpr float kBackgroundBlurSigma = 30.f;
+
+  // The default blur quality for background blur. Using a value less than 1
+  // improves performance.
+  static constexpr float kBackgroundBlurQuality = 0.33f;
 
   // Types of Base layer.
   enum class BaseLayerType {
@@ -41,6 +42,7 @@ class ASH_PUBLIC_EXPORT ColorProvider {
     kTransparent60,
     kTransparent80,
     kTransparent90,
+    kTransparent95,
 
     // Base layer is opaque.
     kOpaque,
@@ -56,10 +58,13 @@ class ASH_PUBLIC_EXPORT ColorProvider {
     kControlBackgroundColorPositive,
     kFocusAuraColor,
     kFocusRingColor,
+    // TODO(crbug/1224694): Rename these once naming in UX spec is finalized.
+    kHighlightBorderHighlightColor,
+    kHighlightBorderBorderColor,
   };
 
   enum class ContentLayerType {
-    kLoginScrollBarColor,
+    kScrollBarColor,
     kSeparatorColor,
 
     kTextColorPrimary,
@@ -67,6 +72,7 @@ class ASH_PUBLIC_EXPORT ColorProvider {
     kTextColorAlert,
     kTextColorWarning,
     kTextColorPositive,
+    kTextColorURL,
 
     kIconColorPrimary,
     kIconColorSecondary,
@@ -120,6 +126,13 @@ class ASH_PUBLIC_EXPORT ColorProvider {
     // Color for the switch access's back button.
     kSwitchAccessInnerStrokeColor,
     kSwitchAccessOuterStrokeColor,
+
+    // Color for the media controls.
+    kProgressBarColorForeground,
+    kProgressBarColorBackground,
+
+    // Color used to highlight a hovered view.
+    kHighlightColorHover
   };
 
   // Attributes of ripple, includes the base color, opacity of inkdrop and
@@ -138,6 +151,8 @@ class ASH_PUBLIC_EXPORT ColorProvider {
 
   static ColorProvider* Get();
 
+  // Gets the color of |type| of the corresponding layer based on the current
+  // color mode.
   virtual SkColor GetShieldLayerColor(ShieldLayerType type) const = 0;
   virtual SkColor GetBaseLayerColor(BaseLayerType type) const = 0;
   virtual SkColor GetControlsLayerColor(ControlsLayerType type) const = 0;
@@ -154,8 +169,12 @@ class ASH_PUBLIC_EXPORT ColorProvider {
   virtual void AddObserver(ColorModeObserver* observer) = 0;
   virtual void RemoveObserver(ColorModeObserver* observer) = 0;
 
-  // True if pref |kDarkModeEnabled| is true, which means the current color mode
-  // is dark.
+  // True if the current color mode is DARK. The default color mode is LIGHT if
+  // the DarkLightMode feature is enabled. And it can be changed through pref
+  // `kDarkModeEnabled`. But the default color mode is DARK if the
+  // DarkLightMode feature is disabled. And it can be overridden by
+  // ScopedLightModeAsDefault. See `override_light_mode_as_default_` for more
+  // details.
   virtual bool IsDarkModeEnabled() const = 0;
 
  protected:

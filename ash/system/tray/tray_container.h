@@ -6,7 +6,7 @@
 #define ASH_SYSTEM_TRAY_TRAY_CONTAINER_H_
 
 #include "base/macros.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/view.h"
 
@@ -22,6 +22,10 @@ class Shelf;
 class TrayContainer : public views::View {
  public:
   explicit TrayContainer(Shelf* shelf);
+
+  TrayContainer(const TrayContainer&) = delete;
+  TrayContainer& operator=(const TrayContainer&) = delete;
+
   ~TrayContainer() override;
 
   // Calculates the ideal bounds that this view should have depending on the
@@ -67,7 +71,7 @@ class TrayContainer : public views::View {
   // The set of inputs that impact this widget's layout. The assumption is that
   // this widget needs a relayout if, and only if, one or more of these has
   // changed.
-  base::Optional<LayoutInputs> layout_inputs_;
+  absl::optional<LayoutInputs> layout_inputs_;
 
   // The border that has been calculated in the target bounds calculation
   // phase, and will be applied in the layout update phase.
@@ -81,8 +85,6 @@ class TrayContainer : public views::View {
 
   int main_axis_margin_ = 0;
   int cross_axis_margin_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(TrayContainer);
 };
 
 }  // namespace ash

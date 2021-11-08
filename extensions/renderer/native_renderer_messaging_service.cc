@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/supports_user_data.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/renderer/render_frame.h"
@@ -40,7 +41,8 @@
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_scoped_window_focus_allowed_indicator.h"
-#include "v8/include/v8.h"
+#include "v8/include/v8-context.h"
+#include "v8/include/v8-persistent-handle.h"
 
 using blink::mojom::UserActivationNotificationType;
 
@@ -162,7 +164,8 @@ void NativeRendererMessagingService::DispatchOnDisconnect(
 gin::Handle<GinPort> NativeRendererMessagingService::Connect(
     ScriptContext* script_context,
     const MessageTarget& target,
-    const std::string& channel_name) {
+    const std::string& channel_name,
+    SerializationFormat format) {
   if (!ScriptContextIsValid(script_context))
     return gin::Handle<GinPort>();
 
@@ -172,9 +175,10 @@ gin::Handle<GinPort> NativeRendererMessagingService::Connect(
     return gin::Handle<GinPort>();
 
   bool is_opener = true;
-  gin::Handle<GinPort> port = CreatePort(
-      script_context, channel_name,
-      PortId(script_context->context_id(), data->next_port_id++, is_opener));
+  gin::Handle<GinPort> port =
+      CreatePort(script_context, channel_name,
+                 PortId(script_context->context_id(), data->next_port_id++,
+                        is_opener, format));
 
   bindings_system_->GetIPCMessageSender()->SendOpenMessageChannel(
       script_context, port->port_id(), target, channel_name);
@@ -194,7 +198,16 @@ void NativeRendererMessagingService::SendOneTimeMessage(
       script_context->v8_context(), kCreateIfMissing);
 
   bool is_opener = true;
-  PortId port_id(script_context->context_id(), data->next_port_id++, is_opener);
+
+  // TODO(crbug.com/248548): Instead of inferring the SerializationFormat from
+  // Message, it'd be better to have the clients pass it directly. This is
+  // because, in case of `kStructuredCloned` to `kJson` fallback, the format for
+  // the ports will also be `kJson`. This is inconsistent with what we do for
+  // ports for long-lived channels where the port's `SerializationFormat` is
+  // always the same as that passed by messaging clients and is independent of
+  // any fallback behavior.
+  PortId port_id(script_context->context_id(), data->next_port_id++, is_opener,
+                 message.format);
 
   one_time_message_handler_.SendMessage(
       script_context, port_id, target, method_name, message, response_callback);
@@ -402,7 +415,7 @@ void NativeRendererMessagingService::DispatchOnConnectToListeners(
 
   const Extension* extension = script_context->extension();
   if (extension) {
-    if (!source->tab.empty() && !extension->is_platform_app()) {
+    if (!source->tab.DictEmpty() && !extension->is_platform_app()) {
       sender_builder.Set("tab", content::V8ValueConverter::Create()->ToV8Value(
                                     &source->tab, v8_context));
     }
@@ -455,7 +468,7 @@ void NativeRendererMessagingService::DispatchOnConnectToListeners(
       list.emplace_back();
 
     APIActivityLogger::LogEvent(
-        script_context, event_name,
+        bindings_system_->GetIPCMessageSender(), script_context, event_name,
         std::make_unique<base::ListValue>(std::move(list)));
   }
 }

@@ -24,6 +24,10 @@ class Extension;
 class ExtensionPrefsTest : public testing::Test {
  public:
   ExtensionPrefsTest();
+
+  ExtensionPrefsTest(const ExtensionPrefsTest&) = delete;
+  ExtensionPrefsTest& operator=(const ExtensionPrefsTest&) = delete;
+
   ~ExtensionPrefsTest() override;
 
   // This function will get called once, and is the right place to do operations
@@ -48,9 +52,6 @@ class ExtensionPrefsTest : public testing::Test {
 
   content::BrowserTaskEnvironment task_environment_;
   TestExtensionPrefs prefs_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ExtensionPrefsTest);
 };
 
 
@@ -59,6 +60,11 @@ class PrefsPrepopulatedTestBase : public ExtensionPrefsTest {
   static const size_t kNumInstalledExtensions = 5;
 
   PrefsPrepopulatedTestBase();
+
+  PrefsPrepopulatedTestBase(const PrefsPrepopulatedTestBase&) = delete;
+  PrefsPrepopulatedTestBase& operator=(const PrefsPrepopulatedTestBase&) =
+      delete;
+
   ~PrefsPrepopulatedTestBase() override;
 
   Extension* extension1() { return extension1_.get(); }
@@ -70,17 +76,15 @@ class PrefsPrepopulatedTestBase : public ExtensionPrefsTest {
  protected:
   bool installed_[kNumInstalledExtensions];
 
-  // The following extensions all have Manifest::Location set to EXTERNAL_PREF.
+  // The following extensions all have mojom::ManifestLocation set to
+  // mojom::ManifestLocation::kExternalPref.
   scoped_refptr<Extension> extension1_;
   scoped_refptr<Extension> extension2_;
   scoped_refptr<Extension> extension3_;
   scoped_refptr<Extension> extension4_;
 
-  // This extension has a location of Manifest::INTERNAL.
+  // This extension has a location of mojom::ManifestLocation::kInternal.
   scoped_refptr<Extension> internal_extension_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PrefsPrepopulatedTestBase);
 };
 
 }  // namespace extensions

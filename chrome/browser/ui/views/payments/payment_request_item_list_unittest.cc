@@ -38,17 +38,20 @@ class TestListItem : public PaymentRequestItemList::Item {
     Init();
   }
 
+  TestListItem(const TestListItem&) = delete;
+  TestListItem& operator=(const TestListItem&) = delete;
+
   int selected_state_changed_calls_count() {
     return selected_state_changed_calls_count_;
   }
 
  private:
   std::unique_ptr<views::View> CreateContentView(
-      base::string16* accessible_content) override {
+      std::u16string* accessible_content) override {
     return std::make_unique<views::View>();
   }
 
-  base::string16 GetNameForDataType() override { return base::string16(); }
+  std::u16string GetNameForDataType() override { return std::u16string(); }
 
   bool CanBeSelected() override { return true; }
 
@@ -61,8 +64,6 @@ class TestListItem : public PaymentRequestItemList::Item {
   }
 
   int selected_state_changed_calls_count_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestListItem);
 };
 
 }  // namespace

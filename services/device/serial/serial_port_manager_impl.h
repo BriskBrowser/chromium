@@ -9,7 +9,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_multi_source_observation.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -34,6 +34,10 @@ class SerialPortManagerImpl : public mojom::SerialPortManager,
   SerialPortManagerImpl(
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
+
+  SerialPortManagerImpl(const SerialPortManagerImpl&) = delete;
+  SerialPortManagerImpl& operator=(const SerialPortManagerImpl&) = delete;
+
   ~SerialPortManagerImpl() override;
 
   void Bind(mojo::PendingReceiver<mojom::SerialPortManager> receiver);
@@ -61,7 +65,8 @@ class SerialPortManagerImpl : public mojom::SerialPortManager,
 
   std::unique_ptr<SerialDeviceEnumerator> enumerator_;
   std::unique_ptr<BluetoothSerialDeviceEnumerator> bluetooth_enumerator_;
-  ScopedObserver<SerialDeviceEnumerator, SerialDeviceEnumerator::Observer>
+  base::ScopedMultiSourceObservation<SerialDeviceEnumerator,
+                                     SerialDeviceEnumerator::Observer>
       observed_enumerator_{this};
 
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
@@ -69,8 +74,6 @@ class SerialPortManagerImpl : public mojom::SerialPortManager,
 
   mojo::ReceiverSet<SerialPortManager> receivers_;
   mojo::RemoteSet<mojom::SerialPortManagerClient> clients_;
-
-  DISALLOW_COPY_AND_ASSIGN(SerialPortManagerImpl);
 };
 
 }  // namespace device

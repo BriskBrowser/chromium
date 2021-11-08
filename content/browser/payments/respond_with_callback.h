@@ -19,14 +19,13 @@
 
 namespace content {
 
-class ServiceWorkerCoreThreadEventDispatcher;
+class PaymentEventDispatcher;
 enum class RespondWithCallbackType { kInvoke, kAbort, kCanMakePayment };
 
 // Abstract base class for event callbacks that are invoked when the payment
 // handler resolves the promise passed in to TheEvent.respondWith() method.
 class RespondWithCallback
-    : public payments::mojom::PaymentHandlerResponseCallback,
-      public WebContentsObserver {
+    : public payments::mojom::PaymentHandlerResponseCallback {
  public:
   // Disallow copy and assign.
   RespondWithCallback(const RespondWithCallback& other) = delete;
@@ -37,10 +36,9 @@ class RespondWithCallback
 
  protected:
   RespondWithCallback(
-      WebContents* web_contents,
       ServiceWorkerMetrics::EventType event_type,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
-      base::WeakPtr<ServiceWorkerCoreThreadEventDispatcher> event_dispatcher);
+      base::WeakPtr<PaymentEventDispatcher> event_dispatcher);
 
   ~RespondWithCallback() override;
 
@@ -65,7 +63,7 @@ class RespondWithCallback
  private:
   int request_id_;
   scoped_refptr<ServiceWorkerVersion> service_worker_version_;
-  base::WeakPtr<ServiceWorkerCoreThreadEventDispatcher> event_dispatcher_;
+  base::WeakPtr<PaymentEventDispatcher> event_dispatcher_;
   mojo::Receiver<payments::mojom::PaymentHandlerResponseCallback> receiver_{
       this};
 
@@ -78,9 +76,8 @@ class RespondWithCallback
 class CanMakePaymentRespondWithCallback : public RespondWithCallback {
  public:
   CanMakePaymentRespondWithCallback(
-      WebContents* web_contents,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
-      base::WeakPtr<ServiceWorkerCoreThreadEventDispatcher> event_dispatcher,
+      base::WeakPtr<PaymentEventDispatcher> event_dispatcher,
       PaymentAppProvider::CanMakePaymentCallback callback);
   ~CanMakePaymentRespondWithCallback() override;
 
@@ -108,9 +105,8 @@ class CanMakePaymentRespondWithCallback : public RespondWithCallback {
 class InvokeRespondWithCallback : public RespondWithCallback {
  public:
   InvokeRespondWithCallback(
-      WebContents* web_contents,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
-      base::WeakPtr<ServiceWorkerCoreThreadEventDispatcher> event_dispatcher,
+      base::WeakPtr<PaymentEventDispatcher> event_dispatcher,
       PaymentAppProvider::InvokePaymentAppCallback callback);
   ~InvokeRespondWithCallback() override;
 
@@ -143,9 +139,8 @@ class InvokeRespondWithCallback : public RespondWithCallback {
 class AbortRespondWithCallback : public RespondWithCallback {
  public:
   AbortRespondWithCallback(
-      WebContents* web_contents,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
-      base::WeakPtr<ServiceWorkerCoreThreadEventDispatcher> event_dispatcher,
+      base::WeakPtr<PaymentEventDispatcher> event_dispatcher,
       PaymentAppProvider::AbortCallback callback);
   ~AbortRespondWithCallback() override;
 

@@ -1,13 +1,13 @@
 Document
 ++Group IsControlElement=false
-++++Image
+++++Image Name='To get missing image descriptions, open the context menu.'
 ++++++Text Name='Static fallback'
 ++++Image
 ++++++Text Name='<newline>    '
-++++++Group Name='Aria hidden paragraph in fallback content'
+++++++Group
 ++++++++Text Name='Line breaking content in a fallback'
 ++++++Text Name='<newline>    '
-++++++Group Name='Visibility hidden paragraph in fallback content'
+++++++Group
 ++++++++Text Name='This is another paragraph in fallback'
 ++++++Text Name='<newline>    '
 ++++++Text Name='Aria hidden paragraph in fallback content' IsControlElement=false

@@ -12,7 +12,7 @@
 #include "ui/base/webui/web_ui_util.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #endif
 
 namespace policy_indicator {
@@ -20,7 +20,7 @@ namespace policy_indicator {
 void AddLocalizedStrings(content::WebUIDataSource* html_source) {
   int controlled_setting_policy_id = IDS_CONTROLLED_SETTING_POLICY;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (chromeos::DemoSession::IsDeviceInDemoMode())
+  if (ash::DemoSession::IsDeviceInDemoMode())
     controlled_setting_policy_id = IDS_CONTROLLED_SETTING_DEMO_SESSION;
 #endif
   webui::LocalizedString localized_strings[] = {

@@ -69,11 +69,22 @@ class SafeBrowsingTabHelperTest
       bool for_main_frame = true,
       ui::PageTransition transition =
           ui::PageTransition::PAGE_TRANSITION_FIRST) {
-    web::WebStatePolicyDecider::RequestInfo request_info(
+    const web::WebStatePolicyDecider::RequestInfo request_info(
         transition, for_main_frame, /*target_frame_is_cross_origin=*/false,
         /*has_user_gesture=*/false);
-    return web_state_.ShouldAllowRequest(
-        [NSURLRequest requestWithURL:net::NSURLWithGURL(url)], request_info);
+    __block bool callback_called = false;
+    __block web::WebStatePolicyDecider::PolicyDecision policy_decision =
+        web::WebStatePolicyDecider::PolicyDecision::Allow();
+    auto callback =
+        base::BindOnce(^(web::WebStatePolicyDecider::PolicyDecision decision) {
+          policy_decision = decision;
+          callback_called = true;
+        });
+    web_state_.ShouldAllowRequest(
+        [NSURLRequest requestWithURL:net::NSURLWithGURL(url)], request_info,
+        std::move(callback));
+    EXPECT_TRUE(callback_called);
+    return policy_decision;
   }
 
   // Helper function that calls into WebState::ShouldAllowResponse with the
@@ -95,7 +106,8 @@ class SafeBrowsingTabHelperTest
           policy_decision = decision;
           callback_called = true;
         });
-    web_state_.ShouldAllowResponse(response, for_main_frame,
+    web::WebStatePolicyDecider::ResponseInfo response_info(for_main_frame);
+    web_state_.ShouldAllowResponse(response, response_info,
                                    std::move(callback));
     base::RunLoop().RunUntilIdle();
     EXPECT_TRUE(callback_called);
@@ -576,6 +588,25 @@ TEST_P(SafeBrowsingTabHelperTest, StaleIframeReload) {
   if (SafeBrowsingDecisionArrivesBeforeResponse())
     base::RunLoop().RunUntilIdle();
   auto response_decision = ShouldAllowResponseUrl(safe_url);
+  EXPECT_TRUE(response_decision.ShouldAllowNavigation());
+}
+
+// Tests the case of a main frame reload request that arrives when both the last
+// committed item and pending items are null.
+TEST_P(SafeBrowsingTabHelperTest, MainFrameReload) {
+  GURL url("http://chromium.test");
+  ASSERT_FALSE(navigation_manager_->GetLastCommittedItem());
+  ASSERT_FALSE(navigation_manager_->GetPendingItem());
+
+  auto request_decision = ShouldAllowRequestUrl(
+      url, /*for_main_frame=*/true, ui::PageTransition::PAGE_TRANSITION_RELOAD);
+  EXPECT_TRUE(request_decision.ShouldAllowNavigation());
+
+  if (SafeBrowsingDecisionArrivesBeforeResponse())
+    base::RunLoop().RunUntilIdle();
+
+  web::WebStatePolicyDecider::PolicyDecision response_decision =
+      ShouldAllowResponseUrl(url);
   EXPECT_TRUE(response_decision.ShouldAllowNavigation());
 }
 

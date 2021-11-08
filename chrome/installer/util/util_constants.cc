@@ -38,8 +38,11 @@ const char kDeleteOldVersions[] = "delete-old-versions";
 // kUninstall, otherwise it is silently ignored.
 const char kDeleteProfile[] = "delete-profile";
 
-// Disable logging
+// Disable logging.
 const char kDisableLogging[] = "disable-logging";
+
+// Specifies the DM server URL to use with the rotate device key command.
+const char kDmServerUrl[] = "dm-server-url";
 
 // Prevent installer from launching Chrome after a successful first install.
 const char kDoNotLaunchChrome[] = "do-not-launch-chrome";
@@ -95,6 +98,9 @@ const char kMsi[] = "msi";
 // specifies the full path where updated setup.exe will be stored.
 const char kNewSetupExe[] = "new-setup-exe";
 
+// Specifies a nonce to use with the rotate device key command.
+const char kNonce[] = "nonce";
+
 // Notify the installer that the OS has been upgraded.
 const char kOnOsUpgrade[] = "on-os-upgrade";
 
@@ -139,6 +145,9 @@ const char kRemoveChromeRegistration[] = "remove-chrome-registration";
 // Renames chrome.exe to old_chrome.exe and renames new_chrome.exe to chrome.exe
 // to support in-use updates. Also deletes opv key.
 const char kRenameChromeExe[] = "rename-chrome-exe";
+
+// Rotate the stored device trust signing key.
+const char kRotateDeviceTrustKey[] = "rotate-dtkey";
 
 // When we try to relaunch setup.exe as admin on Vista, we append this command
 // line flag so that we try the launch only once.
@@ -204,6 +213,7 @@ const wchar_t kChromeProxyExe[] = L"chrome_proxy.exe";
 const wchar_t kChromeProxyNewExe[] = L"new_chrome_proxy.exe";
 const wchar_t kChromeProxyOldExe[] = L"old_chrome_proxy.exe";
 const wchar_t kCmdOnOsUpgrade[] = L"on-os-upgrade";
+const wchar_t kCmdRotateDeviceTrustKey[] = L"rotate-dtkey";
 const wchar_t kCmdStoreDMToken[] = L"store-dmtoken";
 const wchar_t kEulaSentinelFile[] = L"EULA Accepted";
 const wchar_t kInstallBinaryDir[] = L"Application";
@@ -212,6 +222,13 @@ const wchar_t kInstallTempDir[] = L"Temp";
 const wchar_t kLnkExt[] = L".lnk";
 const wchar_t kNaClExe[] = L"nacl64.exe";
 const wchar_t kNotificationHelperExe[] = L"notification_helper.exe";
+
+// DowngradeVersion holds the version from which Chrome was downgraded. In case
+// of multiple downgrades (e.g., 75->74->73), it retains the highest version
+// installed prior to any downgrades. DowngradeVersion is deleted on upgrade
+// once Chrome reaches the version from which it was downgraded.
+const wchar_t kRegDowngradeVersion[] = L"DowngradeVersion";
+
 const wchar_t kSetupExe[] = L"setup.exe";
 const wchar_t kUninstallStringField[] = L"UninstallString";
 const wchar_t kUninstallArgumentsField[] = L"UninstallArguments";

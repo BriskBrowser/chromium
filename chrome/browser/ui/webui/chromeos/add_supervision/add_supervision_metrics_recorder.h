@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_UI_WEBUI_CHROMEOS_ADD_SUPERVISION_ADD_SUPERVISION_METRICS_RECORDER_H_
 
 #include "base/macros.h"
-#include "base/no_destructor.h"
 #include "base/time/time.h"
 
 namespace base {
@@ -37,6 +36,10 @@ class AddSupervisionMetricsRecorder {
     kMaxValue = kSwitchedAccounts
   };
 
+  AddSupervisionMetricsRecorder(const AddSupervisionMetricsRecorder&) = delete;
+  AddSupervisionMetricsRecorder& operator=(
+      const AddSupervisionMetricsRecorder&) = delete;
+
   static AddSupervisionMetricsRecorder* GetInstance();
 
   // Records UMA metrics for users going through the Add Supervision process.
@@ -47,8 +50,6 @@ class AddSupervisionMetricsRecorder {
   void SetClockForTesting(const base::TickClock* tick_clock);
 
  private:
-  friend class base::NoDestructor<AddSupervisionMetricsRecorder>;
-
   AddSupervisionMetricsRecorder();
 
   // Records UMA metric of how long the user spends in the Add Supervision
@@ -60,8 +61,6 @@ class AddSupervisionMetricsRecorder {
 
   // Records when the user initiates the Add Supervision process.
   base::TimeTicks start_time_;
-
-  DISALLOW_COPY_AND_ASSIGN(AddSupervisionMetricsRecorder);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CHROMEOS_ADD_SUPERVISION_ADD_SUPERVISION_METRICS_RECORDER_H_

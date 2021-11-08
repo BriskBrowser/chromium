@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/values.h"
 #include "chromeos/dbus/shill/fake_shill_device_client.h"
 #include "chromeos/dbus/shill/shill_property_changed_observer.h"
@@ -32,6 +31,9 @@ ShillDeviceClient* g_instance = nullptr;
 class ShillDeviceClientImpl : public ShillDeviceClient {
  public:
   explicit ShillDeviceClientImpl(dbus::Bus* bus) : bus_(bus) {}
+
+  ShillDeviceClientImpl(const ShillDeviceClientImpl&) = delete;
+  ShillDeviceClientImpl& operator=(const ShillDeviceClientImpl&) = delete;
 
   ~ShillDeviceClientImpl() override {
     for (HelperMap::iterator iter = helpers_.begin(); iter != helpers_.end();
@@ -64,7 +66,10 @@ class ShillDeviceClientImpl : public ShillDeviceClient {
                      DBusMethodCallback<base::Value> callback) override {
     dbus::MethodCall method_call(shill::kFlimflamDeviceInterface,
                                  shill::kGetPropertiesFunction);
-    GetHelper(device_path)->CallValueMethod(&method_call, std::move(callback));
+    GetHelper(device_path)
+        ->CallValueMethod(&method_call,
+                          base::BindOnce(&ShillClientHelper::OnGetProperties,
+                                         device_path, std::move(callback)));
   }
 
   void SetProperty(const dbus::ObjectPath& device_path,
@@ -173,77 +178,6 @@ class ShillDeviceClientImpl : public ShillDeviceClient {
                                           std::move(error_callback));
   }
 
-  void AddWakeOnPacketConnection(const dbus::ObjectPath& device_path,
-                                 const net::IPEndPoint& ip_endpoint,
-                                 base::OnceClosure callback,
-                                 ErrorCallback error_callback) override {
-    if (ip_endpoint.address().empty()) {
-      LOG(ERROR) << "AddWakeOnPacketConnection: null address";
-      return;
-    }
-    dbus::MethodCall method_call(shill::kFlimflamDeviceInterface,
-                                 shill::kAddWakeOnPacketConnectionFunction);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendString(ip_endpoint.ToStringWithoutPort());
-    GetHelper(device_path)
-        ->CallVoidMethodWithErrorCallback(&method_call, std::move(callback),
-                                          std::move(error_callback));
-  }
-
-  void AddWakeOnPacketOfTypes(const dbus::ObjectPath& device_path,
-                              const std::vector<std::string>& types,
-                              base::OnceClosure callback,
-                              ErrorCallback error_callback) override {
-    dbus::MethodCall method_call(shill::kFlimflamDeviceInterface,
-                                 shill::kAddWakeOnPacketOfTypesFunction);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendArrayOfStrings(types);
-    GetHelper(device_path)
-        ->CallVoidMethodWithErrorCallback(&method_call, std::move(callback),
-                                          std::move(error_callback));
-  }
-
-  void RemoveWakeOnPacketConnection(const dbus::ObjectPath& device_path,
-                                    const net::IPEndPoint& ip_endpoint,
-                                    base::OnceClosure callback,
-                                    ErrorCallback error_callback) override {
-    if (ip_endpoint.address().empty()) {
-      LOG(ERROR) << "RemoveWakeOnPacketConnection: null address";
-      return;
-    }
-    dbus::MethodCall method_call(shill::kFlimflamDeviceInterface,
-                                 shill::kRemoveWakeOnPacketConnectionFunction);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendString(ip_endpoint.ToStringWithoutPort());
-    GetHelper(device_path)
-        ->CallVoidMethodWithErrorCallback(&method_call, std::move(callback),
-                                          std::move(error_callback));
-  }
-
-  void RemoveWakeOnPacketOfTypes(const dbus::ObjectPath& device_path,
-                                 const std::vector<std::string>& types,
-                                 base::OnceClosure callback,
-                                 ErrorCallback error_callback) override {
-    dbus::MethodCall method_call(shill::kFlimflamDeviceInterface,
-                                 shill::kRemoveWakeOnPacketOfTypesFunction);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendArrayOfStrings(types);
-    GetHelper(device_path)
-        ->CallVoidMethodWithErrorCallback(&method_call, std::move(callback),
-                                          std::move(error_callback));
-  }
-
-  void RemoveAllWakeOnPacketConnections(const dbus::ObjectPath& device_path,
-                                        base::OnceClosure callback,
-                                        ErrorCallback error_callback) override {
-    dbus::MethodCall method_call(
-        shill::kFlimflamDeviceInterface,
-        shill::kRemoveAllWakeOnPacketConnectionsFunction);
-    GetHelper(device_path)
-        ->CallVoidMethodWithErrorCallback(&method_call, std::move(callback),
-                                          std::move(error_callback));
-  }
-
   void SetUsbEthernetMacAddressSource(const dbus::ObjectPath& device_path,
                                       const std::string& source,
                                       base::OnceClosure callback,
@@ -283,8 +217,6 @@ class ShillDeviceClientImpl : public ShillDeviceClient {
 
   dbus::Bus* bus_;
   HelperMap helpers_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShillDeviceClientImpl);
 };
 
 }  // namespace

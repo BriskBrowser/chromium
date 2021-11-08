@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.suggestions.tile;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
 import android.view.LayoutInflater;
@@ -19,9 +18,7 @@ import androidx.core.graphics.drawable.RoundedBitmapDrawable;
 import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
-import org.chromium.base.Log;
 import org.chromium.base.library_loader.LibraryLoader;
-import org.chromium.base.task.AsyncTask;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.explore_sites.ExploreSitesBridge;
 import org.chromium.chrome.browser.explore_sites.ExploreSitesIPH;
@@ -156,7 +153,7 @@ public class TileRenderer {
                     VectorDrawableCompat.create(mResources, R.drawable.ic_apps_blue_24dp, mTheme));
             tile.setType(TileVisualType.ICON_DEFAULT);
 
-            if (LibraryLoader.getInstance().isInitialized()) {
+            if (LibraryLoader.getInstance().isInitialized() && setupDelegate != null) {
                 // One task to load actual icon.
                 LargeIconBridge.LargeIconCallback bridgeCallback =
                         setupDelegate.createIconLoadCallback(tile);
@@ -173,7 +170,7 @@ public class TileRenderer {
 
         tileView.initialize(tile, mTitleLinesCount);
 
-        if (!LibraryLoader.getInstance().isInitialized()) {
+        if (!LibraryLoader.getInstance().isInitialized() || setupDelegate == null) {
             return tileView;
         }
 
@@ -204,31 +201,8 @@ public class TileRenderer {
 
     private void fetchIcon(
             final SiteSuggestion siteData, final LargeIconBridge.LargeIconCallback iconCallback) {
-        if (siteData.allowlistIconPath.isEmpty()) {
             mImageFetcher.makeLargeIconRequest(siteData.url, mMinIconSize, iconCallback);
             return;
-        }
-
-        AsyncTask<Bitmap> task = new AsyncTask<Bitmap>() {
-            @Override
-            protected Bitmap doInBackground() {
-                Bitmap bitmap = BitmapFactory.decodeFile(siteData.allowlistIconPath);
-                if (bitmap == null) {
-                    Log.d(TAG, "Image decoding failed: %s", siteData.allowlistIconPath);
-                }
-                return bitmap;
-            }
-
-            @Override
-            protected void onPostExecute(Bitmap icon) {
-                if (icon == null) {
-                    mImageFetcher.makeLargeIconRequest(siteData.url, mMinIconSize, iconCallback);
-                } else {
-                    iconCallback.onLargeIconAvailable(icon, Color.BLACK, false, IconType.INVALID);
-                }
-            }
-        };
-        task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
     public void updateIcon(
@@ -256,7 +230,7 @@ public class TileRenderer {
             return;
         }
         mIconGenerator.setBackgroundColor(fallbackColor);
-        Bitmap icon = mIconGenerator.generateIconForUrl(tile.getUrl().getSpec());
+        Bitmap icon = mIconGenerator.generateIconForUrl(tile.getUrl());
         tile.setIcon(new BitmapDrawable(mResources, icon));
         tile.setType(
                 isFallbackColorDefault ? TileVisualType.ICON_DEFAULT : TileVisualType.ICON_COLOR);

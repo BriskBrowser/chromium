@@ -7,10 +7,7 @@
 
 #include "chrome/installer/setup/install_worker.h"
 
-#include "base/win/atl.h"
-
 #include <oaidl.h>
-#include <sddl.h>
 #include <shlobj.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -32,6 +29,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/version.h"
 #include "base/win/registry.h"
+#include "base/win/security_util.h"
+#include "base/win/sid.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
 #include "build/branding_buildflags.h"
@@ -39,8 +38,10 @@
 #include "chrome/install_static/install_details.h"
 #include "chrome/install_static/install_modes.h"
 #include "chrome/install_static/install_util.h"
+#include "chrome/installer/setup/downgrade_cleanup.h"
 #include "chrome/installer/setup/install_params.h"
 #include "chrome/installer/setup/installer_state.h"
+#include "chrome/installer/setup/last_breaking_installer_version.h"
 #include "chrome/installer/setup/setup_constants.h"
 #include "chrome/installer/setup/setup_util.h"
 #include "chrome/installer/setup/update_active_setup_version_work_item.h"
@@ -58,6 +59,10 @@
 #include "chrome/installer/util/shell_util.h"
 #include "chrome/installer/util/util_constants.h"
 #include "chrome/installer/util/work_item_list.h"
+
+#if BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
+#include "chrome/installer/setup/channel_override_work_item.h"
+#endif
 
 using base::ASCIIToWide;
 using base::win::RegKey;
@@ -291,93 +296,6 @@ void AddChromeWorkItems(const InstallParams& install_params,
       ->set_best_effort(true);
 }
 
-// Adds an ACE from a trustee SID, access mask and flags to an existing DACL.
-// If the exact ACE already exists then the DACL is not modified and true is
-// returned.
-bool AddAceToDacl(const ATL::CSid& trustee,
-                  ACCESS_MASK access_mask,
-                  BYTE ace_flags,
-                  ATL::CDacl* dacl) {
-  // Check if the requested access already exists and return if so.
-  for (UINT i = 0; i < dacl->GetAceCount(); ++i) {
-    ATL::CSid sid;
-    ACCESS_MASK mask = 0;
-    BYTE type = 0;
-    BYTE flags = 0;
-    dacl->GetAclEntry(i, &sid, &mask, &type, &flags);
-    if (sid == trustee && type == ACCESS_ALLOWED_ACE_TYPE &&
-        (flags & ace_flags) == ace_flags &&
-        (mask & access_mask) == access_mask) {
-      return true;
-    }
-  }
-
-  // Add the new access to the DACL.
-  return dacl->AddAllowedAce(trustee, access_mask, ace_flags);
-}
-
-// Add to the ACL of an object on disk. This follows the method from MSDN:
-// https://msdn.microsoft.com/en-us/library/windows/desktop/aa379283.aspx
-// This is done using explicit flags rather than the "security string" format
-// because strings do not necessarily read what is written which makes it
-// difficult to de-dup. Working with the binary format is always exact and the
-// system libraries will properly ignore duplicate ACL entries.
-bool AddAclToPath(const base::FilePath& path,
-                  const std::vector<ATL::CSid>& trustees,
-                  ACCESS_MASK access_mask,
-                  BYTE ace_flags) {
-  DCHECK(!path.empty());
-
-  // Get the existing DACL.
-  ATL::CDacl dacl;
-  if (!ATL::AtlGetDacl(path.value().c_str(), SE_FILE_OBJECT, &dacl)) {
-    DPLOG(ERROR) << "Failed getting DACL for path \"" << path.value() << "\"";
-    return false;
-  }
-
-  for (const auto& trustee : trustees) {
-    DCHECK(trustee.IsValid());
-    if (!AddAceToDacl(trustee, access_mask, ace_flags, &dacl)) {
-      DPLOG(ERROR) << "Failed adding ACE to DACL for trustee " << trustee.Sid();
-      return false;
-    }
-  }
-
-  // Attach the updated ACL as the object's DACL.
-  if (!ATL::AtlSetDacl(path.value().c_str(), SE_FILE_OBJECT, dacl)) {
-    DPLOG(ERROR) << "Failed setting DACL for path \"" << path.value() << "\"";
-    return false;
-  }
-
-  return true;
-}
-
-bool AddAclToPath(const base::FilePath& path,
-                  const CSid& trustee,
-                  ACCESS_MASK access_mask,
-                  BYTE ace_flags) {
-  std::vector<ATL::CSid> trustees = {trustee};
-  return AddAclToPath(path, trustees, access_mask, ace_flags);
-}
-
-bool AddAclToPath(const base::FilePath& path,
-                  const std::vector<const wchar_t*>& trustees,
-                  ACCESS_MASK access_mask,
-                  BYTE ace_flags) {
-  std::vector<ATL::CSid> converted_trustees;
-  for (const wchar_t* trustee : trustees) {
-    PSID sid;
-    if (!::ConvertStringSidToSid(trustee, &sid)) {
-      DPLOG(ERROR) << "Failed to convert SID \"" << trustee << "\"";
-      return false;
-    }
-    converted_trustees.emplace_back(static_cast<SID*>(sid));
-    ::LocalFree(sid);
-  }
-
-  return AddAclToPath(path, converted_trustees, access_mask, ace_flags);
-}
-
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 // Adds work items to register the Elevation Service with Windows. Only for
 // system level installs.
@@ -400,11 +318,10 @@ void AddElevationServiceWorkItems(const base::FilePath& elevation_service_path,
   list->AddWorkItem(install_service_work_item);
 }
 
-// Adds work items to add or remove the "store-dmtoken" command to Chrome's
-// version key. This method is a no-op if this is anything other than
-// system-level Chrome. The command is used when enrolling Chrome browser
-// instances into enterprise management. |new_version| is the version currently
-// being installed -- can be empty on uninstall.
+// Adds work items to add the "store-dmtoken" command to Chrome's version key.
+// This method is a no-op if this is anything other than system-level Chrome.
+// The command is used when enrolling Chrome browser instances into enterprise
+// management.
 void AddEnterpriseEnrollmentWorkItems(const InstallerState& installer_state,
                                       const base::FilePath& setup_path,
                                       const base::Version& new_version,
@@ -415,28 +332,67 @@ void AddEnterpriseEnrollmentWorkItems(const InstallerState& installer_state,
   const HKEY root_key = installer_state.root_key();
   const std::wstring cmd_key(GetCommandKey(kCmdStoreDMToken));
 
-  if (installer_state.operation() == InstallerState::UNINSTALL) {
-    install_list->AddDeleteRegKeyWorkItem(root_key, cmd_key, KEY_WOW64_32KEY)
-        ->set_log_message("Removing store DM token command");
-  } else {
-    // Register a command to allow Chrome to request Google Update to run
-    // setup.exe --store-dmtoken=<token>, which will store the specified token
-    // in the registry.
-    base::CommandLine cmd_line(
-        installer_state.GetInstallerDirectory(new_version)
-            .Append(setup_path.BaseName()));
-    cmd_line.AppendSwitchASCII(switches::kStoreDMToken, "%1");
-    cmd_line.AppendSwitch(switches::kSystemLevel);
-    cmd_line.AppendSwitch(switches::kVerboseLogging);
-    InstallUtil::AppendModeAndChannelSwitches(&cmd_line);
+  // Register a command to allow Chrome to request Google Update to run
+  // setup.exe --store-dmtoken=<token>, which will store the specified token
+  // in the registry.
+  base::CommandLine cmd_line(installer_state.GetInstallerDirectory(new_version)
+                                 .Append(setup_path.BaseName()));
+  cmd_line.AppendSwitchASCII(switches::kStoreDMToken, "%1");
+  cmd_line.AppendSwitch(switches::kSystemLevel);
+  cmd_line.AppendSwitch(switches::kVerboseLogging);
+  InstallUtil::AppendModeAndChannelSwitches(&cmd_line);
 
-    AppCommand cmd(cmd_line.GetCommandLineString());
-    // TODO(alito): For now setting this command as web accessible is required
-    // by Google Update.  Could revisit this should Google Update change the
-    // way permissions are handled for commands.
-    cmd.set_is_web_accessible(true);
-    cmd.AddWorkItems(root_key, cmd_key, install_list);
-  }
+  // The substitution for the insert sequence "%1" here is performed safely by
+  // Google Update rather than insecurely by the Windows shell. Disable the
+  // safety check for unsafe insert sequences since the right thing is
+  // happening. Do not blindly copy this pattern in new code. Check with a
+  // member of base/win/OWNERS if in doubt.
+  AppCommand cmd(cmd_line.GetCommandLineStringWithUnsafeInsertSequences());
+
+  // TODO(rogerta): For now setting this command as web accessible is required
+  // by Google Update.  Could revisit this should Google Update change the
+  // way permissions are handled for commands.
+  cmd.set_is_web_accessible(true);
+  cmd.AddWorkItems(root_key, cmd_key, install_list);
+}
+
+// Adds work items to add the "rotate-dtkey" command to Chrome's version key.
+// This method is a no-op if this is anything other than system-level Chrome.
+// The command is used to rotate the device signing key stored in HKLM.
+void AddEnterpriseDeviceTrustWorkItems(const InstallerState& installer_state,
+                                       const base::FilePath& setup_path,
+                                       const base::Version& new_version,
+                                       WorkItemList* install_list) {
+  if (!installer_state.system_install())
+    return;
+
+  const HKEY root_key = installer_state.root_key();
+  const std::wstring cmd_key(GetCommandKey(kCmdRotateDeviceTrustKey));
+
+  // Register a command to allow Chrome to request Google Update to run
+  // setup.exe --rotate-dtkey=<dm-token>, which will rotate the key and store
+  // it in the registry.
+  base::CommandLine cmd_line(installer_state.GetInstallerDirectory(new_version)
+                                 .Append(setup_path.BaseName()));
+  cmd_line.AppendSwitchASCII(switches::kRotateDeviceTrustKey, "%1");
+  cmd_line.AppendSwitchASCII(switches::kDmServerUrl, "%2");
+  cmd_line.AppendSwitchASCII(switches::kNonce, "%3");
+  cmd_line.AppendSwitch(switches::kSystemLevel);
+  cmd_line.AppendSwitch(switches::kVerboseLogging);
+  InstallUtil::AppendModeAndChannelSwitches(&cmd_line);
+
+  // The substitution for the insert sequence "%1" here is performed safely by
+  // Google Update rather than insecurely by the Windows shell. Disable the
+  // safety check for unsafe insert sequences since the right thing is
+  // happening. Do not blindly copy this pattern in new code. Check with a
+  // member of base/win/OWNERS if in doubt.
+  AppCommand cmd(cmd_line.GetCommandLineStringWithUnsafeInsertSequences());
+
+  // TODO(rogerta): For now setting this command as web accessible is required
+  // by Google Update.  Could revisit this should Google Update change the
+  // way permissions are handled for commands.
+  cmd.set_is_web_accessible(true);
+  cmd.AddWorkItems(root_key, cmd_key, install_list);
 }
 
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
@@ -646,6 +602,10 @@ bool AppendPostInstallTasks(const InstallParams& install_params,
   base::FilePath new_chrome_exe(target_path.Append(kChromeNewExe));
   const std::wstring clients_key(install_static::GetClientsKeyPath());
 
+  base::FilePath installer_path(
+      installer_state.GetInstallerDirectory(new_version)
+          .Append(setup_path.BaseName()));
+
   // Append work items that will only be executed if this was an in-use update.
   // We update the 'opv' value with the current version that is active,
   // the 'cpv' value with the critical update version (if present), and the
@@ -660,9 +620,6 @@ bool AppendPostInstallTasks(const InstallParams& install_params,
     // version considered critical relative to the version being updated.
     base::Version critical_version(
         installer_state.DetermineCriticalVersion(current_version, new_version));
-    base::FilePath installer_path(
-        installer_state.GetInstallerDirectory(new_version)
-            .Append(setup_path.BaseName()));
 
     if (current_version.IsValid()) {
       in_use_update_work_items->AddSetRegValueWorkItem(
@@ -708,18 +665,12 @@ bool AppendPostInstallTasks(const InstallParams& install_params,
             new Not(new ConditionRunIfFileExists(new_chrome_exe))));
     regular_update_work_items->set_log_message("RegularUpdateWorkItemList");
 
-    // Convey the channel name to the browser if this installer instance's
-    // channel is enforced by policy. Otherwise, delete the registry value.
-    const auto& install_details = install_static::InstallDetails::Get();
-    if (install_details.channel_origin() ==
-        install_static::ChannelOrigin::kPolicy) {
-      post_install_task_list->AddSetRegValueWorkItem(
-          root, clients_key, KEY_WOW64_32KEY, google_update::kRegChannelField,
-          install_details.channel(), true);
-    } else {
-      regular_update_work_items->AddDeleteRegValueWorkItem(
-          root, clients_key, KEY_WOW64_32KEY, google_update::kRegChannelField);
-    }
+    // If a channel was specified by policy, update the "channel" registry value
+    // with it so that the browser knows which channel to use, otherwise delete
+    // whatever value that key holds.
+    AddChannelWorkItems(root, clients_key, regular_update_work_items.get());
+    AddFinalizeUpdateWorkItems(new_version, installer_state, installer_path,
+                               regular_update_work_items.get());
 
     // Since this was not an in-use-update, delete 'opv', 'cpv',
     // and 'cmd' keys.
@@ -752,18 +703,22 @@ bool AppendPostInstallTasks(const InstallParams& install_params,
                                            post_install_task_list);
   }
 
+#if BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
   // Add a best-effort item to create the ClientStateMedium key for system-level
   // installs. This is ordinarily done by Google Update prior to running
   // Chrome's installer. Do it here as well so that the key exists for manual
   // installs.
-#if BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
   if (installer_state.system_install()) {
     const std::wstring path = install_static::GetClientStateMediumKeyPath();
     post_install_task_list
         ->AddCreateRegKeyWorkItem(HKEY_LOCAL_MACHINE, path, KEY_WOW64_32KEY)
         ->set_best_effort(true);
   }
-#endif
+
+  // Apply policy-driven channel selection to the "ap" value for subsequent
+  // update checks even if the policy is cleared.
+  AddChannelSelectionWorkItems(installer_state, post_install_task_list);
+#endif  // BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
 
   return true;
 }
@@ -790,17 +745,20 @@ void AddInstallWorkItems(const InstallParams& install_params,
       base::BindOnce(
           [](const base::FilePath& target_path, const base::FilePath& temp_path,
              const CallbackWorkItem& work_item) {
-            std::vector<const wchar_t*> sids = {
-                kChromeInstallFilesCapabilitySid,
-                kLpacChromeInstallFilesCapabilitySid};
-            bool success_target = AddAclToPath(
-                target_path, sids, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
-                CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE);
-            bool success_temp = AddAclToPath(
-                temp_path, sids, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
-                CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE);
+            auto sids = base::win::Sid::FromSddlStringVector(
+                {kChromeInstallFilesCapabilitySid,
+                 kLpacChromeInstallFilesCapabilitySid});
+            bool success = false;
+            if (sids) {
+              bool success_target = base::win::GrantAccessToPath(
+                  target_path, *sids, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+                  CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE);
+              bool success_temp = base::win::GrantAccessToPath(
+                  temp_path, *sids, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+                  CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE);
+              success = success_target && success_temp;
+            }
 
-            bool success = (success_target && success_temp);
             base::UmaHistogramBoolean("Setup.Install.AddAppContainerAce",
                                       success);
             return success;
@@ -821,8 +779,14 @@ void AddInstallWorkItems(const InstallParams& install_params,
             base::BindOnce(
                 [](const base::FilePath& histogram_storage_dir,
                    const CallbackWorkItem& work_item) {
-                  return AddAclToPath(
-                      histogram_storage_dir, ATL::Sids::AuthenticatedUser(),
+                  auto sid = base::win::Sid::FromKnownSid(
+                      base::win::WellKnownSid::kAuthenticatedUser);
+                  if (!sid)
+                    return false;
+                  std::vector<base::win::Sid> sids;
+                  sids.push_back(std::move(*sid));
+                  return base::win::GrantAccessToPath(
+                      histogram_storage_dir, sids,
                       FILE_GENERIC_READ | FILE_DELETE_CHILD,
                       CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE);
                 },
@@ -849,6 +813,8 @@ void AddInstallWorkItems(const InstallParams& install_params,
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   AddEnterpriseEnrollmentWorkItems(installer_state, setup_path, new_version,
                                    install_list);
+  AddEnterpriseDeviceTrustWorkItems(installer_state, setup_path, new_version,
+                                    install_list);
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING
   AddFirewallRulesWorkItems(installer_state, !current_version.IsValid(),
                             install_list);
@@ -866,8 +832,8 @@ void AddInstallWorkItems(const InstallParams& install_params,
   }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING
 
-  InstallUtil::AddUpdateDowngradeVersionItem(
-      installer_state.root_key(), current_version, new_version, install_list);
+  AddUpdateDowngradeVersionItem(installer_state.root_key(), current_version,
+                                new_version, install_list);
 
   AddUpdateBrandCodeWorkItem(installer_state, install_list);
 
@@ -1040,6 +1006,68 @@ void AddOsUpgradeWorkItems(const InstallerState& installer_state,
     cmd.set_is_auto_run_on_os_upgrade(true);
     cmd.AddWorkItems(installer_state.root_key(), cmd_key, install_list);
   }
+}
+
+void AddChannelWorkItems(HKEY root,
+                         const std::wstring& clients_key,
+                         WorkItemList* list) {
+  const auto& install_details = install_static::InstallDetails::Get();
+  if (install_details.channel_origin() ==
+      install_static::ChannelOrigin::kPolicy) {
+    // Use channel_override rather than simply channel so that extended stable
+    // is differentiated from regular.
+    list->AddSetRegValueWorkItem(root, clients_key, KEY_WOW64_32KEY,
+                                 google_update::kRegChannelField,
+                                 install_details.channel_override(),
+                                 /*overwrite=*/true);
+  } else {
+    list->AddDeleteRegValueWorkItem(root, clients_key, KEY_WOW64_32KEY,
+                                    google_update::kRegChannelField);
+  }
+}
+
+#if BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
+void AddChannelSelectionWorkItems(const InstallerState& installer_state,
+                                  WorkItemList* list) {
+  const auto& install_details = install_static::InstallDetails::Get();
+
+  // Nothing to do if the channel wasn't selected via the command line switch.
+  if (install_details.channel_origin() !=
+      install_static::ChannelOrigin::kPolicy) {
+    return;
+  }
+
+  auto item = std::make_unique<ChannelOverrideWorkItem>();
+  item->set_best_effort(true);
+  list->AddWorkItem(item.release());
+}
+#endif  // BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
+
+void AddFinalizeUpdateWorkItems(const base::Version& new_version,
+                                const InstallerState& installer_state,
+                                const base::FilePath& setup_path,
+                                WorkItemList* list) {
+  // Cleanup for breaking downgrade first in the post install to avoid
+  // overwriting any of the following post-install tasks.
+  AddDowngradeCleanupItems(new_version, list);
+
+  const std::wstring client_state_key = install_static::GetClientStateKeyPath();
+
+  // Adds the command that needs to be used in order to cleanup any breaking
+  // changes the installer of this version may have added.
+  list->AddSetRegValueWorkItem(
+      installer_state.root_key(), client_state_key, KEY_WOW64_32KEY,
+      google_update::kRegDowngradeCleanupCommandField,
+      GetDowngradeCleanupCommandWithPlaceholders(setup_path, installer_state),
+      true);
+
+  // Write the latest installer's breaking version so that future downgrades
+  // know if they need to do a clean install. This isn't done for in-use since
+  // it is done at the the executable's rename.
+  list->AddSetRegValueWorkItem(
+      installer_state.root_key(), client_state_key, KEY_WOW64_32KEY,
+      google_update::kRegCleanInstallRequiredForVersionBelowField,
+      kLastBreakingInstallerVersion, true);
 }
 
 }  // namespace installer

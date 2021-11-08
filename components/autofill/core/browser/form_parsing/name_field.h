@@ -6,7 +6,6 @@
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_FORM_PARSING_NAME_FIELD_H_
 
 #include <memory>
-#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
@@ -28,13 +27,13 @@ class NameField : public FormField {
                                           const LanguageCode& page_language,
                                           LogManager* log_manager);
 
+  NameField(const NameField&) = delete;
+  NameField& operator=(const NameField&) = delete;
+
  protected:
   NameField() = default;
 
   void AddClassifications(FieldCandidatesMap* field_candidates) const override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NameField);
 };
 
 }  // namespace autofill

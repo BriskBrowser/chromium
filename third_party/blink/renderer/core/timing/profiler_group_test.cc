@@ -24,6 +24,7 @@ TEST(ProfilerGroupTest, StopProfiler) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
   init_options->setSampleInterval(0);
@@ -42,6 +43,7 @@ TEST(ProfilerGroupTest, StopProfilerOnGroupDeallocate) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
   init_options->setSampleInterval(0);
@@ -59,6 +61,7 @@ TEST(ProfilerGroupTest, CreateProfiler) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
   init_options->setSampleInterval(10);
@@ -77,6 +80,7 @@ TEST(ProfilerGroupTest, ClampedSamplingIntervalZero) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
   init_options->setSampleInterval(0);
@@ -99,11 +103,12 @@ TEST(ProfilerGroupTest, ClampedSamplingIntervalNext) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
-  init_options->setSampleInterval((ProfilerGroup::GetBaseSampleInterval() +
-                                   base::TimeDelta::FromMilliseconds(1))
-                                      .InMilliseconds());
+  init_options->setSampleInterval(
+      (ProfilerGroup::GetBaseSampleInterval() + base::Milliseconds(1))
+          .InMilliseconds());
   Profiler* profiler = profiler_group->CreateProfiler(
       scope.GetScriptState(), *init_options, base::TimeTicks(),
       scope.GetExceptionState());
@@ -124,6 +129,7 @@ TEST(ProfilerGroupTest, V8ProfileLimitThrowsExceptionWhenMaxConcurrentReached) {
 
   HeapVector<Member<Profiler>> profilers;
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
 
   for (auto i = 0; i < kMaxConcurrentProfilerCount; i++) {
@@ -156,6 +162,7 @@ TEST(ProfilerGroupTest, NegativeSamplingInterval) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
   init_options->setSampleInterval(-10);
@@ -169,6 +176,7 @@ TEST(ProfilerGroupTest, OverflowSamplingInterval) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
   init_options->setSampleInterval((double)std::numeric_limits<int>::max() +
@@ -199,6 +207,7 @@ TEST(ProfilerGroupTest, Bug1119865) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
   init_options->setSampleInterval(0);
@@ -221,6 +230,7 @@ TEST(ProfilerGroupTest, LeakProfiler) {
   V8TestingScope scope;
 
   ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+  profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
   ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
   init_options->setSampleInterval(0);
@@ -239,6 +249,7 @@ TEST(ProfilerGroupTest, LeakProfilerWithContext) {
   {
     V8TestingScope scope;
     ProfilerGroup* profiler_group = ProfilerGroup::From(scope.GetIsolate());
+    profiler_group->OnProfilingContextAdded(scope.GetExecutionContext());
 
     ProfilerInitOptions* init_options = ProfilerInitOptions::Create();
     init_options->setSampleInterval(0);

@@ -14,9 +14,9 @@
 
 #include "base/callback.h"
 #include "base/containers/id_map.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "ipc/ipc_listener.h"
@@ -41,7 +41,7 @@
 #include "third_party/blink/public/web/modules/service_worker/web_service_worker_context_client.h"
 #include "third_party/blink/public/web/modules/service_worker/web_service_worker_context_proxy.h"
 #include "third_party/blink/public/web/web_embedded_worker.h"
-#include "v8/include/v8.h"
+#include "v8/include/v8-forward.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -113,6 +113,11 @@ class CONTENT_EXPORT ServiceWorkerContextClient
       scoped_refptr<base::SingleThreadTaskRunner> initiator_thread_task_runner,
       int32_t service_worker_route_id,
       const std::vector<std::string>& cors_exempt_header_list);
+
+  ServiceWorkerContextClient(const ServiceWorkerContextClient&) = delete;
+  ServiceWorkerContextClient& operator=(const ServiceWorkerContextClient&) =
+      delete;
+
   // Called on the initiator thread.
   ~ServiceWorkerContextClient() override;
 
@@ -160,8 +165,9 @@ class CONTENT_EXPORT ServiceWorkerContextClient
                             const blink::WebString& source_url) override;
   void SetupNavigationPreload(int fetch_event_id,
                               const blink::WebURL& url,
-                              std::unique_ptr<blink::WebFetchEventPreloadHandle>
-                                  preload_handle) override;
+                              blink::CrossVariantMojoReceiver<
+                                  network::mojom::URLLoaderClientInterfaceBase>
+                                  preload_url_loader_client_receiver) override;
   void RequestTermination(RequestTerminationCallback callback) override;
   scoped_refptr<blink::WebServiceWorkerFetchContext>
   CreateWorkerFetchContextOnInitiatorThread() override;
@@ -285,8 +291,6 @@ class CONTENT_EXPORT ServiceWorkerContextClient
   int32_t service_worker_route_id_;
 
   std::vector<std::string> cors_exempt_header_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(ServiceWorkerContextClient);
 };
 
 }  // namespace content

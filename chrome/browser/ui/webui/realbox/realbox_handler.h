@@ -23,25 +23,36 @@ class Profile;
 
 namespace content {
 class WebContents;
+class WebUIDataSource;
 }  // namespace content
 
 namespace gfx {
 class Image;
+struct VectorIcon;
 }  // namespace gfx
 
 // Handles bidirectional communication between NTP realbox JS and the browser.
 class RealboxHandler : public realbox::mojom::PageHandler,
                        public AutocompleteController::Observer {
  public:
+  static void SetupWebUIDataSource(content::WebUIDataSource* source);
+  static std::string AutocompleteMatchVectorIconToResourceName(
+      const gfx::VectorIcon& icon);
+  static std::string PedalVectorIconToResourceName(const gfx::VectorIcon& icon);
+
   RealboxHandler(
       mojo::PendingReceiver<realbox::mojom::PageHandler> pending_page_handler,
       Profile* profile,
       content::WebContents* web_contents);
+
+  RealboxHandler(const RealboxHandler&) = delete;
+  RealboxHandler& operator=(const RealboxHandler&) = delete;
+
   ~RealboxHandler() override;
 
   // realbox::mojom::PageHandler:
   void SetPage(mojo::PendingRemote<realbox::mojom::Page> pending_page) override;
-  void QueryAutocomplete(const base::string16& input,
+  void QueryAutocomplete(const std::u16string& input,
                          bool prevent_inline_autocomplete) override;
   void StopAutocomplete(bool clear_result) override;
   void OpenAutocompleteMatch(uint8_t line,
@@ -56,6 +67,13 @@ class RealboxHandler : public realbox::mojom::PageHandler,
   void DeleteAutocompleteMatch(uint8_t line) override;
   void ToggleSuggestionGroupIdVisibility(int32_t suggestion_group_id) override;
   void LogCharTypedToRepaintLatency(base::TimeDelta latency) override;
+  void ExecuteAction(uint8_t line,
+                     base::TimeTicks match_selection_timestamp,
+                     uint8_t mouse_button,
+                     bool alt_key,
+                     bool ctrl_key,
+                     bool meta_key,
+                     bool shift_key) override;
 
   // AutocompleteController::Observer:
   void OnResultChanged(AutocompleteController* controller,
@@ -67,6 +85,18 @@ class RealboxHandler : public realbox::mojom::PageHandler,
   void OnRealboxFaviconFetched(int match_index,
                                const GURL& page_url,
                                const gfx::Image& favicon);
+
+  // OpenURL function used as a callback for execution of actions.
+  void OpenURL(const GURL& destination_url,
+               TemplateURLRef::PostContent* post_content,
+               WindowOpenDisposition disposition,
+               ui::PageTransition transition,
+               AutocompleteMatchType::Type type,
+               base::TimeTicks match_selection_timestamp,
+               bool destination_url_entered_without_scheme,
+               const std::u16string&,
+               const AutocompleteMatch&,
+               const AutocompleteMatch&);
 
  private:
   Profile* profile_;
@@ -81,8 +111,6 @@ class RealboxHandler : public realbox::mojom::PageHandler,
   mojo::Receiver<realbox::mojom::PageHandler> page_handler_;
 
   base::WeakPtrFactory<RealboxHandler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(RealboxHandler);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_REALBOX_REALBOX_HANDLER_H_

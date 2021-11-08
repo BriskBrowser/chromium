@@ -6,6 +6,7 @@
 
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/layout/svg/layout_svg_inline_text.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/size_assertions.h"
@@ -130,8 +131,9 @@ void NGInlineItem::ComputeBoxProperties() {
     return;
   }
 
-  if (type_ == kListMarker) {
-    is_empty_item_ = false;
+  if (type_ == kBlockInInline) {
+    // |is_empty_item_| can't be determined until this item is laid out.
+    // |false| is a safer approximation.
     return;
   }
 
@@ -191,15 +193,15 @@ unsigned NGInlineItem::SetBidiLevel(HeapVector<NGInlineItem>& items,
   return index + 1;
 }
 
-void NGInlineItemsData::GetOpenTagItems(wtf_size_t size,
-                                        OpenTagItems* open_items) const {
-  DCHECK_LE(size, items.size());
-  for (const NGInlineItem& item : base::make_span(items.data(), size)) {
-    if (item.Type() == NGInlineItem::kOpenTag)
-      open_items->push_back(&item);
-    else if (item.Type() == NGInlineItem::kCloseTag)
-      open_items->pop_back();
+const Font& NGInlineItem::FontWithSvgScaling() const {
+  if (const auto* svg_text =
+          DynamicTo<LayoutSVGInlineText>(layout_object_.Get())) {
+    DCHECK(RuntimeEnabledFeatures::SVGTextNGEnabled());
+    // We don't need to care about StyleVariant(). SVG 1.1 doesn't support
+    // ::first-line.
+    return svg_text->ScaledFont();
   }
+  return Style()->GetFont();
 }
 
 String NGInlineItem::ToString() const {
@@ -229,8 +231,4 @@ void NGInlineItem::Trace(Visitor* visitor) const {
   visitor->Trace(layout_object_);
 }
 
-void NGInlineItemsData::Trace(Visitor* visitor) const {
-  visitor->Trace(items);
-  visitor->Trace(offset_mapping);
-}
 }  // namespace blink

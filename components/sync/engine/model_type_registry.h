@@ -23,7 +23,7 @@ namespace syncer {
 
 class CancelationSignal;
 class CommitContributor;
-class KeystoreKeysHandler;
+class SyncEncryptionHandler;
 class ModelTypeWorker;
 class UpdateHandler;
 
@@ -34,9 +34,15 @@ using CommitContributorMap = std::map<ModelType, CommitContributor*>;
 class ModelTypeRegistry : public ModelTypeConnector,
                           public SyncEncryptionHandler::Observer {
  public:
+  // |nudge_handler|, |cancelation_signal| and |sync_encryption_handler| must
+  // outlive this object.
   ModelTypeRegistry(NudgeHandler* nudge_handler,
                     CancelationSignal* cancelation_signal,
-                    KeystoreKeysHandler* keystore_keys_handler);
+                    SyncEncryptionHandler* sync_encryption_handler);
+
+  ModelTypeRegistry(const ModelTypeRegistry&) = delete;
+  ModelTypeRegistry& operator=(const ModelTypeRegistry&) = delete;
+
   ~ModelTypeRegistry() override;
 
   // Implementation of ModelTypeConnector.
@@ -44,8 +50,7 @@ class ModelTypeRegistry : public ModelTypeConnector,
       ModelType type,
       std::unique_ptr<DataTypeActivationResponse> activation_response) override;
   void DisconnectDataType(ModelType type) override;
-  void ConnectProxyType(ModelType type) override;
-  void DisconnectProxyType(ModelType type) override;
+  void SetProxyTabsDatatypeEnabled(bool enabled) override;
 
   // Implementation of SyncEncryptionHandler::Observer.
   void OnPassphraseRequired(
@@ -54,8 +59,7 @@ class ModelTypeRegistry : public ModelTypeConnector,
   void OnPassphraseAccepted() override;
   void OnTrustedVaultKeyRequired() override;
   void OnTrustedVaultKeyAccepted() override;
-  void OnBootstrapTokenUpdated(const std::string& bootstrap_token,
-                               BootstrapTokenType type) override;
+  void OnBootstrapTokenUpdated(const std::string& bootstrap_token) override;
   void OnEncryptedTypesChanged(ModelTypeSet encrypted_types,
                                bool encrypt_everything) override;
   void OnCryptographerStateChanged(Cryptographer* cryptographer,
@@ -63,15 +67,16 @@ class ModelTypeRegistry : public ModelTypeConnector,
   void OnPassphraseTypeChanged(PassphraseType type,
                                base::Time passphrase_time) override;
 
-  // Gets the set of enabled types.
-  ModelTypeSet GetEnabledTypes() const;
+  // Gets the set of connected types, which is essentially the set of types that
+  // the sync engine cares about. For each of these, a worker exists to
+  // propagate changes between the server and the local model's processor.
+  ModelTypeSet GetConnectedTypes() const;
+
+  bool proxy_tabs_datatype_enabled() const;
 
   // Returns set of types for which initial set of updates was downloaded and
   // applied.
   ModelTypeSet GetInitialSyncEndedTypes() const;
-
-  // Returns set of enabled types, i.e. types that has alive ModelTypeWorker.
-  ModelTypeSet GetEnabledDataTypes() const;
 
   // Returns the update handler for |type|.
   const UpdateHandler* GetUpdateHandler(ModelType type) const;
@@ -86,27 +91,16 @@ class ModelTypeRegistry : public ModelTypeConnector,
   base::WeakPtr<ModelTypeConnector> AsWeakPtr();
 
  private:
-  void OnEncryptionStateChanged();
+  // Whether PROXY_TABS is enabled, which is not enabled for real (e.g. it
+  // doesn't have a worker).
+  bool proxy_tabs_datatype_enabled_ = false;
 
-  // Enabled proxy types, which don't have a worker.
-  ModelTypeSet enabled_proxy_types_;
-
-  std::vector<std::unique_ptr<ModelTypeWorker>> model_type_workers_;
+  std::vector<std::unique_ptr<ModelTypeWorker>> connected_model_type_workers_;
 
   // Maps of UpdateHandlers and CommitContributors.
   // They do not own any of the objects they point to.
   UpdateHandlerMap update_handler_map_;
   CommitContributorMap commit_contributor_map_;
-
-  // A copy of the most recent cryptographer.
-  std::unique_ptr<Cryptographer> cryptographer_;
-
-  // A copy of the most recent passphrase type.
-  PassphraseType passphrase_type_ =
-      SyncEncryptionHandler::kInitialPassphraseType;
-
-  // The set of encrypted types.
-  ModelTypeSet encrypted_types_;
 
   NudgeHandler* const nudge_handler_;
 
@@ -114,11 +108,9 @@ class ModelTypeRegistry : public ModelTypeConnector,
   // ModelTypeWorker to cancel blocking operation.
   CancelationSignal* const cancelation_signal_;
 
-  KeystoreKeysHandler* const keystore_keys_handler_;
+  SyncEncryptionHandler* const sync_encryption_handler_;
 
   base::WeakPtrFactory<ModelTypeRegistry> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ModelTypeRegistry);
 };
 
 }  // namespace syncer

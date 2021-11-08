@@ -24,7 +24,7 @@
 #import "ios/chrome/browser/signin/authentication_service.h"
 #include "ios/chrome/browser/signin/authentication_service_factory.h"
 #include "ios/chrome/browser/signin/identity_manager_factory.h"
-#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/sync_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service.h"
 #include "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
@@ -32,6 +32,7 @@
 #import "ios/chrome/browser/ui/scoped_ui_blocker/scoped_ui_blocker.h"
 #import "ios/chrome/browser/ui/settings/cells/byo_textfield_item.h"
 #import "ios/chrome/browser/ui/settings/cells/passphrase_error_item.h"
+#import "ios/chrome/browser/ui/settings/google_services/google_services_settings_constants.h"
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/settings/sync/utils/sync_util.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
@@ -88,43 +89,46 @@ const CGFloat kSpinnerButtonPadding = 18;
   DCHECK(browser);
 
   self = [super initWithStyle:ChromeTableViewStyle()];
-  if (self) {
-    _browser = browser;
-    ChromeBrowserState* browserState = self.browser->GetBrowserState();
-    self.title = l10n_util::GetNSString(IDS_IOS_SYNC_ENTER_PASSPHRASE_TITLE);
-    self.shouldHideDoneButton = YES;
-    NSString* userEmail =
-        [AuthenticationServiceFactory::GetForBrowserState(browserState)
-                ->GetAuthenticatedIdentity() userEmail];
-    DCHECK(userEmail);
-    syncer::SyncService* service =
-        ProfileSyncServiceFactory::GetForBrowserState(browserState);
-    if (service->IsEngineInitialized() &&
-        service->GetUserSettings()->IsUsingSecondaryPassphrase()) {
-      base::Time passphrase_time =
-          service->GetUserSettings()->GetExplicitPassphraseTime();
-      if (!passphrase_time.is_null()) {
-        base::string16 passphrase_time_str =
-            base::TimeFormatShortDate(passphrase_time);
-        _headerMessage = l10n_util::GetNSStringF(
-            IDS_IOS_SYNC_ENTER_PASSPHRASE_BODY_WITH_EMAIL_AND_DATE,
-            base::SysNSStringToUTF16(userEmail), passphrase_time_str);
-      } else {
-        _headerMessage = l10n_util::GetNSStringF(
-            IDS_IOS_SYNC_ENTER_PASSPHRASE_BODY_WITH_EMAIL,
-            base::SysNSStringToUTF16(userEmail));
-      }
-    } else {
-      _headerMessage =
-          l10n_util::GetNSString(IDS_SYNC_ENTER_GOOGLE_PASSPHRASE_BODY);
-    }
-    _processingMessage = l10n_util::GetNSString(IDS_SYNC_LOGIN_SETTING_UP);
-    _footerMessage = l10n_util::GetNSString(IDS_IOS_SYNC_PASSPHRASE_RECOVER);
-
-    _identityManagerObserver =
-        std::make_unique<signin::IdentityManagerObserverBridge>(
-            IdentityManagerFactory::GetForBrowserState(browserState), self);
+  if (!self) {
+    return nullptr;
   }
+
+  _browser = browser;
+  _processingMessage = l10n_util::GetNSString(IDS_SYNC_LOGIN_SETTING_UP);
+  _footerMessage = l10n_util::GetNSString(IDS_IOS_SYNC_PASSPHRASE_RECOVER);
+  self.title = l10n_util::GetNSString(IDS_IOS_SYNC_ENTER_PASSPHRASE_TITLE);
+  self.shouldHideDoneButton = YES;
+
+  ChromeBrowserState* browserState = _browser->GetBrowserState();
+  syncer::SyncService* service =
+      SyncServiceFactory::GetForBrowserState(browserState);
+  // TODO(crbug.com/1208307): The reason this is an if and not a DCHECK is
+  // because SyncCreatePassphraseTableViewController inherits from this class.
+  // This should be changed, i.e. either extract the minimum common logic
+  // between the 2 to a new base class, or not share code at all.
+  if (service->IsEngineInitialized() &&
+      service->GetUserSettings()->IsUsingExplicitPassphrase()) {
+    base::Time passphraseTime =
+        service->GetUserSettings()->GetExplicitPassphraseTime();
+    NSString* userEmail =
+        AuthenticationServiceFactory::GetForBrowserState(browserState)
+            ->GetPrimaryIdentity(signin::ConsentLevel::kSignin)
+            .userEmail;
+    DCHECK(userEmail);
+    _headerMessage =
+        passphraseTime.is_null()
+            ? l10n_util::GetNSStringF(
+                  IDS_IOS_SYNC_ENTER_PASSPHRASE_BODY_WITH_EMAIL,
+                  base::SysNSStringToUTF16(userEmail))
+            : l10n_util::GetNSStringF(
+                  IDS_IOS_SYNC_ENTER_PASSPHRASE_BODY_WITH_EMAIL_AND_DATE,
+                  base::SysNSStringToUTF16(userEmail),
+                  base::TimeFormatShortDate(passphraseTime));
+  }
+
+  _identityManagerObserver =
+      std::make_unique<signin::IdentityManagerObserverBridge>(
+          IdentityManagerFactory::GetForBrowserState(browserState), self);
   return self;
 }
 
@@ -235,6 +239,8 @@ const CGFloat kSpinnerButtonPadding = 18;
   _passphrase.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
   _passphrase.adjustsFontForContentSizeCategory = YES;
   _passphrase.placeholder = l10n_util::GetNSString(IDS_SYNC_PASSPHRASE_LABEL);
+  _passphrase.accessibilityIdentifier =
+      kSyncEncryptionPassphraseTextFieldAccessibilityIdentifier;
   [self registerTextField:_passphrase];
 
   BYOTextFieldItem* item =
@@ -256,9 +262,9 @@ const CGFloat kSpinnerButtonPadding = 18;
   TableViewLinkHeaderFooterItem* footerItem =
       [[TableViewLinkHeaderFooterItem alloc] initWithType:ItemTypeFooter];
   footerItem.text = self.footerMessage;
-  footerItem.linkURL = google_util::AppendGoogleLocaleParam(
+  footerItem.urls = std::vector<GURL>{google_util::AppendGoogleLocaleParam(
       GURL(kSyncGoogleDashboardURL),
-      GetApplicationContext()->GetApplicationLocale());
+      GetApplicationContext()->GetApplicationLocale())};
   return footerItem;
 }
 
@@ -298,14 +304,14 @@ const CGFloat kSpinnerButtonPadding = 18;
 
   if (!_syncObserver.get()) {
     _syncObserver.reset(new SyncObserverBridge(
-        self, ProfileSyncServiceFactory::GetForBrowserState(browserState)));
+        self, SyncServiceFactory::GetForBrowserState(browserState)));
   }
 
   // Clear out the error message.
   self.syncErrorMessage = nil;
 
   syncer::SyncService* service =
-      ProfileSyncServiceFactory::GetForBrowserState(browserState);
+      SyncServiceFactory::GetForBrowserState(browserState);
   DCHECK(service);
   // It is possible for a race condition to happen where a user is allowed
   // to call the backend with the passphrase before the backend is
@@ -484,7 +490,7 @@ const CGFloat kSpinnerButtonPadding = 18;
 - (void)onSyncStateChanged {
   ChromeBrowserState* browserState = self.browser->GetBrowserState();
   syncer::SyncService* service =
-      ProfileSyncServiceFactory::GetForBrowserState(browserState);
+      SyncServiceFactory::GetForBrowserState(browserState);
 
   if (!service->IsEngineInitialized()) {
     return;
@@ -492,12 +498,23 @@ const CGFloat kSpinnerButtonPadding = 18;
 
   // Checking if the operation succeeded.
   if (!service->GetUserSettings()->IsPassphraseRequired() &&
-      (service->GetUserSettings()->IsUsingSecondaryPassphrase() ||
+      (service->GetUserSettings()->IsUsingExplicitPassphrase() ||
        [self forDecryption])) {
     _syncObserver.reset();
-    [base::mac::ObjCCastStrict<SettingsNavigationController>(
-        self.navigationController)
-        popViewControllerOrCloseSettingsAnimated:YES];
+    SettingsNavigationController* settingsNavigationController =
+        base::mac::ObjCCast<SettingsNavigationController>(
+            self.navigationController);
+    // During the sign-in flow it is possible for the Sync state to
+    // change when the user is in the Advanced Settings (e.g., if the user
+    // confirms a Sync passphrase). Because these navigation controllers are
+    // not directly related to Settings, we check the type before dismissal.
+    // TODO(crbug.com/1151287): Revisit with Advanced Sync Settings changes.
+    if (settingsNavigationController) {
+      [settingsNavigationController
+          popViewControllerOrCloseSettingsAnimated:YES];
+    } else {
+      [self.navigationController popViewControllerAnimated:YES];
+    }
     return;
   }
 
@@ -515,7 +532,7 @@ const CGFloat kSpinnerButtonPadding = 18;
 - (void)onEndBatchOfRefreshTokenStateChanges {
   ChromeBrowserState* browserState = self.browser->GetBrowserState();
   if (AuthenticationServiceFactory::GetForBrowserState(browserState)
-          ->IsAuthenticated()) {
+          ->HasPrimaryIdentity(signin::ConsentLevel::kSignin)) {
     return;
   }
   [base::mac::ObjCCastStrict<SettingsNavigationController>(

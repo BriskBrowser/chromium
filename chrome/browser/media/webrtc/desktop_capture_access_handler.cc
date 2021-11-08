@@ -15,23 +15,24 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/media/webrtc/capture_policy_utils.h"
 #include "chrome/browser/media/webrtc/desktop_capture_devices_util.h"
 #include "chrome/browser/media/webrtc/desktop_media_picker_factory_impl.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/media/webrtc/native_desktop_media_list.h"
 #include "chrome/browser/media/webrtc/tab_desktop_media_list.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/screen_capture_notification_ui.h"
 #include "chrome/browser/ui/simple_message_box.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
+#include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/prefs/pref_service.h"
+#include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/desktop_capture.h"
 #include "content/public/browser/desktop_streams_registry.h"
@@ -45,7 +46,6 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/switches.h"
-#include "net/base/url_util.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
@@ -55,7 +55,7 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/shell.h"
-#include "chrome/browser/chromeos/policy/dlp/dlp_content_manager.h"
+#include "chrome/browser/ash/policy/dlp/dlp_content_manager.h"
 #include "ui/base/ui_base_features.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -64,25 +64,22 @@
 #endif  // defined(OS_MAC)
 
 using content::BrowserThread;
+using extensions::mojom::ManifestLocation;
 
 namespace {
 
 // Helper to get title of the calling application shown in the screen capture
 // notification.
-base::string16 GetApplicationTitle(content::WebContents* web_contents,
+std::u16string GetApplicationTitle(content::WebContents* web_contents,
                                    const extensions::Extension* extension) {
   // Use extension name as title for extensions and host/origin for drive-by
   // web.
-  std::string title;
-  if (extension) {
-    title = extension->name();
-    return base::UTF8ToUTF16(title);
-  }
-  GURL url = web_contents->GetURL();
-  title = network::IsUrlPotentiallyTrustworthy(url)
-              ? net::GetHostAndOptionalPort(url)
-              : url.GetOrigin().spec();
-  return base::UTF8ToUTF16(title);
+  if (extension)
+    return base::UTF8ToUTF16(extension->name());
+
+  return url_formatter::FormatOriginForSecurityDisplay(
+      web_contents->GetMainFrame()->GetLastCommittedOrigin(),
+      url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC);
 }
 
 // Returns whether an on-screen notification should appear after desktop capture
@@ -90,8 +87,15 @@ base::string16 GetApplicationTitle(content::WebContents* web_contents,
 // notification.
 bool ShouldDisplayNotification(const extensions::Extension* extension) {
   return !(extension &&
-           (extension->location() == extensions::Manifest::COMPONENT ||
-            extension->location() == extensions::Manifest::EXTERNAL_COMPONENT));
+           (extension->location() == ManifestLocation::kComponent ||
+            extension->location() == ManifestLocation::kExternalComponent));
+}
+
+// Returns true if an on-screen notification should not be displayed after
+// desktop capture is taken for the |url|.
+bool HasNotificationExemption(const GURL& url) {
+  return (url.spec() == chrome::kChromeUIFeedbackURL &&
+          base::FeatureList::IsEnabled(features::kWebUIFeedback));
 }
 
 #if !defined(OS_ANDROID)
@@ -113,6 +117,24 @@ gfx::NativeWindow FindParentWindowForWebContents(
   return NULL;
 }
 #endif
+
+bool IsMediaTypeAllowed(AllowedScreenCaptureLevel allowed_capture_level,
+                        content::DesktopMediaID::Type media_type) {
+  switch (media_type) {
+    case content::DesktopMediaID::TYPE_NONE:
+      NOTREACHED();
+      return false;
+    case content::DesktopMediaID::TYPE_SCREEN:
+      return allowed_capture_level >= AllowedScreenCaptureLevel::kDesktop;
+    case content::DesktopMediaID::TYPE_WINDOW:
+      return allowed_capture_level >= AllowedScreenCaptureLevel::kWindow;
+    case content::DesktopMediaID::TYPE_WEB_CONTENTS:
+      // SameOrigin is more restrictive than just tabs; so as long as at least
+      // SameOrigin is allowed, then TYPE_WEB_CONTENTS can be included, and the
+      // origins will be filtered for the SameOrigin requirement later.
+      return allowed_capture_level >= AllowedScreenCaptureLevel::kSameOrigin;
+  }
+}
 
 }  // namespace
 
@@ -170,10 +192,8 @@ void DesktopCaptureAccessHandler::ProcessScreenCaptureAccessRequest(
   bool screen_capture_enabled =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableUserMediaScreenCapturing) ||
-      MediaCaptureDevicesDispatcher::IsOriginForCasting(
-          request.security_origin) ||
       IsExtensionAllowedForScreenCapture(extension) ||
-      IsBuiltInExtension(request.security_origin);
+      IsBuiltInFeedbackUI(request.security_origin);
 
   const bool origin_is_secure =
       network::IsUrlPotentiallyTrustworthy(request.security_origin) ||
@@ -197,7 +217,7 @@ void DesktopCaptureAccessHandler::ProcessScreenCaptureAccessRequest(
     // chrome::ShowQuestionMessageBox() starts a nested run loop which may
     // allow |web_contents| to be destroyed on the UI thread before the messag
     // box is closed. See http://crbug.com/326690.
-    base::string16 application_title =
+    std::u16string application_title =
         GetApplicationTitle(web_contents, extension);
 #if !defined(OS_ANDROID)
     gfx::NativeWindow parent_window =
@@ -208,23 +228,24 @@ void DesktopCaptureAccessHandler::ProcessScreenCaptureAccessRequest(
 
     // Some extensions do not require user approval, because they provide their
     // own user approval UI.
-    bool is_approved = IsDefaultApproved(extension);
+    bool is_approved = IsDefaultApproved(extension) ||
+                       IsDefaultApproved(request.security_origin);
     if (!is_approved) {
-      base::string16 application_name =
+      std::u16string application_name =
           base::UTF8ToUTF16(request.security_origin.spec());
       if (extension)
         application_name = base::UTF8ToUTF16(extension->name());
-      base::string16 confirmation_text = l10n_util::GetStringFUTF16(
+      std::u16string confirmation_text = l10n_util::GetStringFUTF16(
           request.audio_type == blink::mojom::MediaStreamType::NO_SERVICE
               ? IDS_MEDIA_SCREEN_CAPTURE_CONFIRMATION_TEXT
               : IDS_MEDIA_SCREEN_AND_AUDIO_CAPTURE_CONFIRMATION_TEXT,
           application_name);
-      chrome::MessageBoxResult result = chrome::ShowQuestionMessageBoxSync(
+      chrome::MessageBoxResult mb_result = chrome::ShowQuestionMessageBoxSync(
           parent_window,
           l10n_util::GetStringFUTF16(
               IDS_MEDIA_SCREEN_CAPTURE_CONFIRMATION_TITLE, application_name),
           confirmation_text);
-      is_approved = (result == chrome::MESSAGE_BOX_RESULT_YES);
+      is_approved = (mb_result == chrome::MESSAGE_BOX_RESULT_YES);
     }
 
     if (is_approved) {
@@ -254,11 +275,20 @@ void DesktopCaptureAccessHandler::ProcessScreenCaptureAccessRequest(
 
       // Determine if the extension is required to display a notification.
       const bool display_notification =
-          display_notification_ && ShouldDisplayNotification(extension);
+          display_notification_ && ShouldDisplayNotification(extension) &&
+          !HasNotificationExemption(request.security_origin);
 
+      if (!content::WebContents::FromRenderFrameHost(
+              content::RenderFrameHost::FromID(request.render_process_id,
+                                               request.render_frame_id))) {
+        std::move(callback).Run(
+            devices, blink::mojom::MediaStreamRequestResult::INVALID_STATE,
+            std::move(ui));
+        return;
+      }
       ui = GetDevicesForDesktopCapture(
-          web_contents, &devices, screen_id,
-          blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE,
+          web_contents, url::Origin::Create(request.security_origin), &devices,
+          screen_id, blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE,
           blink::mojom::MediaStreamType::GUM_DESKTOP_AUDIO_CAPTURE,
           capture_audio, request.disable_local_echo, display_notification,
           application_title, application_title);
@@ -278,9 +308,16 @@ void DesktopCaptureAccessHandler::ProcessScreenCaptureAccessRequest(
 bool DesktopCaptureAccessHandler::IsDefaultApproved(
     const extensions::Extension* extension) {
   return extension &&
-         (extension->location() == extensions::Manifest::COMPONENT ||
-          extension->location() == extensions::Manifest::EXTERNAL_COMPONENT ||
+         (extension->location() == ManifestLocation::kComponent ||
+          extension->location() == ManifestLocation::kExternalComponent ||
           IsExtensionAllowedForScreenCapture(extension));
+}
+
+bool DesktopCaptureAccessHandler::IsDefaultApproved(const GURL& url) {
+  // allow the Feedback WebUI chrome://feedback/ to take screenshot without
+  // user's approval. The screenshot will not be shared by default. So the
+  // user can still decide whether the screenshot taken is shared or not.
+  return url.spec() == chrome::kChromeUIFeedbackURL;
 }
 
 bool DesktopCaptureAccessHandler::SupportsStreamType(
@@ -316,9 +353,11 @@ void DesktopCaptureAccessHandler::HandleRequest(
     return;
   }
 
-  Profile* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
-  if (!profile->GetPrefs()->GetBoolean(prefs::kScreenCaptureAllowed)) {
+  AllowedScreenCaptureLevel allowed_capture_level =
+      capture_policy::GetAllowedCaptureLevel(request.security_origin,
+                                             web_contents);
+
+  if (allowed_capture_level == AllowedScreenCaptureLevel::kDisallowed) {
     std::move(callback).Run(
         devices, blink::mojom::MediaStreamRequestResult::PERMISSION_DENIED,
         std::move(ui));
@@ -334,6 +373,12 @@ void DesktopCaptureAccessHandler::HandleRequest(
   // If the device id wasn't specified then this is a screen capture request
   // (i.e. chooseDesktopMedia() API wasn't used to generate device id).
   if (request.requested_video_device_id.empty()) {
+    if (allowed_capture_level < AllowedScreenCaptureLevel::kDesktop) {
+      std::move(callback).Run(
+          devices, blink::mojom::MediaStreamRequestResult::PERMISSION_DENIED,
+          std::move(ui));
+      return;
+    }
 #if defined(OS_MAC)
     if (system_media_permissions::CheckSystemScreenCapturePermission() !=
         system_media_permissions::SystemPermission::kAllowed) {
@@ -373,6 +418,13 @@ void DesktopCaptureAccessHandler::HandleRequest(
   if (media_id.type == content::DesktopMediaID::TYPE_NONE) {
     std::move(callback).Run(
         devices, blink::mojom::MediaStreamRequestResult::INVALID_STATE,
+        std::move(ui));
+    return;
+  }
+
+  if (!IsMediaTypeAllowed(allowed_capture_level, media_id.type)) {
+    std::move(callback).Run(
+        devices, blink::mojom::MediaStreamRequestResult::PERMISSION_DENIED,
         std::move(ui));
     return;
   }
@@ -444,8 +496,8 @@ void DesktopCaptureAccessHandler::HandleRequest(
       display_notification_ && ShouldDisplayNotification(extension);
 
   ui = GetDevicesForDesktopCapture(
-      web_contents, &devices, media_id,
-      blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE,
+      web_contents, url::Origin::Create(request.security_origin), &devices,
+      media_id, blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE,
       blink::mojom::MediaStreamType::GUM_DESKTOP_AUDIO_CAPTURE, capture_audio,
       request.disable_local_echo, display_notification,
       GetApplicationTitle(web_contents, extension),
@@ -464,9 +516,7 @@ void DesktopCaptureAccessHandler::ProcessChangeSourceRequest(
 
   std::unique_ptr<DesktopMediaPicker> picker;
 
-  if (!base::FeatureList::IsEnabled(
-          features::kDesktopCaptureTabSharingInfobar) ||
-      request.requested_video_device_id.empty()) {
+  if (request.requested_video_device_id.empty()) {
     picker = picker_factory_->CreatePicker(&request);
     if (!picker) {
       std::move(callback).Run(
@@ -535,9 +585,16 @@ void DesktopCaptureAccessHandler::ProcessQueuedAccessRequest(
     }
   }
 
-  std::vector<content::DesktopMediaID::Type> media_types = {
-      content::DesktopMediaID::TYPE_WEB_CONTENTS};
-  auto source_lists = picker_factory_->CreateMediaList(media_types);
+  const GURL& request_origin = pending_request.request.security_origin;
+  AllowedScreenCaptureLevel capture_level =
+      capture_policy::GetAllowedCaptureLevel(request_origin, web_contents);
+  auto includable_web_contents_filter =
+      capture_policy::GetIncludableWebContentsFilter(request_origin,
+                                                     capture_level);
+
+  auto source_lists = picker_factory_->CreateMediaList(
+      {DesktopMediaList::Type::kWebContents}, web_contents,
+      std::move(includable_web_contents_filter));
 
   DesktopMediaPicker::DoneCallback done_callback =
       base::BindOnce(&DesktopCaptureAccessHandler::OnPickerDialogResults,
@@ -554,6 +611,8 @@ void DesktopCaptureAccessHandler::ProcessQueuedAccessRequest(
                                  blink::mojom::MediaStreamType::NO_SERVICE)
                                     ? false
                                     : true;
+  picker_params.restricted_by_policy =
+      (capture_level != AllowedScreenCaptureLevel::kUnrestricted);
   pending_request.picker->Show(picker_params, std::move(source_lists),
                                std::move(done_callback));
 
@@ -592,7 +651,9 @@ void DesktopCaptureAccessHandler::OnPickerDialogResults(
     const bool display_notification =
         display_notification_ && ShouldDisplayNotification(extension);
     ui = GetDevicesForDesktopCapture(
-        web_contents, &devices, media_id, pending_request.request.video_type,
+        web_contents,
+        url::Origin::Create(pending_request.request.security_origin), &devices,
+        media_id, pending_request.request.video_type,
         pending_request.request.audio_type, media_id.audio_share,
         pending_request.request.disable_local_echo, display_notification,
         GetApplicationTitle(web_contents, extension),

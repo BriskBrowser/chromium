@@ -5,7 +5,6 @@
 #ifndef IOS_CHROME_BROWSER_CRASH_REPORT_CRASH_HELPER_H_
 #define IOS_CHROME_BROWSER_CRASH_REPORT_CRASH_HELPER_H_
 
-#include <string>
 
 namespace crash_helper {
 
@@ -26,20 +25,21 @@ void SetUploadingEnabled(bool enabled);
 // next startup to check if safe mode must be started.
 void SetUserEnabledUploading(bool enabled);
 
-// Returns true if uploading crash reports is enabled in the settings.
-bool UserEnabledUploading();
-
 // For breakpad, if |after_upgrade| is true, delete all pending reports.  For
 // crashpad, regardless of |after_upgrade|, process pending intermediate dumps.
 void CleanupCrashReports(bool after_upgrade);
 
+// Process any pending crashpad reports, and mark them as
+// 'uploaded_in_recovery_mode'.
+void ProcessIntermediateReportsForSafeMode();
+
 // Returns the number of crash reports waiting to send to the server. This
 // function will wait for an operation to complete on a background thread.
-int GetCrashReportCount();
+int GetPendingCrashReportCount();
 
-// Gets the number of crash reports on a background thread and invokes
+// Gets the number of pending crash reports on a background thread and invokes
 // |callback| with the result when complete.
-void GetCrashReportCount(void (^callback)(int));
+void GetPendingCrashReportCount(void (^callback)(int));
 
 // Check if there is currently a crash report to upload. This function will wait
 // for an operation to complete on a background thread.

@@ -18,7 +18,10 @@ PrerenderTabHelper::~PrerenderTabHelper() = default;
 
 void PrerenderTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame() ||
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       !navigation_handle->HasCommitted() || navigation_handle->IsErrorPage()) {
     return;
   }
@@ -32,6 +35,6 @@ void PrerenderTabHelper::DidFinishNavigation(
     no_state_prefetch_manager->RecordNavigation(navigation_handle->GetURL());
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(PrerenderTabHelper)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(PrerenderTabHelper);
 
 }  // namespace weblayer

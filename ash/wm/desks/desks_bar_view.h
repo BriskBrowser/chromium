@@ -10,19 +10,25 @@
 
 #include "ash/ash_export.h"
 #include "ash/wm/desks/desks_controller.h"
+#include "base/callback_list.h"
 #include "base/macros.h"
+#include "ui/views/controls/scroll_view.h"
 #include "ui/views/view.h"
 
 namespace ash {
 
+class DesksBarScrollViewLayout;
 class DeskBarHoverObserver;
 class DeskDragProxy;
 class DeskMiniView;
-class ExpandedStateNewDeskButton;
+class ExpandedDesksBarButton;
+class GradientLayerDelegate;
 class NewDeskButton;
 class OverviewGrid;
+class PersistentDesksBarVerticalDotsButton;
+class ScrollArrowButton;
 class ZeroStateDefaultDeskButton;
-class ZeroStateNewDeskButton;
+class ZeroStateIconButton;
 
 // A bar that resides at the top portion of the overview mode's ShieldView,
 // which contains the virtual desks mini_views, as well as the new desk button.
@@ -30,19 +36,16 @@ class ASH_EXPORT DesksBarView : public views::View,
                                 public DesksController::Observer {
  public:
   explicit DesksBarView(OverviewGrid* overview_grid);
+
+  DesksBarView(const DesksBarView&) = delete;
+  DesksBarView& operator=(const DesksBarView&) = delete;
+
   ~DesksBarView() override;
 
   static constexpr int kZeroStateBarHeight = 40;
 
-  // Returns the height of the desk bar view which is based on the given |width|
-  // of the overview grid that exists on |root| (which is the same as the width
-  // of the bar) and |desks_bar_view|'s content (since they may not fit the
-  // given |width| forcing us to use the compact layout).
-  // If |desks_bar_view| is nullptr, the height returned will be solely based on
-  // the |width|.
-  static int GetBarHeightForWidth(aura::Window* root,
-                                  const DesksBarView* desks_bar_view,
-                                  int width);
+  // Returns the height of the desks bar that exists on |root|.
+  static int GetBarHeightForWidth(aura::Window* root);
 
   // Creates and returns the widget that contains the DeskBarView in overview
   // mode. The returned widget has no content view yet, and hasn't been shown
@@ -53,18 +56,24 @@ class ASH_EXPORT DesksBarView : public views::View,
 
   views::View* background_view() const { return background_view_; }
 
-  NewDeskButton* new_desk_button() const { return new_desk_button_; }
-
   ZeroStateDefaultDeskButton* zero_state_default_desk_button() const {
     return zero_state_default_desk_button_;
   }
 
-  ZeroStateNewDeskButton* zero_state_new_desk_button() const {
+  ZeroStateIconButton* zero_state_new_desk_button() const {
     return zero_state_new_desk_button_;
   }
 
-  ExpandedStateNewDeskButton* expanded_state_new_desk_button() const {
+  ExpandedDesksBarButton* expanded_state_new_desk_button() const {
     return expanded_state_new_desk_button_;
+  }
+
+  ZeroStateIconButton* zero_state_desks_templates_button() const {
+    return zero_state_desks_templates_button_;
+  }
+
+  ExpandedDesksBarButton* expanded_state_desks_templates_button() const {
+    return expanded_state_desks_templates_button_;
   }
 
   const std::vector<DeskMiniView*>& mini_views() const { return mini_views_; }
@@ -75,6 +84,12 @@ class ASH_EXPORT DesksBarView : public views::View,
 
   bool dragged_item_over_bar() const { return dragged_item_over_bar_; }
 
+  OverviewGrid* overview_grid() const { return overview_grid_; }
+
+  void set_should_name_nudge(bool should_name_nudge) {
+    should_name_nudge_ = should_name_nudge;
+  }
+
   // Initializes and creates mini_views for any pre-existing desks, before the
   // bar was created. This should only be called after this view has been added
   // to a widget, as it needs to call `GetWidget()` when it's performing a
@@ -84,10 +99,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   // Returns true if a desk name is being modified using its mini view's
   // DeskNameView on this bar.
   bool IsDeskNameBeingModified() const;
-
-  // Returns the scale factor by which a window's size will be scaled down when
-  // it is dragged and hovered on this desks bar.
-  float GetOnHoverWindowSizeScaleFactor() const;
 
   // Get the index of a desk mini view in the |mini_views|.
   int GetMiniViewIndex(const DeskMiniView* mini_view) const;
@@ -107,25 +118,33 @@ class ASH_EXPORT DesksBarView : public views::View,
   // there's only a single desk available, in which case the bar is shown in a
   // minimized state.
   bool IsZeroState() const;
-  // Handle drag & drop events for each desk preview.
-  void HandleStartDragEvent(DeskMiniView* mini_view,
+  // Handle the mouse press event from a desk preview.
+  void HandlePressEvent(DeskMiniView* mini_view, const ui::LocatedEvent& event);
+  // Handle the gesture long press event from a desk preview.
+  void HandleLongPressEvent(DeskMiniView* mini_view,
                             const ui::LocatedEvent& event);
-  // Return true if the drag event is handled by drag & drop.
-  bool HandleDragEvent(DeskMiniView* mini_view, const ui::LocatedEvent& event);
-  // Return true if the release event is handled by drag & drop.
+  // Handle the drag event from a desk preview.
+  void HandleDragEvent(DeskMiniView* mini_view, const ui::LocatedEvent& event);
+  // Handle the release event from a desk preview. Return true if a drag event
+  // is ended.
   bool HandleReleaseEvent(DeskMiniView* mini_view,
                           const ui::LocatedEvent& event);
 
-  // Trigger drag & drop. Create a proxy for the dragged desk.
+  // Finalize any unfinished drag & drop. Initialize a new drag proxy.
+  void InitDragDesk(DeskMiniView* mini_view,
+                    const gfx::PointF& location_in_screen);
+  // Start to drag. Scale up the drag proxy.
   void StartDragDesk(DeskMiniView* mini_view,
                      const gfx::PointF& location_in_screen);
-  // Reorder desks according to the drag proxy's location. Return true if the
-  // dragged desk is reordered.
-  bool ContinueDragDesk(DeskMiniView* mini_view,
+  // Reorder desks according to the drag proxy's location.
+  void ContinueDragDesk(DeskMiniView* mini_view,
                         const gfx::PointF& location_in_screen);
-  // Snap back the drag proxy to the drag view's location. Return true if
-  // current drag is ended.
-  bool EndDragDesk(DeskMiniView* mini_view, bool end_by_user);
+  // If the desk is dropped by user (|end_by_user| = true), scale down and snap
+  // back the drag proxy. Otherwise, directly finalize the drag & drop. Note
+  // that when we want to end the current drag immediately, if the drag is
+  // initialized but did not start, |FinalizeDragDesk| should be use; if the
+  // drag started, |EndDragDesk| should be used with |end_by_user| = false.
+  void EndDragDesk(DeskMiniView* mini_view, bool end_by_user);
   // Reset the drag view and the drag proxy.
   void FinalizeDragDesk();
   // If a desk is in a drag & drop cycle.
@@ -133,15 +152,10 @@ class ASH_EXPORT DesksBarView : public views::View,
 
   // views::View:
   const char* GetClassName() const override;
+  void Layout() override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void OnThemeChanged() override;
-
-  // Returns true if the width of the DesksBarView is below a defined
-  // threshold or the contents no longer fit within this object's bounds in
-  // default mode, suggesting a compact small screens layout should be used for
-  // both itself and its children.
-  bool UsesCompactLayout() const;
 
   // DesksController::Observer:
   void OnDeskAdded(const Desk* desk) override;
@@ -151,19 +165,53 @@ class ASH_EXPORT DesksBarView : public views::View,
                                const Desk* deactivated) override;
   void OnDeskSwitchAnimationLaunching() override;
   void OnDeskSwitchAnimationFinished() override;
+  void OnDeskNameChanged(const Desk* desk,
+                         const std::u16string& new_name) override;
 
   // This is called on initialization, creating a new desk through the
-  // NewDeskButton or ExpandedStateNewDeskButton, or expanding from zero state
-  // bar to the expanded desks bar when Bento is enabled. Performs the expanding
-  // animation if |expanding_bar_view| is true, otherwise animates the
-  // mini_views (also the ExpandedStateNewDeskButton if Bento is enabled) to
-  // their final positions if |initializing_bar_view| is false.
+  // NewDeskButton or ExpandedDesksBarButton, or expanding from zero state
+  // bar to the expanded desks bar. Performs the expanding animation if
+  // |expanding_bar_view| is true, otherwise animates the mini_views (also the
+  // ExpandedDesksBarButton) to their final positions if
+  // |initializing_bar_view| is false.
   void UpdateNewMiniViews(bool initializing_bar_view, bool expanding_bar_view);
 
- private:
-  // Returns the mini_view associated with |desk| or nullptr if no mini_view
+  // If the focused |mini_view| is outside of the scroll view's visible bounds,
+  // scrolls the bar to make sure it can always be seen.
+  void ScrollToShowMiniViewIfNecessary(const DeskMiniView* mini_view);
+
+  void OnNewDeskButtonPressed(
+      DesksCreationRemovalSource desks_creation_removal_source);
+
+  // If in expanded state, updates the border color of the
+  // `expanded_state_desks_templates_button_` and the active desk's mini view
+  // after the desk templates grid has been shown. If not in expanded state,
+  // updates the background color of the `zero_state_desks_templates_button_`
+  // and the `zero_state_default_desk_button_`.
+  void UpdateButtonsForDesksTemplatesGrid();
+
+  // Updates the visibility of the desks templates button based on whether the
+  // desks templates feature is enabled, the user has any desks templates and
+  // the state of the desks bar.
+  void UpdateDesksTemplatesButtonVisibility();
+
+  // Returns the mini_view associated with `desk` or nullptr if no mini_view
   // has been created for it yet.
   DeskMiniView* FindMiniViewForDesk(const Desk* desk) const;
+
+ private:
+  friend class DesksBarScrollViewLayout;
+  friend class DesksTestApi;
+
+  // Determine the new index of the dragged desk at the position of
+  // |location_in_screen|.
+  int DetermineMoveIndex(int location_in_screen) const;
+
+  // If drag a desk over a scroll button (i.e., the desk intersects the button),
+  // scroll the desk bar. If the desk is dropped or leaves the button, end
+  // scroll. Return true if the scroll is triggered. Return false if the scroll
+  // is ended.
+  bool MaybeScrollByDraggedDesk();
 
   // Returns the X offset of the first mini_view on the left (if there's one),
   // or the X offset of this view's center point when there are no mini_views.
@@ -171,24 +219,40 @@ class ASH_EXPORT DesksBarView : public views::View,
   // be moved when performing the mini_view creation or deletion animations.
   int GetFirstMiniViewXOffset() const;
 
-  // Updates the cached minimum width required to fit all contents.
-  void UpdateMinimumWidthToFitContents();
-
-  // Adds |mini_view| as the DesksBarView's child or |scroll_view_content_|'s
-  // child if Bento is enabled.
-  DeskMiniView* AddMiniViewAsChild(std::unique_ptr<DeskMiniView> mini_view);
-
   // Updates the visibility of the two buttons inside the zero state desks bar
-  // and the ExpandedStateNewDeskButton on the desk bar's state. Used only when
-  // Bento is enabled.
-  void UpdateBentoDeskButtonsVisibility();
+  // and the ExpandedDesksBarButton on the desk bar's state.
+  void UpdateDeskButtonsVisibility();
+
+  // Updates the visibility of |left_scroll_button_| and |right_scroll_button_|.
+  // Show |left_scroll_button_| if there are contents outside of the left edge
+  // of the |scroll_view_|, the same for |right_scroll_button_| based on the
+  // right side of the |scroll_view_|.
+  void UpdateScrollButtonsVisibility();
+
+  // We will show a fade in gradient besides |left_scroll_button_| and a fade
+  // out gradient besides |right_scroll_button_|. Show the gradient only when
+  // the corresponding scroll button is visible.
+  void UpdateGradientZone();
+
+  // Scrolls the desks bar to the previous or next page. The page size is the
+  // width of the scroll view, the contents that are outside of the scroll view
+  // will be clipped and can not be seen.
+  void ScrollToPreviousPage();
+  void ScrollToNextPage();
+
+  // Gets the adjusted scroll position based on |position| to make sure no desk
+  // preview is cropped at the start position of the scrollable bar.
+  int GetAdjustedUncroppedScrollPosition(int position) const;
+
+  void OnDesksTemplatesButtonPressed();
+
+  // Scrollview callbacks.
+  void OnContentsScrolled();
+  void OnContentsScrollEnded();
 
   // A view that shows a dark gary transparent background that can be animated
   // when the very first mini_views are created.
   views::View* background_view_;
-
-  // Used only in classic desks. Will be removed once Bento is fully launched.
-  NewDeskButton* new_desk_button_;
 
   // The views representing desks mini_views. They're owned by views hierarchy.
   std::vector<DeskMiniView*> mini_views_;
@@ -208,27 +272,46 @@ class ASH_EXPORT DesksBarView : public views::View,
   // The OverviewGrid that contains this object.
   OverviewGrid* overview_grid_;
 
-  // Caches the calculated minimum width to fit contents.
-  int min_width_to_fit_contents_ = 0;
-
-  // Puts the contents in a ScrollView to support scrollable desks. Used only
-  // when Bento is enabled.
+  // Puts the contents in a ScrollView to support scrollable desks.
   views::ScrollView* scroll_view_ = nullptr;
 
-  // Contents of |scroll_view_|, which includes |mini_views_| and
-  // |new_desk_button_| currently. Used only when Bento is enabled.
+  // Contents of `scroll_view_`, which includes `mini_views_`,
+  // `expanded_state_new_desk_button_` and optionally
+  // `expanded_state_desks_templates_button_` currently.
   views::View* scroll_view_contents_ = nullptr;
 
-  // Used only when Bento is enabled.
-  ZeroStateDefaultDeskButton* zero_state_default_desk_button_;
-  ZeroStateNewDeskButton* zero_state_new_desk_button_;
-  ExpandedStateNewDeskButton* expanded_state_new_desk_button_;
+  // If this is true, when `UpdateNewMiniViews()` is called, the newly created
+  // mini view's name view will be focused and |should_name_nudge_| will be
+  // reset.
+  bool should_name_nudge_ = false;
+
+  ZeroStateDefaultDeskButton* zero_state_default_desk_button_ = nullptr;
+  ZeroStateIconButton* zero_state_new_desk_button_ = nullptr;
+  ExpandedDesksBarButton* expanded_state_new_desk_button_ = nullptr;
+
+  // Buttons to show the desks templates grid.
+  ZeroStateIconButton* zero_state_desks_templates_button_ = nullptr;
+  ExpandedDesksBarButton* expanded_state_desks_templates_button_ = nullptr;
+
+  ScrollArrowButton* left_scroll_button_ = nullptr;
+  ScrollArrowButton* right_scroll_button_ = nullptr;
   // Mini view whose preview is being dragged.
   DeskMiniView* drag_view_ = nullptr;
   // Drag proxy for the dragged desk.
   std::unique_ptr<DeskDragProxy> drag_proxy_;
 
-  DISALLOW_COPY_AND_ASSIGN(DesksBarView);
+  // The layer delegate used for |scroll_view_|'s mask layer, with left and
+  // right gradient asides the scroll buttons.
+  std::unique_ptr<GradientLayerDelegate> gradient_layer_delegate_;
+
+  // A circular button which when clicked will open the context menu of the
+  // persistent desks bar. Note that this button will only be created when
+  // BentoBar is enabled.
+  PersistentDesksBarVerticalDotsButton* vertical_dots_button_ = nullptr;
+
+  // ScrollView callback subscriptions.
+  base::CallbackListSubscription on_contents_scrolled_subscription_;
+  base::CallbackListSubscription on_contents_scroll_ended_subscription_;
 };
 
 }  // namespace ash

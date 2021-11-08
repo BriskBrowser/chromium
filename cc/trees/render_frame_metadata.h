@@ -5,13 +5,13 @@
 #ifndef CC_TREES_RENDER_FRAME_METADATA_H_
 #define CC_TREES_RENDER_FRAME_METADATA_H_
 
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/cc_export.h"
 #include "components/viz/common/quads/selection.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
 #include "components/viz/common/vertical_scroll_direction.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/size_f.h"
@@ -67,7 +67,7 @@ class CC_EXPORT RenderFrameMetadata {
   SkColor root_background_color = SK_ColorWHITE;
 
   // Scroll offset of the root layer.
-  base::Optional<gfx::Vector2dF> root_scroll_offset;
+  absl::optional<gfx::Vector2dF> root_scroll_offset;
 
   // Selection region relative to the current viewport. If the selection is
   // empty or otherwise unused, the bound types will indicate such.
@@ -85,7 +85,7 @@ class CC_EXPORT RenderFrameMetadata {
   // information to be used in making the forwarding decision. It exists the
   // entire time points could be forwarded, and forwarding must stop as soon as
   // it is null.
-  base::Optional<DelegatedInkBrowserMetadata> delegated_ink_metadata;
+  absl::optional<DelegatedInkBrowserMetadata> delegated_ink_metadata;
 
   // The device scale factor used to generate a CompositorFrame.
   float device_scale_factor = 1.f;
@@ -95,7 +95,7 @@ class CC_EXPORT RenderFrameMetadata {
   gfx::Size viewport_size_in_pixels;
 
   // The last viz::LocalSurfaceId used to submit a CompositorFrame.
-  base::Optional<viz::LocalSurfaceId> local_surface_id;
+  absl::optional<viz::LocalSurfaceId> local_surface_id;
 
   // Page scale factor (always 1.f for sub-frame renderers).
   float page_scale_factor = 1.f;
@@ -114,6 +114,10 @@ class CC_EXPORT RenderFrameMetadata {
   // consider the second scroll event to have caused a change in direction.
   viz::VerticalScrollDirection new_vertical_scroll_direction =
       viz::VerticalScrollDirection::kNull;
+
+  // Measures the amount of time that Blink spends updating in response to a new
+  // set of VisualProperties arriving. See WidgetBase::UpdateVisualProperties.
+  base::TimeDelta visual_properties_update_duration;
 
 #if defined(OS_ANDROID)
   // Used to position Android bottom bar, whose position is computed by the

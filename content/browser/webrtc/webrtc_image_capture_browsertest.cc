@@ -23,15 +23,16 @@
 
 namespace content {
 
-// Disable FocusDistance test which fails with Logitec cameras.
+// Disable FocusDistance test which fails with Logitech cameras.
 // TODO(crbug.com/957020): renable these tests when we have a way to detect
 // which device is connected and hence avoid running it if the camera is
 // Logitech.
 #define MAYBE_ManipulateFocusDistance DISABLED_ManipulateFocusDistance
 
-#if defined(OS_ANDROID)
 // TODO(crbug.com/793859): Re-enable test on Android as soon as the cause for
 // the bug is understood and fixed.
+// TODO(crbug.com/1187247): Flaky on Linux/Windows.
+#if defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_WIN)
 #define MAYBE_ManipulatePan DISABLED_ManipulatePan
 #define MAYBE_ManipulateZoom DISABLED_ManipulateZoom
 #else
@@ -92,6 +93,12 @@ class WebRtcImageCaptureBrowserTestBase
     : public UsingRealWebcam_WebRtcWebcamBrowserTest {
  public:
   WebRtcImageCaptureBrowserTestBase() = default;
+
+  WebRtcImageCaptureBrowserTestBase(const WebRtcImageCaptureBrowserTestBase&) =
+      delete;
+  WebRtcImageCaptureBrowserTestBase& operator=(
+      const WebRtcImageCaptureBrowserTestBase&) = delete;
+
   ~WebRtcImageCaptureBrowserTestBase() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -127,15 +134,12 @@ class WebRtcImageCaptureBrowserTestBase
 
     LookupAndLogNameAndIdOfFirstCamera();
 
-    std::string result;
-    if (!ExecuteScriptAndExtractString(shell(), command, &result))
-      return false;
+    std::string result =
+        EvalJs(shell(), command, EXECUTE_SCRIPT_USE_MANUAL_REPLY)
+            .ExtractString();
     DLOG_IF(ERROR, result != "OK") << result;
     return result == "OK";
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebRtcImageCaptureBrowserTestBase);
 };
 
 // Test fixture for setting up a capture device (real or fake) that successfully
@@ -166,6 +170,11 @@ class WebRtcImageCaptureSucceedsBrowserTest
                                           features_to_disable);
   }
 
+  WebRtcImageCaptureSucceedsBrowserTest(
+      const WebRtcImageCaptureSucceedsBrowserTest&) = delete;
+  WebRtcImageCaptureSucceedsBrowserTest& operator=(
+      const WebRtcImageCaptureSucceedsBrowserTest&) = delete;
+
   ~WebRtcImageCaptureSucceedsBrowserTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -181,8 +190,6 @@ class WebRtcImageCaptureSucceedsBrowserTest
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebRtcImageCaptureSucceedsBrowserTest);
 };
 
 // TODO(crbug.com/998305): Flaky on Linux.
@@ -205,12 +212,24 @@ IN_PROC_BROWSER_TEST_P(WebRtcImageCaptureSucceedsBrowserTest,
       RunImageCaptureTestCase("testCreateAndGetPhotoSettingsSucceeds()"));
 }
 
-IN_PROC_BROWSER_TEST_P(WebRtcImageCaptureSucceedsBrowserTest, TakePhoto) {
+// TODO(crbug.com/1187247): Flaky on Linux/Windows.
+#if defined(OS_LINUX) || defined(OS_WIN)
+#define MAYBE_TakePhoto DISABLED_TakePhoto
+#else
+#define MAYBE_TakePhoto TakePhoto
+#endif
+IN_PROC_BROWSER_TEST_P(WebRtcImageCaptureSucceedsBrowserTest, MAYBE_TakePhoto) {
   embedded_test_server()->StartAcceptingConnections();
   ASSERT_TRUE(RunImageCaptureTestCase("testCreateAndTakePhotoSucceeds()"));
 }
 
-IN_PROC_BROWSER_TEST_P(WebRtcImageCaptureSucceedsBrowserTest, GrabFrame) {
+// TODO(crbug.com/1187247): Flaky on Linux/Windows.
+#if defined(OS_LINUX) || defined(OS_WIN)
+#define MAYBE_GrabFrame DISABLED_GrabFrame
+#else
+#define MAYBE_GrabFrame GrabFrame
+#endif
+IN_PROC_BROWSER_TEST_P(WebRtcImageCaptureSucceedsBrowserTest, MAYBE_GrabFrame) {
   embedded_test_server()->StartAcceptingConnections();
   ASSERT_TRUE(RunImageCaptureTestCase("testCreateAndGrabFrameSucceeds()"));
 }
@@ -320,6 +339,11 @@ class WebRtcImageCaptureCustomConfigFakeDeviceBrowserTest
     }
   }
 
+  WebRtcImageCaptureCustomConfigFakeDeviceBrowserTest(
+      const WebRtcImageCaptureCustomConfigFakeDeviceBrowserTest&) = delete;
+  WebRtcImageCaptureCustomConfigFakeDeviceBrowserTest& operator=(
+      const WebRtcImageCaptureCustomConfigFakeDeviceBrowserTest&) = delete;
+
   ~WebRtcImageCaptureCustomConfigFakeDeviceBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -332,8 +356,6 @@ class WebRtcImageCaptureCustomConfigFakeDeviceBrowserTest
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebRtcImageCaptureCustomConfigFakeDeviceBrowserTest);
 };
 
 struct GetPhotoStateFailsConfigTraits {

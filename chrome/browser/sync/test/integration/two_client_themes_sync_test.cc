@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/macros.h"
-#include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sync_integration_test_util.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/themes_helper.h"
@@ -24,10 +23,10 @@ class TwoClientThemesSyncTest : public SyncTest {
  public:
   TwoClientThemesSyncTest() : SyncTest(TWO_CLIENT) {}
 
-  ~TwoClientThemesSyncTest() override {}
+  TwoClientThemesSyncTest(const TwoClientThemesSyncTest&) = delete;
+  TwoClientThemesSyncTest& operator=(const TwoClientThemesSyncTest&) = delete;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(TwoClientThemesSyncTest);
+  ~TwoClientThemesSyncTest() override {}
 };
 
 // Starts with default themes, then sets up sync and uses it to set all

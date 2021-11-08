@@ -12,21 +12,18 @@
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 
-using chromeos::CrasAudioHandler;
-
 namespace ash {
 
 UnifiedVolumeSliderController::UnifiedVolumeSliderController(
-    UnifiedVolumeSliderController::Delegate* delegate,
-    bool in_bubble)
-    : delegate_(delegate), in_bubble_(in_bubble) {
+    UnifiedVolumeSliderController::Delegate* delegate)
+    : delegate_(delegate) {
   DCHECK(delegate);
 }
 
 UnifiedVolumeSliderController::~UnifiedVolumeSliderController() = default;
 
 views::View* UnifiedVolumeSliderController::CreateView() {
-  return new UnifiedVolumeView(this, delegate_, in_bubble_);
+  return new UnifiedVolumeView(this, delegate_);
 }
 
 void UnifiedVolumeSliderController::SliderValueChanged(

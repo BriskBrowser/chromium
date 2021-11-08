@@ -25,7 +25,10 @@ class Widget;
 
 class DownloadShelfContextMenuView : public DownloadShelfContextMenu {
  public:
+  // TODO(crbug.com/1191555): Remove dependency on DownloadItemView.
   explicit DownloadShelfContextMenuView(DownloadItemView* download_item_view);
+  explicit DownloadShelfContextMenuView(
+      base::WeakPtr<DownloadUIModel> download_ui_model);
   DownloadShelfContextMenuView(const DownloadShelfContextMenuView&) = delete;
   DownloadShelfContextMenuView& operator=(const DownloadShelfContextMenuView&) =
       delete;
@@ -40,19 +43,29 @@ class DownloadShelfContextMenuView : public DownloadShelfContextMenu {
            ui::MenuSourceType source_type,
            base::RepeatingClosure on_menu_closed_callback);
 
+  void SetOnMenuWillShowCallback(base::OnceClosure on_menu_will_show_callback);
+
  private:
   // Callback for MenuRunner.
   void OnMenuClosed(base::RepeatingClosure on_menu_closed_callback);
+  void OnMenuWillShow(ui::SimpleMenuModel* source) override;
 
   void ExecuteCommand(int command_id, int event_flags) override;
 
   // Parent download item view.
-  DownloadItemView* download_item_view_;
+  // TODO(crbug.com/1191555): Remove dependency on DownloadItemView.
+  DownloadItemView* download_item_view_ = nullptr;
+
+  base::OnceClosure on_menu_will_show_callback_;
 
   std::unique_ptr<views::MenuRunner> menu_runner_;
 
   // Time the menu was closed.
   base::TimeTicks close_time_;
+
+  // Determines whether we should record if a DownloadCommand was executed.
+  bool download_commands_executed_recorded_[DownloadCommands::MAX + 1] = {
+      false};
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_DOWNLOAD_DOWNLOAD_SHELF_CONTEXT_MENU_VIEW_H_

@@ -83,15 +83,18 @@ NSArray<NSAttributedString*>* CWVLegalMessagesFromLegalMessageLines(
   // If the user did not choose, the decision should be marked as ignored.
   if (_saveCardCallback) {
     std::move(_saveCardCallback)
-        .Run(autofill::AutofillClient::IGNORED,
+        .Run(autofill::AutofillClient::SaveCardOfferUserDecision::kIgnored,
              /*user_provided_card_details=*/{});
   }
 }
 
 #pragma mark - Public Methods
 
-- (void)acceptWithRiskData:(nullable NSString*)riskData
-         completionHandler:(void (^_Nullable)(BOOL))completionHandler {
+- (void)acceptWithCardHolderFullName:(NSString*)cardHolderFullName
+                     expirationMonth:(NSString*)expirationMonth
+                      expirationYear:(NSString*)expirationYear
+                            riskData:(NSString*)riskData
+                   completionHandler:(void (^)(BOOL))completionHandler {
   DCHECK(!_decisionMade)
       << "You may only call -acceptWithRiskData:completionHandler: or "
          "-decline: once per instance.";
@@ -101,8 +104,13 @@ NSArray<NSAttributedString*>* CWVLegalMessagesFromLegalMessageLines(
   _saveCompletionHandler = completionHandler;
   DCHECK(_saveCardCallback);
   std::move(_saveCardCallback)
-      .Run(autofill::AutofillClient::ACCEPTED,
-           /*user_provided_card_details=*/{});
+      .Run(autofill::AutofillClient::SaveCardOfferUserDecision::kAccepted,
+           {
+               .cardholder_name = base::SysNSStringToUTF16(cardHolderFullName),
+               .expiration_date_month =
+                   base::SysNSStringToUTF16(expirationMonth),
+               .expiration_date_year = base::SysNSStringToUTF16(expirationYear),
+           });
   _decisionMade = YES;
 }
 
@@ -112,7 +120,7 @@ NSArray<NSAttributedString*>* CWVLegalMessagesFromLegalMessageLines(
          "-decline: once per instance.";
   DCHECK(_saveCardCallback);
   std::move(_saveCardCallback)
-      .Run(autofill::AutofillClient::DECLINED,
+      .Run(autofill::AutofillClient::SaveCardOfferUserDecision::kDeclined,
            /*user_provided_card_details=*/{});
   _decisionMade = YES;
 }

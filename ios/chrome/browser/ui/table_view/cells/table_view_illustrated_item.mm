@@ -69,6 +69,7 @@ const CGFloat kButtonCornerRadius = 8.0;
   } else {
     cell.button.hidden = YES;
   }
+  cell.backgroundColor = nil;
 
   if (styler.cellTitleColor) {
     cell.titleLabel.textColor = styler.cellTitleColor;

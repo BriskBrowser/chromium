@@ -15,8 +15,8 @@
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/tray/tri_view.h"
+#include "base/bind.h"
 #include "base/containers/adapters.h"
-#include "base/strings/string_number_conversions.h"
 #include "third_party/skia/include/core/SkDrawLooper.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -36,7 +36,6 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/progress_bar.h"
 #include "ui/views/controls/scroll_view.h"
-#include "ui/views/controls/separator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/view_targeter.h"
@@ -61,6 +60,10 @@ class ScrollContentsView : public views::View {
     box_layout_ = SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kVertical));
   }
+
+  ScrollContentsView(const ScrollContentsView&) = delete;
+  ScrollContentsView& operator=(const ScrollContentsView&) = delete;
+
   ~ScrollContentsView() override = default;
 
  protected:
@@ -258,8 +261,6 @@ class ScrollContentsView : public views::View {
 
   // Header child views that stick to the top of visible viewport when scrolled.
   std::vector<Header> headers_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScrollContentsView);
 };
 
 }  // namespace
@@ -270,7 +271,8 @@ class ScrollContentsView : public views::View {
 TrayDetailedView::TrayDetailedView(DetailedViewDelegate* delegate)
     : delegate_(delegate) {
   box_layout_ = SetLayoutManager(std::make_unique<views::BoxLayout>(
-      views::BoxLayout::Orientation::kVertical, kUnifiedDetailedViewPadding));
+      views::BoxLayout::Orientation::kVertical,
+      delegate->GetInsetsForDetailedView()));
   SetBackground(views::CreateSolidBackground(
       delegate_->GetBackgroundColor().value_or(SK_ColorTRANSPARENT)));
 }
@@ -315,7 +317,7 @@ void TrayDetailedView::AddScrollListChild(std::unique_ptr<views::View> child) {
 
 HoverHighlightView* TrayDetailedView::AddScrollListItem(
     const gfx::VectorIcon& icon,
-    const base::string16& text) {
+    const std::u16string& text) {
   HoverHighlightView* item = delegate_->CreateScrollListItem(this, icon, text);
   scroll_content_->AddChildView(item);
   return item;
@@ -323,7 +325,7 @@ HoverHighlightView* TrayDetailedView::AddScrollListItem(
 
 HoverHighlightView* TrayDetailedView::AddScrollListCheckableItem(
     const gfx::VectorIcon& icon,
-    const base::string16& text,
+    const std::u16string& text,
     bool checked,
     bool enterprise_managed) {
   HoverHighlightView* item = AddScrollListItem(icon, text);
@@ -336,44 +338,11 @@ HoverHighlightView* TrayDetailedView::AddScrollListCheckableItem(
 }
 
 HoverHighlightView* TrayDetailedView::AddScrollListCheckableItem(
-    const base::string16& text,
+    const std::u16string& text,
     bool checked,
     bool enterprise_managed) {
   return AddScrollListCheckableItem(gfx::kNoneIcon, text, checked,
                                     enterprise_managed);
-}
-
-void TrayDetailedView::SetupConnectedScrollListItem(HoverHighlightView* view) {
-  SetupConnectedScrollListItem(view, base::nullopt /* battery_percentage */);
-}
-
-void TrayDetailedView::SetupConnectedScrollListItem(
-    HoverHighlightView* view,
-    base::Optional<uint8_t> battery_percentage) {
-  DCHECK(view->is_populated());
-
-  base::string16 status;
-
-  if (battery_percentage) {
-    view->SetSubText(l10n_util::GetStringFUTF16(
-        IDS_ASH_STATUS_TRAY_BLUETOOTH_DEVICE_CONNECTED_WITH_BATTERY_LABEL,
-        base::NumberToString16(battery_percentage.value())));
-  } else {
-    view->SetSubText(l10n_util::GetStringUTF16(
-        IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CONNECTED));
-  }
-
-  view->sub_text_label()->SetAutoColorReadabilityEnabled(false);
-  view->sub_text_label()->SetEnabledColor(
-      AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kTextColorPositive));
-}
-
-void TrayDetailedView::SetupConnectingScrollListItem(HoverHighlightView* view) {
-  DCHECK(view->is_populated());
-
-  view->SetSubText(
-      l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CONNECTING));
 }
 
 TriView* TrayDetailedView::AddScrollListSubHeader(const gfx::VectorIcon& icon,
@@ -406,7 +375,7 @@ TriView* TrayDetailedView::AddScrollListSubHeader(int text_id) {
 }
 
 void TrayDetailedView::Reset() {
-  RemoveAllChildViews(true);
+  RemoveAllChildViews();
   scroller_ = nullptr;
   scroll_content_ = nullptr;
   progress_bar_ = nullptr;
@@ -451,10 +420,6 @@ views::Button* TrayDetailedView::CreateSettingsButton(
 views::Button* TrayDetailedView::CreateHelpButton(
     views::Button::PressedCallback callback) {
   return delegate_->CreateHelpButton(std::move(callback));
-}
-
-views::Separator* TrayDetailedView::CreateListSubHeaderSeparator() {
-  return delegate_->CreateListSubHeaderSeparator();
 }
 
 void TrayDetailedView::HandleViewClicked(views::View* view) {

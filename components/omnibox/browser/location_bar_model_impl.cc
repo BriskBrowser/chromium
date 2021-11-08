@@ -43,11 +43,11 @@ LocationBarModelImpl::LocationBarModelImpl(LocationBarModelDelegate* delegate,
 LocationBarModelImpl::~LocationBarModelImpl() {}
 
 // LocationBarModelImpl Implementation.
-base::string16 LocationBarModelImpl::GetFormattedFullURL() const {
+std::u16string LocationBarModelImpl::GetFormattedFullURL() const {
   return GetFormattedURL(url_formatter::kFormatUrlOmitDefaults);
 }
 
-base::string16 LocationBarModelImpl::GetURLForDisplay() const {
+std::u16string LocationBarModelImpl::GetURLForDisplay() const {
   url_formatter::FormatUrlTypes format_types =
       url_formatter::kFormatUrlOmitDefaults;
   if (delegate_->ShouldTrimDisplayUrlAfterHostName()) {
@@ -61,8 +61,10 @@ base::string16 LocationBarModelImpl::GetURLForDisplay() const {
   format_types |= url_formatter::kFormatUrlOmitHTTPS;
   format_types |= url_formatter::kFormatUrlOmitTrivialSubdomains;
 
-  if (base::FeatureList::IsEnabled(omnibox::kHideFileUrlScheme))
-    format_types |= url_formatter::kFormatUrlOmitFileScheme;
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  // On desktop, the File chip makes the scheme redundant in the steady state.
+  format_types |= url_formatter::kFormatUrlOmitFileScheme;
+#endif
 
   if (dom_distiller::url_utils::IsDistilledPage(GetURL())) {
     // We explicitly elide the scheme here to ensure that HTTPS and HTTP will
@@ -77,29 +79,16 @@ base::string16 LocationBarModelImpl::GetURLForDisplay() const {
   return GetFormattedURL(format_types);
 }
 
-base::string16 LocationBarModelImpl::GetFormattedURL(
+std::u16string LocationBarModelImpl::GetFormattedURL(
     url_formatter::FormatUrlTypes format_types) const {
   if (!ShouldDisplayURL())
-    return base::string16{};
+    return std::u16string{};
 
   // Reset |format_types| to prevent elision of URLs when relevant extension or
   // pref is enabled.
   if (delegate_->ShouldPreventElision()) {
     format_types = url_formatter::kFormatUrlOmitDefaults &
                    ~url_formatter::kFormatUrlOmitHTTP;
-  }
-
-  // Prevent scheme/trivial subdomain elision when simplified domain field
-  // trials are enabled. In these field trials, OmniboxViewViews handles elision
-  // of scheme and trivial subdomains because they are shown/hidden based on
-  // user interactions with the omnibox.
-  if (base::FeatureList::IsEnabled(
-          omnibox::kRevealSteadyStateUrlPathQueryAndRefOnHover) ||
-      base::FeatureList::IsEnabled(
-          omnibox::kHideSteadyStateUrlPathQueryAndRefOnInteraction)) {
-    format_types &= ~url_formatter::kFormatUrlOmitHTTP;
-    format_types &= ~url_formatter::kFormatUrlOmitHTTPS;
-    format_types &= ~url_formatter::kFormatUrlOmitTrivialSubdomains;
   }
 
   GURL url(GetURL());
@@ -131,7 +120,7 @@ base::string16 LocationBarModelImpl::GetFormattedURL(
   // Note that we can't unescape spaces here, because if the user copies this
   // and pastes it into another program, that program may think the URL ends at
   // the space.
-  const base::string16 formatted_text =
+  const std::u16string formatted_text =
       delegate_->FormattedStringWithEquivalentMeaning(
           url,
           url_formatter::FormatUrl(url, format_types, net::UnescapeRule::NORMAL,
@@ -159,6 +148,14 @@ security_state::SecurityLevel LocationBarModelImpl::GetSecurityLevel() const {
     return security_state::NONE;
 
   return delegate_->GetSecurityLevel();
+}
+
+net::CertStatus LocationBarModelImpl::GetCertStatus() const {
+  // When empty, assume no cert status.
+  if (!ShouldDisplayURL())
+    return 0;
+
+  return delegate_->GetCertStatus();
 }
 
 OmniboxEventProto::PageClassification
@@ -203,12 +200,19 @@ const gfx::VectorIcon& LocationBarModelImpl::GetVectorIcon() const {
 
   if (IsOfflinePage())
     return omnibox::kOfflinePinIcon;
+
+  if (GetSecurityLevel() == security_state::SecurityLevel::SECURE &&
+      delegate_->IsShowingAccuracyTip()) {
+    return omnibox::kHttpIcon;
+  }
 #endif
 
-  return location_bar_model::GetSecurityVectorIcon(GetSecurityLevel());
+  return location_bar_model::GetSecurityVectorIcon(
+      GetSecurityLevel(),
+      delegate_->ShouldUseUpdatedConnectionSecurityIndicators());
 }
 
-base::string16 LocationBarModelImpl::GetSecureDisplayText() const {
+std::u16string LocationBarModelImpl::GetSecureDisplayText() const {
   // Note that display text will be implicitly used as the accessibility text.
   // GetSecureAccessibilityText() handles special cases when no display text is
   // set.
@@ -220,7 +224,9 @@ base::string16 LocationBarModelImpl::GetSecureDisplayText() const {
     case security_state::WARNING:
       return l10n_util::GetStringUTF16(IDS_NOT_SECURE_VERBOSE_STATE);
     case security_state::SECURE:
-      return base::string16();
+      return delegate_->IsShowingAccuracyTip()
+                 ? l10n_util::GetStringUTF16(IDS_ACCURACY_CHECK_VERBOSE_STATE)
+                 : std::u16string();
     case security_state::DANGEROUS: {
       std::unique_ptr<security_state::VisibleSecurityState>
           visible_security_state = delegate_->GetVisibleSecurityState();
@@ -229,7 +235,7 @@ base::string16 LocationBarModelImpl::GetSecureDisplayText() const {
       // interstitial list.
       if (visible_security_state->malicious_content_status ==
           security_state::MALICIOUS_CONTENT_STATUS_BILLING) {
-        return base::string16();
+        return std::u16string();
       }
 
       bool fails_malware_check =
@@ -240,11 +246,11 @@ base::string16 LocationBarModelImpl::GetSecureDisplayText() const {
                                            : IDS_NOT_SECURE_VERBOSE_STATE);
     }
     default:
-      return base::string16();
+      return std::u16string();
   }
 }
 
-base::string16 LocationBarModelImpl::GetSecureAccessibilityText() const {
+std::u16string LocationBarModelImpl::GetSecureAccessibilityText() const {
   auto display_text = GetSecureDisplayText();
   if (!display_text.empty())
     return display_text;
@@ -253,7 +259,7 @@ base::string16 LocationBarModelImpl::GetSecureAccessibilityText() const {
     case security_state::SECURE:
       return l10n_util::GetStringUTF16(IDS_SECURE_VERBOSE_STATE);
     default:
-      return base::string16();
+      return std::u16string();
   }
 }
 
@@ -267,4 +273,9 @@ bool LocationBarModelImpl::IsOfflinePage() const {
 
 bool LocationBarModelImpl::ShouldPreventElision() const {
   return delegate_->ShouldPreventElision();
+}
+
+bool LocationBarModelImpl::ShouldUseUpdatedConnectionSecurityIndicators()
+    const {
+  return delegate_->ShouldUseUpdatedConnectionSecurityIndicators();
 }

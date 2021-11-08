@@ -15,12 +15,12 @@
 #include "base/macros.h"
 #include "base/process/process_handle.h"
 #include "base/rand_util.h"
+#include "base/strings/string_piece.h"
 #include "base/task/current_thread.h"
-#include "base/time/time.h"
-#include "base/timer/elapsed_timer.h"
 #include "mojo/core/broker.h"
 #include "mojo/core/broker_host.h"
 #include "mojo/core/configuration.h"
+#include "mojo/core/ports/name.h"
 #include "mojo/core/request_context.h"
 #include "mojo/core/user_message_impl.h"
 #include "mojo/public/cpp/platform/named_platform_channel.h"
@@ -76,7 +76,9 @@ ports::ScopedEvent DeserializeEventMessage(
     Channel::MessagePtr channel_message) {
   void* data;
   size_t size;
-  NodeChannel::GetEventMessageData(channel_message.get(), &data, &size);
+  bool valid = NodeChannel::GetEventMessageData(*channel_message, &data, &size);
+  if (!valid)
+    return nullptr;
   auto event = ports::Event::Deserialize(data, size);
   if (!event)
     return nullptr;
@@ -120,6 +122,10 @@ class ThreadDestructionObserver
     }
   }
 
+  ThreadDestructionObserver(const ThreadDestructionObserver&) = delete;
+  ThreadDestructionObserver& operator=(const ThreadDestructionObserver&) =
+      delete;
+
  private:
   explicit ThreadDestructionObserver(base::OnceClosure callback)
       : callback_(std::move(callback)) {
@@ -137,8 +143,6 @@ class ThreadDestructionObserver
   }
 
   base::OnceClosure callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThreadDestructionObserver);
 };
 
 }  // namespace
@@ -187,14 +191,13 @@ void NodeController::SendBrokerClientInvitation(
 
 void NodeController::AcceptBrokerClientInvitation(
     ConnectionParams connection_params) {
-  base::Optional<PlatformHandle> broker_host_handle;
+  absl::optional<PlatformHandle> broker_host_handle;
   DCHECK(!GetConfiguration().is_broker_process);
 #if !defined(OS_APPLE) && !defined(OS_NACL_SFI) && !defined(OS_FUCHSIA)
   if (!connection_params.is_async()) {
     // Use the bootstrap channel for the broker and receive the node's channel
     // synchronously as the first message from the broker.
     DCHECK(connection_params.endpoint().is_valid());
-    base::ElapsedTimer timer;
     broker_ = std::make_unique<Broker>(
         connection_params.TakeEndpoint().TakePlatformHandle(),
         /*wait_for_channel_handle=*/true);
@@ -243,7 +246,7 @@ void NodeController::ConnectIsolated(ConnectionParams connection_params,
       FROM_HERE,
       base::BindOnce(&NodeController::ConnectIsolatedOnIOThread,
                      base::Unretained(this), std::move(connection_params), port,
-                     connection_name.as_string()));
+                     std::string(connection_name)));
 }
 
 void NodeController::SetPortObserver(const ports::PortRef& port,
@@ -424,7 +427,7 @@ void NodeController::SendBrokerClientInvitationOnIOThread(
 
 void NodeController::AcceptBrokerClientInvitationOnIOThread(
     ConnectionParams connection_params,
-    base::Optional<PlatformHandle> broker_host_handle) {
+    absl::optional<PlatformHandle> broker_host_handle) {
   DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
 
   {
@@ -944,7 +947,11 @@ void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
                                           const ports::NodeName& broker_name,
                                           PlatformHandle broker_channel,
                                           const uint64_t broker_capabilities) {
-  DCHECK(!GetConfiguration().is_broker_process);
+  if (GetConfiguration().is_broker_process) {
+    // The broker should never receive this message from anyone.
+    DropPeer(from_node, nullptr);
+    return;
+  }
 
   // This node should already have an inviter in bootstrap mode.
   ports::NodeName inviter_name;
@@ -955,8 +962,13 @@ void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
     inviter = bootstrap_inviter_channel_;
     bootstrap_inviter_channel_ = nullptr;
   }
-  DCHECK(inviter_name == from_node);
-  DCHECK(inviter);
+
+  if (inviter_name != from_node || !inviter ||
+      broker_name == ports::kInvalidNodeName) {
+    // We are not expecting this message. Assume the source is hostile.
+    DropPeer(from_node, nullptr);
+    return;
+  }
 
   base::queue<ports::NodeName> pending_broker_clients;
   std::unordered_map<ports::NodeName, OutgoingMessageQueue>
@@ -967,16 +979,13 @@ void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
     std::swap(pending_broker_clients, pending_broker_clients_);
     std::swap(pending_relay_messages, pending_relay_messages_);
   }
-  DCHECK(broker_name != ports::kInvalidNodeName);
 
   // It's now possible to add both the broker and the inviter as peers.
   // Note that the broker and inviter may be the same node.
   scoped_refptr<NodeChannel> broker;
   if (broker_name == inviter_name) {
-    DCHECK(!broker_channel.is_valid());
     broker = inviter;
-  } else {
-    DCHECK(broker_channel.is_valid());
+  } else if (broker_channel.is_valid()) {
     broker = NodeChannel::Create(
         this,
         ConnectionParams(PlatformChannelEndpoint(std::move(broker_channel))),
@@ -984,6 +993,9 @@ void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
         ProcessErrorCallback());
     broker->SetRemoteCapabilities(broker_capabilities);
     AddPeer(broker_name, broker, true /* start_channel */);
+  } else {
+    DropPeer(from_node, nullptr);
+    return;
   }
 
   AddPeer(inviter_name, inviter, false /* start_channel */);
@@ -1117,6 +1129,12 @@ void NodeController::OnIntroduce(const ports::NodeName& from_node,
                                  PlatformHandle channel_handle,
                                  const uint64_t remote_capabilities) {
   DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
+
+  if (broker_name_ == ports::kInvalidNodeName || from_node != broker_name_) {
+    DVLOG(1) << "Ignoring introduction from non-broker process.";
+    DropPeer(from_node, nullptr);
+    return;
+  }
 
   if (!channel_handle.is_valid()) {
     node_->LostConnectionToNode(name);

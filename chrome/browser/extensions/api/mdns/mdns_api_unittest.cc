@@ -125,9 +125,9 @@ class EventServiceListSizeMatcher
       *listener << "event.event_arg is null when it shouldn't be";
       return false;
     }
-    if (e.event_args->GetSize() != 1) {
+    if (e.event_args->GetList().size() != 1) {
       *listener << "event.event_arg.GetSize() should be 1 but is "
-                << e.event_args->GetSize();
+                << e.event_args->GetList().size();
       return false;
     }
     const base::ListValue* services = nullptr;
@@ -140,9 +140,9 @@ class EventServiceListSizeMatcher
       *listener << "event's service list argument is not a ListValue";
       return false;
     }
-    *listener << "number of services is " << services->GetSize();
+    *listener << "number of services is " << services->GetList().size();
     return static_cast<testing::Matcher<size_t>>(testing::Eq(expected_size_))
-        .MatchAndExplain(services->GetSize(), listener);
+        .MatchAndExplain(services->GetList().size(), listener);
   }
 
   virtual void DescribeTo(::std::ostream* os) const {
@@ -194,8 +194,8 @@ class MDnsAPITest : public extensions::ExtensionServiceTestBase {
     MDnsAPI::Get(browser_context())
         ->SetDnsSdRegistryForTesting(registry_.get());
 
-    render_process_host_.reset(
-        new content::MockRenderProcessHost(browser_context()));
+    render_process_host_ =
+        std::make_unique<content::MockRenderProcessHost>(browser_context());
   }
 
   // Returns the mDNS API factory function (mock vs. real) to use for the test.
@@ -231,11 +231,8 @@ class MDnsAPITest : public extensions::ExtensionServiceTestBase {
     std::string error;
     return extensions::Extension::Create(
         bogus_file_pathname(name),
-        extensions::Manifest::INVALID_LOCATION,
-        manifest,
-        Extension::NO_FLAGS,
-        extension_id,
-        &error);
+        extensions::mojom::ManifestLocation::kInvalidLocation, manifest,
+        Extension::NO_FLAGS, extension_id, &error);
   }
 
   content::RenderProcessHost* render_process_host() const {
@@ -351,6 +348,7 @@ TEST_F(MDnsAPITest, ExtensionRespectsAllowlist) {
       CreateExtension("Dinosaur networker", false, kExtId);
   ExtensionRegistry::Get(browser_context())->AddEnabled(extension);
   ASSERT_EQ(Manifest::TYPE_EXTENSION, extension->GetType());
+  auto param = mojom::EventListenerParam::NewExtensionId(kExtId);
 
   // There is a allowlist of mdns service types extensions may access, which
   // includes "_testing._tcp.local" and excludes "_trex._tcp.local"
@@ -364,15 +362,15 @@ TEST_F(MDnsAPITest, ExtensionRespectsAllowlist) {
         .Times(0);
     EventRouter::Get(browser_context())
         ->AddFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                   render_process_host(), kExtId, base::nullopt,
-                                   filter, false);
+                                   render_process_host(), param.Clone(),
+                                   absl::nullopt, filter, false);
 
     EXPECT_CALL(*dns_sd_registry(), UnregisterDnsSdListener("_trex._tcp.local"))
         .Times(0);
     EventRouter::Get(browser_context())
         ->RemoveFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                      render_process_host(), kExtId,
-                                      base::nullopt, filter, false);
+                                      render_process_host(), param.Clone(),
+                                      absl::nullopt, filter, false);
   }
   {
     base::DictionaryValue filter;
@@ -384,15 +382,15 @@ TEST_F(MDnsAPITest, ExtensionRespectsAllowlist) {
                 RegisterDnsSdListener("_testing._tcp.local"));
     EventRouter::Get(browser_context())
         ->AddFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                   render_process_host(), kExtId, base::nullopt,
-                                   filter, false);
+                                   render_process_host(), param.Clone(),
+                                   absl::nullopt, filter, false);
 
     EXPECT_CALL(*dns_sd_registry(),
                 UnregisterDnsSdListener("_testing._tcp.local"));
     EventRouter::Get(browser_context())
         ->RemoveFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                      render_process_host(), kExtId,
-                                      base::nullopt, filter, false);
+                                      render_process_host(), param.Clone(),
+                                      absl::nullopt, filter, false);
   }
 }
 
@@ -401,6 +399,7 @@ TEST_F(MDnsAPITest, PlatformAppsNotSubjectToAllowlist) {
       CreateExtension("Dinosaur networker", true, kExtId);
   ExtensionRegistry::Get(browser_context())->AddEnabled(extension);
   ASSERT_TRUE(extension->is_platform_app());
+  auto param = mojom::EventListenerParam::NewExtensionId(kExtId);
 
   base::DictionaryValue filter;
   filter.SetString(kEventFilterServiceTypeKey, "_trex._tcp.local");
@@ -411,14 +410,14 @@ TEST_F(MDnsAPITest, PlatformAppsNotSubjectToAllowlist) {
 
   EventRouter::Get(browser_context())
       ->AddFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                 render_process_host(), kExtId, base::nullopt,
-                                 filter, false);
+                                 render_process_host(), param.Clone(),
+                                 absl::nullopt, filter, false);
 
   EXPECT_CALL(*dns_sd_registry(), UnregisterDnsSdListener("_trex._tcp.local"));
   EventRouter::Get(browser_context())
       ->RemoveFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                    render_process_host(), kExtId,
-                                    base::nullopt, filter, false);
+                                    render_process_host(), param.Clone(),
+                                    absl::nullopt, filter, false);
 }
 
 }  // namespace extensions

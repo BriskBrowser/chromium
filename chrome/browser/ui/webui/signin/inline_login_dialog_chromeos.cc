@@ -19,11 +19,11 @@
 #include "base/metrics/histogram_functions.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/supervised_user/supervised_user_features.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #include "chrome/browser/ui/webui/chromeos/system_web_dialog_delegate.h"
 #include "chrome/common/webui_url_constants.h"
+#include "components/account_manager_core/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
@@ -44,6 +44,13 @@ namespace {
 InlineLoginDialogChromeOS* dialog = nullptr;
 constexpr int kSigninDialogWidth = 768;
 constexpr int kSigninDialogHeight = 640;
+
+// The EDU Coexistence signin dialog uses different dimensions
+// that match the dimensions of the equivalent OOBE
+// dialog, and are required for the size of the web content
+// that the dialog hosts.
+constexpr int kEduCoexistenceSigninDialogWidth = 1040;
+constexpr int kEduCoexistenceSigninDialogHeight = 680;
 
 bool IsDeviceAccountEmail(const std::string& email) {
   auto* active_user = user_manager::UserManager::Get()->GetActiveUser();
@@ -67,7 +74,7 @@ GURL GetInlineLoginUrl(const std::string& email) {
     return GetUrlWithEmailParam(chrome::kChromeUIChromeSigninURL, email);
   }
   if (!ProfileManager::GetActiveUserProfile()->GetPrefs()->GetBoolean(
-          chromeos::prefs::kSecondaryGoogleAccountSigninAllowed)) {
+          ::account_manager::prefs::kSecondaryGoogleAccountSigninAllowed)) {
     // Addition of secondary Google Accounts is not allowed.
     return GURL(chrome::kChromeUIAccountManagerErrorURL);
   }
@@ -85,31 +92,6 @@ GURL GetInlineLoginUrl(const std::string& email) {
 // static
 bool InlineLoginDialogChromeOS::IsShown() {
   return dialog != nullptr;
-}
-
-// static
-void InlineLoginDialogChromeOS::ShowDeprecated(
-    const std::string& email,
-    const ::account_manager::AccountManagerFacade::AccountAdditionSource&
-        source) {
-  base::UmaHistogramEnumeration(
-      account_manager::AccountManagerFacade::kAccountAdditionSource, source);
-  ShowInternal(email);
-}
-
-// static
-void InlineLoginDialogChromeOS::ShowDeprecated(
-    const ::account_manager::AccountManagerFacade::AccountAdditionSource&
-        source) {
-  ShowDeprecated(/* email= */ std::string(), source);
-}
-
-// static
-void InlineLoginDialogChromeOS::UpdateEduCoexistenceFlowResult(
-    EduCoexistenceFlowResult result) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (dialog)
-    dialog->SetEduCoexistenceFlowResult(result);
 }
 
 void InlineLoginDialogChromeOS::AdjustWidgetInitParams(
@@ -135,21 +117,20 @@ gfx::Point InlineLoginDialogChromeOS::GetDialogPosition(const gfx::Size& size) {
 }
 
 void InlineLoginDialogChromeOS::AddObserver(
-    web_modal::ModalDialogHostObserver* observer) {}
+    web_modal::ModalDialogHostObserver* observer) {
+  modal_dialog_host_observer_list_.AddObserver(observer);
+}
 
 void InlineLoginDialogChromeOS::RemoveObserver(
-    web_modal::ModalDialogHostObserver* observer) {}
-
-void InlineLoginDialogChromeOS::SetEduCoexistenceFlowResult(
-    EduCoexistenceFlowResult result) {
-  edu_coexistence_flow_result_ = result;
+    web_modal::ModalDialogHostObserver* observer) {
+  modal_dialog_host_observer_list_.RemoveObserver(observer);
 }
 
 InlineLoginDialogChromeOS::InlineLoginDialogChromeOS()
     : InlineLoginDialogChromeOS(GetInlineLoginUrl(std::string())) {}
 
 InlineLoginDialogChromeOS::InlineLoginDialogChromeOS(const GURL& url)
-    : SystemWebDialogDelegate(url, base::string16() /* title */),
+    : SystemWebDialogDelegate(url, std::u16string() /* title */),
       delegate_(this),
       url_(url) {
   DCHECK(!dialog);
@@ -159,7 +140,7 @@ InlineLoginDialogChromeOS::InlineLoginDialogChromeOS(const GURL& url)
 InlineLoginDialogChromeOS::InlineLoginDialogChromeOS(
     const GURL& url,
     base::OnceClosure close_dialog_closure)
-    : SystemWebDialogDelegate(url, base::string16() /* title */),
+    : SystemWebDialogDelegate(url, std::u16string() /* title */),
       delegate_(this),
       url_(url),
       close_dialog_closure_(std::move(close_dialog_closure)) {
@@ -168,6 +149,15 @@ InlineLoginDialogChromeOS::InlineLoginDialogChromeOS(
 }
 
 InlineLoginDialogChromeOS::~InlineLoginDialogChromeOS() {
+  for (auto& observer : modal_dialog_host_observer_list_)
+    observer.OnHostDestroying();
+
+  if (webui()) {
+    web_modal::WebContentsModalDialogManager::FromWebContents(
+        webui()->GetWebContents())
+        ->SetDelegate(nullptr);
+  }
+
   if (!close_dialog_closure_.is_null()) {
     std::move(close_dialog_closure_).Run();
   }
@@ -179,14 +169,21 @@ InlineLoginDialogChromeOS::~InlineLoginDialogChromeOS() {
 void InlineLoginDialogChromeOS::GetDialogSize(gfx::Size* size) const {
   const display::Display display =
       display::Screen::GetScreen()->GetDisplayNearestWindow(dialog_window());
+
+  if (ProfileManager::GetActiveUserProfile()->IsChild()) {
+    size->SetSize(
+        std::min(kEduCoexistenceSigninDialogWidth, display.work_area().width()),
+        std::min(kEduCoexistenceSigninDialogHeight,
+                 display.work_area().height()));
+    return;
+  }
+
   size->SetSize(std::min(kSigninDialogWidth, display.work_area().width()),
                 std::min(kSigninDialogHeight, display.work_area().height()));
 }
 
 ui::ModalType InlineLoginDialogChromeOS::GetDialogModalType() const {
-  return chromeos::features::IsAccountManagementFlowsV2Enabled()
-             ? ui::MODAL_TYPE_SYSTEM
-             : ui::MODAL_TYPE_NONE;
+  return ui::MODAL_TYPE_SYSTEM;
 }
 
 bool InlineLoginDialogChromeOS::ShouldShowDialogTitle() const {
@@ -203,12 +200,6 @@ void InlineLoginDialogChromeOS::OnDialogShown(content::WebUI* webui) {
 }
 
 void InlineLoginDialogChromeOS::OnDialogClosed(const std::string& json_retval) {
-  if (ProfileManager::GetActiveUserProfile()->IsChild() &&
-      !base::FeatureList::IsEnabled(supervised_users::kEduCoexistenceFlowV2)) {
-    DCHECK(edu_coexistence_flow_result_.has_value());
-    base::UmaHistogramEnumeration("AccountManager.EduCoexistence.FlowResult",
-                                  edu_coexistence_flow_result_.value());
-  }
   SystemWebDialogDelegate::OnDialogClosed(json_retval);
 }
 

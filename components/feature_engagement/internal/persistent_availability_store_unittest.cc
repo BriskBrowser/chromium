@@ -15,13 +15,13 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/feature_engagement/internal/proto/availability.pb.h"
 #include "components/feature_engagement/public/feature_list.h"
 #include "components/leveldb_proto/public/proto_database.h"
 #include "components/leveldb_proto/testing/fake_db.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace feature_engagement {
 
@@ -51,6 +51,11 @@ class PersistentAvailabilityStoreTest : public testing::Test {
         &PersistentAvailabilityStoreTest::LoadCallback, base::Unretained(this));
   }
 
+  PersistentAvailabilityStoreTest(const PersistentAvailabilityStoreTest&) =
+      delete;
+  PersistentAvailabilityStoreTest& operator=(
+      const PersistentAvailabilityStoreTest&) = delete;
+
   ~PersistentAvailabilityStoreTest() override = default;
 
   // Creates a DB and stores off a pointer to it as a member.
@@ -75,7 +80,7 @@ class PersistentAvailabilityStoreTest : public testing::Test {
   PersistentAvailabilityStore::OnLoadedCallback load_callback_;
 
   // Callback results.
-  base::Optional<bool> load_successful_;
+  absl::optional<bool> load_successful_;
   std::unique_ptr<std::map<std::string, uint32_t>> load_results_;
 
   // |db_availabilities_| is used during creation of the FakeDB in CreateDB(),
@@ -87,9 +92,6 @@ class PersistentAvailabilityStoreTest : public testing::Test {
 
   // Constant test data.
   base::FilePath storage_dir_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PersistentAvailabilityStoreTest);
 };
 
 }  // namespace

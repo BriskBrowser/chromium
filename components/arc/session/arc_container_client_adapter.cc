@@ -10,11 +10,14 @@
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/notreached.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/dbus_method_call_status.h"
 #include "chromeos/dbus/login_manager/arc.pb.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "components/arc/session/arc_session.h"
+#include "components/arc/session/arc_upgrade_params.h"
 
 namespace arc {
 namespace {
@@ -34,19 +37,22 @@ ToLoginManagerPackageCacheMode(UpgradeParams::PackageCacheMode mode) {
   }
 }
 
-// Converts ArcSupervisionTransition into login_manager's.
-login_manager::UpgradeArcContainerRequest_SupervisionTransition
-ToLoginManagerSupervisionTransition(ArcSupervisionTransition transition) {
+// Converts ArcManagementTransition into login_manager's.
+login_manager::UpgradeArcContainerRequest_ManagementTransition
+ToLoginManagerManagementTransition(ArcManagementTransition transition) {
   switch (transition) {
-    case ArcSupervisionTransition::NO_TRANSITION:
+    case ArcManagementTransition::NO_TRANSITION:
       return login_manager::
-          UpgradeArcContainerRequest_SupervisionTransition_NONE;
-    case ArcSupervisionTransition::CHILD_TO_REGULAR:
+          UpgradeArcContainerRequest_ManagementTransition_NONE;
+    case ArcManagementTransition::CHILD_TO_REGULAR:
       return login_manager::
-          UpgradeArcContainerRequest_SupervisionTransition_CHILD_TO_REGULAR;
-    case ArcSupervisionTransition::REGULAR_TO_CHILD:
+          UpgradeArcContainerRequest_ManagementTransition_CHILD_TO_REGULAR;
+    case ArcManagementTransition::REGULAR_TO_CHILD:
       return login_manager::
-          UpgradeArcContainerRequest_SupervisionTransition_REGULAR_TO_CHILD;
+          UpgradeArcContainerRequest_ManagementTransition_REGULAR_TO_CHILD;
+    case ArcManagementTransition::UNMANAGED_TO_MANAGED:
+      return login_manager::
+          UpgradeArcContainerRequest_ManagementTransition_UNMANAGED_TO_MANAGED;
   }
 }
 
@@ -97,14 +103,17 @@ class ArcContainerClientAdapter
       chromeos::SessionManagerClient::Get()->AddObserver(this);
   }
 
+  ArcContainerClientAdapter(const ArcContainerClientAdapter&) = delete;
+  ArcContainerClientAdapter& operator=(const ArcContainerClientAdapter&) =
+      delete;
+
   ~ArcContainerClientAdapter() override {
     if (chromeos::SessionManagerClient::Get())
       chromeos::SessionManagerClient::Get()->RemoveObserver(this);
   }
 
-  // ArcClientAdapter overrides:
-  void StartMiniArc(StartParams params,
-                    chromeos::VoidDBusMethodCallback callback) override {
+  login_manager::StartArcMiniContainerRequest
+  ConvertStartParamsToStartArcMiniContainerRequest(StartParams params) {
     login_manager::StartArcMiniContainerRequest request;
     request.set_native_bridge_experiment(params.native_bridge_experiment);
     request.set_lcd_density(params.lcd_density);
@@ -118,8 +127,15 @@ class ArcContainerClientAdapter
         params.arc_disable_system_default_app);
     request.set_disable_media_store_maintenance(
         params.disable_media_store_maintenance);
+    request.set_disable_download_provider(params.disable_download_provider);
+    request.set_disable_ureadahead(params.disable_ureadahead);
     request.set_arc_generate_pai(params.arc_generate_play_auto_install);
+    return request;
+  }
 
+  // ArcClientAdapter overrides:
+  void StartMiniArc(StartParams params,
+                    chromeos::VoidDBusMethodCallback callback) override {
     switch (params.usap_profile) {
       case StartParams::UsapProfile::DEFAULT:
         break;
@@ -130,12 +146,14 @@ class ArcContainerClientAdapter
         break;
     }
 
+    auto request =
+        ConvertStartParamsToStartArcMiniContainerRequest(std::move(params));
     chromeos::SessionManagerClient::Get()->StartArcMiniContainer(
         request, std::move(callback));
   }
 
-  void UpgradeArc(UpgradeParams params,
-                  chromeos::VoidDBusMethodCallback callback) override {
+  login_manager::UpgradeArcContainerRequest
+  ConvertUpgradeParamsToUpgradeArcContainerRequest(UpgradeParams params) {
     login_manager::UpgradeArcContainerRequest request;
     request.set_account_id(params.account_id);
     request.set_is_account_managed(params.is_account_managed);
@@ -149,11 +167,17 @@ class ArcContainerClientAdapter
     request.set_is_demo_session(params.is_demo_session);
     request.set_demo_session_apps_path(params.demo_session_apps_path.value());
     request.set_locale(params.locale);
+    request.set_enable_arc_nearby_share(params.enable_arc_nearby_share);
     for (const auto& language : params.preferred_languages)
       request.add_preferred_languages(language);
-    request.set_supervision_transition(
-        ToLoginManagerSupervisionTransition(params.supervision_transition));
+    request.set_management_transition(
+        ToLoginManagerManagementTransition(params.management_transition));
+    return request;
+  }
 
+  void UpgradeArc(UpgradeParams params,
+                  chromeos::VoidDBusMethodCallback callback) override {
+    auto request = ConvertUpgradeParamsToUpgradeArcContainerRequest(params);
     chromeos::SessionManagerClient::Get()->UpgradeArcContainer(
         request, std::move(callback));
   }
@@ -178,17 +202,28 @@ class ArcContainerClientAdapter
   // UpgradeParams, so it does not use the DemoModeDelegate.
   void SetDemoModeDelegate(DemoModeDelegate* delegate) override {}
 
+  // The interface is only for ARCVM.
+  void TrimVmMemory(TrimVmMemoryCallback callback) override {
+    NOTREACHED();
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(callback), /*success=*/true,
+                       /*failure_reason=*/"ARC container is not supported."));
+  }
+
   // chromeos::SessionManagerClient::Observer overrides:
-  void ArcInstanceStopped() override {
+  void ArcInstanceStopped(
+      login_manager::ArcContainerStopReason reason) override {
+    const bool is_system_shutdown =
+        reason ==
+        login_manager::ArcContainerStopReason::SESSION_MANAGER_SHUTDOWN;
     for (auto& observer : observer_list_)
-      observer.ArcInstanceStopped();
+      observer.ArcInstanceStopped(is_system_shutdown);
   }
 
  private:
   // A cryptohome ID of the primary profile.
   cryptohome::Identification cryptohome_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArcContainerClientAdapter);
 };
 
 std::unique_ptr<ArcClientAdapter> CreateArcContainerClientAdapter() {

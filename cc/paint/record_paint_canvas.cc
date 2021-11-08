@@ -10,8 +10,10 @@
 #include "cc/paint/paint_image_builder.h"
 #include "cc/paint/paint_record.h"
 #include "cc/paint/paint_recorder.h"
+#include "cc/paint/skottie_frame_data.h"
 #include "cc/paint/skottie_wrapper.h"
 #include "third_party/skia/include/core/SkAnnotation.h"
+#include "third_party/skia/include/core/SkTextBlob.h"
 #include "third_party/skia/include/utils/SkNWayCanvas.h"
 
 namespace cc {
@@ -150,7 +152,8 @@ void RecordPaintCanvas::clipRRect(const SkRRect& rrect,
 
 void RecordPaintCanvas::clipPath(const SkPath& path,
                                  SkClipOp op,
-                                 bool antialias) {
+                                 bool antialias,
+                                 UsePaintCache use_paint_cache) {
   if (!path.isInverseFillType() &&
       GetCanvas()->getTotalMatrix().rectStaysRect()) {
     // TODO(enne): do these cases happen? should the caller know that this isn't
@@ -172,7 +175,7 @@ void RecordPaintCanvas::clipPath(const SkPath& path,
     }
   }
 
-  list_->push<ClipPathOp>(path, op, antialias);
+  list_->push<ClipPathOp>(path, op, antialias, use_paint_cache);
   GetCanvas()->clipPath(path, op, antialias);
   return;
 }
@@ -257,8 +260,10 @@ void RecordPaintCanvas::drawRoundRect(const SkRect& rect,
   }
 }
 
-void RecordPaintCanvas::drawPath(const SkPath& path, const PaintFlags& flags) {
-  list_->push<DrawPathOp>(path, flags);
+void RecordPaintCanvas::drawPath(const SkPath& path,
+                                 const PaintFlags& flags,
+                                 UsePaintCache use_paint_cache) {
+  list_->push<DrawPathOp>(path, flags, use_paint_cache);
 }
 
 void RecordPaintCanvas::drawImage(const PaintImage& image,
@@ -282,7 +287,9 @@ void RecordPaintCanvas::drawImageRect(const PaintImage& image,
 void RecordPaintCanvas::drawSkottie(scoped_refptr<SkottieWrapper> skottie,
                                     const SkRect& dst,
                                     float t) {
-  list_->push<DrawSkottieOp>(std::move(skottie), dst, t);
+  // TODO(crbug.com/1266051): Fill in SkottieFrameDataMap. Feature is currently
+  // under development and just haven't gotten to it yet.
+  list_->push<DrawSkottieOp>(std::move(skottie), dst, t, SkottieFrameDataMap());
 }
 
 void RecordPaintCanvas::drawTextBlob(sk_sp<SkTextBlob> blob,
@@ -312,6 +319,10 @@ bool RecordPaintCanvas::isClipEmpty() const {
 
 SkMatrix RecordPaintCanvas::getTotalMatrix() const {
   return GetCanvas()->getTotalMatrix();
+}
+
+SkM44 RecordPaintCanvas::getLocalToDevice() const {
+  return GetCanvas()->getLocalToDevice();
 }
 
 void RecordPaintCanvas::Annotate(AnnotationType type,

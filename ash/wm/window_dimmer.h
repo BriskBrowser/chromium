@@ -6,7 +6,6 @@
 #define ASH_WM_WINDOW_DIMMER_H_
 
 #include "ash/ash_export.h"
-#include "base/callback_forward.h"
 #include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -54,6 +53,10 @@ class ASH_EXPORT WindowDimmer : public aura::WindowObserver {
   explicit WindowDimmer(aura::Window* parent,
                         bool animate = true,
                         Delegate* delegate = nullptr);
+
+  WindowDimmer(const WindowDimmer&) = delete;
+  WindowDimmer& operator=(const WindowDimmer&) = delete;
+
   ~WindowDimmer() override;
 
   aura::Window* parent() { return parent_; }
@@ -85,8 +88,6 @@ class ASH_EXPORT WindowDimmer : public aura::WindowObserver {
   aura::Window* window_;
 
   Delegate* delegate_;  // Not owned.
-
-  DISALLOW_COPY_AND_ASSIGN(WindowDimmer);
 };
 
 }  // namespace ash

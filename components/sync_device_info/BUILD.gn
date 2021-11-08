@@ -62,6 +62,10 @@ static_library("sync_device_info") {
     sources += [ "local_device_info_util_linux.cc" ]
   }
 
+  if (is_fuchsia) {
+    sources += [ "local_device_info_util_fuchsia.cc" ]
+  }
+
   if (is_mac) {
     sources += [ "local_device_info_util_mac.mm" ]
     frameworks = [
@@ -76,7 +80,10 @@ static_library("sync_device_info") {
 
   if (is_chromeos_ash) {
     # Required by device_info_util_linux.cc on Chrome OS.
-    deps += [ "//ash/constants" ]
+    deps += [
+      "//ash/constants",
+      "//chromeos/system",
+    ]
   }
 }
 
@@ -122,4 +129,8 @@ source_set("unit_tests") {
     "//testing/gmock",
     "//testing/gtest",
   ]
+
+  if (is_chromeos_ash) {
+    deps += [ "//chromeos/system" ]
+  }
 }

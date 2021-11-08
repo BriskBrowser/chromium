@@ -17,21 +17,27 @@ namespace ash {
 
 class LoginTooltipView : public LoginBaseBubbleView {
  public:
-  LoginTooltipView(const base::string16& message, views::View* anchor_view);
+  LoginTooltipView(const std::u16string& message, views::View* anchor_view);
+
+  LoginTooltipView(const LoginTooltipView&) = delete;
+  LoginTooltipView& operator=(const LoginTooltipView&) = delete;
+
   ~LoginTooltipView() override;
 
-  void SetText(const base::string16& message);
+  void set_text(const std::u16string& message) { label_->SetText(message); }
+
+  void UpdateIcon();
 
   // LoginBaseBubbleView:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  void OnThemeChanged() override;
 
  protected:
   views::Label* label() { return label_; }
 
  private:
   views::Label* label_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(LoginTooltipView);
+  views::ImageView* info_icon_ = nullptr;
 };
 
 }  // namespace ash

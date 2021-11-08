@@ -41,7 +41,8 @@ void DeviceLocalAccountExternalPolicyLoader::StartCache(
   external_cache_ = std::make_unique<ExternalCacheImpl>(
       cache_dir_, shared_url_loader_factory, cache_task_runner, this,
       true /* always_check_updates */,
-      false /* wait_for_cache_initialization */);
+      false /* wait_for_cache_initialization */,
+      false /* allow_scheduled_updates */);
 
   if (store_->is_initialized())
     UpdateExtensionListFromStore();
@@ -84,7 +85,7 @@ void DeviceLocalAccountExternalPolicyLoader::OnStoreError(
 
 void DeviceLocalAccountExternalPolicyLoader::OnExtensionListsUpdated(
     const base::DictionaryValue* prefs) {
-  DCHECK(external_cache_ || prefs->empty());
+  DCHECK(external_cache_ || prefs->DictEmpty());
   prefs_ = prefs->CreateDeepCopy();
   // Only call LoadFinished() when there is an owner to consume |prefs_|.
   if (has_owner())

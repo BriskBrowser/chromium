@@ -4,12 +4,11 @@
 
 #include "chrome/browser/sync/test/integration/multi_client_status_change_checker.h"
 
-
 MultiClientStatusChangeChecker::MultiClientStatusChangeChecker(
-    std::vector<syncer::ProfileSyncService*> services)
+    std::vector<syncer::SyncServiceImpl*> services)
     : services_(services) {
-  for (syncer::ProfileSyncService* service : services)
-    scoped_observer_.Add(service);
+  for (syncer::SyncServiceImpl* service : services)
+    scoped_observations_.AddObservation(service);
 }
 
 MultiClientStatusChangeChecker::~MultiClientStatusChangeChecker() = default;
@@ -19,5 +18,5 @@ void MultiClientStatusChangeChecker::OnStateChanged(syncer::SyncService* sync) {
 }
 
 void MultiClientStatusChangeChecker::OnSyncShutdown(syncer::SyncService* sync) {
-  scoped_observer_.Remove(sync);
+  scoped_observations_.RemoveObservation(sync);
 }

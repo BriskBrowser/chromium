@@ -24,18 +24,22 @@ class UnifiedNetworkDetailedViewController : public DetailedViewController {
  public:
   explicit UnifiedNetworkDetailedViewController(
       UnifiedSystemTrayController* tray_controller);
+
+  UnifiedNetworkDetailedViewController(
+      const UnifiedNetworkDetailedViewController&) = delete;
+  UnifiedNetworkDetailedViewController& operator=(
+      const UnifiedNetworkDetailedViewController&) = delete;
+
   ~UnifiedNetworkDetailedViewController() override;
 
   // DetailedViewControllerBase:
   views::View* CreateView() override;
-  base::string16 GetAccessibleName() const override;
+  std::u16string GetAccessibleName() const override;
 
  private:
   const std::unique_ptr<DetailedViewDelegate> detailed_view_delegate_;
 
   tray::NetworkListView* view_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedNetworkDetailedViewController);
 };
 
 }  // namespace ash

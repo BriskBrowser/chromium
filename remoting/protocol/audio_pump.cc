@@ -12,7 +12,7 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/notreached.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/audio_bus.h"
 #include "media/base/audio_sample_types.h"
@@ -95,6 +95,10 @@ class AudioPump::Core {
   Core(base::WeakPtr<AudioPump> pump,
        std::unique_ptr<AudioSource> audio_source,
        std::unique_ptr<AudioEncoder> audio_encoder);
+
+  Core(const Core&) = delete;
+  Core& operator=(const Core&) = delete;
+
   ~Core();
 
   void Start();
@@ -124,8 +128,6 @@ class AudioPump::Core {
 
   std::unique_ptr<media::ChannelMixer> mixer_;
   media::ChannelLayout mixer_input_layout_ = media::CHANNEL_LAYOUT_NONE;
-
-  DISALLOW_COPY_AND_ASSIGN(Core);
 };
 
 AudioPump::Core::Core(base::WeakPtr<AudioPump> pump,
@@ -231,8 +233,9 @@ AudioPump::AudioPump(
     : audio_task_runner_(audio_task_runner), audio_stub_(audio_stub) {
   DCHECK(audio_stub_);
 
-  core_.reset(new Core(weak_factory_.GetWeakPtr(), std::move(audio_source),
-                       std::move(audio_encoder)));
+  core_ =
+      std::make_unique<Core>(weak_factory_.GetWeakPtr(),
+                             std::move(audio_source), std::move(audio_encoder));
 
   audio_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&Core::Start, base::Unretained(core_.get())));

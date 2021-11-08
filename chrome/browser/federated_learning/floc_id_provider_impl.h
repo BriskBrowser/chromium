@@ -59,7 +59,8 @@ class FlocIdProviderImpl : public FlocIdProvider,
                            public history::HistoryServiceObserver {
  public:
   struct ComputeFlocResult {
-    ComputeFlocResult() = default;
+    explicit ComputeFlocResult(FlocId::Status status)
+        : floc_id(FlocId::CreateInvalid(status)) {}
 
     ComputeFlocResult(uint64_t sim_hash, const FlocId& floc_id)
         : sim_hash_computed(true), sim_hash(sim_hash), floc_id(floc_id) {}
@@ -90,11 +91,15 @@ class FlocIdProviderImpl : public FlocIdProvider,
   FlocIdProviderImpl(const FlocIdProviderImpl&) = delete;
   FlocIdProviderImpl& operator=(const FlocIdProviderImpl&) = delete;
 
-  std::string GetInterestCohortForJsApi(
+  blink::mojom::InterestCohortPtr GetInterestCohortForJsApi(
       const GURL& url,
-      const base::Optional<url::Origin>& top_frame_origin) const override;
+      const absl::optional<url::Origin>& top_frame_origin) const override;
+
+  mojom::WebUIFlocStatusPtr GetFlocStatusForWebUi() const override;
 
   void MaybeRecordFlocToUkm(ukm::SourceId source_id) override;
+
+  base::Time GetApproximateNextComputeTime() const override;
 
  protected:
   // protected virtual for testing.
@@ -113,8 +118,9 @@ class FlocIdProviderImpl : public FlocIdProvider,
   // When the floc-accessible-since time is updated (due to e.g. cookies
   // deletion), we'll either invalidate or keep using the floc. This will
   // depend on the updated time and the begin time of the history used to
-  // compute the current floc.
-  void OnFlocDataAccessibleSinceUpdated() override;
+  // compute the current floc. If |reset_compute_timer| is true the timer to
+  // re-compute the floc is reset.
+  void OnFlocDataAccessibleSinceUpdated(bool reset_compute_timer) override;
 
   // On history deletion, we'll either invalidate or keep using the floc. This
   // will depend on the deletion type and the time range.
@@ -124,12 +130,6 @@ class FlocIdProviderImpl : public FlocIdProvider,
   // FlocSortingLshClustersService::Observer
   void OnSortingLshClustersFileReady() override;
 
-  // This function will be called at the start or when the sorting-lsh file is
-  // loaded. It'll trigger an immediate floc computation if the floc was never
-  // computed before, or if the floc already expired when the browser session
-  // starts.
-  void MaybeTriggerImmediateComputation();
-
   void ComputeFloc();
 
   void CheckCanComputeFloc(CanComputeFlocCallback callback);
@@ -137,7 +137,7 @@ class FlocIdProviderImpl : public FlocIdProvider,
                                       bool can_compute_floc);
 
   bool IsSyncHistoryEnabled() const;
-  bool IsPrivacySandboxAllowed() const;
+  bool IsFlocAllowed() const;
 
   void IsSwaaNacAccountEnabled(CanComputeFlocCallback callback);
 
@@ -145,18 +145,11 @@ class FlocIdProviderImpl : public FlocIdProvider,
   void OnGetRecentlyVisitedURLsCompleted(ComputeFlocCompletedCallback callback,
                                          history::QueryResults results);
 
-  // Apply the sorting-lsh post processing to compute the final versioned floc.
-  // The final floc may be invalid if the file is corrupted or the floc end up
-  // being blocked.
-  void ApplySortingLshPostProcessing(ComputeFlocCompletedCallback callback,
-                                     uint64_t sim_hash,
-                                     base::Time history_begin_time,
-                                     base::Time history_end_time);
   void DidApplySortingLshPostProcessing(ComputeFlocCompletedCallback callback,
                                         uint64_t sim_hash,
                                         base::Time history_begin_time,
                                         base::Time history_end_time,
-                                        base::Optional<uint64_t> final_hash,
+                                        absl::optional<uint64_t> final_hash,
                                         base::Version version);
 
   // Abandon any scheduled task, and schedule a new compute-floc task with
@@ -196,8 +189,6 @@ class FlocIdProviderImpl : public FlocIdProvider,
   // result, but since this would only happen in rare race situations, we just
   // always recompute to keep things simple.
   bool need_recompute_ = false;
-
-  bool first_sorting_lsh_file_ready_seen_ = false;
 
   // Used for the async tasks querying the HistoryService.
   base::CancelableTaskTracker history_task_tracker_;

@@ -47,8 +47,8 @@ PasswordAutoSignInView::PasswordAutoSignInView(
           views::Button::PressedCallback(),
           l10n_util::GetStringUTF16(IDS_MANAGE_PASSWORDS_AUTO_SIGNIN_TITLE_MD),
           form.username_value, &form,
-          content::BrowserContext::GetDefaultStoragePartition(
-              controller_.GetProfile())
+          controller_.GetProfile()
+              ->GetDefaultStoragePartition()
               ->GetURLLoaderFactoryForBrowserProcess()
               .get(),
           views::style::STYLE_HINT, views::style::STYLE_PRIMARY));
@@ -91,6 +91,5 @@ void PasswordAutoSignInView::OnTimer() {
 }
 
 base::TimeDelta PasswordAutoSignInView::GetTimeout() {
-  return base::TimeDelta::FromSeconds(
-      PasswordAutoSignInView::auto_signin_toast_timeout_);
+  return base::Seconds(PasswordAutoSignInView::auto_signin_toast_timeout_);
 }

@@ -2,14 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/components/audio/cras_audio_handler.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_run_loop_timeout.h"
 #include "base/time/time.h"
 #include "chrome/browser/ui/ash/assistant/assistant_test_mixin.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "chromeos/assistant/test_support/expect_utils.h"
-#include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/dbus/power_manager/backlight.pb.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
 #include "chromeos/services/assistant/service.h"
@@ -17,8 +18,10 @@
 
 namespace chromeos {
 namespace assistant {
-
 namespace {
+
+using ::ash::CrasAudioHandler;
+
 // Please remember to set auth token when running in |kProxy| mode.
 constexpr auto kMode = FakeS3Mode::kReplay;
 // Update this when you introduce breaking changes to existing tests.
@@ -41,7 +44,15 @@ using chromeos::assistant::test::ExpectResult;
 
 class AssistantBrowserTest : public MixinBasedInProcessBrowserTest {
  public:
-  AssistantBrowserTest() = default;
+  AssistantBrowserTest() {
+    // TODO(b/190633242): enable sandbox in browser tests.
+    feature_list_.InitAndDisableFeature(
+        chromeos::assistant::features::kEnableLibAssistantSandbox);
+  }
+
+  AssistantBrowserTest(const AssistantBrowserTest&) = delete;
+  AssistantBrowserTest& operator=(const AssistantBrowserTest&) = delete;
+
   ~AssistantBrowserTest() override = default;
 
   AssistantTestMixin* tester() { return &tester_; }
@@ -113,8 +124,6 @@ class AssistantBrowserTest : public MixinBasedInProcessBrowserTest {
   base::test::ScopedFeatureList feature_list_;
   AssistantTestMixin tester_{&mixin_host_, this, embedded_test_server(), kMode,
                              kVersion};
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(AssistantBrowserTest,
@@ -126,7 +135,9 @@ IN_PROC_BROWSER_TEST_F(AssistantBrowserTest,
   EXPECT_TRUE(tester()->IsVisible());
 }
 
-IN_PROC_BROWSER_TEST_F(AssistantBrowserTest, ShouldDisplayTextResponse) {
+// TODO(b/184802501): Fix this flaky test.
+IN_PROC_BROWSER_TEST_F(AssistantBrowserTest,
+                       DISABLED_ShouldDisplayTextResponse) {
   tester()->StartAssistantAndWaitForReady();
 
   ShowAssistantUi();
@@ -141,7 +152,9 @@ IN_PROC_BROWSER_TEST_F(AssistantBrowserTest, ShouldDisplayTextResponse) {
   });
 }
 
-IN_PROC_BROWSER_TEST_F(AssistantBrowserTest, ShouldDisplayCardResponse) {
+// Flaky. See https://crbug.com/1196560.
+IN_PROC_BROWSER_TEST_F(AssistantBrowserTest,
+                       DISABLED_ShouldDisplayCardResponse) {
   tester()->StartAssistantAndWaitForReady();
 
   ShowAssistantUi();
@@ -159,7 +172,7 @@ IN_PROC_BROWSER_TEST_F(AssistantBrowserTest, ShouldTurnUpVolume) {
 
   ASSERT_TRUE(tester()->IsVisible());
 
-  auto* cras = chromeos::CrasAudioHandler::Get();
+  auto* cras = CrasAudioHandler::Get();
   constexpr int kStartVolumePercent = 50;
   cras->SetOutputVolumePercent(kStartVolumePercent);
   EXPECT_EQ(kStartVolumePercent, cras->GetOutputVolumePercent());
@@ -167,7 +180,7 @@ IN_PROC_BROWSER_TEST_F(AssistantBrowserTest, ShouldTurnUpVolume) {
   tester()->SendTextQuery("turn up volume");
 
   ExpectResult(true, base::BindRepeating(
-                         [](chromeos::CrasAudioHandler* cras) {
+                         [](CrasAudioHandler* cras) {
                            return cras->GetOutputVolumePercent() >
                                   kStartVolumePercent;
                          },
@@ -181,7 +194,7 @@ IN_PROC_BROWSER_TEST_F(AssistantBrowserTest, ShouldTurnDownVolume) {
 
   ASSERT_TRUE(tester()->IsVisible());
 
-  auto* cras = chromeos::CrasAudioHandler::Get();
+  auto* cras = CrasAudioHandler::Get();
   constexpr int kStartVolumePercent = 50;
   cras->SetOutputVolumePercent(kStartVolumePercent);
   EXPECT_EQ(kStartVolumePercent, cras->GetOutputVolumePercent());
@@ -189,7 +202,7 @@ IN_PROC_BROWSER_TEST_F(AssistantBrowserTest, ShouldTurnDownVolume) {
   tester()->SendTextQuery("turn down volume");
 
   ExpectResult(true, base::BindRepeating(
-                         [](chromeos::CrasAudioHandler* cras) {
+                         [](CrasAudioHandler* cras) {
                            return cras->GetOutputVolumePercent() <
                                   kStartVolumePercent;
                          },
@@ -256,7 +269,7 @@ IN_PROC_BROWSER_TEST_F(AssistantBrowserTest,
       "Something went wrong. Try again in a few seconds");
 
   // Make sure no further changes happen to the view hierarchy.
-  tester()->ExpectNoChange(base::TimeDelta::FromSeconds(1));
+  tester()->ExpectNoChange(base::Seconds(1));
 
   // This is necessary to prevent a UserInitiatedVoicelessActivity from
   // blocking test harness teardown while we wait on assistant to finish

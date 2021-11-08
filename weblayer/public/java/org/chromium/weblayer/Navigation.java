@@ -14,10 +14,14 @@ import org.chromium.weblayer_private.interfaces.IClientNavigation;
 import org.chromium.weblayer_private.interfaces.INavigation;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Information about a navigation.
+ * Information about a navigation. Each time there is a new navigation, a new
+ * Navigation object will be created and that same object will be used in all
+ * of the NavigationCallback methods.
  */
 public class Navigation extends IClientNavigation.Stub {
     private final INavigation mNavigationImpl;
@@ -72,13 +76,37 @@ public class Navigation extends IClientNavigation.Stub {
     }
 
     /**
-     * Returns the status code of the navigation. Returns 0 if the navigation  hasn't completed yet
+     * Returns the status code of the navigation. Returns 0 if the navigation hasn't completed yet
      * or if a response wasn't received.
      */
     public int getHttpStatusCode() {
         ThreadCheck.ensureOnUiThread();
         try {
             return mNavigationImpl.getHttpStatusCode();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /*
+     * Returns the HTTP response headers. Returns an empty map if the navigation hasn't completed
+     * yet or if a response wasn't received.
+     *
+     * @since 91
+     */
+    public Map<String, String> getResponseHeaders() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 91) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            Map<String, String> headers = new HashMap<String, String>();
+            List<String> array = mNavigationImpl.getResponseHeaders();
+            for (int i = 0; i < array.size(); i += 2) {
+                headers.put(array.get(i), array.get(i + 1));
+            }
+
+            return headers;
         } catch (RemoteException e) {
             throw new APICallException(e);
         }
@@ -277,6 +305,28 @@ public class Navigation extends IClientNavigation.Stub {
     }
 
     /**
+     * Disables intent processing for the lifetime of this navigation (including following
+     * redirects). This method may only be called from
+     * {@link NavigationCallback.onNavigationStarted}.
+     *
+     * @throws IllegalStateException If not called during start.
+     *
+     * @since 97
+     */
+    public void disableIntentProcessing() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.shouldPerformVersionChecks()
+                && WebLayer.getSupportedMajorVersionInternal() < 97) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            mNavigationImpl.disableIntentProcessing();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
      * Sets the user-agent string that applies to the current navigation. This user-agent is not
      * sticky, it applies to this navigation only (and any redirects or resources that are loaded).
      * This method may only be called from {@link NavigationCallback.onNavigationStarted}.
@@ -354,6 +404,89 @@ public class Navigation extends IClientNavigation.Stub {
         }
         try {
             return mNavigationImpl.isServedFromBackForwardCache();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Returns true if this navigation was initiated by a form submission.
+     *
+     * @since 89
+     */
+    public boolean isFormSubmission() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 89
+                || WebLayer.getVersion().equals("89.0.4389.69")
+                || WebLayer.getVersion().equals("89.0.4389.72")) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return mNavigationImpl.isFormSubmission();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Returns the referrer for this request.
+     *
+     * @since 89
+     */
+    @NonNull
+    public Uri getReferrer() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 89
+                || WebLayer.getVersion().equals("89.0.4389.69")
+                || WebLayer.getVersion().equals("89.0.4389.72")) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return Uri.parse(mNavigationImpl.getReferrer());
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /*
+     * Returns the Page object this navigation is occurring for.
+     * This method may only be called in (1) {@link NavigationCallback.onNavigationCompleted} or
+     * (2) {@link NavigationCallback.onNavigationFailed} when {@link Navigation#isErrorPage}
+     * returns true. It will return a non-null object in these cases.
+     *
+     * @throws IllegalStateException if called outside the above circumstances.
+     *
+     * @since 90
+     */
+    @NonNull
+    public Page getPage() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 90) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return (Page) mNavigationImpl.getPage();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Returns the offset between the indices of the previous last committed and the newly committed
+     * navigation entries, for example -1 for back navigations, 0 for reloads, 1 for forward
+     * navigations or new navigations. Note that the return value can be less than -1 or greater
+     * than 1 if the navigation goes back/forward multiple entries. This may not cover all corner
+     * cases, and can be incorrect in cases like main frame client redirects.
+     *
+     * @since 92
+     */
+    public int getNavigationEntryOffset() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 92) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return mNavigationImpl.getNavigationEntryOffset();
         } catch (RemoteException e) {
             throw new APICallException(e);
         }

@@ -4,6 +4,7 @@
 
 #include "components/viz/service/display_embedder/skia_output_device.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "base/bind.h"
@@ -15,6 +16,7 @@
 #include "components/viz/service/display/dc_layer_overlay.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/skia_utils.h"
+#include "services/tracing/public/cpp/perfetto/flow_event_utils.h"
 #include "third_party/skia/include/core/SkDeferredDisplayList.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
@@ -24,6 +26,8 @@
 
 namespace viz {
 namespace {
+
+using ::perfetto::protos::pbzero::ChromeLatencyInfo;
 
 scoped_refptr<base::SequencedTaskRunner> CreateLatencyTracerRunner() {
   if (!base::ThreadPoolInstance::Get())
@@ -35,14 +39,16 @@ scoped_refptr<base::SequencedTaskRunner> CreateLatencyTracerRunner() {
 
 void ReportLatency(const gfx::SwapTimings& timings,
                    ui::LatencyTracker* tracker,
-                   std::vector<ui::LatencyInfo> latency_info) {
+                   std::vector<ui::LatencyInfo> latency_info,
+                   bool top_controls_visible_height_changed) {
   for (auto& latency : latency_info) {
     latency.AddLatencyNumberWithTimestamp(
         ui::INPUT_EVENT_GPU_SWAP_BUFFER_COMPONENT, timings.swap_start);
     latency.AddLatencyNumberWithTimestamp(
         ui::INPUT_EVENT_LATENCY_FRAME_SWAP_COMPONENT, timings.swap_end);
   }
-  tracker->OnGpuSwapBuffersCompleted(std::move(latency_info));
+  tracker->OnGpuSwapBuffersCompleted(std::move(latency_info),
+                                     top_controls_visible_height_changed);
 }
 
 }  // namespace
@@ -106,9 +112,9 @@ SkiaOutputDevice::~SkiaOutputDevice() {
 }
 
 std::unique_ptr<SkiaOutputDevice::ScopedPaint>
-SkiaOutputDevice::BeginScopedPaint() {
+SkiaOutputDevice::BeginScopedPaint(bool allocate_frame_buffer) {
   std::vector<GrBackendSemaphore> end_semaphores;
-  SkSurface* sk_surface = BeginPaint(&end_semaphores);
+  SkSurface* sk_surface = BeginPaint(allocate_frame_buffer, &end_semaphores);
   if (!sk_surface) {
     return nullptr;
   }
@@ -121,16 +127,18 @@ void SkiaOutputDevice::Submit(bool sync_cpu, base::OnceClosure callback) {
   std::move(callback).Run();
 }
 
-void SkiaOutputDevice::CommitOverlayPlanes(
-    BufferPresentedCallback feedback,
-    std::vector<ui::LatencyInfo> latency_info) {
+void SkiaOutputDevice::CommitOverlayPlanes(BufferPresentedCallback feedback,
+                                           OutputSurfaceFrame frame) {
   NOTREACHED();
 }
 
-void SkiaOutputDevice::PostSubBuffer(
-    const gfx::Rect& rect,
-    BufferPresentedCallback feedback,
-    std::vector<ui::LatencyInfo> latency_info) {
+void SkiaOutputDevice::PostSubBuffer(const gfx::Rect& rect,
+                                     BufferPresentedCallback feedback,
+                                     OutputSurfaceFrame frame) {
+  NOTREACHED();
+}
+
+void SkiaOutputDevice::ReleaseOneFrameBuffer() {
   NOTREACHED();
 }
 
@@ -152,7 +160,7 @@ bool SkiaOutputDevice::IsPrimaryPlaneOverlay() const {
 }
 
 void SkiaOutputDevice::SchedulePrimaryPlane(
-    const base::Optional<OverlayProcessorInterface::OutputSurfaceOverlayPlane>&
+    const absl::optional<OverlayProcessorInterface::OutputSurfaceOverlayPlane>&
         plane) {
   if (plane)
     NOTIMPLEMENTED();
@@ -172,67 +180,118 @@ void SkiaOutputDevice::SetDrawTimings(base::TimeTicks submitted,
   gpu_started_draw_ = started;
 }
 
+void SkiaOutputDevice::SetDependencyTimings(base::TimeTicks task_ready) {
+  gpu_task_ready_ = task_ready;
+}
+
 void SkiaOutputDevice::StartSwapBuffers(BufferPresentedCallback feedback) {
   DCHECK_LT(static_cast<int>(pending_swaps_.size()),
-            capabilities_.max_frames_pending);
+            std::max(capabilities_.max_frames_pending,
+                     capabilities_.max_frames_pending_120hz.value_or(0)));
 
   pending_swaps_.emplace(++swap_id_, std::move(feedback), viz_scheduled_draw_,
-                         gpu_started_draw_);
+                         gpu_started_draw_, gpu_task_ready_);
   viz_scheduled_draw_ = base::TimeTicks();
   gpu_started_draw_ = base::TimeTicks();
+  gpu_task_ready_ = base::TimeTicks();
 }
 
 void SkiaOutputDevice::FinishSwapBuffers(
     gfx::SwapCompletionResult result,
     const gfx::Size& size,
-    std::vector<ui::LatencyInfo> latency_info,
-    const base::Optional<gfx::Rect>& damage_area,
+    OutputSurfaceFrame frame,
+    const absl::optional<gfx::Rect>& damage_area,
     std::vector<gpu::Mailbox> released_overlays,
     const gpu::Mailbox& primary_plane_mailbox) {
   DCHECK(!pending_swaps_.empty());
 
+  auto release_fence = std::move(result.release_fence);
   const gpu::SwapBuffersCompleteParams& params =
       pending_swaps_.front().Complete(std::move(result), damage_area,
                                       std::move(released_overlays),
                                       primary_plane_mailbox);
 
-  did_swap_buffer_complete_callback_.Run(params, size);
+  did_swap_buffer_complete_callback_.Run(params, size,
+                                         std::move(release_fence));
 
   pending_swaps_.front().CallFeedback();
 
   if (latency_tracker_runner_) {
-    // Report latency off GPU main thread.
+    // Report latency off GPU main thread, but we still want this to be counted
+    // as part of the critical flow so emit a flow step.
+    ui::LatencyInfo::TraceIntermediateFlowEvents(
+        frame.latency_info, ChromeLatencyInfo::STEP_FINISHED_SWAP_BUFFERS);
     latency_tracker_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(&ReportLatency, params.swap_response.timings,
-                       latency_tracker_.get(), std::move(latency_info)));
+                       latency_tracker_.get(), std::move(frame.latency_info),
+                       frame.top_controls_visible_height_changed));
   } else {
     ReportLatency(params.swap_response.timings, latency_tracker_.get(),
-                  std::move(latency_info));
+                  std::move(frame.latency_info),
+                  frame.top_controls_visible_height_changed);
   }
 
   pending_swaps_.pop();
+
+  // If there are skipped swaps at the front of the queue, they are now ready
+  // to be acknowledged without breaking ordering.
+  if (!pending_swaps_.empty()) {
+    auto iter = skipped_swap_info_.find(pending_swaps_.front().SwapId());
+    if (iter != skipped_swap_info_.end()) {
+      OutputSurfaceFrame output_frame = std::move(iter->second);
+      gfx::Size frame_size = output_frame.size;
+      skipped_swap_info_.erase(iter);
+      // Recursively call into FinishSwapBuffers until the head of the queue is
+      // no longer a skipped swap.
+      FinishSwapBuffers(
+          gfx::SwapCompletionResult(gfx::SwapResult::SWAP_SKIPPED), frame_size,
+          std::move(output_frame));
+    }
+  }
+}
+
+void SkiaOutputDevice::SwapBuffersSkipped(BufferPresentedCallback feedback,
+                                          OutputSurfaceFrame frame) {
+  StartSwapBuffers(std::move(feedback));
+  // If there are no other pending swaps, we can immediately close out the
+  // "skipped" swap that was just enqueued. If there are outstanding pending
+  // swaps, however, we need to wait for them to complete to avoid reordering
+  // complete/presentation callbacks.
+  if (pending_swaps_.size() == 1) {
+    gfx::Size frame_size = frame.size;
+    FinishSwapBuffers(gfx::SwapCompletionResult(gfx::SwapResult::SWAP_SKIPPED),
+                      frame_size, std::move(frame));
+  } else {
+    skipped_swap_info_[swap_id_] = std::move(frame);
+  }
 }
 
 SkiaOutputDevice::SwapInfo::SwapInfo(
     uint64_t swap_id,
     SkiaOutputDevice::BufferPresentedCallback feedback,
     base::TimeTicks viz_scheduled_draw,
-    base::TimeTicks gpu_started_draw)
+    base::TimeTicks gpu_started_draw,
+    base::TimeTicks gpu_task_ready)
     : feedback_(std::move(feedback)) {
   params_.swap_response.swap_id = swap_id;
   params_.swap_response.timings.swap_start = base::TimeTicks::Now();
   params_.swap_response.timings.viz_scheduled_draw = viz_scheduled_draw;
   params_.swap_response.timings.gpu_started_draw = gpu_started_draw;
+  params_.swap_response.timings.gpu_task_ready = gpu_task_ready;
 }
 
 SkiaOutputDevice::SwapInfo::SwapInfo(SwapInfo&& other) = default;
 
 SkiaOutputDevice::SwapInfo::~SwapInfo() = default;
 
+uint64_t SkiaOutputDevice::SwapInfo::SwapId() {
+  return params_.swap_response.swap_id;
+}
+
 const gpu::SwapBuffersCompleteParams& SkiaOutputDevice::SwapInfo::Complete(
     gfx::SwapCompletionResult result,
-    const base::Optional<gfx::Rect>& damage_rect,
+    const absl::optional<gfx::Rect>& damage_rect,
     std::vector<gpu::Mailbox> released_overlays,
     const gpu::Mailbox& primary_plane_mailbox) {
   params_.swap_response.result = result.swap_result;

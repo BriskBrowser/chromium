@@ -63,10 +63,11 @@ def _parse_dir_list(dir_list):
         # "repository/androidx/library_group/library_name/library_version/pom_or_jar"
         if len(dir_components) < 6:
             continue
-        dependency_module = 'androidx.{}:{}'.format(dir_components[2],
-                                                    dir_components[3])
+        dependency_package = 'androidx.' + '.'.join(dir_components[2:-3])
+        dependency_module = '{}:{}'.format(dependency_package,
+                                           dir_components[-3])
         if dependency_module not in dependency_version_map:
-            dependency_version_map[dependency_module] = dir_components[4]
+            dependency_version_map[dependency_module] = dir_components[-2]
     return dependency_version_map
 
 
@@ -74,7 +75,8 @@ def _compute_replacement(dependency_version_map, androidx_repository_url,
                          line):
     """Computes output line for build.gradle from build.gradle.template line.
 
-    Replaces {{android_repository_url}} and {{androidx_dependency_version}}.
+    Replaces {{android_repository_url}}, {{androidx_dependency_version}} and
+      {{version_overrides}}.
 
     Args:
       dependency_version_map: An "dependency_group:dependency_name"->dependency_version mapping.
@@ -83,13 +85,20 @@ def _compute_replacement(dependency_version_map, androidx_repository_url,
     """
     line = line.replace('{{androidx_repository_url}}', androidx_repository_url)
 
-    match = re.search(r'"(\S+):{{androidx_dependency_version}}"', line)
+    if line.strip() == '{{version_overrides}}':
+        lines = ['versionOverrideMap = [:]']
+        for dependency, version in dependency_version_map.items():
+            lines.append(f"versionOverrideMap['{dependency}'] = '{version}'")
+        return '\n'.join(lines)
+
+    match = re.search(r'\'(\S+):{{androidx_dependency_version}}\'', line)
     if not match:
         return line
 
-    version = dependency_version_map.get(match.group(1))
+    dependency = match.group(1)
+    version = dependency_version_map.get(dependency)
     if not version:
-        return line
+        raise Exception(f'Version for {dependency} not found.')
 
     return line.replace('{{androidx_dependency_version}}', version)
 
@@ -155,7 +164,10 @@ def _write_cipd_yaml(libs_dir, version, cipd_yaml_path):
     if not lib_dirs:
         raise Exception('No generated libraries in {}'.format(libs_dir))
 
-    data_files = ['BUILD.gn', 'VERSION.txt', 'additional_readme_paths.json']
+    data_files = [
+        'BUILD.gn', 'VERSION.txt', 'additional_readme_paths.json',
+        'build.gradle'
+    ]
     for lib_dir in lib_dirs:
         abs_lib_dir = os.path.join(libs_dir, lib_dir)
         androidx_rel_lib_dir = os.path.relpath(abs_lib_dir, _ANDROIDX_PATH)
@@ -171,7 +183,7 @@ def _write_cipd_yaml(libs_dir, version, cipd_yaml_path):
             data_files.append(os.path.join(androidx_rel_lib_dir, lib_file))
 
     contents = [
-        '# Copyright 2020 The Chromium Authors. All rights reserved.',
+        '# Copyright 2021 The Chromium Authors. All rights reserved.',
         '# Use of this source code is governed by a BSD-style license that can be',
         '# found in the LICENSE file.',
         '# version: ' + version,
@@ -197,7 +209,9 @@ def main():
     # re-generated.
     _delete_readonly_files([
         os.path.join(_ANDROIDX_PATH, 'BUILD.gn'),
+        os.path.join(_ANDROIDX_PATH, 'VERSION.txt'),
         os.path.join(_ANDROIDX_PATH, 'additional_readme_paths.json'),
+        os.path.join(_ANDROIDX_PATH, 'build.gradle'),
     ])
 
     dependency_version_map, version = _download_and_parse_build_info()

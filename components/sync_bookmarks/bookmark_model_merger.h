@@ -43,6 +43,9 @@ class BookmarkModelMerger {
                       favicon::FaviconService* favicon_service,
                       SyncedBookmarkTracker* bookmark_tracker);
 
+  BookmarkModelMerger(const BookmarkModelMerger&) = delete;
+  BookmarkModelMerger& operator=(const BookmarkModelMerger&) = delete;
+
   ~BookmarkModelMerger();
 
   // Merges the remote bookmark model represented as the updates received from
@@ -97,6 +100,9 @@ class BookmarkModelMerger {
     RemoteTreeNode();
 
     syncer::UpdateResponseData update_;
+    // Redundant, parsed instance of the unique position in specifics, used
+    // to sort siblings by their position information.
+    syncer::UniquePosition unique_position_;
     std::vector<RemoteTreeNode> children_;
   };
 
@@ -118,6 +124,11 @@ class BookmarkModelMerger {
   // specifics as well as tombstones, in the unlikely event that the server
   // sends tombstones as part of the initial download.
   static RemoteForest BuildRemoteForest(syncer::UpdateResponseDataList updates);
+
+  // Recursively counts and returns the number of descendants for |node|,
+  // excluding |node| itself.
+  static int CountRemoteTreeNodeDescendantsForUma(
+      const BookmarkModelMerger::RemoteTreeNode& node);
 
   // Computes bookmark pairs that should be matched by GUID. Local bookmark
   // GUIDs may be regenerated for the case where they collide with a remote GUID
@@ -200,8 +211,6 @@ class BookmarkModelMerger {
   // permanent node. Computed upon construction via BuildRemoteForest().
   const RemoteForest remote_forest_;
   std::unordered_map<base::GUID, GuidMatch, base::GUIDHash> guid_to_match_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(BookmarkModelMerger);
 };
 
 }  // namespace sync_bookmarks

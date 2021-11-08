@@ -12,8 +12,8 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/sequenced_task_runner_helpers.h"
 #include "base/strings/string_piece.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "chrome/browser/plugins/plugin_metadata.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/common/plugin.mojom.h"
@@ -89,10 +89,13 @@ class PluginInfoHostImpl : public chrome::mojom::PluginInfoHost {
     scoped_refptr<PluginPrefs> plugin_prefs_;
 
     BooleanPrefMember allow_outdated_plugins_;
-    BooleanPrefMember run_all_flash_in_allow_mode_;
   };
 
   PluginInfoHostImpl(int render_process_id, Profile* profile);
+
+  PluginInfoHostImpl(const PluginInfoHostImpl&) = delete;
+  PluginInfoHostImpl& operator=(const PluginInfoHostImpl&) = delete;
+
   ~PluginInfoHostImpl() override;
 
   static void RegisterUserPrefs(user_prefs::PrefRegistrySyncable* registry);
@@ -122,8 +125,6 @@ class PluginInfoHostImpl : public chrome::mojom::PluginInfoHost {
   base::CallbackListSubscription shutdown_subscription_;
 
   base::WeakPtrFactory<PluginInfoHostImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PluginInfoHostImpl);
 };
 
 #endif  // CHROME_BROWSER_PLUGINS_PLUGIN_INFO_HOST_IMPL_H_

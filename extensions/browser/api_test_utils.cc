@@ -39,7 +39,7 @@ namespace api_test_utils {
 SendResponseHelper::SendResponseHelper(ExtensionFunction* function) {
   function->set_has_callback(true);
   function->set_response_callback(
-      base::Bind(&SendResponseHelper::OnResponse, base::Unretained(this)));
+      base::BindOnce(&SendResponseHelper::OnResponse, base::Unretained(this)));
 }
 
 SendResponseHelper::~SendResponseHelper() {}
@@ -50,10 +50,10 @@ bool SendResponseHelper::GetResponse() {
 }
 
 void SendResponseHelper::OnResponse(ExtensionFunction::ResponseType response,
-                                    const base::ListValue& results,
+                                    const base::Value& results,
                                     const std::string& error) {
   ASSERT_NE(ExtensionFunction::BAD_MESSAGE, response);
-  response_.reset(new bool(response == ExtensionFunction::SUCCEEDED));
+  response_ = std::make_unique<bool>(response == ExtensionFunction::SUCCEEDED);
   run_loop_.Quit();
 }
 
@@ -67,17 +67,17 @@ std::unique_ptr<base::DictionaryValue> ParseDictionary(
 }
 
 bool GetBoolean(const base::DictionaryValue* val, const std::string& key) {
-  bool result = false;
-  if (!val->GetBoolean(key, &result))
+  absl::optional<bool> result = val->FindBoolKey(key);
+  if (!result)
     ADD_FAILURE() << key << " does not exist or is not a boolean.";
-  return result;
+  return result.value_or(false);
 }
 
 int GetInteger(const base::DictionaryValue* val, const std::string& key) {
-  int result = 0;
-  if (!val->GetInteger(key, &result))
+  absl::optional<int> result = val->FindIntKey(key);
+  if (!result)
     ADD_FAILURE() << key << " does not exist or is not an integer.";
-  return result;
+  return result.value_or(0);
 }
 
 std::string GetString(const base::DictionaryValue* val,
@@ -158,7 +158,7 @@ std::string RunFunctionAndReturnError(ExtensionFunction* function,
   // is no specified result.
   const base::ListValue* results = function->GetResultList();
   CHECK(results);
-  EXPECT_TRUE(results->empty()) << "Did not expect a result";
+  EXPECT_TRUE(results->GetList().empty()) << "Did not expect a result";
   CHECK(function->response_type());
   EXPECT_EQ(ExtensionFunction::FAILED, *function->response_type());
   return function->GetError();
@@ -195,9 +195,8 @@ bool RunFunction(
   function->SetArgs(base::Value::FromUniquePtrValue(std::move(args)));
 
   CHECK(dispatcher);
-  function->set_dispatcher(dispatcher->AsWeakPtr());
+  function->SetDispatcher(dispatcher->AsWeakPtr());
 
-  function->set_browser_context(context);
   function->set_include_incognito_information(flags & INCLUDE_INCOGNITO);
   function->RunWithValidation()->Execute();
   response_helper.WaitForResponse();

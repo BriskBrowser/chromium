@@ -31,7 +31,7 @@
 namespace {
 
 // Delay for RecordCurrentState execution.
-constexpr base::TimeDelta kRecordStateDelay = base::TimeDelta::FromSeconds(15);
+constexpr base::TimeDelta kRecordStateDelay = base::Seconds(15);
 
 // Returns the plugin preferences corresponding for this user, if available.
 // If multiple user profiles are loaded, returns the preferences corresponding
@@ -141,7 +141,7 @@ void PluginMetricsProvider::ProvideStabilityMetrics(
 
   metrics::SystemProfileProto::Stability* stability =
       system_profile_proto->mutable_stability();
-  for (const auto& value : *plugin_stats_list) {
+  for (const auto& value : plugin_stats_list->GetList()) {
     const base::DictionaryValue* plugin_dict;
     if (!value.GetAsDictionary(&plugin_dict)) {
       NOTREACHED();
@@ -207,14 +207,14 @@ void PluginMetricsProvider::RecordCurrentState() {
   base::ListValue* plugins = update.Get();
   DCHECK(plugins);
 
-  for (auto& value : *plugins) {
+  for (auto& value : plugins->GetList()) {
     base::DictionaryValue* plugin_dict;
     if (!value.GetAsDictionary(&plugin_dict)) {
       NOTREACHED();
       continue;
     }
 
-    base::string16 plugin_name;
+    std::u16string plugin_name;
     plugin_dict->GetString(prefs::kStabilityPluginName, &plugin_name);
     if (plugin_name.empty()) {
       NOTREACHED();
@@ -330,7 +330,7 @@ void PluginMetricsProvider::OnGotPlugins(
 PluginMetricsProvider::ChildProcessStats&
 PluginMetricsProvider::GetChildProcessStats(
     const content::ChildProcessData& data) {
-  const base::string16& child_name = data.name;
+  const std::u16string& child_name = data.name;
   if (!base::Contains(child_process_stats_buffer_, child_name)) {
     child_process_stats_buffer_[child_name] =
         ChildProcessStats(data.process_type);
@@ -338,7 +338,7 @@ PluginMetricsProvider::GetChildProcessStats(
   return child_process_stats_buffer_[child_name];
 }
 
-void PluginMetricsProvider::BrowserChildProcessHostConnected(
+void PluginMetricsProvider::BrowserChildProcessLaunchedAndConnected(
     const content::ChildProcessData& data) {
   GetChildProcessStats(data).process_launches++;
   RecordCurrentStateWithDelay();

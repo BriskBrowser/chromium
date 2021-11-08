@@ -15,6 +15,10 @@
 class ConcatMenuModel : public ui::MenuModel {
  public:
   ConcatMenuModel(ui::MenuModel* m1, ui::MenuModel* m2);
+
+  ConcatMenuModel(const ConcatMenuModel&) = delete;
+  ConcatMenuModel& operator=(const ConcatMenuModel&) = delete;
+
   ~ConcatMenuModel() override;
 
   // MenuModel:
@@ -23,8 +27,8 @@ class ConcatMenuModel : public ui::MenuModel {
   ItemType GetTypeAt(int index) const override;
   ui::MenuSeparatorType GetSeparatorTypeAt(int index) const override;
   int GetCommandIdAt(int index) const override;
-  base::string16 GetLabelAt(int index) const override;
-  base::string16 GetMinorTextAt(int index) const override;
+  std::u16string GetLabelAt(int index) const override;
+  std::u16string GetMinorTextAt(int index) const override;
   ui::ImageModel GetMinorIconAt(int index) const override;
   bool IsItemDynamicAt(int index) const override;
   bool GetAcceleratorAt(int index, ui::Accelerator* accelerator) const override;
@@ -52,8 +56,6 @@ class ConcatMenuModel : public ui::MenuModel {
 
   ui::MenuModel* const m1_;
   ui::MenuModel* const m2_;
-
-  DISALLOW_COPY_AND_ASSIGN(ConcatMenuModel);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_STATUS_ICONS_CONCAT_MENU_MODEL_H_

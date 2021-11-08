@@ -8,7 +8,9 @@
 #include <map>
 #include <memory>
 
+#include "base/dcheck_is_on.h"
 #include "base/files/file.h"
+#include "base/gtest_prod_util.h"
 #include "base/synchronization/lock.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "third_party/blink/public/mojom/disk_allocator.mojom-blink.h"

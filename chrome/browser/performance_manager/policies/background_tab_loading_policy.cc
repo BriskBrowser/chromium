@@ -5,8 +5,8 @@
 #include "chrome/browser/performance_manager/policies/background_tab_loading_policy.h"
 
 #include "base/containers/contains.h"
+#include "base/containers/cxx20_erase.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "base/system/sys_info.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
@@ -49,7 +49,7 @@ void ScheduleLoadForRestoredTabs(
   weakptr_page_nodes.reserve(web_contents_vector.size());
   for (auto* content : web_contents_vector) {
     weakptr_page_nodes.push_back(
-        PerformanceManager::GetPageNodeForWebContents(content));
+        PerformanceManager::GetPrimaryPageNodeForWebContents(content));
   }
   performance_manager::PerformanceManager::CallOnGraph(
       FROM_HERE, base::BindOnce(
@@ -71,11 +71,7 @@ void ScheduleLoadForRestoredTabs(
 }
 
 BackgroundTabLoadingPolicy::BackgroundTabLoadingPolicy()
-    : memory_pressure_listener_(
-          FROM_HERE,
-          base::BindRepeating(&BackgroundTabLoadingPolicy::OnMemoryPressure,
-                              base::Unretained(this))),
-      page_loader_(std::make_unique<mechanism::PageLoader>()) {
+    : page_loader_(std::make_unique<mechanism::PageLoader>()) {
   DCHECK(!g_background_tab_loading_policy);
   g_background_tab_loading_policy = this;
   max_simultaneous_tab_loads_ = CalculateMaxSimultaneousTabLoads(
@@ -90,12 +86,14 @@ BackgroundTabLoadingPolicy::~BackgroundTabLoadingPolicy() {
 
 void BackgroundTabLoadingPolicy::OnPassedToGraph(Graph* graph) {
   graph->AddPageNodeObserver(this);
+  graph->AddSystemNodeObserver(this);
   graph->GetNodeDataDescriberRegistry()->RegisterDescriber(this,
                                                            kDescriberName);
 }
 
 void BackgroundTabLoadingPolicy::OnTakenFromGraph(Graph* graph) {
   graph->GetNodeDataDescriberRegistry()->UnregisterDescriber(this);
+  graph->RemoveSystemNodeObserver(this);
   graph->RemovePageNodeObserver(this);
 }
 
@@ -286,8 +284,8 @@ void BackgroundTabLoadingPolicy::StopLoadingTabs() {
 }
 
 void BackgroundTabLoadingPolicy::OnMemoryPressure(
-    base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
-  switch (memory_pressure_level) {
+    base::MemoryPressureListener::MemoryPressureLevel new_level) {
+  switch (new_level) {
     case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE:
       break;
     case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE:

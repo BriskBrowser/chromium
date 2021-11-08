@@ -8,12 +8,11 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/feature_list.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/browser_features.h"
 #include "chrome/browser/notifications/non_persistent_notification_handler.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/notifications/persistent_notification_handler.h"
@@ -31,14 +30,14 @@
 #endif
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) || \
-    defined(OS_WIN)
+    defined(OS_WIN) || defined(OS_FUCHSIA)
 #include "chrome/browser/send_tab_to_self/desktop_notification_handler.h"
 #include "chrome/browser/sharing/sharing_notification_handler.h"
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"
 #include "chrome/browser/nearby_sharing/nearby_notification_handler.h"
+#include "chrome/browser/nearby_sharing/nearby_sharing_service_factory.h"
 #endif
 
 #if !defined(OS_ANDROID)
@@ -64,10 +63,9 @@ NotificationDisplayServiceImpl* NotificationDisplayServiceImpl::GetForProfile(
 // static
 void NotificationDisplayServiceImpl::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if defined(OS_LINUX)
   registry->RegisterBooleanPref(prefs::kAllowNativeNotifications, true);
+  registry->RegisterBooleanPref(prefs::kAllowSystemNotifications, true);
 #endif
 }
 
@@ -101,21 +99,18 @@ NotificationDisplayServiceImpl::NotificationDisplayServiceImpl(Profile* profile)
     AddNotificationHandler(NotificationHandler::Type::ANNOUNCEMENT,
                            std::make_unique<AnnouncementNotificationHandler>());
 
-    if (base::FeatureList::IsEnabled(
-            features::kMuteNotificationsDuringScreenShare)) {
-      auto screen_capture_blocker =
-          std::make_unique<ScreenCaptureNotificationBlocker>(this);
-      AddNotificationHandler(NotificationHandler::Type::NOTIFICATIONS_MUTED,
-                             std::make_unique<MutedNotificationHandler>(
-                                 screen_capture_blocker.get()));
-      notification_queue_.AddNotificationBlocker(
-          std::move(screen_capture_blocker));
-    }
-
+    auto screen_capture_blocker =
+        std::make_unique<ScreenCaptureNotificationBlocker>(this);
+    AddNotificationHandler(NotificationHandler::Type::NOTIFICATIONS_MUTED,
+                           std::make_unique<MutedNotificationHandler>(
+                               screen_capture_blocker.get()));
+    notification_queue_.AddNotificationBlocker(
+        std::move(screen_capture_blocker));
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    if (base::FeatureList::IsEnabled(features::kNearbySharing)) {
+    if (NearbySharingServiceFactory::IsNearbyShareSupportedForBrowserContext(
+            profile_)) {
       AddNotificationHandler(NotificationHandler::Type::NEARBY_SHARE,
                              std::make_unique<NearbyNotificationHandler>());
     }
@@ -135,13 +130,13 @@ NotificationDisplayServiceImpl::~NotificationDisplayServiceImpl() {
 }
 
 void NotificationDisplayServiceImpl::ProcessNotificationOperation(
-    NotificationCommon::Operation operation,
+    NotificationOperation operation,
     NotificationHandler::Type notification_type,
     const GURL& origin,
     const std::string& notification_id,
-    const base::Optional<int>& action_index,
-    const base::Optional<base::string16>& reply,
-    const base::Optional<bool>& by_user) {
+    const absl::optional<int>& action_index,
+    const absl::optional<std::u16string>& reply,
+    const absl::optional<bool>& by_user) {
   NotificationHandler* handler = GetNotificationHandler(notification_type);
   DCHECK(handler);
   if (!handler) {
@@ -155,21 +150,21 @@ void NotificationDisplayServiceImpl::ProcessNotificationOperation(
   base::OnceClosure completed_closure = base::BindOnce(&OperationCompleted);
 
   switch (operation) {
-    case NotificationCommon::OPERATION_CLICK:
+    case NotificationOperation::kClick:
       handler->OnClick(profile_, origin, notification_id, action_index, reply,
                        std::move(completed_closure));
       break;
-    case NotificationCommon::OPERATION_CLOSE:
+    case NotificationOperation::kClose:
       DCHECK(by_user.has_value());
       handler->OnClose(profile_, origin, notification_id, by_user.value(),
                        std::move(completed_closure));
       for (auto& observer : observers_)
         observer.OnNotificationClosed(notification_id);
       break;
-    case NotificationCommon::OPERATION_DISABLE_PERMISSION:
+    case NotificationOperation::kDisablePermission:
       handler->DisableNotifications(profile_, origin);
       break;
-    case NotificationCommon::OPERATION_SETTINGS:
+    case NotificationOperation::kSettings:
       handler->OpenSettings(profile_, origin);
       break;
   }
@@ -272,17 +267,17 @@ void NotificationDisplayServiceImpl::RemoveObserver(Observer* observer) {
 // Callback to run once the profile has been loaded in order to perform a
 // given |operation| in a notification.
 void NotificationDisplayServiceImpl::ProfileLoadedCallback(
-    NotificationCommon::Operation operation,
+    NotificationOperation operation,
     NotificationHandler::Type notification_type,
     const GURL& origin,
     const std::string& notification_id,
-    const base::Optional<int>& action_index,
-    const base::Optional<base::string16>& reply,
-    const base::Optional<bool>& by_user,
+    const absl::optional<int>& action_index,
+    const absl::optional<std::u16string>& reply,
+    const absl::optional<bool>& by_user,
     Profile* profile) {
+  base::UmaHistogramBoolean("Notifications.LoadProfileResult",
+                            profile != nullptr);
   if (!profile) {
-    // TODO(miguelg): Add UMA for this condition.
-    // Perhaps propagate this through PersistentNotificationStatus.
     LOG(WARNING) << "Profile not loaded correctly";
     return;
   }

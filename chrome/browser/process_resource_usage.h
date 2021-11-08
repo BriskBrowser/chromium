@@ -48,8 +48,8 @@
 //     mojo::PendingRemote<content::mojom::ResourceUsageReporter> service;
 //     mojo::PendingReceiver<content::mojom::ResourceUsageReporter> receiver =
 //         service.InitWithNewPipeAndPassReceiver();
-//     base::PostTask(
-//         FROM_HERE, {content::BrowserThread::IO},
+//     content::GetIOThreadTaskRunner({})->PostTask(
+//         FROM_HERE,
 //         base::BindOnce(&Foo::ConnectToService, this,
 //         base::Passed(&receiver)));
 //     resource_usage_.reset(new ProcessResourceUsage(std::move(service)));
@@ -62,6 +62,10 @@ class ProcessResourceUsage {
   // Must be called from the same thread that created |service|.
   explicit ProcessResourceUsage(
       mojo::PendingRemote<content::mojom::ResourceUsageReporter> service);
+
+  ProcessResourceUsage(const ProcessResourceUsage&) = delete;
+  ProcessResourceUsage& operator=(const ProcessResourceUsage&) = delete;
+
   ~ProcessResourceUsage();
 
   // Refresh the resource usage information. |callback| is invoked when the
@@ -89,8 +93,6 @@ class ProcessResourceUsage {
   content::mojom::ResourceUsageDataPtr stats_;
 
   base::ThreadChecker thread_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProcessResourceUsage);
 };
 
 #endif  // CHROME_BROWSER_PROCESS_RESOURCE_USAGE_H_

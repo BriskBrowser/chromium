@@ -25,7 +25,6 @@ typedef NS_ENUM(NSInteger, SettingsItemType) {
   SettingsItemTypeSignInButton = kItemTypeEnumZero,
   SettingsItemTypeSigninPromo,
   SettingsItemTypeAccount,
-  SettingsItemTypeSyncAndGoogleServices,
   SettingsItemTypeGoogleSync,
   SettingsItemTypeGoogleServices,
   SettingsItemTypeHeader,
@@ -44,13 +43,11 @@ typedef NS_ENUM(NSInteger, SettingsItemType) {
   SettingsItemTypeViewSource,
   SettingsItemTypeTableCellCatalog,
   SettingsItemTypeArticlesForYou,
+  SettingsItemTypeManagedArticlesForYou,
   SettingsItemTypeSafetyCheck,
   SettingsItemTypeDefaultBrowser,
   SettingsItemTypeSigninDisabled,
 };
-
-// The radius of the profile photo in the sign-in cell.
-extern const CGFloat kAccountProfilePhotoDimension;
 
 // The accessibility identifier of the settings TableView.
 extern NSString* const kSettingsTableViewId;
@@ -60,6 +57,9 @@ extern NSString* const kSettingsSignInCellId;
 
 // The accessibility identifier of the sign in cell when sign-in is disabled by
 // policy.
+extern NSString* const kSettingsSignInDisabledByPolicyCellId;
+
+// The accessibility identifier of the sign in cell when sign-in is disabled.
 extern NSString* const kSettingsSignInDisabledCellId;
 
 // The accessibility identifier of the account cell.
@@ -121,6 +121,9 @@ extern NSString* const kSettingsPreloadCellId;
 
 // The accessibility identifier of the Block Popups cell.
 extern NSString* const kSettingsBlockPopupsCellId;
+
+// The accessibility identifier of the Show Link Preview cell.
+extern NSString* const kSettingsShowLinkPreviewCellId;
 
 // The accessibility identifier of the Default Apps cell.
 extern NSString* const kSettingsDefaultAppsCellId;

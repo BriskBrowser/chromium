@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/run_loop.h"
 #include "base/test/gtest_util.h"
 #include "base/unguessable_token.h"
@@ -89,7 +90,7 @@ class PaintPreviewCompositorBrowserTest : public InProcessBrowserTest {
   }
 
  private:
-  std::unique_ptr<SimpleFactoryKey> key_ = nullptr;
+  std::unique_ptr<SimpleFactoryKey> key_;
 };
 
 // Test that a "true" initialization works and doesn't crash.
@@ -197,6 +198,18 @@ IN_PROC_BROWSER_TEST_F(PaintPreviewCompositorBrowserTest,
   compositor_service.reset();
   disconnect_loop.Run();
   EXPECT_FALSE(IsBoundAndConnected(compositor.get()));
+}
+
+IN_PROC_BROWSER_TEST_F(PaintPreviewCompositorBrowserTest,
+                       KillWithMemoryPressure) {
+  CreateServiceInstance();
+  base::RunLoop disconnect_loop;
+  auto compositor_service =
+      ToCompositorServiceImpl(StartCompositorService(base::DoNothing()));
+  compositor_service->SetDisconnectHandler(disconnect_loop.QuitClosure());
+  compositor_service->OnMemoryPressure(
+      base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL);
+  disconnect_loop.Run();
 }
 
 IN_PROC_BROWSER_TEST_F(PaintPreviewCompositorBrowserTest, PreWarmCompositor) {

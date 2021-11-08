@@ -7,9 +7,9 @@
 
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "chrome/browser/prefetch/prefetch_proxy/prefetch_proxy_probe_result.h"
 #include "net/base/address_list.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 class AvailabilityProber;
@@ -37,12 +37,13 @@ class PrefetchProxyOriginProber {
   void SetProbeURLOverrideDelegateOverrideForTesting(
       ProbeURLOverrideDelegate* delegate);
 
+  // Tells whether a DNS canary check has completed, either in success or
+  // failure. Used for testing.
+  bool IsDNSCanaryCheckCompleteForTesting() const;
+
   // Tells whether a TLS canary check has completed, either in success or
   // failure. Used for testing.
   bool IsTLSCanaryCheckCompleteForTesting() const;
-
-  // Tells whether a DNS canary check is active. Used for testing.
-  bool IsDNSCanaryCheckActiveForTesting() const;
 
   // Starts a probe to |url| and calls |callback| with an
   // |PrefetchProxyProbeResult| to indicate success.
@@ -51,8 +52,6 @@ class PrefetchProxyOriginProber {
   void Probe(const GURL& url, OnProbeResultCallback callback);
 
  private:
-  void OnTLSCanaryCheckComplete(bool success);
-
   void DNSProbe(const GURL& url, OnProbeResultCallback callback);
   void HTTPProbe(const GURL& url, OnProbeResultCallback callback);
   void TLSProbe(const GURL& url, OnProbeResultCallback callback);
@@ -78,7 +77,7 @@ class PrefetchProxyOriginProber {
       OnProbeResultCallback callback,
       bool also_do_tls_connect,
       int net_error,
-      const base::Optional<net::AddressList>& resolved_addresses);
+      const absl::optional<net::AddressList>& resolved_addresses);
 
   // The current profile, not owned.
   Profile* profile_;

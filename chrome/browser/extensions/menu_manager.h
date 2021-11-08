@@ -20,8 +20,8 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
-#include "base/scoped_observer.h"
-#include "base/strings/string16.h"
+#include "base/scoped_multi_source_observation.h"
+#include "base/scoped_observation.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_icon_manager.h"
 #include "chrome/browser/profiles/profile.h"
@@ -152,10 +152,9 @@ class MenuItem {
     }
 
     bool Populate(const base::Value& value) {
-      int int_value;
-      if (!value.GetAsInteger(&int_value) || int_value < 0)
+      if (!value.is_int() || value.GetInt() < 0)
         return false;
-      value_ = int_value;
+      value_ = value.GetInt();
       return true;
     }
 
@@ -170,6 +169,10 @@ class MenuItem {
            bool enabled,
            Type type,
            const ContextList& contexts);
+
+  MenuItem(const MenuItem&) = delete;
+  MenuItem& operator=(const MenuItem&) = delete;
+
   virtual ~MenuItem();
 
   // Simple accessor methods.
@@ -208,19 +211,19 @@ class MenuItem {
 
   // Returns the title with any instances of %s replaced by |selection|. The
   // result will be no longer than |max_length|.
-  base::string16 TitleWithReplacement(const base::string16& selection,
-                                size_t max_length) const;
+  std::u16string TitleWithReplacement(const std::u16string& selection,
+                                      size_t max_length) const;
 
   // Sets the checked state to |checked|. Returns true if successful.
   bool SetChecked(bool checked);
 
   // Converts to Value for serialization to preferences.
-  std::unique_ptr<base::DictionaryValue> ToValue() const;
+  base::Value ToValue() const;
 
   // Returns a new MenuItem created from |value|, or NULL if there is
   // an error.
   static std::unique_ptr<MenuItem> Populate(const std::string& extension_id,
-                                            const base::DictionaryValue& value,
+                                            const base::Value& value,
                                             std::string* error);
 
   // Sets any document and target URL patterns from |properties|.
@@ -280,8 +283,6 @@ class MenuItem {
 
   // Any children this item may have.
   OwnedList children_;
-
-  DISALLOW_COPY_AND_ASSIGN(MenuItem);
 };
 
 // This class keeps track of menu items added by extensions.
@@ -301,6 +302,10 @@ class MenuManager : public ProfileObserver,
   };
 
   MenuManager(content::BrowserContext* context, StateStore* store_);
+
+  MenuManager(const MenuManager&) = delete;
+  MenuManager& operator=(const MenuManager&) = delete;
+
   ~MenuManager() override;
 
   // Convenience function to get the MenuManager for a browser context.
@@ -417,10 +422,11 @@ class MenuManager : public ProfileObserver,
   std::map<MenuItem::Id, MenuItem*> items_by_id_;
 
   // Listen to extension load, unloaded events.
-  ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
-      extension_registry_observer_{this};
+  base::ScopedObservation<ExtensionRegistry, ExtensionRegistryObserver>
+      extension_registry_observation_{this};
 
-  ScopedObserver<Profile, ProfileObserver> observed_profiles_{this};
+  base::ScopedMultiSourceObservation<Profile, ProfileObserver>
+      observed_profiles_{this};
 
   ExtensionIconManager icon_manager_;
 
@@ -430,8 +436,6 @@ class MenuManager : public ProfileObserver,
   StateStore* store_;
 
   base::ObserverList<TestObserver> observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(MenuManager);
 };
 
 }  // namespace extensions

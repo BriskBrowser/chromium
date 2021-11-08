@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner_helpers.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "base/threading/thread_checker.h"
 #include "chromeos/components/cdm_factory_daemon/cdm_storage_adapter.h"
 #include "chromeos/components/cdm_factory_daemon/chromeos_cdm_context.h"
@@ -129,9 +129,9 @@ class COMPONENT_EXPORT(CDM_FACTORY_DAEMON) ContentDecryptionModuleAdapter
   void InitializeVideoDecoder(const media::VideoDecoderConfig& config,
                               DecoderInitCB init_cb) override;
   void DecryptAndDecodeAudio(scoped_refptr<media::DecoderBuffer> encrypted,
-                             const AudioDecodeCB& audio_decode_cb) override;
+                             AudioDecodeCB audio_decode_cb) override;
   void DecryptAndDecodeVideo(scoped_refptr<media::DecoderBuffer> encrypted,
-                             const VideoDecodeCB& video_decode_cb) override;
+                             VideoDecodeCB video_decode_cb) override;
   void ResetDecoder(StreamType stream_type) override;
   void DeinitializeDecoder(StreamType stream_type) override;
   bool CanAlwaysDecrypt() override;
@@ -154,17 +154,16 @@ class COMPONENT_EXPORT(CDM_FACTORY_DAEMON) ContentDecryptionModuleAdapter
       uint32_t promise_id,
       cdm::mojom::CdmPromiseResultPtr cros_promise_result,
       const std::string& session_id);
-  void StoreDecryptCallback(StreamType stream_type, DecryptCB decrypt_cb);
   void OnDecrypt(StreamType stream_type,
                  scoped_refptr<media::DecoderBuffer> encrypted,
-                 size_t expected_decrypt_size,
+                 media::Decryptor::DecryptCB decrypt_cb,
                  media::Decryptor::Status status,
-                 const std::vector<uint8_t>& decrypted_data);
-  void GetHwKeyDataInternal(const std::string& key_id,
-                            const std::string& iv,
-                            const media::EncryptionScheme encryption_scheme,
-                            const std::vector<uint8_t>& hw_identifier,
-                            GetHwKeyDataCB callback);
+                 const std::vector<uint8_t>& decrypted_data,
+                 std::unique_ptr<media::DecryptConfig> decrypt_config_out);
+  void GetHwKeyDataInternal(
+      std::unique_ptr<media::DecryptConfig> decrypt_config,
+      const std::vector<uint8_t>& hw_identifier,
+      GetHwKeyDataCB callback);
 
   THREAD_CHECKER(thread_checker_);
 
@@ -178,9 +177,6 @@ class COMPONENT_EXPORT(CDM_FACTORY_DAEMON) ContentDecryptionModuleAdapter
   media::SessionClosedCB session_closed_cb_;
   media::SessionKeysChangeCB session_keys_change_cb_;
   media::SessionExpirationUpdateCB session_expiration_update_cb_;
-
-  media::Decryptor::DecryptCB pending_audio_decrypt_cb_;
-  media::Decryptor::DecryptCB pending_video_decrypt_cb_;
 
   scoped_refptr<base::SequencedTaskRunner> mojo_task_runner_;
 

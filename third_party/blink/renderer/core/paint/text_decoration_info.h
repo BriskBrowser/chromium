@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_TEXT_DECORATION_INFO_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_TEXT_DECORATION_INFO_H_
 
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
 #include "third_party/blink/renderer/core/paint/text_paint_style.h"
@@ -15,12 +16,12 @@
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/graphics/path.h"
-#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 namespace blink {
 
 class ComputedStyle;
+class Font;
 class SimpleFontData;
 
 enum class ResolvedUnderlinePosition {
@@ -38,13 +39,14 @@ class CORE_EXPORT TextDecorationInfo {
 
  public:
   TextDecorationInfo(
-      const PhysicalOffset& box_origin,
       PhysicalOffset local_origin,
       LayoutUnit width,
       FontBaseline baseline_type,
       const ComputedStyle& style,
-      const base::Optional<AppliedTextDecoration> selection_text_decoration,
-      const ComputedStyle* decorating_box_style);
+      const Font& scaled_font,
+      const absl::optional<AppliedTextDecoration> selection_text_decoration,
+      const ComputedStyle* decorating_box_style,
+      float scaling_factor = 1.0f);
 
   // Set the decoration to use when painting and returning values.
   // Must be set before calling any other method, and can be called
@@ -58,22 +60,24 @@ class CORE_EXPORT TextDecorationInfo {
   // Set data for one of the text decoration lines: over, under or
   // through. Must be called before trying to paint or compute bounds
   // for a line.
-  void SetPerLineData(TextDecoration line,
-                      float line_offset,
-                      float double_offset,
-                      int wavy_offset_factor);
+  void SetPerLineData(TextDecoration line, float line_offset);
 
   // These methods do not depend on SetDecorationIndex
   LayoutUnit Width() const { return width_; }
   float Baseline() const { return baseline_; }
-  const ComputedStyle& Style() const { return *style_; }
+  const ComputedStyle& Style() const { return style_; }
+  float ComputedFontSize() const { return computed_font_size_; }
   const SimpleFontData* FontData() const { return font_data_; }
+  // Returns the scaling factor for the decoration.
+  // It can be different from NGFragmentItem::SvgScalingFactor() if the
+  // text works as a resource.
+  float ScalingFactor() const { return scaling_factor_; }
   ResolvedUnderlinePosition UnderlinePosition() const {
     return underline_position_;
   }
   bool ShouldAntialias() const { return antialias_; }
   float InkSkipClipUpper(float bounds_upper) const {
-    return -baseline_ + bounds_upper - local_origin_.Y();
+    return -baseline_ + bounds_upper - local_origin_.y();
   }
 
   // SetDecorationIndex must be called before using these methods.
@@ -94,11 +98,7 @@ class CORE_EXPORT TextDecorationInfo {
 
   // Return a path for a wavy line at the given position, for the
   // current decoration.
-  base::Optional<Path> PrepareWavyStrokePath(TextDecoration line) const;
-
-  static float DoubleOffsetFromThickness(float thickness_pixels) {
-    return thickness_pixels + 1.0f;
-  }
+  absl::optional<Path> PrepareWavyStrokePath(TextDecoration line) const;
 
  private:
   float ComputeUnderlineThickness(
@@ -107,13 +107,18 @@ class CORE_EXPORT TextDecorationInfo {
 
   FloatRect BoundsForDottedOrDashed(TextDecoration line) const;
   FloatRect BoundsForWavy(TextDecoration line) const;
+  float WavyDecorationSizing() const;
+  float ControlPointDistanceFromResolvedThickness() const;
+  float StepFromResolvedThickness() const;
 
-  const ComputedStyle* style_;
-  const base::Optional<AppliedTextDecoration> selection_text_decoration_;
+  const ComputedStyle& style_;
+  const absl::optional<AppliedTextDecoration> selection_text_decoration_;
   const FontBaseline baseline_type_;
   const LayoutUnit width_;
   const SimpleFontData* font_data_;
   const float baseline_;
+  const float computed_font_size_;
+  const float scaling_factor_;
   ResolvedUnderlinePosition underline_position_;
   FloatPoint local_origin_;
   bool antialias_;
@@ -130,7 +135,7 @@ class CORE_EXPORT TextDecorationInfo {
     float line_offset;
     float double_offset;
     int wavy_offset_factor;
-    mutable base::Optional<Path> stroke_path;
+    mutable absl::optional<Path> stroke_path;
   };
   PerLineData line_data_[3];
 };

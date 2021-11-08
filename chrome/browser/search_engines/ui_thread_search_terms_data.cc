@@ -48,11 +48,11 @@ std::string UIThreadSearchTermsData::GetApplicationLocale() const {
 
 // Android implementations are in ui_thread_search_terms_data_android.cc.
 #if !defined(OS_ANDROID)
-base::string16 UIThreadSearchTermsData::GetRlzParameterValue(
+std::u16string UIThreadSearchTermsData::GetRlzParameterValue(
     bool from_app_list) const {
   DCHECK(!BrowserThread::IsThreadInitialized(BrowserThread::UI) ||
       BrowserThread::CurrentlyOn(BrowserThread::UI));
-  base::string16 rlz_string;
+  std::u16string rlz_string;
 #if BUILDFLAG(ENABLE_RLZ)
   // For organic brandcodes do not use rlz at all. Empty brandcode usually
   // means a chromium install. This is ok.
@@ -80,16 +80,15 @@ std::string UIThreadSearchTermsData::GetSearchClient() const {
 }
 #endif
 
-std::string UIThreadSearchTermsData::GetSuggestClient(bool from_ntp) const {
+std::string UIThreadSearchTermsData::GetSuggestClient() const {
   DCHECK(!BrowserThread::IsThreadInitialized(BrowserThread::UI) ||
       BrowserThread::CurrentlyOn(BrowserThread::UI));
 #if defined(OS_ANDROID)
   // Android does not send non-searchbox suggest requests from NTP at this time.
-  DCHECK(!from_ntp);
   return ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE ?
       "chrome" : "chrome-omni";
 #else
-  return from_ntp ? "chrome-ntp" : "chrome-omni";
+  return "chrome-omni";
 #endif
 }
 
@@ -112,7 +111,9 @@ std::string UIThreadSearchTermsData::GoogleImageSearchSource() const {
   if (version_info::IsOfficialBuild())
     version += " (Official)";
   version += " " + version_info::GetOSType();
-  std::string modifier(chrome::GetChannelName());
+  // Do not distinguish extended from regular stable in image search queries.
+  std::string modifier(
+      chrome::GetChannelName(chrome::WithExtendedStable(false)));
   if (!modifier.empty())
     version += " " + modifier;
   return version;

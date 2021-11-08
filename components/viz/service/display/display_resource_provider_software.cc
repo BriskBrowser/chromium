@@ -5,6 +5,7 @@
 #include "components/viz/service/display/display_resource_provider_software.h"
 
 #include <memory>
+#include <vector>
 
 #include "components/viz/common/resources/resource_format_utils.h"
 #include "components/viz/service/display/shared_bitmap_manager.h"
@@ -13,22 +14,18 @@ namespace viz {
 
 DisplayResourceProviderSoftware::DisplayResourceProviderSoftware(
     SharedBitmapManager* shared_bitmap_manager)
-    : DisplayResourceProvider(DisplayResourceProvider::kSoftware,
-                              /*compositor_context_provider=*/nullptr,
-                              shared_bitmap_manager,
-                              /*enable_shared_images=*/true) {}
+    : DisplayResourceProvider(DisplayResourceProvider::kSoftware),
+      shared_bitmap_manager_(shared_bitmap_manager) {
+  DCHECK(shared_bitmap_manager);
+}
+
+DisplayResourceProviderSoftware::~DisplayResourceProviderSoftware() {
+  Destroy();
+}
 
 const DisplayResourceProvider::ChildResource*
 DisplayResourceProviderSoftware::LockForRead(ResourceId id) {
-  // TODO(vasilyt): Todo below was added for Android and GPU resources and was
-  // copied here during refactoring. This shouldn't be necessary for software
-  // renderer case and should be removed.
-  // TODO(ericrk): We should never fail TryGetResource, but we appear to be
-  // doing so on Android in rare cases. Handle this gracefully until a better
-  // solution can be found. https://crbug.com/811858
-  ChildResource* resource = TryGetResource(id);
-  if (!resource)
-    return nullptr;
+  ChildResource* resource = GetResource(id);
 
   DCHECK(!resource->is_gpu_resource_type());
 
@@ -53,15 +50,7 @@ DisplayResourceProviderSoftware::LockForRead(ResourceId id) {
 
 void DisplayResourceProviderSoftware::UnlockForRead(ResourceId id) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  ChildResource* resource = TryGetResource(id);
-  // TODO(vasilyt): Todo below was added for Android and GPU resources and was
-  // copied here during refactoring. This shouldn't be necessary for software
-  // renderer case and should be removed.
-  // TODO(ericrk): We should never fail to find id, but we appear to be
-  // doing so on Android in rare cases. Handle this gracefully until a better
-  // solution can be found. https://crbug.com/811858
-  if (!resource)
-    return;
+  ChildResource* resource = GetResource(id);
 
   DCHECK(!resource->is_gpu_resource_type());
   DCHECK_GT(resource->lock_for_read_count, 0);
@@ -69,13 +58,59 @@ void DisplayResourceProviderSoftware::UnlockForRead(ResourceId id) {
   TryReleaseResource(id, resource);
 }
 
+std::vector<ReturnedResource>
+DisplayResourceProviderSoftware::DeleteAndReturnUnusedResourcesToChildImpl(
+    Child& child_info,
+    DeleteStyle style,
+    const std::vector<ResourceId>& unused) {
+  std::vector<ReturnedResource> to_return;
+  // Reserve enough space to avoid re-allocating, so we can keep item pointers
+  // for later using.
+  to_return.reserve(unused.size());
+
+  for (ResourceId local_id : unused) {
+    auto it = resources_.find(local_id);
+    CHECK(it != resources_.end());
+    ChildResource& resource = it->second;
+    DCHECK(!resource.is_gpu_resource_type());
+
+    auto sk_image_it = resource_sk_images_.find(local_id);
+    if (sk_image_it != resource_sk_images_.end()) {
+      resource_sk_images_.erase(sk_image_it);
+    }
+
+    ResourceId child_id = resource.transferable.id;
+    DCHECK(child_info.child_to_parent_map.count(child_id));
+
+    auto can_delete = CanDeleteNow(child_info, resource, style);
+    if (can_delete == CanDeleteNowResult::kNo) {
+      // Defer this resource deletion.
+      resource.marked_for_deletion = true;
+      continue;
+    }
+
+    const bool is_lost = can_delete == CanDeleteNowResult::kYesButLoseResource;
+
+    to_return.emplace_back(child_id, resource.sync_token(),
+                           std::move(resource.release_fence),
+                           resource.imported_count, is_lost);
+
+    child_info.child_to_parent_map.erase(child_id);
+    resource.imported_count = 0;
+    resources_.erase(it);
+  }
+
+  return to_return;
+}
+
 void DisplayResourceProviderSoftware::PopulateSkBitmapWithResource(
     SkBitmap* sk_bitmap,
-    const ChildResource* resource) {
+    const ChildResource* resource,
+    SkAlphaType alpha_type) {
   DCHECK(IsBitmapFormatSupported(resource->transferable.format));
   SkImageInfo info =
-      SkImageInfo::MakeN32Premul(resource->transferable.size.width(),
-                                 resource->transferable.size.height());
+      SkImageInfo::MakeN32(resource->transferable.size.width(),
+                           resource->transferable.size.height(), alpha_type);
   bool pixels_installed = sk_bitmap->installPixels(
       info, resource->shared_bitmap->pixels(), info.minRowBytes());
   DCHECK(pixels_installed);
@@ -84,8 +119,7 @@ void DisplayResourceProviderSoftware::PopulateSkBitmapWithResource(
 DisplayResourceProviderSoftware::ScopedReadLockSkImage::ScopedReadLockSkImage(
     DisplayResourceProviderSoftware* resource_provider,
     ResourceId resource_id,
-    SkAlphaType alpha_type,
-    GrSurfaceOrigin origin)
+    SkAlphaType alpha_type)
     : resource_provider_(resource_provider), resource_id_(resource_id) {
   const ChildResource* resource = resource_provider->LockForRead(resource_id);
   DCHECK(resource);
@@ -110,9 +144,9 @@ DisplayResourceProviderSoftware::ScopedReadLockSkImage::ScopedReadLockSkImage(
     return;
   }
 
-  DCHECK(origin == kTopLeft_GrSurfaceOrigin);
   SkBitmap sk_bitmap;
-  resource_provider->PopulateSkBitmapWithResource(&sk_bitmap, resource);
+  resource_provider->PopulateSkBitmapWithResource(&sk_bitmap, resource,
+                                                  alpha_type);
   sk_bitmap.setImmutable();
   sk_image_ = SkImage::MakeFromBitmap(sk_bitmap);
   resource_provider_->resource_sk_images_[resource_id] = sk_image_;

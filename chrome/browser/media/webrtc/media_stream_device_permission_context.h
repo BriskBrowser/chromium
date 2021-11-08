@@ -15,6 +15,12 @@ class MediaStreamDevicePermissionContext
  public:
   MediaStreamDevicePermissionContext(content::BrowserContext* browser_context,
                                      ContentSettingsType content_settings_type);
+
+  MediaStreamDevicePermissionContext(
+      const MediaStreamDevicePermissionContext&) = delete;
+  MediaStreamDevicePermissionContext& operator=(
+      const MediaStreamDevicePermissionContext&) = delete;
+
   ~MediaStreamDevicePermissionContext() override;
 
   // PermissionContextBase:
@@ -26,8 +32,9 @@ class MediaStreamDevicePermissionContext
       bool user_gesture,
       permissions::BrowserPermissionCallback callback) override;
 
-  // TODO(xhwang): GURL.GetOrigin() shouldn't be used as the origin. Need to
-  // refactor to use url::Origin. crbug.com/527149 is filed for this.
+  // TODO(xhwang): GURL.DeprecatedGetOriginAsURL() shouldn't be used as the
+  // origin. Need to refactor to use url::Origin. crbug.com/527149 is filed for
+  // this.
   ContentSetting GetPermissionStatusInternal(
       content::RenderFrameHost* render_frame_host,
       const GURL& requesting_origin,
@@ -41,8 +48,6 @@ class MediaStreamDevicePermissionContext
   bool IsRestrictedToSecureOrigins() const override;
 
   ContentSettingsType content_settings_type_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaStreamDevicePermissionContext);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_WEBRTC_MEDIA_STREAM_DEVICE_PERMISSION_CONTEXT_H_

@@ -57,6 +57,9 @@ class TestBufferCollection {
     ZX_CHECK(status == ZX_OK, status) << "BufferCollection::SetConstraints()";
   }
 
+  TestBufferCollection(const TestBufferCollection&) = delete;
+  TestBufferCollection& operator=(const TestBufferCollection&) = delete;
+
   ~TestBufferCollection() { buffers_collection_->Close(); }
 
   size_t GetNumBuffers() {
@@ -78,10 +81,8 @@ class TestBufferCollection {
   fuchsia::sysmem::AllocatorPtr sysmem_allocator_;
   fuchsia::sysmem::BufferCollectionSyncPtr buffers_collection_;
 
-  base::Optional<fuchsia::sysmem::BufferCollectionInfo_2>
+  absl::optional<fuchsia::sysmem::BufferCollectionInfo_2>
       buffer_collection_info_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestBufferCollection);
 };
 
 class TestSharedImageInterface : public gpu::SharedImageInterface {
@@ -115,6 +116,7 @@ class TestSharedImageInterface : public gpu::SharedImageInterface {
   gpu::Mailbox CreateSharedImage(
       gfx::GpuMemoryBuffer* gpu_memory_buffer,
       gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
+      gfx::BufferPlane plane,
       const gfx::ColorSpace& color_space,
       GrSurfaceOrigin surface_origin,
       SkAlphaType alpha_type,
@@ -292,8 +294,12 @@ class FuchsiaVideoDecoderTest : public testing::Test {
       : raster_context_provider_(
             base::MakeRefCounted<TestRasterContextProvider>()),
         decoder_(
-            CreateFuchsiaVideoDecoderForTests(raster_context_provider_.get(),
-                                              /*enable_sw_decoding=*/true)) {}
+            FuchsiaVideoDecoder::CreateForTests(raster_context_provider_.get(),
+                                                /*enable_sw_decoding=*/true)) {}
+
+  FuchsiaVideoDecoderTest(const FuchsiaVideoDecoderTest&) = delete;
+  FuchsiaVideoDecoderTest& operator=(const FuchsiaVideoDecoderTest&) = delete;
+
   ~FuchsiaVideoDecoderTest() override = default;
 
   bool InitializeDecoder(VideoDecoderConfig config) WARN_UNUSED_RESULT {
@@ -389,8 +395,6 @@ class FuchsiaVideoDecoderTest : public testing::Test {
   size_t frames_to_keep_ = 2;
 
   base::WeakPtrFactory<FuchsiaVideoDecoderTest> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FuchsiaVideoDecoderTest);
 };
 
 scoped_refptr<DecoderBuffer> GetH264Frame(size_t frame_num) {
@@ -410,7 +414,7 @@ TEST_F(FuchsiaVideoDecoderTest, CreateInitDestroy) {
 }
 
 TEST_F(FuchsiaVideoDecoderTest, DISABLED_VP9) {
-  ASSERT_TRUE(InitializeDecoder(TestVideoConfig::Normal(kCodecVP9)));
+  ASSERT_TRUE(InitializeDecoder(TestVideoConfig::Normal(VideoCodec::kVP9)));
 
   DecodeBuffer(ReadTestDataFile("vp9-I-frame-320x240"));
   DecodeBuffer(DecoderBuffer::CreateEOSBuffer());

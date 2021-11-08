@@ -23,6 +23,7 @@
 
 #include "build/build_config.h"
 #include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/forms/html_data_list_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_data_list_options_collection.h"
@@ -34,6 +35,7 @@
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
+#include "third_party/blink/renderer/core/paint/paint_auto_dark_mode.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context_state_saver.h"
@@ -146,14 +148,14 @@ bool ThemePainter::Paint(const LayoutObject& o,
     case kProgressBarPart:
       COUNT_APPEARANCE(doc, ProgressBar);
       // Note that |-webkit-appearance: progress-bar| works only for <progress>.
-      return PaintProgressBar(element, o, paint_info, r);
+      return PaintProgressBar(element, o, paint_info, r, style);
     case kSliderHorizontalPart: {
       COUNT_APPEARANCE(doc, SliderHorizontal);
-      return PaintSliderTrack(element, o, paint_info, r);
+      return PaintSliderTrack(element, o, paint_info, r, style);
     }
     case kSliderVerticalPart: {
       COUNT_APPEARANCE(doc, SliderVertical);
-      return PaintSliderTrack(element, o, paint_info, r);
+      return PaintSliderTrack(element, o, paint_info, r, style);
     }
     case kSliderThumbHorizontalPart: {
       COUNT_APPEARANCE(doc, SliderThumbHorizontal);
@@ -171,15 +173,9 @@ bool ThemePainter::Paint(const LayoutObject& o,
     case kMenulistButtonPart:
       return true;
     case kTextFieldPart:
-      if (!features::IsFormControlsRefreshEnabled()) {
-        return true;
-      }
       CountAppearanceTextFieldPart(element);
       return PaintTextField(element, style, paint_info, r);
     case kTextAreaPart:
-      if (!features::IsFormControlsRefreshEnabled()) {
-        return true;
-      }
       COUNT_APPEARANCE(doc, TextArea);
       return PaintTextArea(element, style, paint_info, r);
     case kSearchFieldPart: {
@@ -211,17 +207,8 @@ bool ThemePainter::PaintBorderOnly(const Node* node,
   // Call the appropriate paint method based off the appearance value.
   switch (style.EffectiveAppearance()) {
     case kTextFieldPart:
-      if (features::IsFormControlsRefreshEnabled()) {
-        return false;
-      }
-      CountAppearanceTextFieldPart(element);
-      return PaintTextField(element, style, paint_info, r);
     case kTextAreaPart:
-      if (features::IsFormControlsRefreshEnabled()) {
-        return false;
-      }
-      COUNT_APPEARANCE(element.GetDocument(), TextArea);
-      return PaintTextArea(element, style, paint_info, r);
+      return false;
     case kMenulistButtonPart:
     case kSearchFieldPart:
     case kListboxPart:
@@ -249,8 +236,6 @@ bool ThemePainter::PaintBorderOnly(const Node* node,
       // appearance values.
       return false;
   }
-
-  return false;
 }
 
 bool ThemePainter::PaintDecorations(const Node* node,
@@ -333,32 +318,32 @@ void ThemePainter::PaintSliderTicks(const LayoutObject& o,
           ->GetLayoutObject();
   if (track_layout_object && track_layout_object->IsBox()) {
     track_bounds = IntRect(
-        CeiledIntPoint(track_layout_object->FirstFragment().PaintOffset()),
+        ToCeiledPoint(track_layout_object->FirstFragment().PaintOffset()),
         FlooredIntSize(To<LayoutBox>(track_layout_object)->Size()));
   }
 
   if (is_horizontal) {
-    tick_rect.SetWidth(floor(tick_size.Width() * zoom_factor));
-    tick_rect.SetHeight(floor(tick_size.Height() * zoom_factor));
-    tick_rect.SetY(
-        floor(rect.Y() + rect.Height() / 2.0 +
+    tick_rect.set_width(floor(tick_size.width() * zoom_factor));
+    tick_rect.set_height(floor(tick_size.height() * zoom_factor));
+    tick_rect.set_y(
+        floor(rect.y() + rect.height() / 2.0 +
               LayoutTheme::GetTheme().SliderTickOffsetFromTrackCenter() *
                   zoom_factor));
     tick_region_side_margin =
-        track_bounds.X() +
-        (thumb_size.Width() - tick_size.Width() * zoom_factor) / 2.0;
-    tick_region_width = track_bounds.Width() - thumb_size.Width();
+        track_bounds.x() +
+        (thumb_size.width() - tick_size.width() * zoom_factor) / 2.0;
+    tick_region_width = track_bounds.width() - thumb_size.width();
   } else {
-    tick_rect.SetWidth(floor(tick_size.Height() * zoom_factor));
-    tick_rect.SetHeight(floor(tick_size.Width() * zoom_factor));
-    tick_rect.SetX(
-        floor(rect.X() + rect.Width() / 2.0 +
+    tick_rect.set_width(floor(tick_size.height() * zoom_factor));
+    tick_rect.set_height(floor(tick_size.width() * zoom_factor));
+    tick_rect.set_x(
+        floor(rect.x() + rect.width() / 2.0 +
               LayoutTheme::GetTheme().SliderTickOffsetFromTrackCenter() *
                   zoom_factor));
     tick_region_side_margin =
-        track_bounds.Y() +
-        (thumb_size.Height() - tick_size.Width() * zoom_factor) / 2.0;
-    tick_region_width = track_bounds.Height() - thumb_size.Height();
+        track_bounds.y() +
+        (thumb_size.height() - tick_size.width() * zoom_factor) / 2.0;
+    tick_region_width = track_bounds.height() - thumb_size.height();
   }
   HTMLDataListOptionsCollection* options = data_list->options();
   for (unsigned i = 0; HTMLOptionElement* option_element = options->Item(i);
@@ -377,11 +362,13 @@ void ThemePainter::PaintSliderTicks(const LayoutObject& o,
     double tick_position =
         round(tick_region_side_margin + tick_region_width * tick_ratio);
     if (is_horizontal)
-      tick_rect.SetX(tick_position);
+      tick_rect.set_x(tick_position);
     else
-      tick_rect.SetY(tick_position);
-    paint_info.context.FillRect(tick_rect,
-                                o.ResolveColor(GetCSSPropertyColor()));
+      tick_rect.set_y(tick_position);
+    paint_info.context.FillRect(
+        tick_rect, o.ResolveColor(GetCSSPropertyColor()),
+        PaintAutoDarkMode(o.StyleRef(),
+                          DarkModeFilter::ElementRole::kBackground));
   }
 }
 

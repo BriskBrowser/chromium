@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_UI_BROWSER_COMMAND_CONTROLLER_H_
 #define CHROME_BROWSER_UI_BROWSER_COMMAND_CONTROLLER_H_
 
-#include <vector>
-
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "build/chromeos_buildflags.h"
@@ -37,6 +35,10 @@ class BrowserCommandController : public CommandUpdater,
                                  public sessions::TabRestoreServiceObserver {
  public:
   explicit BrowserCommandController(Browser* browser);
+
+  BrowserCommandController(const BrowserCommandController&) = delete;
+  BrowserCommandController& operator=(const BrowserCommandController&) = delete;
+
   ~BrowserCommandController() override;
 
   // Returns true if |command_id| is a reserved command whose keyboard shortcuts
@@ -51,22 +53,19 @@ class BrowserCommandController : public CommandUpdater,
   void ZoomStateChanged();
   void ContentRestrictionsChanged();
   void FullscreenStateChanged();
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
   // Called when the browser goes in or out of the special locked fullscreen
   // mode. In this mode the user is basically locked into the current browser
   // window and tab hence we disable most keyboard shortcuts and we also
   // prevent changing the state of enabled shortcuts while in this mode (so the
   // other *Changed() functions will be a NO-OP in this state).
   void LockedFullscreenStateChanged();
-  // Called when a desk is created/removed. Used to determine send
-  // to desk command states.
-  void DesksStateChanged(int num_desks);
 #endif
   void PrintingStateChanged();
   void LoadingStateChanged(bool is_loading, bool force);
   void FindBarVisibilityChanged();
   void ExtensionStateChanged();
-  void TabKeyboardFocusChangedTo(base::Optional<int> index);
+  void TabKeyboardFocusChangedTo(absl::optional<int> index);
   void WebContentsFocusChanged();
 
   // Overriden from CommandUpdater:
@@ -86,9 +85,6 @@ class BrowserCommandController : public CommandUpdater,
 
   // Shared state updating: these functions are static and public to share with
   // outside code.
-
-  // Updates the open-file state.
-  static void UpdateOpenFileState(CommandUpdater* command_updater);
 
   // Update commands whose state depends on incognito mode availability and that
   // only depend on the profile.
@@ -160,13 +156,10 @@ class BrowserCommandController : public CommandUpdater,
   // app windows.
   void UpdateCommandsForHostedAppAvailability();
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
   // Update commands whose state depends on whether the window is in locked
   // fullscreen mode or not.
   void UpdateCommandsForLockedFullscreenMode();
-
-  // Update commands whose state depends on how many desks exist.
-  void UpdateCommandsForDesks(int num_desks);
 #endif
 
   // Updates the printing command state.
@@ -200,7 +193,7 @@ class BrowserCommandController : public CommandUpdater,
   // Updates commands for tab keyboard focus state. If |target_index| is
   // populated, it is the index of the tab with focus; if it is not populated,
   // no tab has keyboard focus.
-  void UpdateCommandsForTabKeyboardFocus(base::Optional<int> target_index);
+  void UpdateCommandsForTabKeyboardFocus(absl::optional<int> target_index);
 
   // Updates commands that depend on whether web contents is focused or not.
   void UpdateCommandsForWebContentsFocus();
@@ -219,8 +212,6 @@ class BrowserCommandController : public CommandUpdater,
 
   // In locked fullscreen mode disallow enabling/disabling commands.
   bool is_locked_fullscreen_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserCommandController);
 };
 
 }  // namespace chrome

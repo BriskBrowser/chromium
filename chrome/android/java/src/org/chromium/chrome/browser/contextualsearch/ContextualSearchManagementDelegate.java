@@ -4,7 +4,8 @@
 
 package org.chromium.chrome.browser.contextualsearch;
 
-import org.chromium.chrome.browser.app.ChromeActivity;
+import android.app.Activity;
+
 import org.chromium.chrome.browser.compositor.bottombar.OverlayContentDelegate;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel.StateChangeReason;
 import org.chromium.chrome.browser.compositor.bottombar.contextualsearch.ContextualSearchPanel;
@@ -21,7 +22,7 @@ public interface ContextualSearchManagementDelegate {
     /**
      * @return The ChromeActivity that associated with the manager.
      */
-    ChromeActivity getChromeActivity();
+    Activity getActivity();
 
     /**
      * Promotes the current Content View Core in the Contextual Search Panel to its own Tab.
@@ -65,6 +66,9 @@ public interface ContextualSearchManagementDelegate {
      */
     void onCloseContextualSearch(@StateChangeReason int reason);
 
+    /** Notifies that the Panel has transitioned from an open state to the peeking state. */
+    void onPanelCollapsed();
+
     /**
      * @return An OverlayContentDelegate to watch events on the panel's content.
      */
@@ -90,10 +94,24 @@ public interface ContextualSearchManagementDelegate {
      */
     void onPromoOptIn();
 
+    /** Returns whether the In-Panel-Help is currently enabled. */
+    boolean isPanelHelpEnabled();
+
     /**
      * Called when the Help section of the panel has its OK button clicked.
      */
     void onPanelHelpOkClicked();
+
+    /**
+     * Notifies that a Related Searches suggestion has been clicked, and whether it was shown in the
+     * Bar or the content area of the Panel.
+     * @param suggestionIndex The 0-based index into the list of suggestions provided by the
+     *        panel and presented in the UI. E.g. if the user clicked the second chip this value
+     *        would be 1.
+     * @param isInBarSuggestion Whether the query was displayed in the Bar or content area of the
+     *                          Panel.
+     */
+    void onRelatedSearchesSuggestionClicked(int suggestionIndex, boolean isInBarSuggestion);
 
     /**
      * @return A {@link ScrimCoordinator} to fade the status bar in and out.

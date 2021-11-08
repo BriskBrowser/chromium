@@ -5,7 +5,7 @@
 #ifndef GPU_VULKAN_VULKAN_DEVICE_QUEUE_H_
 #define GPU_VULKAN_VULKAN_DEVICE_QUEUE_H_
 
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #include <memory>
 
@@ -31,8 +31,11 @@ class COMPONENT_EXPORT(VULKAN) VulkanDeviceQueue {
     PRESENTATION_SUPPORT_QUEUE_FLAG = 0x02,
   };
 
-  VulkanDeviceQueue(VkInstance vk_instance,
-                    bool enforce_protected_memory = false);
+  explicit VulkanDeviceQueue(VkInstance vk_instance);
+
+  VulkanDeviceQueue(const VulkanDeviceQueue&) = delete;
+  VulkanDeviceQueue& operator=(const VulkanDeviceQueue&) = delete;
+
   ~VulkanDeviceQueue();
 
   using GetPresentationSupportCallback =
@@ -120,7 +123,6 @@ class COMPONENT_EXPORT(VULKAN) VulkanDeviceQueue {
   std::unique_ptr<VulkanFenceHelper> cleanup_helper_;
   VkPhysicalDeviceFeatures2 enabled_device_features_2_;
 
-  const bool enforce_protected_memory_;
   bool allow_protected_memory_ = false;
 
 #if defined(OS_ANDROID) || defined(OS_FUCHSIA)
@@ -129,8 +131,6 @@ class COMPONENT_EXPORT(VULKAN) VulkanDeviceQueue {
 #endif  // defined(OS_ANDROID) || defined(OS_FUCHSIA)
 
   VkPhysicalDeviceProtectedMemoryFeatures protected_memory_features_;
-
-  DISALLOW_COPY_AND_ASSIGN(VulkanDeviceQueue);
 };
 
 }  // namespace gpu

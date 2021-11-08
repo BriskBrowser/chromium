@@ -8,10 +8,8 @@
 #include <memory>
 
 #include "base/callback.h"
-#include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -42,7 +40,7 @@ class InstalledVersionPoller {
   // A type of callback that is run (in the background) to get the currently
   // installed version of the browser.
   using GetInstalledVersionCallback =
-      base::RepeatingCallback<InstalledAndCriticalVersion()>;
+      base::RepeatingCallback<void(InstalledVersionCallback)>;
 
   // A constructor for tests that provide a mock source of time and a mock
   // version getter.

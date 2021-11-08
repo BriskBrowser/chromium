@@ -17,6 +17,7 @@
 #include "third_party/metrics_proto/user_demographics.pb.h"
 #include "url/gurl.h"
 
+@class FakeChromeIdentity;
 @class ElementSelector;
 @protocol GREYMatcher;
 
@@ -29,6 +30,10 @@ namespace chrome_test_util {
 // result of the JavaScript execution. If the request is timed out, then nil is
 // returned.
 id ExecuteJavaScript(NSString* javascript, NSError** out_error);
+
+// Returns current keyWindow, from the list of all of the remote application
+// windows. Use only for single window tests.
+UIWindow* GetAnyKeyWindow();
 
 }  // namespace chrome_test_util
 
@@ -49,6 +54,9 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 
 // Returns YES if running on an iPad.
 - (BOOL)isIPadIdiom;
+
+// YES if the current interface language uses RTL layout.
+- (BOOL)isRTL;
 
 // Returns YES if the main application window's rootViewController has a compact
 // horizontal size class.
@@ -85,9 +93,9 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 
 #pragma mark - Navigation Utilities (EG2)
 
-// Instructs the application delegate to open |URL| with default opening
+// Instructs some connected scene to open |URL| with default opening
 // options.
-- (void)applicationOpenURL:(const GURL&)URL;
+- (void)sceneOpenURL:(const GURL&)URL;
 
 // Loads |URL| in the current WebState with transition type
 // ui::PAGE_TRANSITION_TYPED, and if waitForCompletion is YES
@@ -132,8 +140,18 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 // Waits for the matcher to return an element.
 - (void)waitForUIElementToAppearWithMatcher:(id<GREYMatcher>)matcher;
 
+// Waits for the matcher to return an element. If the condition is not met
+// within the given |timeout| a GREYAssert is induced.
+- (void)waitForUIElementToAppearWithMatcher:(id<GREYMatcher>)matcher
+                                    timeout:(NSTimeInterval)timeout;
+
 // Waits for the matcher to not return any elements.
 - (void)waitForUIElementToDisappearWithMatcher:(id<GREYMatcher>)matcher;
+
+// Waits for the matcher to not return any elements. If the condition is not met
+// within the given |timeout| a GREYAssert is induced.
+- (void)waitForUIElementToDisappearWithMatcher:(id<GREYMatcher>)matcher
+                                       timeout:(NSTimeInterval)timeout;
 
 // Waits for there to be |count| number of non-incognito tabs within a timeout,
 // or a GREYAssert is induced.
@@ -158,6 +176,9 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 
 // Clears fake sync server data if the server is running.
 - (void)clearSyncServerData;
+
+// Signs in with |identity| without sync consent.
+- (void)signInWithoutSyncWithIdentity:(FakeChromeIdentity*)identity;
 
 // Starts the sync server. The server should not be running when calling this.
 - (void)startSync;
@@ -188,11 +209,11 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
                      autofillProfileName:(const std::string&)fullName
     WARN_UNUSED_RESULT;
 
-// Sets up a fake sync server to be used by the ProfileSyncService.
+// Sets up a fake sync server to be used by the SyncServiceImpl.
 - (void)setUpFakeSyncServer;
 
-// Tears down the fake sync server used by the ProfileSyncService and restores
-// the real one.
+// Tears down the fake sync server used by the SyncServiceImpl and restores the
+// real one.
 - (void)tearDownFakeSyncServer;
 
 // Gets the number of entities of the given |type|.
@@ -321,7 +342,7 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 - (NSUInteger)evictedMainTabCount WARN_UNUSED_RESULT;
 
 // Evicts the tabs associated with the non-current browser mode.
-- (void)evictOtherTabModelTabs;
+- (void)evictOtherBrowserTabs;
 
 // Sets the normal tabs as 'cold start' tabs and raises an EarlGrey exception if
 // operation not succeeded.
@@ -349,6 +370,9 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 
 #pragma mark - Window utilities (EG2)
 
+// Returns screen position of the given |windowNumber|
+- (CGRect)screenPositionOfScreenWithNumber:(int)windowNumber;
+
 // Returns the number of windows, including background and disconnected or
 // archived windows.
 - (NSUInteger)windowCount WARN_UNUSED_RESULT;
@@ -366,6 +390,11 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 
 // Opens a new window.
 - (void)openNewWindow;
+
+// After opening a new window (through openNewWindow or otherwise) a call
+// to this should be made to make sure the new window is ready to interact
+// or to be closed. Closing while setting up leads to crashes.
+- (void)waitUntilReadyWindowWithNumber:(int)windowNumber;
 
 // Opens a new tab in window with given number and waits for the new tab
 // animation to complete within a timeout, or a GREYAssert is induced.
@@ -404,6 +433,9 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 // Returns YES if the window with given number's current WebState is loading.
 - (BOOL)isLoadingInWindowWithNumber:(int)windowNumber WARN_UNUSED_RESULT;
 
+// Waits for the current web state for window to be visible.
+- (void)waitForWebStateVisible;
+
 // Waits for the current web state for window with given number, to contain
 // |UTF8Text|. If the condition is not met within a timeout a GREYAssert is
 // induced.
@@ -426,6 +458,11 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 // GREYAssert is induced.
 - (void)waitForIncognitoTabCount:(NSUInteger)count
               inWindowWithNumber:(int)windowNumber;
+
+// Waits for the JavaScript query |javaScriptCondition| to return |boolValue|
+// YES. If the condition is not met within kWaitForActionTimeout a GREYAssert is
+// induced.
+- (void)waitForJavaScriptCondition:(NSString*)javaScriptCondition;
 
 #pragma mark - SignIn Utilities (EG2)
 
@@ -498,6 +535,11 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 - (void)waitForWebStateContainingLoadedImageElementWithID:
     (const std::string&)UTF8ImageID;
 
+// Waits for the web state's scroll view zoom scale to be suitably close (within
+// 0.05) of the expected scale. Returns nil if the condition is met within a
+// timeout, or else an NSError indicating why the operation failed.
+- (void)waitForWebStateZoomScale:(CGFloat)scale;
+
 // Returns the current web state's VisibleURL.
 - (GURL)webStateVisibleURL;
 
@@ -523,6 +565,10 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 
 // Stops any pending navigations in all WebStates which are loading.
 - (void)stopAllWebStatesLoading;
+
+// Clears all web state browsing data. A GREYAssert is induced if the data
+// cannot be cleared.
+- (void)clearAllWebStateBrowsingData;
 
 #pragma mark - Bookmarks Utilities (EG2)
 
@@ -575,9 +621,6 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 // Returns YES if a variation triggering server-side behavior is enabled.
 - (BOOL)isTriggerVariationEnabled:(int)variationID;
 
-// Returns YES if UmaCellular feature is enabled.
-- (BOOL)isUMACellularEnabled WARN_UNUSED_RESULT;
-
 // Returns YES if UKM feature is enabled.
 - (BOOL)isUKMEnabled WARN_UNUSED_RESULT;
 
@@ -598,18 +641,15 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 // Returns whether the mobile version of the websites are requested by default.
 - (BOOL)isMobileModeByDefault WARN_UNUSED_RESULT;
 
-// Returns whether the illustrated empty stated feature is enabled.
-- (BOOL)isIllustratedEmptyStatesEnabled;
-
-// Returns whether the native context menus feature is enabled or not.
-- (BOOL)isNativeContextMenusEnabled;
-
 // Returns whether the app is configured to, and running in an environment which
 // can, open multiple windows.
 - (BOOL)areMultipleWindowsSupported;
 
-// Returns whether the Close All Tabs Confirmation feature is enabled.
-- (BOOL)isCloseAllTabsConfirmationEnabled;
+// Returns whether the ContextMenuActionsRefresh feature is enabled.
+- (BOOL)isContextMenuActionsRefreshEnabled;
+
+// Returns whether the TabGridBulkActions feature is enabled.
+- (BOOL)isTabGridBulkActionsEnabled;
 
 #pragma mark - Popup Blocking
 
@@ -641,13 +681,20 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 - (int)localStateIntegerPref:(const std::string&)prefName;
 - (std::string)localStateStringPref:(const std::string&)prefName;
 
+// Sets the integer values for the local state pref with |prefName|. |value|
+// can be either a casted enum or any other numerical value. Local State
+// contains the preferences that are shared between all browser states.
+- (void)setIntegerValue:(int)value
+      forLocalStatePref:(const std::string&)prefName;
+
 // Gets the value of a user pref in the original browser state.
 - (bool)userBooleanPref:(const std::string&)prefName;
 - (int)userIntegerPref:(const std::string&)prefName;
 - (std::string)userStringPref:(const std::string&)prefName;
 
-// Sets the value of a boolean user pref in the original browser state.
+// Sets the value of a user pref in the original browser state.
 - (void)setBoolValue:(BOOL)value forUserPref:(const std::string&)UTF8PrefName;
+- (void)setIntegerValue:(int)value forUserPref:(const std::string&)UTF8PrefName;
 
 // Resets the BrowsingDataPrefs, which defines if its selected or not when
 // clearing Browsing data.
@@ -665,10 +712,8 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 #pragma mark - Context Menus Utilities (EG2)
 
 // Taps on the Copy Link context menu action and verifies that the |text| has
-// been copied to the pasteboard. |useNewString| determines which action string
-// to use.
-- (void)verifyCopyLinkActionWithText:(NSString*)text
-                        useNewString:(BOOL)useNewString;
+// been copied to the pasteboard.
+- (void)verifyCopyLinkActionWithText:(NSString*)text;
 
 // Taps on the Open in New Tab context menu action and waits for the |URL| to be
 // present in the omnibox.
@@ -679,19 +724,36 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 - (void)verifyOpenInNewWindowActionWithContent:(const std::string&)content;
 
 // Taps on the Open in Incognito context menu action and waits for the |URL| to
-// be present in the omnibox. |useNewString| determines which action string
-// to use.
-- (void)verifyOpenInIncognitoActionWithURL:(const std::string&)URL
-                              useNewString:(BOOL)useNewString;
+// be present in the omnibox.
+- (void)verifyOpenInIncognitoActionWithURL:(const std::string&)URL;
 
 // Taps on the Share context menu action and validates that the ActivityView
-// was brought up with |pageTitle| in its header.
-- (void)verifyShareActionWithPageTitle:(NSString*)pageTitle;
+// was brought up with the correct title in its header. The title starts as the
+// host of the loaded |URL| and is then updated to the page title |pageTitle|.
+- (void)verifyShareActionWithURL:(const GURL&)URL
+                       pageTitle:(NSString*)pageTitle;
 
 #pragma mark - Unified Consent utilities
 
 // Enables or disables URL-keyed anonymized data collection.
 - (void)setURLKeyedAnonymizedDataCollectionEnabled:(BOOL)enabled;
+
+#pragma mark - Watcher utilities
+
+// Starts monitoring for buttons (based on traits) with the given
+// (accessibility) |labels|. Monitoring will stop once all are found, or if
+// timeout expires. If a previous set is currently being watched for it gets
+// replaced with this set. Note that timeout is best effort and can be a bit
+// longer than specified. This method returns immediately.
+- (void)watchForButtonsWithLabels:(NSArray<NSString*>*)labels
+                          timeout:(NSTimeInterval)timeout;
+
+// Returns YES is the button with given (accessibility) |label| was observed at
+// some point since |watchForButtonsWithLabels:timeout:| was called.
+- (BOOL)watcherDetectedButtonWithLabel:(NSString*)label;
+
+// Clear the watcher list, stopping monitoring.
+- (void)stopWatcher;
 
 @end
 

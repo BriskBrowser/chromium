@@ -29,6 +29,7 @@
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/font.h"
@@ -43,7 +44,6 @@
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/layout/layout_provider.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/views_delegate.h"
 #include "ui/views/widget/widget.h"
 
@@ -144,7 +144,7 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
 void ProfileSigninConfirmationDialogViews::BuildDefaultView() {
   DCHECK(!use_work_profile_wording_);
   const SkColor kPromptBarBackgroundColor =
-      ui::GetSigninConfirmationPromptBarColor(GetNativeTheme(), 0x0A);
+      ui::GetSigninConfirmationPromptBarColor(GetColorProvider(), 0x0A);
 
   // Create business icon.
   int business_icon_size = 20;
@@ -154,13 +154,11 @@ void ProfileSigninConfirmationDialogViews::BuildDefaultView() {
 
   // Create the prompt label.
   size_t offset;
-  const base::string16 domain =
+  const std::u16string domain =
       base::ASCIIToUTF16(gaia::ExtractDomainName(username_));
-  const base::string16 username = base::ASCIIToUTF16(username_);
-  const base::string16 prompt_text =
-      l10n_util::GetStringFUTF16(
-          IDS_ENTERPRISE_SIGNIN_ALERT,
-          domain, &offset);
+  const std::u16string username = base::ASCIIToUTF16(username_);
+  const std::u16string prompt_text =
+      l10n_util::GetStringFUTF16(IDS_ENTERPRISE_SIGNIN_ALERT, domain, &offset);
   auto prompt_label = std::make_unique<views::StyledLabel>();
   prompt_label->SetText(prompt_text);
   prompt_label->SetDisplayedOnBackgroundColor(kPromptBarBackgroundColor);
@@ -174,19 +172,19 @@ void ProfileSigninConfirmationDialogViews::BuildDefaultView() {
   auto prompt_bar = std::make_unique<views::View>();
   prompt_bar->SetBorder(views::CreateSolidSidedBorder(
       1, 0, 1, 0,
-      ui::GetSigninConfirmationPromptBarColor(GetNativeTheme(), 0x1F)));
+      ui::GetSigninConfirmationPromptBarColor(GetColorProvider(), 0x1F)));
   prompt_bar->SetBackground(
       views::CreateSolidBackground(kPromptBarBackgroundColor));
 
   // Create the explanation label.
   std::vector<size_t> offsets;
-  const base::string16 learn_more_text =
+  const std::u16string learn_more_text =
       l10n_util::GetStringUTF16(IDS_LEARN_MORE);
-  const base::string16 signin_explanation_text =
-      l10n_util::GetStringFUTF16(prompt_for_new_profile_ ?
-          IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITH_PROFILE_CREATION :
-          IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITHOUT_PROFILE_CREATION,
-          username, learn_more_text, &offsets);
+  const std::u16string signin_explanation_text = l10n_util::GetStringFUTF16(
+      prompt_for_new_profile_
+          ? IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITH_PROFILE_CREATION
+          : IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITHOUT_PROFILE_CREATION,
+      username, learn_more_text, &offsets);
   auto explanation_label = std::make_unique<views::StyledLabel>();
   explanation_label->SetText(signin_explanation_text);
   explanation_label->AddStyleRange(
@@ -198,7 +196,7 @@ void ProfileSigninConfirmationDialogViews::BuildDefaultView() {
   // Layout the components.
   const gfx::Insets content_insets =
       views::LayoutProvider::Get()->GetDialogInsetsForContentType(
-          views::CONTROL, views::TEXT);
+          views::DialogContentType::kControl, views::DialogContentType::kText);
   // The prompt bar needs to go to the edge of the dialog, so remove horizontal
   // insets.
   SetBorder(views::CreateEmptyBorder(content_insets.top(), 0,
@@ -280,9 +278,9 @@ void ProfileSigninConfirmationDialogViews::BuildWorkProfileView() {
 
   // Create the explanation label.
   size_t learn_more_offset;
-  const base::string16 learn_more_text =
+  const std::u16string learn_more_text =
       l10n_util::GetStringUTF16(IDS_LEARN_MORE);
-  const base::string16 signin_explanation_text =
+  const std::u16string signin_explanation_text =
       l10n_util::GetStringFUTF16(IDS_ENTERPRISE_SIGNIN_WORK_PROFILE_EXPLANATION,
                                  learn_more_text, &learn_more_offset);
   auto explanation_label = std::make_unique<views::StyledLabel>();
@@ -296,7 +294,7 @@ void ProfileSigninConfirmationDialogViews::BuildWorkProfileView() {
   // Layout the components.
   const gfx::Insets content_insets =
       views::LayoutProvider::Get()->GetDialogInsetsForContentType(
-          views::CONTROL, views::TEXT);
+          views::DialogContentType::kControl, views::DialogContentType::kText);
   // The prompt bar needs to go to the edge of the dialog, so remove horizontal
   // insets.
   SetBorder(views::CreateEmptyBorder(content_insets.top(), 0,

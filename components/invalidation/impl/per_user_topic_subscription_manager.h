@@ -10,7 +10,6 @@
 
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
-#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/invalidation/impl/channels_states.h"
 #include "components/invalidation/impl/per_user_topic_subscription_request.h"
@@ -19,6 +18,7 @@
 #include "components/invalidation/public/invalidation_util.h"
 #include "components/invalidation/public/invalidator_state.h"
 #include "net/base/backoff_entry.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -93,7 +93,7 @@ class INVALIDATION_EXPORT PerUserTopicSubscriptionManager {
 
   base::DictionaryValue CollectDebugData() const;
 
-  virtual base::Optional<Topic> LookupSubscribedPublicTopicByPrivateTopic(
+  virtual absl::optional<Topic> LookupSubscribedPublicTopicByPrivateTopic(
       const std::string& private_topic) const;
 
   TopicSet GetSubscribedTopicsForTest() const;

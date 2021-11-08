@@ -66,7 +66,7 @@ class CORE_EXPORT PerformanceTiming final : public ScriptWrappable,
                WebPerformance::
                    kRequestAnimationFramesToRecordAfterBackForwardCacheRestore>
         request_animation_frames;
-    base::Optional<base::TimeDelta> first_input_delay;
+    absl::optional<base::TimeDelta> first_input_delay;
   };
 
   using BackForwardCacheRestoreTimings =
@@ -141,13 +141,6 @@ class CORE_EXPORT PerformanceTiming final : public ScriptWrappable,
   // Largest Contentful Paint is the either the largest text paint time or the
   // largest image paint time, whichever has the larger size.
   base::TimeTicks LargestContentfulPaintAsMonotonicTime() const;
-  // Experimental versions of the above metrics. Currently these are computed by
-  // considering the largest content seen so far, regardless of DOM node
-  // removal.
-  uint64_t ExperimentalLargestImagePaint() const;
-  uint64_t ExperimentalLargestImagePaintSize() const;
-  uint64_t ExperimentalLargestTextPaint() const;
-  uint64_t ExperimentalLargestTextPaintSize() const;
   // The time at which the frame is first eligible for painting due to not
   // being throttled. A zero value indicates throttling.
   uint64_t FirstEligibleToPaint() const;
@@ -157,26 +150,35 @@ class CORE_EXPORT PerformanceTiming final : public ScriptWrappable,
   // The duration between the hardware timestamp and being queued on the main
   // thread for the first click, tap, key press, cancellable touchstart, or
   // pointer down followed by a pointer up.
-  base::Optional<base::TimeDelta> FirstInputDelay() const;
+  absl::optional<base::TimeDelta> FirstInputDelay() const;
   // The timestamp of the event whose delay is reported by FirstInputDelay().
-  base::Optional<base::TimeDelta> FirstInputTimestamp() const;
+  absl::optional<base::TimeDelta> FirstInputTimestamp() const;
   // The longest duration between the hardware timestamp and being queued on the
   // main thread for the click, tap, key press, cancellable touchstart, or
   // pointer down followed by a pointer up.
-  base::Optional<base::TimeDelta> LongestInputDelay() const;
+  absl::optional<base::TimeDelta> LongestInputDelay() const;
   // The timestamp of the event whose delay is reported by LongestInputDelay().
-  base::Optional<base::TimeDelta> LongestInputTimestamp() const;
+  absl::optional<base::TimeDelta> LongestInputTimestamp() const;
   // The duration of event handlers processing the first input event.
-  base::Optional<base::TimeDelta> FirstInputProcessingTime() const;
+  absl::optional<base::TimeDelta> FirstInputProcessingTime() const;
   // The duration between the user's first scroll and display update.
-  base::Optional<base::TimeDelta> FirstScrollDelay() const;
+  absl::optional<base::TimeDelta> FirstScrollDelay() const;
   // The hardware timestamp of the first scroll.
-  base::Optional<base::TimeDelta> FirstScrollTimestamp() const;
+  absl::optional<base::TimeDelta> FirstScrollTimestamp() const;
   // TimeTicks for unload start and end.
-  base::Optional<base::TimeTicks> UnloadStart() const;
-  base::Optional<base::TimeTicks> UnloadEnd() const;
+  absl::optional<base::TimeTicks> UnloadStart() const;
+  absl::optional<base::TimeTicks> UnloadEnd() const;
   // The timestamp of when the commit navigation finished in the frame loader.
-  base::Optional<base::TimeTicks> CommitNavigationEnd() const;
+  absl::optional<base::TimeTicks> CommitNavigationEnd() const;
+  // The timestamp of the user timing mark 'mark_fully_loaded', if
+  // available.
+  absl::optional<base::TimeDelta> UserTimingMarkFullyLoaded() const;
+  // The timestamp of the user timing mark 'mark_fully_visible', if
+  // available.
+  absl::optional<base::TimeDelta> UserTimingMarkFullyVisible() const;
+  // The timestamp of the user timing mark 'mark_interactive', if
+  // available.
+  absl::optional<base::TimeDelta> UserTimingMarkInteractive() const;
 
   uint64_t ParseStart() const;
   uint64_t ParseStop() const;
@@ -186,11 +188,17 @@ class CORE_EXPORT PerformanceTiming final : public ScriptWrappable,
   uint64_t ParseBlockedOnScriptExecutionFromDocumentWriteDuration() const;
 
   // The time of the first paint after a portal activation.
-  base::Optional<base::TimeTicks> LastPortalActivatedPaint() const;
+  absl::optional<base::TimeTicks> LastPortalActivatedPaint() const;
+  // The start time of the prerender activation navigation.
+  absl::optional<base::TimeDelta> PrerenderActivationStart() const;
 
-  typedef uint64_t (PerformanceTiming::*PerformanceTimingGetter)() const;
-  using NameToAttributeMap = HashMap<AtomicString, PerformanceTimingGetter>;
-  static const NameToAttributeMap& GetAttributeMapping();
+  // Returns true iff the given string identifies an attribute of
+  // |performance.timing|.
+  static bool IsAttributeName(const AtomicString&);
+
+  // Returns the attribute value identified by the given string. The string
+  // passed as parameter must be an attribute of |performance.timing|.
+  uint64_t GetNamedAttribute(const AtomicString&) const;
 
   ScriptValue toJSONForBinding(ScriptState*) const;
 
@@ -210,8 +218,14 @@ class CORE_EXPORT PerformanceTiming final : public ScriptWrappable,
   DocumentLoadTiming* GetDocumentLoadTiming() const;
   ResourceLoadTiming* GetResourceLoadTiming() const;
   InteractiveDetector* GetInteractiveDetector() const;
-  base::Optional<base::TimeDelta> MonotonicTimeToPseudoWallTime(
-      const base::Optional<base::TimeTicks>&) const;
+  absl::optional<base::TimeDelta> MonotonicTimeToPseudoWallTime(
+      const absl::optional<base::TimeTicks>&) const;
+
+  typedef uint64_t (PerformanceTiming::*PerformanceTimingGetter)() const;
+  using NameToAttributeMap = HashMap<AtomicString, PerformanceTimingGetter>;
+  static const NameToAttributeMap& GetAttributeMapping();
+
+  bool cross_origin_isolated_capability_;
 };
 
 }  // namespace blink

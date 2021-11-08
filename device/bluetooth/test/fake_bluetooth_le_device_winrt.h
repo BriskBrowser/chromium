@@ -36,6 +36,11 @@ class FakeBluetoothLEDeviceWinrt
           ABI::Windows::Foundation::IClosable> {
  public:
   explicit FakeBluetoothLEDeviceWinrt(BluetoothTestWinrt* bluetooth_test_winrt);
+
+  FakeBluetoothLEDeviceWinrt(const FakeBluetoothLEDeviceWinrt&) = delete;
+  FakeBluetoothLEDeviceWinrt& operator=(const FakeBluetoothLEDeviceWinrt&) =
+      delete;
+
   ~FakeBluetoothLEDeviceWinrt() override;
 
   // IBluetoothLEDevice:
@@ -127,7 +132,7 @@ class FakeBluetoothLEDeviceWinrt
 
   void SimulateDevicePaired(bool is_paired);
   void SimulatePairingPinCode(std::string pin_code);
-  base::Optional<BluetoothUUID> GetTargetGattService() const;
+  absl::optional<BluetoothUUID> GetTargetGattService() const;
   void SimulateGattConnection();
   void SimulateGattConnectionError(
       BluetoothDevice::ConnectErrorCode error_code);
@@ -150,7 +155,7 @@ class FakeBluetoothLEDeviceWinrt
  private:
   BluetoothTestWinrt* bluetooth_test_winrt_ = nullptr;
   uint32_t reference_count_ = 1u;
-  base::Optional<std::string> name_;
+  absl::optional<std::string> name_;
 
   ABI::Windows::Devices::Bluetooth::BluetoothConnectionStatus status_ =
       ABI::Windows::Devices::Bluetooth::BluetoothConnectionStatus_Disconnected;
@@ -174,7 +179,7 @@ class FakeBluetoothLEDeviceWinrt
               IGattDeviceServicesResult>)>
       gatt_services_callback_;
   // Contains the last GUID passed to GetGattServicesForUuidAsync.
-  base::Optional<GUID> service_uuid_;
+  absl::optional<GUID> service_uuid_;
 
   std::vector<Microsoft::WRL::ComPtr<FakeGattDeviceServiceWinrt>>
       fake_services_;
@@ -184,8 +189,6 @@ class FakeBluetoothLEDeviceWinrt
       ABI::Windows::Devices::Bluetooth::BluetoothLEDevice*,
       IInspectable*>>
       name_changed_handler_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeBluetoothLEDeviceWinrt);
 };
 
 class FakeBluetoothLEDeviceStaticsWinrt
@@ -196,6 +199,12 @@ class FakeBluetoothLEDeviceStaticsWinrt
  public:
   explicit FakeBluetoothLEDeviceStaticsWinrt(
       BluetoothTestWinrt* bluetooth_test_winrt);
+
+  FakeBluetoothLEDeviceStaticsWinrt(const FakeBluetoothLEDeviceStaticsWinrt&) =
+      delete;
+  FakeBluetoothLEDeviceStaticsWinrt& operator=(
+      const FakeBluetoothLEDeviceStaticsWinrt&) = delete;
+
   ~FakeBluetoothLEDeviceStaticsWinrt() override;
 
   // IBluetoothLEDeviceStatics:
@@ -213,8 +222,6 @@ class FakeBluetoothLEDeviceStaticsWinrt
 
  private:
   BluetoothTestWinrt* bluetooth_test_winrt_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeBluetoothLEDeviceStaticsWinrt);
 };
 
 }  // namespace device

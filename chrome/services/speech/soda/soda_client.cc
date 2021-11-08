@@ -5,6 +5,13 @@
 #include "chrome/services/speech/soda/soda_client.h"
 
 #include "base/logging.h"
+#include "base/macros.h"
+#include "base/metrics/histogram_functions.h"
+#include "build/build_config.h"
+
+#if defined(OS_MAC)
+#include "base/mac/mac_util.h"
+#endif
 
 namespace soda {
 
@@ -32,16 +39,51 @@ SodaClient::SodaClient(base::FilePath library_path)
   DCHECK(delete_soda_func_);
   DCHECK(add_audio_func_);
   DCHECK(soda_start_func_);
+
+  if (!lib_.is_valid()) {
+    load_soda_result_ = LoadSodaResultValue::kBinaryInvalid;
+  } else if (!(create_soda_func_ && delete_soda_func_ && add_audio_func_ &&
+               soda_start_func_)) {
+    load_soda_result_ = LoadSodaResultValue::kFunctionPointerInvalid;
+  } else {
+    load_soda_result_ = LoadSodaResultValue::kSuccess;
+  }
+
+  base::UmaHistogramEnumeration("Accessibility.LiveCaption.LoadSodaResult",
+                                load_soda_result_);
+
+#if defined(OS_WIN)
+  if (load_soda_result_ == LoadSodaResultValue::kBinaryInvalid) {
+    base::UmaHistogramSparse("Accessibility.LiveCaption.LoadSodaErrorCode",
+                             lib_.GetError()->code);
+  }
+#endif  // OS_WIN
 }
 
 NO_SANITIZE("cfi-icall")
 SodaClient::~SodaClient() {
+  if (load_soda_result_ != LoadSodaResultValue::kSuccess)
+    return;
+
   if (IsInitialized())
     delete_soda_func_(soda_async_handle_);
+
+#if defined(OS_MAC)
+  // Intentionally do not unload the libsoda.so library after the SodaClient
+  // is destroyed to prevent global destructor functions from running on an
+  // unloaded library. This only applies to older versions of MacOS since
+  // there have been no crashes on 10.15+, likely due to a change in the
+  // __cxa_atexit implementation.
+  if (base::mac::IsAtMostOS10_14())
+    ignore_result(lib_.release());
+#endif  // defined(OS_MAC)
 }
 
 NO_SANITIZE("cfi-icall")
 void SodaClient::AddAudio(const char* audio_buffer, int audio_buffer_size) {
+  if (load_soda_result_ != LoadSodaResultValue::kSuccess)
+    return;
+
   add_audio_func_(soda_async_handle_, audio_buffer, audio_buffer_size);
 }
 
@@ -53,6 +95,9 @@ NO_SANITIZE("cfi-icall")
 void SodaClient::Reset(const SerializedSodaConfig config,
                        int sample_rate,
                        int channel_count) {
+  if (load_soda_result_ != LoadSodaResultValue::kSuccess)
+    return;
+
   if (IsInitialized()) {
     delete_soda_func_(soda_async_handle_);
   }

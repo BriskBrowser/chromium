@@ -4,14 +4,17 @@
 
 #include "third_party/blink/renderer/modules/mediastream/media_stream_video_renderer_sink.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
-#include "base/single_thread_task_runner.h"
+#include "base/feature_list.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_metadata.h"
 #include "media/base/video_util.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
@@ -40,6 +43,9 @@ class MediaStreamVideoRendererSink::FrameDeliverer {
         emit_frame_drop_events_(true) {
     DETACH_FROM_THREAD(io_thread_checker_);
   }
+
+  FrameDeliverer(const FrameDeliverer&) = delete;
+  FrameDeliverer& operator=(const FrameDeliverer&) = delete;
 
   ~FrameDeliverer() {
     DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
@@ -129,8 +135,6 @@ class MediaStreamVideoRendererSink::FrameDeliverer {
 
   // Used for DCHECKs to ensure method calls are executed on the correct thread.
   THREAD_CHECKER(io_thread_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(FrameDeliverer);
 };
 
 MediaStreamVideoRendererSink::MediaStreamVideoRendererSink(
@@ -150,12 +154,18 @@ MediaStreamVideoRendererSink::~MediaStreamVideoRendererSink() {
 void MediaStreamVideoRendererSink::Start() {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_checker_);
 
-  frame_deliverer_.reset(new MediaStreamVideoRendererSink::FrameDeliverer(
-      repaint_cb_, weak_factory_.GetWeakPtr(), main_render_task_runner_));
+  frame_deliverer_ =
+      std::make_unique<MediaStreamVideoRendererSink::FrameDeliverer>(
+          repaint_cb_, weak_factory_.GetWeakPtr(), main_render_task_runner_);
   PostCrossThreadTask(
       *io_task_runner_, FROM_HERE,
       CrossThreadBindOnce(&FrameDeliverer::Start,
                           WTF::CrossThreadUnretained(frame_deliverer_.get())));
+
+  auto uses_alpha =
+      base::FeatureList::IsEnabled(features::kAllowDropAlphaForMediaStream)
+          ? MediaStreamVideoSink::UsesAlpha::kDependsOnOtherSinks
+          : MediaStreamVideoSink::UsesAlpha::kDefault;
 
   MediaStreamVideoSink::ConnectToTrack(
       WebMediaStreamTrack(video_component_.Get()),
@@ -166,7 +176,7 @@ void MediaStreamVideoRendererSink::Start() {
           &FrameDeliverer::OnVideoFrame,
           WTF::CrossThreadUnretained(frame_deliverer_.get()))),
       // Local display video rendering is considered a secure link.
-      true);
+      MediaStreamVideoSink::IsSecure::kYes, uses_alpha);
 
   if (video_component_->Source()->GetReadyState() ==
           MediaStreamSource::kReadyStateEnded ||

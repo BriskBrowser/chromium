@@ -57,6 +57,11 @@ class ASH_EXPORT ToplevelWindowEventHandler
   using EndClosure = base::OnceCallback<void(DragResult)>;
 
   ToplevelWindowEventHandler();
+
+  ToplevelWindowEventHandler(const ToplevelWindowEventHandler&) = delete;
+  ToplevelWindowEventHandler& operator=(const ToplevelWindowEventHandler&) =
+      delete;
+
   ~ToplevelWindowEventHandler() override;
 
   // display::DisplayObserver:
@@ -67,6 +72,12 @@ class ASH_EXPORT ToplevelWindowEventHandler
   void OnKeyEvent(ui::KeyEvent* event) override;
   void OnMouseEvent(ui::MouseEvent* event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
+
+  // wm::WindowMoveClient:
+  wm::WindowMoveResult RunMoveLoop(aura::Window* source,
+                                   const gfx::Vector2d& drag_offset,
+                                   ::wm::WindowMoveSource move_source) override;
+  void EndMoveLoop() override;
 
   // Attempts to start a drag if one is not already in progress. Returns true if
   // successful. |end_closure| is run when the drag completes, including if the
@@ -89,9 +100,6 @@ class ASH_EXPORT ToplevelWindowEventHandler
   // If there is a drag in progress it is reverted, otherwise does nothing.
   void RevertDrag();
 
-  // Returns true if there is a drag in progress.
-  bool is_drag_in_progress() const { return window_resizer_.get() != nullptr; }
-
   // Returns the toplevel window that should be dragged for a gesture event that
   // occurs in the HTCLIENT area of a window. Returns null if there shouldn't be
   // special casing for this HTCLIENT area gesture. This is used to drag app
@@ -107,12 +115,8 @@ class ASH_EXPORT ToplevelWindowEventHandler
     return event_location_in_gesture_target_;
   }
 
-  // Overridden from wm::WindowMoveClient:
-  ::wm::WindowMoveResult RunMoveLoop(
-      aura::Window* source,
-      const gfx::Vector2d& drag_offset,
-      ::wm::WindowMoveSource move_source) override;
-  void EndMoveLoop() override;
+  // Returns true if there is a drag in progress.
+  bool is_drag_in_progress() const { return window_resizer_.get() != nullptr; }
 
  private:
   class ScopedWindowResizer;
@@ -177,14 +181,14 @@ class ASH_EXPORT ToplevelWindowEventHandler
 
   std::unique_ptr<ScopedWindowResizer> window_resizer_;
 
+  display::ScopedDisplayObserver display_observer_{this};
+
   EndClosure end_closure_;
 
   // Are we running a nested run loop from RunMoveLoop().
   bool in_move_loop_ = false;
 
   base::WeakPtrFactory<ToplevelWindowEventHandler> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ToplevelWindowEventHandler);
 };
 
 }  // namespace ash

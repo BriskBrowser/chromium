@@ -42,15 +42,16 @@
 #include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
 #include "base/system/sys_info.h"
+#include "chrome/browser/ash/login/session/user_session_manager.h"
+#include "chrome/browser/ash/ownership/owner_settings_service_ash.h"
+#include "chrome/browser/ash/ownership/owner_settings_service_ash_factory.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/login/session/user_session_manager.h"
-#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
-#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/chromeos/settings/owner_flags_storage.h"
-#include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/browser/ash/settings/about_flags.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
+#include "chrome/browser/infobars/simple_alert_infobar_creator.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/account_id/account_id.h"
+#include "components/infobars/content/content_infobar_manager.h"
 #include "components/infobars/core/simple_alert_infobar_delegate.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/user_manager/user_manager.h"
@@ -78,17 +79,20 @@ content::WebUIDataSource* CreateFlagsUIHTMLSource() {
       base::SysInfo::IsRunningOnChromeOS()) {
     // Set the string to show which user can actually change the flags.
     std::string owner;
-    chromeos::CrosSettings::Get()->GetString(chromeos::kDeviceOwner, &owner);
+    ash::CrosSettings::Get()->GetString(chromeos::kDeviceOwner, &owner);
     source->AddString("owner-warning",
                       l10n_util::GetStringFUTF16(IDS_FLAGS_UI_OWNER_WARNING,
                                                  base::UTF8ToUTF16(owner)));
   } else {
-    source->AddString("owner-warning", base::string16());
+    source->AddString("owner-warning", std::u16string());
   }
 #endif
 
   source->AddResourcePath(flags_ui::kFlagsJS, IDR_FLAGS_UI_FLAGS_JS);
   source->AddResourcePath(flags_ui::kFlagsCSS, IDR_FLAGS_UI_FLAGS_CSS);
+#if defined(OS_CHROMEOS)
+  source->AddResourcePath(flags_ui::kFlagsSVG, IDR_OS_FLAGS_UI_FLAGS_SVG);
+#endif
   source->SetDefaultResource(IDR_FLAGS_UI_FLAGS_HTML);
   source->UseStringsJs();
   return source;
@@ -114,9 +118,8 @@ void FinishInitialization(base::WeakPtr<T> flags_ui,
   // Note that |dom_handler| is owned by the web ui that owns |flags_ui|, so
   // it is still alive if |flags_ui| is.
   if (current_user_is_owner) {
-    chromeos::OwnerSettingsServiceChromeOS* service =
-        chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
-            profile);
+    ash::OwnerSettingsServiceAsh* service =
+        ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(profile);
     dom_handler->Init(new chromeos::about_flags::OwnerFlagsStorage(
                           profile->GetPrefs(), service),
                       flags_ui::kOwnerAccessToFlags);
@@ -129,8 +132,9 @@ void FinishInitialization(base::WeakPtr<T> flags_ui,
   // Show a warning info bar when kSafeMode switch is present.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           chromeos::switches::kSafeMode)) {
-    SimpleAlertInfoBarDelegate::Create(
-        InfoBarService::FromWebContents(flags_ui->web_ui()->GetWebContents()),
+    CreateSimpleAlertInfoBar(
+        infobars::ContentInfoBarManager::FromWebContents(
+            flags_ui->web_ui()->GetWebContents()),
         infobars::InfoBarDelegate::BAD_FLAGS_INFOBAR_DELEGATE,
         &vector_icons::kWarningIcon,
         l10n_util::GetStringUTF16(IDS_FLAGS_IGNORED_DUE_TO_CRASHY_CHROME),
@@ -139,8 +143,9 @@ void FinishInitialization(base::WeakPtr<T> flags_ui,
 
   // Show a warning info bar for secondary users.
   if (!chromeos::ProfileHelper::IsPrimaryProfile(profile)) {
-    SimpleAlertInfoBarDelegate::Create(
-        InfoBarService::FromWebContents(flags_ui->web_ui()->GetWebContents()),
+    CreateSimpleAlertInfoBar(
+        infobars::ContentInfoBarManager::FromWebContents(
+            flags_ui->web_ui()->GetWebContents()),
         infobars::InfoBarDelegate::BAD_FLAGS_INFOBAR_DELEGATE,
         &vector_icons::kWarningIcon,
         l10n_util::GetStringUTF16(IDS_FLAGS_IGNORED_SECONDARY_USERS),
@@ -177,6 +182,11 @@ void FlagsUI::AddStrings(content::WebUIDataSource* source) {
   source->AddLocalizedString("search-label", IDS_FLAGS_UI_SEARCH_LABEL);
   source->AddLocalizedString("search-placeholder",
                              IDS_FLAGS_UI_SEARCH_PLACEHOLDER);
+#if defined(OS_CHROMEOS)
+  source->AddLocalizedString("os-flags-link", IDS_FLAGS_UI_OS_FLAGS_LINK);
+  source->AddLocalizedString("os-flags-text1", IDS_FLAGS_UI_OS_FLAGS_TEXT1);
+  source->AddLocalizedString("os-flags-text2", IDS_FLAGS_UI_OS_FLAGS_TEXT2);
+#endif
   source->AddLocalizedString("title", IDS_FLAGS_UI_TITLE);
   source->AddLocalizedString("unavailable", IDS_FLAGS_UI_UNAVAILABLE_FEATURE);
   source->AddLocalizedString("searchResultsSingular",
@@ -212,6 +222,14 @@ void FlagsDeprecatedUI::AddStrings(content::WebUIDataSource* source) {
   source->AddLocalizedString("search-label", IDS_FLAGS_UI_SEARCH_LABEL);
   source->AddLocalizedString("search-placeholder",
                              IDS_DEPRECATED_FEATURES_SEARCH_PLACEHOLDER);
+#if defined(OS_CHROMEOS)
+  source->AddLocalizedString("os-flags-link",
+                             IDS_DEPRECATED_FLAGS_UI_OS_FLAGS_LINK);
+  source->AddLocalizedString("os-flags-text1",
+                             IDS_DEPRECATED_FLAGS_UI_OS_FLAGS_TEXT1);
+  source->AddLocalizedString("os-flags-text2",
+                             IDS_DEPRECATED_FLAGS_UI_OS_FLAGS_TEXT2);
+#endif
   source->AddLocalizedString("title", IDS_DEPRECATED_FEATURES_TITLE);
   source->AddLocalizedString("unavailable",
                              IDS_DEPRECATED_FEATURES_UNAVAILABLE_FEATURE);
@@ -233,10 +251,10 @@ FlagsUIHandler* InitializeHandler(content::WebUI* web_ui,
   // Bypass possible incognito profile.
   Profile* original_profile = profile->GetOriginalProfile();
   if (base::SysInfo::IsRunningOnChromeOS() &&
-      chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
+      ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(
           original_profile)) {
-    chromeos::OwnerSettingsServiceChromeOS* service =
-        chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
+    ash::OwnerSettingsServiceAsh* service =
+        ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(
             original_profile);
     service->IsOwnerAsync(base::BindOnce(&FinishInitialization<T>,
                                          weak_factory.GetWeakPtr(),
@@ -270,7 +288,7 @@ FlagsUI::~FlagsUI() {}
 
 // static
 base::RefCountedMemory* FlagsUI::GetFaviconResourceBytes(
-    ui::ScaleFactor scale_factor) {
+    ui::ResourceScaleFactor scale_factor) {
   return ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
       IDR_FLAGS_FAVICON, scale_factor);
 }

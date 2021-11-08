@@ -10,7 +10,7 @@ ClipboardImageModelFactoryImpl::ClipboardImageModelFactoryImpl(
     Profile* primary_profile)
     : primary_profile_(primary_profile),
       idle_timer_(FROM_HERE,
-                  base::TimeDelta::FromMinutes(2),
+                  base::Minutes(2),
                   this,
                   &ClipboardImageModelFactoryImpl::OnRequestIdle) {
   DCHECK(primary_profile_);
@@ -20,9 +20,11 @@ ClipboardImageModelFactoryImpl::~ClipboardImageModelFactoryImpl() = default;
 
 void ClipboardImageModelFactoryImpl::Render(const base::UnguessableToken& id,
                                             const std::string& html_markup,
+                                            const gfx::Size& bounding_box_size,
                                             ImageModelCallback callback) {
   DCHECK(!html_markup.empty());
-  pending_list_.emplace_front(id, html_markup, std::move(callback));
+  pending_list_.emplace_front(id, html_markup, bounding_box_size,
+                              std::move(callback));
   StartNextRequest();
 }
 

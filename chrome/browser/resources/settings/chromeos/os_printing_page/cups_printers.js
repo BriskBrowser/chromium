@@ -9,13 +9,50 @@
  * unix printing system) and the many open source drivers built for CUPS.
  */
 // TODO(xdai): Rename it to 'settings-cups-printers-page'.
+import '//resources/cr_elements/cr_button/cr_button.m.js';
+import '//resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import '//resources/cr_elements/cr_toast/cr_toast.js';
+import '//resources/cr_elements/policy/cr_policy_pref_indicator.m.js';
+import '//resources/js/action_link.js';
+import '//resources/cr_elements/action_link_css.m.js';
+import '//resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import './cups_settings_add_printer_dialog.js';
+import './cups_edit_printer_dialog.js';
+import './cups_enterprise_printers.js';
+import './cups_printer_shared_css.js';
+import './cups_saved_printers.js';
+import './cups_nearby_printers.js';
+import '//resources/cr_components/chromeos/localized_link/localized_link.js';
+import '../../icons.js';
+
+import {MojoInterfaceProvider, MojoInterfaceProviderImpl} from '//resources/cr_components/chromeos/network/mojo_interface_provider.m.js';
+import {NetworkListenerBehavior} from '//resources/cr_components/chromeos/network/network_listener_behavior.m.js';
+import {OncMojo} from '//resources/cr_components/chromeos/network/onc_mojo.m.js';
+import {assert, assertNotReached} from '//resources/js/assert.m.js';
+import {addWebUIListener, removeWebUIListener, sendWithPromise, WebUIListener} from '//resources/js/cr.m.js';
+import {focusWithoutInk} from '//resources/js/cr/ui/focus_without_ink.m.js';
+import {loadTimeData} from '//resources/js/load_time_data.m.js';
+import {WebUIListenerBehavior} from '//resources/js/web_ui_listener_behavior.m.js';
+import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {Route, Router} from '../../router.js';
+import {DeepLinkingBehavior} from '../deep_linking_behavior.m.js';
+import {routes} from '../os_route.m.js';
+import {RouteObserverBehavior} from '../route_observer_behavior.js';
+
+import {PrinterListEntry, PrinterType} from './cups_printer_types.js';
+import {CupsPrinterInfo, CupsPrintersBrowserProxy, CupsPrintersBrowserProxyImpl, CupsPrintersList, ManufacturersInfo, ModelsInfo, PrinterMakeModel, PrinterPpdMakeModel, PrinterSetupResult, PrintServerResult} from './cups_printers_browser_proxy.js';
+import {CupsPrintersEntryManager} from './cups_printers_entry_manager.js';
+
 Polymer({
+  _template: html`{__html_template__}`,
   is: 'settings-cups-printers',
 
   behaviors: [
     DeepLinkingBehavior,
     NetworkListenerBehavior,
-    settings.RouteObserverBehavior,
+    RouteObserverBehavior,
     WebUIListenerBehavior,
   ],
 
@@ -40,6 +77,12 @@ Polymer({
       value: null,
     },
 
+    /** @private {?WebUIListener} */
+    onEnterprisePrintersChangedListener_: {
+      type: Object,
+      value: null,
+    },
+
     searchTerm: {
       type: String,
     },
@@ -55,6 +98,15 @@ Polymer({
      * @private
      */
     savedPrinters_: {
+      type: Array,
+      value: () => [],
+    },
+
+    /**
+     * @type {!Array<!PrinterListEntry>}
+     * @private
+     */
+    enterprisePrinters_: {
       type: Array,
       value: () => [],
     },
@@ -83,12 +135,26 @@ Polymer({
       computed: 'getSavedPrintersAriaLabel_(savedPrinterCount_)',
     },
 
+    /**@private */
+    enterprisePrintersAriaLabel_: {
+      type: String,
+      computed: 'getEnterprisePrintersAriaLabel_(enterprisePrinterCount_)',
+    },
+
+    /**@private */
     nearbyPrinterCount_: {
       type: Number,
       value: 0,
     },
 
+    /**@private */
     savedPrinterCount_: {
+      type: Number,
+      value: 0,
+    },
+
+    /** @private */
+    enterprisePrinterCount_: {
       type: Number,
       value: 0,
     },
@@ -117,15 +183,14 @@ Polymer({
   /** @private {?chromeos.networkConfig.mojom.CrosNetworkConfigRemote} */
   networkConfig_: null,
 
-  /** @private {settings.printing.CupsPrintersEntryManager} */
+  /** @private {CupsPrintersEntryManager} */
   entryManager_: null,
 
   /** @override */
   created() {
-    this.networkConfig_ = network_config.MojoInterfaceProviderImpl.getInstance()
-                              .getMojoServiceRemote();
-    this.entryManager_ =
-        settings.printing.CupsPrintersEntryManager.getInstance();
+    this.networkConfig_ =
+        MojoInterfaceProviderImpl.getInstance().getMojoServiceRemote();
+    this.entryManager_ = CupsPrintersEntryManager.getInstance();
   },
 
   /** @override */
@@ -158,7 +223,7 @@ Polymer({
       return true;
     }
 
-    Polymer.RenderStatus.afterNextRender(this, () => {
+    afterNextRender(this, () => {
       const savedPrinters = this.$$('#savedPrinters');
       const printerEntry =
           savedPrinters && savedPrinters.$$('settings-cups-printers-entry');
@@ -174,14 +239,14 @@ Polymer({
   },
 
   /**
-   * settings.RouteObserverBehavior
-   * @param {!settings.Route} route
+   * RouteObserverBehavior
+   * @param {!Route} route
    * @protected
    */
   currentRouteChanged(route) {
-    if (route !== settings.routes.CUPS_PRINTERS) {
+    if (route !== routes.CUPS_PRINTERS) {
       if (this.onPrintersChangedListener_) {
-        cr.removeWebUIListener(
+        removeWebUIListener(
             /** @type {WebUIListener} */ (this.onPrintersChangedListener_));
         this.onPrintersChangedListener_ = null;
       }
@@ -190,8 +255,11 @@ Polymer({
     }
 
     this.entryManager_.addWebUIListeners();
-    this.onPrintersChangedListener_ = cr.addWebUIListener(
-        'on-printers-changed', this.onPrintersChanged_.bind(this));
+    this.onPrintersChangedListener_ = addWebUIListener(
+        'on-saved-printers-changed', this.onSavedPrintersChanged_.bind(this));
+    this.onEnterprisePrintersChangedListener_ = addWebUIListener(
+        'on-enterprise-printers-changed',
+        this.onEnterprisePrintersChanged_.bind(this));
     this.updateCupsPrintersList_();
     this.attemptDeepLink();
   },
@@ -275,16 +343,19 @@ Polymer({
 
   /** @private */
   updateCupsPrintersList_() {
-    settings.CupsPrintersBrowserProxyImpl.getInstance()
-        .getCupsPrintersList()
-        .then(this.onPrintersChanged_.bind(this));
+    CupsPrintersBrowserProxyImpl.getInstance().getCupsSavedPrintersList().then(
+        this.onSavedPrintersChanged_.bind(this));
+
+    CupsPrintersBrowserProxyImpl.getInstance()
+        .getCupsEnterprisePrintersList()
+        .then(this.onEnterprisePrintersChanged_.bind(this));
   },
 
   /**
    * @param {!CupsPrintersList} cupsPrintersList
    * @private
    */
-  onPrintersChanged_(cupsPrintersList) {
+  onSavedPrintersChanged_(cupsPrintersList) {
     this.savedPrinters_ = cupsPrintersList.printerList.map(
         printer => /** @type {!PrinterListEntry} */ (
             {printerInfo: printer, printerType: PrinterType.SAVED}));
@@ -294,6 +365,17 @@ Polymer({
     this.attemptedLoadingPrinters_ = true;
   },
 
+  /**
+   * @param {!CupsPrintersList} cupsPrintersList
+   * @private
+   */
+  onEnterprisePrintersChanged_(cupsPrintersList) {
+    this.enterprisePrinters_ = cupsPrintersList.printerList.map(
+        printer => /** @type {!PrinterListEntry} */ (
+            {printerInfo: printer, printerType: PrinterType.ENTERPRISE}));
+    this.entryManager_.setEnterprisePrintersList(this.enterprisePrinters_);
+  },
+
   /** @private */
   onAddPrinterTap_() {
     this.$.addPrinterDialog.open();
@@ -301,7 +383,7 @@ Polymer({
 
   /** @private */
   onAddPrinterDialogClose_() {
-    cr.ui.focusWithoutInk(assert(this.$$('#addManualPrinterIcon')));
+    focusWithoutInk(assert(this.$$('#addManualPrinterIcon')));
   },
 
   /** @private */
@@ -349,23 +431,50 @@ Polymer({
     return !!this.savedPrinters_.length;
   },
 
+  /**
+   * @return {boolean} Whether |enterprisePrinters_| is empty.
+   * @private
+   */
+  doesAccountHaveEnterprisePrinters_() {
+    return !!this.enterprisePrinters_.length;
+  },
+
   /** @private */
   getSavedPrintersAriaLabel_() {
-    const printerLabel = this.savedPrinterCount_ === 0 ?
-        'savedPrintersCountNone' :
-        this.savedPrinterCount_ === 1 ? 'savedPrintersCountOne' :
-                                        'savedPrintersCountMany';
-
+    let printerLabel = '';
+    if (this.savedPrinterCount_ === 0) {
+      printerLabel = 'savedPrintersCountNone';
+    } else if (this.savedPrinterCount_ === 1) {
+      printerLabel = 'savedPrintersCountOne';
+    } else {
+      printerLabel = 'savedPrintersCountMany';
+    }
     return loadTimeData.getStringF(printerLabel, this.savedPrinterCount_);
   },
 
   /** @private */
   getNearbyPrintersAriaLabel_() {
-    const printerLabel = this.nearbyPrinterCount_ === 0 ?
-        'nearbyPrintersCountNone' :
-        this.nearbyPrinterCount_ === 1 ? 'nearbyPrintersCountOne' :
-                                         'nearbyPrintersCountMany';
-
+    let printerLabel = '';
+    if (this.nearbyPrinterCount_ === 0) {
+      printerLabel = 'nearbyPrintersCountNone';
+    } else if (this.nearbyPrinterCount_ === 1) {
+      printerLabel = 'nearbyPrintersCountOne';
+    } else {
+      printerLabel = 'nearbyPrintersCountMany';
+    }
     return loadTimeData.getStringF(printerLabel, this.nearbyPrinterCount_);
+  },
+
+  /** @private */
+  getEnterprisePrintersAriaLabel_() {
+    let printerLabel = '';
+    if (this.enterprisePrinterCount_ === 0) {
+      printerLabel = 'enterprisePrintersCountNone';
+    } else if (this.enterprisePrinterCount_ === 1) {
+      printerLabel = 'enterprisePrintersCountOne';
+    } else {
+      printerLabel = 'enterprisePrintersCountMany';
+    }
+    return loadTimeData.getStringF(printerLabel, this.enterprisePrinterCount_);
   },
 });

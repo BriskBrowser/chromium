@@ -24,6 +24,9 @@ namespace gtk {
 // Shared implementation SelectFileDialog used by SelectFileDialogImplGTK
 class SelectFileDialogImpl : public ui::SelectFileDialog {
  public:
+  static void Initialize();
+  static void Shutdown();
+
   // Main factory method which returns correct type.
   static ui::SelectFileDialog* Create(
       Listener* listener,
@@ -39,6 +42,13 @@ class SelectFileDialogImpl : public ui::SelectFileDialog {
       std::unique_ptr<ui::SelectFilePolicy> policy,
       base::nix::DesktopEnvironment desktop,
       const std::string& kdialog_version);
+  // Factory method for creating an XDG portal-backed SelectFileDialogImpl
+  static SelectFileDialogImpl* NewSelectFileDialogImplPortal(
+      Listener* listener,
+      std::unique_ptr<ui::SelectFilePolicy> policy);
+
+  SelectFileDialogImpl(const SelectFileDialogImpl&) = delete;
+  SelectFileDialogImpl& operator=(const SelectFileDialogImpl&) = delete;
 
   // Returns true if the SelectFileDialog class returned by
   // NewSelectFileDialogImplKDE will actually work.
@@ -55,7 +65,7 @@ class SelectFileDialogImpl : public ui::SelectFileDialog {
   // SelectFileDialog implementation.
   // |params| is user data we pass back via the Listener interface.
   void SelectFileImpl(Type type,
-                      const base::string16& title,
+                      const std::u16string& title,
                       const base::FilePath& default_path,
                       const FileTypeInfo* file_types,
                       int file_type_index,
@@ -83,8 +93,6 @@ class SelectFileDialogImpl : public ui::SelectFileDialog {
   // file so that we can display future dialogs with the same starting path.
   static base::FilePath* last_saved_path_;
   static base::FilePath* last_opened_path_;
-
-  DISALLOW_COPY_AND_ASSIGN(SelectFileDialogImpl);
 };
 
 }  // namespace gtk

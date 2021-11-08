@@ -134,6 +134,9 @@ class VideoCaptureBrowserTest : public ContentBrowserTest,
     }
   }
 
+  VideoCaptureBrowserTest(const VideoCaptureBrowserTest&) = delete;
+  VideoCaptureBrowserTest& operator=(const VideoCaptureBrowserTest&) = delete;
+
   ~VideoCaptureBrowserTest() override {}
 
   void SetUpAndStartCaptureDeviceOnIOThread(base::OnceClosure continuation) {
@@ -241,9 +244,6 @@ class VideoCaptureBrowserTest : public ContentBrowserTest,
   MockMediaStreamProviderListener mock_stream_provider_listener_;
   MockVideoCaptureControllerEventHandler mock_controller_event_handler_;
   base::WeakPtr<VideoCaptureController> controller_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(VideoCaptureBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest, StartAndImmediatelyStop) {
@@ -329,9 +329,9 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest,
             received_frame_info.timestamp = buffer.frame_info->timestamp;
             received_frame_infos.emplace_back(received_frame_info);
 
-            const media::VideoFrameFeedback kArbitraryFeedback =
-                media::VideoFrameFeedback(0.5, 60.0,
-                                          std::numeric_limits<int>::max());
+            const media::VideoCaptureFeedback kArbitraryFeedback =
+                media::VideoCaptureFeedback(0.5, 60.0,
+                                            std::numeric_limits<int>::max());
             controller_->ReturnBuffer(id, &mock_controller_event_handler_,
                                       buffer.buffer_id, kArbitraryFeedback);
 
@@ -346,7 +346,7 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest,
       FROM_HERE,
       base::BindOnce(
           &VideoCaptureBrowserTest::SetUpAndStartCaptureDeviceOnIOThread,
-          base::Unretained(this), base::DoNothing::Once()));
+          base::Unretained(this), base::DoNothing()));
   run_loop.Run();
 
   EXPECT_FALSE(must_wait_for_gpu_decode_to_start);

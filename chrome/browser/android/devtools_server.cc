@@ -83,6 +83,10 @@ class UnixDomainServerSocketFactory : public content::DevToolsSocketFactory {
         auth_callback_(auth_callback) {
   }
 
+  UnixDomainServerSocketFactory(const UnixDomainServerSocketFactory&) = delete;
+  UnixDomainServerSocketFactory& operator=(
+      const UnixDomainServerSocketFactory&) = delete;
+
  private:
   std::unique_ptr<net::ServerSocket> CreateForHttpServer() override {
     std::unique_ptr<net::UnixDomainServerSocket> socket(
@@ -98,7 +102,7 @@ class UnixDomainServerSocketFactory : public content::DevToolsSocketFactory {
     if (socket->BindAndListen(fallback_address, kBackLog) == net::OK)
       return std::move(socket);
 
-    return std::unique_ptr<net::ServerSocket>();
+    return nullptr;
   }
 
   std::unique_ptr<net::ServerSocket> CreateForTethering(
@@ -108,7 +112,7 @@ class UnixDomainServerSocketFactory : public content::DevToolsSocketFactory {
     std::unique_ptr<net::UnixDomainServerSocket> socket(
         new net::UnixDomainServerSocket(auth_callback_, true));
     if (socket->BindAndListen(*name, kBackLog) != net::OK)
-      return std::unique_ptr<net::ServerSocket>();
+      return nullptr;
 
     return std::move(socket);
   }
@@ -116,8 +120,6 @@ class UnixDomainServerSocketFactory : public content::DevToolsSocketFactory {
   std::string socket_name_;
   int last_tethering_socket_;
   net::UnixDomainServerSocket::AuthCallback auth_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(UnixDomainServerSocketFactory);
 };
 
 }  // namespace

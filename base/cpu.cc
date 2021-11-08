@@ -14,13 +14,13 @@
 #include <sstream>
 #include <utility>
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
+#include "base/no_destructor.h"
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID) || \
     defined(OS_AIX)
 #include "base/containers/flat_set.h"
 #include "base/files/file_util.h"
-#include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/process/internal_linux.h"
 #include "base/strings/string_number_conversions.h"
@@ -63,13 +63,13 @@ namespace base {
 #if defined(ARCH_CPU_X86_FAMILY)
 namespace internal {
 
-std::tuple<int, int, int, int> ComputeX86FamilyAndModel(
-    const std::string& vendor,
-    int signature) {
-  int family = (signature >> 8) & 0xf;
-  int model = (signature >> 4) & 0xf;
-  int ext_family = 0;
-  int ext_model = 0;
+X86ModelInfo ComputeX86FamilyAndModel(const std::string& vendor,
+                                      int signature) {
+  X86ModelInfo results;
+  results.family = (signature >> 8) & 0xf;
+  results.model = (signature >> 4) & 0xf;
+  results.ext_family = 0;
+  results.ext_model = 0;
 
   // The "Intel 64 and IA-32 Architectures Developer's Manual: Vol. 2A"
   // specifies the Extended Model is defined only when the Base Family is
@@ -78,29 +78,32 @@ std::tuple<int, int, int, int> ComputeX86FamilyAndModel(
   // defined only when Base Family is 0Fh.
   // Both manuals define the display model as
   // {ExtendedModel[3:0],BaseModel[3:0]} in that case.
-  if (family == 0xf || (family == 0x6 && vendor == "GenuineIntel")) {
-    ext_model = (signature >> 16) & 0xf;
-    model += ext_model << 4;
+  if (results.family == 0xf ||
+      (results.family == 0x6 && vendor == "GenuineIntel")) {
+    results.ext_model = (signature >> 16) & 0xf;
+    results.model += results.ext_model << 4;
   }
   // Both the "Intel 64 and IA-32 Architectures Developer's Manual: Vol. 2A"
   // and the "AMD CPUID Specification" specify that the Extended Family is
   // defined only when the Base Family is 0Fh.
   // Both manuals define the display family as {0000b,BaseFamily[3:0]} +
   // ExtendedFamily[7:0] in that case.
-  if (family == 0xf) {
-    ext_family = (signature >> 20) & 0xff;
-    family += ext_family;
+  if (results.family == 0xf) {
+    results.ext_family = (signature >> 20) & 0xff;
+    results.family += results.ext_family;
   }
 
-  return {family, model, ext_family, ext_model};
+  return results;
 }
 
 }  // namespace internal
 #endif  // defined(ARCH_CPU_X86_FAMILY)
 
-CPU::CPU() {
-  Initialize();
+CPU::CPU(bool require_branding) {
+  Initialize(require_branding);
 }
+CPU::CPU() : CPU(true) {}
+CPU::CPU(CPU&&) = default;
 
 namespace {
 
@@ -217,7 +220,7 @@ const ProcCpuInfo& ParseProcCpu() {
 
 }  // namespace
 
-void CPU::Initialize() {
+void CPU::Initialize(bool require_branding) {
 #if defined(ARCH_CPU_X86_FAMILY)
   int cpu_info[4] = {-1};
   // This array is used to temporarily hold the vendor name and then the brand
@@ -253,8 +256,12 @@ void CPU::Initialize() {
     signature_ = cpu_info[0];
     stepping_ = cpu_info[0] & 0xf;
     type_ = (cpu_info[0] >> 12) & 0x3;
-    std::tie(family_, model_, ext_family_, ext_model_) =
+    internal::X86ModelInfo results =
         internal::ComputeX86FamilyAndModel(cpu_vendor_, signature_);
+    family_ = results.family;
+    model_ = results.model;
+    ext_family_ = results.ext_family;
+    ext_model_ = results.ext_model;
     has_mmx_ =   (cpu_info[3] & 0x00800000) != 0;
     has_sse_ =   (cpu_info[3] & 0x02000000) != 0;
     has_sse2_ =  (cpu_info[3] & 0x04000000) != 0;
@@ -287,6 +294,7 @@ void CPU::Initialize() {
         (cpu_info[2] & 0x08000000) != 0 /* OSXSAVE */ &&
         (xgetbv(0) & 6) == 6 /* XSAVE enabled by kernel */;
     has_aesni_ = (cpu_info[2] & 0x02000000) != 0;
+    has_fma3_ = (cpu_info[2] & 0x00001000) != 0;
     has_avx2_ = has_avx_ && (cpu_info7[1] & 0x00000020) != 0;
   }
 
@@ -336,10 +344,12 @@ void CPU::Initialize() {
   }
 #elif defined(ARCH_CPU_ARM_FAMILY)
 #if defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS)
-  const ProcCpuInfo& info = ParseProcCpu();
-  cpu_brand_ = info.brand;
-  implementer_ = info.implementer;
-  part_number_ = info.part_number;
+  if (require_branding) {
+    const ProcCpuInfo& info = ParseProcCpu();
+    cpu_brand_ = info.brand;
+    implementer_ = info.implementer;
+    part_number_ = info.part_number;
+  }
 
 #if defined(ARCH_CPU_ARM64)
   // Check for Armv8.5-A BTI/MTE support, exposed via HWCAP2
@@ -358,6 +368,7 @@ void CPU::Initialize() {
 
 CPU::IntelMicroArchitecture CPU::GetIntelMicroArchitecture() const {
   if (has_avx2()) return AVX2;
+  if (has_fma3()) return FMA3;
   if (has_avx()) return AVX;
   if (has_sse42()) return SSE42;
   if (has_sse41()) return SSE41;
@@ -612,19 +623,25 @@ bool CPU::GetCumulativeCoreIdleTimes(CoreIdleTimes& idle_times) {
       if (!ReadFileToString(FilePath(path), &content))
         break;
       StringToUint64(content, &idle_state_time);
-      idle_time += TimeDelta::FromMicroseconds(idle_state_time);
+      idle_time += Microseconds(idle_state_time);
     }
 
     idle_times.push_back(idle_time);
 
     // At least one of the cores should have some idle time, otherwise we report
     // a failure.
-    success |= idle_time > base::TimeDelta();
+    success |= idle_time.is_positive();
   }
 
   return success;
 }
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID) ||
         // defined(OS_AIX)
+
+const CPU& CPU::GetInstanceNoAllocation() {
+  static const base::NoDestructor<const CPU> cpu(CPU(false));
+
+  return *cpu;
+}
 
 }  // namespace base

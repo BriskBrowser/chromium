@@ -10,6 +10,7 @@
 goog.provide('BaseAutomationHandler');
 
 goog.scope(function() {
+const ActionType = chrome.automation.ActionType;
 const AutomationEvent = chrome.automation.AutomationEvent;
 const AutomationNode = chrome.automation.AutomationNode;
 const EventType = chrome.automation.EventType;
@@ -99,12 +100,13 @@ BaseAutomationHandler = class {
     }
 
     // Decide whether to announce and sync this event.
+    const prevRange = ChromeVoxState.instance.getCurrentRangeWithoutRecovery();
     if (!DesktopAutomationHandler.announceActions &&
-        evt.eventFrom === 'action') {
+        (prevRange && !prevRange.requiresRecovery()) &&
+        evt.eventFrom === 'action' &&
+        !BaseAutomationHandler.allowEventFromAction_(evt.eventFromAction)) {
       return;
     }
-
-    const prevRange = ChromeVoxState.instance.getCurrentRangeWithoutRecovery();
 
     ChromeVoxState.instance.setCurrentRange(cursors.Range.fromNode(node));
 
@@ -120,6 +122,16 @@ BaseAutomationHandler = class {
     output.withRichSpeechAndBraille(
         ChromeVoxState.instance.currentRange, prevRange, evt.type);
     output.go();
+  }
+
+  /**
+   * @param {ActionType} eventFromAction
+   * @return {boolean}
+   * @private
+   */
+  static allowEventFromAction_(eventFromAction) {
+    return eventFromAction === ActionType.DO_DEFAULT ||
+        eventFromAction === ActionType.SHOW_CONTEXT_MENU;
   }
 };
 });  // goog.scope

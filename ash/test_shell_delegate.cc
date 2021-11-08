@@ -8,10 +8,11 @@
 
 #include "ash/accessibility/default_accessibility_delegate.h"
 #include "ash/capture_mode/test_capture_mode_delegate.h"
+#include "ash/public/cpp/desk_template.h"
 #include "ash/public/cpp/test/test_nearby_share_delegate.h"
 #include "ash/system/tray/system_tray_notifier.h"
-#include "ash/test_screenshot_delegate.h"
 #include "ash/wm/gestures/back_gesture/test_back_gesture_contextual_nudge_delegate.h"
+#include "components/app_restore/app_launch_info.h"
 #include "ui/gfx/image/image.h"
 
 namespace ash {
@@ -27,11 +28,6 @@ bool TestShellDelegate::CanShowWindowForUser(const aura::Window* window) const {
 std::unique_ptr<CaptureModeDelegate>
 TestShellDelegate::CreateCaptureModeDelegate() const {
   return std::make_unique<TestCaptureModeDelegate>();
-}
-
-std::unique_ptr<ScreenshotDelegate>
-TestShellDelegate::CreateScreenshotDelegate() {
-  return std::make_unique<TestScreenshotDelegate>();
 }
 
 AccessibilityDelegate* TestShellDelegate::CreateAccessibilityDelegate() {
@@ -54,6 +50,10 @@ void TestShellDelegate::SetTabScrubberEnabled(bool enabled) {
 
 bool TestShellDelegate::ShouldWaitForTouchPressAck(gfx::NativeWindow window) {
   return should_wait_for_touch_ack_;
+}
+
+int TestShellDelegate::GetBrowserWebUITabStripHeight() {
+  return 0;
 }
 
 void TestShellDelegate::BindMultiDeviceSetup(
@@ -84,6 +84,39 @@ bool TestShellDelegate::IsSessionRestoreInProgress() const {
 
 void TestShellDelegate::SetSessionRestoreInProgress(bool in_progress) {
   session_restore_in_progress_ = in_progress;
+}
+
+bool TestShellDelegate::IsLoggingRedirectDisabled() const {
+  return false;
+}
+
+base::FilePath TestShellDelegate::GetPrimaryUserDownloadsFolder() const {
+  return base::FilePath();
+}
+
+std::unique_ptr<app_restore::AppLaunchInfo>
+TestShellDelegate::GetAppLaunchDataForDeskTemplate(aura::Window* window) const {
+  return nullptr;
+}
+
+void TestShellDelegate::GetFaviconForUrl(
+    const std::string& page_url,
+    int desired_icon_size,
+    favicon_base::FaviconRawBitmapCallback callback,
+    base::CancelableTaskTracker* tracker) const {}
+
+void TestShellDelegate::GetIconForAppId(
+    const std::string& app_id,
+    int desired_icon_size,
+    base::OnceCallback<void(apps::mojom::IconValuePtr icon_value)> callback)
+    const {}
+
+void TestShellDelegate::LaunchAppsFromTemplate(
+    std::unique_ptr<DeskTemplate> desk_template) {}
+
+bool TestShellDelegate::IsWindowSupportedForDeskTemplate(
+    aura::Window* window) const {
+  return true;
 }
 
 }  // namespace ash

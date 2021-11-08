@@ -5,9 +5,9 @@
 #include "media/audio/android/opensles_output.h"
 
 #include "base/android/build_info.h"
+#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
@@ -161,8 +161,7 @@ void OpenSLESOutputStream::Start(AudioSourceCallback* callback) {
   // we're continuing on from this previous position.
   uint32_t position_in_ms = 0;
   LOG_ON_FAILURE_AND_RETURN((*player_)->GetPosition(player_, &position_in_ms));
-  delay_calculator_.SetBaseTimestamp(
-      base::TimeDelta::FromMilliseconds(position_in_ms));
+  delay_calculator_.SetBaseTimestamp(base::Milliseconds(position_in_ms));
   delay_calculator_.AddFrames(audio_bus_->frames());
 
   started_ = true;
@@ -498,10 +497,10 @@ void OpenSLESOutputStream::CacheHardwareLatencyIfNeeded() {
 
 base::TimeDelta OpenSLESOutputStream::AdjustPositionForHardwareLatency(
     uint32_t position_in_ms) {
-  base::TimeDelta position = base::TimeDelta::FromMilliseconds(position_in_ms);
+  base::TimeDelta position = base::Milliseconds(position_in_ms);
 
   if (position <= hardware_latency_)
-    return base::TimeDelta::FromMilliseconds(0);
+    return base::Milliseconds(0);
 
   return position - hardware_latency_;
 }

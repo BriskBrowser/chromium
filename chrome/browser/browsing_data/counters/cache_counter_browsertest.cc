@@ -10,6 +10,8 @@
 
 #include "chrome/browser/browsing_data/counters/cache_counter.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
@@ -80,8 +82,9 @@ class CacheCounterTest : public InProcessBrowserTest {
         network::SimpleURLLoader::Create(std::move(request),
                                          TRAFFIC_ANNOTATION_FOR_TESTS);
     simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-        content::BrowserContext::GetDefaultStoragePartition(
-            browser()->profile())
+        browser()
+            ->profile()
+            ->GetDefaultStoragePartition()
             ->GetURLLoaderFactoryForBrowserProcess()
             .get(),
         simple_loader_helper.GetCallback());
@@ -91,7 +94,7 @@ class CacheCounterTest : public InProcessBrowserTest {
   void WaitForCountingResult() {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     run_loop_->Run();
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
   }
 
   // Callback from the counter.
@@ -136,7 +139,9 @@ IN_PROC_BROWSER_TEST_F(CacheCounterTest, Empty) {
   // Clear the |profile| to ensure that there was no data added from other
   // processes unrelated to this test.
   base::RunLoop wait_until_empty;
-  content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
+  browser()
+      ->profile()
+      ->GetDefaultStoragePartition()
       ->GetNetworkContext()
       ->ClearHttpCache(base::Time(), base::Time::Max(), nullptr,
                        wait_until_empty.QuitClosure());
@@ -167,7 +172,7 @@ IN_PROC_BROWSER_TEST_F(CacheCounterTest, Empty) {
 #else
     if (GetResult() == 0u)
       break;
-    base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(100));
+    base::PlatformThread::Sleep(base::Milliseconds(100));
 #endif
   }
   EXPECT_EQ(0u, GetResult());
@@ -201,7 +206,9 @@ IN_PROC_BROWSER_TEST_F(CacheCounterTest, AfterDoom) {
                base::BindRepeating(&CacheCounterTest::CountingCallback,
                                    base::Unretained(this)));
 
-  content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
+  browser()
+      ->profile()
+      ->GetDefaultStoragePartition()
       ->GetNetworkContext()
       ->ClearHttpCache(
           base::Time(), base::Time::Max(), nullptr,

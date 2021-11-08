@@ -8,9 +8,9 @@
 #include <string>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/timer/mock_timer.h"
 #include "chromeos/services/device_sync/cryptauth_client.h"
 #include "chromeos/services/device_sync/cryptauth_device.h"
@@ -43,6 +43,7 @@
 #include "chromeos/services/device_sync/proto/cryptauth_v2_test_util.h"
 #include "components/prefs/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -102,6 +103,12 @@ const CryptAuthKey& GetGroupKeyWithoutPrivateKey() {
 }  // namespace
 
 class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
+ public:
+  DeviceSyncCryptAuthDeviceSyncerImplTest(
+      const DeviceSyncCryptAuthDeviceSyncerImplTest&) = delete;
+  DeviceSyncCryptAuthDeviceSyncerImplTest& operator=(
+      const DeviceSyncCryptAuthDeviceSyncerImplTest&) = delete;
+
  protected:
   DeviceSyncCryptAuthDeviceSyncerImplTest()
       : client_factory_(std::make_unique<MockCryptAuthClientFactory>(
@@ -160,7 +167,7 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
         CryptAuthKey(local_beto_public_key,
                      GetPrivateKeyFromPublicKeyForTest(local_beto_public_key),
                      CryptAuthKey::Status::kActive, cryptauthv2::KeyType::P256,
-                     base::nullopt /* handle */));
+                     absl::nullopt /* handle */));
   }
 
   // testing::Test:
@@ -229,9 +236,9 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
 
   void FinishMetadataSyncerAttempt(
       const std::vector<cryptauthv2::DeviceMetadataPacket>& metadata_packets,
-      const base::Optional<CryptAuthKey>& new_group_key,
-      const base::Optional<std::string>& encrypted_group_private_key,
-      const base::Optional<cryptauthv2::ClientDirective> new_client_directive,
+      const absl::optional<CryptAuthKey>& new_group_key,
+      const absl::optional<std::string>& encrypted_group_private_key,
+      const absl::optional<cryptauthv2::ClientDirective> new_client_directive,
       CryptAuthDeviceSyncResult::ResultCode device_sync_result_code) {
     CryptAuthMetadataSyncer::IdToDeviceMetadataPacketMap
         id_to_device_metadata_packet_map;
@@ -240,7 +247,7 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
                                                         packet);
     }
 
-    base::Optional<cryptauthv2::EncryptedGroupPrivateKey> private_key;
+    absl::optional<cryptauthv2::EncryptedGroupPrivateKey> private_key;
     if (encrypted_group_private_key) {
       private_key = cryptauthv2::EncryptedGroupPrivateKey();
       private_key->set_encrypted_private_key(*encrypted_group_private_key);
@@ -296,7 +303,7 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
         GetLocalDeviceForTest().device_better_together_public_key);
     EXPECT_EQ(local_beto_private_key, it->second.key);
 
-    base::Optional<std::string> decrypted_key;
+    absl::optional<std::string> decrypted_key;
     if (succeed) {
       decrypted_key =
           DecryptFakeEncryptedString(it->second.payload, it->second.key);
@@ -325,8 +332,8 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
 
       id_to_unencrypted_metadata_map[metadata.device_id()] =
           base::Contains(device_ids_to_fail, metadata.device_id())
-              ? base::nullopt
-              : base::make_optional<std::string>(DecryptFakeEncryptedString(
+              ? absl::nullopt
+              : absl::make_optional<std::string>(DecryptFakeEncryptedString(
                     metadata.encrypted_metadata(),
                     expected_unencrypted_group_private_key));
     }
@@ -434,11 +441,9 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
       fake_synced_bluetooth_address_tracker_;
   base::MockOneShotTimer* timer_;
 
-  base::Optional<CryptAuthDeviceSyncResult> device_sync_result_;
+  absl::optional<CryptAuthDeviceSyncResult> device_sync_result_;
 
   std::unique_ptr<CryptAuthDeviceSyncer> syncer_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceSyncCryptAuthDeviceSyncerImplTest);
 };
 
 TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
@@ -451,7 +456,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
   VerifyMetadataSyncerInput(nullptr /* expected_initial_group_key */);
   FinishMetadataSyncerAttempt({GetLocalDeviceMetadataPacketForTest()},
                               GetGroupKey() /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -494,7 +499,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest, Success_InitialGroupKeyValid) {
   // The initial group key is valid, so a new group key was not created.
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(
-      GetAllTestDeviceMetadataPackets(), base::nullopt /* new_group_key */,
+      GetAllTestDeviceMetadataPackets(), absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -546,7 +551,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
   // The initial group key is valid, so a new group key was not created.
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(
-      device_metadata_packets, base::nullopt /* new_group_key */,
+      device_metadata_packets, absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -604,7 +609,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   // The initial group key is valid, so a new group key was not created.
   FinishMetadataSyncerAttempt(
-      device_metadata_packets, base::nullopt /* new_group_key */,
+      device_metadata_packets, absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -647,7 +652,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
   // however, we now receive the group private key from CryptAuth.
   VerifyMetadataSyncerInput(&GetGroupKeyWithoutPrivateKey());
   FinishMetadataSyncerAttempt(
-      GetAllTestDeviceMetadataPackets(), base::nullopt /* new_group_key */,
+      GetAllTestDeviceMetadataPackets(), absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -692,7 +697,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
   VerifyMetadataSyncerInput(&GetStaleGroupKey());
   FinishMetadataSyncerAttempt(GetAllTestDeviceMetadataPackets(),
                               GetGroupKey() /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -780,7 +785,7 @@ TEST_F(
   FinishMetadataSyncerAttempt(
       GetAllTestDeviceMetadataPackets(),
       GetGroupKeyWithoutPrivateKey() /* new_group_key */,
-      base::nullopt /* encrypted_group_private_key */,
+      absl::nullopt /* encrypted_group_private_key */,
       cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -819,7 +824,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
   FinishMetadataSyncerAttempt(
       GetAllTestDeviceMetadataPackets(),
       GetGroupKeyWithoutPrivateKey() /* new_group_key */,
-      base::nullopt /* encrypted_group_private_key */,
+      absl::nullopt /* encrypted_group_private_key */,
       cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -851,8 +856,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(
       {GetLocalDeviceMetadataPacketForTest()},
-      base::nullopt /* new_group_key */,
-      base::nullopt /* encrypted_group_private_key */,
+      absl::nullopt /* new_group_key */,
+      absl::nullopt /* encrypted_group_private_key */,
       cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kFinishedWithNonFatalErrors);
 
@@ -922,8 +927,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(GetAllTestDeviceMetadataPackets(),
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -968,7 +973,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
       GetStaleGroupKey().private_key(),
       GetLocalDeviceForTest().device_better_together_public_key);
   FinishMetadataSyncerAttempt(GetAllTestDeviceMetadataPackets(),
-                              base::nullopt /* new_group_key */,
+                              absl::nullopt /* new_group_key */,
                               wrong_encrypted_group_private_key,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
@@ -1019,7 +1024,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
   // The initial group key is valid, so a new group key was not created.
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(
-      device_metadata_packets, base::nullopt /* new_group_key */,
+      device_metadata_packets, absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1062,8 +1067,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(GetAllTestDeviceMetadataPackets(),
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1107,8 +1112,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
   }
 
   FinishMetadataSyncerAttempt(corrupt_metadata_packets,
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1157,8 +1162,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
       GetRemoteDeviceMetadataPacketNeedsGroupPrivateKeyForTest(),
       GetRemoteDeviceMetadataPacketHasGroupPrivateKeyForTest()};
   FinishMetadataSyncerAttempt(device_metadata_packets,
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1191,8 +1196,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(GetAllTestDeviceMetadataPackets(),
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1229,7 +1234,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest, FatalError_MissingUserKeyPair) {
       CryptAuthDeviceSyncResult(
           CryptAuthDeviceSyncResult::ResultCode::kErrorMissingUserKeyPair,
           false /* device_registry_changed */,
-          base::nullopt /* client_directive */),
+          absl::nullopt /* client_directive */),
       {} /* expected_devices_in_registry */);
 }
 
@@ -1240,8 +1245,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest, FatalError_FromMetadataSyncer) {
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt({} /* metadata_packets */,
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::
                                   kErrorSyncMetadataApiCallBadRequest);
@@ -1262,8 +1267,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(GetAllTestDeviceMetadataPackets(),
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1290,8 +1295,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(GetAllTestDeviceMetadataPackets(),
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1330,7 +1335,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(
-      GetAllTestDeviceMetadataPackets(), base::nullopt /* new_group_key */,
+      GetAllTestDeviceMetadataPackets(), absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1358,7 +1363,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(
-      GetAllTestDeviceMetadataPackets(), base::nullopt /* new_group_key */,
+      GetAllTestDeviceMetadataPackets(), absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1385,8 +1390,8 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(GetAllTestDeviceMetadataPackets(),
-                              base::nullopt /* new_group_key */,
-                              base::nullopt /* encrypted_group_private_key */,
+                              absl::nullopt /* new_group_key */,
+                              absl::nullopt /* encrypted_group_private_key */,
                               cryptauthv2::GetClientDirectiveForTest(),
                               CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1426,7 +1431,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(
-      GetAllTestDeviceMetadataPackets(), base::nullopt /* new_group_key */,
+      GetAllTestDeviceMetadataPackets(), absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 
@@ -1457,7 +1462,7 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
 
   VerifyMetadataSyncerInput(&GetGroupKey());
   FinishMetadataSyncerAttempt(
-      GetAllTestDeviceMetadataPackets(), base::nullopt /* new_group_key */,
+      GetAllTestDeviceMetadataPackets(), absl::nullopt /* new_group_key */,
       encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
       CryptAuthDeviceSyncResult::ResultCode::kSuccess);
 

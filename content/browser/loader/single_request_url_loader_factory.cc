@@ -10,8 +10,9 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 
 namespace content {
@@ -23,6 +24,9 @@ class SingleRequestURLLoaderFactory::HandlerState
   explicit HandlerState(RequestHandler handler)
       : handler_(std::move(handler)),
         handler_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+
+  HandlerState(const HandlerState&) = delete;
+  HandlerState& operator=(const HandlerState&) = delete;
 
   void HandleRequest(
       const network::ResourceRequest& resource_request,
@@ -56,8 +60,6 @@ class SingleRequestURLLoaderFactory::HandlerState
 
   RequestHandler handler_;
   const scoped_refptr<base::SequencedTaskRunner> handler_task_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(HandlerState);
 };
 
 class SingleRequestURLLoaderFactory::PendingFactory
@@ -65,6 +67,10 @@ class SingleRequestURLLoaderFactory::PendingFactory
  public:
   explicit PendingFactory(scoped_refptr<HandlerState> state)
       : state_(std::move(state)) {}
+
+  PendingFactory(const PendingFactory&) = delete;
+  PendingFactory& operator=(const PendingFactory&) = delete;
+
   ~PendingFactory() override = default;
 
   // PendingSharedURLLoaderFactory:
@@ -74,8 +80,6 @@ class SingleRequestURLLoaderFactory::PendingFactory
 
  private:
   scoped_refptr<HandlerState> state_;
-
-  DISALLOW_COPY_AND_ASSIGN(PendingFactory);
 };
 
 SingleRequestURLLoaderFactory::SingleRequestURLLoaderFactory(
@@ -84,7 +88,6 @@ SingleRequestURLLoaderFactory::SingleRequestURLLoaderFactory(
 
 void SingleRequestURLLoaderFactory::CreateLoaderAndStart(
     mojo::PendingReceiver<network::mojom::URLLoader> loader,
-    int32_t routing_id,
     int32_t request_id,
     uint32_t options,
     const network::ResourceRequest& request,

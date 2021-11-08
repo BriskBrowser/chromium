@@ -29,6 +29,11 @@ class AbusiveOriginPermissionRevocationRequestTestBase : public testing::Test {
 
   AbusiveOriginPermissionRevocationRequestTestBase() = default;
 
+  AbusiveOriginPermissionRevocationRequestTestBase(
+      const AbusiveOriginPermissionRevocationRequestTestBase&) = delete;
+  AbusiveOriginPermissionRevocationRequestTestBase& operator=(
+      const AbusiveOriginPermissionRevocationRequestTestBase&) = delete;
+
   ~AbusiveOriginPermissionRevocationRequestTestBase() override = default;
 
  protected:
@@ -129,17 +134,12 @@ class AbusiveOriginPermissionRevocationRequestTestBase : public testing::Test {
       fake_database_manager_;
   std::unique_ptr<safe_browsing::TestSafeBrowsingServiceFactory>
       safe_browsing_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(AbusiveOriginPermissionRevocationRequestTestBase);
 };
 
 class AbusiveOriginPermissionRevocationRequestTest
     : public AbusiveOriginPermissionRevocationRequestTestBase {
  public:
-  AbusiveOriginPermissionRevocationRequestTest() {
-    feature_list_.InitAndEnableFeature(
-        features::kAbusiveNotificationPermissionRevocation);
-  }
+  AbusiveOriginPermissionRevocationRequestTest() = default;
 
   ~AbusiveOriginPermissionRevocationRequestTest() override = default;
 };
@@ -456,7 +456,10 @@ TEST_F(AbusiveOriginPermissionRevocationRequestTest, SafeBrowsingDisabledTest) {
 class AbusiveOriginPermissionRevocationRequestDisabledTest
     : public AbusiveOriginPermissionRevocationRequestTestBase {
  public:
-  AbusiveOriginPermissionRevocationRequestDisabledTest() = default;
+  AbusiveOriginPermissionRevocationRequestDisabledTest() {
+    feature_list_.InitAndDisableFeature(
+        features::kAbusiveNotificationPermissionRevocation);
+  }
   ~AbusiveOriginPermissionRevocationRequestDisabledTest() override = default;
 };
 
@@ -465,6 +468,9 @@ TEST_F(AbusiveOriginPermissionRevocationRequestDisabledTest,
   const GURL origin_to_revoke = GURL("https://origin.com/");
 
   SetPermission(origin_to_revoke, CONTENT_SETTING_ALLOW);
+  AddToPreloadDataBlocklist(origin_to_revoke, SiteReputation::ABUSIVE_CONTENT,
+                            /*has_warning=*/false);
+  AddToSafeBrowsingBlocklist(origin_to_revoke);
   QueryAndExpectDecisionForUrl(origin_to_revoke,
                                Outcome::PERMISSION_NOT_REVOKED);
   VerifyNotificationsPermission(origin_to_revoke, CONTENT_SETTING_ALLOW);

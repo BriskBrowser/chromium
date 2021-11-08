@@ -11,6 +11,7 @@
 #include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "chrome/browser/prefetch/prefetch_proxy/prefetch_proxy_features.h"
@@ -69,25 +70,25 @@ bool PrefetchProxyNoStatePrefetchSubresources() {
                                                  "do_no_state_prefetch", false);
 }
 
-base::Optional<size_t> PrefetchProxyMaximumNumberOfPrefetches() {
+absl::optional<size_t> PrefetchProxyMaximumNumberOfPrefetches() {
   if (!PrefetchProxyIsEnabled()) {
     return 0;
   }
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           "isolated-prerender-unlimited-prefetches")) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   int max = base::GetFieldTrialParamByFeatureAsInt(features::kIsolatePrerenders,
                                                    "max_srp_prefetches", 1);
   if (max < 0) {
-    return base::nullopt;
+    return absl::nullopt;
   }
   return max;
 }
 
-base::Optional<size_t> PrefetchProxyMaximumNumberOfNoStatePrefetchAttempts() {
+absl::optional<size_t> PrefetchProxyMaximumNumberOfNoStatePrefetchAttempts() {
   if (!PrefetchProxyIsEnabled() ||
       !PrefetchProxyNoStatePrefetchSubresources()) {
     return 0;
@@ -95,13 +96,13 @@ base::Optional<size_t> PrefetchProxyMaximumNumberOfNoStatePrefetchAttempts() {
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           "isolated-prerender-unlimited-nsp")) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   int max = base::GetFieldTrialParamByFeatureAsInt(features::kIsolatePrerenders,
                                                    "max_nsp", 1);
   if (max < 0) {
-    return base::nullopt;
+    return absl::nullopt;
   }
   return max;
 }
@@ -118,10 +119,9 @@ size_t PrefetchProxyMaximumNumberOfConcurrentPrefetches() {
 }
 
 base::TimeDelta PrefetchProxyProbeTimeout() {
-  return base::TimeDelta::FromMilliseconds(
-      base::GetFieldTrialParamByFeatureAsInt(
-          features::kIsolatePrerendersMustProbeOrigin, "probe_timeout_ms",
-          10 * 1000 /* 10 seconds */));
+  return base::Milliseconds(base::GetFieldTrialParamByFeatureAsInt(
+      features::kIsolatePrerendersMustProbeOrigin, "probe_timeout_ms",
+      10 * 1000 /* 10 seconds */));
 }
 
 bool PrefetchProxyCloseIdleSockets() {
@@ -130,10 +130,9 @@ bool PrefetchProxyCloseIdleSockets() {
 }
 
 base::TimeDelta PrefetchProxyTimeoutDuration() {
-  return base::TimeDelta::FromMilliseconds(
-      base::GetFieldTrialParamByFeatureAsInt(features::kIsolatePrerenders,
-                                             "prefetch_timeout_ms",
-                                             10 * 1000 /* 10 seconds */));
+  return base::Milliseconds(base::GetFieldTrialParamByFeatureAsInt(
+      features::kIsolatePrerenders, "prefetch_timeout_ms",
+      10 * 1000 /* 10 seconds */));
 }
 
 bool PrefetchProxyProbingEnabled() {
@@ -149,6 +148,15 @@ bool PrefetchProxyCanaryCheckEnabled() {
 
   return base::GetFieldTrialParamByFeatureAsBool(
       features::kIsolatePrerendersMustProbeOrigin, "do_canary", true);
+}
+
+bool PrefetchProxyTLSCanaryCheckEnabled() {
+  if (!PrefetchProxyCanaryCheckEnabled()) {
+    return false;
+  }
+
+  return base::GetFieldTrialParamByFeatureAsBool(
+      features::kIsolatePrerendersMustProbeOrigin, "do_tls_canary", false);
 }
 
 GURL PrefetchProxyTLSCanaryCheckURL() {
@@ -170,7 +178,7 @@ GURL PrefetchProxyDNSCanaryCheckURL() {
 }
 
 base::TimeDelta PrefetchProxyCanaryCheckCacheLifetime() {
-  return base::TimeDelta::FromHours(base::GetFieldTrialParamByFeatureAsInt(
+  return base::Hours(base::GetFieldTrialParamByFeatureAsInt(
       features::kIsolatePrerendersMustProbeOrigin, "canary_cache_hours", 24));
 }
 
@@ -201,6 +209,13 @@ bool PrefetchProxyStartsSpareRenderer() {
                                                  "start_spare_renderer", false);
 }
 
+bool PrefetchProxyUseSpeculationRules() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+             "isolated-prerender-use-speculation-rules") ||
+         base::GetFieldTrialParamByFeatureAsBool(
+             features::kIsolatePrerenders, "use_speculation_rules", false);
+}
+
 bool PrefetchProxyShouldPrefetchPosition(size_t position) {
   std::string csv = base::GetFieldTrialParamValueByFeature(
       features::kIsolatePrerenders, "prefetch_positions");
@@ -220,5 +235,43 @@ base::TimeDelta PrefetchProxyMaxRetryAfterDelta() {
   int max_seconds = base::GetFieldTrialParamByFeatureAsInt(
       features::kIsolatePrerenders, "max_retry_after_duration_secs",
       1 * 60 * 60 * 24 * 7 /* 1 week */);
-  return base::TimeDelta::FromSeconds(max_seconds);
+  return base::Seconds(max_seconds);
+}
+
+bool PrefetchProxySendDecoyRequestForIneligiblePrefetch() {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          "prefetch-proxy-never-send-decoy-requests-for-testing")) {
+    return false;
+  }
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          "prefetch-proxy-always-send-decoy-requests-for-testing")) {
+    return true;
+  }
+
+  double probability = base::GetFieldTrialParamByFeatureAsDouble(
+      features::kIsolatePrerenders, "ineligible_decoy_request_probability",
+      1.0);
+
+  // Clamp to [0.0, 1.0].
+  probability = std::max(0.0, probability);
+  probability = std::min(1.0, probability);
+
+  // RandDouble returns [0.0, 1.0) so don't use <= here since that may return
+  // true when the probability is supposed to be 0 (i.e.: always false).
+  return base::RandDouble() < probability;
+}
+
+bool PrefetchProxyAllowAllDomains() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      "isolated-prerender-allow-all-domains");
+}
+
+base::TimeDelta PrefetchProxyCacheableDuration() {
+  return base::Seconds(base::GetFieldTrialParamByFeatureAsInt(
+      features::kIsolatePrerenders, "cacheable_duration", 300));
+}
+
+std::string PrefetchProxyServerExperimentGroup() {
+  return base::GetFieldTrialParamValueByFeature(features::kIsolatePrerenders,
+                                                "server_experiment_group");
 }

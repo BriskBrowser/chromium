@@ -30,6 +30,7 @@
     <output filename="shortcut_viewer_strings_hr.pak" type="data_package" lang="hr" />
     <output filename="shortcut_viewer_strings_hu.pak" type="data_package" lang="hu" />
     <output filename="shortcut_viewer_strings_id.pak" type="data_package" lang="id" />
+    <output filename="shortcut_viewer_strings_is.pak" type="data_package" lang="is" />
     <output filename="shortcut_viewer_strings_it.pak" type="data_package" lang="it" />
     <output filename="shortcut_viewer_strings_ja.pak" type="data_package" lang="ja" />
     <output filename="shortcut_viewer_strings_kn.pak" type="data_package" lang="kn" />
@@ -310,6 +311,9 @@
   <message name="IDS_KSV_DESCRIPTION_TOGGLE_OVERVIEW" desc="Description of the command in keyboard shortcut viewer.">
     Overview mode
   </message>
+  <message name="IDS_KSV_DESCRIPTION_TOGGLE_RESIZE_LOCK_MENU" desc="Description of the command in keyboard shortcut viewer.">
+    Toggle the menu for resize lock mode
+  </message>
   <message name="IDS_KSV_DESCRIPTION_KEYBOARD_BRIGHTNESS_DOWN" desc="Description of the command in keyboard shortcut viewer.">
     Dim keyboard (for backlit keyboards only)
   </message>
@@ -319,17 +323,11 @@
   <message name="IDS_KSV_DESCRIPTION_TAKE_SCREENSHOT" desc="Description of the command in keyboard shortcut viewer.">
     Take screenshot/recording
   </message>
-  <message name="IDS_KSV_DESCRIPTION_TAKE_SCREENSHOT_OLD" desc="Description of the command in keyboard shortcut viewer when capture mode is disabled.">
-    Take screenshot
-  </message>
   <message name="IDS_KSV_DESCRIPTION_TAKE_FULLSCREEN_SCREENSHOT" desc="Description of the command in keyboard shortcut viewer.">
     Take fullscreen screenshot
   </message>
   <message name="IDS_KSV_DESCRIPTION_TAKE_PARTIAL_SCREENSHOT" desc="Description of the command in keyboard shortcut viewer.">
     Take partial screenshot/recording
-  </message>
-  <message name="IDS_KSV_DESCRIPTION_TAKE_PARTIAL_SCREENSHOT_OLD" desc="Description of the command in keyboard shortcut viewer if the capture mode is disabled.">
-    Take partial screenshot
   </message>
   <message name="IDS_KSV_DESCRIPTION_OPEN_FILE_MANAGER" desc="Description of the command in keyboard shortcut viewer.">
     Open the Files app
@@ -436,6 +434,9 @@
   <message name="IDS_KSV_DESCRIPTION_IDC_SAVE_PAGE" desc="Description of the command in keyboard shortcut viewer.">
     Save your current page
   </message>
+  <message name="IDS_KSV_DESCRIPTION_IDC_SEARCH_TABS" desc="Search for open and recently closed tabs.">
+    Search tabs
+  </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_SELECT_LAST_TAB" desc="Description of the command in keyboard shortcut viewer.">
     Go to the last tab in the window
   </message>
@@ -458,7 +459,7 @@
     Zoom in on the page
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_NEW_INCOGNITO_WINDOW" desc="Description of the command in keyboard shortcut viewer.">
-    Open a new window in incognito mode
+    Open a new window in Incognito mode
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_RESTORE_TAB" desc="Description of the command in keyboard shortcut viewer.">
     Reopen the last tab or window you closed
@@ -677,7 +678,7 @@
     <ph name="shift">$1<ex>Shift</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="alt">$3<ex>Alt</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="l">$5<ex>v</ex></ph>, then <ph name="esc">$6<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_SWITCH_FOCUS" desc="Description of the command in keyboard shortcut viewer.">
-    Switch focus between: Status area (where your account picture appears), Launcher, Address bar, Bookmarks bar (if visible), The webpage that's open, and Downloads bar (if visible).
+    Switch focus between: Status area (where your account picture appears), Launcher, Address bar, Bookmarks bar (if visible), The webpage that's open, and Downloads bar (if visible). If a focusable dialog is displayed, move focus there instead.
   </message>
   <message name="IDS_KSV_SHORTCUT_SWITCH_FOCUS" desc="Human readable version of the keyboard shortcut.">
     <ph name="ctrl1">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="back1">$3<ex>v</ex></ph> or <ph name="ctrl2">$4<ex>Ctrl</ex></ph><ph name="separator2">$5<ex>+</ex></ph><ph name="shift">$6<ex>Shift</ex></ph><ph name="separator3">$7<ex>+</ex></ph><ph name="back2">$8<ex>v</ex></ph>
@@ -727,6 +728,9 @@
   <message name="IDS_KSV_DESCRIPTION_FOCUS_PREVIOUS_PANE" desc="Description of the command in keyboard shortcut viewer.">
     Previous pane
   </message>
+  <message name="IDS_KSV_DESCRIPTION_FOCUS_WEB_CONTENTS_PANE" desc="Description of the command in keyboard shortcut viewer.">
+    Focus web content in the browser
+  </message>
   <message name="IDS_KSV_DESCRIPTION_MOVE_ACTIVE_WINDOW_BETWEEN_DISPLAYS" desc="Description of the command in keyboard shortcut viewer.">
     Move active window between displays
   </message>
@@ -738,9 +742,6 @@
   </message>
   <message name="IDS_KSV_DESCRIPTION_TAKE_WINDOW_SCREENSHOT" desc="Description of the command in keyboard shortcut viewer.">
     Take window screenshot/recording
-  </message>
-  <message name="IDS_KSV_DESCRIPTION_TAKE_WINDOW_SCREENSHOT_OLD" desc="Description of the command in keyboard shortcut viewer when capture mode is disabled.">
-    Take window screenshot
   </message>
   <message name="IDS_KSV_DESCRIPTION_SUSPEND" desc="Description of the command in keyboard shortcut viewer.">
     Put device in sleep mode (suspend)
@@ -817,6 +818,9 @@
   <message name="IDS_KSV_DESCRIPTION_DESKS_MOVE_ACTIVE_ITEM_RIGHT_DESK" desc="Description of the command in keyboard shortcut viewer.">
     Move active window to the desk on the right
   </message>
+  <message name="IDS_KSV_DESCRIPTION_FLOAT" desc="Description of the command in keyboard shortcut viewer.">
+    Float active window on top
+  </message>
   <message name="IDS_KSV_DESCRIPTION_OPEN_GOOGLE_ASSISTANT" desc="Description of the command in keyboard shortcut viewer.">
     Open Google Assistant
   </message>
@@ -837,6 +841,9 @@
   </message>
   <message name="IDS_KSV_DESCRIPTION_CARET_BROWSING_TOGGLE" desc="Description of the command in keyboard shortcut viewer.">
     Turn caret browsing on or off
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_SHOW_EMOJI_PICKER" desc="Description of the command in keyboard shortcut viewer.">
+    Open Emoji Picker
   </message>
     </messages>
   </release>

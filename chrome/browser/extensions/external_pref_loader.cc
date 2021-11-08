@@ -16,7 +16,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -33,7 +33,7 @@
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/ash_switches.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_service_observer.h"
@@ -87,7 +87,7 @@ std::set<base::FilePath> GetPrefsCandidateFilesFromFolder(
       base::FileEnumerator::FILES);
 #if defined(OS_WIN)
   base::FilePath::StringType extension = base::UTF8ToWide(".json");
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   base::FilePath::StringType extension(".json");
 #endif
   do {
@@ -119,12 +119,12 @@ class ExternalPrefLoader::PrioritySyncReadyWaiter
     : public sync_preferences::PrefServiceSyncableObserver,
       public syncer::SyncServiceObserver {
  public:
-  explicit PrioritySyncReadyWaiter(Profile* profile)
-      : profile_(profile),
-        syncable_pref_observer_(this),
-        sync_service_observer_(this) {
+  explicit PrioritySyncReadyWaiter(Profile* profile) : profile_(profile) {
     DCHECK(profile_);
   }
+
+  PrioritySyncReadyWaiter(const PrioritySyncReadyWaiter&) = delete;
+  PrioritySyncReadyWaiter& operator=(const PrioritySyncReadyWaiter&) = delete;
 
   ~PrioritySyncReadyWaiter() override = default;
 
@@ -136,8 +136,8 @@ class ExternalPrefLoader::PrioritySyncReadyWaiter
     }
     DCHECK(!done_closure_);
     done_closure_ = std::move(done_closure);
-    if (chromeos::features::IsSplitSettingsSyncEnabled()) {
-      // SplitSettingsSync lets users opt-out of sync during OOBE.
+    if (chromeos::features::IsSyncConsentOptionalEnabled()) {
+      // SyncConsentOptional lets users opt-out of sync during OOBE.
       PrefService* prefs = profile_->GetPrefs();
       if (!prefs->GetBoolean(chromeos::prefs::kSyncOobeCompleted)) {
         // Need to wait for OOBE completion before checking if sync is enabled.
@@ -156,12 +156,11 @@ class ExternalPrefLoader::PrioritySyncReadyWaiter
 
  private:
   void OnSyncOobeCompleted() {
-    DCHECK(chromeos::features::IsSplitSettingsSyncEnabled());
+    DCHECK(chromeos::features::IsSyncConsentOptionalEnabled());
     DCHECK(
         profile_->GetPrefs()->GetBoolean(chromeos::prefs::kSyncOobeCompleted));
     pref_change_registrar_.reset();
-    syncer::SyncService* service =
-        ProfileSyncServiceFactory::GetForProfile(profile_);
+    syncer::SyncService* service = SyncServiceFactory::GetForProfile(profile_);
     if (!service->GetUserSettings()->IsOsSyncFeatureEnabled()) {
       // User opted-out of OS sync, OS sync will never start, we're done here.
       Finish();
@@ -172,8 +171,7 @@ class ExternalPrefLoader::PrioritySyncReadyWaiter
   }
 
   void MaybeObserveSyncStart() {
-    syncer::SyncService* service =
-        ProfileSyncServiceFactory::GetForProfile(profile_);
+    syncer::SyncService* service = SyncServiceFactory::GetForProfile(profile_);
     DCHECK(service);
     if (!service->CanSyncFeatureStart()) {
       Finish();
@@ -199,13 +197,18 @@ class ExternalPrefLoader::PrioritySyncReadyWaiter
       Finish();
   }
 
+  void OnSyncShutdown(syncer::SyncService* sync) override {
+    DCHECK(sync_service_observation_.IsObservingSource(sync));
+    sync_service_observation_.Reset();
+  }
+
   bool IsPrioritySyncing() {
     sync_preferences::PrefServiceSyncable* prefs =
         PrefServiceSyncableFromProfile(profile_);
     DCHECK(prefs);
-    // SplitSettingsSync moves prefs like language and keyboard/mouse config to
-    // OS priority prefs.
-    return chromeos::features::IsSplitSettingsSyncEnabled()
+    // SyncSettingsCategorization moves prefs like language and keyboard/mouse
+    // config to OS priority prefs.
+    return chromeos::features::IsSyncSettingsCategorizationEnabled()
                ? prefs->AreOsPriorityPrefsSyncing()
                : prefs->IsPrioritySyncing();
   }
@@ -214,11 +217,10 @@ class ExternalPrefLoader::PrioritySyncReadyWaiter
     sync_preferences::PrefServiceSyncable* prefs =
         PrefServiceSyncableFromProfile(profile_);
     DCHECK(prefs);
-    syncable_pref_observer_.Add(prefs);
+    syncable_pref_observation_.Observe(prefs);
 
-    syncer::SyncService* service =
-        ProfileSyncServiceFactory::GetForProfile(profile_);
-    sync_service_observer_.Add(service);
+    syncer::SyncService* service = SyncServiceFactory::GetForProfile(profile_);
+    sync_service_observation_.Observe(service);
   }
 
   void Finish() { std::move(done_closure_).Run(); }
@@ -227,17 +229,15 @@ class ExternalPrefLoader::PrioritySyncReadyWaiter
 
   base::OnceClosure done_closure_;
 
-  // Used with SplitSettingsSync to wait for OOBE sync dialog completion.
+  // Used with SyncConsentOptional to wait for OOBE sync dialog completion.
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
 
   // Used for registering observer for sync_preferences::PrefServiceSyncable.
-  ScopedObserver<sync_preferences::PrefServiceSyncable,
-                 sync_preferences::PrefServiceSyncableObserver>
-      syncable_pref_observer_;
-  ScopedObserver<syncer::SyncService, syncer::SyncServiceObserver>
-      sync_service_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrioritySyncReadyWaiter);
+  base::ScopedObservation<sync_preferences::PrefServiceSyncable,
+                          sync_preferences::PrefServiceSyncableObserver>
+      syncable_pref_observation_{this};
+  base::ScopedObservation<syncer::SyncService, syncer::SyncServiceObserver>
+      sync_service_observation_{this};
 };
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -265,7 +265,7 @@ void ExternalPrefLoader::StartLoading() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if ((options_ & DELAY_LOAD_UNTIL_PRIORITY_SYNC) &&
-      (profile_ && ProfileSyncServiceFactory::IsSyncAllowed(profile_))) {
+      (profile_ && SyncServiceFactory::IsSyncAllowed(profile_))) {
     pending_waiter_list_.push_back(
         std::make_unique<PrioritySyncReadyWaiter>(profile_));
     PrioritySyncReadyWaiter* waiter_ptr = pending_waiter_list_.back().get();
@@ -328,7 +328,7 @@ void ExternalPrefLoader::LoadOnFileThread() {
   if (base::PathService::Get(base_path_id_, &base_path_)) {
     ReadExternalExtensionPrefFile(prefs.get());
 
-    if (!prefs->empty())
+    if (!prefs->DictEmpty())
       LOG(WARNING) << "You are using an old-style extension deployment method "
                       "(external_extensions.json), which will soon be "
                       "deprecated. (see http://developer.chrome.com/"
@@ -338,12 +338,12 @@ void ExternalPrefLoader::LoadOnFileThread() {
   }
 
   if (base_path_id_ == chrome::DIR_EXTERNAL_EXTENSIONS)
-    UMA_HISTOGRAM_COUNTS_100("Extensions.ExternalJsonCount", prefs->size());
+    UMA_HISTOGRAM_COUNTS_100("Extensions.ExternalJsonCount", prefs->DictSize());
 
   // If we have any records to process, then we must have
   // read at least one .json file.  If so, then we should have
   // set |base_path_|.
-  if (!prefs->empty())
+  if (!prefs->DictEmpty())
     CHECK(!base_path_.empty());
 
   content::GetUIThreadTaskRunner({})->PostTask(
@@ -416,7 +416,7 @@ void ExternalPrefLoader::ReadStandaloneExtensionPrefFiles(
 #if defined(OS_WIN)
         base::WideToASCII(
             extension_candidate_path.RemoveExtension().BaseName().value());
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
         extension_candidate_path.RemoveExtension().BaseName().value();
 #endif
 
@@ -438,7 +438,7 @@ void ExternalPrefLoader::ReadStandaloneExtensionPrefFiles(
     }
 
     DVLOG(1) << "Adding extension with id: " << id;
-    prefs->Set(id, std::move(ext_prefs));
+    prefs->SetKey(id, base::Value::FromUniquePtrValue(std::move(ext_prefs)));
   }
 }
 

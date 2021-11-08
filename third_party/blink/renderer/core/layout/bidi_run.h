@@ -57,16 +57,15 @@ struct BidiRun final : BidiCharacterRun {
     has_hyphen_ = false;
   }
 
-  BidiRun* Next() { return static_cast<BidiRun*>(next_.Get()); }
-
-  void Trace(Visitor* visitor) const final {
-    visitor->Trace(box_);
-    BidiCharacterRun::Trace(visitor);
-  }
+  BidiRun* Next() { return static_cast<BidiRun*>(next_); }
 
  public:
   LineLayoutItem line_layout_item_;
-  Member<InlineBox> box_;
+
+  // This doesn't create reference cycle as BidiRunList/BidiResolver, which own
+  // BidiRun, is allocated only on stack and BidiRun deleted manually in
+  // BidiRunList::DeleteRuns().
+  Persistent<InlineBox> box_;
 };
 
 }  // namespace blink

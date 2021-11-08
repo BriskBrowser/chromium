@@ -4,27 +4,39 @@
 
 #include "chromeos/services/cellular_setup/esim_profile.h"
 
+#include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/dbus/hermes/hermes_euicc_client.h"
 #include "chromeos/dbus/hermes/hermes_profile_client.h"
 #include "chromeos/dbus/hermes/hermes_response_status.h"
+#include "chromeos/network/cellular_connection_handler.h"
 #include "chromeos/network/cellular_esim_profile.h"
 #include "chromeos/network/cellular_esim_uninstall_handler.h"
 #include "chromeos/network/cellular_inhibitor.h"
+#include "chromeos/network/hermes_metrics_util.h"
+#include "chromeos/network/network_connection_handler.h"
 #include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_handler.h"
+#include "chromeos/network/network_state_handler.h"
 #include "chromeos/services/cellular_setup/esim_manager.h"
 #include "chromeos/services/cellular_setup/esim_mojo_utils.h"
 #include "chromeos/services/cellular_setup/euicc.h"
 #include "chromeos/services/cellular_setup/public/mojom/esim_manager.mojom-shared.h"
 #include "chromeos/services/cellular_setup/public/mojom/esim_manager.mojom.h"
 #include "components/device_event_log/device_event_log.h"
+#include "components/user_manager/user_manager.h"
 #include "dbus/object_path.h"
 
 namespace chromeos {
 namespace cellular_setup {
 
 namespace {
+
+bool IsGuestModeActive() {
+  return user_manager::UserManager::Get()->IsLoggedInAsGuest() ||
+         user_manager::UserManager::Get()->IsLoggedInAsPublicAccount();
+}
 
 bool IsESimProfilePropertiesEqualToState(
     const mojom::ESimProfilePropertiesPtr& properties,
@@ -36,6 +48,25 @@ bool IsESimProfilePropertiesEqualToState(
              properties->service_provider &&
          ProfileStateToMojo(esim_profile_state.state()) == properties->state &&
          esim_profile_state.activation_code() == properties->activation_code;
+}
+
+// Measures the time from which this function is called to when |callback|
+// is expected to run. The measured time difference should capture the time it
+// took for a pending profile to be fully downloaded.
+ESimProfile::InstallProfileCallback CreateTimedInstallProfileCallback(
+    ESimProfile::InstallProfileCallback callback) {
+  return base::BindOnce(
+      [](ESimProfile::InstallProfileCallback callback,
+         base::Time installation_start_time,
+         mojom::ProfileInstallResult result) -> void {
+        std::move(callback).Run(result);
+        if (result != mojom::ProfileInstallResult::kSuccess)
+          return;
+        UMA_HISTOGRAM_MEDIUM_TIMES(
+            "Network.Cellular.ESim.ProfileDownload.PendingProfile.Latency",
+            base::Time::Now() - installation_start_time);
+      },
+      std::move(callback), base::Time::Now());
 }
 
 }  // namespace
@@ -81,64 +112,68 @@ void ESimProfile::InstallProfile(const std::string& confirmation_code,
   esim_manager_->NotifyESimProfileChanged(this);
 
   NET_LOG(USER) << "Installing profile with path " << path().value();
-  install_callback_ = std::move(callback);
+  install_callback_ = CreateTimedInstallProfileCallback(std::move(callback));
   EnsureProfileExistsOnEuiccCallback perform_install_profile_callback =
       base::BindOnce(&ESimProfile::PerformInstallProfile,
                      weak_ptr_factory_.GetWeakPtr(), confirmation_code);
-  esim_manager_->cellular_inhibitor()->InhibitCellularScanning(base::BindOnce(
-      &ESimProfile::EnsureProfileExistsOnEuicc, weak_ptr_factory_.GetWeakPtr(),
-      std::move(perform_install_profile_callback)));
+  esim_manager_->cellular_inhibitor()->InhibitCellularScanning(
+      CellularInhibitor::InhibitReason::kInstallingProfile,
+      base::BindOnce(&ESimProfile::EnsureProfileExistsOnEuicc,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     std::move(perform_install_profile_callback)));
 }
 
 void ESimProfile::UninstallProfile(UninstallProfileCallback callback) {
+  if (IsGuestModeActive()) {
+    NET_LOG(ERROR) << "Cannot uninstall profile in guest mode.";
+    std::move(callback).Run(mojom::ESimOperationResult::kFailure);
+    return;
+  }
+
   if (!IsProfileInstalled()) {
     NET_LOG(ERROR) << "Profile uninstall failed: Profile is not installed.";
     std::move(callback).Run(mojom::ESimOperationResult::kFailure);
     return;
   }
 
+  if (IsProfileManaged()) {
+    NET_LOG(ERROR)
+        << "Profile uninstall failed: Cannot uninstall managed profile.";
+    std::move(callback).Run(mojom::ESimOperationResult::kFailure);
+    return;
+  }
+
   NET_LOG(USER) << "Uninstalling profile with path " << path().value();
-  uninstall_callback_ = std::move(callback);
+  uninstall_callback_ = base::BindOnce(
+      [](UninstallProfileCallback callback,
+         mojom::ESimOperationResult result) -> void {
+        base::UmaHistogramBoolean(
+            "Network.Cellular.ESim.ProfileUninstallationResult",
+            result == mojom::ESimOperationResult::kSuccess);
+        std::move(callback).Run(result);
+      },
+      std::move(callback));
+
   esim_manager_->cellular_esim_uninstall_handler()->UninstallESim(
       properties_->iccid, path_, euicc_->path(),
       base::BindOnce(&ESimProfile::OnProfileUninstallResult,
                      weak_ptr_factory_.GetWeakPtr()));
 }
 
-void ESimProfile::EnableProfile(EnableProfileCallback callback) {
-  if (properties_->state == mojom::ProfileState::kActive ||
-      properties_->state == mojom::ProfileState::kPending) {
-    NET_LOG(ERROR)
-        << "Profile enable failed: Profile already enabled or not installed";
-    std::move(callback).Run(mojom::ESimOperationResult::kFailure);
-    return;
-  }
-
-  NET_LOG(USER) << "Enabling profile with path " << path().value();
-  HermesProfileClient::Get()->EnableCarrierProfile(
-      path_,
-      base::BindOnce(&ESimProfile::OnESimOperationResult,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-}
-
-void ESimProfile::DisableProfile(DisableProfileCallback callback) {
-  if (properties_->state == mojom::ProfileState::kInactive ||
-      properties_->state == mojom::ProfileState::kPending) {
-    NET_LOG(ERROR)
-        << "Profile enable failed: Profile already disabled or not installed";
-    std::move(callback).Run(mojom::ESimOperationResult::kFailure);
-    return;
-  }
-
-  NET_LOG(USER) << "Disabling profile with path " << path().value();
-  HermesProfileClient::Get()->DisableCarrierProfile(
-      path_,
-      base::BindOnce(&ESimProfile::OnESimOperationResult,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-}
-
-void ESimProfile::SetProfileNickname(const base::string16& nickname,
+void ESimProfile::SetProfileNickname(const std::u16string& nickname,
                                      SetProfileNicknameCallback callback) {
+  if (IsGuestModeActive()) {
+    NET_LOG(ERROR) << "Cannot rename profile in guest mode.";
+    std::move(callback).Run(mojom::ESimOperationResult::kFailure);
+    return;
+  }
+
+  if (IsProfileManaged()) {
+    NET_LOG(ERROR) << "Cannot rename managed profile.";
+    std::move(callback).Run(mojom::ESimOperationResult::kFailure);
+    return;
+  }
+
   if (set_profile_nickname_callback_) {
     NET_LOG(ERROR) << "Set Profile Nickname already in progress.";
     std::move(callback).Run(mojom::ESimOperationResult::kFailure);
@@ -153,13 +188,24 @@ void ESimProfile::SetProfileNickname(const base::string16& nickname,
   }
 
   NET_LOG(USER) << "Setting profile nickname for path " << path().value();
-  set_profile_nickname_callback_ = std::move(callback);
+  set_profile_nickname_callback_ = base::BindOnce(
+      [](SetProfileNicknameCallback callback,
+         mojom::ESimOperationResult result) -> void {
+        base::UmaHistogramBoolean(
+            "Network.Cellular.ESim.ProfileRenameResult",
+            result == mojom::ESimOperationResult::kSuccess);
+        std::move(callback).Run(result);
+      },
+      std::move(callback));
+
   EnsureProfileExistsOnEuiccCallback perform_set_profile_nickname_callback =
       base::BindOnce(&ESimProfile::PerformSetProfileNickname,
                      weak_ptr_factory_.GetWeakPtr(), nickname);
-  esim_manager_->cellular_inhibitor()->InhibitCellularScanning(base::BindOnce(
-      &ESimProfile::EnsureProfileExistsOnEuicc, weak_ptr_factory_.GetWeakPtr(),
-      std::move(perform_set_profile_nickname_callback)));
+  esim_manager_->cellular_inhibitor()->InhibitCellularScanning(
+      CellularInhibitor::InhibitReason::kRenamingProfile,
+      base::BindOnce(&ESimProfile::EnsureProfileExistsOnEuicc,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     std::move(perform_set_profile_nickname_callback)));
 }
 
 void ESimProfile::UpdateProperties(
@@ -177,6 +223,7 @@ void ESimProfile::UpdateProperties(
   properties_->activation_code = esim_profile_state.activation_code();
   if (notify) {
     esim_manager_->NotifyESimProfileChanged(this);
+    esim_manager_->NotifyESimProfileListChanged(euicc_);
   }
 }
 
@@ -218,15 +265,15 @@ void ESimProfile::EnsureProfileExistsOnEuicc(
 
   if (!ProfileExistsOnEuicc()) {
     if (IsProfileInstalled()) {
-      HermesEuiccClient::Get()->RequestInstalledProfiles(
+      esim_manager_->cellular_esim_profile_handler()->RefreshProfileList(
           euicc_->path(),
-          base::BindOnce(&ESimProfile::OnRequestProfiles,
-                         weak_ptr_factory_.GetWeakPtr(), std::move(callback),
-                         std::move(inhibit_lock)));
+          base::BindOnce(&ESimProfile::OnRequestInstalledProfiles,
+                         weak_ptr_factory_.GetWeakPtr(), std::move(callback)),
+          std::move(inhibit_lock));
     } else {
       HermesEuiccClient::Get()->RequestPendingProfiles(
-          euicc_->path(), /*root_smds=*/std::string(),
-          base::BindOnce(&ESimProfile::OnRequestProfiles,
+          euicc_->path(), /*root_smds=*/ESimManager::GetRootSmdsAddress(),
+          base::BindOnce(&ESimProfile::OnRequestPendingProfiles,
                          weak_ptr_factory_.GetWeakPtr(), std::move(callback),
                          std::move(inhibit_lock)));
     }
@@ -237,14 +284,34 @@ void ESimProfile::EnsureProfileExistsOnEuicc(
                           std::move(inhibit_lock));
 }
 
-void ESimProfile::OnRequestProfiles(
+void ESimProfile::OnRequestInstalledProfiles(
+    EnsureProfileExistsOnEuiccCallback callback,
+    std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock) {
+  bool success = inhibit_lock != nullptr;
+  if (!success) {
+    NET_LOG(ERROR) << "Error requesting installed profiles to ensure profile "
+                   << "exists on Euicc";
+  }
+  OnRequestProfiles(std::move(callback), std::move(inhibit_lock), success);
+}
+
+void ESimProfile::OnRequestPendingProfiles(
     EnsureProfileExistsOnEuiccCallback callback,
     std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock,
     HermesResponseStatus status) {
-  if (status != HermesResponseStatus::kSuccess) {
-    NET_LOG(ERROR) << "Error requesting profiles to ensure profile exists on "
-                      "Euicc. status="
-                   << static_cast<int>(status);
+  bool success = status == HermesResponseStatus::kSuccess;
+  if (!success) {
+    NET_LOG(ERROR) << "Error requesting pending profiles to ensure profile "
+                   << "exists on Euicc; status: " << static_cast<int>(status);
+  }
+  OnRequestProfiles(std::move(callback), std::move(inhibit_lock), success);
+}
+
+void ESimProfile::OnRequestProfiles(
+    EnsureProfileExistsOnEuiccCallback callback,
+    std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock,
+    bool success) {
+  if (!success) {
     std::move(callback).Run(/*request_profile_success=*/false,
                             std::move(inhibit_lock));
     return;
@@ -270,6 +337,8 @@ void ESimProfile::PerformInstallProfile(
     bool request_profile_success,
     std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock) {
   if (!request_profile_success) {
+    properties_->state = mojom::ProfileState::kPending;
+    esim_manager_->NotifyESimProfileChanged(this);
     std::move(install_callback_).Run(mojom::ProfileInstallResult::kFailure);
     return;
   }
@@ -281,7 +350,7 @@ void ESimProfile::PerformInstallProfile(
 }
 
 void ESimProfile::PerformSetProfileNickname(
-    const base::string16& nickname,
+    const std::u16string& nickname,
     bool request_profile_success,
     std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock) {
   if (!request_profile_success) {
@@ -290,10 +359,8 @@ void ESimProfile::PerformSetProfileNickname(
     return;
   }
 
-  HermesProfileClient::Properties* properties =
-      HermesProfileClient::Get()->GetProperties(path_);
-  properties->nick_name().Set(
-      base::UTF16ToUTF8(nickname),
+  HermesProfileClient::Get()->RenameProfile(
+      path_, base::UTF16ToUTF8(nickname),
       base::BindOnce(&ESimProfile::OnProfileNicknameSet,
                      weak_ptr_factory_.GetWeakPtr(), std::move(inhibit_lock)));
 }
@@ -301,6 +368,8 @@ void ESimProfile::PerformSetProfileNickname(
 void ESimProfile::OnPendingProfileInstallResult(
     std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock,
     HermesResponseStatus status) {
+  hermes_metrics::LogInstallPendingProfileResult(status);
+
   if (status != HermesResponseStatus::kSuccess) {
     NET_LOG(ERROR) << "Error Installing pending profile status="
                    << static_cast<int>(status);
@@ -310,8 +379,47 @@ void ESimProfile::OnPendingProfileInstallResult(
     return;
   }
 
+  // inhibit_lock will be released by esim connection handler.
+  // Cellular device will uninhibit automatically at that point.
+  esim_manager_->cellular_connection_handler()
+      ->PrepareNewlyInstalledCellularNetworkForConnection(
+          euicc_->path(), path_, std::move(inhibit_lock),
+          base::BindOnce(&ESimProfile::OnNewProfileEnableSuccess,
+                         weak_ptr_factory_.GetWeakPtr()),
+          base::BindOnce(
+              &ESimProfile::OnPrepareCellularNetworkForConnectionFailure,
+              weak_ptr_factory_.GetWeakPtr()));
+}
+
+void ESimProfile::OnNewProfileEnableSuccess(const std::string& service_path) {
+  const NetworkState* network_state =
+      esim_manager_->network_state_handler()->GetNetworkState(service_path);
+  if (!network_state) {
+    OnPrepareCellularNetworkForConnectionFailure(
+        service_path, NetworkConnectionHandler::kErrorNotFound);
+    return;
+  }
+
+  if (!network_state->IsConnectingOrConnected()) {
+    // The connection could fail but the user will be notified of connection
+    // failures separately.
+    esim_manager_->network_connection_handler()->ConnectToNetwork(
+        service_path, /*success_callback=*/base::DoNothing(),
+        /*error_callback=*/base::DoNothing(),
+        /*check_error_state=*/false, ConnectCallbackMode::ON_STARTED);
+  }
+
+  DCHECK(install_callback_);
   std::move(install_callback_).Run(mojom::ProfileInstallResult::kSuccess);
-  // inhibit_lock goes out of scope and will uninhibit automatically.
+}
+
+void ESimProfile::OnPrepareCellularNetworkForConnectionFailure(
+    const std::string& service_path,
+    const std::string& error_name) {
+  NET_LOG(ERROR) << "Error preparing network for connection. "
+                 << "Error: " << error_name
+                 << ", Service path: " << service_path;
+  std::move(install_callback_).Run(mojom::ProfileInstallResult::kFailure);
 }
 
 void ESimProfile::OnProfileUninstallResult(bool success) {
@@ -320,24 +428,16 @@ void ESimProfile::OnProfileUninstallResult(bool success) {
                    : mojom::ESimOperationResult::kFailure);
 }
 
-void ESimProfile::OnESimOperationResult(ESimOperationResultCallback callback,
-                                        HermesResponseStatus status) {
-  if (status != HermesResponseStatus::kSuccess) {
-    NET_LOG(ERROR) << "ESim operation error status="
-                   << static_cast<int>(status);
-  }
-  std::move(callback).Run(OperationResultFromStatus(status));
-}
-
 void ESimProfile::OnProfileNicknameSet(
     std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock,
-    bool success) {
-  if (!success) {
-    NET_LOG(ERROR) << "ESimProfile property set error.";
+    HermesResponseStatus status) {
+  if (status != HermesResponseStatus::kSuccess) {
+    NET_LOG(ERROR) << "ESimProfile rename error.";
   }
   std::move(set_profile_nickname_callback_)
-      .Run(success ? mojom::ESimOperationResult::kSuccess
-                   : mojom::ESimOperationResult::kFailure);
+      .Run(status == HermesResponseStatus::kSuccess
+               ? mojom::ESimOperationResult::kSuccess
+               : mojom::ESimOperationResult::kFailure);
   // inhibit_lock goes out of scope and will uninhibit automatically.
 }
 
@@ -356,6 +456,18 @@ bool ESimProfile::ProfileExistsOnEuicc() {
 bool ESimProfile::IsProfileInstalled() {
   return properties_->state != mojom::ProfileState::kPending &&
          properties_->state != mojom::ProfileState::kInstalling;
+}
+
+bool ESimProfile::IsProfileManaged() {
+  NetworkStateHandler::NetworkStateList networks;
+  esim_manager_->network_state_handler()->GetNetworkListByType(
+      NetworkTypePattern::Cellular(),
+      /*configure_only=*/false, /*visible=*/false, /*limit=*/0, &networks);
+  for (const NetworkState* network : networks) {
+    if (network->iccid() == properties_->iccid)
+      return network->IsManagedByPolicy();
+  }
+  return false;
 }
 
 }  // namespace cellular_setup

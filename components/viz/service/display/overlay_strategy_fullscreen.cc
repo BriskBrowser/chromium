@@ -22,7 +22,7 @@ OverlayStrategyFullscreen::OverlayStrategyFullscreen(
 OverlayStrategyFullscreen::~OverlayStrategyFullscreen() {}
 
 bool OverlayStrategyFullscreen::Attempt(
-    const SkMatrix44& output_color_matrix,
+    const skia::Matrix44& output_color_matrix,
     const OverlayProcessorInterface::FilterOperationsMap&
         render_pass_backdrop_filters,
     DisplayResourceProvider* resource_provider,
@@ -51,9 +51,9 @@ bool OverlayStrategyFullscreen::Attempt(
     return false;
 
   OverlayCandidate candidate;
-  if (!OverlayCandidate::FromDrawQuad(resource_provider,
-                                      surface_damage_rect_list,
-                                      output_color_matrix, quad, &candidate)) {
+  if (!OverlayCandidate::FromDrawQuad(
+          resource_provider, surface_damage_rect_list, output_color_matrix,
+          quad, GetPrimaryPlaneDisplayRect(primary_plane), &candidate)) {
     return false;
   }
 
@@ -77,7 +77,7 @@ bool OverlayStrategyFullscreen::Attempt(
 }
 
 void OverlayStrategyFullscreen::ProposePrioritized(
-    const SkMatrix44& output_color_matrix,
+    const skia::Matrix44& output_color_matrix,
     const OverlayProcessorInterface::FilterOperationsMap&
         render_pass_backdrop_filters,
     DisplayResourceProvider* resource_provider,
@@ -105,9 +105,9 @@ void OverlayStrategyFullscreen::ProposePrioritized(
     return;
 
   OverlayCandidate candidate;
-  if (!OverlayCandidate::FromDrawQuad(resource_provider,
-                                      surface_damage_rect_list,
-                                      output_color_matrix, quad, &candidate)) {
+  if (!OverlayCandidate::FromDrawQuad(
+          resource_provider, surface_damage_rect_list, output_color_matrix,
+          quad, GetPrimaryPlaneDisplayRect(primary_plane), &candidate)) {
     return;
   }
 
@@ -122,7 +122,7 @@ void OverlayStrategyFullscreen::ProposePrioritized(
 }
 
 bool OverlayStrategyFullscreen::AttemptPrioritized(
-    const SkMatrix44& output_color_matrix,
+    const skia::Matrix44& output_color_matrix,
     const OverlayProcessorInterface::FilterOperationsMap&
         render_pass_backdrop_filters,
     DisplayResourceProvider* resource_provider,

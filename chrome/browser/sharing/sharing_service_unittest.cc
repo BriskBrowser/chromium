@@ -9,7 +9,6 @@
 
 #include "base/guid.h"
 #include "base/memory/ptr_util.h"
-#include "base/optional.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/sharing/fake_device_info.h"
@@ -38,6 +37,7 @@
 #include "crypto/ec_private_key.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace {
 
@@ -47,15 +47,16 @@ const char kVapidFcmToken[] = "vapid_fcm_token";
 const char kSharingFcmToken[] = "sharing_fcm_token";
 const char kDeviceName[] = "other_name";
 const char kAuthorizedEntity[] = "authorized_entity";
-constexpr base::TimeDelta kTimeout = base::TimeDelta::FromSeconds(15);
+constexpr base::TimeDelta kTimeout = base::Seconds(15);
 
 class MockInstanceIDDriver : public instance_id::InstanceIDDriver {
  public:
   MockInstanceIDDriver() : InstanceIDDriver(/*gcm_driver=*/nullptr) {}
-  ~MockInstanceIDDriver() override = default;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockInstanceIDDriver);
+  MockInstanceIDDriver(const MockInstanceIDDriver&) = delete;
+  MockInstanceIDDriver& operator=(const MockInstanceIDDriver&) = delete;
+
+  ~MockInstanceIDDriver() override = default;
 };
 
 class MockSharingHandlerRegistry : public SharingHandlerRegistry {
@@ -161,11 +162,11 @@ class SharingServiceTest : public testing::Test {
   void OnMessageSent(
       SharingSendMessageResult result,
       std::unique_ptr<chrome_browser_sharing::ResponseMessage> response) {
-    send_message_result_ = base::make_optional(result);
+    send_message_result_ = absl::make_optional(result);
     send_message_response_ = std::move(response);
   }
 
-  const base::Optional<SharingSendMessageResult>& send_message_result() {
+  const absl::optional<SharingSendMessageResult>& send_message_result() {
     return send_message_result_;
   }
 
@@ -220,8 +221,8 @@ class SharingServiceTest : public testing::Test {
   bool device_candidates_initialized_ = false;
 
  private:
-  std::unique_ptr<SharingService> sharing_service_ = nullptr;
-  base::Optional<SharingSendMessageResult> send_message_result_;
+  std::unique_ptr<SharingService> sharing_service_;
+  absl::optional<SharingSendMessageResult> send_message_result_;
   std::unique_ptr<chrome_browser_sharing::ResponseMessage>
       send_message_response_;
 };
@@ -283,6 +284,7 @@ TEST_F(SharingServiceTest, SendMessageToDeviceSuccess) {
     response_message->CopyFrom(expected_response_message);
     std::move(callback).Run(SharingSendMessageResult::kSuccessful,
                             std::move(response_message));
+    return base::DoNothing();
   };
 
   ON_CALL(*sharing_message_sender_,
@@ -401,7 +403,7 @@ TEST_F(SharingServiceTest, DeviceRegistrationTransientError) {
       SharingDeviceRegistrationResult::kSuccess);
   EXPECT_CALL(*fcm_handler_, StartListening()).Times(1);
   task_environment_.FastForwardBy(
-      base::TimeDelta::FromMilliseconds(kRetryBackoffPolicy.initial_delay_ms));
+      base::Milliseconds(kRetryBackoffPolicy.initial_delay_ms));
   EXPECT_EQ(2, sharing_device_registration_->registration_attempts());
   EXPECT_EQ(SharingService::State::ACTIVE,
             GetSharingService()->GetStateForTesting());

@@ -8,11 +8,12 @@
 #include <list>
 
 #include "base/observer_list.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_delegate.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/layout/animating_layout_manager.h"
 #include "ui/views/layout/flex_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 // A general view container for any type of toolbar icons.
@@ -35,7 +36,7 @@ class ToolbarIconContainerView : public views::View,
   virtual void UpdateAllIcons() = 0;
 
   // Adds the RHS child as well as setting its margins.
-  void AddMainButton(views::Button* main_button);
+  void AddMainItem(views::View* item);
 
   // Begins observing |button| for changes that should affect the container's
   // highlight state.
@@ -44,10 +45,15 @@ class ToolbarIconContainerView : public views::View,
   void AddObserver(Observer* obs);
   void RemoveObserver(const Observer* obs);
 
+  views::View* main_item() { return main_item_; }
+
   void SetIconColor(SkColor icon_color);
   SkColor GetIconColor() const;
 
   bool GetHighlighted() const;
+
+  // views::View:
+  void OnThemeChanged() override;
 
   // views::ViewObserver:
   void OnViewFocused(views::View* observed_view) override;
@@ -102,13 +108,16 @@ class ToolbarIconContainerView : public views::View,
   // Determine whether the container shows its highlight border.
   const bool uses_highlight_;
 
+  // Hacky; see comments in UpdateHighlight().
+  bool ever_painted_highlight_ = false;
+
   // The main view is nominally always present and is last child in the view
   // hierarchy.
-  views::Button* main_button_ = nullptr;
+  views::View* main_item_ = nullptr;
 
   // Override for the icon color. If not set, |COLOR_TOOLBAR_BUTTON_ICON| is
   // used.
-  base::Optional<SkColor> icon_color_;
+  absl::optional<SkColor> icon_color_;
 
   // Points to the child buttons that we know are currently highlighted.
   // TODO(pbos): Consider observing buttons leaving our hierarchy and removing

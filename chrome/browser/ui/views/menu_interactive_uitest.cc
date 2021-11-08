@@ -6,6 +6,7 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -49,6 +50,9 @@ class MenuControllerUITest : public InProcessBrowserTest {
  public:
   MenuControllerUITest() {}
 
+  MenuControllerUITest(const MenuControllerUITest&) = delete;
+  MenuControllerUITest& operator=(const MenuControllerUITest&) = delete;
+
   // This method creates a MenuRunner, MenuItemView, etc, adds two menu
   // items, shows the menu so that it can calculate the position of the first
   // menu item and move the mouse there, and closes the menu.
@@ -57,8 +61,8 @@ class MenuControllerUITest : public InProcessBrowserTest {
     MenuItemView* menu_item = new MenuItemView(menu_delegate_.get());
     menu_runner_ = std::make_unique<MenuRunner>(
         +menu_item, views::MenuRunner::CONTEXT_MENU);
-    first_item_ = menu_item->AppendMenuItem(1, base::ASCIIToUTF16("One"));
-    menu_item->AppendMenuItem(2, base::ASCIIToUTF16("Two"));
+    first_item_ = menu_item->AppendMenuItem(1, u"One");
+    menu_item->AppendMenuItem(2, u"Two");
     // Run the menu, so that the menu item size will be calculated.
     menu_runner_->RunMenuAt(widget, nullptr, gfx::Rect(),
                             views::MenuAnchorPosition::kTopLeft,
@@ -101,14 +105,11 @@ class MenuControllerUITest : public InProcessBrowserTest {
   std::unique_ptr<MenuDelegate> menu_delegate_;
   // Middle of first menu item.
   gfx::Point mouse_pos_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MenuControllerUITest);
 };
 
 IN_PROC_BROWSER_TEST_F(MenuControllerUITest, TestMouseOverShownMenu) {
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  ui::AXPlatformNode::NotifyAddAXModeFlags(ui::kAXModeComplete);
+  ui::testing::ScopedAxModeSetter ax_mode_setter(ui::kAXModeComplete);
 #endif
 
   // Create a parent widget.
@@ -198,12 +199,19 @@ IN_PROC_BROWSER_TEST_F(MenuControllerUITest, TestMouseOverShownMenu) {
 // TODO(davidbienvenu): If possible, get test working for linux and
 // mac. Only status_icon_win runs a menu with a null parent widget
 // currently.
-#ifdef OS_WIN
+#if defined(OS_WIN)
 IN_PROC_BROWSER_TEST_F(MenuControllerUITest, FocusOnOrphanMenu) {
+  // This test is extremely flaky on WIN10_20H2, so disable.
+  // TODO(crbug.com/1225346) Investigate why it's so flaky on that version of
+  // Windows.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN10_20H2) {
+    GTEST_SKIP() << "Skipping test for WIN10_20H2 and greater";
+  }
   // Going into full screen mode prevents pre-test focus and mouse position
   // state from affecting test, and helps ui_controls function correctly.
   chrome::ToggleFullscreenMode(browser());
-  ui::AXPlatformNode::NotifyAddAXModeFlags(ui::kAXModeComplete);
+  ui::testing::ScopedAxModeSetter ax_mode_setter(ui::kAXModeComplete);
   MenuDelegate menu_delegate;
   MenuItemView* menu_item = new MenuItemView(&menu_delegate);
   AXEventCounter ax_counter(views::AXEventManager::Get());
@@ -213,9 +221,8 @@ IN_PROC_BROWSER_TEST_F(MenuControllerUITest, FocusOnOrphanMenu) {
   EXPECT_EQ(ax_counter.GetCount(ax::mojom::Event::kMenuEnd), 0);
   std::unique_ptr<MenuRunner> menu_runner(
       std::make_unique<MenuRunner>(menu_item, views::MenuRunner::CONTEXT_MENU));
-  MenuItemView* first_item =
-      menu_item->AppendMenuItem(1, base::ASCIIToUTF16("One"));
-  menu_item->AppendMenuItem(2, base::ASCIIToUTF16("Two"));
+  MenuItemView* first_item = menu_item->AppendMenuItem(1, u"One");
+  menu_item->AppendMenuItem(2, u"Two");
   menu_runner->RunMenuAt(nullptr, nullptr, gfx::Rect(),
                          views::MenuAnchorPosition::kTopLeft,
                          ui::MENU_SOURCE_NONE);
@@ -238,7 +245,7 @@ IN_PROC_BROWSER_TEST_F(MenuControllerUITest, FocusOnOrphanMenu) {
   EXPECT_EQ(ax_counter.GetCount(ax::mojom::Event::kMenuPopupEnd), 1);
   EXPECT_EQ(ax_counter.GetCount(ax::mojom::Event::kMenuEnd), 1);
 }
-#endif  // OS_WIN
+#endif  // defined(OS_WIN)
 
 }  // namespace test
 }  // namespace views

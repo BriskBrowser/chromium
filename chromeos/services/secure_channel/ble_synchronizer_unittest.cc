@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
@@ -119,6 +118,10 @@ class FakeBluetoothAdvertisement : public device::BluetoothAdvertisement {
           device::BluetoothAdvertisement::ErrorCallback)>& unregister_callback)
       : unregister_callback_(unregister_callback) {}
 
+  FakeBluetoothAdvertisement(const FakeBluetoothAdvertisement&) = delete;
+  FakeBluetoothAdvertisement& operator=(const FakeBluetoothAdvertisement&) =
+      delete;
+
   // BluetoothAdvertisement:
   void Unregister(
       device::BluetoothAdvertisement::SuccessCallback success_callback,
@@ -133,8 +136,6 @@ class FakeBluetoothAdvertisement : public device::BluetoothAdvertisement {
   base::RepeatingCallback<void(device::BluetoothAdvertisement::SuccessCallback,
                                device::BluetoothAdvertisement::ErrorCallback)>
       unregister_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeBluetoothAdvertisement);
 };
 
 // Creates a UUIDList with one element of value |id|.
@@ -156,6 +157,12 @@ std::unique_ptr<device::BluetoothAdvertisement::Data> GenerateAdvertisementData(
 }  // namespace
 
 class SecureChannelBleSynchronizerTest : public testing::Test {
+ public:
+  SecureChannelBleSynchronizerTest(const SecureChannelBleSynchronizerTest&) =
+      delete;
+  SecureChannelBleSynchronizerTest& operator=(
+      const SecureChannelBleSynchronizerTest&) = delete;
+
  protected:
   SecureChannelBleSynchronizerTest()
       : fake_advertisement_(base::MakeRefCounted<FakeBluetoothAdvertisement>(
@@ -201,7 +208,7 @@ class SecureChannelBleSynchronizerTest : public testing::Test {
   }
 
   base::TimeDelta TimeDeltaMillis(int64_t num_millis) {
-    return base::TimeDelta::FromMilliseconds(num_millis);
+    return base::Milliseconds(num_millis);
   }
 
   void OnAdapterRegisterAdvertisement(RegisterAdvertisementArgs* args) {
@@ -213,15 +220,14 @@ class SecureChannelBleSynchronizerTest : public testing::Test {
       device::BluetoothAdapter::DiscoverySessionResultCallback& callback) {
     EXPECT_EQ(device::BluetoothTransport::BLUETOOTH_TRANSPORT_LE,
               discovery_filter->GetTransport());
-    auto copyable_callback =
-        base::AdaptCallbackForRepeating(std::move(callback));
+    auto split_callback = base::SplitOnceCallback(std::move(callback));
     start_discovery_args_list_.emplace_back(
         base::WrapUnique(new StartDiscoverySessionArgs(
-            base::BindRepeating(
-                copyable_callback, /*is_error=*/false,
+            base::BindOnce(
+                std::move(split_callback.first), /*is_error=*/false,
                 device::UMABluetoothDiscoverySessionOutcome::SUCCESS),
-            base::BindRepeating(
-                copyable_callback, /*is_error=*/true,
+            base::BindOnce(
+                std::move(split_callback.second), /*is_error=*/true,
                 device::UMABluetoothDiscoverySessionOutcome::UNKNOWN))));
   }
 
@@ -420,15 +426,14 @@ class SecureChannelBleSynchronizerTest : public testing::Test {
 
   void OnStopScan(
       device::BluetoothAdapter::DiscoverySessionResultCallback callback) {
-    auto repeating_callback =
-        base::AdaptCallbackForRepeating(std::move(callback));
+    auto split_callback = base::SplitOnceCallback(std::move(callback));
     stop_discovery_args_list_.emplace_back(
         base::WrapUnique(new StopDiscoverySessionArgs(
-            base::BindRepeating(
-                repeating_callback, /*is_error=*/false,
+            base::BindOnce(
+                std::move(split_callback.first), /*is_error=*/false,
                 device::UMABluetoothDiscoverySessionOutcome::SUCCESS),
-            base::BindRepeating(
-                repeating_callback,
+            base::BindOnce(
+                std::move(split_callback.second),
                 /*is_error=*/true,
                 device::UMABluetoothDiscoverySessionOutcome::UNKNOWN))));
   }
@@ -468,9 +473,6 @@ class SecureChannelBleSynchronizerTest : public testing::Test {
   std::unique_ptr<BleSynchronizerBase> synchronizer_;
 
   base::HistogramTester histogram_tester_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SecureChannelBleSynchronizerTest);
 };
 
 TEST_F(SecureChannelBleSynchronizerTest, TestRegisterSuccess) {

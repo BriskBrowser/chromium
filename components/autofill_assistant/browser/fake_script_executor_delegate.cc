@@ -37,10 +37,6 @@ WebController* FakeScriptExecutorDelegate::GetWebController() {
   return web_controller_;
 }
 
-ElementStore* FakeScriptExecutorDelegate::GetElementStore() const {
-  return element_store_;
-}
-
 TriggerContext* FakeScriptExecutorDelegate::GetTriggerContext() {
   return trigger_context_.get();
 }
@@ -62,8 +58,8 @@ std::string FakeScriptExecutorDelegate::GetEmailAddressForAccessTokenAccount() {
   return std::string();
 }
 
-std::string FakeScriptExecutorDelegate::GetLocale() {
-  return "en-US";
+ukm::UkmRecorder* FakeScriptExecutorDelegate::GetUkmRecorder() {
+  return nullptr;
 }
 
 bool FakeScriptExecutorDelegate::EnterState(AutofillAssistantState state) {
@@ -93,6 +89,20 @@ std::string FakeScriptExecutorDelegate::GetBubbleMessage() const {
   return bubble_message_;
 }
 
+void FakeScriptExecutorDelegate::SetTtsMessage(const std::string& message) {
+  tts_message_ = message;
+}
+
+std::string FakeScriptExecutorDelegate::GetTtsMessage() const {
+  return tts_message_;
+}
+
+TtsButtonState FakeScriptExecutorDelegate::GetTtsButtonState() const {
+  return TtsButtonState::DEFAULT;
+}
+
+void FakeScriptExecutorDelegate::MaybePlayTtsMessage() {}
+
 void FakeScriptExecutorDelegate::SetDetails(std::unique_ptr<Details> details,
                                             base::TimeDelta delay) {
   // We ignore |delay|.
@@ -118,8 +128,6 @@ void FakeScriptExecutorDelegate::SetInfoBox(const InfoBox& info_box) {
 void FakeScriptExecutorDelegate::ClearInfoBox() {
   info_box_ = nullptr;
 }
-
-void FakeScriptExecutorDelegate::SetProgress(int progress) {}
 
 bool FakeScriptExecutorDelegate::SetProgressActiveStepIdentifier(
     const std::string& active_step_identifier) {
@@ -207,6 +215,10 @@ void FakeScriptExecutorDelegate::RequireUI() {
   require_ui_ = true;
 }
 
+ProcessedActionStatusDetailsProto& FakeScriptExecutorDelegate::GetLogInfo() {
+  return log_info_;
+}
+
 void FakeScriptExecutorDelegate::AddNavigationListener(
     ScriptExecutorDelegate::NavigationListener* listener) {
   navigation_listeners_.insert(listener);
@@ -236,6 +248,11 @@ void FakeScriptExecutorDelegate::SetBrowseDomainsAllowlist(
   browse_domains_ = std::move(domains);
 }
 
+void FakeScriptExecutorDelegate::SetClientSettings(
+    const ClientSettingsProto& client_settings) {
+  client_settings_.UpdateFromProto(client_settings);
+}
+
 bool FakeScriptExecutorDelegate::SetForm(
     std::unique_ptr<FormProto> form,
     base::RepeatingCallback<void(const FormProto::Result*)> changed_callback,
@@ -257,7 +274,18 @@ void FakeScriptExecutorDelegate::SetGenericUi(
     base::OnceCallback<void(const ClientStatus&)>
         view_inflation_finished_callback) {}
 
+void FakeScriptExecutorDelegate::SetPersistentGenericUi(
+    std::unique_ptr<GenericUserInterfaceProto> generic_ui,
+    base::OnceCallback<void(const ClientStatus&)>
+        view_inflation_finished_callback) {
+  persistent_generic_ui_ = std::move(generic_ui);
+}
+
 void FakeScriptExecutorDelegate::ClearGenericUi() {}
+
+void FakeScriptExecutorDelegate::ClearPersistentGenericUi() {
+  persistent_generic_ui_.reset();
+}
 
 void FakeScriptExecutorDelegate::SetOverlayBehavior(
     ConfigureUiStateProto::OverlayBehavior overaly_behavior) {}

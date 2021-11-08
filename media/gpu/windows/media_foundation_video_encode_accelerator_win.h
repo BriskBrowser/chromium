@@ -16,9 +16,11 @@
 #include "base/bind.h"
 #include "base/containers/circular_deque.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
-#include "media/base/win/mf_initializer.h"
+#include "media/base/bitrate.h"
+#include "media/base/video_codecs.h"
+#include "media/base/win/dxgi_device_manager.h"
 #include "media/gpu/media_gpu_export.h"
 #include "media/video/video_encode_accelerator.h"
 
@@ -37,17 +39,24 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // If |compatible_with_win7| is true, MediaFoundationVideoEncoderAccelerator
   // works on Windows 7. Some attributes of the encoder are not supported on old
   // systems, which may impact the performance or quality of the output.
-  explicit MediaFoundationVideoEncodeAccelerator(bool compatible_with_win7,
-                                                 bool enable_async_mft);
+  explicit MediaFoundationVideoEncodeAccelerator(bool compatible_with_win7);
+
+  MediaFoundationVideoEncodeAccelerator(
+      const MediaFoundationVideoEncodeAccelerator&) = delete;
+  MediaFoundationVideoEncodeAccelerator& operator=(
+      const MediaFoundationVideoEncodeAccelerator&) = delete;
 
   // VideoEncodeAccelerator implementation.
   VideoEncodeAccelerator::SupportedProfiles GetSupportedProfiles() override;
+  VideoEncodeAccelerator::SupportedProfiles GetSupportedProfilesLight()
+      override;
   bool Initialize(const Config& config, Client* client) override;
   void Encode(scoped_refptr<VideoFrame> frame, bool force_keyframe) override;
   void UseOutputBitstreamBuffer(BitstreamBuffer buffer) override;
-  void RequestEncodingParametersChange(uint32_t bitrate,
+  void RequestEncodingParametersChange(const media::Bitrate& bitrate,
                                        uint32_t framerate) override;
   void Destroy() override;
+  bool IsGpuFrameResizeSupported() override;
 
   // Preloads dlls required for encoding. Returns true if all required dlls are
   // correctly loaded.
@@ -63,8 +72,15 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // Holds output buffers coming from the encoder.
   class EncodeOutput;
 
-  // Enumerates all hardware encoder backed IMFTransform instances.
-  uint32_t EnumerateHardwareEncoders(IMFActivate*** pp_activate);
+  // Get supported profiles for specific codec.
+  VideoEncodeAccelerator::SupportedProfiles GetSupportedProfilesForCodec(
+      VideoCodec codec,
+      bool populate_svc_info);
+
+  // Enumerates all hardware encoder backed IMFTransform instances for given
+  // codec.
+  uint32_t EnumerateHardwareEncoders(VideoCodec codec,
+                                     IMFActivate*** pp_activate);
 
   // Activates the asynchronous encoder instance |encoder_| according to codec
   // merit.
@@ -81,17 +97,24 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // |main_client_task_runner_|.
   void NotifyError(VideoEncodeAccelerator::Error error);
 
-  // Encoding tasks to be run on |encoder_thread_|.
+  // Encoding task to be run on |encoder_thread_|.
   void EncodeTask(scoped_refptr<VideoFrame> frame, bool force_keyframe);
-  void AsyncEncodeTask(scoped_refptr<VideoFrame> frame, bool force_keyframe);
-  void SyncEncodeTask(scoped_refptr<VideoFrame> frame, bool force_keyframe);
 
   // Processes the input video frame for the encoder.
   HRESULT ProcessInput(scoped_refptr<VideoFrame> frame, bool force_keyframe);
 
+  // Populates input sample buffer with contents of a video frame
+  HRESULT PopulateInputSampleBuffer(scoped_refptr<VideoFrame> frame);
+  HRESULT PopulateInputSampleBufferGpu(scoped_refptr<VideoFrame> frame);
+
+  int AssignTemporalId(bool keyframe);
+  bool temporalScalableCoding() { return num_temporal_layers_ > 1; }
+
   // Checks for and copies encoded output on |encoder_thread_|.
-  void ProcessOutputAsync();
-  void ProcessOutputSync();
+  void ProcessOutput();
+
+  // Drains pending output samples on |encoder_thread_|.
+  void DrainPendingOutputs();
 
   // Tries to deliver the input frame to the encoder.
   bool TryToDeliverInputFrame(scoped_refptr<VideoFrame> frame,
@@ -105,7 +128,7 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
       std::unique_ptr<BitstreamBufferRef> buffer_ref);
 
   // Changes encode parameters on |encoder_thread_|.
-  void RequestEncodingParametersChangeTask(uint32_t bitrate,
+  void RequestEncodingParametersChangeTask(const Bitrate& bitrate,
                                            uint32_t framerate);
 
   // Destroys encode session on |encoder_thread_|.
@@ -114,13 +137,13 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // Releases resources encoder holds.
   void ReleaseEncoderResources();
 
+  // Initialize video processing (for scaling)
+  HRESULT InitializeD3DVideoProcessing(ID3D11Texture2D* input_texture);
+
+  // Perform D3D11 scaling operation
+  HRESULT PerformD3DScaling(ID3D11Texture2D* input_texture);
+
   const bool compatible_with_win7_;
-
-  // Flag to enable the usage of MFTEnumEx.
-  const bool enable_async_mft_;
-
-  // Whether asynchronous hardware encoder enabled or not.
-  bool is_async_mft_;
 
   // Bitstream buffers ready to be used to return encoded output as a FIFO.
   base::circular_deque<std::unique_ptr<BitstreamBufferRef>>
@@ -129,10 +152,23 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // EncodeOutput needs to be copied into a BitstreamBufferRef as a FIFO.
   base::circular_deque<std::unique_ptr<EncodeOutput>> encoder_output_queue_;
 
+  // Counter of outputs which is used to assign temporal layer indexes
+  // according to the corresponding layer pattern. Reset for every key frame.
+  uint32_t outputs_since_keyframe_count_ = 0;
+
   gfx::Size input_visible_size_;
   size_t bitstream_buffer_size_;
   uint32_t frame_rate_;
-  uint32_t target_bitrate_;
+  Bitrate bitrate_;
+  bool low_latency_mode_;
+  int num_temporal_layers_ = 1;
+
+  // Codec type used for encoding.
+  VideoCodec codec_ = VideoCodec::kUnknown;
+
+  // Group of picture length for encoded output stream, indicates the
+  // distance between two key frames.
+  absl::optional<uint32_t> gop_length_;
 
   Microsoft::WRL::ComPtr<IMFActivate> activate_;
   Microsoft::WRL::ComPtr<IMFTransform> encoder_;
@@ -148,9 +184,14 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   bool input_required_;
   Microsoft::WRL::ComPtr<IMFSample> input_sample_;
   Microsoft::WRL::ComPtr<IMFSample> output_sample_;
-
-  // MediaFoundation session.
-  MFSessionLifetime session_;
+  Microsoft::WRL::ComPtr<ID3D11VideoProcessor> video_processor_;
+  Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator>
+      video_processor_enumerator_;
+  Microsoft::WRL::ComPtr<ID3D11VideoDevice> video_device_;
+  Microsoft::WRL::ComPtr<ID3D11VideoContext> video_context_;
+  D3D11_VIDEO_PROCESSOR_CONTENT_DESC vp_desc_ = {};
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> scaled_d3d11_texture_;
+  Microsoft::WRL::ComPtr<ID3D11VideoProcessorOutputView> vp_output_view_;
 
   // To expose client callbacks from VideoEncodeAccelerator.
   // NOTE: all calls to this object *MUST* be executed on
@@ -164,12 +205,13 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   base::Thread encoder_thread_;
   scoped_refptr<base::SingleThreadTaskRunner> encoder_thread_task_runner_;
 
+  // DXGI device manager for handling hardware input textures
+  scoped_refptr<DXGIDeviceManager> dxgi_device_manager_;
+
   // Declared last to ensure that all weak pointers are invalidated before
   // other destructors run.
   base::WeakPtrFactory<MediaFoundationVideoEncodeAccelerator>
       encoder_task_weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MediaFoundationVideoEncodeAccelerator);
 };
 
 }  // namespace media

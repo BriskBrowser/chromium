@@ -13,7 +13,6 @@
 #include "base/containers/span.h"
 #include "base/files/file.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
@@ -23,6 +22,7 @@
 #include "media/base/video_frame_layout.h"
 #include "media/base/video_types.h"
 #include "media/filters/ivf_parser.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -124,13 +124,12 @@ class EncodedDataHelper {
   size_t num_skipped_fragments() { return num_skipped_fragments_; }
 
  private:
-
-  // For h.264.
+  // For h.264/HEVC.
   scoped_refptr<DecoderBuffer> GetNextFragment();
   // For VP8/9.
   scoped_refptr<DecoderBuffer> GetNextFrame();
-  base::Optional<IvfFrameHeader> GetNextIvfFrameHeader() const;
-  base::Optional<IvfFrame> ReadNextIvfFrame();
+  absl::optional<IvfFrameHeader> GetNextIvfFrameHeader() const;
+  absl::optional<IvfFrame> ReadNextIvfFrame();
 
   // Helpers for GetBytesForNextFragment above.
   size_t GetBytesForNextNALU(size_t pos);
@@ -160,11 +159,24 @@ constexpr size_t kPlatformBufferAlignment = 8;
 // VideoFrames are aligned by the specified |alignment| in the case of
 // MojoSharedBuffer VideoFrame. On the other hand, GpuMemoryBuffer based
 // VideoFrame is determined by the GpuMemoryBuffer allocation backend.
+// GetNextFrame() returns valid frame if AtEndOfStream() returns false, i.e.,
+// until GetNextFrame() is called |num_read_frames| times.
+// |num_frames| is the number of frames contained in |stream|. |num_read_frames|
+// can be larger than |num_frames|.
+// If |reverse| is true , GetNextFrame() for a frame returns frames in a
+// round-trip playback fashion (0, 1,.., |num_frames| - 2, |num_frames| - 1,
+// |num_frames| - 1, |num_frames_| - 2,.., 1, 0, 0, 1,..) so that the content of
+// returned frames is consecutive.
+// If |reverse| is false, GetNextFrame() just loops the stream (0, 1,..,
+// |num_frames| - 2, |num_frames| - 1, 0, 1,..), so the content of returned
+// frames is not consecutive.
 class AlignedDataHelper {
  public:
   AlignedDataHelper(
       const std::vector<uint8_t>& stream,
       uint32_t num_frames,
+      uint32_t num_read_frames,
+      bool reverse,
       VideoPixelFormat pixel_format,
       const gfx::Size& src_coded_size,
       const gfx::Size& dst_coded_size,
@@ -210,16 +222,21 @@ class AlignedDataHelper {
                                        const gfx::Size& src_coded_size,
                                        const gfx::Size& dst_coded_size);
 
+  // The number of frames in the given |stream|.
+  const uint32_t num_frames_;
+  // The number of frames to be read. It may be more than |num_frames_|.
+  const uint32_t num_read_frames_;
+
+  const bool reverse_;
+
   // The index of VideoFrame to be read next.
   uint32_t frame_index_ = 0;
-  // The number of frames in the video stream.
-  const uint32_t num_frames_;
 
   const VideoFrame::StorageType storage_type_;
   gpu::GpuMemoryBufferFactory* const gpu_memory_buffer_factory_;
 
   // The layout of VideoFrames returned by GetNextFrame().
-  base::Optional<VideoFrameLayout> layout_;
+  absl::optional<VideoFrameLayout> layout_;
   const gfx::Rect visible_rect_;
   const gfx::Size natural_size_;
 
@@ -234,9 +251,14 @@ class AlignedDataHelper {
 // However, the data wrapped by VideoFrame is not guaranteed to be aligned.
 // This class doesn't change |video|, but cannot be mark it as constant because
 // GetFrame() returns non const |data_| wrapped by the returned VideoFrame.
+// If |reverse| is true , GetNextFrame() for a frame returns frames in a
+// round-trip playback fashion (0, 1,.., |num_frames| - 2, |num_frames| - 1,
+// |num_frames| - 1, |num_frames_| - 2,.., 1, 0, 0, 1,..).
+// If |reverse| is false, GetNextFrame() just loops the stream (0, 1,..,
+// |num_frames| - 2, |num_frames| - 1, 0, 1,..).
 class RawDataHelper {
  public:
-  static std::unique_ptr<RawDataHelper> Create(Video* video);
+  static std::unique_ptr<RawDataHelper> Create(Video* video, bool reverse);
   ~RawDataHelper();
 
   // Returns i-th VideoFrame in |video|. The returned frame doesn't own the
@@ -245,16 +267,19 @@ class RawDataHelper {
 
  private:
   RawDataHelper(Video* video,
+                bool reverse_,
                 size_t frame_size,
                 const VideoFrameLayout& layout);
   // |video| and its associated data must outlive this class and VideoFrames
   // returned by GetFrame().
   Video* const video_;
 
+  const bool reverse_;
+
   // The size of one video frame.
   const size_t frame_size_;
   // The layout of VideoFrames returned by GetFrame().
-  const base::Optional<VideoFrameLayout> layout_;
+  const absl::optional<VideoFrameLayout> layout_;
 };
 }  // namespace test
 }  // namespace media

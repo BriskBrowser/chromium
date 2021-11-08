@@ -22,22 +22,26 @@ namespace javascript_dialogs {
 // are browser tabs.
 class TabModalDialogViewAndroid : public TabModalDialogView {
  public:
+  TabModalDialogViewAndroid(const TabModalDialogViewAndroid&) = delete;
+  TabModalDialogViewAndroid& operator=(const TabModalDialogViewAndroid&) =
+      delete;
+
   ~TabModalDialogViewAndroid() override;
 
   static base::WeakPtr<TabModalDialogViewAndroid> Create(
       content::WebContents* parent_web_contents,
       content::WebContents* alerting_web_contents,
-      const base::string16& title,
+      const std::u16string& title,
       content::JavaScriptDialogType dialog_type,
-      const base::string16& message_text,
-      const base::string16& default_prompt_text,
+      const std::u16string& message_text,
+      const std::u16string& default_prompt_text,
       content::JavaScriptDialogManager::DialogClosedCallback
           callback_on_button_clicked,
       base::OnceClosure callback_on_cancelled);
 
   // TabModalDialogView:
   void CloseDialogWithoutCallback() override;
-  base::string16 GetUserInput() override;
+  std::u16string GetUserInput() override;
 
   void Accept(JNIEnv* env,
               const base::android::JavaParamRef<jobject>&,
@@ -50,10 +54,10 @@ class TabModalDialogViewAndroid : public TabModalDialogView {
   TabModalDialogViewAndroid(
       content::WebContents* parent_web_contents,
       content::WebContents* alerting_web_contents,
-      const base::string16& title,
+      const std::u16string& title,
       content::JavaScriptDialogType dialog_type,
-      const base::string16& message_text,
-      const base::string16& default_prompt_text,
+      const std::u16string& message_text,
+      const std::u16string& default_prompt_text,
       content::JavaScriptDialogManager::DialogClosedCallback
           callback_on_button_clicked,
       base::OnceClosure callback_on_cancelled);
@@ -67,8 +71,6 @@ class TabModalDialogViewAndroid : public TabModalDialogView {
   base::OnceClosure callback_on_cancelled_;
 
   base::WeakPtrFactory<TabModalDialogViewAndroid> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TabModalDialogViewAndroid);
 };
 
 }  // namespace javascript_dialogs

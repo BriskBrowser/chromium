@@ -54,10 +54,10 @@ bool ConnectorsManager::IsConnectorEnabled(
   return pref && pref_change_registrar_.prefs()->HasPrefPath(pref);
 }
 
-base::Optional<ReportingSettings> ConnectorsManager::GetReportingSettings(
+absl::optional<ReportingSettings> ConnectorsManager::GetReportingSettings(
     ReportingConnector connector) {
   if (!IsConnectorEnabled(connector))
-    return base::nullopt;
+    return absl::nullopt;
 
   if (reporting_connector_settings_.count(connector) == 0)
     CacheReportingConnectorPolicy(connector);
@@ -65,18 +65,18 @@ base::Optional<ReportingSettings> ConnectorsManager::GetReportingSettings(
   // If the connector is still not in memory, it means the pref is set to an
   // empty list or that it is not a list.
   if (reporting_connector_settings_.count(connector) == 0)
-    return base::nullopt;
+    return absl::nullopt;
 
   // While multiple services can be set by the connector policies, only the
   // first one is considered for now.
   return reporting_connector_settings_[connector][0].GetReportingSettings();
 }
 
-base::Optional<AnalysisSettings> ConnectorsManager::GetAnalysisSettings(
+absl::optional<AnalysisSettings> ConnectorsManager::GetAnalysisSettings(
     const GURL& url,
     AnalysisConnector connector) {
   if (!IsConnectorEnabled(connector))
-    return base::nullopt;
+    return absl::nullopt;
 
   if (analysis_connector_settings_.count(connector) == 0)
     CacheAnalysisConnectorPolicy(connector);
@@ -84,14 +84,14 @@ base::Optional<AnalysisSettings> ConnectorsManager::GetAnalysisSettings(
   // If the connector is still not in memory, it means the pref is set to an
   // empty list or that it is not a list.
   if (analysis_connector_settings_.count(connector) == 0)
-    return base::nullopt;
+    return absl::nullopt;
 
   // While multiple services can be set by the connector policies, only the
   // first one is considered for now.
   return analysis_connector_settings_[connector][0].GetAnalysisSettings(url);
 }
 
-base::Optional<AnalysisSettings>
+absl::optional<AnalysisSettings>
 ConnectorsManager::GetAnalysisSettingsFromConnectorPolicy(
     const GURL& url,
     AnalysisConnector connector) {
@@ -101,18 +101,17 @@ ConnectorsManager::GetAnalysisSettingsFromConnectorPolicy(
   // If the connector is still not in memory, it means the pref is set to an
   // empty list or that it is not a list.
   if (analysis_connector_settings_.count(connector) == 0)
-    return base::nullopt;
+    return absl::nullopt;
 
   // While multiple services can be set by the connector policies, only the
   // first one is considered for now.
   return analysis_connector_settings_[connector][0].GetAnalysisSettings(url);
 }
 
-base::Optional<FileSystemSettings> ConnectorsManager::GetFileSystemSettings(
-    const GURL& url,
+FileSystemServiceSettings* ConnectorsManager::GetFileSystemServiceSettings(
     FileSystemConnector connector) {
   if (!IsConnectorEnabled(connector))
-    return base::nullopt;
+    return nullptr;
 
   if (file_system_connector_settings_.count(connector) == 0)
     CacheFileSystemConnectorPolicy(connector);
@@ -120,11 +119,28 @@ base::Optional<FileSystemSettings> ConnectorsManager::GetFileSystemSettings(
   // If the connector is still not in memory, it means the pref is set to an
   // empty list or that it is not a list.
   if (file_system_connector_settings_.count(connector) == 0)
-    return base::nullopt;
+    return nullptr;
 
   // While multiple services can be set by the connector policies, only the
   // first one is considered for now.
-  return file_system_connector_settings_[connector][0].GetSettings(url);
+  return &(file_system_connector_settings_[connector][0]);
+}
+
+absl::optional<FileSystemSettings>
+ConnectorsManager::GetFileSystemGlobalSettings(FileSystemConnector connector) {
+  auto* service_settings = GetFileSystemServiceSettings(connector);
+  if (!service_settings)
+    return absl::nullopt;
+  return service_settings->GetGlobalSettings();
+}
+
+absl::optional<FileSystemSettings> ConnectorsManager::GetFileSystemSettings(
+    const GURL& url,
+    FileSystemConnector connector) {
+  auto* service_settings = GetFileSystemServiceSettings(connector);
+  if (!service_settings)
+    return absl::nullopt;
+  return service_settings->GetSettings(url);
 }
 
 void ConnectorsManager::CacheAnalysisConnectorPolicy(
@@ -191,6 +207,78 @@ bool ConnectorsManager::DelayUntilVerdict(AnalysisConnector connector) {
     }
   }
   return false;
+}
+
+absl::optional<std::u16string> ConnectorsManager::GetCustomMessage(
+    AnalysisConnector connector,
+    const std::string& tag) {
+  if (IsConnectorEnabled(connector)) {
+    if (analysis_connector_settings_.count(connector) == 0)
+      CacheAnalysisConnectorPolicy(connector);
+
+    if (analysis_connector_settings_.count(connector) &&
+        !analysis_connector_settings_.at(connector).empty()) {
+      return analysis_connector_settings_.at(connector).at(0).GetCustomMessage(
+          tag);
+    }
+  }
+  return absl::nullopt;
+}
+
+absl::optional<GURL> ConnectorsManager::GetLearnMoreUrl(
+    AnalysisConnector connector,
+    const std::string& tag) {
+  if (IsConnectorEnabled(connector)) {
+    if (analysis_connector_settings_.count(connector) == 0)
+      CacheAnalysisConnectorPolicy(connector);
+
+    if (analysis_connector_settings_.count(connector) &&
+        !analysis_connector_settings_.at(connector).empty()) {
+      return analysis_connector_settings_.at(connector).at(0).GetLearnMoreUrl(
+          tag);
+    }
+  }
+  return absl::nullopt;
+}
+
+std::vector<std::string> ConnectorsManager::GetAnalysisServiceProviderNames(
+    AnalysisConnector connector) {
+  if (IsConnectorEnabled(connector)) {
+    if (analysis_connector_settings_.count(connector) == 0) {
+      CacheAnalysisConnectorPolicy(connector);
+    }
+
+    if (analysis_connector_settings_.count(connector) &&
+        !analysis_connector_settings_.at(connector).empty()) {
+      // There can only be one provider right now, but the system is designed to
+      // support multiples, so return a vector.
+      return {analysis_connector_settings_.at(connector)
+                  .at(0)
+                  .service_provider_name()};
+    }
+  }
+
+  return {};
+}
+
+std::vector<std::string> ConnectorsManager::GetReportingServiceProviderNames(
+    ReportingConnector connector) {
+  if (!IsConnectorEnabled(connector))
+    return {};
+
+  if (reporting_connector_settings_.count(connector) == 0)
+    CacheReportingConnectorPolicy(connector);
+
+  if (reporting_connector_settings_.count(connector) &&
+      !reporting_connector_settings_.at(connector).empty()) {
+    // There can only be one provider right now, but the system is designed to
+    // support multiples, so return a vector.
+    return {reporting_connector_settings_.at(connector)
+                .at(0)
+                .service_provider_name()};
+  }
+
+  return {};
 }
 
 void ConnectorsManager::StartObservingPrefs(PrefService* pref_service) {

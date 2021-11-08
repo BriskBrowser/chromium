@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_ASH_ACCOUNT_MANAGER_CHILD_ACCOUNT_TYPE_CHANGED_USER_DATA_H_
 #define CHROME_BROWSER_ASH_ACCOUNT_MANAGER_CHILD_ACCOUNT_TYPE_CHANGED_USER_DATA_H_
 
-#include <memory>
-
 #include "base/callback_list.h"
 #include "base/supports_user_data.h"
 
@@ -35,7 +33,7 @@ class ChildAccountTypeChangedUserData : public base::SupportsUserData::Data {
 
  private:
   bool value_ = false;
-  base::CallbackList<void(bool)> callback_list_;
+  base::RepeatingCallbackList<void(bool)> callback_list_;
 };
 
 }  // namespace ash

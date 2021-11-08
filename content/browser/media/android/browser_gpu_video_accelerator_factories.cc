@@ -14,7 +14,6 @@
 #include "gpu/ipc/client/command_buffer_proxy_impl.h"
 #include "gpu/ipc/client/gpu_channel_host.h"
 #include "media/gpu/gpu_video_accelerator_util.h"
-#include "media/gpu/ipc/common/media_messages.h"
 #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 
 namespace content {
@@ -56,8 +55,6 @@ void OnGpuChannelEstablished(
           automatic_flushes, support_locking, support_grcontext,
           gpu::SharedMemoryLimits::ForMailboxContext(), attributes,
           viz::command_buffer_metrics::ContextType::UNKNOWN);
-
-  // TODO(xingliu): This is on main thread, move to another thread?
   context_provider->BindToCurrentThread();
 
   auto gpu_factories = std::make_unique<BrowserGpuVideoAcceleratorFactories>(
@@ -86,13 +83,31 @@ bool BrowserGpuVideoAcceleratorFactories::IsGpuVideoAcceleratorEnabled() {
   return false;
 }
 
-base::UnguessableToken BrowserGpuVideoAcceleratorFactories::GetChannelToken() {
-  if (channel_token_.is_empty()) {
-    context_provider_->GetCommandBufferProxy()->channel()->Send(
-        new GpuCommandBufferMsg_GetChannelToken(&channel_token_));
+void BrowserGpuVideoAcceleratorFactories::GetChannelToken(
+    gpu::mojom::GpuChannel::GetChannelTokenCallback cb) {
+  DCHECK(cb);
+  if (!channel_token_.is_empty()) {
+    // Use cached token.
+    std::move(cb).Run(channel_token_);
+    return;
   }
 
-  return channel_token_;
+  // Retrieve a channel token if needed.
+  bool request_channel_token = channel_token_callbacks_.empty();
+  channel_token_callbacks_.AddUnsafe(std::move(cb));
+  if (request_channel_token) {
+    context_provider_->GetCommandBufferProxy()->GetGpuChannel().GetChannelToken(
+        base::BindOnce(
+            &BrowserGpuVideoAcceleratorFactories::OnChannelTokenReady,
+            base::Unretained(this)));
+  }
+}
+
+void BrowserGpuVideoAcceleratorFactories::OnChannelTokenReady(
+    const base::UnguessableToken& token) {
+  channel_token_ = token;
+  channel_token_callbacks_.Notify(channel_token_);
+  DCHECK(channel_token_callbacks_.empty());
 }
 
 int32_t BrowserGpuVideoAcceleratorFactories::GetCommandBufferRouteId() {
@@ -101,11 +116,14 @@ int32_t BrowserGpuVideoAcceleratorFactories::GetCommandBufferRouteId() {
 
 media::GpuVideoAcceleratorFactories::Supported
 BrowserGpuVideoAcceleratorFactories::IsDecoderConfigSupported(
-    media::VideoDecoderImplementation implementation,
     const media::VideoDecoderConfig& config) {
   // Tell the caller to just try it, there are no other decoders to fall back on
   // anyway.
   return media::GpuVideoAcceleratorFactories::Supported::kTrue;
+}
+
+media::VideoDecoderType BrowserGpuVideoAcceleratorFactories::GetDecoderType() {
+  return media::VideoDecoderType::kMediaCodec;
 }
 
 bool BrowserGpuVideoAcceleratorFactories::IsDecoderSupportKnown() {
@@ -121,7 +139,6 @@ void BrowserGpuVideoAcceleratorFactories::NotifyDecoderSupportKnown(
 std::unique_ptr<media::VideoDecoder>
 BrowserGpuVideoAcceleratorFactories::CreateVideoDecoder(
     media::MediaLog* media_log,
-    media::VideoDecoderImplementation implementation,
     media::RequestOverlayInfoCB request_overlay_info_cb) {
   return nullptr;
 }
@@ -177,7 +194,7 @@ BrowserGpuVideoAcceleratorFactories::GetTaskRunner() {
   return nullptr;
 }
 
-base::Optional<media::VideoEncodeAccelerator::SupportedProfiles>
+absl::optional<media::VideoEncodeAccelerator::SupportedProfiles>
 BrowserGpuVideoAcceleratorFactories::
     GetVideoEncodeAcceleratorSupportedProfiles() {
   return media::VideoEncodeAccelerator::SupportedProfiles();

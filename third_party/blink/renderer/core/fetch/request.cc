@@ -4,26 +4,25 @@
 
 #include "third_party/blink/renderer/core/fetch/request.h"
 
-#include "base/optional.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/cpp/request_destination.h"
 #include "services/network/public/cpp/request_mode.h"
 #include "services/network/public/mojom/trust_tokens.mojom-blink.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/blob/blob_utils.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_abort_signal.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_array_buffer.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_array_buffer_view.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_blob.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_form_data.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_request_init.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_trust_token.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_union_request_usvstring.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_url_search_params.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -71,7 +70,8 @@ FetchRequestData* CreateCopyOfFetchRequestDataForFetch(
   request->SetURL(original->Url());
   request->SetMethod(original->Method());
   request->SetHeaderList(original->HeaderList()->Clone());
-  request->SetOrigin(context->GetSecurityOrigin());
+  request->SetOrigin(original->Origin() ? original->Origin()
+                                        : context->GetSecurityOrigin());
   // FIXME: Set client.
   DOMWrapperWorld& world = script_state->World();
   if (world.IsIsolatedWorld()) {
@@ -98,6 +98,18 @@ FetchRequestData* CreateCopyOfFetchRequestDataForFetch(
   }
   request->SetWindowId(original->WindowId());
   request->SetTrustTokenParams(original->TrustTokenParams());
+
+  // When a new request is created from another the destination is always reset
+  // to be `kEmpty`.  In order to facilitate some later checks when a service
+  // worker forwards a navigation request we want to keep track of the
+  // destination of the original request.  Therefore record the original
+  // request's destination if its non-empty, otherwise just carry forward
+  // whatever "original destination" value was already set.
+  if (original->Destination() != network::mojom::RequestDestination::kEmpty)
+    request->SetOriginalDestination(original->Destination());
+  else
+    request->SetOriginalDestination(original->OriginalDestination());
+
   return request;
 }
 
@@ -130,7 +142,11 @@ static BodyStreamBuffer* ExtractBody(ScriptState* script_state,
   } else if (body->IsArrayBuffer()) {
     // Avoid calling into V8 from the following constructor parameters, which
     // is potentially unsafe.
-    DOMArrayBuffer* array_buffer = V8ArrayBuffer::ToImpl(body.As<v8::Object>());
+    DOMArrayBuffer* array_buffer =
+        NativeValueTraits<DOMArrayBuffer>::NativeValue(isolate, body,
+                                                       exception_state);
+    if (exception_state.HadException())
+      return nullptr;
     if (!base::CheckedNumeric<wtf_size_t>(array_buffer->ByteLength())
              .IsValid()) {
       exception_state.ThrowRangeError(
@@ -144,7 +160,11 @@ static BodyStreamBuffer* ExtractBody(ScriptState* script_state,
     // Avoid calling into V8 from the following constructor parameters, which
     // is potentially unsafe.
     DOMArrayBufferView* array_buffer_view =
-        V8ArrayBufferView::ToImpl(body.As<v8::Object>());
+        NativeValueTraits<MaybeShared<DOMArrayBufferView>>::NativeValue(
+            isolate, body, exception_state)
+            .Get();
+    if (exception_state.HadException())
+      return nullptr;
     if (!base::CheckedNumeric<wtf_size_t>(array_buffer_view->byteLength())
              .IsValid()) {
       exception_state.ThrowRangeError(
@@ -312,6 +332,9 @@ Request* Request::CreateRequestWithRequestOrString(
 
   // "If any of |init|'s members are present, then:"
   if (AreAnyMembersPresent(init)) {
+    request->SetOrigin(execution_context->GetSecurityOrigin());
+    request->SetOriginalDestination(network::mojom::RequestDestination::kEmpty);
+
     // "If |request|'s |mode| is "navigate", then set it to "same-origin".
     if (request->Mode() == network::mojom::RequestMode::kNavigate)
       request->SetMode(network::mojom::RequestMode::kSameOrigin);
@@ -536,12 +559,12 @@ Request* Request::CreateRequestWithRequestOrString(
     if ((params.type == TrustTokenOperationType::kRedemption ||
          params.type == TrustTokenOperationType::kSigning) &&
         !execution_context->IsFeatureEnabled(
-            mojom::blink::FeaturePolicyFeature::kTrustTokenRedemption)) {
+            mojom::blink::PermissionsPolicyFeature::kTrustTokenRedemption)) {
       exception_state.ThrowTypeError(
           "trustToken: Redemption ('token-redemption') and signing "
           "('send-redemption-record') operations require that the "
           "trust-token-redemption "
-          "Feature Policy feature be enabled.");
+          "Permissions Policy feature be enabled.");
       return nullptr;
     }
 
@@ -711,13 +734,21 @@ Request* Request::CreateRequestWithRequestOrString(
 }
 
 Request* Request::Create(ScriptState* script_state,
-                         const RequestInfo& input,
+                         const V8RequestInfo* input,
                          const RequestInit* init,
                          ExceptionState& exception_state) {
-  DCHECK(!input.IsNull());
-  if (input.IsUSVString())
-    return Create(script_state, input.GetAsUSVString(), init, exception_state);
-  return Create(script_state, input.GetAsRequest(), init, exception_state);
+  DCHECK(input);
+
+  switch (input->GetContentType()) {
+    case V8RequestInfo::ContentType::kRequest:
+      return Create(script_state, input->GetAsRequest(), init, exception_state);
+    case V8RequestInfo::ContentType::kUSVString:
+      return Create(script_state, input->GetAsUSVString(), init,
+                    exception_state);
+  }
+
+  NOTREACHED();
+  return nullptr;
 }
 
 Request* Request::Create(ScriptState* script_state,
@@ -762,7 +793,7 @@ Request* Request::Create(
   return MakeGarbageCollected<Request>(script_state, data);
 }
 
-base::Optional<network::mojom::CredentialsMode> Request::ParseCredentialsMode(
+absl::optional<network::mojom::CredentialsMode> Request::ParseCredentialsMode(
     const String& credentials_mode) {
   if (credentials_mode == "omit")
     return network::mojom::CredentialsMode::kOmit;
@@ -771,7 +802,7 @@ base::Optional<network::mojom::CredentialsMode> Request::ParseCredentialsMode(
   if (credentials_mode == "include")
     return network::mojom::CredentialsMode::kInclude;
   NOTREACHED();
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 Request::Request(ScriptState* script_state,
@@ -967,6 +998,7 @@ mojom::blink::FetchAPIRequestPtr Request::CreateFetchAPIRequest() const {
   fetch_api_request->integrity = request_->Integrity();
   fetch_api_request->is_history_navigation = request_->IsHistoryNavigation();
   fetch_api_request->destination = request_->Destination();
+  fetch_api_request->request_initiator = request_->Origin();
 
   // Strip off the fragment part of URL. So far, all callers expect the fragment
   // to be excluded.

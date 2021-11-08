@@ -10,6 +10,7 @@
 #include "base/test/mock_callback.h"
 #include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/signin/header_modification_delegate.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -26,6 +27,10 @@ namespace {
 class MockDelegate : public HeaderModificationDelegate {
  public:
   MockDelegate() = default;
+
+  MockDelegate(const MockDelegate&) = delete;
+  MockDelegate& operator=(const MockDelegate&) = delete;
+
   ~MockDelegate() override = default;
 
   MOCK_METHOD1(ShouldInterceptNavigation, bool(content::WebContents* contents));
@@ -35,9 +40,6 @@ class MockDelegate : public HeaderModificationDelegate {
   MOCK_METHOD2(ProcessResponse,
                void(ResponseAdapter* response_adapter,
                     const GURL& redirect_url));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockDelegate);
 };
 
 content::WebContents::Getter NullWebContentsGetter() {

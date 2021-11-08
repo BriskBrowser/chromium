@@ -13,7 +13,8 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
+#include "base/time/time.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/compositor/layer_owner.h"
@@ -53,7 +54,7 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
  public:
   // The default duration for an animation between two sets of bounds.
   static constexpr base::TimeDelta kBoundsChangeSlideDuration =
-      base::TimeDelta::FromMilliseconds(120);
+      base::Milliseconds(120);
 
   // A subclass of State class represents one of the window's states
   // that corresponds to chromeos::WindowStateType in Ash environment, e.g.
@@ -62,6 +63,10 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   class State {
    public:
     State() {}
+
+    State(const State&) = delete;
+    State& operator=(const State&) = delete;
+
     virtual ~State() {}
 
     // Update WindowState based on |event|.
@@ -84,9 +89,6 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
 
     // Called when the window is being destroyed.
     virtual void OnWindowDestroying(WindowState* window_state) {}
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(State);
   };
 
   // Returns the WindowState for |window|. Creates WindowState if it doesn't
@@ -97,6 +99,9 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   // Returns the WindowState for the active window, null if there is no active
   // window.
   static WindowState* ForActiveWindow();
+
+  WindowState(const WindowState&) = delete;
+  WindowState& operator=(const WindowState&) = delete;
 
   // Call WindowState::Get() to instantiate this class.
   ~WindowState() override;
@@ -199,16 +204,22 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   // Deletes and clears the restore bounds property on the window.
   void ClearRestoreBounds();
 
+  // Shrink window from work_area/vertical maximized state.
+  // If window is not vertically shrinkable, return false.
+  bool VerticallyShrinkWindow(const gfx::Rect& work_area);
+
+  // Shrink window from work_area/horizontal maximized state.
+  // If window is not horizontally shrinkable, return false.
+  bool HorizontallyShrinkWindow(const gfx::Rect& work_area);
+
   // Replace the State object of a window with a state handler which can
   // implement a new window manager type. The passed object will be owned
   // by this object and the returned object will be owned by the caller.
   std::unique_ptr<State> SetStateObject(std::unique_ptr<State> new_state);
 
-  // Updates |snapped_width_ratio_| based on |event|.
-  void UpdateSnappedWidthRatio(const WMEvent* event);
-  base::Optional<float> snapped_width_ratio() const {
-    return snapped_width_ratio_;
-  }
+  // Updates |snap_ratio_| based on |event|.
+  void UpdateSnapRatio(const WMEvent* event);
+  absl::optional<float> snap_ratio() const { return snap_ratio_; }
 
   // True if the window should be unminimized to the restore bounds, as
   // opposed to the window's current bounds. |unminimized_to_restore_bounds_| is
@@ -239,25 +250,35 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
 
   // Gets/Sets the bounds of the window before it was moved by the auto window
   // management. As long as it was not auto-managed, it will return NULL.
-  const base::Optional<gfx::Rect> pre_auto_manage_window_bounds() {
+  const absl::optional<gfx::Rect> pre_auto_manage_window_bounds() {
     return pre_auto_manage_window_bounds_;
   }
   void SetPreAutoManageWindowBounds(const gfx::Rect& bounds);
 
   // Gets/Sets the property that is used on window added to workspace event.
-  const base::Optional<gfx::Rect> pre_added_to_workspace_window_bounds() {
+  const absl::optional<gfx::Rect> pre_added_to_workspace_window_bounds() {
     return pre_added_to_workspace_window_bounds_;
   }
   void SetPreAddedToWorkspaceWindowBounds(const gfx::Rect& bounds);
 
   // Gets/Sets the persistent window info that is used on restoring persistent
   // window bounds in multi-displays scenario.
-  const base::Optional<PersistentWindowInfo> persistent_window_info() {
-    return persistent_window_info_;
+  const absl::optional<PersistentWindowInfo>
+  persistent_window_info_of_display_removal() {
+    return persistent_window_info_of_display_removal_;
   }
-  void SetPersistentWindowInfo(
-      const PersistentWindowInfo& persistent_window_info);
-  void ResetPersistentWindowInfo();
+  void SetPersistentWindowInfoOfDisplayRemoval(
+      const PersistentWindowInfo& info);
+  void ResetPersistentWindowInfoOfDisplayRemoval();
+
+  // Gets/Sets the persistent window info that is used to restore persistent
+  // window bounds on screen rotation.
+  const absl::optional<PersistentWindowInfo>
+  persistent_window_info_of_screen_rotation() {
+    return persistent_window_info_of_screen_rotation_;
+  }
+  void SetPersistentWindowInfoOfScreenRotation(
+      const PersistentWindowInfo& info);
 
   // Layout related properties
 
@@ -367,6 +388,11 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
    public:
     ScopedBoundsChangeAnimation(aura::Window* window,
                                 BoundsChangeAnimationType animation_type);
+
+    ScopedBoundsChangeAnimation(const ScopedBoundsChangeAnimation&) = delete;
+    ScopedBoundsChangeAnimation& operator=(const ScopedBoundsChangeAnimation&) =
+        delete;
+
     ~ScopedBoundsChangeAnimation() override;
 
     // aura::WindowObserver:
@@ -375,8 +401,6 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
    private:
     aura::Window* window_;
     BoundsChangeAnimationType previous_bounds_animation_type_;
-
-    DISALLOW_COPY_AND_ASSIGN(ScopedBoundsChangeAnimation);
   };
 
   explicit WindowState(aura::Window* window);
@@ -394,15 +418,12 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   // Returns the window's current show state.
   ui::WindowShowState GetShowState() const;
 
-  // Return the window's current pin type.
-  chromeos::WindowPinType GetPinType() const;
-
   // Sets the window's bounds in screen coordinates.
   void SetBoundsInScreen(const gfx::Rect& bounds_in_screen);
 
   // Adjusts the |bounds| so that they are flush with the edge of the
-  // workspace if the window represented by |window_state| is side snapped. It
-  // is called for workspace events.
+  // workspace in clamshell mode if the window represented by |window_state|
+  // is side snapped. It is called for workspace events.
   void AdjustSnappedBounds(gfx::Rect* bounds);
 
   // Updates the window properties(show state, pin type) according to the
@@ -475,24 +496,35 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   ui::ZOrderLevel cached_z_order_;
   bool allow_set_bounds_direct_ = false;
 
-  // A property to save the ratio between snapped window width and display
-  // workarea width. It is used to update snapped window width on
-  // AdjustSnappedBounds() when handling workspace events.
-  base::Optional<float> snapped_width_ratio_;
+  // A property to save the ratio between snapped window width (or height
+  // for vertical layout) and display workarea width (or height). It is used
+  // to update snapped window width (or height) on AdjustSnappedBounds() when
+  // handling workspace events.
+  absl::optional<float> snap_ratio_;
 
   // A property to remember the window position which was set before the
   // auto window position manager changed the window bounds, so that it can
   // get restored when only this one window gets shown.
-  base::Optional<gfx::Rect> pre_auto_manage_window_bounds_;
+  absl::optional<gfx::Rect> pre_auto_manage_window_bounds_;
 
   // A property which resets when bounds is changed by user and sets when it
   // is nullptr, and window is removing from a workspace.
-  base::Optional<gfx::Rect> pre_added_to_workspace_window_bounds_;
+  absl::optional<gfx::Rect> pre_added_to_workspace_window_bounds_;
 
   // A property to remember the persistent window info used in multi-displays
   // scenario to attempt to restore windows to their original bounds when
   // displays are restored to their previous states.
-  base::Optional<PersistentWindowInfo> persistent_window_info_;
+  absl::optional<PersistentWindowInfo>
+      persistent_window_info_of_display_removal_;
+
+  // A property to remember the persistent window info when screen rotation
+  // happens. It will be used to restore windows' bounds when rotating back to
+  // the previous screen orientation. Note, `kLandscapePrimary` and
+  // `kLandscapeSecondary` will be treated as the same screen orientation, since
+  // the window's bounds should be the same in each landscape orientation. Same
+  // for portrait screen orientation.
+  absl::optional<PersistentWindowInfo>
+      persistent_window_info_of_screen_rotation_;
 
   base::ObserverList<WindowStateObserver>::Unchecked observer_list_;
 
@@ -508,8 +540,6 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
 
   // When the current (or last) PIP session started.
   base::TimeTicks pip_start_time_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowState);
 };
 
 }  // namespace ash

@@ -27,14 +27,19 @@ class AutofillKeyboardAccessoryView
     : public AutofillKeyboardAccessoryAdapter::AccessoryView {
  public:
   explicit AutofillKeyboardAccessoryView(AutofillPopupController* controller);
+
+  AutofillKeyboardAccessoryView(const AutofillKeyboardAccessoryView&) = delete;
+  AutofillKeyboardAccessoryView& operator=(
+      const AutofillKeyboardAccessoryView&) = delete;
+
   ~AutofillKeyboardAccessoryView() override;
 
   // Implementation of AutofillKeyboardAccessoryAdapter::AccessoryView.
   bool Initialize() override;
   void Hide() override;
   void Show() override;
-  void ConfirmDeletion(const base::string16& confirmation_title,
-                       const base::string16& confirmation_body,
+  void ConfirmDeletion(const std::u16string& confirmation_title,
+                       const std::u16string& confirmation_body,
                        base::OnceClosure confirm_deletion) override;
 
   // --------------------------------------------------------------------------
@@ -68,8 +73,6 @@ class AutofillKeyboardAccessoryView
 
   // The corresponding java object.
   base::android::ScopedJavaGlobalRef<jobject> java_object_;
-
-  DISALLOW_COPY_AND_ASSIGN(AutofillKeyboardAccessoryView);
 };
 
 }  // namespace autofill

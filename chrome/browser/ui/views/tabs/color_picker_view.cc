@@ -16,6 +16,8 @@
 #include "components/tab_groups/tab_group_color.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/tween.h"
@@ -23,14 +25,13 @@
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/favicon_size.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 
 namespace {
@@ -65,7 +66,7 @@ class ColorPickerElementView : public views::Button {
       base::RepeatingCallback<void(ColorPickerElementView*)> selected_callback,
       const views::BubbleDialogDelegateView* bubble_view,
       tab_groups::TabGroupColorId color_id,
-      base::string16 color_name)
+      std::u16string color_name)
       : Button(base::BindRepeating(&ColorPickerElementView::ButtonPressed,
                                    base::Unretained(this))),
         selected_callback_(std::move(selected_callback)),
@@ -91,7 +92,7 @@ class ColorPickerElementView : public views::Button {
                              : gfx::Insets(padding);
     SetBorder(views::CreateEmptyBorder(insets));
 
-    SetInkDropMode(InkDropMode::OFF);
+    views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::OFF);
     SetAnimateOnStateChange(true);
   }
 
@@ -122,7 +123,7 @@ class ColorPickerElementView : public views::Button {
                                              : ax::mojom::CheckedState::kFalse);
   }
 
-  base::string16 GetTooltipText(const gfx::Point& p) const override {
+  std::u16string GetTooltipText(const gfx::Point& p) const override {
     return color_name_;
   }
 
@@ -196,7 +197,7 @@ class ColorPickerElementView : public views::Button {
       selected_callback_;
   const views::BubbleDialogDelegateView* bubble_view_;
   const tab_groups::TabGroupColorId color_id_;
-  const base::string16 color_name_;
+  const std::u16string color_name_;
   bool selected_ = false;
 };
 
@@ -252,15 +253,15 @@ ColorPickerView::ColorPickerView(
 ColorPickerView::~ColorPickerView() {
   // Remove child views early since they have references to us through a
   // callback.
-  RemoveAllChildViews(true);
+  RemoveAllChildViews();
 }
 
-base::Optional<int> ColorPickerView::GetSelectedElement() const {
+absl::optional<int> ColorPickerView::GetSelectedElement() const {
   for (size_t i = 0; i < elements_.size(); ++i) {
     if (elements_[i]->GetSelected())
       return static_cast<int>(i);
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 views::View* ColorPickerView::GetSelectedViewForGroup(int group) {
@@ -289,5 +290,5 @@ void ColorPickerView::OnColorSelected(ColorPickerElementView* element) {
 }
 
 BEGIN_METADATA(ColorPickerView, views::View)
-ADD_READONLY_PROPERTY_METADATA(base::Optional<int>, SelectedElement)
+ADD_READONLY_PROPERTY_METADATA(absl::optional<int>, SelectedElement)
 END_METADATA

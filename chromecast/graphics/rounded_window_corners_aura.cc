@@ -10,10 +10,10 @@
 #include "chromecast/graphics/cast_window_manager.h"
 #include "chromecast/ui/mojom/ui_service.mojom.h"
 #include "ui/aura/window.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/layout/layout_provider.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
@@ -74,6 +74,10 @@ END_METADATA
 class RoundedWindowCornersAura : public RoundedWindowCorners {
  public:
   explicit RoundedWindowCornersAura(CastWindowManager* window_manager);
+
+  RoundedWindowCornersAura(const RoundedWindowCornersAura&) = delete;
+  RoundedWindowCornersAura& operator=(const RoundedWindowCornersAura&) = delete;
+
   ~RoundedWindowCornersAura() override;
 
   void SetEnabled(bool enable) override;
@@ -87,8 +91,6 @@ class RoundedWindowCornersAura : public RoundedWindowCorners {
   std::vector<BlackCornerView*> corners_;
 
   THREAD_CHECKER(thread_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(RoundedWindowCornersAura);
 };
 
 RoundedWindowCornersAura::RoundedWindowCornersAura(

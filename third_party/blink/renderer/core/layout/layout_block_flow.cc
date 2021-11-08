@@ -36,16 +36,17 @@
 
 #include "third_party/blink/renderer/core/editing/editing_behavior.h"
 #include "third_party/blink/renderer/core/editing/editor.h"
+#include "third_party/blink/renderer/core/editing/position_with_affinity.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/layout/hit_test_location.h"
-#include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/layout/layout_flow_thread.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
 #include "third_party/blink/renderer/core/layout/layout_multi_column_flow_thread.h"
 #include "third_party/blink/renderer/core/layout/layout_multi_column_spanner_placeholder.h"
 #include "third_party/blink/renderer/core/layout/layout_object_factory.h"
+#include "third_party/blink/renderer/core/layout/layout_object_inlines.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/line/glyph_overflow.h"
 #include "third_party/blink/renderer/core/layout/line/inline_iterator.h"
@@ -69,6 +70,7 @@
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 
 namespace blink {
@@ -208,6 +210,8 @@ ASSERT_SIZE(MarginInfo, SameSizeAsMarginInfo);
 // child siblings. Only looking at the object currently being laid out isn't
 // always enough.
 class BlockChildrenLayoutInfo {
+  STACK_ALLOCATED();
+
  public:
   BlockChildrenLayoutInfo(LayoutBlockFlow* block_flow,
                           LayoutUnit before_edge,
@@ -276,9 +280,10 @@ void LayoutBlockFlow::Trace(Visitor* visitor) const {
   LayoutBlock::Trace(visitor);
 }
 
-LayoutBlockFlow* LayoutBlockFlow::CreateAnonymous(Document* document,
-                                                  ComputedStyle* style,
-                                                  LegacyLayout legacy) {
+LayoutBlockFlow* LayoutBlockFlow::CreateAnonymous(
+    Document* document,
+    scoped_refptr<ComputedStyle> style,
+    LegacyLayout legacy) {
   LayoutBlockFlow* layout_block_flow =
       LayoutObjectFactory::CreateBlockFlow(*document, *style, legacy);
   layout_block_flow->SetDocumentForAnonymous(document);
@@ -450,7 +455,6 @@ void LayoutBlockFlow::UpdateBlockLayout(bool relayout_children) {
   if (!relayout_children && SimplifiedLayout())
     return;
 
-  LayoutAnalyzer::BlockScope analyzer(*this);
   SubtreeLayoutScope layout_scope(*this);
 
   LayoutUnit previous_height = LogicalHeight();
@@ -539,6 +543,7 @@ void LayoutBlockFlow::UpdateBlockLayout(bool relayout_children) {
 DISABLE_CFI_PERF
 void LayoutBlockFlow::ResetLayout() {
   NOT_DESTROYED();
+  DCHECK(!IsLayoutNGObject()) << this;
   if (!FirstChild() && !IsAnonymousBlock())
     SetChildrenInline(true);
   SetContainsInlineWithOutlineAndContinuation(false);
@@ -1257,15 +1262,33 @@ void LayoutBlockFlow::AdjustLinePositionForPagination(RootInlineBox& line_box,
     return;
   if (!IsPageLogicalHeightKnown())
     return;
-  LayoutUnit page_logical_height = PageLogicalHeightForOffset(logical_offset);
+  // Ruby annotations do not affect the size of the line box. Instead,
+  // before-annotations are placed above the line's logical top, and
+  // after-annotations are placed below the line's logical bottom. We need to
+  // take this into consideration when block-fragmenting, so that we don't allow
+  // breaking in the middle of an annotation.
+  LayoutUnit logical_offset_with_annotations = logical_offset;
+  LayoutUnit line_height_with_annotations = line_height;
+  if (line_box.HasAnnotationsBefore()) {
+    LayoutUnit adjustment =
+        line_box.ComputeOverAnnotationAdjustment(logical_offset);
+    logical_offset_with_annotations -= adjustment;
+    line_height_with_annotations += adjustment;
+  }
+  if (line_box.HasAnnotationsAfter()) {
+    line_height_with_annotations +=
+        line_box.ComputeUnderAnnotationAdjustment(logical_offset + line_height);
+  }
+  LayoutUnit page_logical_height =
+      PageLogicalHeightForOffset(logical_offset_with_annotations);
   LayoutUnit remaining_logical_height = PageRemainingLogicalHeightForOffset(
-      logical_offset, kAssociateWithLatterPage);
+      logical_offset_with_annotations, kAssociateWithLatterPage);
   int line_index = LineCount(&line_box);
-  if (remaining_logical_height < line_height ||
+  if (remaining_logical_height < line_height_with_annotations ||
       (ShouldBreakAtLineToAvoidWidow() &&
        LineBreakToAvoidWidow() == line_index)) {
-    LayoutUnit pagination_strut =
-        CalculatePaginationStrutToFitContent(logical_offset, line_height);
+    LayoutUnit pagination_strut = CalculatePaginationStrutToFitContent(
+        logical_offset_with_annotations, line_height_with_annotations);
     LayoutUnit new_logical_offset = logical_offset + pagination_strut;
     // Moving to a different page or column may mean that its height is
     // different.
@@ -1486,8 +1509,9 @@ void LayoutBlockFlow::RebuildFloatsFromIntruding() {
       for (FloatingObjectSetIterator it = floating_object_set.begin();
            it != end; ++it) {
         const FloatingObject& floating_object = *it->Get();
+        auto it_map = float_map.find(floating_object.GetLayoutObject());
         FloatingObject* old_floating_object =
-            float_map.at(floating_object.GetLayoutObject());
+            it_map != float_map.end() ? &*it_map->value : nullptr;
         LayoutUnit logical_bottom = LogicalBottomForFloat(floating_object);
         if (old_floating_object) {
           LayoutUnit old_logical_bottom =
@@ -1584,40 +1608,29 @@ void LayoutBlockFlow::LayoutBlockChildren(bool relayout_children,
   // It doesn't get included in the normal layout process but is instead skipped
   LayoutObject* child_to_exclude =
       LayoutSpecialExcludedChild(relayout_children, layout_scope);
-
-  // TODO(foolip): Speculative CHECKs to crash if any non-LayoutBox
-  // children ever appear, the childrenInline() check at the call site
-  // should make this impossible. crbug.com/632848
-  LayoutObject* first_child = FirstChild();
-  CHECK(!first_child || first_child->IsBox());
-  auto* next = To<LayoutBox>(first_child);
   LayoutBox* last_normal_flow_child = nullptr;
 
-  while (next) {
-    LayoutBox* child = next;
-    LayoutObject* next_sibling = child->NextSibling();
-    CHECK(!next_sibling || next_sibling->IsBox());
-    next = To<LayoutBox>(next_sibling);
-
+  for (auto* child = FirstChild(); child; child = child->NextSibling()) {
     child->SetShouldCheckForPaintInvalidation();
 
     if (child_to_exclude == child)
       continue;  // Skip this child, since it will be positioned by the
                  // specialized subclass (fieldsets and ruby runs).
 
-    UpdateBlockChildDirtyBitsBeforeLayout(relayout_children, *child);
+    LayoutBox* box = To<LayoutBox>(child);
+    UpdateBlockChildDirtyBitsBeforeLayout(relayout_children, *box);
 
-    if (child->IsOutOfFlowPositioned()) {
-      child->ContainingBlock()->InsertPositionedObject(child);
-      AdjustPositionedBlock(*child, layout_info);
+    if (box->IsOutOfFlowPositioned()) {
+      box->ContainingBlock()->InsertPositionedObject(box);
+      AdjustPositionedBlock(*box, layout_info);
       continue;
     }
-    if (child->IsFloating()) {
-      InsertFloatingObject(*child);
+    if (box->IsFloating()) {
+      InsertFloatingObject(*box);
       AdjustFloatingBlock(margin_info);
       continue;
     }
-    if (child->IsColumnSpanAll()) {
+    if (box->IsColumnSpanAll()) {
       // This is not the containing block of the spanner. The spanner's
       // placeholder will lay it out in due course. For now we just need to
       // consult our flow thread, so that the columns (if any) preceding and
@@ -1627,15 +1640,15 @@ void LayoutBlockFlow::LayoutBlockChildren(bool relayout_children,
       SetLogicalHeight(LogicalHeight() + margin_info.Margin());
       margin_info.ClearMargin();
 
-      child->SpannerPlaceholder()->FlowThread()->SkipColumnSpanner(
-          child, OffsetFromLogicalTopOfFirstPage() + LogicalHeight());
+      box->SpannerPlaceholder()->FlowThread()->SkipColumnSpanner(
+          box, OffsetFromLogicalTopOfFirstPage() + LogicalHeight());
       continue;
     }
 
     // Lay out the child.
-    LayoutBlockChild(*child, layout_info);
+    LayoutBlockChild(*box, layout_info);
     layout_info.ClearIsAtFirstInFlowChild();
-    last_normal_flow_child = child;
+    last_normal_flow_child = box;
   }
 
   // Now do the handling of the bottom of the block, adding in our bottom
@@ -2404,7 +2417,7 @@ void LayoutBlockFlow::AddVisualOverflowFromFloats() {
 }
 
 void LayoutBlockFlow::AddVisualOverflowFromFloats(
-    const NGPhysicalContainerFragment& fragment) {
+    const NGPhysicalFragment& fragment) {
   NOT_DESTROYED();
   DCHECK(!NeedsLayout());
   DCHECK(!ChildPrePaintBlockedByDisplayLock());
@@ -2419,8 +2432,7 @@ void LayoutBlockFlow::AddVisualOverflowFromFloats(
       continue;
     }
 
-    if (const NGPhysicalContainerFragment* child_container =
-            DynamicTo<NGPhysicalContainerFragment>(child.get())) {
+    if (const NGPhysicalFragment* child_container = child.get()) {
       if (child_container->HasFloatingDescendantsForPaint() &&
           !child_container->IsFormattingContextRoot())
         AddVisualOverflowFromFloats(*child_container);
@@ -2447,7 +2459,7 @@ void LayoutBlockFlow::ComputeVisualOverflow(bool recompute_floats) {
   NOT_DESTROYED();
   DCHECK(!SelfNeedsLayout());
 
-  LayoutRect previous_visual_overflow_rect = VisualOverflowRect();
+  LayoutRect previous_visual_overflow_rect = VisualOverflowRectAllowingUnset();
   ClearVisualOverflow();
   AddVisualOverflowFromChildren();
   AddVisualEffectOverflow();
@@ -2486,8 +2498,18 @@ void LayoutBlockFlow::AbsoluteQuads(Vector<FloatQuad>& quads,
   LayoutBoxModelObject::AbsoluteQuads(quads, mode);
 }
 
+void LayoutBlockFlow::LocalQuadsForSelf(Vector<FloatQuad>& quads) const {
+  return QuadsForSelfInternal(quads, 0, false);
+}
+
 void LayoutBlockFlow::AbsoluteQuadsForSelf(Vector<FloatQuad>& quads,
                                            MapCoordinatesFlags mode) const {
+  return QuadsForSelfInternal(quads, mode, true);
+}
+
+void LayoutBlockFlow::QuadsForSelfInternal(Vector<FloatQuad>& quads,
+                                           MapCoordinatesFlags mode,
+                                           bool map_to_absolute) const {
   NOT_DESTROYED();
   // For blocks inside inlines, we go ahead and include margins so that we run
   // right up to the inline boxes above and below us (thus getting merged with
@@ -2496,7 +2518,10 @@ void LayoutBlockFlow::AbsoluteQuadsForSelf(Vector<FloatQuad>& quads,
   // https://bugs.webkit.org/show_bug.cgi?id=46781
   PhysicalRect local_rect = PhysicalBorderBoxRect();
   local_rect.Expand(CollapsedMarginBoxLogicalOutsets());
-  quads.push_back(LocalRectToAbsoluteQuad(local_rect, mode));
+  if (map_to_absolute)
+    quads.push_back(LocalRectToAbsoluteQuad(local_rect, mode));
+  else
+    quads.push_back(FloatQuad(FloatRect(local_rect)));
 }
 
 LayoutObject* LayoutBlockFlow::HoverAncestor() const {
@@ -2547,7 +2572,7 @@ LayoutUnit LayoutBlockFlow::FirstLineBoxBaseline() const {
   NOT_DESTROYED();
   if (!ChildrenInline())
     return LayoutBlock::FirstLineBoxBaseline();
-  if (const base::Optional<LayoutUnit> baseline =
+  if (const absl::optional<LayoutUnit> baseline =
           FirstLineBoxBaselineOverride())
     return *baseline;
   if (FirstLineBox()) {
@@ -2577,7 +2602,7 @@ LayoutUnit LayoutBlockFlow::InlineBlockBaseline(
   NOT_DESTROYED();
   if (!ChildrenInline())
     return LayoutBlock::InlineBlockBaseline(line_direction);
-  if (const base::Optional<LayoutUnit> baseline =
+  if (const absl::optional<LayoutUnit> baseline =
           InlineBlockBaselineOverride(line_direction))
     return *baseline;
   if (LastLineBox()) {
@@ -2993,6 +3018,8 @@ void LayoutBlockFlow::AddChild(LayoutObject* new_child,
     if (new_child->IsInline() && !new_child->IsLayoutNGOutsideListMarker()) {
       // No suitable existing anonymous box - create a new one.
       auto* new_block = To<LayoutBlockFlow>(CreateAnonymousBlock());
+      if (new_block->IsLayoutNGObject() && IsLayoutFlowThread())
+        new_block->SetIsAnonymousNGMulticolInlineWrapper();
       LayoutBox::AddChild(new_block, before_child);
       // Reparent adjacent floating or out-of-flow siblings to the new box.
       new_block->ReparentPrecedingFloatingOrOutOfFlowSiblings();
@@ -3124,6 +3151,10 @@ void LayoutBlockFlow::RemoveChild(LayoutObject* old_child) {
   }
 }
 
+bool LayoutBlockFlow::CreatesAnonymousWrapper() const {
+  return IsLayoutFlowThread() && Parent()->IsLayoutNGObject();
+}
+
 void LayoutBlockFlow::MoveAllChildrenIncludingFloatsTo(
     LayoutBlock* to_block,
     bool full_remove_insert) {
@@ -3193,18 +3224,31 @@ void LayoutBlockFlow::ChildBecameFloatingOrOutOfFlow(LayoutBox* child) {
   }
 }
 
-void LayoutBlockFlow::CollapseAnonymousBlockChild(LayoutBlockFlow* child) {
-  NOT_DESTROYED();
+static bool AllowsCollapseAnonymousBlockChild(const LayoutBlockFlow& parent,
+                                              const LayoutBlockFlow& child) {
   // It's possible that this block's destruction may have been triggered by the
   // child's removal. Just bail if the anonymous child block is already being
   // destroyed. See crbug.com/282088
-  if (child->BeingDestroyed())
-    return;
-  if (child->Continuation())
-    return;
+  if (child.BeingDestroyed())
+    return false;
+  if (child.Continuation())
+    return false;
   // Ruby elements use anonymous wrappers for ruby runs and ruby bases by
   // design, so we don't remove them.
-  if (child->IsRubyRun() || child->IsRubyBase())
+  if (child.IsRubyRun() || child.IsRubyBase())
+    return false;
+  if (IsA<LayoutMultiColumnFlowThread>(parent) &&
+      parent.Parent()->IsLayoutNGObject() && child.ChildrenInline()) {
+    // The test[1] reaches here.
+    // [1] "fast/multicol/dynamic/remove-spanner-in-content.html"
+    return false;
+  }
+  return true;
+}
+
+void LayoutBlockFlow::CollapseAnonymousBlockChild(LayoutBlockFlow* child) {
+  NOT_DESTROYED();
+  if (!AllowsCollapseAnonymousBlockChild(*this, *child))
     return;
   SetNeedsLayoutAndIntrinsicWidthsRecalcAndFullPaintInvalidation(
       layout_invalidation_reason::kChildAnonymousBlockChanged);
@@ -3285,11 +3329,20 @@ void LayoutBlockFlow::ReparentPrecedingFloatingOrOutOfFlowSiblings() {
   }
 }
 
-void LayoutBlockFlow::MakeChildrenInlineIfPossible() {
-  NOT_DESTROYED();
+static bool AllowsInlineChildren(const LayoutBlockFlow& block_flow) {
   // Collapsing away anonymous wrappers isn't relevant for the children of
   // anonymous blocks, unless they are ruby bases.
-  if (IsAnonymousBlock() && !IsRubyBase())
+  if (block_flow.IsAnonymousBlock() && !block_flow.IsRubyBase())
+    return false;
+  if (IsA<LayoutMultiColumnFlowThread>(block_flow) &&
+      block_flow.Parent()->IsLayoutNGObject())
+    return false;
+  return true;
+}
+
+void LayoutBlockFlow::MakeChildrenInlineIfPossible() {
+  NOT_DESTROYED();
+  if (!AllowsInlineChildren(*this))
     return;
 
   HeapVector<Member<LayoutBlockFlow>, 3> blocks_to_remove;
@@ -4248,6 +4301,26 @@ void LayoutBlockFlow::UpdateAncestorShouldPaintFloatingObject(
   }
 }
 
+bool LayoutBlockFlow::AllowsColumns() const {
+  // Ruby elements manage child insertion in a special way, and would mess up
+  // insertion of the flow thread. The flow thread needs to be a direct child of
+  // the multicol block (|this|).
+  if (IsRuby())
+    return false;
+
+  // We don't allow custom layout and multicol on the same object. This is
+  // similar to not allowing it for flexbox, grids and tables (although those
+  // don't create LayoutBlockFlow, so we don't need to check for those here).
+  if (StyleRef().IsDisplayLayoutCustomBox())
+    return false;
+
+  // MathML layout objects don't support multicol.
+  if (IsMathML())
+    return false;
+
+  return true;
+}
+
 bool LayoutBlockFlow::AllowsPaginationStrut() const {
   NOT_DESTROYED();
   // The block needs to be contained by a LayoutBlockFlow (and not by e.g. a
@@ -4428,10 +4501,10 @@ void LayoutBlockFlow::CreateOrDestroyMultiColumnFlowThreadIfNeeded(
   if (!specifies_columns)
     return;
 
-  // Ruby elements manage child insertion in a special way, and would mess up
-  // insertion of the flow thread. The flow thread needs to be a direct child of
-  // the multicol block (|this|).
-  if (IsRuby())
+  if (IsListItemIncludingNG())
+    UseCounter::Count(GetDocument(), WebFeature::kMultiColAndListItem);
+
+  if (!AllowsColumns())
     return;
 
   // Fieldsets look for a legend special child (layoutSpecialExcludedChild()).
@@ -4449,20 +4522,28 @@ void LayoutBlockFlow::CreateOrDestroyMultiColumnFlowThreadIfNeeded(
   if (element && element->IsFormControlElement())
     return;
 
-  // We don't allow custom layout and multicol on the same object. This is
-  // similar to not allowing it for flexbox, grids and tables (although those
-  // don't create LayoutBlockFlow, so we don't need to check for those here).
-  if (IsLayoutNGCustom())
-    return;
-
-  // MathML layout objects don't support multicol.
-  if (IsMathML())
-    return;
+  // Make sure that we don't attempt to create a LayoutNG multicol container
+  // when the feature isn't enabled. There is a mechanism that causes us to fall
+  // back to legacy layout if columns are specified when
+  // LayoutNGBlockFragmentation is disabled, but then there are cases where
+  // we'll override this and force NG anyway (if the layout type isn't
+  // implemented in the legacy engine, which is the case for things like custom
+  // layout).
+  DCHECK(!IsLayoutNGObject() ||
+         RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled());
 
   auto* flow_thread = LayoutMultiColumnFlowThread::CreateAnonymous(
-      GetDocument(), StyleRef(), !CanTraversePhysicalFragments());
+      GetDocument(), StyleRef(), !IsLayoutNGObject());
   AddChild(flow_thread);
   pagination_state_changed_ = true;
+  if (IsLayoutNGObject()) {
+    // For simplicity of layout algorithm, we assume flow thread having block
+    // level children only.
+    // For example, we can handle them in same way:
+    //   <div style="columns:3">abc<br>def<br>ghi<br></div>
+    //   <div style="columns:3"><div>abc<br>def<br>ghi<br></div></div>
+    flow_thread->SetChildrenInline(false);
+  }
 
   // Check that addChild() put the flow thread as a direct child, and didn't do
   // fancy things.
@@ -4487,6 +4568,8 @@ void LayoutBlockFlow::SimplifiedNormalFlowInlineLayout() {
   NOT_DESTROYED();
   DCHECK(ChildrenInline());
   HeapLinkedHashSet<Member<RootInlineBox>> line_boxes;
+  ClearCollectionScope<HeapLinkedHashSet<Member<RootInlineBox>>> scope(
+      &line_boxes);
   for (InlineWalker walker(LineLayoutBlockFlow(this)); !walker.AtEnd();
        walker.Advance()) {
     LayoutObject* o = walker.Current().GetLayoutObject();
@@ -4517,6 +4600,7 @@ LayoutBlockFlow::RecalcInlineChildrenLayoutOverflow() {
   DCHECK(ChildrenInline());
   RecalcLayoutOverflowResult result;
   HeapHashSet<Member<RootInlineBox>> line_boxes;
+  ClearCollectionScope<HeapHashSet<Member<RootInlineBox>>> scope(&line_boxes);
   for (InlineWalker walker(LineLayoutBlockFlow(this)); !walker.AtEnd();
        walker.Advance()) {
     LayoutObject* layout_object = walker.Current().GetLayoutObject();
@@ -4548,7 +4632,9 @@ void LayoutBlockFlow::RecalcInlineChildrenVisualOverflow() {
   NOT_DESTROYED();
   DCHECK(ChildrenInline());
 
-  if (PhysicalFragmentCount()) {
+  // TODO(crbug.com/1144203): This code path should be switch to
+  // |RecalcFragmentsVisualOverflow|.
+  if (CanUseFragmentsForVisualOverflow()) {
     for (const NGPhysicalBoxFragment& fragment : PhysicalFragments()) {
       if (const NGFragmentItems* items = fragment.Items()) {
         NGInlineCursor cursor(fragment, *items);
@@ -4577,7 +4663,7 @@ void LayoutBlockFlow::RecalcInlineChildrenVisualOverflow() {
 }
 
 void LayoutBlockFlow::RecalcFloatingDescendantsVisualOverflow(
-    const NGPhysicalContainerFragment& fragment) {
+    const NGPhysicalFragment& fragment) {
   DCHECK(fragment.HasFloatingDescendantsForPaint());
 
   for (const NGLink& child : fragment.PostLayoutChildren()) {
@@ -4587,8 +4673,7 @@ void LayoutBlockFlow::RecalcFloatingDescendantsVisualOverflow(
       continue;
     }
 
-    if (const NGPhysicalContainerFragment* child_container_fragment =
-            DynamicTo<NGPhysicalContainerFragment>(child.get())) {
+    if (const NGPhysicalFragment* child_container_fragment = child.get()) {
       if (child_container_fragment->HasFloatingDescendantsForPaint())
         RecalcFloatingDescendantsVisualOverflow(*child_container_fragment);
     }
@@ -4753,6 +4838,13 @@ void LayoutBlockFlow::ShowLineTreeAndMark(const InlineBox* marked_box1,
                                           const char* marked_label2,
                                           const LayoutObject* obj) const {
   NOT_DESTROYED();
+  if (getenv("RUNNING_UNDER_RR")) {
+    // Printing timestamps requires an IPC to get the local time, which
+    // does not work in an rr replay session. Just disable timestamp printing,
+    // which we don't care about anyway.
+    logging::SetLogItems(true, true, false, false);
+  }
+
   StringBuilder string_blockflow;
   DumpLayoutObject(string_blockflow, true, kShowTreeCharacterOffset);
   for (const RootInlineBox* root = FirstRootBox(); root;

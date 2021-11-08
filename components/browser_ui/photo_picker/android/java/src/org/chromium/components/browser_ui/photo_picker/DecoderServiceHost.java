@@ -49,6 +49,9 @@ public class DecoderServiceHost
     // A tag for logging error messages.
     private static final String TAG = "ImageDecoderHost";
 
+    // The feature param for determining whether the PhotoPicker should animate thumbnails.
+    private static final String FEATURE_PARAM_ANIMATE_THUMBNAILS = "animate_thumbnails";
+
     // The current context.
     private final Context mContext;
 
@@ -80,7 +83,7 @@ public class DecoderServiceHost
     private int mFailedVideoDecodesUnknown;
 
     // Whether animated thumbnails should be generated for video clips.
-    private final boolean mAnimatedThumbnailsSupported;
+    private boolean mAnimatedThumbnailsSupported;
 
     // A worker task for asynchronously handling video decode requests.
     private DecodeVideoTask mWorkerTask;
@@ -110,6 +113,9 @@ public class DecoderServiceHost
         sIntentSupplier = intentSupplier;
     }
 
+    // This is true after {#link bindService()} has been called for {@link mConnection}. It
+    // indicates that {@link unbindService()} should be called.
+    private boolean mBindServiceCalled;
     IDecoderService mIRemoteService;
     private ServiceConnection mConnection = new ServiceConnection() {
         @Override
@@ -231,39 +237,35 @@ public class DecoderServiceHost
      * The DecoderServiceHost constructor.
      * @param callback The callback to use when communicating back to the client.
      * @param context The current context.
-     * @param animatedThumbnailsSupported Whether animated thumbnails should be generated for video
-     *         clips.
      */
-    public DecoderServiceHost(
-            DecoderStatusCallback callback, Context context, boolean animatedThumbnailsSupported) {
+    public DecoderServiceHost(DecoderStatusCallback callback, Context context) {
         mCallbacks.add(callback);
-        mAnimatedThumbnailsSupported = animatedThumbnailsSupported;
         if (sStatusCallbackForTesting != null) {
             mCallbacks.add(sStatusCallbackForTesting);
         }
         mContext = context;
         mContentResolver = mContext.getContentResolver();
+        mAnimatedThumbnailsSupported =
+                PhotoPickerFeatures.PHOTO_PICKER_VIDEO_SUPPORT.getFieldTrialParamByFeatureAsBoolean(
+                        FEATURE_PARAM_ANIMATE_THUMBNAILS, false);
     }
 
     /**
      * Initiate binding with the {@link DecoderService}.
-     * @param context The context to use.
      */
-    public void bind(Context context) {
+    public void bind() {
         Intent intent = sIntentSupplier.get();
         intent.setAction(IDecoderService.class.getName());
         mContext.bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
+        mBindServiceCalled = true;
     }
 
     /**
      * Unbind from the {@link DecoderService}.
-     * @param context The context to use.
      */
-    public void unbind(Context context) {
-        if (mIRemoteService != null) {
-            context.unbindService(mConnection);
-            mIRemoteService = null;
-        }
+    public void unbind() {
+        if (mBindServiceCalled) mContext.unbindService(mConnection);
+        mBindServiceCalled = false;
     }
 
     /**
@@ -282,6 +284,7 @@ public class DecoderServiceHost
         DecoderServiceParams params = new DecoderServiceParams(
                 uri, width, fullWidth, fileType, /*firstFrame=*/true, callback);
         mPendingRequests.add(params);
+
         if (params.mFileType == PickerBitmap.TileTypes.VIDEO && mAnimatedThumbnailsSupported) {
             // Decoding requests for videos are requests for first frames only. Add another
             // low-priority request for decoding the rest of the frames.
@@ -513,9 +516,9 @@ public class DecoderServiceHost
      * @param firstFrame True if the decoding request is for the first frame only.
      */
     private void dispatchDecodeVideoRequest(DecoderServiceParams params, boolean firstFrame) {
-        // Videos are decoded by the system (on N+) using a restricted helper process, so
+        // Videos are decoded by the system (on O+) using a restricted helper process, so
         // there's no need to use our custom sandboxed process.
-        assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
+        assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
 
         int frames = firstFrame ? 1 : 10;
         int intervalMs = 2000;
@@ -601,5 +604,10 @@ public class DecoderServiceHost
     @VisibleForTesting
     public static void setStatusCallback(DecoderStatusCallback callback) {
         sStatusCallbackForTesting = callback;
+    }
+
+    @VisibleForTesting
+    void setAnimatedThumbnailsSupportedForTesting(boolean supported) {
+        mAnimatedThumbnailsSupported = supported;
     }
 }

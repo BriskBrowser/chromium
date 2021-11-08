@@ -6,13 +6,22 @@
 #include "base/ios/ios_util.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
+#include "components/feed/core/v2/public/ios/pref_names.h"
 #include "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_app_interface.h"
+#include "ios/chrome/browser/chrome_switches.h"
+#import "ios/chrome/browser/pref_names.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_constants.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
+#import "ios/chrome/browser/ui/content_suggestions/new_tab_page_app_interface.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
+#import "ios/chrome/browser/ui/ntp/new_tab_page_constants.h"
+#import "ios/chrome/browser/ui/ntp/new_tab_page_feature.h"
 #import "ios/chrome/browser/ui/settings/settings_table_view_controller_constants.h"
+#import "ios/chrome/browser/ui/start_surface/start_surface_features.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
+#import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
@@ -105,30 +114,45 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   [pasteboard setValue:@"" forPasteboardType:UIPasteboardNameGeneral];
 
   [self closeAllTabs];
-  [ContentSuggestionsAppInterface setUpService];
+  [NewTabPageAppInterface setUpService];
 }
 
 + (void)tearDown {
   [self closeAllTabs];
-  [ContentSuggestionsAppInterface resetService];
+  [NewTabPageAppInterface resetService];
 
   [super tearDown];
 }
 
+- (AppLaunchConfiguration)appConfigurationForTestCase {
+  // Use commandline args to enable the Discover feed for this test case.
+  // Disabled elsewhere to account for possible flakiness.
+  AppLaunchConfiguration config;
+  config.additional_args.push_back(std::string("--") +
+                                   switches::kEnableDiscoverFeed);
+  config.features_enabled.push_back(kDiscoverFeedInNtp);
+  config.features_disabled.push_back(kStartSurface);
+  return config;
+}
+
 - (void)setUp {
   [super setUp];
-  [ContentSuggestionsAppInterface makeSuggestionsAvailable];
+  [NewTabPageAppInterface makeSuggestionsAvailable];
+  [ChromeEarlGreyAppInterface
+      setBoolValue:YES
+       forUserPref:base::SysUTF8ToNSString(prefs::kArticlesForYouEnabled)];
+  [ChromeEarlGreyAppInterface
+      setBoolValue:YES
+       forUserPref:base::SysUTF8ToNSString(feed::prefs::kArticlesListVisible)];
 
-  self.defaultSearchEngine =
-      [ContentSuggestionsAppInterface defaultSearchEngine];
+  self.defaultSearchEngine = [NewTabPageAppInterface defaultSearchEngine];
 }
 
 - (void)tearDown {
-  [ContentSuggestionsAppInterface disableSuggestions];
+  [NewTabPageAppInterface disableSuggestions];
   [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationPortrait
                                 error:nil];
-
-  [ContentSuggestionsAppInterface resetSearchEngineTo:self.defaultSearchEngine];
+  [NewTabPageAppInterface resetSearchEngineTo:self.defaultSearchEngine];
 
   [super tearDown];
 }
@@ -136,7 +160,8 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 #pragma mark - Tests
 
 // Tests that all items are accessible on the home page.
-- (void)testAccessibility {
+// TODO(crbug.com/1237925): Re-enable once misisng accessibility label is fixed.
+- (void)DISABLED_testAccessibility {
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
 }
 
@@ -198,10 +223,20 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 // Tests that when loading an invalid URL, the NTP is still displayed.
 // Prevents regressions from https://crbug.com/1063154 .
 - (void)testInvalidURL {
-  NSString* URL = @"app-settings://test-test-test/";
+#if !TARGET_IPHONE_SIMULATOR
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_DISABLED(@"Disabled for iPad, because key '-' could not be "
+                            @"found on the keyboard.");
+  }
+#endif  // !TARGET_IPHONE_SIMULATOR
+  NSString* URL = @"app-settings://test/";
 
   // The URL needs to be typed to trigger the bug.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:chrome_test_util::Omnibox()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(URL)];
 
   // The first suggestion is a search, the second suggestion is the URL.
@@ -220,19 +255,19 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 
 // Tests that the fake omnibox width is correctly updated after a rotation.
 - (void)testOmniboxWidthRotation {
+
   // TODO(crbug.com/652465): Enable the test for iPad when rotation bug is
   // fixed.
   if ([ChromeEarlGrey isIPadIdiom]) {
     EARL_GREY_TEST_DISABLED(@"Disabled for iPad due to device rotation bug.");
   }
   [ChromeEarlGreyUI waitForAppToIdle];
-  UICollectionView* collectionView =
-      [ContentSuggestionsAppInterface collectionView];
+  UICollectionView* collectionView = [NewTabPageAppInterface collectionView];
   UIEdgeInsets safeArea = collectionView.safeAreaInsets;
   CGFloat collectionWidth =
       CGRectGetWidth(UIEdgeInsetsInsetRect(collectionView.bounds, safeArea));
   GREYAssertTrue(collectionWidth > 0, @"The collection width is nil.");
-  CGFloat fakeOmniboxWidth = [ContentSuggestionsAppInterface
+  CGFloat fakeOmniboxWidth = [NewTabPageAppInterface
       searchFieldWidthForCollectionWidth:collectionWidth
                          traitCollection:collectionView.traitCollection];
 
@@ -244,13 +279,13 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 
   [ChromeEarlGreyUI waitForAppToIdle];
 
-  collectionView = [ContentSuggestionsAppInterface collectionView];
+  collectionView = [NewTabPageAppInterface collectionView];
   safeArea = collectionView.safeAreaInsets;
   CGFloat collectionWidthAfterRotation =
       CGRectGetWidth(UIEdgeInsetsInsetRect(collectionView.bounds, safeArea));
   GREYAssertNotEqual(collectionWidth, collectionWidthAfterRotation,
                      @"The collection width has not changed.");
-  fakeOmniboxWidth = [ContentSuggestionsAppInterface
+  fakeOmniboxWidth = [NewTabPageAppInterface
       searchFieldWidthForCollectionWidth:collectionWidthAfterRotation
                          traitCollection:collectionView.traitCollection];
 
@@ -261,19 +296,19 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 // Tests that the fake omnibox width is correctly updated after a rotation done
 // while the settings screen is shown.
 - (void)testOmniboxWidthRotationBehindSettings {
+
   // TODO(crbug.com/652465): Enable the test for iPad when rotation bug is
   // fixed.
   if ([ChromeEarlGrey isRegularXRegularSizeClass]) {
     EARL_GREY_TEST_DISABLED(@"Disabled for iPad due to device rotation bug.");
   }
   [ChromeEarlGreyUI waitForAppToIdle];
-  UICollectionView* collectionView =
-      [ContentSuggestionsAppInterface collectionView];
+  UICollectionView* collectionView = [NewTabPageAppInterface collectionView];
   UIEdgeInsets safeArea = collectionView.safeAreaInsets;
   CGFloat collectionWidth =
       CGRectGetWidth(UIEdgeInsetsInsetRect(collectionView.bounds, safeArea));
   GREYAssertTrue(collectionWidth > 0, @"The collection width is nil.");
-  CGFloat fakeOmniboxWidth = [ContentSuggestionsAppInterface
+  CGFloat fakeOmniboxWidth = [NewTabPageAppInterface
       searchFieldWidthForCollectionWidth:collectionWidth
                          traitCollection:collectionView.traitCollection];
 
@@ -290,13 +325,13 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsDoneButton()]
       performAction:grey_tap()];
 
-  collectionView = [ContentSuggestionsAppInterface collectionView];
+  collectionView = [NewTabPageAppInterface collectionView];
   safeArea = collectionView.safeAreaInsets;
   CGFloat collectionWidthAfterRotation =
       CGRectGetWidth(UIEdgeInsetsInsetRect(collectionView.bounds, safeArea));
   GREYAssertNotEqual(collectionWidth, collectionWidthAfterRotation,
                      @"The collection width has not changed.");
-  fakeOmniboxWidth = [ContentSuggestionsAppInterface
+  fakeOmniboxWidth = [NewTabPageAppInterface
       searchFieldWidthForCollectionWidth:collectionWidthAfterRotation
                          traitCollection:collectionView.traitCollection];
 
@@ -313,13 +348,12 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
     EARL_GREY_TEST_DISABLED(@"Disabled for iPad due to device rotation bug.");
   }
 
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          ContentSuggestionCollectionView()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
       performAction:grey_swipeFastInDirection(kGREYDirectionUp)];
 
   [ChromeEarlGreyUI waitForAppToIdle];
   CGFloat collectionWidth =
-      [ContentSuggestionsAppInterface collectionView].bounds.size.width;
+      [NewTabPageAppInterface collectionView].bounds.size.width;
   GREYAssertTrue(collectionWidth > 0, @"The collection width is nil.");
 
   // The fake omnibox might be slightly bigger than the screen in order to cover
@@ -332,9 +366,59 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 
   [ChromeEarlGreyUI waitForAppToIdle];
   CGFloat collectionWidthAfterRotation =
-      [ContentSuggestionsAppInterface collectionView].bounds.size.width;
+      [NewTabPageAppInterface collectionView].bounds.size.width;
   GREYAssertNotEqual(collectionWidth, collectionWidthAfterRotation,
                      @"The collection width has not changed.");
+}
+
+// Tests that the fake omnibox remains visible when scrolling, by pinning itself
+// to the top of the NTP. Also ensures that NTP minimum height is respected.
+- (void)testOmniboxPinsToTop {
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_DISABLED(
+        @"Disabled for iPad since it does not pin the omnibox.");
+  }
+
+  UIView* fakeOmnibox = [NewTabPageAppInterface fakeOmnibox];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+  GREYAssertTrue(fakeOmnibox.frame.origin.x > 1,
+                 @"The omnibox is pinned to top before scrolling down.");
+
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
+      performAction:grey_swipeFastInDirection(kGREYDirectionUp)];
+
+  [ChromeEarlGreyUI waitForAppToIdle];
+
+  // After scrolling down, the omnibox should be pinned and visible.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+  GREYAssertTrue(fakeOmnibox.frame.origin.x < 1,
+                 @"The omnibox is not pinned to top when scrolling down, or "
+                 @"the NTP cannot scroll.");
+}
+
+// Tests that the fake omnibox animation works, increasing the width of the
+// omnibox.
+- (void)testOmniboxWidthChangesWithScroll {
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_DISABLED(
+        @"Disabled for iPad since the width does not change for it.");
+  }
+
+  CGFloat omniboxWidthBeforeScrolling =
+      [NewTabPageAppInterface fakeOmnibox].frame.size.width;
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
+      performAction:grey_swipeFastInDirection(kGREYDirectionUp)];
+
+  [ChromeEarlGreyUI waitForAppToIdle];
+
+  CGFloat omniboxWidthAfterScrolling =
+      [NewTabPageAppInterface fakeOmnibox].frame.size.width;
+
+  GREYAssertTrue(
+      omniboxWidthAfterScrolling > omniboxWidthBeforeScrolling,
+      @"Fake omnibox width did not animate properly when scrolling.");
 }
 
 // Tests that the app doesn't crash when opening multiple tabs.
@@ -350,7 +434,7 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 
 // Tests that the promo is correctly displayed and removed once tapped.
 - (void)testPromoTap {
-  [ContentSuggestionsAppInterface setWhatsNewPromoToMoveToDock];
+  [NewTabPageAppInterface setWhatsNewPromoToMoveToDock];
 
   // Open a new tab to have the promo.
   [ChromeEarlGreyUI openNewTab];
@@ -367,7 +451,7 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
                                    @"ContentSuggestionsWhatsNewIdentifier")]
       assertWithMatcher:grey_not(grey_sufficientlyVisible())];
 
-  [ContentSuggestionsAppInterface resetWhatsNewPromo];
+  [NewTabPageAppInterface resetWhatsNewPromo];
 }
 
 // Tests that the position of the collection view is restored when navigating
@@ -376,17 +460,16 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   [self addMostVisitedTile];
 
   // Add suggestions to be able to scroll on iPad.
-  [ContentSuggestionsAppInterface addNumberOfSuggestions:15
-                                additionalSuggestionsURL:nil];
+  [NewTabPageAppInterface addNumberOfSuggestions:15
+                        additionalSuggestionsURL:nil];
 
   // Scroll to have a position to restored.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          ContentSuggestionCollectionView()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
       performAction:grey_scrollInDirection(kGREYDirectionDown, 150)];
 
   // Save the position before navigating.
-  UIView* omnibox = [ContentSuggestionsAppInterface fakeOmnibox];
-  CGPoint previousPosition = omnibox.bounds.origin;
+  UICollectionView* collectionView = [NewTabPageAppInterface collectionView];
+  CGFloat previousPosition = collectionView.contentOffset.y;
 
   // Navigate and come back.
   [[EarlGrey selectElementWithMatcher:
@@ -397,29 +480,29 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   [ChromeEarlGrey goBack];
 
   // Check that the new position is the same.
-  omnibox = [ContentSuggestionsAppInterface fakeOmnibox];
-  GREYAssertEqual(previousPosition.y, omnibox.bounds.origin.y,
-                  @"Omnibox not at the same position");
+  GREYAssertEqual(previousPosition, collectionView.contentOffset.y,
+                  @"NTP is not at the same position.");
 }
 
 // Tests that when navigating back to the NTP while having the omnibox focused
 // and moved up, the scroll position restored is the position before the omnibox
 // is selected.
-- (void)testPositionRestoredWithOmniboxFocused {
+// Disable the test due to ios official build failure.
+// TODO(crbug.com/1243222): enable the test with fix.
+- (void)DISABLED_testPositionRestoredWithOmniboxFocused {
   [self addMostVisitedTile];
 
   // Add suggestions to be able to scroll on iPad.
-  [ContentSuggestionsAppInterface addNumberOfSuggestions:15
-                                additionalSuggestionsURL:nil];
+  [NewTabPageAppInterface addNumberOfSuggestions:15
+                        additionalSuggestionsURL:nil];
 
   // Scroll to have a position to restored.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          ContentSuggestionCollectionView()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
       performAction:grey_scrollInDirection(kGREYDirectionDown, 150)];
 
   // Save the position before navigating.
-  UIView* omnibox = [ContentSuggestionsAppInterface fakeOmnibox];
-  CGPoint previousPosition = omnibox.bounds.origin;
+  UICollectionView* collectionView = [NewTabPageAppInterface collectionView];
+  CGFloat previousPosition = collectionView.contentOffset.y;
 
   // Tap the omnibox to focus it.
   [self focusFakebox];
@@ -433,9 +516,10 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   [ChromeEarlGrey goBack];
 
   // Check that the new position is the same.
-  omnibox = [ContentSuggestionsAppInterface fakeOmnibox];
-  GREYAssertEqual(previousPosition.y, omnibox.bounds.origin.y,
-                  @"Omnibox not at the same position");
+  collectionView = [NewTabPageAppInterface collectionView];
+  GREYAssertEqual(
+      previousPosition, collectionView.contentOffset.y,
+      @"NTP is not at the same position as before tapping the omnibox");
 }
 
 // Tests that tapping the fake omnibox focuses the real omnibox.
@@ -466,20 +550,7 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 // Tests that tapping the fake omnibox moves the collection.
 - (void)testTapFakeOmniboxScroll {
   // Get the collection and its layout.
-  UICollectionView* collectionView =
-      [ContentSuggestionsAppInterface collectionView];
-
-  GREYAssertTrue(
-      [collectionView.delegate
-          conformsToProtocol:@protocol(UICollectionViewDelegateFlowLayout)],
-      @"The collection has not the expected delegate.");
-  id<UICollectionViewDelegateFlowLayout> delegate =
-      (id<UICollectionViewDelegateFlowLayout>)(collectionView.delegate);
-  CGFloat headerHeight =
-      [delegate collectionView:collectionView
-                                   layout:collectionView.collectionViewLayout
-          referenceSizeForHeaderInSection:0]
-          .height;
+  UICollectionView* collectionView = [NewTabPageAppInterface collectionView];
 
   // Offset before the tap.
   CGPoint origin = collectionView.contentOffset;
@@ -493,15 +564,11 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   // Make sure the fake omnibox has been hidden and the collection has moved.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
       assertWithMatcher:grey_not(grey_sufficientlyVisible())];
-
-  CGFloat top =
-      [ContentSuggestionsAppInterface collectionView].safeAreaInsets.top;
-  GREYAssertTrue(offsetAfterTap.y >= origin.y + headerHeight - (60 + top),
+  GREYAssertTrue(offsetAfterTap.y >= origin.y,
                  @"The collection has not moved.");
 
   // Unfocus the omnibox.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          ContentSuggestionCollectionView()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
       performAction:grey_tapAtPoint(CGPointMake(0, offsetAfterTap.y + 100))];
 
   // Check the fake omnibox is displayed again at the same position.
@@ -517,12 +584,10 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 // back to where it was.
 - (void)testTapFakeOmniboxScrollScrolled {
   // Get the collection and its layout.
-  UICollectionView* collectionView =
-      [ContentSuggestionsAppInterface collectionView];
+  UICollectionView* collectionView = [NewTabPageAppInterface collectionView];
 
   // Scroll to have a position different from the default.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          ContentSuggestionCollectionView()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
       performAction:grey_scrollInDirection(kGREYDirectionDown, 50)];
 
   // Offset before the tap.
@@ -532,8 +597,7 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   [self focusFakebox];
 
   // Unfocus the omnibox.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          ContentSuggestionCollectionView()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
       performAction:grey_tapAtPoint(
                         CGPointMake(0, collectionView.contentOffset.y + 100))];
 
@@ -578,13 +642,13 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 
 - (void)testFavicons {
   for (NSInteger index = 0; index < 8; index++) {
-    [[EarlGrey selectElementWithMatcher:
-                   grey_accessibilityID([NSString
-                       stringWithFormat:@"%@%li",
-                                        @"contentSuggestionsMostVisitedAccessib"
-                                        @"ilityIdentifierPrefix",
-                                        index])]
-        assertWithMatcher:grey_sufficientlyVisible()];
+    [[EarlGrey
+        selectElementWithMatcher:
+            grey_accessibilityID([NSString
+                stringWithFormat:
+                    @"%@%li",
+                    kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix,
+                    index])] assertWithMatcher:grey_sufficientlyVisible()];
   }
 
   // Change the Search Engine to Yahoo!.
@@ -601,13 +665,13 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 
   // Check again the favicons.
   for (NSInteger index = 0; index < 8; index++) {
-    [[EarlGrey selectElementWithMatcher:
-                   grey_accessibilityID([NSString
-                       stringWithFormat:@"%@%li",
-                                        @"contentSuggestionsMostVisitedAccessib"
-                                        @"ilityIdentifierPrefix",
-                                        index])]
-        assertWithMatcher:grey_sufficientlyVisible()];
+    [[EarlGrey
+        selectElementWithMatcher:
+            grey_accessibilityID([NSString
+                stringWithFormat:
+                    @"%@%li",
+                    kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix,
+                    index])] assertWithMatcher:grey_sufficientlyVisible()];
   }
 
   // Change the Search Engine to Google.
@@ -623,6 +687,136 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
       performAction:grey_tap()];
 }
 
+// TODO(crbug.com/1255548): Add tests for overscroll menu.
+- (void)testMinimumHeight {
+  [ChromeEarlGreyAppInterface
+      setBoolValue:NO
+       forUserPref:base::SysUTF8ToNSString(prefs::kArticlesForYouEnabled)];
+
+  [self
+      testNTPInitialPositionAndContent:[NewTabPageAppInterface collectionView]];
+
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
+      performAction:grey_swipeFastInDirection(kGREYDirectionUp)];
+
+  // Ensures that tiles are still all visible with feed turned off after
+  // scrolling.
+  for (NSInteger index = 0; index < 8; index++) {
+    [[EarlGrey
+        selectElementWithMatcher:
+            grey_accessibilityID([NSString
+                stringWithFormat:
+                    @"%@%li",
+                    kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix,
+                    index])] assertWithMatcher:grey_sufficientlyVisible()];
+  }
+  // Ensures that fake omnibox visibility is correct.
+  // On iPads, fake omnibox disappears and becomes real omnibox. On other
+  // devices, fake omnibox persists and sticks to top.
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+        assertWithMatcher:grey_notVisible()];
+  } else {
+    [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+        assertWithMatcher:grey_sufficientlyVisible()];
+  }
+
+  // Ensures that logo/doodle is no longer visible when scrolled down.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPLogo()]
+      assertWithMatcher:grey_not(grey_sufficientlyVisible())];
+}
+
+// Test to ensure that initial position and content are maintained when rotating
+// the device back and forth.
+- (void)testInitialPositionAndOrientationChange {
+  UICollectionView* collectionView = [NewTabPageAppInterface collectionView];
+
+  [self testNTPInitialPositionAndContent:collectionView];
+
+  [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationLandscapeRight
+                                error:nil];
+
+  [self testNTPInitialPositionAndContent:collectionView];
+
+  [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationPortrait error:nil];
+
+  [self testNTPInitialPositionAndContent:collectionView];
+}
+
+// Test to ensure that feed can be collapsed/shown and that feed header changes
+// accordingly.
+- (void)testToggleFeedVisible {
+  [self
+      testNTPInitialPositionAndContent:[NewTabPageAppInterface collectionView]];
+
+  // Check feed label and if NTP is scrollable.
+  [self checkFeedLabelForFeedVisible:YES];
+  [self checkIfNTPIsScrollable];
+
+  // Hide feed.
+  // TODO(crbug.com/1194106): Hide feed using feed header menu instead of
+  // manipulating pref directly.
+  [ChromeEarlGreyAppInterface
+      setBoolValue:NO
+       forUserPref:base::SysUTF8ToNSString(feed::prefs::kArticlesListVisible)];
+
+  // Check feed label and if NTP is scrollable.
+  [self checkFeedLabelForFeedVisible:NO];
+  [self checkIfNTPIsScrollable];
+
+  // Show feed again.
+  [ChromeEarlGreyAppInterface
+      setBoolValue:YES
+       forUserPref:base::SysUTF8ToNSString(feed::prefs::kArticlesListVisible)];
+
+  // Check feed label and if NTP is scrollable.
+  [self checkFeedLabelForFeedVisible:YES];
+  [self checkIfNTPIsScrollable];
+}
+
+// Test to ensure that feed can be enabled/disabled and that feed header changes
+// accordingly.
+// TODO(crbug.com/1194106): Flaky on ios-simulator-noncq.
+- (void)DISABLED_testToggleFeedEnabled {
+  [self
+      testNTPInitialPositionAndContent:[NewTabPageAppInterface collectionView]];
+
+  // Ensure that label is visible with correct text for enabled feed, and that
+  // the NTP is scrollable.
+  [self checkFeedLabelForFeedVisible:YES];
+  [self checkIfNTPIsScrollable];
+
+  // Disable feed.
+  [ChromeEarlGreyUI openSettingsMenu];
+  [ChromeEarlGreyUI
+      tapSettingsMenuButton:grey_accessibilityID(
+                                kSettingsArticleSuggestionsCellId)];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsDoneButton()]
+      performAction:grey_tap()];
+
+  // Ensure that label is no longer visible and that the NTP is still
+  // scrollable.
+  [self
+      testNTPInitialPositionAndContent:[NewTabPageAppInterface collectionView]];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::DiscoverHeaderLabel()]
+      assertWithMatcher:grey_nil()];
+  [self checkIfNTPIsScrollable];
+
+  // Re-enable feed.
+  [ChromeEarlGreyUI openSettingsMenu];
+  [ChromeEarlGreyUI
+      tapSettingsMenuButton:grey_accessibilityID(
+                                kSettingsArticleSuggestionsCellId)];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsDoneButton()]
+      performAction:grey_tap()];
+
+  // Ensure that label is once again visible and that the NTP is still
+  // scrollable.
+  [self
+      testNTPInitialPositionAndContent:[NewTabPageAppInterface collectionView]];
+  [self checkFeedLabelForFeedVisible:YES];
+  [self checkIfNTPIsScrollable];
+}
 #pragma mark - Helpers
 
 - (void)addMostVisitedTile {
@@ -649,6 +843,49 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
       performAction:grey_tap()];
   [ChromeEarlGrey
       waitForSufficientlyVisibleElementWithMatcher:chrome_test_util::Omnibox()];
+}
+
+- (void)testNTPInitialPositionAndContent:(UICollectionView*)collectionView {
+  // TODO(crbug.com/1194106): Initial offset should be checked to be 0 with
+  // refactored NTP using native header.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPLogo()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+}
+
+// Check that feed label is visible with correct text for feed visibility.
+- (void)checkFeedLabelForFeedVisible:(BOOL)visible {
+  NSString* labelTextForVisibleFeed =
+      l10n_util::GetNSString(IDS_IOS_DISCOVER_FEED_TITLE);
+  NSString* labelTextForHiddenFeed =
+      [NSString stringWithFormat:@"%@ – %@", labelTextForVisibleFeed,
+                                 l10n_util::GetNSString(
+                                     IDS_IOS_DISCOVER_FEED_TITLE_OFF_LABEL)];
+  NSString* labelText =
+      visible ? labelTextForVisibleFeed : labelTextForHiddenFeed;
+  [EarlGrey
+      selectElementWithMatcher:grey_allOf(
+                                   chrome_test_util::DiscoverHeaderLabel(),
+                                   grey_sufficientlyVisible(), nil)];
+  UILabel* discoverHeaderLabel = [NewTabPageAppInterface discoverHeaderLabel];
+  GREYAssertTrue([discoverHeaderLabel.text isEqualToString:labelText],
+                 @"Discover header label is incorrect");
+}
+
+// Check that NTP is scrollable by scrolling and comparing offsets, then return
+// to top.
+- (void)checkIfNTPIsScrollable {
+  UICollectionView* collectionView = [NewTabPageAppInterface collectionView];
+  CGFloat yOffsetBeforeScroll = collectionView.contentOffset.y;
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
+      performAction:grey_swipeFastInDirection(kGREYDirectionUp)];
+  GREYAssertTrue(yOffsetBeforeScroll != collectionView.contentOffset.y,
+                 @"NTP cannot be scrolled.");
+
+  // Scroll back to top of NTP.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
+      performAction:grey_swipeFastInDirection(kGREYDirectionDown)];
 }
 
 @end

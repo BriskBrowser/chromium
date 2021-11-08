@@ -20,7 +20,6 @@
 #include "media/gpu/test/video_frame_helpers.h"
 #include "media/mojo/common/mojo_shared_buffer_video_frame.h"
 #include "media/parsers/vp8_parser.h"
-#include "media/video/h264_parser.h"
 #include "mojo/public/cpp/system/buffer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libyuv/include/libyuv/planar_functions.h"
@@ -34,6 +33,39 @@ namespace test {
 namespace {
 constexpr uint16_t kIvfFileHeaderSize = 32;
 constexpr size_t kIvfFrameHeaderSize = 12;
+
+bool IsH264SPSNALU(const uint8_t* data, size_t size) {
+  // Check if this is an H264 SPS NALU w/ a 3 or 4 byte start code.
+  return (size >= 4 && data[0] == 0x0 && data[1] == 0x0 && data[2] == 0x1 &&
+          (data[3] & 0x1f) == 0x7) ||
+         (size >= 5 && data[0] == 0x0 && data[1] == 0x0 && data[2] == 0x0 &&
+          data[3] == 0x1 && (data[4] & 0x1f) == 0x7);
+}
+
+bool IsHevcSPSNALU(const uint8_t* data, size_t size) {
+  // Check if this is an HEVC SPS NALU w/ a 3 or 4 byte start code.
+  return (size >= 4 && data[0] == 0x0 && data[1] == 0x0 && data[2] == 0x1 &&
+          (data[3] & 0x7e) == 0x42) ||
+         (size >= 5 && data[0] == 0x0 && data[1] == 0x0 && data[2] == 0x0 &&
+          data[3] == 0x1 && (data[4] & 0x7e) == 0x42);
+}
+
+// If |reverse| is true , GetNextFrame() for a frame returns frames in a
+// round-trip playback fashion (0, 1,.., |num_frames| - 2, |num_frames| - 1,
+// |num_frames| - 1, |num_frames_| - 2,.., 1, 0, 0, 1,..).
+// If |reverse| is false, GetNextFrame() just loops the stream (0, 1,..,
+// |num_frames| - 2, |num_frames| - 1, 0, 1,..).
+uint32_t GetReadFrameIndex(uint32_t frame_index,
+                           bool reverse,
+                           uint32_t num_frames) {
+  if (!reverse)
+    return frame_index % num_frames;
+
+  const uint32_t number_of_loops = frame_index / num_frames;
+  const bool is_even_loop = number_of_loops % 2 == 0;
+  const uint32_t local_index = frame_index % num_frames;
+  return is_even_loop ? local_index : num_frames - local_index - 1;
+}
 }  // namespace
 
 IvfFileHeader GetIvfFileHeader(const base::span<const uint8_t>& data) {
@@ -76,10 +108,10 @@ bool IvfWriter::WriteFileHeader(VideoCodec codec,
   write16(4, kVersion);
   write16(6, kIvfFileHeaderSize);
   switch (codec) {
-    case kCodecVP8:
+    case VideoCodec::kVP8:
       strcpy(&ivf_header[8], "VP80");
       break;
-    case kCodecVP9:
+    case VideoCodec::kVP9:
       strcpy(&ivf_header[8], "VP90");
       break;
     default:
@@ -129,11 +161,12 @@ bool EncodedDataHelper::IsNALHeader(const std::string& data, size_t pos) {
 
 scoped_refptr<DecoderBuffer> EncodedDataHelper::GetNextBuffer() {
   switch (VideoCodecProfileToVideoCodec(profile_)) {
-    case kCodecH264:
+    case VideoCodec::kH264:
+    case VideoCodec::kHEVC:
       return GetNextFragment();
-    case kCodecVP8:
-    case kCodecVP9:
-    case kCodecAV1:
+    case VideoCodec::kVP8:
+    case VideoCodec::kVP9:
+    case VideoCodec::kAV1:
       return GetNextFrame();
     default:
       NOTREACHED();
@@ -181,7 +214,11 @@ size_t EncodedDataHelper::GetBytesForNextNALU(size_t start_pos) {
 bool EncodedDataHelper::LookForSPS(size_t* skipped_fragments_count) {
   *skipped_fragments_count = 0;
   while (next_pos_to_decode_ + 4 < data_.size()) {
-    if ((data_[next_pos_to_decode_ + 4] & 0x1f) == 0x7) {
+    if ((profile_ >= H264PROFILE_MIN && profile_ <= H264PROFILE_MAX) &&
+        ((data_[next_pos_to_decode_ + 4] & 0x1f) == 0x7)) {
+      return true;
+    } else if ((profile_ >= HEVCPROFILE_MIN && profile_ <= HEVCPROFILE_MAX) &&
+               ((data_[next_pos_to_decode_ + 4] & 0x7e) == 0x42)) {
       return true;
     }
     *skipped_fragments_count += 1;
@@ -271,22 +308,22 @@ scoped_refptr<DecoderBuffer> EncodedDataHelper::GetNextFrame() {
                                  data.size(), side_data, side_data_size);
 }
 
-base::Optional<IvfFrameHeader> EncodedDataHelper::GetNextIvfFrameHeader()
+absl::optional<IvfFrameHeader> EncodedDataHelper::GetNextIvfFrameHeader()
     const {
   const size_t pos = next_pos_to_decode_;
   // Read VP8/9 frame size from IVF header.
   if (pos + kIvfFrameHeaderSize > data_.size()) {
     LOG(ERROR) << "Unexpected data encountered while parsing IVF frame header";
-    return base::nullopt;
+    return absl::nullopt;
   }
   return GetIvfFrameHeader(base::span<const uint8_t>(
       reinterpret_cast<const uint8_t*>(&data_[pos]), kIvfFrameHeaderSize));
 }
 
-base::Optional<IvfFrame> EncodedDataHelper::ReadNextIvfFrame() {
+absl::optional<IvfFrame> EncodedDataHelper::ReadNextIvfFrame() {
   auto frame_header = GetNextIvfFrameHeader();
   if (!frame_header)
-    return base::nullopt;
+    return absl::nullopt;
 
   // Skip IVF frame header.
   const size_t pos = next_pos_to_decode_ + kIvfFrameHeaderSize;
@@ -295,7 +332,7 @@ base::Optional<IvfFrame> EncodedDataHelper::ReadNextIvfFrame() {
   if (pos + frame_header->frame_size > data_.size()) {
     LOG(ERROR) << "Unexpected data encountered while parsing IVF frame header";
     next_pos_to_decode_ = data_.size();
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   // Update next_pos_to_decode_.
@@ -309,16 +346,10 @@ bool EncodedDataHelper::HasConfigInfo(const uint8_t* data,
                                       size_t size,
                                       VideoCodecProfile profile) {
   if (profile >= H264PROFILE_MIN && profile <= H264PROFILE_MAX) {
-    H264Parser parser;
-    parser.SetStream(data, size);
-    H264NALU nalu;
-    H264Parser::Result result = parser.AdvanceToNextNALU(&nalu);
-    if (result != H264Parser::kOk) {
-      // Let the VDA figure out there's something wrong with the stream.
-      return false;
-    }
-
-    return nalu.nal_unit_type == H264NALU::kSPS;
+    // Check if this is an SPS NALU w/ a 3 or 4 byte start code.
+    return IsH264SPSNALU(data, size);
+  } else if (profile >= HEVCPROFILE_MIN && profile <= HEVCPROFILE_MAX) {
+    return IsHevcSPSNALU(data, size);
   } else if (profile >= VP8PROFILE_MIN && profile <= VP8PROFILE_MAX) {
     Vp8Parser parser;
     Vp8FrameHeader frame_header;
@@ -370,6 +401,8 @@ struct AlignedDataHelper::VideoFrameData {
 AlignedDataHelper::AlignedDataHelper(
     const std::vector<uint8_t>& stream,
     uint32_t num_frames,
+    uint32_t num_read_frames,
+    bool reverse,
     VideoPixelFormat pixel_format,
     const gfx::Size& src_coded_size,
     const gfx::Size& dst_coded_size,
@@ -379,12 +412,14 @@ AlignedDataHelper::AlignedDataHelper(
     VideoFrame::StorageType storage_type,
     gpu::GpuMemoryBufferFactory* const gpu_memory_buffer_factory)
     : num_frames_(num_frames),
+      num_read_frames_(num_read_frames),
+      reverse_(reverse),
       storage_type_(storage_type),
       gpu_memory_buffer_factory_(gpu_memory_buffer_factory),
       visible_rect_(visible_rect),
       natural_size_(natural_size),
-      time_stamp_interval_(base::TimeDelta::FromSeconds(/*secs=*/0u)),
-      elapsed_frame_time_(base::TimeDelta::FromSeconds(/*secs=*/0u)) {
+      time_stamp_interval_(base::Seconds(/*secs=*/0u)),
+      elapsed_frame_time_(base::Seconds(/*secs=*/0u)) {
   // If the frame_rate is passed in, then use that timing information
   // to generate timestamps that increment according the frame_rate.
   // Otherwise timestamps will be generated when GetNextFrame() is called
@@ -414,15 +449,14 @@ bool AlignedDataHelper::AtHeadOfStream() const {
 }
 
 bool AlignedDataHelper::AtEndOfStream() const {
-  return frame_index_ == num_frames_;
+  return frame_index_ == num_read_frames_;
 }
 
 void AlignedDataHelper::UpdateFrameRate(uint32_t frame_rate) {
   if (frame_rate == 0) {
-    time_stamp_interval_ = base::TimeDelta::FromSeconds(/*secs=*/0u);
+    time_stamp_interval_ = base::Seconds(/*secs=*/0u);
   } else {
-    time_stamp_interval_ =
-        base::TimeDelta::FromSeconds(/*secs=*/1u) / frame_rate;
+    time_stamp_interval_ = base::Seconds(/*secs=*/1u) / frame_rate;
   }
 }
 
@@ -437,15 +471,17 @@ scoped_refptr<VideoFrame> AlignedDataHelper::GetNextFrame() {
 
   elapsed_frame_time_ += time_stamp_interval_;
 
+  uint32_t read_frame_index =
+      GetReadFrameIndex(frame_index_++, reverse_, num_frames_);
   if (storage_type_ == VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
-    const auto& gmb_handle = video_frame_data_[frame_index_++].gmb_handle;
+    const auto& gmb_handle = video_frame_data_[read_frame_index].gmb_handle;
     auto dup_handle = gmb_handle.Clone();
     if (dup_handle.is_null()) {
       LOG(ERROR) << "Failed duplicating GpuMemoryBufferHandle";
       return nullptr;
     }
 
-    base::Optional<gfx::BufferFormat> buffer_format =
+    absl::optional<gfx::BufferFormat> buffer_format =
         VideoPixelFormatToGfxBufferFormat(layout_->format());
     if (!buffer_format) {
       LOG(ERROR) << "Unexpected format: " << layout_->format();
@@ -470,7 +506,7 @@ scoped_refptr<VideoFrame> AlignedDataHelper::GetNextFrame() {
         dummy_mailbox, base::DoNothing() /* mailbox_holder_release_cb_ */,
         frame_timestamp);
   } else {
-    const auto& mojo_handle = video_frame_data_[frame_index_++].mojo_handle;
+    const auto& mojo_handle = video_frame_data_[read_frame_index].mojo_handle;
     auto dup_handle =
         mojo_handle->Clone(mojo::SharedBufferHandle::AccessMode::READ_WRITE);
     if (!dup_handle.is_valid()) {
@@ -531,14 +567,14 @@ void AlignedDataHelper::InitializeAlignedMemoryFrames(
     auto mapping = handle->Map(video_frame_size);
     ASSERT_TRUE(!!mapping);
     uint8_t* buffer = reinterpret_cast<uint8_t*>(mapping.get());
-    for (size_t i = 0; i < num_planes; i++) {
-      auto src_plane_layout = src_layout.planes()[i];
-      auto dst_plane_layout = layout_->planes()[i];
+    for (size_t j = 0; j < num_planes; j++) {
+      auto src_plane_layout = src_layout.planes()[j];
+      auto dst_plane_layout = layout_->planes()[j];
       const uint8_t* src_ptr = src_frame_ptr + src_plane_layout.offset;
       uint8_t* dst_ptr = &buffer[dst_plane_layout.offset];
       libyuv::CopyPlane(src_ptr, src_plane_layout.stride, dst_ptr,
                         dst_plane_layout.stride, src_plane_layout.stride,
-                        src_plane_rows[i]);
+                        src_plane_rows[j]);
     }
     src_frame_ptr += src_video_frame_size;
     video_frame_data_[i] = VideoFrameData(std::move(handle));
@@ -571,11 +607,11 @@ void AlignedDataHelper::InitializeGpuMemoryBufferFrames(
         VideoFrame::CreateFrame(pixel_format, dst_coded_size, visible_rect_,
                                 natural_size_, base::TimeDelta());
     LOG_ASSERT(!!memory_frame) << "Failed creating VideoFrame";
-    for (size_t i = 0; i < num_planes; i++) {
-      libyuv::CopyPlane(src_frame_ptr + src_layout.planes()[i].offset,
-                        src_layout.planes()[i].stride, memory_frame->data(i),
-                        memory_frame->stride(i), src_layout.planes()[i].stride,
-                        src_plane_rows[i]);
+    for (size_t j = 0; j < num_planes; j++) {
+      libyuv::CopyPlane(src_frame_ptr + src_layout.planes()[j].offset,
+                        src_layout.planes()[j].stride, memory_frame->data(j),
+                        memory_frame->stride(j), src_layout.planes()[j].stride,
+                        src_plane_rows[j]);
     }
     src_frame_ptr += src_video_frame_size;
     auto frame =
@@ -609,7 +645,8 @@ VideoFrameLayout AlignedDataHelper::GetAlignedVideoFrameLayout(
 }
 
 // static
-std::unique_ptr<RawDataHelper> RawDataHelper::Create(Video* video) {
+std::unique_ptr<RawDataHelper> RawDataHelper::Create(Video* video,
+                                                     bool reverse) {
   size_t frame_size = 0;
   VideoPixelFormat pixel_format = video->PixelFormat();
   const size_t num_planes = VideoFrame::NumPlanes(pixel_format);
@@ -652,24 +689,25 @@ std::unique_ptr<RawDataHelper> RawDataHelper::Create(Video* video) {
     return nullptr;
   }
 
-  return base::WrapUnique(new RawDataHelper(video, frame_size, *layout));
+  return base::WrapUnique(
+      new RawDataHelper(video, reverse, frame_size, *layout));
 }
 
 RawDataHelper::RawDataHelper(Video* video,
+                             bool reverse,
                              size_t frame_size,
                              const VideoFrameLayout& layout)
-    : video_(video), frame_size_(frame_size), layout_(layout) {}
+    : video_(video),
+      reverse_(reverse),
+      frame_size_(frame_size),
+      layout_(layout) {}
 
 RawDataHelper::~RawDataHelper() = default;
 
 scoped_refptr<const VideoFrame> RawDataHelper::GetFrame(size_t index) {
-  if (index >= video_->NumFrames()) {
-    LOG(ERROR) << "index is too big. index=" << index
-               << ", num_frames=" << video_->NumFrames();
-    return nullptr;
-  }
-
-  size_t offset = frame_size_ * index;
+  uint32_t read_frame_index =
+      GetReadFrameIndex(index, reverse_, video_->NumFrames());
+  size_t offset = frame_size_ * read_frame_index;
   uint8_t* frame_data[VideoFrame::kMaxPlanes] = {};
   const size_t num_planes = VideoFrame::NumPlanes(video_->PixelFormat());
   for (size_t i = 0; i < num_planes; ++i) {

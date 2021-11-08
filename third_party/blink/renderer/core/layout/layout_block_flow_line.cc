@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/core/layout/bidi_run_for_line.h"
 #include "third_party/blink/renderer/core/layout/layout_list_item.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/layout/layout_object_inlines.h"
 #include "third_party/blink/renderer/core/layout/layout_ruby_run.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/line/breaking_context_inline_headers.h"
@@ -42,6 +43,7 @@
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/layout/svg/line/svg_root_inline_box.h"
 #include "third_party/blink/renderer/core/layout/vertical_position_cache.h"
+#include "third_party/blink/renderer/core/paint/outline_painter.h"
 #include "third_party/blink/renderer/platform/text/bidi_resolver.h"
 #include "third_party/blink/renderer/platform/text/character.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -59,7 +61,8 @@ class ExpansionOpportunities {
     unsigned opportunities_in_run;
     if (text.Is8Bit()) {
       opportunities_in_run = Character::ExpansionOpportunityCount(
-          {text.Characters8() + run.start_, run.stop_ - run.start_},
+          {text.Characters8() + run.start_,
+           static_cast<size_t>(run.stop_ - run.start_)},
           run.box_->Direction(), is_after_expansion, text_justify);
     } else if (run.line_layout_item_.IsCombineText()) {
       // Justfication applies to before and after the combined text as if
@@ -69,7 +72,8 @@ class ExpansionOpportunities {
       is_after_expansion = true;
     } else {
       opportunities_in_run = Character::ExpansionOpportunityCount(
-          {text.Characters16() + run.start_, run.stop_ - run.start_},
+          {text.Characters16() + run.start_,
+           static_cast<size_t>(run.stop_ - run.start_)},
           run.box_->Direction(), is_after_expansion, text_justify);
     }
     runs_with_expansions_.push_back(opportunities_in_run);
@@ -84,8 +88,6 @@ class ExpansionOpportunities {
 
   unsigned Count() { return total_opportunities_; }
 
-  unsigned OpportunitiesInRun(size_t run) { return runs_with_expansions_[run]; }
-
   void ComputeExpansionsForJustifiedText(BidiRun* first_run,
                                          BidiRun* trailing_space_run,
                                          LayoutUnit& total_logical_width,
@@ -93,7 +95,7 @@ class ExpansionOpportunities {
     if (!total_opportunities_ || available_logical_width <= total_logical_width)
       return;
 
-    size_t i = 0;
+    wtf_size_t i = 0;
     for (BidiRun* r = first_run; r; r = r->Next()) {
       if (!r->box_ || r == trailing_space_run)
         continue;
@@ -335,7 +337,7 @@ RootInlineBox* LayoutBlockFlow::ConstructLine(BidiRunList<BidiRun>& bidi_runs,
 
     if (box->IsInlineTextBox()) {
       if (AXObjectCache* cache = GetDocument().ExistingAXObjectCache())
-        cache->InlineTextBoxesUpdated(r->line_layout_item_);
+        cache->InlineTextBoxesUpdated(r->line_layout_item_.GetLayoutObject());
     }
   }
 
@@ -498,14 +500,14 @@ void LayoutBlockFlow::SetMarginsForRubyRun(BidiRun* run,
   SetMarginEndForChild(*layout_ruby_run, LayoutUnit(-end_overhang));
 }
 
-static inline size_t FindWordMeasurement(
+static inline wtf_size_t FindWordMeasurement(
     LineLayoutText layout_text,
     int offset,
     const WordMeasurements& word_measurements,
-    size_t last_index) {
+    wtf_size_t last_index) {
   // In LTR, lastIndex should match since the order of BidiRun (visual) and
   // WordMeasurement (logical) are the same.
-  size_t size = word_measurements.size();
+  wtf_size_t size = word_measurements.size();
   if (last_index < size) {
     const WordMeasurement& word_measurement = word_measurements[last_index];
     if (word_measurement.layout_text == layout_text &&
@@ -514,7 +516,7 @@ static inline size_t FindWordMeasurement(
   }
 
   // In RTL, scan the whole array because they are not the same.
-  for (size_t i = 0; i < size; ++i) {
+  for (wtf_size_t i = 0; i < size; ++i) {
     const WordMeasurement& word_measurement = word_measurements[i];
     if (word_measurement.layout_text != layout_text)
       continue;
@@ -540,7 +542,7 @@ static inline void SetLogicalWidthForTextRun(
     GlyphOverflowAndFallbackFontsMap& text_box_data_map,
     VerticalPositionCache& vertical_position_cache,
     const WordMeasurements& word_measurements,
-    size_t& word_measurements_index) {
+    wtf_size_t& word_measurements_index) {
   HashSet<const SimpleFontData*> fallback_fonts;
   GlyphOverflow glyph_overflow;
 
@@ -569,9 +571,10 @@ static inline void SetLogicalWidthForTextRun(
 
   if (can_use_cached_word_measurements) {
     int last_end_offset = run->start_;
-    size_t i = FindWordMeasurement(layout_text, last_end_offset,
-                                   word_measurements, word_measurements_index);
-    for (size_t size = word_measurements.size();
+    wtf_size_t i =
+        FindWordMeasurement(layout_text, last_end_offset, word_measurements,
+                            word_measurements_index);
+    for (wtf_size_t size = word_measurements.size();
          i < size && last_end_offset < run->stop_; ++i) {
       const WordMeasurement& word_measurement = word_measurements[i];
       if (word_measurement.start_offset == word_measurement.end_offset)
@@ -592,8 +595,8 @@ static inline void SetLogicalWidthForTextRun(
           measured_width += layout_text.StyleRef().WordSpacing();
       } else {
         FloatRect word_glyph_bounds = word_measurement.glyph_bounds;
-        word_glyph_bounds.Move(measured_width, 0);
-        glyph_bounds.Unite(word_glyph_bounds);
+        word_glyph_bounds.Offset(measured_width, 0);
+        glyph_bounds.Union(word_glyph_bounds);
         measured_width += word_measurement.width;
       }
       if (!word_measurement.fallback_fonts.IsEmpty()) {
@@ -737,7 +740,8 @@ bool LayoutBlockFlow::CanContainFirstFormattedLine() const {
   // line of an element. For example, the first line of an anonymous block
   // box is only affected if it is the first child of its parent element.
   // https://drafts.csswg.org/css-text-3/#text-indent-property
-  return !(IsAnonymousBlock() && PreviousSibling());
+  return !IsAnonymousBlock() || !PreviousSibling() ||
+         IsFlexItemIncludingDeprecatedAndNG() || IsGridItemIncludingNG();
 }
 
 static void UpdateLogicalInlinePositions(LayoutBlockFlow* block,
@@ -817,7 +821,7 @@ BidiRun* LayoutBlockFlow::ComputeInlineDirectionPositionsForSegment(
   TextJustify text_justify = StyleRef().GetTextJustify();
 
   BidiRun* r = first_run;
-  size_t word_measurements_index = 0;
+  wtf_size_t word_measurements_index = 0;
   for (; r; r = r->Next()) {
     if (!r->box_ || r->line_layout_item_.IsOutOfFlowPositioned() ||
         r->box_->IsLineBreak()) {
@@ -1145,7 +1149,7 @@ void LayoutBlockFlow::LayoutRunsAndFloatsInRange(
       // FIXME: We shouldn't be creating any runs in nextLineBreak to begin
       // with! Once BidiRunList is separated from BidiResolver this will not be
       // needed.
-      resolver.Runs().ClearRuns();
+      resolver.Runs().DeleteRuns();
       resolver.MarkCurrentRunEmpty();  // FIXME: This can probably be replaced
                                        // by an ASSERT (or just removed).
       resolver.SetPosition(
@@ -1163,7 +1167,7 @@ void LayoutBlockFlow::LayoutRunsAndFloatsInRange(
         LastRootBox()->SetLineBreakInfo(end_of_line.GetLineLayoutItem(),
                                         end_of_line.Offset(),
                                         resolver.Status());
-      resolver.Runs().ClearRuns();
+      resolver.Runs().DeleteRuns();
     } else {
       VisualDirectionOverride override =
           (style_to_use.RtlOrdering() == EOrder::kVisual
@@ -1220,7 +1224,7 @@ void LayoutBlockFlow::LayoutRunsAndFloatsInRange(
           layout_state.GetLineInfo(), vertical_position_cache,
           trailing_space_run, word_measurements);
 
-      bidi_runs.ClearRuns();
+      bidi_runs.DeleteRuns();
       resolver.MarkCurrentRunEmpty();  // FIXME: This can probably be replaced
                                        // by an ASSERT (or just removed).
 
@@ -1447,13 +1451,13 @@ void LayoutBlockFlow::LinkToEndLineIfNeeded(LineLayoutState& layout_state) {
 }
 
 void LayoutBlockFlow::MarkDirtyFloatsForPaintInvalidation(
-    Vector<FloatWithRect>& floats) {
+    HeapVector<FloatWithRect>& floats) {
   NOT_DESTROYED();
-  size_t float_count = floats.size();
+  wtf_size_t float_count = floats.size();
   // Floats that did not have layout did not paint invalidations when we laid
   // them out. They would have painted by now if they had moved, but if they
   // stayed at (0, 0), they still need to be painted.
-  for (size_t i = 0; i < float_count; ++i) {
+  for (wtf_size_t i = 0; i < float_count; ++i) {
     LayoutBox* f = floats[i].object;
     if (!floats[i].ever_had_layout) {
       if (!f->Location().X() && !f->Location().Y())
@@ -2197,6 +2201,10 @@ RootInlineBox* LayoutBlockFlow::DetermineStartPosition(
 
     // If we have no dirty lines, then last is just the last root box.
     last = curr ? curr->PrevRootBox() : LastRootBox();
+#if DCHECK_IS_ON()
+    if (last && last->LineBreakObj().GetLayoutObject())
+      last->LineBreakObj().GetLayoutObject()->CheckIsNotDestroyed();
+#endif
   }
 
   unsigned num_clean_floats = 0;
@@ -2428,6 +2436,7 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
     // direction only for now.
     for (const NGPhysicalBoxFragment& fragment : PhysicalFragments()) {
       if (const NGFragmentItems* items = fragment.Items()) {
+        PhysicalRect children_rect;
         for (NGInlineCursor cursor(fragment, *items); cursor;
              cursor.MoveToNextSkippingChildren()) {
           const NGFragmentItem* child = cursor.CurrentItem();
@@ -2437,9 +2446,10 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
           PhysicalRect child_rect = child->InkOverflow();
           if (!child_rect.IsEmpty()) {
             child_rect.offset += child->OffsetInContainerFragment();
-            AddContentsVisualOverflow(child_rect);
+            children_rect.Unite(child_rect);
           }
         }
+        AddContentsVisualOverflow(children_rect);
       } else if (fragment.HasFloatingDescendantsForPaint()) {
         AddVisualOverflowFromFloats(fragment);
       }
@@ -2472,7 +2482,8 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
         style.OutlineRectsShouldIncludeBlockVisualOverflow());
     if (!outline_rects.IsEmpty()) {
       PhysicalRect outline_bounds = UnionRect(outline_rects);
-      outline_bounds.Inflate(LayoutUnit(style.OutlineOutsetExtent()));
+      outline_bounds.Inflate(
+          LayoutUnit(OutlinePainter::OutlineOutsetExtent(style)));
       outline_bounds_of_all_continuations.Unite(outline_bounds);
     }
   }

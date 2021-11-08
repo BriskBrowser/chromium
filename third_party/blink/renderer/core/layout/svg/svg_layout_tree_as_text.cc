@@ -447,12 +447,12 @@ static inline void WriteSVGInlineTextBox(WTF::TextStream& ts,
     ts << "chunk 1 ";
     ETextAnchor anchor = style.TextAnchor();
     bool is_vertical_text = !style.IsHorizontalWritingMode();
-    if (anchor == TA_MIDDLE) {
+    if (anchor == ETextAnchor::kMiddle) {
       ts << "(middle anchor";
       if (is_vertical_text)
         ts << ", vertical";
       ts << ") ";
-    } else if (anchor == TA_END) {
+    } else if (anchor == ETextAnchor::kEnd) {
       ts << "(end anchor";
       if (is_vertical_text)
         ts << ", vertical";
@@ -735,7 +735,7 @@ static void WriteSVGResourceReferencePrefix(
 void WriteResources(WTF::TextStream& ts,
                     const LayoutObject& object,
                     int indent) {
-  const FloatRect reference_box = object.ObjectBoundingBox();
+  const gfx::RectF reference_box = object.ObjectBoundingBox();
   const ComputedStyle& style = object.StyleRef();
   TreeScope& tree_scope = object.GetDocument();
   SVGResourceClient* client = SVGResources::GetClient(object);

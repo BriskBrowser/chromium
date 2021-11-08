@@ -22,6 +22,10 @@ class StatusTrayStateChangerWinTest : public testing::Test {
  public:
   StatusTrayStateChangerWinTest() {}
 
+  StatusTrayStateChangerWinTest(const StatusTrayStateChangerWinTest&) = delete;
+  StatusTrayStateChangerWinTest& operator=(
+      const StatusTrayStateChangerWinTest&) = delete;
+
   void SetUp() override {
     testing::Test::SetUp();
     com_ = std::make_unique<base::win::ScopedCOMInitializer>();
@@ -32,9 +36,8 @@ class StatusTrayStateChangerWinTest : public testing::Test {
     bitmap.allocN32Pixels(16, 16);
     bitmap.eraseColor(SK_ColorGREEN);
     status_icon_win_ = (StatusIconWin*)status_tray_->CreateStatusIcon(
-        StatusTray::OTHER_ICON,
-        gfx::ImageSkia::CreateFrom1xBitmap(bitmap),
-        base::string16());
+        StatusTray::OTHER_ICON, gfx::ImageSkia::CreateFrom1xBitmap(bitmap),
+        std::u16string());
     tray_watcher_ = Microsoft::WRL::Make<StatusTrayStateChangerWin>(
         status_icon_win_->icon_id(), status_icon_win_->window());
   }
@@ -83,8 +86,6 @@ class StatusTrayStateChangerWinTest : public testing::Test {
   Microsoft::WRL::ComPtr<StatusTrayStateChangerWin> tray_watcher_;
 
   StatusIconWin* status_icon_win_;
-
-  DISALLOW_COPY_AND_ASSIGN(StatusTrayStateChangerWinTest);
 };
 
 // Test is disabled due to multiple COM initialization errors.  See

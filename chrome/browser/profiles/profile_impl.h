@@ -15,33 +15,30 @@
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_io_data_handle.h"
+#include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #include "chrome/common/buildflags.h"
 #include "components/keyed_service/core/simple_factory_key.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/content_browser_client.h"
-#include "extensions/buildflags/buildflags.h"
-
-#if !defined(OS_ANDROID)
-#include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #include "content/public/browser/host_zoom_map.h"
-#endif
+#include "extensions/buildflags/buildflags.h"
 
 class MediaDeviceIDSalt;
 class PrefService;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-namespace chromeos {
+namespace ash {
 class KioskTest;
 class LocaleChangeGuard;
+}
+
+namespace chromeos {
 class Preferences;
-class SupervisedUserTestBase;
 }  // namespace chromeos
 #endif
 
@@ -50,6 +47,7 @@ class SequencedTaskRunner;
 }
 
 namespace policy {
+class AsyncPolicyProvider;
 class ConfigurationPolicyProvider;
 class ProfilePolicyConnector;
 }  // namespace policy
@@ -65,9 +63,6 @@ class PrefRegistrySyncable;
 // The default profile implementation.
 class ProfileImpl : public Profile {
  public:
-  // Value written to prefs when the exit type is EXIT_NORMAL. Public for tests.
-  static const char kPrefExitTypeNormal[];
-
   ProfileImpl(const ProfileImpl&) = delete;
   ProfileImpl& operator=(const ProfileImpl&) = delete;
   ~ProfileImpl() override;
@@ -75,14 +70,13 @@ class ProfileImpl : public Profile {
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
   // content::BrowserContext implementation:
-#if !defined(OS_ANDROID)
   std::unique_ptr<content::ZoomLevelDelegate> CreateZoomLevelDelegate(
       const base::FilePath& partition_path) override;
-#endif
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
-  content::ResourceContext* GetResourceContext() override;
   content::BrowserPluginGuestManager* GetGuestManager() override;
   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
+  content::PlatformNotificationService* GetPlatformNotificationService()
+      override;
   content::PushMessagingService* GetPushMessagingService() override;
   content::StorageNotificationService* GetStorageNotificationService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
@@ -100,6 +94,12 @@ class ProfileImpl : public Profile {
   content::FileSystemAccessPermissionContext*
   GetFileSystemAccessPermissionContext() override;
   content::ContentIndexProvider* GetContentIndexProvider() override;
+  content::FederatedIdentityActiveSessionPermissionContextDelegate*
+  GetFederatedIdentityActiveSessionPermissionContext() override;
+  content::FederatedIdentityRequestPermissionContextDelegate*
+  GetFederatedIdentityRequestPermissionContext() override;
+  content::FederatedIdentitySharingPermissionContextDelegate*
+  GetFederatedIdentitySharingPermissionContext() override;
 
   // Profile implementation:
   scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() override;
@@ -115,7 +115,8 @@ class ProfileImpl : public Profile {
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
   const OTRProfileID& GetOTRProfileID() const override;
   base::FilePath GetPath() const override;
-  Profile* GetOffTheRecordProfile(const OTRProfileID& otr_profile_id) override;
+  Profile* GetOffTheRecordProfile(const OTRProfileID& otr_profile_id,
+                                  bool create_if_needed) override;
   std::vector<Profile*> GetAllOffTheRecordProfiles() override;
   void DestroyOffTheRecordProfile(Profile* otr_profile) override;
   bool HasOffTheRecordProfile(const OTRProfileID& otr_profile_id) override;
@@ -128,17 +129,11 @@ class ProfileImpl : public Profile {
   ExtensionSpecialStoragePolicy* GetExtensionSpecialStoragePolicy() override;
   PrefService* GetPrefs() override;
   const PrefService* GetPrefs() const override;
-#if !defined(OS_ANDROID)
   ChromeZoomLevelPrefs* GetZoomLevelPrefs() override;
-#endif
-  // TODO(https://crbug.com/1065444): Only supports primary OTR profile. Either
-  // update to support all OTR profiles or remove this function.
-  PrefService* GetOffTheRecordPrefs() override;
   PrefService* GetReadOnlyOffTheRecordPrefs() override;
   policy::SchemaRegistryService* GetPolicySchemaRegistryService() override;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  policy::UserCloudPolicyManagerChromeOS* GetUserCloudPolicyManagerChromeOS()
-      override;
+  policy::UserCloudPolicyManagerAsh* GetUserCloudPolicyManagerAsh() override;
   policy::ActiveDirectoryPolicyManager* GetActiveDirectoryPolicyManager()
       override;
 #else
@@ -155,9 +150,7 @@ class ProfileImpl : public Profile {
   void set_last_selected_directory(const base::FilePath& path) override;
   GURL GetHomePage() override;
   bool WasCreatedByVersionOrLater(const std::string& version) override;
-  void SetExitType(ExitType exit_type) override;
-  ExitType GetLastSessionExitType() const override;
-  bool ShouldRestoreOldSessionCookies() const override;
+  bool ShouldRestoreOldSessionCookies() override;
   bool ShouldPersistSessionCookies() const override;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -169,7 +162,7 @@ class ProfileImpl : public Profile {
   bool IsNewProfile() const override;
 
   void SetCreationTimeForTesting(base::Time creation_time) override;
-  void RecordMainFrameNavigation() override {}
+  void RecordPrimaryMainFrameNavigation() override {}
 
  protected:
   // Profile implementation.
@@ -177,8 +170,7 @@ class ProfileImpl : public Profile {
 
  private:
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  friend class chromeos::KioskTest;
-  friend class chromeos::SupervisedUserTestBase;
+  friend class ash::KioskTest;
 #endif
   friend class Profile;
   FRIEND_TEST_ALL_PREFIXES(StartupBrowserCreatorTest,
@@ -204,13 +196,13 @@ class ProfileImpl : public Profile {
   void LoadPrefsForNormalStartup(bool async_prefs);
 
   // Does final initialization. Should be called after prefs were loaded.
-  void DoFinalInit();
+  void DoFinalInit(CreateMode create_mode);
 
   // Switch locale (when possible) and proceed to OnLocaleReady().
   void OnPrefsLoaded(CreateMode create_mode, bool success);
 
   // Does final prefs initialization and calls Init().
-  void OnLocaleReady();
+  void OnLocaleReady(CreateMode create_mode);
 
 #if BUILDFLAG(ENABLE_SESSION_SERVICE)
   void StopCreateSessionServiceTimer();
@@ -252,7 +244,7 @@ class ProfileImpl : public Profile {
   // - |profile_policy_connector_| depends on configuration_policy_provider(),
   //   which can be:
   //     - |user_cloud_policy_manager_|;
-  //     - |user_cloud_policy_manager_chromeos_|;
+  //     - |user_cloud_policy_manager_ash_|;
   //     - or |active_directory_policy_manager_|.
   // - configuration_policy_provider() depends on |schema_registry_service_|
 
@@ -261,12 +253,15 @@ class ProfileImpl : public Profile {
   // configuration_policy_provider() is either of these, or nullptr in some
   // tests.
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  std::unique_ptr<policy::UserCloudPolicyManagerChromeOS>
-      user_cloud_policy_manager_chromeos_;
+  std::unique_ptr<policy::UserCloudPolicyManagerAsh>
+      user_cloud_policy_manager_ash_;
   std::unique_ptr<policy::ActiveDirectoryPolicyManager>
       active_directory_policy_manager_;
 #else
   std::unique_ptr<policy::UserCloudPolicyManager> user_cloud_policy_manager_;
+#endif
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  std::unique_ptr<policy::AsyncPolicyProvider> user_policy_provider_;
 #endif
 
   std::unique_ptr<policy::ProfilePolicyConnector> profile_policy_connector_;
@@ -276,18 +271,11 @@ class ProfileImpl : public Profile {
   // first.
   scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry_;
   std::unique_ptr<sync_preferences::PrefServiceSyncable> prefs_;
-  // See comment in GetOffTheRecordPrefs. Field exists so something owns the
-  // dummy.
   std::unique_ptr<sync_preferences::PrefServiceSyncable> dummy_otr_prefs_;
-  ProfileIODataHandle io_data_;
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   scoped_refptr<ExtensionSpecialStoragePolicy>
       extension_special_storage_policy_;
 #endif
-
-  // Exit type the last time the profile was opened. This is set only once from
-  // prefs.
-  ExitType last_session_exit_type_;
 
 #if BUILDFLAG(ENABLE_SESSION_SERVICE)
   base::OneShotTimer create_session_service_timer_;
@@ -305,7 +293,7 @@ class ProfileImpl : public Profile {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<chromeos::Preferences> chromeos_preferences_;
 
-  std::unique_ptr<chromeos::LocaleChangeGuard> locale_change_guard_;
+  std::unique_ptr<ash::LocaleChangeGuard> locale_change_guard_;
 #endif
 
   // TODO(mmenke):  This should be removed from the Profile, and use a

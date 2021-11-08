@@ -30,18 +30,19 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_FRAME_H_
 
 #include "base/i18n/rtl.h"
-#include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-blink.h"
-#include "third_party/blink/public/common/feature_policy/document_policy_features.h"
-#include "third_party/blink/public/common/feature_policy/feature_policy_features.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/frame/frame_ad_evidence.h"
 #include "third_party/blink/public/common/frame/user_activation_state.h"
 #include "third_party/blink/public/common/frame/user_activation_update_source.h"
+#include "third_party/blink/public/common/permissions_policy/document_policy_features.h"
+#include "third_party/blink/public/common/permissions_policy/permissions_policy_features.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
-#include "third_party/blink/public/mojom/ad_tagging/ad_frame.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/frame/user_activation_notification_type.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/input/scroll_direction.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/timing/resource_timing.mojom-blink-forward.h"
 #include "third_party/blink/public/web/web_frame_load_type.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/frame_lifecycle.h"
@@ -94,8 +95,6 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
  public:
   // Returns the Frame instance for the given |frame_token|.
   // Note that this Frame can be either a LocalFrame or Remote instance.
-  // TODO(crbug.com/1096617): Remove the UnguessableToken version of this.
-  static Frame* ResolveFrame(const base::UnguessableToken& frame_token);
   static Frame* ResolveFrame(const FrameToken& frame_token);
 
   virtual ~Frame();
@@ -214,6 +213,12 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
     return user_activation_state_.HasBeenActive();
   }
 
+  // Returns if the last user activation for this frame was restricted in
+  // nature.
+  bool LastActivationWasRestricted() const {
+    return user_activation_state_.LastActivationWasRestricted();
+  }
+
   // Resets the user activation state of this frame.
   void ClearUserActivation() { user_activation_state_.Clear(); }
 
@@ -229,12 +234,15 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
     return lifecycle_.GetState() == FrameLifecycle::kAttached;
   }
 
+  // Note that IsAttached() and IsDetached() are not strict opposites: frames
+  // that are detaching are considered to be in neither state.
+  bool IsDetached() const {
+    return lifecycle_.GetState() == FrameLifecycle::kDetached;
+  }
+
   // Whether the frame is considered to be an ad subframe by Ad Tagging. Returns
   // true for both root and child ad subframes.
-  bool IsAdSubframe() const;
-
-  // Whether the frame is considered to be a root ad subframe by Ad Tagging.
-  bool IsAdRoot() const;
+  virtual bool IsAdSubframe() const = 0;
 
   // Called to make a frame inert or non-inert. A frame is inert when there
   // is a modal dialog displayed within an ancestor frame, and this frame
@@ -264,7 +272,7 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
   const std::string& ToTraceValue();
 
   void SetEmbeddingToken(const base::UnguessableToken& embedding_token);
-  const base::Optional<base::UnguessableToken>& GetEmbeddingToken() const {
+  const absl::optional<base::UnguessableToken>& GetEmbeddingToken() const {
     return embedding_token_;
   }
 
@@ -324,7 +332,7 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
   virtual void DidFocus() = 0;
 
   virtual IntSize GetMainFrameViewportSize() const = 0;
-  virtual IntPoint GetMainFrameScrollOffset() const = 0;
+  virtual gfx::Point GetMainFrameScrollOffset() const = 0;
 
   // Sets this frame's opener to another frame, or disowned the opener
   // if opener is null. See http://html.spec.whatwg.org/#dom-opener.
@@ -336,10 +344,12 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
   Frame* Opener() const { return opener_; }
 
   // Returns the parent frame or null if this is the top-most frame.
-  Frame* Parent() const { return parent_; }
+  Frame* Parent(FrameTreeBoundary frame_tree_boundary =
+                    FrameTreeBoundary::kIgnoreFence) const;
 
   // Returns the top-most frame in the hierarchy containing this frame.
-  Frame* Top();
+  Frame* Top(
+      FrameTreeBoundary frame_tree_boundary = FrameTreeBoundary::kIgnoreFence);
 
   // Returns the first child frame.
   Frame* FirstChild() const { return first_child_; }
@@ -385,6 +395,7 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
         Frame* previous_sibling,
         FrameInsertType insert_type,
         const FrameToken& frame_token,
+        const base::UnguessableToken& devtools_frame_token,
         WindowProxyManager*,
         WindowAgentFactory* inheriting_agent_factory);
 
@@ -398,12 +409,6 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
   // See `Detach()` for more information.
   virtual bool DetachImpl(FrameDetachType) = 0;
 
-  // Note that IsAttached() and IsDetached() are not strict opposites: frames
-  // that are detaching are considered to be in neither state.
-  bool IsDetached() const {
-    return lifecycle_.GetState() == FrameLifecycle::kDetached;
-  }
-
   virtual void DidChangeVisibleToHitTesting() = 0;
 
   void FocusImpl();
@@ -415,6 +420,11 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
       mojom::blink::UserActivationNotificationType notification_type);
   bool ConsumeTransientUserActivationInFrameTree();
   void ClearUserActivationInFrameTree();
+
+  void RenderFallbackContent();
+  void RenderFallbackContentWithResourceTiming(
+      mojom::blink::ResourceTimingInfoPtr timing,
+      const String& server_timing_values);
 
   mutable FrameTree tree_node_;
 
@@ -430,19 +440,6 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
   TouchAction inherited_effective_touch_action_ = TouchAction::kAuto;
 
   bool visible_to_hit_testing_ = true;
-
-  // Type of frame detected by heuristics checking if the frame was created
-  // for advertising purposes. It's per-frame (as opposed to per-document)
-  // because when an iframe is created on behalf of ad script that same frame is
-  // not typically reused for non-ad purposes.
-  //
-  // For LocalFrame, it might be (1) calculated directly in the renderer based
-  // on script in the stack in the case of an initial synchronous commit, or (2)
-  // replicated from the browser process, or (3) signaled from the browser
-  // process at ready-to-commit time. For RemoteFrame, it might be (1)
-  // replicated from the browser process or (2) signaled from the browser
-  // process at ready-to-commit time.
-  mojom::blink::AdFrameType ad_frame_type_;
 
  private:
   // Inserts the given frame as a child of this frame, so that it is the next
@@ -480,14 +477,15 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
 
   // TODO(sashab): Investigate if this can be represented with m_lifecycle.
   bool is_loading_;
+  // Contains token to be used as a frame id in the devtools protocol.
   base::UnguessableToken devtools_frame_token_;
-  base::Optional<std::string> trace_value_;
+  absl::optional<std::string> trace_value_;
 
   // Embedding token, if existing, associated to this frame. For local frames
   // this will only be valid if the frame has committed a navigation and will
   // change when a new document is committed. For remote frames this will only
   // be valid when owned by an HTMLFrameOwnerElement.
-  base::Optional<base::UnguessableToken> embedding_token_;
+  absl::optional<base::UnguessableToken> embedding_token_;
 
   // The user activation state of the current frame.  See |UserActivationState|
   // for details on how this state is maintained.

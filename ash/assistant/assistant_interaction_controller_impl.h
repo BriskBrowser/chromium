@@ -55,6 +55,12 @@ class AssistantInteractionControllerImpl
 
   explicit AssistantInteractionControllerImpl(
       AssistantControllerImpl* assistant_controller);
+
+  AssistantInteractionControllerImpl(
+      const AssistantInteractionControllerImpl&) = delete;
+  AssistantInteractionControllerImpl& operator=(
+      const AssistantInteractionControllerImpl&) = delete;
+
   ~AssistantInteractionControllerImpl() override;
 
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
@@ -87,8 +93,8 @@ class AssistantInteractionControllerImpl
   void OnUiVisibilityChanged(
       AssistantVisibility new_visibility,
       AssistantVisibility old_visibility,
-      base::Optional<AssistantEntryPoint> entry_point,
-      base::Optional<AssistantExitPoint> exit_point) override;
+      absl::optional<AssistantEntryPoint> entry_point,
+      absl::optional<AssistantExitPoint> exit_point) override;
 
   // HighlighterController::Observer:
   void OnHighlighterSelectionRecognized(const gfx::Rect& rect) override;
@@ -104,7 +110,7 @@ class AssistantInteractionControllerImpl
       const std::vector<AssistantSuggestion>& response) override;
   void OnTextResponse(const std::string& response) override;
   void OnOpenUrlResponse(const GURL& url, bool in_background) override;
-  bool OnOpenAppResponse(
+  void OnOpenAppResponse(
       const chromeos::assistant::AndroidAppInfo& app_info) override;
   void OnSpeechRecognitionStarted() override;
   void OnSpeechRecognitionIntermediateResult(
@@ -161,8 +167,6 @@ class AssistantInteractionControllerImpl
   base::WeakPtrFactory<AssistantInteractionControllerImpl>
       screen_context_request_factory_{this};
   base::WeakPtrFactory<AssistantInteractionControllerImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantInteractionControllerImpl);
 };
 
 }  // namespace ash

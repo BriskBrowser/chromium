@@ -18,7 +18,7 @@
 #include "third_party/blink/public/common/features.h"
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/previews/android/previews_android_bridge.h"
+#include "chrome/browser/subresource_redirect/android/previews_android_bridge.h"
 #endif
 
 namespace subresource_redirect {
@@ -27,7 +27,6 @@ namespace {
 
 DataReductionProxyChromeSettings* GetDataReductionProxyChromeSettings(
     content::WebContents* web_contents) {
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect));
   DCHECK(web_contents);
   return DataReductionProxyChromeSettingsFactory::GetForBrowserContext(
       web_contents->GetBrowserContext());
@@ -37,8 +36,24 @@ bool ShowInfoBarOnAndroid(content::WebContents* web_contents) {
 #if defined(OS_ANDROID)
   return PreviewsAndroidBridge::CreateHttpsImageCompressionInfoBar(
       web_contents);
-#endif
+#else
   return true;
+#endif
+}
+
+// Returns the litepage robots origin from one of the image or src video
+// subresource redirect features.
+GURL GetLitePageRobotsOrigin() {
+  auto lite_page_robots_origin = base::GetFieldTrialParamValueByFeature(
+      blink::features::kSubresourceRedirect, "lite_page_robots_origin");
+  if (lite_page_robots_origin.empty()) {
+    lite_page_robots_origin = base::GetFieldTrialParamValueByFeature(
+        blink::features::kSubresourceRedirectSrcVideo,
+        "lite_page_robots_origin");
+  }
+  if (lite_page_robots_origin.empty())
+    lite_page_robots_origin = "https://litepages.googlezip.net/";
+  return GURL(lite_page_robots_origin);
 }
 
 }  // namespace
@@ -55,6 +70,9 @@ bool IsLiteModeEnabled(content::WebContents* web_contents) {
 bool ShowInfoBarAndGetImageCompressionState(
     content::WebContents* web_contents,
     content::NavigationHandle* navigation_handle) {
+  DCHECK(ShouldEnablePublicImageHintsBasedCompression() ||
+         ShouldEnableLoginRobotsCheckedImageCompression());
+
   auto* data_reduction_proxy_settings =
       GetDataReductionProxyChromeSettings(web_contents);
   if (!data_reduction_proxy_settings->IsDataReductionProxyEnabled()) {
@@ -89,7 +107,7 @@ void NotifyCompressedImageFetchFailed(content::WebContents* web_contents,
 }
 
 GURL GetRobotsServerURL(const url::Origin& origin) {
-  DCHECK(ShouldEnableLoginRobotsCheckedCompression());
+  DCHECK(ShouldEnableRobotsRulesFetching());
   DCHECK(!origin.opaque());
 
   GURL origin_url = origin.GetURL();
@@ -97,12 +115,7 @@ GURL GetRobotsServerURL(const url::Origin& origin) {
   origin_replacement.SetPathStr("/robots.txt");
   origin_url = origin_url.ReplaceComponents(origin_replacement);
 
-  auto lite_page_robots_origin = base::GetFieldTrialParamValueByFeature(
-      blink::features::kSubresourceRedirect, "lite_page_robots_origin");
-  GURL lite_page_robots_url(lite_page_robots_origin.empty()
-                                ? "https://litepages.googlezip.net/"
-                                : lite_page_robots_origin);
-
+  GURL lite_page_robots_url = GetLitePageRobotsOrigin();
   std::string query_str =
       "u=" + net::EscapeQueryParamValue(origin_url.spec(), true /* use_plus */);
 
@@ -133,7 +146,7 @@ int MaxOriginRobotsRulesCacheSize() {
 
 base::TimeDelta GetLitePagesBypassRandomDuration() {
   // Default is a random duration between 1 to 5 minutes.
-  return base::TimeDelta::FromSeconds(
+  return base::Seconds(
       base::RandInt(base::GetFieldTrialParamByFeatureAsInt(
                         blink::features::kSubresourceRedirect,
                         "litepages_bypass_random_duration_min_secs", 60),
@@ -143,7 +156,7 @@ base::TimeDelta GetLitePagesBypassRandomDuration() {
 }
 
 base::TimeDelta GetLitePagesBypassMaxDuration() {
-  return base::TimeDelta::FromSeconds(base::GetFieldTrialParamByFeatureAsInt(
+  return base::Seconds(base::GetFieldTrialParamByFeatureAsInt(
       blink::features::kSubresourceRedirect,
       "litepages_bypass_max_duration_secs", 300));
 }

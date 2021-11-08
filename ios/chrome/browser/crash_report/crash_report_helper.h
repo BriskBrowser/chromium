@@ -10,10 +10,9 @@
 
 @class NSString;
 
-class BreadcrumbManagerKeyedService;
 
 namespace breadcrumbs {
-class BreadcrumbManager;
+class BreadcrumbManagerKeyedService;
 }
 
 namespace web {
@@ -57,23 +56,14 @@ void StopMonitoringTabStateForWebStateList(WebStateList* web_state_list);
 // be called when the WebStateList is deactivated.
 void ClearStateForWebStateList(WebStateList* web_state_list);
 
-// Starts listening for breadcrumbs logged to |breadcrumb_manager|. Collected
-// breadcrumbs will be attached to crash reports.
-void MonitorBreadcrumbManager(
-    breadcrumbs::BreadcrumbManager* breadcrumb_manager);
-
-// Stops listening for breadcrumbs logged to |breadcrumb_manager|.
-void StopMonitoringBreadcrumbManager(
-    breadcrumbs::BreadcrumbManager* breadcrumb_manager);
-
 // Starts listening for breadcrumbs logged to |breadcrumb_manager_service|.
 // Collected breadcrumbs will be attached to crash reports.
 void MonitorBreadcrumbManagerService(
-    BreadcrumbManagerKeyedService* breadcrumb_manager_service);
+    breadcrumbs::BreadcrumbManagerKeyedService* breadcrumb_manager_service);
 
 // Stops listening for breadcrumbs logged to |breadcrumb_manager_service|.
 void StopMonitoringBreadcrumbManagerService(
-    BreadcrumbManagerKeyedService* breadcrumb_manager_service);
+    breadcrumbs::BreadcrumbManagerKeyedService* breadcrumb_manager_service);
 
 // Sets breadcrumb events associated with the previous application session.
 void SetPreviousSessionEvents(const std::vector<std::string>& events);

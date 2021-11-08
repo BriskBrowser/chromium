@@ -31,6 +31,7 @@ using chrome_test_util::NavigationBarDoneButton;
 using chrome_test_util::PaymentMethodsButton;
 using chrome_test_util::SettingsMenuBackButton;
 using chrome_test_util::SettingsDoneButton;
+using chrome_test_util::TabGridEditButton;
 
 namespace {
 
@@ -55,9 +56,9 @@ NSString* const kCreditCardLabelTemplate = @"Test User, %@";
 id<GREYMatcher> NavigationBarEditButton() {
   return grey_allOf(
       ButtonWithAccessibilityLabelId(IDS_IOS_NAVIGATION_BAR_EDIT_BUTTON),
+      grey_not(TabGridEditButton()),
       grey_not(grey_accessibilityTrait(UIAccessibilityTraitNotEnabled)), nil);
 }
-
 
 // Matcher for the Delete button in the list view, located at the bottom of the
 // screen.
@@ -115,7 +116,7 @@ id<GREYMatcher> BottomToolbar() {
 
 // Close the settings.
 - (void)exitSettingsMenu {
-  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton(0)]
       performAction:grey_tap()];
   [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
@@ -140,7 +141,7 @@ id<GREYMatcher> BottomToolbar() {
   }
 
   // Go back to the list view page.
-  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton(0)]
       performAction:grey_tap()];
 
   [self exitSettingsMenu];
@@ -154,7 +155,7 @@ id<GREYMatcher> BottomToolbar() {
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
 
   // Go back to the list view page.
-  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton(0)]
       performAction:grey_tap()];
 
   [self exitSettingsMenu];
@@ -171,7 +172,7 @@ id<GREYMatcher> BottomToolbar() {
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
 
   // Go back to the list view page.
-  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton(0)]
       performAction:grey_tap()];
 
   [self exitSettingsMenu];
@@ -224,6 +225,59 @@ id<GREYMatcher> BottomToolbar() {
       assertWithMatcher:grey_notNil()];
 
   [self exitSettingsMenu];
+}
+
+// Checks that the Autofill credit card switch can be turned off and the add
+// payment method button in the toolbar is disabled.
+- (void)testToggleCreditCardSwitchPaymentMethodDisabled {
+  [self openCreditCardsSettings];
+
+  // Toggle the Autofill credit cards switch off.
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::SettingsSwitchCell(
+                                   kAutofillCreditCardSwitchViewId, YES, YES)]
+      performAction:chrome_test_util::TurnSettingsSwitchOn(NO)];
+
+  // Expect Add Payment Method button to be disabled.
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::AddPaymentMethodButton()]
+      assertWithMatcher:grey_not(grey_enabled())];
+
+  // Toggle the Autofill credit cards switch back on.
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::SettingsSwitchCell(
+                                   kAutofillCreditCardSwitchViewId, NO, YES)]
+      performAction:chrome_test_util::TurnSettingsSwitchOn(YES)];
+
+  // Expect Add Payment Method button to be visible.
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::AddPaymentMethodButton()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  [self exitSettingsMenu];
+}
+
+// Checks that when the Autofill credit card switch can be turned off and the
+// edit button is pressed, Add Payment Method button is removed from the
+// toolbar.
+- (void)testToggleCreditCardSwitchInEditModePaymentMethodRemoved {
+  [AutofillAppInterface saveLocalCreditCard];
+  [self openCreditCardsSettings];
+
+  // Toggle the Autofill credit cards switch off.
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::SettingsSwitchCell(
+                                   kAutofillCreditCardSwitchViewId, YES, YES)]
+      performAction:chrome_test_util::TurnSettingsSwitchOn(NO)];
+
+  // Open Edit Mode.
+  [[EarlGrey selectElementWithMatcher:NavigationBarEditButton()]
+      performAction:grey_tap()];
+
+  // Expect Add Payment Method to be removed.
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::AddPaymentMethodButton()]
+      assertWithMatcher:grey_not(grey_sufficientlyVisible())];
 }
 
 // Checks that the toolbar always appears in edit mode.

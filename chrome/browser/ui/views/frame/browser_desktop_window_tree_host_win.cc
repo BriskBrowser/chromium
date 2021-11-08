@@ -9,6 +9,7 @@
 #include <dwmapi.h>
 #include <uxtheme.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -93,7 +94,7 @@ class VirtualDesktopHelper
   // last we checked. This is used to tell if the window has moved to a
   // different desktop, and notify listeners. It will only be set if
   // we created |virtual_desktop_helper_|.
-  base::Optional<std::string> workspace_;
+  absl::optional<std::string> workspace_;
 
   bool initial_workspace_remembered_ = false;
 
@@ -135,7 +136,7 @@ void VirtualDesktopHelper::UpdateWindowDesktopId(
       base::BindOnce(&VirtualDesktopHelper::GetWindowDesktopIdImpl, hwnd,
                      virtual_desktop_manager_),
       base::BindOnce(&VirtualDesktopHelper::SetWorkspace, this,
-                     base::Passed(std::move(callback))));
+                     std::move(callback)));
 }
 
 bool VirtualDesktopHelper::GetInitialWorkspaceRemembered() const {
@@ -233,9 +234,8 @@ BrowserDesktopWindowTreeHostWin::~BrowserDesktopWindowTreeHostWin() {}
 views::NativeMenuWin* BrowserDesktopWindowTreeHostWin::GetSystemMenu() {
   if (!system_menu_.get()) {
     SystemMenuInsertionDelegateWin insertion_delegate;
-    system_menu_.reset(
-        new views::NativeMenuWin(browser_frame_->GetSystemMenuModel(),
-                                 GetHWND()));
+    system_menu_ = std::make_unique<views::NativeMenuWin>(
+        browser_frame_->GetSystemMenuModel(), GetHWND());
     system_menu_->Rebuild(&insertion_delegate);
   }
   return system_menu_.get();
@@ -317,10 +317,20 @@ bool BrowserDesktopWindowTreeHostWin::GetClientAreaInsets(
     *insets = gfx::Insets();
   } else {
     const int frame_thickness = ui::GetFrameThickness(monitor);
-    // Reduce the Windows non-client border size because we extend the border
-    // into our client area in UpdateDWMFrame(). The top inset must be 0 or
-    // else Windows will draw a full native titlebar outside the client area.
-    *insets = gfx::Insets(0, frame_thickness, frame_thickness, frame_thickness);
+    // Reduce the non-client border size; UpdateDWMFrame() will instead extend
+    // the border into the window client area. For maximized windows, Windows
+    // outdents the window rect from the screen's client rect by
+    // |frame_thickness| on each edge, meaning |insets| must contain
+    // |frame_thickness| on all sides (including the top) to avoid the client
+    // area extending onto adjacent monitors. For non-maximized windows,
+    // however, the top inset must be zero, since if there is any nonclient
+    // area, Windows will draw a full native titlebar outside the client area.
+    // (This doesn't occur in the maximized case.)
+    int top_thickness = 0;
+    if (ShouldCustomDrawSystemTitlebar() && GetWidget()->IsMaximized())
+      top_thickness = frame_thickness;
+    *insets = gfx::Insets(top_thickness, frame_thickness, frame_thickness,
+                          frame_thickness);
   }
   return true;
 }
@@ -536,7 +546,7 @@ void BrowserDesktopWindowTreeHostWin::OnProfileAdded(
 
 void BrowserDesktopWindowTreeHostWin::OnProfileWasRemoved(
     const base::FilePath& profile_path,
-    const base::string16& profile_name) {
+    const std::u16string& profile_name) {
   if (g_browser_process->profile_manager()
           ->GetProfileAttributesStorage()
           .GetNumberOfProfiles() == 1) {

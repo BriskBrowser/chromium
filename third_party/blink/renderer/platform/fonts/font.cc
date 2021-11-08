@@ -161,7 +161,7 @@ void DrawBlobs(cc::PaintCanvas* canvas,
         canvas->save();
 
         SkMatrix m;
-        m.setSinCos(-1, 0, point.X(), point.Y());
+        m.setSinCos(-1, 0, point.x(), point.y());
         canvas->concat(m);
         break;
       }
@@ -169,14 +169,14 @@ void DrawBlobs(cc::PaintCanvas* canvas,
         canvas->save();
 
         SkMatrix m;
-        m.setSinCos(-1, 0, point.X(), point.Y());
+        m.setSinCos(-1, 0, point.x(), point.y());
         // TODO(yosin): We should use angle specified in CSS instead of
         // constant value -15deg.
         // Note: We draw glyph in right-top corner upper.
         // See CSS "transform: skew(0, -15deg)"
         SkMatrix skewY;
         constexpr SkScalar kSkewY = -0.2679491924311227;  // tan(-15deg)
-        skewY.setSkew(0, kSkewY, point.X(), point.Y());
+        skewY.setSkew(0, kSkewY, point.x(), point.y());
         m.preConcat(skewY);
         canvas->concat(m);
         break;
@@ -189,16 +189,16 @@ void DrawBlobs(cc::PaintCanvas* canvas,
         canvas->save();
         SkMatrix skewX;
         constexpr SkScalar kSkewX = 0.2679491924311227;  // tan(15deg)
-        skewX.setSkew(kSkewX, 0, point.X(), point.Y());
+        skewX.setSkew(kSkewX, 0, point.x(), point.y());
         canvas->concat(skewX);
         break;
       }
     }
     if (node_id != cc::kInvalidNodeId) {
-      canvas->drawTextBlob(blob_info.blob, point.X(), point.Y(), node_id,
+      canvas->drawTextBlob(blob_info.blob, point.x(), point.y(), node_id,
                            flags);
     } else {
-      canvas->drawTextBlob(blob_info.blob, point.X(), point.Y(), flags);
+      canvas->drawTextBlob(blob_info.blob, point.x(), point.y(), flags);
     }
   }
 }
@@ -209,9 +209,10 @@ void Font::DrawText(cc::PaintCanvas* canvas,
                     const TextRunPaintInfo& run_info,
                     const FloatPoint& point,
                     float device_scale_factor,
-                    const cc::PaintFlags& flags) const {
+                    const cc::PaintFlags& flags,
+                    DrawType draw_type) const {
   DrawText(canvas, run_info, point, device_scale_factor, cc::kInvalidNodeId,
-           flags);
+           flags, draw_type);
 }
 
 void Font::DrawText(cc::PaintCanvas* canvas,
@@ -219,17 +220,21 @@ void Font::DrawText(cc::PaintCanvas* canvas,
                     const FloatPoint& point,
                     float device_scale_factor,
                     cc::NodeId node_id,
-                    const cc::PaintFlags& flags) const {
+                    const cc::PaintFlags& flags,
+                    DrawType draw_type) const {
   // Don't draw anything while we are using custom fonts that are in the process
   // of loading.
   if (ShouldSkipDrawing())
     return;
 
-  ShapeResultBloberizer bloberizer(*this, device_scale_factor);
   CachingWordShaper word_shaper(*this);
   ShapeResultBuffer buffer;
   word_shaper.FillResultBuffer(run_info, &buffer);
-  bloberizer.FillGlyphs(run_info, buffer);
+  ShapeResultBloberizer::FillGlyphs bloberizer(
+      GetFontDescription(), device_scale_factor, run_info, buffer,
+      draw_type == Font::DrawType::kGlyphsOnly
+          ? ShapeResultBloberizer::Type::kNormal
+          : ShapeResultBloberizer::Type::kEmitText);
   DrawBlobs(canvas, flags, bloberizer.Blobs(), point, node_id);
 }
 
@@ -238,15 +243,19 @@ void Font::DrawText(cc::PaintCanvas* canvas,
                     const FloatPoint& point,
                     float device_scale_factor,
                     cc::NodeId node_id,
-                    const cc::PaintFlags& flags) const {
+                    const cc::PaintFlags& flags,
+                    DrawType draw_type) const {
   // Don't draw anything while we are using custom fonts that are in the process
   // of loading.
   if (ShouldSkipDrawing())
     return;
 
-  ShapeResultBloberizer bloberizer(*this, device_scale_factor);
-  bloberizer.FillGlyphs(text_info.text, text_info.from, text_info.to,
-                        text_info.shape_result);
+  ShapeResultBloberizer::FillGlyphsNG bloberizer(
+      GetFontDescription(), device_scale_factor, text_info.text, text_info.from,
+      text_info.to, text_info.shape_result,
+      draw_type == Font::DrawType::kGlyphsOnly
+          ? ShapeResultBloberizer::Type::kNormal
+          : ShapeResultBloberizer::Type::kEmitText);
   DrawBlobs(canvas, flags, bloberizer.Blobs(), point, node_id);
 }
 
@@ -255,7 +264,8 @@ bool Font::DrawBidiText(cc::PaintCanvas* canvas,
                         const FloatPoint& point,
                         CustomFontNotReadyAction custom_font_not_ready_action,
                         float device_scale_factor,
-                        const cc::PaintFlags& flags) const {
+                        const cc::PaintFlags& flags,
+                        DrawType draw_type) const {
   // Don't draw anything while we are using custom fonts that are in the process
   // of loading, except if the 'force' argument is set to true (in which case it
   // will use a fallback font).
@@ -291,20 +301,23 @@ bool Font::DrawBidiText(cc::PaintCanvas* canvas,
 
     TextRunPaintInfo subrun_info(subrun);
 
-    // Fix regression with -ftrivial-auto-var-init=pattern. See
-    // crbug.com/1055652.
-    STACK_UNINITIALIZED ShapeResultBloberizer bloberizer(*this,
-                                                         device_scale_factor);
     ShapeResultBuffer buffer;
     word_shaper.FillResultBuffer(subrun_info, &buffer);
-    float run_width = bloberizer.FillGlyphs(subrun_info, buffer);
+
+    // Fix regression with -ftrivial-auto-var-init=pattern. See
+    // crbug.com/1055652.
+    STACK_UNINITIALIZED ShapeResultBloberizer::FillGlyphs bloberizer(
+        GetFontDescription(), device_scale_factor, subrun_info, buffer,
+        draw_type == Font::DrawType::kGlyphsOnly
+            ? ShapeResultBloberizer::Type::kNormal
+            : ShapeResultBloberizer::Type::kEmitText);
     DrawBlobs(canvas, flags, bloberizer.Blobs(), curr_point);
 
     bidi_run = bidi_run->Next();
-    curr_point.Move(run_width, 0);
+    curr_point.Offset(bloberizer.Advance(), 0);
   }
 
-  bidi_runs.ClearRuns();
+  bidi_runs.DeleteRuns();
   return true;
 }
 
@@ -323,11 +336,12 @@ void Font::DrawEmphasisMarks(cc::PaintCanvas* canvas,
   if (!emphasis_glyph_data.font_data)
     return;
 
-  ShapeResultBloberizer bloberizer(*this, device_scale_factor);
   CachingWordShaper word_shaper(*this);
   ShapeResultBuffer buffer;
   word_shaper.FillResultBuffer(run_info, &buffer);
-  bloberizer.FillTextEmphasisGlyphs(run_info, emphasis_glyph_data, buffer);
+  ShapeResultBloberizer::FillTextEmphasisGlyphs bloberizer(
+      GetFontDescription(), device_scale_factor, run_info, buffer,
+      emphasis_glyph_data);
   DrawBlobs(canvas, flags, bloberizer.Blobs(), point);
 }
 
@@ -345,10 +359,9 @@ void Font::DrawEmphasisMarks(cc::PaintCanvas* canvas,
   if (!emphasis_glyph_data.font_data)
     return;
 
-  ShapeResultBloberizer bloberizer(*this, device_scale_factor);
-  bloberizer.FillTextEmphasisGlyphs(text_info.text, text_info.from,
-                                    text_info.to, emphasis_glyph_data,
-                                    text_info.shape_result);
+  ShapeResultBloberizer::FillTextEmphasisGlyphsNG bloberizer(
+      GetFontDescription(), device_scale_factor, text_info.text, text_info.from,
+      text_info.to, text_info.shape_result, emphasis_glyph_data);
   DrawBlobs(canvas, flags, bloberizer.Blobs(), point);
 }
 
@@ -431,12 +444,12 @@ void Font::GetTextIntercepts(const TextRunPaintInfo& run_info,
   if (ShouldSkipDrawing())
     return;
 
-  ShapeResultBloberizer bloberizer(
-      *this, device_scale_factor, ShapeResultBloberizer::Type::kTextIntercepts);
   CachingWordShaper word_shaper(*this);
   ShapeResultBuffer buffer;
   word_shaper.FillResultBuffer(run_info, &buffer);
-  bloberizer.FillGlyphs(run_info, buffer);
+  ShapeResultBloberizer::FillGlyphs bloberizer(
+      GetFontDescription(), device_scale_factor, run_info, buffer,
+      ShapeResultBloberizer::Type::kTextIntercepts);
 
   GetTextInterceptsInternal(bloberizer.Blobs(), flags, bounds, intercepts);
 }
@@ -449,10 +462,10 @@ void Font::GetTextIntercepts(const NGTextFragmentPaintInfo& text_info,
   if (ShouldSkipDrawing())
     return;
 
-  ShapeResultBloberizer bloberizer(
-      *this, device_scale_factor, ShapeResultBloberizer::Type::kTextIntercepts);
-  bloberizer.FillGlyphs(text_info.text, text_info.from, text_info.to,
-                        text_info.shape_result);
+  ShapeResultBloberizer::FillGlyphsNG bloberizer(
+      GetFontDescription(), device_scale_factor, text_info.text, text_info.from,
+      text_info.to, text_info.shape_result,
+      ShapeResultBloberizer::Type::kTextIntercepts);
 
   GetTextInterceptsInternal(bloberizer.Blobs(), flags, bounds, intercepts);
 }
@@ -460,9 +473,9 @@ void Font::GetTextIntercepts(const NGTextFragmentPaintInfo& text_info,
 static inline FloatRect PixelSnappedSelectionRect(FloatRect rect) {
   // Using roundf() rather than ceilf() for the right edge as a compromise to
   // ensure correct caret positioning.
-  float rounded_x = roundf(rect.X());
-  return FloatRect(rounded_x, rect.Y(), roundf(rect.MaxX() - rounded_x),
-                   rect.Height());
+  float rounded_x = roundf(rect.x());
+  return FloatRect(rounded_x, rect.y(), roundf(rect.right() - rounded_x),
+                   rect.height());
 }
 
 FloatRect Font::SelectionRectForText(const TextRun& run,
@@ -478,7 +491,7 @@ FloatRect Font::SelectionRectForText(const TextRun& run,
   CharacterRange range = shaper.GetCharacterRange(run, from, to);
 
   return PixelSnappedSelectionRect(
-      FloatRect(point.X() + range.start, point.Y(), range.Width(), height));
+      FloatRect(point.x() + range.start, point.y(), range.Width(), height));
 }
 
 int Font::OffsetForPosition(const TextRun& run,
@@ -508,12 +521,31 @@ void Font::ReportNotDefGlyph() const {
     fontSelector->ReportNotDefGlyph();
 }
 
+void Font::ReportEmojiSegmentGlyphCoverage(unsigned num_clusters,
+                                           unsigned num_broken_clusters) const {
+  FontSelector* fontSelector = EnsureFontFallbackList()->GetFontSelector();
+  // See ReportNotDefGlyph(), sometimes no fontSelector is available in non-DOM
+  // usages of Font.
+  if (fontSelector) {
+    fontSelector->ReportEmojiSegmentGlyphCoverage(num_clusters,
+                                                  num_broken_clusters);
+  }
+}
+
 void Font::WillUseFontData(const String& text) const {
-  const FontFamily& family = GetFontDescription().Family();
-  if (font_fallback_list_ && font_fallback_list_->GetFontSelector() &&
-      !family.FamilyIsEmpty())
-    font_fallback_list_->GetFontSelector()->WillUseFontData(
-        GetFontDescription(), family.Family(), text);
+  const FontDescription& font_description = GetFontDescription();
+  const FontFamily& family = font_description.Family();
+  if (UNLIKELY(family.FamilyName().IsEmpty()))
+    return;
+  if (FontSelector* font_selector = GetFontSelector()) {
+    font_selector->WillUseFontData(font_description, family, text);
+    return;
+  }
+  // Non-DOM usages can't resolve generic family.
+  if (family.IsPrewarmed() || family.FamilyIsGeneric())
+    return;
+  family.SetIsPrewarmed();
+  FontCache::PrewarmFamily(family.FamilyName());
 }
 
 GlyphData Font::GetEmphasisMarkGlyphData(const AtomicString& mark) const {

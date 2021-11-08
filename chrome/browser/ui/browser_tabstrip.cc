@@ -26,7 +26,7 @@ void AddTabAt(Browser* browser,
               const GURL& url,
               int idx,
               bool foreground,
-              base::Optional<tab_groups::TabGroupId> group) {
+              absl::optional<tab_groups::TabGroupId> group) {
   // Time new tab page creation time.  We keep track of the timing data in
   // WebContents, but we want to include the time it takes to create the
   // WebContents object too.
@@ -114,17 +114,26 @@ void ConfigureTabGroupForNavigation(NavigateParams* nav_params) {
   if (source_index == TabStripModel::kNoTab)
     return;
 
-  if (nav_params->disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB ||
-      nav_params->disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB) {
-    nav_params->group = model->GetTabGroupForTab(source_index);
+  switch (nav_params->transition) {
+    // Do not set the group when the navigation is from bookmarks.
+    case ui::PAGE_TRANSITION_AUTO_BOOKMARK:
+      break;
+    default: {
+      if (nav_params->disposition ==
+              WindowOpenDisposition::NEW_FOREGROUND_TAB ||
+          nav_params->disposition ==
+              WindowOpenDisposition::NEW_BACKGROUND_TAB) {
+        nav_params->group = model->GetTabGroupForTab(source_index);
 
-    // Because the target tab has not opened yet, adding the source tab, and the
-    // tab immediately to the right of the source tab will also result in the
-    // target tab getting added to this group.
-    if (ShouldAutoCreateGroupForNavigation(nav_params)) {
-      nav_params->group =
-          model->AddToNewGroup({source_index, source_index + 1});
-      model->OpenTabGroupEditor(nav_params->group.value());
+        // Because the target tab has not opened yet, adding the source tab, and
+        // the tab immediately to the right of the source tab will also result
+        // in the target tab getting added to this group.
+        if (ShouldAutoCreateGroupForNavigation(nav_params)) {
+          nav_params->group =
+              model->AddToNewGroup({source_index, source_index + 1});
+          model->OpenTabGroupEditor(nav_params->group.value());
+        }
+      }
     }
   }
 }

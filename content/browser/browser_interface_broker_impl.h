@@ -33,6 +33,14 @@ class BrowserInterfaceBrokerImpl : public blink::mojom::BrowserInterfaceBroker {
  public:
   explicit BrowserInterfaceBrokerImpl(ExecutionContextHost* host)
       : host_(host) {
+    // The populate functions here define all the interfaces that will be
+    // exposed through the broker.
+    //
+    // The `host` is a templated type (one of RenderFrameHostImpl,
+    // ServiceWorkerHost, etc.). which allows the populate steps here to call a
+    // set of overloaded functions based on that type. Thus each type of `host`
+    // can expose a different set of interfaces, which is determined statically
+    // at compile time.
     internal::PopulateBinderMap(host, &binder_map_);
     internal::PopulateBinderMapWithContext(host, &binder_map_with_context_);
   }
@@ -45,14 +53,14 @@ class BrowserInterfaceBrokerImpl : public blink::mojom::BrowserInterfaceBroker {
   BrowserInterfaceBrokerImpl& operator=(BrowserInterfaceBrokerImpl&&) = delete;
 
   // blink::mojom::BrowserInterfaceBroker
-  void GetInterface(mojo::GenericPendingReceiver receiver) {
+  void GetInterface(mojo::GenericPendingReceiver receiver) override {
     DCHECK(receiver.interface_name().has_value());
     if (!policy_applier_) {
       BindInterface(std::move(receiver));
     } else {
       std::string interface_name = receiver.interface_name().value();
-      // base::Unretained is safe because `this` owns `policy_applier_`.
-      policy_applier_->ApplyPolicyToBinder(
+      // base::Unretained is safe because `this` outlives `policy_applier_`.
+      policy_applier_->ApplyPolicyToNonAssociatedBinder(
           interface_name,
           base::BindOnce(&BrowserInterfaceBrokerImpl::BindInterface,
                          base::Unretained(this), std::move(receiver)));
@@ -60,27 +68,19 @@ class BrowserInterfaceBrokerImpl : public blink::mojom::BrowserInterfaceBroker {
   }
 
   // Sets MojoBinderPolicyApplier to control when to bind interfaces.
-  void ApplyMojoBinderPolicies(
-      std::unique_ptr<MojoBinderPolicyApplier> policy_applier) {
+  void ApplyMojoBinderPolicies(MojoBinderPolicyApplier* policy_applier) {
     DCHECK(blink::features::IsPrerender2Enabled());
     DCHECK(policy_applier);
     DCHECK(!policy_applier_);
-    policy_applier_ = std::move(policy_applier);
+    policy_applier_ = policy_applier;
   }
 
-  // Resolves requests that were previously deferred and stops applying policies
-  // to binding requests.
+  // Stops applying policies to binding requests.
   void ReleaseMojoBinderPolicies() {
-    // TODO(crbug.com/1174506): Temporary until we understand the cause of the
-    // crash. Return to a DCHECK after the bug is fixed.
-    CHECK(blink::features::IsPrerender2Enabled());
-    // TODO(crbug.com/1174506): Temporary until we understand the cause of the
-    // crash. Return to `DCHECK(policy_applier_)` after the bug is fixed.
-    if (policy_applier_) {
-      policy_applier_->GrantAll();
-      // Reset `policy_applier_` to disable capability control.
-      policy_applier_.reset();
-    }
+    DCHECK(blink::features::IsPrerender2Enabled());
+    DCHECK(policy_applier_);
+    // Reset `policy_applier_` to disable capability control.
+    policy_applier_ = nullptr;
   }
 
  private:
@@ -97,7 +97,11 @@ class BrowserInterfaceBrokerImpl : public blink::mojom::BrowserInterfaceBroker {
   ExecutionContextHost* const host_;
   mojo::BinderMap binder_map_;
   mojo::BinderMapWithContext<InterfaceBinderContext> binder_map_with_context_;
-  std::unique_ptr<MojoBinderPolicyApplier> policy_applier_;
+
+  // The lifetime of `policy_applier_` is managed by the owner of this instance.
+  // The owner should call `ReleaseMojoBinderPolicies()` when it destroys the
+  // applier.
+  MojoBinderPolicyApplier* policy_applier_ = nullptr;
 };
 
 }  // namespace content

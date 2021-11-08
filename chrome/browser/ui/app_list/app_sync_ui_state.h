@@ -49,6 +49,10 @@ class AppSyncUIState : public KeyedService,
   static bool ShouldObserveAppSyncForProfile(Profile* profile);
 
   explicit AppSyncUIState(Profile* profile);
+
+  AppSyncUIState(const AppSyncUIState&) = delete;
+  AppSyncUIState& operator=(const AppSyncUIState&) = delete;
+
   ~AppSyncUIState() override;
 
   void AddObserver(AppSyncUIStateObserver* observer);
@@ -87,11 +91,9 @@ class AppSyncUIState : public KeyedService,
   base::OneShotTimer max_syncing_status_timer_;
 
   Status status_;
-  base::ObserverList<AppSyncUIStateObserver>::Unchecked observers_;
+  base::ObserverList<AppSyncUIStateObserver> observers_;
 
   extensions::ExtensionRegistry* extension_registry_;
-
-  DISALLOW_COPY_AND_ASSIGN(AppSyncUIState);
 };
 
 #endif  // CHROME_BROWSER_UI_APP_LIST_APP_SYNC_UI_STATE_H_

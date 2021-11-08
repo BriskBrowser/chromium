@@ -118,23 +118,23 @@ TEST_F(ImageBitmapTest, ImageResourceConsistency) {
           UnacceleratedStaticBitmapImage::Create(image).get());
   image_element->SetImageForTest(original_image_content);
 
-  base::Optional<IntRect> crop_rect =
-      IntRect(0, 0, image_->width(), image_->height());
+  absl::optional<IntRect> crop_rect =
+      IntRect(0, 0, image_element->width(), image_element->height());
   auto* image_bitmap_no_crop = MakeGarbageCollected<ImageBitmap>(
       image_element, crop_rect, default_options);
   ASSERT_TRUE(image_bitmap_no_crop);
-  crop_rect = IntRect(image_->width() / 2, image_->height() / 2,
-                      image_->width() / 2, image_->height() / 2);
+  crop_rect = IntRect(image_element->width() / 2, image_element->height() / 2,
+                      image_element->width() / 2, image_element->height() / 2);
   auto* image_bitmap_interior_crop = MakeGarbageCollected<ImageBitmap>(
       image_element, crop_rect, default_options);
   ASSERT_TRUE(image_bitmap_interior_crop);
-  crop_rect = IntRect(-image_->width() / 2, -image_->height() / 2,
-                      image_->width(), image_->height());
+  crop_rect = IntRect(-image_element->width() / 2, -image_element->height() / 2,
+                      image_element->width(), image_element->height());
   auto* image_bitmap_exterior_crop = MakeGarbageCollected<ImageBitmap>(
       image_element, crop_rect, default_options);
   ASSERT_TRUE(image_bitmap_exterior_crop);
-  crop_rect = IntRect(-image_->width(), -image_->height(), image_->width(),
-                      image_->height());
+  crop_rect = IntRect(-image_element->width(), -image_element->height(),
+                      image_element->width(), image_element->height());
   auto* image_bitmap_outside_crop = MakeGarbageCollected<ImageBitmap>(
       image_element, crop_rect, default_options);
   ASSERT_TRUE(image_bitmap_outside_crop);
@@ -153,7 +153,7 @@ TEST_F(ImageBitmapTest, ImageResourceConsistency) {
                 ->GetImage()
                 ->PaintImageForCurrentFrame()
                 .GetSwSkImage());
-  ASSERT_EQ(image_bitmap_exterior_crop->BitmapImage()
+  ASSERT_NE(image_bitmap_exterior_crop->BitmapImage()
                 ->PaintImageForCurrentFrame()
                 .GetSwSkImage(),
             image_element->CachedImage()
@@ -186,8 +186,8 @@ TEST_F(ImageBitmapTest, ImageBitmapSourceChanged) {
   image->SetImageForTest(original_image_content);
 
   const ImageBitmapOptions* default_options = ImageBitmapOptions::Create();
-  base::Optional<IntRect> crop_rect =
-      IntRect(0, 0, image_->width(), image_->height());
+  absl::optional<IntRect> crop_rect =
+      IntRect(0, 0, image->width(), image->height());
   auto* image_bitmap =
       MakeGarbageCollected<ImageBitmap>(image, crop_rect, default_options);
   ASSERT_TRUE(image_bitmap);
@@ -253,9 +253,8 @@ static void TestImageBitmapTextureBacked(
 TEST_F(ImageBitmapTest, AvoidGPUReadback) {
   base::WeakPtr<WebGraphicsContext3DProviderWrapper> context_provider_wrapper =
       SharedGpuContext::ContextProviderWrapper();
-  CanvasResourceParams resource_params;
   auto resource_provider = CanvasResourceProvider::CreateSharedImageProvider(
-      IntSize(100, 100), kLow_SkFilterQuality, resource_params,
+      SkImageInfo::MakeN32Premul(100, 100), cc::PaintFlags::FilterQuality::kLow,
       CanvasResourceProvider::ShouldInitialize::kNo, context_provider_wrapper,
       RasterMode::kGPU, true /*is_origin_top_left*/,
       0u /*shared_image_usage_flags*/);
@@ -268,9 +267,11 @@ TEST_F(ImageBitmapTest, AvoidGPUReadback) {
   EXPECT_TRUE(image_bitmap->BitmapImage()->IsTextureBacked());
 
   IntRect image_bitmap_rect(25, 25, 50, 50);
-  ImageBitmapOptions* image_bitmap_options = ImageBitmapOptions::Create();
-  TestImageBitmapTextureBacked(bitmap, image_bitmap_rect, image_bitmap_options,
-                               true);
+  {
+    ImageBitmapOptions* image_bitmap_options = ImageBitmapOptions::Create();
+    TestImageBitmapTextureBacked(bitmap, image_bitmap_rect,
+                                 image_bitmap_options, true);
+  }
 
   std::list<String> image_orientations = {"none", "flipY"};
   std::list<String> premultiply_alphas = {"none", "premultiply", "default"};
@@ -329,7 +330,7 @@ TEST_F(ImageBitmapTest,
   ImageBitmapOptions* options = ImageBitmapOptions::Create();
   options->setColorSpaceConversion("default");
   auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(
-      image_data, IntRect(IntPoint(0, 0), image_data->Size()), options);
+      image_data, IntRect(gfx::Point(0, 0), image_data->Size()), options);
   DCHECK(image_bitmap);
 }
 

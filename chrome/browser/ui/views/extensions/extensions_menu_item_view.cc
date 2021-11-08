@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -16,27 +17,45 @@
 #include "chrome/browser/ui/views/bubble_menu_item_factory.h"
 #include "chrome/browser/ui/views/extensions/extension_context_menu_controller.h"
 #include "chrome/browser/ui/views/extensions/extensions_menu_button.h"
+#include "chrome/browser/ui/views/hover_button.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_host_view.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/controls/button/image_button.h"
-#include "ui/views/controls/button/image_button_factory.h"
+#include "ui/views/controls/button/menu_button_controller.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/vector_icons.h"
 #include "ui/views/view_class_properties.h"
 
 namespace {
+
 constexpr int kSecondaryIconSizeDp = 16;
 // Set secondary item insets to get to square buttons.
 constexpr gfx::Insets kSecondaryButtonInsets = gfx::Insets(
     (ExtensionsMenuItemView::kMenuItemHeightDp - kSecondaryIconSizeDp) / 2);
 constexpr int EXTENSION_CONTEXT_MENU = 13;
 constexpr int EXTENSION_PINNING = 14;
+
+void SetButtonIconWithColor(HoverButton* button,
+                            const gfx::VectorIcon& icon,
+                            SkColor icon_color) {
+  button->SetImage(
+      views::Button::STATE_NORMAL,
+      gfx::CreateVectorIcon(icon, kSecondaryIconSizeDp, icon_color));
+  button->SetImage(views::Button::STATE_DISABLED,
+                   gfx::CreateVectorIcon(
+                       icon, kSecondaryIconSizeDp,
+                       SkColorSetA(icon_color, gfx::kDisabledControlAlpha)));
+}
+
 }  // namespace
 
 // static
@@ -48,7 +67,6 @@ ExtensionsMenuItemView::ExtensionsMenuItemView(
     bool allow_pinning)
     : profile_(browser->profile()),
       primary_action_button_(new ExtensionsMenuButton(browser,
-                                                      this,
                                                       controller.get(),
                                                       allow_pinning)),
       controller_(std::move(controller)),
@@ -57,8 +75,8 @@ ExtensionsMenuItemView::ExtensionsMenuItemView(
   // status when hovering child views.
   SetNotifyEnterExitOnChild(true);
 
-  context_menu_controller_ = std::make_unique<ExtensionContextMenuController>(
-      nullptr, controller_.get());
+  context_menu_controller_ =
+      std::make_unique<ExtensionContextMenuController>(controller_.get());
 
   views::FlexLayout* layout_manager_ =
       SetLayoutManager(std::make_unique<views::FlexLayout>());
@@ -72,10 +90,11 @@ ExtensionsMenuItemView::ExtensionsMenuItemView(
                                views::MaximumFlexSizeRule::kUnbounded));
 
   if (primary_action_button_->CanShowIconInToolbar()) {
-    auto pin_button = CreateBubbleMenuItem(
-        EXTENSION_PINNING,
+    auto pin_button = std::make_unique<HoverButton>(
         base::BindRepeating(&ExtensionsMenuItemView::PinButtonPressed,
-                            base::Unretained(this)));
+                            base::Unretained(this)),
+        std::u16string());
+    pin_button->SetID(EXTENSION_PINNING);
     pin_button->SetBorder(views::CreateEmptyBorder(kSecondaryButtonInsets));
 
     pin_button_ = pin_button.get();
@@ -83,8 +102,9 @@ ExtensionsMenuItemView::ExtensionsMenuItemView(
   }
   UpdatePinButton();
 
-  auto context_menu_button = CreateBubbleMenuItem(
-      EXTENSION_CONTEXT_MENU, views::Button::PressedCallback());
+  auto context_menu_button = std::make_unique<HoverButton>(
+      views::Button::PressedCallback(), std::u16string());
+  context_menu_button->SetID(EXTENSION_CONTEXT_MENU);
   context_menu_button->SetBorder(
       views::CreateEmptyBorder(kSecondaryButtonInsets));
   context_menu_button->SetTooltipText(
@@ -104,14 +124,13 @@ ExtensionsMenuItemView::~ExtensionsMenuItemView() = default;
 void ExtensionsMenuItemView::OnThemeChanged() {
   views::View::OnThemeChanged();
   const SkColor icon_color =
-      GetAdjustedIconColor(GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_MenuIconColor));
+      GetAdjustedIconColor(GetColorProvider()->GetColor(ui::kColorMenuIcon));
 
   if (pin_button_)
-    pin_button_->SetInkDropBaseColor(icon_color);
-  views::SetImageFromVectorIconWithColor(context_menu_button_,
-                                         kBrowserToolsIcon,
-                                         kSecondaryIconSizeDp, icon_color);
+    views::InkDrop::Get(pin_button_)->SetBaseColor(icon_color);
+
+  SetButtonIconWithColor(context_menu_button_, kBrowserToolsIcon, icon_color);
+
   UpdatePinButton();
 }
 
@@ -133,19 +152,20 @@ void ExtensionsMenuItemView::UpdatePinButton() {
   // user activity.
   pin_button_->SetEnabled(!is_force_pinned && !profile_->IsOffTheRecord());
 
+  if (!GetWidget())
+    return;
   SkColor unpinned_icon_color =
-      GetAdjustedIconColor(GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_MenuIconColor));
-  SkColor icon_color =
-      IsPinned() ? GetAdjustedIconColor(GetNativeTheme()->GetSystemColor(
-                       ui::NativeTheme::kColorId_ProminentButtonColor))
-                 : unpinned_icon_color;
-  views::SetImageFromVectorIconWithColor(
-      pin_button_, IsPinned() ? views::kUnpinIcon : views::kPinIcon,
-      kSecondaryIconSizeDp, icon_color);
+      GetAdjustedIconColor(GetColorProvider()->GetColor(ui::kColorMenuIcon));
+  SkColor icon_color = IsPinned()
+                           ? GetAdjustedIconColor(GetColorProvider()->GetColor(
+                                 ui::kColorButtonBackgroundProminent))
+                           : unpinned_icon_color;
+  SetButtonIconWithColor(pin_button_,
+                         IsPinned() ? views::kUnpinIcon : views::kPinIcon,
+                         icon_color);
 }
 
-bool ExtensionsMenuItemView::IsContextMenuRunning() const {
+bool ExtensionsMenuItemView::IsContextMenuRunningForTesting() const {
   return context_menu_controller_->IsMenuRunning();
 }
 
@@ -175,8 +195,8 @@ ExtensionsMenuItemView::primary_action_button_for_testing() {
 }
 
 SkColor ExtensionsMenuItemView::GetAdjustedIconColor(SkColor icon_color) const {
-  const SkColor background_color = GetNativeTheme()->GetSystemColor(
-      ui::NativeTheme::kColorId_BubbleBackground);
+  const SkColor background_color =
+      GetColorProvider()->GetColor(ui::kColorBubbleBackground);
   if (background_color != SK_ColorTRANSPARENT) {
     return color_utils::BlendForMinContrast(icon_color, background_color).color;
   }

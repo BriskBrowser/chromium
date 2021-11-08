@@ -19,7 +19,7 @@ ModelTypeSyncBridge::ModelTypeSyncBridge(
   change_processor_->OnModelStarting(this);
 }
 
-ModelTypeSyncBridge::~ModelTypeSyncBridge() {}
+ModelTypeSyncBridge::~ModelTypeSyncBridge() = default;
 
 void ModelTypeSyncBridge::OnSyncStarting(
     const DataTypeActivationRequest& request) {}
@@ -59,8 +59,9 @@ void ModelTypeSyncBridge::OnCommitAttemptErrors(
   // By default the bridge just ignores failed commit items.
 }
 
-void ModelTypeSyncBridge::OnCommitAttemptFailed(SyncCommitError commit_error) {
-  // By default ignore any failures.
+ModelTypeSyncBridge::CommitAttemptFailedBehavior
+ModelTypeSyncBridge::OnCommitAttemptFailed(SyncCommitError commit_error) {
+  return CommitAttemptFailedBehavior::kDontRetryOnNextCycle;
 }
 
 size_t ModelTypeSyncBridge::EstimateSyncOverheadMemoryUsage() const {

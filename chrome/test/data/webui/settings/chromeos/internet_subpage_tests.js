@@ -13,7 +13,8 @@
 // #import {Router, routes} from 'chrome://os-settings/chromeos/os_settings.js';
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 // #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
-// #import {eventToPromise, flushTasks, waitAfterNextRender} from 'chrome://test/test_util.m.js';
+// #import {eventToPromise, flushTasks, waitAfterNextRender} from 'chrome://test/test_util.js';
+// #import {assert} from 'chrome://resources/js/assert.m.js';
 // clang-format on
 
 suite('InternetSubpage', function() {
@@ -63,25 +64,31 @@ suite('InternetSubpage', function() {
     internetSubpage.deviceState = mojoApi_.getDeviceStateForTest(type);
   }
 
-  function setCellularNetworks() {
+  /**
+   * @param {!Array<!chromeos.networkConfig.mojom.NetworkStateProperties>=}
+   *     opt_networks Networks to set. If left undefined, default networks will
+   *     be set.
+   */
+  function addCellularNetworks(opt_networks) {
     const mojom = chromeos.networkConfig.mojom;
-    mojoApi_.setNetworkTypeEnabledState(mojom.NetworkType.kTether);
-    setNetworksForTest(mojom.NetworkType.kCellular, [
+
+    const networks = opt_networks || [
       OncMojo.getDefaultNetworkState(mojom.NetworkType.kCellular, 'cellular1'),
       OncMojo.getDefaultNetworkState(mojom.NetworkType.kTether, 'tether1'),
       OncMojo.getDefaultNetworkState(mojom.NetworkType.kTether, 'tether2'),
-    ]);
+    ];
+
+    mojoApi_.setNetworkTypeEnabledState(mojom.NetworkType.kTether);
+    setNetworksForTest(mojom.NetworkType.kCellular, networks);
     internetSubpage.tetherDeviceState = {
       type: mojom.NetworkType.kTether,
       deviceState: mojom.DeviceStateType.kEnabled
     };
+    internetSubpage.cellularDeviceState =
+        mojoApi_.getDeviceStateForTest(mojom.NetworkType.kCellular);
   }
 
-  function initSubpage(isUpdatedCellularUiEnabled) {
-    if (isUpdatedCellularUiEnabled !== undefined) {
-      loadTimeData.overrideValues(
-          {updatedCellularActivationUi: !!isUpdatedCellularUiEnabled});
-    }
+  function initSubpage() {
     PolymerTest.clearBody();
     internetSubpage = document.createElement('settings-internet-subpage');
     assertTrue(!!internetSubpage);
@@ -141,7 +148,7 @@ suite('InternetSubpage', function() {
     });
 
     test('Tether', function() {
-      initSubpage(false);
+      initSubpage();
       const mojom = chromeos.networkConfig.mojom;
       setNetworksForTest(mojom.NetworkType.kTether, [
         OncMojo.getDefaultNetworkState(mojom.NetworkType.kTether, 'tether1'),
@@ -189,59 +196,44 @@ suite('InternetSubpage', function() {
           'Device enabled should be focused for settingId=22.');
     });
 
-    test('Fire show cellular setup event on add cellular clicked', () => {
-      initSubpage(true);
+    test('Deep link to add cellular button', async () => {
+      initSubpage();
+      addCellularNetworks();
       const mojom = chromeos.networkConfig.mojom;
-      mojoApi_.setNetworkTypeEnabledState(mojom.NetworkType.kCellular);
-      setNetworksForTest(mojom.NetworkType.kCellular, [
-        OncMojo.getDefaultNetworkState(
-            mojom.NetworkType.kCellular, 'cellular1'),
-      ]);
-      internetSubpage.deviceState = {
+      await flushAsync();
+      const cellularNetworkList = internetSubpage.$$('#cellularNetworkList');
+      cellularNetworkList.cellularDeviceState = {
         type: mojom.NetworkType.kCellular,
-        deviceState: mojom.DeviceStateType.kEnabled
+        deviceState: mojom.DeviceStateType.kEnabled,
+        inhibitReason: mojom.InhibitReason.kNotInhibited,
+        simInfos: [{eid: 'eid'}],
       };
-      internetSubpage.globalPolicy = {
-        allowOnlyPolicyNetworksToConnect: false,
+      cellularNetworkList.globalPolicy = {
+        allowOnlyPolicyWifiNetworksToConnect: false,
       };
+      await flushAsync();
 
-      return flushAsync().then(async () => {
-        const addCellularButton = internetSubpage.$$('#addCellularButton');
-        assertTrue(!!addCellularButton);
+      const params = new URLSearchParams;
+      params.append('settingId', '26');
+      settings.Router.getInstance().navigateTo(
+          settings.routes.INTERNET_NETWORKS, params);
 
-        const showCellularSetupPromise =
-            test_util.eventToPromise('show-cellular-setup', internetSubpage);
-        addCellularButton.click();
-        await Promise.all([showCellularSetupPromise, test_util.flushTasks()]);
-      });
+      await flushAsync();
+      assertTrue(!!cellularNetworkList);
+
+      const deepLinkElement = cellularNetworkList.getAddEsimButton();
+      assertTrue(!!deepLinkElement);
+      await test_util.waitAfterNextRender(deepLinkElement);
+      assertEquals(
+          deepLinkElement, getDeepActiveElement(),
+          'Add cellular button should be focused for settingId=26.');
     });
 
     test(
-        'Tether plus Cellular with updatedCellularActivationUi false',
-        function() {
-          initSubpage(false /* isUpdatedCellularUiEnabled */);
+        'Tether plus Cellular', function() {
+          initSubpage();
           const mojom = chromeos.networkConfig.mojom;
-          setCellularNetworks();
-          return flushAsync().then(() => {
-            assertEquals(3, internetSubpage.networkStateList_.length);
-            const toggle = internetSubpage.$$('#deviceEnabledButton');
-            assertTrue(!!toggle);
-            assertFalse(toggle.disabled);
-            const networkList = internetSubpage.$$('#networkList');
-            assertTrue(!!networkList);
-            assertEquals(3, networkList.networks.length);
-            const tetherToggle = internetSubpage.$$('#tetherEnabledButton');
-            assertTrue(!!tetherToggle);
-            assertFalse(tetherToggle.disabled);
-          });
-        });
-
-    test(
-        'Tether plus Cellular with updatedCellularActivationUi true',
-        function() {
-          initSubpage(true /* isUpdatedCellularUiEnabled */);
-          const mojom = chromeos.networkConfig.mojom;
-          setCellularNetworks();
+          addCellularNetworks();
           return flushAsync().then(() => {
             assertEquals(3, internetSubpage.networkStateList_.length);
             const toggle = internetSubpage.$$('#deviceEnabledButton');
@@ -256,35 +248,69 @@ suite('InternetSubpage', function() {
           });
         });
 
-    test('Deep link to tether on/off toggle w/ cellular', async () => {
-      initSubpage(false /* isUpdatedCellularUiEnabled */);
+    test('No js error when previous route is null', function() {
+      // This is a test for regression here https://crbug.com/1213162.
+      // |oldRoute| in currentRouteChanged() could become undefined if a page
+      // is refreshed. This test makes sure if |oldRoute| is undefined no js
+      // console error is thrown.
+      initSubpage();
       const mojom = chromeos.networkConfig.mojom;
-      mojoApi_.setNetworkTypeEnabledState(mojom.NetworkType.kTether);
-      setNetworksForTest(mojom.NetworkType.kCellular, [
+      addCellularNetworks();
+      return flushAsync().then(() => {
+        const params = new URLSearchParams;
+        params.append('guid', 'cellular1_guid');
+        params.append('type', 'Cellular');
+        params.append('name', 'cellular1');
+        settings.Router.getInstance().navigateTo(
+            settings.routes.INTERNET_NETWORKS, params);
+        internetSubpage.currentRouteChanged(
+            settings.routes.INTERNET_NETWORKS, undefined);
+      });
+    });
+
+    // Regression test for https://crbug.com/1197342.
+    test('pSIM section shows when cellularNetworks present', async () => {
+      initSubpage();
+
+      const mojom = chromeos.networkConfig.mojom;
+      const networks = [
         OncMojo.getDefaultNetworkState(
             mojom.NetworkType.kCellular, 'cellular1'),
         OncMojo.getDefaultNetworkState(mojom.NetworkType.kTether, 'tether1'),
         OncMojo.getDefaultNetworkState(mojom.NetworkType.kTether, 'tether2'),
-      ]);
+      ];
+
+      mojoApi_.setNetworkTypeEnabledState(mojom.NetworkType.kTether);
+      setNetworksForTest(mojom.NetworkType.kCellular, networks);
       internetSubpage.tetherDeviceState = {
         type: mojom.NetworkType.kTether,
         deviceState: mojom.DeviceStateType.kEnabled
       };
-
-      const params = new URLSearchParams;
-      params.append('settingId', '22');
-      settings.Router.getInstance().navigateTo(
-          settings.routes.INTERNET_NETWORKS, params);
+      const deviceState =
+          mojoApi_.getDeviceStateForTest(mojom.NetworkType.kCellular);
+      // This siminfo represents a pSIM slot because this it has no EID.
+      deviceState.simInfos = [{
+        iccid: '11111111111',
+        isPrimary: true,
+      }];
+      internetSubpage.deviceState = deviceState;
 
       await flushAsync();
-
-      const deepLinkElement = internetSubpage.$$('#tetherEnabledButton');
-      assertTrue(!!deepLinkElement);
-      await test_util.waitAfterNextRender(deepLinkElement);
-      assertEquals(
-          deepLinkElement, getDeepActiveElement(),
-          'Tether enabled should be focused for settingId=22.');
+      const cellularNetworkList = internetSubpage.$$('#cellularNetworkList');
+      assertTrue(!!cellularNetworkList.$$('#psimNetworkList'));
     });
+
+    // Regression test for https://crbug.com/1182406.
+    test(
+        'Cellular subpage with no networks', function() {
+          initSubpage();
+          addCellularNetworks([] /* networks */);
+          return flushAsync().then(() => {
+            const cellularNetworkList =
+                internetSubpage.$$('#cellularNetworkList');
+            assertTrue(!!cellularNetworkList);
+          });
+        });
 
     suite('VPN', function() {
       function initVpn() {
@@ -436,6 +462,141 @@ suite('InternetSubpage', function() {
               assertEquals(1, allNetworkLists[2].networks.length);
             });
           });
+
+      test('Always-on VPN settings reflects OFF mode', () => {
+        const mojom = chromeos.networkConfig.mojom;
+        mojoApi_.setAlwaysOnVpn({
+          mode: mojom.AlwaysOnVpnMode.kOff,
+          serviceGuid: '',
+        });
+        return initSubpage()
+            .then(() => {
+              initVpn();
+              return flushAsync();
+            })
+            .then(() => {
+              const networkAlwaysOnVpn =
+                  internetSubpage.$$('#alwaysOnVpnSelector');
+              assert(networkAlwaysOnVpn);
+              assertEquals(mojom.AlwaysOnVpnMode.kOff, networkAlwaysOnVpn.mode);
+              assertEquals('', networkAlwaysOnVpn.service);
+            });
+      });
+
+      test('Always-on VPN settings reflects BEST-EFFORT mode', () => {
+        const mojom = chromeos.networkConfig.mojom;
+        mojoApi_.setAlwaysOnVpn({
+          mode: mojom.AlwaysOnVpnMode.kBestEffort,
+          serviceGuid: 'vpn1_guid',
+        });
+        return initSubpage()
+            .then(() => {
+              initVpn();
+              return flushAsync();
+            })
+            .then(() => {
+              const networkAlwaysOnVpn =
+                  internetSubpage.$$('#alwaysOnVpnSelector');
+              assert(networkAlwaysOnVpn);
+              assertEquals(
+                  mojom.AlwaysOnVpnMode.kBestEffort, networkAlwaysOnVpn.mode);
+              assertEquals('vpn1_guid', networkAlwaysOnVpn.service);
+            });
+      });
+
+      test('Always-on VPN settings reflects STRICT mode', () => {
+        const mojom = chromeos.networkConfig.mojom;
+        mojoApi_.setAlwaysOnVpn({
+          mode: mojom.AlwaysOnVpnMode.kStrict,
+          serviceGuid: 'vpn2_guid',
+        });
+        return initSubpage()
+            .then(() => {
+              initVpn();
+              return flushAsync();
+            })
+            .then(() => {
+              const networkAlwaysOnVpn =
+                  internetSubpage.$$('#alwaysOnVpnSelector');
+              assert(networkAlwaysOnVpn);
+              assertEquals(
+                  mojom.AlwaysOnVpnMode.kStrict, networkAlwaysOnVpn.mode);
+              assertEquals('vpn2_guid', networkAlwaysOnVpn.service);
+            });
+      });
+
+      test('Enabled always-on and select a service', () => {
+        const mojom = chromeos.networkConfig.mojom;
+        return initSubpage()
+            .then(() => {
+              initVpn();
+              return flushAsync();
+            })
+            .then(() => {
+              const networkAlwaysOnVpn =
+                  internetSubpage.$$('#alwaysOnVpnSelector');
+              assert(networkAlwaysOnVpn);
+              networkAlwaysOnVpn.mode = mojom.AlwaysOnVpnMode.kBestEffort;
+              networkAlwaysOnVpn.service = 'vpn1_guid';
+              return flushAsync();
+            })
+            .then(() => mojoApi_.getAlwaysOnVpn())
+            .then(result => {
+              assertEquals(
+                  mojom.AlwaysOnVpnMode.kBestEffort, result.properties.mode);
+              assertEquals('vpn1_guid', result.properties.serviceGuid);
+            });
+      });
+
+      test('Enable always-on with STRICT mode and select a service', () => {
+        const mojom = chromeos.networkConfig.mojom;
+        return initSubpage()
+            .then(() => {
+              initVpn();
+              return flushAsync();
+            })
+            .then(() => {
+              const networkAlwaysOnVpn =
+                  internetSubpage.$$('#alwaysOnVpnSelector');
+              assert(networkAlwaysOnVpn);
+              networkAlwaysOnVpn.mode = mojom.AlwaysOnVpnMode.kStrict;
+              networkAlwaysOnVpn.service = 'vpn2_guid';
+              return flushAsync();
+            })
+            .then(() => mojoApi_.getAlwaysOnVpn())
+            .then(result => {
+              assertEquals(
+                  mojom.AlwaysOnVpnMode.kStrict, result.properties.mode);
+              assertEquals('vpn2_guid', result.properties.serviceGuid);
+            });
+      });
+
+      test('Always-on VPN is not shown without networks', () => {
+        return initSubpage().then(() => {
+          const networkAlwaysOnVpn = internetSubpage.$$('#alwaysOnVpnSelector');
+          assert(!networkAlwaysOnVpn);
+        });
+      });
+
+      test('Always-on VPN list contains compatible networks', () => {
+        const mojom = chromeos.networkConfig.mojom;
+        mojoApi_.setAlwaysOnVpn({
+          mode: mojom.AlwaysOnVpnMode.kBestEffort,
+          serviceGuid: '',
+        });
+        return initSubpage()
+            .then(() => {
+              initVpn();
+              return flushAsync();
+            })
+            .then(() => {
+              const networkAlwaysOnVpn =
+                  internetSubpage.$$('#alwaysOnVpnSelector');
+              assert(networkAlwaysOnVpn);
+              // The list should contain 2 compatible networks.
+              assertEquals(5, networkAlwaysOnVpn.networks.length);
+            });
+      });
     });
   });
 });

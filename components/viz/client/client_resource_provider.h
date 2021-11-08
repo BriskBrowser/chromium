@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/threading/thread_checker.h"
 #include "components/viz/client/viz_client_export.h"
 #include "components/viz/common/display/renderer_settings.h"
@@ -15,7 +16,6 @@
 #include "components/viz/common/resources/resource_id.h"
 #include "components/viz/common/resources/resource_settings.h"
 #include "components/viz/common/resources/returned_resource.h"
-#include "components/viz/common/resources/single_release_callback.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -37,15 +37,18 @@ class RasterContextProvider;
 // This class is used to give an integer name (ResourceId) to a gpu or software
 // resource (shipped as a TransferableResource), in order to use that name in
 // DrawQuads and give the resource to the viz display compositor. When the
-// resource is removed from the ClientResourceProvider, the
-// SingleReleaseCallback will be called once the resource is no longer in use by
-// the display compositor.
+// resource is removed from the ClientResourceProvider, the ReleaseCallback will
+// be called once the resource is no longer in use by the display compositor.
 //
 // This class is not thread-safe and can only be called from the thread it was
 // created on (in practice, the impl thread).
 class VIZ_CLIENT_EXPORT ClientResourceProvider {
  public:
   ClientResourceProvider();
+
+  ClientResourceProvider(const ClientResourceProvider&) = delete;
+  ClientResourceProvider& operator=(const ClientResourceProvider&) = delete;
+
   ~ClientResourceProvider();
 
   static gpu::SyncToken GenerateSyncTokenHelper(gpu::gles2::GLES2Interface* gl);
@@ -77,11 +80,11 @@ class VIZ_CLIENT_EXPORT ClientResourceProvider {
 
   // Receives a resource from an external client that can be used in compositor
   // frames, via the returned ResourceId.
-  ResourceId ImportResource(const TransferableResource&,
-                            std::unique_ptr<SingleReleaseCallback>);
+  ResourceId ImportResource(const TransferableResource& resource,
+                            ReleaseCallback release_callback);
   // Removes an imported resource, which will call the ReleaseCallback given
   // originally, once the resource is no longer in use by any compositor frame.
-  void RemoveImportedResource(ResourceId);
+  void RemoveImportedResource(ResourceId resource_id);
 
   // Call this to indicate that the connection to the parent is lost and
   // resources previously exported will not be able to be returned. If |lose| is
@@ -95,7 +98,7 @@ class VIZ_CLIENT_EXPORT ClientResourceProvider {
   // RemoveImportedResource().
   void ReleaseAllExportedResources(bool lose);
 
-  // Immediately runs the SingleReleaseCallback for all resources that have been
+  // Immediately runs the ReleaseCallback for all resources that have been
   // previously imported and removed, but not released yet. There should not be
   // any imported resources yet when this is called, as they can be removed
   // first via RemoveImportedResource(), and potentially avoid being lost.
@@ -120,14 +123,16 @@ class VIZ_CLIENT_EXPORT ClientResourceProvider {
                     ResourceFormat format,
                     SkSurfaceProps surface_props,
                     int msaa_sample_count);
+
+    ScopedSkSurface(const ScopedSkSurface&) = delete;
+    ScopedSkSurface& operator=(const ScopedSkSurface&) = delete;
+
     ~ScopedSkSurface();
 
     SkSurface* surface() const { return surface_.get(); }
 
    private:
     sk_sp<SkSurface> surface_;
-
-    DISALLOW_COPY_AND_ASSIGN(ScopedSkSurface);
   };
 
  private:
@@ -144,9 +149,7 @@ class VIZ_CLIENT_EXPORT ClientResourceProvider {
   base::flat_map<ResourceId, ImportedResource> imported_resources_;
   // The ResourceIds in ClientResourceProvider start from 1 to avoid
   // conflicts with id from DisplayResourceProvider.
-  ResourceId next_id_ = 1;
-
-  DISALLOW_COPY_AND_ASSIGN(ClientResourceProvider);
+  ResourceIdGenerator id_generator_;
 };
 
 }  // namespace viz

@@ -10,7 +10,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/navigation_interception/navigation_params.h"
 #include "content/public/browser/navigation_throttle.h"
 
@@ -44,6 +44,11 @@ class InterceptNavigationThrottle : public content::NavigationThrottle {
   InterceptNavigationThrottle(content::NavigationHandle* navigation_handle,
                               CheckCallback should_ignore_callback,
                               SynchronyMode async_mode);
+
+  InterceptNavigationThrottle(const InterceptNavigationThrottle&) = delete;
+  InterceptNavigationThrottle& operator=(const InterceptNavigationThrottle&) =
+      delete;
+
   ~InterceptNavigationThrottle() override;
 
   // content::NavigationThrottle implementation:
@@ -86,8 +91,6 @@ class InterceptNavigationThrottle : public content::NavigationThrottle {
   bool deferring_ = false;
 
   base::WeakPtrFactory<InterceptNavigationThrottle> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(InterceptNavigationThrottle);
 };
 
 }  // namespace navigation_interception

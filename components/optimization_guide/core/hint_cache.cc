@@ -108,6 +108,32 @@ void HintCache::UpdateFetchedHints(
   }
 }
 
+void HintCache::RemoveHintsForURLs(const base::flat_set<GURL>& urls) {
+  for (const GURL& url : urls) {
+    auto it = url_keyed_hint_cache_.Get(url.spec());
+    if (it != url_keyed_hint_cache_.end()) {
+      url_keyed_hint_cache_.Erase(it);
+    }
+  }
+}
+
+void HintCache::RemoveHintsForHosts(base::OnceClosure on_success,
+                                    const base::flat_set<std::string>& hosts) {
+  for (const std::string& host : hosts) {
+    auto it = host_keyed_cache_.Get(host);
+    if (it != host_keyed_cache_.end()) {
+      host_keyed_cache_.Erase(it);
+    }
+  }
+
+  if (optimization_guide_store_) {
+    optimization_guide_store_->RemoveFetchedHintsByKey(std::move(on_success),
+                                                       hosts);
+    return;
+  }
+  std::move(on_success).Run();
+}
+
 void HintCache::PurgeExpiredFetchedHints() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -269,6 +295,7 @@ base::Time HintCache::GetFetchedHintsUpdateTime() const {
 void HintCache::OnStoreInitialized(base::OnceClosure callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(optimization_guide_store_);
+
   std::move(callback).Run();
 }
 
@@ -317,13 +344,12 @@ bool HintCache::ProcessAndCacheHints(
     if (hint_key.empty())
       continue;
 
-    if (hint.page_hints().empty() && hint.whitelisted_optimizations().empty())
+    if (hint.page_hints().empty() && hint.allowlisted_optimizations().empty())
       continue;
 
     base::Time expiry_time =
         hint.has_max_cache_duration()
-            ? clock_->Now() + base::TimeDelta().FromSeconds(
-                                  hint.max_cache_duration().seconds())
+            ? clock_->Now() + base::Seconds(hint.max_cache_duration().seconds())
             : clock_->Now() + features::URLKeyedHintValidCacheDuration();
 
     switch (hint.key_representation()) {
@@ -361,9 +387,8 @@ void HintCache::AddHintForTesting(const GURL& url,
                                   std::unique_ptr<proto::Hint> hint) {
   if (IsValidURLForURLKeyedHint(url)) {
     url_keyed_hint_cache_.Put(
-        url.spec(),
-        std::make_unique<MemoryHint>(
-            base::Time::Now() + base::TimeDelta::FromDays(7), std::move(hint)));
+        url.spec(), std::make_unique<MemoryHint>(
+                        base::Time::Now() + base::Days(7), std::move(hint)));
   }
 }
 

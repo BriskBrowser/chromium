@@ -13,9 +13,7 @@
 #include "base/callback.h"
 #include "base/component_export.h"
 #include "base/macros.h"
-#include "base/observer_list.h"
 #include "base/observer_list_types.h"
-#include "base/optional.h"
 #include "chromeos/dbus/dbus_client.h"
 #include "chromeos/dbus/dbus_client_implementation_type.h"
 #include "chromeos/dbus/dlcservice/dlcservice.pb.h"
@@ -142,17 +140,22 @@ class COMPONENT_EXPORT(DLCSERVICE_CLIENT) DlcserviceClient {
   // Returns the global instance which may be nullptr if not initialized.
   static DlcserviceClient* Get();
 
+  DlcserviceClient(const DlcserviceClient&) = delete;
+  DlcserviceClient& operator=(const DlcserviceClient&) = delete;
+
  protected:
   friend class DlcserviceClientTest;
 
   // Initialize/Shutdown should be used instead.
   DlcserviceClient();
   virtual ~DlcserviceClient();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DlcserviceClient);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+using ::chromeos::DlcserviceClient;
+}  // namespace ash
 
 #endif  // CHROMEOS_DBUS_DLCSERVICE_DLCSERVICE_CLIENT_H_

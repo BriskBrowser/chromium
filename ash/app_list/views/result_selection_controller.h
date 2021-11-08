@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "ash/app_list/app_list_export.h"
 #include "ash/app_list/views/search_result_base_view.h"
 #include "ash/app_list/views/search_result_container_view.h"
+#include "ash/ash_export.h"
 #include "base/callback.h"
 #include "base/macros.h"
 
@@ -27,7 +27,7 @@ using ResultSelectionModel = std::vector<SearchResultContainerView*>;
 // result. This includes all information to determine exactly where a result is,
 // including both inter- and intra-container details, along with the traversal
 // direction for the container.
-struct APP_LIST_EXPORT ResultLocationDetails {
+struct ASH_EXPORT ResultLocationDetails {
   ResultLocationDetails();
   ResultLocationDetails(int container_index,
                         int container_count,
@@ -61,7 +61,7 @@ struct APP_LIST_EXPORT ResultLocationDetails {
 };
 
 // A controller class to manage result selection across containers.
-class APP_LIST_EXPORT ResultSelectionController {
+class ASH_EXPORT ResultSelectionController {
  public:
   enum class MoveResult {
     // The selection has not changed (excluding the case covered by
@@ -82,6 +82,11 @@ class APP_LIST_EXPORT ResultSelectionController {
   ResultSelectionController(
       const ResultSelectionModel* result_container_views,
       const base::RepeatingClosure& selection_change_callback);
+
+  ResultSelectionController(const ResultSelectionController&) = delete;
+  ResultSelectionController& operator=(const ResultSelectionController&) =
+      delete;
+
   ~ResultSelectionController();
 
   // Returns the currently selected result.
@@ -135,6 +140,11 @@ class APP_LIST_EXPORT ResultSelectionController {
   void SetSelection(const ResultLocationDetails& location,
                     bool reverse_tab_order);
 
+  // Returns the location for the first result in the first non-empty result
+  // container. Returns nullptr if no results exist.
+  std::unique_ptr<ResultLocationDetails> GetFirstAvailableResultLocation()
+      const;
+
   SearchResultBaseView* GetResultAtLocation(
       const ResultLocationDetails& location);
 
@@ -172,8 +182,6 @@ class APP_LIST_EXPORT ResultSelectionController {
 
   // The |ResultLocationDetails| for the currently selected result view
   std::unique_ptr<ResultLocationDetails> selected_location_details_;
-
-  DISALLOW_COPY_AND_ASSIGN(ResultSelectionController);
 };
 
 }  // namespace ash

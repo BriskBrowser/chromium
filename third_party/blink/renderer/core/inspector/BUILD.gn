@@ -33,8 +33,6 @@ inspector_protocol_generate("protocol_sources") {
     "inspector/protocol/Accessibility.h",
     "inspector/protocol/Animation.cpp",
     "inspector/protocol/Animation.h",
-    "inspector/protocol/ApplicationCache.cpp",
-    "inspector/protocol/ApplicationCache.h",
     "inspector/protocol/Audits.cpp",
     "inspector/protocol/Audits.h",
     "inspector/protocol/CacheStorage.cpp",
@@ -110,7 +108,6 @@ source_set("generated") {
   deps = [
     ":protocol_sources",
     "//skia",
-    "//third_party/blink/renderer/bindings/core/v8:bindings_core_v8_generated",
     "//third_party/blink/renderer/core:all_generators",
     "//third_party/blink/renderer/core/probe:generated",
     "//third_party/blink/renderer/platform:make_platform_generated",

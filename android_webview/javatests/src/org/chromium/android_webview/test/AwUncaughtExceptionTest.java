@@ -4,7 +4,7 @@
 
 package org.chromium.android_webview.test;
 
-import static org.chromium.android_webview.test.AwActivityTestRule.WAIT_TIMEOUT_MS;
+import static org.chromium.android_webview.test.AwActivityTestRule.SCALED_WAIT_TIMEOUT_MS;
 
 import android.os.Looper;
 import android.support.test.runner.lifecycle.ActivityLifecycleMonitor;
@@ -109,6 +109,7 @@ public class AwUncaughtExceptionTest {
     @Before
     public void setUp() throws Exception {
         disableLifecycleThreadAssertion();
+        ThreadUtils.setThreadAssertsDisabledForTesting(true);
         mDefaultUncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler();
         mBackgroundThread = new BackgroundThread("background");
         mBackgroundThread.start();
@@ -161,7 +162,8 @@ public class AwUncaughtExceptionTest {
                     new StackTraceElement("android.webkit.WebView", "loadUrl", "<none>", 0)});
             throw exception;
         });
-        Assert.assertTrue(latch.await(WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
+        Assert.assertTrue(
+                latch.await(SCALED_WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
     }
 
     @Test
@@ -180,7 +182,8 @@ public class AwUncaughtExceptionTest {
                     new StackTraceElement("java.lang.Object", "equals", "<none>", 0)});
             throw exception;
         });
-        Assert.assertTrue(latch.await(WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
+        Assert.assertTrue(
+                latch.await(SCALED_WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
     }
 
     @Test
@@ -209,6 +212,7 @@ public class AwUncaughtExceptionTest {
                     "data:text/html,<script>window.location='https://www.google.com';</script>");
         });
 
-        Assert.assertTrue(latch.await(WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
+        Assert.assertTrue(
+                latch.await(SCALED_WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
     }
 };

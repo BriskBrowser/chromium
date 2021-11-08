@@ -18,6 +18,7 @@
 #include "chromeos/components/phonehub/fake_message_receiver.h"
 #include "chromeos/components/phonehub/fake_notification_access_manager.h"
 #include "chromeos/components/phonehub/fake_notification_manager.h"
+#include "chromeos/components/phonehub/fake_screen_lock_manager.h"
 #include "chromeos/components/phonehub/mutable_phone_model.h"
 #include "chromeos/components/phonehub/notification_manager.h"
 #include "chromeos/components/phonehub/notification_processor.h"
@@ -46,9 +47,11 @@ class FakeNotificationProcessor : public NotificationProcessor {
     for (const auto& proto : notification_protos) {
       notifications.emplace(Notification(
           proto.id(), CreateFakeAppMetadata(), base::Time(),
-          Notification::Importance::kDefault, /*inline_reply_id=*/0,
-          Notification::InteractionBehavior::kNone, base::nullopt,
-          base::nullopt, base::nullopt, base::nullopt));
+          Notification::Importance::kDefault,
+          Notification::Category::kConversation,
+          {{Notification::ActionType::kInlineReply, /*action_id=*/0}},
+          Notification::InteractionBehavior::kNone, absl::nullopt,
+          absl::nullopt, absl::nullopt, absl::nullopt));
     }
     notification_manager_->SetNotificationsInternal(notifications);
   }
@@ -78,6 +81,7 @@ class PhoneStatusProcessorTest : public testing::Test {
         std::make_unique<FakeFindMyDeviceController>();
     fake_notification_access_manager_ =
         std::make_unique<FakeNotificationAccessManager>();
+    fake_screen_lock_manager_ = std::make_unique<FakeScreenLockManager>();
     fake_notification_manager_ = std::make_unique<FakeNotificationManager>();
     fake_notification_processor_ = std::make_unique<FakeNotificationProcessor>(
         fake_notification_manager_.get());
@@ -92,7 +96,7 @@ class PhoneStatusProcessorTest : public testing::Test {
         fake_feature_status_provider_.get(), fake_message_receiver_.get(),
         fake_find_my_device_controller_.get(),
         fake_notification_access_manager_.get(),
-        fake_notification_processor_.get(),
+        fake_screen_lock_manager_.get(), fake_notification_processor_.get(),
         fake_multidevice_setup_client_.get(), mutable_phone_model_.get());
   }
 
@@ -126,6 +130,7 @@ class PhoneStatusProcessorTest : public testing::Test {
   std::unique_ptr<FakeFindMyDeviceController> fake_find_my_device_controller_;
   std::unique_ptr<FakeNotificationAccessManager>
       fake_notification_access_manager_;
+  std::unique_ptr<FakeScreenLockManager> fake_screen_lock_manager_;
   std::unique_ptr<FakeNotificationManager> fake_notification_manager_;
   std::unique_ptr<FakeNotificationProcessor> fake_notification_processor_;
   std::unique_ptr<MutablePhoneModel> mutable_phone_model_;
@@ -156,6 +161,8 @@ TEST_F(PhoneStatusProcessorTest, PhoneStatusSnapshotUpdate) {
   expected_phone_properties->set_mobile_provider("google");
   expected_phone_properties->set_connection_state(
       proto::MobileConnectionState::SIM_WITH_RECEPTION);
+  expected_phone_properties->set_screen_lock_state(
+      proto::ScreenLockState::SCREEN_LOCK_UNKNOWN);
 
   proto::PhoneStatusSnapshot expected_snapshot;
   expected_snapshot.set_allocated_properties(
@@ -181,13 +188,15 @@ TEST_F(PhoneStatusProcessorTest, PhoneStatusSnapshotUpdate) {
             fake_find_my_device_controller_->GetPhoneRingingStatus());
   EXPECT_EQ(NotificationAccessManager::AccessStatus::kAvailableButNotGranted,
             fake_notification_access_manager_->GetAccessStatus());
+  EXPECT_EQ(ScreenLockManager::LockStatus::kUnknown,
+            fake_screen_lock_manager_->GetLockStatus());
 
-  base::Optional<PhoneStatusModel> phone_status_model =
+  absl::optional<PhoneStatusModel> phone_status_model =
       mutable_phone_model_->phone_status_model();
   EXPECT_EQ(PhoneStatusModel::ChargingState::kChargingAc,
             phone_status_model->charging_state());
   EXPECT_EQ(24u, phone_status_model->battery_percentage());
-  EXPECT_EQ(base::UTF8ToUTF16("google"),
+  EXPECT_EQ(u"google",
             phone_status_model->mobile_connection_metadata()->mobile_provider);
   EXPECT_EQ(PhoneStatusModel::SignalStrength::kFourBars,
             phone_status_model->mobile_connection_metadata()->signal_strength);
@@ -227,6 +236,8 @@ TEST_F(PhoneStatusProcessorTest, PhoneStatusUpdate) {
   expected_phone_properties->set_mobile_provider("google");
   expected_phone_properties->set_connection_state(
       proto::MobileConnectionState::SIM_WITH_RECEPTION);
+  expected_phone_properties->set_screen_lock_state(
+      proto::ScreenLockState::SCREEN_LOCK_OFF);
 
   proto::PhoneStatusUpdate expected_update;
   expected_update.set_allocated_properties(expected_phone_properties.release());
@@ -251,13 +262,15 @@ TEST_F(PhoneStatusProcessorTest, PhoneStatusUpdate) {
             fake_find_my_device_controller_->GetPhoneRingingStatus());
   EXPECT_EQ(NotificationAccessManager::AccessStatus::kProhibited,
             fake_notification_access_manager_->GetAccessStatus());
+  EXPECT_EQ(ScreenLockManager::LockStatus::kLockedOff,
+            fake_screen_lock_manager_->GetLockStatus());
 
-  base::Optional<PhoneStatusModel> phone_status_model =
+  absl::optional<PhoneStatusModel> phone_status_model =
       mutable_phone_model_->phone_status_model();
   EXPECT_EQ(PhoneStatusModel::ChargingState::kChargingAc,
             phone_status_model->charging_state());
   EXPECT_EQ(24u, phone_status_model->battery_percentage());
-  EXPECT_EQ(base::UTF8ToUTF16("google"),
+  EXPECT_EQ(u"google",
             phone_status_model->mobile_connection_metadata()->mobile_provider);
   EXPECT_EQ(PhoneStatusModel::SignalStrength::kFourBars,
             phone_status_model->mobile_connection_metadata()->signal_strength);
@@ -272,6 +285,8 @@ TEST_F(PhoneStatusProcessorTest, PhoneStatusUpdate) {
       proto::FindMyDeviceCapability::NORMAL);
   expected_update.mutable_properties()->set_ring_status(
       proto::FindMyDeviceRingStatus::RINGING);
+  expected_update.mutable_properties()->set_screen_lock_state(
+      proto::ScreenLockState::SCREEN_LOCK_ON);
   fake_message_receiver_->NotifyPhoneStatusUpdateReceived(expected_update);
 
   EXPECT_EQ(0u, fake_notification_manager_->num_notifications());
@@ -283,12 +298,14 @@ TEST_F(PhoneStatusProcessorTest, PhoneStatusUpdate) {
             fake_find_my_device_controller_->GetPhoneRingingStatus());
   EXPECT_EQ(NotificationAccessManager::AccessStatus::kAccessGranted,
             fake_notification_access_manager_->GetAccessStatus());
+  EXPECT_EQ(ScreenLockManager::LockStatus::kLockedOn,
+            fake_screen_lock_manager_->GetLockStatus());
 
   phone_status_model = mutable_phone_model_->phone_status_model();
   EXPECT_EQ(PhoneStatusModel::ChargingState::kChargingAc,
             phone_status_model->charging_state());
   EXPECT_EQ(24u, phone_status_model->battery_percentage());
-  EXPECT_EQ(base::UTF8ToUTF16("google"),
+  EXPECT_EQ(u"google",
             phone_status_model->mobile_connection_metadata()->mobile_provider);
   EXPECT_EQ(PhoneStatusModel::SignalStrength::kFourBars,
             phone_status_model->mobile_connection_metadata()->signal_strength);
@@ -307,7 +324,7 @@ TEST_F(PhoneStatusProcessorTest, PhoneStatusUpdate) {
 
 TEST_F(PhoneStatusProcessorTest, PhoneName) {
   fake_multidevice_setup_client_->SetHostStatusWithDevice(
-      std::make_pair(HostStatus::kHostVerified, base::nullopt));
+      std::make_pair(HostStatus::kHostVerified, absl::nullopt));
   CreatePhoneStatusProcessor();
 
   auto expected_phone_properties = std::make_unique<proto::PhoneProperties>();
@@ -321,7 +338,7 @@ TEST_F(PhoneStatusProcessorTest, PhoneName) {
   fake_message_receiver_->NotifyPhoneStatusUpdateReceived(expected_update);
 
   EXPECT_EQ(0u, fake_notification_manager_->num_notifications());
-  EXPECT_EQ(base::nullopt, mutable_phone_model_->phone_name());
+  EXPECT_EQ(absl::nullopt, mutable_phone_model_->phone_name());
 
   // Create new fake phone with name.
   const multidevice::RemoteDeviceRef kFakePhoneA =
@@ -332,7 +349,7 @@ TEST_F(PhoneStatusProcessorTest, PhoneName) {
   fake_multidevice_setup_client_->SetHostStatusWithDevice(
       std::make_pair(HostStatus::kHostVerified, kFakePhoneA));
 
-  EXPECT_EQ(base::UTF8ToUTF16("Phone A"), mutable_phone_model_->phone_name());
+  EXPECT_EQ(u"Phone A", mutable_phone_model_->phone_name());
 }
 
 TEST_F(PhoneStatusProcessorTest, NotificationAccess) {

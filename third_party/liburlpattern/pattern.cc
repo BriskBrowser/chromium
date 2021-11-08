@@ -15,28 +15,28 @@ namespace {
 
 void AppendModifier(Modifier modifier, std::string& append_target) {
   switch (modifier) {
-    case Modifier::kNone:
+    case Modifier::kZeroOrMore:
+      append_target += '*';
       break;
     case Modifier::kOptional:
       append_target += '?';
       break;
-    case Modifier::kZeroOrMore:
-      append_target += '*';
-      break;
     case Modifier::kOneOrMore:
       append_target += '+';
+      break;
+    case Modifier::kNone:
       break;
   }
 }
 
 size_t ModifierLength(Modifier modifier) {
   switch (modifier) {
-    case Modifier::kNone:
-      return 0;
-    case Modifier::kOptional:
     case Modifier::kZeroOrMore:
+    case Modifier::kOptional:
     case Modifier::kOneOrMore:
       return 1;
+    case Modifier::kNone:
+      return 0;
   }
 }
 
@@ -80,6 +80,107 @@ Pattern::Pattern(std::vector<Part> part_list,
       options_(std::move(options)),
       segment_wildcard_regex_(std::move(segment_wildcard_regex)) {}
 
+std::string Pattern::GeneratePatternString() const {
+  std::string result;
+
+  // Estimate the final length and reserve a reasonable sized string
+  // buffer to avoid reallocations.
+  size_t estimated_length = 0;
+  for (const Part& part : part_list_) {
+    // Add an arbitrary extra 3 per Part to account for braces, modifier, etc.
+    estimated_length +=
+        part.prefix.size() + part.value.size() + part.suffix.size() + 3;
+  }
+  result.reserve(estimated_length);
+
+  for (const Part& part : part_list_) {
+    //
+    if (part.type == PartType::kFixed) {
+      // A simple fixed string part.
+      if (part.modifier == Modifier::kNone) {
+        EscapePatternStringAndAppend(part.value, result);
+        continue;
+      }
+
+      // A fixed string, but with a modifier which requires a grouping.
+      // For example, `{foo}?`.
+      result += "{";
+      EscapePatternStringAndAppend(part.value, result);
+      result += "}";
+      AppendModifier(part.modifier, result);
+      continue;
+    }
+
+    // Determine if the part needs a grouping like `{ ... }`.  This is only
+    // necessary when using a non-automatic prefix or any suffix.
+    bool needs_grouping =
+        !part.suffix.empty() ||
+        (!part.prefix.empty() &&
+         (part.prefix.size() != 1 ||
+          options_.prefix_list.find(part.prefix[0]) == std::string::npos));
+
+    // Determine if the part name was custom, like `:foo`, or an
+    // automatically assigned numeric value.  Since custom group
+    // names follow javascript identifier rules the first character
+    // cannot be a digit, so that is all we need to check here.
+    ABSL_ASSERT(!part.name.empty());
+    bool custom_name = !std::isdigit(part.name[0]);
+
+    // This is a full featured part.  We must generate a string that looks
+    // like:
+    //
+    //  { <prefix> <value> <suffix> } <modifier>
+    //
+    // Where the { and } may not be needed.  The <value> will be a regexp,
+    // named group, or wildcard.
+    if (needs_grouping)
+      result += "{";
+
+    EscapePatternStringAndAppend(part.prefix, result);
+
+    if (custom_name) {
+      result += ":";
+      result += part.name;
+    }
+
+    if (part.type == PartType::kRegex) {
+      result += "(";
+      result += part.value;
+      result += ")";
+    } else if (part.type == PartType::kSegmentWildcard) {
+      // We only need to emit a regexp if a custom name was
+      // not specified.  A custom name like `:foo` gets the
+      // kSegmentWildcard type automatically.
+      if (!custom_name) {
+        result += "(";
+        result += segment_wildcard_regex_;
+        result += ")";
+      }
+    } else if (part.type == PartType::kFullWildcard) {
+      // We can only use the `*` wildcard card if the automatic
+      // numeric name is used for the group.  A custom name
+      // requires the regexp `(.*)` explicitly.
+      if (!custom_name) {
+        result += "*";
+      } else {
+        result += "(";
+        result += kFullWildcardRegex;
+        result += ")";
+      }
+    }
+
+    EscapePatternStringAndAppend(part.suffix, result);
+
+    if (needs_grouping)
+      result += "}";
+
+    if (part.modifier != Modifier::kNone)
+      AppendModifier(part.modifier, result);
+  }
+
+  return result;
+}
+
 // The following code is a translation from the path-to-regexp typescript at:
 //
 //  https://github.com/pillarjs/path-to-regexp/blob/125c43e6481f68cc771a5af22b914acdb8c5ba1f/src/index.ts#L532-L596
@@ -114,10 +215,10 @@ std::string Pattern::GenerateRegexString(
     //
     if (part.type == PartType::kFixed) {
       if (part.modifier == Modifier::kNone) {
-        EscapeStringAndAppend(part.value, result);
+        EscapeRegexpStringAndAppend(part.value, result);
       } else {
         result += "(?:";
-        EscapeStringAndAppend(part.value, result);
+        EscapeRegexpStringAndAppend(part.value, result);
         result += ")";
         AppendModifier(part.modifier, result);
       }
@@ -138,15 +239,29 @@ std::string Pattern::GenerateRegexString(
     else if (part.type == PartType::kFullWildcard)
       regex_value = kFullWildcardRegex;
 
-    // If there are no prefix or suffix values then we simply wrap the Part
-    // regex value in a capturing group.  Any modifier is simply appended to
-    // the end.  For example:
+    // Handle the case where there is no prefix or suffix value.  This varies a
+    // bit depending on the modifier.
+    //
+    // If there is no modifier or an optional modifier, then we simply wrap the
+    // regex value in a capturing group:
     //
     //  (<regex-value>)<modifier>
     //
+    // If there is a modifier, then we need to use a non-capturing group for the
+    // regex value and an outer capturing group that includes the modifier as
+    // well.  Like:
+    //
+    //  ((?:<regex-value>)<modifier>)
     if (part.prefix.empty() && part.suffix.empty()) {
-      absl::StrAppendFormat(&result, "(%s)", regex_value);
-      AppendModifier(part.modifier, result);
+      if (part.modifier == Modifier::kNone ||
+          part.modifier == Modifier::kOptional) {
+        absl::StrAppendFormat(&result, "(%s)", regex_value);
+        AppendModifier(part.modifier, result);
+      } else {
+        absl::StrAppendFormat(&result, "((?:%s)", regex_value);
+        AppendModifier(part.modifier, result);
+        result += ")";
+      }
       continue;
     }
 
@@ -161,9 +276,9 @@ std::string Pattern::GenerateRegexString(
     if (part.modifier == Modifier::kNone ||
         part.modifier == Modifier::kOptional) {
       result += "(?:";
-      EscapeStringAndAppend(part.prefix, result);
+      EscapeRegexpStringAndAppend(part.prefix, result);
       absl::StrAppendFormat(&result, "(%s)", regex_value);
-      EscapeStringAndAppend(part.suffix, result);
+      EscapeRegexpStringAndAppend(part.suffix, result);
       result += ")";
       AppendModifier(part.modifier, result);
       continue;
@@ -180,12 +295,12 @@ std::string Pattern::GenerateRegexString(
     //  (?:<prefix>((?:<regex-value>)(?:<suffix><prefix>(?:<regex-value>))*)<suffix>)?
     //
     result += "(?:";
-    EscapeStringAndAppend(part.prefix, result);
+    EscapeRegexpStringAndAppend(part.prefix, result);
     absl::StrAppendFormat(&result, "((?:%s)(?:", regex_value);
-    EscapeStringAndAppend(part.suffix, result);
-    EscapeStringAndAppend(part.prefix, result);
+    EscapeRegexpStringAndAppend(part.suffix, result);
+    EscapeRegexpStringAndAppend(part.prefix, result);
     absl::StrAppendFormat(&result, "(?:%s))*)", regex_value);
-    EscapeStringAndAppend(part.suffix, result);
+    EscapeRegexpStringAndAppend(part.suffix, result);
     result += ")";
     if (part.modifier == Modifier::kZeroOrMore)
       result += "?";
@@ -267,6 +382,39 @@ std::string Pattern::GenerateRegexString(
   return result;
 }
 
+bool Pattern::CanDirectMatch() const {
+  // We currently only support direct matching with the options used by
+  // URLPattern.
+  if (!options_.start || !options_.end || !options_.strict ||
+      !options_.sensitive) {
+    return false;
+  }
+
+  return part_list_.empty() || IsOnlyFullWildcard() || IsOnlyFixedText();
+}
+
+bool Pattern::DirectMatch(
+    absl::string_view input,
+    std::vector<std::pair<absl::string_view, absl::string_view>>*
+        group_list_out) const {
+  ABSL_ASSERT(CanDirectMatch());
+
+  if (part_list_.empty())
+    return input.empty();
+
+  if (IsOnlyFullWildcard()) {
+    if (group_list_out)
+      group_list_out->emplace_back(part_list_[0].name, input);
+    return true;
+  }
+
+  if (IsOnlyFixedText()) {
+    return part_list_[0].value == input;
+  }
+
+  return false;
+}
+
 size_t Pattern::RegexStringLength() const {
   size_t result = 0;
 
@@ -283,10 +431,11 @@ size_t Pattern::RegexStringLength() const {
     if (part.type == PartType::kFixed) {
       if (part.modifier == Modifier::kNone) {
         // <escaped-fixed-value>
-        result += EscapedLength(part.value);
+        result += EscapedRegexpStringLength(part.value);
       } else {
         // (?:<escaped-fixed-value>)<modifier>
-        result += EscapedLength(part.value) + 4 + ModifierLength(part.modifier);
+        result += EscapedRegexpStringLength(part.value) + 4 +
+                  ModifierLength(part.modifier);
       }
       continue;
     }
@@ -303,8 +452,8 @@ size_t Pattern::RegexStringLength() const {
       continue;
     }
 
-    size_t prefix_length = EscapedLength(part.prefix);
-    size_t suffix_length = EscapedLength(part.suffix);
+    size_t prefix_length = EscapedRegexpStringLength(part.prefix);
+    size_t suffix_length = EscapedRegexpStringLength(part.suffix);
 
     if (part.modifier == Modifier::kNone ||
         part.modifier == Modifier::kOptional) {
@@ -362,22 +511,45 @@ size_t Pattern::RegexStringLength() const {
 
 void Pattern::AppendDelimiterList(std::string& append_target) const {
   append_target += "[";
-  EscapeStringAndAppend(options_.delimiter_list, append_target);
+  EscapeRegexpStringAndAppend(options_.delimiter_list, append_target);
   append_target += "]";
 }
 
 size_t Pattern::DelimiterListLength() const {
-  return EscapedLength(options_.delimiter_list) + 2;
+  return EscapedRegexpStringLength(options_.delimiter_list) + 2;
 }
 
 void Pattern::AppendEndsWith(std::string& append_target) const {
   append_target += "[";
-  EscapeStringAndAppend(options_.ends_with, append_target);
+  EscapeRegexpStringAndAppend(options_.ends_with, append_target);
   append_target += "]|$";
 }
 
 size_t Pattern::EndsWithLength() const {
-  return EscapedLength(options_.ends_with) + 4;
+  return EscapedRegexpStringLength(options_.ends_with) + 4;
+}
+
+bool Pattern::IsOnlyFullWildcard() const {
+  if (part_list_.size() != 1)
+    return false;
+  auto& part = part_list_[0];
+  // The modifier does not matter as an optional or repeated full wildcard
+  // is functionally equivalent.
+  return part.type == PartType::kFullWildcard && part.prefix.empty() &&
+         part.suffix.empty();
+}
+
+bool Pattern::IsOnlyFixedText() const {
+  if (part_list_.size() != 1)
+    return false;
+  auto& part = part_list_[0];
+  bool result =
+      part.type == PartType::kFixed && part.modifier == Modifier::kNone;
+  if (result) {
+    ABSL_ASSERT(part.prefix.empty());
+    ABSL_ASSERT(part.suffix.empty());
+  }
+  return result;
 }
 
 }  // namespace liburlpattern

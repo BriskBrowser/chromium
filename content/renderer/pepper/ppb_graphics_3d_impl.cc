@@ -9,8 +9,8 @@
 #include "base/feature_list.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
@@ -317,7 +317,8 @@ void PPB_Graphics3D_Impl::OnGpuControlLostContextMaybeReentrant() {
 }
 
 void PPB_Graphics3D_Impl::OnGpuControlSwapBuffersCompleted(
-    const gpu::SwapBuffersCompleteParams& params) {}
+    const gpu::SwapBuffersCompleteParams& params,
+    gfx::GpuFenceHandle release_fence) {}
 
 void PPB_Graphics3D_Impl::OnGpuControlReturnData(
     base::span<const uint8_t> data) {

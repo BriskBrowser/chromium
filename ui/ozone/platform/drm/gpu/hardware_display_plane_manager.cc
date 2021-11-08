@@ -36,6 +36,11 @@ HardwareDisplayPlaneList::PageFlipInfo::PageFlipInfo(
 
 HardwareDisplayPlaneList::PageFlipInfo::~PageFlipInfo() = default;
 
+HardwareDisplayPlaneManager::CrtcProperties::CrtcProperties() = default;
+HardwareDisplayPlaneManager::CrtcProperties::CrtcProperties(
+    const CrtcProperties& other) = default;
+HardwareDisplayPlaneManager::CrtcProperties::~CrtcProperties() = default;
+
 HardwareDisplayPlaneManager::CrtcState::CrtcState() = default;
 
 HardwareDisplayPlaneManager::CrtcState::~CrtcState() = default;
@@ -92,21 +97,22 @@ HardwareDisplayPlane* HardwareDisplayPlaneManager::FindNextUnusedPlane(
   return nullptr;
 }
 
-int HardwareDisplayPlaneManager::LookupCrtcIndex(uint32_t crtc_id) const {
+absl::optional<int> HardwareDisplayPlaneManager::LookupCrtcIndex(
+    uint32_t crtc_id) const {
   for (size_t i = 0; i < crtc_state_.size(); ++i) {
     if (crtc_state_[i].properties.id == crtc_id)
       return i;
   }
-  return -1;
+  return {};
 }
 
-int HardwareDisplayPlaneManager::LookupConnectorIndex(
+absl::optional<int> HardwareDisplayPlaneManager::LookupConnectorIndex(
     uint32_t connector_id) const {
   for (size_t i = 0; i < connectors_props_.size(); ++i) {
     if (connectors_props_[i].id == connector_id)
       return i;
   }
-  return -1;
+  return {};
 }
 
 bool HardwareDisplayPlaneManager::IsCompatible(HardwareDisplayPlane* plane,
@@ -177,8 +183,8 @@ bool HardwareDisplayPlaneManager::AssignOverlayPlanes(
     HardwareDisplayPlaneList* plane_list,
     const DrmOverlayPlaneList& overlay_list,
     uint32_t crtc_id) {
-  int crtc_index = LookupCrtcIndex(crtc_id);
-  if (crtc_index < 0) {
+  auto crtc_index = LookupCrtcIndex(crtc_id);
+  if (!crtc_index) {
     LOG(ERROR) << "Cannot find crtc " << crtc_id;
     return false;
   }
@@ -186,7 +192,7 @@ bool HardwareDisplayPlaneManager::AssignOverlayPlanes(
   size_t plane_idx = 0;
   for (const auto& plane : overlay_list) {
     HardwareDisplayPlane* hw_plane =
-        FindNextUnusedPlane(&plane_idx, crtc_index, plane);
+        FindNextUnusedPlane(&plane_idx, *crtc_index, plane);
     if (!hw_plane) {
       RestoreCurrentPlaneList(plane_list);
       return false;
@@ -223,16 +229,19 @@ const std::vector<uint32_t>& HardwareDisplayPlaneManager::GetSupportedFormats()
 std::vector<uint64_t> HardwareDisplayPlaneManager::GetFormatModifiers(
     uint32_t crtc_id,
     uint32_t format) const {
-  int crtc_index = LookupCrtcIndex(crtc_id);
+  auto crtc_index = LookupCrtcIndex(crtc_id);
+  if (!crtc_index) {
+    return {};
+  }
 
   for (const auto& plane : planes_) {
-    if (plane->CanUseForCrtc(crtc_index) &&
+    if (plane->CanUseForCrtc(*crtc_index) &&
         plane->type() == DRM_PLANE_TYPE_PRIMARY) {
       return plane->ModifiersForFormat(format);
     }
   }
 
-  return std::vector<uint64_t>();
+  return {};
 }
 
 void HardwareDisplayPlaneManager::ResetConnectorsCache(
@@ -252,6 +261,8 @@ void HardwareDisplayPlaneManager::ResetConnectorsCache(
     }
     GetDrmPropertyForName(drm_, props.get(), "CRTC_ID", &state_props.crtc_id);
     DCHECK(!drm_->is_atomic() || state_props.crtc_id.id);
+    GetDrmPropertyForName(drm_, props.get(), "link-status",
+                          &state_props.link_status);
 
     connectors_props_.emplace_back(std::move(state_props));
   }
@@ -267,9 +278,9 @@ bool HardwareDisplayPlaneManager::SetColorMatrix(
     return false;
   }
 
-  const int crtc_index = LookupCrtcIndex(crtc_id);
-  DCHECK_GE(crtc_index, 0);
-  CrtcState* crtc_state = &crtc_state_[crtc_index];
+  const auto crtc_index = LookupCrtcIndex(crtc_id);
+  DCHECK(crtc_index.has_value());
+  CrtcState* crtc_state = &crtc_state_[*crtc_index];
 
   ScopedDrmColorCtmPtr ctm_blob_data = CreateCTMBlob(color_matrix);
   if (!crtc_state->properties.ctm.id)
@@ -284,9 +295,9 @@ bool HardwareDisplayPlaneManager::SetColorMatrix(
 void HardwareDisplayPlaneManager::SetBackgroundColor(
     uint32_t crtc_id,
     const uint64_t background_color) {
-  const int crtc_index = LookupCrtcIndex(crtc_id);
-  DCHECK_GE(crtc_index, 0);
-  CrtcState* crtc_state = &crtc_state_[crtc_index];
+  const auto crtc_index = LookupCrtcIndex(crtc_id);
+  DCHECK(crtc_index.has_value());
+  CrtcState* crtc_state = &crtc_state_[*crtc_index];
 
   crtc_state->properties.background_color.value = background_color;
 }
@@ -295,13 +306,13 @@ bool HardwareDisplayPlaneManager::SetGammaCorrection(
     uint32_t crtc_id,
     const std::vector<display::GammaRampRGBEntry>& degamma_lut,
     const std::vector<display::GammaRampRGBEntry>& gamma_lut) {
-  const int crtc_index = LookupCrtcIndex(crtc_id);
-  if (crtc_index < 0) {
+  const auto crtc_index = LookupCrtcIndex(crtc_id);
+  if (!crtc_index) {
     LOG(ERROR) << "Unknown CRTC ID=" << crtc_id;
     return false;
   }
 
-  CrtcState* crtc_state = &crtc_state_[crtc_index];
+  CrtcState* crtc_state = &crtc_state_[*crtc_index];
   CrtcProperties* crtc_props = &crtc_state->properties;
 
   if (!degamma_lut.empty() &&
@@ -437,9 +448,9 @@ HardwareDisplayPlaneManager::GetCrtcStateForCrtcId(uint32_t crtc_id) {
 
 HardwareDisplayPlaneManager::CrtcState&
 HardwareDisplayPlaneManager::CrtcStateForCrtcId(uint32_t crtc_id) {
-  int crtc_index = LookupCrtcIndex(crtc_id);
-  DCHECK_GE(crtc_index, 0);
-  return crtc_state_[crtc_index];
+  auto crtc_index = LookupCrtcIndex(crtc_id);
+  DCHECK(crtc_index.has_value());
+  return crtc_state_[*crtc_index];
 }
 
 void HardwareDisplayPlaneManager::UpdateCrtcAndPlaneStatesAfterModeset(
@@ -449,9 +460,9 @@ void HardwareDisplayPlaneManager::UpdateCrtcAndPlaneStatesAfterModeset(
   for (const auto& crtc_request : commit_request) {
     bool is_enabled = crtc_request.should_enable();
 
-    int connector_index = LookupConnectorIndex(crtc_request.connector_id());
-    DCHECK_GE(connector_index, 0);
-    ConnectorProperties& connector_props = connectors_props_[connector_index];
+    auto connector_index = LookupConnectorIndex(crtc_request.connector_id());
+    DCHECK(connector_index.has_value());
+    ConnectorProperties& connector_props = connectors_props_[*connector_index];
     connector_props.crtc_id.value = is_enabled ? crtc_request.crtc_id() : 0;
 
     CrtcState& crtc_state = CrtcStateForCrtcId(crtc_request.crtc_id());
@@ -459,8 +470,10 @@ void HardwareDisplayPlaneManager::UpdateCrtcAndPlaneStatesAfterModeset(
 
     if (is_enabled) {
       crtc_state.mode = crtc_request.mode();
-      crtc_state.modeset_framebuffer =
-          DrmOverlayPlane::GetPrimaryPlane(crtc_request.overlays())->buffer;
+      crtc_state.modeset_framebuffers.clear();
+      for (const auto& overlay : crtc_request.overlays())
+        crtc_state.modeset_framebuffers.push_back(overlay.buffer);
+
     } else {
       if (crtc_request.plane_list())
         disable_planes_lists.insert(crtc_request.plane_list());
@@ -483,9 +496,9 @@ void HardwareDisplayPlaneManager::UpdateCrtcAndPlaneStatesAfterModeset(
   }
 }
 
-void HardwareDisplayPlaneManager::ResetModesetBufferOfCrtc(uint32_t crtc_id) {
+void HardwareDisplayPlaneManager::ResetModesetStateForCrtc(uint32_t crtc_id) {
   CrtcState& crtc_state = CrtcStateForCrtcId(crtc_id);
-  crtc_state.modeset_framebuffer = nullptr;
+  crtc_state.modeset_framebuffers.clear();
 }
 
 }  // namespace ui

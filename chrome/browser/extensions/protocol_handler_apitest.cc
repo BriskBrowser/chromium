@@ -4,6 +4,8 @@
 
 #include <string>
 
+#include "base/scoped_observation.h"
+#include "build/build_config.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -36,7 +38,7 @@ class ProtocolHandlerApiTest : public ExtensionApiTest {
 class ProtocolHandlerChangeWaiter : public ProtocolHandlerRegistry::Observer {
  public:
   explicit ProtocolHandlerChangeWaiter(ProtocolHandlerRegistry* registry) {
-    registry_observer_.Add(registry);
+    registry_observation_.Observe(registry);
   }
   ProtocolHandlerChangeWaiter(const ProtocolHandlerChangeWaiter&) = delete;
   ProtocolHandlerChangeWaiter& operator=(const ProtocolHandlerChangeWaiter&) =
@@ -48,8 +50,9 @@ class ProtocolHandlerChangeWaiter : public ProtocolHandlerRegistry::Observer {
   void OnProtocolHandlerRegistryChanged() override { run_loop_.Quit(); }
 
  private:
-  ScopedObserver<ProtocolHandlerRegistry, ProtocolHandlerRegistry::Observer>
-      registry_observer_{this};
+  base::ScopedObservation<ProtocolHandlerRegistry,
+                          ProtocolHandlerRegistry::Observer>
+      registry_observation_{this};
   base::RunLoop run_loop_;
 };
 
@@ -70,7 +73,7 @@ IN_PROC_BROWSER_TEST_F(ProtocolHandlerApiTest, Registration) {
   const Extension* extension = LoadExtension(extension_path);
   ASSERT_TRUE(extension);
   GURL url = extension->GetResourceURL("test_registration.html");
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   // Bypass permission dialogs for registering new protocol handlers.
   content::WebContents* web_contents =
@@ -140,8 +143,9 @@ IN_PROC_BROWSER_TEST_F(ProtocolHandlerApiTest, BrowserProcessSecurityLevel) {
   ASSERT_TRUE(StartEmbeddedTestServer());
 
   // Run the extension subtest and wait for the initialization.
-  ASSERT_TRUE(RunExtensionSubtest("protocol_handler",
-                                  "test_browser_process_security_level.html"))
+  ASSERT_TRUE(RunExtensionTest(
+      "protocol_handler",
+      {.page_url = "test_browser_process_security_level.html"}))
       << message_;
 
   content::WebContentsDelegate* web_contents_delegate =
@@ -149,7 +153,7 @@ IN_PROC_BROWSER_TEST_F(ProtocolHandlerApiTest, BrowserProcessSecurityLevel) {
   content::RenderFrameHost* main_frame =
       browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
   std::vector<content::RenderFrameHost*> subframes =
-      main_frame->GetFramesInSubtree();
+      CollectAllRenderFrameHosts(main_frame);
   ASSERT_EQ(3u, subframes.size());
 
   // Main frame has extension privilege.

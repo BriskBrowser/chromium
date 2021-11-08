@@ -17,6 +17,10 @@
 class SpellCheckPanelHostImpl : public spellcheck::mojom::SpellCheckPanelHost {
  public:
   SpellCheckPanelHostImpl();
+
+  SpellCheckPanelHostImpl(const SpellCheckPanelHostImpl&) = delete;
+  SpellCheckPanelHostImpl& operator=(const SpellCheckPanelHostImpl&) = delete;
+
   ~SpellCheckPanelHostImpl() override;
 
   static void Create(
@@ -34,9 +38,7 @@ class SpellCheckPanelHostImpl : public spellcheck::mojom::SpellCheckPanelHost {
   // spellcheck::mojom::SpellCheckPanelHost:
   void ShowSpellingPanel(bool show) override;
   void UpdateSpellingPanelWithMisspelledWord(
-      const base::string16& word) override;
-
-  DISALLOW_COPY_AND_ASSIGN(SpellCheckPanelHostImpl);
+      const std::u16string& word) override;
 };
 
 #endif  // CHROME_BROWSER_SPELLCHECKER_SPELL_CHECK_PANEL_HOST_IMPL_H_

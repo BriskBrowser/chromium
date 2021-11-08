@@ -5,15 +5,11 @@
 #ifndef BASE_LOCATION_H_
 #define BASE_LOCATION_H_
 
-#include <stddef.h>
-
-#include <cassert>
-#include <functional>
 #include <string>
 
 #include "base/base_export.h"
 #include "base/debug/debugging_buildflags.h"
-#include "base/hash/hash.h"
+#include "base/trace_event/base_tracing_forward.h"
 #include "build/build_config.h"
 
 namespace base {
@@ -37,6 +33,7 @@ class BASE_EXPORT Location {
  public:
   Location();
   Location(const Location& other);
+  Location& operator=(const Location& other);
 
   // Only initializes the file name and program counter, the source information
   // will be null for the strings, and -1 for the line number.
@@ -51,7 +48,7 @@ class BASE_EXPORT Location {
            int line_number,
            const void* program_counter);
 
-  // Comparator for hash map insertion. The program counter should uniquely
+  // Comparator for testing. The program counter should uniquely
   // identify a location.
   bool operator==(const Location& other) const {
     return program_counter_ == other.program_counter_;
@@ -82,6 +79,9 @@ class BASE_EXPORT Location {
   // Converts to the most user-readable form possible. If function and filename
   // are not available, this will return "pc:<hex address>".
   std::string ToString() const;
+
+  // Write a representation of this object into a trace.
+  void WriteIntoTrace(perfetto::TracedValue context) const;
 
 #if !BUILDFLAG(FROM_HERE_USES_LOCATION_BUILTINS)
 #if !BUILDFLAG(ENABLE_LOCATION_SOURCE)
@@ -130,18 +130,5 @@ BASE_EXPORT const void* GetProgramCounter();
 #endif
 
 }  // namespace base
-
-namespace std {
-
-// Specialization for using Location in hash tables.
-template <>
-struct hash<::base::Location> {
-  std::size_t operator()(const ::base::Location& loc) const {
-    const void* program_counter = loc.program_counter();
-    return base::FastHash(base::as_bytes(base::make_span(&program_counter, 1)));
-  }
-};
-
-}  // namespace std
 
 #endif  // BASE_LOCATION_H_

@@ -31,7 +31,6 @@
 #include "chrome/browser/extensions/load_error_reporter.h"
 #include "chrome/browser/extensions/navigation_observer.h"
 #include "chrome/browser/extensions/shared_module_service.h"
-#include "chrome/browser/extensions/state_store_notification_observer.h"
 #include "chrome/browser/extensions/unpacked_installer.h"
 #include "chrome/browser/extensions/update_install_gate.h"
 #include "chrome/browser/notifications/notifier_state_tracker.h"
@@ -41,6 +40,7 @@
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
 #include "chrome/browser/ui/webui/extensions/extensions_internals_source.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/value_store/value_store_factory_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/url_data_source.h"
@@ -53,12 +53,10 @@
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/info_map.h"
 #include "extensions/browser/quota_service.h"
-#include "extensions/browser/runtime_data.h"
 #include "extensions/browser/service_worker_manager.h"
 #include "extensions/browser/state_store.h"
 #include "extensions/browser/updater/uninstall_ping_sender.h"
 #include "extensions/browser/user_script_manager.h"
-#include "extensions/browser/value_store/value_store_factory_impl.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/features/feature_channel.h"
 #include "extensions/common/manifest_url_handlers.h"
@@ -68,11 +66,11 @@
 #include "ash/constants/ash_switches.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_update_install_gate.h"
+#include "chrome/browser/ash/policy/core/device_local_account.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/extensions/device_local_account_management_policy_provider.h"
 #include "chrome/browser/chromeos/extensions/extensions_permissions_tracker.h"
 #include "chrome/browser/chromeos/extensions/signin_screen_policy_provider.h"
-#include "chrome/browser/chromeos/policy/device_local_account.h"
 #include "chromeos/login/login_state/login_state.h"
 #include "components/user_manager/user_manager.h"
 #endif
@@ -107,19 +105,20 @@ ExtensionSystemImpl::Shared::~Shared() {
 }
 
 void ExtensionSystemImpl::Shared::InitPrefs() {
-  store_factory_ =
-      base::MakeRefCounted<ValueStoreFactoryImpl>(profile_->GetPath());
+  store_factory_ = base::MakeRefCounted<value_store::ValueStoreFactoryImpl>(
+      profile_->GetPath());
 
-  // Two state stores. The latter, which contains declarative rules, must be
-  // loaded immediately so that the rules are ready before we issue network
-  // requests.
-  state_store_.reset(new StateStore(
-      profile_, store_factory_, ValueStoreFrontend::BackendType::STATE, true));
-  state_store_notification_observer_.reset(
-      new StateStoreNotificationObserver(state_store_.get()));
+  // Three state stores. Two stores, which contain declarative rules and dynamic
+  // user scripts respectively, must be loaded immediately so that the
+  // rules/scripts are ready before we issue network requests.
+  state_store_ = std::make_unique<StateStore>(
+      profile_, store_factory_, StateStore::BackendType::STATE, true);
 
-  rules_store_.reset(new StateStore(
-      profile_, store_factory_, ValueStoreFrontend::BackendType::RULES, false));
+  rules_store_ = std::make_unique<StateStore>(
+      profile_, store_factory_, StateStore::BackendType::RULES, false);
+
+  dynamic_user_scripts_store_ = std::make_unique<StateStore>(
+      profile_, store_factory_, StateStore::BackendType::SCRIPTS, false);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // We can not perform check for Signin Profile here, as it would result in
@@ -132,9 +131,9 @@ void ExtensionSystemImpl::Shared::InitPrefs() {
   if (user &&
       policy::IsDeviceLocalAccountUser(user->GetAccountId().GetUserEmail(),
                                        &device_local_account_type)) {
-    device_local_account_management_policy_provider_.reset(
-        new chromeos::DeviceLocalAccountManagementPolicyProvider(
-            device_local_account_type));
+    device_local_account_management_policy_provider_ =
+        std::make_unique<chromeos::DeviceLocalAccountManagementPolicyProvider>(
+            device_local_account_type);
   }
 #endif
 }
@@ -148,8 +147,8 @@ void ExtensionSystemImpl::Shared::RegisterManagementPolicyProviders() {
   // Lazy creation of SigninScreenPolicyProvider.
   if (!signin_screen_policy_provider_) {
     if (chromeos::ProfileHelper::IsSigninProfile(profile_)) {
-      signin_screen_policy_provider_.reset(
-          new chromeos::SigninScreenPolicyProvider());
+      signin_screen_policy_provider_ =
+          std::make_unique<chromeos::SigninScreenPolicyProvider>();
     }
   }
 
@@ -165,7 +164,7 @@ void ExtensionSystemImpl::Shared::RegisterManagementPolicyProviders() {
 }
 
 void ExtensionSystemImpl::Shared::InitInstallGates() {
-  update_install_gate_.reset(new UpdateInstallGate(profile_));
+  update_install_gate_ = std::make_unique<UpdateInstallGate>(profile_);
   extension_service_->RegisterInstallGate(
       ExtensionPrefs::DELAY_REASON_WAIT_FOR_IDLE, update_install_gate_.get());
   extension_service_->RegisterInstallGate(
@@ -190,7 +189,7 @@ void ExtensionSystemImpl::Shared::Init(bool extensions_enabled) {
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
 
-  navigation_observer_.reset(new NavigationObserver(profile_));
+  navigation_observer_ = std::make_unique<NavigationObserver>(profile_);
 
   bool allow_noisy_errors =
       !command_line->HasSwitch(::switches::kNoErrorDialogs);
@@ -199,12 +198,9 @@ void ExtensionSystemImpl::Shared::Init(bool extensions_enabled) {
   content_verifier_ = new ContentVerifier(
       profile_, std::make_unique<ChromeContentVerifierDelegate>(profile_));
 
-  service_worker_manager_.reset(new ServiceWorkerManager(profile_));
+  service_worker_manager_ = std::make_unique<ServiceWorkerManager>(profile_);
 
   user_script_manager_ = std::make_unique<UserScriptManager>(profile_);
-
-  // ExtensionService depends on RuntimeData.
-  runtime_data_.reset(new RuntimeData(ExtensionRegistry::Get(profile_)));
 
   bool autoupdate_enabled = !profile_->IsGuestSession() &&
                             !profile_->IsSystemProfile();
@@ -214,11 +210,11 @@ void ExtensionSystemImpl::Shared::Init(bool extensions_enabled) {
     autoupdate_enabled = false;
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-  extension_service_.reset(new ExtensionService(
+  extension_service_ = std::make_unique<ExtensionService>(
       profile_, base::CommandLine::ForCurrentProcess(),
       profile_->GetPath().AppendASCII(extensions::kInstallDirectoryName),
       ExtensionPrefs::Get(profile_), Blocklist::Get(profile_),
-      autoupdate_enabled, extensions_enabled, &ready_));
+      autoupdate_enabled, extensions_enabled, &ready_);
 
   uninstall_ping_sender_ = std::make_unique<UninstallPingSender>(
       ExtensionRegistry::Get(profile_),
@@ -247,17 +243,18 @@ void ExtensionSystemImpl::Shared::Init(bool extensions_enabled) {
     if (chromeos::LoginState::IsInitialized() &&
         chromeos::LoginState::Get()->IsPublicSessionUser() &&
         !chromeos::LoginState::Get()->ArePublicSessionRestrictionsEnabled()) {
-      extensions_permissions_tracker_.reset(new ExtensionsPermissionsTracker(
-          ExtensionRegistry::Get(profile_), profile_));
+      extensions_permissions_tracker_ =
+          std::make_unique<ExtensionsPermissionsTracker>(
+              ExtensionRegistry::Get(profile_), profile_);
     }
 #endif
-    management_policy_.reset(new ManagementPolicy);
+    management_policy_ = std::make_unique<ManagementPolicy>();
     RegisterManagementPolicyProviders();
   }
 
   // Extension API calls require QuotaService, so create it before loading any
   // extensions.
-  quota_service_.reset(new QuotaService);
+  quota_service_ = std::make_unique<QuotaService>();
 
   bool skip_session_extensions = false;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -279,7 +276,7 @@ void ExtensionSystemImpl::Shared::Init(bool extensions_enabled) {
       skip_session_extensions);
 #endif
 
-  app_sorting_.reset(new ChromeAppSorting(profile_));
+  app_sorting_ = std::make_unique<ChromeAppSorting>(profile_);
 
   InitInstallGates();
 
@@ -316,17 +313,17 @@ StateStore* ExtensionSystemImpl::Shared::rules_store() {
   return rules_store_.get();
 }
 
-scoped_refptr<ValueStoreFactory> ExtensionSystemImpl::Shared::store_factory()
-    const {
+StateStore* ExtensionSystemImpl::Shared::dynamic_user_scripts_store() {
+  return dynamic_user_scripts_store_.get();
+}
+
+scoped_refptr<value_store::ValueStoreFactory>
+ExtensionSystemImpl::Shared::store_factory() const {
   return store_factory_;
 }
 
 ExtensionService* ExtensionSystemImpl::Shared::extension_service() {
   return extension_service_.get();
-}
-
-RuntimeData* ExtensionSystemImpl::Shared::runtime_data() {
-  return runtime_data_.get();
 }
 
 ManagementPolicy* ExtensionSystemImpl::Shared::management_policy() {
@@ -389,10 +386,6 @@ ExtensionService* ExtensionSystemImpl::extension_service() {
   return shared_->extension_service();
 }
 
-RuntimeData* ExtensionSystemImpl::runtime_data() {
-  return shared_->runtime_data();
-}
-
 ManagementPolicy* ExtensionSystemImpl::management_policy() {
   return shared_->management_policy();
 }
@@ -413,7 +406,12 @@ StateStore* ExtensionSystemImpl::rules_store() {
   return shared_->rules_store();
 }
 
-scoped_refptr<ValueStoreFactory> ExtensionSystemImpl::store_factory() {
+StateStore* ExtensionSystemImpl::dynamic_user_scripts_store() {
+  return shared_->dynamic_user_scripts_store();
+}
+
+scoped_refptr<value_store::ValueStoreFactory>
+ExtensionSystemImpl::store_factory() {
   return shared_->store_factory();
 }
 
@@ -485,7 +483,7 @@ void ExtensionSystemImpl::RegisterExtensionWithRequestContexts(
     const Extension* extension,
     base::OnceClosure callback) {
   base::Time install_time;
-  if (extension->location() != Manifest::COMPONENT) {
+  if (extension->location() != mojom::ManifestLocation::kComponent) {
     install_time = ExtensionPrefs::Get(profile_)->
         GetInstallTime(extension->id());
   }

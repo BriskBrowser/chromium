@@ -8,7 +8,6 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
@@ -28,6 +27,7 @@
 #include "chromeos/services/network_config/public/cpp/cros_network_config_test_helper.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
 
 namespace chromeos {
@@ -74,6 +74,10 @@ class SyncedNetworkUpdaterImplTest : public testing::Test {
         remote_cros_network_config_.BindNewPipeAndPassReceiver());
   }
 
+  SyncedNetworkUpdaterImplTest(const SyncedNetworkUpdaterImplTest&) = delete;
+  SyncedNetworkUpdaterImplTest& operator=(const SyncedNetworkUpdaterImplTest&) =
+      delete;
+
   ~SyncedNetworkUpdaterImplTest() override { local_test_helper_.reset(); }
 
   void SetUp() override {
@@ -94,9 +98,21 @@ class SyncedNetworkUpdaterImplTest : public testing::Test {
         timer_factory_.get(), metrics_logger_.get());
   }
 
-  void TearDown() override {
-    chromeos::NetworkHandler::Shutdown();
-    testing::Test::TearDown();
+  network_config::mojom::ManagedPropertiesPtr GetManagedProperties(
+      const std::string& guid) {
+    network_config::mojom::ManagedPropertiesPtr result;
+    base::RunLoop run_loop;
+    remote_cros_network_config_->GetManagedProperties(
+        guid, base::BindOnce(
+                  [](network_config::mojom::ManagedPropertiesPtr* result,
+                     base::OnceClosure quit_closure,
+                     network_config::mojom::ManagedPropertiesPtr network) {
+                    *result = std::move(network);
+                    std::move(quit_closure).Run();
+                  },
+                  &result, run_loop.QuitClosure()));
+    run_loop.Run();
+    return result;
   }
 
   FakePendingNetworkConfigurationTracker* tracker() { return tracker_; }
@@ -120,8 +136,6 @@ class SyncedNetworkUpdaterImplTest : public testing::Test {
 
   NetworkIdentifier fred_network_id_ = GeneratePskNetworkId(kFredSsid);
   NetworkIdentifier mango_network_id_ = GeneratePskNetworkId(kMangoSsid);
-
-  DISALLOW_COPY_AND_ASSIGN(SyncedNetworkUpdaterImplTest);
 };
 
 TEST_F(SyncedNetworkUpdaterImplTest, TestAdd_OneNetwork) {
@@ -140,6 +154,35 @@ TEST_F(SyncedNetworkUpdaterImplTest, TestAdd_OneNetwork) {
       NetworkHandler::Get()->network_metadata_store()->GetIsConfiguredBySync(
           network->guid()));
   histogram_tester.ExpectBucketCount(kApplyResultHistogram, true, 1);
+}
+
+TEST_F(SyncedNetworkUpdaterImplTest, TestUpdate_UnsetFields) {
+  base::HistogramTester histogram_tester;
+  sync_pb::WifiConfigurationSpecifics specifics =
+      GenerateTestWifiSpecifics(fred_network_id());
+  NetworkIdentifier id = NetworkIdentifier::FromProto(specifics);
+  updater()->AddOrUpdateNetwork(specifics);
+  EXPECT_TRUE(tracker()->GetPendingUpdateById(id));
+  base::RunLoop().RunUntilIdle();
+  network_config::mojom::ManagedPropertiesPtr network =
+      GetManagedProperties(FindLocalNetworkById(id)->guid());
+  EXPECT_TRUE(network->priority->active_value);
+  EXPECT_TRUE(network->type_properties->get_wifi()->auto_connect->active_value);
+
+  specifics.set_automatically_connect(
+      sync_pb::WifiConfigurationSpecifics_AutomaticallyConnectOption::
+          WifiConfigurationSpecifics_AutomaticallyConnectOption_AUTOMATICALLY_CONNECT_UNSPECIFIED);
+  specifics.set_is_preferred(
+      sync_pb::WifiConfigurationSpecifics_IsPreferredOption::
+          WifiConfigurationSpecifics_IsPreferredOption_IS_PREFERRED_UNSPECIFIED);
+  updater()->AddOrUpdateNetwork(specifics);
+  EXPECT_TRUE(tracker()->GetPendingUpdateById(id));
+  base::RunLoop().RunUntilIdle();
+  network = GetManagedProperties(FindLocalNetworkById(id)->guid());
+  // Verify that the previous values for priority and autoconnect were not
+  // overwritten.
+  EXPECT_TRUE(network->priority->active_value);
+  EXPECT_TRUE(network->type_properties->get_wifi()->auto_connect->active_value);
 }
 
 TEST_F(SyncedNetworkUpdaterImplTest, TestAdd_ThenRemove) {

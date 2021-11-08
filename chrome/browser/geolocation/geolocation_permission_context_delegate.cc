@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/permissions/permission_request_id.h"
+#include "components/permissions/permission_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -30,16 +31,18 @@ bool GeolocationPermissionContextDelegate::DecidePermission(
 
   bool permission_set;
   bool new_permission;
-  if (extensions_context_.DecidePermission(
-          web_contents, id, id.request_id(), requesting_origin, user_gesture,
-          callback, &permission_set, &new_permission)) {
+  if (extensions_context_.DecidePermission(web_contents, id, requesting_origin,
+                                           user_gesture, callback,
+                                           &permission_set, &new_permission)) {
     DCHECK_EQ(!!*callback, permission_set);
     if (permission_set) {
       ContentSetting content_setting =
           new_permission ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK;
       context->NotifyPermissionSet(
           id, requesting_origin,
-          web_contents->GetLastCommittedURL().GetOrigin(), std::move(*callback),
+          permissions::PermissionUtil::GetLastCommittedOriginAsURL(
+              web_contents),
+          std::move(*callback),
           /*persist=*/false, content_setting, /*is_one_time=*/false);
     }
     return true;

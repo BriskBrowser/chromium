@@ -9,7 +9,6 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/task/cancelable_task_tracker.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/nacl/common/buildflags.h"
@@ -42,6 +41,10 @@ class ShellBrowserMainParts : public content::BrowserMainParts {
  public:
   ShellBrowserMainParts(const content::MainFunctionParams& parameters,
                         ShellBrowserMainDelegate* browser_main_delegate);
+
+  ShellBrowserMainParts(const ShellBrowserMainParts&) = delete;
+  ShellBrowserMainParts& operator=(const ShellBrowserMainParts&) = delete;
+
   ~ShellBrowserMainParts() override;
 
   ShellBrowserContext* browser_context() { return browser_context_.get(); }
@@ -50,11 +53,11 @@ class ShellBrowserMainParts : public content::BrowserMainParts {
 
   // BrowserMainParts overrides.
   int PreEarlyInitialization() override;
-  void PreMainMessageLoopStart() override;
-  void PostMainMessageLoopStart() override;
+  void PostCreateMainMessageLoop() override;
   int PreCreateThreads() override;
-  void PreMainMessageLoopRun() override;
-  bool MainMessageLoopRun(int* result_code) override;
+  int PreMainMessageLoopRun() override;
+  void WillRunMainMessageLoop(
+      std::unique_ptr<base::RunLoop>& run_loop) override;
   void PostMainMessageLoopRun() override;
   void PostDestroyThreads() override;
 
@@ -92,12 +95,6 @@ class ShellBrowserMainParts : public content::BrowserMainParts {
   bool run_message_loop_;
 
   std::unique_ptr<ShellBrowserMainDelegate> browser_main_delegate_;
-
-#if BUILDFLAG(ENABLE_NACL)
-  base::CancelableTaskTracker task_tracker_;
-#endif
-
-  DISALLOW_COPY_AND_ASSIGN(ShellBrowserMainParts);
 };
 
 }  // namespace extensions

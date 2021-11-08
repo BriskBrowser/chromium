@@ -51,6 +51,11 @@ class CryptAuthGroupPrivateKeySharerImpl
     static Factory* test_factory_;
   };
 
+  CryptAuthGroupPrivateKeySharerImpl(
+      const CryptAuthGroupPrivateKeySharerImpl&) = delete;
+  CryptAuthGroupPrivateKeySharerImpl& operator=(
+      const CryptAuthGroupPrivateKeySharerImpl&) = delete;
+
   ~CryptAuthGroupPrivateKeySharerImpl() override;
 
  private:
@@ -63,8 +68,8 @@ class CryptAuthGroupPrivateKeySharerImpl
 
   friend std::ostream& operator<<(std::ostream& stream, const State& state);
 
-  static base::Optional<base::TimeDelta> GetTimeoutForState(State state);
-  static base::Optional<CryptAuthDeviceSyncResult::ResultCode>
+  static absl::optional<base::TimeDelta> GetTimeoutForState(State state);
+  static absl::optional<CryptAuthDeviceSyncResult::ResultCode>
   ResultCodeErrorFromTimeoutDuringState(State state);
 
   CryptAuthGroupPrivateKeySharerImpl(CryptAuthClientFactory* client_factory,
@@ -103,8 +108,6 @@ class CryptAuthGroupPrivateKeySharerImpl
   State state_ = State::kNotStarted;
   CryptAuthClientFactory* client_factory_ = nullptr;
   std::unique_ptr<base::OneShotTimer> timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthGroupPrivateKeySharerImpl);
 };
 
 }  // namespace device_sync

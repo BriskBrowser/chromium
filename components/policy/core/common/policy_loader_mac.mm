@@ -15,8 +15,8 @@
 #include "base/files/file_util.h"
 #include "base/mac/foundation_util.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "components/policy/core/common/external_data_fetcher.h"
@@ -38,16 +38,25 @@ namespace {
 
 // Encapsulates logic to determine if enterprise policies should be honored.
 bool ShouldHonorPolicies() {
+  // Only honor sensitive policies if the Mac is managed externally.
   base::DeviceUserDomainJoinState join_state =
       base::AreDeviceAndUserJoinedToDomain();
+  if (join_state.device_joined)
+    return true;
+
   // IsDeviceRegisteredWithManagementNew is only available after 10.13.4.
   // Eventually switch to it when that is the minimum OS required by Chromium.
+  if (@available(macOS 10.13.4, *)) {
+    base::MacDeviceManagementStateNew mdm_state =
+        base::IsDeviceRegisteredWithManagementNew();
+    return mdm_state ==
+               base::MacDeviceManagementStateNew::kLimitedMDMEnrollment ||
+           mdm_state == base::MacDeviceManagementStateNew::kFullMDMEnrollment ||
+           mdm_state == base::MacDeviceManagementStateNew::kDEPMDMEnrollment;
+  }
   base::MacDeviceManagementStateOld mdm_state =
       base::IsDeviceRegisteredWithManagementOld();
-
-  // Only honor sensitive policies if the Mac is managed externally.
-  return join_state.device_joined ||
-         mdm_state == base::MacDeviceManagementStateOld::kMDMEnrollment;
+  return mdm_state == base::MacDeviceManagementStateOld::kMDMEnrollment;
 }
 
 }  // namespace
@@ -66,7 +75,7 @@ PolicyLoaderMac::PolicyLoaderMac(
     const base::FilePath& managed_policy_path,
     MacPreferences* preferences,
     CFStringRef application_id)
-    : AsyncPolicyLoader(task_runner),
+    : AsyncPolicyLoader(task_runner, /*periodic_updates=*/true),
       preferences_(preferences),
       managed_policy_path_(managed_policy_path),
       application_id_(CFStringCreateCopy(kCFAllocatorDefault, application_id)) {

@@ -33,6 +33,9 @@ class AwRenderFrameExt : public content::RenderFrameObserver,
  public:
   explicit AwRenderFrameExt(content::RenderFrame* render_frame);
 
+  AwRenderFrameExt(const AwRenderFrameExt&) = delete;
+  AwRenderFrameExt& operator=(const AwRenderFrameExt&) = delete;
+
   static AwRenderFrameExt* FromRenderFrame(content::RenderFrame* render_frame);
 
  private:
@@ -48,7 +51,6 @@ class AwRenderFrameExt : public content::RenderFrameObserver,
   void OnDestruct() override;
 
   // mojom::LocalMainFrame overrides:
-  void SetBackgroundColor(SkColor c) override;
   void SetInitialPageScale(double page_scale_factor) override;
   void SetTextZoomFactor(float zoom_factor) override;
   void HitTest(const gfx::PointF& touch_center,
@@ -74,8 +76,6 @@ class AwRenderFrameExt : public content::RenderFrameObserver,
       this};
 
   mojo::AssociatedRemote<mojom::FrameHost> frame_host_remote_;
-
-  DISALLOW_COPY_AND_ASSIGN(AwRenderFrameExt);
 };
 
 }  // namespace android_webview

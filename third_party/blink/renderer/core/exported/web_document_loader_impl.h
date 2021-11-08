@@ -44,7 +44,7 @@
 
 namespace blink {
 
-class ContentSecurityPolicy;
+class PolicyContainer;
 
 // Extends blink::DocumentLoader to attach |extra_data_| to store data that can
 // be set/get via the WebDocumentLoader interface.
@@ -53,8 +53,8 @@ class CORE_EXPORT WebDocumentLoaderImpl final : public DocumentLoader,
  public:
   WebDocumentLoaderImpl(LocalFrame*,
                         WebNavigationType navigation_type,
-                        ContentSecurityPolicy*,
-                        std::unique_ptr<WebNavigationParams> navigation_params);
+                        std::unique_ptr<WebNavigationParams> navigation_params,
+                        std::unique_ptr<PolicyContainer> policy_container);
   ~WebDocumentLoaderImpl() override;
 
   static WebDocumentLoaderImpl* FromDocumentLoader(DocumentLoader* loader) {
@@ -62,7 +62,6 @@ class CORE_EXPORT WebDocumentLoaderImpl final : public DocumentLoader,
   }
 
   // WebDocumentLoader methods:
-  WebURL OriginalUrl() const override;
   WebString OriginalReferrer() const override;
   WebURL GetUrl() const override;
   WebString HttpMethod() const override;
@@ -71,7 +70,6 @@ class CORE_EXPORT WebDocumentLoaderImpl final : public DocumentLoader,
   const WebURLResponse& GetResponse() const override;
   bool HasUnreachableURL() const override;
   WebURL UnreachableURL() const override;
-  void RedirectChain(WebVector<WebURL>&) const override;
   bool IsClientRedirect() const override;
   bool ReplacesCurrentHistoryItem() const override;
   WebNavigationType GetNavigationType() const override;
@@ -87,8 +85,9 @@ class CORE_EXPORT WebDocumentLoaderImpl final : public DocumentLoader,
   bool HasBeenLoadedAsWebArchive() const override;
   PreviewsState GetPreviewsState() const override;
   WebArchiveInfo GetArchiveInfo() const override;
-  bool HadUserGesture() const override;
-  bool IsListingFtpDirectory() const override;
+  bool LastNavigationHadTransientUserActivation() const override;
+  void SetCodeCacheHost(
+      mojo::PendingRemote<mojom::CodeCacheHost> code_cache_host) override;
 
   void Trace(Visitor*) const override;
 

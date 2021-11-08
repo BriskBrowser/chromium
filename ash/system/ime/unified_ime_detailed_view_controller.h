@@ -29,11 +29,17 @@ class UnifiedIMEDetailedViewController : public DetailedViewController,
  public:
   explicit UnifiedIMEDetailedViewController(
       UnifiedSystemTrayController* tray_controller);
+
+  UnifiedIMEDetailedViewController(const UnifiedIMEDetailedViewController&) =
+      delete;
+  UnifiedIMEDetailedViewController& operator=(
+      const UnifiedIMEDetailedViewController&) = delete;
+
   ~UnifiedIMEDetailedViewController() override;
 
   // DetailedViewControllerBase:
   views::View* CreateView() override;
-  base::string16 GetAccessibleName() const override;
+  std::u16string GetAccessibleName() const override;
 
   // VirtualKeyboardObserver:
   void OnKeyboardSuppressionChanged(bool suppressed) override;
@@ -55,8 +61,6 @@ class UnifiedIMEDetailedViewController : public DetailedViewController,
   tray::IMEDetailedView* view_ = nullptr;
 
   bool keyboard_suppressed_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedIMEDetailedViewController);
 };
 
 }  // namespace ash

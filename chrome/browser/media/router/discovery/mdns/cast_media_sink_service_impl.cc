@@ -13,12 +13,13 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/router/discovery/mdns/media_sink_util.h"
 #include "chrome/browser/media/router/media_router_feature.h"
-#include "chrome/browser/net/system_network_context_manager.h"
+#include "chrome/browser/net/system_network_context_manager.h"  // nogncheck
 #include "components/cast_channel/cast_channel_enum.h"
 #include "components/cast_channel/cast_socket_service.h"
 #include "components/cast_channel/logger.h"
 #include "components/media_router/common/discovery/media_sink_internal.h"
 #include "components/media_router/common/media_sink.h"
+#include "components/media_router/common/mojom/media_router.mojom.h"
 #include "components/net_log/chrome_net_log.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/backoff_entry.h"
@@ -41,7 +42,7 @@ MediaSinkInternal CreateCastSinkFromDialSink(
   // Note that the real sink icon will be determined later using information
   // from the opened cast channel.
   MediaSink sink(sink_id, friendly_name, SinkIconType::CAST,
-                 MediaRouteProviderId::CAST);
+                 mojom::MediaRouteProviderId::CAST);
 
   CastSinkExtraData extra_data;
   extra_data.ip_endpoint =
@@ -301,8 +302,7 @@ void CastMediaSinkServiceImpl::OpenChannelsWithRandomizedDelay(
   // Add a random backoff between 0s to 5s before opening channels to prevent
   // different browser instances connecting to the same receiver at the same
   // time.
-  base::TimeDelta delay =
-      base::TimeDelta::FromMilliseconds(base::RandInt(0, 50) * 100);
+  base::TimeDelta delay = base::Milliseconds(base::RandInt(0, 50) * 100);
   task_runner()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&CastMediaSinkServiceImpl::OpenChannels, GetWeakPtr(),
@@ -352,30 +352,25 @@ void CastMediaSinkServiceImpl::OnError(const cast_channel::CastSocket& socket,
       });
   if (logger_.is_bound()) {
     auto sink_id = sink_it == sinks.end() ? "" : sink_it->first;
-    logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
-                      base::StrCat({"Media Router Channel Error: ",
-                                    EnumToString(error_code)}),
-                      sink_id, "", "");
+    logger_->LogError(
+        mojom::LogCategory::kDiscovery, kLoggerComponent,
+        base::StrCat({"Media Router Channel Error: ", EnumToString(error_code),
+                      ". channel_id: ", base::NumberToString(socket_id),
+                      ". IP endpoint: ", ip_endpoint.ToString()}),
+        sink_id, "", "");
   }
   if (sink_it == sinks.end()) {
     return;
   }
 
-  // We erase the sink here so that OpenChannel would not find an existing
-  // sink.
-  // Note: a better longer term solution is to introduce a state field to the
-  // sink. We would set it to ERROR here. In OpenChannel(), we would check
-  // create a socket only if the state is not already CONNECTED.
   MediaSinkInternal sink = sink_it->second;
-  RemoveSink(sink);
-
   // If socket is not opened yet, then |OnChannelOpened()| will handle the
   // retry.
   if (socket.ready_state() != cast_channel::ReadyState::CONNECTING) {
     task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(&CastMediaSinkServiceImpl::OpenChannel, GetWeakPtr(),
-                       sink, nullptr, SinkSource::kConnectionRetry));
+                       sink, nullptr, SinkSource::kConnectionRetryOnError));
   }
 }
 
@@ -448,10 +443,9 @@ CastMediaSinkServiceImpl::CreateCastSocketOpenParams(
   // TODO(crbug.com/814419): Switching cast socket implementation to use network
   // service will allow us to get back NetLog.
   return cast_channel::CastSocketOpenParams(
-      sink.cast_data().ip_endpoint,
-      base::TimeDelta::FromSeconds(connect_timeout_in_seconds),
-      base::TimeDelta::FromSeconds(liveness_timeout_in_seconds),
-      base::TimeDelta::FromSeconds(open_params_.ping_interval_in_seconds),
+      sink.cast_data().ip_endpoint, base::Seconds(connect_timeout_in_seconds),
+      base::Seconds(liveness_timeout_in_seconds),
+      base::Seconds(open_params_.ping_interval_in_seconds),
       cast_channel::CastDeviceCapability::NONE);
 }
 
@@ -472,12 +466,11 @@ void CastMediaSinkServiceImpl::OpenChannel(
   if (sink_source != SinkSource::kDial)
     dial_sink_failure_count_.erase(sink_id);
 
-  // If the sink already exists, then we need to check if there are updates.
-  // If the IP endpoint changed, then we will need to reopen a socket.
-  // If the IP endpoint remained the same but other properties changed, then we
-  // can update the existing sink without opening a new socket.
+  // If there already is a connected sink whose IP endpoint stayed the same,
+  // then there's no need to reopen a socket. We just update the sink info.
   const MediaSinkInternal* existing_sink = GetSinkById(sink_id);
-  if (existing_sink && existing_sink->cast_data().ip_endpoint == ip_endpoint) {
+  if (sink_source != SinkSource::kConnectionRetryOnError && existing_sink &&
+      existing_sink->cast_data().ip_endpoint == ip_endpoint) {
     // This update is only performed if |sink_source| is kMdns. In particular,
     // DIAL-discovered
     // sinks contain incomplete information which should not be used for
@@ -644,10 +637,12 @@ void CastMediaSinkServiceImpl::OnChannelOpenFailed(
     return;
 
   if (logger_.is_bound()) {
-    logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
-                      base::StrCat({"Failed to open the channel. IP endpoint: ",
-                                    ip_endpoint.ToString()}),
-                      sink.sink().id(), "", "");
+    logger_->LogError(
+        mojom::LogCategory::kDiscovery, kLoggerComponent,
+        base::StrCat({"Failed to open the channel. IP endpoint: ",
+                      ip_endpoint.ToString(), ". channel_id: ",
+                      base::NumberToString(existing_sink->cast_channel_id())}),
+        sink.sink().id(), "", "");
   }
   RemoveSink(sink);
 }

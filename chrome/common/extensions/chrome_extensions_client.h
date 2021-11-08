@@ -20,6 +20,10 @@ namespace extensions {
 class ChromeExtensionsClient : public ExtensionsClient {
  public:
   ChromeExtensionsClient();
+
+  ChromeExtensionsClient(const ChromeExtensionsClient&) = delete;
+  ChromeExtensionsClient& operator=(const ChromeExtensionsClient&) = delete;
+
   ~ChromeExtensionsClient() override;
 
   void Initialize() override;
@@ -48,6 +52,7 @@ class ChromeExtensionsClient : public ExtensionsClient {
       bool is_extension_active,
       std::vector<network::mojom::CorsOriginPatternPtr>* origin_patterns)
       const override;
+  absl::optional<int> GetExtensionExtendedErrorCode() const override;
 
  private:
   const ChromePermissionMessageProvider permission_message_provider_;
@@ -60,8 +65,6 @@ class ChromeExtensionsClient : public ExtensionsClient {
 
   GURL webstore_base_url_;
   GURL webstore_update_url_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeExtensionsClient);
 };
 
 }  // namespace extensions

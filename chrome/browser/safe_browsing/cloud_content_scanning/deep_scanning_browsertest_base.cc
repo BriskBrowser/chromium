@@ -14,8 +14,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
-#include "components/safe_browsing/core/features.h"
 
 namespace safe_browsing {
 
@@ -23,10 +23,8 @@ namespace {
 
 constexpr char kDmToken[] = "dm_token";
 
-constexpr base::TimeDelta kMinimumPendingDelay =
-    base::TimeDelta::FromMilliseconds(400);
-constexpr base::TimeDelta kSuccessTimeout =
-    base::TimeDelta::FromMilliseconds(100);
+constexpr base::TimeDelta kMinimumPendingDelay = base::Milliseconds(400);
+constexpr base::TimeDelta kSuccessTimeout = base::Milliseconds(100);
 
 class UnresponsiveContentAnalysisDelegate
     : public enterprise_connectors::FakeContentAnalysisDelegate {

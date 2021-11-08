@@ -29,6 +29,8 @@
 #include "extensions/common/url_pattern_set.h"
 #include "ui/base/l10n/l10n_util.h"
 
+using extensions::mojom::APIPermissionID;
+
 namespace extensions {
 namespace permission_helper {
 
@@ -51,6 +53,11 @@ class PublicSessionPermissionHelper {
  public:
   PublicSessionPermissionHelper();
   PublicSessionPermissionHelper(PublicSessionPermissionHelper&& other);
+
+  PublicSessionPermissionHelper(const PublicSessionPermissionHelper&) = delete;
+  PublicSessionPermissionHelper& operator=(
+      const PublicSessionPermissionHelper&) = delete;
+
   ~PublicSessionPermissionHelper();
 
   bool HandlePermissionRequestImpl(const Extension& extension,
@@ -60,12 +67,13 @@ class PublicSessionPermissionHelper {
                                    PromptFactory prompt_factory);
 
   bool PermissionAllowedImpl(const Extension* extension,
-                             APIPermission::ID permission);
+                             APIPermissionID permission);
 
  private:
-  void ResolvePermissionPrompt(const ExtensionInstallPrompt* prompt,
-                               const PermissionIDSet& unprompted_permissions,
-                               ExtensionInstallPrompt::Result prompt_result);
+  void ResolvePermissionPrompt(
+      const ExtensionInstallPrompt* prompt,
+      const PermissionIDSet& unprompted_permissions,
+      ExtensionInstallPrompt::DoneCallbackPayload payload);
 
   PermissionIDSet FilterAllowedPermissions(const PermissionIDSet& permissions);
 
@@ -86,8 +94,6 @@ class PublicSessionPermissionHelper {
   PermissionIDSet allowed_permission_set_;
   PermissionIDSet denied_permission_set_;
   RequestCallbackList callbacks_;
-
-  DISALLOW_COPY_AND_ASSIGN(PublicSessionPermissionHelper);
 };
 
 PublicSessionPermissionHelper::PublicSessionPermissionHelper() {}
@@ -149,7 +155,7 @@ bool PublicSessionPermissionHelper::HandlePermissionRequestImpl(
   auto permissions_prompt = std::make_unique<ExtensionInstallPrompt::Prompt>(
       ExtensionInstallPrompt::PERMISSIONS_PROMPT);
   // activeTab has no permission message by default, so one is added here.
-  if (unprompted_permissions.ContainsID(APIPermission::kActiveTab)) {
+  if (unprompted_permissions.ContainsID(APIPermissionID::kActiveTab)) {
     PermissionMessages messages;
     messages.push_back(PermissionMessage(
         l10n_util::GetStringUTF16(IDS_EXTENSION_PROMPT_WARNING_CURRENT_HOST),
@@ -174,7 +180,7 @@ bool PublicSessionPermissionHelper::HandlePermissionRequestImpl(
 
 bool PublicSessionPermissionHelper::PermissionAllowedImpl(
     const Extension* extension,
-    APIPermission::ID permission) {
+    APIPermissionID permission) {
   DCHECK(profiles::ArePublicSessionRestrictionsEnabled());
   return !PermissionCheckNeeded(extension) ||
          allowed_permission_set_.ContainsID(permission);
@@ -183,10 +189,11 @@ bool PublicSessionPermissionHelper::PermissionAllowedImpl(
 void PublicSessionPermissionHelper::ResolvePermissionPrompt(
     const ExtensionInstallPrompt* prompt,
     const PermissionIDSet& unprompted_permissions,
-    ExtensionInstallPrompt::Result prompt_result) {
+    ExtensionInstallPrompt::DoneCallbackPayload payload) {
   PermissionIDSet& add_to_set =
-      prompt_result == ExtensionInstallPrompt::Result::ACCEPTED ?
-          allowed_permission_set_ : denied_permission_set_;
+      payload.result == ExtensionInstallPrompt::Result::ACCEPTED
+          ? allowed_permission_set_
+          : denied_permission_set_;
   for (const auto& permission : unprompted_permissions) {
     prompted_permission_set_.erase(permission.id());
     add_to_set.insert(permission.id());
@@ -262,8 +269,7 @@ bool HandlePermissionRequest(const Extension& extension,
       std::move(factory));
 }
 
-bool PermissionAllowed(const Extension* extension,
-                       APIPermission::ID permission) {
+bool PermissionAllowed(const Extension* extension, APIPermissionID permission) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return g_helpers.Get()[extension->id()].PermissionAllowedImpl(extension,
                                                                 permission);

@@ -6,11 +6,11 @@
 
 #include "ash/style/ash_color_provider.h"
 #include "base/strings/utf_string_conversions.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -29,7 +29,7 @@ constexpr int kTabSliderButtonLabelFontSizeDp = 13;
 
 WindowCycleTabSliderButton::WindowCycleTabSliderButton(
     views::Button::PressedCallback callback,
-    const base::string16& label_text)
+    const std::u16string& label_text)
     : LabelButton(std::move(callback), label_text) {
   SetHorizontalAlignment(gfx::ALIGN_CENTER);
 

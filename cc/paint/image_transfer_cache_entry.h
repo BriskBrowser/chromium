@@ -12,8 +12,8 @@
 
 #include "base/atomic_sequence_num.h"
 #include "base/containers/span.h"
-#include "base/optional.h"
 #include "cc/paint/transfer_cache_entry.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkYUVAInfo.h"
@@ -65,6 +65,7 @@ class CC_PAINT_EXPORT ClientImageTransferCacheEntry final
 
   static uint32_t GetNextId() { return s_next_id_.GetNext(); }
   bool IsYuv() const { return !!yuv_pixmaps_; }
+  bool IsValid() const { return size_ > 0; }
 
  private:
   const bool needs_mips_ = false;
@@ -80,7 +81,7 @@ class CC_PAINT_EXPORT ClientImageTransferCacheEntry final
                             // at raster.
 
   // YUVA-only members.
-  base::Optional<std::array<const SkPixmap*, SkYUVAInfo::kMaxPlanes>>
+  absl::optional<std::array<const SkPixmap*, SkYUVAInfo::kMaxPlanes>>
       yuv_pixmaps_;
   const SkColorSpace* const decoded_color_space_;
   SkYUVAInfo::Subsampling subsampling_ = SkYUVAInfo::Subsampling::kUnknown;
@@ -158,8 +159,8 @@ class CC_PAINT_EXPORT ServiceImageTransferCacheEntry final
   SkYUVAInfo::PlaneConfig plane_config_ = SkYUVAInfo::PlaneConfig::kUnknown;
   std::vector<size_t> plane_sizes_;
   sk_sp<SkImage> image_;
-  base::Optional<SkYUVAInfo::Subsampling> subsampling_;
-  base::Optional<SkYUVColorSpace> yuv_color_space_;
+  absl::optional<SkYUVAInfo::Subsampling> subsampling_;
+  absl::optional<SkYUVColorSpace> yuv_color_space_;
   bool has_mips_ = false;
   size_t size_ = 0;
   bool fits_on_gpu_ = false;

@@ -60,13 +60,17 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   class ObserverWithAccessor : public content::WebContentsObserver {
    public:
     explicit ObserverWithAccessor(content::WebContents* web_contents);
-    ~ObserverWithAccessor() override;
 
-   private:
-    DISALLOW_COPY_AND_ASSIGN(ObserverWithAccessor);
+    ObserverWithAccessor(const ObserverWithAccessor&) = delete;
+    ObserverWithAccessor& operator=(const ObserverWithAccessor&) = delete;
+
+    ~ObserverWithAccessor() override;
   };
 
   static const char kDevToolsApp[];
+
+  DevToolsWindow(const DevToolsWindow&) = delete;
+  DevToolsWindow& operator=(const DevToolsWindow&) = delete;
 
   ~DevToolsWindow() override;
 
@@ -109,6 +113,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   // How to get pointer to the created window see comments for
   // ToggleDevToolsWindow().
   static void OpenDevToolsWindow(content::WebContents* inspected_web_contents);
+  static void OpenDevToolsWindow(content::WebContents* inspected_web_contents,
+                                 Profile* profile);
 
   // Open or reveal DevTools window, with no special action. Use |profile| to
   // open client window in, default to |host|'s profile if none given.
@@ -321,20 +327,25 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
                                 bool can_dock,
                                 const std::string& settings,
                                 const std::string& panel,
-                                bool has_other_clients);
+                                bool has_other_clients,
+                                bool browser_connnection);
   static GURL GetDevToolsURL(Profile* profile,
                              FrontendType frontend_type,
                              const std::string& frontend_url,
                              bool can_dock,
                              const std::string& panel,
-                             bool has_other_clients);
+                             bool has_other_clients,
+                             bool browser_connection);
 
   static void ToggleDevToolsWindow(
       content::WebContents* web_contents,
+      Profile* profile,
       bool force_open,
       const DevToolsToggleAction& action,
       const std::string& settings,
       DevToolsOpenedByAction opened_by = DevToolsOpenedByAction::kUnknown);
+  static Profile* GetProfileForDevToolsWindow(
+      content::WebContents* web_contents);
 
   // content::WebContentsDelegate:
   void ActivateContents(content::WebContents* contents) override;
@@ -364,11 +375,9 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
       const content::NativeWebKeyboardEvent& event) override;
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
       content::WebContents* source) override;
-  content::ColorChooser* OpenColorChooser(
-      content::WebContents* web_contents,
-      SkColor color,
-      const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions)
-      override;
+  std::unique_ptr<content::EyeDropper> OpenEyeDropper(
+      content::RenderFrameHost* render_frame_host,
+      content::EyeDropperListener* listener) override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
                       scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;
@@ -391,7 +400,7 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   void ReadyForTest() override;
   void ConnectionReady() override;
   void SetOpenNewWindowForPopups(bool value) override;
-  InfoBarService* GetInfoBarService() override;
+  infobars::ContentInfoBarManager* GetInfoBarManager() override;
   void RenderProcessGone(bool crashed) override;
   void ShowCertificateViewer(const std::string& cert_viewer) override;
 
@@ -473,8 +482,9 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
 
   PrefChangeRegistrar pref_change_registrar_;
 
+  base::ScopedClosureRunner capture_handle_;
+
   friend class DevToolsEventForwarder;
-  DISALLOW_COPY_AND_ASSIGN(DevToolsWindow);
 };
 
 #endif  // CHROME_BROWSER_DEVTOOLS_DEVTOOLS_WINDOW_H_

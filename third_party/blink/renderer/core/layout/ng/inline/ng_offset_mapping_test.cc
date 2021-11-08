@@ -141,7 +141,7 @@ class NGOffsetMappingTest : public NGLayoutTest {
   }
 
   HeapVector<NGOffsetMappingUnit> GetFirstLast(const std::string& caret_text) {
-    const auto offset = caret_text.find('|');
+    const unsigned offset = static_cast<unsigned>(caret_text.find('|'));
     return {*GetOffsetMapping().GetFirstMappingUnit(offset),
             *GetOffsetMapping().GetLastMappingUnit(offset)};
   }
@@ -202,7 +202,7 @@ class NGOffsetMappingTest : public NGLayoutTest {
     return GetOffsetMapping().GetMappingUnitForPosition(position);
   }
 
-  base::Optional<unsigned> GetTextContentOffset(
+  absl::optional<unsigned> GetTextContentOffset(
       const Position& position) const {
     return GetOffsetMapping().GetTextContentOffset(position);
   }

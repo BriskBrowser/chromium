@@ -6,23 +6,29 @@
 #define CHROME_BROWSER_UI_VIEWS_PROFILES_PROFILE_PICKER_VIEW_H_
 
 #include "base/cancelable_callback.h"
+#include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/chrome_web_modal_dialog_manager_delegate.h"
 #include "chrome/browser/ui/profile_picker.h"
 #include "chrome/browser/ui/views/profiles/profile_picker_force_signin_dialog_host.h"
+#include "chrome/browser/ui/views/profiles/profile_picker_web_contents_host.h"
+#include "chrome/browser/ui/webui/signin/enterprise_profile_welcome_ui.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
-#include "components/web_modal/web_contents_modal_dialog_host.h"
-#include "content/public/browser/web_contents_delegate.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
 #include "ui/views/controls/webview/webview.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget_delegate.h"
 
-struct AccountInfo;
-class Browser;
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+class ProfilePickerDiceSignInProvider;
+class ProfilePickerDiceSignInToolbar;
+#endif
+
+class ProfilePickerSignedInFlowController;
 
 namespace base {
 class FilePath;
@@ -30,136 +36,56 @@ class FilePath;
 
 namespace content {
 struct ContextMenuParams;
+class NavigationHandle;
 class RenderFrameHost;
 class WebContents;
 }  // namespace content
 
+namespace ui {
+class ThemeProvider;
+}  // namespace ui
+
 // Dialog widget that contains the Desktop Profile picker webui.
 class ProfilePickerView : public views::WidgetDelegateView,
-                          public content::WebContentsDelegate,
-                          public signin::IdentityManager::Observer,
-                          public ChromeWebModalDialogManagerDelegate,
-                          public web_modal::WebContentsModalDialogHost {
+                          public ProfilePickerWebContentsHost {
  public:
   METADATA_HEADER(ProfilePickerView);
-
-  using BrowserOpenedCallback = base::OnceCallback<void(Browser*)>;
 
   ProfilePickerView(const ProfilePickerView&) = delete;
   ProfilePickerView& operator=(const ProfilePickerView&) = delete;
 
   const ui::ThemeProvider* GetThemeProviderForProfileBeingCreated() const;
+  ui::ColorProviderManager::InitializerSupplier*
+  GetCustomThemeForProfileBeingCreated() const;
 
   // Displays sign in error message that is created by Chrome but not GAIA
   // without browser window. If the dialog is not currently shown, this does
   // nothing.
   void DisplayErrorMessage();
 
- private:
-  friend class ProfilePicker;
+  // Sets the URL to be opened after the user selects a profile.
+  void set_on_select_profile_target_url(const GURL& url) {
+    on_select_profile_target_url_ = url;
+  }
 
-  // To display the Profile picker, use ProfilePicker::Show().
-  explicit ProfilePickerView(const GURL& on_select_profile_target_url);
-  ~ProfilePickerView() override;
-
-  enum State {
-    kNotStarted = 0,
-    kInitializing = 1,
-    kReady = 2,
-    kFinalizing = 3
-  };
-
-  // Struct holding the data related to the sign-in profile creation flow. These
-  // variables are grouped together to simplify reasoning about state.
-  struct SignInFlow {
-    explicit SignInFlow(ProfilePickerView* observer,
-                        Profile* profile,
-                        SkColor profile_color);
-    ~SignInFlow();
-
-    // The web contents backed by `profile`. This is used for displaying the
-    // sign-in flow.
-    std::unique_ptr<content::WebContents> contents;
-
-    Profile* profile = nullptr;
-
-    // Set for the profile at the very end to avoid coloring the simple toolbar
-    // for GAIA sign-in (that uses the ThemeProvider of the current profile).
-    SkColor profile_color;
-
-    base::string16 name_for_signed_in_profile;
-    base::OnceClosure on_profile_name_available;
-
-    base::CancelableOnceClosure extended_account_info_timeout_closure;
-
-    base::ScopedObservation<signin::IdentityManager,
-                            signin::IdentityManager::Observer>
-        identity_manager_observation;
-  };
-
-  // Displays the profile picker.
-  void Display(ProfilePicker::EntryPoint entry_point);
-  // Hides the profile picker.
-  void Clear();
-
-  // On system profile creation success, it initializes the view.
-  void OnSystemProfileCreated(Profile* system_profile,
-                              Profile::CreateStatus status);
-
-  // Creates and shows the dialog.
-  void Init(Profile* system_profile);
-
-  // Switches the layout to the sign-in flow (and creates a new profile)
-  void SwitchToSignIn(SkColor profile_color,
-                      base::OnceCallback<void(bool)> switch_finished_callback);
-  // Cancel the sign-in flow and returns back to the main picker screen (if the
-  // original EntryPoint was to open the picker).
-  void CancelSignIn();
-  // On creation success for the sign-in profile, it rebuilds the view.
-  void OnProfileForSigninCreated(
-      SkColor profile_color,
-      base::RepeatingCallback<void(bool)> switch_finished_callback,
-      Profile* new_profile,
-      Profile::CreateStatus status);
-  // Switches the layout to the sync confirmation screen.
-  void SwitchToSyncConfirmation();
-
-  // views::WidgetDelegate:
-  void WindowClosing() override;
-  views::ClientView* CreateClientView(views::Widget* widget) override;
-  views::View* GetContentsView() override;
-  base::string16 GetAccessibleWindowTitle() const override;
-
-  // views::View:
-  gfx::Size CalculatePreferredSize() const override;
-  gfx::Size GetMinimumSize() const override;
-  bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
-  void OnThemeChanged() override;
+  // ProfilePickerWebContentsHost:
+  void ShowScreen(content::WebContents* contents,
+                  const GURL& url,
+                  base::OnceClosure navigation_finished_closure =
+                      base::OnceClosure()) override;
+  void ShowScreenInSystemContents(
+      const GURL& url,
+      base::OnceClosure navigation_finished_closure =
+          base::OnceClosure()) override;
+  void Clear() override;
+  bool ShouldUseDarkColors() const override;
 
   // content::WebContentsDelegate:
-  bool HandleContextMenu(content::RenderFrameHost* render_frame_host,
-                         const content::ContextMenuParams& params) override;
-  void AddNewContents(content::WebContents* source,
-                      std::unique_ptr<content::WebContents> new_contents,
-                      const GURL& target_url,
-                      WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_rect,
-                      bool user_gesture,
-                      bool* was_blocked) override;
   bool HandleKeyboardEvent(
       content::WebContents* source,
       const content::NativeWebKeyboardEvent& event) override;
-  void NavigationStateChanged(content::WebContents* source,
-                              content::InvalidateTypes changed_flags) override;
-
-  // IdentityManager::Observer:
-  void OnRefreshTokenUpdatedForAccount(
-      const CoreAccountInfo& account_info) override;
-  void OnExtendedAccountInfoUpdated(const AccountInfo& account_info) override;
-
-  // ChromeWebModalDialogManagerDelegate
-  web_modal::WebContentsModalDialogHost* GetWebContentsModalDialogHost()
-      override;
+  bool HandleContextMenu(content::RenderFrameHost& render_frame_host,
+                         const content::ContextMenuParams& params) override;
 
   // web_modal::WebContentsModalDialogHost
   gfx::NativeView GetHostView() const override;
@@ -168,44 +94,103 @@ class ProfilePickerView : public views::WidgetDelegateView,
   void AddObserver(web_modal::ModalDialogHostObserver* observer) override;
   void RemoveObserver(web_modal::ModalDialogHostObserver* observer) override;
 
+ private:
+  friend class ProfilePicker;
+
+  // To display the Profile picker, use ProfilePicker::Show().
+  ProfilePickerView();
+  ~ProfilePickerView() override;
+
+  enum State { kNotStarted = 0, kInitializing = 1, kReady = 2, kClosing = 3 };
+
+  class NavigationFinishedObserver : public content::WebContentsObserver {
+   public:
+    NavigationFinishedObserver(const GURL& url,
+                               base::OnceClosure closure,
+                               content::WebContents* contents);
+    NavigationFinishedObserver(const NavigationFinishedObserver&) = delete;
+    NavigationFinishedObserver& operator=(const NavigationFinishedObserver&) =
+        delete;
+    ~NavigationFinishedObserver() override;
+
+    // content::WebContentsObserver:
+    void DidFinishNavigation(
+        content::NavigationHandle* navigation_handle) override;
+
+   private:
+    const GURL url_;
+    base::OnceClosure closure_;
+  };
+
+  // Displays the profile picker.
+  void Display(ProfilePicker::EntryPoint entry_point);
+
+  // On system profile creation success, it initializes the view.
+  void OnSystemProfileCreated(Profile* system_profile,
+                              Profile::CreateStatus status);
+
+  // Creates and shows the dialog.
+  void Init(Profile* system_profile);
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+  // Switches the layout to the sign-in screen (and creates a new profile).
+  // absl::nullopt `profile_color` corresponds to the default theme.
+  void SwitchToDiceSignIn(
+      absl::optional<SkColor> profile_color,
+      base::OnceCallback<void(bool)> switch_finished_callback);
+
+  // Handles profile creation when forced sign-in is enabled.
+  void OnProfileForDiceForcedSigninCreated(
+      base::OnceCallback<void(bool)>& switch_finished_callback,
+      Profile* new_profile,
+      Profile::CreateStatus status);
+
+  // Called when dice sign-in finishes.
+  void OnDiceSigninFinished(absl::optional<SkColor> profile_color,
+                            Profile* signed_in_profile,
+                            std::unique_ptr<content::WebContents> contents,
+                            bool is_saml);
+
+  // Checks whether the dice sign-in flow is in progress.
+  bool GetDiceSigningIn() const;
+#endif
+
+  // Switches the layout to setup the newly created `signed_in_profile`.
+  void SwitchToSignedInFlow(absl::optional<SkColor> profile_color,
+                            Profile* signed_in_profile,
+                            std::unique_ptr<content::WebContents> contents,
+                            bool is_saml);
+
+  // Cancel the signed-in profile setup and returns back to the main picker
+  // screen (if themoriginal EntryPoint was to open the picker).
+  void CancelSignedInFlow();
+
+  // views::WidgetDelegate:
+  void WindowClosing() override;
+  views::ClientView* CreateClientView(views::Widget* widget) override;
+  views::View* GetContentsView() override;
+  std::u16string GetAccessibleWindowTitle() const override;
+
+  // views::View:
+  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size GetMinimumSize() const override;
+  bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
+
   // Builds the views hieararchy.
   void BuildLayout();
 
   void UpdateToolbarColor();
 
-  // Shows a screen with `url` in `contents` and potentially `show_toolbar`. If
-  // `url` is empty, it only shows `contents` with its currently loaded url.
-  void ShowScreen(content::WebContents* contents,
-                  const GURL& url,
-                  bool show_toolbar,
-                  bool enable_navigating_back = true);
+  void ShowScreenFinished(
+      content::WebContents* contents,
+      base::OnceClosure navigation_finished_closure = base::OnceClosure());
 
   void BackButtonPressed(const ui::Event& event);
   void NavigateBack();
 
-  // Checks whether the sign-in flow is in progress.
-  bool GetSigningIn() const;
-
-  // Helper functions to deal with the lack of extended account info.
+  // Overrides the default timeout for waiting for extended account info for any
+  // future signed-in profile creation flow.
   void SetExtendedAccountInfoTimeoutForTesting(base::TimeDelta timeout);
-  void OnExtendedAccountInfoTimeout(const CoreAccountInfo& account);
-  void OnProfileNameAvailable();
-
-  // Finishes the creation flow by marking `profile_being_created_` as fully
-  // created, opening a browser window for this profile and calling `callback`.
-  void FinishSignedInCreationFlow(BrowserOpenedCallback callback,
-                                  bool enterprise_sync_consent_needed);
-  void FinishSignedInCreationFlowImpl(BrowserOpenedCallback callback,
-                                      bool enterprise_sync_consent_needed);
-
-  // Finishes the flow by finalizing the profile and continuing the SAML sign-in
-  // in a browser window.
-  void FinishSignedInCreationFlowForSAML();
-
-  // Internal callback to finish the last steps of the signed-in creation flow.
-  void OnBrowserOpened(BrowserOpenedCallback finish_flow_callback,
-                       Profile* profile,
-                       Profile::CreateStatus profile_create_status);
 
   // Register basic keyboard accelerators such as closing the window (Alt-F4
   // on Windows).
@@ -225,7 +210,7 @@ class ProfilePickerView : public views::WidgetDelegateView,
   // signin.
   base::FilePath GetForceSigninProfilePath() const;
 
-  // Getter of the target page  url. If not empty and is valid, it opens on
+  // Getter of the target page url. If not empty and is valid, it opens on
   // profile selection instead of the new tab page.
   GURL GetOnSelectProfileTargetUrl() const;
 
@@ -233,23 +218,37 @@ class ProfilePickerView : public views::WidgetDelegateView,
   ProfilePicker::EntryPoint entry_point_ =
       ProfilePicker::EntryPoint::kOnStartup;
   State state_ = State::kNotStarted;
+  absl::optional<ProfilePicker::EntryPoint>
+      restart_with_entry_point_on_window_closing_;
 
   // A mapping between accelerators and command IDs.
   std::map<ui::Accelerator, int> accelerator_table_;
-  bool enable_navigating_back_ = true;
 
   // Handler for unhandled key events from renderer.
   views::UnhandledKeyboardEventHandler unhandled_keyboard_event_handler_;
 
-  // Views, owned by the view hierarchy.
-  views::View* toolbar_ = nullptr;
+  // Owned by the view hierarchy.
   views::WebView* web_view_ = nullptr;
 
   // The web contents backed by the system profile. This is used for displaying
   // the WebUI pages.
   std::unique_ptr<content::WebContents> system_profile_contents_;
 
-  std::unique_ptr<SignInFlow> sign_in_;
+  // Observer used for implementing screen switching. Non-null only shorty
+  // after switching a screen. Must be below all WebContents instances so that
+  // WebContents outlive this observer.
+  std::unique_ptr<NavigationFinishedObserver> show_screen_finished_observer_;
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+  // Toolbar view displayed on top of the WebView for GAIA sign-in, owned by the
+  // view hierarchy.
+  ProfilePickerDiceSignInToolbar* toolbar_ = nullptr;
+
+  // Handles the logic for signing-in to GAIA.
+  std::unique_ptr<ProfilePickerDiceSignInProvider> dice_sign_in_provider_;
+#endif
+
+  std::unique_ptr<ProfilePickerSignedInFlowController> signed_in_flow_;
 
   // Delay used for a timeout, may be overridden by tests.
   base::TimeDelta extended_account_info_timeout_;
@@ -261,7 +260,7 @@ class ProfilePickerView : public views::WidgetDelegateView,
   // Hosts dialog displayed when a locked profile is selected in ProfilePicker.
   ProfilePickerForceSigninDialogHost dialog_host_;
 
-  // A target page  url that opens on profile selection instead of the new tab
+  // A target page url that opens on profile selection instead of the new tab
   // page.
   GURL on_select_profile_target_url_;
 

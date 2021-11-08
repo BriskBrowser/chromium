@@ -2,17 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/buildflag_header.gni")
 import("//build/config/chromeos/ui_mode.gni")
-import("//chrome/services/speech/buildflags.gni")
-
-buildflag_header("buildflags") {
-  header = "buildflags.h"
-  flags = [ "ENABLE_SODA=$enable_soda" ]
-}
 
 source_set("lib") {
   sources = [
+    "audio_source_fetcher_impl.cc",
+    "audio_source_fetcher_impl.h",
     "cloud_speech_recognition_client.cc",
     "cloud_speech_recognition_client.h",
     "speech_recognition_recognizer_impl.cc",
@@ -35,16 +30,18 @@ source_set("lib") {
   ]
 
   deps = [
-    ":buildflags",
     "//base",
+    "//build:chromeos_buildflags",
     "//chrome/services/speech/soda",
     "//chrome/services/speech/soda:soda_api_proto",
+    "//components/soda:constants",
     "//components/speech",
     "//content/public/browser:proto",
     "//google_apis",
     "//media/mojo/common",
     "//mojo/public/cpp/bindings",
     "//net",
+    "//services/audio/public/cpp",
     "//services/network/public/cpp",
     "//services/network/public/mojom",
   ]

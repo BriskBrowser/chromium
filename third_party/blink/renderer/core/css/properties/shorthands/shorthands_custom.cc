@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "third_party/blink/renderer/core/css/css_content_distribution_value.h"
-#include "third_party/blink/renderer/core/css/css_font_family_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_initial_value.h"
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
+#include "third_party/blink/renderer/core/css/css_pending_system_font_value.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value_mappings.h"
 #include "third_party/blink/renderer/core/css/css_property_value.h"
 #include "third_party/blink/renderer/core/css/css_value_pair.h"
@@ -23,7 +23,6 @@
 #include "third_party/blink/renderer/core/css/properties/shorthands.h"
 #include "third_party/blink/renderer/core/css/zoom_adjusted_pixel_value.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
-#include "third_party/blink/renderer/core/layout/layout_theme_font_provider.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style_property_shorthand.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -42,14 +41,15 @@ CSSValue* ConsumeAnimationValue(CSSPropertyID property,
                                 bool use_legacy_parsing) {
   switch (property) {
     case CSSPropertyID::kAnimationDelay:
-      return css_parsing_utils::ConsumeTime(range, context, kValueRangeAll);
+      return css_parsing_utils::ConsumeTime(
+          range, context, CSSPrimitiveValue::ValueRange::kAll);
     case CSSPropertyID::kAnimationDirection:
       return css_parsing_utils::ConsumeIdent<
           CSSValueID::kNormal, CSSValueID::kAlternate, CSSValueID::kReverse,
           CSSValueID::kAlternateReverse>(range);
     case CSSPropertyID::kAnimationDuration:
-      return css_parsing_utils::ConsumeTime(range, context,
-                                            kValueRangeNonNegative);
+      return css_parsing_utils::ConsumeTime(
+          range, context, CSSPrimitiveValue::ValueRange::kNonNegative);
     case CSSPropertyID::kAnimationFillMode:
       return css_parsing_utils::ConsumeIdent<
           CSSValueID::kNone, CSSValueID::kForwards, CSSValueID::kBackwards,
@@ -726,14 +726,15 @@ bool BorderSpacing::ParseShorthand(
     const CSSParserLocalContext&,
     HeapVector<CSSPropertyValue, 256>& properties) const {
   CSSValue* horizontal_spacing =
-      ConsumeLength(range, context, kValueRangeNonNegative,
+      ConsumeLength(range, context, CSSPrimitiveValue::ValueRange::kNonNegative,
                     css_parsing_utils::UnitlessQuirk::kAllow);
   if (!horizontal_spacing)
     return false;
   CSSValue* vertical_spacing = horizontal_spacing;
   if (!range.AtEnd()) {
-    vertical_spacing = ConsumeLength(range, context, kValueRangeNonNegative,
-                                     css_parsing_utils::UnitlessQuirk::kAllow);
+    vertical_spacing = ConsumeLength(
+        range, context, CSSPrimitiveValue::ValueRange::kNonNegative,
+        css_parsing_utils::UnitlessQuirk::kAllow);
   }
   if (!vertical_spacing || !range.AtEnd())
     return false;
@@ -868,6 +869,71 @@ const CSSValue* Columns::CSSValueFromComputedStyleInternal(
       columnsShorthand(), style, layout_object, allow_visited_style);
 }
 
+bool ContainIntrinsicSize::ParseShorthand(
+    bool important,
+    CSSParserTokenRange& range,
+    const CSSParserContext& context,
+    const CSSParserLocalContext&,
+    HeapVector<CSSPropertyValue, 256>& properties) const {
+  return css_parsing_utils::ConsumeShorthandVia2Longhands(
+      containIntrinsicSizeShorthand(), important, context, range, properties);
+}
+
+const CSSValue* ContainIntrinsicSize::CSSValueFromComputedStyleInternal(
+    const ComputedStyle& style,
+    const LayoutObject* layout_object,
+    bool allow_visited_style) const {
+  const StylePropertyShorthand& shorthand = containIntrinsicSizeShorthand();
+  const auto& width = style.ContainIntrinsicWidth();
+  const auto& height = style.ContainIntrinsicHeight();
+  if (width != height) {
+    return ComputedStyleUtils::ValuesForShorthandProperty(
+        shorthand, style, layout_object, allow_visited_style);
+  }
+  return shorthand.properties()[0]->CSSValueFromComputedStyle(
+      style, layout_object, allow_visited_style);
+}
+
+bool Container::ParseShorthand(
+    bool important,
+    CSSParserTokenRange& range,
+    const CSSParserContext& context,
+    const CSSParserLocalContext&,
+    HeapVector<CSSPropertyValue, 256>& properties) const {
+  const CSSValue* type = css_parsing_utils::ConsumeContainerType(range);
+  if (!type)
+    return false;
+
+  const CSSValue* name = CSSIdentifierValue::Create(CSSValueID::kNone);
+  if (css_parsing_utils::ConsumeSlashIncludingWhitespace(range)) {
+    if (!(name = css_parsing_utils::ConsumeContainerName(range, context)))
+      return false;
+  }
+
+  if (!range.AtEnd())
+    return false;
+
+  css_parsing_utils::AddProperty(
+      CSSPropertyID::kContainerType, CSSPropertyID::kContainer, *type,
+      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
+      properties);
+
+  css_parsing_utils::AddProperty(
+      CSSPropertyID::kContainerName, CSSPropertyID::kContainer, *name,
+      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
+      properties);
+
+  return true;
+}
+
+const CSSValue* Container::CSSValueFromComputedStyleInternal(
+    const ComputedStyle& style,
+    const LayoutObject* layout_object,
+    bool allow_visited_style) const {
+  return ComputedStyleUtils::ValuesForContainerShorthand(style, layout_object,
+                                                         allow_visited_style);
+}
+
 bool Flex::ParseShorthand(bool important,
                           CSSParserTokenRange& range,
                           const CSSParserContext& context,
@@ -904,11 +970,15 @@ bool Flex::ParseShorthand(bool important,
           return false;
         }
       } else if (!flex_basis) {
-        if (range.Peek().Id() == CSSValueID::kAuto)
+        if (css_parsing_utils::IdentMatches<
+                CSSValueID::kAuto, CSSValueID::kContent,
+                CSSValueID::kMinContent, CSSValueID::kMaxContent,
+                CSSValueID::kFitContent>(range.Peek().Id())) {
           flex_basis = css_parsing_utils::ConsumeIdent(range);
+        }
         if (!flex_basis) {
           flex_basis = css_parsing_utils::ConsumeLengthOrPercent(
-              range, context, kValueRangeNonNegative);
+              range, context, CSSPrimitiveValue::ValueRange::kNonNegative);
         }
         if (index == 2 && !range.AtEnd())
           return false;
@@ -930,13 +1000,13 @@ bool Flex::ParseShorthand(bool important,
     return false;
   css_parsing_utils::AddProperty(
       CSSPropertyID::kFlexGrow, CSSPropertyID::kFlex,
-      *CSSNumericLiteralValue::Create(clampTo<float>(flex_grow),
+      *CSSNumericLiteralValue::Create(ClampTo<float>(flex_grow),
                                       CSSPrimitiveValue::UnitType::kNumber),
       important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
       properties);
   css_parsing_utils::AddProperty(
       CSSPropertyID::kFlexShrink, CSSPropertyID::kFlex,
-      *CSSNumericLiteralValue::Create(clampTo<float>(flex_shrink),
+      *CSSNumericLiteralValue::Create(ClampTo<float>(flex_shrink),
                                       CSSPrimitiveValue::UnitType::kNumber),
       important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
       properties);
@@ -979,69 +1049,14 @@ bool ConsumeSystemFont(bool important,
                        CSSParserTokenRange& range,
                        HeapVector<CSSPropertyValue, 256>& properties) {
   CSSValueID system_font_id = range.ConsumeIncludingWhitespace().Id();
-  DCHECK_GE(system_font_id, CSSValueID::kCaption);
-  DCHECK_LE(system_font_id, CSSValueID::kStatusBar);
+  DCHECK(CSSParserFastPaths::IsValidSystemFont(system_font_id));
   if (!range.AtEnd())
     return false;
 
-  FontSelectionValue font_slope = NormalSlopeValue();
-  FontSelectionValue font_weight = NormalWeightValue();
-  float font_size = 0;
-  AtomicString font_family;
-  LayoutThemeFontProvider::SystemFont(system_font_id, font_slope, font_weight,
-                                      font_size, font_family);
-
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontStyle, CSSPropertyID::kFont,
-      *CSSIdentifierValue::Create(font_slope == ItalicSlopeValue()
-                                      ? CSSValueID::kItalic
-                                      : CSSValueID::kNormal),
-      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
+  css_parsing_utils::AddExpandedPropertyForValue(
+      CSSPropertyID::kFont,
+      *cssvalue::CSSPendingSystemFontValue::Create(system_font_id), important,
       properties);
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontWeight, CSSPropertyID::kFont,
-      *CSSNumericLiteralValue::Create(font_weight,
-                                      CSSPrimitiveValue::UnitType::kNumber),
-      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
-      properties);
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontSize, CSSPropertyID::kFont,
-      *CSSNumericLiteralValue::Create(font_size,
-                                      CSSPrimitiveValue::UnitType::kPixels),
-      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
-      properties);
-
-  CSSValueList* font_family_list = CSSValueList::CreateCommaSeparated();
-  font_family_list->Append(*CSSFontFamilyValue::Create(font_family));
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontFamily, CSSPropertyID::kFont, *font_family_list,
-      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
-      properties);
-
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontStretch, CSSPropertyID::kFont,
-      *CSSIdentifierValue::Create(CSSValueID::kNormal), important,
-      css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontVariantCaps, CSSPropertyID::kFont,
-      *CSSIdentifierValue::Create(CSSValueID::kNormal), important,
-      css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontVariantLigatures, CSSPropertyID::kFont,
-      *CSSIdentifierValue::Create(CSSValueID::kNormal), important,
-      css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontVariantNumeric, CSSPropertyID::kFont,
-      *CSSIdentifierValue::Create(CSSValueID::kNormal), important,
-      css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kFontVariantEastAsian, CSSPropertyID::kFont,
-      *CSSIdentifierValue::Create(CSSValueID::kNormal), important,
-      css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
-  css_parsing_utils::AddProperty(
-      CSSPropertyID::kLineHeight, CSSPropertyID::kFont,
-      *CSSIdentifierValue::Create(CSSValueID::kNormal), important,
-      css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
   return true;
 }
 
@@ -1091,7 +1106,7 @@ bool ConsumeFont(bool important,
     // <‘font-weight’> || <font-stretch-css3> ]?
     if (font_stretch ||
         !(font_stretch =
-              css_parsing_utils::ConsumeFontStretchKeywordOnly(range)))
+              css_parsing_utils::ConsumeFontStretchKeywordOnly(range, context)))
       break;
   }
 
@@ -1186,8 +1201,7 @@ bool Font::ParseShorthand(bool important,
                           const CSSParserLocalContext&,
                           HeapVector<CSSPropertyValue, 256>& properties) const {
   const CSSParserToken& token = range.Peek();
-  if (token.Id() >= CSSValueID::kCaption &&
-      token.Id() <= CSSValueID::kStatusBar)
+  if (CSSParserFastPaths::IsValidSystemFont(token.Id()))
     return ConsumeSystemFont(important, range, properties);
   return ConsumeFont(important, range, context, properties);
 }
@@ -1298,6 +1312,86 @@ const CSSValue* FontVariant::CSSValueFromComputedStyleInternal(
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForFontVariantProperty(style, layout_object,
                                                           allow_visited_style);
+}
+
+bool FontSynthesis::ParseShorthand(
+    bool important,
+    CSSParserTokenRange& range,
+    const CSSParserContext&,
+    const CSSParserLocalContext&,
+    HeapVector<CSSPropertyValue, 256>& properties) const {
+  if (range.Peek().Id() == CSSValueID::kNone) {
+    range.ConsumeIncludingWhitespace();
+    css_parsing_utils::AddProperty(
+        CSSPropertyID::kFontSynthesisWeight, CSSPropertyID::kFontSynthesis,
+        *CSSIdentifierValue::Create(CSSValueID::kNone), important,
+        css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
+    css_parsing_utils::AddProperty(
+        CSSPropertyID::kFontSynthesisStyle, CSSPropertyID::kFontSynthesis,
+        *CSSIdentifierValue::Create(CSSValueID::kNone), important,
+        css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
+    css_parsing_utils::AddProperty(
+        CSSPropertyID::kFontSynthesisSmallCaps, CSSPropertyID::kFontSynthesis,
+        *CSSIdentifierValue::Create(CSSValueID::kNone), important,
+        css_parsing_utils::IsImplicitProperty::kNotImplicit, properties);
+    return range.AtEnd();
+  }
+
+  CSSValue* font_synthesis_weight = nullptr;
+  CSSValue* font_synthesis_style = nullptr;
+  CSSValue* font_synthesis_small_caps = nullptr;
+  do {
+    CSSValueID id = range.ConsumeIncludingWhitespace().Id();
+    switch (id) {
+      case CSSValueID::kWeight:
+        if (font_synthesis_weight)
+          return false;
+        font_synthesis_weight = CSSIdentifierValue::Create(CSSValueID::kAuto);
+        break;
+      case CSSValueID::kStyle:
+        if (font_synthesis_style)
+          return false;
+        font_synthesis_style = CSSIdentifierValue::Create(CSSValueID::kAuto);
+        break;
+      case CSSValueID::kSmallCaps:
+        if (font_synthesis_small_caps)
+          return false;
+        font_synthesis_small_caps =
+            CSSIdentifierValue::Create(CSSValueID::kAuto);
+        break;
+      default:
+        return false;
+    }
+  } while (!range.AtEnd());
+
+  css_parsing_utils::AddProperty(
+      CSSPropertyID::kFontSynthesisWeight, CSSPropertyID::kFontSynthesis,
+      font_synthesis_weight ? *font_synthesis_weight
+                            : *CSSIdentifierValue::Create(CSSValueID::kNone),
+      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
+      properties);
+  css_parsing_utils::AddProperty(
+      CSSPropertyID::kFontSynthesisStyle, CSSPropertyID::kFontSynthesis,
+      font_synthesis_style ? *font_synthesis_style
+                           : *CSSIdentifierValue::Create(CSSValueID::kNone),
+      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
+      properties);
+  css_parsing_utils::AddProperty(
+      CSSPropertyID::kFontSynthesisSmallCaps, CSSPropertyID::kFontSynthesis,
+      font_synthesis_small_caps
+          ? *font_synthesis_small_caps
+          : *CSSIdentifierValue::Create(CSSValueID::kNone),
+      important, css_parsing_utils::IsImplicitProperty::kNotImplicit,
+      properties);
+  return true;
+}
+
+const CSSValue* FontSynthesis::CSSValueFromComputedStyleInternal(
+    const ComputedStyle& style,
+    const LayoutObject* layout_object,
+    bool allow_visited_style) const {
+  return ComputedStyleUtils::ValuesForFontSynthesisProperty(
+      style, layout_object, allow_visited_style);
 }
 
 bool Gap::ParseShorthand(bool important,
@@ -2051,12 +2145,12 @@ bool Offset::ParseShorthand(
   const CSSValue* offset_distance = nullptr;
   const CSSValue* offset_rotate = nullptr;
   if (offset_path) {
-    offset_distance = css_parsing_utils::ConsumeLengthOrPercent(range, context,
-                                                                kValueRangeAll);
+    offset_distance = css_parsing_utils::ConsumeLengthOrPercent(
+        range, context, CSSPrimitiveValue::ValueRange::kAll);
     offset_rotate = css_parsing_utils::ConsumeOffsetRotate(range, context);
     if (offset_rotate && !offset_distance) {
       offset_distance = css_parsing_utils::ConsumeLengthOrPercent(
-          range, context, kValueRangeAll);
+          range, context, CSSPrimitiveValue::ValueRange::kAll);
     }
   }
   const CSSValue* offset_anchor = nullptr;
@@ -2659,10 +2753,11 @@ CSSValue* ConsumeTransitionValue(CSSPropertyID property,
                                  bool use_legacy_parsing) {
   switch (property) {
     case CSSPropertyID::kTransitionDelay:
-      return css_parsing_utils::ConsumeTime(range, context, kValueRangeAll);
+      return css_parsing_utils::ConsumeTime(
+          range, context, CSSPrimitiveValue::ValueRange::kAll);
     case CSSPropertyID::kTransitionDuration:
-      return css_parsing_utils::ConsumeTime(range, context,
-                                            kValueRangeNonNegative);
+      return css_parsing_utils::ConsumeTime(
+          range, context, CSSPrimitiveValue::ValueRange::kNonNegative);
     case CSSPropertyID::kTransitionProperty:
       return css_parsing_utils::ConsumeTransitionProperty(range, context);
     case CSSPropertyID::kTransitionTimingFunction:

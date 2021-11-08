@@ -4,10 +4,12 @@
 
 #include "chrome/browser/chrome_browser_main_win.h"
 
+// windows.h must be included before shellapi.h
+#include <windows.h>
+
 #include <shellapi.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <windows.h>
 
 #include <algorithm>
 #include <utility>
@@ -29,7 +31,6 @@
 #include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/scoped_native_library.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
@@ -44,8 +45,8 @@
 #include "base/win/wrapped_window_proc.h"
 #include "build/branding_buildflags.h"
 #include "chrome/browser/about_flags.h"
-#include "chrome/browser/after_startup_task_utils.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/enterprise/util/critical_policy_section_metrics_win.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_shortcut_manager.h"
@@ -59,9 +60,9 @@
 #include "chrome/browser/web_applications/chrome_pwa_launcher/last_browser_file_util.h"
 #include "chrome/browser/web_applications/chrome_pwa_launcher/launcher_log_reporter.h"
 #include "chrome/browser/web_applications/chrome_pwa_launcher/launcher_update.h"
-#include "chrome/browser/web_applications/components/web_app_handler_registration_utils_win.h"
-#include "chrome/browser/web_applications/components/web_app_shortcut.h"
+#include "chrome/browser/web_applications/web_app_handler_registration_utils_win.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_shortcut.h"
 #include "chrome/browser/win/browser_util.h"
 #include "chrome/browser/win/chrome_elf_init.h"
 #include "chrome/browser/win/conflicts/enumerate_input_method_editors.h"
@@ -86,6 +87,7 @@
 #include "chrome/installer/util/installer_util_strings.h"
 #include "chrome/installer/util/l10n_string_util.h"
 #include "chrome/installer/util/shell_util.h"
+#include "chrome/installer/util/util_constants.h"
 #include "components/crash/core/app/crash_export_thunks.h"
 #include "components/crash/core/app/dump_hung_process_with_ptype.h"
 #include "components/crash/core/common/crash_key.h"
@@ -210,11 +212,12 @@ void DetectFaultTolerantHeap() {
 }
 
 void DelayedRecordProcessorMetrics() {
-  mojo::Remote<chrome::mojom::UtilWin> remote_util_win =
-      LaunchUtilWinServiceInstance();
+  mojo::Remote<chrome::mojom::ProcessorMetrics> remote_util_win =
+      LaunchProcessorMetricsService();
   auto* remote_util_win_ptr = remote_util_win.get();
-  remote_util_win_ptr->RecordProcessorMetrics(base::BindOnce(
-      [](mojo::Remote<chrome::mojom::UtilWin>) {}, std::move(remote_util_win)));
+  remote_util_win_ptr->RecordProcessorMetrics(
+      base::BindOnce([](mojo::Remote<chrome::mojom::ProcessorMetrics>) {},
+                     std::move(remote_util_win)));
 }
 
 // Initializes the ModuleDatabase on its owning sequence. Also starts the
@@ -467,10 +470,10 @@ void UpdatePwaLaunchersForProfile(const base::FilePath& profile_dir) {
     // The profile was unloaded.
     return;
   }
-  auto* provider = web_app::WebAppProvider::Get(profile);
+  auto* provider = web_app::WebAppProvider::GetForWebApps(profile);
   if (!provider)
     return;
-  web_app::AppRegistrar& registrar = provider->registrar();
+  web_app::WebAppRegistrar& registrar = provider->registrar();
 
   // Create a vector of all PWA-launcher paths in |profile_dir|.
   std::vector<base::FilePath> pwa_launcher_paths;
@@ -540,29 +543,17 @@ int DoUninstallTasks(bool chrome_still_running) {
 
   if (result != chrome::RESULT_CODE_UNINSTALL_USER_CANCEL) {
     // The following actions are just best effort.
-    // TODO(gab): Look into removing this code which is now redundant with the
-    // work done by setup.exe on uninstall.
     VLOG(1) << "Executing uninstall actions";
-    base::FilePath chrome_exe;
-    if (base::PathService::Get(base::FILE_EXE, &chrome_exe)) {
-      ShellUtil::ShortcutLocation user_shortcut_locations[] = {
-          ShellUtil::SHORTCUT_LOCATION_DESKTOP,
-          ShellUtil::SHORTCUT_LOCATION_QUICK_LAUNCH,
-          ShellUtil::SHORTCUT_LOCATION_START_MENU_ROOT,
-          ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_DIR_DEPRECATED,
-          ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_APPS_DIR,
-      };
-      for (size_t i = 0; i < base::size(user_shortcut_locations); ++i) {
-        if (!ShellUtil::RemoveShortcuts(user_shortcut_locations[i],
-                                        ShellUtil::CURRENT_USER, chrome_exe)) {
-          VLOG(1) << "Failed to delete shortcut at location "
-                  << user_shortcut_locations[i];
-        }
-      }
-    } else {
-      NOTREACHED();
+    // Remove shortcuts targeting chrome.exe or chrome_proxy.exe.
+    base::FilePath install_dir;
+    if (base::PathService::Get(base::DIR_EXE, &install_dir)) {
+      std::vector<base::FilePath> shortcut_targets{
+          install_dir.Append(installer::kChromeExe),
+          install_dir.Append(installer::kChromeProxyExe)};
+      ShellUtil::RemoveAllShortcuts(ShellUtil::CURRENT_USER, shortcut_targets);
     }
   }
+
   return result;
 }
 
@@ -583,7 +574,7 @@ void ChromeBrowserMainPartsWin::ToolkitInitialized() {
   gfx::win::SetGetMinimumFontSizeCallback(&GetMinimumFontSize);
 }
 
-void ChromeBrowserMainPartsWin::PreMainMessageLoopStart() {
+void ChromeBrowserMainPartsWin::PreCreateMainMessageLoop() {
   // installer_util references strings that are normally compiled into
   // setup.exe.  In Chrome, these strings are in the locale files.
   SetupInstallerUtilStrings();
@@ -595,7 +586,7 @@ void ChromeBrowserMainPartsWin::PreMainMessageLoopStart() {
   bool os_crypt_init = OSCrypt::Init(local_state);
   DCHECK(os_crypt_init);
 
-  ChromeBrowserMainParts::PreMainMessageLoopStart();
+  ChromeBrowserMainParts::PreCreateMainMessageLoop();
   if (!parameters().ui_task) {
     // Make sure that we know how to handle exceptions from the message loop.
     InitializeWindowProcExceptions();
@@ -696,17 +687,18 @@ void ChromeBrowserMainPartsWin::PostBrowserStart() {
   // Record UMA data about whether the fault-tolerant heap is enabled.
   // Use a delayed task to minimize the impact on startup time.
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
-      FROM_HERE, base::BindOnce(&DetectFaultTolerantHeap),
-      base::TimeDelta::FromMinutes(1));
+      FROM_HERE, base::BindOnce(&DetectFaultTolerantHeap), base::Minutes(1));
 
-  // Record Processor Metrics. This is a very low priority, hence posting to
-  // start after Chrome startup has completed. This metric is only available
-  // starting Windows 10.
+  // Record Processor Metrics. This is very low priority, hence posting as
+  // BEST_EFFORT to start after Chrome startup has completed. This metric is
+  // only available starting Windows 10.
   if (base::win::OSInfo::GetInstance()->version() >=
       base::win::Version::WIN10) {
-    AfterStartupTaskUtils::PostTask(
-        FROM_HERE, base::ThreadPool::CreateSequencedTaskRunner({}),
-        base::BindOnce(&DelayedRecordProcessorMetrics));
+    scoped_refptr<base::SequencedTaskRunner> task_runner =
+        base::ThreadPool::CreateSequencedTaskRunner(
+            {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
+    task_runner->PostTask(FROM_HERE,
+                          base::BindOnce(&DelayedRecordProcessorMetrics));
   }
 
   // Write current executable path to the User Data directory to inform
@@ -744,6 +736,8 @@ void ChromeBrowserMainPartsWin::PostBrowserStart() {
     AnnounceInActiveBrowser(l10n_util::GetStringUTF16(IDS_WELCOME_TO_CHROME));
 
   base::ImportantFileWriterCleaner::GetInstance().Start();
+
+  chrome::enterprise_util::MeasureAndReportCriticalPolicySectionAcquisition();
 }
 
 // static
@@ -766,10 +760,10 @@ void ChromeBrowserMainPartsWin::PrepareRestartOnCrashEnviroment(
   // The encoding we use for the info is "title|context|direction" where
   // direction is either env_vars::kRtlLocale or env_vars::kLtrLocale depending
   // on the current locale.
-  base::string16 dlg_strings(
+  std::u16string dlg_strings(
       l10n_util::GetStringUTF16(IDS_CRASH_RECOVERY_TITLE));
   dlg_strings.push_back('|');
-  base::string16 adjusted_string(
+  std::u16string adjusted_string(
       l10n_util::GetStringUTF16(IDS_CRASH_RECOVERY_CONTENT));
   base::i18n::AdjustStringForLocaleDirection(&adjusted_string);
   dlg_strings.append(adjusted_string);
@@ -816,10 +810,10 @@ int ChromeBrowserMainPartsWin::HandleIconsCommands(
   if (parsed_command_line.HasSwitch(switches::kHideIcons)) {
     // TODO(740976): This is not up-to-date and not localized. Figure out if
     // the --hide-icons and --show-icons switches are still used.
-    base::string16 cp_applet = STRING16_LITERAL("Programs and Features");
-    const base::string16 msg =
+    std::u16string cp_applet = u"Programs and Features";
+    const std::u16string msg =
         l10n_util::GetStringFUTF16(IDS_HIDE_ICONS_NOT_SUPPORTED, cp_applet);
-    const base::string16 caption = l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
+    const std::u16string caption = l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
     const UINT flags = MB_OKCANCEL | MB_ICONWARNING | MB_TOPMOST;
     if (IDOK == ui::MessageBox(NULL, base::AsWString(msg),
                                base::AsWString(caption), flags)) {

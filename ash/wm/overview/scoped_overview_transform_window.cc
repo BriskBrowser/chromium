@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "ash/public/cpp/ash_features.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wm/overview/delayed_animation_observer_impl.h"
@@ -25,7 +25,7 @@
 #include "ash/wm/window_util.h"
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
@@ -38,8 +38,8 @@
 #include "ui/compositor/layer_observer.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect_conversions.h"
+#include "ui/gfx/geometry/transform_util.h"
 #include "ui/gfx/geometry/vector2d_f.h"
-#include "ui/gfx/transform_util.h"
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/coordinate_conversion.h"
@@ -133,6 +133,12 @@ class ScopedOverviewTransformWindow::LayerCachingAndFilteringObserver
     layer_->AddCacheRenderSurfaceRequest();
     layer_->AddTrilinearFilteringRequest();
   }
+
+  LayerCachingAndFilteringObserver(const LayerCachingAndFilteringObserver&) =
+      delete;
+  LayerCachingAndFilteringObserver& operator=(
+      const LayerCachingAndFilteringObserver&) = delete;
+
   ~LayerCachingAndFilteringObserver() override {
     if (layer_) {
       layer_->RemoveTrilinearFilteringRequest();
@@ -149,8 +155,6 @@ class ScopedOverviewTransformWindow::LayerCachingAndFilteringObserver
 
  private:
   ui::Layer* layer_;
-
-  DISALLOW_COPY_AND_ASSIGN(LayerCachingAndFilteringObserver);
 };
 
 ScopedOverviewTransformWindow::ScopedOverviewTransformWindow(
@@ -352,7 +356,7 @@ int ScopedOverviewTransformWindow::GetTopInset() const {
     // If there are regular windows in the transient ancestor tree, all those
     // windows are shown in the same overview item and the header is not masked.
     if (window != window_ &&
-        window->type() == aura::client::WINDOW_TYPE_NORMAL) {
+        window->GetType() == aura::client::WINDOW_TYPE_NORMAL) {
       return 0;
     }
   }
@@ -430,15 +434,32 @@ gfx::RectF ScopedOverviewTransformWindow::ShrinkRectToFitPreservingAspectRatio(
       const gfx::Rect window_bounds =
           ::wm::GetTransientRoot(window_)->GetBoundsInScreen();
       const float window_ratio =
-          float{window_bounds.width()} / window_bounds.height();
+          static_cast<float>(window_bounds.width()) / window_bounds.height();
       if (is_pillar) {
-        const float new_x = height * window_ratio;
-        new_bounds.set_width(new_x);
+        const float new_width = height * window_ratio;
+        new_bounds.set_width(new_width);
       } else {
-        const float new_y = bounds.width() / window_ratio;
+        const float new_height = bounds.width() / window_ratio;
         new_bounds = bounds;
         new_bounds.Inset(0, title_height, 0, 0);
-        new_bounds.ClampToCenteredSize(gfx::SizeF(bounds.width(), new_y));
+        if (top_view_inset) {
+          new_bounds.set_height(new_height);
+          // Calculate `scaled_top_view_inset` without considering `title_height`
+          // because we have already inset the top of `new_bounds` by that value.
+          // We also do not consider `top_view_inset` in our calculation of
+          // `new_scale` because we want to find out the height of the inset when
+          // the whole window, including the inset, is scaled down to `new_bounds`.
+          const float new_scale = 
+              GetItemScale(rect.size(), new_bounds.size(), 0, 0);
+          const float scaled_top_view_inset = top_view_inset * new_scale;
+          // Offset `new_bounds` to be at a point in the overview item frame where 
+          // it will be centered when we clip the `top_view_inset`.
+          new_bounds.Offset(0, (bounds.height() - title_height) / 2 - 
+                               (new_height - scaled_top_view_inset) / 2 - 
+                               scaled_top_view_inset);
+        } else {
+          new_bounds.ClampToCenteredSize(gfx::SizeF(bounds.width(), new_height));
+        }
       }
       break;
     }
@@ -469,7 +490,7 @@ void ScopedOverviewTransformWindow::Close() {
       FROM_HERE,
       base::BindOnce(&ScopedOverviewTransformWindow::CloseWidget,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromMilliseconds(kCloseWindowDelayInMilliseconds));
+      base::Milliseconds(kCloseWindowDelayInMilliseconds));
 }
 
 bool ScopedOverviewTransformWindow::IsMinimized() const {
@@ -508,8 +529,8 @@ void ScopedOverviewTransformWindow::UpdateRoundedCorners(bool show) {
 
   ui::Layer* layer = window_->layer();
   const float scale = layer->transform().Scale2d().x();
-  const int radius =
-      views::LayoutProvider::Get()->GetCornerRadiusMetric(views::EMPHASIS_LOW);
+  const int radius = views::LayoutProvider::Get()->GetCornerRadiusMetric(
+      views::Emphasis::kLow);
   const gfx::RoundedCornersF radii(show ? (radius / scale) : 0.0f);
   layer->SetRoundedCornerRadius(radii);
   layer->SetIsFastRoundedCorner(true);
@@ -595,7 +616,7 @@ void ScopedOverviewTransformWindow::SetImmediateCloseForTests(bool immediate) {
 }
 
 void ScopedOverviewTransformWindow::CloseWidget() {
-  aura::Window* parent_window = ::wm::GetTransientRoot(window_);
+  aura::Window* parent_window = wm::GetTransientRoot(window_);
   if (parent_window)
     window_util::CloseWidgetForWindow(parent_window);
 }

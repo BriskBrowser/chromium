@@ -8,7 +8,6 @@
 #include <memory>
 #include <set>
 
-#include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/supports_user_data.h"
@@ -25,7 +24,7 @@ class EventObserver;
 class GestureRecognizer;
 class PlatformEventSource;
 
-#if defined(OS_WIN) || defined(USE_X11)
+#if defined(OS_WIN)
 class CursorFactory;
 #endif
 }  // namespace ui
@@ -48,6 +47,9 @@ class WindowTreeHost;
 class AURA_EXPORT Env : public ui::EventTarget,
                         public base::SupportsUserData {
  public:
+  Env(const Env&) = delete;
+  Env& operator=(const Env&) = delete;
+
   ~Env() override;
 
   // Creates a new Env instance.
@@ -182,7 +184,7 @@ class AURA_EXPORT Env : public ui::EventTarget,
 
   std::unique_ptr<ui::GestureRecognizer> gesture_recognizer_;
 
-#if defined(OS_WIN) || defined(USE_X11)
+#if defined(OS_WIN)
   std::unique_ptr<ui::CursorFactory> cursor_factory_;
 #endif
 
@@ -197,8 +199,6 @@ class AURA_EXPORT Env : public ui::EventTarget,
   std::unique_ptr<WindowOcclusionTracker> window_occlusion_tracker_;
 
   std::vector<aura::WindowTreeHost*> window_tree_hosts_;
-
-  DISALLOW_COPY_AND_ASSIGN(Env);
 };
 
 }  // namespace aura

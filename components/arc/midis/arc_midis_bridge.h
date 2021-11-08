@@ -7,8 +7,6 @@
 
 #include <stdint.h>
 
-#include <vector>
-
 #include "base/macros.h"
 #include "components/arc/mojom/midis.mojom.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -30,9 +28,15 @@ class ArcMidisBridge : public KeyedService,
   // Returns singleton instance for the given BrowserContext,
   // or nullptr if the browser |context| is not allowed to use ARC.
   static ArcMidisBridge* GetForBrowserContext(content::BrowserContext* context);
+  static ArcMidisBridge* GetForBrowserContextForTesting(
+      content::BrowserContext* context);
 
   ArcMidisBridge(content::BrowserContext* context,
                  ArcBridgeService* bridge_service);
+
+  ArcMidisBridge(const ArcMidisBridge&) = delete;
+  ArcMidisBridge& operator=(const ArcMidisBridge&) = delete;
+
   ~ArcMidisBridge() override;
 
   // Midis Mojo host interface
@@ -51,8 +55,6 @@ class ArcMidisBridge : public KeyedService,
 
   // WeakPtrFactory to use for callbacks.
   base::WeakPtrFactory<ArcMidisBridge> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ArcMidisBridge);
 };
 
 }  // namespace arc

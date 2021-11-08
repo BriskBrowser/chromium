@@ -9,8 +9,9 @@
 #include <utility>
 
 #include "base/location.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
+#include "build/build_config.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/blink/public/web/modules/mediastream/web_media_stream_device_observer.h"
@@ -28,8 +29,8 @@ namespace {
 
 static int g_next_request_id = 0;
 
-// The histogram counts the number of calls to the JS API
-// getUserMedia(), getDisplayMedia() or GetCurrentBrowsingContextMedia().
+// The histogram counts the number of calls to the JS APIs
+// getUserMedia() and getDisplayMedia().
 void UpdateAPICount(UserMediaRequest::MediaType media_type) {
   RTCAPIName api_name = RTCAPIName::kGetUserMedia;
   switch (media_type) {
@@ -38,9 +39,6 @@ void UpdateAPICount(UserMediaRequest::MediaType media_type) {
       break;
     case UserMediaRequest::MediaType::kDisplayMedia:
       api_name = RTCAPIName::kGetDisplayMedia;
-      break;
-    case UserMediaRequest::MediaType::kGetCurrentBrowsingContextMedia:
-      api_name = RTCAPIName::kGetCurrentBrowsingContextMedia;
       break;
   }
   UpdateWebRTCMethodCount(api_name);
@@ -136,7 +134,6 @@ void UserMediaClient::RequestUserMedia(UserMediaRequest* user_media_request) {
   DCHECK(user_media_request->Audio() || user_media_request->Video());
   // GetWindow() may be null if we are in a test.
   // In that case, it's OK to not check frame().
-
   DCHECK(!user_media_request->GetWindow() ||
          frame_ == user_media_request->GetWindow()->GetFrame());
 
@@ -145,7 +142,9 @@ void UserMediaClient::RequestUserMedia(UserMediaRequest* user_media_request) {
 
   // TODO(crbug.com/787254): Communicate directly with the
   // PeerConnectionTrackerHost mojo object once it is available from Blink.
-  PeerConnectionTracker::GetInstance()->TrackGetUserMedia(user_media_request);
+  if (auto* window = user_media_request->GetWindow()) {
+    PeerConnectionTracker::From(*window).TrackGetUserMedia(user_media_request);
+  }
 
   int request_id = g_next_request_id++;
   blink::WebRtcLogMessage(base::StringPrintf(
@@ -194,6 +193,13 @@ void UserMediaClient::StopTrack(MediaStreamComponent* track) {
 bool UserMediaClient::IsCapturing() {
   return user_media_processor_->HasActiveSources();
 }
+
+#if !defined(OS_ANDROID)
+void UserMediaClient::FocusCapturedSurface(const String& label, bool focus) {
+  DCHECK(user_media_processor_);
+  user_media_processor_->FocusCapturedSurface(label, focus);
+}
+#endif
 
 void UserMediaClient::MaybeProcessNextRequestInfo() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);

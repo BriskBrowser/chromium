@@ -20,6 +20,7 @@ class WebContents;
 }
 
 class Profile;
+class SigninUIError;
 
 class ProcessDiceHeaderDelegateImpl : public ProcessDiceHeaderDelegate,
                                       public content::WebContentsObserver {
@@ -34,11 +35,8 @@ class ProcessDiceHeaderDelegateImpl : public ProcessDiceHeaderDelegate,
                               const CoreAccountId&)>;
 
   // Callback showing a signin error UI.
-  using ShowSigninErrorCallback =
-      base::OnceCallback<void(Profile*,
-                              content::WebContents*,
-                              const std::string& /* error_message */,
-                              const std::string& /* email */)>;
+  using ShowSigninErrorCallback = base::OnceCallback<
+      void(Profile*, content::WebContents*, const SigninUIError&)>;
 
   // |is_sync_signin_tab| is true if a sync signin flow has been started in that
   // tab.
@@ -46,6 +44,11 @@ class ProcessDiceHeaderDelegateImpl : public ProcessDiceHeaderDelegate,
       content::WebContents* web_contents,
       EnableSyncCallback enable_sync_callback,
       ShowSigninErrorCallback show_signin_error_callback);
+
+  ProcessDiceHeaderDelegateImpl(const ProcessDiceHeaderDelegateImpl&) = delete;
+  ProcessDiceHeaderDelegateImpl& operator=(
+      const ProcessDiceHeaderDelegateImpl&) = delete;
+
   ~ProcessDiceHeaderDelegateImpl() override;
 
   // ProcessDiceHeaderDelegate:
@@ -67,10 +70,8 @@ class ProcessDiceHeaderDelegateImpl : public ProcessDiceHeaderDelegate,
       signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN;
   signin_metrics::PromoAction promo_action_ =
       signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO;
-  signin_metrics::Reason reason_ =
-      signin_metrics::Reason::REASON_UNKNOWN_REASON;
+  signin_metrics::Reason reason_ = signin_metrics::Reason::kUnknownReason;
   GURL redirect_url_;
-  DISALLOW_COPY_AND_ASSIGN(ProcessDiceHeaderDelegateImpl);
 };
 
 #endif  // CHROME_BROWSER_SIGNIN_PROCESS_DICE_HEADER_DELEGATE_IMPL_H_

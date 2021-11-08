@@ -2,47 +2,54 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-function testGetFaviconForPageURL() {
-  var url = 'http://foo.com';
-  var expectedDesktop = '-webkit-image-set(' +
-      'url("chrome://favicon2/?size=16&scale_factor=1x&page_url=' +
-      encodeURIComponent('http://foo.com') +
-      '&allow_google_server_fallback=0") 1x, ' +
-      'url("chrome://favicon2/?size=16&scale_factor=2x&page_url=' +
-      encodeURIComponent('http://foo.com') +
-      '&allow_google_server_fallback=0") 2x)';
-  var expectedOther = '-webkit-image-set(' +
-      'url("chrome://favicon2/?size=16&scale_factor=1x&page_url=' +
-      encodeURIComponent('http://foo.com') +
-      '&allow_google_server_fallback=0") ' + window.devicePixelRatio + 'x)';
+import {isChromeOS, isLacros, isLinux, isMac, isWindows} from 'chrome://resources/js/cr.m.js';
+import {getFavicon, getFaviconForPageURL, getFileIconUrl} from 'chrome://resources/js/icon.js';
 
-  var isDesktop =
-      cr.isMac || cr.isChromeOS || cr.isWindows || cr.isLinux || cr.isLacros;
-  var expected = isDesktop ? expectedDesktop : expectedOther;
-  assertEquals(expected, cr.icon.getFaviconForPageURL(url));
-}
+suite('IconModuleTest', function() {
+  test('GetFaviconForPageURL', function() {
+    const url = 'http://foo.com';
 
-function testGetFavicon() {
-  var url = 'http://foo.com/foo.ico';
-  var expectedDesktop = '-webkit-image-set(' +
-      'url("chrome://favicon2/?size=16&scale_factor=1x&icon_url=' +
-      encodeURIComponent('http://foo.com/foo.ico') + '") 1x, ' +
-      'url("chrome://favicon2/?size=16&scale_factor=2x&icon_url=' +
-      encodeURIComponent('http://foo.com/foo.ico') + '") 2x)';
-  var expectedOther = '-webkit-image-set(' +
-      'url("chrome://favicon2/?size=16&scale_factor=1x&icon_url=' +
-      encodeURIComponent('http://foo.com/foo.ico') + '") ' +
-      window.devicePixelRatio + 'x)';
+    function getExpectedImageSet(size) {
+      const expectedDesktop = '-webkit-image-set(' +
+          `url("chrome://favicon2/?size=${size}&scale_factor=1x&page_url=` +
+          encodeURIComponent(url) + '&allow_google_server_fallback=0") 1x, ' +
+          `url("chrome://favicon2/?size=${size}&scale_factor=2x&page_url=` +
+          encodeURIComponent(url) + '&allow_google_server_fallback=0") 2x)';
+      const expectedOther = '-webkit-image-set(' +
+          `url("chrome://favicon2/?size=${size}&scale_factor=1x&page_url=` +
+          encodeURIComponent(url) + '&allow_google_server_fallback=0") ' +
+          window.devicePixelRatio + 'x)';
 
-  var isDesktop =
-      cr.isMac || cr.isChromeOS || cr.isWindows || cr.isLinux || cr.isLacros;
-  var expected = isDesktop ? expectedDesktop : expectedOther;
-  assertEquals(expected, cr.icon.getFavicon(url));
-}
+      const isDesktop = isMac || isChromeOS || isWindows || isLinux || isLacros;
+      return isDesktop ? expectedDesktop : expectedOther;
+    }
 
-function testGetFileIconUrl() {
-  assertEquals(
-      cr.icon.getFileIconUrl('file path'),
-      'chrome://fileicon/?path=file+path&scale=' + window.devicePixelRatio +
-          'x');
-}
+    assertEquals(getExpectedImageSet(16), getFaviconForPageURL(url));
+    assertEquals(
+        getExpectedImageSet(24), getFaviconForPageURL(url, false, '', 24));
+  });
+
+  test('GetFavicon', function() {
+    const url = 'http://foo.com/foo.ico';
+    const expectedDesktop = '-webkit-image-set(' +
+        'url("chrome://favicon2/?size=16&scale_factor=1x&icon_url=' +
+        encodeURIComponent('http://foo.com/foo.ico') + '") 1x, ' +
+        'url("chrome://favicon2/?size=16&scale_factor=2x&icon_url=' +
+        encodeURIComponent('http://foo.com/foo.ico') + '") 2x)';
+    const expectedOther = '-webkit-image-set(' +
+        'url("chrome://favicon2/?size=16&scale_factor=1x&icon_url=' +
+        encodeURIComponent('http://foo.com/foo.ico') + '") ' +
+        window.devicePixelRatio + 'x)';
+
+    const isDesktop = isMac || isChromeOS || isWindows || isLinux || isLacros;
+    const expected = isDesktop ? expectedDesktop : expectedOther;
+    assertEquals(expected, getFavicon(url));
+  });
+
+  test('GetFileIconUrl', function() {
+    assertEquals(
+        getFileIconUrl('file path'),
+        'chrome://fileicon/?path=file+path&scale=' + window.devicePixelRatio +
+            'x');
+  });
+});

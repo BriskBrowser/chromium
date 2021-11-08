@@ -68,23 +68,24 @@ FloatRect Filter::MapAbsoluteRectToLocalRect(const FloatRect& rect) const {
 
 float Filter::ApplyHorizontalScale(float value) const {
   if (unit_scaling_ == kBoundingBox)
-    value *= ReferenceBox().Width();
+    value *= ReferenceBox().width();
   return scale_ * value;
 }
 
 float Filter::ApplyVerticalScale(float value) const {
   if (unit_scaling_ == kBoundingBox)
-    value *= ReferenceBox().Height();
+    value *= ReferenceBox().height();
   return scale_ * value;
 }
 
-FloatPoint3D Filter::Resolve3dPoint(const FloatPoint3D& point) const {
-  if (unit_scaling_ != kBoundingBox)
-    return point;
-  return FloatPoint3D(
-      point.X() * ReferenceBox().Width() + ReferenceBox().X(),
-      point.Y() * ReferenceBox().Height() + ReferenceBox().Y(),
-      point.Z() * sqrtf(ReferenceBox().Size().DiagonalLengthSquared() / 2));
+FloatPoint3D Filter::Resolve3dPoint(FloatPoint3D point) const {
+  if (unit_scaling_ == kBoundingBox) {
+    point = FloatPoint3D(
+        point.x() * ReferenceBox().width() + ReferenceBox().x(),
+        point.y() * ReferenceBox().height() + ReferenceBox().y(),
+        point.z() * sqrtf(ReferenceBox().size().DiagonalLengthSquared() / 2));
+  }
+  return scale_ * point;
 }
 
 void Filter::SetLastEffect(FilterEffect* effect) {

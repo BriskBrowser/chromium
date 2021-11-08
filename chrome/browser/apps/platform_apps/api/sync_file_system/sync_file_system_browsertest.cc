@@ -3,11 +3,13 @@
 // found in the LICENSE file.
 
 #include <stdint.h>
+
+#include <memory>
 #include <utility>
 
 #include "base/run_loop.h"
-#include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
@@ -91,7 +93,7 @@ class SyncFileSystemTest : public extensions::PlatformAppBrowserTest,
     std::unique_ptr<drive_backend::SyncEngine::DriveServiceFactory>
         drive_service_factory(new FakeDriveServiceFactory(this));
 
-    identity_test_env_.reset(new signin::IdentityTestEnvironment);
+    identity_test_env_ = std::make_unique<signin::IdentityTestEnvironment>();
 
     remote_service_ = new drive_backend::SyncEngine(
         base::ThreadTaskRunnerHandle::Get(),  // ui_task_runner
@@ -127,7 +129,7 @@ class SyncFileSystemTest : public extensions::PlatformAppBrowserTest,
   }
 
   void SignIn() {
-    identity_test_env_->SetPrimaryAccount(kEmail);
+    identity_test_env_->SetPrimaryAccount(kEmail, signin::ConsentLevel::kSync);
   }
 
   void SetSyncEnabled(bool enabled) {

@@ -118,7 +118,7 @@ void SpeechSynthesis::RecordVoicesForIdentifiability() const {
     builder.AddToken(voice->localService());
   }
   IdentifiabilityMetricBuilder(GetSupplementable()->UkmSourceID())
-      .Set(surface, builder.GetToken())
+      .Add(surface, builder.GetToken())
       .Record(GetSupplementable()->UkmRecorder());
 }
 
@@ -236,8 +236,7 @@ void SpeechSynthesis::SentenceBoundaryEventOccurred(
 }
 
 void SpeechSynthesis::VoicesDidChange() {
-  if (GetSupplementable()->GetFrame())
-    DispatchEvent(*Event::Create(event_type_names::kVoiceschanged));
+  DispatchEvent(*Event::Create(event_type_names::kVoiceschanged));
 }
 
 void SpeechSynthesis::StartSpeakingImmediately() {

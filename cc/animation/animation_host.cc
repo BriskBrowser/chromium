@@ -20,14 +20,15 @@
 #include "cc/animation/animation_id_provider.h"
 #include "cc/animation/animation_timeline.h"
 #include "cc/animation/element_animations.h"
+#include "cc/animation/keyframe_effect.h"
 #include "cc/animation/scroll_offset_animation_curve.h"
 #include "cc/animation/scroll_offset_animations.h"
 #include "cc/animation/scroll_offset_animations_impl.h"
 #include "cc/animation/scroll_timeline.h"
-#include "cc/animation/timing_function.h"
 #include "cc/animation/worklet_animation.h"
+#include "ui/gfx/animation/keyframe/timing_function.h"
 #include "ui/gfx/geometry/box_f.h"
-#include "ui/gfx/geometry/scroll_offset.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 
 namespace cc {
 
@@ -99,6 +100,20 @@ void AnimationHost::ClearMutators() {
   id_to_timeline_map_.clear();
 }
 
+base::TimeDelta AnimationHost::MinimumTickInterval() const {
+  base::TimeDelta min_interval = base::TimeDelta::Max();
+  for (const auto& animation : ticking_animations_) {
+    DCHECK(animation->keyframe_effect());
+    base::TimeDelta interval =
+        animation->keyframe_effect()->MinimumTickInterval();
+    if (interval.is_zero())
+      return interval;
+    if (interval < min_interval)
+      min_interval = interval;
+  }
+  return min_interval;
+}
+
 void AnimationHost::EraseTimeline(scoped_refptr<AnimationTimeline> timeline) {
   timeline->ClearAnimations();
   timeline->SetAnimationHost(nullptr);
@@ -135,6 +150,30 @@ bool AnimationHost::HasJSAnimation() const {
 
 void AnimationHost::SetHasInlineStyleMutation(bool has_inline_style_mutation) {
   has_inline_style_mutation_ = has_inline_style_mutation;
+}
+
+bool AnimationHost::HasSmilAnimation() const {
+  return has_smil_animation_;
+}
+
+void AnimationHost::SetHasSmilAnimation(bool has_smil_animation) {
+  has_smil_animation_ = has_smil_animation;
+}
+
+void AnimationHost::SetCurrentFrameHadRaf(bool current_frame_had_raf) {
+  current_frame_had_raf_ = current_frame_had_raf;
+}
+
+bool AnimationHost::CurrentFrameHadRAF() const {
+  return current_frame_had_raf_;
+}
+
+void AnimationHost::SetNextFrameHasPendingRaf(bool next_frame_has_pending_raf) {
+  next_frame_has_pending_raf_ = next_frame_has_pending_raf;
+}
+
+bool AnimationHost::NextFrameHasPendingRAF() const {
+  return next_frame_has_pending_raf_;
 }
 
 void AnimationHost::UpdateRegisteredElementIds(ElementListType changed_list) {
@@ -253,6 +292,7 @@ void AnimationHost::PushPropertiesTo(MutatorHost* mutator_host_impl) {
   host_impl->next_frame_has_pending_raf_ = next_frame_has_pending_raf_;
   host_impl->has_canvas_invalidation_ = has_canvas_invalidation_;
   host_impl->has_inline_style_mutation_ = has_inline_style_mutation_;
+  host_impl->has_smil_animation_ = has_smil_animation_;
 
   if (needs_push_properties_) {
     needs_push_properties_ = false;
@@ -651,8 +691,8 @@ bool AnimationHost::HasTickingKeyframeModelForTesting(
 
 void AnimationHost::ImplOnlyAutoScrollAnimationCreate(
     ElementId element_id,
-    const gfx::ScrollOffset& target_offset,
-    const gfx::ScrollOffset& current_offset,
+    const gfx::Vector2dF& target_offset,
+    const gfx::Vector2dF& current_offset,
     float autoscroll_velocity,
     base::TimeDelta animation_start_offset) {
   DCHECK(scroll_offset_animations_impl_);
@@ -663,8 +703,8 @@ void AnimationHost::ImplOnlyAutoScrollAnimationCreate(
 
 void AnimationHost::ImplOnlyScrollAnimationCreate(
     ElementId element_id,
-    const gfx::ScrollOffset& target_offset,
-    const gfx::ScrollOffset& current_offset,
+    const gfx::Vector2dF& target_offset,
+    const gfx::Vector2dF& current_offset,
     base::TimeDelta delayed_by,
     base::TimeDelta animation_start_offset) {
   DCHECK(scroll_offset_animations_impl_);
@@ -675,7 +715,7 @@ void AnimationHost::ImplOnlyScrollAnimationCreate(
 
 bool AnimationHost::ImplOnlyScrollAnimationUpdateTarget(
     const gfx::Vector2dF& scroll_delta,
-    const gfx::ScrollOffset& max_scroll_offset,
+    const gfx::Vector2dF& max_scroll_offset,
     base::TimeTicks frame_monotonic_time,
     base::TimeDelta delayed_by) {
   DCHECK(scroll_offset_animations_impl_);
@@ -761,10 +801,7 @@ void AnimationHost::SetMutationUpdate(
   }
 }
 
-void AnimationHost::SetAnimationCounts(
-    size_t total_animations_count,
-    bool current_frame_had_raf,
-    bool next_frame_has_pending_raf) {
+void AnimationHost::SetAnimationCounts(size_t total_animations_count) {
   // Though these changes are pushed as part of AnimationHost::PushPropertiesTo
   // we don't SetNeedsPushProperties as pushing the values requires a commit.
   // Instead we allow them to be pushed whenever the next required commit
@@ -778,27 +815,24 @@ void AnimationHost::SetAnimationCounts(
   main_thread_animations_count_ =
       total_animations_count - ticking_animations_count;
   DCHECK_GE(main_thread_animations_count_, 0u);
-  current_frame_had_raf_ = current_frame_had_raf;
-  next_frame_has_pending_raf_ = next_frame_has_pending_raf;
 }
 
 size_t AnimationHost::MainThreadAnimationsCount() const {
   return main_thread_animations_count_;
 }
 
-bool AnimationHost::HasCustomPropertyAnimations() const {
+bool AnimationHost::HasInvalidationAnimation() const {
   for (const auto& it : ticking_animations_)
-    if (it->AffectsCustomProperty())
+    if (it->RequiresInvalidation())
       return true;
   return false;
 }
 
-bool AnimationHost::CurrentFrameHadRAF() const {
-  return current_frame_had_raf_;
-}
-
-bool AnimationHost::NextFrameHasPendingRAF() const {
-  return next_frame_has_pending_raf_;
+bool AnimationHost::HasNativePropertyAnimation() const {
+  for (const auto& it : ticking_animations_)
+    if (it->AffectsNativeProperty())
+      return true;
+  return false;
 }
 
 AnimationHost::PendingThroughputTrackerInfos

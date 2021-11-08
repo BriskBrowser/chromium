@@ -20,7 +20,20 @@
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/unique_position.h"
 #include "components/sync/engine/net/server_connection_manager.h"
-#include "components/sync/protocol/sync.pb.h"
+#include "third_party/protobuf/src/google/protobuf/repeated_field.h"
+
+namespace sync_pb {
+class EntitySpecifics;
+class SyncEntity;
+class ClientCommand;
+class CommitMessage;
+class CommitResponse;
+class ClientToServerMessage;
+class ClientToServerResponse;
+class DataTypeProgressMarker;
+class GetUpdatesResponse;
+class ClientCommand;
+}  // namespace sync_pb
 
 namespace syncer {
 
@@ -36,6 +49,10 @@ class MockConnectionManager : public ServerConnectionManager {
   };
 
   MockConnectionManager();
+
+  MockConnectionManager(const MockConnectionManager&) = delete;
+  MockConnectionManager& operator=(const MockConnectionManager&) = delete;
+
   ~MockConnectionManager() override;
 
   // Overridden ServerConnectionManager functions.
@@ -47,10 +64,6 @@ class MockConnectionManager : public ServerConnectionManager {
   // NOTE: Commit callback is invoked only once then reset.
   void SetMidCommitCallback(base::OnceClosure callback);
   void SetMidCommitObserver(MidCommitObserver* observer);
-
-  // Set this if you want commit to perform commit time rename. Will request
-  // that the client renames all commited entries, prepending this string.
-  void SetCommitTimeRename(const std::string& prepend);
 
   // Generic versions of AddUpdate functions. Tests using these function should
   // compile for both the int64_t and string id based versions of the server.
@@ -308,7 +321,6 @@ class MockConnectionManager : public ServerConnectionManager {
   base::Lock store_birthday_lock_;
   bool store_birthday_sent_;
   bool client_stuck_;
-  std::string commit_time_rename_prepended_string_;
 
   // On each PostBufferToPath() call, we decrement this counter.  The call fails
   // iff we hit zero at that call.
@@ -351,8 +363,6 @@ class MockConnectionManager : public ServerConnectionManager {
   std::string next_token_;
 
   std::vector<sync_pb::ClientToServerMessage> requests_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockConnectionManager);
 };
 
 }  // namespace syncer

@@ -35,12 +35,11 @@ class CORE_EXPORT SystemClipboard final
   SystemClipboard(const SystemClipboard&) = delete;
   SystemClipboard& operator=(const SystemClipboard&) = delete;
 
-  uint64_t SequenceNumber();
+  ClipboardSequenceNumberToken SequenceNumber();
   bool IsSelectionMode() const;
   void SetSelectionMode(bool);
-  bool CanSmartReplace();
-  bool IsHTMLAvailable();
   Vector<String> ReadAvailableTypes();
+  bool IsFormatAvailable(mojom::ClipboardFormat format);
 
   String ReadPlainText();
   String ReadPlainText(mojom::ClipboardBuffer buffer);
@@ -62,13 +61,16 @@ class CORE_EXPORT SystemClipboard final
 
   String ReadRTF();
 
-  SkBitmap ReadImage(mojom::ClipboardBuffer);
+  mojo_base::BigBuffer ReadPng(mojom::blink::ClipboardBuffer);
   String ReadImageAsImageMarkup(mojom::blink::ClipboardBuffer);
 
   // Write the image and its associated tag (bookmark/HTML types).
   void WriteImageWithTag(Image*, const KURL&, const String& title);
   // Write the image only.
   void WriteImage(const SkBitmap&);
+
+  // Read files.
+  mojom::blink::ClipboardFilesPtr ReadFiles();
 
   String ReadCustomData(const String& type);
   void WriteDataObject(DataObject*);
@@ -78,6 +80,17 @@ class CORE_EXPORT SystemClipboard final
   void CommitWrite();
 
   void CopyToFindPboard(const String& text);
+
+  void ReadAvailableCustomAndStandardFormats(
+      mojom::blink::ClipboardHost::ReadAvailableCustomAndStandardFormatsCallback
+          callback);
+  void ReadUnsanitizedCustomFormat(
+      const String& type,
+      mojom::blink::ClipboardHost::ReadUnsanitizedCustomFormatCallback
+          callback);
+
+  void WriteUnsanitizedCustomFormat(const String& type,
+                                    mojo_base::BigBuffer data);
 
   void Trace(Visitor*) const;
 
@@ -92,7 +105,6 @@ class CORE_EXPORT SystemClipboard final
 
   // Whether the selection buffer is available on the underlying platform.
   bool is_selection_buffer_available_ = false;
-
 };
 
 }  // namespace blink

@@ -203,6 +203,13 @@
 	<true/>
 	<key>OSAScriptingDefinition</key>
 	<string>scripting.sdef</string>
+	<key>ASWebAuthenticationSessionWebBrowserSupportCapabilities</key>
+	<dict>
+		<key>IsSupported</key>
+		<true/>
+		<key>EphemeralBrowserSessionIsSupported</key>
+		<true/>
+	</dict>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -212,14 +219,6 @@
 			<array>
 				<string>http</string>
 				<string>https</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>FTP site URL</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>ftp</string>
 			</array>
 		</dict>
 		<dict>
@@ -383,8 +382,6 @@
 	</array>
 	<key>NSUserNotificationAlertStyle</key>
 	<string>banner</string>
-	<key>NSRequiresAquaSystemAppearance</key>
-	<false/>
 	<key>GPUEjectPolicy</key>
 	<string>wait</string>
 </dict>

@@ -19,9 +19,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/writable_shared_memory_region.h"
-#include "base/optional.h"
 #include "base/process/process.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "mojo/core/atomic_flag.h"
 #include "mojo/core/node_channel.h"
@@ -31,6 +30,7 @@
 #include "mojo/core/ports/node_delegate.h"
 #include "mojo/core/system_impl_export.h"
 #include "mojo/public/cpp/platform/platform_handle.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace mojo {
 namespace core {
@@ -53,6 +53,10 @@ class MOJO_SYSTEM_IMPL_EXPORT NodeController : public ports::NodeDelegate,
 
   // |core| owns and out-lives us.
   NodeController();
+
+  NodeController(const NodeController&) = delete;
+  NodeController& operator=(const NodeController&) = delete;
+
   ~NodeController() override;
 
   const ports::NodeName& name() const { return name_; }
@@ -169,7 +173,7 @@ class MOJO_SYSTEM_IMPL_EXPORT NodeController : public ports::NodeDelegate,
       const ProcessErrorCallback& process_error_callback);
   void AcceptBrokerClientInvitationOnIOThread(
       ConnectionParams connection_params,
-      base::Optional<PlatformHandle> broker_host_handle);
+      absl::optional<PlatformHandle> broker_host_handle);
 
   void ConnectIsolatedOnIOThread(ConnectionParams connection_params,
                                  ports::PortRef port,
@@ -336,8 +340,6 @@ class MOJO_SYSTEM_IMPL_EXPORT NodeController : public ports::NodeDelegate,
   // Broker for sync shared buffer creation on behalf of broker clients.
   std::unique_ptr<Broker> broker_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(NodeController);
 };
 
 }  // namespace core

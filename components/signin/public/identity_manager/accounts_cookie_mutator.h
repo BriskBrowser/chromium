@@ -6,7 +6,6 @@
 #define COMPONENTS_SIGNIN_PUBLIC_IDENTITY_MANAGER_ACCOUNTS_COOKIE_MUTATOR_H_
 
 #include <string>
-#include <vector>
 
 #include "base/macros.h"
 #include "build/build_config.h"
@@ -36,7 +35,8 @@ class AccountsCookieMutator {
    public:
     // Creates a new GaiaAuthFetcher for the partition.
     virtual std::unique_ptr<GaiaAuthFetcher> CreateGaiaAuthFetcherForPartition(
-        GaiaAuthConsumer* consumer) = 0;
+        GaiaAuthConsumer* consumer,
+        const gaia::GaiaSource& source) = 0;
 
     // Returns the CookieManager for the partition.
     virtual network::mojom::CookieManager* GetCookieManagerForPartition() = 0;
@@ -50,6 +50,10 @@ class AccountsCookieMutator {
   };
 
   AccountsCookieMutator() = default;
+
+  AccountsCookieMutator(const AccountsCookieMutator&) = delete;
+  AccountsCookieMutator& operator=(const AccountsCookieMutator&) = delete;
+
   virtual ~AccountsCookieMutator() = default;
 
   typedef base::OnceCallback<void(const CoreAccountId& account_id,
@@ -105,6 +109,7 @@ class AccountsCookieMutator {
   SetAccountsInCookieForPartition(
       PartitionDelegate* partition_delegate,
       const MultiloginParameters& parameters,
+      gaia::GaiaSource source,
       base::OnceCallback<void(SetAccountsInCookieResult)>
           set_accounts_in_cookies_completed_callback) = 0;
 
@@ -130,8 +135,9 @@ class AccountsCookieMutator {
       gaia::GaiaSource source,
       LogOutFromCookieCompletedCallback completion_callback) = 0;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(AccountsCookieMutator);
+  // Indicates that an account previously listed via ListAccounts should now
+  // be removed.
+  virtual void RemoveLoggedOutAccountByGaiaId(const std::string& gaia_id) = 0;
 };
 
 }  // namespace signin

@@ -26,6 +26,10 @@ class CookieControlsServiceObserver : public CookieControlsService::Observer {
     checked_ = false;
   }
 
+  CookieControlsServiceObserver(const CookieControlsServiceObserver&) = delete;
+  CookieControlsServiceObserver& operator=(
+      const CookieControlsServiceObserver&) = delete;
+
   ~CookieControlsServiceObserver() override = default;
 
   CookieControlsService* GetService() { return service_; }
@@ -40,8 +44,6 @@ class CookieControlsServiceObserver : public CookieControlsService::Observer {
  private:
   CookieControlsService* service_;
   bool checked_;
-
-  DISALLOW_COPY_AND_ASSIGN(CookieControlsServiceObserver);
 };
 
 class CookieControlsServiceTest : public ChromeRenderViewHostTestHarness {
@@ -58,7 +60,8 @@ class CookieControlsServiceTest : public ChromeRenderViewHostTestHarness {
 };
 
 TEST_F(CookieControlsServiceTest, HandleCookieControlsToggleChanged) {
-  Profile* otr_profile = profile()->GetPrimaryOTRProfile();
+  Profile* otr_profile =
+      profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true);
   observer_ = std::make_unique<CookieControlsServiceObserver>(otr_profile);
   EXPECT_EQ(
       static_cast<int>(content_settings::CookieControlsMode::kIncognitoOnly),

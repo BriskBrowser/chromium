@@ -35,9 +35,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/browser/web_applications/components/web_app_shortcut_mac.h"
 #include "chrome/browser/web_applications/extensions/web_app_extension_shortcut.h"
+#include "chrome/browser/web_applications/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_shortcut_mac.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/mac/app_mode_common.h"
 #include "content/public/test/browser_test.h"
@@ -101,7 +101,7 @@ class WindowedAppShimLaunchObserver : public apps::AppShimManager {
     if (observed_)
       return;
 
-    run_loop_.reset(new base::RunLoop);
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
   }
 
@@ -162,7 +162,7 @@ class HostedAppBrowserListObserver : public BrowserListObserver {
     if (observed_add_)
       return;
 
-    run_loop_.reset(new base::RunLoop);
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
   }
 
@@ -170,7 +170,7 @@ class HostedAppBrowserListObserver : public BrowserListObserver {
     if (observed_removed_)
       return;
 
-    run_loop_.reset(new base::RunLoop);
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
   }
 
@@ -291,7 +291,7 @@ const extensions::Extension* AppShimInteractiveTest::InstallAppWithShim(
   // To create a shim in a test, instead call UpdateAllShortcuts, which has been
   // blessed by g_app_shims_allow_update_and_launch_in_tests.
   base::RunLoop run_loop;
-  web_app::UpdateAllShortcuts(base::string16(), profile(), app,
+  web_app::UpdateAllShortcuts(std::u16string(), profile(), app,
                               run_loop.QuitClosure());
   run_loop.Run();
   EXPECT_TRUE(base::PathExists(shim_path_));

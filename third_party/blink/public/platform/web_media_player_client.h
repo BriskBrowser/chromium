@@ -38,6 +38,7 @@
 #include "ui/gfx/color_space.h"
 
 #include "third_party/blink/public/platform/web_texttrack_metadata.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace cc {
 class Layer;
@@ -102,10 +103,6 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerClient {
   virtual void RemotePlaybackCompatibilityChanged(const WebURL&,
                                                   bool is_compatible) = 0;
 
-  // Set the player as the persistent video. Persistent video should hide its
-  // controls and go fullscreen.
-  virtual void OnBecamePersistentVideo(bool) = 0;
-
   // Returns whether the media element has always been muted. This is used to
   // avoid take audio focus for elements that the user is not aware is playing.
   virtual bool WasAlwaysMuted() = 0;
@@ -143,7 +140,7 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerClient {
   virtual WebRemotePlaybackClient* RemotePlaybackClient() { return nullptr; }
 
   // Returns metadata for out-of-band text tracks declared as <track> elements.
-  virtual std::vector<TextTrackMetadata> GetTextTrackMetadata() = 0;
+  virtual Vector<TextTrackMetadata> GetTextTrackMetadata() = 0;
 
   // Returns the color space to render media into if.
   // Rendering media into this color space may avoid some conversions.
@@ -189,10 +186,14 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerClient {
   // Notify the client that the playback position has changed.
   virtual void DidPlayerMediaPositionStateChange(double playback_rate,
                                                  base::TimeDelta duration,
-                                                 base::TimeDelta position) = 0;
+                                                 base::TimeDelta position,
+                                                 bool end_of_media) = 0;
 
   // Notify the client that the audio sink cannot be changed.
   virtual void DidDisableAudioOutputSinkChanges() = 0;
+
+  // Notify the client that the playback starts/stops to use AudioService.
+  virtual void DidUseAudioServiceChange(bool uses_audio_service) = 0;
 
   // Notify the client that the size of the media player has changed.
   // TODO(crbug.com/1039252): Remove by merging this method into SizeChanged().
@@ -239,4 +240,4 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerClient {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_MEDIA_PLAYER_CLIENT_H_

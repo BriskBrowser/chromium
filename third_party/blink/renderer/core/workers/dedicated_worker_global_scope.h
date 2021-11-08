@@ -33,6 +33,7 @@
 
 #include <memory>
 #include "third_party/blink/public/common/tokens/tokens.h"
+#include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom-blink.h"
 #include "third_party/blink/public/mojom/worker/dedicated_worker_host.mojom-blink.h"
 #include "third_party/blink/renderer/core/animation_frame/worker_animation_frame_provider.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -61,7 +62,9 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       DedicatedWorkerThread*,
       base::TimeTicks time_origin,
       mojo::PendingRemote<mojom::blink::DedicatedWorkerHost>
-          dedicated_worker_host);
+          dedicated_worker_host,
+      mojo::PendingRemote<mojom::blink::BackForwardCacheControllerHost>
+          back_forward_cache_controller_host);
 
   // Do not call this. Use Create() instead. This is public only for
   // MakeGarbageCollected.
@@ -72,8 +75,11 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       std::unique_ptr<Vector<String>> outside_origin_trial_tokens,
       const BeginFrameProviderParams& begin_frame_provider_params,
       bool parent_cross_origin_isolated_capability,
+      bool direct_socket_isolated_capability,
       mojo::PendingRemote<mojom::blink::DedicatedWorkerHost>
-          dedicated_worker_host);
+          dedicated_worker_host,
+      mojo::PendingRemote<mojom::blink::BackForwardCacheControllerHost>
+          back_forward_cache_controller_host);
 
   ~DedicatedWorkerGlobalScope() override;
 
@@ -97,8 +103,7 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       network::mojom::ReferrerPolicy response_referrer_policy,
       network::mojom::IPAddressSpace response_address_space,
       Vector<network::mojom::blink::ContentSecurityPolicyPtr> response_csp,
-      const Vector<String>* response_origin_trial_tokens,
-      int64_t appcache_host) override;
+      const Vector<String>* response_origin_trial_tokens) override;
   void FetchAndRunClassicScript(
       const KURL& script_url,
       std::unique_ptr<WorkerMainScriptLoadParameters>
@@ -115,6 +120,9 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       network::mojom::CredentialsMode,
       RejectCoepUnsafeNone reject_coep_unsafe_none) override;
   bool IsOffMainThreadScriptFetchDisabled() override;
+
+  // Implements scheduler::WorkerScheduler::Delegate.
+  void UpdateBackForwardCacheDisablingFeatures(uint64_t features_mask) override;
 
   // Called by the bindings (dedicated_worker_global_scope.idl).
   const String name() const;
@@ -143,13 +151,16 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
   bool CrossOriginIsolatedCapability() const final {
     return cross_origin_isolated_capability_;
   }
+  bool DirectSocketCapability() const final {
+    return direct_socket_capability_;
+  }
   ExecutionContextToken GetExecutionContextToken() const final {
     return token_;
   }
 
   // Returns the ExecutionContextToken that uniquely identifies the parent
   // context that created this dedicated worker.
-  base::Optional<ExecutionContextToken> GetParentExecutionContextToken()
+  absl::optional<ExecutionContextToken> GetParentExecutionContextToken()
       const final {
     return parent_token_;
   }
@@ -175,8 +186,11 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       std::unique_ptr<Vector<String>> outside_origin_trial_tokens,
       const BeginFrameProviderParams& begin_frame_provider_params,
       bool parent_cross_origin_isolated_capability,
+      bool direct_socket_capability,
       mojo::PendingRemote<mojom::blink::DedicatedWorkerHost>
-          dedicated_worker_host);
+          dedicated_worker_host,
+      mojo::PendingRemote<mojom::blink::BackForwardCacheControllerHost>
+          back_forward_cache_controller_host);
 
   void DidReceiveResponseForClassicScript(
       WorkerClassicScriptLoader* classic_script_loader);
@@ -190,11 +204,14 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
   // The ID of the parent context that owns this worker.
   const ExecutionContextToken parent_token_;
   bool cross_origin_isolated_capability_;
+  bool direct_socket_capability_;
   Member<WorkerAnimationFrameProvider> animation_frame_provider_;
   RejectCoepUnsafeNone reject_coep_unsafe_none_ = RejectCoepUnsafeNone(false);
 
   HeapMojoRemote<mojom::blink::DedicatedWorkerHost> dedicated_worker_host_{
       this};
+  HeapMojoRemote<mojom::blink::BackForwardCacheControllerHost>
+      back_forward_cache_controller_host_{this};
 };
 
 template <>

@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "components/arc/arc_service_manager.h"
+#include "components/arc/session/arc_service_manager.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
@@ -105,6 +105,11 @@ class ArcBrowserContextKeyedServiceFactoryBase
     return GetForBrowserContext(context);
   }
 
+  ArcBrowserContextKeyedServiceFactoryBase(
+      const ArcBrowserContextKeyedServiceFactoryBase&) = delete;
+  ArcBrowserContextKeyedServiceFactoryBase& operator=(
+      const ArcBrowserContextKeyedServiceFactoryBase&) = delete;
+
  protected:
   ArcBrowserContextKeyedServiceFactoryBase()
       : BrowserContextKeyedServiceFactory(
@@ -130,9 +135,6 @@ class ArcBrowserContextKeyedServiceFactoryBase
 
     return new Service(context, arc_service_manager->arc_bridge_service());
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ArcBrowserContextKeyedServiceFactoryBase);
 };
 
 }  // namespace internal

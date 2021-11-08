@@ -5,7 +5,9 @@
 #include "components/mirroring/browser/single_client_video_capture_host.h"
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "base/token.h"
 #include "content/public/browser/web_contents_media_capture_id.h"
 #include "media/capture/video/video_capture_buffer_pool.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -22,6 +24,9 @@ class DeviceLauncherCallbacks final
   explicit DeviceLauncherCallbacks(
       base::WeakPtr<SingleClientVideoCaptureHost> host)
       : video_capture_host_(host) {}
+
+  DeviceLauncherCallbacks(const DeviceLauncherCallbacks&) = delete;
+  DeviceLauncherCallbacks& operator=(const DeviceLauncherCallbacks&) = delete;
 
   ~DeviceLauncherCallbacks() override {}
 
@@ -44,8 +49,6 @@ class DeviceLauncherCallbacks final
 
  private:
   base::WeakPtr<SingleClientVideoCaptureHost> video_capture_host_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceLauncherCallbacks);
 };
 
 }  // namespace
@@ -113,7 +116,7 @@ void SingleClientVideoCaptureHost::Stop(
   for (const auto& entry : buffer_context_map_)
     buffers_in_use.push_back(entry.first);
   for (int buffer_id : buffers_in_use) {
-    OnFinishedConsumingBuffer(buffer_id, media::VideoFrameFeedback());
+    OnFinishedConsumingBuffer(buffer_id, media::VideoCaptureFeedback());
   }
   DCHECK(buffer_context_map_.empty());
   observer_->OnStateChanged(media::mojom::VideoCaptureState::ENDED);
@@ -140,6 +143,14 @@ void SingleClientVideoCaptureHost::Resume(
     launched_device_->ResumeDevice();
 }
 
+void SingleClientVideoCaptureHost::Crop(const base::UnguessableToken& device_id,
+                                        const base::Token& crop_id,
+                                        CropCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // TODO(crbug.com/1247761): Implement.
+  std::move(callback).Run(media::mojom::CropRequestResult::kNotImplemented);
+}
+
 void SingleClientVideoCaptureHost::RequestRefreshFrame(
     const base::UnguessableToken& device_id) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -150,7 +161,7 @@ void SingleClientVideoCaptureHost::RequestRefreshFrame(
 void SingleClientVideoCaptureHost::ReleaseBuffer(
     const base::UnguessableToken& device_id,
     int32_t buffer_id,
-    const media::VideoFrameFeedback& feedback) {
+    const media::VideoCaptureFeedback& feedback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(3) << __func__ << ": buffer_id=" << buffer_id;
 
@@ -297,7 +308,7 @@ void SingleClientVideoCaptureHost::OnDeviceLaunchAborted() {
 
 void SingleClientVideoCaptureHost::OnFinishedConsumingBuffer(
     int buffer_context_id,
-    const media::VideoFrameFeedback& feedback) {
+    const media::VideoCaptureFeedback& feedback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(observer_);
   const auto buffer_context_iter = buffer_context_map_.find(buffer_context_id);

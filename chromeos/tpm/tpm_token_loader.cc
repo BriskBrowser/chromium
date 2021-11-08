@@ -9,10 +9,11 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
+#include "base/notreached.h"
 #include "base/system/sys_info.h"
-#include "base/task_runner_util.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/tpm/buildflags.h"
 #include "chromeos/tpm/tpm_token_info_getter.h"
@@ -76,7 +77,7 @@ TPMTokenLoader::TPMTokenLoader(bool initialized_for_test)
     : initialized_for_test_(initialized_for_test),
       tpm_token_state_(TPM_STATE_UNKNOWN),
       tpm_token_info_getter_(TPMTokenInfoGetter::CreateForSystemToken(
-          CryptohomeClient::Get(),
+          CryptohomePkcs11Client::Get(),
           base::ThreadTaskRunnerHandle::Get())),
       tpm_token_slot_id_(-1),
       can_start_before_login_(false) {
@@ -108,18 +109,6 @@ void TPMTokenLoader::EnsureStarted() {
 TPMTokenLoader::~TPMTokenLoader() {
   if (!initialized_for_test_ && LoginState::IsInitialized())
     LoginState::Get()->RemoveObserver(this);
-}
-
-TPMTokenLoader::TPMTokenStatus TPMTokenLoader::IsTPMTokenEnabled(
-    TPMReadyCallback callback) {
-  if (tpm_token_state_ == TPM_TOKEN_INITIALIZED)
-    return TPM_TOKEN_STATUS_ENABLED;
-  if (!IsTPMLoadingEnabled() || tpm_token_state_ == TPM_DISABLED)
-    return TPM_TOKEN_STATUS_DISABLED;
-  // Status is not known yet.
-  if (callback)
-    tpm_ready_callback_list_.push_back(std::move(callback));
-  return TPM_TOKEN_STATUS_UNDETERMINED;
 }
 
 bool TPMTokenLoader::IsTPMLoadingEnabled() const {
@@ -161,25 +150,13 @@ void TPMTokenLoader::ContinueTokenInitialization() {
 
   switch (tpm_token_state_) {
     case TPM_STATE_UNKNOWN: {
-      crypto_task_runner_->PostTaskAndReply(
-          FROM_HERE, base::BindOnce(&crypto::EnableTPMTokenForNSS),
-          base::BindOnce(&TPMTokenLoader::OnTPMTokenEnabledForNSS,
-                         weak_factory_.GetWeakPtr()));
       tpm_token_state_ = TPM_INITIALIZATION_STARTED;
-      return;
-    }
-    case TPM_INITIALIZATION_STARTED: {
-      NOTREACHED();
-      return;
-    }
-    case TPM_TOKEN_ENABLED_FOR_NSS: {
       tpm_token_info_getter_->Start(base::BindOnce(
           &TPMTokenLoader::OnGotTpmTokenInfo, weak_factory_.GetWeakPtr()));
       return;
     }
-    case TPM_DISABLED: {
-      // TPM is disabled, so proceed with empty tpm token name.
-      NotifyTPMTokenReady();
+    case TPM_INITIALIZATION_STARTED: {
+      NOTREACHED();
       return;
     }
     case TPM_TOKEN_INFO_RECEIVED: {
@@ -193,29 +170,24 @@ void TPMTokenLoader::ContinueTokenInitialization() {
                                  weak_factory_.GetWeakPtr()))));
       return;
     }
-    case TPM_TOKEN_INITIALIZED: {
+    case TPM_TOKEN_INITIALIZED:
+    case TPM_DISABLED: {
       NotifyTPMTokenReady();
       return;
     }
   }
 }
 
-void TPMTokenLoader::OnTPMTokenEnabledForNSS() {
-  VLOG(1) << "TPMTokenEnabledForNSS";
-  tpm_token_state_ = TPM_TOKEN_ENABLED_FOR_NSS;
-  ContinueTokenInitialization();
-}
-
 void TPMTokenLoader::OnGotTpmTokenInfo(
-    base::Optional<CryptohomeClient::TpmTokenInfo> token_info) {
+    absl::optional<user_data_auth::TpmTokenInfo> token_info) {
   if (!token_info.has_value()) {
     tpm_token_state_ = TPM_DISABLED;
     ContinueTokenInitialization();
     return;
   }
 
-  tpm_token_slot_id_ = token_info->slot;
-  tpm_user_pin_ = token_info->user_pin;
+  tpm_token_slot_id_ = token_info->slot();
+  tpm_user_pin_ = token_info->user_pin();
   tpm_token_state_ = TPM_TOKEN_INFO_RECEIVED;
 
   ContinueTokenInitialization();
@@ -229,12 +201,9 @@ void TPMTokenLoader::OnTPMTokenInitialized(bool success) {
 }
 
 void TPMTokenLoader::NotifyTPMTokenReady() {
-  DCHECK(tpm_token_state_ == TPM_DISABLED ||
-         tpm_token_state_ == TPM_TOKEN_INITIALIZED);
-  bool tpm_status = tpm_token_state_ == TPM_TOKEN_INITIALIZED;
-  for (TPMReadyCallback& callback : tpm_ready_callback_list_)
-    std::move(callback).Run(tpm_status);
-  tpm_ready_callback_list_.clear();
+  crypto_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&crypto::FinishInitializingTPMTokenAndSystemSlot));
 }
 
 void TPMTokenLoader::LoggedInStateChanged() {

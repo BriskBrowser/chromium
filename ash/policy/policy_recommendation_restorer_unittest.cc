@@ -4,7 +4,7 @@
 
 #include "ash/policy/policy_recommendation_restorer.h"
 
-#include "ash/public/cpp/ash_pref_names.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/ash_prefs.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/session/test_session_controller_client.h"
@@ -20,6 +20,12 @@
 namespace ash {
 
 class PolicyRecommendationRestorerTest : public NoSessionAshTestBase {
+ public:
+  PolicyRecommendationRestorerTest(const PolicyRecommendationRestorerTest&) =
+      delete;
+  PolicyRecommendationRestorerTest& operator=(
+      const PolicyRecommendationRestorerTest&) = delete;
+
  protected:
   PolicyRecommendationRestorerTest()
       : recommended_prefs_(new TestingPrefStore),
@@ -146,9 +152,6 @@ class PolicyRecommendationRestorerTest : public NoSessionAshTestBase {
   // Ownerships are passed to SessionController.
   TestingPrefStore* recommended_prefs_;
   sync_preferences::TestingPrefServiceSyncable* prefs_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PolicyRecommendationRestorerTest);
 };
 
 // Verifies that when no recommended values have been set, |restorer_| does not

@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
 
 #include <utility>
+#include <vector>
 
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/resources/keyboard_resource_util.h"
@@ -27,8 +28,8 @@
 #include "extensions/browser/event_router.h"
 #include "extensions/common/api/virtual_keyboard_private.h"
 #include "extensions/common/extension_messages.h"
-#include "ui/base/ime/chromeos/ime_bridge.h"
-#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ime/ash/ime_bridge.h"
+#include "ui/base/ime/ash/input_method_manager.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/gfx/geometry/rect.h"
@@ -160,7 +161,9 @@ void ChromeKeyboardControllerClient::SetKeyboardConfig(
 }
 
 bool ChromeKeyboardControllerClient::GetKeyboardEnabled() {
-  return keyboard_controller_->IsKeyboardEnabled();
+  // |keyboard_controller_| may be null during shutdown.
+  return keyboard_controller_ ? keyboard_controller_->IsKeyboardEnabled()
+                              : false;
 }
 
 void ChromeKeyboardControllerClient::SetEnableFlag(
@@ -245,8 +248,7 @@ GURL ChromeKeyboardControllerClient::GetVirtualKeyboardUrl() {
   if (!virtual_keyboard_url_for_test_.is_empty())
     return virtual_keyboard_url_for_test_;
 
-  chromeos::input_method::InputMethodManager* ime_manager =
-      chromeos::input_method::InputMethodManager::Get();
+  auto* ime_manager = ash::input_method::InputMethodManager::Get();
   if (!ime_manager || !ime_manager->GetActiveIMEState())
     return GURL(keyboard::kKeyboardURL);
 
@@ -292,7 +294,7 @@ void ChromeKeyboardControllerClient::OnKeyboardEnabledChanged(bool enabled) {
   auto event = std::make_unique<extensions::Event>(
       extensions::events::VIRTUAL_KEYBOARD_PRIVATE_ON_KEYBOARD_CLOSED,
       virtual_keyboard_private::OnKeyboardClosed::kEventName,
-      std::make_unique<base::ListValue>(), profile);
+      std::vector<base::Value>(), profile);
   router->BroadcastEvent(std::move(event));
 }
 
@@ -321,6 +323,10 @@ void ChromeKeyboardControllerClient::OnKeyboardVisibleBoundsChanged(
   if (keyboard_contents_)
     keyboard_contents_->SetInitialContentsSize(screen_bounds.size());
 
+  for (auto& observer : observers_) {
+    observer.OnKeyboardVisibleBoundsChanged(screen_bounds);
+  }
+
   if (!GetKeyboardWindow())
     return;
 
@@ -345,7 +351,7 @@ void ChromeKeyboardControllerClient::OnKeyboardVisibleBoundsChanged(
   auto event = std::make_unique<extensions::Event>(
       extensions::events::VIRTUAL_KEYBOARD_PRIVATE_ON_BOUNDS_CHANGED,
       virtual_keyboard_private::OnBoundsChanged::kEventName,
-      std::move(event_args), profile);
+      std::move(*event_args).TakeList(), profile);
   router->BroadcastEvent(std::move(event));
 }
 

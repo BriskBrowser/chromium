@@ -5,8 +5,9 @@
 #ifndef MEDIA_CAPTURE_VIDEO_WIN_GPU_MEMORY_BUFFER_TRACKER_H_
 #define MEDIA_CAPTURE_VIDEO_WIN_GPU_MEMORY_BUFFER_TRACKER_H_
 
+#include "gpu/ipc/common/gpu_memory_buffer_impl_dxgi.h"
+#include "media/base/win/dxgi_device_manager.h"
 #include "media/capture/video/video_capture_buffer_tracker.h"
-#include "media/capture/video/win/video_capture_dxgi_device_manager.h"
 
 #include <d3d11.h>
 #include <wrl.h>
@@ -21,8 +22,12 @@ namespace media {
 class CAPTURE_EXPORT GpuMemoryBufferTracker final
     : public VideoCaptureBufferTracker {
  public:
-  GpuMemoryBufferTracker(
-      scoped_refptr<VideoCaptureDXGIDeviceManager> dxgi_device_manager);
+  explicit GpuMemoryBufferTracker(
+      scoped_refptr<DXGIDeviceManager> dxgi_device_manager);
+
+  GpuMemoryBufferTracker(const GpuMemoryBufferTracker&) = delete;
+  GpuMemoryBufferTracker& operator=(const GpuMemoryBufferTracker&) = delete;
+
   ~GpuMemoryBufferTracker() override;
 
   // Implementation of VideoCaptureBufferTracker:
@@ -39,14 +44,14 @@ class CAPTURE_EXPORT GpuMemoryBufferTracker final
   gfx::GpuMemoryBufferHandle GetGpuMemoryBufferHandle() override;
 
  private:
-  std::unique_ptr<gfx::GpuMemoryBuffer> buffer_;
-  scoped_refptr<VideoCaptureDXGIDeviceManager> dxgi_device_manager_;
+  std::unique_ptr<gpu::GpuMemoryBufferImplDXGI> buffer_;
+  scoped_refptr<DXGIDeviceManager> dxgi_device_manager_;
   Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
+  base::UnsafeSharedMemoryRegion region_;
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_texture_;
   gfx::Size buffer_size_;
   bool CreateBufferInternal();
   bool EnsureD3DDevice();
-
-  DISALLOW_COPY_AND_ASSIGN(GpuMemoryBufferTracker);
 };
 
 }  // namespace media

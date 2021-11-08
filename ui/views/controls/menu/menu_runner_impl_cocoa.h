@@ -28,13 +28,17 @@ class VIEWS_EXPORT MenuRunnerImplCocoa : public MenuRunnerImplInterface {
   MenuRunnerImplCocoa(ui::MenuModel* menu,
                       base::RepeatingClosure on_menu_closed_callback);
 
+  MenuRunnerImplCocoa(const MenuRunnerImplCocoa&) = delete;
+  MenuRunnerImplCocoa& operator=(const MenuRunnerImplCocoa&) = delete;
+
   bool IsRunning() const override;
   void Release() override;
   void RunMenuAt(Widget* parent,
                  MenuButtonController* button_controller,
                  const gfx::Rect& bounds,
                  MenuAnchorPosition anchor,
-                 int32_t run_types) override;
+                 int32_t run_types,
+                 gfx::NativeView native_view_for_gestures) override;
   void Cancel() override;
   base::TimeTicks GetClosingEventTime() const override;
 
@@ -60,8 +64,6 @@ class VIEWS_EXPORT MenuRunnerImplCocoa : public MenuRunnerImplInterface {
 
   // Invoked before RunMenuAt() returns, except upon a Release().
   base::RepeatingClosure on_menu_closed_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(MenuRunnerImplCocoa);
 };
 
 }  // namespace internal

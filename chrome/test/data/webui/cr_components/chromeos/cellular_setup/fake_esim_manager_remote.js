@@ -23,6 +23,8 @@ cr.define('cellular_setup', function() {
         state: chromeos.cellularSetup.mojom.ProfileState.kPending,
       };
 
+      this.deferGetProperties_ = false;
+      this.deferredGetPropertiesPromises_ = [];
       this.fakeEuicc_ = fakeEuicc;
     }
 
@@ -32,9 +34,30 @@ cr.define('cellular_setup', function() {
      *     chromeos.cellularSetup.mojom.ESimProfileProperties},}>}
      */
     getProperties() {
-      return Promise.resolve({
-        properties: this.properties,
-      });
+      if (this.deferGetProperties_) {
+        const deferred = this.deferredPromise_();
+        this.deferredGetPropertiesPromises_.push(deferred);
+        return deferred.promise;
+      } else {
+        return Promise.resolve({
+          properties: this.properties,
+        });
+      }
+    }
+
+    /**
+     * @param {boolean} defer
+     */
+    setDeferGetProperties(defer) {
+      this.deferGetProperties_ = defer;
+    }
+
+    resolveLastGetPropertiesPromise() {
+      if (!this.deferredGetPropertiesPromises_.length) {
+        return;
+      }
+      const deferred = this.deferredGetPropertiesPromises_.pop();
+      deferred.resolve({properties: this.properties});
     }
 
     /**
@@ -44,14 +67,24 @@ cr.define('cellular_setup', function() {
      *     chromeos.cellularSetup.mojom.ProfileInstallResult},}>}
      */
     installProfile(confirmationCode) {
-      this.properties.state = chromeos.cellularSetup.mojom.ProfileState.kActive;
+      if (!this.profileInstallResult_ ||
+          this.profileInstallResult_ ===
+              chromeos.cellularSetup.mojom.ProfileInstallResult.kSuccess) {
+        this.properties.state =
+            chromeos.cellularSetup.mojom.ProfileState.kActive;
+      }
       this.fakeEuicc_.notifyProfileChangedForTest(this);
       this.fakeEuicc_.notifyProfileListChangedForTest();
-      return Promise.resolve({
-        result: this.profileInstallResult_ ?
-            this.profileInstallResult_ :
-            chromeos.cellularSetup.mojom.ProfileInstallResult.kSuccess
-      });
+      // Simulate a delay in response. This is neccessary because a few tests
+      // require UI to be in installing state.
+      return new Promise(
+          resolve => setTimeout(
+              () => resolve({
+                result: this.profileInstallResult_ ?
+                    this.profileInstallResult_ :
+                    chromeos.cellularSetup.mojom.ProfileInstallResult.kSuccess
+              }),
+              0));
     }
 
     /**
@@ -155,6 +188,8 @@ cr.define('cellular_setup', function() {
       for (let i = 0; i < numProfiles; i++) {
         this.addProfile();
       }
+      this.requestPendingProfilesResult_ =
+          chromeos.cellularSetup.mojom.ESimOperationResult.kSuccess;
     }
 
     /**
@@ -173,7 +208,7 @@ cr.define('cellular_setup', function() {
      */
     requestPendingProfiles() {
       return Promise.resolve({
-        result: chromeos.cellularSetup.mojom.ESimOperationResult.kSuccess,
+        result: this.requestPendingProfilesResult_,
       });
     }
 
@@ -213,6 +248,13 @@ cr.define('cellular_setup', function() {
             this.profileInstallResult_ :
             chromeos.cellularSetup.mojom.ProfileInstallResult.kSuccess,
       });
+    }
+
+    /**
+     * @param {chromeos.cellularSetup.mojom.ESimOperationResult} result
+     */
+    setRequestPendingProfilesResult(result) {
+      this.requestPendingProfilesResult_ = result;
     }
 
     /**
@@ -299,6 +341,7 @@ cr.define('cellular_setup', function() {
       const eid = this.euiccs_.length + 1 + '';
       const euicc = new FakeEuicc(eid, numProfiles, this);
       this.euiccs_.push(euicc);
+      this.notifyAvailableEuiccListChanged();
       return euicc;
     }
 
@@ -308,6 +351,12 @@ cr.define('cellular_setup', function() {
      */
     addObserver(observer) {
       this.observers_.push(observer);
+    }
+
+    notifyAvailableEuiccListChanged() {
+      for (const observer of this.observers_) {
+        observer.onAvailableEuiccListChanged();
+      }
     }
 
     /**

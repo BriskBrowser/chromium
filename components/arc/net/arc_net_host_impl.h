@@ -49,6 +49,10 @@ class ArcNetHostImpl : public KeyedService,
   // The constructor will register an Observer with ArcBridgeService.
   ArcNetHostImpl(content::BrowserContext* context,
                  ArcBridgeService* arc_bridge_service);
+
+  ArcNetHostImpl(const ArcNetHostImpl&) = delete;
+  ArcNetHostImpl& operator=(const ArcNetHostImpl&) = delete;
+
   ~ArcNetHostImpl() override;
 
   void SetPrefService(PrefService* pref_service);
@@ -80,6 +84,11 @@ class ArcNetHostImpl : public KeyedService,
   void AndroidVpnConnected(mojom::AndroidVpnConfigurationPtr cfg) override;
 
   void AndroidVpnStateChanged(mojom::ConnectionStateType state) override;
+
+  void AddPasspointCredentials(
+      mojom::PasspointCredentialsPtr credentials) override;
+
+  void RemovePasspointCredentials(const std::string& package_name) override;
 
   void SetAlwaysOnVpn(const std::string& vpnPackage, bool lockdown) override;
 
@@ -151,7 +160,7 @@ class ArcNetHostImpl : public KeyedService,
 
   // Callback for chromeos::NetworkHandler::GetShillProperties
   void ReceiveShillProperties(const std::string& service_path,
-                              base::Optional<base::Value> shill_properties);
+                              absl::optional<base::Value> shill_properties);
 
   ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
 
@@ -169,8 +178,6 @@ class ArcNetHostImpl : public KeyedService,
 
   THREAD_CHECKER(thread_checker_);
   base::WeakPtrFactory<ArcNetHostImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ArcNetHostImpl);
 };
 
 }  // namespace arc

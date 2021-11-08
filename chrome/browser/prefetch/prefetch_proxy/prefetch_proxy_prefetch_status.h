@@ -102,6 +102,26 @@ enum class PrefetchProxyPrefetchStatus {
   // trying to setup a connection to the proxy and a prefetch should not be done
   // right now.
   kPrefetchProxyNotAvailable = 28,
+
+  // The prefetch was not eligible, but was put on the network anyways and not
+  // used to disguise that the user had some kind of previous relationship with
+  // the origin.
+  kPrefetchIsPrivacyDecoy = 29,
+
+  // The prefetch was eligible, but too much time elapsed between the prefetch
+  // and the interception.
+  kPrefetchIsStale = 30,
+  kPrefetchIsStaleWithNSP = 31,
+  kPrefetchIsStaleNSPAttemptDenied = 32,
+  kPrefetchIsStaleNSPNotStarted = 33,
+
+  // The prefetch was not used because cookies were added to the URL after the
+  // initial eligibility check.
+  kPrefetchNotUsedCookiesChanged = 34,
+
+  // The prefetch was redirected, but following redirects was disabled.
+  // See crbug.com/1266876 for more details.
+  kPrefetchFailedRedirectsDisabled = 35,
 };
 
 #endif  // CHROME_BROWSER_PREFETCH_PREFETCH_PROXY_PREFETCH_PROXY_PREFETCH_STATUS_H_

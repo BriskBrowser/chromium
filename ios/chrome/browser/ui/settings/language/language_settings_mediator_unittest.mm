@@ -44,9 +44,9 @@ namespace {
 // Constant for timeout while waiting for asynchronous sync operations.
 const NSTimeInterval kSyncOperationTimeout = 10.0;
 
-std::vector<base::string16> ExtractDisplayNamesFromLanguageItems(
+std::vector<std::u16string> ExtractDisplayNamesFromLanguageItems(
     NSArray<LanguageItem*>* language_items) {
-  __block std::vector<base::string16> output;
+  __block std::vector<std::u16string> output;
   [language_items enumerateObjectsUsingBlock:^(LanguageItem* item,
                                                NSUInteger index, BOOL* stop) {
     output.push_back(base::SysNSStringToUTF16(item.text));
@@ -145,12 +145,12 @@ class LanguageSettingsMediatorTest : public PlatformTest {
 };
 
 // Tests that the mediator notifies its consumer when the value of
-// prefs::kOfferTranslateEnabled, language::prefs::kAcceptLanguages or
-// language::prefs::kFluentLanguages change.
+// translate::prefs::kOfferTranslateEnabled, language::prefs::kAcceptLanguages
+// or translate::prefs::kBlockedLanguages change.
 TEST_F(LanguageSettingsMediatorTest, TestPrefsChanged) {
   consumer().translateEnabledWasCalled = NO;
   EXPECT_FALSE([consumer() translateEnabled]);
-  GetPrefs()->SetBoolean(prefs::kOfferTranslateEnabled, true);
+  GetPrefs()->SetBoolean(translate::prefs::kOfferTranslateEnabled, true);
   ASSERT_TRUE(WaitUntilConditionOrTimeout(kSyncOperationTimeout, ^bool() {
     return consumer().translateEnabledWasCalled;
   }));
@@ -158,7 +158,7 @@ TEST_F(LanguageSettingsMediatorTest, TestPrefsChanged) {
 
   consumer().translateEnabledWasCalled = NO;
   EXPECT_TRUE([consumer() translateEnabled]);
-  GetPrefs()->SetBoolean(prefs::kOfferTranslateEnabled, false);
+  GetPrefs()->SetBoolean(translate::prefs::kOfferTranslateEnabled, false);
   ASSERT_TRUE(WaitUntilConditionOrTimeout(kSyncOperationTimeout, ^bool() {
     return consumer().translateEnabledWasCalled;
   }));
@@ -185,9 +185,9 @@ TEST_F(LanguageSettingsMediatorTest, TestPrefsChanged) {
 // and excludes languages already in the accept languages list.
 TEST_F(LanguageSettingsMediatorTest, TestSupportedLanguagesItems) {
   NSArray<LanguageItem*>* language_items = [mediator() supportedLanguagesItems];
-  std::vector<base::string16> display_names =
+  std::vector<std::u16string> display_names =
       ExtractDisplayNamesFromLanguageItems(language_items);
-  std::vector<base::string16> sorted(display_names);
+  std::vector<std::u16string> sorted(display_names);
   l10n_util::SortVectorWithStringKey("en-US", &sorted, false);
   EXPECT_THAT(display_names, ElementsAreArray(sorted));
 
@@ -234,10 +234,11 @@ TEST_F(LanguageSettingsMediatorTest, TestAcceptLanguagesItems) {
 // Tests that the mediator updates the model upon receiving the UI commands.
 TEST_F(LanguageSettingsMediatorTest, TestLanguageSettingsCommands) {
   [mediator() setTranslateEnabled:NO];
-  EXPECT_FALSE(GetPrefs()->GetBoolean(prefs::kOfferTranslateEnabled));
+  EXPECT_FALSE(
+      GetPrefs()->GetBoolean(translate::prefs::kOfferTranslateEnabled));
 
   [mediator() setTranslateEnabled:YES];
-  EXPECT_TRUE(GetPrefs()->GetBoolean(prefs::kOfferTranslateEnabled));
+  EXPECT_TRUE(GetPrefs()->GetBoolean(translate::prefs::kOfferTranslateEnabled));
 
   [mediator() addLanguage:"fa"];
   [mediator() addLanguage:"en-US"];

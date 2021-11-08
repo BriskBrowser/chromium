@@ -4,135 +4,186 @@
 
 #include "base/allocator/allocator_shim_default_dispatch_to_partition_alloc.h"
 
+#include <atomic>
+#include <cstddef>
+
 #include "base/allocator/allocator_shim_internals.h"
 #include "base/allocator/buildflags.h"
+#include "base/allocator/partition_allocator/allocation_guard.h"
 #include "base/allocator/partition_allocator/memory_reclaimer.h"
 #include "base/allocator/partition_allocator/partition_alloc.h"
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
+#include "base/allocator/partition_allocator/partition_alloc_config.h"
 #include "base/allocator/partition_allocator/partition_alloc_constants.h"
-#include "base/allocator/partition_allocator/partition_alloc_features.h"
+#include "base/allocator/partition_allocator/partition_root.h"
 #include "base/allocator/partition_allocator/partition_stats.h"
 #include "base/bits.h"
+#include "base/compiler_specific.h"
+#include "base/memory/nonscannable_memory.h"
 #include "base/no_destructor.h"
 #include "base/numerics/checked_math.h"
-#include "base/partition_alloc_buildflags.h"
 #include "build/build_config.h"
+#include "build/chromecast_buildflags.h"
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include <malloc.h>
+#endif
+
+#if defined(OS_WIN) && defined(ARCH_CPU_X86)
+#include <windows.h>
 #endif
 
 using base::allocator::AllocatorDispatch;
 
 namespace {
 
-// We would usually make g_root a static local variable, as these are guaranteed
-// to be thread-safe in C++11. However this does not work on Windows, as the
-// initialization calls into the runtime, which is not prepared to handle it.
-//
-// To sidestep that, we implement our own equivalent to a local `static
-// base::NoDestructor<base::ThreadSafePartitionRoot> root`.
-//
-// The ingredients are:
-// - Placement new to avoid a static constructor, and a static destructor.
-// - Double-checked locking to get the same guarantees as a static local
-//   variable.
+class SimpleScopedSpinLocker {
+ public:
+  explicit SimpleScopedSpinLocker(std::atomic<bool>& lock) : lock_(lock) {
+    // Lock. Semantically equivalent to base::Lock::Acquire().
+    bool expected = false;
+    // Weak CAS since we are in a retry loop, relaxed ordering for failure since
+    // in this case we don't imply any ordering.
+    //
+    // This matches partition_allocator/spinning_mutex.h fast path on Linux.
+    while (!lock_.compare_exchange_weak(
+        expected, true, std::memory_order_acquire, std::memory_order_relaxed)) {
+      expected = false;
+    }
+  }
 
-// Lock for double-checked locking.
-std::atomic<bool> g_initialization_lock;
-std::atomic<base::ThreadSafePartitionRoot*> g_root_;
-// Buffer for placement new.
-alignas(base::ThreadSafePartitionRoot) uint8_t
-    g_allocator_buffer[sizeof(base::ThreadSafePartitionRoot)];
+  ~SimpleScopedSpinLocker() { lock_.store(false, std::memory_order_release); }
 
-base::ThreadSafePartitionRoot* Allocator() {
-  // Double-checked locking.
+ private:
+  std::atomic<bool>& lock_;
+};
+
+// We can't use a "static local" or a base::LazyInstance, as:
+// - static local variables call into the runtime on Windows, which is not
+//   prepared to handle it, as the first allocation happens during CRT init.
+// - We don't want to depend on base::LazyInstance, which may be converted to
+//   static locals one day.
+//
+// Nevertheless, this provides essentially the same thing.
+template <typename T, typename Constructor>
+class LeakySingleton {
+ public:
+  constexpr LeakySingleton() = default;
+
+  ALWAYS_INLINE T* Get() {
+    auto* instance = instance_.load(std::memory_order_acquire);
+    if (LIKELY(instance))
+      return instance;
+
+    return GetSlowPath();
+  }
+
+  // Replaces the instance pointer with a new one.
+  void Replace(T* new_instance) {
+    SimpleScopedSpinLocker scoped_lock{initialization_lock_};
+
+    // Modify under the lock to avoid race between |if (instance)| and
+    // |instance_.store()| in GetSlowPath().
+    instance_.store(new_instance, std::memory_order_release);
+  }
+
+ private:
+  T* GetSlowPath();
+
+  std::atomic<T*> instance_;
+  alignas(T) uint8_t instance_buffer_[sizeof(T)];
+  std::atomic<bool> initialization_lock_;
+};
+
+template <typename T, typename Constructor>
+T* LeakySingleton<T, Constructor>::GetSlowPath() {
+  // The instance has not been set, the proper way to proceed (correct
+  // double-checked locking) is:
   //
-  // The proper way to proceed is:
-  //
-  // auto* root = load_acquire(g_root);
-  // if (!root) {
+  // auto* instance = instance_.load(std::memory_order_acquire);
+  // if (!instance) {
   //   ScopedLock initialization_lock;
-  //   root = load_relaxed(g_root);
+  //   root = instance_.load(std::memory_order_relaxed);
   //   if (root)
   //     return root;
-  //   new_root = Create new root.
-  //   release_store(g_root, new_root);
+  //   instance = Create new root;
+  //   instance_.store(instance, std::memory_order_release);
+  //   return instance;
   // }
   //
-  // We don't want to use a base::Lock here, so instead we use the
-  // compare-and-exchange on a lock variable, but this provides the same
-  // guarantees as a regular lock. The code could be made simpler as we have
-  // stricter requirements, but we stick to something close to a regular lock
-  // for ease of reading, as none of this is performance-critical anyway.
-  //
-  // If we boldly assume that initialization will always be single-threaded,
-  // then we could remove all these atomic operations, but this seems a bit too
-  // bold to try yet. Might be worth revisiting though, since this would remove
-  // a memory barrier at each load. We could probably guarantee single-threaded
-  // init by adding a static constructor which allocates (and hence triggers
-  // initialization before any other thread is created).
-  auto* root = g_root_.load(std::memory_order_acquire);
-  if (LIKELY(root))
-    return root;
+  // However, we don't want to use a base::Lock here, so instead we use
+  // compare-and-exchange on a lock variable, which provides the same
+  // guarantees.
+  SimpleScopedSpinLocker scoped_lock{initialization_lock_};
 
-  bool expected = false;
-  // Semantically equivalent to base::Lock::Acquire().
-  while (!g_initialization_lock.compare_exchange_strong(
-      expected, true, std::memory_order_acquire, std::memory_order_acquire)) {
-    expected = false;
-  }
-
-  root = g_root_.load(std::memory_order_relaxed);
+  T* instance = instance_.load(std::memory_order_relaxed);
   // Someone beat us.
-  if (root) {
-    // Semantically equivalent to base::Lock::Release().
-    g_initialization_lock.store(false, std::memory_order_release);
-    return root;
-  }
+  if (instance)
+    return instance;
 
-  auto* new_root = new (g_allocator_buffer) base::ThreadSafePartitionRoot({
-    base::PartitionOptions::Alignment::kRegular,
-#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && \
-    !BUILDFLAG(ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL)
-        base::PartitionOptions::ThreadCache::kEnabled,
-#elif BUILDFLAG(ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL)
-        // With ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL, if GigaCage is enabled,
-        // this partition is only temporary until BackupRefPtr is re-configured
-        // at run-time. Leave the ability to have a thread cache to the main
-        // partition. (Note that ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL implies
-        // that USE_BACKUP_REF_PTR is true.)
-        //
-        // Note that it is ok to use RefCount::kEnabled below regardless of the
-        // GigaCage check, because the constructor will disable ref-count if
-        // GigaCage is disabled.
-        base::features::IsPartitionAllocGigaCageEnabled()
-            ? base::PartitionOptions::ThreadCache::kDisabled
-            : base::PartitionOptions::ThreadCache::kEnabled,
-#else
-        // Other tests, such as the ThreadCache tests create a thread cache, and
-        // only one is supported at a time.
-        base::PartitionOptions::ThreadCache::kDisabled,
-#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) &&
-        // !BUILDFLAG(ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL)
+  instance = Constructor::New(reinterpret_cast<void*>(instance_buffer_));
+  instance_.store(instance, std::memory_order_release);
+
+  return instance;
+}
+
+class MainPartitionConstructor {
+ public:
+  static base::ThreadSafePartitionRoot* New(void* buffer) {
+    constexpr base::PartitionOptions::ThreadCache thread_cache =
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+        // Additional partitions may be created in ConfigurePartitions(). Since
+        // only one partition can have thread cache enabled, leave this ability
+        // to the new main partition. If such a partition isn't needed, the
+        // thread cache will be then turned on in this one.
+        // TODO(bartekn): Revert crrev.com/c/3240505 once
+        // PartitionAllocSimulateBRPPartitionSplit is no longer needed. The main
+        // reason is to bring back ThreadCache::kEnabled in the default case.
+        base::PartitionOptions::ThreadCache::kDisabled;
+#else   // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+        // Other tests, such as the ThreadCache tests create a thread cache,
+        // and only one is supported at a time.
+        base::PartitionOptions::ThreadCache::kDisabled;
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+    auto* new_root = new (buffer) base::ThreadSafePartitionRoot({
+        base::PartitionOptions::AlignedAlloc::kAllowed,
+        thread_cache,
         base::PartitionOptions::Quarantine::kAllowed,
-        base::PartitionOptions::RefCount::kEnabled,
-  });
-  g_root_.store(new_root, std::memory_order_release);
+        base::PartitionOptions::Cookie::kAllowed,
+        base::PartitionOptions::BackupRefPtr::kDisabled,
+        base::PartitionOptions::UseConfigurablePool::kNo,
+        base::PartitionOptions::LazyCommit::kEnabled,
+    });
 
-  // Semantically equivalent to base::Lock::Release().
-  g_initialization_lock.store(false, std::memory_order_release);
-  return new_root;
+    return new_root;
+  }
+};
+
+LeakySingleton<base::ThreadSafePartitionRoot, MainPartitionConstructor> g_root
+    CONSTINIT = {};
+base::ThreadSafePartitionRoot* Allocator() {
+  return g_root.Get();
+}
+
+// Original g_root_ if it was replaced by ConfigurePartitions().
+std::atomic<base::ThreadSafePartitionRoot*> g_original_root(nullptr);
+
+class AlignedPartitionConstructor {
+ public:
+  static base::ThreadSafePartitionRoot* New(void* buffer) {
+    return g_root.Get();
+  }
+};
+
+LeakySingleton<base::ThreadSafePartitionRoot, AlignedPartitionConstructor>
+    g_aligned_root CONSTINIT = {};
+
+base::ThreadSafePartitionRoot* OriginalAllocator() {
+  return g_original_root.load(std::memory_order_relaxed);
 }
 
 base::ThreadSafePartitionRoot* AlignedAllocator() {
-  // Since the general-purpose allocator uses the thread cache, this one cannot.
-  static base::NoDestructor<base::ThreadSafePartitionRoot> aligned_allocator(
-      base::PartitionOptions{base::PartitionOptions::Alignment::kAlignedAlloc,
-                             base::PartitionOptions::ThreadCache::kDisabled,
-                             base::PartitionOptions::Quarantine::kAllowed,
-                             base::PartitionOptions::RefCount::kDisabled});
-  return aligned_allocator.get();
+  return g_aligned_root.Get();
 }
 
 #if defined(OS_WIN) && defined(ARCH_CPU_X86)
@@ -192,7 +243,9 @@ void* AllocateAlignedMemory(size_t alignment, size_t size) {
   if (alignment <= base::kAlignment) {
     // This is mandated by |posix_memalign()| and friends, so should never fire.
     PA_CHECK(base::bits::IsPowerOfTwo(alignment));
-    return Allocator()->AllocFlagsNoHooks(0, size);
+    // TODO(bartekn): See if the compiler optimizes branches down the stack on
+    // Mac, where PartitionPageSize() isn't constexpr.
+    return Allocator()->AllocFlagsNoHooks(0, size, base::PartitionPageSize());
   }
 
   return AlignedAllocator()->AlignedAllocFlags(base::PartitionAllocNoHooks,
@@ -205,28 +258,35 @@ namespace base {
 namespace internal {
 
 void* PartitionMalloc(const AllocatorDispatch*, size_t size, void* context) {
-  return Allocator()->AllocFlagsNoHooks(0, MaybeAdjustSize(size));
+  ScopedDisallowAllocations guard{};
+  return Allocator()->AllocFlagsNoHooks(0, MaybeAdjustSize(size),
+                                        PartitionPageSize());
 }
 
 void* PartitionMallocUnchecked(const AllocatorDispatch*,
                                size_t size,
                                void* context) {
+  ScopedDisallowAllocations guard{};
   return Allocator()->AllocFlagsNoHooks(base::PartitionAllocReturnNull,
-                                        MaybeAdjustSize(size));
+                                        MaybeAdjustSize(size),
+                                        PartitionPageSize());
 }
 
 void* PartitionCalloc(const AllocatorDispatch*,
                       size_t n,
                       size_t size,
                       void* context) {
+  ScopedDisallowAllocations guard{};
   const size_t total = base::CheckMul(n, MaybeAdjustSize(size)).ValueOrDie();
-  return Allocator()->AllocFlagsNoHooks(base::PartitionAllocZeroFill, total);
+  return Allocator()->AllocFlagsNoHooks(base::PartitionAllocZeroFill, total,
+                                        PartitionPageSize());
 }
 
 void* PartitionMemalign(const AllocatorDispatch*,
                         size_t alignment,
                         size_t size,
                         void* context) {
+  ScopedDisallowAllocations guard{};
   return AllocateAlignedMemory(alignment, size);
 }
 
@@ -234,6 +294,7 @@ void* PartitionAlignedAlloc(const AllocatorDispatch* dispatch,
                             size_t size,
                             size_t alignment,
                             void* context) {
+  ScopedDisallowAllocations guard{};
   return AllocateAlignedMemory(alignment, size);
 }
 
@@ -249,6 +310,7 @@ void* PartitionAlignedRealloc(const AllocatorDispatch* dispatch,
                               size_t size,
                               size_t alignment,
                               void* context) {
+  ScopedDisallowAllocations guard{};
   void* new_ptr = nullptr;
   if (size > 0) {
     size = MaybeAdjustSize(size);
@@ -277,24 +339,89 @@ void* PartitionRealloc(const AllocatorDispatch*,
                        void* address,
                        size_t size,
                        void* context) {
+  ScopedDisallowAllocations guard{};
+#if defined(OS_APPLE)
+  if (UNLIKELY(!base::IsManagedByPartitionAlloc(address) && address)) {
+    // A memory region allocated by the system allocator is passed in this
+    // function.  Forward the request to `realloc` which supports zone-
+    // dispatching so that it appropriately selects the right zone.
+    return realloc(address, size);
+  }
+#endif  // defined(OS_APPLE)
+
   return Allocator()->ReallocFlags(base::PartitionAllocNoHooks, address,
                                    MaybeAdjustSize(size), "");
 }
 
+#if defined(OS_ANDROID) && BUILDFLAG(IS_CHROMECAST)
+extern "C" {
+void __real_free(void*);
+}  // extern "C"
+#endif
+
 void PartitionFree(const AllocatorDispatch*, void* address, void* context) {
+  ScopedDisallowAllocations guard{};
+#if defined(OS_APPLE)
+  if (UNLIKELY(!base::IsManagedByPartitionAlloc(address) && address)) {
+    // A memory region allocated by the system allocator is passed in this
+    // function.  Forward the request to `free` which supports zone-
+    // dispatching so that it appropriately selects the right zone.
+    return free(address);
+  }
+#endif  // defined(OS_APPLE)
+
+  // On Chromecast, there is at least one case where a system malloc() pointer
+  // can be passed to PartitionAlloc's free(). If we don't own the pointer, pass
+  // it along. This should not have a runtime cost vs regular Android, since on
+  // Android we have a PA_CHECK() rather than the branch here.
+#if defined(OS_ANDROID) && BUILDFLAG(IS_CHROMECAST)
+  if (UNLIKELY(!base::IsManagedByPartitionAlloc(address) && address)) {
+    // A memory region allocated by the system allocator is passed in this
+    // function.  Forward the request to `free()`, which is `__real_free()`
+    // here.
+    return __real_free(address);
+  }
+#endif
+
   base::ThreadSafePartitionRoot::FreeNoHooks(address);
 }
 
 size_t PartitionGetSizeEstimate(const AllocatorDispatch*,
                                 void* address,
                                 void* context) {
+  // This is used to implement malloc_usable_size(3). Per its man page, "if ptr
+  // is NULL, 0 is returned".
+  if (!address)
+    return 0;
+
+#if defined(OS_APPLE)
+  if (!base::IsManagedByPartitionAlloc(address)) {
+    // The object pointed to by `address` is not allocated by the
+    // PartitionAlloc.  The return value `0` means that the pointer does not
+    // belong to this malloc zone.
+    return 0;
+  }
+#endif  // defined(OS_APPLE)
+
   // TODO(lizeb): Returns incorrect values for aligned allocations.
-  return base::ThreadSafePartitionRoot::GetUsableSize(address);
+  const size_t size = base::ThreadSafePartitionRoot::GetUsableSize(address);
+#if defined(OS_APPLE)
+  // The object pointed to by `address` is allocated by the PartitionAlloc.
+  // So, this function must not return zero so that the malloc zone dispatcher
+  // finds the appropriate malloc zone.
+  PA_DCHECK(size);
+#endif  // defined(OS_APPLE)
+  return size;
 }
 
 // static
 ThreadSafePartitionRoot* PartitionAllocMalloc::Allocator() {
   return ::Allocator();
+}
+
+// static
+ThreadSafePartitionRoot* PartitionAllocMalloc::OriginalAllocator() {
+  return ::OriginalAllocator();
 }
 
 // static
@@ -311,57 +438,137 @@ namespace base {
 namespace allocator {
 
 void EnablePartitionAllocMemoryReclaimer() {
-  // Allocator() and AlignedAllocator() do not register their PartitionRoots to
-  // the memory reclaimer because the memory reclaimer allocates memory.  Thus,
-  // the registration to the memory reclaimer should be done sometime later.
-  // This function will be called sometime appropriate after PartitionRoots are
-  // initialized.
+  // Unlike other partitions, Allocator() and AlignedAllocator() do not register
+  // their PartitionRoots to the memory reclaimer, because doing so may allocate
+  // memory. Thus, the registration to the memory reclaimer has to be done
+  // some time later, when the main root is fully configured.
+  // TODO(bartekn): Aligned allocator can use the regular initialization path.
   PartitionAllocMemoryReclaimer::Instance()->RegisterPartition(Allocator());
-  PartitionAllocMemoryReclaimer::Instance()->RegisterPartition(
-      AlignedAllocator());
+  auto* original_root = OriginalAllocator();
+  if (original_root)
+    PartitionAllocMemoryReclaimer::Instance()->RegisterPartition(original_root);
+  if (AlignedAllocator() != Allocator()) {
+    PartitionAllocMemoryReclaimer::Instance()->RegisterPartition(
+        AlignedAllocator());
+  }
 }
 
-// Note that ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL implies that
-// USE_BACKUP_REF_PTR is true.
-#if BUILDFLAG(ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL)
+void ReconfigurePartitionAllocLazyCommit(bool enabled) {
+  // Unlike other partitions, Allocator() and AlignedAllocator() do not
+  // configure lazy commit upfront, because it uses base::Feature, which in turn
+  // allocates memory. Thus, lazy commit configuration has to be done after
+  // base::FeatureList is initialized.
+  // TODO(bartekn): Aligned allocator can use the regular initialization path.
+  Allocator()->ConfigureLazyCommit(enabled);
+  auto* original_root = OriginalAllocator();
+  if (original_root)
+    original_root->ConfigureLazyCommit(enabled);
+  AlignedAllocator()->ConfigureLazyCommit(enabled);
+}
+
 alignas(base::ThreadSafePartitionRoot) uint8_t
-    g_allocator_buffer_for_ref_count_config[sizeof(
+    g_allocator_buffer_for_new_main_partition[sizeof(
         base::ThreadSafePartitionRoot)];
 
-void ConfigurePartitionRefCountSupport(bool enable_ref_count) {
-  // If GigaCage is disabled, don't configure a new partition with ref-count
-  // enabled, as it'll be ineffective thus wasteful (increased fragmentation).
-  // Furthermore, in this case, the main partition has thread cache enabled, so
-  // creating one more here simply wouldn't work.
-  if (!base::features::IsPartitionAllocGigaCageEnabled())
-    return;
+alignas(base::ThreadSafePartitionRoot) uint8_t
+    g_allocator_buffer_for_aligned_alloc_partition[sizeof(
+        base::ThreadSafePartitionRoot)];
 
-  auto* current_root = g_root_.load(std::memory_order_acquire);
-  // We expect a number of heap allocations to be made before this function is
-  // called, which should force the `g_root` initialization.
-  PA_CHECK(current_root);
+void ConfigurePartitions(EnableBrp enable_brp,
+                         ForceSplitPartitions force_split_partitions) {
+  auto* current_root = g_root.Get();
+  // Call Get() to ensure g_aligned_root gets initialized. In some cases it is
+  // initialized with g_root, and we want to make sure it is the pre-swap
+  // value (unless explicitly overwritten below).
+  auto* current_aligned_root = g_aligned_root.Get();
+
+  // When there is no need to split partition, simply enable thread cache in the
+  // existing root.
+  if (!enable_brp && !force_split_partitions) {
+    PA_DCHECK(!current_root->with_thread_cache);
+    current_root->EnableThreadCacheIfSupported();
+    return;
+  }
+
   current_root->PurgeMemory(PartitionPurgeDecommitEmptySlotSpans |
                             PartitionPurgeDiscardUnusedSystemPages);
 
-  auto* new_root = new (g_allocator_buffer_for_ref_count_config)
+  // AlignedAlloc relies on natural alignment offered by the allocator (see the
+  // comment inside PartitionRoot::AlignedAllocFlags). Any extras in front of
+  // the allocation will mess up that alignment. Such extras are used when
+  // BackupRefPtr is on, in which case, we need a separate partition, dedicated
+  // to handle only aligned allocations, where those extras are disabled.
+  // However, if the "previous slot" variant is used, no dedicated partition is
+  // needed, as the extras won't interfere with the alignment requirements.
+  //
+  // Regardless of everything said above, force_split_partitions==true will
+  // force creating a dedicated partition for aligned allocations.
+  const bool use_dedicated_partition_for_aligned_alloc =
+#if BUILDFLAG(PUT_REF_COUNT_IN_PREVIOUS_SLOT)
+      force_split_partitions;
+#else
+      true;
+#endif
+  const bool allow_aligned_alloc_in_main_root =
+      !use_dedicated_partition_for_aligned_alloc;
+
+  auto* new_root = new (g_allocator_buffer_for_new_main_partition)
       base::ThreadSafePartitionRoot({
-          base::PartitionOptions::Alignment::kRegular,
+          allow_aligned_alloc_in_main_root
+              ? base::PartitionOptions::AlignedAlloc::kAllowed
+              : base::PartitionOptions::AlignedAlloc::kDisallowed,
           base::PartitionOptions::ThreadCache::kEnabled,
           base::PartitionOptions::Quarantine::kAllowed,
-          enable_ref_count ? base::PartitionOptions::RefCount::kEnabled
-                           : base::PartitionOptions::RefCount::kDisabled,
+          base::PartitionOptions::Cookie::kAllowed,
+          enable_brp ? base::PartitionOptions::BackupRefPtr::kEnabled
+                     : base::PartitionOptions::BackupRefPtr::kDisabled,
+          base::PartitionOptions::UseConfigurablePool::kNo,
+          base::PartitionOptions::LazyCommit::kEnabled,
       });
-  g_root_.store(new_root, std::memory_order_release);
-}
-#endif  // BUILDFLAG(ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL)
+  g_root.Replace(new_root);
+  // g_original_root has to be set after g_root, because other code doesn't
+  // handle well both pointing to the same root.
+  // TODO(bartekn): Reorder, once handled well. It isn't ideal for one
+  // partition to be invisible temporarily.
+  // TODO(bartekn): Move current_root->PurgeMemory after the replacement.
+  g_original_root = current_root;
 
-#if PA_ALLOW_PCSCAN
-void EnablePCScan() {
-  auto& pcscan = internal::PCScan<internal::ThreadSafe>::Instance();
-  pcscan.RegisterScannableRoot(Allocator());
-  pcscan.RegisterScannableRoot(AlignedAllocator());
+  base::ThreadSafePartitionRoot* new_aligned_root;
+  if (use_dedicated_partition_for_aligned_alloc) {
+    // TODO(bartekn): Use the original root instead of creating a new one. It'd
+    // result in one less partition, but come at a cost of commingling types.
+    new_aligned_root = new (g_allocator_buffer_for_aligned_alloc_partition)
+        base::ThreadSafePartitionRoot({
+            base::PartitionOptions::AlignedAlloc::kAllowed,
+            base::PartitionOptions::ThreadCache::kDisabled,
+            base::PartitionOptions::Quarantine::kAllowed,
+            base::PartitionOptions::Cookie::kAllowed,
+            base::PartitionOptions::BackupRefPtr::kDisabled,
+            base::PartitionOptions::UseConfigurablePool::kNo,
+            base::PartitionOptions::LazyCommit::kEnabled,
+        });
+  } else {
+    // The new main root can also support AlignedAlloc.
+    new_aligned_root = g_root.Get();
+  }
+  PA_CHECK(current_aligned_root == g_original_root);
+  g_aligned_root.Replace(new_aligned_root);
+  // No need for g_original_aligned_root, because in cases where g_aligned_root
+  // is replaced, it must've been g_original_root.
 }
-#endif
+
+#if defined(PA_ALLOW_PCSCAN)
+void EnablePCScan(base::internal::PCScan::InitConfig config) {
+  internal::PCScan::Initialize(config);
+
+  internal::PCScan::RegisterScannableRoot(Allocator());
+  if (Allocator() != AlignedAllocator())
+    internal::PCScan::RegisterScannableRoot(AlignedAllocator());
+
+  internal::NonScannableAllocator::Instance().NotifyPCScanEnabled();
+  internal::NonQuarantinableAllocator::Instance().NotifyPCScanEnabled();
+}
+#endif  // defined(PA_ALLOW_PCSCAN)
 
 #if defined(OS_WIN)
 // Call this as soon as possible during startup.
@@ -413,28 +620,69 @@ SHIM_ALWAYS_EXPORT int mallopt(int cmd, int value) __THROW {
 SHIM_ALWAYS_EXPORT struct mallinfo mallinfo(void) __THROW {
   base::SimplePartitionStatsDumper allocator_dumper;
   Allocator()->DumpStats("malloc", true, &allocator_dumper);
+  // TODO(bartekn): Dump OriginalAllocator() into "malloc" as well.
 
   base::SimplePartitionStatsDumper aligned_allocator_dumper;
-  AlignedAllocator()->DumpStats("posix_memalign", true,
-                                &aligned_allocator_dumper);
+  if (AlignedAllocator() != Allocator()) {
+    AlignedAllocator()->DumpStats("posix_memalign", true,
+                                  &aligned_allocator_dumper);
+  }
+
+  // Dump stats for nonscannable and nonquarantinable allocators.
+  auto& nonscannable_allocator =
+      base::internal::NonScannableAllocator::Instance();
+  base::SimplePartitionStatsDumper nonscannable_allocator_dumper;
+  if (auto* nonscannable_root = nonscannable_allocator.root())
+    nonscannable_root->DumpStats("malloc", true,
+                                 &nonscannable_allocator_dumper);
+  auto& nonquarantinable_allocator =
+      base::internal::NonQuarantinableAllocator::Instance();
+  base::SimplePartitionStatsDumper nonquarantinable_allocator_dumper;
+  if (auto* nonquarantinable_root = nonquarantinable_allocator.root())
+    nonquarantinable_root->DumpStats("malloc", true,
+                                     &nonquarantinable_allocator_dumper);
 
   struct mallinfo info = {0};
   info.arena = 0;  // Memory *not* allocated with mmap().
 
   // Memory allocated with mmap(), aka virtual size.
   info.hblks = allocator_dumper.stats().total_mmapped_bytes +
-               aligned_allocator_dumper.stats().total_mmapped_bytes;
+               aligned_allocator_dumper.stats().total_mmapped_bytes +
+               nonscannable_allocator_dumper.stats().total_mmapped_bytes +
+               nonquarantinable_allocator_dumper.stats().total_mmapped_bytes;
   // Resident bytes.
   info.hblkhd = allocator_dumper.stats().total_resident_bytes +
-                aligned_allocator_dumper.stats().total_resident_bytes;
+                aligned_allocator_dumper.stats().total_resident_bytes +
+                nonscannable_allocator_dumper.stats().total_resident_bytes +
+                nonquarantinable_allocator_dumper.stats().total_resident_bytes;
   // Allocated bytes.
   info.uordblks = allocator_dumper.stats().total_active_bytes +
-                  aligned_allocator_dumper.stats().total_active_bytes;
+                  aligned_allocator_dumper.stats().total_active_bytes +
+                  nonscannable_allocator_dumper.stats().total_active_bytes +
+                  nonquarantinable_allocator_dumper.stats().total_active_bytes;
 
   return info;
 }
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 }  // extern "C"
+
+#if defined(OS_APPLE)
+
+namespace base {
+namespace allocator {
+
+void InitializeDefaultAllocatorPartitionRoot() {
+  // On OS_APPLE, the initialization of PartitionRoot uses memory allocations
+  // internally, e.g. __builtin_available, and it's not easy to avoid it.
+  // Thus, we initialize the PartitionRoot with using the system default
+  // allocator before we intercept the system default allocator.
+  ignore_result(Allocator());
+}
+
+}  // namespace allocator
+}  // namespace base
+
+#endif  // defined(OS_APPLE)
 
 #endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)

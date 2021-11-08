@@ -6,11 +6,11 @@
 #define CHROME_BROWSER_UI_VIEWS_DESKTOP_CAPTURE_DESKTOP_MEDIA_SOURCE_VIEW_H_
 
 #include "content/public/browser/desktop_media_id.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/text_constants.h"
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -66,7 +66,7 @@ class DesktopMediaSourceView : public views::View {
   void SetStyle(DesktopMediaSourceViewStyle style);
 
   // Updates thumbnail and title from |source|.
-  void SetName(const base::string16& name);
+  void SetName(const std::u16string& name);
   void SetThumbnail(const gfx::ImageSkia& thumbnail);
   void SetIcon(const gfx::ImageSkia& icon);
 

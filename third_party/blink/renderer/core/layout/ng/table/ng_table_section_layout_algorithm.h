@@ -21,9 +21,13 @@ class CORE_EXPORT NGTableSectionLayoutAlgorithm
  public:
   explicit NGTableSectionLayoutAlgorithm(const NGLayoutAlgorithmParams& params);
 
-  const NGLayoutResult* Layout() override;
+  scoped_refptr<const NGLayoutResult> Layout() override;
 
-  MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesInput&) const override;
+  MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesFloatInput&) override {
+    // Table layout doesn't compute min/max sizes on table sections.
+    NOTREACHED();
+    return MinMaxSizesResult();
+  }
 };
 
 }  // namespace blink

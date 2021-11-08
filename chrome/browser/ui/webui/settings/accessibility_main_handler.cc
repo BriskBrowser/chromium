@@ -26,11 +26,11 @@ AccessibilityMainHandler::AccessibilityMainHandler() = default;
 AccessibilityMainHandler::~AccessibilityMainHandler() = default;
 
 void AccessibilityMainHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "a11yPageReady",
       base::BindRepeating(&AccessibilityMainHandler::HandleA11yPageReady,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "confirmA11yImageLabels",
       base::BindRepeating(
           &AccessibilityMainHandler::HandleCheckAccessibilityImageLabels,
@@ -40,7 +40,7 @@ void AccessibilityMainHandler::RegisterMessages() {
 void AccessibilityMainHandler::OnJavascriptAllowed() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   accessibility_subscription_ =
-      AccessibilityManager::Get()->RegisterCallback(base::BindRepeating(
+      ash::AccessibilityManager::Get()->RegisterCallback(base::BindRepeating(
           &AccessibilityMainHandler::OnAccessibilityStatusChanged,
           base::Unretained(this)));
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -80,9 +80,9 @@ void AccessibilityMainHandler::SendScreenReaderStateChanged() {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 void AccessibilityMainHandler::OnAccessibilityStatusChanged(
-    const AccessibilityStatusEventDetails& details) {
+    const ash::AccessibilityStatusEventDetails& details) {
   if (details.notification_type ==
-      AccessibilityNotificationType::kToggleSpokenFeedback) {
+      ash::AccessibilityNotificationType::kToggleSpokenFeedback) {
     SendScreenReaderStateChanged();
   }
 }

@@ -6,6 +6,7 @@
 
 #include <jni.h>
 #include <limits>
+#include <string>
 #include <utility>
 
 #include "base/android/jni_android.h"
@@ -13,12 +14,11 @@
 #include "base/android/jni_string.h"
 #include "base/bind.h"
 #include "base/guid.h"
-#include "base/strings/string16.h"
 #include "chrome/android/chrome_jni_headers/ShortcutHelper_jni.h"
 #include "components/webapps/browser/android/shortcut_info.h"
 #include "content/public/browser/manifest_icon_downloader.h"
 #include "content/public/browser/web_contents.h"
-#include "ui/android/color_helpers.h"
+#include "ui/android/color_utils_android.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "url/gurl.h"
 
@@ -135,7 +135,7 @@ void ShortcutHelper::StoreWebappSplashImage(const std::string& webapp_id,
 
 // static
 bool ShortcutHelper::DoesOriginContainAnyInstalledWebApk(const GURL& origin) {
-  DCHECK_EQ(origin, origin.GetOrigin());
+  DCHECK_EQ(origin, origin.DeprecatedGetOriginAsURL());
   JNIEnv* env = base::android::AttachCurrentThread();
   base::android::ScopedJavaLocalRef<jstring> java_origin =
       base::android::ConvertUTF8ToJavaString(env, origin.spec());
@@ -145,7 +145,7 @@ bool ShortcutHelper::DoesOriginContainAnyInstalledWebApk(const GURL& origin) {
 
 bool ShortcutHelper::DoesOriginContainAnyInstalledTrustedWebActivity(
     const GURL& origin) {
-  DCHECK_EQ(origin, origin.GetOrigin());
+  DCHECK_EQ(origin, origin.DeprecatedGetOriginAsURL());
   JNIEnv* env = base::android::AttachCurrentThread();
   base::android::ScopedJavaLocalRef<jstring> java_origin =
       base::android::ConvertUTF8ToJavaString(env, origin.spec());

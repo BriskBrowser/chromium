@@ -10,17 +10,19 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
-#include "base/optional.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "media/base/video_codecs.h"
 #include "media/gpu/chromeos/dmabuf_video_frame_pool.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/v4l2_device.h"
+#include "media/gpu/v4l2/v4l2_stateful_workaround.h"
 #include "media/gpu/v4l2/v4l2_vda_helpers.h"
 #include "media/gpu/v4l2/v4l2_video_decoder_backend.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace media {
 
@@ -96,6 +98,9 @@ bool V4L2StatefulVideoDecoderBackend::Initialize() {
     return false;
   }
 
+  framerate_control_ =
+      std::make_unique<V4L2FrameRateControl>(device_, task_runner_);
+
   return true;
 }
 
@@ -143,6 +148,11 @@ void V4L2StatefulVideoDecoderBackend::DoDecodeWork() {
     // This is our new decode request.
     current_decode_request_ = std::move(decode_request);
     DCHECK_EQ(current_decode_request_->bytes_used, 0u);
+
+    if (VideoCodecProfileToVideoCodec(profile_) == VideoCodec::kVP9 &&
+        !AppendVP9SuperFrameIndexIfNeeded(current_decode_request_->buffer)) {
+      VLOGF(1) << "Failed to append superframe index for VP9 k-SVC frame";
+    }
   }
 
   // Get a V4L2 buffer to copy the encoded data into.
@@ -161,6 +171,10 @@ void V4L2StatefulVideoDecoderBackend::DoDecodeWork() {
         .tv_usec = timespec.tv_nsec / 1000,
     };
     current_input_buffer_->SetTimeStamp(timestamp);
+
+    const int64_t flat_timespec =
+        base::TimeDelta::FromTimeSpec(timespec).InMilliseconds();
+    encoding_timestamps_[flat_timespec] = base::TimeTicks::Now();
   }
 
   // From here on we have both a decode request and input buffer, so we can
@@ -238,7 +252,7 @@ void V4L2StatefulVideoDecoderBackend::ScheduleDecodeWork() {
 }
 
 void V4L2StatefulVideoDecoderBackend::ProcessEventQueue() {
-  while (base::Optional<struct v4l2_event> ev = device_->DequeueEvent()) {
+  while (absl::optional<struct v4l2_event> ev = device_->DequeueEvent()) {
     if (ev->type == V4L2_EVENT_SOURCE_CHANGE &&
         (ev->u.src_change.changes & V4L2_EVENT_SRC_CH_RESOLUTION)) {
       ChangeResolution();
@@ -269,7 +283,7 @@ void V4L2StatefulVideoDecoderBackend::EnqueueOutputBuffers() {
     bool ret = false;
     bool no_buffer = false;
 
-    base::Optional<V4L2WritableBufferRef> buffer;
+    absl::optional<V4L2WritableBufferRef> buffer;
     switch (mem_type) {
       case V4L2_MEMORY_MMAP:
         buffer = output_queue_->GetFreeBuffer();
@@ -292,6 +306,7 @@ void V4L2StatefulVideoDecoderBackend::EnqueueOutputBuffers() {
           break;
         }
 
+        framerate_control_->AttachToVideoFrame(video_frame);
         ret = std::move(*buffer).QueueDMABuf(std::move(video_frame));
         break;
       }
@@ -341,7 +356,7 @@ scoped_refptr<VideoFrame> V4L2StatefulVideoDecoderBackend::GetPoolVideoFrame() {
 // static
 void V4L2StatefulVideoDecoderBackend::ReuseOutputBufferThunk(
     scoped_refptr<base::SequencedTaskRunner> task_runner,
-    base::Optional<base::WeakPtr<V4L2StatefulVideoDecoderBackend>> weak_this,
+    absl::optional<base::WeakPtr<V4L2StatefulVideoDecoderBackend>> weak_this,
     V4L2ReadableBufferRef buffer) {
   DVLOGF(3);
   DCHECK(weak_this);
@@ -381,7 +396,17 @@ void V4L2StatefulVideoDecoderBackend::OnOutputBufferDequeued(
         .tv_sec = timeval.tv_sec,
         .tv_nsec = timeval.tv_usec * 1000,
     };
-    const base::TimeDelta timestamp = base::TimeDelta::FromTimeSpec(timespec);
+
+    const int64_t flat_timespec =
+        base::TimeDelta::FromTimeSpec(timespec).InMilliseconds();
+    // TODO(b/190615065) |flat_timespec| might be repeated with H.264
+    // bitstreams, investigate why, and change the if() to DCHECK().
+    if (base::Contains(encoding_timestamps_, flat_timespec)) {
+      UMA_HISTOGRAM_TIMES(
+          "Media.PlatformVideoDecoding.Decode",
+          base::TimeTicks::Now() - encoding_timestamps_[flat_timespec]);
+      encoding_timestamps_.erase(flat_timespec);
+    }
 
     scoped_refptr<VideoFrame> frame;
 
@@ -407,6 +432,7 @@ void V4L2StatefulVideoDecoderBackend::OnOutputBufferDequeued(
         NOTREACHED();
     }
 
+    const base::TimeDelta timestamp = base::TimeDelta::FromTimeSpec(timespec);
     client_->OutputFrame(std::move(frame), *visible_rect_, timestamp);
   }
 
@@ -518,7 +544,7 @@ void V4L2StatefulVideoDecoderBackend::OnStreamStopped(bool stop_input_queue) {
   DVLOGF(3);
 
   // If we are resetting, also reset the splitter.
-  if (stop_input_queue)
+  if (frame_splitter_ && stop_input_queue)
     frame_splitter_->Reset();
 }
 
@@ -594,11 +620,16 @@ bool V4L2StatefulVideoDecoderBackend::ApplyResolution(
   return true;
 }
 
-void V4L2StatefulVideoDecoderBackend::OnChangeResolutionDone(bool success) {
+void V4L2StatefulVideoDecoderBackend::OnChangeResolutionDone(CroStatus status) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOGF(3);
 
-  if (!success) {
+  if (status == CroStatus::Codes::kResetRequired) {
+    // TODO(b/192523692): Handle the aborted situation.
+    return;
+  }
+
+  if (status != CroStatus::Codes::kOk) {
     client_->OnBackendError();
     return;
   }
@@ -628,7 +659,8 @@ void V4L2StatefulVideoDecoderBackend::ClearPendingRequests(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOGF(3);
 
-  resolution_change_cb_.Reset();
+  if (resolution_change_cb_)
+    std::move(resolution_change_cb_).Run();
 
   if (flush_cb_) {
     std::move(flush_cb_).Run(status);
@@ -664,8 +696,8 @@ bool V4L2StatefulVideoDecoderBackend::IsSupportedProfile(
     VideoDecodeAccelerator::SupportedProfiles profiles =
         device->GetSupportedDecodeProfiles(base::size(kSupportedInputFourccs),
                                            kSupportedInputFourccs);
-    for (const auto& profile : profiles)
-      supported_profiles_.push_back(profile.profile);
+    for (const auto& entry : profiles)
+      supported_profiles_.push_back(entry.profile);
   }
   return std::find(supported_profiles_.begin(), supported_profiles_.end(),
                    profile) != supported_profiles_.end();

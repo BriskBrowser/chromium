@@ -4,6 +4,7 @@
 
 #include "chrome/test/base/test_browser_window.h"
 
+#include "chrome/browser/sharing/sharing_dialog_data.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
@@ -19,6 +20,13 @@ std::unique_ptr<Browser> CreateBrowserWithTestWindowForParams(
   TestBrowserWindow* window = new TestBrowserWindow;
   new TestBrowserWindowOwner(window);
   params.window = window;
+  window->set_is_minimized(params.initial_show_state ==
+                           ui::SHOW_STATE_MINIMIZED);
+  // Tests generally expect TestBrowserWindows not to be active.
+  window->set_is_active(params.initial_show_state != ui::SHOW_STATE_INACTIVE &&
+                        params.initial_show_state != ui::SHOW_STATE_DEFAULT &&
+                        params.initial_show_state != ui::SHOW_STATE_MINIMIZED);
+
   return std::unique_ptr<Browser>(Browser::Create(params));
 }
 
@@ -72,7 +80,7 @@ void TestBrowserWindow::Close() {
 }
 
 bool TestBrowserWindow::IsActive() const {
-  return false;
+  return is_active_;
 }
 
 ui::ZOrderLevel TestBrowserWindow::GetZOrderLevel() const {
@@ -94,6 +102,10 @@ void TestBrowserWindow::SetTopControlsShownRatio(
 bool TestBrowserWindow::DoBrowserControlsShrinkRendererSize(
     const content::WebContents* contents) const {
   return false;
+}
+
+ui::NativeTheme* TestBrowserWindow::GetNativeTheme() {
+  return nullptr;
 }
 
 int TestBrowserWindow::GetTopControlsHeight() const {
@@ -130,7 +142,7 @@ bool TestBrowserWindow::IsMaximized() const {
 }
 
 bool TestBrowserWindow::IsMinimized() const {
-  return false;
+  return is_minimized_;
 }
 
 bool TestBrowserWindow::ShouldHideUIForFullscreen() const {
@@ -181,7 +193,11 @@ bool TestBrowserWindow::IsBookmarkBarAnimating() const {
 }
 
 bool TestBrowserWindow::IsTabStripEditable() const {
-  return true;
+  return is_tab_strip_editable_;
+}
+
+void TestBrowserWindow::SetIsTabStripEditable(bool is_editable) {
+  is_tab_strip_editable_ = is_editable;
 }
 
 bool TestBrowserWindow::IsToolbarVisible() const {
@@ -206,7 +222,8 @@ qrcode_generator::QRCodeGeneratorBubbleView*
 TestBrowserWindow::ShowQRCodeGeneratorBubble(
     content::WebContents* contents,
     qrcode_generator::QRCodeGeneratorBubbleController* controller,
-    const GURL& url) {
+    const GURL& url,
+    bool show_back_button) {
   return nullptr;
 }
 
@@ -216,6 +233,16 @@ SharingDialog* TestBrowserWindow::ShowSharingDialog(
   return nullptr;
 }
 
+#if !defined(OS_ANDROID)
+sharing_hub::ScreenshotCapturedBubble*
+TestBrowserWindow::ShowScreenshotCapturedBubble(
+    content::WebContents* contents,
+    const gfx::Image& image,
+    sharing_hub::ScreenshotCapturedBubbleController* controller) {
+  return nullptr;
+}
+#endif
+
 send_tab_to_self::SendTabToSelfBubbleView*
 TestBrowserWindow::ShowSendTabToSelfBubble(
     content::WebContents* contents,
@@ -223,6 +250,19 @@ TestBrowserWindow::ShowSendTabToSelfBubble(
     bool is_user_gesture) {
   return nullptr;
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+views::Button* TestBrowserWindow::GetSharingHubIconButton() {
+  return nullptr;
+}
+#else
+sharing_hub::SharingHubBubbleView* TestBrowserWindow::ShowSharingHubBubble(
+    content::WebContents* contents,
+    sharing_hub::SharingHubBubbleController* controller,
+    bool is_user_gesture) {
+  return nullptr;
+}
+#endif
 
 bool TestBrowserWindow::IsDownloadShelfVisible() const {
   return false;

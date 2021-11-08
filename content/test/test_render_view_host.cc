@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
@@ -15,26 +14,28 @@
 #include "content/browser/compositor/surface_utils.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
 #include "content/browser/dom_storage/session_storage_namespace_impl.h"
-#include "content/browser/renderer_host/drop_data_util.h"
+#include "content/browser/renderer_host/data_transfer_util.h"
 #include "content/browser/renderer_host/input/synthetic_gesture_target.h"
+#include "content/browser/renderer_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/storage_partition_impl.h"
-#include "content/common/frame_messages.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/drop_data.h"
+#include "content/test/test_page_broadcast.h"
 #include "content/test/test_render_frame_host.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "media/base/video_frame.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/page_state/page_state.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
-#include "third_party/blink/public/mojom/page/drag.mojom.h"
+#include "third_party/blink/public/mojom/drag/drag.mojom.h"
 #include "ui/aura/env.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer_type.h"
@@ -75,8 +76,8 @@ TestRenderWidgetHostView::TestRenderWidgetHostView(RenderWidgetHost* rwh)
   }
 
 #if defined(USE_AURA)
-  window_.reset(new aura::Window(
-      aura::test::TestWindowDelegate::CreateSelfDestroyingDelegate()));
+  window_ = std::make_unique<aura::Window>(
+      aura::test::TestWindowDelegate::CreateSelfDestroyingDelegate());
   window_->set_owned_by_parent(false);
   window_->Init(ui::LayerType::LAYER_NOT_DRAWN);
 #endif
@@ -108,7 +109,8 @@ bool TestRenderWidgetHostView::HasFocus() {
   return true;
 }
 
-void TestRenderWidgetHostView::Show() {
+void TestRenderWidgetHostView::ShowWithVisibility(
+    PageVisibilityState /*page_visibility*/) {
   is_showing_ = true;
   is_occluded_ = false;
 }
@@ -160,6 +162,13 @@ void TestRenderWidgetHostView::SpeakSelection() {
 }
 
 void TestRenderWidgetHostView::SetWindowFrameInScreen(const gfx::Rect& rect) {}
+
+void TestRenderWidgetHostView::ShowSharePicker(
+    const std::string& title,
+    const std::string& text,
+    const std::string& url,
+    const std::vector<std::string>& file_paths,
+    blink::mojom::ShareService::ShareCallback callback) {}
 #endif
 
 gfx::Rect TestRenderWidgetHostView::GetBoundsInRootWindow() {
@@ -168,9 +177,7 @@ gfx::Rect TestRenderWidgetHostView::GetBoundsInRootWindow() {
 
 void TestRenderWidgetHostView::TakeFallbackContentFrom(
     RenderWidgetHostView* view) {
-  base::Optional<SkColor> color = view->GetBackgroundColor();
-  if (color)
-    SetBackgroundColor(*color);
+  CopyBackgroundColorIfPresentFrom(*view);
 }
 
 blink::mojom::PointerLockResult TestRenderWidgetHostView::LockMouse(bool) {
@@ -203,8 +210,10 @@ void TestRenderWidgetHostView::OnFirstSurfaceActivation(
   // surface should be set here.
 }
 
-void TestRenderWidgetHostView::OnFrameTokenChanged(uint32_t frame_token) {
-  OnFrameTokenChangedForView(frame_token);
+void TestRenderWidgetHostView::OnFrameTokenChanged(
+    uint32_t frame_token,
+    base::TimeTicks activation_time) {
+  OnFrameTokenChangedForView(frame_token, activation_time);
 }
 
 std::unique_ptr<SyntheticGestureTarget>
@@ -220,11 +229,15 @@ void TestRenderWidgetHostView::SetDisplayFeatureForTesting(
   if (display_feature)
     display_feature_ = *display_feature;
   else
-    display_feature_ = base::nullopt;
+    display_feature_ = absl::nullopt;
 }
 
-base::Optional<DisplayFeature> TestRenderWidgetHostView::GetDisplayFeature() {
+absl::optional<DisplayFeature> TestRenderWidgetHostView::GetDisplayFeature() {
   return display_feature_;
+}
+
+ui::Compositor* TestRenderWidgetHostView::GetCompositor() {
+  return compositor_;
 }
 
 TestRenderViewHost::TestRenderViewHost(
@@ -256,11 +269,11 @@ TestRenderViewHost::~TestRenderViewHost() {
 }
 
 bool TestRenderViewHost::CreateTestRenderView() {
-  return CreateRenderView(base::nullopt, MSG_ROUTING_NONE, false);
+  return CreateRenderView(absl::nullopt, MSG_ROUTING_NONE, false);
 }
 
 bool TestRenderViewHost::CreateRenderView(
-    const base::Optional<base::UnguessableToken>& opener_frame_token,
+    const absl::optional<blink::FrameToken>& opener_frame_token,
     int proxy_route_id,
     bool window_was_created_with_opener) {
   DCHECK(!IsRenderViewLive());
@@ -271,8 +284,16 @@ bool TestRenderViewHost::CreateRenderView(
   // When the RenderViewHost has a main frame host attached, the RenderView
   // in the renderer creates the main frame along with it. We mimic that here by
   // creating the mojo connections and calling RenderFrameCreated().
-  RenderFrameHostImpl* main_frame = RenderFrameHostImpl::FromID(
-      GetProcess()->GetID(), main_frame_routing_id_);
+  RenderFrameHostImpl* main_frame = nullptr;
+  RenderFrameProxyHost* proxy_host = nullptr;
+  if (main_frame_routing_id_ != MSG_ROUTING_NONE) {
+    main_frame = RenderFrameHostImpl::FromID(GetProcess()->GetID(),
+                                             main_frame_routing_id_);
+  } else {
+    proxy_host =
+        RenderFrameProxyHost::FromID(GetProcess()->GetID(), proxy_route_id);
+  }
+
   DCHECK_EQ(!!main_frame, is_active());
   if (main_frame) {
     // Pretend that we started a renderer process and created the renderer Frame
@@ -292,7 +313,24 @@ bool TestRenderViewHost::CreateRenderView(
 
     // This also initializes the RenderWidgetHost attached to the frame.
     main_frame->RenderFrameCreated();
+  } else {
+    // Pretend that mojo connections of the RemoteFrame is transferred to
+    // renderer process and bound in blink.
+    mojo::AssociatedRemote<blink::mojom::RemoteMainFrame> remote_main_frame;
+    ignore_result(remote_main_frame.BindNewEndpointAndPassDedicatedReceiver());
+    proxy_host->BindRemoteMainFrameInterfaces(
+        remote_main_frame.Unbind(),
+        mojo::AssociatedRemote<blink::mojom::RemoteMainFrameHost>()
+            .BindNewEndpointAndPassDedicatedReceiver());
+
+    proxy_host->SetRenderFrameProxyCreated(true);
   }
+
+  mojo::AssociatedRemote<blink::mojom::PageBroadcast> broadcast_remote;
+  page_broadcast_ = std::make_unique<TestPageBroadcast>(
+      broadcast_remote.BindNewEndpointAndPassDedicatedReceiver());
+  BindPageBroadcast(broadcast_remote.Unbind());
+
   opener_frame_token_ = opener_frame_token;
   DCHECK(IsRenderViewLive());
   return true;
@@ -336,16 +374,17 @@ void TestRenderViewHost::TestOnUpdateStateWithFile(
     const base::FilePath& file_path) {
   auto state = blink::PageState::CreateForTesting(GURL("http://www.google.com"),
                                                   false, "data", &file_path);
-  static_cast<RenderFrameHostImpl*>(GetMainFrame())->UpdateState(state);
+  GetMainRenderFrameHost()->UpdateState(state);
 }
 
 RenderViewHostImplTestHarness::RenderViewHostImplTestHarness()
     : RenderViewHostTestHarness(
           base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
-  std::vector<ui::ScaleFactor> scale_factors;
-  scale_factors.push_back(ui::SCALE_FACTOR_100P);
-  scoped_set_supported_scale_factors_.reset(
-      new ui::test::ScopedSetSupportedScaleFactors(scale_factors));
+  std::vector<ui::ResourceScaleFactor> scale_factors;
+  scale_factors.push_back(ui::k100Percent);
+  scoped_set_supported_scale_factors_ =
+      std::make_unique<ui::test::ScopedSetSupportedResourceScaleFactors>(
+          scale_factors);
 }
 
 RenderViewHostImplTestHarness::~RenderViewHostImplTestHarness() {
@@ -353,16 +392,6 @@ RenderViewHostImplTestHarness::~RenderViewHostImplTestHarness() {
 
 TestRenderViewHost* RenderViewHostImplTestHarness::test_rvh() {
   return contents()->GetRenderViewHost();
-}
-
-TestRenderViewHost* RenderViewHostImplTestHarness::pending_test_rvh() {
-  return contents()->GetPendingMainFrame() ?
-      contents()->GetPendingMainFrame()->GetRenderViewHost() :
-      nullptr;
-}
-
-TestRenderViewHost* RenderViewHostImplTestHarness::active_test_rvh() {
-  return static_cast<TestRenderViewHost*>(active_rvh());
 }
 
 TestRenderFrameHost* RenderViewHostImplTestHarness::main_test_rfh() {

@@ -4,13 +4,15 @@
 
 #include "chrome/browser/ui/views/apps/app_dialog/app_uninstall_dialog_view.h"
 
+#include <string>
+
 #include "base/bind.h"
-#include "base/compiler_specific.h"
 #include "base/feature_list.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_dialogs.h"
@@ -18,7 +20,6 @@
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
-#include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/grit/chromium_strings.h"
@@ -33,6 +34,7 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image_skia_operations.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/styled_label.h"
@@ -58,7 +60,7 @@ bool IsArcShortcutApp(Profile* profile, const std::string& app_id) {
 }
 #endif
 
-base::string16 GetWindowTitleForApp(Profile* profile,
+std::u16string GetWindowTitleForApp(Profile* profile,
                                     apps::mojom::AppType app_type,
                                     const std::string& app_id,
                                     const std::string& app_name) {
@@ -147,8 +149,9 @@ void AppUninstallDialogView::InitializeView(Profile* profile,
     case apps::mojom::AppType::kUnknown:
     case apps::mojom::AppType::kBuiltIn:
     case apps::mojom::AppType::kMacOs:
-    case apps::mojom::AppType::kLacros:
+    case apps::mojom::AppType::kStandaloneBrowser:
     case apps::mojom::AppType::kRemote:
+    case apps::mojom::AppType::kStandaloneBrowserExtension:
       NOTREACHED();
       break;
     case apps::mojom::AppType::kArc:
@@ -179,13 +182,9 @@ void AppUninstallDialogView::InitializeView(Profile* profile,
       break;
 
     case apps::mojom::AppType::kWeb:
-      if (base::FeatureList::IsEnabled(
-              features::kDesktopPWAsWithoutExtensions)) {
-        InitializeViewForWebApp(profile, app_id);
-        break;
-      }
-      // Otherwise fallback to Extension-based Bookmark Apps.
-      FALLTHROUGH;
+    case apps::mojom::AppType::kSystemWeb:
+      InitializeViewForWebApp(profile, app_id);
+      break;
     case apps::mojom::AppType::kExtension:
       InitializeViewForExtension(profile, app_id);
       break;
@@ -193,7 +192,7 @@ void AppUninstallDialogView::InitializeView(Profile* profile,
 }
 
 void AppUninstallDialogView::InitializeCheckbox(const GURL& app_start_url) {
-  std::vector<base::string16> replacements;
+  std::vector<std::u16string> replacements;
   replacements.push_back(url_formatter::FormatUrlForSecurityDisplay(
       app_start_url, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC));
 
@@ -209,7 +208,7 @@ void AppUninstallDialogView::InitializeCheckbox(const GURL& app_start_url) {
     replacements.push_back(base::ASCIIToUTF16(domain));
   }
 
-  base::string16 learn_more_text =
+  std::u16string learn_more_text =
       l10n_util::GetStringUTF16(IDS_APP_UNINSTALL_PROMPT_LEARN_MORE);
   replacements.push_back(learn_more_text);
 
@@ -242,7 +241,7 @@ void AppUninstallDialogView::InitializeCheckbox(const GURL& app_start_url) {
   checkbox_label->SetBorder(views::CreateEmptyBorder(3, 0, 0, 0));
 
   auto clear_site_data_checkbox =
-      std::make_unique<views::Checkbox>(base::string16());
+      std::make_unique<views::Checkbox>(std::u16string());
   clear_site_data_checkbox->SetAssociatedLabel(checkbox_label.get());
 
   // Create a view to hold the checkbox and the text.
@@ -291,10 +290,13 @@ void AppUninstallDialogView::InitializeViewForExtension(
 void AppUninstallDialogView::InitializeViewForWebApp(
     Profile* profile,
     const std::string& app_id) {
-  auto* provider = web_app::WebAppProvider::Get(profile);
-  DCHECK(provider);
-
-  GURL app_start_url = provider->registrar().GetAppStartUrl(app_id);
+  // For web apps, publisher id is the start url.
+  GURL app_start_url;
+  apps::AppServiceProxyFactory::GetForProfile(profile)
+      ->AppRegistryCache()
+      .ForOneApp(app_id, [&app_start_url](const apps::AppUpdate& update) {
+        app_start_url = GURL(update.PublisherId());
+      });
   DCHECK(app_start_url.is_valid());
 
   InitializeCheckbox(app_start_url);
@@ -315,7 +317,7 @@ void AppUninstallDialogView::InitializeViewForArcApp(
 }
 
 void AppUninstallDialogView::InitializeViewWithMessage(
-    const base::string16& message) {
+    const std::u16string& message) {
   auto* label = AddChildView(std::make_unique<views::Label>(message));
   label->SetMultiLine(true);
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);

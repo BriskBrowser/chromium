@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/core/layout/ng/exclusions/ng_exclusion_space.h"
 
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/ng/exclusions/ng_exclusion.h"
 
 namespace blink {
@@ -60,10 +60,9 @@ void InsertClosedArea(
 }
 
 // Returns true if there is at least one edge between block_start and block_end.
-bool HasSolidEdges(
-    const Vector<NGExclusionSpaceInternal::NGShelfEdge, 1>& edges,
-    LayoutUnit block_start,
-    LayoutUnit block_end) {
+bool HasSolidEdges(const Vector<NGExclusionSpaceInternal::NGShelfEdge>& edges,
+                   LayoutUnit block_start,
+                   LayoutUnit block_end) {
   // If there aren't any adjacent exclusions, we must be the initial shelf.
   // This always has "solid" edges on either side.
   if (edges.IsEmpty())
@@ -82,9 +81,9 @@ bool HasSolidEdges(
 // to the given out_edges vector.
 // edges will be invalid after this call.
 void CollectSolidEdges(
-    Vector<NGExclusionSpaceInternal::NGShelfEdge, 1>* edges,
+    Vector<NGExclusionSpaceInternal::NGShelfEdge>* edges,
     LayoutUnit block_offset,
-    Vector<NGExclusionSpaceInternal::NGShelfEdge, 1>* out_edges) {
+    Vector<NGExclusionSpaceInternal::NGShelfEdge>* out_edges) {
   *out_edges = std::move(*edges);
   for (auto* it = out_edges->begin(); it != out_edges->end();) {
     if ((*it).block_end <= block_offset) {
@@ -103,8 +102,8 @@ void CollectSolidEdges(
 bool Intersects(const NGLayoutOpportunity& opportunity,
                 const NGBfcOffset& offset,
                 const LayoutUnit inline_size) {
-  return opportunity.rect.LineEndOffset() > offset.line_offset &&
-         opportunity.rect.LineStartOffset() <
+  return opportunity.rect.LineEndOffset() >= offset.line_offset &&
+         opportunity.rect.LineStartOffset() <=
              offset.line_offset + inline_size &&
          opportunity.rect.BlockEndOffset() > offset.block_offset;
 }
@@ -157,7 +156,12 @@ NGLayoutOpportunity CreateLayoutOpportunity(
 }  // namespace
 
 NGExclusionSpaceInternal::NGExclusionSpaceInternal()
-    : exclusions_(MakeGarbageCollected<NGExclusionPtrArray>()) {}
+    : exclusions_(MakeGarbageCollected<NGExclusionPtrArray>()),
+      track_shape_exclusions_(false),
+      has_break_before_left_float_(false),
+      has_break_before_right_float_(false),
+      has_break_inside_left_float_(false),
+      has_break_inside_right_float_(false) {}
 
 NGExclusionSpaceInternal::NGExclusionSpaceInternal(
     const NGExclusionSpaceInternal& other)
@@ -167,6 +171,10 @@ NGExclusionSpaceInternal::NGExclusionSpaceInternal(
       right_clear_offset_(other.right_clear_offset_),
       last_float_block_start_(other.last_float_block_start_),
       track_shape_exclusions_(other.track_shape_exclusions_),
+      has_break_before_left_float_(other.has_break_before_left_float_),
+      has_break_before_right_float_(other.has_break_before_right_float_),
+      has_break_inside_left_float_(other.has_break_inside_left_float_),
+      has_break_inside_right_float_(other.has_break_inside_right_float_),
       derived_geometry_(std::move(other.derived_geometry_)) {
   // This copy-constructor does fun things. It moves the derived_geometry_ to
   // the newly created exclusion space where it'll more-likely be used.
@@ -181,6 +189,10 @@ NGExclusionSpaceInternal& NGExclusionSpaceInternal::operator=(
   right_clear_offset_ = other.right_clear_offset_;
   last_float_block_start_ = other.last_float_block_start_;
   track_shape_exclusions_ = other.track_shape_exclusions_;
+  has_break_before_left_float_ = other.has_break_before_left_float_;
+  has_break_before_right_float_ = other.has_break_before_right_float_;
+  has_break_inside_left_float_ = other.has_break_inside_left_float_;
+  has_break_inside_right_float_ = other.has_break_inside_right_float_;
   derived_geometry_ = std::move(other.derived_geometry_);
   other.derived_geometry_ = nullptr;
   return *this;
@@ -271,7 +283,7 @@ void NGExclusionSpaceInternal::DerivedGeometry::Add(
   for (wtf_size_t i = 0; i < shelves_.size(); ++i) {
     // We modify the current shelf in-place. However we need to keep a copy of
     // the shelf if we need to insert a new shelf later in the loop.
-    base::Optional<NGShelf> shelf_copy;
+    absl::optional<NGShelf> shelf_copy;
 
     bool is_between_shelves;
 
@@ -370,8 +382,8 @@ void NGExclusionSpaceInternal::DerivedGeometry::Add(
         // In the above example the "NEW" exclusion *doesn't* overlap with the
         // above drawn shelf, and a new opportunity hasn't been created.
         bool is_overlapping =
-            exclusion.rect.LineStartOffset() < shelf.line_right &&
-            exclusion.rect.LineEndOffset() > shelf.line_left;
+            exclusion.rect.LineStartOffset() <= shelf.line_right &&
+            exclusion.rect.LineEndOffset() >= shelf.line_left;
 
         // Insert a closed-off layout opportunity if needed.
         if (has_solid_edges && is_overlapping) {
@@ -705,7 +717,11 @@ bool NGExclusionSpaceInternal::operator==(
   if (num_exclusions_ == 0 && other.num_exclusions_ == 0)
     return true;
   return num_exclusions_ == other.num_exclusions_ &&
-         exclusions_ == other.exclusions_;
+         exclusions_ == other.exclusions_ &&
+         has_break_before_left_float_ == other.has_break_before_left_float_ &&
+         has_break_before_right_float_ == other.has_break_before_right_float_ &&
+         has_break_inside_left_float_ == other.has_break_inside_left_float_ &&
+         has_break_inside_right_float_ == other.has_break_inside_right_float_;
 }
 
 }  // namespace blink

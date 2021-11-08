@@ -7,13 +7,14 @@
 #include "base/macros.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chrome/test/base/testing_profile_manager.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
@@ -33,6 +34,10 @@ using session_manager::SessionState;
 class BrowserUnitTest : public BrowserWithTestWindowTest {
  public:
   BrowserUnitTest() {}
+
+  BrowserUnitTest(const BrowserUnitTest&) = delete;
+  BrowserUnitTest& operator=(const BrowserUnitTest&) = delete;
+
   ~BrowserUnitTest() override {}
 
   // Caller owns the memory.
@@ -40,9 +45,6 @@ class BrowserUnitTest : public BrowserWithTestWindowTest {
     return WebContentsTester::CreateTestWebContents(
         profile(), SiteInstance::Create(profile()));
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BrowserUnitTest);
 };
 
 // Ensure crashed tabs are not reloaded when selected. crbug.com/232323
@@ -180,24 +182,22 @@ TEST_F(BrowserUnitTest, CreateBrowserFailsIfProfileDisallowsBrowserWindows) {
             Browser::GetCreationStatusForProfile(test_profile.get()));
   EXPECT_EQ(Browser::CreationStatus::kErrorProfileUnsuitable,
             Browser::GetCreationStatusForProfile(
-                test_profile->GetPrimaryOTRProfile()));
+                test_profile->GetPrimaryOTRProfile(/*create_if_needed=*/true)));
 }
 
 // Tests BrowserCreate() when Incognito mode is disabled.
 TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeDisabled) {
-  TestingProfile::Builder profile_builder;
-  std::unique_ptr<TestingProfile> test_profile = profile_builder.Build();
-  IncognitoModePrefs::SetAvailability(test_profile->GetPrefs(),
-                                      IncognitoModePrefs::DISABLED);
+  IncognitoModePrefs::SetAvailability(
+      profile()->GetPrefs(), IncognitoModePrefs::Availability::kDisabled);
 
   // Creating a browser window in OTR profile should fail if incognito is
   // disabled.
   EXPECT_EQ(Browser::CreationStatus::kErrorProfileUnsuitable,
             Browser::GetCreationStatusForProfile(
-                test_profile->GetPrimaryOTRProfile()));
+                profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true)));
 
   // Verify creating a browser in the original profile succeeds.
-  Browser::CreateParams create_params(test_profile.get(), false);
+  Browser::CreateParams create_params(profile(), false);
   std::unique_ptr<BrowserWindow> test_window(CreateBrowserWindow());
   create_params.window = test_window.get();
   std::unique_ptr<Browser> test_browser(Browser::Create(create_params));
@@ -206,19 +206,17 @@ TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeDisabled) {
 
 // Tests BrowserCreate() when Incognito mode is forced.
 TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeForced) {
-  TestingProfile::Builder profile_builder;
-  std::unique_ptr<TestingProfile> test_profile = profile_builder.Build();
-  IncognitoModePrefs::SetAvailability(test_profile->GetPrefs(),
-                                      IncognitoModePrefs::FORCED);
+  IncognitoModePrefs::SetAvailability(
+      profile()->GetPrefs(), IncognitoModePrefs::Availability::kForced);
 
   // Creating a browser window in the original profile should fail if incognito
   // is forced.
   EXPECT_EQ(Browser::CreationStatus::kErrorProfileUnsuitable,
-            Browser::GetCreationStatusForProfile(test_profile.get()));
+            Browser::GetCreationStatusForProfile(profile()));
 
   // Creating a browser in OTR test profile should succeed.
   Browser::CreateParams off_the_record_create_params(
-      test_profile->GetPrimaryOTRProfile(), false);
+      profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true), false);
   std::unique_ptr<BrowserWindow> test_window(CreateBrowserWindow());
   off_the_record_create_params.window = test_window.get();
   std::unique_ptr<Browser> otr_browser(
@@ -228,14 +226,11 @@ TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeForced) {
 
 // Tests BrowserCreate() with not restrictions on incognito mode.
 TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeEnabled) {
-  TestingProfile::Builder profile_builder;
-  std::unique_ptr<TestingProfile> test_profile = profile_builder.Build();
-
-  ASSERT_EQ(IncognitoModePrefs::ENABLED,
-            IncognitoModePrefs::GetAvailability(test_profile->GetPrefs()));
+  ASSERT_EQ(IncognitoModePrefs::Availability::kEnabled,
+            IncognitoModePrefs::GetAvailability(profile()->GetPrefs()));
 
   // Creating a browser in the original test profile should succeed.
-  Browser::CreateParams create_params(test_profile.get(), false);
+  Browser::CreateParams create_params(profile(), false);
   std::unique_ptr<BrowserWindow> test_window(CreateBrowserWindow());
   create_params.window = test_window.get();
   std::unique_ptr<Browser> test_browser(Browser::Create(create_params));
@@ -243,7 +238,7 @@ TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeEnabled) {
 
   // Creating a browser in OTR test profile should succeed.
   Browser::CreateParams off_the_record_create_params(
-      test_profile->GetPrimaryOTRProfile(), false);
+      profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true), false);
   std::unique_ptr<BrowserWindow> otr_test_window(CreateBrowserWindow());
   off_the_record_create_params.window = otr_test_window.get();
   std::unique_ptr<Browser> otr_browser(
@@ -257,8 +252,7 @@ TEST_F(BrowserUnitTest, CreateBrowserDuringKioskSplashScreen) {
 
   // Setting up user manager state to be in kiosk mode:
   // Creating a new user manager.
-  chromeos::FakeChromeUserManager* user_manager =
-      new chromeos::FakeChromeUserManager();
+  auto* user_manager = new ash::FakeChromeUserManager();
   user_manager::ScopedUserManager manager{
       std::unique_ptr<user_manager::UserManager>(user_manager)};
   const user_manager::User* user =
@@ -285,6 +279,10 @@ TEST_F(BrowserUnitTest, CreateBrowserDuringKioskSplashScreen) {
 class BrowserBookmarkBarTest : public BrowserWithTestWindowTest {
  public:
   BrowserBookmarkBarTest() {}
+
+  BrowserBookmarkBarTest(const BrowserBookmarkBarTest&) = delete;
+  BrowserBookmarkBarTest& operator=(const BrowserBookmarkBarTest&) = delete;
+
   ~BrowserBookmarkBarTest() override {}
 
  protected:
@@ -309,6 +307,12 @@ class BrowserBookmarkBarTest : public BrowserWithTestWindowTest {
    public:
     BookmarkBarStateTestBrowserWindow()
         : browser_(nullptr), bookmark_bar_state_(BookmarkBar::HIDDEN) {}
+
+    BookmarkBarStateTestBrowserWindow(
+        const BookmarkBarStateTestBrowserWindow&) = delete;
+    BookmarkBarStateTestBrowserWindow& operator=(
+        const BookmarkBarStateTestBrowserWindow&) = delete;
+
     ~BookmarkBarStateTestBrowserWindow() override {}
 
     void set_browser(Browser* browser) { browser_ = browser; }
@@ -336,11 +340,7 @@ class BrowserBookmarkBarTest : public BrowserWithTestWindowTest {
 
     Browser* browser_;  // Weak ptr.
     BookmarkBar::State bookmark_bar_state_;
-
-    DISALLOW_COPY_AND_ASSIGN(BookmarkBarStateTestBrowserWindow);
   };
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserBookmarkBarTest);
 };
 
 // Ensure bookmark bar states in Browser and BrowserWindow are in sync after
@@ -391,46 +391,20 @@ TEST_F(BrowserBookmarkBarTest, StateOnActiveTabChanged) {
   EXPECT_EQ(BookmarkBar::SHOW, window_bookmark_bar_state());
 }
 
-class GuestBrowserUnitTest : public BrowserUnitTest,
-                             public testing::WithParamInterface<bool> {
- public:
-  GuestBrowserUnitTest() : is_ephemeral_(GetParam()) {
-    // Change the value if Ephemeral is not supported.
-    is_ephemeral_ &=
-        TestingProfile::SetScopedFeatureListForEphemeralGuestProfiles(
-            scoped_feature_list_, is_ephemeral_);
-  }
-
-  bool is_ephemeral() const { return is_ephemeral_; }
-
- private:
-  bool is_ephemeral_;
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
-
-// Tests that Browser::Create creates a guest session browser for appropriate
-// OTR/non-OTR type for old and ephemeral Guest profiles.
-TEST_P(GuestBrowserUnitTest, CreateGuestSessionBrowser) {
-  TestingProfile::Builder profile_builder;
-  profile_builder.SetGuestSession();
-  std::unique_ptr<TestingProfile> test_profile = profile_builder.Build();
+// Tests that Browser::Create creates a guest session browser.
+TEST_F(BrowserUnitTest, CreateGuestSessionBrowser) {
+  TestingProfile* test_profile = profile_manager()->CreateGuestProfile();
   TestingProfile::Builder otr_profile_builder;
   otr_profile_builder.SetGuestSession();
   Profile* guest_profile = nullptr;
 
-  if (is_ephemeral()) {
-    // Try creating an OTR profile for ephemeral Guest profile, it should fail.
-    EXPECT_FALSE(otr_profile_builder.BuildIncognito(test_profile.get()));
-    guest_profile = test_profile.get();
-  } else {
-    // Try creating a browser in original guest profile - it should fail.
-    EXPECT_EQ(Browser::CreationStatus::kErrorProfileUnsuitable,
-              Browser::GetCreationStatusForProfile(test_profile.get()));
+  // Try creating a browser in original guest profile - it should fail.
+  EXPECT_EQ(Browser::CreationStatus::kErrorProfileUnsuitable,
+            Browser::GetCreationStatusForProfile(test_profile));
 
-    // Create OTR profile for the Guest profile.
-    EXPECT_TRUE(otr_profile_builder.BuildIncognito(test_profile.get()));
-    guest_profile = test_profile->GetPrimaryOTRProfile();
-  }
+  // Create OTR profile for the Guest profile.
+  EXPECT_TRUE(otr_profile_builder.BuildIncognito(test_profile));
+  guest_profile = test_profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
 
   // Creating a browser should succeed.
   Browser::CreateParams create_params =
@@ -441,7 +415,3 @@ TEST_P(GuestBrowserUnitTest, CreateGuestSessionBrowser) {
       std::unique_ptr<Browser>(Browser::Create(create_params));
   EXPECT_TRUE(browser);
 }
-
-INSTANTIATE_TEST_SUITE_P(AllGuestTypes,
-                         GuestBrowserUnitTest,
-                         /*is_ephemeral=*/testing::Bool());

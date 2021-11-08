@@ -12,10 +12,9 @@
 
 #include "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
-#include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "device/bluetooth/bluetooth_device_mac.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 @class IOBluetoothDevice;
 
@@ -28,6 +27,11 @@ class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
  public:
   explicit BluetoothClassicDeviceMac(BluetoothAdapterMac* adapter,
                                      IOBluetoothDevice* device);
+
+  BluetoothClassicDeviceMac(const BluetoothClassicDeviceMac&) = delete;
+  BluetoothClassicDeviceMac& operator=(const BluetoothClassicDeviceMac&) =
+      delete;
+
   ~BluetoothClassicDeviceMac() override;
 
   // BluetoothDevice override
@@ -39,15 +43,15 @@ class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
   uint16_t GetProductID() const override;
   uint16_t GetDeviceID() const override;
   uint16_t GetAppearance() const override;
-  base::Optional<std::string> GetName() const override;
+  absl::optional<std::string> GetName() const override;
   bool IsPaired() const override;
   bool IsConnected() const override;
   bool IsGattConnected() const override;
   bool IsConnectable() const override;
   bool IsConnecting() const override;
   UUIDSet GetUUIDs() const override;
-  base::Optional<int8_t> GetInquiryRSSI() const override;
-  base::Optional<int8_t> GetInquiryTxPower() const override;
+  absl::optional<int8_t> GetInquiryRSSI() const override;
+  absl::optional<int8_t> GetInquiryTxPower() const override;
   bool ExpectingPinCode() const override;
   bool ExpectingPasskey() const override;
   bool ExpectingConfirmation() const override;
@@ -56,8 +60,7 @@ class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
                             base::OnceClosure callback,
                             ErrorCallback error_callback) override;
   void Connect(PairingDelegate* pairing_delegate,
-               base::OnceClosure callback,
-               ConnectErrorCallback error_callback) override;
+               ConnectCallback callback) override;
   void SetPinCode(const std::string& pincode) override;
   void SetPasskey(uint32_t passkey) override;
   void ConfirmPairing() override;
@@ -84,7 +87,7 @@ class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
  protected:
   // BluetoothDevice override
   void CreateGattConnectionImpl(
-      base::Optional<BluetoothUUID> service_uuid) override;
+      absl::optional<BluetoothUUID> service_uuid) override;
   void DisconnectGatt() override;
 
  private:
@@ -96,8 +99,6 @@ class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
       BluetoothHCITransmitPowerLevelType power_level_type) const;
 
   base::scoped_nsobject<IOBluetoothDevice> device_;
-
-  DISALLOW_COPY_AND_ASSIGN(BluetoothClassicDeviceMac);
 };
 
 }  // namespace device

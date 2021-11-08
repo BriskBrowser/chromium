@@ -110,6 +110,11 @@ namespace content {
 class CompositorEventAckBrowserTest : public ContentBrowserTest {
  public:
   CompositorEventAckBrowserTest() {}
+
+  CompositorEventAckBrowserTest(const CompositorEventAckBrowserTest&) = delete;
+  CompositorEventAckBrowserTest& operator=(
+      const CompositorEventAckBrowserTest&) = delete;
+
   ~CompositorEventAckBrowserTest() override {}
 
   RenderWidgetHostImpl* GetWidgetHost() {
@@ -130,19 +135,34 @@ class CompositorEventAckBrowserTest : public ContentBrowserTest {
     RenderWidgetHostImpl* host = GetWidgetHost();
     host->GetView()->SetSize(gfx::Size(400, 400));
 
-    base::string16 ready_title(base::ASCIIToUTF16("ready"));
+    std::u16string ready_title(u"ready");
     TitleWatcher watcher(shell()->web_contents(), ready_title);
     ignore_result(watcher.WaitAndGetTitle());
 
-    HitTestRegionObserver observer(host->GetFrameSinkId());
-    observer.WaitForHitTestData();
+    // SetSize triggers an animation of the size, leading to a a new
+    // viz::LocalSurfaceId being generated. Since this was done right after
+    // navigation Viz could be processing an old surface.
+    //
+    // We want the HitTestData for the post resize surface. So wait until that
+    // surface has submitted a frame.
+    viz::LocalSurfaceId target = host->GetView()->GetLocalSurfaceId();
+    RenderFrameSubmissionObserver rfm_observer(
+        GetWidgetHost()->render_frame_metadata_provider());
+    while (!rfm_observer.LastRenderFrameMetadata()
+                .local_surface_id.value_or(viz::LocalSurfaceId())
+                .is_valid() ||
+           target !=
+               rfm_observer.LastRenderFrameMetadata().local_surface_id.value_or(
+                   viz::LocalSurfaceId::MaxSequenceId())) {
+      rfm_observer.WaitForMetadataChange();
+    }
+
+    HitTestRegionObserver hit_test_observer(host->GetFrameSinkId());
+    hit_test_observer.WaitForHitTestData();
   }
 
   int ExecuteScriptAndExtractInt(const std::string& script) {
-    int value = 0;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
-        shell(), "domAutomationController.send(" + script + ")", &value));
-    return value;
+    return EvalJs(shell(), script).ExtractInt();
   }
 
   int GetScrollTop() {
@@ -195,7 +215,7 @@ class CompositorEventAckBrowserTest : public ContentBrowserTest {
         GetWidgetHost()->render_frame_metadata_provider());
 
     SyntheticSmoothScrollGestureParams params;
-    params.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+    params.gesture_source_type = content::mojom::GestureSourceType::kTouchInput;
     params.anchor = gfx::PointF(50, 50);
     params.distances.push_back(gfx::Vector2d(0, -45));
 
@@ -216,9 +236,6 @@ class CompositorEventAckBrowserTest : public ContentBrowserTest {
       observer.WaitForMetadataChange();
     }
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CompositorEventAckBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(CompositorEventAckBrowserTest, MouseWheel) {

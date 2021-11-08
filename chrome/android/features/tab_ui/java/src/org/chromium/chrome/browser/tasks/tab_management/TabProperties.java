@@ -8,7 +8,6 @@ import static org.chromium.chrome.browser.tasks.tab_management.TabListModel.Card
 import static org.chromium.chrome.browser.tasks.tab_management.TabListModel.CardProperties.CARD_TYPE;
 
 import android.content.res.ColorStateList;
-import android.graphics.drawable.Drawable;
 import android.view.View.AccessibilityDelegate;
 
 import androidx.annotation.IntDef;
@@ -28,7 +27,7 @@ import java.lang.annotation.RetentionPolicy;
 public class TabProperties {
     /** IDs for possible types of UI in the tab list. */
     @IntDef({UiType.SELECTABLE, UiType.CLOSABLE, UiType.STRIP, UiType.MESSAGE, UiType.DIVIDER,
-            UiType.NEW_TAB_TILE, UiType.PRICE_WELCOME})
+            UiType.NEW_TAB_TILE, UiType.LARGE_MESSAGE})
     @Retention(RetentionPolicy.SOURCE)
     public @interface UiType {
         int SELECTABLE = 0;
@@ -37,7 +36,7 @@ public class TabProperties {
         int MESSAGE = 3;
         int DIVIDER = 4;
         int NEW_TAB_TILE = 5;
-        int PRICE_WELCOME = 6;
+        int LARGE_MESSAGE = 6;
     }
 
     public static final PropertyModel.WritableIntPropertyKey TAB_ID =
@@ -49,7 +48,7 @@ public class TabProperties {
     public static final WritableObjectPropertyKey<TabListMediator.TabActionListener>
             TAB_CLOSED_LISTENER = new WritableObjectPropertyKey<>();
 
-    public static final WritableObjectPropertyKey<Drawable> FAVICON =
+    public static final WritableObjectPropertyKey<TabListFaviconProvider.TabFavicon> FAVICON =
             new WritableObjectPropertyKey<>();
 
     public static final WritableObjectPropertyKey<TabListMediator.ThumbnailFetcher>
@@ -107,6 +106,9 @@ public class TabProperties {
     public static final WritableObjectPropertyKey<TabListMediator.ShoppingPersistedTabDataFetcher>
             SHOPPING_PERSISTED_TAB_DATA_FETCHER = new WritableObjectPropertyKey<>(true);
 
+    public static final WritableObjectPropertyKey<TabListMediator.StorePersistedTabDataFetcher>
+            STORE_PERSISTED_TAB_DATA_FETCHER = new WritableObjectPropertyKey<>(true);
+
     public static final WritableObjectPropertyKey<TabListMediator.TabActionListener>
             PAGE_INFO_LISTENER = new WritableObjectPropertyKey<>();
 
@@ -130,7 +132,8 @@ public class TabProperties {
             SELECTABLE_TAB_ACTION_BUTTON_SELECTED_BACKGROUND, URL_DOMAIN, ACCESSIBILITY_DELEGATE,
             SEARCH_QUERY, PAGE_INFO_LISTENER, PAGE_INFO_ICON_DRAWABLE_ID, CARD_TYPE,
             CONTENT_DESCRIPTION_STRING, CLOSE_BUTTON_DESCRIPTION_STRING,
-            SHOPPING_PERSISTED_TAB_DATA_FETCHER, SHOULD_SHOW_PRICE_DROP_TOOLTIP};
+            SHOPPING_PERSISTED_TAB_DATA_FETCHER, STORE_PERSISTED_TAB_DATA_FETCHER,
+            SHOULD_SHOW_PRICE_DROP_TOOLTIP};
 
     public static final PropertyKey[] ALL_KEYS_TAB_STRIP =
             new PropertyKey[] {TAB_ID, TAB_SELECTED_LISTENER, TAB_CLOSED_LISTENER, FAVICON,

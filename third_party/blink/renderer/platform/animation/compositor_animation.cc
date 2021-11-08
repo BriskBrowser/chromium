@@ -92,8 +92,8 @@ void CompositorAnimation::NotifyAnimationStarted(base::TimeTicks monotonic_time,
                                                  int target_property,
                                                  int group) {
   if (delegate_) {
-    delegate_->NotifyAnimationStarted(
-        (monotonic_time - base::TimeTicks()).InSecondsF(), group);
+    delegate_->NotifyAnimationStarted(monotonic_time - base::TimeTicks(),
+                                      group);
   }
 }
 
@@ -102,8 +102,8 @@ void CompositorAnimation::NotifyAnimationFinished(
     int target_property,
     int group) {
   if (delegate_) {
-    delegate_->NotifyAnimationFinished(
-        (monotonic_time - base::TimeTicks()).InSecondsF(), group);
+    delegate_->NotifyAnimationFinished(monotonic_time - base::TimeTicks(),
+                                       group);
   }
 }
 
@@ -111,8 +111,8 @@ void CompositorAnimation::NotifyAnimationAborted(base::TimeTicks monotonic_time,
                                                  int target_property,
                                                  int group) {
   if (delegate_) {
-    delegate_->NotifyAnimationAborted(
-        (monotonic_time - base::TimeTicks()).InSecondsF(), group);
+    delegate_->NotifyAnimationAborted(monotonic_time - base::TimeTicks(),
+                                      group);
   }
 }
 
@@ -120,7 +120,7 @@ void CompositorAnimation::NotifyAnimationTakeover(
     base::TimeTicks monotonic_time,
     int target_property,
     base::TimeTicks animation_start_time,
-    std::unique_ptr<cc::AnimationCurve> curve) {
+    std::unique_ptr<gfx::AnimationCurve> curve) {
   if (delegate_) {
     delegate_->NotifyAnimationTakeover(
         (monotonic_time - base::TimeTicks()).InSecondsF(),
@@ -130,7 +130,7 @@ void CompositorAnimation::NotifyAnimationTakeover(
 }
 
 void CompositorAnimation::NotifyLocalTimeUpdated(
-    base::Optional<base::TimeDelta> local_time) {
+    absl::optional<base::TimeDelta> local_time) {
   if (delegate_) {
     delegate_->NotifyLocalTimeUpdated(local_time);
   }

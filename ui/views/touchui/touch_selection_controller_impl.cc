@@ -15,14 +15,14 @@
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
 #include "ui/resources/grit/ui_resources.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/views_delegate.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -373,13 +373,6 @@ class TouchSelectionControllerImpl::EditingHandleView : public View {
   Widget* widget_ = nullptr;
 };
 
-DEFINE_ENUM_CONVERTERS(
-    gfx::SelectionBound::Type,
-    {gfx::SelectionBound::Type::LEFT, STRING16_LITERAL("LEFT")},
-    {gfx::SelectionBound::Type::RIGHT, STRING16_LITERAL("RIGHT")},
-    {gfx::SelectionBound::Type::CENTER, STRING16_LITERAL("CENTER")},
-    {gfx::SelectionBound::Type::EMPTY, STRING16_LITERAL("EMPTY")})
-
 BEGIN_METADATA(TouchSelectionControllerImpl, EditingHandleView, View)
 ADD_READONLY_PROPERTY_METADATA(gfx::SelectionBound::Type, SelectionBoundType)
 ADD_PROPERTY_METADATA(bool, WidgetVisible)
@@ -585,8 +578,7 @@ void TouchSelectionControllerImpl::ExecuteCommand(int command_id,
   // Note that we only log the duration stats for the 'successful' selections,
   // i.e. selections ending with the execution of a command.
   UMA_HISTOGRAM_CUSTOM_TIMES("Event.TouchSelection.Duration", duration,
-                             base::TimeDelta::FromMilliseconds(500),
-                             base::TimeDelta::FromSeconds(60), 60);
+                             base::Milliseconds(500), base::Seconds(60), 60);
   client_view_->ExecuteCommand(command_id, event_flags);
 }
 
@@ -601,8 +593,8 @@ bool TouchSelectionControllerImpl::ShouldShowQuickMenu() {
   return false;
 }
 
-base::string16 TouchSelectionControllerImpl::GetSelectedText() {
-  return base::string16();
+std::u16string TouchSelectionControllerImpl::GetSelectedText() {
+  return std::u16string();
 }
 
 void TouchSelectionControllerImpl::OnWidgetClosing(Widget* widget) {
@@ -651,8 +643,7 @@ void TouchSelectionControllerImpl::QuickMenuTimerFired() {
 void TouchSelectionControllerImpl::StartQuickMenuTimer() {
   if (quick_menu_timer_.IsRunning())
     return;
-  quick_menu_timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(200),
-                          this,
+  quick_menu_timer_.Start(FROM_HERE, base::Milliseconds(200), this,
                           &TouchSelectionControllerImpl::QuickMenuTimerFired);
 }
 
@@ -745,3 +736,9 @@ View* TouchSelectionControllerImpl::GetHandle2View() {
 }
 
 }  // namespace views
+
+DEFINE_ENUM_CONVERTERS(gfx::SelectionBound::Type,
+                       {gfx::SelectionBound::Type::LEFT, u"LEFT"},
+                       {gfx::SelectionBound::Type::RIGHT, u"RIGHT"},
+                       {gfx::SelectionBound::Type::CENTER, u"CENTER"},
+                       {gfx::SelectionBound::Type::EMPTY, u"EMPTY"})

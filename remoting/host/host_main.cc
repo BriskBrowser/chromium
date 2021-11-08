@@ -16,7 +16,6 @@
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringize_macros.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "mojo/core/embedder/embedder.h"
@@ -34,6 +33,8 @@
 #endif  // defined(OS_APPLE)
 
 #if defined(OS_WIN)
+#include <windows.h>
+
 #include <commctrl.h>
 #include <shellapi.h>
 #endif  // defined(OS_WIN)
@@ -47,6 +48,7 @@ int DaemonProcessMain();
 int DesktopProcessMain();
 int FileChooserMain();
 int RdpDesktopSessionMain();
+int UrlForwarderConfiguratorMain();
 #endif  // defined(OS_WIN)
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 int XSessionChooserMain();
@@ -147,6 +149,8 @@ MainRoutineFn SelectMainRoutine(const std::string& process_type) {
     main_routine = &FileChooserMain;
   } else if (process_type == kProcessTypeRdpDesktopSession) {
     main_routine = &RdpDesktopSessionMain;
+  } else if (process_type == kProcessTypeUrlForwarderConfigurator) {
+    main_routine = &UrlForwarderConfiguratorMain;
 #endif  // defined(OS_WIN)
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
   } else if (process_type == kProcessTypeXSessionChooser) {
@@ -166,15 +170,6 @@ int HostMain(int argc, char** argv) {
 #endif
 
   base::CommandLine::Init(argc, argv);
-
-#if !defined(NDEBUG)
-  // Always enable Webrtc logging for debug builds.
-  // Without this switch, Webrtc errors will still be logged but
-  // RTC_LOG(LS_INFO) lines will not.
-  // See https://webrtc.org/native-code/logging
-  auto* cl = base::CommandLine::ForCurrentProcess();
-  cl->AppendSwitch("vmodule=*/webrtc/*=1");
-#endif
 
   // Parse the command line.
   const base::CommandLine* command_line =

@@ -8,7 +8,6 @@
 #include <stddef.h>
 
 #include <memory>
-#include <vector>
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -39,6 +38,10 @@ class DocumentSubresourceFilter {
   DocumentSubresourceFilter(url::Origin document_origin,
                             mojom::ActivationState activation_state,
                             scoped_refptr<const MemoryMappedRuleset> ruleset);
+
+  DocumentSubresourceFilter(const DocumentSubresourceFilter&) = delete;
+  DocumentSubresourceFilter& operator=(const DocumentSubresourceFilter&) =
+      delete;
 
   ~DocumentSubresourceFilter();
 
@@ -79,8 +82,6 @@ class DocumentSubresourceFilter {
   std::unique_ptr<FirstPartyOrigin> document_origin_;
 
   mojom::DocumentLoadStatistics statistics_;
-
-  DISALLOW_COPY_AND_ASSIGN(DocumentSubresourceFilter);
 };
 
 }  // namespace subresource_filter

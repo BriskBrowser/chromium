@@ -30,6 +30,10 @@ class VideoSourceImpl : public mojom::VideoSource {
   VideoSourceImpl(mojom::DeviceFactory* device_factory,
                   const std::string& device_id,
                   base::RepeatingClosure on_last_binding_closed_cb);
+
+  VideoSourceImpl(const VideoSourceImpl&) = delete;
+  VideoSourceImpl& operator=(const VideoSourceImpl&) = delete;
+
   ~VideoSourceImpl() override;
 
   void AddToReceiverSet(mojo::PendingReceiver<VideoSource> receiver);
@@ -80,10 +84,8 @@ class VideoSourceImpl : public mojom::VideoSource {
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<VideoSourceImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(VideoSourceImpl);
 };
 
 }  // namespace video_capture
 
-#endif  // SERVICES_VIDEO_CAPTURE_VIDEO_SOURCE_PROVIDER_IMPL_H_
+#endif  // SERVICES_VIDEO_CAPTURE_VIDEO_SOURCE_IMPL_H_

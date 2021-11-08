@@ -13,9 +13,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/subresource_redirect/https_image_compression_infobar_decider.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/renderer/subresource_redirect/redirect_result.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/subresource_redirect/common/subresource_redirect_result.h"
 #include "components/subresource_redirect/subresource_redirect_browser_test_util.h"
 #include "components/subresource_redirect/subresource_redirect_test_util.h"
 #include "content/public/test/browser_test.h"
@@ -73,7 +73,7 @@ class SubresourceRedirectLoggedInSitesBrowserTest
   }
 
   void NavigateAndWaitForLoad(Browser* browser, const GURL& url) {
-    ui_test_utils::NavigateToURL(browser, url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser, url));
     EXPECT_EQ(true, EvalJs(browser->tab_strip_model()->GetActiveWebContents(),
                            "checkImage()"));
     FetchHistogramsFromChildProcesses();
@@ -98,14 +98,7 @@ class SubresourceRedirectLoggedInSitesBrowserTest
   base::HistogramTester histogram_tester_;
 };
 
-// Enable tests for linux since LiteMode is enabled only for Android.
-#if defined(OS_WIN) || defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
-#define DISABLE_ON_WIN_MAC_CHROMEOS(x) DISABLED_##x
-#else
-#define DISABLE_ON_WIN_MAC_CHROMEOS(x) x
-#endif
-
-// TODO(crbug.com/1166280): Enable the test after fixing the flake.
+// TODO(crbug.com/1187754): Enable the test after fixing the flake.
 // Verify that when image load gets canceled due to subsequent page load, the
 // subresource redirect for the image is canceled as well.
 IN_PROC_BROWSER_TEST_F(SubresourceRedirectLoggedInSitesBrowserTest,
@@ -115,16 +108,16 @@ IN_PROC_BROWSER_TEST_F(SubresourceRedirectLoggedInSitesBrowserTest,
   robots_rules_server_.AddRobotsRules(GetHttpsTestURL("/"),
                                       {{kRuleTypeAllow, ""}});
 
-  ui_test_utils::NavigateToURL(browser(),
-                               GetHttpsTestURL("/load_image/image.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), GetHttpsTestURL("/load_image/image.html")));
 
   // Wait for the image request to start and its robots rules to be requested.
   while (robots_rules_server_.received_requests().empty()) {
     base::RunLoop().RunUntilIdle();
   }
 
-  ui_test_utils::NavigateToURL(browser(),
-                               GetHttpsTestURL("/load_image/simple.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), GetHttpsTestURL("/load_image/simple.html")));
   FetchHistogramsFromChildProcesses();
 
   RetryForHistogramUntilCountReached(
@@ -132,7 +125,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceRedirectLoggedInSitesBrowserTest,
       "SubresourceRedirect.LoginRobotsDeciderAgent.RedirectResult", 1);
   histogram_tester_.ExpectUniqueSample(
       "SubresourceRedirect.LoginRobotsDeciderAgent.RedirectResult",
-      RedirectResult::kIneligibleRobotsTimeout, 1);
+      SubresourceRedirectResult::kIneligibleRobotsTimeout, 1);
   histogram_tester_.ExpectUniqueSample(
       "SubresourceRedirect.CompressionAttempt.ResponseCode",
       net::HTTP_TEMPORARY_REDIRECT, 1);
@@ -143,7 +136,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceRedirectLoggedInSitesBrowserTest,
   image_compression_server_.VerifyRequestedImagePaths({});
 }
 
-// TODO(crbug.com/1166280): Enable the test after fixing the flake.
+// TODO(crbug.com/1187754): Enable the test after fixing the flake.
 // Verify that when image load gets canceled due to subsequent navigation to a
 // logged-in page, the subresource redirect for the image is disabled as well.
 IN_PROC_BROWSER_TEST_F(SubresourceRedirectLoggedInSitesBrowserTest,
@@ -153,17 +146,17 @@ IN_PROC_BROWSER_TEST_F(SubresourceRedirectLoggedInSitesBrowserTest,
   robots_rules_server_.AddRobotsRules(GetHttpsTestURL("/"),
                                       {{kRuleTypeAllow, ""}});
 
-  ui_test_utils::NavigateToURL(browser(),
-                               GetHttpsTestURL("/load_image/image.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), GetHttpsTestURL("/load_image/image.html")));
 
   // Wait for the image request to start and its robots rules to be requested.
   while (robots_rules_server_.received_requests().empty()) {
     base::RunLoop().RunUntilIdle();
   }
 
-  ui_test_utils::NavigateToURL(
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(),
-      https_test_server_.GetURL("loggedin.com", "/load_image/simple.html"));
+      https_test_server_.GetURL("loggedin.com", "/load_image/simple.html")));
   FetchHistogramsFromChildProcesses();
   histogram_tester_.ExpectBucketCount(
       "Login.PageLoad.DetectionType",
@@ -174,7 +167,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceRedirectLoggedInSitesBrowserTest,
       "SubresourceRedirect.LoginRobotsDeciderAgent.RedirectResult", 1);
   histogram_tester_.ExpectUniqueSample(
       "SubresourceRedirect.LoginRobotsDeciderAgent.RedirectResult",
-      RedirectResult::kIneligibleRobotsTimeout, 1);
+      SubresourceRedirectResult::kIneligibleRobotsTimeout, 1);
   histogram_tester_.ExpectUniqueSample(
       "SubresourceRedirect.CompressionAttempt.ResponseCode",
       net::HTTP_TEMPORARY_REDIRECT, 1);

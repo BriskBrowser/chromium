@@ -13,7 +13,6 @@
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "chrome/browser/prefetch/prefetch_proxy/prefetch_proxy_prefetch_status.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -21,6 +20,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 class Profile;
@@ -74,6 +74,12 @@ class PrefetchProxyProxyingURLLoaderFactory
       mojo::PendingRemote<network::mojom::URLLoaderFactory> isolated_factory,
       DisconnectCallback on_disconnect,
       ResourceLoadSuccessfulCallback on_resource_load_successful);
+
+  PrefetchProxyProxyingURLLoaderFactory(
+      const PrefetchProxyProxyingURLLoaderFactory&) = delete;
+  PrefetchProxyProxyingURLLoaderFactory& operator=(
+      const PrefetchProxyProxyingURLLoaderFactory&) = delete;
+
   ~PrefetchProxyProxyingURLLoaderFactory() override;
 
   // Informs |this| that new subresource loads are being done after the user
@@ -86,7 +92,6 @@ class PrefetchProxyProxyingURLLoaderFactory
   // network::mojom::URLLoaderFactory:
   void CreateLoaderAndStart(
       mojo::PendingReceiver<network::mojom::URLLoader> loader_receiver,
-      int32_t routing_id,
       int32_t request_id,
       uint32_t options,
       const network::ResourceRequest& request,
@@ -106,12 +111,15 @@ class PrefetchProxyProxyingURLLoaderFactory
         network::mojom::URLLoaderFactory* target_factory,
         ResourceLoadSuccessfulCallback on_resource_load_successful,
         mojo::PendingReceiver<network::mojom::URLLoader> loader_receiver,
-        int32_t routing_id,
         int32_t request_id,
         uint32_t options,
         const network::ResourceRequest& request,
         mojo::PendingRemote<network::mojom::URLLoaderClient> client,
         const net::MutableNetworkTrafficAnnotationTag& traffic_annotation);
+
+    InProgressRequest(const InProgressRequest&) = delete;
+    InProgressRequest& operator=(const InProgressRequest&) = delete;
+
     ~InProgressRequest() override;
 
     // Sets a callback that will be run during |OnComplete| to record metrics.
@@ -127,13 +135,15 @@ class PrefetchProxyProxyingURLLoaderFactory
         const std::vector<std::string>& removed_headers,
         const net::HttpRequestHeaders& modified_headers,
         const net::HttpRequestHeaders& modified_cors_exempt_headers,
-        const base::Optional<GURL>& new_url) override;
+        const absl::optional<GURL>& new_url) override;
     void SetPriority(net::RequestPriority priority,
                      int32_t intra_priority_value) override;
     void PauseReadingBodyFromNet() override;
     void ResumeReadingBodyFromNet() override;
 
     // network::mojom::URLLoaderClient:
+    void OnReceiveEarlyHints(
+        network::mojom::EarlyHintsPtr early_hints) override;
     void OnReceiveResponse(network::mojom::URLResponseHeadPtr head) override;
     void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
                            network::mojom::URLResponseHeadPtr head) override;
@@ -187,8 +197,6 @@ class PrefetchProxyProxyingURLLoaderFactory
     // |target_loader_|.
     mojo::Remote<network::mojom::URLLoader> target_loader_;
     mojo::Receiver<network::mojom::URLLoaderClient> client_receiver_{this};
-
-    DISALLOW_COPY_AND_ASSIGN(InProgressRequest);
   };
 
   // Terminates the request when constructed.
@@ -197,6 +205,10 @@ class PrefetchProxyProxyingURLLoaderFactory
     AbortRequest(
         mojo::PendingReceiver<network::mojom::URLLoader> loader_receiver,
         mojo::PendingRemote<network::mojom::URLLoaderClient> client);
+
+    AbortRequest(const AbortRequest&) = delete;
+    AbortRequest& operator=(const AbortRequest&) = delete;
+
     ~AbortRequest() override;
 
     // network::mojom::URLLoader:
@@ -204,7 +216,7 @@ class PrefetchProxyProxyingURLLoaderFactory
         const std::vector<std::string>& removed_headers,
         const net::HttpRequestHeaders& modified_headers,
         const net::HttpRequestHeaders& modified_cors_exempt_headers,
-        const base::Optional<GURL>& new_url) override;
+        const absl::optional<GURL>& new_url) override;
     void SetPriority(net::RequestPriority priority,
                      int32_t intra_priority_value) override;
     void PauseReadingBodyFromNet() override;
@@ -219,8 +231,6 @@ class PrefetchProxyProxyingURLLoaderFactory
     mojo::Receiver<network::mojom::URLLoader> loader_receiver_;
 
     base::WeakPtrFactory<AbortRequest> weak_factory_{this};
-
-    DISALLOW_COPY_AND_ASSIGN(AbortRequest);
   };
 
   // Used as a callback for determining the eligibility of a resource to be
@@ -228,7 +238,6 @@ class PrefetchProxyProxyingURLLoaderFactory
   void OnEligibilityResult(
       Profile* profile,
       mojo::PendingReceiver<network::mojom::URLLoader> loader_receiver,
-      int32_t routing_id,
       int32_t request_id,
       uint32_t options,
       const network::ResourceRequest& request,
@@ -236,7 +245,7 @@ class PrefetchProxyProxyingURLLoaderFactory
       const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
       const GURL& url,
       bool eligible,
-      base::Optional<PrefetchProxyPrefetchStatus> status);
+      absl::optional<PrefetchProxyPrefetchStatus> status);
 
   void RecordSubresourceMetricsDuringPrerender(
       const GURL& url,
@@ -266,7 +275,7 @@ class PrefetchProxyProxyingURLLoaderFactory
   // When |previously_cached_subresources_| is set,
   // |NotifyPageNavigatedToAfterSRP| has been called and the behavior there will
   // take place using this set as the resources that can be loaded from cache.
-  base::Optional<std::set<GURL>> previously_cached_subresources_;
+  absl::optional<std::set<GURL>> previously_cached_subresources_;
 
   mojo::ReceiverSet<network::mojom::URLLoaderFactory> proxy_receivers_;
 
@@ -293,8 +302,6 @@ class PrefetchProxyProxyingURLLoaderFactory
 
   base::WeakPtrFactory<PrefetchProxyProxyingURLLoaderFactory> weak_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(PrefetchProxyProxyingURLLoaderFactory);
 };
 
 #endif  // CHROME_BROWSER_PREFETCH_PREFETCH_PROXY_PREFETCH_PROXY_PROXYING_URL_LOADER_FACTORY_H_

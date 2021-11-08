@@ -243,9 +243,9 @@ public class WebViewLayoutTest {
         }
     }
 
-    @DisabledTest(message = "crbug.com/929129")
     @Test
     @MediumTest
+    @DisabledTest(message = "crbug.com/1266967")
     public void testRequestMIDIAccess() throws Exception {
         runWebViewLayoutTest("blink-apis/webmidi/requestmidiaccess.html",
                 "blink-apis/webmidi/requestmidiaccess-expected.txt");

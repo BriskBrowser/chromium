@@ -14,7 +14,7 @@
 #include "base/observer_list.h"
 #include "base/path_service.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_data_delegate.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/account_id/account_id.h"
 #include "ui/gfx/image/image_skia.h"
@@ -26,7 +26,7 @@ class FilePath;
 
 namespace ash {
 
-class AppSession;
+class AppSessionAsh;
 class KioskAppDataBase;
 class KioskAppManagerObserver;
 
@@ -51,6 +51,8 @@ class KioskAppManagerBase : public KioskAppDataDelegate {
   using AppList = std::vector<App>;
 
   KioskAppManagerBase();
+  KioskAppManagerBase(const KioskAppManagerBase&) = delete;
+  KioskAppManagerBase& operator=(const KioskAppManagerBase&) = delete;
   ~KioskAppManagerBase() override;
 
   // Depends on the app internal representation for the particular type of
@@ -73,8 +75,13 @@ class KioskAppManagerBase : public KioskAppDataDelegate {
     return auto_launched_with_zero_delay_;
   }
 
+  void set_current_app_was_auto_launched_with_zero_delay_for_testing(
+      bool value) {
+    auto_launched_with_zero_delay_ = value;
+  }
+
   // Session of the app that is currently running.
-  AppSession* app_session() { return app_session_.get(); }
+  AppSessionAsh* app_session() { return app_session_.get(); }
 
  protected:
   // Notifies the observers about the updates.
@@ -93,12 +100,11 @@ class KioskAppManagerBase : public KioskAppDataDelegate {
   base::CallbackListSubscription local_account_auto_login_id_subscription_;
 
   // Current app session.
-  std::unique_ptr<AppSession> app_session_;
+  std::unique_ptr<AppSessionAsh> app_session_;
 
   base::ObserverList<KioskAppManagerObserver, true>::Unchecked observers_;
 
   base::WeakPtrFactory<KioskAppManagerBase> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(KioskAppManagerBase);
 };
 
 }  // namespace ash

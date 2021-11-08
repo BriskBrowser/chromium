@@ -18,6 +18,7 @@
 #include "android_webview/browser/aw_devtools_manager_delegate.h"
 #include "android_webview/browser/aw_feature_list_creator.h"
 #include "android_webview/browser/aw_http_auth_handler.h"
+#include "android_webview/browser/aw_print_manager.h"
 #include "android_webview/browser/aw_quota_permission_context.h"
 #include "android_webview/browser/aw_resource_context.h"
 #include "android_webview/browser/aw_settings.h"
@@ -47,13 +48,12 @@
 #include "base/files/scoped_file.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/build_config.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/cdm/browser/cdm_message_filter_android.h"
-#include "components/content_capture/browser/content_capture_receiver_manager.h"
+#include "components/content_capture/browser/onscreen_content_provider.h"
 #include "components/crash/content/browser/crash_handler_host_linux.h"
 #include "components/navigation_interception/intercept_navigation_delegate.h"
 #include "components/page_load_metrics/browser/metrics_navigation_throttle.h"
@@ -63,7 +63,8 @@
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/browser/browser_url_loader_throttle.h"
 #include "components/safe_browsing/content/browser/mojo_safe_browsing_impl.h"
-#include "components/safe_browsing/core/features.h"
+#include "components/safe_browsing/core/common/features.h"
+#include "components/security_interstitials/content/security_interstitial_tab_helper.h"
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/browser/browser_associated_interface.h"
 #include "content/public/browser/browser_message_filter.h"
@@ -79,6 +80,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/shared_cors_origin_access_list.h"
+#include "content/public/browser/site_isolation_policy.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_descriptors.h"
@@ -90,6 +92,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/android/network_library.h"
+#include "net/cookies/site_for_cookies.h"
 #include "net/http/http_util.h"
 #include "net/net_buildflags.h"
 #include "net/ssl/ssl_cert_request_info.h"
@@ -99,6 +102,7 @@
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/cookie_manager.mojom-forward.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
@@ -130,8 +134,6 @@ bool g_created_network_context_params = false;
 // On apps targeting API level O or later, check cleartext is enforced.
 bool g_check_cleartext_permitted = false;
 
-const uint32_t kAwContentsMessageFilteredClasses[] = {FrameMsgStart};
-
 // TODO(sgurun) move this to its own file.
 // This class handles android_webview.mojom.RenderMessageFilter Mojo interface's
 // methods on IO thread.
@@ -140,6 +142,9 @@ class AwContentsMessageFilter
       public content::BrowserAssociatedInterface<mojom::RenderMessageFilter> {
  public:
   explicit AwContentsMessageFilter(int process_id);
+
+  AwContentsMessageFilter(const AwContentsMessageFilter&) = delete;
+  AwContentsMessageFilter& operator=(const AwContentsMessageFilter&) = delete;
 
   // BrowserMessageFilter methods.
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -152,15 +157,10 @@ class AwContentsMessageFilter
   ~AwContentsMessageFilter() override;
 
   int process_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(AwContentsMessageFilter);
 };
 
 AwContentsMessageFilter::AwContentsMessageFilter(int process_id)
-    : content::BrowserMessageFilter(
-          kAwContentsMessageFilteredClasses,
-          base::size(kAwContentsMessageFilteredClasses)),
-      content::BrowserAssociatedInterface<mojom::RenderMessageFilter>(this),
+    : content::BrowserAssociatedInterface<mojom::RenderMessageFilter>(this),
       process_id_(process_id) {}
 
 AwContentsMessageFilter::~AwContentsMessageFilter() = default;
@@ -369,9 +369,6 @@ bool AwContentBrowserClient::ForceSniffingFileUrlsForHtml() {
 void AwContentBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
     int child_process_id) {
-  // AppCache should always be enabled for WebView until it is removed.
-  command_line->AppendSwitch(switches::kAppCacheForceEnabled);
-
   if (!command_line->HasSwitch(switches::kSingleProcess)) {
     // The only kind of a child process WebView can have is renderer or utility.
     std::string process_type =
@@ -406,16 +403,6 @@ gfx::ImageSkia AwContentBrowserClient::GetDefaultFavicon() {
   return rb.GetImageNamed(IDR_DEFAULT_FAVICON).AsImageSkia();
 }
 
-bool AwContentBrowserClient::AllowAppCache(
-    const GURL& manifest_url,
-    const GURL& site_for_cookies,
-    const base::Optional<url::Origin>& top_frame_origin,
-    content::BrowserContext* context) {
-  // WebView doesn't have a per-site policy for locally stored data,
-  // instead AppCache can be disabled for individual WebViews.
-  return true;
-}
-
 scoped_refptr<content::QuotaPermissionContext>
 AwContentBrowserClient::CreateQuotaPermissionContext() {
   return new AwQuotaPermissionContext;
@@ -448,17 +435,15 @@ void AwContentBrowserClient::AllowCertificateError(
   bool cancel_request = true;
   // We only call the callback once but we must pass ownership to a function
   // that conditionally calls it.
-  // TODO(estaab): Change AwContentsClientBridge::AllowCertificateError to
-  //               return the callback if it doesn't call it.
-  base::RepeatingCallback<void(content::CertificateRequestResultType)>
-      repeating_callback = base::AdaptCallbackForRepeating(std::move(callback));
+  auto split_callback = base::SplitOnceCallback(std::move(callback));
   if (client) {
     client->AllowCertificateError(cert_error, ssl_info.cert.get(), request_url,
-                                  base::BindOnce(repeating_callback),
+                                  std::move(split_callback.first),
                                   &cancel_request);
   }
   if (cancel_request) {
-    repeating_callback.Run(content::CERTIFICATE_REQUEST_RESULT_TYPE_DENY);
+    std::move(split_callback.second)
+        .Run(content::CERTIFICATE_REQUEST_RESULT_TYPE_DENY);
   }
 }
 
@@ -595,24 +580,33 @@ AwContentBrowserClient::CreateThrottlesForNavigation(
     // doesn't actually call into an arbitrary client, it just posts a task to
     // call onPageStarted. shouldOverrideUrlLoading happens earlier (see
     // ContentBrowserClient::ShouldOverrideUrlLoading).
-    throttles.push_back(
-        navigation_interception::InterceptNavigationDelegate::CreateThrottleFor(
-            navigation_handle, navigation_interception::SynchronyMode::kSync));
+    std::unique_ptr<content::NavigationThrottle> intercept_navigation_throttle =
+        navigation_interception::InterceptNavigationDelegate::
+            MaybeCreateThrottleFor(
+                navigation_handle,
+                navigation_interception::SynchronyMode::kSync);
+    if (intercept_navigation_throttle)
+      throttles.push_back(std::move(intercept_navigation_throttle));
+
     throttles.push_back(std::make_unique<PolicyBlocklistNavigationThrottle>(
         navigation_handle,
         AwBrowserContext::FromWebContents(navigation_handle->GetWebContents()),
         AwBrowserProcess::GetInstance()
             ->browser_policy_connector()
             ->GetPolicyService()));
-    throttles.push_back(
-        std::make_unique<AwSafeBrowsingNavigationThrottle>(navigation_handle));
+
+    std::unique_ptr<AwSafeBrowsingNavigationThrottle> safe_browsing_throttle =
+        AwSafeBrowsingNavigationThrottle::MaybeCreateThrottleFor(
+            navigation_handle);
+    if (safe_browsing_throttle)
+      throttles.push_back(std::move(safe_browsing_throttle));
   }
   return throttles;
 }
 
-content::DevToolsManagerDelegate*
-AwContentBrowserClient::GetDevToolsManagerDelegate() {
-  return new AwDevToolsManagerDelegate();
+std::unique_ptr<content::DevToolsManagerDelegate>
+AwContentBrowserClient::CreateDevToolsManagerDelegate() {
+  return std::make_unique<AwDevToolsManagerDelegate>();
 }
 
 bool AwContentBrowserClient::BindAssociatedReceiverFromFrame(
@@ -627,10 +621,40 @@ bool AwContentBrowserClient::BindAssociatedReceiverFromFrame(
     return true;
   }
   if (interface_name == content_capture::mojom::ContentCaptureReceiver::Name_) {
-    content_capture::ContentCaptureReceiverManager::BindContentCaptureReceiver(
+    content_capture::OnscreenContentProvider::BindContentCaptureReceiver(
         mojo::PendingAssociatedReceiver<
             content_capture::mojom::ContentCaptureReceiver>(std::move(*handle)),
         render_frame_host);
+    return true;
+  }
+  if (interface_name == mojom::FrameHost::Name_) {
+    AwRenderViewHostExt::BindFrameHost(
+        mojo::PendingAssociatedReceiver<mojom::FrameHost>(std::move(*handle)),
+        render_frame_host);
+    return true;
+  }
+  if (interface_name == page_load_metrics::mojom::PageLoadMetrics::Name_) {
+    page_load_metrics::MetricsWebContentsObserver::BindPageLoadMetrics(
+        mojo::PendingAssociatedReceiver<
+            page_load_metrics::mojom::PageLoadMetrics>(std::move(*handle)),
+        render_frame_host);
+    return true;
+  }
+  if (interface_name == printing::mojom::PrintManagerHost::Name_) {
+    AwPrintManager::BindPrintManagerHost(
+        mojo::PendingAssociatedReceiver<printing::mojom::PrintManagerHost>(
+            std::move(*handle)),
+        render_frame_host);
+    return true;
+  }
+  if (interface_name ==
+      security_interstitials::mojom::InterstitialCommands::Name_) {
+    security_interstitials::SecurityInterstitialTabHelper::
+        BindInterstitialCommands(
+            mojo::PendingAssociatedReceiver<
+                security_interstitials::mojom::InterstitialCommands>(
+                std::move(*handle)),
+            render_frame_host);
     return true;
   }
 
@@ -762,7 +786,7 @@ bool AwContentBrowserClient::ShouldOverrideUrlLoading(
   if (client_bridge == nullptr)
     return true;
 
-  base::string16 url = base::UTF8ToUTF16(gurl.possibly_invalid_spec());
+  std::u16string url = base::UTF8ToUTF16(gurl.possibly_invalid_spec());
   return client_bridge->ShouldOverrideUrlLoading(
       url, has_user_gesture, is_redirect, is_main_frame, ignore_navigation);
 }
@@ -780,7 +804,7 @@ AwContentBrowserClient::CreateLoginDelegate(
     const net::AuthChallengeInfo& auth_info,
     content::WebContents* web_contents,
     const content::GlobalRequestID& request_id,
-    bool is_main_frame,
+    bool is_request_for_primary_main_frame,
     const GURL& url,
     scoped_refptr<net::HttpResponseHeaders> response_headers,
     bool first_auth_attempt,
@@ -792,14 +816,24 @@ AwContentBrowserClient::CreateLoginDelegate(
 
 bool AwContentBrowserClient::HandleExternalProtocol(
     const GURL& url,
-    content::WebContents::OnceGetter web_contents_getter,
+    content::WebContents::Getter web_contents_getter,
     int child_id,
+    int frame_tree_node_id,
     content::NavigationUIData* navigation_data,
     bool is_main_frame,
+    network::mojom::WebSandboxFlags /*sandbox_flags*/,
     ui::PageTransition page_transition,
     bool has_user_gesture,
-    const base::Optional<url::Origin>& initiating_origin,
+    const absl::optional<url::Origin>& initiating_origin,
     mojo::PendingRemote<network::mojom::URLLoaderFactory>* out_factory) {
+  // Sandbox flags
+  // =============
+  //
+  // Contrary to the chrome/ implementation, sandbox flags are ignored. Webview
+  // by itself to not invoke external apps. However it let the embedding
+  // app to intercept the request and decide what to do. We need to be careful
+  // here not breaking applications, so the sandbox flags are ignored.
+
   mojo::PendingReceiver<network::mojom::URLLoaderFactory> receiver =
       out_factory->InitWithNewPipeAndPassReceiver();
   // We don't need to care for |security_options| as the factories constructed
@@ -807,21 +841,21 @@ bool AwContentBrowserClient::HandleExternalProtocol(
   if (content::BrowserThread::CurrentlyOn(content::BrowserThread::IO)) {
     // Manages its own lifetime.
     new android_webview::AwProxyingURLLoaderFactory(
-        0 /* process_id */, std::move(receiver), mojo::NullRemote(),
-        true /* intercept_only */, base::nullopt /* security_options */);
+        frame_tree_node_id, std::move(receiver), mojo::NullRemote(),
+        true /* intercept_only */, absl::nullopt /* security_options */);
   } else {
     content::GetIOThreadTaskRunner({})->PostTask(
         FROM_HERE,
         base::BindOnce(
-            [](mojo::PendingReceiver<network::mojom::URLLoaderFactory>
-                   receiver) {
+            [](mojo::PendingReceiver<network::mojom::URLLoaderFactory> receiver,
+               int frame_tree_node_id) {
               // Manages its own lifetime.
               new android_webview::AwProxyingURLLoaderFactory(
-                  0 /* process_id */, std::move(receiver), mojo::NullRemote(),
+                  frame_tree_node_id, std::move(receiver), mojo::NullRemote(),
                   true /* intercept_only */,
-                  base::nullopt /* security_options */);
+                  absl::nullopt /* security_options */);
             },
-            std::move(receiver)));
+            std::move(receiver), frame_tree_node_id));
   }
   return false;
 }
@@ -857,7 +891,23 @@ bool AwContentBrowserClient::ShouldEnableStrictSiteIsolation() {
   return false;
 }
 
-bool AwContentBrowserClient::ShouldDisableSiteIsolation() {
+size_t AwContentBrowserClient::GetMaxRendererProcessCountOverride() {
+  // TODO(crbug.com/806404): These options can currently can only be turned by
+  // by manually overriding command line switches because
+  // `ShouldDisableSiteIsolation` returns true. Should coordinate if/when
+  // enabling this in production.
+  if (content::SiteIsolationPolicy::UseDedicatedProcessesForAllSites() ||
+      content::SiteIsolationPolicy::AreIsolatedOriginsEnabled() ||
+      content::SiteIsolationPolicy::IsStrictOriginIsolationEnabled()) {
+    // Do not restrict the max renderer process count for these site isolation
+    // modes. This allows OOPIFs to happen on android webview.
+    return 0u;  // Use default.
+  }
+  return 1u;
+}
+
+bool AwContentBrowserClient::ShouldDisableSiteIsolation(
+    content::SiteIsolationMode site_isolation_mode) {
   // Since AW does not yet support OOPIFs, we must return true here to disable
   // features that may trigger OOPIFs, such as origin isolation.
   //
@@ -882,7 +932,7 @@ bool AwContentBrowserClient::WillCreateURLLoaderFactory(
     int render_process_id,
     URLLoaderFactoryType type,
     const url::Origin& request_initiator,
-    base::Optional<int64_t> navigation_id,
+    absl::optional<int64_t> navigation_id,
     ukm::SourceIdObj ukm_source_id,
     mojo::PendingReceiver<network::mojom::URLLoaderFactory>* factory_receiver,
     mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
@@ -914,13 +964,10 @@ bool AwContentBrowserClient::WillCreateURLLoaderFactory(
     proxied_receiver = std::move(*factory_receiver);
     *factory_receiver = target_factory_remote.InitWithNewPipeAndPassReceiver();
   }
-  int process_id =
-      type == URLLoaderFactoryType::kNavigation ? 0 : render_process_id;
-
   // Android WebView has one non off-the-record browser context.
   if (frame) {
     auto security_options =
-        base::make_optional<AwProxyingURLLoaderFactory::SecurityOptions>();
+        absl::make_optional<AwProxyingURLLoaderFactory::SecurityOptions>();
     security_options->disable_web_security =
         base::CommandLine::ForCurrentProcess()->HasSwitch(
             switches::kDisableWebSecurity);
@@ -941,10 +988,11 @@ bool AwContentBrowserClient::WillCreateURLLoaderFactory(
           preferences.allow_file_access_from_file_urls ||
           preferences.allow_universal_access_from_file_urls;
     }
+
     content::GetIOThreadTaskRunner({})->PostTask(
         FROM_HERE,
-        base::BindOnce(&AwProxyingURLLoaderFactory::CreateProxy, process_id,
-                       std::move(proxied_receiver),
+        base::BindOnce(&AwProxyingURLLoaderFactory::CreateProxy,
+                       frame->GetFrameTreeNodeId(), std::move(proxied_receiver),
                        std::move(target_factory_remote), security_options));
   } else {
     // A service worker and worker subresources set nullptr to |frame|, and
@@ -952,9 +1000,10 @@ bool AwContentBrowserClient::WillCreateURLLoaderFactory(
     // we don't pass a valid |security_options| here.
     content::GetIOThreadTaskRunner({})->PostTask(
         FROM_HERE, base::BindOnce(&AwProxyingURLLoaderFactory::CreateProxy,
-                                  process_id, std::move(proxied_receiver),
+                                  content::RenderFrameHost::kNoFrameTreeNodeId,
+                                  std::move(proxied_receiver),
                                   std::move(target_factory_remote),
-                                  base::nullopt /* security_options */));
+                                  absl::nullopt /* security_options */));
   }
   return true;
 }
@@ -1029,16 +1078,18 @@ void AwContentBrowserClient::LogWebFeatureForCurrentPage(
     content::RenderFrameHost* render_frame_host,
     blink::mojom::WebFeature feature) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  page_load_metrics::mojom::PageLoadFeatures new_features({feature}, {}, {});
   page_load_metrics::MetricsWebContentsObserver::RecordFeatureUsage(
-      render_frame_host, new_features);
+      render_frame_host, feature);
 }
 
-bool AwContentBrowserClient::IsOriginTrialRequiredForAppCache(
-    content::BrowserContext* browser_text) {
-  // WebView has no way of specifying an origin trial, and so never
-  // consider it a requirement.
-  return false;
+bool AwContentBrowserClient::ShouldAllowInsecurePrivateNetworkRequests(
+    content::BrowserContext* browser_context,
+    const url::Origin& origin) {
+  // Webview does not implement support for deprecation trials, so webview apps
+  // broken by Private Network Access restrictions cannot help themselves by
+  // registering for the trial.
+  // See crbug.com/1255675.
+  return true;
 }
 
 content::SpeechRecognitionManagerDelegate*
@@ -1048,6 +1099,12 @@ AwContentBrowserClient::CreateSpeechRecognitionManagerDelegate() {
 
 bool AwContentBrowserClient::HasErrorPage(int http_status_code) {
   return http_status_code >= 400;
+}
+
+bool AwContentBrowserClient::SuppressDifferentOriginSubframeJSDialogs(
+    content::BrowserContext* browser_context) {
+  return base::FeatureList::IsEnabled(
+      features::kWebViewSuppressDifferentOriginSubframeJSDialogs);
 }
 
 // static

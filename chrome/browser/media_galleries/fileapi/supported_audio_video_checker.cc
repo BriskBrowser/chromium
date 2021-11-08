@@ -21,6 +21,7 @@
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "chrome/services/media_gallery_util/public/cpp/safe_audio_video_checker.h"
+#include "components/download/public/common/quarantine_connection.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/mime_util.h"
@@ -44,14 +45,16 @@ class SupportedAudioVideoExtensions {
     }
   }
 
+  SupportedAudioVideoExtensions(const SupportedAudioVideoExtensions&) = delete;
+  SupportedAudioVideoExtensions& operator=(
+      const SupportedAudioVideoExtensions&) = delete;
+
   bool HasSupportedAudioVideoExtension(const base::FilePath& file) {
     return base::Contains(audio_video_extensions_, file.Extension());
   }
 
  private:
   std::set<base::FilePath::StringType> audio_video_extensions_;
-
-  DISALLOW_COPY_AND_ASSIGN(SupportedAudioVideoExtensions);
 };
 
 base::LazyInstance<SupportedAudioVideoExtensions>::DestructorAtExit
@@ -86,8 +89,9 @@ void SupportedAudioVideoChecker::StartPreWriteValidation(
 }
 
 SupportedAudioVideoChecker::SupportedAudioVideoChecker(
-    const base::FilePath& path)
-    : path_(path) {}
+    const base::FilePath& path,
+    download::QuarantineConnectionCallback quarantine_connection_callback)
+    : AVScanningFileValidator(quarantine_connection_callback), path_(path) {}
 
 void SupportedAudioVideoChecker::OnFileOpen(base::File file) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);

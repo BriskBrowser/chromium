@@ -15,9 +15,9 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
-#include "components/safe_browsing/core/db/database_manager.h"
+#include "components/safe_browsing/core/browser/db/database_manager.h"
 #include "components/subresource_filter/content/browser/subresource_filter_safe_browsing_client.h"
 #include "components/subresource_filter/core/browser/subresource_filter_features.h"
 #include "components/subresource_filter/core/common/activation_decision.h"
@@ -73,6 +73,11 @@ class SubresourceFilterSafeBrowsingActivationThrottle
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
       scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager>
           database_manager);
+
+  SubresourceFilterSafeBrowsingActivationThrottle(
+      const SubresourceFilterSafeBrowsingActivationThrottle&) = delete;
+  SubresourceFilterSafeBrowsingActivationThrottle& operator=(
+      const SubresourceFilterSafeBrowsingActivationThrottle&) = delete;
 
   ~SubresourceFilterSafeBrowsingActivationThrottle() override;
 
@@ -141,8 +146,6 @@ class SubresourceFilterSafeBrowsingActivationThrottle
   // Whether this throttle is deferring the navigation. Only set to true in
   // WillProcessResponse if there are ongoing safe browsing checks.
   bool deferring_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(SubresourceFilterSafeBrowsingActivationThrottle);
 };
 
 }  // namespace subresource_filter

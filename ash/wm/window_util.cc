@@ -6,8 +6,9 @@
 
 #include <memory>
 
-#include "ash/public/cpp/app_types.h"
-#include "ash/public/cpp/ash_features.h"
+#include "ash/constants/app_types.h"
+#include "ash/multi_user/multi_user_window_manager_impl.h"
+#include "ash/public/cpp/app_types_util.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/tablet_mode_observer.h"
 #include "ash/public/cpp/window_properties.h"
@@ -26,6 +27,8 @@
 #include "ash/wm/window_positioning_utils.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
+#include "base/bind.h"
+#include "base/containers/contains.h"
 #include "chromeos/ui/base/chromeos_ui_constants.h"
 #include "chromeos/ui/frame/interior_resize_handler_targeter.h"
 #include "ui/aura/client/aura_constants.h"
@@ -36,12 +39,14 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_targeter.h"
 #include "ui/base/hit_test.h"
+#include "ui/compositor/compositor.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_tree_owner.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
-#include "ui/gfx/transform_util.h"
+#include "ui/gfx/geometry/transform_util.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/coordinate_conversion.h"
@@ -108,7 +113,7 @@ void GetBlockingContainersForRoot(aura::Window* root_window,
 }
 
 bool IsWindowUserPositionable(aura::Window* window) {
-  return window->type() == aura::client::WINDOW_TYPE_NORMAL;
+  return window->GetType() == aura::client::WINDOW_TYPE_NORMAL;
 }
 
 void PinWindow(aura::Window* window, bool trusted) {
@@ -149,7 +154,7 @@ bool MoveWindowToDisplay(aura::Window* window, int64_t display_id) {
 
   // Moves |window| to the given |root| window's corresponding container.
   aura::Window* container = RootWindowController::ForWindow(root)->GetContainer(
-      window->parent()->id());
+      window->parent()->GetId());
   if (!container)
     return false;
 
@@ -210,7 +215,7 @@ bool ShouldExcludeForCycleList(const aura::Window* window) {
   // but there will be a flicker as the target window changes. Also exclude
   // unselectable windows such as extension popups.
   for (auto* parent = window->parent(); parent; parent = parent->parent()) {
-    if (parent->id() == kShellWindowId_AppListContainer)
+    if (parent->GetId() == kShellWindowId_AppListContainer)
       return true;
   }
 
@@ -400,7 +405,7 @@ gfx::RectF GetTransformedBounds(aura::Window* transformed_window,
     // Ignore other window types when computing bounding box of overview target
     // item.
     if (window != transformed_window &&
-        window->type() != aura::client::WINDOW_TYPE_NORMAL) {
+        window->GetType() != aura::client::WINDOW_TYPE_NORMAL) {
       continue;
     }
     gfx::RectF window_bounds(window->GetTargetBounds());
@@ -422,6 +427,21 @@ gfx::RectF GetTransformedBounds(aura::Window* transformed_window,
     bounds.Union(window_bounds);
   }
   return bounds;
+}
+
+bool ShouldShowForCurrentUser(aura::Window* window) {
+  MultiUserWindowManager* multi_user_window_manager =
+      MultiUserWindowManagerImpl::Get();
+  if (!multi_user_window_manager)
+    return true;
+
+  const AccountId account_id =
+      multi_user_window_manager->GetUserPresentingWindow(window);
+  // An empty account ID is returned if the window is presented for all users.
+  if (!account_id.is_valid())
+    return true;
+
+  return account_id == multi_user_window_manager->CurrentAccountId();
 }
 
 }  // namespace window_util

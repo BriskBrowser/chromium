@@ -9,10 +9,8 @@
 #include <list>
 #include <map>
 #include <memory>
-#include <random>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 #include "base/atomic_sequence_num.h"
@@ -23,9 +21,8 @@
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/pending_task.h"
+#include "base/rand_util.h"
 #include "base/run_loop.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/task/common/task_annotator.h"
 #include "base/task/current_thread.h"
@@ -36,10 +33,13 @@
 #include "base/task/sequence_manager/task_queue_impl.h"
 #include "base/task/sequence_manager/task_queue_selector.h"
 #include "base/task/sequence_manager/thread_controller.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/default_tick_clock.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 
@@ -80,6 +80,9 @@ class BASE_EXPORT SequenceManagerImpl
  public:
   using Observer = SequenceManager::Observer;
 
+  // This feature controls whether wake ups are possible for canceled tasks.
+  static const Feature kNoWakeUpsForCanceledTasks;
+
   SequenceManagerImpl(const SequenceManagerImpl&) = delete;
   SequenceManagerImpl& operator=(const SequenceManagerImpl&) = delete;
   ~SequenceManagerImpl() override;
@@ -97,6 +100,14 @@ class BASE_EXPORT SequenceManagerImpl
   // methods.
   static std::unique_ptr<SequenceManagerImpl> CreateUnbound(
       SequenceManager::Settings settings);
+
+  // Sets state to eliminate wake ups for canceled tasks, if the
+  // kNoWakeUpsForCanceledTasks feature is enabled. Must be invoked after
+  // FeatureList initialization.
+  static void MaybeSetNoWakeUpsForCanceledTasks();
+
+  // Resets state that eliminates wake ups for canceled tasks.
+  static void ResetNoWakeUpsForCanceledTasksForTesting();
 
   // SequenceManager implementation:
   void BindToCurrentThread() override;
@@ -124,14 +135,16 @@ class BASE_EXPORT SequenceManagerImpl
   std::string DescribeAllPendingTasks() const override;
   std::unique_ptr<NativeWorkHandle> OnNativeWorkPending(
       TaskQueue::QueuePriority priority) override;
+  void PrioritizeYieldingToNative(base::TimeTicks prioritize_until) override;
   void AddTaskObserver(TaskObserver* task_observer) override;
   void RemoveTaskObserver(TaskObserver* task_observer) override;
 
   // SequencedTaskSource implementation:
-  Task* SelectNextTask(
+  absl::optional<SelectedTask> SelectNextTask(
       SelectTaskOption option = SelectTaskOption::kDefault) override;
   void DidRunTask() override;
-  TimeDelta DelayTillNextTask(
+  void RemoveAllCanceledDelayedTasksFromFront(LazyNow* lazy_now) override;
+  TimeTicks GetNextTaskTime(
       LazyNow* lazy_now,
       SelectTaskOption option = SelectTaskOption::kDefault) const override;
   bool HasPendingHighResolutionTasks() override;
@@ -156,8 +169,6 @@ class BASE_EXPORT SequenceManagerImpl
 #endif
   bool IsIdleForTesting() override;
   void BindToCurrentThread(std::unique_ptr<MessagePump> pump);
-  void DeletePendingTasks();
-  bool HasTasks();
   MessagePumpType GetType() const;
 
   // Requests that a task to process work is scheduled.
@@ -194,8 +205,7 @@ class BASE_EXPORT SequenceManagerImpl
   WeakPtr<SequenceManagerImpl> GetWeakPtr();
 
   // How frequently to perform housekeeping tasks (sweeping canceled tasks etc).
-  static constexpr TimeDelta kReclaimMemoryInterval =
-      TimeDelta::FromSeconds(30);
+  static constexpr TimeDelta kReclaimMemoryInterval = Seconds(30);
 
  protected:
   static std::unique_ptr<ThreadControllerImpl>
@@ -272,8 +282,7 @@ class BASE_EXPORT SequenceManagerImpl
     std::array<char, static_cast<size_t>(debug::CrashKeySize::Size64)>
         async_stack_buffer = {};
 
-    std::mt19937_64 random_generator;
-    std::uniform_real_distribution<double> uniform_distribution;
+    absl::optional<base::InsecureRandomGenerator> random_generator;
 
     internal::TaskQueueSelector selector;
     ObserverList<TaskObserver>::Unchecked task_observers;
@@ -380,19 +389,22 @@ class BASE_EXPORT SequenceManagerImpl
   TaskQueue::TaskTiming::TimeRecordingPolicy ShouldRecordTaskTiming(
       const internal::TaskQueueImpl* task_queue);
   bool ShouldRecordCPUTimeForTask();
+
+  // Write the async stack trace onto a crash key as whitespace-delimited hex
+  // addresses.
   void RecordCrashKeys(const PendingTask&);
 
   // Helper to terminate all scoped trace events to allow starting new ones
   // in SelectNextTask().
-  Task* SelectNextTaskImpl(SelectTaskOption option);
+  absl::optional<SelectedTask> SelectNextTaskImpl(SelectTaskOption option);
 
   // Check if a task of priority |priority| should run given the pending set of
   // native work.
   bool ShouldRunTaskOfPriority(TaskQueue::QueuePriority priority) const;
 
   // Ignores any immediate work.
-  TimeDelta GetDelayTillNextDelayedTask(LazyNow* lazy_now,
-                                        SelectTaskOption option) const;
+  TimeTicks GetNextDelayedTaskTimeImpl(LazyNow* lazy_now,
+                                       SelectTaskOption option) const;
 
 #if DCHECK_IS_ON()
   void LogTaskDebugInfo(const internal::WorkQueue* work_queue) const;

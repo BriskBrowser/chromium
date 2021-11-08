@@ -4,9 +4,11 @@
 
 package org.chromium.chrome.browser.app.tabmodel;
 
-import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
+import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.tabmodel.TabModelSelectorBase;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorImpl;
+import org.chromium.chrome.browser.tabmodel.TabPersistencePolicy;
 import org.chromium.chrome.browser.tabmodel.TabPersistentStore;
 import org.chromium.chrome.browser.tabmodel.TabPersistentStore.TabPersistentStoreObserver;
 
@@ -16,7 +18,8 @@ import org.chromium.chrome.browser.tabmodel.TabPersistentStore.TabPersistentStor
  */
 public abstract class TabModelOrchestrator {
     protected TabPersistentStore mTabPersistentStore;
-    protected TabModelSelectorImpl mTabModelSelector;
+    protected TabModelSelectorBase mTabModelSelector;
+    protected TabPersistencePolicy mTabPersistencePolicy;
     private boolean mTabModelsInitialized;
 
     /**
@@ -27,9 +30,9 @@ public abstract class TabModelOrchestrator {
     }
 
     /**
-     * @return The {@link TabModelSelectorImpl} managed by this orchestrator.
+     * @return The {@link TabModelSelector} managed by this orchestrator.
      */
-    public TabModelSelectorImpl getTabModelSelector() {
+    public TabModelSelectorBase getTabModelSelector() {
         return mTabModelSelector;
     }
 
@@ -63,7 +66,8 @@ public abstract class TabModelOrchestrator {
 
     public void onNativeLibraryReady(TabContentManager tabContentManager) {
         mTabModelSelector.onNativeLibraryReady(tabContentManager);
-        mTabPersistentStore.onNativeLibraryReady(tabContentManager);
+        mTabPersistencePolicy.setTabContentManager(tabContentManager);
+        mTabPersistentStore.onNativeLibraryReady();
     }
 
     /**
@@ -103,6 +107,12 @@ public abstract class TabModelOrchestrator {
     }
 
     /**
+     * Clean up persistent state for a given instance.
+     * @param instanceId Instance ID.
+     */
+    public void cleanupInstance(int instanceId) {}
+
+    /**
      * If there is an asynchronous session restore in-progress, try to synchronously restore
      * the state of a tab with the given url as a frozen tab. This method has no effect if
      * there isn't a tab being restored with this url, or the tab has already been restored.
@@ -133,16 +143,7 @@ public abstract class TabModelOrchestrator {
     }
 
     protected void wireSelectorAndStore() {
-        // Supply TabModelSelectorImpl with TabPersistentStore.
-        //
-        // TODO(crbug.com/1138561): Remove this dependency by making TabModelSelectorImpl emit
-        // events and TabPersistentStore react to them as an observer.
-        ObservableSupplierImpl<TabPersistentStore> tabPersistentStoreSupplier =
-                new ObservableSupplierImpl<>();
-        tabPersistentStoreSupplier.set(mTabPersistentStore);
-        mTabModelSelector.setTabPersistentStoreSupplier(tabPersistentStoreSupplier);
-
-        // Notify TabModelSelectorImpl when TabPersistentStore initializes tab state
+        // Notify TabModelSelector when TabPersistentStore initializes tab state
         final TabPersistentStoreObserver persistentStoreObserver =
                 new TabPersistentStoreObserver() {
                     @Override

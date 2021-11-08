@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/optional.h"
 
 namespace chromeos {
 

@@ -11,11 +11,17 @@
 class SyncErrorInfoBarDelegateAndroid : public ConfirmInfoBarDelegate {
  public:
   SyncErrorInfoBarDelegateAndroid();
+
+  SyncErrorInfoBarDelegateAndroid(const SyncErrorInfoBarDelegateAndroid&) =
+      delete;
+  SyncErrorInfoBarDelegateAndroid& operator=(
+      const SyncErrorInfoBarDelegateAndroid&) = delete;
+
   ~SyncErrorInfoBarDelegateAndroid() override;
 
   // ConfirmInfoBarDelegate:
   infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
-  base::string16 GetMessageText() const override;
+  std::u16string GetMessageText() const override;
   bool Accept() override;
   void InfoBarDismissed() override;
 
@@ -23,8 +29,6 @@ class SyncErrorInfoBarDelegateAndroid : public ConfirmInfoBarDelegate {
 
  private:
   base::android::ScopedJavaGlobalRef<jobject> java_delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyncErrorInfoBarDelegateAndroid);
 };
 
 #endif  // CHROME_BROWSER_SYNC_SYNC_ERROR_INFOBAR_DELEGATE_ANDROID_H_

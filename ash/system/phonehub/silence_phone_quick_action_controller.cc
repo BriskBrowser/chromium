@@ -8,6 +8,7 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/phonehub/phone_hub_metrics.h"
 #include "ash/system/phonehub/quick_action_item.h"
+#include "base/bind.h"
 #include "base/timer/timer.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -20,8 +21,7 @@ using phone_hub_metrics::QuickAction;
 
 // Time to wait until we check the state of the phone to prevent showing wrong
 // state
-constexpr base::TimeDelta kWaitForRequestTimeout =
-    base::TimeDelta::FromSeconds(10);
+constexpr base::TimeDelta kWaitForRequestTimeout = base::Seconds(10);
 
 }  // namespace
 
@@ -121,7 +121,7 @@ void SilencePhoneQuickActionController::SetItemState(ActionState state) {
   if (state == ActionState::kDisabled) {
     item_->SetIconTooltip(l10n_util::GetStringUTF16(state_text_id));
   } else {
-    base::string16 tooltip_state =
+    std::u16string tooltip_state =
         l10n_util::GetStringFUTF16(state_text_id, item_->GetItemLabel());
     item_->SetIconTooltip(l10n_util::GetStringFUTF16(
         IDS_ASH_PHONE_HUB_QUICK_ACTIONS_TOGGLE_TOOLTIP, item_->GetItemLabel(),

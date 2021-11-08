@@ -53,8 +53,10 @@ typedef NS_ENUM(NSInteger, PopupMenuAction) {
   // Badge overflow popup menu
   PopupMenuActionShowSavePasswordOptions,
   PopupMenuActionShowUpdatePasswordOptions,
+  PopupMenuActionShowSaveAddressProfileOptions,
   PopupMenuActionShowSaveCardOptions,
   PopupMenuActionShowTranslateOptions,
+  PopupMenuActionAddToReadingListOptions,
   // Textual popup menu
   PopupMenuActionEnterpriseInfoMessage,
 };

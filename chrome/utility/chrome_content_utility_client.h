@@ -23,11 +23,15 @@ class ChromeContentUtilityClient : public content::ContentUtilityClient {
       base::OnceCallback<void(service_manager::BinderRegistry*)>;
 
   ChromeContentUtilityClient();
+
+  ChromeContentUtilityClient(const ChromeContentUtilityClient&) = delete;
+  ChromeContentUtilityClient& operator=(const ChromeContentUtilityClient&) =
+      delete;
+
   ~ChromeContentUtilityClient() override;
 
   // content::ContentUtilityClient:
   void ExposeInterfacesToBrowser(mojo::BinderMap* binders) override;
-  bool OnMessageReceived(const IPC::Message& message) override;
   void PostIOThreadCreated(
       base::SingleThreadTaskRunner* io_thread_task_runner) override;
   void RegisterNetworkBinders(
@@ -48,8 +52,6 @@ class ChromeContentUtilityClient : public content::ContentUtilityClient {
 
   // True if the utility process runs with elevated privileges.
   bool utility_process_running_elevated_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeContentUtilityClient);
 };
 
 #endif  // CHROME_UTILITY_CHROME_CONTENT_UTILITY_CLIENT_H_

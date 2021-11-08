@@ -6,8 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_LAYOUT_NG_TABLE_SECTION_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/layout_block.h"
-#include "third_party/blink/renderer/core/layout/ng/layout_ng_mixin.h"
+#include "third_party/blink/renderer/core/layout/ng/layout_ng_block.h"
 #include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_section_interface.h"
 
 namespace blink {
@@ -16,7 +15,7 @@ class LayoutNGTable;
 
 // NOTE:
 // Every child of LayoutNGTableSection must be LayoutNGTableRow.
-class CORE_EXPORT LayoutNGTableSection : public LayoutNGMixin<LayoutBlock>,
+class CORE_EXPORT LayoutNGTableSection : public LayoutNGBlock,
                                          public LayoutNGTableSectionInterface {
  public:
   explicit LayoutNGTableSection(Element*);
@@ -48,6 +47,16 @@ class CORE_EXPORT LayoutNGTableSection : public LayoutNGMixin<LayoutBlock>,
       const LayoutObject* parent) const override;
 
   bool AllowsNonVisibleOverflow() const override {
+    NOT_DESTROYED();
+    return false;
+  }
+
+  // Whether a section has opaque background depends on many factors, e.g.
+  // border spacing, border collapsing, missing cells, etc. For simplicity,
+  // just conservatively assume all table sections are not opaque.
+  // Copied from LayoutTableSection,
+  bool ForegroundIsKnownToBeOpaqueInRect(const PhysicalRect&,
+                                         unsigned) const override {
     NOT_DESTROYED();
     return false;
   }

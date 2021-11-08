@@ -55,11 +55,14 @@ class RegexRulesMatcher final : public RulesetMatcherBase {
                     const RegexRulesList* regex_list,
                     const ExtensionMetadataList* metadata_list);
 
+  RegexRulesMatcher(const RegexRulesMatcher&) = delete;
+  RegexRulesMatcher& operator=(const RegexRulesMatcher&) = delete;
+
   // RulesetMatcherBase override:
   ~RegexRulesMatcher() override;
   std::vector<RequestAction> GetModifyHeadersActions(
       const RequestParams& params,
-      base::Optional<uint64_t> min_priority) const override;
+      absl::optional<uint64_t> min_priority) const override;
   bool IsExtraHeadersMatcher() const override {
     return is_extra_headers_matcher_;
   }
@@ -67,9 +70,9 @@ class RegexRulesMatcher final : public RulesetMatcherBase {
 
  private:
   // RulesetMatcherBase override:
-  base::Optional<RequestAction> GetAllowAllRequestsAction(
+  absl::optional<RequestAction> GetAllowAllRequestsAction(
       const RequestParams& params) const override;
-  base::Optional<RequestAction> GetBeforeRequestActionIgnoringAncestors(
+  absl::optional<RequestAction> GetBeforeRequestActionIgnoringAncestors(
       const RequestParams& params) const override;
 
   // Helper to build the necessary data structures for matching.
@@ -86,7 +89,7 @@ class RegexRulesMatcher final : public RulesetMatcherBase {
       const RequestParams& params) const;
 
   // Returns a RequestAction for the the given regex substitution rule.
-  base::Optional<RequestAction> CreateRegexSubstitutionRedirectAction(
+  absl::optional<RequestAction> CreateRegexSubstitutionRedirectAction(
       const RequestParams& params,
       const RegexRuleInfo& info) const;
 
@@ -113,8 +116,6 @@ class RegexRulesMatcher final : public RulesetMatcherBase {
   // substring of S. Uses the Aho-Corasick algorithm internally. Will be null
   // iff IsEmpty() returns false.
   std::unique_ptr<url_matcher::SubstringSetMatcher> substring_matcher_;
-
-  DISALLOW_COPY_AND_ASSIGN(RegexRulesMatcher);
 };
 
 }  // namespace declarative_net_request

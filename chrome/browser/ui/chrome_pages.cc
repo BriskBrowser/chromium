@@ -11,20 +11,13 @@
 #include "base/containers/fixed_flat_map.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
-#include "chrome/browser/apps/app_service/app_launch_params.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/apps/app_service/browser_app_launcher.h"
-#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_shelf.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
@@ -32,6 +25,7 @@
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
@@ -40,18 +34,12 @@
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/webui/bookmarks/bookmarks_ui.h"
 #include "chrome/browser/ui/webui/settings/site_settings_helper.h"
-#include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/web_app_constants.h"
-#include "chrome/browser/web_applications/components/web_app_id.h"
-#include "chrome/browser/web_applications/components/web_app_id_constants.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chromeos/login/login_state/login_state.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
-#include "components/signin/public/identity_manager/consent_level.h"
+#include "components/signin/public/base/consent_level.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/constants.h"
@@ -62,12 +50,11 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_features.h"
+#include "ash/webui/connectivity_diagnostics/url_constants.h"
 #include "base/metrics/histogram_functions.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
-#include "chrome/browser/ui/webui/settings/chromeos/app_management/app_management_uma.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes_util.h"
-#include "chromeos/components/connectivity_diagnostics/url_constants.h"
 #else
 #include "chrome/browser/ui/signin_view_controller.h"
 #endif
@@ -97,7 +84,7 @@ void FocusWebContents(Browser* browser) {
 void ShowSingletonTabIgnorePathOverwriteNTP(Browser* browser, const GURL& url) {
   NavigateParams params(GetSingletonTabNavigateParams(browser, url));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, std::move(params));
+  ShowSingletonTabOverwritingNTP(browser, &params);
 }
 
 void OpenBookmarkManagerForNode(Browser* browser, int64_t node_id) {
@@ -108,17 +95,14 @@ void OpenBookmarkManagerForNode(Browser* browser, int64_t node_id) {
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
-
 void LaunchReleaseNotesImpl(Profile* profile,
                             apps::mojom::LaunchSource source) {
   base::RecordAction(UserMetricsAction("ReleaseNotes.ShowReleaseNotes"));
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfileRedirectInIncognito(profile);
-  proxy->LaunchAppWithUrl(web_app::kHelpAppId, ui::EventFlags::EF_NONE,
-                          GURL("chrome://help-app/updates"), source,
-                          apps::MakeWindowInfo(display::kDefaultDisplayId));
+  web_app::SystemAppLaunchParams params;
+  params.url = GURL("chrome://help-app/updates");
+  params.launch_source = source;
+  LaunchSystemWebAppAsync(profile, web_app::SystemAppType::HELP, params);
 }
-
 #endif
 
 // Shows either the help app or the appropriate help page for |source|. If
@@ -143,10 +127,10 @@ void ShowHelpImpl(Browser* browser, Profile* profile, HelpSource source) {
     default:
       NOTREACHED() << "Unhandled help source" << source;
   }
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfileRedirectInIncognito(profile);
-  proxy->Launch(web_app::kHelpAppId, ui::EventFlags::EF_NONE, app_launch_source,
-                apps::MakeWindowInfo(display::kDefaultDisplayId));
+
+  web_app::SystemAppLaunchParams params;
+  params.launch_source = app_launch_source;
+  LaunchSystemWebAppAsync(profile, web_app::SystemAppType::HELP, params);
 #else
   GURL url;
   switch (source) {
@@ -244,6 +228,16 @@ void ShowBookmarkManagerForNode(Browser* browser, int64_t node_id) {
 }
 
 void ShowHistory(Browser* browser) {
+  // History UI should not be shown in Incognito mode, instead history
+  // disclaimer bubble should show up. This also updates the behavior of history
+  // keyboard shortcts in Incognito.
+  if (browser->profile()->IsOffTheRecord() &&
+      base::FeatureList::IsEnabled(
+          features::kUpdateHistoryEntryPointsInIncognito)) {
+    browser->window()->ShowIncognitoHistoryDisclaimerDialog();
+    return;
+  }
+
   base::RecordAction(UserMetricsAction("ShowHistory"));
   ShowSingletonTabIgnorePathOverwriteNTP(browser, GURL(kChromeUIHistoryURL));
 }
@@ -253,9 +247,9 @@ void ShowDownloads(Browser* browser) {
   if (browser->window() && browser->window()->IsDownloadShelfVisible())
     browser->window()->GetDownloadShelf()->Close();
 
-  ShowSingletonTabOverwritingNTP(
-      browser,
+  NavigateParams params(
       GetSingletonTabNavigateParams(browser, GURL(kChromeUIDownloadsURL)));
+  ShowSingletonTabOverwritingNTP(browser, &params);
 }
 
 void ShowExtensions(Browser* browser,
@@ -284,6 +278,10 @@ void ShowHelpForProfile(Profile* profile, HelpSource source) {
 void ShowChromeTips(Browser* browser) {
   static const char kChromeTipsURL[] = "https://www.google.com/chrome/tips/";
   ShowSingletonTab(browser, GURL(kChromeTipsURL));
+}
+
+void ShowChromeWhatsNew(Browser* browser) {
+  ShowSingletonTab(browser, GURL(kChromeUIWhatsNewURL));
 }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
@@ -450,30 +448,17 @@ void ShowAppManagementPage(Profile* profile,
                                                                sub_page);
 }
 
-void ShowPrintManagementApp(Profile* profile,
-                            PrintManagementAppEntryPoint entry_point) {
-  DCHECK(entry_point == PrintManagementAppEntryPoint::kSettings ||
-         entry_point == PrintManagementAppEntryPoint::kNotification);
-
-  base::UmaHistogramEnumeration("Printing.CUPS.PrintManagementAppEntryPoint",
-                                entry_point);
+void ShowPrintManagementApp(Profile* profile) {
   LaunchSystemWebAppAsync(profile, web_app::SystemAppType::PRINT_MANAGEMENT);
 }
 
 void ShowConnectivityDiagnosticsApp(Profile* profile) {
-  DCHECK(base::FeatureList::IsEnabled(
-      chromeos::features::kConnectivityDiagnosticsWebUi));
   LaunchSystemWebAppAsync(profile,
                           web_app::SystemAppType::CONNECTIVITY_DIAGNOSTICS);
 }
 
-void ShowScanningApp(Profile* profile,
-                     chromeos::scanning::ScanAppEntryPoint entry_point) {
-  DCHECK(base::FeatureList::IsEnabled(chromeos::features::kScanningUI));
-  DCHECK_EQ(chromeos::scanning::ScanAppEntryPoint::kSettings, entry_point);
-
+void ShowScanningApp(Profile* profile) {
   LaunchSystemWebAppAsync(profile, web_app::SystemAppType::SCANNING);
-  chromeos::scanning::RecordScanAppEntryPoint(entry_point);
 }
 
 void ShowDiagnosticsApp(Profile* profile) {
@@ -490,7 +475,8 @@ GURL GetOSSettingsUrl(const std::string& sub_page) {
 }
 #endif
 
-#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+// SigninViewController::ShowSignin is only available with DICE
 void ShowBrowserSignin(Browser* browser,
                        signin_metrics::AccessPoint access_point,
                        signin::ConsentLevel consent_level) {
@@ -513,7 +499,7 @@ void ShowBrowserSignin(Browser* browser,
       case signin::ConsentLevel::kSync:
         bubble_view_mode = profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN;
         break;
-      case signin::ConsentLevel::kNotRequired:
+      case signin::ConsentLevel::kSignin:
         bubble_view_mode = profiles::BUBBLE_VIEW_MODE_GAIA_ADD_ACCOUNT;
         break;
     }

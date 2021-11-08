@@ -6,7 +6,7 @@
  *
  * Other contributors:
  *   Robert O'Callahan <roc+@cs.cmu.edu>
- *   David Baron <dbaron@fas.harvard.edu>
+ *   David Baron <dbaron@dbaron.org>
  *   Christian Biesinger <cbiesinger@web.de>
  *   Randall Jesup <rjesup@wgate.com>
  *   Roland Mainz <roland.mainz@informatik.med.uni-giessen.de>
@@ -47,6 +47,7 @@
 #include <algorithm>
 #include <memory>
 
+#include "base/stl_util.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/layout/layout_multi_column_flow_thread.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
@@ -65,13 +66,6 @@ PaintLayerStackingNode::PaintLayerStackingNode(PaintLayer* layer)
   DCHECK(layer->GetLayoutObject().IsStackingContext());
 }
 
-#if DCHECK_IS_ON()
-void PaintLayerStackingNode::Destroy() {
-  if (!layer_->GetLayoutObject().DocumentBeingDestroyed())
-    UpdateStackingParentForZOrderLists(nullptr);
-}
-#endif
-
 PaintLayerCompositor* PaintLayerStackingNode::Compositor() const {
   DCHECK(layer_->GetLayoutObject().View());
   if (!layer_->GetLayoutObject().View())
@@ -82,7 +76,6 @@ PaintLayerCompositor* PaintLayerStackingNode::Compositor() const {
 void PaintLayerStackingNode::DirtyZOrderLists() {
 #if DCHECK_IS_ON()
   DCHECK(layer_->LayerListMutationAllowed());
-  UpdateStackingParentForZOrderLists(nullptr);
 #endif
 
   pos_z_order_list_.clear();
@@ -151,6 +144,16 @@ struct PaintLayerStackingNode::HighestLayers {
     }
   }
 
+  static LayerType GetLayerType(const PaintLayer& layer) {
+    DCHECK(layer.GetLayoutObject().IsStacked());
+    const auto& style = layer.GetLayoutObject().StyleRef();
+    if (style.GetPosition() == EPosition::kAbsolute)
+      return kAbsolutePosition;
+    if (style.GetPosition() == EPosition::kFixed)
+      return kFixedPosition;
+    return kInFlowStacked;
+  }
+
   void Update(const PaintLayer& layer) {
     const auto& style = layer.GetLayoutObject().StyleRef();
     // We only need to consider zero or positive z-index stacked child for
@@ -161,17 +164,25 @@ struct PaintLayerStackingNode::HighestLayers {
     if (!layer.GetLayoutObject().IsStacked() || style.EffectiveZIndex() < 0)
       return;
 
-    if (style.GetPosition() == EPosition::kAbsolute)
-      UpdateOrderForSubtreeHighestLayers(kAbsolutePosition, &layer);
-    else if (style.GetPosition() == EPosition::kFixed)
-      UpdateOrderForSubtreeHighestLayers(kFixedPosition, &layer);
-    else
-      UpdateOrderForSubtreeHighestLayers(kInFlowStacked, &layer);
+    UpdateOrderForSubtreeHighestLayers(GetLayerType(layer), &layer);
   }
 
-  void Merge(HighestLayers& child) {
+  void Merge(HighestLayers& child, const PaintLayer& current_layer) {
+    const auto& object = current_layer.GetLayoutObject();
     for (auto layer_type : child.highest_layers_order) {
-      UpdateOrderForSubtreeHighestLayers(layer_type,
+      auto layer_type_for_propagation = layer_type;
+      if (object.IsStacked()) {
+        if ((layer_type == kAbsolutePosition &&
+             object.CanContainAbsolutePositionObjects()) ||
+            (layer_type == kFixedPosition &&
+             object.CanContainFixedPositionObjects()) ||
+            layer_type == kInFlowStacked) {
+          // If the child is contained by the current layer, then use the
+          // current layer's type for propagation to ancestors.
+          layer_type_for_propagation = GetLayerType(current_layer);
+        }
+      }
+      UpdateOrderForSubtreeHighestLayers(layer_type_for_propagation,
                                          child.highest_layers[layer_type]);
     }
   }
@@ -215,11 +226,6 @@ void PaintLayerStackingNode::RebuildZOrderLists() {
       }
     }
   }
-
-#if DCHECK_IS_ON()
-  UpdateStackingParentForZOrderLists(this);
-#endif
-
   z_order_lists_dirty_ = false;
 }
 
@@ -245,20 +251,20 @@ void PaintLayerStackingNode::CollectLayers(PaintLayer& paint_layer,
   if (object.IsStackingContext())
     return;
 
-  base::Optional<HighestLayers> subtree_highest_layers;
+  absl::optional<HighestLayers> subtree_highest_layers;
   bool has_overlay_overflow_controls =
       paint_layer.GetScrollableArea() &&
       paint_layer.GetScrollableArea()->HasOverlayOverflowControls();
-  if (has_overlay_overflow_controls)
+  if (has_overlay_overflow_controls || highest_layers)
     subtree_highest_layers.emplace();
 
   for (PaintLayer* child = paint_layer.FirstChild(); child;
        child = child->NextSibling()) {
-    CollectLayers(*child, subtree_highest_layers ? &*subtree_highest_layers
-                                                 : highest_layers);
+    CollectLayers(*child, base::OptionalOrNullptr(subtree_highest_layers));
   }
 
   if (has_overlay_overflow_controls) {
+    DCHECK(subtree_highest_layers);
     const PaintLayer* layer_to_paint_overlay_overflow_controls_after = nullptr;
     for (auto layer_type : subtree_highest_layers->highest_layers_order) {
       if (layer_type == HighestLayers::kFixedPosition &&
@@ -280,22 +286,11 @@ void PaintLayerStackingNode::CollectLayers(PaintLayer& paint_layer,
     }
     paint_layer.SetNeedsReorderOverlayOverflowControls(
         !!layer_to_paint_overlay_overflow_controls_after);
-
-    if (highest_layers)
-      highest_layers->Merge(*subtree_highest_layers);
   }
-}
 
-#if DCHECK_IS_ON()
-void PaintLayerStackingNode::UpdateStackingParentForZOrderLists(
-    PaintLayerStackingNode* stacking_parent) {
-  for (auto& layer : pos_z_order_list_)
-    layer->SetStackingParent(stacking_parent);
-  for (auto& layer : neg_z_order_list_)
-    layer->SetStackingParent(stacking_parent);
+  if (highest_layers)
+    highest_layers->Merge(*subtree_highest_layers, paint_layer);
 }
-
-#endif
 
 bool PaintLayerStackingNode::StyleDidChange(PaintLayer& paint_layer,
                                             const ComputedStyle* old_style) {

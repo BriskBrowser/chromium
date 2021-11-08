@@ -70,6 +70,10 @@ class COMPONENT_EXPORT(SHILL_CLIENT) ShillProfileClient {
         const std::string& service_path,
         std::vector<std::string>* profiles) = 0;
 
+    // Returns the properties contained in the profile matching |profile_path|.
+    virtual base::Value GetProfileProperties(
+        const std::string& profile_path) = 0;
+
     // Returns the entry for |service_path| if it exists in any profile and sets
     // |profile_path| to the path of the profile the service was found in.
     // Profiles are searched starting with the most recently added profile.
@@ -104,6 +108,9 @@ class COMPONENT_EXPORT(SHILL_CLIENT) ShillProfileClient {
   // Returns the global instance if initialized. May return null.
   static ShillProfileClient* Get();
 
+  ShillProfileClient(const ShillProfileClient&) = delete;
+  ShillProfileClient& operator=(const ShillProfileClient&) = delete;
+
   // Returns the shared profile path.
   static std::string GetSharedProfilePath();
 
@@ -124,6 +131,23 @@ class COMPONENT_EXPORT(SHILL_CLIENT) ShillProfileClient {
       const dbus::ObjectPath& profile_path,
       base::OnceCallback<void(base::Value result)> callback,
       ErrorCallback error_callback) = 0;
+
+  // Calls the SetProperty DBus method to set a property on |profile_path|
+  // profile and invokes |callback| on success or |error_callback| on failure.
+  virtual void SetProperty(const dbus::ObjectPath& profile_path,
+                           const std::string& name,
+                           const base::Value& property,
+                           base::OnceClosure callback,
+                           ErrorCallback error_callback) = 0;
+
+  // Calls the SetProperty DBus method to set an ObjectPath property on
+  // |profile_path| profile and invokes |callback| on success or
+  // |error_callback| on failure.
+  virtual void SetObjectPathProperty(const dbus::ObjectPath& profile_path,
+                                     const std::string& name,
+                                     const dbus::ObjectPath& property,
+                                     base::OnceClosure callback,
+                                     ErrorCallback error_callback) = 0;
 
   // Calls GetEntry method.
   // |callback| is called after the method call succeeds.
@@ -148,11 +172,14 @@ class COMPONENT_EXPORT(SHILL_CLIENT) ShillProfileClient {
   // Initialize/Shutdown should be used instead.
   ShillProfileClient();
   virtual ~ShillProfileClient();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ShillProfileClient);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::ShillProfileClient;
+}
 
 #endif  // CHROMEOS_DBUS_SHILL_SHILL_PROFILE_CLIENT_H_

@@ -6,11 +6,15 @@
 
 #include <string>
 
+#include "base/atomic_sequence_num.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/trace_event/common/trace_event_common.h"
+#include "base/trace_event/trace_event.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
@@ -24,7 +28,6 @@
 #include "third_party/blink/renderer/modules/webcodecs/audio_encoder.h"
 #include "third_party/blink/renderer/modules/webcodecs/codec_state_helper.h"
 #include "third_party/blink/renderer/modules/webcodecs/encoded_video_chunk.h"
-#include "third_party/blink/renderer/modules/webcodecs/encoded_video_metadata.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_encoder.h"
 #include "third_party/blink/renderer/platform/bindings/enumeration_base.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -36,21 +39,33 @@
 
 namespace blink {
 
+namespace {
+constexpr const char kCategory[] = "media";
+
+base::AtomicSequenceNumber g_sequence_num_for_counters;
+}  // namespace
+
+// static
+template <typename Traits>
+const CodecTraceNames* EncoderBase<Traits>::GetTraceNames() {
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(CodecTraceNames, trace_names,
+                                  (Traits::GetName()));
+  return &trace_names;
+}
+
 template <typename Traits>
 EncoderBase<Traits>::EncoderBase(ScriptState* script_state,
                                  const InitType* init,
                                  ExceptionState& exception_state)
     : ExecutionContextLifecycleObserver(ExecutionContext::From(script_state)),
       state_(V8CodecState::Enum::kUnconfigured),
-      script_state_(script_state) {
-  // TODO(crbug.com/1151005): Use a real MediaLog in worker contexts too.
-  if (IsMainThread()) {
-    logger_ = std::make_unique<CodecLogger>(
-        GetExecutionContext(), Thread::MainThread()->GetTaskRunner());
-  } else {
-    // This will create a logger backed by a NullMediaLog, which does nothing.
-    logger_ = std::make_unique<CodecLogger>();
-  }
+      script_state_(script_state),
+      trace_counter_id_(g_sequence_num_for_counters.GetNext()) {
+  auto* context = ExecutionContext::From(script_state);
+  callback_runner_ = context->GetTaskRunner(TaskType::kInternalMediaRealTime);
+
+  logger_ =
+      std::make_unique<CodecLogger>(GetExecutionContext(), callback_runner_);
 
   media::MediaLog* log = logger_->log();
 
@@ -67,6 +82,11 @@ EncoderBase<Traits>::EncoderBase(ScriptState* script_state,
 template <typename Traits>
 EncoderBase<Traits>::~EncoderBase() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  base::UmaHistogramSparse(
+      String::Format("Blink.WebCodecs.%s.FinalStatus", Traits::GetName())
+          .Ascii()
+          .c_str(),
+      static_cast<int>(logger_->status_code()));
 }
 
 template <typename Traits>
@@ -88,6 +108,8 @@ void EncoderBase<Traits>::configure(const ConfigType* config,
     return;
   }
 
+  MarkCodecActive();
+
   Request* request = MakeGarbageCollected<Request>();
   request->reset_count = reset_count_;
   if (media_encoder_ && active_config_ &&
@@ -103,7 +125,7 @@ void EncoderBase<Traits>::configure(const ConfigType* config,
 }
 
 template <typename Traits>
-void EncoderBase<Traits>::encode(FrameType* frame,
+void EncoderBase<Traits>::encode(InputType* input,
                                  const EncodeOptionsType* opts,
                                  ExceptionState& exception_state) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -115,30 +137,25 @@ void EncoderBase<Traits>::encode(FrameType* frame,
     return;
 
   DCHECK(active_config_);
-  auto* context = GetExecutionContext();
-  if (!context) {
-    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
-                                      "Context is destroyed.");
-    return;
-  }
 
-  // This will fail if |frame| is already closed.
-  auto* internal_frame = CloneFrame(frame, context);
+  // This will fail if |input| is already closed.
+  auto* internal_input = input->clone(exception_state);
 
-  if (!internal_frame) {
+  if (!internal_input) {
+    // Remove exceptions relating to cloning closed input.
+    exception_state.ClearException();
+
     exception_state.ThrowDOMException(DOMExceptionCode::kOperationError,
-                                      "Cannot encode closed frame.");
+                                      "Cannot encode closed input.");
     return;
   }
 
-  // At this point, we have "consumed" the frame, and will close the clone in
-  // ProcessEncode().
-  frame->close();
+  MarkCodecActive();
 
   Request* request = MakeGarbageCollected<Request>();
   request->reset_count = reset_count_;
   request->type = Request::Type::kEncode;
-  request->frame = internal_frame;
+  request->input = internal_input;
   request->encodeOpts = opts;
   ++requested_encodes_;
   EnqueueRequest(request);
@@ -154,7 +171,6 @@ void EncoderBase<Traits>::close(ExceptionState& exception_state) {
   state_ = V8CodecState(V8CodecState::Enum::kClosed);
 
   ResetInternal();
-  media_encoder_.reset();
   output_callback_.Clear();
   error_callback_.Clear();
 }
@@ -167,6 +183,8 @@ ScriptPromise EncoderBase<Traits>::flush(ExceptionState& exception_state) {
 
   if (ThrowIfCodecStateUnconfigured(state_, "flush", exception_state))
     return ScriptPromise();
+
+  MarkCodecActive();
 
   Request* request = MakeGarbageCollected<Request>();
   request->resolver =
@@ -183,9 +201,14 @@ void EncoderBase<Traits>::reset(ExceptionState& exception_state) {
   if (ThrowIfCodecStateClosed(state_, "reset", exception_state))
     return;
 
+  TRACE_EVENT0(kCategory, GetTraceNames()->reset.c_str());
+
   state_ = V8CodecState(V8CodecState::Enum::kUnconfigured);
   ResetInternal();
-  media_encoder_.reset();
+
+  // This codec isn't holding on to any resources, and doesn't need to be
+  // reclaimed.
+  PauseCodecReclamation();
 }
 
 template <typename Traits>
@@ -197,10 +220,18 @@ void EncoderBase<Traits>::ResetInternal() {
     DCHECK(pending_req);
     if (pending_req->resolver)
       pending_req->resolver.Release()->Resolve();
-    if (pending_req->frame)
-      pending_req->frame.Release()->close();
+    if (pending_req->input)
+      pending_req->input.Release()->close();
   }
-  stall_request_processing_ = false;
+  requested_encodes_ = 0;
+  blocking_request_in_progress_ = false;
+
+  // Schedule deletion of |media_encoder_| for later.
+  // ResetInternal() might be called by an error reporting callback called by
+  // |media_encoder_|. If we delete it now, this thread might come back up
+  // the call stack and continu executing code belonging to deleted
+  // |media_encoder_|.
+  callback_runner_->DeleteSoon(FROM_HERE, std::move(media_encoder_));
 }
 
 template <typename Traits>
@@ -208,16 +239,18 @@ void EncoderBase<Traits>::HandleError(DOMException* ex) {
   if (state_.AsEnum() == V8CodecState::Enum::kClosed)
     return;
 
+  TRACE_EVENT0(kCategory, GetTraceNames()->handle_error.c_str());
+
   // Save a temp before we clear the callback.
   V8WebCodecsErrorCallback* error_callback = error_callback_.Get();
 
   state_ = V8CodecState(V8CodecState::Enum::kClosed);
 
   ResetInternal();
+  PauseCodecReclamation();
 
   // Errors are permanent. Shut everything down.
   error_callback_.Clear();
-  media_encoder_.reset();
   output_callback_.Clear();
 
   // Prevent further logging.
@@ -238,7 +271,9 @@ void EncoderBase<Traits>::EnqueueRequest(Request* request) {
 
 template <typename Traits>
 void EncoderBase<Traits>::ProcessRequests() {
-  while (!requests_.empty() && !stall_request_processing_) {
+  while (!requests_.empty() && ReadyToProcessNextRequest()) {
+    TraceQueueSizes();
+
     Request* request = requests_.TakeFirst();
     DCHECK(request);
     switch (request->type) {
@@ -258,18 +293,84 @@ void EncoderBase<Traits>::ProcessRequests() {
         NOTREACHED();
     }
   }
+
+  TraceQueueSizes();
+}
+
+template <typename Traits>
+bool EncoderBase<Traits>::ReadyToProcessNextRequest() {
+  return !blocking_request_in_progress_;
+}
+
+template <typename Traits>
+void EncoderBase<Traits>::ProcessFlush(Request* request) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_EQ(state_, V8CodecState::Enum::kConfigured);
+  DCHECK(media_encoder_);
+  DCHECK_EQ(request->type, Request::Type::kFlush);
+
+  auto done_callback = [](EncoderBase<Traits>* self, Request* req,
+                          media::Status status) {
+    DCHECK(req);
+    DCHECK(req->resolver);
+
+    if (!self) {
+      req->resolver.Release()->Reject();
+      req->EndTracing(/*aborted=*/true);
+      return;
+    }
+
+    DCHECK_CALLED_ON_VALID_SEQUENCE(self->sequence_checker_);
+    if (self->reset_count_ != req->reset_count) {
+      req->resolver.Release()->Reject();
+      req->EndTracing(/*aborted=*/true);
+      return;
+    }
+    if (status.is_ok()) {
+      req->resolver.Release()->Resolve();
+    } else {
+      self->HandleError(
+          self->logger_->MakeException("Flushing error.", status));
+      req->resolver.Release()->Reject();
+    }
+    req->EndTracing();
+
+    self->blocking_request_in_progress_ = false;
+    self->ProcessRequests();
+  };
+
+  request->StartTracing();
+
+  blocking_request_in_progress_ = true;
+  media_encoder_->Flush(ConvertToBaseOnceCallback(
+      CrossThreadBindOnce(done_callback, WrapCrossThreadWeakPersistent(this),
+                          WrapCrossThreadPersistent(request))));
+}
+
+template <typename Traits>
+void EncoderBase<Traits>::OnCodecReclaimed(DOMException* exception) {
+  TRACE_EVENT0(kCategory, GetTraceNames()->reclaimed.c_str());
+  DCHECK_EQ(state_.AsEnum(), V8CodecState::Enum::kConfigured);
+  HandleError(exception);
 }
 
 template <typename Traits>
 void EncoderBase<Traits>::ContextDestroyed() {
   state_ = V8CodecState(V8CodecState::Enum::kClosed);
+  ResetInternal();
   logger_->Neuter();
-  media_encoder_.reset();
 }
 
 template <typename Traits>
 bool EncoderBase<Traits>::HasPendingActivity() const {
-  return stall_request_processing_ || !requests_.empty();
+  return blocking_request_in_progress_ || !requests_.empty();
+}
+
+template <typename Traits>
+void EncoderBase<Traits>::TraceQueueSizes() const {
+  TRACE_COUNTER_ID2(kCategory, GetTraceNames()->requests_counter.c_str(),
+                    trace_counter_id_, "encodes", requested_encodes_, "other",
+                    requests_.size() - requested_encodes_);
 }
 
 template <typename Traits>
@@ -281,13 +382,62 @@ void EncoderBase<Traits>::Trace(Visitor* visitor) const {
   visitor->Trace(requests_);
   ScriptWrappable::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);
+  ReclaimableCodec::Trace(visitor);
 }
 
 template <typename Traits>
 void EncoderBase<Traits>::Request::Trace(Visitor* visitor) const {
-  visitor->Trace(frame);
+  visitor->Trace(input);
   visitor->Trace(encodeOpts);
   visitor->Trace(resolver);
+}
+
+template <typename Traits>
+const char* EncoderBase<Traits>::Request::TraceNameFromType() {
+  using RequestType = typename EncoderBase<Traits>::Request::Type;
+
+  const CodecTraceNames* trace_names = EncoderBase<Traits>::GetTraceNames();
+
+  switch (type) {
+    case RequestType::kConfigure:
+      return trace_names->configure.c_str();
+    case RequestType::kEncode:
+      return trace_names->encode.c_str();
+    case RequestType::kFlush:
+      return trace_names->flush.c_str();
+    case RequestType::kReconfigure:
+      return trace_names->reconfigure.c_str();
+  }
+  return "InvalidCodecTraceName";
+}
+
+template <typename Traits>
+void EncoderBase<Traits>::Request::StartTracingVideoEncode(bool is_keyframe) {
+#if DCHECK_IS_ON()
+  DCHECK(!is_tracing);
+  is_tracing = true;
+#endif
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN1(kCategory, TraceNameFromType(), this,
+                                    "key_frame", is_keyframe);
+}
+
+template <typename Traits>
+void EncoderBase<Traits>::Request::StartTracing() {
+#if DCHECK_IS_ON()
+  DCHECK(!is_tracing);
+  is_tracing = true;
+#endif
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(kCategory, TraceNameFromType(), this);
+}
+
+template <typename Traits>
+void EncoderBase<Traits>::Request::EndTracing(bool aborted) {
+#if DCHECK_IS_ON()
+  DCHECK(is_tracing);
+  is_tracing = false;
+#endif
+  TRACE_EVENT_NESTABLE_ASYNC_END1(kCategory, TraceNameFromType(), this,
+                                  "aborted", aborted);
 }
 
 template class EncoderBase<VideoEncoderTraits>;

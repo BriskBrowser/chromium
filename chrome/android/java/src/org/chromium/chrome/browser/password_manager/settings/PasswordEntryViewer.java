@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser.password_manager.settings;
 
+import static org.chromium.chrome.browser.password_manager.settings.PasswordAccessReauthenticationHelper.SETTINGS_REAUTHENTICATION_HISTOGRAM;
+
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -36,7 +38,8 @@ import androidx.fragment.app.Fragment;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.sync.ProfileSyncService;
+import org.chromium.chrome.browser.password_manager.ReauthResult;
+import org.chromium.chrome.browser.sync.SyncService;
 import org.chromium.components.browser_ui.settings.SettingsUtils;
 import org.chromium.ui.text.SpanApplier;
 import org.chromium.ui.widget.Toast;
@@ -213,9 +216,9 @@ public class PasswordEntryViewer
     }
 
     private boolean isPasswordSyncingUser() {
-        ProfileSyncService syncService = ProfileSyncService.get();
+        SyncService syncService = SyncService.get();
         return syncService != null && syncService.isSyncRequested()
-                && syncService.isEngineInitialized() && !syncService.isUsingSecondaryPassphrase();
+                && syncService.isEngineInitialized() && !syncService.isUsingExplicitPassphrase();
     }
 
     @Override
@@ -395,6 +398,8 @@ public class PasswordEntryViewer
                         .show();
             } else if (ReauthenticationManager.authenticationStillValid(
                                ReauthenticationManager.ReauthScope.ONE_AT_A_TIME)) {
+                RecordHistogram.recordEnumeratedHistogram(SETTINGS_REAUTHENTICATION_HISTOGRAM,
+                        ReauthResult.SKIPPED, ReauthResult.MAX_VALUE);
                 copyPassword();
             } else {
                 mCopyButtonPressed = true;
@@ -416,6 +421,8 @@ public class PasswordEntryViewer
                 hidePassword();
             } else if (ReauthenticationManager.authenticationStillValid(
                                ReauthenticationManager.ReauthScope.ONE_AT_A_TIME)) {
+                RecordHistogram.recordEnumeratedHistogram(SETTINGS_REAUTHENTICATION_HISTOGRAM,
+                        ReauthResult.SKIPPED, ReauthResult.MAX_VALUE);
                 displayPassword();
             } else {
                 mViewButtonPressed = true;

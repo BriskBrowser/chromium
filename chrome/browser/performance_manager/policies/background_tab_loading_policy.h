@@ -7,10 +7,12 @@
 
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "components/performance_manager/public/graph/graph.h"
 #include "components/performance_manager/public/graph/node_data_describer.h"
 #include "components/performance_manager/public/graph/page_node.h"
+#include "components/performance_manager/public/graph/system_node.h"
 #include "url/gurl.h"
 
 namespace performance_manager {
@@ -30,7 +32,8 @@ namespace policies {
 // background tab loading at all times.
 class BackgroundTabLoadingPolicy : public GraphOwned,
                                    public NodeDataDescriberDefaultImpl,
-                                   public PageNode::ObserverDefaultImpl {
+                                   public PageNode::ObserverDefaultImpl,
+                                   public SystemNode::ObserverDefaultImpl {
  public:
   BackgroundTabLoadingPolicy();
   ~BackgroundTabLoadingPolicy() override;
@@ -77,7 +80,7 @@ class BackgroundTabLoadingPolicy : public GraphOwned,
     // Indicates whether or not the tab communicates with the user even when it
     // is in the background (tab title changes, favicons, etc).
     // It is initialized to nullopt and set asynchronously to the proper value.
-    base::Optional<bool> used_in_bg;
+    absl::optional<bool> used_in_bg;
   };
 
   // Comparator used to sort PageNodeToLoadData.
@@ -86,6 +89,10 @@ class BackgroundTabLoadingPolicy : public GraphOwned,
   // NodeDataDescriber implementation:
   base::Value DescribePageNodeData(const PageNode* node) const override;
   base::Value DescribeSystemNodeData(const SystemNode* node) const override;
+
+  // SystemNodeObserver:
+  void OnMemoryPressure(
+      base::MemoryPressureListener::MemoryPressureLevel new_level) override;
 
   // Determines whether or not the given PageNode should be loaded. If this
   // returns false, then the policy no longer attempts to load |page_node| and
@@ -99,10 +106,6 @@ class BackgroundTabLoadingPolicy : public GraphOwned,
 
   // Stops loading tabs by clearing |page_nodes_to_load_|.
   void StopLoadingTabs();
-
-  // React to memory pressure by stopping to load any more tabs.
-  void OnMemoryPressure(
-      base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level);
 
   // Calculates a |score| for the given tab.
   void ScoreTab(PageNodeToLoadData* page_node_to_load_data);
@@ -145,10 +148,6 @@ class BackgroundTabLoadingPolicy : public GraphOwned,
   void ErasePageNodeToLoadData(const PageNode* page_node);
   PageNodeToLoadData* FindPageNodeToLoadData(const PageNode* page_node);
 
-  // Listens for system under memory pressure notifications and stops loading
-  // of tabs when we start running out of memory.
-  base::MemoryPressureListener memory_pressure_listener_;
-
   // The mechanism used to load the pages.
   std::unique_ptr<performance_manager::mechanism::PageLoader> page_loader_;
 
@@ -190,8 +189,7 @@ class BackgroundTabLoadingPolicy : public GraphOwned,
   static constexpr uint32_t kDesiredAmountOfFreeMemoryMb = 150;
 
   // The maximum time since last use of a tab in order for it to be loaded.
-  static constexpr base::TimeDelta kMaxTimeSinceLastUseToLoad =
-      base::TimeDelta::FromDays(30);
+  static constexpr base::TimeDelta kMaxTimeSinceLastUseToLoad = base::Days(30);
 
   // Lower bound for the maximum number of tabs to load simultaneously.
   static constexpr uint32_t kMinSimultaneousTabLoads = 1;
@@ -215,7 +213,6 @@ class BackgroundTabLoadingPolicy : public GraphOwned,
   FRIEND_TEST_ALL_PREFIXES(BackgroundTabLoadingPolicyTest,
                            ShouldLoad_FreeMemory);
   FRIEND_TEST_ALL_PREFIXES(BackgroundTabLoadingPolicyTest, ShouldLoad_OldTab);
-  FRIEND_TEST_ALL_PREFIXES(BackgroundTabLoadingPolicyTest, OnMemoryPressure);
   FRIEND_TEST_ALL_PREFIXES(
       ::performance_manager::BackgroundTabLoadingBrowserTest,
       RestoredTabsAreLoadedGradually);

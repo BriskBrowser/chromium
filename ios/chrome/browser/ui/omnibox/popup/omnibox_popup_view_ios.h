@@ -2,15 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IOS_CHROME_BROWSER_UI_OMNIBOX_OMNIBOX_POPUP_VIEW_IOS_H_
-#define IOS_CHROME_BROWSER_UI_OMNIBOX_OMNIBOX_POPUP_VIEW_IOS_H_
+#ifndef IOS_CHROME_BROWSER_UI_OMNIBOX_POPUP_OMNIBOX_POPUP_VIEW_IOS_H_
+#define IOS_CHROME_BROWSER_UI_OMNIBOX_POPUP_OMNIBOX_POPUP_VIEW_IOS_H_
 
 #import <UIKit/UIKit.h>
 
-#include <memory>
-
-#include "base/strings/string16.h"
-#include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/browser/omnibox_popup_view.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_mediator.h"
 #include "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_provider.h"
@@ -29,8 +25,8 @@ class OmniboxPopupViewIOS : public OmniboxPopupView,
                       OmniboxPopupViewSuggestionsDelegate* delegate);
   ~OmniboxPopupViewIOS() override;
 
-  // Popup model used for this.
-  OmniboxPopupModel* model() const;
+  // Model used for this.
+  OmniboxEditModel* model() const;
 
   // OmniboxPopupView implementation.
   bool IsOpen() const override;
@@ -63,9 +59,9 @@ class OmniboxPopupViewIOS : public OmniboxPopupView,
   void SetMediator(OmniboxPopupMediator* mediator) { mediator_ = mediator; }
 
  private:
-  std::unique_ptr<OmniboxPopupModel> model_;
+  OmniboxEditModel* edit_model_;
   OmniboxPopupViewSuggestionsDelegate* delegate_;  // weak
   OmniboxPopupMediator* mediator_;
 };
 
-#endif  // IOS_CHROME_BROWSER_UI_OMNIBOX_OMNIBOX_POPUP_VIEW_IOS_H_
+#endif  // IOS_CHROME_BROWSER_UI_OMNIBOX_POPUP_OMNIBOX_POPUP_VIEW_IOS_H_

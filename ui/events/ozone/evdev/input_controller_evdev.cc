@@ -14,6 +14,7 @@
 #include "base/callback.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/events/devices/device_data_manager.h"
+#include "ui/events/devices/stylus_state.h"
 #include "ui/events/ozone/evdev/input_device_factory_evdev_proxy.h"
 #include "ui/events/ozone/evdev/keyboard_evdev.h"
 #include "ui/events/ozone/evdev/mouse_button_map_evdev.h"
@@ -66,6 +67,11 @@ bool InputControllerEvdev::HasPointingStick() {
 
 bool InputControllerEvdev::HasTouchpad() {
   return has_touchpad_;
+}
+
+bool InputControllerEvdev::HasHapticTouchpad() {
+  // TODO(b/204903440): Check if haptic touchpad is present.
+  return false;
 }
 
 bool InputControllerEvdev::IsCapsLockEnabled() {
@@ -139,6 +145,16 @@ void InputControllerEvdev::SetTouchpadSensitivity(int value) {
 
 void InputControllerEvdev::SetTouchpadScrollSensitivity(int value) {
   input_device_settings_.touchpad_scroll_sensitivity = value;
+  ScheduleUpdateDeviceSettings();
+}
+
+void InputControllerEvdev::SetTouchpadHapticFeedback(bool enabled) {
+  input_device_settings_.touchpad_haptic_feedback_enabled = enabled;
+  ScheduleUpdateDeviceSettings();
+}
+
+void InputControllerEvdev::SetTouchpadHapticClickSensitivity(int value) {
+  input_device_settings_.touchpad_haptic_click_sensitivity = value;
   ScheduleUpdateDeviceSettings();
 }
 
@@ -248,6 +264,14 @@ void InputControllerEvdev::SetTapToClickPaused(bool state) {
   ScheduleUpdateDeviceSettings();
 }
 
+void InputControllerEvdev::GetStylusSwitchState(
+    GetStylusSwitchStateReply reply) {
+  if (input_device_factory_)
+    input_device_factory_->GetStylusSwitchState(std::move(reply));
+  else
+    std::move(reply).Run(ui::StylusState::REMOVED);
+}
+
 void InputControllerEvdev::GetTouchDeviceStatus(
     GetTouchDeviceStatusReply reply) {
   if (input_device_factory_)
@@ -306,5 +330,15 @@ void InputControllerEvdev::StopVibration(int id) {
     return;
   input_device_factory_->StopVibration(id);
 }
+
+// TODO(b/204903440): Implement.
+void InputControllerEvdev::PlayHapticTouchpadEffect(
+    ui::HapticTouchpadEffect effect,
+    ui::HapticTouchpadEffectStrength strength) {}
+
+// TODO(b/204903440): Implement.
+void InputControllerEvdev::SetHapticTouchpadEffectForNextButtonRelease(
+    ui::HapticTouchpadEffect effect,
+    ui::HapticTouchpadEffectStrength strength) {}
 
 }  // namespace ui

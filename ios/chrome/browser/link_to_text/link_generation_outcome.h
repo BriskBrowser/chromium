@@ -12,7 +12,9 @@ enum class LinkGenerationOutcome {
   kSuccess = 0,
   kInvalidSelection = 1,
   kAmbiguous = 2,
-  kMaxValue = kAmbiguous
+  kTimeout = 3,
+  kExecutionFailed = 4,
+  kMaxValue = kExecutionFailed
 };
 
 #endif  // IOS_CHROME_BROWSER_LINK_TO_TEXT_LINK_GENERATION_OUTCOME_H_

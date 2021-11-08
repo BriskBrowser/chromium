@@ -59,6 +59,12 @@ class NetworkingPrivateEventRouterImpl
       public chromeos::NetworkCertificateHandler::Observer {
  public:
   explicit NetworkingPrivateEventRouterImpl(content::BrowserContext* context);
+
+  NetworkingPrivateEventRouterImpl(const NetworkingPrivateEventRouterImpl&) =
+      delete;
+  NetworkingPrivateEventRouterImpl& operator=(
+      const NetworkingPrivateEventRouterImpl&) = delete;
+
   ~NetworkingPrivateEventRouterImpl() override;
 
  protected:
@@ -90,8 +96,6 @@ class NetworkingPrivateEventRouterImpl
 
   content::BrowserContext* context_;
   bool listening_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkingPrivateEventRouterImpl);
 };
 
 NetworkingPrivateEventRouterImpl::NetworkingPrivateEventRouterImpl(
@@ -192,8 +196,7 @@ void NetworkingPrivateEventRouterImpl::NetworkListChanged() {
     changes.push_back((*iter)->guid());
   }
 
-  std::unique_ptr<base::ListValue> args(
-      api::networking_private::OnNetworkListChanged::Create(changes));
+  auto args(api::networking_private::OnNetworkListChanged::Create(changes));
   std::unique_ptr<Event> extension_event(
       new Event(events::NETWORKING_PRIVATE_ON_NETWORK_LIST_CHANGED,
                 api::networking_private::OnNetworkListChanged::kEventName,
@@ -208,8 +211,7 @@ void NetworkingPrivateEventRouterImpl::DeviceListChanged() {
     return;
   }
 
-  std::unique_ptr<base::ListValue> args(
-      api::networking_private::OnDeviceStateListChanged::Create());
+  auto args(api::networking_private::OnDeviceStateListChanged::Create());
   std::unique_ptr<Event> extension_event(
       new Event(events::NETWORKING_PRIVATE_ON_DEVICE_STATE_LIST_CHANGED,
                 api::networking_private::OnDeviceStateListChanged::kEventName,
@@ -229,9 +231,8 @@ void NetworkingPrivateEventRouterImpl::NetworkPropertiesUpdated(
   }
   NET_LOG(EVENT) << "NetworkingPrivate.NetworkPropertiesUpdated: "
                  << NetworkId(network);
-  std::unique_ptr<base::ListValue> args(
-      api::networking_private::OnNetworksChanged::Create(
-          std::vector<std::string>(1, network->guid())));
+  auto args(api::networking_private::OnNetworksChanged::Create(
+      std::vector<std::string>(1, network->guid())));
   std::unique_ptr<Event> extension_event(new Event(
       events::NETWORKING_PRIVATE_ON_NETWORKS_CHANGED,
       api::networking_private::OnNetworksChanged::kEventName, std::move(args)));
@@ -273,8 +274,7 @@ void NetworkingPrivateEventRouterImpl::OnCertificatesChanged() {
   }
   NET_LOG(EVENT) << "NetworkingPrivate.OnCertificatesChanged";
 
-  std::unique_ptr<base::ListValue> args(
-      api::networking_private::OnCertificateListsChanged::Create());
+  auto args(api::networking_private::OnCertificateListsChanged::Create());
   std::unique_ptr<Event> extension_event(
       new Event(events::NETWORKING_PRIVATE_ON_CERTIFICATE_LISTS_CHANGED,
                 api::networking_private::OnCertificateListsChanged::kEventName,
@@ -298,9 +298,8 @@ void NetworkingPrivateEventRouterImpl::PortalStateChanged(
   NET_LOG(EVENT) << "NetworkingPrivate.OnPortalDetectionCompleted: "
                  << (network ? NetworkId(network) : "");
 
-  std::unique_ptr<base::ListValue> args(
-      api::networking_private::OnPortalDetectionCompleted::Create(
-          guid, GetCaptivePortalStatus(network)));
+  auto args(api::networking_private::OnPortalDetectionCompleted::Create(
+      guid, GetCaptivePortalStatus(network)));
   std::unique_ptr<Event> extension_event(
       new Event(events::NETWORKING_PRIVATE_ON_PORTAL_DETECTION_COMPLETED,
                 api::networking_private::OnPortalDetectionCompleted::kEventName,

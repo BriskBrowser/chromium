@@ -13,8 +13,8 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "components/feedback/system_logs/system_logs_source.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace system_logs {
 
@@ -31,6 +31,10 @@ bool ReadEndOfFile(const base::FilePath& path,
 class DebugDaemonLogSource : public SystemLogsSource {
  public:
   explicit DebugDaemonLogSource(bool scrub);
+
+  DebugDaemonLogSource(const DebugDaemonLogSource&) = delete;
+  DebugDaemonLogSource& operator=(const DebugDaemonLogSource&) = delete;
+
   ~DebugDaemonLogSource() override;
 
   // SystemLogsSource override:
@@ -44,8 +48,8 @@ class DebugDaemonLogSource : public SystemLogsSource {
 
   // Callbacks for the dbus calls to debugd.
   void OnGetRoutes(bool is_ipv6,
-                   base::Optional<std::vector<std::string>> routes);
-  void OnGetOneLog(std::string key, base::Optional<std::string> status);
+                   absl::optional<std::vector<std::string>> routes);
+  void OnGetOneLog(std::string key, absl::optional<std::string> status);
   void OnGetLogs(bool succeeded,
                  const KeyValueMap& logs);
 
@@ -73,8 +77,6 @@ class DebugDaemonLogSource : public SystemLogsSource {
   int num_pending_requests_;
   bool scrub_;
   base::WeakPtrFactory<DebugDaemonLogSource> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DebugDaemonLogSource);
 };
 
 

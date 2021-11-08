@@ -4,11 +4,11 @@
 
 #include "components/policy/core/browser/url_util.h"
 
+#include <memory>
 #include <string>
 
 #include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -108,6 +108,9 @@ void ProcessQueryToConditions(
 // singleton so the cached regexes are only created once.
 class EmbeddedURLExtractor {
  public:
+  EmbeddedURLExtractor(const EmbeddedURLExtractor&) = delete;
+  EmbeddedURLExtractor& operator=(const EmbeddedURLExtractor&) = delete;
+
   static EmbeddedURLExtractor* GetInstance() {
     static base::NoDestructor<EmbeddedURLExtractor> instance;
     return instance.get();
@@ -206,8 +209,6 @@ class EmbeddedURLExtractor {
   const re2::RE2 google_amp_cache_path_regex_;
   const re2::RE2 google_amp_viewer_path_regex_;
   const re2::RE2 google_web_cache_query_regex_;
-
-  DISALLOW_COPY_AND_ASSIGN(EmbeddedURLExtractor);
 };
 
 }  // namespace
@@ -225,6 +226,10 @@ GURL Normalize(const GURL& url) {
 
 GURL GetEmbeddedURL(const GURL& url) {
   return EmbeddedURLExtractor::GetInstance()->GetEmbeddedURL(url);
+}
+
+size_t GetMaxFiltersPerPolicy() {
+  return kMaxFiltersPerPolicy;
 }
 
 FilterComponents::FilterComponents()
@@ -264,13 +269,13 @@ scoped_refptr<URLMatcherConditionSet> CreateConditionSet(
 
   std::unique_ptr<URLMatcherSchemeFilter> scheme_filter;
   if (!scheme.empty())
-    scheme_filter.reset(new URLMatcherSchemeFilter(scheme));
+    scheme_filter = std::make_unique<URLMatcherSchemeFilter>(scheme);
 
   std::unique_ptr<URLMatcherPortFilter> port_filter;
   if (port != 0) {
     std::vector<URLMatcherPortFilter::Range> ranges;
     ranges.push_back(URLMatcherPortFilter::CreateRange(port));
-    port_filter.reset(new URLMatcherPortFilter(ranges));
+    port_filter = std::make_unique<URLMatcherPortFilter>(ranges);
   }
 
   return base::MakeRefCounted<URLMatcherConditionSet>(
@@ -395,7 +400,7 @@ POLICY_EXPORT void AddFilters(URLMatcher* matcher,
                               std::map<url_matcher::URLMatcherConditionSet::ID,
                                        url_util::FilterComponents>* filters) {
   URLMatcherConditionSet::Vector all_conditions;
-  size_t size = std::min(kMaxFiltersPerPolicy, patterns->GetSize());
+  size_t size = std::min(kMaxFiltersPerPolicy, patterns->GetList().size());
   std::string pattern;
   scoped_refptr<URLMatcherConditionSet> condition_set;
   for (size_t i = 0; i < size; ++i) {

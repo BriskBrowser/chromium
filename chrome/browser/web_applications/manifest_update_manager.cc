@@ -5,19 +5,19 @@
 #include "chrome/browser/web_applications/manifest_update_manager.h"
 
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/util/values/values_util.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/web_app_constants.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
+#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
+#include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 
 namespace web_app {
 
+constexpr base::TimeDelta kDelayBetweenChecks = base::Days(1);
 constexpr const char kDisableManifestUpdateThrottle[] =
     "disable-manifest-update-throttle";
 
@@ -26,27 +26,31 @@ ManifestUpdateManager::ManifestUpdateManager() = default;
 ManifestUpdateManager::~ManifestUpdateManager() = default;
 
 void ManifestUpdateManager::SetSubsystems(
-    AppRegistrar* registrar,
-    AppIconManager* icon_manager,
+    WebAppRegistrar* registrar,
+    WebAppIconManager* icon_manager,
     WebAppUiManager* ui_manager,
-    InstallManager* install_manager,
-    SystemWebAppManager* system_web_app_manager) {
+    WebAppInstallFinalizer* install_finalizer,
+    SystemWebAppManager* system_web_app_manager,
+    OsIntegrationManager* os_integration_manager,
+    WebAppSyncBridge* sync_bridge) {
   registrar_ = registrar;
   icon_manager_ = icon_manager;
   ui_manager_ = ui_manager;
-  install_manager_ = install_manager;
+  install_finalizer_ = install_finalizer;
   system_web_app_manager_ = system_web_app_manager;
+  os_integration_manager_ = os_integration_manager;
+  sync_bridge_ = sync_bridge;
 }
 
 void ManifestUpdateManager::Start() {
-  registrar_observer_.Add(registrar_);
+  registrar_observation_.Observe(registrar_);
 
   DCHECK(!started_);
   started_ = true;
 }
 
 void ManifestUpdateManager::Shutdown() {
-  registrar_observer_.RemoveAll();
+  registrar_observation_.Reset();
 
   tasks_.clear();
   started_ = false;
@@ -77,7 +81,7 @@ void ManifestUpdateManager::MaybeUpdate(const GURL& url,
   if (base::Contains(tasks_, app_id))
     return;
 
-  if (!MaybeConsumeUpdateCheck(url.GetOrigin(), app_id)) {
+  if (!MaybeConsumeUpdateCheck(url.DeprecatedGetOriginAsURL(), app_id)) {
     NotifyResult(url, app_id, ManifestUpdateResult::kThrottled);
     return;
   }
@@ -88,7 +92,20 @@ void ManifestUpdateManager::MaybeUpdate(const GURL& url,
                   base::BindOnce(&ManifestUpdateManager::OnUpdateStopped,
                                  base::Unretained(this)),
                   hang_update_checks_for_testing_, *registrar_, *icon_manager_,
-                  ui_manager_, install_manager_));
+                  ui_manager_, install_finalizer_, *os_integration_manager_,
+                  sync_bridge_));
+}
+
+bool ManifestUpdateManager::IsUpdateConsumed(const AppId& app_id) {
+  absl::optional<base::Time> last_check_time = GetLastUpdateCheckTime(app_id);
+  base::Time now = time_override_for_testing_.value_or(base::Time::Now());
+  if (last_check_time.has_value() &&
+      now < *last_check_time + kDelayBetweenChecks &&
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kDisableManifestUpdateThrottle)) {
+    return true;
+  }
+  return false;
 }
 
 // AppRegistrarObserver:
@@ -98,38 +115,30 @@ void ManifestUpdateManager::OnWebAppWillBeUninstalled(const AppId& app_id) {
   auto it = tasks_.find(app_id);
   if (it != tasks_.end()) {
     NotifyResult(it->second->url(), app_id,
-                 ManifestUpdateResult::kAppUninstalled);
+                 ManifestUpdateResult::kAppUninstalling);
     tasks_.erase(it);
   }
   DCHECK(!tasks_.contains(app_id));
   last_update_check_.erase(app_id);
 }
 
+// Throttling updates to at most once per day is consistent with Android.
+// See |UPDATE_INTERVAL| in WebappDataStorage.java.
 bool ManifestUpdateManager::MaybeConsumeUpdateCheck(const GURL& origin,
                                                     const AppId& app_id) {
-  constexpr base::TimeDelta kDelayBetweenChecks = base::TimeDelta::FromDays(1);
-  base::Optional<base::Time> last_check_time =
-      GetLastUpdateCheckTime(origin, app_id);
-  base::Time now = time_override_for_testing_.value_or(base::Time::Now());
-
-  // Throttling updates to at most once per day is consistent with Android.
-  // See |UPDATE_INTERVAL| in WebappDataStorage.java.
-  if (last_check_time.has_value() &&
-      now < *last_check_time + kDelayBetweenChecks &&
-      !base::CommandLine::ForCurrentProcess()->HasSwitch(
-          kDisableManifestUpdateThrottle)) {
+  if (IsUpdateConsumed(app_id))
     return false;
-  }
+
+  base::Time now = time_override_for_testing_.value_or(base::Time::Now());
   SetLastUpdateCheckTime(origin, app_id, now);
   return true;
 }
 
-base::Optional<base::Time> ManifestUpdateManager::GetLastUpdateCheckTime(
-    const GURL& origin,
+absl::optional<base::Time> ManifestUpdateManager::GetLastUpdateCheckTime(
     const AppId& app_id) const {
   auto it = last_update_check_.find(app_id);
-  return it != last_update_check_.end() ? base::Optional<base::Time>(it->second)
-                                        : base::nullopt;
+  return it != last_update_check_.end() ? absl::optional<base::Time>(it->second)
+                                        : absl::nullopt;
 }
 
 void ManifestUpdateManager::SetLastUpdateCheckTime(const GURL& origin,

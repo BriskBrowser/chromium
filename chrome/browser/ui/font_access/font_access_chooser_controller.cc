@@ -4,8 +4,10 @@
 
 #include "chrome/browser/ui/font_access/font_access_chooser_controller.h"
 
+#include "base/containers/contains.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/permissions/chooser_title_util.h"
 #include "content/public/browser/font_access_chooser.h"
 #include "content/public/browser/font_access_context.h"
 #include "content/public/browser/render_frame_host.h"
@@ -26,10 +28,9 @@ FontAccessChooserController::FontAccessChooserController(
     content::RenderFrameHost* frame,
     const std::vector<std::string>& selection,
     content::FontAccessChooser::Callback callback)
-    : ChooserController(frame,
-                        IDS_FONT_ACCESS_CHOOSER_PROMPT_ORIGIN,
-                        // Extensions are not supported. This is stub text.
-                        IDS_FONT_ACCESS_CHOOSER_PROMPT_ORIGIN),
+    : ChooserController(permissions::CreateChooserTitle(
+          frame,
+          IDS_FONT_ACCESS_CHOOSER_PROMPT_ORIGIN)),
       callback_(std::move(callback)) {
   DCHECK(frame);
 
@@ -54,16 +55,16 @@ FontAccessChooserController::~FontAccessChooserController() {
   }
 }
 
-base::string16 FontAccessChooserController::GetNoOptionsText() const {
+std::u16string FontAccessChooserController::GetNoOptionsText() const {
   return l10n_util::GetStringUTF16(
       IDS_FONT_ACCESS_CHOOSER_NO_FONTS_FOUND_PROMPT);
 }
 
-base::string16 FontAccessChooserController::GetOkButtonLabel() const {
+std::u16string FontAccessChooserController::GetOkButtonLabel() const {
   return l10n_util::GetStringUTF16(IDS_FONT_ACCESS_CHOOSER_IMPORT_BUTTON_TEXT);
 }
 
-std::pair<base::string16, base::string16>
+std::pair<std::u16string, std::u16string>
 FontAccessChooserController::GetThrobberLabelAndTooltip() const {
   return {
       l10n_util::GetStringUTF16(IDS_FONT_ACCESS_CHOOSER_LOADING_LABEL),
@@ -74,14 +75,14 @@ size_t FontAccessChooserController::NumOptions() const {
   return items_.size();
 }
 
-base::string16 FontAccessChooserController::GetOption(size_t index) const {
+std::u16string FontAccessChooserController::GetOption(size_t index) const {
   DCHECK_LT(index, items_.size());
   DCHECK(base::Contains(font_metadata_map_, items_[index]));
 
   return base::UTF8ToUTF16(items_[index]);
 }
 
-base::string16 FontAccessChooserController::GetSelectAllCheckboxLabel() const {
+std::u16string FontAccessChooserController::GetSelectAllCheckboxLabel() const {
   return l10n_util::GetStringUTF16(
       IDS_FONT_ACCESS_CHOOSER_SELECT_ALL_CHECKBOX_TEXT);
 }

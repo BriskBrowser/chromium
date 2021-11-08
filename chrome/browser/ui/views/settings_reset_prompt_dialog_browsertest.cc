@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "chrome/browser/profile_resetter/brandcoded_default_settings.h"
@@ -109,6 +109,11 @@ class MockSettingsResetPromptModel
                        ? RESET_REQUIRED
                        : NO_RESET_REQUIRED_DUE_TO_DOMAIN_NOT_MATCHED));
   }
+
+  MockSettingsResetPromptModel(const MockSettingsResetPromptModel&) = delete;
+  MockSettingsResetPromptModel& operator=(const MockSettingsResetPromptModel&) =
+      delete;
+
   ~MockSettingsResetPromptModel() override {}
 
   void PerformReset(std::unique_ptr<BrandcodedDefaultSettings> default_settings,
@@ -130,8 +135,6 @@ class MockSettingsResetPromptModel
  private:
   std::vector<GURL> startup_urls_;
   std::vector<GURL> startup_urls_to_reset_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockSettingsResetPromptModel);
 };
 
 class SettingsResetPromptDialogTest : public DialogBrowserTest {

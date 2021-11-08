@@ -15,7 +15,6 @@
 class GURL;
 
 namespace web {
-class WebInterstitial;
 class WebState;
 }  // namespace web
 
@@ -31,6 +30,12 @@ class IOSBlockingPageControllerClient
       web::WebState* web_state,
       std::unique_ptr<security_interstitials::MetricsHelper> metrics_helper,
       const std::string& app_locale);
+
+  IOSBlockingPageControllerClient(const IOSBlockingPageControllerClient&) =
+      delete;
+  IOSBlockingPageControllerClient& operator=(
+      const IOSBlockingPageControllerClient&) = delete;
+
   ~IOSBlockingPageControllerClient() override;
 
   // security_interstitials::ControllerClient implementation.
@@ -38,8 +43,6 @@ class IOSBlockingPageControllerClient
   void GoBack() override;
   bool CanGoBack() override;
   void OpenEnhancedProtectionSettings() override;
-
-  void SetWebInterstitial(web::WebInterstitial* web_interstitial);
 
   // web::WebStateObserver implementation.
   void WebStateDestroyed(web::WebState* web_state) override;
@@ -67,12 +70,9 @@ class IOSBlockingPageControllerClient
   void Close();
 
   web::WebState* web_state_;
-  web::WebInterstitial* web_interstitial_;
   const std::string app_locale_;
 
   base::WeakPtrFactory<IOSBlockingPageControllerClient> weak_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(IOSBlockingPageControllerClient);
 };
 
 }  // namespace security_interstitials

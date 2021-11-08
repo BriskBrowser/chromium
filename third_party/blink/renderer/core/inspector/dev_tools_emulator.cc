@@ -68,8 +68,6 @@ DevToolsEmulator::DevToolsEmulator(WebViewImpl* web_view)
       is_overlay_scrollbars_enabled_(false),
       is_orientation_event_enabled_(false),
       is_mobile_layout_theme_enabled_(false),
-      original_default_minimum_page_scale_factor_(0),
-      original_default_maximum_page_scale_factor_(0),
       embedder_text_autosizing_enabled_(
           web_view->GetPage()->GetSettings().GetTextAutosizingEnabled()),
       embedder_device_scale_adjustment_(
@@ -94,6 +92,14 @@ DevToolsEmulator::DevToolsEmulator(WebViewImpl* web_view)
           web_view->GetPage()
               ->GetSettings()
               .GetMainFrameResizesAreOrientationChanges()),
+      embedder_min_page_scale_(web_view->DefaultMinimumPageScaleFactor()),
+      embedder_max_page_scale_(web_view->DefaultMaximumPageScaleFactor()),
+      embedder_shrink_viewport_content_(
+          web_view->GetPage()->GetSettings().GetShrinksViewportContentToFit()),
+      embedder_viewport_enabled_(
+          web_view->GetPage()->GetSettings().GetViewportEnabled()),
+      embedder_viewport_meta_enabled_(
+          web_view->GetPage()->GetSettings().GetViewportMetaEnabled()),
       touch_event_emulation_enabled_(false),
       double_tap_to_zoom_enabled_(false),
       original_max_touch_points_(0),
@@ -105,7 +111,10 @@ DevToolsEmulator::DevToolsEmulator(WebViewImpl* web_view)
       scrollbars_hidden_(false),
       embedder_cookie_enabled_(
           web_view->GetPage()->GetSettings().GetCookieEnabled()),
-      document_cookie_disabled_(false) {}
+      document_cookie_disabled_(false),
+      embedder_force_dark_mode_enabled_(
+          web_view->GetPage()->GetSettings().GetForceDarkModeEnabled()),
+      auto_dark_overriden_(false) {}
 
 void DevToolsEmulator::Trace(Visitor* visitor) const {}
 
@@ -190,6 +199,46 @@ void DevToolsEmulator::SetMainFrameResizesAreOrientationChanges(bool value) {
     web_view_->GetPage()
         ->GetSettings()
         .SetMainFrameResizesAreOrientationChanges(value);
+  }
+}
+
+void DevToolsEmulator::SetDefaultPageScaleLimits(float min_scale,
+                                                 float max_scale) {
+  embedder_min_page_scale_ = min_scale;
+  embedder_max_page_scale_ = max_scale;
+  bool emulate_mobile_enabled =
+      device_metrics_enabled_ && emulate_mobile_enabled_;
+  if (!emulate_mobile_enabled) {
+    web_view_->GetPage()->SetDefaultPageScaleLimits(min_scale, max_scale);
+  }
+}
+
+void DevToolsEmulator::SetShrinksViewportContentToFit(
+    bool shrink_viewport_content) {
+  embedder_shrink_viewport_content_ = shrink_viewport_content;
+  bool emulate_mobile_enabled =
+      device_metrics_enabled_ && emulate_mobile_enabled_;
+  if (!emulate_mobile_enabled) {
+    web_view_->GetPage()->GetSettings().SetShrinksViewportContentToFit(
+        shrink_viewport_content);
+  }
+}
+
+void DevToolsEmulator::SetViewportEnabled(bool enabled) {
+  embedder_viewport_enabled_ = enabled;
+  bool emulate_mobile_enabled =
+      device_metrics_enabled_ && emulate_mobile_enabled_;
+  if (!emulate_mobile_enabled) {
+    web_view_->GetPage()->GetSettings().SetViewportEnabled(enabled);
+  }
+}
+
+void DevToolsEmulator::SetViewportMetaEnabled(bool enabled) {
+  embedder_viewport_meta_enabled_ = enabled;
+  bool emulate_mobile_enabled =
+      device_metrics_enabled_ && emulate_mobile_enabled_;
+  if (!emulate_mobile_enabled) {
+    web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(enabled);
   }
 }
 
@@ -299,7 +348,6 @@ void DevToolsEmulator::EnableMobileEmulation() {
   is_mobile_layout_theme_enabled_ =
       RuntimeEnabledFeatures::MobileLayoutThemeEnabled();
   RuntimeEnabledFeatures::SetMobileLayoutThemeEnabled(true);
-  ComputedStyle::InvalidateInitialStyle();
   Page::PlatformColorsChanged();
   web_view_->GetPage()->GetSettings().SetForceAndroidOverlayScrollbar(true);
   web_view_->GetPage()->GetSettings().SetViewportStyle(
@@ -307,7 +355,7 @@ void DevToolsEmulator::EnableMobileEmulation() {
   web_view_->GetPage()->GetSettings().SetViewportEnabled(true);
   web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(true);
   web_view_->GetPage()->GetVisualViewport().InitializeScrollbars();
-  web_view_->GetSettings()->SetShrinksViewportContentToFit(true);
+  web_view_->GetPage()->GetSettings().SetShrinksViewportContentToFit(true);
   web_view_->GetPage()->GetSettings().SetTextAutosizingEnabled(true);
   web_view_->GetPage()->GetSettings().SetPreferCompositingToLCDTextEnabled(
       true);
@@ -315,17 +363,12 @@ void DevToolsEmulator::EnableMobileEmulation() {
   web_view_->GetPage()->GetSettings().SetMainFrameResizesAreOrientationChanges(
       true);
   web_view_->SetZoomFactorOverride(1);
+  web_view_->GetPage()->SetDefaultPageScaleLimits(0.25f, 5);
 
-  original_default_minimum_page_scale_factor_ =
-      web_view_->DefaultMinimumPageScaleFactor();
-  original_default_maximum_page_scale_factor_ =
-      web_view_->DefaultMaximumPageScaleFactor();
-  web_view_->SetDefaultPageScaleLimits(0.25f, 5);
-
-  // TODO(wjmaclean): Update all local frames in the WebView's frame tree, not
-  // just a local main frame.
-  if (web_view_->MainFrameImpl())
-    web_view_->MainFrameImpl()->GetFrameView()->UpdateLayout();
+  if (web_view_->MainFrameImpl()) {
+    web_view_->MainFrameImpl()->GetFrameView()->UpdateLifecycleToLayoutClean(
+        DocumentUpdateReason::kInspector);
+  }
 }
 
 void DevToolsEmulator::DisableMobileEmulation() {
@@ -337,13 +380,15 @@ void DevToolsEmulator::DisableMobileEmulation() {
       is_orientation_event_enabled_);
   RuntimeEnabledFeatures::SetMobileLayoutThemeEnabled(
       is_mobile_layout_theme_enabled_);
-  ComputedStyle::InvalidateInitialStyle();
   Page::PlatformColorsChanged();
   web_view_->GetPage()->GetSettings().SetForceAndroidOverlayScrollbar(false);
-  web_view_->GetPage()->GetSettings().SetViewportEnabled(false);
-  web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(false);
+  web_view_->GetPage()->GetSettings().SetViewportEnabled(
+      embedder_viewport_enabled_);
+  web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(
+      embedder_viewport_meta_enabled_);
   web_view_->GetPage()->GetVisualViewport().InitializeScrollbars();
-  web_view_->GetSettings()->SetShrinksViewportContentToFit(false);
+  web_view_->GetSettings()->SetShrinksViewportContentToFit(
+      embedder_shrink_viewport_content_);
   web_view_->GetPage()->GetSettings().SetTextAutosizingEnabled(
       embedder_text_autosizing_enabled_);
   web_view_->GetPage()->GetSettings().SetPreferCompositingToLCDTextEnabled(
@@ -355,13 +400,14 @@ void DevToolsEmulator::DisableMobileEmulation() {
   web_view_->GetPage()->GetSettings().SetMainFrameResizesAreOrientationChanges(
       embedder_main_frame_resizes_are_orientation_changes_);
   web_view_->SetZoomFactorOverride(0);
+  web_view_->GetPage()->SetDefaultPageScaleLimits(embedder_min_page_scale_,
+                                                  embedder_max_page_scale_);
   emulate_mobile_enabled_ = false;
-  web_view_->SetDefaultPageScaleLimits(
-      original_default_minimum_page_scale_factor_,
-      original_default_maximum_page_scale_factor_);
   // MainFrameImpl() could be null during cleanup or remote <-> local swap.
-  if (web_view_->MainFrameImpl())
-    web_view_->MainFrameImpl()->GetFrameView()->UpdateLayout();
+  if (web_view_->MainFrameImpl()) {
+    web_view_->MainFrameImpl()->GetFrameView()->UpdateLifecycleToLayoutClean(
+        DocumentUpdateReason::kInspector);
+  }
 }
 
 TransformationMatrix DevToolsEmulator::ForceViewport(
@@ -379,7 +425,7 @@ TransformationMatrix DevToolsEmulator::ForceViewport(
 }
 
 TransformationMatrix DevToolsEmulator::ResetViewport() {
-  viewport_override_ = base::nullopt;
+  viewport_override_ = absl::nullopt;
   return ComputeRootLayerTransform();
 }
 
@@ -400,15 +446,15 @@ void DevToolsEmulator::ApplyViewportOverride(TransformationMatrix* transform) {
 
   // Translate while taking into account current scroll offset.
   // TODO(lukasza): https://crbug.com/734201: Add OOPIF support.
-  WebSize scroll_offset =
+  gfx::Vector2dF scroll_offset =
       web_view_->MainFrame()->IsWebLocalFrame()
           ? web_view_->MainFrame()->ToWebLocalFrame()->GetScrollOffset()
-          : WebSize();
+          : gfx::Vector2dF();
   gfx::PointF visual_offset = web_view_->VisualViewportOffset();
-  float scroll_x = scroll_offset.width + visual_offset.x();
-  float scroll_y = scroll_offset.height + visual_offset.y();
-  transform->Translate(-viewport_override_->position.X() + scroll_x,
-                       -viewport_override_->position.Y() + scroll_y);
+  float scroll_x = scroll_offset.x() + visual_offset.x();
+  float scroll_y = scroll_offset.y() + visual_offset.y();
+  transform->Translate(-viewport_override_->position.x() + scroll_x,
+                       -viewport_override_->position.y() + scroll_y);
 
   // First, reverse page scale, so we don't have to take it into account for
   // calculation of the translation.
@@ -494,6 +540,23 @@ void DevToolsEmulator::SetDocumentCookieDisabled(bool disabled) {
   document_cookie_disabled_ = disabled;
   web_view_->GetPage()->GetSettings().SetCookieEnabled(
       document_cookie_disabled_ ? false : embedder_cookie_enabled_);
+}
+
+void DevToolsEmulator::SetAutoDarkModeOverride(bool enabled) {
+  if (!auto_dark_overriden_) {
+    auto_dark_overriden_ = true;
+    embedder_force_dark_mode_enabled_ =
+        web_view_->GetPage()->GetSettings().GetForceDarkModeEnabled();
+  }
+  web_view_->GetPage()->GetSettings().SetForceDarkModeEnabled(enabled);
+}
+
+void DevToolsEmulator::ResetAutoDarkModeOverride() {
+  if (auto_dark_overriden_) {
+    web_view_->GetPage()->GetSettings().SetForceDarkModeEnabled(
+        embedder_force_dark_mode_enabled_);
+    auto_dark_overriden_ = false;
+  }
 }
 
 }  // namespace blink

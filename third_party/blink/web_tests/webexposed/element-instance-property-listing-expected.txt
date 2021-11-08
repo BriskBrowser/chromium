@@ -245,11 +245,13 @@ namespace http://www.w3.org/1999/xhtml
     property onscroll
     property onscrollend
     property onsearch
+    property onsecuritypolicyviolation
     property onseeked
     property onseeking
     property onselect
     property onselectionchange
     property onselectstart
+    property onslotchange
     property onstalled
     property onsubmit
     property onsuspend
@@ -310,6 +312,7 @@ namespace http://www.w3.org/1999/xhtml
     property setAttributeNS
     property setAttributeNode
     property setAttributeNodeNS
+    property setHTML
     property setPointerCapture
     property shadowRoot
     property slot
@@ -327,6 +330,11 @@ namespace http://www.w3.org/1999/xhtml
     property webkitRequestFullScreen
     property webkitRequestFullscreen
 html element a
+    property attributionDestination
+    property attributionExpiry
+    property attributionReportTo
+    property attributionSourceEventId
+    property attributionSourcePriority
     property charset
     property coords
     property download
@@ -344,6 +352,7 @@ html element a
     property port
     property protocol
     property referrerPolicy
+    property registerAttributionSource
     property rel
     property relList
     property rev
@@ -551,6 +560,8 @@ html element embed
     property src
     property type
     property width
+html element fencedframe
+    property src
 html element fieldset
     property checkValidity
     property disabled
@@ -647,10 +658,10 @@ html element iframe
     property allow
     property allowFullscreen
     property allowPaymentRequest
+    property anonymous
     property contentDocument
     property contentWindow
     property csp
-    property disallowDocumentAccess
     property featurePolicy
     property frameBorder
     property getSVGDocument
@@ -666,7 +677,6 @@ html element iframe
     property scrolling
     property src
     property srcdoc
-    property trustToken
     property width
 html element img
     property align
@@ -737,6 +747,7 @@ html element input
     property setCustomValidity
     property setRangeText
     property setSelectionRange
+    property showPicker
     property size
     property src
     property step
@@ -816,6 +827,7 @@ html element menu
 html element meta
     property content
     property httpEquiv
+    property media
     property name
     property scheme
 html element meter
@@ -900,7 +912,9 @@ html element param
 html element picture
 html element plaintext
 html element popup
+    property anchor
     property hide
+    property initiallyOpen
     property open
     property show
 html element pre
@@ -958,6 +972,12 @@ html element select
     property validity
     property value
     property willValidate
+html element selectmenu
+    property form
+    property name
+    property open
+    property type
+    property value
 html element slot
     property assign
     property assignedElements
@@ -965,11 +985,13 @@ html element slot
     property name
 html element small
 html element source
+    property height
     property media
     property sizes
     property src
     property srcset
     property type
+    property width
 html element span
 html element strike
 html element strong
@@ -1432,11 +1454,13 @@ namespace http://www.w3.org/2000/svg
     property onscroll
     property onscrollend
     property onsearch
+    property onsecuritypolicyviolation
     property onseeked
     property onseeking
     property onselect
     property onselectionchange
     property onselectstart
+    property onslotchange
     property onstalled
     property onsubmit
     property onsuspend
@@ -1497,6 +1521,7 @@ namespace http://www.w3.org/2000/svg
     property setAttributeNS
     property setAttributeNode
     property setAttributeNodeNS
+    property setHTML
     property setPointerCapture
     property shadowRoot
     property slot

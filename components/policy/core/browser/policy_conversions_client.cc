@@ -8,7 +8,6 @@
 #include "base/containers/flat_map.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/optional.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/policy/core/browser/configuration_policy_handler_list.h"
@@ -22,6 +21,7 @@
 #include "components/policy/policy_constants.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/strings/grit/components_strings.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using base::Value;
@@ -76,7 +76,6 @@ base::Value PolicyConversionsClient::GetChromePolicies() {
   DCHECK(HasUserPolicies());
 
   PolicyService* policy_service = GetPolicyService();
-  PolicyMap map;
 
   auto* schema_registry = GetPolicySchemaRegistry();
   if (!schema_registry) {
@@ -90,7 +89,7 @@ base::Value PolicyConversionsClient::GetChromePolicies() {
 
   // Make a copy that can be modified, since some policy values are modified
   // before being displayed.
-  map.CopyFrom(policy_service->GetPolicies(policy_namespace));
+  PolicyMap map = policy_service->GetPolicies(policy_namespace).Clone();
 
   // Get a list of all the errors in the policy values.
   const ConfigurationPolicyHandlerList* handler_list = GetHandlerList();
@@ -107,9 +106,98 @@ base::Value PolicyConversionsClient::GetChromePolicies() {
                          GetKnownPolicies(schema_map, policy_namespace));
 }
 
+base::Value PolicyConversionsClient::GetPrecedencePolicies() {
+  DCHECK(HasUserPolicies());
+
+  PolicyNamespace policy_namespace =
+      PolicyNamespace(POLICY_DOMAIN_CHROME, std::string());
+  const PolicyMap& chrome_policies =
+      GetPolicyService()->GetPolicies(policy_namespace);
+
+  auto* schema_registry = GetPolicySchemaRegistry();
+  if (!schema_registry) {
+    LOG(ERROR) << "Cannot dump Chrome precedence policies, no schema registry";
+    return Value(Value::Type::DICTIONARY);
+  }
+
+  base::Value values(base::Value::Type::DICTIONARY);
+  // Iterate through all precedence metapolicies and retrieve their value only
+  // if they are set in the PolicyMap.
+  for (auto* policy : metapolicy::kPrecedence) {
+    auto* entry = chrome_policies.Get(policy);
+
+    if (entry) {
+      values.SetKey(
+          policy, GetPolicyValue(policy, entry->DeepCopy(), PoliciesSet(),
+                                 PoliciesSet(), nullptr,
+                                 GetKnownPolicies(schema_registry->schema_map(),
+                                                  policy_namespace)));
+    }
+  }
+
+  return values;
+}
+
+base::Value PolicyConversionsClient::GetPrecedenceOrder() {
+  DCHECK(HasUserPolicies());
+
+  PolicyNamespace policy_namespace =
+      PolicyNamespace(POLICY_DOMAIN_CHROME, std::string());
+  const PolicyMap& chrome_policies =
+      GetPolicyService()->GetPolicies(policy_namespace);
+
+  bool cloud_machine_precedence =
+      chrome_policies.Get(key::kCloudPolicyOverridesPlatformPolicy)
+          ? chrome_policies.GetValue(key::kCloudPolicyOverridesPlatformPolicy)
+                ->GetBool()
+          : false;
+  bool cloud_user_precedence =
+      chrome_policies.Get(key::kCloudUserPolicyOverridesCloudMachinePolicy)
+          ? chrome_policies.IsUserAffiliated() &&
+                chrome_policies
+                    .GetValue(key::kCloudUserPolicyOverridesCloudMachinePolicy)
+                    ->GetBool()
+          : false;
+
+  std::vector<int> precedence_order(4);
+  if (cloud_user_precedence) {
+    if (cloud_machine_precedence) {
+      precedence_order = {IDS_POLICY_PRECEDENCE_CLOUD_USER,
+                          IDS_POLICY_PRECEDENCE_CLOUD_MACHINE,
+                          IDS_POLICY_PRECEDENCE_PLATFORM_MACHINE,
+                          IDS_POLICY_PRECEDENCE_PLATFORM_USER};
+    } else {
+      precedence_order = {IDS_POLICY_PRECEDENCE_PLATFORM_MACHINE,
+                          IDS_POLICY_PRECEDENCE_CLOUD_USER,
+                          IDS_POLICY_PRECEDENCE_CLOUD_MACHINE,
+                          IDS_POLICY_PRECEDENCE_PLATFORM_USER};
+    }
+  } else {
+    if (cloud_machine_precedence) {
+      precedence_order = {IDS_POLICY_PRECEDENCE_CLOUD_MACHINE,
+                          IDS_POLICY_PRECEDENCE_PLATFORM_MACHINE,
+                          IDS_POLICY_PRECEDENCE_PLATFORM_USER,
+                          IDS_POLICY_PRECEDENCE_CLOUD_USER};
+    } else {
+      precedence_order = {IDS_POLICY_PRECEDENCE_PLATFORM_MACHINE,
+                          IDS_POLICY_PRECEDENCE_CLOUD_MACHINE,
+                          IDS_POLICY_PRECEDENCE_PLATFORM_USER,
+                          IDS_POLICY_PRECEDENCE_CLOUD_USER};
+    }
+  }
+
+  base::Value precedence_order_localized(base::Value::Type::LIST);
+  for (int label_id : precedence_order) {
+    precedence_order_localized.Append(
+        base::Value(l10n_util::GetStringUTF16(label_id)));
+  }
+
+  return precedence_order_localized;
+}
+
 Value PolicyConversionsClient::CopyAndMaybeConvert(
     const Value& value,
-    const base::Optional<Schema>& schema) const {
+    const absl::optional<Schema>& schema) const {
   Value value_copy = value.Clone();
   if (schema.has_value())
     schema->MaskSensitiveValues(&value_copy);
@@ -139,9 +227,9 @@ Value PolicyConversionsClient::GetPolicyValue(
     const PoliciesSet& deprecated_policies,
     const PoliciesSet& future_policies,
     PolicyErrorMap* errors,
-    const base::Optional<PolicyConversions::PolicyToSchemaMap>&
+    const absl::optional<PolicyConversions::PolicyToSchemaMap>&
         known_policy_schemas) const {
-  base::Optional<Schema> known_policy_schema =
+  absl::optional<Schema> known_policy_schema =
       GetKnownPolicySchema(known_policy_schemas, policy_name);
   Value value(Value::Type::DICTIONARY);
   value.SetKey("value",
@@ -172,7 +260,9 @@ Value PolicyConversionsClient::GetPolicyValue(
   if (policy.source == POLICY_SOURCE_MERGED) {
     bool policy_has_unmerged_source = false;
     for (const auto& conflict : policy.conflicts) {
-      if (PolicyMerger::ConflictCanBeMerged(conflict.entry(), policy))
+      if (PolicyMerger::EntriesCanBeMerged(
+              conflict.entry(), policy,
+              /*is_user_cloud_merging_enabled=*/false))
         continue;
       policy_has_unmerged_source = true;
       break;
@@ -181,7 +271,7 @@ Value PolicyConversionsClient::GetPolicyValue(
                                            !policy_has_unmerged_source));
   }
 
-  base::string16 error;
+  std::u16string error;
   if (!known_policy_schema.has_value()) {
     // We don't know what this policy is. This is an important error to
     // show.
@@ -193,26 +283,25 @@ Value PolicyConversionsClient::GetPolicyValue(
         PolicyMap::MessageType::kError,
         base::BindRepeating(&l10n_util::GetStringUTF16));
     auto error_map_errors =
-        errors ? errors->GetErrors(policy_name) : base::string16();
+        errors ? errors->GetErrors(policy_name) : std::u16string();
     if (policy_map_errors.empty())
       error = error_map_errors;
     else if (error_map_errors.empty())
       error = policy_map_errors;
     else
-      error =
-          base::JoinString({policy_map_errors, errors->GetErrors(policy_name)},
-                           base::ASCIIToUTF16("\n"));
+      error = base::JoinString(
+          {policy_map_errors, errors->GetErrors(policy_name)}, u"\n");
   }
   if (!error.empty())
     value.SetKey("error", Value(error));
 
-  base::string16 warning = policy.GetLocalizedMessages(
+  std::u16string warning = policy.GetLocalizedMessages(
       PolicyMap::MessageType::kWarning,
       base::BindRepeating(&l10n_util::GetStringUTF16));
   if (!warning.empty())
     value.SetKey("warning", Value(warning));
 
-  base::string16 info = policy.GetLocalizedMessages(
+  std::u16string info = policy.GetLocalizedMessages(
       PolicyMap::MessageType::kInfo,
       base::BindRepeating(&l10n_util::GetStringUTF16));
   if (!info.empty())
@@ -266,7 +355,7 @@ Value PolicyConversionsClient::GetPolicyValues(
     PolicyErrorMap* errors,
     const PoliciesSet& deprecated_policies,
     const PoliciesSet& future_policies,
-    const base::Optional<PolicyConversions::PolicyToSchemaMap>&
+    const absl::optional<PolicyConversions::PolicyToSchemaMap>&
         known_policy_schemas) const {
   base::Value values(base::Value::Type::DICTIONARY);
   for (const auto& entry : map) {
@@ -282,26 +371,26 @@ Value PolicyConversionsClient::GetPolicyValues(
   return values;
 }
 
-base::Optional<Schema> PolicyConversionsClient::GetKnownPolicySchema(
-    const base::Optional<PolicyConversions::PolicyToSchemaMap>&
+absl::optional<Schema> PolicyConversionsClient::GetKnownPolicySchema(
+    const absl::optional<PolicyConversions::PolicyToSchemaMap>&
         known_policy_schemas,
     const std::string& policy_name) const {
   if (!known_policy_schemas.has_value())
-    return base::nullopt;
+    return absl::nullopt;
   auto known_policy_iterator = known_policy_schemas->find(policy_name);
   if (known_policy_iterator == known_policy_schemas->end())
-    return base::nullopt;
+    return absl::nullopt;
   return known_policy_iterator->second;
 }
 
-base::Optional<PolicyConversions::PolicyToSchemaMap>
+absl::optional<PolicyConversions::PolicyToSchemaMap>
 PolicyConversionsClient::GetKnownPolicies(
     const scoped_refptr<SchemaMap> schema_map,
     const PolicyNamespace& policy_namespace) const {
   const Schema* schema = schema_map->GetSchema(policy_namespace);
   // There is no policy name verification without valid schema.
   if (!schema || !schema->valid())
-    return base::nullopt;
+    return absl::nullopt;
 
   // Build a vector first and construct the PolicyToSchemaMap (which is a
   // |flat_map|) from that. The reason is that insertion into a |flat_map| is

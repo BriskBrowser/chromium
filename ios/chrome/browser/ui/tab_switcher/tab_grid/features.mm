@@ -8,9 +8,16 @@
 #error "This file requires ARC support."
 #endif
 
-const base::Feature kEnableCloseAllTabsConfirmation{
-    "EnableCloseAllTabsConfirmation", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kTabsBulkActions{"TabsBulkActions",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
 
-bool IsCloseAllTabsConfirmationEnabled() {
-  return base::FeatureList::IsEnabled(kEnableCloseAllTabsConfirmation);
+const base::Feature kTabsSearch{"TabsSearch",
+                                base::FEATURE_DISABLED_BY_DEFAULT};
+
+bool IsTabsBulkActionsEnabled() {
+  return base::FeatureList::IsEnabled(kTabsBulkActions);
+}
+
+bool IsTabsSearchEnabled() {
+  return base::FeatureList::IsEnabled(kTabsSearch);
 }

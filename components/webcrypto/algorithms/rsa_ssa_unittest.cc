@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #include "base/check_op.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/values.h"
 #include "components/webcrypto/algorithm_dispatch.h"
 #include "components/webcrypto/algorithms/test_helpers.h"
@@ -209,7 +209,8 @@ TEST_F(WebCryptoRsaSsaTest, ImportMultipleRSAPrivateKeysJwk) {
   // new keys.
   std::vector<blink::WebCryptoKey> live_keys;
 
-  for (size_t key_index = 0; key_index < key_list.GetSize(); ++key_index) {
+  for (size_t key_index = 0; key_index < key_list.GetList().size();
+       ++key_index) {
     SCOPED_TRACE(key_index);
 
     base::DictionaryValue* key_values;
@@ -225,8 +226,9 @@ TEST_F(WebCryptoRsaSsaTest, ImportMultipleRSAPrivateKeysJwk) {
     std::vector<uint8_t> pkcs8_bytes = HexStringToBytes(pkcs8_hex_string);
 
     // Get the modulus length for the key.
-    int modulus_length_bits = 0;
-    ASSERT_TRUE(key_values->GetInteger("modulusLength", &modulus_length_bits));
+    absl::optional<int> modulus_length_bits =
+        key_values->FindIntKey("modulusLength");
+    ASSERT_TRUE(modulus_length_bits);
 
     blink::WebCryptoKey private_key;
 
@@ -242,7 +244,7 @@ TEST_F(WebCryptoRsaSsaTest, ImportMultipleRSAPrivateKeysJwk) {
     live_keys.push_back(private_key);
 
     EXPECT_EQ(
-        modulus_length_bits,
+        *modulus_length_bits,
         static_cast<int>(
             private_key.Algorithm().RsaHashedParams()->ModulusLengthBits()));
 
@@ -651,7 +653,8 @@ TEST_F(WebCryptoRsaSsaTest, SignVerifyKnownAnswer) {
 
   // Validate the signatures are computed and verified as expected.
   std::vector<uint8_t> signature;
-  for (size_t test_index = 0; test_index < tests.GetSize(); ++test_index) {
+  for (size_t test_index = 0; test_index < tests.GetList().size();
+       ++test_index) {
     SCOPED_TRACE(test_index);
 
     base::DictionaryValue* test;
@@ -716,7 +719,7 @@ TEST_F(WebCryptoRsaSsaTest, ImportRsaSsaPublicKeyBadUsage_JWK) {
 
   base::DictionaryValue dict;
   RestoreJwkRsaDictionary(&dict);
-  dict.Remove("use", nullptr);
+  dict.RemoveKey("use");
   dict.SetString("alg", "RS256");
 
   for (size_t i = 0; i < base::size(bad_usages); ++i) {
@@ -946,7 +949,7 @@ TEST_F(WebCryptoRsaSsaTest, ImportJwkRsaFailures) {
   const std::string kKtyParmName[] = {"n", "e"};
   for (size_t idx = 0; idx < base::size(kKtyParmName); ++idx) {
     // Fail on missing parameter.
-    dict.Remove(kKtyParmName[idx], nullptr);
+    dict.RemoveKey(kKtyParmName[idx]);
     EXPECT_NE(Status::Success(),
               ImportKeyJwkFromDict(dict, algorithm, false, usages, &key));
     RestoreJwkRsaDictionary(&dict);
@@ -989,7 +992,8 @@ TEST_F(WebCryptoRsaSsaTest, ImportInvalidKeyData) {
   base::ListValue tests;
   ASSERT_TRUE(ReadJsonTestFileToList("bad_rsa_keys.json", &tests));
 
-  for (size_t test_index = 0; test_index < tests.GetSize(); ++test_index) {
+  for (size_t test_index = 0; test_index < tests.GetList().size();
+       ++test_index) {
     SCOPED_TRACE(test_index);
 
     const base::DictionaryValue* test;

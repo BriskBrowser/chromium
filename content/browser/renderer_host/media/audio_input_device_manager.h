@@ -38,6 +38,9 @@ class CONTENT_EXPORT AudioInputDeviceManager : public MediaStreamProvider {
  public:
   explicit AudioInputDeviceManager(media::AudioSystem* audio_system);
 
+  AudioInputDeviceManager(const AudioInputDeviceManager&) = delete;
+  AudioInputDeviceManager& operator=(const AudioInputDeviceManager&) = delete;
+
   // Gets the opened device by |session_id|. Returns NULL if the device
   // is not opened, otherwise the opened device. Called on IO thread.
   const blink::MediaStreamDevice* GetOpenedDeviceById(
@@ -95,8 +98,8 @@ class CONTENT_EXPORT AudioInputDeviceManager : public MediaStreamProvider {
   void OpenedOnIOThread(
       const base::UnguessableToken& session_id,
       const blink::MediaStreamDevice& device,
-      const base::Optional<media::AudioParameters>& input_params,
-      const base::Optional<std::string>& matched_output_device_id);
+      const absl::optional<media::AudioParameters>& input_params,
+      const absl::optional<std::string>& matched_output_device_id);
 
   // Callback called on IO thread with the session_id referencing the closed
   // device.
@@ -118,8 +121,6 @@ class CONTENT_EXPORT AudioInputDeviceManager : public MediaStreamProvider {
 #endif
 
   media::AudioSystem* const audio_system_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioInputDeviceManager);
 };
 
 }  // namespace content

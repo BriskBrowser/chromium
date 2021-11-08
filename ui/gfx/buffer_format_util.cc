@@ -5,28 +5,23 @@
 #include "ui/gfx/buffer_format_util.h"
 
 #include "base/check_op.h"
+#include "base/cxx17_backports.h"
 #include "base/notreached.h"
 #include "base/numerics/safe_math.h"
-#include "base/stl_util.h"
+#include "ui/gfx/switches.h"
 
 namespace gfx {
 namespace {
 
-const BufferFormat kBufferFormats[] = {BufferFormat::R_8,
-                                       BufferFormat::R_16,
-                                       BufferFormat::RG_88,
-                                       BufferFormat::BGR_565,
-                                       BufferFormat::RGBA_4444,
-                                       BufferFormat::RGBX_8888,
-                                       BufferFormat::RGBA_8888,
-                                       BufferFormat::BGRX_8888,
-                                       BufferFormat::BGRA_1010102,
-                                       BufferFormat::RGBA_1010102,
-                                       BufferFormat::BGRA_8888,
-                                       BufferFormat::RGBA_F16,
-                                       BufferFormat::YUV_420_BIPLANAR,
-                                       BufferFormat::YVU_420,
-                                       BufferFormat::P010};
+const BufferFormat kBufferFormats[] = {
+    BufferFormat::R_8,          BufferFormat::R_16,
+    BufferFormat::RG_88,        BufferFormat::RG_1616,
+    BufferFormat::BGR_565,      BufferFormat::RGBA_4444,
+    BufferFormat::RGBX_8888,    BufferFormat::RGBA_8888,
+    BufferFormat::BGRX_8888,    BufferFormat::BGRA_1010102,
+    BufferFormat::RGBA_1010102, BufferFormat::BGRA_8888,
+    BufferFormat::RGBA_F16,     BufferFormat::YUV_420_BIPLANAR,
+    BufferFormat::YVU_420,      BufferFormat::P010};
 
 static_assert(base::size(kBufferFormats) ==
                   (static_cast<int>(BufferFormat::LAST) + 1),
@@ -55,6 +50,7 @@ size_t AlphaBitsForBufferFormat(BufferFormat format) {
     case BufferFormat::R_8:
     case BufferFormat::R_16:
     case BufferFormat::RG_88:
+    case BufferFormat::RG_1616:
     case BufferFormat::BGR_565:
     case BufferFormat::RGBX_8888:
     case BufferFormat::BGRX_8888:
@@ -72,6 +68,7 @@ size_t NumberOfPlanesForLinearBufferFormat(BufferFormat format) {
     case BufferFormat::R_8:
     case BufferFormat::R_16:
     case BufferFormat::RG_88:
+    case BufferFormat::RG_1616:
     case BufferFormat::BGR_565:
     case BufferFormat::RGBA_4444:
     case BufferFormat::RGBX_8888:
@@ -97,6 +94,7 @@ size_t SubsamplingFactorForBufferFormat(BufferFormat format, size_t plane) {
     case BufferFormat::R_8:
     case BufferFormat::R_16:
     case BufferFormat::RG_88:
+    case BufferFormat::RG_1616:
     case BufferFormat::BGR_565:
     case BufferFormat::RGBA_4444:
     case BufferFormat::RGBX_8888:
@@ -152,6 +150,7 @@ bool RowSizeForBufferFormatChecked(size_t width,
         return false;
       *size_in_bytes = (checked_size & ~0x3).ValueOrDie();
       return true;
+    case BufferFormat::RG_1616:
     case BufferFormat::BGRX_8888:
     case BufferFormat::BGRA_1010102:
     case BufferFormat::RGBA_1010102:
@@ -170,7 +169,7 @@ bool RowSizeForBufferFormatChecked(size_t width,
       *size_in_bytes = checked_size.ValueOrDie();
       return true;
     case BufferFormat::YVU_420:
-      DCHECK_EQ(0u, width % 2);
+      DCHECK_EQ(width % 2, 0u);
       *size_in_bytes = width / SubsamplingFactorForBufferFormat(format, plane);
       return true;
     case BufferFormat::YUV_420_BIPLANAR:
@@ -223,6 +222,7 @@ size_t BufferOffsetForBufferFormat(const Size& size,
     case BufferFormat::R_8:
     case BufferFormat::R_16:
     case BufferFormat::RG_88:
+    case BufferFormat::RG_1616:
     case BufferFormat::BGR_565:
     case BufferFormat::RGBA_4444:
     case BufferFormat::RGBX_8888:
@@ -264,6 +264,8 @@ const char* BufferFormatToString(BufferFormat format) {
       return "R_16";
     case BufferFormat::RG_88:
       return "RG_88";
+    case BufferFormat::RG_1616:
+      return "RG_1616";
     case BufferFormat::BGR_565:
       return "BGR_565";
     case BufferFormat::RGBA_4444:
@@ -293,6 +295,29 @@ const char* BufferFormatToString(BufferFormat format) {
       << "Invalid BufferFormat: "
       << static_cast<typename std::underlying_type<BufferFormat>::type>(format);
   return "Invalid Format";
+}
+
+const char* BufferPlaneToString(BufferPlane format) {
+  switch (format) {
+    case BufferPlane::DEFAULT:
+      return "DEFAULT";
+    case BufferPlane::Y:
+      return "Y";
+    case BufferPlane::UV:
+      return "UV";
+    case BufferPlane::U:
+      return "U";
+    case BufferPlane::V:
+      return "V";
+  }
+  NOTREACHED() << "Invalid BufferPlane: "
+               << static_cast<typename std::underlying_type<BufferPlane>::type>(
+                      format);
+  return "Invalid Plane";
+}
+
+bool AllowOddHeightMultiPlanarBuffers() {
+  return base::FeatureList::IsEnabled(features::kOddHeightMultiPlanarBuffers);
 }
 
 }  // namespace gfx

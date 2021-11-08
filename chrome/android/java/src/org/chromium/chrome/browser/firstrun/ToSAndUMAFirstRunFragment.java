@@ -18,11 +18,13 @@ import android.widget.CheckBox;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.fragment.app.Fragment;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
 import org.chromium.chrome.browser.version.ChromeVersionInfo;
 import org.chromium.components.signin.ChildAccountStatus;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
@@ -35,20 +37,16 @@ import org.chromium.ui.text.SpanApplier.SpanInfo;
  * User Metrics Analysis) as defined in the Chrome Privacy Notice.
  */
 public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragment {
-    /** FRE page that instantiates this fragment. */
-    public static class Page implements FirstRunPage<ToSAndUMAFirstRunFragment> {
-        @Override
-        public boolean shouldSkipPageOnCreate() {
-            return FirstRunStatus.shouldSkipWelcomePage();
-        }
-
-        @Override
-        public ToSAndUMAFirstRunFragment instantiateFragment() {
-            return new ToSAndUMAFirstRunFragment();
-        }
+    /** Alerts about some methods once ToSAndUMAFirstRunFragment executes them. */
+    public interface Observer {
+        /** See {@link #onNativeInitialized}. */
+        public void onNativeInitialized();
     }
 
     private static boolean sShowUmaCheckBoxForTesting;
+
+    @Nullable
+    private static ToSAndUMAFirstRunFragment.Observer sObserver;
 
     private boolean mNativeInitialized;
     private boolean mTosButtonClicked;
@@ -87,7 +85,7 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
 
         mAcceptButton.setOnClickListener((v) -> onTosButtonClicked());
 
-        mSendReportCheckBox.setChecked(FirstRunActivity.DEFAULT_METRICS_AND_CRASH_REPORTING);
+        mSendReportCheckBox.setChecked(getUmaCheckBoxInitialState());
         if (!canShowUmaCheckBox()) {
             mSendReportCheckBox.setVisibility(View.GONE);
         }
@@ -115,7 +113,7 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
         Bundle freProperties = getPageDelegate().getProperties();
         @ChildAccountStatus.Status
         int childAccountStatus = freProperties.getInt(
-                SigninFirstRunFragment.CHILD_ACCOUNT_STATUS, ChildAccountStatus.NOT_CHILD);
+                SyncConsentFirstRunFragment.CHILD_ACCOUNT_STATUS, ChildAccountStatus.NOT_CHILD);
         if (childAccountStatus == ChildAccountStatus.REGULAR_CHILD) {
             tosText = SpanApplier.applySpans(getString(R.string.fre_tos_and_privacy_child_account),
                     new SpanInfo("<LINK1>", "</LINK1>", clickableGoogleTermsSpan),
@@ -173,6 +171,20 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
 
         mNativeInitialized = true;
         tryMarkTermsAccepted(false);
+
+        if (sObserver != null) {
+            sObserver.onNativeInitialized();
+        }
+    }
+
+    @Override
+    public void reset() {
+        // We cannot pass the welcome page when native or policy is not initialized. When this page
+        // is revisited, this means this page is persist and we should re-show the ToS And UMA.
+        assert !isWaitingForNativeAndPolicyInit();
+
+        setSpinnerVisible(false);
+        mSendReportCheckBox.setChecked(getUmaCheckBoxInitialState());
     }
 
     private void onTosButtonClicked() {
@@ -217,6 +229,15 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
         return !mNativeInitialized || getPageDelegate().getPolicyLoadListener().get() == null;
     }
 
+    private boolean getUmaCheckBoxInitialState() {
+        // The shared preference behind PrivacyPreferencesManagerImpl#isMetricsUploadPermitted is
+        // set after ToS is accepted. If ToS is not accepted yet, use the default value.
+        return FirstRunUtils.didAcceptTermsOfService()
+                ? PrivacyPreferencesManagerImpl.getInstance()
+                          .isUsageAndCrashReportingPermittedByUser()
+                : FirstRunActivity.DEFAULT_METRICS_AND_CRASH_REPORTING;
+    }
+
     // Exposed methods for ToSAndUMACCTFirstRunFragment
 
     protected void setTosAndUmaVisible(boolean isVisible) {
@@ -245,5 +266,11 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
     @VisibleForTesting
     public static void setShowUmaCheckBoxForTesting(boolean showForTesting) {
         sShowUmaCheckBoxForTesting = showForTesting;
+    }
+
+    @VisibleForTesting
+    public static void setObserverForTesting(ToSAndUMAFirstRunFragment.Observer observer) {
+        assert sObserver == null;
+        sObserver = observer;
     }
 }

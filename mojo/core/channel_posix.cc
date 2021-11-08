@@ -22,7 +22,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/synchronization/lock.h"
 #include "base/task/current_thread.h"
-#include "base/task_runner.h"
+#include "base/task/task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "mojo/core/core.h"
@@ -64,6 +64,9 @@ class MessageView {
   MessageView(MessageView&& other) = default;
 
   MessageView& operator=(MessageView&& other) = default;
+
+  MessageView(const MessageView&) = delete;
+  MessageView& operator=(const MessageView&) = delete;
 
   ~MessageView() {
     if (message_) {
@@ -111,8 +114,6 @@ class MessageView {
   size_t num_handles_sent_ = 0;
 
   base::TimeTicks start_time_ = base::TimeTicks::Now();
-
-  DISALLOW_COPY_AND_ASSIGN(MessageView);
 };
 
 ChannelPosix::ChannelPosix(
@@ -132,8 +133,8 @@ ChannelPosix::ChannelPosix(
 }
 
 ChannelPosix::~ChannelPosix() {
-  DCHECK(!read_watcher_);
-  DCHECK(!write_watcher_);
+  CHECK(!read_watcher_);
+  CHECK(!write_watcher_);
 }
 
 void ChannelPosix::Start() {
@@ -158,7 +159,6 @@ void ChannelPosix::Write(MessagePtr message) {
                            message->NumHandlesForTransit());
 
   bool write_error = false;
-  bool queued = false;
   {
     base::AutoLock lock(write_lock_);
     if (reject_writes_)
@@ -169,7 +169,6 @@ void ChannelPosix::Write(MessagePtr message) {
     } else {
       outgoing_messages_.emplace_back(std::move(message), 0);
     }
-    queued = !outgoing_messages_.empty();
   }
   if (write_error) {
     // Invoke OnWriteError() asynchronously on the IO thread, in case Write()
@@ -178,7 +177,6 @@ void ChannelPosix::Write(MessagePtr message) {
                               base::BindOnce(&ChannelPosix::OnWriteError, this,
                                              Error::kDisconnected));
   }
-  UMA_HISTOGRAM_BOOLEAN("Mojo.Channel.WriteQueued", queued);
 }
 
 void ChannelPosix::LeakHandle() {
@@ -210,15 +208,16 @@ bool ChannelPosix::GetReadPlatformHandles(const void* payload,
 void ChannelPosix::StartOnIOThread() {
   DCHECK(!read_watcher_);
   DCHECK(!write_watcher_);
-  read_watcher_.reset(new base::MessagePumpForIO::FdWatchController(FROM_HERE));
+  read_watcher_ =
+      std::make_unique<base::MessagePumpForIO::FdWatchController>(FROM_HERE);
   base::CurrentThread::Get()->AddDestructionObserver(this);
   if (server_.is_valid()) {
     base::CurrentIOThread::Get()->WatchFileDescriptor(
         server_.platform_handle().GetFD().get(), false /* persistent */,
         base::MessagePumpForIO::WATCH_READ, read_watcher_.get(), this);
   } else {
-    write_watcher_.reset(
-        new base::MessagePumpForIO::FdWatchController(FROM_HERE));
+    write_watcher_ =
+        std::make_unique<base::MessagePumpForIO::FdWatchController>(FROM_HERE);
     base::CurrentIOThread::Get()->WatchFileDescriptor(
         socket_.get(), true /* persistent */,
         base::MessagePumpForIO::WATCH_READ, read_watcher_.get(), this);
@@ -389,8 +388,8 @@ bool ChannelPosix::WriteNoLock(MessageView message_view) {
         // letting us know that it is now safe to close the file
         // descriptor. For more information, see:
         // http://crbug.com/298276
-        MessagePtr fds_message(new Channel::Message(
-            sizeof(int) * fds.size(), 0, Message::MessageType::HANDLES_SENT));
+        MessagePtr fds_message = Message::CreateMessage(
+            sizeof(int) * fds.size(), 0, Message::MessageType::HANDLES_SENT);
         int* fd_data = reinterpret_cast<int*>(fds_message->mutable_payload());
         for (size_t i = 0; i < fds.size(); ++i)
           fd_data[i] = fds[i].get();
@@ -490,13 +489,11 @@ bool ChannelPosix::FlushOutgoingMessagesNoLock() {
 }
 
 void ChannelPosix::RejectUpgradeOffer() {
-  Write(std::make_unique<Channel::Message>(
-      0, 0, Message::MessageType::UPGRADE_REJECT));
+  Write(Message::CreateMessage(0, 0, Message::MessageType::UPGRADE_REJECT));
 }
 
 void ChannelPosix::AcceptUpgradeOffer() {
-  Write(std::make_unique<Channel::Message>(
-      0, 0, Message::MessageType::UPGRADE_ACCEPT));
+  Write(Message::CreateMessage(0, 0, Message::MessageType::UPGRADE_ACCEPT));
 }
 
 void ChannelPosix::OnWriteError(Error error) {
@@ -637,8 +634,8 @@ bool ChannelPosix::OnControlMessage(Message::MessageType message_type,
     case Message::MessageType::HANDLES_SENT: {
       if (payload_size == 0)
         break;
-      MessagePtr message(new Channel::Message(
-          payload_size, 0, Message::MessageType::HANDLES_SENT_ACK));
+      MessagePtr message = Message::CreateMessage(
+          payload_size, 0, Message::MessageType::HANDLES_SENT_ACK);
       memcpy(message->mutable_payload(), payload, payload_size);
       Write(std::move(message));
       return true;
@@ -710,15 +707,14 @@ scoped_refptr<Channel> Channel::Create(
     ConnectionParams connection_params,
     HandlePolicy handle_policy,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner) {
-#if !defined(OS_NACL)
-#if (defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID))
+#if !defined(OS_NACL) && \
+    (defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID))
   return new ChannelLinux(delegate, std::move(connection_params), handle_policy,
                           io_task_runner);
-#endif
-#endif
-
+#else
   return new ChannelPosix(delegate, std::move(connection_params), handle_policy,
                           io_task_runner);
+#endif
 }
 
 #if !defined(OS_NACL)

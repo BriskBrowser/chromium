@@ -8,13 +8,14 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "chrome/browser/media/router/providers/cast/cast_activity.h"
 #include "chrome/browser/media/router/providers/cast/cast_session_tracker.h"
 #include "components/cast_channel/cast_message_handler.h"
 #include "components/media_router/common/media_route.h"
+#include "components/media_router/common/mojom/logger.mojom.h"
 #include "components/media_router/common/mojom/media_router.mojom-forward.h"
 #include "components/mirroring/mojom/cast_message_channel.mojom.h"
 #include "components/mirroring/mojom/mirroring_service_host.mojom.h"
@@ -23,6 +24,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/openscreen/src/cast/common/channel/proto/cast_channel.pb.h"
 
 namespace media_router {
@@ -64,9 +66,6 @@ class MirroringActivity : public CastActivity,
   void Send(mirroring::mojom::CastMessagePtr message) override;
 
   // CastActivity implementation
-  void SendMessageToClient(
-      const std::string& client_id,
-      blink::mojom::PresentationConnectionMessagePtr message) override;
   void OnAppMessage(const cast::channel::CastMessage& message) override;
   void OnInternalMessage(const cast_channel::InternalMessage& message) override;
 
@@ -75,6 +74,7 @@ class MirroringActivity : public CastActivity,
   void CreateMediaController(
       mojo::PendingReceiver<mojom::MediaController> media_controller,
       mojo::PendingRemote<mojom::MediaStatusObserver> observer) override;
+  std::string GetRouteDescription(const CastSession& session) const override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(MirroringActivityTest, GetScrubbedLogMessage);
@@ -110,10 +110,10 @@ class MirroringActivity : public CastActivity,
   mojo::Receiver<mirroring::mojom::CastMessageChannel> channel_receiver_{this};
 
   // Set before and after a mirroring session is established, for metrics.
-  base::Optional<base::Time> will_start_mirroring_timestamp_;
-  base::Optional<base::Time> did_start_mirroring_timestamp_;
+  absl::optional<base::Time> will_start_mirroring_timestamp_;
+  absl::optional<base::Time> did_start_mirroring_timestamp_;
 
-  const base::Optional<MirroringType> mirroring_type_;
+  const absl::optional<MirroringType> mirroring_type_;
   const CastSinkExtraData cast_data_;
   OnStopCallback on_stop_;
   base::WeakPtrFactory<MirroringActivity> weak_ptr_factory_{this};

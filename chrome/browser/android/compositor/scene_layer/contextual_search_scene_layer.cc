@@ -100,6 +100,14 @@ void ContextualSearchSceneLayer::UpdateContextualSearchLayer(
     jfloat panel_help_height,
     jfloat panel_help_opacity,
     jint panel_help_container_background_color,
+    // Related Searches
+    jint related_searches_in_content_resource_id,
+    jboolean related_searches_in_content_visible,
+    jfloat related_searches_in_content_height,
+    jint related_searches_in_bar_resource_id,
+    jboolean related_searches_in_bar_visible,
+    jfloat related_searches_in_bar_height,
+    jfloat related_searches_in_bar_redundant_padding,
     // Banner etc
     jboolean search_bar_banner_visible,
     jfloat search_bar_banner_height,
@@ -179,6 +187,11 @@ void ContextualSearchSceneLayer::UpdateContextualSearchLayer(
       // Panel Help
       panel_help_resource_id, panel_help_visible, panel_help_height,
       panel_help_opacity, panel_help_container_background_color,
+      // Related Searches
+      related_searches_in_content_resource_id,
+      related_searches_in_content_visible, related_searches_in_content_height,
+      related_searches_in_bar_resource_id, related_searches_in_bar_visible,
+      related_searches_in_bar_height, related_searches_in_bar_redundant_padding,
       // Banner etc
       search_bar_banner_visible, search_bar_banner_height,
       search_bar_banner_padding, search_bar_banner_ripple_width,
@@ -207,11 +220,11 @@ void ContextualSearchSceneLayer::FetchThumbnail(
   GURL gurl(thumbnail_url_);
   Profile* profile = ProfileAndroid::FromProfileAndroid(j_profile);
   network::mojom::URLLoaderFactory* loader_factory =
-      content::BrowserContext::GetDefaultStoragePartition(profile)
+      profile->GetDefaultStoragePartition()
           ->GetURLLoaderFactoryForBrowserProcess()
           .get();
   fetcher_ =
-      std::make_unique<BitmapFetcher>(gurl, this, NO_TRAFFIC_ANNOTATION_YET);
+      std::make_unique<BitmapFetcher>(gurl, this, MISSING_TRAFFIC_ANNOTATION);
   fetcher_->Init(
       std::string(),
       net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,

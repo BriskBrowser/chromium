@@ -199,11 +199,14 @@ class KeyboardAccessoryMediator
     private KeyboardAccessoryData.Action createAutofillAction(AutofillDelegate delegate, int pos) {
         return new KeyboardAccessoryData.Action(
                 null, // Unused. The AutofillSuggestion has more meaningful labels.
-                AccessoryAction.AUTOFILL_SUGGESTION, result -> {
+                AccessoryAction.AUTOFILL_SUGGESTION,
+                result
+                -> {
                     ManualFillingMetricsRecorder.recordActionSelected(
                             AccessoryAction.AUTOFILL_SUGGESTION);
                     delegate.suggestionSelected(pos);
-                });
+                },
+                result -> { delegate.deleteSuggestion(pos); });
     }
 
     private @BarItem.Type int toBarItemType(@AccessoryAction int accessoryAction) {
@@ -325,6 +328,11 @@ class KeyboardAccessoryMediator
     }
 
     private static String getFeatureBySuggestionId(AutofillSuggestion suggestion) {
+        // If the suggestion has an explicit IPH feature defined, prefer that over the default IPH
+        // features.
+        if (!suggestion.getFeatureForIPH().isEmpty()) {
+            return suggestion.getFeatureForIPH();
+        }
         if (containsPasswordInfo(suggestion)) {
             return FeatureConstants.KEYBOARD_ACCESSORY_PASSWORD_FILLING_FEATURE;
         }

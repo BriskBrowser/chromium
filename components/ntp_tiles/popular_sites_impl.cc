@@ -117,11 +117,11 @@ std::string GetVariationDirectory() {
 
 PopularSites::SitesVector ParseSiteList(const base::ListValue& list) {
   PopularSites::SitesVector sites;
-  for (size_t i = 0; i < list.GetSize(); i++) {
+  for (size_t i = 0; i < list.GetList().size(); i++) {
     const base::DictionaryValue* item;
     if (!list.GetDictionary(i, &item))
       continue;
-    base::string16 title;
+    std::u16string title;
     std::string url;
     if (!item->GetString("title", &title) || !item->GetString("url", &url))
       continue;
@@ -131,19 +131,21 @@ PopularSites::SitesVector ParseSiteList(const base::ListValue& list) {
     item->GetString("large_icon_url", &large_icon_url);
 
     TileTitleSource title_source = TileTitleSource::UNKNOWN;
-    int title_source_int;
-    if (!item->GetInteger("title_source", &title_source_int)) {
+    absl::optional<int> title_source_int = item->FindIntKey("title_source");
+    if (!title_source_int) {
       // Only v6 and later have "title_source". Earlier versions use title tags.
       title_source = TileTitleSource::TITLE_TAG;
-    } else if (title_source_int <= static_cast<int>(TileTitleSource::LAST) &&
-               title_source_int >= 0) {
-      title_source = static_cast<TileTitleSource>(title_source_int);
+    } else if (*title_source_int <= static_cast<int>(TileTitleSource::LAST) &&
+               *title_source_int >= 0) {
+      title_source = static_cast<TileTitleSource>(*title_source_int);
     }
 
     sites.emplace_back(title, GURL(url), GURL(favicon_url),
                        GURL(large_icon_url), title_source);
-    item->GetInteger("default_icon_resource",
-                     &sites.back().default_icon_resource);
+    absl::optional<int> default_icon_resource =
+        item->FindIntKey("default_icon_resource");
+    if (default_icon_resource)
+      sites.back().default_icon_resource = *default_icon_resource;
     item->GetBoolean("baked_in", &sites.back().baked_in);
   }
   return sites;
@@ -159,16 +161,15 @@ std::map<SectionType, PopularSites::SitesVector> ParseVersion6OrAbove(
   // Valid lists would have contained at least the PERSONALIZED section.
   std::map<SectionType, PopularSites::SitesVector> sections = {
       std::make_pair(SectionType::PERSONALIZED, PopularSites::SitesVector{})};
-  for (size_t i = 0; i < list.GetSize(); i++) {
+  for (size_t i = 0; i < list.GetList().size(); i++) {
     const base::DictionaryValue* item;
     if (!list.GetDictionary(i, &item)) {
       LOG(WARNING) << "Parsed SitesExploration list contained an invalid "
                    << "section at position " << i << ".";
       continue;
     }
-    int section;
-    if (!item->GetInteger("section", &section) || section < 0 ||
-        section > static_cast<int>(SectionType::LAST)) {
+    int section = item->FindIntKey("section").value_or(-1);
+    if (section < 0 || section > static_cast<int>(SectionType::LAST)) {
       LOG(WARNING) << "Parsed SitesExploration list contained a section with "
                    << "invalid ID (" << section << ")";
       continue;
@@ -215,7 +216,7 @@ base::Value DefaultPopularSites() {
   if (!base::FeatureList::IsEnabled(kPopularSitesBakedInContentFeature))
     return base::Value(base::Value::Type::LIST);
 
-  base::Optional<base::Value> sites = base::JSONReader::Read(
+  absl::optional<base::Value> sites = base::JSONReader::Read(
       ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
           IDR_DEFAULT_POPULAR_SITES_JSON));
   for (base::Value& site : sites.value().GetList())
@@ -237,7 +238,7 @@ base::Value DefaultPopularSites() {
 
 }  // namespace
 
-PopularSites::Site::Site(const base::string16& title,
+PopularSites::Site::Site(const std::u16string& title,
                          const GURL& url,
                          const GURL& favicon_url,
                          const GURL& large_icon_url,
@@ -280,7 +281,7 @@ bool PopularSitesImpl::MaybeStartFetch(bool force_download,
   const base::TimeDelta time_since_last_download =
       base::Time::Now() - last_download_time;
   const base::TimeDelta redownload_interval =
-      base::TimeDelta::FromHours(kPopularSitesRedownloadIntervalHours);
+      base::Hours(kPopularSitesRedownloadIntervalHours);
   const bool download_time_is_future = base::Time::Now() < last_download_time;
 
   pending_url_ = GetURLToFetch();

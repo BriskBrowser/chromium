@@ -89,6 +89,10 @@ class GestureScrollEventWatcher : public RenderWidgetHost::InputEventObserver {
 class AutoscrollBrowserTest : public ContentBrowserTest {
  public:
   AutoscrollBrowserTest() {}
+
+  AutoscrollBrowserTest(const AutoscrollBrowserTest&) = delete;
+  AutoscrollBrowserTest& operator=(const AutoscrollBrowserTest&) = delete;
+
   ~AutoscrollBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -112,7 +116,7 @@ class AutoscrollBrowserTest : public ContentBrowserTest {
     RenderWidgetHostImpl* host = GetWidgetHost();
     host->GetView()->SetSize(gfx::Size(400, 400));
 
-    base::string16 ready_title(base::ASCIIToUTF16("ready"));
+    std::u16string ready_title(u"ready");
     TitleWatcher watcher(shell()->web_contents(), ready_title);
     ignore_result(watcher.WaitAndGetTitle());
 
@@ -166,9 +170,6 @@ class AutoscrollBrowserTest : public ContentBrowserTest {
       observer.WaitForMetadataChange();
     }
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AutoscrollBrowserTest);
 };
 
 // We don't plan on supporting middle click autoscroll on Android.
@@ -222,9 +223,7 @@ IN_PROC_BROWSER_TEST_F(AutoscrollBrowserTest, AutoscrollFlingGSBDeltaHints) {
 
 // Tests that the GSU and GSE events generated from the autoscroll fling have
 // non-zero positions in widget.
-// Disabled due to flakiness. See https://crbug.com/930011.
-IN_PROC_BROWSER_TEST_F(AutoscrollBrowserTest,
-                       DISABLED_GSUGSEValidPositionInWidget) {
+IN_PROC_BROWSER_TEST_F(AutoscrollBrowserTest, GSUGSEValidPositionInWidget) {
   LoadURL(kAutoscrollDataURL);
 
   // Start autoscroll with middle click.

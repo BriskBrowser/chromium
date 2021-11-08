@@ -29,13 +29,18 @@ class RelaunchRecommendedBubbleView : public LocationBarBubbleDelegateView {
   static views::Widget* ShowBubble(Browser* browser,
                                    base::Time detection_time,
                                    base::RepeatingClosure on_accept);
+
+  RelaunchRecommendedBubbleView(const RelaunchRecommendedBubbleView&) = delete;
+  RelaunchRecommendedBubbleView& operator=(
+      const RelaunchRecommendedBubbleView&) = delete;
+
   ~RelaunchRecommendedBubbleView() override;
 
   // LocationBarBubbleDelegateView:
   bool Accept() override;
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
-  gfx::ImageSkia GetWindowIcon() override;
+  ui::ImageModel GetWindowIcon() override;
 
  protected:
   // LocationBarBubbleDelegateView:
@@ -55,8 +60,6 @@ class RelaunchRecommendedBubbleView : public LocationBarBubbleDelegateView {
 
   // Timer that schedules title refreshes.
   RelaunchRecommendedTimer relaunch_recommended_timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(RelaunchRecommendedBubbleView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_RELAUNCH_NOTIFICATION_RELAUNCH_RECOMMENDED_BUBBLE_VIEW_H_

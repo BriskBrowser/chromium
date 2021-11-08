@@ -50,6 +50,10 @@ class ConsumerHost : public perfetto::Consumer, public mojom::ConsumerHost {
         const perfetto::TraceConfig& trace_config,
         perfetto::base::ScopedFile output_file,
         mojom::TracingClientPriority priority);
+
+    TracingSession(const TracingSession&) = delete;
+    TracingSession& operator=(const TracingSession&) = delete;
+
     ~TracingSession() override;
 
     void OnPerfettoEvents(const perfetto::ObservableEvents&);
@@ -109,7 +113,7 @@ class ConsumerHost : public perfetto::Consumer, public mojom::ConsumerHost {
 
     // If set, we didn't issue OnTracingEnabled() on the session yet. If set and
     // empty, no more pids are pending and we should issue OnTracingEnabled().
-    base::Optional<std::set<base::ProcessId>> pending_enable_tracing_ack_pids_;
+    absl::optional<std::set<base::ProcessId>> pending_enable_tracing_ack_pids_;
     base::OneShotTimer enable_tracing_ack_timer_;
 
     struct DataSourceHandle : public std::pair<std::string, std::string> {
@@ -121,13 +125,15 @@ class ConsumerHost : public perfetto::Consumer, public mojom::ConsumerHost {
 
     SEQUENCE_CHECKER(sequence_checker_);
     base::WeakPtrFactory<TracingSession> weak_factory_{this};
-
-    DISALLOW_COPY_AND_ASSIGN(TracingSession);
   };
 
   // The owner of ConsumerHost should make sure to destroy
   // |service| after destroying this.
   explicit ConsumerHost(PerfettoService* service);
+
+  ConsumerHost(const ConsumerHost&) = delete;
+  ConsumerHost& operator=(const ConsumerHost&) = delete;
+
   ~ConsumerHost() override;
 
   PerfettoService* service() const { return service_; }
@@ -174,7 +180,6 @@ class ConsumerHost : public perfetto::Consumer, public mojom::ConsumerHost {
       consumer_endpoint_;
 
   base::WeakPtrFactory<ConsumerHost> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(ConsumerHost);
 };
 
 }  // namespace tracing

@@ -50,10 +50,31 @@ Polymer({
       value: false,
     },
 
-
+    /**
+     * Indicates whether the new OOBE Layout should be enabled. For simplicity,
+     * this only controls whether particular elements are rendered, and does not
+     * prevent the new oobe adaptive layout features, which will always be
+     * enabled.
+     * @private {boolean}
+     */
+    newOobeLayoutEnabled_: {
+      type: Boolean,
+      value: false,
+    },
 
     /**
-     * The EDU Ceoxistence controller instance.
+     * Indicates the CSS class used for the buttons-layout for
+     * the buttons at the bottom of the screen.  The layout
+     * differs depending on whether the new OOBE layout is enabled.
+     * @private {string}
+     */
+    buttonsLayoutCssClass_: {
+      type: String,
+      computed: 'getButtonsCssClass_(newOobeLayoutEnabled_)',
+    },
+
+    /**
+     * The EDU Coexistence controller instance.
      * @private {?EduCoexistenceController}
      */
     controller_: Object,
@@ -62,17 +83,6 @@ Polymer({
   /** Attempts to close the dialog */
   closeDialog_() {
     EduCoexistenceBrowserProxyImpl.getInstance().dialogClose();
-  },
-
-  /**
-   * Takes the appropriate "back" action from the GAIA edu login page.
-   * @param {Event} e
-   * @private
-   */
-  handleGaiaLoginGoBack_(e) {
-    e.stopPropagation();
-    this.webview_.back();
-    this.webview_.focus();
   },
 
   loadAuthExtension_(data) {
@@ -85,24 +95,55 @@ Polymer({
     });
   },
 
+  handleGaiaLoginGoBack_(e) {
+    e.stopPropagation();
+    let backButton = this.root.getElementById('gaia-back-button');
+    if (backButton.disabled) {
+      // This is a safeguard against this method getting called somehow
+      // despite the button being disabled.
+      return;
+    }
+    backButton.disabled = true;
+
+    this.webview_.back((success /* ignored */) => {
+      // Wait a full second after the callback fires before processing another
+      // click on the back button.  This delay is needed because the callback
+      // fires before the content finishes navigating to the previous page.
+      setTimeout(() => {
+        backButton.disabled = false;
+      }, 1000 /* 1 second */);
+      this.webview_.focus();
+    });
+  },
+
+  /** @private */
+  getButtonsCssClass_(newOobeLayoutEnabled) {
+    return newOobeLayoutEnabled ? 'new-oobe-buttons-layout' : 'buttons-layout';
+  },
+
   /**
    * Configures the UI for showing/hiding the GAIA login flow.
    */
   configureUiForGaiaFlow() {
     var currentUrl = new URL(this.webview_.src);
-    var mainDiv = this.$$('edu-coexistence-template').$$('div.main');
+    var template = this.$$('edu-coexistence-template');
+    var contentContainer = template.$$('div.content-container');
 
     if (currentUrl.hostname !== this.controller_.getFlowOriginHostname()) {
+      this.$$('edu-coexistence-button').newOobeStyleEnabled =
+          this.newOobeLayoutEnabled_;
+
+      this.$$('gaia-action-buttons').roundedButton = this.newOobeLayoutEnabled_;
+
       // Show the GAIA Buttons.
       this.showGaiaButtons_ = true;
-      // Shrink the main div so that the buttons line up more closely with the
-      // server rendered buttons.
-      mainDiv.style.height = 'calc(100% - 90px)';
+      // Shrink the content-container so that the buttons line up more closely
+      // with the server rendered buttons.
+      contentContainer.style.height = 'calc(100% - 90px)';
 
       // Don't show the "Next" button if the EDU authentication got forwarded to
       // a non-Google SSO page.
       this.showGaiaNextButton_ = currentUrl.hostname.endsWith('.google.com');
-
     } else {
       // Hide the GAIA Buttons.
       this.showGaiaButtons_ = false;
@@ -110,23 +151,31 @@ Polymer({
       // Hide the GAIA Next button.
       this.showGaiaNextButton_ = false;
 
-      // Restore the main div to 100%
-      mainDiv.style.height = '100%';
+      // Restore the content container div to 100%
+      contentContainer.style.height = '100%';
     }
+
+    template.showButtonFooter(this.showGaiaButtons_);
   },
 
   /** @override */
   ready() {
     this.addWebUIListener(
         'load-auth-extension', data => this.loadAuthExtension_(data));
+    this.webview_ =
+        /** @type {!WebView} */ (this.$.signinFrame);
+
+    this.webview_.addEventListener('loadabort', () => {
+      this.loading_ = false;
+      this.fire('go-error');
+    });
 
     EduCoexistenceBrowserProxyImpl.getInstance().initializeEduArgs().then(
         (data) => {
-          this.webview_ =
-              /** @type {!WebView} */ (this.$.signinFrame);
           this.controller_ =
               new EduCoexistenceController(this, this.webview_, data);
-
+          this.newOobeLayoutEnabled_ =
+              this.controller_.getNewOobeLayoutEnabled();
           EduCoexistenceBrowserProxyImpl.getInstance().initializeLogin();
         },
         (err) => {

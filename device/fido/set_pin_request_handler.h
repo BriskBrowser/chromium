@@ -44,7 +44,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) SetPINRequestHandler
   using GetPINCallback =
       base::OnceCallback<void(uint32_t current_min_pin_length,
                               uint32_t new_min_pin_length,
-                              base::Optional<int64_t> attempts)>;
+                              absl::optional<int64_t> attempts)>;
 
   // FinishedCallback is called multiple times once an attempt has completed.
   // This can be called prior to |GetPINCallback| if the touched authenticator
@@ -66,6 +66,10 @@ class COMPONENT_EXPORT(DEVICE_FIDO) SetPINRequestHandler
       FinishedCallback finished_callback,
       std::unique_ptr<FidoDiscoveryFactory> fido_discovery_factory =
           std::make_unique<FidoDiscoveryFactory>());
+
+  SetPINRequestHandler(const SetPINRequestHandler&) = delete;
+  SetPINRequestHandler& operator=(const SetPINRequestHandler&) = delete;
+
   ~SetPINRequestHandler() override;
 
   // ProvidePIN may be called after |get_pin_callback| has been used to indicate
@@ -91,10 +95,10 @@ class COMPONENT_EXPORT(DEVICE_FIDO) SetPINRequestHandler
   void OnTouch(FidoAuthenticator* authenticator);
   void RequestRetries();
   void OnRetriesResponse(CtapDeviceResponseCode status,
-                         base::Optional<pin::RetriesResponse> response);
+                         absl::optional<pin::RetriesResponse> response);
 
   void OnSetPINComplete(CtapDeviceResponseCode status,
-                        base::Optional<pin::EmptyResponse> response);
+                        absl::optional<pin::EmptyResponse> response);
 
   State state_ = State::kWaitingForTouch;
   GetPINCallback get_pin_callback_;
@@ -106,8 +110,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) SetPINRequestHandler
   std::unique_ptr<FidoDiscoveryFactory> fido_discovery_factory_;
   SEQUENCE_CHECKER(my_sequence_checker_);
   base::WeakPtrFactory<SetPINRequestHandler> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SetPINRequestHandler);
 };
 
 }  // namespace device

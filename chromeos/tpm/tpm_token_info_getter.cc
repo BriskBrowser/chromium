@@ -11,11 +11,11 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/task_runner.h"
+#include "base/task/task_runner.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
-#include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager_client.h"
+#include "chromeos/dbus/userdataauth/userdataauth_client.h"
 
 namespace {
 
@@ -30,8 +30,7 @@ base::TimeDelta GetNextRequestDelayMs(base::TimeDelta last_delay) {
   base::TimeDelta next_delay = last_delay * 2;
 
   // Cap the delay to prevent an overflow. This threshold is arbitrarily chosen.
-  const base::TimeDelta max_delay =
-      base::TimeDelta::FromMilliseconds(kMaxRequestDelayMs);
+  const base::TimeDelta max_delay = base::Milliseconds(kMaxRequestDelayMs);
   if (next_delay > max_delay)
     next_delay = max_delay;
   return next_delay;
@@ -44,19 +43,19 @@ namespace chromeos {
 // static
 std::unique_ptr<TPMTokenInfoGetter> TPMTokenInfoGetter::CreateForUserToken(
     const AccountId& account_id,
-    CryptohomeClient* cryptohome_client,
+    CryptohomePkcs11Client* userdataauth_client,
     const scoped_refptr<base::TaskRunner>& delayed_task_runner) {
   CHECK(account_id.is_valid());
   return std::unique_ptr<TPMTokenInfoGetter>(new TPMTokenInfoGetter(
-      TYPE_USER, account_id, cryptohome_client, delayed_task_runner));
+      TYPE_USER, account_id, userdataauth_client, delayed_task_runner));
 }
 
 // static
 std::unique_ptr<TPMTokenInfoGetter> TPMTokenInfoGetter::CreateForSystemToken(
-    CryptohomeClient* cryptohome_client,
+    CryptohomePkcs11Client* userdataauth_client,
     const scoped_refptr<base::TaskRunner>& delayed_task_runner) {
   return std::unique_ptr<TPMTokenInfoGetter>(new TPMTokenInfoGetter(
-      TYPE_SYSTEM, EmptyAccountId(), cryptohome_client, delayed_task_runner));
+      TYPE_SYSTEM, EmptyAccountId(), userdataauth_client, delayed_task_runner));
 }
 
 TPMTokenInfoGetter::~TPMTokenInfoGetter() = default;
@@ -79,17 +78,17 @@ void TPMTokenInfoGetter::SetSystemSlotSoftwareFallback(
 TPMTokenInfoGetter::TPMTokenInfoGetter(
     TPMTokenInfoGetter::Type type,
     const AccountId& account_id,
-    CryptohomeClient* cryptohome_client,
+    CryptohomePkcs11Client* cryptohome_pkcs11_client,
     const scoped_refptr<base::TaskRunner>& delayed_task_runner)
     : delayed_task_runner_(delayed_task_runner),
       type_(type),
       state_(TPMTokenInfoGetter::STATE_INITIAL),
       account_id_(account_id),
-      tpm_request_delay_(
-          base::TimeDelta::FromMilliseconds(kInitialRequestDelayMs)),
-      cryptohome_client_(cryptohome_client) {}
+      tpm_request_delay_(base::Milliseconds(kInitialRequestDelayMs)),
+      cryptohome_pkcs11_client_(cryptohome_pkcs11_client) {}
 
 void TPMTokenInfoGetter::Continue() {
+  user_data_auth::Pkcs11GetTpmTokenInfoRequest request;
   switch (state_) {
     case STATE_INITIAL:
       NOTREACHED();
@@ -101,20 +100,22 @@ void TPMTokenInfoGetter::Continue() {
                          weak_factory_.GetWeakPtr()));
       break;
     case STATE_TPM_ENABLED:
-      if (type_ == TYPE_SYSTEM) {
-        cryptohome_client_->Pkcs11GetTpmTokenInfo(
-            base::BindOnce(&TPMTokenInfoGetter::OnPkcs11GetTpmTokenInfo,
-                           weak_factory_.GetWeakPtr()));
-      } else {  // if (type_ == TYPE_USER)
-        cryptohome_client_->Pkcs11GetTpmTokenInfoForUser(
-            cryptohome::CreateAccountIdentifierFromAccountId(account_id_),
-            base::BindOnce(&TPMTokenInfoGetter::OnPkcs11GetTpmTokenInfo,
-                           weak_factory_.GetWeakPtr()));
+      // For system token, we don't need to supply the username, and with an
+      // empty username, cryptohomed will return the system token information.
+      if (type_ == TYPE_USER) {
+        request.set_username(
+            cryptohome::CreateAccountIdentifierFromAccountId(account_id_)
+                .account_id());
       }
+      cryptohome_pkcs11_client_->Pkcs11GetTpmTokenInfo(
+          request, base::BindOnce(&TPMTokenInfoGetter::OnPkcs11GetTpmTokenInfo,
+                                  weak_factory_.GetWeakPtr()));
       break;
     case STATE_SYSTEM_SLOT_SOFTWARE_FALLBACK:
       if (type_ == TYPE_SYSTEM) {
-        cryptohome_client_->Pkcs11GetTpmTokenInfo(
+        // Leave request.username empty for system token.
+        cryptohome_pkcs11_client_->Pkcs11GetTpmTokenInfo(
+            request,
             base::BindOnce(&TPMTokenInfoGetter::OnPkcs11GetTpmTokenInfo,
                            weak_factory_.GetWeakPtr()));
       } else {  // if (type_ == TYPE_USER)
@@ -153,7 +154,7 @@ void TPMTokenInfoGetter::OnGetTpmStatus(
     }
 
     state_ = STATE_DONE;
-    std::move(callback_).Run(base::nullopt);
+    std::move(callback_).Run(absl::nullopt);
     return;
   }
 
@@ -162,14 +163,15 @@ void TPMTokenInfoGetter::OnGetTpmStatus(
 }
 
 void TPMTokenInfoGetter::OnPkcs11GetTpmTokenInfo(
-    base::Optional<CryptohomeClient::TpmTokenInfo> token_info) {
-  if (!token_info.has_value() || token_info->slot == -1) {
+    absl::optional<user_data_auth::Pkcs11GetTpmTokenInfoReply> token_info) {
+  if (!token_info.has_value() || !token_info->has_token_info() ||
+      token_info->token_info().slot() == -1) {
     RetryLater();
     return;
   }
 
   state_ = STATE_DONE;
-  std::move(callback_).Run(std::move(token_info));
+  std::move(callback_).Run(token_info->token_info());
 }
 
 }  // namespace chromeos

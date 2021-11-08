@@ -8,6 +8,7 @@
 
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "cc/test/pixel_test_utils.h"
@@ -24,7 +25,10 @@
 #include "media/base/video_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/aura/test/aura_test_utils.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_tree_host.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -37,6 +41,12 @@ class AuraWindowVideoCaptureDeviceBrowserTest
       public FrameTestUtil {
  public:
   AuraWindowVideoCaptureDeviceBrowserTest() = default;
+
+  AuraWindowVideoCaptureDeviceBrowserTest(
+      const AuraWindowVideoCaptureDeviceBrowserTest&) = delete;
+  AuraWindowVideoCaptureDeviceBrowserTest& operator=(
+      const AuraWindowVideoCaptureDeviceBrowserTest&) = delete;
+
   ~AuraWindowVideoCaptureDeviceBrowserTest() override = default;
 
   aura::Window* GetCapturedWindow() const {
@@ -184,9 +194,6 @@ class AuraWindowVideoCaptureDeviceBrowserTest
   }
 
   void WaitForFirstFrame() final { WaitForFrameWithColor(SK_ColorBLACK); }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AuraWindowVideoCaptureDeviceBrowserTest);
 };
 
 // Tests that the device refuses to start if the target window was destroyed
@@ -268,7 +275,7 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
   ChangePageContentColor(SK_ColorGREEN);
   base::RunLoop run_loop;
   GetUIThreadTaskRunner({})->PostDelayedTask(FROM_HERE, run_loop.QuitClosure(),
-                                             base::TimeDelta::FromSeconds(5));
+                                             base::Seconds(5));
   run_loop.Run();
   EXPECT_FALSE(HasCapturedFramesInQueue());
 
@@ -303,6 +310,51 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
   StopAndDeAllocate();
 }
 
+#if defined(OS_WIN)
+class AuraWindowVideoCaptureDeviceBrowserTestWin
+    : public AuraWindowVideoCaptureDeviceBrowserTest {
+ public:
+  // AuraWindowVideoCaptureDeviceBrowserTest:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        features::kApplyNativeOcclusionToCompositor,
+        {{features::kApplyNativeOcclusionToCompositorType,
+          features::kApplyNativeOcclusionToCompositorTypeApplyAndEvict}});
+
+    AuraWindowVideoCaptureDeviceBrowserTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// TODO(crbug.com/1096946): enable.
+IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTestWin,
+                       DISABLED_CapturesOccludedWindow) {
+  aura::WindowTreeHost* window_tree_host = shell()->window()->GetHost();
+  aura::test::DisableNativeWindowOcclusionTracking(window_tree_host);
+  NavigateToInitialDocument();
+  AllocateAndStartAndWaitForFirstFrame();
+
+  // Simulate the WindowTreeHost being occluded.
+  window_tree_host->SetNativeWindowOcclusionState(
+      aura::Window::OcclusionState::OCCLUDED, {});
+
+  // Even though the WindowTreeHost is occluded, the compositor should still be
+  // visible and content captured.
+  static constexpr SkColor kColorsToCycleThrough[] = {
+      SK_ColorRED,  SK_ColorGREEN,   SK_ColorBLUE,  SK_ColorYELLOW,
+      SK_ColorCYAN, SK_ColorMAGENTA, SK_ColorWHITE,
+  };
+  for (SkColor color : kColorsToCycleThrough) {
+    ChangePageContentColor(color);
+    WaitForFrameWithColor(color);
+  }
+
+  StopAndDeAllocate();
+}
+#endif
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Disabled (crbug.com/1096988)
 // On ChromeOS, another window may occlude a window that is being captured.
@@ -313,7 +365,7 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
   AllocateAndStartAndWaitForFirstFrame();
 
   ASSERT_EQ(aura::Window::OcclusionState::VISIBLE,
-            shell()->web_contents()->GetNativeView()->occlusion_state());
+            shell()->web_contents()->GetNativeView()->GetOcclusionState());
   // Create a window on top of the window being captured with same size so that
   // it is occluded.
   auto window = std::make_unique<aura::Window>(nullptr);
@@ -322,7 +374,7 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
   window->SetBounds(shell()->window()->bounds());
   window->Show();
   EXPECT_EQ(aura::Window::OcclusionState::VISIBLE,
-            shell()->web_contents()->GetNativeView()->occlusion_state());
+            shell()->web_contents()->GetNativeView()->GetOcclusionState());
 
   window.reset();
   StopAndDeAllocate();

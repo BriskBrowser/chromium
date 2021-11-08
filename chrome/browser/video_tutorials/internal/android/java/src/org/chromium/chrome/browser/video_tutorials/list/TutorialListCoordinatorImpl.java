@@ -20,7 +20,6 @@ import androidx.recyclerview.widget.RecyclerView.State;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
-import org.chromium.chrome.browser.image_fetcher.ImageFetcher;
 import org.chromium.chrome.browser.video_tutorials.R;
 import org.chromium.chrome.browser.video_tutorials.Tutorial;
 import org.chromium.chrome.browser.video_tutorials.VideoTutorialService;
@@ -29,6 +28,7 @@ import org.chromium.components.browser_ui.widget.FadingShadowView;
 import org.chromium.components.browser_ui.widget.displaystyle.HorizontalDisplayStyle;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig.DisplayStyle;
+import org.chromium.components.image_fetcher.ImageFetcher;
 import org.chromium.ui.modelutil.MVCListAdapter;
 import org.chromium.ui.modelutil.SimpleRecyclerViewAdapter;
 
@@ -106,8 +106,8 @@ public class TutorialListCoordinatorImpl implements TutorialListCoordinator {
             int screenWidthDp = resources.getConfiguration().screenWidthDp;
             padding = (int) (((screenWidthDp - UiConfig.WIDE_DISPLAY_STYLE_MIN_WIDTH_DP) / 2.f)
                     * resources.getDisplayMetrics().density);
-            padding = (int) Math.max(
-                    resources.getDimensionPixelSize(R.dimen.promo_compact_padding), padding);
+            padding =
+                    (int) Math.max(resources.getDimensionPixelSize(R.dimen.card_padding), padding);
         }
         return padding;
     }
@@ -118,8 +118,7 @@ public class TutorialListCoordinatorImpl implements TutorialListCoordinator {
 
         public ItemDecorationImpl(Resources resources) {
             mVerticalInterCardPaddingPx = resources.getDimensionPixelOffset(R.dimen.card_padding);
-            mHorizontalStartPaddingPx =
-                    resources.getDimensionPixelOffset(R.dimen.promo_compact_padding);
+            mHorizontalStartPaddingPx = resources.getDimensionPixelOffset(R.dimen.card_padding);
         }
 
         @Override

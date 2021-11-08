@@ -6,6 +6,7 @@
 
 #include "base/numerics/safe_conversions.h"
 #include "base/run_loop.h"
+#include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
@@ -34,13 +35,6 @@ using net::test::IsOk;
 namespace net {
 
 namespace {
-
-class DummySystemTrustStoreProvider : public SystemTrustStoreProvider {
- public:
-  std::unique_ptr<SystemTrustStore> CreateSystemTrustStore() override {
-    return CreateEmptySystemTrustStore();
-  }
-};
 
 std::unique_ptr<test_server::HttpResponse> HangRequestAndCallback(
     base::OnceClosure callback,
@@ -92,8 +86,8 @@ class CertVerifyProcBuiltinTest : public ::testing::Test {
 
   void SetUp() override {
     cert_net_fetcher_ = base::MakeRefCounted<CertNetFetcherURLRequest>();
-    verify_proc_ = CreateCertVerifyProcBuiltin(
-        cert_net_fetcher_, std::make_unique<DummySystemTrustStoreProvider>());
+    verify_proc_ = CreateCertVerifyProcBuiltin(cert_net_fetcher_,
+                                               CreateEmptySystemTrustStore());
 
     context_ = std::make_unique<net::TestURLRequestContext>();
 
@@ -128,8 +122,8 @@ class CertVerifyProcBuiltinTest : public ::testing::Test {
     ASSERT_TRUE(*out_leaf && *out_intermediate && *out_root);
     // This test uses MOCK_TIME, so need to set the cert validity dates based
     // on whatever the mock time happens to start at.
-    base::Time not_before = base::Time::Now() - base::TimeDelta::FromDays(1);
-    base::Time not_after = base::Time::Now() + base::TimeDelta::FromDays(10);
+    base::Time not_before = base::Time::Now() - base::Days(1);
+    base::Time not_after = base::Time::Now() + base::Days(10);
     (*out_leaf)->SetValidity(not_before, not_after);
     (*out_intermediate)->SetValidity(not_before, not_after);
     (*out_root)->SetValidity(not_before, not_after);
@@ -175,7 +169,7 @@ TEST_F(CertVerifyProcBuiltinTest, RevocationCheckDeadlineCRL) {
 
   const base::TimeDelta timeout_increment =
       CertNetFetcherURLRequest::GetDefaultTimeoutForTesting() +
-      base::TimeDelta::FromMilliseconds(1);
+      base::Milliseconds(1);
   const int expected_request_count =
       base::ClampFloor(GetCertVerifyProcBuiltinTimeLimitForTesting() /
                        timeout_increment) +
@@ -248,7 +242,7 @@ TEST_F(CertVerifyProcBuiltinTest, RevocationCheckDeadlineOCSP) {
 
   const base::TimeDelta timeout_increment =
       CertNetFetcherURLRequest::GetDefaultTimeoutForTesting() +
-      base::TimeDelta::FromMilliseconds(1);
+      base::Milliseconds(1);
   const int expected_request_count =
       base::ClampFloor(GetCertVerifyProcBuiltinTimeLimitForTesting() /
                        timeout_increment) +
@@ -327,7 +321,7 @@ TEST_F(CertVerifyProcBuiltinTest, EVRevocationCheckDeadline) {
 
   const base::TimeDelta timeout_increment =
       CertNetFetcherURLRequest::GetDefaultTimeoutForTesting() +
-      base::TimeDelta::FromMilliseconds(1);
+      base::Milliseconds(1);
   const int expected_request_count =
       base::ClampFloor(GetCertVerifyProcBuiltinTimeLimitForTesting() /
                        timeout_increment) +
@@ -424,7 +418,7 @@ TEST_F(CertVerifyProcBuiltinTest, EVRevocationCheckDeadline) {
   ASSERT_NE(event, events.end());
   EXPECT_EQ(net::NetLogEventPhase::BEGIN, event->phase);
   ASSERT_TRUE(event->params.is_dict());
-  EXPECT_EQ(base::nullopt, event->params.FindBoolKey("is_ev_attempt"));
+  EXPECT_EQ(absl::nullopt, event->params.FindBoolKey("is_ev_attempt"));
 
   event = std::find_if(++event, events.end(), [](const auto& e) {
     return e.type == NetLogEventType::CERT_VERIFY_PROC_PATH_BUILT;

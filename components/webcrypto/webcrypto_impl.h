@@ -7,7 +7,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/platform/web_crypto.h"
 #include "third_party/blink/public/platform/web_crypto_algorithm.h"
 #include "third_party/blink/public/platform/web_vector.h"
@@ -23,6 +23,9 @@ namespace webcrypto {
 class WebCryptoImpl : public blink::WebCrypto {
  public:
   WebCryptoImpl();
+
+  WebCryptoImpl(const WebCryptoImpl&) = delete;
+  WebCryptoImpl& operator=(const WebCryptoImpl&) = delete;
 
   ~WebCryptoImpl() override;
 
@@ -118,9 +121,6 @@ class WebCryptoImpl : public blink::WebCrypto {
 
   bool SerializeKeyForClone(const blink::WebCryptoKey& key,
                             blink::WebVector<unsigned char>& key_data) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebCryptoImpl);
 };
 
 }  // namespace webcrypto

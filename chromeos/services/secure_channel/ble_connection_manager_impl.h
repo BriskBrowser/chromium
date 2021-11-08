@@ -70,6 +70,9 @@ class BleConnectionManagerImpl : public BleConnectionManager,
     static Factory* test_factory_;
   };
 
+  BleConnectionManagerImpl(const BleConnectionManagerImpl&) = delete;
+  BleConnectionManagerImpl& operator=(const BleConnectionManagerImpl&) = delete;
+
   ~BleConnectionManagerImpl() override;
 
  private:
@@ -143,7 +146,8 @@ class BleConnectionManagerImpl : public BleConnectionManager,
   void OnReceivedAdvertisement(multidevice::RemoteDeviceRef remote_device,
                                device::BluetoothDevice* bluetooth_device,
                                ConnectionMedium connection_medium,
-                               ConnectionRole connection_role) override;
+                               ConnectionRole connection_role,
+                               const std::vector<uint8_t>& eid) override;
 
   // SecureChannel::Observer:
   void OnSecureChannelStatusChanged(
@@ -217,9 +221,7 @@ class BleConnectionManagerImpl : public BleConnectionManager,
       remote_device_id_to_secure_channel_map_;
   base::flat_map<std::string, std::unique_ptr<ConnectionAttemptTimestamps>>
       remote_device_id_to_timestamps_map_;
-  base::Optional<std::string> notifying_remote_device_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(BleConnectionManagerImpl);
+  absl::optional<std::string> notifying_remote_device_id_;
 };
 
 }  // namespace secure_channel

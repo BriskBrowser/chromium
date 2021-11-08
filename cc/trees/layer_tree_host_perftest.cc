@@ -15,6 +15,7 @@
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "base/timer/lap_timer.h"
+#include "build/build_config.h"
 #include "cc/layers/nine_patch_layer.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/layers/texture_layer.h"
@@ -23,7 +24,6 @@
 #include "cc/test/layer_tree_test.h"
 #include "cc/test/test_layer_tree_frame_sink.h"
 #include "cc/trees/layer_tree_impl.h"
-#include "components/viz/common/resources/single_release_callback.h"
 #include "components/viz/test/paths.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/sync_token.h"
@@ -40,13 +40,12 @@ class LayerTreeHostPerfTest : public LayerTreeTest {
  public:
   LayerTreeHostPerfTest()
       : draw_timer_(kWarmupRuns,
-                    base::TimeDelta::FromMilliseconds(kTimeLimitMillis),
+                    base::Milliseconds(kTimeLimitMillis),
                     kTimeCheckInterval),
         commit_timer_(0, base::TimeDelta(), 1),
         full_damage_each_frame_(false),
         begin_frame_driven_drawing_(false),
-        measure_commit_cost_(false) {
-  }
+        measure_commit_cost_(false) {}
 
   std::unique_ptr<TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
       const viz::RendererSettings& renderer_settings,
@@ -265,8 +264,7 @@ class ScrollingLayerTreePerfTest : public LayerTreeHostPerfTestJsonReader {
       return;
     static const gfx::Vector2d delta = gfx::Vector2d(0, 10);
     SetScrollOffset(scrollable_.get(),
-                    gfx::ScrollOffsetWithDelta(
-                        CurrentScrollOffset(scrollable_.get()), delta));
+                    CurrentScrollOffset(scrollable_.get()) + delta);
   }
 
  private:
@@ -316,7 +314,7 @@ class BrowserCompositorInvalidateLayerTreePerfTest
     ASSERT_TRUE(tab_contents_.get());
   }
 
-  void WillCommit() override {
+  void WillCommit(CommitState*) override {
     if (CleanUpStarted())
       return;
     gpu::Mailbox gpu_mailbox;
@@ -324,10 +322,9 @@ class BrowserCompositorInvalidateLayerTreePerfTest
     name_stream << "name" << next_fence_sync_;
     gpu_mailbox.SetName(
         reinterpret_cast<const int8_t*>(name_stream.str().c_str()));
-    std::unique_ptr<viz::SingleReleaseCallback> callback =
-        viz::SingleReleaseCallback::Create(base::BindOnce(
-            &BrowserCompositorInvalidateLayerTreePerfTest::ReleaseMailbox,
-            base::Unretained(this)));
+    auto callback = base::BindOnce(
+        &BrowserCompositorInvalidateLayerTreePerfTest::ReleaseMailbox,
+        base::Unretained(this));
 
     gpu::SyncToken next_sync_token(gpu::CommandBufferNamespace::GPU_IO,
                                    gpu::CommandBufferId::FromUnsafeValue(1),

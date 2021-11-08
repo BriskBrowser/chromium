@@ -40,12 +40,12 @@ LaunchMode GetLaunchModeSlow();
 #if defined(OS_WIN)
 // Returns the path to the shortcut from which Chrome was launched, or null if
 // not launched via a shortcut.
-base::Optional<const wchar_t*> GetShortcutPath() {
+absl::optional<const wchar_t*> GetShortcutPath() {
   STARTUPINFOW si = {sizeof(si)};
   GetStartupInfoW(&si);
   if (!(si.dwFlags & STARTF_TITLEISLINKNAME))
-    return base::nullopt;
-  return base::Optional<const wchar_t*>(si.lpTitle);
+    return absl::nullopt;
+  return absl::optional<const wchar_t*>(si.lpTitle);
 }
 
 LaunchMode GetLaunchModeFast() {
@@ -62,12 +62,11 @@ LaunchMode GetLaunchModeSlow() {
   DCHECK(shortcut_path);
   DCHECK(shortcut_path.value());
 
-  const base::string16 shortcut(
+  const std::u16string shortcut(
       base::i18n::ToLower(base::WideToUTF16(shortcut_path.value())));
 
   // The windows quick launch path is not localized.
-  if (shortcut.find(STRING16_LITERAL("\\quick launch\\")) !=
-      base::StringPiece16::npos)
+  if (shortcut.find(u"\\quick launch\\") != base::StringPiece16::npos)
     return LaunchMode::kShortcutTaskbar;
 
   // Check the common shortcut locations.

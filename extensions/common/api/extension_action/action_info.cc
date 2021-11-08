@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/strings/utf_string_conversions.h"
+#include "base/values.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/extension.h"
@@ -60,7 +61,7 @@ ActionInfo::~ActionInfo() {}
 std::unique_ptr<ActionInfo> ActionInfo::Load(const Extension* extension,
                                              Type type,
                                              const base::DictionaryValue* dict,
-                                             base::string16* error) {
+                                             std::u16string* error) {
   auto result = std::make_unique<ActionInfo>(type);
 
   // Read the page action |default_icon| (optional).

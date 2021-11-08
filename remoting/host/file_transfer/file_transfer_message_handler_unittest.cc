@@ -348,8 +348,8 @@ TEST_F(FileTransferMessageHandlerTest, ReadsFile) {
   auto file_operations = std::make_unique<FakeFileOperations>(&test_io);
 
   test_io.input_file = FakeFileOperations::InputFile(
-      base::FilePath::FromUTF8Unsafe(kTestFilename),
-      ByteArrayFrom(kTestDataOne, kTestDataTwo, kTestDataThree), base::nullopt);
+      base::FilePath::FromASCII(kTestFilename),
+      ByteArrayFrom(kTestDataOne, kTestDataTwo, kTestDataThree), absl::nullopt);
 
   // This will delete itself when fake_pipe_->ClosePipe() is called.
   new FileTransferMessageHandler(kTestDatachannelName, fake_pipe_->Wrap(),
@@ -409,7 +409,7 @@ TEST_F(FileTransferMessageHandlerTest, ForwardsReadError) {
   auto file_operations = std::make_unique<FakeFileOperations>(&test_io);
 
   test_io.input_file = FakeFileOperations::InputFile(
-      base::FilePath::FromUTF8Unsafe(kTestFilename),
+      base::FilePath::FromASCII(kTestFilename),
       ByteArrayFrom(kTestDataOne, kTestDataTwo, kTestDataThree),
       protocol::MakeFileTransferError(
           FROM_HERE, protocol::FileTransfer_Error_Type_IO_ERROR));

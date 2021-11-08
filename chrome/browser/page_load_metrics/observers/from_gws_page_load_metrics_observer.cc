@@ -242,7 +242,7 @@ void LogForegroundDurations(
     const page_load_metrics::mojom::PageLoadTiming& timing,
     const page_load_metrics::PageLoadMetricsObserverDelegate& delegate,
     base::TimeTicks app_background_time) {
-  base::Optional<base::TimeDelta> foreground_duration =
+  absl::optional<base::TimeDelta> foreground_duration =
       page_load_metrics::GetInitialForegroundDuration(delegate,
                                                       app_background_time);
   if (!foreground_duration)
@@ -279,13 +279,13 @@ bool WasAbortedInForeground(
       abort_info.reason == PageAbortReason::ABORT_NONE)
     return false;
 
-  base::Optional<base::TimeDelta> time_to_abort(abort_info.time_to_abort);
+  absl::optional<base::TimeDelta> time_to_abort(abort_info.time_to_abort);
   if (page_load_metrics::WasStartedInForegroundOptionalEventInForeground(
           time_to_abort, delegate))
     return true;
 
   const base::TimeDelta time_to_first_background =
-      delegate.GetFirstBackgroundTime().value();
+      delegate.GetTimeToFirstBackground().value();
   DCHECK_GT(abort_info.time_to_abort, time_to_first_background);
   base::TimeDelta background_abort_delta =
       abort_info.time_to_abort - time_to_first_background;
@@ -299,7 +299,7 @@ bool WasAbortedInForeground(
 
 bool WasAbortedBeforeInteraction(
     const page_load_metrics::PageAbortInfo& abort_info,
-    const base::Optional<base::TimeDelta>& time_to_interaction) {
+    const absl::optional<base::TimeDelta>& time_to_interaction) {
   // These conditions should be guaranteed by the call to
   // WasAbortedInForeground, which is called before WasAbortedBeforeInteraction
   // gets invoked.
@@ -319,8 +319,7 @@ bool WasAbortedBeforeInteraction(
   // revealed by the interaction.
   if (abort_info.reason == PageAbortReason::ABORT_RELOAD ||
       abort_info.reason == PageAbortReason::ABORT_FORWARD_BACK) {
-    return time_to_interaction.value() +
-               base::TimeDelta::FromMilliseconds(1000) >
+    return time_to_interaction.value() + base::Milliseconds(1000) >
            abort_info.time_to_abort;
   } else {
     return time_to_interaction > abort_info.time_to_abort;
@@ -545,7 +544,7 @@ bool FromGWSPageLoadMetricsLogger::ShouldLogPostCommitMetrics(const GURL& url) {
 }
 
 bool FromGWSPageLoadMetricsLogger::ShouldLogForegroundEventAfterCommit(
-    const base::Optional<base::TimeDelta>& event,
+    const absl::optional<base::TimeDelta>& event,
     const page_load_metrics::PageLoadMetricsObserverDelegate& delegate) {
   DCHECK(delegate.DidCommit())
       << "ShouldLogForegroundEventAfterCommit called without committed URL.";
@@ -623,8 +622,7 @@ void FromGWSPageLoadMetricsLogger::OnFirstInputInPage(
     UMA_HISTOGRAM_CUSTOM_TIMES(
         internal::kHistogramFromGWSFirstInputDelay,
         timing.interactive_timing->first_input_delay.value(),
-        base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(60),
-        50);
+        base::Milliseconds(1), base::Seconds(60), 50);
   }
 }
 

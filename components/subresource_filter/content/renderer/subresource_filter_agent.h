@@ -45,6 +45,10 @@ class SubresourceFilterAgent
       content::RenderFrame* render_frame,
       UnverifiedRulesetDealer* ruleset_dealer,
       std::unique_ptr<AdResourceTracker> ad_resource_tracker);
+
+  SubresourceFilterAgent(const SubresourceFilterAgent&) = delete;
+  SubresourceFilterAgent& operator=(const SubresourceFilterAgent&) = delete;
+
   ~SubresourceFilterAgent() override;
 
   // Unit tests don't have a RenderFrame so the construction relies on virtual
@@ -62,8 +66,6 @@ class SubresourceFilterAgent
   virtual bool IsParentAdSubframe();
   virtual bool IsProvisional();
   virtual bool IsSubframeCreatedByAdScript();
-
-  virtual bool HasDocumentLoader();
 
   // Injects the provided subresource |filter| into the DocumentLoader
   // orchestrating the most recently created document.
@@ -89,18 +91,19 @@ class SubresourceFilterAgent
 
   // True if the frame has been heuristically determined to be an ad subframe.
   virtual bool IsAdSubframe();
-  virtual void SetIsAdSubframe(blink::mojom::AdFrameType ad_frame_type);
 
-  // If the browser has not yet informed the renderer of the frame's ad status
-  // (i.e. due to an initial synchronous commit to about:blank), calculates
-  // whether the frame should be an ad by populating a temporary FrameAdEvidence
-  // object.
-  void SetIsAdSubframeIfNecessary();
+  virtual const absl::optional<blink::FrameAdEvidence>& AdEvidence();
+  virtual void SetAdEvidence(const blink::FrameAdEvidence& ad_evidence);
+
+  // The browser will not inform the renderer of the (sub)frame's ad status and
+  // evidence in the case of an initial synchronous commit to about:blank. We
+  // thus fill in the frame's ad evidence and, if necessary, tag it as an ad.
+  void SetAdEvidenceForInitialEmptySubframe();
 
   // mojom::SubresourceFilterAgent:
   void ActivateForNextCommittedLoad(
       mojom::ActivationStatePtr activation_state,
-      blink::mojom::AdFrameType ad_frame_type) override;
+      const absl::optional<blink::FrameAdEvidence>& ad_evidence) override;
 
  private:
   // Returns the activation state for the `render_frame` to inherit. Main frames
@@ -150,8 +153,6 @@ class SubresourceFilterAgent
 
   base::WeakPtr<WebDocumentSubresourceFilterImpl>
       filter_for_last_created_document_;
-
-  DISALLOW_COPY_AND_ASSIGN(SubresourceFilterAgent);
 };
 
 }  // namespace subresource_filter

@@ -24,30 +24,27 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "base/synchronization/lock.h"
 #include "base/thread_annotations.h"
 #include "build/chromeos_buildflags.h"
+#include "media/gpu/chromeos/fourcc.h"
 #include "media/gpu/media_gpu_export.h"
 #include "media/gpu/vaapi/va_surface.h"
 #include "media/gpu/vaapi/vaapi_utils.h"
 #include "media/video/video_decode_accelerator.h"
 #include "media/video/video_encode_accelerator.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/size.h"
 
-#if defined(USE_X11)
+#if BUILDFLAG(USE_VAAPI_X11)
 #include "ui/gfx/x/xproto.h"  // nogncheck
-#endif  // USE_X11
+#endif                        // BUILDFLAG(USE_VAAPI_X11)
 
 namespace gfx {
 enum class BufferFormat;
 class NativePixmap;
 class NativePixmapDmaBuf;
 class Rect;
-}
-
-namespace gpu {
-class GpuDriverBugWorkarounds;
 }
 
 namespace media {
@@ -98,13 +95,24 @@ enum class VAImplementation {
 // This class handles VA-API calls and ensures proper locking of VA-API calls
 // to libva, the userspace shim to the HW codec driver. libva is not
 // thread-safe, so we have to perform locking ourselves. This class is fully
-// synchronous and its methods can be called from any thread and may wait on
-// the va_lock_ while other, concurrent calls run.
+// synchronous and its constructor, all of its methods, and its destructor must
+// be called on the same sequence. These methods may wait on the |va_lock_|
+// which guards libva calls across all VaapiWrapper instances and other libva
+// call sites.
 //
 // This class is responsible for managing VAAPI connection, contexts and state.
 // It is also responsible for managing and freeing VABuffers (not VASurfaces),
 // which are used to queue parameters and slice data to the HW codec,
 // as well as underlying memory for VASurfaces themselves.
+//
+// Historical note: the sequence affinity characteristic was introduced as a
+// pre-requisite to remove the global *|va_lock_|. However, the legacy
+// VaapiVideoDecodeAccelerator is known to use its VaapiWrapper from multiple
+// threads. Therefore, to avoid doing a large refactoring of a legacy class, we
+// allow it to call VaapiWrapper::Create() or
+// VaapiWrapper::CreateForVideoCodec() with |enforce_sequence_affinity| == false
+// so that sequence affinity is not enforced. This also indicates that the
+// global lock will still be in effect for the VaapiVideoDecodeAccelerator.
 class MEDIA_GPU_EXPORT VaapiWrapper
     : public base::RefCountedThreadSafe<VaapiWrapper> {
  public:
@@ -121,7 +129,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
     // be submitted.
     kDecodeProtected,  // Decrypt + decode to protected surface.
 #endif
-    kEncode,  // Encode with Constant Bitrate algorithm.
+    kEncodeConstantBitrate,  // Encode with Constant Bitrate algorithm.
     kEncodeConstantQuantizationParameter,  // Encode with Constant Quantization
                                            // Parameter algorithm.
     kVideoProcess,
@@ -129,11 +137,11 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   };
 
   // This is enum associated with VASurfaceAttribUsageHint.
-  enum class SurfaceUsageHint : uint8_t {
-    kVideoDecoder,
-    kVideoEncoder,
-    kVideoProcessWrite,
-    kGeneric,
+  enum class SurfaceUsageHint : int32_t {
+    kGeneric = VA_SURFACE_ATTRIB_USAGE_HINT_GENERIC,
+    kVideoDecoder = VA_SURFACE_ATTRIB_USAGE_HINT_DECODER,
+    kVideoEncoder = VA_SURFACE_ATTRIB_USAGE_HINT_ENCODER,
+    kVideoProcessWrite = VA_SURFACE_ATTRIB_USAGE_HINT_VPP_WRITE,
   };
 
   using InternalFormats = struct {
@@ -153,7 +161,8 @@ class MEDIA_GPU_EXPORT VaapiWrapper
       CodecMode mode,
       VAProfile va_profile,
       EncryptionScheme encryption_scheme,
-      const ReportErrorToUMACB& report_error_to_uma_cb);
+      const ReportErrorToUMACB& report_error_to_uma_cb,
+      bool enforce_sequence_affinity = true);
 
   // Create VaapiWrapper for VideoCodecProfile. It maps VideoCodecProfile
   // |profile| to VAProfile.
@@ -163,14 +172,22 @@ class MEDIA_GPU_EXPORT VaapiWrapper
       CodecMode mode,
       VideoCodecProfile profile,
       EncryptionScheme encryption_scheme,
-      const ReportErrorToUMACB& report_error_to_uma_cb);
+      const ReportErrorToUMACB& report_error_to_uma_cb,
+      bool enforce_sequence_affinity = true);
+
+  VaapiWrapper(const VaapiWrapper&) = delete;
+  VaapiWrapper& operator=(const VaapiWrapper&) = delete;
+
+  // Returns the supported SVC scalability modes for specified profile.
+  static std::vector<SVCScalabilityMode> GetSupportedScalabilityModes(
+      VideoCodecProfile media_profile,
+      VAProfile va_profile);
 
   // Return the supported video encode profiles.
   static VideoEncodeAccelerator::SupportedProfiles GetSupportedEncodeProfiles();
 
   // Return the supported video decode profiles.
-  static VideoDecodeAccelerator::SupportedProfiles GetSupportedDecodeProfiles(
-      const gpu::GpuDriverBugWorkarounds& workarounds);
+  static VideoDecodeAccelerator::SupportedProfiles GetSupportedDecodeProfiles();
 
   // Return true when decoding using |va_profile| is supported.
   static bool IsDecodeSupported(VAProfile va_profile);
@@ -217,6 +234,9 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // Returns true if the VPP supports converting from/to |fourcc|.
   static bool IsVppFormatSupported(uint32_t fourcc);
 
+  // Returns the pixel formats supported by the VPP.
+  static std::vector<Fourcc> GetVppSupportedFormats();
+
   // Returns true if VPP supports the format conversion from a JPEG decoded
   // internal surface to a FOURCC. |rt_format| corresponds to the JPEG's
   // subsampling format. |fourcc| is the output surface's FOURCC.
@@ -240,36 +260,32 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   static VAEntrypoint GetDefaultVaEntryPoint(CodecMode mode, VAProfile profile);
 
   static uint32_t BufferFormatToVARTFormat(gfx::BufferFormat fmt);
-  static uint32_t BufferFormatToVAFourCC(gfx::BufferFormat fmt);
-
-  // Returns the current instance identifier for the protected content system.
-  // This can be used to detect when protected context loss has occurred, so any
-  // protected surfaces associated with a specific instance ID can be
-  // invalidated when the ID changes.
-  static uint32_t GetProtectedInstanceID();
 
   // Creates |num_surfaces| VASurfaceIDs of |va_format|, |size| and
-  // |surface_usage_hint| and, if successful, creates a |va_context_id_| of the
-  // same size. |surface_usage_hint| may affect an alignment and tiling of the
+  // |surface_usage_hints| and, if successful, creates a |va_context_id_| of the
+  // same size. |surface_usage_hints| may affect an alignment and tiling of the
   // created surface. Returns true if successful, with the created IDs in
   // |va_surfaces|. The client is responsible for destroying |va_surfaces| via
   // DestroyContextAndSurfaces() to free the allocated surfaces.
-  virtual bool CreateContextAndSurfaces(unsigned int va_format,
-                                        const gfx::Size& size,
-                                        SurfaceUsageHint surface_usage_hint,
-                                        size_t num_surfaces,
-                                        std::vector<VASurfaceID>* va_surfaces)
-      WARN_UNUSED_RESULT;
-
-  // Creates a single ScopedVASurface of |va_format| and |size| and, if
-  // successful, creates a |va_context_id_| of the same size. Returns nullptr if
-  // creation failed. If |visible_size| is supplied, the returned
-  // ScopedVASurface's size is set to it. Otherwise, it's set to |size| (refer
-  // to CreateScopedVASurface() for details).
-  std::unique_ptr<ScopedVASurface> CreateContextAndScopedVASurface(
+  virtual bool CreateContextAndSurfaces(
       unsigned int va_format,
       const gfx::Size& size,
-      const base::Optional<gfx::Size>& visible_size = base::nullopt);
+      const std::vector<SurfaceUsageHint>& surface_usage_hints,
+      size_t num_surfaces,
+      std::vector<VASurfaceID>* va_surfaces) WARN_UNUSED_RESULT;
+
+  // Creates |num_surfaces| ScopedVASurfaces of |va_format| and |size| and, if
+  // successful, creates a |va_context_id_| of the same size. Returns an empty
+  // vector if creation failed. If |visible_size| is supplied, the returned
+  // ScopedVASurface's size is set to it. Otherwise, it's set to |size| (refer
+  // to CreateScopedVASurfaces() for details).
+  virtual std::vector<std::unique_ptr<ScopedVASurface>>
+  CreateContextAndScopedVASurfaces(
+      unsigned int va_format,
+      const gfx::Size& size,
+      const std::vector<SurfaceUsageHint>& usage_hints,
+      size_t num_surfaces,
+      const absl::optional<gfx::Size>& visible_size);
 
   // Attempts to create a protected session that will be attached to the
   // decoding context to enable encrypted video decoding. If it cannot be
@@ -287,6 +303,20 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // querying libva indicates that our protected session is no longer alive,
   // otherwise this will return false.
   bool IsProtectedSessionDead();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Returns true if and only if |va_protected_session_id| is not VA_INVALID_ID
+  // and querying libva indicates that the protected session identified by
+  // |va_protected_session_id| is no longer alive.
+  bool IsProtectedSessionDead(VAProtectedSessionID va_protected_session_id);
+
+  // Returns the ID of the current protected session or VA_INVALID_ID if there's
+  // none. This must be called on the same sequence as other methods that use
+  // the protected session ID internally.
+  //
+  // TODO(b/183515581): update this documentation once we force the VaapiWrapper
+  // to be used on a single sequence.
+  VAProtectedSessionID GetProtectedSessionID() const;
+#endif
   // If we have a protected session, destroys it immediately. This should be
   // used as part of recovering dead protected sessions.
   void DestroyProtectedSession();
@@ -304,27 +334,31 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // Destroys the context identified by |va_context_id_|.
   virtual void DestroyContext();
 
-  // Requests a VA surface of size |size|, |va_rt_format| and optionally
-  // |va_fourcc|. Returns a self-cleaning ScopedVASurface or nullptr if creation
-  // failed. If |visible_size| is supplied, the returned ScopedVASurface's size
-  // is set to it: for example, we may want to request a 16x16 surface to decode
-  // a 13x12 JPEG: we may want to keep track of the visible size 13x12 inside
-  // the ScopedVASurface to inform the surface's users that that's the only
-  // region with meaningful content. If |visible_size| is not supplied, we store
-  // |size| in the returned ScopedVASurface.
-  std::unique_ptr<ScopedVASurface> CreateScopedVASurface(
+  // Requests |num_surfaces| ScopedVASurfaces of size |size|, |va_rt_format| and
+  // optionally |va_fourcc|. Returns self-cleaning ScopedVASurfaces or empty
+  // vector if creation failed. If |visible_size| is supplied, the returned
+  // ScopedVASurfaces' size are set to it: for example, we may want to request a
+  // 16x16 surface to decode a 13x12 JPEG: we may want to keep track of the
+  // visible size 13x12 inside the ScopedVASurface to inform the surface's users
+  // that that's the only region with meaningful content. If |visible_size| is
+  // not supplied, we store |size| in the returned ScopedVASurfaces.
+  virtual std::vector<std::unique_ptr<ScopedVASurface>> CreateScopedVASurfaces(
       unsigned int va_rt_format,
       const gfx::Size& size,
-      const base::Optional<gfx::Size>& visible_size = base::nullopt,
-      uint32_t va_fourcc = 0);
+      const std::vector<SurfaceUsageHint>& usage_hints,
+      size_t num_surfaces,
+      const absl::optional<gfx::Size>& visible_size,
+      const absl::optional<uint32_t>& va_fourcc);
 
   // Creates a self-releasing VASurface from |pixmap|. The created VASurface
   // shares the ownership of the underlying buffer represented by |pixmap|. The
   // ownership of the surface is transferred to the caller. A caller can destroy
   // |pixmap| after this method returns and the underlying buffer will be kept
-  // alive by the VASurface.
-  scoped_refptr<VASurface> CreateVASurfaceForPixmap(
-      scoped_refptr<gfx::NativePixmap> pixmap);
+  // alive by the VASurface. |protected_content| should only be true if the
+  // format needs VA_RT_FORMAT_PROTECTED (currently only true for AMD).
+  virtual scoped_refptr<VASurface> CreateVASurfaceForPixmap(
+      scoped_refptr<gfx::NativePixmap> pixmap,
+      bool protected_content = false);
 
   // Creates a self-releasing VASurface from |buffers|. The ownership of the
   // surface is transferred to the caller.  |buffers| should be a pointer array
@@ -374,6 +408,8 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   template <typename T>
   bool WARN_UNUSED_RESULT SubmitBuffer(VABufferType va_buffer_type,
                                        const T* data) {
+    CHECK(!enforce_sequence_affinity_ ||
+          sequence_checker_.CalledOnValidSequence());
     return SubmitBuffer(va_buffer_type, sizeof(T), data);
   }
   // Batch-version of SubmitBuffer(), where the lock for accessing libva is
@@ -402,13 +438,13 @@ class MEDIA_GPU_EXPORT VaapiWrapper
       const std::vector<std::pair<VABufferID, VABufferDescriptor>>& va_buffers)
       WARN_UNUSED_RESULT;
 
-#if defined(USE_X11)
+#if BUILDFLAG(USE_VAAPI_X11)
   // Put data from |va_surface_id| into |x_pixmap| of size
   // |dest_size|, converting/scaling to it.
   bool PutSurfaceIntoPixmap(VASurfaceID va_surface_id,
                             x11::Pixmap x_pixmap,
                             gfx::Size dest_size) WARN_UNUSED_RESULT;
-#endif  // USE_X11
+#endif  // BUILDFLAG(USE_VAAPI_X11)
 
   // Creates a ScopedVAImage from a VASurface |va_surface_id| and map it into
   // memory with the given |format| and |size|. If |format| is not equal to the
@@ -460,19 +496,36 @@ class MEDIA_GPU_EXPORT VaapiWrapper
                                          size_t* max_ref_frames)
       WARN_UNUSED_RESULT;
 
+  // Gets packed headers are supported for encoding. This is called for
+  // H264 encoding. |packed_sps|, |packed_pps| and |packed_slice| stands for
+  // whether packed slice parameter set, packed picture parameter set and packed
+  // slice header is supported, respectively.
+  virtual bool GetSupportedPackedHeaders(VideoCodecProfile profile,
+                                         bool& packed_sps,
+                                         bool& packed_pps,
+                                         bool& packed_slice) WARN_UNUSED_RESULT;
+
   // Checks if the driver supports frame rotation.
   bool IsRotationSupported();
 
   // Blits a VASurface |va_surface_src| into another VASurface
   // |va_surface_dest| applying pixel format conversion, rotation, cropping
   // and scaling if needed. |src_rect| and |dest_rect| are optional. They can
-  // be used to specify the area used in the blit.
-  bool BlitSurface(const VASurface& va_surface_src,
-                   const VASurface& va_surface_dest,
-                   base::Optional<gfx::Rect> src_rect = base::nullopt,
-                   base::Optional<gfx::Rect> dest_rect = base::nullopt,
-                   VideoRotation rotation = VIDEO_ROTATION_0)
-      WARN_UNUSED_RESULT;
+  // be used to specify the area used in the blit. If |va_protected_session_id|
+  // is provided and is not VA_INVALID_ID, the corresponding protected session
+  // is attached to the VPP context prior to submitting the VPP buffers and
+  // detached after submitting those buffers.
+  virtual bool BlitSurface(
+      const VASurface& va_surface_src,
+      const VASurface& va_surface_dest,
+      absl::optional<gfx::Rect> src_rect = absl::nullopt,
+      absl::optional<gfx::Rect> dest_rect = absl::nullopt,
+      VideoRotation rotation = VIDEO_ROTATION_0
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      ,
+      VAProtectedSessionID va_protected_session_id = VA_INVALID_ID
+#endif
+      ) WARN_UNUSED_RESULT;
 
   // Initialize static data before sandbox is enabled.
   static void PreSandboxInitialization();
@@ -482,20 +535,21 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   virtual void DestroySurface(VASurfaceID va_surface_id);
 
  protected:
-  VaapiWrapper(CodecMode mode);
+  explicit VaapiWrapper(CodecMode mode, bool enforce_sequence_affinity = true);
   virtual ~VaapiWrapper();
 
  private:
   friend class base::RefCountedThreadSafe<VaapiWrapper>;
   friend class VaapiWrapperTest;
+  friend class VaapiVideoEncodeAcceleratorTest;
 
   FRIEND_TEST_ALL_PREFIXES(VaapiTest, LowQualityEncodingSetting);
   FRIEND_TEST_ALL_PREFIXES(VaapiUtilsTest, ScopedVAImage);
   FRIEND_TEST_ALL_PREFIXES(VaapiUtilsTest, BadScopedVAImage);
   FRIEND_TEST_ALL_PREFIXES(VaapiUtilsTest, BadScopedVABufferMapping);
+  FRIEND_TEST_ALL_PREFIXES(VaapiMinigbmTest, AllocateAndCompareWithMinigbm);
 
-  bool Initialize(CodecMode mode,
-                  VAProfile va_profile,
+  bool Initialize(VAProfile va_profile,
                   EncryptionScheme encryption_scheme) WARN_UNUSED_RESULT;
   void Deinitialize();
   bool VaInitialize(const ReportErrorToUMACB& report_error_to_uma_cb)
@@ -505,7 +559,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // Fills |va_surfaces| and returns true if successful, or returns false.
   bool CreateSurfaces(unsigned int va_format,
                       const gfx::Size& size,
-                      SurfaceUsageHint usage_hint,
+                      const std::vector<SurfaceUsageHint>& usage_hints,
                       size_t num_surfaces,
                       std::vector<VASurfaceID>* va_surfaces) WARN_UNUSED_RESULT;
 
@@ -540,6 +594,8 @@ class MEDIA_GPU_EXPORT VaapiWrapper
       EXCLUSIVE_LOCKS_REQUIRED(va_lock_) WARN_UNUSED_RESULT;
 
   const CodecMode mode_;
+  const bool enforce_sequence_affinity_;
+  base::SequenceCheckerImpl sequence_checker_;
 
   // Pointer to VADisplayState's member |va_lock_|. Guaranteed to be valid for
   // the lifetime of VaapiWrapper.
@@ -574,8 +630,6 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // Called to report codec errors to UMA. Errors to clients are reported via
   // return values from public methods.
   ReportErrorToUMACB report_error_to_uma_cb_;
-
-  DISALLOW_COPY_AND_ASSIGN(VaapiWrapper);
 };
 
 }  // namespace media

@@ -24,9 +24,9 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_timeouts.h"
 #include "base/test/thread_test_helper.h"
@@ -119,7 +119,7 @@ class ProcessSingletonPosixTest : public testing::Test {
 
   void CreateProcessSingletonOnThread() {
     ASSERT_FALSE(worker_thread_.get());
-    worker_thread_.reset(new base::Thread("BlockingThread"));
+    worker_thread_ = std::make_unique<base::Thread>("BlockingThread");
     worker_thread_->Start();
 
     worker_thread_->task_runner()->PostTask(

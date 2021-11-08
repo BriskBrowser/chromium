@@ -13,7 +13,6 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/profiler/metadata_recorder.h"
 #include "base/profiler/module_cache.h"
 #include "base/profiler/profile_builder.h"
@@ -61,6 +60,9 @@ class CallStackProfileBuilder : public base::ProfileBuilder {
       const CallStackProfileParams& profile_params,
       const WorkIdRecorder* work_id_recorder = nullptr,
       base::OnceClosure completed_callback = base::OnceClosure());
+
+  CallStackProfileBuilder(const CallStackProfileBuilder&) = delete;
+  CallStackProfileBuilder& operator=(const CallStackProfileBuilder&) = delete;
 
   ~CallStackProfileBuilder() override;
 
@@ -140,8 +142,6 @@ class CallStackProfileBuilder : public base::ProfileBuilder {
 
   // Maintains the current metadata to apply to samples.
   CallStackProfileMetadata metadata_;
-
-  DISALLOW_COPY_AND_ASSIGN(CallStackProfileBuilder);
 };
 
 }  // namespace metrics

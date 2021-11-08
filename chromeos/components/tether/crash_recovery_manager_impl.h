@@ -9,9 +9,9 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "chromeos/components/tether/active_host.h"
 #include "chromeos/components/tether/crash_recovery_manager.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -44,6 +44,9 @@ class CrashRecoveryManagerImpl : public CrashRecoveryManager {
     static Factory* factory_instance_;
   };
 
+  CrashRecoveryManagerImpl(const CrashRecoveryManagerImpl&) = delete;
+  CrashRecoveryManagerImpl& operator=(const CrashRecoveryManagerImpl&) = delete;
+
   ~CrashRecoveryManagerImpl() override;
 
   // CrashRecoveryManager:
@@ -63,7 +66,7 @@ class CrashRecoveryManagerImpl : public CrashRecoveryManager {
   void OnActiveHostFetched(
       base::OnceClosure on_restoration_finished,
       ActiveHost::ActiveHostStatus active_host_status,
-      base::Optional<multidevice::RemoteDeviceRef> active_host,
+      absl::optional<multidevice::RemoteDeviceRef> active_host,
       const std::string& tether_network_guid,
       const std::string& wifi_network_guid);
 
@@ -72,8 +75,6 @@ class CrashRecoveryManagerImpl : public CrashRecoveryManager {
   HostScanCache* host_scan_cache_;
 
   base::WeakPtrFactory<CrashRecoveryManagerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CrashRecoveryManagerImpl);
 };
 
 }  // namespace tether

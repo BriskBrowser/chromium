@@ -4,6 +4,7 @@
 
 #include "ash/app_list/model/folder_image.h"
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -47,6 +48,10 @@ class FolderImageSource : public gfx::CanvasImageSource {
   FolderImageSource(const AppListConfig& app_list_config,
                     const Icons& icons,
                     const gfx::Size& size);
+
+  FolderImageSource(const FolderImageSource&) = delete;
+  FolderImageSource& operator=(const FolderImageSource&) = delete;
+
   ~FolderImageSource() override;
 
  private:
@@ -62,8 +67,6 @@ class FolderImageSource : public gfx::CanvasImageSource {
   const AppListConfig& app_list_config_;
   Icons icons_;
   gfx::Size size_;
-
-  DISALLOW_COPY_AND_ASSIGN(FolderImageSource);
 };
 
 FolderImageSource::FolderImageSource(const AppListConfig& app_list_config,
@@ -114,9 +117,6 @@ void FolderImageSource::DrawIcon(gfx::Canvas* canvas,
 }
 
 void FolderImageSource::Draw(gfx::Canvas* canvas) {
-  gfx::PointF bubble_center(size().width() / 2, size().height() / 2);
-  bubble_center.Offset(0, -app_list_config_.folder_bubble_y_offset());
-
   // Draw circle for folder bubble.
   cc::PaintFlags flags;
   flags.setStyle(cc::PaintFlags::kFill_Style);
@@ -124,6 +124,7 @@ void FolderImageSource::Draw(gfx::Canvas* canvas) {
   flags.setColor(AppListColorProvider::Get()
                      ? AppListColorProvider::Get()->GetFolderBubbleColor()
                      : kDefaultBubbleColor);
+  const gfx::PointF bubble_center(size().width() / 2, size().height() / 2);
   canvas->DrawCircle(bubble_center, app_list_config_.folder_bubble_radius(),
                      flags);
 
@@ -195,10 +196,8 @@ std::vector<gfx::Rect> FolderImage::GetTopIconsBounds(
   std::vector<gfx::Rect> top_icon_bounds;
 
   const AppListConfig& base_config =
-      app_list_config.type() == AppListConfigType::kShared
-          ? AppListConfig::instance()
-          : *AppListConfigProvider::Get().GetConfigForType(
-                app_list_config.type(), true /*can_create*/);
+      *AppListConfigProvider::Get().GetConfigForType(app_list_config.type(),
+                                                     true /*can_create*/);
 
   // The folder icons are generated as unclipped icons for default app list
   // config, and then scaled down to the required unclipped folder size as
@@ -319,10 +318,8 @@ void FolderImage::RemoveObserver(FolderImageObserver* observer) {
 }
 
 void FolderImage::ItemIconChanged(AppListConfigType config_type) {
-  if (config_type != AppListConfigType::kShared &&
-      config_type != app_list_config_->type()) {
+  if (config_type != app_list_config_->type())
     return;
-  }
 
   // Note: Must update the image only (cannot simply call UpdateIcon), because
   // UpdateIcon removes and re-adds the FolderImage as an observer of the

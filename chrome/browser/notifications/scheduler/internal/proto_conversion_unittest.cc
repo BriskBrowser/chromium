@@ -87,10 +87,10 @@ TEST(ProtoConversionTest, ClientStateProtoConversion) {
       SchedulerClientType::kTest1,
       3 /* current_max_daily_show */,
       {} /* impressions */,
-      base::nullopt /* suppression_info */,
+      absl::nullopt /* suppression_info */,
       0 /* negative_events_count */,
-      base::nullopt /* negative_event_ts */,
-      base::nullopt /* last_shown_ts */,
+      absl::nullopt /* negative_event_ts */,
+      absl::nullopt /* last_shown_ts */,
   };
   test::AddImpressionTestData(test_data, &client_state);
   TestClientStateConversion(&client_state);
@@ -100,14 +100,13 @@ TEST(ProtoConversionTest, ClientStateProtoConversion) {
   bool success =
       base::Time::FromString("04/25/20 01:00:00 AM", &last_trigger_time);
   DCHECK(success);
-  auto duration = base::TimeDelta::FromDays(7);
+  auto duration = base::Days(7);
   auto suppression = SuppressionInfo(last_trigger_time, duration);
   suppression.recover_goal = 5;
   client_state.suppression_info = std::move(suppression);
   client_state.last_shown_ts = last_trigger_time;
   client_state.negative_events_count = 1;
-  client_state.last_negative_event_ts =
-      last_trigger_time + base::TimeDelta::FromMinutes(1);
+  client_state.last_negative_event_ts = last_trigger_time + base::Minutes(1);
   TestClientStateConversion(&client_state);
 }
 
@@ -183,8 +182,8 @@ TEST(ProtoConversionTest, NotificationEntryConversion) {
   TestNotificationEntryConversion(&entry);
 
   // Test notification data.
-  entry.notification_data.title = base::UTF8ToUTF16("title");
-  entry.notification_data.message = base::UTF8ToUTF16("message");
+  entry.notification_data.title = u"title";
+  entry.notification_data.message = u"message";
   entry.icons_uuid.emplace(IconType::kSmallIcon, "small_icon_uuid");
   entry.icons_uuid.emplace(IconType::kLargeIcon, "large_icon_uuid");
   entry.notification_data.custom_data = {{"url", "https://www.example.com"}};
@@ -205,8 +204,8 @@ TEST(ProtoConversionTest, NotificationEntryConversion) {
 
   entry.schedule_params.deliver_time_start = entry.create_time;
   entry.schedule_params.deliver_time_end =
-      entry.create_time + base::TimeDelta::FromMinutes(10);
-  entry.schedule_params.ignore_timeout_duration = base::TimeDelta::FromDays(3);
+      entry.create_time + base::Minutes(10);
+  entry.schedule_params.ignore_timeout_duration = base::Days(3);
   TestNotificationEntryConversion(&entry);
 }
 

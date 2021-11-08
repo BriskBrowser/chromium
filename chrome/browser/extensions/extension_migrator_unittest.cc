@@ -33,6 +33,10 @@ scoped_refptr<const Extension> CreateExtension(const std::string& id) {
 class ExtensionMigratorTest : public ExtensionServiceTestBase {
  public:
   ExtensionMigratorTest() {}
+
+  ExtensionMigratorTest(const ExtensionMigratorTest&) = delete;
+  ExtensionMigratorTest& operator=(const ExtensionMigratorTest&) = delete;
+
   ~ExtensionMigratorTest() override {}
 
  protected:
@@ -51,7 +55,8 @@ class ExtensionMigratorTest : public ExtensionServiceTestBase {
   void AddMigratorProvider() {
     service()->AddProviderForTesting(std::make_unique<ExternalProviderImpl>(
         service(), new ExtensionMigrator(profile(), kOldId, kNewId), profile(),
-        Manifest::EXTERNAL_PREF, Manifest::EXTERNAL_PREF_DOWNLOAD,
+        mojom::ManifestLocation::kExternalPref,
+        mojom::ManifestLocation::kExternalPrefDownload,
         Extension::FROM_WEBSTORE | Extension::WAS_INSTALLED_BY_DEFAULT));
   }
 
@@ -64,9 +69,6 @@ class ExtensionMigratorTest : public ExtensionServiceTestBase {
     return service()->pending_extension_manager()->IsIdPending(kNewId) ||
            registry()->GetInstalledExtension(kNewId);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ExtensionMigratorTest);
 };
 
 TEST_F(ExtensionMigratorTest, NoExistingOld) {

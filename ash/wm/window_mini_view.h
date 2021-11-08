@@ -9,6 +9,7 @@
 #include "base/scoped_observation.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/button.h"
 
 namespace views {
@@ -27,6 +28,8 @@ class WmHighlightItemBorder;
 class ASH_EXPORT WindowMiniView : public views::View,
                                   public aura::WindowObserver {
  public:
+  METADATA_HEADER(WindowMiniView);
+
   WindowMiniView(const WindowMiniView&) = delete;
   WindowMiniView& operator=(const WindowMiniView&) = delete;
   ~WindowMiniView() override;
@@ -70,9 +73,6 @@ class ASH_EXPORT WindowMiniView : public views::View,
   // margins and layouts of certain elements.
   virtual gfx::Rect GetHeaderBounds() const;
   virtual gfx::Size GetPreviewViewSize() const;
-  // Allows subclasses to resize/add shadow to the image that will appear as the
-  // icon. Defaults to do resize the image to |kIconSize|.
-  virtual gfx::ImageSkia ModifyIcon(gfx::ImageSkia* image) const;
 
   // views::View:
   void Layout() override;

@@ -17,20 +17,26 @@
 #include "base/win/scoped_bstr.h"
 #include "base/win/scoped_variant.h"
 #include "content/browser/accessibility/accessibility_event_recorder_uia_win.h"
-#include "content/browser/accessibility/accessibility_tree_formatter_utils_win.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/accessibility/browser_accessibility_win.h"
 #include "third_party/iaccessible2/ia2_api_all.h"
+#include "ui/accessibility/platform/inspect/ax_inspect_utils_win.h"
 #include "ui/base/win/atl_module.h"
 #include "ui/gfx/win/hwnd_util.h"
 
 namespace content {
 
+using ui::AccessibilityEventToString;
+using ui::GetHWNDBySelector;
+using ui::IAccessible2StateToString;
+using ui::IAccessibleRoleToString;
+using ui::IAccessibleStateToString;
+
 namespace {
 
 std::string RoleVariantToString(const base::win::ScopedVariant& role) {
   if (role.type() == VT_I4) {
-    return base::UTF16ToUTF8(IAccessibleRoleToString(V_I4(role.ptr())));
+    return base::WideToUTF8(IAccessibleRoleToString(V_I4(role.ptr())));
   } else if (role.type() == VT_BSTR) {
     return base::WideToUTF8(
         std::wstring(V_BSTR(role.ptr()), SysStringLen(V_BSTR(role.ptr()))));
@@ -63,14 +69,14 @@ std::string BstrToPrettyUTF8(BSTR bstr) {
   // Pretty-print the embedded object character as <obj> so that test output
   // is human-readable.
   std::wstring embedded_character = base::UTF16ToWide(
-      base::string16(1, BrowserAccessibilityComWin::kEmbeddedCharacter));
+      std::u16string(1, BrowserAccessibilityComWin::kEmbeddedCharacter));
   base::ReplaceChars(wstr, embedded_character, L"<obj>", &wstr);
 
   return base::WideToUTF8(wstr);
 }
 
 std::string AccessibilityEventToStringUTF8(int32_t event_id) {
-  return base::UTF16ToUTF8(AccessibilityEventToString(event_id));
+  return base::WideToUTF8(AccessibilityEventToString(event_id));
 }
 
 }  // namespace
@@ -97,10 +103,21 @@ CALLBACK void AccessibilityEventRecorderWin::WinEventHookThunk(
 AccessibilityEventRecorderWin::AccessibilityEventRecorderWin(
     BrowserAccessibilityManager* manager,
     base::ProcessId pid,
-    const base::StringPiece& application_name_match_pattern)
+    const ui::AXTreeSelector& selector)
     : AccessibilityEventRecorder(manager) {
   CHECK(!instance_) << "There can be only one instance of"
                     << " AccessibilityEventRecorder at a time.";
+
+  // Get pid by a selector if the selectors specifies a valid process.
+  HWND hwnd_by_selector = GetHWNDBySelector(selector);
+  if (hwnd_by_selector != NULL) {
+    DWORD pid_by_selector = 0;
+    GetWindowThreadProcessId(hwnd_by_selector, &pid_by_selector);
+    if (pid_by_selector != 0) {
+      pid = static_cast<DWORD>(pid_by_selector);
+    }
+  }
+
   // For now, just use out of context events when running as a utility to watch
   // events (no BrowserAccessibilityManager), because otherwise Chrome events
   // are not getting reported. Being in context is better so that for
@@ -173,10 +190,10 @@ void AccessibilityEventRecorderWin::OnWinEventHook(HWINEVENTHOOK handle,
   // Log all caret events  that occur, with their window class, so that we can
   // test to make sure they are only occurring on the desired window class.
   if (ROLE_SYSTEM_CARET == V_I4(role.ptr())) {
-    base::string16 state_str = IAccessibleStateToString(ia_state);
+    std::wstring state_str = IAccessibleStateToString(ia_state);
     std::string log = base::StringPrintf(
         "%s role=ROLE_SYSTEM_CARET %ls window_class=%s", event_str.c_str(),
-        base::as_wcstr(state_str), hwnd_class_name.c_str());
+        state_str.c_str(), hwnd_class_name.c_str());
     OnEvent(log);
     return;
   }
@@ -275,9 +292,9 @@ void AccessibilityEventRecorderWin::OnWinEventHook(HWINEVENTHOOK handle,
                                     BstrToPrettyUTF8(value_bstr.Get()).c_str());
   }
   log += " ";
-  log += base::UTF16ToUTF8(IAccessibleStateToString(ia_state));
+  log += base::WideToUTF8(IAccessibleStateToString(ia_state));
   log += " ";
-  log += base::UTF16ToUTF8(IAccessible2StateToString(ia2_state));
+  log += base::WideToUTF8(IAccessible2StateToString(ia2_state));
 
   // Group position, e.g. L3, 5 of 7
   LONG group_level, similar_items_in_group, position_in_group;

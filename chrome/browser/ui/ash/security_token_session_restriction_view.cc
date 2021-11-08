@@ -4,8 +4,9 @@
 
 #include "chrome/browser/ui/ash/security_token_session_restriction_view.h"
 
+#include <string>
+
 #include "base/i18n/message_formatter.h"
-#include "base/strings/string16.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
@@ -16,70 +17,68 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_provider.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace {
 
-constexpr base::TimeDelta kCountdownUpdateInterval =
-    base::TimeDelta::FromMilliseconds(1000);
-constexpr base::TimeDelta kLastUpdateTime =
-    base::TimeDelta::FromMilliseconds(1000);
+constexpr base::TimeDelta kCountdownUpdateInterval = base::Milliseconds(1000);
+constexpr base::TimeDelta kLastUpdateTime = base::Milliseconds(1000);
 
 gfx::ImageSkia GetImage() {
   return gfx::CreateVectorIcon(chromeos::kEnterpriseIcon, 20, SK_ColorDKGRAY);
 }
 
-base::string16 GetTitle(
-    chromeos::login::SecurityTokenSessionController::Behavior behavior) {
+std::u16string GetTitle(
+    ash::login::SecurityTokenSessionController::Behavior behavior) {
   switch (behavior) {
-    case chromeos::login::SecurityTokenSessionController::Behavior::kLogout:
+    case ash::login::SecurityTokenSessionController::Behavior::kLogout:
       return l10n_util::GetStringUTF16(
           IDS_SECURITY_TOKEN_SESSION_LOGOUT_NOTIFICATION_TITLE);
-    case chromeos::login::SecurityTokenSessionController::Behavior::kLock:
+    case ash::login::SecurityTokenSessionController::Behavior::kLock:
       return l10n_util::GetStringFUTF16(
           IDS_SECURITY_TOKEN_SESSION_LOCK_NOTIFICATION_TITLE,
           ui::GetChromeOSDeviceName());
-    case chromeos::login::SecurityTokenSessionController::Behavior::kIgnore:
+    case ash::login::SecurityTokenSessionController::Behavior::kIgnore:
       // Intentionally falling through to NOTREACHED().
       break;
   }
   NOTREACHED();
-  return base::string16();
+  return std::u16string();
 }
 
-base::string16 GetButtonLabel(
-    chromeos::login::SecurityTokenSessionController::Behavior behavior) {
+std::u16string GetButtonLabel(
+    ash::login::SecurityTokenSessionController::Behavior behavior) {
   switch (behavior) {
-    case chromeos::login::SecurityTokenSessionController::Behavior::kLogout:
+    case ash::login::SecurityTokenSessionController::Behavior::kLogout:
       return l10n_util::GetStringUTF16(
           IDS_SECURITY_TOKEN_SESSION_LOGOUT_NOTIFICATION_BUTTON_TITLE);
-    case chromeos::login::SecurityTokenSessionController::Behavior::kLock:
+    case ash::login::SecurityTokenSessionController::Behavior::kLock:
       return l10n_util::GetStringUTF16(
           IDS_SECURITY_TOKEN_SESSION_LOCK_NOTIFICATION_BUTTON_TITLE);
-    case chromeos::login::SecurityTokenSessionController::Behavior::kIgnore:
+    case ash::login::SecurityTokenSessionController::Behavior::kIgnore:
       // Intentionally falling through to NOTREACHED().
       break;
   }
   NOTREACHED();
-  return base::string16();
+  return std::u16string();
 }
 
-base::string16 GetDialogText(
-    chromeos::login::SecurityTokenSessionController::Behavior behavior,
+std::u16string GetDialogText(
+    ash::login::SecurityTokenSessionController::Behavior behavior,
     const std::string& domain,
     base::TimeDelta time_remaining) {
   // The text and the arguments required for it depend on both `behavior` and
   // `time_remaining`.
   switch (behavior) {
-    case chromeos::login::SecurityTokenSessionController::Behavior::kLogout:
+    case ash::login::SecurityTokenSessionController::Behavior::kLogout:
       if (time_remaining <= kLastUpdateTime) {
         return base::i18n::MessageFormatter::FormatWithNumberedArgs(
             l10n_util::GetStringUTF16(
@@ -90,7 +89,7 @@ base::string16 GetDialogText(
           l10n_util::GetStringUTF16(
               IDS_SECURITY_TOKEN_SESSION_LOGOUT_NOTIFICATION_BODY),
           time_remaining.InSeconds(), domain);
-    case chromeos::login::SecurityTokenSessionController::Behavior::kLock:
+    case ash::login::SecurityTokenSessionController::Behavior::kLock:
       if (time_remaining <= kLastUpdateTime) {
         return base::i18n::MessageFormatter::FormatWithNumberedArgs(
             l10n_util::GetStringUTF16(
@@ -101,11 +100,11 @@ base::string16 GetDialogText(
           l10n_util::GetStringUTF16(
               IDS_SECURITY_TOKEN_SESSION_LOCK_NOTIFICATION_BODY),
           time_remaining.InSeconds(), ui::GetChromeOSDeviceName(), domain);
-    case chromeos::login::SecurityTokenSessionController::Behavior::kIgnore:
+    case ash::login::SecurityTokenSessionController::Behavior::kIgnore:
       break;
   }
   NOTREACHED();
-  return base::string16();
+  return std::u16string();
 }
 
 }  // namespace
@@ -113,7 +112,7 @@ base::string16 GetDialogText(
 SecurityTokenSessionRestrictionView::SecurityTokenSessionRestrictionView(
     base::TimeDelta duration,
     base::OnceClosure accept_callback,
-    chromeos::login::SecurityTokenSessionController::Behavior behavior,
+    ash::login::SecurityTokenSessionController::Behavior behavior,
     const std::string& domain)
     : AppDialogView(GetImage()),
       behavior_(behavior),
@@ -126,7 +125,7 @@ SecurityTokenSessionRestrictionView::SecurityTokenSessionRestrictionView(
 
   SetAcceptCallback(std::move(accept_callback));
 
-  InitializeView(/*heading_text=*/base::string16());
+  InitializeView(/*heading_text=*/std::u16string());
   UpdateLabel();
 
   update_timer_.Start(FROM_HERE, kCountdownUpdateInterval, this,

@@ -31,15 +31,18 @@ namespace {
 class KeywordExtensionsDelegateImplTest : public ExtensionServiceTestBase {
  public:
   KeywordExtensionsDelegateImplTest() {}
+
+  KeywordExtensionsDelegateImplTest(const KeywordExtensionsDelegateImplTest&) =
+      delete;
+  KeywordExtensionsDelegateImplTest& operator=(
+      const KeywordExtensionsDelegateImplTest&) = delete;
+
   ~KeywordExtensionsDelegateImplTest() override {}
 
  protected:
   void SetUp() override;
 
   void RunTest(bool incognito);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(KeywordExtensionsDelegateImplTest);
 };
 
 void KeywordExtensionsDelegateImplTest::SetUp() {
@@ -74,7 +77,8 @@ void KeywordExtensionsDelegateImplTest::RunTest(bool incognito) {
   ASSERT_FALSE(util::IsIncognitoEnabled(extension->id(), profile()));
 
   Profile* profile_to_use =
-      incognito ? profile()->GetPrimaryOTRProfile() : profile();
+      incognito ? profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true)
+                : profile();
   KeywordExtensionsDelegateImpl delegate_impl(profile_to_use,
                                               keyword_provider.get());
   KeywordExtensionsDelegate* delegate = &delegate_impl;

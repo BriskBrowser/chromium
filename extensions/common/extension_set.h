@@ -10,7 +10,6 @@
 #include <string>
 #include <utility>
 
-#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "extensions/common/extension.h"
@@ -63,6 +62,10 @@ class ExtensionSet {
   };
 
   ExtensionSet();
+
+  ExtensionSet(const ExtensionSet&) = delete;
+  ExtensionSet& operator=(const ExtensionSet&) = delete;
+
   ~ExtensionSet();
 
   size_t size() const;
@@ -138,8 +141,6 @@ class ExtensionSet {
 
  private:
   ExtensionMap extensions_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionSet);
 };
 
 }  // namespace extensions

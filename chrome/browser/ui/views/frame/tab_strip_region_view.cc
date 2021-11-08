@@ -6,53 +6,34 @@
 
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/app/vector_icons/vector_icons.h"
+#include "build/build_config.h"
+#include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/frame/window_frame_util.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/ui_features.h"
+#include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/tabs/new_tab_button.h"
 #include "chrome/browser/ui/views/tabs/tab_search_button.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
+#include "chrome/browser/ui/views/tabs/tab_strip_scroll_container.h"
 #include "chrome/browser/ui/views/tabs/tab_style_views.h"
+#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/browser/ui/views/user_education/tip_marquee_view.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/views/border.h"
+#include "ui/views/cascading_property.h"
 #include "ui/views/controls/button/image_button.h"
-#include "ui/views/controls/button/image_button_factory.h"
-#include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/view_class_properties.h"
 
 namespace {
-
-// Define a custom FlexRule for |tabstrip_scroll_container_|. Equivalent to
-// using a (kScaleToMinimum, kPreferred) flex specification on the tabstrip
-// itself, bypassing the ScrollView.
-// TODO(1132488): Make ScrollView take on TabStrip's preferred size instead.
-gfx::Size TabScrollContainerFlexRule(const views::View* tab_strip,
-                                     const views::View* view,
-                                     const views::SizeBounds& size_bounds) {
-  const gfx::Size preferred_size = tab_strip->GetPreferredSize();
-  return gfx::Size(size_bounds.width().min_of(preferred_size.width()),
-                   preferred_size.height());
-}
-
-std::unique_ptr<views::ImageButton> CreateScrollButton(
-    views::Button::PressedCallback callback) {
-  auto scroll_button =
-      std::make_unique<views::ImageButton>(std::move(callback));
-  scroll_button->SetImageVerticalAlignment(
-      views::ImageButton::VerticalAlignment::ALIGN_MIDDLE);
-  scroll_button->SetHasInkDropActionOnClick(true);
-  scroll_button->SetInkDropMode(views::Button::InkDropMode::ON);
-  scroll_button->SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
-  return scroll_button;
-}
 
 class FrameGrabHandle : public views::View {
  public:
@@ -68,112 +49,29 @@ class FrameGrabHandle : public views::View {
 BEGIN_METADATA(FrameGrabHandle, views::View)
 END_METADATA
 
-// A customized overflow indicator that fades the tabs into the frame
-// background.
-class TabStripContainerOverflowIndicator : public views::View {
- public:
-  METADATA_HEADER(TabStripContainerOverflowIndicator);
-  TabStripContainerOverflowIndicator(TabStrip* tab_strip,
-                                     views::OverflowIndicatorAlignment side)
-      : tab_strip_(tab_strip), side_(side) {
-    DCHECK(side_ == views::OverflowIndicatorAlignment::kLeft ||
-           side_ == views::OverflowIndicatorAlignment::kRight);
-  }
-
-  // Making this smaller than the margin provided by the leftmost/rightmost
-  // tab's tail (TabStyle::kTabOverlap / 2) makes the transition in and out of
-  // the scroll state smoother.
-  static constexpr int kOpaqueWidth = 5;
-  static constexpr int kFadeWidth = 15;
-  static constexpr int kTotalWidth = kOpaqueWidth + kFadeWidth;
-
-  // views::View overrides:
-  void OnPaint(gfx::Canvas* canvas) override {
-    // TODO(tbergquist): Handle themes with titlebar background images.
-    SkColor frame_color = tab_strip_->controller()->GetFrameColor(
-        BrowserFrameActiveState::kUseCurrent);
-
-    SkPoint points[2];
-    points[0].iset(GetContentsBounds().origin().x(), GetContentsBounds().y());
-    points[1].iset(GetContentsBounds().right(), GetContentsBounds().y());
-
-    SkColor colors[3];
-    SkScalar color_positions[3];
-    if (side_ == views::OverflowIndicatorAlignment::kLeft) {
-      colors[0] = frame_color;
-      colors[1] = frame_color;
-      colors[2] = SkColorSetA(frame_color, SK_AlphaTRANSPARENT);
-      color_positions[0] = 0;
-      color_positions[1] = static_cast<float>(kOpaqueWidth) / kTotalWidth;
-      color_positions[2] = 1;
-    } else {
-      colors[0] = SkColorSetA(frame_color, SK_AlphaTRANSPARENT);
-      colors[1] = frame_color;
-      colors[2] = frame_color;
-      color_positions[0] = 0;
-      color_positions[1] = static_cast<float>(kFadeWidth) / kTotalWidth;
-      color_positions[2] = 1;
-    }
-
-    cc::PaintFlags flags;
-    flags.setShader(cc::PaintShader::MakeLinearGradient(
-        points, colors, color_positions, 3, SkTileMode::kClamp));
-    canvas->DrawRect(GetContentsBounds(), flags);
-  }
-
- private:
-  TabStrip* tab_strip_;
-  views::OverflowIndicatorAlignment side_;
-};
-
-BEGIN_METADATA(TabStripContainerOverflowIndicator, views::View)
-END_METADATA
-
 }  // namespace
 
 TabStripRegionView::TabStripRegionView(std::unique_ptr<TabStrip> tab_strip) {
+  views::SetCascadingThemeProviderColor(
+      this, views::kCascadingBackgroundColor,
+      ThemeProperties::COLOR_TAB_BACKGROUND_INACTIVE_FRAME_INACTIVE);
+
   layout_manager_ = SetLayoutManager(std::make_unique<views::FlexLayout>());
   layout_manager_->SetOrientation(views::LayoutOrientation::kHorizontal);
 
   tab_strip_ = tab_strip.get();
-  tab_strip->SetAvailableWidthCallback(base::BindRepeating(
-      &TabStripRegionView::GetTabStripAvailableWidth, base::Unretained(this)));
   if (base::FeatureList::IsEnabled(features::kScrollableTabStrip)) {
-    // TODO(https://crbug.com/1132488): ScrollView doesn't propagate changes to
-    // the TabStrip's preferred size; observe that manually.
-    tab_strip->View::AddObserver(this);
+    tab_strip_container_ = AddChildView(
+        std::make_unique<TabStripScrollContainer>(std::move(tab_strip)));
+    // Allow the |tab_strip_container_| to grow into the free space available in
+    // the TabStripRegionView.
+    const views::FlexSpecification tab_strip_container_flex_spec =
+        views::FlexSpecification(views::LayoutOrientation::kHorizontal,
+                                 views::MinimumFlexSizeRule::kScaleToMinimum,
+                                 views::MaximumFlexSizeRule::kPreferred);
+    tab_strip_container_->SetProperty(views::kFlexBehaviorKey,
+                                      tab_strip_container_flex_spec);
 
-    views::ScrollView* tab_strip_scroll_container =
-        AddChildView(std::make_unique<views::ScrollView>(
-            views::ScrollView::ScrollWithLayers::kEnabled));
-    tab_strip_scroll_container->SetBackgroundColor(base::nullopt);
-    tab_strip_scroll_container->SetHorizontalScrollBarMode(
-        views::ScrollView::ScrollBarMode::kHiddenButEnabled);
-    tab_strip_scroll_container->SetTreatAllScrollEventsAsHorizontal(true);
-    tab_strip_container_ = tab_strip_scroll_container;
-    tab_strip_scroll_container->SetContents(std::move(tab_strip));
-
-    tab_strip_scroll_container->SetDrawOverflowIndicator(true);
-    left_overflow_indicator_ =
-        tab_strip_scroll_container->SetCustomOverflowIndicator(
-            views::OverflowIndicatorAlignment::kLeft,
-            std::make_unique<TabStripContainerOverflowIndicator>(
-                tab_strip_, views::OverflowIndicatorAlignment::kLeft),
-            TabStripContainerOverflowIndicator::kTotalWidth, false);
-    right_overflow_indicator_ =
-        tab_strip_scroll_container->SetCustomOverflowIndicator(
-            views::OverflowIndicatorAlignment::kRight,
-            std::make_unique<TabStripContainerOverflowIndicator>(
-                tab_strip_, views::OverflowIndicatorAlignment::kRight),
-            TabStripContainerOverflowIndicator::kTotalWidth, false);
-
-    // This base::Unretained is safe because the callback is called by the
-    // layout manager, which is cleaned up before view children like
-    // |tab_strip_scroll_container| (which owns |tab_strip_|).
-    tab_strip_scroll_container->SetProperty(
-        views::kFlexBehaviorKey,
-        views::FlexSpecification(base::BindRepeating(
-            &TabScrollContainerFlexRule, base::Unretained(tab_strip_))));
   } else {
     tab_strip_container_ = AddChildView(std::move(tab_strip));
 
@@ -200,15 +98,6 @@ TabStripRegionView::TabStripRegionView(std::unique_ptr<TabStrip> tab_strip) {
 
   UpdateNewTabButtonBorder();
 
-  if (base::FeatureList::IsEnabled(features::kScrollableTabStripButtons)) {
-    leading_scroll_button_ = AddChildView(CreateScrollButton(
-        base::BindRepeating(&TabStripRegionView::ScrollTowardsLeadingTab,
-                            base::Unretained(this))));
-    trailing_scroll_button_ = AddChildView(CreateScrollButton(
-        base::BindRepeating(&TabStripRegionView::ScrollTowardsTrailingTab,
-                            base::Unretained(this))));
-  }
-
   reserved_grab_handle_space_ =
       AddChildView(std::make_unique<FrameGrabHandle>());
   reserved_grab_handle_space_->SetProperty(
@@ -234,9 +123,18 @@ TabStripRegionView::TabStripRegionView(std::unique_ptr<TabStrip> tab_strip) {
                                  views::LayoutAlignment::kCenter);
   tip_marquee_view_->SetProperty(views::kMarginsKey, control_padding);
 
+#if defined(OS_CHROMEOS)
+  if (base::FeatureList::IsEnabled(features::kChromeOSTabSearchCaptionButton))
+    return;
+#endif
+
   const Browser* browser = tab_strip_->controller()->GetBrowser();
-  if (base::FeatureList::IsEnabled(features::kTabSearch) && browser &&
-      browser->is_type_normal()) {
+  if (!browser ||
+      WindowFrameUtil::IsWin10TabSearchCaptionButtonEnabled(browser)) {
+    return;
+  }
+
+  if (browser->is_type_normal()) {
     auto tab_search_button = std::make_unique<TabSearchButton>(tab_strip_);
     tab_search_button->SetTooltipText(
         l10n_util::GetStringUTF16(IDS_TOOLTIP_TAB_SEARCH));
@@ -288,23 +186,7 @@ void TabStripRegionView::FrameColorsChanged() {
   new_tab_button_->FrameColorsChanged();
   if (tab_search_button_)
     tab_search_button_->FrameColorsChanged();
-  if (base::FeatureList::IsEnabled(features::kScrollableTabStripButtons)) {
-    const SkColor background_color = tab_strip_->GetTabBackgroundColor(
-        TabActive::kInactive, BrowserFrameActiveState::kUseCurrent);
-    SkColor foreground_color = tab_strip_->GetTabForegroundColor(
-        TabActive::kInactive, background_color);
-    views::SetImageFromVectorIconWithColor(leading_scroll_button_,
-                                           kScrollingTabstripLeadingIcon,
-                                           foreground_color);
-    views::SetImageFromVectorIconWithColor(trailing_scroll_button_,
-                                           kScrollingTabstripTrailingIcon,
-                                           foreground_color);
-  }
   tab_strip_->FrameColorsChanged();
-  if (base::FeatureList::IsEnabled(features::kScrollableTabStrip)) {
-    left_overflow_indicator_->SchedulePaint();
-    right_overflow_indicator_->SchedulePaint();
-  }
   SchedulePaint();
 }
 
@@ -337,49 +219,6 @@ void TabStripRegionView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kTabList;
 }
 
-void TabStripRegionView::OnViewPreferredSizeChanged(View* view) {
-  DCHECK_EQ(view, tab_strip_);
-
-  // The |tab_strip_|'s preferred size changing can change our own preferred
-  // size; however, with scrolling enabled, the ScrollView does not propagate
-  // ChildPreferredSizeChanged up the view hierarchy, instead assuming that its
-  // own preferred size is independent of its childrens'.
-  // TODO(https://crbug.com/1132488): Make ScrollView not be like that.
-  PreferredSizeChanged();
-}
-
-int TabStripRegionView::GetTabStripAvailableWidth() const {
-  // The tab strip can occupy the space not currently taken by its fixed-width
-  // sibling views. First ask for the available size of the container.
-  views::SizeBound width_bound = GetAvailableSize(tab_strip_container_).width();
-
-  // Because we can't return a null value, and we can't return zero, for cases
-  // where we have never been laid out we will return something arbitrary (the
-  // width of the region view is as good a choice as any, as it's strictly
-  // larger than the tabstrip should be able to display).
-  return width_bound.min_of(width());
-}
-
-void TabStripRegionView::ScrollTowardsLeadingTab() {
-  views::ScrollView* scroll_view_container =
-      static_cast<views::ScrollView*>(tab_strip_container_);
-  gfx::Rect visible_content = scroll_view_container->GetVisibleRect();
-  gfx::Rect scroll(visible_content.x() - visible_content.width(),
-                   visible_content.y(), visible_content.width(),
-                   visible_content.height());
-  scroll_view_container->contents()->ScrollRectToVisible(scroll);
-}
-
-void TabStripRegionView::ScrollTowardsTrailingTab() {
-  views::ScrollView* scroll_view_container =
-      static_cast<views::ScrollView*>(tab_strip_container_);
-  gfx::Rect visible_content = scroll_view_container->GetVisibleRect();
-  gfx::Rect scroll(visible_content.x() + visible_content.width(),
-                   visible_content.y(), visible_content.width(),
-                   visible_content.height());
-  scroll_view_container->contents()->ScrollRectToVisible(scroll);
-}
-
 void TabStripRegionView::UpdateNewTabButtonBorder() {
   const int extra_vertical_space = GetLayoutConstant(TAB_HEIGHT) -
                                    GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP) -
@@ -403,6 +242,4 @@ void TabStripRegionView::UpdateNewTabButtonBorder() {
 }
 
 BEGIN_METADATA(TabStripRegionView, views::AccessiblePaneView)
-// TODO(crbug.com/1169051): Uncomment when bug is fixed
-// ADD_READONLY_PROPERTY_METADATA(int, TabStripAvailableWidth)
 END_METADATA

@@ -31,13 +31,15 @@ using extensions::APIPermission;
 using extensions::Extension;
 using extensions::Manifest;
 using Result = ExtensionInstallPrompt::Result;
+using DoneCallbackPayload = ExtensionInstallPrompt::DoneCallbackPayload;
+using extensions::mojom::APIPermissionID;
 
 namespace extensions {
 namespace permission_helper {
 namespace {
 
-auto permission_a = APIPermission::kAudio;
-auto permission_b = APIPermission::kBookmark;
+auto permission_a = APIPermissionID::kAudio;
+auto permission_b = APIPermissionID::kBookmark;
 bool did_show_dialog;
 
 const char kWhitelistedId[] = "cbkkbcmdlboombapidmoeolnmdacpkch";
@@ -45,9 +47,10 @@ const char kNonWhitelistedId[] = "bogus";
 
 scoped_refptr<Extension> LoadManifestHelper(const std::string& id) {
   std::string error;
-  scoped_refptr<Extension> extension = LoadManifestUnchecked(
-      "common/background_page", "manifest.json", Manifest::INVALID_LOCATION,
-      Extension::NO_FLAGS, id, &error);
+  scoped_refptr<Extension> extension =
+      LoadManifestUnchecked("common/background_page", "manifest.json",
+                            mojom::ManifestLocation::kInvalidLocation,
+                            Extension::NO_FLAGS, id, &error);
   EXPECT_TRUE(extension.get()) << error;
   return extension;
 }
@@ -71,6 +74,10 @@ class ProgrammableInstallPrompt
   explicit ProgrammableInstallPrompt(WebContents* contents)
       : ExtensionInstallPrompt(contents) {}
 
+  ProgrammableInstallPrompt(const ProgrammableInstallPrompt&) = delete;
+  ProgrammableInstallPrompt& operator=(const ProgrammableInstallPrompt&) =
+      delete;
+
   ~ProgrammableInstallPrompt() override {}
 
   void ShowDialog(
@@ -84,14 +91,12 @@ class ProgrammableInstallPrompt
     did_show_dialog = true;
   }
 
-  void Resolve(ExtensionInstallPrompt::Result result) {
-    std::move(done_callback_).Run(result);
+  void Resolve(ExtensionInstallPrompt::DoneCallbackPayload payload) {
+    std::move(done_callback_).Run(payload);
   }
 
  private:
   ExtensionInstallPrompt::DoneCallback done_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProgrammableInstallPrompt);
 };
 
 }  // namespace
@@ -100,6 +105,12 @@ class PublicSessionPermissionHelperTest
     : public ChromeRenderViewHostTestHarness {
  public:
   PublicSessionPermissionHelperTest() {}
+
+  PublicSessionPermissionHelperTest(const PublicSessionPermissionHelperTest&) =
+      delete;
+  PublicSessionPermissionHelperTest& operator=(
+      const PublicSessionPermissionHelperTest&) = delete;
+
   ~PublicSessionPermissionHelperTest() override {}
 
   // testing::Test
@@ -122,14 +133,12 @@ class PublicSessionPermissionHelperTest
   std::vector<PermissionIDSet> allowed_permissions_;
 
   std::unique_ptr<chromeos::ScopedTestPublicSessionLoginState> login_state_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PublicSessionPermissionHelperTest);
 };
 
 void PublicSessionPermissionHelperTest::SetUp() {
   ChromeRenderViewHostTestHarness::SetUp();
-  login_state_.reset(new chromeos::ScopedTestPublicSessionLoginState());
+  login_state_ =
+      std::make_unique<chromeos::ScopedTestPublicSessionLoginState>();
   extension_a_ = LoadManifestHelper("extension_a");
   extension_b_ = LoadManifestHelper("extension_b");
 }
@@ -178,7 +187,7 @@ TEST_F(PublicSessionPermissionHelperTest, TestPermissionAllowed) {
   auto prompt = CallHandlePermissionRequest(extension_a_, {permission_a});
   EXPECT_TRUE(prompt);
   EXPECT_TRUE(get_did_show_dialog_and_reset());
-  prompt->Resolve(Result::ACCEPTED);
+  prompt->Resolve(DoneCallbackPayload(Result::ACCEPTED));
   EXPECT_TRUE(allowed_permissions_.at(0).Equals({permission_a}));
 
   // permission_a was already allowed for extension_a hence no prompt is being
@@ -193,7 +202,7 @@ TEST_F(PublicSessionPermissionHelperTest, TestPermissionAllowed) {
   prompt = CallHandlePermissionRequest(extension_b_, {permission_a});
   EXPECT_TRUE(prompt);
   EXPECT_TRUE(get_did_show_dialog_and_reset());
-  prompt->Resolve(Result::USER_CANCELED);
+  prompt->Resolve(DoneCallbackPayload(Result::USER_CANCELED));
   EXPECT_TRUE(allowed_permissions_.at(2).Equals({}));
 }
 
@@ -202,7 +211,7 @@ TEST_F(PublicSessionPermissionHelperTest, TestPermissionDenied) {
   auto prompt = CallHandlePermissionRequest(extension_a_, {permission_a});
   EXPECT_TRUE(prompt);
   EXPECT_TRUE(get_did_show_dialog_and_reset());
-  prompt->Resolve(Result::USER_CANCELED);
+  prompt->Resolve(DoneCallbackPayload(Result::USER_CANCELED));
   EXPECT_TRUE(allowed_permissions_.at(0).Equals({}));
 
   // Still denied (previous choice is remembered).
@@ -214,7 +223,7 @@ TEST_F(PublicSessionPermissionHelperTest, TestPermissionDenied) {
   prompt = CallHandlePermissionRequest(extension_b_, {permission_a});
   EXPECT_TRUE(prompt);
   EXPECT_TRUE(get_did_show_dialog_and_reset());
-  prompt->Resolve(Result::ACCEPTED);
+  prompt->Resolve(DoneCallbackPayload(Result::ACCEPTED));
   EXPECT_TRUE(allowed_permissions_.at(2).Equals({permission_a}));
 }
 
@@ -229,7 +238,7 @@ TEST_F(PublicSessionPermissionHelperTest, TestTwoPromptsA) {
   // prompt1 resolves both permission requests (second permission request
   // doesn't show a prompt as permission_b is already prompted by first
   // permission request).
-  prompt1->Resolve(Result::ACCEPTED);
+  prompt1->Resolve(DoneCallbackPayload(Result::ACCEPTED));
   EXPECT_TRUE(allowed_permissions_.at(0).Equals({permission_a, permission_b}));
   EXPECT_TRUE(allowed_permissions_.at(1).Equals({permission_b}));
 }
@@ -244,9 +253,9 @@ TEST_F(PublicSessionPermissionHelperTest, TestTwoPromptsB) {
   EXPECT_TRUE(get_did_show_dialog_and_reset());
   // prompt2 resolves only permission_b because prompt1 already prompted for
   // permission_a.
-  prompt2->Resolve(Result::ACCEPTED);
+  prompt2->Resolve(DoneCallbackPayload(Result::ACCEPTED));
   EXPECT_EQ(allowed_permissions_.size(), 0u);
-  prompt1->Resolve(Result::ACCEPTED);
+  prompt1->Resolve(DoneCallbackPayload(Result::ACCEPTED));
   EXPECT_TRUE(allowed_permissions_.at(0).Equals({permission_a}));
   EXPECT_TRUE(allowed_permissions_.at(1).Equals({permission_a, permission_b}));
 }
@@ -259,9 +268,9 @@ TEST_F(PublicSessionPermissionHelperTest, TestTwoPromptsDeny) {
       CallHandlePermissionRequest(extension_a_, {permission_a, permission_b});
   EXPECT_TRUE(prompt2);
   EXPECT_TRUE(get_did_show_dialog_and_reset());
-  prompt1->Resolve(Result::USER_CANCELED);
+  prompt1->Resolve(DoneCallbackPayload(Result::USER_CANCELED));
   EXPECT_TRUE(allowed_permissions_.at(0).Equals({}));
-  prompt2->Resolve(Result::ACCEPTED);
+  prompt2->Resolve(DoneCallbackPayload(Result::ACCEPTED));
   EXPECT_TRUE(allowed_permissions_.at(1).Equals({permission_b}));
 }
 

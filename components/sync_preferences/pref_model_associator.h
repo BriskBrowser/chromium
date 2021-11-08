@@ -28,7 +28,7 @@ class Value;
 namespace sync_pb {
 class EntitySpecifics;
 class PreferenceSpecifics;
-}
+}  // namespace sync_pb
 
 namespace sync_preferences {
 
@@ -46,6 +46,10 @@ class PrefModelAssociator : public syncer::SyncableService {
   PrefModelAssociator(const PrefModelAssociatorClient* client,
                       syncer::ModelType type,
                       PersistentPrefStore* user_pref_store);
+
+  PrefModelAssociator(const PrefModelAssociator&) = delete;
+  PrefModelAssociator& operator=(const PrefModelAssociator&) = delete;
+
   ~PrefModelAssociator() override;
 
   // See description above field for details.
@@ -59,13 +63,13 @@ class PrefModelAssociator : public syncer::SyncableService {
 
   // syncer::SyncableService implementation.
   void WaitUntilReadyToSync(base::OnceClosure done) override;
-  base::Optional<syncer::ModelError> MergeDataAndStartSyncing(
+  absl::optional<syncer::ModelError> MergeDataAndStartSyncing(
       syncer::ModelType type,
       const syncer::SyncDataList& initial_sync_data,
       std::unique_ptr<syncer::SyncChangeProcessor> sync_processor,
       std::unique_ptr<syncer::SyncErrorFactory> sync_error_factory) override;
   void StopSyncing(syncer::ModelType type) override;
-  base::Optional<syncer::ModelError> ProcessSyncChanges(
+  absl::optional<syncer::ModelError> ProcessSyncChanges(
       const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override;
   // Note for GetAllSyncDataForTesting: This will build a model of all
@@ -148,7 +152,7 @@ class PrefModelAssociator : public syncer::SyncableService {
                                            const base::Value& to_value);
 
   // Extract preference value from sync specifics.
-  static base::Optional<base::Value> ReadPreferenceSpecifics(
+  static absl::optional<base::Value> ReadPreferenceSpecifics(
       const sync_pb::PreferenceSpecifics& specifics);
 
   void NotifySyncedPrefObservers(const std::string& path, bool from_sync) const;
@@ -230,8 +234,6 @@ class PrefModelAssociator : public syncer::SyncableService {
   PersistentPrefStore* const user_pref_store_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(PrefModelAssociator);
 };
 
 }  // namespace sync_preferences

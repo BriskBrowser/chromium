@@ -8,6 +8,8 @@
 #include <string>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
@@ -52,13 +54,14 @@ const int kNumCalls = 3;
 
 const size_t kNumAudioInputDevices = 2;
 
-const auto kIgnoreLogMessageCB = base::BindRepeating([](const std::string&) {});
+const auto kIgnoreLogMessageCB = base::DoNothing();
 
 MediaDeviceSaltAndOrigin GetSaltAndOrigin(int /* process_id */,
                                           int /* frame_id */) {
-  return MediaDeviceSaltAndOrigin(
-      "fake_media_device_salt", "fake_group_id_salt",
-      url::Origin::Create(GURL("https://test.com")));
+  return MediaDeviceSaltAndOrigin("fake_media_device_salt",
+                                  "fake_group_id_salt",
+                                  url::Origin::Create(GURL("https://test.com")),
+                                  /*has_focus=*/true, /*is_background=*/false);
 }
 
 // This class mocks the audio manager and overrides some methods to ensure that
@@ -70,6 +73,10 @@ class MockAudioManager : public media::FakeAudioManager {
                          &fake_audio_log_factory_),
         num_output_devices_(2),
         num_input_devices_(kNumAudioInputDevices) {}
+
+  MockAudioManager(const MockAudioManager&) = delete;
+  MockAudioManager& operator=(const MockAudioManager&) = delete;
+
   ~MockAudioManager() override {}
 
   MOCK_METHOD1(MockGetAudioInputDeviceNames, void(media::AudioDeviceNames*));
@@ -165,7 +172,6 @@ class MockAudioManager : public media::FakeAudioManager {
   std::string default_device_id_;
   std::string communications_device_id_;
   std::set<std::string> removed_input_audio_device_ids_;
-  DISALLOW_COPY_AND_ASSIGN(MockAudioManager);
 };
 
 // This class mocks the video capture device factory and overrides some methods
@@ -228,6 +234,10 @@ class MediaDevicesManagerTest : public ::testing::Test {
   MediaDevicesManagerTest()
       : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP),
         video_capture_device_factory_(nullptr) {}
+
+  MediaDevicesManagerTest(const MediaDevicesManagerTest&) = delete;
+  MediaDevicesManagerTest& operator=(const MediaDevicesManagerTest&) = delete;
+
   ~MediaDevicesManagerTest() override { audio_manager_->Shutdown(); }
 
   MOCK_METHOD1(MockCallback, void(const MediaDeviceEnumeration&));
@@ -311,14 +321,14 @@ class MediaDevicesManagerTest : public ::testing::Test {
             base::ThreadTaskRunnerHandle::Get(), kIgnoreLogMessageCB);
     video_capture_manager_ = new VideoCaptureManager(
         std::move(video_capture_provider), kIgnoreLogMessageCB);
-    media_devices_manager_.reset(new MediaDevicesManager(
+    media_devices_manager_ = std::make_unique<MediaDevicesManager>(
         audio_system_.get(), video_capture_manager_,
         base::BindRepeating(
             &MockMediaDevicesManagerClient::StopRemovedInputDevice,
             base::Unretained(&media_devices_manager_client_)),
         base::BindRepeating(
             &MockMediaDevicesManagerClient::InputDevicesChangedUI,
-            base::Unretained(&media_devices_manager_client_))));
+            base::Unretained(&media_devices_manager_client_)));
     media_devices_manager_->set_salt_and_origin_callback_for_testing(
         base::BindRepeating(&GetSaltAndOrigin));
     media_devices_manager_->SetPermissionChecker(
@@ -342,9 +352,6 @@ class MediaDevicesManagerTest : public ::testing::Test {
   testing::StrictMock<MockMediaDevicesManagerClient>
       media_devices_manager_client_;
   std::set<std::string> removed_device_ids_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MediaDevicesManagerTest);
 };
 
 TEST_F(MediaDevicesManagerTest, EnumerateNoCacheAudioInput) {
@@ -967,7 +974,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateDevicesWithCapabilities) {
 
 TEST_F(MediaDevicesManagerTest, EnumerateDevicesUnplugDefaultDevice) {
   // This tests does not apply to CrOS, which is to seamlessly switch device.
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
   std::string default_device_id("fake_device_id_1");
   std::string new_default_device_id("fake_device_id_2");
 
@@ -1001,7 +1008,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateDevicesUnplugDefaultDevice) {
   EXPECT_TRUE(base::Contains(removed_device_ids_, default_device_id));
   EXPECT_TRUE(base::Contains(removed_device_ids_,
                              media::AudioDeviceDescription::kDefaultDeviceId));
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
 }
 
 TEST_F(MediaDevicesManagerTest, EnumerateDevicesUnplugCommunicationsDevice) {

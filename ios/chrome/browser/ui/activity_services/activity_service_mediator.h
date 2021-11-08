@@ -19,6 +19,7 @@ class BookmarkModel;
 @class ChromeActivityImageSource;
 @protocol ChromeActivityItemSource;
 @class ChromeActivityURLSource;
+@class DefaultBrowserPromoNonModalScheduler;
 @protocol FindInPageCommands;
 class PrefService;
 @protocol QRGenerationCommands;
@@ -33,22 +34,28 @@ class PrefService;
 // |qrGenerationHandler| to execute QR generation actions, a |prefService| to
 // read settings and policies, and a |bookmarkModel| to retrieve bookmark
 // states.
+// |baseViewController| can be passed to activities which need to present VCs.
 - (instancetype)initWithHandler:(id<BrowserCommands, FindInPageCommands>)handler
                bookmarksHandler:(id<BookmarksCommands>)bookmarksHandler
             qrGenerationHandler:(id<QRGenerationCommands>)qrGenerationHandler
                     prefService:(PrefService*)prefService
                   bookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel
+             baseViewController:(UIViewController*)baseViewController
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
+// Scheduler to notify about events happening in this activity.
+@property(nonatomic, weak) DefaultBrowserPromoNonModalScheduler* promoScheduler;
+
 // Generates an array of activity items to be shared via an activity view for
-// the given |data|.
-- (NSArray<id<ChromeActivityItemSource>>*)activityItemsForData:
-    (ShareToData*)data;
+// the given objects in |dataItems|.
+- (NSArray<id<ChromeActivityItemSource>>*)activityItemsForDataItems:
+    (NSArray<ShareToData*>*)dataItems;
 
 // Generates an array of activities to be added to the activity view for the
-// given |data|.
-- (NSArray*)applicationActivitiesForData:(ShareToData*)data;
+// given objects in |dataItems|. The items returned will be those supported
+// by all objects in |dataItems|.
+- (NSArray*)applicationActivitiesForDataItems:(NSArray<ShareToData*>*)dataItems;
 
 // Generates an array of activity items to be shared via an activity view for
 // the given |data|.

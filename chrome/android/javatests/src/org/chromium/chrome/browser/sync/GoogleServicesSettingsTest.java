@@ -33,7 +33,6 @@ import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.sync.settings.GoogleServicesSettings;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
@@ -83,7 +82,6 @@ public class GoogleServicesSettingsTest {
 
     @Test
     @LargeTest
-    @Features.EnableFeatures(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
     public void signOutUserWithoutShowingSignOutDialog() {
         mAccountManagerTestRule.addTestAccountThenSignin();
         final GoogleServicesSettings googleServicesSettings = startGoogleServicesSettings();
@@ -95,10 +93,10 @@ public class GoogleServicesSettingsTest {
         onView(withText(R.string.allow_chrome_signin_title)).perform(click());
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> Assert.assertNull("Account should be signed out!",
+                        -> Assert.assertFalse("Account should be signed out!",
                                 IdentityServicesProvider.get()
                                         .getIdentityManager(Profile.getLastUsedRegularProfile())
-                                        .getPrimaryAccountInfo(ConsentLevel.NOT_REQUIRED)));
+                                        .hasPrimaryAccount(ConsentLevel.SIGNIN)));
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertFalse("SIGNIN_ALLOWED pref should be unset",
@@ -109,7 +107,6 @@ public class GoogleServicesSettingsTest {
 
     @Test
     @LargeTest
-    @Features.EnableFeatures(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
     public void showSignOutDialogBeforeSigningUserOut() {
         mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
         final GoogleServicesSettings googleServicesSettings = startGoogleServicesSettings();
@@ -281,28 +278,6 @@ public class GoogleServicesSettingsTest {
                             .findPreference(
                                     GoogleServicesSettings.PREF_AUTOFILL_ASSISTANT_SUBSECTION)
                             .isVisible());
-        });
-    }
-
-    @Test
-    @LargeTest
-    @Feature({"Preference"})
-    @EnableFeatures(ChromeFeatureList.SAFE_BROWSING_SECTION_UI)
-    public void testSafeBrowsingSafeBrowsingSectionUiFlagOn() {
-        final GoogleServicesSettings googleServicesSettings = startGoogleServicesSettings();
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Assert.assertNull("Safe Browsing should be null when Safe Browsing section is enabled.",
-                    googleServicesSettings.findPreference(
-                            GoogleServicesSettings.PREF_SAFE_BROWSING));
-            Assert.assertNull(
-                    "Password leak detection should be null when Safe Browsing section is enabled.",
-                    googleServicesSettings.findPreference(
-                            GoogleServicesSettings.PREF_PASSWORD_LEAK_DETECTION));
-            Assert.assertNull(
-                    "Safe Browsing scout should be null when Safe Browsing section is enabled.",
-                    googleServicesSettings.findPreference(
-                            GoogleServicesSettings.PREF_SAFE_BROWSING_SCOUT_REPORTING));
         });
     }
 

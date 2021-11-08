@@ -4,10 +4,17 @@
 
 #include "components/viz/service/display/display_resource_provider_gl.h"
 
+#include <utility>
+#include <vector>
+
 #include "base/dcheck_is_on.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "components/viz/common/gpu/context_provider.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
+#include "ui/gfx/gpu_fence.h"
+#include "ui/gl/gl_fence.h"
 
 using gpu::gles2::GLES2Interface;
 
@@ -43,12 +50,41 @@ class ScopedSetActiveTexture {
 
 DisplayResourceProviderGL::DisplayResourceProviderGL(
     ContextProvider* compositor_context_provider,
-    SharedBitmapManager* shared_bitmap_manager,
     bool enable_shared_images)
-    : DisplayResourceProvider(DisplayResourceProvider::kGpu,
-                              compositor_context_provider,
-                              shared_bitmap_manager,
-                              enable_shared_images) {}
+    : DisplayResourceProvider(DisplayResourceProvider::kGpu),
+      compositor_context_provider_(compositor_context_provider),
+      enable_shared_images_(enable_shared_images) {
+  DCHECK(compositor_context_provider_);
+}
+
+DisplayResourceProviderGL::~DisplayResourceProviderGL() {
+  Destroy();
+  GLES2Interface* gl = ContextGL();
+  if (gl)
+    gl->Finish();
+
+  while (!resources_.empty())
+    DeleteResourceInternal(resources_.begin());
+}
+
+void DisplayResourceProviderGL::DeleteResourceInternal(
+    ResourceMap::iterator it) {
+  TRACE_EVENT0("viz", "DisplayResourceProvider::DeleteResourceInternal");
+  ChildResource* resource = &it->second;
+
+  if (resource->gl_id) {
+    GLES2Interface* gl = ContextGL();
+    DCHECK(gl);
+    gl->DeleteTextures(1, &resource->gl_id);
+  }
+
+  resources_.erase(it);
+}
+
+GLES2Interface* DisplayResourceProviderGL::ContextGL() const {
+  DCHECK(compositor_context_provider_);
+  return compositor_context_provider_->ContextGL();
+}
 
 const DisplayResourceProvider::ChildResource*
 DisplayResourceProviderGL::LockForRead(ResourceId id, bool overlay_only) {
@@ -131,6 +167,17 @@ void DisplayResourceProviderGL::UnlockForRead(ResourceId id,
       DCHECK(resource->gl_id);
       GLES2Interface* gl = ContextGL();
       DCHECK(gl);
+      if (!resource->release_fence.is_null()) {
+        auto fence = gfx::GpuFence(resource->release_fence.Clone());
+        if (gl::GLFence::IsGpuFenceSupported()) {
+          auto fence_id =
+              gl->CreateClientGpuFenceCHROMIUM(fence.AsClientGpuFence());
+          gl->WaitGpuFenceCHROMIUM(fence_id);
+          gl->DestroyGpuFenceCHROMIUM(fence_id);
+        } else {
+          fence.Wait();
+        }
+      }
       gl->EndSharedImageAccessDirectCHROMIUM(resource->gl_id);
     }
   }
@@ -142,6 +189,86 @@ void DisplayResourceProviderGL::UnlockForRead(ResourceId id,
     resource->lock_for_read_count--;
   }
   TryReleaseResource(id, resource);
+}
+
+std::vector<ReturnedResource>
+DisplayResourceProviderGL::DeleteAndReturnUnusedResourcesToChildImpl(
+    Child& child_info,
+    DeleteStyle style,
+    const std::vector<ResourceId>& unused) {
+  std::vector<ReturnedResource> to_return;
+  // Reserve enough space to avoid re-allocating, so we can keep item pointers
+  // for later using.
+  to_return.reserve(unused.size());
+  std::vector<ReturnedResource*> need_synchronization_resources;
+  std::vector<GLbyte*> unverified_sync_tokens;
+
+  GLES2Interface* gl = ContextGL();
+  DCHECK(gl);
+  DCHECK(can_access_gpu_thread_);
+  for (ResourceId local_id : unused) {
+    auto it = resources_.find(local_id);
+    CHECK(it != resources_.end());
+    ChildResource& resource = it->second;
+    DCHECK(resource.is_gpu_resource_type());
+
+    ResourceId child_id = resource.transferable.id;
+    DCHECK(child_info.child_to_parent_map.count(child_id));
+
+    auto can_delete = CanDeleteNow(child_info, resource, style);
+    if (can_delete == CanDeleteNowResult::kNo) {
+      // Defer this resource deletion.
+      resource.marked_for_deletion = true;
+      continue;
+    }
+
+    const bool is_lost = can_delete == CanDeleteNowResult::kYesButLoseResource;
+
+    if (resource.gl_id && resource.filter != resource.transferable.filter) {
+      DCHECK(resource.transferable.mailbox_holder.texture_target);
+      DCHECK(!resource.ShouldWaitSyncToken());
+      gl->BindTexture(resource.transferable.mailbox_holder.texture_target,
+                      resource.gl_id);
+      gl->TexParameteri(resource.transferable.mailbox_holder.texture_target,
+                        GL_TEXTURE_MIN_FILTER, resource.transferable.filter);
+      gl->TexParameteri(resource.transferable.mailbox_holder.texture_target,
+                        GL_TEXTURE_MAG_FILTER, resource.transferable.filter);
+      resource.SetLocallyUsed();
+    }
+
+    to_return.emplace_back(child_id, resource.sync_token(),
+                           std::move(resource.release_fence),
+                           resource.imported_count, is_lost);
+    auto& returned = to_return.back();
+
+    if (resource.needs_sync_token()) {
+      need_synchronization_resources.push_back(&returned);
+    } else if (returned.sync_token.HasData() &&
+               !returned.sync_token.verified_flush()) {
+      unverified_sync_tokens.push_back(returned.sync_token.GetData());
+    }
+
+    child_info.child_to_parent_map.erase(child_id);
+    resource.imported_count = 0;
+    DeleteResourceInternal(it);
+  }
+
+  gpu::SyncToken new_sync_token;
+  if (!need_synchronization_resources.empty()) {
+    gl->GenUnverifiedSyncTokenCHROMIUM(new_sync_token.GetData());
+    unverified_sync_tokens.push_back(new_sync_token.GetData());
+  }
+
+  if (!unverified_sync_tokens.empty()) {
+    gl->VerifySyncTokensCHROMIUM(unverified_sync_tokens.data(),
+                                 unverified_sync_tokens.size());
+  }
+
+  // Set sync token after verification.
+  for (ReturnedResource* returned : need_synchronization_resources)
+    returned->sync_token = new_sync_token;
+
+  return to_return;
 }
 
 GLenum DisplayResourceProviderGL::GetResourceTextureTarget(ResourceId id) {
@@ -156,11 +283,6 @@ void DisplayResourceProviderGL::WaitSyncToken(ResourceId id) {
   if (!resource)
     return;
   WaitSyncTokenInternal(resource);
-
-#if defined(OS_ANDROID)
-  // Now that the resource is synced, we may send it a promotion hint.
-  InitializePromotionHintRequest(id);
-#endif
 }
 
 GLenum DisplayResourceProviderGL::BindForSampling(ResourceId resource_id,
@@ -221,6 +343,7 @@ DisplayResourceProviderGL::ScopedReadLockGL::ScopedReadLockGL(
   target_ = resource->transferable.mailbox_holder.texture_target;
   size_ = resource->transferable.size;
   color_space_ = resource->transferable.color_space;
+  hdr_metadata_ = resource->transferable.hdr_metadata;
 }
 
 DisplayResourceProviderGL::ScopedReadLockGL::~ScopedReadLockGL() {
@@ -260,6 +383,42 @@ DisplayResourceProviderGL::ScopedOverlayLockGL::ScopedOverlayLockGL(
 
 DisplayResourceProviderGL::ScopedOverlayLockGL::~ScopedOverlayLockGL() {
   resource_provider_->UnlockForRead(resource_id_, true /* overlay_only */);
+}
+
+void DisplayResourceProviderGL::ScopedOverlayLockGL::SetReleaseFence(
+    gfx::GpuFenceHandle release_fence) {
+  auto* resource = resource_provider_->GetResource(resource_id_);
+  DCHECK(resource);
+  resource->release_fence = std::move(release_fence);
+}
+
+bool DisplayResourceProviderGL::ScopedOverlayLockGL::HasReadLockFence() const {
+  auto* resource = resource_provider_->GetResource(resource_id_);
+  DCHECK(resource);
+  return resource->transferable.read_lock_fences_enabled;
+}
+
+DisplayResourceProviderGL::SynchronousFence::SynchronousFence(
+    gpu::gles2::GLES2Interface* gl)
+    : gl_(gl), has_synchronized_(true) {}
+
+DisplayResourceProviderGL::SynchronousFence::~SynchronousFence() = default;
+
+void DisplayResourceProviderGL::SynchronousFence::Set() {
+  has_synchronized_ = false;
+}
+
+bool DisplayResourceProviderGL::SynchronousFence::HasPassed() {
+  if (!has_synchronized_) {
+    has_synchronized_ = true;
+    Synchronize();
+  }
+  return true;
+}
+
+void DisplayResourceProviderGL::SynchronousFence::Synchronize() {
+  TRACE_EVENT0("viz", "DisplayResourceProvider::SynchronousFence::Synchronize");
+  gl_->Finish();
 }
 
 }  // namespace viz

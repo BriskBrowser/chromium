@@ -102,8 +102,8 @@ bool IsStatsZeroIfUnlimited(const base::FilePath& path) {
 
   switch (stats.f_type) {
     case TMPFS_MAGIC:
-    case HUGETLBFS_MAGIC:
-    case RAMFS_MAGIC:
+    case static_cast<int>(HUGETLBFS_MAGIC):
+    case static_cast<int>(RAMFS_MAGIC):
       return true;
   }
   return false;
@@ -158,10 +158,16 @@ int64_t SysInfo::AmountOfVirtualMemory() {
 int64_t SysInfo::AmountOfFreeDiskSpace(const FilePath& path) {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
+#if defined(OS_CHROMEOS)
+  int64_t ret = GetFreeDiskSpaceFromSpaced(path);
+  if (ret != -1)
+    return ret;
+#endif
 
   int64_t available;
   if (!GetDiskSpaceInfo(path, &available, nullptr))
     return -1;
+
   return available;
 }
 
@@ -170,9 +176,16 @@ int64_t SysInfo::AmountOfTotalDiskSpace(const FilePath& path) {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
 
+#if defined(OS_CHROMEOS)
+  int64_t ret = GetTotalDiskSpaceFromSpaced(path);
+  if (ret != -1)
+    return ret;
+#endif
+
   int64_t total;
   if (!GetDiskSpaceInfo(path, nullptr, &total))
     return -1;
+
   return total;
 }
 
@@ -226,7 +239,7 @@ void SysInfo::OperatingSystemVersionNumbers(int32_t* major_version,
 }
 #endif
 
-#if !defined(OS_MAC)
+#if !defined(OS_MAC) && !defined(OS_IOS)
 // static
 std::string SysInfo::OperatingSystemArchitecture() {
   struct utsname info;
@@ -244,7 +257,7 @@ std::string SysInfo::OperatingSystemArchitecture() {
   }
   return arch;
 }
-#endif  // !defined(OS_MAC)
+#endif  // !defined(OS_MAC) && !defined(OS_IOS)
 
 // static
 size_t SysInfo::VMAllocationGranularity() {

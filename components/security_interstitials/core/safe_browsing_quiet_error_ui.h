@@ -32,11 +32,15 @@ class SafeBrowsingQuietErrorUI
       const base::Time& time_triggered,
       ControllerClient* controller,
       const bool is_giant_webview);
+
+  SafeBrowsingQuietErrorUI(const SafeBrowsingQuietErrorUI&) = delete;
+  SafeBrowsingQuietErrorUI& operator=(const SafeBrowsingQuietErrorUI&) = delete;
+
   ~SafeBrowsingQuietErrorUI() override;
 
   // Fills the passed dictionary with the values to be passed to the template
   // when creating the HTML.
-  void PopulateStringsForHtml(base::DictionaryValue* load_time_data) override;
+  void PopulateStringsForHtml(base::Value* load_time_data) override;
 
   void HandleCommand(SecurityInterstitialCommand command) override;
 
@@ -47,14 +51,12 @@ class SafeBrowsingQuietErrorUI
   int GetHTMLTemplateId() const override;
 
  private:
-  void PopulateMalwareLoadTimeData(base::DictionaryValue* load_time_data);
-  void PopulateHarmfulLoadTimeData(base::DictionaryValue* load_time_data);
-  void PopulatePhishingLoadTimeData(base::DictionaryValue* load_time_data);
-  void PopulateBillingLoadTimeData(base::DictionaryValue* load_time_data);
+  void PopulateMalwareLoadTimeData(base::Value* load_time_data);
+  void PopulateHarmfulLoadTimeData(base::Value* load_time_data);
+  void PopulatePhishingLoadTimeData(base::Value* load_time_data);
+  void PopulateBillingLoadTimeData(base::Value* load_time_data);
 
   bool is_giant_webview_;
-
-  DISALLOW_COPY_AND_ASSIGN(SafeBrowsingQuietErrorUI);
 };
 
 }  // security_interstitials

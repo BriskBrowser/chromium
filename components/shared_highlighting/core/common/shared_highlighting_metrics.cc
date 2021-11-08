@@ -22,6 +22,11 @@ TextFragmentLinkOpenSource GetLinkSource(const GURL& referrer) {
 
 }  // namespace
 
+void LogDesktopLinkGenerationCopiedLinkType(LinkGenerationCopiedLinkType type) {
+  base::UmaHistogramEnumeration("SharedHighlights.Desktop.CopiedLinkType",
+                                type);
+}
+
 void LogLinkGenerationErrorReason(LinkGenerationError reason) {
   base::UmaHistogramEnumeration("SharedHighlights.LinkGenerated.Error", reason);
 }
@@ -56,6 +61,7 @@ void LogTextFragmentSelectorCount(int count) {
   base::UmaHistogramCounts100("TextFragmentAnchor.SelectorCount", count);
 }
 
+// TODO(gayane): Replace by one function LogGenerateError(Error).
 void LogGenerateErrorTabHidden() {
   LogLinkGenerationErrorReason(LinkGenerationError::kTabHidden);
 }
@@ -74,6 +80,10 @@ void LogGenerateErrorIFrame() {
 
 void LogGenerateErrorBlockList() {
   LogLinkGenerationErrorReason(LinkGenerationError::kBlockList);
+}
+
+void LogGenerateErrorTimeout() {
+  LogLinkGenerationErrorReason(LinkGenerationError::kTimeout);
 }
 
 void LogGenerateSuccessLatency(base::TimeDelta latency) {

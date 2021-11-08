@@ -85,6 +85,9 @@ class FakeGaia {
 
     // The e-mail address returned by /ListAccounts.
     std::string email;
+
+    // List of signed out gaia IDs returned by /ListAccounts.
+    std::vector<std::string> signed_out_gaia_ids;
   };
 
   struct SyncTrustedVaultKeys {
@@ -97,6 +100,10 @@ class FakeGaia {
   };
 
   FakeGaia();
+
+  FakeGaia(const FakeGaia&) = delete;
+  FakeGaia& operator=(const FakeGaia&) = delete;
+
   virtual ~FakeGaia();
 
   void SetFakeMergeSessionParams(const std::string& email,
@@ -194,6 +201,10 @@ class FakeGaia {
   // Returns the is_device_owner param from the reauth URL if any.
   const std::string& is_device_owner() { return is_device_owner_; }
 
+  // Returns the fake server's URL that browser tests can visit to trigger a
+  // RemoveLocalAccount event.
+  GURL GetDummyRemoveLocalAccountURL(const std::string& gaia_id) const;
+
  protected:
   // HTTP handler for /MergeSession.
   virtual void HandleMergeSession(
@@ -209,6 +220,7 @@ class FakeGaia {
       std::map<std::string, SyncTrustedVaultKeys>;
 
   std::string GetGaiaIdOfEmail(const std::string& email) const;
+  std::string GetEmailOfGaiaId(const std::string& email) const;
 
   void AddGoogleAccountsSigninHeader(
       net::test_server::BasicHttpResponse* http_response,
@@ -298,6 +310,9 @@ class FakeGaia {
   // HTTP handler for /OAuth/Multilogin.
   void HandleMultilogin(const net::test_server::HttpRequest& request,
                         net::test_server::BasicHttpResponse* http_response);
+  void HandleDummyRemoveLocalAccount(
+      const net::test_server::HttpRequest& request,
+      net::test_server::BasicHttpResponse* http_response);
 
   // Returns the access token associated with |auth_token| that matches the
   // given |client_id| and |scope_string|. If |scope_string| is empty, the first
@@ -333,7 +348,6 @@ class FakeGaia {
   GaiaAuthConsumer::ReAuthProofTokenStatus next_reauth_status_ =
       GaiaAuthConsumer::ReAuthProofTokenStatus::kSuccess;
   GURL embedded_setup_chromeos_iframe_url_;
-  DISALLOW_COPY_AND_ASSIGN(FakeGaia);
 };
 
 #endif  // GOOGLE_APIS_GAIA_FAKE_GAIA_H_

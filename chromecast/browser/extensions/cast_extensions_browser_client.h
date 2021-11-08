@@ -38,6 +38,11 @@ class CastExtensionsBrowserClient : public ExtensionsBrowserClient {
       content::BrowserContext* context,
       PrefService* pref_service,
       chromecast::shell::CastNetworkContexts* cast_network_contexts);
+
+  CastExtensionsBrowserClient(const CastExtensionsBrowserClient&) = delete;
+  CastExtensionsBrowserClient& operator=(const CastExtensionsBrowserClient&) =
+      delete;
+
   ~CastExtensionsBrowserClient() override;
 
   // ExtensionsBrowserClient overrides:
@@ -69,9 +74,8 @@ class CastExtensionsBrowserClient : public ExtensionsBrowserClient {
       mojo::PendingReceiver<network::mojom::URLLoader> loader,
       const base::FilePath& resource_relative_path,
       int resource_id,
-      const std::string& content_security_policy,
-      mojo::PendingRemote<network::mojom::URLLoaderClient> client,
-      bool send_cors_header) override;
+      scoped_refptr<net::HttpResponseHeaders> headers,
+      mojo::PendingRemote<network::mojom::URLLoaderClient> client) override;
   bool AllowCrossRendererResourceLoad(
       const network::ResourceRequest& request,
       network::mojom::RequestDestination destination,
@@ -135,8 +139,6 @@ class CastExtensionsBrowserClient : public ExtensionsBrowserClient {
   std::unique_ptr<ExtensionsAPIClient> api_client_;
 
   std::unique_ptr<KioskDelegate> kiosk_delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(CastExtensionsBrowserClient);
 };
 
 }  // namespace extensions

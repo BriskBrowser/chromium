@@ -5,9 +5,8 @@
 #ifndef UI_GFX_RENDERING_PIPELINE_H_
 #define UI_GFX_RENDERING_PIPELINE_H_
 
-#include "base/containers/flat_map.h"
 #include "base/memory/singleton.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
 #include "ui/gfx/gfx_export.h"
 

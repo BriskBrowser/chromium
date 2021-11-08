@@ -14,10 +14,11 @@
 #endif
 #include "chrome/browser/ui/views/frame/native_browser_frame_factory.h"
 #include "chrome/grit/chromium_strings.h"
-#include "components/safe_browsing/core/password_protection/metrics_util.h"
+#include "components/safe_browsing/core/browser/password_protection/metrics_util.h"
 #if defined(USE_AURA)
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_occlusion_tracker.h"
 #endif
 #include "build/chromeos_buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -28,6 +29,13 @@ BrowserWindow* BrowserWindow::CreateBrowserWindow(
     std::unique_ptr<Browser> browser,
     bool user_gesture,
     bool in_tab_dragging) {
+#if defined(USE_AURA)
+  // Avoid generating too many occlusion tracking calculation events before this
+  // function returns. The occlusion status will be computed only once once this
+  // function returns.
+  // See crbug.com/1183894#c4
+  aura::WindowOcclusionTracker::ScopedPause pause_occlusion;
+#endif
   // Create the view and the frame. The frame will attach itself via the view
   // so we don't need to do anything with the pointer.
   BrowserView* view = new BrowserView(std::move(browser));

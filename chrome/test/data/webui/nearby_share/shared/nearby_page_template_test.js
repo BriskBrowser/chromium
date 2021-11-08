@@ -5,7 +5,7 @@
 // clang-format off
 // #import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 // #import 'chrome://nearby/shared/nearby_page_template.m.js';
-// #import {waitAfterNextRender, isChildVisible} from '../../test_util.m.js';
+// #import {waitAfterNextRender, isChildVisible} from '../../test_util.js';
 // #import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
 // clang-format on
 
@@ -99,5 +99,22 @@ suite('nearby-page-template', function() {
     element.addEventListener('close', () => closeTrigger = true);
     element.$$('#closeButton').click();
     assertTrue(closeTrigger);
+  });
+
+  test('Open-in-new icon', async function() {
+    element.title = 'title';
+    element.subTitle = 'subTitle';
+    element.utilityButtonLabel = 'utility';
+
+    // Open-in-new icon not shown by default.
+    await test_util.waitAfterNextRender(element);
+    assertFalse(!!element.$$('#utilityButton #openInNewIcon'));
+
+    element.utilityButtonOpenInNew = true;
+    await test_util.waitAfterNextRender(element);
+    assertTrue(!!element.$$('#utilityButton #openInNewIcon'));
+    assertEquals(
+        'cr:open-in-new',
+        element.$$('#utilityButton #openInNewIcon').getAttribute('icon'));
   });
 });

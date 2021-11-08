@@ -12,8 +12,8 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/autofill/autofill_popup_view_delegate.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/focus/widget_focus_manager.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/widget/widget_observer.h"
@@ -63,8 +63,9 @@ class AutofillPopupBaseView : public views::WidgetDelegateView,
                                  views::Widget* parent_widget);
   ~AutofillPopupBaseView() override;
 
-  // Show this popup. Idempotent.
-  void DoShow();
+  // Show this popup. Idempotent. Returns |true| if popup is shown, |false|
+  // otherwise.
+  bool DoShow();
 
   // Hide the widget and delete |this|.
   void DoHide();
@@ -73,8 +74,8 @@ class AutofillPopupBaseView : public views::WidgetDelegateView,
   // boundaries. Should be overridden together with CreateBorder.
   void UpdateClipPath();
 
-  // Returns the bounds of the containing window in screen space.
-  gfx::Rect GetWindowBounds() const;
+  // Returns the bounds of the containing browser window in screen space.
+  gfx::Rect GetTopWindowBounds() const;
 
   // Returns the bounds of the content area in screen space.
   gfx::Rect GetContentAreaBounds() const;
@@ -85,6 +86,9 @@ class AutofillPopupBaseView : public views::WidgetDelegateView,
   virtual bool DoUpdateBoundsAndRedrawPopup();
 
   const AutofillPopupViewDelegate* delegate() const { return delegate_; }
+
+  // Returns the border to be applied to the popup.
+  virtual std::unique_ptr<views::Border> CreateBorder();
 
  private:
   friend class AutofillPopupBaseViewTest;
@@ -106,9 +110,6 @@ class AutofillPopupBaseView : public views::WidgetDelegateView,
   // Hide the controller of this view. This assumes that doing so will
   // eventually hide this view in the process.
   void HideController(PopupHidingReason reason);
-
-  // Returns the border to be applied to the popup.
-  std::unique_ptr<views::Border> CreateBorder();
 
   // Must return the container view for this popup.
   gfx::NativeView container_view();

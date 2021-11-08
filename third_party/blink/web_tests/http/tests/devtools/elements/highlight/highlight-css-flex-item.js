@@ -4,7 +4,7 @@
 
 (async function() {
   TestRunner.addResult(`This test verifies the base size returned when highlighting flex items.\n`);
-  await TestRunner.loadModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
   await TestRunner.showPanel('elements');
   await TestRunner.loadHTML(`
       <style>
@@ -35,7 +35,9 @@
     `);
 
   function dumFlexHighlight(id) {
-    return new Promise(resolve => ElementsTestRunner.dumpInspectorHighlightJSON(id, resolve));
+    return new Promise(resolve => ElementsTestRunner.dumpInspectorHighlightJSON(id,
+      ['flexItemInfo'],
+      resolve));
   }
 
   await dumFlexHighlight('fixed-flex-basis');

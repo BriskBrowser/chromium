@@ -6,7 +6,6 @@
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_PAYMENTS_AUTOFILL_WALLET_MODEL_TYPE_CONTROLLER_H_
 
 #include <memory>
-#include <string>
 
 #include "base/macros.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -41,6 +40,12 @@ class AutofillWalletModelTypeController : public syncer::ModelTypeController,
           delegate_for_transport_mode,
       PrefService* pref_service,
       syncer::SyncService* sync_service);
+
+  AutofillWalletModelTypeController(const AutofillWalletModelTypeController&) =
+      delete;
+  AutofillWalletModelTypeController& operator=(
+      const AutofillWalletModelTypeController&) = delete;
+
   ~AutofillWalletModelTypeController() override;
 
   // DataTypeController overrides.
@@ -63,8 +68,6 @@ class AutofillWalletModelTypeController : public syncer::ModelTypeController,
   syncer::SyncService* const sync_service_;
 
   PrefChangeRegistrar pref_registrar_;
-
-  DISALLOW_COPY_AND_ASSIGN(AutofillWalletModelTypeController);
 };
 
 }  // namespace browser_sync

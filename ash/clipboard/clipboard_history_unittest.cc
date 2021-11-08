@@ -26,6 +26,7 @@
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/gfx/skia_util.h"
 
 namespace ash {
 
@@ -55,18 +56,12 @@ class ClipboardHistoryTest : public AshTestBase {
     return event_generator_.get();
   }
 
-  // Simulates pressing and releasing `key_code`.
-  void PressAndRelease(ui::KeyboardCode key_code, int flags) {
-    event_generator_->PressKey(key_code, flags);
-    event_generator_->ReleaseKey(key_code, flags);
-  }
-
   // Writes |input_strings| to the clipboard buffer and ensures that
   // |expected_strings| are retained in history. If |in_same_sequence| is true,
   // writes to the buffer will be performed in the same task sequence.
   void WriteAndEnsureTextHistory(
-      const std::vector<base::string16>& input_strings,
-      const std::vector<base::string16>& expected_strings,
+      const std::vector<std::u16string>& input_strings,
+      const std::vector<std::u16string>& expected_strings,
       bool in_same_sequence = false) {
     for (const auto& input_string : input_strings) {
       {
@@ -81,7 +76,7 @@ class ClipboardHistoryTest : public AshTestBase {
     EnsureTextHistory(expected_strings);
   }
 
-  void EnsureTextHistory(const std::vector<base::string16>& expected_strings) {
+  void EnsureTextHistory(const std::vector<std::u16string>& expected_strings) {
     const std::list<ClipboardHistoryItem>& items = GetClipboardHistoryItems();
     EXPECT_EQ(expected_strings.size(), items.size());
 
@@ -118,15 +113,15 @@ class ClipboardHistoryTest : public AshTestBase {
   // |expected_data| is retained in history. After writing to the buffer, the
   // current task sequence is run to idle to simulate real world behavior.
   void WriteAndEnsureCustomDataHistory(
-      const std::unordered_map<base::string16, base::string16>& input_data,
-      const std::unordered_map<base::string16, base::string16>& expected_data) {
+      const std::unordered_map<std::u16string, std::u16string>& input_data,
+      const std::unordered_map<std::u16string, std::u16string>& expected_data) {
     base::Pickle input_data_pickle;
     ui::WriteCustomDataToPickle(input_data, &input_data_pickle);
 
     {
       ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
       scw.WritePickledData(input_data_pickle,
-                           ui::ClipboardFormatType::GetWebCustomDataType());
+                           ui::ClipboardFormatType::WebCustomDataType());
     }
     base::RunLoop().RunUntilIdle();
 
@@ -136,7 +131,7 @@ class ClipboardHistoryTest : public AshTestBase {
     if (expected_data.empty())
       return;
 
-    std::unordered_map<base::string16, base::string16> actual_data;
+    std::unordered_map<std::u16string, std::u16string> actual_data;
     ui::ReadCustomDataIntoMap(items.front().data().custom_data_data().c_str(),
                               items.front().data().custom_data_data().size(),
                               &actual_data);
@@ -162,8 +157,8 @@ TEST_F(ClipboardHistoryTest, NothingCopiedNothingSaved) {
 
 // Tests that if one thing is copied, one thing is saved.
 TEST_F(ClipboardHistoryTest, OneThingCopiedOneThingSaved) {
-  std::vector<base::string16> input_strings{base::UTF8ToUTF16("test")};
-  std::vector<base::string16> expected_strings = input_strings;
+  std::vector<std::u16string> input_strings{u"test"};
+  std::vector<std::u16string> expected_strings = input_strings;
 
   // Test that only one string is in history.
   WriteAndEnsureTextHistory(input_strings, expected_strings);
@@ -172,9 +167,8 @@ TEST_F(ClipboardHistoryTest, OneThingCopiedOneThingSaved) {
 // Tests that if the same (non bitmap) thing is copied, only one of the
 // duplicates is in the list.
 TEST_F(ClipboardHistoryTest, DuplicateBasic) {
-  std::vector<base::string16> input_strings{base::UTF8ToUTF16("test"),
-                                            base::UTF8ToUTF16("test")};
-  std::vector<base::string16> expected_strings{base::UTF8ToUTF16("test")};
+  std::vector<std::u16string> input_strings{u"test", u"test"};
+  std::vector<std::u16string> expected_strings{u"test"};
 
   // Test that both things are saved.
   WriteAndEnsureTextHistory(input_strings, expected_strings);
@@ -183,12 +177,10 @@ TEST_F(ClipboardHistoryTest, DuplicateBasic) {
 // Tests that if multiple things are copied in the same task sequence, only the
 // most recent thing is saved.
 TEST_F(ClipboardHistoryTest, InSameSequenceBasic) {
-  std::vector<base::string16> input_strings{base::UTF8ToUTF16("test1"),
-                                            base::UTF8ToUTF16("test2"),
-                                            base::UTF8ToUTF16("test3")};
+  std::vector<std::u16string> input_strings{u"test1", u"test2", u"test3"};
   // Because |input_strings| will be copied in the same task sequence, history
   // should only retain the most recent thing.
-  std::vector<base::string16> expected_strings{base::UTF8ToUTF16("test3")};
+  std::vector<std::u16string> expected_strings{u"test3"};
 
   // Test that only the most recent thing is saved.
   WriteAndEnsureTextHistory(input_strings, expected_strings,
@@ -197,10 +189,9 @@ TEST_F(ClipboardHistoryTest, InSameSequenceBasic) {
 
 // Tests the ordering of history is in reverse chronological order.
 TEST_F(ClipboardHistoryTest, HistoryIsReverseChronological) {
-  std::vector<base::string16> input_strings{
-      base::UTF8ToUTF16("test1"), base::UTF8ToUTF16("test2"),
-      base::UTF8ToUTF16("test3"), base::UTF8ToUTF16("test4")};
-  std::vector<base::string16> expected_strings = input_strings;
+  std::vector<std::u16string> input_strings{u"test1", u"test2", u"test3",
+                                            u"test4"};
+  std::vector<std::u16string> expected_strings = input_strings;
   // Reverse the vector, history should match this ordering.
   std::reverse(std::begin(expected_strings), std::end(expected_strings));
   WriteAndEnsureTextHistory(input_strings, expected_strings);
@@ -210,15 +201,12 @@ TEST_F(ClipboardHistoryTest, HistoryIsReverseChronological) {
 // to the front of the clipboard history.
 TEST_F(ClipboardHistoryTest, DuplicatePrecedesPreviousRecord) {
   // Input holds a unique string sandwiched by a copy.
-  std::vector<base::string16> input_strings{
-      base::UTF8ToUTF16("test1"), base::UTF8ToUTF16("test2"),
-      base::UTF8ToUTF16("test1"), base::UTF8ToUTF16("test3")};
+  std::vector<std::u16string> input_strings{u"test1", u"test2", u"test1",
+                                            u"test3"};
   // The result should be a reversal of the copied elements. When a duplicate
   // is copied, history will have that item moved to the front instead of adding
   // a new item.
-  std::vector<base::string16> expected_strings{base::UTF8ToUTF16("test3"),
-                                               base::UTF8ToUTF16("test1"),
-                                               base::UTF8ToUTF16("test2")};
+  std::vector<std::u16string> expected_strings{u"test3", u"test1", u"test2"};
 
   WriteAndEnsureTextHistory(input_strings, expected_strings);
 }
@@ -226,12 +214,10 @@ TEST_F(ClipboardHistoryTest, DuplicatePrecedesPreviousRecord) {
 // Tests that nothing is saved after history is cleared.
 TEST_F(ClipboardHistoryTest, ClearHistoryBasic) {
   // Input holds a unique string sandwhiched by a copy.
-  std::vector<base::string16> input_strings{base::UTF8ToUTF16("test1"),
-                                            base::UTF8ToUTF16("test2"),
-                                            base::UTF8ToUTF16("test1")};
+  std::vector<std::u16string> input_strings{u"test1", u"test2", u"test1"};
   // The result should be a reversal of the last two elements. When a duplicate
   // is copied, history will show the most recent version of that duplicate.
-  std::vector<base::string16> expected_strings{};
+  std::vector<std::u16string> expected_strings{};
 
   for (const auto& input_string : input_strings) {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
@@ -250,12 +236,10 @@ TEST_F(ClipboardHistoryTest, ClearHistoryFromClipboardNoHistory) {
 
 // Tests that clipboard history is cleared when the clipboard is cleared.
 TEST_F(ClipboardHistoryTest, ClearHistoryFromClipboardWithHistory) {
-  std::vector<base::string16> input_strings{base::UTF8ToUTF16("test1"),
-                                            base::UTF8ToUTF16("test2")};
+  std::vector<std::u16string> input_strings{u"test1", u"test2"};
 
-  std::vector<base::string16> expected_strings_before_clear{
-      base::UTF8ToUTF16("test2"), base::UTF8ToUTF16("test1")};
-  std::vector<base::string16> expected_strings_after_clear{};
+  std::vector<std::u16string> expected_strings_before_clear{u"test2", u"test1"};
+  std::vector<std::u16string> expected_strings_after_clear{};
 
   for (const auto& input_string : input_strings) {
     {
@@ -274,13 +258,11 @@ TEST_F(ClipboardHistoryTest, ClearHistoryFromClipboardWithHistory) {
 
 // Tests that the limit of clipboard history is respected.
 TEST_F(ClipboardHistoryTest, HistoryLimit) {
-  std::vector<base::string16> input_strings{
-      base::UTF8ToUTF16("test1"), base::UTF8ToUTF16("test2"),
-      base::UTF8ToUTF16("test3"), base::UTF8ToUTF16("test4"),
-      base::UTF8ToUTF16("test5"), base::UTF8ToUTF16("test6")};
+  std::vector<std::u16string> input_strings{u"test1", u"test2", u"test3",
+                                            u"test4", u"test5", u"test6"};
 
   // The result should be a reversal of the last five elements.
-  std::vector<base::string16> expected_strings{input_strings.begin() + 1,
+  std::vector<std::u16string> expected_strings{input_strings.begin() + 1,
                                                input_strings.end()};
   std::reverse(expected_strings.begin(), expected_strings.end());
   WriteAndEnsureTextHistory(input_strings, expected_strings);
@@ -288,11 +270,9 @@ TEST_F(ClipboardHistoryTest, HistoryLimit) {
 
 // Tests that pausing clipboard history results in no history collected.
 TEST_F(ClipboardHistoryTest, PauseHistory) {
-  std::vector<base::string16> input_strings{base::UTF8ToUTF16("test1"),
-                                            base::UTF8ToUTF16("test2"),
-                                            base::UTF8ToUTF16("test1")};
+  std::vector<std::u16string> input_strings{u"test1", u"test2", u"test1"};
   // Because history is paused, there should be nothing stored.
-  std::vector<base::string16> expected_strings{};
+  std::vector<std::u16string> expected_strings{};
 
   ScopedClipboardHistoryPauseImpl scoped_pause(clipboard_history());
   WriteAndEnsureTextHistory(input_strings, expected_strings);
@@ -327,11 +307,9 @@ TEST_F(ClipboardHistoryTest, DuplicateBitmap) {
 
 // Tests that unrecognized custom data is omitted from clipboard history.
 TEST_F(ClipboardHistoryTest, BasicCustomData) {
-  const std::unordered_map<base::string16, base::string16> input_data = {
-      {base::UTF8ToUTF16("custom-format-1"),
-       base::UTF8ToUTF16("custom-data-1")},
-      {base::UTF8ToUTF16("custom-format-2"),
-       base::UTF8ToUTF16("custom-data-2")}};
+  const std::unordered_map<std::u16string, std::u16string> input_data = {
+      {u"custom-format-1", u"custom-data-1"},
+      {u"custom-format-2", u"custom-data-2"}};
 
   // Custom data which is not recognized is omitted from history.
   WriteAndEnsureCustomDataHistory(input_data, /*expected_data=*/{});
@@ -339,11 +317,10 @@ TEST_F(ClipboardHistoryTest, BasicCustomData) {
 
 // Tests that file system data is recorded in clipboard history.
 TEST_F(ClipboardHistoryTest, BasicFileSystemData) {
-  const std::unordered_map<base::string16, base::string16> input_data = {
-      {base::UTF8ToUTF16("fs/sources"),
-       base::UTF8ToUTF16("/path/to/My%20File.txt")}};
+  const std::unordered_map<std::u16string, std::u16string> input_data = {
+      {u"fs/sources", u"/path/to/My%20File.txt"}};
 
-  const std::unordered_map<base::string16, base::string16> expected_data =
+  const std::unordered_map<std::u16string, std::u16string> expected_data =
       input_data;
 
   WriteAndEnsureCustomDataHistory(input_data, expected_data);
@@ -372,12 +349,12 @@ TEST_F(ClipboardHistoryTest, RecordControlV) {
 
   // Press Ctrl + V, a histogram should be emitted.
   event_generator->PressKey(ui::VKEY_CONTROL, ui::EF_NONE);
-  PressAndRelease(ui::VKEY_V, ui::EF_CONTROL_DOWN);
+  PressAndReleaseKey(ui::VKEY_V, ui::EF_CONTROL_DOWN);
 
   histogram_tester.ExpectTotalCount("Ash.ClipboardHistory.ControlToVDelay", 1u);
 
   // Press and release V again, no additional histograms should be emitted.
-  PressAndRelease(ui::VKEY_V, ui::EF_CONTROL_DOWN);
+  PressAndReleaseKey(ui::VKEY_V, ui::EF_CONTROL_DOWN);
 
   histogram_tester.ExpectTotalCount("Ash.ClipboardHistory.ControlToVDelay", 1u);
 
@@ -388,7 +365,7 @@ TEST_F(ClipboardHistoryTest, RecordControlV) {
   // Hold shift while pressing ctrl + V, no histogram should be recorded.
   event_generator->PressKey(ui::VKEY_SHIFT, ui::EF_NONE);
   event_generator->PressKey(ui::VKEY_CONTROL, ui::EF_SHIFT_DOWN);
-  PressAndRelease(ui::VKEY_V, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  PressAndReleaseKey(ui::VKEY_V, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
 
   event_generator->ReleaseKey(ui::VKEY_CONTROL, ui::EF_SHIFT_DOWN);
   event_generator->ReleaseKey(ui::VKEY_SHIFT, ui::EF_NONE);
@@ -398,8 +375,8 @@ TEST_F(ClipboardHistoryTest, RecordControlV) {
   // Press Ctrl, then press and release a random key, then press V. A histogram
   // should be recorded.
   event_generator->PressKey(ui::VKEY_CONTROL, ui::EF_NONE);
-  PressAndRelease(ui::VKEY_X, ui::EF_CONTROL_DOWN);
-  PressAndRelease(ui::VKEY_V, ui::EF_CONTROL_DOWN);
+  PressAndReleaseKey(ui::VKEY_X, ui::EF_CONTROL_DOWN);
+  PressAndReleaseKey(ui::VKEY_V, ui::EF_CONTROL_DOWN);
 
   histogram_tester.ExpectTotalCount("Ash.ClipboardHistory.ControlToVDelay", 2u);
 }

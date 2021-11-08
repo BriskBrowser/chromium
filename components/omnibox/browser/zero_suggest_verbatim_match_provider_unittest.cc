@@ -11,6 +11,8 @@
 
 #include "base/feature_list.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/task_environment.h"
+#include "components/omnibox/browser/fake_autocomplete_provider_client.h"
 #include "components/omnibox/browser/mock_autocomplete_provider_client.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
 #include "components/omnibox/common/omnibox_features.h"
@@ -27,23 +29,19 @@ class ZeroSuggestVerbatimMatchProviderTest
 
  protected:
   bool IsVerbatimMatchEligible() const;
+  base::test::TaskEnvironment task_environment_{
+      base::test::TaskEnvironment::MainThreadType::UI};
   scoped_refptr<ZeroSuggestVerbatimMatchProvider> provider_;
-  MockAutocompleteProviderClient mock_client_;
+  FakeAutocompleteProviderClient mock_client_;
 };
 
 bool ZeroSuggestVerbatimMatchProviderTest::IsVerbatimMatchEligible() const {
-  switch (GetParam()) {
-    case metrics::OmniboxEventProto::OTHER:
-      return true;
-    case metrics::OmniboxEventProto::
-        SEARCH_RESULT_PAGE_DOING_SEARCH_TERM_REPLACEMENT:
-    case metrics::OmniboxEventProto::
-        SEARCH_RESULT_PAGE_NO_SEARCH_TERM_REPLACEMENT:
-      return base::FeatureList::IsEnabled(
-          omnibox::kOmniboxSearchReadyIncognito);
-    default:
-      return false;
-  }
+  auto param = GetParam();
+  return param == metrics::OmniboxEventProto::OTHER ||
+         param == metrics::OmniboxEventProto::
+                      SEARCH_RESULT_PAGE_DOING_SEARCH_TERM_REPLACEMENT ||
+         param == metrics::OmniboxEventProto::
+                      SEARCH_RESULT_PAGE_NO_SEARCH_TERM_REPLACEMENT;
 }
 
 void ZeroSuggestVerbatimMatchProviderTest::SetUp() {
@@ -51,7 +49,7 @@ void ZeroSuggestVerbatimMatchProviderTest::SetUp() {
   ON_CALL(mock_client_, IsOffTheRecord()).WillByDefault([] { return false; });
   ON_CALL(mock_client_, Classify)
       .WillByDefault(
-          [](const base::string16& text, bool prefer_keyword,
+          [](const std::u16string& text, bool prefer_keyword,
              bool allow_exact_keyword_match,
              metrics::OmniboxEventProto::PageClassification page_classification,
              AutocompleteMatch* match,
@@ -119,7 +117,7 @@ TEST_P(ZeroSuggestVerbatimMatchProviderTest,
 
 TEST_P(ZeroSuggestVerbatimMatchProviderTest, NoVerbatimMatchWithEmptyInput) {
   std::string url("https://www.wired.com/");
-  AutocompleteInput input(base::string16(),  // Note: empty input.
+  AutocompleteInput input(std::u16string(),  // Note: empty input.
                           GetParam(), TestSchemeClassifier());
   input.set_current_url(GURL(url));
   input.set_focus_type(OmniboxFocusType::DEFAULT);
@@ -134,7 +132,7 @@ TEST_P(ZeroSuggestVerbatimMatchProviderTest, NoVerbatimMatchWithEmptyInput) {
 TEST_P(ZeroSuggestVerbatimMatchProviderTest,
        NoVerbatimMatchWithEmptyInputInIncognito) {
   std::string url("https://www.wired.com/");
-  AutocompleteInput input(base::string16(),  // Note: empty input.
+  AutocompleteInput input(std::u16string(),  // Note: empty input.
                           GetParam(), TestSchemeClassifier());
   input.set_current_url(GURL(url));
   input.set_focus_type(OmniboxFocusType::DEFAULT);
@@ -149,7 +147,7 @@ TEST_P(ZeroSuggestVerbatimMatchProviderTest,
 
 TEST_P(ZeroSuggestVerbatimMatchProviderTest, NoVerbatimMatchOnClearInput) {
   std::string url("https://www.wired.com/");
-  AutocompleteInput input(base::string16(),  // Note: empty input.
+  AutocompleteInput input(std::u16string(),  // Note: empty input.
                           GetParam(), TestSchemeClassifier());
   input.set_current_url(GURL(url));
   input.set_focus_type(OmniboxFocusType::DELETED_PERMANENT_TEXT);
@@ -164,7 +162,7 @@ TEST_P(ZeroSuggestVerbatimMatchProviderTest, NoVerbatimMatchOnClearInput) {
 TEST_P(ZeroSuggestVerbatimMatchProviderTest,
        NoVerbatimMatchOnClearInputInIncognito) {
   std::string url("https://www.wired.com/");
-  AutocompleteInput input(base::string16(),  // Note: empty input.
+  AutocompleteInput input(std::u16string(),  // Note: empty input.
                           GetParam(), TestSchemeClassifier());
   input.set_current_url(GURL(url));
   input.set_focus_type(OmniboxFocusType::DELETED_PERMANENT_TEXT);

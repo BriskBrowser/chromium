@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "chrome/browser/ui/passwords/password_dialog_prompts.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace content {
@@ -32,8 +32,8 @@ class CredentialLeakDialogView : public views::DialogDelegateView,
 
  private:
   // views::DialogDelegateView:
-  void OnThemeChanged() override;
-  base::string16 GetWindowTitle() const override;
+  void AddedToWidget() override;
+  std::u16string GetWindowTitle() const override;
 
   // Sets up the child views.
   void InitWindow();

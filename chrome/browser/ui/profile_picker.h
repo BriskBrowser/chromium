@@ -5,11 +5,12 @@
 #ifndef CHROME_BROWSER_UI_PROFILE_PICKER_H_
 #define CHROME_BROWSER_UI_PROFILE_PICKER_H_
 
-#include <vector>
-
 #include "base/callback_forward.h"
 #include "base/feature_list.h"
 #include "base/time/time.h"
+#include "chrome/browser/ui/webui/signin/enterprise_profile_welcome_ui.h"
+#include "components/signin/public/base/signin_buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "url/gurl.h"
 
@@ -27,10 +28,6 @@ namespace views {
 class View;
 class WebView;
 }  // namespace views
-
-// Kill switch to disable showing the picker on startup. Has no effect if
-// features::kNewProfilePicker is disabled.
-extern const base::Feature kEnableProfilePickerOnStartupFeature;
 
 class ProfilePicker {
  public:
@@ -65,30 +62,38 @@ class ProfilePicker {
     kMax = kForced
   };
 
+  ProfilePicker(const ProfilePicker&) = delete;
+  ProfilePicker& operator=(const ProfilePicker&) = delete;
+
   // Shows the Profile picker for the given `entry_point` or re-activates an
   // existing one. In the latter case, the displayed page and the target url
   // on profile selection is not updated.
   static void Show(EntryPoint entry_point,
                    const GURL& on_select_profile_target_url = GURL());
 
-  // Starts the sign-in flow. The layout of the window gets updated for the
-  // sign-in flow. At the same time, the new profile is created (with
-  // `profile_color`) and the sign-in page is rendered using the new profile.
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+  // Starts the Dice sign-in flow. The layout of the window gets updated for the
+  // sign-in flow. At the same time, the new profile is created and the sign-in
+  // page is rendered using the new profile.
+  // The new profile uses a theme generated from `profile_color` if provided or
+  // the default theme.
   // `switch_finished_callback` gets informed whether the creation of the new
   // profile succeeded and the sign-in page gets displayed.
-  static void SwitchToSignIn(
-      SkColor profile_color,
+  static void SwitchToDiceSignIn(
+      absl::optional<SkColor> profile_color,
       base::OnceCallback<void(bool)> switch_finished_callback);
+#endif
 
-  // Cancel the sign-in flow and returns back to the main picker screen (if the
-  // original EntryPoint was to open the picker). Must only be called from
-  // within the sign-in flow. This will delete the profile previously created
-  // for the sign-in flow.
-  static void CancelSignIn();
+  // Starts the flow to set-up a signed-in profile. `signed_in_profile` must
+  // have an unconsented primary account.
+  static void SwitchToSignedInFlow(absl::optional<SkColor> profile_color,
+                                   Profile* signed_in_profile);
 
-  // Finishes the sign-in flow by moving to the sync confirmation screen. It
-  // uses the same new profile created by `SwitchToSignIn()`.
-  static void SwitchToSyncConfirmation();
+  // Cancel the signed-in flow and returns back to the main picker screen (if
+  // the original EntryPoint was to open the picker). Must only be called from
+  // within the signed-in flow. This will delete the profile previously created
+  // for the signed-in flow.
+  static void CancelSignedInFlow();
 
   // Shows a dialog where the user can auth the profile or see the
   // auth error message. If a dialog is already shown, this destroys the current
@@ -108,6 +113,10 @@ class ProfilePicker {
   // profile selection instead of the new tab page.
   static GURL GetOnSelectProfileTargetUrl();
 
+  // Getter of the path of profile which is displayed on the profile switch
+  // screen.
+  static base::FilePath GetSwitchProfilePath();
+
   // Hides the profile picker.
   static void Hide();
 
@@ -123,9 +132,6 @@ class ProfilePicker {
   // Returns the web view (embedded in the picker) for testing.
   static views::WebView* GetWebViewForTesting();
 
-  // Returns the simple toolbar (embedded in the picker) for testing.
-  static views::View* GetToolbarForTesting();
-
   // Add a callback that will be called the next time the picker is opened.
   static void AddOnProfilePickerOpenedCallbackForTesting(
       base::OnceClosure callback);
@@ -133,14 +139,15 @@ class ProfilePicker {
   // Overrides the timeout delay for waiting for extended account info.
   static void SetExtendedAccountInfoTimeoutForTesting(base::TimeDelta timeout);
 
+  // Returns a pref value indicating whether the profile picker has ever been
+  // shown to the user.
+  static bool Shown();
+
   // Returns whether to show profile picker at launch. This can be called on
   // startup or when Chrome is re-opened, e.g. when clicking on the dock icon on
   // MacOS when there are no windows, or from Windows tray icon.
   // This returns true if the user has multiple profiles and has not opted-out.
   static bool ShouldShowAtLaunch();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProfilePicker);
 };
 
 // Dialog that will be displayed when a locked profile is selected in the
@@ -152,18 +159,11 @@ class ProfilePickerForceSigninDialog {
   static constexpr int kDialogHeight = 512;
   static constexpr int kDialogWidth = 448;
 
-  // Shows a dialog where the user can re-authenticate the profile with the
-  // given |email|. This is called from the profile picker when a profile is
-  // locked and the user's password is detected to have been changed.
-  static void ShowUnlockDialog(content::BrowserContext* browser_context,
-                               const std::string& email);
-
-  // Shows a reauth dialog with profile path so that the sign in error message
-  // can be displayed without browser window.
-  static void ShowUnlockDialogWithProfilePath(
-      content::BrowserContext* browser_context,
-      const std::string& email,
-      const base::FilePath& profile_path);
+  // Shows a dialog where the user reauthenticates their primary account that
+  // has invalid credentials, when force signin is enabled.
+  static void ShowReauthDialog(content::BrowserContext* browser_context,
+                               const std::string& email,
+                               const base::FilePath& profile_path);
 
   // Shows a dialog where the user logs into their profile for the first time
   // via the profile picker, when force signin is enabled.

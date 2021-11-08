@@ -4,37 +4,55 @@
 
 #include "base/macros.h"
 #include "base/test/bind.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/sync/test/integration/bookmarks_helper.h"
 #include "chrome/browser/sync/test/integration/fake_server_match_status_checker.h"
 #include "chrome/browser/sync/test/integration/preferences_helper.h"
-#include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
-#include "chrome/browser/sync/test/integration/session_hierarchy_match_checker.h"
-#include "chrome/browser/sync/test/integration/sessions_helper.h"
 #include "chrome/browser/sync/test/integration/sync_disabled_checker.h"
+#include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
+#include "chrome/browser/sync/test/integration/user_events_helper.h"
+#include "chrome/browser/sync/user_event_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "components/history/core/common/pref_names.h"
 #include "components/prefs/pref_member.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync/driver/profile_sync_service.h"
+#include "components/sync/driver/sync_service_impl.h"
 #include "components/sync/protocol/sync_protocol_error.h"
+#include "components/sync/protocol/user_event_specifics.pb.h"
+#include "components/sync_user_events/user_event_service.h"
 #include "content/public/test/browser_test.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 
 using bookmarks::BookmarkNode;
 using bookmarks_helper::AddFolder;
 using bookmarks_helper::SetTitle;
-using sessions_helper::OpenTab;
-using syncer::ProfileSyncService;
+using syncer::SyncServiceImpl;
+using user_events_helper::CreateTestEvent;
 
 namespace {
 
+constexpr int64_t kUserEventTimeUsec = 123456;
+
+syncer::ModelTypeSet GetThrottledDataTypes(
+    syncer::SyncServiceImpl* sync_service) {
+  base::RunLoop loop;
+  syncer::ModelTypeSet throttled_types;
+  sync_service->GetThrottledDataTypesForTest(
+      base::BindLambdaForTesting([&](syncer::ModelTypeSet result) {
+        throttled_types = result;
+        loop.Quit();
+      }));
+  loop.Run();
+  return throttled_types;
+}
+
 class SyncEngineStoppedChecker : public SingleClientStatusChangeChecker {
  public:
-  explicit SyncEngineStoppedChecker(ProfileSyncService* service)
+  explicit SyncEngineStoppedChecker(SyncServiceImpl* service)
       : SingleClientStatusChangeChecker(service) {}
 
   // StatusChangeChecker implementation.
@@ -46,8 +64,7 @@ class SyncEngineStoppedChecker : public SingleClientStatusChangeChecker {
 
 class TypeDisabledChecker : public SingleClientStatusChangeChecker {
  public:
-  explicit TypeDisabledChecker(ProfileSyncService* service,
-                               syncer::ModelType type)
+  explicit TypeDisabledChecker(SyncServiceImpl* service, syncer::ModelType type)
       : SingleClientStatusChangeChecker(service), type_(type) {}
 
   // StatusChangeChecker implementation.
@@ -61,32 +78,25 @@ class TypeDisabledChecker : public SingleClientStatusChangeChecker {
   syncer::ModelType type_;
 };
 
-bool HasSessionURLInEntity(const sync_pb::SyncEntity& entity, const GURL& url) {
-  for (const sync_pb::TabNavigation& navigation :
-       entity.specifics().session().tab().navigation()) {
-    if (navigation.virtual_url() == url.spec()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-class LastSessionsCommitChecker : public SingleClientStatusChangeChecker {
+// Wait for a commit message containing the expected user event (even if the
+// commit request fails).
+class UserEventCommitChecker : public SingleClientStatusChangeChecker {
  public:
-  LastSessionsCommitChecker(ProfileSyncService* service,
-                            fake_server::FakeServer* fake_server,
-                            const GURL& expected_url)
+  UserEventCommitChecker(SyncServiceImpl* service,
+                         fake_server::FakeServer* fake_server,
+                         int64_t expected_event_time_usec)
       : SingleClientStatusChangeChecker(service),
         fake_server_(fake_server),
-        expected_url_(expected_url) {}
+        expected_event_time_usec_(expected_event_time_usec) {}
 
   bool IsExitConditionSatisfied(std::ostream* os) override {
-    *os << "Waiting for sessions url " << expected_url_ << " to be committed";
+    *os << "Waiting for user event to be committed";
 
     sync_pb::ClientToServerMessage message;
     fake_server_->GetLastCommitMessage(&message);
     for (const sync_pb::SyncEntity& entity : message.commit().entries()) {
-      if (HasSessionURLInEntity(entity, expected_url_)) {
+      if (entity.specifics().user_event().event_time_usec() ==
+          expected_event_time_usec_) {
         return true;
       }
     }
@@ -95,23 +105,27 @@ class LastSessionsCommitChecker : public SingleClientStatusChangeChecker {
 
  private:
   fake_server::FakeServer* const fake_server_ = nullptr;
-  const GURL expected_url_;
+  const int64_t expected_event_time_usec_;
 };
 
 class SyncErrorTest : public SyncTest {
  public:
   SyncErrorTest() : SyncTest(SINGLE_CLIENT) {}
-  ~SyncErrorTest() override {}
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(SyncErrorTest);
+  SyncErrorTest(const SyncErrorTest&) = delete;
+  SyncErrorTest& operator=(const SyncErrorTest&) = delete;
+
+  ~SyncErrorTest() override {}
 };
 
 // Helper class that waits until the sync engine has hit an actionable error.
 class ActionableErrorChecker : public SingleClientStatusChangeChecker {
  public:
-  explicit ActionableErrorChecker(ProfileSyncService* service)
+  explicit ActionableErrorChecker(SyncServiceImpl* service)
       : SingleClientStatusChangeChecker(service) {}
+
+  ActionableErrorChecker(const ActionableErrorChecker&) = delete;
+  ActionableErrorChecker& operator=(const ActionableErrorChecker&) = delete;
 
   ~ActionableErrorChecker() override {}
 
@@ -124,9 +138,6 @@ class ActionableErrorChecker : public SingleClientStatusChangeChecker {
     return (status.sync_protocol_error.action != syncer::UNKNOWN_ACTION &&
             service()->HasUnrecoverableError());
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ActionableErrorChecker);
 };
 
 IN_PROC_BROWSER_TEST_F(SyncErrorTest, BirthdayErrorTest) {
@@ -252,7 +263,7 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, ClientDataObsoleteTest) {
   // Remember cache_guid before actionable error.
   syncer::SyncStatus status;
   GetSyncService(0)->QueryDetailedSyncStatusForDebugging(&status);
-  std::string old_cache_guid = status.sync_id;
+  std::string old_cache_guid = status.cache_guid;
 
   GetFakeServer()->TriggerError(sync_pb::SyncEnums::CLIENT_DATA_OBSOLETE);
 
@@ -269,7 +280,7 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, ClientDataObsoleteTest) {
 
   // Ensure cache_guid changed.
   GetSyncService(0)->QueryDetailedSyncStatusForDebugging(&status);
-  ASSERT_NE(old_cache_guid, status.sync_id);
+  ASSERT_NE(old_cache_guid, status.cache_guid);
 }
 
 IN_PROC_BROWSER_TEST_F(SyncErrorTest, EncryptionObsoleteErrorTest) {
@@ -304,8 +315,8 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, DisableDatatypeWhileRunning) {
       GetSyncService(0)->GetActiveDataTypes();
   ASSERT_TRUE(synced_datatypes.Has(syncer::TYPED_URLS));
   ASSERT_TRUE(synced_datatypes.Has(syncer::SESSIONS));
-  GetProfile(0)->GetPrefs()->SetBoolean(
-      prefs::kSavingBrowserHistoryDisabled, true);
+  GetProfile(0)->GetPrefs()->SetBoolean(prefs::kSavingBrowserHistoryDisabled,
+                                        true);
 
   // Wait for reconfigurations.
   ASSERT_TRUE(
@@ -321,27 +332,50 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, DisableDatatypeWhileRunning) {
 // Tests that the unsynced entity will be eventually committed even after failed
 // commit request.
 IN_PROC_BROWSER_TEST_F(SyncErrorTest,
-                       ShouldResendUncommittedEntitiesOnCommitFailure) {
-  const GURL kURL{"data:text/html,<html><title>Test</title></html>"};
-
+                       PRE_ShouldResendUncommittedEntitiesAfterBrowserRestart) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
 
   GetFakeServer()->SetHttpError(net::HTTP_INTERNAL_SERVER_ERROR);
-  ASSERT_TRUE(OpenTab(0, kURL));
+  syncer::UserEventService* event_service =
+      browser_sync::UserEventServiceFactory::GetForProfile(GetProfile(0));
+  const sync_pb::UserEventSpecifics specifics =
+      CreateTestEvent(base::Time::FromDeltaSinceWindowsEpoch(
+          base::Microseconds(kUserEventTimeUsec)));
+  event_service->RecordUserEvent(specifics);
 
-  ASSERT_TRUE(
-      LastSessionsCommitChecker(GetSyncService(0), GetFakeServer(), kURL)
-          .Wait());
+  // Wait for a commit message containing the user event. However the commit
+  // request will fail.
+  ASSERT_TRUE(UserEventCommitChecker(GetSyncService(0), GetFakeServer(),
+                                     kUserEventTimeUsec)
+                  .Wait());
 
-  // Check that the server doesn't have this session yet.
+  // Check that the server doesn't have this event yet.
   for (const sync_pb::SyncEntity& entity :
-       GetFakeServer()->GetSyncEntitiesByModelType(syncer::SESSIONS)) {
-    ASSERT_FALSE(HasSessionURLInEntity(entity, kURL));
+       GetFakeServer()->GetSyncEntitiesByModelType(syncer::USER_EVENTS)) {
+    ASSERT_NE(kUserEventTimeUsec,
+              entity.specifics().user_event().event_time_usec());
   }
+}
 
-  GetFakeServer()->ClearHttpError();
-  EXPECT_TRUE(SessionHierarchyMatchChecker({{kURL.spec()}}, GetSyncService(0),
-                                           GetFakeServer())
+#if defined(OS_MAC) && defined(ARCH_CPU_ARM64)
+// https://crbug.com/1223092
+#define MAYBE_ShouldResendUncommittedEntitiesAfterBrowserRestart \
+  DISABLED_ShouldResendUncommittedEntitiesAfterBrowserRestart
+#else
+#define MAYBE_ShouldResendUncommittedEntitiesAfterBrowserRestart \
+  ShouldResendUncommittedEntitiesAfterBrowserRestart
+#endif
+IN_PROC_BROWSER_TEST_F(
+    SyncErrorTest,
+    MAYBE_ShouldResendUncommittedEntitiesAfterBrowserRestart) {
+  ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
+  ASSERT_TRUE(GetClient(0)->AwaitEngineInitialization());
+
+  const sync_pb::UserEventSpecifics expected_specifics =
+      CreateTestEvent(base::Time::FromDeltaSinceWindowsEpoch(
+          base::Microseconds(kUserEventTimeUsec)));
+  EXPECT_TRUE(UserEventEqualityChecker(GetSyncService(0), GetFakeServer(),
+                                       {{expected_specifics}})
                   .Wait());
 }
 
@@ -385,7 +419,7 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, ShouldThrottleOneDatatypeButNotOthers) {
             "false");
 
   // PREFERENCES should now be throttled.
-  EXPECT_EQ(GetSyncService(0)->GetThrottledDataTypesForTest(),
+  EXPECT_EQ(GetThrottledDataTypes(GetSyncService(0)),
             syncer::ModelTypeSet{syncer::PREFERENCES});
 
   // Unthrottle PREFERENCES to verify that sync can resume.
@@ -396,8 +430,7 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, ShouldThrottleOneDatatypeButNotOthers) {
   EXPECT_TRUE(
       FakeServerPrefMatchesValueChecker(prefs::kHomePageIsNewTabPage, "true")
           .Wait());
-  EXPECT_EQ(GetSyncService(0)->GetThrottledDataTypesForTest(),
-            syncer::ModelTypeSet());
+  EXPECT_EQ(GetThrottledDataTypes(GetSyncService(0)), syncer::ModelTypeSet());
 }
 
 }  // namespace

@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-# This file contains the list of undocumented bechmarks. For new benchmarks,
+# This file contains the list of undocumented benchmarks. For new benchmarks,
 # please make sure that they are well-documented. The list of undocumented
 # benchmarks should shrink overtime.
 UNDOCUMENTED_BENCHMARKS = {
@@ -20,6 +20,7 @@ UNDOCUMENTED_BENCHMARKS = {
     'speedometer',
     'speedometer-future',
     'speedometer2',
+    'speedometer2-chrome-health',
     'speedometer2-future',
     'speedometer2-pcscan',
     'startup.mobile',
@@ -27,10 +28,7 @@ UNDOCUMENTED_BENCHMARKS = {
     'tab_switching.typical_25',
     'tracing.tracing_with_background_memory_infra',
     'tracing_perftests',
-    'v8.browsing_desktop',
-    'v8.browsing_desktop-future',
-    'v8.browsing_mobile',
-    'v8.browsing_mobile-future',
     'v8.runtime_stats.top_25',
     'views_perftests',
+    'wasmpspdfkit',
 }

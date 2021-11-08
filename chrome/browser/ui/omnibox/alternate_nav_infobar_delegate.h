@@ -22,31 +22,35 @@ class WebContents;
 }
 
 // This class creates an alternate nav infobar and delegate and adds the infobar
-// to the infobar service for |web_contents|.
+// to the infobar manager for |web_contents|.
 class AlternateNavInfoBarDelegate : public infobars::InfoBarDelegate {
  public:
+  AlternateNavInfoBarDelegate(const AlternateNavInfoBarDelegate&) = delete;
+  AlternateNavInfoBarDelegate& operator=(const AlternateNavInfoBarDelegate&) =
+      delete;
+
   ~AlternateNavInfoBarDelegate() override;
 
   // Creates the delegate for omnibox navigations that have suggested URLs.
   // E.g. This will display a "Did you mean to go to http://test" infobar if the
   // user searches for "test" and there is a host called "test" in the network.
   static void CreateForOmniboxNavigation(content::WebContents* web_contents,
-                                         const base::string16& text,
+                                         const std::u16string& text,
                                          const AutocompleteMatch& match,
                                          const GURL& search_url);
 
-  base::string16 GetMessageTextWithOffset(size_t* link_offset) const;
+  std::u16string GetMessageTextWithOffset(size_t* link_offset) const;
 
   // InfoBarDelegate:
   infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   const gfx::VectorIcon& GetVectorIcon() const override;
-  base::string16 GetLinkText() const override;
+  std::u16string GetLinkText() const override;
   GURL GetLinkURL() const override;
   bool LinkClicked(WindowOpenDisposition disposition) override;
 
  private:
   AlternateNavInfoBarDelegate(Profile* profile,
-                              const base::string16& text,
+                              const std::u16string& text,
                               std::unique_ptr<AutocompleteMatch> match,
                               const GURL& destination_url,
                               const GURL& original_url);
@@ -56,7 +60,7 @@ class AlternateNavInfoBarDelegate : public infobars::InfoBarDelegate {
       std::unique_ptr<AlternateNavInfoBarDelegate> delegate);
 
   Profile* profile_;
-  const base::string16 text_;
+  const std::u16string text_;
 
   // The autocomplete match to be used when deleting the corresponding shortcut.
   // Can be null when the event triggering the infobar was not an omnibox
@@ -70,8 +74,6 @@ class AlternateNavInfoBarDelegate : public infobars::InfoBarDelegate {
   // navigation link, this will be removed from history.
   // For search navigations this is the search URL.
   const GURL original_url_;
-
-  DISALLOW_COPY_AND_ASSIGN(AlternateNavInfoBarDelegate);
 };
 
 #endif  // CHROME_BROWSER_UI_OMNIBOX_ALTERNATE_NAV_INFOBAR_DELEGATE_H_

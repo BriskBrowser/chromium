@@ -25,11 +25,14 @@
 // UtilWin service.
 class UtilWinHelper {
  public:
+  UtilWinHelper(const UtilWinHelper&) = delete;
+  UtilWinHelper& operator=(const UtilWinHelper&) = delete;
+
   // Executes the select file operation and returns the result via
   // |on_select_file_executed_callback|.
   static void ExecuteSelectFile(
       ui::SelectFileDialog::Type type,
-      const base::string16& title,
+      const std::u16string& title,
       const base::FilePath& default_path,
       const std::vector<ui::FileFilterSpec>& filter,
       int file_type_index,
@@ -40,7 +43,7 @@ class UtilWinHelper {
  private:
   UtilWinHelper(
       ui::SelectFileDialog::Type type,
-      const base::string16& title,
+      const std::u16string& title,
       const base::FilePath& default_path,
       const std::vector<ui::FileFilterSpec>& filter,
       int file_type_index,
@@ -64,14 +67,12 @@ class UtilWinHelper {
   ui::OnSelectFileExecutedCallback on_select_file_executed_callback_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(UtilWinHelper);
 };
 
 // static
 void UtilWinHelper::ExecuteSelectFile(
     ui::SelectFileDialog::Type type,
-    const base::string16& title,
+    const std::u16string& title,
     const base::FilePath& default_path,
     const std::vector<ui::FileFilterSpec>& filter,
     int file_type_index,
@@ -86,7 +87,7 @@ void UtilWinHelper::ExecuteSelectFile(
 
 UtilWinHelper::UtilWinHelper(
     ui::SelectFileDialog::Type type,
-    const base::string16& title,
+    const std::u16string& title,
     const base::FilePath& default_path,
     const std::vector<ui::FileFilterSpec>& filter,
     int file_type_index,
@@ -131,7 +132,7 @@ void UtilWinHelper::OnSelectFileExecuted(
 
 void ExecuteSelectFileImpl(
     ui::SelectFileDialog::Type type,
-    const base::string16& title,
+    const std::u16string& title,
     const base::FilePath& default_path,
     const std::vector<ui::FileFilterSpec>& filter,
     int file_type_index,

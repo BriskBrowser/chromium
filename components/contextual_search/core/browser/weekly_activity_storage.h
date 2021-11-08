@@ -5,9 +5,6 @@
 #ifndef COMPONENTS_CONTEXTUAL_SEARCH_CORE_BROWSER_WEEKLY_ACTIVITY_STORAGE_H_
 #define COMPONENTS_CONTEXTUAL_SEARCH_CORE_BROWSER_WEEKLY_ACTIVITY_STORAGE_H_
 
-#include <string>
-#include <unordered_map>
-
 #include "base/macros.h"
 
 namespace contextual_search {
@@ -24,6 +21,10 @@ class WeeklyActivityStorage {
   // Constructs an instance that will manage at least |weeks_needed| weeks of
   // data.
   WeeklyActivityStorage(int weeks_needed);
+
+  WeeklyActivityStorage(const WeeklyActivityStorage&) = delete;
+  WeeklyActivityStorage& operator=(const WeeklyActivityStorage&) = delete;
+
   virtual ~WeeklyActivityStorage();
 
   // Advances the accessible storage range to end at the given |week_number|.
@@ -70,8 +71,6 @@ class WeeklyActivityStorage {
 
   // The number of weeks of data that this instance needs to support.
   int weeks_needed_;
-
-  DISALLOW_COPY_AND_ASSIGN(WeeklyActivityStorage);
 };
 
 }  // namespace contextual_search

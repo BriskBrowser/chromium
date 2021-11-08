@@ -23,11 +23,12 @@
 
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_root.h"
 
+#include "third_party/blink/renderer/core/editing/position_with_affinity.h"
 #include "third_party/blink/renderer/core/frame/frame_owner.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/intrinsic_sizing_info.h"
-#include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_resource_masker.h"
@@ -80,8 +81,8 @@ void LayoutSVGRoot::UnscaledIntrinsicSizingInfo(
   auto* svg = To<SVGSVGElement>(GetNode());
   DCHECK(svg);
 
-  base::Optional<float> intrinsic_width = svg->IntrinsicWidth();
-  base::Optional<float> intrinsic_height = svg->IntrinsicHeight();
+  absl::optional<float> intrinsic_width = svg->IntrinsicWidth();
+  absl::optional<float> intrinsic_height = svg->IntrinsicHeight();
   intrinsic_sizing_info.size =
       FloatSize(intrinsic_width.value_or(0), intrinsic_height.value_or(0));
   intrinsic_sizing_info.has_width = intrinsic_width.has_value();
@@ -90,10 +91,10 @@ void LayoutSVGRoot::UnscaledIntrinsicSizingInfo(
   if (!intrinsic_sizing_info.size.IsEmpty()) {
     intrinsic_sizing_info.aspect_ratio = intrinsic_sizing_info.size;
   } else {
-    FloatSize view_box_size = svg->viewBox()->CurrentValue()->Value().Size();
+    gfx::SizeF view_box_size = svg->viewBox()->CurrentValue()->Rect().size();
     if (!view_box_size.IsEmpty()) {
       // The viewBox can only yield an intrinsic ratio, not an intrinsic size.
-      intrinsic_sizing_info.aspect_ratio = view_box_size;
+      intrinsic_sizing_info.aspect_ratio = FloatSize(view_box_size);
     }
   }
   EAspectRatioType ar_type = StyleRef().AspectRatio().GetType();
@@ -101,8 +102,8 @@ void LayoutSVGRoot::UnscaledIntrinsicSizingInfo(
       (ar_type == EAspectRatioType::kAutoAndRatio &&
        intrinsic_sizing_info.aspect_ratio.IsEmpty())) {
     FloatSize aspect_ratio = StyleRef().AspectRatio().GetRatio();
-    intrinsic_sizing_info.aspect_ratio.SetWidth(aspect_ratio.Width());
-    intrinsic_sizing_info.aspect_ratio.SetHeight(aspect_ratio.Height());
+    intrinsic_sizing_info.aspect_ratio.set_width(aspect_ratio.width());
+    intrinsic_sizing_info.aspect_ratio.set_height(aspect_ratio.height());
   }
 
   if (!IsHorizontalWritingMode())
@@ -203,7 +204,6 @@ double LayoutSVGRoot::LogicalSizeScaleFactorForPercentageLengths() const {
 void LayoutSVGRoot::UpdateLayout() {
   NOT_DESTROYED();
   DCHECK(NeedsLayout());
-  LayoutAnalyzer::Scope analyzer(*this);
 
   LayoutSize old_size = Size();
   UpdateLogicalWidth();
@@ -215,7 +215,7 @@ void LayoutSVGRoot::UpdateLayout() {
   // StyleDidChange because descendants have not yet run StyleDidChange, so we
   // don't know their compositing reasons yet. A layout is scheduled when
   // |HasCompositingDescendants()| changes to ensure this is run.
-  if (Layer() && RuntimeEnabledFeatures::CompositeSVGEnabled())
+  if (Layer())
     Layer()->UpdateSelfPaintingLayer();
 
   // The local-to-border-box transform is a function with the following as
@@ -299,7 +299,7 @@ void LayoutSVGRoot::RecalcVisualOverflow() {
 
 LayoutRect LayoutSVGRoot::ComputeContentsVisualOverflow() const {
   NOT_DESTROYED();
-  FloatRect content_visual_rect = VisualRectInLocalSVGCoordinates();
+  gfx::RectF content_visual_rect = VisualRectInLocalSVGCoordinates();
   content_visual_rect =
       local_to_border_box_transform_.MapRect(content_visual_rect);
   // Condition the visual overflow rect to avoid being clipped/culled
@@ -458,7 +458,7 @@ void LayoutSVGRoot::WillBeRemovedFromTree() {
 PositionWithAffinity LayoutSVGRoot::PositionForPoint(
     const PhysicalOffset& point) const {
   NOT_DESTROYED();
-  FloatPoint absolute_point = FloatPoint(point);
+  gfx::PointF absolute_point(point);
   absolute_point =
       local_to_border_box_transform_.Inverse().MapPoint(absolute_point);
   LayoutObject* closest_descendant =
@@ -469,8 +469,8 @@ PositionWithAffinity LayoutSVGRoot::PositionForPoint(
 
   LayoutObject* layout_object = closest_descendant;
   AffineTransform transform = layout_object->LocalToSVGParentTransform();
-  transform.Translate(To<LayoutSVGText>(layout_object)->Location().X(),
-                      To<LayoutSVGText>(layout_object)->Location().Y());
+  transform.Translate(To<LayoutBox>(layout_object)->Location().X(),
+                      To<LayoutBox>(layout_object)->Location().Y());
   while (layout_object) {
     layout_object = layout_object->Parent();
     if (layout_object->IsSVGRoot())
@@ -481,7 +481,7 @@ PositionWithAffinity LayoutSVGRoot::PositionForPoint(
   absolute_point = transform.Inverse().MapPoint(absolute_point);
 
   return closest_descendant->PositionForPoint(
-      PhysicalOffset::FromFloatPointRound(absolute_point));
+      PhysicalOffset::FromPointFRound(absolute_point));
 }
 
 // LayoutBox methods will expect coordinates w/o any transforms in coordinates
@@ -492,15 +492,15 @@ SVGTransformChange LayoutSVGRoot::BuildLocalToBorderBoxTransform() {
   auto* svg = To<SVGSVGElement>(GetNode());
   DCHECK(svg);
   float scale = StyleRef().EffectiveZoom();
-  FloatSize content_size(ContentWidth() / scale, ContentHeight() / scale);
+  gfx::SizeF content_size(ContentWidth() / scale, ContentHeight() / scale);
   local_to_border_box_transform_ = svg->ViewBoxToViewTransform(content_size);
 
-  FloatPoint translate = svg->CurrentTranslate();
+  gfx::Vector2dF translate = svg->CurrentTranslate();
   LayoutSize border_and_padding(BorderLeft() + PaddingLeft(),
                                 BorderTop() + PaddingTop());
   AffineTransform view_to_border_box_transform(
-      scale, 0, 0, scale, border_and_padding.Width() + translate.X(),
-      border_and_padding.Height() + translate.Y());
+      scale, 0, 0, scale, border_and_padding.Width() + translate.x(),
+      border_and_padding.Height() + translate.y());
   view_to_border_box_transform.Scale(svg->currentScale());
   local_to_border_box_transform_.PreMultiply(view_to_border_box_transform);
   return change_detector.ComputeChange(local_to_border_box_transform_);
@@ -522,14 +522,6 @@ void LayoutSVGRoot::MapLocalToAncestor(const LayoutBoxModelObject* ancestor,
                                        MapCoordinatesFlags mode) const {
   NOT_DESTROYED();
   LayoutReplaced::MapLocalToAncestor(ancestor, transform_state, mode);
-}
-
-const LayoutObject* LayoutSVGRoot::PushMappingToContainer(
-    const LayoutBoxModelObject* ancestor_to_stop_at,
-    LayoutGeometryMap& geometry_map) const {
-  NOT_DESTROYED();
-  return LayoutReplaced::PushMappingToContainer(ancestor_to_stop_at,
-                                                geometry_map);
 }
 
 void LayoutSVGRoot::UpdateCachedBoundaries() {
@@ -601,8 +593,8 @@ PaintLayerType LayoutSVGRoot::LayerTypeRequired() const {
   auto layer_type_required = LayoutReplaced::LayerTypeRequired();
   if (layer_type_required == kNoPaintLayer) {
     // Force a paint layer so,
-    // 1) In CompositeSVG mode, a GraphicsLayer can be created if there are
-    // directly-composited descendants.
+    // 1) A GraphicsLayer can be created if there are directly-composited
+    // descendants.
     // 2) The parent layer will know if there are non-isolated descendants with
     // blend mode.
     layer_type_required = kForcedPaintLayer;
@@ -612,8 +604,7 @@ PaintLayerType LayoutSVGRoot::LayerTypeRequired() const {
 
 CompositingReasons LayoutSVGRoot::AdditionalCompositingReasons() const {
   NOT_DESTROYED();
-  return RuntimeEnabledFeatures::CompositeSVGEnabled() &&
-                 !RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
+  return !RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
                  HasDescendantWithCompositingReason()
              ? CompositingReason::kSVGRoot
              : CompositingReason::kNone;

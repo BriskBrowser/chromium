@@ -9,14 +9,6 @@
 #include "base/strings/string_util.h"
 #include "ui/gfx/image/image.h"
 
-std::unique_ptr<OmniboxNavigationObserver>
-OmniboxClient::CreateOmniboxNavigationObserver(
-    const base::string16& text,
-    const AutocompleteMatch& match,
-    const AutocompleteMatch& alternate_nav_match) {
-  return nullptr;
-}
-
 bool OmniboxClient::CurrentPageExists() const {
   return true;
 }
@@ -25,7 +17,7 @@ const GURL& OmniboxClient::GetURL() const {
   return GURL::EmptyGURL();
 }
 
-const base::string16& OmniboxClient::GetTitle() const {
+const std::u16string& OmniboxClient::GetTitle() const {
   return base::EmptyString16();
 }
 
@@ -83,11 +75,10 @@ gfx::Image OmniboxClient::GetSizedIcon(const gfx::Image& icon) const {
   return gfx::Image();
 }
 
-bool OmniboxClient::ProcessExtensionKeyword(
-    const TemplateURL* template_url,
-    const AutocompleteMatch& match,
-    WindowOpenDisposition disposition,
-    OmniboxNavigationObserver* observer) {
+bool OmniboxClient::ProcessExtensionKeyword(const std::u16string& text,
+                                            const TemplateURL* template_url,
+                                            const AutocompleteMatch& match,
+                                            WindowOpenDisposition disposition) {
   return false;
 }
 

@@ -30,6 +30,10 @@ class DeviceStatusListener : public NetworkStatusListener::Observer,
       const base::TimeDelta& online_delay,
       std::unique_ptr<BatteryStatusListener> battery_listener,
       std::unique_ptr<NetworkStatusListener> network_listener);
+
+  DeviceStatusListener(const DeviceStatusListener&) = delete;
+  DeviceStatusListener& operator=(const DeviceStatusListener&) = delete;
+
   ~DeviceStatusListener() override;
 
   bool is_valid_state() { return is_valid_state_; }
@@ -48,6 +52,7 @@ class DeviceStatusListener : public NetworkStatusListener::Observer,
 
  protected:
   // NetworkStatusListener::Observer implementation. Visible for testing.
+  void OnNetworkStatusReady(network::mojom::ConnectionType type) override;
   void OnNetworkChanged(network::mojom::ConnectionType type) override;
 
   // Used to listen to network connectivity changes.
@@ -88,8 +93,6 @@ class DeviceStatusListener : public NetworkStatusListener::Observer,
 
   // Used to listen to battery status.
   std::unique_ptr<BatteryStatusListener> battery_listener_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceStatusListener);
 };
 
 }  // namespace download

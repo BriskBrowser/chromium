@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/gmock_callback_support.h"
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_flags.h"
@@ -85,14 +85,14 @@ class MockWebMediaPlayer : public WebMediaPlayer {
   unsigned CorruptedFrameCount() const override { return 0; }
   uint64_t AudioDecodedByteCount() const override { return 0; }
   uint64_t VideoDecodedByteCount() const override { return 0; }
+  void SetVolumeMultiplier(double multiplier) override {}
+  void SuspendForFrameClosed() override {}
 
   void SetWouldTaintOrigin(bool taint) { would_taint_origin_ = taint; }
 
   void Paint(cc::PaintCanvas* canvas,
              const gfx::Rect& rect,
-             cc::PaintFlags&,
-             int already_uploaded_id,
-             VideoFrameUploadMetadata* out_metadata) override {
+             cc::PaintFlags&) override {
     return;
   }
 

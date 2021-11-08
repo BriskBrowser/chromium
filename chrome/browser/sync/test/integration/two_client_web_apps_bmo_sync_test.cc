@@ -3,30 +3,30 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/sync/test/integration/sync_test.h"
+#include "chrome/browser/sync/test/integration/web_apps_sync_test_base.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/browser/web_applications/components/app_registry_controller.h"
-#include "chrome/browser/web_applications/components/app_shortcut_manager.h"
-#include "chrome/browser/web_applications/components/install_finalizer.h"
-#include "chrome/browser/web_applications/components/install_manager.h"
-#include "chrome/browser/web_applications/components/os_integration_manager.h"
-#include "chrome/browser/web_applications/components/web_application_info.h"
-#include "chrome/browser/web_applications/test/test_os_integration_manager.h"
-#include "chrome/browser/web_applications/test/test_web_app_provider.h"
-#include "chrome/browser/web_applications/test/web_app_install_observer.h"
-#include "chrome/browser/web_applications/test/web_app_test.h"
+#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/web_applications/test/fake_os_integration_manager.h"
+#include "chrome/browser/web_applications/test/fake_web_app_provider.h"
+#include "chrome/browser/web_applications/test/web_app_test_observers.h"
+#include "chrome/browser/web_applications/test/web_app_test_utils.h"
 #include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
+#include "chrome/browser/web_applications/web_app_shortcut_manager.h"
+#include "chrome/browser/web_applications/web_app_sync_bridge.h"
+#include "chrome/browser/web_applications/web_application_info.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
 #include "content/public/test/browser_test.h"
@@ -37,21 +37,26 @@
 namespace web_app {
 namespace {
 
-std::unique_ptr<KeyedService> CreateTestWebAppProvider(Profile* profile) {
-  auto provider = std::make_unique<TestWebAppProvider>(profile);
-  provider->SetOsIntegrationManager(std::make_unique<TestOsIntegrationManager>(
-      profile, nullptr, nullptr, nullptr));
+std::unique_ptr<KeyedService> CreateFakeWebAppProvider(Profile* profile) {
+  auto provider = std::make_unique<FakeWebAppProvider>(profile);
+  provider->SetOsIntegrationManager(std::make_unique<FakeOsIntegrationManager>(
+      profile, nullptr, nullptr, nullptr, nullptr));
   provider->Start();
   DCHECK(provider);
   return provider;
 }
 
-class TwoClientWebAppsBMOSyncTest : public SyncTest {
+class TwoClientWebAppsBMOSyncTest : public WebAppsSyncTestBase {
  public:
   TwoClientWebAppsBMOSyncTest()
-      : SyncTest(TWO_CLIENT),
-        test_web_app_provider_creator_(
-            base::BindRepeating(&CreateTestWebAppProvider)) {}
+      : WebAppsSyncTestBase(TWO_CLIENT),
+        fake_web_app_provider_creator_(
+            base::BindRepeating(&CreateFakeWebAppProvider)) {}
+
+  TwoClientWebAppsBMOSyncTest(const TwoClientWebAppsBMOSyncTest&) = delete;
+  TwoClientWebAppsBMOSyncTest& operator=(const TwoClientWebAppsBMOSyncTest&) =
+      delete;
+
   ~TwoClientWebAppsBMOSyncTest() override = default;
 
   bool SetupClients() override {
@@ -59,9 +64,7 @@ class TwoClientWebAppsBMOSyncTest : public SyncTest {
     if (!result)
       return result;
     for (Profile* profile : GetAllProfiles()) {
-      auto* web_app_provider = WebAppProvider::Get(profile);
-      web_app_provider->install_finalizer()
-          .RemoveLegacyInstallFinalizerForTesting();
+      auto* web_app_provider = WebAppProvider::GetForTest(profile);
       base::RunLoop loop;
       web_app_provider->on_registry_ready().Post(FROM_HERE, loop.QuitClosure());
       loop.Run();
@@ -79,10 +82,9 @@ class TwoClientWebAppsBMOSyncTest : public SyncTest {
     info.title = base::UTF8ToUTF16(url.spec());
     info.start_url = url;
     AppId dummy_app_id = InstallApp(info, profile1);
-    EXPECT_EQ(
-        WebAppInstallObserver::CreateInstallListener(profile2, {dummy_app_id})
-            ->AwaitNextInstall(),
-        dummy_app_id);
+    EXPECT_EQ(WebAppTestInstallObserver(profile2).BeginListeningAndWait(
+                  {dummy_app_id}),
+              dummy_app_id);
     return dummy_app_id;
   }
 
@@ -102,16 +104,16 @@ class TwoClientWebAppsBMOSyncTest : public SyncTest {
     Browser* browser = CreateBrowser(profile);
     if (!start_url.is_valid())
       start_url = GetUserInitiatedAppURL();
-    ui_test_utils::NavigateToURL(browser, start_url);
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser, start_url));
 
     AppId app_id;
     base::RunLoop run_loop;
-    WebAppProvider::Get(profile)
+    WebAppProvider::GetForTest(profile)
         ->install_manager()
         .InstallWebAppFromManifestWithFallback(
             browser->tab_strip_model()->GetActiveWebContents(),
             /*force_shortcut_app=*/false, source,
-            base::BindOnce(TestAcceptDialogCallback),
+            base::BindOnce(test::TestAcceptDialogCallback),
             base::BindLambdaForTesting(
                 [&](const AppId& new_app_id, InstallResultCode code) {
                   EXPECT_EQ(code, InstallResultCode::kSuccessNewInstall);
@@ -135,19 +137,22 @@ class TwoClientWebAppsBMOSyncTest : public SyncTest {
     base::RunLoop run_loop;
     AppId app_id;
 
-    WebAppProvider::Get(profile)->install_manager().InstallWebAppFromInfo(
-        std::make_unique<WebApplicationInfo>(info), ForInstallableSite::kYes,
-        source,
-        base::BindLambdaForTesting(
-            [&run_loop, &app_id](const AppId& new_app_id,
-                                 InstallResultCode code) {
-              DCHECK_EQ(code, InstallResultCode::kSuccessNewInstall);
-              app_id = new_app_id;
-              run_loop.Quit();
-            }));
+    WebAppProvider::GetForTest(profile)
+        ->install_manager()
+        .InstallWebAppFromInfo(
+            std::make_unique<WebApplicationInfo>(info),
+            /*overwrite_existing_manifest_fields=*/true,
+            ForInstallableSite::kYes, source,
+            base::BindLambdaForTesting(
+                [&run_loop, &app_id](const AppId& new_app_id,
+                                     InstallResultCode code) {
+                  DCHECK_EQ(code, InstallResultCode::kSuccessNewInstall);
+                  app_id = new_app_id;
+                  run_loop.Quit();
+                }));
     run_loop.Run();
 
-    const AppRegistrar& registrar = GetRegistrar(profile);
+    const WebAppRegistrar& registrar = GetRegistrar(profile);
     EXPECT_EQ(base::UTF8ToUTF16(registrar.GetAppShortName(app_id)), info.title);
     EXPECT_EQ(registrar.GetAppStartUrl(app_id), info.start_url);
 
@@ -155,15 +160,12 @@ class TwoClientWebAppsBMOSyncTest : public SyncTest {
   }
 
   const WebAppRegistrar& GetRegistrar(Profile* profile) {
-    auto* web_app_registrar =
-        WebAppProvider::Get(profile)->registrar().AsWebAppRegistrar();
-    EXPECT_TRUE(web_app_registrar);
-    return *web_app_registrar;
+    return WebAppProvider::GetForTest(profile)->registrar();
   }
 
-  TestOsIntegrationManager& GetOsIntegrationManager(Profile* profile) {
-    return reinterpret_cast<TestOsIntegrationManager&>(
-        WebAppProvider::Get(profile)->os_integration_manager());
+  FakeOsIntegrationManager& GetOsIntegrationManager(Profile* profile) {
+    return reinterpret_cast<FakeOsIntegrationManager&>(
+        WebAppProvider::GetForTest(profile)->os_integration_manager());
   }
 
   extensions::AppSorting* GetAppSorting(Profile* profile) {
@@ -171,7 +173,7 @@ class TwoClientWebAppsBMOSyncTest : public SyncTest {
   }
 
   bool AllProfilesHaveSameWebAppIds() {
-    base::Optional<base::flat_set<AppId>> app_ids;
+    absl::optional<base::flat_set<AppId>> app_ids;
     for (Profile* profile : GetAllProfiles()) {
       base::flat_set<AppId> profile_app_ids(GetRegistrar(profile).GetAppIds());
       if (!app_ids) {
@@ -185,9 +187,7 @@ class TwoClientWebAppsBMOSyncTest : public SyncTest {
   }
 
  private:
-  TestWebAppProviderCreator test_web_app_provider_creator_;
-
-  DISALLOW_COPY_AND_ASSIGN(TwoClientWebAppsBMOSyncTest);
+  FakeWebAppProviderCreator fake_web_app_provider_creator_;
 };
 
 // Test is flaky (crbug.com/1097050)
@@ -217,13 +217,13 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest,
                        SyncDoubleInstallationDifferentNames) {
   ASSERT_TRUE(SetupClients());
   WebApplicationInfo info;
-  info.title = base::UTF8ToUTF16("Test name");
+  info.title = u"Test name";
   info.start_url = GURL("http://www.chromium.org/path");
 
   // Install web app to both profiles.
   AppId app_id = InstallApp(info, GetProfile(0));
   // The web app has a different title on the second profile.
-  info.title = base::UTF8ToUTF16("Test name 2");
+  info.title = u"Test name 2";
   AppId app_id2 = InstallApp(info, GetProfile(1));
 
   EXPECT_EQ(app_id, app_id2);
@@ -258,14 +258,14 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest,
   ASSERT_TRUE(AllProfilesHaveSameWebAppIds());
 
   WebApplicationInfo info;
-  info.title = base::UTF8ToUTF16("Test name");
+  info.title = u"Test name";
   info.start_url = GURL("http://www.chromium.org/path");
-  info.open_as_window = true;
+  info.user_display_mode = DisplayMode::kStandalone;
 
   // Install web app to both profiles.
   AppId app_id = InstallApp(info, GetProfile(0));
   // The web app has a different open on the second profile.
-  info.open_as_window = false;
+  info.user_display_mode = DisplayMode::kBrowser;
   AppId app_id2 = InstallApp(info, GetProfile(1));
 
   EXPECT_EQ(app_id, app_id2);
@@ -292,13 +292,15 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest, DisplayMode) {
   ASSERT_TRUE(AllProfilesHaveSameWebAppIds());
   ASSERT_TRUE(embedded_test_server()->Start());
 
+  WebAppTestInstallObserver install_observer(GetProfile(1));
+  install_observer.BeginListening();
   // Install web app to profile 0 and wait for it to sync to profile 1.
   AppId app_id = InstallAppAsUserInitiated(GetProfile(0));
-  EXPECT_EQ(WebAppInstallObserver(GetProfile(1)).AwaitNextInstall(), app_id);
+  EXPECT_EQ(install_observer.Wait(), app_id);
 
-  WebAppProvider::Get(GetProfile(1))
-      ->registry_controller()
-      .SetAppUserDisplayMode(app_id, web_app::DisplayMode::kBrowser,
+  WebAppProvider::GetForTest(GetProfile(1))
+      ->sync_bridge()
+      .SetAppUserDisplayMode(app_id, DisplayMode::kBrowser,
                              /*is_user_action=*/false);
 
   // Install a 'dummy' app & wait for installation to ensure sync has processed
@@ -310,7 +312,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest, DisplayMode) {
 
   // The change should have synced to profile 0.
   EXPECT_EQ(GetRegistrar(GetProfile(0)).GetAppUserDisplayMode(app_id),
-            web_app::DisplayMode::kBrowser);
+            DisplayMode::kBrowser);
   // The user display settings is synced, so it should match.
   EXPECT_EQ(GetRegistrar(GetProfile(0)).GetAppUserDisplayMode(app_id),
             GetRegistrar(GetProfile(1)).GetAppUserDisplayMode(app_id));
@@ -393,9 +395,9 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest, NotSyncedThenSynced) {
 
   // The app should have synced from profile 0 to profile 1, which enables sync
   // on profile 0. So changes should propagate from profile 0 to profile 1 now.
-  WebAppProvider::Get(GetProfile(0))
-      ->registry_controller()
-      .SetAppUserDisplayMode(app_id, web_app::DisplayMode::kBrowser,
+  WebAppProvider::GetForTest(GetProfile(0))
+      ->sync_bridge()
+      .SetAppUserDisplayMode(app_id, DisplayMode::kBrowser,
                              /*is_user_action=*/false);
 
   // Install a 'dummy' app & wait for installation to ensure sync has processed
@@ -405,7 +407,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest, NotSyncedThenSynced) {
 
   // Check that profile 1 has the display mode change.
   EXPECT_EQ(GetRegistrar(GetProfile(1)).GetAppUserDisplayMode(app_id),
-            web_app::DisplayMode::kBrowser);
+            DisplayMode::kBrowser);
 
   // The user display settings is syned, so it should match.
   EXPECT_EQ(GetRegistrar(GetProfile(0)).GetAppUserDisplayMode(app_id),
@@ -494,9 +496,8 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest, AppSortingFixCollisions) {
   ASSERT_NE(app_id1, app_id2);
 
   // Wait for both of the webapps to be installed on profile 1.
-  WebAppInstallObserver::CreateInstallListener(GetProfile(1),
-                                               {app_id1, app_id2})
-      ->AwaitNextInstall();
+  WebAppTestInstallObserver(GetProfile(1))
+      .BeginListeningAndWait({app_id1, app_id2});
   EXPECT_TRUE(AllProfilesHaveSameWebAppIds());
 
   syncer::StringOrdinal page_ordinal =
@@ -549,56 +550,36 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest, MAYBE_UninstallSynced) {
   AppId app_id;
   // Install & uninstall on profile 0, and validate profile 1 sees it.
   {
-    base::RunLoop loop;
-    WebAppInstallObserver app_listener(GetProfile(1));
-    app_listener.SetWebAppInstalledDelegate(
-        base::BindLambdaForTesting([&](const AppId& installed_app_id) {
-          app_id = installed_app_id;
-          loop.Quit();
-        }));
-    app_id = InstallAppAsUserInitiated(GetProfile(0));
-    loop.Run();
+    WebAppTestInstallObserver app_listener(GetProfile(1));
+    app_listener.BeginListening();
+    InstallAppAsUserInitiated(GetProfile(0));
+    app_id = app_listener.Wait();
     EXPECT_TRUE(AllProfilesHaveSameWebAppIds());
   }
 
   // Uninstall the webapp on profile 0, and validate profile 1 gets the change.
   {
-    base::RunLoop loop;
-    WebAppInstallObserver app_listener(GetProfile(1));
-    app_listener.SetWebAppUninstalledDelegate(
-        base::BindLambdaForTesting([&](const AppId& uninstalled_app_id) {
-          app_id = uninstalled_app_id;
-          loop.Quit();
-        }));
+    WebAppTestUninstallObserver app_listener(GetProfile(1));
+    app_listener.BeginListening();
     UninstallWebApp(GetProfile(0), app_id);
-    loop.Run();
+    app_listener.Wait();
     EXPECT_TRUE(AllProfilesHaveSameWebAppIds());
   }
 
   // Next, install on profile 1, uninstall on profile 0, and validate that
   // profile 1 sees it.
   {
-    base::RunLoop loop;
-    WebAppInstallObserver app_listener(GetProfile(0));
-    app_listener.SetWebAppInstalledDelegate(
-        base::BindLambdaForTesting([&](const AppId& installed_app_id) {
-          app_id = installed_app_id;
-          loop.Quit();
-        }));
-    app_id = InstallAppAsUserInitiated(GetProfile(1));
-    loop.Run();
+    WebAppTestInstallObserver app_listener(GetProfile(0));
+    app_listener.BeginListening();
+    InstallAppAsUserInitiated(GetProfile(1));
+    app_id = app_listener.Wait();
     EXPECT_TRUE(AllProfilesHaveSameWebAppIds());
   }
   {
-    base::RunLoop loop;
-    WebAppInstallObserver app_listener(GetProfile(1));
-    app_listener.SetWebAppUninstalledDelegate(
-        base::BindLambdaForTesting([&](const AppId& uninstalled_app_id) {
-          app_id = uninstalled_app_id;
-          loop.Quit();
-        }));
+    WebAppTestUninstallObserver app_listener(GetProfile(1));
+    app_listener.BeginListening();
     UninstallWebApp(GetProfile(0), app_id);
-    loop.Run();
+    app_listener.Wait();
   }
 
   EXPECT_TRUE(AllProfilesHaveSameWebAppIds());
@@ -624,7 +605,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest, NoShortcutsCreatedOnSync) {
     on_hooks_closure = base::BindLambdaForTesting(
         [](const AppId& installed_app_id) { FAIL(); });
 #endif
-    WebAppInstallObserver app_listener(GetProfile(1));
+    WebAppTestRegistryObserverAdapter app_listener(GetProfile(1));
     app_listener.SetWebAppInstalledDelegate(on_installed_closure);
     app_listener.SetWebAppInstalledWithOsHooksDelegate(on_hooks_closure);
     InstallAppAsUserInitiated(GetProfile(0));
@@ -633,17 +614,18 @@ IN_PROC_BROWSER_TEST_F(TwoClientWebAppsBMOSyncTest, NoShortcutsCreatedOnSync) {
   }
   EXPECT_EQ(
       1u, GetOsIntegrationManager(GetProfile(0)).num_create_shortcuts_calls());
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   auto last_options =
       GetOsIntegrationManager(GetProfile(1)).get_last_install_options();
   EXPECT_TRUE(last_options.has_value());
-  OsHooksResults expected_os_hook_requests;
+  OsHooksOptions expected_os_hook_requests;
   expected_os_hook_requests[OsHookType::kShortcuts] = true;
   expected_os_hook_requests[OsHookType::kRunOnOsLogin] = false;
   expected_os_hook_requests[OsHookType::kShortcutsMenu] = true;
   expected_os_hook_requests[OsHookType::kUninstallationViaOsSettings] = true;
   expected_os_hook_requests[OsHookType::kFileHandlers] = true;
   expected_os_hook_requests[OsHookType::kProtocolHandlers] = true;
+  expected_os_hook_requests[OsHookType::kUrlHandlers] = false;
   EXPECT_EQ(expected_os_hook_requests, last_options->os_hooks);
   EXPECT_TRUE(last_options->add_to_desktop);
   EXPECT_FALSE(last_options->add_to_quick_launch_bar);

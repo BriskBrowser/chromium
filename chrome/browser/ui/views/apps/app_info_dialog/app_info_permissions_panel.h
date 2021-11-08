@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "chrome/browser/ui/views/apps/app_info_dialog/app_info_panel.h"
 #include "extensions/common/permissions/permission_message_provider.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/metadata/view_factory.h"
 
 class Profile;
@@ -50,13 +50,13 @@ class AppInfoPermissionsPanel : public AppInfoPanel {
   extensions::PermissionMessages GetActivePermissionMessages() const;
 
   int GetRetainedFileCount() const;
-  base::string16 GetRetainedFileHeading() const;
-  const std::vector<base::string16> GetRetainedFilePaths() const;
+  std::u16string GetRetainedFileHeading() const;
+  const std::vector<std::u16string> GetRetainedFilePaths() const;
   void RevokeFilePermissions();
 
   int GetRetainedDeviceCount() const;
-  base::string16 GetRetainedDeviceHeading() const;
-  const std::vector<base::string16> GetRetainedDevices() const;
+  std::u16string GetRetainedDeviceHeading() const;
+  const std::vector<std::u16string> GetRetainedDevices() const;
   void RevokeDevicePermissions();
 };
 

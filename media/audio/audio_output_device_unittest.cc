@@ -16,9 +16,9 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "base/memory/unsafe_shared_memory_region.h"
-#include "base/single_thread_task_runner.h"
 #include "base/sync_socket.h"
-#include "base/task_runner.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -46,8 +46,7 @@ namespace {
 constexpr char kDefaultDeviceId[] = "";
 constexpr char kNonDefaultDeviceId[] = "valid-nondefault-device-id";
 constexpr char kUnauthorizedDeviceId[] = "unauthorized-device-id";
-constexpr base::TimeDelta kAuthTimeout =
-    base::TimeDelta::FromMilliseconds(10000);
+constexpr base::TimeDelta kAuthTimeout = base::Milliseconds(10000);
 
 class MockRenderCallback : public AudioRendererSink::RenderCallback {
  public:
@@ -75,7 +74,7 @@ class MockAudioOutputIPC : public AudioOutputIPC {
       CreateStream,
       void(AudioOutputIPCDelegate* delegate,
            const AudioParameters& params,
-           const base::Optional<base::UnguessableToken>& processing_id));
+           const absl::optional<base::UnguessableToken>& processing_id));
   MOCK_METHOD0(PlayStream, void());
   MOCK_METHOD0(PauseStream, void());
   MOCK_METHOD0(FlushStream, void());
@@ -88,6 +87,10 @@ class MockAudioOutputIPC : public AudioOutputIPC {
 class AudioOutputDeviceTest : public testing::Test {
  public:
   AudioOutputDeviceTest();
+
+  AudioOutputDeviceTest(const AudioOutputDeviceTest&) = delete;
+  AudioOutputDeviceTest& operator=(const AudioOutputDeviceTest&) = delete;
+
   ~AudioOutputDeviceTest() override;
 
   void ReceiveAuthorization(OutputDeviceStatus device_status);
@@ -117,8 +120,6 @@ class AudioOutputDeviceTest : public testing::Test {
   WritableSharedMemoryMapping shared_memory_mapping_;
   CancelableSyncSocket browser_socket_;
   CancelableSyncSocket renderer_socket_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioOutputDeviceTest);
 };
 
 AudioOutputDeviceTest::AudioOutputDeviceTest()

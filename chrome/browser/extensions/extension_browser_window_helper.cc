@@ -4,7 +4,6 @@
 
 #include "chrome/browser/extensions/extension_browser_window_helper.h"
 
-#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -29,8 +28,8 @@ bool ShouldCloseTabOnExtensionUnload(const Extension* extension,
                                      Browser* browser,
                                      content::WebContents* web_contents) {
   // Bookmark app extensions are handled by WebAppBrowserController, if enabled.
-  // TODO(crbug.com/877898): Remove app_controller() part of the condition after
-  // unified browser controller launch.
+  // TODO(crbug.com/1065748): Remove app_controller() part of the condition
+  // after unified browser controller launch.
   if (extension->from_bookmark() &&
       (!browser->app_controller() ||
        browser->app_controller()->AsWebAppBrowserController())) {
@@ -58,7 +57,8 @@ bool ShouldCloseTabOnExtensionUnload(const Extension* extension,
   // Case 2: Check if the page is a page associated with a hosted app, which
   // can have non-extension schemes. For example, the Gmail hosted app would
   // have a URL of https://mail.google.com.
-  if (apps::GetAppIdForWebContents(web_contents) == extension->id()) {
+  if (TabHelper::FromWebContents(web_contents)->GetExtensionAppId() ==
+      extension->id()) {
     return true;
   }
 
@@ -83,7 +83,7 @@ void UnmuteIfMutedByExtension(content::WebContents* contents,
 
 ExtensionBrowserWindowHelper::ExtensionBrowserWindowHelper(Browser* browser)
     : browser_(browser) {
-  registry_observer_.Add(ExtensionRegistry::Get(browser_->profile()));
+  registry_observation_.Observe(ExtensionRegistry::Get(browser_->profile()));
 }
 
 ExtensionBrowserWindowHelper::~ExtensionBrowserWindowHelper() = default;

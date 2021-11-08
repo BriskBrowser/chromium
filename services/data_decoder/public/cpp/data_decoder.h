@@ -9,12 +9,16 @@
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/values.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/data_decoder/public/cpp/service_provider.h"
 #include "services/data_decoder/public/mojom/data_decoder_service.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+namespace mojo_base {
+class BigBuffer;
+}
 
 namespace data_decoder {
 
@@ -46,6 +50,10 @@ class DataDecoder {
   DataDecoder();
   // Creates a DataDecoder with the specified timeout.
   explicit DataDecoder(base::TimeDelta idle_timeout);
+
+  DataDecoder(const DataDecoder&) = delete;
+  DataDecoder& operator=(const DataDecoder&) = delete;
+
   ~DataDecoder();
 
   // The result of a service call that can return either a value of type T or an
@@ -68,8 +76,8 @@ class DataDecoder {
       return result;
     }
 
-    base::Optional<T> value;
-    base::Optional<std::string> error;
+    absl::optional<T> value;
+    absl::optional<std::string> error;
   };
 
   using ValueOrError = ResultOrError<base::Value>;
@@ -141,8 +149,6 @@ class DataDecoder {
   // This instance's connection to the service. This connection is lazily
   // established and may be reset after long periods of idle time.
   mojo::Remote<mojom::DataDecoderService> service_;
-
-  DISALLOW_COPY_AND_ASSIGN(DataDecoder);
 };
 
 }  // namespace data_decoder

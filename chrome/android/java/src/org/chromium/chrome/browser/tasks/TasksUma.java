@@ -76,7 +76,8 @@ public class TasksUma {
             if (tabLaunchType == TabLaunchType.FROM_CHROME_UI
                     || tabLaunchType == TabLaunchType.FROM_START_SURFACE
                     || tabLaunchType == TabLaunchType.FROM_LONGPRESS_BACKGROUND
-                    || tabLaunchType == TabLaunchType.FROM_LAUNCHER_SHORTCUT) {
+                    || tabLaunchType == TabLaunchType.FROM_LAUNCHER_SHORTCUT
+                    || tabLaunchType == TabLaunchType.FROM_APP_WIDGET) {
                 manuallyCreatedCount++;
             } else if (tabLaunchType == TabLaunchType.FROM_LONGPRESS_FOREGROUND) {
                 targetBlankCreatedCount++;
@@ -134,7 +135,7 @@ public class TasksUma {
         for (int i = 0; i < model.getCount(); i++) {
             Tab currentTab = model.getTabAt(i);
 
-            String url = currentTab.getUrlString();
+            String url = currentTab.getUrl().getSpec();
             int urlDuplicatedCount = 0;
             if (uniqueUrlCounterMap.containsKey(url)) {
                 duplicatedTabCount++;

@@ -14,7 +14,7 @@
       {
         "args": [
           "--num-retries=3",
-          "--additional-driver-flag=--force-renderer-accessibility"
+          "--flag-specific=force-renderer-accessibility"
         ],
         "isolate_name": "blink_web_tests",
         "merge": {
@@ -32,7 +32,7 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "os": "Ubuntu-16.04"
+              "os": "Ubuntu-18.04"
             }
           ],
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com",
@@ -50,7 +50,7 @@
       {
         "args": [
           "--num-retries=3",
-          "--additional-driver-flag=--enable-blink-features=EditingNG"
+          "--flag-specific=enable-editing-ng"
         ],
         "isolate_name": "blink_web_tests",
         "merge": {

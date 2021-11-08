@@ -4,17 +4,24 @@
 
 #include "chrome/updater/app/server/win/com_classes.h"
 
+#include <wchar.h>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/check.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/bind_post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/version.h"
 #include "base/win/scoped_bstr.h"
 #include "chrome/updater/app/server/win/server.h"
+#include "chrome/updater/registration_data.h"
 #include "chrome/updater/updater_version.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 
@@ -97,10 +104,7 @@ HRESULT UpdaterImpl::GetVersion(BSTR* version) {
   // non-blocking function of `UpdateServiceImpl`. This results in some
   // code duplication but it avoids the complexities of making this function
   // non-blocking.
-  *version =
-      base::win::ScopedBstr(
-          base::UTF8ToWide(base::Version(UPDATER_VERSION_STRING).GetString()))
-          .Release();
+  *version = base::win::ScopedBstr(kUpdaterVersionUtf16).Release();
   return S_OK;
 }
 
@@ -108,17 +112,118 @@ HRESULT UpdaterImpl::CheckForUpdate(const wchar_t* app_id) {
   return E_NOTIMPL;
 }
 
-HRESULT UpdaterImpl::Register(const wchar_t* app_id,
-                              const wchar_t* brand_code,
-                              const wchar_t* tag,
-                              const wchar_t* version,
-                              const wchar_t* existence_checker_path) {
-  return E_NOTIMPL;
+HRESULT UpdaterImpl::RegisterApp(const wchar_t* app_id,
+                                 const wchar_t* brand_code,
+                                 const wchar_t* ap,
+                                 const wchar_t* version,
+                                 const wchar_t* existence_checker_path,
+                                 IUpdaterRegisterAppCallback* callback) {
+  if (!callback)
+    return E_INVALIDARG;
+
+  // Validates that string parameters are not longer than 16K characters.
+  absl::optional<RegistrationRequest> request =
+      [app_id, brand_code, ap, version,
+       existence_checker_path]() -> decltype(request) {
+    for (const auto* str :
+         {app_id, brand_code, ap, version, existence_checker_path}) {
+      constexpr size_t kMaxStringLen = 0x4000;  // 16KB.
+      if (wcsnlen_s(str, kMaxStringLen) == kMaxStringLen) {
+        return absl::nullopt;
+      }
+    }
+
+    RegistrationRequest request;
+    if (!app_id || !base::WideToUTF8(app_id, wcslen(app_id), &request.app_id)) {
+      return absl::nullopt;
+    }
+    if (!brand_code || !base::WideToUTF8(brand_code, wcslen(brand_code),
+                                         &request.brand_code)) {
+      return absl::nullopt;
+    }
+    if (!ap || !base::WideToUTF8(ap, wcslen(ap), &request.ap)) {
+      return absl::nullopt;
+    }
+    std::string version_str;
+    if (!version || !base::WideToUTF8(version, wcslen(version), &version_str)) {
+      return absl::nullopt;
+    }
+    request.version = base::Version(version_str);
+    if (!request.version.IsValid()) {
+      return absl::nullopt;
+    }
+    request.existence_checker_path = base::FilePath(existence_checker_path);
+
+    return request;
+  }();
+
+  if (!request)
+    return E_INVALIDARG;
+
+  using IUpdaterRegisterAppCallbackPtr =
+      Microsoft::WRL::ComPtr<IUpdaterRegisterAppCallback>;
+  scoped_refptr<ComServerApp> com_server = AppServerSingletonInstance();
+
+  // This task runner is responsible for sequencing the COM calls and callbacks.
+  auto task_runner = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
+
+  com_server->main_task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](scoped_refptr<UpdateService> update_service,
+             scoped_refptr<base::SequencedTaskRunner> task_runner,
+             const RegistrationRequest& request,
+             IUpdaterRegisterAppCallbackPtr callback) {
+            update_service->RegisterApp(
+                request,
+                base::BindOnce(
+                    [](scoped_refptr<base::SequencedTaskRunner> task_runner,
+                       IUpdaterRegisterAppCallbackPtr callback,
+                       const RegistrationResponse& response) {
+                      task_runner->PostTaskAndReplyWithResult(
+                          FROM_HERE,
+                          base::BindOnce(&IUpdaterRegisterAppCallback::Run,
+                                         callback, response.status_code),
+                          base::BindOnce([](HRESULT hr) {
+                            DVLOG(2) << "UpdaterImpl::RegisterApp "
+                                     << "callback returned " << std::hex << hr;
+                          }));
+                    },
+                    task_runner, callback));
+          },
+          com_server->update_service(), task_runner, *request,
+          IUpdaterRegisterAppCallbackPtr(callback)));
+
+  return S_OK;
 }
 
-//  Called by the COM RPC runtime on one of its threads. Invokes the in-process
-// |update_service| on the main sequence. The callbacks received from
-// |update_service| arrive in the main sequence too. Since handling these
+// Called by the COM RPC runtime on one of its threads. Invokes the in-process
+// `update_service` on the main sequence. The callbacks received from
+// `update_service` arrive in the main sequence too.
+HRESULT UpdaterImpl::RunPeriodicTasks(IUpdaterCallback* callback) {
+  scoped_refptr<ComServerApp> com_server = AppServerSingletonInstance();
+  com_server->main_task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](scoped_refptr<UpdateService> update_service,
+             base::OnceClosure callback_closure) {
+            update_service->RunPeriodicTasks(std::move(callback_closure));
+          },
+          com_server->update_service(),
+          base::BindPostTask(
+              base::ThreadPool::CreateSequencedTaskRunner(
+                  {base::MayBlock(),
+                   base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}),
+              base::BindOnce(base::IgnoreResult(&IUpdaterCallback::Run),
+                             Microsoft::WRL::ComPtr<IUpdaterCallback>(callback),
+                             0))));
+  return S_OK;
+}
+
+// Called by the COM RPC runtime on one of its threads. Invokes the in-process
+// `update_service` on the main sequence. The callbacks received from
+// `update_service` arrive in the main sequence too. Since handling these
 // callbacks involves issuing outgoing COM RPC calls, which block, such COM
 // calls must be done through a task runner, bound to the closures provided
 // as parameters for the UpdateService::Update call.
@@ -127,8 +232,8 @@ HRESULT UpdaterImpl::Update(const wchar_t* app_id, IUpdaterObserver* observer) {
   scoped_refptr<ComServerApp> com_server = AppServerSingletonInstance();
 
   // This task runner is responsible for sequencing the callbacks posted
-  // by the |UpdateService| and calling the outbound COM functions to
-  // notify the client about state changes in the |UpdateService|.
+  // by the `UpdateService` and calling the outbound COM functions to
+  // notify the client about state changes in the `UpdateService`.
   auto task_runner = base::ThreadPool::CreateSequencedTaskRunner(
       {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 

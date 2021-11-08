@@ -7,7 +7,6 @@
 #include "base/base64.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/optional.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/task_environment.h"
 #include "base/values.h"
@@ -16,10 +15,11 @@
 #include "components/policy/core/common/cloud/dm_auth.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #include "components/policy/core/common/cloud/mock_device_management_service.h"
-#include "components/reporting/proto/record_constants.pb.h"
+#include "components/reporting/proto/synced/record_constants.pb.h"
 #include "components/version_info/version_info.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/system/fake_statistics_provider.h"
@@ -52,16 +52,19 @@ constexpr char kFirstFailedUploadedRecordKey[] = "firstFailedUploadedRecord";
 // UploadEncryptedReportingRequest list key
 constexpr char kEncryptedRecordListKey[] = "encryptedRecord";
 
-// Kays for EncrypedRecord
+// Encryption settings request key
+constexpr char kAttachEncryptionSettingsKey[] = "attachEncryptionSettings";
+
+// Keys for EncrypedRecord
 constexpr char kEncryptedWrappedRecordKey[] = "encryptedWrappedRecord";
-constexpr char kSequencingInformationKey[] = "sequencingInformation";
+constexpr char kSequenceInformationKey[] = "sequencingInformation";
 constexpr char kEncryptionInfoKey[] = "encryptionInfo";
 
 // Keys for internal encryption information dictionaries.
 constexpr char kEncryptionKey[] = "encryptionKey";
 constexpr char kPublicKeyIdKey[] = "publicKeyId";
 
-// Keys for internal SequencingInformation dictionaries.
+// Keys for internal SequenceInformation dictionaries.
 constexpr char kSequencingIdKey[] = "sequencingId";
 constexpr char kGenerationIdKey[] = "generationId";
 constexpr char kPriorityKey[] = "priority";
@@ -86,7 +89,7 @@ base::Value GenerateSingleRecord(base::StringPiece encrypted_wrapped_record) {
   record_dictionary.SetStringKey(kEncryptedWrappedRecordKey, base64_encode);
 
   base::Value* const sequencing_dictionary = record_dictionary.SetKey(
-      kSequencingInformationKey, base::Value{base::Value::Type::DICTIONARY});
+      kSequenceInformationKey, base::Value{base::Value::Type::DICTIONARY});
   sequencing_dictionary->SetStringKey(
       kSequencingIdKey, base::NumberToString(GetNextSequenceId()));
   sequencing_dictionary->SetStringKey(kGenerationIdKey,
@@ -104,7 +107,10 @@ base::Value GenerateSingleRecord(base::StringPiece encrypted_wrapped_record) {
 
 class RequestPayloadBuilder {
  public:
-  RequestPayloadBuilder() {
+  explicit RequestPayloadBuilder(bool attach_encryption_settings = false) {
+    if (attach_encryption_settings) {
+      payload_.SetBoolKey(kAttachEncryptionSettingsKey, true);
+    }
     payload_.SetKey(kEncryptedRecordListKey,
                     base::Value{base::Value::Type::LIST});
   }
@@ -123,18 +129,17 @@ class RequestPayloadBuilder {
 
 class ResponseValueBuilder {
  public:
-  static base::Optional<base::Value> CreateUploadFailure(
-      const ::reporting::SequencingInformation& sequencing_information) {
-    if (!sequencing_information.has_sequencing_id() ||
-        !sequencing_information.has_generation_id() ||
-        !sequencing_information.has_priority()) {
-      return base::nullopt;
+  static absl::optional<base::Value> CreateUploadFailure(
+      const ::reporting::SequenceInformation& sequence_information) {
+    if (!sequence_information.has_sequencing_id() ||
+        !sequence_information.has_generation_id() ||
+        !sequence_information.has_priority()) {
+      return absl::nullopt;
     }
 
     base::Value upload_failure{base::Value::Type::DICTIONARY};
-    upload_failure.SetKey(
-        kFailedUploadedRecord,
-        BuildSequencingInformationValue(sequencing_information));
+    upload_failure.SetKey(kFailedUploadedRecord,
+                          BuildSequenceInformationValue(sequence_information));
 
     // Set to internal error (error::INTERNAL == 13).
     upload_failure.SetIntKey(GetFailureStatusCodePath(), 13);
@@ -144,12 +149,12 @@ class ResponseValueBuilder {
   }
 
   static base::Value CreateResponse(
-      const base::Value& sequencing_information,
-      base::Optional<base::Value> upload_failure) {
+      const base::Value& sequence_information,
+      absl::optional<base::Value> upload_failure) {
     base::Value response{base::Value::Type::DICTIONARY};
 
     response.SetKey(kLastSucceedUploadedRecordKey,
-                    sequencing_information.Clone());
+                    sequence_information.Clone());
 
     if (upload_failure.has_value()) {
       response.SetKey(kFirstFailedUploadedRecordKey,
@@ -184,16 +189,16 @@ class ResponseValueBuilder {
   }
 
  private:
-  static base::Value BuildSequencingInformationValue(
-      const ::reporting::SequencingInformation& sequencing_information) {
-    base::Value sequencing_information_value{base::Value::Type::DICTIONARY};
-    sequencing_information_value.SetIntKey(
-        kSequencingIdKey, sequencing_information.sequencing_id());
-    sequencing_information_value.SetIntKey(
-        kGenerationIdKey, sequencing_information.generation_id());
-    sequencing_information_value.SetIntKey(kPriorityKey,
-                                           sequencing_information.priority());
-    return sequencing_information_value;
+  static base::Value BuildSequenceInformationValue(
+      const ::reporting::SequenceInformation& sequence_information) {
+    base::Value sequence_information_value{base::Value::Type::DICTIONARY};
+    sequence_information_value.SetIntKey(kSequencingIdKey,
+                                         sequence_information.sequencing_id());
+    sequence_information_value.SetIntKey(kGenerationIdKey,
+                                         sequence_information.generation_id());
+    sequence_information_value.SetIntKey(kPriorityKey,
+                                         sequence_information.priority());
+    return sequence_information_value;
   }
 
   static std::string GetPath(base::StringPiece base, base::StringPiece leaf) {
@@ -247,13 +252,22 @@ class EncryptedReportingJobConfigurationTest : public testing::Test {
 
   void GetRecordList(EncryptedReportingJobConfiguration* configuration,
                      base::Value** record_list) {
-    base::Value* payload = GetPayload(configuration);
+    base::Value* const payload = GetPayload(configuration);
     *record_list = payload->FindListKey(kEncryptedRecordListKey);
     ASSERT_TRUE(*record_list);
   }
 
+  bool GetAttachEncryptionSettings(
+      EncryptedReportingJobConfiguration* configuration) {
+    base::Value* const payload = GetPayload(configuration);
+    const auto attach_encryption_settings =
+        payload->FindBoolKey(kAttachEncryptionSettingsKey);
+    return attach_encryption_settings.has_value() &&
+           attach_encryption_settings.value();
+  }
+
   base::Value* GetPayload(EncryptedReportingJobConfiguration* configuration) {
-    base::Optional<base::Value> payload_result =
+    absl::optional<base::Value> payload_result =
         base::JSONReader::Read(configuration->GetPayload());
 
     EXPECT_TRUE(payload_result.has_value());
@@ -267,8 +281,9 @@ class EncryptedReportingJobConfigurationTest : public testing::Test {
   chromeos::system::ScopedFakeStatisticsProvider fake_statistics_provider_;
   class ScopedFakeSerialNumber {
    public:
-    ScopedFakeSerialNumber(chromeos::system::ScopedFakeStatisticsProvider*
-                               fake_statistics_provider) {
+    explicit ScopedFakeSerialNumber(
+        chromeos::system::ScopedFakeStatisticsProvider*
+            fake_statistics_provider) {
       // The fake serial number must be set before |configuration| is
       // constructed below.
       fake_statistics_provider->SetMachineStatistic(
@@ -278,7 +293,8 @@ class EncryptedReportingJobConfigurationTest : public testing::Test {
   ScopedFakeSerialNumber fake_serial_number_;
 #endif
 
-  MockDeviceManagementService service_;
+  StrictMock<MockJobCreationHandler> job_creation_handler_;
+  FakeDeviceManagementService service_{&job_creation_handler_};
   MockCloudPolicyClient client_;
   StrictMock<MockCompleteCb> complete_cb_;
 
@@ -377,6 +393,57 @@ TEST_F(EncryptedReportingJobConfigurationTest, CorrectlyAddsMultipleRecords) {
   for (const auto& record : records) {
     EXPECT_EQ(record_list->GetList()[counter++], record);
   }
+
+  EXPECT_FALSE(GetAttachEncryptionSettings(&configuration));
+}
+
+// Ensures that attach encryption settings request is included when no records
+// are present.
+TEST_F(EncryptedReportingJobConfigurationTest,
+       AllowsAttachEncryptionSettingsAlone) {
+  RequestPayloadBuilder builder{/*attach_encryption_settings=*/true};
+  EXPECT_CALL(complete_cb_, Call(_, _, _, _)).Times(1);
+  EncryptedReportingJobConfiguration configuration(
+      &client_, service_.configuration()->GetEncryptedReportingServerUrl(),
+      builder.Build(),
+      base::BindOnce(&MockCompleteCb::Call, base::Unretained(&complete_cb_)));
+
+  base::Value* record_list = nullptr;
+  GetRecordList(&configuration, &record_list);
+
+  EXPECT_TRUE(record_list->GetList().empty());
+
+  EXPECT_TRUE(GetAttachEncryptionSettings(&configuration));
+}
+
+TEST_F(EncryptedReportingJobConfigurationTest,
+       CorrectlyAddsMultipleRecordsWithAttachEncryptionSettings) {
+  const std::vector<std::string> kEncryptedWrappedRecords{
+      "T", "E", "S", "T", "_", "I", "N", "F", "O"};
+  std::vector<base::Value> records;
+  RequestPayloadBuilder builder{/*attach_encryption_settings=*/true};
+  for (auto value : kEncryptedWrappedRecords) {
+    records.push_back(GenerateSingleRecord(value));
+    builder.AddRecord(records.back());
+  }
+
+  EXPECT_CALL(complete_cb_, Call(_, _, _, _)).Times(1);
+  EncryptedReportingJobConfiguration configuration(
+      &client_, service_.configuration()->GetEncryptedReportingServerUrl(),
+      builder.Build(),
+      base::BindOnce(&MockCompleteCb::Call, base::Unretained(&complete_cb_)));
+
+  base::Value* record_list = nullptr;
+  GetRecordList(&configuration, &record_list);
+
+  EXPECT_EQ(record_list->GetList().size(), records.size());
+
+  size_t counter = 0;
+  for (const auto& record : records) {
+    EXPECT_EQ(record_list->GetList()[counter++], record);
+  }
+
+  EXPECT_TRUE(GetAttachEncryptionSettings(&configuration));
 }
 
 // Ensures that the context can be updated.
@@ -429,7 +496,7 @@ TEST_F(EncryptedReportingJobConfigurationTest, OnURLLoadComplete_Success) {
   base::Value record_value = GenerateSingleRecord(kEncryptedWrappedRecord);
 
   base::Value response = ResponseValueBuilder::CreateResponse(
-      *record_value.FindDictKey(kSequencingInformationKey), base::nullopt);
+      *record_value.FindDictKey(kSequenceInformationKey), absl::nullopt);
 
   EXPECT_CALL(complete_cb_,
               Call(&job_, DM_STATUS_SUCCESS, net::OK, Eq(ByRef(response))))

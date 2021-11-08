@@ -8,9 +8,12 @@ import android.content.res.Resources;
 import android.graphics.Rect;
 import android.view.View;
 
+import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 
+import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightParams;
 import org.chromium.components.browser_ui.widget.textbubble.TextBubble;
+import org.chromium.ui.widget.AnchoredPopupWindow;
 import org.chromium.ui.widget.ViewRectProvider;
 
 /**
@@ -23,8 +26,6 @@ public class IPHCommandBuilder {
     private final String mFeatureName;
     private String mContentString;
     private String mAccessibilityText;
-    private boolean mShouldHighlight;
-    private boolean mCircleHighlight = true;
     private boolean mDismissOnTouch = true;
     @StringRes
     private int mStringId;
@@ -32,10 +33,18 @@ public class IPHCommandBuilder {
     private int mAccessibilityStringId;
     private View mAnchorView;
     private Runnable mOnShowCallback;
+    private Runnable mOnBlockedCallback;
     private Runnable mOnDismissCallback;
     private Rect mInsetRect;
     private long mAutoDismissTimeout = TextBubble.NO_TIMEOUT;
     private ViewRectProvider mViewRectProvider;
+    @Nullable
+    private HighlightParams mHighlightParams;
+    private Rect mAnchorRect;
+    private boolean mRemoveArrow;
+    @AnchoredPopupWindow.VerticalOrientation
+    private int mPreferredVerticalOrientation =
+            AnchoredPopupWindow.VerticalOrientation.MAX_AVAILABLE_SPACE;
 
     /**
      * Constructor for IPHCommandBuilder when you would like your strings to be resolved for you.
@@ -69,24 +78,6 @@ public class IPHCommandBuilder {
 
     /**
      *
-     * @param circleHighlight whether the highlight should be circular.
-     */
-    public IPHCommandBuilder setCircleHighlight(boolean circleHighlight) {
-        mCircleHighlight = circleHighlight;
-        return this;
-    }
-
-    /**
-     *
-     * @param shouldHighlight whether the anchor view should be highlighted.
-     */
-    public IPHCommandBuilder setShouldHighlight(boolean shouldHighlight) {
-        mShouldHighlight = shouldHighlight;
-        return this;
-    }
-
-    /**
-     *
      * @param anchorView the view that the IPH bubble should be anchored to.
      */
     public IPHCommandBuilder setAnchorView(View anchorView) {
@@ -105,6 +96,15 @@ public class IPHCommandBuilder {
 
     /**
      *
+     * @param onBlockedCallback callback to invoke if the IPH bubble is finally not shown.
+     */
+    public IPHCommandBuilder setOnNotShownCallback(Runnable onBlockedCallback) {
+        mOnBlockedCallback = onBlockedCallback;
+        return this;
+    }
+
+    /**
+     *
      * @param onDismissCallback callback to invoke when the IPH bubble is dismissed.
      */
     public IPHCommandBuilder setOnDismissCallback(Runnable onDismissCallback) {
@@ -115,9 +115,11 @@ public class IPHCommandBuilder {
     /**
      *
      * @param insetRect The inset rectangle to use when shrinking the anchor view to show the IPH
-     * bubble.
+     *         bubble. Note that the inset rectangle can only be applied when the AnchorRect is set
+     *         to null.
      */
     public IPHCommandBuilder setInsetRect(Rect insetRect) {
+        assert mAnchorRect == null;
         mInsetRect = insetRect;
         return this;
     }
@@ -144,11 +146,58 @@ public class IPHCommandBuilder {
     /**
      *
      * @param viewRectProvider Custom ViewRectProvider to replace the default one. Note that the
-     *                         provided insets will still be applied on the rectangle from the
-     *                         custom provider.
+     *         provided insets will still be applied on the rectangle from the custom provider. In
+     *         addition, the custom ViewRectProvider can only be set when the AnchorRect is set to
+     *         null.
      */
     public IPHCommandBuilder setViewRectProvider(ViewRectProvider viewRectProvider) {
+        assert mAnchorRect == null;
         mViewRectProvider = viewRectProvider;
+        return this;
+    }
+
+    /**
+     *
+     * @param anchorRect The rectangle that the IPH bubble should be anchored to. Note that the
+     *         anchor rectangle can only be set when the ViewRectProvider and the InsetRect are set
+     *         to null.
+     *
+     */
+    public IPHCommandBuilder setAnchorRect(Rect anchorRect) {
+        assert mViewRectProvider == null;
+        assert mInsetRect == null;
+        mAnchorRect = anchorRect;
+        return this;
+    }
+
+    /**
+     *
+     * @param removeArrow Whether the IPH arrow should be removed.
+     */
+    public IPHCommandBuilder setRemoveArrow(boolean removeArrow) {
+        mRemoveArrow = removeArrow;
+        return this;
+    }
+
+    /**
+     *
+     * @param params Defines how to draw the Highlight within the view. If  set to null,
+     *               IPH without a highlight will requested.
+     */
+    public IPHCommandBuilder setHighlightParams(HighlightParams params) {
+        assert params != null;
+        mHighlightParams = params;
+        return this;
+    }
+
+    /**
+     *
+     * @param preferredVerticalOrientation {@link AnchoredPopupWindow.VerticalOrientation} that
+     *         determines the preferred location for the IPH.
+     */
+    public IPHCommandBuilder setPreferredVerticalOrientation(
+            @AnchoredPopupWindow.VerticalOrientation int preferredVerticalOrientation) {
+        mPreferredVerticalOrientation = preferredVerticalOrientation;
         return this;
     }
 
@@ -164,6 +213,10 @@ public class IPHCommandBuilder {
             mOnShowCallback = NO_OP_RUNNABLE;
         }
 
+        if (mOnBlockedCallback == null) {
+            mOnBlockedCallback = NO_OP_RUNNABLE;
+        }
+
         if (mContentString == null) {
             assert mResources != null;
             mContentString = mResources.getString(mStringId);
@@ -174,14 +227,15 @@ public class IPHCommandBuilder {
             mAccessibilityText = mResources.getString(mAccessibilityStringId);
         }
 
-        if (mInsetRect == null) {
+        if (mInsetRect == null && mAnchorRect == null) {
             int yInsetPx =
                     mResources.getDimensionPixelOffset(R.dimen.iph_text_bubble_menu_anchor_y_inset);
             mInsetRect = new Rect(0, 0, 0, yInsetPx);
         }
 
-        return new IPHCommand(mFeatureName, mContentString, mAccessibilityText, mCircleHighlight,
-                mShouldHighlight, mDismissOnTouch, mAnchorView, mOnDismissCallback, mOnShowCallback,
-                mInsetRect, mAutoDismissTimeout, mViewRectProvider);
+        return new IPHCommand(mFeatureName, mContentString, mAccessibilityText, mDismissOnTouch,
+                mAnchorView, mOnDismissCallback, mOnShowCallback, mOnBlockedCallback, mInsetRect,
+                mAutoDismissTimeout, mViewRectProvider, mHighlightParams, mAnchorRect, mRemoveArrow,
+                mPreferredVerticalOrientation);
     }
 }

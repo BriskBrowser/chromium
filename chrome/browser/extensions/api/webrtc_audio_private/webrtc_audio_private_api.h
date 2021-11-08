@@ -55,6 +55,11 @@ class WebrtcAudioPrivateEventService
 class WebrtcAudioPrivateFunction : public ExtensionFunction {
  protected:
   WebrtcAudioPrivateFunction();
+
+  WebrtcAudioPrivateFunction(const WebrtcAudioPrivateFunction&) = delete;
+  WebrtcAudioPrivateFunction& operator=(const WebrtcAudioPrivateFunction&) =
+      delete;
+
   ~WebrtcAudioPrivateFunction() override;
 
  protected:
@@ -74,8 +79,6 @@ class WebrtcAudioPrivateFunction : public ExtensionFunction {
  private:
   std::string device_id_salt_;
   std::unique_ptr<media::AudioSystem> audio_system_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebrtcAudioPrivateFunction);
 };
 
 class WebrtcAudioPrivateGetSinksFunction : public WebrtcAudioPrivateFunction {
@@ -117,7 +120,7 @@ class WebrtcAudioPrivateGetAssociatedSinkFunction
       media::AudioDeviceDescriptions source_devices);
 
   // Receives the raw sink ID, calculates HMAC and calls Reply().
-  void CalculateHMACAndReply(const base::Optional<std::string>& raw_sink_id);
+  void CalculateHMACAndReply(const absl::optional<std::string>& raw_sink_id);
 
   // Receives the associated sink ID as HMAC and sends the response.
   void Reply(const std::string& hmac);

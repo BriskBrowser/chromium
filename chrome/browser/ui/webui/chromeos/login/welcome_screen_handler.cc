@@ -8,25 +8,31 @@
 
 #include <utility>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "base/values.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/accessibility/magnification_manager.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/screens/welcome_screen.h"
+#include "chrome/browser/ash/login/ui/input_events_blocker.h"
+#include "chrome/browser/ash/login/ui/login_display_host.h"
+#include "chrome/browser/ash/policy/enrollment/enrollment_requisition_manager.h"
 #include "chrome/browser/ash/system/input_device_settings.h"
 #include "chrome/browser/ash/system/timezone_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
-#include "chrome/browser/chromeos/login/screens/welcome_screen.h"
-#include "chrome/browser/chromeos/login/ui/input_events_blocker.h"
 #include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/chromeos/login/reset_screen_handler.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/constants/dbus_switches.h"
 #include "components/login/localized_values_builder.h"
@@ -34,12 +40,15 @@
 #include "components/strings/grit/components_strings.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
-#include "ui/base/ime/chromeos/component_extension_ime_manager.h"
-#include "ui/base/ime/chromeos/extension_ime_util.h"
-#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ime/ash/component_extension_ime_manager.h"
+#include "ui/base/ime/ash/extension_ime_util.h"
+#include "ui/base/ime/ash/input_method_manager.h"
 #include "ui/chromeos/devicetype_utils.h"
 
 namespace chromeos {
+
+using ::ash::AccessibilityManager;
+using ::ash::MagnificationManager;
 
 constexpr StaticOobeScreenId WelcomeView::kScreenId;
 
@@ -75,9 +84,8 @@ void WelcomeScreenHandler::Show() {
   // TODO(crbug.com/1105387): Part of initial screen logic.
   PrefService* prefs = g_browser_process->local_state();
   if (prefs->GetBoolean(prefs::kFactoryResetRequested)) {
-    if (core_oobe_view_)
-      core_oobe_view_->ShowDeviceResetScreen();
-
+    DCHECK(LoginDisplayHost::default_host());
+    LoginDisplayHost::default_host()->StartWizard(ResetView::kScreenId);
     return;
   }
 
@@ -128,24 +136,25 @@ void WelcomeScreenHandler::ShowRemoraRequisitionDialog() {
 
 void WelcomeScreenHandler::DeclareLocalizedValues(
     ::login::LocalizedValuesBuilder* builder) {
-  if (system::InputDeviceSettings::Get()->ForceKeyboardDrivenUINavigation())
+  if (policy::EnrollmentRequisitionManager::IsRemoraRequisition()) {
     builder->Add("welcomeScreenGreeting", IDS_REMORA_CONFIRM_MESSAGE);
-  else
-    builder->Add("welcomeScreenGreeting", IDS_WELCOME_SCREEN_GREETING);
+    builder->Add("welcomeScreenGreetingSubtitle", IDS_EMPTY_STRING);
+  } else {
+    builder->AddF("welcomeScreenGreeting", IDS_NEW_WELCOME_SCREEN_GREETING,
+                  ui::GetChromeOSDeviceTypeResourceId());
+    builder->Add("welcomeScreenGreetingSubtitle",
+                 IDS_WELCOME_SCREEN_GREETING_SUBTITLE);
+  }
 
-  builder->AddF("newWelcomeScreenGreeting", IDS_NEW_WELCOME_SCREEN_GREETING,
-                ui::GetChromeOSDeviceTypeResourceId());
-  builder->Add("newWelcomeScreenGreetingSubtitle",
-               IDS_WELCOME_SCREEN_GREETING_SUBTITLE);
-  builder->Add("welcomeScreenGetStarted", IDS_OOBE_WELCOME_NEXT_BUTTON_TEXT);
+  builder->Add("welcomeScreenGetStarted", IDS_LOGIN_GET_STARTED);
 
   // MD-OOBE (oobe-welcome-element)
   builder->Add("debuggingFeaturesLink", IDS_WELCOME_ENABLE_DEV_FEATURES_LINK);
   builder->Add("timezoneDropdownLabel", IDS_TIMEZONE_DROPDOWN_LABEL);
   builder->Add("oobeOKButtonText", IDS_OOBE_OK_BUTTON_TEXT);
-  builder->Add("welcomeNextButtonText", IDS_OOBE_WELCOME_NEXT_BUTTON_TEXT);
   builder->Add("languageButtonLabel", IDS_LANGUAGE_BUTTON_LABEL);
   builder->Add("languageSectionTitle", IDS_LANGUAGE_SECTION_TITLE);
+  builder->Add("languageSectionHint", IDS_LANGUAGE_SECTION_HINT);
   builder->Add("accessibilitySectionTitle", IDS_ACCESSIBILITY_SECTION_TITLE);
   builder->Add("accessibilitySectionHint", IDS_ACCESSIBILITY_SECTION_HINT);
   builder->Add("timezoneSectionTitle", IDS_TIMEZONE_SECTION_TITLE);
@@ -201,6 +210,22 @@ void WelcomeScreenHandler::DeclareLocalizedValues(
                IDS_OOBE_CHROMEVOX_HINT_ANNOUNCEMENT_TEXT_LAPTOP);
   builder->Add("chromeVoxHintAnnouncementTextTablet",
                IDS_OOBE_CHROMEVOX_HINT_ANNOUNCEMENT_TEXT_TABLET);
+
+  // Strings for the device requisition prompt.
+  builder->Add("deviceRequisitionPromptCancel",
+               IDS_ENTERPRISE_DEVICE_REQUISITION_PROMPT_CANCEL);
+  builder->Add("deviceRequisitionPromptOk",
+               IDS_ENTERPRISE_DEVICE_REQUISITION_PROMPT_OK);
+  builder->Add("deviceRequisitionPromptText",
+               IDS_ENTERPRISE_DEVICE_REQUISITION_PROMPT_TEXT);
+  builder->Add("deviceRequisitionRemoraPromptCancel",
+               IDS_CONFIRM_MESSAGEBOX_NO_BUTTON_LABEL);
+  builder->Add("deviceRequisitionRemoraPromptOk",
+               IDS_CONFIRM_MESSAGEBOX_YES_BUTTON_LABEL);
+  builder->Add("deviceRequisitionRemoraPromptText",
+               IDS_ENTERPRISE_DEVICE_REQUISITION_REMORA_PROMPT_TEXT);
+  builder->Add("deviceRequisitionSharkPromptText",
+               IDS_ENTERPRISE_DEVICE_REQUISITION_SHARK_PROMPT_TEXT);
 }
 
 void WelcomeScreenHandler::DeclareJSCallbacks() {
@@ -249,7 +274,7 @@ void WelcomeScreenHandler::GetAdditionalParameters(
   if (screen_) {
     if (screen_->language_list() &&
         screen_->language_list_locale() == application_locale) {
-      language_list.reset(screen_->language_list()->DeepCopy());
+      language_list = screen_->language_list()->CreateDeepCopy();
     } else {
       screen_->UpdateLanguageList();
     }
@@ -258,15 +283,17 @@ void WelcomeScreenHandler::GetAdditionalParameters(
   if (!language_list)
     language_list = GetMinimalUILanguageList();
 
-  const bool enable_layouts = true;
+  dict->SetKey("languageList",
+               base::Value::FromUniquePtrValue(std::move(language_list)));
+  dict->SetKey("inputMethodsList",
+               GetAndActivateLoginKeyboardLayouts(application_locale,
+                                                  selected_input_method));
+  dict->SetKey("timezoneList", GetTimezoneList());
+  dict->SetKey("demoModeCountryList", DemoSession::GetCountryList());
 
-  dict->Set("languageList", std::move(language_list));
-  dict->Set("inputMethodsList",
-            GetAndActivateLoginKeyboardLayouts(
-                application_locale, selected_input_method, enable_layouts));
-  dict->Set("timezoneList", GetTimezoneList());
-  dict->Set("demoModeCountryList",
-            base::Value::ToUniquePtrValue(DemoSession::GetCountryList()));
+  dict->SetKey("languagePacksEnabled",
+               base::Value(base::FeatureList::IsEnabled(
+                   ash::features::kLanguagePacksHandwriting)));
 }
 
 void WelcomeScreenHandler::Initialize() {
@@ -311,15 +338,19 @@ void WelcomeScreenHandler::GiveChromeVoxHint() {
   CallJS("login.WelcomeScreen.maybeGiveChromeVoxHint");
 }
 
+void WelcomeScreenHandler::CancelChromeVoxHintIdleDetection() {
+  screen_->CancelChromeVoxHintIdleDetection();
+}
+
 void WelcomeScreenHandler::HandleRecordChromeVoxHintSpokenSuccess() {
   base::UmaHistogramBoolean("OOBE.WelcomeScreen.ChromeVoxHintSpokenSuccess",
                             true);
 }
 
 void WelcomeScreenHandler::OnAccessibilityStatusChanged(
-    const AccessibilityStatusEventDetails& details) {
+    const ash::AccessibilityStatusEventDetails& details) {
   if (details.notification_type ==
-      AccessibilityNotificationType::kManagerShutdown) {
+      ash::AccessibilityNotificationType::kManagerShutdown) {
     accessibility_subscription_ = {};
   } else {
     UpdateA11yState();
@@ -344,33 +375,30 @@ void WelcomeScreenHandler::UpdateA11yState() {
   a11y_info.SetBoolean("virtualKeyboardEnabled",
                        AccessibilityManager::Get()->IsVirtualKeyboardEnabled());
   if (screen_ && AccessibilityManager::Get()->IsSpokenFeedbackEnabled())
-    screen_->CancelChromeVoxHintTimer();
+    CancelChromeVoxHintIdleDetection();
   CallJS("login.WelcomeScreen.refreshA11yInfo", a11y_info);
 }
 
 // static
-std::unique_ptr<base::ListValue> WelcomeScreenHandler::GetTimezoneList() {
+base::ListValue WelcomeScreenHandler::GetTimezoneList() {
   std::string current_timezone_id;
   CrosSettings::Get()->GetString(kSystemTimezone, &current_timezone_id);
 
-  std::unique_ptr<base::ListValue> timezone_list(new base::ListValue);
+  base::ListValue timezone_list;
   std::unique_ptr<base::ListValue> timezones = system::GetTimezoneList();
-  for (size_t i = 0; i < timezones->GetSize(); ++i) {
-    const base::ListValue* timezone = NULL;
-    CHECK(timezones->GetList(i, &timezone));
+  base::Value::ConstListView timezones_view = timezones->GetList();
+  for (size_t i = 0; i < timezones_view.size(); ++i) {
+    CHECK(timezones_view[i].is_list());
+    base::Value::ConstListView timezone = timezones_view[i].GetList();
 
-    std::string timezone_id;
-    CHECK(timezone->GetString(0, &timezone_id));
+    std::string timezone_id = timezone[0].GetString();
+    std::string timezone_name = timezone[1].GetString();
 
-    std::string timezone_name;
-    CHECK(timezone->GetString(1, &timezone_name));
-
-    std::unique_ptr<base::DictionaryValue> timezone_option(
-        new base::DictionaryValue);
-    timezone_option->SetString("value", timezone_id);
-    timezone_option->SetString("title", timezone_name);
-    timezone_option->SetBoolean("selected", timezone_id == current_timezone_id);
-    timezone_list->Append(std::move(timezone_option));
+    base::Value timezone_option(base::Value::Type::DICTIONARY);
+    timezone_option.SetStringKey("value", timezone_id);
+    timezone_option.SetStringKey("title", timezone_name);
+    timezone_option.SetBoolKey("selected", timezone_id == current_timezone_id);
+    timezone_list.Append(std::move(timezone_option));
   }
 
   return timezone_list;

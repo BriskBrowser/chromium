@@ -145,7 +145,7 @@ void HighlighterController::UpdatePointerView(ui::TouchEvent* event) {
 
   interrupted_stroke_timer_ = std::make_unique<base::OneShotTimer>();
   interrupted_stroke_timer_->Start(
-      FROM_HERE, base::TimeDelta::FromMilliseconds(kInterruptedStrokeTimeoutMs),
+      FROM_HERE, base::Milliseconds(kInterruptedStrokeTimeoutMs),
       base::BindOnce(&HighlighterController::RecognizeGesture,
                      base::Unretained(this)));
 }
@@ -232,12 +232,22 @@ void HighlighterController::DestroyPointerView() {
   DestroyResultView();
 }
 
-bool HighlighterController::CanStartNewGesture(ui::TouchEvent* event) {
+bool HighlighterController::CanStartNewGesture(ui::LocatedEvent* event) {
   // Ignore events over the palette.
   if (palette_utils::PaletteContainsPointInScreen(event->root_location()))
     return false;
   return !interrupted_stroke_timer_ &&
          FastInkPointerController::CanStartNewGesture(event);
+}
+
+bool HighlighterController::ShouldProcessEvent(ui::LocatedEvent* event) {
+  // Allow mouse clicking when Assistant tool is enabled.
+  if (event->type() == ui::ET_MOUSE_PRESSED ||
+      event->type() == ui::ET_MOUSE_RELEASED) {
+    return false;
+  }
+
+  return FastInkPointerController::ShouldProcessEvent(event);
 }
 
 void HighlighterController::DestroyHighlighterView() {

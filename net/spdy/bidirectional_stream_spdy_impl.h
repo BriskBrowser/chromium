@@ -40,6 +40,10 @@ class NET_EXPORT_PRIVATE BidirectionalStreamSpdyImpl
   BidirectionalStreamSpdyImpl(const base::WeakPtr<SpdySession>& spdy_session,
                               NetLogSource source_dependency);
 
+  BidirectionalStreamSpdyImpl(const BidirectionalStreamSpdyImpl&) = delete;
+  BidirectionalStreamSpdyImpl& operator=(const BidirectionalStreamSpdyImpl&) =
+      delete;
+
   ~BidirectionalStreamSpdyImpl() override;
 
   // BidirectionalStreamImpl implementation:
@@ -62,6 +66,7 @@ class NET_EXPORT_PRIVATE BidirectionalStreamSpdyImpl
 
   // SpdyStream::Delegate implementation:
   void OnHeadersSent() override;
+  void OnEarlyHintsReceived(const spdy::Http2HeaderBlock& headers) override;
   void OnHeadersReceived(
       const spdy::Http2HeaderBlock& response_headers,
       const spdy::Http2HeaderBlock* pushed_request_headers) override;
@@ -129,8 +134,6 @@ class NET_EXPORT_PRIVATE BidirectionalStreamSpdyImpl
   scoped_refptr<IOBuffer> pending_combined_buffer_;
 
   base::WeakPtrFactory<BidirectionalStreamSpdyImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BidirectionalStreamSpdyImpl);
 };
 
 }  // namespace net

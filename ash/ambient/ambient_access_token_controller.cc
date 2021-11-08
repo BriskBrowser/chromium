@@ -6,6 +6,7 @@
 
 #include "ash/login/ui/lock_screen.h"
 #include "ash/public/cpp/ambient/ambient_client.h"
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/time/time.h"
@@ -84,10 +85,13 @@ void AmbientAccessTokenController::AccessTokenRefreshed(
 
   if (gaia_id.empty() || access_token.empty()) {
     refresh_token_retry_backoff_.InformOfRequest(/*succeeded=*/false);
-    if (refresh_token_retry_backoff_.failure_count() <= kMaxRetries)
+    if (refresh_token_retry_backoff_.failure_count() <= kMaxRetries) {
+      LOG(WARNING) << "Unable to refresh access token. Retrying..";
       RetryRefreshAccessToken();
-    else
+    } else {
+      LOG(ERROR) << "Unable to refresh access token. All retries attempted.";
       NotifyAccessTokenRefreshed();
+    }
 
     return;
   }

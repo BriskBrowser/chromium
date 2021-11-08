@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_ANDROID_SAFE_BROWSING_PASSWORD_REUSE_DIALOG_VIEW_ANDROID_H_
 
 #include <jni.h>
+
 #include "base/android/scoped_java_ref.h"
-#include "base/strings/string16.h"
 
 namespace ui {
 class WindowAndroid;
@@ -25,6 +25,11 @@ class PasswordReuseDialogViewAndroid {
   explicit PasswordReuseDialogViewAndroid(
       PasswordReuseControllerAndroid* controller);
 
+  PasswordReuseDialogViewAndroid(const PasswordReuseDialogViewAndroid&) =
+      delete;
+  PasswordReuseDialogViewAndroid& operator=(
+      const PasswordReuseDialogViewAndroid&) = delete;
+
   // Destructor must delete its Java counterpart.
   ~PasswordReuseDialogViewAndroid();
 
@@ -32,6 +37,9 @@ class PasswordReuseDialogViewAndroid {
   void Show(ui::WindowAndroid* window_android);
 
   // Called from Java to native.
+  void CheckPasswords(JNIEnv* env,
+                      const base::android::JavaParamRef<jobject>& obj);
+  void Ignore(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
   void Close(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
  private:
@@ -41,8 +49,6 @@ class PasswordReuseDialogViewAndroid {
 
   // The corresponding java object.
   base::android::ScopedJavaGlobalRef<jobject> java_object_;
-
-  DISALLOW_COPY_AND_ASSIGN(PasswordReuseDialogViewAndroid);
 };
 
 }  // namespace safe_browsing

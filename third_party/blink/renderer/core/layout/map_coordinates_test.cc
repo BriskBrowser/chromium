@@ -5,6 +5,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/layout/geometry/transform_state.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
+#include "third_party/blink/renderer/core/layout/layout_multi_column_flow_thread.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
@@ -573,7 +574,7 @@ TEST_F(MapCoordinatesTest, FixedPosInFixedPosScrollView) {
       ScrollOffset(0.0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(50,
-            GetDocument().View()->LayoutViewport()->ScrollOffsetInt().Height());
+            GetDocument().View()->LayoutViewport()->ScrollOffsetInt().height());
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, view, PhysicalOffset());
@@ -608,7 +609,7 @@ TEST_F(MapCoordinatesTest, FixedPosInAbsolutePosScrollView) {
       ScrollOffset(0.0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(50,
-            GetDocument().View()->LayoutViewport()->ScrollOffsetInt().Height());
+            GetDocument().View()->LayoutViewport()->ScrollOffsetInt().height());
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, view, PhysicalOffset());
@@ -637,7 +638,7 @@ TEST_F(MapCoordinatesTest, FixedPosInTransform) {
       ScrollOffset(0.0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(50,
-            GetDocument().View()->LayoutViewport()->ScrollOffsetInt().Height());
+            GetDocument().View()->LayoutViewport()->ScrollOffsetInt().height());
 
   auto* target = GetLayoutBoxByElementId("target");
   auto* container = GetLayoutBoxByElementId("container");
@@ -677,7 +678,7 @@ TEST_F(MapCoordinatesTest, FixedPosInContainPaint) {
       ScrollOffset(0.0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(50,
-            GetDocument().View()->LayoutViewport()->ScrollOffsetInt().Height());
+            GetDocument().View()->LayoutViewport()->ScrollOffsetInt().height());
 
   auto* target = GetLayoutBoxByElementId("target");
   auto* container = GetLayoutBoxByElementId("container");
@@ -806,11 +807,11 @@ TEST_F(MapCoordinatesTest, MulticolWithText) {
     </div>
   )HTML");
 
+  auto* const multicol =
+      To<LayoutBlockFlow>(GetLayoutBoxByElementId("multicol"));
   LayoutObject* target = GetLayoutObjectByElementId("sibling")->NextSibling();
   ASSERT_TRUE(target->IsText());
-  auto* flow_thread = To<LayoutBox>(target->Parent());
-  ASSERT_TRUE(flow_thread->IsLayoutFlowThread());
-  auto* multicol = GetLayoutBoxByElementId("multicol");
+  auto* const flow_thread = multicol->MultiColumnFlowThread();
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, flow_thread, PhysicalOffset(10, 70));
@@ -833,10 +834,10 @@ TEST_F(MapCoordinatesTest, MulticolWithInline) {
     </div>
   )HTML");
 
+  auto* const multicol =
+      To<LayoutBlockFlow>(GetLayoutBoxByElementId("multicol"));
   LayoutObject* target = GetLayoutObjectByElementId("target");
-  auto* flow_thread = To<LayoutBox>(target->Parent());
-  ASSERT_TRUE(flow_thread->IsLayoutFlowThread());
-  auto* multicol = GetLayoutBoxByElementId("multicol");
+  auto* const flow_thread = multicol->MultiColumnFlowThread();
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, flow_thread, PhysicalOffset(10, 70));
@@ -1013,6 +1014,52 @@ TEST_F(MapCoordinatesTest, MulticolWithAbsPosInRelPos) {
       MapLocalToAncestor(relpos, flow_thread, PhysicalOffset(25, 25));
   EXPECT_EQ(PhysicalOffset(29, 139), mapped_point);
   mapped_point = MapAncestorToLocal(relpos, flow_thread, mapped_point);
+  EXPECT_EQ(PhysicalOffset(25, 25), mapped_point);
+
+  mapped_point =
+      MapLocalToAncestor(flow_thread, multicol, PhysicalOffset(29, 139));
+  EXPECT_EQ(PhysicalOffset(144, 54), mapped_point);
+  mapped_point = MapAncestorToLocal(flow_thread, multicol, mapped_point);
+  EXPECT_EQ(PhysicalOffset(29, 139), mapped_point);
+}
+
+TEST_F(MapCoordinatesTest, MulticolWithAbsPosInInlineRelPos) {
+  SetBodyInnerHTML(R"HTML(
+    <div id='multicol' style='columns:3; column-gap:0; column-fill:auto;
+    width:300px; height:100px; border:8px solid; padding:7px;'>
+        <div style='height:110px;'></div>
+        <div id='container'>
+          <span id='relpos' style='position:relative; left:4px; top:4px;'>
+              <div id='target' style='position:absolute; left:15px; top:15px;
+               margin:10px; border:13px; padding:13px;'></div>
+          </span>
+        </div>
+    </div>
+  )HTML");
+
+  auto* target = GetLayoutBoxByElementId("target");
+  auto* multicol = GetLayoutBoxByElementId("multicol");
+
+  PhysicalOffset mapped_point =
+      MapLocalToAncestor(target, multicol, PhysicalOffset());
+  EXPECT_EQ(PhysicalOffset(144, 54), mapped_point);
+  mapped_point = MapAncestorToLocal(target, multicol, mapped_point);
+  EXPECT_EQ(PhysicalOffset(), mapped_point);
+
+  // Walk each ancestor in the chain separately, to verify each step on the way.
+  auto* container = GetLayoutBoxByElementId("container");
+  LayoutBox* flow_thread = container->ParentBox();
+  ASSERT_TRUE(flow_thread->IsLayoutFlowThread());
+
+  mapped_point = MapLocalToAncestor(target, container, PhysicalOffset());
+  EXPECT_EQ(PhysicalOffset(29, 29), mapped_point);
+  mapped_point = MapAncestorToLocal(target, container, mapped_point);
+  EXPECT_EQ(PhysicalOffset(), mapped_point);
+
+  mapped_point =
+      MapLocalToAncestor(container, flow_thread, PhysicalOffset(25, 25));
+  EXPECT_EQ(PhysicalOffset(25, 135), mapped_point);
+  mapped_point = MapAncestorToLocal(container, flow_thread, mapped_point);
   EXPECT_EQ(PhysicalOffset(25, 25), mapped_point);
 
   mapped_point =
@@ -1353,14 +1400,14 @@ static bool FloatValuesAlmostEqual(float expected, float actual) {
 
 static bool FloatQuadsAlmostEqual(const FloatQuad& expected,
                                   const FloatQuad& actual) {
-  return FloatValuesAlmostEqual(expected.P1().X(), actual.P1().X()) &&
-         FloatValuesAlmostEqual(expected.P1().Y(), actual.P1().Y()) &&
-         FloatValuesAlmostEqual(expected.P2().X(), actual.P2().X()) &&
-         FloatValuesAlmostEqual(expected.P2().Y(), actual.P2().Y()) &&
-         FloatValuesAlmostEqual(expected.P3().X(), actual.P3().X()) &&
-         FloatValuesAlmostEqual(expected.P3().Y(), actual.P3().Y()) &&
-         FloatValuesAlmostEqual(expected.P4().X(), actual.P4().X()) &&
-         FloatValuesAlmostEqual(expected.P4().Y(), actual.P4().Y());
+  return FloatValuesAlmostEqual(expected.p1().x(), actual.p1().x()) &&
+         FloatValuesAlmostEqual(expected.p1().y(), actual.p1().y()) &&
+         FloatValuesAlmostEqual(expected.p2().x(), actual.p2().x()) &&
+         FloatValuesAlmostEqual(expected.p2().y(), actual.p2().y()) &&
+         FloatValuesAlmostEqual(expected.p3().x(), actual.p3().x()) &&
+         FloatValuesAlmostEqual(expected.p3().y(), actual.p3().y()) &&
+         FloatValuesAlmostEqual(expected.p4().x(), actual.p4().x()) &&
+         FloatValuesAlmostEqual(expected.p4().y(), actual.p4().y());
 }
 
 // If comparison fails, pretty-print the error using EXPECT_EQ()
@@ -1636,9 +1683,9 @@ TEST_F(MapCoordinatesTest, LocalToAncestorTransform) {
   matrix = child->LocalToAncestorTransform(rotate1);
   EXPECT_FALSE(matrix.IsIdentity());
   EXPECT_TRUE(matrix.IsAffine());
-  EXPECT_NEAR(0.0, matrix.ProjectPoint(FloatPoint(100.0, 0.0)).X(),
+  EXPECT_NEAR(0.0, matrix.ProjectPoint(FloatPoint(100.0, 0.0)).x(),
               LayoutUnit::Epsilon());
-  EXPECT_NEAR(100.0, matrix.ProjectPoint(FloatPoint(100.0, 0.0)).Y(),
+  EXPECT_NEAR(100.0, matrix.ProjectPoint(FloatPoint(100.0, 0.0)).y(),
               LayoutUnit::Epsilon());
 
   // Rotate (100, 0) 135 degrees to (-70.7, 70.7)
@@ -1646,10 +1693,10 @@ TEST_F(MapCoordinatesTest, LocalToAncestorTransform) {
   EXPECT_FALSE(matrix.IsIdentity());
   EXPECT_TRUE(matrix.IsAffine());
   EXPECT_NEAR(-100.0 * sqrt(2.0) / 2.0,
-              matrix.ProjectPoint(FloatPoint(100.0, 0.0)).X(),
+              matrix.ProjectPoint(FloatPoint(100.0, 0.0)).x(),
               LayoutUnit::Epsilon());
   EXPECT_NEAR(100.0 * sqrt(2.0) / 2.0,
-              matrix.ProjectPoint(FloatPoint(100.0, 0.0)).Y(),
+              matrix.ProjectPoint(FloatPoint(100.0, 0.0)).y(),
               LayoutUnit::Epsilon());
 }
 
@@ -1676,25 +1723,25 @@ TEST_F(MapCoordinatesTest, LocalToAbsoluteTransformFlattens) {
 
   // With child1, the rotations cancel and points should map basically back to
   // themselves.
-  EXPECT_NEAR(100.0, matrix.ProjectPoint(FloatPoint(100.0, 50.0)).X(),
+  EXPECT_NEAR(100.0, matrix.MapPoint(FloatPoint(100.0, 50.0)).x(),
               LayoutUnit::Epsilon());
-  EXPECT_NEAR(50.0, matrix.ProjectPoint(FloatPoint(100.0, 50.0)).Y(),
+  EXPECT_NEAR(50.0, matrix.MapPoint(FloatPoint(100.0, 50.0)).y(),
               LayoutUnit::Epsilon());
-  EXPECT_NEAR(50.0, matrix.ProjectPoint(FloatPoint(50.0, 100.0)).X(),
+  EXPECT_NEAR(50.0, matrix.MapPoint(FloatPoint(50.0, 100.0)).x(),
               LayoutUnit::Epsilon());
-  EXPECT_NEAR(100.0, matrix.ProjectPoint(FloatPoint(50.0, 100.0)).Y(),
+  EXPECT_NEAR(100.0, matrix.MapPoint(FloatPoint(50.0, 100.0)).y(),
               LayoutUnit::Epsilon());
 
   // With child2, each rotation gets flattened and the end result is
-  // approximately a 90-degree rotation.
+  // approximately a scale(1.0, 0.5).
   matrix = child2->LocalToAbsoluteTransform();
-  EXPECT_NEAR(50.0, matrix.ProjectPoint(FloatPoint(100.0, 50.0)).X(),
+  EXPECT_NEAR(50.0, matrix.MapPoint(FloatPoint(100.0, 50.0)).x(),
               LayoutUnit::Epsilon());
-  EXPECT_NEAR(50.0, matrix.ProjectPoint(FloatPoint(100.0, 50.0)).Y(),
+  EXPECT_NEAR(50.0, matrix.MapPoint(FloatPoint(100.0, 50.0)).y(),
               LayoutUnit::Epsilon());
-  EXPECT_NEAR(25.0, matrix.ProjectPoint(FloatPoint(50.0, 100.0)).X(),
+  EXPECT_NEAR(25.0, matrix.MapPoint(FloatPoint(50.0, 100.0)).x(),
               LayoutUnit::Epsilon());
-  EXPECT_NEAR(100.0, matrix.ProjectPoint(FloatPoint(50.0, 100.0)).Y(),
+  EXPECT_NEAR(100.0, matrix.MapPoint(FloatPoint(50.0, 100.0)).y(),
               LayoutUnit::Epsilon());
 }
 
@@ -1705,6 +1752,28 @@ TEST_F(MapCoordinatesTest, Transform3DWithOffset) {
     </style>
     <div style="perspective: 400px; width: 0; height: 0">
       <div>
+        <div style="height: 100px"></div>
+        <div style="transform-style: preserve-3d; transform: rotateY(0deg)">
+          <div id="target" style="width: 100px; height: 100px;
+                                  transform: translateZ(200px)">
+          </div>
+        </div>
+      </div>
+    </div>
+  )HTML");
+
+  auto* target = GetLayoutObjectByElementId("target");
+  EXPECT_EQ(FloatRect(0, 100, 100, 100),
+            MapLocalToAncestor(target, nullptr, FloatRect(0, 0, 100, 100)));
+}
+
+TEST_F(MapCoordinatesTest, Transform3DWithOffset2) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      body { margin: 0; }
+    </style>
+    <div style="perspective: 400px; width: 0; height: 0">
+      <div style="transform-style: preserve-3d">
         <div style="height: 100px"></div>
         <div style="transform-style: preserve-3d; transform: rotateY(0deg)">
           <div id="target" style="width: 100px; height: 100px;

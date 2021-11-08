@@ -14,9 +14,9 @@
 
 // #import {afterNextRender, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 // #import {assert} from 'chrome://resources/js/assert.m.js';
-// #import {getSettingIdParameter} from '../setting_id_param_util.m.js';
+// #import {getSettingIdParameter} from '../setting_id_param_util.js';
 // #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-// #import {Router} from '../router.m.js';
+// #import {Router} from '../router.js';
 // clang-format on
 
 /** @type {string} */
@@ -73,8 +73,6 @@ const kDeepLinkFocusId = 'deep-link-focus-id';
    *     ?chromeos.settings.mojom.Setting}>}
    */
   showDeepLink(settingId) {
-    assert(loadTimeData.getBoolean('isDeepLinkingEnabled'));
-
     return new Promise(resolve => {
       Polymer.RenderStatus.afterNextRender(this, () => {
         const elToFocus = this.$$(`[${kDeepLinkFocusId}~="${settingId}"]`);
@@ -96,8 +94,6 @@ const kDeepLinkFocusId = 'deep-link-focus-id';
    * @param {!Element} elToFocus
    */
   showDeepLinkElement(elToFocus) {
-    assert(loadTimeData.getBoolean('isDeepLinkingEnabled'));
-
     elToFocus.focus();
   },
 
@@ -142,3 +138,20 @@ const kDeepLinkFocusId = 'deep-link-focus-id';
     return this.showDeepLink(settingId);
   },
 };
+
+/** @interface */
+/* #export */ class DeepLinkingBehaviorInterface {
+  constructor() {
+    /** @type {!Object} */
+    this.Setting;
+
+    /** @type {!Set<!chromeos.settings.mojom.Setting>}} */
+    this.supportedSettingIds;
+  }
+
+  /**
+   * @return {!Promise<!{deepLinkShown: boolean, pendingSettingId:
+   *     ?chromeos.settings.mojom.Setting}>}
+   */
+  attemptDeepLink() {}
+}

@@ -35,6 +35,7 @@
 #include <memory>
 #include <string>
 
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -53,8 +54,8 @@
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
-#include "third_party/blink/renderer/platform/wtf/text/unicode.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_uchar.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
@@ -73,8 +74,9 @@ class SkTypeface;
 namespace base {
 namespace trace_event {
 class ProcessMemoryDump;
-}
-}
+}  // namespace trace_event
+struct Feature;
+}  // namespace base
 
 namespace blink {
 
@@ -83,6 +85,9 @@ class FontFaceCreationParams;
 class FontFallbackMap;
 class FontGlobalContext;
 class SimpleFontData;
+class WebFontPrewarmer;
+
+PLATFORM_EXPORT extern const base::Feature kAsyncFontAccess;
 
 enum class AlternateFontName {
   kAllowAlternate,
@@ -108,6 +113,10 @@ typedef HashMap<FallbackListCompositeKey,
 // "und-Zsye", the special locale for retrieving the color emoji font defined
 // in UTS #51: https://unicode.org/reports/tr51/#Emoji_Script
 extern const char kColorEmojiLocale[];
+
+#if defined(OS_ANDROID)
+extern const char kNotoColorEmojiCompat[];
+#endif
 
 class PLATFORM_EXPORT FontCache {
   friend class FontCachePurgePreventer;
@@ -172,6 +181,16 @@ class PLATFORM_EXPORT FontCache {
 
   sk_sp<SkFontMgr> FontManager() { return font_manager_; }
   static void SetFontManager(sk_sp<SkFontMgr>);
+
+#if defined(OS_WIN)
+  static WebFontPrewarmer* GetFontPrewarmer() { return prewarmer_; }
+  static void SetFontPrewarmer(WebFontPrewarmer* prewarmer) {
+    prewarmer_ = prewarmer;
+  }
+  static void PrewarmFamily(const AtomicString& family_name);
+#else
+  static void PrewarmFamily(const AtomicString& family_name) {}
+#endif
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // These are needed for calling QueryRenderStyleForStrike, since
@@ -246,6 +265,13 @@ class PLATFORM_EXPORT FontCache {
   static AtomicString GetGenericFamilyNameForScript(
       const AtomicString& family_name,
       const FontDescription&);
+  // Locale-specific families can use different |SkTypeface| for a family name
+  // if locale is different.
+  static const char* GetLocaleSpecificFamilyName(
+      const AtomicString& family_name);
+  sk_sp<SkTypeface> CreateLocaleSpecificTypeface(
+      const FontDescription& font_description,
+      const char* locale_family_name);
 #endif  // defined(OS_ANDROID)
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
@@ -269,6 +295,8 @@ class PLATFORM_EXPORT FontCache {
 
   FontFallbackMap& GetFontFallbackMap();
 
+  FontCache(const FontCache&) = delete;
+  FontCache& operator=(const FontCache&) = delete;
   ~FontCache() = default;
 
  private:
@@ -330,6 +358,7 @@ class PLATFORM_EXPORT FontCache {
   static AtomicString GetFamilyNameForCharacter(SkFontMgr*,
                                                 UChar32,
                                                 const FontDescription&,
+                                                const char* family_name,
                                                 FontFallbackPriority);
 #endif  // defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 
@@ -352,6 +381,7 @@ class PLATFORM_EXPORT FontCache {
   static SkFontMgr* static_font_manager_;
 
 #if defined(OS_WIN)
+  static WebFontPrewarmer* prewarmer_;
   static bool antialiased_text_enabled_;
   static bool lcd_text_enabled_;
   static HashMap<String, sk_sp<SkTypeface>, CaseFoldingHash>* sideloaded_fonts_;
@@ -398,8 +428,7 @@ class PLATFORM_EXPORT FontCache {
 
   friend class SimpleFontData;  // For fontDataFromFontPlatformData
   friend class FontFallbackList;
-
-  DISALLOW_COPY_AND_ASSIGN(FontCache);
+  FRIEND_TEST_ALL_PREFIXES(FontCacheAndroidTest, LocaleSpecificTypeface);
 };
 
 class PLATFORM_EXPORT FontCachePurgePreventer {
@@ -407,13 +436,24 @@ class PLATFORM_EXPORT FontCachePurgePreventer {
 
  public:
   FontCachePurgePreventer() { FontCache::GetFontCache()->DisablePurging(); }
+  FontCachePurgePreventer(const FontCachePurgePreventer&) = delete;
+  FontCachePurgePreventer& operator=(const FontCachePurgePreventer&) = delete;
   ~FontCachePurgePreventer() { FontCache::GetFontCache()->EnablePurging(); }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FontCachePurgePreventer);
 };
 
 AtomicString ToAtomicString(const SkString&);
+
+#if defined(OS_ANDROID)
+// TODO(crbug.com/1241875) Can this be simplified?
+// static
+inline const char* FontCache::GetLocaleSpecificFamilyName(
+    const AtomicString& family_name) {
+  // Only `serif` has `fallbackFor` according to the current `fonts.xml`.
+  if (family_name == font_family_names::kSerif)
+    return "serif";
+  return nullptr;
+}
+#endif
 
 }  // namespace blink
 

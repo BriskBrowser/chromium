@@ -144,6 +144,10 @@ class UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper {
       base::ScopedFD lifeline_fd,
       scoped_refptr<UsbDeviceHandleUsbfs> device_handle,
       scoped_refptr<base::SequencedTaskRunner> task_runner);
+
+  BlockingTaskRunnerHelper(const BlockingTaskRunnerHelper&) = delete;
+  BlockingTaskRunnerHelper& operator=(const BlockingTaskRunnerHelper&) = delete;
+
   ~BlockingTaskRunnerHelper();
 
   void Start();
@@ -168,8 +172,6 @@ class UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper {
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   std::unique_ptr<base::FileDescriptorWatcher::Controller> watch_controller_;
   base::SequenceChecker sequence_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(BlockingTaskRunnerHelper);
 };
 
 struct UsbDeviceHandleUsbfs::Transfer final {
@@ -178,6 +180,10 @@ struct UsbDeviceHandleUsbfs::Transfer final {
            TransferCallback callback);
   Transfer(scoped_refptr<base::RefCountedBytes> buffer,
            IsochronousTransferCallback callback);
+
+  Transfer(const Transfer&) = delete;
+  Transfer& operator=(const Transfer&) = delete;
+
   ~Transfer();
 
   void* operator new(std::size_t size, size_t number_of_iso_packets);
@@ -197,9 +203,6 @@ struct UsbDeviceHandleUsbfs::Transfer final {
 
   TransferCallback callback;
   IsochronousTransferCallback isoc_callback;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(Transfer);
 
  public:
   // The |urb| field must be the last in the struct so that the extra space
@@ -959,7 +962,7 @@ void UsbDeviceHandleUsbfs::SetUpTimeoutCallback(Transfer* transfer,
   transfer->timeout_closure.Reset(
       base::BindOnce(&UsbDeviceHandleUsbfs::OnTimeout, this, transfer));
   task_runner_->PostDelayedTask(FROM_HERE, transfer->timeout_closure.callback(),
-                                base::TimeDelta::FromMilliseconds(timeout));
+                                base::Milliseconds(timeout));
 }
 
 void UsbDeviceHandleUsbfs::OnTimeout(Transfer* transfer) {

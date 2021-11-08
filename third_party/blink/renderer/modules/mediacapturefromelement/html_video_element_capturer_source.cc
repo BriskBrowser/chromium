@@ -7,11 +7,10 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "media/base/limits.h"
 #include "third_party/blink/public/platform/web_media_player.h"
-#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_source.h"
 #include "third_party/blink/renderer/platform/mediastream/webrtc_uma_histograms.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
@@ -137,7 +136,7 @@ void HtmlVideoElementCapturerSource::sendNewFrame() {
 
   // Calculate the time in the future where the next frame should be created.
   const base::TimeDelta frame_interval =
-      base::TimeDelta::FromMicroseconds(1E6 / capture_frame_rate_);
+      base::Microseconds(1E6 / capture_frame_rate_);
   if (next_capture_time_.is_null()) {
     next_capture_time_ = current_time + frame_interval;
   } else {

@@ -10,11 +10,13 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/scheduler/public/scheduling_lifecycle_state.h"
 #include "third_party/blink/renderer/platform/scheduler/public/scheduling_policy.h"
+#include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
 class FrameScheduler;
+class WebSchedulingTaskQueue;
 
 // This is the base class of FrameScheduler and WorkerScheduler.
 class PLATFORM_EXPORT FrameOrWorkerScheduler {
@@ -41,13 +43,13 @@ class PLATFORM_EXPORT FrameOrWorkerScheduler {
    public:
     LifecycleObserverHandle(FrameOrWorkerScheduler* scheduler,
                             Observer* observer);
+    LifecycleObserverHandle(const LifecycleObserverHandle&) = delete;
+    LifecycleObserverHandle& operator=(const LifecycleObserverHandle&) = delete;
     ~LifecycleObserverHandle();
 
    private:
     base::WeakPtr<FrameOrWorkerScheduler> scheduler_;
     Observer* observer_;
-
-    DISALLOW_COPY_AND_ASSIGN(LifecycleObserverHandle);
   };
 
   // RAII handle which should be kept alive as long as the feature is active
@@ -58,10 +60,10 @@ class PLATFORM_EXPORT FrameOrWorkerScheduler {
    public:
     SchedulingAffectingFeatureHandle() = default;
     SchedulingAffectingFeatureHandle(SchedulingAffectingFeatureHandle&&);
-    inline ~SchedulingAffectingFeatureHandle() { reset(); }
-
     SchedulingAffectingFeatureHandle& operator=(
         SchedulingAffectingFeatureHandle&&);
+
+    inline ~SchedulingAffectingFeatureHandle() { reset(); }
 
     explicit operator bool() const { return scheduler_.get(); }
 
@@ -81,8 +83,17 @@ class PLATFORM_EXPORT FrameOrWorkerScheduler {
     SchedulingPolicy::Feature feature_ = SchedulingPolicy::Feature::kMaxValue;
     SchedulingPolicy policy_;
     base::WeakPtr<FrameOrWorkerScheduler> scheduler_;
+  };
 
-    DISALLOW_COPY_AND_ASSIGN(SchedulingAffectingFeatureHandle);
+  class PLATFORM_EXPORT Delegate {
+   public:
+    virtual ~Delegate() = default;
+
+    // Notifies that the list of active features for this worker has changed.
+    // See SchedulingPolicy::Feature for the list of features and the meaning
+    // of individual features.
+    virtual void UpdateBackForwardCacheDisablingFeatures(
+        uint64_t features_mask) = 0;
   };
 
   virtual ~FrameOrWorkerScheduler();
@@ -118,6 +129,9 @@ class PLATFORM_EXPORT FrameOrWorkerScheduler {
                                                                 Observer*)
       WARN_UNUSED_RESULT;
 
+  virtual std::unique_ptr<WebSchedulingTaskQueue> CreateWebSchedulingTaskQueue(
+      WebSchedulingPriority) = 0;
+
   virtual FrameScheduler* ToFrameScheduler() { return nullptr; }
 
   base::WeakPtr<FrameOrWorkerScheduler> GetWeakPtr();
@@ -137,7 +151,10 @@ class PLATFORM_EXPORT FrameOrWorkerScheduler {
   virtual void OnStoppedUsingFeature(SchedulingPolicy::Feature feature,
                                      const SchedulingPolicy& policy) = 0;
 
-  virtual base::WeakPtr<FrameOrWorkerScheduler> GetDocumentBoundWeakPtr();
+  // Gets a weak pointer for this scheduler that is reset when the influence by
+  // registered features to this scheduler is reset.
+  virtual base::WeakPtr<FrameOrWorkerScheduler>
+  GetSchedulingAffectingFeatureWeakPtr() = 0;
 
  private:
   void RemoveLifecycleObserver(Observer* observer);

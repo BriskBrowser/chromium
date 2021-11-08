@@ -9,7 +9,6 @@
 
 #include "cc/layers/layer.h"
 #include "components/viz/test/test_context_provider.h"
-#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_context_creation_attributes_core.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
@@ -57,7 +56,7 @@ class HTMLCanvasPainterTestForCAP : public PaintControllerPaintTest {
   std::unique_ptr<Canvas2DLayerBridge> MakeCanvas2DLayerBridge(
       const IntSize& size) {
     return std::make_unique<Canvas2DLayerBridge>(size, RasterMode::kGPU,
-                                                 CanvasColorParams());
+                                                 kNonOpaque);
   }
 
  private:

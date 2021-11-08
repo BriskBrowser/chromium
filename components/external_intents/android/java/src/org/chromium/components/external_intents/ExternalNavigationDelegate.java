@@ -8,13 +8,14 @@ import android.content.Context;
 import android.content.Intent;
 
 import androidx.annotation.IntDef;
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import org.chromium.components.external_intents.ExternalNavigationHandler.OverrideUrlLoadingResult;
+import org.chromium.base.Callback;
+import org.chromium.base.Function;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.url.GURL;
 import org.chromium.url.Origin;
 
 import java.lang.annotation.Retention;
@@ -44,7 +45,7 @@ public interface ExternalNavigationDelegate {
     /**
      * Returns whether to disable forwarding URL requests to external intents for the passed-in URL.
      */
-    boolean shouldDisableExternalIntentRequestsForUrl(String url);
+    boolean shouldDisableExternalIntentRequestsForUrl(GURL url);
 
     /**
      * Returns whether the embedder has custom integration with InstantApps (most embedders will not
@@ -95,17 +96,6 @@ public interface ExternalNavigationDelegate {
     int maybeHandleStartActivityIfNeeded(Intent intent, boolean proxy);
 
     /**
-     * Handle the incognito intent by loading it as a URL in the embedder, using the fallbackUrl if
-     * the intent URL cannot be handled by the embedder.
-     * @param intent The intent to be handled by the embedder.
-     * @param referrerUrl The referrer for the current navigation.
-     * @param fallbackUrl The fallback URL to load if the intent cannot be handled by the embedder.
-     * @return The OverrideUrlLoadingResult for the action taken by the embedder.
-     */
-    OverrideUrlLoadingResult handleIncognitoIntentTargetingSelf(
-            Intent intent, String referrerUrl, String fallbackUrl);
-
-    /**
      * Loads a URL as specified by |loadUrlParams| if possible. May fail in exceptional conditions
      * (e.g., if there is no valid tab).
      * @param loadUrlParams parameters of the URL to be loaded
@@ -116,7 +106,7 @@ public interface ExternalNavigationDelegate {
     void maybeSetWindowId(Intent intent);
 
     /** Records the pending referrer if desired. */
-    void maybeSetPendingReferrer(Intent intent, @NonNull String referrerUrl);
+    void maybeSetPendingReferrer(Intent intent, GURL referrerUrl);
 
     /**
      * Adjusts any desired extras related to intents to instant apps based on the value of
@@ -152,7 +142,7 @@ public interface ExternalNavigationDelegate {
      * @return Whether we launched an instant app.
      */
     boolean maybeLaunchInstantApp(
-            String url, String referrerUrl, boolean isIncomingRedirect, boolean isSerpReferrer);
+            GURL url, GURL referrerUrl, boolean isIncomingRedirect, boolean isSerpReferrer);
 
     /**
      * @return The WindowAndroid instance associated with this delegate instance.
@@ -179,20 +169,6 @@ public interface ExternalNavigationDelegate {
     boolean canCloseTabOnIncognitoIntentLaunch();
 
     /**
-     * @return whether this delegate supports creation of new tabs. If this method returns false,
-     * all URLs loaded by ExternalNavigationHandler will be loaded in the current tab and
-     * loadUrlInNewTab() will never be invoked.
-     */
-    boolean supportsCreatingNewTabs();
-
-    /**
-     * Loads |url| in a new tab.
-     * @param url The URL to load.
-     * @param launchIncognito whether the new tab should be incognito.
-     */
-    void loadUrlInNewTab(final String url, final boolean launchIncognito);
-
-    /**
      * @return whether it's possible to load a URL in the current tab.
      */
     boolean canLoadUrlInCurrentTab();
@@ -202,6 +178,19 @@ public interface ExternalNavigationDelegate {
 
     /* Returns whether whether the tab associated with this delegate is incognito. */
     boolean isIncognito();
+
+    /* Returns whether the delegate implementation wishes to present its own warning dialog gating
+     * the user launching an intent in incognito mode. If this method returns true,
+     * ExternalNavigationHandler will invoke presentLeavingIncognitoModalDialog(). If this method
+     * returns false, ExternalNavigationHandler will present its own dialog. */
+    boolean hasCustomLeavingIncognitoDialog();
+
+    /* Invoked when the user initiates a launch of an intent in incognito mode and the delegate has
+     * returned true for hasCustomLeavingIncognitoDialog(). The delegate should
+     * invoke onUserDecision() with the user's decision once obtained, passing true if the user has
+     * consented to launch the intent and false otherwise.
+     * NOTE: The dialog presented should be modal, as confusion of state can otherwise occur. */
+    void presentLeavingIncognitoModalDialog(Callback<Boolean> onUserDecision);
 
     /**
      * @param intent The intent to launch.
@@ -222,8 +211,40 @@ public interface ExternalNavigationDelegate {
     boolean isIntentToAutofillAssistant(Intent intent);
 
     /**
+     * Used by isIntentToAutofillAssistantAllowingApp() below.
+     */
+    @IntDef({IntentToAutofillAllowingAppResult.NONE,
+            IntentToAutofillAllowingAppResult.DEFER_TO_APP_NOW,
+            IntentToAutofillAllowingAppResult.DEFER_TO_APP_LATER})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface IntentToAutofillAllowingAppResult {
+        int NONE = 0;
+        // Skip handling with Autofill Assistant and expect an external intent to be launched.
+        int DEFER_TO_APP_NOW = 1;
+        // Skip handling with Autofill Assistant and expect an external intent to be launched after
+        // a redirect.
+        int DEFER_TO_APP_LATER = 2;
+    }
+
+    /**
+     * @param params The external navigation params
+     * @param targetIntent The intent to launch
+     * @param canExternalAppHandleIntent The checker whether or not an external app can handle the
+     * provided intent
+     * @return Whether the Intent to Autofill Assistant allows override with an app.
+     */
+    @IntentToAutofillAllowingAppResult
+    int isIntentToAutofillAssistantAllowingApp(ExternalNavigationParams params, Intent targetIntent,
+            Function<Intent, Boolean> canExternalAppHandleIntent);
+
+    /**
      * Gives the embedder a chance to handle the intent via the autofill assistant.
      */
     boolean handleWithAutofillAssistant(ExternalNavigationParams params, Intent targetIntent,
-            String browserFallbackUrl, boolean isGoogleReferrer);
+            GURL browserFallbackUrl, boolean isGoogleReferrer);
+
+    /**
+     * Whether WebAPKs should be launched even on the initial Intent.
+     */
+    boolean shouldLaunchWebApksOnInitialIntent();
 }

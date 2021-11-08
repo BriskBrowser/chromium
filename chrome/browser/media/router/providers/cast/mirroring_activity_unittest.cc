@@ -4,6 +4,9 @@
 
 #include "chrome/browser/media/router/providers/cast/mirroring_activity.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/test/bind.h"
@@ -17,9 +20,11 @@
 #include "components/mirroring/mojom/session_parameters.mojom.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/blink/public/mojom/presentation/presentation.mojom.h"
 
 using base::test::IsJson;
 using testing::_;
+using testing::NiceMock;
 using testing::WithArg;
 
 namespace media_router {
@@ -120,7 +125,7 @@ class MirroringActivityTest
   bool route_is_local_ = true;
   MockCastMessageChannel* channel_to_service_ = nullptr;
   MockMirroringServiceHost* mirroring_service_ = nullptr;
-  MockMojoMediaRouter media_router_;
+  NiceMock<MockMojoMediaRouter> media_router_;
   base::MockCallback<MirroringActivity::OnStopCallback> on_stop_;
   std::unique_ptr<MirroringActivity> activity_;
 };
@@ -167,9 +172,10 @@ TEST_F(MirroringActivityTest, MirrorTab) {
 
 TEST_F(MirroringActivityTest, CreateMojoBindingsForTabWithCastAppUrl) {
   base::HistogramTester uma_recorder;
-  GURL url(kMirroringAppUri);
   EXPECT_CALL(media_router_, GetMirroringServiceHostForTab(kTabId, _));
-  MediaSource source = MediaSource::ForPresentationUrl(url);
+  auto site_initiated_mirroring_source =
+      CastMediaSource::ForSiteInitiatedMirroring();
+  MediaSource source(site_initiated_mirroring_source->source_id());
   ASSERT_TRUE(source.IsCastPresentationUrl());
   MakeActivity(source, kTabId);
 
@@ -365,11 +371,28 @@ TEST_F(MirroringActivityTest, GetScrubbedLogMessage) {
       "type": "OFFER"
     })";
 
-  base::Optional<base::Value> message_json = base::JSONReader::Read(message);
+  absl::optional<base::Value> message_json = base::JSONReader::Read(message);
   EXPECT_TRUE(message_json);
   EXPECT_THAT(scrubbed_message,
               base::test::IsJson(MirroringActivity::GetScrubbedLogMessage(
                   message_json.value())));
+}
+
+// Site-initiated mirroring activities must be able to send messages to the
+// client, which may be expecting to receive Cast protocol messages.
+// See crbug.com/1078481 for context.
+TEST_F(MirroringActivityTest, SendMessageToClient) {
+  MakeActivity();
+
+  static constexpr char kClientId[] = "theClientId";
+  blink::mojom::PresentationConnectionMessagePtr message =
+      blink::mojom::PresentationConnectionMessage::NewMessage("\"theMessage\"");
+  auto* message_ptr = message.get();
+  auto* client = AddMockClient(activity_.get(), kClientId, 1);
+  EXPECT_CALL(*client, SendMessageToClient).WillOnce([=](auto arg) {
+    EXPECT_EQ(message_ptr, arg.get());
+  });
+  activity_->SendMessageToClient(kClientId, std::move(message));
 }
 
 }  // namespace media_router

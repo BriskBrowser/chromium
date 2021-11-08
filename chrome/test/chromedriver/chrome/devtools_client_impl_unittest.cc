@@ -96,7 +96,7 @@ class MockSyncWebSocket : public SyncWebSocket {
       std::string* message,
       const Timeout& timeout) override {
     if (timeout.IsExpired())
-      return SyncWebSocket::kTimeout;
+      return SyncWebSocket::StatusCode::kTimeout;
     if (ReceiveHelper(message)) {
       base::DictionaryValue response;
       response.SetInteger("id", id_);
@@ -106,7 +106,7 @@ class MockSyncWebSocket : public SyncWebSocket {
       base::JSONWriter::Write(response, message);
     }
     --queued_messages_;
-    return SyncWebSocket::kOk;
+    return SyncWebSocket::StatusCode::kOk;
   }
 
   /** Completes standard Receive processing for ConnectIfNecessary. Returns true
@@ -146,7 +146,7 @@ std::unique_ptr<SyncWebSocket> CreateMockSyncWebSocket() {
 
 class DevToolsClientImplTest : public testing::Test {
  protected:
-  DevToolsClientImplTest() : long_timeout_(base::TimeDelta::FromMinutes(5)) {}
+  DevToolsClientImplTest() : long_timeout_(base::Minutes(5)) {}
 
   const base::TimeDelta long_timeout_;
 };
@@ -200,7 +200,7 @@ class MockSyncWebSocket2 : public SyncWebSocket {
       std::string* message,
       const Timeout& timeout) override {
     EXPECT_TRUE(false);
-    return SyncWebSocket::kDisconnected;
+    return SyncWebSocket::StatusCode::kDisconnected;
   }
 
   bool HasNextMessage() override { return true; }
@@ -245,9 +245,9 @@ class MockSyncWebSocket3 : public MockSyncWebSocket {
       std::string* message,
       const Timeout& timeout) override {
     if (ReceiveHelper(message)) {
-      return SyncWebSocket::kDisconnected;
+      return SyncWebSocket::StatusCode::kDisconnected;
     } else {
-      return SyncWebSocket::kOk;
+      return SyncWebSocket::StatusCode::kOk;
     }
   }
 
@@ -311,7 +311,7 @@ class FakeSyncWebSocket : public MockSyncWebSocket {
       std::string* message,
       const Timeout& timeout) override {
     ReceiveHelper(message);
-    return SyncWebSocket::kOk;
+    return SyncWebSocket::StatusCode::kOk;
   }
 
   bool HasNextMessage() override { return true; }
@@ -329,7 +329,7 @@ bool ReturnCommand(const std::string& message,
   *type = internal::kCommandResponseMessageType;
   session_id->clear();
   command_response->id = expected_id;
-  command_response->result.reset(new base::DictionaryValue());
+  command_response->result = std::make_unique<base::DictionaryValue>();
   return true;
 }
 
@@ -342,7 +342,7 @@ bool ReturnBadResponse(const std::string& message,
   *type = internal::kCommandResponseMessageType;
   session_id->clear();
   command_response->id = expected_id;
-  command_response->result.reset(new base::DictionaryValue());
+  command_response->result = std::make_unique<base::DictionaryValue>();
   return false;
 }
 
@@ -355,7 +355,7 @@ bool ReturnCommandBadId(const std::string& message,
   *type = internal::kCommandResponseMessageType;
   session_id->clear();
   command_response->id = expected_id + 100;
-  command_response->result.reset(new base::DictionaryValue());
+  command_response->result = std::make_unique<base::DictionaryValue>();
   return true;
 }
 
@@ -404,13 +404,13 @@ bool ReturnEventThenResponse(
   if (*first) {
     *type = internal::kEventMessageType;
     event->method = "method";
-    event->params.reset(new base::DictionaryValue());
+    event->params = std::make_unique<base::DictionaryValue>();
     event->params->SetInteger("key", 1);
   } else {
     *type = internal::kCommandResponseMessageType;
     command_response->id = expected_id;
     base::DictionaryValue params;
-    command_response->result.reset(new base::DictionaryValue());
+    command_response->result = std::make_unique<base::DictionaryValue>();
     command_response->result->SetInteger("key", 2);
   }
   *first = false;
@@ -425,7 +425,7 @@ bool ReturnEvent(const std::string& message,
                  internal::InspectorCommandResponse* command_response) {
   *type = internal::kEventMessageType;
   event->method = "method";
-  event->params.reset(new base::DictionaryValue());
+  event->params = std::make_unique<base::DictionaryValue>();
   event->params->SetInteger("key", 1);
   return true;
 }
@@ -447,7 +447,7 @@ bool ReturnOutOfOrderResponses(
       client->SendCommand("method", params);
       *type = internal::kEventMessageType;
       event->method = "method";
-      event->params.reset(new base::DictionaryValue());
+      event->params = std::make_unique<base::DictionaryValue>();
       event->params->SetInteger("key", 1);
       return true;
     case 1:
@@ -460,7 +460,7 @@ bool ReturnOutOfOrderResponses(
       break;
   }
   *type = internal::kCommandResponseMessageType;
-  command_response->result.reset(new base::DictionaryValue());
+  command_response->result = std::make_unique<base::DictionaryValue>();
   command_response->result->SetInteger("key", key);
   return true;
 }
@@ -621,7 +621,7 @@ TEST(ParseInspectorMessage, CommandNoErrorOrResult) {
   ASSERT_TRUE(
       internal::ParseInspectorMessage("{\"id\":1,\"sessionId\":\"AB2AF3C\"}", 0,
                                       &session_id, &type, &event, &response));
-  ASSERT_TRUE(response.result->empty());
+  ASSERT_TRUE(response.result->DictEmpty());
   EXPECT_EQ("AB2AF3C", session_id);
 }
 
@@ -680,6 +680,13 @@ TEST(ParseInspectorError, UnknownError) {
   ASSERT_EQ(kUnknownError, status.code());
   ASSERT_EQ("unknown error: unhandled inspector error: " + error,
             status.message());
+}
+
+TEST(ParseInspectorError, CdpNotImplementedError) {
+  const std::string error("{\"code\":-32601,\"message\":\"SOME MESSAGE\"}");
+  Status status = internal::ParseInspectorError(error);
+  ASSERT_EQ(kUnknownCommand, status.code());
+  ASSERT_EQ("unknown command: SOME MESSAGE", status.message());
 }
 
 TEST_F(DevToolsClientImplTest, HandleEventsUntil) {
@@ -827,7 +834,7 @@ class OnConnectedSyncWebSocket : public MockSyncWebSocket {
     if (SendHelper(message, &dict, &method)) {
       base::DictionaryValue response;
       response.SetInteger("id", id_);
-      response.Set("result", std::make_unique<base::DictionaryValue>());
+      response.SetKey("result", base::DictionaryValue());
       std::string json_response;
       base::JSONWriter::Write(response, &json_response);
       queued_response_.push_back(json_response);
@@ -835,7 +842,7 @@ class OnConnectedSyncWebSocket : public MockSyncWebSocket {
       // Push one event.
       base::DictionaryValue event;
       event.SetString("method", "updateEvent");
-      event.Set("params", std::make_unique<base::DictionaryValue>());
+      event.SetKey("params", base::DictionaryValue());
       std::string json_event;
       base::JSONWriter::Write(event, &json_event);
       queued_response_.push_back(json_event);
@@ -848,11 +855,11 @@ class OnConnectedSyncWebSocket : public MockSyncWebSocket {
       const Timeout& timeout) override {
     if (ReceiveHelper(message)) {
       if (queued_response_.empty())
-        return SyncWebSocket::kDisconnected;
+        return SyncWebSocket::StatusCode::kDisconnected;
       *message = queued_response_.front();
       queued_response_.pop_front();
     }
-    return SyncWebSocket::kOk;
+    return SyncWebSocket::StatusCode::kOk;
   }
 
   bool HasNextMessage() override { return !queued_response_.empty(); }
@@ -918,7 +925,7 @@ class MockSyncWebSocket5 : public SyncWebSocket {
           "{\"result\": {}, \"id\": %d}", request_no_);
     }
     request_no_++;
-    return SyncWebSocket::kOk;
+    return SyncWebSocket::StatusCode::kOk;
   }
 
   bool HasNextMessage() override { return false; }
@@ -1069,10 +1076,10 @@ class MockSyncWebSocket6 : public MockSyncWebSocket {
       std::string* message,
       const Timeout& timeout) override {
     if (messages_->empty())
-      return SyncWebSocket::kDisconnected;
+      return SyncWebSocket::StatusCode::kDisconnected;
     *message = messages_->front();
     messages_->pop_front();
-    return SyncWebSocket::kOk;
+    return SyncWebSocket::StatusCode::kOk;
   }
 
   bool HasNextMessage() override { return messages_->size(); }
@@ -1265,7 +1272,7 @@ class MockSyncWebSocket7 : public SyncWebSocket {
     response.SetKey("result", result.Clone());
     base::JSONWriter::Write(response, message);
     sent_responses_++;
-    return SyncWebSocket::kOk;
+    return SyncWebSocket::StatusCode::kOk;
   }
 
   bool HasNextMessage() override { return sent_messages_ > sent_responses_; }

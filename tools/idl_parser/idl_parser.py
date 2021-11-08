@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (c) 2013 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -12,7 +12,7 @@
 # on Web IDL.
 #
 # Web IDL, and Web IDL grammar can be found at:
-#   http://heycam.github.io/webidl/
+#   http://webidl.spec.whatwg.org/
 # PLY can be found at:
 #   http://www.dabeaz.com/ply/
 #
@@ -145,12 +145,13 @@ def ExtractSpecialComment(comment):
     lines.append(line)
   return '\n'.join(lines)
 
+
 # There are two groups of ExtendedAttributes.
 # One group can apply to types (It is said "applicable to types"),
 # but the other cannot apply to types.
 # This function is intended to divide ExtendedAttributes into those 2 groups.
 # For more details at
-#    https://heycam.github.io/webidl/#extended-attributes-applicable-to-types
+#    https://webidl.spec.whatwg.org/#extended-attributes-applicable-to-types
 def DivideExtAttrsIntoApplicableAndNonApplicable(extended_attribute_list):
   if not extended_attribute_list:
     return [[], []]
@@ -243,7 +244,7 @@ def DivideExtAttrsIntoApplicableAndNonApplicable(extended_attribute_list):
 #    http://www.dabeaz.com/ply/
 #
 # The parser is based on the Web IDL standard.  See:
-#    http://heycam.github.io/webidl/#idl-grammar
+#    http://webidl.spec.whatwg.org/#idl-grammar
 #
 # Productions with a fractional component in the comment denote additions to
 # the Web IDL spec, such as allowing string list in extended attributes.
@@ -682,16 +683,22 @@ class IDLParser(object):
     childlist = ListFromConcat(p[3], p[4])
     p[0] = self.BuildProduction('Iterable', p, 2, childlist)
 
+  def p_AsyncIterable(self, p):
+    """AsyncIterable : ASYNC ITERABLE '<' TypeWithExtendedAttributes OptionalType '>' OptionalArgumentList ';'"""
+    childlist = ListFromConcat(p[4], p[5], p[7])
+    p[0] = self.BuildProduction('AsyncIterable', p, 2, childlist)
+
   def p_OptionalType(self, p):
     """OptionalType : ',' TypeWithExtendedAttributes
                     |"""
     if len(p) > 1:
       p[0] = p[2]
 
-  def p_AsyncIterable(self, p):
-    """AsyncIterable : ASYNC ITERABLE '<' TypeWithExtendedAttributes ',' TypeWithExtendedAttributes '>' ';'"""
-    childlist = ListFromConcat(p[4], p[6])
-    p[0] = self.BuildProduction('AsyncIterable', p, 2, childlist)
+  def p_OptionalArgumentList(self, p):
+    """OptionalArgumentList : '(' ArgumentList ')'
+                            |"""
+    if len(p) > 1:
+      p[0] = self.BuildProduction('Arguments', p, 1, p[2])
 
   def p_ReadWriteMaplike(self, p):
     """ReadWriteMaplike : MaplikeRest"""
@@ -908,6 +915,7 @@ class IDLParser(object):
                            | identifier Null
                            | SEQUENCE '<' TypeWithExtendedAttributes '>' Null
                            | FROZENARRAY '<' TypeWithExtendedAttributes '>' Null
+                           | OBSERVABLEARRAY '<' TypeWithExtendedAttributes '>' Null
                            | RecordType Null"""
     if len(p) == 3:
       if type(p[1]) == str:
@@ -917,7 +925,14 @@ class IDLParser(object):
       p[0] = ListFromConcat(typeref, p[2])
 
     if len(p) == 6:
-      cls = 'Sequence' if p[1] == 'sequence' else 'FrozenArray'
+      if p[1] == 'sequence':
+        cls = 'Sequence'
+      elif p[1] == 'FrozenArray':
+        cls = 'FrozenArray'
+      elif p[1] == 'ObservableArray':
+        cls = 'ObservableArray'
+      else:
+        assert False
       p[0] = self.BuildProduction(cls, p, 1, p[3])
       p[0] = ListFromConcat(p[0], p[5])
 
@@ -1018,7 +1033,7 @@ class IDLParser(object):
     if len(p) > 1:
       p[0] = ListFromConcat(p[2], p[3])
 
-  # https://heycam.github.io/webidl/#idl-extended-attributes
+  # https://webidl.spec.whatwg.org/#idl-extended-attributes
   # The ExtendedAttribute symbol in Web IDL grammar is very flexible but we
   # only support following patterns:
   #    [ identifier ]

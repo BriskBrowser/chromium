@@ -24,6 +24,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "net/base/load_flags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/cpp/resource_request.h"
 
 namespace browser_switcher {
 
@@ -36,7 +37,7 @@ namespace {
 const base::TimeDelta kFetchSitelistDelay = base::TimeDelta();
 
 // How long to wait after a fetch to re-fetch the sitelist to keep it fresh.
-const base::TimeDelta kRefreshSitelistDelay = base::TimeDelta::FromMinutes(30);
+const base::TimeDelta kRefreshSitelistDelay = base::Minutes(30);
 
 // How many times to re-try fetching the XML file for the sitelist.
 const int kFetchNumRetries = 1;
@@ -101,9 +102,8 @@ XmlDownloader::XmlDownloader(Profile* profile,
     : service_(service), all_done_callback_(std::move(all_done_callback)) {
   file_url_factory_.Bind(
       content::CreateFileURLLoaderFactory(base::FilePath(), nullptr));
-  other_url_factory_ =
-      content::BrowserContext::GetDefaultStoragePartition(profile)
-          ->GetURLLoaderFactoryForBrowserProcess();
+  other_url_factory_ = profile->GetDefaultStoragePartition()
+                           ->GetURLLoaderFactoryForBrowserProcess();
 
   sources_ = service_->GetRulesetSources();
 
@@ -319,10 +319,10 @@ std::vector<RulesetSource> BrowserSwitcherService::GetRulesetSources() {
 void BrowserSwitcherService::LoadRulesFromPrefs() {
   if (prefs().GetExternalSitelistUrl().is_valid())
     sitelist()->SetExternalSitelist(
-        ParsedXml(prefs().GetCachedExternalSitelist(), base::nullopt));
+        ParsedXml(prefs().GetCachedExternalSitelist(), absl::nullopt));
   if (prefs().GetExternalGreylistUrl().is_valid())
     sitelist()->SetExternalGreylist(
-        ParsedXml(prefs().GetCachedExternalGreylist(), base::nullopt));
+        ParsedXml(prefs().GetCachedExternalGreylist(), absl::nullopt));
 }
 
 void BrowserSwitcherService::OnAllRulesetsParsed() {

@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "build/build_config.h"
-#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/platform/ax_platform_node_base.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -21,10 +20,6 @@
 
 #if defined(OS_WIN)
 #include "ui/events/win/system_event_state_lookup.h"
-#endif
-
-#if defined(USE_X11)
-#include "ui/events/x/events_x_utils.h"  // nogncheck
 #endif
 
 #if defined(USE_OZONE)
@@ -51,30 +46,22 @@ void FireFocusAfterMenuClose(base::WeakPtr<Widget> widget) {
   }
 }
 
-#if defined(USE_X11) || defined(USE_OZONE)
-bool IsAltPressed() {
 #if defined(USE_OZONE)
-  if (features::IsUsingOzonePlatform()) {
-    const auto* const platorm_menu_utils =
-        ui::OzonePlatform::GetInstance()->GetPlatformMenuUtils();
-    if (platorm_menu_utils)
-      return (platorm_menu_utils->GetCurrentKeyModifiers() & ui::EF_ALT_DOWN) !=
-             0;
+bool IsAltPressed() {
+  if (const auto* const platorm_menu_utils =
+          ui::OzonePlatform::GetInstance()->GetPlatformMenuUtils()) {
+    return (platorm_menu_utils->GetCurrentKeyModifiers() & ui::EF_ALT_DOWN) !=
+           0;
   }
-#endif
-#if defined(USE_X11)
-  return ui::IsAltPressed();
-#else
   return false;
-#endif
 }
-#endif  // defined(USE_X11) || degined(USE_OZONE)
+#endif  // defined(USE_OZONE)
 
 }  // namespace
 
 namespace internal {
 
-#if !defined(OS_APPLE)
+#if !defined(OS_MAC)
 MenuRunnerImplInterface* MenuRunnerImplInterface::Create(
     ui::MenuModel* menu_model,
     int32_t run_types,
@@ -131,7 +118,8 @@ void MenuRunnerImpl::RunMenuAt(Widget* parent,
                                MenuButtonController* button_controller,
                                const gfx::Rect& bounds,
                                MenuAnchorPosition anchor,
-                               int32_t run_types) {
+                               int32_t run_types,
+                               gfx::NativeView native_view_for_gestures) {
   closing_event_time_ = base::TimeTicks();
   if (running_) {
     // Ignore requests to show the menu while it's already showing. MenuItemView
@@ -195,7 +183,8 @@ void MenuRunnerImpl::RunMenuAt(Widget* parent,
 
   controller->Run(parent, button_controller, menu_, bounds, anchor,
                   (run_types & MenuRunner::CONTEXT_MENU) != 0,
-                  (run_types & MenuRunner::NESTED_DRAG) != 0);
+                  (run_types & MenuRunner::NESTED_DRAG) != 0,
+                  native_view_for_gestures);
 }
 
 void MenuRunnerImpl::Cancel() {
@@ -267,9 +256,9 @@ bool MenuRunnerImpl::ShouldShowMnemonics(int32_t run_types) {
   // Show mnemonics if the button has focus or alt is pressed.
 #if defined(OS_WIN)
   show_mnemonics |= ui::win::IsAltPressed();
-#elif defined(USE_X11) || defined(USE_OZONE)
+#elif defined(USE_OZONE)
   show_mnemonics |= IsAltPressed();
-#elif defined(OS_APPLE)
+#elif defined(OS_MAC)
   show_mnemonics = false;
 #endif
   return show_mnemonics;

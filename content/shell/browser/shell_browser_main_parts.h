@@ -13,17 +13,10 @@
 #include "content/public/browser/browser_main_parts.h"
 #include "content/public/common/main_function_params.h"
 #include "content/shell/browser/shell_browser_context.h"
-#include "ui/base/buildflags.h"
 
 namespace performance_manager {
 class PerformanceManagerLifetime;
 }  // namespace performance_manager
-
-#if BUILDFLAG(USE_GTK)
-namespace ui {
-class GtkUiDelegate;
-}
-#endif
 
 namespace content {
 class ShellPlatformDelegate;
@@ -31,18 +24,24 @@ class ShellPlatformDelegate;
 class ShellBrowserMainParts : public BrowserMainParts {
  public:
   explicit ShellBrowserMainParts(const MainFunctionParams& parameters);
+
+  ShellBrowserMainParts(const ShellBrowserMainParts&) = delete;
+  ShellBrowserMainParts& operator=(const ShellBrowserMainParts&) = delete;
+
   ~ShellBrowserMainParts() override;
 
   // BrowserMainParts overrides.
   int PreEarlyInitialization() override;
   int PreCreateThreads() override;
+#if defined(OS_MAC)
+  void PreCreateMainMessageLoop() override;
+#endif
   void PostCreateThreads() override;
-  void PreMainMessageLoopStart() override;
-  void PostMainMessageLoopStart() override;
+  void PostCreateMainMessageLoop() override;
   void ToolkitInitialized() override;
-  void PreMainMessageLoopRun() override;
-  bool MainMessageLoopRun(int* result_code) override;
-  void PreDefaultMainMessageLoopRun(base::OnceClosure quit_closure) override;
+  int PreMainMessageLoopRun() override;
+  void WillRunMainMessageLoop(
+      std::unique_ptr<base::RunLoop>& run_loop) override;
   void PostMainMessageLoopRun() override;
   void PostDestroyThreads() override;
 
@@ -66,7 +65,6 @@ class ShellBrowserMainParts : public BrowserMainParts {
   }
 
  private:
-
   std::unique_ptr<ShellBrowserContext> browser_context_;
   std::unique_ptr<ShellBrowserContext> off_the_record_browser_context_;
 
@@ -74,14 +72,8 @@ class ShellBrowserMainParts : public BrowserMainParts {
   const MainFunctionParams parameters_;
   bool run_message_loop_;
 
-#if BUILDFLAG(USE_GTK)
-  std::unique_ptr<ui::GtkUiDelegate> gtk_ui_delegate_;
-#endif
-
   std::unique_ptr<performance_manager::PerformanceManagerLifetime>
       performance_manager_lifetime_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShellBrowserMainParts);
 };
 
 }  // namespace content

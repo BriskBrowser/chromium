@@ -20,7 +20,7 @@ NativeViewGLSurfaceEGLX11GLES2::NativeViewGLSurfaceEGLX11GLES2(
 
 bool NativeViewGLSurfaceEGLX11GLES2::InitializeNativeWindow() {
   auto* connection = GetXNativeConnection();
-  auto geometry = connection->GetGeometry({parent_window_}).Sync();
+  auto geometry = connection->GetGeometry(parent_window_).Sync();
   if (!geometry) {
     LOG(ERROR) << "GetGeometry failed for window "
                << static_cast<uint32_t>(parent_window_) << ".";
@@ -37,8 +37,8 @@ bool NativeViewGLSurfaceEGLX11GLES2::InitializeNativeWindow() {
   connection->CreateWindow(x11::CreateWindowRequest{
       .wid = window(),
       .parent = parent_window_,
-      .width = size_.width(),
-      .height = size_.height(),
+      .width = static_cast<uint16_t>(size_.width()),
+      .height = static_cast<uint16_t>(size_.height()),
       .c_class = x11::WindowClass::InputOutput,
       .background_pixmap = x11::Pixmap::None,
       .bit_gravity = x11::Gravity::NorthWest,
@@ -66,7 +66,7 @@ EGLConfig NativeViewGLSurfaceEGLX11GLES2::GetConfig() {
     // Get a config compatible with the window
     DCHECK(window_);
     auto* connection = GetXNativeConnection();
-    auto geometry = connection->GetGeometry({window()}).Sync();
+    auto geometry = connection->GetGeometry(window()).Sync();
     if (!geometry)
       return nullptr;
 

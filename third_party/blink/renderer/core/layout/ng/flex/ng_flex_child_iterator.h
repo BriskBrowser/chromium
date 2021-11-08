@@ -14,9 +14,6 @@ namespace blink {
 // A utility class for flex layout which given the current node will iterate
 // through its children.
 //
-// TODO(layout-dev): Once flex layout supports NG-fragmentation this will need
-// to be updated to accept a break-token.
-//
 // This class does not handle modifications to its arguments after it has been
 // constructed.
 class CORE_EXPORT NGFlexChildIterator {
@@ -27,27 +24,22 @@ class CORE_EXPORT NGFlexChildIterator {
 
   // Returns the next block node which should be laid out.
   NGBlockNode NextChild() {
-    DCHECK(position_ <= children_.size());
-    if (position_ == children_.size())
+    if (iterator_ == children_.end())
       return nullptr;
-    return children_[position_++].child;
+
+    return (*iterator_++).child;
   }
 
   struct ChildWithOrder {
     DISALLOW_NEW();
-
-   public:
     ChildWithOrder(NGBlockNode child, int order) : child(child), order(order) {}
-    void Trace(Visitor* visitor) const { visitor->Trace(child); }
-
     NGBlockNode child;
     int order;
   };
 
  private:
-  // |children_| cannot be modified except in ctor;
-  HeapVector<ChildWithOrder, 4> children_;
-  wtf_size_t position_ = 0;
+  Vector<ChildWithOrder, 4> children_;
+  Vector<ChildWithOrder, 4>::const_iterator iterator_;
 };
 
 }  // namespace blink

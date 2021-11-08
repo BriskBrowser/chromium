@@ -9,13 +9,16 @@
 
 namespace ash {
 
-// Collapse button shown in TopShortcutsView with TopShortcutButtons.
-// UnifiedSystemTrayBubble will support collapsed state where the height of the
-// bubble is smaller, and some rows and labels will be omitted.
-// By pressing the button, the state of the bubble will be toggled.
+// The button with `kUnifiedMenuExpandIcon`. This button can be set as expanded
+// or collapsed through SetExpandedAmount and the icon will be rotated on the
+// `expanded_amount_`. Expanded is the default state.
 class CollapseButton : public views::ImageButton {
  public:
   explicit CollapseButton(PressedCallback callback);
+
+  CollapseButton(const CollapseButton&) = delete;
+  CollapseButton& operator=(const CollapseButton&) = delete;
+
   ~CollapseButton() override;
 
   // Change the expanded state. The icon will change.
@@ -24,17 +27,11 @@ class CollapseButton : public views::ImageButton {
   // views::ImageButton:
   gfx::Size CalculatePreferredSize() const override;
   void PaintButtonContents(gfx::Canvas* canvas) override;
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
-  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override;
   const char* GetClassName() const override;
   void OnThemeChanged() override;
 
  private:
   double expanded_amount_ = 1.0;
-
-  DISALLOW_COPY_AND_ASSIGN(CollapseButton);
 };
 
 }  // namespace ash

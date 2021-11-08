@@ -16,13 +16,13 @@
 #include "base/check.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
@@ -48,12 +48,6 @@ using base::win::RegKey;
 using installer::ProductState;
 
 namespace {
-
-// DowngradeVersion holds the version from which Chrome was downgraded. In case
-// of multiple downgrades (e.g., 75->74->73), it retains the highest version
-// installed prior to any downgrades. DowngradeVersion is deleted on upgrade
-// once Chrome reaches the version from which it was downgraded.
-const wchar_t kRegDowngradeVersion[] = L"DowngradeVersion";
 
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
@@ -490,8 +484,10 @@ void InstallUtil::AppendModeAndChannelSwitches(
     command_line->AppendSwitch(install_details.install_switch());
   if (install_details.channel_origin() ==
       install_static::ChannelOrigin::kPolicy) {
+    // Use channel_override rather than simply channel so that extended stable
+    // is differentiated from regular.
     command_line->AppendSwitchNative(installer::switches::kChannel,
-                                     install_details.channel());
+                                     install_details.channel_override());
   }
 }
 
@@ -529,47 +525,22 @@ bool InstallUtil::ProgramCompare::GetInfo(const base::File& file,
 }
 
 // static
-base::Optional<base::Version> InstallUtil::GetDowngradeVersion() {
+absl::optional<base::Version> InstallUtil::GetDowngradeVersion() {
   RegKey key;
   std::wstring downgrade_version;
   if (key.Open(install_static::IsSystemInstall() ? HKEY_LOCAL_MACHINE
                                                  : HKEY_CURRENT_USER,
                install_static::GetClientStateKeyPath().c_str(),
                KEY_QUERY_VALUE | KEY_WOW64_32KEY) != ERROR_SUCCESS ||
-      key.ReadValue(kRegDowngradeVersion, &downgrade_version) !=
+      key.ReadValue(installer::kRegDowngradeVersion, &downgrade_version) !=
           ERROR_SUCCESS ||
       downgrade_version.empty()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
   base::Version version(base::WideToASCII(downgrade_version));
   if (!version.IsValid())
-    return base::nullopt;
+    return absl::nullopt;
   return version;
-}
-
-// static
-void InstallUtil::AddUpdateDowngradeVersionItem(
-    HKEY root,
-    const base::Version& current_version,
-    const base::Version& new_version,
-    WorkItemList* list) {
-  DCHECK(list);
-  const auto downgrade_version = GetDowngradeVersion();
-  if (current_version.IsValid() && new_version < current_version) {
-    // This is a downgrade. Write the value if this is the first one (i.e., no
-    // previous value exists). Otherwise, leave any existing value in place.
-    if (!downgrade_version) {
-      list->AddSetRegValueWorkItem(
-          root, install_static::GetClientStateKeyPath(), KEY_WOW64_32KEY,
-          kRegDowngradeVersion, base::ASCIIToWide(current_version.GetString()),
-          true);
-    }
-  } else if (!current_version.IsValid() || new_version >= downgrade_version) {
-    // This is a new install or an upgrade to/past a previous DowngradeVersion.
-    list->AddDeleteRegValueWorkItem(root,
-                                    install_static::GetClientStateKeyPath(),
-                                    KEY_WOW64_32KEY, kRegDowngradeVersion);
-  }
 }
 
 // static
@@ -619,6 +590,32 @@ InstallUtil::GetCloudManagementDmTokenLocation(
   }
 
   return {std::move(key), L"dmtoken"};
+}
+
+// static
+std::tuple<base::win::RegKey, std::wstring, std::wstring>
+InstallUtil::GetDeviceTrustSigningKeyLocation(ReadOnly read_only) {
+  // The location dictates the path and WoW bit.
+  std::wstring key_path = L"SOFTWARE\\";
+  install_static::AppendChromeInstallSubDirectory(
+      install_static::InstallDetails::Get().mode(), /*include_suffix=*/false,
+      &key_path)
+      .append(L"\\DeviceTrust");
+  base::win::RegKey key;
+  if (read_only) {
+    key.Open(HKEY_LOCAL_MACHINE, key_path.c_str(),
+             KEY_QUERY_VALUE | KEY_WOW64_64KEY);
+  } else {
+    auto result = key.Create(HKEY_LOCAL_MACHINE, key_path.c_str(),
+                             KEY_SET_VALUE | KEY_WOW64_64KEY);
+    if (result != ERROR_SUCCESS) {
+      ::SetLastError(result);
+      PLOG(ERROR) << "Failed to create/open registry key HKLM\\" << key_path
+                  << " for writing";
+    }
+  }
+
+  return {std::move(key), L"signing_key", L"trust_level"};
 }
 
 // static

@@ -13,6 +13,7 @@
 #include "chrome/browser/sharing/proto/sharing_message.pb.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/sync/protocol/device_info_specifics.pb.h"
 #include "components/sync_device_info/device_info.h"
 #include "components/sync_device_info/fake_device_info_sync_service.h"
 #include "components/sync_device_info/fake_device_info_tracker.h"
@@ -75,7 +76,7 @@ class SharingSyncPreferenceTest : public testing::Test {
 };
 
 TEST_F(SharingSyncPreferenceTest, UpdateVapidKeys) {
-  EXPECT_EQ(base::nullopt, sharing_sync_preference_.GetVapidKey());
+  EXPECT_EQ(absl::nullopt, sharing_sync_preference_.GetVapidKey());
   sharing_sync_preference_.SetVapidKey(kVapidKey);
   EXPECT_EQ(kVapidKey, sharing_sync_preference_.GetVapidKey());
 }
@@ -120,7 +121,7 @@ TEST_F(SharingSyncPreferenceTest, FCMRegistrationGetSet) {
 
   // Set FCM registration without authorized entity.
   sharing_sync_preference_.SetFCMRegistration(
-      SharingSyncPreference::FCMRegistration(base::nullopt, time_now));
+      SharingSyncPreference::FCMRegistration(absl::nullopt, time_now));
 
   fcm_registration = sharing_sync_preference_.GetFCMRegistration();
   EXPECT_TRUE(fcm_registration);

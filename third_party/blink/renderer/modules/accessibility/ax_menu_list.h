@@ -37,26 +37,29 @@ class AXMenuList final : public AXLayoutObject {
  public:
   AXMenuList(LayoutObject*, AXObjectCacheImpl&);
 
+  AXMenuList(const AXMenuList&) = delete;
+  AXMenuList& operator=(const AXMenuList&) = delete;
+
   AccessibilityExpanded IsExpanded() const final;
   bool OnNativeClickAction() override;
-  void ClearChildren() override;
+  void ClearChildren() const override;
   void Detach() override;
 
-  void DidUpdateActiveOption(int option_index);
+  void DidUpdateActiveOption();
   void DidShowPopup();
   void DidHidePopup();
+
+  AXObject* GetOrCreateMockPopupChild();
 
  private:
   friend class AXMenuListOption;
 
   bool IsMenuList() const override { return true; }
-  ax::mojom::Role DetermineAccessibilityRole() final;
+  ax::mojom::blink::Role NativeRoleIgnoringAria() const final;
 
   void AddChildren() override;
 
   bool IsCollapsed() const;
-
-  DISALLOW_COPY_AND_ASSIGN(AXMenuList);
 };
 
 template <>

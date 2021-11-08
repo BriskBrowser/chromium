@@ -7,18 +7,19 @@
 #include <memory>
 #include <utility>
 
+#include "base/callback_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
 #include "build/build_config.h"
-#include "chrome/browser/chooser_controller/mock_chooser_controller_view.h"
 #include "chrome/browser/serial/serial_blocklist.h"
 #include "chrome/browser/serial/serial_chooser_context.h"
 #include "chrome/browser/serial/serial_chooser_context_factory.h"
 #include "chrome/browser/serial/serial_chooser_histograms.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/permissions/mock_chooser_controller_view.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/device/public/cpp/test/fake_serial_port_manager.h"
 #include "services/device/public/mojom/serial.mojom.h"
@@ -52,8 +53,8 @@ class SerialChooserControllerTest : public ChromeRenderViewHostTestHarness {
   base::UnguessableToken AddPort(
       const std::string& display_name,
       const base::FilePath& path,
-      base::Optional<uint16_t> vendor_id = base::nullopt,
-      base::Optional<uint16_t> product_id = base::nullopt) {
+      absl::optional<uint16_t> vendor_id = absl::nullopt,
+      absl::optional<uint16_t> product_id = absl::nullopt) {
     auto port = device::mojom::SerialPortInfo::New();
     port->token = base::UnguessableToken::Create();
     port->display_name = display_name;
@@ -120,7 +121,7 @@ TEST_F(SerialChooserControllerTest, PortsAddedAndRemoved) {
   auto controller = std::make_unique<SerialChooserController>(
       main_rfh(), std::move(filters), base::DoNothing());
 
-  MockChooserControllerView view;
+  permissions::MockChooserControllerView view;
   controller->set_view(&view);
 
   {
@@ -152,8 +153,7 @@ TEST_F(SerialChooserControllerTest, PortsAddedAndRemoved) {
     run_loop.Run();
   }
   EXPECT_EQ(1u, controller->NumOptions());
-  EXPECT_EQ(base::ASCIIToUTF16("Test Port 1 (ttyS0)"),
-            controller->GetOption(0));
+  EXPECT_EQ(u"Test Port 1 (ttyS0)", controller->GetOption(0));
 
   AddPort("Test Port 2", base::FilePath(FILE_PATH_LITERAL("/dev/ttyS1")));
   {
@@ -165,10 +165,8 @@ TEST_F(SerialChooserControllerTest, PortsAddedAndRemoved) {
     run_loop.Run();
   }
   EXPECT_EQ(2u, controller->NumOptions());
-  EXPECT_EQ(base::ASCIIToUTF16("Test Port 1 (ttyS0)"),
-            controller->GetOption(0));
-  EXPECT_EQ(base::ASCIIToUTF16("Test Port 2 (ttyS1)"),
-            controller->GetOption(1));
+  EXPECT_EQ(u"Test Port 1 (ttyS0)", controller->GetOption(0));
+  EXPECT_EQ(u"Test Port 2 (ttyS1)", controller->GetOption(1));
 
   port_manager().RemovePort(port1_token);
   {
@@ -180,8 +178,7 @@ TEST_F(SerialChooserControllerTest, PortsAddedAndRemoved) {
     run_loop.Run();
   }
   EXPECT_EQ(1u, controller->NumOptions());
-  EXPECT_EQ(base::ASCIIToUTF16("Test Port 2 (ttyS1)"),
-            controller->GetOption(0));
+  EXPECT_EQ(u"Test Port 2 (ttyS1)", controller->GetOption(0));
 
   controller.reset();
   histogram_tester.ExpectUniqueSample("Permissions.Serial.ChooserClosed",
@@ -199,15 +196,14 @@ TEST_F(SerialChooserControllerTest, PortSelected) {
   auto controller = std::make_unique<SerialChooserController>(
       main_rfh(), std::move(filters), callback.Get());
 
-  MockChooserControllerView view;
+  permissions::MockChooserControllerView view;
   controller->set_view(&view);
 
   {
     base::RunLoop run_loop;
     EXPECT_CALL(view, OnOptionsInitialized).WillOnce(Invoke([&] {
       EXPECT_EQ(1u, controller->NumOptions());
-      EXPECT_EQ(base::ASCIIToUTF16("Test Port (ttyS0)"),
-                controller->GetOption(0));
+      EXPECT_EQ(u"Test Port (ttyS0)", controller->GetOption(0));
       run_loop.Quit();
     }));
     run_loop.Run();
@@ -220,8 +216,7 @@ TEST_F(SerialChooserControllerTest, PortSelected) {
         // Regression test for https://crbug.com/1069057. Ensure that the set of
         // options is still valid after the callback is run.
         EXPECT_EQ(1u, controller->NumOptions());
-        EXPECT_EQ(base::ASCIIToUTF16("Test Port (ttyS0)"),
-                  controller->GetOption(0));
+        EXPECT_EQ(u"Test Port (ttyS0)", controller->GetOption(0));
       }));
   controller->Select({0});
   histogram_tester.ExpectUniqueSample(
@@ -252,7 +247,7 @@ TEST_F(SerialChooserControllerTest, PortFiltered) {
   auto controller = std::make_unique<SerialChooserController>(
       main_rfh(), std::move(filters), base::DoNothing());
 
-  MockChooserControllerView view;
+  permissions::MockChooserControllerView view;
   controller->set_view(&view);
 
   {
@@ -260,8 +255,7 @@ TEST_F(SerialChooserControllerTest, PortFiltered) {
     EXPECT_CALL(view, OnOptionsInitialized).WillOnce(Invoke([&] {
       // Expect that only the first port is shown thanks to the filter.
       EXPECT_EQ(1u, controller->NumOptions());
-      EXPECT_EQ(base::ASCIIToUTF16("Test Port 1 (ttyS0)"),
-                controller->GetOption(0));
+      EXPECT_EQ(u"Test Port 1 (ttyS0)", controller->GetOption(0));
       run_loop.Quit();
     }));
     run_loop.Run();
@@ -309,7 +303,7 @@ TEST_F(SerialChooserControllerTest, Blocklist) {
   auto controller = std::make_unique<SerialChooserController>(
       main_rfh(), std::move(filters), base::DoNothing());
 
-  MockChooserControllerView view;
+  permissions::MockChooserControllerView view;
   controller->set_view(&view);
 
   {
@@ -317,8 +311,7 @@ TEST_F(SerialChooserControllerTest, Blocklist) {
     EXPECT_CALL(view, OnOptionsInitialized).WillOnce(Invoke([&] {
       // Expect that only the first port is shown thanks to the filter.
       EXPECT_EQ(1u, controller->NumOptions());
-      EXPECT_EQ(base::ASCIIToUTF16("Test Port 1 (ttyS0)"),
-                controller->GetOption(0));
+      EXPECT_EQ(u"Test Port 1 (ttyS0)", controller->GetOption(0));
       run_loop.Quit();
     }));
     run_loop.Run();

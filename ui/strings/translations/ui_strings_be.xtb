@@ -30,6 +30,7 @@
 <translation id="1710340000377843106">зараз</translation>
 <translation id="1752946267035950200">{MINUTES,plural, =1{1 хвіліна}one{# хвіліна}few{# хвіліны}many{# хвілін}other{# хвіліны}}</translation>
 <translation id="1761785978543082658"><ph name="QUANTITY" /> Б</translation>
+<translation id="1770726142253415363">Перамешчана на радок <ph name="ROW_NUMBER" />, у слупок <ph name="COLUMN_NUMBER" />.</translation>
 <translation id="1801827354178857021">Кропка</translation>
 <translation id="1803208670097017349">{MONTHS,plural, =1{1 месяц}one{# месяц}few{# месяцы}many{# месяцаў}other{# месяца}}</translation>
 <translation id="1809410197924942083"><ph name="QUANTITY" /> МБ/с</translation>
@@ -53,11 +54,13 @@
 <translation id="2192232475740621500">Выкарыстоўваць нізкую шчыльнасць</translation>
 <translation id="219905428774326614">Панэль запуску, усе праграмы</translation>
 <translation id="2267918077332197517">Блакіраваць усе апавяшчэнні з гэтага сайта</translation>
+<translation id="2283117145434822734">F6</translation>
 <translation id="2289052229480071835">Дакраніцеся да цэлей на экране.</translation>
 <translation id="2295140143284145483">Апытанне</translation>
 <translation id="2297836609126180313"><ph name="QUANTITY" /> ТБ/с</translation>
 <translation id="2353636109065292463">Праверка падключэння да інтэрнэту</translation>
 <translation id="2388990488038464401">Выклікаць гэты нумар з тэлефона?</translation>
+<translation id="2435457462613246316">Паказаць пароль</translation>
 <translation id="24452542372838207">Разгарнуць апавяшчэнне</translation>
 <translation id="2445449901874883781">Выкарыстоўваць высокую шчыльнасць</translation>
 <translation id="2482878487686419369">Апавяшчэнні</translation>
@@ -79,6 +82,7 @@
 <translation id="2824719307700604149">{YEARS,plural, =1{1 год таму}one{# год таму}few{# гады таму}many{# гадоў таму}other{# года таму}}</translation>
 <translation id="2878511608894704031">Выдаліць усё</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{праз 1 сут}one{праз # сут}few{праз # сут}many{праз # сут}other{праз # сут}}</translation>
+<translation id="2922712708897119705">Слупок "<ph name="COLUMN_NAME" />" адсартаваны па ўбыванні.</translation>
 <translation id="2931838996092594335">націснуць кнопку мышы</translation>
 <translation id="2981684127883932071">Паказваюцца прапановы</translation>
 <translation id="3036649622769666520">Адкрыццё файлаў</translation>
@@ -114,6 +118,7 @@
 <translation id="3897092660631435901">Меню</translation>
 <translation id="3909791450649380159">Вы&amp;разаць</translation>
 <translation id="3990502903496589789">Правы край</translation>
+<translation id="3994749195054421561">Слупок "<ph name="COLUMN_NAME" />" адсартаваны па ўзрастанні.</translation>
 <translation id="40579289237549812">{UNREAD_NOTIFICATIONS,plural, =1{1 непрачытанае апавяшчэнне}one{# непрачытанае апавяшчэнне}few{# непрачытаныя апавяшчэнні}many{# непрачытаных апавяшчэнняў}other{# непрачытанага апавяшчэння}}</translation>
 <translation id="4202807286478387388">перайсці</translation>
 <translation id="4250229828105606438">Здымак экрана</translation>
@@ -123,8 +128,9 @@
 <translation id="4306392492252714209">Выдаліць з буфера абмену.</translation>
 <translation id="4316910396681052118">УСЕ ПРАГРАМЫ</translation>
 <translation id="4491109536499578614">Відарыс</translation>
+<translation id="4565377596337484307">Схаваць пароль</translation>
 <translation id="4588090240171750605">Прагартаць управа</translation>
-<translation id="4631891353005174729"><ph name="APP_NAME_TYPE" />, ацэнка ў зорках: <ph name="RATING_SCORE" /></translation>
+<translation id="4631891353005174729"><ph name="APP_NAME_TYPE" />, ацэнка: <ph name="RATING_SCORE" /></translation>
 <translation id="4648249871170053485">Рэкамендаваная праграма (<ph name="APP_NAME" />)</translation>
 <translation id="4690510401873698237">Паліца ўнізе</translation>
 <translation id="4724120544754982507">Цэнтр апавяшчэнняў. Непрачытаных апавяшчэнняў: <ph name="UNREAD_NOTIFICATION_COUNT" /></translation>
@@ -165,6 +171,7 @@
 <translation id="6012623610530968780">Старонка <ph name="SELECTED_PAGE" /> з <ph name="TOTAL_PAGE_NUM" /></translation>
 <translation id="6022924867608035986">Ачысціць поле пошуку</translation>
 <translation id="6040143037577758943">Закрыць</translation>
+<translation id="6117103120090651229">Цэнтральная кнопка</translation>
 <translation id="6119846243427417423">актываваць</translation>
 <translation id="6129953537138746214">Прабел</translation>
 <translation id="6134259848159370930">Пошук на прыладзе, у праграмах, наладах і інтэрнэце.</translation>
@@ -173,6 +180,7 @@
 <translation id="6156262341071374681">Разгарнуць да ўсіх праграм</translation>
 <translation id="6165508094623778733">Даведацца больш</translation>
 <translation id="6166852626429024716">Пошук на прыладзе, у праграмах, наладах і інтэрнэце...</translation>
+<translation id="6237461503717005873">Выбраны радок: <ph name="ROW_NAME" />.</translation>
 <translation id="6264365405983206840">Выбраць &amp;усё</translation>
 <translation id="6351032674660237738">ПРАПАНОВЫ ПРАГРАМ</translation>
 <translation id="6364916375976753737">Прагартаць улева</translation>
@@ -213,6 +221,7 @@
 <translation id="7389409599945284130">– <ph name="MESSAGE" /></translation>
 <translation id="7410957453383678442">{MINUTES,plural, =1{Засталася 1 хвіліна}one{Засталася # хвіліна}few{Засталося # хвіліны}many{Засталося # хвілін}other{Засталося # хвіліны}}</translation>
 <translation id="7430878839542012341">Выдаліць гэты пошукавы запыт з вашай гісторыі?</translation>
+<translation id="7437971918971306061">Слупок "<ph name="COLUMN_NAME" />" не адсартаваны.</translation>
 <translation id="7460907917090416791"><ph name="QUANTITY" /> ТБ</translation>
 <translation id="7507604095951736240">Эмодзі</translation>
 <translation id="7620655452534002301">Выдалена.</translation>

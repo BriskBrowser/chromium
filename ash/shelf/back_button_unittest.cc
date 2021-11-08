@@ -10,7 +10,7 @@
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/app_list/test/app_list_test_helper.h"
 #include "ash/app_list/views/app_list_view.h"
-#include "ash/public/cpp/ash_features.h"
+#include "ash/constants/ash_features.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_navigation_widget.h"
 #include "ash/shelf/shelf_view.h"
@@ -23,6 +23,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/accelerators/test_accelerator_target.h"
+#include "ui/compositor/layer.h"
 #include "ui/events/test/event_generator.h"
 
 namespace ash {
@@ -33,6 +34,10 @@ class BackButtonTest : public AshTestBase,
                        public testing::WithParamInterface<bool> {
  public:
   BackButtonTest() = default;
+
+  BackButtonTest(const BackButtonTest&) = delete;
+  BackButtonTest& operator=(const BackButtonTest&) = delete;
+
   ~BackButtonTest() override = default;
 
   BackButton* back_button() {
@@ -72,9 +77,6 @@ class BackButtonTest : public AshTestBase,
 
  protected:
   std::unique_ptr<ShelfViewTestAPI> test_api_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BackButtonTest);
 };
 
 enum class TestAccessibilityFeature {

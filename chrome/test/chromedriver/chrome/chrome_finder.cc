@@ -12,11 +12,11 @@
 #include "base/base_paths.h"
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/branding_buildflags.h"
@@ -138,11 +138,9 @@ bool FindChrome(base::FilePath* browser_exe) {
   base::FilePath browser_exes_array[] = {
 #if defined(OS_WIN) || defined(OS_MAC)
     base::FilePath(chrome::kBrowserProcessExecutablePath),
-    base::FilePath(chrome::kBrowserProcessExecutablePathChromium)
 #elif defined(OS_LINUX) || defined(OS_CHROMEOS)
     base::FilePath("google-chrome"),
     base::FilePath(chrome::kBrowserProcessExecutablePath),
-    base::FilePath(chrome::kBrowserProcessExecutablePathChromium),
     base::FilePath("chromium"),
     base::FilePath("chromium-browser")
 #else

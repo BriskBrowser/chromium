@@ -9,7 +9,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 
-import android.support.test.filters.SmallTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -45,7 +45,7 @@ public class TabStateExtractorTest {
     @Mock
     private WebContentsStateBridge.Natives mWebContentsBridgeJni;
     @Mock
-    private TabImpl mTabMock;
+    private Tab mTabMock;
     @Mock
     private WebContents mWebContentsMock;
     @Mock

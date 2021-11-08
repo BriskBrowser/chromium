@@ -10,7 +10,8 @@ export let GroupButtonClickEvent;
 export const GROUP_BUTTON_CLICK = 'group-button-click';
 
 /**
- * @typedef {!CustomEvent<{emoji: string}>}
+ * @typedef {!CustomEvent<{emoji: string, isVariant: boolean, baseEmoji: string,
+ * allVariants:!Array<!string>, name:!string}>}
  */
 export let EmojiButtonClickEvent;
 
@@ -29,6 +30,13 @@ export const EMOJI_VARIANTS_SHOWN = 'emoji-variants-shown';
 export let EmojiDataLoadedEvent;
 
 export const EMOJI_DATA_LOADED = 'emoji-data-loaded';
+
+/**
+ * @typedef {!CustomEvent}
+ */
+export let EmojiClearRecentClickEvent;
+
+export const EMOJI_CLEAR_RECENTS_CLICK = 'emoji-clear-recents-click';
 
 /**
  * Constructs a CustomEvent with the given event type and details.

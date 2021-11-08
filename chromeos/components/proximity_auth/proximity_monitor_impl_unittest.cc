@@ -45,12 +45,14 @@ const int kRssiThreshold = -70;
 class MockProximityMonitorObserver : public ProximityMonitorObserver {
  public:
   MockProximityMonitorObserver() {}
+
+  MockProximityMonitorObserver(const MockProximityMonitorObserver&) = delete;
+  MockProximityMonitorObserver& operator=(const MockProximityMonitorObserver&) =
+      delete;
+
   ~MockProximityMonitorObserver() override {}
 
   MOCK_METHOD0(OnProximityStateChanged, void());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockProximityMonitorObserver);
 };
 
 // Creates a mock Bluetooth adapter and sets it as the global adapter for
@@ -102,7 +104,7 @@ class ProximityAuthProximityMonitorImplTest : public testing::Test {
 
   void RunPendingTasks() { task_runner_->RunPendingTasks(); }
 
-  void ProvideRssi(base::Optional<int32_t> rssi) {
+  void ProvideRssi(absl::optional<int32_t> rssi) {
     RunPendingTasks();
 
     std::vector<chromeos::secure_channel::mojom::ConnectionCreationDetail>
@@ -179,7 +181,7 @@ TEST_F(ProximityAuthProximityMonitorImplTest, IsUnlockAllowed_UnknownRssi) {
   monitor_->Start();
 
   ProvideRssi(0);
-  ProvideRssi(base::nullopt);
+  ProvideRssi(absl::nullopt);
 
   EXPECT_FALSE(monitor_->IsUnlockAllowed());
 }

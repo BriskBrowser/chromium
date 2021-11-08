@@ -28,13 +28,20 @@ class ExtensionAppShimManagerDelegate : public AppShimManager::Delegate {
                        base::OnceCallback<void()> callback) override;
   void LaunchApp(Profile* profile,
                  const web_app::AppId& app_id,
-                 const std::vector<base::FilePath>& files) override;
+                 const std::vector<base::FilePath>& files,
+                 const std::vector<GURL>& urls,
+                 const GURL& override_url,
+                 chrome::mojom::AppShimLoginItemRestoreState
+                     login_item_restore_state) override;
   void LaunchShim(Profile* profile,
                   const web_app::AppId& app_id,
                   bool recreate_shims,
                   ShimLaunchedCallback launched_callback,
                   ShimTerminatedCallback terminated_callback) override;
   bool HasNonBookmarkAppWindowsOpen() override;
+  std::vector<chrome::mojom::ApplicationDockMenuItemPtr>
+  GetAppShortcutsMenuItemInfos(Profile* profile,
+                               const web_app::AppId& app_id) override;
 };
 
 }  // namespace apps

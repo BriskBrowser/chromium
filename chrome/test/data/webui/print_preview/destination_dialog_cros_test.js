@@ -2,20 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationStore, DestinationType, InvitationStore, LocalDestinationInfo, makeRecentDestination, NativeLayerImpl, RecentDestination} from 'chrome://print/print_preview.js';
+import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationStore, DestinationStoreEventType, DestinationType, GooglePromotedDestinationId, makeRecentDestination, NativeLayerImpl, PrintPreviewDestinationDialogCrosElement, PrintPreviewSearchBoxElement} from 'chrome://print/print_preview.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {keyEventOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {eventToPromise, waitAfterNextRender} from '../test_util.m.js';
+import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {eventToPromise, waitAfterNextRender} from 'chrome://webui-test/test_util.js';
 
 import {CloudPrintInterfaceStub} from './cloud_print_interface_stub.js';
 import {NativeLayerCrosStub, setNativeLayerCrosInstance} from './native_layer_cros_stub.js';
 import {NativeLayerStub} from './native_layer_stub.js';
-import {createDestinationStore, getDestinations, getGoogleDriveDestination, setupTestListenerElement} from './print_preview_test_utils.js';
+import {createDestinationStore, getCloudDestination, getDestinations, setupTestListenerElement} from './print_preview_test_utils.js';
 
 window.destination_dialog_cros_test = {};
 const destination_dialog_cros_test = window.destination_dialog_cros_test;
@@ -54,9 +54,6 @@ suite(destination_dialog_cros_test.suiteName, function() {
   /** @type {!Array<!RecentDestination>} */
   let recentDestinations = [];
 
-  /** @type {boolean} */
-  const saveToDriveFlagEnabled = loadTimeData.getBoolean('printSaveToDrive');
-
   /** @override */
   suiteSetup(function() {
     setupTestListenerElement();
@@ -66,7 +63,7 @@ suite(destination_dialog_cros_test.suiteName, function() {
   setup(function() {
     // Create data classes
     nativeLayer = new NativeLayerStub();
-    NativeLayerImpl.instance_ = nativeLayer;
+    NativeLayerImpl.setInstance(nativeLayer);
     nativeLayerCros = setNativeLayerCrosInstance();
     cloudPrintInterface = new CloudPrintInterfaceStub();
     destinationStore = createDestinationStore();
@@ -86,7 +83,6 @@ suite(destination_dialog_cros_test.suiteName, function() {
     dialog.activeUser = '';
     dialog.users = [];
     dialog.destinationStore = destinationStore;
-    dialog.invitationStore = new InvitationStore();
   });
 
   function finishSetup() {
@@ -105,21 +101,25 @@ suite(destination_dialog_cros_test.suiteName, function() {
   // Test that destinations are correctly displayed in the lists.
   test(assert(destination_dialog_cros_test.TestNames.PrinterList), async () => {
     await finishSetup();
-    const list = dialog.$$('print-preview-destination-list');
+    const list =
+        dialog.shadowRoot.querySelector('print-preview-destination-list');
 
     const printerItems =
         list.shadowRoot.querySelectorAll('print-preview-destination-list-item');
 
-    const getDisplayedName = item => item.$$('.name').textContent;
+    const getDisplayedName = item =>
+        item.shadowRoot.querySelector('.name').textContent;
     // 5 printers + Save as PDF
     assertEquals(6, printerItems.length);
     // Save as PDF shows up first.
     assertEquals(
-        Destination.GooglePromotedId.SAVE_AS_PDF,
+        GooglePromotedDestinationId.SAVE_AS_PDF,
         getDisplayedName(printerItems[0]));
     assertEquals(
         'rgb(32, 33, 36)',
-        window.getComputedStyle(printerItems[0].$$('.name')).color);
+        window
+            .getComputedStyle(printerItems[0].shadowRoot.querySelector('.name'))
+            .color);
     Array.from(printerItems).slice(1, 5).forEach((item, index) => {
       assertEquals(destinations[index].displayName, getDisplayedName(item));
     });
@@ -146,10 +146,11 @@ suite(destination_dialog_cros_test.suiteName, function() {
         nativeLayer.setExtensionDestinations([provisionalDestination]);
         await finishSetup();
         flush();
-        provisionalDialog =
-            dialog.$$('print-preview-provisional-destination-resolver');
-        assertFalse(provisionalDialog.$$('#dialog').open);
-        const list = dialog.$$('print-preview-destination-list');
+        provisionalDialog = dialog.shadowRoot.querySelector(
+            'print-preview-provisional-destination-resolver');
+        assertFalse(provisionalDialog.shadowRoot.querySelector('#dialog').open);
+        const list =
+            dialog.shadowRoot.querySelector('print-preview-destination-list');
         const printerItems = list.shadowRoot.querySelectorAll(
             'print-preview-destination-list-item');
 
@@ -163,7 +164,7 @@ suite(destination_dialog_cros_test.suiteName, function() {
         // Click the provisional destination to select it.
         provisionalItem.click();
         flush();
-        assertTrue(provisionalDialog.$$('#dialog').open);
+        assertTrue(provisionalDialog.shadowRoot.querySelector('#dialog').open);
 
         // Send escape key on provisionalDialog. Destinations dialog should
         // not close.
@@ -172,8 +173,8 @@ suite(destination_dialog_cros_test.suiteName, function() {
         flush();
         await whenClosed;
 
-        assertFalse(provisionalDialog.$$('#dialog').open);
-        assertTrue(dialog.$$('#dialog').open);
+        assertFalse(provisionalDialog.shadowRoot.querySelector('#dialog').open);
+        assertTrue(dialog.shadowRoot.querySelector('#dialog').open);
       });
 
   /**
@@ -182,10 +183,11 @@ suite(destination_dialog_cros_test.suiteName, function() {
    */
   function assertSignedInState(account, numUsers) {
     const signedIn = account !== '';
-    assertEquals(!signedIn, dialog.$$('.user-info').hidden);
+    assertEquals(
+        !signedIn, dialog.shadowRoot.querySelector('.user-info').hidden);
 
     if (numUsers > 0) {
-      const userSelect = dialog.$$('.md-select');
+      const userSelect = dialog.shadowRoot.querySelector('.md-select');
       const userSelectOptions = userSelect.querySelectorAll('option');
       assertEquals(numUsers + 1, userSelectOptions.length);
       assertEquals('', userSelectOptions[numUsers].value);
@@ -193,27 +195,13 @@ suite(destination_dialog_cros_test.suiteName, function() {
     }
   }
 
-  /**
-   * @param {number} numPrinters The total number of available printers.
-   * @param {string} account The current active user account.
-   */
-  function assertNumPrintersWithDriveAccount(numPrinters, account) {
-    const list = dialog.$$('print-preview-destination-list');
+  /** @param {number} numPrinters The total number of available printers. */
+  function assertNumPrintersVisible(numPrinters) {
+    const list =
+        dialog.shadowRoot.querySelector('print-preview-destination-list');
     const printerItems = list.shadowRoot.querySelectorAll(
         'print-preview-destination-list-item:not([hidden])');
     assertEquals(numPrinters, printerItems.length);
-
-    if (saveToDriveFlagEnabled) {
-      return;
-    }
-
-    const drivePrinter = Array.from(printerItems).find(item => {
-      return item.destination.id === Destination.GooglePromotedId.DOCS;
-    });
-    assertEquals(!!drivePrinter, account !== '');
-    if (drivePrinter) {
-      assertEquals(account, drivePrinter.destination.account);
-    }
   }
 
   // Test that signing in and switching accounts works as expected.
@@ -223,28 +211,31 @@ suite(destination_dialog_cros_test.suiteName, function() {
         // couple different accounts.
         const user1 = 'foo@chromium.org';
         const user2 = 'bar@chromium.org';
-        cloudPrintInterface.setPrinter(getGoogleDriveDestination(user1));
-        cloudPrintInterface.setPrinter(getGoogleDriveDestination(user2));
-        // Override so that privet printers will also be fetched, since we are
-        // simulating the case where the enterprise override is enabled.
-        loadTimeData.overrideValues({'forceEnablePrivetPrinting': true});
+        const driveDestination1 = getCloudDestination(
+            GooglePromotedDestinationId.DOCS, GooglePromotedDestinationId.DOCS,
+            user1);
+        const driveDestination2 = getCloudDestination(
+            GooglePromotedDestinationId.DOCS, GooglePromotedDestinationId.DOCS,
+            user2);
+        cloudPrintInterface.setPrinter(driveDestination1);
+        cloudPrintInterface.setPrinter(driveDestination2);
         let userSelect = null;
 
         await finishSetup();
         // Check that the user dropdown is hidden when there are no active
         // users.
-        assertTrue(dialog.$$('.user-info').hidden);
-        userSelect = dialog.$$('.md-select');
+        assertTrue(dialog.shadowRoot.querySelector('.user-info').hidden);
+        userSelect = dialog.shadowRoot.querySelector('.md-select');
 
         // Enable cloud print.
         assertSignedInState('', 0);
-        // Local, extension, privet, and cloud (since
+        // Local, extension, and cloud (since
         // startLoadAllDestinations() was called).
-        assertEquals(3, nativeLayer.getCallCount('getPrinters'));
+        assertEquals(2, nativeLayer.getCallCount('getPrinters'));
         assertEquals(1, cloudPrintInterface.getCallCount('search'));
 
         // 6 printers, no Google drive (since not signed in).
-        assertNumPrintersWithDriveAccount(6, '');
+        assertNumPrintersVisible(6);
 
         // Set an active user.
         destinationStore.setActiveUser(user1);
@@ -256,12 +247,9 @@ suite(destination_dialog_cros_test.suiteName, function() {
         // Select shows the signed in user.
         assertSignedInState(user1, 1);
 
-        // Now have 7 printers (Google Drive), with user1 signed in.
-        // On CrOS we do not show Save to Drive destination so 6 printers
-        // expected.
-        const expectedPrinters = saveToDriveFlagEnabled ? 6 : 7;
-        assertNumPrintersWithDriveAccount(expectedPrinters, user1);
-        assertEquals(3, nativeLayer.getCallCount('getPrinters'));
+        const expectedPrinters = 6;
+        assertNumPrintersVisible(expectedPrinters);
+        assertEquals(2, nativeLayer.getCallCount('getPrinters'));
         // Cloud printers should have been re-fetched.
         assertEquals(2, cloudPrintInterface.getCallCount('search'));
 
@@ -272,7 +260,7 @@ suite(destination_dialog_cros_test.suiteName, function() {
         await nativeLayer.whenCalled('signIn');
         // No new printer fetch until the user actually changes the active
         // account.
-        assertEquals(3, nativeLayer.getCallCount('getPrinters'));
+        assertEquals(2, nativeLayer.getCallCount('getPrinters'));
         assertEquals(2, cloudPrintInterface.getCallCount('search'));
         dialog.users = [user1, user2];
         flush();
@@ -280,8 +268,8 @@ suite(destination_dialog_cros_test.suiteName, function() {
         // Select shows the signed in user.
         assertSignedInState(user1, 2);
 
-        // Still have 7 printers (Google Drive), with user1 signed in.
-        assertNumPrintersWithDriveAccount(expectedPrinters, user1);
+        // Still have 6 printers, with user1 signed in.
+        assertNumPrintersVisible(expectedPrinters);
 
         // Select the second account.
         const whenEventFired = eventToPromise('account-change', dialog);
@@ -296,7 +284,7 @@ suite(destination_dialog_cros_test.suiteName, function() {
         destinationStore.setActiveUser(user2);
         dialog.activeUser = user2;
         const whenInserted = eventToPromise(
-            DestinationStore.EventType.DESTINATIONS_INSERTED, destinationStore);
+            DestinationStoreEventType.DESTINATIONS_INSERTED, destinationStore);
         destinationStore.reloadUserCookieBasedDestinations(user2);
 
         await whenInserted;
@@ -304,9 +292,9 @@ suite(destination_dialog_cros_test.suiteName, function() {
 
         assertSignedInState(user2, 2);
 
-        // 7 printers (Google Drive), with user2 signed in.
-        assertNumPrintersWithDriveAccount(expectedPrinters, user2);
-        assertEquals(3, nativeLayer.getCallCount('getPrinters'));
+        // 6 printers, with user2 signed in.
+        assertNumPrintersVisible(expectedPrinters);
+        assertEquals(2, nativeLayer.getCallCount('getPrinters'));
         // Cloud print should have been queried again for the new account.
         assertEquals(3, cloudPrintInterface.getCallCount('search'));
       });
@@ -329,8 +317,10 @@ suite(destination_dialog_cros_test.suiteName, function() {
         });
         await waitAfterNextRender(dialog);
 
-        assertFalse(dialog.$$('.server-search-box-input').hidden);
-        const serverSelector = dialog.$$('.server-search-box-input');
+        assertFalse(
+            dialog.shadowRoot.querySelector('.server-search-box-input').hidden);
+        const serverSelector =
+            dialog.shadowRoot.querySelector('.server-search-box-input');
         const serverSelections =
             serverSelector.shadowRoot.querySelectorAll('.list-item');
         assertEquals('Print Server 1', serverSelections[0].textContent.trim());
@@ -359,7 +349,8 @@ suite(destination_dialog_cros_test.suiteName, function() {
 
         const pendingPrintServerId =
             nativeLayerCros.whenCalled('choosePrintServers');
-        dialog.$$('cr-searchable-drop-down').value = 'Print Server 2';
+        dialog.shadowRoot.querySelector('cr-searchable-drop-down').value =
+            'Print Server 2';
         await waitAfterNextRender(dialog);
 
         assertEquals(1, nativeLayerCros.getCallCount('choosePrintServers'));

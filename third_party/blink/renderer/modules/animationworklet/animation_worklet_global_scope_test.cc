@@ -62,7 +62,11 @@ std::unique_ptr<AnimationWorkletOutput> ProxyClientMutate(
 std::unique_ptr<WorkletAnimationEffectTimings> CreateEffectTimings() {
   auto timings = base::MakeRefCounted<base::RefCountedData<Vector<Timing>>>();
   timings->data.push_back(Timing());
-  return std::make_unique<WorkletAnimationEffectTimings>(std::move(timings));
+  auto normalized_timings = base::MakeRefCounted<
+      base::RefCountedData<Vector<Timing::NormalizedTiming>>>();
+  normalized_timings->data.push_back(Timing::NormalizedTiming());
+  return std::make_unique<WorkletAnimationEffectTimings>(
+      std::move(timings), std::move(normalized_timings));
 }
 
 }  // namespace
@@ -157,9 +161,11 @@ class AnimationWorkletGlobalScopeTest : public PageTestBase {
     DCHECK(isolate);
     v8::HandleScope scope(isolate);
 
+    ClassicScript* classic_script =
+        ClassicScript::CreateUnspecifiedScript(ScriptSourceCode(script));
+
     ScriptEvaluationResult result =
-        global_scope->ScriptController()->EvaluateAndReturnValue(
-            ScriptSourceCode(script), SanitizeScriptErrors::kSanitize);
+        classic_script->RunScriptOnScriptStateAndReturnValue(script_state);
     DCHECK_EQ(result.GetResultType(),
               ScriptEvaluationResult::ResultType::kSuccess);
     return ToBoolean(isolate, result.GetSuccessValue(), ASSERT_NO_EXCEPTION);
@@ -294,8 +300,7 @@ class AnimationWorkletGlobalScopeTest : public PageTestBase {
         ProxyClientMutate(state, global_scope);
 
     EXPECT_EQ(output->animations.size(), 1ul);
-    EXPECT_EQ(output->animations[0].local_times[0],
-              base::TimeDelta::FromMillisecondsD(123));
+    EXPECT_EQ(output->animations[0].local_times[0], base::Milliseconds(123));
 
     waitable_event->Signal();
   }
@@ -455,8 +460,7 @@ TEST_F(AnimationWorkletGlobalScopeTest,
   PostCrossThreadTask(
       *worklet->GetTaskRunner(TaskType::kInternalTest), FROM_HERE,
       CrossThreadBindOnce(&AnimationWorkletGlobalScopeTest::RunScriptOnWorklet,
-                          CrossThreadUnretained(this),
-                          Passed(std::move(source_code)),
+                          CrossThreadUnretained(this), std::move(source_code),
                           CrossThreadUnretained(worklet.get()),
                           CrossThreadUnretained(&waitable_event)));
   waitable_event.Wait();

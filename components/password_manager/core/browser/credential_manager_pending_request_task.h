@@ -11,10 +11,9 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/macros.h"
 #include "components/password_manager/core/browser/http_password_store_migrator.h"
-#include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
+#include "components/password_manager/core/browser/password_store_interface.h"
 #include "components/password_manager/core/common/credential_manager_types.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -29,8 +28,8 @@ using SendCredentialCallback =
     base::OnceCallback<void(const CredentialInfo& credential)>;
 
 enum class StoresToQuery { kProfileStore, kProfileAndAccountStores };
-// Sends credentials retrieved from the PasswordStore to CredentialManager API
-// clients and retrieves embedder-dependent information.
+// Sends credentials retrieved from the PasswordStoreInterface to
+// CredentialManager API clients and retrieves embedder-dependent information.
 class CredentialManagerPendingRequestTaskDelegate {
  public:
   // Determines whether zero-click sign-in is allowed.
@@ -46,14 +45,14 @@ class CredentialManagerPendingRequestTaskDelegate {
   virtual void SendCredential(SendCredentialCallback send_callback,
                               const CredentialInfo& credential) = 0;
 
-  // Updates |skip_zero_click| for |form| in the PasswordStore if required.
-  // Sends a credential to JavaScript.
+  // Updates |skip_zero_click| for |form| in the PasswordStoreInterface if
+  // required. Sends a credential to JavaScript.
   virtual void SendPasswordForm(SendCredentialCallback send_callback,
                                 CredentialMediationRequirement mediation,
                                 const PasswordForm* form) = 0;
 };
 
-// Retrieves credentials from the PasswordStore.
+// Retrieves credentials from the PasswordStoreInterface.
 class CredentialManagerPendingRequestTask
     : public PasswordStoreConsumer,
       public HttpPasswordStoreMigrator::Consumer {
@@ -65,6 +64,10 @@ class CredentialManagerPendingRequestTask
       bool include_passwords,
       const std::vector<GURL>& request_federations,
       StoresToQuery stores_to_query);
+  CredentialManagerPendingRequestTask(
+      const CredentialManagerPendingRequestTask&) = delete;
+  CredentialManagerPendingRequestTask& operator=(
+      const CredentialManagerPendingRequestTask&) = delete;
   ~CredentialManagerPendingRequestTask() override;
 
   const url::Origin& origin() const { return origin_; }
@@ -73,7 +76,7 @@ class CredentialManagerPendingRequestTask
   void OnGetPasswordStoreResults(
       std::vector<std::unique_ptr<PasswordForm>> results) override;
   void OnGetPasswordStoreResultsFrom(
-      PasswordStore* store,
+      PasswordStoreInterface* store,
       std::vector<std::unique_ptr<PasswordForm>> results) override;
 
  private:
@@ -98,10 +101,9 @@ class CredentialManagerPendingRequestTask
   // then all results are processed.
   std::vector<std::unique_ptr<PasswordForm>> partial_results_;
 
-  base::flat_map<PasswordStore*, std::unique_ptr<HttpPasswordStoreMigrator>>
+  base::flat_map<PasswordStoreInterface*,
+                 std::unique_ptr<HttpPasswordStoreMigrator>>
       http_migrators_;
-
-  DISALLOW_COPY_AND_ASSIGN(CredentialManagerPendingRequestTask);
 };
 
 }  // namespace password_manager

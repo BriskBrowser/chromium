@@ -15,6 +15,7 @@
 #include "ash/wm/overview/overview_observer.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/splitview/split_view_observer.h"
+#include "base/callback_helpers.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/timer/timer.h"
@@ -33,7 +34,7 @@ class ASH_EXPORT DragHandle : public views::Button,
                               public SplitViewObserver,
                               public ShelfObserver {
  public:
-  DragHandle(int drag_handle_corner_radius, Shelf* shelf);
+  DragHandle(float drag_handle_corner_radius, Shelf* shelf);
   DragHandle(const DragHandle&) = delete;
   ~DragHandle() override;
 

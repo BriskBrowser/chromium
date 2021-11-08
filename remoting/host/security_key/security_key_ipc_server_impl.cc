@@ -16,6 +16,7 @@
 #include "base/threading/thread_checker.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
@@ -25,6 +26,8 @@
 #include "remoting/host/client_session_details.h"
 
 #if defined(OS_WIN)
+#include <windows.h>
+
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/win_util.h"
@@ -84,9 +87,8 @@ bool SecurityKeyIpcServerImpl::CreateChannel(
   if (!base::win::GetUserSidString(&user_sid)) {
     return false;
   }
-  std::string user_sid_utf8 = base::WideToUTF8(user_sid);
-  options.security_descriptor = base::UTF8ToUTF16(base::StringPrintf(
-      "O:%sG:%sD:(A;;GA;;;AU)", user_sid_utf8.c_str(), user_sid_utf8.c_str()));
+  options.security_descriptor = base::StringPrintf(
+      L"O:%lsG:%lsD:(A;;GA;;;AU)", user_sid.c_str(), user_sid.c_str());
 
 #endif  // defined(OS_WIN)
   mojo::NamedPlatformChannel channel(options);

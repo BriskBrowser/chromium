@@ -3,9 +3,10 @@
 // found in the LICENSE file.
 
 import {assertEquals} from 'chrome://test/chai_assert.js';
-import {ImageOrientation} from '../file_manager/foreground/js/metadata/image_orientation.m.js';
-import {ImageLoaderUtil} from './image_loader_util.m.js';
-import {LoadImageRequest} from './load_image_request.m.js';
+
+import {ImageLoaderUtil} from './image_loader_util.js';
+import {ImageOrientation} from './image_orientation.js';
+import {LoadImageRequest} from './load_image_request.js';
 
 
 /**

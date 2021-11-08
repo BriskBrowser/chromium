@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "ios/chrome/browser/policy/reporting/report_scheduler_ios.h"
+#include "components/enterprise/browser/reporting/real_time_report_generator.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -36,8 +37,7 @@ namespace {
 
 constexpr char kDMToken[] = "dm_token";
 constexpr char kClientId[] = "client_id";
-constexpr base::TimeDelta kDefaultUploadInterval =
-    base::TimeDelta::FromHours(24);
+constexpr base::TimeDelta kDefaultUploadInterval = base::Hours(24);
 
 }  // namespace
 
@@ -104,7 +104,9 @@ class ReportSchedulerIOSTest : public PlatformTest {
 
   void CreateScheduler() {
     scheduler_ = std::make_unique<ReportScheduler>(
-        client_, std::move(generator_ptr_), &report_delegate_factory_);
+        client_, std::move(generator_ptr_),
+        std::make_unique<RealTimeReportGenerator>(&report_delegate_factory_),
+        &report_delegate_factory_);
     scheduler_->SetReportUploaderForTesting(std::move(uploader_ptr_));
   }
 
@@ -280,7 +282,7 @@ TEST_F(ReportSchedulerIOSTest, NoReportGenerate) {
 }
 
 TEST_F(ReportSchedulerIOSTest, TimerDelayWithLastUploadTimestamp) {
-  const base::TimeDelta gap = base::TimeDelta::FromHours(10);
+  const base::TimeDelta gap = base::Hours(10);
   SetLastUploadInHour(gap);
 
   EXPECT_CALL_SetupRegistration();
@@ -293,10 +295,9 @@ TEST_F(ReportSchedulerIOSTest, TimerDelayWithLastUploadTimestamp) {
   EXPECT_TRUE(scheduler_->IsNextReportScheduledForTesting());
 
   base::TimeDelta next_report_delay = kDefaultUploadInterval - gap;
-  task_environment_.FastForwardBy(next_report_delay -
-                                  base::TimeDelta::FromSeconds(1));
+  task_environment_.FastForwardBy(next_report_delay - base::Seconds(1));
   ExpectLastUploadTimestampUpdated(false);
-  task_environment_.FastForwardBy(base::TimeDelta::FromSeconds(1));
+  task_environment_.FastForwardBy(base::Seconds(1));
   ExpectLastUploadTimestampUpdated(true);
 
   ::testing::Mock::VerifyAndClearExpectations(client_);

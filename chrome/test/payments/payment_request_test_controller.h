@@ -41,11 +41,11 @@ class PaymentRequestTestObserver {
   virtual void OnHasEnrolledInstrumentCalled() {}
   virtual void OnHasEnrolledInstrumentReturned() {}
   virtual void OnAppListReady() {}
+  virtual void OnErrorDisplayed() {}
   virtual void OnNotSupportedError() {}
   virtual void OnConnectionTerminated() {}
   virtual void OnAbortCalled() {}
   virtual void OnCompleteCalled() {}
-  virtual void OnMinimalUIReady() {}
   virtual void OnUIDisplayed() {}
 
  protected:
@@ -89,18 +89,13 @@ class PaymentRequestTestController {
   // Return whether it's succeeded.
   bool ClickPaymentHandlerCloseButton();
 
+  // Closes the dialog.
+  bool CloseDialog();
+
   // Confirms payment in a browser payment sheet, be it either PAYMENT_REQUEST
   // or SECURE_PAYMENT_CONFIRMATION type. Returns true if the dialog was
   // available.
   bool ConfirmPayment();
-
-  // Confirms payment in minimal UI. Returns true on success or if the minimal
-  // UI is not implemented on the current platform.
-  bool ConfirmMinimalUI();
-
-  // Dismisses payment in minimal UI. Returns true on success or if the minimal
-  // UI is not implemented on the current platform.
-  bool DismissMinimalUI();
 
   // Returns true when running on Android M or L.
   bool IsAndroidMarshmallowOrLollipop();
@@ -123,11 +118,11 @@ class PaymentRequestTestController {
   void OnHasEnrolledInstrumentCalled();
   void OnHasEnrolledInstrumentReturned();
   void OnAppListReady();
+  void OnErrorDisplayed();
   void OnNotSupportedError();
   void OnConnectionTerminated();
   void OnAbortCalled();
   void OnCompleteCalled();
-  void OnMinimalUIReady();
   void OnUIDisplayed();
 
   PaymentRequestTestObserver* observer_ = nullptr;

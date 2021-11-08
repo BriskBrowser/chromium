@@ -66,6 +66,9 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
 
   static GuestViewBase* From(int owner_process_id, int instance_id);
 
+  GuestViewBase(const GuestViewBase&) = delete;
+  GuestViewBase& operator=(const GuestViewBase&) = delete;
+
   // Given a |web_contents|, returns the top level owner WebContents. If
   // |web_contents| does not belong to a GuestView, it will be returned
   // unchanged.
@@ -344,10 +347,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   void ContentsZoomChange(bool zoom_in) final;
   void LoadingStateChanged(content::WebContents* source,
                            bool to_different_document) final;
-  content::ColorChooser* OpenColorChooser(
-      content::WebContents* web_contents,
-      SkColor color,
-      const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions) final;
   void ResizeDueToAutoResize(content::WebContents* web_contents,
                              const gfx::Size& new_size) final;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
@@ -449,8 +448,8 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   std::unique_ptr<base::DictionaryValue> attach_params_;
 
   // This observer ensures that this guest self-destructs if the embedder goes
-  // away. It also tracks when the embedder's fullscreen is toggled or when its
-  // page scale factor changes so the guest can change itself accordingly.
+  // away. It also tracks when the embedder's fullscreen is toggled so the guest
+  // can change itself accordingly.
   std::unique_ptr<OwnerContentsObserver> owner_contents_observer_;
 
   // This observer ensures that if the guest is unattached and its opener goes
@@ -482,8 +481,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   // This is used to ensure pending tasks will not fire after this object is
   // destroyed.
   base::WeakPtrFactory<GuestViewBase> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(GuestViewBase);
 };
 
 }  // namespace guest_view

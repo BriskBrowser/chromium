@@ -9,9 +9,9 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/containers/contains.h"
+#include "base/cxx17_backports.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
-#include "base/numerics/ranges.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
@@ -20,6 +20,7 @@
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/grit/components_scaled_resources.h"
@@ -49,7 +50,7 @@ BackForwardMenuModel::BackForwardMenuModel(Browser* browser,
                                            ModelType model_type)
     : browser_(browser), model_type_(model_type) {}
 
-BackForwardMenuModel::~BackForwardMenuModel() {}
+BackForwardMenuModel::~BackForwardMenuModel() = default;
 
 bool BackForwardMenuModel::HasIcons() const {
   return true;
@@ -68,6 +69,11 @@ int BackForwardMenuModel::GetItemCount() const {
 
   if (chapter_stops)
     items += chapter_stops + 1;  // Chapter stops also need a separator.
+
+  // If the current mode is incognito, "Show Full History" should not be
+  // visible.
+  if (!ShouldShowFullHistoryBeVisible())
+    return items;
 
   // If the menu is not empty, add two positions in the end
   // for a separator and a "Show Full History" item.
@@ -88,19 +94,19 @@ int BackForwardMenuModel::GetCommandIdAt(int index) const {
   return index;
 }
 
-base::string16 BackForwardMenuModel::GetLabelAt(int index) const {
+std::u16string BackForwardMenuModel::GetLabelAt(int index) const {
   // Return label "Show Full History" for the last item of the menu.
-  if (index == GetItemCount() - 1)
+  if (ShouldShowFullHistoryBeVisible() && index == GetItemCount() - 1)
     return l10n_util::GetStringUTF16(IDS_HISTORY_SHOWFULLHISTORY_LINK);
 
   // Return an empty string for a separator.
   if (IsSeparator(index))
-    return base::string16();
+    return std::u16string();
 
   // Return the entry title, escaping any '&' characters and eliding it if it's
   // super long.
   NavigationEntry* entry = GetNavigationEntry(index);
-  base::string16 menu_text(entry->GetTitleForDisplay());
+  std::u16string menu_text(entry->GetTitleForDisplay());
   menu_text = ui::EscapeMenuLabelAmpersands(menu_text);
   menu_text = gfx::ElideText(menu_text, gfx::FontList(),
                              kMaxBackForwardMenuWidth, gfx::ELIDE_TAIL);
@@ -131,7 +137,8 @@ ui::ImageModel BackForwardMenuModel::GetIconAt(int index) const {
   if (!ItemHasIcon(index))
     return ui::ImageModel();
 
-  if (index == GetItemCount() - 1) {
+  // Return icon of "Show Full History" for the last item of the menu.
+  if (ShouldShowFullHistoryBeVisible() && index == GetItemCount() - 1) {
     return ui::ImageModel::FromImage(
         ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
             IDR_HISTORY_FAVICON));
@@ -172,11 +179,11 @@ void BackForwardMenuModel::ActivatedAt(int index, int event_flags) {
   DCHECK(!IsSeparator(index));
 
   // Execute the command for the last item: "Show Full History".
-  if (index == GetItemCount() - 1) {
+  if (ShouldShowFullHistoryBeVisible() && index == GetItemCount() - 1) {
     base::RecordComputedAction(BuildActionName("ShowFullHistory", -1));
-    ShowSingletonTabOverwritingNTP(
-        browser_, GetSingletonTabNavigateParams(
-                      browser_, GURL(chrome::kChromeUIHistoryURL)));
+    NavigateParams params(GetSingletonTabNavigateParams(
+        browser_, GURL(chrome::kChromeUIHistoryURL)));
+    ShowSingletonTabOverwritingNTP(browser_, &params);
     return;
   }
 
@@ -279,7 +286,7 @@ void BackForwardMenuModel::OnFavIconDataAvailable(
   entry->GetFavicon().url = image_result.icon_url;
   entry->GetFavicon().image = image_result.image;
   if (menu_model_delegate()) {
-    menu_model_delegate()->OnIconChanged(model_index);
+    menu_model_delegate()->OnIconChanged(GetCommandIdAt(model_index));
   }
 }
 
@@ -292,7 +299,7 @@ int BackForwardMenuModel::GetHistoryItemCount() const {
     items = contents->GetController().GetEntryCount() - items - 1;
   }
 
-  return base::ClampToRange(items, 0, kMaxHistoryItems);
+  return base::clamp(items, 0, kMaxHistoryItems);
 }
 
 int BackForwardMenuModel::GetChapterStopCount(int history_items) const {
@@ -390,7 +397,7 @@ bool BackForwardMenuModel::ItemHasIcon(int index) const {
   return index < GetItemCount() && !IsSeparator(index);
 }
 
-base::string16 BackForwardMenuModel::GetShowFullHistoryLabel() const {
+std::u16string BackForwardMenuModel::GetShowFullHistoryLabel() const {
   return l10n_util::GetStringUTF16(IDS_HISTORY_SHOWFULLHISTORY_LINK);
 }
 
@@ -453,4 +460,10 @@ std::string BackForwardMenuModel::BuildActionName(
     metric_string += base::NumberToString(index + 1);
   }
   return metric_string;
+}
+
+bool BackForwardMenuModel::ShouldShowFullHistoryBeVisible() const {
+  return !browser_->profile()->IsOffTheRecord() ||
+         !base::FeatureList::IsEnabled(
+             features::kUpdateHistoryEntryPointsInIncognito);
 }

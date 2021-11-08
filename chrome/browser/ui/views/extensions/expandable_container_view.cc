@@ -11,17 +11,17 @@
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 // ExpandableContainerView::DetailsView ----------------------------------------
 ExpandableContainerView::DetailsView::~DetailsView() = default;
 
 ExpandableContainerView::DetailsView::DetailsView(
-    const std::vector<base::string16>& details) {
+    const std::vector<std::u16string>& details) {
   // Spacing between this and the "Hide Details" link.
   const int bottom_padding = ChromeLayoutProvider::Get()->GetDistanceMetric(
       views::DISTANCE_RELATED_CONTROL_VERTICAL);
@@ -60,7 +60,7 @@ END_METADATA
 // ExpandableContainerView -----------------------------------------------------
 
 ExpandableContainerView::ExpandableContainerView(
-    const std::vector<base::string16>& details,
+    const std::vector<std::u16string>& details,
     int available_width) {
   DCHECK(!details.empty());
   SetLayoutManager(std::make_unique<views::BoxLayout>(

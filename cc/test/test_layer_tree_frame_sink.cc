@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "cc/trees/layer_tree_frame_sink_client.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/resources/bitmap_allocation.h"
@@ -99,13 +99,13 @@ bool TestLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
               compositor_task_runner_.get()),
           viz::BeginFrameSource::kNotRestartableId);
       begin_frame_source_->OnUpdateVSyncParameters(
-          base::TimeTicks::Now(),
-          base::TimeDelta::FromMilliseconds(1000.f / refresh_rate_));
+          base::TimeTicks::Now(), base::Milliseconds(1000.f / refresh_rate_));
       display_begin_frame_source_ = begin_frame_source_.get();
     }
     scheduler = std::make_unique<viz::DisplayScheduler>(
         display_begin_frame_source_, compositor_task_runner_.get(),
-        display_output_surface->capabilities().max_frames_pending);
+        display_output_surface->capabilities().max_frames_pending,
+        display_output_surface->capabilities().max_frames_pending_120hz);
   }
 
   auto overlay_processor = std::make_unique<viz::OverlayProcessorStub>();
@@ -205,7 +205,8 @@ void TestLayerTreeFrameSink::SubmitCompositorFrame(viz::CompositorFrame frame,
   }
 }
 
-void TestLayerTreeFrameSink::DidNotProduceFrame(const viz::BeginFrameAck& ack) {
+void TestLayerTreeFrameSink::DidNotProduceFrame(const viz::BeginFrameAck& ack,
+                                                FrameSkippedReason reason) {
   DCHECK(!ack.has_damage);
   DCHECK(ack.frame_id.IsSequenceValid());
   support_->DidNotProduceFrame(ack);
@@ -227,8 +228,8 @@ void TestLayerTreeFrameSink::DidDeleteSharedBitmap(
 }
 
 void TestLayerTreeFrameSink::DidReceiveCompositorFrameAck(
-    const std::vector<viz::ReturnedResource>& resources) {
-  ReclaimResources(resources);
+    std::vector<viz::ReturnedResource> resources) {
+  ReclaimResources(std::move(resources));
   // In synchronous mode, we manually send acks and this method should not be
   // used.
   if (!display_->has_scheduler())
@@ -245,8 +246,8 @@ void TestLayerTreeFrameSink::OnBeginFrame(
 }
 
 void TestLayerTreeFrameSink::ReclaimResources(
-    const std::vector<viz::ReturnedResource>& resources) {
-  client_->ReclaimResources(resources);
+    std::vector<viz::ReturnedResource> resources) {
+  client_->ReclaimResources(std::move(resources));
 }
 
 void TestLayerTreeFrameSink::OnBeginFramePausedChanged(bool paused) {}

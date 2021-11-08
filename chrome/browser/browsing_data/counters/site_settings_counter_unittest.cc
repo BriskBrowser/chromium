@@ -140,19 +140,19 @@ TEST_F(SiteSettingsCounterTest, CountWithTimePeriod) {
   map()->SetClockForTesting(&test_clock);
 
   // Create a setting at Now()-90min.
-  test_clock.SetNow(base::Time::Now() - base::TimeDelta::FromMinutes(90));
+  test_clock.SetNow(base::Time::Now() - base::Minutes(90));
   map()->SetContentSettingDefaultScope(
       GURL("http://www.google.com"), GURL("http://www.google.com"),
       ContentSettingsType::POPUPS, CONTENT_SETTING_ALLOW);
 
   // Create a setting at Now()-30min.
-  test_clock.SetNow(base::Time::Now() - base::TimeDelta::FromMinutes(30));
+  test_clock.SetNow(base::Time::Now() - base::Minutes(30));
   map()->SetContentSettingDefaultScope(
       GURL("http://maps.google.com"), GURL("http://maps.google.com"),
       ContentSettingsType::GEOLOCATION, CONTENT_SETTING_ALLOW);
 
   // Create a setting at Now()-31days.
-  test_clock.SetNow(base::Time::Now() - base::TimeDelta::FromDays(31));
+  test_clock.SetNow(base::Time::Now() - base::Days(31));
   map()->SetContentSettingDefaultScope(
       GURL("http://www.google.com"), GURL("http://www.google.com"),
       ContentSettingsType::MEDIASTREAM_CAMERA, CONTENT_SETTING_ALLOW);
@@ -252,13 +252,13 @@ TEST_F(SiteSettingsCounterTest, AllSiteSettingsMixed) {
 
   base::Time now = base::Time::Now();
   handler_registry()->OnAcceptRegisterProtocolHandler(
-      ProtocolHandler("news", GURL("http://www.google.com"), now,
+      ProtocolHandler("news", GURL("https://www.google.com"), now,
                       blink::ProtocolHandlerSecurityLevel::kStrict));
   handler_registry()->OnAcceptRegisterProtocolHandler(
-      ProtocolHandler("news", GURL("http://docs.google.com"), now,
+      ProtocolHandler("news", GURL("https://docs.google.com"), now,
                       blink::ProtocolHandlerSecurityLevel::kStrict));
   handler_registry()->OnAcceptRegisterProtocolHandler(
-      ProtocolHandler("news", GURL("http://slides.google.com"), now,
+      ProtocolHandler("news", GURL("https://slides.google.com"), now,
                       blink::ProtocolHandlerSecurityLevel::kStrict));
 
   auto translate_prefs =
@@ -275,12 +275,11 @@ TEST_F(SiteSettingsCounterTest, ProtocolHandlerCounting) {
   base::Time now = base::Time::Now();
 
   handler_registry()->OnAcceptRegisterProtocolHandler(
-      ProtocolHandler("news", GURL("http://www.google.com"), now,
+      ProtocolHandler("news", GURL("https://www.google.com"), now,
                       blink::ProtocolHandlerSecurityLevel::kStrict));
-  handler_registry()->OnAcceptRegisterProtocolHandler(
-      ProtocolHandler("mailto", GURL("http://maps.google.com"),
-                      now - base::TimeDelta::FromMinutes(90),
-                      blink::ProtocolHandlerSecurityLevel::kStrict));
+  handler_registry()->OnAcceptRegisterProtocolHandler(ProtocolHandler(
+      "mailto", GURL("https://maps.google.com"), now - base::Minutes(90),
+      blink::ProtocolHandlerSecurityLevel::kStrict));
   EXPECT_TRUE(handler_registry()->IsHandledProtocol("news"));
   EXPECT_TRUE(handler_registry()->IsHandledProtocol("mailto"));
 

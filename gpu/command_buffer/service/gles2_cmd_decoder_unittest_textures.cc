@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #include "base/command_line.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/viz/common/resources/resource_format_utils.h"
 #include "gpu/command_buffer/common/gles2_cmd_format.h"
@@ -3629,14 +3629,6 @@ class MockGLImage : public gl::GLImage {
   MOCK_METHOD1(CopyTexImage, bool(unsigned));
   MOCK_METHOD3(CopyTexSubImage,
                bool(unsigned, const gfx::Point&, const gfx::Rect&));
-  MOCK_METHOD7(ScheduleOverlayPlane,
-               bool(gfx::AcceleratedWidget,
-                    int,
-                    gfx::OverlayTransform,
-                    const gfx::Rect&,
-                    const gfx::RectF&,
-                    bool,
-                    std::unique_ptr<gfx::GpuFence> gpu_fence));
   MOCK_METHOD1(SetColorSpace, void(const gfx::ColorSpace&));
   MOCK_METHOD0(Flush, void());
   MOCK_METHOD3(OnMemoryDump,

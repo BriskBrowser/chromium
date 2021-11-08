@@ -6,7 +6,6 @@
 #define MEDIA_GPU_TEST_IMAGE_PROCESSOR_IMAGE_PROCESSOR_CLIENT_H_
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/atomicops.h"
@@ -53,6 +52,9 @@ class ImageProcessorClient {
       VideoRotation relative_rotation,
       std::vector<std::unique_ptr<VideoFrameProcessor>> frame_processors);
 
+  ImageProcessorClient(const ImageProcessorClient&) = delete;
+  ImageProcessorClient& operator=(const ImageProcessorClient&) = delete;
+
   // Destruct |image_processor_| if it is created.
   ~ImageProcessorClient();
 
@@ -65,9 +67,8 @@ class ImageProcessorClient {
 
   // Wait until |num_processed| frames are processed. Returns false if
   // |max_wait| is exceeded.
-  bool WaitUntilNumImageProcessed(
-      size_t num_processed,
-      base::TimeDelta max_wait = base::TimeDelta::FromSeconds(5));
+  bool WaitUntilNumImageProcessed(size_t num_processed,
+                                  base::TimeDelta max_wait = base::Seconds(5));
 
   // Get the number of processed VideoFrames.
   size_t GetNumOfProcessedImages() const;
@@ -139,7 +140,6 @@ class ImageProcessorClient {
 
   THREAD_CHECKER(image_processor_client_thread_checker_);
   THREAD_CHECKER(test_main_thread_checker_);
-  DISALLOW_COPY_AND_ASSIGN(ImageProcessorClient);
 };
 
 }  // namespace test

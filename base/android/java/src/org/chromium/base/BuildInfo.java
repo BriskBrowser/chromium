@@ -13,13 +13,11 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Configuration;
 import android.os.Build;
-import android.os.Build.VERSION;
 import android.text.TextUtils;
-
-import androidx.annotation.ChecksSdkIntAtLeast;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.compat.ApiHelperForP;
+import org.chromium.build.BuildConfig;
 
 /**
  * BuildInfo is a utility class providing easy access to {@link PackageInfo} information. This is
@@ -53,8 +51,6 @@ public class BuildInfo {
     public final String abiString;
     /** Truncated version of Build.FINGERPRINT (for crash reporting). */
     public final String androidBuildFingerprint;
-    /** A string that is different each time the apk changes. */
-    public final String extractedFileSuffix;
     /** Whether or not the device has apps installed for using custom themes. */
     public final String customThemes;
     /** Product version as stored in Android resources. */
@@ -90,11 +86,11 @@ public class BuildInfo {
                 sFirebaseAppId,
                 buildInfo.customThemes,
                 buildInfo.resourcesVersion,
-                buildInfo.extractedFileSuffix,
                 String.valueOf(
                         ContextUtils.getApplicationContext().getApplicationInfo().targetSdkVersion),
                 isDebugAndroid() ? "1" : "0",
                 buildInfo.isTV ? "1" : "0",
+                Build.VERSION.INCREMENTAL,
         };
     }
 
@@ -188,10 +184,6 @@ public class BuildInfo {
                 abiString = String.format("ABI1: %s, ABI2: %s", Build.CPU_ABI, Build.CPU_ABI2);
             }
 
-            // Append lastUpdateTime to versionCode, since versionCode is unlikely to change when
-            // developing locally but lastUpdateTime is.
-            extractedFileSuffix = String.format("@%x_%x", versionCode, pi.lastUpdateTime);
-
             // The value is truncated, as this is used for crash and UMA reporting.
             androidBuildFingerprint = Build.FINGERPRINT.substring(
                     0, Math.min(Build.FINGERPRINT.length(), MAX_FINGERPRINT_LENGTH));
@@ -222,25 +214,19 @@ public class BuildInfo {
     /**
      * Checks if the device is running on a pre-release version of Android S or a release version of
      * Android S or newer.
-     * <p>
-     * <strong>Note:</strong> When Android S is finalized for release, this method will be
-     * deprecated and all calls should be replaced with {@code Build.VERSION.SDK_INT >=
-     * Build.VERSION_CODES.S}.
      *
      * @return {@code true} if S APIs are available for use, {@code false} otherwise
      */
-    @ChecksSdkIntAtLeast(codename = "S")
     public static boolean isAtLeastS() {
-        return VERSION.CODENAME.equals("S");
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
     }
 
     /**
-     * Checks if the application targets pre-release SDK S
+     * Checks if the application targets at least released SDK S
      */
     public static boolean targetsAtLeastS() {
-        return isAtLeastS()
-                && ContextUtils.getApplicationContext().getApplicationInfo().targetSdkVersion
-                == Build.VERSION_CODES.CUR_DEVELOPMENT;
+        int version = ContextUtils.getApplicationContext().getApplicationInfo().targetSdkVersion;
+        return version >= Build.VERSION_CODES.S;
     }
 
     // End:BuildCompat

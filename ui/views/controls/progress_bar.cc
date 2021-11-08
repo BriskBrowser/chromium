@@ -17,11 +17,13 @@
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/animation/linear_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
-#include "ui/native_theme/native_theme.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
@@ -136,7 +138,7 @@ void ProgressBar::SetValue(double value) {
   current_value_ = adjusted_value;
   if (IsIndeterminate()) {
     indeterminate_bar_animation_ = std::make_unique<gfx::LinearAnimation>(this);
-    indeterminate_bar_animation_->SetDuration(base::TimeDelta::FromSeconds(2));
+    indeterminate_bar_animation_->SetDuration(base::Seconds(2));
     indeterminate_bar_animation_->Start();
   } else {
     indeterminate_bar_animation_.reset();
@@ -150,8 +152,7 @@ SkColor ProgressBar::GetForegroundColor() const {
   if (foreground_color_)
     return foreground_color_.value();
 
-  return GetNativeTheme()->GetSystemColor(
-      ui::NativeTheme::kColorId_ProminentButtonColor);
+  return GetColorProvider()->GetColor(ui::kColorProgressBar);
 }
 
 void ProgressBar::SetForegroundColor(SkColor color) {
@@ -264,8 +265,8 @@ void ProgressBar::MaybeNotifyAccessibilityValueChanged() {
 }
 
 BEGIN_METADATA(ProgressBar, View)
-ADD_PROPERTY_METADATA(SkColor, ForegroundColor, metadata::SkColorConverter)
-ADD_PROPERTY_METADATA(SkColor, BackgroundColor, metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(SkColor, ForegroundColor, ui::metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(SkColor, BackgroundColor, ui::metadata::SkColorConverter)
 END_METADATA
 
 }  // namespace views

@@ -27,6 +27,9 @@ class SharingDialogView : public SharingDialog,
                     content::WebContents* web_contents,
                     SharingDialogData data);
 
+  SharingDialogView(const SharingDialogView&) = delete;
+  SharingDialogView& operator=(const SharingDialogView&) = delete;
+
   ~SharingDialogView() override;
 
   // SharingDialog:
@@ -34,7 +37,7 @@ class SharingDialogView : public SharingDialog,
 
   // LocationBarBubbleDelegateView:
   bool ShouldShowCloseButton() const override;
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   void WindowClosing() override;
   void WebContentsDestroyed() override;
   void AddedToWidget() override;
@@ -67,8 +70,6 @@ class SharingDialogView : public SharingDialog,
 
   // References to device and app buttons views.
   View* button_list_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(SharingDialogView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_SHARING_SHARING_DIALOG_VIEW_H_

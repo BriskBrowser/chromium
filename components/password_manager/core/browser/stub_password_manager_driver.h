@@ -16,28 +16,30 @@ namespace password_manager {
 class StubPasswordManagerDriver : public PasswordManagerDriver {
  public:
   StubPasswordManagerDriver();
+
+  StubPasswordManagerDriver(const StubPasswordManagerDriver&) = delete;
+  StubPasswordManagerDriver& operator=(const StubPasswordManagerDriver&) =
+      delete;
+
   ~StubPasswordManagerDriver() override;
 
   // PasswordManagerDriver:
   int GetId() const override;
   void FillPasswordForm(
       const autofill::PasswordFormFillData& form_data) override;
-  void GeneratedPasswordAccepted(const base::string16& password) override;
-  void FillSuggestion(const base::string16& username,
-                      const base::string16& password) override;
-  void PreviewSuggestion(const base::string16& username,
-                         const base::string16& password) override;
+  void GeneratedPasswordAccepted(const std::u16string& password) override;
+  void FillSuggestion(const std::u16string& username,
+                      const std::u16string& password) override;
+  void PreviewSuggestion(const std::u16string& username,
+                         const std::u16string& password) override;
   void ClearPreviewedForm() override;
   PasswordGenerationFrameHelper* GetPasswordGenerationHelper() override;
   PasswordManager* GetPasswordManager() override;
   PasswordAutofillManager* GetPasswordAutofillManager() override;
-  autofill::AutofillDriver* GetAutofillDriver() override;
-  bool IsMainFrame() const override;
+  bool IsInPrimaryMainFrame() const override;
   bool CanShowAutofillUi() const override;
+  ::ui::AXTreeID GetAxTreeId() const override;
   const GURL& GetLastCommittedURL() const override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(StubPasswordManagerDriver);
 };
 
 }  // namespace password_manager

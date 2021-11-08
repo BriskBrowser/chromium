@@ -205,11 +205,12 @@ AutocompleteMatch HistoryQuickProvider::QuickMatchToACMatch(
     const ScoredHistoryMatch& history_match,
     int score) {
   const history::URLRow& info = history_match.url_info;
-  AutocompleteMatch match(
-      this, score, !!info.visit_count(),
-      history_match.url_matches.empty() ?
-          AutocompleteMatchType::HISTORY_TITLE :
-          AutocompleteMatchType::HISTORY_URL);
+  bool deletable =
+      !!info.visit_count() && client()->AllowDeletingBrowserHistory();
+  AutocompleteMatch match(this, score, deletable,
+                          history_match.url_matches.empty()
+                              ? AutocompleteMatchType::HISTORY_TITLE
+                              : AutocompleteMatchType::HISTORY_URL);
   match.typed_count = info.typed_count();
   match.destination_url = info.url();
   DCHECK(match.destination_url.is_valid());
@@ -273,7 +274,7 @@ AutocompleteMatch HistoryQuickProvider::QuickMatchToACMatch(
   if (match.TryRichAutocompletion(match.contents, match.description,
                                   autocomplete_input_)) {
     // If rich autocompletion applies, we skip trying the alternatives below.
-  } else if (inline_autocomplete_offset != base::string16::npos) {
+  } else if (inline_autocomplete_offset != std::u16string::npos) {
     match.inline_autocompletion =
         match.fill_into_edit.substr(inline_autocomplete_offset);
     match.SetAllowedToBeDefault(autocomplete_input_);

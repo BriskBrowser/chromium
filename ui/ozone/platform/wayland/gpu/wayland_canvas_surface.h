@@ -6,6 +6,7 @@
 #define UI_OZONE_PLATFORM_WAYLAND_GPU_WAYLAND_CANVAS_SURFACE_H_
 
 #include <memory>
+#include <vector>
 
 #include "base/macros.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
@@ -43,6 +44,10 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
  public:
   WaylandCanvasSurface(WaylandBufferManagerGpu* buffer_manager,
                        gfx::AcceleratedWidget widget);
+
+  WaylandCanvasSurface(const WaylandCanvasSurface&) = delete;
+  WaylandCanvasSurface& operator=(const WaylandCanvasSurface&) = delete;
+
   ~WaylandCanvasSurface() override;
 
   // SurfaceOzoneCanvas
@@ -50,7 +55,7 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
   // GetCanvas() returns an SkCanvas whose shared memory region is not being
   // used by Wayland. If no such SkCanvas is available, a new one is created.
   SkCanvas* GetCanvas() override;
-  void ResizeCanvas(const gfx::Size& viewport_size) override;
+  void ResizeCanvas(const gfx::Size& viewport_size, float scale) override;
   void PresentCanvas(const gfx::Rect& damage) override;
   std::unique_ptr<gfx::VSyncProvider> CreateVSyncProvider() override;
 
@@ -64,7 +69,8 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
 
   // WaylandSurfaceGpu overrides:
   void OnSubmission(uint32_t buffer_id,
-                    const gfx::SwapResult& swap_result) override;
+                    const gfx::SwapResult& swap_result,
+                    gfx::GpuFenceHandle release_fence) override;
   void OnPresentation(uint32_t buffer_id,
                       const gfx::PresentationFeedback& feedback) override;
 
@@ -75,6 +81,7 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
   const gfx::AcceleratedWidget widget_;
 
   gfx::Size size_;
+  float viewport_scale_ = 1.f;
   std::vector<std::unique_ptr<SharedMemoryBuffer>> buffers_;
 
   // Contains pending to be submitted buffers. The vector is processed as FIFO.
@@ -90,8 +97,6 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
 
   // Previously used buffer. Set on OnSubmission().
   SharedMemoryBuffer* previous_buffer_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(WaylandCanvasSurface);
 };
 
 }  // namespace ui

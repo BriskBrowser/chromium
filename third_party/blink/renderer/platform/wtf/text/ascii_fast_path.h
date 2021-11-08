@@ -25,10 +25,12 @@
 #include <stdint.h>
 
 #include "base/compiler_specific.h"
+#include "base/dcheck_is_on.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/ascii_ctype.h"
-#include "third_party/blink/renderer/platform/wtf/text/unicode.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_uchar.h"
+#include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
 #if defined(OS_MAC) && defined(ARCH_CPU_X86_FAMILY)
 #include <emmintrin.h>

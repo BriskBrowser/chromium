@@ -27,6 +27,11 @@ class Extension;
 // URLMatcherConditionSet.
 class DeclarativeContentPageUrlPredicate : public ContentPredicate {
  public:
+  DeclarativeContentPageUrlPredicate(
+      const DeclarativeContentPageUrlPredicate&) = delete;
+  DeclarativeContentPageUrlPredicate& operator=(
+      const DeclarativeContentPageUrlPredicate&) = delete;
+
   ~DeclarativeContentPageUrlPredicate() override;
 
   url_matcher::URLMatcherConditionSet* url_matcher_condition_set() const {
@@ -52,8 +57,6 @@ class DeclarativeContentPageUrlPredicate : public ContentPredicate {
   ContentPredicateEvaluator* const evaluator_;
 
   scoped_refptr<url_matcher::URLMatcherConditionSet> url_matcher_condition_set_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeclarativeContentPageUrlPredicate);
 };
 
 // Supports tracking of URL matches across tab contents in a browser context,
@@ -62,6 +65,12 @@ class DeclarativeContentPageUrlConditionTracker
     : public ContentPredicateEvaluator {
  public:
   explicit DeclarativeContentPageUrlConditionTracker(Delegate* delegate);
+
+  DeclarativeContentPageUrlConditionTracker(
+      const DeclarativeContentPageUrlConditionTracker&) = delete;
+  DeclarativeContentPageUrlConditionTracker& operator=(
+      const DeclarativeContentPageUrlConditionTracker&) = delete;
+
   ~DeclarativeContentPageUrlConditionTracker() override;
 
   // ContentPredicateEvaluator:
@@ -79,6 +88,9 @@ class DeclarativeContentPageUrlConditionTracker
   void OnWebContentsNavigation(
       content::WebContents* contents,
       content::NavigationHandle* navigation_handle) override;
+  void OnWatchedPageChanged(
+      content::WebContents* contents,
+      const std::vector<std::string>& css_selectors) override;
   bool EvaluatePredicate(const ContentPredicate* predicate,
                          content::WebContents* tab) const override;
 
@@ -97,6 +109,10 @@ class DeclarativeContentPageUrlConditionTracker
                           url_matcher::URLMatcher* url_matcher,
                           RequestEvaluationCallback request_evaluation,
                           WebContentsDestroyedCallback web_contents_destroyed);
+
+    PerWebContentsTracker(const PerWebContentsTracker&) = delete;
+    PerWebContentsTracker& operator=(const PerWebContentsTracker&) = delete;
+
     ~PerWebContentsTracker() override;
 
     void UpdateMatchesForCurrentUrl(bool request_evaluation_if_unchanged);
@@ -114,8 +130,6 @@ class DeclarativeContentPageUrlConditionTracker
     WebContentsDestroyedCallback web_contents_destroyed_;
 
     std::set<url_matcher::URLMatcherConditionSet::ID> matches_;
-
-    DISALLOW_COPY_AND_ASSIGN(PerWebContentsTracker);
   };
 
   // Called by PerWebContentsTracker on web contents destruction.
@@ -136,8 +150,6 @@ class DeclarativeContentPageUrlConditionTracker
   // Maps WebContents to the tracker for that WebContents state.
   std::map<content::WebContents*, std::unique_ptr<PerWebContentsTracker>>
       per_web_contents_tracker_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeclarativeContentPageUrlConditionTracker);
 };
 
 }  // namespace extensions

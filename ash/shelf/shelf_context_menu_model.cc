@@ -10,8 +10,8 @@
 
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/app_list_metrics.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/app_menu_constants.h"
-#include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/shelf_item_delegate.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/shelf_prefs.h"
@@ -149,10 +149,11 @@ void ShelfContextMenuModel::AddShelfAndWallpaperItems() {
                                                        : kAutoHideIcon));
   }
 
-  // Only allow shelf alignment modifications by the owner or user. In tablet
-  // mode, the shelf alignment option is not shown.
+  // Only allow shelf alignment modifications by the logged in Gaia users
+  // (regular or Family Link user). In tablet mode, the shelf alignment option
+  // is not shown.
   LoginStatus status = Shell::Get()->session_controller()->login_status();
-  if (status == LoginStatus::USER &&
+  if ((status == LoginStatus::USER || status == LoginStatus::CHILD) &&
       !Shell::Get()->tablet_mode_controller()->InTabletMode() &&
       prefs->FindPreference(prefs::kShelfAlignmentLocal)->IsUserModifiable()) {
     alignment_submenu_ = std::make_unique<ui::SimpleMenuModel>(this);

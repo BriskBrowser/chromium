@@ -5,8 +5,6 @@
 #ifndef EXTENSIONS_BROWSER_NOTIFICATION_TYPES_H_
 #define EXTENSIONS_BROWSER_NOTIFICATION_TYPES_H_
 
-#include <string>
-
 #include "content/public/browser/notification_types.h"
 #include "extensions/buildflags/buildflags.h"
 
@@ -40,12 +38,6 @@ enum NotificationType {
   // TODO(https://crbug.com/1174728): Remove.
   NOTIFICATION_CRX_INSTALLER_DONE = NOTIFICATION_EXTENSIONS_START,
 
-  // An error occurred while attempting to load an extension. The details are a
-  // string with details about why the load failed.
-  // DEPRECATED: Use extensions::LoadErrorReporter::OnLoadFailure()
-  // TODO(https://crbug.com/1174731): Remove.
-  NOTIFICATION_EXTENSION_LOAD_ERROR,
-
   // Sent when attempting to load a new extension, but they are disabled. The
   // details are an Extension, and the source is a BrowserContext*.
   // TODO(https://crbug.com/1174732): Remove.
@@ -61,41 +53,6 @@ enum NotificationType {
   // TODO(https://crbug.com/1174734): Remove.
   NOTIFICATION_EXTENSION_INSTALL_ERROR,
 
-  // Sent when an Extension object is removed from ExtensionService. This
-  // can happen when an extension is uninstalled, upgraded, or blocklisted,
-  // including all cases when the Extension is deleted. The details are an
-  // Extension, and the source is a BrowserContext*.
-  // TODO(https://crbug.com/1174736): Remove.
-  NOTIFICATION_EXTENSION_REMOVED,
-
-  // Sent after a new ExtensionHost* is created. The details are
-  // an ExtensionHost* and the source is a BrowserContext*.
-  // TODO(https://crbug.com/1174737): Remove.
-  NOTIFICATION_EXTENSION_HOST_CREATED,
-
-  // Sent before an ExtensionHost* is destroyed. The details are
-  // an ExtensionHost* and the source is a BrowserContext*.
-  //
-  // DEPRECATED: Use
-  // extensions::ExtensionHostObserver::OnExtensionHostDestroyed()
-  // TODO(https://crbug.com/1174738): Remove.
-  NOTIFICATION_EXTENSION_HOST_DESTROYED,
-
-  // Sent by an ExtensionHost* when it has finished its initial page load,
-  // including any external resources.
-  // The details are an ExtensionHost* and the source is a BrowserContext*.
-  //
-  // DEPRECATED: Use extensions::DeferredStartRenderHostObserver::
-  // OnDeferredStartRenderHostDidStopFirstLoad()
-  // TODO(https://crbug.com/1174741): Remove.
-  NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD,
-
-  // Sent by an ExtensionHost* when its render view requests closing through
-  // window.close(). The details are an ExtensionHost* and the source is a
-  // BrowserContext*.
-  // TODO(https://crbug.com/1174742): Remove.
-  NOTIFICATION_EXTENSION_HOST_VIEW_SHOULD_CLOSE,
-
   // Sent when extension render process ends (whether it crashes or closes). The
   // details are an ExtensionHost* and the source is a BrowserContext*. Not sent
   // during browser shutdown.
@@ -106,30 +63,11 @@ enum NotificationType {
   // TODO(https://crbug.com/1174744): Remove.
   NOTIFICATION_EXTENSION_BACKGROUND_PAGE_READY,
 
-  // Sent by an extension to notify the browser about the results of a unit
-  // test.
-  // TODO(https://crbug.com/1174745): Remove.
-  NOTIFICATION_EXTENSION_TEST_PASSED,
-  NOTIFICATION_EXTENSION_TEST_FAILED,
-
-  // Sent by extension test javascript code, typically in a browser test. The
-  // sender is a std::string representing the extension id, and the details
-  // are a std::string with some message. This is particularly useful when you
-  // want to have C++ code wait for javascript code to do something.
-  // TODO(https://crbug.com/1174746): Remove.
-  NOTIFICATION_EXTENSION_TEST_MESSAGE,
-
   // Sent when an bookmarks extensions API function was successfully invoked.
   // The source is the id of the extension that invoked the function, and the
   // details are a pointer to the const BookmarksFunction in question.
   // TODO(https://crbug.com/1174748): Remove.
   NOTIFICATION_EXTENSION_BOOKMARKS_API_INVOKED,
-
-  // Sent when a downloads extensions API event is fired. The source is an
-  // ExtensionDownloadsEventRouter::NotificationSource, and the details is a
-  // std::string containing json. Used for testing.
-  // TODO(https://crbug.com/1174749): Remove.
-  NOTIFICATION_EXTENSION_DOWNLOADS_EVENT,
 
   // Sent when an omnibox extension has sent back omnibox suggestions. The
   // source is the BrowserContext*, and the details are an

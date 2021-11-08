@@ -10,7 +10,6 @@
 #include <list>
 #include <map>
 #include <set>
-#include <string>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
@@ -19,7 +18,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/thumbnail/cc/scoped_ptr_expiring_cache.h"
 #include "chrome/browser/thumbnail/cc/thumbnail.h"
@@ -52,6 +51,9 @@ class ThumbnailCache : ThumbnailDelegate {
                  bool save_jpeg_thumbnails,
                  double jpeg_aspect_ratio);
 
+  ThumbnailCache(const ThumbnailCache&) = delete;
+  ThumbnailCache& operator=(const ThumbnailCache&) = delete;
+
   ~ThumbnailCache() override;
 
   void SetUIResourceProvider(ui::UIResourceProvider* ui_resource_provider);
@@ -80,7 +82,6 @@ class ThumbnailCache : ThumbnailDelegate {
   static base::FilePath GetCacheDirectory();
   static base::FilePath GetFilePath(TabId tab_id);
   static base::FilePath GetJpegFilePath(TabId tab_id);
-  static double clampAspectRatio(double value, double min, double max);
 
  private:
   class ThumbnailMetaData {
@@ -192,8 +193,6 @@ class ThumbnailCache : ThumbnailDelegate {
 
   std::unique_ptr<base::MemoryPressureListener> memory_pressure_;
   base::WeakPtrFactory<ThumbnailCache> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ThumbnailCache);
 };
 
 #endif  // CHROME_BROWSER_THUMBNAIL_CC_THUMBNAIL_CACHE_H_

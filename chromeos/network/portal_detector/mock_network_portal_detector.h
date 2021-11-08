@@ -13,6 +13,11 @@ namespace chromeos {
 class MockNetworkPortalDetector : public NetworkPortalDetector {
  public:
   MockNetworkPortalDetector();
+
+  MockNetworkPortalDetector(const MockNetworkPortalDetector&) = delete;
+  MockNetworkPortalDetector& operator=(const MockNetworkPortalDetector&) =
+      delete;
+
   ~MockNetworkPortalDetector() override;
 
   MOCK_METHOD1(AddObserver,
@@ -28,11 +33,13 @@ class MockNetworkPortalDetector : public NetworkPortalDetector {
   MOCK_METHOD0(StartPortalDetection, void());
   MOCK_METHOD1(SetStrategy,
                void(chromeos::PortalDetectorStrategy::StrategyId id));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockNetworkPortalDetector);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when //chromeos/network moved to ash.
+namespace ash {
+using ::chromeos::MockNetworkPortalDetector;
+}  // namespace ash
 
 #endif  // CHROMEOS_NETWORK_PORTAL_DETECTOR_MOCK_NETWORK_PORTAL_DETECTOR_H_

@@ -5,8 +5,6 @@
 #ifndef COMPONENTS_ARC_TEST_FAKE_ACCESSIBILITY_HELPER_INSTANCE_H_
 #define COMPONENTS_ARC_TEST_FAKE_ACCESSIBILITY_HELPER_INSTANCE_H_
 
-#include <string>
-
 #include "components/arc/mojom/accessibility_helper.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 
@@ -16,6 +14,12 @@ class FakeAccessibilityHelperInstance
     : public mojom::AccessibilityHelperInstance {
  public:
   FakeAccessibilityHelperInstance();
+
+  FakeAccessibilityHelperInstance(const FakeAccessibilityHelperInstance&) =
+      delete;
+  FakeAccessibilityHelperInstance& operator=(
+      const FakeAccessibilityHelperInstance&) = delete;
+
   ~FakeAccessibilityHelperInstance() override;
 
   void Init(mojo::PendingRemote<mojom::AccessibilityHelperHost> host_remote,
@@ -35,8 +39,14 @@ class FakeAccessibilityHelperInstance
 
   mojom::AccessibilityFilterType filter_type() { return filter_type_; }
   bool explore_by_touch_enabled() { return explore_by_touch_enabled_; }
-  mojom::AccessibilityWindowKeyPtr* last_requested_tree_window_key() {
-    return &last_requested_tree_window_key_;
+  mojom::AccessibilityActionData* last_requested_action() {
+    return last_requested_action_.get();
+  }
+  mojom::AccessibilityWindowKey* last_requested_tree_window_key() {
+    return last_requested_tree_window_key_.get();
+  }
+  RefreshWithExtraDataCallback refresh_with_extra_data_callback() {
+    return std::move(refresh_with_extra_data_callback_);
   }
 
  private:
@@ -47,9 +57,9 @@ class FakeAccessibilityHelperInstance
   // in this test as well.
   bool explore_by_touch_enabled_ = true;
 
+  mojom::AccessibilityActionDataPtr last_requested_action_;
   mojom::AccessibilityWindowKeyPtr last_requested_tree_window_key_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeAccessibilityHelperInstance);
+  RefreshWithExtraDataCallback refresh_with_extra_data_callback_;
 };
 
 }  // namespace arc

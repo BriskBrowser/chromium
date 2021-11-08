@@ -31,7 +31,7 @@ int TypeToPrefValue(SessionStartupPref::Type type) {
 
 void URLListToPref(const base::ListValue* url_list, SessionStartupPref* pref) {
   pref->urls.clear();
-  for (size_t i = 0; i < url_list->GetSize(); ++i) {
+  for (size_t i = 0; i < url_list->GetList().size(); ++i) {
     std::string url_text;
     if (url_list->GetString(i, &url_text)) {
       GURL fixed_url = url_formatter::FixupURL(url_text, std::string());
@@ -88,7 +88,7 @@ void SessionStartupPref::SetStartupPref(PrefService* prefs,
     ListPrefUpdate update(prefs, prefs::kURLsToRestoreOnStartup);
     base::ListValue* url_pref_list = update.Get();
     DCHECK(url_pref_list);
-    url_pref_list->Clear();
+    url_pref_list->ClearList();
     for (size_t i = 0; i < pref.urls.size(); ++i) {
       url_pref_list->Set(static_cast<int>(i),
                          std::make_unique<base::Value>(pref.urls[i].spec()));
@@ -102,7 +102,7 @@ SessionStartupPref SessionStartupPref::GetStartupPref(const Profile* profile) {
 
   // Guest sessions should not store any state, therefore they should never
   // trigger a restore during startup.
-  return (profile->IsGuestSession() || profile->IsEphemeralGuestProfile())
+  return profile->IsGuestSession()
              ? SessionStartupPref(SessionStartupPref::DEFAULT)
              : GetStartupPref(profile->GetPrefs());
 }

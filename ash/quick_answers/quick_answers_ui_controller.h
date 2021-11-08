@@ -8,21 +8,16 @@
 #include <string>
 
 #include "ash/ash_export.h"
-#include "base/strings/string16.h"
 #include "ui/gfx/geometry/rect.h"
 
-namespace chromeos {
-namespace quick_answers {
-struct QuickAnswer;
-}  // namespace quick_answers
-}  // namespace chromeos
-
 namespace ash {
+
 class QuickAnswersView;
 class QuickAnswersControllerImpl;
 
 namespace quick_answers {
-class UserNoticeView;
+class UserConsentView;
+struct QuickAnswer;
 }  // namespace quick_answers
 
 // A controller to show/hide and handle interactions for quick
@@ -38,7 +33,8 @@ class ASH_EXPORT QuickAnswersUiController {
   // Constructs/resets |quick_answers_view_|.
   void CreateQuickAnswersView(const gfx::Rect& anchor_bounds,
                               const std::string& title,
-                              const std::string& query);
+                              const std::string& query,
+                              bool is_internal);
 
   // Returns true if there was a QuickAnswersView to close.
   bool CloseQuickAnswersView();
@@ -50,7 +46,7 @@ class ASH_EXPORT QuickAnswersUiController {
   // |bounds| is the bound of context menu.
   void RenderQuickAnswersViewWithResult(
       const gfx::Rect& bounds,
-      const chromeos::quick_answers::QuickAnswer& quick_answer);
+      const quick_answers::QuickAnswer& quick_answer);
 
   void SetActiveQuery(const std::string& query);
 
@@ -59,24 +55,19 @@ class ASH_EXPORT QuickAnswersUiController {
 
   void UpdateQuickAnswersBounds(const gfx::Rect& anchor_bounds);
 
-  // Creates a view for notifying the user about the Quick Answers feature
-  // vertically aligned to the anchor.
-  void CreateUserNoticeView(const gfx::Rect& anchor_bounds,
-                            const base::string16& intent_type,
-                            const base::string16& intent_text);
+  // Creates a view for asking the user for consent about the Quick Answers
+  // feature vertically aligned to the anchor.
+  void CreateUserConsentView(const gfx::Rect& anchor_bounds,
+                             const std::u16string& intent_type,
+                             const std::u16string& intent_text);
 
-  void CloseUserNoticeView();
+  // Closes the user consent view.
+  void CloseUserConsentView();
 
-  // Invoked when user clicks the 'got it' button to dismiss the notice.
-  void OnAcceptButtonPressed();
-
-  // Invoked when user clicks the settings button on the notice view.
-  void OnManageSettingsButtonPressed();
-
-  // Used by the controller to check if the user notice view is currently
+  // Used by the controller to check if the user consent view is currently
   // showing instead of QuickAnswers.
-  bool is_showing_user_notice_view() const {
-    return user_notice_view_ != nullptr;
+  bool is_showing_user_consent_view() const {
+    return user_consent_view_ != nullptr;
   }
 
   // Used by the controller to check if the QuickAnswers view is currently
@@ -88,11 +79,21 @@ class ASH_EXPORT QuickAnswersUiController {
   // Invoked when user clicks the Dogfood button on Quick-Answers related views.
   void OnDogfoodButtonPressed();
 
+  // Invoked when user clicks the settings button on Quick-Answers related
+  // views.
+  void OnSettingsButtonPressed();
+
+  // Invoked when user clicks the report query button on Quick Answers view.
+  void OnReportQueryButtonPressed();
+
+  // Handle consent result from user consent view.
+  void OnUserConsentResult(bool consented);
+
   const QuickAnswersView* quick_answers_view_for_testing() const {
     return quick_answers_view_;
   }
-  const quick_answers::UserNoticeView* notice_view_for_testing() const {
-    return user_notice_view_;
+  const quick_answers::UserConsentView* consent_view_for_testing() const {
+    return user_consent_view_;
   }
 
  private:
@@ -100,7 +101,7 @@ class ASH_EXPORT QuickAnswersUiController {
 
   // Owned by view hierarchy.
   QuickAnswersView* quick_answers_view_ = nullptr;
-  quick_answers::UserNoticeView* user_notice_view_ = nullptr;
+  quick_answers::UserConsentView* user_consent_view_ = nullptr;
   std::string query_;
 };
 

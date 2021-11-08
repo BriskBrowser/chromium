@@ -40,9 +40,9 @@ class ExtensionInstalledBubbleViewsBrowserTest
     }
 
     if (type == "SignInPromo" || type == "NoAction") {
-      builder.SetLocation(extensions::Manifest::INTERNAL);
+      builder.SetLocation(extensions::mojom::ManifestLocation::kInternal);
     } else {
-      builder.SetLocation(extensions::Manifest::COMPONENT);
+      builder.SetLocation(extensions::mojom::ManifestLocation::kComponent);
     }
 
     if (type == "Omnibox") {
@@ -84,7 +84,7 @@ bool ExtensionInstalledBubbleViewsBrowserTest::VerifyUi() {
 }
 
 void ExtensionInstalledBubbleViewsBrowserTest::WaitForUserDismissal() {
-  views::test::WidgetClosingObserver observer(bubble_widget_);
+  views::test::WidgetDestroyedWaiter observer(bubble_widget_);
   observer.Wait();
 }
 

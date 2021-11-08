@@ -12,7 +12,7 @@
 #import "base/test/ios/wait_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "ios/chrome/browser/download/download_directory_util.h"
-#include "ios/chrome/browser/download/usdz_mime_type.h"
+#include "ios/chrome/browser/download/mime_type_util.h"
 #import "ios/chrome/test/fakes/fake_ar_quick_look_tab_helper_delegate.h"
 #import "ios/web/public/test/fakes/fake_download_task.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
@@ -83,8 +83,7 @@ TEST_F(ARQuickLookTabHelperTest, SuccessFileExtention) {
   EXPECT_TRUE(delegate().allowsContentScaling);
 
   // Downloaded file should be located in download directory.
-  base::FilePath file =
-      task_ptr->GetResponseWriter()->AsFileWriter()->file_path();
+  base::FilePath file = task_ptr->GetResponsePath();
   base::FilePath download_dir;
   ASSERT_TRUE(GetTempDownloadsDirectory(&download_dir));
   EXPECT_TRUE(download_dir.IsParent(file));
@@ -122,8 +121,7 @@ TEST_P(ARQuickLookTabHelperTest, SuccessContentType) {
   EXPECT_TRUE(delegate().allowsContentScaling);
 
   // Downloaded file should be located in download directory.
-  base::FilePath file =
-      task_ptr->GetResponseWriter()->AsFileWriter()->file_path();
+  base::FilePath file = task_ptr->GetResponsePath();
   base::FilePath download_dir;
   ASSERT_TRUE(GetTempDownloadsDirectory(&download_dir));
   EXPECT_TRUE(download_dir.IsParent(file));
@@ -163,8 +161,7 @@ TEST_P(ARQuickLookTabHelperTest, DisallowsContentScaling) {
   EXPECT_FALSE(delegate().allowsContentScaling);
 
   // Downloaded file should be located in download directory.
-  base::FilePath file =
-      task_ptr->GetResponseWriter()->AsFileWriter()->file_path();
+  base::FilePath file = task_ptr->GetResponsePath();
   base::FilePath download_dir;
   ASSERT_TRUE(GetTempDownloadsDirectory(&download_dir));
   EXPECT_TRUE(download_dir.IsParent(file));
@@ -204,8 +201,7 @@ TEST_P(ARQuickLookTabHelperTest, AllowsContentScaling) {
   EXPECT_TRUE(delegate().allowsContentScaling);
 
   // Downloaded file should be located in download directory.
-  base::FilePath file =
-      task_ptr->GetResponseWriter()->AsFileWriter()->file_path();
+  base::FilePath file = task_ptr->GetResponsePath();
   base::FilePath download_dir;
   ASSERT_TRUE(GetTempDownloadsDirectory(&download_dir));
   EXPECT_TRUE(download_dir.IsParent(file));

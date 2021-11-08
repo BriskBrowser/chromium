@@ -5,13 +5,15 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_PAINT_PROPERTY_TREE_BUILDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_PAINT_PROPERTY_TREE_BUILDER_H_
 
+#include "base/dcheck_is_on.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
 #include "third_party/blink/renderer/platform/graphics/paint/clip_paint_property_node.h"
 #include "third_party/blink/renderer/platform/graphics/paint/effect_paint_property_node.h"
 #include "third_party/blink/renderer/platform/graphics/paint/scroll_paint_property_node.h"
 #include "third_party/blink/renderer/platform/graphics/paint/transform_paint_property_node.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/clear_collection_scope.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -21,7 +23,7 @@ class FragmentData;
 class LayoutObject;
 class LayoutNGTableSectionInterface;
 class LocalFrameView;
-class NGFragmentChildIterator;
+class NGPhysicalBoxFragment;
 class PaintLayer;
 class VisualViewport;
 
@@ -72,6 +74,11 @@ struct PaintPropertyTreeBuilderFragmentContext {
     // This field is the diff between the new and the old additional offsets to
     // layout shift root.
     PhysicalOffset additional_offset_to_layout_shift_root_delta;
+
+    // Similar to additional_offset_to_layout_shift_root_delta but for scroll
+    // offsets.
+    gfx::Vector2dF scroll_offset_to_layout_shift_root_delta;
+
     // For paint invalidation optimization for subpixel movement under
     // composited layer. It's reset to zero if subpixel can't be propagated
     // thus the optimization is not applicable (e.g. when crossing a
@@ -80,11 +87,6 @@ struct PaintPropertyTreeBuilderFragmentContext {
 
     // The PaintLayer corresponding to the origin of |paint_offset|.
     Member<const LayoutObject> paint_offset_root;
-    // Whether newly created children should flatten their inherited transform
-    // (equivalently, draw into the plane of their parent). Should generally
-    // be updated whenever |transform| is; flattening only needs to happen
-    // to immediate children.
-    bool should_flatten_inherited_transform = false;
 
     // True if any fixed-position children within this context are fixed to the
     // root of the FrameView (and hence above its scroll).
@@ -95,9 +97,8 @@ struct PaintPropertyTreeBuilderFragmentContext {
     // object has changed.
     bool layout_shift_root_changed = false;
 
-    // Rendering context for 3D sorting. See
-    // TransformPaintPropertyNode::renderingContextId.
-    unsigned rendering_context_id = 0;
+    bool is_in_block_fragmentation = false;
+
     // The clip node describes the accumulated raster clip for the current
     // subtree.  Note that the computed raster region in canvas space for a clip
     // node is independent from the transform and paint offset above. Also the
@@ -109,6 +110,13 @@ struct PaintPropertyTreeBuilderFragmentContext {
     // reference a scroll offset transform, scroll nodes should be updated if
     // the transform tree changes.
     const ScrollPaintPropertyNode* scroll = nullptr;
+
+    gfx::Vector2dF pending_scroll_anchor_adjustment;
+
+    // Paint offset of the innermost fragmentainer minus accumulated offsets
+    // that are baked in PaintOffsetTranslations since we entered the
+    // fragmentainer.
+    PhysicalOffset paint_offset_for_oof_in_fragmentainer;
   };
 
   ContainingBlockContext current;
@@ -120,8 +128,6 @@ struct PaintPropertyTreeBuilderFragmentContext {
   // containing block of corresponding positioned descendants.  Overflow clips
   // are also inherited by containing block tree instead of DOM tree, thus they
   // are included in the additional context too.
-  //
-  // Note that these contexts are not used in LayoutNGFragmentTraversal.
   ContainingBlockContext absolute_position;
 
   ContainingBlockContext fixed_position;
@@ -138,9 +144,18 @@ struct PaintPropertyTreeBuilderFragmentContext {
   const EffectPaintPropertyNodeOrAlias* current_effect;
   bool this_or_ancestor_opacity_is_zero = false;
 
+  // Whether newly created children should flatten their inherited transform
+  // (equivalently, draw into the plane of their parent). Should generally
+  // be updated whenever |transform| is; flattening only needs to happen
+  // to immediate children.
+  bool should_flatten_inherited_transform = false;
+  // Rendering context for 3D sorting. See
+  // TransformPaintPropertyNode::renderingContextId.
+  unsigned rendering_context_id = 0;
+
   // If the object is a flow thread, this records the clip rect for this
   // fragment.
-  base::Optional<PhysicalRect> fragment_clip;
+  absl::optional<PhysicalRect> fragment_clip;
 
   // If the object is fragmented, this records the logical top of this fragment
   // in the flow thread.
@@ -161,22 +176,22 @@ struct PaintPropertyTreeBuilderFragmentContext {
 
   // The delta between the old and new accumulated offsets of 2d translation
   // transforms to the layout shift root.
-  PhysicalOffset translation_2d_to_layout_shift_root_delta;
+  gfx::Vector2dF translation_2d_to_layout_shift_root_delta;
 };
 
-struct PaintPropertyTreeBuilderContext final
-    : public GarbageCollected<PaintPropertyTreeBuilderContext> {
+struct PaintPropertyTreeBuilderContext final {
+  STACK_ALLOCATED();
+
  public:
   PaintPropertyTreeBuilderContext();
-  PaintPropertyTreeBuilderContext(PaintPropertyTreeBuilderContext&) = default;
-
-  void Trace(Visitor* visitor) const;
+  PaintPropertyTreeBuilderContext(const PaintPropertyTreeBuilderContext&) =
+      default;
+  ~PaintPropertyTreeBuilderContext();
 
   HeapVector<PaintPropertyTreeBuilderFragmentContext, 1> fragments;
 
-  // TODO(mstensho): Stop using these in LayoutNGFragmentTraversal.
-  Member<const LayoutObject> container_for_absolute_position;
-  Member<const LayoutObject> container_for_fixed_position;
+  const LayoutObject* container_for_absolute_position = nullptr;
+  const LayoutObject* container_for_fixed_position = nullptr;
 
   // The physical bounding box of all appearances of the repeating table section
   // in the flow thread or the paged LayoutView.
@@ -188,7 +203,7 @@ struct PaintPropertyTreeBuilderContext final
   bool is_actually_needed = true;
 #endif
 
-  Member<PaintLayer> painting_layer;
+  PaintLayer* painting_layer = nullptr;
 
   // In a fragmented context, repeating table headers and footers and their
   // descendants in paint order repeatedly paint in all fragments after the
@@ -237,6 +252,8 @@ struct PaintPropertyTreeBuilderContext final
   // (not this one).
   unsigned was_layout_shift_root : 1;
 
+  unsigned was_main_thread_scrolling : 1;
+
   // This is always recalculated in PaintPropertyTreeBuilder::UpdateForSelf()
   // which overrides the inherited value.
   CompositingReasons direct_compositing_reasons = CompositingReason::kNone;
@@ -249,7 +266,8 @@ class VisualViewportPaintPropertyTreeBuilder {
   // Update the paint properties for the visual viewport and ensure the context
   // is up to date. Returns the maximum paint property change type for any of
   // the viewport nodes.
-  static PaintPropertyChangeType Update(VisualViewport&,
+  static PaintPropertyChangeType Update(LocalFrameView& main_frame_view,
+                                        VisualViewport&,
                                         PaintPropertyTreeBuilderContext&);
 };
 
@@ -257,12 +275,41 @@ struct NGPrePaintInfo {
   STACK_ALLOCATED();
 
  public:
-  NGPrePaintInfo(const NGFragmentChildIterator& iterator,
-                 FragmentData& fragment_data)
-      : iterator(iterator), fragment_data(fragment_data) {}
+  NGPrePaintInfo(const NGPhysicalBoxFragment& box_fragment,
+                 PhysicalOffset paint_offset,
+                 wtf_size_t fragmentainer_idx,
+                 bool is_first_for_node,
+                 bool is_last_for_node,
+                 bool is_inside_orphaned_object,
+                 bool is_inside_fragment_child)
+      : box_fragment(box_fragment),
+        paint_offset(paint_offset),
+        fragmentainer_idx(fragmentainer_idx),
+        is_first_for_node(is_first_for_node),
+        is_last_for_node(is_last_for_node),
+        is_inside_orphaned_object(is_inside_orphaned_object),
+        is_inside_fragment_child(is_inside_fragment_child) {}
 
-  const NGFragmentChildIterator& iterator;
-  FragmentData& fragment_data;
+  // The fragment for the LayoutObject currently being processed, or, in the
+  // case of text and non-atomic inlines: the fragment of the containing block.
+  const NGPhysicalBoxFragment& box_fragment;
+
+  FragmentData* fragment_data = nullptr;
+  PhysicalOffset paint_offset;
+  wtf_size_t fragmentainer_idx;
+  bool is_first_for_node;
+  bool is_last_for_node;
+
+  // True if we're fragment-traversing an object (OOF or float) directly,
+  // instead of walking the layout object tree. In this case, the property /
+  // invalidation context chains will be missing ancestors between the
+  // fragmentainer and the OOF / float.
+  bool is_inside_orphaned_object;
+
+  // True if |box_fragment| is the containing block of the LayoutObject
+  // currently being processed. Otherwise, |box_fragment| is a fragment for the
+  // LayoutObject itself.
+  bool is_inside_fragment_child;
 };
 
 // Creates paint property tree nodes for non-local effects in the layout tree.
@@ -309,7 +356,7 @@ class PaintPropertyTreeBuilder {
   ALWAYS_INLINE bool ObjectTypeMightNeedPaintProperties() const;
   ALWAYS_INLINE void UpdateCompositedLayerPaginationOffset();
   ALWAYS_INLINE PaintPropertyTreeBuilderFragmentContext
-  ContextForFragment(const base::Optional<PhysicalRect>& fragment_clip,
+  ContextForFragment(const absl::optional<PhysicalRect>& fragment_clip,
                      LayoutUnit logical_top_in_flow_thread) const;
   ALWAYS_INLINE void CreateFragmentContextsInFlowThread(
       bool needs_paint_properties);

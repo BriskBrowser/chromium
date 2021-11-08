@@ -13,7 +13,7 @@ const size_t BrowserTabsModel::kMaxMostRecentTabs = 2;
 
 BrowserTabsModel::BrowserTabMetadata::BrowserTabMetadata(
     GURL url,
-    const base::string16& title,
+    const std::u16string& title,
     base::Time last_accessed_timestamp,
     const gfx::Image& favicon)
     : url(url),
@@ -22,6 +22,10 @@ BrowserTabsModel::BrowserTabMetadata::BrowserTabMetadata(
       favicon(favicon) {}
 
 BrowserTabsModel::BrowserTabMetadata::BrowserTabMetadata(
+    const BrowserTabMetadata& other) = default;
+
+BrowserTabsModel::BrowserTabMetadata&
+BrowserTabsModel::BrowserTabMetadata::operator=(
     const BrowserTabMetadata& other) = default;
 
 bool BrowserTabsModel::BrowserTabMetadata::operator==(

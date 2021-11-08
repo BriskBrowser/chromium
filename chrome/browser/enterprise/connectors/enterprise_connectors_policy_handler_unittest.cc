@@ -8,7 +8,6 @@
 #include <tuple>
 
 #include "base/json/json_reader.h"
-#include "base/optional.h"
 #include "base/values.h"
 #include "components/policy/core/browser/policy_error_map.h"
 #include "components/policy/core/common/policy_map.h"
@@ -16,6 +15,7 @@
 #include "components/policy/core/common/schema.h"
 #include "components/prefs/pref_value_map.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace enterprise_connectors {
 
@@ -88,11 +88,11 @@ class EnterpriseConnectorsPolicyHandlerTest
       return true;
     if (policy() == kInvalidPolicy)
       return false;
-    return (source() == policy::PolicySource::POLICY_SOURCE_CLOUD ||
-            source() == policy::PolicySource::POLICY_SOURCE_PRIORITY_CLOUD);
+    return source() == policy::PolicySource::POLICY_SOURCE_CLOUD ||
+           source() == policy::PolicySource::POLICY_SOURCE_CLOUD_FROM_ASH;
   }
 
-  base::Optional<base::Value> policy_value() const {
+  absl::optional<base::Value> policy_value() const {
     return base::JSONReader::Read(policy(), base::JSON_ALLOW_TRAILING_COMMAS);
   }
 };
@@ -148,7 +148,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(kTestScopePref, nullptr),
         testing::Values(kValidPolicy, kInvalidPolicy, kEmptyPolicy),
         testing::Values(policy::PolicySource::POLICY_SOURCE_CLOUD,
-                        policy::PolicySource::POLICY_SOURCE_PRIORITY_CLOUD,
+                        policy::PolicySource::POLICY_SOURCE_CLOUD_FROM_ASH,
                         policy::PolicySource::POLICY_SOURCE_ACTIVE_DIRECTORY,
                         policy::PolicySource::POLICY_SOURCE_PLATFORM)));
 

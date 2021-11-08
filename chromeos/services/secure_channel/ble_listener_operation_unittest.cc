@@ -27,6 +27,12 @@ constexpr const ConnectionPriority kTestConnectionPriority =
     ConnectionPriority::kLow;
 
 class SecureChannelBleListenerOperationTest : public testing::Test {
+ public:
+  SecureChannelBleListenerOperationTest(
+      const SecureChannelBleListenerOperationTest&) = delete;
+  SecureChannelBleListenerOperationTest& operator=(
+      const SecureChannelBleListenerOperationTest&) = delete;
+
  protected:
   SecureChannelBleListenerOperationTest()
       : device_id_pair_(kTestRemoteDeviceId, kTestLocalDeviceId) {}
@@ -103,11 +109,9 @@ class SecureChannelBleListenerOperationTest : public testing::Test {
   DeviceIdPair device_id_pair_;
 
   std::unique_ptr<AuthenticatedChannel> channel_from_callback_;
-  base::Optional<BleListenerFailureType> failure_type_from_callback_;
+  absl::optional<BleListenerFailureType> failure_type_from_callback_;
 
   std::unique_ptr<ConnectToDeviceOperation<BleListenerFailureType>> operation_;
-
-  DISALLOW_COPY_AND_ASSIGN(SecureChannelBleListenerOperationTest);
 };
 
 TEST_F(SecureChannelBleListenerOperationTest, UpdateThenFailThenCancel) {

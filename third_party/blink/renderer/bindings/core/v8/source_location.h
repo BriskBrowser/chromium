@@ -59,16 +59,18 @@ class CORE_EXPORT SourceLocation {
     return std::move(stack_trace_);
   }
 
-  bool HasStackTrace() const { return !!stack_trace_; }
+  bool HasStackTrace() const {
+    return stack_trace_ && !stack_trace_->isEmpty();
+  }
 
   // Safe to pass between threads, drops async chain in stack trace.
   std::unique_ptr<SourceLocation> Clone() const;
 
-  void WriteIntoTracedValue(perfetto::TracedValue context) const;
+  void WriteIntoTrace(perfetto::TracedValue context) const;
 
   // No-op when stack trace is unknown.
   // TODO(altimin): Replace all usages of `ToTracedValue` with
-  // `WriteIntoTracedValue` and remove this method.
+  // `WriteIntoTrace` and remove this method.
   void ToTracedValue(TracedValue*, const char* name) const;
 
   // Could be null string when stack trace is unknown.

@@ -5,7 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/stl_util.h"
 #include "components/webcrypto/algorithm_dispatch.h"
 #include "components/webcrypto/algorithms/test_helpers.h"
 #include "components/webcrypto/crypto_data.h"
@@ -115,7 +114,7 @@ TEST_F(WebCryptoEcdsaTest, SignatureIsRandom) {
   // public key (WebCrypto doesn't provide a mechanism for importing a public
   // key given a private key).
   std::unique_ptr<base::DictionaryValue> key_jwk_copy(key_jwk->DeepCopy());
-  key_jwk_copy->Remove("d", nullptr);
+  key_jwk_copy->RemoveKey("d");
   blink::WebCryptoKey public_key;
   ASSERT_EQ(
       Status::Success(),
@@ -155,7 +154,8 @@ TEST_F(WebCryptoEcdsaTest, VerifyKnownAnswer) {
   base::ListValue tests;
   ASSERT_TRUE(ReadJsonTestFileToList("ecdsa.json", &tests));
 
-  for (size_t test_index = 0; test_index < tests.GetSize(); ++test_index) {
+  for (size_t test_index = 0; test_index < tests.GetList().size();
+       ++test_index) {
     SCOPED_TRACE(test_index);
 
     const base::DictionaryValue* test;
@@ -198,9 +198,9 @@ TEST_F(WebCryptoEcdsaTest, VerifyKnownAnswer) {
 
     // If no error was expected, the verification's boolean must match
     // "verify_result" for the test.
-    bool expected_result = false;
-    ASSERT_TRUE(test->GetBoolean("verify_result", &expected_result));
-    EXPECT_EQ(expected_result, verify_result);
+    absl::optional<bool> expected_result = test->FindBoolKey("verify_result");
+    ASSERT_TRUE(expected_result);
+    EXPECT_EQ(expected_result.value(), verify_result);
   }
 }
 
@@ -236,7 +236,8 @@ TEST_F(WebCryptoEcdsaTest, ImportBadKeys) {
   base::ListValue tests;
   ASSERT_TRUE(ReadJsonTestFileToList("bad_ec_keys.json", &tests));
 
-  for (size_t test_index = 0; test_index < tests.GetSize(); ++test_index) {
+  for (size_t test_index = 0; test_index < tests.GetList().size();
+       ++test_index) {
     SCOPED_TRACE(test_index);
 
     const base::DictionaryValue* test;
@@ -266,7 +267,8 @@ TEST_F(WebCryptoEcdsaTest, ImportExportPrivateKey) {
   base::ListValue tests;
   ASSERT_TRUE(ReadJsonTestFileToList("ec_private_keys.json", &tests));
 
-  for (size_t test_index = 0; test_index < tests.GetSize(); ++test_index) {
+  for (size_t test_index = 0; test_index < tests.GetList().size();
+       ++test_index) {
     SCOPED_TRACE(test_index);
 
     const base::DictionaryValue* test;

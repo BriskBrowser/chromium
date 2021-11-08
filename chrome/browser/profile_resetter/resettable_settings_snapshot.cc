@@ -10,13 +10,14 @@
 #include "base/bind.h"
 #include "base/guid.h"
 #include "base/hash/md5.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/atomic_flag.h"
 #include "base/task/post_task.h"
+#include "base/task/task_runner_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/task_runner_util.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profile_resetter/profile_reset_report.pb.h"
@@ -41,7 +42,7 @@ namespace {
 
 template <class StringType>
 void AddPair(base::ListValue* list,
-             const base::string16& key,
+             const std::u16string& key,
              const StringType& value) {
   std::unique_ptr<base::DictionaryValue> results(new base::DictionaryValue());
   results->SetString("key", key);
@@ -240,7 +241,7 @@ std::unique_ptr<base::ListValue> GetReadableFeedbackForSnapshot(
   AddPair(list.get(), l10n_util::GetStringUTF16(IDS_VERSION_UI_USER_AGENT),
           embedder_support::GetUserAgent());
   std::string version = version_info::GetVersionNumber();
-  version += chrome::GetChannelName();
+  version += chrome::GetChannelName(chrome::WithExtendedStable(true));
   AddPair(list.get(),
           l10n_util::GetStringUTF16(IDS_PRODUCT_NAME),
           version);
@@ -259,7 +260,7 @@ std::unique_ptr<base::ListValue> GetReadableFeedbackForSnapshot(
             startup_urls);
   }
 
-  base::string16 startup_type;
+  std::u16string startup_type;
   switch (snapshot.startup_type()) {
     case SessionStartupPref::DEFAULT:
       startup_type =
@@ -312,12 +313,12 @@ std::unique_ptr<base::ListValue> GetReadableFeedbackForSnapshot(
   }
 
   if (snapshot.shortcuts_determined()) {
-    base::string16 shortcut_targets;
+    std::u16string shortcut_targets;
     const std::vector<ShortcutCommand>& shortcuts = snapshot.shortcuts();
     for (auto i = shortcuts.begin(); i != shortcuts.end(); ++i) {
       if (!shortcut_targets.empty())
-        shortcut_targets += base::ASCIIToUTF16("\n");
-      shortcut_targets += base::ASCIIToUTF16("chrome.exe ");
+        shortcut_targets += u"\n";
+      shortcut_targets += u"chrome.exe ";
       shortcut_targets += base::WideToUTF16(i->second);
     }
     if (!shortcut_targets.empty()) {

@@ -8,8 +8,10 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/service_worker_test_helpers.h"
+#include "extensions/browser/api/messaging/message_service.h"
 #include "extensions/browser/service_worker/service_worker_test_utils.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
@@ -67,6 +69,11 @@ base::FilePath WriteServiceWorkerExtensionToDir(TestExtensionDir* test_dir) {
 class ServiceWorkerMessagingTest : public ExtensionApiTest {
  public:
   ServiceWorkerMessagingTest() = default;
+
+  ServiceWorkerMessagingTest(const ServiceWorkerMessagingTest&) = delete;
+  ServiceWorkerMessagingTest& operator=(const ServiceWorkerMessagingTest&) =
+      delete;
+
   ~ServiceWorkerMessagingTest() override = default;
 
   void SetUpOnMainThread() override {
@@ -79,8 +86,7 @@ class ServiceWorkerMessagingTest : public ExtensionApiTest {
   // tests.
   void StopServiceWorker(const Extension& extension) {
     content::StoragePartition* storage_partition =
-        content::BrowserContext::GetDefaultStoragePartition(
-            browser()->profile());
+        browser()->profile()->GetDefaultStoragePartition();
     content::ServiceWorkerContext* context =
         storage_partition->GetServiceWorkerContext();
     base::RunLoop run_loop;
@@ -91,9 +97,14 @@ class ServiceWorkerMessagingTest : public ExtensionApiTest {
   }
 
   extensions::ScopedTestNativeMessagingHost test_host_;
+};
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(ServiceWorkerMessagingTest);
+class ServiceWorkerMessagingTestWithActivityLog
+    : public ServiceWorkerMessagingTest {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    command_line->AppendSwitch(switches::kEnableExtensionActivityLogging);
+    ServiceWorkerMessagingTest::SetUpCommandLine(command_line);
+  }
 };
 
 // Tests one-way message from content script to SW extension using
@@ -181,7 +192,11 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
          });
       )");
   ResultCatcher catcher;
-  const Extension* extension = LoadExtension(test_dir.UnpackedPath());
+  const Extension* extension =
+      LoadExtension(test_dir.UnpackedPath(),
+                    // Wait for the registration to be stored so that it's
+                    // persistent before the worker is stopped later.
+                    {.wait_for_registration_stored = true});
   ASSERT_TRUE(extension);
 
   // Wait for the extension to register runtime.onConnect listener.
@@ -189,7 +204,7 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
 
   GURL url =
       embedded_test_server()->GetURL("example.com", "/extensions/body1.html");
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   // Wait for the content script to connect to the worker's port.
   EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
@@ -201,20 +216,29 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
   EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
 }
 
-// Tests chrome.runtime.sendNativeMessage from SW extension to a native
-// messaging host.
-IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest, NativeMessagingBasic) {
+// Regression test for https://crbug.com/1176400.
+// Tests that service worker shutdown closes messaging channel properly.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
+                       WorkerShutsDownWhileNativeMessagePortIsOpen) {
+  // Set up an observer to wait for the registration to be stored before
+  // calling StopServiceWorker below.
+  service_worker_test_utils::TestRegistrationObserver observer(
+      browser()->profile());
   ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(false));
-  ASSERT_TRUE(RunExtensionTest("service_worker/messaging/send_native_message"))
-      << message_;
-}
 
-// Tests chrome.runtime.connectNative from SW extension to a native messaging
-// host.
-IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest, ConnectNative) {
-  ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(false));
-  ASSERT_TRUE(RunExtensionTest("service_worker/messaging/connect_native"))
-      << message_;
+  ResultCatcher catcher;
+  const Extension* extension = LoadExtension(test_data_dir_.AppendASCII(
+      "service_worker/messaging/native_message_after_worker_stop"));
+  ASSERT_TRUE(extension);
+
+  observer.WaitForRegistrationStored();
+  EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+  size_t num_channels =
+      MessageService::Get(profile())->GetChannelCountForTest();
+  StopServiceWorker(*extension);
+  // After worker shutdown, expect the channel count to reduce by 1.
+  EXPECT_EQ(num_channels - 1,
+            MessageService::Get(profile())->GetChannelCountForTest());
 }
 
 // Tests chrome.tabs.sendMessage from SW extension to content script.
@@ -222,6 +246,18 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest, WorkerToTab) {
   ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(
       RunExtensionTest("service_worker/messaging/send_message_worker_to_tab"))
+      << message_;
+}
+
+// Tests that chrome.tabs.sendMessage from SW extension without specifying
+// callback doesn't crash.
+//
+// Regression test for https://crbug.com/1218569.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
+                       TabsSendMessageWithoutCallback) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+  ASSERT_TRUE(RunExtensionTest(
+      "service_worker/messaging/tabs_send_message_without_callback"))
       << message_;
 }
 
@@ -328,7 +364,7 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
   // content script to connect to its background's port.
   GURL url =
       embedded_test_server()->GetURL("example.com", "/extensions/body1.html");
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   EXPECT_TRUE(content_script_connected_catcher.GetNextResult())
       << content_script_connected_catcher.message();
 
@@ -336,18 +372,16 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
   // stopping the service worker doesn't cause message port in
   // |message_port_extension| to crash.
   ExtensionTestMessageListener worker_running_listener("worker_running", false);
-  service_worker_test_utils::TestRegistrationObserver registration_observer(
-      browser()->profile());
 
   TestExtensionDir worker_extension_dir;
   const Extension* service_worker_extension =
-      LoadExtension(WriteServiceWorkerExtensionToDir(&worker_extension_dir));
+      LoadExtension(WriteServiceWorkerExtensionToDir(&worker_extension_dir),
+                    {.wait_for_registration_stored = true});
   const ExtensionId worker_extension_id = service_worker_extension->id();
   ASSERT_TRUE(service_worker_extension);
 
   // Wait for the extension service worker to settle before moving to next step.
   EXPECT_TRUE(worker_running_listener.WaitUntilSatisfied());
-  registration_observer.WaitForRegistrationStored();
 
   {
     // Stop the worker, and ensure its completion.
@@ -357,6 +391,28 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
     StopServiceWorker(*service_worker_extension);
     unregister_worker_observer.WaitForUnregister();
   }
+}
+
+// Tests ActiviyLog from SW based extension.
+// Regression test for https://crbug.com/1213074, https://crbug.com/1217343.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTestWithActivityLog, ActivityLog) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+
+  const Extension* friend_extension = LoadExtension(test_data_dir_.AppendASCII(
+      "service_worker/messaging/connect_to_worker/connect_and_disconnect"));
+  ASSERT_TRUE(friend_extension);
+  {
+    ResultCatcher catcher;
+    content::WebContents* new_web_contents = browsertest_util::AddTab(
+        browser(),
+        embedded_test_server()->GetURL("/extensions/test_file.html"));
+    EXPECT_TRUE(new_web_contents);
+    EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+  }
+
+  // The test passes when /activiy_log/ extension sees activities from
+  // |friend_extension|.
+  ASSERT_TRUE(RunExtensionTest("service_worker/messaging/activity_log/"));
 }
 
 }  // namespace extensions

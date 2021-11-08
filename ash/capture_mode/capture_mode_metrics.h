@@ -26,7 +26,14 @@ enum class EndRecordingReason {
   kDlpInterruption,
   kLowDiskSpace,
   kHdcpInterruption,
-  kMaxValue = kHdcpInterruption,
+  kServiceClosing,
+  kVizVideoCaptureDisconnected,
+  kAudioEncoderInitializationFailure,
+  kVideoEncoderInitializationFailure,
+  kAudioEncodingError,
+  kVideoEncodingError,
+  kProjectorTranscriptionError,
+  kMaxValue = kProjectorTranscriptionError,
 };
 
 // Enumeration of capture bar buttons that can be pressed while in capture mode.
@@ -66,7 +73,8 @@ enum class CaptureModeEntryType {
   kPowerMenu,
   kSnipKey,
   kCaptureAllDisplays,
-  kMaxValue = kCaptureAllDisplays,
+  kProjector,
+  kMaxValue = kProjector,
 };
 
 // Enumeration of quick actions on screenshot notification. Note that these
@@ -79,7 +87,18 @@ enum class CaptureQuickAction {
   kMaxValue = kDelete,
 };
 
-// Records the |reason| for which screen recording was ended.
+// Enumeration of user's selection on save-to locations. Note that these values
+// are persisted to histograms so existing values should remain unchanged and
+// new values should be added to the end.
+enum class CaptureModeSaveToLocation {
+  kDefault,
+  kDrive,
+  kDriveFolder,
+  kCustomizedFolder,
+  kMaxValue = kCustomizedFolder,
+};
+
+// Records the `reason` for which screen recording was ended.
 void RecordEndRecordingReason(EndRecordingReason reason);
 
 // Records capture mode bar button presses given by |button_type|.
@@ -87,7 +106,8 @@ void RecordCaptureModeBarButtonType(CaptureModeBarButtonType button_type);
 
 // Records a user's configuration when they perform a capture.
 void RecordCaptureModeConfiguration(CaptureModeType type,
-                                    CaptureModeSource source);
+                                    CaptureModeSource source,
+                                    bool audio_on);
 
 // Records the method the user enters capture mode given by |entry_type|.
 void RecordCaptureModeEntryType(CaptureModeEntryType entry_type);
@@ -106,7 +126,7 @@ void RecordCaptureModeSwitchesFromInitialMode(bool switched);
 void RecordNumberOfCaptureRegionAdjustments(int num_adjustments);
 
 // Records the number of times a user consecutively screenshots. Only records a
-// sample if |num_consecutive_screenshots| is greater than 1.
+// sample if `num_consecutive_screenshots` is greater than 1.
 void RecordNumberOfConsecutiveScreenshots(int num_consecutive_screenshots);
 
 // Records the number of screenshots taken. This metric is meant to be a rough
@@ -119,6 +139,9 @@ void RecordNumberOfScreenshotsTakenInLastWeek(
 
 // Records the action taken on screen notification.
 void RecordScreenshotNotificationQuickAction(CaptureQuickAction action);
+
+// Records the location where screen capture is saved.
+void RecordSaveToLocation(CaptureModeSaveToLocation save_location);
 
 }  // namespace ash
 

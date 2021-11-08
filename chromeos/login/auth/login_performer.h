@@ -13,13 +13,13 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "chromeos/login/auth/auth_status_consumer.h"
 #include "chromeos/login/auth/authenticator.h"
 #include "chromeos/login/auth/extended_authenticator.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/user_manager/user_type.h"
 #include "google_apis/gaia/google_service_auth_error.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class AccountId;
 
@@ -29,10 +29,6 @@ class SequencedTaskRunner;
 
 namespace network {
 class SharedURLLoaderFactory;
-}
-
-namespace content {
-class BrowserContext;
 }
 
 namespace chromeos {
@@ -66,6 +62,10 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) LoginPerformer
 
   LoginPerformer(scoped_refptr<base::SequencedTaskRunner> task_runner,
                  Delegate* delegate);
+
+  LoginPerformer(const LoginPerformer&) = delete;
+  LoginPerformer& operator=(const LoginPerformer&) = delete;
+
   ~LoginPerformer() override;
 
   // Performs a login for |user_context|.
@@ -81,8 +81,7 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) LoginPerformer
   void LoginAsPublicSession(const UserContext& user_context);
 
   // Performs a login into the kiosk mode account with |app_account_id|.
-  void LoginAsKioskAccount(const AccountId& app_account_id,
-                           bool use_guest_mount);
+  void LoginAsKioskAccount(const AccountId& app_account_id);
 
   // Performs a login into the ARC kiosk mode account with |arc_app_account_id|.
   void LoginAsArcKioskAccount(const AccountId& arc_app_account_id);
@@ -129,11 +128,11 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) LoginPerformer
   // contain additional information whether this user is explicitly listed or
   // not (may be relevant for external-based sign-in). |user_type| will be used
   // to check if the user is allowed because of the user type, pass
-  // base::nullopt if user type is not known.
+  // absl::nullopt if user type is not known.
   virtual bool IsUserAllowlisted(
       const AccountId& account_id,
       bool* wildcard_match,
-      const base::Optional<user_manager::UserType>& user_type) = 0;
+      const absl::optional<user_manager::UserType>& user_type) = 0;
 
  protected:
   // Platform-dependant methods to be implemented by concrete class.
@@ -158,9 +157,6 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) LoginPerformer
   // Run policy check for |account_id|. If something is wrong, delegate's
   // PolicyLoadFailed is called.
   virtual bool CheckPolicyForUser(const AccountId& account_id) = 0;
-
-  // Look up browser context to use during signin.
-  virtual content::BrowserContext* GetSigninContext() = 0;
 
   // Gets the SharedURLLoaderFactory used for sign in.
   virtual scoped_refptr<network::SharedURLLoaderFactory>
@@ -215,7 +211,6 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) LoginPerformer
   AuthorizationMode auth_mode_ = AuthorizationMode::kInternal;
 
   base::WeakPtrFactory<LoginPerformer> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(LoginPerformer);
 };
 
 }  // namespace chromeos

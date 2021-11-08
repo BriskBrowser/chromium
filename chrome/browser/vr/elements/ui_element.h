@@ -12,8 +12,6 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "cc/animation/animation_curve.h"
-#include "chrome/browser/vr/animation.h"
 #include "chrome/browser/vr/audio_delegate.h"
 #include "chrome/browser/vr/databinding/binding_base.h"
 #include "chrome/browser/vr/elements/corner_radii.h"
@@ -26,13 +24,15 @@
 #include "chrome/browser/vr/model/sounds.h"
 #include "chrome/browser/vr/target_property.h"
 #include "chrome/browser/vr/vr_ui_export.h"
+#include "ui/gfx/animation/keyframe/animation_curve.h"
+#include "ui/gfx/animation/keyframe/keyframe_effect.h"
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/quaternion.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size_f.h"
+#include "ui/gfx/geometry/transform.h"
+#include "ui/gfx/geometry/transform_operations.h"
 #include "ui/gfx/geometry/vector3d_f.h"
-#include "ui/gfx/transform.h"
-#include "ui/gfx/transform_operations.h"
 
 namespace base {
 class TimeTicks;
@@ -76,7 +76,7 @@ struct HitTestRequest {
 
 // The result of performing a hit test.
 struct HitTestResult {
-  enum Type {
+  enum class Type {
     // The given ray does not pass through the element.
     kNone = 0,
     // The given ray does not pass through the element, but passes through the
@@ -96,12 +96,16 @@ struct HitTestResult {
   float distance_to_plane;
 };
 
-class VR_UI_EXPORT UiElement : public cc::FloatAnimationCurve::Target,
-                               public cc::TransformAnimationCurve::Target,
-                               public cc::SizeAnimationCurve::Target,
-                               public cc::ColorAnimationCurve::Target {
+class VR_UI_EXPORT UiElement : public gfx::FloatAnimationCurve::Target,
+                               public gfx::TransformAnimationCurve::Target,
+                               public gfx::SizeAnimationCurve::Target,
+                               public gfx::ColorAnimationCurve::Target {
  public:
   UiElement();
+
+  UiElement(const UiElement&) = delete;
+  UiElement& operator=(const UiElement&) = delete;
+
   ~UiElement() override;
 
   enum OperationIndex {
@@ -395,21 +399,21 @@ class VR_UI_EXPORT UiElement : public cc::FloatAnimationCurve::Target,
 
   void OnFloatAnimated(const float& value,
                        int target_property_id,
-                       cc::KeyframeModel* keyframe_model) override;
+                       gfx::KeyframeModel* keyframe_model) override;
   void OnTransformAnimated(const gfx::TransformOperations& operations,
                            int target_property_id,
-                           cc::KeyframeModel* keyframe_model) override;
+                           gfx::KeyframeModel* keyframe_model) override;
   void OnSizeAnimated(const gfx::SizeF& size,
                       int target_property_id,
-                      cc::KeyframeModel* keyframe_model) override;
+                      gfx::KeyframeModel* keyframe_model) override;
   void OnColorAnimated(const SkColor& size,
                        int target_property_id,
-                       cc::KeyframeModel* keyframe_model) override;
+                       gfx::KeyframeModel* keyframe_model) override;
 
   void SetTransitionedProperties(const std::set<TargetProperty>& properties);
   void SetTransitionDuration(base::TimeDelta delta);
 
-  void AddKeyframeModel(std::unique_ptr<cc::KeyframeModel> keyframe_model);
+  void AddKeyframeModel(std::unique_ptr<gfx::KeyframeModel> keyframe_model);
   void RemoveKeyframeModel(int keyframe_model_id);
   void RemoveKeyframeModels(int target_property);
   bool IsAnimatingProperty(TargetProperty property) const;
@@ -505,7 +509,7 @@ class VR_UI_EXPORT UiElement : public cc::FloatAnimationCurve::Target,
 
   gfx::RectF GetAbsoluteClipRect() const;
 
-  Animation& animation() { return animation_; }
+  gfx::KeyframeEffect& animator() { return animator_; }
 
   virtual const Sounds& GetSounds() const;
 
@@ -614,7 +618,7 @@ class VR_UI_EXPORT UiElement : public cc::FloatAnimationCurve::Target,
   float top_padding_ = 0.0f;
   float bottom_padding_ = 0.0f;
 
-  Animation animation_;
+  gfx::KeyframeEffect animator_;
 
   DrawPhase draw_phase_ = kPhaseNone;
 
@@ -673,8 +677,6 @@ class VR_UI_EXPORT UiElement : public cc::FloatAnimationCurve::Target,
   bool resizable_by_layout_ = false;
 
   CursorType cursor_type_ = kCursorDefault;
-
-  DISALLOW_COPY_AND_ASSIGN(UiElement);
 };
 
 }  // namespace vr

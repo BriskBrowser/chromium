@@ -12,9 +12,9 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "components/optimization_guide/proto/models.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace network {
@@ -29,7 +29,7 @@ namespace optimization_guide {
 // to pass back the fetched hints response from the remote Optimization Guide
 // Service.
 using ModelsFetchedCallback = base::OnceCallback<void(
-    base::Optional<
+    absl::optional<
         std::unique_ptr<optimization_guide::proto::GetModelsResponse>>)>;
 
 // A class to handle requests for prediction models (and prediction data) from
@@ -42,6 +42,10 @@ class PredictionModelFetcher {
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const GURL& optimization_guide_service_get_models_url,
       network::NetworkConnectionTracker* network_connection_tracker);
+
+  PredictionModelFetcher(const PredictionModelFetcher&) = delete;
+  PredictionModelFetcher& operator=(const PredictionModelFetcher&) = delete;
+
   virtual ~PredictionModelFetcher();
 
   // Requests PredictionModels and HostModelFeatures from the Optimization Guide
@@ -51,9 +55,9 @@ class PredictionModelFetcher {
   // nullopt if the fetch failed or no fetch is needed. Virtualized for testing.
   virtual bool FetchOptimizationGuideServiceModels(
       const std::vector<proto::ModelInfo>& models_request_info,
-      const std::vector<std::string>& hosts,
       const std::vector<proto::FieldTrial>& active_field_trials,
       proto::RequestContext request_context,
+      const std::string& locale,
       ModelsFetchedCallback models_fetched_callback);
 
  private:
@@ -92,8 +96,6 @@ class PredictionModelFetcher {
   network::NetworkConnectionTracker* network_connection_tracker_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(PredictionModelFetcher);
 };
 
 }  // namespace optimization_guide

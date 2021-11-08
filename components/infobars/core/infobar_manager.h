@@ -14,7 +14,6 @@
 #include "base/observer_list.h"
 #include "components/infobars/core/infobar_delegate.h"
 
-class ConfirmInfoBarDelegate;
 class GURL;
 class TestInfoBar;
 
@@ -39,6 +38,10 @@ class InfoBarManager {
   };
 
   InfoBarManager();
+
+  InfoBarManager(const InfoBarManager&) = delete;
+  InfoBarManager& operator=(const InfoBarManager&) = delete;
+
   virtual ~InfoBarManager();
 
   // Must be called before destruction.
@@ -101,10 +104,6 @@ class InfoBarManager {
   // Returns the active entry ID.
   virtual int GetActiveEntryID() = 0;
 
-  // Returns a confirm infobar that owns |delegate|.
-  virtual std::unique_ptr<infobars::InfoBar> CreateConfirmInfoBar(
-      std::unique_ptr<ConfirmInfoBarDelegate> delegate) = 0;
-
   // Opens a URL according to the specified |disposition|.
   virtual void OpenURL(const GURL& url, WindowOpenDisposition disposition) = 0;
 
@@ -129,8 +128,6 @@ class InfoBarManager {
   bool animations_enabled_ = true;
 
   base::ObserverList<Observer, true>::Unchecked observer_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(InfoBarManager);
 };
 
 }  // namespace infobars

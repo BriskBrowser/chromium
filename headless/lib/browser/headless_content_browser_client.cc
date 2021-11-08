@@ -4,8 +4,9 @@
 
 #include "headless/lib/browser/headless_content_browser_client.h"
 
-#include <memory>
+#include <string>
 #include <unordered_set>
+#include <vector>
 
 #include "base/base_switches.h"
 #include "base/bind.h"
@@ -14,6 +15,7 @@
 #include "base/i18n/rtl.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "build/build_config.h"
 #include "components/embedder_support/switches.h"
@@ -36,8 +38,11 @@
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
+#include "net/base/port_util.h"
 #include "net/base/url_util.h"
+#include "net/cert/x509_certificate.h"
 #include "net/ssl/client_cert_identity.h"
+#include "net/ssl/ssl_private_key.h"
 #include "printing/buildflags/buildflags.h"
 #include "sandbox/policy/switches.h"
 #include "ui/base/ui_base_switches.h"
@@ -49,6 +54,17 @@
 #include "components/crash/core/app/breakpad_linux.h"
 #include "content/public/common/content_descriptors.h"
 #endif  // defined(HEADLESS_USE_BREAKPAD)
+
+#if defined(HEADLESS_USE_POLICY)
+#include "components/policy/content/policy_blocklist_navigation_throttle.h"
+#include "components/policy/core/common/policy_service.h"  // nogncheck http://crbug.com/1227148
+#include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/navigation_throttle.h"
+#endif  // defined(HEADLESS_USE_POLICY)
+
+#if BUILDFLAG(ENABLE_PRINTING)
+#include "components/printing/browser/print_to_pdf/pdf_print_manager.h"
+#endif  // defined(ENABLE_PRINTING)
 
 namespace headless {
 
@@ -177,9 +193,27 @@ void HeadlessContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
       &HeadlessContentBrowserClient::BindBadgeService, base::Unretained(this)));
 }
 
-content::DevToolsManagerDelegate*
-HeadlessContentBrowserClient::GetDevToolsManagerDelegate() {
-  return new HeadlessDevToolsManagerDelegate(browser_->GetWeakPtr());
+bool HeadlessContentBrowserClient::BindAssociatedReceiverFromFrame(
+    content::RenderFrameHost* render_frame_host,
+    const std::string& interface_name,
+    mojo::ScopedInterfaceEndpointHandle* handle) {
+#if BUILDFLAG(ENABLE_PRINTING)
+  if (interface_name == printing::mojom::PrintManagerHost::Name_) {
+    print_to_pdf::PdfPrintManager::BindPrintManagerHost(
+        mojo::PendingAssociatedReceiver<printing::mojom::PrintManagerHost>(
+            std::move(*handle)),
+        render_frame_host);
+    return true;
+  }
+#endif
+
+  return false;
+}
+
+std::unique_ptr<content::DevToolsManagerDelegate>
+HeadlessContentBrowserClient::CreateDevToolsManagerDelegate() {
+  return std::make_unique<HeadlessDevToolsManagerDelegate>(
+      browser_->GetWeakPtr());
 }
 
 scoped_refptr<content::QuotaPermissionContext>
@@ -229,9 +263,6 @@ void HeadlessContentBrowserClient::AppendExtraCommandLineSwitches(
     command_line->AppendSwitch(::switches::kEnableCrashReporter);
 #endif  // defined(HEADLESS_USE_BREAKPAD)
 
-  if (old_command_line.HasSwitch(switches::kExportTaggedPDF))
-    command_line->AppendSwitch(switches::kExportTaggedPDF);
-
   // If we're spawning a renderer, then override the language switch.
   std::string process_type =
       command_line->GetSwitchValueASCII(::switches::kProcessType);
@@ -249,7 +280,7 @@ void HeadlessContentBrowserClient::AppendExtraCommandLineSwitches(
           base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
       if (!languages.empty()) {
         command_line->AppendSwitchASCII(::switches::kLang,
-                                        languages[0].as_string());
+                                        std::string(languages[0]));
       }
     }
 
@@ -372,6 +403,56 @@ bool HeadlessContentBrowserClient::CanAcceptUntrustedExchangesIfNeeded() {
   // in the user's regular profile.
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kUserDataDir);
+}
+
+device::GeolocationManager*
+HeadlessContentBrowserClient::GetGeolocationManager() {
+#if defined(OS_MAC)
+  return browser_->browser_main_parts()->GetGeolocationManager();
+#else
+  return nullptr;
+#endif
+}
+
+#if defined(HEADLESS_USE_POLICY)
+std::vector<std::unique_ptr<content::NavigationThrottle>>
+HeadlessContentBrowserClient::CreateThrottlesForNavigation(
+    content::NavigationHandle* handle) {
+  std::vector<std::unique_ptr<content::NavigationThrottle>> throttles;
+
+  // Avoid creating naviagtion throttle if preferences are not available
+  // (happens in tests).
+  if (browser_->GetPrefs()) {
+    policy::PolicyService* policy_service = browser_->GetPolicyService();
+    throttles.push_back(std::make_unique<PolicyBlocklistNavigationThrottle>(
+        handle, handle->GetWebContents()->GetBrowserContext(), policy_service));
+  }
+
+  return throttles;
+}
+#endif  // defined(HEADLESS_USE_POLICY)
+
+void HeadlessContentBrowserClient::OnNetworkServiceCreated(
+    ::network::mojom::NetworkService* network_service) {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (!command_line->HasSwitch(switches::kExplicitlyAllowedPorts))
+    return;
+
+  std::string comma_separated_ports =
+      command_line->GetSwitchValueASCII(switches::kExplicitlyAllowedPorts);
+  const auto port_list = base::SplitStringPiece(
+      comma_separated_ports, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+  std::vector<uint16_t> explicitly_allowed_ports;
+  for (const auto port_str : port_list) {
+    int port;
+    if (!base::StringToInt(port_str, &port))
+      continue;
+    if (!net::IsPortValid(port))
+      continue;
+    explicitly_allowed_ports.push_back(port);
+  }
+
+  network_service->SetExplicitlyAllowedPorts(explicitly_allowed_ports);
 }
 
 }  // namespace headless

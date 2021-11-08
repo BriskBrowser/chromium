@@ -18,12 +18,12 @@
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "content/public/browser/focused_node_details.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/focus_changed_observer.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/accessibility/accessibility_features.h"
 #include "ui/compositor/compositor_switches.h"
+#include "ui/compositor/layer.h"
 #include "ui/snapshot/snapshot.h"
 #include "ui/views/widget/widget.h"
 
@@ -34,7 +34,7 @@
 // To rebaseline this test on all platforms:
 // 1. Run a CQ+1 dry run.
 // 2. Click the failing bots for android, windows, mac, and linux.
-// 3. Find the failing interactive_ui_browsertests step.
+// 3. Find the failing browser_tests step.
 // 4. Click the "Deterministic failure" link for the failing test case.
 // 5. Copy the "Actual pixels" data url and paste into browser.
 // 6. Save the image into your chromium checkout in
@@ -58,9 +58,12 @@ class AccessibilityFocusHighlightBrowserTest : public InProcessBrowserTest {
   }
 
   bool ColorsApproximatelyEqual(SkColor color1, SkColor color2) {
-    return abs(int{SkColorGetR(color1)} - int{SkColorGetR(color2)}) < 50 &&
-           abs(int{SkColorGetG(color1)} - int{SkColorGetG(color2)}) < 50 &&
-           abs(int{SkColorGetB(color1)} - int{SkColorGetB(color2)}) < 50;
+    return abs(static_cast<int>(SkColorGetR(color1)) -
+               static_cast<int>(SkColorGetR(color2))) < 50 &&
+           abs(static_cast<int>(SkColorGetG(color1)) -
+               static_cast<int>(SkColorGetG(color2))) < 50 &&
+           abs(static_cast<int>(SkColorGetB(color1)) -
+               static_cast<int>(SkColorGetB(color2))) < 50;
   }
 
   float CountPercentPixelsWithColor(const gfx::Image& image, SkColor color) {
@@ -136,18 +139,13 @@ class AccessibilityFocusHighlightBrowserTest : public InProcessBrowserTest {
 // Smoke test that ensures that when a node gets focus, the layer with the
 // focus highlight actually gets drawn.
 //
-// Flaky on Mac. TODO(crbug.com/1083806): Enable this test.
-#if defined(OS_MAC)
-#define MAYBE_DrawsHighlight DISABLED_DrawsHighlight
-#else
-#define MAYBE_DrawsHighlight DrawsHighlight
-#endif
+// Flaky on all platforms. TODO(crbug.com/1083806): Enable this test.
 IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
-                       MAYBE_DrawsHighlight) {
-  ui_test_utils::NavigateToURL(
+                       DISABLED_DrawsHighlight) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), GURL("data:text/html,"
                       "<body style='background-color: rgb(204, 255, 255);'>"
-                      "<div tabindex=0 id='div'>Focusable div</div>"));
+                      "<div tabindex=0 id='div'>Focusable div</div>")));
 
   AccessibilityFocusHighlight::SetNoFadeForTesting();
   AccessibilityFocusHighlight::SkipActivationCheckForTesting();
@@ -185,65 +183,23 @@ IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
   } while (CountPercentPixelsWithColor(image, highlight_color) < 0.1f);
 }
 
-// Observes the notifications for changes in focused node/element in the page.
-class FocusedNodeChangedObserver : content::NotificationObserver {
- public:
-  FocusedNodeChangedObserver() {
-    registrar_.Add(this, content::NOTIFICATION_FOCUS_CHANGED_IN_PAGE,
-                   content::NotificationService::AllSources());
-  }
-
-  void WaitForFocusChangeInPage() {
-    if (observed_)
-      return;
-    run_loop_ = std::make_unique<base::RunLoop>();
-    run_loop_->Run();
-  }
-
-  // content::NotificationObserver override.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {
-    auto focused_node_details =
-        content::Details<content::FocusedNodeDetails>(details);
-    focused_node_bounds_in_screen_ =
-        focused_node_details->node_bounds_in_screen;
-    observed_ = true;
-    if (run_loop_)
-      run_loop_->Quit();
-  }
-
-  const gfx::Rect& focused_node_bounds_in_screen() const {
-    return focused_node_bounds_in_screen_;
-  }
-
- private:
-  content::NotificationRegistrar registrar_;
-  bool observed_{false};
-  gfx::Rect focused_node_bounds_in_screen_;
-  std::unique_ptr<base::RunLoop> run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(FocusedNodeChangedObserver);
-};
-
 IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
                        FocusBoundsIncludeImages) {
-  ui_test_utils::NavigateToURL(browser(),
-                               GURL("data:text/html,"
-                                    "<a id='link' href=''>"
-                                    "<img id='image' width='220' height='147' "
-                                    "style='vertical-align: middle;'>"
-                                    "</a>"));
-
-  FocusedNodeChangedObserver observer;
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), GURL("data:text/html,"
+                      "<a id='link' href=''>"
+                      "<img id='image' width='220' height='147' "
+                      "style='vertical-align: middle;'>"
+                      "</a>")));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
+  content::FocusChangedObserver observer(web_contents);
   std::string script("document.getElementById('link').focus();");
   ASSERT_TRUE(content::ExecuteScript(web_contents, script));
-  observer.WaitForFocusChangeInPage();
+  auto details = observer.Wait();
 
-  gfx::Rect bounds = observer.focused_node_bounds_in_screen();
+  gfx::Rect bounds = details.node_bounds_in_screen;
   EXPECT_EQ(220, bounds.width());
 
   // Not sure where the extra px of height are coming from...
@@ -255,10 +211,14 @@ class ReadbackHolder : public base::RefCountedThreadSafe<ReadbackHolder> {
   ReadbackHolder() : run_loop_(std::make_unique<base::RunLoop>()) {}
 
   void OutputRequestCallback(std::unique_ptr<viz::CopyOutputResult> result) {
-    if (result->IsEmpty())
+    if (result->IsEmpty()) {
       result_.reset();
-    else
-      result_ = std::make_unique<SkBitmap>(result->AsSkBitmap());
+    } else {
+      auto scoped_sk_bitmap = result->ScopedAccessSkBitmap();
+      result_ =
+          std::make_unique<SkBitmap>(scoped_sk_bitmap.GetOutScopedBitmap());
+      EXPECT_TRUE(result_->readyToDraw());
+    }
     run_loop_->Quit();
   }
 
@@ -293,18 +253,18 @@ IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
   browser()->profile()->GetPrefs()->SetBoolean(
       prefs::kAccessibilityFocusHighlightEnabled, true);
 
-  ui_test_utils::NavigateToURL(browser(), GURL("data:text/html,"
-                                               "<a id='link' href=''>"
-                                               "<img width='10' height='10'>"
-                                               "</a>"));
-
-  FocusedNodeChangedObserver observer;
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(),
+                                           GURL("data:text/html,"
+                                                "<a id='link' href=''>"
+                                                "<img width='10' height='10'>"
+                                                "</a>")));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
+  content::FocusChangedObserver observer(web_contents);
   std::string script("document.getElementById('link').focus();");
   ASSERT_TRUE(content::ExecuteScript(web_contents, script));
-  observer.WaitForFocusChangeInPage();
+  observer.Wait();
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
   AccessibilityFocusHighlight* highlight =
       browser_view->GetAccessibilityFocusHighlightForTesting();
@@ -314,7 +274,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
   scoped_refptr<ReadbackHolder> holder(new ReadbackHolder);
   std::unique_ptr<viz::CopyOutputRequest> request =
       std::make_unique<viz::CopyOutputRequest>(
-          viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+          viz::CopyOutputRequest::ResultFormat::RGBA,
+          viz::CopyOutputRequest::ResultDestination::kSystemMemory,
           base::BindOnce(&ReadbackHolder::OutputRequestCallback, holder));
   request->set_area(source_rect);
   layer->RequestCopyOfOutput(std::move(request));

@@ -129,8 +129,7 @@ constexpr int64_t kUpdateFrequencyMs = 200;
   // Download count
   base::scoped_nsobject<NSNumberFormatter> formatter(
       [[NSNumberFormatter alloc] init]);
-  NSString* countString =
-      [formatter stringFromNumber:[NSNumber numberWithInt:_downloads]];
+  NSString* countString = [formatter stringFromNumber:@(_downloads)];
 
   CGFloat countFontSize = 24;
   NSSize countSize = NSZeroSize;
@@ -192,7 +191,7 @@ constexpr int64_t kUpdateFrequencyMs = 200;
 - (void)updateIcon {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   static base::TimeDelta updateFrequency =
-      base::TimeDelta::FromMilliseconds(kUpdateFrequencyMs);
+      base::Milliseconds(kUpdateFrequencyMs);
 
   base::TimeTicks now = base::TimeTicks::Now();
   base::TimeDelta timeSinceLastUpdate = now - _lastUpdate;

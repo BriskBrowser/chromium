@@ -16,7 +16,6 @@
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/native_widget_types.h"
@@ -30,7 +29,7 @@ class Rect;
 }  // namespace gfx
 
 namespace ui {
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
 class ContextFactory;
 #endif
 class TouchEditingControllerFactory;
@@ -80,6 +79,9 @@ class VIEWS_EXPORT ViewsDelegate {
     CLOSE_MENU,
   };
 
+  ViewsDelegate(const ViewsDelegate&) = delete;
+  ViewsDelegate& operator=(const ViewsDelegate&) = delete;
+
   virtual ~ViewsDelegate();
 
   // Returns the ViewsDelegate instance.  This should never return non-null
@@ -112,8 +114,8 @@ class VIEWS_EXPORT ViewsDelegate {
 
   // For accessibility, notify the delegate that a menu item was focused
   // so that alternate feedback (speech / magnified text) can be provided.
-  virtual void NotifyMenuItemFocused(const base::string16& menu_name,
-                                     const base::string16& menu_item_name,
+  virtual void NotifyMenuItemFocused(const std::u16string& menu_name,
+                                     const std::u16string& menu_item_name,
                                      int item_index,
                                      int item_count,
                                      bool has_submenu);
@@ -166,7 +168,7 @@ class VIEWS_EXPORT ViewsDelegate {
   // maximized windows; otherwise to restored windows.
   virtual bool WindowManagerProvidesTitleBar(bool maximized);
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
   // Returns the context factory for new windows.
   virtual ui::ContextFactory* GetContextFactory();
 #endif
@@ -202,8 +204,6 @@ class VIEWS_EXPORT ViewsDelegate {
 #endif
 
   NativeWidgetFactory native_widget_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewsDelegate);
 };
 
 }  // namespace views

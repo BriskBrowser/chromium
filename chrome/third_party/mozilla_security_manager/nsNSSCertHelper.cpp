@@ -46,9 +46,9 @@
 #include <stddef.h>
 #include <unicode/uidna.h>
 
+#include "base/cxx17_backports.h"
 #include "base/i18n/number_formatting.h"
 #include "base/lazy_instance.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -490,7 +490,7 @@ std::string ProcessBasicConstraints(SECItem* extension_data) {
     rv = l10n_util::GetStringUTF8(IDS_CERT_X509_BASIC_CONSTRAINT_IS_NOT_CA);
   rv += '\n';
   if (value.pathLenConstraint != -1) {
-    base::string16 depth;
+    std::u16string depth;
     if (value.pathLenConstraint == CERT_UNLIMITED_PATH_CONSTRAINT) {
       depth = l10n_util::GetStringUTF16(
           IDS_CERT_X509_BASIC_CONSTRAINT_PATH_LEN_UNLIMITED);
@@ -875,7 +875,7 @@ std::string ProcessAuthInfoAccess(SECItem* extension_data) {
 
   while (*aia != NULL) {
     desc = *aia++;
-    base::string16 location_str =
+    std::u16string location_str =
         base::UTF8ToUTF16(ProcessGeneralName(arena.get(), desc->location));
     switch (SECOID_FindOIDTag(&desc->method)) {
     case SEC_OID_PKIX_OCSP:

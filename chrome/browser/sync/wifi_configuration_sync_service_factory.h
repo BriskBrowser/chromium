@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_SYNC_WIFI_CONFIGURATION_SYNC_SERVICE_FACTORY_H_
 #define CHROME_BROWSER_SYNC_WIFI_CONFIGURATION_SYNC_SERVICE_FACTORY_H_
 
-#include <memory>
-
 #include "base/macros.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
@@ -30,6 +28,12 @@ class WifiConfigurationSyncServiceFactory
       Profile* profile,
       bool create);
   static WifiConfigurationSyncServiceFactory* GetInstance();
+
+  WifiConfigurationSyncServiceFactory(
+      const WifiConfigurationSyncServiceFactory&) = delete;
+  WifiConfigurationSyncServiceFactory& operator=(
+      const WifiConfigurationSyncServiceFactory&) = delete;
+
   static bool ShouldRunInProfile(const Profile* profile);
 
  private:
@@ -44,8 +48,6 @@ class WifiConfigurationSyncServiceFactory
       content::BrowserContext* context) const override;
   void RegisterProfilePrefs(
       user_prefs::PrefRegistrySyncable* registry) override;
-
-  DISALLOW_COPY_AND_ASSIGN(WifiConfigurationSyncServiceFactory);
 };
 
 #endif  // CHROME_BROWSER_SYNC_WIFI_CONFIGURATION_SYNC_SERVICE_FACTORY_H_

@@ -27,8 +27,13 @@ struct COMPONENTS_DOWNLOAD_EXPORT DownloadSaveInfo {
   static const int64_t kLengthFullContent;
 
   DownloadSaveInfo();
-  ~DownloadSaveInfo();
+
+  DownloadSaveInfo(const DownloadSaveInfo&) = delete;
+  DownloadSaveInfo& operator=(const DownloadSaveInfo&) = delete;
+
   DownloadSaveInfo(DownloadSaveInfo&& that);
+
+  ~DownloadSaveInfo();
 
   int64_t GetStartingFileWriteOffset();
 
@@ -39,7 +44,7 @@ struct COMPONENTS_DOWNLOAD_EXPORT DownloadSaveInfo {
 
   // If non-empty, contains an untrusted filename suggestion. This can't contain
   // a path (only a filename), and is only effective if |file_path| is empty.
-  base::string16 suggested_name;
+  std::u16string suggested_name;
 
   // If valid, contains the source data stream for the file contents.
   base::File file;
@@ -71,9 +76,6 @@ struct COMPONENTS_DOWNLOAD_EXPORT DownloadSaveInfo {
   // the location will be determined automatically using |file_path| as a
   // basis if |file_path| is not empty.
   bool prompt_for_save_location = false;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DownloadSaveInfo);
 };
 
 }  // namespace download

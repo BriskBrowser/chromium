@@ -78,6 +78,10 @@ class MESSAGE_CENTER_EXPORT NotificationList {
   using PopupNotifications = std::set<Notification*, CompareTimestampSerial>;
 
   explicit NotificationList(MessageCenter* message_center);
+
+  NotificationList(const NotificationList&) = delete;
+  NotificationList& operator=(const NotificationList&) = delete;
+
   virtual ~NotificationList();
 
   // Makes a message "read". Collects the set of ids whose state have changed
@@ -102,6 +106,9 @@ class MESSAGE_CENTER_EXPORT NotificationList {
 
   // Returns all notifications that have a matching |app_id|.
   Notifications GetNotificationsByAppId(const std::string& app_id) const;
+
+  // Returns all notifications that have a matching `origin_url`.
+  Notifications GetNotificationsByOriginUrl(const GURL& origin_url) const;
 
   // Returns true if the notification exists and was updated.
   bool SetNotificationIcon(const std::string& notification_id,
@@ -136,6 +143,10 @@ class MESSAGE_CENTER_EXPORT NotificationList {
 
   // Marks a specific popup item as displayed.
   void MarkSinglePopupAsDisplayed(const std::string& id);
+
+  // Resets the state for a pop up so that it can be shown again. Used to
+  // bring up a grouped notification when a new item is added to it.
+  void ResetSinglePopup(const std::string& id);
 
   NotificationDelegate* GetNotificationDelegate(const std::string& id);
 
@@ -177,8 +188,6 @@ class MESSAGE_CENTER_EXPORT NotificationList {
   MessageCenter* message_center_;  // owner
   OwnedNotifications notifications_;
   bool quiet_mode_;
-
-  DISALLOW_COPY_AND_ASSIGN(NotificationList);
 };
 
 }  // namespace message_center

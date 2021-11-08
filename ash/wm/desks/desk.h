@@ -6,6 +6,7 @@
 #define ASH_WM_DESKS_DESK_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ash/ash_export.h"
@@ -13,7 +14,9 @@
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "base/strings/string16.h"
+#include "base/time/clock.h"
+#include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "ui/aura/window_observer.h"
 
 namespace ash {
@@ -43,28 +46,55 @@ class ASH_EXPORT Desk {
     // removes its Observers before calling this.
     virtual void OnDeskDestroyed(const Desk* desk) = 0;
 
-    // Called  when the desk's name changes.
-    virtual void OnDeskNameChanged(const base::string16& new_name) = 0;
+    // Called when the desk's name changes.
+    virtual void OnDeskNameChanged(const std::u16string& new_name) = 0;
   };
 
-  explicit Desk(int associated_container_id);
+  explicit Desk(int associated_container_id, bool desk_being_restored = false);
+
+  Desk(const Desk&) = delete;
+  Desk& operator=(const Desk&) = delete;
+
   ~Desk();
+
+  static void SetWeeklyActiveDesks(int weekly_active_desks);
+  static int GetWeeklyActiveDesks();
 
   int container_id() const { return container_id_; }
 
   const std::vector<aura::Window*>& windows() const { return windows_; }
 
-  const base::string16& name() const { return name_; }
+  const std::u16string& name() const { return name_; }
 
   bool is_active() const { return is_active_; }
-
-  bool is_desk_being_removed() const { return is_desk_being_removed_; }
 
   bool should_notify_content_changed() const {
     return should_notify_content_changed_;
   }
 
   bool is_name_set_by_user() const { return is_name_set_by_user_; }
+
+  bool is_desk_being_removed() const { return is_desk_being_removed_; }
+
+  const base::Time& creation_time() const { return creation_time_; }
+  void set_creation_time(base::Time creation_time) {
+    creation_time_ = creation_time;
+  }
+
+  int first_day_visited() const { return first_day_visited_; }
+  void set_first_day_visited(int first_day_visited) {
+    first_day_visited_ = first_day_visited;
+  }
+
+  int last_day_visited() const { return last_day_visited_; }
+  void set_last_day_visited(int last_day_visited) {
+    last_day_visited_ = last_day_visited;
+  }
+
+  bool interacted_with_this_week() const { return interacted_with_this_week_; }
+  void set_interacted_with_this_week(bool interacted_with_this_week) {
+    interacted_with_this_week_ = interacted_with_this_week;
+  }
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -80,7 +110,7 @@ class ASH_EXPORT Desk {
   // Sets the desk's name to |new_name| and updates the observers.
   // |set_by_user| should be true if this name was given to the desk by the user
   // from its mini view in overview mode.
-  void SetName(base::string16 new_name, bool set_by_user);
+  void SetName(std::u16string new_name, bool set_by_user);
 
   // Prepares for the animation to activate this desk (i.e. this desk is not
   // active yet), by showing its containers on all root windows while setting
@@ -110,11 +140,13 @@ class ASH_EXPORT Desk {
   void MoveWindowsToDesk(Desk* target_desk);
 
   // Moves a single |window| from this desk to |target_desk|, possibly moving it
-  // to a different display, depending on |target_root|. |window| must
-  // belong to this desk.
+  // to a different display, depending on |target_root|. |window| must belong to
+  // this desk. If |unminimize| is true, the window is unminimized after it has
+  // been moved.
   void MoveWindowToDesk(aura::Window* window,
                         Desk* target_desk,
-                        aura::Window* target_root);
+                        aura::Window* target_root,
+                        bool unminimize);
 
   aura::Window* GetDeskContainerForRoot(aura::Window* root) const;
 
@@ -130,7 +162,24 @@ class ASH_EXPORT Desk {
   // when desk is already removed from |desks_| in DesksController.
   void SetDeskBeingRemoved();
 
+  // Records the lifetime of the desk based on its desk index. Should be called
+  // when this desk is removed by the user.
+  void RecordLifetimeHistogram();
+
+  // Returns whether the difference between |last_day_visited_| and the current
+  // day is less than or equal to 1 or |last_day_visited_| is not set.
+  bool IsConsecutiveDailyVisit() const;
+
+  // Records the consecutive daily visits for |this| and resets
+  // |last_day_visited_| and |first_day_visited_|. |last_day_visited_| must be
+  // greater than or equal to |first_day_visited_|. If |being_removed| and
+  // |is_active_| is true, then set |last_day_visited_| to the current day. This
+  // accounts for cases where the user removes the active desk.
+  void RecordAndResetConsecutiveDailyVisits(bool being_removed);
+
  private:
+  friend class DesksTestApi;
+
   void MoveWindowToDeskInternal(aura::Window* window,
                                 Desk* target_desk,
                                 aura::Window* target_root);
@@ -141,6 +190,10 @@ class ASH_EXPORT Desk {
   // false.
   bool MaybeResetContainersOpacities();
 
+  // If |this| has not been interacted with yet this week, increment
+  // |g_weekly_active_desks| and set |this| to interacted with.
+  void MaybeIncrementWeeklyActiveDesks();
+
   // The associated container ID with this desk.
   const int container_id_;
 
@@ -150,7 +203,7 @@ class ASH_EXPORT Desk {
   std::vector<aura::Window*> windows_;
 
   // The name given to this desk.
-  base::string16 name_;
+  std::u16string name_;
 
   // Maps all root windows to observer objects observing the containers
   // associated with this desk on those root windows.
@@ -181,7 +234,24 @@ class ASH_EXPORT Desk {
   // True if the desk is being removed.
   bool is_desk_being_removed_ = false;
 
-  DISALLOW_COPY_AND_ASSIGN(Desk);
+  // The time this desk was created at. Used to record desk lifetimes.
+  base::Time creation_time_;
+
+  // The first and last day this desk was visited in a string of consecutive
+  // daily visits. These values store the time in days since local epoch as an
+  // integer. They are used to record the number of consecutive daily visits to
+  // |this|. If their values are -1, then |this| has not been visited since
+  // creation.
+  int first_day_visited_ = -1;
+  int last_day_visited_ = -1;
+
+  // Tracks whether |this| has been interacted with this week. This value is
+  // reset by the DesksController.
+  bool interacted_with_this_week_ = false;
+
+  // A timer for marking |this| as interacted with only if the user remains on
+  // |this| for a brief period of time.
+  base::OneShotTimer active_desk_timer_;
 };
 
 }  // namespace ash

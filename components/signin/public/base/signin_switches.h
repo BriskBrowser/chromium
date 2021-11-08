@@ -6,6 +6,7 @@
 #define COMPONENTS_SIGNIN_PUBLIC_BASE_SIGNIN_SWITCHES_H_
 
 #include "base/feature_list.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/signin/public/base/signin_buildflags.h"
 
@@ -22,9 +23,20 @@ extern const char kDisableSigninScopedDeviceId[];
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 extern const base::Feature kAccountIdMigration;
-#else
-extern const base::Feature kForceAccountIdMigration;
 #endif
+
+#if defined(OS_ANDROID)
+// This feature flag is used to wipe device data on child account signin.
+extern const base::Feature kWipeDataOnChildAccountSignin;
+#endif  // defined(OS_ANDROID)
+
+#if defined(OS_ANDROID) || defined(OS_IOS)
+// Features to trigger the startup sign-in promo at boot.
+extern const base::Feature kForceStartupSigninPromo;
+#endif
+
+// This feature disables all extended sync promos.
+extern const base::Feature kForceDisableExtendedSyncPromos;
 
 }  // namespace switches
 

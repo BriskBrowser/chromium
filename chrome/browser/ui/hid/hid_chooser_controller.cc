@@ -8,12 +8,17 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
+#include "base/containers/cxx20_erase.h"
+#include "base/ranges/algorithm.h"
+#include "chrome/browser/chooser_controller/title_util.h"
 #include "chrome/browser/hid/hid_chooser_context.h"
 #include "chrome/browser/hid/hid_chooser_context_factory.h"
 #include "chrome/browser/hid/web_hid_histograms.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "services/device/public/cpp/hid/hid_blocklist.h"
 #include "services/device/public/cpp/hid/hid_switches.h"
@@ -39,16 +44,15 @@ HidChooserController::HidChooserController(
     content::RenderFrameHost* render_frame_host,
     std::vector<blink::mojom::HidDeviceFilterPtr> filters,
     content::HidChooser::Callback callback)
-    : ChooserController(render_frame_host,
-                        IDS_HID_CHOOSER_PROMPT_ORIGIN,
-                        IDS_HID_CHOOSER_PROMPT_EXTENSION_NAME),
+    : ChooserController(CreateExtensionAwareChooserTitle(
+          render_frame_host,
+          IDS_HID_CHOOSER_PROMPT_ORIGIN,
+          IDS_HID_CHOOSER_PROMPT_EXTENSION_NAME)),
       filters_(std::move(filters)),
       callback_(std::move(callback)),
-      requesting_origin_(render_frame_host->GetLastCommittedOrigin()),
-      embedding_origin_(
-          content::WebContents::FromRenderFrameHost(render_frame_host)
-              ->GetMainFrame()
-              ->GetLastCommittedOrigin()),
+      origin_(content::WebContents::FromRenderFrameHost(render_frame_host)
+                  ->GetMainFrame()
+                  ->GetLastCommittedOrigin()),
       frame_tree_node_id_(render_frame_host->GetFrameTreeNodeId()) {
   auto* web_contents =
       content::WebContents::FromRenderFrameHost(render_frame_host);
@@ -71,15 +75,15 @@ bool HidChooserController::ShouldShowHelpButton() const {
   return true;
 }
 
-base::string16 HidChooserController::GetNoOptionsText() const {
+std::u16string HidChooserController::GetNoOptionsText() const {
   return l10n_util::GetStringUTF16(IDS_DEVICE_CHOOSER_NO_DEVICES_FOUND_PROMPT);
 }
 
-base::string16 HidChooserController::GetOkButtonLabel() const {
+std::u16string HidChooserController::GetOkButtonLabel() const {
   return l10n_util::GetStringUTF16(IDS_USB_DEVICE_CHOOSER_CONNECT_BUTTON_TEXT);
 }
 
-std::pair<base::string16, base::string16>
+std::pair<std::u16string, std::u16string>
 HidChooserController::GetThrobberLabelAndTooltip() const {
   return {l10n_util::GetStringUTF16(IDS_HID_CHOOSER_LOADING_LABEL),
           l10n_util::GetStringUTF16(IDS_HID_CHOOSER_LOADING_LABEL_TOOLTIP)};
@@ -89,7 +93,7 @@ size_t HidChooserController::NumOptions() const {
   return items_.size();
 }
 
-base::string16 HidChooserController::GetOption(size_t index) const {
+std::u16string HidChooserController::GetOption(size_t index) const {
   DCHECK_LT(index, items_.size());
   DCHECK(base::Contains(device_map_, items_[index]));
   const auto& device = *device_map_.find(items_[index])->second.front();
@@ -106,8 +110,7 @@ bool HidChooserController::IsPaired(size_t index) const {
   const auto& device_infos = device_map_.find(items_[index])->second;
   DCHECK_GT(device_infos.size(), 0u);
   for (const auto& device : device_infos) {
-    if (!chooser_context_->HasDevicePermission(requesting_origin_,
-                                               embedding_origin_, *device)) {
+    if (!chooser_context_->HasDevicePermission(origin_, *device)) {
       return false;
     }
   }
@@ -132,8 +135,7 @@ void HidChooserController::Select(const std::vector<size_t>& indices) {
   devices.reserve(device_infos.size());
   bool any_persistent_permission_granted = false;
   for (auto& device : device_infos) {
-    chooser_context_->GrantDevicePermission(requesting_origin_,
-                                            embedding_origin_, *device);
+    chooser_context_->GrantDevicePermission(origin_, *device);
     if (HidChooserContext::CanStorePersistentEntry(*device))
       any_persistent_permission_granted = true;
     devices.push_back(device->Clone());
@@ -191,12 +193,31 @@ void HidChooserController::OnDeviceRemoved(
     view()->OnOptionRemoved(index);
 }
 
+void HidChooserController::OnDeviceChanged(
+    const device::mojom::HidDeviceInfo& device) {
+  bool has_chooser_item =
+      base::Contains(items_, PhysicalDeviceIdFromDeviceInfo(device));
+  if (!DisplayDevice(device)) {
+    if (has_chooser_item)
+      OnDeviceRemoved(device);
+    return;
+  }
+
+  if (!has_chooser_item) {
+    OnDeviceAdded(device);
+    return;
+  }
+
+  // Update the item to replace the old device info with |device|.
+  UpdateDeviceInfo(device);
+}
+
 void HidChooserController::OnHidManagerConnectionError() {
-  observer_.RemoveAll();
+  observation_.Reset();
 }
 
 void HidChooserController::OnHidChooserContextShutdown() {
-  observer_.RemoveAll();
+  observation_.Reset();
 }
 
 void HidChooserController::OnGotDevices(
@@ -209,7 +230,7 @@ void HidChooserController::OnGotDevices(
   // Listen to HidChooserContext for OnDeviceAdded/Removed events after the
   // enumeration.
   if (chooser_context_)
-    observer_.Add(chooser_context_.get());
+    observation_.Observe(chooser_context_.get());
 
   if (view())
     view()->OnOptionsInitialized();
@@ -321,4 +342,18 @@ bool HidChooserController::RemoveDeviceInfo(
   device_map_.erase(find_it);
   base::Erase(items_, id);
   return true;
+}
+
+void HidChooserController::UpdateDeviceInfo(
+    const device::mojom::HidDeviceInfo& device) {
+  auto id = PhysicalDeviceIdFromDeviceInfo(device);
+  auto physical_device_it = device_map_.find(id);
+  DCHECK(physical_device_it != device_map_.end());
+  auto& device_infos = physical_device_it->second;
+  auto device_it = base::ranges::find_if(
+      device_infos, [&device](const device::mojom::HidDeviceInfoPtr& d) {
+        return d->guid == device.guid;
+      });
+  DCHECK(device_it != device_infos.end());
+  *device_it = device.Clone();
 }

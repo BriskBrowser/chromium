@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_EXCLUSIONS_NG_EXCLUSION_SPACE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_EXCLUSIONS_NG_EXCLUSION_SPACE_H_
 
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/exclusions/ng_exclusion.h"
 #include "third_party/blink/renderer/core/layout/ng/exclusions/ng_layout_opportunity.h"
@@ -22,8 +23,9 @@ typedef HeapVector<NGLayoutOpportunity, 8> LayoutOpportunityVector;
 // This class is an implementation detail. For use of the exclusion space,
 // see NGExclusionSpace below. NGExclusionSpace was designed to be cheap
 // to construct and cheap to copy if empty.
-class CORE_EXPORT NGExclusionSpaceInternal final
-    : public GarbageCollected<NGExclusionSpaceInternal> {
+class CORE_EXPORT NGExclusionSpaceInternal final {
+  USING_FAST_MALLOC(NGExclusionSpaceInternal);
+
  public:
   NGExclusionSpaceInternal();
   NGExclusionSpaceInternal(const NGExclusionSpaceInternal&);
@@ -85,6 +87,65 @@ class CORE_EXPORT NGExclusionSpaceInternal final
         NOTREACHED();
         return LayoutUnit::Min();
     }
+  }
+
+  void SetHasBreakBeforeFloat(EFloat type) {
+    switch (type) {
+      default:
+        NOTREACHED();
+        FALLTHROUGH;
+      case EFloat::kLeft:
+        has_break_before_left_float_ = true;
+        break;
+      case EFloat::kRight:
+        has_break_before_right_float_ = true;
+        break;
+    }
+  }
+
+  void SetHasBreakInsideFloat(EFloat type) {
+    switch (type) {
+      default:
+        NOTREACHED();
+        FALLTHROUGH;
+      case EFloat::kLeft:
+        has_break_inside_left_float_ = true;
+        break;
+      case EFloat::kRight:
+        has_break_inside_right_float_ = true;
+        break;
+    }
+  }
+
+  bool NeedsClearancePastFragmentainer(EClear type) {
+    bool needs_clearance = false;
+    switch (type) {
+      default:
+        NOTREACHED();
+        FALLTHROUGH;
+      case EClear::kNone:
+        return false;
+      case EClear::kLeft:
+      case EClear::kBoth:
+        needs_clearance |=
+            has_break_inside_left_float_ || has_break_before_left_float_;
+        if (type == EClear::kLeft)
+          break;
+        FALLTHROUGH;
+      case EClear::kRight:
+        needs_clearance |=
+            has_break_inside_right_float_ || has_break_before_right_float_;
+        break;
+    }
+    return needs_clearance;
+  }
+
+  bool NeedsBreakBeforeFloat(EClear type) {
+    // Floats cannot start above any preceding floats, so if any float has been
+    // pushed to the next fragmentainer, so will this one.
+    if (has_break_before_left_float_ || has_break_before_right_float_)
+      return true;
+    return NeedsClearancePastFragmentainer(type);
   }
 
   LayoutUnit LastFloatBlockStart() const { return last_float_block_start_; }
@@ -165,11 +226,6 @@ class CORE_EXPORT NGExclusionSpaceInternal final
   }
 #endif
 
-  void Trace(Visitor* visitor) const {
-    visitor->Trace(exclusions_);
-    visitor->Trace(derived_geometry_);
-  }
-
   // This struct represents the side of a float against the "edge" of a shelf.
   struct NGShelfEdge {
     NGShelfEdge(LayoutUnit block_start, LayoutUnit block_end)
@@ -242,8 +298,10 @@ class CORE_EXPORT NGExclusionSpaceInternal final
     LayoutUnit line_left;
     LayoutUnit line_right;
 
-    Vector<NGShelfEdge, 1> line_left_edges;
-    Vector<NGShelfEdge, 1> line_right_edges;
+    // TODO(crbug.com/1195345): restore inline buffer removed in
+    // https://crrev.com/c/2801713
+    Vector<NGShelfEdge> line_left_edges;
+    Vector<NGShelfEdge> line_right_edges;
 
     // shape_exclusions contains all the floats which sit below this shelf. The
     // has_shape_exclusions member will be true if shape_exclusions contains an
@@ -288,8 +346,8 @@ class CORE_EXPORT NGExclusionSpaceInternal final
 
    public:
     NGClosedArea(NGLayoutOpportunity opportunity,
-                 const Vector<NGShelfEdge, 1>& line_left_edges,
-                 const Vector<NGShelfEdge, 1>& line_right_edges)
+                 const Vector<NGShelfEdge>& line_left_edges,
+                 const Vector<NGShelfEdge>& line_right_edges)
         : opportunity(opportunity),
           line_left_edges(line_left_edges),
           line_right_edges(line_right_edges) {}
@@ -297,8 +355,11 @@ class CORE_EXPORT NGExclusionSpaceInternal final
     void Trace(Visitor* visitor) const { visitor->Trace(opportunity); }
 
     const NGLayoutOpportunity opportunity;
-    const Vector<NGShelfEdge, 1> line_left_edges;
-    const Vector<NGShelfEdge, 1> line_right_edges;
+
+    // TODO(crbug.com/1195345): restore inline buffer removed in
+    // https://crrev.com/c/2801713
+    const Vector<NGShelfEdge> line_left_edges;
+    const Vector<NGShelfEdge> line_right_edges;
   };
 
  private:
@@ -311,7 +372,7 @@ class CORE_EXPORT NGExclusionSpaceInternal final
   //
   // num_exclusions_ is how many exclusions *this* instance of an exclusion
   // space has, which may differ to the number of exclusions in the Vector.
-  Member<NGExclusionPtrArray> exclusions_;
+  Persistent<NGExclusionPtrArray> exclusions_;
   wtf_size_t num_exclusions_ = 0;
 
   // These members are used for keeping track of the "lowest" offset for each
@@ -328,7 +389,18 @@ class CORE_EXPORT NGExclusionSpaceInternal final
   // we initially ignore exclusions with shape data. When we first see an
   // exclusion with shape data, we set this flag, and rebuild the
   // DerivedGeometry data-structure, to perform the additional bookkeeping.
-  bool track_shape_exclusions_ = false;
+  unsigned track_shape_exclusions_ : 1;
+
+  // Set to true if we have found a left/right float that needs to start in the
+  // next fragmentainer (e.g. because it has monolithic content or has break
+  // avoidance requests inside).
+  unsigned has_break_before_left_float_ : 1;
+  unsigned has_break_before_right_float_ : 1;
+
+  // Set to true if we have added a left/right float that will be resumed in the
+  // next fragmentainer.
+  unsigned has_break_inside_left_float_ : 1;
+  unsigned has_break_inside_right_float_ : 1;
 
   // The derived geometry struct, is the data-structure which handles all of the
   // queries on the exclusion space. It can always be rebuilt from exclusions_
@@ -415,7 +487,7 @@ class CORE_EXPORT NGExclusionSpaceInternal final
       LayoutUnit block_offset_limit) const;
 
   // See DerivedGeometry struct description.
-  mutable Member<DerivedGeometry> derived_geometry_;
+  mutable Persistent<DerivedGeometry> derived_geometry_;
 };
 
 // The exclusion space represents all of the exclusions within a block
@@ -430,14 +502,14 @@ class CORE_EXPORT NGExclusionSpace {
   NGExclusionSpace() = default;
   NGExclusionSpace(const NGExclusionSpace& other)
       : exclusion_space_(other.exclusion_space_
-                             ? MakeGarbageCollected<NGExclusionSpaceInternal>(
+                             ? std::make_unique<NGExclusionSpaceInternal>(
                                    *other.exclusion_space_)
                              : nullptr) {}
   NGExclusionSpace(NGExclusionSpace&& other) noexcept = default;
 
   NGExclusionSpace& operator=(const NGExclusionSpace& other) {
     exclusion_space_ = other.exclusion_space_
-                           ? MakeGarbageCollected<NGExclusionSpaceInternal>(
+                           ? std::make_unique<NGExclusionSpaceInternal>(
                                  *other.exclusion_space_)
                            : nullptr;
     return *this;
@@ -446,8 +518,32 @@ class CORE_EXPORT NGExclusionSpace {
 
   void Add(const NGExclusion* exclusion) {
     if (!exclusion_space_)
-      exclusion_space_ = MakeGarbageCollected<NGExclusionSpaceInternal>();
+      exclusion_space_ = std::make_unique<NGExclusionSpaceInternal>();
     exclusion_space_->Add(std::move(exclusion));
+  }
+
+  void SetHasBreakBeforeFloat(EFloat type) {
+    DCHECK(exclusion_space_);
+    exclusion_space_->SetHasBreakBeforeFloat(type);
+  }
+
+  void SetHasBreakInsideFloat(EFloat type) {
+    DCHECK(exclusion_space_);
+    exclusion_space_->SetHasBreakInsideFloat(type);
+  }
+
+  // Return true if an in-flow node (i.e. not another float, for instance) with
+  // the given 'clear' property needs clearance past the current fragmentainer.
+  bool NeedsClearancePastFragmentainer(EClear type) const {
+    return exclusion_space_ &&
+           exclusion_space_->NeedsClearancePastFragmentainer(type);
+  }
+
+  // Return true if a float with the given 'clear' property needs to be pushed
+  // past the current fragmentainer, either because of clearance, or because we
+  // already have floats that have been pushed.
+  bool NeedsBreakBeforeFloat(EClear type) const {
+    return exclusion_space_ && exclusion_space_->NeedsBreakBeforeFloat(type);
   }
 
   // Returns a layout opportunity, within the BFC.
@@ -512,7 +608,7 @@ class CORE_EXPORT NGExclusionSpace {
     if (!other.exclusion_space_)
       return;
 
-    exclusion_space_ = MakeGarbageCollected<NGExclusionSpaceInternal>();
+    exclusion_space_ = std::make_unique<NGExclusionSpaceInternal>();
     exclusion_space_->PreInitialize(*other.exclusion_space_);
   }
 
@@ -577,11 +673,12 @@ class CORE_EXPORT NGExclusionSpace {
 
     if (!new_output.exclusion_space_) {
       new_output.exclusion_space_ =
-          MakeGarbageCollected<NGExclusionSpaceInternal>();
+          std::make_unique<NGExclusionSpaceInternal>();
     }
 
     new_output.exclusion_space_->MergeExclusionSpaces(
-        offset_delta, *old_output.exclusion_space_, old_input.exclusion_space_);
+        offset_delta, *old_output.exclusion_space_,
+        old_input.exclusion_space_.get());
 
     return new_output;
   }
@@ -604,10 +701,9 @@ class CORE_EXPORT NGExclusionSpace {
       exclusion_space_->CheckSameForSimplifiedLayout(*other.exclusion_space_);
   }
 #endif
-  void Trace(Visitor* visitor) const { visitor->Trace(exclusion_space_); }
 
  private:
-  mutable Member<NGExclusionSpaceInternal> exclusion_space_;
+  mutable std::unique_ptr<NGExclusionSpaceInternal> exclusion_space_;
 };
 
 }  // namespace blink

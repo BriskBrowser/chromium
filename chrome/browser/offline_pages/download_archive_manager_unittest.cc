@@ -4,6 +4,8 @@
 
 #include "chrome/browser/offline_pages/download_archive_manager.h"
 
+#include <memory>
+
 #include "base/macros.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/download/download_prefs.h"
@@ -25,6 +27,11 @@ const char* kChromePublicSdCardDir =
 class DownloadArchiveManagerTest : public testing::Test {
  public:
   DownloadArchiveManagerTest() = default;
+
+  DownloadArchiveManagerTest(const DownloadArchiveManagerTest&) = delete;
+  DownloadArchiveManagerTest& operator=(const DownloadArchiveManagerTest&) =
+      delete;
+
   ~DownloadArchiveManagerTest() override = default;
 
   void SetUp() override;
@@ -38,7 +45,6 @@ class DownloadArchiveManagerTest : public testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   sync_preferences::TestingPrefServiceSyncable prefs_;
   std::unique_ptr<DownloadArchiveManager> archive_manager_;
-  DISALLOW_COPY_AND_ASSIGN(DownloadArchiveManagerTest);
 };
 
 void DownloadArchiveManagerTest::SetUp() {
@@ -47,10 +53,9 @@ void DownloadArchiveManagerTest::SetUp() {
   prefs()->SetString(prefs::kDownloadDefaultDirectory, kChromePublicSdCardDir);
 
   // Create a DownloadArchiveManager to use.
-  archive_manager_.reset(new DownloadArchiveManager(
+  archive_manager_ = std::make_unique<DownloadArchiveManager>(
       base::FilePath(kTemporaryDir), base::FilePath(kPrivateDir),
-      base::FilePath(kPublicDir), base::ThreadTaskRunnerHandle::Get(),
-      prefs()));
+      base::FilePath(kPublicDir), base::ThreadTaskRunnerHandle::Get(), prefs());
 }
 
 void DownloadArchiveManagerTest::TearDown() {

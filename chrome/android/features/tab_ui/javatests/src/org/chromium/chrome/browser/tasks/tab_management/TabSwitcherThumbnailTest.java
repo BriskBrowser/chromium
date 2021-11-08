@@ -7,7 +7,9 @@ package org.chromium.chrome.browser.tasks.tab_management;
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.contrib.RecyclerViewActions.scrollToPosition;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
+import static androidx.test.espresso.matcher.ViewMatchers.withParent;
 
+import static org.hamcrest.Matchers.allOf;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
@@ -26,6 +28,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -45,7 +48,8 @@ import org.chromium.ui.widget.ViewLookupCachingFrameLayout;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
     "force-fieldtrials=Study/Group"})
 @EnableFeatures({ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID + "<Study",
-    ChromeFeatureList.TAB_TO_GTS_ANIMATION + "<Study"})
+    ChromeFeatureList.TAB_TO_GTS_ANIMATION + "<Study",
+    ChromeFeatureList.TAB_GROUPS_CONTINUATION_ANDROID + "<Study"})
 @Restriction(
     {UiRestriction.RESTRICTION_TYPE_PHONE, Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE})
 public class TabSwitcherThumbnailTest {
@@ -76,6 +80,7 @@ public class TabSwitcherThumbnailTest {
     @Test
     @MediumTest
     @CommandLineFlags.Add({BASE_PARAMS + "/thumbnail_aspect_ratio/1.0"})
+    @FlakyTest(message = "https://crbug.com/1208059")
     public void testThumbnailAspectRatio_one() {
         int tabCounts = 11;
         TabUiTestHelper.prepareTabsWithThumbnail(mActivityTestRule, tabCounts, 0, "about:blank");
@@ -91,6 +96,7 @@ public class TabSwitcherThumbnailTest {
     @Test
     @MediumTest
     @CommandLineFlags.Add({BASE_PARAMS})
+    @FlakyTest(message = "https://crbug.com/1208059")
     public void testThumbnailAspectRatio_point85() {
         int tabCounts = 11;
         TabUiTestHelper.prepareTabsWithThumbnail(mActivityTestRule, tabCounts, 0, "about:blank");
@@ -101,6 +107,7 @@ public class TabSwitcherThumbnailTest {
     @Test
     @MediumTest
     @CommandLineFlags.Add({BASE_PARAMS + "/cleanup-delay/10000"})
+    @FlakyTest(message = "https://crbug.com/1208059")
     public void testThumbnail_withSoftCleanup() {
         int tabCounts = 11;
         TabUiTestHelper.prepareTabsWithThumbnail(mActivityTestRule, tabCounts, 0, "about:blank");
@@ -121,7 +128,8 @@ public class TabSwitcherThumbnailTest {
         // There is a higher chance for the test to fail with backward counting, because after the
         // view being recycled, its height might have the correct measurement.
         for (int i = tabCounts - 1; i >= 0; i--) {
-            onView(withId(org.chromium.chrome.tab_ui.R.id.tab_list_view))
+            onView(allOf(withParent(withId(org.chromium.chrome.tab_ui.R.id.compositor_view_holder)),
+                           withId(org.chromium.chrome.tab_ui.R.id.tab_list_view)))
                     .perform(scrollToPosition(i))
                     .check(ThumbnailHeightAssertion.notZeroAt(i))
                     .check(ThumbnailAspectRatioAssertion.havingAspectRatioAt(ratio, i));

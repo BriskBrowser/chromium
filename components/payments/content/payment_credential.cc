@@ -4,22 +4,32 @@
 
 #include "components/payments/content/payment_credential.h"
 
-#include <algorithm>
-#include <memory>
+#include <utility>
 
+#include "base/compiler_specific.h"
+#include "base/feature_list.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/strings/utf_string_conversions.h"
 #include "components/payments/content/payment_manifest_web_data_service.h"
 #include "components/payments/core/secure_payment_confirmation_instrument.h"
-#include "components/payments/core/url_util.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
-#include "ui/gfx/image/image.h"
+#include "content/public/common/content_features.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-shared.h"
 
 namespace payments {
 
+// static
+bool PaymentCredential::IsFrameAllowedToUseSecurePaymentConfirmation(
+    content::RenderFrameHost* rfh) {
+  return rfh && rfh->IsActive() &&
+         rfh->IsFeatureEnabled(
+             blink::mojom::PermissionsPolicyFeature::kPayment) &&
+         base::FeatureList::IsEnabled(features::kSecurePaymentConfirmation);
+}
+
 PaymentCredential::PaymentCredential(
     content::WebContents* web_contents,
-    content::GlobalFrameRoutingId initiator_frame_routing_id,
+    content::GlobalRenderFrameHostId initiator_frame_routing_id,
     scoped_refptr<PaymentManifestWebDataService> web_data_service,
     mojo::PendingReceiver<mojom::PaymentCredential> receiver)
     : WebContentsObserver(web_contents),
@@ -30,114 +40,122 @@ PaymentCredential::PaymentCredential(
 }
 
 PaymentCredential::~PaymentCredential() {
-  if (web_data_service_) {
-    std::for_each(callbacks_.begin(), callbacks_.end(), [&](const auto& pair) {
-      web_data_service_->CancelRequest(pair.first);
-    });
-  }
-}
-
-void PaymentCredential::DownloadFavicon(const GURL& icon_url,
-                                        DownloadFaviconCallback callback) {
-  if (!web_contents() ||
-      !UrlUtil::IsOriginAllowedToUseWebPaymentApis(icon_url)) {
-    std::move(callback).Run(
-        mojom::PaymentCredentialIconDownloadStatus::FAILED_TO_DOWNLOAD_ICON);
-    return;
-  }
-
-  // If the initiator frame doesn't exist any more, e.g. the frame has
-  // navigated away, don't download the icon.
-  content::RenderFrameHost* render_frame_host =
-      content::RenderFrameHost::FromID(initiator_frame_routing_id_);
-  if (!render_frame_host || !render_frame_host->IsCurrent()) {
-    std::move(callback).Run(
-        mojom::PaymentCredentialIconDownloadStatus::FAILED_TO_DOWNLOAD_ICON);
-    return;
-  }
-
-  // Only one PaymentCredential enrollment at a time.
-  if (pending_icon_download_request_id_) {
-    std::move(callback).Run(
-        mojom::PaymentCredentialIconDownloadStatus::FAILED_TO_DOWNLOAD_ICON);
-    return;
-  }
-
-  pending_icon_download_request_id_ = web_contents()->DownloadImageInFrame(
-      initiator_frame_routing_id_,
-      icon_url,  // source URL
-      true,      // is_favicon
-      0,         // no preferred size
-      0,         // no max size
-      false,     // normal cache policy (a.k.a. do not bypass cache)
-      base::BindOnce(&PaymentCredential::DidDownloadFavicon,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  Reset();
 }
 
 void PaymentCredential::StorePaymentCredential(
-    payments::mojom::PaymentCredentialInstrumentPtr instrument,
     const std::vector<uint8_t>& credential_id,
     const std::string& rp_id,
     StorePaymentCredentialCallback callback) {
-  if (!web_data_service_) {
+  if (state_ != State::kIdle || !IsCurrentStateValid() ||
+      credential_id.empty() || rp_id.empty()) {
+    Reset();
     std::move(callback).Run(
-        mojom::PaymentCredentialCreationStatus::FAILED_TO_STORE_INSTRUMENT);
+        mojom::PaymentCredentialStorageStatus::FAILED_TO_STORE_INSTRUMENT);
     return;
   }
 
-  WebDataServiceBase::Handle handle =
+  RecordFirstSystemPromptResult(
+      SecurePaymentConfirmationEnrollSystemPromptResult::kAccepted);
+
+  storage_callback_ = std::move(callback);
+  state_ = State::kStoringCredential;
+  data_service_request_handle_ =
       web_data_service_->AddSecurePaymentConfirmationInstrument(
-          std::make_unique<SecurePaymentConfirmationInstrument>(
-              credential_id, rp_id, base::UTF8ToUTF16(instrument->display_name),
-              std::move(encoded_icon_)),
+          std::make_unique<SecurePaymentConfirmationInstrument>(credential_id,
+                                                                rp_id),
           /*consumer=*/this);
-  callbacks_[handle] = std::move(callback);
-}
-
-void PaymentCredential::DidDownloadFavicon(
-    DownloadFaviconCallback callback,
-    int request_id,
-    int unused_http_status_code,
-    const GURL& image_url,
-    const std::vector<SkBitmap>& bitmaps,
-    const std::vector<gfx::Size>& unused_sizes) {
-  DCHECK(pending_icon_download_request_id_.has_value());
-  DCHECK_EQ(pending_icon_download_request_id_.value(), request_id);
-  pending_icon_download_request_id_.reset();
-
-  if (bitmaps.empty()) {
-    std::move(callback).Run(
-        mojom::PaymentCredentialIconDownloadStatus::FAILED_TO_DOWNLOAD_ICON);
-    return;
-  }
-
-  // TODO(https://crbug.com/1110320): Get the best icon using |preferred size|
-  // rather than the first one if multiple downloaded.
-  gfx::Image downloaded_image = gfx::Image::CreateFrom1xBitmap(bitmaps[0]);
-  scoped_refptr<base::RefCountedMemory> raw_data =
-      downloaded_image.As1xPNGBytes();
-  encoded_icon_ =
-      std::vector<uint8_t>(raw_data->front_as<uint8_t>(),
-                           raw_data->front_as<uint8_t>() + raw_data->size());
-
-  std::move(callback).Run(mojom::PaymentCredentialIconDownloadStatus::SUCCESS);
 }
 
 void PaymentCredential::OnWebDataServiceRequestDone(
     WebDataServiceBase::Handle h,
     std::unique_ptr<WDTypedResult> result) {
-  auto iterator = callbacks_.find(h);
-  if (iterator == callbacks_.end())
+  if (state_ != State::kStoringCredential || !IsCurrentStateValid() ||
+      data_service_request_handle_ != h) {
+    Reset();
     return;
+  }
 
-  auto callback = std::move(iterator->second);
-  DCHECK(callback);
-  callbacks_.erase(iterator);
+  auto callback = std::move(storage_callback_);
+  Reset();
 
   std::move(callback).Run(
       static_cast<WDResult<bool>*>(result.get())->GetValue()
-          ? mojom::PaymentCredentialCreationStatus::SUCCESS
-          : mojom::PaymentCredentialCreationStatus::FAILED_TO_STORE_INSTRUMENT);
+          ? mojom::PaymentCredentialStorageStatus::SUCCESS
+          : mojom::PaymentCredentialStorageStatus::FAILED_TO_STORE_INSTRUMENT);
+}
+
+void PaymentCredential::DidStartNavigation(
+    content::NavigationHandle* navigation_handle) {
+  // Reset the service before the page navigates away.
+  // TODO(1251691): Using DidStartNavigation to infer the document's lifetime
+  // like this is incorrect. Consider making this class a DocumentService
+  // instead.
+  if (!navigation_handle->IsSameDocument() &&
+      (navigation_handle->IsInPrimaryMainFrame() ||
+       navigation_handle->GetPreviousRenderFrameHostId() ==
+           initiator_frame_routing_id_)) {
+    Reset();
+  }
+}
+
+void PaymentCredential::RenderFrameDeleted(
+    content::RenderFrameHost* render_frame_host) {
+  // Reset the service before the render frame is deleted.
+  if (render_frame_host == web_contents()->GetMainFrame() ||
+      render_frame_host ==
+          content::RenderFrameHost::FromID(initiator_frame_routing_id_)) {
+    Reset();
+  }
+}
+
+bool PaymentCredential::IsCurrentStateValid() const {
+  content::RenderFrameHost* render_frame_host =
+      content::RenderFrameHost::FromID(initiator_frame_routing_id_);
+
+  if (!IsFrameAllowedToUseSecurePaymentConfirmation(render_frame_host) ||
+      !web_contents() ||
+      web_contents() !=
+          content::WebContents::FromRenderFrameHost(render_frame_host) ||
+      !web_data_service_ || !receiver_.is_bound()) {
+    return false;
+  }
+
+  switch (state_) {
+    case State::kIdle:
+      return !storage_callback_ && !data_service_request_handle_;
+
+    case State::kStoringCredential:
+      return storage_callback_ && data_service_request_handle_;
+  }
+}
+
+void PaymentCredential::RecordFirstSystemPromptResult(
+    SecurePaymentConfirmationEnrollSystemPromptResult result) {
+  if (!is_system_prompt_result_recorded_) {
+    is_system_prompt_result_recorded_ = true;
+    RecordEnrollSystemPromptResult(result);
+  }
+}
+
+void PaymentCredential::Reset() {
+  // Callbacks must either be run or disconnected before being destroyed, so
+  // run them if they are still connected.
+  if (receiver_.is_bound()) {
+    if (storage_callback_) {
+      std::move(storage_callback_)
+          .Run(mojom::PaymentCredentialStorageStatus::
+                   FAILED_TO_STORE_INSTRUMENT);
+    }
+  }
+
+  if (web_data_service_ && data_service_request_handle_) {
+    web_data_service_->CancelRequest(data_service_request_handle_.value());
+  }
+
+  data_service_request_handle_.reset();
+  is_system_prompt_result_recorded_ = false;
+  state_ = State::kIdle;
 }
 
 }  // namespace payments

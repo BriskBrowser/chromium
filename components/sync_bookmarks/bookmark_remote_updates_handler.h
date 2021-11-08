@@ -6,7 +6,6 @@
 #define COMPONENTS_SYNC_BOOKMARKS_BOOKMARK_REMOTE_UPDATES_HANDLER_H_
 
 #include <map>
-#include <string>
 #include <vector>
 
 #include "components/sync/engine/commit_and_get_updates_types.h"
@@ -27,19 +26,16 @@ namespace sync_bookmarks {
 // server.
 class BookmarkRemoteUpdatesHandler {
  public:
-  enum class DuplicateBookmarkEntityOnRemoteUpdateCondition {
-    kServerIdTombstone = 0,
-    kTempSyncIdTombstone = 1,
-    kBothEntitiesNonTombstone = 2,
-
-    kMaxValue = kBothEntitiesNonTombstone,
-  };
-
   // |bookmark_model|, |favicon_service| and |bookmark_tracker| must not be null
   // and must outlive this object.
   BookmarkRemoteUpdatesHandler(bookmarks::BookmarkModel* bookmark_model,
                                favicon::FaviconService* favicon_service,
                                SyncedBookmarkTracker* bookmark_tracker);
+
+  BookmarkRemoteUpdatesHandler(const BookmarkRemoteUpdatesHandler&) = delete;
+  BookmarkRemoteUpdatesHandler& operator=(const BookmarkRemoteUpdatesHandler&) =
+      delete;
+
   // Processes the updates received from the sync server in |updates| and
   // updates the |bookmark_model_| and |bookmark_tracker_| accordingly. If
   // |got_new_encryption_requirements| is true, it recommits all tracked
@@ -64,6 +60,15 @@ class BookmarkRemoteUpdatesHandler {
   // |updates|.
   static std::vector<const syncer::UpdateResponseData*> ReorderUpdates(
       const syncer::UpdateResponseDataList* updates);
+
+  // Returns the tracked entity that should be affected by a remote change, or
+  // null if there is none (e.g. indicating a remote creation).
+  // |should_ignore_update| must not be null and it can be marked as true if the
+  // function reports that the update should not be processed further (e.g. it
+  // is invalid).
+  const SyncedBookmarkTracker::Entity* DetermineLocalTrackedEntityToUpdate(
+      const syncer::EntityData& update_entity,
+      bool* should_ignore_update);
 
   // Given a remote update entity, it returns the parent bookmark node of the
   // corresponding node. It returns null if the parent node cannot be found.
@@ -120,8 +125,6 @@ class BookmarkRemoteUpdatesHandler {
   bookmarks::BookmarkModel* const bookmark_model_;
   favicon::FaviconService* const favicon_service_;
   SyncedBookmarkTracker* const bookmark_tracker_;
-
-  DISALLOW_COPY_AND_ASSIGN(BookmarkRemoteUpdatesHandler);
 };
 
 }  // namespace sync_bookmarks

@@ -13,7 +13,6 @@ import "third_party/blink/public/mojom/input/input_event.mojom";
 import "third_party/blink/public/mojom/input/input_event_result.mojom";
 import "third_party/blink/public/mojom/input/pointer_lock_context.mojom";
 import "third_party/blink/public/mojom/input/pointer_lock_result.mojom";
-import "third_party/blink/public/mojom/input/synchronous_compositor.mojom";
 import "third_party/blink/public/mojom/input/touch_event.mojom";
 import "third_party/blink/public/mojom/selection_menu/selection_menu_behavior.mojom";
 import "ui/base/ime/mojom/ime_types.mojom";
@@ -23,6 +22,9 @@ import "ui/events/mojom/scroll_granularity.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
 import "ui/gfx/range/mojom/range.mojom";
 import "ui/latency/mojom/latency_info.mojom";
+
+[EnableIf=is_android]
+import "third_party/blink/public/mojom/input/synchronous_compositor.mojom";
 
 // These structs are purposely duplicated from ui/events/mojom/event.mojom.
 // They map WebInputEvent <-> WebInputEvent across mojo.
@@ -130,6 +132,7 @@ struct GestureData {
   blink.mojom.GestureDevice source_device;
   bool is_source_touch_event_set_blocking;
   ui.mojom.EventPointerType primary_pointer_type;
+  int32 primary_unique_touch_event_id;
   int32 unique_touch_event_id;
   gfx.mojom.Size? contact_size;
   ScrollData? scroll_data;
@@ -360,12 +363,14 @@ interface WidgetInputHandler {
   CursorVisibilityChanged(bool visible);
 
   // This message sends a string being composed with an input method.
+  // Note, the response is specifically for Devtools to learn about completion
   ImeSetComposition(mojo_base.mojom.String16 text,
                     array<ui.mojom.ImeTextSpan> ime_text_spans,
-                    gfx.mojom.Range range, int32 start, int32 end);
+                    gfx.mojom.Range range, int32 start, int32 end) => ();
 
   // This message deletes the current composition, inserts specified text, and
   // moves the cursor.
+   // Note, the response is specifically for Devtools to learn about completion
   ImeCommitText(mojo_base.mojom.String16 text,
                 array<ui.mojom.ImeTextSpan> ime_text_spans,
                 gfx.mojom.Range range, int32 relative_cursor_position) => ();
@@ -410,6 +415,7 @@ interface WidgetInputHandler {
 
   // Attach the synchronous compositor interface. This method only
   // should be called for Android WebView.
+  [EnableIf=is_android]
   AttachSynchronousCompositor(
       pending_remote<SynchronousCompositorControlHost> control_host,
       pending_associated_remote<SynchronousCompositorHost> host,
@@ -421,4 +427,3 @@ interface WidgetInputHandler {
   GetFrameWidgetInputHandler(
       pending_associated_receiver<FrameWidgetInputHandler> interface_request);
 };
-

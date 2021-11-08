@@ -12,8 +12,7 @@
 #include "base/logging.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
@@ -23,6 +22,7 @@
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "components/mirroring/browser/single_client_video_capture_host.h"
 #include "components/mirroring/mojom/cast_message_channel.mojom.h"
+#include "components/mirroring/mojom/mirroring_service.mojom.h"
 #include "components/mirroring/mojom/session_observer.mojom.h"
 #include "components/mirroring/mojom/session_parameters.mojom.h"
 #include "content/public/browser/audio_service.h"
@@ -36,10 +36,14 @@
 #include "content/public/browser/service_process_host.h"
 #include "content/public/browser/video_capture_device_launcher.h"
 #include "content/public/browser/web_contents.h"
+#include "media/audio/audio_device_description.h"
+#include "media/mojo/mojom/audio_data_pipe.mojom.h"
+#include "media/mojo/mojom/audio_input_stream.mojom.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/viz/public/mojom/gpu.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "url/origin.h"
@@ -108,18 +112,17 @@ content::DesktopMediaID BuildMediaIdForWebContents(
   media_id.type = content::DesktopMediaID::TYPE_WEB_CONTENTS;
   media_id.web_contents_id = content::WebContentsMediaCaptureId(
       contents->GetMainFrame()->GetProcess()->GetID(),
-      contents->GetMainFrame()->GetRoutingID(),
-      true /* enable_auto_throttling */, true /* disable_local_echo */);
+      contents->GetMainFrame()->GetRoutingID(), true /* disable_local_echo */);
   return media_id;
 }
 
-// Returns the size of the primary display in pixels, or base::nullopt if it
+// Returns the size of the primary display in pixels, or absl::nullopt if it
 // cannot be determined.
-base::Optional<gfx::Size> GetScreenResolution() {
+absl::optional<gfx::Size> GetScreenResolution() {
   display::Screen* screen = display::Screen::GetScreen();
   if (!screen) {
     DVLOG(1) << "Cannot get the Screen object.";
-    return base::nullopt;
+    return absl::nullopt;
   }
   return screen->GetPrimaryDisplay().GetSizeInPixel();
 }
@@ -225,7 +228,7 @@ void CastMirroringServiceHost::Start(
 
 // static
 gfx::Size CastMirroringServiceHost::GetCaptureResolutionConstraint() {
-  base::Optional<gfx::Size> screen_resolution = GetScreenResolution();
+  absl::optional<gfx::Size> screen_resolution = GetScreenResolution();
   if (screen_resolution) {
     return GetClampedResolution(screen_resolution.value());
   } else {
@@ -264,8 +267,8 @@ gfx::Size CastMirroringServiceHost::GetClampedResolution(
 
 void CastMirroringServiceHost::BindGpu(
     mojo::PendingReceiver<viz::mojom::Gpu> receiver) {
-  gpu_client_ = content::CreateGpuClient(std::move(receiver), base::DoNothing(),
-                                         content::GetIOThreadTaskRunner({}));
+  gpu_client_ =
+      content::CreateGpuClient(std::move(receiver), base::DoNothing());
 }
 
 void CastMirroringServiceHost::GetVideoCaptureHost(
@@ -282,8 +285,7 @@ void CastMirroringServiceHost::GetNetworkContext(
   network::mojom::NetworkContextParamsPtr network_context_params =
       g_browser_process->system_network_context_manager()
           ->CreateDefaultNetworkContextParams();
-  network_context_params->context_name = "mirroring";
-  content::GetNetworkService()->CreateNetworkContext(
+  content::CreateNetworkContextInNetworkService(
       std::move(receiver), std::move(network_context_params));
 }
 
@@ -413,7 +415,7 @@ void CastMirroringServiceHost::CreateAudioStreamForDesktop(
              mojo::PendingRemote<AudioInputStream> stream,
              mojo::PendingReceiver<AudioInputStreamClient> client,
              media::mojom::ReadOnlyAudioDataPipePtr data_pipe, bool,
-             const base::Optional<base::UnguessableToken>&) {
+             const absl::optional<base::UnguessableToken>&) {
             mojo::Remote<mojom::AudioStreamCreatorClient>(std::move(requestor))
                 ->StreamCreated(std::move(stream), std::move(client),
                                 std::move(data_pipe));
@@ -462,14 +464,6 @@ void CastMirroringServiceHost::ShowCaptureIndicator() {
 }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-void CastMirroringServiceHost::RequestMediaAccessPermission(
-    const content::MediaStreamRequest& request,
-    content::MediaResponseCallback callback) {
-  // This should not be called when mirroring an OffscreenTab through the
-  // mirroring service.
-  NOTREACHED();
-}
-
 void CastMirroringServiceHost::DestroyTab(OffscreenTab* tab) {
   if (offscreen_tab_ && (offscreen_tab_.get() == tab))
     offscreen_tab_.reset();

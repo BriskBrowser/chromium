@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/macros.h"
+#include "chromeos/services/ime/public/mojom/input_method.mojom-shared.h"
 
 namespace re2 {
 class RE2;
@@ -20,13 +21,17 @@ namespace chromeos {
 namespace ime {
 namespace rulebased {
 
-using KeyMap = std::map<std::string, const char*>;
+using KeyMap = std::map<mojom::DomCode, const char*>;
 
 using TransformRule = std::pair<std::unique_ptr<re2::RE2>, std::string>;
 
 class RulesData {
  public:
   RulesData();
+
+  RulesData(const RulesData&) = delete;
+  RulesData& operator=(const RulesData&) = delete;
+
   ~RulesData();
 
   // Creates the RulesData by the given raw data.
@@ -83,8 +88,6 @@ class RulesData {
 
   // The history prune regexp which is only used by client code of RulesData.
   std::unique_ptr<re2::RE2> history_prune_re_;
-
-  DISALLOW_COPY_AND_ASSIGN(RulesData);
 };
 
 }  // namespace rulebased

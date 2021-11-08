@@ -14,11 +14,11 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/scoped_observation.h"
 #include "chromeos/dbus/hammerd/hammerd_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "components/account_id/account_id.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -50,6 +50,10 @@ class ASH_EXPORT DetachableBaseHandler
  public:
   // |local_state| - PrefService of Local state. May be null in tests.
   explicit DetachableBaseHandler(PrefService* local_state);
+
+  DetachableBaseHandler(const DetachableBaseHandler&) = delete;
+  DetachableBaseHandler& operator=(const DetachableBaseHandler&) = delete;
+
   ~DetachableBaseHandler() override;
 
   // Registers the local state prefs for detachable base devices.
@@ -104,7 +108,7 @@ class ASH_EXPORT DetachableBaseHandler
   // Callback for getting initial power manager switches - used to determine
   // whether the tablet mode is on when the DetachableBaseHandler is created.
   void OnGotPowerManagerSwitchStates(
-      base::Optional<chromeos::PowerManagerClient::SwitchStates> switch_states);
+      absl::optional<chromeos::PowerManagerClient::SwitchStates> switch_states);
 
   // Updates the tracked tablet mode state, and notifies observers about pairing
   // status change if required.
@@ -125,7 +129,7 @@ class ASH_EXPORT DetachableBaseHandler
 
   // Tablet mode state currently reported by power manager - tablet mode getting
   // turned on is used as a signal that the base is detached.
-  base::Optional<chromeos::PowerManagerClient::TabletMode> tablet_mode_;
+  absl::optional<chromeos::PowerManagerClient::TabletMode> tablet_mode_;
 
   // The HEX encoded ID of the authenticated paired base device. This will
   // be non empty iff pairing_status_ is kAuthenticated.
@@ -150,8 +154,6 @@ class ASH_EXPORT DetachableBaseHandler
   base::ObserverList<DetachableBaseObserver>::Unchecked observers_;
 
   base::WeakPtrFactory<DetachableBaseHandler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DetachableBaseHandler);
 };
 
 }  // namespace ash

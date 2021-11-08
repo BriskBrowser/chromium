@@ -633,9 +633,9 @@ bool CreateTabsAndWindows(
         const base::Token token(payload.maybe_group.id_high,
                                 payload.maybe_group.id_low);
         session_tab->group =
-            payload.has_group ? base::make_optional(
+            payload.has_group ? absl::make_optional(
                                     tab_groups::TabGroupId::FromRawToken(token))
-                              : base::nullopt;
+                              : absl::nullopt;
         break;
       }
 
@@ -643,7 +643,7 @@ bool CreateTabsAndWindows(
         std::unique_ptr<base::Pickle> pickle = command->PayloadAsPickle();
         base::PickleIterator iter(*pickle);
 
-        base::Optional<base::Token> group_token = ReadTokenFromPickle(&iter);
+        absl::optional<base::Token> group_token = ReadTokenFromPickle(&iter);
         if (!group_token.has_value())
           return true;
 
@@ -651,7 +651,7 @@ bool CreateTabsAndWindows(
             tab_groups::TabGroupId::FromRawToken(group_token.value()),
             tab_groups);
 
-        base::string16 title;
+        std::u16string title;
         if (!iter.ReadString16(&title))
           return true;
 
@@ -715,14 +715,14 @@ bool CreateTabsAndWindows(
 
         SessionTab* tab = GetTab(tab_id, tabs);
         tab->user_agent_override.ua_string_override.swap(user_agent_override);
-        tab->user_agent_override.opaque_ua_metadata_override = base::nullopt;
+        tab->user_agent_override.opaque_ua_metadata_override = absl::nullopt;
         break;
       }
 
       case kCommandSetTabUserAgentOverride2: {
         SessionID tab_id = SessionID::InvalidValue();
         std::string user_agent_override;
-        base::Optional<std::string> opaque_ua_metadata_override;
+        absl::optional<std::string> opaque_ua_metadata_override;
         if (!RestoreSetTabUserAgentOverrideCommand2(
                 *command, &tab_id, &user_agent_override,
                 &opaque_ua_metadata_override)) {
@@ -822,7 +822,7 @@ bool CreateTabsAndWindows(
           DVLOG(1) << "Failed reading command " << command->id();
           return true;
         }
-        std::map<std::string, std::string> data;
+        std::map<std::string, std::string> tab_data;
         for (int i = 0; i < size; i++) {
           std::string key;
           std::string value;
@@ -830,11 +830,11 @@ bool CreateTabsAndWindows(
             DVLOG(1) << "Failed reading command " << command->id();
             return true;
           }
-          data.insert({key, value});
+          tab_data.insert({key, value});
         }
 
         GetTab(SessionID::FromSerializedValue(tab_id), tabs)->data =
-            std::move(data);
+            std::move(tab_data);
         break;
       }
 
@@ -947,7 +947,7 @@ std::unique_ptr<SessionCommand> CreateSetWindowTypeCommand(
 
 std::unique_ptr<SessionCommand> CreateTabGroupCommand(
     const SessionID& tab_id,
-    base::Optional<tab_groups::TabGroupId> group) {
+    absl::optional<tab_groups::TabGroupId> group) {
   TabGroupPayload payload = {0};
   payload.tab_id = tab_id.id();
   if (group.has_value()) {

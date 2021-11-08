@@ -9,7 +9,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/infobars/core/infobar_manager.h"
@@ -18,11 +18,16 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 
-class InfoBarService;
+namespace infobars {
+class ContentInfoBarManager;
+}
 
 class PPAPITestMessageHandler : public content::TestMessageHandler {
  public:
   PPAPITestMessageHandler();
+
+  PPAPITestMessageHandler(const PPAPITestMessageHandler&) = delete;
+  PPAPITestMessageHandler& operator=(const PPAPITestMessageHandler&) = delete;
 
   MessageResponse HandleMessage(const std::string& json) override;
   void Reset() override;
@@ -33,8 +38,6 @@ class PPAPITestMessageHandler : public content::TestMessageHandler {
 
  private:
   std::string message_;
-
-  DISALLOW_COPY_AND_ASSIGN(PPAPITestMessageHandler);
 };
 
 class PPAPITestBase : public InProcessBrowserTest {
@@ -74,7 +77,7 @@ class PPAPITestBase : public InProcessBrowserTest {
     void OnInfoBarAdded(infobars::InfoBar* infobar) override;
     void OnManagerShuttingDown(infobars::InfoBarManager* manager) override;
 
-    InfoBarService* GetInfoBarService();
+    infobars::ContentInfoBarManager* GetInfoBarManager();
 
     void VerifyInfoBarState();
 
@@ -82,8 +85,9 @@ class PPAPITestBase : public InProcessBrowserTest {
     bool expecting_infobar_;
     bool should_accept_;
 
-    ScopedObserver<infobars::InfoBarManager, infobars::InfoBarManager::Observer>
-        infobar_observer_;
+    base::ScopedObservation<infobars::InfoBarManager,
+                            infobars::InfoBarManager::Observer>
+        infobar_observation_{this};
   };
 
   // Runs the test for a tab given the tab that's already navigated to the
@@ -125,6 +129,7 @@ class OutOfProcessPPAPITest : public PPAPITest {
   OutOfProcessPPAPITest();
 
   void SetUpCommandLine(base::CommandLine* command_line) override;
+  void RunTest(const std::string& test_case) override;
   void RunTouchEventTest(const std::string& test_case);
 };
 

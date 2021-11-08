@@ -4,24 +4,24 @@
 
 #include "content/browser/browser_child_process_host_impl.h"
 
+#include <memory>
+
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/persistent_histogram_allocator.h"
 #include "base/metrics/persistent_memory_allocator.h"
 #include "base/no_destructor.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/token.h"
@@ -31,7 +31,7 @@
 #include "components/tracing/common/trace_startup_config.h"
 #include "components/tracing/common/tracing_switches.h"
 #include "content/browser/browser_main_loop.h"
-#include "content/browser/histogram_controller.h"
+#include "content/browser/metrics/histogram_controller.h"
 #include "content/browser/tracing/background_tracing_manager_impl.h"
 #include "content/common/child_process_host_impl.h"
 #include "content/public/browser/browser_child_process_host_delegate.h"
@@ -84,11 +84,6 @@ void NotifyProcessLaunchedAndConnected(const ChildProcessData& data) {
     observer.BrowserChildProcessLaunchedAndConnected(data);
 }
 
-void NotifyProcessHostConnected(const ChildProcessData& data) {
-  for (auto& observer : g_browser_child_process_observers.Get())
-    observer.BrowserChildProcessHostConnected(data);
-}
-
 void NotifyProcessHostDisconnected(const ChildProcessData& data) {
   for (auto& observer : g_browser_child_process_observers.Get())
     observer.BrowserChildProcessHostDisconnected(data);
@@ -125,22 +120,13 @@ memory_instrumentation::mojom::ProcessType GetCoordinatorClientProcessType(
       return memory_instrumentation::mojom::ProcessType::OTHER;
   }
 }
-
-void BindTracedProcessOnIOThread(
+void BindTracedProcessFromUIThread(
     base::WeakPtr<BrowserChildProcessHostImpl> weak_host,
     mojo::PendingReceiver<tracing::mojom::TracedProcess> receiver) {
   if (!weak_host)
     return;
 
   weak_host->GetHost()->BindReceiver(std::move(receiver));
-}
-
-void BindTracedProcessFromUIThread(
-    base::WeakPtr<BrowserChildProcessHostImpl> weak_host,
-    mojo::PendingReceiver<tracing::mojom::TracedProcess> receiver) {
-  GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(&BindTracedProcessOnIOThread,
-                                std::move(weak_host), std::move(receiver)));
 }
 
 }  // namespace
@@ -155,7 +141,7 @@ std::unique_ptr<BrowserChildProcessHost> BrowserChildProcessHost::Create(
 }
 
 BrowserChildProcessHost* BrowserChildProcessHost::FromID(int child_process_id) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   BrowserChildProcessHostImpl::BrowserChildProcessList* process_list =
       g_child_process_list.Pointer();
   for (BrowserChildProcessHostImpl* host : *process_list) {
@@ -195,12 +181,8 @@ BrowserChildProcessHostImpl::BrowserChildProcessHostImpl(
     content::ProcessType process_type,
     BrowserChildProcessHostDelegate* delegate,
     ChildProcessHost::IpcMode ipc_mode)
-    : data_(process_type),
-      delegate_(delegate),
-      channel_(nullptr),
-      is_channel_connected_(false),
-      notify_child_disconnected_(false) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+    : data_(process_type), delegate_(delegate) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   data_.id = ChildProcessHostImpl::GenerateChildProcessUniqueId();
 
@@ -216,7 +198,7 @@ BrowserChildProcessHostImpl::BrowserChildProcessHostImpl(
 BrowserChildProcessHostImpl::~BrowserChildProcessHostImpl() {
   g_child_process_list.Get().remove(this);
 
-  if (notify_child_disconnected_) {
+  if (notify_child_connection_status_) {
     GetUIThreadTaskRunner({})->PostTask(
         FROM_HERE,
         base::BindOnce(&NotifyProcessHostDisconnected, data_.Duplicate()));
@@ -225,23 +207,13 @@ BrowserChildProcessHostImpl::~BrowserChildProcessHostImpl() {
 
 // static
 void BrowserChildProcessHostImpl::TerminateAll() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Make a copy since the BrowserChildProcessHost dtor mutates the original
   // list.
   BrowserChildProcessList copy = g_child_process_list.Get();
   for (auto it = copy.begin(); it != copy.end(); ++it) {
     delete (*it)->delegate();  // ~*HostDelegate deletes *HostImpl.
   }
-}
-
-// static
-void BrowserChildProcessHostImpl::CopyFeatureAndFieldTrialFlags(
-    base::CommandLine* cmd_line) {
-  // If we run base::FieldTrials, we want to pass to their state to the
-  // child process so that it can act in accordance with each state.
-  base::FieldTrialList::CopyFieldTrialStateToFlags(
-      switches::kFieldTrialHandle, switches::kEnableFeatures,
-      switches::kDisableFeatures, cmd_line);
 }
 
 // static
@@ -271,22 +243,18 @@ void BrowserChildProcessHostImpl::LaunchWithPreloadedFiles(
 }
 
 const ChildProcessData& BrowserChildProcessHostImpl::GetData() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return data_;
 }
 
 ChildProcessHost* BrowserChildProcessHostImpl::GetHost() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return child_process_host_.get();
 }
 
 const base::Process& BrowserChildProcessHostImpl::GetProcess() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DCHECK(child_process_.get())
-      << "Requesting a child process handle before launching.";
-  DCHECK(child_process_->GetProcess().IsValid())
-      << "Requesting a child process handle before launch has completed OK.";
-  return child_process_->GetProcess();
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  return data_.GetProcess();
 }
 
 std::unique_ptr<base::PersistentMemoryAllocator>
@@ -294,24 +262,24 @@ BrowserChildProcessHostImpl::TakeMetricsAllocator() {
   return std::move(metrics_allocator_);
 }
 
-void BrowserChildProcessHostImpl::SetName(const base::string16& name) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+void BrowserChildProcessHostImpl::SetName(const std::u16string& name) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   data_.name = name;
 }
 
 void BrowserChildProcessHostImpl::SetMetricsName(
     const std::string& metrics_name) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   data_.metrics_name = metrics_name;
 }
 
 void BrowserChildProcessHostImpl::SetProcess(base::Process process) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   data_.SetProcess(std::move(process));
 }
 
 void BrowserChildProcessHostImpl::ForceShutdown() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   g_child_process_list.Get().remove(this);
   child_process_host_->ForceShutdown();
 }
@@ -325,7 +293,7 @@ void BrowserChildProcessHostImpl::LaunchWithoutExtraCommandLineSwitches(
     std::unique_ptr<base::CommandLine> cmd_line,
     std::map<std::string, base::FilePath> files_to_preload,
     bool terminate_on_shutdown) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   const base::CommandLine& browser_command_line =
       *base::CommandLine::ForCurrentProcess();
   static const char* const kForwardSwitches[] = {
@@ -352,15 +320,22 @@ void BrowserChildProcessHostImpl::LaunchWithoutExtraCommandLineSwitches(
 
   data_.sandbox_type = delegate->GetSandboxType();
 
-  notify_child_disconnected_ = true;
-  child_process_.reset(new ChildProcessLauncher(
+  // Note that if this host has a legacy IPC Channel, we don't dispatch any
+  // connection status notifications until we observe OnChannelConnected().
+  if (!has_legacy_ipc_channel_)
+    notify_child_connection_status_ = true;
+
+  child_process_ = std::make_unique<ChildProcessLauncher>(
       std::move(delegate), std::move(cmd_line), data_.id, this,
       std::move(*child_process_host_->GetMojoInvitation()),
       base::BindRepeating(&BrowserChildProcessHostImpl::OnMojoError,
                           weak_factory_.GetWeakPtr(),
                           base::ThreadTaskRunnerHandle::Get()),
-      std::move(files_to_preload), terminate_on_shutdown));
+      std::move(files_to_preload), terminate_on_shutdown);
   ShareMetricsAllocatorToProcess();
+
+  if (!has_legacy_ipc_channel_)
+    OnProcessConnected();
 }
 
 void BrowserChildProcessHostImpl::HistogramBadMessageTerminated(
@@ -383,7 +358,7 @@ void BrowserChildProcessHostImpl::DumpProcessStack() {
 
 ChildProcessTerminationInfo BrowserChildProcessHostImpl::GetTerminationInfo(
     bool known_dead) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!child_process_) {
     // If the delegate doesn't use Launch() helper.
     ChildProcessTerminationInfo info;
@@ -400,28 +375,22 @@ bool BrowserChildProcessHostImpl::OnMessageReceived(
 }
 
 void BrowserChildProcessHostImpl::OnChannelConnected(int32_t peer_pid) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  is_channel_connected_ = true;
-  notify_child_disconnected_ = true;
-
-#if defined(OS_MAC)
-  ChildProcessTaskPortProvider::GetInstance()->OnChildProcessLaunched(
-      peer_pid, static_cast<ChildProcessHostImpl*>(child_process_host_.get())
-                    ->child_process());
-#endif
-
-#if defined(OS_WIN)
-  // From this point onward, the exit of the child process is detected by an
-  // error on the IPC channel.
-  early_exit_watcher_.StopWatching();
-#endif
-
-  GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE,
-      base::BindOnce(&NotifyProcessHostConnected, data_.Duplicate()));
+  DCHECK(has_legacy_ipc_channel_);
+  notify_child_connection_status_ = true;
 
   delegate_->OnChannelConnected(peer_pid);
+
+  OnProcessConnected();
+}
+
+void BrowserChildProcessHostImpl::OnProcessConnected() {
+#if defined(OS_WIN)
+  // From this point onward, the exit of the child process is detected by an
+  // error on the IPC channel or ChildProcessHost pipe.
+  early_exit_watcher_.StopWatching();
+#endif
 
   if (IsProcessLaunched()) {
     GetUIThreadTaskRunner({})->PostTask(
@@ -457,11 +426,15 @@ void BrowserChildProcessHostImpl::TerminateOnBadMessageReceived(
 }
 
 void BrowserChildProcessHostImpl::OnChannelInitialized(IPC::Channel* channel) {
-  channel_ = channel;
+  has_legacy_ipc_channel_ = true;
+
+  // When using a legacy IPC Channel, we defer any notifications until the
+  // Channel handshake is complete. See OnChannelConnected().
+  notify_child_connection_status_ = false;
 }
 
 void BrowserChildProcessHostImpl::OnChildDisconnected() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   tracing_registration_.reset();
 
@@ -470,7 +443,8 @@ void BrowserChildProcessHostImpl::OnChildDisconnected() {
   // early exit watcher so GetTerminationStatus can close the process handle.
   early_exit_watcher_.StopWatching();
 #endif
-  if (child_process_.get() || data_.GetProcess().IsValid()) {
+  const base::Process& process = data_.GetProcess();
+  if (child_process_.get() || (process.IsValid() && !process.is_current())) {
     ChildProcessTerminationInfo info =
         GetTerminationInfo(true /* known_dead */);
 #if defined(OS_ANDROID)
@@ -530,11 +504,11 @@ void BrowserChildProcessHostImpl::OnChildDisconnected() {
     }
 #endif
   }
-  channel_ = nullptr;
   delete delegate_;  // Will delete us
 }
 
 bool BrowserChildProcessHostImpl::Send(IPC::Message* message) {
+  DCHECK(has_legacy_ipc_channel_);
   return child_process_host_->Send(message);
 }
 
@@ -612,7 +586,7 @@ void BrowserChildProcessHostImpl::ShareMetricsAllocatorToProcess() {
 
 void BrowserChildProcessHostImpl::OnProcessLaunchFailed(int error_code) {
   delegate_->OnProcessLaunchFailed(error_code);
-  notify_child_disconnected_ = false;
+  notify_child_connection_status_ = false;
   delete delegate_;  // Will delete us
 }
 
@@ -623,10 +597,17 @@ bool BrowserChildProcessHostImpl::CanUseWarmUpConnection() {
 #endif
 
 void BrowserChildProcessHostImpl::OnProcessLaunched() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   const base::Process& process = child_process_->GetProcess();
   DCHECK(process.IsValid());
+
+#if defined(OS_MAC)
+  ChildProcessTaskPortProvider::GetInstance()->OnChildProcessLaunched(
+      process.Pid(),
+      static_cast<ChildProcessHostImpl*>(child_process_host_.get())
+          ->child_process());
+#endif
 
 #if defined(OS_WIN)
   // Start a WaitableEventWatcher that will invoke OnProcessExitedEarly if the
@@ -640,7 +621,7 @@ void BrowserChildProcessHostImpl::OnProcessLaunched() {
   data_.SetProcess(process.Duplicate());
   delegate_->OnProcessLaunched();
 
-  if (is_channel_connected_) {
+  if (notify_child_connection_status_) {
     GetUIThreadTaskRunner({})->PostTask(
         FROM_HERE,
         base::BindOnce(&NotifyProcessLaunchedAndConnected, data_.Duplicate()));
@@ -672,6 +653,9 @@ void BrowserChildProcessHostImpl::RegisterCoordinatorClient(
     mojo::PendingReceiver<memory_instrumentation::mojom::Coordinator> receiver,
     mojo::PendingRemote<memory_instrumentation::mojom::ClientProcess>
         client_process) {
+  // Intentionally disallow non-browser processes from getting a Coordinator.
+  receiver.reset();
+
   // The child process may have already terminated by the time this message is
   // dispatched. We do nothing in that case.
   if (!IsProcessLaunched())
@@ -689,7 +673,7 @@ void BrowserChildProcessHostImpl::RegisterCoordinatorClient(
                      client_process,
                  memory_instrumentation::mojom::ProcessType process_type,
                  base::ProcessId process_id,
-                 base::Optional<std::string> service_name) {
+                 absl::optional<std::string> service_name) {
                 GetMemoryInstrumentationRegistry()->RegisterClientProcess(
                     std::move(receiver), std::move(client_process),
                     process_type, process_id, std::move(service_name));
@@ -701,7 +685,7 @@ void BrowserChildProcessHostImpl::RegisterCoordinatorClient(
 }
 
 bool BrowserChildProcessHostImpl::IsProcessLaunched() const {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   return child_process_.get() && child_process_->GetProcess().IsValid();
 }

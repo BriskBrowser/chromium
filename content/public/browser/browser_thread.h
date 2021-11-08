@@ -14,9 +14,8 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/single_thread_task_runner.h"
-#include "base/task_runner_util.h"
-#include "base/time/time.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner_util.h"
 #include "content/common/content_export.h"
 
 namespace content {
@@ -80,6 +79,9 @@ class CONTENT_EXPORT BrowserThread {
     // identifier.
     ID_COUNT
   };
+
+  BrowserThread(const BrowserThread&) = delete;
+  BrowserThread& operator=(const BrowserThread&) = delete;
 
   // Delete/ReleaseSoon() helpers allow future deletion of an owned object on
   // its associated thread. If you already have a task runner bound to a
@@ -201,8 +203,8 @@ class CONTENT_EXPORT BrowserThread {
   // NOTE: Can only be called from the UI thread.
   static void RunAllPendingTasksOnThreadForTesting(ID identifier);
 
- protected:
-  // For DeleteSoon(). Requires that the BrowserThread with the provided
+  // Helper that returns GetUIThreadTaskRunner({}) or GetIOThreadTaskRunner({})
+  // based on |identifier|. Requires that the BrowserThread with the provided
   // |identifier| was started.
   static scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunnerForThread(
       ID identifier);
@@ -210,18 +212,7 @@ class CONTENT_EXPORT BrowserThread {
  private:
   friend class BrowserThreadImpl;
   BrowserThread() = default;
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserThread);
 };
-
-// Runs |task| on the thread specified by |thread_id| if already on that thread,
-// otherwise posts a task to that thread.
-//
-// This is intended to be a temporary helper function for the IO/UI thread
-// simplification effort.
-CONTENT_EXPORT void RunOrPostTaskOnThread(const base::Location& location,
-                                          BrowserThread::ID thread_id,
-                                          base::OnceClosure task);
 
 }  // namespace content
 

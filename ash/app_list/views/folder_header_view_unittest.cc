@@ -8,13 +8,15 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/model/app_list_item.h"
 #include "ash/app_list/model/app_list_model.h"
-#include "ash/app_list/test/app_list_test_model.h"
+#include "ash/app_list/model/app_list_test_model.h"
 #include "ash/app_list/views/folder_header_view_delegate.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
+#include "ash/public/cpp/test/test_app_list_color_provider.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
@@ -31,14 +33,13 @@ namespace {
 
 class TestFolderHeaderViewDelegate : public FolderHeaderViewDelegate {
  public:
-  TestFolderHeaderViewDelegate() {}
-  ~TestFolderHeaderViewDelegate() override {}
+  TestFolderHeaderViewDelegate() = default;
 
-  // FolderHeaderViewDelegate
-  void NavigateBack(AppListFolderItem* item,
-                    const ui::Event& event_flags) override {}
+  TestFolderHeaderViewDelegate(const TestFolderHeaderViewDelegate&) = delete;
+  TestFolderHeaderViewDelegate& operator=(const TestFolderHeaderViewDelegate&) =
+      delete;
 
-  void GiveBackFocusToSearchBox() override {}
+  ~TestFolderHeaderViewDelegate() override = default;
 
   void SetItemName(AppListFolderItem* item, const std::string& name) override {
     folder_name_ = name;
@@ -48,16 +49,18 @@ class TestFolderHeaderViewDelegate : public FolderHeaderViewDelegate {
 
  private:
   std::string folder_name_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestFolderHeaderViewDelegate);
 };
 
 }  // namespace
 
 class FolderHeaderViewTest : public views::ViewsTestBase {
  public:
-  FolderHeaderViewTest() {}
-  ~FolderHeaderViewTest() override {}
+  FolderHeaderViewTest() = default;
+
+  FolderHeaderViewTest(const FolderHeaderViewTest&) = delete;
+  FolderHeaderViewTest& operator=(const FolderHeaderViewTest&) = delete;
+
+  ~FolderHeaderViewTest() override = default;
 
   // testing::Test overrides:
   void SetUp() override {
@@ -89,7 +92,7 @@ class FolderHeaderViewTest : public views::ViewsTestBase {
 
  protected:
   void UpdateFolderName(const std::string& name) {
-    base::string16 folder_name = base::UTF8ToUTF16(name);
+    std::u16string folder_name = base::UTF8ToUTF16(name);
     folder_header_view_->SetFolderNameForTest(folder_name);
     folder_header_view_->ContentsChanged(textfield_.get(), folder_name);
   }
@@ -107,18 +110,16 @@ class FolderHeaderViewTest : public views::ViewsTestBase {
         previous_cursor_position);
   }
 
-  void UpdatePreviousFolderName(const base::string16& previous_name) {
+  void UpdatePreviousFolderName(const std::u16string& previous_name) {
     folder_header_view_->SetPreviousFolderNameForTest(previous_name);
   }
 
+  TestAppListColorProvider color_provider_;  // Needed by AppListView.
   std::unique_ptr<AppListTestModel> model_;
   FolderHeaderView* folder_header_view_ = nullptr;  // owned by |widget_|.
   std::unique_ptr<TestFolderHeaderViewDelegate> delegate_;
   std::unique_ptr<views::Textfield> textfield_;
   std::unique_ptr<views::Widget> widget_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FolderHeaderViewTest);
 };
 
 TEST_F(FolderHeaderViewTest, SetFolderName) {
@@ -158,13 +159,13 @@ TEST_F(FolderHeaderViewTest, MaxFolderNameLength) {
   // If folder name is set beyond the maximum char limit, it should revert to
   // the previous valid folder name.
   std::string max_len_name;
-  for (size_t i = 0; i < AppListConfig::instance().max_folder_name_chars();
+  for (int i = 0; i < folder_header_view_->GetMaxFolderNameCharLengthForTest();
        ++i) {
     max_len_name += "a";
   }
   std::string too_long_name = max_len_name + "a";
   UpdatePreviousCursorPosition(0);
-  UpdatePreviousFolderName(base::string16());
+  UpdatePreviousFolderName(std::u16string());
 
   // Expect that the folder name does not change, and does not truncate
   UpdateFolderName(too_long_name);

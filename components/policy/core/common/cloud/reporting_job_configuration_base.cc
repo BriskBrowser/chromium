@@ -11,7 +11,6 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
@@ -23,6 +22,9 @@
 #include "components/version_info/version_info.h"
 #include "google_apis/google_api_keys.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "url/gurl.h"
 
 namespace policy {
 
@@ -209,7 +211,7 @@ void ReportingJobConfigurationBase::OnURLLoadComplete(
     int net_error,
     int response_code,
     const std::string& response_body) {
-  base::Optional<base::Value> response = base::JSONReader::Read(response_body);
+  absl::optional<base::Value> response = base::JSONReader::Read(response_body);
 
   // Parse the response even if |response_code| is not a success since the
   // response data may contain an error message.
@@ -272,7 +274,7 @@ ReportingJobConfigurationBase::ReportingJobConfigurationBase(
     UploadCompleteCallback callback)
     : JobConfigurationBase(type,
                            DMAuth::FromDMToken(client->dm_token()),
-                           /*oauth_token=*/base::nullopt,
+                           /*oauth_token=*/absl::nullopt,
                            factory),
       payload_(base::Value::Type::DICTIONARY),
       callback_(std::move(callback)),

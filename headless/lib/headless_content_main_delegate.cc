@@ -10,7 +10,6 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/debug/crash_logging.h"
 #include "base/environment.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
@@ -23,6 +22,7 @@
 #include "build/build_config.h"
 #include "cc/base/switches.h"
 #include "components/crash/core/common/crash_key.h"
+#include "components/crash/core/common/crash_keys.h"
 #include "components/viz/common/switches.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/content_switches.h"
@@ -93,61 +93,52 @@ void InitializeResourceBundle(const base::CommandLine& command_line) {
 
 #ifdef HEADLESS_USE_EMBEDDED_RESOURCES
   ui::ResourceBundle::GetSharedInstance().AddDataPackFromBuffer(
-      base::StringPiece(
-          reinterpret_cast<const char*>(kHeadlessResourcePak.contents),
-          kHeadlessResourcePak.length),
-      ui::SCALE_FACTOR_NONE);
+      {kHeadlessResourcePak.contents, kHeadlessResourcePak.length},
+      ui::kScaleFactorNone);
 
 #else
-  base::FilePath dir_module;
-
-// Fuchsia doesn't implement DIR_MODULE
-#if !defined(OS_FUCHSIA)
-  bool result = base::PathService::Get(base::DIR_MODULE, &dir_module);
-#else
-  bool result = base::PathService::Get(base::DIR_ASSETS, &dir_module);
-#endif  // !defined(OS_FUCHSIA)
-
+  base::FilePath resource_dir;
+  bool result = base::PathService::Get(base::DIR_ASSETS, &resource_dir);
   DCHECK(result);
 
   // Try loading the headless library pak file first. If it doesn't exist (i.e.,
   // when we're running with the --headless switch), fall back to the browser's
   // resource pak.
   base::FilePath headless_pak =
-      dir_module.Append(FILE_PATH_LITERAL("headless_lib.pak"));
+      resource_dir.Append(FILE_PATH_LITERAL("headless_lib.pak"));
   if (base::PathExists(headless_pak)) {
     ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-        headless_pak, ui::SCALE_FACTOR_NONE);
+        headless_pak, ui::kScaleFactorNone);
     return;
   }
 
   // Otherwise, load resources.pak, chrome_100 and chrome_200.
   base::FilePath resources_pak =
-      dir_module.Append(FILE_PATH_LITERAL("resources.pak"));
+      resource_dir.Append(FILE_PATH_LITERAL("resources.pak"));
   base::FilePath chrome_100_pak =
-      dir_module.Append(FILE_PATH_LITERAL("chrome_100_percent.pak"));
+      resource_dir.Append(FILE_PATH_LITERAL("chrome_100_percent.pak"));
   base::FilePath chrome_200_pak =
-      dir_module.Append(FILE_PATH_LITERAL("chrome_200_percent.pak"));
+      resource_dir.Append(FILE_PATH_LITERAL("chrome_200_percent.pak"));
 
 #if defined(OS_MAC) && !defined(COMPONENT_BUILD)
   // In non component builds, check if fall back in Resources/ folder is
   // available.
   if (!base::PathExists(resources_pak)) {
     resources_pak =
-        dir_module.Append(FILE_PATH_LITERAL("Resources/resources.pak"));
-    chrome_100_pak = dir_module.Append(
+        resource_dir.Append(FILE_PATH_LITERAL("Resources/resources.pak"));
+    chrome_100_pak = resource_dir.Append(
         FILE_PATH_LITERAL("Resources/chrome_100_percent.pak"));
-    chrome_200_pak = dir_module.Append(
+    chrome_200_pak = resource_dir.Append(
         FILE_PATH_LITERAL("Resources/chrome_200_percent.pak"));
   }
 #endif
 
   ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-      resources_pak, ui::SCALE_FACTOR_NONE);
-  ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-      chrome_100_pak, ui::SCALE_FACTOR_100P);
-  ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-      chrome_200_pak, ui::SCALE_FACTOR_200P);
+      resources_pak, ui::kScaleFactorNone);
+  ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(chrome_100_pak,
+                                                              ui::k100Percent);
+  ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(chrome_200_pak,
+                                                              ui::k200Percent);
 #endif
 }
 
@@ -171,14 +162,8 @@ HeadlessContentMainDelegate::HeadlessContentMainDelegate(
 }
 
 void HeadlessContentMainDelegate::Init() {
-  headless_crash_key_ = base::debug::AllocateCrashKeyString(
-      kHeadlessCrashKey, base::debug::CrashKeySize::Size32);
-
   DCHECK(!g_current_headless_content_main_delegate);
   g_current_headless_content_main_delegate = this;
-
-  // Mark any bug reports from headless mode as such.
-  base::debug::SetCrashKeyString(headless_crash_key_, "true");
 }
 
 HeadlessContentMainDelegate::~HeadlessContentMainDelegate() {
@@ -221,13 +206,20 @@ bool HeadlessContentMainDelegate::BasicStartupComplete(int* exit_code) {
     if (!options()->gl_implementation.empty()) {
       command_line->AppendSwitchASCII(::switches::kUseGL,
                                       options()->gl_implementation);
+      if (!options()->angle_implementation.empty()) {
+        command_line->AppendSwitchASCII(::switches::kUseANGLE,
+                                        options()->angle_implementation);
+      }
     } else {
       command_line->AppendSwitch(::switches::kDisableGpu);
     }
   }
 
   // When running headless there is no need to suppress input until content
-  // is ready for display (because it isn't displayed to users).
+  // is ready for display (because it isn't displayed to users). Nor is it
+  // necessary to delay compositor commits in any way via PaintHolding,
+  // but we disable that feature based on the --headless switch. The code is
+  // in content/public/common/content_switch_dependent_feature_overrides.cc
   command_line->AppendSwitch(::blink::switches::kAllowPreCommitInput);
 
 #if defined(OS_WIN)
@@ -327,8 +319,8 @@ void HeadlessContentMainDelegate::InitCrashReporter(
   if (command_line.HasSwitch(::switches::kDisableBreakpad))
     return;
 #if defined(OS_FUCHSIA)
-  // TODO(fuchsia): Implement this when crash reporting/Breakpad are available
-  // in Fuchsia. (crbug.com/753619)
+  // TODO(crbug.com/1226159): Implement this when crash reporting/Breakpad are
+  // available in Fuchsia.
   NOTIMPLEMENTED();
 #else
   const std::string process_type =
@@ -338,6 +330,7 @@ void HeadlessContentMainDelegate::InitCrashReporter(
       options()->crash_dumps_dir);
 
   crash_reporter::InitializeCrashKeys();
+  crash_keys::SetSwitchesFromCommandLine(command_line, nullptr);
 
 #if defined(HEADLESS_USE_BREAKPAD)
   if (!options()->enable_crash_reporter) {
@@ -352,10 +345,14 @@ void HeadlessContentMainDelegate::InitCrashReporter(
 // crashpad is already enabled.
 // TODO(dvallet): Ideally we would also want to avoid this for component builds.
 #elif defined(OS_WIN)
-  crash_reporter::InitializeCrashpadWithEmbeddedHandler(
-      process_type.empty(), process_type, "", base::FilePath());
+  // InitializeCrashpad is already called from main() on Windows, no need to
+  // call it from here.
 #endif  // defined(HEADLESS_USE_BREAKPAD)
 #endif  // defined(OS_FUCHSIA)
+
+  // Mark any bug reports from headless mode as such.
+  static crash_reporter::CrashKeyString<32> headless_key(kHeadlessCrashKey);
+  headless_key.Set("true");
 }
 
 
@@ -369,11 +366,9 @@ void HeadlessContentMainDelegate::PreSandboxStartup() {
 #else
   if (command_line.HasSwitch(::switches::kEnableLogging))
     InitLogging(command_line);
-
-  // Initializing the crash reporter fails in multiple ways on Windows. See
-  // https://crbug.com/1147063
-  InitCrashReporter(command_line);
 #endif  // defined(OS_WIN)
+
+  InitCrashReporter(command_line);
 
   InitializeResourceBundle(command_line);
 

@@ -9,15 +9,7 @@
 #include "base/containers/adapters.h"
 #include "base/logging.h"
 #include "chrome/browser/ui/app_list/app_context_menu.h"
-#include "chromeos/components/string_matching/tokenized_string.h"
-#include "chromeos/components/string_matching/tokenized_string_match.h"
-
-namespace {
-
-using chromeos::string_matching::TokenizedString;
-using chromeos::string_matching::TokenizedStringMatch;
-
-}  // namespace
+#include "ui/base/models/image_model.h"
 
 ChromeSearchResult::ChromeSearchResult()
     : metadata_(std::make_unique<ash::SearchResultMetadata>()) {}
@@ -39,7 +31,7 @@ void ChromeSearchResult::SetIsInstalling(bool is_installing) {
   SetSearchResultMetadata();
 }
 
-void ChromeSearchResult::SetTitle(const base::string16& title) {
+void ChromeSearchResult::SetTitle(const std::u16string& title) {
   metadata_->title = title;
   SetSearchResultMetadata();
 }
@@ -49,7 +41,7 @@ void ChromeSearchResult::SetTitleTags(const Tags& tags) {
   SetSearchResultMetadata();
 }
 
-void ChromeSearchResult::SetDetails(const base::string16& details) {
+void ChromeSearchResult::SetDetails(const std::u16string& details) {
   metadata_->details = details;
   SetSearchResultMetadata();
 }
@@ -59,7 +51,7 @@ void ChromeSearchResult::SetDetailsTags(const Tags& tags) {
   SetSearchResultMetadata();
 }
 
-void ChromeSearchResult::SetAccessibleName(const base::string16& name) {
+void ChromeSearchResult::SetAccessibleName(const std::u16string& name) {
   metadata_->accessible_name = name;
   SetSearchResultMetadata();
 }
@@ -70,8 +62,18 @@ void ChromeSearchResult::SetRating(float rating) {
 }
 
 void ChromeSearchResult::SetFormattedPrice(
-    const base::string16& formatted_price) {
+    const std::u16string& formatted_price) {
   metadata_->formatted_price = formatted_price;
+  SetSearchResultMetadata();
+}
+
+void ChromeSearchResult::SetCategory(Category category) {
+  metadata_->category = category;
+  SetSearchResultMetadata();
+}
+
+void ChromeSearchResult::SetBestMatch(bool best_match) {
+  metadata_->best_match = best_match;
   SetSearchResultMetadata();
 }
 
@@ -130,8 +132,8 @@ void ChromeSearchResult::SetEquivalentResutlId(
     updater->SetSearchResultMetadata(id(), CloneMetadata());
 }
 
-void ChromeSearchResult::SetIcon(const gfx::ImageSkia& icon) {
-  icon.EnsureRepsForSupportedScales();
+void ChromeSearchResult::SetIcon(const IconInfo& icon) {
+  icon.icon.EnsureRepsForSupportedScales();
   metadata_->icon = icon;
   SetSearchResultMetadata();
 }
@@ -142,9 +144,14 @@ void ChromeSearchResult::SetChipIcon(const gfx::ImageSkia& chip_icon) {
   SetSearchResultMetadata();
 }
 
-void ChromeSearchResult::SetBadgeIcon(const gfx::ImageSkia& badge_icon) {
-  badge_icon.EnsureRepsForSupportedScales();
+void ChromeSearchResult::SetBadgeIcon(const ui::ImageModel& badge_icon) {
   metadata_->badge_icon = badge_icon;
+  SetSearchResultMetadata();
+}
+
+void ChromeSearchResult::SetUseBadgeIconBackground(
+    bool use_badge_icon_background) {
+  metadata_->use_badge_icon_background = use_badge_icon_background;
   SetSearchResultMetadata();
 }
 
@@ -159,58 +166,21 @@ void ChromeSearchResult::SetSearchResultMetadata() {
     updater->SetSearchResultMetadata(id(), CloneMetadata());
 }
 
-void ChromeSearchResult::InvokeAction(int action_index) {}
+void ChromeSearchResult::InvokeAction(ash::SearchResultActionType action) {}
 
 void ChromeSearchResult::OnVisibilityChanged(bool visibility) {
   VLOG(1) << " Visibility change to " << visibility << " and ID is " << id();
-}
-
-void ChromeSearchResult::UpdateFromMatch(const TokenizedString& title,
-                                         const TokenizedStringMatch& match) {
-  const TokenizedStringMatch::Hits& hits = match.hits();
-
-  Tags tags;
-  tags.reserve(hits.size());
-  for (const auto& hit : hits)
-    tags.push_back(Tag(Tag::MATCH, hit.start(), hit.end()));
-
-  SetTitle(title.text());
-  SetTitleTags(tags);
-  set_relevance(match.relevance());
 }
 
 void ChromeSearchResult::GetContextMenuModel(GetMenuModelCallback callback) {
   std::move(callback).Run(nullptr);
 }
 
-// static
-std::string ChromeSearchResult::TagsDebugStringForTest(const std::string& text,
-                                                       const Tags& tags) {
-  std::string result = text;
-
-  // Build a table of delimiters to insert.
-  std::map<size_t, std::string> inserts;
-  for (const auto& tag : tags) {
-    if (tag.styles & Tag::URL)
-      inserts[tag.range.start()].push_back('{');
-    if (tag.styles & Tag::MATCH)
-      inserts[tag.range.start()].push_back('[');
-    if (tag.styles & Tag::DIM) {
-      inserts[tag.range.start()].push_back('<');
-      inserts[tag.range.end()].push_back('>');
-    }
-    if (tag.styles & Tag::MATCH)
-      inserts[tag.range.end()].push_back(']');
-    if (tag.styles & Tag::URL)
-      inserts[tag.range.end()].push_back('}');
-  }
-  // Insert the delimiters (in reverse order, to preserve indices).
-  for (const auto& insert : base::Reversed(inserts))
-    result.insert(insert.first, insert.second);
-
-  return result;
-}
-
 app_list::AppContextMenu* ChromeSearchResult::GetAppContextMenu() {
   return nullptr;
+}
+
+::std::ostream& operator<<(::std::ostream& os,
+                           const ChromeSearchResult& result) {
+  return os << result.id() << " " << result.scoring();
 }

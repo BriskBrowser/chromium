@@ -6,6 +6,10 @@
 
 #include "base/check.h"
 #import "base/ios/crb_protocol_observers.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
@@ -87,24 +91,28 @@
     return;
   }
 
+  base::RecordAction(base::UserMetricsAction(
+      "MobileIncognitoBiometricAuthenticationRequested"));
+
   NSString* authReason = l10n_util::GetNSStringF(
       IDS_IOS_INCOGNITO_REAUTH_SYSTEM_DIALOG_REASON,
       base::SysNSStringToUTF16(biometricAuthenticationTypeString()));
 
   __weak IncognitoReauthSceneAgent* weakSelf = self;
-  [self.reauthModule
-      attemptReauthWithLocalizedReason:authReason
-                  canReusePreviousAuth:false
-                               handler:^(ReauthenticationResult result) {
-                                 BOOL success =
-                                     (result ==
-                                      ReauthenticationResult::kSuccess);
-                                 weakSelf.authenticatedSinceLastForeground =
-                                     success;
-                                 if (completion) {
-                                   completion(success);
-                                 }
-                               }];
+  void (^completionHandler)(ReauthenticationResult) =
+      ^(ReauthenticationResult result) {
+        BOOL success = (result == ReauthenticationResult::kSuccess);
+        base::UmaHistogramBoolean(
+            "IOS.Incognito.BiometricReauthAttemptSuccessful", success);
+
+        weakSelf.authenticatedSinceLastForeground = success;
+        if (completion) {
+          completion(success);
+        }
+      };
+  [self.reauthModule attemptReauthWithLocalizedReason:authReason
+                                 canReusePreviousAuth:false
+                                              handler:completionHandler];
 }
 
 - (void)addObserver:(id<IncognitoReauthObserver>)observer {
@@ -169,10 +177,29 @@
     self.authenticatedSinceLastForeground = NO;
   } else if (level >= SceneActivationLevelForegroundInactive) {
     [self updateWindowHasIncognitoContent:sceneState];
+    [self logEnabledHistogramOnce];
   }
 }
 
 #pragma mark - private
+
+// Log authentication setting histogram to determine the feature usage.
+// This is done once per app launch.
+// Since this agent is created per-scene, guard it with dispatch_once.
+- (void)logEnabledHistogramOnce {
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    DCHECK(self.localState)
+        << "Local state is not yet available when trying to log "
+           "IOS.Incognito.BiometricAuthEnabled. This code is called too "
+           "soon.";
+    BOOL settingEnabled =
+        self.localState &&
+        self.localState->GetBoolean(prefs::kIncognitoAuthenticationSetting);
+    base::UmaHistogramBoolean("IOS.Incognito.BiometricAuthEnabled",
+                              settingEnabled);
+  });
+}
 
 - (PrefService*)localState {
   if (!_localState) {
@@ -188,8 +215,7 @@
 // Convenience method to check the pref associated with the reauth setting and
 // the feature flag.
 - (BOOL)featureEnabled {
-  return base::FeatureList::IsEnabled(kIncognitoAuthentication) &&
-         self.localState &&
+  return self.localState &&
          self.localState->GetBoolean(prefs::kIncognitoAuthenticationSetting);
 }
 

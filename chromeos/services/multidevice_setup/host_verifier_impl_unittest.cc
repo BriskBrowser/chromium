@@ -71,6 +71,12 @@ enum class HostState {
 
 class MultiDeviceSetupHostVerifierImplTest
     : public ::testing::TestWithParam<TestType> {
+ public:
+  MultiDeviceSetupHostVerifierImplTest(
+      const MultiDeviceSetupHostVerifierImplTest&) = delete;
+  MultiDeviceSetupHostVerifierImplTest& operator=(
+      const MultiDeviceSetupHostVerifierImplTest&) = delete;
+
  protected:
   MultiDeviceSetupHostVerifierImplTest()
       : test_device_(multidevice::CreateRemoteDeviceRefForTest()) {}
@@ -140,7 +146,7 @@ class MultiDeviceSetupHostVerifierImplTest
     }
 
     if (host_state == HostState::kHostNotSet)
-      fake_host_backend_delegate_->NotifyHostChangedOnBackend(base::nullopt);
+      fake_host_backend_delegate_->NotifyHostChangedOnBackend(absl::nullopt);
     else
       fake_host_backend_delegate_->NotifyHostChangedOnBackend(test_device_);
 
@@ -278,8 +284,6 @@ class MultiDeviceSetupHostVerifierImplTest
   std::unique_ptr<HostVerifier> host_verifier_;
 
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(MultiDeviceSetupHostVerifierImplTest);
 };
 
 TEST_P(MultiDeviceSetupHostVerifierImplTest, StartWithoutHost_SetAndVerify) {
@@ -292,7 +296,7 @@ TEST_P(MultiDeviceSetupHostVerifierImplTest, StartWithoutHost_SetAndVerify) {
       kTestTimeMs + kFirstRetryDeltaMs /* expected_retry_timestamp_value */,
       kFirstRetryDeltaMs /* expected_retry_delta_value */);
 
-  SimulateRetryTimePassing(base::TimeDelta::FromMinutes(1));
+  SimulateRetryTimePassing(base::Minutes(1));
   SetHostState(HostState::kHostSetAndFeaturesEnabled);
   VerifyState(true /* expected_is_verified */,
               1u /* expected_num_verified_events */,
@@ -341,9 +345,8 @@ TEST_P(MultiDeviceSetupHostVerifierImplTest, StartWithoutHost_Retry) {
       kFirstRetryDeltaMs /* expected_retry_delta_value */);
 
   // Simulate enough time pasing to time out and retry.
-  SimulateRetryTimePassing(
-      base::TimeDelta::FromMilliseconds(kFirstRetryDeltaMs),
-      true /* simulate_timeout */);
+  SimulateRetryTimePassing(base::Milliseconds(kFirstRetryDeltaMs),
+                           true /* simulate_timeout */);
   InvokePendingDeviceNotificationCall(true /* success */);
   VerifyState(false /* expected_is_verified */,
               0u /* expected_num_verified_events */,
@@ -355,8 +358,7 @@ TEST_P(MultiDeviceSetupHostVerifierImplTest, StartWithoutHost_Retry) {
 
   // Simulate the next retry timeout passing.
   SimulateRetryTimePassing(
-      base::TimeDelta::FromMilliseconds(kFirstRetryDeltaMs *
-                                        kExponentialBackoffMultiplier),
+      base::Milliseconds(kFirstRetryDeltaMs * kExponentialBackoffMultiplier),
       true /* simulate_timeout */);
   InvokePendingDeviceNotificationCall(true /* success */);
   VerifyState(false /* expected_is_verified */,
@@ -394,16 +396,15 @@ TEST_P(MultiDeviceSetupHostVerifierImplTest,
   // Simulate starting up the device to find that the retry timer is in 5
   // minutes.
   CreateVerifier(HostState::kHostSetButFeaturesDisabled,
-                 kTestTimeMs + base::TimeDelta::FromMinutes(5).InMilliseconds()
+                 kTestTimeMs + base::Minutes(5).InMilliseconds()
                  /* initial_timer_pref_value */,
                  kFirstRetryDeltaMs /* initial_time_delta_pref_value */);
 
-  SimulateRetryTimePassing(base::TimeDelta::FromMinutes(5),
-                           true /* simulate_timeout */);
+  SimulateRetryTimePassing(base::Minutes(5), true /* simulate_timeout */);
   InvokePendingDeviceNotificationCall(true /* success */);
   VerifyState(false /* expected_is_verified */,
               0u /* expected_num_verified_events */,
-              kTestTimeMs + base::TimeDelta::FromMinutes(5).InMilliseconds() +
+              kTestTimeMs + base::Minutes(5).InMilliseconds() +
                   kFirstRetryDeltaMs * kExponentialBackoffMultiplier
               /* expected_retry_timestamp_value */,
               kFirstRetryDeltaMs * kExponentialBackoffMultiplier
@@ -415,14 +416,14 @@ TEST_P(MultiDeviceSetupHostVerifierImplTest,
   // Simulate starting up the device to find that the retry timer had already
   // fired 5 minutes ago.
   CreateVerifier(HostState::kHostSetButFeaturesDisabled,
-                 kTestTimeMs - base::TimeDelta::FromMinutes(5).InMilliseconds()
+                 kTestTimeMs - base::Minutes(5).InMilliseconds()
                  /* initial_timer_pref_value */,
                  kFirstRetryDeltaMs /* initial_time_delta_pref_value */);
 
   InvokePendingDeviceNotificationCall(true /* success */);
   VerifyState(false /* expected_is_verified */,
               0u /* expected_num_verified_events */,
-              kTestTimeMs - base::TimeDelta::FromMinutes(5).InMilliseconds() +
+              kTestTimeMs - base::Minutes(5).InMilliseconds() +
                   kFirstRetryDeltaMs * kExponentialBackoffMultiplier
               /* expected_retry_timestamp_value */,
               kFirstRetryDeltaMs * kExponentialBackoffMultiplier
@@ -434,7 +435,7 @@ TEST_P(MultiDeviceSetupHostVerifierImplTest,
   // Simulate starting up the device to find that the retry timer had already
   // fired 20 minutes ago.
   CreateVerifier(HostState::kHostSetButFeaturesDisabled,
-                 kTestTimeMs - base::TimeDelta::FromMinutes(20).InMilliseconds()
+                 kTestTimeMs - base::Minutes(20).InMilliseconds()
                  /* initial_timer_pref_value */,
                  kFirstRetryDeltaMs /* initial_time_delta_pref_value */);
 
@@ -444,7 +445,7 @@ TEST_P(MultiDeviceSetupHostVerifierImplTest,
   InvokePendingDeviceNotificationCall(true /* success */);
   VerifyState(false /* expected_is_verified */,
               0u /* expected_num_verified_events */,
-              kTestTimeMs - base::TimeDelta::FromMinutes(20).InMilliseconds() +
+              kTestTimeMs - base::Minutes(20).InMilliseconds() +
                   kFirstRetryDeltaMs * kExponentialBackoffMultiplier +
                   kFirstRetryDeltaMs * kExponentialBackoffMultiplier *
                       kExponentialBackoffMultiplier
@@ -485,7 +486,7 @@ TEST_P(MultiDeviceSetupHostVerifierImplTest,
               0 /* expected_retry_delta_value */);
 
   fake_host_backend_delegate()->AttemptToSetMultiDeviceHostOnBackend(
-      base::nullopt /* host_device */);
+      absl::nullopt /* host_device */);
   VerifyState(false /* expected_is_verified */,
               0u /* expected_num_verified_events */,
               0 /* expected_retry_timestamp_value */,

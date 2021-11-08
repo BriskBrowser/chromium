@@ -1,3 +1,9 @@
+include_rules = [
+  "+ash/components/account_manager",
+  "+components/live_caption:constants",
+  "+components/profile_metrics",
+]
+
 specific_include_rules = {
   "chrome_browser_main_extra_parts_profiles.cc": [
     # This is required to create the SiteDataCacheFacadeFactory when a profile

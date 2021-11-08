@@ -77,6 +77,9 @@ class COMPONENT_EXPORT(CHROMEOS_ATTESTATION) AttestationFlow {
   AttestationFlow(std::unique_ptr<ServerProxy> server_proxy,
                   ::attestation::KeyType crypto_key_type);
 
+  AttestationFlow(const AttestationFlow&) = delete;
+  AttestationFlow& operator=(const AttestationFlow&) = delete;
+
   virtual ~AttestationFlow();
 
   // Sets the timeout for attestation to be ready.
@@ -285,11 +288,18 @@ class COMPONENT_EXPORT(CHROMEOS_ATTESTATION) AttestationFlow {
   base::TimeDelta retry_delay_;
 
   base::WeakPtrFactory<AttestationFlow> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AttestationFlow);
 };
 
 }  // namespace attestation
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when //chromeos/attestation
+// moved to ash
+namespace ash {
+namespace attestation {
+using ::chromeos::attestation::AttestationFlow;
+using ::chromeos::attestation::ServerProxy;
+}  // namespace attestation
+}  // namespace ash
 
 #endif  // CHROMEOS_ATTESTATION_ATTESTATION_FLOW_H_

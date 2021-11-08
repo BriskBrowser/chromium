@@ -1,5 +1,5 @@
 This is a testharness.js-based test.
-Found 3732 tests; 3709 PASS, 23 FAIL, 0 TIMEOUT, 0 NOTRUN.
+Found 3772 tests; 3750 PASS, 22 FAIL, 0 TIMEOUT, 0 NOTRUN.
 PASS idl_test setup
 PASS idl_test validation
 PASS Partial interface Document: original interface defined
@@ -79,17 +79,15 @@ PASS Partial interface Window: member names are unique
 PASS Partial interface Document[3]: member names are unique
 PASS Partial interface mixin DocumentOrShadowRoot[2]: member names are unique
 PASS Partial interface UIEvent: member names are unique
+PASS Partial interface MouseEvent: member names are unique
+PASS Partial interface UIEvent[2]: member names are unique
+PASS Partial dictionary UIEventInit: member names are unique
 PASS Document includes GlobalEventHandlers: member names are unique
 PASS Document includes DocumentAndElementEventHandlers: member names are unique
-PASS Document includes NonElementParentNode: member names are unique
-PASS Document includes DocumentOrShadowRoot: member names are unique
-PASS Document includes ParentNode: member names are unique
-PASS Document includes XPathEvaluatorBase: member names are unique
 PASS HTMLElement includes GlobalEventHandlers: member names are unique
 PASS HTMLElement includes DocumentAndElementEventHandlers: member names are unique
 PASS HTMLElement includes ElementContentEditable: member names are unique
 PASS HTMLElement includes HTMLOrSVGElement: member names are unique
-PASS HTMLElement includes ElementCSSInlineStyle: member names are unique
 PASS HTMLLinkElement includes LinkStyle: member names are unique
 PASS HTMLStyleElement includes LinkStyle: member names are unique
 PASS HTMLBodyElement includes WindowEventHandlers: member names are unique
@@ -131,9 +129,6 @@ PASS ElementInternals includes ARIAMixin: member names are unique
 PASS Window includes GlobalEventHandlers: member names are unique
 PASS Window includes WindowEventHandlers: member names are unique
 PASS Window includes WindowOrWorkerGlobalScope: member names are unique
-PASS Window includes AnimationFrameProvider: member names are unique
-PASS Window includes WindowSessionStorage: member names are unique
-PASS Window includes WindowLocalStorage: member names are unique
 PASS WorkerGlobalScope includes WindowOrWorkerGlobalScope: member names are unique
 PASS Navigator includes NavigatorID: member names are unique
 PASS Navigator includes NavigatorLanguage: member names are unique
@@ -142,6 +137,7 @@ PASS Navigator includes NavigatorContentUtils: member names are unique
 PASS Navigator includes NavigatorCookies: member names are unique
 PASS Navigator includes NavigatorPlugins: member names are unique
 PASS Navigator includes NavigatorConcurrentHardware: member names are unique
+PASS Window includes AnimationFrameProvider: member names are unique
 PASS DedicatedWorkerGlobalScope includes AnimationFrameProvider: member names are unique
 PASS Worker includes AbstractWorker: member names are unique
 PASS SharedWorker includes AbstractWorker: member names are unique
@@ -149,27 +145,32 @@ PASS WorkerNavigator includes NavigatorID: member names are unique
 PASS WorkerNavigator includes NavigatorLanguage: member names are unique
 PASS WorkerNavigator includes NavigatorOnLine: member names are unique
 PASS WorkerNavigator includes NavigatorConcurrentHardware: member names are unique
+PASS Window includes WindowSessionStorage: member names are unique
+PASS Window includes WindowLocalStorage: member names are unique
 PASS HTMLFrameSetElement includes WindowEventHandlers: member names are unique
 PASS Element includes ARIAMixin: member names are unique
-PASS Element includes ParentNode: member names are unique
-PASS Element includes NonDocumentTypeChildNode: member names are unique
-PASS Element includes ChildNode: member names are unique
-PASS Element includes Slottable: member names are unique
 PASS SVGElement includes GlobalEventHandlers: member names are unique
 PASS SVGElement includes DocumentAndElementEventHandlers: member names are unique
 PASS SVGElement includes SVGElementInstance: member names are unique
 PASS SVGElement includes HTMLOrSVGElement: member names are unique
-PASS SVGElement includes ElementCSSInlineStyle: member names are unique
 PASS SVGGraphicsElement includes SVGTests: member names are unique
 PASS SVGSVGElement includes SVGFitToViewBox: member names are unique
 PASS SVGSVGElement includes WindowEventHandlers: member names are unique
 PASS SVGImageElement includes SVGURIReference: member names are unique
 PASS SVGScriptElement includes SVGURIReference: member names are unique
-PASS SVGAElement includes SVGURIReference: member names are unique
-FAIL SVGAElement includes HTMLHyperlinkElementUtils: member names are unique assert_true: member href is unique expected true got false
+PASS HTMLElement includes ElementCSSInlineStyle: member names are unique
+PASS SVGElement includes ElementCSSInlineStyle: member names are unique
+PASS Document includes NonElementParentNode: member names are unique
 PASS DocumentFragment includes NonElementParentNode: member names are unique
-PASS DocumentFragment includes ParentNode: member names are unique
+PASS Document includes DocumentOrShadowRoot: member names are unique
 PASS ShadowRoot includes DocumentOrShadowRoot: member names are unique
+PASS Document includes ParentNode: member names are unique
+PASS DocumentFragment includes ParentNode: member names are unique
+PASS Element includes ParentNode: member names are unique
+PASS Element includes NonDocumentTypeChildNode: member names are unique
+PASS Element includes ChildNode: member names are unique
+PASS Element includes Slottable: member names are unique
+PASS Document includes XPathEvaluatorBase: member names are unique
 PASS HTMLAllCollection interface: existence and properties of interface object
 PASS HTMLAllCollection interface object length
 PASS HTMLAllCollection interface object name
@@ -233,6 +234,7 @@ PASS HTMLElement interface: attribute draggable
 PASS HTMLElement interface: attribute spellcheck
 PASS HTMLElement interface: attribute autocapitalize
 PASS HTMLElement interface: attribute innerText
+PASS HTMLElement interface: attribute outerText
 PASS HTMLElement interface: operation attachInternals()
 PASS HTMLElement interface: attribute onabort
 PASS HTMLElement interface: attribute onauxclick
@@ -243,7 +245,9 @@ PASS HTMLElement interface: attribute oncanplaythrough
 PASS HTMLElement interface: attribute onchange
 PASS HTMLElement interface: attribute onclick
 PASS HTMLElement interface: attribute onclose
+FAIL HTMLElement interface: attribute oncontextlost assert_true: The prototype object must have a property "oncontextlost" expected true got false
 PASS HTMLElement interface: attribute oncontextmenu
+FAIL HTMLElement interface: attribute oncontextrestored assert_true: The prototype object must have a property "oncontextrestored" expected true got false
 PASS HTMLElement interface: attribute oncuechange
 PASS HTMLElement interface: attribute ondblclick
 PASS HTMLElement interface: attribute ondrag
@@ -283,11 +287,11 @@ PASS HTMLElement interface: attribute onratechange
 PASS HTMLElement interface: attribute onreset
 PASS HTMLElement interface: attribute onresize
 PASS HTMLElement interface: attribute onscroll
-FAIL HTMLElement interface: attribute onsecuritypolicyviolation assert_true: The prototype object must have a property "onsecuritypolicyviolation" expected true got false
+PASS HTMLElement interface: attribute onsecuritypolicyviolation
 PASS HTMLElement interface: attribute onseeked
 PASS HTMLElement interface: attribute onseeking
 PASS HTMLElement interface: attribute onselect
-FAIL HTMLElement interface: attribute onslotchange assert_true: The prototype object must have a property "onslotchange" expected true got false
+PASS HTMLElement interface: attribute onslotchange
 PASS HTMLElement interface: attribute onstalled
 PASS HTMLElement interface: attribute onsubmit
 PASS HTMLElement interface: attribute onsuspend
@@ -327,6 +331,7 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "spellcheck" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "autocapitalize" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "innerText" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "outerText" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "attachInternals()" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onabort" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onauxclick" with the proper type
@@ -337,7 +342,9 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onchange" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onclick" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onclose" with the proper type
+FAIL HTMLElement interface: document.createElement("noscript") must inherit property "oncontextlost" with the proper type assert_inherits: property "oncontextlost" not found in prototype chain
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncontextmenu" with the proper type
+FAIL HTMLElement interface: document.createElement("noscript") must inherit property "oncontextrestored" with the proper type assert_inherits: property "oncontextrestored" not found in prototype chain
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncuechange" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "ondblclick" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "ondrag" with the proper type
@@ -377,11 +384,11 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onreset" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onresize" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onscroll" with the proper type
-FAIL HTMLElement interface: document.createElement("noscript") must inherit property "onsecuritypolicyviolation" with the proper type assert_inherits: property "onsecuritypolicyviolation" not found in prototype chain
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "onsecuritypolicyviolation" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onseeked" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onseeking" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onselect" with the proper type
-FAIL HTMLElement interface: document.createElement("noscript") must inherit property "onslotchange" with the proper type assert_inherits: property "onslotchange" not found in prototype chain
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "onslotchange" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onstalled" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onsubmit" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onsuspend" with the proper type
@@ -507,12 +514,14 @@ PASS HTMLMetaElement interface: existence and properties of interface prototype 
 PASS HTMLMetaElement interface: attribute name
 PASS HTMLMetaElement interface: attribute httpEquiv
 PASS HTMLMetaElement interface: attribute content
+PASS HTMLMetaElement interface: attribute media
 PASS HTMLMetaElement interface: attribute scheme
 PASS HTMLMetaElement must be primary interface of document.createElement("meta")
 PASS Stringification of document.createElement("meta")
 PASS HTMLMetaElement interface: document.createElement("meta") must inherit property "name" with the proper type
 PASS HTMLMetaElement interface: document.createElement("meta") must inherit property "httpEquiv" with the proper type
 PASS HTMLMetaElement interface: document.createElement("meta") must inherit property "content" with the proper type
+PASS HTMLMetaElement interface: document.createElement("meta") must inherit property "media" with the proper type
 PASS HTMLMetaElement interface: document.createElement("meta") must inherit property "scheme" with the proper type
 PASS HTMLStyleElement interface: existence and properties of interface object
 PASS HTMLStyleElement interface object length
@@ -834,6 +843,8 @@ PASS HTMLSourceElement interface: attribute type
 PASS HTMLSourceElement interface: attribute srcset
 PASS HTMLSourceElement interface: attribute sizes
 PASS HTMLSourceElement interface: attribute media
+PASS HTMLSourceElement interface: attribute width
+PASS HTMLSourceElement interface: attribute height
 PASS HTMLSourceElement must be primary interface of document.createElement("source")
 PASS Stringification of document.createElement("source")
 PASS HTMLSourceElement interface: document.createElement("source") must inherit property "src" with the proper type
@@ -841,6 +852,8 @@ PASS HTMLSourceElement interface: document.createElement("source") must inherit 
 PASS HTMLSourceElement interface: document.createElement("source") must inherit property "srcset" with the proper type
 PASS HTMLSourceElement interface: document.createElement("source") must inherit property "sizes" with the proper type
 PASS HTMLSourceElement interface: document.createElement("source") must inherit property "media" with the proper type
+PASS HTMLSourceElement interface: document.createElement("source") must inherit property "width" with the proper type
+PASS HTMLSourceElement interface: document.createElement("source") must inherit property "height" with the proper type
 PASS HTMLImageElement interface: existence and properties of interface object
 PASS HTMLImageElement interface object length
 PASS HTMLImageElement interface object name
@@ -954,6 +967,27 @@ PASS HTMLIFrameElement interface: attribute frameBorder
 PASS HTMLIFrameElement interface: attribute longDesc
 PASS HTMLIFrameElement interface: attribute marginHeight
 PASS HTMLIFrameElement interface: attribute marginWidth
+PASS HTMLIFrameElement must be primary interface of document.createElement("iframe")
+PASS Stringification of document.createElement("iframe")
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "src" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "srcdoc" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "name" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "sandbox" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "allow" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "allowFullscreen" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "width" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "height" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "referrerPolicy" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "loading" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "contentDocument" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "contentWindow" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "getSVGDocument()" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "align" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "scrolling" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "frameBorder" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "longDesc" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "marginHeight" with the proper type
+PASS HTMLIFrameElement interface: document.createElement("iframe") must inherit property "marginWidth" with the proper type
 PASS HTMLEmbedElement interface: existence and properties of interface object
 PASS HTMLEmbedElement interface object length
 PASS HTMLEmbedElement interface object name
@@ -985,7 +1019,6 @@ PASS HTMLObjectElement interface: existence and properties of interface prototyp
 PASS HTMLObjectElement interface: attribute data
 PASS HTMLObjectElement interface: attribute type
 PASS HTMLObjectElement interface: attribute name
-PASS HTMLObjectElement interface: attribute useMap
 PASS HTMLObjectElement interface: attribute form
 PASS HTMLObjectElement interface: attribute width
 PASS HTMLObjectElement interface: attribute height
@@ -1007,13 +1040,13 @@ PASS HTMLObjectElement interface: attribute standby
 PASS HTMLObjectElement interface: attribute vspace
 PASS HTMLObjectElement interface: attribute codeBase
 PASS HTMLObjectElement interface: attribute codeType
+PASS HTMLObjectElement interface: attribute useMap
 PASS HTMLObjectElement interface: attribute border
 PASS HTMLObjectElement must be primary interface of document.createElement("object")
 PASS Stringification of document.createElement("object")
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "data" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "type" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "name" with the proper type
-PASS HTMLObjectElement interface: document.createElement("object") must inherit property "useMap" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "form" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "width" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "height" with the proper type
@@ -1036,6 +1069,7 @@ PASS HTMLObjectElement interface: document.createElement("object") must inherit 
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "vspace" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "codeBase" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "codeType" with the proper type
+PASS HTMLObjectElement interface: document.createElement("object") must inherit property "useMap" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "border" with the proper type
 PASS HTMLParamElement interface: existence and properties of interface object
 PASS HTMLParamElement interface object length
@@ -3536,6 +3570,7 @@ PASS HTMLScriptElement interface: attribute crossOrigin
 PASS HTMLScriptElement interface: attribute text
 PASS HTMLScriptElement interface: attribute integrity
 PASS HTMLScriptElement interface: attribute referrerPolicy
+PASS HTMLScriptElement interface: operation supports(DOMString)
 PASS HTMLScriptElement interface: attribute charset
 PASS HTMLScriptElement interface: attribute event
 PASS HTMLScriptElement interface: attribute htmlFor
@@ -3550,6 +3585,8 @@ PASS HTMLScriptElement interface: document.createElement("script") must inherit 
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "text" with the proper type
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "integrity" with the proper type
 FAIL HTMLScriptElement interface: document.createElement("script") must inherit property "referrerPolicy" with the proper type assert_equals: expected "string" but got "object"
+PASS HTMLScriptElement interface: document.createElement("script") must inherit property "supports(DOMString)" with the proper type
+PASS HTMLScriptElement interface: calling supports(DOMString) on document.createElement("script") with too few arguments must throw TypeError
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "charset" with the proper type
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "event" with the proper type
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "htmlFor" with the proper type
@@ -3572,6 +3609,7 @@ PASS HTMLSlotElement interface: existence and properties of interface prototype 
 PASS HTMLSlotElement interface: attribute name
 PASS HTMLSlotElement interface: operation assignedNodes(optional AssignedNodesOptions)
 PASS HTMLSlotElement interface: operation assignedElements(optional AssignedNodesOptions)
+PASS HTMLSlotElement interface: operation assign((Element or Text)...)
 PASS HTMLSlotElement must be primary interface of document.createElement("slot")
 PASS Stringification of document.createElement("slot")
 PASS HTMLSlotElement interface: document.createElement("slot") must inherit property "name" with the proper type
@@ -3579,6 +3617,8 @@ PASS HTMLSlotElement interface: document.createElement("slot") must inherit prop
 PASS HTMLSlotElement interface: calling assignedNodes(optional AssignedNodesOptions) on document.createElement("slot") with too few arguments must throw TypeError
 PASS HTMLSlotElement interface: document.createElement("slot") must inherit property "assignedElements(optional AssignedNodesOptions)" with the proper type
 PASS HTMLSlotElement interface: calling assignedElements(optional AssignedNodesOptions) on document.createElement("slot") with too few arguments must throw TypeError
+PASS HTMLSlotElement interface: document.createElement("slot") must inherit property "assign((Element or Text)...)" with the proper type
+PASS HTMLSlotElement interface: calling assign((Element or Text)...) on document.createElement("slot") with too few arguments must throw TypeError
 PASS HTMLCanvasElement interface: existence and properties of interface object
 PASS HTMLCanvasElement interface object length
 PASS HTMLCanvasElement interface object name

@@ -25,12 +25,14 @@ class CallbackArgument {
  public:
   explicit CallbackArgument(base::OnceClosure on_delete)
       : on_delete_(std::move(on_delete)) {}
+
+  CallbackArgument(const CallbackArgument&) = delete;
+  CallbackArgument& operator=(const CallbackArgument&) = delete;
+
   ~CallbackArgument() { std::move(on_delete_).Run(); }
 
  private:
   base::OnceClosure on_delete_;
-
-  DISALLOW_COPY_AND_ASSIGN(CallbackArgument);
 };
 
 }  // namespace
@@ -50,8 +52,8 @@ class DelayedCallbackRunnerTest : public testing::Test {
   DelayedCallbackRunnerTest() {}
 
   void SetUp() override {
-    instance_.reset(new safe_browsing::DelayedCallbackRunner(
-        base::TimeDelta(), base::ThreadTaskRunnerHandle::Get()));
+    instance_ = std::make_unique<safe_browsing::DelayedCallbackRunner>(
+        base::TimeDelta(), base::ThreadTaskRunnerHandle::Get());
   }
 
   void TearDown() override { instance_.reset(); }

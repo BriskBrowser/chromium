@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// The IME ID for the Accessibility Common extension used by Dictation.
+/** @type {string} */
+const ACCESSIBILITY_COMMON_IME_ID =
+    '_ext_ime_egfdjlfmgnehecnclamagfafdccgfndpdictation';
+
 /**
  * @fileoverview
  * 'os-settings-languages-section' is the top-level settings section for
@@ -9,6 +14,10 @@
  */
 Polymer({
   is: 'os-settings-languages-section',
+
+  behaviors: [
+    I18nBehavior,
+  ],
 
   properties: {
     prefs: Object,
@@ -27,11 +36,6 @@ Polymer({
       type: Object,
       value() {
         const map = new Map();
-        if (settings.routes.OS_LANGUAGES_DETAILS) {
-          map.set(
-              settings.routes.OS_LANGUAGES_DETAILS.path,
-              '#languagesSubpageTrigger');
-        }
         if (settings.routes.OS_LANGUAGES_SMART_INPUTS) {
           map.set(
               settings.routes.OS_LANGUAGES_SMART_INPUTS.path,
@@ -41,14 +45,13 @@ Polymer({
       },
     },
 
-    /**
-     * This is enabled when language settings update feature flag is enabled.
-     * @private
-     * */
-    languageSettingsV2Enabled_: {
-      type: Boolean,
+    /** @private */
+    inputPageTitle_: {
+      type: String,
       value() {
-        return loadTimeData.getBoolean('enableLanguageSettingsV2');
+        const isUpdate2 =
+            loadTimeData.getBoolean('enableLanguageSettingsV2Update2');
+        return this.i18n(isUpdate2 ? 'inputPageTitleV2' : 'inputPageTitle');
       },
     },
 
@@ -60,7 +63,8 @@ Polymer({
       type: Boolean,
       value() {
         return loadTimeData.getBoolean('allowAssistivePersonalInfo') ||
-            loadTimeData.getBoolean('allowEmojiSuggestion');
+            loadTimeData.getBoolean('allowEmojiSuggestion') ||
+            loadTimeData.getBoolean('allowPredictiveWriting');
       },
     }
   },
@@ -78,40 +82,9 @@ Polymer({
   },
 
   /** @private */
-  onLanguagesTap_() {
-    // TODO(crbug.com/950007): Add UMA metric for opening language details.
-    settings.Router.getInstance().navigateTo(
-        settings.routes.OS_LANGUAGES_DETAILS);
-  },
-
-  /** @private */
   onSmartInputsClick_() {
     settings.Router.getInstance().navigateTo(
         settings.routes.OS_LANGUAGES_SMART_INPUTS);
-  },
-
-  /**
-   * @param {string|undefined} uiLanguage Current UI language fully specified,
-   *     e.g. "English (United States)".
-   * @param {string} id The input method ID, e.g. "US Keyboard".
-   * @param {!LanguageHelper} languageHelper The LanguageHelper object.
-   * @return {string} A sublabel for the 'Languages and input' row
-   * @private
-   */
-  getSubLabel_(uiLanguage, id, languageHelper) {
-    const languageDisplayName =
-        this.getLanguageDisplayName_(uiLanguage, languageHelper);
-    if (!languageDisplayName) {
-      return '';
-    }
-    const inputMethodDisplayName =
-        this.getInputMethodDisplayName_(id, languageHelper);
-    if (!inputMethodDisplayName) {
-      return languageDisplayName;
-    }
-    // It is OK to use string concatenation here because it is just joining a 2
-    // element list (i.e. it's a standard format).
-    return languageDisplayName + ', ' + inputMethodDisplayName;
   },
 
   /**
@@ -132,18 +105,20 @@ Polymer({
   },
 
   /**
-   * @param {string} id The input method ID.
+   * @param {string|undefined} id The input method ID.
    * @param {!LanguageHelper} languageHelper The LanguageHelper object.
    * @return {string} The display name of the input method.
    * @private
    */
   getInputMethodDisplayName_(id, languageHelper) {
-    // LanguageHelper.getInputMethodDisplayName will throw an error if the ID
-    // isn't found, such as when using CrOS on Linux.
-    try {
-      return languageHelper.getInputMethodDisplayName(id);
-    } catch (_) {
+    if (id === undefined) {
       return '';
     }
+
+    if (id === ACCESSIBILITY_COMMON_IME_ID) {
+      return '';
+    }
+
+    return languageHelper.getInputMethodDisplayName(id);
   },
 });

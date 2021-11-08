@@ -24,7 +24,10 @@ class DesktopMediaListView
   DesktopMediaListView(DesktopMediaListController* controller,
                        DesktopMediaSourceViewStyle generic_style,
                        DesktopMediaSourceViewStyle single_style,
-                       const base::string16& accessible_name);
+                       const std::u16string& accessible_name);
+
+  DesktopMediaListView(const DesktopMediaListView&) = delete;
+  DesktopMediaListView& operator=(const DesktopMediaListView&) = delete;
 
   ~DesktopMediaListView() override;
 
@@ -38,7 +41,7 @@ class DesktopMediaListView
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // DesktopMediaListController::ListView:
-  base::Optional<content::DesktopMediaID> GetSelection() override;
+  absl::optional<content::DesktopMediaID> GetSelection() override;
   DesktopMediaListController::SourceListListener* GetSourceListListener()
       override;
 
@@ -48,6 +51,7 @@ class DesktopMediaListView
   void OnSourceMoved(size_t old_index, size_t new_index) override;
   void OnSourceNameChanged(size_t index) override;
   void OnSourceThumbnailChanged(size_t index) override;
+  void OnSourcePreviewChanged(size_t index) override;
 
  private:
   // Change the source style of this list on the fly.
@@ -61,9 +65,7 @@ class DesktopMediaListView
   DesktopMediaSourceViewStyle generic_style_;
   DesktopMediaSourceViewStyle* active_style_;
 
-  const base::string16 accessible_name_;
-
-  DISALLOW_COPY_AND_ASSIGN(DesktopMediaListView);
+  const std::u16string accessible_name_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_DESKTOP_CAPTURE_DESKTOP_MEDIA_LIST_VIEW_H_

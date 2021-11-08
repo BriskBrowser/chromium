@@ -106,7 +106,6 @@ void PrefetchURLLoaderService::GetFactory(
 
 void PrefetchURLLoaderService::CreateLoaderAndStart(
     mojo::PendingReceiver<network::mojom::URLLoader> receiver,
-    int32_t routing_id,
     int32_t request_id,
     uint32_t options,
     const network::ResourceRequest& resource_request_in,
@@ -209,7 +208,7 @@ void PrefetchURLLoaderService::CreateLoaderAndStart(
   // TODO(kinuko): Revisit this.
   mojo::MakeSelfOwnedReceiver(
       std::make_unique<PrefetchURLLoader>(
-          routing_id, request_id, options, current_context.frame_tree_node_id,
+          request_id, options, current_context.frame_tree_node_id,
           resource_request,
           resource_request.trusted_params
               ? resource_request.trusted_params->isolation_info
@@ -237,7 +236,8 @@ bool PrefetchURLLoaderService::IsValidCrossOriginPrefetch(
     const network::ResourceRequest& resource_request) {
   // All fetches need to have an associated request_initiator.
   if (!resource_request.request_initiator) {
-    mojo::ReportBadMessage("Prefetch/IsValidCrossOrigin: no request_initiator");
+    loader_factory_receivers_.ReportBadMessage(
+        "Prefetch/IsValidCrossOrigin: no request_initiator");
     return false;
   }
 
@@ -248,7 +248,8 @@ bool PrefetchURLLoaderService::IsValidCrossOriginPrefetch(
   DCHECK(resource_request.request_initiator.has_value());  // Checked above.
   if (resource_request.request_initiator->IsSameOriginWith(
           destination_origin)) {
-    mojo::ReportBadMessage("Prefetch/IsValidCrossOrigin: same-origin");
+    loader_factory_receivers_.ReportBadMessage(
+        "Prefetch/IsValidCrossOrigin: same-origin");
     return false;
   }
 
@@ -261,7 +262,7 @@ bool PrefetchURLLoaderService::IsValidCrossOriginPrefetch(
   if (!resource_request.request_initiator->opaque() &&
       resource_request.request_initiator.value() !=
           current_context.render_frame_host->GetLastCommittedOrigin()) {
-    mojo::ReportBadMessage(
+    loader_factory_receivers_.ReportBadMessage(
         "Prefetch/IsValidCrossOrigin: frame origin mismatch");
     return false;
   }
@@ -270,7 +271,8 @@ bool PrefetchURLLoaderService::IsValidCrossOriginPrefetch(
   // mode must be |kError|.
   if (base::FeatureList::IsEnabled(blink::features::kPrefetchPrivacyChanges) &&
       resource_request.redirect_mode != network::mojom::RedirectMode::kError) {
-    mojo::ReportBadMessage("Prefetch/IsValidCrossOrigin: wrong redirect mode");
+    loader_factory_receivers_.ReportBadMessage(
+        "Prefetch/IsValidCrossOrigin: wrong redirect mode");
     return false;
   }
 
@@ -279,14 +281,15 @@ bool PrefetchURLLoaderService::IsValidCrossOriginPrefetch(
   // prefetched the same resource, which should only be reused for top-level
   // navigations.
   if (resource_request.load_flags & net::LOAD_CAN_USE_RESTRICTED_PREFETCH) {
-    mojo::ReportBadMessage(
+    loader_factory_receivers_.ReportBadMessage(
         "Prefetch/IsValidCrossOrigin: can use restricted prefetch");
     return false;
   }
 
   // The request must not already have its |trusted_params| initialized.
   if (resource_request.trusted_params) {
-    mojo::ReportBadMessage("Prefetch/IsValidCrossOrigin: trusted params");
+    loader_factory_receivers_.ReportBadMessage(
+        "Prefetch/IsValidCrossOrigin: trusted params");
     return false;
   }
 

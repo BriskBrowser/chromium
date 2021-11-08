@@ -4,6 +4,8 @@
 
 #include "chrome/browser/download/android/download_manager_service.h"
 
+#include <memory>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
@@ -38,6 +40,10 @@ class DownloadManagerServiceTest : public testing::Test {
     service_->UpdateCoordinator(&coordinator_, profile_.GetProfileKey());
   }
 
+  DownloadManagerServiceTest(const DownloadManagerServiceTest&) = delete;
+  DownloadManagerServiceTest& operator=(const DownloadManagerServiceTest&) =
+      delete;
+
   void OnResumptionDone(bool success) {
     success_ = success;
     run_loop_.Quit();
@@ -63,7 +69,7 @@ class DownloadManagerServiceTest : public testing::Test {
   }
 
   void CreateDownloadItem(bool can_resume) {
-    download_.reset(new download::MockDownloadItem());
+    download_ = std::make_unique<download::MockDownloadItem>();
     ON_CALL(*download_, CanResume())
         .WillByDefault(::testing::Return(can_resume));
   }
@@ -81,8 +87,6 @@ class DownloadManagerServiceTest : public testing::Test {
   TestingProfile profile_;
   bool success_;
   base::RunLoop run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadManagerServiceTest);
 };
 
 // Test that resumption succeeds if the download item is found and can be

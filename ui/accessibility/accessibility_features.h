@@ -61,6 +61,13 @@ AX_BASE_EXPORT extern const base::Feature kAccessibilityFocusHighlight;
 // briefly whenever focus changes.
 AX_BASE_EXPORT bool IsAccessibilityFocusHighlightEnabled();
 
+AX_BASE_EXPORT extern const base::Feature kAutoDisableAccessibility;
+
+// Returns true if accessibility will be auto-disabled after a certain
+// number of user input events spanning a minimum amount of time with no
+// accessibility API usage in that time.
+AX_BASE_EXPORT bool IsAutoDisableAccessibilityEnabled();
+
 #if defined(OS_WIN)
 // Enables an experimental Chrome-specific accessibility COM API
 AX_BASE_EXPORT extern const base::Feature kIChromeAccessible;
@@ -68,23 +75,16 @@ AX_BASE_EXPORT extern const base::Feature kIChromeAccessible;
 // Returns true if the IChromeAccessible COM API is enabled.
 AX_BASE_EXPORT bool IsIChromeAccessibleEnabled();
 
+AX_BASE_EXPORT extern const base::Feature kSelectiveUIAEnablement;
+
+// Returns true if accessibility will be selectively enabled depending on the
+// UIA APIs that are called, allowing non-screenreader usage to enable less of
+// the accessibility system.
+AX_BASE_EXPORT bool IsSelectiveUIAEnablementEnabled();
+
 #endif  // defined(OS_WIN)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-// Enables new magnifier focus following feature, which provides a richer
-// focus following experience.
-AX_BASE_EXPORT extern const base::Feature kMagnifierNewFocusFollowing;
-
-// Returns true if the new magnifier focus following feature is enabled.
-AX_BASE_EXPORT bool IsMagnifierNewFocusFollowingEnabled();
-
-// Enables new magnifier panning improvements feature, which adds
-// additional keyboard and mouse panning functionality in Magnifier.
-AX_BASE_EXPORT extern const base::Feature kMagnifierPanningImprovements;
-
-// Returns true if the new magnifier panning improvements feature is enabled.
-AX_BASE_EXPORT bool IsMagnifierPanningImprovementsEnabled();
-
 // Enables ability to choose new continuous mouse following mode in Magnifier
 // settings.
 AX_BASE_EXPORT extern const base::Feature
@@ -93,6 +93,38 @@ AX_BASE_EXPORT extern const base::Feature
 // Returns true if the feature to allow choosing the new continuous mouse
 // following mode in Magnifier settings is enabled.
 AX_BASE_EXPORT bool IsMagnifierContinuousMouseFollowingModeSettingEnabled();
+
+// Enables dictation to use on-device speech recognition when available.
+AX_BASE_EXPORT extern const base::Feature
+    kExperimentalAccessibilityDictationOffline;
+
+// Returns true if experimental accessibility offline dictation is enabled.
+AX_BASE_EXPORT bool IsExperimentalAccessibilityDictationOfflineEnabled();
+
+AX_BASE_EXPORT bool IsDictationOfflineAvailableAndEnabled();
+
+// Enables text-editing commands in the dictation.
+AX_BASE_EXPORT extern const base::Feature
+    kExperimentalAccessibilityDictationCommands;
+
+// Returns true if the expeirmental accessibility feature to enable dictation
+// text editing commands is enabled.
+AX_BASE_EXPORT bool IsExperimentalAccessibilityDictationCommandsEnabled();
+
+// Enable a setup guide to walk through the steps of initially configuring
+// Switch Access.
+AX_BASE_EXPORT extern const base::Feature
+    kExperimentalAccessibilitySwitchAccessSetupGuide;
+
+// Returns true if setup guide for Switch Access is enabled.
+AX_BASE_EXPORT bool IsExperimentalAccessibilitySwitchAccessSetupGuideEnabled();
+
+// Enables high-quality, network-based voices in Select-to-speak.
+AX_BASE_EXPORT extern const base::Feature kEnhancedNetworkVoices;
+
+// Returns true if network-based voices are enabled in Select-to-speak.
+AX_BASE_EXPORT bool IsEnhancedNetworkVoicesEnabled();
+
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Enables Get Image Descriptions to augment existing images labels,
@@ -121,14 +153,14 @@ AX_BASE_EXPORT extern const base::Feature kEnableAriaElementReflection;
 // Returns true if ARIA element reflection is enabled.
 AX_BASE_EXPORT bool IsAriaElementReflectionEnabled();
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-// Enables enhanced Select-to-speak features that allow users broader control
-// of TTS (pause, resume, skip between sentences and paragraphs).
-AX_BASE_EXPORT extern const base::Feature kSelectToSpeakNavigationControl;
+#if defined(OS_ANDROID)
+// Compute the AXMode based on AccessibilityServiceInfo. If disabled,
+// the AXMode is either entirely on or entirely off.
+AX_BASE_EXPORT extern const base::Feature kComputeAXMode;
 
-// Returns true if enhanced Select-to-speak features are enabled.
-AX_BASE_EXPORT bool IsSelectToSpeakNavigationControlEnabled();
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+// Returns true if the IChromeAccessible COM API is enabled.
+AX_BASE_EXPORT bool IsComputeAXModeEnabled();
+#endif  // defined(OS_ANDROID)
 
 }  // namespace features
 

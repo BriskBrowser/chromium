@@ -30,6 +30,10 @@ class UnifiedNotifierSettingsView
     message_center::MessageCenter::Get()->AddObserver(this);
   }
 
+  UnifiedNotifierSettingsView(const UnifiedNotifierSettingsView&) = delete;
+  UnifiedNotifierSettingsView& operator=(const UnifiedNotifierSettingsView&) =
+      delete;
+
   ~UnifiedNotifierSettingsView() override {
     message_center::MessageCenter::Get()->RemoveObserver(this);
   }
@@ -45,8 +49,6 @@ class UnifiedNotifierSettingsView
 
  private:
   NotifierSettingsView* const settings_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedNotifierSettingsView);
 };
 
 }  // namespace
@@ -63,7 +65,7 @@ views::View* UnifiedNotifierSettingsController::CreateView() {
   return new UnifiedNotifierSettingsView(detailed_view_delegate_.get());
 }
 
-base::string16 UnifiedNotifierSettingsController::GetAccessibleName() const {
+std::u16string UnifiedNotifierSettingsController::GetAccessibleName() const {
   return l10n_util::GetStringUTF16(
       IDS_ASH_QUICK_SETTINGS_BUBBLE_NOTIFIER_SETTINGS_ACCESSIBLE_DESCRIPTION);
 }

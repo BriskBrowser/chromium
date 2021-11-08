@@ -10,7 +10,7 @@
 #include <utility>
 
 #include "ash/accelerators/accelerator_controller_impl.h"
-#include "ash/public/cpp/ash_switches.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
@@ -30,6 +30,7 @@
 #include "base/json/json_reader.h"
 #include "base/time/default_tick_clock.h"
 #include "chromeos/dbus/power_manager/backlight.pb.h"
+#include "ui/compositor/layer.h"
 #include "ui/display/types/display_snapshot.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -41,14 +42,14 @@ namespace {
 // for convertible/slate/detachable devices. This differs depending on whether
 // the screen is on or off when the power button is initially pressed.
 constexpr base::TimeDelta kShowMenuWhenScreenOnTimeout =
-    base::TimeDelta::FromMilliseconds(500);
+    base::Milliseconds(500);
 constexpr base::TimeDelta kShowMenuWhenScreenOffTimeout =
-    base::TimeDelta::FromMilliseconds(2000);
+    base::Milliseconds(2000);
 
 // Time that power button should be pressed after power menu is shown before
 // starting the cancellable pre-shutdown animation.
 constexpr base::TimeDelta kStartShutdownAnimationTimeout =
-    base::TimeDelta::FromMilliseconds(650);
+    base::Milliseconds(650);
 
 enum PowerButtonUpState {
   UP_NONE = 0,
@@ -265,9 +266,8 @@ void PowerButtonController::OnPowerButtonEvent(
     if (screen_off_when_power_button_down_ || !force_off_on_button_up_)
       return;
 
-    if (menu_timer_was_running || menu_was_partially_opened ||
-        (menu_shown_when_power_button_down_ &&
-         pre_shutdown_timer_was_running)) {
+    if (menu_timer_was_running || (menu_shown_when_power_button_down_ &&
+                                   pre_shutdown_timer_was_running)) {
       display_controller_->SetBacklightsForcedOff(true);
       LockScreenIfRequired();
     }
@@ -381,7 +381,7 @@ void PowerButtonController::OnLoginStatusChanged(LoginStatus status) {
 }
 
 void PowerButtonController::OnGetSwitchStates(
-    base::Optional<chromeos::PowerManagerClient::SwitchStates> result) {
+    absl::optional<chromeos::PowerManagerClient::SwitchStates> result) {
   if (!result.has_value())
     return;
 
@@ -407,8 +407,9 @@ void PowerButtonController::OnBacklightsForcedOffChanged(bool forced_off) {
   DismissMenu();
 }
 
-void PowerButtonController::OnScreenStateChanged(ScreenState screen_state) {
-  if (screen_state != ScreenState::ON)
+void PowerButtonController::OnScreenBacklightStateChanged(
+    ScreenBacklightState screen_backlight_state) {
+  if (screen_backlight_state != ScreenBacklightState::ON)
     DismissMenu();
 }
 
@@ -522,15 +523,18 @@ void PowerButtonController::ParsePowerButtonPositionSwitch() {
     return;
   }
 
-  std::string edge, position;
-  if (!position_info->GetString(kEdgeField, &edge) ||
-      !position_info->GetDouble(kPositionField,
-                                &power_button_offset_percentage_)) {
+  std::string edge;
+  absl::optional<double> position =
+      position_info->FindDoubleKey(kPositionField);
+
+  if (!position_info->GetString(kEdgeField, &edge) || !position) {
     LOG(ERROR) << "Both " << kEdgeField << " field and " << kPositionField
                << " are always needed if " << switches::kAshPowerButtonPosition
                << " is set";
     return;
   }
+
+  power_button_offset_percentage_ = *position;
 
   if (edge == kLeftEdge) {
     power_button_position_ = PowerButtonPosition::LEFT;

@@ -1,10 +1,12 @@
 include_rules = [
   "+ash",
   "+cc",
-  "+chromeos/audio/chromeos_sounds.h",
   "+chromeos/crosapi/cpp/crosapi_constants.h",
   "+chromeos/ui/base",
   "+chromeos/ui/frame",
+  "+components/fullscreen_control",
+  "+components/app_restore",
+  "+components/strings",
   "+components/viz/common",
   "+components/viz/host",
   "+device/gamepad",

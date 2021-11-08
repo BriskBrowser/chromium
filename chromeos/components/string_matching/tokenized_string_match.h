@@ -5,10 +5,10 @@
 #ifndef CHROMEOS_COMPONENTS_STRING_MATCHING_TOKENIZED_STRING_MATCH_H_
 #define CHROMEOS_COMPONENTS_STRING_MATCHING_TOKENIZED_STRING_MATCH_H_
 
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "ui/gfx/range/range.h"
 
 namespace chromeos {
@@ -27,6 +27,10 @@ class TokenizedStringMatch {
   typedef std::vector<gfx::Range> Hits;
 
   TokenizedStringMatch();
+
+  TokenizedStringMatch(const TokenizedStringMatch&) = delete;
+  TokenizedStringMatch& operator=(const TokenizedStringMatch&) = delete;
+
   ~TokenizedStringMatch();
 
   // Calculates the relevance and hits. Returns true if the two strings are
@@ -34,7 +38,7 @@ class TokenizedStringMatch {
   bool Calculate(const TokenizedString& query, const TokenizedString& text);
 
   // Convenience wrapper to calculate match from raw string input.
-  bool Calculate(const base::string16& query, const base::string16& text);
+  bool Calculate(const std::u16string& query, const std::u16string& text);
 
   double relevance() const { return relevance_; }
   const Hits& hits() const { return hits_; }
@@ -45,8 +49,6 @@ class TokenizedStringMatch {
 
   // Char index ranges in |text| of where matches are found.
   Hits hits_;
-
-  DISALLOW_COPY_AND_ASSIGN(TokenizedStringMatch);
 };
 
 }  // namespace string_matching

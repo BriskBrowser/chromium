@@ -48,16 +48,20 @@ class FileSystemProviderCapabilities : public Extension::ManifestData {
 class FileSystemProviderCapabilitiesHandler : public ManifestHandler {
  public:
   FileSystemProviderCapabilitiesHandler();
+
+  FileSystemProviderCapabilitiesHandler(
+      const FileSystemProviderCapabilitiesHandler&) = delete;
+  FileSystemProviderCapabilitiesHandler& operator=(
+      const FileSystemProviderCapabilitiesHandler&) = delete;
+
   ~FileSystemProviderCapabilitiesHandler() override;
 
   // ManifestHandler overrides.
-  bool Parse(Extension* extension, base::string16* error) override;
+  bool Parse(Extension* extension, std::u16string* error) override;
   bool AlwaysParseForType(Manifest::Type type) const override;
 
  private:
   base::span<const char* const> Keys() const override;
-
-  DISALLOW_COPY_AND_ASSIGN(FileSystemProviderCapabilitiesHandler);
 };
 
 }  // namespace extensions

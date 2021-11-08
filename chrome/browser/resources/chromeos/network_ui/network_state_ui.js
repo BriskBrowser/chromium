@@ -15,7 +15,6 @@ import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bun
 
 import {NetworkUIBrowserProxy, NetworkUIBrowserProxyImpl} from './network_ui_browser_proxy.js';
 
-
 /**
  * @typedef {!OncMojo.DeviceStateProperties|!OncMojo.NetworkStateProperties}
  */
@@ -430,7 +429,9 @@ Polymer({
       this.showDetailError_(detailCell, error.message);
       return;
     }
-    detailCell.textContent = JSON.stringify(state, null, '\t');
+    detailCell.textContent = JSON.stringify(state, (key, value) => {
+      return typeof value === 'bigint' ? value.toString() : value;
+    }, '\t');
   },
 
   /**
@@ -503,6 +504,10 @@ Polymer({
     const state = result.shift();
     const states = [];
     if (state) {
+      // |state.type| is expected to be the string "etherneteap", which is not
+      // supported by the rest of this UI. Use the kEthernet constant instead.
+      // See https://crbug.com/1213176.
+      state.type = chromeos.networkConfig.mojom.NetworkType.kEthernet;
       states.push(state);
     }
     this.createStateTable_(

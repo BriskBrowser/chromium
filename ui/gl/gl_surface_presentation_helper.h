@@ -35,6 +35,10 @@ class GL_EXPORT GLSurfacePresentationHelper {
     ScopedSwapBuffers(GLSurfacePresentationHelper* helper,
                       GLSurface::PresentationCallback callback,
                       int frame_id);
+
+    ScopedSwapBuffers(const ScopedSwapBuffers&) = delete;
+    ScopedSwapBuffers& operator=(const ScopedSwapBuffers&) = delete;
+
     ~ScopedSwapBuffers();
 
     void set_result(gfx::SwapResult result) { result_ = result; }
@@ -43,8 +47,6 @@ class GL_EXPORT GLSurfacePresentationHelper {
    private:
     GLSurfacePresentationHelper* const helper_;
     gfx::SwapResult result_ = gfx::SwapResult::SWAP_ACK;
-
-    DISALLOW_COPY_AND_ASSIGN(ScopedSwapBuffers);
   };
 
   explicit GLSurfacePresentationHelper(gfx::VSyncProvider* vsync_provider);
@@ -52,6 +54,11 @@ class GL_EXPORT GLSurfacePresentationHelper {
   // For using fixed VSync provider.
   GLSurfacePresentationHelper(const base::TimeTicks timebase,
                               const base::TimeDelta interval);
+
+  GLSurfacePresentationHelper(const GLSurfacePresentationHelper&) = delete;
+  GLSurfacePresentationHelper& operator=(const GLSurfacePresentationHelper&) =
+      delete;
+
   ~GLSurfacePresentationHelper();
 
   void OnMakeCurrent(GLContext* context, GLSurface* surface);
@@ -83,6 +90,7 @@ class GL_EXPORT GLSurfacePresentationHelper {
   bool GetFrameTimestampInfoIfAvailable(const Frame& frame,
                                         base::TimeTicks* timestamp,
                                         base::TimeDelta* interval,
+                                        base::TimeTicks* writes_done,
                                         uint32_t* flags);
 
   // Check |pending_frames_| and run presentation callbacks.
@@ -110,8 +118,6 @@ class GL_EXPORT GLSurfacePresentationHelper {
   bool update_vsync_pending_ = false;
 
   base::WeakPtrFactory<GLSurfacePresentationHelper> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(GLSurfacePresentationHelper);
 };
 
 }  // namespace gl

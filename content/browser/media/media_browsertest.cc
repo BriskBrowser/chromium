@@ -4,6 +4,8 @@
 
 #include "content/browser/media/media_browsertest.h"
 
+#include <memory>
+
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -29,7 +31,7 @@ namespace content {
 
 #if defined(OS_ANDROID)
 // Title set by android cleaner page after short timeout.
-const char kClean[] = "CLEAN";
+const char16_t kClean[] = u"CLEAN";
 #endif
 
 void MediaBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
@@ -55,7 +57,7 @@ void MediaBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
     features::kAudioServiceOutOfProcess,
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
     media::kDeprecateLowUsageCodecs,
 #endif
   };
@@ -71,7 +73,7 @@ void MediaBrowserTest::RunMediaTestPage(const std::string& html_page,
   std::string query = media::GetURLQueryString(query_params);
   std::unique_ptr<net::EmbeddedTestServer> http_test_server;
   if (http) {
-    http_test_server.reset(new net::EmbeddedTestServer);
+    http_test_server = std::make_unique<net::EmbeddedTestServer>();
     http_test_server->ServeFilesFromSourceDirectory(media::GetTestDataPath());
     CHECK(http_test_server->Start());
     gurl = http_test_server->GetURL("/" + html_page + "?" + query);
@@ -90,7 +92,7 @@ std::string MediaBrowserTest::RunTest(const GURL& gurl,
                              base::ASCIIToUTF16(expected_title));
   AddTitlesToAwait(&title_watcher);
   EXPECT_TRUE(NavigateToURL(shell(), gurl));
-  base::string16 result = title_watcher.WaitAndGetTitle();
+  std::u16string result = title_watcher.WaitAndGetTitle();
 
   CleanupTest();
   return base::UTF16ToASCII(result);
@@ -100,12 +102,12 @@ void MediaBrowserTest::CleanupTest() {
 #if defined(OS_ANDROID)
   // We only do this cleanup on Android, as a workaround for a test-only OOM
   // bug. See http://crbug.com/727542
-  const base::string16 cleaner_title = base::ASCIIToUTF16(kClean);
+  const std::u16string cleaner_title = kClean;
   TitleWatcher clean_title_watcher(shell()->web_contents(), cleaner_title);
   GURL cleaner_url = content::GetFileUrlWithQuery(
       media::GetTestDataFilePath("cleaner.html"), "");
   EXPECT_TRUE(NavigateToURL(shell(), cleaner_url));
-  base::string16 cleaner_result = clean_title_watcher.WaitAndGetTitle();
+  std::u16string cleaner_result = clean_title_watcher.WaitAndGetTitle();
   EXPECT_EQ(cleaner_result, cleaner_title);
 #endif
 }
@@ -119,10 +121,10 @@ std::string MediaBrowserTest::EncodeErrorMessage(
 }
 
 void MediaBrowserTest::AddTitlesToAwait(content::TitleWatcher* title_watcher) {
-  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kEnded));
-  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kError));
-  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kErrorEvent));
-  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kFailed));
+  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kEndedTitle));
+  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kErrorTitle));
+  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kErrorEventTitle));
+  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kFailedTitle));
 }
 
 // Tests playback and seeking of an audio or video file over file or http based
@@ -147,7 +149,7 @@ class MediaTest : public testing::WithParamInterface<bool>,
                  bool http) {
     base::StringPairs query_params;
     query_params.emplace_back(tag, media_file);
-    RunMediaTestPage("player.html", query_params, media::kEnded, http);
+    RunMediaTestPage("player.html", query_params, media::kEndedTitle, http);
   }
 
   void RunErrorMessageTest(const std::string& tag,
@@ -158,11 +160,12 @@ class MediaTest : public testing::WithParamInterface<bool>,
     query_params.emplace_back(tag, media_file);
     query_params.emplace_back("error_substr",
                               EncodeErrorMessage(expected_error_substring));
-    RunMediaTestPage("player.html", query_params, media::kErrorEvent, http);
+    RunMediaTestPage("player.html", query_params, media::kErrorEventTitle,
+                     http);
   }
 
   void RunVideoSizeTest(const char* media_file, int width, int height) {
-    std::string expected_title = std::string(media::kEnded) + " " +
+    std::string expected_title = std::string(media::kEndedTitle) + " " +
                                  base::NumberToString(width) + " " +
                                  base::NumberToString(height);
     base::StringPairs query_params;
@@ -229,7 +232,13 @@ IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearHighBitDepthVP9) {
   PlayVideo("bear-320x180-hi10p-vp9.webm", GetParam());
 }
 
-IN_PROC_BROWSER_TEST_P(MediaTest, VideoBear12DepthVP9) {
+// TODO(crbug.com/1222748): Flaky on Mac.
+#if defined(OS_MAC)
+#define MAYBE_VideoBear12DepthVP9 DISABLED_VideoBear12DepthVP9
+#else
+#define MAYBE_VideoBear12DepthVP9 VideoBear12DepthVP9
+#endif
+IN_PROC_BROWSER_TEST_P(MediaTest, MAYBE_VideoBear12DepthVP9) {
   PlayVideo("bear-320x180-hi12p-vp9.webm", GetParam());
 }
 #endif
@@ -287,9 +296,16 @@ IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearHighBitDepthMp4) {
 
 // Android can't reliably load lots of videos on a page.
 // See http://crbug.com/749265
-IN_PROC_BROWSER_TEST_F(MediaTest, LoadManyVideos) {
+// TODO(crbug.com/1222852): Flaky on Mac.
+#if defined(OS_MAC)
+#define MAYBE_LoadManyVideos DISABLED_LoadManyVideos
+#else
+#define MAYBE_LoadManyVideos LoadManyVideos
+#endif
+IN_PROC_BROWSER_TEST_F(MediaTest, MAYBE_LoadManyVideos) {
   base::StringPairs query_params;
-  RunMediaTestPage("load_many_videos.html", query_params, media::kEnded, true);
+  RunMediaTestPage("load_many_videos.html", query_params, media::kEndedTitle,
+                   true);
 }
 #endif  // !defined(OS_ANDROID)
 
@@ -384,7 +400,7 @@ IN_PROC_BROWSER_TEST_F(MediaTest, Navigate) {
 
 IN_PROC_BROWSER_TEST_P(MediaTest, AudioOnly_XHE_AAC_MP4) {
   if (media::IsSupportedAudioType(
-          {media::kCodecAAC, media::AudioCodecProfile::kXHE_AAC})) {
+          {media::AudioCodec::kAAC, media::AudioCodecProfile::kXHE_AAC})) {
     PlayAudio("noise-xhe-aac.mp4", GetParam());
   }
 }

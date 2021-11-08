@@ -7,7 +7,7 @@
 
 #include "base/compiler_specific.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/metadata/view_factory.h"
 
 class Browser;
@@ -29,10 +29,16 @@ class HomeButton : public ToolbarButton {
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   ui::mojom::DragOperation OnPerformDrop(
       const ui::DropTargetEvent& event) override;
-  void UpdateIcon() override;
+  views::View::DropCallback GetDropCallback(
+      const ui::DropTargetEvent& event) override;
 
  private:
+  void UpdateHomePage(const ui::DropTargetEvent& event,
+                      ui::mojom::DragOperation& output_drag_op);
+
   Browser* const browser_;
+
+  base::WeakPtrFactory<HomeButton> weak_ptr_factory_{this};
 };
 
 BEGIN_VIEW_BUILDER(/* no export */, HomeButton, ToolbarButton)

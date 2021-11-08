@@ -5,18 +5,30 @@
 #ifndef COMPONENTS_VIZ_SERVICE_DISPLAY_DISPLAY_RESOURCE_PROVIDER_GL_H_
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_DISPLAY_RESOURCE_PROVIDER_GL_H_
 
+#include <vector>
+
 #include "components/viz/service/display/display_resource_provider.h"
 #include "components/viz/service/viz_service_export.h"
 
+namespace gpu {
+namespace gles2 {
+class GLES2Interface;
+}  // namespace gles2
+}  // namespace gpu
+
 namespace viz {
+
+class ContextProvider;
 
 // DisplayResourceProvider implementation used with GLRenderer.
 class VIZ_SERVICE_EXPORT DisplayResourceProviderGL
     : public DisplayResourceProvider {
  public:
+  // Android with GLRenderer doesn't support overlays with shared images
+  // enabled. For everything else |enable_shared_images| is true.
   DisplayResourceProviderGL(ContextProvider* compositor_context_provider,
-                            SharedBitmapManager* shared_bitmap_manager,
                             bool enable_shared_images = true);
+  ~DisplayResourceProviderGL() override;
 
   GLenum GetResourceTextureTarget(ResourceId id);
   void WaitSyncToken(ResourceId id);
@@ -37,6 +49,9 @@ class VIZ_SERVICE_EXPORT DisplayResourceProviderGL
     GLenum target() const { return target_; }
     const gfx::Size& size() const { return size_; }
     const gfx::ColorSpace& color_space() const { return color_space_; }
+    const absl::optional<gfx::HDRMetadata>& hdr_metadata() const {
+      return hdr_metadata_;
+    }
 
    private:
     DisplayResourceProviderGL* const resource_provider_;
@@ -46,6 +61,7 @@ class VIZ_SERVICE_EXPORT DisplayResourceProviderGL
     GLenum target_ = GL_TEXTURE_2D;
     gfx::Size size_;
     gfx::ColorSpace color_space_;
+    absl::optional<gfx::HDRMetadata> hdr_metadata_;
   };
 
   class VIZ_SERVICE_EXPORT ScopedSamplerGL {
@@ -67,6 +83,9 @@ class VIZ_SERVICE_EXPORT DisplayResourceProviderGL
     const gfx::ColorSpace& color_space() const {
       return resource_lock_.color_space();
     }
+    const absl::optional<gfx::HDRMetadata>& hdr_metadata() const {
+      return resource_lock_.hdr_metadata();
+    }
 
    private:
     const ScopedReadLockGL resource_lock_;
@@ -85,18 +104,59 @@ class VIZ_SERVICE_EXPORT DisplayResourceProviderGL
 
     GLuint texture_id() const { return texture_id_; }
 
+    // Sets the given |release_fence| onto this resource.
+    // This is propagated to ReturnedResource when the resource is freed.
+    void SetReleaseFence(gfx::GpuFenceHandle release_fence);
+
+    // Returns true iff this resource has a read lock fence set.
+    bool HasReadLockFence() const;
+
    private:
     DisplayResourceProviderGL* const resource_provider_;
     const ResourceId resource_id_;
     GLuint texture_id_ = 0;
   };
 
+  class VIZ_SERVICE_EXPORT SynchronousFence : public ResourceFence {
+   public:
+    explicit SynchronousFence(gpu::gles2::GLES2Interface* gl);
+
+    SynchronousFence(const SynchronousFence&) = delete;
+    SynchronousFence& operator=(const SynchronousFence&) = delete;
+
+    // ResourceFence implementation.
+    void Set() override;
+    bool HasPassed() override;
+
+    // Returns true if fence has been set but not yet synchornized.
+    bool has_synchronized() const { return has_synchronized_; }
+
+   private:
+    ~SynchronousFence() override;
+
+    void Synchronize();
+
+    gpu::gles2::GLES2Interface* gl_;
+    bool has_synchronized_;
+  };
+
  private:
   const ChildResource* LockForRead(ResourceId id, bool overlay_only);
   void UnlockForRead(ResourceId id, bool overlay_only);
 
+  // DisplayResourceProvider overrides:
+  std::vector<ReturnedResource> DeleteAndReturnUnusedResourcesToChildImpl(
+      Child& child_info,
+      DeleteStyle style,
+      const std::vector<ResourceId>& unused) override;
+
+  gpu::gles2::GLES2Interface* ContextGL() const;
+  void DeleteResourceInternal(ResourceMap::iterator it);
   GLenum BindForSampling(ResourceId resource_id, GLenum unit, GLenum filter);
   void WaitSyncTokenInternal(ChildResource* resource);
+
+  ContextProvider* const compositor_context_provider_;
+  const bool enable_shared_images_;
 };
 
 }  // namespace viz

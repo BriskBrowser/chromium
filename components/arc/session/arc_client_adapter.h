@@ -28,12 +28,12 @@ class ArcClientAdapter {
   class Observer {
    public:
     virtual ~Observer() = default;
-    virtual void ArcInstanceStopped() = 0;
+    virtual void ArcInstanceStopped(bool is_system_shutdown) = 0;
   };
 
   // DemoModeDelegate contains functions used to load the demo session apps for
-  // ARC. The adapter cannot do this directly because chromeos::DemoSession
-  // classes are in //chrome.
+  // ARC. The adapter cannot do this directly because ash::DemoSession classes
+  // are in //chrome.
   class DemoModeDelegate {
    public:
     virtual ~DemoModeDelegate() = default;
@@ -49,6 +49,10 @@ class ArcClientAdapter {
 
   // Creates a default instance of ArcClientAdapter.
   static std::unique_ptr<ArcClientAdapter> Create();
+
+  ArcClientAdapter(const ArcClientAdapter&) = delete;
+  ArcClientAdapter& operator=(const ArcClientAdapter&) = delete;
+
   virtual ~ArcClientAdapter();
 
   // StartMiniArc starts ARC with only a handful of ARC processes for Chrome OS
@@ -75,6 +79,12 @@ class ArcClientAdapter {
   // apps path.
   virtual void SetDemoModeDelegate(DemoModeDelegate* delegate) = 0;
 
+  // Trims VM's memory by moving it to zram. |callback| is called when the
+  // operation is done.
+  using TrimVmMemoryCallback =
+      base::OnceCallback<void(bool success, const std::string& failure_reason)>;
+  virtual void TrimVmMemory(TrimVmMemoryCallback callback) = 0;
+
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
@@ -82,9 +92,6 @@ class ArcClientAdapter {
   ArcClientAdapter();
 
   base::ObserverList<Observer>::Unchecked observer_list_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ArcClientAdapter);
 };
 
 }  // namespace arc

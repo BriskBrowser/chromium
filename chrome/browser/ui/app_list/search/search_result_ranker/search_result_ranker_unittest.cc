@@ -16,8 +16,6 @@
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -25,7 +23,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/search/chrome_search_result.h"
 #include "chrome/browser/ui/app_list/search/mixer.h"
-#include "chrome/browser/ui/app_list/search/search_result_ranker/app_launch_data.h"
+#include "chrome/browser/ui/app_list/search/ranking/launch_data.h"
+#include "chrome/browser/ui/app_list/search/search_controller.h"
+#include "chrome/browser/ui/app_list/search/search_controller_impl.h"
 #include "chrome/browser/ui/app_list/search/search_result_ranker/histogram_util.h"
 #include "chrome/browser/ui/app_list/search/search_result_ranker/ranking_item_util.h"
 #include "chrome/browser/ui/app_list/search/search_result_ranker/recurrence_predictor.h"
@@ -61,6 +61,10 @@ class TestSearchResult : public ChromeSearchResult {
     SetTitle(base::UTF8ToUTF16(id));
     SetResultType(type);
   }
+
+  TestSearchResult(const TestSearchResult&) = delete;
+  TestSearchResult& operator=(const TestSearchResult&) = delete;
+
   ~TestSearchResult() override {}
 
   // ChromeSearchResult overrides:
@@ -70,8 +74,6 @@ class TestSearchResult : public ChromeSearchResult {
   static int instantiation_count;
 
   int instance_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestSearchResult);
 };
 int TestSearchResult::instantiation_count = 0;
 
@@ -117,10 +119,10 @@ std::unique_ptr<KeyedService> BuildHistoryService(
   return nullptr;
 }
 
-class SearchControllerFake : public SearchController {
+class SearchControllerFake : public SearchControllerImpl {
  public:
   explicit SearchControllerFake(Profile* profile)
-      : SearchController(nullptr, nullptr, nullptr, profile) {}
+      : SearchControllerImpl(nullptr, nullptr, nullptr, profile) {}
 };
 
 }  // namespace
@@ -129,6 +131,10 @@ class SearchResultRankerTest : public testing::Test {
  public:
   SearchResultRankerTest()
       : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+
+  SearchResultRankerTest(const SearchResultRankerTest&) = delete;
+  SearchResultRankerTest& operator=(const SearchResultRankerTest&) = delete;
+
   ~SearchResultRankerTest() override {}
 
   // testing::Test overrides:
@@ -202,8 +208,6 @@ class SearchResultRankerTest : public testing::Test {
   std::vector<base::Feature> all_feature_flags_ = {
       app_list_features::kEnableAppRanker,
       app_list_features::kEnableZeroStateMixedTypesRanker};
-
-  DISALLOW_COPY_AND_ASSIGN(SearchResultRankerTest);
 };
 
 TEST_F(SearchResultRankerTest, MixedTypesRankersAreDisabledWithFlag) {
@@ -212,14 +216,14 @@ TEST_F(SearchResultRankerTest, MixedTypesRankersAreDisabledWithFlag) {
   ranker->InitializeRankers(MakeSearchController());
   Wait();
 
-  AppLaunchData app_launch_data;
-  app_launch_data.id = "unused";
-  app_launch_data.ranking_item_type = RankingItemType::kFile;
-  app_launch_data.query = "query";
+  LaunchData launch_data;
+  launch_data.id = "unused";
+  launch_data.ranking_item_type = RankingItemType::kFile;
+  launch_data.query = "query";
 
   for (int i = 0; i < 20; ++i)
-    ranker->Train(app_launch_data);
-  ranker->FetchRankings(base::string16());
+    ranker->Train(launch_data);
+  ranker->FetchRankings(std::u16string());
 
   auto results =
       MakeSearchResults({"A", "B", "C", "D"},
@@ -252,11 +256,11 @@ TEST_F(SearchResultRankerTest, AppModelImprovesScores) {
   ranker->InitializeRankers(MakeSearchController());
   Wait();
 
-  AppLaunchData app_A;
+  LaunchData app_A;
   app_A.id = "A";
   app_A.ranking_item_type = RankingItemType::kApp;
 
-  AppLaunchData app_B;
+  LaunchData app_B;
   app_B.id = "B";
   app_B.ranking_item_type = RankingItemType::kApp;
 
@@ -265,7 +269,7 @@ TEST_F(SearchResultRankerTest, AppModelImprovesScores) {
     ranker->Train(app_B);
     ranker->Train(app_A);
   }
-  ranker->FetchRankings(base::string16());
+  ranker->FetchRankings(std::u16string());
 
   auto results =
       MakeSearchResults({"A", "B", "C", "D"},
@@ -289,15 +293,15 @@ TEST_F(SearchResultRankerTest, ZeroStateGroupModelDisabledWithFlag) {
   // TODO(959679): Update the types used in this test once zero-state-related
   // search providers have been implemented.
 
-  AppLaunchData app_launch_data_a;
-  app_launch_data_a.id = "A";
-  app_launch_data_a.ranking_item_type = RankingItemType::kFile;
-  app_launch_data_a.query = "";
+  LaunchData launch_data_a;
+  launch_data_a.id = "A";
+  launch_data_a.ranking_item_type = RankingItemType::kFile;
+  launch_data_a.query = "";
 
   for (int i = 0; i < 10; ++i) {
-    ranker->Train(app_launch_data_a);
+    ranker->Train(launch_data_a);
   }
-  ranker->FetchRankings(base::string16());
+  ranker->FetchRankings(std::u16string());
 
   // C and D should be ranked first because their group score should be higher.
   auto results =
@@ -322,13 +326,13 @@ TEST_F(SearchResultRankerTest, ZeroStateGroupTrainingImprovesScores) {
   ranker->InitializeRankers(MakeSearchController());
   Wait();
 
-  AppLaunchData launch;
+  LaunchData launch;
   launch.id = "A";
   launch.ranking_item_type = RankingItemType::kZeroStateFile;
   launch.query = "";
   for (int i = 0; i < 10; ++i)
     ranker->Train(launch);
-  ranker->FetchRankings(base::string16());
+  ranker->FetchRankings(std::u16string());
 
   // A and B should be ranked first because their group score should be higher.
   auto results =
@@ -357,11 +361,11 @@ TEST_F(SearchResultRankerTest, ZeroStateColdStart) {
   ranker->InitializeRankers(MakeSearchController());
   Wait();
 
-  ranker->FetchRankings(base::string16());
+  ranker->FetchRankings(std::u16string());
   auto results =
       MakeSearchResults({"Z", "O", "D"},
                         {ResultType::kZeroStateFile, ResultType::kOmnibox,
-                         ResultType::kDriveQuickAccess},
+                         ResultType::kZeroStateDrive},
                         {-0.1f, 0.2f, 0.1f});
   ranker->Rank(&results);
 
@@ -386,7 +390,7 @@ TEST_F(SearchResultRankerTest, ZeroStateAllGroupsPresent) {
       {"A2", "O1", "Z1", "Z2", "A1", "D1"},
       {ResultType::kInstalledApp, ResultType::kOmnibox,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
-       ResultType::kInstalledApp, ResultType::kDriveQuickAccess},
+       ResultType::kInstalledApp, ResultType::kZeroStateDrive},
       {8.1f, 0.4f, 0.8f, 0.2f, 8.2f, 0.1f});
 
   ranker->Rank(&results);
@@ -410,21 +414,21 @@ TEST_F(SearchResultRankerTest, ZeroStateMissingGroupAdded) {
   Wait();
 
   // Train on files enough that they should dominate the zero state results.
-  AppLaunchData launch;
+  LaunchData launch;
   launch.id = "A";
   launch.ranking_item_type = RankingItemType::kZeroStateFile;
   launch.query = "";
   for (int i = 0; i < 10; ++i)
     ranker->Train(launch);
-  ranker->FetchRankings(base::string16());
+  ranker->FetchRankings(std::u16string());
 
   auto results = MakeSearchResults(
       {"A1", "A2", "Z1", "Z2", "Z3", "Z4", "Z5", "D1", "D2"},
       {ResultType::kInstalledApp, ResultType::kInstalledApp,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
-       ResultType::kZeroStateFile, ResultType::kDriveQuickAccess,
-       ResultType::kDriveQuickAccess},
+       ResultType::kZeroStateFile, ResultType::kZeroStateDrive,
+       ResultType::kZeroStateDrive},
       {8.2f, 8.1f, 1.0f, 0.95f, 0.9f, 0.85f, 0.8f, 0.3f, 0.7f});
 
   ranker->Rank(&results);
@@ -450,20 +454,20 @@ TEST_F(SearchResultRankerTest, ZeroStateTwoMissingGroupsAdded) {
   Wait();
 
   // Train on files enough that they should dominate the zero state results.
-  AppLaunchData launch;
+  LaunchData launch;
   launch.id = "A";
   launch.ranking_item_type = RankingItemType::kZeroStateFile;
   launch.query = "";
   for (int i = 0; i < 10; ++i)
     ranker->Train(launch);
-  ranker->FetchRankings(base::string16());
+  ranker->FetchRankings(std::u16string());
 
   auto results =
       MakeSearchResults({"Z1", "Z2", "Z3", "Z4", "Z5", "D1", "O1"},
                         {ResultType::kZeroStateFile, ResultType::kZeroStateFile,
                          ResultType::kZeroStateFile, ResultType::kZeroStateFile,
                          ResultType::kZeroStateFile,
-                         ResultType::kDriveQuickAccess, ResultType::kOmnibox},
+                         ResultType::kZeroStateDrive, ResultType::kOmnibox},
                         {1.0f, 0.95f, 0.9f, 0.85f, 0.8f, 0.75f, 0.7f});
 
   ranker->Rank(&results);
@@ -487,20 +491,20 @@ TEST_F(SearchResultRankerTest, ZeroStateStaleResultIgnored) {
   Wait();
 
   // Train on files enough that they should dominate the zero state results.
-  AppLaunchData launch;
+  LaunchData launch;
   launch.id = "A";
   launch.ranking_item_type = RankingItemType::kZeroStateFile;
   launch.query = "";
   for (int i = 0; i < 10; ++i)
     ranker->Train(launch);
-  ranker->FetchRankings(base::string16());
+  ranker->FetchRankings(std::u16string());
 
   const auto results = MakeSearchResults(
       {"A1", "A2", "Z1", "Z2", "Z3", "Z4", "Z5", "D1"},
       {ResultType::kInstalledApp, ResultType::kInstalledApp,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
-       ResultType::kZeroStateFile, ResultType::kDriveQuickAccess},
+       ResultType::kZeroStateFile, ResultType::kZeroStateDrive},
       {8.2f, 8.1f, 1.0f, 0.95f, 0.9f, 0.85f, 0.8f, 0.7f});
 
   for (int i = 0; i < 3; ++i) {
@@ -513,7 +517,7 @@ TEST_F(SearchResultRankerTest, ZeroStateStaleResultIgnored) {
                                        HasId("Z2"), HasId("Z3"), HasId("Z4"),
                                        HasId("D1"), HasId("Z5"))));
     // D1 should increment its cache counter.
-    ranker->ZeroStateResultsDisplayed({{"D1", 0.0f}});
+    ranker->ZeroStateResultsDisplayed({{"D1", 0}});
   }
 
   auto results_copy = results;
@@ -539,29 +543,29 @@ TEST_F(SearchResultRankerTest, ZeroStateCacheResetWhenTopResultChanges) {
   Wait();
 
   // Train on files enough that they should dominate the zero state results.
-  AppLaunchData launch;
+  LaunchData launch;
   launch.id = "A";
   launch.ranking_item_type = RankingItemType::kZeroStateFile;
   launch.query = "";
   for (int i = 0; i < 10; ++i)
     ranker->Train(launch);
-  ranker->FetchRankings(base::string16());
+  ranker->FetchRankings(std::u16string());
 
   const auto results_1 = MakeSearchResults(
       {"A1", "A2", "Z1", "Z2", "Z3", "Z4", "Z5", "D1", "D2"},
       {ResultType::kInstalledApp, ResultType::kInstalledApp,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
-       ResultType::kZeroStateFile, ResultType::kDriveQuickAccess,
-       ResultType::kDriveQuickAccess},
+       ResultType::kZeroStateFile, ResultType::kZeroStateDrive,
+       ResultType::kZeroStateDrive},
       {8.2f, 8.1f, 1.0f, 0.95f, 0.9f, 0.85f, 0.8f, 0.7f, 0.1f});
   const auto results_2 = MakeSearchResults(
       {"A1", "A2", "Z1", "Z2", "Z3", "Z4", "Z5", "D2", "D1"},
       {ResultType::kInstalledApp, ResultType::kInstalledApp,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
        ResultType::kZeroStateFile, ResultType::kZeroStateFile,
-       ResultType::kZeroStateFile, ResultType::kDriveQuickAccess,
-       ResultType::kDriveQuickAccess},
+       ResultType::kZeroStateFile, ResultType::kZeroStateDrive,
+       ResultType::kZeroStateDrive},
       {8.2f, 8.1f, 1.0f, 0.95f, 0.9f, 0.85f, 0.8f, 0.7f, 0.1f});
 
   for (int i = 0; i < 3; ++i) {
@@ -574,7 +578,7 @@ TEST_F(SearchResultRankerTest, ZeroStateCacheResetWhenTopResultChanges) {
                                        HasId("Z2"), HasId("Z3"), HasId("Z4"),
                                        HasId("D1"), HasId("Z5"), HasId("D2"))));
     // D1 should increment its cache counter.
-    ranker->ZeroStateResultsDisplayed({{"D1", 0.0f}});
+    ranker->ZeroStateResultsDisplayed({{"D1", 0}});
   }
 
   {
@@ -641,32 +645,32 @@ TEST_F(SearchResultRankerTest, ZeroStateClickedTypeMetrics) {
 
   // Zero state types should be logged during training.
 
-  AppLaunchData app_launch_data_a;
-  app_launch_data_a.id = "A";
-  app_launch_data_a.ranking_item_type = RankingItemType::kFile;
-  app_launch_data_a.query = "";
+  LaunchData launch_data_a;
+  launch_data_a.id = "A";
+  launch_data_a.ranking_item_type = RankingItemType::kFile;
+  launch_data_a.query = "";
 
-  ranker->Train(app_launch_data_a);
+  ranker->Train(launch_data_a);
   histogram_tester_.ExpectBucketCount(
       "Apps.AppList.ZeroStateResults.LaunchedItemType",
       ZeroStateResultType::kUnanticipated, 1);
 
-  AppLaunchData app_launch_data_b;
-  app_launch_data_b.id = "B";
-  app_launch_data_b.ranking_item_type = RankingItemType::kOmniboxGeneric;
-  app_launch_data_b.query = "";
+  LaunchData launch_data_b;
+  launch_data_b.id = "B";
+  launch_data_b.ranking_item_type = RankingItemType::kOmniboxGeneric;
+  launch_data_b.query = "";
 
-  ranker->Train(app_launch_data_b);
+  ranker->Train(launch_data_b);
   histogram_tester_.ExpectBucketCount(
       "Apps.AppList.ZeroStateResults.LaunchedItemType",
       ZeroStateResultType::kOmniboxSearch, 1);
 
-  AppLaunchData app_launch_data_c;
-  app_launch_data_c.id = "D";
-  app_launch_data_c.ranking_item_type = RankingItemType::kDriveQuickAccess;
-  app_launch_data_c.query = "";
+  LaunchData launch_data_c;
+  launch_data_c.id = "D";
+  launch_data_c.ranking_item_type = RankingItemType::kDriveQuickAccess;
+  launch_data_c.query = "";
 
-  ranker->Train(app_launch_data_c);
+  ranker->Train(launch_data_c);
   histogram_tester_.ExpectBucketCount(
       "Apps.AppList.ZeroStateResults.LaunchedItemType",
       ZeroStateResultType::kDriveQuickAccess, 1);

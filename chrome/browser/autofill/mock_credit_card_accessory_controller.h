@@ -25,13 +25,13 @@ class MockCreditCardAccessoryController
               RegisterFillingSourceObserver,
               (FillingSourceObserver),
               (override));
-  MOCK_METHOD(base::Optional<autofill::AccessorySheetData>,
+  MOCK_METHOD(absl::optional<autofill::AccessorySheetData>,
               GetSheetData,
               (),
               (const, override));
   MOCK_METHOD(void,
               OnFillingTriggered,
-              (const autofill::UserInfo::Field&),
+              (autofill::FieldGlobalId, const autofill::AccessorySheetField&),
               (override));
   MOCK_METHOD(void, OnOptionSelected, (autofill::AccessoryAction), (override));
   MOCK_METHOD(void,
@@ -42,7 +42,9 @@ class MockCreditCardAccessoryController
   MOCK_METHOD(void, OnPersonalDataChanged, (), (override));
   MOCK_METHOD(void,
               OnCreditCardFetched,
-              (bool, const autofill::CreditCard*, const base::string16&),
+              (autofill::CreditCardFetchResult,
+               const autofill::CreditCard*,
+               const std::u16string&),
               (override));
 };
 

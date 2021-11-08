@@ -55,17 +55,19 @@ struct DialInternalMessage {
                                                    std::string* error);
 
   DialInternalMessage(DialInternalMessageType type,
-                      base::Optional<base::Value> body,
+                      absl::optional<base::Value> body,
                       const std::string& client_id,
                       int sequence_number);
+
+  DialInternalMessage(const DialInternalMessage&) = delete;
+  DialInternalMessage& operator=(const DialInternalMessage&) = delete;
+
   ~DialInternalMessage();
 
   DialInternalMessageType type;
-  base::Optional<base::Value> body;
+  absl::optional<base::Value> body;
   std::string client_id;
   int sequence_number;
-
-  DISALLOW_COPY_AND_ASSIGN(DialInternalMessage);
 };
 
 // Parsed CUSTOM_DIAL_LAUNCH response from the Cast SDK client.
@@ -77,7 +79,7 @@ struct CustomDialLaunchMessageBody {
   CustomDialLaunchMessageBody();
   CustomDialLaunchMessageBody(
       bool do_launch,
-      const base::Optional<std::string>& launch_parameter);
+      const absl::optional<std::string>& launch_parameter);
   CustomDialLaunchMessageBody(const CustomDialLaunchMessageBody& other);
   ~CustomDialLaunchMessageBody();
 
@@ -87,13 +89,17 @@ struct CustomDialLaunchMessageBody {
   // If |do_launch| is |true|, optional launch parameter to include with the
   // launch (POST) request. This overrides the launch parameter that was
   // specified in the MediaSource (if any).
-  base::Optional<std::string> launch_parameter;
+  absl::optional<std::string> launch_parameter;
 };
 
 class DialInternalMessageUtil final {
  public:
   // |hash_token|: A per-profile value used to hash sink IDs.
   explicit DialInternalMessageUtil(const std::string& hash_token);
+
+  DialInternalMessageUtil(const DialInternalMessageUtil&) = delete;
+  DialInternalMessageUtil& operator=(const DialInternalMessageUtil&) = delete;
+
   ~DialInternalMessageUtil();
 
   // Returns |true| if |message| is a valid STOP_SESSION message.
@@ -141,7 +147,7 @@ class DialInternalMessageUtil final {
       const std::string& client_id,
       int sequence_number,
       const std::string& error_message,
-      base::Optional<int> http_error_code = base::nullopt) const;
+      absl::optional<int> http_error_code = absl::nullopt) const;
 
  private:
   base::Value CreateReceiver(const MediaSinkInternal& sink) const;
@@ -162,7 +168,6 @@ class DialInternalMessageUtil final {
                                       int sequence_number = -1) const;
 
   std::string hash_token_;
-  DISALLOW_COPY_AND_ASSIGN(DialInternalMessageUtil);
 };
 
 }  // namespace media_router

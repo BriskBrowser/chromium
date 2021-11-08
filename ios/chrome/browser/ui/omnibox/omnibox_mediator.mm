@@ -14,8 +14,7 @@
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/favicon/favicon_attributes.h"
-#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#include "ios/public/provider/chrome/browser/images/branded_image_provider.h"
+#import "ios/public/provider/chrome/browser/branded_images/branded_images_api.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -94,7 +93,7 @@ const CGFloat kOmniboxIconSize = 16;
 
 - (void)setLeftImageForAutocompleteType:(AutocompleteMatchType::Type)matchType
                              answerType:
-                                 (base::Optional<SuggestionAnswer::AnswerType>)
+                                 (absl::optional<SuggestionAnswer::AnswerType>)
                                      answerType
                              faviconURL:(GURL)faviconURL {
   UIImage* image = GetOmniboxSuggestionIconForAutocompleteMatchType(
@@ -189,9 +188,8 @@ const CGFloat kOmniboxIconSize = 16;
   if (defaultProvider && defaultProvider->GetEngineType(
                              self.templateURLService->search_terms_data()) ==
                              SEARCH_ENGINE_GOOGLE) {
-    UIImage* bundledLogo = ios::GetChromeBrowserProvider()
-                               ->GetBrandedImageProvider()
-                               ->GetOmniboxAnswerIcon();
+    UIImage* bundledLogo = ios::provider::GetBrandedImage(
+        ios::provider::BrandedImage::kOmniboxAnswer);
 
     if (bundledLogo) {
       self.currentDefaultSearchEngineFavicon = bundledLogo;
@@ -228,7 +226,7 @@ const CGFloat kOmniboxIconSize = 16;
     // favicons may be fetched from Google server which doesn't suppoprt
     // icon URL.
     std::string emptyPageUrl = defaultProvider->url_ref().ReplaceSearchTerms(
-        TemplateURLRef::SearchTermsArgs(base::string16()),
+        TemplateURLRef::SearchTermsArgs(std::u16string()),
         _templateURLService->search_terms_data());
     self.faviconLoader->FaviconForPageUrl(
         GURL(emptyPageUrl), kOmniboxIconSize, kOmniboxIconSize,

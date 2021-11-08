@@ -7,9 +7,8 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/string_piece.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/url_formatter/spoof_checks/idn_spoof_checker.h"
@@ -1284,7 +1283,7 @@ namespace test {
 #include "components/url_formatter/spoof_checks/top_domains/test_domains-trie-inc.cc"
 }
 
-bool IsPunycode(const base::string16& s) {
+bool IsPunycode(const std::u16string& s) {
   return s.size() > 4 && s[0] == L'x' && s[1] == L'n' && s[2] == L'-' &&
          s[3] == L'-';
 }
@@ -1337,8 +1336,8 @@ TEST_F(IDNSpoofCheckerTest, IDNToUnicode) {
       ASSERT_EQ(unsafe_result.result, ASCIIToUTF16(kIdnCases[i].input));
     }
 
-    const base::string16 output(IDNToUnicode(kIdnCases[i].input));
-    const base::string16 expected(kIdnCases[i].expected_result == kSafe
+    const std::u16string output(IDNToUnicode(kIdnCases[i].input));
+    const std::u16string expected(kIdnCases[i].expected_result == kSafe
                                       ? WideToUTF16(kIdnCases[i].unicode_output)
                                       : ASCIIToUTF16(kIdnCases[i].input));
     EXPECT_EQ(expected, output)
@@ -1521,6 +1520,29 @@ TEST(IDNSpoofCheckerNoFixtureTest, MultipleSkeletons) {
       UnsafeIDNToUnicodeWithDetails(url.host());
   Skeletons skeletons = checker.GetSkeletons(result.result);
   EXPECT_EQ(Skeletons({"apple.corn", "appie.corn"}), skeletons);
+}
+
+TEST(IDNSpoofCheckerNoFixtureTest, MaybeRemoveDiacritics) {
+  // Latin-Greek-Cyrillic example. Diacritic should be removed.
+  IDNSpoofChecker checker;
+  const GURL url("http://éxample.com");
+  const url_formatter::IDNConversionResult result =
+      UnsafeIDNToUnicodeWithDetails(url.host());
+  std::u16string diacritics_removed =
+      checker.MaybeRemoveDiacritics(result.result);
+  EXPECT_EQ(u"example.com", diacritics_removed);
+
+  // Non-LGC example, diacritic shouldn't be removed. The hostname
+  // will be marked as unsafe by the spoof checks anyways, so diacritic
+  // removal isn't necessary.
+  const GURL non_lgc_url("http://xn--lsa922apb7a6do.com");
+  const url_formatter::IDNConversionResult non_lgc_result =
+      UnsafeIDNToUnicodeWithDetails(non_lgc_url.host());
+  std::u16string diacritics_not_removed =
+      checker.MaybeRemoveDiacritics(non_lgc_result.result);
+  EXPECT_EQ(u"नागरी́.com", diacritics_not_removed);
+  EXPECT_EQ(IDNSpoofChecker::Result::kDangerousPattern,
+            non_lgc_result.spoof_check_result);
 }
 
 }  // namespace url_formatter

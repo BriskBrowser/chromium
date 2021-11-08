@@ -10,12 +10,15 @@
 #include <vector>
 
 #include "base/cancelable_callback.h"
+#include "base/containers/flat_set.h"
 #include "base/time/time.h"
 #include "cc/scheduler/scheduler.h"
 #include "cc/trees/layer_tree_host_impl.h"
+#include "cc/trees/paint_holding_reason.h"
 #include "cc/trees/proxy.h"
 #include "cc/trees/task_runner_provider.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
+#include "components/viz/common/surfaces/local_surface_id.h"
 
 namespace viz {
 class BeginFrameSource;
@@ -51,11 +54,14 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void SetNeedsUpdateLayers() override;
   void SetNeedsCommit() override;
   void SetNeedsRedraw(const gfx::Rect& damage_rect) override;
-  void SetNextCommitWaitsForActivation() override;
+  void SetTargetLocalSurfaceId(
+      const viz::LocalSurfaceId& target_local_surface_id) override;
   bool RequestedAnimatePending() override;
   void SetDeferMainFrameUpdate(bool defer_main_frame_update) override;
-  void StartDeferringCommits(base::TimeDelta timeout) override;
+  bool StartDeferringCommits(base::TimeDelta timeout,
+                             PaintHoldingReason reason) override;
   void StopDeferringCommits(PaintHoldingCommitTrigger) override;
+  bool IsDeferringCommits() const override;
   bool CommitRequested() const override;
   void Start() override;
   void Stop() override;
@@ -101,7 +107,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void ScheduledActionBeginMainFrameNotExpectedUntil(
       base::TimeTicks time) override;
   void FrameIntervalUpdated(base::TimeDelta interval) override;
-  bool HasCustomPropertyAnimations() const override;
+  bool HasInvalidationAnimation() const override;
 
   // LayerTreeHostImplClient implementation
   void DidLoseLayerTreeFrameSinkOnImplThread() override;
@@ -140,6 +146,8 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
       Scheduler::PaintWorkletState state) override;
   void NotifyThroughputTrackerResults(CustomTrackerResults results) override;
   bool IsInSynchronousComposite() const override;
+  void FrameSinksToThrottleUpdated(
+      const base::flat_set<viz::FrameSinkId>& ids) override;
 
   void RequestNewLayerTreeFrameSink();
 
@@ -165,7 +173,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void BeginMainFrame(const viz::BeginFrameArgs& begin_frame_args);
   void BeginMainFrameAbortedOnImplThread(CommitEarlyOutReason reason);
   void DoBeginMainFrame(const viz::BeginFrameArgs& begin_frame_args);
-  void DoPainting();
+  void DoPainting(const viz::BeginFrameArgs& commit_args);
   void DoCommit(const viz::BeginFrameArgs& commit_args);
   DrawResult DoComposite(LayerTreeHostImpl::FrameData* frame);
   void DoSwap();
@@ -177,7 +185,6 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void IssueImageDecodeFinishedCallbacks();
 
   void DidReceiveCompositorFrameAck();
-  void NotifyThroughputTrackerResultsOnMainThread(CustomTrackerResults results);
 
   // Accessed on main thread only.
   LayerTreeHost* layer_tree_host_;
@@ -202,7 +209,8 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
 #endif
   bool inside_draw_;
   bool defer_main_frame_update_;
-  bool defer_commits_;
+  absl::optional<PaintHoldingReason> paint_holding_reason_;
+  bool did_apply_compositor_deltas_ = false;
   bool animate_requested_;
   bool update_layers_requested_;
   bool commit_requested_;

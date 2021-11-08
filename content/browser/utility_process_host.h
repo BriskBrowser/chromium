@@ -14,17 +14,16 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/process/launch.h"
 #include "build/build_config.h"
 #include "content/common/child_process.mojom.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_child_process_host_delegate.h"
-#include "ipc/ipc_sender.h"
 #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/system/message_pipe.h"
-#include "sandbox/policy/sandbox_type.h"
+#include "sandbox/policy/mojom/sandbox.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class Thread;
@@ -52,8 +51,7 @@ typedef base::Thread* (*UtilityMainThreadFactoryFunction)(
 // avoid a use after free since this object is deleted synchronously but the
 // client notification is asynchronous.  See http://crbug.com/108871.
 class CONTENT_EXPORT UtilityProcessHost
-    : public IPC::Sender,
-      public BrowserChildProcessHostDelegate {
+    : public BrowserChildProcessHostDelegate {
  public:
   static void RegisterUtilityMainThreadFactory(
       UtilityMainThreadFactoryFunction create);
@@ -71,13 +69,17 @@ class CONTENT_EXPORT UtilityProcessHost
 
   UtilityProcessHost();
   explicit UtilityProcessHost(std::unique_ptr<Client> client);
+
+  UtilityProcessHost(const UtilityProcessHost&) = delete;
+  UtilityProcessHost& operator=(const UtilityProcessHost&) = delete;
+
   ~UtilityProcessHost() override;
 
   base::WeakPtr<UtilityProcessHost> AsWeakPtr();
 
   // Makes the process run with a specific sandbox type, or unsandboxed if
-  // SandboxType::kNoSandbox is specified.
-  void SetSandboxType(sandbox::policy::SandboxType sandbox_type);
+  // Sandbox::kNoSandbox is specified.
+  void SetSandboxType(sandbox::mojom::Sandbox sandbox_type);
 
   // Returns information about the utility child process.
   const ChildProcessData& GetData();
@@ -91,13 +93,13 @@ class CONTENT_EXPORT UtilityProcessHost
   // Instructs the utility process to run an instance of the named service,
   // bound to |service_pipe|. This is DEPRECATED and should never be used.
   using RunServiceDeprecatedCallback =
-      base::OnceCallback<void(base::Optional<base::ProcessId>)>;
+      base::OnceCallback<void(absl::optional<base::ProcessId>)>;
   void RunServiceDeprecated(const std::string& service_name,
                             mojo::ScopedMessagePipeHandle service_pipe,
                             RunServiceDeprecatedCallback callback);
 
   // Sets the name of the process to appear in the task manager.
-  void SetName(const base::string16& name);
+  void SetName(const std::u16string& name);
 
   // Sets the name used for metrics reporting. This should not be a localized
   // name. This is recorded to metrics, so update UtilityProcessNameHash enum in
@@ -116,19 +118,15 @@ class CONTENT_EXPORT UtilityProcessHost
   // Starts the child process if needed, returns true on success.
   bool StartProcess();
 
-  // IPCSender:
-  bool Send(IPC::Message* message) override;
-
   // BrowserChildProcessHostDelegate:
-  bool OnMessageReceived(const IPC::Message& message) override;
   void OnProcessLaunched() override;
   void OnProcessLaunchFailed(int error_code) override;
   void OnProcessCrashed(int exit_code) override;
-  base::Optional<std::string> GetServiceName() override;
+  absl::optional<std::string> GetServiceName() override;
   void BindHostReceiver(mojo::GenericPendingReceiver receiver) override;
 
   // Launch the child process with switches that will setup this sandbox type.
-  sandbox::policy::SandboxType sandbox_type_;
+  sandbox::mojom::Sandbox sandbox_type_;
 
   // ChildProcessHost flags to use when starting the child process.
   int child_flags_;
@@ -140,7 +138,7 @@ class CONTENT_EXPORT UtilityProcessHost
   bool started_;
 
   // The process name used to identify the process in task manager.
-  base::string16 name_;
+  std::u16string name_;
 
   // The non-localized name used for metrics reporting.
   std::string metrics_name_;
@@ -171,8 +169,6 @@ class CONTENT_EXPORT UtilityProcessHost
 
   // Used to vend weak pointers, and should always be declared last.
   base::WeakPtrFactory<UtilityProcessHost> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(UtilityProcessHost);
 };
 
 }  // namespace content

@@ -36,6 +36,12 @@ namespace {
 // will use NativeAppWindowCocoa.
 class QuitWithAppsControllerInteractiveTest
     : public extensions::PlatformAppBrowserTest {
+ public:
+  QuitWithAppsControllerInteractiveTest(
+      const QuitWithAppsControllerInteractiveTest&) = delete;
+  QuitWithAppsControllerInteractiveTest& operator=(
+      const QuitWithAppsControllerInteractiveTest&) = delete;
+
  protected:
   QuitWithAppsControllerInteractiveTest() : app_(NULL) {}
 
@@ -45,9 +51,6 @@ class QuitWithAppsControllerInteractiveTest
   }
 
   const extensions::Extension* app_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(QuitWithAppsControllerInteractiveTest);
 };
 
 }  // namespace
@@ -87,8 +90,8 @@ IN_PROC_BROWSER_TEST_F(QuitWithAppsControllerInteractiveTest, QuitBehavior) {
   // If notification was dismissed by click, show again on next quit.
   display_service.SimulateClick(
       NotificationHandler::Type::TRANSIENT,
-      QuitWithAppsController::kQuitWithAppsNotificationID, base::nullopt,
-      base::nullopt);
+      QuitWithAppsController::kQuitWithAppsNotificationID, absl::nullopt,
+      absl::nullopt);
   EXPECT_FALSE(display_service.GetNotification(
       QuitWithAppsController::kQuitWithAppsNotificationID));
   EXPECT_FALSE(controller->ShouldQuit());
@@ -138,7 +141,7 @@ IN_PROC_BROWSER_TEST_F(QuitWithAppsControllerInteractiveTest, QuitBehavior) {
   display_service.SimulateClick(
       NotificationHandler::Type::TRANSIENT,
       QuitWithAppsController::kQuitWithAppsNotificationID,
-      0 /* kQuitAllAppsButtonIndex */, base::nullopt);
+      0 /* kQuitAllAppsButtonIndex */, absl::nullopt);
   destroyed_watcher.Wait();
   EXPECT_FALSE(AppWindowRegistryUtil::IsAppWindowVisibleInAnyProfile(0));
   quit_observer.Wait();

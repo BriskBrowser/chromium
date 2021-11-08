@@ -1,14 +1,22 @@
-<link rel="import" href="chrome://oobe/custom_elements.html">
+<link rel="import" href="chrome://resources/html/polymer.html">
+
 <link rel="import" href="chrome://resources/html/action_link.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-iconset-svg/iron-iconset-svg.html">
 
-<link rel="import" href="/components/oobe_adaptive_dialog.html">
-<link rel="import" href="/components/oobe_i18n_behavior.html">
+<link rel="import" href="chrome://oobe/custom_elements.html">
+
+<link rel="import" href="/components/behaviors/oobe_i18n_behavior.html">
+<link rel="import" href="/components/behaviors/login_screen_behavior.html">
+<link rel="import" href="/components/buttons/oobe_back_button.html">
+<link rel="import" href="/components/buttons/oobe_text_button.html">
+<link rel="import" href="/components/common_styles/common_styles.html">
+<link rel="import" href="/components/dialogs/oobe_adaptive_dialog.html">
+<link rel="import" href="/components/network_select_login.html">
 
 <dom-module id="error-message-element">
   <template>
-    <style include="oobe-common action-link">
+    <style include="oobe-common-styles action-link">
       .scrollable {
         overflow: auto;
       }
@@ -46,7 +54,7 @@
       }
     </style>
     <oobe-adaptive-dialog role="dialog" id="dialog">
-      <iron-icon icon="oobe-24:perm-scan-wifi" slot="icon">
+      <iron-icon slot="icon" icon="oobe-32:wifi">
       </iron-icon>
       <h1 slot="title" aria-live="assertive">
         [[getDialogTitle_(locale, errorState_, uiState_)]]
@@ -148,6 +156,7 @@
               'ui-state-auto-enrollment-error')]]" class="scrollable">
             <network-select-login id="offline-network-control"
                 class="layout vertical flex" configure-connected
+                enable-wifi-scans="[[enableWifiScans_]]"
                 on-selected-network-connected="onNetworkConnected_">
             </network-select-login>
           </div>

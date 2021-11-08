@@ -11,9 +11,6 @@
 
 namespace query_tiles {
 
-// Default base URL string for the Query Tiles server.
-constexpr char kDefaultBaseURL[] = "https://chromeupboarding-pa.googleapis.com";
-
 // Default URL string for GetQueryTiles RPC.
 constexpr char kDefaultGetQueryTilePath[] = "/v1/querytiles";
 
@@ -59,6 +56,12 @@ constexpr char kNumTrendingTilesKey[] = "num_trending_tiles_to_display";
 constexpr char kMaxTrendingTileImpressionsKey[] =
     "max_trending_tile_impressions";
 
+constexpr char kTileShufflePositionKey[] = "tile_shuffle_position";
+
+// Finch parameter key for resetting tile scores after a number of days without
+// interaction.
+constexpr char kNumDaysToResetTileScoreKey[] = "num_days_to_reset_tile_score";
+
 // Default expire duration.
 constexpr int kDefaultExpireDurationInSeconds = 48 * 60 * 60;  // 2 days.
 
@@ -92,6 +95,12 @@ constexpr int kDefaultNumTrendingTilesToDisplay = 2;
 // Default number of impressions a trending tile to be displayed .
 constexpr int kDefaultMaxTrendingTileImpressions = 2;
 
+// Default position to start shuffling unclicked tile.
+constexpr int kDefaultTileShufflePosition = 2;
+
+// Default number of non-interacted days to reset tile score.
+constexpr int kDefauktNumDaysToResetTileScore = 28;
+
 namespace {
 
 // For testing. Json string for single tier experiment tag.
@@ -105,6 +114,9 @@ const char kQueryTilesEnableTrendingExperimentTag[] =
 const char kQueryTilesMoreTrendingExperimentTag[] =
     "\"maxTrendingQueries\": \"10\"";
 
+// Json Experiment tag for ranking tiles on server based on client context.
+const char kQueryTilesRankTilesExperimentTag[] = "\"rankTiles\": \"true\"";
+
 const GURL BuildGetQueryTileURL(const GURL& base_url, const char* path) {
   GURL::Replacements replacements;
   replacements.SetPathStr(path);
@@ -114,15 +126,21 @@ const GURL BuildGetQueryTileURL(const GURL& base_url, const char* path) {
 }  // namespace
 
 // static
-GURL TileConfig::GetQueryTilesServerUrl() {
-  return GetQueryTilesServerUrl(base::GetFieldTrialParamValueByFeature(
-      features::kQueryTiles, kBaseURLKey));
-}
+GURL TileConfig::GetQueryTilesServerUrl(
+    const std::string& base_url,
+    bool override_field_trial_param_value_if_empty) {
+  std::string url = base_url;
+  if (!override_field_trial_param_value_if_empty) {
+    std::string field_trial_server_url = base::GetFieldTrialParamValueByFeature(
+        features::kQueryTiles, kBaseURLKey);
+    if (!field_trial_server_url.empty())
+      url = field_trial_server_url;
+  }
 
-// static
-GURL TileConfig::GetQueryTilesServerUrl(const std::string& base_url) {
-  GURL server_url = base_url.empty() ? GURL(kDefaultBaseURL) : GURL(base_url);
-  return BuildGetQueryTileURL(server_url, kDefaultGetQueryTilePath);
+  if (url.empty())
+    return GURL();
+
+  return BuildGetQueryTileURL(GURL(url), kDefaultGetQueryTilePath);
 }
 
 // static
@@ -149,6 +167,11 @@ std::string TileConfig::GetExperimentTag() {
     experiment_tag.emplace_back(kQueryTilesMoreTrendingExperimentTag);
   }
 
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kQueryTilesRankTiles)) {
+    experiment_tag.emplace_back(kQueryTilesRankTilesExperimentTag);
+  }
+
   if (!experiment_tag.empty()) {
     return "{" + base::JoinString(experiment_tag, ",") + "}";
   }
@@ -162,7 +185,7 @@ base::TimeDelta TileConfig::GetExpireDuration() {
   int time_in_seconds = base::GetFieldTrialParamByFeatureAsInt(
       features::kQueryTiles, kExpireDurationKey,
       kDefaultExpireDurationInSeconds);
-  return base::TimeDelta::FromSeconds(time_in_seconds);
+  return base::Seconds(time_in_seconds);
 }
 
 // static
@@ -237,6 +260,20 @@ int TileConfig::GetMaxTrendingTileImpressions() {
   return base::GetFieldTrialParamByFeatureAsInt(
       features::kQueryTiles, kMaxTrendingTileImpressionsKey,
       kDefaultMaxTrendingTileImpressions);
+}
+
+// static
+int TileConfig::GetTileShufflePosition() {
+  return base::GetFieldTrialParamByFeatureAsInt(features::kQueryTiles,
+                                                kTileShufflePositionKey,
+                                                kDefaultTileShufflePosition);
+}
+
+// static
+int TileConfig::GetNumDaysToResetTileScore() {
+  return base::GetFieldTrialParamByFeatureAsInt(
+      features::kQueryTiles, kNumDaysToResetTileScoreKey,
+      kDefauktNumDaysToResetTileScore);
 }
 
 }  // namespace query_tiles

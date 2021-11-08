@@ -5,29 +5,28 @@
 #ifndef CHROME_BROWSER_SYNC_TEST_INTEGRATION_PERFORMANCE_SYNC_TIMING_HELPER_H_
 #define CHROME_BROWSER_SYNC_TEST_INTEGRATION_PERFORMANCE_SYNC_TIMING_HELPER_H_
 
-#include <string>
 #include <vector>
 
 namespace base {
 class TimeDelta;
 }
 
-class ProfileSyncServiceHarness;
+class SyncServiceImplHarness;
 
 namespace sync_timing_helper {
 
 // Returns the time taken for |client| to complete a single sync cycle.
-base::TimeDelta TimeSyncCycle(ProfileSyncServiceHarness* client);
+base::TimeDelta TimeSyncCycle(SyncServiceImplHarness* client);
 
 // Returns the time taken for both |client| and |partner| to complete a sync
 // cycle.
-base::TimeDelta TimeMutualSyncCycle(ProfileSyncServiceHarness* client,
-                                    ProfileSyncServiceHarness* partner);
+base::TimeDelta TimeMutualSyncCycle(SyncServiceImplHarness* client,
+                                    SyncServiceImplHarness* partner);
 
 // Returns the time taken for all clients in |clients| to complete their
 // respective sync cycles.
 base::TimeDelta TimeUntilQuiescence(
-    const std::vector<ProfileSyncServiceHarness*>& clients);
+    const std::vector<SyncServiceImplHarness*>& clients);
 
 }  // namespace sync_timing_helper
 

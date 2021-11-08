@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/containers/contains.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -142,6 +143,7 @@ void FakeAdapter::SetName(const std::string& name, SetNameCallback callback) {
 }
 
 void FakeAdapter::StartDiscoverySession(
+    const std::string& client_name,
     StartDiscoverySessionCallback callback) {
   DCHECK(!discovery_session_);
 
@@ -174,16 +176,15 @@ void FakeAdapter::ConnectToServiceInsecurely(
 
   mojo::ScopedDataPipeProducerHandle receive_pipe_producer_handle;
   mojo::ScopedDataPipeConsumerHandle receive_pipe_consumer_handle;
-  ASSERT_EQ(
-      MOJO_RESULT_OK,
-      mojo::CreateDataPipe(/*options=*/nullptr, &receive_pipe_producer_handle,
-                           &receive_pipe_consumer_handle));
+  ASSERT_EQ(MOJO_RESULT_OK, mojo::CreateDataPipe(/*options=*/nullptr,
+                                                 receive_pipe_producer_handle,
+                                                 receive_pipe_consumer_handle));
 
   mojo::ScopedDataPipeProducerHandle send_pipe_producer_handle;
   mojo::ScopedDataPipeConsumerHandle send_pipe_consumer_handle;
-  ASSERT_EQ(MOJO_RESULT_OK, mojo::CreateDataPipe(/*options=*/nullptr,
-                                                 &send_pipe_producer_handle,
-                                                 &send_pipe_consumer_handle));
+  ASSERT_EQ(MOJO_RESULT_OK,
+            mojo::CreateDataPipe(/*options=*/nullptr, send_pipe_producer_handle,
+                                 send_pipe_consumer_handle));
 
   mojo::PendingRemote<mojom::Socket> pending_socket;
 

@@ -5,6 +5,7 @@
 #include "services/network/network_change_manager.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/macros.h"
@@ -46,6 +47,11 @@ class TestNetworkChangeManagerClient
     manager->RequestNotifications(std::move(client_remote));
   }
 
+  TestNetworkChangeManagerClient(const TestNetworkChangeManagerClient&) =
+      delete;
+  TestNetworkChangeManagerClient& operator=(
+      const TestNetworkChangeManagerClient&) = delete;
+
   ~TestNetworkChangeManagerClient() override {}
 
   // NetworkChangeManagerClient implementation:
@@ -68,7 +74,7 @@ class TestNetworkChangeManagerClient
   void WaitForNotification(NotificationType notification_type) {
     notification_type_to_wait_ = notification_type;
     run_loop_->Run();
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
   }
 
   mojom::ConnectionType connection_type() const { return connection_type_; }
@@ -79,8 +85,6 @@ class TestNetworkChangeManagerClient
   NotificationType notification_type_to_wait_;
   mojom::ConnectionType connection_type_;
   mojo::Receiver<mojom::NetworkChangeManagerClient> receiver_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TestNetworkChangeManagerClient);
 };
 
 }  // namespace
@@ -94,6 +98,9 @@ class NetworkChangeManagerTest : public testing::Test {
         std::make_unique<TestNetworkChangeManagerClient>(
             network_change_manager_.get());
   }
+
+  NetworkChangeManagerTest(const NetworkChangeManagerTest&) = delete;
+  NetworkChangeManagerTest& operator=(const NetworkChangeManagerTest&) = delete;
 
   ~NetworkChangeManagerTest() override {}
 
@@ -114,8 +121,6 @@ class NetworkChangeManagerTest : public testing::Test {
   std::unique_ptr<NetworkChangeManager> network_change_manager_;
   std::unique_ptr<TestNetworkChangeManagerClient>
       network_change_manager_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkChangeManagerTest);
 };
 
 TEST_F(NetworkChangeManagerTest, ClientNotified) {

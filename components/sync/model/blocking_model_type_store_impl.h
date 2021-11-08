@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/model/blocking_model_type_store.h"
 
@@ -22,19 +22,24 @@ class BlockingModelTypeStoreImpl : public BlockingModelTypeStore {
   // |backend| must not be null.
   BlockingModelTypeStoreImpl(ModelType type,
                              scoped_refptr<ModelTypeStoreBackend> backend);
+
+  BlockingModelTypeStoreImpl(const BlockingModelTypeStoreImpl&) = delete;
+  BlockingModelTypeStoreImpl& operator=(const BlockingModelTypeStoreImpl&) =
+      delete;
+
   ~BlockingModelTypeStoreImpl() override;
 
   // BlockingModelTypeStore implementation.
-  base::Optional<ModelError> ReadData(const IdList& id_list,
+  absl::optional<ModelError> ReadData(const IdList& id_list,
                                       RecordList* data_records,
                                       IdList* missing_id_list) override;
-  base::Optional<ModelError> ReadAllData(RecordList* data_records) override;
-  base::Optional<ModelError> ReadAllMetadata(
+  absl::optional<ModelError> ReadAllData(RecordList* data_records) override;
+  absl::optional<ModelError> ReadAllMetadata(
       MetadataBatch* metadata_batch) override;
   std::unique_ptr<WriteBatch> CreateWriteBatch() override;
-  base::Optional<ModelError> CommitWriteBatch(
+  absl::optional<ModelError> CommitWriteBatch(
       std::unique_ptr<WriteBatch> write_batch) override;
-  base::Optional<ModelError> DeleteAllDataAndMetadata() override;
+  absl::optional<ModelError> DeleteAllDataAndMetadata() override;
 
   // For advanced uses that require cross-thread batch posting. Avoid if
   // possible.
@@ -52,8 +57,6 @@ class BlockingModelTypeStoreImpl : public BlockingModelTypeStore {
   const std::string global_metadata_key_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(BlockingModelTypeStoreImpl);
 };
 
 }  // namespace syncer

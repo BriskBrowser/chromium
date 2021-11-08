@@ -4,7 +4,7 @@
 
 #include <stddef.h>
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -68,11 +68,11 @@ TEST(GURLTest, Types) {
 // the parser is already tested and works, so we are mostly interested if the
 // object does the right thing with the results.
 TEST(GURLTest, Components) {
-  GURL empty_url(base::UTF8ToUTF16(""));
+  GURL empty_url(u"");
   EXPECT_TRUE(empty_url.is_empty());
   EXPECT_FALSE(empty_url.is_valid());
 
-  GURL url(base::UTF8ToUTF16("http://user:pass@google.com:99/foo;bar?q=a#ref"));
+  GURL url(u"http://user:pass@google.com:99/foo;bar?q=a#ref");
   EXPECT_FALSE(url.is_empty());
   EXPECT_TRUE(url.is_valid());
   EXPECT_TRUE(url.SchemeIs("http"));
@@ -117,8 +117,7 @@ TEST(GURLTest, Empty) {
 }
 
 TEST(GURLTest, Copy) {
-  GURL url(base::UTF8ToUTF16(
-      "http://user:pass@google.com:99/foo;bar?q=a#ref"));
+  GURL url(u"http://user:pass@google.com:99/foo;bar?q=a#ref");
 
   GURL url2(url);
   EXPECT_TRUE(url2.is_valid());
@@ -151,8 +150,7 @@ TEST(GURLTest, Copy) {
 }
 
 TEST(GURLTest, Assign) {
-  GURL url(base::UTF8ToUTF16(
-      "http://user:pass@google.com:99/foo;bar?q=a#ref"));
+  GURL url(u"http://user:pass@google.com:99/foo;bar?q=a#ref");
 
   GURL url2;
   url2 = url;
@@ -194,8 +192,7 @@ TEST(GURLTest, SelfAssign) {
 }
 
 TEST(GURLTest, CopyFileSystem) {
-  GURL url(base::UTF8ToUTF16(
-      "filesystem:https://user:pass@google.com:99/t/foo;bar?q=a#ref"));
+  GURL url(u"filesystem:https://user:pass@google.com:99/t/foo;bar?q=a#ref");
 
   GURL url2(url);
   EXPECT_TRUE(url2.is_valid());
@@ -268,21 +265,49 @@ TEST(GURLTest, ExtraSlashesBeforeAuthority) {
   EXPECT_EQ("/", url.path());
 }
 
-// Given an invalid URL, we should still get most of the components.
+// Given invalid URLs, we should still get most of the components.
 TEST(GURLTest, ComponentGettersWorkEvenForInvalidURL) {
-  GURL url("http:google.com:foo");
-  EXPECT_FALSE(url.is_valid());
-  EXPECT_EQ("http://google.com:foo/", url.possibly_invalid_spec());
+  constexpr struct InvalidURLTestExpectations {
+    const char* url;
+    const char* spec;
+    const char* scheme;
+    const char* host;
+    const char* port;
+    const char* path;
+    // Extend as needed...
+  } expectations[] = {
+      {
+          "http:google.com:foo",
+          "http://google.com:foo/",
+          "http",
+          "google.com",
+          "foo",
+          "/",
+      },
+      {
+          "https:google.com:foo",
+          "https://google.com:foo/",
+          "https",
+          "google.com",
+          "foo",
+          "/",
+      },
+  };
 
-  EXPECT_EQ("http", url.scheme());
-  EXPECT_EQ("", url.username());
-  EXPECT_EQ("", url.password());
-  EXPECT_EQ("google.com", url.host());
-  EXPECT_EQ("foo", url.port());
-  EXPECT_EQ(PORT_INVALID, url.IntPort());
-  EXPECT_EQ("/", url.path());
-  EXPECT_EQ("", url.query());
-  EXPECT_EQ("", url.ref());
+  for (const auto& e : expectations) {
+    const GURL url(e.url);
+    EXPECT_FALSE(url.is_valid());
+    EXPECT_EQ(e.spec, url.possibly_invalid_spec());
+    EXPECT_EQ(e.scheme, url.scheme());
+    EXPECT_EQ("", url.username());
+    EXPECT_EQ("", url.password());
+    EXPECT_EQ(e.host, url.host());
+    EXPECT_EQ(e.port, url.port());
+    EXPECT_EQ(PORT_INVALID, url.IntPort());
+    EXPECT_EQ(e.path, url.path());
+    EXPECT_EQ("", url.query());
+    EXPECT_EQ("", url.ref());
+  }
 }
 
 TEST(GURLTest, Resolve) {
@@ -314,6 +339,7 @@ TEST(GURLTest, Resolve) {
       // A non-standard base can be replaced with a standard absolute URL.
       {"data:blahblah", "http://google.com/", true, "http://google.com/"},
       {"data:blahblah", "http:google.com", true, "http://google.com/"},
+      {"data:blahblah", "https:google.com", true, "https://google.com/"},
       // Filesystem URLs have different paths to test.
       {"filesystem:http://www.google.com/type/", "foo.html", true,
        "filesystem:http://www.google.com/type/foo.html"},
@@ -372,7 +398,7 @@ TEST(GURLTest, GetOrigin) {
   };
   for (size_t i = 0; i < base::size(cases); i++) {
     GURL url(cases[i].input);
-    GURL origin = url.GetOrigin();
+    GURL origin = url.DeprecatedGetOriginAsURL();
     EXPECT_EQ(cases[i].expected, origin.spec());
   }
 }
@@ -532,23 +558,34 @@ TEST(GURLTest, ClearFragmentOnDataUrl) {
   // http://crbug.com/291747 - a data URL may legitimately have trailing
   // whitespace in the spec after the ref is cleared. Test this does not trigger
   // the Parsed importing validation DCHECK in GURL.
-  GURL url(" data: one ? two # three ");
+  GURL url(" data: one # two ");
+  EXPECT_TRUE(url.is_valid());
 
   // By default the trailing whitespace will have been stripped.
-  EXPECT_EQ("data: one ? two # three", url.spec());
+  EXPECT_EQ("data: one #%20two", url.spec());
+
+  // Clear the URL's ref and observe the trailing whitespace.
   GURL::Replacements repl;
   repl.ClearRef();
   GURL url_no_ref = url.ReplaceComponents(repl);
-
-  EXPECT_EQ("data: one ? two ", url_no_ref.spec());
+  EXPECT_TRUE(url_no_ref.is_valid());
+  EXPECT_EQ("data: one ", url_no_ref.spec());
 
   // Importing a parsed URL via this constructor overload will retain trailing
   // whitespace.
   GURL import_url(url_no_ref.spec(),
                   url_no_ref.parsed_for_possibly_invalid_spec(),
                   url_no_ref.is_valid());
+  EXPECT_TRUE(import_url.is_valid());
   EXPECT_EQ(url_no_ref, import_url);
-  EXPECT_EQ(import_url.query(), " two ");
+  EXPECT_EQ("data: one ", import_url.spec());
+  EXPECT_EQ(" one ", import_url.path());
+
+  // For completeness, test that re-parsing the same URL rather than importing
+  // it trims the trailing whitespace.
+  GURL reparsed_url(url_no_ref.spec());
+  EXPECT_TRUE(reparsed_url.is_valid());
+  EXPECT_EQ("data: one", reparsed_url.spec());
 }
 
 TEST(GURLTest, PathForRequest) {
@@ -836,7 +873,7 @@ TEST(GURLTest, ContentForNonStandardURLs) {
       {"http://www.example.com/GUID#ref", "www.example.com/GUID"},
       {"http://me:secret@example.com/GUID/#ref", "me:secret@example.com/GUID/"},
       {"data:text/html,Question?<div style=\"color: #bad\">idea</div>",
-       "text/html,Question?<div style=\"color: "},
+       "text/html,Question?%3Cdiv%20style=%22color:%20"},
 
       // TODO(mkwst): This seems like a bug. https://crbug.com/513600
       {"filesystem:http://example.com/path", "/"},
@@ -951,6 +988,21 @@ TEST(GURLTest, DebugAlias) {
   GURL url("https://foo.com/bar");
   DEBUG_ALIAS_FOR_GURL(url_debug_alias, url);
   EXPECT_STREQ("https://foo.com/bar", url_debug_alias);
+}
+
+TEST(GURLTest, InvalidHost) {
+  // This contains an invalid percent escape (%T%) and also a valid
+  // percent escape that's not 7-bit ascii (%ae), so that the unescaped
+  // host contains both an invalid percent escape and invalid UTF-8.
+  GURL url("http://%T%Ae");
+
+  EXPECT_FALSE(url.is_valid());
+  EXPECT_TRUE(url.SchemeIs(url::kHttpScheme));
+
+  // The invalid percent escape becomes an escaped percent sign (%25), and the
+  // invalid UTF-8 character becomes REPLACEMENT CHARACTER' (U+FFFD) encoded as
+  // UTF-8.
+  EXPECT_EQ(url.host_piece(), "%25t%EF%BF%BD");
 }
 
 TEST(GURLTest, PortZero) {

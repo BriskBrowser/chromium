@@ -40,8 +40,15 @@ struct LanguageDetectionDetails;
 class PerFrameContentTranslateDriver : public ContentTranslateDriver {
  public:
   PerFrameContentTranslateDriver(
+      content::WebContents& web_contents,
       content::NavigationController* nav_controller,
       language::UrlLanguageHistogram* url_language_histogram);
+
+  PerFrameContentTranslateDriver(const PerFrameContentTranslateDriver&) =
+      delete;
+  PerFrameContentTranslateDriver& operator=(
+      const PerFrameContentTranslateDriver&) = delete;
+
   ~PerFrameContentTranslateDriver() override;
 
   // TranslateDriver methods.
@@ -55,7 +62,8 @@ class PerFrameContentTranslateDriver : public ContentTranslateDriver {
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
   void DOMContentLoaded(content::RenderFrameHost* render_frame_host) override;
-  void DocumentOnLoadCompletedInMainFrame() override;
+  void DocumentOnLoadCompletedInMainFrame(
+      content::RenderFrameHost* render_frame_host) override;
 
   void OnPageLanguageDetermined(const LanguageDetectionDetails& details,
                                 bool page_level_translation_critiera_met);
@@ -104,7 +112,7 @@ class PerFrameContentTranslateDriver : public ContentTranslateDriver {
       bool has_no_translate_meta);
 
   void OnPageContents(base::TimeTicks capture_begin_time,
-                      const base::string16& contents);
+                      const std::u16string& contents);
 
   void OnPageContentsLanguage(
       mojo::Remote<language_detection::mojom::LanguageDetectionService>
@@ -122,7 +130,7 @@ class PerFrameContentTranslateDriver : public ContentTranslateDriver {
       bool is_main_frame,
       mojo::AssociatedRemote<mojom::TranslateAgent> translate_agent,
       bool cancelled,
-      const std::string& original_lang,
+      const std::string& source_lang,
       const std::string& translated_lang,
       TranslateErrors::Type error_type);
 
@@ -153,8 +161,6 @@ class PerFrameContentTranslateDriver : public ContentTranslateDriver {
 
   base::WeakPtrFactory<PerFrameContentTranslateDriver> weak_pointer_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(PerFrameContentTranslateDriver);
 };
 
 }  // namespace translate

@@ -2,11 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
+import collections
 import logging
 import re
 import sys
 import time
 
+from telemetry.internal.results import artifact_compatibility_wrapper as acw
 from telemetry.testing import serially_executed_browser_test_case
 from telemetry.util import screenshot
 from typ import json_results
@@ -15,6 +19,7 @@ from gpu_tests import common_browser_args as cba
 from gpu_tests import gpu_helper
 
 _START_BROWSER_RETRIES = 3
+_MAX_TEST_TRIES = 3
 
 ResultType = json_results.ResultType
 
@@ -54,6 +59,25 @@ class GpuIntegrationTest(
   # arguments.
   _last_launched_browser_args = set()
 
+  # Keeps track of flaky tests that we're retrying.
+  # TODO(crbug.com/1248602): Remove this in favor of a method that doesn't rely
+  # on assumptions about retries, etc. if possible.
+  _flaky_test_tries = collections.Counter()
+
+  def __init__(self, *args, **kwargs):
+    super(GpuIntegrationTest, self).__init__(*args, **kwargs)
+    if self.artifacts is None:
+      self.set_artifacts(None)
+
+  def set_artifacts(self, artifacts):
+    # Instead of using the default logging artifact implementation, use the
+    # full logging one. This ensures we get debugging information if something
+    # goes wrong before typ can set the actual artifact implementation, such
+    # as during initial browser startup.
+    if artifacts is None:
+      artifacts = acw.FullLoggingArtifactImpl()
+    super(GpuIntegrationTest, self).set_artifacts(artifacts)
+
   @classmethod
   def SetUpProcess(cls):
     super(GpuIntegrationTest, cls).SetUpProcess()
@@ -71,6 +95,14 @@ class GpuIntegrationTest(
         action='store_true',
         default=False,
         help='Disables uploads of logs to cloud storage')
+    # TODO(skbug.com/12149): Remove this once Gold-based tests no longer clobber
+    # earlier results on retry attempts.
+    parser.add_option(
+        '--has-test-filter',
+        action='store_true',
+        default=False,
+        help=('Whether a test filter has been applied. Can be used as a proxy '
+              'for whether this is a retry without patch on a trybot.'))
 
   @classmethod
   def GenerateBrowserArgs(cls, additional_args):
@@ -129,6 +161,20 @@ class GpuIntegrationTest(
       os_name = cls.browser.platform.GetOSName()
       if os_name == 'android' or os_name == 'chromeos':
         browser_args.remove(cba.DISABLE_GPU)
+
+    if cls._finder_options.browser_type == 'web-engine-shell':
+      # Reduce number of video buffers when running tests on Fuchsia to
+      # workaround crbug.com/1203580
+      # TODO(https://crbug.com/1203580): Remove this once the bug is resolved.
+      browser_args.append('--double-buffer-compositing')
+
+      # Increase GPU watchdog timeout to 60 seconds to avoid flake when
+      # running in emulator on bots.
+      browser_args.append('--gpu-watchdog-timeout-seconds=60')
+
+      # Force device scale factor to avoid dependency on
+      browser_args.append('--force-device-scale-factor=1.71875')
+
     return browser_args
 
   @classmethod
@@ -195,12 +241,14 @@ class GpuIntegrationTest(
     # to push the fetch of the first tab into the lower retry loop
     # without breaking Telemetry's unit tests, and that hook is used
     # to implement the gpu_integration_test_unittests.
+    last_exception = Exception()
     for x in range(1, _START_BROWSER_RETRIES + 1):  # Index from 1 instead of 0.
       try:
         super(GpuIntegrationTest, cls).StartBrowser()
         cls.tab = cls.browser.tabs[0]
         return
-      except Exception:  # pylint: disable=broad-except
+      except Exception as e:  # pylint: disable=broad-except
+        last_exception = e
         logging.exception('Browser start failed (attempt %d of %d). Backtrace:',
                           x, _START_BROWSER_RETRIES)
         # If we are on the last try and there is an exception take a screenshot
@@ -219,7 +267,7 @@ class GpuIntegrationTest(
           cls.StopBrowser()
     # Re-raise the last exception thrown. Only happens if all the retries
     # fail.
-    raise
+    raise last_exception
 
   @classmethod
   def _RestartBrowser(cls, reason):
@@ -229,12 +277,35 @@ class GpuIntegrationTest(
     # by a bad combination of command-line arguments. So reset to the original
     # options in attempt to successfully launch a browser.
     if cls.browser is None:
+      cls._RestartTsProxyServerIfNecessary()
       cls.SetBrowserOptions(cls.GetOriginalFinderOptions())
       cls.StartBrowser()
     else:
       cls.StopBrowser()
+      cls._RestartTsProxyServerIfNecessary()
       cls.SetBrowserOptions(cls._finder_options)
       cls.StartBrowser()
+
+  @classmethod
+  def _RestartTsProxyServerIfNecessary(cls):
+    """Restarts the TsProxyServer on remote platforms.
+
+    If something goes wrong with the connection to the remote device (SSH, adb,
+    etc.), then the forwarder between the device and the host will potentially
+    break, breaking all further network connectivity. So, restart the server
+    and its forwarder.
+    """
+    # TODO(crbug.com/1245346): Move this into Telemetry itself once it is
+    # shown to work.
+    os_name = cls.platform.GetOSName()
+    if os_name == 'android' or os_name == 'chromeos':
+      logging.warning(
+          'Restarting TsProxyServer due to being on a remote platform')
+      network_controller_backend = (
+          cls.platform._platform_backend.network_controller_backend)
+      wpr_mode = network_controller_backend._wpr_mode
+      network_controller_backend.Close()
+      network_controller_backend.Open(wpr_mode)
 
   def _RunGpuTest(self, url, test_name, *args):
     expected_results, should_retry_on_failure = (
@@ -260,6 +331,15 @@ class GpuIntegrationTest(
         self._ClearExpectedCrashes(expected_crashes)
         if should_retry_on_failure:
           logging.exception('Exception while running flaky test %s', test_name)
+          # Perform the same data collection as we do for an unexpected failure
+          # but only if this was the last try for a flaky test so we don't
+          # waste time symbolizing minidumps for expected flaky crashes.
+          # TODO(crbug.com/1248602): Replace this with a different method of
+          # tracking retries if possible.
+          self._flaky_test_tries[test_name] += 1
+          if self._flaky_test_tries[test_name] == _MAX_TEST_TRIES:
+            if self.browser is not None:
+              self.browser.CollectDebugData(logging.ERROR)
           # For robustness, shut down the browser and restart it
           # between flaky test failures, to make sure any state
           # doesn't propagate to the next iteration.
@@ -529,8 +609,9 @@ class GpuIntegrationTest(
       gpu_tags.append(gpu_helper.GetANGLERenderer(gpu_info))
       gpu_tags.append(gpu_helper.GetSwiftShaderGLRenderer(gpu_info))
       gpu_tags.append(gpu_helper.GetCommandDecoder(gpu_info))
+      gpu_tags.append(gpu_helper.GetOOPCanvasStatus(gpu_info.feature_status))
       if gpu_info and gpu_info.devices:
-        for ii in xrange(0, len(gpu_info.devices)):
+        for ii in range(0, len(gpu_info.devices)):
           gpu_vendor = gpu_helper.GetGpuVendorString(gpu_info, ii)
           gpu_device_id = gpu_helper.GetGpuDeviceId(gpu_info, ii)
           # The gpu device id tag will contain both the vendor and device id
@@ -553,6 +634,9 @@ class GpuIntegrationTest(
       skia_renderer = gpu_helper.GetSkiaRenderer(gpu_info.feature_status,
                                                  startup_args)
       tags.append(skia_renderer)
+    display_server = gpu_helper.GetDisplayServer(browser.browser_type)
+    if display_server:
+      tags.append(display_server)
     return tags
 
   @classmethod
@@ -599,17 +683,20 @@ class GpuIntegrationTest(
         'arm-mali-t860',  # chromeos-board-kevin
         'qualcomm-adreno-(tm)-330',  # android-nexus-5
         'qualcomm-adreno-(tm)-418',  # android-nexus-5x
-        'qualcomm-adreno-(tm)-420',  # android-nexus-6
         'qualcomm-adreno-(tm)-540',  # android-pixel-2
         'qualcomm-adreno-(tm)-640',  # android-pixel-4
         'nvidia-nvidia-tegra',  # android-nexus-9 and android-shield-android-tv
         'vmware,',  # VMs
         'vmware,-0x1050',  # ChromeOS VMs
+        'mesa/x.org',  # ChromeOS VMs
+        'mesa/x.org-0x1050',  # ChromeOS VMs
         # Fuchsia VMs
         ('google-angle-(vulkan-1.1.0(swiftshader-device-('
          'llvm-7.0.1)-(0x0000c0de)))'),
         ('google-angle-(vulkan-1.1.0(swiftshader-device-('
          'llvm-10.0.0)-(0x0000c0de)))'),
+        ('google-vulkan-1.1.0-(swiftshader-device-('
+         'llvm-10.0.0)-(0x0000c0de))'),
         # These browsers are analogous to a particular OS, and specifying the
         # OS name is clearer.
         'cros-chrome',  # ChromeOS
@@ -625,6 +712,15 @@ class GpuIntegrationTest(
         # make a difference to these tests anyways.
         'chromeos-local',
         'chromeos-remote',
+        # "exact" is a valid browser type in Telemetry, but should never be used
+        # on the bots.
+        'exact',
+        # Unknown what exactly causes these to be generated, but they're
+        # harmless.
+        'win-laptop',
+        'unknown-gpu',
+        'unknown-gpu-0x8c',
+        'unknown-gpu-',
     ]
 
 

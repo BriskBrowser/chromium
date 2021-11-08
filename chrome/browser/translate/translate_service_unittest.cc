@@ -17,9 +17,12 @@
 #include "url/url_constants.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/file_manager/app_id.h"
+#include "chrome/browser/ash/file_manager/app_id.h"
 #include "extensions/common/constants.h"
 #endif
+
+namespace translate {
+namespace {
 
 // Test the check that determines if a URL should be translated.
 TEST(TranslateServiceTest, CheckTranslatableURL) {
@@ -79,3 +82,6 @@ TEST(TranslateServiceTest, DownloadsAndHistoryNotTranslated) {
       TranslateService::IsTranslatableURL(GURL(chrome::kChromeUIHistoryURL)));
   TranslateService::ShutdownForTesting();
 }
+
+}  // namespace
+}  // namespace translate

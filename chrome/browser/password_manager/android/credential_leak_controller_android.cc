@@ -4,6 +4,8 @@
 
 #include "chrome/browser/password_manager/android/credential_leak_controller_android.h"
 
+#include <memory>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "chrome/android/chrome_jni_headers/PasswordChangeLauncher_jni.h"
@@ -19,12 +21,10 @@ using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
 
 CredentialLeakControllerAndroid::CredentialLeakControllerAndroid(
     password_manager::CredentialLeakType leak_type,
-    password_manager::CompromisedSitesCount saved_sites,
     const GURL& origin,
-    const base::string16& username,
+    const std::u16string& username,
     ui::WindowAndroid* window_android)
     : leak_type_(leak_type),
-      saved_sites_(saved_sites),
       origin_(origin),
       username_(username),
       window_android_(window_android) {}
@@ -32,7 +32,7 @@ CredentialLeakControllerAndroid::CredentialLeakControllerAndroid(
 CredentialLeakControllerAndroid::~CredentialLeakControllerAndroid() = default;
 
 void CredentialLeakControllerAndroid::ShowDialog() {
-  dialog_view_.reset(new CredentialLeakDialogViewAndroid(this));
+  dialog_view_ = std::make_unique<CredentialLeakDialogViewAndroid>(this);
   dialog_view_->Show(window_android_);
 }
 
@@ -77,20 +77,19 @@ void CredentialLeakControllerAndroid::OnCloseDialog() {
   delete this;
 }
 
-base::string16 CredentialLeakControllerAndroid::GetAcceptButtonLabel() const {
+std::u16string CredentialLeakControllerAndroid::GetAcceptButtonLabel() const {
   return password_manager::GetAcceptButtonLabel(leak_type_);
 }
 
-base::string16 CredentialLeakControllerAndroid::GetCancelButtonLabel() const {
+std::u16string CredentialLeakControllerAndroid::GetCancelButtonLabel() const {
   return password_manager::GetCancelButtonLabel();
 }
 
-base::string16 CredentialLeakControllerAndroid::GetDescription() const {
-    return password_manager::GetDescriptionWithCount(leak_type_, origin_,
-                                                     saved_sites_);
+std::u16string CredentialLeakControllerAndroid::GetDescription() const {
+  return password_manager::GetDescription(leak_type_);
 }
 
-base::string16 CredentialLeakControllerAndroid::GetTitle() const {
+std::u16string CredentialLeakControllerAndroid::GetTitle() const {
   return password_manager::GetTitle(leak_type_);
 }
 

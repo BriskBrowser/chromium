@@ -8,12 +8,13 @@
 #include "base/run_loop.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
-#include "chromeos/lacros/lacros_chrome_service_impl.h"
+#include "chromeos/crosapi/mojom/test_controller.mojom.h"
+#include "chromeos/lacros/lacros_service.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher_observer.h"
-#include "ui/aura/window_tree_host_platform.h"
 #include "ui/platform_window/platform_window.h"
+#include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
 
 namespace browser_test_util {
 namespace {
@@ -47,18 +48,19 @@ void WaitForWindow(const std::string& id, bool exists) {
   auto wait_for_window = base::BindRepeating(
       [](base::RunLoop* outer_loop, const std::string& id,
          bool expected_exists) {
-        auto* lacros_chrome_service = chromeos::LacrosChromeServiceImpl::Get();
-        CHECK(lacros_chrome_service->IsTestControllerAvailable());
+        auto* lacros_service = chromeos::LacrosService::Get();
+        CHECK(lacros_service->IsAvailable<crosapi::mojom::TestController>());
 
         base::RunLoop inner_loop(base::RunLoop::Type::kNestableTasksAllowed);
         bool exists = false;
-        lacros_chrome_service->test_controller_remote()->DoesWindowExist(
-            id, base::BindOnce(
-                    [](base::RunLoop* loop, bool* out_exist, bool exist) {
-                      *out_exist = std::move(exist);
-                      loop->Quit();
-                    },
-                    &inner_loop, &exists));
+        lacros_service->GetRemote<crosapi::mojom::TestController>()
+            ->DoesWindowExist(
+                id, base::BindOnce(
+                        [](base::RunLoop* loop, bool* out_exist, bool exist) {
+                          *out_exist = std::move(exist);
+                          loop->Quit();
+                        },
+                        &inner_loop, &exists));
         inner_loop.Run();
 
         if (exists == expected_exists)
@@ -68,8 +70,7 @@ void WaitForWindow(const std::string& id, bool exists) {
 
   // Wait for the window to be available.
   base::RepeatingTimer timer;
-  timer.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(1),
-              std::move(wait_for_window));
+  timer.Start(FROM_HERE, base::Milliseconds(1), std::move(wait_for_window));
   outer_loop.Run();
 }
 
@@ -83,9 +84,9 @@ std::string GetWindowId(aura::Window* window) {
   DCHECK(window_tree_host);
   // Lacros is based on Ozone/Wayland, which uses PlatformWindow and
   // aura::WindowTreeHostPlatform.
-  aura::WindowTreeHostPlatform* window_tree_host_platform =
-      static_cast<aura::WindowTreeHostPlatform*>(window_tree_host);
-  return window_tree_host_platform->platform_window()->GetWindowUniqueId();
+  auto* desktop_window_tree_host_linux =
+      views::DesktopWindowTreeHostLinux::From(window_tree_host);
+  return desktop_window_tree_host_linux->platform_window()->GetWindowUniqueId();
 }
 
 void WaitForWindowCreation(const std::string& id) {
@@ -94,6 +95,43 @@ void WaitForWindowCreation(const std::string& id) {
 
 void WaitForWindowDestruction(const std::string& id) {
   WaitForWindow(id, /*exists=*/false);
+}
+
+void WaitForShelfItem(const std::string& id, bool exists) {
+  base::RunLoop outer_loop;
+  auto wait_for_shelf_item = base::BindRepeating(
+      [](base::RunLoop* outer_loop, const std::string& id,
+         bool expected_exists) {
+        auto* lacros_service = chromeos::LacrosService::Get();
+        CHECK(lacros_service->IsAvailable<crosapi::mojom::TestController>());
+        int interface_version = lacros_service->GetInterfaceVersion(
+            crosapi::mojom::TestController::Uuid_);
+        int min_version =
+            static_cast<int>(crosapi::mojom::TestController::MethodMinVersions::
+                                 kDoesItemExistInShelfMinVersion);
+        CHECK_GE(interface_version, min_version);
+
+        base::RunLoop inner_loop(base::RunLoop::Type::kNestableTasksAllowed);
+        bool exists = false;
+        lacros_service->GetRemote<crosapi::mojom::TestController>()
+            ->DoesItemExistInShelf(
+                id, base::BindOnce(
+                        [](base::RunLoop* loop, bool* out_exist, bool exist) {
+                          *out_exist = std::move(exist);
+                          loop->Quit();
+                        },
+                        &inner_loop, &exists));
+        inner_loop.Run();
+
+        if (exists == expected_exists)
+          outer_loop->Quit();
+      },
+      &outer_loop, id, exists);
+
+  // Wait for the window to be available.
+  base::RepeatingTimer timer;
+  timer.Start(FROM_HERE, base::Milliseconds(1), std::move(wait_for_shelf_item));
+  outer_loop.Run();
 }
 
 // Sends a TestController message to Ash to send a mouse click to this |window|.
@@ -108,8 +146,8 @@ void SendAndWaitForMouseClick(aura::Window* window) {
   std::unique_ptr<AuraObserver> obs = std::make_unique<AuraObserver>(&run_loop);
   aura::Env::GetInstance()->AddWindowEventDispatcherObserver(obs.get());
 
-  auto* lacros_chrome_service = chromeos::LacrosChromeServiceImpl::Get();
-  lacros_chrome_service->test_controller_remote()->ClickWindow(id);
+  auto* lacros_service = chromeos::LacrosService::Get();
+  lacros_service->GetRemote<crosapi::mojom::TestController>()->ClickWindow(id);
   run_loop.Run();
   aura::Env::GetInstance()->RemoveWindowEventDispatcherObserver(obs.get());
 }

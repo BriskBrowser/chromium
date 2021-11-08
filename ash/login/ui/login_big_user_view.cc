@@ -4,11 +4,12 @@
 
 #include "ash/login/ui/login_big_user_view.h"
 
-#include "ash/public/cpp/login_constants.h"
+#include "ash/login/ui/login_constants.h"
 #include "ash/shell.h"
 #include "ash/style/default_color_constants.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "components/account_id/account_id.h"
+#include "ui/compositor/layer.h"
 #include "ui/views/background.h"
 #include "ui/views/layout/fill_layout.h"
 
@@ -121,7 +122,7 @@ void LoginBigUserView::OnWallpaperBlurChanged() {
         views::Painter::CreateSolidRoundRectPainter(
             AshColorProvider::Get()->GetShieldLayerColor(
                 AshColorProvider::ShieldLayerType::kShield80),
-            login_constants::kNonBlurredWallpaperBackgroundRadiusDp)));
+            login::kNonBlurredWallpaperBackgroundRadiusDp)));
   }
 }
 

@@ -4,6 +4,7 @@
 
 #include "extensions/browser/extension_function.h"
 
+#include <memory>
 #include <numeric>
 #include <utility>
 
@@ -15,27 +16,34 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/no_destructor.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "base/trace_event/trace_event.h"
+#include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
+#include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "extensions/browser/bad_message.h"
+#include "extensions/browser/blob_holder.h"
 #include "extensions/browser/extension_function_dispatcher.h"
 #include "extensions/browser/extension_function_registry.h"
 #include "extensions/browser/extension_message_filter.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extensions_browser_client.h"
+#include "extensions/browser/renderer_startup_helper.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/extension_api.h"
 #include "extensions/common/extension_messages.h"
+#include "extensions/common/mojom/renderer.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom-forward.h"
 
 using content::BrowserThread;
@@ -140,13 +148,13 @@ void LogUma(bool success,
   // anything waiting on user action. As such, we can't always assume that a
   // long execution time equates to a poorly-performing function.
   if (success) {
-    if (elapsed_time < base::TimeDelta::FromMilliseconds(1)) {
+    if (elapsed_time < base::Milliseconds(1)) {
       base::UmaHistogramSparse("Extensions.Functions.SucceededTime.LessThan1ms",
                                histogram_value);
-    } else if (elapsed_time < base::TimeDelta::FromMilliseconds(5)) {
+    } else if (elapsed_time < base::Milliseconds(5)) {
       base::UmaHistogramSparse("Extensions.Functions.SucceededTime.1msTo5ms",
                                histogram_value);
-    } else if (elapsed_time < base::TimeDelta::FromMilliseconds(10)) {
+    } else if (elapsed_time < base::Milliseconds(10)) {
       base::UmaHistogramSparse("Extensions.Functions.SucceededTime.5msTo10ms",
                                histogram_value);
     } else {
@@ -156,13 +164,13 @@ void LogUma(bool success,
     UMA_HISTOGRAM_TIMES("Extensions.Functions.SucceededTotalExecutionTime",
                         elapsed_time);
   } else {
-    if (elapsed_time < base::TimeDelta::FromMilliseconds(1)) {
+    if (elapsed_time < base::Milliseconds(1)) {
       base::UmaHistogramSparse("Extensions.Functions.FailedTime.LessThan1ms",
                                histogram_value);
-    } else if (elapsed_time < base::TimeDelta::FromMilliseconds(5)) {
+    } else if (elapsed_time < base::Milliseconds(5)) {
       base::UmaHistogramSparse("Extensions.Functions.FailedTime.1msTo5ms",
                                histogram_value);
-    } else if (elapsed_time < base::TimeDelta::FromMilliseconds(10)) {
+    } else if (elapsed_time < base::Milliseconds(10)) {
       base::UmaHistogramSparse("Extensions.Functions.FailedTime.5msTo10ms",
                                histogram_value);
     } else {
@@ -178,9 +186,8 @@ void LogBadMessage(extensions::functions::HistogramValue histogram_value) {
   base::RecordAction(base::UserMetricsAction("BadMessageTerminate_EFD"));
   // Track the specific function's |histogram_value|, as this may indicate a
   // bug in that API's implementation.
-  UMA_HISTOGRAM_ENUMERATION("Extensions.BadMessageFunctionName",
-                            histogram_value,
-                            extensions::functions::ENUM_BOUNDARY);
+  base::UmaHistogramSparse("Extensions.BadMessageFunctionName",
+                           histogram_value);
 }
 
 template <class T>
@@ -251,13 +258,13 @@ class BadMessageResponseValue : public ExtensionFunction::ResponseValueObject {
 
 class RespondNowAction : public ExtensionFunction::ResponseActionObject {
  public:
-  typedef base::Callback<void(bool)> SendResponseCallback;
+  typedef base::OnceCallback<void(bool)> SendResponseCallback;
   RespondNowAction(ExtensionFunction::ResponseValue result,
-                   const SendResponseCallback& send_response)
-      : result_(std::move(result)), send_response_(send_response) {}
-  ~RespondNowAction() override {}
+                   SendResponseCallback send_response)
+      : result_(std::move(result)), send_response_(std::move(send_response)) {}
+  ~RespondNowAction() override = default;
 
-  void Execute() override { send_response_.Run(result_->Apply()); }
+  void Execute() override { std::move(send_response_).Run(result_->Apply()); }
 
  private:
   ExtensionFunction::ResponseValue result_;
@@ -322,7 +329,33 @@ void UserGestureForTests::DecrementCount() {
   --count_;
 }
 
+class BrowserContextShutdownNotifierFactory
+    : public BrowserContextKeyedServiceShutdownNotifierFactory {
+ public:
+  static BrowserContextShutdownNotifierFactory* GetInstance() {
+    static base::NoDestructor<BrowserContextShutdownNotifierFactory> s_factory;
+    return s_factory.get();
+  }
+
+  // No copying.
+  BrowserContextShutdownNotifierFactory(
+      const BrowserContextShutdownNotifierFactory&) = delete;
+  BrowserContextShutdownNotifierFactory& operator=(
+      const BrowserContextShutdownNotifierFactory&) = delete;
+
+ private:
+  friend class base::NoDestructor<BrowserContextShutdownNotifierFactory>;
+  BrowserContextShutdownNotifierFactory()
+      : BrowserContextKeyedServiceShutdownNotifierFactory("ExtensionFunction") {
+  }
+};
+
 }  // namespace
+
+// static
+void ExtensionFunction::EnsureShutdownNotifierFactoryBuilt() {
+  BrowserContextShutdownNotifierFactory::GetInstance();
+}
 
 void ExtensionFunction::ResponseValueObject::SetFunctionResults(
     ExtensionFunction* function,
@@ -358,6 +391,9 @@ class ExtensionFunction::RenderFrameHostTracker
             WebContents::FromRenderFrameHost(function->render_frame_host())),
         function_(function) {}
 
+  RenderFrameHostTracker(const RenderFrameHostTracker&) = delete;
+  RenderFrameHostTracker& operator=(const RenderFrameHostTracker&) = delete;
+
  private:
   // content::WebContentsObserver:
   void RenderFrameDeleted(
@@ -373,8 +409,6 @@ class ExtensionFunction::RenderFrameHostTracker
   }
 
   ExtensionFunction* function_;  // Owns us.
-
-  DISALLOW_COPY_AND_ASSIGN(RenderFrameHostTracker);
 };
 
 ExtensionFunction::ExtensionFunction() {
@@ -403,6 +437,9 @@ ExtensionFunction::~ExtensionFunction() {
     if (ignore_all_did_respond_for_testing_do_not_use)
       return true;
 
+    if (!browser_context())
+      return true;
+
     auto* registry = extensions::ExtensionRegistry::Get(browser_context());
     if (registry && extension() &&
         !registry->enabled_extensions().Contains(extension_id())) {
@@ -412,7 +449,18 @@ ExtensionFunction::~ExtensionFunction() {
     return false;
   };
 
-  CHECK(did_respond() || can_be_destroyed_before_responding()) << name();
+  DCHECK(did_respond() || can_be_destroyed_before_responding()) << name();
+
+  // If ignore_did_respond_for_testing() has been called it could cause another
+  // DCHECK about not calling Mojo callback.
+  // Since the ExtensionFunction request on the frame is a Mojo message
+  // which has a reply callback, it should be called before it's destroyed.
+  if (!response_callback_.is_null()) {
+    constexpr char kShouldCallMojoCallback[] = "Ignored did_respond()";
+    std::move(response_callback_)
+        .Run(ResponseType::FAILED, base::Value(base::Value::Type::LIST),
+             kShouldCallMojoCallback);
+  }
 #endif  // DCHECK_IS_ON()
 }
 
@@ -476,8 +524,8 @@ void ExtensionFunction::OnQuotaExceeded(std::string violation_error) {
 
 void ExtensionFunction::SetArgs(base::Value args) {
   DCHECK(args.is_list());
-  DCHECK(!args_.get());  // Should only be called once.
-  args_ = base::ListValue::From(base::Value::ToUniquePtrValue(std::move(args)));
+  DCHECK(!args_.has_value());
+  args_ = std::move(args).TakeList();
 }
 
 const base::ListValue* ExtensionFunction::GetResultList() const {
@@ -513,6 +561,43 @@ bool ExtensionFunction::user_gesture() const {
 
 bool ExtensionFunction::OnMessageReceived(const IPC::Message& message) {
   return false;
+}
+
+void ExtensionFunction::SetBrowserContextForTesting(
+    content::BrowserContext* context) {
+  browser_context_for_testing_ = context;
+}
+
+content::BrowserContext* ExtensionFunction::browser_context() const {
+  if (browser_context_for_testing_)
+    return browser_context_for_testing_;
+  return browser_context_;
+}
+
+void ExtensionFunction::SetDispatcher(
+    const base::WeakPtr<extensions::ExtensionFunctionDispatcher>& dispatcher) {
+  dispatcher_ = dispatcher;
+
+  // Update |browser_context_| to the one from the dispatcher. Make it reset to
+  // nullptr on shutdown.
+  if (!dispatcher_ || !dispatcher_->browser_context()) {
+    browser_context_ = nullptr;
+    shutdown_subscription_ = base::CallbackListSubscription();
+    return;
+  }
+  browser_context_ = dispatcher_->browser_context();
+  shutdown_subscription_ =
+      BrowserContextShutdownNotifierFactory::GetInstance()
+          ->Get(browser_context_)
+          ->Subscribe(base::BindRepeating(&ExtensionFunction::Shutdown,
+                                          base::Unretained(this)));
+}
+
+void ExtensionFunction::Shutdown() {
+  // Allow the extension function to perform any cleanup before nulling out
+  // `browser_context_`.
+  OnBrowserContextShutdown();
+  browser_context_ = nullptr;
 }
 
 void ExtensionFunction::SetRenderFrameHost(
@@ -563,6 +648,12 @@ ExtensionFunction::ResponseValue ExtensionFunction::TwoArguments(
 }
 
 ExtensionFunction::ResponseValue ExtensionFunction::ArgumentList(
+    std::vector<base::Value> results) {
+  return ResponseValue(
+      new ArgumentListResponseValue(this, base::Value(std::move(results))));
+}
+
+ExtensionFunction::ResponseValue ExtensionFunction::ArgumentList(
     std::unique_ptr<base::ListValue> args) {
   base::Value new_args;
   if (args)
@@ -600,6 +691,13 @@ ExtensionFunction::ResponseValue ExtensionFunction::Error(
 }
 
 ExtensionFunction::ResponseValue ExtensionFunction::ErrorWithArguments(
+    std::vector<base::Value> args,
+    const std::string& error) {
+  return ResponseValue(new ErrorWithArgumentsResponseValue(
+      this, base::Value(std::move(args)), error));
+}
+
+ExtensionFunction::ResponseValue ExtensionFunction::ErrorWithArguments(
     std::unique_ptr<base::ListValue> args,
     const std::string& error) {
   base::Value new_args;
@@ -617,7 +715,7 @@ ExtensionFunction::ResponseAction ExtensionFunction::RespondNow(
     ResponseValue result) {
   return ResponseAction(new RespondNowAction(
       std::move(result),
-      base::Bind(&ExtensionFunction::SendResponseImpl, this)));
+      base::BindOnce(&ExtensionFunction::SendResponseImpl, this)));
 }
 
 ExtensionFunction::ResponseAction ExtensionFunction::RespondLater() {
@@ -642,14 +740,22 @@ void ExtensionFunction::Respond(ResponseValue result) {
 
 void ExtensionFunction::OnResponded() {
   if (!transferred_blob_uuids_.empty()) {
-    render_frame_host_->Send(
-        new ExtensionMsg_TransferBlobs(transferred_blob_uuids_));
+    extensions::mojom::Renderer* renderer =
+        extensions::RendererStartupHelperFactory::GetForBrowserContext(
+            browser_context())
+            ->GetRenderer(
+                content::RenderProcessHost::FromID(source_process_id()));
+    if (renderer) {
+      renderer->TransferBlobs(
+          base::BindOnce(&ExtensionFunction::OnTransferBlobsAck, this,
+                         source_process_id(), transferred_blob_uuids_));
+    }
   }
 }
 
 bool ExtensionFunction::HasOptionalArgument(size_t index) {
-  base::Value* value;
-  return args_->Get(index, &value) && !value->is_none();
+  DCHECK(args_);
+  return index < args_->size() && !(*args_)[index].is_none();
 }
 
 void ExtensionFunction::WriteToConsole(blink::mojom::ConsoleMessageLevel level,
@@ -684,12 +790,23 @@ void ExtensionFunction::SendResponseImpl(bool success) {
 
   // If results were never set, we send an empty argument list.
   if (!results_)
-    results_.reset(new base::ListValue());
+    results_ = std::make_unique<base::ListValue>();
 
-  response_callback_.Run(response, *results_, GetError());
+  std::move(response_callback_).Run(response, *results_, GetError());
   LogUma(success, timer_.Elapsed(), histogram_value_);
 
   OnResponded();
+}
+
+void ExtensionFunction::OnTransferBlobsAck(
+    int process_id,
+    const std::vector<std::string>& blob_uuids) {
+  content::RenderProcessHost* process =
+      content::RenderProcessHost::FromID(process_id);
+  if (!process)
+    return;
+
+  extensions::BlobHolder::FromRenderProcessHost(process)->DropBlobs(blob_uuids);
 }
 
 ExtensionFunction::ScopedUserGestureForTests::ScopedUserGestureForTests() {

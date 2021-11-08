@@ -9,9 +9,9 @@
 #             sierra
 #         win win7 win8 win10 ]
 # Devices
-# tags: [ android-nexus-5 android-nexus-5x android-nexus-6 android-nexus-9
-#             android-pixel-2 android-pixel-4 android-shield-android-tv
-#         chromeos-board-amd64-generic chromeos-board-kevin
+# tags: [ android-nexus-5 android-nexus-5x android-nexus-9 android-pixel-2
+#             android-pixel-4 android-shield-android-tv
+#         chromeos-board-amd64-generic chromeos-board-kevin chromeos-board-eve
 #         fuchsia-board-astro fuchsia-board-qemu-x64 ]
 # Platform
 # tags: [ desktop
@@ -22,9 +22,9 @@
 #         release release-x64 ]
 # GPU
 # tags: [ amd amd-0x6613 amd-0x679e amd-0x6821 amd-0x7340
-#         apple apple-apple-a12z
+#         apple apple-apple-m1 apple-angle-metal-renderer:-apple-m1
 #         arm
-#         google google-0xffff google-angle-(metal-renderer:-apple-a12z)
+#         google google-0xffff
 #         intel intel-0xa2e intel-0xd26 intel-0xa011 intel-0x3e92 intel-0x3e9b
 #               intel-0x5912
 #         nvidia nvidia-0xfe9 nvidia-0x1cb3 nvidia-0x2184
@@ -53,7 +53,32 @@
 #         mesa_lt_19.1 mesa_ge_20.1 ]
 # ASan
 # tags: [ asan no-asan ]
+# Display Server
+# tags: [ display-server-wayland display-server-x ]
+# OOP-Canvas
+# tags: [ oop-c no-oop-c ]
 # results: [ Failure RetryOnFailure Skip ]
 # END TAG HEADER
 
-crbug.com/1009137 [ android android-nexus-5 ] Maps_maps [ RetryOnFailure ]
+###############################
+# Permanent Skip Expectations #
+###############################
+# The "Skip" expectations in this section are expected to never be removed.
+# This is for things like tests that will never be supported on a particular
+# platform/configuration.
+
+###############################
+# Temporary Skip Expectations #
+###############################
+# The "Skip" expectations in this section are expected to be removable at some
+# point. This is for things like tests that fail in a way that negatively and
+# significantly impacts other tests, e.g. killing the test device.
+
+###################
+# Failures/Flakes #
+###################
+# Non-"Skip" expectations go here to suppress regular flakes/failures.
+
+#######################################################################
+# Automated Entries After This Point - Do Not Manually Add Below Here #
+#######################################################################

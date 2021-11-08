@@ -19,7 +19,6 @@
 #include "chrome/browser/ui/webui/settings/chromeos/languages_section.h"
 #include "chrome/browser/ui/webui/settings/chromeos/main_section.h"
 #include "chrome/browser/ui/webui/settings/chromeos/multidevice_section.h"
-#include "chrome/browser/ui/webui/settings/chromeos/on_startup_section.h"
 #include "chrome/browser/ui/webui/settings/chromeos/people_section.h"
 #include "chrome/browser/ui/webui/settings/chromeos/personalization_section.h"
 #include "chrome/browser/ui/webui/settings/chromeos/printing_section.h"
@@ -42,7 +41,8 @@ OsSettingsSections::OsSettingsSections(
     ArcAppListPrefs* arc_app_list_prefs,
     signin::IdentityManager* identity_manager,
     android_sms::AndroidSmsService* android_sms_service,
-    CupsPrintersManager* printers_manager) {
+    CupsPrintersManager* printers_manager,
+    apps::AppServiceProxy* app_service_proxy) {
   // Special case: Main section does not have an associated enum value.
   sections_.push_back(
       std::make_unique<MainSection>(profile, search_tag_registry));
@@ -65,7 +65,7 @@ OsSettingsSections::OsSettingsSections(
 
   auto people_section = std::make_unique<PeopleSection>(
       profile, search_tag_registry, sync_service, supervised_user_service,
-      kerberos_credentials_manager, identity_manager, profile->GetPrefs());
+      identity_manager, profile->GetPrefs());
   sections_map_[mojom::Section::kPeople] = people_section.get();
   sections_.push_back(std::move(people_section));
 
@@ -86,7 +86,8 @@ OsSettingsSections::OsSettingsSections(
   sections_.push_back(std::move(search_section));
 
   auto apps_section = std::make_unique<AppsSection>(
-      profile, search_tag_registry, profile->GetPrefs(), arc_app_list_prefs);
+      profile, search_tag_registry, profile->GetPrefs(), arc_app_list_prefs,
+      app_service_proxy);
   sections_map_[mojom::Section::kApps] = apps_section.get();
   sections_.push_back(std::move(apps_section));
 
@@ -94,11 +95,6 @@ OsSettingsSections::OsSettingsSections(
       profile, search_tag_registry, profile->GetPrefs());
   sections_map_[mojom::Section::kCrostini] = crostini_section.get();
   sections_.push_back(std::move(crostini_section));
-
-  auto on_startup_section = std::make_unique<OnStartupSection>(
-      profile, search_tag_registry, profile->GetPrefs());
-  sections_map_[mojom::Section::kOnStartup] = on_startup_section.get();
-  sections_.push_back(std::move(on_startup_section));
 
   auto date_time_section =
       std::make_unique<DateTimeSection>(profile, search_tag_registry);

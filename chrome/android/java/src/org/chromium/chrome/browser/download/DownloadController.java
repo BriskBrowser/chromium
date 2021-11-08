@@ -5,27 +5,14 @@
 package org.chromium.chrome.browser.download;
 
 import android.Manifest.permission;
-import android.app.Activity;
-import android.content.pm.PackageManager;
-import android.util.Pair;
 
-import org.chromium.base.ApplicationStatus;
-import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.R;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabUtils;
-import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.components.download.DownloadCollectionBridge;
-import org.chromium.components.permissions.AndroidPermissionRequester;
 import org.chromium.content_public.browser.BrowserStartupController;
-import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.AndroidPermissionDelegate;
-import org.chromium.ui.base.PermissionCallback;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -115,100 +102,34 @@ public class DownloadController {
         sObserver.onDownloadUpdated(downloadInfo);
     }
 
-
     /**
      * Returns whether file access is allowed.
      *
      * @return true if allowed, or false otherwise.
      */
     @CalledByNative
-    private static boolean hasFileAccess() {
+    private static boolean hasFileAccess(WindowAndroid windowAndroid) {
         if (DownloadCollectionBridge.supportsDownloadCollection()) return true;
-        Activity activity = ApplicationStatus.getLastTrackedFocusedActivity();
-        if (activity instanceof ChromeActivity) {
-            return ((ChromeActivity) activity)
-                    .getWindowAndroid()
-                    .hasPermission(permission.WRITE_EXTERNAL_STORAGE);
-        }
-        return false;
+        AndroidPermissionDelegate delegate = windowAndroid;
+        return delegate == null ? false : delegate.hasPermission(permission.WRITE_EXTERNAL_STORAGE);
     }
 
     /**
-     * Requests the stoarge permission. This should be called from the native code.
+     * Requests the storage permission. This should be called from the native code.
      * @param callbackId ID of native callback to notify the result.
+     * @param windowAndroid The {@link WindowAndroid} associated with the tab.
      */
     @CalledByNative
-    private static void requestFileAccess(final long callbackId) {
-        requestFileAccessPermissionHelper(result -> {
+    private static void requestFileAccess(final long callbackId, WindowAndroid windowAndroid) {
+        if (windowAndroid == null) {
+            DownloadControllerJni.get().onAcquirePermissionResult(
+                    callbackId, /*granted=*/false, /*permissionToUpdate=*/null);
+            return;
+        }
+        FileAccessPermissionHelper.requestFileAccessPermissionHelper(windowAndroid, result -> {
             DownloadControllerJni.get().onAcquirePermissionResult(
                     callbackId, result.first, result.second);
         });
-    }
-
-    /**
-     * Requests the stoarge permission from Java.
-     * @param callback Callback to notify if the permission is granted or not.
-     */
-    public static void requestFileAccessPermission(final Callback<Boolean> callback) {
-        requestFileAccessPermissionHelper(result -> {
-            boolean granted = result.first;
-            String permissions = result.second;
-            if (granted || permissions == null) {
-                callback.onResult(granted);
-                return;
-            }
-            // TODO(jianli): When the permission request was denied by the user and "Never ask
-            // again" was checked, we'd better show the permission update infobar to remind the
-            // user. Currently the infobar only works for ChromeActivities. We need to investigate
-            // how to make it work for other activities.
-            callback.onResult(false);
-        });
-    }
-
-    private static void requestFileAccessPermissionHelper(
-            final Callback<Pair<Boolean, String>> callback) {
-        AndroidPermissionDelegate delegate = null;
-        Activity activity = ApplicationStatus.getLastTrackedFocusedActivity();
-        if (activity instanceof ChromeActivity) {
-            WindowAndroid windowAndroid = ((ChromeActivity) activity).getWindowAndroid();
-            if (windowAndroid != null) {
-                delegate = windowAndroid;
-            }
-        } else if (activity instanceof DownloadActivity) {
-            delegate = ((DownloadActivity) activity).getAndroidPermissionDelegate();
-        }
-
-        if (delegate == null) {
-            callback.onResult(Pair.create(false, null));
-            return;
-        }
-
-        if (delegate.hasPermission(permission.WRITE_EXTERNAL_STORAGE)) {
-            callback.onResult(Pair.create(true, null));
-            return;
-        }
-
-        if (!delegate.canRequestPermission(permission.WRITE_EXTERNAL_STORAGE)) {
-            callback.onResult(Pair.create(false,
-                    delegate.isPermissionRevokedByPolicy(permission.WRITE_EXTERNAL_STORAGE)
-                            ? null
-                            : permission.WRITE_EXTERNAL_STORAGE));
-            return;
-        }
-
-        final AndroidPermissionDelegate permissionDelegate = delegate;
-        final PermissionCallback permissionCallback = (permissions, grantResults)
-                -> callback.onResult(Pair.create(grantResults.length > 0
-                                && grantResults[0] == PackageManager.PERMISSION_GRANTED,
-                        null));
-
-        AndroidPermissionRequester.showMissingPermissionDialog(activity,
-                R.string.missing_storage_permission_download_education_text,
-                ()
-                        -> permissionDelegate.requestPermissions(
-                                new String[] {permission.WRITE_EXTERNAL_STORAGE},
-                                permissionCallback),
-                callback.bind(Pair.create(false, null)));
     }
 
     /**
@@ -253,37 +174,6 @@ public class DownloadController {
         if (!BrowserStartupController.getInstance().isFullBrowserStarted()) return;
         if (ChromeFeatureList.isEnabled(ChromeFeatureList.DOWNLOAD_PROGRESS_INFOBAR)) return;
         DownloadUtils.showDownloadStartToast(ContextUtils.getApplicationContext());
-    }
-
-    private static TabModelSelector getTabModelSelector(Tab tab) {
-        Activity activity = TabUtils.getActivity(tab);
-        if (activity instanceof ChromeActivity) {
-            return ((ChromeActivity) activity).getTabModelSelector();
-        }
-        return null;
-    }
-
-    /**
-     * Close a tab if it is blank. Returns true if it is or already closed.
-     * @param Tab Tab to close.
-     * @return true iff the tab was (already) closed.
-     */
-    @CalledByNative
-    static boolean closeTabIfBlank(Tab tab) {
-        if (tab == null) return true;
-        WebContents contents = tab.getWebContents();
-        boolean isInitialNavigation = contents == null
-                || contents.getNavigationController().isInitialNavigation();
-        if (isInitialNavigation) {
-            // Tab is created just for download, close it.
-            TabModelSelector selector = getTabModelSelector(tab);
-            if (selector == null) return true;
-            if (selector.getModel(tab.isIncognito()).getCount() == 1) return false;
-            boolean closed = selector.closeTab(tab);
-            assert closed;
-            return true;
-        }
-        return false;
     }
 
     @NativeMethods

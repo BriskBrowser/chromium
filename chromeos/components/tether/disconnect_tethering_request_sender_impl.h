@@ -7,9 +7,9 @@
 
 #include <map>
 
-#include "base/optional.h"
 #include "chromeos/components/tether/disconnect_tethering_operation.h"
 #include "chromeos/components/tether/disconnect_tethering_request_sender.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -49,6 +49,11 @@ class DisconnectTetheringRequestSenderImpl
     static Factory* factory_instance_;
   };
 
+  DisconnectTetheringRequestSenderImpl(
+      const DisconnectTetheringRequestSenderImpl&) = delete;
+  DisconnectTetheringRequestSenderImpl& operator=(
+      const DisconnectTetheringRequestSenderImpl&) = delete;
+
   ~DisconnectTetheringRequestSenderImpl() override;
 
   // DisconnectTetheringRequestSender:
@@ -67,7 +72,7 @@ class DisconnectTetheringRequestSenderImpl
  private:
   void OnTetherHostFetched(
       const std::string& device_id,
-      base::Optional<multidevice::RemoteDeviceRef> tether_host);
+      absl::optional<multidevice::RemoteDeviceRef> tether_host);
 
   device_sync::DeviceSyncClient* device_sync_client_;
   secure_channel::SecureChannelClient* secure_channel_client_;
@@ -79,8 +84,6 @@ class DisconnectTetheringRequestSenderImpl
 
   base::WeakPtrFactory<DisconnectTetheringRequestSenderImpl> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(DisconnectTetheringRequestSenderImpl);
 };
 
 }  // namespace tether

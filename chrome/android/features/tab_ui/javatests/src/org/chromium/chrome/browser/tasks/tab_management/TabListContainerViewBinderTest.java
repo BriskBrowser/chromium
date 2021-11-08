@@ -6,8 +6,8 @@ package org.chromium.chrome.browser.tasks.tab_management;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.areAnimatorsEnabled;
 
@@ -33,6 +33,7 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -110,10 +111,12 @@ public class TabListContainerViewBinderTest extends DummyUiActivityTestCase {
         mStartedHidingCallback = new CallbackHelper();
         mFinishedHidingCallback = new CallbackHelper();
 
-        mContainerModel = new PropertyModel(TabListContainerProperties.ALL_KEYS);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mContainerModel = new PropertyModel(TabListContainerProperties.ALL_KEYS);
 
-        mMCP = PropertyModelChangeProcessor.create(
-                mContainerModel, mRecyclerView, TabListContainerViewBinder::bind);
+            mMCP = PropertyModelChangeProcessor.create(
+                    mContainerModel, mRecyclerView, TabListContainerViewBinder::bind);
+        });
     }
 
     @Test
@@ -163,6 +166,7 @@ public class TabListContainerViewBinderTest extends DummyUiActivityTestCase {
     @Test
     @MediumTest
     @Features.EnableFeatures(ChromeFeatureList.TAB_TO_GTS_ANIMATION)
+    @FlakyTest(message = "https://crbug.com/1182554")
     public void testHidesWithAnimation() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mContainerModel.set(
@@ -291,7 +295,7 @@ public class TabListContainerViewBinderTest extends DummyUiActivityTestCase {
 
     @Override
     public void tearDownTest() throws Exception {
-        mMCP.destroy();
+        TestThreadUtils.runOnUiThreadBlocking(mMCP::destroy);
         super.tearDownTest();
     }
 }

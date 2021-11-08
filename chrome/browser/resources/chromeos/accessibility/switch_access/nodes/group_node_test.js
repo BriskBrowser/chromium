@@ -9,16 +9,12 @@ SwitchAccessGroupNodeTest = class extends SwitchAccessE2ETest {
   setUp() {
     var runTest = this.deferRunTest(WhenTestDone.EXPECT);
     (async function() {
-      let module = await import('/switch_access/nodes/basic_node.js');
-      window.BasicNode = module.BasicNode;
-      window.BasicRootNode = module.BasicRootNode;
-
-      module = await import('/switch_access/nodes/group_node.js');
-      window.GroupNode = module.GroupNode;
-
-      module = await import('/switch_access/switch_access_constants.js');
-      window.SwitchAccessMenuAction = module.SwitchAccessMenuAction;
-
+      await importModule(
+          ['BasicNode', 'BasicRootNode'], '/switch_access/nodes/basic_node.js');
+      await importModule('GroupNode', '/switch_access/nodes/group_node.js');
+      await importModule(
+          'SwitchAccessMenuAction',
+          '/switch_access/switch_access_constants.js');
       runTest();
     })();
   }
@@ -26,11 +22,11 @@ SwitchAccessGroupNodeTest = class extends SwitchAccessE2ETest {
 
 TEST_F('SwitchAccessGroupNodeTest', 'NodesRemoved', function() {
   const website = `<button></button>`;
-  this.runWithLoadedTree(website, (rootNode) => {
-    const button = rootNode.find({role: chrome.automation.RoleType.BUTTON});
+  this.runWithLoadedTree(website, (rootWebArea) => {
+    const button = rootWebArea.find({role: chrome.automation.RoleType.BUTTON});
     assertNotEquals(undefined, button);
 
-    const root = new BasicRootNode(rootNode);
+    const root = new BasicRootNode(rootWebArea);
     assertEquals(0, root.children_.length);
 
     // Add a group child which has two buttons (same underlying automation

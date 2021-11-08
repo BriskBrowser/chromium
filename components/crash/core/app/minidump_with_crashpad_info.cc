@@ -4,8 +4,8 @@
 
 #include "components/crash/core/app/minidump_with_crashpad_info.h"
 
+#include "base/containers/cxx20_erase.h"
 #include "base/files/file_util.h"
-#include "base/stl_util.h"
 #include "third_party/crashpad/crashpad/client/crash_report_database.h"
 #include "third_party/crashpad/crashpad/client/crashpad_info.h"
 #include "third_party/crashpad/crashpad/client/settings.h"
@@ -25,6 +25,9 @@ class MinidumpUpdater {
  public:
   MinidumpUpdater();
 
+  MinidumpUpdater(const MinidumpUpdater&) = delete;
+  MinidumpUpdater& operator=(const MinidumpUpdater&) = delete;
+
   // Reads the existing directory from |file|.
   bool Initialize(base::File* file);
 
@@ -41,8 +44,6 @@ class MinidumpUpdater {
 
   base::File* file_;
   std::vector<MINIDUMP_DIRECTORY> directory_;
-
-  DISALLOW_COPY_AND_ASSIGN(MinidumpUpdater);
 };
 
 MinidumpUpdater::MinidumpUpdater() : file_(nullptr) {}

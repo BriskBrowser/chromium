@@ -7,8 +7,8 @@
 
 #include "base/macros.h"
 #include "chrome/browser/ui/passwords/password_dialog_prompts.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace content {
 class WebContents;
@@ -36,7 +36,7 @@ class AccountChooserDialogView : public views::BubbleDialogDelegateView,
 
  private:
   // WidgetDelegate:
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
   void WindowClosing() override;
 

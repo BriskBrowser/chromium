@@ -24,7 +24,7 @@
 #include "chrome/browser/ui/views/apps/app_info_dialog/app_info_permissions_panel.h"
 #include "chrome/browser/ui/views/apps/app_info_dialog/app_info_summary_panel.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
@@ -34,6 +34,7 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -41,12 +42,11 @@
 #include "ui/views/border.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/dialog_delegate.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/views/apps/app_info_dialog/arc_app_info_links_panel.h"
@@ -71,7 +71,7 @@ bool CanPlatformShowAppInfoDialog() {
 
 bool CanShowAppInfoDialog(Profile* profile, const std::string& extension_id) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  bool is_system_web_app = web_app::WebAppProvider::Get(profile)
+  bool is_system_web_app = web_app::WebAppProvider::GetForSystemWebApps(profile)
                                ->system_web_app_manager()
                                .IsSystemWebApp(extension_id);
   if (is_system_web_app) {
@@ -94,21 +94,6 @@ bool CanShowAppInfoDialog(Profile* profile, const std::string& extension_id) {
 #endif
   return CanPlatformShowAppInfoDialog();
 }
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-void ShowAppInfoInAppList(gfx::NativeWindow parent,
-                          const gfx::Rect& app_info_bounds,
-                          Profile* profile,
-                          const extensions::Extension* app) {
-  views::DialogDelegate* dialog = CreateAppListContainerForView(
-      std::make_unique<AppInfoDialog>(profile, app));
-
-  views::Widget* dialog_widget =
-      constrained_window::CreateBrowserModalDialogViews(dialog, parent);
-  dialog_widget->SetBounds(app_info_bounds);
-  dialog_widget->Show();
-}
-#endif
 
 void ShowAppInfoInNativeDialog(content::WebContents* web_contents,
                                Profile* profile,

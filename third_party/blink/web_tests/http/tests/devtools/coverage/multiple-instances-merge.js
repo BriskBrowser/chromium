@@ -4,7 +4,7 @@
 
 (async function() {
   TestRunner.addResult(`Tests the coverage list view after finishing recording in the Coverage view.\n`);
-  await TestRunner.loadModule('coverage_test_runner');
+  await TestRunner.loadLegacyModule('panels/coverage'); await TestRunner.loadTestModule('coverage_test_runner');
 
   await CoverageTestRunner.startCoverage(true);
   await TestRunner.loadHTML(`
@@ -17,10 +17,10 @@
   await TestRunner.evaluateInPagePromise('performActions(); frames[0].performActionsInFrame()');
   await CoverageTestRunner.stopCoverage();
 
-  const coverageView = self.runtime.sharedInstance(Coverage.CoverageView);
-  const dataGrid = coverageView._listView._dataGrid;
+  const coverageView = Coverage.CoverageView.instance();
+  const dataGrid = coverageView.listView.dataGrid;
   for (const child of dataGrid.rootNode().children) {
-    const data = child._coverageInfo;
+    const data = child.coverageInfo;
     const url = TestRunner.formatters.formatAsURL(data.url());
     if (url.startsWith('test://'))
       continue;

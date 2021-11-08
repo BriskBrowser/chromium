@@ -11,7 +11,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/sequenced_task_runner_helpers.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "ui/gl/gl_export.h"
 
 namespace base {
@@ -23,6 +23,10 @@ namespace gl {
 // Listener class for all the callbacks from android SurfaceTexture.
 class GL_EXPORT SurfaceTextureListener {
  public:
+  SurfaceTextureListener() = delete;
+  SurfaceTextureListener(const SurfaceTextureListener&) = delete;
+  SurfaceTextureListener& operator=(const SurfaceTextureListener&) = delete;
+
   // Destroy this listener.
   void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
@@ -48,8 +52,6 @@ class GL_EXPORT SurfaceTextureListener {
   scoped_refptr<base::SingleThreadTaskRunner> browser_loop_;
 
   bool use_any_thread_;
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(SurfaceTextureListener);
 };
 
 }  // namespace gl

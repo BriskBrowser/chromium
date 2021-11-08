@@ -35,14 +35,16 @@ LookalikeUrlTabHelper::LookalikeUrlTabHelper(web::WebState* web_state)
 
 void LookalikeUrlTabHelper::ShouldAllowResponse(
     NSURLResponse* response,
-    bool for_main_frame,
-    base::OnceCallback<void(web::WebStatePolicyDecider::PolicyDecision)>
-        callback) {
+    web::WebStatePolicyDecider::ResponseInfo response_info,
+    web::WebStatePolicyDecider::PolicyDecisionCallback callback) {
   // Ignore subframe navigations.
-  if (!for_main_frame) {
+  if (!response_info.for_main_frame) {
     std::move(callback).Run(CreateAllowDecision());
     return;
   }
+  // TODO(crbug.com/1188945): Only detect lookalike navigations if they're the
+  // first or last URL in the redirect chain. Other URLs are invisible to the
+  // user. Then, ensure UKM is set correctly to record which URL triggered.
 
   // TODO(crbug.com/1104386): Create container and ReleaseInterstitialParams.
   // Get stored interstitial parameters early. Doing so ensures that a
@@ -112,12 +114,16 @@ void LookalikeUrlTabHelper::ShouldAllowResponse(
         return false;
       });
   if (!GetMatchingDomain(navigated_domain, engaged_sites, in_target_allowlist,
-                         &matched_domain, &match_type)) {
+                         proto, &matched_domain, &match_type)) {
     if (base::FeatureList::IsEnabled(
             lookalikes::features::kLookalikeInterstitialForPunycode) &&
         ShouldBlockBySpoofCheckResult(navigated_domain)) {
       match_type = LookalikeUrlMatchType::kFailedSpoofChecks;
       RecordUMAFromMatchType(match_type);
+      LookalikeUrlContainer* lookalike_container =
+          LookalikeUrlContainer::FromWebState(web_state());
+      lookalike_container->SetLookalikeUrlInfo(/*suggested_url=*/GURL(),
+                                               response_url, match_type);
       std::move(callback).Run(CreateLookalikeErrorDecision());
       return;
     }
@@ -148,7 +154,8 @@ void LookalikeUrlTabHelper::ShouldAllowResponse(
   // Interstitial normally records UKM, but still record when it's not shown.
   RecordUkmForLookalikeUrlBlockingPage(
       ukm::GetSourceIdForWebStateDocument(web_state()), match_type,
-      LookalikeUrlBlockingPageUserAction::kInterstitialNotShown);
+      LookalikeUrlBlockingPageUserAction::kInterstitialNotShown,
+      /*triggered_by_initial_url=*/false);
 
   std::move(callback).Run(CreateAllowDecision());
 }

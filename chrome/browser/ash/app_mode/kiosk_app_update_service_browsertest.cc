@@ -19,8 +19,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/test/scoped_path_override.h"
@@ -34,7 +34,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/dbus/update_engine_client.h"
+#include "chromeos/dbus/update_engine/update_engine_client.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_test.h"
@@ -48,7 +48,7 @@ namespace {
 
 // Maximum time for AutomaticRebootManager initialization to complete.
 constexpr base::TimeDelta kAutomaticRebootManagerInitTimeout =
-    base::TimeDelta::FromSeconds(60);
+    base::Seconds(60);
 
 // Blocks until |manager| is initialized and then sets |success_out| to true and
 // runs |quit_closure|. If initialization does not occur within |timeout|, sets
@@ -72,7 +72,9 @@ class KioskAppUpdateServiceTest
       : app_(NULL),
         update_service_(NULL),
         automatic_reboot_manager_(NULL) {}
-
+  KioskAppUpdateServiceTest(const KioskAppUpdateServiceTest&) = delete;
+  KioskAppUpdateServiceTest& operator=(const KioskAppUpdateServiceTest&) =
+      delete;
   ~KioskAppUpdateServiceTest() override {}
 
   // extensions::PlatformAppBrowserTest overrides:
@@ -82,13 +84,13 @@ class KioskAppUpdateServiceTest
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     const base::FilePath& temp_dir = temp_dir_.GetPath();
 
-    const base::TimeDelta uptime = base::TimeDelta::FromHours(3);
+    const base::TimeDelta uptime = base::Hours(3);
     const std::string uptime_seconds =
         base::NumberToString(uptime.InSecondsF());
     const base::FilePath uptime_file = temp_dir.Append("uptime");
     ASSERT_TRUE(base::WriteFile(uptime_file, uptime_seconds));
-    uptime_file_override_.reset(
-        new base::ScopedPathOverride(chromeos::FILE_UPTIME, uptime_file));
+    uptime_file_override_ = std::make_unique<base::ScopedPathOverride>(
+        chromeos::FILE_UPTIME, uptime_file);
   }
 
   void SetUpOnMainThread() override {
@@ -146,15 +148,15 @@ class KioskAppUpdateServiceTest
   void FireUpdatedNeedReboot() {
     update_engine::StatusResult status;
     status.set_current_operation(update_engine::Operation::UPDATED_NEED_REBOOT);
-    run_loop_.reset(new base::RunLoop);
+    run_loop_ = std::make_unique<base::RunLoop>();
     automatic_reboot_manager_->UpdateStatusChanged(status);
     run_loop_->Run();
   }
 
   void RequestPeriodicReboot() {
-    run_loop_.reset(new base::RunLoop);
-    g_browser_process->local_state()->SetInteger(
-        prefs::kUptimeLimit, base::TimeDelta::FromHours(2).InSeconds());
+    run_loop_ = std::make_unique<base::RunLoop>();
+    g_browser_process->local_state()->SetInteger(prefs::kUptimeLimit,
+                                                 base::Hours(2).InSeconds());
     run_loop_->Run();
   }
 
@@ -165,8 +167,6 @@ class KioskAppUpdateServiceTest
   KioskAppUpdateService* update_service_;  // Not owned.
   system::AutomaticRebootManager* automatic_reboot_manager_;  // Not owned.
   std::unique_ptr<base::RunLoop> run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(KioskAppUpdateServiceTest);
 };
 
 // Verifies that the app is notified a reboot is required when an app update

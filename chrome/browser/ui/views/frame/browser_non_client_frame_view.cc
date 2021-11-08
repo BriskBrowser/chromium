@@ -23,6 +23,7 @@
 #include "chrome/grit/theme_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/hit_test.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
@@ -31,7 +32,6 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/views/background.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/window/hit_test_utils.h"
 
 #if defined(OS_WIN)
@@ -53,11 +53,6 @@ BrowserNonClientFrameView::BrowserNonClientFrameView(BrowserFrame* frame,
     g_browser_process->profile_manager()->
         GetProfileAttributesStorage().AddObserver(this);
   }
-  if (browser_view_->tabstrip()) {
-    DCHECK(
-        !tab_strip_observation_.IsObservingSource(browser_view_->tabstrip()));
-    tab_strip_observation_.Observe(browser_view_->tabstrip());
-  }
 }
 
 BrowserNonClientFrameView::~BrowserNonClientFrameView() {
@@ -66,24 +61,29 @@ BrowserNonClientFrameView::~BrowserNonClientFrameView() {
     g_browser_process->profile_manager()->
         GetProfileAttributesStorage().RemoveObserver(this);
   }
+
+  // WebAppFrameToolbarView::ToolbarButtonContainer is an
+  // ImmersiveModeController::Observer, so it must be destroyed before the
+  // BrowserView destroys the ImmersiveModeController.
+  delete web_app_frame_toolbar_;
 }
 
 void BrowserNonClientFrameView::OnBrowserViewInitViewsComplete() {
   UpdateMinimumSize();
 }
 
-void BrowserNonClientFrameView::OnFullscreenStateChanged() {}
-
-bool BrowserNonClientFrameView::CaptionButtonsOnLeadingEdge() const {
-  return false;
-}
-
-void BrowserNonClientFrameView::UpdateFullscreenTopUI() {
+void BrowserNonClientFrameView::OnFullscreenStateChanged() {
   if (frame_->IsFullscreen())
     browser_view_->HideDownloadShelf();
   else
     browser_view_->UnhideDownloadShelf();
 }
+
+bool BrowserNonClientFrameView::CaptionButtonsOnLeadingEdge() const {
+  return false;
+}
+
+void BrowserNonClientFrameView::UpdateFullscreenTopUI() {}
 
 bool BrowserNonClientFrameView::ShouldHideTopUIForFullscreen() const {
   return frame_->IsFullscreen();
@@ -104,7 +104,7 @@ bool BrowserNonClientFrameView::HasVisibleBackgroundTabShapes(
   TabStrip* const tab_strip = browser_view_->tabstrip();
 
   const bool active = ShouldPaintAsActive(active_state);
-  const base::Optional<int> bg_id =
+  const absl::optional<int> bg_id =
       tab_strip->GetCustomBackgroundId(active_state);
   if (bg_id.has_value()) {
     // If the theme has a custom tab background image, assume tab shapes are
@@ -180,7 +180,7 @@ SkColor BrowserNonClientFrameView::GetToolbarTopSeparatorColor() const {
       GetFrameThemeProvider()->GetColor(color_id), GetFrameColor());
 }
 
-base::Optional<int> BrowserNonClientFrameView::GetCustomBackgroundId(
+absl::optional<int> BrowserNonClientFrameView::GetCustomBackgroundId(
     BrowserFrameActiveState active_state) const {
   const ui::ThemeProvider* tp = GetThemeProvider();
   const bool incognito = browser_view_->GetIncognito();
@@ -202,10 +202,16 @@ base::Optional<int> BrowserNonClientFrameView::GetCustomBackgroundId(
       tp->HasCustomImage(id) || (!active && tp->HasCustomImage(active_id)) ||
       tp->HasCustomImage(IDR_THEME_FRAME) ||
       (incognito && tp->HasCustomImage(IDR_THEME_FRAME_INCOGNITO));
-  return has_custom_image ? base::make_optional(id) : base::nullopt;
+  return has_custom_image ? absl::make_optional(id) : absl::nullopt;
 }
 
 void BrowserNonClientFrameView::UpdateMinimumSize() {}
+
+void BrowserNonClientFrameView::SetWindowControlsOverlayToggleVisible(
+    bool visible) {
+  DCHECK(browser_view_->AppUsesWindowControlsOverlay());
+  web_app_frame_toolbar_->SetWindowControlsOverlayToggleVisible(visible);
+}
 
 void BrowserNonClientFrameView::Layout() {
   // BrowserView updates most UI visibility on layout based on fullscreen
@@ -242,6 +248,10 @@ int BrowserNonClientFrameView::NonClientHitTest(const gfx::Point& point) {
 void BrowserNonClientFrameView::ResetWindowControls() {
   if (web_app_frame_toolbar_)
     web_app_frame_toolbar_->UpdateStatusIconsVisibility();
+}
+
+TabSearchBubbleHost* BrowserNonClientFrameView::GetTabSearchBubbleHost() {
+  return nullptr;
 }
 
 void BrowserNonClientFrameView::PaintAsActiveChanged() {
@@ -294,68 +304,6 @@ void BrowserNonClientFrameView::ChildPreferredSizeChanged(views::View* child) {
     Layout();
 }
 
-bool BrowserNonClientFrameView::DoesIntersectRect(const views::View* target,
-                                                  const gfx::Rect& rect) const {
-  DCHECK_EQ(target, this);
-  if (!views::ViewTargeterDelegate::DoesIntersectRect(this, rect)) {
-    // |rect| is outside the frame's bounds.
-    return false;
-  }
-
-  bool should_leave_to_top_container = false;
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
-  // In immersive mode, the caption buttons container is reparented to the
-  // TopContainerView and hence |rect| should not be claimed here.  See
-  // BrowserNonClientFrameViewChromeOS::OnImmersiveRevealStarted().
-  should_leave_to_top_container =
-      browser_view_->immersive_mode_controller()->IsRevealed();
-#endif
-
-  if (!browser_view_->GetTabStripVisible()) {
-    // Claim |rect| if it is above the top of the topmost client area view.
-    return !should_leave_to_top_container && (rect.y() < GetTopInset(false));
-  }
-
-  // If the rect is outside the bounds of the client area, claim it.
-  gfx::RectF rect_in_client_view_coords_f(rect);
-  View::ConvertRectToTarget(this, frame_->client_view(),
-                            &rect_in_client_view_coords_f);
-  gfx::Rect rect_in_client_view_coords =
-      gfx::ToEnclosingRect(rect_in_client_view_coords_f);
-  if (!frame_->client_view()->HitTestRect(rect_in_client_view_coords))
-    return true;
-
-  // Otherwise, claim |rect| only if it is above the bottom of the tab strip
-  // region view in a non-tab portion.
-  TabStripRegionView* tab_strip_region_view =
-      browser_view_->tab_strip_region_view();
-
-  // The |tab_strip_region_view| may not be in a Widget (e.g. when switching
-  // into immersive reveal the BrowserView's TopContainerView is reparented).
-  if (tab_strip_region_view->GetWidget()) {
-    gfx::RectF rect_in_region_view_coords_f(rect);
-    View::ConvertRectToTarget(this, tab_strip_region_view,
-                              &rect_in_region_view_coords_f);
-    gfx::Rect rect_in_region_view_coords =
-        gfx::ToEnclosingRect(rect_in_region_view_coords_f);
-    if (rect_in_region_view_coords.y() >=
-        tab_strip_region_view->GetLocalBounds().bottom()) {
-      // |rect| is below the tab_strip_region_view.
-      return false;
-    }
-
-    if (tab_strip_region_view->HitTestRect(rect_in_region_view_coords)) {
-      // Claim |rect| if it is in a non-tab portion of the tabstrip.
-      return tab_strip_region_view->IsRectInWindowCaption(
-          rect_in_region_view_coords);
-    }
-  }
-
-  // We claim |rect| because it is above the bottom of the tabstrip, but
-  // not in the tabstrip itself.
-  return !should_leave_to_top_container;
-}
-
 void BrowserNonClientFrameView::OnProfileAdded(
     const base::FilePath& profile_path) {
   OnProfileAvatarChanged(profile_path);
@@ -363,7 +311,7 @@ void BrowserNonClientFrameView::OnProfileAdded(
 
 void BrowserNonClientFrameView::OnProfileWasRemoved(
     const base::FilePath& profile_path,
-    const base::string16& profile_name) {
+    const std::u16string& profile_name) {
   OnProfileAvatarChanged(profile_path);
 }
 

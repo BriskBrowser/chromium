@@ -31,11 +31,9 @@ const int kMinImageSize = 71;
 const int kDesiredImageSize = 150;
 
 #if defined(OS_WIN)
-constexpr base::TimeDelta kScreenLockPollInterval =
-    base::TimeDelta::FromSeconds(1);
+constexpr base::TimeDelta kScreenLockPollInterval = base::Seconds(1);
 constexpr int kHideSmtcDelaySeconds = 5;
-constexpr base::TimeDelta kHideSmtcDelay =
-    base::TimeDelta::FromSeconds(kHideSmtcDelaySeconds);
+constexpr base::TimeDelta kHideSmtcDelay = base::Seconds(kHideSmtcDelaySeconds);
 #endif  // defined(OS_WIN)
 
 SystemMediaControlsNotifier::SystemMediaControlsNotifier(
@@ -112,7 +110,7 @@ void SystemMediaControlsNotifier::MediaSessionInfoChanged(
 }
 
 void SystemMediaControlsNotifier::MediaSessionMetadataChanged(
-    const base::Optional<media_session::MediaMetadata>& metadata) {
+    const absl::optional<media_session::MediaMetadata>& metadata) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (metadata.has_value()) {
@@ -164,7 +162,7 @@ void SystemMediaControlsNotifier::MediaControllerImageChanged(
     // If no images are fetched in the fetch image algorithm, the user agent
     // may have fallback behavior such as displaying a default image as artwork.
     // We display the application icon if no artwork is provided.
-    base::Optional<gfx::ImageSkia> icon =
+    absl::optional<gfx::ImageSkia> icon =
         GetContentClient()->browser()->GetProductLogo();
     if (icon.has_value())
       system_media_controls_->SetThumbnail(*icon->bitmap());
@@ -174,7 +172,7 @@ void SystemMediaControlsNotifier::MediaControllerImageChanged(
 }
 
 void SystemMediaControlsNotifier::MediaSessionPositionChanged(
-    const base::Optional<media_session::MediaPosition>& position) {
+    const absl::optional<media_session::MediaPosition>& position) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (position) {

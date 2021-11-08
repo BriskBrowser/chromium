@@ -75,9 +75,6 @@ gfx::Rect ApplyWaylandTransform(const gfx::Rect& rect,
 gfx::Size ApplyWaylandTransform(const gfx::Size& size,
                                 wl_output_transform transform);
 
-// Says if the type is kPopup or kMenu.
-bool IsMenuType(ui::PlatformWindowType type);
-
 // Returns the root WaylandWindow for the given wl_surface.
 ui::WaylandWindow* RootWindowFromWlSurface(wl_surface* surface);
 
@@ -92,7 +89,7 @@ gfx::Rect TranslateWindowBoundsToParentDIP(ui::WaylandWindow* window,
 std::vector<gfx::Rect> CreateRectsFromSkPath(const SkPath& path);
 
 // Returns converted SkPath in DIPs from the one in pixels.
-SkPath ConvertPathToDIP(const SkPath& path_in_pixels, const int32_t scale);
+SkPath ConvertPathToDIP(const SkPath& path_in_pixels, float scale);
 
 }  // namespace wl
 

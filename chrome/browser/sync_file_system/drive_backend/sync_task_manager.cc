@@ -12,7 +12,7 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/sync_file_system/drive_backend/sync_task.h"
 #include "chrome/browser/sync_file_system/drive_backend/sync_task_token.h"
 #include "chrome/browser/sync_file_system/sync_file_metadata.h"
@@ -28,6 +28,10 @@ class SyncTaskAdapter : public ExclusiveTask {
  public:
   explicit SyncTaskAdapter(SyncTaskManager::Task task)
       : task_(std::move(task)) {}
+
+  SyncTaskAdapter(const SyncTaskAdapter&) = delete;
+  SyncTaskAdapter& operator=(const SyncTaskAdapter&) = delete;
+
   ~SyncTaskAdapter() override = default;
 
   void RunExclusive(SyncStatusCallback callback) override {
@@ -36,8 +40,6 @@ class SyncTaskAdapter : public ExclusiveTask {
 
  private:
   SyncTaskManager::Task task_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyncTaskAdapter);
 };
 
 }  // namespace
@@ -47,11 +49,11 @@ SyncTaskManager::PendingTask::PendingTask() = default;
 SyncTaskManager::PendingTask::PendingTask(base::OnceClosure task,
                                           Priority pri,
                                           int seq)
-    : wrapped_once_closure(base::AdaptCallbackForRepeating(std::move(task))),
-      priority(pri),
-      seq(seq) {}
+    : closure(std::move(task)), priority(pri), seq(seq) {}
 
-SyncTaskManager::PendingTask::PendingTask(const PendingTask& other) = default;
+SyncTaskManager::PendingTask::PendingTask(PendingTask&& other) = default;
+SyncTaskManager::PendingTask& SyncTaskManager::PendingTask::operator=(
+    PendingTask&& other) = default;
 
 SyncTaskManager::PendingTask::~PendingTask() {}
 
@@ -384,7 +386,10 @@ void SyncTaskManager::MaybeStartNextForegroundTask(
     return;
 
   if (!pending_tasks_.empty()) {
-    base::RepeatingClosure closure = pending_tasks_.top().wrapped_once_closure;
+    // const_cast is safe here as the `closure` is not used in determining
+    // priority in `SyncTaskManager::PendingTaskComparator()`.
+    base::OnceClosure closure =
+        std::move(const_cast<PendingTask&>(pending_tasks_.top()).closure);
     pending_tasks_.pop();
     std::move(closure).Run();
     return;

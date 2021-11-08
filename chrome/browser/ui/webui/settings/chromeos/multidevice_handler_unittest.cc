@@ -9,14 +9,21 @@
 #include "ash/constants/ash_features.h"
 #include "base/macros.h"
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/chromeos/android_sms/android_sms_urls.h"
-#include "chrome/browser/chromeos/android_sms/fake_android_sms_app_manager.h"
+#include "chrome/browser/ash/android_sms/android_sms_urls.h"
+#include "chrome/browser/ash/android_sms/fake_android_sms_app_manager.h"
+#include "chrome/browser/nearby_sharing/common/nearby_share_prefs.h"
+#include "chrome/browser/nearby_sharing/nearby_sharing_service_factory.h"
+#include "chrome/test/base/testing_profile.h"
 #include "chromeos/components/multidevice/remote_device_test_util.h"
 #include "chromeos/components/phonehub/fake_notification_access_manager.h"
 #include "chromeos/services/multidevice_setup/public/cpp/fake_android_sms_pairing_state_tracker.h"
 #include "chromeos/services/multidevice_setup/public/cpp/fake_multidevice_setup_client.h"
+#include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
+#include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_web_ui.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -63,73 +70,94 @@ GenerateDefaultFeatureStatesMap() {
        multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
       {multidevice_setup::mojom::Feature::kPhoneHubNotifications,
        multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
+      {multidevice_setup::mojom::Feature::kPhoneHubCameraRoll,
+       multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
       {multidevice_setup::mojom::Feature::kPhoneHubTaskContinuation,
        multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
       {multidevice_setup::mojom::Feature::kWifiSync,
+       multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
+      {multidevice_setup::mojom::Feature::kEche,
        multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost}};
 }
 
 void VerifyPageContentDict(
     const base::Value* value,
     multidevice_setup::mojom::HostStatus expected_host_status,
-    const base::Optional<multidevice::RemoteDeviceRef>& expected_host_device,
+    const absl::optional<multidevice::RemoteDeviceRef>& expected_host_device,
     const multidevice_setup::MultiDeviceSetupClient::FeatureStatesMap&
-        feature_states_map) {
+        feature_states_map,
+    bool expected_is_nearby_share_disallowed_by_policy_) {
   const base::DictionaryValue* page_content_dict;
   EXPECT_TRUE(value->GetAsDictionary(&page_content_dict));
 
-  int mode;
-  EXPECT_TRUE(page_content_dict->GetInteger("mode", &mode));
-  EXPECT_EQ(static_cast<int>(expected_host_status), mode);
+  absl::optional<int> mode = page_content_dict->FindIntKey("mode");
+  ASSERT_TRUE(mode);
+  EXPECT_EQ(static_cast<int>(expected_host_status), *mode);
 
-  int better_together_state;
-  EXPECT_TRUE(page_content_dict->GetInteger("betterTogetherState",
-                                            &better_together_state));
+  absl::optional<int> better_together_state =
+      page_content_dict->FindIntKey("betterTogetherState");
+  ASSERT_TRUE(better_together_state);
   auto it = feature_states_map.find(
       multidevice_setup::mojom::Feature::kBetterTogetherSuite);
-  EXPECT_EQ(static_cast<int>(it->second), better_together_state);
+  EXPECT_EQ(static_cast<int>(it->second), *better_together_state);
 
-  int instant_tethering_state;
-  EXPECT_TRUE(page_content_dict->GetInteger("instantTetheringState",
-                                            &instant_tethering_state));
+  absl::optional<int> instant_tethering_state =
+      page_content_dict->FindIntKey("instantTetheringState");
+  ASSERT_TRUE(instant_tethering_state);
   it = feature_states_map.find(
       multidevice_setup::mojom::Feature::kInstantTethering);
-  EXPECT_EQ(static_cast<int>(it->second), instant_tethering_state);
+  EXPECT_EQ(static_cast<int>(it->second), *instant_tethering_state);
 
-  int messages_state;
-  EXPECT_TRUE(page_content_dict->GetInteger("messagesState", &messages_state));
+  absl::optional<int> messages_state =
+      page_content_dict->FindIntKey("messagesState");
+  ASSERT_TRUE(messages_state);
   it = feature_states_map.find(multidevice_setup::mojom::Feature::kMessages);
-  EXPECT_EQ(static_cast<int>(it->second), messages_state);
+  EXPECT_EQ(static_cast<int>(it->second), *messages_state);
 
-  int smart_lock_state;
-  EXPECT_TRUE(
-      page_content_dict->GetInteger("smartLockState", &smart_lock_state));
+  absl::optional<int> smart_lock_state =
+      page_content_dict->FindIntKey("smartLockState");
+  ASSERT_TRUE(smart_lock_state);
   it = feature_states_map.find(multidevice_setup::mojom::Feature::kSmartLock);
-  EXPECT_EQ(static_cast<int>(it->second), smart_lock_state);
+  EXPECT_EQ(static_cast<int>(it->second), *smart_lock_state);
 
-  int phone_hub_state;
-  EXPECT_TRUE(page_content_dict->GetInteger("phoneHubState", &phone_hub_state));
+  absl::optional<int> phone_hub_state =
+      page_content_dict->FindIntKey("phoneHubState");
+  ASSERT_TRUE(phone_hub_state);
   it = feature_states_map.find(multidevice_setup::mojom::Feature::kPhoneHub);
-  EXPECT_EQ(static_cast<int>(it->second), phone_hub_state);
+  EXPECT_EQ(static_cast<int>(it->second), *phone_hub_state);
 
-  int phone_hub_notifications_state;
-  EXPECT_TRUE(page_content_dict->GetInteger("phoneHubNotificationsState",
-                                            &phone_hub_notifications_state));
+  absl::optional<int> phone_hub_notifications_state =
+      page_content_dict->FindIntKey("phoneHubNotificationsState");
+  ASSERT_TRUE(phone_hub_notifications_state);
   it = feature_states_map.find(
       multidevice_setup::mojom::Feature::kPhoneHubNotifications);
-  EXPECT_EQ(static_cast<int>(it->second), phone_hub_notifications_state);
+  EXPECT_EQ(static_cast<int>(it->second), *phone_hub_notifications_state);
 
-  int phone_hub_task_continuation_state;
-  EXPECT_TRUE(page_content_dict->GetInteger(
-      "phoneHubTaskContinuationState", &phone_hub_task_continuation_state));
+  absl::optional<int> phone_hub_camera_roll_state =
+      page_content_dict->FindIntKey("phoneHubCameraRollState");
+  ASSERT_TRUE(phone_hub_camera_roll_state);
+  it = feature_states_map.find(
+      multidevice_setup::mojom::Feature::kPhoneHubCameraRoll);
+  EXPECT_EQ(static_cast<int>(it->second), *phone_hub_camera_roll_state);
+
+  absl::optional<int> phone_hub_task_continuation_state =
+      page_content_dict->FindIntKey("phoneHubTaskContinuationState");
+  ASSERT_TRUE(phone_hub_task_continuation_state);
   it = feature_states_map.find(
       multidevice_setup::mojom::Feature::kPhoneHubTaskContinuation);
-  EXPECT_EQ(static_cast<int>(it->second), phone_hub_task_continuation_state);
+  EXPECT_EQ(static_cast<int>(it->second), *phone_hub_task_continuation_state);
 
-  int wifi_sync_state;
-  EXPECT_TRUE(page_content_dict->GetInteger("wifiSyncState", &wifi_sync_state));
+  absl::optional<int> phone_hub_apps_state =
+      page_content_dict->FindIntKey("phoneHubAppsState");
+  ASSERT_TRUE(phone_hub_apps_state);
+  it = feature_states_map.find(multidevice_setup::mojom::Feature::kEche);
+  EXPECT_EQ(static_cast<int>(it->second), *phone_hub_apps_state);
+
+  absl::optional<int> wifi_sync_state =
+      page_content_dict->FindIntKey("wifiSyncState");
+  ASSERT_TRUE(wifi_sync_state);
   it = feature_states_map.find(multidevice_setup::mojom::Feature::kWifiSync);
-  EXPECT_EQ(static_cast<int>(it->second), wifi_sync_state);
+  EXPECT_EQ(static_cast<int>(it->second), *wifi_sync_state);
 
   std::string host_device_name;
   if (expected_host_device) {
@@ -140,11 +168,31 @@ void VerifyPageContentDict(
     EXPECT_FALSE(
         page_content_dict->GetString("hostDeviceName", &host_device_name));
   }
+
+  bool is_nearby_share_disallowed_by_policy;
+  EXPECT_TRUE(
+      page_content_dict->GetBoolean("isNearbyShareDisallowedByPolicy",
+                                    &is_nearby_share_disallowed_by_policy));
+  EXPECT_EQ(expected_is_nearby_share_disallowed_by_policy_,
+            is_nearby_share_disallowed_by_policy);
+
+  bool is_phone_hub_apps_access_granted;
+  EXPECT_TRUE(
+      page_content_dict->GetBoolean("isPhoneHubAppsAccessGranted",
+                                    &is_phone_hub_apps_access_granted));
+  bool is_phone_hub_permissions_dialog_supported;
+  EXPECT_TRUE(page_content_dict->GetBoolean(
+      "isPhoneHubPermissionsDialogSupported",
+      &is_phone_hub_permissions_dialog_supported));
 }
 
 }  // namespace
 
 class MultideviceHandlerTest : public testing::Test {
+ public:
+  MultideviceHandlerTest(const MultideviceHandlerTest&) = delete;
+  MultideviceHandlerTest& operator=(const MultideviceHandlerTest&) = delete;
+
  protected:
   MultideviceHandlerTest()
       : test_device_(multidevice::CreateRemoteDeviceRefForTest()) {}
@@ -152,8 +200,6 @@ class MultideviceHandlerTest : public testing::Test {
 
   // testing::Test:
   void SetUp() override {
-    test_web_ui_ = std::make_unique<content::TestWebUI>();
-
     fake_multidevice_setup_client_ =
         std::make_unique<multidevice_setup::FakeMultiDeviceSetupClient>();
     fake_notification_access_manager_ =
@@ -166,25 +212,43 @@ class MultideviceHandlerTest : public testing::Test {
         std::make_unique<android_sms::FakeAndroidSmsAppManager>();
 
     prefs_ = std::make_unique<TestingPrefServiceSimple>();
+    RegisterNearbySharingPrefs(prefs_->registry());
+    prefs_->SetBoolean(::prefs::kNearbySharingEnabledPrefName, true);
+    NearbySharingServiceFactory::
+        SetIsNearbyShareSupportedForBrowserContextForTesting(true);
+
+    prefs_->registry()->RegisterBooleanPref(
+        multidevice_setup::kInstantTetheringAllowedPrefName,
+        /*default_value=*/true);
 
     handler_ = std::make_unique<TestMultideviceHandler>(
         prefs_.get(), fake_multidevice_setup_client_.get(),
         fake_notification_access_manager_.get(),
         fake_android_sms_pairing_state_tracker_.get(),
         fake_android_sms_app_manager_.get());
+
+    test_web_contents_ = content::WebContents::Create(
+        content::WebContents::CreateParams(&test_profile_));
+    test_web_ui_ = std::make_unique<content::TestWebUI>();
+    test_web_ui_->set_web_contents(test_web_contents_.get());
     handler_->set_web_ui(test_web_ui_.get());
+
     handler_->RegisterMessages();
     handler_->AllowJavascript();
 
-    scoped_feature_list_.InitWithFeatures({chromeos::features::kPhoneHub}, {});
+    scoped_feature_list_.InitWithFeatures(
+        {chromeos::features::kPhoneHub, chromeos::features::kEcheSWA,
+         chromeos::features::kEchePhoneHubPermissionsOnboarding},
+        {});
   }
 
   void CallGetPageContentData() {
     size_t call_data_count_before_call = test_web_ui()->call_data().size();
 
-    base::ListValue args;
-    args.AppendString("handlerFunctionName");
-    test_web_ui()->HandleReceivedMessage("getPageContentData", &args);
+    base::Value args(base::Value::Type::LIST);
+    args.Append("handlerFunctionName");
+    test_web_ui()->HandleReceivedMessage("getPageContentData",
+                                         &base::Value::AsListValue(args));
 
     EXPECT_EQ(call_data_count_before_call + 1u,
               test_web_ui()->call_data().size());
@@ -210,8 +274,9 @@ class MultideviceHandlerTest : public testing::Test {
     size_t call_data_count_before_call = test_web_ui()->call_data().size();
 
     base::ListValue args;
-    args.AppendString("handlerFunctionName");
-    test_web_ui()->HandleReceivedMessage("getAndroidSmsInfo", &args);
+    args.Append("handlerFunctionName");
+    test_web_ui()->HandleReceivedMessage("getAndroidSmsInfo",
+                                         &base::Value::AsListValue(args));
 
     ASSERT_EQ(call_data_count_before_call + 1u,
               test_web_ui()->call_data().size());
@@ -246,7 +311,7 @@ class MultideviceHandlerTest : public testing::Test {
 
   void SimulateHostStatusUpdate(
       multidevice_setup::mojom::HostStatus host_status,
-      const base::Optional<multidevice::RemoteDeviceRef>& host_device) {
+      const absl::optional<multidevice::RemoteDeviceRef>& host_device) {
     size_t call_data_count_before_call = test_web_ui()->call_data().size();
 
     fake_multidevice_setup_client_->SetHostStatusWithDevice(
@@ -295,6 +360,52 @@ class MultideviceHandlerTest : public testing::Test {
     VerifyPageContent(call_data.arg2());
   }
 
+  void SimulateNearbyShareEnabledPrefChange(bool is_enabled, bool is_managed) {
+    size_t call_data_count_before_call = test_web_ui()->call_data().size();
+    size_t expected_call_count = call_data_count_before_call;
+    bool did_managed_change =
+        is_managed !=
+        prefs_->IsManagedPreference(::prefs::kNearbySharingEnabledPrefName);
+    bool did_enabled_change =
+        is_enabled !=
+        prefs_->GetBoolean(::prefs::kNearbySharingEnabledPrefName);
+
+    if (is_managed) {
+      prefs_->SetManagedPref(::prefs::kNearbySharingEnabledPrefName,
+                             std::make_unique<base::Value>(is_enabled));
+      EXPECT_TRUE(
+          prefs_->IsManagedPreference(::prefs::kNearbySharingEnabledPrefName));
+      if (did_managed_change)
+        ++expected_call_count;
+    } else {
+      prefs_->RemoveManagedPref(::prefs::kNearbySharingEnabledPrefName);
+      EXPECT_FALSE(
+          prefs_->IsManagedPreference(::prefs::kNearbySharingEnabledPrefName));
+      if (did_managed_change)
+        ++expected_call_count;
+
+      prefs_->SetBoolean(::prefs::kNearbySharingEnabledPrefName, is_enabled);
+      if (did_enabled_change)
+        ++expected_call_count;
+    }
+    EXPECT_EQ(is_enabled,
+              prefs_->GetBoolean(::prefs::kNearbySharingEnabledPrefName));
+
+    EXPECT_EQ(expected_call_count, test_web_ui()->call_data().size());
+
+    if (expected_call_count == call_data_count_before_call)
+      return;
+
+    const content::TestWebUI::CallData& call_data =
+        CallDataAtIndex(expected_call_count - 1);
+    EXPECT_EQ("cr.webUIListenerCallback", call_data.function_name());
+    EXPECT_EQ("settings.updateMultidevicePageContentData",
+              call_data.arg1()->GetString());
+
+    expected_is_nearby_share_disallowed_by_policy_ = !is_enabled && is_managed;
+    VerifyPageContent(call_data.arg2());
+  }
+
   void CallRetryPendingHostSetup(bool success) {
     base::ListValue empty_args;
     test_web_ui()->HandleReceivedMessage("retryPendingHostSetup", &empty_args);
@@ -309,19 +420,20 @@ class MultideviceHandlerTest : public testing::Test {
 
   void CallSetFeatureEnabledState(multidevice_setup::mojom::Feature feature,
                                   bool enabled,
-                                  const base::Optional<std::string>& auth_token,
+                                  const absl::optional<std::string>& auth_token,
                                   bool success) {
     size_t call_data_count_before_call = test_web_ui()->call_data().size();
 
-    base::ListValue args;
-    args.AppendString("handlerFunctionName");
-    args.AppendInteger(static_cast<int>(feature));
-    args.AppendBoolean(enabled);
+    base::Value args(base::Value::Type::LIST);
+    args.Append("handlerFunctionName");
+    args.Append(static_cast<int>(feature));
+    args.Append(enabled);
     if (auth_token)
-      args.AppendString(*auth_token);
+      args.Append(*auth_token);
 
     base::ListValue empty_args;
-    test_web_ui()->HandleReceivedMessage("setFeatureEnabledState", &args);
+    test_web_ui()->HandleReceivedMessage("setFeatureEnabledState",
+                                         &base::Value::AsListValue(args));
     fake_multidevice_setup_client()
         ->InvokePendingSetFeatureEnabledStateCallback(
             feature /* expected_feature */, enabled /* expected_enabled */,
@@ -385,15 +497,21 @@ class MultideviceHandlerTest : public testing::Test {
 
   const multidevice::RemoteDeviceRef test_device_;
 
+  bool expected_is_nearby_share_disallowed_by_policy_ = false;
+
  private:
   void VerifyPageContent(const base::Value* value) {
     VerifyPageContentDict(
         value, fake_multidevice_setup_client_->GetHostStatus().first,
         fake_multidevice_setup_client_->GetHostStatus().second,
-        fake_multidevice_setup_client_->GetFeatureStates());
+        fake_multidevice_setup_client_->GetFeatureStates(),
+        expected_is_nearby_share_disallowed_by_policy_);
   }
 
+  content::BrowserTaskEnvironment task_environment_;
+  TestingProfile test_profile_;
   std::unique_ptr<TestingPrefServiceSimple> prefs_;
+  std::unique_ptr<content::WebContents> test_web_contents_;
   std::unique_ptr<content::TestWebUI> test_web_ui_;
   std::unique_ptr<multidevice_setup::FakeMultiDeviceSetupClient>
       fake_multidevice_setup_client_;
@@ -412,8 +530,6 @@ class MultideviceHandlerTest : public testing::Test {
   std::unique_ptr<TestMultideviceHandler> handler_;
 
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(MultideviceHandlerTest);
 };
 
 TEST_F(MultideviceHandlerTest, NotificationSetupFlow) {
@@ -471,7 +587,7 @@ TEST_F(MultideviceHandlerTest, PageContentData) {
 
   SimulateHostStatusUpdate(
       multidevice_setup::mojom::HostStatus::kEligibleHostExistsButNoHostSet,
-      base::nullopt /* host_device */);
+      absl::nullopt /* host_device */);
   SimulateHostStatusUpdate(multidevice_setup::mojom::HostStatus::
                                kHostSetLocallyButWaitingForBackendConfirmation,
                            test_device_);
@@ -492,6 +608,17 @@ TEST_F(MultideviceHandlerTest, PageContentData) {
   SimulateFeatureStatesUpdate(feature_states_map);
 
   SimulatePairingStateUpdate(/*is_android_sms_pairing_complete=*/true);
+
+  SimulateNearbyShareEnabledPrefChange(/*is_enabled=*/true,
+                                       /*is_managed=*/false);
+  SimulateNearbyShareEnabledPrefChange(/*is_enabled=*/true,
+                                       /*is_managed=*/true);
+  SimulateNearbyShareEnabledPrefChange(/*is_enabled=*/false,
+                                       /*is_managed=*/false);
+  SimulateNearbyShareEnabledPrefChange(/*is_enabled=*/false,
+                                       /*is_managed=*/true);
+  SimulateNearbyShareEnabledPrefChange(/*is_enabled=*/false,
+                                       /*is_managed=*/true);
 }
 
 TEST_F(MultideviceHandlerTest, RetryPendingHostSetup) {

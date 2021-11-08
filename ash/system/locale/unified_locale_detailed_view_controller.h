@@ -24,18 +24,22 @@ class UnifiedLocaleDetailedViewController : public DetailedViewController {
  public:
   explicit UnifiedLocaleDetailedViewController(
       UnifiedSystemTrayController* tray_controller);
+
+  UnifiedLocaleDetailedViewController(
+      const UnifiedLocaleDetailedViewController&) = delete;
+  UnifiedLocaleDetailedViewController& operator=(
+      const UnifiedLocaleDetailedViewController&) = delete;
+
   ~UnifiedLocaleDetailedViewController() override;
 
   // DetailedViewControllerBase:
   views::View* CreateView() override;
-  base::string16 GetAccessibleName() const override;
+  std::u16string GetAccessibleName() const override;
 
  private:
   const std::unique_ptr<DetailedViewDelegate> detailed_view_delegate_;
 
   tray::LocaleDetailedView* view_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedLocaleDetailedViewController);
 };
 
 }  // namespace ash

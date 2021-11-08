@@ -112,10 +112,8 @@ LegacyAbstractInlineTextBox::~LegacyAbstractInlineTextBox() {
 
 void AbstractInlineTextBox::Detach() {
   DCHECK(GetLineLayoutItem());
-  if (Node* node = GetNode()) {
-    if (AXObjectCache* cache = node->GetDocument().ExistingAXObjectCache())
-      cache->Remove(this);
-  }
+  if (AXObjectCache* cache = ExistingAXObjectCache())
+    cache->Remove(this);
 
   line_layout_item_ = LineLayoutText(nullptr);
 }
@@ -174,7 +172,7 @@ unsigned LegacyAbstractInlineTextBox::TextOffsetInFormattingContext(
   // return a more exact offset in our formatting context. Otherwise, we need to
   // approximate the offset using our associated layout object.
   if (node && node->IsTextNode()) {
-    const Position position(node, int{offset_in_parent});
+    const Position position(node, static_cast<int>(offset_in_parent));
     LayoutBlockFlow* formatting_context =
         NGOffsetMapping::GetInlineFormattingContextOf(position);
     // If "formatting_context" is not a Layout NG object, the offset mappings
@@ -233,6 +231,12 @@ LayoutObject* AbstractInlineTextBox::GetLayoutObject() const {
   return GetLineLayoutItem().GetLayoutObject();
 }
 
+AXObjectCache* AbstractInlineTextBox::ExistingAXObjectCache() const {
+  if (LayoutObject* layout_object = GetLayoutObject())
+    return layout_object->GetDocument().ExistingAXObjectCache();
+  return nullptr;
+}
+
 void LegacyAbstractInlineTextBox::CharacterWidths(Vector<float>& widths) const {
   if (!inline_text_box_)
     return;
@@ -244,13 +248,22 @@ void LegacyAbstractInlineTextBox::CharacterWidths(Vector<float>& widths) const {
 
 void AbstractInlineTextBox::GetWordBoundaries(
     Vector<WordBoundaries>& words) const {
-  String text = GetText();
+  return GetWordBoundariesForText(words, GetText());
+}
+
+// static
+void AbstractInlineTextBox::GetWordBoundariesForText(
+    Vector<WordBoundaries>& words,
+    const String& text) {
   if (!text.length())
     return;
 
   TextBreakIterator* it = WordBreakIterator(text, 0, text.length());
-  base::Optional<int> word_start;
-  for (int offset = 0; offset != kTextBreakDone && offset < int{text.length()};
+  if (!it)
+    return;
+  absl::optional<int> word_start;
+  for (int offset = 0;
+       offset != kTextBreakDone && offset < static_cast<int>(text.length());
        offset = it->following(offset)) {
     // Unlike in ICU's WordBreakIterator, a word boundary is valid only if it is
     // before, or immediately preceded by, an alphanumeric character, a series
@@ -296,7 +309,7 @@ void AbstractInlineTextBox::GetWordBoundaries(
           prev_character == kCarriageReturnCharacter) {
         if (word_start) {
           words.emplace_back(*word_start, offset);
-          word_start = base::nullopt;
+          word_start = absl::nullopt;
         }
       }
     }
@@ -308,7 +321,7 @@ void AbstractInlineTextBox::GetWordBoundaries(
   // boundary which should be at |text|'s length.
   if (word_start) {
     words.emplace_back(*word_start, text.length());
-    word_start = base::nullopt;
+    word_start = absl::nullopt;
   }
 }
 

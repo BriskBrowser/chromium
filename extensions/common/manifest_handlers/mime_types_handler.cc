@@ -6,9 +6,9 @@
 
 #include <stddef.h>
 
+#include "base/cxx17_backports.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -140,7 +140,7 @@ MimeTypesHandlerParser::~MimeTypesHandlerParser() {
 }
 
 bool MimeTypesHandlerParser::Parse(extensions::Extension* extension,
-                                   base::string16* error) {
+                                   std::u16string* error) {
   const base::Value* mime_types_value = nullptr;
   if (!extension->manifest()->GetList(keys::kMIMETypes, &mime_types_value)) {
     *error = base::ASCIIToUTF16(errors::kInvalidMimeTypesHandler);

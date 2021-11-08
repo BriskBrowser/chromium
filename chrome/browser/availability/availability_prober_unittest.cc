@@ -27,13 +27,7 @@
 
 namespace {
 
-const base::TimeDelta kCacheRevalidateAfter(base::TimeDelta::FromDays(1));
-
-// TODO(https://crbug.com/1042727): Fix test GURL scoping and remove this getter
-// function.
-GURL TestUrl() {
-  return GURL("https://test.com");
-}
+const base::TimeDelta kCacheRevalidateAfter = base::Days(1);
 
 }  // namespace
 
@@ -134,7 +128,7 @@ class AvailabilityProberTest : public testing::Test {
         std::make_unique<TestAvailabilityProber>(
             delegate, test_shared_loader_factory_, &test_prefs_,
             AvailabilityProber::ClientName::kIsolatedPrerenderOriginCheck,
-            TestUrl(), AvailabilityProber::HttpMethod::kGet, headers,
+            kTestUrl, AvailabilityProber::HttpMethod::kGet, headers,
             retry_policy, timeout_policy, TRAFFIC_ANNOTATION_FOR_TESTS, 1,
             kCacheRevalidateAfter, task_environment_.GetMockTickClock(),
             task_environment_.GetMockClock());
@@ -154,8 +148,8 @@ class AvailabilityProberTest : public testing::Test {
     network::TestURLLoaderFactory::PendingRequest* request =
         test_url_loader_factory_.GetPendingRequest(0);
 
-    ASSERT_EQ(request->request.url.host(), TestUrl().host());
-    ASSERT_EQ(request->request.url.scheme(), TestUrl().scheme());
+    ASSERT_EQ(request->request.url.host(), kTestUrl.host());
+    ASSERT_EQ(request->request.url.scheme(), kTestUrl.scheme());
 
     auto head = network::CreateURLResponseHead(http_status);
     network::URLLoaderCompletionStatus status(net_error);
@@ -187,7 +181,7 @@ class AvailabilityProberTest : public testing::Test {
     EXPECT_EQ(request->request.credentials_mode,
               network::mojom::CredentialsMode::kOmit);
     if (expect_random_guid) {
-      EXPECT_NE(request->request.url, TestUrl());
+      EXPECT_NE(request->request.url, kTestUrl);
       EXPECT_TRUE(request->request.url.query().find("guid=") !=
                   std::string::npos);
       EXPECT_EQ(request->request.url.query().length(),
@@ -195,13 +189,13 @@ class AvailabilityProberTest : public testing::Test {
       // We don't check for the randomness of successive GUIDs on the assumption
       // base::GenerateGUID() is always correct.
     } else {
-      EXPECT_EQ(request->request.url, TestUrl());
+      EXPECT_EQ(request->request.url, kTestUrl);
     }
   }
 
   void OnProbeComplete(bool success) { callback_result_ = success; }
 
-  base::Optional<bool> callback_result() { return callback_result_; }
+  absl::optional<bool> callback_result() { return callback_result_; }
 
  private:
   content::BrowserTaskEnvironment task_environment_;
@@ -209,13 +203,14 @@ class AvailabilityProberTest : public testing::Test {
   scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
   TestDelegate test_delegate_;
   TestingPrefServiceSimple test_prefs_;
-  base::Optional<bool> callback_result_;
+  absl::optional<bool> callback_result_;
+  const GURL kTestUrl{"https://test.com"};
 };
 
 TEST_F(AvailabilityProberTest, OK) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -243,7 +238,7 @@ TEST_F(AvailabilityProberTest, OK) {
 TEST_F(AvailabilityProberTest, OK_Callback) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -269,7 +264,7 @@ TEST_F(AvailabilityProberTest, OK_Callback) {
 
 TEST_F(AvailabilityProberTest, MultipleStart) {
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   // Calling |SendNowIfInactive| many times should result in only one url
   // request, which is verified in |VerifyRequest|.
@@ -281,7 +276,7 @@ TEST_F(AvailabilityProberTest, MultipleStart) {
 
 TEST_F(AvailabilityProberTest, NetworkChangeStartsProber) {
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
   EXPECT_FALSE(prober->is_active());
 
   network::TestNetworkConnectionTracker::GetInstance()->SetConnectionType(
@@ -297,7 +292,7 @@ TEST_F(AvailabilityProberTest, NetworkConnectionShardsCache) {
   RunUntilIdle();
 
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -320,7 +315,7 @@ TEST_F(AvailabilityProberTest, NetworkConnectionShardsCache) {
   network::TestNetworkConnectionTracker::GetInstance()->SetConnectionType(
       network::mojom::ConnectionType::CONNECTION_WIFI);
   RunUntilIdle();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 }
 
 TEST_F(AvailabilityProberTest, CacheMaxSize) {
@@ -329,7 +324,7 @@ TEST_F(AvailabilityProberTest, CacheMaxSize) {
   RunUntilIdle();
 
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -338,21 +333,21 @@ TEST_F(AvailabilityProberTest, CacheMaxSize) {
   EXPECT_TRUE(prober->LastProbeWasSuccessful().value());
   EXPECT_FALSE(prober->is_active());
 
-  FastForward(base::TimeDelta::FromSeconds(1));
+  FastForward(base::Seconds(1));
 
   // Change the connection type and report a new probe result.
   network::TestNetworkConnectionTracker::GetInstance()->SetConnectionType(
       network::mojom::ConnectionType::CONNECTION_WIFI);
   RunUntilIdle();
 
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
   MakeResponseAndWait(net::HTTP_OK, net::OK);
   EXPECT_TRUE(prober->LastProbeWasSuccessful().value());
 
-  FastForward(base::TimeDelta::FromSeconds(1));
+  FastForward(base::Seconds(1));
 
   // Then, flip back to the original connection type. The old probe status
   // should not be persisted since the max cache size for testing is 1.
@@ -360,12 +355,12 @@ TEST_F(AvailabilityProberTest, CacheMaxSize) {
       network::mojom::ConnectionType::CONNECTION_3G);
   RunUntilIdle();
 
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 }
 
 TEST_F(AvailabilityProberTest, CacheAutoRevalidation) {
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -375,12 +370,12 @@ TEST_F(AvailabilityProberTest, CacheAutoRevalidation) {
   EXPECT_FALSE(prober->is_active());
 
   // Fast forward until just before revalidation time.
-  FastForward(kCacheRevalidateAfter - base::TimeDelta::FromSeconds(1));
+  FastForward(kCacheRevalidateAfter - base::Seconds(1));
   EXPECT_TRUE(prober->LastProbeWasSuccessful().value());
   EXPECT_FALSE(prober->is_active());
 
   // Fast forward the rest of the way and check the prober is active again.
-  FastForward(base::TimeDelta::FromSeconds(1));
+  FastForward(base::Seconds(1));
   EXPECT_TRUE(prober->LastProbeWasSuccessful().value());
   EXPECT_TRUE(prober->is_active());
 }
@@ -388,7 +383,7 @@ TEST_F(AvailabilityProberTest, CacheAutoRevalidation) {
 TEST_F(AvailabilityProberTest, PersistentCache) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -423,7 +418,7 @@ TEST_F(AvailabilityProberTest, PersistentCache) {
 #if defined(OS_ANDROID)
 TEST_F(AvailabilityProberTest, StartInForeground) {
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
   EXPECT_FALSE(prober->is_active());
 
   prober->SendNowIfInactive(true);
@@ -432,7 +427,7 @@ TEST_F(AvailabilityProberTest, StartInForeground) {
 
 TEST_F(AvailabilityProberTest, DoesntCallSendInForegroundIfInactive) {
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
   EXPECT_FALSE(prober->is_active());
 
   base::android::ApplicationStatusListener::NotifyApplicationStateChange(
@@ -444,7 +439,7 @@ TEST_F(AvailabilityProberTest, DoesntCallSendInForegroundIfInactive) {
 TEST_F(AvailabilityProberTest, NetError) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -467,7 +462,7 @@ TEST_F(AvailabilityProberTest, NetError) {
 TEST_F(AvailabilityProberTest, NetError_Callback) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -493,7 +488,7 @@ TEST_F(AvailabilityProberTest, NetError_Callback) {
 TEST_F(AvailabilityProberTest, HttpError) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -517,12 +512,12 @@ TEST_F(AvailabilityProberTest, HttpError) {
 TEST_F(AvailabilityProberTest, TimeUntilSuccess) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
 
-  FastForward(base::TimeDelta::FromMilliseconds(11000));
+  FastForward(base::Milliseconds(11000));
 
   MakeResponseAndWait(net::HTTP_OK, net::OK);
   EXPECT_TRUE(prober->LastProbeWasSuccessful().value());
@@ -543,12 +538,12 @@ TEST_F(AvailabilityProberTest, TimeUntilFailure) {
 
   std::unique_ptr<AvailabilityProber> prober =
       NewProberWithRetryPolicy(retry_policy);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
 
-  FastForward(base::TimeDelta::FromMilliseconds(11000));
+  FastForward(base::Milliseconds(11000));
 
   MakeResponseAndWait(net::HTTP_OK, net::ERR_FAILED);
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
@@ -568,7 +563,7 @@ TEST_F(AvailabilityProberTest, RandomGUID) {
 
   std::unique_ptr<AvailabilityProber> prober =
       NewProberWithRetryPolicy(retry_policy);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest(true /* expect_random_guid */);
@@ -583,11 +578,11 @@ TEST_F(AvailabilityProberTest, RetryLinear) {
   AvailabilityProber::RetryPolicy retry_policy;
   retry_policy.max_retries = 2;
   retry_policy.backoff = AvailabilityProber::Backoff::kLinear;
-  retry_policy.base_interval = base::TimeDelta::FromMilliseconds(1000);
+  retry_policy.base_interval = base::Milliseconds(1000);
 
   std::unique_ptr<AvailabilityProber> prober =
       NewProberWithRetryPolicy(retry_policy);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -601,9 +596,9 @@ TEST_F(AvailabilityProberTest, RetryLinear) {
       "Availability.Prober.FinalState.IsolatedPrerenderOriginCheck", 0);
 
   // First retry.
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyNoRequests();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyRequest();
   MakeResponseAndWait(net::HTTP_OK, net::ERR_FAILED);
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
@@ -615,9 +610,9 @@ TEST_F(AvailabilityProberTest, RetryLinear) {
       "Availability.Prober.FinalState.IsolatedPrerenderOriginCheck", 0);
 
   // Second retry should be another 1000ms later and be the final one.
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyNoRequests();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyRequest();
   MakeResponseAndWait(net::HTTP_OK, net::ERR_FAILED);
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
@@ -643,11 +638,11 @@ TEST_F(AvailabilityProberTest, RetryThenSucceed) {
   AvailabilityProber::RetryPolicy retry_policy;
   retry_policy.max_retries = 2;
   retry_policy.backoff = AvailabilityProber::Backoff::kLinear;
-  retry_policy.base_interval = base::TimeDelta::FromMilliseconds(1000);
+  retry_policy.base_interval = base::Milliseconds(1000);
 
   std::unique_ptr<AvailabilityProber> prober =
       NewProberWithRetryPolicy(retry_policy);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -661,9 +656,9 @@ TEST_F(AvailabilityProberTest, RetryThenSucceed) {
       "Availability.Prober.FinalState.IsolatedPrerenderOriginCheck", 0);
 
   // First retry.
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyNoRequests();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyRequest();
   MakeResponseAndWait(net::HTTP_OK, net::ERR_FAILED);
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
@@ -675,9 +670,9 @@ TEST_F(AvailabilityProberTest, RetryThenSucceed) {
       "Availability.Prober.FinalState.IsolatedPrerenderOriginCheck", 0);
 
   // Second retry should be another 1000ms later and be the final one.
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyNoRequests();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyRequest();
   MakeResponseAndWait(net::HTTP_OK, net::OK);
   EXPECT_TRUE(prober->LastProbeWasSuccessful().value());
@@ -711,11 +706,11 @@ TEST_F(AvailabilityProberTest, RetryExponential) {
   AvailabilityProber::RetryPolicy retry_policy;
   retry_policy.max_retries = 2;
   retry_policy.backoff = AvailabilityProber::Backoff::kExponential;
-  retry_policy.base_interval = base::TimeDelta::FromMilliseconds(1000);
+  retry_policy.base_interval = base::Milliseconds(1000);
 
   std::unique_ptr<AvailabilityProber> prober =
       NewProberWithRetryPolicy(retry_policy);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -724,18 +719,18 @@ TEST_F(AvailabilityProberTest, RetryExponential) {
   EXPECT_TRUE(prober->is_active());
 
   // First retry.
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyNoRequests();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyRequest();
   MakeResponseAndWait(net::HTTP_OK, net::ERR_FAILED);
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
   EXPECT_TRUE(prober->is_active());
 
   // Second retry should be another 2000ms later and be the final one.
-  FastForward(base::TimeDelta::FromMilliseconds(1999));
+  FastForward(base::Milliseconds(1999));
   VerifyNoRequests();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyRequest();
   MakeResponseAndWait(net::HTTP_OK, net::ERR_FAILED);
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
@@ -754,34 +749,34 @@ TEST_F(AvailabilityProberTest, TimeoutLinear) {
   base::HistogramTester histogram_tester;
   AvailabilityProber::RetryPolicy retry_policy;
   retry_policy.max_retries = 1;
-  retry_policy.base_interval = base::TimeDelta::FromMilliseconds(10);
+  retry_policy.base_interval = base::Milliseconds(10);
 
   AvailabilityProber::TimeoutPolicy timeout_policy;
   timeout_policy.backoff = AvailabilityProber::Backoff::kLinear;
-  timeout_policy.base_timeout = base::TimeDelta::FromMilliseconds(1000);
+  timeout_policy.base_timeout = base::Milliseconds(1000);
 
   std::unique_ptr<AvailabilityProber> prober =
       NewProberWithPolicies(retry_policy, timeout_policy);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   // First attempt.
   prober->SendNowIfInactive(false);
   VerifyRequest();
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyRequest();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyNoRequests();
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
   EXPECT_TRUE(prober->is_active());
 
   // Fast forward to the start of the next attempt.
-  FastForward(base::TimeDelta::FromMilliseconds(10));
+  FastForward(base::Milliseconds(10));
 
   // Second attempt should have the same timeout.
   VerifyRequest();
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyRequest();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyNoRequests();
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
   EXPECT_FALSE(prober->is_active());
@@ -799,34 +794,34 @@ TEST_F(AvailabilityProberTest, TimeoutExponential) {
   base::HistogramTester histogram_tester;
   AvailabilityProber::RetryPolicy retry_policy;
   retry_policy.max_retries = 1;
-  retry_policy.base_interval = base::TimeDelta::FromMilliseconds(10);
+  retry_policy.base_interval = base::Milliseconds(10);
 
   AvailabilityProber::TimeoutPolicy timeout_policy;
   timeout_policy.backoff = AvailabilityProber::Backoff::kExponential;
-  timeout_policy.base_timeout = base::TimeDelta::FromMilliseconds(1000);
+  timeout_policy.base_timeout = base::Milliseconds(1000);
 
   std::unique_ptr<AvailabilityProber> prober =
       NewProberWithPolicies(retry_policy, timeout_policy);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   // First attempt.
   prober->SendNowIfInactive(false);
   VerifyRequest();
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyRequest();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyNoRequests();
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
   EXPECT_TRUE(prober->is_active());
 
   // Fast forward to the start of the next attempt.
-  FastForward(base::TimeDelta::FromMilliseconds(10));
+  FastForward(base::Milliseconds(10));
 
   // Second attempt should have a 2s timeout.
   VerifyRequest();
-  FastForward(base::TimeDelta::FromMilliseconds(1999));
+  FastForward(base::Milliseconds(1999));
   VerifyRequest();
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
   VerifyNoRequests();
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
   EXPECT_FALSE(prober->is_active());
@@ -848,14 +843,14 @@ TEST_F(AvailabilityProberTest, DelegateStopsFirstProbe) {
   AvailabilityProber::RetryPolicy retry_policy;
   retry_policy.max_retries = 2;
   retry_policy.backoff = AvailabilityProber::Backoff::kLinear;
-  retry_policy.base_interval = base::TimeDelta::FromMilliseconds(1000);
+  retry_policy.base_interval = base::Milliseconds(1000);
 
   std::unique_ptr<AvailabilityProber> prober = NewProberWithPoliciesAndDelegate(
       &delegate, retry_policy, AvailabilityProber::TimeoutPolicy());
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
   EXPECT_FALSE(prober->is_active());
   VerifyNoRequests();
 
@@ -871,11 +866,11 @@ TEST_F(AvailabilityProberTest, DelegateStopsRetries) {
   AvailabilityProber::RetryPolicy retry_policy;
   retry_policy.max_retries = 2;
   retry_policy.backoff = AvailabilityProber::Backoff::kLinear;
-  retry_policy.base_interval = base::TimeDelta::FromMilliseconds(1000);
+  retry_policy.base_interval = base::Milliseconds(1000);
 
   std::unique_ptr<AvailabilityProber> prober = NewProberWithPoliciesAndDelegate(
       &delegate, retry_policy, AvailabilityProber::TimeoutPolicy());
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -884,10 +879,10 @@ TEST_F(AvailabilityProberTest, DelegateStopsRetries) {
   EXPECT_TRUE(prober->is_active());
 
   // First retry.
-  FastForward(base::TimeDelta::FromMilliseconds(999));
+  FastForward(base::Milliseconds(999));
   VerifyNoRequests();
   delegate.set_should_send_next_probe(false);
-  FastForward(base::TimeDelta::FromMilliseconds(1));
+  FastForward(base::Milliseconds(1));
 
   EXPECT_FALSE(prober->LastProbeWasSuccessful().value());
   EXPECT_FALSE(prober->is_active());
@@ -898,7 +893,7 @@ TEST_F(AvailabilityProberTest, CacheEntryAge) {
   base::HistogramTester histogram_tester;
 
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
   prober->SendNowIfInactive(false);
   VerifyRequest();
@@ -909,7 +904,7 @@ TEST_F(AvailabilityProberTest, CacheEntryAge) {
   histogram_tester.ExpectUniqueSample(
       "Availability.Prober.CacheEntryAge.IsolatedPrerenderOriginCheck", 0, 1);
 
-  FastForward(base::TimeDelta::FromHours(24));
+  FastForward(base::Hours(24));
   EXPECT_TRUE(prober->LastProbeWasSuccessful().value());
 
   histogram_tester.ExpectBucketCount(
@@ -924,15 +919,15 @@ TEST_F(AvailabilityProberTest, Repeating) {
   base::HistogramTester histogram_tester;
 
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
 
-  prober->RepeatedlyProbe(base::TimeDelta::FromSeconds(1), false);
+  prober->RepeatedlyProbe(base::Seconds(1), false);
   VerifyRequest();
   MakeResponseAndWait(net::HTTP_OK, net::OK);
   EXPECT_TRUE(prober->LastProbeWasSuccessful().value());
   EXPECT_FALSE(prober->is_active());
 
-  FastForward(base::TimeDelta::FromSeconds(1));
+  FastForward(base::Seconds(1));
   EXPECT_TRUE(prober->is_active());
 
   VerifyRequest();
@@ -944,7 +939,7 @@ TEST_F(AvailabilityProberTest, Repeating) {
 TEST_F(AvailabilityProberTest, ReportExternalFailure_WhileIdle) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
   EXPECT_FALSE(prober->is_active());
 
   prober->ReportExternalFailureAndRetry();
@@ -969,11 +964,11 @@ TEST_F(AvailabilityProberTest, ReportExternalFailure_WhileIdle) {
 TEST_F(AvailabilityProberTest, ReportExternalFailure_WhileActive) {
   base::HistogramTester histogram_tester;
   std::unique_ptr<AvailabilityProber> prober = NewProber();
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
   EXPECT_FALSE(prober->is_active());
 
   prober->SendNowIfInactive(false);
-  EXPECT_EQ(prober->LastProbeWasSuccessful(), base::nullopt);
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
   EXPECT_TRUE(prober->is_active());
   VerifyRequest();
 
@@ -994,4 +989,13 @@ TEST_F(AvailabilityProberTest, ReportExternalFailure_WhileActive) {
       "Availability.Prober.DidSucceed.AfterReportedFailure."
       "IsolatedPrerenderOriginCheck",
       true, 1);
+}
+
+TEST_F(AvailabilityProberTest, GenerateCacheEntryHistogram) {
+  base::HistogramTester histogram_tester;
+  std::unique_ptr<AvailabilityProber> prober = NewProber();
+  EXPECT_EQ(prober->LastProbeWasSuccessful(), absl::nullopt);
+
+  histogram_tester.ExpectTotalCount(
+      "Availability.Prober.GenerateCacheKey.IsolatedPrerenderOriginCheck", 1);
 }

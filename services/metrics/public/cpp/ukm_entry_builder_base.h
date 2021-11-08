@@ -2,10 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef SERVICES_METRICS_PUBLIC_CPP_UKM_ENTRY_BUILDER_BASE_H
-#define SERVICES_METRICS_PUBLIC_CPP_UKM_ENTRY_BUILDER_BASE_H
-
-#include <string>
+#ifndef SERVICES_METRICS_PUBLIC_CPP_UKM_ENTRY_BUILDER_BASE_H_
+#define SERVICES_METRICS_PUBLIC_CPP_UKM_ENTRY_BUILDER_BASE_H_
 
 #include "base/macros.h"
 #include "services/metrics/public/cpp/metrics_export.h"
@@ -21,6 +19,9 @@ namespace internal {
 // This class should not be used directly.
 class METRICS_EXPORT UkmEntryBuilderBase {
  public:
+  UkmEntryBuilderBase(const UkmEntryBuilderBase&) = delete;
+  UkmEntryBuilderBase& operator=(const UkmEntryBuilderBase&) = delete;
+
   virtual ~UkmEntryBuilderBase();
 
   // Records the complete entry into the recorder. If recorder is null, the
@@ -41,12 +42,10 @@ class METRICS_EXPORT UkmEntryBuilderBase {
 
  private:
   mojom::UkmEntryPtr entry_;
-
-  DISALLOW_COPY_AND_ASSIGN(UkmEntryBuilderBase);
 };
 
 }  // namespace internal
 
 }  // namespace ukm
 
-#endif  // SERVICES_METRICS_PUBLIC_CPP_UKM_ENTRY_BUILDER_BASE_H
+#endif  // SERVICES_METRICS_PUBLIC_CPP_UKM_ENTRY_BUILDER_BASE_H_

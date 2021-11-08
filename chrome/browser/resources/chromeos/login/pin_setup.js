@@ -91,6 +91,15 @@ Polymer({
       type: Boolean,
       value: false,
     },
+
+    /**
+     * Indicates whether user is a child account.
+     * @type {boolean}
+     */
+    isChildAccount_: {
+      type: Boolean,
+      value: false,
+    },
   },  // properties
 
   ready() {
@@ -119,7 +128,9 @@ Polymer({
    * @param {OobeTypes.PinSetupScreenParameters} data
    */
   onBeforeShow(data) {
+    this.$.pinKeyboard.resetState();
     this.authToken_ = data.auth_token;
+    this.isChildAccount_ = data.is_child_account;
   },
 
   /**

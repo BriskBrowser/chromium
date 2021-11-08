@@ -181,6 +181,8 @@ class CORE_EXPORT HTMLImageElement final
   void SetIsAdRelated() { is_ad_related_ = true; }
   bool IsAdRelated() const override { return is_ad_related_; }
 
+  void InvalidateAttributeMapping();
+
   static bool SupportedImageType(const String& type,
                                  const HashSet<String>* disabled_image_types);
 
@@ -204,7 +206,8 @@ class CORE_EXPORT HTMLImageElement final
   void DidMoveToNewDocument(Document& old_document) override;
 
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
-  ComputedStyle* CustomStyleForLayoutObject(const StyleRecalcContext&) override;
+  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+      const StyleRecalcContext&) override;
 
  private:
   bool AreAuthorShadowsAllowed() const override { return false; }
@@ -214,6 +217,12 @@ class CORE_EXPORT HTMLImageElement final
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
+      MutableCSSPropertyValueSet*) override;
+  // For mapping attributes from the <source> element, if any.
+  bool HasExtraStyleForPresentationAttribute() const override {
+    return source_;
+  }
+  void CollectExtraStyleForPresentationAttribute(
       MutableCSSPropertyValueSet*) override;
   void SetLayoutDisposition(LayoutDisposition, bool force_reattach = false);
 

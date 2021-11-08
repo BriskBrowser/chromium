@@ -8,10 +8,14 @@
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
-#include "base/strings/stringprintf.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/values.h"
 #include "build/build_config.h"
+#include "components/policy/core/browser/browser_policy_connector_base.h"
+#include "components/policy/core/common/mock_configuration_policy_provider.h"
+#include "components/policy/core/common/policy_map.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/permission_controller_delegate.h"
@@ -22,8 +26,11 @@
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/no_renderer_crashes_assertion.h"
+#include "headless/app/headless_shell_switches.h"
 #include "headless/lib/browser/headless_browser_context_impl.h"
+#include "headless/lib/browser/headless_browser_impl.h"
 #include "headless/lib/browser/headless_web_contents_impl.h"
+#include "headless/lib/browser/policy/headless_mode_policy.h"
 #include "headless/lib/headless_macros.h"
 #include "headless/public/devtools/domains/inspector.h"
 #include "headless/public/devtools/domains/network.h"
@@ -34,17 +41,19 @@
 #include "headless/public/headless_devtools_target.h"
 #include "headless/public/headless_web_contents.h"
 #include "headless/test/headless_browser_test.h"
+#include "net/base/net_errors.h"
 #include "net/cert/cert_status_flags.h"
+#include "net/ssl/ssl_server_config.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/chrome_debug_urls.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/gfx/geometry/size.h"
 
 #if defined(OS_MAC)
-#include "third_party/crashpad/crashpad/client/crash_report_database.h"
+#include "third_party/crashpad/crashpad/client/crash_report_database.h"  // nogncheck
 #endif
 
 using testing::UnorderedElementsAre;
@@ -265,7 +274,7 @@ IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, ClipboardCopyPasteText) {
   // Tests copy-pasting text with the clipboard in headless mode.
   ui::Clipboard* clipboard = ui::Clipboard::GetForCurrentThread();
   ASSERT_TRUE(clipboard);
-  base::string16 paste_text = base::ASCIIToUTF16("Clippy!");
+  std::u16string paste_text = u"Clippy!";
   for (ui::ClipboardBuffer buffer :
        {ui::ClipboardBuffer::kCopyPaste, ui::ClipboardBuffer::kSelection,
         ui::ClipboardBuffer::kDrag}) {
@@ -275,7 +284,7 @@ IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, ClipboardCopyPasteText) {
       ui::ScopedClipboardWriter writer(buffer);
       writer.WriteText(paste_text);
     }
-    base::string16 copy_text;
+    std::u16string copy_text;
     clipboard->ReadText(buffer, /* data_dst = */ nullptr, &copy_text);
     EXPECT_EQ(paste_text, copy_text);
   }
@@ -334,6 +343,9 @@ class CookieSetter {
                        base::Unretained(this)));
   }
 
+  CookieSetter(const CookieSetter&) = delete;
+  CookieSetter& operator=(const CookieSetter&) = delete;
+
   ~CookieSetter() {
     web_contents_->GetDevToolsTarget()->DetachClient(devtools_client_.get());
   }
@@ -353,8 +365,6 @@ class CookieSetter {
   std::unique_ptr<HeadlessDevToolsClient> devtools_client_;
 
   std::unique_ptr<network::SetCookieResult> result_;
-
-  DISALLOW_COPY_AND_ASSIGN(CookieSetter);
 };
 
 }  // namespace
@@ -367,7 +377,6 @@ class HeadlessBrowserRendererCommandPrefixTest : public HeadlessBrowserTest {
   const base::FilePath& launcher_stamp() const { return launcher_stamp_; }
 
   void SetUp() override {
-    base::ThreadRestrictions::SetIOAllowed(true);
     base::CreateTemporaryFile(&launcher_stamp_);
 
     base::ScopedFILE launcher_file =
@@ -405,7 +414,7 @@ class HeadlessBrowserRendererCommandPrefixTest : public HeadlessBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(HeadlessBrowserRendererCommandPrefixTest, Prefix) {
-  base::ThreadRestrictions::SetIOAllowed(true);
+  base::ScopedAllowBlockingForTesting allow_blocking;
   EXPECT_TRUE(embedded_test_server()->Start());
 
   HeadlessBrowserContext* browser_context =
@@ -432,7 +441,6 @@ class CrashReporterTest : public HeadlessBrowserTest,
   ~CrashReporterTest() override = default;
 
   void SetUp() override {
-    base::ThreadRestrictions::SetIOAllowed(true);
     base::CreateNewTempDirectory(FILE_PATH_LITERAL("CrashReporterTest"),
                                  &crash_dumps_dir_);
     EXPECT_FALSE(options()->enable_crash_reporter);
@@ -442,7 +450,6 @@ class CrashReporterTest : public HeadlessBrowserTest,
   }
 
   void TearDown() override {
-    base::ThreadRestrictions::SetIOAllowed(true);
     base::DeleteFile(crash_dumps_dir_);
   }
 
@@ -486,7 +493,7 @@ IN_PROC_BROWSER_TEST_F(CrashReporterTest, MAYBE_GenerateMinidump) {
   browser_context_ = browser()->CreateBrowserContextBuilder().Build();
 
   web_contents_ = browser_context_->CreateWebContentsBuilder()
-                      .SetInitialURL(GURL(content::kChromeUICrashURL))
+                      .SetInitialURL(GURL(blink::kChromeUICrashURL))
                       .Build();
 
   web_contents_->AddObserver(this);
@@ -497,7 +504,7 @@ IN_PROC_BROWSER_TEST_F(CrashReporterTest, MAYBE_GenerateMinidump) {
 
   // Check that one minidump got created.
   {
-    base::ThreadRestrictions::SetIOAllowed(true);
+    base::ScopedAllowBlockingForTesting allow_blocking;
 
 #if defined(OS_MAC)
     auto database = crashpad::CrashReportDatabase::Initialize(crash_dumps_dir_);
@@ -566,6 +573,9 @@ class TraceHelper : public tracing::ExperimentalObserver {
         base::BindOnce(&TraceHelper::OnTracingStarted, base::Unretained(this)));
   }
 
+  TraceHelper(const TraceHelper&) = delete;
+  TraceHelper& operator=(const TraceHelper&) = delete;
+
   ~TraceHelper() override {
     target_->DetachClient(client_.get());
     EXPECT_FALSE(target_->IsAttached());
@@ -599,8 +609,6 @@ class TraceHelper : public tracing::ExperimentalObserver {
   std::unique_ptr<HeadlessDevToolsClient> client_;
 
   std::unique_ptr<base::ListValue> tracing_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(TraceHelper);
 };
 
 }  // namespace
@@ -614,7 +622,7 @@ IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, TraceUsingBrowserDevToolsTarget) {
 
   std::unique_ptr<base::ListValue> tracing_data = helper.TakeTracingData();
   EXPECT_TRUE(tracing_data);
-  EXPECT_LT(0u, tracing_data->GetSize());
+  EXPECT_LT(0u, tracing_data->GetList().size());
 }
 
 IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, WindowPrint) {
@@ -635,7 +643,7 @@ IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, WindowPrint) {
 class HeadlessBrowserAllowInsecureLocalhostTest : public HeadlessBrowserTest {
  public:
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kAllowInsecureLocalhost);
+    command_line->AppendSwitch(::switches::kAllowInsecureLocalhost);
   }
 };
 
@@ -701,12 +709,11 @@ IN_PROC_BROWSER_TEST_F(HeadlessBrowserTestAppendCommandLineFlags,
 }
 
 IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, ServerWantsClientCertificate) {
-  net::SpawnedTestServer::SSLOptions ssl_options;
-  ssl_options.request_client_certificate = true;
-
-  net::SpawnedTestServer server(
-      net::SpawnedTestServer::TYPE_HTTPS, ssl_options,
-      base::FilePath(FILE_PATH_LITERAL("headless/test/data")));
+  net::SSLServerConfig server_config;
+  server_config.client_cert_type = net::SSLServerConfig::OPTIONAL_CLIENT_CERT;
+  net::EmbeddedTestServer server(net::EmbeddedTestServer::TYPE_HTTPS);
+  server.SetSSLConfig(net::EmbeddedTestServer::CERT_AUTO, server_config);
+  server.ServeFilesFromSourceDirectory("headless/test/data");
   EXPECT_TRUE(server.Start());
 
   HeadlessBrowserContext* browser_context =
@@ -755,6 +762,45 @@ IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, BadgingAPI) {
       browser_context->CreateWebContentsBuilder().SetInitialURL(url).Build();
 
   EXPECT_TRUE(WaitForLoad(web_contents));
+}
+
+class HeadlessBrowserTestWithExplicitlyAllowedPorts
+    : public HeadlessBrowserTest,
+      public testing::WithParamInterface<bool> {
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    HeadlessBrowserTest::SetUpCommandLine(command_line);
+    if (is_port_allowed()) {
+      command_line->AppendSwitchASCII(switches::kExplicitlyAllowedPorts,
+                                      "10080");
+    }
+  }
+
+  bool is_port_allowed() { return GetParam(); }
+};
+
+INSTANTIATE_TEST_CASE_P(HeadlessBrowserTestWithExplicitlyAllowedPorts,
+                        HeadlessBrowserTestWithExplicitlyAllowedPorts,
+                        testing::Values(false, true));
+
+IN_PROC_BROWSER_TEST_P(HeadlessBrowserTestWithExplicitlyAllowedPorts,
+                       AllowedPort) {
+  HeadlessBrowserContext* browser_context =
+      browser()->CreateBrowserContextBuilder().Build();
+
+  HeadlessWebContents* web_contents =
+      browser_context->CreateWebContentsBuilder()
+          .SetInitialURL(GURL("http://127.0.0.1:10080"))
+          .Build();
+
+  // If the port is allowed, the request is expected to fail for
+  // reasons other than ERR_UNSAFE_PORT.
+  net::Error error = net::OK;
+  EXPECT_FALSE(WaitForLoad(web_contents, &error));
+  if (is_port_allowed())
+    EXPECT_NE(error, net::ERR_UNSAFE_PORT);
+  else
+    EXPECT_EQ(error, net::ERR_UNSAFE_PORT);
 }
 
 }  // namespace headless

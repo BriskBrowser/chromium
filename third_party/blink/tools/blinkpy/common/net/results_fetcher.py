@@ -30,11 +30,15 @@ import collections
 import logging
 import json
 import re
-import urllib
+import six.moves.urllib.request
+import six.moves.urllib.parse
+import six.moves.urllib.error
 
 from blinkpy.common.memoized import memoized
 from blinkpy.common.net.web import Web
 from blinkpy.common.net.web_test_results import WebTestResults
+from blinkpy.common.system.filesystem import FileSystem
+from blinkpy.web_tests.builder_list import BuilderList
 from blinkpy.web_tests.layout_package import json_results_generator
 
 _log = logging.getLogger(__name__)
@@ -44,15 +48,17 @@ RESULTS_URL_BASE = '%s/data/layout_results' % TEST_RESULTS_SERVER
 RESULTS_SUMMARY_URL_BASE = 'https://storage.googleapis.com/chromium-layout-test-archives'
 
 
-class Build(collections.namedtuple('Build', ('builder_name', 'build_number'))):
+class Build(collections.namedtuple('Build', ('builder_name', 'build_number',
+                                             'build_id'))):
     """Represents a combination of builder and build number.
 
     If build number is None, this represents the latest build
     for a given builder.
     """
 
-    def __new__(cls, builder_name, build_number=None):
-        return super(Build, cls).__new__(cls, builder_name, build_number)
+    def __new__(cls, builder_name, build_number=None, build_id=None):
+        return super(Build, cls).__new__(cls, builder_name,
+                                         build_number, build_id)
 
 
 class TestResultsFetcher(object):
@@ -65,6 +71,7 @@ class TestResultsFetcher(object):
 
     def __init__(self):
         self.web = Web()
+        self.builders = BuilderList.load_default_builder_list(FileSystem())
 
     def results_url(self, builder_name, build_number=None, step_name=None):
         """Returns a URL for one set of archived web test results.
@@ -82,7 +89,8 @@ class TestResultsFetcher(object):
                     Build(builder_name, build_number))
             if step_name:
                 return '%s/%s/%s/layout-test-results' % (
-                    url_base, build_number, urllib.quote(step_name))
+                    url_base, build_number,
+                    six.moves.urllib.parse.quote(step_name))
             return '%s/%s/layout-test-results' % (url_base, build_number)
         return self.accumulated_results_url_base(builder_name)
 
@@ -156,15 +164,21 @@ class TestResultsFetcher(object):
             _log.debug('Builder name or build number is None')
             return None
 
+        # We were not able to retrieve step name for some builders from
+        # https://test-results.appspot.com. Read from config file instead
+        step_name = self.builders.step_name_for_builder(build.builder_name)
+        if step_name:
+            return step_name
+
         url = '%s/testfile?%s' % (
             TEST_RESULTS_SERVER,
-            urllib.urlencode({
-                'builder': build.builder_name,
-                'buildnumber': build.build_number,
-                'name': 'full_results.json',
+            six.moves.urllib.parse.urlencode([
+                ('buildnumber', build.build_number),
                 # This forces the server to gives us JSON rather than an HTML page.
-                'callback': json_results_generator.JSON_CALLBACK,
-            }))
+                ('callback', json_results_generator.JSON_CALLBACK),
+                ('builder', build.builder_name),
+                ('name', 'full_results.json')
+            ]))
         data = self.web.get_binary(url, return_none_on_404=True)
         if not data:
             _log.debug('Got 404 response from:\n%s', url)
@@ -178,8 +192,9 @@ class TestResultsFetcher(object):
             # patch)'. Only make sure it starts with blink_web_tests and
             # runs with a patch. This should be changed eventually to use actual
             # structured data from the test results server.
-            if re.match(r'(blink_web_tests|wpt_tests_suite).*\(with patch\)$',
-                        entry['TestType'])
+            if re.match(
+                r'(blink_web_tests|wpt_tests_suite|high_dpi_blink_web_tests).*\(with patch\)$',
+                entry['TestType'])
         ]
         # In manual testing, I sometimes saw results where the same suite was
         # repeated twice. De-duplicate here to try to catch this.
@@ -189,7 +204,6 @@ class TestResultsFetcher(object):
                 'build %s on builder %s expected to only have one web test '
                 'step, instead has %s' % (build.build_number,
                                           build.builder_name, suites))
-
         return suites[0]
 
     @memoized
@@ -211,15 +225,14 @@ class TestResultsFetcher(object):
             _log.debug('Builder name or build number or master is None')
             return None
 
-        url = '%s/testfile?%s' % (
-            TEST_RESULTS_SERVER,
-            urllib.urlencode({
-                'builder': build.builder_name,
-                'buildnumber': build.build_number,
-                'name': 'full_results.json',
-                'testtype': 'webdriver_tests_suite (with patch)',
-                'master': master
-            }))
+        url = '%s/testfile?%s' % (TEST_RESULTS_SERVER,
+                                  six.moves.urllib.parse.urlencode(
+                                      [('buildnumber', build.build_number),
+                                       ('master', master),
+                                       ('builder', build.builder_name),
+                                       ('testtype',
+                                        'webdriver_tests_suite (with patch)'),
+                                       ('name', 'full_results.json')]))
 
         data = self.web.get_binary(url, return_none_on_404=True)
         if not data:
@@ -243,7 +256,8 @@ def filter_latest_builds(builds):
     latest_builds = {}
     for build in builds:
         builder = build.builder_name
-        if builder not in latest_builds or build.build_number > latest_builds[
-                builder].build_number:
+        if builder not in latest_builds or (
+                build.build_number
+                and build.build_number > latest_builds[builder].build_number):
             latest_builds[builder] = build
     return sorted(latest_builds.values())

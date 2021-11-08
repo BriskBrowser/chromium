@@ -28,7 +28,7 @@
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/metrics/demographics/user_demographics.h"
-#include "components/password_manager/core/browser/password_store.h"
+#include "components/password_manager/core/browser/password_store_interface.h"
 #include "components/reading_list/core/reading_list_model.h"
 #include "components/sync/base/report_unrecoverable_error.h"
 #include "components/sync/base/sync_base_switches.h"
@@ -47,6 +47,7 @@
 #include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
+#import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
 #include "ios/chrome/browser/signin/identity_manager_factory.h"
 #include "ios/chrome/browser/sync/consent_auditor_factory.h"
 #include "ios/chrome/browser/sync/device_info_sync_service_factory.h"
@@ -103,13 +104,14 @@ IOSChromeSyncClient::IOSChromeSyncClient(ChromeBrowserState* browser_state)
 
   component_factory_ =
       std::make_unique<browser_sync::ProfileSyncComponentsFactoryImpl>(
-          this, ::GetChannel(), prefs::kSavingBrowserHistoryDisabled,
+          this, ::GetChannel(),
           base::CreateSingleThreadTaskRunner({web::WebThread::UI}), db_thread_,
           profile_web_data_service_, account_web_data_service_, password_store_,
           /*account_password_store=*/nullptr,
           ios::BookmarkSyncServiceFactory::GetForBrowserState(browser_state_));
 
-  trusted_vault_client_ = std::make_unique<IOSTrustedVaultClient>();
+  trusted_vault_client_ = std::make_unique<IOSTrustedVaultClient>(
+      ChromeAccountManagerServiceFactory::GetForBrowserState(browser_state_));
 }
 
 IOSChromeSyncClient::~IOSChromeSyncClient() {}
@@ -171,12 +173,6 @@ sync_sessions::SessionSyncService*
 IOSChromeSyncClient::GetSessionSyncService() {
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
   return SessionSyncServiceFactory::GetForBrowserState(browser_state_);
-}
-
-base::RepeatingClosure IOSChromeSyncClient::GetPasswordStateChangedCallback() {
-  return base::BindRepeating(
-      &IOSChromePasswordStoreFactory::OnPasswordsSyncedStatePotentiallyChanged,
-      base::Unretained(browser_state_));
 }
 
 syncer::DataTypeController::TypeVector

@@ -1,4 +1,4 @@
-#!/usr/bin/env vpython
+#!/usr/bin/env vpython3
 #
 # Copyright 2018 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -16,13 +16,13 @@ import signal
 import socket
 import sys
 import tempfile
+import six
 
 # The following non-std imports are fetched via vpython. See the list at
 # //.vpython
 import dateutil.parser  # pylint: disable=import-error
 import jsonlines  # pylint: disable=import-error
 import psutil  # pylint: disable=import-error
-import six
 
 CHROMIUM_SRC_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -31,13 +31,14 @@ CHROMIUM_SRC_PATH = os.path.abspath(
 # output json ourselves.
 sys.path.insert(0, os.path.join(CHROMIUM_SRC_PATH, 'build', 'android'))
 from pylib.base import base_test_result  # pylint: disable=import-error
-from pylib.base import result_sink  # pylint: disable=import-error
 from pylib.results import json_results  # pylint: disable=import-error
 
-if six.PY2:
-  import subprocess32 as subprocess  # pylint: disable=import-error
-else:
-  import subprocess  # pylint: disable=import-error,wrong-import-order
+sys.path.insert(0, os.path.join(CHROMIUM_SRC_PATH, 'build', 'util'))
+from lib.results import result_sink  # pylint: disable=import-error
+
+assert not six.PY2, 'Py2 not supported for this file.'
+
+import subprocess  # pylint: disable=import-error,wrong-import-order
 
 DEFAULT_CROS_CACHE = os.path.abspath(
     os.path.join(CHROMIUM_SRC_PATH, 'build', 'cros_cache'))
@@ -46,16 +47,17 @@ CHROMITE_PATH = os.path.abspath(
 CROS_RUN_TEST_PATH = os.path.abspath(
     os.path.join(CHROMITE_PATH, 'bin', 'cros_run_test'))
 
+LACROS_LAUNCHER_SCRIPT_PATH = os.path.abspath(
+    os.path.join(CHROMIUM_SRC_PATH, 'build', 'lacros',
+                 'mojo_connection_lacros_launcher.py'))
+
 # This is a special hostname that resolves to a different DUT in the lab
 # depending on which lab machine you're on.
 LAB_DUT_HOSTNAME = 'variable_chromeos_device_hostname'
 
 SYSTEM_LOG_LOCATIONS = [
+    '/home/chronos/crash/',
     '/var/log/chrome/',
-    # Note that journal/ will contain journald's serialized logs, which aren't
-    # human-readable. To inspect them, download the logs locally and run
-    # `journalctl -D ...`.
-    '/var/log/journal/',
     '/var/log/messages',
     '/var/log/ui/',
 ]
@@ -67,7 +69,7 @@ class TestFormatError(Exception):
   pass
 
 
-class RemoteTest(object):
+class RemoteTest:
 
   # This is a basic shell script that can be appended to in order to invoke the
   # test on the device.
@@ -163,10 +165,10 @@ class RemoteTest(object):
         os.path.relpath(self._path_to_outdir, CHROMIUM_SRC_PATH),
     ]
     logging.info('Running the following command on the device:')
-    logging.info('\n' + '\n'.join(script_contents))
+    logging.info('\n%s', '\n'.join(script_contents))
     fd, tmp_path = tempfile.mkstemp(suffix='.sh', dir=self._path_to_outdir)
     os.fchmod(fd, 0o755)
-    with os.fdopen(fd, 'wb') as f:
+    with os.fdopen(fd, 'w') as f:
       f.write('\n'.join(script_contents) + '\n')
     return tmp_path
 
@@ -174,7 +176,7 @@ class RemoteTest(object):
     # Traps SIGTERM and kills all child processes of cros_run_test when it's
     # caught. This will allow us to capture logs from the device if a test hangs
     # and gets timeout-killed by swarming. See also:
-    # https://chromium.googlesource.com/infra/luci/luci-py/+/master/appengine/swarming/doc/Bot.md#graceful-termination_aka-the-sigterm-and-sigkill-dance
+    # https://chromium.googlesource.com/infra/luci/luci-py/+/main/appengine/swarming/doc/Bot.md#graceful-termination_aka-the-sigterm-and-sigkill-dance
     test_proc = None
 
     def _kill_child_procs(trapped_signal, _):
@@ -216,11 +218,9 @@ class RemoteTest(object):
       if test_proc.returncode == 0:
         break
 
-    ret = self.post_run(test_proc.returncode)
+    self.post_run(test_proc.returncode)
     # Allow post_run to override test proc return code. (Useful when the host
     # side Tast bin returns 0 even for failed tests.)
-    if ret is not None:
-      return ret
     return test_proc.returncode
 
   def post_run(self, return_code):
@@ -238,6 +238,8 @@ class RemoteTest(object):
       run_results.AddResult(suite_result)
       with open(self._test_launcher_summary_output, 'w') as f:
         json.dump(json_results.GenerateResultsDict([run_results]), f)
+      if self._rdb_client:
+        self._rdb_client.Post(self.suite_name, result, None, None, None)
 
   @staticmethod
   def get_artifacts(path):
@@ -261,7 +263,7 @@ class RemoteTest(object):
 class TastTest(RemoteTest):
 
   def __init__(self, args, unknown_args):
-    super(TastTest, self).__init__(args, unknown_args)
+    super().__init__(args, unknown_args)
 
     self._suite_name = args.suite_name
     self._tast_vars = args.tast_vars
@@ -269,7 +271,7 @@ class TastTest(RemoteTest):
     # The CQ passes in '--gtest_filter' when specifying tests to skip. Store it
     # here and parse it later to integrate it into Tast executions.
     self._gtest_style_filter = args.gtest_filter
-    self._conditional = args.conditional
+    self._attr_expr = args.attr_expr
     self._should_strip = args.strip_chrome
     self._deploy_lacros = args.deploy_lacros
 
@@ -312,8 +314,10 @@ class TastTest(RemoteTest):
         ]
 
     # Lacros deployment mounts itself by default.
-    self._test_cmd.extend(
-        ['--deploy-lacros'] if self._deploy_lacros else ['--deploy', '--mount'])
+    self._test_cmd.extend([
+        '--deploy-lacros', '--lacros-launcher-script',
+        LACROS_LAUNCHER_SCRIPT_PATH
+    ] if self._deploy_lacros else ['--deploy', '--mount'])
     self._test_cmd += [
         '--build-dir',
         os.path.relpath(self._path_to_outdir, CHROMIUM_SRC_PATH)
@@ -336,8 +340,8 @@ class TastTest(RemoteTest):
         # If we're running tests in VMs, tell the test runner to skip tests that
         # aren't compatible.
         local_test_runner_cmd.append('-extrauseflags=tast_vm')
-      if self._conditional:
-        local_test_runner_cmd.append(pipes.quote(self._conditional))
+      if self._attr_expr:
+        local_test_runner_cmd.append(pipes.quote(self._attr_expr))
       else:
         local_test_runner_cmd.extend(self._tests)
       device_test_script_contents.append(' '.join(local_test_runner_cmd))
@@ -365,21 +369,21 @@ class TastTest(RemoteTest):
       # conditional with a long list of "name:test" expressions, one for each
       # test in the filter.
       if self._gtest_style_filter:
-        if self._conditional or self._tests:
+        if self._attr_expr or self._tests:
           logging.warning(
-              'Presence of --gtest_filter will cause the specified Tast '
-              'conditional or test list to be ignored.')
+              'Presence of --gtest_filter will cause the specified Tast expr'
+              ' or test list to be ignored.')
         names = []
         for test in self._gtest_style_filter.split(':'):
           names.append('"name:%s"' % test)
-        self._conditional = '(' + ' || '.join(names) + ')'
+        self._attr_expr = '(' + ' || '.join(names) + ')'
 
-      if self._conditional:
+      if self._attr_expr:
         # Don't use pipes.quote() here. Something funky happens with the arg
         # as it gets passed down from cros_run_test to tast. (Tast picks up the
-        # escaping single quotes and complains that the conditional "must be
-        # within parentheses".)
-        self._test_cmd.append('--tast=%s' % self._conditional)
+        # escaping single quotes and complains that the attribute expression
+        # "must be within parentheses".)
+        self._test_cmd.append('--tast=%s' % self._attr_expr)
       else:
         self._test_cmd.append('--tast')
         self._test_cmd.extend(self._tests)
@@ -397,14 +401,14 @@ class TastTest(RemoteTest):
     # If we don't need to parse the host-side Tast tool's results, fall back to
     # the parent method's default behavior.
     if self._llvm_profile_var:
-      return super(TastTest, self).post_run(return_code)
+      return super().post_run(return_code)
 
     tast_results_path = os.path.join(self._logs_dir, 'streamed_results.jsonl')
     if not os.path.exists(tast_results_path):
       logging.error(
           'Tast results not found at %s. Falling back to generic result '
           'reporting.', tast_results_path)
-      return super(TastTest, self).post_run(return_code)
+      return super().post_run(return_code)
 
     # See the link below for the format of the results:
     # https://godoc.org/chromium.googlesource.com/chromiumos/platform/tast.git/src/chromiumos/cmd/tast/run#TestResult
@@ -418,22 +422,26 @@ class TastTest(RemoteTest):
       # Use dateutil to parse the timestamps since datetime can't handle
       # nanosecond precision.
       duration = dateutil.parser.parse(end) - dateutil.parser.parse(start)
-      duration_ms = duration.total_seconds() * 1000
+      # If the duration is negative, Tast has likely reported an incorrect
+      # duration. See https://issuetracker.google.com/issues/187973541. Round
+      # up to 0 in that case to avoid confusing RDB.
+      duration_ms = max(duration.total_seconds() * 1000, 0)
       if bool(test['skipReason']):
         result = base_test_result.ResultType.SKIP
       elif errors:
         result = base_test_result.ResultType.FAIL
       else:
         result = base_test_result.ResultType.PASS
+      primary_error_message = None
       error_log = ''
       if errors:
         # See the link below for the format of these errors:
-        # https://godoc.org/chromium.googlesource.com/chromiumos/platform/tast.git/src/chromiumos/tast/testing#Error
+        # https://source.chromium.org/chromiumos/chromiumos/codesearch/+/main:src/platform/tast/src/chromiumos/tast/cmd/tast/internal/run/resultsjson/resultsjson.go
+        primary_error_message = errors[0]['reason']
         for err in errors:
-          error_log += err['stack'].encode('utf-8') + '\n'
-      error_log += (
-          "\nIf you're unsure why this test failed, consult the steps "
-          'outlined in\n%s\n' % TAST_DEBUG_DOC)
+          error_log += err['stack'] + '\n'
+      debug_link = ("If you're unsure why this test failed, consult the steps "
+                    'outlined <a href="%s">here</a>.' % TAST_DEBUG_DOC)
       base_result = base_test_result.BaseTestResult(
           test['name'], result, duration=duration_ms, log=error_log)
       suite_results.AddResult(base_result)
@@ -444,7 +452,15 @@ class TastTest(RemoteTest):
         # inside as an RDB 'artifact'. (This could include system logs, screen
         # shots, etc.)
         artifacts = self.get_artifacts(test['outDir'])
-        self._rdb_client.Post(test['name'], result, error_log, artifacts)
+        self._rdb_client.Post(
+            test['name'],
+            result,
+            duration_ms,
+            error_log,
+            None,
+            artifacts=artifacts,
+            failure_reason=primary_error_message,
+            html_artifact=debug_link)
 
     if self._rdb_client and self._logs_dir:
       # Attach artifacts from the device that don't apply to a single test.
@@ -460,7 +476,7 @@ class TastTest(RemoteTest):
 
     if not suite_results.DidRunPass():
       return 1
-    elif return_code:
+    if return_code:
       logging.warning(
           'No failed tests found, but exit code of %d was returned from '
           'cros_run_test.', return_code)
@@ -516,7 +532,7 @@ class GTestTest(RemoteTest):
   ]
 
   def __init__(self, args, unknown_args):
-    super(GTestTest, self).__init__(args, unknown_args)
+    super().__init__(args, unknown_args)
 
     self._test_exe = args.test_exe
     self._runtime_deps_path = args.runtime_deps_path
@@ -586,21 +602,21 @@ class GTestTest(RemoteTest):
 
     if self._vpython_dir:
       vpython_path = os.path.join(self._path_to_outdir, self._vpython_dir,
-                                  'vpython')
+                                  'vpython3')
       cpython_path = os.path.join(self._path_to_outdir, self._vpython_dir,
-                                  'bin', 'python')
+                                  'bin', 'python3')
       if not os.path.exists(vpython_path) or not os.path.exists(cpython_path):
         raise TestFormatError(
-            '--vpython-dir must point to a dir with both infra/python/cpython '
-            'and infra/tools/luci/vpython installed.')
+            '--vpython-dir must point to a dir with both '
+            'infra/3pp/tools/cpython3 and infra/tools/luci/vpython installed.')
       vpython_spec_path = os.path.relpath(
-          os.path.join(CHROMIUM_SRC_PATH, '.vpython'), self._path_to_outdir)
+          os.path.join(CHROMIUM_SRC_PATH, '.vpython3'), self._path_to_outdir)
       # Initialize the vpython cache. This can take 10-20s, and some tests
       # can't afford to wait that long on the first invocation.
       device_test_script_contents.extend([
           'export PATH=$PWD/%s:$PWD/%s/bin/:$PATH' %
           (self._vpython_dir, self._vpython_dir),
-          'vpython -vpython-spec %s -vpython-tool install' %
+          'vpython3 -vpython-spec %s -vpython-tool install' %
           (vpython_spec_path),
       ])
 
@@ -687,13 +703,29 @@ class GTestTest(RemoteTest):
     if self._on_device_script:
       os.remove(self._on_device_script)
 
+    if self._test_launcher_summary_output and self._rdb_client:
+      if not os.path.exists(self._test_launcher_summary_output):
+        logging.error('Unable to locate %s in order to upload results to RDB.',
+                      self._test_launcher_summary_output)
+        return
+      with open(self._test_launcher_summary_output) as f:
+        raw_results = json.load(f)
+      parsed_results = json_results.ParseResultsFromJson(raw_results)
+      for r in parsed_results:
+        self._rdb_client.Post(
+            r.GetName(),
+            r.GetType(),
+            r.GetDuration(),
+            r.GetLog(),
+            None,
+            failure_reason=r.GetFailureReason())
+
 
 def device_test(args, unknown_args):
   # cros_run_test has trouble with relative paths that go up directories,
   # so cd to src/, which should be the root of all data deps.
   os.chdir(CHROMIUM_SRC_PATH)
 
-  # pylint: disable=redefined-variable-type
   # TODO: Remove the above when depot_tool's pylint is updated to include the
   # fix to https://github.com/PyCQA/pylint/issues/710.
   if args.test_type == 'tast':
@@ -711,7 +743,7 @@ def device_test(args, unknown_args):
 def host_cmd(args, cmd_args):
   if not cmd_args:
     raise TestFormatError('Must specify command to run on the host.')
-  elif args.deploy_chrome and not args.path_to_outdir:
+  if args.deploy_chrome and not args.path_to_outdir:
     raise TestFormatError(
         '--path-to-outdir must be specified if --deploy-chrome is passed.')
 
@@ -720,7 +752,7 @@ def host_cmd(args, cmd_args):
       '--board',
       args.board,
       '--cache-dir',
-      args.cros_cache,
+      os.path.join(CHROMIUM_SRC_PATH, args.cros_cache),
   ]
   if args.use_vm:
     cros_run_test_cmd += [
@@ -748,14 +780,16 @@ def host_cmd(args, cmd_args):
     ]
 
   test_env = setup_env()
-  if args.deploy_chrome:
+  if args.deploy_chrome or args.deploy_lacros:
     # Mounting ash-chrome gives it enough disk space to not need stripping.
-    cros_run_test_cmd.extend(['--deploy-lacros'] if args.deploy_lacros else
-                             ['--deploy', '--mount', '--nostrip'])
+    cros_run_test_cmd.extend([
+        '--deploy-lacros', '--lacros-launcher-script',
+        LACROS_LAUNCHER_SCRIPT_PATH
+    ] if args.deploy_lacros else ['--deploy', '--mount', '--nostrip'])
 
     cros_run_test_cmd += [
         '--build-dir',
-        os.path.abspath(args.path_to_outdir),
+        os.path.join(CHROMIUM_SRC_PATH, args.path_to_outdir)
     ]
 
   cros_run_test_cmd += [
@@ -875,10 +909,8 @@ def main():
       action='store_true',
       help='Deploy a lacros-chrome instead of ash-chrome.')
 
-  # GTest args.
-  # TODO(bpastene): Rename 'vm-test' arg to 'gtest'.
   gtest_parser = subparsers.add_parser(
-      'vm-test', help='Runs a device-side gtest.')
+      'gtest', help='Runs a device-side gtest.')
   gtest_parser.set_defaults(func=device_test)
   gtest_parser.add_argument(
       '--test-exe',
@@ -916,7 +948,7 @@ def main():
   tast_test_parser = subparsers.add_parser(
       'tast',
       help='Runs a device-side set of Tast tests. For more details, see: '
-      'https://chromium.googlesource.com/chromiumos/platform/tast/+/master/docs/running_tests.md'
+      'https://chromium.googlesource.com/chromiumos/platform/tast/+/main/docs/running_tests.md'
   )
   tast_test_parser.set_defaults(func=device_test)
   tast_test_parser.add_argument(
@@ -930,12 +962,9 @@ def main():
       '--test-launcher-summary-output',
       type=str,
       help='Generates a simple GTest-style JSON result file for the test run.')
-  # TODO(bpastene): Change all uses of "--conditional" to use "--attr-expr".
   tast_test_parser.add_argument(
-      '--conditional',
       '--attr-expr',
       type=str,
-      dest='conditional',
       help='A boolean expression whose matching tests will run '
       '(eg: ("dep:chrome")).')
   tast_test_parser.add_argument(
@@ -957,7 +986,7 @@ def main():
       '-t',
       action='append',
       dest='tests',
-      help='A Tast test to run in the device (eg: "ui.ChromeLogin").')
+      help='A Tast test to run in the device (eg: "login.Chrome").')
   tast_test_parser.add_argument(
       '--gtest_filter',
       type=str,
@@ -984,6 +1013,12 @@ def main():
   logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARN)
 
   if not args.use_vm and not args.device:
+    logging.warning(
+        'The test runner is now assuming running in the lab environment, if '
+        'this is unintentional, please re-invoke the test runner with the '
+        '"--use-vm" arg if using a VM, otherwise use the "--device=<DUT>" arg '
+        'to specify a DUT.')
+
     # If we're not running on a VM, but haven't specified a hostname, assume
     # we're on a lab bot and are trying to run a test on a lab DUT. See if the
     # magic lab DUT hostname resolves to anything. (It will in the lab and will
@@ -991,11 +1026,16 @@ def main():
     try:
       socket.getaddrinfo(LAB_DUT_HOSTNAME, None)
     except socket.gaierror:
-      logging.error('The default DUT hostname of %s is unreachable.',
+      logging.error('The default lab DUT hostname of %s is unreachable.',
                     LAB_DUT_HOSTNAME)
       return 1
 
-  args.cros_cache = os.path.abspath(args.cros_cache)
+  if args.flash and args.public_image:
+    # The flashing tools depend on being unauthenticated with GS when flashing
+    # public images, so make sure the env var GS uses to locate its creds is
+    # unset in that case.
+    os.environ.pop('BOTO_CONFIG', None)
+
   return args.func(args, unknown_args)
 
 

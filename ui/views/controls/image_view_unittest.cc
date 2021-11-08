@@ -47,6 +47,9 @@ class ImageViewTest : public ViewsTestBase,
  public:
   ImageViewTest() = default;
 
+  ImageViewTest(const ImageViewTest&) = delete;
+  ImageViewTest& operator=(const ImageViewTest&) = delete;
+
   // ViewsTestBase:
   void SetUp() override {
     ViewsTestBase::SetUp();
@@ -86,8 +89,6 @@ class ImageViewTest : public ViewsTestBase,
  private:
   ImageView* image_view_ = nullptr;
   Widget widget_;
-
-  DISALLOW_COPY_AND_ASSIGN(ImageViewTest);
 };
 
 // Test the image origin of the internal ImageSkia is correct when it is
@@ -148,7 +149,7 @@ TEST_P(ImageViewTest, ImageOriginForCustomViewBounds) {
 
 // Verifies setting the accessible name will be call NotifyAccessibilityEvent.
 TEST_P(ImageViewTest, SetAccessibleNameNotifiesAccessibilityEvent) {
-  base::string16 test_tooltip_text = base::ASCIIToUTF16("Test Tooltip Text");
+  std::u16string test_tooltip_text = u"Test Tooltip Text";
   test::AXEventCounter counter(views::AXEventManager::Get());
   EXPECT_EQ(0, counter.GetCount(ax::mojom::Event::kTextChanged));
   image_view()->SetAccessibleName(test_tooltip_text);

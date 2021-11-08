@@ -21,8 +21,8 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
-#include "base/task_runner_util.h"
 #include "components/dbus/menu/menu.h"
 #include "components/dbus/properties/dbus_properties.h"
 #include "components/dbus/properties/success_barrier_callback.h"
@@ -203,7 +203,7 @@ void StatusIconLinuxDbus::SetIcon(const gfx::ImageSkia& image) {
   SetIconImpl(image, true);
 }
 
-void StatusIconLinuxDbus::SetToolTip(const base::string16& tool_tip) {
+void StatusIconLinuxDbus::SetToolTip(const std::u16string& tool_tip) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!properties_)
     return;

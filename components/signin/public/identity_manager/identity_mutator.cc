@@ -4,9 +4,9 @@
 
 #include "components/signin/public/identity_manager/identity_mutator.h"
 
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/accounts_cookie_mutator.h"
 #include "components/signin/public/identity_manager/accounts_mutator.h"
-#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/device_accounts_synchronizer.h"
 #include "components/signin/public/identity_manager/primary_account_mutator.h"
 
@@ -29,20 +29,12 @@ bool JniIdentityMutator::SetPrimaryAccount(
   PrimaryAccountMutator* primary_account_mutator =
       identity_mutator_->GetPrimaryAccountMutator();
   DCHECK(primary_account_mutator);
-  // TODO(https://crbug.com/1046746): Refactor PrimaryAccountMutator API and
-  //                                  pass ConsentLevel directly there.
-  switch (static_cast<ConsentLevel>(j_consent_level)) {
-    case ConsentLevel::kSync:
-      return primary_account_mutator->SetPrimaryAccount(
-          ConvertFromJavaCoreAccountId(env, primary_account_id));
-    case ConsentLevel::kNotRequired:
-      primary_account_mutator->SetUnconsentedPrimaryAccount(
-          ConvertFromJavaCoreAccountId(env, primary_account_id));
-      return true;
-    default:
-      NOTREACHED() << "Unknown consent level: " << j_consent_level;
-      return false;
-  }
+
+  PrimaryAccountMutator::PrimaryAccountError error =
+      primary_account_mutator->SetPrimaryAccount(
+          ConvertFromJavaCoreAccountId(env, primary_account_id),
+          static_cast<ConsentLevel>(j_consent_level));
+  return error == PrimaryAccountMutator::PrimaryAccountError::kNoError;
 }
 
 bool JniIdentityMutator::ClearPrimaryAccount(JNIEnv* env,
@@ -62,7 +54,7 @@ void JniIdentityMutator::ReloadAllAccountsFromSystemWithPrimaryAccount(
   DeviceAccountsSynchronizer* device_accounts_synchronizer =
       identity_mutator_->GetDeviceAccountsSynchronizer();
   DCHECK(device_accounts_synchronizer);
-  base::Optional<CoreAccountId> primary_account_id;
+  absl::optional<CoreAccountId> primary_account_id;
   if (j_primary_account_id) {
     primary_account_id =
         ConvertFromJavaCoreAccountId(env, j_primary_account_id);

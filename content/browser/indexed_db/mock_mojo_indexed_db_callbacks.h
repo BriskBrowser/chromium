@@ -24,6 +24,11 @@ namespace content {
 class MockMojoIndexedDBCallbacks : public blink::mojom::IDBCallbacks {
  public:
   explicit MockMojoIndexedDBCallbacks();
+
+  MockMojoIndexedDBCallbacks(const MockMojoIndexedDBCallbacks&) = delete;
+  MockMojoIndexedDBCallbacks& operator=(const MockMojoIndexedDBCallbacks&) =
+      delete;
+
   ~MockMojoIndexedDBCallbacks() override;
 
   mojo::PendingAssociatedRemote<blink::mojom::IDBCallbacks>
@@ -31,13 +36,13 @@ class MockMojoIndexedDBCallbacks : public blink::mojom::IDBCallbacks {
 
   MOCK_METHOD2(Error,
                void(blink::mojom::IDBException code,
-                    const base::string16& message));
+                    const std::u16string& message));
 
   MOCK_METHOD1(SuccessNamesAndVersionsList,
                void(std::vector<blink::mojom::IDBNameAndVersionPtr> list));
 
   MOCK_METHOD1(SuccessStringList,
-               void(const std::vector<base::string16>& value));
+               void(const std::vector<std::u16string>& value));
 
   MOCK_METHOD1(Blocked, void(int64_t existing_version));
 
@@ -75,8 +80,6 @@ class MockMojoIndexedDBCallbacks : public blink::mojom::IDBCallbacks {
 
  private:
   mojo::AssociatedReceiver<blink::mojom::IDBCallbacks> receiver_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MockMojoIndexedDBCallbacks);
 };
 
 }  // namespace content

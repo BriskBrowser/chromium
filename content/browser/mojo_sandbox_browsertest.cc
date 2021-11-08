@@ -25,7 +25,9 @@
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/test_service.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/sandbox.h"
+#include "sandbox/policy/sandbox_type.h"
 #include "sandbox/policy/switches.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 
@@ -38,57 +40,30 @@ class MojoSandboxTest : public ContentBrowserTest {
  public:
   MojoSandboxTest() = default;
 
+  MojoSandboxTest(const MojoSandboxTest&) = delete;
+  MojoSandboxTest& operator=(const MojoSandboxTest&) = delete;
+
   using BeforeStartCallback = base::OnceCallback<void(UtilityProcessHost*)>;
 
   void StartProcess(BeforeStartCallback callback = BeforeStartCallback()) {
-    base::RunLoop run_loop;
-    GetIOThreadTaskRunner({})->PostTaskAndReply(
-        FROM_HERE,
-        base::BindOnce(&MojoSandboxTest::StartUtilityProcessOnIoThread,
-                       base::Unretained(this), std::move(callback)),
-        run_loop.QuitClosure());
-    run_loop.Run();
-  }
-
-  mojo::Remote<mojom::TestService> BindTestService() {
-    mojo::Remote<mojom::TestService> test_service;
-    GetIOThreadTaskRunner({})->PostTask(
-        FROM_HERE, base::BindOnce(&MojoSandboxTest::BindTestServiceOnIoThread,
-                                  base::Unretained(this),
-                                  test_service.BindNewPipeAndPassReceiver()));
-    return test_service;
-  }
-
-  void TearDownOnMainThread() override {
-    base::RunLoop run_loop;
-    GetIOThreadTaskRunner({})->PostTaskAndReply(
-        FROM_HERE,
-        base::BindOnce(&MojoSandboxTest::StopUtilityProcessOnIoThread,
-                       base::Unretained(this)),
-        run_loop.QuitClosure());
-    run_loop.Run();
-  }
-
- protected:
-  std::unique_ptr<UtilityProcessHost> host_;
-
- private:
-  void StartUtilityProcessOnIoThread(BeforeStartCallback callback) {
-    host_.reset(new UtilityProcessHost());
+    host_ = std::make_unique<UtilityProcessHost>();
     host_->SetMetricsName("mojo_sandbox_test_process");
     if (callback)
       std::move(callback).Run(host_.get());
     ASSERT_TRUE(host_->Start());
   }
 
-  void BindTestServiceOnIoThread(
-      mojo::PendingReceiver<mojom::TestService> receiver) {
-    host_->GetChildProcess()->BindReceiver(std::move(receiver));
+  mojo::Remote<mojom::TestService> BindTestService() {
+    mojo::Remote<mojom::TestService> test_service;
+    host_->GetChildProcess()->BindReceiver(
+        test_service.BindNewPipeAndPassReceiver());
+    return test_service;
   }
 
-  void StopUtilityProcessOnIoThread() { host_.reset(); }
+  void TearDownOnMainThread() override { host_.reset(); }
 
-  DISALLOW_COPY_AND_ASSIGN(MojoSandboxTest);
+ protected:
+  std::unique_ptr<UtilityProcessHost> host_;
 };
 
 // Ensures that a read-only shared memory region can be created within a
@@ -171,7 +146,7 @@ IN_PROC_BROWSER_TEST_F(MojoSandboxTest, IsProcessSandboxed) {
   // The browser should not be considered sandboxed.
   EXPECT_FALSE(sandbox::policy::Sandbox::IsProcessSandboxed());
 
-  base::Optional<bool> maybe_is_sandboxed;
+  absl::optional<bool> maybe_is_sandboxed;
   base::RunLoop run_loop;
   test_service.set_disconnect_handler(run_loop.QuitClosure());
   test_service->IsProcessSandboxed(
@@ -186,14 +161,14 @@ IN_PROC_BROWSER_TEST_F(MojoSandboxTest, IsProcessSandboxed) {
 
 IN_PROC_BROWSER_TEST_F(MojoSandboxTest, NotIsProcessSandboxed) {
   StartProcess(base::BindOnce([](UtilityProcessHost* host) {
-    host->SetSandboxType(sandbox::policy::SandboxType::kNoSandbox);
+    host->SetSandboxType(sandbox::mojom::Sandbox::kNoSandbox);
   }));
   mojo::Remote<mojom::TestService> test_service = BindTestService();
 
   // The browser should not be considered sandboxed.
   EXPECT_FALSE(sandbox::policy::Sandbox::IsProcessSandboxed());
 
-  base::Optional<bool> maybe_is_sandboxed;
+  absl::optional<bool> maybe_is_sandboxed;
   base::RunLoop run_loop;
   test_service.set_disconnect_handler(run_loop.QuitClosure());
   test_service->IsProcessSandboxed(

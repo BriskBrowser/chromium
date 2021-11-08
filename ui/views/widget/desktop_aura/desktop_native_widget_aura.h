@@ -65,6 +65,10 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
       public aura::WindowTreeHostObserver {
  public:
   explicit DesktopNativeWidgetAura(internal::NativeWidgetDelegate* delegate);
+
+  DesktopNativeWidgetAura(const DesktopNativeWidgetAura&) = delete;
+  DesktopNativeWidgetAura& operator=(const DesktopNativeWidgetAura&) = delete;
+
   ~DesktopNativeWidgetAura() override;
 
   // Maps from window to DesktopNativeWidgetAura. |window| must be a root
@@ -135,9 +139,11 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   void CenterWindow(const gfx::Size& size) override;
   void GetWindowPlacement(gfx::Rect* bounds,
                           ui::WindowShowState* maximized) const override;
-  bool SetWindowTitle(const base::string16& title) override;
+  bool SetWindowTitle(const std::u16string& title) override;
   void SetWindowIcons(const gfx::ImageSkia& window_icon,
                       const gfx::ImageSkia& app_icon) override;
+  const gfx::ImageSkia* GetWindowIcon() override;
+  const gfx::ImageSkia* GetWindowAppIcon() override;
   void InitModalType(ui::ModalType modal_type) override;
   gfx::Rect GetWindowBoundsInScreen() const override;
   gfx::Rect GetClientAreaBoundsInScreen() const override;
@@ -167,7 +173,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   bool IsMaximized() const override;
   bool IsMinimized() const override;
   void Restore() override;
-  void SetFullscreen(bool fullscreen) override;
+  void SetFullscreen(bool fullscreen, const base::TimeDelta& delay) override;
   bool IsFullscreen() const override;
   void SetCanAppearInExistingFullscreenSpaces(
       bool can_appear_in_existing_fullscreen_spaces) override;
@@ -197,6 +203,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
       Widget::VisibilityTransition transition) override;
   bool IsTranslucentWindowOpacitySupported() const override;
   ui::GestureRecognizer* GetGestureRecognizer() override;
+  ui::GestureConsumer* GetGestureConsumer() override;
   void OnSizeConstraintsChanged() override;
   void OnNativeViewHierarchyWillChange() override;
   void OnNativeViewHierarchyChanged() override;
@@ -251,6 +258,8 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   ui::mojom::DragOperation OnPerformDrop(
       const ui::DropTargetEvent& event,
       std::unique_ptr<ui::OSExchangeData> data) override;
+  aura::client::DragDropDelegate::DropCallback GetDropCallback(
+      const ui::DropTargetEvent& event) override;
 
   // aura::WindowTreeHostObserver:
   void OnHostCloseRequested(aura::WindowTreeHost* host) override;
@@ -332,8 +341,6 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   // The following factory is used for calls to close the NativeWidgetAura
   // instance.
   base::WeakPtrFactory<DesktopNativeWidgetAura> close_widget_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DesktopNativeWidgetAura);
 };
 
 }  // namespace views

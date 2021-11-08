@@ -40,9 +40,13 @@ const int kCaptionButtonHeight = 18;
 class TestLayoutDelegate : public OpaqueBrowserFrameViewLayoutDelegate {
  public:
   TestLayoutDelegate() : show_caption_buttons_(true), maximized_(false) {}
+
+  TestLayoutDelegate(const TestLayoutDelegate&) = delete;
+  TestLayoutDelegate& operator=(const TestLayoutDelegate&) = delete;
+
   ~TestLayoutDelegate() override {}
 
-  void set_window_title(const base::string16& title) { window_title_ = title; }
+  void set_window_title(const std::u16string& title) { window_title_ = title; }
   void set_show_caption_buttons(bool show_caption_buttons) {
     show_caption_buttons_ = show_caption_buttons;
   }
@@ -51,7 +55,7 @@ class TestLayoutDelegate : public OpaqueBrowserFrameViewLayoutDelegate {
   // OpaqueBrowserFrameViewLayoutDelegate:
   bool ShouldShowWindowIcon() const override { return !window_title_.empty(); }
   bool ShouldShowWindowTitle() const override { return !window_title_.empty(); }
-  base::string16 GetWindowTitle() const override { return window_title_; }
+  std::u16string GetWindowTitle() const override { return window_title_; }
   int GetIconSize() const override { return 17; }
   gfx::Size GetBrowserViewMinimumSize() const override {
     return gfx::Size(168, 64);
@@ -77,13 +81,15 @@ class TestLayoutDelegate : public OpaqueBrowserFrameViewLayoutDelegate {
     return !show_caption_buttons_ || maximized_;
   }
   bool EverHasVisibleBackgroundTabShapes() const override { return false; }
+  void UpdateWindowControlsOverlay(
+      const gfx::Rect& bounding_rect) const override {}
+  bool IsTranslucentWindowOpacitySupported() const override { return true; }
+  bool ShouldDrawRestoredFrameShadow() const override { return true; }
 
  private:
-  base::string16 window_title_;
+  std::u16string window_title_;
   bool show_caption_buttons_;
   bool maximized_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestLayoutDelegate);
 };
 
 }  // namespace
@@ -93,6 +99,12 @@ class OpaqueBrowserFrameViewLayoutTest
       public testing::WithParamInterface<bool> {
  public:
   OpaqueBrowserFrameViewLayoutTest() {}
+
+  OpaqueBrowserFrameViewLayoutTest(const OpaqueBrowserFrameViewLayoutTest&) =
+      delete;
+  OpaqueBrowserFrameViewLayoutTest& operator=(
+      const OpaqueBrowserFrameViewLayoutTest&) = delete;
+
   ~OpaqueBrowserFrameViewLayoutTest() override {}
 
   void SetUp() override {
@@ -351,8 +363,6 @@ class OpaqueBrowserFrameViewLayoutTest
 
   TabIconView* tab_icon_view_ = nullptr;
   views::Label* window_title_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(OpaqueBrowserFrameViewLayoutTest);
 };
 
 TEST_P(OpaqueBrowserFrameViewLayoutTest, BasicWindow) {
@@ -392,7 +402,7 @@ TEST_P(OpaqueBrowserFrameViewLayoutTest, WithoutCaptionButtons) {
 
 TEST_P(OpaqueBrowserFrameViewLayoutTest, WindowWithTitleAndIcon) {
   // Tests the layout of pop up windows.
-  delegate_->set_window_title(base::ASCIIToUTF16("Window Title"));
+  delegate_->set_window_title(u"Window Title");
   AddWindowTitleIcons();
 
   root_view_->Layout();

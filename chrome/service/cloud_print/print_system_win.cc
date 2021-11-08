@@ -30,6 +30,7 @@
 #include "components/printing/common/cloud_print_cdd_conversion.h"
 #include "printing/backend/win_helper.h"
 #include "printing/emf_win.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/page_range.h"
 #include "printing/pdf_render_settings.h"
 #include "printing/printing_utils.h"
@@ -71,11 +72,11 @@ class PrintSystemWatcherWin : public base::win::ObjectWatcher::Delegate {
     delegate_ = delegate;
     // An empty printer name means watch the current server, we need to pass
     // nullptr to OpenPrinterWithName().
-    base::char16* printer_name_to_use = nullptr;
-    base::string16 printer_name_16;
+    wchar_t* printer_name_to_use = nullptr;
+    std::wstring wide_printer_name;
     if (!printer_name.empty()) {
-      printer_name_16 = base::UTF8ToUTF16(printer_name);
-      printer_name_to_use = const_cast<base::char16*>(printer_name_16.c_str());
+      wide_printer_name = base::UTF8ToWide(printer_name);
+      printer_name_to_use = const_cast<wchar_t*>(wide_printer_name.c_str());
     }
     bool ret = false;
     if (printer_.OpenPrinterWithName(printer_name_to_use)) {
@@ -144,6 +145,9 @@ class PrintServerWatcherWin
  public:
   PrintServerWatcherWin() {}
 
+  PrintServerWatcherWin(const PrintServerWatcherWin&) = delete;
+  PrintServerWatcherWin& operator=(const PrintServerWatcherWin&) = delete;
+
   // PrintSystem::PrintServerWatcher implementation.
   bool StartWatching(
       PrintSystem::PrintServerWatcher::Delegate* delegate) override {
@@ -171,8 +175,6 @@ class PrintServerWatcherWin
  private:
   PrintSystem::PrintServerWatcher::Delegate* delegate_ = nullptr;
   PrintSystemWatcherWin watcher_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrintServerWatcherWin);
 };
 
 class PrinterWatcherWin
@@ -181,6 +183,9 @@ class PrinterWatcherWin
  public:
   explicit PrinterWatcherWin(const std::string& printer_name)
       : printer_name_(printer_name) {}
+
+  PrinterWatcherWin(const PrinterWatcherWin&) = delete;
+  PrinterWatcherWin& operator=(const PrinterWatcherWin&) = delete;
 
   // PrintSystem::PrinterWatcher implementation.
   bool StartWatching(PrintSystem::PrinterWatcher::Delegate* delegate) override {
@@ -220,13 +225,14 @@ class PrinterWatcherWin
   const std::string printer_name_;
   PrintSystem::PrinterWatcher::Delegate* delegate_ = nullptr;
   PrintSystemWatcherWin watcher_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrinterWatcherWin);
 };
 
 class JobSpoolerWin : public PrintSystem::JobSpooler {
  public:
   JobSpoolerWin() : core_(base::MakeRefCounted<Core>()) {}
+
+  JobSpoolerWin(const JobSpoolerWin&) = delete;
+  JobSpoolerWin& operator=(const JobSpoolerWin&) = delete;
 
   // PrintSystem::JobSpooler implementation.
   bool Spool(const std::string& print_ticket,
@@ -258,6 +264,9 @@ class JobSpoolerWin : public PrintSystem::JobSpooler {
    public:
     Core() {}
 
+    Core(const Core&) = delete;
+    Core& operator=(const Core&) = delete;
+
     bool Spool(const std::string& print_ticket,
                const std::string& print_ticket_mime_type,
                const base::FilePath& print_data_file_path,
@@ -279,7 +288,7 @@ class JobSpoolerWin : public PrintSystem::JobSpooler {
       }
 
       std::unique_ptr<DEVMODE, base::FreeDeleter> dev_mode =
-          CjtToDevMode(base::UTF8ToUTF16(printer_name), print_ticket);
+          CjtToDevMode(base::UTF8ToWide(printer_name), print_ticket);
       if (!dev_mode) {
         NOTREACHED();
         return false;
@@ -293,7 +302,7 @@ class JobSpoolerWin : public PrintSystem::JobSpooler {
       }
       DOCINFO di = {0};
       di.cbSize = sizeof(DOCINFO);
-      base::string16 doc_name = base::UTF8ToUTF16(job_title);
+      std::u16string doc_name = base::UTF8ToUTF16(job_title);
       DCHECK(printing::SimplifyDocumentTitle(doc_name) == doc_name);
       di.lpszDocName = base::as_wcstr(doc_name);
       job_id_ = StartDoc(dc, &di);
@@ -373,6 +382,10 @@ class JobSpoolerWin : public PrintSystem::JobSpooler {
      public:
       explicit PrintJobCanceler(Microsoft::WRL::ComPtr<IXpsPrintJob>* job_ptr)
           : job_ptr_(job_ptr) {}
+
+      PrintJobCanceler(const PrintJobCanceler&) = delete;
+      PrintJobCanceler& operator=(const PrintJobCanceler&) = delete;
+
       ~PrintJobCanceler() {
         if (job_ptr_ && job_ptr_->Get()) {
           (*job_ptr_)->Cancel();
@@ -384,8 +397,6 @@ class JobSpoolerWin : public PrintSystem::JobSpooler {
 
      private:
       Microsoft::WRL::ComPtr<IXpsPrintJob>* job_ptr_;
-
-      DISALLOW_COPY_AND_ASSIGN(PrintJobCanceler);
     };
 
     void PrintJobDone(bool success) {
@@ -508,12 +519,8 @@ class JobSpoolerWin : public PrintSystem::JobSpooler {
     base::win::ScopedHandle job_progress_event_;
     base::win::ObjectWatcher job_progress_watcher_;
     Microsoft::WRL::ComPtr<IXpsPrintJob> xps_print_job_;
-
-    DISALLOW_COPY_AND_ASSIGN(Core);
   };
   scoped_refptr<Core> core_;
-
-  DISALLOW_COPY_AND_ASSIGN(JobSpoolerWin);
 };
 
 // A helper class to handle the response from the utility process to the
@@ -608,6 +615,9 @@ class PrintSystemWin : public PrintSystem {
  public:
   PrintSystemWin();
 
+  PrintSystemWin(const PrintSystemWin&) = delete;
+  PrintSystemWin& operator=(const PrintSystemWin&) = delete;
+
   // PrintSystem implementation.
   PrintSystemResult Init() override;
   PrintSystem::PrintSystemResult EnumeratePrinters(
@@ -636,8 +646,6 @@ class PrintSystemWin : public PrintSystem {
   std::string GetPrinterDriverInfo(const std::string& printer_name) const;
 
   scoped_refptr<printing::PrintBackend> print_backend_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrintSystemWin);
 };
 
 PrintSystemWin::PrintSystemWin()
@@ -650,8 +658,10 @@ PrintSystem::PrintSystemResult PrintSystemWin::Init() {
 
 PrintSystem::PrintSystemResult PrintSystemWin::EnumeratePrinters(
     printing::PrinterList* printer_list) {
-  bool ret = print_backend_->EnumeratePrinters(printer_list);
-  return PrintSystemResult(ret, std::string());
+  printing::mojom::ResultCode result =
+      print_backend_->EnumeratePrinters(printer_list);
+  return PrintSystemResult(result == printing::mojom::ResultCode::kSuccess,
+                           std::string());
 }
 
 void PrintSystemWin::GetPrinterCapsAndDefaults(
@@ -687,8 +697,8 @@ bool PrintSystemWin::GetJobDetails(const std::string& printer_name,
       print_backend_->GetPrinterDriverInfo(printer_name));
   DCHECK(job_details);
   printing::ScopedPrinterHandle printer_handle;
-  base::string16 printer_name_16 = base::UTF8ToUTF16(printer_name);
-  printer_handle.OpenPrinterWithName(printer_name_16.c_str());
+  std::wstring wide_printer_name = base::UTF8ToWide(printer_name);
+  printer_handle.OpenPrinterWithName(wide_printer_name.c_str());
   DCHECK(printer_handle.IsValid());
   bool ret = false;
   if (printer_handle.IsValid()) {

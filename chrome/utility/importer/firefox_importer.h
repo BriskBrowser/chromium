@@ -31,12 +31,15 @@ namespace sql {
 class Database;
 }
 
-// Importer for Mozilla Firefox 3 and later.
+// Importer for Mozilla Firefox.
 // Firefox stores its persistent information in a system called places.
 // http://wiki.mozilla.org/Places
 class FirefoxImporter : public Importer {
  public:
   FirefoxImporter();
+
+  FirefoxImporter(const FirefoxImporter&) = delete;
+  FirefoxImporter& operator=(const FirefoxImporter&) = delete;
 
   // Importer:
   void StartImport(const importer::SourceProfile& source_profile,
@@ -60,7 +63,9 @@ class FirefoxImporter : public Importer {
 
   FRIEND_TEST_ALL_PREFIXES(FirefoxImporterTest, ImportBookmarksV25);
   void ImportBookmarks();
+#if !defined(OS_MAC) && !defined(OS_FUCHSIA)
   void ImportPasswords();
+#endif
   void ImportHistory();
   // Import the user's home page, unless it is set to default home page as
   // defined in browserconfig.properties.
@@ -117,8 +122,6 @@ class FirefoxImporter : public Importer {
   // Stored because we can only access it from the UI thread.
   std::string locale_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(FirefoxImporter);
 };
 
 #endif  // CHROME_UTILITY_IMPORTER_FIREFOX_IMPORTER_H_

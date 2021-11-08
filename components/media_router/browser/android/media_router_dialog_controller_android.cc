@@ -4,13 +4,13 @@
 
 #include "components/media_router/browser/android/media_router_dialog_controller_android.h"
 
+#include <string>
 #include <vector>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/media_router/browser/android/jni_headers/BrowserMediaRouterDialogController_jni.h"
 #include "components/media_router/browser/android/media_router_android.h"
@@ -159,7 +159,7 @@ void MediaRouterDialogControllerAndroid::CreateMediaRouterDialog(
     return;
   }
 
-  std::vector<base::string16> source_ids;
+  std::vector<std::u16string> source_ids;
   source_ids.reserve(sources.size());
   for (const auto& source : sources)
     source_ids.push_back(base::UTF8ToUTF16(source.id()));
@@ -182,6 +182,6 @@ bool MediaRouterDialogControllerAndroid::IsShowingMediaRouterDialog() const {
       env, java_dialog_controller_);
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(MediaRouterDialogControllerAndroid)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(MediaRouterDialogControllerAndroid);
 
 }  // namespace media_router

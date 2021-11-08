@@ -12,6 +12,8 @@ stories as memory ones, only with fewer actions (no memory dumping).
 import collections
 import unittest
 
+import six
+
 from chrome_telemetry_build import chromium_config
 
 from core import perf_benchmark
@@ -28,9 +30,10 @@ from benchmarks import system_health
 
 
 def GetSystemHealthBenchmarksToSmokeTest():
-  sh_benchmark_classes = discover.DiscoverClassesInModule(
-      system_health, perf_benchmark.PerfBenchmark,
-      index_by_class_name=True).values()
+  sh_benchmark_classes = list(
+      discover.DiscoverClassesInModule(system_health,
+                                       perf_benchmark.PerfBenchmark,
+                                       index_by_class_name=True).values())
   return list(b for b in sh_benchmark_classes if
               b.Name().startswith('system_health.memory'))
 
@@ -71,6 +74,10 @@ _DISABLED_TESTS = frozenset({
     'system_health.memory_desktop/browse:social:tumblr_infinite_scroll:2018',
     'system_health.memory_desktop/browse:search:google_india:2021',
 
+    # crbug.com/1224874
+    'system_health.memory_desktop/load:social:instagram:2018',
+    'system_health.memory_desktop/load:social:pinterest:2019',
+
     # The following tests are disabled because they are disabled on the perf
     # waterfall (using tools/perf/expectations.config) on one platform or
     # another. They may run fine on the CQ, but it isn't worth the bot time to
@@ -92,6 +99,8 @@ _DISABLED_TESTS = frozenset({
     'system_health.memory_desktop/browse:tech:discourse_infinite_scroll:2018',
     # crbug.com/1091274
     'system_health.memory_desktop/browse:media:tumblr:2018',
+    # crbug.com/1194256
+    'system_health.memory_desktop/browse:news:cnn:2021',
     # ]
 })
 
@@ -129,9 +138,15 @@ def _GenerateSmokeTestCase(benchmark_class, story_to_smoke_test):
       options = GenerateBenchmarkOptions(
           output_dir=temp_dir,
           benchmark_cls=SinglePageBenchmark)
-      simplified_test_name = self.id().replace(
-          'benchmarks.system_health_smoke_test.SystemHealthBenchmarkSmokeTest.',
-          '')
+      # The ID signature changes based on Python version.
+      if six.PY2:
+        replacement_string = ('benchmarks.system_health_smoke_test.'
+                              'SystemHealthBenchmarkSmokeTest.')
+      else:
+        replacement_string = ('benchmarks.system_health_smoke_test.'
+                              '_GenerateSmokeTestCase.<locals>.'
+                              'SystemHealthBenchmarkSmokeTest.')
+      simplified_test_name = self.id().replace(replacement_string, '')
       # Sanity check to ensure that that substring removal was effective.
       assert len(simplified_test_name) < len(self.id())
 
@@ -147,7 +162,7 @@ def _GenerateSmokeTestCase(benchmark_class, story_to_smoke_test):
       self.assertEqual(
           return_code, 0,
           msg='Benchmark run failed: %s' % benchmark_class.Name())
-      return_code = results_processor.ProcessResults(options)
+      return_code = results_processor.ProcessResults(options, is_unittest=True)
       self.assertEqual(
           return_code, 0,
           msg='Result processing failed: %s' % benchmark_class.Name())
@@ -179,6 +194,8 @@ def GenerateBenchmarkOptions(output_dir, benchmark_cls):
   # all crashes and hence remove the need to enable logging in actual perf
   # benchmarks.
   options.browser_options.logging_verbosity = 'non-verbose'
+  options.browser_options.environment = \
+      chromium_config.GetDefaultChromiumConfig()
   options.target_platforms = benchmark_cls.GetSupportedPlatformNames(
       benchmark_cls.SUPPORTED_PLATFORMS)
   results_processor.ProcessOptions(options)
@@ -288,7 +305,7 @@ def find_multi_version_stories(stories, disabled):
       else:
         prefix = name
     prefixes[prefix].append(name)
-  for prefix, stories in prefixes.items():
-    if len(stories) == 1:
-      prefixes.pop(prefix)
-  return prefixes
+  return {
+      prefix: stories
+      for prefix, stories in prefixes.items() if len(stories) != 1
+  }

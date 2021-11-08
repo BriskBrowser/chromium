@@ -130,6 +130,12 @@ generated JSON file. Commonly used arguments include:
 
 * `args`: an array of command line arguments for the test.
 
+* `ci_only`: a boolean value (`True`|`False`) indicating whether the test
+  should only be run post-submit on the continuous (CI) builders, instead
+  of run both post-submit and on any matching pre-submit / cq / try builders.
+  This flag should be set rarely, usually only temporarily to manage capacity
+  concerns during an outage.
+
 * `swarming`: a dictionary of Swarming parameters. Note that these will be
   applied to *every* bot that refers to this test suite. It is often more useful
   to specify the Swarming dimensions at the bot level, in waterfalls.pyl. More
@@ -207,6 +213,10 @@ reference other composition or matrix test suites. Configurations defined for
 a basic test suite in a matrix test suite are applied to each tests for the
 referenced basic test suite. "variants" is the only supported key via matrix
 compound suites at this time.
+Matrix compound test suites also supports no "variants". So if you want a
+compound test suites, which some of basic test suites have "variants", and
+other basic test suites don't have "variants", you will define a matrix compound
+test suites.
 
 ##### Variants
 

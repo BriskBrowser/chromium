@@ -50,11 +50,11 @@ class CompositedLayerMappingTest : public RenderingTest,
   }
 
   static const GraphicsLayerPaintInfo* GetSquashedLayer(
-      const Vector<GraphicsLayerPaintInfo>& squashed_layers,
+      const HeapVector<Member<GraphicsLayerPaintInfo>>& squashed_layers,
       const PaintLayer& layer) {
     for (const auto& squashed_layer : squashed_layers) {
-      if (squashed_layer.paint_layer == &layer)
-        return &squashed_layer;
+      if (squashed_layer->paint_layer == &layer)
+        return squashed_layer;
     }
     return nullptr;
   }
@@ -346,7 +346,7 @@ TEST_P(CompositedLayerMappingTest, LargeScaleInterestRect) {
 }
 
 TEST_P(CompositedLayerMappingTest, PerspectiveInterestRect) {
-  SetBodyInnerHTML(R"HTML(<div style='left: 400px; position: absolute;'>
+  SetBodyInnerHTML(R"HTML(
     <div id=target style='transform: perspective(1000px) rotateX(-100deg);'>
       <div style='width: 1200px; height: 835px; background: lightblue;
           border: 1px solid black'></div>
@@ -457,6 +457,10 @@ TEST_P(CompositedLayerMappingTest, RotatedTallInterestRect) {
   PaintLayer* paint_layer = GetPaintLayerByElementId("target");
   ASSERT_TRUE(paint_layer->GraphicsLayerBacking());
   if (RuntimeEnabledFeatures::CullRectUpdateEnabled()) {
+    // The vertical expansion is 4000 * max_dimension(1x1 rect projected from
+    // screen to local).
+    EXPECT_EQ(gfx::Rect(0, 0, 200, 4788),
+              PaintableRegion(paint_layer->GraphicsLayerBacking()));
   } else {
     EXPECT_EQ(gfx::Rect(0, 0, 200, 4000),
               PaintableRegion(paint_layer->GraphicsLayerBacking()));
@@ -483,9 +487,10 @@ TEST_P(CompositedLayerMappingTest, WideLayerInterestRect) {
 TEST_P(CompositedLayerMappingTest, FixedPositionInterestRect) {
   SetBodyInnerHTML(R"HTML(
     <div id='target'
-         style='width: 300px; height: 400px; will-change: transform;
-                position: fixed; top: 100px; left: 200px; background: blue'>
+         style='width: 300px; height: 400px; top: 100px; left: 200px;
+                position: fixed; background: blue'>
     </div>
+    <div style="height: 3000px"></div>
   )HTML");
 
   UpdateAllLifecyclePhasesForTest();
@@ -493,6 +498,26 @@ TEST_P(CompositedLayerMappingTest, FixedPositionInterestRect) {
   ASSERT_TRUE(paint_layer->GraphicsLayerBacking());
   EXPECT_EQ(gfx::Rect(0, 0, 300, 400),
             PaintableRegion(paint_layer->GraphicsLayerBacking()));
+}
+
+TEST_P(CompositedLayerMappingTest, OutOfViewFixedPositionInterestRect) {
+  SetBodyInnerHTML(R"HTML(
+    <div id='target'
+         style='width: 300px; height: 400px; top: 2000px; left: 200px;
+                position: fixed; background: blue'>
+    </div>
+    <div style="height: 3000px"></div>
+  )HTML");
+
+  UpdateAllLifecyclePhasesForTest();
+  PaintLayer* paint_layer = GetPaintLayerByElementId("target");
+  ASSERT_TRUE(paint_layer->GraphicsLayerBacking());
+  if (RuntimeEnabledFeatures::CullRectUpdateEnabled()) {
+    EXPECT_TRUE(PaintableRegion(paint_layer->GraphicsLayerBacking()).IsEmpty());
+  } else {
+    EXPECT_EQ(gfx::Rect(0, 0, 300, 400),
+              PaintableRegion(paint_layer->GraphicsLayerBacking()));
+  }
 }
 
 TEST_P(CompositedLayerMappingTest, LayerFarOffscreenInterestRect) {
@@ -661,16 +686,16 @@ TEST_P(CompositedLayerMappingTest,
   IntSize layer_size(1000, 1000);
   IntRect previous_interest_rect(100, 100, 100, 100);
   IntRect new_interest_rect(previous_interest_rect);
-  new_interest_rect.Move(512, 0);
+  new_interest_rect.Offset(512, 0);
   EXPECT_FALSE(InterestRectChangedEnoughToRepaint(
       previous_interest_rect, new_interest_rect, layer_size));
-  new_interest_rect.Move(0, 512);
+  new_interest_rect.Offset(0, 512);
   EXPECT_FALSE(InterestRectChangedEnoughToRepaint(
       previous_interest_rect, new_interest_rect, layer_size));
-  new_interest_rect.Move(1, 0);
+  new_interest_rect.Offset(1, 0);
   EXPECT_TRUE(InterestRectChangedEnoughToRepaint(
       previous_interest_rect, new_interest_rect, layer_size));
-  new_interest_rect.Move(-1, 1);
+  new_interest_rect.Offset(-1, 1);
   EXPECT_TRUE(InterestRectChangedEnoughToRepaint(
       previous_interest_rect, new_interest_rect, layer_size));
 }
@@ -1014,16 +1039,25 @@ TEST_P(CompositedLayerMappingTest, InterestRectOfIframeWithFixedContents) {
   auto* fixed = ChildDocument().getElementById("fixed")->GetLayoutObject();
   auto* graphics_layer = fixed->EnclosingLayer()->GraphicsLayerBacking(fixed);
 
-  // The graphics layer has dimensions 5400x300 but the interest rect clamps
-  // this to the right-most 4000x4000 area.
-  EXPECT_EQ(gfx::Rect(1000, 0, 4400, 300), PaintableRegion(graphics_layer));
+  if (RuntimeEnabledFeatures::CullRectUpdateEnabled()) {
+    // We don't expand the cull rect because the layer doesn't have an explicit
+    // will-change-visual-location compositing reason.
+    EXPECT_EQ(gfx::Rect(5000, 0, 400, 300), PaintableRegion(graphics_layer));
+  } else {
+    // The graphics layer has dimensions 5400x300 but the interest rect clamps
+    // this to the right-most 4000x4000 area.
+    EXPECT_EQ(gfx::Rect(1000, 0, 4400, 300), PaintableRegion(graphics_layer));
+  }
 
   ChildDocument().View()->LayoutViewport()->SetScrollOffset(
       ScrollOffset(0.0, 3000.0), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   // Because the fixed element does not scroll, the interest rect is unchanged.
-  EXPECT_EQ(gfx::Rect(1000, 0, 4400, 300), PaintableRegion(graphics_layer));
+  EXPECT_EQ(RuntimeEnabledFeatures::CullRectUpdateEnabled()
+                ? gfx::Rect(5000, 0, 400, 300)
+                : gfx::Rect(1000, 0, 4400, 300),
+            PaintableRegion(graphics_layer));
 }
 
 TEST_P(CompositedLayerMappingTest, ScrolledFixedPositionInterestRect) {
@@ -1041,14 +1075,23 @@ TEST_P(CompositedLayerMappingTest, ScrolledFixedPositionInterestRect) {
 
   auto* fixed = GetDocument().getElementById("fixed")->GetLayoutObject();
   auto* graphics_layer = fixed->EnclosingLayer()->GraphicsLayerBacking(fixed);
-  EXPECT_EQ(gfx::Rect(0, 500, 100, 4030), PaintableRegion(graphics_layer));
+  if (RuntimeEnabledFeatures::CullRectUpdateEnabled()) {
+    // We don't expand the cull rect because the layer doesn't have an explicit
+    // will-change-visual-location compositing reason.
+    EXPECT_EQ(gfx::Rect(0, 4500, 100, 30), PaintableRegion(graphics_layer));
+  } else {
+    EXPECT_EQ(gfx::Rect(0, 500, 100, 4030), PaintableRegion(graphics_layer));
+  }
 
   GetDocument().View()->LayoutViewport()->SetScrollOffset(
       ScrollOffset(0.0, 200.0), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   // Because the fixed element does not scroll, the interest rect is unchanged.
-  EXPECT_EQ(gfx::Rect(0, 500, 100, 4030), PaintableRegion(graphics_layer));
+  EXPECT_EQ(RuntimeEnabledFeatures::CullRectUpdateEnabled()
+                ? gfx::Rect(0, 4500, 100, 30)
+                : gfx::Rect(0, 500, 100, 4030),
+            PaintableRegion(graphics_layer));
 }
 
 TEST_P(CompositedLayerMappingTest,
@@ -1210,12 +1253,12 @@ TEST_P(CompositedLayerMappingTest, StickyPositionMainThreadOffset) {
       To<LayoutBoxModelObject>(GetLayoutObjectByElementId("scroller"));
   PaintLayerScrollableArea* scrollable_area = scroller->GetScrollableArea();
   scrollable_area->ScrollToAbsolutePosition(
-      FloatPoint(scrollable_area->ScrollPosition().X(), 100));
-  ASSERT_EQ(100.0, scrollable_area->ScrollPosition().Y());
+      FloatPoint(scrollable_area->ScrollPosition().x(), 100));
+  ASSERT_EQ(100.0, scrollable_area->ScrollPosition().y());
 
   sticky_layer->SetNeedsCompositingInputsUpdate();
   EXPECT_TRUE(sticky_layer->NeedsCompositingInputsUpdate());
-  GetDocument().View()->UpdateLifecycleToCompositingCleanPlusScrolling(
+  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
       DocumentUpdateReason::kTest);
   EXPECT_FALSE(sticky_layer->NeedsCompositingInputsUpdate());
 }
@@ -1280,7 +1323,7 @@ TEST_P(CompositedLayerMappingTest,
       To<LayoutBlock>(GetLayoutObjectByElementId("scroller"))->Layer();
   PaintLayerScrollableArea* scrollable_area = scroller->GetScrollableArea();
   scrollable_area->ScrollToAbsolutePosition(
-      FloatPoint(scrollable_area->ScrollPosition().Y(), 100));
+      FloatPoint(scrollable_area->ScrollPosition().y(), 100));
   UpdateAllLifecyclePhasesForTest();
 
   // On the blink side, a sticky offset of (0, 100) should have been applied to
@@ -1299,8 +1342,8 @@ TEST_P(CompositedLayerMappingTest,
   auto sticky_position_relative_to_root =
       transform_from_sticky_to_root.MapPoint(
           FloatPoint(main_graphics_layer->GetOffsetFromTransformNode()));
-  EXPECT_FLOAT_EQ(8, sticky_position_relative_to_root.X());
-  EXPECT_FLOAT_EQ(8, sticky_position_relative_to_root.Y());
+  EXPECT_FLOAT_EQ(8, sticky_position_relative_to_root.x());
+  EXPECT_FLOAT_EQ(8, sticky_position_relative_to_root.y());
 }
 
 TEST_P(CompositedLayerMappingTest,
@@ -1330,7 +1373,7 @@ TEST_P(CompositedLayerMappingTest,
   PaintLayerScrollableArea* scrollable_area = scroller->GetScrollableArea();
   ASSERT_TRUE(scrollable_area);
   scrollable_area->ScrollToAbsolutePosition(
-      FloatPoint(scrollable_area->ScrollPosition().Y(), 100));
+      FloatPoint(scrollable_area->ScrollPosition().y(), 100));
   UpdateAllLifecyclePhasesForTest();
 
   GraphicsLayer* root_scrolling_layer =
@@ -1345,8 +1388,8 @@ TEST_P(CompositedLayerMappingTest,
   auto sticky_position_relative_to_root =
       transform_from_sticky_to_root.MapPoint(
           FloatPoint(main_graphics_layer->GetOffsetFromTransformNode()));
-  EXPECT_FLOAT_EQ(8, sticky_position_relative_to_root.X());
-  EXPECT_FLOAT_EQ(8, sticky_position_relative_to_root.Y());
+  EXPECT_FLOAT_EQ(8, sticky_position_relative_to_root.x());
+  EXPECT_FLOAT_EQ(8, sticky_position_relative_to_root.y());
 }
 
 TEST_P(CompositedLayerMappingTest, ScrollingContainerBoundsChange) {
@@ -1508,7 +1551,7 @@ TEST_P(CompositedLayerMappingTest,
   ASSERT_EQ(kPaintsIntoGroupedBacking, squashed->GetCompositingState());
 
   // 100px down from squashing's main graphics layer.
-  EXPECT_EQ(IntPoint(0, 100),
+  EXPECT_EQ(gfx::Vector2d(0, 100),
             squashed->GraphicsLayerBacking()->GetOffsetFromTransformNode());
 }
 
@@ -1856,7 +1899,6 @@ TEST_P(CompositedLayerMappingTest,
 // Unlike CompositingTest.WillChangeTransformHintInSVG, will-change hints on the
 // SVG element itself should not opt into creating layers after paint.
 TEST_P(CompositedLayerMappingTest, WillChangeTransformHintOnSVG) {
-  ScopedCompositeSVGForTest enable_feature(true);
   SetBodyInnerHTML(R"HTML(
     <svg width="99" height="99" id="willChange" style="will-change: transform;">
       <rect width="100%" height="100%" fill="blue"></rect>
@@ -1871,7 +1913,6 @@ TEST_P(CompositedLayerMappingTest, WillChangeTransformHintOnSVG) {
 // Test that will-change changes inside SVG correctly update whether the
 // graphics layer should create layers after paint.
 TEST_P(CompositedLayerMappingTest, WillChangeTransformHintInSVGChanged) {
-  ScopedCompositeSVGForTest enable_feature(true);
   SetBodyInnerHTML(R"HTML(
     <svg width="99" height="99" id="svg" style="will-change: transform;">
       <rect id="rect" width="100%" height="100%" fill="blue"></rect>

@@ -10,6 +10,7 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "chrome/android/chrome_jni_headers/SurveyHttpClientBridge_jni.h"
+#include "chrome/browser/android/survey/http_client_type.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_android.h"
 #include "net/base/url_util.h"
@@ -24,18 +25,23 @@ using base::android::ScopedJavaLocalRef;
 
 namespace survey {
 
+
 // static
 jlong JNI_SurveyHttpClientBridge_Init(JNIEnv* env,
+                                      jint j_client_type,
                                       const JavaParamRef<jobject>& j_profile) {
-  return reinterpret_cast<intptr_t>(new SurveyHttpClientBridge(j_profile));
+  return reinterpret_cast<intptr_t>(
+      new SurveyHttpClientBridge(j_client_type, j_profile));
 }
 
 SurveyHttpClientBridge::SurveyHttpClientBridge(
+    jint j_client_type,
     const JavaParamRef<jobject>& j_profile) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(j_profile);
   DCHECK(profile);
-  survey_http_client_ =
-      std::make_unique<SurveyHttpClient>(profile->GetURLLoaderFactory());
+  survey_http_client_ = std::make_unique<SurveyHttpClient>(
+      static_cast<HttpClientType>(j_client_type),
+      profile->GetURLLoaderFactory());
 }
 
 SurveyHttpClientBridge::~SurveyHttpClientBridge() = default;

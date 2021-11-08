@@ -23,6 +23,11 @@ namespace content {
 class TestRenderFrameHostFactory : public RenderFrameHostFactory {
  public:
   TestRenderFrameHostFactory();
+
+  TestRenderFrameHostFactory(const TestRenderFrameHostFactory&) = delete;
+  TestRenderFrameHostFactory& operator=(const TestRenderFrameHostFactory&) =
+      delete;
+
   ~TestRenderFrameHostFactory() override;
 
  protected:
@@ -35,12 +40,9 @@ class TestRenderFrameHostFactory : public RenderFrameHostFactory {
       FrameTreeNode* frame_tree_node,
       int32_t routing_id,
       mojo::PendingAssociatedRemote<mojom::Frame> frame_remote,
-      const base::UnguessableToken& frame_token,
+      const blink::LocalFrameToken& frame_token,
       bool renderer_initiated_creation,
-      RenderFrameHostImpl::LifecycleState lifecycle_state) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestRenderFrameHostFactory);
+      RenderFrameHostImpl::LifecycleStateImpl lifecycle_state) override;
 };
 
 }  // namespace content

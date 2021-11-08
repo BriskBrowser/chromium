@@ -19,7 +19,6 @@
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -159,15 +158,15 @@ base::ListValue* ConstructFileSystemList(
   const extensions::PermissionsData* permissions_data =
       extension->permissions_data();
   bool has_read_permission = permissions_data->CheckAPIPermissionWithParam(
-      extensions::APIPermission::kMediaGalleries, &read_param);
+      extensions::mojom::APIPermissionID::kMediaGalleries, &read_param);
   MediaGalleriesPermission::CheckParam copy_to_param(
       MediaGalleriesPermission::kCopyToPermission);
   bool has_copy_to_permission = permissions_data->CheckAPIPermissionWithParam(
-      extensions::APIPermission::kMediaGalleries, &copy_to_param);
+      extensions::mojom::APIPermissionID::kMediaGalleries, &copy_to_param);
   MediaGalleriesPermission::CheckParam delete_param(
       MediaGalleriesPermission::kDeletePermission);
   bool has_delete_permission = permissions_data->CheckAPIPermissionWithParam(
-      extensions::APIPermission::kMediaGalleries, &delete_param);
+      extensions::mojom::APIPermissionID::kMediaGalleries, &delete_param);
 
   const int child_id = rfh->GetProcess()->GetID();
   std::unique_ptr<base::ListValue> list(new base::ListValue());
@@ -344,7 +343,7 @@ void MediaGalleriesEventRouter::DispatchEventToExtension(
     const std::string& extension_id,
     extensions::events::HistogramValue histogram_value,
     const std::string& event_name,
-    std::unique_ptr<base::ListValue> event_args) {
+    std::vector<base::Value> event_args) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   extensions::EventRouter* router = extensions::EventRouter::Get(profile_);
@@ -398,7 +397,7 @@ ExtensionFunction::ResponseAction
 MediaGalleriesGetMediaFileSystemsFunction::Run() {
   ::media_galleries::UsageCount(::media_galleries::GET_MEDIA_FILE_SYSTEMS);
   std::unique_ptr<GetMediaFileSystems::Params> params(
-      GetMediaFileSystems::Params::Create(*args_));
+      GetMediaFileSystems::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params);
   MediaGalleries::GetMediaFileSystemsInteractivity interactive =
       MediaGalleries::GET_MEDIA_FILE_SYSTEMS_INTERACTIVITY_NO;
@@ -598,7 +597,8 @@ void MediaGalleriesAddUserSelectedFolderFunction::ReturnGalleriesAndId(
     }
   }
   std::unique_ptr<base::DictionaryValue> results(new base::DictionaryValue);
-  results->SetWithoutPathExpansion("mediaFileSystems", std::move(list));
+  results->SetKey("mediaFileSystems",
+                  base::Value::FromUniquePtrValue(std::move(list)));
   results->SetKey("selectedFileSystemIndex", base::Value(index));
   Respond(OneArgument(base::Value::FromUniquePtrValue(std::move(results))));
 }
@@ -624,14 +624,15 @@ MediaGalleriesGetMetadataFunction::~MediaGalleriesGetMetadataFunction() {}
 
 ExtensionFunction::ResponseAction MediaGalleriesGetMetadataFunction::Run() {
   ::media_galleries::UsageCount(::media_galleries::GET_METADATA);
-  std::string blob_uuid;
-  EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &blob_uuid));
+  EXTENSION_FUNCTION_VALIDATE(args().size() >= 1);
+  EXTENSION_FUNCTION_VALIDATE(args()[0].is_string());
+  const std::string& blob_uuid = args()[0].GetString();
 
-  const base::Value* options_value = NULL;
-  if (!args_->Get(1, &options_value))
+  if (args().size() < 2)
     return RespondNow(Error("options parameter not specified."));
+
   std::unique_ptr<MediaGalleries::MediaMetadataOptions> options =
-      MediaGalleries::MediaMetadataOptions::FromValue(*options_value);
+      MediaGalleries::MediaMetadataOptions::FromValue(args()[1]);
   if (!options)
     return RespondNow(Error("Invalid value for options parameter."));
 
@@ -733,8 +734,8 @@ void MediaGalleriesGetMetadataFunction::OnSafeMediaMetadataParserDone(
   result_dictionary->Set(kAttachedImagesBlobInfoKey,
                          std::make_unique<base::ListValue>());
   metadata::AttachedImage* first_image = &attached_images->front();
-  content::BrowserContext::CreateMemoryBackedBlob(
-      browser_context(), base::as_bytes(base::make_span(first_image->data)), "",
+  browser_context()->CreateMemoryBackedBlob(
+      base::as_bytes(base::make_span(first_image->data)), "",
       base::BindOnce(&MediaGalleriesGetMetadataFunction::ConstructNextBlob,
                      this, std::move(result_dictionary),
                      std::move(attached_images),
@@ -760,7 +761,7 @@ void MediaGalleriesGetMetadataFunction::ConstructNextBlob(
   base::ListValue* attached_images_list = NULL;
   result_dictionary->GetList(kAttachedImagesBlobInfoKey, &attached_images_list);
   DCHECK(attached_images_list);
-  DCHECK_LT(attached_images_list->GetSize(), attached_images->size());
+  DCHECK_LT(attached_images_list->GetList().size(), attached_images->size());
 
   metadata::AttachedImage* current_image =
       &(*attached_images)[blob_uuids->size()];
@@ -788,9 +789,8 @@ void MediaGalleriesGetMetadataFunction::ConstructNextBlob(
   if (blob_uuids->size() < attached_images->size()) {
     metadata::AttachedImage* next_image =
         &(*attached_images)[blob_uuids->size()];
-    content::BrowserContext::CreateMemoryBackedBlob(
-        browser_context(), base::as_bytes(base::make_span(next_image->data)),
-        "",
+    browser_context()->CreateMemoryBackedBlob(
+        base::as_bytes(base::make_span(next_image->data)), "",
         base::BindOnce(&MediaGalleriesGetMetadataFunction::ConstructNextBlob,
                        this, std::move(result_dictionary),
                        std::move(attached_images), std::move(blob_uuids)));
@@ -817,7 +817,7 @@ ExtensionFunction::ResponseAction MediaGalleriesAddGalleryWatchFunction::Run() {
     return RespondNow(Error(kNoRenderFrameOrRenderProcessError));
 
   std::unique_ptr<AddGalleryWatch::Params> params(
-      AddGalleryWatch::Params::Create(*args_));
+      AddGalleryWatch::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params);
 
   MediaGalleriesPreferences* preferences =
@@ -890,7 +890,7 @@ MediaGalleriesRemoveGalleryWatchFunction::Run() {
     return RespondNow(Error(kNoRenderFrameOrRenderProcessError));
 
   std::unique_ptr<RemoveGalleryWatch::Params> params(
-      RemoveGalleryWatch::Params::Create(*args_));
+      RemoveGalleryWatch::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params);
 
   MediaGalleriesPreferences* preferences =

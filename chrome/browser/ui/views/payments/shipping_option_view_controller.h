@@ -21,6 +21,11 @@ class ShippingOptionViewController : public PaymentRequestSheetController,
   ShippingOptionViewController(base::WeakPtr<PaymentRequestSpec> spec,
                                base::WeakPtr<PaymentRequestState> state,
                                base::WeakPtr<PaymentRequestDialogView> dialog);
+
+  ShippingOptionViewController(const ShippingOptionViewController&) = delete;
+  ShippingOptionViewController& operator=(const ShippingOptionViewController&) =
+      delete;
+
   ~ShippingOptionViewController() override;
 
   // PaymentRequestSpec::Observer:
@@ -28,7 +33,7 @@ class ShippingOptionViewController : public PaymentRequestSheetController,
 
  private:
   // PaymentRequestSheetController:
-  base::string16 GetSheetTitle() override;
+  std::u16string GetSheetTitle() override;
   void FillContentView(views::View* content_view) override;
   std::unique_ptr<views::View> CreateExtraFooterView() override;
   bool ShouldShowPrimaryButton() override;
@@ -37,8 +42,6 @@ class ShippingOptionViewController : public PaymentRequestSheetController,
   PaymentRequestItemList shipping_option_list_;
 
   base::WeakPtrFactory<ShippingOptionViewController> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ShippingOptionViewController);
 };
 
 }  // namespace payments

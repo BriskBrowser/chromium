@@ -8,10 +8,11 @@
 #include <memory>
 #include <string>
 
-#include "base/optional.h"
+#include "base/bind.h"
 #include "base/scoped_observation.h"
-#include "base/strings/string16.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkPath.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/size.h"
@@ -19,7 +20,6 @@
 #include "ui/views/animation/ink_drop_observer.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget_observer.h"
 
 namespace gfx {
@@ -81,6 +81,10 @@ class IconLabelBubbleView : public views::InkDropObserver,
   };
 
   IconLabelBubbleView(const gfx::FontList& font_list, Delegate* delegate);
+
+  IconLabelBubbleView(const IconLabelBubbleView&) = delete;
+  IconLabelBubbleView& operator=(const IconLabelBubbleView&) = delete;
+
   ~IconLabelBubbleView() override;
 
   // views::InkDropObserver:
@@ -90,7 +94,7 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // Returns true when the label should be visible.
   virtual bool ShouldShowLabel() const;
 
-  void SetLabel(const base::string16& label);
+  void SetLabel(const std::u16string& label);
   void SetFontList(const gfx::FontList& font_list);
 
   const views::ImageView* GetImageView() const { return image(); }
@@ -148,8 +152,6 @@ class IconLabelBubbleView : public views::InkDropObserver,
   void Layout() override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnThemeChanged() override;
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
-  SkColor GetInkDropBaseColor() const override;
   bool IsTriggerableEvent(const ui::Event& event) override;
   bool ShouldUpdateInkDropOnClickCanceled() const override;
   void NotifyClick(const ui::Event& event) override;
@@ -179,7 +181,7 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // TODO(bruthig): See https://crbug.com/669253. Since the ink drop highlight
   // currently cannot handle host resizes, the highlight needs to be disabled
   // when the animation is running.
-  void AnimateIn(base::Optional<int> string_id);
+  void AnimateIn(absl::optional<int> string_id);
 
   // Animates the view out.
   void AnimateOut();
@@ -264,8 +266,6 @@ class IconLabelBubbleView : public views::InkDropObserver,
       ui::TouchUiController::Get()->RegisterCallback(
           base::BindRepeating(&IconLabelBubbleView::OnTouchUiChanged,
                               base::Unretained(this)));
-
-  DISALLOW_COPY_AND_ASSIGN(IconLabelBubbleView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_ICON_LABEL_BUBBLE_VIEW_H_

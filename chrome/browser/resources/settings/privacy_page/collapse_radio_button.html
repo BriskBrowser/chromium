@@ -83,12 +83,14 @@
           </div>
         </div>
         <template is="dom-if" if="[[pref]]">
-          <cr-policy-pref-indicator pref="[[pref]]" icon-aria-label="[[label]]"
+          <cr-policy-pref-indicator pref="[[pref]]"
+              icon-aria-label="[[indicatorAriaLabel]]"
               associated-value="[[name]]" on-focus="onNonRadioFocus_">
           </cr-policy-pref-indicator>
         </template>
         <div hidden$="[[noCollapse]]" class="separator"></div>
-        <cr-expand-button aria-label="[[expandAriaLabel]]"
+        <cr-expand-button no-hover
+              aria-label="[[expandAriaLabel]]"
               hidden$="[[noCollapse]]" expanded="{{expanded}}"
               on-click="onExpandClicked_"
               on-focus="onNonRadioFocus_">
@@ -100,4 +102,3 @@
       <slot name="collapse"></slot>
       <slot name="noSelectionCollapse"></slot>
     </iron-collapse>
-

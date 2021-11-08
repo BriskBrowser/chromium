@@ -8,15 +8,19 @@
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "chrome/updater/constants.h"
 #include "chrome/updater/prefs_impl.h"
+#include "chrome/updater/updater_scope.h"
 #include "chrome/updater/util.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/pref_service_factory.h"
 #include "components/update_client/update_client.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 
@@ -25,6 +29,7 @@ namespace {
 const char kPrefQualified[] = "qualified";
 const char kPrefSwapping[] = "swapping";
 const char kPrefActiveVersion[] = "active_version";
+const char kPrefServerStarts[] = "server_starts";
 
 }  // namespace
 
@@ -64,45 +69,56 @@ void UpdaterPrefsImpl::SetSwapping(bool value) {
   prefs_->SetBoolean(kPrefSwapping, value);
 }
 
-std::unique_ptr<GlobalPrefs> CreateGlobalPrefs() {
+int UpdaterPrefsImpl::CountServerStarts() {
+  int starts = prefs_->GetInteger(kPrefServerStarts);
+  if (starts <= kMaxServerStartsBeforeFirstReg)
+    prefs_->SetInteger(kPrefServerStarts, ++starts);
+  return starts;
+}
+
+scoped_refptr<GlobalPrefs> CreateGlobalPrefs(UpdaterScope scope) {
   std::unique_ptr<ScopedPrefsLock> lock =
-      AcquireGlobalPrefsLock(base::TimeDelta::FromMinutes(2));
+      AcquireGlobalPrefsLock(scope, base::Minutes(2));
   if (!lock)
     return nullptr;
 
-  base::FilePath global_prefs_dir;
-  if (!GetBaseDirectory(&global_prefs_dir))
+  const absl::optional<base::FilePath> global_prefs_dir =
+      GetBaseDirectory(scope);
+  if (!global_prefs_dir)
     return nullptr;
+  VLOG(1) << "global_prefs_dir: " << global_prefs_dir;
 
   PrefServiceFactory pref_service_factory;
   pref_service_factory.set_user_prefs(base::MakeRefCounted<JsonPrefStore>(
-      global_prefs_dir.Append(FILE_PATH_LITERAL("prefs.json"))));
+      global_prefs_dir->Append(FILE_PATH_LITERAL("prefs.json"))));
 
   auto pref_registry = base::MakeRefCounted<PrefRegistrySimple>();
   update_client::RegisterPrefs(pref_registry.get());
   pref_registry->RegisterBooleanPref(kPrefSwapping, false);
   pref_registry->RegisterStringPref(kPrefActiveVersion, "0");
   pref_registry->RegisterTimePref(kPrefUpdateTime, base::Time());
+  pref_registry->RegisterIntegerPref(kPrefServerStarts, 0);
 
-  return std::make_unique<UpdaterPrefsImpl>(
+  return base::MakeRefCounted<UpdaterPrefsImpl>(
       std::move(lock), pref_service_factory.Create(pref_registry));
 }
 
-std::unique_ptr<LocalPrefs> CreateLocalPrefs() {
-  base::FilePath local_prefs_dir;
-  if (!GetVersionedDirectory(&local_prefs_dir))
+scoped_refptr<LocalPrefs> CreateLocalPrefs(UpdaterScope scope) {
+  const absl::optional<base::FilePath> local_prefs_dir =
+      GetVersionedDirectory(scope);
+  if (!local_prefs_dir)
     return nullptr;
 
   PrefServiceFactory pref_service_factory;
   pref_service_factory.set_user_prefs(base::MakeRefCounted<JsonPrefStore>(
-      local_prefs_dir.Append(FILE_PATH_LITERAL("prefs.json"))));
+      local_prefs_dir->Append(FILE_PATH_LITERAL("prefs.json"))));
 
   auto pref_registry = base::MakeRefCounted<PrefRegistrySimple>();
   update_client::RegisterPrefs(pref_registry.get());
   pref_registry->RegisterBooleanPref(kPrefQualified, false);
   pref_registry->RegisterTimePref(kPrefUpdateTime, base::Time());
 
-  return std::make_unique<UpdaterPrefsImpl>(
+  return base::MakeRefCounted<UpdaterPrefsImpl>(
       nullptr, pref_service_factory.Create(pref_registry));
 }
 

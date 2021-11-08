@@ -8,17 +8,21 @@
 
 #include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_shader.h"
+#include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/infobars/infobar_view.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/skia_paint_util.h"
 #include "ui/views/bubble/bubble_border.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+#include "ui/views/cascading_property.h"
+#include "ui/views/controls/focus_ring.h"
 
 namespace {
 
@@ -49,7 +53,7 @@ void ContentShadow::OnPaint(gfx::Canvas* canvas) {
   container_bounds.Inset(-views::BubbleBorder::kShadowBlur, 0);
 
   views::BubbleBorder::DrawBorderAndShadow(gfx::RectFToSkRect(container_bounds),
-                                           &cc::PaintCanvas::drawRect, canvas);
+                                           canvas, GetColorProvider());
 }
 
 BEGIN_METADATA(ContentShadow, views::View)
@@ -62,6 +66,8 @@ InfoBarContainerView::InfoBarContainerView(Delegate* delegate)
       content_shadow_(new ContentShadow()) {
   SetID(VIEW_ID_INFO_BAR_CONTAINER);
   AddChildView(content_shadow_);
+  views::SetCascadingThemeProviderColor(this, views::kCascadingBackgroundColor,
+                                        ThemeProperties::COLOR_TOOLBAR);
 }
 
 InfoBarContainerView::~InfoBarContainerView() {

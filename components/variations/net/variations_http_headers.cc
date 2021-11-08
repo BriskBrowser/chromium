@@ -11,7 +11,6 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "components/google/core/common/google_util.h"
 #include "components/variations/net/omnibox_http_headers.h"
@@ -129,7 +128,7 @@ bool IsFirstPartyContext(Owner owner,
       request_initiator_url.SchemeIs("chrome")) {
     // A scheme matching the above patterns means that the request was
     // initiated by an internal page, e.g. a request from
-    // chrome-search://local-ntp/ for App Launcher resources.
+    // chrome://newtab/ for App Launcher resources.
     LogRequestContextHistogram(kInternalChromePageInitiated);
     return true;
   }
@@ -235,6 +234,9 @@ class VariationsHeaderHelper {
     variations_header_ = std::move(variations_header);
   }
 
+  VariationsHeaderHelper(const VariationsHeaderHelper&) = delete;
+  VariationsHeaderHelper& operator=(const VariationsHeaderHelper&) = delete;
+
   bool AppendHeaderIfNeeded(const GURL& url, InIncognito incognito) {
     AppendOmniboxOnDeviceSuggestionsHeaderIfNeeded(url, resource_request_);
 
@@ -254,8 +256,9 @@ class VariationsHeaderHelper {
     if (variations_header_.empty())
       return false;
 
-    // Set the variations header to cors_exempt_headers rather than headers
-    // to be exempted from CORS checks.
+    // Set the variations header to cors_exempt_headers rather than headers to
+    // be exempted from CORS checks, and to avoid exposing the header to service
+    // workers.
     resource_request_->cors_exempt_headers.SetHeaderIfMissing(
         kClientDataHeader, variations_header_);
     return true;
@@ -285,8 +288,6 @@ class VariationsHeaderHelper {
 
   network::ResourceRequest* resource_request_;
   std::string variations_header_;
-
-  DISALLOW_COPY_AND_ASSIGN(VariationsHeaderHelper);
 };
 
 }  // namespace
@@ -356,11 +357,6 @@ CreateSimpleURLLoaderWithVariationsHeaderUnknownSignedIn(
     const net::NetworkTrafficAnnotationTag& annotation_tag) {
   return CreateSimpleURLLoaderWithVariationsHeader(
       std::move(request), incognito, SignedIn::kNo, annotation_tag);
-}
-
-bool IsVariationsHeader(const std::string& header_name) {
-  return header_name == kClientDataHeader ||
-         header_name == kOmniboxOnDeviceSuggestionsHeader;
 }
 
 bool HasVariationsHeader(const network::ResourceRequest& request) {

@@ -29,6 +29,9 @@ class IdentityManagerFactory : public BrowserStateKeyedServiceFactory {
   // Returns an instance of the IdentityManagerFactory singleton.
   static IdentityManagerFactory* GetInstance();
 
+  IdentityManagerFactory(const IdentityManagerFactory&) = delete;
+  IdentityManagerFactory& operator=(const IdentityManagerFactory&) = delete;
+
   // Methods to register or remove observers of IdentityManager
   // creation/shutdown.
   void AddObserver(IdentityManagerFactoryObserver* observer);
@@ -49,11 +52,8 @@ class IdentityManagerFactory : public BrowserStateKeyedServiceFactory {
   // BrowserStateKeyedServiceFactory:
   std::unique_ptr<KeyedService> BuildServiceInstanceFor(
       web::BrowserState* context) const override;
-  void BrowserStateShutdown(web::BrowserState* context) override;
   void RegisterBrowserStatePrefs(
       user_prefs::PrefRegistrySyncable* registry) override;
-
-  DISALLOW_COPY_AND_ASSIGN(IdentityManagerFactory);
 };
 
 #endif  // IOS_CHROME_BROWSER_SIGNIN_IDENTITY_MANAGER_FACTORY_H_

@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/check_op.h"
-#include "base/deferred_sequenced_task_runner.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/task/deferred_sequenced_task_runner.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/chrome_content_browser_client.h"
@@ -58,6 +60,10 @@ class TestNetworkQualityObserver
     tracker_->AddEffectiveConnectionTypeObserver(this);
   }
 
+  TestNetworkQualityObserver(const TestNetworkQualityObserver&) = delete;
+  TestNetworkQualityObserver& operator=(const TestNetworkQualityObserver&) =
+      delete;
+
   ~TestNetworkQualityObserver() override {
     tracker_->RemoveEffectiveConnectionTypeObserver(this);
   }
@@ -87,7 +93,7 @@ class TestNetworkQualityObserver
     run_loop_wait_effective_connection_type_ =
         run_loop_wait_effective_connection_type;
     run_loop_->Run();
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
   }
 
   size_t num_notifications() const { return num_notifications_; }
@@ -106,8 +112,6 @@ class TestNetworkQualityObserver
   std::unique_ptr<base::RunLoop> run_loop_;
   NetworkQualityTracker* tracker_;
   net::EffectiveConnectionType effective_connection_type_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestNetworkQualityObserver);
 };
 
 }  // namespace
@@ -132,8 +136,7 @@ class NetworkQualityTrackerBrowserTest : public InProcessBrowserTest {
 
     mojo::ScopedAllowSyncCallForTesting allow_sync_call;
     content::StoragePartition* partition =
-        content::BrowserContext::GetDefaultStoragePartition(
-            browser()->profile());
+        browser()->profile()->GetDefaultStoragePartition();
     DCHECK(partition->GetNetworkContext());
     DCHECK(content::GetNetworkService());
 
@@ -186,10 +189,8 @@ IN_PROC_BROWSER_TEST_F(NetworkQualityTrackerBrowserTest,
 
   // Typical RTT and downlink values when effective connection type is 3G. Taken
   // from net::NetworkQualityEstimatorParams.
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(450),
-            network_quality_observer.http_rtt());
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(400),
-            network_quality_observer.transport_rtt());
+  EXPECT_EQ(base::Milliseconds(450), network_quality_observer.http_rtt());
+  EXPECT_EQ(base::Milliseconds(400), network_quality_observer.transport_rtt());
   EXPECT_EQ(400, network_quality_observer.downlink_bandwidth_kbps());
 }
 
@@ -212,10 +213,8 @@ IN_PROC_BROWSER_TEST_F(NetworkQualityTrackerBrowserTest,
             network_quality_observer.effective_connection_type());
   // Typical RTT and downlink values when effective connection type is 2G. Taken
   // from net::NetworkQualityEstimatorParams.
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(1800),
-            network_quality_observer.http_rtt());
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(1500),
-            network_quality_observer.transport_rtt());
+  EXPECT_EQ(base::Milliseconds(1800), network_quality_observer.http_rtt());
+  EXPECT_EQ(base::Milliseconds(1500), network_quality_observer.transport_rtt());
   EXPECT_EQ(75, network_quality_observer.downlink_bandwidth_kbps());
 }
 
@@ -249,15 +248,15 @@ IN_PROC_BROWSER_TEST_F(NetworkQualityTrackerBrowserTest,
   EXPECT_EQ(1u, network_quality_observer.num_notifications());
   // Typical RTT and downlink values when effective connection type is 3G. Taken
   // from net::NetworkQualityEstimatorParams.
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(450),
-            network_quality_observer.http_rtt());
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(400),
-            network_quality_observer.transport_rtt());
+  EXPECT_EQ(base::Milliseconds(450), network_quality_observer.http_rtt());
+  EXPECT_EQ(base::Milliseconds(400), network_quality_observer.transport_rtt());
   EXPECT_EQ(400, network_quality_observer.downlink_bandwidth_kbps());
 
   SimulateNetworkServiceCrash();
   // Flush the network interface to make sure it notices the crash.
-  content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
+  browser()
+      ->profile()
+      ->GetDefaultStoragePartition()
       ->FlushNetworkInterfaceForTesting();
 
   base::RunLoop().RunUntilIdle();
@@ -266,10 +265,8 @@ IN_PROC_BROWSER_TEST_F(NetworkQualityTrackerBrowserTest,
   network_quality_observer.WaitForNotification(
       net::EFFECTIVE_CONNECTION_TYPE_2G);
   EXPECT_LE(2u, network_quality_observer.num_notifications());
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(1800),
-            network_quality_observer.http_rtt());
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(1500),
-            network_quality_observer.transport_rtt());
+  EXPECT_EQ(base::Milliseconds(1800), network_quality_observer.http_rtt());
+  EXPECT_EQ(base::Milliseconds(1500), network_quality_observer.transport_rtt());
   EXPECT_EQ(75, network_quality_observer.downlink_bandwidth_kbps());
 }
 

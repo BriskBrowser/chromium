@@ -24,15 +24,15 @@ NearbyShareExpirationScheduler::NearbyShareExpirationScheduler(
 
 NearbyShareExpirationScheduler::~NearbyShareExpirationScheduler() = default;
 
-base::Optional<base::TimeDelta>
+absl::optional<base::TimeDelta>
 NearbyShareExpirationScheduler::TimeUntilRecurringRequest(
     base::Time now) const {
-  base::Optional<base::Time> expiration_time = expiration_time_functor_.Run();
+  absl::optional<base::Time> expiration_time = expiration_time_functor_.Run();
   if (!expiration_time)
-    return base::nullopt;
+    return absl::nullopt;
 
   if (*expiration_time <= now)
-    return base::TimeDelta::FromSeconds(0);
+    return base::Seconds(0);
 
   return *expiration_time - now;
 }

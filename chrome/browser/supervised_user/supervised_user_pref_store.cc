@@ -4,6 +4,7 @@
 
 #include "chrome/browser/supervised_user/supervised_user_pref_store.h"
 
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -114,7 +115,7 @@ SupervisedUserPrefStore::~SupervisedUserPrefStore() {
 void SupervisedUserPrefStore::OnNewSettingsAvailable(
     const base::DictionaryValue* settings) {
   std::unique_ptr<PrefValueMap> old_prefs = std::move(prefs_);
-  prefs_.reset(new PrefValueMap);
+  prefs_ = std::make_unique<PrefValueMap>();
   if (settings) {
     // Set hardcoded prefs and defaults.
     prefs_->SetInteger(prefs::kDefaultSupervisedUserFilteringBehavior,
@@ -128,8 +129,8 @@ void SupervisedUserPrefStore::OnNewSettingsAvailable(
 
     // Copy supervised user settings to prefs.
     for (const auto& entry : kSupervisedUserSettingsPrefMapping) {
-      const base::Value* value = NULL;
-      if (settings->GetWithoutPathExpansion(entry.settings_name, &value))
+      const base::Value* value = settings->FindKey(entry.settings_name);
+      if (value)
         prefs_->SetValue(entry.pref_name, value->Clone());
     }
 
@@ -138,9 +139,11 @@ void SupervisedUserPrefStore::OnNewSettingsAvailable(
       bool record_history = true;
       settings->GetBoolean(supervised_users::kRecordHistory, &record_history);
       prefs_->SetBoolean(prefs::kAllowDeletingBrowserHistory, !record_history);
-      prefs_->SetInteger(prefs::kIncognitoModeAvailability,
-                         record_history ? IncognitoModePrefs::DISABLED
-                                        : IncognitoModePrefs::ENABLED);
+      prefs_->SetInteger(
+          prefs::kIncognitoModeAvailability,
+          static_cast<int>(record_history
+                               ? IncognitoModePrefs::Availability::kDisabled
+                               : IncognitoModePrefs::Availability::kEnabled));
     }
 
     {

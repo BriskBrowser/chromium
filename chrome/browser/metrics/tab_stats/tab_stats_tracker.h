@@ -10,8 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "base/containers/flat_map.h"
-#include "base/containers/flat_set.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
@@ -42,10 +40,14 @@ FORWARD_DECLARE_TEST(TabStatsTrackerBrowserTest,
 //         std::make_unique<TabStatsTracker>(g_browser_process->local_state()));
 class TabStatsTracker : public TabStripModelObserver,
                         public BrowserListObserver,
-                        public base::PowerObserver {
+                        public base::PowerSuspendObserver {
  public:
   // Constructor. |pref_service| must outlive this object.
   explicit TabStatsTracker(PrefService* pref_service);
+
+  TabStatsTracker(const TabStatsTracker&) = delete;
+  TabStatsTracker& operator=(const TabStatsTracker&) = delete;
+
   ~TabStatsTracker() override;
 
   // Sets the |TabStatsTracker| global instance.
@@ -57,6 +59,10 @@ class TabStatsTracker : public TabStripModelObserver,
   // Registers a TabStatsObserver instance. Upon registering the initial state
   // of the observer is made to match the current browser/tab state.
   void AddObserverAndSetInitialState(TabStatsObserver* observer);
+
+  void RemoveObserver(TabStatsObserver* observer) {
+    tab_stats_observers_.RemoveObserver(observer);
+  }
 
   // Registers prefs used to track tab stats.
   static void RegisterPrefs(PrefRegistrySimple* registry);
@@ -87,6 +93,10 @@ class TabStatsTracker : public TabStripModelObserver,
     TabStatsDailyObserver(UmaStatsReportingDelegate* reporting_delegate,
                           TabStatsDataStore* data_store)
         : reporting_delegate_(reporting_delegate), data_store_(data_store) {}
+
+    TabStatsDailyObserver(const TabStatsDailyObserver&) = delete;
+    TabStatsDailyObserver& operator=(const TabStatsDailyObserver&) = delete;
+
     ~TabStatsDailyObserver() override {}
 
     // Callback called when the daily event happen.
@@ -98,8 +108,6 @@ class TabStatsTracker : public TabStripModelObserver,
 
     // The data store that houses the metrics.
     TabStatsDataStore* data_store_;
-
-    DISALLOW_COPY_AND_ASSIGN(TabStatsDailyObserver);
   };
 
   // Accessors, exposed for unittests:
@@ -146,10 +154,8 @@ class TabStatsTracker : public TabStripModelObserver,
       TabStripModel* tab_strip_model,
       const TabStripModelChange& change,
       const TabStripSelectionChange& selection) override;
-  void TabChangedAt(content::WebContents* web_contents,
-                    int index,
-                    TabChangeType change_type) override;
-  // base::PowerObserver:
+
+  // base::PowerSuspendObserver:
   void OnResume() override;
 
   // Callback when an interval timer triggers.
@@ -219,8 +225,6 @@ class TabStatsTracker : public TabStripModelObserver,
       web_contents_usage_observers_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(TabStatsTracker);
 };
 
 // The reporting delegate, which reports metrics via UMA.
@@ -257,8 +261,16 @@ class TabStatsTracker::UmaStatsReportingDelegate {
   // The name of the histogram that records each window's width, in DIPs.
   static const char kWindowWidthHistogramName[];
 
-  UmaStatsReportingDelegate() {}
-  virtual ~UmaStatsReportingDelegate() {}
+  // The name of the histogram that records the number of collapsed tabs.
+  static const char kCollapsedTabHistogramName[];
+
+  UmaStatsReportingDelegate() = default;
+
+  UmaStatsReportingDelegate(const UmaStatsReportingDelegate&) = delete;
+  UmaStatsReportingDelegate& operator=(const UmaStatsReportingDelegate&) =
+      delete;
+
+  virtual ~UmaStatsReportingDelegate() = default;
 
   // Called at resume from sleep/hibernate.
   void ReportTabCountOnResume(size_t tab_count);
@@ -290,9 +302,6 @@ class TabStatsTracker::UmaStatsReportingDelegate {
   // Checks if Chrome is running in background with no visible windows, virtual
   // for unittesting.
   virtual bool IsChromeBackgroundedWithoutWindows();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(UmaStatsReportingDelegate);
 };
 
 }  // namespace metrics

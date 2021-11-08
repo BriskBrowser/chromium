@@ -114,6 +114,8 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
                                                  std::unique_ptr<FailureInfo>,
                                                  std::unique_ptr<PausedState>)>;
 
+  ServiceWorkerSingleScriptUpdateChecker() = delete;
+
   // Both |compare_reader| and |copy_reader| should be created from the same
   // resource ID, and this ID should locate where the script specified with
   // |script_url| is stored. |writer| should be created with a new resource ID.
@@ -125,11 +127,11 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
       const GURL& main_script_url,
       const GURL& scope,
       bool force_bypass_cache,
+      blink::mojom::ScriptType worker_script_type,
       blink::mojom::ServiceWorkerUpdateViaCache update_via_cache,
       const blink::mojom::FetchClientSettingsObjectPtr&
           fetch_client_settings_object,
       base::TimeDelta time_since_last_check,
-      const net::HttpRequestHeaders& default_headers,
       BrowserContext* browser_context,
       scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
       mojo::Remote<storage::mojom::ServiceWorkerResourceReader> compare_reader,
@@ -138,9 +140,15 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
       int64_t write_resource_id,
       ResultCallback callback);
 
+  ServiceWorkerSingleScriptUpdateChecker(
+      const ServiceWorkerSingleScriptUpdateChecker&) = delete;
+  ServiceWorkerSingleScriptUpdateChecker& operator=(
+      const ServiceWorkerSingleScriptUpdateChecker&) = delete;
+
   ~ServiceWorkerSingleScriptUpdateChecker() override;
 
   // network::mojom::URLLoaderClient override:
+  void OnReceiveEarlyHints(network::mojom::EarlyHintsPtr early_hints) override;
   void OnReceiveResponse(
       network::mojom::URLResponseHeadPtr response_head) override;
   void OnReceiveRedirect(
@@ -257,8 +265,6 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
 
   base::WeakPtrFactory<ServiceWorkerSingleScriptUpdateChecker> weak_factory_{
       this};
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(ServiceWorkerSingleScriptUpdateChecker);
 };
 
 }  // namespace content

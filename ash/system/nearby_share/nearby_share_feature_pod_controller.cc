@@ -12,6 +12,7 @@
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/unified/feature_pod_button.h"
 #include "ash/system/unified/unified_system_tray_controller.h"
+#include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -21,10 +22,10 @@ namespace ash {
 
 namespace {
 
-constexpr base::TimeDelta kOneMinute = base::TimeDelta::FromMinutes(1);
-constexpr base::TimeDelta kOneSecond = base::TimeDelta::FromSeconds(1);
+constexpr base::TimeDelta kOneMinute = base::Minutes(1);
+constexpr base::TimeDelta kOneSecond = base::Seconds(1);
 
-base::string16 RemainingTimeString(base::TimeDelta remaining_time) {
+std::u16string RemainingTimeString(base::TimeDelta remaining_time) {
   if (remaining_time > kOneMinute) {
     return l10n_util::GetStringFUTF16Int(
         IDS_ASH_STATUS_TRAY_NEARBY_SHARE_REMAINING_MINUTES,
@@ -67,7 +68,7 @@ FeaturePodButton* NearbyShareFeaturePodController::CreateButton() {
   button_->SetVisible(nearby_share_delegate_->IsPodButtonVisible() &&
                       session_controller->IsActiveUserSessionStarted() &&
                       session_controller->IsUserPrimary() &&
-                      !session_controller->IsScreenLocked());
+                      !session_controller->IsUserSessionBlocked());
   button_->SetLabel(
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NEARBY_SHARE_BUTTON_LABEL));
   button_->SetLabelTooltip(l10n_util::GetStringUTF16(
@@ -124,8 +125,7 @@ void NearbyShareFeaturePodController::UpdateButton(bool enabled) {
 base::TimeDelta NearbyShareFeaturePodController::RemainingHighVisibilityTime()
     const {
   base::TimeTicks now = base::TimeTicks::Now();
-  return shutoff_time_ > now ? shutoff_time_ - now
-                             : base::TimeDelta::FromSeconds(0);
+  return shutoff_time_ > now ? shutoff_time_ - now : base::Seconds(0);
 }
 
 }  // namespace ash

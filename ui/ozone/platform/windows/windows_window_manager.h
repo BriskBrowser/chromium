@@ -7,10 +7,7 @@
 
 #include <stdint.h>
 
-#include <memory>
-
 #include "base/containers/id_map.h"
-#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "ui/gfx/native_widget_types.h"
@@ -23,6 +20,10 @@ class WindowsWindow;
 class WindowsWindowManager {
  public:
   WindowsWindowManager();
+
+  WindowsWindowManager(const WindowsWindowManager&) = delete;
+  WindowsWindowManager& operator=(const WindowsWindowManager&) = delete;
+
   ~WindowsWindowManager();
 
   // Register a new window. Returns the window id.
@@ -36,8 +37,6 @@ class WindowsWindowManager {
 
  private:
   base::IDMap<WindowsWindow*> windows_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowsWindowManager);
 };
 
 }  // namespace ui

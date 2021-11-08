@@ -10,13 +10,13 @@
 #include <array>
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/search/ntp_logging_events.h"
 #include "components/ntp_tiles/constants.h"
 #include "components/ntp_tiles/ntp_tile_impression.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if defined(OS_ANDROID)
 #error "Instant is only used on desktop";
@@ -27,6 +27,10 @@ class NTPUserDataLogger {
  public:
   // Creates a NTPUserDataLogger. MUST be called only when the NTP is active.
   NTPUserDataLogger(Profile* profile, const GURL& ntp_url);
+
+  NTPUserDataLogger(const NTPUserDataLogger&) = delete;
+  NTPUserDataLogger& operator=(const NTPUserDataLogger&) = delete;
+
   virtual ~NTPUserDataLogger();
 
   // Called when a One Google Bar fetch has been completed after |duration|.
@@ -40,35 +44,16 @@ class NTPUserDataLogger {
   // all others require Google as the default search provider.
   void LogEvent(NTPLoggingEventType event, base::TimeDelta time);
 
-  // Logs a module impression. Called when a module is loaded and can be seen by
-  // the user (scrolled into view).
-  void LogModuleImpression(const std::string& id, base::TimeDelta time);
-
-  // Logs a module is loaded on the NTP.
-  void LogModuleLoaded(const std::string& id,
-                       base::TimeDelta duration,
-                       base::TimeDelta time_since_navigation);
-
-  // Logs when a user interacts with a module which will result in a navigation.
-  void LogModuleUsage(const std::string& id);
-
-  // Called when a search suggestion event occurs on the NTP that has an integer
-  // value associated with it; N suggestions were shown on this NTP load, the
-  // Nth suggestion was clicked, etc. |time| is the delta time from navigation
-  // start until this event happened. Requires Google as the default search
-  // provider.
-  void LogSuggestionEventWithValue(NTPSuggestionsLoggingEventType event,
-                                   int data,
-                                   base::TimeDelta time);
+  // Called when all NTP tiles have finished loading (successfully or failing).
+  void LogMostVisitedLoaded(base::TimeDelta time,
+                            bool using_most_visited,
+                            bool is_visible);
 
   // Logs an impression on one of the NTP tiles by given details.
   void LogMostVisitedImpression(const ntp_tiles::NTPTileImpression& impression);
 
   // Logs a navigation on one of the NTP tiles by a given impression.
   void LogMostVisitedNavigation(const ntp_tiles::NTPTileImpression& impression);
-
-  // Sets visibility of modules to be later logged.
-  void SetModulesVisible(bool visible);
 
  private:
   // Returns whether Google is selected as the default search engine. Virtual
@@ -78,17 +63,12 @@ class NTPUserDataLogger {
   // Returns whether a custom background is configured. Virtual for testing.
   virtual bool CustomBackgroundIsConfigured() const;
 
-  // Returns whether the user has customized their shortcuts. Will always be
-  // false if Most Visited shortcuts are enabled. Virtual for testing.
-  virtual bool AreShortcutsCustomized() const;
-
-  // Returns the current user shortcut settings. Virtual for testing.
-  virtual std::pair<bool, bool> GetCurrentShortcutSettings() const;
-
   // Logs a number of statistics regarding the NTP. Called when an NTP tab is
   // about to be deactivated (be it by switching tabs, losing focus or closing
   // the tab/shutting down Chrome), or when the user navigates to a URL.
-  void EmitNtpStatistics(base::TimeDelta load_time);
+  void EmitNtpStatistics(base::TimeDelta load_time,
+                         bool using_most_visited,
+                         bool is_visible);
 
   void RecordDoodleImpression(base::TimeDelta time,
                               bool is_cta,
@@ -107,7 +87,7 @@ class NTPUserDataLogger {
   // sources, such as signing in (switching from client to server tiles), then
   // only the impressions for the first source will be logged, leaving the
   // number of impressions for a source slightly out-of-sync with navigations.
-  std::array<base::Optional<ntp_tiles::NTPTileImpression>,
+  std::array<absl::optional<ntp_tiles::NTPTileImpression>,
              ntp_tiles::kMaxNumTiles>
       logged_impressions_;
 
@@ -115,8 +95,6 @@ class NTPUserDataLogger {
   bool has_emitted_;
 
   bool should_record_doodle_load_time_;
-
-  bool modules_visible_;
 
   // Are stats being logged during Chrome startup?
   bool during_startup_;
@@ -126,8 +104,6 @@ class NTPUserDataLogger {
 
   // The profile in which this New Tab Page was loaded.
   Profile* profile_;
-
-  DISALLOW_COPY_AND_ASSIGN(NTPUserDataLogger);
 };
 
 #endif  // CHROME_BROWSER_UI_SEARCH_NTP_USER_DATA_LOGGER_H_

@@ -5,9 +5,12 @@
 #include "components/mirroring/browser/single_client_video_capture_host.h"
 
 #include "base/bind.h"
+#include "base/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
+#include "base/token.h"
+#include "media/capture/mojom/video_capture_types.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -22,10 +25,16 @@ namespace mirroring {
 
 namespace {
 
+constexpr bool kNotPremapped = false;
+
 class MockVideoCaptureDevice final
     : public content::LaunchedVideoCaptureDevice {
  public:
   MockVideoCaptureDevice() {}
+
+  MockVideoCaptureDevice(const MockVideoCaptureDevice&) = delete;
+  MockVideoCaptureDevice& operator=(const MockVideoCaptureDevice&) = delete;
+
   ~MockVideoCaptureDevice() override {}
   void GetPhotoState(
       VideoCaptureDevice::GetPhotoStateCallback callback) override {}
@@ -37,11 +46,11 @@ class MockVideoCaptureDevice final
                                       base::OnceClosure done_cb) override {}
   MOCK_METHOD0(MaybeSuspendDevice, void());
   MOCK_METHOD0(ResumeDevice, void());
+  MOCK_METHOD2(Crop,
+               void(const base::Token&,
+                    base::OnceCallback<void(media::mojom::CropRequestResult)>));
   MOCK_METHOD0(RequestRefreshFrame, void());
-  MOCK_METHOD2(OnUtilizationReport, void(int, media::VideoFrameFeedback));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockVideoCaptureDevice);
+  MOCK_METHOD2(OnUtilizationReport, void(int, media::VideoCaptureFeedback));
 };
 
 class FakeDeviceLauncher final : public content::VideoCaptureDeviceLauncher {
@@ -52,6 +61,9 @@ class FakeDeviceLauncher final : public content::VideoCaptureDeviceLauncher {
 
   explicit FakeDeviceLauncher(DeviceLaunchedCallback launched_cb)
       : after_launch_cb_(std::move(launched_cb)) {}
+
+  FakeDeviceLauncher(const FakeDeviceLauncher&) = delete;
+  FakeDeviceLauncher& operator=(const FakeDeviceLauncher&) = delete;
 
   ~FakeDeviceLauncher() override {}
 
@@ -84,17 +96,17 @@ class FakeDeviceLauncher final : public content::VideoCaptureDeviceLauncher {
 
   DeviceLaunchedCallback after_launch_cb_;
   base::WeakPtrFactory<FakeDeviceLauncher> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(FakeDeviceLauncher);
 };
 
 class StubReadWritePermission final
     : public VideoCaptureDevice::Client::Buffer::ScopedAccessPermission {
  public:
   StubReadWritePermission() {}
-  ~StubReadWritePermission() override {}
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(StubReadWritePermission);
+  StubReadWritePermission(const StubReadWritePermission&) = delete;
+  StubReadWritePermission& operator=(const StubReadWritePermission&) = delete;
+
+  ~StubReadWritePermission() override {}
 };
 
 class MockVideoCaptureObserver final
@@ -103,6 +115,10 @@ class MockVideoCaptureObserver final
   explicit MockVideoCaptureObserver(
       mojo::PendingRemote<media::mojom::VideoCaptureHost> host)
       : host_(std::move(host)) {}
+
+  MockVideoCaptureObserver(const MockVideoCaptureObserver&) = delete;
+  MockVideoCaptureObserver& operator=(const MockVideoCaptureObserver&) = delete;
+
   MOCK_METHOD1(OnBufferCreatedCall, void(int buffer_id));
   void OnNewBuffer(int32_t buffer_id,
                    media::mojom::VideoBufferHandlePtr buffer_handle) override {
@@ -140,7 +156,7 @@ class MockVideoCaptureObserver final
   }
 
   void FinishConsumingBuffer(int32_t buffer_id,
-                             media::VideoFrameFeedback feedback) {
+                             media::VideoCaptureFeedback feedback) {
     EXPECT_TRUE(buffers_.find(buffer_id) != buffers_.end());
     const auto iter = frame_infos_.find(buffer_id);
     EXPECT_TRUE(iter != frame_infos_.end());
@@ -157,15 +173,13 @@ class MockVideoCaptureObserver final
   mojo::Receiver<media::mojom::VideoCaptureObserver> receiver_{this};
   base::flat_map<int, media::mojom::VideoBufferHandlePtr> buffers_;
   base::flat_map<int, media::mojom::VideoFrameInfoPtr> frame_infos_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockVideoCaptureObserver);
 };
 
 media::mojom::VideoFrameInfoPtr GetVideoFrameInfo() {
   return media::mojom::VideoFrameInfo::New(
       base::TimeDelta(), media::VideoFrameMetadata(), media::PIXEL_FORMAT_I420,
-      gfx::Size(320, 180), gfx::Rect(320, 180), gfx::ColorSpace::CreateREC709(),
-      nullptr);
+      gfx::Size(320, 180), gfx::Rect(320, 180), kNotPremapped,
+      gfx::ColorSpace::CreateREC709(), nullptr);
 }
 
 }  // namespace
@@ -231,7 +245,7 @@ class SingleClientVideoCaptureHostTest : public ::testing::Test {
 
   void FinishConsumingBuffer(int buffer_context_id,
                              int feedback_id,
-                             const media::VideoFrameFeedback& feedback) {
+                             const media::VideoCaptureFeedback& feedback) {
     base::RunLoop run_loop;
     EXPECT_CALL(*launched_device_, OnUtilizationReport(feedback_id, feedback))
         .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
@@ -273,7 +287,7 @@ class SingleClientVideoCaptureHostTest : public ::testing::Test {
 TEST_F(SingleClientVideoCaptureHostTest, Basic) {
   CreateBuffer(1, 0);
   FrameReadyInBuffer(1, 0, 5);
-  FinishConsumingBuffer(0, 5, media::VideoFrameFeedback(1.0));
+  FinishConsumingBuffer(0, 5, media::VideoCaptureFeedback(1.0));
   RetireBuffer(1, 0);
 }
 
@@ -293,7 +307,7 @@ TEST_F(SingleClientVideoCaptureHostTest, ReuseBufferId) {
   FrameReadyInBuffer(0, 1, 7);
 
   // Finish consuming frame in the retired buffer 0.
-  FinishConsumingBuffer(0, 3, media::VideoFrameFeedback(1.0));
+  FinishConsumingBuffer(0, 3, media::VideoCaptureFeedback(1.0));
   // The retired buffer is expected to be destroyed since the consumer finished
   // consuming the frame in that buffer.
   base::RunLoop run_loop;
@@ -301,7 +315,7 @@ TEST_F(SingleClientVideoCaptureHostTest, ReuseBufferId) {
       .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
   run_loop.Run();
 
-  FinishConsumingBuffer(1, 7, media::VideoFrameFeedback(0.5));
+  FinishConsumingBuffer(1, 7, media::VideoCaptureFeedback(0.5));
   RetireBuffer(0, 1);
 }
 

@@ -16,6 +16,7 @@
 #include "base/i18n/rtl.h"
 #include "base/timer/timer.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
@@ -59,25 +60,21 @@ constexpr int kBackNudgeShadowBlurRadius2 = 6;
 constexpr SkColor kBackNudgeShadowColor2 = SkColorSetA(SK_ColorBLACK, 0x26);
 
 // Duration of the pause before sliding in to show the nudge.
-constexpr base::TimeDelta kPauseBeforeShowAnimationDuration =
-    base::TimeDelta::FromSeconds(10);
+constexpr base::TimeDelta kPauseBeforeShowAnimationDuration = base::Seconds(10);
 
 // Duration for the animation to show the nudge.
-constexpr base::TimeDelta kNudgeShowAnimationDuration =
-    base::TimeDelta::FromMilliseconds(600);
+constexpr base::TimeDelta kNudgeShowAnimationDuration = base::Milliseconds(600);
 
 // Duration for the animation to hide the nudge.
-constexpr base::TimeDelta kNudgeHideAnimationDuration =
-    base::TimeDelta::FromMilliseconds(400);
+constexpr base::TimeDelta kNudgeHideAnimationDuration = base::Milliseconds(400);
 
 // Duration for the animation to fade out the suggestion label and circle when
 // the back nudge showing animation is interrupted and should be dismissed.
-constexpr base::TimeDelta kSuggestionDismissDuration =
-    base::TimeDelta::FromMilliseconds(100);
+constexpr base::TimeDelta kSuggestionDismissDuration = base::Milliseconds(100);
 
 // Duration for the animation of the suggestion part of the nudge.
 constexpr base::TimeDelta kSuggestionBounceAnimationDuration =
-    base::TimeDelta::FromMilliseconds(600);
+    base::Milliseconds(600);
 
 // Repeat bouncing times of the suggestion animation.
 constexpr int kSuggestionAnimationRepeatTimes = 4;
@@ -89,7 +86,7 @@ std::unique_ptr<views::Widget> CreateWidget() {
   params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
   params.z_order = ui::ZOrderLevel::kFloatingWindow;
   params.accept_events = false;
-  params.activatable = views::Widget::InitParams::ACTIVATABLE_NO;
+  params.activatable = views::Widget::InitParams::Activatable::kNo;
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.name = "BackGestureContextualNudge";
   params.layer_type = ui::LAYER_NOT_DRAWN;

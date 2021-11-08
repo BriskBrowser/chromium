@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/timer/timer.h"
@@ -53,16 +54,6 @@ class WindowFinder;
 // is the default on aura.
 class TabDragController : public views::WidgetObserver {
  public:
-  // What should happen as the mouse is dragged within the tabstrip.
-  enum MoveBehavior {
-    // Only the set of visible tabs should change. This is only applicable when
-    // using touch layout.
-    MOVE_VISIBLE_TABS,
-
-    // Typical behavior where tabs are dragged around.
-    REORDER
-  };
-
   // Indicates the event source that initiated the drag.
   enum EventSource {
     EVENT_SOURCE_MOUSE,
@@ -94,7 +85,6 @@ class TabDragController : public views::WidgetObserver {
             const gfx::Point& mouse_offset,
             int source_view_offset,
             ui::ListSelectionModel initial_selection_model,
-            MoveBehavior move_behavior,
             EventSource event_source);
 
   // Returns true if there is a drag underway and the drag is attached to
@@ -108,9 +98,6 @@ class TabDragController : public views::WidgetObserver {
 
   // Returns the pointer of |source_context_|.
   static TabDragContext* GetSourceContext();
-
-  // Sets the move behavior. Has no effect if started_drag() is true.
-  void SetMoveBehavior(MoveBehavior behavior);
 
   EventSource event_source() const { return event_source_; }
 
@@ -133,7 +120,7 @@ class TabDragController : public views::WidgetObserver {
   // Returns the tab group being dragged, if any. Will only return a value if
   // the user is dragging a tab group header, not an individual tab or tabs from
   // a group.
-  const base::Optional<tab_groups::TabGroupId>& group() const { return group_; }
+  const absl::optional<tab_groups::TabGroupId>& group() const { return group_; }
 
   // Returns true if currently dragging a tab with |contents|.
   bool IsDraggingTab(content::WebContents* contents);
@@ -143,6 +130,9 @@ class TabDragController : public views::WidgetObserver {
 
   // Complete the current drag session.
   void EndDrag(EndDragReason reason);
+
+  // Set a callback to be called when the nested drag loop finishes.
+  void SetDragLoopDoneCallbackForTesting(base::OnceClosure callback);
 
  private:
   friend class TabDragControllerTest;
@@ -259,7 +249,7 @@ class TabDragController : public views::WidgetObserver {
 
     // Stores the information of the group the tab is in, or nullopt if tab is
     // not grouped.
-    base::Optional<TabGroupData> tab_group_data;
+    absl::optional<TabGroupData> tab_group_data;
   };
 
   typedef std::vector<TabDragData> DragData;
@@ -279,6 +269,11 @@ class TabDragController : public views::WidgetObserver {
 
   // A tab was closed in the active tabstrip. Clean up if we were dragging it.
   void OnActiveStripWebContentsRemoved(content::WebContents* contents);
+
+  // The WebContents in a tab was replaced in the active tabstrip. Update our
+  // canonical reference if we were dragging that tab.
+  void OnActiveStripWebContentsReplaced(content::WebContents* previous,
+                                        content::WebContents* next);
 
   // Initialize the offset used to calculate the position to create windows
   // in |GetWindowCreatePoint|. This should only be invoked from |Init|.
@@ -314,23 +309,9 @@ class TabDragController : public views::WidgetObserver {
       TabDragContext* target_context,
       const gfx::Point& point_in_screen);
 
-  // Handles dragging for a touch context when the tabs are stacked. Doesn't
-  // actually reorder the tabs in anyway, just changes what's visible.
-  void DragActiveTabStacked(const gfx::Point& point_in_screen);
-
-  // Moves the active tab to the next/previous tab. Used when the next/previous
-  // tab is stacked.
-  void MoveAttachedToNextStackedIndex(const gfx::Point& point_in_screen);
-  void MoveAttachedToPreviousStackedIndex(const gfx::Point& point_in_screen);
-
   // Handles dragging tabs while the tabs are attached. |just_attached| should
   // be true iff this is the first call to MoveAttached after attaching.
   void MoveAttached(const gfx::Point& point_in_screen, bool just_attached);
-
-  // If necessary starts the |move_stacked_timer_|. The timer is started if
-  // close enough to an edge with stacked tabs.
-  void StartMoveStackedTimerIfNecessary(const gfx::Point& point_in_screen,
-                                        base::TimeDelta delay);
 
   // Returns the compatible TabDragContext to drag to at the
   // specified point (screen coordinates), or nullptr if there is none.
@@ -348,12 +329,27 @@ class TabDragController : public views::WidgetObserver {
 
   // Attach the dragged Tab to the specified TabDragContext. If
   // |set_capture| is true, the newly attached context will have capture.
+  // This can only be used to pass ownership of |this| through |controller|.
+  // |controller| must be nullptr if |attached_context| already owns |this|.
   void Attach(TabDragContext* attached_context,
               const gfx::Point& point_in_screen,
+              std::unique_ptr<TabDragController> controller,
               bool set_capture = true);
 
-  // Detach the dragged Tab from the current TabDragContext.
-  void Detach(ReleaseCapture release_capture);
+  // Detach the dragged Tab from the current TabDragContext. Returns
+  // ownership of the owned controller, which must be |this|, if
+  // |attached_context_| currently owns a controller. Otherwise returns
+  // nullptr.
+  std::unique_ptr<TabDragController> Detach(ReleaseCapture release_capture);
+
+  // Detach from |attached_context_| and attach to |target_context| instead.
+  // See Detach/Attach for parameter documentation. Transfers ownership of
+  // |this| from |attached_context_| (which must own |this|) to
+  // |target_context|.
+  void DetachAndAttachToNewContext(ReleaseCapture release_capture,
+                                   TabDragContext* target_context,
+                                   const gfx::Point& point_in_screen,
+                                   bool set_capture = true);
 
   // Detaches the tabs being dragged, creates a new Browser to contain them and
   // runs a nested move loop.
@@ -486,11 +482,6 @@ class TabDragController : public views::WidgetObserver {
   // |point_in_screen|.
   gfx::Vector2d GetWindowOffset(const gfx::Point& point_in_screen);
 
-  // Returns true if moving the mouse only changes the visible tabs.
-  bool move_only() const {
-    return (move_behavior_ == MOVE_VISIBLE_TABS) != 0;
-  }
-
   // Returns the NativeWindow in |window| at the specified point. If
   // |exclude_dragged_view| is true, then the dragged view is not considered.
   Liveness GetLocalProcessWindow(const gfx::Point& screen_point,
@@ -529,10 +520,10 @@ class TabDragController : public views::WidgetObserver {
   void UpdateGroupForDraggedTabs();
 
   // Helper method for TabDragController::UpdateGroupForDraggedTabs to decide if
-  // a dragged tab should stay in the tab group. Returns base::nullopt if the
+  // a dragged tab should stay in the tab group. Returns absl::nullopt if the
   // tab should not be in a group. Otherwise returns tab_groups::TabGroupId of
   // the group the selected tabs should join.
-  base::Optional<tab_groups::TabGroupId> GetTabGroupForTargetIndex(
+  absl::optional<tab_groups::TabGroupId> GetTabGroupForTargetIndex(
       const std::vector<int>& selected);
 
   EventSource event_source_;
@@ -598,10 +589,6 @@ class TabDragController : public views::WidgetObserver {
   // brought to front.
   base::OneShotTimer bring_to_front_timer_;
 
-  // Timer used to move the stacked tabs. See comment aboue
-  // StartMoveStackedTimerIfNecessary().
-  base::OneShotTimer move_stacked_timer_;
-
   DragData drag_data_;
 
   // Index of the source view in |drag_data_|.
@@ -615,7 +602,7 @@ class TabDragController : public views::WidgetObserver {
 
   // The group that is being dragged. Only set if the drag originated from a
   // group header, indicating that the entire group is being dragged together.
-  base::Optional<tab_groups::TabGroupId> group_;
+  absl::optional<tab_groups::TabGroupId> group_;
 
   // True until MoveAttached() is first invoked.
   bool initial_move_;
@@ -634,18 +621,6 @@ class TabDragController : public views::WidgetObserver {
   // What should occur during ConinueDragging when a tab is attempted to be
   // detached.
   DetachBehavior detach_behavior_;
-
-  MoveBehavior move_behavior_;
-
-  // Updated as the mouse is moved when attached. Indicates whether the mouse
-  // has ever moved to the left. If the tabs are ever detached this is set to
-  // true.
-  bool mouse_has_ever_moved_left_;
-
-  // Updated as the mouse is moved when attached. Indicates whether the mouse
-  // has ever moved to the right. If the tabs are ever detached this is set
-  // to true.
-  bool mouse_has_ever_moved_right_;
 
   // Last location used in screen coordinates.
   gfx::Point last_point_in_screen_;
@@ -685,6 +660,9 @@ class TabDragController : public views::WidgetObserver {
   int attach_x_;
   int attach_index_;
 
+  // Called when the loop in RunMoveLoop finishes. Only for tests.
+  base::OnceClosure drag_loop_done_callback_;
+
   std::unique_ptr<KeyEventTracker> key_event_tracker_;
 
   std::unique_ptr<SourceTabStripEmptinessTracker>
@@ -697,6 +675,9 @@ class TabDragController : public views::WidgetObserver {
 
   base::ScopedObservation<views::Widget, views::WidgetObserver>
       widget_observation_{this};
+
+  // True while RunMoveLoop() has been called on a widget.
+  bool in_move_loop_ = false;
 
   base::WeakPtrFactory<TabDragController> weak_factory_{this};
 };

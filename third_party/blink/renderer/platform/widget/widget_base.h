@@ -8,14 +8,15 @@
 #include "base/time/time.h"
 #include "cc/paint/element_id.h"
 #include "cc/trees/browser_controls_params.h"
+#include "cc/trees/paint_holding_reason.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "third_party/blink/public/common/metrics/document_update_reason.h"
 #include "third_party/blink/public/common/page/content_to_visible_time_reporter.h"
 #include "third_party/blink/public/mojom/input/input_handler.mojom-blink.h"
-#include "third_party/blink/public/mojom/page/record_content_to_visible_time_request.mojom-blink-forward.h"
-#include "third_party/blink/public/mojom/page/widget.mojom-blink.h"
+#include "third_party/blink/public/mojom/widget/platform_widget.mojom-blink.h"
+#include "third_party/blink/public/mojom/widget/record_content_to_visible_time_request.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/web_text_input_info.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
@@ -31,12 +32,14 @@ namespace cc {
 class AnimationHost;
 class LayerTreeHost;
 class LayerTreeSettings;
-class TaskGraphRunner;
-class UkmRecorderFactory;
 }  // namespace cc
 
 namespace ui {
 class Cursor;
+}
+
+namespace display {
+struct ScreenInfos;
 }
 
 namespace blink {
@@ -84,13 +87,16 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   // destroyed/invalidated.
   void InitializeCompositing(
       scheduler::WebAgentGroupScheduler& agent_group_scheduler,
-      cc::TaskGraphRunner* task_graph_runner,
       bool for_child_local_root_frame,
-      const ScreenInfo& screen_info,
-      std::unique_ptr<cc::UkmRecorderFactory> ukm_recorder_factory,
+      const display::ScreenInfos& screen_infos,
       const cc::LayerTreeSettings* settings,
       base::WeakPtr<mojom::blink::FrameWidgetInputHandler>
           frame_widget_input_handler);
+
+  // Similar to `InitializeCompositing()` but for non-compositing widgets.
+  // Exactly one of either `InitializeCompositing()` or this method must
+  // be called before using the widget.
+  void InitializeNonCompositing();
 
   // Shutdown the compositor.
   void Shutdown();
@@ -128,7 +134,8 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
       const cc::CompositorCommitData& commit_data) override;
   void BeginMainFrame(base::TimeTicks frame_time) override;
   void OnDeferMainFrameUpdatesChanged(bool) override;
-  void OnDeferCommitsChanged(bool) override;
+  void OnDeferCommitsChanged(bool defer_status,
+                             cc::PaintHoldingReason reason) override;
   void DidBeginMainFrame() override;
   void RequestNewLayerTreeFrameSink(
       LayerTreeFrameSinkCallback callback) override;
@@ -137,7 +144,8 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
       base::TimeDelta first_scroll_delay,
       base::TimeTicks first_scroll_timestamp) override;
   void WillCommitCompositorFrame() override;
-  void DidCommitCompositorFrame(base::TimeTicks commit_start_time) override;
+  void DidCommitCompositorFrame(base::TimeTicks commit_start_time,
+                                base::TimeTicks commit_finish_time) override;
   void DidCompletePageScaleAnimation() override;
   void RecordStartOfFrameMetrics() override;
   void RecordEndOfFrameMetrics(
@@ -152,10 +160,10 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   void WillBeginMainFrame() override;
   void RunPaintBenchmark(int repeat_count,
                          cc::PaintBenchmarkResult& result) override;
+  void ScheduleAnimationForWebTests() override;
 
   cc::AnimationHost* AnimationHost() const;
   cc::LayerTreeHost* LayerTreeHost() const;
-  bool IsComposited() const;
   scheduler::WebRenderWidgetSchedulingState* RendererWidgetSchedulingState()
       const;
 
@@ -184,7 +192,14 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
 
   WidgetBaseClient* client() { return client_; }
 
-  void SetToolTipText(const String& tooltip_text, TextDirection dir);
+  void UpdateTooltipUnderCursor(const String& tooltip_text, TextDirection dir);
+  // This function allows us to trigger a tooltip to show from a keypress. The
+  // tooltip will be positioned relative to the gfx::Rect. That rect corresponds
+  // to the focused element's bounds in widget-relative DIPS.
+  void UpdateTooltipFromKeyboard(const String& tooltip_text,
+                                 TextDirection dir,
+                                 const gfx::Rect& bounds);
+  void ClearKeyboardTriggeredTooltip();
 
   // Posts a task with the given delay, then calls ScheduleAnimation() on the
   // WidgetBaseClient.
@@ -277,6 +292,11 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
     visible_viewport_size_in_dips_ = size;
   }
 
+  // Some touch start which can trigger pointerdown will not be sent to the main
+  // thread. And following touchend can't be dispatched. We want to count those
+  // touchstart, touchend and pointerdown for EventTiming.
+  void CountDroppedPointerDownForEventTiming(unsigned count);
+
   // Converts from DIPs to Blink coordinate space (ie. Viewport/Physical
   // pixels).
   gfx::PointF DIPsToBlinkSpace(const gfx::PointF& point);
@@ -308,24 +328,28 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   void UpdateSurfaceAndScreenInfo(
       const viz::LocalSurfaceId& new_local_surface_id,
       const gfx::Rect& compositor_viewport_pixel_rect,
-      const ScreenInfo& new_screen_info);
+      const display::ScreenInfos& new_screen_infos);
   // Similar to UpdateSurfaceAndScreenInfo but the screen info remains the same.
   void UpdateSurfaceAndCompositorRect(
       const viz::LocalSurfaceId& new_local_surface_id,
       const gfx::Rect& compositor_viewport_pixel_rect);
   // Similar to UpdateSurfaceAndScreenInfo but the surface allocation
   // and compositor viewport rect remains the same.
-  void UpdateScreenInfo(const ScreenInfo& new_screen_info);
+  void UpdateScreenInfo(const display::ScreenInfos& new_screen_infos);
   // Similar to UpdateSurfaceAndScreenInfo but the surface allocation
   // remains the same.
   void UpdateCompositorViewportAndScreenInfo(
       const gfx::Rect& compositor_viewport_pixel_rect,
-      const ScreenInfo& new_screen_info);
+      const display::ScreenInfos& new_screen_infos);
   // Similar to UpdateSurfaceAndScreenInfo but the surface allocation and screen
   // info remains the same.
   void UpdateCompositorViewportRect(
       const gfx::Rect& compositor_viewport_pixel_rect);
-  const ScreenInfo& GetScreenInfo();
+  const display::ScreenInfo& GetScreenInfo();
+
+  // Accessors for information about available screens and the current screen.
+  void set_screen_infos(const display::ScreenInfos& s) { screen_infos_ = s; }
+  const display::ScreenInfos& screen_infos() const { return screen_infos_; }
 
   const viz::LocalSurfaceId& local_surface_id_from_parent() const {
     return local_surface_id_from_parent_;
@@ -355,14 +379,20 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   // Called after the delay given in `RequestAnimationAfterDelay()`.
   void RequestAnimationAfterDelayTimerFired(TimerBase*);
 
+  // Helper to get the non-emulated device scale factor.
+  float GetOriginalDeviceScaleFactor() const;
+
   // Indicates that we are never visible, so never produce graphical output.
   const bool never_composited_;
   // Indicates this is for a child local root.
   const bool is_for_child_local_root_;
   // When true, the device scale factor is a part of blink coordinates.
   const bool use_zoom_for_dsf_;
+  // Set true by initialize functions, used to check that only one is called.
+  bool initialized_ = false;
 
   // The client which handles behaviour specific to the type of widget.
+  // It's the owner of the widget and will outlive this class.
   WidgetBaseClient* const client_;
 
   mojo::AssociatedRemote<mojom::blink::WidgetHost> widget_host_;
@@ -379,6 +409,7 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   // Stores the current selection bounds.
   gfx::Rect selection_focus_rect_;
   gfx::Rect selection_anchor_rect_;
+  gfx::Rect selection_bounding_box_;
 
   // Stores the current composition character bounds.
   Vector<gfx::Rect> composition_character_bounds_;
@@ -405,7 +436,7 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   // Stores the current control and selection bounds of |webwidget_|
   // that are used to position the candidate window during IME composition.
   // These are stored in DIPs if use-zoom-for-dsf is disabled and are relative
-  // to the widget
+  // to the root frame.
   gfx::Rect frame_control_bounds_;
   gfx::Rect frame_selection_bounds_;
 
@@ -432,10 +463,11 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   // Object to record tab switch time into this RenderWidget
   ContentToVisibleTimeReporter tab_switch_time_recorder_;
 
-  // Properties of the screen hosting the WidgetBase. Rects in this structure
-  // do not include any scaling by device scale factor, so are logical pixels
-  // not physical device pixels.
-  ScreenInfo screen_info_;
+  // Info about available screens and which is currently showing the WidgetBase.
+  // Rects in these structures do not include any scaling by device scale
+  // factor, so are in DIPs, not blink coordinate space.
+  display::ScreenInfos screen_infos_;
+
   viz::LocalSurfaceId local_surface_id_from_parent_;
 
   // It is possible that one ImeEventGuard is nested inside another
@@ -455,7 +487,7 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   // A pending window rect that is inflight and hasn't been acknowledged by the
   // browser yet. This should only be set if |pending_window_rect_count_| is
   // non-zero.
-  base::Optional<gfx::Rect> pending_window_rect_;
+  absl::optional<gfx::Rect> pending_window_rect_;
 
   // The size of the visible viewport (in DIPs).
   // TODO(dtapuska): Figure out if we can change this to Blink Space.

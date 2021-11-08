@@ -13,11 +13,12 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/time/time.h"
-#include "chromeos/dbus/cryptohome/cryptohome_client.h"
+#include "chromeos/dbus/cryptohome/UserDataAuth.pb.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
+#include "chromeos/dbus/userdataauth/cryptohome_pkcs11_client.h"
 #include "components/account_id/account_id.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class TaskRunner;
@@ -30,18 +31,21 @@ namespace chromeos {
 class COMPONENT_EXPORT(CHROMEOS_TPM) TPMTokenInfoGetter {
  public:
   using TpmTokenInfoCallback = base::OnceCallback<void(
-      base::Optional<CryptohomeClient::TpmTokenInfo> token_info)>;
+      absl::optional<user_data_auth::TpmTokenInfo> token_info)>;
 
   // Factory method for TPMTokenInfoGetter for a user token.
   static std::unique_ptr<TPMTokenInfoGetter> CreateForUserToken(
       const AccountId& account_id,
-      CryptohomeClient* cryptohome_client,
+      CryptohomePkcs11Client* cryptohome_pkcs11_client,
       const scoped_refptr<base::TaskRunner>& delayed_task_runner);
 
   // Factory method for TPMTokenGetter for the system token.
   static std::unique_ptr<TPMTokenInfoGetter> CreateForSystemToken(
-      CryptohomeClient* cryptohome_client,
+      CryptohomePkcs11Client* cryptohome_pkcs11_client,
       const scoped_refptr<base::TaskRunner>& delayed_task_runner);
+
+  TPMTokenInfoGetter(const TPMTokenInfoGetter&) = delete;
+  TPMTokenInfoGetter& operator=(const TPMTokenInfoGetter&) = delete;
 
   ~TPMTokenInfoGetter();
 
@@ -71,7 +75,7 @@ class COMPONENT_EXPORT(CHROMEOS_TPM) TPMTokenInfoGetter {
   TPMTokenInfoGetter(
       Type type,
       const AccountId& account_id,
-      CryptohomeClient* cryptohome_client,
+      CryptohomePkcs11Client* cryptohome_pkcs11_client,
       const scoped_refptr<base::TaskRunner>& delayed_task_runner);
 
   // Continues TPM token info getting procedure by starting the task associated
@@ -88,7 +92,7 @@ class COMPONENT_EXPORT(CHROMEOS_TPM) TPMTokenInfoGetter {
 
   // Cryptohome methods callbacks.
   void OnPkcs11GetTpmTokenInfo(
-      base::Optional<CryptohomeClient::TpmTokenInfo> token_info);
+      absl::optional<user_data_auth::Pkcs11GetTpmTokenInfoReply> token_info);
 
   // The task runner used to run delayed tasks when retrying failed Cryptohome
   // calls.
@@ -113,11 +117,9 @@ class COMPONENT_EXPORT(CHROMEOS_TPM) TPMTokenInfoGetter {
   // TPM. Will be adapted after each attempt.
   base::TimeDelta tpm_request_delay_;
 
-  CryptohomeClient* cryptohome_client_;
+  CryptohomePkcs11Client* cryptohome_pkcs11_client_;
 
   base::WeakPtrFactory<TPMTokenInfoGetter> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TPMTokenInfoGetter);
 };
 
 }  // namespace chromeos

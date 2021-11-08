@@ -63,6 +63,10 @@ class VIEWS_EXPORT TreeView : public View,
   METADATA_HEADER(TreeView);
 
   TreeView();
+
+  TreeView(const TreeView&) = delete;
+  TreeView& operator=(const TreeView&) = delete;
+
   ~TreeView() override;
 
   // Returns a new ScrollView that contains the given |tree|.
@@ -189,7 +193,7 @@ class VIEWS_EXPORT TreeView : public View,
 
   // TextfieldController overrides:
   void ContentsChanged(Textfield* sender,
-                       const base::string16& new_contents) override;
+                       const std::u16string& new_contents) override;
   bool HandleKeyEvent(Textfield* sender,
                       const ui::KeyEvent& key_event) override;
 
@@ -201,7 +205,7 @@ class VIEWS_EXPORT TreeView : public View,
   int GetRowCount() override;
   int GetSelectedRow() override;
   void SetSelectedRow(int row) override;
-  base::string16 GetTextForRow(int row) override;
+  std::u16string GetTextForRow(int row) override;
 
  protected:
   // View overrides:
@@ -215,7 +219,7 @@ class VIEWS_EXPORT TreeView : public View,
   friend class TreeViewTest;
 
   // Enumeration of possible changes to tree view state when the UI is updated.
-  enum SelectionType {
+  enum class SelectionType {
     // Active state is being set to a tree item.
     kActive,
 
@@ -237,6 +241,10 @@ class VIEWS_EXPORT TreeView : public View,
   class InternalNode : public ui::TreeNode<InternalNode> {
    public:
     InternalNode();
+
+    InternalNode(const InternalNode&) = delete;
+    InternalNode& operator=(const InternalNode&) = delete;
+
     ~InternalNode() override;
 
     // Resets the state from |node|.
@@ -293,8 +301,6 @@ class VIEWS_EXPORT TreeView : public View,
     bool is_expanded_ = false;
 
     int text_width_ = 0;
-
-    DISALLOW_COPY_AND_ASSIGN(InternalNode);
   };
 
   // Used by GetInternalNodeForModelNode.
@@ -307,12 +313,12 @@ class VIEWS_EXPORT TreeView : public View,
   };
 
   // Used by IncrementSelection.
-  enum IncrementType {
+  enum class IncrementType {
     // Selects the next node.
-    INCREMENT_NEXT,
+    kNext,
 
     // Selects the previous node.
-    INCREMENT_PREVIOUS
+    kPrevious
   };
 
   // Row of the root node. This varies depending upon whether the root is
@@ -519,8 +525,6 @@ class VIEWS_EXPORT TreeView : public View,
 
   // The current drawing provider for this TreeView.
   std::unique_ptr<TreeViewDrawingProvider> drawing_provider_;
-
-  DISALLOW_COPY_AND_ASSIGN(TreeView);
 };
 
 }  // namespace views

@@ -10,6 +10,7 @@
 #include "base/command_line.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_piece.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
@@ -64,6 +65,10 @@ class TestDevToolsDataSource : public DevToolsDataSource {
 };
 
 class DevToolsUIDataSourceTest : public testing::Test {
+ public:
+  DevToolsUIDataSourceTest(const DevToolsUIDataSourceTest&) = delete;
+  DevToolsUIDataSourceTest& operator=(const DevToolsUIDataSourceTest&) = delete;
+
  protected:
   DevToolsUIDataSourceTest() {}
   ~DevToolsUIDataSourceTest() override = default;
@@ -98,17 +103,14 @@ class DevToolsUIDataSourceTest : public testing::Test {
   void OnDataReceived(scoped_refptr<base::RefCountedMemory> bytes) {
     data_received_ = true;
     if (bytes.get()) {
-      data_ = base::StringPiece(reinterpret_cast<const char*>(bytes->front()),
-                                bytes->size())
-                  .as_string();
+      data_ = std::string(base::StringPiece(
+          reinterpret_cast<const char*>(bytes->front()), bytes->size()));
     }
   }
 
   std::unique_ptr<TestDevToolsDataSource> devtools_data_source_;
   bool data_received_ = false;
   std::string data_;
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsUIDataSourceTest);
 };
 
 // devtools/bundled path.

@@ -63,8 +63,8 @@ ExtensionInstalledNotification::ExtensionInstalledNotification(
 ExtensionInstalledNotification::~ExtensionInstalledNotification() {}
 
 void ExtensionInstalledNotification::Click(
-    const base::Optional<int>& button_index,
-    const base::Optional<base::string16>& reply) {
+    const absl::optional<int>& button_index,
+    const absl::optional<std::u16string>& reply) {
   if (!extensions::util::IsAppLaunchable(extension_id_, profile_))
     return;
 

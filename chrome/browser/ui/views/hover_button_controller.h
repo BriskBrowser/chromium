@@ -9,7 +9,6 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/time/time.h"
 #include "ui/views/controls/button/button_controller.h"
 
 namespace views {
@@ -24,6 +23,10 @@ class HoverButtonController : public views::ButtonController {
       views::Button* button,
       views::Button::PressedCallback callback,
       std::unique_ptr<views::ButtonControllerDelegate> delegate);
+
+  HoverButtonController(const HoverButtonController&) = delete;
+  HoverButtonController& operator=(const HoverButtonController&) = delete;
+
   ~HoverButtonController() override;
 
   // views::ButtonController:
@@ -35,8 +38,6 @@ class HoverButtonController : public views::ButtonController {
  private:
   // Callback to be called when button is clicked.
   views::Button::PressedCallback callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(HoverButtonController);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_HOVER_BUTTON_CONTROLLER_H_

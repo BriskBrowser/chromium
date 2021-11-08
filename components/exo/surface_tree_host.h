@@ -36,6 +36,10 @@ class SurfaceTreeHost : public SurfaceDelegate,
                         public viz::ContextLostObserver {
  public:
   explicit SurfaceTreeHost(const std::string& window_name);
+
+  SurfaceTreeHost(const SurfaceTreeHost&) = delete;
+  SurfaceTreeHost& operator=(const SurfaceTreeHost&) = delete;
+
   ~SurfaceTreeHost() override;
 
   // Sets a root surface of a surface tree. This surface tree will be hosted in
@@ -95,6 +99,22 @@ class SurfaceTreeHost : public SurfaceDelegate,
   void OnActivationRequested() override {}
   void OnNewOutputAdded() override;
   void OnSetServerStartResize() override {}
+  void ShowSnapPreviewToPrimary() override {}
+  void ShowSnapPreviewToSecondary() override {}
+  void HideSnapPreview() override {}
+  void SetSnappedToPrimary() override {}
+  void SetSnappedToSecondary() override {}
+  void UnsetSnap() override {}
+  void SetCanGoBack() override {}
+  void UnsetCanGoBack() override {}
+  void SetPip() override {}
+  void UnsetPip() override {}
+  void SetAspectRatio(const gfx::SizeF& aspect_ratio) override {}
+  void MoveToDesk(int desk_index) override {}
+  void SetVisibleOnAllWorkspaces() override {}
+  void SetInitialWorkspace(const char* initial_workspace) override {}
+  void Pin(bool trusted) override {}
+  void Unpin() override {}
 
   // display::DisplayObserver:
   void OnDisplayMetricsChanged(const display::Display& display,
@@ -102,6 +122,10 @@ class SurfaceTreeHost : public SurfaceDelegate,
 
   // viz::ContextLostObserver:
   void OnContextLost() override;
+
+  void set_client_submits_surfaces_in_pixel_coordinates(bool enabled) {
+    client_submits_surfaces_in_pixel_coordinates_ = enabled;
+  }
 
  protected:
   void UpdateDisplayOnTree();
@@ -117,6 +141,10 @@ class SurfaceTreeHost : public SurfaceDelegate,
   // Update the host window's size to cover sufaces that must be visible and
   // not clipped.
   virtual void UpdateHostWindowBounds();
+
+  bool client_submits_surfaces_in_pixel_coordinates() const {
+    return client_submits_surfaces_in_pixel_coordinates_;
+  }
 
  private:
   viz::CompositorFrame PrepareToSubmitCompositorFrame();
@@ -148,11 +176,13 @@ class SurfaceTreeHost : public SurfaceDelegate,
 
   scoped_refptr<viz::ContextProvider> context_provider_;
 
+  display::ScopedDisplayObserver display_observer_{this};
+
   int64_t display_id_ = display::kInvalidDisplayId;
 
-  base::WeakPtrFactory<SurfaceTreeHost> weak_ptr_factory_{this};
+  bool client_submits_surfaces_in_pixel_coordinates_ = false;
 
-  DISALLOW_COPY_AND_ASSIGN(SurfaceTreeHost);
+  base::WeakPtrFactory<SurfaceTreeHost> weak_ptr_factory_{this};
 };
 
 }  // namespace exo

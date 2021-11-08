@@ -22,6 +22,8 @@ CascadeFilter AddValidPropertiesFilter(
       return filter.Add(CSSProperty::kValidForCue, false);
     case ValidPropertyFilter::kFirstLetter:
       return filter.Add(CSSProperty::kValidForFirstLetter, false);
+    case ValidPropertyFilter::kFirstLine:
+      return filter.Add(CSSProperty::kValidForFirstLine, false);
     case ValidPropertyFilter::kMarker:
       return filter.Add(CSSProperty::kValidForMarker, false);
     case ValidPropertyFilter::kHighlight:
@@ -54,7 +56,7 @@ CascadeFilter AmendFilter(CascadeFilter filter,
 CascadeExpansion::CascadeExpansion(const MatchedProperties& matched_properties,
                                    const Document& document,
                                    CascadeFilter filter,
-                                   size_t matched_properties_index)
+                                   wtf_size_t matched_properties_index)
     : document_(document),
       matched_properties_(matched_properties),
       size_(matched_properties.properties->PropertyCount()),
@@ -105,9 +107,16 @@ void CascadeExpansion::Next() {
   } while (!AtEnd() && filter_.Rejects(*property_));
 }
 
-bool CascadeExpansion::IsAffectedByAll(CSSPropertyID id) {
+bool CascadeExpansion::IsInAllExpansion(CSSPropertyID id) {
   const CSSProperty& property = CSSProperty::Get(id);
-  return !property.IsShorthand() && property.IsAffectedByAll();
+  // Only web-exposed properties are affected by 'all' (IsAffectedByAll).
+  // This excludes -internal-visited properties from being affected, but for
+  // the purposes of cascade expansion, they need to be included, otherwise
+  // rules like :visited { all:unset; } will not work.
+  const CSSProperty* unvisited = property.GetUnvisitedProperty();
+  return !property.IsShorthand() &&
+         (property.IsAffectedByAll() ||
+          (unvisited && unvisited->IsAffectedByAll()));
 }
 
 bool CascadeExpansion::ShouldEmitVisited() const {
@@ -128,6 +137,8 @@ void CascadeExpansion::AdvanceNormal() {
   priority_ = CascadePriority(
       matched_properties_.types_.origin, metadata.important_,
       matched_properties_.types_.tree_order,
+      matched_properties_.types_.is_inline_style,
+      matched_properties_.types_.layer_order,
       EncodeMatchResultPosition(matched_properties_index_, index_));
 
   switch (id_) {
@@ -142,7 +153,7 @@ void CascadeExpansion::AdvanceNormal() {
       // If this DCHECK is triggered, it means firstCSSProperty is not affected
       // by 'all', and we need a function for figuring out the first property
       // that _is_ affected by 'all'.
-      DCHECK(IsAffectedByAll(id_));
+      DCHECK(IsInAllExpansion(id_));
       break;
     default:
       property_ = &CSSProperty::Get(id_);
@@ -172,7 +183,7 @@ void CascadeExpansion::AdvanceAll() {
 
   for (; i < end; ++i) {
     id_ = ConvertToCSSPropertyID(i);
-    if (IsAffectedByAll(id_))
+    if (IsInAllExpansion(id_))
       break;
   }
 
@@ -183,7 +194,7 @@ void CascadeExpansion::AdvanceAll() {
 }
 
 CSSPropertyValueSet::PropertyReference CascadeExpansion::PropertyAt(
-    size_t index) const {
+    wtf_size_t index) const {
   DCHECK(!AtEnd());
   return matched_properties_.properties->PropertyAt(index_);
 }

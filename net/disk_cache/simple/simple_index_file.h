@@ -8,7 +8,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/files/file_path.h"
@@ -92,6 +91,10 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
                   const scoped_refptr<base::TaskRunner>& worker_pool,
                   net::CacheType cache_type,
                   const base::FilePath& cache_directory);
+
+  SimpleIndexFile(const SimpleIndexFile&) = delete;
+  SimpleIndexFile& operator=(const SimpleIndexFile&) = delete;
+
   virtual ~SimpleIndexFile();
 
   // Gets index entries based on current disk context. On error it may leave
@@ -201,10 +204,7 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
   static const char kIndexDirectory[];
   static const char kIndexFileName[];
   static const char kTempIndexFileName[];
-
-  DISALLOW_COPY_AND_ASSIGN(SimpleIndexFile);
 };
-
 
 }  // namespace disk_cache
 

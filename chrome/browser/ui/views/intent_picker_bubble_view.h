@@ -9,13 +9,14 @@
 #include <string>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "chrome/browser/apps/intent_helper/apps_navigation_types.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/page_action/page_action_icon_type.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
 #include "components/services/app_service/public/mojom/types.mojom-forward.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/gfx/image/image.h"
 #include "ui/views/animation/ink_drop_state.h"
@@ -73,7 +74,11 @@ class IntentPickerBubbleView : public LocationBarBubbleDelegateView {
                          content::WebContents* web_contents,
                          bool show_stay_in_chrome,
                          bool show_remember_selection,
-                         const base::Optional<url::Origin>& initiating_origin);
+                         const absl::optional<url::Origin>& initiating_origin);
+
+  IntentPickerBubbleView(const IntentPickerBubbleView&) = delete;
+  IntentPickerBubbleView& operator=(const IntentPickerBubbleView&) = delete;
+
   ~IntentPickerBubbleView() override;
 
   static views::Widget* ShowBubble(
@@ -84,7 +89,7 @@ class IntentPickerBubbleView : public LocationBarBubbleDelegateView {
       std::vector<AppInfo> app_info,
       bool show_stay_in_chrome,
       bool show_remember_selection,
-      const base::Optional<url::Origin>& initiating_origin,
+      const absl::optional<url::Origin>& initiating_origin,
       IntentPickerResponse intent_picker_cb);
   static IntentPickerBubbleView* intent_picker_bubble() {
     return intent_picker_bubble_;
@@ -98,7 +103,7 @@ class IntentPickerBubbleView : public LocationBarBubbleDelegateView {
 
  protected:
   // LocationBarBubbleDelegateView overrides:
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   void CloseBubble() override;
 
  private:
@@ -136,6 +141,16 @@ class IntentPickerBubbleView : public LocationBarBubbleDelegateView {
                            PushStateURLChangeTest);
   FRIEND_TEST_ALL_PREFIXES(IntentPickerBubbleViewBrowserTestChromeOS,
                            ReloadAfterInstall);
+  FRIEND_TEST_ALL_PREFIXES(IntentPickerBubbleViewBrowserTestChromeOS,
+                           StayInChromePWAOnly);
+  FRIEND_TEST_ALL_PREFIXES(IntentPickerBubbleViewBrowserTestChromeOS,
+                           StayInChromeARCOnly);
+  FRIEND_TEST_ALL_PREFIXES(IntentPickerBubbleViewBrowserTestChromeOS,
+                           ARCAndPWACandidateLaunchPWA);
+  FRIEND_TEST_ALL_PREFIXES(IntentPickerBubbleViewBrowserTestChromeOS,
+                           ARCAndPWACandidateLaunchARC);
+  FRIEND_TEST_ALL_PREFIXES(IntentPickerBubbleViewBrowserTestChromeOS,
+                           StayInChromeARCAndPWA);
 
   static std::unique_ptr<IntentPickerBubbleView> CreateBubbleViewForTesting(
       views::View* anchor_view,
@@ -144,7 +159,7 @@ class IntentPickerBubbleView : public LocationBarBubbleDelegateView {
       std::vector<AppInfo> app_info,
       bool show_stay_in_chrome,
       bool show_remember_selection,
-      const base::Optional<url::Origin>& initiating_origin,
+      const absl::optional<url::Origin>& initiating_origin,
       IntentPickerResponse intent_picker_cb,
       content::WebContents* web_contents);
 
@@ -234,9 +249,7 @@ class IntentPickerBubbleView : public LocationBarBubbleDelegateView {
   const PageActionIconType icon_type_;
 
   // The origin initiating this picker.
-  const base::Optional<url::Origin> initiating_origin_;
-
-  DISALLOW_COPY_AND_ASSIGN(IntentPickerBubbleView);
+  const absl::optional<url::Origin> initiating_origin_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_INTENT_PICKER_BUBBLE_VIEW_H_

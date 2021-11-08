@@ -16,7 +16,6 @@
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -50,9 +49,9 @@
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 using base::Time;
-using base::TimeDelta;
 using update_client::UpdateQueryParams;
 
 namespace extensions {
@@ -259,7 +258,7 @@ ExtensionDownloader::~ExtensionDownloader() = default;
 bool ExtensionDownloader::AddPendingExtension(
     const std::string& id,
     const GURL& update_url,
-    Manifest::Location install_location,
+    mojom::ManifestLocation install_location,
     bool is_corrupt_reinstall,
     int request_id,
     ManifestFetchData::FetchPriority fetch_priority) {
@@ -275,7 +274,7 @@ bool ExtensionDownloader::AddPendingExtension(
 bool ExtensionDownloader::AddPendingExtensionWithVersion(
     const std::string& id,
     const GURL& update_url,
-    Manifest::Location install_location,
+    mojom::ManifestLocation install_location,
     bool is_corrupt_reinstall,
     int request_id,
     ManifestFetchData::FetchPriority fetch_priority,
@@ -339,7 +338,7 @@ bool ExtensionDownloader::AddExtensionData(
     const std::string& id,
     const base::Version& version,
     Manifest::Type extension_type,
-    Manifest::Location extension_location,
+    mojom::ManifestLocation extension_location,
     const GURL& extension_update_url,
     const ExtraParams& extra,
     int request_id,
@@ -415,7 +414,7 @@ bool ExtensionDownloader::AddExtensionData(
   // Find or create a ManifestFetchData to add this extension to.
   bool added = false;
   bool is_new_extension_force_installed =
-      extension_location == Manifest::Location::EXTERNAL_POLICY_DOWNLOAD;
+      extension_location == mojom::ManifestLocation::kExternalPolicyDownload;
   FetchDataGroupKey key(request_id, update_url,
                         is_new_extension_force_installed);
   auto existing_iter = fetches_preparing_.find(key);
@@ -610,10 +609,8 @@ void ExtensionDownloader::CreateManifestLoader() {
   // common for the retail mode AppPack on ChromeOS. Retrying once should be
   // enough to recover in those cases; let the fetcher retry up to 3 times
   // just in case. http://crosbug.com/130602
-  const int kMaxRetries = 3;
   manifest_loader_->SetRetryOptions(
-      kMaxRetries,
-      network::SimpleURLLoader::RetryMode::RETRY_ON_NETWORK_CHANGE);
+      3, network::SimpleURLLoader::RetryMode::RETRY_ON_NETWORK_CHANGE);
 
   network::mojom::URLLoaderFactory* url_loader_factory_to_use =
       GetURLLoaderFactoryToUse(active_request->full_url());
@@ -623,11 +620,20 @@ void ExtensionDownloader::CreateManifestLoader() {
                      base::Unretained(this)));
 }
 
-void ExtensionDownloader::RetryManifestFetchRequest() {
+void ExtensionDownloader::RetryManifestFetchRequest(int network_error_code,
+                                                    int response_code) {
   constexpr base::TimeDelta backoff_delay;
+  const ExtensionIdSet& extension_ids =
+      manifests_queue_.active_request()->GetExtensionIds();
   NotifyExtensionsDownloadStageChanged(
-      manifests_queue_.active_request()->GetExtensionIds(),
+      extension_ids,
       ExtensionDownloaderDelegate::Stage::DOWNLOADING_MANIFEST_RETRY);
+  const ExtensionDownloaderDelegate::FailureData failure_data =
+      ExtensionDownloaderDelegate::FailureData::CreateFromNetworkResponse(
+          network_error_code, response_code,
+          manifests_queue_.active_request_failure_count());
+  for (const ExtensionId& id : extension_ids)
+    delegate_->OnExtensionDownloadRetry(id, failure_data);
   manifests_queue_.RetryRequest(backoff_delay);
 }
 
@@ -647,7 +653,7 @@ void ExtensionDownloader::TryFetchingExtensionsFromCache(
     ExtensionDownloaderDelegate::Error error,
     const int net_error,
     const int response_code,
-    const base::Optional<ManifestInvalidFailureDataList>&
+    const absl::optional<ManifestInvalidFailureDataList>&
         manifest_invalid_errors) {
   const ExtensionIdSet extension_ids = fetch_data->GetExtensionIds();
   ExtensionIdSet extensions_fetched_from_cache;
@@ -661,7 +667,7 @@ void ExtensionDownloader::TryFetchingExtensionsFromCache(
         extension_id, fetch_data->base_url(), /*hash not fetched*/ "",
         /*version not fetched*/ "", fetch_data->request_ids(),
         fetch_data->fetch_priority()));
-    base::Optional<base::FilePath> cached_crx_path = GetCachedExtension(
+    absl::optional<base::FilePath> cached_crx_path = GetCachedExtension(
         *extension_fetch_data, /*manifest_fetch_failed*/ true);
     if (cached_crx_path) {
       delegate_->OnExtensionDownloadStageChanged(
@@ -679,16 +685,14 @@ void ExtensionDownloader::TryFetchingExtensionsFromCache(
                                manifest_query_params_);
 
   if (ShouldRetryRequestForExtensionNotFoundInCache(net_error)) {
-    RetryManifestFetchRequest();
+    RetryManifestFetchRequest(net_error, response_code);
     return;
   }
   if (error == ExtensionDownloaderDelegate::Error::MANIFEST_FETCH_FAILED) {
-    ExtensionDownloaderDelegate::FailureData failure_data(
-        -net_error,
-        (net_error == net::Error::ERR_HTTP_RESPONSE_CODE_FAILURE)
-            ? base::Optional<int>(response_code)
-            : base::nullopt,
-        manifests_queue_.active_request_failure_count());
+    const ExtensionDownloaderDelegate::FailureData failure_data =
+        ExtensionDownloaderDelegate::FailureData::CreateFromNetworkResponse(
+            net_error, response_code,
+            manifests_queue_.active_request_failure_count());
     ReportManifestFetchFailure(fetch_data, error, failure_data);
     return;
   }
@@ -724,11 +728,11 @@ void ExtensionDownloader::RetryRequestOrHandleFailureOnManifestFetchFailure(
     TryFetchingExtensionsFromCache(
         manifests_queue_.active_request(),
         ExtensionDownloaderDelegate::Error::MANIFEST_FETCH_FAILED, net_error,
-        response_code, base::nullopt /*manifest_invalid_errors*/);
+        response_code, absl::nullopt /*manifest_invalid_errors*/);
     return;
   }
   if (ShouldRetryRequest(loader) && request_failure_count < kMaxRetries) {
-    RetryManifestFetchRequest();
+    RetryManifestFetchRequest(loader->NetError(), response_code);
     return;
   }
   const GURL url = loader->GetFinalURL();
@@ -737,14 +741,11 @@ void ExtensionDownloader::RetryRequestOrHandleFailureOnManifestFetchFailure(
     TryFetchingExtensionsFromCache(
         manifests_queue_.active_request(),
         ExtensionDownloaderDelegate::Error::MANIFEST_FETCH_FAILED, net_error,
-        response_code, base::nullopt /*manifest_invalid_errors*/);
+        response_code, absl::nullopt /*manifest_invalid_errors*/);
   } else {
-    ExtensionDownloaderDelegate::FailureData failure_data(
-        -net_error,
-        (net_error == net::Error::ERR_HTTP_RESPONSE_CODE_FAILURE)
-            ? base::Optional<int>(response_code)
-            : base::nullopt,
-        request_failure_count);
+    const ExtensionDownloaderDelegate::FailureData failure_data =
+        ExtensionDownloaderDelegate::FailureData::CreateFromNetworkResponse(
+            net_error, response_code, request_failure_count);
     ReportManifestFetchFailure(
         manifests_queue_.active_request(),
         ExtensionDownloaderDelegate::Error::MANIFEST_FETCH_FAILED,
@@ -796,7 +797,7 @@ void ExtensionDownloader::OnManifestLoadComplete(
 void ExtensionDownloader::HandleManifestResults(
     std::unique_ptr<ManifestFetchData> fetch_data,
     std::unique_ptr<UpdateManifestResults> results,
-    const base::Optional<ManifestParseFailure>& error) {
+    const absl::optional<ManifestParseFailure>& error) {
   if (!results) {
     VLOG(2) << "parsing manifest failed (" << fetch_data->full_url() << ")";
     DCHECK(error.has_value());
@@ -849,7 +850,7 @@ void ExtensionDownloader::HandleManifestResults(
   if (fetch_data->base_url().DomainIs(kGoogleDotCom) &&
       results->daystart_elapsed_seconds >= 0) {
     Time day_start =
-        Time::Now() - TimeDelta::FromSeconds(results->daystart_elapsed_seconds);
+        Time::Now() - base::Seconds(results->daystart_elapsed_seconds);
 
     for (const ExtensionId& id : extension_ids) {
       ExtensionDownloaderDelegate::PingResult& result = ping_results_[id];
@@ -864,8 +865,8 @@ void ExtensionDownloader::HandleManifestResults(
       no_updates, fetch_data->request_ids(),
       ExtensionDownloaderDelegate::Error::NO_UPDATE_AVAILABLE);
   ExtensionIdSet extension_ids_with_errors;
-  for (const auto& error : errors)
-    extension_ids_with_errors.insert(error.first);
+  for (const auto& e : errors)
+    extension_ids_with_errors.insert(e.first);
   NotifyExtensionsDownloadStageChanged(
       extension_ids_with_errors, ExtensionDownloaderDelegate::Stage::FINISHED);
   NotifyExtensionsManifestInvalidFailure(errors, fetch_data->request_ids());
@@ -1026,14 +1027,14 @@ void ExtensionDownloader::DetermineUpdates(
   }
 }
 
-base::Optional<base::FilePath> ExtensionDownloader::GetCachedExtension(
+absl::optional<base::FilePath> ExtensionDownloader::GetCachedExtension(
     const ExtensionFetch& fetch_data,
     bool manifest_fetch_failed) {
   if (!extension_cache_) {
     delegate_->OnExtensionDownloadCacheStatusRetrieved(
         fetch_data.id,
         ExtensionDownloaderDelegate::CacheStatus::CACHE_DISABLED);
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   std::string version;
@@ -1041,7 +1042,7 @@ base::Optional<base::FilePath> ExtensionDownloader::GetCachedExtension(
                                       nullptr, &version)) {
     delegate_->OnExtensionDownloadCacheStatusRetrieved(
         fetch_data.id, ExtensionDownloaderDelegate::CacheStatus::CACHE_MISS);
-    return base::nullopt;
+    return absl::nullopt;
   }
   // If manifest fetch is failed, we need not verify the version of the cache as
   // we will try to install the version present in the cache.
@@ -1049,7 +1050,7 @@ base::Optional<base::FilePath> ExtensionDownloader::GetCachedExtension(
     delegate_->OnExtensionDownloadCacheStatusRetrieved(
         fetch_data.id,
         ExtensionDownloaderDelegate::CacheStatus::CACHE_OUTDATED);
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   delegate_->OnExtensionDownloadCacheStatusRetrieved(
@@ -1071,7 +1072,7 @@ base::Optional<base::FilePath> ExtensionDownloader::GetCachedExtension(
 // Begins (or queues up) download of an updated extension.
 void ExtensionDownloader::FetchUpdatedExtension(
     std::unique_ptr<ExtensionFetch> fetch_data,
-    base::Optional<std::string> info) {
+    absl::optional<std::string> info) {
   if (!fetch_data->url.is_valid()) {
     // TODO(asargent): This can sometimes be invalid. See crbug.com/130881.
     DLOG(WARNING) << "Invalid URL: '" << fetch_data->url.possibly_invalid_spec()
@@ -1113,7 +1114,7 @@ void ExtensionDownloader::FetchUpdatedExtension(
         fetch_data->request_ids.begin(), fetch_data->request_ids.end());
     return;
   }
-  base::Optional<base::FilePath> cached_crx_path =
+  absl::optional<base::FilePath> cached_crx_path =
       GetCachedExtension(*fetch_data, /*manifest_fetch_failed*/ false);
   if (cached_crx_path) {
     delegate_->OnExtensionDownloadStageChanged(
@@ -1148,9 +1149,9 @@ void ExtensionDownloader::NotifyDelegateDownloadFinished(
   crx_info.expected_version = version;
   delegate_->OnExtensionDownloadFinished(
       crx_info, file_ownership_passed, url, ping_results_[id], request_ids,
-      from_cache ? base::BindRepeating(&ExtensionDownloader::CacheInstallDone,
-                                       weak_ptr_factory_.GetWeakPtr(),
-                                       base::Passed(&fetch_data))
+      from_cache ? base::BindOnce(&ExtensionDownloader::CacheInstallDone,
+                                  weak_ptr_factory_.GetWeakPtr(),
+                                  std::move(fetch_data))
                  : ExtensionDownloaderDelegate::InstallCallback());
   if (!from_cache)
     ping_results_.erase(id);
@@ -1261,10 +1262,9 @@ void ExtensionDownloader::StartExtensionLoader() {
       GetURLLoaderFactoryToUse(extension_loader_resource_request_->url);
   extension_loader_ = network::SimpleURLLoader::Create(
       std::move(extension_loader_resource_request_), traffic_annotation);
-  const int kMaxRetries = 3;
+  // Retry up to 3 times.
   extension_loader_->SetRetryOptions(
-      kMaxRetries,
-      network::SimpleURLLoader::RetryMode::RETRY_ON_NETWORK_CHANGE);
+      3, network::SimpleURLLoader::RetryMode::RETRY_ON_NETWORK_CHANGE);
 
   extension_loader_->DownloadToTempFile(
       url_loader_factory_to_use,
@@ -1280,7 +1280,7 @@ void ExtensionDownloader::OnExtensionLoadComplete(base::FilePath crx_path) {
       extension_loader_->ResponseInfo()->headers) {
     response_code = extension_loader_->ResponseInfo()->headers->response_code();
   }
-  const base::TimeDelta& backoff_delay = base::TimeDelta::FromMilliseconds(0);
+  const base::TimeDelta& backoff_delay = base::Milliseconds(0);
 
   ExtensionFetch& active_request = *extensions_queue_.active_request();
   const ExtensionId& id = active_request.id;
@@ -1296,6 +1296,11 @@ void ExtensionDownloader::OnExtensionLoadComplete(base::FilePath crx_path) {
                                    true);
   } else if (IterateFetchCredentialsAfterFailure(&active_request,
                                                  response_code)) {
+    const ExtensionDownloaderDelegate::FailureData failure_data =
+        ExtensionDownloaderDelegate::FailureData::CreateFromNetworkResponse(
+            net_error, response_code,
+            extensions_queue_.active_request_failure_count());
+    delegate_->OnExtensionDownloadRetry(id, failure_data);
     delegate_->OnExtensionDownloadStageChanged(
         id, ExtensionDownloaderDelegate::Stage::DOWNLOADING_CRX_RETRY);
     extensions_queue_.RetryRequest(backoff_delay);
@@ -1307,6 +1312,11 @@ void ExtensionDownloader::OnExtensionLoadComplete(base::FilePath crx_path) {
             << "' response code:" << response_code;
     if (ShouldRetryRequest(extension_loader_.get()) &&
         extensions_queue_.active_request_failure_count() < kMaxRetries) {
+      const ExtensionDownloaderDelegate::FailureData failure_data =
+          ExtensionDownloaderDelegate::FailureData::CreateFromNetworkResponse(
+              net_error, response_code,
+              extensions_queue_.active_request_failure_count());
+      delegate_->OnExtensionDownloadRetry(id, failure_data);
       delegate_->OnExtensionDownloadStageChanged(
           id, ExtensionDownloaderDelegate::Stage::DOWNLOADING_CRX_RETRY);
       extensions_queue_.RetryRequest(backoff_delay);
@@ -1317,12 +1327,10 @@ void ExtensionDownloader::OnExtensionLoadComplete(base::FilePath crx_path) {
                       url);
       delegate_->OnExtensionDownloadStageChanged(
           id, ExtensionDownloaderDelegate::Stage::FINISHED);
-      ExtensionDownloaderDelegate::FailureData failure_data(
-          -net_error,
-          (net_error == net::Error::ERR_HTTP_RESPONSE_CODE_FAILURE)
-              ? base::Optional<int>(response_code)
-              : base::nullopt,
-          extensions_queue_.active_request_failure_count());
+      const ExtensionDownloaderDelegate::FailureData failure_data =
+          ExtensionDownloaderDelegate::FailureData::CreateFromNetworkResponse(
+              net_error, response_code,
+              extensions_queue_.active_request_failure_count());
       delegate_->OnExtensionDownloadFailed(
           id, ExtensionDownloaderDelegate::Error::CRX_FETCH_FAILED, ping,
           request_ids, failure_data);

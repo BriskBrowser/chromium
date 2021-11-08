@@ -38,6 +38,9 @@ extern const base::Feature kQueryTilesLocalOrdering;
 // some time of inactivity.
 extern const base::Feature kQueryTilesRemoveTrendingTilesAfterInactivity;
 
+// Whether segmentation rules are applied to query tiles.
+extern const base::Feature kQueryTilesSegmentation;
+
 // Helper function to determine whether query tiles should be shown on omnibox.
 bool IsEnabledQueryTilesInOmnibox();
 
@@ -60,6 +63,10 @@ extern const char kQueryTilesEnableTrending[];
 
 // If set, the client will request more trending tiles from the server.
 extern const char kQueryTilesMoreTrending[];
+
+// If set, the server will rank all the tiles and send a subset of them
+// to the client based on user interest.
+extern const char kQueryTilesRankTiles[];
 }  // namespace switches
 }  // namespace query_tiles
 

@@ -5,6 +5,8 @@
 #include "base/task/sequence_manager/real_time_domain.h"
 
 #include "base/task/sequence_manager/sequence_manager_impl.h"
+#include "base/trace_event/base_tracing.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 namespace sequence_manager {
@@ -16,29 +18,26 @@ void RealTimeDomain::OnRegisterWithSequenceManager(
   tick_clock_ = sequence_manager->GetTickClock();
 }
 
-LazyNow RealTimeDomain::CreateLazyNow() const {
-  return LazyNow(tick_clock_);
-}
-
-TimeTicks RealTimeDomain::Now() const {
+TimeTicks RealTimeDomain::NowTicks() const {
   return tick_clock_->NowTicks();
 }
 
-Optional<TimeDelta> RealTimeDomain::DelayTillNextTask(LazyNow* lazy_now) {
-  Optional<TimeTicks> next_run_time = NextScheduledRunTime();
-  if (!next_run_time)
-    return nullopt;
+base::TimeTicks RealTimeDomain::GetNextDelayedTaskTime(
+    sequence_manager::LazyNow* lazy_now) const {
+  absl::optional<DelayedWakeUp> wake_up = GetNextDelayedWakeUp();
+  if (!wake_up)
+    return TimeTicks::Max();
 
   TimeTicks now = lazy_now->Now();
-  if (now >= next_run_time) {
+  if (now >= wake_up->time) {
     // Overdue work needs to be run immediately.
-    return TimeDelta();
+    return TimeTicks();
   }
 
-  TimeDelta delay = *next_run_time - now;
+  TimeDelta delay = wake_up->time - now;
   TRACE_EVENT1("sequence_manager", "RealTimeDomain::DelayTillNextTask",
                "delay_ms", delay.InMillisecondsF());
-  return delay;
+  return wake_up->time;
 }
 
 bool RealTimeDomain::MaybeFastForwardToNextTask(bool quit_when_idle_requested) {

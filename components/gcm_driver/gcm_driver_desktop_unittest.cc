@@ -6,6 +6,8 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/files/scoped_temp_dir.h"
@@ -99,6 +101,10 @@ class GCMDriverTest : public testing::Test {
   };
 
   GCMDriverTest();
+
+  GCMDriverTest(const GCMDriverTest&) = delete;
+  GCMDriverTest& operator=(const GCMDriverTest&) = delete;
+
   ~GCMDriverTest() override;
 
   // testing::Test:
@@ -180,8 +186,6 @@ class GCMDriverTest : public testing::Test {
   GCMClient::Result unregistration_result_;
   std::string p256dh_;
   std::string auth_secret_;
-
-  DISALLOW_COPY_AND_ASSIGN(GCMDriverTest);
 };
 
 GCMDriverTest::GCMDriverTest()
@@ -244,7 +248,7 @@ void GCMDriverTest::CreateDriver() {
   driver_ = std::make_unique<GCMDriverDesktop>(
       std::unique_ptr<GCMClientFactory>(new FakeGCMClientFactory(
           base::ThreadTaskRunnerHandle::Get(), io_thread_.task_runner())),
-      chrome_build_info, "user-agent-string", &prefs_, temp_dir_.GetPath(),
+      chrome_build_info, &prefs_, temp_dir_.GetPath(),
       /*remove_account_mappings_with_email_key=*/true, base::DoNothing(),
       base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
           &test_url_loader_factory_),
@@ -252,8 +256,8 @@ void GCMDriverTest::CreateDriver() {
       base::ThreadTaskRunnerHandle::Get(), io_thread_.task_runner(),
       task_environment_.GetMainThreadTaskRunner());
 
-  gcm_app_handler_.reset(new FakeGCMAppHandler);
-  gcm_connection_observer_.reset(new FakeGCMConnectionObserver);
+  gcm_app_handler_ = std::make_unique<FakeGCMAppHandler>();
+  gcm_connection_observer_ = std::make_unique<FakeGCMConnectionObserver>();
 
   driver_->AddConnectionObserver(gcm_connection_observer_.get());
 }
@@ -523,13 +527,14 @@ TEST_F(GCMDriverTest, GCMClientNotReadyBeforeSending) {
 class GCMDriverFunctionalTest : public GCMDriverTest {
  public:
   GCMDriverFunctionalTest();
+
+  GCMDriverFunctionalTest(const GCMDriverFunctionalTest&) = delete;
+  GCMDriverFunctionalTest& operator=(const GCMDriverFunctionalTest&) = delete;
+
   ~GCMDriverFunctionalTest() override;
 
   // GCMDriverTest:
   void SetUp() override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GCMDriverFunctionalTest);
 };
 
 GCMDriverFunctionalTest::GCMDriverFunctionalTest() {
@@ -880,6 +885,10 @@ TEST_F(GCMDriverFunctionalTest, LastTokenFetchTime) {
 class GCMDriverInstanceIDTest : public GCMDriverTest {
  public:
   GCMDriverInstanceIDTest();
+
+  GCMDriverInstanceIDTest(const GCMDriverInstanceIDTest&) = delete;
+  GCMDriverInstanceIDTest& operator=(const GCMDriverInstanceIDTest&) = delete;
+
   ~GCMDriverInstanceIDTest() override;
 
   void GetReady();
@@ -902,11 +911,15 @@ class GCMDriverInstanceIDTest : public GCMDriverTest {
   std::string instance_id() const { return instance_id_; }
   std::string extra_data() const { return extra_data_; }
 
+  int instance_id_resolved_counter() const {
+    return instance_id_resolved_counter_;
+  }
+
  private:
   std::string instance_id_;
   std::string extra_data_;
 
-  DISALLOW_COPY_AND_ASSIGN(GCMDriverInstanceIDTest);
+  int instance_id_resolved_counter_ = 0;
 };
 
 GCMDriverInstanceIDTest::GCMDriverInstanceIDTest() {
@@ -938,6 +951,9 @@ void GCMDriverInstanceIDTest::GetInstanceIDDataCompleted(
     const std::string& instance_id, const std::string& extra_data) {
   instance_id_ = instance_id;
   extra_data_ = extra_data;
+
+  instance_id_resolved_counter_++;
+
   AsyncOperationCompleted();
 }
 
@@ -988,12 +1004,25 @@ TEST_F(GCMDriverInstanceIDTest, InstanceIDData) {
 
   EXPECT_EQ(kInstanceID1, instance_id());
   EXPECT_EQ("Foo", extra_data());
+  EXPECT_EQ(1, instance_id_resolved_counter());
 
   RemoveInstanceIDData(kTestAppID1);
   GetInstanceID(kTestAppID1, GCMDriverTest::WAIT);
 
   EXPECT_TRUE(instance_id().empty());
   EXPECT_TRUE(extra_data().empty());
+  EXPECT_EQ(2, instance_id_resolved_counter());
+
+  AddInstanceIDData(kTestAppID1, kInstanceID1, "Bar");
+  GetInstanceID(kTestAppID1, GCMDriverTest::DO_NOT_WAIT);
+  GetInstanceID(kTestAppID1, GCMDriverTest::DO_NOT_WAIT);
+
+  WaitForAsyncOperation();
+  WaitForAsyncOperation();
+
+  EXPECT_EQ(kInstanceID1, instance_id());
+  EXPECT_EQ("Bar", extra_data());
+  EXPECT_EQ(4, instance_id_resolved_counter());
 }
 
 // This test is flaky, see https://crbug.com/1010462

@@ -21,7 +21,7 @@ namespace ash {
 class QuickAnswersView;
 
 namespace quick_answers {
-class UserNoticeView;
+class UserConsentView;
 }  // namespace quick_answers
 
 // This class handles mouse events, and update background color or
@@ -30,7 +30,7 @@ class UserNoticeView;
 class QuickAnswersPreTargetHandler : public ui::EventHandler {
  public:
   explicit QuickAnswersPreTargetHandler(QuickAnswersView* view);
-  explicit QuickAnswersPreTargetHandler(quick_answers::UserNoticeView* view);
+  explicit QuickAnswersPreTargetHandler(quick_answers::UserConsentView* view);
 
   // Disallow copy and assign.
   QuickAnswersPreTargetHandler(const QuickAnswersPreTargetHandler&) = delete;

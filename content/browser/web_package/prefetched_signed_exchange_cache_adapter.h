@@ -5,7 +5,6 @@
 #ifndef CONTENT_BROWSER_WEB_PACKAGE_PREFETCHED_SIGNED_EXCHANGE_CACHE_ADAPTER_H_
 #define CONTENT_BROWSER_WEB_PACKAGE_PREFETCHED_SIGNED_EXCHANGE_CACHE_ADAPTER_H_
 
-#include "base/optional.h"
 #include "content/browser/web_package/prefetched_signed_exchange_cache.h"
 #include "content/public/browser/browser_context.h"
 #include "mojo/public/cpp/system/data_pipe.h"
@@ -30,6 +29,12 @@ class PrefetchedSignedExchangeCacheAdapter {
       BrowserContext::BlobContextGetter blob_context_getter,
       const GURL& request_url,
       PrefetchURLLoader* prefetch_url_loader);
+
+  PrefetchedSignedExchangeCacheAdapter(
+      const PrefetchedSignedExchangeCacheAdapter&) = delete;
+  PrefetchedSignedExchangeCacheAdapter& operator=(
+      const PrefetchedSignedExchangeCacheAdapter&) = delete;
+
   ~PrefetchedSignedExchangeCacheAdapter();
 
   void OnReceiveSignedExchange(
@@ -86,8 +91,6 @@ class PrefetchedSignedExchangeCacheAdapter {
 
   base::WeakPtrFactory<PrefetchedSignedExchangeCacheAdapter> weak_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(PrefetchedSignedExchangeCacheAdapter);
 };
 
 }  // namespace content

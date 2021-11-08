@@ -18,6 +18,34 @@ class LayoutObject;
 // Put data inside a forward-declared struct, to avoid including LayoutObject.h.
 class DepthOrderedLayoutObjectListData;
 
+struct LayoutObjectWithDepth {
+  DISALLOW_NEW();
+
+ public:
+  explicit LayoutObjectWithDepth(LayoutObject* in_object)
+      : object(in_object), depth(DetermineDepth(in_object)) {}
+  LayoutObjectWithDepth() = default;
+  void Trace(Visitor*) const;
+
+  Member<LayoutObject> object = nullptr;
+  unsigned depth = 0u;
+
+  LayoutObject& operator*() const { return *object; }
+  LayoutObject* operator->() const { return object; }
+
+  bool operator<(const LayoutObjectWithDepth& other) const {
+    return depth > other.depth;
+  }
+
+  void operator=(LayoutObject* obj) {
+    object = obj;
+    depth = DetermineDepth(obj);
+  }
+
+ private:
+  static unsigned DetermineDepth(LayoutObject*);
+};
+
 class DepthOrderedLayoutObjectList {
   DISALLOW_NEW();
 
@@ -33,30 +61,6 @@ class DepthOrderedLayoutObjectList {
   int size() const;
   bool IsEmpty() const;
 
-  struct LayoutObjectWithDepth {
-    DISALLOW_NEW();
-    explicit LayoutObjectWithDepth(LayoutObject* in_object)
-        : object(in_object), depth(DetermineDepth(in_object)) {}
-
-    LayoutObjectWithDepth() : object(nullptr) {}
-
-    void Trace(Visitor*) const;
-
-    Member<LayoutObject> object;
-    unsigned depth = 0;
-
-    LayoutObject& operator*() const { return *object; }
-    LayoutObject* operator->() const { return object; }
-
-    bool operator<(const DepthOrderedLayoutObjectList::LayoutObjectWithDepth&
-                       other) const {
-      return depth > other.depth;
-    }
-
-   private:
-    static unsigned DetermineDepth(LayoutObject*);
-  };
-
   const HeapHashSet<Member<LayoutObject>>& Unordered() const;
   const HeapVector<LayoutObjectWithDepth>& Ordered();
 
@@ -66,7 +70,6 @@ class DepthOrderedLayoutObjectList {
 
 }  // namespace blink
 
-WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(
-    blink::DepthOrderedLayoutObjectList::LayoutObjectWithDepth)
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(blink::LayoutObjectWithDepth)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_DEPTH_ORDERED_LAYOUT_OBJECT_LIST_H_

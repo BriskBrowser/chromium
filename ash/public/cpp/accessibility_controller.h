@@ -5,13 +5,14 @@
 #ifndef ASH_PUBLIC_CPP_ACCESSIBILITY_CONTROLLER_H_
 #define ASH_PUBLIC_CPP_ACCESSIBILITY_CONTROLLER_H_
 
+#include <string>
 #include <vector>
 
 #include "ash/public/cpp/accelerators.h"
 #include "ash/public/cpp/accessibility_controller_enums.h"
 #include "ash/public/cpp/ash_public_export.h"
+#include "base/callback.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 
 namespace gfx {
 class Rect;
@@ -30,6 +31,9 @@ enum class SelectToSpeakState;
 class ASH_PUBLIC_EXPORT AccessibilityController {
  public:
   static AccessibilityController* Get();
+
+  AccessibilityController(const AccessibilityController&) = delete;
+  AccessibilityController& operator=(const AccessibilityController&) = delete;
 
   // Sets the client interface.
   virtual void SetClient(AccessibilityControllerClient* client) = 0;
@@ -100,18 +104,28 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
   // Stops point scanning in Switch Access.
   virtual void StopPointScan() = 0;
 
+  // Sets point scanning speed in Switch Access.
+  virtual void SetPointScanSpeedDipsPerSecond(
+      int point_scan_speed_dips_per_second) = 0;
+
   // Set whether dictation is active.
   virtual void SetDictationActive(bool is_active) = 0;
 
   // Starts or stops dictation. Records metrics for toggling via SwitchAccess.
   virtual void ToggleDictationFromSource(DictationToggleSource source) = 0;
 
+  // Shows a nudge explaining that a user's dictation language was upgraded to
+  // work offline.
+  virtual void ShowDictationLanguageUpgradedNudge(
+      const std::string& dictation_locale,
+      const std::string& application_locale) = 0;
+
   // Called when the Automatic Clicks extension finds scrollable bounds.
   virtual void HandleAutoclickScrollableBoundsFound(
       gfx::Rect& bounds_in_screen) = 0;
 
   // Retrieves a string description of the current battery status.
-  virtual base::string16 GetBatteryDescription() const = 0;
+  virtual std::u16string GetBatteryDescription() const = 0;
 
   // Shows or hides the virtual keyboard.
   virtual void SetVirtualKeyboardVisible(bool is_visible) = 0;
@@ -147,12 +161,30 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
   // Enables ChromeVox's volume slide gesture.
   virtual void EnableChromeVoxVolumeSlideGesture() {}
 
+  // Shows a confirmation dialog with the given text and description,
+  // and calls the relevant callback when the dialog is confirmed, canceled
+  // or closed.
+  virtual void ShowConfirmationDialog(const std::u16string& title,
+                                      const std::u16string& description,
+                                      base::OnceClosure on_accept_callback,
+                                      base::OnceClosure on_cancel_callback,
+                                      base::OnceClosure on_close_callback) {}
+
+  // Updates the enabled state and tooltip of the dictation button in the status
+  // tray when speech recognition file download state changes.
+  virtual void UpdateDictationButtonOnSpeechRecognitionDownloadChanged(
+      bool download_in_progress) = 0;
+
+  // Shows a notification card in the message center informing the user that
+  // speech recognition files have either downloaded successfully or failed.
+  // Specific to the Dictation feature.
+  virtual void ShowSpeechRecognitionDownloadNotificationForDictation(
+      bool succeeded,
+      const std::u16string& display_language) = 0;
+
  protected:
   AccessibilityController();
   virtual ~AccessibilityController();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AccessibilityController);
 };
 
 }  // namespace ash

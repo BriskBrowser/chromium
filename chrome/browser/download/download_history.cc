@@ -29,13 +29,13 @@
 
 #include "chrome/browser/download/download_history.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/optional.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_crx_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -50,6 +50,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_manager.h"
 #include "extensions/buildflags/buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/api/downloads/downloads_api.h"
@@ -105,6 +106,9 @@ class DownloadHistoryData : public base::SupportsUserData::Data {
     item->SetUserData(kKey, base::WrapUnique(this));
   }
 
+  DownloadHistoryData(const DownloadHistoryData&) = delete;
+  DownloadHistoryData& operator=(const DownloadHistoryData&) = delete;
+
   ~DownloadHistoryData() override {}
 
   PersistenceState state() const { return state_; }
@@ -117,7 +121,7 @@ class DownloadHistoryData : public base::SupportsUserData::Data {
   history::DownloadRow* info() { return info_.get(); }
   void set_info(const history::DownloadRow& i) {
     // TODO(qinmin): avoid creating a new copy each time.
-    info_.reset(new history::DownloadRow(i));
+    info_ = std::make_unique<history::DownloadRow>(i);
   }
   void clear_info() {
     info_.reset();
@@ -128,8 +132,6 @@ class DownloadHistoryData : public base::SupportsUserData::Data {
 
   PersistenceState state_ = NOT_PERSISTED;
   std::unique_ptr<history::DownloadRow> info_;
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadHistoryData);
 };
 
 const char DownloadHistoryData::kKey[] =
@@ -177,6 +179,10 @@ history::DownloadRow GetDownloadRow(download::DownloadItem* item) {
   download.by_ext_id = by_ext_id;
   download.by_ext_name = by_ext_name;
   download.download_slice_info = history::GetHistoryDownloadSliceInfos(*item);
+  auto& reroute_info = item->GetRerouteInfo();
+  if (reroute_info.IsInitialized()) {
+    download.reroute_info_serialized = reroute_info.SerializeAsString();
+  }
   TruncatedDataUrlAtTheEndIfNeeded(&download.url_chain);
   return download;
 }
@@ -198,7 +204,8 @@ ShouldUpdateHistoryResult ShouldUpdateHistory(
   // rename it. If Chrome is killed before committing the history here,
   // that temporary file will still get permanently left.
   // See http://crbug.com/664677.
-  if (previous == nullptr || previous->current_path != current.current_path)
+  if (previous == nullptr || previous->current_path != current.current_path ||
+      previous->reroute_info_serialized != current.reroute_info_serialized)
     return ShouldUpdateHistoryResult::UPDATE_IMMEDIATELY;
 
   // Ignore url_chain, referrer, site_url, http_method, mime_type,
@@ -378,10 +385,15 @@ void DownloadHistory::LoadHistoryDownloads(
         history::ToContentDownloadInterruptReason(row.interrupt_reason);
     std::vector<GURL> url_chain = row.url_chain;
     TruncatedDataUrlAtTheEndIfNeeded(&url_chain);
+    download::DownloadItemRerouteInfo reroute_info;
+    if (row.reroute_info_serialized.empty() ||
+        !reroute_info.ParseFromString(row.reroute_info_serialized)) {
+      reroute_info.Clear();
+    }
     download::DownloadItem* item = notifier_.GetManager()->CreateDownloadItem(
         row.guid, loading_id_, row.current_path, row.target_path, url_chain,
         row.referrer_url, row.site_url, row.tab_url, row.tab_referrer_url,
-        base::nullopt, row.mime_type, row.original_mime_type, row.start_time,
+        absl::nullopt, row.mime_type, row.original_mime_type, row.start_time,
         row.end_time, row.etag, row.last_modified, row.received_bytes,
         row.total_bytes,
         std::string(),  // TODO(asanka): Need to persist and restore hash of
@@ -390,7 +402,8 @@ void DownloadHistory::LoadHistoryDownloads(
         history_download_state,
         history::ToContentDownloadDangerType(row.danger_type), history_reason,
         row.opened, row.last_access_time, row.transient,
-        history::ToContentReceivedSlices(row.download_slice_info));
+        history::ToContentReceivedSlices(row.download_slice_info),
+        reroute_info);
     // DownloadManager returns a nullptr if it decides to remove the download
     // permanently.
     if (item == nullptr) {
@@ -544,8 +557,6 @@ void DownloadHistory::OnDownloadUpdated(content::DownloadManager* manager,
       ShouldUpdateHistory(data->info(), current_info);
   bool should_update =
       (should_update_result != ShouldUpdateHistoryResult::NO_UPDATE);
-  UMA_HISTOGRAM_ENUMERATION("Download.HistoryPropagatedUpdate",
-                            should_update, 2);
   if (should_update) {
     history_->UpdateDownload(
         current_info,

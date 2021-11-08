@@ -8,10 +8,10 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/threading/thread_checker.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "components/prefs/pref_member.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefService;
 
@@ -22,6 +22,10 @@ class ArcDataRemover {
  public:
   ArcDataRemover(PrefService* prefs,
                  const cryptohome::Identification& cryptohome_id);
+
+  ArcDataRemover(const ArcDataRemover&) = delete;
+  ArcDataRemover& operator=(const ArcDataRemover&) = delete;
+
   ~ArcDataRemover();
 
   // Schedules to remove the data. This is persistent, calling Run() just
@@ -34,7 +38,7 @@ class ArcDataRemover {
   // Executes the removing, if scheduled.
   // This must run while ARC instance is stopped.
   // If not scheduled, |callback| will be synchronously called with nullopt.
-  using RunCallback = base::OnceCallback<void(base::Optional<bool> result)>;
+  using RunCallback = base::OnceCallback<void(absl::optional<bool> result)>;
   void Run(RunCallback callback);
 
  private:
@@ -49,7 +53,6 @@ class ArcDataRemover {
   const cryptohome::Identification cryptohome_id_;
 
   base::WeakPtrFactory<ArcDataRemover> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(ArcDataRemover);
 };
 
 }  // namespace arc

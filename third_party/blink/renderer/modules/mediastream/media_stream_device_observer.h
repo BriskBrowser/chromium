@@ -5,12 +5,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_MEDIA_STREAM_DEVICE_OBSERVER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_MEDIA_STREAM_DEVICE_OBSERVER_H_
 
-#include <list>
-#include <map>
-#include <memory>
-#include <string>
-#include <vector>
-
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -33,6 +27,10 @@ class MODULES_EXPORT MediaStreamDeviceObserver
  public:
   explicit MediaStreamDeviceObserver(LocalFrame* frame);
 
+  MediaStreamDeviceObserver(const MediaStreamDeviceObserver&) = delete;
+  MediaStreamDeviceObserver& operator=(const MediaStreamDeviceObserver&) =
+      delete;
+
   ~MediaStreamDeviceObserver() override;
 
   // Get all the media devices of video capture, e.g. webcam. This is the set
@@ -47,7 +45,9 @@ class MODULES_EXPORT MediaStreamDeviceObserver
       WebMediaStreamDeviceObserver::OnDeviceStoppedCb on_device_stopped_cb,
       WebMediaStreamDeviceObserver::OnDeviceChangedCb on_device_changed_cb,
       WebMediaStreamDeviceObserver::OnDeviceRequestStateChangeCb
-          on_device_request_state_change_cb);
+          on_device_request_state_change_cb,
+      WebMediaStreamDeviceObserver::OnDeviceCaptureHandleChangeCb
+          on_device_capture_handle_change_cb);
   void AddStream(const String& label, const blink::MediaStreamDevice& device);
   bool RemoveStream(const String& label);
   void RemoveStreamDevice(const blink::MediaStreamDevice& device);
@@ -78,6 +78,8 @@ class MODULES_EXPORT MediaStreamDeviceObserver
     WebMediaStreamDeviceObserver::OnDeviceChangedCb on_device_changed_cb;
     WebMediaStreamDeviceObserver::OnDeviceRequestStateChangeCb
         on_device_request_state_change_cb;
+    WebMediaStreamDeviceObserver::OnDeviceCaptureHandleChangeCb
+        on_device_capture_handle_change_cb;
     MediaStreamDevices audio_devices;
     MediaStreamDevices video_devices;
   };
@@ -92,6 +94,8 @@ class MODULES_EXPORT MediaStreamDeviceObserver
       const String& label,
       const MediaStreamDevice& device,
       const mojom::blink::MediaStreamStateChange new_state) override;
+  void OnDeviceCaptureHandleChange(const String& label,
+                                   const MediaStreamDevice& device) override;
 
   void BindMediaStreamDeviceObserverReceiver(
       mojo::PendingReceiver<mojom::blink::MediaStreamDeviceObserver> receiver);
@@ -103,8 +107,6 @@ class MODULES_EXPORT MediaStreamDeviceObserver
 
   using LabelStreamMap = HashMap<String, Stream>;
   LabelStreamMap label_stream_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaStreamDeviceObserver);
 };
 
 }  // namespace blink

@@ -35,14 +35,16 @@ class ViewsContentClientMainParts : public content::BrowserMainParts {
       const content::MainFunctionParams& content_params,
       ViewsContentClient* views_content_client);
 
-  // Invoked before the BrowserMainLoop constructor.
-  static void PreCreateMainMessageLoop();
+  static void PreBrowserMain();
+
+  ViewsContentClientMainParts(const ViewsContentClientMainParts&) = delete;
+  ViewsContentClientMainParts& operator=(const ViewsContentClientMainParts&) =
+      delete;
 
   ~ViewsContentClientMainParts() override;
 
   // content::BrowserMainParts:
-  void PreMainMessageLoopRun() override;
-  bool MainMessageLoopRun(int* result_code) override;
+  int PreMainMessageLoopRun() override;
   void PostMainMessageLoopRun() override;
 
   content::ShellBrowserContext* browser_context() {
@@ -70,8 +72,6 @@ class ViewsContentClientMainParts : public content::BrowserMainParts {
   ViewsContentClient* views_content_client_;
 
   std::unique_ptr<base::RunLoop> run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewsContentClientMainParts);
 };
 
 }  // namespace ui

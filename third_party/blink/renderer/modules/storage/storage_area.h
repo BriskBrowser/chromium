@@ -90,9 +90,14 @@ class StorageArea final : public ScriptWrappable,
       const char* name,
       WebScopedVirtualTimePauser::VirtualTaskDuration duration) override;
 
+  const LocalDOMWindow* GetDOMWindow() override;
+
  private:
   void RecordModificationInMetrics();
-  const scoped_refptr<CachedStorageArea> cached_area_;
+
+  void OnDocumentActivatedForPrerendering();
+
+  scoped_refptr<CachedStorageArea> cached_area_;
   StorageType storage_type_;
   const bool should_enqueue_events_;
 

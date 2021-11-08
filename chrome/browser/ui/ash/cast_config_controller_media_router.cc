@@ -14,7 +14,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
@@ -22,14 +21,13 @@
 #include "components/media_router/browser/media_router_factory.h"
 #include "components/media_router/browser/media_routes_observer.h"
 #include "components/media_router/browser/media_sinks_observer.h"
+#include "components/media_router/common/media_sink.h"
 #include "components/media_router/common/media_source.h"
 #include "components/user_manager/user_manager.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_source.h"
 
 namespace {
 
-base::Optional<media_router::MediaRouter*> media_router_for_test_;
+absl::optional<media_router::MediaRouter*> media_router_for_test_;
 
 Profile* GetProfile() {
   if (!user_manager::UserManager::IsInitialized())
@@ -49,7 +47,7 @@ media_router::MediaRouter* GetMediaRouter() {
     return *media_router_for_test_;
 
   Profile* profile = GetProfile();
-  if (!profile)
+  if (!profile || !media_router::MediaRouterEnabled(profile))
     return nullptr;
 
   auto* router =
@@ -76,6 +74,10 @@ class CastDeviceCache : public media_router::MediaRoutesObserver,
 
   explicit CastDeviceCache(
       const base::RepeatingClosure& update_devices_callback);
+
+  CastDeviceCache(const CastDeviceCache&) = delete;
+  CastDeviceCache& operator=(const CastDeviceCache&) = delete;
+
   ~CastDeviceCache() override;
 
   // This may run |update_devices_callback_| before returning.
@@ -96,8 +98,6 @@ class CastDeviceCache : public media_router::MediaRoutesObserver,
   MediaRoutes routes_;
 
   base::RepeatingClosure update_devices_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(CastDeviceCache);
 };
 
 CastDeviceCache::CastDeviceCache(
@@ -150,19 +150,10 @@ void CastDeviceCache::OnRoutesUpdated(
 CastConfigControllerMediaRouter::CastConfigControllerMediaRouter() {
   // TODO(jdufault): This should use a callback interface once there is an
   // equivalent. See crbug.com/666005.
-  registrar_.Add(this, chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED,
-                 content::NotificationService::AllSources());
+  session_observation_.Observe(session_manager::SessionManager::Get());
 }
 
 CastConfigControllerMediaRouter::~CastConfigControllerMediaRouter() = default;
-
-// static
-bool CastConfigControllerMediaRouter::MediaRouterEnabled() {
-  if (media_router_for_test_)
-    return true;
-  Profile* profile = GetProfile();
-  return profile ? media_router::MediaRouterEnabled(profile) : false;
-}
 
 // static
 void CastConfigControllerMediaRouter::SetMediaRouterForTest(
@@ -269,17 +260,11 @@ void CastConfigControllerMediaRouter::StopCasting(const std::string& route_id) {
     GetMediaRouter()->TerminateRoute(route_id);
 }
 
-void CastConfigControllerMediaRouter::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  switch (type) {
-    case chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED:
-      // The active profile has changed, which means that the media router has
-      // as well. Reset the device cache to ensure we are using up-to-date
-      // object instances.
-      device_cache_.reset();
-      RequestDeviceRefresh();
-      break;
-  }
+void CastConfigControllerMediaRouter::OnUserProfileLoaded(
+    const AccountId& account_id) {
+  // The active profile has changed, which means that the media router has
+  // as well. Reset the device cache to ensure we are using up-to-date
+  // object instances.
+  device_cache_.reset();
+  RequestDeviceRefresh();
 }

@@ -8,11 +8,11 @@
 #include "base/macros.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "chrome/browser/ui/views/permission_bubble/permission_prompt_bubble_view.h"
 #include "chrome/browser/ui/views/permission_bubble/permission_prompt_style.h"
 #include "components/permissions/permission_prompt.h"
 
 class Browser;
-class PermissionPromptBubbleView;
 
 namespace content {
 class WebContents;
@@ -27,6 +27,10 @@ class PermissionPromptImpl : public permissions::PermissionPrompt,
   PermissionPromptImpl(Browser* browser,
                        content::WebContents* web_contents,
                        Delegate* delegate);
+
+  PermissionPromptImpl(const PermissionPromptImpl&) = delete;
+  PermissionPromptImpl& operator=(const PermissionPromptImpl&) = delete;
+
   ~PermissionPromptImpl() override;
 
   // permissions::PermissionPrompt:
@@ -35,24 +39,23 @@ class PermissionPromptImpl : public permissions::PermissionPrompt,
   permissions::PermissionPromptDisposition GetPromptDisposition()
       const override;
 
-  PermissionPromptBubbleView* prompt_bubble_for_testing() {
-    if (prompt_bubble_)
-      return prompt_bubble_;
-    return permission_chip_ ? permission_chip_->prompt_bubble_for_testing()
-                            : nullptr;
-  }
+  views::Widget* GetPromptBubbleWidgetForTesting();
 
   // views::WidgetObserver:
   void OnWidgetClosing(views::Widget* widget) override;
 
  private:
+  bool IsLocationBarDisplayed();
+  void SelectPwaPrompt();
+  void SelectNormalPrompt();
+  void SelectQuietPrompt();
   LocationBarView* GetLocationBarView();
-
+  void ShowQuietIcon();
   void ShowBubble();
-
-  void ShowChipUI();
-
-  bool ShouldCurrentRequestUseChipUI();
+  void ShowChip();
+  bool ShouldCurrentRequestUseChip();
+  bool ShouldCurrentRequestUseQuietChip();
+  void FinalizeChip();
 
   // The popup bubble. Not owned by this class; it will delete itself when a
   // decision is made.
@@ -63,15 +66,13 @@ class PermissionPromptImpl : public permissions::PermissionPrompt,
 
   PermissionPromptStyle prompt_style_;
 
-  PermissionChip* permission_chip_ = nullptr;
+  PermissionChip* chip_ = nullptr;
 
   permissions::PermissionPrompt::Delegate* const delegate_;
 
   Browser* browser_;
 
   base::TimeTicks permission_requested_time_;
-
-  DISALLOW_COPY_AND_ASSIGN(PermissionPromptImpl);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PERMISSION_BUBBLE_PERMISSION_PROMPT_IMPL_H_

@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_EXTENSIONS_MOCK_EXTENSION_SPECIAL_STORAGE_POLICY_H_
 
 #include <set>
-#include <string>
 
 #include "base/macros.h"
 #include "chrome/browser/extensions/extension_special_storage_policy.h"
@@ -19,6 +18,11 @@
 class MockExtensionSpecialStoragePolicy : public ExtensionSpecialStoragePolicy {
  public:
   MockExtensionSpecialStoragePolicy();
+
+  MockExtensionSpecialStoragePolicy(const MockExtensionSpecialStoragePolicy&) =
+      delete;
+  MockExtensionSpecialStoragePolicy& operator=(
+      const MockExtensionSpecialStoragePolicy&) = delete;
 
   // storage::SpecialStoragePolicy:
   bool IsStorageProtected(const GURL& origin) override;
@@ -35,8 +39,6 @@ class MockExtensionSpecialStoragePolicy : public ExtensionSpecialStoragePolicy {
   ~MockExtensionSpecialStoragePolicy() override;
 
   std::set<GURL> protected_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockExtensionSpecialStoragePolicy);
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_MOCK_EXTENSION_SPECIAL_STORAGE_POLICY_H_

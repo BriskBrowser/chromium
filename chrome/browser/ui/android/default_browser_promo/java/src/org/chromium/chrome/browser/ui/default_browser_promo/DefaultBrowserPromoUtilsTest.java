@@ -75,17 +75,18 @@ public class DefaultBrowserPromoUtilsTest {
         List<ResolveInfo> infoList = new ArrayList<>();
         ShadowPackageManager packageManager =
                 Shadows.shadowOf(RuntimeEnvironment.application.getPackageManager());
+        // Setting android_manifest in the junit_binary build rule causes the current package to
+        // appear in the PackageManager.
+        packageManager.deletePackage(RuntimeEnvironment.application.getPackageName());
 
         DefaultBrowserPromoDeps deps = DefaultBrowserPromoDeps.getInstance();
         infoList.add(createResolveInfo(DefaultBrowserPromoDeps.CHROME_STABLE_PACKAGE_NAME, 1));
-        packageManager.addResolveInfoForIntent(
-                PackageManagerUtils.getQueryInstalledBrowsersIntent(), infoList);
+        packageManager.addResolveInfoForIntent(PackageManagerUtils.BROWSER_INTENT, infoList);
         Assert.assertFalse("Chrome stable should not be counted as a pre-stable channel",
                 deps.isChromePreStableInstalled());
 
         infoList.add(createResolveInfo("com.android.chrome.123", 1));
-        packageManager.addResolveInfoForIntent(
-                PackageManagerUtils.getQueryInstalledBrowsersIntent(), infoList);
+        packageManager.addResolveInfoForIntent(PackageManagerUtils.BROWSER_INTENT, infoList);
         Assert.assertFalse("A random package should not be counted as a pre-stable channel",
                 deps.isChromePreStableInstalled());
 
@@ -93,8 +94,7 @@ public class DefaultBrowserPromoUtilsTest {
             if (name.equals(DefaultBrowserPromoDeps.CHROME_STABLE_PACKAGE_NAME)) continue;
             List<ResolveInfo> list = new ArrayList<>(infoList);
             list.add(createResolveInfo(name, 1));
-            packageManager.addResolveInfoForIntent(
-                    PackageManagerUtils.getQueryInstalledBrowsersIntent(), list);
+            packageManager.addResolveInfoForIntent(PackageManagerUtils.BROWSER_INTENT, list);
             Assert.assertTrue(name + " should be considered as a pre-stable channel",
                     deps.isChromePreStableInstalled());
         }
@@ -146,8 +146,7 @@ public class DefaultBrowserPromoUtilsTest {
         when(mDeps.getSDKInt()).thenReturn(Build.VERSION_CODES.P);
         when(mDeps.isRoleAvailable(any())).thenCallRealMethod();
         Assert.assertFalse(
-                "Should promo system settings when there is another default browser on P-.",
-                DefaultBrowserPromoUtils.shouldShowPromo(mDeps, null));
+                "Should not promo on P-.", DefaultBrowserPromoUtils.shouldShowPromo(mDeps, null));
     }
 
     // --- prerequisites ---
@@ -173,7 +172,7 @@ public class DefaultBrowserPromoUtilsTest {
     public void testNoPromo_featureDisabled() {
         setDepsMockWithDefaultValues();
         when(mDeps.isFeatureEnabled()).thenReturn(false);
-        Assert.assertFalse("Should not promo when the fearure is disabled.",
+        Assert.assertFalse("Should not promo when the feature is disabled.",
                 DefaultBrowserPromoUtils.shouldShowPromo(mDeps, null));
     }
 

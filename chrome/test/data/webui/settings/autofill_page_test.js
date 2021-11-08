@@ -6,12 +6,13 @@
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {AutofillManagerImpl, PaymentsManagerImpl} from 'chrome://settings/lazy_load.js';
 import {CrSettingsPrefs, MultiStoreExceptionEntry, MultiStorePasswordUiEntry, OpenWindowProxyImpl, PasswordManagerImpl, Router, routes, SettingsPluralStringProxyImpl} from 'chrome://settings/settings.js';
-import {FakeSettingsPrivate} from 'chrome://test/settings/fake_settings_private.m.js';
-import {AutofillManagerExpectations, createAddressEntry, createCreditCardEntry, createExceptionEntry, createPasswordEntry, PaymentsManagerExpectations, TestAutofillManager, TestPaymentsManager} from 'chrome://test/settings/passwords_and_autofill_fake_data.js';
-import {makeCompromisedCredential} from 'chrome://test/settings/passwords_and_autofill_fake_data.js';
-import {TestOpenWindowProxy} from 'chrome://test/settings/test_open_window_proxy.js';
-import {PasswordManagerExpectations,TestPasswordManagerProxy} from 'chrome://test/settings/test_password_manager_proxy.js';
-import {TestPluralStringProxy} from 'chrome://test/test_plural_string_proxy.js';
+import {TestPluralStringProxy} from 'chrome://webui-test/test_plural_string_proxy.js';
+
+import {FakeSettingsPrivate} from './fake_settings_private.js';
+import {AutofillManagerExpectations, createAddressEntry, createCreditCardEntry, createExceptionEntry, createPasswordEntry, PaymentsManagerExpectations, TestAutofillManager, TestPaymentsManager} from './passwords_and_autofill_fake_data.js';
+import {makeCompromisedCredential} from './passwords_and_autofill_fake_data.js';
+import {TestOpenWindowProxy} from './test_open_window_proxy.js';
+import {PasswordManagerExpectations,TestPasswordManagerProxy} from './test_password_manager_proxy.js';
 
 // clang-format on
 
@@ -25,9 +26,12 @@ suite('PasswordsAndForms', function() {
     element.prefs = prefsElement.prefs;
     document.body.appendChild(element);
 
-    element.$$('dom-if[route-path="/passwords"]').if = true;
-    element.$$('dom-if[route-path="/payments"]').if = true;
-    element.$$('dom-if[route-path="/addresses"]').if = true;
+    element.shadowRoot.querySelector('dom-if[route-path="/passwords"]').if =
+        true;
+    element.shadowRoot.querySelector('dom-if[route-path="/payments"]').if =
+        true;
+    element.shadowRoot.querySelector('dom-if[route-path="/addresses"]').if =
+        true;
     flush();
     return element;
   }
@@ -140,15 +144,15 @@ suite('PasswordsAndForms', function() {
 
     // Override the PasswordManagerImpl for testing.
     passwordManager = new TestPasswordManagerProxy();
-    PasswordManagerImpl.instance_ = passwordManager;
+    PasswordManagerImpl.setInstance(passwordManager);
 
     // Override the AutofillManagerImpl for testing.
     autofillManager = new TestAutofillManager();
-    AutofillManagerImpl.instance_ = autofillManager;
+    AutofillManagerImpl.setInstance(autofillManager);
 
     // Override the PaymentsManagerImpl for testing.
     paymentsManager = new TestPaymentsManager();
-    PaymentsManagerImpl.instance_ = paymentsManager;
+    PaymentsManagerImpl.setInstance(paymentsManager);
   });
 
   test('baseLoadAndRemove', function() {
@@ -196,7 +200,7 @@ suite('PasswordsAndForms', function() {
 
       assertDeepEquals(
           list.map(entry => new MultiStorePasswordUiEntry(entry)),
-          element.$$('#passwordSection').savedPasswords);
+          element.shadowRoot.querySelector('#passwordSection').savedPasswords);
 
       // The callback is coming from the manager, so the element shouldn't
       // have additional calls to the manager after the base expectations.
@@ -221,7 +225,8 @@ suite('PasswordsAndForms', function() {
 
       assertDeepEquals(
           list.map(entry => new MultiStoreExceptionEntry(entry)),
-          element.$$('#passwordSection').passwordExceptions);
+          element.shadowRoot.querySelector('#passwordSection')
+              .passwordExceptions);
 
       // The callback is coming from the manager, so the element shouldn't
       // have additional calls to the manager after the base expectations.
@@ -243,7 +248,9 @@ suite('PasswordsAndForms', function() {
           addressList, cardList);
       flush();
 
-      assertEquals(addressList, element.$$('#autofillSection').addresses);
+      assertEquals(
+          addressList,
+          element.shadowRoot.querySelector('#autofillSection').addresses);
 
       // The callback is coming from the manager, so the element shouldn't
       // have additional calls to the manager after the base expectations.
@@ -265,7 +272,9 @@ suite('PasswordsAndForms', function() {
           addressList, cardList);
       flush();
 
-      assertEquals(cardList, element.$$('#paymentsSection').creditCards);
+      assertEquals(
+          cardList,
+          element.shadowRoot.querySelector('#paymentsSection').creditCards);
 
       // The callback is coming from the manager, so the element shouldn't
       // have additional calls to the manager after the base expectations.
@@ -302,12 +311,12 @@ suite('PasswordsUITest', function() {
 
   setup(function() {
     openWindowProxy = new TestOpenWindowProxy();
-    OpenWindowProxyImpl.instance_ = openWindowProxy;
+    OpenWindowProxyImpl.setInstance(openWindowProxy);
     // Override the PasswordManagerImpl for testing.
     passwordManager = new TestPasswordManagerProxy();
-    PasswordManagerImpl.instance_ = passwordManager;
+    PasswordManagerImpl.setInstance(passwordManager);
     pluralString = new TestPluralStringProxy();
-    SettingsPluralStringProxyImpl.instance_ = pluralString;
+    SettingsPluralStringProxyImpl.setInstance(pluralString);
 
     autofillPage = createAutofillPageSection();
   });
@@ -319,7 +328,9 @@ suite('PasswordsUITest', function() {
   test('Compromised Credential', async function() {
     // Check if sublabel is empty
     assertEquals(
-        '', autofillPage.$$('#passwordManagerSubLabel').innerText.trim());
+        '',
+        autofillPage.shadowRoot.querySelector('#passwordManagerSubLabel')
+            .innerText.trim());
 
     // Simulate one compromised password
     const leakedPasswords = [
@@ -335,6 +346,8 @@ suite('PasswordsUITest', function() {
 
     // With compromised credentials sublabel should have text
     assertNotEquals(
-        '', autofillPage.$$('#passwordManagerSubLabel').innerText.trim());
+        '',
+        autofillPage.shadowRoot.querySelector('#passwordManagerSubLabel')
+            .innerText.trim());
   });
 });

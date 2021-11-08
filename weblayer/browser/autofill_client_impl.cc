@@ -4,11 +4,13 @@
 
 #include "weblayer/browser/autofill_client_impl.h"
 
-#include "base/stl_util.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
+#include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
+#include "services/metrics/public/cpp/ukm_recorder.h"
 #include "weblayer/browser/translate_client_impl.h"
 
 namespace weblayer {
@@ -61,12 +63,12 @@ autofill::StrikeDatabase* AutofillClientImpl::GetStrikeDatabase() {
 }
 
 ukm::UkmRecorder* AutofillClientImpl::GetUkmRecorder() {
-  NOTREACHED();
+  // TODO(crbug.com/1181141): Enable the autofill UKM.
   return nullptr;
 }
 
 ukm::SourceId AutofillClientImpl::GetUkmSourceId() {
-  NOTREACHED();
+  // TODO(crbug.com/1181141): Enable the autofill UKM.
   return ukm::kInvalidSourceId;
 }
 
@@ -91,7 +93,7 @@ const translate::LanguageState* AutofillClientImpl::GetLanguageState() {
 }
 
 translate::TranslateDriver* AutofillClientImpl::GetTranslateDriver() {
-  // The TranslateDriver is used by AutofillHandler to observe the page language
+  // The TranslateDriver is used by AutofillManager to observe the page language
   // and run the type-prediction heuristics with language-dependent regexps.
   auto* translate_client = TranslateClientImpl::FromWebContents(web_contents());
   if (translate_client)
@@ -142,7 +144,7 @@ void AutofillClientImpl::ConfirmMigrateLocalCardToCloud(
 
 void AutofillClientImpl::ShowLocalCardMigrationResults(
     const bool has_server_error,
-    const base::string16& tip_message,
+    const std::u16string& tip_message,
     const std::vector<autofill::MigratableCreditCard>& migratable_credit_cards,
     MigrationDeleteCardCallback delete_local_card_callback) {
   NOTREACHED();
@@ -181,13 +183,13 @@ void AutofillClientImpl::OfferVirtualCardOptions(
 
 #else  // defined(OS_ANDROID)
 void AutofillClientImpl::ConfirmAccountNameFixFlow(
-    base::OnceCallback<void(const base::string16&)> callback) {
+    base::OnceCallback<void(const std::u16string&)> callback) {
   NOTREACHED();
 }
 
 void AutofillClientImpl::ConfirmExpirationDateFixFlow(
     const autofill::CreditCard& card,
-    base::OnceCallback<void(const base::string16&, const base::string16&)>
+    base::OnceCallback<void(const std::u16string&, const std::u16string&)>
         callback) {
   NOTREACHED();
 }
@@ -220,6 +222,8 @@ void AutofillClientImpl::ConfirmCreditCardFillAssist(
 
 void AutofillClientImpl::ConfirmSaveAddressProfile(
     const autofill::AutofillProfile& profile,
+    const autofill::AutofillProfile* original_profile,
+    SaveAddressProfilePromptOptions options,
     AddressProfileSavePromptCallback callback) {
   NOTREACHED();
 }
@@ -240,8 +244,8 @@ void AutofillClientImpl::ShowAutofillPopup(
 }
 
 void AutofillClientImpl::UpdateAutofillPopupDataListValues(
-    const std::vector<base::string16>& values,
-    const std::vector<base::string16>& labels) {
+    const std::vector<std::u16string>& values,
+    const std::vector<std::u16string>& labels) {
   NOTREACHED();
 }
 
@@ -286,8 +290,8 @@ void AutofillClientImpl::PropagateAutofillPredictions(
 }
 
 void AutofillClientImpl::DidFillOrPreviewField(
-    const base::string16& autofilled_value,
-    const base::string16& profile_full_name) {
+    const std::u16string& autofilled_value,
+    const std::u16string& profile_full_name) {
   NOTREACHED();
 }
 
@@ -318,6 +322,6 @@ void AutofillClientImpl::LoadRiskData(
 AutofillClientImpl::AutofillClientImpl(content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents) {}
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(AutofillClientImpl)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(AutofillClientImpl);
 
 }  // namespace weblayer

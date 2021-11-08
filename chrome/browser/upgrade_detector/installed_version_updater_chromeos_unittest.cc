@@ -11,7 +11,7 @@
 #include "chrome/browser/upgrade_detector/build_state.h"
 #include "chrome/browser/upgrade_detector/mock_build_state_observer.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/fake_update_engine_client.h"
+#include "chromeos/dbus/update_engine/fake_update_engine_client.h"
 #include "chromeos/dbus/update_engine/update_engine.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -30,6 +30,7 @@ class InstalledVersionUpdaterTest : public ::testing::Test {
     auto fake_update_engine_client =
         std::make_unique<chromeos::FakeUpdateEngineClient>();
     fake_update_engine_client_ = fake_update_engine_client.get();
+    chromeos::DBusThreadManager::Initialize();
     chromeos::DBusThreadManager::GetSetterForTesting()->SetUpdateEngineClient(
         std::move(fake_update_engine_client));
 
@@ -80,9 +81,20 @@ TEST_F(InstalledVersionUpdaterTest, Update) {
                               Eq(BuildState::UpdateType::kNormalUpdate)),
                      Property(&BuildState::installed_version, IsTrue()),
                      Property(&BuildState::installed_version,
-                              Eq(base::Optional<base::Version>(
+                              Eq(absl::optional<base::Version>(
                                   base::Version(new_version)))),
                      Property(&BuildState::critical_version, IsFalse()))));
+  NotifyStatusChanged(std::move(status));
+
+  // Change status back to IDLE to invalidate the update.
+  status.set_current_operation(update_engine::IDLE);
+  // Resets build state.
+  EXPECT_CALL(
+      mock_observer_,
+      OnUpdate(AllOf(
+          Eq(&build_state_),
+          Property(&BuildState::update_type, Eq(BuildState::UpdateType::kNone)),
+          Property(&BuildState::critical_version, IsFalse()))));
   NotifyStatusChanged(std::move(status));
 }
 
@@ -104,7 +116,7 @@ TEST_F(InstalledVersionUpdaterTest, Rollback) {
                               Eq(BuildState::UpdateType::kEnterpriseRollback)),
                      Property(&BuildState::installed_version, IsTrue()),
                      Property(&BuildState::installed_version,
-                              Eq(base::Optional<base::Version>(
+                              Eq(absl::optional<base::Version>(
                                   base::Version(new_version)))),
                      Property(&BuildState::critical_version, IsFalse()))));
   NotifyStatusChanged(std::move(status));
@@ -129,7 +141,7 @@ TEST_F(InstalledVersionUpdaterTest, ChannelChange) {
           Property(&BuildState::installed_version, IsTrue()),
           Property(
               &BuildState::installed_version,
-              Eq(base::Optional<base::Version>(base::Version(new_version)))),
+              Eq(absl::optional<base::Version>(base::Version(new_version)))),
           Property(&BuildState::critical_version, IsFalse()))));
   NotifyStatusChanged(std::move(status));
   task_environment_.RunUntilIdle();

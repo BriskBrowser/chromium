@@ -11,10 +11,10 @@
 #include <string>
 
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "base/synchronization/lock.h"
 #include "chrome/updater/app/server/win/updater_legacy_idl.h"
 #include "chrome/updater/update_service.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -141,8 +141,37 @@ class LegacyOnDemandImpl
   // Access to these members must be serialized by using the lock.
   mutable base::Lock lock_;
   std::string app_id_;
-  base::Optional<UpdateService::UpdateState> state_update_;
-  base::Optional<UpdateService::Result> result_;
+  absl::optional<UpdateService::UpdateState> state_update_;
+  absl::optional<UpdateService::Result> result_;
+};
+
+// This class implements the legacy Omaha3 IProcessLauncher interface as
+// expected by Chrome's setup client.
+class LegacyProcessLauncherImpl
+    : public Microsoft::WRL::RuntimeClass<
+          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+          IProcessLauncher,
+          IProcessLauncher2> {
+ public:
+  LegacyProcessLauncherImpl();
+  LegacyProcessLauncherImpl(const LegacyProcessLauncherImpl&) = delete;
+  LegacyProcessLauncherImpl& operator=(const LegacyProcessLauncherImpl&) =
+      delete;
+
+  // Overrides for IProcessLauncher/IProcessLauncher2.
+  IFACEMETHODIMP LaunchCmdLine(const WCHAR* cmd_line) override;
+  IFACEMETHODIMP LaunchBrowser(DWORD browser_type, const WCHAR* url) override;
+  IFACEMETHODIMP LaunchCmdElevated(const WCHAR* app_guid,
+                                   const WCHAR* cmd_id,
+                                   DWORD caller_proc_id,
+                                   ULONG_PTR* proc_handle) override;
+  IFACEMETHODIMP LaunchCmdLineEx(const WCHAR* cmd_line,
+                                 DWORD* server_proc_id,
+                                 ULONG_PTR* proc_handle,
+                                 ULONG_PTR* stdout_handle) override;
+
+ private:
+  ~LegacyProcessLauncherImpl() override;
 };
 
 }  // namespace updater

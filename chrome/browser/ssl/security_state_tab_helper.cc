@@ -18,9 +18,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/reputation/reputation_web_contents_observer.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/browser/safe_browsing/ui_manager.h"
+#include "chrome/browser/ssl/https_only_mode_tab_helper.h"
 #include "chrome/browser/ssl/known_interception_disclosure_infobar_delegate.h"
-#include "chrome/browser/ssl/tls_deprecation_config.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -31,7 +30,7 @@
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/buildflags.h"
-#include "components/security_interstitials/core/features.h"
+#include "components/safe_browsing/content/browser/ui_manager.h"
 #include "components/security_interstitials/core/pref_names.h"
 #include "components/security_state/content/content_utils.h"
 #include "content/public/browser/browser_context.h"
@@ -45,14 +44,16 @@
 #include "net/cert/x509_certificate.h"
 #include "net/ssl/ssl_cipher_suite_names.h"
 #include "net/ssl/ssl_connection_status_flags.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
+#include "services/metrics/public/cpp/ukm_recorder.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/policy/policy_cert_service.h"
-#include "chrome/browser/chromeos/policy/policy_cert_service_factory.h"
+#include "chrome/browser/ash/policy/networking/policy_cert_service.h"
+#include "chrome/browser/ash/policy/networking/policy_cert_service_factory.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(FULL_SAFE_BROWSING)
@@ -73,50 +74,6 @@ void RecordSecurityLevel(
                               security_level,
                               security_state::SECURITY_LEVEL_COUNT);
   }
-}
-
-// Writes the SSL protocol version represented by a string to |version|, if the
-// version string is recognized.
-void SSLProtocolVersionFromString(const std::string& version_str,
-                                  net::SSLVersion* version) {
-  if (version_str == switches::kSSLVersionTLSv1) {
-    *version = net::SSLVersion::SSL_CONNECTION_VERSION_TLS1;
-  } else if (version_str == switches::kSSLVersionTLSv11) {
-    *version = net::SSLVersion::SSL_CONNECTION_VERSION_TLS1_1;
-  } else if (version_str == switches::kSSLVersionTLSv12) {
-    *version = net::SSLVersion::SSL_CONNECTION_VERSION_TLS1_2;
-  } else if (version_str == switches::kSSLVersionTLSv13) {
-    *version = net::SSLVersion::SSL_CONNECTION_VERSION_TLS1_3;
-  }
-  return;
-}
-
-bool IsLegacyTLS(GURL url, int connection_status) {
-  if (!url.SchemeIsCryptographic())
-    return false;
-
-  // Mark the connection as legacy TLS if it is under the minimum version. By
-  // default we treat TLS < 1.2 as Legacy, unless the "SSLVersionMin" policy is
-  // set.
-  std::string ssl_version_min_str = switches::kSSLVersionTLSv12;
-  PrefService* local_state = g_browser_process->local_state();
-  if (local_state && local_state->HasPrefPath(prefs::kSSLVersionMin)) {
-    ssl_version_min_str = local_state->GetString(prefs::kSSLVersionMin);
-  }
-
-  // Convert the pref string to an SSLVersion, if it is valid. Otherwise use the
-  // default of TLS1_2.
-  net::SSLVersion ssl_version_min =
-      net::SSLVersion::SSL_CONNECTION_VERSION_TLS1_2;
-  SSLProtocolVersionFromString(ssl_version_min_str, &ssl_version_min);
-
-  net::SSLVersion ssl_version =
-      net::SSLConnectionStatusToVersion(connection_status);
-
-  // Signed Exchanges do not have connection status set. Exclude unknown TLS
-  // versions from legacy TLS treatment. See https://crbug.com/1041773.
-  return ssl_version != net::SSL_CONNECTION_VERSION_UNKNOWN &&
-         ssl_version < ssl_version_min;
 }
 
 }  // namespace
@@ -142,28 +99,6 @@ std::unique_ptr<security_state::VisibleSecurityState>
 SecurityStateTabHelper::GetVisibleSecurityState() {
   auto state = security_state::GetVisibleSecurityState(web_contents());
 
-  if (state->connection_info_initialized) {
-    state->connection_used_legacy_tls =
-        IsLegacyTLS(state->url, state->connection_status);
-    if (state->connection_used_legacy_tls) {
-      // We cache the results of the lookup for the duration of a navigation
-      // entry.
-      int navigation_id =
-          web_contents()->GetController().GetVisibleEntry()->GetUniqueID();
-      if (cached_should_suppress_legacy_tls_warning_ &&
-          cached_should_suppress_legacy_tls_warning_.value().first ==
-              navigation_id) {
-        state->should_suppress_legacy_tls_warning =
-            cached_should_suppress_legacy_tls_warning_.value().second;
-      } else {
-        state->should_suppress_legacy_tls_warning =
-            ShouldSuppressLegacyTLSWarning(state->url);
-        cached_should_suppress_legacy_tls_warning_ = std::pair<int, bool>(
-            navigation_id, state->should_suppress_legacy_tls_warning);
-      }
-    }
-  }
-
   // Malware status might already be known even if connection security
   // information is still being initialized, thus no need to check for that.
   state->malicious_content_status = GetMaliciousContentStatus();
@@ -177,19 +112,20 @@ SecurityStateTabHelper::GetVisibleSecurityState() {
           : security_state::SafetyTipInfo(
                 {security_state::SafetyTipStatus::kUnknown, GURL()});
 
-  // If both the on-form warning and the on-submit warning are enabled for mixed
-  // forms (and they are not disabled by policy) we don't degrade the lock icon
-  // for sites with mixed forms present.
-  if (base::FeatureList::IsEnabled(
-          security_interstitials::kInsecureFormSubmissionInterstitial) &&
-      base::FeatureList::IsEnabled(
-          autofill::features::kAutofillPreventMixedFormsFilling)) {
-    Profile* profile =
-        Profile::FromBrowserContext(web_contents()->GetBrowserContext());
-    if (profile &&
-        profile->GetPrefs()->GetBoolean(prefs::kMixedFormsWarningsEnabled)) {
-      state->should_treat_displayed_mixed_forms_as_secure = true;
-    }
+  // If both the mixed form warnings are not disabled by policy we don't degrade
+  // the lock icon for sites with mixed forms present.
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  if (profile &&
+      profile->GetPrefs()->GetBoolean(prefs::kMixedFormsWarningsEnabled)) {
+    state->should_treat_displayed_mixed_forms_as_secure = true;
+  }
+
+  auto* https_only_mode_tab_helper =
+      HttpsOnlyModeTabHelper::FromWebContents(web_contents());
+  if (https_only_mode_tab_helper &&
+      https_only_mode_tab_helper->is_navigation_upgraded()) {
+    state->is_https_only_mode_upgraded = true;
   }
 
   return state;
@@ -204,9 +140,6 @@ void SecurityStateTabHelper::DidStartNavigation(
     UMA_HISTOGRAM_ENUMERATION(
         "Security.SafetyTips.FormSubmission",
         GetVisibleSecurityState()->safety_tip_info.status);
-    UMA_HISTOGRAM_BOOLEAN(
-        "Security.LegacyTLS.FormSubmission",
-        GetLegacyTLSWarningStatus(*GetVisibleSecurityState()));
     if (navigation_handle->IsInMainFrame() &&
         !security_state::IsSchemeCryptographic(
             GetVisibleSecurityState()->url)) {
@@ -214,6 +147,18 @@ void SecurityStateTabHelper::DidStartNavigation(
           "Security.SecurityLevel.InsecureMainFrameFormSubmission",
           GetSecurityLevel(), security_state::SECURITY_LEVEL_COUNT);
     }
+
+    if (navigation_handle->GetURL().SchemeIs(url::kHttpsScheme)) {
+      ukm::UkmRecorder* ukm_recorder = ukm::UkmRecorder::Get();
+      CHECK(ukm_recorder);
+      ukm::SourceId source_id =
+          ukm::ConvertToSourceId(navigation_handle->GetNavigationId(),
+                                 ukm::SourceIdType::NAVIGATION_ID);
+      ukm::builders::OmniboxSecurityIndicator_FormSubmission(source_id)
+          .SetSubmitted(true)
+          .Record(ukm_recorder);
+    }
+
   } else if (navigation_handle->IsInMainFrame() &&
              !security_state::IsSchemeCryptographic(
                  GetVisibleSecurityState()->url)) {
@@ -225,26 +170,17 @@ void SecurityStateTabHelper::DidStartNavigation(
 
 void SecurityStateTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  // Ignore subframe navigations, same-document navigations, and navigations
-  // that did not commit (e.g. HTTP/204 or file downloads).
-  if (!navigation_handle->IsInMainFrame() ||
+  // Ignore non-primary FrameTree navigations, subframe navigations,
+  // same-document navigations, and navigations that did not commit (e.g.
+  // HTTP/204 or file downloads).
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       navigation_handle->IsSameDocument() ||
       !navigation_handle->HasCommitted()) {
     return;
   }
 
-  content::NavigationEntry* entry =
-      web_contents()->GetController().GetLastCommittedEntry();
-  if (entry) {
-    UMA_HISTOGRAM_ENUMERATION(
-        "Security.CertificateTransparency.MainFrameNavigationCompliance",
-        entry->GetSSL().ct_policy_compliance,
-        net::ct::CTPolicyCompliance::CT_POLICY_COUNT);
-  }
-
-  std::unique_ptr<security_state::VisibleSecurityState> visible_security_state =
-      GetVisibleSecurityState();
-  if (net::IsCertStatusError(visible_security_state->cert_status) &&
+  net::CertStatus cert_status = GetVisibleSecurityState()->cert_status;
+  if (net::IsCertStatusError(cert_status) &&
       !navigation_handle->IsErrorPage()) {
     // Record each time a user visits a site after having clicked through a
     // certificate warning interstitial. This is used as a baseline for
@@ -254,8 +190,7 @@ void SecurityStateTabHelper::DidFinishNavigation(
     UMA_HISTOGRAM_BOOLEAN("interstitial.ssl.visited_site_after_warning", true);
   }
 
-  MaybeShowKnownInterceptionDisclosureDialog(
-      web_contents(), visible_security_state->cert_status);
+  MaybeShowKnownInterceptionDisclosureDialog(web_contents(), cert_status);
 }
 
 void SecurityStateTabHelper::DidChangeVisibleSecurityState() {
@@ -310,10 +245,8 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
           return security_state::
               MALICIOUS_CONTENT_STATUS_SIGNED_IN_SYNC_PASSWORD_REUSE;
         }
-        // If user has already changed Gaia password, returns the regular
-        // social engineering content status.
-        return security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING;
 #endif
+        FALLTHROUGH;
       case safe_browsing::SB_THREAT_TYPE_SIGNED_IN_NON_SYNC_PASSWORD_REUSE:
 #if BUILDFLAG(FULL_SAFE_BROWSING)
         if (safe_browsing::ChromePasswordProtectionService::
@@ -322,10 +255,8 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
           return security_state::
               MALICIOUS_CONTENT_STATUS_SIGNED_IN_NON_SYNC_PASSWORD_REUSE;
         }
-        // If user has already changed Gaia password, returns the regular
-        // social engineering content status.
-        return security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING;
 #endif
+        FALLTHROUGH;
       case safe_browsing::SB_THREAT_TYPE_ENTERPRISE_PASSWORD_REUSE:
 #if BUILDFLAG(FULL_SAFE_BROWSING)
         if (safe_browsing::ChromePasswordProtectionService::
@@ -334,10 +265,10 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
           return security_state::
               MALICIOUS_CONTENT_STATUS_ENTERPRISE_PASSWORD_REUSE;
         }
-        // If user has already changed Gaia password, returns the regular
-        // social engineering content status.
-        return security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING;
 #endif
+        // If user has already changed password or FULL_SAFE_BROWSING isn't
+        // enabled, returns the regular social engineering content status.
+        return security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING;
       case safe_browsing::SB_THREAT_TYPE_BILLING:
         return security_state::MALICIOUS_CONTENT_STATUS_BILLING;
       case safe_browsing::
@@ -354,6 +285,7 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
       case safe_browsing::SB_THREAT_TYPE_SUSPICIOUS_SITE:
       case safe_browsing::SB_THREAT_TYPE_APK_DOWNLOAD:
       case safe_browsing::SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST:
+      case safe_browsing::SB_THREAT_TYPE_ACCURACY_TIPS:
         // These threat types are not currently associated with
         // interstitials, and thus resources with these threat types are
         // not ever whitelisted or pending whitelisting.
@@ -364,4 +296,4 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
   return security_state::MALICIOUS_CONTENT_STATUS_NONE;
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(SecurityStateTabHelper)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SecurityStateTabHelper);

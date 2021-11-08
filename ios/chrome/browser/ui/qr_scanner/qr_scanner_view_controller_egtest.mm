@@ -44,6 +44,11 @@ class ScopedQRScannerVoiceSearchOverride {
                                                     isOn:YES];
   }
 
+  ScopedQRScannerVoiceSearchOverride(
+      const ScopedQRScannerVoiceSearchOverride&) = delete;
+  ScopedQRScannerVoiceSearchOverride& operator=(
+      const ScopedQRScannerVoiceSearchOverride&) = delete;
+
   ~ScopedQRScannerVoiceSearchOverride() {
     [QRScannerAppInterface overrideVoiceOverCheckForQRScannerViewController:
                                scanner_view_controller_
@@ -52,16 +57,7 @@ class ScopedQRScannerVoiceSearchOverride {
 
  private:
   UIViewController* scanner_view_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedQRScannerVoiceSearchOverride);
 };
-
-// TODO(crbug.com/1015113) The EG2 macro is breaking indexing for some reason
-// without the trailing semicolon.  For now, disable the extra semi warning
-// so Xcode indexing works for the egtest.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
-GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(QRScannerAppInterface);
 
 namespace {
 
@@ -75,6 +71,7 @@ char kTestQueryURL[] = "/search";
 char kTestQueryURLParams[] = "?q={searchTerms}";
 char kTestQueryResponse[] = "Query: testquery";
 char kTestQueryEditedResponse[] = "Query: testqueredited";
+char kTestURLForbiddenCharacters[] = "test\u2028\u2029\u0085url";
 
 char kTestDataURL[] = "data:dataURL";
 char kTestSanitizedDataURL[] = "\"data:dataURL\"";
@@ -568,7 +565,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 
 // Tests that a UIAlertController is presented by the QRScannerViewController if
 // the camera state changes after the QRScannerViewController is presented.
-// TODO(crbug.com/1019211): Re-enable test on iOS12.
 - (void)testDialogIsDisplayedIfCameraStateChanges {
   id cameraControllerMock =
       [QRScannerAppInterface cameraControllerMockWithAuthorizationStatus:
@@ -770,6 +766,16 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
                          edit:nil];
 }
 
+// Test that the URL is sanitized and the correct page is loaded if the scanner
+// result is a URL with forbidden characters.
+- (void)testForbiddenCharactersRemoved {
+  [self doTestReceivingResult:self.testServer->base_url().GetContent() +
+                              kTestURLForbiddenCharacters
+              sanitizedResult:_testURL.GetContent()
+                     response:kTestURLResponse
+                         edit:nil];
+}
+
 // Test that the correct page is loaded if the scanner result is a URL which is
 // then manually edited.
 - (void)testReceivingQRScannerURLResultAndEditingTheURL {
@@ -792,12 +798,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 // Test that the correct page is loaded if the scanner result is a search query
 // which is then manually edited.
 - (void)testReceivingQRScannerSearchQueryResultAndEditingTheQuery {
-  // TODO(crbug.com/753098): Re-enable this test on iPad once grey_typeText
-  // works.
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_DISABLED(@"Test disabled on iPad.");
-  }
-
   [self doTestReceivingResult:kTestQuery
                      response:kTestQueryEditedResponse
                          edit:@"\bedited"];

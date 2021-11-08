@@ -30,9 +30,12 @@ class EntryPicker : public ui::SelectFileDialog::Listener {
               content::WebContents* web_contents,
               ui::SelectFileDialog::Type picker_type,
               const base::FilePath& last_directory,
-              const base::string16& select_title,
+              const std::u16string& select_title,
               const ui::SelectFileDialog::FileTypeInfo& info,
               int file_type_index);
+
+  EntryPicker(const EntryPicker&) = delete;
+  EntryPicker& operator=(const EntryPicker&) = delete;
 
   // Allow picker UI to be skipped in testing.
   static void SkipPickerAndAlwaysSelectPathForTest(base::FilePath* path);
@@ -53,8 +56,6 @@ class EntryPicker : public ui::SelectFileDialog::Listener {
 
   scoped_refptr<ui::SelectFileDialog> select_file_dialog_;
   EntryPickerClient* client_;
-
-  DISALLOW_COPY_AND_ASSIGN(EntryPicker);
 };
 
 }  // namespace api

@@ -26,8 +26,7 @@ namespace sandbox_handler {
 namespace {
 
 base::Value FetchBrowserChildProcesses() {
-  // The |BrowserChildProcessHostIterator| must only be used on the IO thread.
-  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   base::Value browser_processes(base::Value::Type::LIST);
 
   for (BrowserChildProcessHostIterator itr; !itr.Done(); ++itr) {
@@ -82,7 +81,7 @@ SandboxHandler::~SandboxHandler() = default;
 void SandboxHandler::RegisterMessages() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "requestSandboxDiagnostics",
       base::BindRepeating(&SandboxHandler::HandleRequestSandboxDiagnostics,
                           base::Unretained(this)));
@@ -97,16 +96,7 @@ void SandboxHandler::HandleRequestSandboxDiagnostics(
 
   AllowJavascript();
 
-  content::GetIOThreadTaskRunner({})->PostTaskAndReplyWithResult(
-      FROM_HERE, base::BindOnce(&FetchBrowserChildProcesses),
-      base::BindOnce(&SandboxHandler::FetchBrowserChildProcessesCompleted,
-                     weak_ptr_factory_.GetWeakPtr()));
-}
-
-void SandboxHandler::FetchBrowserChildProcessesCompleted(
-    base::Value browser_processes) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  browser_processes_ = std::move(browser_processes);
+  browser_processes_ = FetchBrowserChildProcesses();
 
   sandbox::policy::SandboxWin::GetPolicyDiagnostics(
       base::BindOnce(&SandboxHandler::FetchSandboxDiagnosticsCompleted,

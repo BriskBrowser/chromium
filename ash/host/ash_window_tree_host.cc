@@ -6,11 +6,12 @@
 
 #include <memory>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/host/ash_window_tree_host_init_params.h"
 #include "ash/host/ash_window_tree_host_mirroring_unified.h"
 #include "ash/host/ash_window_tree_host_platform.h"
 #include "ash/host/ash_window_tree_host_unified.h"
-#include "ash/public/cpp/ash_switches.h"
 #include "base/command_line.h"
 #include "base/system/sys_info.h"
 #include "ui/aura/client/screen_position_client.h"
@@ -78,7 +79,7 @@ std::unique_ptr<AshWindowTreeHost> AshWindowTreeHost::Create(
   return std::make_unique<AshWindowTreeHostPlatform>(
       ui::PlatformWindowInitProperties{
           init_params.initial_bounds,
-          switches::IsCompositingBasedThrottlingEnabled()});
+          features::IsCompositingBasedThrottlingEnabled()});
 }
 
 }  // namespace ash

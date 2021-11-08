@@ -4,40 +4,13 @@
 
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {assertArrayEquals, assertEquals, assertNotEquals, assertTrue} from 'chrome://test/chai_assert.js';
-import {installMockChrome} from '../../../base/js/mock_chrome.m.js';
-import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
-import {MockVolumeManager} from '../../background/js/mock_volume_manager.m.js';
-import {MockDirectoryEntry, MockEntry} from '../../common/js/mock_entry.m.js';
-import {CommandHandler, CommandUtil} from './file_manager_commands.m.js';
-import {FileTasks} from './file_tasks.m.js';
 
-/**
- * Checks that a correct sharing action source is extracted from an event.
- */
-export function testGetSharingActionSource() {
-  const testData = [
-    {
-      event: {target: {id: CommandUtil.SharingActionElementId.CONTEXT_MENU}},
-      expected: FileTasks.SharingActionSourceForUMA.CONTEXT_MENU,
-    },
-    {
-      event: {target: {id: CommandUtil.SharingActionElementId.SHARE_BUTTON}},
-      expected: FileTasks.SharingActionSourceForUMA.SHARE_BUTTON,
-    },
-    {
-      event: {target: {id: '__no_such_id__'}},
-      expected: FileTasks.SharingActionSourceForUMA.UNKNOWN,
-    },
-    {
-      event: {target: {id: null}},
-      expected: FileTasks.SharingActionSourceForUMA.UNKNOWN,
-    },
-  ];
-  for (const data of testData) {
-    const source = CommandUtil.getSharingActionSource(data.event);
-    assertEquals(data.expected, source);
-  }
-}
+import {MockVolumeManager} from '../../background/js/mock_volume_manager.js';
+import {installMockChrome} from '../../common/js/mock_chrome.js';
+import {MockDirectoryEntry, MockEntry} from '../../common/js/mock_entry.js';
+import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
+
+import {CommandHandler} from './file_manager_commands.js';
 
 /**
  * Checks that the `toggle-holding-space` command is appropriately enabled/
@@ -49,10 +22,13 @@ export function testToggleHoldingSpaceCommand() {
   assertNotEquals(command, undefined);
 
   // Enable the holding space feature and provide strings.
-  loadTimeData.data = {
+  loadTimeData.resetForTesting({
     HOLDING_SPACE_ENABLED: true,
     HOLDING_SPACE_PIN_TO_SHELF_COMMAND_LABEL: 'Pin to shelf',
     HOLDING_SPACE_UNPIN_TO_SHELF_COMMAND_LABEL: 'Unpin to shelf',
+  });
+  loadTimeData.getString = id => {
+    return loadTimeData.data_[id] || id;
   };
 
   /**

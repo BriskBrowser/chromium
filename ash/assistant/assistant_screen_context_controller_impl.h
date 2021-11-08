@@ -17,11 +17,11 @@
 #include "ash/public/cpp/assistant/controller/assistant_screen_context_controller.h"
 #include "base/callback_forward.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/scoped_observation.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/mojom/ax_assistant_structure.mojom.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -46,6 +46,12 @@ class ASH_EXPORT AssistantScreenContextControllerImpl
 
   explicit AssistantScreenContextControllerImpl(
       AssistantControllerImpl* assistant_controller);
+
+  AssistantScreenContextControllerImpl(
+      const AssistantScreenContextControllerImpl&) = delete;
+  AssistantScreenContextControllerImpl& operator=(
+      const AssistantScreenContextControllerImpl&) = delete;
+
   ~AssistantScreenContextControllerImpl() override;
 
   // Provides a pointer to the |assistant| owned by AssistantService.
@@ -66,8 +72,8 @@ class ASH_EXPORT AssistantScreenContextControllerImpl
   void OnUiVisibilityChanged(
       AssistantVisibility new_visibility,
       AssistantVisibility old_visibility,
-      base::Optional<AssistantEntryPoint> entry_point,
-      base::Optional<AssistantExitPoint> exit_point) override;
+      absl::optional<AssistantEntryPoint> entry_point,
+      absl::optional<AssistantExitPoint> exit_point) override;
 
   // AssistantViewDelegateObserver:
   void OnHostViewVisibilityChanged(bool visible) override;
@@ -109,8 +115,6 @@ class ASH_EXPORT AssistantScreenContextControllerImpl
 
   base::WeakPtrFactory<AssistantScreenContextControllerImpl> weak_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantScreenContextControllerImpl);
 };
 
 }  // namespace ash

@@ -8,7 +8,7 @@
 #include "chrome/browser/banners/app_banner_manager_desktop.h"
 
 #include "base/macros.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 class WebContents;
@@ -21,6 +21,11 @@ namespace webapps {
 class TestAppBannerManagerDesktop : public AppBannerManagerDesktop {
  public:
   explicit TestAppBannerManagerDesktop(content::WebContents* web_contents);
+
+  TestAppBannerManagerDesktop(const TestAppBannerManagerDesktop&) = delete;
+  TestAppBannerManagerDesktop& operator=(const TestAppBannerManagerDesktop&) =
+      delete;
+
   ~TestAppBannerManagerDesktop() override;
 
   // Ensure this test class will be instantiated in place of
@@ -69,13 +74,11 @@ class TestAppBannerManagerDesktop : public AppBannerManagerDesktop {
   void SetInstallable(bool installable);
   void OnFinished();
 
-  base::Optional<bool> installable_;
+  absl::optional<bool> installable_;
   base::OnceClosure tear_down_quit_closure_;
   base::OnceClosure installable_quit_closure_;
   base::OnceClosure on_done_;
   base::OnceClosure on_install_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestAppBannerManagerDesktop);
 };
 
 }  // namespace webapps

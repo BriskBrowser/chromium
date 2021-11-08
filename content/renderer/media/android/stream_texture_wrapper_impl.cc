@@ -8,6 +8,7 @@
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
+#include "base/task/bind_post_task.h"
 #include "cc/layers/video_frame_provider.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/shared_image_interface.h"
@@ -37,6 +38,12 @@ StreamTextureWrapperImpl::StreamTextureWrapperImpl(
 
 StreamTextureWrapperImpl::~StreamTextureWrapperImpl() {
   DCHECK(main_task_runner_->BelongsToCurrentThread());
+
+  // Clears create video frame callback so it couldn't be called from compositor
+  // thread after |this| is being destroyed.
+  if (stream_texture_proxy_)
+    stream_texture_proxy_->ClearCreateVideoFrameCB();
+
   SetCurrentFrameInternal(nullptr);
 }
 
@@ -57,7 +64,7 @@ void StreamTextureWrapperImpl::CreateVideoFrame(
     const gpu::Mailbox& mailbox,
     const gfx::Size& coded_size,
     const gfx::Rect& visible_rect,
-    const base::Optional<gpu::VulkanYCbCrInfo>& ycbcr_info) {
+    const absl::optional<gpu::VulkanYCbCrInfo>& ycbcr_info) {
   // This message comes from GPU process when the SharedImage is already
   // created, so we don't need to wait on any synctoken, mailbox is ready to
   // use.
@@ -79,7 +86,7 @@ void StreamTextureWrapperImpl::CreateVideoFrame(
   scoped_refptr<media::VideoFrame> new_frame =
       media::VideoFrame::WrapNativeTextures(
           media::PIXEL_FORMAT_ABGR, holders,
-          media::BindToLoop(
+          base::BindPostTask(
               main_task_runner_,
               base::BindOnce(&OnReleaseVideoFrame, factory_, mailbox)),
           coded_size, visible_rect, visible_rect.size(), base::TimeDelta());

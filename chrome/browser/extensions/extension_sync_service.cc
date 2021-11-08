@@ -4,7 +4,6 @@
 
 #include "chrome/browser/extensions/extension_sync_service.h"
 
-#include <memory>
 #include <utility>
 
 #include "base/auto_reset.h"
@@ -19,20 +18,17 @@
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/sync_start_util.h"
-#include "chrome/browser/web_applications/components/install_manager.h"
-#include "chrome/browser/web_applications/components/web_app_provider_base.h"
-#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "components/sync/model/sync_change.h"
 #include "components/sync/model/sync_error_factory.h"
 #include "extensions/browser/app_sorting.h"
+#include "extensions/browser/blocklist_extension_prefs.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
-#include "extensions/common/image_util.h"
 #include "extensions/common/permissions/permission_message_provider.h"
 #include "extensions/common/permissions/permissions_data.h"
 
@@ -120,8 +116,8 @@ ExtensionSyncService::ExtensionSyncService(Profile* profile)
       system_(ExtensionSystem::Get(profile_)),
       ignore_updates_(false),
       flare_(sync_start_util::GetFlareForSyncableService(profile->GetPath())) {
-  registry_observer_.Add(ExtensionRegistry::Get(profile_));
-  prefs_observer_.Add(ExtensionPrefs::Get(profile_));
+  registry_observation_.Observe(ExtensionRegistry::Get(profile_));
+  prefs_observation_.Observe(ExtensionPrefs::Get(profile_));
 }
 
 ExtensionSyncService::~ExtensionSyncService() {
@@ -157,7 +153,7 @@ void ExtensionSyncService::WaitUntilReadyToSync(base::OnceClosure done) {
   system_->ready().Post(FROM_HERE, std::move(done));
 }
 
-base::Optional<syncer::ModelError>
+absl::optional<syncer::ModelError>
 ExtensionSyncService::MergeDataAndStartSyncing(
     syncer::ModelType type,
     const syncer::SyncDataList& initial_sync_data,
@@ -183,6 +179,23 @@ ExtensionSyncService::MergeDataAndStartSyncing(
     }
   }
 
+  ExtensionRegistry* registry = ExtensionRegistry::Get(profile_);
+  std::unique_ptr<ExtensionSet> all_extensions =
+      registry->GenerateInstalledExtensionsSet();
+  for (const auto& extension : *all_extensions) {
+    if (extension->from_bookmark()) {
+      // Deleting deprecated bookmark apps.
+      const std::string& id = extension->id();
+      std::u16string error;
+      bool uninstalled = extension_service()->UninstallExtension(
+          id, extensions::UNINSTALL_REASON_SYNC, &error);
+      if (!uninstalled) {
+        LOG(WARNING) << "Failed to uninstall bookmark apps with id '" << id
+                     << "' : " << error;
+      }
+    }
+  }
+
   // Now push the local state to sync.
   // Note: We'd like to only send out changes for extensions which have
   // NeedsSync set. However, we can't tell if our changes ever made it to the
@@ -198,7 +211,7 @@ ExtensionSyncService::MergeDataAndStartSyncing(
   if (type == syncer::APPS)
     system_->app_sorting()->FixNTPOrdinalCollisions();
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 void ExtensionSyncService::StopSyncing(syncer::ModelType type) {
@@ -223,7 +236,7 @@ syncer::SyncDataList ExtensionSyncService::GetAllSyncDataForTesting(
   return ToSyncerSyncDataList(sync_data_list);
 }
 
-base::Optional<syncer::ModelError> ExtensionSyncService::ProcessSyncChanges(
+absl::optional<syncer::ModelError> ExtensionSyncService::ProcessSyncChanges(
     const base::Location& from_here,
     const syncer::SyncChangeList& change_list) {
   for (const syncer::SyncChange& sync_change : change_list) {
@@ -235,21 +248,21 @@ base::Optional<syncer::ModelError> ExtensionSyncService::ProcessSyncChanges(
 
   system_->app_sorting()->FixNTPOrdinalCollisions();
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 ExtensionSyncData ExtensionSyncService::CreateSyncData(
     const Extension& extension) const {
   const std::string& id = extension.id();
-  const ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(profile_);
+  ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(profile_);
   int disable_reasons =
       extension_prefs->GetDisableReasons(id) & kSyncableDisableReasons;
   // Note that we're ignoring the enabled state during ApplySyncData (we check
   // for the existence of disable reasons instead), we're just setting it here
   // for older Chrome versions (<M48).
   bool enabled = (disable_reasons == extensions::disable_reason::DISABLE_NONE);
-  if (extension_prefs->GetExtensionBlocklistState(extension.id()) ==
-      extensions::BLOCKLISTED_MALWARE) {
+  if (extensions::blocklist_prefs::IsExtensionBlocklisted(id,
+                                                          extension_prefs)) {
     enabled = false;
     NOTREACHED() << "Blocklisted extensions should not be getting synced.";
   }
@@ -330,10 +343,10 @@ void ExtensionSyncService::ApplySyncData(
 
   // Handle uninstalls first.
   if (extension_sync_data.uninstalled()) {
-    base::string16 error;
+    std::u16string error;
     bool uninstalled = true;
     if (!extension) {
-      error = base::ASCIIToUTF16("Unknown extension");
+      error = u"Unknown extension";
       uninstalled = false;
     } else {
       uninstalled = extension_service()->UninstallExtension(
@@ -456,15 +469,6 @@ void ExtensionSyncService::ApplySyncData(
 
   // Set app-specific data.
   if (extension_sync_data.is_app()) {
-    if (extension_sync_data.app_launch_ordinal().IsValid() &&
-        extension_sync_data.page_ordinal().IsValid()) {
-      AppSorting* app_sorting = system_->app_sorting();
-      app_sorting->SetAppLaunchOrdinal(
-          id,
-          extension_sync_data.app_launch_ordinal());
-      app_sorting->SetPageOrdinal(id, extension_sync_data.page_ordinal());
-    }
-
     // The corresponding validation of this value during ExtensionSyncData
     // population is in ExtensionSyncData::ToAppSpecifics.
     if (extension_sync_data.launch_type() >= extensions::LAUNCH_TYPE_FIRST &&
@@ -473,10 +477,12 @@ void ExtensionSyncService::ApplySyncData(
           profile_, id, extension_sync_data.launch_type());
     }
 
-    if (!extension_sync_data.bookmark_app_url().empty()) {
-      // Handles creating and updating the bookmark app.
-      ApplyBookmarkAppSyncData(extension_sync_data);
-      return;
+    if (extension_sync_data.app_launch_ordinal().IsValid() &&
+        extension_sync_data.page_ordinal().IsValid()) {
+      AppSorting* app_sorting = system_->app_sorting();
+      app_sorting->SetAppLaunchOrdinal(
+          id, extension_sync_data.app_launch_ordinal());
+      app_sorting->SetPageOrdinal(id, extension_sync_data.page_ordinal());
     }
   }
 
@@ -507,50 +513,6 @@ void ExtensionSyncService::ApplySyncData(
 
   if (check_for_updates)
     extension_service()->CheckForUpdatesSoon();
-}
-
-void ExtensionSyncService::ApplyBookmarkAppSyncData(
-    const ExtensionSyncData& extension_sync_data) {
-  DCHECK(extension_sync_data.is_app());
-
-  // Process bookmark app sync if necessary.
-  GURL bookmark_app_url(extension_sync_data.bookmark_app_url());
-  if (!bookmark_app_url.is_valid() ||
-      extension_sync_data.uninstalled()) {
-    return;
-  }
-
-  auto web_app_info = std::make_unique<WebApplicationInfo>();
-  web_app_info->start_url = bookmark_app_url;
-  web_app_info->title = base::UTF8ToUTF16(extension_sync_data.name());
-  web_app_info->description =
-      base::UTF8ToUTF16(extension_sync_data.bookmark_app_description());
-  web_app_info->scope = GURL(extension_sync_data.bookmark_app_scope());
-  web_app_info->theme_color = extension_sync_data.bookmark_app_theme_color();
-  web_app_info->open_as_window =
-      extension_sync_data.launch_type() == extensions::LAUNCH_TYPE_WINDOW;
-
-  if (!extension_sync_data.bookmark_app_icon_color().empty()) {
-    extensions::image_util::ParseHexColorString(
-        extension_sync_data.bookmark_app_icon_color(),
-        &web_app_info->generated_icon_color);
-  }
-  for (const auto& icon : extension_sync_data.linked_icons()) {
-    WebApplicationIconInfo icon_info;
-    icon_info.url = icon.url;
-    icon_info.square_size_px = icon.size;
-    // Web apps in Extensions system supports Purpose::ANY icons only.
-    icon_info.purpose = blink::mojom::ManifestImageResource_Purpose::ANY;
-    web_app_info->icon_infos.push_back(icon_info);
-  }
-
-  auto* provider = web_app::WebAppProviderBase::GetProviderBase(profile_);
-  // Legacy profiles containing server-side bookmark apps data must be excluded
-  // from sync if the web apps system is disabled for such a profile.
-  if (provider) {
-    provider->install_manager().InstallBookmarkAppFromSync(
-        extension_sync_data.id(), std::move(web_app_info), base::DoNothing());
-  }
 }
 
 void ExtensionSyncService::SetSyncStartFlareForTesting(

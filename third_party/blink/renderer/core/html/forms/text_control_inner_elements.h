@@ -37,7 +37,8 @@ class EditingViewPortElement final : public HTMLDivElement {
   explicit EditingViewPortElement(Document&);
 
  protected:
-  ComputedStyle* CustomStyleForLayoutObject(const StyleRecalcContext&) override;
+  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+      const StyleRecalcContext&) override;
 
  private:
   bool TypeShouldForceLegacyLayout() const final;
@@ -52,12 +53,13 @@ class TextControlInnerEditorElement final : public HTMLDivElement {
 
   void SetVisibility(bool is_visible);
   void FocusChanged();
-  ComputedStyle* CreateInnerEditorStyle() const;
+  scoped_refptr<ComputedStyle> CreateInnerEditorStyle() const;
 
  private:
   LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
   bool TypeShouldForceLegacyLayout() const final;
-  ComputedStyle* CustomStyleForLayoutObject(const StyleRecalcContext&) override;
+  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+      const StyleRecalcContext&) override;
   bool SupportsFocus() const override { return false; }
   bool is_visible_ = true;
 };
@@ -87,4 +89,4 @@ class PasswordRevealButtonElement final : public HTMLDivElement {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_TEXT_CONTROL_INNER_ELEMENTS_H_

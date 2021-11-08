@@ -6,7 +6,6 @@
 #define COMPONENTS_SYNC_USER_EVENTS_FAKE_USER_EVENT_SERVICE_H_
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/macros.h"
@@ -21,6 +20,10 @@ namespace syncer {
 class FakeUserEventService : public UserEventService {
  public:
   FakeUserEventService();
+
+  FakeUserEventService(const FakeUserEventService&) = delete;
+  FakeUserEventService& operator=(const FakeUserEventService&) = delete;
+
   ~FakeUserEventService() override;
 
   // UserEventService implementation.
@@ -35,8 +38,6 @@ class FakeUserEventService : public UserEventService {
  private:
   std::vector<sync_pb::UserEventSpecifics> recorded_user_events_;
   FakeModelTypeControllerDelegate fake_controller_delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeUserEventService);
 };
 
 }  // namespace syncer

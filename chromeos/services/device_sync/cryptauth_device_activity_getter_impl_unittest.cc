@@ -12,7 +12,6 @@
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/timer/mock_timer.h"
 #include "chromeos/services/device_sync/cryptauth_client.h"
 #include "chromeos/services/device_sync/cryptauth_device.h"
@@ -30,6 +29,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -85,6 +85,12 @@ const cryptauthv2::GetDevicesActivityStatusResponse& GetResponse() {
 class DeviceSyncCryptAuthDeviceActivityGetterImplTest
     : public testing::Test,
       public MockCryptAuthClientFactory::Observer {
+ public:
+  DeviceSyncCryptAuthDeviceActivityGetterImplTest(
+      const DeviceSyncCryptAuthDeviceActivityGetterImplTest&) = delete;
+  DeviceSyncCryptAuthDeviceActivityGetterImplTest& operator=(
+      const DeviceSyncCryptAuthDeviceActivityGetterImplTest&) = delete;
+
  protected:
   DeviceSyncCryptAuthDeviceActivityGetterImplTest()
       : client_factory_(std::make_unique<MockCryptAuthClientFactory>(
@@ -190,7 +196,7 @@ class DeviceSyncCryptAuthDeviceActivityGetterImplTest
         mojo::ConvertTo<mojom::NetworkRequestResult>(error);
   }
 
-  base::Optional<cryptauthv2::GetDevicesActivityStatusRequest>
+  absl::optional<cryptauthv2::GetDevicesActivityStatusRequest>
       get_device_activity_status_request_;
   CryptAuthClient::GetDevicesActivityStatusCallback
       get_device_activity_status_success_callback_;
@@ -203,8 +209,6 @@ class DeviceSyncCryptAuthDeviceActivityGetterImplTest
   base::MockOneShotTimer* timer_;
 
   std::unique_ptr<CryptAuthDeviceActivityGetter> device_activity_getter_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceSyncCryptAuthDeviceActivityGetterImplTest);
 };
 
 TEST_F(DeviceSyncCryptAuthDeviceActivityGetterImplTest, Success) {

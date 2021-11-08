@@ -7,18 +7,18 @@
  * https://specifications.freedesktop.org/trash-spec/trashspec-1.0.html
  */
 
-// clang-format off
-// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
-// #import {fileOperationUtil} from './file_operation_util.m.js';
-// #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-// #import {assert} from 'chrome://resources/js/assert.m.js';
-// #import {TrashConfig, TrashDirs, TrashEntry} from '../../common/js/trash.m.js';
-// clang-format on
+import {assert} from 'chrome://resources/js/assert.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+
+import {TrashConfig, TrashDirs, TrashEntry} from '../../common/js/trash.js';
+import {VolumeManager} from '../../externs/volume_manager.js';
+
+import {fileOperationUtil} from './file_operation_util.js';
 
 /**
  * Implementation of trash.
  */
-/* #export */ class Trash {
+export class Trash {
   constructor() {
     /**
      * Store TrashDirs to avoid repeated lookup, keyed by TrashConfig.id.
@@ -278,7 +278,10 @@
     const name =
         await fileOperationUtil.deduplicatePath(dir, parts[parts.length - 1]);
     await this.moveTo_(trashEntry.filesEntry, dir, name);
-    await this.permanentlyDeleteFileOrDirectory_(infoEntry);
+    // Ignore any error deleting *.trashinfo since DriveFS auto deletes this
+    // file when filesEntry is moved.
+    await this.permanentlyDeleteFileOrDirectory_(infoEntry).catch(
+        e => console.warn(`Error deleting ${infoEntry.toURL()}`, e));
   }
 
   /**

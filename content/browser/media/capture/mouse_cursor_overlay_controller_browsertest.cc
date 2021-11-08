@@ -22,10 +22,14 @@
 namespace content {
 namespace {
 
-class FakeOverlay : public MouseCursorOverlayController::Overlay {
+class FakeOverlay final : public MouseCursorOverlayController::Overlay {
  public:
   FakeOverlay() = default;
-  ~FakeOverlay() final = default;
+
+  FakeOverlay(const FakeOverlay&) = delete;
+  FakeOverlay& operator=(const FakeOverlay&) = delete;
+
+  ~FakeOverlay() override = default;
 
   const SkBitmap& image() const { return image_; }
   const gfx::RectF& bounds() const { return bounds_; }
@@ -41,8 +45,6 @@ class FakeOverlay : public MouseCursorOverlayController::Overlay {
  private:
   SkBitmap image_;
   gfx::RectF bounds_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeOverlay);
 };
 
 }  // namespace
@@ -50,6 +52,12 @@ class FakeOverlay : public MouseCursorOverlayController::Overlay {
 class MouseCursorOverlayControllerBrowserTest : public ContentBrowserTest {
  public:
   MouseCursorOverlayControllerBrowserTest() = default;
+
+  MouseCursorOverlayControllerBrowserTest(
+      const MouseCursorOverlayControllerBrowserTest&) = delete;
+  MouseCursorOverlayControllerBrowserTest& operator=(
+      const MouseCursorOverlayControllerBrowserTest&) = delete;
+
   ~MouseCursorOverlayControllerBrowserTest() override = default;
 
   void SetUpOnMainThread() final {
@@ -169,8 +177,6 @@ class MouseCursorOverlayControllerBrowserTest : public ContentBrowserTest {
   }
 
   MouseCursorOverlayController controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(MouseCursorOverlayControllerBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(MouseCursorOverlayControllerBrowserTest,

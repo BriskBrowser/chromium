@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "content/browser/web_package/signed_exchange_consts.h"
 #include "content/browser/web_package/signed_exchange_envelope.h"
@@ -24,6 +23,7 @@
 #include "net/log/net_log_with_source.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -103,6 +103,10 @@ class CONTENT_EXPORT SignedExchangeHandler {
       std::unique_ptr<SignedExchangeDevToolsProxy> devtools_proxy,
       SignedExchangeReporter* reporter,
       int frame_tree_node_id);
+
+  SignedExchangeHandler(const SignedExchangeHandler&) = delete;
+  SignedExchangeHandler& operator=(const SignedExchangeHandler&) = delete;
+
   virtual ~SignedExchangeHandler();
 
   int64_t GetExchangeHeaderLength() const { return exchange_header_length_; }
@@ -153,7 +157,7 @@ class CONTENT_EXPORT SignedExchangeHandler {
   const bool is_secure_transport_;
   const bool has_nosniff_;
   ExchangeHeadersCallback headers_callback_;
-  base::Optional<SignedExchangeVersion> version_;
+  absl::optional<SignedExchangeVersion> version_;
   std::unique_ptr<net::SourceStream> source_;
 
   State state_ = State::kReadingPrologueBeforeFallbackUrl;
@@ -166,7 +170,7 @@ class CONTENT_EXPORT SignedExchangeHandler {
   signed_exchange_prologue::BeforeFallbackUrl prologue_before_fallback_url_;
   signed_exchange_prologue::FallbackUrlAndAfter
       prologue_fallback_url_and_after_;
-  base::Optional<SignedExchangeEnvelope> envelope_;
+  absl::optional<SignedExchangeEnvelope> envelope_;
 
   std::unique_ptr<SignedExchangeCertFetcherFactory> cert_fetcher_factory_;
   std::unique_ptr<SignedExchangeCertFetcher> cert_fetcher_;
@@ -189,8 +193,6 @@ class CONTENT_EXPORT SignedExchangeHandler {
   net::IPAddress cert_server_ip_address_;
 
   base::WeakPtrFactory<SignedExchangeHandler> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SignedExchangeHandler);
 };
 
 // Used only for testing.

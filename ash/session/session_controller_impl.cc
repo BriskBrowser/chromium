@@ -24,6 +24,7 @@
 #include "ash/wm/lock_state_controller.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/window_util.h"
+#include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
@@ -105,13 +106,9 @@ SessionState SessionControllerImpl::GetSessionState() const {
 }
 
 bool SessionControllerImpl::ShouldEnableSettings() const {
-  // Settings opens a web UI window, so it is not available at the lock screen.
-  if (!IsActiveUserSessionStarted() || IsScreenLocked() ||
-      IsInSecondaryLoginScreen()) {
-    return false;
-  }
-
-  return true;
+  // Settings opens a web UI window, so it is only available at active session
+  // at the moment.
+  return !IsUserSessionBlocked();
 }
 
 bool SessionControllerImpl::ShouldShowNotificationTray() const {
@@ -158,15 +155,6 @@ const UserSession* SessionControllerImpl::GetPrimaryUserSession() const {
   return (*it).get();
 }
 
-bool SessionControllerImpl::IsUserChildOrDeprecatedSupervised() const {
-  if (!IsActiveUserSessionStarted())
-    return false;
-
-  user_manager::UserType active_user_type = GetUserSession(0)->user_info.type;
-  return active_user_type == user_manager::USER_TYPE_SUPERVISED_DEPRECATED ||
-         active_user_type == user_manager::USER_TYPE_CHILD;
-}
-
 bool SessionControllerImpl::IsUserChild() const {
   if (!IsActiveUserSessionStarted())
     return false;
@@ -183,12 +171,12 @@ bool SessionControllerImpl::IsUserPublicAccount() const {
   return active_user_type == user_manager::USER_TYPE_PUBLIC_ACCOUNT;
 }
 
-base::Optional<user_manager::UserType> SessionControllerImpl::GetUserType()
+absl::optional<user_manager::UserType> SessionControllerImpl::GetUserType()
     const {
   if (!IsActiveUserSessionStarted())
-    return base::nullopt;
+    return absl::nullopt;
 
-  return base::make_optional(GetUserSession(0)->user_info.type);
+  return absl::make_optional(GetUserSession(0)->user_info.type);
 }
 
 bool SessionControllerImpl::IsUserPrimary() const {
@@ -479,6 +467,8 @@ void SessionControllerImpl::SetSessionState(SessionState state) {
   if (state_ == state)
     return;
 
+  base::AutoReset<bool> in_progress(&session_state_change_in_progress_, true);
+
   const bool was_user_session_blocked = IsUserSessionBlocked();
   const bool was_locked = state_ == SessionState::LOCKED;
   state_ = state;
@@ -538,7 +528,7 @@ LoginStatus SessionControllerImpl::CalculateLoginStatus() const {
       return LoginStatus::LOCKED;
 
     case SessionState::LOGIN_SECONDARY:
-      // TODO: There is no LoginStatus for this.
+      // TODO(jamescook): There is no LoginStatus for this.
       return LoginStatus::USER;
   }
   NOTREACHED();
@@ -566,12 +556,11 @@ LoginStatus SessionControllerImpl::CalculateLoginStatusForActiveSession()
     case user_manager::USER_TYPE_ARC_KIOSK_APP:
       return LoginStatus::KIOSK_APP;
     case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
-      // TODO: There is no LoginStatus for this.
+      // TODO(jamescook): There is no LoginStatus for this.
       return LoginStatus::USER;
     case user_manager::USER_TYPE_WEB_KIOSK_APP:
       return LoginStatus::KIOSK_APP;
     case user_manager::NUM_USER_TYPES:
-    case user_manager::USER_TYPE_SUPERVISED_DEPRECATED:
       // Avoid having a "default" case so the compiler catches new enum values.
       NOTREACHED();
       return LoginStatus::USER;

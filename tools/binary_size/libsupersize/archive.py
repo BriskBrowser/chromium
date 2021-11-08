@@ -31,6 +31,8 @@ import ar
 import data_quality
 import demangle
 import describe
+import dir_metadata
+import dwarfdump
 import file_format
 import function_signature
 import linker_map_parser
@@ -40,20 +42,13 @@ import nm
 import obj_analyzer
 import parallel
 import path_util
+import readelf
 import string_extract
 import zip_util
 
 
 sys.path.insert(1, os.path.join(path_util.TOOLS_SRC_ROOT, 'tools', 'grit'))
 from grit.format import data_pack
-
-_METADATA_FILENAME = 'DIR_METADATA'
-_METADATA_COMPONENT_REGEX = re.compile(r'^\s*component:\s*"(.*?)"',
-                                       re.MULTILINE)
-_OWNERS_FILENAME = 'OWNERS'
-_OWNERS_COMPONENT_REGEX = re.compile(r'^\s*#\s*COMPONENT:\s*(\S+)',
-                                     re.MULTILINE)
-_OWNERS_FILE_PATH_REGEX = re.compile(r'^\s*file://(\S+)', re.MULTILINE)
 
 _UNCOMPRESSED_COMPRESSION_RATIO_THRESHOLD = 0.9
 
@@ -71,11 +66,11 @@ _OutputDirectoryContext = collections.namedtuple('_OutputDirectoryContext', [
 # below are common. At library splitting time, llvm-objcopy pulls what's needed
 # from these sections into the new libraries. Hence, the ELF sections will end
 # up smaller than the combined .map file sections.
-_SECTION_SIZE_BLACKLIST = ['.symtab', '.shstrtab', '.strtab']
+_SECTION_SIZE_BLOCKLIST = ['.symtab', '.shstrtab', '.strtab']
 
 
 # Tunable constant "knobs" for CreateContainerAndSymbols().
-class SectionSizeKnobs(object):
+class SectionSizeKnobs:
   def __init__(self):
     # A limit on the number of symbols an address can have, before these symbols
     # are compacted into shared symbols. Increasing this value causes more data
@@ -145,7 +140,7 @@ class ContainerArchiveOptions:
     self.analyze_native = not (sub_args.java_only or sub_args.no_native
                                or top_args.java_only or top_args.no_native)
 
-    self.track_string_literals = True
+    self.track_string_literals = sub_args.track_string_literals
 
 
 def _OpenMaybeGzAsText(path):
@@ -282,38 +277,51 @@ def _NormalizeSourcePath(path):
   return True, path
 
 
-def _ExtractSourcePathsAndNormalizeObjectPaths(raw_symbols, source_mapper):
+def _ExtractSourcePathsAndNormalizeObjectPaths(raw_symbols,
+                                               object_source_mapper,
+                                               address_source_mapper):
   """Fills in the |source_path| attribute and normalizes |object_path|."""
-  logging.info('Normalizing dex symbol paths')
-  dex_and_other = models.DEX_SECTIONS + (models.SECTION_OTHER, )
-  for symbol in raw_symbols:
-    if symbol.source_path and symbol.section_name in dex_and_other:
-      symbol.generated_source, symbol.source_path = _NormalizeSourcePath(
-          symbol.source_path)
-
-  if source_mapper:
+  if object_source_mapper:
     logging.info('Looking up source paths from ninja files')
     for symbol in raw_symbols:
       if symbol.IsDex() or symbol.IsOther():
         continue
       # Native symbols and pak symbols use object paths.
       object_path = symbol.object_path
-      if object_path:
-        # We don't have source info for prebuilt .a files.
-        if not os.path.isabs(object_path) and not object_path.startswith('..'):
-          source_path = source_mapper.FindSourceForPath(object_path)
-          if source_path:
-            symbol.generated_source, symbol.source_path = (
-                _NormalizeSourcePath(source_path))
-        symbol.object_path = _NormalizeObjectPath(object_path)
-    assert source_mapper.unmatched_paths_count == 0, (
+      if not object_path:
+        continue
+
+      # We don't have source info for prebuilt .a files.
+      if not os.path.isabs(object_path) and not object_path.startswith('..'):
+        symbol.source_path = object_source_mapper.FindSourceForPath(object_path)
+    assert object_source_mapper.unmatched_paths_count == 0, (
         'One or more source file paths could not be found. Likely caused by '
         '.ninja files being generated at a different time than the .map file.')
-  else:
-    logging.info('Normalizing object paths')
+  if address_source_mapper:
+    logging.info('Looking up source paths from dwarfdump')
     for symbol in raw_symbols:
-      if symbol.object_path:
-        symbol.object_path = _NormalizeObjectPath(symbol.object_path)
+
+      if symbol.section_name != models.SECTION_TEXT:
+        continue
+      source_path = address_source_mapper.FindSourceForTextAddress(
+          symbol.address)
+      if source_path and not os.path.isabs(source_path):
+        symbol.source_path = source_path
+    # Majority of unmatched queries are for assembly source files (ex libav1d)
+    # and v8 builtins.
+    assert address_source_mapper.unmatched_queries_ratio < 0.03, (
+        'Percentage of failing |address_source_mapper| queries ' +
+        '({}%) >= 3% '.format(
+            address_source_mapper.unmatched_queries_ratio * 100) +
+        'FindSourceForTextAddress() likely has a bug.')
+
+  logging.info('Normalizing source and object paths')
+  for symbol in raw_symbols:
+    if symbol.object_path:
+      symbol.object_path = _NormalizeObjectPath(symbol.object_path)
+    if symbol.source_path:
+      symbol.generated_source, symbol.source_path = _NormalizeSourcePath(
+          symbol.source_path)
 
 
 def _ComputeAncestorPath(path_list, symbol_count):
@@ -553,107 +561,6 @@ def _CreateMergeStringsReplacements(merge_string_syms,
   return ret
 
 
-def _ParseComponentFromMetadata(path):
-  """Extracts Component from DIR_METADATA."""
-  try:
-    with open(path) as f:
-      data = f.read()
-
-    m = _METADATA_COMPONENT_REGEX.search(data)
-    if m:
-      return m.group(1)
-  except IOError:
-    # Need to catch both FileNotFoundError and NotADirectoryError since
-    # source_paths for .aar files look like: /path/to/lib.aar/path/within/zip
-    pass
-  return ''
-
-
-def _ParseComponentFromOwners(path):
-  """Extracts COMPONENT and file:// from an OWNERS file.
-
-  Args:
-    path: Path to the file to parse.
-
-  Returns:
-    (component, None) if COMPONENT: line was found.
-    ('', path) if a single file:// was found.
-    ('', None) if neither was found.
-  """
-  try:
-    with open(path) as f:
-      data = f.read()
-
-    m = _OWNERS_COMPONENT_REGEX.search(data)
-    if m:
-      return m.group(1), None
-    aliases = _OWNERS_FILE_PATH_REGEX.findall(data)
-    if len(aliases) == 1:
-      return '', aliases[0]
-  except IOError:
-    # Need to catch both FileNotFoundError and NotADirectoryError since
-    # source_paths for .aar files look like: /path/to/lib.aar/path/within/zip
-    pass
-  return '', None
-
-
-def _FindComponentRoot(path, cache, source_directory):
-  """Searches all parent directories for COMPONENT in OWNERS files.
-
-  Args:
-    path: Path of directory to start searching from. Must be relative to
-      |source_directory|.
-    cache: Dict of OWNERS paths. Used instead of filesystem if paths are present
-      in the dict.
-    source_directory: Directory to use as the root.
-
-  Returns:
-    COMPONENT belonging to |path|, or empty string if not found.
-  """
-  assert not os.path.isabs(path)
-  component = cache.get(path)
-  if component is not None:
-    return component
-
-  metadata_path = os.path.join(source_directory, path, _METADATA_FILENAME)
-  component = _ParseComponentFromMetadata(metadata_path)
-  if not component:
-    owners_path = os.path.join(source_directory, path, _OWNERS_FILENAME)
-    component, path_alias = _ParseComponentFromOwners(owners_path)
-
-  if not component:
-    # Store in cache before recursing to prevent cycles.
-    cache[path] = ''
-    if path_alias:
-      alias_dir = os.path.dirname(path_alias)
-      component = _FindComponentRoot(alias_dir, cache, source_directory)
-
-  if not component:
-    parent_path = os.path.dirname(path)
-    if parent_path:
-      component = _FindComponentRoot(parent_path, cache, source_directory)
-
-  cache[path] = component
-  return component
-
-
-def _PopulateComponents(raw_symbols, source_directory):
-  """Populates the |component| field based on |source_path|.
-
-  Symbols without a |source_path| are skipped.
-
-  Args:
-    raw_symbols: list of Symbol objects.
-    source_directory: Directory to use as the root.
-  """
-  seen_paths = {}
-  for symbol in raw_symbols:
-    if symbol.source_path:
-      folder_path = os.path.dirname(symbol.source_path)
-      symbol.component = _FindComponentRoot(folder_path, seen_paths,
-                                            source_directory)
-
-
 def _UpdateSymbolNamesFromNm(raw_symbols, names_by_address):
   """Updates raw_symbols names with extra information from nm."""
   logging.debug('Update symbol names')
@@ -833,13 +740,13 @@ def CreateMetadata(args, linker_name, build_config):
 
   if args.elf_file:
     metadata[models.METADATA_ELF_FILENAME] = shorten_path(args.elf_file)
-    architecture = _ArchFromElf(args.elf_file, args.tool_prefix)
+    architecture = readelf.ArchFromElf(args.elf_file, args.tool_prefix)
     metadata[models.METADATA_ELF_ARCHITECTURE] = architecture
     timestamp_obj = datetime.datetime.utcfromtimestamp(
         os.path.getmtime(args.elf_file))
     timestamp = calendar.timegm(timestamp_obj.timetuple())
     metadata[models.METADATA_ELF_MTIME] = timestamp
-    build_id = BuildIdFromElf(args.elf_file, args.tool_prefix)
+    build_id = readelf.BuildIdFromElf(args.elf_file, args.tool_prefix)
     metadata[models.METADATA_ELF_BUILD_ID] = build_id
     relocations_count = _CountRelocationsFromElf(args.elf_file,
                                                  args.tool_prefix)
@@ -854,7 +761,6 @@ def CreateMetadata(args, linker_name, build_config):
     if args.split_name and args.split_name != 'base':
       metadata[models.METADATA_APK_SIZE] = os.path.getsize(args.apk_file)
       metadata[models.METADATA_APK_SPLIT_NAME] = args.split_name
-      metadata[models.METADATA_APK_SPLIT_ON_DEMAND] = _IsOnDemand(args.apk_file)
     else:
       sizes_by_module = _CollectModuleSizes(args.minimal_apks_file)
       for name, size in sizes_by_module.items():
@@ -940,7 +846,12 @@ def _NameStringLiterals(raw_symbols, elf_path, tool_prefix):
 def _ParseElfInfo(map_path, elf_path, tool_prefix, track_string_literals,
                   outdir_context=None, linker_name=None):
   """Adds ELF section ranges and symbols."""
+  assert map_path or elf_path, 'Need a linker map or an ELF file.'
+  assert map_path or not track_string_literals, (
+      'track_string_literals not yet implemented without map file')
   if elf_path:
+    elf_section_ranges = readelf.SectionInfoFromElf(elf_path, tool_prefix)
+
     # Run nm on the elf file to retrieve the list of symbol names per-address.
     # This list is required because the .map file contains only a single name
     # for each address, yet multiple symbols are often coalesced when they are
@@ -956,27 +867,31 @@ def _ParseElfInfo(map_path, elf_path, tool_prefix, track_string_literals,
     # single path for these symbols.
     # Rather than record all paths for each symbol, set the paths to be the
     # common ancestor of all paths.
-    if outdir_context:
+    if outdir_context and map_path:
       bulk_analyzer = obj_analyzer.BulkObjectFileAnalyzer(
           tool_prefix, outdir_context.output_directory,
           track_string_literals=track_string_literals)
       bulk_analyzer.AnalyzePaths(outdir_context.elf_object_paths)
 
-  logging.info('Parsing Linker Map')
-  with _OpenMaybeGzAsText(map_path) as map_file:
-    map_section_ranges, raw_symbols, linker_map_extras = (
-        linker_map_parser.MapFileParser().Parse(linker_name, map_file))
+  if map_path:
+    logging.info('Parsing Linker Map')
+    with _OpenMaybeGzAsText(map_path) as f:
+      map_section_ranges, raw_symbols, linker_map_extras = (
+          linker_map_parser.MapFileParser().Parse(linker_name, f))
 
-    if outdir_context and outdir_context.thin_archives:
-      _ResolveThinArchivePaths(raw_symbols, outdir_context.thin_archives)
+      if outdir_context and outdir_context.thin_archives:
+        _ResolveThinArchivePaths(raw_symbols, outdir_context.thin_archives)
+  else:
+    logging.info('Collecting symbols from nm')
+    raw_symbols = nm.CreateUniqueSymbols(elf_path, tool_prefix,
+                                         elf_section_ranges)
 
-  if elf_path:
+  if elf_path and map_path:
     logging.debug('Validating section sizes')
-    elf_section_ranges = _SectionInfoFromElf(elf_path, tool_prefix)
     differing_elf_section_sizes = {}
     differing_map_section_sizes = {}
     for k, (_, elf_size) in elf_section_ranges.items():
-      if k in _SECTION_SIZE_BLACKLIST:
+      if k in _SECTION_SIZE_BLOCKLIST:
         continue
       (_, map_size) = map_section_ranges.get(k)
       if map_size != elf_size:
@@ -988,7 +903,7 @@ def _ParseElfInfo(map_path, elf_path, tool_prefix, track_string_literals,
       logging.error('.map file: %r', differing_map_section_sizes)
       sys.exit(1)
 
-  if elf_path and outdir_context:
+  if elf_path and map_path and outdir_context:
     missed_object_paths = _DiscoverMissedObjectPaths(
         raw_symbols, outdir_context.known_inputs)
     missed_object_paths = ar.ExpandThinArchives(
@@ -1019,7 +934,7 @@ def _ParseElfInfo(map_path, elf_path, tool_prefix, track_string_literals,
 
     raw_symbols = _AddNmAliases(raw_symbols, names_by_address)
 
-    if outdir_context:
+    if map_path and outdir_context:
       object_paths_by_name = bulk_analyzer.GetSymbolNames()
       logging.debug(
           'Fetched path information for %d symbols from %d files',
@@ -1049,9 +964,11 @@ def _ParseElfInfo(map_path, elf_path, tool_prefix, track_string_literals,
             # is fast enough since len(merge_string_syms) < 10.
             raw_symbols[idx:idx + 1] = literal_syms
 
-  linker_map_parser.DeduceObjectPathsFromThinMap(raw_symbols, linker_map_extras)
+  if map_path:
+    linker_map_parser.DeduceObjectPathsFromThinMap(raw_symbols,
+                                                   linker_map_extras)
 
-  if elf_path:
+  if elf_path and track_string_literals:
     _NameStringLiterals(raw_symbols, elf_path, tool_prefix)
 
   # If we have an ELF file, use its ranges as the source of truth, since some
@@ -1117,7 +1034,7 @@ def _IsPakContentUncompressed(content):
   return compression_ratio < _UNCOMPRESSED_COMPRESSION_RATIO_THRESHOLD
 
 
-class _ResourceSourceMapper(object):
+class _ResourceSourceMapper:
   def __init__(self, size_info_prefix, knobs):
     self._knobs = knobs
     self._res_info = self._LoadResInfo(size_info_prefix)
@@ -1234,7 +1151,7 @@ def _ParseApkElfSectionRanges(section_ranges, metadata, apk_elf_result):
   return apk_section_ranges, elf_overhead_size
 
 
-class _ResourcePathDeobfuscator(object):
+class _ResourcePathDeobfuscator:
 
   def __init__(self, pathmap_path):
     self._pathmap = self._LoadResourcesPathmap(pathmap_path)
@@ -1423,13 +1340,7 @@ def _OverwriteSymbolSizesWithRelocationCount(raw_symbols, tool_prefix,
     symbol.size = 0
     symbol.padding = 0
 
-  relocs_cmd = [path_util.GetReadElfPath(tool_prefix), '--relocs', elf_path]
-  relro_addresses = subprocess.check_output(relocs_cmd).decode('ascii').split(
-      '\n')
-  # Grab first column from (sample output) '02de6d5c  00000017 R_ARM_RELATIVE'
-  relro_addresses = [
-      int(l.split()[0], 16) for l in relro_addresses if 'R_ARM_RELATIVE' in l
-  ]
+  relro_addresses = readelf.CollectRelocationAddresses(elf_path, tool_prefix)
   # More likely for there to be a bug in supersize than an ELF to have any
   # relative relocations.
   assert relro_addresses
@@ -1500,6 +1411,29 @@ def _AddUnattributedSectionSymbols(raw_symbols, section_ranges):
   return ret, other_elf_symbols
 
 
+def _ParseNinjaFiles(output_directory, elf_path=None):
+  linker_elf_path = elf_path
+  if elf_path:
+    # For partitioned libraries, the actual link command outputs __combined.so.
+    partitioned_elf_path = elf_path.replace('.so', '__combined.so')
+    if os.path.exists(partitioned_elf_path):
+      linker_elf_path = partitioned_elf_path
+
+  logging.info('Parsing ninja files, looking for %s.',
+               (linker_elf_path or 'source mapping only (elf_path=None)'))
+
+  source_mapper, ninja_elf_object_paths = ninja_parser.Parse(
+      output_directory, linker_elf_path)
+
+  logging.debug('Parsed %d .ninja files.', source_mapper.parsed_file_count)
+  if elf_path:
+    assert ninja_elf_object_paths, (
+        'Failed to find link command in ninja files for ' +
+        os.path.relpath(linker_elf_path, output_directory))
+
+  return source_mapper, ninja_elf_object_paths
+
+
 def CreateContainerAndSymbols(knobs=None,
                               opts=None,
                               container_name=None,
@@ -1560,37 +1494,35 @@ def CreateContainerAndSymbols(knobs=None,
     apk_elf_result = None
 
   outdir_context = None
-  source_mapper = None
+  object_source_mapper = None
+  address_source_mapper = None
   section_ranges = {}
   raw_symbols = []
   if opts.analyze_native and output_directory:
-    # Start by finding the elf_object_paths, so that nm can run on them while
-    # the linker .map is being parsed.
-    target_elf_path = elf_path
-    if map_path and '__combined.so.map' in map_path:
-      target_elf_path = elf_path.replace('.so', '__combined.so')
-    logging.info('Parsing ninja files, looking for %s.', target_elf_path)
+    if map_path:
+      # Finds all objects passed to the linker and creates a map of .o -> .cc.
+      object_source_mapper, ninja_elf_object_paths = _ParseNinjaFiles(
+          output_directory, elf_path)
+    else:
+      ninja_elf_object_paths = None
+      logging.info('Parsing source path info via dwarfdump')
+      address_source_mapper = dwarfdump.CreateAddressSourceMapper(
+          elf_path, tool_prefix)
 
-    source_mapper, ninja_elf_object_paths = ninja_parser.Parse(
-        output_directory, target_elf_path)
-
-    logging.debug('Parsed %d .ninja files.', source_mapper.parsed_file_count)
-    assert not elf_path or ninja_elf_object_paths, (
-        'Failed to find link command in ninja files for ' +
-        os.path.relpath(elf_path, output_directory))
-
+    # Start by finding elf_object_paths so that nm can run on them while the
+    # linker .map is being parsed.
     if ninja_elf_object_paths:
       elf_object_paths, thin_archives = ar.ExpandThinArchives(
           ninja_elf_object_paths, output_directory)
       known_inputs = set(elf_object_paths)
       known_inputs.update(ninja_elf_object_paths)
     else:
-      elf_object_paths = None
+      elf_object_paths = []
       known_inputs = None
       # When we don't know which elf file is used, just search all paths.
-      if opts.analyze_native:
+      if opts.analyze_native and object_source_mapper:
         thin_archives = set(
-            p for p in source_mapper.IterAllPaths() if p.endswith('.a')
+            p for p in object_source_mapper.IterAllPaths() if p.endswith('.a')
             and ar.IsThinArchive(os.path.join(output_directory, p)))
       else:
         thin_archives = None
@@ -1619,7 +1551,7 @@ def CreateContainerAndSymbols(knobs=None,
     with tempfile.NamedTemporaryFile(suffix=os.path.basename(elf_path)) as f:
       strip_path = path_util.GetStripPath(tool_prefix)
       subprocess.run([strip_path, '-o', f.name, elf_path], check=True)
-      section_ranges = _SectionInfoFromElf(f.name, tool_prefix)
+      section_ranges = readelf.SectionInfoFromElf(f.name, tool_prefix)
       elf_overhead_size = _CalculateElfOverhead(section_ranges, f.name)
 
   if elf_path:
@@ -1696,8 +1628,9 @@ def CreateContainerAndSymbols(knobs=None,
       '**'), s.address, s.full_name))
   raw_symbols.extend(other_symbols)
 
-  _ExtractSourcePathsAndNormalizeObjectPaths(raw_symbols, source_mapper)
-  _PopulateComponents(raw_symbols, source_directory)
+  _ExtractSourcePathsAndNormalizeObjectPaths(raw_symbols, object_source_mapper,
+                                             address_source_mapper)
+  dir_metadata.PopulateComponents(raw_symbols, source_directory)
   logging.info('Converting excessive aliases into shared-path symbols')
   _CompactLargeAliasesIntoSharedSymbols(raw_symbols, knobs)
   logging.debug('Connecting nm aliases')
@@ -1763,43 +1696,9 @@ def _DetectGitRevision(directory):
     return None
 
 
-def BuildIdFromElf(elf_path, tool_prefix):
-  args = [path_util.GetReadElfPath(tool_prefix), '-n', elf_path]
-  stdout = subprocess.check_output(args).decode('ascii')
-  match = re.search(r'Build ID: (\w+)', stdout)
-  assert match, 'Build ID not found from running: ' + ' '.join(args)
-  return match.group(1)
-
-
-def _SectionInfoFromElf(elf_path, tool_prefix):
-  args = [path_util.GetReadElfPath(tool_prefix), '-S', '--wide', elf_path]
-  stdout = subprocess.check_output(args).decode('ascii')
-  section_ranges = {}
-  # Matches  [ 2] .hash HASH 00000000006681f0 0001f0 003154 04   A  3   0  8
-  for match in re.finditer(r'\[[\s\d]+\] (\..*)$', stdout, re.MULTILINE):
-    items = match.group(1).split()
-    section_ranges[items[0]] = (int(items[2], 16), int(items[4], 16))
-  return section_ranges
-
-
 def _ElfIsMainPartition(elf_path, tool_prefix):
-  section_ranges = _SectionInfoFromElf(elf_path, tool_prefix)
+  section_ranges = readelf.SectionInfoFromElf(elf_path, tool_prefix)
   return models.SECTION_PART_END in section_ranges.keys()
-
-
-def _ArchFromElf(elf_path, tool_prefix):
-  args = [path_util.GetReadElfPath(tool_prefix), '-h', elf_path]
-  stdout = subprocess.check_output(args).decode('ascii')
-  machine = re.search('Machine:\s*(.+)', stdout).group(1)
-  if machine == 'Intel 80386':
-    return 'x86'
-  if machine == 'Advanced Micro Devices X86-64':
-    return 'x64'
-  elif machine == 'ARM':
-    return 'arm'
-  elif machine == 'AArch64':
-    return 'arm64'
-  return machine
 
 
 def _CountRelocationsFromElf(elf_path, tool_prefix):
@@ -1824,15 +1723,15 @@ def _ParseGnArgs(args_path):
 
 
 def _DetectLinkerName(map_path):
-  with _OpenMaybeGzAsText(map_path) as map_file:
-    return linker_map_parser.DetectLinkerNameFromMapFile(map_file)
+  with _OpenMaybeGzAsText(map_path) as f:
+    return linker_map_parser.DetectLinkerNameFromMapFile(f)
 
 
 def _ElfInfoFromApk(apk_path, apk_so_path, tool_prefix):
   """Returns a tuple of (build_id, section_ranges, elf_overhead_size)."""
   with zip_util.UnzipToTemp(apk_path, apk_so_path) as temp:
-    build_id = BuildIdFromElf(temp, tool_prefix)
-    section_ranges = _SectionInfoFromElf(temp, tool_prefix)
+    build_id = readelf.BuildIdFromElf(temp, tool_prefix)
+    section_ranges = readelf.SectionInfoFromElf(temp, tool_prefix)
     elf_overhead_size = _CalculateElfOverhead(section_ranges, temp)
     return build_id, section_ranges, elf_overhead_size
 
@@ -1879,10 +1778,15 @@ def _AddContainerArguments(parser):
                       default=True, action='store_false',
                       help='Disable breaking down "** merge strings" into more '
                            'granular symbols.')
+  parser.add_argument('--no-map-file',
+                      dest='ignore_linker_map',
+                      action='store_true',
+                      help='Use debug information to capture symbol sizes '
+                      'instead of linker map file.')
   parser.add_argument(
       '--relocations',
       action='store_true',
-      help='Instead of counting binary size, count number of relative'
+      help='Instead of counting binary size, count number of relative '
       'relocation instructions in ELF code.')
   parser.add_argument(
       '--java-only', action='store_true', help='Run on only Java symbols')
@@ -2008,12 +1912,8 @@ def ParseSsargs(lines):
   return sub_args_list
 
 
-def _DeduceNativeInfo(tentative_output_dir,
-                      apk_path,
-                      elf_path,
-                      map_path,
-                      on_config_error,
-                      allow_missing_linker_map=False):
+def _DeduceNativeInfo(tentative_output_dir, apk_path, elf_path, map_path,
+                      ignore_linker_map, tool_prefix, on_config_error):
   apk_so_path = None
   if apk_path:
     with zipfile.ZipFile(apk_path) as z:
@@ -2041,26 +1941,23 @@ def _DeduceNativeInfo(tentative_output_dir,
     # TODO(agrieve): Support breaking down partitions.
     is_partition = elf_path.endswith('_partition.so')
     if is_partition:
-      return None, None, None
+      on_config_error('Found unexpected _partition.so: ' + elf_path)
 
-    if _ElfIsMainPartition(elf_path, ''):
-      map_path = elf_path.replace('.so', '__combined.so') + '.map'
-    else:
-      map_path = elf_path + '.map'
-    if not os.path.exists(map_path):
-      map_path += '.gz'
+    if not ignore_linker_map:
+      if _ElfIsMainPartition(elf_path, tool_prefix):
+        map_path = elf_path.replace('.so', '__combined.so') + '.map'
+      else:
+        map_path = elf_path + '.map'
+      if not os.path.exists(map_path):
+        map_path += '.gz'
 
-  if not os.path.exists(map_path):
+  if not ignore_linker_map and not os.path.exists(map_path):
     # Consider a missing linker map fatal only for the base module. For .so
     # files in feature modules, allow skipping breakdowns.
-    if allow_missing_linker_map:
-      logging.warning('No linker map found for %s. Skipping native breakdown.',
-                      elf_path)
-      return None, None, None
     on_config_error(
         'Could not find .map(.gz)? file. Ensure you have built with '
         'is_official_build=true and generate_linker_map=true, or use '
-        '--map-file to point me a linker map file.')
+        '--map-file to point me a linker map file, or use --no-map-file.')
 
   return elf_path, map_path, apk_so_path
 
@@ -2094,7 +1991,7 @@ def _ReadMultipleArgsFromStream(lines, base_dir, err_prefix, on_config_error):
   for sub_args in ret:
     for k, v in sub_args.__dict__.items():
       # Translate file arguments to be relative to |sub_dir|.
-      if (k.endswith('_file') or k == 'f') and v is not None:
+      if (k.endswith('_file') or k == 'f') and isinstance(v, str):
         sub_args.__dict__[k] = os.path.join(base_dir, v)
   return ret
 
@@ -2127,25 +2024,41 @@ def _ProcessContainerArgs(top_args, sub_args, container_name, on_config_error):
   linker_name = None
   if opts.analyze_native:
     is_base_module = sub_args.split_name in (None, 'base')
-    sub_args.elf_file, sub_args.map_file, apk_so_path = _DeduceNativeInfo(
-        top_args.output_directory,
-        sub_args.apk_file,
-        sub_args.elf_file or sub_args.aux_elf_file,
-        sub_args.map_file,
-        on_config_error,
-        allow_missing_linker_map=not is_base_module)
-    if not (sub_args.elf_file or sub_args.map_file or apk_so_path):
+    # We don't yet support analyzing .so files outside of base modules.
+    if not is_base_module:
       opts.analyze_native = False
+    else:
+      tool_prefix_finder = path_util.ToolPrefixFinder(
+          value=sub_args.tool_prefix,
+          output_directory=top_args.output_directory,
+          linker_name='lld')
+      sub_args.elf_file, sub_args.map_file, apk_so_path = _DeduceNativeInfo(
+          tentative_output_dir=top_args.output_directory,
+          apk_path=sub_args.apk_file,
+          elf_path=sub_args.elf_file or sub_args.aux_elf_file,
+          map_path=sub_args.map_file,
+          ignore_linker_map=sub_args.ignore_linker_map,
+          tool_prefix=tool_prefix_finder.Finalized(),
+          on_config_error=on_config_error)
+
+    if sub_args.ignore_linker_map:
+      sub_args.map_file = None
+
   if opts.analyze_native:
     if sub_args.map_file:
       linker_name = _DetectLinkerName(sub_args.map_file)
       logging.info('Linker name: %s', linker_name)
+    else:
+      # TODO(crbug.com/1193507): Remove when we implement string literal
+      #     tracking without map files.
+      #     nm emits some string literal symbols, but most exist in symbol gaps.
+      opts.track_string_literals = False
 
-      tool_prefix_finder = path_util.ToolPrefixFinder(
-          value=sub_args.tool_prefix,
-          output_directory=top_args.output_directory,
-          linker_name=linker_name)
-      sub_args.tool_prefix = tool_prefix_finder.Finalized()
+    tool_prefix_finder = path_util.ToolPrefixFinder(
+        value=sub_args.tool_prefix,
+        output_directory=top_args.output_directory,
+        linker_name=linker_name)
+    sub_args.tool_prefix = tool_prefix_finder.Finalized()
   else:
     # Trust that these values will not be used, and set to None.
     sub_args.elf_file = None
@@ -2157,7 +2070,11 @@ def _ProcessContainerArgs(top_args, sub_args, container_name, on_config_error):
     size_info_prefix = os.path.join(top_args.output_directory, 'size-info',
                                     os.path.basename(apk_prefix))
 
-  container_args = {k: v for k, v in sub_args.__dict__.items()}
+  # Need one or the other to have native symbols.
+  if not sub_args.elf_file and not sub_args.map_file:
+    opts.analyze_native = False
+
+  container_args = sub_args.__dict__.copy()
   container_args.update(opts.__dict__)
   logging.info('Container Params: %r', container_args)
   return (sub_args, opts, container_name, apk_so_path, resources_pathmap_path,
@@ -2225,8 +2142,8 @@ def _IterSubArgs(top_args, on_config_error):
       container_name = sub_args.name
     else:
       container_name = os.path.basename(main_file)
-    if set(container_name) & set('<>'):
-      parser.error('Container name cannot have characters in "<>"')
+    if set(container_name) & set('<>?'):
+      parser.error('Container name cannot have characters in "<>?"')
 
 
     # If needed, extract .apk file to a temp file and process that instead.
@@ -2239,6 +2156,11 @@ def _IterSubArgs(top_args, on_config_error):
           module_sub_args.apk_file = temp
           module_sub_args.split_name = module_name
           module_sub_args.name = '{}/{}.apk'.format(container_name, module_name)
+          # Make on-demand a part of the name so that:
+          # * It's obvious from the name which DFMs are on-demand.
+          # * Diffs that change an on-demand status show as adds/removes.
+          if _IsOnDemand(temp):
+            module_sub_args.name += '?'
           if module_name != 'base':
             # TODO(crbug.com/1143690): Fix native analysis for split APKs.
             module_sub_args.map_file = None

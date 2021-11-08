@@ -37,6 +37,7 @@ class OutputSurfaceProviderWebView {
   std::unique_ptr<viz::OutputSurface> CreateOutputSurface(
       viz::DisplayCompositorMemoryAndTaskController*
           display_compositor_controller);
+  void MarkExpectContextLoss();
 
   const viz::RendererSettings& renderer_settings() const {
     return renderer_settings_;
@@ -48,7 +49,6 @@ class OutputSurfaceProviderWebView {
   scoped_refptr<gpu::SharedContextState> shared_context_state() const {
     return shared_context_state_;
   }
-  bool enable_shared_image() const { return enable_shared_image_; }
 
  private:
   void InitializeContext();
@@ -60,8 +60,8 @@ class OutputSurfaceProviderWebView {
   viz::DebugRendererSettings debug_settings_;
   scoped_refptr<AwGLSurface> gl_surface_;
   scoped_refptr<gpu::SharedContextState> shared_context_state_;
-  bool enable_shared_image_;
   bool enable_vulkan_;
+  bool* expect_context_loss_ = nullptr;
 };
 
 }  // namespace android_webview

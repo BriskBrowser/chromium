@@ -23,7 +23,7 @@ namespace {
 
 // Don't start requesting updates to IP-based approximation geolocation until
 // this long after receiving the last one.
-constexpr base::TimeDelta kMinUpdatePeriod = base::TimeDelta::FromDays(1);
+constexpr base::TimeDelta kMinUpdatePeriod = base::Days(1);
 
 GeoLanguageProvider::Binder& GetBinderOverride() {
   static base::NoDestructor<GeoLanguageProvider::Binder> binder;
@@ -75,7 +75,7 @@ void GeoLanguageProvider::StartUp(PrefService* const prefs) {
 
   const base::ListValue* const cached_languages_list =
       prefs_->GetList(kCachedGeoLanguagesPref);
-  for (const auto& language_value : *cached_languages_list) {
+  for (const auto& language_value : cached_languages_list->GetList()) {
     languages_.push_back(language_value.GetString());
   }
 

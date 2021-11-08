@@ -17,9 +17,9 @@
 #include "media/base/audio_block_fifo.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_renderer_sink.h"
+#include "media/mojo/mojom/audio_stream_factory.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/audio/public/cpp/output_device.h"
-#include "services/audio/public/mojom/stream_factory.mojom.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 
 namespace chromeos {
@@ -29,12 +29,16 @@ class AudioDeviceOwner : public media::AudioRendererSink::RenderCallback,
                          media_session::mojom::MediaSessionObserver {
  public:
   explicit AudioDeviceOwner(const std::string& device_id);
+
+  AudioDeviceOwner(const AudioDeviceOwner&) = delete;
+  AudioDeviceOwner& operator=(const AudioDeviceOwner&) = delete;
+
   ~AudioDeviceOwner() override;
 
   void Start(
       chromeos::libassistant::mojom::AudioOutputDelegate* audio_output_delegate,
       assistant_client::AudioOutput::Delegate* delegate,
-      mojo::PendingRemote<audio::mojom::StreamFactory> stream_factory,
+      mojo::PendingRemote<media::mojom::AudioStreamFactory> stream_factory,
       const assistant_client::OutputStreamFormat& format);
 
   void Stop();
@@ -43,7 +47,7 @@ class AudioDeviceOwner : public media::AudioRendererSink::RenderCallback,
   void MediaSessionInfoChanged(
       media_session::mojom::MediaSessionInfoPtr info) override;
   void MediaSessionMetadataChanged(
-      const base::Optional<::media_session::MediaMetadata>& metadata) override {
+      const absl::optional<::media_session::MediaMetadata>& metadata) override {
   }
   void MediaSessionActionsChanged(
       const std::vector<media_session::mojom::MediaSessionAction>& action)
@@ -53,7 +57,7 @@ class AudioDeviceOwner : public media::AudioRendererSink::RenderCallback,
                            std::vector<::media_session::MediaImage>>& images)
       override {}
   void MediaSessionPositionChanged(
-      const base::Optional<::media_session::MediaPosition>& position) override {
+      const absl::optional<::media_session::MediaPosition>& position) override {
   }
 
   // media::AudioRenderSink::RenderCallback overrides:
@@ -68,7 +72,7 @@ class AudioDeviceOwner : public media::AudioRendererSink::RenderCallback,
 
  private:
   void StartDevice(
-      mojo::PendingRemote<audio::mojom::StreamFactory> stream_factory,
+      mojo::PendingRemote<media::mojom::AudioStreamFactory> stream_factory,
       mojom::AudioOutputDelegate* audio_output_delegate);
 
   // Requests assistant to fill buffer with more data.
@@ -102,8 +106,6 @@ class AudioDeviceOwner : public media::AudioRendererSink::RenderCallback,
   // so this sequence checker prevents the other methods from being called on
   // the render sequence.
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(AudioDeviceOwner);
 };
 
 }  // namespace libassistant

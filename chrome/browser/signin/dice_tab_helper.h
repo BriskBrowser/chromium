@@ -18,6 +18,9 @@ class NavigationHandle;
 class DiceTabHelper : public content::WebContentsUserData<DiceTabHelper>,
                       public content::WebContentsObserver {
  public:
+  DiceTabHelper(const DiceTabHelper&) = delete;
+  DiceTabHelper& operator=(const DiceTabHelper&) = delete;
+
   ~DiceTabHelper() override;
 
   signin_metrics::AccessPoint signin_access_point() const {
@@ -48,7 +51,7 @@ class DiceTabHelper : public content::WebContentsUserData<DiceTabHelper>,
   bool IsChromeSigninPage() const;
 
   // Returns true if a signin flow was initialized with the reason
-  // REASON_SIGNIN_PRIMARY_ACCOUNT and is not yet complete.
+  // kSigninPrimaryAccount and is not yet complete.
   // Note that there is not guarantee that the flow would ever finish, and in
   // some rare cases it is possible that a "non-sync" signin happens while this
   // is true (if the user aborts the flow and then re-uses the same tab for a
@@ -83,15 +86,13 @@ class DiceTabHelper : public content::WebContentsUserData<DiceTabHelper>,
   signin_metrics::PromoAction signin_promo_action_ =
       signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO;
   signin_metrics::Reason signin_reason_ =
-      signin_metrics::Reason::REASON_UNKNOWN_REASON;
+      signin_metrics::Reason::kUnknownReason;
   bool is_chrome_signin_page_ = false;
   bool signin_page_load_recorded_ = false;
   SyncSigninFlowStatus sync_signin_flow_status_ =
       SyncSigninFlowStatus::kNotStarted;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(DiceTabHelper);
 };
 
 #endif  // CHROME_BROWSER_SIGNIN_DICE_TAB_HELPER_H_

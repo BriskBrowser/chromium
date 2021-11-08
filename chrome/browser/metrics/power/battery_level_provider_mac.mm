@@ -17,7 +17,7 @@ namespace {
 // Returns the value corresponding to |key| in the dictionary |description|.
 // Returns |default_value| if the dictionary does not contain |key|, the
 // corresponding value is nullptr or it could not be converted to SInt64.
-base::Optional<SInt64> GetValueAsSInt64(CFDictionaryRef description,
+absl::optional<SInt64> GetValueAsSInt64(CFDictionaryRef description,
                                         CFStringRef key) {
   CFNumberRef number_ref =
       base::mac::GetValueFromDictionary<CFNumberRef>(description, key);
@@ -26,15 +26,15 @@ base::Optional<SInt64> GetValueAsSInt64(CFDictionaryRef description,
   if (number_ref && CFNumberGetValue(number_ref, kCFNumberSInt64Type, &value))
     return value;
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-base::Optional<bool> GetValueAsBoolean(CFDictionaryRef description,
+absl::optional<bool> GetValueAsBoolean(CFDictionaryRef description,
                                        CFStringRef key) {
   CFBooleanRef boolean =
       base::mac::GetValueFromDictionary<CFBooleanRef>(description, key);
   if (!boolean)
-    return base::nullopt;
+    return absl::nullopt;
   return CFBooleanGetValue(boolean);
 }
 
@@ -45,15 +45,57 @@ class BatteryLevelProviderMac : public BatteryLevelProvider {
   BatteryLevelProviderMac() = default;
   ~BatteryLevelProviderMac() override = default;
 
-  std::vector<BatteryInterface> GetBatteryInterfaceList() override;
+  void GetBatteryState(
+      base::OnceCallback<void(const BatteryState&)> callback) override {
+    std::vector<BatteryInterface> battery_interfaces =
+        GetBatteryInterfaceList();
+    std::move(callback).Run(
+        BatteryLevelProvider::MakeBatteryState(battery_interfaces));
+  }
 
  private:
-  BatteryLevelProvider::BatteryInterface GetInterface(
+  static std::vector<BatteryInterface> GetBatteryInterfaceList();
+
+  static BatteryLevelProvider::BatteryInterface GetInterface(
       CFDictionaryRef description);
 };
 
 std::unique_ptr<BatteryLevelProvider> BatteryLevelProvider::Create() {
   return std::make_unique<BatteryLevelProviderMac>();
+}
+
+BatteryLevelProvider::BatteryInterface BatteryLevelProviderMac::GetInterface(
+    CFDictionaryRef description) {
+  absl::optional<bool> external_connected =
+      GetValueAsBoolean(description, CFSTR("ExternalConnected"));
+  if (!external_connected.has_value())
+    return BatteryInterface(true);
+  bool is_connected = *external_connected;
+
+  CFStringRef capacity_key;
+  CFStringRef max_capacity_key;
+
+  // Use the correct key depending on macOS version.
+  if (@available(macOS 10.14.0, *)) {
+    capacity_key = CFSTR("AppleRawCurrentCapacity");
+    max_capacity_key = CFSTR("AppleRawMaxCapacity");
+  } else {
+    capacity_key = CFSTR("CurrentCapacity");
+    max_capacity_key = CFSTR("RawMaxCapacity");
+  }
+
+  // Extract the information from the dictionary.
+  absl::optional<SInt64> current_capacity =
+      GetValueAsSInt64(description, capacity_key);
+  absl::optional<SInt64> max_capacity =
+      GetValueAsSInt64(description, max_capacity_key);
+  if (!current_capacity.has_value() || !max_capacity.has_value())
+    return BatteryInterface(true);
+  DCHECK_GE(*current_capacity, 0);
+  DCHECK_GE(*max_capacity, 0);
+  return BatteryInterface({is_connected,
+                           static_cast<uint64_t>(*current_capacity),
+                           static_cast<uint64_t>(*max_capacity)});
 }
 
 std::vector<BatteryLevelProvider::BatteryInterface>
@@ -78,34 +120,4 @@ BatteryLevelProviderMac::GetBatteryInterfaceList() {
     interfaces.push_back(GetInterface(dict));
   }
   return interfaces;
-}
-
-BatteryLevelProvider::BatteryInterface BatteryLevelProviderMac::GetInterface(
-    CFDictionaryRef description) {
-  base::Optional<bool> external_connected =
-      GetValueAsBoolean(description, CFSTR("ExternalConnected"));
-  if (!external_connected.has_value())
-    return BatteryInterface(true);
-  bool is_connected = *external_connected;
-
-  CFStringRef capacity_key;
-  CFStringRef max_capacity_key;
-
-  // Use the correct key depending on macOS version.
-  if (@available(macOS 10.14.0, *)) {
-    capacity_key = CFSTR("AppleRawCurrentCapacity");
-    max_capacity_key = CFSTR("AppleRawMaxCapacity");
-  } else {
-    capacity_key = CFSTR("CurrentCapacity");
-    max_capacity_key = CFSTR("RawMaxCapacity");
-  }
-
-  // Extract the information from the dictionary.
-  base::Optional<SInt64> current_capacity =
-      GetValueAsSInt64(description, capacity_key);
-  base::Optional<SInt64> max_capacity =
-      GetValueAsSInt64(description, max_capacity_key);
-  if (!current_capacity.has_value() || !max_capacity.has_value())
-    return BatteryInterface(true);
-  return BatteryInterface({is_connected, *current_capacity, *max_capacity});
 }

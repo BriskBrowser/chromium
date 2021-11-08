@@ -44,7 +44,6 @@ viz_component("host") {
   deps = [
     "//base",
     "//build:chromeos_buildflags",
-    "//components/ui_devtools:buildflags",
     "//gpu/ipc/client",
     "//gpu/ipc/common",
     "//services/viz/privileged/mojom",
@@ -96,10 +95,6 @@ viz_source_set("unit_tests") {
 
   if (use_ozone) {
     deps += [ "//ui/ozone" ]
-  }
-
-  if (use_x11 || use_ozone) {
-    deps += [ "//ui/base:features" ]
   }
 }
 

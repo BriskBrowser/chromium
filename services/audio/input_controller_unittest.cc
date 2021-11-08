@@ -18,17 +18,19 @@
 #include "media/audio/test_audio_thread.h"
 #include "media/base/audio_processing.h"
 #include "media/base/user_input_monitor.h"
-#include "media/webrtc/webrtc_switches.h"
+#include "media/webrtc/webrtc_features.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "services/audio/concurrent_stream_metric_reporter.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using base::WaitableEvent;
 using ::testing::_;
 using ::testing::AtLeast;
 using ::testing::Exactly;
 using ::testing::InvokeWithoutArgs;
 using ::testing::NotNull;
-using base::WaitableEvent;
+using ::testing::StrictMock;
 
 namespace audio {
 
@@ -42,8 +44,7 @@ const double kMaxVolume = 1.0;
 
 // InputController will poll once every second, so wait at most a bit
 // more than that for the callbacks.
-constexpr base::TimeDelta kOnMutePollInterval =
-    base::TimeDelta::FromMilliseconds(1000);
+constexpr base::TimeDelta kOnMutePollInterval = base::Milliseconds(1000);
 
 }  // namespace
 
@@ -51,14 +52,16 @@ class MockInputControllerEventHandler : public InputController::EventHandler {
  public:
   MockInputControllerEventHandler() = default;
 
+  MockInputControllerEventHandler(const MockInputControllerEventHandler&) =
+      delete;
+  MockInputControllerEventHandler& operator=(
+      const MockInputControllerEventHandler&) = delete;
+
   void OnLog(base::StringPiece) override {}
 
   MOCK_METHOD1(OnCreated, void(bool initially_muted));
   MOCK_METHOD1(OnError, void(InputController::ErrorCode error_code));
   MOCK_METHOD1(OnMuted, void(bool is_muted));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockInputControllerEventHandler);
 };
 
 class MockSyncWriter : public InputController::SyncWriter {
@@ -83,6 +86,14 @@ class MockUserInputMonitor : public media::UserInputMonitor {
   MOCK_METHOD0(DisableKeyPressMonitoring, void());
 };
 
+class MockInputStreamActivityMonitor : public InputStreamActivityMonitor {
+ public:
+  MockInputStreamActivityMonitor() = default;
+
+  MOCK_METHOD0(OnInputStreamActive, void());
+  MOCK_METHOD0(OnInputStreamInactive, void());
+};
+
 class MockAudioInputStream : public media::AudioInputStream {
  public:
   MockAudioInputStream() {}
@@ -98,7 +109,7 @@ class MockAudioInputStream : public media::AudioInputStream {
   bool IsMuted() override { return false; }
   void SetOutputDeviceForAec(const std::string&) override {}
 
-  MOCK_METHOD0(Open, bool());
+  MOCK_METHOD0(Open, media::AudioInputStream::OpenOutcome());
   MOCK_METHOD1(SetVolume, void(double));
 };
 
@@ -117,6 +128,10 @@ class TimeSourceInputControllerTest : public ::testing::Test {
                 kSampleRate,
                 kSamplesPerPacket) {}
 
+  TimeSourceInputControllerTest(const TimeSourceInputControllerTest&) = delete;
+  TimeSourceInputControllerTest& operator=(
+      const TimeSourceInputControllerTest&) = delete;
+
   ~TimeSourceInputControllerTest() override {
     audio_manager_->Shutdown();
     task_environment_.RunUntilIdle();
@@ -126,7 +141,7 @@ class TimeSourceInputControllerTest : public ::testing::Test {
   void CreateAudioController() {
     controller_ = InputController::Create(
         audio_manager_.get(), &event_handler_, &sync_writer_,
-        &user_input_monitor_, params_,
+        &user_input_monitor_, &mock_stream_activity_monitor_, params_,
         media::AudioDeviceDescription::kDefaultDeviceId, false);
   }
 
@@ -138,12 +153,10 @@ class TimeSourceInputControllerTest : public ::testing::Test {
   MockInputControllerEventHandler event_handler_;
   MockSyncWriter sync_writer_;
   MockUserInputMonitor user_input_monitor_;
+  StrictMock<MockInputStreamActivityMonitor> mock_stream_activity_monitor_;
   media::AudioParameters params_;
   MockAudioInputStream stream_;
   base::test::ScopedFeatureList audio_processing_feature_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TimeSourceInputControllerTest);
 };
 
 using SystemTimeInputControllerTest = TimeSourceInputControllerTest<
@@ -166,6 +179,8 @@ TEST_F(InputControllerTest, CreateAndCloseWithoutRecording) {
 // that thread, and thus we must use SYSTEM_TIME.
 TEST_F(SystemTimeInputControllerTest, CreateRecordAndClose) {
   EXPECT_CALL(event_handler_, OnCreated(_));
+  EXPECT_CALL(mock_stream_activity_monitor_, OnInputStreamActive()).Times(1);
+  EXPECT_CALL(mock_stream_activity_monitor_, OnInputStreamInactive()).Times(1);
   CreateAudioController();
   ASSERT_TRUE(controller_.get());
 
@@ -193,8 +208,26 @@ TEST_F(SystemTimeInputControllerTest, CreateRecordAndClose) {
   task_environment_.RunUntilIdle();
 }
 
+TEST_F(InputControllerTest, RecordTwice) {
+  EXPECT_CALL(event_handler_, OnCreated(_));
+  EXPECT_CALL(mock_stream_activity_monitor_, OnInputStreamActive()).Times(1);
+  EXPECT_CALL(mock_stream_activity_monitor_, OnInputStreamInactive()).Times(1);
+  CreateAudioController();
+  ASSERT_TRUE(controller_.get());
+
+  EXPECT_CALL(user_input_monitor_, EnableKeyPressMonitoring());
+  controller_->Record();
+  controller_->Record();
+
+  EXPECT_CALL(user_input_monitor_, DisableKeyPressMonitoring());
+  EXPECT_CALL(sync_writer_, Close());
+  controller_->Close();
+}
+
 TEST_F(InputControllerTest, CloseTwice) {
   EXPECT_CALL(event_handler_, OnCreated(_));
+  EXPECT_CALL(mock_stream_activity_monitor_, OnInputStreamActive()).Times(1);
+  EXPECT_CALL(mock_stream_activity_monitor_, OnInputStreamInactive()).Times(1);
   CreateAudioController();
   ASSERT_TRUE(controller_.get());
 

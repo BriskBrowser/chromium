@@ -8,7 +8,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "base/callback.h"
 #include "base/macros.h"
@@ -21,7 +20,7 @@
 class PrefService;
 
 namespace download {
-class DownloadService;
+class BackgroundDownloadService;
 }  // namespace download
 
 namespace offline_pages {
@@ -31,9 +30,13 @@ class PrefetchService;
 // Asynchronously downloads the archive.
 class PrefetchDownloaderImpl : public PrefetchDownloader {
  public:
-  PrefetchDownloaderImpl(download::DownloadService* download_service,
+  PrefetchDownloaderImpl(download::BackgroundDownloadService* download_service,
                          version_info::Channel channel,
                          PrefService* prefs);
+
+  PrefetchDownloaderImpl(const PrefetchDownloaderImpl&) = delete;
+  PrefetchDownloaderImpl& operator=(const PrefetchDownloaderImpl&) = delete;
+
   ~PrefetchDownloaderImpl() override;
 
   // PrefetchDownloader implementation:
@@ -75,7 +78,7 @@ class PrefetchDownloaderImpl : public PrefetchDownloader {
           success_downloads);
 
   // Unowned. It is valid until |this| instance is disposed.
-  download::DownloadService* download_service_;
+  download::BackgroundDownloadService* download_service_;
 
   // Unowned, owns |this|.
   PrefetchService* prefetch_service_ = nullptr;
@@ -96,8 +99,6 @@ class PrefetchDownloaderImpl : public PrefetchDownloader {
   PrefService* prefs_;
 
   base::WeakPtrFactory<PrefetchDownloaderImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PrefetchDownloaderImpl);
 };
 
 }  // namespace offline_pages

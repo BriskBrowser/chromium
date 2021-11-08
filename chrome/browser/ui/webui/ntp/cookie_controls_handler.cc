@@ -13,6 +13,7 @@
 #include "chrome/browser/ui/cookie_controls/cookie_controls_service.h"
 #include "chrome/browser/ui/cookie_controls/cookie_controls_service_factory.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/webui_url_constants.h"
 #include "components/content_settings/core/common/cookie_controls_enforcement.h"
 
 namespace {
@@ -29,12 +30,12 @@ CookieControlsHandler::~CookieControlsHandler() {
 }
 
 void CookieControlsHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "cookieControlsToggleChanged",
       base::BindRepeating(
           &CookieControlsHandler::HandleCookieControlsToggleChanged,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "observeCookieControlsSettingsChanges",
       base::BindRepeating(
           &CookieControlsHandler::HandleObserveCookieControlsSettingsChanges,
@@ -51,8 +52,9 @@ void CookieControlsHandler::OnJavascriptDisallowed() {
 
 void CookieControlsHandler::HandleCookieControlsToggleChanged(
     const base::ListValue* args) {
-  bool checked;
-  CHECK(args->GetBoolean(0, &checked));
+  const auto& list = args->GetList();
+  CHECK(!list.empty());
+  const bool checked = list[0].GetBool();
   service_->HandleCookieControlsToggleChanged(checked);
 }
 
@@ -90,10 +92,6 @@ void CookieControlsHandler::SendCookieControlsUIChanges() {
   dict.SetBoolKey("checked", service_->GetToggleCheckedValue());
   dict.SetStringKey(
       "icon", GetEnforcementIcon(service_->GetCookieControlsEnforcement()));
-  bool use_new_cookie_page =
-      base::FeatureList::IsEnabled(features::kPrivacySettingsRedesign);
-  dict.SetString("cookieSettingsUrl",
-                 use_new_cookie_page ? "chrome://settings/cookies"
-                                     : "chrome://settings/content/cookies");
+  dict.SetString("cookieSettingsUrl", chrome::kChromeUICookieSettingsURL);
   FireWebUIListener("cookie-controls-changed", dict);
 }

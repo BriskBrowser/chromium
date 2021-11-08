@@ -45,7 +45,7 @@ namespace webapps {
 PwaBottomSheetController::~PwaBottomSheetController() = default;
 
 // static
-void JNI_PwaBottomSheetController_RequestOrExpandBottomSheetInstaller(
+jboolean JNI_PwaBottomSheetController_RequestOrExpandBottomSheetInstaller(
     JNIEnv* env,
     const JavaParamRef<jobject>& jweb_contents,
     int install_trigger) {
@@ -56,19 +56,19 @@ void JNI_PwaBottomSheetController_RequestOrExpandBottomSheetInstaller(
 
   WebappInstallSource install_source = InstallableMetrics::GetInstallSource(
       web_contents, static_cast<InstallTrigger>(install_trigger));
-  app_banner_manager->MaybeShowPwaBottomSheetController(
+  return app_banner_manager->MaybeShowPwaBottomSheetController(
       /* expand_sheet= */ true, install_source);
 }
 
 // static
 bool PwaBottomSheetController::MaybeShow(
     content::WebContents* web_contents,
-    const base::string16& app_name,
+    const std::u16string& app_name,
     const SkBitmap& primary_icon,
     const bool is_primary_icon_maskable,
     const GURL& start_url,
     const std::vector<SkBitmap>& screenshots,
-    const base::string16& description,
+    const std::u16string& description,
     bool expand_sheet,
     std::unique_ptr<AddToHomescreenParams> a2hs_params,
     base::RepeatingCallback<void(AddToHomescreenInstaller::Event,
@@ -97,12 +97,12 @@ bool PwaBottomSheetController::MaybeShow(
 }
 
 PwaBottomSheetController::PwaBottomSheetController(
-    const base::string16& app_name,
+    const std::u16string& app_name,
     const SkBitmap& primary_icon,
     const bool is_primary_icon_maskable,
     const GURL& start_url,
     const std::vector<SkBitmap>& screenshots,
-    const base::string16& description,
+    const std::u16string& description,
     std::unique_ptr<AddToHomescreenParams> a2hs_params,
     base::RepeatingCallback<void(AddToHomescreenInstaller::Event,
                                  const AddToHomescreenParams&)>
@@ -134,6 +134,11 @@ void PwaBottomSheetController::UpdateInstallSource(JNIEnv* env,
       static_cast<WebappInstallSource>(install_source);
 }
 
+void PwaBottomSheetController::OnSheetClosedWithSwipe(JNIEnv* env) {
+  a2hs_event_callback_.Run(AddToHomescreenInstaller::Event::UI_CANCELLED,
+                           *a2hs_params_);
+}
+
 void PwaBottomSheetController::OnSheetExpanded(JNIEnv* env) {
   a2hs_event_callback_.Run(AddToHomescreenInstaller::Event::UI_SHOWN,
                            *a2hs_params_);
@@ -154,6 +159,8 @@ void PwaBottomSheetController::OnAddToHomescreen(
 
   install_triggered_ = true;
   app_banner_manager->Install(*a2hs_params_, std::move(a2hs_event_callback_));
+  app_banner_manager->TrackInstallPath(/* bottom_sheet= */ true,
+                                       a2hs_params_->install_source);
 }
 
 void PwaBottomSheetController::ShowBottomSheetInstaller(

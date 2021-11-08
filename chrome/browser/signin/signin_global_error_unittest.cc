@@ -10,7 +10,7 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
@@ -35,6 +35,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 static const char kTestEmail[] = "testuser@test.com";
+static const char16_t kTestEmail16[] = u"testuser@test.com";
 
 class SigninGlobalErrorTest : public testing::Test {
  public:
@@ -51,21 +52,21 @@ class SigninGlobalErrorTest : public testing::Test {
 
     profile_ = profile_manager_.CreateTestingProfile(
         "Person 1", std::unique_ptr<sync_preferences::PrefServiceSyncable>(),
-        base::UTF8ToUTF16("Person 1"), 0, std::string(),
-        std::move(testing_factories));
+        u"Person 1", 0, std::string(), std::move(testing_factories));
 
     identity_test_env_profile_adaptor_ =
         std::make_unique<IdentityTestEnvironmentProfileAdaptor>(profile());
 
     AccountInfo account_info =
         identity_test_env_profile_adaptor_->identity_test_env()
-            ->MakePrimaryAccountAvailable(kTestEmail);
+            ->MakePrimaryAccountAvailable(kTestEmail,
+                                          signin::ConsentLevel::kSync);
     ProfileAttributesEntry* entry =
         profile_manager_.profile_attributes_storage()
             ->GetProfileAttributesWithPath(profile()->GetPath());
     ASSERT_NE(entry, nullptr);
 
-    entry->SetAuthInfo(account_info.gaia, base::UTF8ToUTF16(kTestEmail),
+    entry->SetAuthInfo(account_info.gaia, kTestEmail16,
                        /*is_consented_primary_account=*/true);
 
     global_error_ = SigninGlobalErrorFactory::GetForProfile(profile());
@@ -160,7 +161,5 @@ TEST_F(SigninGlobalErrorTest, AuthStatusEnumerateAllErrors) {
       histogram_tester.ExpectBucketCount("Signin.AuthError", entry.error_state,
                                          1);
     }
-    histogram_tester.ExpectBucketCount("Profile.NumberOfProfilesWithAuthErrors",
-                                       entry.is_error, 1);
   }
 }

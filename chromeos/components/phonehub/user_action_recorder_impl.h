@@ -5,10 +5,7 @@
 #ifndef CHROMEOS_COMPONENTS_PHONEHUB_USER_ACTION_RECORDER_IMPL_H_
 #define CHROMEOS_COMPONENTS_PHONEHUB_USER_ACTION_RECORDER_IMPL_H_
 
-#include <memory>
-
 #include "base/gtest_prod_util.h"
-#include "base/time/time.h"
 #include "chromeos/components/phonehub/user_action_recorder.h"
 
 namespace chromeos {
@@ -40,7 +37,8 @@ class UserActionRecorderImpl : public UserActionRecorder {
     kBrowserTab = 4,
     kNotificationDismissal = 5,
     kNotificationReply = 6,
-    kMaxValue = kNotificationReply,
+    kCameraRollDownload = 7,
+    kMaxValue = kCameraRollDownload,
   };
 
   // UserActionRecorder:
@@ -51,6 +49,7 @@ class UserActionRecorderImpl : public UserActionRecorder {
   void RecordBrowserTabOpened() override;
   void RecordNotificationDismissAttempt() override;
   void RecordNotificationReplyAttempt() override;
+  void RecordCameraRollDownloadAttempt() override;
 
   void HandleUserAction(UserAction action);
 

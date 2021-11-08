@@ -6,11 +6,9 @@ Polymer({
   is: 'settings-multidevice-page',
 
   behaviors: [
-    DeepLinkingBehavior,
-    settings.RouteObserverBehavior,
-    MultiDeviceFeatureBehavior,
-    WebUIListenerBehavior,
-    PrefsBehavior,
+    DeepLinkingBehavior, settings.RouteObserverBehavior,
+    MultiDeviceFeatureBehavior, WebUIListenerBehavior, PrefsBehavior,
+    nearby_share.NearbyShareSettingsBehavior
   ],
 
   properties: {
@@ -63,22 +61,35 @@ Polymer({
       value: false,
     },
 
-    /** @private {boolean} */
-    showNotificationAccessSetupDialog_: {
+    /** @private */
+    showPhonePermissionSetupDialog_: {
       type: Boolean,
       value: false,
     },
 
     /**
-     * The value of the Nearby Share feature flag which controls if the
-     * Nearby Share settings and subpage are accessible.
+     * Whether or not Nearby Share is supported which controls if the Nearby
+     * Share settings and subpage are accessible.
      * @private {boolean}
      */
-    nearbySharingFeatureEnabled_: {
+    isNearbyShareSupported_: {
       type: Boolean,
       value: function() {
-        return loadTimeData.getBoolean('nearbySharingFeatureFlag');
+        return loadTimeData.getBoolean('isNearbyShareSupported');
       }
+    },
+
+    /** @private */
+    shouldEnableNearbyShareBackgroundScanningRevamp_: {
+      type: Boolean,
+      computed: `computeShouldEnableNearbyShareBackgroundScanningRevamp_(
+          settings.isFastInitiationHardwareSupported)`,
+    },
+
+    /** @private */
+    isSettingsRetreived: {
+      type: Boolean,
+      value: false,
     },
 
     /**
@@ -93,6 +104,15 @@ Polymer({
         chromeos.settings.mojom.Setting.kMultiDeviceOnOff,
         chromeos.settings.mojom.Setting.kNearbyShareOnOff,
       ]),
+    },
+
+    /**
+     * Reflects the password sub-dialog property.
+     * @private
+     */
+    isPasswordDialogShowing_: {
+      type: Boolean,
+      value: false,
     },
   },
 
@@ -111,10 +131,17 @@ Polymer({
 
     this.addWebUIListener(
         'settings.updateMultidevicePageContentData',
-        this.onPageContentDataChanged_.bind(this));
+        (data) => this.onPageContentDataChanged_(data));
 
     this.browserProxy_.getPageContentData().then(
-        this.onInitialPageContentDataFetched_.bind(this));
+        (data) => this.onInitialPageContentDataFetched_(data));
+  },
+
+  /**
+   * Overridden from nearby_share.NearbyShareSettingsBehavior.
+   */
+  onSettingsRetrieved() {
+    this.isSettingsRetreived = true;
   },
 
   /**
@@ -347,7 +374,7 @@ Polymer({
           return;
         case settings.PhoneHubNotificationAccessStatus
             .AVAILABLE_BUT_NOT_GRANTED:
-          this.showNotificationAccessSetupDialog_ = true;
+          this.showPhonePermissionSetupDialog_ = true;
           return;
         default:
           // Fall through and attempt to toggle feature.
@@ -448,7 +475,7 @@ Polymer({
     // param.
     const urlParams = settings.Router.getInstance().getQueryParameters();
     if (urlParams.get('showNotificationAccessSetupDialog') !== null) {
-      this.showNotificationAccessSetupDialog_ = true;
+      this.showPhonePermissionSetupDialog_ = true;
     }
   },
 
@@ -469,6 +496,17 @@ Polymer({
     this.authToken_ = e.detail;
   },
 
+  /**
+   * @return {boolean} Whether Nearby Share is disallowed by enterprise policy.
+   * @private
+   */
+  isNearbyShareDisallowedByPolicy_() {
+    if (!this.pageContentData) {
+      return false;
+    }
+
+    return this.pageContentData.isNearbyShareDisallowedByPolicy;
+  },
 
   /**
    * @param {boolean} state boolean state that determines which string to show
@@ -482,13 +520,62 @@ Polymer({
   },
 
   /**
+   * @param {boolean} isOnboardingComplete
+   * @return {boolean}
+   * @private
+   */
+  showNearbyShareToggle_(isOnboardingComplete) {
+    return isOnboardingComplete || this.isNearbyShareDisallowedByPolicy_();
+  },
+
+  /**
+   * @param {boolean} isOnboardingComplete
+   * @return {boolean}
+   * @private
+   */
+  showNearbyShareSetupButton_(isOnboardingComplete) {
+    return !isOnboardingComplete && !this.isNearbyShareDisallowedByPolicy_();
+  },
+
+  /**
+   * @param {boolean} isOnboardingComplete
+   * @return {boolean}
+   * @private
+   */
+  showNearbyShareOnOffString_(isOnboardingComplete) {
+    return isOnboardingComplete && !this.isNearbyShareDisallowedByPolicy_();
+  },
+
+  /**
+   * @param {boolean} isOnboardingComplete
+   * @return {boolean}
+   * @private
+   */
+  showNearbyShareDescription_(isOnboardingComplete) {
+    return !isOnboardingComplete || this.isNearbyShareDisallowedByPolicy_();
+  },
+
+  /**
    * @param {!Event} event
    * @private
    */
   nearbyShareClick_(event) {
+    if (this.isNearbyShareDisallowedByPolicy_()) {
+      return;
+    }
+
     const nearbyEnabled = this.getPref('nearby_sharing.enabled').value;
     const onboardingComplete =
         this.getPref('nearby_sharing.onboarding_complete').value;
+
+    // If background scanning is enabled the subpage is accessible regardless of
+    // whether Nearby Share is on or off so that users can enable/disable the
+    // "Nearby device is trying to share" notification.
+    if (this.shouldEnableNearbyShareBackgroundScanningRevamp_) {
+      settings.Router.getInstance().navigateTo(settings.routes.NEARBY_SHARE);
+      return;
+    }
+
     let params = undefined;
     if (!nearbyEnabled) {
       if (onboardingComplete) {
@@ -498,25 +585,84 @@ Polymer({
         this.setPrefValue('nearby_sharing.enabled', true);
         return;
       }
+
       // Otherwise we need to go into the subpage and trigger the onboarding
       // dialog.
       params = new URLSearchParams();
+      // Set by metrics to determine entrypoint for onboarding
+      params.set('entrypoint', 'settings');
       params.set('onboarding', '');
     }
     settings.Router.getInstance().navigateTo(
         settings.routes.NEARBY_SHARE, params);
   },
 
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  showPermissionsSetupDialog_() {
+    if (!this.showPhonePermissionSetupDialog_) {
+      return false;
+    }
+    return !this.pageContentData.isPhoneHubPermissionsDialogSupported;
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  showNewPermissionsSetupDialog_() {
+    if (!this.showPhonePermissionSetupDialog_) {
+      return false;
+    }
+    return this.pageContentData.isPhoneHubPermissionsDialogSupported;
+  },
+
   /** @private */
-  onHideNotificationSetupAccessDialog_() {
-    this.showNotificationAccessSetupDialog_ = false;
+  onHidePhonePermissionsSetupDialog_() {
+    // Don't close the main dialog if the password sub-dialog is open.
+    if (this.isPasswordDialogShowing_) {
+      return;
+    }
+    this.showPhonePermissionSetupDialog_ = false;
   },
 
   /** @private */
   handleNearbySetUpClick_() {
     const params = new URLSearchParams();
     params.set('onboarding', '');
+    // Set by metrics to determine entrypoint for onboarding
+    params.set('entrypoint', 'settings');
     settings.Router.getInstance().navigateTo(
         settings.routes.NEARBY_SHARE, params);
+  },
+
+  /**
+   * @param {boolean} isNearbySharingEnabled
+   * @param {boolean} shouldEnableNearbyShareBackgroundScanningRevamp
+   * @return {boolean}
+   * @private
+   */
+  shouldShowNearbyShareSubpageArrow_(
+      isNearbySharingEnabled, shouldEnableNearbyShareBackgroundScanningRevamp) {
+    // If the background scanning feature is enabled but Nearby Sharing is
+    // disabled the subpage should be accessible. The subpage is also accessible
+    // pre-onboarding.
+    return (shouldEnableNearbyShareBackgroundScanningRevamp ||
+            isNearbySharingEnabled) &&
+        !this.isNearbyShareDisallowedByPolicy_();
+  },
+
+  /**
+   * @param {boolean} is_hardware_supported
+   * @return {boolean}
+   * @private
+   */
+  computeShouldEnableNearbyShareBackgroundScanningRevamp_(
+      is_hardware_supported) {
+    return loadTimeData.getBoolean('isNearbyShareBackgroundScanningEnabled') &&
+        is_hardware_supported;
   },
 });

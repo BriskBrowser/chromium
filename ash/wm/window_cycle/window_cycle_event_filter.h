@@ -8,8 +8,8 @@
 #include "ash/ash_export.h"
 #include "ash/wm/window_cycle/window_cycle_controller.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/timer/timer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/geometry/point.h"
 
@@ -32,6 +32,10 @@ class ASH_EXPORT WindowCycleEventFilter : public ui::EventHandler {
   static constexpr float kHorizontalThresholdDp = 330.f;
 
   WindowCycleEventFilter();
+
+  WindowCycleEventFilter(const WindowCycleEventFilter&) = delete;
+  WindowCycleEventFilter& operator=(const WindowCycleEventFilter&) = delete;
+
   ~WindowCycleEventFilter() override;
 
   // Overridden from ui::EventHandler:
@@ -54,13 +58,14 @@ class ASH_EXPORT WindowCycleEventFilter : public ui::EventHandler {
   class AltReleaseHandler : public ui::EventHandler {
    public:
     AltReleaseHandler();
+
+    AltReleaseHandler(const AltReleaseHandler&) = delete;
+    AltReleaseHandler& operator=(const AltReleaseHandler&) = delete;
+
     ~AltReleaseHandler() override;
 
     // ui::EventHandler:
     void OnKeyEvent(ui::KeyEvent* event) override;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(AltReleaseHandler);
   };
 
   // Depending on the values of |event| either repeatedly cycle through windows,
@@ -85,6 +90,10 @@ class ASH_EXPORT WindowCycleEventFilter : public ui::EventHandler {
   // Depending on the properties of |event|, may cycle the window cycle list or
   // complete cycling.
   void ProcessMouseEvent(ui::MouseEvent* event);
+
+  // Depending on the properties of |event|, may continuously scroll the window
+  // cycle list, move the cycle view's focus ring or complete cycling.
+  void ProcessGestureEvent(ui::GestureEvent* event);
 
   // Called by ProcessMouseEvent() and OnScrollEvent(). May cycle the window
   // cycle list. Returns true if the event has been handled and should not be
@@ -127,9 +136,16 @@ class ASH_EXPORT WindowCycleEventFilter : public ui::EventHandler {
 
   // Stores the current scroll session data. If it does not exist, there is no
   // active scroll session.
-  base::Optional<ScrollData> scroll_data_;
+  absl::optional<ScrollData> scroll_data_;
 
-  DISALLOW_COPY_AND_ASSIGN(WindowCycleEventFilter);
+  // When a user taps on a preview item it should move the focus ring to it.
+  // However, the focus ring should not move if the user is scrolling. Store
+  // |tapped_window_| on tap events and determine whether this is a tap or
+  // scroll with subsequent events.
+  aura::Window* tapped_window_ = nullptr;
+
+  // Tracks whether the user is touch scrolling the window cycle list.
+  bool touch_scrolling_ = false;
 };
 
 }  // namespace ash

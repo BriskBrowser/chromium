@@ -22,8 +22,6 @@ namespace content {
 class ServiceWorkerContextCore;
 class ServiceWorkerVersion;
 
-// Used only when ServiceWorkerImportedScriptUpdateCheck is enabled.
-//
 // This is responsible for byte-for-byte update checking. Mostly corresponding
 // to step 1-9 in [[Update]] in the spec, but this stops to fetch scripts after
 // any changes found.
@@ -78,6 +76,8 @@ class CONTENT_EXPORT ServiceWorkerUpdateChecker {
       std::unique_ptr<ServiceWorkerSingleScriptUpdateChecker::FailureInfo>
           failure_info)>;
 
+  ServiceWorkerUpdateChecker() = delete;
+
   ServiceWorkerUpdateChecker(
       std::vector<storage::mojom::ServiceWorkerResourceRecordPtr>
           scripts_to_compare,
@@ -86,10 +86,16 @@ class CONTENT_EXPORT ServiceWorkerUpdateChecker {
       scoped_refptr<ServiceWorkerVersion> version_to_update,
       scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
       bool force_bypass_cache,
+      blink::mojom::ScriptType worker_script_type,
       blink::mojom::ServiceWorkerUpdateViaCache update_via_cache,
       base::TimeDelta time_since_last_check,
       ServiceWorkerContextCore* context,
       blink::mojom::FetchClientSettingsObjectPtr fetch_client_settings_object);
+
+  ServiceWorkerUpdateChecker(const ServiceWorkerUpdateChecker&) = delete;
+  ServiceWorkerUpdateChecker& operator=(const ServiceWorkerUpdateChecker&) =
+      delete;
+
   ~ServiceWorkerUpdateChecker();
 
   // |callback| is always triggered when the update check finishes.
@@ -142,11 +148,9 @@ class CONTENT_EXPORT ServiceWorkerUpdateChecker {
   scoped_refptr<network::SharedURLLoaderFactory> loader_factory_;
 
   const bool force_bypass_cache_;
+  const blink::mojom::ScriptType worker_script_type_;
   const blink::mojom::ServiceWorkerUpdateViaCache update_via_cache_;
   const base::TimeDelta time_since_last_check_;
-
-  // Headers that need to be added to network requests for update checking.
-  net::HttpRequestHeaders default_headers_;
 
   // True if any at least one of the scripts is fetched by network.
   bool network_accessed_ = false;
@@ -161,8 +165,6 @@ class CONTENT_EXPORT ServiceWorkerUpdateChecker {
   blink::mojom::FetchClientSettingsObjectPtr fetch_client_settings_object_;
 
   base::WeakPtrFactory<ServiceWorkerUpdateChecker> weak_factory_{this};
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(ServiceWorkerUpdateChecker);
 };
 
 }  // namespace content

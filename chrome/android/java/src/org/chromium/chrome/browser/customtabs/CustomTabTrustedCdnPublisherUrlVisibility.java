@@ -8,8 +8,7 @@ import org.chromium.base.UnownedUserData;
 import org.chromium.base.supplier.BooleanSupplier;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
-import org.chromium.chrome.browser.lifecycle.Destroyable;
-import org.chromium.chrome.browser.previews.Previews;
+import org.chromium.chrome.browser.lifecycle.DestroyObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TrustedCdn.PublisherUrlVisibility;
 import org.chromium.ui.base.WindowAndroid;
@@ -19,7 +18,7 @@ import org.chromium.ui.base.WindowAndroid;
  * the availability of publisher URL of trusted CDN when attached to a custom tab activity.
  */
 class CustomTabTrustedCdnPublisherUrlVisibility
-        implements PublisherUrlVisibility, Destroyable, UnownedUserData {
+        implements PublisherUrlVisibility, DestroyObserver, UnownedUserData {
     private WindowAndroid mWindowAndroid;
     private BooleanSupplier mIsPublisherPackageForSession;
 
@@ -38,12 +37,11 @@ class CustomTabTrustedCdnPublisherUrlVisibility
             return false;
         }
 
-        if (Previews.isPreview(tab)) return false;
         return mIsPublisherPackageForSession.getAsBoolean();
     }
 
     @Override
-    public void destroy() {
+    public void onDestroy() {
         PublisherUrlVisibility.detach(this);
         mWindowAndroid = null;
         mIsPublisherPackageForSession = null;

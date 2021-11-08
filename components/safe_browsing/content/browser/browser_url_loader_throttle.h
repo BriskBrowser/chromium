@@ -51,6 +51,9 @@ class BrowserURLLoaderThrottle : public blink::URLLoaderThrottle {
       int frame_tree_node_id,
       base::WeakPtr<RealTimeUrlLookupServiceBase> url_lookup_service);
 
+  BrowserURLLoaderThrottle(const BrowserURLLoaderThrottle&) = delete;
+  BrowserURLLoaderThrottle& operator=(const BrowserURLLoaderThrottle&) = delete;
+
   ~BrowserURLLoaderThrottle() override;
 
   // blink::URLLoaderThrottle implementation.
@@ -66,6 +69,7 @@ class BrowserURLLoaderThrottle : public blink::URLLoaderThrottle {
   void WillProcessResponse(const GURL& response_url,
                            network::mojom::URLResponseHead* response_head,
                            bool* defer) override;
+  const char* NameForLoggingWillProcessResponse() override;
 
  private:
   // CheckerOnIO handles calling methods on SafeBrowsingUrlCheckerImpl, which
@@ -114,9 +118,6 @@ class BrowserURLLoaderThrottle : public blink::URLLoaderThrottle {
 
   // The total delay caused by SafeBrowsing deferring the resource load.
   base::TimeDelta total_delay_;
-  // Whether the interstitial page has been shown and therefore user action has
-  // been involved.
-  bool user_action_involved_ = false;
 
   GURL original_url_;
 
@@ -126,8 +127,6 @@ class BrowserURLLoaderThrottle : public blink::URLLoaderThrottle {
   std::unique_ptr<CheckerOnIO> io_checker_;
 
   base::WeakPtrFactory<BrowserURLLoaderThrottle> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserURLLoaderThrottle);
 };
 
 }  // namespace safe_browsing

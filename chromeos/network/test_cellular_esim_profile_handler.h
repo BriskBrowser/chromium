@@ -5,45 +5,41 @@
 #ifndef CHROMEOS_NETWORK_TEST_CELLULAR_ESIM_PROFILE_HANDLER_H_
 #define CHROMEOS_NETWORK_TEST_CELLULAR_ESIM_PROFILE_HANDLER_H_
 
-#include "chromeos/dbus/hermes/hermes_euicc_client.h"
-#include "chromeos/dbus/hermes/hermes_manager_client.h"
-#include "chromeos/dbus/hermes/hermes_profile_client.h"
+#include <string>
+
+#include "base/containers/flat_set.h"
 #include "chromeos/network/cellular_esim_profile_handler.h"
 
 namespace chromeos {
 
 // A Test implementation of CellularESimProfileHandler that stores profile list
 // in-memory and fetches esim profiles directly from the fake hermes clients.
-class TestCellularESimProfileHandler : public CellularESimProfileHandler,
-                                       public HermesManagerClient::Observer,
-                                       public HermesEuiccClient::Observer,
-                                       public HermesProfileClient::Observer {
+class TestCellularESimProfileHandler : public CellularESimProfileHandler {
  public:
   TestCellularESimProfileHandler();
   ~TestCellularESimProfileHandler() override;
 
-  void Init() override;
+  void SetHasRefreshedProfilesForEuicc(const std::string& eid,
+                                       bool has_refreshed);
 
-  // HermesManagerClient::Observer:
-  void OnAvailableEuiccListChanged() override;
-
-  // HermesEuiccClient::Observer:
-  void OnEuiccPropertyChanged(const dbus::ObjectPath& euicc_path,
-                              const std::string& property_name) override;
-
-  // HermesProfileClient::Observer:
-  void OnCarrierProfilePropertyChanged(
-      const dbus::ObjectPath& carrier_profile_path,
-      const std::string& property_name) override;
+  // Enables or disables profile list update notification.
+  // When set to false, this class will disable triggering the
+  // NotifyESimProfileListUpdated() and when the next time it's set to true, it
+  // will call the NotifyESimProfileListUpdated() to fire any pending list
+  // update notification.
+  void SetEnableNotifyProfileListUpdate(bool enable_notify_profile_list_update);
 
   // CellularESimProfileHandler:
   std::vector<CellularESimProfile> GetESimProfiles() override;
+  bool HasRefreshedProfilesForEuicc(const std::string& eid) override;
   void SetDevicePrefs(PrefService* device_prefs) override;
+  void OnHermesPropertiesUpdated() override;
 
  private:
-  void UpdateESimProfiles();
-
   std::vector<CellularESimProfile> esim_profile_states_;
+  base::flat_set<std::string> refreshed_eids_;
+  bool enable_notify_profile_list_update_;
+  bool has_pending_notify_list_update_;
 };
 
 }  // namespace chromeos

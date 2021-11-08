@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_occlusion_tracker.h"
+#include "ui/compositor/layer.h"
 #include "ui/views/view.h"
 #include "ui/views/view_constants_aura.h"
 
@@ -55,7 +56,7 @@ void GetOrderOfViewsWithLayers(
     order->push_back(view);
   }
 
-  for (views::View* child : view->children())
+  for (views::View* child : view->GetChildrenInZOrder())
     GetOrderOfViewsWithLayers(child, parent_layer, hosts, order);
 }
 
@@ -66,6 +67,10 @@ void GetOrderOfViewsWithLayers(
 class WindowReorderer::AssociationObserver : public aura::WindowObserver {
  public:
   explicit AssociationObserver(WindowReorderer* reorderer);
+
+  AssociationObserver(const AssociationObserver&) = delete;
+  AssociationObserver& operator=(const AssociationObserver&) = delete;
+
   ~AssociationObserver() override;
 
   // Start/stop observing changes in the kHostViewKey property on |window|.
@@ -83,8 +88,6 @@ class WindowReorderer::AssociationObserver : public aura::WindowObserver {
   WindowReorderer* reorderer_;
 
   std::set<aura::Window*> windows_;
-
-  DISALLOW_COPY_AND_ASSIGN(AssociationObserver);
 };
 
 WindowReorderer::AssociationObserver::AssociationObserver(

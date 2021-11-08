@@ -52,6 +52,10 @@ bool FoundMatchInStylesProperty(const std::string& query,
   return false;
 }
 
+bool FoundMatchByID(const std::string& query, ui_devtools::UIElement* node) {
+  return query == base::NumberToString(node->GetBackingElementID());
+}
+
 bool FoundMatchInDomProperties(const std::string& query,
                                const std::string& tag_name_query,
                                const std::string& attribute_query,
@@ -80,21 +84,22 @@ bool FoundMatchInDomProperties(const std::string& query,
 }  // namespace
 
 struct DOMAgent::Query {
+  enum QueryType { Normal, Style, ID };
   Query(protocol::String query,
         protocol::String tag_name_query,
         protocol::String attribute_query,
         bool exact_attribute_match,
-        bool is_style_search)
+        QueryType query_type)
       : query_(query),
         tag_name_query_(tag_name_query),
         attribute_query_(attribute_query),
         exact_attribute_match_(exact_attribute_match),
-        is_style_search_(is_style_search) {}
+        query_type_(query_type) {}
   protocol::String query_;
   protocol::String tag_name_query_;
   protocol::String attribute_query_;
   bool exact_attribute_match_;
-  bool is_style_search_;
+  QueryType query_type_;
 };
 
 DOMAgent::DOMAgent() {}
@@ -286,14 +291,20 @@ DOMAgent::Query DOMAgent::PreprocessQuery(protocol::String query) {
   size_t style_keyword_pos = query.find(kSearchStylesPanelKeyword);
   if (style_keyword_pos == 0) {
     // remove whitespaces (if they exist) after the 'style:' keyword
-    size_t pos =
-        query.find_first_not_of(' ', strlen(kSearchStylesPanelKeyword));
-    if (pos != protocol::String::npos)
-      query = query.substr(pos);
-    else
-      query = query.substr(strlen(kSearchStylesPanelKeyword));
+    base::TrimWhitespaceASCII(query.substr(strlen(kSearchStylesPanelKeyword)),
+                              base::TrimPositions::TRIM_ALL, &query);
     return Query(query, tag_name_query, attribute_query, exact_attribute_match,
-                 true);
+                 Query::QueryType::Style);
+  }
+
+  constexpr char kSearchIDKeyword[] = "id:";
+  style_keyword_pos = query.find(kSearchIDKeyword);
+  if (style_keyword_pos == 0) {
+    // remove whitespaces (if they exist) after the 'id:' keyword
+    base::TrimWhitespaceASCII(query.substr(strlen(kSearchIDKeyword)),
+                              base::TrimPositions::TRIM_ALL, &query);
+    return Query(query, tag_name_query, attribute_query, exact_attribute_match,
+                 Query::QueryType::ID);
   }
 
   // Preprocessing for normal dom search.
@@ -313,7 +324,7 @@ DOMAgent::Query DOMAgent::PreprocessQuery(protocol::String query) {
   if (end_quote_found)
     attribute_query = attribute_query.substr(0, attribute_query.length() - 1);
   return Query(query, tag_name_query, attribute_query, exact_attribute_match,
-               false);
+               Query::QueryType::Normal);
 }
 
 void DOMAgent::SearchDomTree(const DOMAgent::Query& query_data,
@@ -321,8 +332,7 @@ void DOMAgent::SearchDomTree(const DOMAgent::Query& query_data,
   std::vector<UIElement*> stack;
   // Root node from element_root() is not a real node from the DOM tree.
   // The children of the root node are the 'actual' roots of the DOM tree.
-  UIElement* root = element_root();
-  std::vector<UIElement*> root_list = root->children();
+  std::vector<UIElement*> root_list = element_root()->children();
   DCHECK(root_list.size());
   // Children are accessed from bottom to top. So iterate backwards.
   for (auto* root : base::Reversed(root_list))
@@ -337,8 +347,10 @@ void DOMAgent::SearchDomTree(const DOMAgent::Query& query_data,
     for (auto* child : base::Reversed(children_array))
       stack.push_back(child);
     bool found_match = false;
-    if (query_data.is_style_search_)
+    if (query_data.query_type_ == Query::QueryType::Style)
       found_match = FoundMatchInStylesProperty(query_data.query_, node);
+    else if (query_data.query_type_ == Query::QueryType::ID)
+      found_match = FoundMatchByID(query_data.query_, node);
     else
       found_match = FoundMatchInDomProperties(
           query_data.query_, query_data.tag_name_query_,
@@ -390,6 +402,26 @@ Response DOMAgent::getSearchResults(
 
 Response DOMAgent::discardSearchResults(const protocol::String& search_id) {
   search_results_.erase(search_id);
+  return Response::Success();
+}
+
+protocol::Response DOMAgent::dispatchMouseEvent(
+    int node_id,
+    std::unique_ptr<protocol::DOM::MouseEvent> event) {
+  if (node_id_to_ui_element_.count(node_id) == 0)
+    return Response::ServerError("Element not found on node id");
+  if (!node_id_to_ui_element_[node_id]->DispatchMouseEvent(event.get()))
+    return Response::ServerError("Failed to dispatch mouse event for node id");
+  return Response::Success();
+}
+
+protocol::Response DOMAgent::dispatchKeyEvent(
+    int node_id,
+    std::unique_ptr<protocol::DOM::KeyEvent> event) {
+  if (node_id_to_ui_element_.count(node_id) == 0)
+    return Response::ServerError("Element not found on node id");
+  if (!node_id_to_ui_element_[node_id]->DispatchKeyEvent(event.get()))
+    return Response::ServerError("Failed to dispatch key event for node id");
   return Response::Success();
 }
 

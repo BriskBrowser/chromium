@@ -25,11 +25,23 @@ NSString* const kTabGridIncognitoTabsEmptyStateIdentifier =
 NSString* const kTabGridRegularTabsEmptyStateIdentifier =
     @"TabGridRegularTabsEmptyStateIdentifier";
 NSString* const kTabGridScrollViewIdentifier = @"kTabGridScrollViewIdentifier";
+NSString* const kRegularTabGridIdentifier = @"kRegularTabGridIdentifier";
+NSString* const kIncognitoTabGridIdentifier = @"kIncognitoTabGridIdentifier";
+
+NSString* const kTabGridEditButtonIdentifier = @"kTabGridEditButtonIdentifier";
+NSString* const kTabGridEditCloseTabsButtonIdentifier =
+    @"kTabGridEditCloseTabsButtonIdentifier";
+NSString* const kTabGridEditSelectAllButtonIdentifier =
+    @"kTabGridEditSelectAllButtonIdentifier";
+NSString* const kTabGridEditAddToButtonIdentifier =
+    @"kTabGridEditAddToButtonIdentifier";
+NSString* const kTabGridEditShareButtonIdentifier =
+    @"kTabGridEditShareButtonIdentifier";
 
 // The color of the text buttons in the toolbars.
 const int kTabGridToolbarTextButtonColor = 0xFFFFFF;
 
-// Colors for the empty state.
+// Colors for the empty state and disabled tab view.
 const int kTabGridEmptyStateTitleTextColor = 0xF8F9FA;
 const int kTabGridEmptyStateBodyTextColor = 0xBDC1C6;
 

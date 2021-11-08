@@ -6,9 +6,8 @@
 
 #include "ash/capture_mode/stop_recording_button_tray.h"
 #include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
-#include "ash/public/cpp/ash_features.h"
-#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shelf/shelf.h"
@@ -16,10 +15,12 @@
 #include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
 #include "ash/system/accessibility/dictation_button_tray.h"
-#include "ash/system/accessibility/select_to_speak_tray.h"
+#include "ash/system/accessibility/select_to_speak/select_to_speak_tray.h"
 #include "ash/system/holding_space/holding_space_tray.h"
 #include "ash/system/ime_menu/ime_menu_tray.h"
 #include "ash/system/media/media_tray.h"
+#include "ash/system/model/clock_model.h"
+#include "ash/system/model/system_tray_model.h"
 #include "ash/system/overview/overview_button_tray.h"
 #include "ash/system/palette/palette_tray.h"
 #include "ash/system/phonehub/phone_hub_tray.h"
@@ -37,8 +38,10 @@
 #include "base/metrics/histogram_macros.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
 #include "media/base/media_switches.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/display.h"
+#include "ui/views/layout/grid_layout.h"
 
 namespace ash {
 
@@ -48,6 +51,11 @@ namespace ash {
 StatusAreaWidget::ScopedTrayBubbleCounter::ScopedTrayBubbleCounter(
     StatusAreaWidget* status_area_widget)
     : status_area_widget_(status_area_widget->weak_ptr_factory_.GetWeakPtr()) {
+  if (status_area_widget_->tray_bubble_count_ == 0) {
+    status_area_widget_->shelf()
+        ->shelf_layout_manager()
+        ->OnShelfTrayBubbleVisibilityChanged(/*bubble_shown=*/true);
+  }
   ++status_area_widget_->tray_bubble_count_;
 }
 
@@ -57,6 +65,12 @@ StatusAreaWidget::ScopedTrayBubbleCounter::~ScopedTrayBubbleCounter() {
     return;
 
   --status_area_widget_->tray_bubble_count_;
+  if (status_area_widget_->tray_bubble_count_ == 0) {
+    status_area_widget_->shelf()
+        ->shelf_layout_manager()
+        ->OnShelfTrayBubbleVisibilityChanged(/*bubble_shown=*/false);
+  }
+
   DCHECK_GE(status_area_widget_->tray_bubble_count_, 0);
 }
 
@@ -84,66 +98,77 @@ void StatusAreaWidget::Initialize() {
   DCHECK(!initialized_);
 
   // Create the child views, left to right.
-  overflow_button_tray_ =
+  auto overflow_button_tray =
       std::make_unique<StatusAreaOverflowButtonTray>(shelf_);
-  AddTrayButton(overflow_button_tray_.get());
+  overflow_button_tray_ = overflow_button_tray.get();
+  AddTrayButton(std::move(overflow_button_tray));
 
-  if (features::IsTemporaryHoldingSpaceEnabled()) {
-    holding_space_tray_ = std::make_unique<HoldingSpaceTray>(shelf_);
-    AddTrayButton(holding_space_tray_.get());
-  }
+  auto holding_space_tray = std::make_unique<HoldingSpaceTray>(shelf_);
+  holding_space_tray_ = holding_space_tray.get();
+  AddTrayButton(std::move(holding_space_tray));
 
-  logout_button_tray_ = std::make_unique<LogoutButtonTray>(shelf_);
-  AddTrayButton(logout_button_tray_.get());
+  auto logout_button_tray = std::make_unique<LogoutButtonTray>(shelf_);
+  logout_button_tray_ = logout_button_tray.get();
+  AddTrayButton(std::move(logout_button_tray));
 
-  dictation_button_tray_ = std::make_unique<DictationButtonTray>(shelf_);
-  AddTrayButton(dictation_button_tray_.get());
+  auto dictation_button_tray = std::make_unique<DictationButtonTray>(shelf_);
+  dictation_button_tray_ = dictation_button_tray.get();
+  AddTrayButton(std::move(dictation_button_tray));
 
-  select_to_speak_tray_ = std::make_unique<SelectToSpeakTray>(shelf_);
-  AddTrayButton(select_to_speak_tray_.get());
+  auto select_to_speak_tray = std::make_unique<SelectToSpeakTray>(shelf_);
+  select_to_speak_tray_ = select_to_speak_tray.get();
+  AddTrayButton(std::move(select_to_speak_tray));
 
-  ime_menu_tray_ = std::make_unique<ImeMenuTray>(shelf_);
-  AddTrayButton(ime_menu_tray_.get());
+  auto ime_menu_tray = std::make_unique<ImeMenuTray>(shelf_);
+  ime_menu_tray_ = ime_menu_tray.get();
+  AddTrayButton(std::move(ime_menu_tray));
 
-  virtual_keyboard_tray_ = std::make_unique<VirtualKeyboardTray>(shelf_);
-  AddTrayButton(virtual_keyboard_tray_.get());
+  auto virtual_keyboard_tray = std::make_unique<VirtualKeyboardTray>(shelf_);
+  virtual_keyboard_tray_ = virtual_keyboard_tray.get();
+  AddTrayButton(std::move(virtual_keyboard_tray));
 
-  if (features::IsCaptureModeEnabled()) {
-    stop_recording_button_tray_ =
-        std::make_unique<StopRecordingButtonTray>(shelf_);
-    AddTrayButton(stop_recording_button_tray_.get());
-  }
+  auto stop_recording_button_tray =
+      std::make_unique<StopRecordingButtonTray>(shelf_);
+  stop_recording_button_tray_ = stop_recording_button_tray.get();
+  AddTrayButton(std::move(stop_recording_button_tray));
 
-  palette_tray_ = std::make_unique<PaletteTray>(shelf_);
-  AddTrayButton(palette_tray_.get());
+  auto palette_tray = std::make_unique<PaletteTray>(shelf_);
+  palette_tray_ = palette_tray.get();
+  AddTrayButton(std::move(palette_tray));
 
   if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsForChromeOS)) {
-    media_tray_ = std::make_unique<MediaTray>(shelf_);
-    AddTrayButton(media_tray_.get());
+    auto media_tray = std::make_unique<MediaTray>(shelf_);
+    media_tray_ = media_tray.get();
+    AddTrayButton(std::move(media_tray));
   }
 
   if (chromeos::features::IsPhoneHubEnabled()) {
-    phone_hub_tray_ = std::make_unique<PhoneHubTray>(shelf_);
-    AddTrayButton(phone_hub_tray_.get());
+    auto phone_hub_tray = std::make_unique<PhoneHubTray>(shelf_);
+    phone_hub_tray_ = phone_hub_tray.get();
+    AddTrayButton(std::move(phone_hub_tray));
   }
 
-  unified_system_tray_ = std::make_unique<UnifiedSystemTray>(shelf_);
-  AddTrayButton(unified_system_tray_.get());
+  auto unified_system_tray = std::make_unique<UnifiedSystemTray>(shelf_);
+  unified_system_tray_ = unified_system_tray.get();
+  AddTrayButton(std::move(unified_system_tray));
 
-  overview_button_tray_ = std::make_unique<OverviewButtonTray>(shelf_);
-  AddTrayButton(overview_button_tray_.get());
+  auto overview_button_tray = std::make_unique<OverviewButtonTray>(shelf_);
+  overview_button_tray_ = overview_button_tray.get();
+  AddTrayButton(std::move(overview_button_tray));
+
+  // Each tray_button's animation will be disabled for the life time of this
+  // local `animation_disablers`, which means the closures to enable the
+  // animation will be executed when it's out of this method (Initialize())
+  // scope.
+  std::list<base::ScopedClosureRunner> animation_disablers;
 
   // Initialize after all trays have been created.
-  for (TrayBackgroundView* tray_button : tray_buttons_)
+  for (TrayBackgroundView* tray_button : tray_buttons_) {
     tray_button->Initialize();
-
-  // Move the |stop_recording_button_tray_| to the front so that it's more
-  // visible. This ensure the |stop_recording_button_tray_| always sticks to
-  // the left most side.
-  if (features::IsCaptureModeEnabled()) {
-    status_area_widget_delegate_->ReorderChildView(
-        stop_recording_button_tray_.get(), 1);
+    animation_disablers.push_back(tray_button->DisableShowAnimation());
   }
+
+  EnsureTrayOrder();
 
   UpdateAfterLoginStatusChange(
       Shell::Get()->session_controller()->login_status());
@@ -159,6 +184,7 @@ void StatusAreaWidget::Initialize() {
 
 StatusAreaWidget::~StatusAreaWidget() {
   Shell::Get()->session_controller()->RemoveObserver(this);
+  status_area_widget_delegate_->Shutdown();
 }
 
 // static
@@ -176,7 +202,7 @@ void StatusAreaWidget::UpdateAfterLoginStatusChange(LoginStatus login_status) {
 }
 
 void StatusAreaWidget::SetSystemTrayVisibility(bool visible) {
-  TrayBackgroundView* tray = unified_system_tray_.get();
+  TrayBackgroundView* tray = unified_system_tray_;
   tray->SetVisiblePreferred(visible);
   if (visible) {
     Show();
@@ -216,9 +242,9 @@ void StatusAreaWidget::UpdateCollapseState() {
 void StatusAreaWidget::LogVisiblePodCountMetric() {
   int visible_pod_count = 0;
   for (auto* tray_button : tray_buttons_) {
-    if (tray_button == overflow_button_tray_.get() ||
-        tray_button == overview_button_tray_.get() ||
-        tray_button == unified_system_tray_.get() || !tray_button->GetVisible())
+    if (tray_button == overflow_button_tray_ ||
+        tray_button == overview_button_tray_ ||
+        tray_button == unified_system_tray_ || !tray_button->GetVisible())
       continue;
 
     visible_pod_count += 1;
@@ -287,7 +313,7 @@ void StatusAreaWidget::UpdateLayout(bool animate) {
   ui::ScopedLayerAnimationSettings animation_setter(layer->GetAnimator());
   animation_setter.SetTransitionDuration(
       animate ? ShelfConfig::Get()->shelf_animation_duration()
-              : base::TimeDelta::FromMilliseconds(0));
+              : base::Milliseconds(0));
   animation_setter.SetTweenType(gfx::Tween::EASE_OUT);
   animation_setter.SetPreemptionStrategy(
       ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
@@ -303,8 +329,43 @@ void StatusAreaWidget::UpdateTargetBoundsForGesture(int shelf_position) {
 }
 
 void StatusAreaWidget::HandleLocaleChange() {
-  for (auto* tray_button : tray_buttons_)
+  if (!shelf_->IsHorizontalAlignment()) {
+    for (auto* tray_button : tray_buttons_)
+      tray_button->HandleLocaleChange();
+    return;
+  }
+
+  // During adding child views in this 'for' loop, `CalculateTargetBounds` might
+  // be called which can create a new layout manager. So
+  // `CreateScopedPauseCalculatingTargetBounds` here to disable creating layout
+  // managers.
+  auto pause =
+      status_area_widget_delegate_->CreateScopedPauseCalculatingTargetBounds();
+  // If the layout is horizontal, each child's position should be recalculated
+  // when there is a RTL change. The layer's bounds could to be updated (if
+  // needed) by re-adding the children, since the bounds updating is done in the
+  // `AddChildView` method.
+  status_area_widget_delegate_->RemoveAllChildViewsWithoutDeleting();
+
+  // Gets the layout manger and inits the starting point to (0.0).
+  views::GridLayout* layout_manager = static_cast<views::GridLayout*>(
+      status_area_widget_delegate_->GetLayoutManager());
+  views::ColumnSet* columns = layout_manager->GetColumnSet(0);
+  layout_manager->StartRow(0, 0);
+
+  // It doesn't matter that the visible or invisible views are all added to the
+  // layout manager, since `CalculateTargetBounds` is called after all the views
+  // are added.
+  for (auto* tray_button : tray_buttons_) {
+    columns->AddColumn(
+        views::GridLayout::CENTER, views::GridLayout::FILL, 0,
+        /*resize_percent=*/views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
+    std::unique_ptr<TrayBackgroundView> tray_button_uptr(tray_button);
+    layout_manager->AddView(std::move(tray_button_uptr));
     tray_button->HandleLocaleChange();
+  }
+  EnsureTrayOrder();
+  status_area_widget_delegate_->CalculateTargetBounds();
 }
 
 void StatusAreaWidget::CalculateButtonVisibilityForCollapsedState() {
@@ -347,7 +408,7 @@ void StatusAreaWidget::CalculateButtonVisibilityForCollapsedState() {
     if (!tray->visible_preferred())
       continue;
     // Skip |stop_recording_button_tray_| since it's always visible.
-    if (tray == stop_recording_button_tray_.get())
+    if (tray == stop_recording_button_tray_)
       continue;
 
     // Show overflow button once available width is exceeded.
@@ -376,6 +437,11 @@ void StatusAreaWidget::CalculateButtonVisibilityForCollapsedState() {
   overflow_button_tray_->UpdateAfterStatusAreaCollapseChange();
   for (TrayBackgroundView* tray_button : tray_buttons_)
     tray_button->UpdateAfterStatusAreaCollapseChange();
+}
+
+void StatusAreaWidget::EnsureTrayOrder() {
+  status_area_widget_delegate_->ReorderChildView(stop_recording_button_tray_,
+                                                 1);
 }
 
 StatusAreaWidget::CollapseState StatusAreaWidget::CalculateCollapseState()
@@ -420,7 +486,7 @@ StatusAreaWidget::CollapseState StatusAreaWidget::CalculateCollapseState()
     for (TrayBackgroundView* tray : base::Reversed(tray_buttons_)) {
       // If we reach the final overflow tray button, then all the tray buttons
       // fit and there is no need for a collapse state.
-      if (tray == overflow_button_tray_.get())
+      if (tray == overflow_button_tray_)
         return CollapseState::NOT_COLLAPSIBLE;
 
       // Skip non-enabled tray buttons.
@@ -441,9 +507,9 @@ TrayBackgroundView* StatusAreaWidget::GetSystemTrayAnchor() const {
   // view because the view is still visible when fading away, but we do not want
   // to anchor to this element in that case.
   if (overview_button_tray_->layer()->GetTargetVisibility())
-    return overview_button_tray_.get();
+    return overview_button_tray_;
 
-  return unified_system_tray_.get();
+  return unified_system_tray_;
 }
 
 gfx::Rect StatusAreaWidget::GetMediaTrayAnchorRect() const {
@@ -458,7 +524,7 @@ gfx::Rect StatusAreaWidget::GetMediaTrayAnchorRect() const {
 
   // Accumulate the width/height of all visible tray buttons after media tray.
   for (views::View* tray_button : tray_buttons_) {
-    if (tray_button == media_tray_.get()) {
+    if (tray_button == media_tray_) {
       found_media_tray = true;
       continue;
     }
@@ -504,6 +570,12 @@ bool StatusAreaWidget::ShouldShowShelf() const {
   if (unified_system_tray_->IsBubbleShown())
     return true;
 
+  // If any tray is showing a context menu, the shelf should be visible.
+  for (TrayBackgroundView* tray_button : tray_buttons_) {
+    if (tray_button->IsShowingMenu())
+      return true;
+  }
+
   // If it has a slider bubble, return false.
   if (unified_system_tray_->IsSliderBubbleShown())
     return false;
@@ -533,14 +605,14 @@ bool StatusAreaWidget::OnNativeWidgetActivationChanged(bool active) {
 void StatusAreaWidget::OnMouseEvent(ui::MouseEvent* event) {
   if (event->IsMouseWheelEvent()) {
     ui::MouseWheelEvent* mouse_wheel_event = event->AsMouseWheelEvent();
-    shelf_->ProcessMouseWheelEvent(mouse_wheel_event, /*from_touchpad=*/false);
+    shelf_->ProcessMouseWheelEvent(mouse_wheel_event);
     return;
   }
 
   // Clicking anywhere except the virtual keyboard tray icon should hide the
   // virtual keyboard.
   gfx::Point location = event->location();
-  views::View::ConvertPointFromWidget(virtual_keyboard_tray_.get(), &location);
+  views::View::ConvertPointFromWidget(virtual_keyboard_tray_, &location);
   if (event->type() == ui::ET_MOUSE_PRESSED &&
       !virtual_keyboard_tray_->HitTestPoint(location)) {
     keyboard::KeyboardUIController::Get()->HideKeyboardImplicitlyByUser();
@@ -552,7 +624,7 @@ void StatusAreaWidget::OnGestureEvent(ui::GestureEvent* event) {
   // Tapping anywhere except the virtual keyboard tray icon should hide the
   // virtual keyboard.
   gfx::Point location = event->location();
-  views::View::ConvertPointFromWidget(virtual_keyboard_tray_.get(), &location);
+  views::View::ConvertPointFromWidget(virtual_keyboard_tray_, &location);
   if (event->type() == ui::ET_GESTURE_TAP_DOWN &&
       !virtual_keyboard_tray_->HitTestPoint(location)) {
     keyboard::KeyboardUIController::Get()->HideKeyboardImplicitlyByUser();
@@ -566,9 +638,10 @@ void StatusAreaWidget::OnScrollEvent(ui::ScrollEvent* event) {
     views::Widget::OnScrollEvent(event);
 }
 
-void StatusAreaWidget::AddTrayButton(TrayBackgroundView* tray_button) {
-  status_area_widget_delegate_->AddChildView(tray_button);
-  tray_buttons_.push_back(tray_button);
+void StatusAreaWidget::AddTrayButton(
+    std::unique_ptr<TrayBackgroundView> tray_button) {
+  tray_buttons_.push_back(tray_button.get());
+  status_area_widget_delegate_->AddChildView(std::move(tray_button));
 }
 
 StatusAreaWidget::LayoutInputs StatusAreaWidget::GetLayoutInputs() const {

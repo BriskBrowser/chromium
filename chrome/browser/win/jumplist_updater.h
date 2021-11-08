@@ -27,7 +27,10 @@ class ShellLinkItem : public base::RefCountedThreadSafe<ShellLinkItem> {
  public:
   ShellLinkItem();
 
-  const base::string16& title() const { return title_; }
+  ShellLinkItem(const ShellLinkItem&) = delete;
+  ShellLinkItem& operator=(const ShellLinkItem&) = delete;
+
+  const std::u16string& title() const { return title_; }
   const base::FilePath& icon_path() const { return icon_path_; }
   const std::string& url() const { return url_; }
   int icon_index() const { return icon_index_; }
@@ -36,7 +39,7 @@ class ShellLinkItem : public base::RefCountedThreadSafe<ShellLinkItem> {
   std::wstring GetArguments() const;
   base::CommandLine* GetCommandLine();
 
-  void set_title(const base::string16& title) { title_ = title; }
+  void set_title(const std::u16string& title) { title_ = title; }
   void set_icon(const base::FilePath& path, int index) {
     icon_path_ = path;
     icon_index_ = index;
@@ -55,7 +58,7 @@ class ShellLinkItem : public base::RefCountedThreadSafe<ShellLinkItem> {
   base::CommandLine command_line_;
 
   // The string to be displayed in a JumpList.
-  base::string16 title_;
+  std::u16string title_;
 
   // The absolute path to an icon to be displayed in a JumpList.
   base::FilePath icon_path_;
@@ -72,8 +75,6 @@ class ShellLinkItem : public base::RefCountedThreadSafe<ShellLinkItem> {
   // Note that an icon path must be supplied to IShellLink, so users of this
   // class must save icon data to disk.
   gfx::ImageSkia icon_image_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShellLinkItem);
 };
 
 typedef std::vector<scoped_refptr<ShellLinkItem> > ShellLinkItemList;
@@ -98,6 +99,10 @@ typedef std::vector<scoped_refptr<ShellLinkItem> > ShellLinkItemList;
 class JumpListUpdater {
  public:
   explicit JumpListUpdater(const std::wstring& app_user_model_id);
+
+  JumpListUpdater(const JumpListUpdater&) = delete;
+  JumpListUpdater& operator=(const JumpListUpdater&) = delete;
+
   ~JumpListUpdater();
 
   // Returns true if JumpLists are enabled on this OS.
@@ -123,7 +128,7 @@ class JumpListUpdater {
   // because special steps are required for updating them.
   // |max_items| specifies the maximum number of items from |link_items| to add
   // to the JumpList.
-  bool AddCustomCategory(const base::string16& category_name,
+  bool AddCustomCategory(const std::u16string& category_name,
                          const ShellLinkItemList& link_items,
                          size_t max_items);
 
@@ -140,8 +145,6 @@ class JumpListUpdater {
   // The current user setting for "Number of recent items to display in Jump
   // Lists" option in the "Taskbar and Start Menu Properties".
   size_t user_max_items_;
-
-  DISALLOW_COPY_AND_ASSIGN(JumpListUpdater);
 };
 
 #endif  // CHROME_BROWSER_WIN_JUMPLIST_UPDATER_H_

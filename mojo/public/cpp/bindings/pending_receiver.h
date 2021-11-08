@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/connection_group.h"
@@ -17,6 +18,9 @@
 #include "mojo/public/cpp/system/message_pipe.h"
 
 namespace mojo {
+
+template <typename T>
+class PendingRemote;
 
 template <typename T>
 struct PendingReceiverConverter;
@@ -76,6 +80,9 @@ class PendingReceiver {
             std::forward<T>(other))) {}
 #endif  // !defined(OS_NACL)
 
+  PendingReceiver(const PendingReceiver&) = delete;
+  PendingReceiver& operator=(const PendingReceiver&) = delete;
+
   ~PendingReceiver() = default;
 
   PendingReceiver& operator=(PendingReceiver&&) noexcept = default;
@@ -88,7 +95,7 @@ class PendingReceiver {
     return request;
   }
 
-  // Indicates whether the PendingReceiver is valid, meaning it can ne used to
+  // Indicates whether the PendingReceiver is valid, meaning it can be used to
   // bind a Receiver that wants to begin dispatching method calls made by the
   // entangled Remote.
   bool is_valid() const { return state_.pipe.is_valid(); }
@@ -129,13 +136,17 @@ class PendingReceiver {
     return std::move(state_.connection_group);
   }
 
+  // Creates a new message pipe, retaining one end in the PendingReceiver
+  // (making it valid) and returning the other end as its entangled
+  // PendingRemote. May only be called on an invalid PendingReceiver.
+  REINITIALIZES_AFTER_MOVE PendingRemote<Interface>
+  InitWithNewPipeAndPassRemote() WARN_UNUSED_RESULT;
+
   // For internal Mojo use only.
   internal::PendingReceiverState* internal_state() { return &state_; }
 
  private:
   internal::PendingReceiverState state_;
-
-  DISALLOW_COPY_AND_ASSIGN(PendingReceiver);
 };
 
 class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) NullReceiver {
@@ -145,6 +156,21 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) NullReceiver {
     return PendingReceiver<Interface>();
   }
 };
+
+}  // namespace mojo
+
+#include "mojo/public/cpp/bindings/pending_remote.h"
+
+namespace mojo {
+
+template <typename Interface>
+PendingRemote<Interface>
+PendingReceiver<Interface>::InitWithNewPipeAndPassRemote() {
+  DCHECK(!is_valid()) << "PendingReceiver already has a remote";
+  MessagePipe pipe;
+  state_.pipe = std::move(pipe.handle0);
+  return PendingRemote<Interface>(std::move(pipe.handle1), 0u);
+}
 
 }  // namespace mojo
 

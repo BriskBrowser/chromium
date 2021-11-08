@@ -35,12 +35,8 @@
 #endif
 
 #if defined(OS_WIN)
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "ui/aura/native_window_occlusion_tracker_win.h"
-#endif
-
-#if defined(USE_X11)
-#include "ui/base/x/x11_util.h"  // nogncheck
 #endif
 
 #if defined(USE_OZONE)
@@ -48,7 +44,7 @@
 #endif
 
 #if defined(OS_FUCHSIA)
-#include "ui/platform_window/platform_window_init_properties.h"
+#include "ui/platform_window/fuchsia/initialize_presenter_api_view.h"
 #endif
 
 namespace aura {
@@ -59,8 +55,7 @@ AuraTestHelper* g_instance = nullptr;
 
 }  // namespace
 
-AuraTestHelper::AuraTestHelper(ui::ContextFactory* context_factory,
-                               bool disable_animations) {
+AuraTestHelper::AuraTestHelper(ui::ContextFactory* context_factory) {
   DCHECK(!g_instance);
   g_instance = this;
 
@@ -73,7 +68,7 @@ AuraTestHelper::AuraTestHelper(ui::ContextFactory* context_factory,
 #endif
 
 #if defined(OS_FUCHSIA)
-  ui::PlatformWindowInitProperties::allow_null_view_token_for_test = true;
+  ui::fuchsia::IgnorePresentCallsForTest();
 #endif
 
   ui::InitializeInputMethodForTesting();
@@ -81,11 +76,8 @@ AuraTestHelper::AuraTestHelper(ui::ContextFactory* context_factory,
   ui::test::EventGeneratorDelegate::SetFactoryFunction(
       base::BindRepeating(&EventGeneratorDelegateAura::Create));
 
-  if (disable_animations) {
-    zero_duration_mode_ =
-        std::make_unique<ui::ScopedAnimationDurationScaleMode>(
-            ui::ScopedAnimationDurationScaleMode::ZERO_DURATION);
-  }
+  zero_duration_mode_ = std::make_unique<ui::ScopedAnimationDurationScaleMode>(
+      ui::ScopedAnimationDurationScaleMode::ZERO_DURATION);
 
   // Some tests suites create Env globally.
   if (Env::HasInstance())

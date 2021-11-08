@@ -10,8 +10,9 @@
 
 #include "base/component_export.h"
 #include "base/macros.h"
+#include "base/time/time.h"
 #include "base/unguessable_token.h"
-#include "chromeos/dbus/cros_disks_client.h"
+#include "chromeos/dbus/cros_disks/cros_disks_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 
 namespace chromeos {
@@ -25,6 +26,10 @@ class COMPONENT_EXPORT(CHROMEOS_DISKS) SuspendUnmountManager
  public:
   // The ownership of these raw pointers still remains with the caller.
   explicit SuspendUnmountManager(DiskMountManager* disk_mount_manager);
+
+  SuspendUnmountManager(const SuspendUnmountManager&) = delete;
+  SuspendUnmountManager& operator=(const SuspendUnmountManager&) = delete;
+
   ~SuspendUnmountManager() override;
 
  private:
@@ -42,10 +47,9 @@ class COMPONENT_EXPORT(CHROMEOS_DISKS) SuspendUnmountManager
   std::set<std::string> unmounting_paths_;
 
   base::UnguessableToken block_suspend_token_;
+  base::TimeTicks block_suspend_time_;
 
   base::WeakPtrFactory<SuspendUnmountManager> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SuspendUnmountManager);
 };
 
 }  // namespace disks

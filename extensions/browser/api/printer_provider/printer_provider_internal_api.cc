@@ -102,7 +102,7 @@ PrinterProviderInternalReportPrintResultFunction::
 ExtensionFunction::ResponseAction
 PrinterProviderInternalReportPrintResultFunction::Run() {
   std::unique_ptr<internal_api::ReportPrintResult::Params> params(
-      internal_api::ReportPrintResult::Params::Create(*args_));
+      internal_api::ReportPrintResult::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   PrinterProviderInternalAPI::GetFactoryInstance()
@@ -120,7 +120,7 @@ PrinterProviderInternalReportPrinterCapabilityFunction::
 ExtensionFunction::ResponseAction
 PrinterProviderInternalReportPrinterCapabilityFunction::Run() {
   std::unique_ptr<internal_api::ReportPrinterCapability::Params> params(
-      internal_api::ReportPrinterCapability::Params::Create(*args_));
+      internal_api::ReportPrinterCapability::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   if (params->capability) {
@@ -146,7 +146,7 @@ PrinterProviderInternalReportPrintersFunction::
 ExtensionFunction::ResponseAction
 PrinterProviderInternalReportPrintersFunction::Run() {
   std::unique_ptr<internal_api::ReportPrinters::Params> params(
-      internal_api::ReportPrinters::Params::Create(*args_));
+      internal_api::ReportPrinters::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   base::ListValue printers;
@@ -174,7 +174,7 @@ PrinterProviderInternalGetPrintDataFunction::
 ExtensionFunction::ResponseAction
 PrinterProviderInternalGetPrintDataFunction::Run() {
   std::unique_ptr<internal_api::GetPrintData::Params> params(
-      internal_api::GetPrintData::Params::Create(*args_));
+      internal_api::GetPrintData::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   const PrinterProviderPrintJob* job =
@@ -189,8 +189,7 @@ PrinterProviderInternalGetPrintDataFunction::Run() {
 
   // |job->document_bytes| are passed to the callback to make sure the ref
   // counted memory does not go away before the memory backed blob is created.
-  content::BrowserContext::CreateMemoryBackedBlob(
-      browser_context(),
+  browser_context()->CreateMemoryBackedBlob(
       base::make_span(job->document_bytes->front(),
                       job->document_bytes->size()),
       "",
@@ -220,7 +219,7 @@ void PrinterProviderInternalGetPrintDataFunction::OnBlob(
 
   extensions::BlobHolder* holder =
       extensions::BlobHolder::FromRenderProcessHost(
-          render_frame_host()->GetProcess());
+          content::RenderProcessHost::FromID(source_process_id()));
   holder->HoldBlobReference(std::move(blob));
 
   SetTransferredBlobUUIDs(uuids);
@@ -236,7 +235,7 @@ PrinterProviderInternalReportUsbPrinterInfoFunction::
 ExtensionFunction::ResponseAction
 PrinterProviderInternalReportUsbPrinterInfoFunction::Run() {
   std::unique_ptr<internal_api::ReportUsbPrinterInfo::Params> params(
-      internal_api::ReportUsbPrinterInfo::Params::Create(*args_));
+      internal_api::ReportUsbPrinterInfo::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   PrinterProviderInternalAPI::GetFactoryInstance()

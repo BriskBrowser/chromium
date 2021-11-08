@@ -8,7 +8,6 @@
 #include <set>
 #include <string>
 
-#include "base/containers/flat_map.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/values.h"
 #include "build/branding_buildflags.h"
@@ -17,6 +16,7 @@
 #include "components/policy/core/browser/policy_conversions.h"
 #include "components/policy/core/common/schema.h"
 #include "components/policy/policy_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace policy {
 
@@ -76,9 +76,16 @@ class POLICY_EXPORT PolicyConversionsClient {
   // preferences that were set on this client.
   std::string ConvertValueToJSON(const base::Value& value) const;
 
-  // Returns policies for Chrome browser.  Must only be called if
+  // Returns policies for Chrome browser. Must only be called if
   // |HasUserPolicies()| returns true.
   base::Value GetChromePolicies();
+
+  // Returns precedence-related policies for Chrome browser. Must only be called
+  // if |HasUserPolicies()| returns true.
+  base::Value GetPrecedencePolicies();
+
+  // Returns an array containing the ordered precedence strings.
+  base::Value GetPrecedenceOrder();
 
   // Returns true if this client is able to return information on user
   // policies.
@@ -108,7 +115,7 @@ class POLICY_EXPORT PolicyConversionsClient {
   // |convert_values_enabled_|), converts some values to a representation that
   // i18n_template.js will display.
   base::Value CopyAndMaybeConvert(const base::Value& value,
-                                  const base::Optional<Schema>& schema) const;
+                                  const absl::optional<Schema>& schema) const;
 
   // Creates a description of the policy |policy_name| using |policy| and the
   // optional errors in |errors| to determine the status of each policy.
@@ -122,7 +129,7 @@ class POLICY_EXPORT PolicyConversionsClient {
       const PoliciesSet& deprecated_policies,
       const PoliciesSet& future_policies,
       PolicyErrorMap* errors,
-      const base::Optional<PolicyConversions::PolicyToSchemaMap>&
+      const absl::optional<PolicyConversions::PolicyToSchemaMap>&
           known_policy_schemas) const;
 
   // Returns a description of each policy in |map| as Value, using the
@@ -136,17 +143,17 @@ class POLICY_EXPORT PolicyConversionsClient {
       PolicyErrorMap* errors,
       const PoliciesSet& deprecated_policies,
       const PoliciesSet& future_policies,
-      const base::Optional<PolicyConversions::PolicyToSchemaMap>&
+      const absl::optional<PolicyConversions::PolicyToSchemaMap>&
           known_policy_schemas) const;
 
   // Returns the Schema for |policy_name| if that policy is known. If the policy
-  // is unknown, returns |base::nullopt|.
-  base::Optional<Schema> GetKnownPolicySchema(
-      const base::Optional<PolicyConversions::PolicyToSchemaMap>&
+  // is unknown, returns |absl::nullopt|.
+  absl::optional<Schema> GetKnownPolicySchema(
+      const absl::optional<PolicyConversions::PolicyToSchemaMap>&
           known_policy_schemas,
       const std::string& policy_name) const;
 
-  base::Optional<PolicyConversions::PolicyToSchemaMap> GetKnownPolicies(
+  absl::optional<PolicyConversions::PolicyToSchemaMap> GetKnownPolicies(
       const scoped_refptr<SchemaMap> schema_map,
       const PolicyNamespace& policy_namespace) const;
 
@@ -162,7 +169,7 @@ class POLICY_EXPORT PolicyConversionsClient {
  private:
 #if defined(OS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   std::unique_ptr<PolicyMap> updater_policies_;
-  base::Optional<PolicyConversions::PolicyToSchemaMap> updater_policy_schemas_;
+  absl::optional<PolicyConversions::PolicyToSchemaMap> updater_policy_schemas_;
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING) && defined(OS_WIN)
 
   bool convert_types_enabled_ = true;

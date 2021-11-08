@@ -30,6 +30,10 @@ class ASH_EXPORT DictationButtonTray : public TrayBackgroundView,
                                        public SessionObserver {
  public:
   explicit DictationButtonTray(Shelf* shelf);
+
+  DictationButtonTray(const DictationButtonTray&) = delete;
+  DictationButtonTray& operator=(const DictationButtonTray&) = delete;
+
   ~DictationButtonTray() override;
 
   // ActionableView:
@@ -48,32 +52,33 @@ class ASH_EXPORT DictationButtonTray : public TrayBackgroundView,
   // TrayBackgroundView:
   void Initialize() override;
   void ClickedOutsideBubble() override;
-  base::string16 GetAccessibleNameForTray() override;
+  std::u16string GetAccessibleNameForTray() override;
   void HandleLocaleChange() override;
   void HideBubbleWithView(const TrayBubbleView* bubble_view) override;
+  void OnThemeChanged() override;
 
   // views::View:
   const char* GetClassName() const override;
 
+  // Updates this button's state when speech recognition file download state
+  // changes.
+  void UpdateOnSpeechRecognitionDownloadChanged(bool download_in_progress);
+
  private:
   friend class DictationButtonTrayTest;
+
+  // Updates the visibility of the button.
+  void UpdateVisibility();
 
   // Sets the icon when Dictation is activated / deactiviated.
   // Also updates visibility when Dictation is enabled / disabled.
   void UpdateIcon(bool dictation_active);
-
-  // Updates the visibility of the button.
-  // Currently the button is visible iff experimental accessibility
-  // features are enabled.
-  void UpdateVisibility();
 
   // Actively looks up dictation status and calls UpdateIcon.
   void CheckDictationStatusAndUpdateIcon();
 
   // Weak pointer, will be parented by TrayContainer for its lifetime.
   views::ImageView* icon_;
-
-  DISALLOW_COPY_AND_ASSIGN(DictationButtonTray);
 };
 
 }  // namespace ash

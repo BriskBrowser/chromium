@@ -5,18 +5,14 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_H_
 
-#include "base/scoped_observation.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
-#include "chrome/browser/ui/views/tabs/tab_strip.h"
-#include "chrome/browser/ui/views/tabs/tab_strip_observer.h"
-#include "chrome/browser/ui/views/tabs/tab_strip_types.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/widget/widget.h"
+#include "chrome/browser/ui/views/frame/browser_frame.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/window/non_client_view.h"
 
-class BrowserFrame;
 class BrowserView;
+class TabSearchBubbleHost;
 class WebAppFrameToolbarView;
 
 // Type used for functions whose return values depend on the active state of
@@ -30,8 +26,7 @@ enum class BrowserFrameActiveState {
 // A specialization of the NonClientFrameView object that provides additional
 // Browser-specific methods.
 class BrowserNonClientFrameView : public views::NonClientFrameView,
-                                  public ProfileAttributesStorage::Observer,
-                                  public TabStripObserver {
+                                  public ProfileAttributesStorage::Observer {
  public:
   METADATA_HEADER(BrowserNonClientFrameView);
   // The minimum total height users should have to use as a drag handle to move
@@ -120,7 +115,7 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
 
   // For non-transparent windows, returns the background tab image resource ID
   // if the image has been customized, directly or indirectly, by the theme.
-  base::Optional<int> GetCustomBackgroundId(
+  absl::optional<int> GetCustomBackgroundId(
       BrowserFrameActiveState active_state) const;
 
   // Updates the throbber.
@@ -128,6 +123,13 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
 
   // Provided for platform-specific updates of minimum window size.
   virtual void UpdateMinimumSize();
+
+  // Updates the state of the title bar when window controls overlay is enabled
+  // or disabled.
+  virtual void WindowControlsOverlayEnabledChanged() {}
+
+  // Set the visibility of the window controls overlay toggle button.
+  void SetWindowControlsOverlayToggleVisible(bool visible);
 
   // views::NonClientFrameView:
   using views::NonClientFrameView::ShouldPaintAsActive;
@@ -139,6 +141,10 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   WebAppFrameToolbarView* web_app_frame_toolbar_for_testing() {
     return web_app_frame_toolbar_;
   }
+
+  // Gets the TabSearchBubbleHost if present in the NonClientFrameView. Can
+  // return null.
+  virtual TabSearchBubbleHost* GetTabSearchBubbleHost();
 
  protected:
   // Called when |frame_|'s "paint as active" state has changed.
@@ -157,13 +163,11 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
 
   // views::NonClientFrameView:
   void ChildPreferredSizeChanged(views::View* child) override;
-  bool DoesIntersectRect(const views::View* target,
-                         const gfx::Rect& rect) const override;
 
   // ProfileAttributesStorage::Observer:
   void OnProfileAdded(const base::FilePath& profile_path) override;
   void OnProfileWasRemoved(const base::FilePath& profile_path,
-                           const base::string16& profile_name) override;
+                           const std::u16string& profile_name) override;
   void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
   void OnProfileHighResAvatarLoaded(
       const base::FilePath& profile_path) override;
@@ -202,9 +206,6 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
       frame_->RegisterPaintAsActiveChangedCallback(
           base::BindRepeating(&BrowserNonClientFrameView::PaintAsActiveChanged,
                               base::Unretained(this)));
-
-  base::ScopedObservation<TabStrip, TabStripObserver> tab_strip_observation_{
-      this};
 };
 
 namespace chrome {

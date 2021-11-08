@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/optional.h"
 #include "content/browser/renderer_host/navigation_request.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_throttle.h"
@@ -20,8 +19,11 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/ip_endpoint.h"
+#include "net/base/load_flags.h"
 #include "net/dns/public/resolve_error_info.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/navigation/impression.h"
+#include "third_party/blink/public/mojom/loader/mixed_content.mojom.h"
 #include "third_party/blink/public/mojom/loader/referrer.mojom-forward.h"
 #include "url/gurl.h"
 
@@ -48,7 +50,8 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
   static std::unique_ptr<NavigationSimulatorImpl> CreateHistoryNavigation(
       int offset,
-      WebContents* web_contents);
+      WebContents* web_contents,
+      bool is_renderer_initiated);
 
   // TODO(https://crbug.com/1131832): Remove |original_url| as it's not used.
   static std::unique_ptr<NavigationSimulatorImpl> CreateRendererInitiated(
@@ -56,7 +59,7 @@ class NavigationSimulatorImpl : public NavigationSimulator,
       RenderFrameHost* render_frame_host);
 
   static std::unique_ptr<NavigationSimulatorImpl> CreateFromPending(
-      WebContents* contents);
+      NavigationController& controller);
 
   // Creates a NavigationSimulator for an already-started navigation happening
   // in |frame_tree_node|. Can be used to drive the navigation to completion.
@@ -87,16 +90,21 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   void SetWasFetchedViaCache(bool was_fetched_via_cache) override;
   void SetIsSignedExchangeInnerResponse(
       bool is_signed_exchange_inner_response) override;
-  void SetFeaturePolicyHeader(
-      blink::ParsedFeaturePolicy feature_policy_header) override;
+  void SetPermissionsPolicyHeader(
+      blink::ParsedPermissionsPolicy permissions_policy_header) override;
   void SetContentsMimeType(const std::string& contents_mime_type) override;
+  void SetRedirectHeaders(
+      scoped_refptr<net::HttpResponseHeaders> redirect_headers) override;
   void SetResponseHeaders(
       scoped_refptr<net::HttpResponseHeaders> response_headers) override;
+  void SetResponseBody(
+      mojo::ScopedDataPipeConsumerHandle response_body) override;
   void SetAutoAdvance(bool auto_advance) override;
   void SetResolveErrorInfo(
       const net::ResolveErrorInfo& resolve_error_info) override;
   void SetSSLInfo(const net::SSLInfo& ssl_info) override;
   void SetResponseDnsAliases(std::vector<std::string> aliases) override;
+  void SetEarlyHintsPreloadLinkHeaderReceived(bool received) override;
 
   NavigationThrottle::ThrottleCheckResult GetLastThrottleCheckResult() override;
   NavigationRequest* GetNavigationHandle() override;
@@ -123,10 +131,6 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
   // Set DidCommit*Params history_list_was_cleared flag to |history_cleared|.
   void set_history_list_was_cleared(bool history_cleared);
-
-  // Manually force the value of did_create_new_entry flag in DidCommit*Params
-  // to |did_create_new_entry|.
-  void set_did_create_new_entry(bool did_create_new_entry);
 
   // Manually force the value of should_replace_current_entry flag in
   // DidCommit*Params to |should_replace_current_entry|.
@@ -164,6 +168,58 @@ class NavigationSimulatorImpl : public NavigationSimulator,
     impression_ = impression;
   }
 
+  void set_skip_service_worker(bool skip_service_worker) {
+    skip_service_worker_ = skip_service_worker;
+  }
+
+  void set_initiator_origin(
+      const absl::optional<url::Origin>& initiator_origin) {
+    initiator_origin_ = initiator_origin;
+  }
+
+  void set_request_headers(const std::string& headers) { headers_ = headers; }
+
+  void set_load_flags(int load_flags) { load_flags_ = load_flags; }
+
+  void set_mixed_content_context_type(
+      blink::mojom::MixedContentContextType mixed_content_context_type) {
+    mixed_content_context_type_ = mixed_content_context_type;
+  }
+
+  void set_searchable_form_url(const GURL& searchable_form_url) {
+    searchable_form_url_ = searchable_form_url;
+  }
+
+  void set_searchable_form_encoding(
+      const std::string& searchable_form_encoding) {
+    searchable_form_encoding_ = searchable_form_encoding;
+  }
+
+  void set_href_translate(const std::string& href_translate) {
+    href_translate_ = href_translate;
+  }
+
+  void set_request_context_type(
+      blink::mojom::RequestContextType request_context_type) {
+    request_context_type_ = request_context_type;
+  }
+
+  void set_insecure_request_policy(
+      blink::mojom::InsecureRequestPolicy insecure_request_policy) {
+    insecure_request_policy_ = insecure_request_policy;
+  }
+
+  void set_insecure_navigations_set(
+      const std::vector<uint32_t> insecure_navigations_set) {
+    insecure_navigations_set_ = insecure_navigations_set;
+  }
+
+  void set_has_potentially_trustworthy_unique_origin(
+      bool has_potentially_trustworthy_unique_origin) {
+    has_potentially_trustworthy_unique_origin_ =
+        has_potentially_trustworthy_unique_origin;
+  }
+
  private:
   NavigationSimulatorImpl(const GURL& original_url,
                           bool browser_initiated,
@@ -188,7 +244,8 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   void StartComplete();
   void RedirectComplete(int previous_num_will_redirect_request_called,
                         int previous_did_redirect_navigation_called);
-  void ReadyToCommitComplete(bool ran_throttles);
+  void WillProcessResponseComplete();
+  void ReadyToCommitComplete();
   void FailComplete(int error_code);
 
   void OnWillStartRequest();
@@ -204,14 +261,20 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   // navigation failed synchronously.
   bool SimulateRendererInitiatedStart();
 
-  // This method will block waiting for throttle checks to complete if
-  // |auto_advance_|. Otherwise will just set up state for checking the result
-  // when the throttles end up finishing.
+  // This method will block waiting for the navigation to reach the next
+  // NavigationThrottle phase of the navigation to complete
+  // (StartRequest|Redirect|Failed|ProcessResponse) if |auto_advance_|. This
+  // waits until *after* throttle checks are run (if the navigation requires
+  // throttle checks).  If |!auto_advance_| this will just set up state for
+  // checking the result when the throttles end up finishing.
   void MaybeWaitForThrottleChecksComplete(base::OnceClosure complete_closure);
 
-  // Sets |last_throttle_check_result_| and calls both the
-  // |wait_closure_| and the |throttle_checks_complete_closure_|, if they are
-  // set.
+  // Like above but blocks waiting for the ReadyToCommit checks to complete.
+  // This check calls ReadyToCommitComplete() when finished.
+  void MaybeWaitForReadyToCommitCheckComplete();
+
+  // Sets |last_throttle_check_result_| and calls both the |wait_closure_| and
+  // the |throttle_checks_complete_closure_|, if they are set.
   bool OnThrottleChecksComplete(NavigationThrottle::ThrottleCheckResult result);
 
   // Helper method to set the OnThrottleChecksComplete callback on the
@@ -220,7 +283,7 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
   // Infers from internal parameters whether the navigation created a new
   // entry.
-  bool DidCreateNewEntry();
+  bool DidCreateNewEntry(bool same_document, bool should_replace_current_entry);
 
   // Set the navigation to be done towards the specified navigation controller
   // offset. Typically -1 for back navigations or 1 for forward navigations.
@@ -237,6 +300,20 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   // commit time.
   void SimulateUnloadCompletionCallbackForPreviousFrameIfNeeded(
       RenderFrameHostImpl* previous_frame);
+
+  // Certain navigations can skip throttle checks:
+  // - same-document navigations
+  // - about:blank navigations
+  // - navigations not handled by the network stack
+  // - page activations like prerendering and back-forward cache.
+  bool NeedsThrottleChecks() const;
+
+  // Whether the navigation performs CommitDeferringCondition checks before
+  // committing. i.e. if it goes through the full
+  // WillStartRequest->WillProcessResponse->etc.->Commit phases. This includes
+  // all navigations that require throttle checks plus page activations like
+  // prerendering/BFCache.
+  bool NeedsPreCommitChecks() const;
 
   enum State {
     INITIALIZATION,
@@ -285,18 +362,35 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
       browser_interface_broker_receiver_;
   std::string contents_mime_type_;
+  scoped_refptr<net::HttpResponseHeaders> redirect_headers_;
   scoped_refptr<net::HttpResponseHeaders> response_headers_;
-  blink::ParsedFeaturePolicy feature_policy_header_;
+  blink::ParsedPermissionsPolicy permissions_policy_header_;
+  mojo::ScopedDataPipeConsumerHandle response_body_;
   network::mojom::CSPDisposition should_check_main_world_csp_ =
       network::mojom::CSPDisposition::CHECK;
   net::HttpResponseInfo::ConnectionInfo http_connection_info_ =
       net::HttpResponseInfo::CONNECTION_INFO_UNKNOWN;
   net::ResolveErrorInfo resolve_error_info_ = net::ResolveErrorInfo(net::OK);
-  base::Optional<net::SSLInfo> ssl_info_;
-  base::Optional<blink::PageState> page_state_;
-  base::Optional<url::Origin> origin_;
-  base::Optional<blink::Impression> impression_;
+  absl::optional<net::SSLInfo> ssl_info_;
+  absl::optional<blink::PageState> page_state_;
+  absl::optional<url::Origin> origin_;
+  absl::optional<blink::Impression> impression_;
   int64_t post_id_ = -1;
+  bool skip_service_worker_ = false;
+  absl::optional<url::Origin> initiator_origin_;
+  std::string headers_;
+  int load_flags_ = net::LOAD_NORMAL;
+  blink::mojom::MixedContentContextType mixed_content_context_type_ =
+      blink::mojom::MixedContentContextType::kBlockable;
+  GURL searchable_form_url_;
+  std::string searchable_form_encoding_;
+  std::string href_translate_;
+  blink::mojom::RequestContextType request_context_type_ =
+      blink::mojom::RequestContextType::LOCATION;
+  blink::mojom::InsecureRequestPolicy insecure_request_policy_ =
+      blink::mojom::InsecureRequestPolicy::kLeaveInsecureRequestsAlone;
+  std::vector<uint32_t> insecure_navigations_set_;
+  bool has_potentially_trustworthy_unique_origin_ = false;
 
   // Any DNS aliases, as read from CNAME records, for the request URL that
   // would be in the network::mojom::URLResponseHead. The alias chain order
@@ -315,8 +409,11 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
   bool history_list_was_cleared_ = false;
   bool should_replace_current_entry_ = false;
-  base::Optional<bool> did_create_new_entry_;
   bool was_aborted_prior_to_ready_to_commit_ = false;
+
+  bool early_hints_preload_link_header_received_ = false;
+
+  absl::optional<bool> was_prerendered_page_activation_;
 
   // These are used to sanity check the content/public/ API calls emitted as
   // part of the navigation.
@@ -332,7 +429,7 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   // Holds the last ThrottleCheckResult calculated by the navigation's
   // throttles. Will be unset before WillStartRequest is finished. Will be unset
   // while throttles are being run, but before they finish.
-  base::Optional<NavigationThrottle::ThrottleCheckResult>
+  absl::optional<NavigationThrottle::ThrottleCheckResult>
       last_throttle_check_result_;
 
   // GlobalRequestID for the associated NavigationHandle. Only valid after
@@ -347,10 +444,12 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   // result. Calling this will quit the nested run loop.
   base::OnceClosure wait_closure_;
 
-  // This member simply ensures that we do not disconnect
-  // the NavigationClient interface, as it would be interpreted as a
-  // cancellation coming from the renderer process side. This member interface
-  // will never be bound.
+  // Closure that is called when DidStartNavigation is called.
+  base::OnceClosure did_start_navigation_closure_;
+
+  // This member simply ensures that we do not disconnect the NavigationClient
+  // interface, as it would be interpreted as a cancellation coming from the
+  // renderer process side. This member interface will never be bound.
   mojo::PendingAssociatedReceiver<mojom::NavigationClient>
       navigation_client_receiver_;
 
@@ -359,4 +458,4 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
 }  // namespace content
 
-#endif  // CONTENT_PUBLIC_TEST_NAVIGATION_SIMULATOR_H_
+#endif  // CONTENT_TEST_NAVIGATION_SIMULATOR_IMPL_H_

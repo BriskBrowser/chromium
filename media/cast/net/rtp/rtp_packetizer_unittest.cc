@@ -39,6 +39,9 @@ class TestRtpPacketTransport : public PacketTransport {
         expected_packet_id_(0),
         expected_frame_id_(FrameId::first() + 1) {}
 
+  TestRtpPacketTransport(const TestRtpPacketTransport&) = delete;
+  TestRtpPacketTransport& operator=(const TestRtpPacketTransport&) = delete;
+
   void VerifyRtpHeader(const RtpCastHeader& rtp_header) {
     VerifyCommonRtpHeader(rtp_header);
     VerifyCastRtpHeader(rtp_header);
@@ -104,12 +107,13 @@ class TestRtpPacketTransport : public PacketTransport {
   int expected_packet_id_;
   FrameId expected_frame_id_;
   RtpTimeTicks expected_rtp_timestamp_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestRtpPacketTransport);
 };
 
 class RtpPacketizerTest : public ::testing::Test {
+ public:
+  RtpPacketizerTest(const RtpPacketizerTest&) = delete;
+  RtpPacketizerTest& operator=(const RtpPacketizerTest&) = delete;
+
  protected:
   RtpPacketizerTest()
       : task_runner_(new FakeSingleThreadTaskRunner(&testing_clock_)) {
@@ -117,13 +121,13 @@ class RtpPacketizerTest : public ::testing::Test {
     config_.ssrc = kSsrc;
     config_.payload_type = kPayload;
     config_.max_payload_length = kMaxPacketLength;
-    transport_.reset(new TestRtpPacketTransport(config_));
-    pacer_.reset(new PacedSender(kTargetBurstSize, kMaxBurstSize,
-                                 &testing_clock_, nullptr, transport_.get(),
-                                 task_runner_));
+    transport_ = std::make_unique<TestRtpPacketTransport>(config_);
+    pacer_ = std::make_unique<PacedSender>(kTargetBurstSize, kMaxBurstSize,
+                                           &testing_clock_, nullptr,
+                                           transport_.get(), task_runner_);
     pacer_->RegisterSsrc(config_.ssrc, false);
-    rtp_packetizer_.reset(
-        new RtpPacketizer(pacer_.get(), &packet_storage_, config_));
+    rtp_packetizer_ = std::make_unique<RtpPacketizer>(
+        pacer_.get(), &packet_storage_, config_);
     video_frame_.dependency = EncodedFrame::DEPENDENT;
     video_frame_.frame_id = FrameId::first() + 1;
     video_frame_.referenced_frame_id = video_frame_.frame_id - 1;
@@ -134,7 +138,7 @@ class RtpPacketizerTest : public ::testing::Test {
   void RunTasks(int during_ms) {
     for (int i = 0; i < during_ms; ++i) {
       // Call process the timers every 1 ms.
-      testing_clock_.Advance(base::TimeDelta::FromMilliseconds(1));
+      testing_clock_.Advance(base::Milliseconds(1));
       task_runner_->RunTasks();
     }
   }
@@ -147,9 +151,6 @@ class RtpPacketizerTest : public ::testing::Test {
   std::unique_ptr<TestRtpPacketTransport> transport_;
   std::unique_ptr<PacedSender> pacer_;
   std::unique_ptr<RtpPacketizer> rtp_packetizer_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(RtpPacketizerTest);
 };
 
 TEST_F(RtpPacketizerTest, SendStandardPackets) {
@@ -157,7 +158,7 @@ TEST_F(RtpPacketizerTest, SendStandardPackets) {
   transport_->set_expected_number_of_packets(expected_num_of_packets);
   transport_->set_rtp_timestamp(video_frame_.rtp_timestamp);
 
-  testing_clock_.Advance(base::TimeDelta::FromMilliseconds(kTimestampMs));
+  testing_clock_.Advance(base::Milliseconds(kTimestampMs));
   video_frame_.reference_time = testing_clock_.NowTicks();
   rtp_packetizer_->SendFrameAsPackets(video_frame_);
   RunTasks(33 + 1);
@@ -169,7 +170,7 @@ TEST_F(RtpPacketizerTest, SendPacketsWithAdaptivePlayoutExtension) {
   transport_->set_expected_number_of_packets(expected_num_of_packets);
   transport_->set_rtp_timestamp(video_frame_.rtp_timestamp);
 
-  testing_clock_.Advance(base::TimeDelta::FromMilliseconds(kTimestampMs));
+  testing_clock_.Advance(base::Milliseconds(kTimestampMs));
   video_frame_.reference_time = testing_clock_.NowTicks();
   video_frame_.new_playout_delay_ms = 500;
   rtp_packetizer_->SendFrameAsPackets(video_frame_);
@@ -185,7 +186,7 @@ TEST_F(RtpPacketizerTest, Stats) {
   transport_->set_expected_number_of_packets(expected_num_of_packets);
   transport_->set_rtp_timestamp(video_frame_.rtp_timestamp);
 
-  testing_clock_.Advance(base::TimeDelta::FromMilliseconds(kTimestampMs));
+  testing_clock_.Advance(base::Milliseconds(kTimestampMs));
   video_frame_.reference_time = testing_clock_.NowTicks();
   rtp_packetizer_->SendFrameAsPackets(video_frame_);
   RunTasks(33 + 1);

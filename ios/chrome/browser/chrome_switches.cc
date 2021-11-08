@@ -39,10 +39,19 @@ const char kEnableSpotlightActions[] = "enable-spotlight-actions";
 const char kEnableThirdPartyKeyboardWorkaround[] =
     "enable-third-party-keyboard-workaround";
 
+// Enabled the NTP Discover feed.
+const char kEnableDiscoverFeed[] = "enable-discover-feed";
+
+// Enables the upgrade sign-in promo.
+const char kEnableUpgradeSigninPromo[] = "enable-upgrade-signin-promo";
+
 // Installs the URLBlocklist and URLAllowlist handlers.
 const char kInstallURLBlocklistHandlers[] = "install-url-blocklist-handlers";
 
 // A string used to override the default user agent with a custom one.
 const char kUserAgent[] = "user-agent";
+
+// Enable using the forced sign-in mode of the BrowserSignin policy.
+const char kEnableForcedSignInPolicy[] = "enable-forced-signin-policy";
 
 }  // namespace switches

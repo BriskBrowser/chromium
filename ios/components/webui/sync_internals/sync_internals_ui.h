@@ -17,11 +17,12 @@ class WebUIIOS;
 // The implementation for the chrome://sync-internals page.
 class SyncInternalsUI : public web::WebUIIOSController {
  public:
-  explicit SyncInternalsUI(web::WebUIIOS* web_ui, const std::string& host);
-  ~SyncInternalsUI() override;
+  SyncInternalsUI(web::WebUIIOS* web_ui, const std::string& host);
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(SyncInternalsUI);
+  SyncInternalsUI(const SyncInternalsUI&) = delete;
+  SyncInternalsUI& operator=(const SyncInternalsUI&) = delete;
+
+  ~SyncInternalsUI() override;
 };
 
 #endif  // IOS_COMPONENTS_WEBUI_SYNC_INTERNALS_SYNC_INTERNALS_UI_H_

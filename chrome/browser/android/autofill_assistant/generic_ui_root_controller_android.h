@@ -5,9 +5,7 @@
 #ifndef CHROME_BROWSER_ANDROID_AUTOFILL_ASSISTANT_GENERIC_UI_ROOT_CONTROLLER_ANDROID_H_
 #define CHROME_BROWSER_ANDROID_AUTOFILL_ASSISTANT_GENERIC_UI_ROOT_CONTROLLER_ANDROID_H_
 
-#include <map>
 #include <memory>
-#include <string>
 
 #include "base/android/jni_android.h"
 #include "base/android/scoped_java_ref.h"

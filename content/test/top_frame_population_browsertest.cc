@@ -36,6 +36,10 @@ IN_PROC_BROWSER_TEST_F(TopFramePopulationBrowsertest, FromTopFrame) {
               bool unused_is_for_isolated_world) {
             ASSERT_TRUE(params);
 
+            // Ignore URLLoaderFactoryParams for the initial empty document.
+            if (params->isolation_info.frame_origin()->opaque())
+              return;
+
             ASSERT_THAT(params->isolation_info.top_frame_origin(),
                         Optional(url::Origin::Create(GURL("http://main.com"))));
             ++number_of_frame_loaders;
@@ -81,6 +85,10 @@ IN_PROC_BROWSER_TEST_F(TopFramePopulationBrowsertest, FromNestedFrame) {
               const url::Origin& unused_origin,
               bool unused_is_for_isolated_world) {
             ASSERT_TRUE(params);
+
+            // Ignore URLLoaderFactoryParams for the initial empty document.
+            if (params->isolation_info.frame_origin()->opaque())
+              return;
 
             ASSERT_THAT(params->isolation_info.top_frame_origin(),
                         Optional(url::Origin::Create(GURL("http://main.com"))));

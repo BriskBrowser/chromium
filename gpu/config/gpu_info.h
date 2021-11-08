@@ -13,18 +13,21 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/containers/span.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "gpu/config/dx_diag_node.h"
 #include "gpu/gpu_export.h"
 #include "gpu/vulkan/buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/size.h"
 
 #if defined(OS_WIN)
 #include <dxgi.h>
+
+#include "base/win/windows_types.h"
 #endif
 
 #if BUILDFLAG(ENABLE_VULKAN)
@@ -57,6 +60,7 @@ enum class IntelGpuSeriesType {
   kApollolake = 7,
   kSkylake = 8,
   kGeminilake = 9,
+  kAmberlake = 23,
   kKabylake = 10,
   kCoffeelake = 11,
   kWhiskeylake = 12,
@@ -69,8 +73,11 @@ enum class IntelGpuSeriesType {
   kJasperlake = 20,
   // Intel 12th gen
   kTigerlake = 21,
+  kRocketlake = 24,
+  kDG1 = 25,
+  kAlderlake = 22,
   // Please also update |gpu_series_map| in process_json.py.
-  kMaxValue = kTigerlake,
+  kMaxValue = kDG1,
 };
 
 // Video profile.  This *must* match media::VideoCodecProfile.
@@ -236,13 +243,15 @@ struct GPU_EXPORT GPUInfo {
     // Device ids are unique to vendor, not to one another.
     uint32_t device_id = 0u;
 
+#if defined(OS_WIN) || defined(OS_CHROMEOS)
+    // The graphics card revision number.
+    uint32_t revision = 0u;
+#endif
+
 #if defined(OS_WIN)
     // The graphics card subsystem id.
     // The lower 16 bits represents the subsystem vendor id.
     uint32_t sub_sys_id = 0u;
-
-    // The graphics card revision number.
-    uint32_t revision = 0u;
 
     // The graphics card LUID. This is a unique identifier for the graphics card
     // that is guaranteed to be unique until the computer is restarted. The LUID
@@ -250,7 +259,7 @@ struct GPU_EXPORT GPUInfo {
     // unique relative its vendor, not to each other. If there are more than one
     // of the same exact graphics card, they all have the same vendor id and
     // device id but different LUIDs.
-    LUID luid;
+    CHROME_LUID luid;
 #endif  // OS_WIN
 
     // Whether this GPU is the currently used one.
@@ -393,7 +402,10 @@ struct GPU_EXPORT GPUInfo {
   OverlayInfo overlay_info;
 #endif
 
+  // Video decoding uses two backends: the legacy VDA and the new VideoDecoder.
   VideoDecodeAcceleratorCapabilities video_decode_accelerator_capabilities;
+  VideoDecodeAcceleratorSupportedProfiles video_decoder_capabilities;
+
   VideoEncodeAcceleratorSupportedProfiles
       video_encode_accelerator_supported_profiles;
   bool jpeg_decode_accelerator_supported;
@@ -405,8 +417,10 @@ struct GPU_EXPORT GPUInfo {
 
   bool subpixel_font_rendering;
 
+  uint32_t visibility_callback_call_count = 0;
+
 #if BUILDFLAG(ENABLE_VULKAN)
-  base::Optional<VulkanInfo> vulkan_info;
+  absl::optional<VulkanInfo> vulkan_info;
 #endif
 
   // Note: when adding new members, please remember to update EnumerateFields

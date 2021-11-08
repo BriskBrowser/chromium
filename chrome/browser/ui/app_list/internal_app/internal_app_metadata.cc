@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/app_list/internal_app/internal_app_metadata.h"
 
 #include <memory>
+#include <string>
 
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "ash/public/cpp/keyboard_shortcut_viewer.h"
@@ -13,18 +14,16 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
-#include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/apps/app_service/app_service_metrics.h"
-#include "chrome/browser/chromeos/plugin_vm/plugin_vm_util.h"
-#include "chrome/browser/chromeos/release_notes/release_notes_storage.h"
+#include "chrome/browser/apps/app_service/metrics/app_service_metrics.h"
+#include "chrome/browser/ash/plugin_vm/plugin_vm_util.h"
+#include "chrome/browser/ash/release_notes/release_notes_storage.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/session_sync_service_factory.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/extension_app_utils.h"
-#include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
+#include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/grit/chrome_unscaled_resources.h"
@@ -94,7 +93,7 @@ bool IsInternalApp(const std::string& app_id) {
 
 bool HasRecommendableForeignTab(
     Profile* profile,
-    base::string16* title,
+    std::u16string* title,
     GURL* url,
     sync_sessions::OpenTabsUIDelegate* test_delegate) {
   sync_sessions::SessionSyncService* service =
@@ -134,7 +133,7 @@ bool HasRecommendableForeignTab(
 
         // Only show pages recently opened.
         const base::TimeDelta tab_age = base::Time::Now() - tab->timestamp;
-        if (tab_age > base::TimeDelta::FromMinutes(kMaxForeignTabAgeInMinutes))
+        if (tab_age > base::Minutes(kMaxForeignTabAgeInMinutes))
           continue;
 
         if (latest_timestamp < tab->timestamp) {

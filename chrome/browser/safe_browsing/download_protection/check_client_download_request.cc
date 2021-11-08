@@ -35,11 +35,11 @@
 #include "components/policy/core/browser/url_util.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/content/common/file_type_policies.h"
+#include "components/safe_browsing/core/common/features.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/core/common/utils.h"
-#include "components/safe_browsing/core/features.h"
-#include "components/safe_browsing/core/file_type_policies.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
 #include "components/url_matcher/url_matcher.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_item_utils.h"
@@ -58,6 +58,7 @@ void MaybeOverrideScanResult(DownloadCheckResultReason reason,
     // take precedence.
     case DownloadCheckResult::DANGEROUS_HOST:
     case DownloadCheckResult::DANGEROUS:
+    case DownloadCheckResult::DANGEROUS_ACCOUNT_COMPROMISE:
       callback.Run(deep_scan_result);
       return;
 
@@ -77,6 +78,8 @@ void MaybeOverrideScanResult(DownloadCheckResultReason reason,
         callback.Run(DownloadCheckResult::POTENTIALLY_UNWANTED);
       else if (reason == REASON_DOWNLOAD_UNCOMMON)
         callback.Run(DownloadCheckResult::UNCOMMON);
+      else if (reason == REASON_DOWNLOAD_DANGEROUS_ACCOUNT_COMPROMISE)
+        callback.Run(DownloadCheckResult::DANGEROUS_ACCOUNT_COMPROMISE);
       else
         callback.Run(deep_scan_result);
       return;
@@ -227,40 +230,51 @@ void CheckClientDownloadRequest::MaybeStorePingsForDownload(
       result, upload_requested, item_, request_data, response_body);
 }
 
-base::Optional<enterprise_connectors::AnalysisSettings>
+absl::optional<enterprise_connectors::AnalysisSettings>
 CheckClientDownloadRequest::ShouldUploadBinary(
     DownloadCheckResultReason reason) {
   // If the download was destroyed, we can't upload it.
   if (reason == REASON_DOWNLOAD_DESTROYED)
-    return base::nullopt;
+    return absl::nullopt;
+
+  // If the download is considered dangerous, don't upload the binary to show
+  // a warning to the user ASAP.
+  if (reason == REASON_DOWNLOAD_DANGEROUS ||
+      reason == REASON_DOWNLOAD_DANGEROUS_HOST ||
+      reason == REASON_DOWNLOAD_DANGEROUS_ACCOUNT_COMPROMISE) {
+    return absl::nullopt;
+  }
 
   auto settings = DeepScanningRequest::ShouldUploadBinary(item_);
-  if (settings && (reason == REASON_DOWNLOAD_DANGEROUS ||
-                   reason == REASON_DOWNLOAD_DANGEROUS_HOST ||
-                   reason == REASON_ALLOWLISTED_URL)) {
+
+  // Malware scanning is redundant if the URL is allowlisted, but DLP scanning
+  // might still need to happen.
+  if (settings && reason == REASON_ALLOWLISTED_URL) {
     settings->tags.erase("malware");
     if (settings->tags.empty())
-      return base::nullopt;
+      return absl::nullopt;
   }
 
   return settings;
 }
 
 void CheckClientDownloadRequest::UploadBinary(
+    DownloadCheckResult result,
     DownloadCheckResultReason reason,
     enterprise_connectors::AnalysisSettings settings) {
   if (reason == REASON_DOWNLOAD_DANGEROUS ||
       reason == REASON_DOWNLOAD_DANGEROUS_HOST ||
       reason == REASON_DOWNLOAD_POTENTIALLY_UNWANTED ||
-      reason == REASON_DOWNLOAD_UNCOMMON || reason == REASON_ALLOWLISTED_URL) {
+      reason == REASON_DOWNLOAD_UNCOMMON || reason == REASON_ALLOWLISTED_URL ||
+      reason == REASON_DOWNLOAD_DANGEROUS_ACCOUNT_COMPROMISE) {
     service()->UploadForDeepScanning(
         item_, base::BindRepeating(&MaybeOverrideScanResult, reason, callback_),
-        DeepScanningRequest::DeepScanTrigger::TRIGGER_POLICY,
+        DeepScanningRequest::DeepScanTrigger::TRIGGER_POLICY, result,
         std::move(settings));
   } else {
     service()->UploadForDeepScanning(
         item_, callback_, DeepScanningRequest::DeepScanTrigger::TRIGGER_POLICY,
-        std::move(settings));
+        result, std::move(settings));
   }
 }
 
@@ -276,24 +290,35 @@ void CheckClientDownloadRequest::NotifyRequestFinished(
   item_->RemoveObserver(this);
 }
 
-bool CheckClientDownloadRequest::ShouldPromptForDeepScanning(
-    DownloadCheckResultReason reason) const {
-  if (reason != REASON_DOWNLOAD_UNCOMMON)
-    return false;
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  return false;
-#else
-  Profile* profile = Profile::FromBrowserContext(GetBrowserContext());
+bool CheckClientDownloadRequest::IsUnderAdvancedProtection(
+    Profile* profile) const {
   if (!profile)
     return false;
   AdvancedProtectionStatusManager* advanced_protection_status_manager =
       AdvancedProtectionStatusManagerFactory::GetForProfile(profile);
   if (!advanced_protection_status_manager)
     return false;
-  return base::FeatureList::IsEnabled(kPromptAppForDeepScanning) &&
-         advanced_protection_status_manager->IsUnderAdvancedProtection();
-#endif
+  return advanced_protection_status_manager->IsUnderAdvancedProtection();
+}
+
+bool CheckClientDownloadRequest::ShouldPromptForDeepScanning(
+    bool server_requests_prompt) const {
+  if (!server_requests_prompt)
+    return false;
+
+  // Too large uploads would fail immediately, so don't prompt in this case.
+  if (static_cast<size_t>(item_->GetTotalBytes()) >=
+      BinaryUploadService::kMaxUploadSizeBytes)
+    return false;
+
+  Profile* profile = Profile::FromBrowserContext(GetBrowserContext());
+  if (profile && IsEnhancedProtectionEnabled(*profile->GetPrefs()))
+    return true;
+
+  if (IsUnderAdvancedProtection(profile))
+    return true;
+
+  return false;
 }
 
 bool CheckClientDownloadRequest::IsAllowlistedByPolicy() const {

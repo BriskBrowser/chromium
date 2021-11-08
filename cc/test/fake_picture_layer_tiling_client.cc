@@ -88,4 +88,12 @@ bool FakePictureLayerTilingClient::IsDirectlyCompositedImage() const {
   return false;
 }
 
+bool FakePictureLayerTilingClient::ScrollInteractionInProgress() const {
+  return false;
+}
+bool FakePictureLayerTilingClient::CurrentScrollCheckerboardsDueToNoRecording()
+    const {
+  return false;
+}
+
 }  // namespace cc

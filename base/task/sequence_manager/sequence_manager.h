@@ -11,10 +11,10 @@
 
 #include "base/message_loop/message_pump_type.h"
 #include "base/message_loop/timer_slack.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/task_queue_impl.h"
 #include "base/task/sequence_manager/task_time_observer.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/default_tick_clock.h"
 
 namespace base {
@@ -240,6 +240,11 @@ class BASE_EXPORT SequenceManager {
   // deleted on the main thread.
   virtual std::unique_ptr<NativeWorkHandle> OnNativeWorkPending(
       TaskQueue::QueuePriority priority) = 0;
+
+  // While Now() is less than |prioritize_until| we will alternate between a
+  // SequenceManager task and a yielding to the underlying sequence (e.g., the
+  // message pump).
+  virtual void PrioritizeYieldingToNative(base::TimeTicks prioritize_until) = 0;
 
   // Adds an observer which reports task execution. Can only be called on the
   // same thread that |this| is running on.

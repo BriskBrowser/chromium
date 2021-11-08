@@ -4,6 +4,7 @@
 
 #include "media/cdm/library_cdm/clear_key_cdm/cdm_video_decoder.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -14,7 +15,8 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
+#include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 // Necessary to convert async media::VideoDecoder to sync CdmVideoDecoder.
 // Typically not recommended for production code, but is ok here since
 // ClearKeyCdm is only for testing.
@@ -148,8 +150,17 @@ void SetupGlobalEnvironmentIfNeeded() {
     static base::NoDestructor<base::SingleThreadTaskExecutor> task_executor;
   }
 
-  if (!base::CommandLine::InitializedForCurrentProcess())
+  // Initialize CommandLine if not already initialized. Since this is a DLL,
+  // just use empty arguments.
+  if (!base::CommandLine::InitializedForCurrentProcess()) {
+#if defined(OS_WIN)
+    // Use InitUsingArgvForTesting() instead of Init() to avoid dependency on
+    // shell32 API which might not work in the sandbox. See crbug.com/1242710.
+    base::CommandLine::InitUsingArgvForTesting(0, nullptr);
+#else
     base::CommandLine::Init(0, nullptr);
+#endif
+  }
 }
 
 // Adapts a media::VideoDecoder to a CdmVideoDecoder. Media VideoDecoders
@@ -168,6 +179,9 @@ class VideoDecoderAdapter final : public CdmVideoDecoder {
         video_decoder_(std::move(video_decoder)) {
     DCHECK(cdm_host_proxy_);
   }
+
+  VideoDecoderAdapter(const VideoDecoderAdapter&) = delete;
+  VideoDecoderAdapter& operator=(const VideoDecoderAdapter&) = delete;
 
   ~VideoDecoderAdapter() final = default;
 
@@ -279,16 +293,14 @@ class VideoDecoderAdapter final : public CdmVideoDecoder {
 
   // Results of |video_decoder_| operations. Set iff the callback of the
   // operation has been called.
-  base::Optional<Status> last_init_result_;
-  base::Optional<Status> last_decode_status_;
+  absl::optional<Status> last_init_result_;
+  absl::optional<Status> last_decode_status_;
 
   // Queue of decoded video frames.
   using VideoFrameQueue = base::queue<scoped_refptr<VideoFrame>>;
   VideoFrameQueue decoded_video_frames_;
 
   base::WeakPtrFactory<VideoDecoderAdapter> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(VideoDecoderAdapter);
 };
 
 }  // namespace
@@ -303,7 +315,7 @@ std::unique_ptr<CdmVideoDecoder> CreateVideoDecoder(
 
 #if BUILDFLAG(ENABLE_LIBVPX)
   if (config.codec == cdm::kCodecVp8 || config.codec == cdm::kCodecVp9)
-    video_decoder.reset(new VpxVideoDecoder());
+    video_decoder = std::make_unique<VpxVideoDecoder>();
 #endif
 
 #if BUILDFLAG(ENABLE_LIBGAV1_DECODER)
@@ -315,13 +327,13 @@ std::unique_ptr<CdmVideoDecoder> CreateVideoDecoder(
   {
 #if BUILDFLAG(ENABLE_DAV1D_DECODER)
     if (config.codec == cdm::kCodecAv1)
-      video_decoder.reset(new Dav1dVideoDecoder(null_media_log.get()));
+      video_decoder = std::make_unique<Dav1dVideoDecoder>(null_media_log.get());
 #endif
   }
 
 #if BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
   if (!video_decoder)
-    video_decoder.reset(new FFmpegVideoDecoder(null_media_log.get()));
+    video_decoder = std::make_unique<FFmpegVideoDecoder>(null_media_log.get());
 #endif
 
   if (!video_decoder)

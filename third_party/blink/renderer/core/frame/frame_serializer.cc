@@ -58,8 +58,6 @@
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
 #include "third_party/blink/renderer/core/html/html_style_element.h"
 #include "third_party/blink/renderer/core/html/image_document.h"
-#include "third_party/blink/renderer/core/html/imports/html_import_loader.h"
-#include "third_party/blink/renderer/core/html/imports/html_imports_controller.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/loader/resource/font_resource.h"
@@ -190,17 +188,6 @@ void SerializerMarkupAccumulator::AppendExtraForHeadElement(
   // CSS text defined in the style element. To solve this, we serialize the
   // working CSS rules in document.stylesheets and wrap them in link elements.
   AppendStylesheets(document_, true /*style_element_only*/);
-
-  // The stylesheets defined in imported documents are not incorporated into
-  // the tree-root document. So we need to scan all of them.
-  if (HTMLImportsController* controller = document_->ImportsController()) {
-    for (wtf_size_t i = 0; i < controller->LoaderCount(); ++i) {
-      if (Document* imported_document =
-              controller->LoaderAt(i)->GetDocument()) {
-        AppendStylesheets(imported_document, false /*style_element_only*/);
-      }
-    }
-  }
 }
 
 void SerializerMarkupAccumulator::AppendStylesheets(Document* document,
@@ -507,7 +494,8 @@ void FrameSerializer::SerializeCSSRule(CSSRule* rule) {
     // Rules inheriting CSSGroupingRule
     case CSSRule::kMediaRule:
     case CSSRule::kSupportsRule:
-    case CSSRule::kContainerRule: {
+    case CSSRule::kContainerRule:
+    case CSSRule::kLayerBlockRule: {
       CSSRuleList* rule_list = rule->cssRules();
       for (unsigned i = 0; i < rule_list->length(); ++i)
         SerializeCSSRule(rule_list->item(i));
@@ -533,6 +521,7 @@ void FrameSerializer::SerializeCSSRule(CSSRule* rule) {
     case CSSRule::kScrollTimelineRule:
     case CSSRule::kNamespaceRule:
     case CSSRule::kViewportRule:
+    case CSSRule::kLayerStatementRule:
       break;
   }
 }

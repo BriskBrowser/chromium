@@ -25,6 +25,10 @@ class COMPONENT_EXPORT(SHILL_CLIENT) FakeShillManagerClient
       public ShillManagerClient::TestInterface {
  public:
   FakeShillManagerClient();
+
+  FakeShillManagerClient(const FakeShillManagerClient&) = delete;
+  FakeShillManagerClient& operator=(const FakeShillManagerClient&) = delete;
+
   ~FakeShillManagerClient() override;
 
   // ShillManagerClient overrides
@@ -168,10 +172,14 @@ class COMPONENT_EXPORT(SHILL_CLIENT) FakeShillManagerClient
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
   base::WeakPtrFactory<FakeShillManagerClient> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FakeShillManagerClient);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::FakeShillManagerClient;
+}
 
 #endif  // CHROMEOS_DBUS_SHILL_FAKE_SHILL_MANAGER_CLIENT_H_

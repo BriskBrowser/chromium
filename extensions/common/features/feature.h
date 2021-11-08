@@ -9,9 +9,9 @@
 #include <string>
 
 #include "base/strings/string_piece.h"
-#include "base/values.h"
 #include "extensions/common/hashed_extension_id.h"
 #include "extensions/common/manifest.h"
+#include "extensions/common/mojom/manifest.mojom-shared.h"
 
 class GURL;
 
@@ -49,7 +49,8 @@ class Feature {
     LACROS_PLATFORM,
     LINUX_PLATFORM,
     MACOSX_PLATFORM,
-    WIN_PLATFORM
+    WIN_PLATFORM,
+    FUCHSIA_PLATFORM,
   };
 
   // Whether a feature is available in a given situation or not, and if not,
@@ -114,14 +115,14 @@ class Feature {
   // manifest.
   Availability IsAvailableToManifest(const HashedExtensionId& hashed_id,
                                      Manifest::Type type,
-                                     Manifest::Location location,
+                                     mojom::ManifestLocation location,
                                      int manifest_version) const {
     return IsAvailableToManifest(hashed_id, type, location, manifest_version,
                                  GetCurrentPlatform());
   }
   virtual Availability IsAvailableToManifest(const HashedExtensionId& hashed_id,
                                              Manifest::Type type,
-                                             Manifest::Location location,
+                                             mojom::ManifestLocation location,
                                              int manifest_version,
                                              Platform platform) const = 0;
 

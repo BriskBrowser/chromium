@@ -55,6 +55,9 @@ class BookmarkMenuController : public bookmarks::BaseBookmarkModelObserver,
       size_t start_child_index,
       bool for_drop);
 
+  BookmarkMenuController(const BookmarkMenuController&) = delete;
+  BookmarkMenuController& operator=(const BookmarkMenuController&) = delete;
+
   void RunMenuAt(BookmarkBarView* bookmark_bar);
 
   void clear_bookmark_bar() { bookmark_bar_ = nullptr; }
@@ -76,7 +79,7 @@ class BookmarkMenuController : public bookmarks::BaseBookmarkModelObserver,
   }
 
   // views::MenuDelegate:
-  base::string16 GetTooltipText(int id, const gfx::Point& p) const override;
+  std::u16string GetTooltipText(int id, const gfx::Point& p) const override;
   bool IsTriggerableEvent(views::MenuItemView* view,
                           const ui::Event& e) override;
   void ExecuteCommand(int id, int mouse_event_flags) override;
@@ -92,6 +95,10 @@ class BookmarkMenuController : public bookmarks::BaseBookmarkModelObserver,
                                             const ui::DropTargetEvent& event,
                                             DropPosition* position) override;
   ui::mojom::DragOperation OnPerformDrop(
+      views::MenuItemView* menu,
+      DropPosition position,
+      const ui::DropTargetEvent& event) override;
+  views::View::DropCallback GetDropCallback(
       views::MenuItemView* menu,
       DropPosition position,
       const ui::DropTargetEvent& event) override;
@@ -140,8 +147,6 @@ class BookmarkMenuController : public bookmarks::BaseBookmarkModelObserver,
   // folder on the bookmark bar and not for drop, or if the BookmarkBarView has
   // been destroyed before the menu.
   BookmarkBarView* bookmark_bar_;
-
-  DISALLOW_COPY_AND_ASSIGN(BookmarkMenuController);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_BOOKMARKS_BOOKMARK_MENU_CONTROLLER_VIEWS_H_

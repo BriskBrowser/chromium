@@ -6,13 +6,13 @@
 #define COMPONENTS_SECURITY_INTERSTITIALS_CONTENT_SECURITY_INTERSTITIAL_PAGE_H_
 
 #include <memory>
+#include <string>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "url/gurl.h"
 
 namespace base {
-class DictionaryValue;
+class Value;
 }
 
 namespace content {
@@ -34,6 +34,10 @@ class SecurityInterstitialPage {
       content::WebContents* web_contents,
       const GURL& request_url,
       std::unique_ptr<SecurityInterstitialControllerClient> controller);
+
+  SecurityInterstitialPage(const SecurityInterstitialPage&) = delete;
+  SecurityInterstitialPage& operator=(const SecurityInterstitialPage&) = delete;
+
   virtual ~SecurityInterstitialPage();
 
   // Prevents creating the actual interstitial view for testing.
@@ -58,13 +62,12 @@ class SecurityInterstitialPage {
 
  protected:
   // Populates the strings used to generate the HTML from the template.
-  virtual void PopulateInterstitialStrings(
-      base::DictionaryValue* load_time_data) = 0;
+  virtual void PopulateInterstitialStrings(base::Value* load_time_data) = 0;
 
   virtual int GetHTMLTemplateId();
 
   // Returns the formatted host name for the request url.
-  base::string16 GetFormattedHostName() const;
+  std::u16string GetFormattedHostName() const;
 
   content::WebContents* web_contents() const;
   GURL request_url() const;
@@ -91,8 +94,6 @@ class SecurityInterstitialPage {
 
   // For subclasses that don't have their own ControllerClients yet.
   std::unique_ptr<SecurityInterstitialControllerClient> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(SecurityInterstitialPage);
 };
 
 }  // security_interstitials

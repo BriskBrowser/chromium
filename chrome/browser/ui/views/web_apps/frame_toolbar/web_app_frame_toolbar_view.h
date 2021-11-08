@@ -8,16 +8,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/views/accessible_pane_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/view_targeter_delegate.h"
 
 namespace views {
 class View;
+class ViewTargeterDelegate;
 class Widget;
 }  // namespace views
 
@@ -29,7 +30,8 @@ class WebAppToolbarButtonContainer;
 
 // A container for web app buttons in the title bar.
 class WebAppFrameToolbarView : public views::AccessiblePaneView,
-                               public ToolbarButtonProvider {
+                               public ToolbarButtonProvider,
+                               public views::ViewTargeterDelegate {
  public:
   METADATA_HEADER(WebAppFrameToolbarView);
   WebAppFrameToolbarView(views::Widget* widget, BrowserView* browser_view);
@@ -54,10 +56,14 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
                                         int y,
                                         int available_height);
 
-  SkColor active_color_for_testing() const { return active_foreground_color_; }
+  // Sets own bounds within the available_space.
+  void LayoutForWindowControlsOverlay(gfx::Rect available_space);
+
+  absl::optional<SkColor> active_color_for_testing() const {
+    return active_foreground_color_;
+  }
 
   // ToolbarButtonProvider:
-  BrowserActionsContainer* GetBrowserActionsContainer() override;
   ExtensionsToolbarContainer* GetExtensionsToolbarContainer() override;
   gfx::Size GetToolbarButtonSize() const override;
   views::View* GetDefaultExtensionDialogAnchorView() override;
@@ -68,9 +74,17 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
   views::AccessiblePaneView* GetAsAccessiblePaneView() override;
   views::View* GetAnchorView(PageActionIconType type) override;
   void ZoomChangedForActiveTab(bool can_show_bubble) override;
+  ReadLaterToolbarButton* GetSidePanelButton() override;
   AvatarToolbarButton* GetAvatarToolbarButton() override;
   ToolbarButton* GetBackButton() override;
   ReloadButton* GetReloadButton() override;
+
+  // views::ViewTargeterDelegate
+  bool DoesIntersectRect(const View* target,
+                         const gfx::Rect& rect) const override;
+
+  void OnWindowControlsOverlayEnabledChanged();
+  void SetWindowControlsOverlayToggleVisible(bool visible);
 
   WebAppNavigationButtonContainer* get_left_container_for_testing() {
     return left_container_;
@@ -95,17 +109,22 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
   const std::vector<ContentSettingImageView*>&
   GetContentSettingViewsForTesting() const;
 
-  void UpdateChildrenColor();
+  void UpdateCachedColors();
+
+  // `color_changed` is true if this is called after an update to the window's
+  // color. It will be false if this is called when the color is initially set
+  // for the window.
+  void UpdateChildrenColor(bool color_changed);
 
   // The containing browser view.
   BrowserView* const browser_view_;
 
   // Button and text colors.
   bool paint_as_active_ = true;
-  SkColor active_background_color_ = gfx::kPlaceholderColor;
-  SkColor active_foreground_color_ = gfx::kPlaceholderColor;
-  SkColor inactive_background_color_ = gfx::kPlaceholderColor;
-  SkColor inactive_foreground_color_ = gfx::kPlaceholderColor;
+  absl::optional<SkColor> active_background_color_;
+  absl::optional<SkColor> active_foreground_color_;
+  absl::optional<SkColor> inactive_background_color_;
+  absl::optional<SkColor> inactive_foreground_color_;
 
   // All remaining members are owned by the views hierarchy.
 

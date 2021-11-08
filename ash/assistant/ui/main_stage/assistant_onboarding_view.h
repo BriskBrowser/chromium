@@ -38,6 +38,7 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantOnboardingView
   const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
   void ChildPreferredSizeChanged(views::View* child) override;
+  void OnThemeChanged() override;
 
   // AssistantController:
   void OnAssistantControllerDestroying() override;
@@ -50,8 +51,8 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantOnboardingView
   void OnUiVisibilityChanged(
       AssistantVisibility new_visibility,
       AssistantVisibility old_visibility,
-      base::Optional<AssistantEntryPoint> entry_point,
-      base::Optional<AssistantExitPoint> exit_point) override;
+      absl::optional<AssistantEntryPoint> entry_point,
+      absl::optional<AssistantExitPoint> exit_point) override;
 
  private:
   void InitLayout();
@@ -60,6 +61,7 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantOnboardingView
 
   AssistantViewDelegate* const delegate_;  // Owned by AssistantController.
   views::Label* greeting_ = nullptr;       // Owned by view hierarchy.
+  views::Label* intro_ = nullptr;          // Owned by view hierarchy.
   views::View* grid_ = nullptr;            // Owned by view hierarchy.
 
   base::ScopedObservation<AssistantController, AssistantControllerObserver>

@@ -12,7 +12,6 @@
 #include "ash/public/cpp/keyboard/keyboard_config.h"
 #include "ash/public/cpp/keyboard/keyboard_types.h"
 #include "base/callback_forward.h"
-#include "base/optional.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace ash {

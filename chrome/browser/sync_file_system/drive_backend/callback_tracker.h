@@ -25,7 +25,8 @@ namespace drive_backend {
 //   };
 //
 //   void DoSomethingAsync(const SomeCallbackType& callback) {
-//     base::Closure abort_case_handler = base::Bind(callback, ABORT_ERROR);
+//     base::OnceClosure abort_case_handler =
+//         base::BindOnce(callback, ABORT_ERROR);
 //
 //     SomeCallbackType wrapped_callback =
 //         callback_tracker_.Register(
@@ -39,6 +40,10 @@ class CallbackTracker {
       std::map<internal::AbortHelper*, base::OnceClosure>;
 
   CallbackTracker();
+
+  CallbackTracker(const CallbackTracker&) = delete;
+  CallbackTracker& operator=(const CallbackTracker&) = delete;
+
   ~CallbackTracker();
 
   // Returns a wrapped callback.
@@ -64,8 +69,6 @@ class CallbackTracker {
       internal::AbortHelper* helper);
 
   AbortClosureByHelper helpers_;  // Owns AbortHelpers.
-
-  DISALLOW_COPY_AND_ASSIGN(CallbackTracker);
 };
 
 }  // namespace drive_backend

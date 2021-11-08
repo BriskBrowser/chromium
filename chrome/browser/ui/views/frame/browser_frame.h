@@ -8,6 +8,7 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/views/context_menu_controller.h"
@@ -54,6 +55,10 @@ enum class TabDragKind {
 class BrowserFrame : public views::Widget, public views::ContextMenuController {
  public:
   explicit BrowserFrame(BrowserView* browser_view);
+
+  BrowserFrame(const BrowserFrame&) = delete;
+  BrowserFrame& operator=(const BrowserFrame&) = delete;
+
   ~BrowserFrame() override;
 
   // Initialize the frame (creates the underlying native window).
@@ -111,6 +116,10 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
   // Called when BrowserView creates all it's child views.
   void OnBrowserViewInitViewsComplete();
 
+  // ThemeService calls this when a user has changed their theme, indicating
+  // that it's time to redraw everything.
+  void UserChangedTheme(BrowserThemeChangeType theme_change_type);
+
   // views::Widget:
   views::internal::RootView* CreateRootView() override;
   std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView()
@@ -118,9 +127,9 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
   bool GetAccelerator(int command_id,
                       ui::Accelerator* accelerator) const override;
   const ui::ThemeProvider* GetThemeProvider() const override;
-  const ui::NativeTheme* GetNativeTheme() const override;
+  ui::ColorProviderManager::InitializerSupplier* GetCustomTheme()
+      const override;
   void OnNativeWidgetWorkspaceChanged() override;
-  void PropagateNativeThemeChanged() override;
 
   // views::ContextMenuController:
   void ShowContextMenuForViewImpl(views::View* source,
@@ -148,6 +157,13 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
 
   // Callback for MenuRunner.
   void OnMenuClosed();
+
+  // Select a native theme that is appropriate for the current context.
+  void SelectNativeTheme();
+
+  // Regenerate the frame on theme change if necessary. Returns true if
+  // regenerated.
+  bool RegenerateFrameOnThemeChange(BrowserThemeChangeType theme_change_type);
 
   NativeBrowserFrame* native_browser_frame_;
 
@@ -183,15 +199,13 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
   // contents for smoother dragging.
   TabDragKind tab_drag_kind_ = TabDragKind::kNone;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // Store the number of virtual desks that currently exist. Used to determine
   // whether the system menu should be reset. If the value is -1, then either
   // the ash::DesksHelper does not exist or haven't retrieved the system menu
   // model yet.
   int num_desks_ = -1;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserFrame);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_FRAME_H_

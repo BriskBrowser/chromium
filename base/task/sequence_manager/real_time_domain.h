@@ -7,6 +7,7 @@
 
 #include "base/base_export.h"
 #include "base/task/sequence_manager/time_domain.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 namespace sequence_manager {
@@ -19,10 +20,12 @@ class BASE_EXPORT RealTimeDomain : public TimeDomain {
   RealTimeDomain& operator=(const RealTimeDomain&) = delete;
   ~RealTimeDomain() override = default;
 
+  // TickClock implementation:
+  TimeTicks NowTicks() const override;
+
   // TimeDomain implementation:
-  LazyNow CreateLazyNow() const override;
-  TimeTicks Now() const override;
-  Optional<TimeDelta> DelayTillNextTask(LazyNow* lazy_now) override;
+  base::TimeTicks GetNextDelayedTaskTime(
+      sequence_manager::LazyNow* lazy_now) const override;
   bool MaybeFastForwardToNextTask(bool quit_when_idle_requested) override;
 
  protected:

@@ -13,8 +13,6 @@
 #error "This file requires ARC support."
 #endif
 
-GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeActionsAppInterface)
-
 namespace chrome_test_util {
 
 id<GREYAction> LongPressElementForContextMenu(ElementSelector* selector,
@@ -53,6 +51,13 @@ id<GREYAction> TapWebElementWithIdInFrame(const std::string& element_id,
 
 id<GREYAction> ScrollToTop() {
   return [ChromeActionsAppInterface scrollToTop];
+}
+
+id<GREYAction> TapAtPointPercentage(CGFloat xOriginStartPercentage,
+                                    CGFloat yOriginStartPercentage) {
+  return [ChromeActionsAppInterface
+      tapAtPointAtxOriginStartPercentage:xOriginStartPercentage
+                  yOriginStartPercentage:yOriginStartPercentage];
 }
 
 }  // namespace chrome_test_util

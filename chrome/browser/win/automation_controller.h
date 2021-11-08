@@ -15,7 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 
 // This is a helper class to facilitate the usage of the UI Automation API in
 // the Chrome codebase. It takes care of initializing the Automation context and
@@ -72,6 +72,10 @@ class AutomationController {
   };
 
   explicit AutomationController(std::unique_ptr<Delegate> delegate);
+
+  AutomationController(const AutomationController&) = delete;
+  AutomationController& operator=(const AutomationController&) = delete;
+
   ~AutomationController();
 
  private:
@@ -82,8 +86,6 @@ class AutomationController {
 
   // A pointer to the context object that lives in the automation sequence.
   base::WeakPtr<Context> context_;
-
-  DISALLOW_COPY_AND_ASSIGN(AutomationController);
 };
 
 #endif  // CHROME_BROWSER_WIN_AUTOMATION_CONTROLLER_H_

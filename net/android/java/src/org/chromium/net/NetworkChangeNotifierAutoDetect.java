@@ -35,11 +35,12 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
-import org.chromium.base.BuildConfig;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.StrictModeContext;
 import org.chromium.base.compat.ApiHelperForM;
+import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.base.compat.ApiHelperForP;
+import org.chromium.build.BuildConfig;
 
 import java.io.IOException;
 import java.net.Socket;
@@ -240,7 +241,7 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
             NetworkInfo networkInfo;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 network = getDefaultNetwork();
-                networkInfo = ApiHelperForM.getNetworkInfo(mConnectivityManager, network);
+                networkInfo = getNetworkInfo(network);
             } else {
                 networkInfo = mConnectivityManager.getActiveNetworkInfo();
             }
@@ -275,8 +276,13 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
                     true, networkInfo.getType(), networkInfo.getSubtype(), null, false, "");
         }
 
-        // Fetches NetworkInfo and records UMA for NullPointerExceptions.
-        public NetworkInfo getNetworkInfo(Network network) {
+        /**
+         * Fetches NetworkInfo for |network|. Does not account for underlying VPNs; see
+         * getNetworkInfo(Network) for a method that does.
+         * Only callable on Lollipop and newer releases.
+         */
+        @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+        NetworkInfo getRawNetworkInfo(Network network) {
             try {
                 return mConnectivityManager.getNetworkInfo(network);
             } catch (NullPointerException firstException) {
@@ -290,6 +296,22 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         }
 
         /**
+         * Fetches NetworkInfo for |network|.
+         * Only callable on Lollipop and newer releases.
+         */
+        @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+        NetworkInfo getNetworkInfo(Network network) {
+            NetworkInfo networkInfo = getRawNetworkInfo(network);
+            if (networkInfo != null && networkInfo.getType() == TYPE_VPN) {
+                // When a VPN is in place the underlying network type can be queried via
+                // getActiveNetworkInfo() thanks to
+                // https://android.googlesource.com/platform/frameworks/base/+/d6a7980d
+                networkInfo = mConnectivityManager.getActiveNetworkInfo();
+            }
+            return networkInfo;
+        }
+
+        /**
          * Returns connection type for |network|.
          * Only callable on Lollipop and newer releases.
          */
@@ -297,12 +319,6 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         @ConnectionType
         int getConnectionType(Network network) {
             NetworkInfo networkInfo = getNetworkInfo(network);
-            if (networkInfo != null && networkInfo.getType() == TYPE_VPN) {
-                // When a VPN is in place the underlying network type can be queried via
-                // getActiveNeworkInfo() thanks to
-                // https://android.googlesource.com/platform/frameworks/base/+/d6a7980d
-                networkInfo = mConnectivityManager.getActiveNetworkInfo();
-            }
             if (networkInfo != null && networkInfo.isConnected()) {
                 return convertToConnectionType(networkInfo.getType(), networkInfo.getSubtype());
             }
@@ -359,7 +375,17 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         @TargetApi(Build.VERSION_CODES.LOLLIPOP)
         @VisibleForTesting
         protected NetworkCapabilities getNetworkCapabilities(Network network) {
-            return mConnectivityManager.getNetworkCapabilities(network);
+            final int retryCount = 2;
+            for (int i = 0; i < retryCount; ++i) {
+                // This try-catch is a workaround for https://crbug.com/1218536. We ignore
+                // the exception intentionally.
+                try {
+                    return mConnectivityManager.getNetworkCapabilities(network);
+                } catch (SecurityException e) {
+                    // Do nothing.
+                }
+            }
+            return null;
         }
 
         /**
@@ -372,8 +398,8 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
                 NetworkRequest networkRequest, NetworkCallback networkCallback, Handler handler) {
             // Starting with Oreo specifying a Handler is allowed.  Use this to avoid thread-hops.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                mConnectivityManager.registerNetworkCallback(
-                        networkRequest, networkCallback, handler);
+                ApiHelperForO.registerNetworkCallback(
+                        mConnectivityManager, networkRequest, networkCallback, handler);
             } else {
                 mConnectivityManager.registerNetworkCallback(networkRequest, networkCallback);
             }
@@ -385,7 +411,8 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
          */
         @TargetApi(Build.VERSION_CODES.P)
         void registerDefaultNetworkCallback(NetworkCallback networkCallback, Handler handler) {
-            mConnectivityManager.registerDefaultNetworkCallback(networkCallback, handler);
+            ApiHelperForO.registerDefaultNetworkCallback(
+                    mConnectivityManager, networkCallback, handler);
         }
 
         /**
@@ -422,7 +449,7 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
             }
             final Network[] networks = getAllNetworksFiltered(this, null);
             for (Network network : networks) {
-                final NetworkInfo networkInfo = getNetworkInfo(network);
+                final NetworkInfo networkInfo = getRawNetworkInfo(network);
                 if (networkInfo != null
                         && (networkInfo.getType() == defaultNetworkInfo.getType()
                                    // getActiveNetworkInfo() will not return TYPE_VPN types due to
@@ -618,7 +645,7 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
                 // but getting the correct subtype is much much less important than getting the
                 // correct type.  Incorrect type could make Chrome behave like it's offline,
                 // incorrect subtype will just make cellular bandwidth estimates incorrect.
-                NetworkInfo networkInfo = mConnectivityManagerDelegate.getNetworkInfo(network);
+                NetworkInfo networkInfo = mConnectivityManagerDelegate.getRawNetworkInfo(network);
                 if (networkInfo != null) {
                     subtype = networkInfo.getSubtype();
                 }
@@ -627,7 +654,10 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
             } else if (mNetworkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) {
                 type = ConnectivityManager.TYPE_BLUETOOTH;
             } else if (mNetworkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-                type = ConnectivityManager.TYPE_VPN;
+                // Use ConnectivityManagerDelegate.getNetworkInfo(network) to find underlying
+                // network which has a more useful transport type. crbug.com/1208022
+                NetworkInfo networkInfo = mConnectivityManagerDelegate.getNetworkInfo(network);
+                type = networkInfo != null ? networkInfo.getType() : ConnectivityManager.TYPE_VPN;
             }
             return new NetworkState(true, type, subtype, String.valueOf(networkToNetId(network)),
                     ApiHelperForP.isPrivateDnsActive(mLinkProperties),
@@ -968,7 +998,7 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
     }
 
     private void assertOnThread() {
-        if (BuildConfig.DCHECK_IS_ON && !onThread()) {
+        if (BuildConfig.ENABLE_ASSERTS && !onThread()) {
             throw new IllegalStateException(
                     "Must be called on NetworkChangeNotifierAutoDetect thread.");
         }
@@ -978,7 +1008,11 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         if (onThread()) {
             r.run();
         } else {
-            mHandler.post(r);
+            // Once execution begins on the correct thread, make sure unregister() hasn't
+            // been called in the mean time.
+            mHandler.post(() -> {
+                if (mRegistered) r.run();
+            });
         }
     }
 
@@ -1239,11 +1273,6 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         runOnThread(new Runnable() {
             @Override
             public void run() {
-                // Once execution begins on the correct thread, make sure unregister() hasn't
-                // been called in the mean time. Ignore the broadcast if unregister() was called.
-                if (!mRegistered) {
-                    return;
-                }
                 if (mIgnoreNextBroadcast) {
                     mIgnoreNextBroadcast = false;
                     return;

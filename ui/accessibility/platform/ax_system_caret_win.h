@@ -27,6 +27,10 @@ class AXPlatformNodeWin;
 class AX_EXPORT AXSystemCaretWin : private AXPlatformNodeDelegateBase {
  public:
   explicit AXSystemCaretWin(gfx::AcceleratedWidget event_target);
+
+  AXSystemCaretWin(const AXSystemCaretWin&) = delete;
+  AXSystemCaretWin& operator=(const AXSystemCaretWin&) = delete;
+
   ~AXSystemCaretWin() override;
 
   Microsoft::WRL::ComPtr<IAccessible> GetCaret() const;
@@ -36,7 +40,7 @@ class AX_EXPORT AXSystemCaretWin : private AXPlatformNodeDelegateBase {
  private:
   // |AXPlatformNodeDelegate| members.
   const AXNodeData& GetData() const override;
-  gfx::NativeViewAccessible GetParent() override;
+  gfx::NativeViewAccessible GetParent() const override;
   gfx::Rect GetBoundsRect(const AXCoordinateSystem coordinate_system,
                           const AXClippingBehavior clipping_behavior,
                           AXOffscreenResult* offscreen_result) const override;
@@ -50,8 +54,6 @@ class AX_EXPORT AXSystemCaretWin : private AXPlatformNodeDelegateBase {
   ui::AXUniqueId unique_id_;
 
   friend class AXPlatformNodeWin;
-
-  DISALLOW_COPY_AND_ASSIGN(AXSystemCaretWin);
 };
 
 }  // namespace ui

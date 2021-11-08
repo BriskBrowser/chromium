@@ -5,8 +5,7 @@
 goog.module('__crWeb.linkToText');
 goog.module.declareLegacyNamespace();
 
-const utils = goog.require(
-  'googleChromeLabs.textFragmentPolyfill.fragmentGenerationUtils');
+const utils = goog.require('googleChromeLabs.textFragmentPolyfill.fragmentGenerationUtils');
 
 /**
  * @fileoverview Interface used for Chrome to use link-to-text link generation
@@ -49,5 +48,14 @@ const utils = goog.require(
       selectionRect: selectionRect,
       canonicalUrl: canonicalLinkNode && canonicalLinkNode.getAttribute('href')
     };
+  }
+
+  /**
+   * Checks if the range is suitable to attempt link generation; the feature
+   * should be disabled if this does not return true.
+   */
+  __gCrWeb.linkToText.checkPreconditions = function() {
+    return utils.isValidRangeForFragmentGeneration(
+        window.getSelection().getRangeAt(0));
   }
 })();

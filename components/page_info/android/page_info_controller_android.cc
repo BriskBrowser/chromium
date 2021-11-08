@@ -49,7 +49,7 @@ PageInfoControllerAndroid::PageInfoControllerAndroid(
   // Important to use GetVisibleEntry to match what's showing in the omnibox.
   content::NavigationEntry* nav_entry =
       web_contents->GetController().GetVisibleEntry();
-  if (nav_entry == NULL)
+  if (nav_entry == nullptr)
     return;
 
   url_ = nav_entry->GetURL();
@@ -62,10 +62,10 @@ PageInfoControllerAndroid::PageInfoControllerAndroid(
   presenter_ = std::make_unique<PageInfo>(
       page_info_client->CreatePageInfoDelegate(web_contents), web_contents,
       nav_entry->GetURL());
-  presenter_->InitializeUiState(this);
+  presenter_->InitializeUiState(this, base::DoNothing());
 }
 
-PageInfoControllerAndroid::~PageInfoControllerAndroid() {}
+PageInfoControllerAndroid::~PageInfoControllerAndroid() = default;
 
 void PageInfoControllerAndroid::Destroy(JNIEnv* env,
                                         const JavaParamRef<jobject>& obj) {
@@ -78,6 +78,13 @@ void PageInfoControllerAndroid::RecordPageInfoAction(
     jint action) {
   presenter_->RecordPageInfoAction(
       static_cast<PageInfo::PageInfoAction>(action));
+}
+
+void PageInfoControllerAndroid::SetAboutThisSiteShown(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jboolean was_about_this_site_shown) {
+  presenter_->SetAboutThisSiteShown(was_about_this_site_shown);
 }
 
 void PageInfoControllerAndroid::UpdatePermissions(
@@ -148,7 +155,7 @@ void PageInfoControllerAndroid::SetPermissionInfo(
 
   for (const auto& permission : permission_info_list) {
     if (base::Contains(permissions_to_display, permission.type)) {
-      base::Optional<ContentSetting> setting_to_display =
+      absl::optional<ContentSetting> setting_to_display =
           GetSettingToDisplay(permission);
       if (setting_to_display) {
         user_specified_settings_to_display[permission.type] =
@@ -159,24 +166,28 @@ void PageInfoControllerAndroid::SetPermissionInfo(
 
   for (const auto& permission : permissions_to_display) {
     if (base::Contains(user_specified_settings_to_display, permission)) {
-      base::string16 setting_title =
+      std::u16string setting_title =
           PageInfoUI::PermissionTypeToUIString(permission);
+      std::u16string setting_title_mid_sentence =
+          PageInfoUI::PermissionTypeToUIStringMidSentence(permission);
 
       Java_PageInfoController_addPermissionSection(
           env, controller_jobject_,
           ConvertUTF16ToJavaString(env, setting_title),
+          ConvertUTF16ToJavaString(env, setting_title_mid_sentence),
           static_cast<jint>(permission),
           static_cast<jint>(user_specified_settings_to_display[permission]));
     }
   }
 
   for (const auto& chosen_object : chosen_object_info_list) {
-    base::string16 object_title =
+    std::u16string object_title =
         presenter_->GetChooserContextFromUIInfo(chosen_object->ui_info)
             ->GetObjectDisplayName(chosen_object->chooser_object->value);
 
     Java_PageInfoController_addPermissionSection(
         env, controller_jobject_, ConvertUTF16ToJavaString(env, object_title),
+        ConvertUTF16ToJavaString(env, object_title),
         static_cast<jint>(chosen_object->ui_info.content_settings_type),
         static_cast<jint>(CONTENT_SETTING_ALLOW));
   }
@@ -184,7 +195,7 @@ void PageInfoControllerAndroid::SetPermissionInfo(
   Java_PageInfoController_updatePermissionDisplay(env, controller_jobject_);
 }
 
-base::Optional<ContentSetting> PageInfoControllerAndroid::GetSettingToDisplay(
+absl::optional<ContentSetting> PageInfoControllerAndroid::GetSettingToDisplay(
     const PageInfo::PermissionInfo& permission) {
   // All permissions should be displayed if they are non-default.
   if (permission.setting != CONTENT_SETTING_DEFAULT &&
@@ -200,8 +211,7 @@ base::Optional<ContentSetting> PageInfoControllerAndroid::GetSettingToDisplay(
     // setting should show up in Page Info is in ShouldShowPermission in
     // page_info.cc.
     return permission.default_setting;
-  } else if (permission.type == ContentSettingsType::JAVASCRIPT &&
-             base::FeatureList::IsEnabled(page_info::kPageInfoV2)) {
+  } else if (permission.type == ContentSettingsType::JAVASCRIPT) {
     // The javascript content setting should show up if it is blocked globally
     // to give users an easy way to create exceptions.
     return permission.default_setting;
@@ -216,5 +226,5 @@ base::Optional<ContentSetting> PageInfoControllerAndroid::GetSettingToDisplay(
   // factory-default after we add the functionality to populate the permissions
   // subpage directly from the permissions returned from this controller.
 
-  return base::Optional<ContentSetting>();
+  return absl::optional<ContentSetting>();
 }

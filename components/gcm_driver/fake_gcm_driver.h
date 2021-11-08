@@ -22,6 +22,9 @@ class FakeGCMDriver : public GCMDriver {
   explicit FakeGCMDriver(
       const scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner);
 
+  FakeGCMDriver(const FakeGCMDriver&) = delete;
+  FakeGCMDriver& operator=(const FakeGCMDriver&) = delete;
+
   ~FakeGCMDriver() override;
 
   // GCMDriver overrides:
@@ -46,7 +49,6 @@ class FakeGCMDriver : public GCMDriver {
   void RemoveAccountMapping(const CoreAccountId& account_id) override;
   base::Time GetLastTokenFetchTime() override;
   void SetLastTokenFetchTime(const base::Time& time) override;
-  void WakeFromSuspendForHeartbeat(bool wake) override;
   InstanceIDHandler* GetInstanceIDHandlerInternal() override;
   void AddHeartbeatInterval(const std::string& scope, int interval_ms) override;
   void RemoveHeartbeatInterval(const std::string& scope) override;
@@ -63,9 +65,6 @@ class FakeGCMDriver : public GCMDriver {
                 const OutgoingMessage& message) override;
   void RecordDecryptionFailure(const std::string& app_id,
                                GCMDecryptionResult result) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FakeGCMDriver);
 };
 
 }  // namespace gcm

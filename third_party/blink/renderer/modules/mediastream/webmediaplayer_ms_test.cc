@@ -4,15 +4,14 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
-#include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -35,6 +34,7 @@
 #include "third_party/blink/renderer/modules/mediastream/webmediaplayer_ms_compositor.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 using ::testing::_;
 using ::testing::ByRef;
@@ -68,6 +68,8 @@ class MockSurfaceLayerBridge : public WebSurfaceLayerBridge {
   MOCK_METHOD0(CreateSurfaceLayer, void());
   MOCK_METHOD0(ClearSurfaceId, void());
   MOCK_METHOD0(ClearObserver, void());
+  MOCK_METHOD0(RegisterFrameSinkHierarchy, void());
+  MOCK_METHOD0(UnregisterFrameSinkHierarchy, void());
 
   viz::FrameSinkId frame_sink_id_ = viz::FrameSinkId(1, 1);
   viz::LocalSurfaceId local_surface_id_ =
@@ -87,6 +89,11 @@ class FakeWebMediaPlayerDelegate
       public base::SupportsWeakPtr<FakeWebMediaPlayerDelegate> {
  public:
   FakeWebMediaPlayerDelegate() {}
+
+  FakeWebMediaPlayerDelegate(const FakeWebMediaPlayerDelegate&) = delete;
+  FakeWebMediaPlayerDelegate& operator=(const FakeWebMediaPlayerDelegate&) =
+      delete;
+
   ~FakeWebMediaPlayerDelegate() override {
     DCHECK(!observer_);
     DCHECK(is_gone_);
@@ -145,7 +152,6 @@ class FakeWebMediaPlayerDelegate
   }
 
   bool IsFrameHidden() override { return is_hidden_; }
-  bool IsFrameClosed() override { return false; }
 
   void set_hidden(bool is_hidden) { is_hidden_ = is_hidden; }
 
@@ -157,8 +163,6 @@ class FakeWebMediaPlayerDelegate
   bool is_hidden_ = false;
   bool is_gone_ = true;
   bool is_idle_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeWebMediaPlayerDelegate);
 };
 
 class ReusableMessageLoopEvent {
@@ -173,12 +177,12 @@ class ReusableMessageLoopEvent {
 
   void RunAndWait() {
     event_->RunAndWait();
-    event_.reset(new media::WaitableMessageLoopEvent());
+    event_ = std::make_unique<media::WaitableMessageLoopEvent>();
   }
 
   void RunAndWaitForStatus(media::PipelineStatus expected) {
     event_->RunAndWaitForStatus(expected);
-    event_.reset(new media::WaitableMessageLoopEvent());
+    event_ = std::make_unique<media::WaitableMessageLoopEvent>();
   }
 
  private:
@@ -197,8 +201,7 @@ class MockMediaStreamVideoRenderer : public WebMediaStreamVideoRenderer {
         task_runner_(task_runner),
         message_loop_controller_(message_loop_controller),
         repaint_cb_(repaint_cb),
-        delay_till_next_generated_frame_(
-            base::TimeDelta::FromSecondsD(1.0 / 30.0)) {}
+        delay_till_next_generated_frame_(base::Seconds(1.0 / 30.0)) {}
 
   // Implementation of WebMediaStreamVideoRenderer
   void Start() override;
@@ -296,7 +299,7 @@ void MockMediaStreamVideoRenderer::QueueFrames(
     int double_size_index,
     media::VideoRotation rotation) {
   gfx::Size standard_size = standard_size_;
-  for (size_t i = 0; i < timestamp_or_frame_type.size(); i++) {
+  for (wtf_size_t i = 0; i < timestamp_or_frame_type.size(); i++) {
     const int token = timestamp_or_frame_type[i];
     if (static_cast<int>(i) == double_size_index) {
       standard_size =
@@ -324,7 +327,7 @@ void MockMediaStreamVideoRenderer::QueueFrames(
       auto frame = media::VideoFrame::CreateZeroInitializedFrame(
           opaque_frame ? media::PIXEL_FORMAT_I420 : media::PIXEL_FORMAT_I420A,
           frame_size, gfx::Rect(frame_size), frame_size,
-          base::TimeDelta::FromMilliseconds(token));
+          base::Milliseconds(token));
 
       // MediaStreamRemoteVideoSource does not explicitly set the rotation
       // for unrotated frames, so that is not done here either.
@@ -332,7 +335,7 @@ void MockMediaStreamVideoRenderer::QueueFrames(
         frame->metadata().transformation = rotation;
 
       frame->metadata().reference_time =
-          base::TimeTicks::Now() + base::TimeDelta::FromMilliseconds(token);
+          base::TimeTicks::Now() + base::Milliseconds(token);
 
       AddFrame(FrameType::NORMAL_FRAME, frame);
       continue;
@@ -395,7 +398,7 @@ class MockWebVideoFrameSubmitter : public WebVideoFrameSubmitter {
   MOCK_METHOD0(StartRendering, void());
   MOCK_METHOD0(StopRendering, void());
   MOCK_METHOD1(MockInitialize, void(cc::VideoFrameProvider*));
-  MOCK_METHOD1(SetRotation, void(media::VideoRotation));
+  MOCK_METHOD1(SetTransform, void(media::VideoTransformation));
   MOCK_METHOD1(SetIsSurfaceVisible, void(bool));
   MOCK_METHOD1(SetIsPageVisible, void(bool));
   MOCK_METHOD1(SetForceSubmit, void(bool));
@@ -556,7 +559,6 @@ class WebMediaPlayerMSTest
   void MediaSourceOpened(WebMediaSource*) override {}
   void RemotePlaybackCompatibilityChanged(const WebURL& url,
                                           bool is_compatible) override {}
-  void OnBecamePersistentVideo(bool) override {}
   bool WasAlwaysMuted() override { return false; }
   bool HasSelectedVideoTrack() override { return false; }
   WebMediaPlayer::TrackId GetSelectedVideoTrackId() override {
@@ -579,8 +581,10 @@ class WebMediaPlayerMSTest
       media::MediaContentType media_content_type) override {}
   void DidPlayerMediaPositionStateChange(double playback_rate,
                                          base::TimeDelta duration,
-                                         base::TimeDelta position) override {}
+                                         base::TimeDelta position,
+                                         bool end_of_media) override {}
   void DidDisableAudioOutputSinkChanges() override {}
+  void DidUseAudioServiceChange(bool uses_audio_service) override {}
   void DidPlayerSizeChange(const gfx::Size& size) override {}
   void DidBufferUnderflow() override {}
   void DidSeek() override {}
@@ -600,7 +604,7 @@ class WebMediaPlayerMSTest
     background_rendering_ = background_rendering;
   }
 
-  std::vector<blink::TextTrackMetadata> GetTextTrackMetadata() override {
+  Vector<blink::TextTrackMetadata> GetTextTrackMetadata() override {
     return {};
   }
 
@@ -778,10 +782,8 @@ void WebMediaPlayerMSTest::RenderFrame() {
     return;
 
   base::TimeTicks now = base::TimeTicks::Now();
-  base::TimeTicks deadline_min =
-      now + base::TimeDelta::FromSecondsD(1.0 / 60.0);
-  base::TimeTicks deadline_max =
-      deadline_min + base::TimeDelta::FromSecondsD(1.0 / 60.0);
+  base::TimeTicks deadline_min = now + base::Seconds(1.0 / 60.0);
+  base::TimeTicks deadline_max = deadline_min + base::Seconds(1.0 / 60.0);
 
   // Background rendering is different from stop rendering. The rendering loop
   // is still running but we do not ask frames from |compositor_|. And
@@ -794,7 +796,7 @@ void WebMediaPlayerMSTest::RenderFrame() {
   scheduler::GetSingleThreadTaskRunnerForTesting()->PostDelayedTask(
       FROM_HERE,
       WTF::Bind(&WebMediaPlayerMSTest::RenderFrame, weak_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSecondsD(1.0 / 60.0));
+      base::Seconds(1.0 / 60.0));
 }
 
 void WebMediaPlayerMSTest::SizeChanged() {
@@ -1062,7 +1064,7 @@ TEST_P(WebMediaPlayerMSTest, RotationChange) {
   timestamps = Vector<int>({33, kTestBrake});
   provider->QueueFrames(timestamps, false, false, 17, media::VIDEO_ROTATION_0);
   if (enable_surface_layer_for_video_) {
-    EXPECT_CALL(*submitter_ptr_, SetRotation(media::VIDEO_ROTATION_0));
+    EXPECT_CALL(*submitter_ptr_, SetTransform(media::kNoTransformation));
   } else {
     EXPECT_CALL(*this, DoSetCcLayer(true));
     EXPECT_CALL(*this, DoStopRendering());
@@ -1079,7 +1081,9 @@ TEST_P(WebMediaPlayerMSTest, RotationChange) {
   timestamps = Vector<int>({66, kTestBrake});
   provider->QueueFrames(timestamps, false, false, 17, media::VIDEO_ROTATION_90);
   if (enable_surface_layer_for_video_) {
-    EXPECT_CALL(*submitter_ptr_, SetRotation(media::VIDEO_ROTATION_90));
+    EXPECT_CALL(
+        *submitter_ptr_,
+        SetTransform(media::VideoTransformation(media::VIDEO_ROTATION_90)));
   } else {
     EXPECT_CALL(*this, DoSetCcLayer(true));
     EXPECT_CALL(*this, DoStopRendering());
@@ -1344,7 +1348,7 @@ TEST_P(WebMediaPlayerMSTest, HiddenPlayerTests) {
   EXPECT_FALSE(player_->Paused());
 
   // An OnSuspendRequested() with forced suspension should pause playback.
-  player_->OnFrameClosed();
+  player_->SuspendForFrameClosed();
   EXPECT_TRUE(player_->Paused());
 
   // OnShown() should restart after a forced suspension.
@@ -1443,6 +1447,32 @@ TEST_P(WebMediaPlayerMSTest, GetVideoFramePresentationMetadata) {
         media::PipelineStatus::PIPELINE_OK);
   }
   testing::Mock::VerifyAndClearExpectations(this);
+}
+
+TEST_P(WebMediaPlayerMSTest, ValidPreferredInterval) {
+  InitializeWebMediaPlayerMS();
+  LoadAndGetFrameProvider(true);
+
+  const bool opaque_frame = testing::get<1>(GetParam());
+  const bool odd_size_frame = testing::get<2>(GetParam());
+
+  gfx::Size frame_size(kStandardWidth - (odd_size_frame ? kOddSizeOffset : 0),
+                       kStandardHeight - (odd_size_frame ? kOddSizeOffset : 0));
+
+  auto frame = media::VideoFrame::CreateZeroInitializedFrame(
+      opaque_frame ? media::PIXEL_FORMAT_I420 : media::PIXEL_FORMAT_I420A,
+      frame_size, gfx::Rect(frame_size), frame_size, base::Seconds(10));
+
+  compositor_->EnqueueFrame(std::move(frame), true);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_GE(compositor_->GetPreferredRenderInterval(), base::TimeDelta());
+
+  frame = media::VideoFrame::CreateZeroInitializedFrame(
+      opaque_frame ? media::PIXEL_FORMAT_I420 : media::PIXEL_FORMAT_I420A,
+      frame_size, gfx::Rect(frame_size), frame_size, base::Seconds(1));
+  compositor_->EnqueueFrame(std::move(frame), true);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_GE(compositor_->GetPreferredRenderInterval(), base::TimeDelta());
 }
 
 INSTANTIATE_TEST_SUITE_P(All,

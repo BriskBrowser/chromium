@@ -4,7 +4,6 @@
 
 GEN_INCLUDE(['../../common/testing/e2e_test_base.js']);
 GEN_INCLUDE(['../../common/testing/mock_accessibility_private.js']);
-GEN_INCLUDE(['../../common/rect_util.js']);
 
 /**
  * Automatic clicks feature using accessibility common extension browser tests.
@@ -48,8 +47,8 @@ import('/accessibility_common/accessibility_common_loader.js').then(reinit);
   testGenPreamble() {
     GEN(`
   base::OnceClosure load_cb =
-      base::BindOnce(&AccessibilityManager::EnableAutoclick,
-          base::Unretained(AccessibilityManager::Get()),
+      base::BindOnce(&ash::AccessibilityManager::EnableAutoclick,
+          base::Unretained(ash::AccessibilityManager::Get()),
           true);
     `);
     super.testGenPreambleCommon('kAccessibilityCommonExtensionId');
@@ -77,10 +76,10 @@ TEST_F('AutoclickE2ETest', 'HighlightsRootWebAreaIfNotScrollable', function() {
               node.location.left + 1, node.location.top + 1, resolve);
         });
         const expected = node.root.location;
+        const focusRings = this.mockAccessibilityPrivate.getFocusRings();
         this.assertSameRect(
             this.mockAccessibilityPrivate.getScrollableBounds(), expected);
-        this.assertSameRect(
-            this.mockAccessibilityPrivate.getFocusRings()[0], expected);
+        this.assertSameRect(focusRings[0].rects[0], expected);
       });
 });
 
@@ -105,10 +104,10 @@ TEST_F('AutoclickE2ETest', 'HighlightsScrollableDiv', function() {
         // text, is scrollable.
         assertTrue(node.parent.parent.scrollable);
         const expected = node.parent.parent.location;
+        const focusRings = this.mockAccessibilityPrivate.getFocusRings();
         this.assertSameRect(
             this.mockAccessibilityPrivate.getScrollableBounds(), expected);
-        this.assertSameRect(
-            this.mockAccessibilityPrivate.getFocusRings()[0], expected);
+        this.assertSameRect(focusRings[0].rects[0], expected);
       });
 });
 
@@ -138,10 +137,10 @@ TEST_F('AutoclickE2ETest', 'RemovesAndAddsAutoclick', function() {
               node.location.left + 1, node.location.top + 1, resolve);
         });
         const expected = node.root.location;
+        const focusRings = this.mockAccessibilityPrivate.getFocusRings();
         this.assertSameRect(
             this.mockAccessibilityPrivate.getScrollableBounds(), expected);
-        this.assertSameRect(
-            this.mockAccessibilityPrivate.getFocusRings()[0], expected);
+        this.assertSameRect(focusRings[0].rects[0], expected);
       });
 });
 

@@ -52,12 +52,12 @@ void FilterSensitivePolicies(PolicyMap* policy) {
   const PolicyMap::Entry* map_entry =
       policy->Get(key::kExtensionInstallForcelist);
   if (map_entry && map_entry->value()) {
-    const base::ListValue* policy_list_value = nullptr;
-    if (!map_entry->value()->GetAsList(&policy_list_value))
+    const base::Value* policy_list_value = map_entry->value();
+    if (!policy_list_value->is_list())
       return;
 
     base::Value filtered_values(base::Value::Type::LIST);
-    for (const auto& list_entry : *policy_list_value) {
+    for (const auto& list_entry : policy_list_value->GetList()) {
       if (!list_entry.is_string())
         continue;
       std::string entry = list_entry.GetString();

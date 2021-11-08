@@ -14,7 +14,6 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/values.h"
 #include "chromeos/network/network_connection_observer.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_handler_callbacks.h"
@@ -39,14 +38,16 @@ namespace chromeos {
 
 enum class ConnectCallbackMode { ON_STARTED, ON_COMPLETED };
 
-class CellularESimConnectionHandler;
+class CellularConnectionHandler;
 class NetworkStateHandler;
 class NetworkConfigurationHandler;
 class ManagedNetworkConfigurationHandler;
 
 class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandler {
  public:
-  // Constants for |error_name| from |error_callback| for Connect.
+  // Constants for |error_name| from |error_callback| for Connect. Whenever a
+  // new error name associated to cellular connections is added,
+  // CellularMetricsLogger should be updated as well.
 
   //  No network matching |service_path| is found (hidden networks must be
   //  configured before connecting).
@@ -113,8 +114,25 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandler {
   // operations.
   static const char kErrorCellularInhibitFailure[];
 
+  // Error occurred when trying to connect to a cellular network that is out of
+  // credits.
+  static const char kErrorCellularOutOfCredits[];
+
   // Error occurred while trying to perform an operation with an eSIM profile.
   static const char kErrorESimProfileIssue[];
+
+  // Failed due to a connection attempt to a cellular network with a locked SIM.
+  // The SIM must be unlocked before a connection can succeed.
+  static const char kErrorSimLocked[];
+
+  // Connect failed because cellular device is busy.
+  static const char kErrorCellularDeviceBusy[];
+
+  // Connect failed because connect request timed out.
+  static const char kErrorConnectTimeout[];
+
+  // Connect failed because waiting for connectable timed out.
+  static const char kConnectableCellularTimeout[];
 
   class COMPONENT_EXPORT(CHROMEOS_NETWORK) TetherDelegate {
    public:
@@ -138,6 +156,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandler {
    protected:
     virtual ~TetherDelegate() {}
   };
+
+  NetworkConnectionHandler(const NetworkConnectionHandler&) = delete;
+  NetworkConnectionHandler& operator=(const NetworkConnectionHandler&) = delete;
 
   virtual ~NetworkConnectionHandler();
 
@@ -180,20 +201,20 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandler {
       base::OnceClosure success_callback,
       network_handler::ErrorCallback error_callback) = 0;
 
-  // Note: |cellular_esim_connection_handler| is null when the associated flag
+  // Note: |cellular_connection_handler| is null when the associated flag
   // is disabled.
   virtual void Init(
       NetworkStateHandler* network_state_handler,
       NetworkConfigurationHandler* network_configuration_handler,
       ManagedNetworkConfigurationHandler* managed_network_configuration_handler,
-      CellularESimConnectionHandler* cellular_esim_connection_handler) = 0;
+      CellularConnectionHandler* cellular_connection_handler) = 0;
 
   // Construct and initialize an instance for testing.
   static std::unique_ptr<NetworkConnectionHandler> InitializeForTesting(
       NetworkStateHandler* network_state_handler,
       NetworkConfigurationHandler* network_configuration_handler,
       ManagedNetworkConfigurationHandler* managed_network_configuration_handler,
-      CellularESimConnectionHandler* cellular_esim_connection_handler);
+      CellularConnectionHandler* cellular_connection_handler);
 
  protected:
   NetworkConnectionHandler();
@@ -229,8 +250,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandler {
   // Only to be used by NetworkConnectionHandler implementation (and not by
   // derived classes).
   base::WeakPtrFactory<NetworkConnectionHandler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkConnectionHandler);
 };
 
 }  // namespace chromeos

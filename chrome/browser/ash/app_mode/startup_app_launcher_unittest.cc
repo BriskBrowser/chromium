@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "ash/components/settings/cros_settings_names.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
@@ -19,24 +20,22 @@
 #include "base/run_loop.h"
 #include "base/test/scoped_command_line.h"
 #include "base/version.h"
-#include "chrome/browser/ash/app_mode/app_session.h"
+#include "chrome/browser/ash/app_mode/app_session_ash.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_external_loader.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_launch_error.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/ash/app_mode/test_kiosk_extension_builder.h"
+#include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/ash/policy/core/device_local_account.h"
+#include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/browser/chromeos/extensions/test_external_cache.h"
-#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/policy/device_local_account.h"
-#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
 #include "chrome/browser/extensions/external_provider_impl.h"
 #include "chrome/browser/extensions/install_tracker.h"
 #include "chrome/browser/extensions/pending_extension_manager.h"
 #include "chrome/common/chrome_switches.h"
-#include "chromeos/settings/cros_settings_names.h"
 #include "components/account_id/account_id.h"
-#include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/version_info/channel.h"
 #include "extensions/browser/extension_prefs.h"
@@ -53,6 +52,7 @@
 using extensions::ExternalInstallInfoFile;
 using extensions::ExternalInstallInfoUpdateUrl;
 using extensions::Manifest;
+using extensions::mojom::ManifestLocation;
 using ::testing::AssertionFailure;
 using ::testing::AssertionResult;
 using ::testing::AssertionSuccess;
@@ -81,6 +81,8 @@ enum class LaunchState {
 class TestAppLaunchDelegate : public StartupAppLauncher::Delegate {
  public:
   TestAppLaunchDelegate() = default;
+  TestAppLaunchDelegate(const TestAppLaunchDelegate&) = delete;
+  TestAppLaunchDelegate& operator=(const TestAppLaunchDelegate&) = delete;
   ~TestAppLaunchDelegate() override = default;
 
   const std::vector<LaunchState>& launch_state_changes() const {
@@ -154,8 +156,6 @@ class TestAppLaunchDelegate : public StartupAppLauncher::Delegate {
 
   std::unique_ptr<base::RunLoop> run_loop_;
   std::set<LaunchState> waiting_for_launch_states_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestAppLaunchDelegate);
 };
 
 class AppLaunchTracker : public extensions::TestEventRouter::EventObserver {
@@ -165,6 +165,8 @@ class AppLaunchTracker : public extensions::TestEventRouter::EventObserver {
       : app_id_(app_id), event_router_(event_router) {
     event_router->AddEventObserver(this);
   }
+  AppLaunchTracker(const AppLaunchTracker&) = delete;
+  AppLaunchTracker& operator=(const AppLaunchTracker&) = delete;
   ~AppLaunchTracker() override { event_router_->RemoveEventObserver(this); }
 
   int kiosk_launch_count() const { return kiosk_launch_count_; }
@@ -195,8 +197,6 @@ class AppLaunchTracker : public extensions::TestEventRouter::EventObserver {
   const std::string app_id_;
   extensions::TestEventRouter* event_router_;
   int kiosk_launch_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(AppLaunchTracker);
 };
 
 // Simulates extension service behavior related to external extensions loading,
@@ -212,7 +212,8 @@ class TestKioskLoaderVisitor
       : browser_context_(browser_context),
         extension_registry_(extension_registry),
         extension_service_(extension_service) {}
-
+  TestKioskLoaderVisitor(const TestKioskLoaderVisitor&) = delete;
+  TestKioskLoaderVisitor& operator=(const TestKioskLoaderVisitor&) = delete;
   ~TestKioskLoaderVisitor() override = default;
 
   const std::set<std::string>& pending_crx_files() const {
@@ -329,8 +330,6 @@ class TestKioskLoaderVisitor
 
   std::set<std::string> pending_crx_files_;
   std::set<std::string> pending_update_urls_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestKioskLoaderVisitor);
 };
 
 }  // namespace
@@ -339,6 +338,8 @@ class StartupAppLauncherTest : public extensions::ExtensionServiceTestBase,
                                public KioskAppManager::Overrides {
  public:
   StartupAppLauncherTest() = default;
+  StartupAppLauncherTest(const StartupAppLauncherTest&) = delete;
+  StartupAppLauncherTest& operator=(const StartupAppLauncherTest&) = delete;
   ~StartupAppLauncherTest() override = default;
 
   // testing::Test:
@@ -395,7 +396,7 @@ class StartupAppLauncherTest : public extensions::ExtensionServiceTestBase,
     return cache;
   }
 
-  std::unique_ptr<AppSession> CreateAppSession() override {
+  std::unique_ptr<AppSessionAsh> CreateAppSession() override {
     EXPECT_FALSE(kiosk_app_session_initialized_);
     kiosk_app_session_initialized_ = true;
     return nullptr;
@@ -533,9 +534,8 @@ class StartupAppLauncherTest : public extensions::ExtensionServiceTestBase,
         visitor,
         base::MakeRefCounted<KioskAppExternalLoader>(
             KioskAppExternalLoader::AppClass::kPrimary),
-        profile(), extensions::Manifest::EXTERNAL_POLICY,
-        extensions::Manifest::INVALID_LOCATION,
-        extensions::Extension::NO_FLAGS);
+        profile(), ManifestLocation::kExternalPolicy,
+        ManifestLocation::kInvalidLocation, extensions::Extension::NO_FLAGS);
     InitializeKioskAppsProvider(primary_app_provider_.get());
 
     secondary_apps_provider_ =
@@ -543,8 +543,8 @@ class StartupAppLauncherTest : public extensions::ExtensionServiceTestBase,
             visitor,
             base::MakeRefCounted<KioskAppExternalLoader>(
                 KioskAppExternalLoader::AppClass::kSecondary),
-            profile(), extensions::Manifest::EXTERNAL_PREF,
-            extensions::Manifest::EXTERNAL_PREF_DOWNLOAD,
+            profile(), ManifestLocation::kExternalPref,
+            ManifestLocation::kExternalPrefDownload,
             extensions::Extension::NO_FLAGS);
     InitializeKioskAppsProvider(secondary_apps_provider_.get());
   }
@@ -560,8 +560,7 @@ class StartupAppLauncherTest : public extensions::ExtensionServiceTestBase,
   void InitializeKioskAppUser() {
     const AccountId kiosk_account_id(
         AccountId::FromUserEmail(kTestUserAccount));
-    auto fake_user_manager_ =
-        std::make_unique<chromeos::FakeChromeUserManager>();
+    auto fake_user_manager_ = std::make_unique<FakeChromeUserManager>();
     fake_user_manager_->AddKioskAppUser(kiosk_account_id);
     fake_user_manager_->LoginUser(kiosk_account_id);
 
@@ -578,7 +577,6 @@ class StartupAppLauncherTest : public extensions::ExtensionServiceTestBase,
   chromeos::TestExternalCache* external_cache_ = nullptr;
 
   bool kiosk_app_session_initialized_ = false;
-  session_manager::SessionManager session_manager_;
 
  private:
   base::test::ScopedCommandLine command_line_;
@@ -589,8 +587,6 @@ class StartupAppLauncherTest : public extensions::ExtensionServiceTestBase,
   std::unique_ptr<extensions::ExternalProviderImpl> secondary_apps_provider_;
 
   std::unique_ptr<user_manager::ScopedUserManager> user_manager_enabler_;
-
-  DISALLOW_COPY_AND_ASSIGN(StartupAppLauncherTest);
 };
 
 TEST_F(StartupAppLauncherTest, PrimaryAppLaunchFlow) {
@@ -622,7 +618,6 @@ TEST_F(StartupAppLauncherTest, PrimaryAppLaunchFlow) {
   startup_launch_delegate_.ClearLaunchStateChanges();
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
   startup_app_launcher_->LaunchApp();
 
   EXPECT_EQ(std::vector<LaunchState>({LaunchState::kLaunchSucceeded}),
@@ -632,7 +627,6 @@ TEST_F(StartupAppLauncherTest, PrimaryAppLaunchFlow) {
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kTestPrimaryAppId));
 
   EXPECT_TRUE(kiosk_app_session_initialized_);
-  EXPECT_TRUE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest, OfflineLaunchWithPrimaryAppPreInstalled) {
@@ -653,7 +647,6 @@ TEST_F(StartupAppLauncherTest, OfflineLaunchWithPrimaryAppPreInstalled) {
   startup_launch_delegate_.ClearLaunchStateChanges();
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 
   // Primary app cache checks finished after the startup app launcher reports
   // it's ready should be ignored - i.e. startup app launcher should not attempt
@@ -675,7 +668,6 @@ TEST_F(StartupAppLauncherTest, OfflineLaunchWithPrimaryAppPreInstalled) {
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kTestPrimaryAppId));
 
   EXPECT_TRUE(kiosk_app_session_initialized_);
-  EXPECT_TRUE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest,
@@ -697,7 +689,6 @@ TEST_F(StartupAppLauncherTest,
   startup_launch_delegate_.ClearLaunchStateChanges();
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 
   startup_app_launcher_->LaunchApp();
 
@@ -709,7 +700,6 @@ TEST_F(StartupAppLauncherTest,
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kTestPrimaryAppId));
 
   EXPECT_TRUE(kiosk_app_session_initialized_);
-  EXPECT_TRUE(session_manager_.IsSessionStarted());
 
   // Primary app cache checks finished after the app launch
   // it's ready should be ignored - i.e. startup app launcher should not attempt
@@ -742,7 +732,6 @@ TEST_F(StartupAppLauncherTest, PrimaryAppDownloadFailure) {
             startup_launch_delegate_.launch_error());
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest, PrimaryAppCrxInstallFailure) {
@@ -761,7 +750,6 @@ TEST_F(StartupAppLauncherTest, PrimaryAppCrxInstallFailure) {
             startup_launch_delegate_.launch_error());
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest, PrimaryAppNotKioskEnabled) {
@@ -785,7 +773,6 @@ TEST_F(StartupAppLauncherTest, PrimaryAppNotKioskEnabled) {
             startup_launch_delegate_.launch_error());
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest, PrimaryAppIsExtension) {
@@ -808,7 +795,6 @@ TEST_F(StartupAppLauncherTest, PrimaryAppIsExtension) {
             startup_launch_delegate_.launch_error());
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest, LaunchWithSecondaryApps) {
@@ -849,7 +835,6 @@ TEST_F(StartupAppLauncherTest, LaunchWithSecondaryApps) {
   startup_launch_delegate_.ClearLaunchStateChanges();
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kTestPrimaryAppId));
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kSecondaryAppId));
@@ -865,7 +850,6 @@ TEST_F(StartupAppLauncherTest, LaunchWithSecondaryApps) {
   EXPECT_EQ(1, app_launch_tracker_->kiosk_launch_count());
 
   EXPECT_TRUE(kiosk_app_session_initialized_);
-  EXPECT_TRUE(session_manager_.IsSessionStarted());
 
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kTestPrimaryAppId));
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kSecondaryAppId));
@@ -907,7 +891,6 @@ TEST_F(StartupAppLauncherTest, LaunchWithSecondaryExtension) {
   startup_launch_delegate_.ClearLaunchStateChanges();
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
   startup_app_launcher_->LaunchApp();
 
   EXPECT_EQ(std::vector<LaunchState>({LaunchState::kLaunchSucceeded}),
@@ -915,7 +898,6 @@ TEST_F(StartupAppLauncherTest, LaunchWithSecondaryExtension) {
   EXPECT_EQ(1, app_launch_tracker_->kiosk_launch_count());
 
   EXPECT_TRUE(kiosk_app_session_initialized_);
-  EXPECT_TRUE(session_manager_.IsSessionStarted());
 
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kTestPrimaryAppId));
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kSecondaryAppId));
@@ -947,7 +929,6 @@ TEST_F(StartupAppLauncherTest, OfflineWithPrimaryAndSecondaryAppInstalled) {
   startup_launch_delegate_.ClearLaunchStateChanges();
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 
   // Primary app cache checks finished after the startup app launcher reports
   // it's ready should be ignored - i.e. startup app launcher should not attempt
@@ -970,7 +951,6 @@ TEST_F(StartupAppLauncherTest, OfflineWithPrimaryAndSecondaryAppInstalled) {
   EXPECT_TRUE(registry()->enabled_extensions().Contains(kSecondaryAppId));
 
   EXPECT_TRUE(kiosk_app_session_initialized_);
-  EXPECT_TRUE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest, IgnoreSecondaryAppsSecondaryApps) {
@@ -1000,7 +980,6 @@ TEST_F(StartupAppLauncherTest, IgnoreSecondaryAppsSecondaryApps) {
   startup_launch_delegate_.ClearLaunchStateChanges();
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
   startup_app_launcher_->LaunchApp();
 
   EXPECT_EQ(std::vector<LaunchState>({LaunchState::kLaunchSucceeded}),
@@ -1012,7 +991,6 @@ TEST_F(StartupAppLauncherTest, IgnoreSecondaryAppsSecondaryApps) {
   EXPECT_FALSE(registry()->GetInstalledExtension(kExtraSecondaryAppId));
 
   EXPECT_TRUE(kiosk_app_session_initialized_);
-  EXPECT_TRUE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest, SecondaryAppCrxInstallFailure) {
@@ -1034,7 +1012,6 @@ TEST_F(StartupAppLauncherTest, SecondaryAppCrxInstallFailure) {
             startup_launch_delegate_.launch_error());
 
   EXPECT_FALSE(kiosk_app_session_initialized_);
-  EXPECT_FALSE(session_manager_.IsSessionStarted());
 }
 
 TEST_F(StartupAppLauncherTest,

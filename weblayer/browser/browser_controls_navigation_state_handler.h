@@ -5,7 +5,6 @@
 #ifndef WEBLAYER_BROWSER_BROWSER_CONTROLS_NAVIGATION_STATE_HANDLER_H_
 #define WEBLAYER_BROWSER_BROWSER_CONTROLS_NAVIGATION_STATE_HANDLER_H_
 
-#include "base/optional.h"
 #include "base/timer/timer.h"
 #include "cc/input/browser_controls_state.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -48,7 +47,8 @@ class BrowserControlsNavigationStateHandler
                    const GURL& validated_url,
                    int error_code) override;
   void DidChangeVisibleSecurityState() override;
-  void RenderProcessGone(base::TerminationStatus status) override;
+  void PrimaryMainFrameRenderProcessGone(
+      base::TerminationStatus status) override;
   void OnRendererUnresponsive(
       content::RenderProcessHost* render_process_host) override;
   void OnRendererResponsive(

@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -44,7 +45,7 @@ namespace {
 void VerifyPromptIconCallback(
     base::OnceClosure quit_closure,
     const SkBitmap& expected_bitmap,
-    ExtensionInstallPromptShowParams* params,
+    std::unique_ptr<ExtensionInstallPromptShowParams> params,
     ExtensionInstallPrompt::DoneCallback done_callback,
     std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt) {
   EXPECT_TRUE(gfx::BitmapsAreEqual(prompt->icon().AsBitmap(), expected_bitmap));
@@ -54,7 +55,7 @@ void VerifyPromptIconCallback(
 void VerifyPromptPermissionsCallback(
     base::OnceClosure quit_closure,
     size_t regular_permissions_count,
-    ExtensionInstallPromptShowParams* params,
+    std::unique_ptr<ExtensionInstallPromptShowParams> params,
     ExtensionInstallPrompt::DoneCallback done_callback,
     std::unique_ptr<ExtensionInstallPrompt::Prompt> install_prompt) {
   ASSERT_TRUE(install_prompt.get());
@@ -65,7 +66,7 @@ void VerifyPromptPermissionsCallback(
 void VerifyPromptWithholdingUICallback(
     base::OnceClosure quit_closure,
     const bool should_display,
-    ExtensionInstallPromptShowParams* params,
+    std::unique_ptr<ExtensionInstallPromptShowParams> params,
     ExtensionInstallPrompt::DoneCallback done_callback,
     std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt) {
   EXPECT_EQ(should_display, prompt->ShouldDisplayWithholdingUI());
@@ -82,12 +83,16 @@ void SetImage(gfx::Image* image_out,
 class ExtensionInstallPromptUnitTest : public testing::Test {
  public:
   ExtensionInstallPromptUnitTest() {}
+
+  ExtensionInstallPromptUnitTest(const ExtensionInstallPromptUnitTest&) =
+      delete;
+  ExtensionInstallPromptUnitTest& operator=(
+      const ExtensionInstallPromptUnitTest&) = delete;
+
   ~ExtensionInstallPromptUnitTest() override {}
 
   // testing::Test:
-  void SetUp() override {
-    profile_.reset(new TestingProfile());
-  }
+  void SetUp() override { profile_ = std::make_unique<TestingProfile>(); }
   void TearDown() override {
     profile_.reset();
   }
@@ -97,15 +102,13 @@ class ExtensionInstallPromptUnitTest : public testing::Test {
  private:
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionInstallPromptUnitTest);
 };
 
 }  // namespace
 
 TEST_F(ExtensionInstallPromptUnitTest, PromptShowsPermissionWarnings) {
   APIPermissionSet api_permissions;
-  api_permissions.insert(APIPermission::kTab);
+  api_permissions.insert(extensions::mojom::APIPermissionID::kTab);
   std::unique_ptr<const PermissionSet> permission_set(
       new PermissionSet(std::move(api_permissions), ManifestPermissionSet(),
                         URLPatternSet(), URLPatternSet()));
@@ -180,7 +183,7 @@ TEST_F(ExtensionInstallPromptTestWithService, ExtensionInstallPromptIconsTest) {
                                         extension_misc::EXTENSION_ICON_LARGE,
                                         ExtensionIconSet::MATCH_BIGGER),
              ImageLoader::ImageRepresentation::NEVER_RESIZE, gfx::Size(),
-             ui::SCALE_FACTOR_100P));
+             ui::k100Percent));
   base::RunLoop image_loop;
   gfx::Image image;
   ImageLoader::Get(browser_context())
@@ -263,7 +266,7 @@ TEST_F(ExtensionInstallPromptTestWithholdingAllowed,
   scoped_refptr<const Extension> extension =
       ExtensionBuilder("all_hosts")
           .AddPermission("<all_urls>")
-          .SetLocation(Manifest::EXTERNAL_POLICY)
+          .SetLocation(mojom::ManifestLocation::kExternalPolicy)
           .Build();
   content::TestWebContentsFactory factory;
   ExtensionInstallPrompt prompt(factory.CreateWebContents(profile()));

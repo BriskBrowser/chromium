@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_PAGE_ACTION_ZOOM_VIEW_H_
 
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 
 // View for the zoom icon in the Omnibox.
 class ZoomView : public PageActionIconView {
@@ -32,7 +32,7 @@ class ZoomView : public PageActionIconView {
   void OnExecuting(PageActionIconView::ExecuteSource source) override;
   views::BubbleDialogDelegate* GetBubble() const override;
   const gfx::VectorIcon& GetVectorIcon() const override;
-  base::string16 GetTextForTooltipAndAccessibleName() const override;
+  std::u16string GetTextForTooltipAndAccessibleName() const override;
 
  private:
   bool ShouldBeVisible(bool can_show_bubble) const;

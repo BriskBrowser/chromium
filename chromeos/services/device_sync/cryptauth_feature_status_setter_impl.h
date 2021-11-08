@@ -12,7 +12,6 @@
 #include "base/callback.h"
 #include "base/containers/queue.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chromeos/components/multidevice/software_feature.h"
@@ -20,6 +19,7 @@
 #include "chromeos/services/device_sync/feature_status_change.h"
 #include "chromeos/services/device_sync/network_request_error.h"
 #include "chromeos/services/device_sync/proto/cryptauth_devicesync.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -58,6 +58,11 @@ class CryptAuthFeatureStatusSetterImpl : public CryptAuthFeatureStatusSetter {
     static Factory* test_factory_;
   };
 
+  CryptAuthFeatureStatusSetterImpl(const CryptAuthFeatureStatusSetterImpl&) =
+      delete;
+  CryptAuthFeatureStatusSetterImpl& operator=(
+      const CryptAuthFeatureStatusSetterImpl&) = delete;
+
   ~CryptAuthFeatureStatusSetterImpl() override;
 
  private:
@@ -65,7 +70,7 @@ class CryptAuthFeatureStatusSetterImpl : public CryptAuthFeatureStatusSetter {
 
   friend std::ostream& operator<<(std::ostream& stream, const State& state);
 
-  static base::Optional<base::TimeDelta> GetTimeoutForState(State state);
+  static absl::optional<base::TimeDelta> GetTimeoutForState(State state);
 
   struct Request {
     Request(const std::string& device_id,
@@ -105,7 +110,7 @@ class CryptAuthFeatureStatusSetterImpl : public CryptAuthFeatureStatusSetter {
   void OnBatchSetFeatureStatusesSuccess(
       const cryptauthv2::BatchSetFeatureStatusesResponse& response);
   void OnBatchSetFeatureStatusesFailure(NetworkRequestError error);
-  void FinishAttempt(base::Optional<NetworkRequestError> error);
+  void FinishAttempt(absl::optional<NetworkRequestError> error);
 
   State state_ = State::kIdle;
   base::TimeTicks last_state_change_timestamp_;
@@ -118,8 +123,6 @@ class CryptAuthFeatureStatusSetterImpl : public CryptAuthFeatureStatusSetter {
   std::unique_ptr<base::OneShotTimer> timer_;
   base::WeakPtrFactory<CryptAuthFeatureStatusSetterImpl> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthFeatureStatusSetterImpl);
 };
 
 }  // namespace device_sync

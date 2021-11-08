@@ -105,6 +105,7 @@ class AXPlatformNodeTextChildProviderTest : public AXPlatformNodeWinTest {
     InitITextChildProvider(text_child_of_text_node,
                            text_child_of_text_text_provider_raw_,
                            text_child_of_text_text_child_provider_);
+    AXPlatformNodeWinTest::SetUp();
   }
 
   void InitITextChildProvider(
@@ -269,11 +270,12 @@ TEST_F(AXPlatformNodeTextChildProviderTest,
   ASSERT_NE(nullptr, text_range_provider.Get());
 
   base::win::ScopedBstr text_content;
+  // By design, empty objects, such as the unlabelled image in this case, are
+  // placed in their own paragraph for easier screen reader navigation.
   EXPECT_HRESULT_SUCCEEDED(
       text_range_provider->GetText(-1, text_content.Receive()));
-  EXPECT_EQ(
-      base::WideToUTF16(text_content.Get()),
-      kEmbeddedCharacterAsString + STRING16_LITERAL("text child of nontext."));
+  EXPECT_EQ(base::WideToUTF16(text_content.Get()),
+            kEmbeddedCharacterAsString + u"\ntext child of nontext.");
 
   ComPtr<IRawElementProviderSimple> enclosing_element;
   text_range_provider->GetEnclosingElement(&enclosing_element);

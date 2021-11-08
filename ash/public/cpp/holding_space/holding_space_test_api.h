@@ -5,6 +5,7 @@
 #ifndef ASH_PUBLIC_CPP_HOLDING_SPACE_HOLDING_SPACE_TEST_API_H_
 #define ASH_PUBLIC_CPP_HOLDING_SPACE_HOLDING_SPACE_TEST_API_H_
 
+#include <string>
 #include <vector>
 
 #include "ash/ash_export.h"
@@ -12,6 +13,10 @@
 namespace aura {
 class Window;
 }  // namespace aura
+
+namespace base {
+class FilePath;
+}  // namespace base
 
 namespace views {
 class View;
@@ -45,6 +50,28 @@ class ASH_EXPORT HoldingSpaceTestApi {
   // Returns true if the holding space tray is showing in the shelf, false
   // otherwise.
   bool IsShowingInShelf();
+
+  // Returns the item file path associated with the given `item_view`.
+  const base::FilePath& GetHoldingSpaceItemFilePath(
+      const views::View* item_view) const;
+
+  // Returns the item ID associated with the given `item_view`.
+  const std::string& GetHoldingSpaceItemId(const views::View* item_view) const;
+
+  // Returns the holding space item view within `item_views` associated with the
+  // specified `item_id`. If no associated holding space item view exists,
+  // `nullptr` is returned.
+  views::View* GetHoldingSpaceItemView(
+      const std::vector<views::View*>& item_views,
+      const std::string& item_id);
+
+  // Returns all holding space item views regardless of the section in which
+  // they reside. Views are returned in top-to-bottom, left-to-right order (or
+  // mirrored for RTL).
+  std::vector<views::View*> GetHoldingSpaceItemViews();
+
+  // Returns the header of the downloads section in holding space UI.
+  views::View* GetDownloadsSectionHeader();
 
   // Returns the collection of download chips in holding space UI.
   // If holding space UI is not visible, an empty collection is returned.

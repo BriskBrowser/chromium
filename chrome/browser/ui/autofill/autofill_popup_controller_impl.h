@@ -7,18 +7,19 @@
 
 #include <stddef.h>
 
+#include <string>
 #include <vector>
 
 #include "base/containers/span.h"
 #include "base/gtest_prod_util.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller.h"
 #include "chrome/browser/ui/autofill/popup_controller_common.h"
 #include "components/autofill/core/browser/ui/popup_types.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 
@@ -26,6 +27,10 @@ namespace content {
 struct NativeWebKeyboardEvent;
 class WebContents;
 }  // namespace content
+
+namespace password_manager {
+class ContentPasswordManagerDriver;
+}
 
 namespace ui {
 class AXPlatformNode;
@@ -35,12 +40,17 @@ namespace autofill {
 
 class AutofillPopupDelegate;
 class AutofillPopupView;
+class ContentAutofillDriver;
 
 // This class is a controller for an AutofillPopupView. It implements
 // AutofillPopupController to allow calls from AutofillPopupView. The
 // other, public functions are available to its instantiator.
 class AutofillPopupControllerImpl : public AutofillPopupController {
  public:
+  AutofillPopupControllerImpl(const AutofillPopupControllerImpl&) = delete;
+  AutofillPopupControllerImpl& operator=(const AutofillPopupControllerImpl&) =
+      delete;
+
   // Creates a new |AutofillPopupControllerImpl|, or reuses |previous| if the
   // construction arguments are the same. |previous| may be invalidated by this
   // call. The controller will listen for keyboard input routed to
@@ -59,8 +69,8 @@ class AutofillPopupControllerImpl : public AutofillPopupController {
                     PopupType popup_type);
 
   // Updates the data list values currently shown with the popup.
-  virtual void UpdateDataListValues(const std::vector<base::string16>& values,
-                                    const std::vector<base::string16>& labels);
+  virtual void UpdateDataListValues(const std::vector<std::u16string>& values,
+                                    const std::vector<std::u16string>& labels);
 
   // Informs the controller that the popup may not be hidden by stale data or
   // interactions with native Chrome UI. This state remains active until the
@@ -105,14 +115,15 @@ class AutofillPopupControllerImpl : public AutofillPopupController {
   void AcceptSuggestion(int index) override;
   int GetLineCount() const override;
   const Suggestion& GetSuggestionAt(int row) const override;
-  const base::string16& GetSuggestionValueAt(int row) const override;
-  const base::string16& GetSuggestionLabelAt(int row) const override;
+  std::u16string GetSuggestionMainTextAt(int row) const override;
+  std::u16string GetSuggestionMinorTextAt(int row) const override;
+  const std::u16string& GetSuggestionLabelAt(int row) const override;
   bool GetRemovalConfirmationText(int list_index,
-                                  base::string16* title,
-                                  base::string16* body) override;
+                                  std::u16string* title,
+                                  std::u16string* body) override;
   bool RemoveSuggestion(int list_index) override;
-  void SetSelectedLine(base::Optional<int> selected_line) override;
-  base::Optional<int> selected_line() const override;
+  void SetSelectedLine(absl::optional<int> selected_line) override;
+  absl::optional<int> selected_line() const override;
   PopupType GetPopupType() const override;
 
   // Increase the selected line by 1, properly handling wrapping.
@@ -159,6 +170,12 @@ class AutofillPopupControllerImpl : public AutofillPopupController {
   // Hides |view_| unless it is null and then deletes |this|.
   void HideViewAndDie();
 
+  // Casts `delegate_->GetDriver->` to ContentAutofillDriver or
+  // ContentPasswordManagerDriver, respectively.
+  absl::variant<ContentAutofillDriver*,
+                password_manager::ContentPasswordManagerDriver*>
+  GetDriver();
+
   friend class AutofillPopupControllerUnitTest;
   friend class AutofillPopupControllerAccessibilityUnitTest;
   void SetViewForTesting(AutofillPopupView* view) { view_ = view; }
@@ -181,11 +198,9 @@ class AutofillPopupControllerImpl : public AutofillPopupController {
 
   // The line that is currently selected by the user, null indicates that no
   // line is currently selected.
-  base::Optional<int> selected_line_;
+  absl::optional<int> selected_line_;
 
   base::WeakPtrFactory<AutofillPopupControllerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AutofillPopupControllerImpl);
 };
 
 }  // namespace autofill

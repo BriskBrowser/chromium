@@ -9,8 +9,8 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/file_manager/fileapi_util.h"
 #include "chrome/browser/chromeos/fileapi/external_file_resolver.h"
 #include "chrome/browser/chromeos/fileapi/external_file_url_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -29,6 +29,7 @@
 #include "net/base/io_buffer.h"
 #include "net/http/http_byte_range.h"
 #include "net/http/http_util.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -50,14 +51,14 @@ class MojoPipeIOBuffer : public net::IOBuffer {
   explicit MojoPipeIOBuffer(void* data)
       : net::IOBuffer(static_cast<char*>(data)) {}
 
+  MojoPipeIOBuffer(const MojoPipeIOBuffer&) = delete;
+  MojoPipeIOBuffer& operator=(const MojoPipeIOBuffer&) = delete;
+
  protected:
   ~MojoPipeIOBuffer() override {
     // Set data_ to null so ~IOBuffer won't try to delete it.
     data_ = nullptr;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MojoPipeIOBuffer);
 };
 
 // A helper class to read data from a FileStreamReader, and write it to a
@@ -84,6 +85,11 @@ class FileSystemReaderDataPipeProducer {
         base::BindRepeating(&FileSystemReaderDataPipeProducer::OnHandleReady,
                             weak_ptr_factory_.GetWeakPtr()));
   }
+
+  FileSystemReaderDataPipeProducer(const FileSystemReaderDataPipeProducer&) =
+      delete;
+  FileSystemReaderDataPipeProducer& operator=(
+      const FileSystemReaderDataPipeProducer&) = delete;
 
   void Write() {
     while (remaining_bytes_ > 0) {
@@ -192,8 +198,6 @@ class FileSystemReaderDataPipeProducer {
   base::OnceCallback<void(net::Error)> callback_;
   base::WeakPtrFactory<FileSystemReaderDataPipeProducer> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(FileSystemReaderDataPipeProducer);
 };
 
 class ExternalFileURLLoader : public network::mojom::URLLoader {
@@ -211,12 +215,15 @@ class ExternalFileURLLoader : public network::mojom::URLLoader {
     external_file_url_loader->Start(request);
   }
 
+  ExternalFileURLLoader(const ExternalFileURLLoader&) = delete;
+  ExternalFileURLLoader& operator=(const ExternalFileURLLoader&) = delete;
+
   // network::mojom::URLLoader:
   void FollowRedirect(
       const std::vector<std::string>& removed_headers,
       const net::HttpRequestHeaders& modified_headers,
       const net::HttpRequestHeaders& modified_cors_exempt_headers,
-      const base::Optional<GURL>& new_url) override {}
+      const absl::optional<GURL>& new_url) override {}
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override {}
   void PauseReadingBodyFromNet() override {}
@@ -335,8 +342,6 @@ class ExternalFileURLLoader : public network::mojom::URLLoader {
   std::unique_ptr<FileSystemReaderDataPipeProducer> data_producer_;
 
   base::WeakPtrFactory<ExternalFileURLLoader> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ExternalFileURLLoader);
 };
 
 }  // namespace
@@ -353,7 +358,6 @@ ExternalFileURLLoaderFactory::~ExternalFileURLLoaderFactory() = default;
 
 void ExternalFileURLLoaderFactory::CreateLoaderAndStart(
     mojo::PendingReceiver<network::mojom::URLLoader> loader,
-    int32_t routing_id,
     int32_t request_id,
     uint32_t options,
     const network::ResourceRequest& request,

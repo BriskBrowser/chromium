@@ -87,10 +87,11 @@ class SVGTextLayoutEngine {
 
   SVGTextFragment current_text_fragment_;
   SVGInlineTextMetricsIterator visual_metrics_iterator_;
-  FloatPoint text_position_;
+  gfx::PointF text_position_;
   bool is_vertical_text_;
   bool in_path_layout_;
   bool text_length_spacing_in_effect_;
+  bool last_text_box_was_in_text_path_;
 
   // Text on path layout
   std::unique_ptr<PathPositionMapper> text_path_;
@@ -103,4 +104,4 @@ class SVGTextLayoutEngine {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_SVG_TEXT_LAYOUT_ENGINE_H_

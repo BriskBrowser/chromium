@@ -8,7 +8,6 @@
 #include <memory>
 #include <string>
 
-#include "base/containers/flat_map.h"
 #include "chromeos/services/multidevice_setup/feature_state_manager.h"
 #include "chromeos/services/multidevice_setup/host_status_provider.h"
 #include "chromeos/services/multidevice_setup/multidevice_setup_base.h"
@@ -35,7 +34,6 @@ class AndroidSmsAppHelperDelegate;
 class AndroidSmsAppInstallingStatusObserver;
 class AndroidSmsPairingStateTracker;
 class AuthTokenValidator;
-class DeviceReenroller;
 class EligibleHostDevicesProvider;
 class GrandfatheredEasyUnlockHostDisabler;
 class HostBackendDelegate;
@@ -78,6 +76,9 @@ class MultiDeviceSetupImpl : public MultiDeviceSetupBase,
     static Factory* test_factory_;
   };
 
+  MultiDeviceSetupImpl(const MultiDeviceSetupImpl&) = delete;
+  MultiDeviceSetupImpl& operator=(const MultiDeviceSetupImpl&) = delete;
+
   ~MultiDeviceSetupImpl() override;
 
  private:
@@ -111,7 +112,7 @@ class MultiDeviceSetupImpl : public MultiDeviceSetupBase,
   void GetHostStatus(GetHostStatusCallback callback) override;
   void SetFeatureEnabledState(mojom::Feature feature,
                               bool enabled,
-                              const base::Optional<std::string>& auth_token,
+                              const absl::optional<std::string>& auth_token,
                               SetFeatureEnabledStateCallback callback) override;
   void GetFeatureStates(GetFeatureStatesCallback callback) override;
   void RetrySetHostNow(RetrySetHostNowCallback callback) override;
@@ -151,15 +152,12 @@ class MultiDeviceSetupImpl : public MultiDeviceSetupBase,
   std::unique_ptr<AccountStatusChangeDelegateNotifier> delegate_notifier_;
   std::unique_ptr<WifiSyncFeatureManager> wifi_sync_feature_manager_;
   std::unique_ptr<FeatureStateManager> feature_state_manager_;
-  std::unique_ptr<DeviceReenroller> device_reenroller_;
   std::unique_ptr<AndroidSmsAppInstallingStatusObserver>
       android_sms_app_installing_host_observer_;
   AuthTokenValidator* auth_token_validator_;
 
   mojo::RemoteSet<mojom::HostStatusObserver> host_status_observers_;
   mojo::RemoteSet<mojom::FeatureStateObserver> feature_state_observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(MultiDeviceSetupImpl);
 };
 
 }  // namespace multidevice_setup

@@ -48,7 +48,7 @@ void ManageMigrationUiController::ShowOfferDialog(
 
 void ManageMigrationUiController::UpdateCreditCardIcon(
     const bool has_server_error,
-    const base::string16& tip_message,
+    const std::u16string& tip_message,
     const std::vector<MigratableCreditCard>& migratable_credit_cards,
     AutofillClient::MigrationDeleteCardCallback delete_local_card_callback) {
   if (!dialog_controller_)
@@ -152,6 +152,6 @@ void ManageMigrationUiController::ShowFeedbackDialog() {
   dialog_controller_->ShowFeedbackDialog();
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(ManageMigrationUiController)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(ManageMigrationUiController);
 
 }  // namespace autofill

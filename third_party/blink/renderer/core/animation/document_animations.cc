@@ -30,6 +30,8 @@
 
 #include "third_party/blink/renderer/core/animation/document_animations.h"
 
+#include <algorithm>
+
 #include "cc/animation/animation_host.h"
 #include "third_party/blink/renderer/core/animation/animation_clock.h"
 #include "third_party/blink/renderer/core/animation/animation_timeline.h"
@@ -37,12 +39,15 @@
 #include "third_party/blink/renderer/core/animation/keyframe_effect.h"
 #include "third_party/blink/renderer/core/animation/pending_animations.h"
 #include "third_party/blink/renderer/core/animation/worklet_animation_controller.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/page_animator.h"
+#include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/bindings/microtask.h"
 
 namespace blink {
@@ -110,8 +115,12 @@ void DocumentAnimations::UpdateAnimationTimingIfNeeded() {
 
 void DocumentAnimations::UpdateAnimations(
     DocumentLifecycle::LifecycleState required_lifecycle_state,
-    const PaintArtifactCompositor* paint_artifact_compositor) {
+    const PaintArtifactCompositor* paint_artifact_compositor,
+    bool compositor_properties_updated) {
   DCHECK(document_->Lifecycle().GetState() >= required_lifecycle_state);
+
+  if (compositor_properties_updated)
+    MarkPendingIfCompositorPropertyAnimationChanges(paint_artifact_compositor);
 
   if (document_->GetPendingAnimations().Update(paint_artifact_compositor)) {
     DCHECK(document_->View());
@@ -121,6 +130,14 @@ void DocumentAnimations::UpdateAnimations(
   document_->GetWorkletAnimationController().UpdateAnimationStates();
   for (auto& timeline : timelines_)
     timeline->ScheduleNextService();
+}
+
+void DocumentAnimations::MarkPendingIfCompositorPropertyAnimationChanges(
+    const PaintArtifactCompositor* paint_artifact_compositor) {
+  for (auto& timeline : timelines_) {
+    timeline->MarkPendingIfCompositorPropertyAnimationChanges(
+        paint_artifact_compositor);
+  }
 }
 
 size_t DocumentAnimations::GetAnimationsCount() {
@@ -169,21 +186,10 @@ void DocumentAnimations::ValidateTimelines() {
   unvalidated_timelines_.clear();
 }
 
-void DocumentAnimations::CacheCSSScrollTimeline(CSSScrollTimeline& timeline) {
-  // We cache the least seen CSSScrollTimeline for a given name.
-  cached_css_timelines_.Set(timeline.Name(), &timeline);
-}
-
-CSSScrollTimeline* DocumentAnimations::FindCachedCSSScrollTimeline(
-    const AtomicString& name) {
-  return To<CSSScrollTimeline>(cached_css_timelines_.at(name));
-}
-
 void DocumentAnimations::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
   visitor->Trace(timelines_);
   visitor->Trace(unvalidated_timelines_);
-  visitor->Trace(cached_css_timelines_);
 }
 
 void DocumentAnimations::GetAnimationsTargetingTreeScope(

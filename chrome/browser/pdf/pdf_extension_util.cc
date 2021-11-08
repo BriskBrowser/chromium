@@ -4,6 +4,8 @@
 
 #include "chrome/browser/pdf/pdf_extension_util.h"
 
+#include "base/containers/cxx20_erase.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "build/chromeos_buildflags.h"
@@ -19,7 +21,7 @@
 #include "ui/base/webui/web_ui_util.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/ui/login_display_host.h"
+#include "chrome/browser/ash/login/ui/login_display_host.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace pdf_extension_util {
@@ -144,17 +146,13 @@ void AddPdfViewerStrings(base::Value* dict) {
     {"annotationSize12", IDS_PDF_ANNOTATION_SIZE12},
     {"annotationSize16", IDS_PDF_ANNOTATION_SIZE16},
     {"annotationSize20", IDS_PDF_ANNOTATION_SIZE20},
-    {"annotationFormWarningTitle", IDS_PDF_DISCARD_FORM_CHANGES},
-    {"annotationFormWarningDetail", IDS_PDF_DISCARD_FORM_CHANGES_DETAIL},
-    {"annotationFormWarningKeepEditing", IDS_PDF_KEEP_EDITING},
-    {"annotationFormWarningDiscard", IDS_PDF_DISCARD},
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   };
   for (const auto& resource : kPdfResources)
     dict->SetStringKey(resource.name, l10n_util::GetStringUTF16(resource.id));
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::string16 edit_string = l10n_util::GetStringUTF16(IDS_EDIT);
+  std::u16string edit_string = l10n_util::GetStringUTF16(IDS_EDIT);
   base::Erase(edit_string, '&');
   dict->SetStringKey("editButton", edit_string);
 #endif
@@ -166,9 +164,9 @@ void AddPdfViewerStrings(base::Value* dict) {
 }  // namespace
 
 std::string GetManifest() {
-  std::string manifest_contents = ui::ResourceBundle::GetSharedInstance()
-                                      .GetRawDataResource(IDR_PDF_MANIFEST)
-                                      .as_string();
+  std::string manifest_contents(
+      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
+          IDR_PDF_MANIFEST));
   DCHECK(manifest_contents.find(kNameTag) != std::string::npos);
   base::ReplaceFirstSubstringAfterOffset(
       &manifest_contents, 0, kNameTag,
@@ -189,23 +187,16 @@ void AddStrings(PdfViewerContext context, base::Value* dict) {
   }
 }
 
-void AddAdditionalData(base::Value* dict) {
-  dict->SetKey("documentPropertiesEnabled",
-               base::Value(base::FeatureList::IsEnabled(
-                   chrome_pdf::features::kPdfViewerDocumentProperties)));
-  dict->SetKey("presentationModeEnabled",
-               base::Value(base::FeatureList::IsEnabled(
-                   chrome_pdf::features::kPdfViewerPresentationMode)));
-
-  bool enable_printing = true;
-  bool enable_annotations = false;
+void AddAdditionalData(bool enable_annotations, base::Value* dict) {
+  bool printing_enabled = true;
+  bool annotations_enabled = false;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // For Chrome OS, enable printing only if we are not at OOBE.
-  enable_printing = !chromeos::LoginDisplayHost::default_host();
-  enable_annotations = true;
+  printing_enabled = !ash::LoginDisplayHost::default_host();
+  annotations_enabled = enable_annotations;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-  dict->SetKey("printingEnabled", base::Value(enable_printing));
-  dict->SetKey("pdfAnnotationsEnabled", base::Value(enable_annotations));
+  dict->SetKey("printingEnabled", base::Value(printing_enabled));
+  dict->SetKey("pdfAnnotationsEnabled", base::Value(annotations_enabled));
 }
 
 }  // namespace pdf_extension_util

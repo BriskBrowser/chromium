@@ -35,7 +35,6 @@
 #include "third_party/blink/renderer/core/dom/whitespace_attacher.h"
 #include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
-#include "third_party/blink/renderer/core/layout/layout_text_combine.h"
 #include "third_party/blink/renderer/core/layout/layout_text_fragment.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_inline_text.h"
 #include "third_party/blink/renderer/core/svg/svg_foreign_object_element.h"
@@ -335,7 +334,7 @@ LayoutText* Text::CreateTextLayoutObject(const ComputedStyle& style,
     return MakeGarbageCollected<LayoutSVGInlineText>(this, DataImpl());
 
   if (style.HasTextCombine())
-    return MakeGarbageCollected<LayoutTextCombine>(this, DataImpl());
+    return LayoutObjectFactory::CreateTextCombine(this, DataImpl(), legacy);
 
   return LayoutObjectFactory::CreateText(this, DataImpl(), legacy);
 }
@@ -344,7 +343,13 @@ void Text::AttachLayoutTree(AttachContext& context) {
   if (context.parent) {
     ContainerNode* style_parent = LayoutTreeBuilderTraversal::Parent(*this);
     if (style_parent) {
-      const ComputedStyle* style = style_parent->GetComputedStyle();
+      // To handle <body> to <html> writing-mode propagation, we should use
+      // style in layout object instead of |Node::GetComputedStyle()|.
+      // See http://crbug.com/988585
+      const ComputedStyle* const style =
+          IsA<HTMLHtmlElement>(style_parent) && style_parent->GetLayoutObject()
+              ? style_parent->GetLayoutObject()->Style()
+              : style_parent->GetComputedStyle();
       DCHECK(style);
       if (TextLayoutObjectIsNeeded(context, *style)) {
         LayoutTreeBuilderForText(*this, context, style).CreateLayoutObject();
@@ -389,7 +394,7 @@ bool NeedsWhitespaceLayoutObject(const ComputedStyle& style) {
 }  // namespace
 
 void Text::RecalcTextStyle(const StyleRecalcChange change) {
-  const ComputedStyle* new_style =
+  scoped_refptr<const ComputedStyle> new_style =
       GetDocument().GetStyleResolver().StyleForText(this);
   if (LayoutText* layout_text = GetLayoutObject()) {
     const ComputedStyle* layout_parent_style =
@@ -439,14 +444,33 @@ static bool ShouldUpdateLayoutByReattaching(const Text& text_node,
     return true;
   }
   if (text_layout_object->IsTextFragment()) {
-    // Changes of |textNode| may change first letter part, so we should
-    // reattach. Note: When |textNode| is empty or holds collapsed white spaces
+    // Changes of |text_node| may change first letter part, so we should
+    // reattach. Note: When |text_node| is empty or holds collapsed whitespaces
     // |text_fragment_layout_object| represents first-letter part but it isn't
     // inside first-letter-pseudo element. See http://crbug.com/978947
     const auto& text_fragment_layout_object =
         *To<LayoutTextFragment>(text_layout_object);
     return text_fragment_layout_object.GetFirstLetterPseudoElement() ||
            !text_fragment_layout_object.IsRemainingTextLayoutObject();
+  }
+  // If we force a re-attach for password inputs and other elements hiding text
+  // input via -webkit-text-security, the last character input will be hidden
+  // immediately, even if the passwordEchoEnabled setting is enabled.
+  // ::first-letter do not seem to apply to text inputs, so for those skipping
+  // the re-attachment should be safe.
+  // We can possibly still cause DCHECKs for mismatch of first letter text in
+  // editing with the combination of -webkit-text-security in author styles on
+  // other elements in combination with ::first-letter.
+  // See crbug.com/1240988
+  if (text_layout_object->IsSecure())
+    return false;
+  if (!FirstLetterPseudoElement::FirstLetterLength(
+          text_layout_object->GetText()) &&
+      FirstLetterPseudoElement::FirstLetterLength(text_node.data())) {
+    // We did not previously apply ::first-letter styles to this |text_node|,
+    // and if there was no first formatted letter, but now is, we may need to
+    // reattach.
+    return true;
   }
   return false;
 }

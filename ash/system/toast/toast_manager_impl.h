@@ -24,6 +24,10 @@ class ASH_EXPORT ToastManagerImpl : public ToastManager,
                                     public SessionObserver {
  public:
   ToastManagerImpl();
+
+  ToastManagerImpl(const ToastManagerImpl&) = delete;
+  ToastManagerImpl& operator=(const ToastManagerImpl&) = delete;
+
   ~ToastManagerImpl() override;
 
   // ToastManager overrides:
@@ -47,7 +51,7 @@ class ASH_EXPORT ToastManagerImpl : public ToastManager,
   void ResetSerialForTesting() { serial_ = 0; }
 
   // Data of the toast which is currently shown. Empty if no toast is visible.
-  base::Optional<ToastData> current_toast_data_;
+  absl::optional<ToastData> current_toast_data_;
 
   int serial_ = 0;
   bool locked_;
@@ -56,8 +60,6 @@ class ASH_EXPORT ToastManagerImpl : public ToastManager,
 
   ScopedSessionObserver scoped_session_observer_{this};
   base::WeakPtrFactory<ToastManagerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ToastManagerImpl);
 };
 
 }  // namespace ash

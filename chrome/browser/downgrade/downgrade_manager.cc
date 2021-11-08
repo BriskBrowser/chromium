@@ -18,7 +18,6 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/optional.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/syslog_logging.h"
@@ -39,6 +38,7 @@
 #include "components/version_info/version_info.h"
 #include "components/version_info/version_info_values.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if defined(OS_WIN)
 #include "chrome/installer/util/install_util.h"
@@ -54,8 +54,7 @@ bool g_snapshots_enabled_for_testing = false;
 // exception of files/directories that should be left behind for a full data
 // wipe. Returns no value if the target directory could not be created, or the
 // number of items that could not be moved.
-base::Optional<int> MoveUserData(const base::FilePath& source,
-                                 const base::FilePath& target) {
+void MoveUserData(const base::FilePath& source, const base::FilePath& target) {
   // Returns true to exclude a file.
   auto exclusion_predicate =
       base::BindRepeating([](const base::FilePath& name) -> bool {
@@ -85,8 +84,6 @@ base::Optional<int> MoveUserData(const base::FilePath& source,
   if (!result ||
       !MoveWithoutFallback(source.Append(kDowngradeLastVersionFile),
                            target.Append(kDowngradeLastVersionFile))) {
-    if (result)
-      *result += 1;
     // Attempt to delete Last Version if all else failed so that Chrome does not
     // continually attempt to perform a migration.
     base::DeleteFile(source.Append(kDowngradeLastVersionFile));
@@ -98,7 +95,6 @@ base::Optional<int> MoveUserData(const base::FilePath& source,
     // switch suppresses downgrade processing, so that launch will go through
     // normal startup.
   }
-  return result;
 }
 
 // Renames |disk_cache_dir| in its containing folder. If that fails, an attempt
@@ -194,7 +190,7 @@ bool DowngradeManager::PrepareUserDataDirectoryForCurrentVersion(
     return false;
   }
 
-  base::Optional<base::Version> last_version = GetLastVersion(user_data_dir);
+  absl::optional<base::Version> last_version = GetLastVersion(user_data_dir);
   if (!last_version)
     return false;
 
@@ -228,7 +224,7 @@ bool DowngradeManager::PrepareUserDataDirectoryForCurrentVersion(
   auto current_milestone = current_version.components()[0];
   int max_number_of_snapshots = g_browser_process->local_state()->GetInteger(
       prefs::kUserDataSnapshotRetentionLimit);
-  base::Optional<uint32_t> purge_milestone;
+  absl::optional<uint32_t> purge_milestone;
   if (current_milestone == last_version->components()[0]) {
     // Mid-milestone snapshots are only taken on canary installs.
     if (chrome::GetChannel() != version_info::Channel::CANARY)
@@ -277,26 +273,14 @@ void DowngradeManager::ProcessDowngrade(const base::FilePath& user_data_dir) {
   // be left behind. Furthermore, User Data is moved to a new directory within
   // itself (for example, to User Data/User Data.CHROME_DELETE) to guarantee
   // that the movement isn't across volumes.
-  const auto failure_count = MoveUserData(
-      user_data_dir,
-      GetTempDirNameForDelete(user_data_dir, user_data_dir.BaseName()));
-  enum class UserDataMoveResult {
-    kCreateTargetFailure = 0,
-    kSuccess = 1,
-    kPartialSuccess = 2,
-    kMaxValue = kPartialSuccess
-  };
-  UserDataMoveResult move_result =
-      !failure_count ? UserDataMoveResult::kCreateTargetFailure
-                     : (*failure_count ? UserDataMoveResult::kPartialSuccess
-                                       : UserDataMoveResult::kSuccess);
-  base::UmaHistogramEnumeration("Downgrade.UserDataDirMove.Result",
-                                move_result);
-  if (failure_count && *failure_count) {
-    // Report precise values rather than an exponentially bucketed histogram.
-    base::UmaHistogramExactLinear("Downgrade.UserDataDirMove.FailureCount",
-                                  *failure_count, 50);
-  }
+  // This has a 95% success rate according to the histogram
+  // "Downgrade.UserDataDirMove.Result" which is acceptable in this case since
+  // the files (usually under 5 files according to
+  // "Downgrade.UserDataDirMove.FailureCount") left behind 5% of the time might
+  // be overridden by `SnapshotManager::RestoreSnapshot` or updated following a
+  // version upgrade.
+  MoveUserData(user_data_dir, GetTempDirNameForDelete(
+                                  user_data_dir, user_data_dir.BaseName()));
 
   if (type_ == Type::kSnapshotRestore) {
     SnapshotManager snapshot_manager(user_data_dir);

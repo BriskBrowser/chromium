@@ -11,7 +11,6 @@
 #include "ash/tray_action/tray_action.h"
 #include "ash/tray_action/tray_action_observer.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
 
 namespace ash {
 
@@ -33,6 +32,10 @@ class ASH_EXPORT NoteActionLaunchButton : public NonAccessibleView {
   class ASH_EXPORT TestApi {
    public:
     explicit TestApi(NoteActionLaunchButton* launch_button);
+
+    TestApi(const TestApi&) = delete;
+    TestApi& operator=(const TestApi&) = delete;
+
     ~TestApi();
 
     // Gets the foreground, action image button view.
@@ -43,12 +46,14 @@ class ASH_EXPORT NoteActionLaunchButton : public NonAccessibleView {
 
    private:
     NoteActionLaunchButton* launch_button_;
-
-    DISALLOW_COPY_AND_ASSIGN(TestApi);
   };
 
   explicit NoteActionLaunchButton(
       mojom::TrayActionState initial_note_action_state);
+
+  NoteActionLaunchButton(const NoteActionLaunchButton&) = delete;
+  NoteActionLaunchButton& operator=(const NoteActionLaunchButton&) = delete;
+
   ~NoteActionLaunchButton() override;
 
   // Updates the bubble visibility depending on the note taking action state.
@@ -63,8 +68,6 @@ class ASH_EXPORT NoteActionLaunchButton : public NonAccessibleView {
 
   // The actionable image button view.
   ActionButton* action_button_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(NoteActionLaunchButton);
 };
 
 }  // namespace ash

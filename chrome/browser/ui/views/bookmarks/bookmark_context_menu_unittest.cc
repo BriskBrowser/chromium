@@ -34,6 +34,7 @@
 #include "ui/base/clipboard/test/test_clipboard.h"
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/views/controls/menu/menu_item_view.h"
+#include "ui/views/test/scoped_views_test_helper.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
@@ -96,6 +97,7 @@ class BookmarkContextMenuTest : public testing::Test {
   }
 
   content::BrowserTaskEnvironment task_environment_;
+  views::ScopedViewsTestHelper views_test_helper_;
   std::unique_ptr<TestingProfile> profile_;
   BookmarkModel* model_;
   TestingPageNavigator navigator_;
@@ -115,17 +117,16 @@ class BookmarkContextMenuTest : public testing::Test {
   void AddTestData() {
     const BookmarkNode* bb_node = model_->bookmark_bar_node();
     std::string test_base = "file:///c:/tmp/";
-    model_->AddURL(bb_node, 0, ASCIIToUTF16("a"), GURL(test_base + "a"));
-    const BookmarkNode* f1 = model_->AddFolder(bb_node, 1, ASCIIToUTF16("F1"));
-    model_->AddURL(f1, 0, ASCIIToUTF16("f1a"), GURL(test_base + "f1a"));
-    model_->AddURL(f1, 1, ASCIIToUTF16("f1b"),
-                   GURL(chrome::kChromeUISettingsURL));
-    const BookmarkNode* f11 = model_->AddFolder(f1, 2, ASCIIToUTF16("F11"));
-    model_->AddURL(f11, 0, ASCIIToUTF16("f11a"), GURL(test_base + "f11a"));
-    model_->AddFolder(bb_node, 2, ASCIIToUTF16("F2"));
-    model_->AddFolder(bb_node, 3, ASCIIToUTF16("F3"));
-    const BookmarkNode* f4 = model_->AddFolder(bb_node, 4, ASCIIToUTF16("F4"));
-    model_->AddURL(f4, 0, ASCIIToUTF16("f4a"), GURL(test_base + "f4a"));
+    model_->AddURL(bb_node, 0, u"a", GURL(test_base + "a"));
+    const BookmarkNode* f1 = model_->AddFolder(bb_node, 1, u"F1");
+    model_->AddURL(f1, 0, u"f1a", GURL(test_base + "f1a"));
+    model_->AddURL(f1, 1, u"f1b", GURL(chrome::kChromeUISettingsURL));
+    const BookmarkNode* f11 = model_->AddFolder(f1, 2, u"F11");
+    model_->AddURL(f11, 0, u"f11a", GURL(test_base + "f11a"));
+    model_->AddFolder(bb_node, 2, u"F2");
+    model_->AddFolder(bb_node, 3, u"F3");
+    const BookmarkNode* f4 = model_->AddFolder(bb_node, 4, u"F4");
+    model_->AddURL(f4, 0, u"f4a", GURL(test_base + "f4a"));
   }
 };
 
@@ -313,7 +314,8 @@ TEST_F(BookmarkContextMenuTest, DisableIncognito) {
   std::vector<const BookmarkNode*> nodes = {
       model_->bookmark_bar_node()->children().front().get(),
   };
-  Profile* incognito = profile_->GetPrimaryOTRProfile();
+  Profile* incognito =
+      profile_->GetPrimaryOTRProfile(/*create_if_needed=*/true);
   BookmarkContextMenu controller(
       nullptr, nullptr, incognito, NullNavigatorGetter(),
       BOOKMARK_LAUNCH_LOCATION_NONE, nodes[0]->parent(), nodes, false);

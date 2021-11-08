@@ -28,10 +28,16 @@ class FakeMjpegDecodeAccelerator : public MjpegDecodeAccelerator {
  public:
   FakeMjpegDecodeAccelerator(
       const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner);
+
+  FakeMjpegDecodeAccelerator(const FakeMjpegDecodeAccelerator&) = delete;
+  FakeMjpegDecodeAccelerator& operator=(const FakeMjpegDecodeAccelerator&) =
+      delete;
+
   ~FakeMjpegDecodeAccelerator() override;
 
   // MjpegDecodeAccelerator implementation.
-  bool Initialize(MjpegDecodeAccelerator::Client* client) override;
+  void InitializeAsync(chromeos_camera::MjpegDecodeAccelerator::Client* client,
+                       InitCB init_cb) override;
   void Decode(media::BitstreamBuffer bitstream_buffer,
               scoped_refptr<media::VideoFrame> video_frame) override;
   void Decode(int32_t task_id,
@@ -50,6 +56,10 @@ class FakeMjpegDecodeAccelerator : public MjpegDecodeAccelerator {
   void NotifyErrorOnClientThread(int32_t task_id, Error error);
   void OnDecodeDoneOnClientThread(int32_t task_id);
 
+  void InitializeOnTaskRunner(
+      chromeos_camera::MjpegDecodeAccelerator::Client* client,
+      InitCB init_cb);
+
   // Task runner for calls to |client_|.
   const scoped_refptr<base::SingleThreadTaskRunner> client_task_runner_;
 
@@ -62,8 +72,6 @@ class FakeMjpegDecodeAccelerator : public MjpegDecodeAccelerator {
   scoped_refptr<base::SingleThreadTaskRunner> decoder_task_runner_;
 
   base::WeakPtrFactory<FakeMjpegDecodeAccelerator> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FakeMjpegDecodeAccelerator);
 };
 
 }  // namespace chromeos_camera

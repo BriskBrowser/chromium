@@ -5,11 +5,11 @@
 #include "chrome/browser/printing/print_job.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "base/run_loop.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -19,6 +19,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/test/browser_task_environment.h"
+#include "printing/mojom/print.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace printing {
@@ -41,9 +42,12 @@ class TestQuery : public PrinterQuery {
 
   void GetSettingsDone(base::OnceClosure callback,
                        std::unique_ptr<PrintSettings> new_settings,
-                       PrintingContext::Result result) override {
+                       mojom::ResultCode result) override {
     FAIL();
   }
+
+  TestQuery(const TestQuery&) = delete;
+  TestQuery& operator=(const TestQuery&) = delete;
 
   ~TestQuery() override {}
 
@@ -62,9 +66,6 @@ class TestQuery : public PrinterQuery {
 
     return std::move(worker);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestQuery);
 };
 
 class TestPrintJob : public PrintJob {
@@ -99,10 +100,10 @@ TEST(PrintJobTest, SimplePrint) {
                 content::NotificationService::AllSources());
   volatile bool check = false;
   scoped_refptr<PrintJob> job(new TestPrintJob(&check));
-  job->Initialize(std::make_unique<TestQuery>(), base::string16(), 1);
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+  job->Initialize(std::make_unique<TestQuery>(), std::u16string(), 1);
+#if defined(OS_CHROMEOS)
   job->SetSource(PrintJob::Source::PRINT_PREVIEW, /*source_id=*/"");
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // defined(OS_CHROMEOS)
   job->Stop();
   while (job->document()) {
     base::RunLoop().RunUntilIdle();

@@ -12,7 +12,7 @@
 #include "ash/public/cpp/tablet_mode_observer.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_observer.h"
-#include "ash/system/holding_space/holding_space_item_view_delegate.h"
+#include "ash/system/holding_space/holding_space_view_delegate.h"
 #include "ash/system/screen_layout_observer.h"
 #include "ash/system/tray/tray_bubble_wrapper.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -28,8 +28,7 @@ class ASH_EXPORT HoldingSpaceTrayBubble : public ScreenLayoutObserver,
                                           public ShelfObserver,
                                           public TabletModeObserver {
  public:
-  HoldingSpaceTrayBubble(HoldingSpaceTray* holding_space_tray,
-                         bool show_by_click);
+  explicit HoldingSpaceTrayBubble(HoldingSpaceTray* holding_space_tray);
   HoldingSpaceTrayBubble(const HoldingSpaceTrayBubble&) = delete;
   HoldingSpaceTrayBubble& operator=(const HoldingSpaceTrayBubble&) = delete;
   ~HoldingSpaceTrayBubble() override;
@@ -38,6 +37,13 @@ class ASH_EXPORT HoldingSpaceTrayBubble : public ScreenLayoutObserver,
 
   TrayBubbleView* GetBubbleView();
   views::Widget* GetBubbleWidget();
+
+  // Returns all holding space item views in the bubble. Views are returned in
+  // top-to-bottom, left-to-right order (or mirrored for RTL).
+  std::vector<HoldingSpaceItemView*> GetHoldingSpaceItemViews();
+
+  // Returns the `holding_space_tray_` associated with this bubble.
+  HoldingSpaceTray* tray() { return holding_space_tray_; }
 
  private:
   class ChildBubbleContainer;
@@ -60,9 +66,9 @@ class ASH_EXPORT HoldingSpaceTrayBubble : public ScreenLayoutObserver,
   // The owner of this class.
   HoldingSpaceTray* const holding_space_tray_;
 
-  // The singleton delegate for `HoldingSpaceItemView`s that implements support
+  // The singleton delegate for holding space views that implements support
   // for context menu, drag-and-drop, and multiple selection.
-  HoldingSpaceItemViewDelegate delegate_;
+  HoldingSpaceViewDelegate delegate_{this};
 
   // Views owned by view hierarchy.
   ChildBubbleContainer* child_bubble_container_;

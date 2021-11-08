@@ -99,12 +99,17 @@ bool StructTraits<blink::mojom::RendererPreferencesDataView,
   out->arrow_bitmap_width_horizontal_scroll_bar_in_dips =
       data.arrow_bitmap_width_horizontal_scroll_bar_in_dips();
 #endif
-#if defined(USE_X11) || defined(USE_OZONE)
+#if defined(USE_OZONE)
   out->selection_clipboard_buffer_available =
       data.selection_clipboard_buffer_available();
 #endif
   out->plugin_fullscreen_allowed = data.plugin_fullscreen_allowed();
   out->caret_browsing_enabled = data.caret_browsing_enabled();
+
+  if (!data.ReadExplicitlyAllowedNetworkPorts(
+          &out->explicitly_allowed_network_ports)) {
+    return false;
+  }
 
   return true;
 }

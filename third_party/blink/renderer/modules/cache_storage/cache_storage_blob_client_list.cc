@@ -32,6 +32,9 @@ class CacheStorageBlobClientList::Client
                           context->GetTaskRunner(TaskType::kMiscPlatformAPI));
   }
 
+  Client(const Client&) = delete;
+  Client& operator=(const Client&) = delete;
+
   void OnCalculatedSize(uint64_t total_size,
                         uint64_t expected_content_size) override {}
 
@@ -69,13 +72,8 @@ class CacheStorageBlobClientList::Client
   }
 
   WeakMember<CacheStorageBlobClientList> owner_;
-  HeapMojoReceiver<mojom::blink::BlobReaderClient,
-                   Client,
-                   HeapMojoWrapperMode::kWithoutContextObserver>
-      client_receiver_;
+  HeapMojoReceiver<mojom::blink::BlobReaderClient, Client> client_receiver_;
   Member<DataPipeBytesConsumer::CompletionNotifier> completion_notifier_;
-
-  DISALLOW_COPY_AND_ASSIGN(Client);
 };
 
 void CacheStorageBlobClientList::AddClient(

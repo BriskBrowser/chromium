@@ -3,23 +3,25 @@
 // found in the LICENSE file.
 
 import 'chrome://resources/cr_elements/cr_grid/cr_grid.js';
-
-import '../../img.js';
+import 'chrome://resources/cr_elements/cr_auto_img/cr_auto_img.js';
 import '../../strings.m.js';
 import '../module_header.js';
 
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
+import {I18nBehavior, loadTimeData} from '../../i18n_setup.js';
 import {ModuleDescriptor} from '../module_descriptor.js';
+
 import {FooProxy} from './foo_proxy.js';
 
 /**
- * @fileoverview A dummy module, which serves as an example and a helper to
- * build out the NTP module framework.
+ * A dummy module, which serves as an example and a helper to build out the NTP
+ * module framework.
+ * @polymer
+ * @extends {PolymerElement}
  */
-
-class DummyModuleElement extends PolymerElement {
+class DummyModuleElement extends mixinBehaviors
+([I18nBehavior], PolymerElement) {
   static get is() {
     return 'ntp-dummy-module';
   }
@@ -45,8 +47,21 @@ class DummyModuleElement extends PolymerElement {
 
   /** @private */
   async initializeData_() {
-    const tileData = await FooProxy.getInstance().handler.getData();
+    const tileData = await FooProxy.getHandler().getData();
     this.tiles = tileData.data;
+  }
+
+  /** @private */
+  onDisableButtonClick_() {
+    this.dispatchEvent(new CustomEvent('disable-module', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        message: loadTimeData.getStringF(
+            'disableModuleToastMessage',
+            loadTimeData.getString('modulesDummyLower')),
+      },
+    }));
   }
 }
 
@@ -65,11 +80,11 @@ function createDummyElement(titleId) {
 /** @type {!ModuleDescriptor} */
 export const dummyDescriptor = new ModuleDescriptor(
     /*id=*/ 'dummy',
-    /*heightPx=*/ 314,
+    /*name=*/ loadTimeData.getString('modulesDummyTitle'),
     () => Promise.resolve(createDummyElement('modulesDummyTitle')));
 
 /** @type {!ModuleDescriptor} */
 export const dummyDescriptor2 = new ModuleDescriptor(
     /*id=*/ 'dummy2',
-    /*heightPx=*/ 314,
+    /*name=*/ loadTimeData.getString('modulesDummy2Title'),
     () => Promise.resolve(createDummyElement('modulesDummy2Title')));

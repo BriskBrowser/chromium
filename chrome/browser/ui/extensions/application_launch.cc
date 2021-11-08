@@ -30,13 +30,14 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow_delegate.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/url_constants.h"
 #include "content/public/browser/web_contents.h"
@@ -80,6 +81,9 @@ class EnableViaDialogFlow : public ExtensionEnableFlowDelegate {
         extension_id_(extension_id),
         callback_(std::move(callback)) {}
 
+  EnableViaDialogFlow(const EnableViaDialogFlow&) = delete;
+  EnableViaDialogFlow& operator=(const EnableViaDialogFlow&) = delete;
+
   ~EnableViaDialogFlow() override {}
 
   void Run() {
@@ -108,8 +112,6 @@ class EnableViaDialogFlow : public ExtensionEnableFlowDelegate {
   std::string extension_id_;
   base::OnceClosure callback_;
   std::unique_ptr<ExtensionEnableFlow> flow_;
-
-  DISALLOW_COPY_AND_ASSIGN(EnableViaDialogFlow);
 };
 
 const Extension* GetExtension(Profile* profile,
@@ -127,7 +129,7 @@ bool IsAllowedToOverrideURL(const extensions::Extension* extension,
   if (extension->web_extent().MatchesURL(override_url))
     return true;
 
-  if (override_url.GetOrigin() == extension->url())
+  if (override_url.DeprecatedGetOriginAsURL() == extension->url())
     return true;
 
   return false;
@@ -197,7 +199,11 @@ WebContents* OpenApplicationTab(Profile* profile,
   WebContents* contents = NULL;
   if (!browser) {
     // No browser for this profile, need to open a new one.
-    //
+    if (Browser::GetCreationStatusForProfile(profile) !=
+        Browser::CreationStatus::kOk) {
+      return contents;
+    }
+
     // TODO(erg): AppLaunchParams should pass user_gesture from the extension
     // system to here.
     browser = Browser::Create(
@@ -295,8 +301,9 @@ WebContents* OpenEnabledApplication(Profile* profile,
 
     apps::LaunchPlatformAppWithCommandLineAndLaunchId(
         profile, extension, params.launch_id, params.command_line,
-        params.current_directory, params.source);
-    return NULL;
+        params.current_directory,
+        apps::GetAppLaunchSource(params.launch_source));
+    return nullptr;
   }
 
   UMA_HISTOGRAM_ENUMERATION("Extensions.HostedAppLaunchContainer",
@@ -439,7 +446,7 @@ void OpenApplicationWithReenablePrompt(Profile* profile,
     (new EnableViaDialogFlow(
          service, registry, profile, extension->id(),
          base::BindOnce(base::IgnoreResult(OpenEnabledApplication), profile,
-                        base::Passed(std::move(params)))))
+                        std::move(params))))
         ->Run();
     return;
   }
@@ -452,7 +459,7 @@ WebContents* OpenAppShortcutWindow(Profile* profile, const GURL& url) {
       std::string(),  // this is a URL app. No app id.
       extensions::LaunchContainer::kLaunchContainerWindow,
       WindowOpenDisposition::NEW_WINDOW,
-      extensions::AppLaunchSource::kSourceCommandLine);
+      apps::mojom::LaunchSource::kFromCommandLine);
   launch_params.override_url = url;
 
   WebContents* tab = OpenApplicationWindow(profile, launch_params, url);

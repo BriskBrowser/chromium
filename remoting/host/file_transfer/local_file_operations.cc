@@ -11,13 +11,12 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
-#include "base/task_runner_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "build/build_config.h"
 #include "remoting/base/result.h"
@@ -25,6 +24,7 @@
 #include "remoting/host/file_transfer/file_chooser.h"
 #include "remoting/host/file_transfer/get_desktop_directory.h"
 #include "remoting/protocol/file_transfer_helpers.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace remoting {
 
@@ -63,6 +63,10 @@ class LocalFileReader : public FileOperations::Reader {
  public:
   explicit LocalFileReader(
       scoped_refptr<base::SequencedTaskRunner> ui_task_runner);
+
+  LocalFileReader(const LocalFileReader&) = delete;
+  LocalFileReader& operator=(const LocalFileReader&) = delete;
+
   ~LocalFileReader() override;
 
   // FileOperations::Reader implementation.
@@ -95,16 +99,18 @@ class LocalFileReader : public FileOperations::Reader {
   scoped_refptr<base::SequencedTaskRunner> ui_task_runner_;
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
   std::unique_ptr<FileChooser> file_chooser_;
-  base::Optional<base::FileProxy> file_proxy_;
+  absl::optional<base::FileProxy> file_proxy_;
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<LocalFileReader> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(LocalFileReader);
 };
 
 class LocalFileWriter : public FileOperations::Writer {
  public:
   LocalFileWriter();
+
+  LocalFileWriter(const LocalFileWriter&) = delete;
+  LocalFileWriter& operator=(const LocalFileWriter&) = delete;
+
   ~LocalFileWriter() override;
 
   // FileOperations::Writer implementation.
@@ -144,11 +150,9 @@ class LocalFileWriter : public FileOperations::Writer {
   std::uint64_t bytes_written_ = 0;
 
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
-  base::Optional<base::FileProxy> file_proxy_;
+  absl::optional<base::FileProxy> file_proxy_;
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<LocalFileWriter> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(LocalFileWriter);
 };
 
 LocalFileReader::LocalFileReader(

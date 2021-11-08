@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/browser/renderer_host/media/video_capture_controller.h"
 #include "content/browser/renderer_host/media/video_capture_provider.h"
 #include "content/public/browser/video_capture_device_launcher.h"
@@ -79,7 +79,7 @@ class InProcessVideoCaptureDeviceLauncher : public VideoCaptureDeviceLauncher {
       std::unique_ptr<media::VideoFrameReceiver> receiver,
       ReceiveDeviceCallback result_callback);
 
-  void DoStartAuraWindowCaptureOnDeviceThread(
+  void DoStartVizFrameSinkWindowCaptureOnDeviceThread(
       const DesktopMediaID& device_id,
       const media::VideoCaptureParams& params,
       std::unique_ptr<media::VideoFrameReceiver> receiver,

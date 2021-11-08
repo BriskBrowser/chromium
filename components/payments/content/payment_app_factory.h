@@ -8,7 +8,6 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/payments/content/payment_app.h"
@@ -20,7 +19,6 @@ class GURL;
 
 namespace autofill {
 class AutofillProfile;
-class InternalAuthenticator;
 }  // namespace autofill
 
 namespace content {
@@ -31,6 +29,10 @@ class WebContents;
 namespace url {
 class Origin;
 }  // namespace url
+
+namespace webauthn {
+class InternalAuthenticator;
+}  // namespace webauthn
 
 namespace payments {
 
@@ -59,9 +61,12 @@ class PaymentAppFactory {
     // RenderFrameHost is being unloaded, for example.
     virtual content::RenderFrameHost* GetInitiatorRenderFrameHost() const = 0;
 
+    virtual content::GlobalRenderFrameHostId GetInitiatorRenderFrameHostId()
+        const = 0;
+
     virtual const std::vector<mojom::PaymentMethodDataPtr>& GetMethodData()
         const = 0;
-    virtual std::unique_ptr<autofill::InternalAuthenticator>
+    virtual std::unique_ptr<webauthn::InternalAuthenticator>
     CreateInternalAuthenticator() const = 0;
     virtual scoped_refptr<PaymentManifestWebDataService>
     GetPaymentManifestWebDataService() const = 0;
@@ -84,8 +89,8 @@ class PaymentAppFactory {
     virtual const std::vector<autofill::AutofillProfile*>&
     GetBillingProfiles() = 0;
     virtual bool IsRequestedAutofillDataAvailable() = 0;
-    virtual ContentPaymentRequestDelegate* GetPaymentRequestDelegate()
-        const = 0;
+    virtual base::WeakPtr<ContentPaymentRequestDelegate>
+    GetPaymentRequestDelegate() const = 0;
 
     // Called when an app is created.
     virtual void OnPaymentAppCreated(std::unique_ptr<PaymentApp> app) = 0;
@@ -114,6 +119,10 @@ class PaymentAppFactory {
   };
 
   explicit PaymentAppFactory(PaymentApp::Type type);
+
+  PaymentAppFactory(const PaymentAppFactory&) = delete;
+  PaymentAppFactory& operator=(const PaymentAppFactory&) = delete;
+
   virtual ~PaymentAppFactory();
 
   PaymentApp::Type type() const { return type_; }
@@ -122,8 +131,6 @@ class PaymentAppFactory {
 
  private:
   const PaymentApp::Type type_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentAppFactory);
 };
 
 }  // namespace payments

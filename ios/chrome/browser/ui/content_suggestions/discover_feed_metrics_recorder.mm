@@ -9,7 +9,7 @@
 #import "base/metrics/histogram_macros.h"
 #import "base/metrics/user_metrics.h"
 #import "base/metrics/user_metrics_action.h"
-#import "components/feed/core/v2/common_enums.h"
+#import "components/feed/core/v2/public/common_enums.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -53,6 +53,12 @@ namespace {
 // Histogram name for the infinite feed trigger.
 const char kDiscoverFeedInfiniteFeedTriggered[] =
     "ContentSuggestions.Feed.LoadStreamStatus.LoadMore";
+
+// User action names for the device orientation having changed.
+const char kDiscoverFeedHistogramDeviceOrientationChangedToPortrait[] =
+    "ContentSuggestions.Feed.DeviceOrientationChanged.Portrait";
+const char kDiscoverFeedHistogramDeviceOrientationChangedToLandscape[] =
+    "ContentSuggestions.Feed.DeviceOrientationChanged.Landscape";
 
 // Histogram name for the Discover feed user actions.
 const char kDiscoverFeedUserActionHistogram[] =
@@ -101,6 +107,8 @@ const char kDiscoverFeedUserActionReportContentOpened[] =
     "ContentSuggestions.Feed.CardAction.ReportContent";
 const char kDiscoverFeedUserActionReportContentClosed[] =
     "ContentSuggestions.Feed.CardAction.ClosedReportContent";
+const char kDiscoverFeedUserActionPreviewTapped[] =
+    "ContentSuggestions.Feed.CardAction.TapPreview";
 
 // User action names for feed header menu.
 const char kDiscoverFeedUserActionManageActivityTapped[] =
@@ -159,6 +167,10 @@ const char kDiscoverFeedNetworkDuration[] =
 // opened in.
 const char kDiscoverFeedURLOpened[] = "NewTabPage.ContentSuggestions.Opened";
 
+// Histogram name to capture if the last Feed fetch had logging enabled.
+const char kDiscoverFeedActivityLoggingEnabled[] =
+    "ContentSuggestions.Feed.ActivityLoggingEnabled";
+
 // Minimum scrolling amount to record a FeedEngagementType::kFeedEngaged due to
 // scrolling.
 const int kMinScrollThreshold = 160;
@@ -202,6 +214,24 @@ const int kMinutesBetweenSessions = 5;
                             FeedLoadStreamStatus::kLoadedFromNetwork);
   base::RecordAction(
       base::UserMetricsAction(kDiscoverFeedUserActionInfiniteFeedTriggered));
+}
+
+- (void)recordDeviceOrientationChanged:(UIDeviceOrientation)orientation {
+  if (orientation == UIDeviceOrientationPortrait) {
+    base::RecordAction(base::UserMetricsAction(
+        kDiscoverFeedHistogramDeviceOrientationChangedToPortrait));
+  } else if (orientation == UIDeviceOrientationLandscapeLeft ||
+             orientation == UIDeviceOrientationLandscapeRight) {
+    base::RecordAction(base::UserMetricsAction(
+        kDiscoverFeedHistogramDeviceOrientationChangedToLandscape));
+  }
+}
+
+- (void)recordDiscoverFeedPreviewTapped {
+  [self recordDiscoverFeedUserActionHistogram:FeedUserActionType::
+                                                  kTappedDiscoverFeedPreview];
+  base::RecordAction(
+      base::UserMetricsAction(kDiscoverFeedUserActionPreviewTapped));
 }
 
 - (void)recordHeaderMenuLearnMoreTapped {
@@ -344,10 +374,10 @@ const int kMinutesBetweenSessions = 5;
                                          success:(BOOL)success {
   if (success) {
     UMA_HISTOGRAM_MEDIUM_TIMES(kDiscoverFeedArticlesFetchNetworkDurationSuccess,
-                               base::TimeDelta::FromSeconds(durationInSeconds));
+                               base::Seconds(durationInSeconds));
   } else {
     UMA_HISTOGRAM_MEDIUM_TIMES(kDiscoverFeedArticlesFetchNetworkDurationFailure,
-                               base::TimeDelta::FromSeconds(durationInSeconds));
+                               base::Seconds(durationInSeconds));
   }
   [self recordNetworkRequestDurationInSeconds:durationInSeconds];
 }
@@ -358,11 +388,11 @@ const int kMinutesBetweenSessions = 5;
   if (success) {
     UMA_HISTOGRAM_MEDIUM_TIMES(
         kDiscoverFeedMoreArticlesFetchNetworkDurationSuccess,
-        base::TimeDelta::FromSeconds(durationInSeconds));
+        base::Seconds(durationInSeconds));
   } else {
     UMA_HISTOGRAM_MEDIUM_TIMES(
         kDiscoverFeedMoreArticlesFetchNetworkDurationFailure,
-        base::TimeDelta::FromSeconds(durationInSeconds));
+        base::Seconds(durationInSeconds));
   }
   [self recordNetworkRequestDurationInSeconds:durationInSeconds];
 }
@@ -372,10 +402,10 @@ const int kMinutesBetweenSessions = 5;
                                          success:(BOOL)success {
   if (success) {
     UMA_HISTOGRAM_MEDIUM_TIMES(kDiscoverFeedUploadActionsNetworkDurationSuccess,
-                               base::TimeDelta::FromSeconds(durationInSeconds));
+                               base::Seconds(durationInSeconds));
   } else {
     UMA_HISTOGRAM_MEDIUM_TIMES(kDiscoverFeedUploadActionsNetworkDurationFailure,
-                               base::TimeDelta::FromSeconds(durationInSeconds));
+                               base::Seconds(durationInSeconds));
   }
   [self recordNetworkRequestDurationInSeconds:durationInSeconds];
 }
@@ -408,6 +438,11 @@ const int kMinutesBetweenSessions = 5;
   }
 }
 
+- (void)recordActivityLoggingEnabled:(BOOL)loggingEnabled {
+  base::UmaHistogramBoolean(kDiscoverFeedActivityLoggingEnabled,
+                            loggingEnabled);
+}
+
 #pragma mark - Private
 
 // Records histogram metrics for Discover feed user actions.
@@ -422,8 +457,7 @@ const int kMinutesBetweenSessions = 5;
 
   // Determine if this interaction is part of a new 'session'.
   base::Time now = base::Time::Now();
-  base::TimeDelta visitTimeout =
-      base::TimeDelta::FromMinutes(kMinutesBetweenSessions);
+  base::TimeDelta visitTimeout = base::Minutes(kMinutesBetweenSessions);
   if (now - self.sessionStartTime > visitTimeout) {
     [self finalizeSession];
   }
@@ -476,7 +510,7 @@ const int kMinutesBetweenSessions = 5;
 - (void)recordNetworkRequestDurationInSeconds:
     (NSTimeInterval)durationInSeconds {
   UMA_HISTOGRAM_MEDIUM_TIMES(kDiscoverFeedNetworkDuration,
-                             base::TimeDelta::FromSeconds(durationInSeconds));
+                             base::Seconds(durationInSeconds));
 }
 
 // Records that a URL was opened regardless of the target surface (e.g. New Tab,

@@ -37,10 +37,16 @@ class CancellingNavigationSimulatorTest
     : public RenderViewHostImplTestHarness,
       public WebContentsObserver,
       public testing::WithParamInterface<
-          std::tuple<base::Optional<TestNavigationThrottle::ThrottleMethod>,
+          std::tuple<absl::optional<TestNavigationThrottle::ThrottleMethod>,
                      TestNavigationThrottle::ResultSynchrony>> {
  public:
   CancellingNavigationSimulatorTest() {}
+
+  CancellingNavigationSimulatorTest(const CancellingNavigationSimulatorTest&) =
+      delete;
+  CancellingNavigationSimulatorTest& operator=(
+      const CancellingNavigationSimulatorTest&) = delete;
+
   ~CancellingNavigationSimulatorTest() override {}
 
   void SetUp() override {
@@ -78,22 +84,25 @@ class CancellingNavigationSimulatorTest
 
   void OnWillFailRequestCalled() { will_fail_request_called_ = true; }
 
-  base::Optional<TestNavigationThrottle::ThrottleMethod> cancel_time_;
+  absl::optional<TestNavigationThrottle::ThrottleMethod> cancel_time_;
   TestNavigationThrottle::ResultSynchrony sync_;
   std::unique_ptr<NavigationSimulator> simulator_;
   bool did_finish_navigation_ = false;
   bool will_fail_request_called_ = false;
   base::WeakPtrFactory<CancellingNavigationSimulatorTest> weak_ptr_factory_{
       this};
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CancellingNavigationSimulatorTest);
 };
 
 class MethodCheckingNavigationSimulatorTest : public NavigationSimulatorTest,
                                               public WebContentsObserver {
  public:
   MethodCheckingNavigationSimulatorTest() = default;
+
+  MethodCheckingNavigationSimulatorTest(
+      const MethodCheckingNavigationSimulatorTest&) = delete;
+  MethodCheckingNavigationSimulatorTest& operator=(
+      const MethodCheckingNavigationSimulatorTest&) = delete;
+
   ~MethodCheckingNavigationSimulatorTest() override = default;
 
   void SetUp() override {
@@ -116,8 +125,6 @@ class MethodCheckingNavigationSimulatorTest : public NavigationSimulatorTest,
 
   // Not valid until |did_finish_navigation_| is true;
   bool is_post_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(MethodCheckingNavigationSimulatorTest);
 };
 
 class ResponseHeadersCheckingNavigationSimulatorTest
@@ -267,7 +274,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(TestNavigationThrottle::WILL_START_REQUEST,
                           TestNavigationThrottle::WILL_REDIRECT_REQUEST,
                           TestNavigationThrottle::WILL_PROCESS_RESPONSE,
-                          base::nullopt),
+                          absl::nullopt),
         ::testing::Values(TestNavigationThrottle::SYNCHRONOUS,
                           TestNavigationThrottle::ASYNCHRONOUS)));
 

@@ -13,28 +13,33 @@ namespace proximity_auth {
 class FakeLockHandler : public ScreenlockBridge::LockHandler {
  public:
   FakeLockHandler();
+
+  FakeLockHandler(const FakeLockHandler&) = delete;
+  FakeLockHandler& operator=(const FakeLockHandler&) = delete;
+
   ~FakeLockHandler() override;
 
   // LockHandler:
-  void ShowBannerMessage(const base::string16& message,
+  void ShowBannerMessage(const std::u16string& message,
                          bool is_warning) override;
   void ShowUserPodCustomIcon(
       const AccountId& account_id,
-      const ScreenlockBridge::UserPodCustomIconOptions& icon) override;
+      const ScreenlockBridge::UserPodCustomIconInfo& icon_info) override;
   void HideUserPodCustomIcon(const AccountId& account_id) override;
+  void SetSmartLockState(const AccountId& account_id,
+                         ash::SmartLockState state) override;
+  void NotifySmartLockAuthResult(const AccountId& account_id,
+                                 bool successful) override;
   void EnableInput() override;
   void SetAuthType(const AccountId& account_id,
                    mojom::AuthType auth_type,
-                   const base::string16& auth_value) override;
+                   const std::u16string& auth_value) override;
   mojom::AuthType GetAuthType(const AccountId& account_id) const override;
   ScreenType GetScreenType() const override;
   void Unlock(const AccountId& account_id) override;
   void AttemptEasySignin(const AccountId& account_id,
                          const std::string& secret,
                          const std::string& key_label) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FakeLockHandler);
 };
 
 }  // namespace proximity_auth

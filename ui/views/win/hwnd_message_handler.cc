@@ -15,13 +15,14 @@
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/debug/alias.h"
+#include "base/debug/gdi_debug_util_win.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util_win.h"
 #include "base/task/current_thread.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
@@ -35,6 +36,7 @@
 #include "ui/accessibility/platform/ax_fragment_root_win.h"
 #include "ui/accessibility/platform/ax_platform_node_win.h"
 #include "ui/accessibility/platform/ax_system_caret_win.h"
+#include "ui/base/cursor/win/win_cursor.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/base/ui_base_features.h"
@@ -80,6 +82,10 @@ namespace {
 class MoveLoopMouseWatcher {
  public:
   MoveLoopMouseWatcher(HWNDMessageHandler* host, bool hide_on_escape);
+
+  MoveLoopMouseWatcher(const MoveLoopMouseWatcher&) = delete;
+  MoveLoopMouseWatcher& operator=(const MoveLoopMouseWatcher&) = delete;
+
   ~MoveLoopMouseWatcher();
 
   // Returns true if the mouse is up, or if we couldn't install the hook.
@@ -108,8 +114,6 @@ class MoveLoopMouseWatcher {
   // Hook identifiers.
   HHOOK mouse_hook_;
   HHOOK key_hook_;
-
-  DISALLOW_COPY_AND_ASSIGN(MoveLoopMouseWatcher);
 };
 
 // static
@@ -293,8 +297,7 @@ int GetFlagsFromRawInputMessage(RAWINPUT* input) {
   return ui::GetModifiersFromKeyState() | flags;
 }
 
-constexpr auto kTouchDownContextResetTimeout =
-    base::TimeDelta::FromMilliseconds(500);
+constexpr auto kTouchDownContextResetTimeout = base::Milliseconds(500);
 
 // Windows does not flag synthesized mouse messages from touch or pen in all
 // cases. This causes us grief as we don't want to process touch and mouse
@@ -362,6 +365,9 @@ class HWNDMessageHandler::ScopedRedrawLock {
       owner_->LockUpdates();
   }
 
+  ScopedRedrawLock(const ScopedRedrawLock&) = delete;
+  ScopedRedrawLock& operator=(const ScopedRedrawLock&) = delete;
+
   ~ScopedRedrawLock() {
     if (!cancel_unlock_ && should_lock_ && ::IsWindow(hwnd_))
       owner_->UnlockUpdates();
@@ -379,8 +385,6 @@ class HWNDMessageHandler::ScopedRedrawLock {
   bool cancel_unlock_;
   // If false, don't use redraw lock.
   const bool should_lock_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedRedrawLock);
 };
 
 // static HWNDMessageHandler member initialization.
@@ -402,7 +406,7 @@ HWNDMessageHandler::HWNDMessageHandler(HWNDMessageHandlerDelegate* delegate,
       waiting_for_close_now_(false),
       use_system_default_icon_(false),
       restored_enabled_(false),
-      current_cursor_(nullptr),
+      current_cursor_(base::MakeRefCounted<ui::WinCursor>()),
       dpi_(0),
       called_enable_non_client_dpi_scaling_(false),
       active_mouse_tracking_flags_(0),
@@ -413,9 +417,7 @@ HWNDMessageHandler::HWNDMessageHandler(HWNDMessageHandlerDelegate* delegate,
       is_first_nccalc_(true),
       menu_depth_(0),
       id_generator_(0),
-      pen_processor_(
-          &id_generator_,
-          base::FeatureList::IsEnabled(::features::kDirectManipulationStylus)),
+      pen_processor_(&id_generator_, true),
       touch_down_contexts_(0),
       last_mouse_hwheel_time_(0),
       dwm_transition_desired_(false),
@@ -849,7 +851,7 @@ void HWNDMessageHandler::SetVisibilityChangedAnimationsEnabled(bool enabled) {
                         sizeof(dwm_value));
 }
 
-bool HWNDMessageHandler::SetTitle(const base::string16& title) {
+bool HWNDMessageHandler::SetTitle(const std::u16string& title) {
   std::wstring current_title;
   size_t len_with_null = GetWindowTextLength(hwnd()) + 1;
   if (len_with_null == 1 && title.length() == 0)
@@ -863,10 +865,12 @@ bool HWNDMessageHandler::SetTitle(const base::string16& title) {
   return true;
 }
 
-void HWNDMessageHandler::SetCursor(HCURSOR cursor) {
+void HWNDMessageHandler::SetCursor(scoped_refptr<ui::WinCursor> cursor) {
+  DCHECK(cursor);
+
   TRACE_EVENT1("ui,input", "HWNDMessageHandler::SetCursor", "cursor",
-               static_cast<const void*>(cursor));
-  ::SetCursor(cursor);
+               static_cast<const void*>(cursor->hcursor()));
+  ::SetCursor(cursor->hcursor());
   current_cursor_ = cursor;
 }
 
@@ -896,7 +900,10 @@ void HWNDMessageHandler::SetWindowIcons(const gfx::ImageSkia& window_icon,
 
 void HWNDMessageHandler::SetFullscreen(bool fullscreen) {
   background_fullscreen_hack_ = false;
+  auto ref = msg_handler_weak_factory_.GetWeakPtr();
   fullscreen_handler()->SetFullscreen(fullscreen);
+  if (!ref)
+    return;
 
   // Add the fullscreen window to the fullscreen window map which is used to
   // handle window activations.
@@ -989,11 +996,13 @@ HICON HWNDMessageHandler::GetSmallWindowIcon() const {
 LRESULT HWNDMessageHandler::OnWndProc(UINT message,
                                       WPARAM w_param,
                                       LPARAM l_param) {
-  TRACE_EVENT("ui", "HWNDMessageHandler::OnWndProc",
+  TRACE_EVENT("ui,toplevel", "HWNDMessageHandler::OnWndProc",
               [&](perfetto::EventContext ctx) {
                 perfetto::protos::pbzero::ChromeWindowHandleEventInfo* args =
                     ctx.event()->set_chrome_window_handle_event_info();
                 args->set_message_id(message);
+                args->set_hwnd_ptr(
+                    static_cast<uint64_t>(reinterpret_cast<uintptr_t>(hwnd())));
               });
 
   HWND window = hwnd();
@@ -1398,8 +1407,10 @@ void HWNDMessageHandler::ClientAreaSizeChanged() {
   // Ignore size changes due to fullscreen windows losing activation.
   if (background_fullscreen_hack_ && !sent_window_size_changing_)
     return;
-  gfx::Size s = GetClientAreaBounds().size();
-  delegate_->HandleClientSizeChanged(s);
+  auto ref = msg_handler_weak_factory_.GetWeakPtr();
+  delegate_->HandleClientSizeChanged(GetClientAreaBounds().size());
+  if (!ref)
+    return;
 
   current_window_size_message_++;
   sent_window_size_changing_ = false;
@@ -1535,7 +1546,7 @@ void HWNDMessageHandler::ForceRedrawWindow(int attempts) {
         FROM_HERE,
         base::BindOnce(&HWNDMessageHandler::ForceRedrawWindow,
                        msg_handler_weak_factory_.GetWeakPtr(), attempts),
-        base::TimeDelta::FromMilliseconds(500));
+        base::Milliseconds(500));
     return;
   }
   InvalidateRect(hwnd(), nullptr, FALSE);
@@ -1637,8 +1648,6 @@ LRESULT HWNDMessageHandler::OnCreate(CREATESTRUCT* create_struct) {
       std::make_unique<ui::SessionChangeObserver>(base::BindRepeating(
           &HWNDMessageHandler::OnSessionChange, base::Unretained(this)));
 
-  dpi_ = display::win::ScreenWin::GetDPIForHWND(hwnd());
-
   // TODO(beng): move more of NWW::OnCreate here.
   return 0;
 }
@@ -1667,7 +1676,13 @@ void HWNDMessageHandler::OnDisplayChange(UINT bits_per_pixel,
                                          const gfx::Size& screen_size) {
   TRACE_EVENT0("ui", "HWNDMessageHandler::OnDisplayChange");
 
+  base::WeakPtr<HWNDMessageHandler> ref(msg_handler_weak_factory_.GetWeakPtr());
   delegate_->HandleDisplayChange();
+
+  // HandleDisplayChange() may result in |this| being deleted.
+  if (!ref)
+    return;
+
   // Force a WM_NCCALCSIZE to occur to ensure that we handle auto hide
   // taskbars correctly.
   SendFrameChanged();
@@ -1723,8 +1738,12 @@ LRESULT HWNDMessageHandler::OnDpiChanged(UINT msg,
   // initialization. We don't want to propagate this as the client is already
   // set at the current scale factor and may cause the window to display too
   // soon. See http://crbug.com/625076.
-  if (dpi_ == dpi)
+  if (dpi_ == 0) {
+    // See https://crbug.com/1252564 for why we need to ignore the first
+    // OnDpiChanged message in this way.
+    dpi_ = dpi;
     return 0;
+  }
 
   dpi_ = dpi;
   SetBoundsInternal(gfx::Rect(*reinterpret_cast<RECT*>(l_param)), false);
@@ -1899,8 +1918,8 @@ void HWNDMessageHandler::OnInputLangChange(DWORD character_set,
 LRESULT HWNDMessageHandler::OnKeyEvent(UINT message,
                                        WPARAM w_param,
                                        LPARAM l_param) {
-  MSG msg = {hwnd(), message, w_param, l_param,
-             static_cast<DWORD>(GetMessageTime())};
+  CHROME_MSG msg = {hwnd(), message, w_param, l_param,
+                    static_cast<DWORD>(GetMessageTime())};
   ui::KeyEvent key(msg);
   base::WeakPtr<HWNDMessageHandler> ref(msg_handler_weak_factory_.GetWeakPtr());
   delegate_->HandleKeyEvent(&key);
@@ -2401,22 +2420,11 @@ void HWNDMessageHandler::OnPaint(HDC dc) {
   HDC display_dc = BeginPaint(hwnd(), &ps);
 
   if (!display_dc) {
-    // Collect some information as to why this may have happened and preserve
-    // it on the stack so it shows up in a dump.
-    // This is temporary data collection code in service of
-    // http://crbug.com/512945
-    DWORD last_error = GetLastError();
-    size_t current_gdi_objects =
-        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
-    size_t peak_gdi_objects =
-        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS_PEAK);
-    base::debug::Alias(&last_error);
-    base::debug::Alias(&current_gdi_objects);
-    base::debug::Alias(&peak_gdi_objects);
-
-    LOG(FATAL) << "Failed to create DC in BeginPaint(). GLE = " << last_error
-               << ", GDI object count: " << current_gdi_objects
-               << ", GDI peak count: " << peak_gdi_objects;
+    // Failing to get a DC during BeginPaint() means we won't be able to
+    // actually get any pixels to the screen and is very bad. This is often
+    // caused by handle exhaustion. Collecting some GDI statistics may aid
+    // tracking down the cause.
+    base::debug::CollectGDIUsageAndDie();
   }
 
   if (!IsRectEmpty(&ps.rcPaint)) {
@@ -2474,8 +2482,8 @@ LRESULT HWNDMessageHandler::OnReflectedMessage(UINT message,
 LRESULT HWNDMessageHandler::OnScrollMessage(UINT message,
                                             WPARAM w_param,
                                             LPARAM l_param) {
-  MSG msg = {hwnd(), message, w_param, l_param,
-             static_cast<DWORD>(GetMessageTime())};
+  CHROME_MSG msg = {hwnd(), message, w_param, l_param,
+                    static_cast<DWORD>(GetMessageTime())};
   ui::ScrollEvent event(msg);
   delegate_->HandleScrollEvent(&event);
   return 0;
@@ -2489,12 +2497,15 @@ LRESULT HWNDMessageHandler::OnSetCursor(UINT message,
   if (is_pen_active_in_client_area_)
     return 1;
 
+  // current_cursor_ must be a ui::WinCursor, so that custom image cursors are
+  // properly ref-counted. cursor below is only used for system cursors and
+  // doesn't replace the current cursor so an HCURSOR can be used directly.
+  wchar_t* cursor = IDC_ARROW;
   // Reimplement the necessary default behavior here. Calling DefWindowProc can
   // trigger weird non-client painting for non-glass windows with custom frames.
   // Using a ScopedRedrawLock to prevent caption rendering artifacts may allow
   // content behind this window to incorrectly paint in front of this window.
   // Invalidating the window to paint over either set of artifacts is not ideal.
-  wchar_t* cursor = IDC_ARROW;
   switch (LOWORD(l_param)) {
     case HTSIZE:
       cursor = IDC_SIZENWSE;
@@ -2722,6 +2733,8 @@ LRESULT HWNDMessageHandler::OnTouchEvent(UINT message,
         touch_ids_.insert(input[i].dwID);
         GenerateTouchEvent(ui::ET_TOUCH_PRESSED, touch_point, touch_id,
                            event_time, &touch_events);
+        ui::ComputeEventLatencyOSFromTOUCHINPUT(ui::ET_TOUCH_PRESSED, input[i],
+                                                event_time);
         touch_down_contexts_++;
         base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
             FROM_HERE,
@@ -2732,12 +2745,16 @@ LRESULT HWNDMessageHandler::OnTouchEvent(UINT message,
         if (input[i].dwFlags & TOUCHEVENTF_MOVE) {
           GenerateTouchEvent(ui::ET_TOUCH_MOVED, touch_point, touch_id,
                              event_time, &touch_events);
+          ui::ComputeEventLatencyOSFromTOUCHINPUT(ui::ET_TOUCH_MOVED, input[i],
+                                                  event_time);
         }
 
         if (input[i].dwFlags & TOUCHEVENTF_UP) {
           touch_ids_.erase(input[i].dwID);
           GenerateTouchEvent(ui::ET_TOUCH_RELEASED, touch_point, touch_id,
                              event_time, &touch_events);
+          ui::ComputeEventLatencyOSFromTOUCHINPUT(ui::ET_TOUCH_RELEASED,
+                                                  input[i], event_time);
           id_generator_.ReleaseNumber(input[i].dwID);
         }
       }
@@ -2914,12 +2931,8 @@ void HWNDMessageHandler::OnWindowPosChanging(WINDOWPOS* window_pos) {
     window_pos->flags &= ~SWP_SHOWWINDOW;
   }
 
-  if (window_pos->flags & SWP_SHOWWINDOW) {
-    delegate_->HandleVisibilityChanging(true);
-  } else if (window_pos->flags & SWP_HIDEWINDOW) {
+  if (window_pos->flags & SWP_HIDEWINDOW)
     SetDwmFrameExtension(DwmFrameState::kOff);
-    delegate_->HandleVisibilityChanging(false);
-  }
 
   SetMsgHandled(FALSE);
 }
@@ -2927,8 +2940,11 @@ void HWNDMessageHandler::OnWindowPosChanging(WINDOWPOS* window_pos) {
 void HWNDMessageHandler::OnWindowPosChanged(WINDOWPOS* window_pos) {
   TRACE_EVENT0("ui", "HWNDMessageHandler::OnWindowPosChanged");
 
+  base::WeakPtr<HWNDMessageHandler> ref(msg_handler_weak_factory_.GetWeakPtr());
   if (DidClientAreaSizeChange(window_pos))
     ClientAreaSizeChanged();
+  if (!ref)
+    return;
   if (window_pos->flags & SWP_FRAMECHANGED)
     SetDwmFrameExtension(DwmFrameState::kOn);
   if (window_pos->flags & SWP_SHOWWINDOW) {
@@ -3081,12 +3097,12 @@ LRESULT HWNDMessageHandler::HandleMouseEventInternal(UINT message,
   }
 
   LONG message_time = GetMessageTime();
-  MSG msg = {hwnd(),
-             message,
-             w_param,
-             l_param,
-             static_cast<DWORD>(message_time),
-             {CR_GET_X_LPARAM(l_param), CR_GET_Y_LPARAM(l_param)}};
+  CHROME_MSG msg = {hwnd(),
+                    message,
+                    w_param,
+                    l_param,
+                    static_cast<DWORD>(message_time),
+                    {CR_GET_X_LPARAM(l_param), CR_GET_Y_LPARAM(l_param)}};
   ui::MouseEvent event(msg);
   if (IsSynthesizedMouseMessage(message, message_time, l_param))
     event.set_flags(event.flags() | ui::EF_FROM_TOUCH);
@@ -3228,7 +3244,8 @@ LRESULT HWNDMessageHandler::HandlePointerEventTypeTouchOrNonClient(
       ui::PointerDetails(ui::EventPointerType::kTouch, mapped_pointer_id,
                          radius_x, radius_y, pressure, rotation_angle),
       ui::GetModifiersFromKeyState());
-
+  ui::ComputeEventLatencyOSFromPOINTER_INFO(event_type, pointer_info,
+                                            event_time);
   event.latency()->AddLatencyNumberWithTimestamp(
       ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT, event_time);
 

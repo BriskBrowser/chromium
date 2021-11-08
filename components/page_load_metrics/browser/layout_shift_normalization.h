@@ -17,6 +17,10 @@ namespace page_load_metrics {
 class LayoutShiftNormalization {
  public:
   LayoutShiftNormalization();
+
+  LayoutShiftNormalization(const LayoutShiftNormalization&) = delete;
+  LayoutShiftNormalization& operator=(const LayoutShiftNormalization&) = delete;
+
   ~LayoutShiftNormalization();
   const NormalizedCLSData& normalized_cls_data() const {
     return normalized_cls_data_;
@@ -25,18 +29,15 @@ class LayoutShiftNormalization {
   void AddNewLayoutShifts(
       const std::vector<page_load_metrics::mojom::LayoutShiftPtr>& new_shifts,
       base::TimeTicks current_time,
-      /*Whole page CLS*/ double cumulative_layout_shift_score);
+      /*Whole page CLS*/ float cumulative_layout_shift_score);
+
+  void ClearAllLayoutShifts();
 
  private:
-  struct SlidingWindow {
-    base::TimeTicks start_time;
-    double layout_shift_score = 0.0;
-  };
-
   struct SessionWindow {
     base::TimeTicks start_time;
     base::TimeTicks last_time;
-    double layout_shift_score = 0.0;
+    float layout_shift_score = 0.0;
   };
 
   void UpdateWindowCLS(
@@ -45,15 +46,7 @@ class LayoutShiftNormalization {
       std::vector<std::pair<base::TimeTicks, double>>::const_iterator
           first_non_stale,
       std::vector<std::pair<base::TimeTicks, double>>::const_iterator last,
-      double cumulative_layout_shift_score);
-
-  void UpdateSlidingWindow(
-      std::vector<SlidingWindow>* sliding_windows,
-      base::TimeDelta duration,
-      base::TimeTicks current_time,
-      std::vector<std::pair<base::TimeTicks, double>>::const_iterator begin,
-      std::vector<std::pair<base::TimeTicks, double>>::const_iterator end,
-      double& max_score);
+      float cumulative_layout_shift_score);
 
   void UpdateSessionWindow(
       SessionWindow* session_window,
@@ -61,7 +54,7 @@ class LayoutShiftNormalization {
       base::TimeDelta max_duration,
       std::vector<std::pair<base::TimeTicks, double>>::const_iterator begin,
       std::vector<std::pair<base::TimeTicks, double>>::const_iterator end,
-      double& max_score,
+      float& max_score,
       uint32_t& count);
 
   // CLS normalization
@@ -70,15 +63,7 @@ class LayoutShiftNormalization {
   // This vector is maintained in sorted order.
   std::vector<std::pair<base::TimeTicks, double>> recent_layout_shifts_;
 
-  // Sliding window vectors are maintained in sorted order.
-  std::vector<SlidingWindow> sliding_300ms_;
-  std::vector<SlidingWindow> sliding_1000ms_;
   SessionWindow session_gap1000ms_max5000ms_;
-  SessionWindow session_gap1000ms_;
-  SessionWindow session_gap5000ms_;
-  uint32_t session_gap5000ms_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(LayoutShiftNormalization);
 };
 
 }  // namespace page_load_metrics

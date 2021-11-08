@@ -6,11 +6,11 @@ package org.chromium.chrome.browser.tabmodel;
 
 import static org.chromium.chrome.browser.incognito.IncognitoUtils.getNonPrimaryOTRProfileFromWindowAndroid;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
+import org.chromium.chrome.browser.flags.ActivityType;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tabmodel.IncognitoTabModelImpl.IncognitoTabModelDelegate;
 import org.chromium.chrome.browser.tabmodel.NextTabPolicy.NextTabPolicySupplier;
@@ -24,7 +24,6 @@ class IncognitoTabModelImplCreator implements IncognitoTabModelDelegate {
     private final TabCreator mIncognitoTabCreator;
     private final TabModelOrderController mOrderController;
     private final TabContentManager mTabContentManager;
-    private final TabPersistentStore mTabSaver;
     private final NextTabPolicySupplier mNextTabPolicySupplier;
     private final AsyncTabParamsManager mAsyncTabParamsManager;
     private final TabModelDelegate mModelDelegate;
@@ -34,6 +33,7 @@ class IncognitoTabModelImplCreator implements IncognitoTabModelDelegate {
     @Nullable
     private final Supplier<WindowAndroid> mWindowAndroidSupplier;
 
+    private final @ActivityType int mActivityType;
     /**
      * Constructor for an IncognitoTabModelImplCreator, used by {@link IncognitoTabModelImpl}.
      *
@@ -46,50 +46,55 @@ class IncognitoTabModelImplCreator implements IncognitoTabModelDelegate {
      * @param incognitoTabCreator Creates incognito tabs.
      * @param orderController     Determines the order for inserting new Tabs.
      * @param tabContentManager   Manages the display content of the tab.
-     * @param tabSaver            Handler for saving tabs.
      * @param nextTabPolicySupplier Supplies the policy to pick a next tab if the current is closed
      * @param asyncTabParamsManager An {@link AsyncTabParamsManager} instance.
-     * @param modelDelegate       Delegate to handle external dependencies and interactions.
+     * @param activityType Type of the activity for the tab model.
+     * @param modelDelegate Delegate to handle external dependencies and interactions.
      */
     IncognitoTabModelImplCreator(@Nullable Supplier<WindowAndroid> windowAndroidSupplier,
             TabCreator regularTabCreator, TabCreator incognitoTabCreator,
             TabModelOrderController orderController, TabContentManager tabContentManager,
-            TabPersistentStore tabSaver, NextTabPolicySupplier nextTabPolicySupplier,
-            AsyncTabParamsManager asyncTabParamsManager, TabModelDelegate modelDelegate) {
+            NextTabPolicySupplier nextTabPolicySupplier,
+            AsyncTabParamsManager asyncTabParamsManager, @ActivityType int activityType,
+            TabModelDelegate modelDelegate) {
         mWindowAndroidSupplier = windowAndroidSupplier;
         mRegularTabCreator = regularTabCreator;
         mIncognitoTabCreator = incognitoTabCreator;
         mOrderController = orderController;
         mTabContentManager = tabContentManager;
-        mTabSaver = tabSaver;
         mNextTabPolicySupplier = nextTabPolicySupplier;
         mAsyncTabParamsManager = asyncTabParamsManager;
+        mActivityType = activityType;
         mModelDelegate = modelDelegate;
     }
 
-    private @NonNull Profile getOTRProfile() {
-        if (mWindowAndroidSupplier != null) {
+    private Profile getOTRProfile() {
+        if (mActivityType == ActivityType.TABBED) {
+            // The Incognito profile hasn't been created yet when this method is called for the
+            // first time. The {@link IncognitoTabModelImpl} class creates an {@link EmptyTabModel}
+            // in the beginning and only later creates the profile when a user switches from a
+            // regular {@link TabModel} to Incognito {@link TabModel}.
+            return Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(
+                    /*createIfNeeded=*/true);
+        } else if (mActivityType == ActivityType.CUSTOM_TAB) {
+            assert (mWindowAndroidSupplier != null)
+                : "Incognito CCT relies on a non null instance of WindowAndroidSupplier "
+                  + "to fetch non primary OTR profile.";
             Profile otrProfile =
                     getNonPrimaryOTRProfileFromWindowAndroid(mWindowAndroidSupplier.get());
-
-            // TODO(crbug.com/1023759): PaymentHandlerActivity is an exceptional case that uses the
-            // primary OTR profile. PaymentHandlerActivity would use incognito CCT when the
-            // Incognito CCT flag is enabled by default in which case we would return the non
-            // primary OTR profile.
-            if (otrProfile == null) {
-                return Profile.getLastUsedRegularProfile().getPrimaryOTRProfile();
-            }
-
+            assert (otrProfile != null)
+                : "Failed to find the non-primary OTR profile associated with the Incognito CCT.";
             return otrProfile;
+        } else {
+            assert false : "Incognito is currently only supported for a Tabbed/CustomTab Activity.";
+            return null;
         }
-        return Profile.getLastUsedRegularProfile().getPrimaryOTRProfile();
     }
 
     @Override
     public TabModel createTabModel() {
-        Profile otrProfile = getOTRProfile();
-        return new TabModelImpl(otrProfile, false, mRegularTabCreator, mIncognitoTabCreator,
-                mOrderController, mTabContentManager, mTabSaver, mNextTabPolicySupplier,
+        return new TabModelImpl(getOTRProfile(), mActivityType, mRegularTabCreator,
+                mIncognitoTabCreator, mOrderController, mTabContentManager, mNextTabPolicySupplier,
                 mAsyncTabParamsManager, mModelDelegate, false);
     }
 

@@ -13,6 +13,30 @@
 
 namespace blink {
 
+namespace {
+
+KURL SanitizeBaseUrl(const KURL& raw_base_url,
+                     SanitizeScriptErrors sanitize_script_errors) {
+  // https://html.spec.whatwg.org/C/#creating-a-classic-script
+  // 2. If muted errors is true, then set baseURL to about:blank.
+  // [spec text]
+  if (sanitize_script_errors == SanitizeScriptErrors::kSanitize) {
+    return BlankURL();
+  }
+
+  return raw_base_url;
+}
+
+}  // namespace
+
+ClassicScript::ClassicScript(const ScriptSourceCode& script_source_code,
+                             const KURL& base_url,
+                             const ScriptFetchOptions& fetch_options,
+                             SanitizeScriptErrors sanitize_script_errors)
+    : Script(fetch_options, SanitizeBaseUrl(base_url, sanitize_script_errors)),
+      script_source_code_(script_source_code),
+      sanitize_script_errors_(sanitize_script_errors) {}
+
 ClassicScript* ClassicScript::CreateUnspecifiedScript(
     const ScriptSourceCode& script_source_code,
     SanitizeScriptErrors sanitize_script_errors) {
@@ -23,6 +47,14 @@ ClassicScript* ClassicScript::CreateUnspecifiedScript(
 void ClassicScript::Trace(Visitor* visitor) const {
   Script::Trace(visitor);
   visitor->Trace(script_source_code_);
+}
+
+ScriptEvaluationResult ClassicScript::RunScriptOnScriptStateAndReturnValue(
+    ScriptState* script_state,
+    ExecuteScriptPolicy policy,
+    V8ScriptRunner::RethrowErrorsOption rethrow_errors) {
+  return V8ScriptRunner::CompileAndRunScript(script_state, this, policy,
+                                             std::move(rethrow_errors));
 }
 
 void ClassicScript::RunScript(LocalDOMWindow* window) {
@@ -39,16 +71,34 @@ void ClassicScript::RunScript(LocalDOMWindow* window,
 v8::Local<v8::Value> ClassicScript::RunScriptAndReturnValue(
     LocalDOMWindow* window,
     ExecuteScriptPolicy policy) {
-  return window->GetScriptController().EvaluateScriptInMainWorld(
-      GetScriptSourceCode(), BaseURL(), sanitize_script_errors_, FetchOptions(),
-      policy);
+  ScriptEvaluationResult result = RunScriptOnScriptStateAndReturnValue(
+      ToScriptStateForMainWorld(window->GetFrame()), policy);
+
+  if (result.GetResultType() == ScriptEvaluationResult::ResultType::kSuccess)
+    return result.GetSuccessValue();
+  return v8::Local<v8::Value>();
 }
 
 v8::Local<v8::Value> ClassicScript::RunScriptInIsolatedWorldAndReturnValue(
     LocalDOMWindow* window,
     int32_t world_id) {
-  return window->GetScriptController().ExecuteScriptInIsolatedWorld(
-      world_id, GetScriptSourceCode(), BaseURL(), sanitize_script_errors_);
+  DCHECK_GT(world_id, 0);
+
+  // Unlike other methods, RunScriptInIsolatedWorldAndReturnValue()'s
+  // default policy is kExecuteScriptWhenScriptsDisabled, to keep existing
+  // behavior.
+  ScriptState* script_state = nullptr;
+  if (window->GetFrame()) {
+    script_state = ToScriptState(window->GetFrame(),
+                                 *DOMWrapperWorld::EnsureIsolatedWorld(
+                                     ToIsolate(window->GetFrame()), world_id));
+  }
+  ScriptEvaluationResult result = RunScriptOnScriptStateAndReturnValue(
+      script_state, ExecuteScriptPolicy::kExecuteScriptWhenScriptsDisabled);
+
+  if (result.GetResultType() == ScriptEvaluationResult::ResultType::kSuccess)
+    return result.GetSuccessValue();
+  return v8::Local<v8::Value>();
 }
 
 bool ClassicScript::RunScriptOnWorkerOrWorklet(
@@ -57,9 +107,8 @@ bool ClassicScript::RunScriptOnWorkerOrWorklet(
 
   v8::HandleScope handle_scope(
       global_scope.ScriptController()->GetScriptState()->GetIsolate());
-  ScriptEvaluationResult result =
-      global_scope.ScriptController()->EvaluateAndReturnValue(
-          GetScriptSourceCode(), sanitize_script_errors_);
+  ScriptEvaluationResult result = RunScriptOnScriptStateAndReturnValue(
+      global_scope.ScriptController()->GetScriptState());
   return result.GetResultType() == ScriptEvaluationResult::ResultType::kSuccess;
 }
 

@@ -29,8 +29,9 @@ const char kNonRenewingExpiryTime[] = "NonRenewingExpiryTime";
 bool ShouldUseSmartUI() {
 #if defined(OS_ANDROID)
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 }  // namespace
@@ -83,9 +84,9 @@ bool SubresourceFilterContentSettingsManager::ShouldShowUIForSite(
   if (!dict)
     return true;
 
-  double last_shown_time_double = 0;
-  if (dict->GetDouble(kInfobarLastShownTimeKey, &last_shown_time_double)) {
-    base::Time last_shown = base::Time::FromDoubleT(last_shown_time_double);
+  if (absl::optional<double> last_shown_time =
+          dict->FindDoubleKey(kInfobarLastShownTimeKey)) {
+    base::Time last_shown = base::Time::FromDoubleT(*last_shown_time);
     if (clock_->Now() - last_shown < kDelayBeforeShowingInfobarAgain)
       return false;
   }
@@ -161,7 +162,7 @@ void SubresourceFilterContentSettingsManager::SetSiteMetadata(
   // was previously set.
   base::Time expiry_time = base::Time::Now() + kMaxPersistMetadataDuration;
   if (dict && dict->HasKey(kNonRenewingExpiryTime)) {
-    base::Optional<double> metadata_expiry_time =
+    absl::optional<double> metadata_expiry_time =
         dict->FindDoubleKey(kNonRenewingExpiryTime);
     DCHECK(metadata_expiry_time);
     expiry_time = base::Time::FromDoubleT(*metadata_expiry_time);
@@ -194,7 +195,7 @@ bool SubresourceFilterContentSettingsManager::ShouldDeleteDataWithNoActivation(
   if (!dict)
     return true;
 
-  base::Optional<double> metadata_expiry_time =
+  absl::optional<double> metadata_expiry_time =
       dict->FindDoubleKey(kNonRenewingExpiryTime);
 
   if (!metadata_expiry_time)
@@ -213,7 +214,7 @@ bool SubresourceFilterContentSettingsManager::GetSiteActivationFromMetadata(
   if (!dict)
     return false;
 
-  base::Optional<bool> site_activation_status =
+  absl::optional<bool> site_activation_status =
       dict->FindBoolKey(kActivatedKey);
 
   // If there is no explicit site activation status, it is metadata V1:

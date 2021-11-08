@@ -37,7 +37,7 @@ class TestSearchResult : public ChromeSearchResult {
 
     switch (type) {
       case ResultType::kFileChip:
-      case ResultType::kDriveQuickAccessChip:
+      case ResultType::kDriveChip:
         SetDisplayType(DisplayType::kChip);
         break;
       case ResultType::kInstalledApp:
@@ -54,6 +54,10 @@ class TestSearchResult : public ChromeSearchResult {
         break;
     }
   }
+
+  TestSearchResult(const TestSearchResult&) = delete;
+  TestSearchResult& operator=(const TestSearchResult&) = delete;
+
   ~TestSearchResult() override {}
 
   // ChromeSearchResult overrides:
@@ -63,8 +67,6 @@ class TestSearchResult : public ChromeSearchResult {
   static int instantiation_count;
 
   int instance_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestSearchResult);
 };
 
 int TestSearchResult::instantiation_count = 0;
@@ -181,9 +183,8 @@ TEST_F(ChipRankerTest, DefaultInitialization) {
   Mixer::SortedResults results = MakeSearchResults(
       {"app1", "app2", "app3", "drive1", "drive2", "local1", "local2"},
       {ResultType::kInstalledApp, ResultType::kInstalledApp,
-       ResultType::kInstalledApp, ResultType::kDriveQuickAccessChip,
-       ResultType::kDriveQuickAccessChip, ResultType::kFileChip,
-       ResultType::kFileChip},
+       ResultType::kInstalledApp, ResultType::kDriveChip,
+       ResultType::kDriveChip, ResultType::kFileChip, ResultType::kFileChip},
       {8.9, 8.7, 8.5, 0.9, 0.7, 0.8, 0.6});
   ranker_->Rank(&results);
 

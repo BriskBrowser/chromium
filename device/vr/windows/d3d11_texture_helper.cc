@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "device/vr/windows/d3d11_texture_helper.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/trace_event/common/trace_event_common.h"
 #include "base/trace_event/trace_event.h"
 #include "mojo/public/c/system/platform_handle.h"
@@ -185,11 +185,16 @@ bool D3D11TextureHelper::CompositeToBackBuffer() {
   CleanupLayerData(render_state_.source_);
   CleanupLayerData(render_state_.overlay_);
 
-  if (!render_state_.source_.source_texture_ &&
-      !render_state_.overlay_.source_texture_)
-    return false;
+  // We should always have a target texture that WebXR
+  // is rendering into.
   if (!render_state_.target_texture_)
     return false;
+
+  // Source texture is optional depending on whether we're using
+  // shared images for the destination.
+  if (!render_state_.source_.source_texture_ &&
+      !render_state_.overlay_.source_texture_)
+    return true;
 
   HRESULT hr = S_OK;
   if (render_state_.source_.keyed_mutex_) {
@@ -470,7 +475,9 @@ bool D3D11TextureHelper::CompositeLayer(LayerData& layer) {
 
   D3D11_TEXTURE2D_DESC desc;
   render_state_.target_texture_->GetDesc(&desc);
-  D3D11_VIEWPORT viewport = {0, 0, desc.Width, desc.Height, 0, 1};
+  D3D11_VIEWPORT viewport = {
+      0, 0, static_cast<float>(desc.Width), static_cast<float>(desc.Height),
+      0, 1};
   render_state_.d3d11_device_context_->RSSetViewports(1, &viewport);
   render_state_.d3d11_device_context_->IASetPrimitiveTopology(
       D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -482,7 +489,7 @@ bool D3D11TextureHelper::CompositeLayer(LayerData& layer) {
   return true;
 }
 
-bool D3D11TextureHelper::SetSourceTexture(
+void D3D11TextureHelper::SetSourceTexture(
     base::win::ScopedHandle texture_handle,
     gfx::RectF left,
     gfx::RectF right) {
@@ -493,23 +500,26 @@ bool D3D11TextureHelper::SetSourceTexture(
   render_state_.source_.right_ = right;
   render_state_.source_.submitted_this_frame_ = true;
 
+  if (!texture_handle.IsValid()) {
+    return;
+  }
+
   if (!EnsureInitialized())
-    return false;
+    return;
+
   HRESULT hr = render_state_.d3d11_device_->OpenSharedResource1(
       texture_handle.Get(),
       IID_PPV_ARGS(&(render_state_.source_.keyed_mutex_)));
   if (FAILED(hr)) {
     TraceDXError(ErrorLocation::OpenSource, hr);
-    return false;
+    return;
   }
   hr = render_state_.source_.keyed_mutex_.As(
       &(render_state_.source_.source_texture_));
   if (FAILED(hr)) {
     render_state_.source_.keyed_mutex_ = nullptr;
-    return false;
+    return;
   }
-
-  return true;
 }
 
 bool D3D11TextureHelper::SetOverlayTexture(
@@ -545,9 +555,11 @@ bool D3D11TextureHelper::UpdateBackbufferSizes() {
   if (!EnsureInitialized())
     return false;
 
+  // Source texture is optional depending on whether we're using
+  // shared images for the destination.
   if (!render_state_.source_.source_texture_ &&
       !render_state_.overlay_.source_texture_)
-    return false;
+    return true;
 
   if (force_viewport_) {
     target_size_ = default_size_;

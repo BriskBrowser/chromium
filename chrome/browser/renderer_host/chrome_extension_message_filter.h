@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/scoped_observer.h"
-#include "base/sequenced_task_runner_helpers.h"
+#include "base/scoped_observation.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_observer.h"
 #include "content/public/browser/browser_message_filter.h"
@@ -31,6 +31,10 @@ class ChromeExtensionMessageFilter : public content::BrowserMessageFilter,
                                      public ProfileObserver {
  public:
   explicit ChromeExtensionMessageFilter(Profile* profile);
+
+  ChromeExtensionMessageFilter(const ChromeExtensionMessageFilter&) = delete;
+  ChromeExtensionMessageFilter& operator=(const ChromeExtensionMessageFilter&) =
+      delete;
 
   // content::BrowserMessageFilter methods:
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -85,9 +89,7 @@ class ChromeExtensionMessageFilter : public content::BrowserMessageFilter,
   // access on the UI thread, and may be null.
   extensions::ActivityLog* activity_log_;
 
-  ScopedObserver<Profile, ProfileObserver> observed_profiles_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeExtensionMessageFilter);
+  base::ScopedObservation<Profile, ProfileObserver> observed_profile_{this};
 };
 
 #endif  // CHROME_BROWSER_RENDERER_HOST_CHROME_EXTENSION_MESSAGE_FILTER_H_

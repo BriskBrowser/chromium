@@ -5,12 +5,21 @@
 #include "ios/chrome/browser/ui/authentication/unified_consent/unified_consent_coordinator.h"
 
 #include "base/check_op.h"
+#include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
+#import "ios/chrome/browser/ui/authentication/enterprise/enterprise_utils.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/identity_chooser/identity_chooser_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/identity_chooser/identity_chooser_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/unified_consent_mediator.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/unified_consent_view_controller.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/unified_consent_view_controller_delegate.h"
+#import "ios/chrome/browser/ui/commands/application_commands.h"
+#import "ios/chrome/browser/ui/commands/browser_commands.h"
+#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -30,6 +39,8 @@
 // Identity chooser coordinator.
 @property(nonatomic, strong)
     IdentityChooserCoordinator* identityChooserCoordinator;
+// Authentication Service for the user's signed-in state.
+@property(nonatomic, assign) AuthenticationService* authenticationService;
 
 @end
 
@@ -41,8 +52,15 @@
   if (self) {
     _unifiedConsentViewController = [[UnifiedConsentViewController alloc] init];
     _unifiedConsentViewController.delegate = self;
+
+    _authenticationService = AuthenticationServiceFactory::GetForBrowserState(
+        browser->GetBrowserState());
     _unifiedConsentMediator = [[UnifiedConsentMediator alloc]
-        initWithUnifiedConsentViewController:_unifiedConsentViewController];
+        initWithUnifiedConsentViewController:_unifiedConsentViewController
+                       authenticationService:_authenticationService
+                       accountManagerService:
+                           ChromeAccountManagerServiceFactory::
+                               GetForBrowserState(browser->GetBrowserState())];
     _unifiedConsentMediator.delegate = self;
   }
   return self;
@@ -50,6 +68,12 @@
 
 - (void)start {
   [self.unifiedConsentMediator start];
+}
+
+- (void)stop {
+  [self.identityChooserCoordinator stop];
+  [self.unifiedConsentMediator disconnect];
+  self.unifiedConsentMediator = nil;
 }
 
 - (void)scrollToBottom {
@@ -86,6 +110,14 @@
   return self.unifiedConsentViewController.isScrolledToBottom;
 }
 
+- (BOOL)hasManagedSyncDataType {
+  return HasManagedSyncDataType(self.browser->GetBrowserState());
+}
+
+- (BOOL)hasAccountRestrictions {
+  return IsRestrictAccountsToPatternsEnabled();
+}
+
 #pragma mark - Private
 
 // Opens the identity chooser dialog with an animation from |point|.
@@ -108,6 +140,14 @@
 }
 
 #pragma mark - UnifiedConsentViewControllerDelegate
+
+- (BOOL)unifiedConsentCoordinatorHasManagedSyncDataType {
+  return self.hasManagedSyncDataType;
+}
+
+- (BOOL)unifiedConsentCoordinatorHasAccountRestrictions {
+  return self.hasAccountRestrictions;
+}
 
 - (void)unifiedConsentViewControllerViewDidAppear:
     (UnifiedConsentViewController*)controller {
@@ -134,9 +174,17 @@
   [self.delegate unifiedConsentCoordinatorDidTapSettingsLink:self];
 }
 
-- (void)unifiedConsentViewControllerDidTapIdentityPickerView:
+- (void)unifiedConsentViewControllerDidTapManagementLearnMore {
+  OpenNewTabCommand* command = [OpenNewTabCommand
+      commandWithURLFromChrome:GURL(kManagementLearnMoreURL)];
+  id<ApplicationCommands> handler = HandlerForProtocol(
+      self.browser->GetCommandDispatcher(), ApplicationCommands);
+  [handler closeSettingsUIAndOpenURL:command];
+}
+
+- (void)unifiedConsentViewControllerDidTapIdentityButtonControl:
             (UnifiedConsentViewController*)controller
-                                                     atPoint:(CGPoint)point {
+                                                        atPoint:(CGPoint)point {
   if (self.isUIDisabled) {
     return;
   }
@@ -155,6 +203,7 @@
 - (void)identityChooserCoordinatorDidClose:
     (IdentityChooserCoordinator*)coordinator {
   CHECK_EQ(self.identityChooserCoordinator, coordinator);
+  [self.identityChooserCoordinator stop];
   self.identityChooserCoordinator.delegate = nil;
   self.identityChooserCoordinator = nil;
 }

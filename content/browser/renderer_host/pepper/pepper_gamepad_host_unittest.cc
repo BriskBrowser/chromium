@@ -32,10 +32,15 @@ class PepperGamepadHostTest : public testing::Test,
                               public BrowserPpapiHostTest {
  public:
   PepperGamepadHostTest() {}
+
+  PepperGamepadHostTest(const PepperGamepadHostTest&) = delete;
+  PepperGamepadHostTest& operator=(const PepperGamepadHostTest&) = delete;
+
   ~PepperGamepadHostTest() override {}
 
   void ConstructService(const device::Gamepads& test_data) {
-    service_.reset(new device::GamepadServiceTestConstructor(test_data));
+    service_ =
+        std::make_unique<device::GamepadServiceTestConstructor>(test_data);
   }
 
   device::GamepadService* gamepad_service() {
@@ -44,8 +49,6 @@ class PepperGamepadHostTest : public testing::Test,
 
  protected:
   std::unique_ptr<device::GamepadServiceTestConstructor> service_;
-
-  DISALLOW_COPY_AND_ASSIGN(PepperGamepadHostTest);
 };
 
 }  // namespace

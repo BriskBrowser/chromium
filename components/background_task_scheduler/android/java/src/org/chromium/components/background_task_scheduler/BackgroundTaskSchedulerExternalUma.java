@@ -25,7 +25,7 @@ public abstract class BackgroundTaskSchedulerExternalUma {
     public static final int BACKGROUND_TASK_WEBVIEW_VARIATIONS = 10;
     public static final int BACKGROUND_TASK_OFFLINE_CONTENT_NOTIFICATION = 11;
     public static final int BACKGROUND_TASK_WEBAPK_UPDATE = 12;
-    public static final int BACKGROUND_TASK_DOWNLOAD_RESUMPTION = 13;
+    public static final int BACKGROUND_TASK_DEPRECATED_DOWNLOAD_RESUMPTION = 13;
     public static final int BACKGROUND_TASK_FEED_REFRESH = 14;
     public static final int BACKGROUND_TASK_COMPONENT_UPDATE = 15;
     public static final int BACKGROUND_TASK_DEPRECATED_EXPLORE_SITES_REFRESH = 16;
@@ -39,8 +39,10 @@ public abstract class BackgroundTaskSchedulerExternalUma {
     public static final int BACKGROUND_TASK_FEEDV2_REFRESH = 24;
     public static final int BACKGROUND_TASK_DOWNLOAD_LATER = 25;
     public static final int BACKGROUND_TASK_OFFLINE_MEASUREMENTS = 26;
+    public static final int BACKGROUND_TASK_WEBVIEW_COMPONENT_UPDATE = 27;
+    public static final int BACKGROUND_TASK_ATTRIBUTION_PROVIDER_FLUSH = 28;
     // Keep this one at the end and increment appropriately when adding new tasks.
-    public static final int BACKGROUND_TASK_COUNT = 27;
+    public static final int BACKGROUND_TASK_COUNT = 29;
 
     protected BackgroundTaskSchedulerExternalUma() {}
 
@@ -79,23 +81,6 @@ public abstract class BackgroundTaskSchedulerExternalUma {
      */
     public abstract void reportStartupMode(int startupMode);
 
-    /**
-     * Returns an affix identifying a given task type in names of memory histograms specific to that
-     * task type. Adding an affix here causes Memory.BackgroundTask.[affix].* histograms to be
-     * emitted. They still need to be added to histograms.xml.
-     * @param taskId The task type.
-     * @return A string with the affix, without separators added, or null if there is no affix
-     * defined for that task type.
-     */
-    public static String toMemoryHistogramAffixFromTaskId(int taskId) {
-        switch (taskId) {
-            case TaskIds.OFFLINE_PAGES_PREFETCH_JOB_ID:
-                return "OfflinePrefetch";
-            default:
-                return null;
-        }
-    }
-
     @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
     public static int toUmaEnumValueFromTaskId(int taskId) {
         switch (taskId) {
@@ -129,8 +114,8 @@ public abstract class BackgroundTaskSchedulerExternalUma {
                 return BACKGROUND_TASK_OFFLINE_CONTENT_NOTIFICATION;
             case TaskIds.WEBAPK_UPDATE_JOB_ID:
                 return BACKGROUND_TASK_WEBAPK_UPDATE;
-            case TaskIds.DOWNLOAD_RESUMPTION_JOB_ID:
-                return BACKGROUND_TASK_DOWNLOAD_RESUMPTION;
+            case TaskIds.DEPRECATED_DOWNLOAD_RESUMPTION_JOB_ID:
+                return BACKGROUND_TASK_DEPRECATED_DOWNLOAD_RESUMPTION;
             case TaskIds.FEED_REFRESH_JOB_ID:
                 return BACKGROUND_TASK_FEED_REFRESH;
             case TaskIds.COMPONENT_UPDATE_JOB_ID:
@@ -153,6 +138,10 @@ public abstract class BackgroundTaskSchedulerExternalUma {
                 return BACKGROUND_TASK_FEEDV2_REFRESH;
             case TaskIds.OFFLINE_MEASUREMENT_JOB_ID:
                 return BACKGROUND_TASK_OFFLINE_MEASUREMENTS;
+            case TaskIds.WEBVIEW_COMPONENT_UPDATE_JOB_ID:
+                return BACKGROUND_TASK_WEBVIEW_COMPONENT_UPDATE;
+            case TaskIds.ATTRIBUTION_PROVIDER_FLUSH_JOB_ID:
+                return BACKGROUND_TASK_ATTRIBUTION_PROVIDER_FLUSH;
             default:
                 assert false;
         }

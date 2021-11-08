@@ -16,6 +16,7 @@
 #include "base/files/scoped_file.h"
 #include "base/no_destructor.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
 #include "gpu/ipc/common/gpu_client_ids.h"
@@ -40,6 +41,14 @@
 namespace media {
 
 namespace {
+
+gfx::GpuMemoryBufferId GetNextGpuMemoryBufferId() {
+  static base::NoDestructor<base::Lock> id_lock;
+  static int next_gpu_memory_buffer_id = 0;
+  base::AutoLock lock(*id_lock);
+  CHECK_LT(next_gpu_memory_buffer_id, std::numeric_limits<int>::max());
+  return gfx::GpuMemoryBufferId(next_gpu_memory_buffer_id++);
+}
 
 // GbmDeviceWrapper is a singleton that provides thread-safe access to a
 // ui::GbmDevice for the purposes of creating native BOs. The ui::GbmDevice is
@@ -81,13 +90,9 @@ class GbmDeviceWrapper {
     if (native_pixmap_handle.planes.empty())
       return gfx::GpuMemoryBufferHandle();
 
-    CHECK_LT(next_gpu_memory_buffer_id_, std::numeric_limits<int>::max());
-    const gfx::GpuMemoryBufferId gpu_memory_buffer_id(
-        next_gpu_memory_buffer_id_++);
-
     gfx::GpuMemoryBufferHandle gmb_handle;
     gmb_handle.type = gfx::GpuMemoryBufferType::NATIVE_PIXMAP;
-    gmb_handle.id = gpu_memory_buffer_id;
+    gmb_handle.id = GetNextGpuMemoryBufferId();
     gmb_handle.native_pixmap_handle = std::move(native_pixmap_handle);
     return gmb_handle;
   }
@@ -127,7 +132,6 @@ class GbmDeviceWrapper {
   base::Lock lock_;
   base::File render_node_file_ GUARDED_BY(lock_);
   std::unique_ptr<ui::GbmDevice> gbm_device_ GUARDED_BY(lock_);
-  int next_gpu_memory_buffer_id_ GUARDED_BY(lock_) = 0;
 };
 
 gfx::GpuMemoryBufferHandle AllocateGpuMemoryBufferHandle(
@@ -137,8 +141,6 @@ gfx::GpuMemoryBufferHandle AllocateGpuMemoryBufferHandle(
     const gfx::Rect& visible_rect,
     gfx::BufferUsage buffer_usage,
     base::ScopedClosureRunner& destroy_cb) {
-  DCHECK(factory ||
-         buffer_usage == gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE);
   gfx::GpuMemoryBufferHandle gmb_handle;
   auto buffer_format = VideoPixelFormatToGfxBufferFormat(pixel_format);
   if (!buffer_format)
@@ -149,17 +151,8 @@ gfx::GpuMemoryBufferHandle AllocateGpuMemoryBufferHandle(
         *buffer_format, coded_size, buffer_usage);
   }
 
-  int gpu_memory_buffer_id;
-  {
-    static base::NoDestructor<base::Lock> id_lock;
-    static int next_gpu_memory_buffer_id = 0;
-    base::AutoLock lock(*id_lock);
-    CHECK_LT(next_gpu_memory_buffer_id, std::numeric_limits<int>::max());
-    gpu_memory_buffer_id = next_gpu_memory_buffer_id++;
-  }
-
   gmb_handle = factory->CreateGpuMemoryBuffer(
-      gfx::GpuMemoryBufferId(gpu_memory_buffer_id), coded_size,
+      GetNextGpuMemoryBufferId(), coded_size,
       /*framebuffer_size=*/GetRectSizeFromOrigin(visible_rect), *buffer_format,
       buffer_usage, gpu::kPlatformVideoFramePoolClientId,
       gfx::kNullAcceleratedWidget);
@@ -253,7 +246,7 @@ scoped_refptr<VideoFrame> CreatePlatformVideoFrame(
   return frame;
 }
 
-base::Optional<VideoFrameLayout> GetPlatformVideoFrameLayout(
+absl::optional<VideoFrameLayout> GetPlatformVideoFrameLayout(
     gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
     VideoPixelFormat pixel_format,
     const gfx::Size& coded_size,
@@ -263,8 +256,8 @@ base::Optional<VideoFrameLayout> GetPlatformVideoFrameLayout(
   auto frame = CreatePlatformVideoFrame(
       gpu_memory_buffer_factory, pixel_format, coded_size,
       gfx::Rect(coded_size), coded_size, base::TimeDelta(), buffer_usage);
-  return frame ? base::make_optional<VideoFrameLayout>(frame->layout())
-               : base::nullopt;
+  return frame ? absl::make_optional<VideoFrameLayout>(frame->layout())
+               : absl::nullopt;
 }
 
 gfx::GpuMemoryBufferHandle CreateGpuMemoryBufferHandle(

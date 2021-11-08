@@ -14,13 +14,13 @@
 
 namespace mojo {
 
-// Deserializes has_field and field into a base::Optional.
+// Deserializes has_field and field into a absl::optional.
 #define DESERIALIZE_INTO_OPT(field) \
   if (input.has_##field())          \
     output->field = input.field()
 
 #define READ_AND_ASSIGN_OPT(type, field, FieldInCamelCase) \
-  base::Optional<type> field;                              \
+  absl::optional<type> field;                              \
   if (!input.Read##FieldInCamelCase(&field))               \
     return false;                                          \
                                                            \
@@ -44,6 +44,7 @@ bool StructTraits<media::mojom::VideoFrameMetadataDataView,
   output->power_efficient = input.power_efficient();
   output->read_lock_fences_enabled = input.read_lock_fences_enabled();
   output->interactive_content = input.interactive_content();
+  output->texture_origin_is_top_left = input.texture_origin_is_top_left();
 
   // double.
   DESERIALIZE_INTO_OPT(device_scale_factor);
@@ -53,9 +54,6 @@ bool StructTraits<media::mojom::VideoFrameMetadataDataView,
   DESERIALIZE_INTO_OPT(top_controls_visible_height);
   DESERIALIZE_INTO_OPT(frame_rate);
   DESERIALIZE_INTO_OPT(rtp_timestamp);
-
-  // unsigned int.
-  output->hw_protected_validation_id = input.hw_protected_validation_id();
 
   READ_AND_ASSIGN_OPT(media::VideoTransformation, transformation,
                       Transformation);

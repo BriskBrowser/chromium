@@ -6,8 +6,9 @@
 
 #include <memory>
 
-#include "build/chromeos_buildflags.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/layer.h"
 #include "ui/events/event.h"
 #include "ui/gfx/color_palette.h"
@@ -20,14 +21,12 @@
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/background.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace message_center {
 
 NotificationControlButtonsView::NotificationControlButtonsView(
     MessageView* message_view)
     : message_view_(message_view), icon_color_(gfx::kChromeIconGrey) {
-  DCHECK(message_view);
   auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kHorizontal));
   // Do not stretch buttons as that would stretch their focus indicator.
@@ -144,13 +143,9 @@ void NotificationControlButtonsView::SetBackgroundColor(SkColor color) {
   UpdateButtonIconColors();
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-void NotificationControlButtonsView::OnThemeChanged() {
-  View::OnThemeChanged();
-  SetBackground(views::CreateSolidBackground(GetNativeTheme()->GetSystemColor(
-      ui::NativeTheme::kColorId_NotificationButtonBackground)));
+void NotificationControlButtonsView::SetMessageView(MessageView* message_view) {
+  message_view_ = message_view;
 }
-#endif
 
 void NotificationControlButtonsView::UpdateButtonIconColors() {
   SkColor icon_color = DetermineButtonIconColor();

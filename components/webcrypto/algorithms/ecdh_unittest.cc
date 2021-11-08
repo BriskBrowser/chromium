@@ -5,7 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/stl_util.h"
 #include "components/webcrypto/algorithm_dispatch.h"
 #include "components/webcrypto/algorithms/ec.h"
 #include "components/webcrypto/algorithms/test_helpers.h"
@@ -79,7 +78,8 @@ TEST_F(WebCryptoEcdhTest, DeriveBitsKnownAnswer) {
   base::ListValue tests;
   ASSERT_TRUE(ReadJsonTestFileToList("ecdh.json", &tests));
 
-  for (size_t test_index = 0; test_index < tests.GetSize(); ++test_index) {
+  for (size_t test_index = 0; test_index < tests.GetList().size();
+       ++test_index) {
     SCOPED_TRACE(test_index);
 
     const base::DictionaryValue* test;
@@ -93,15 +93,15 @@ TEST_F(WebCryptoEcdhTest, DeriveBitsKnownAnswer) {
 
     // Now try to derive bytes.
     std::vector<uint8_t> derived_bytes;
-    int length_bits = 0;
-    ASSERT_TRUE(test->GetInteger("length_bits", &length_bits));
+    absl::optional<int> length_bits = test->FindIntKey("length_bits");
+    ASSERT_TRUE(length_bits);
 
     // If the test didn't specify an error, that implies it expects success.
     std::string expected_error = "Success";
     test->GetString("error", &expected_error);
 
     Status status = DeriveBits(CreateEcdhDeriveParams(public_key), private_key,
-                               length_bits, &derived_bytes);
+                               *length_bits, &derived_bytes);
     ASSERT_EQ(expected_error, StatusToString(status));
     if (status.IsError())
       continue;
@@ -124,12 +124,15 @@ TEST_F(WebCryptoEcdhTest, DeriveBitsKnownAnswer) {
 
   const base::DictionaryValue* test = nullptr;
   bool valid_p521_keys = false;
-  for (size_t test_index = 0; test_index < tests.GetSize(); ++test_index) {
+  for (size_t test_index = 0; test_index < tests.GetList().size();
+       ++test_index) {
     SCOPED_TRACE(test_index);
     EXPECT_TRUE(tests.GetDictionary(test_index, &test));
-    test->GetBoolean("valid_p521_keys", &valid_p521_keys);
-    if (valid_p521_keys)
+    absl::optional<bool> keys = test->FindBoolKey("valid_p521_keys");
+    if (keys && keys.value()) {
+      valid_p521_keys = true;
       break;
+    }
   }
   if (!valid_p521_keys) {
     return ::testing::AssertionFailure()

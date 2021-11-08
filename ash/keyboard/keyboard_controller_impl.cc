@@ -6,11 +6,11 @@
 
 #include <utility>
 
+#include "ash/constants/ash_constants.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/keyboard_ui_factory.h"
 #include "ash/keyboard/virtual_keyboard_controller.h"
-#include "ash/public/cpp/ash_constants.h"
-#include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/keyboard/keyboard_switches.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
@@ -19,11 +19,12 @@
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
 #include "ash/wm/window_util.h"
+#include "base/bind.h"
 #include "base/command_line.h"
-#include "base/optional.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/base/ui_base_features.h"
@@ -55,12 +56,12 @@ const char kSpellCheckEnabledKey[] = "spell_check_enabled";
 // enabled.
 const char kVoiceInputEnabledKey[] = "voice_input_enabled";
 
-base::Optional<display::Display> GetFirstTouchDisplay() {
+absl::optional<display::Display> GetFirstTouchDisplay() {
   for (const auto& display : display::Screen::GetScreen()->GetAllDisplays()) {
     if (display.touch_support() == display::Display::TouchSupport::AVAILABLE)
       return display;
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 bool GetVirtualKeyboardFeatureValue(PrefService* prefs,
@@ -72,8 +73,7 @@ bool GetVirtualKeyboardFeatureValue(PrefService* prefs,
   if (!features)
     return false;
 
-  bool feature_value = false;
-  return features->GetBoolean(feature_path, &feature_value) && feature_value;
+  return features->FindBoolPath(feature_path).value_or(false);
 }
 
 }  // namespace
@@ -117,17 +117,6 @@ void KeyboardControllerImpl::CreateVirtualKeyboard(
   DCHECK(keyboard_ui_factory);
   virtual_keyboard_controller_ = std::make_unique<VirtualKeyboardController>();
   keyboard_ui_controller_->Initialize(std::move(keyboard_ui_factory), this);
-
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          keyboard::switches::kEnableVirtualKeyboard)) {
-    keyboard_ui_controller_->SetEnableFlag(
-        KeyboardEnableFlag::kCommandLineEnabled);
-  }
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          keyboard::switches::kDisableVirtualKeyboard)) {
-    keyboard_ui_controller_->SetEnableFlag(
-        KeyboardEnableFlag::kCommandLineDisabled);
-  }
 }
 
 void KeyboardControllerImpl::DestroyVirtualKeyboard() {
@@ -285,14 +274,14 @@ KeyRepeatSettings KeyboardControllerImpl::GetKeyRepeatSettings() {
   bool enabled = prefs->GetBoolean(ash::prefs::kXkbAutoRepeatEnabled);
   int delay_in_ms = prefs->GetInteger(ash::prefs::kXkbAutoRepeatDelay);
   int interval_in_ms = prefs->GetInteger(ash::prefs::kXkbAutoRepeatInterval);
-  return KeyRepeatSettings{enabled,
-                           base::TimeDelta::FromMilliseconds(delay_in_ms),
-                           base::TimeDelta::FromMilliseconds(interval_in_ms)};
+  return KeyRepeatSettings{enabled, base::Milliseconds(delay_in_ms),
+                           base::Milliseconds(interval_in_ms)};
 }
 
 // SessionObserver
 void KeyboardControllerImpl::OnSessionStateChanged(
     session_manager::SessionState state) {
+  SetEnableFlagFromCommandLine();
   if (!keyboard_ui_controller_->IsEnabled())
     return;
 
@@ -386,7 +375,7 @@ aura::Window* KeyboardControllerImpl::GetContainerForDisplay(
 
 aura::Window* KeyboardControllerImpl::GetContainerForDefaultDisplay() {
   const display::Screen* screen = display::Screen::GetScreen();
-  const base::Optional<display::Display> first_touch_display =
+  const absl::optional<display::Display> first_touch_display =
       GetFirstTouchDisplay();
   const bool has_touch_display = first_touch_display.has_value();
 
@@ -459,6 +448,19 @@ void KeyboardControllerImpl::OnKeyboardEnableFlagsChanged(
 void KeyboardControllerImpl::OnKeyboardEnabledChanged(bool is_enabled) {
   for (auto& observer : observers_)
     observer.OnKeyboardEnabledChanged(is_enabled);
+}
+
+void KeyboardControllerImpl::SetEnableFlagFromCommandLine() {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          keyboard::switches::kEnableVirtualKeyboard)) {
+    keyboard_ui_controller_->SetEnableFlag(
+        KeyboardEnableFlag::kCommandLineEnabled);
+  }
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          keyboard::switches::kDisableVirtualKeyboard)) {
+    keyboard_ui_controller_->SetEnableFlag(
+        KeyboardEnableFlag::kCommandLineDisabled);
+  }
 }
 
 }  // namespace ash

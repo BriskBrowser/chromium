@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/send_tab_to_self/send_tab_to_self_desktop_util.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "url/gurl.h"
@@ -37,6 +38,11 @@ class SendTabToSelfSubMenuModel : public ui::SimpleMenuModel,
   SendTabToSelfSubMenuModel(content::WebContents* tab,
                             SendTabToSelfMenuType menu_type,
                             const GURL& link_url);
+
+  SendTabToSelfSubMenuModel(const SendTabToSelfSubMenuModel&) = delete;
+  SendTabToSelfSubMenuModel& operator=(const SendTabToSelfSubMenuModel&) =
+      delete;
+
   ~SendTabToSelfSubMenuModel() override;
 
   // Overridden from ui::SimpleMenuModel::Delegate:
@@ -49,12 +55,10 @@ class SendTabToSelfSubMenuModel : public ui::SimpleMenuModel,
                        const std::string& guid,
                        int index);
 
-  content::WebContents* tab_;
-  SendTabToSelfMenuType menu_type_;
-  GURL link_url_;
+  base::WeakPtr<content::WebContents> tab_;
+  const SendTabToSelfMenuType menu_type_;
+  const GURL link_url_;
   std::vector<ValidDeviceItem> valid_device_items_;
-
-  DISALLOW_COPY_AND_ASSIGN(SendTabToSelfSubMenuModel);
 };
 
 }  //  namespace send_tab_to_self

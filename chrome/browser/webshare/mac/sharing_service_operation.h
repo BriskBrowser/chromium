@@ -8,14 +8,15 @@
 #include <string>
 #include <vector>
 
-#include "content/public/browser/web_contents_observer.h"
+#include "base/files/file_path.h"
+#include "base/memory/weak_ptr.h"
 #include "third_party/blink/public/mojom/webshare/webshare.mojom.h"
 
 class GURL;
 
-namespace base {
-class FilePath;
-}  // namespace base
+namespace content {
+class WebContents;
+}
 
 namespace webshare {
 
@@ -26,13 +27,14 @@ class PrepareSubDirectoryTask;
 // This class invokes mac native NSSharingServicePicker from a wrapper class in
 // remote_cocoa after validation of data and in case of files first kicks off
 // tasks to create a directories and storing files in them.
-class SharingServiceOperation final : content::WebContentsObserver {
+class SharingServiceOperation final {
  public:
   using SharePickerCallback = base::RepeatingCallback<void(
       content::WebContents* web_contents,
       const std::vector<base::FilePath>& file_paths,
       const std::string& text,
       const std::string& title,
+      const GURL& url,
       blink::mojom::ShareService::ShareCallback close_callback)>;
 
   SharingServiceOperation(const std::string& title,
@@ -40,7 +42,7 @@ class SharingServiceOperation final : content::WebContentsObserver {
                           const GURL& url,
                           std::vector<blink::mojom::SharedFilePtr> files,
                           content::WebContents* web_contents);
-  ~SharingServiceOperation() override;
+  ~SharingServiceOperation();
   SharingServiceOperation(const SharingServiceOperation&) = delete;
   SharingServiceOperation& operator=(const SharingServiceOperation&) = delete;
 
@@ -59,8 +61,11 @@ class SharingServiceOperation final : content::WebContentsObserver {
       const std::vector<base::FilePath>& file_paths,
       const std::string& text,
       const std::string& title,
+      const GURL& url,
       blink::mojom::ShareService::ShareCallback close_callback);
   static SharePickerCallback& GetSharePickerCallback();
+
+  base::WeakPtr<content::WebContents> web_contents_;
 
   const std::string title_;
   const std::string text_;

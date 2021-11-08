@@ -105,7 +105,7 @@ void RecordGamepadsForIdentifiabilityStudy(ExecutionContext* context,
     }
   }
   IdentifiabilityMetricBuilder(context->UkmSourceID())
-      .SetWebfeature(WebFeature::kGetGamepads, builder.GetToken())
+      .AddWebFeature(WebFeature::kGetGamepads, builder.GetToken())
       .Record(context->UkmRecorder());
 }
 
@@ -131,7 +131,7 @@ GamepadList* NavigatorGamepad::getGamepads(Navigator& navigator,
 
   ExecutionContext* context = navigator_gamepad->GetExecutionContext();
   if (!context || !context->IsSecureContext()) {
-    if (base::FeatureList::IsEnabled(features::kRestrictGamepadAccess)) {
+    if (base::FeatureList::IsEnabled(::features::kRestrictGamepadAccess)) {
       exception_state.ThrowSecurityError(kSecureContextBlocked);
       return nullptr;
     } else {
@@ -148,8 +148,8 @@ GamepadList* NavigatorGamepad::getGamepads(Navigator& navigator,
   }
 
   if (!context->IsFeatureEnabled(
-          mojom::blink::FeaturePolicyFeature::kGamepad)) {
-    if (base::FeatureList::IsEnabled(features::kRestrictGamepadAccess)) {
+          mojom::blink::PermissionsPolicyFeature::kGamepad)) {
+    if (base::FeatureList::IsEnabled(::features::kRestrictGamepadAccess)) {
       exception_state.ThrowSecurityError(kFeaturePolicyBlocked);
       return nullptr;
     } else {
@@ -216,7 +216,10 @@ void NavigatorGamepad::SampleGamepads() {
         gamepad = MakeGarbageCollected<Gamepad>(this, i, navigation_start_,
                                                 gamepads_start_);
       }
-      gamepad->UpdateFromDeviceState(device_gamepad);
+      bool cross_origin_isolated_capability =
+          DomWindow() ? DomWindow()->CrossOriginIsolatedCapability() : false;
+      gamepad->UpdateFromDeviceState(device_gamepad,
+                                     cross_origin_isolated_capability);
       gamepads_back_->Set(i, gamepad);
     } else {
       gamepads_back_->Set(i, nullptr);

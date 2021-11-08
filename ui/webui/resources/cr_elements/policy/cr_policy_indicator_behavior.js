@@ -8,7 +8,7 @@
  * rework the "policy" naming scheme throughout this directory.
  */
 
-// #import {assertNotReached} from 'chrome://resources/js/assert.m.js';
+// #import {assertNotReached} from '../../js/assert.m.js';
 
 /**
  * Strings required for policy indicators. These must be set at runtime.
@@ -159,3 +159,4 @@ var CrPolicyStrings;
     return '';
   },
 };
+/* #ignore */ console.warn('crbug/1173575, non-JS module files deprecated.');

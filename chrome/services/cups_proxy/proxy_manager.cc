@@ -56,6 +56,9 @@ class ProxyManagerImpl : public ProxyManager {
         base::BindOnce([] { LOG(ERROR) << "CupsProxy mojo connection lost"; }));
   }
 
+  ProxyManagerImpl(const ProxyManagerImpl&) = delete;
+  ProxyManagerImpl& operator=(const ProxyManagerImpl&) = delete;
+
   ~ProxyManagerImpl() override = default;
 
   void ProxyRequest(const std::string& method,
@@ -110,10 +113,9 @@ class ProxyManagerImpl : public ProxyManager {
 
   mojo::Receiver<mojom::CupsProxier> receiver_;
   base::WeakPtrFactory<ProxyManagerImpl> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(ProxyManagerImpl);
 };
 
-base::Optional<std::vector<uint8_t>> RebuildIppRequest(
+absl::optional<std::vector<uint8_t>> RebuildIppRequest(
     const std::string& method,
     const std::string& url,
     const std::string& version,
@@ -122,12 +124,12 @@ base::Optional<std::vector<uint8_t>> RebuildIppRequest(
   auto request_line_buffer =
       ipp_converter::BuildRequestLine(method, url, version);
   if (!request_line_buffer.has_value()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   auto headers_buffer = ipp_converter::BuildHeaders(headers);
   if (!headers_buffer.has_value()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   std::vector<uint8_t> ret;
@@ -153,9 +155,8 @@ void ProxyManagerImpl::ProxyRequest(
   // kRateLimit, the request is blocked and the HTTP 429 Too Many Requests
   // response status code is returned.
   base::TimeTicks time = base::TimeTicks::Now();
-  bool block_request =
-      timestamp_.CurrentIndex() >= timestamp_.BufferSize() &&
-      time - timestamp_.ReadBuffer(0) < base::TimeDelta::FromSeconds(1);
+  bool block_request = timestamp_.CurrentIndex() >= timestamp_.BufferSize() &&
+                       time - timestamp_.ReadBuffer(0) < base::Seconds(1);
   timestamp_.SaveToBuffer(time);
   if (block_request) {
     LOG(WARNING) << "CupsPrintService: Rate limit (" << kRateLimit
@@ -259,7 +260,7 @@ void ProxyManagerImpl::SpoofGetPrinters() {
       delegate_->GetPrinters(chromeos::PrinterClass::kSaved),
       delegate_->GetPrinters(chromeos::PrinterClass::kEnterprise),
       delegate_->GetRecentlyUsedPrinters());
-  base::Optional<IppResponse> response =
+  absl::optional<IppResponse> response =
       BuildGetDestsResponse(in_flight_->request, printers);
   if (!response.has_value()) {
     return Fail("Failed to spoof CUPS-Get-Printers response",

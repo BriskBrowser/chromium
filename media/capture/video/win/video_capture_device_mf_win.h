@@ -19,14 +19,15 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
+#include "media/base/win/dxgi_device_manager.h"
 #include "media/capture/capture_export.h"
 #include "media/capture/video/video_capture_device.h"
 #include "media/capture/video/win/capability_list_win.h"
 #include "media/capture/video/win/metrics.h"
-#include "media/capture/video/win/video_capture_dxgi_device_manager.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 interface IMFSourceReader;
 
@@ -46,15 +47,20 @@ class CAPTURE_EXPORT VideoCaptureDeviceMFWin : public VideoCaptureDevice {
   static VideoCaptureControlSupport GetControlSupport(
       Microsoft::WRL::ComPtr<IMFMediaSource> source);
 
+  VideoCaptureDeviceMFWin() = delete;
+
   explicit VideoCaptureDeviceMFWin(
       const VideoCaptureDeviceDescriptor& device_descriptor,
       Microsoft::WRL::ComPtr<IMFMediaSource> source,
-      scoped_refptr<VideoCaptureDXGIDeviceManager> dxgi_device_manager);
+      scoped_refptr<DXGIDeviceManager> dxgi_device_manager);
   explicit VideoCaptureDeviceMFWin(
       const VideoCaptureDeviceDescriptor& device_descriptor,
       Microsoft::WRL::ComPtr<IMFMediaSource> source,
-      scoped_refptr<VideoCaptureDXGIDeviceManager> dxgi_device_manager,
+      scoped_refptr<DXGIDeviceManager> dxgi_device_manager,
       Microsoft::WRL::ComPtr<IMFCaptureEngine> engine);
+
+  VideoCaptureDeviceMFWin(const VideoCaptureDeviceMFWin&) = delete;
+  VideoCaptureDeviceMFWin& operator=(const VideoCaptureDeviceMFWin&) = delete;
 
   ~VideoCaptureDeviceMFWin() override;
 
@@ -70,6 +76,8 @@ class CAPTURE_EXPORT VideoCaptureDeviceMFWin : public VideoCaptureDevice {
   void GetPhotoState(GetPhotoStateCallback callback) override;
   void SetPhotoOptions(mojom::PhotoSettingsPtr settings,
                        SetPhotoOptionsCallback callback) override;
+  void OnUtilizationReport(int frame_feedback_id,
+                           media::VideoCaptureFeedback feedback) override;
 
   // Captured new video data.
   void OnIncomingCapturedData(IMFMediaBuffer* buffer,
@@ -100,11 +108,11 @@ class CAPTURE_EXPORT VideoCaptureDeviceMFWin : public VideoCaptureDevice {
   }
 
   void set_dxgi_device_manager_for_testing(
-      scoped_refptr<VideoCaptureDXGIDeviceManager> dxgi_device_manager) {
+      scoped_refptr<DXGIDeviceManager> dxgi_device_manager) {
     dxgi_device_manager_ = std::move(dxgi_device_manager);
   }
 
-  base::Optional<int> camera_rotation() const { return camera_rotation_; }
+  absl::optional<int> camera_rotation() const { return camera_rotation_; }
 
  private:
   HRESULT ExecuteHresultCallbackWithRetries(
@@ -133,7 +141,8 @@ class CAPTURE_EXPORT VideoCaptureDeviceMFWin : public VideoCaptureDevice {
   HRESULT WaitOnCaptureEvent(GUID capture_event_guid);
   HRESULT DeliverTextureToClient(ID3D11Texture2D* texture,
                                  base::TimeTicks reference_time,
-                                 base::TimeDelta timestamp);
+                                 base::TimeDelta timestamp)
+      EXCLUSIVE_LOCKS_REQUIRED(lock_);
   void OnIncomingCapturedDataInternal(
       IMFMediaBuffer* buffer,
       base::TimeTicks reference_time,
@@ -169,12 +178,12 @@ class CAPTURE_EXPORT VideoCaptureDeviceMFWin : public VideoCaptureDevice {
   base::queue<TakePhotoCallback> video_stream_take_photo_callbacks_;
   base::WaitableEvent capture_initialize_;
   base::WaitableEvent capture_error_;
-  scoped_refptr<VideoCaptureDXGIDeviceManager> dxgi_device_manager_;
-  base::Optional<int> camera_rotation_;
+  scoped_refptr<DXGIDeviceManager> dxgi_device_manager_;
+  absl::optional<int> camera_rotation_;
+
+  media::VideoCaptureFeedback last_feedback_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(VideoCaptureDeviceMFWin);
 };
 
 }  // namespace media

@@ -40,7 +40,7 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browser_controls.BrowserStateBrowserControlsVisibilityDelegate;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.theme.ThemeColorProvider;
-import org.chromium.chrome.browser.toolbar.ButtonData;
+import org.chromium.chrome.browser.toolbar.ButtonDataImpl;
 import org.chromium.chrome.browser.toolbar.menu_button.MenuButton;
 import org.chromium.chrome.browser.toolbar.menu_button.MenuButtonCoordinator;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuCoordinator;
@@ -125,7 +125,7 @@ public class ToolbarPhoneTest {
         doReturn(false).when(mMenuButtonCoordinator).isVisible();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mToolbar.updateOptionalButton(
-                    new ButtonData(false, drawable, null, R.string.share, false, null, false));
+                    new ButtonDataImpl(false, drawable, null, R.string.share, false, null, false));
             mToolbar.updateButtonVisibility();
         });
 
@@ -157,15 +157,17 @@ public class ToolbarPhoneTest {
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             // Has to be created on the main thread.
+            // clang-format off
             MenuButtonCoordinator realMenuButtonCoordinator = new MenuButtonCoordinator(
                     new OneshotSupplierImpl<AppMenuCoordinator>(),
                     new TestControlsVisibilityDelegate(),
                     mActivityTestRule.getActivity().getWindowAndroid(), mFocusFunction,
-                    mRequestRenderRunnable, true,
-                    () -> false, mThemeColorProvider, org.chromium.chrome.R.id.menu_button_wrapper);
+                    mRequestRenderRunnable, true, () -> false, mThemeColorProvider,
+                    () -> null, () -> {}, org.chromium.chrome.R.id.menu_button_wrapper);
+            // clang-format on
             mToolbar.setMenuButtonCoordinatorForTesting(realMenuButtonCoordinator);
             mToolbar.updateOptionalButton(
-                    new ButtonData(false, drawable, null, R.string.share, false, null, false));
+                    new ButtonDataImpl(false, drawable, null, R.string.share, false, null, false));
             // Make sure the button is visible in the beginning of the test.
             assertEquals(realMenuButtonCoordinator.isVisible(), true);
 

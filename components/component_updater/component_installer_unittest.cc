@@ -90,18 +90,16 @@ class MockUpdateClient : public UpdateClient {
     std::move(callback).Run(update_client::Error::NONE);
   }
 
-  void SendUninstallPing(const std::string& id,
-                         const base::Version& version,
+  void SendUninstallPing(const CrxComponent& crx_component,
                          int reason,
                          Callback callback) override {
-    DoSendUninstallPing(id, version, reason);
+    DoSendUninstallPing(crx_component, reason);
     std::move(callback).Run(update_client::Error::NONE);
   }
 
-  void SendRegistrationPing(const std::string& id,
-                            const base::Version& version,
+  void SendRegistrationPing(const CrxComponent& crx_component,
                             Callback callback) override {
-    DoSendRegistrationPing(id, version);
+    DoSendRegistrationPing(crx_component);
     std::move(callback).Run(update_client::Error::NONE);
   }
 
@@ -117,12 +115,9 @@ class MockUpdateClient : public UpdateClient {
                      bool(const std::string& id, CrxUpdateItem* update_item));
   MOCK_CONST_METHOD1(IsUpdating, bool(const std::string& id));
   MOCK_METHOD0(Stop, void());
-  MOCK_METHOD3(DoSendUninstallPing,
-               void(const std::string& id,
-                    const base::Version& version,
-                    int reason));
-  MOCK_METHOD2(DoSendRegistrationPing,
-               void(const std::string& id, const base::Version& version));
+  MOCK_METHOD2(DoSendUninstallPing,
+               void(const CrxComponent& crx_component, int reason));
+  MOCK_METHOD1(DoSendRegistrationPing, void(const CrxComponent& crx_component));
 
  private:
   ~MockUpdateClient() override = default;
@@ -133,7 +128,7 @@ class MockInstallerPolicy : public ComponentInstallerPolicy {
   MockInstallerPolicy() = default;
   ~MockInstallerPolicy() override = default;
 
-  bool VerifyInstallation(const base::DictionaryValue& manifest,
+  bool VerifyInstallation(const base::Value& manifest,
                           const base::FilePath& dir) const override {
     return true;
   }
@@ -145,17 +140,16 @@ class MockInstallerPolicy : public ComponentInstallerPolicy {
   bool RequiresNetworkEncryption() const override { return true; }
 
   update_client::CrxInstaller::Result OnCustomInstall(
-      const base::DictionaryValue& manifest,
+      const base::Value& manifest,
       const base::FilePath& install_dir) override {
     return update_client::CrxInstaller::Result(0);
   }
 
   void OnCustomUninstall() override {}
 
-  void ComponentReady(
-      const base::Version& version,
-      const base::FilePath& install_dir,
-      std::unique_ptr<base::DictionaryValue> manifest) override {}
+  void ComponentReady(const base::Version& version,
+                      const base::FilePath& install_dir,
+                      base::Value manifest) override {}
 
   base::FilePath GetRelativeInstallDir() const override {
     return base::FilePath(relative_install_dir);

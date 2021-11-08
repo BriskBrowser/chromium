@@ -16,6 +16,9 @@
 #include "components/payments/core/currency_formatter.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/border.h"
@@ -30,31 +33,41 @@ namespace payments {
 
 namespace {
 
+class LineItemRow : public views::View {
+ public:
+  METADATA_HEADER(LineItemRow);
+
+  // views::View:
+  void OnThemeChanged() override {
+    View::OnThemeChanged();
+    // The vertical spacing for these rows is slightly different than the
+    // spacing spacing for clickable rows, so don't use
+    // kPaymentRequestRowVerticalInsets.
+    constexpr int kRowVerticalInset = 4;
+    const gfx::Insets row_insets(
+        kRowVerticalInset, payments::kPaymentRequestRowHorizontalInsets,
+        kRowVerticalInset, payments::kPaymentRequestRowHorizontalInsets);
+    SetBorder(payments::CreatePaymentRequestRowBorder(
+        GetColorProvider()->GetColor(ui::kColorSeparator), row_insets));
+  }
+};
+
+BEGIN_METADATA(LineItemRow, views::View)
+END_METADATA
+
 // Creates a view for a line item to be displayed in the Order Summary Sheet.
 // |label| is the text in the left-aligned label and |amount| is the text of the
 // right-aliged label in the row. The |amount| and |label| texts are emphasized
 // if |emphasize| is true, which is only the case for the last row containing
 // the total of the order. |amount_label_id| is specified to recall the view
 // later, e.g. in tests.
-std::unique_ptr<views::View> CreateLineItemView(const base::string16& label,
-                                                const base::string16& currency,
-                                                const base::string16& amount,
+std::unique_ptr<views::View> CreateLineItemView(const std::u16string& label,
+                                                const std::u16string& currency,
+                                                const std::u16string& amount,
                                                 bool emphasize,
                                                 DialogViewID currency_label_id,
                                                 DialogViewID amount_label_id) {
-  std::unique_ptr<views::View> row = std::make_unique<views::View>();
-
-  // The vertical spacing for these rows is slightly different than the spacing
-  // spacing for clickable rows, so don't use kPaymentRequestRowVerticalInsets.
-  constexpr int kRowVerticalInset = 4;
-  const gfx::Insets row_insets(
-      kRowVerticalInset, payments::kPaymentRequestRowHorizontalInsets,
-      kRowVerticalInset, payments::kPaymentRequestRowHorizontalInsets);
-  row->SetBorder(payments::CreatePaymentRequestRowBorder(
-      row->GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_SeparatorColor),
-      row_insets));
-
+  std::unique_ptr<views::View> row = std::make_unique<LineItemRow>();
   views::GridLayout* layout =
       row->SetLayoutManager(std::make_unique<views::GridLayout>());
 
@@ -148,7 +161,7 @@ bool OrderSummaryViewController::ShouldShowSecondaryButton() {
   return false;
 }
 
-base::string16 OrderSummaryViewController::GetSheetTitle() {
+std::u16string OrderSummaryViewController::GetSheetTitle() {
   return l10n_util::GetStringUTF16(IDS_PAYMENTS_ORDER_SUMMARY_LABEL);
 }
 
@@ -173,7 +186,7 @@ void OrderSummaryViewController::FillContentView(views::View* content_view) {
   for (size_t i = 0; i < display_items.size(); i++) {
     DialogViewID view_id =
         i < line_items.size() ? line_items[i] : DialogViewID::VIEW_ID_NONE;
-    base::string16 currency = base::UTF8ToUTF16("");
+    std::u16string currency = u"";
     if (is_mixed_currency) {
       currency = base::UTF8ToUTF16((*display_items[i])->amount->currency);
     }
@@ -186,7 +199,7 @@ void OrderSummaryViewController::FillContentView(views::View* content_view) {
             .release());
   }
 
-  base::string16 total_label_value = l10n_util::GetStringFUTF16(
+  std::u16string total_label_value = l10n_util::GetStringFUTF16(
       IDS_PAYMENT_REQUEST_ORDER_SUMMARY_SHEET_TOTAL_FORMAT,
       base::UTF8ToUTF16(
           spec()->GetTotal(state()->selected_app())->amount->currency),

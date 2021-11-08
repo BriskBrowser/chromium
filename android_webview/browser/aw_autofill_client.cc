@@ -14,9 +14,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/ui/autofill_popup_delegate.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
@@ -138,13 +136,13 @@ void AwAutofillClient::OnUnmaskVerificationResult(PaymentsRpcResult result) {
 }
 
 void AwAutofillClient::ConfirmAccountNameFixFlow(
-    base::OnceCallback<void(const base::string16&)> callback) {
+    base::OnceCallback<void(const std::u16string&)> callback) {
   NOTIMPLEMENTED();
 }
 
 void AwAutofillClient::ConfirmExpirationDateFixFlow(
     const autofill::CreditCard& card,
-    base::OnceCallback<void(const base::string16&, const base::string16&)>
+    base::OnceCallback<void(const std::u16string&, const std::u16string&)>
         callback) {
   NOTIMPLEMENTED();
 }
@@ -176,6 +174,8 @@ void AwAutofillClient::ConfirmCreditCardFillAssist(
 
 void AwAutofillClient::ConfirmSaveAddressProfile(
     const autofill::AutofillProfile& profile,
+    const autofill::AutofillProfile* original_profile,
+    SaveAddressProfilePromptOptions options,
     AddressProfileSavePromptCallback callback) {
   NOTIMPLEMENTED();
 }
@@ -205,8 +205,8 @@ void AwAutofillClient::ShowAutofillPopup(
 }
 
 void AwAutofillClient::UpdateAutofillPopupDataListValues(
-    const std::vector<base::string16>& values,
-    const std::vector<base::string16>& labels) {
+    const std::vector<std::u16string>& values,
+    const std::vector<std::u16string>& labels) {
   // Leaving as an empty method since updating autofill popup window
   // dynamically does not seem to be a useful feature for android webview.
   // See crrev.com/18102002 if need to implement.
@@ -244,12 +244,7 @@ void AwAutofillClient::HideAutofillPopup(autofill::PopupHidingReason reason) {
 }
 
 bool AwAutofillClient::IsAutocompleteEnabled() {
-  bool enabled = GetSaveFormData();
-  if (!autocomplete_uma_recorded_) {
-    UMA_HISTOGRAM_BOOLEAN("Autofill.AutocompleteEnabled", enabled);
-    autocomplete_uma_recorded_ = true;
-  }
-  return enabled;
+  return GetSaveFormData();
 }
 
 void AwAutofillClient::PropagateAutofillPredictions(
@@ -257,8 +252,8 @@ void AwAutofillClient::PropagateAutofillPredictions(
     const std::vector<autofill::FormStructure*>& forms) {}
 
 void AwAutofillClient::DidFillOrPreviewField(
-    const base::string16& autofilled_value,
-    const base::string16& profile_full_name) {}
+    const std::u16string& autofilled_value,
+    const std::u16string& profile_full_name) {}
 
 bool AwAutofillClient::IsContextSecure() const {
   content::SSLStatus ssl_status;
@@ -306,7 +301,7 @@ void AwAutofillClient::SuggestionSelected(JNIEnv* env,
   if (delegate_) {
     delegate_->DidAcceptSuggestion(suggestions_[position].value,
                                    suggestions_[position].frontend_id,
-                                   position);
+                                   suggestions_[position].backend_id, position);
   }
 }
 
@@ -365,6 +360,6 @@ void AwAutofillClient::ShowAutofillPopupImpl(
   Java_AwAutofillClient_showAutofillPopup(env, obj, view, is_rtl, data_array);
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(AwAutofillClient)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(AwAutofillClient);
 
 }  // namespace android_webview

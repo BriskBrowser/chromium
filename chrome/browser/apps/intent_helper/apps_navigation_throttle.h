@@ -6,10 +6,8 @@
 #define CHROME_BROWSER_APPS_INTENT_HELPER_APPS_NAVIGATION_THROTTLE_H_
 
 #include <memory>
-#include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "url/gurl.h"
@@ -21,16 +19,13 @@ class WebContents;
 
 namespace apps {
 
-// Allows navigation to be routed to an installed app on Chrome OS, and provides
-// a static method for showing an intent picker for the current URL to display
-// any handling apps.
+// Allows canceling a navigation to instead be routed to an installed app.
 class AppsNavigationThrottle : public content::NavigationThrottle {
  public:
   using ThrottleCheckResult = content::NavigationThrottle::ThrottleCheckResult;
 
   // Possibly creates a navigation throttle that checks if any installed apps
-  // can handle the URL being navigated to. The user is prompted if they wish to
-  // open the app or remain in the browser.
+  // can handle the URL being navigated to.
   static std::unique_ptr<content::NavigationThrottle> MaybeCreate(
       content::NavigationHandle* handle);
 
@@ -45,32 +40,27 @@ class AppsNavigationThrottle : public content::NavigationThrottle {
   ThrottleCheckResult WillRedirectRequest() override;
 
  protected:
-  // Overrides for Chrome OS to allow ARC handling.
-  virtual void MaybeRemoveComingFromArcFlag(content::WebContents* web_contents,
-                                            const GURL& previous_url,
-                                            const GURL& current_url) {}
-
-  virtual bool ShouldDeferNavigation(content::NavigationHandle* handle);
-
   virtual bool ShouldCancelNavigation(content::NavigationHandle* handle);
 
-  bool navigate_from_link() const;
+  virtual bool ShouldShowDisablePage(content::NavigationHandle* handle);
 
-  // Keeps track of whether we already shown the UI or preferred app. Since
-  // AppsNavigationThrottle cannot wait for the user (due to the non-blocking
-  // nature of the feature) the best we can do is check if we launched a
-  // preferred app or asked the UI to be shown, this flag ensures we never
-  // trigger the UI twice for the same throttle.
-  // TODO(crbug.com/824598): This is no longer needed after removing
-  // ChromeOsAppsNavigationThrottle.
-  bool ui_displayed_ = false;
+  virtual ThrottleCheckResult MaybeShowCustomResult();
+
+  bool navigate_from_link() const;
 
   GURL starting_url_;
 
  private:
   // Returns whether navigation to |url| was captured by a web app and what to
   // do next if so.
-  base::Optional<ThrottleCheckResult> CaptureWebAppScopeNavigations(
+  // Note that this implementation is only for:
+  //  - |kDesktopPWAsTabStripLinkCapturing|
+  //  - |kWebAppEnableLinkCapturing| when |kIntentPickerPWAPersistence| is
+  //    disabled.
+  // When |kIntentPickerPWAPersistence| is enabled |kWebAppEnableLinkCapturing|
+  // is handled by WebApps::LaunchAppWithIntentImpl() instead and integrates
+  // properly with App Service's intent handling system.
+  absl::optional<ThrottleCheckResult> CaptureWebAppScopeNavigations(
       content::WebContents* web_contents,
       content::NavigationHandle* handle) const;
 

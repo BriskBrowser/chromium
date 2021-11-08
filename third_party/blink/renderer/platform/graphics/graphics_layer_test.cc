@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/scoped_paint_chunk_properties.h"
 #include "third_party/blink/renderer/platform/testing/fake_graphics_layer_client.h"
 #include "third_party/blink/renderer/platform/testing/paint_property_test_helpers.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
 using ::testing::ElementsAre;
 
@@ -56,144 +57,166 @@ class GraphicsLayerTest : public PaintControllerTestBase {
       const GraphicsLayer& layer) {
     return layer.paint_controller_.get();
   }
+
+ private:
+  ScopedCompositeAfterPaintForTest cap_{false};
 };
 
 TEST_F(GraphicsLayerTest, PaintRecursively) {
-  FakeGraphicsLayerClient client;
-  GraphicsLayer root(client);
-  root.SetPaintsHitTest(true);
-  root.SetLayerState(PropertyTreeState::Root(), IntPoint());
+  FakeGraphicsLayerClient* client =
+      MakeGarbageCollected<FakeGraphicsLayerClient>();
+  GraphicsLayer* root = MakeGarbageCollected<GraphicsLayer>(*client);
+  root->SetPaintsHitTest(true);
+  root->SetLayerState(PropertyTreeState::Root(), gfx::Vector2d());
 
   // Initially layer1 doesn't draw content.
-  GraphicsLayer layer1(client);
-  EXPECT_FALSE(layer1.DrawsContent());
+  GraphicsLayer* layer1 = MakeGarbageCollected<GraphicsLayer>(*client);
+  EXPECT_FALSE(layer1->DrawsContent());
   auto t1 = Create2DTranslation(t0(), 10, 20);
   PropertyTreeState layer1_state(*t1, c0(), e0());
-  layer1.SetLayerState(layer1_state, IntPoint());
-  root.AddChild(&layer1);
-
-  GraphicsLayer layer2(client);
-  layer2.SetDrawsContent(true);
+  layer1->SetLayerState(layer1_state, gfx::Vector2d());
+  root->AddChild(layer1);
+  GraphicsLayer* layer2 = MakeGarbageCollected<GraphicsLayer>(*client);
+  layer2->SetDrawsContent(true);
   auto t2 = Create2DTranslation(t0(), 10, 20);
   PropertyTreeState layer2_state(*t2, c0(), e0());
-  layer2.SetLayerState(layer2_state, IntPoint());
-  root.AddChild(&layer2);
+  layer2->SetLayerState(layer2_state, gfx::Vector2d());
+  root->AddChild(layer2);
 
-  client.SetPainter([&](const GraphicsLayer* layer, GraphicsContext& context,
-                        GraphicsLayerPaintingPhase, const IntRect&) {
-    if (layer == &root) {
+  client->SetPainter([&](const GraphicsLayer* layer, GraphicsContext& context,
+                         GraphicsLayerPaintingPhase, const IntRect&) {
+    if (layer == root) {
       context.GetPaintController().RecordHitTestData(
-          *layer, IntRect(1, 2, 3, 4), TouchAction::kNone, false);
-    } else if (layer == &layer1) {
+          *layer, gfx::Rect(1, 2, 3, 4), TouchAction::kNone, false);
+    } else if (layer == layer1) {
       ScopedPaintChunkProperties properties(
           context.GetPaintController(), layer1_state, *layer, kBackgroundType);
       PaintControllerTestBase::DrawRect(context, *layer, kBackgroundType,
-                                        IntRect(2, 3, 4, 5));
-    } else if (layer == &layer2) {
+                                        gfx::Rect(2, 3, 4, 5));
+    } else if (layer == layer2) {
       ScopedPaintChunkProperties properties(
           context.GetPaintController(), layer2_state, *layer, kBackgroundType);
       PaintControllerTestBase::DrawRect(context, *layer, kBackgroundType,
-                                        IntRect(3, 4, 5, 6));
+                                        gfx::Rect(3, 4, 5, 6));
     }
   });
 
   GraphicsContext context(GetPaintController());
-  client.SetNeedsRepaint(true);
-  Vector<PreCompositedLayerInfo> pre_composited_layers;
-  EXPECT_TRUE(root.PaintRecursively(context, pre_composited_layers));
-  EXPECT_TRUE(root.Repainted());
-  root.GetPaintController().FinishCycle();
-  EXPECT_FALSE(layer1.Repainted());
-  EXPECT_TRUE(layer2.Repainted());
-  layer2.GetPaintController().FinishCycle();
+  client->SetNeedsRepaint(true);
+  HeapVector<PreCompositedLayerInfo> pre_composited_layers;
+  {
+    PaintController::CycleScope cycle_scope;
+    EXPECT_TRUE(
+        root->PaintRecursively(context, pre_composited_layers, cycle_scope));
+  }
+  EXPECT_TRUE(root->Repainted());
+  EXPECT_FALSE(layer1->Repainted());
+  EXPECT_TRUE(layer2->Repainted());
 
   HitTestData hit_test_data;
-  hit_test_data.touch_action_rects = {{IntRect(1, 2, 3, 4)}};
+  hit_test_data.touch_action_rects = {{gfx::Rect(1, 2, 3, 4)}};
   ASSERT_EQ(2u, pre_composited_layers.size());
-  EXPECT_EQ(&root, pre_composited_layers[0].graphics_layer);
+  EXPECT_EQ(root, pre_composited_layers[0].graphics_layer);
   EXPECT_THAT(
       pre_composited_layers[0].chunks,
       ElementsAre(IsPaintChunk(
-          0, 0, PaintChunk::Id(root, DisplayItem::kHitTest),
-          PropertyTreeState::Root(), &hit_test_data, IntRect(1, 2, 3, 4))));
+          0, 0, PaintChunk::Id(root->Id(), DisplayItem::kHitTest),
+          PropertyTreeState::Root(), &hit_test_data, gfx::Rect(1, 2, 3, 4))));
   EXPECT_THAT(pre_composited_layers[0].chunks.begin().DisplayItems(),
               ElementsAre());
-  EXPECT_EQ(&layer2, pre_composited_layers[1].graphics_layer);
-  EXPECT_THAT(
-      pre_composited_layers[1].chunks,
-      ElementsAre(IsPaintChunk(0, 1, PaintChunk::Id(layer2, kBackgroundType),
-                               layer2_state, nullptr, IntRect(3, 4, 5, 6))));
+  EXPECT_EQ(layer2, pre_composited_layers[1].graphics_layer);
+  EXPECT_THAT(pre_composited_layers[1].chunks,
+              ElementsAre(IsPaintChunk(
+                  0, 1, PaintChunk::Id(layer2->Id(), kBackgroundType),
+                  layer2_state, nullptr, gfx::Rect(3, 4, 5, 6))));
   EXPECT_THAT(pre_composited_layers[1].chunks.begin().DisplayItems(),
-              ElementsAre(IsSameId(&layer2, kBackgroundType)));
+              ElementsAre(IsSameId(layer2->Id(), kBackgroundType)));
 
   // Paint again with nothing changed.
-  client.SetNeedsRepaint(false);
+  client->SetNeedsRepaint(false);
   pre_composited_layers.clear();
-  EXPECT_FALSE(root.PaintRecursively(context, pre_composited_layers));
-  EXPECT_FALSE(root.Repainted());
-  EXPECT_FALSE(layer1.Repainted());
-  EXPECT_FALSE(layer2.Repainted());
+  {
+    PaintController::CycleScope cycle_scope;
+    EXPECT_FALSE(
+        root->PaintRecursively(context, pre_composited_layers, cycle_scope));
+  }
+  EXPECT_FALSE(root->Repainted());
+  EXPECT_FALSE(layer1->Repainted());
+  EXPECT_FALSE(layer2->Repainted());
   EXPECT_EQ(2u, pre_composited_layers.size());
 
   // Paint again with layer1 drawing content.
-  layer1.SetDrawsContent(true);
+  layer1->SetDrawsContent(true);
   pre_composited_layers.clear();
-  EXPECT_TRUE(root.PaintRecursively(context, pre_composited_layers));
-  EXPECT_FALSE(root.Repainted());
-  EXPECT_TRUE(layer1.Repainted());
-  layer1.GetPaintController().FinishCycle();
-  EXPECT_FALSE(layer2.Repainted());
+  {
+    PaintController::CycleScope cycle_scope;
+    EXPECT_TRUE(
+        root->PaintRecursively(context, pre_composited_layers, cycle_scope));
+  }
+  EXPECT_FALSE(root->Repainted());
+  EXPECT_TRUE(layer1->Repainted());
+  EXPECT_FALSE(layer2->Repainted());
 
   EXPECT_EQ(3u, pre_composited_layers.size());
-  EXPECT_EQ(&root, pre_composited_layers[0].graphics_layer);
+  EXPECT_EQ(root, pre_composited_layers[0].graphics_layer);
   EXPECT_THAT(
       pre_composited_layers[0].chunks,
       ElementsAre(IsPaintChunk(
-          0, 0, PaintChunk::Id(root, DisplayItem::kHitTest),
-          PropertyTreeState::Root(), &hit_test_data, IntRect(1, 2, 3, 4))));
+          0, 0, PaintChunk::Id(root->Id(), DisplayItem::kHitTest),
+          PropertyTreeState::Root(), &hit_test_data, gfx::Rect(1, 2, 3, 4))));
   EXPECT_THAT(pre_composited_layers[0].chunks.begin().DisplayItems(),
               ElementsAre());
-  EXPECT_EQ(&layer1, pre_composited_layers[1].graphics_layer);
-  EXPECT_THAT(
-      pre_composited_layers[1].chunks,
-      ElementsAre(IsPaintChunk(0, 1, PaintChunk::Id(layer1, kBackgroundType),
-                               layer1_state, nullptr, IntRect(2, 3, 4, 5))));
+  EXPECT_EQ(layer1, pre_composited_layers[1].graphics_layer);
+  EXPECT_THAT(pre_composited_layers[1].chunks,
+              ElementsAre(IsPaintChunk(
+                  0, 1, PaintChunk::Id(layer1->Id(), kBackgroundType),
+                  layer1_state, nullptr, gfx::Rect(2, 3, 4, 5))));
   EXPECT_THAT(pre_composited_layers[1].chunks.begin().DisplayItems(),
-              ElementsAre(IsSameId(&layer1, kBackgroundType)));
-  EXPECT_EQ(&layer2, pre_composited_layers[2].graphics_layer);
-  EXPECT_THAT(
-      pre_composited_layers[2].chunks,
-      ElementsAre(IsPaintChunk(0, 1, PaintChunk::Id(layer2, kBackgroundType),
-                               layer2_state, nullptr, IntRect(3, 4, 5, 6))));
+              ElementsAre(IsSameId(layer1->Id(), kBackgroundType)));
+  EXPECT_EQ(layer2, pre_composited_layers[2].graphics_layer);
+  EXPECT_THAT(pre_composited_layers[2].chunks,
+              ElementsAre(IsPaintChunk(
+                  0, 1, PaintChunk::Id(layer2->Id(), kBackgroundType),
+                  layer2_state, nullptr, gfx::Rect(3, 4, 5, 6))));
   EXPECT_THAT(pre_composited_layers[2].chunks.begin().DisplayItems(),
-              ElementsAre(IsSameId(&layer2, kBackgroundType)));
+              ElementsAre(IsSameId(layer2->Id(), kBackgroundType)));
+
+  root->Destroy();
+  layer1->Destroy();
+  layer2->Destroy();
 }
 
 TEST_F(GraphicsLayerTest, SetDrawsContentFalse) {
-  FakeGraphicsLayerClient client;
-  GraphicsLayer layer(client);
-  layer.SetDrawsContent(true);
+  FakeGraphicsLayerClient* client =
+      MakeGarbageCollected<FakeGraphicsLayerClient>();
+  GraphicsLayer* layer = MakeGarbageCollected<GraphicsLayer>(*client);
+  layer->SetDrawsContent(true);
 
-  layer.GetPaintController();
-  EXPECT_NE(nullptr, GetInternalPaintController(layer));
-  EnsureRasterInvalidator(layer);
-  EXPECT_NE(nullptr, GetInternalRasterInvalidator(layer));
+  layer->GetPaintController();
+  EXPECT_NE(nullptr, GetInternalPaintController(*layer));
+  EnsureRasterInvalidator(*layer);
+  EXPECT_NE(nullptr, GetInternalRasterInvalidator(*layer));
 
-  layer.SetDrawsContent(false);
-  EXPECT_EQ(nullptr, GetInternalPaintController(layer));
-  EXPECT_EQ(nullptr, GetInternalRasterInvalidator(layer));
+  layer->SetDrawsContent(false);
+  EXPECT_EQ(nullptr, GetInternalPaintController(*layer));
+  EXPECT_EQ(nullptr, GetInternalRasterInvalidator(*layer));
+
+  layer->Destroy();
 }
 
 TEST_F(GraphicsLayerTest, ContentsLayer) {
-  FakeGraphicsLayerClient client;
-  GraphicsLayer graphics_layer(client);
+  FakeGraphicsLayerClient* client =
+      MakeGarbageCollected<FakeGraphicsLayerClient>();
+  GraphicsLayer* graphics_layer = MakeGarbageCollected<GraphicsLayer>(*client);
   auto contents_layer = cc::Layer::Create();
-  graphics_layer.SetContentsToCcLayer(contents_layer);
-  EXPECT_TRUE(graphics_layer.HasContentsLayer());
-  EXPECT_EQ(contents_layer.get(), graphics_layer.ContentsLayer());
-  graphics_layer.SetContentsToCcLayer(nullptr);
-  EXPECT_FALSE(graphics_layer.HasContentsLayer());
-  EXPECT_EQ(nullptr, graphics_layer.ContentsLayer());
+  graphics_layer->SetContentsToCcLayer(contents_layer);
+  EXPECT_TRUE(graphics_layer->HasContentsLayer());
+  EXPECT_EQ(contents_layer.get(), graphics_layer->ContentsLayer());
+  graphics_layer->SetContentsToCcLayer(nullptr);
+  EXPECT_FALSE(graphics_layer->HasContentsLayer());
+  EXPECT_EQ(nullptr, graphics_layer->ContentsLayer());
+
+  graphics_layer->Destroy();
 }
 
 }  // namespace blink

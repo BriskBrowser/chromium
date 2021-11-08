@@ -21,6 +21,8 @@ enum ChromeInsetsMetric {
   INSETS_TOAST,
   // Padding used in an omnibox pill button.
   INSETS_OMNIBOX_PILL_BUTTON,
+  // Padding used in an page info hover button.
+  INSETS_PAGE_INFO_HOVER_BUTTON,
 };
 
 enum ChromeDistanceMetric {
@@ -80,6 +82,10 @@ enum ChromeDistanceMetric {
 class ChromeLayoutProvider : public views::LayoutProvider {
  public:
   ChromeLayoutProvider();
+
+  ChromeLayoutProvider(const ChromeLayoutProvider&) = delete;
+  ChromeLayoutProvider& operator=(const ChromeLayoutProvider&) = delete;
+
   ~ChromeLayoutProvider() override;
 
   static ChromeLayoutProvider* Get();
@@ -90,25 +96,12 @@ class ChromeLayoutProvider : public views::LayoutProvider {
   int GetDistanceMetric(int metric) const override;
   int GetSnappedDialogWidth(int min_width) const override;
   const views::TypographyProvider& GetTypographyProvider() const override;
-  gfx::ShadowValues MakeShadowValues(int elevation,
-                                     SkColor color) const override;
-
-  // Returns the alignment used for control labels in a GridLayout; for example,
-  // in this GridLayout:
-  //   ---------------------------
-  //   | Label 1      Checkbox 1 |
-  //   | Label 2      Checkbox 2 |
-  //   ---------------------------
-  // This value controls the alignment used for "Label 1" and "Label 2".
-  virtual views::GridLayout::Alignment GetControlLabelGridAlignment() const;
 
   // Returns whether to show the icon next to the title text on a dialog.
   virtual bool ShouldShowWindowIcon() const;
 
  private:
   const ChromeTypographyProvider typography_provider_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeLayoutProvider);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_CHROME_LAYOUT_PROVIDER_H_

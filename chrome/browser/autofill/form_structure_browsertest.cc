@@ -7,6 +7,7 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
@@ -26,18 +27,19 @@
 #include "components/autofill/content/browser/content_autofill_driver.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
-#include "components/autofill/core/browser/autofill_manager.h"
-#include "components/autofill/core/browser/data_driven_test.h"
+#include "components/autofill/core/browser/browser_autofill_manager.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/pattern_provider/pattern_configuration_parser.h"
 #include "components/autofill/core/common/autofill_features.h"
-#include "components/autofill/core/common/renderer_id.h"
+#include "components/autofill/core/common/autofill_payments_features.h"
+#include "components/autofill/core/common/unique_ids.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "net/http/http_status_code.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
+#include "testing/data_driven_testing/data_driven_test.h"
 #include "url/gurl.h"
 
 #if defined(OS_MAC)
@@ -51,11 +53,15 @@ using net::test_server::BasicHttpResponse;
 using net::test_server::HttpRequest;
 using net::test_server::HttpResponse;
 
+const base::FilePath::CharType kFeatureName[] = FILE_PATH_LITERAL("autofill");
 const base::FilePath::CharType kTestName[] = FILE_PATH_LITERAL("heuristics");
 
-const std::set<base::FilePath::StringType>& GetFailingTestNames() {
-  static auto* failing_test_names = new std::set<base::FilePath::StringType>{};
-  return *failing_test_names;
+// To disable a data driven test, please add the name of the test file
+// (i.e., "NNN_some_site.html") as a literal to the initializer_list given
+// to the failing_test_names constructor.
+const auto& GetFailingTestNames() {
+  static std::set<base::FilePath::StringType> failing_test_names{};
+  return failing_test_names;
 }
 
 const base::FilePath& GetTestDataDir() {
@@ -70,7 +76,7 @@ const base::FilePath& GetTestDataDir() {
 
 const base::FilePath GetInputDir() {
   static base::FilePath input_dir = GetTestDataDir()
-                                        .AppendASCII("autofill")
+                                        .Append(kFeatureName)
                                         .Append(kTestName)
                                         .AppendASCII("input");
   return input_dir;
@@ -94,9 +100,9 @@ std::vector<base::FilePath> GetTestFiles() {
 }
 
 std::string FormStructuresToString(
-    const std::map<FormRendererId, std::unique_ptr<FormStructure>>& forms) {
+    const std::map<FormGlobalId, std::unique_ptr<FormStructure>>& forms) {
   std::string forms_string;
-  // The forms are sorted by renderer ID, which should make the order
+  // The forms are sorted by their global ID, which should make the order
   // deterministic.
   for (const auto& kv : forms) {
     const auto* form = kv.second.get();
@@ -104,17 +110,21 @@ std::string FormStructuresToString(
     for (const auto& field : *form) {
       // Normalize the section by replacing the unique but platform-dependent
       // integers in |field->section| with consecutive unique integers.
+      // The section string is of the form "fieldname_id1_id2-suffix", where
+      // id1, id2 are platform-dependent and thus need to be substituted.
       std::string section = field->section;
       size_t last_underscore = section.find_last_of('_');
+      size_t second_last_underscore =
+          section.find_last_of('_', last_underscore - 1);
       size_t next_dash = section.find_first_of('-', last_underscore);
       int new_section_index = static_cast<int>(section_to_index.size() + 1);
       int section_index =
           section_to_index.insert(std::make_pair(section, new_section_index))
               .first->second;
-      if (last_underscore != std::string::npos &&
+      if (second_last_underscore != std::string::npos &&
           next_dash != std::string::npos) {
         section = base::StringPrintf(
-            "%s%d%s", section.substr(0, last_underscore + 1).c_str(),
+            "%s%d%s", section.substr(0, second_last_underscore + 1).c_str(),
             section_index, section.substr(next_dash).c_str());
       }
 
@@ -136,8 +146,12 @@ std::string FormStructuresToString(
 // heuristically detected type for each field.
 class FormStructureBrowserTest
     : public InProcessBrowserTest,
-      public DataDrivenTest,
-      public ::testing::WithParamInterface<base::FilePath> {
+      public testing::DataDrivenTest,
+      public testing::WithParamInterface<base::FilePath> {
+ public:
+  FormStructureBrowserTest(const FormStructureBrowserTest&) = delete;
+  FormStructureBrowserTest& operator=(const FormStructureBrowserTest&) = delete;
+
  protected:
   FormStructureBrowserTest();
   ~FormStructureBrowserTest() override;
@@ -161,14 +175,15 @@ class FormStructureBrowserTest
   // GenerateResults method but it is consumed later in the IO thread by the
   // embedded test server to generate the response.
   std::string html_content_;
-  DISALLOW_COPY_AND_ASSIGN(FormStructureBrowserTest);
 };
 
 FormStructureBrowserTest::FormStructureBrowserTest()
-    : DataDrivenTest(GetTestDataDir()) {
+    : ::testing::DataDrivenTest(GetTestDataDir(), kFeatureName, kTestName) {
   feature_list_.InitWithFeatures(
       // Enabled
-      {// TODO(crbug.com/1098943): Remove once experiment is over.
+      {// TODO(crbug.com/1187842): Remove once experiment is over.
+       features::kAutofillAcrossIframes,
+       // TODO(crbug.com/1098943): Remove once experiment is over.
        features::kAutofillEnableSupportForMoreStructureInNames,
        // TODO(crbug.com/1125978): Remove once launched.
        features::kAutofillEnableSupportForMoreStructureInAddresses,
@@ -183,16 +198,17 @@ FormStructureBrowserTest::FormStructureBrowserTest()
        // TODO(crbug.com/1150895) Remove once launched.
        features::kAutofillParsingPatternsLanguageDetection,
        // TODO(crbug/1165780): Remove once shared labels are launched.
-       features::kAutofillEnableSupportForParsingWithSharedLabels},
+       features::kAutofillEnableSupportForParsingWithSharedLabels,
+       // TODO(crbug/1190334): Remove once launched.
+       features::kAutofillParseMerchantPromoCodeFields},
       // Disabled
-      {features::kAutofillRestrictUnownedFieldsToFormlessCheckout});
+      {});
 }
 
 FormStructureBrowserTest::~FormStructureBrowserTest() {}
 
 void FormStructureBrowserTest::SetUpCommandLine(
     base::CommandLine* command_line) {
-  InProcessBrowserTest::SetUpCommandLine(command_line);
   // Suppress most output logs because we can't really control the output for
   // arbitrary test sites.
   command_line->AppendSwitchASCII(switches::kLoggingLevel, "2");
@@ -222,8 +238,8 @@ void FormStructureBrowserTest::GenerateResults(const std::string& input,
   }
 
   // Navigate to the test html content.
-  ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(
-      browser(), embedded_test_server()->GetURL("/test.html")));
+  ASSERT_NO_FATAL_FAILURE(ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/test.html"))));
 
   // Dump the form fields (and their inferred field types).
   content::WebContents* web_contents =
@@ -232,7 +248,8 @@ void FormStructureBrowserTest::GenerateResults(const std::string& input,
       ContentAutofillDriverFactory::FromWebContents(web_contents)
           ->DriverForFrame(web_contents->GetMainFrame());
   ASSERT_NE(nullptr, autofill_driver);
-  AutofillManager* autofill_manager = autofill_driver->autofill_manager();
+  BrowserAutofillManager* autofill_manager =
+      autofill_driver->browser_autofill_manager();
   ASSERT_NE(nullptr, autofill_manager);
   *output = FormStructuresToString(autofill_manager->form_structures());
 }
@@ -251,8 +268,7 @@ IN_PROC_BROWSER_TEST_P(FormStructureBrowserTest, DataDrivenHeuristics) {
   LOG(INFO) << GetParam().MaybeAsASCII();
   bool is_expected_to_pass =
       !base::Contains(GetFailingTestNames(), GetParam().BaseName().value());
-  RunOneDataDrivenTest(GetParam(), GetOutputDirectory(kTestName),
-                       is_expected_to_pass);
+  RunOneDataDrivenTest(GetParam(), GetOutputDirectory(), is_expected_to_pass);
 }
 
 INSTANTIATE_TEST_SUITE_P(AllForms,

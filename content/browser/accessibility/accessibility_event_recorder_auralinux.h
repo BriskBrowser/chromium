@@ -29,6 +29,12 @@ class CONTENT_EXPORT AccessibilityEventRecorderAuraLinux
       BrowserAccessibilityManager* manager,
       base::ProcessId pid,
       const AXTreeSelector& selector);
+
+  AccessibilityEventRecorderAuraLinux(
+      const AccessibilityEventRecorderAuraLinux&) = delete;
+  AccessibilityEventRecorderAuraLinux& operator=(
+      const AccessibilityEventRecorderAuraLinux&) = delete;
+
   ~AccessibilityEventRecorderAuraLinux() override;
 
   void ProcessATKEvent(const char* event,
@@ -55,10 +61,8 @@ class CONTENT_EXPORT AccessibilityEventRecorderAuraLinux
 
   AtspiEventListener* atspi_event_listener_ = nullptr;
   base::ProcessId pid_;
-  base::StringPiece application_name_match_pattern_;
+  ui::AXTreeSelector selector_;
   static AccessibilityEventRecorderAuraLinux* instance_;
-
-  DISALLOW_COPY_AND_ASSIGN(AccessibilityEventRecorderAuraLinux);
 };
 
 }  // namespace content

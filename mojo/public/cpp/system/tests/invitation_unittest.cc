@@ -12,7 +12,6 @@
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
@@ -27,6 +26,7 @@
 #include "mojo/public/cpp/system/wait.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/multiprocess_func_list.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if !defined(OS_FUCHSIA)
 #include "mojo/public/cpp/platform/named_platform_channel.h"
@@ -59,6 +59,10 @@ class InvitationCppTest : public testing::Test,
                           public testing::WithParamInterface<TransportType> {
  public:
   InvitationCppTest() = default;
+
+  InvitationCppTest(const InvitationCppTest&) = delete;
+  InvitationCppTest& operator=(const InvitationCppTest&) = delete;
+
   ~InvitationCppTest() override = default;
 
  protected:
@@ -72,7 +76,7 @@ class InvitationCppTest : public testing::Test,
         base::GetMultiProcessTestChildBaseCommandLine());
 
     base::LaunchOptions launch_options;
-    base::Optional<PlatformChannel> channel;
+    absl::optional<PlatformChannel> channel;
     PlatformChannelEndpoint channel_endpoint;
     PlatformChannelServerEndpoint server_endpoint;
     switch (transport_type) {
@@ -175,12 +179,13 @@ class InvitationCppTest : public testing::Test,
  private:
   base::test::TaskEnvironment task_environment_;
   base::Process child_process_;
-
-  DISALLOW_COPY_AND_ASSIGN(InvitationCppTest);
 };
 
 class TestClientBase : public InvitationCppTest {
  public:
+  TestClientBase(const TestClientBase&) = delete;
+  TestClientBase& operator=(const TestClientBase&) = delete;
+
   static PlatformChannelEndpoint RecoverEndpointFromCommandLine() {
     const auto& command_line = *base::CommandLine::ForCurrentProcess();
 #if !defined(OS_FUCHSIA)
@@ -201,9 +206,6 @@ class TestClientBase : public InvitationCppTest {
   static ScopedMessagePipeHandle AcceptIsolatedInvitation() {
     return IncomingInvitation::AcceptIsolated(RecoverEndpointFromCommandLine());
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestClientBase);
 };
 
 #define DEFINE_TEST_CLIENT(name)             \

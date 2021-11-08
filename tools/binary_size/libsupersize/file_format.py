@@ -534,7 +534,7 @@ def _LoadSizeInfoFromFile(file_obj, size_path):
         models.Container(name='',
                          metadata=metadata,
                          section_sizes=section_sizes))
-  models.Container.AssignShortNames(containers)
+  models.BaseContainer.AssignShortNames(containers)
 
   has_components = fields.get('has_components', False)
   has_padding = fields.get('has_padding', False)
@@ -773,6 +773,8 @@ def SaveDeltaSizeInfo(delta_size_info, path, file_obj=None):
   w.WriteBytes(before_size_file.getvalue())
   after_promise.get()
   w.WriteBytes(after_size_file.getvalue())
+
+  return None
 
 
 def LoadDeltaSizeInfo(path, file_obj=None):

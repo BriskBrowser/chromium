@@ -21,9 +21,9 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "remoting/host/clipboard.h"
 #include "remoting/proto/internal.pb.h"
@@ -44,7 +44,7 @@ void SetOrClearBit(uint64_t &value, uint64_t bit, bool set_bit) {
 void CreateAndPostKeyEvent(int keycode,
                            bool pressed,
                            uint64_t flags,
-                           const base::string16& unicode) {
+                           const std::u16string& unicode) {
   base::ScopedCFTypeRef<CGEventRef> eventRef(
       CGEventCreateKeyboardEvent(nullptr, keycode, pressed));
   if (eventRef) {
@@ -112,6 +112,10 @@ class InputInjectorMac : public InputInjector {
   explicit InputInjectorMac(
       scoped_refptr<base::SingleThreadTaskRunner> input_thread_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_thread_task_runner);
+
+  InputInjectorMac(const InputInjectorMac&) = delete;
+  InputInjectorMac& operator=(const InputInjectorMac&) = delete;
+
   ~InputInjectorMac() override;
 
   // ClipboardStub interface.
@@ -134,6 +138,9 @@ class InputInjectorMac : public InputInjector {
     explicit Core(
         scoped_refptr<base::SingleThreadTaskRunner> input_thread_task_runner,
         scoped_refptr<base::SingleThreadTaskRunner> ui_thread_task_runner);
+
+    Core(const Core&) = delete;
+    Core& operator=(const Core&) = delete;
 
     // Mirrors the ClipboardStub interface.
     void InjectClipboardEvent(const ClipboardEvent& event);
@@ -162,13 +169,9 @@ class InputInjectorMac : public InputInjector {
     uint64_t left_modifiers_;
     uint64_t right_modifiers_;
     base::TimeTicks last_time_display_woken_;
-
-    DISALLOW_COPY_AND_ASSIGN(Core);
   };
 
   scoped_refptr<Core> core_;
-
-  DISALLOW_COPY_AND_ASSIGN(InputInjectorMac);
 };
 
 InputInjectorMac::InputInjectorMac(
@@ -288,7 +291,7 @@ void InputInjectorMac::Core::InjectKeyEvent(const KeyEvent& event) {
 
   ui_thread_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(CreateAndPostKeyEvent, keycode, event.pressed(),
-                                flags, base::string16()));
+                                flags, std::u16string()));
 }
 
 void InputInjectorMac::Core::InjectTextEvent(const TextEvent& event) {
@@ -296,7 +299,7 @@ void InputInjectorMac::Core::InjectTextEvent(const TextEvent& event) {
 
   WakeUpDisplay();
 
-  base::string16 text = base::UTF8ToUTF16(event.text());
+  std::u16string text = base::UTF8ToUTF16(event.text());
 
   // CGEventKeyboardSetUnicodeString appears to only process up to 20 code
   // units (and key presses are generally expected to generate a single
@@ -317,21 +320,21 @@ void InputInjectorMac::Core::InjectTextEvent(const TextEvent& event) {
       // specially.
       ui_thread_task_runner_->PostTask(
           FROM_HERE, base::BindOnce(CreateAndPostKeyEvent, kVK_Return,
-                                    /*pressed=*/true, 0, base::string16()));
+                                    /*pressed=*/true, 0, std::u16string()));
       ui_thread_task_runner_->PostTask(
           FROM_HERE, base::BindOnce(CreateAndPostKeyEvent, kVK_Return,
-                                    /*pressed=*/false, 0, base::string16()));
+                                    /*pressed=*/false, 0, std::u16string()));
     } else {
       // Applications that ignore UnicodeString field will see the text event as
       // Space key.
       ui_thread_task_runner_->PostTask(
           FROM_HERE,
           base::BindOnce(CreateAndPostKeyEvent, kVK_Space,
-                         /*pressed=*/true, 0, base::string16(grapheme)));
+                         /*pressed=*/true, 0, std::u16string(grapheme)));
       ui_thread_task_runner_->PostTask(
           FROM_HERE,
           base::BindOnce(CreateAndPostKeyEvent, kVK_Space,
-                         /*pressed=*/false, 0, base::string16(grapheme)));
+                         /*pressed=*/false, 0, std::u16string(grapheme)));
     }
   }
 }
@@ -400,7 +403,7 @@ void InputInjectorMac::Core::Stop() {
 void InputInjectorMac::Core::WakeUpDisplay() {
   base::TimeTicks now = base::TimeTicks::Now();
   if (now - last_time_display_woken_ <
-      base::TimeDelta::FromMilliseconds(kWakeUpDisplayIntervalMs)) {
+      base::Milliseconds(kWakeUpDisplayIntervalMs)) {
     return;
   }
 

@@ -71,6 +71,8 @@ FrameLoadRequest::FrameLoadRequest(LocalDOMWindow* origin_window,
     }
 
     SetReferrerForRequest(origin_window, resource_request_);
+
+    SetSourceLocation(SourceLocation::Capture(origin_window));
   }
 }
 
@@ -78,19 +80,6 @@ FrameLoadRequest::FrameLoadRequest(
     LocalDOMWindow* origin_window,
     const ResourceRequestHead& resource_request_head)
     : FrameLoadRequest(origin_window, ResourceRequest(resource_request_head)) {}
-
-ClientRedirectPolicy FrameLoadRequest::ClientRedirect() const {
-  // Form submissions and anchor clicks have not historically been reported
-  // to the extensions API as client redirects.
-  if (client_navigation_reason_ == ClientNavigationReason::kNone ||
-      client_navigation_reason_ == ClientNavigationReason::kFormSubmissionGet ||
-      client_navigation_reason_ ==
-          ClientNavigationReason::kFormSubmissionPost ||
-      client_navigation_reason_ == ClientNavigationReason::kAnchorClick) {
-    return ClientRedirectPolicy::kNotClientRedirect;
-  }
-  return ClientRedirectPolicy::kClientRedirect;
-}
 
 bool FrameLoadRequest::CanDisplay(const KURL& url) const {
   DCHECK(!origin_window_ || origin_window_->GetSecurityOrigin() ==

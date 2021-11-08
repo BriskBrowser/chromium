@@ -8,6 +8,7 @@
 #include <string>
 
 #include "ui/accessibility/ax_export.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace ui {
 
@@ -27,12 +28,23 @@ struct AX_EXPORT AXTreeSelector {
   };
   int types{None};
   std::string pattern;
+  gfx::AcceleratedWidget widget{0};
 
   AXTreeSelector() = default;
   AXTreeSelector(int types, const std::string& pattern)
       : types(types), pattern(pattern) {}
+  AXTreeSelector(int types,
+                 const std::string& pattern,
+                 gfx::AcceleratedWidget widget)
+      : types(types), pattern(pattern), widget(widget) {}
 
-  bool empty() const { return types == None && pattern.empty(); }
+  bool empty() const {
+    return (types & ~(ActiveTab)) == None && widget == 0 && pattern.empty();
+  }
+
+  // Returns an application name for a type if the type specifies an
+  // application.
+  std::string AppName() const;
 };
 
 // A single property filter specification. Represents a parsed string of the
@@ -48,9 +60,7 @@ struct AX_EXPORT AXTreeSelector {
 // For example, :1,:3;AXDOMClassList=*
 // will query a AXDOMClassList attribute on accessible objects placed at 1st
 // and 3rd lines in the output accessible tree.
-// Also see
-// DumpAccessibilityTestBase::ParseHtmlForExtraDirectives() for more
-// information.
+// Also see AXInspectScenario::From() for more information.
 struct AX_EXPORT AXPropertyFilter {
   enum Type { ALLOW, ALLOW_EMPTY, DENY, SCRIPT };
 
@@ -61,6 +71,7 @@ struct AX_EXPORT AXPropertyFilter {
 
   AXPropertyFilter(const std::string& str, Type type);
   AXPropertyFilter(const AXPropertyFilter&);
+  AXPropertyFilter& operator=(const AXPropertyFilter&);
 };
 
 // A single node filter specification  which will exclude any node where the

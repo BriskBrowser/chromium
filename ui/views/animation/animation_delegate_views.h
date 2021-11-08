@@ -5,7 +5,6 @@
 #ifndef UI_VIEWS_ANIMATION_ANIMATION_DELEGATE_VIEWS_H_
 #define UI_VIEWS_ANIMATION_ANIMATION_DELEGATE_VIEWS_H_
 
-#include <memory>
 
 #include "base/scoped_observation.h"
 #include "ui/gfx/animation/animation_container_observer.h"
@@ -13,6 +12,10 @@
 #include "ui/views/view.h"
 #include "ui/views/view_observer.h"
 #include "ui/views/views_export.h"
+
+namespace base {
+class Location;
+}
 
 namespace views {
 class CompositorAnimationRunner;
@@ -52,7 +55,7 @@ class VIEWS_EXPORT AnimationDelegateViews
  private:
   // Sets CompositorAnimationRunner to |container_| if possible. Otherwise,
   // clears AnimationRunner of |container_|.
-  void UpdateAnimationRunner();
+  void UpdateAnimationRunner(const base::Location& location);
   void ClearAnimationRunner();
 
   View* view_;

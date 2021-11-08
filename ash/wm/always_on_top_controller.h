@@ -25,15 +25,25 @@ class ASH_EXPORT AlwaysOnTopController : public aura::WindowObserver,
  public:
   explicit AlwaysOnTopController(aura::Window* always_on_top_container,
                                  aura::Window* pip_container);
+
+  AlwaysOnTopController(const AlwaysOnTopController&) = delete;
+  AlwaysOnTopController& operator=(const AlwaysOnTopController&) = delete;
+
   ~AlwaysOnTopController() override;
+
+  static void SetDisallowReparent(aura::Window* window);
 
   // Gets container for given |window| based on its "AlwaysOnTop" property.
   aura::Window* GetContainer(aura::Window* window) const;
 
+  // Clears the layout managers for |always_on_top_container_| and
+  // |pip_container_|. This should only be called when the RootWindowController
+  // is shutting down, to prevent the layout managers from doing unnecessary and
+  // complex work.
+  void ClearLayoutManagers();
+
   void SetLayoutManagerForTest(
       std::unique_ptr<WorkspaceLayoutManager> layout_manager);
-
-  static void SetDisallowReparent(aura::Window* window);
 
  private:
   void AddWindow(aura::Window* window);
@@ -53,8 +63,6 @@ class ASH_EXPORT AlwaysOnTopController : public aura::WindowObserver,
 
   aura::Window* always_on_top_container_;
   aura::Window* pip_container_;
-
-  DISALLOW_COPY_AND_ASSIGN(AlwaysOnTopController);
 };
 
 }  // namespace ash

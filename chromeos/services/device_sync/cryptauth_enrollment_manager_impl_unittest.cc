@@ -58,6 +58,10 @@ const double kLastExpiredEnrollmentTimeSeconds =
 class MockCryptAuthEnroller : public CryptAuthEnroller {
  public:
   MockCryptAuthEnroller() {}
+
+  MockCryptAuthEnroller(const MockCryptAuthEnroller&) = delete;
+  MockCryptAuthEnroller& operator=(const MockCryptAuthEnroller&) = delete;
+
   ~MockCryptAuthEnroller() override {}
 
   MOCK_METHOD5(Enroll,
@@ -66,9 +70,6 @@ class MockCryptAuthEnroller : public CryptAuthEnroller {
                     const cryptauth::GcmDeviceInfo& device_info,
                     cryptauth::InvocationReason invocation_reason,
                     EnrollmentFinishedCallback callback));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockCryptAuthEnroller);
 };
 
 // Creates MockCryptAuthEnroller instances, and allows expecations to be set
@@ -77,12 +78,18 @@ class MockCryptAuthEnrollerFactory : public CryptAuthEnrollerFactory {
  public:
   MockCryptAuthEnrollerFactory()
       : next_cryptauth_enroller_(new NiceMock<MockCryptAuthEnroller>()) {}
+
+  MockCryptAuthEnrollerFactory(const MockCryptAuthEnrollerFactory&) = delete;
+  MockCryptAuthEnrollerFactory& operator=(const MockCryptAuthEnrollerFactory&) =
+      delete;
+
   ~MockCryptAuthEnrollerFactory() override {}
 
   // CryptAuthEnrollerFactory:
   std::unique_ptr<CryptAuthEnroller> CreateInstance() override {
     auto passed_cryptauth_enroller = std::move(next_cryptauth_enroller_);
-    next_cryptauth_enroller_.reset(new NiceMock<MockCryptAuthEnroller>());
+    next_cryptauth_enroller_ =
+        std::make_unique<NiceMock<MockCryptAuthEnroller>>();
     return std::move(passed_cryptauth_enroller);
   }
 
@@ -94,8 +101,6 @@ class MockCryptAuthEnrollerFactory : public CryptAuthEnrollerFactory {
   // Stores the next CryptAuthEnroller to be created.
   // Ownership is passed to the caller of |CreateInstance()|.
   std::unique_ptr<MockCryptAuthEnroller> next_cryptauth_enroller_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockCryptAuthEnrollerFactory);
 };
 
 // Harness for testing CryptAuthEnrollmentManager.
@@ -120,6 +125,11 @@ class TestCryptAuthEnrollmentManager : public CryptAuthEnrollmentManagerImpl {
     SetSyncSchedulerForTest(base::WrapUnique(scoped_sync_scheduler_));
   }
 
+  TestCryptAuthEnrollmentManager(const TestCryptAuthEnrollmentManager&) =
+      delete;
+  TestCryptAuthEnrollmentManager& operator=(
+      const TestCryptAuthEnrollmentManager&) = delete;
+
   ~TestCryptAuthEnrollmentManager() override {}
 
   base::WeakPtr<MockSyncScheduler> GetSyncScheduler() {
@@ -136,8 +146,6 @@ class TestCryptAuthEnrollmentManager : public CryptAuthEnrollmentManagerImpl {
   // This should be safe because the life-time this SyncScheduler will always be
   // within the life of the TestCryptAuthEnrollmentManager object.
   base::WeakPtrFactory<MockSyncScheduler> weak_sync_scheduler_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestCryptAuthEnrollmentManager);
 };
 
 }  // namespace
@@ -145,6 +153,12 @@ class TestCryptAuthEnrollmentManager : public CryptAuthEnrollmentManagerImpl {
 class DeviceSyncCryptAuthEnrollmentManagerImplTest
     : public testing::Test,
       public CryptAuthEnrollmentManager::Observer {
+ public:
+  DeviceSyncCryptAuthEnrollmentManagerImplTest(
+      const DeviceSyncCryptAuthEnrollmentManagerImplTest&) = delete;
+  DeviceSyncCryptAuthEnrollmentManagerImplTest& operator=(
+      const DeviceSyncCryptAuthEnrollmentManagerImplTest&) = delete;
+
  protected:
   DeviceSyncCryptAuthEnrollmentManagerImplTest()
       : public_key_(kUserPublicKey),
@@ -251,8 +265,6 @@ class DeviceSyncCryptAuthEnrollmentManagerImplTest
   FakeCryptAuthGCMManager gcm_manager_;
 
   TestCryptAuthEnrollmentManager enrollment_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceSyncCryptAuthEnrollmentManagerImplTest);
 };
 
 TEST_F(DeviceSyncCryptAuthEnrollmentManagerImplTest, RegisterPrefs) {
@@ -276,7 +288,7 @@ TEST_F(DeviceSyncCryptAuthEnrollmentManagerImplTest, GetEnrollmentState) {
       .WillByDefault(Return(SyncScheduler::Strategy::AGGRESSIVE_RECOVERY));
   EXPECT_TRUE(enrollment_manager_.IsRecoveringFromFailure());
 
-  base::TimeDelta time_to_next_sync = base::TimeDelta::FromMinutes(60);
+  base::TimeDelta time_to_next_sync = base::Minutes(60);
   ON_CALL(*sync_scheduler(), GetTimeToNextSync())
       .WillByDefault(Return(time_to_next_sync));
   EXPECT_EQ(time_to_next_sync, enrollment_manager_.GetTimeToNextAttempt());
@@ -347,7 +359,7 @@ TEST_F(DeviceSyncCryptAuthEnrollmentManagerImplTest, ForceEnrollment) {
   EXPECT_CALL(*sync_scheduler(), ForceSync());
   enrollment_manager_.ForceEnrollmentNow(
       cryptauth::INVOCATION_REASON_SERVER_INITIATED,
-      base::nullopt /* session_id */);
+      absl::nullopt /* session_id */);
 
   auto completion_callback =
       FireSchedulerForEnrollment(cryptauth::INVOCATION_REASON_SERVER_INITIATED);
@@ -452,8 +464,8 @@ TEST_F(DeviceSyncCryptAuthEnrollmentManagerImplTest, ReenrollOnGCMPushMessage) {
   enrollment_manager_.Start();
 
   // Simulate receiving a GCM push message, forcing the device to re-enroll.
-  gcm_manager_.PushReenrollMessage(base::nullopt /* session_id */,
-                                   base::nullopt /* feature_type */);
+  gcm_manager_.PushReenrollMessage(absl::nullopt /* session_id */,
+                                   absl::nullopt /* feature_type */);
   auto completion_callback =
       FireSchedulerForEnrollment(cryptauth::INVOCATION_REASON_SERVER_INITIATED);
 

@@ -15,6 +15,7 @@
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info_notifier.mojom.h"
+#include "third_party/blink/public/mojom/navigation/renderer_eviction_reason.mojom-blink.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_observer.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/url_loader/worker_main_script_loader_client.h"
@@ -49,20 +50,6 @@ class WorkerMainScriptLoaderTest : public testing::Test {
   }
 
  protected:
-  class TestPlatform final : public TestingPlatformSupport {
-   public:
-    void PopulateURLResponse(const WebURL& url,
-                             const network::mojom::URLResponseHead& head,
-                             WebURLResponse* response,
-                             bool report_security_info,
-                             int request_id) override {
-      response->SetCurrentRequestUrl(url);
-      response->SetHttpStatusCode(head.headers.get()->response_code());
-      response->SetMimeType(WebString::FromUTF8(head.mime_type));
-      response->SetTextEncodingName(WebString::FromUTF8(head.charset));
-    }
-  };
-
   class TestClient final : public GarbageCollected<TestClient>,
                            public WorkerMainScriptLoaderClient {
 
@@ -107,7 +94,7 @@ class WorkerMainScriptLoaderTest : public testing::Test {
     void FollowRedirect(const std::vector<std::string>&,
                         const net::HttpRequestHeaders&,
                         const net::HttpRequestHeaders&,
-                        const base::Optional<GURL>&) override {}
+                        const absl::optional<GURL>&) override {}
     void SetPriority(net::RequestPriority priority,
                      int32_t intra_priority_value) override {}
     void PauseReadingBodyFromNet() override {}
@@ -160,12 +147,11 @@ class WorkerMainScriptLoaderTest : public testing::Test {
   class MockResourceLoadObserver : public ResourceLoadObserver {
    public:
     MOCK_METHOD2(DidStartRequest, void(const FetchParameters&, ResourceType));
-    MOCK_METHOD6(WillSendRequest,
-                 void(uint64_t identifier,
-                      const ResourceRequest&,
+    MOCK_METHOD5(WillSendRequest,
+                 void(const ResourceRequest&,
                       const ResourceResponse& redirect_response,
                       ResourceType,
-                      const FetchInitiatorInfo&,
+                      const ResourceLoaderOptions&,
                       RenderBlockingBehavior));
     MOCK_METHOD3(DidChangePriority,
                  void(uint64_t identifier,
@@ -194,6 +180,8 @@ class WorkerMainScriptLoaderTest : public testing::Test {
                       const ResourceError&,
                       int64_t encoded_data_length,
                       IsInternalRequest));
+    MOCK_METHOD2(DidChangeRenderBlockingBehavior,
+                 void(Resource* resource, const FetchParameters& params));
     MOCK_METHOD1(EvictFromBackForwardCache,
                  void(blink::mojom::RendererEvictionReason));
   };
@@ -228,7 +216,7 @@ class WorkerMainScriptLoaderTest : public testing::Test {
     mojo::ScopedDataPipeConsumerHandle body_consumer;
     MojoCreateDataPipeOptions options = CreateDataPipeOptions();
     EXPECT_EQ(MOJO_RESULT_OK,
-              mojo::CreateDataPipe(&options, body_producer, &body_consumer));
+              mojo::CreateDataPipe(&options, *body_producer, body_consumer));
     worker_main_script_load_params->response_body = std::move(body_consumer);
 
     return worker_main_script_load_params;
@@ -262,7 +250,6 @@ class WorkerMainScriptLoaderTest : public testing::Test {
 
  protected:
   base::test::TaskEnvironment task_environment_;
-  ScopedTestingPlatformSupport<TestPlatform> platform_;
 
   mojo::PendingRemote<network::mojom::URLLoader> pending_remote_loader_;
   mojo::Remote<network::mojom::URLLoaderClient> loader_client_;
@@ -280,7 +267,7 @@ TEST_F(WorkerMainScriptLoaderTest, ResponseWithSucessThenOnComplete) {
   MockResourceLoadObserver* mock_observer =
       MakeGarbageCollected<MockResourceLoadObserver>();
   FakeResourceLoadInfoNotifier fake_resource_load_info_notifier;
-  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _, _));
+  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveResponse(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveData(_, _));
   EXPECT_CALL(*mock_observer, DidFinishLoading(_, _, _, _, _));
@@ -311,7 +298,7 @@ TEST_F(WorkerMainScriptLoaderTest, ResponseWithFailureThenOnComplete) {
   MockResourceLoadObserver* mock_observer =
       MakeGarbageCollected<MockResourceLoadObserver>();
   FakeResourceLoadInfoNotifier fake_resource_load_info_notifier;
-  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _, _));
+  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveResponse(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidFinishLoading(_, _, _, _, _)).Times(0);
   EXPECT_CALL(*mock_observer, DidFailLoading(_, _, _, _, _));
@@ -335,7 +322,7 @@ TEST_F(WorkerMainScriptLoaderTest, DisconnectBeforeOnComplete) {
   MockResourceLoadObserver* mock_observer =
       MakeGarbageCollected<MockResourceLoadObserver>();
   FakeResourceLoadInfoNotifier fake_resource_load_info_notifier;
-  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _, _));
+  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveResponse(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidFinishLoading(_, _, _, _, _)).Times(0);
   EXPECT_CALL(*mock_observer, DidFailLoading(_, _, _, _, _));
@@ -359,7 +346,7 @@ TEST_F(WorkerMainScriptLoaderTest, OnCompleteWithError) {
   MockResourceLoadObserver* mock_observer =
       MakeGarbageCollected<MockResourceLoadObserver>();
   FakeResourceLoadInfoNotifier fake_resource_load_info_notifier;
-  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _, _));
+  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveResponse(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveData(_, _));
   EXPECT_CALL(*mock_observer, DidFinishLoading(_, _, _, _, _)).Times(0);

@@ -11,13 +11,15 @@
 #include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/permissions/permission_request_id.h"
 #include "content/public/browser/browser_context.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom.h"
 #include "url/gurl.h"
 
 IdleDetectionPermissionContext::IdleDetectionPermissionContext(
     content::BrowserContext* browser_context)
     : PermissionContextBase(browser_context,
                             ContentSettingsType::IDLE_DETECTION,
-                            blink::mojom::FeaturePolicyFeature::kNotFound) {}
+                            blink::mojom::PermissionsPolicyFeature::kNotFound) {
+}
 
 IdleDetectionPermissionContext::~IdleDetectionPermissionContext() = default;
 
@@ -67,7 +69,7 @@ void IdleDetectionPermissionContext::DecidePermission(
                            embedding_origin, std::move(callback),
                            /*persist=*/true, CONTENT_SETTING_BLOCK,
                            /*is_one_time=*/false),
-            base::TimeDelta::FromSecondsD(delay_seconds));
+            base::Seconds(delay_seconds));
     return;
   }
 

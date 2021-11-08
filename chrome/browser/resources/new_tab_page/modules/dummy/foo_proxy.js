@@ -4,19 +4,26 @@
 
 import '../../foo.mojom-lite.js';
 
-import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
-
 /**
  * @fileoverview This file provides a class that exposes the Mojo handler
  * interface used for sending requests from NTP dummy module JS to the browser
  * and receiving the browser response.
  */
 
-export class FooProxy {
-  constructor() {
-    /** @type {!foo.mojom.FooHandlerRemote} */
-    this.handler = foo.mojom.FooHandler.getRemote();
-  }
-}
+/** @type {?foo.mojom.FooHandlerRemote} */
+let handler = null;
 
-addSingletonGetter(FooProxy);
+export class FooProxy {
+  /** @return {!foo.mojom.FooHandlerRemote} */
+  static getHandler() {
+    return handler || (handler = foo.mojom.FooHandler.getRemote());
+  }
+
+  /** @param {!foo.mojom.FooHandlerRemote} newHandler */
+  static setHandler(newHandler) {
+    handler = newHandler;
+  }
+
+  /** @private */
+  constructor() {}
+}

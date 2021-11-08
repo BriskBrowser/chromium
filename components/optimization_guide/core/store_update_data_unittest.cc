@@ -5,7 +5,6 @@
 #include "components/optimization_guide/core/store_update_data.h"
 
 #include <string>
-#include <vector>
 
 #include "base/macros.h"
 #include "base/time/time.h"
@@ -106,8 +105,7 @@ TEST(StoreUpdateDataTest,
     proto::StoreEntry store_entry = entry.second;
     if (store_entry.entry_type() == proto::FETCHED_HINT) {
       base::Time expected_expiry_time =
-          base::Time::Now() +
-          base::TimeDelta::FromSeconds(max_cache_duration_secs);
+          base::Time::Now() + base::Seconds(max_cache_duration_secs);
       EXPECT_EQ(expected_expiry_time.ToDeltaSinceWindowsEpoch().InSeconds(),
                 store_entry.expiry_time_secs());
       break;
@@ -121,8 +119,6 @@ TEST(StoreUpdateDataTest, BuildPredictionModelUpdateData) {
 
   proto::ModelInfo* model_info = prediction_model.mutable_model_info();
   model_info->set_version(1);
-  model_info->add_supported_model_features(
-      proto::CLIENT_MODEL_FEATURE_EFFECTIVE_CONNECTION_TYPE);
   model_info->set_optimization_target(
       proto::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD);
   model_info->add_supported_model_types(

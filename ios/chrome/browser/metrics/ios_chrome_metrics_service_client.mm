@@ -7,6 +7,7 @@
 #import <UIKit/UIKit.h>
 
 #include <stdint.h>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -23,7 +24,6 @@
 #include "base/path_service.h"
 #include "base/process/process_metrics.h"
 #include "base/rand_util.h"
-#include "base/strings/string16.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/platform_thread.h"
@@ -36,6 +36,7 @@
 #include "components/metrics/drive_metrics_provider.h"
 #include "components/metrics/entropy_state_provider.h"
 #include "components/metrics/field_trials_provider.h"
+#include "components/metrics/metrics_data_validation.h"
 #include "components/metrics/metrics_log_uploader.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_reporting_default_state.h"
@@ -63,7 +64,6 @@
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state_manager.h"
 #include "ios/chrome/browser/chrome_paths.h"
-#include "ios/chrome/browser/google/google_brand.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/main/browser_list.h"
@@ -71,15 +71,17 @@
 #include "ios/chrome/browser/metrics/chrome_browser_state_client.h"
 #import "ios/chrome/browser/metrics/ios_chrome_default_browser_metrics_provider.h"
 #include "ios/chrome/browser/metrics/ios_chrome_stability_metrics_provider.h"
+#include "ios/chrome/browser/metrics/ios_profile_session_metrics_provider.h"
 #include "ios/chrome/browser/metrics/mobile_session_shutdown_metrics_provider.h"
 #include "ios/chrome/browser/signin/ios_chrome_signin_status_metrics_provider_delegate.h"
 #include "ios/chrome/browser/sync/device_info_sync_service_factory.h"
-#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/sync_service_factory.h"
 #include "ios/chrome/browser/tabs/tab_parenting_global_observer.h"
 #include "ios/chrome/browser/translate/translate_ranker_metrics_provider.h"
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_controller.h"
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
 #include "ios/chrome/common/channel_info.h"
+#include "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
 #include "ios/web/public/thread/web_thread.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
@@ -196,13 +198,23 @@ std::string IOSChromeMetricsServiceClient::GetApplicationLocale() {
   return GetApplicationContext()->GetApplicationLocale();
 }
 
+const network_time::NetworkTimeTracker*
+IOSChromeMetricsServiceClient::GetNetworkTimeTracker() {
+  return GetApplicationContext()->GetNetworkTimeTracker();
+}
+
 bool IOSChromeMetricsServiceClient::GetBrand(std::string* brand_code) {
-  return ios::google_brand::GetBrand(brand_code);
+  brand_code->assign(ios::provider::GetBrandCode());
+  return true;
 }
 
 metrics::SystemProfileProto::Channel
 IOSChromeMetricsServiceClient::GetChannel() {
   return metrics::AsProtobufChannel(::GetChannel());
+}
+
+bool IOSChromeMetricsServiceClient::IsExtendedStableChannel() {
+  return false;  // Not supported on iOS.
 }
 
 std::string IOSChromeMetricsServiceClient::GetVersionString() {
@@ -231,10 +243,6 @@ IOSChromeMetricsServiceClient::CreateUploader(
 
 base::TimeDelta IOSChromeMetricsServiceClient::GetStandardUploadInterval() {
   return metrics::GetUploadInterval(metrics::ShouldUseCellularUploadInterval());
-}
-
-void IOSChromeMetricsServiceClient::OnRendererProcessCrash() {
-  stability_metrics_provider_->LogRendererCrash();
 }
 
 void IOSChromeMetricsServiceClient::WebStateDidStartLoading(
@@ -281,7 +289,8 @@ void IOSChromeMetricsServiceClient::RegisterMetricsServiceProviders() {
       std::move(stability_metrics_provider));
 
   metrics_service_->RegisterMetricsProvider(
-      std::make_unique<IOSChromeDefaultBrowserMetricsProvider>());
+      std::make_unique<IOSChromeDefaultBrowserMetricsProvider>(
+          metrics::MetricsLogUploader::MetricServiceType::UMA));
 
   // NOTE: metrics_state_manager_->IsMetricsReportingEnabled() returns false
   // during local testing. To test locally, modify
@@ -320,6 +329,9 @@ void IOSChromeMetricsServiceClient::RegisterMetricsServiceProviders() {
       std::make_unique<metrics::DemographicMetricsProvider>(
           std::make_unique<metrics::ChromeBrowserStateClient>(),
           metrics::MetricsLogUploader::MetricServiceType::UMA));
+
+  metrics_service_->RegisterMetricsProvider(
+      CreateIOSProfileSessionMetricsProvider());
 }
 
 void IOSChromeMetricsServiceClient::RegisterUKMProviders() {
@@ -333,6 +345,10 @@ void IOSChromeMetricsServiceClient::RegisterUKMProviders() {
   ukm_service_->RegisterMetricsProvider(
       std::make_unique<variations::FieldTrialsProvider>(nullptr,
                                                         kUKMFieldTrialSuffix));
+
+  metrics_service_->RegisterMetricsProvider(
+      std::make_unique<IOSChromeDefaultBrowserMetricsProvider>(
+          metrics::MetricsLogUploader::MetricServiceType::UKM));
 }
 
 void IOSChromeMetricsServiceClient::CollectFinalHistograms() {
@@ -347,6 +363,12 @@ void IOSChromeMetricsServiceClient::CollectFinalHistograms() {
     mach_vm_size_t footprint_mb = task_info_data.phys_footprint / 1024 / 1024;
     base::UmaHistogramMemoryLargeMB("Memory.Browser.MemoryFootprint",
                                     footprint_mb);
+    // The pseudo metric of Memory.Browser.MemoryFootprint. Only used to
+    // assess field trial data quality.
+    base::UmaHistogramMemoryLargeMB(
+        "UMA.Pseudo.Memory.Browser.MemoryFootprint",
+        metrics::GetPseudoMetricsSample(
+            static_cast<double>(task_info_data.phys_footprint) / 1024 / 1024));
 
     switch (UIApplication.sharedApplication.applicationState) {
       case UIApplicationStateActive:
@@ -431,8 +453,7 @@ bool IOSChromeMetricsServiceClient::RegisterForBrowserStateEvents(
           browser_state, ServiceAccessType::IMPLICIT_ACCESS);
   ObserveServiceForDeletions(history_service);
   syncer::SyncService* sync =
-      ProfileSyncServiceFactory::GetInstance()->GetForBrowserState(
-          browser_state);
+      SyncServiceFactory::GetInstance()->GetForBrowserState(browser_state);
   StartObserving(sync, browser_state->GetPrefs());
   return (history_service != nullptr && sync != nullptr);
 }

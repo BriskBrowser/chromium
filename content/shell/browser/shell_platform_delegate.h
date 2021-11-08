@@ -6,9 +6,9 @@
 #define CONTENT_SHELL_BROWSER_SHELL_PLATFORM_DELEGATE_H_
 
 #include <memory>
+#include <string>
 
 #include "base/containers/flat_map.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
@@ -48,6 +48,10 @@ class ShellPlatformDelegate {
   // cleanup.
   virtual void CleanUp(Shell* shell);
 
+  // Called from the Shell destructor after destroying the last one. This is
+  // usually a good time to call Shell::Shutdown().
+  virtual void DidCloseLastWindow();
+
   // Links the WebContents into the newly created window.
   virtual void SetContents(Shell* shell);
 
@@ -66,7 +70,7 @@ class ShellPlatformDelegate {
   virtual void SetIsLoading(Shell* shell, bool loading);
 
   // Set the title of shell window
-  virtual void SetTitle(Shell* shell, const base::string16& title);
+  virtual void SetTitle(Shell* shell, const std::u16string& title);
 
   // Called when the main frame is created in the renderer process; forwarded
   // from WebContentsObserver. If navigation creates a new main frame, this may
@@ -102,8 +106,8 @@ class ShellPlatformDelegate {
   // Activate (make key) the native window, and focus the web contents.
   virtual void ActivateContents(Shell* shell, WebContents* contents);
 
-  virtual void DidNavigateMainFramePostCommit(Shell* shell,
-                                              WebContents* contents);
+  virtual void DidNavigatePrimaryMainFramePostCommit(Shell* shell,
+                                                     WebContents* contents);
 
   virtual bool HandleKeyboardEvent(Shell* shell,
                                    WebContents* source,
@@ -126,7 +130,7 @@ class ShellPlatformDelegate {
 #endif
 
  protected:
-#if defined(USE_AURA) && !defined(TOOLKIT_VIEWS)
+#if defined(USE_AURA) && !defined(SHELL_USE_TOOLKIT_VIEWS)
   // Helper to avoid duplicating aura's ShellPlatformDelegate in web tests. If
   // this hack gets expanded to become more expansive then we should just
   // duplicate the aura ShellPlatformDelegate code to the web test code impl in

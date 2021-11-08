@@ -12,13 +12,13 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/containers/queue.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/run_loop.h"
-#include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/values_test_util.h"
@@ -245,7 +245,7 @@ void RecordPrinterList(size_t* call_count,
                        std::unique_ptr<base::ListValue>* printers_out,
                        const base::ListValue& printers) {
   ++(*call_count);
-  printers_out->reset(printers.DeepCopy());
+  *printers_out = printers.CreateDeepCopy();
 }
 
 // Used as a callback to StartGetPrinters in tests.
@@ -325,6 +325,10 @@ std::string RefCountedMemoryToString(
 class FakePwgRasterConverter : public PwgRasterConverter {
  public:
   FakePwgRasterConverter() {}
+
+  FakePwgRasterConverter(const FakePwgRasterConverter&) = delete;
+  FakePwgRasterConverter& operator=(const FakePwgRasterConverter&) = delete;
+
   ~FakePwgRasterConverter() override = default;
 
   // PwgRasterConverter implementation. It writes |data| to shared memory.
@@ -366,8 +370,6 @@ class FakePwgRasterConverter : public PwgRasterConverter {
   PdfRenderSettings conversion_settings_;
   PwgRasterSettings bitmap_settings_;
   bool fail_conversion_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(FakePwgRasterConverter);
 };
 
 // Information about received print requests.
@@ -382,6 +384,10 @@ struct PrintRequestInfo {
 class FakePrinterProviderAPI : public PrinterProviderAPI {
  public:
   FakePrinterProviderAPI() = default;
+
+  FakePrinterProviderAPI(const FakePrinterProviderAPI&) = delete;
+  FakePrinterProviderAPI& operator=(const FakePrinterProviderAPI&) = delete;
+
   ~FakePrinterProviderAPI() override = default;
 
   void DispatchGetPrintersRequested(
@@ -480,8 +486,6 @@ class FakePrinterProviderAPI : public PrinterProviderAPI {
   base::queue<PrintRequestInfo> pending_print_requests_;
   base::queue<PrinterProviderAPI::GetPrinterInfoCallback>
       pending_usb_info_callbacks_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakePrinterProviderAPI);
 };
 
 std::unique_ptr<KeyedService> BuildTestingPrinterProviderAPI(
@@ -494,6 +498,11 @@ std::unique_ptr<KeyedService> BuildTestingPrinterProviderAPI(
 class ExtensionPrinterHandlerTest : public testing::Test {
  public:
   ExtensionPrinterHandlerTest() = default;
+
+  ExtensionPrinterHandlerTest(const ExtensionPrinterHandlerTest&) = delete;
+  ExtensionPrinterHandlerTest& operator=(const ExtensionPrinterHandlerTest&) =
+      delete;
+
   ~ExtensionPrinterHandlerTest() override = default;
 
   void SetUp() override {
@@ -528,9 +537,6 @@ class ExtensionPrinterHandlerTest : public testing::Test {
 
   // Owned by |extension_printer_handler_|.
   FakePwgRasterConverter* pwg_raster_converter_ = nullptr;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ExtensionPrinterHandlerTest);
 };
 
 TEST_F(ExtensionPrinterHandlerTest, GetPrinters) {
@@ -619,7 +625,7 @@ TEST_F(ExtensionPrinterHandlerTest, GetUsbPrinters) {
   EXPECT_EQ(1u, call_count);
   EXPECT_FALSE(is_done);
   EXPECT_TRUE(printers.get());
-  EXPECT_EQ(2u, printers->GetSize());
+  EXPECT_EQ(2u, printers->GetList().size());
   std::unique_ptr<base::DictionaryValue> extension_1_entry(
       DictionaryBuilder()
           .Set("id", base::StringPrintf("provisional-usb:%s:%s",
@@ -640,8 +646,8 @@ TEST_F(ExtensionPrinterHandlerTest, GetUsbPrinters) {
           .Set("extensionId", extension_2->id())
           .Set("provisional", true)
           .Build());
-  EXPECT_TRUE(printers->Find(*extension_1_entry) != printers->end());
-  EXPECT_TRUE(printers->Find(*extension_2_entry) != printers->end());
+  EXPECT_TRUE(base::Contains(printers->GetList(), *extension_1_entry));
+  EXPECT_TRUE(base::Contains(printers->GetList(), *extension_2_entry));
 
   fake_api->TriggerNextGetPrintersCallback(base::ListValue(), true);
 
@@ -710,7 +716,7 @@ TEST_F(ExtensionPrinterHandlerTest, Print_Pdf) {
 
   auto print_data = base::MakeRefCounted<base::RefCountedStaticMemory>(
       kPrintData, kPrintDataLength);
-  base::string16 title = base::ASCIIToUTF16("Title");
+  std::u16string title = u"Title";
 
   extension_printer_handler_->StartPrint(
       title, *base::JSONReader::Read(kPdfSettings), print_data,
@@ -746,7 +752,7 @@ TEST_F(ExtensionPrinterHandlerTest, Print_Pdf_Reset) {
 
   auto print_data =
       base::MakeRefCounted<base::RefCountedBytes>(kPrintData, kPrintDataLength);
-  base::string16 title = base::ASCIIToUTF16("Title");
+  std::u16string title = u"Title";
 
   extension_printer_handler_->StartPrint(
       title, *base::JSONReader::Read(kPdfSettings), print_data,
@@ -771,7 +777,7 @@ TEST_F(ExtensionPrinterHandlerTest, Print_All) {
 
   auto print_data =
       base::MakeRefCounted<base::RefCountedBytes>(kPrintData, kPrintDataLength);
-  base::string16 title = base::ASCIIToUTF16("Title");
+  std::u16string title = u"Title";
 
   extension_printer_handler_->StartPrint(
       title, *base::JSONReader::Read(kAllTypesSettings), print_data,
@@ -808,7 +814,7 @@ TEST_F(ExtensionPrinterHandlerTest, Print_Pwg) {
 
   auto print_data =
       base::MakeRefCounted<base::RefCountedBytes>(kPrintData, kPrintDataLength);
-  base::string16 title = base::ASCIIToUTF16("Title");
+  std::u16string title = u"Title";
 
   extension_printer_handler_->StartPrint(
       title, *base::JSONReader::Read(kSimpleRasterSettings), print_data,
@@ -861,7 +867,7 @@ TEST_F(ExtensionPrinterHandlerTest, Print_Pwg_NonDefaultSettings) {
 
   auto print_data =
       base::MakeRefCounted<base::RefCountedBytes>(kPrintData, kPrintDataLength);
-  base::string16 title = base::ASCIIToUTF16("Title");
+  std::u16string title = u"Title";
 
   extension_printer_handler_->StartPrint(
       title, *base::JSONReader::Read(kDuplexSettings), print_data,
@@ -914,7 +920,7 @@ TEST_F(ExtensionPrinterHandlerTest, Print_Pwg_Reset) {
 
   auto print_data =
       base::MakeRefCounted<base::RefCountedBytes>(kPrintData, kPrintDataLength);
-  base::string16 title = base::ASCIIToUTF16("Title");
+  std::u16string title = u"Title";
 
   extension_printer_handler_->StartPrint(
       title, *base::JSONReader::Read(kSimpleRasterSettings), print_data,
@@ -942,7 +948,7 @@ TEST_F(ExtensionPrinterHandlerTest, Print_Pwg_InvalidTicket) {
 
   auto print_data =
       base::MakeRefCounted<base::RefCountedBytes>(kPrintData, kPrintDataLength);
-  base::string16 title = base::ASCIIToUTF16("Title");
+  std::u16string title = u"Title";
 
   extension_printer_handler_->StartPrint(
       title, *base::JSONReader::Read(kInvalidSettings), print_data,
@@ -963,7 +969,7 @@ TEST_F(ExtensionPrinterHandlerTest, Print_Pwg_FailedConversion) {
 
   auto print_data =
       base::MakeRefCounted<base::RefCountedBytes>(kPrintData, kPrintDataLength);
-  base::string16 title = base::ASCIIToUTF16("Title");
+  std::u16string title = u"Title";
 
   extension_printer_handler_->StartPrint(
       title, *base::JSONReader::Read(kSimpleRasterSettings), print_data,

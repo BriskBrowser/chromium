@@ -5,11 +5,11 @@
 #include "third_party/blink/renderer/core/paint/ng/ng_fragment_painter.h"
 
 #include "third_party/blink/renderer/core/layout/ng/ng_outline_utils.h"
+#include "third_party/blink/renderer/core/paint/outline_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context_state_saver.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -26,17 +26,9 @@ void NGFragmentPainter::PaintOutline(const PaintInfo& paint_info,
   if (outline_rects.IsEmpty())
     return;
 
-  const DisplayItemClient& display_item_client = GetDisplayItemClient();
-  if (DrawingRecorder::UseCachedDrawingIfPossible(
-          paint_info.context, display_item_client, paint_info.phase))
-    return;
-
-  IntRect visual_rect =
-      PixelSnappedIntRect(UnionRectEvenIfEmpty(outline_rects));
-  visual_rect.Inflate(style_to_use.OutlineOutsetExtent());
-  DrawingRecorder recorder(paint_info.context, display_item_client,
-                           paint_info.phase, visual_rect);
-  PaintOutlineRects(paint_info, outline_rects, style_to_use);
+  OutlinePainter::PaintOutlineRects(paint_info, GetDisplayItemClient(),
+                                    outline_rects, style_to_use,
+                                    fragment.GetLayoutObject()->GetDocument());
 }
 
 void NGFragmentPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,

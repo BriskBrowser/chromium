@@ -27,6 +27,8 @@
 #include "components/proxy_config/proxy_config_dictionary.h"
 #include "extensions/common/error_utils.h"
 #include "net/base/data_url.h"
+#include "net/base/proxy_server.h"
+#include "net/base/proxy_string_util.h"
 #include "net/proxy_resolution/proxy_config.h"
 
 namespace extensions {
@@ -113,7 +115,7 @@ bool GetPacUrlFromExtensionPref(const base::DictionaryValue* proxy_config,
     return true;
 
   // TODO(battre): Handle UTF-8 URLs (http://crbug.com/72692).
-  base::string16 pac_url16;
+  std::u16string pac_url16;
   if (pac_dict->HasKey(proxy_api_constants::kProxyConfigPacScriptUrl) &&
       !pac_dict->GetString(proxy_api_constants::kProxyConfigPacScriptUrl,
                            &pac_url16)) {
@@ -140,7 +142,7 @@ bool GetPacDataFromExtensionPref(const base::DictionaryValue* proxy_config,
   if (!pac_dict)
     return true;
 
-  base::string16 pac_data16;
+  std::u16string pac_data16;
   if (pac_dict->HasKey(proxy_api_constants::kProxyConfigPacScriptData) &&
       !pac_dict->GetString(proxy_api_constants::kProxyConfigPacScriptData,
                            &pac_data16)) {
@@ -169,13 +171,12 @@ bool GetProxyServer(const base::DictionaryValue* proxy_server,
   proxy_server->GetStringASCII(proxy_api_constants::kProxyConfigRuleScheme,
                                &scheme_string);
 
-  net::ProxyServer::Scheme scheme =
-      net::ProxyServer::GetSchemeFromURI(scheme_string);
+  net::ProxyServer::Scheme scheme = net::GetSchemeFromUriScheme(scheme_string);
   if (scheme == net::ProxyServer::SCHEME_INVALID)
     scheme = default_scheme;
 
   // TODO(battre): handle UTF-8 in hostnames (http://crbug.com/72692).
-  base::string16 host16;
+  std::u16string host16;
   if (!proxy_server->GetString(proxy_api_constants::kProxyConfigRuleHost,
                                &host16)) {
     LOG(ERROR) << "Could not parse a 'rules.*.host' entry.";
@@ -191,10 +192,9 @@ bool GetProxyServer(const base::DictionaryValue* proxy_server,
   }
   std::string host = base::UTF16ToASCII(host16);
 
-  int port;  // optional.
-  if (!proxy_server->GetInteger(proxy_api_constants::kProxyConfigRulePort,
-                                &port))
-    port = net::ProxyServer::GetDefaultPortForScheme(scheme);
+  // optional.
+  int port = proxy_server->FindIntKey(proxy_api_constants::kProxyConfigRulePort)
+                 .value_or(net::ProxyServer::GetDefaultPortForScheme(scheme));
 
   *out = net::ProxyServer(scheme, net::HostPortPair(host, port));
 
@@ -249,7 +249,8 @@ bool GetProxyRulesStringFromExtensionPref(
         return false;
       }
     }
-    *out = proxy_server[proxy_api_constants::SCHEME_ALL].ToURI();
+    *out = net::ProxyServerToProxyUri(
+        proxy_server[proxy_api_constants::SCHEME_ALL]);
     return true;
   }
 
@@ -264,7 +265,7 @@ bool GetProxyRulesStringFromExtensionPref(
         proxy_pref.append(";");
       proxy_pref.append(proxy_api_constants::scheme_name[i]);
       proxy_pref.append("=");
-      proxy_pref.append(proxy_server[i].ToURI());
+      proxy_pref.append(net::ProxyServerToProxyUri(proxy_server[i]));
     }
   }
 
@@ -278,12 +279,12 @@ bool JoinUrlList(const base::ListValue* list,
                  std::string* error,
                  bool* bad_message) {
   std::string result;
-  for (size_t i = 0; i < list->GetSize(); ++i) {
+  for (size_t i = 0; i < list->GetList().size(); ++i) {
     if (!result.empty())
       result.append(joiner);
 
     // TODO(battre): handle UTF-8 (http://crbug.com/72692).
-    base::string16 entry;
+    std::u16string entry;
     if (!list->GetString(i, &entry)) {
       LOG(ERROR) << "'rules.bypassList' could not be parsed.";
       *bad_message = true;
@@ -518,7 +519,7 @@ std::unique_ptr<base::ListValue> TokenizeToStringList(
   auto out = std::make_unique<base::ListValue>();
   base::StringTokenizer entries(in, delims);
   while (entries.GetNext())
-    out->AppendString(entries.token());
+    out->Append(entries.token_piece());
   return out;
 }
 

@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bits.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
@@ -197,7 +198,6 @@ bool ConvertVideoFrameToARGB(const VideoFrame* src_frame,
                                 src_frame->visible_data(VideoFrame::kUPlane),
                                 src_frame->stride(VideoFrame::kUPlane),
                                 dst_argb, dst_stride, width, height) == 0;
-      break;
     default:
       LOG(ERROR) << "Unsupported input format: " << src_frame->format();
       return false;
@@ -319,7 +319,7 @@ scoped_refptr<VideoFrame> CloneVideoFrame(
     const VideoFrame* const src_frame,
     const VideoFrameLayout& dst_layout,
     VideoFrame::StorageType dst_storage_type,
-    base::Optional<gfx::BufferUsage> dst_buffer_usage) {
+    absl::optional<gfx::BufferUsage> dst_buffer_usage) {
   if (!src_frame)
     return nullptr;
   if (!src_frame->IsMappable()) {
@@ -409,7 +409,7 @@ scoped_refptr<VideoFrame> CreateGpuMemoryBufferVideoFrame(
     return nullptr;
   }
 
-  base::Optional<gfx::BufferFormat> buffer_format =
+  absl::optional<gfx::BufferFormat> buffer_format =
       VideoPixelFormatToGfxBufferFormat(frame->format());
   if (!buffer_format) {
     LOG(ERROR) << "Unexpected format: " << frame->format();
@@ -430,8 +430,8 @@ scoped_refptr<VideoFrame> CreateGpuMemoryBufferVideoFrame(
   gpu::MailboxHolder dummy_mailbox[media::VideoFrame::kMaxPlanes];
   return media::VideoFrame::WrapExternalGpuMemoryBuffer(
       frame->visible_rect(), frame->natural_size(),
-      std::move(gpu_memory_buffer), dummy_mailbox,
-      base::DoNothing() /* mailbox_holder_release_cb_ */, frame->timestamp());
+      std::move(gpu_memory_buffer), dummy_mailbox, base::NullCallback(),
+      frame->timestamp());
 }
 
 scoped_refptr<const VideoFrame> CreateVideoFrameFromImage(const Image& image) {
@@ -443,8 +443,8 @@ scoped_refptr<const VideoFrame> CreateVideoFrameFromImage(const Image& image) {
 
   // Create planes for layout. We cannot use WrapExternalData() because it
   // calls GetDefaultLayout() and it supports only a few pixel formats.
-  base::Optional<VideoFrameLayout> layout =
-      CreateVideoFrameLayout(format, image_size);
+  absl::optional<VideoFrameLayout> layout =
+      CreateVideoFrameLayout(format, image_size, /*alignment=*/1u);
   if (!layout) {
     LOG(ERROR) << "Failed to create VideoFrameLayout";
     return nullptr;
@@ -462,7 +462,7 @@ scoped_refptr<const VideoFrame> CreateVideoFrameFromImage(const Image& image) {
   return video_frame;
 }
 
-base::Optional<VideoFrameLayout> CreateVideoFrameLayout(
+absl::optional<VideoFrameLayout> CreateVideoFrameLayout(
     VideoPixelFormat pixel_format,
     const gfx::Size& dimension,
     const uint32_t alignment,
@@ -478,7 +478,7 @@ base::Optional<VideoFrameLayout> CreateVideoFrameLayout(
         VideoFrame::RowBytes(i, pixel_format, dimension.width());
     const size_t rows = VideoFrame::Rows(i, pixel_format, dimension.height());
     const size_t plane_size = stride * rows;
-    const size_t aligned_size = base::bits::Align(plane_size, alignment);
+    const size_t aligned_size = base::bits::AlignUp(plane_size, alignment);
     planes[i].stride = stride;
     planes[i].offset = offset;
     planes[i].size = aligned_size;

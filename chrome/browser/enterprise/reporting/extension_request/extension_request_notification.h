@@ -5,6 +5,10 @@
 #ifndef CHROME_BROWSER_ENTERPRISE_REPORTING_EXTENSION_REQUEST_EXTENSION_REQUEST_NOTIFICATION_H_
 #define CHROME_BROWSER_ENTERPRISE_REPORTING_EXTENSION_REQUEST_EXTENSION_REQUEST_NOTIFICATION_H_
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "ui/message_center/public/cpp/notification_delegate.h"
 
 namespace message_center {
@@ -41,8 +45,8 @@ class ExtensionRequestNotification
 
  private:
   // message_center::NotificationObserver
-  void Click(const base::Optional<int>& button_index,
-             const base::Optional<base::string16>& reply) override;
+  void Click(const absl::optional<int>& button_index,
+             const absl::optional<std::u16string>& reply) override;
   void Close(bool by_user) override;
 
   std::unique_ptr<message_center::Notification> notification_;

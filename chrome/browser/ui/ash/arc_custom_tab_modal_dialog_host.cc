@@ -29,9 +29,13 @@ ArcCustomTabModalDialogHost::ArcCustomTabModalDialogHost(
 ArcCustomTabModalDialogHost::~ArcCustomTabModalDialogHost() {
   for (auto& observer : observer_list_)
     observer.OnHostDestroying();
+
+  // |web_contents_| is deleted by the base class, so there's no need to call
+  // WebContentsModalDialogManager::SetDelegate(nullptr)
 }
 
-void ArcCustomTabModalDialogHost::MainFrameWasResized(bool width_changed) {
+void ArcCustomTabModalDialogHost::PrimaryMainFrameWasResized(
+    bool width_changed) {
   for (auto& observer : observer_list_)
     observer.OnPositionRequiresUpdate();
 }

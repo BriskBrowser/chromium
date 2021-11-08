@@ -4,6 +4,8 @@
 
 #include "content/browser/renderer_host/render_widget_targeter.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -11,7 +13,6 @@
 #include "components/viz/common/features.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "content/browser/compositor/surface_utils.h"
-#include "content/browser/renderer_host/input/one_shot_timeout_monitor.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/public/browser/site_isolation_policy.h"
@@ -46,8 +47,7 @@ bool IsMouseMiddleClick(const blink::WebInputEvent& event) {
 
 constexpr const char kTracingCategory[] = "input,latency";
 
-constexpr base::TimeDelta kAsyncHitTestTimeout =
-    base::TimeDelta::FromSeconds(5);
+constexpr base::TimeDelta kAsyncHitTestTimeout = base::Seconds(5);
 
 }  // namespace
 
@@ -57,15 +57,19 @@ class TracingUmaTracker {
       : id_(next_id_++),
         start_time_(base::TimeTicks::Now()),
         metric_name_(metric_name) {
-    TRACE_EVENT_ASYNC_BEGIN0(
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(
         kTracingCategory, metric_name_,
         TRACE_ID_WITH_SCOPE("UmaTracker", TRACE_ID_LOCAL(id_)));
   }
+
+  TracingUmaTracker(const TracingUmaTracker&) = delete;
+  TracingUmaTracker& operator=(const TracingUmaTracker&) = delete;
+
   ~TracingUmaTracker() = default;
   TracingUmaTracker(TracingUmaTracker&& tracker) = default;
 
   void StopAndRecord() {
-    TRACE_EVENT_ASYNC_END0(
+    TRACE_EVENT_NESTABLE_ASYNC_END0(
         kTracingCategory, metric_name_,
         TRACE_ID_WITH_SCOPE("UmaTracker", TRACE_ID_LOCAL(id_)));
     UmaHistogramTimes(metric_name_, base::TimeTicks::Now() - start_time_);
@@ -80,8 +84,6 @@ class TracingUmaTracker {
   const char* metric_name_;
 
   static int next_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(TracingUmaTracker);
 };
 
 int TracingUmaTracker::next_id_ = 1;
@@ -94,7 +96,7 @@ RenderWidgetTargetResult::RenderWidgetTargetResult(
 RenderWidgetTargetResult::RenderWidgetTargetResult(
     RenderWidgetHostViewBase* in_view,
     bool in_should_query_view,
-    base::Optional<gfx::PointF> in_location,
+    absl::optional<gfx::PointF> in_location,
     bool in_latched_target)
     : view(in_view),
       should_query_view(in_should_query_view),
@@ -132,7 +134,7 @@ RenderWidgetTargeter::TargetingRequest::~TargetingRequest() = default;
 
 void RenderWidgetTargeter::TargetingRequest::RunCallback(
     RenderWidgetHostViewBase* target,
-    base::Optional<gfx::PointF> point) {
+    absl::optional<gfx::PointF> point) {
   if (!callback.is_null()) {
     std::move(callback).Run(target ? target->GetWeakPtr() : nullptr, point);
   }
@@ -312,13 +314,13 @@ void RenderWidgetTargeter::QueryClient(
   async_depth_++;
 
   TracingUmaTracker tracker("Event.AsyncTargeting.ResponseTime");
-  async_hit_test_timeout_.reset(new OneShotTimeoutMonitor(
+  async_hit_test_timeout_.Start(
+      FROM_HERE, async_hit_test_timeout_delay_,
       base::BindOnce(
           &RenderWidgetTargeter::AsyncHitTestTimedOut,
           weak_ptr_factory_.GetWeakPtr(), target->GetWeakPtr(), target_location,
           last_request_target ? last_request_target->GetWeakPtr() : nullptr,
-          last_target_location),
-      async_hit_test_timeout_delay_));
+          last_target_location));
 
   target_client.set_disconnect_handler(base::BindOnce(
       &RenderWidgetTargeter::OnInputTargetDisconnect,
@@ -382,7 +384,7 @@ void RenderWidgetTargeter::FoundFrameSinkId(
   TargetingRequest request = std::move(request_in_flight_.value());
 
   request_in_flight_.reset();
-  async_hit_test_timeout_.reset(nullptr);
+  async_hit_test_timeout_.Stop();
   target->host()->input_target_client().set_disconnect_handler(
       base::OnceClosure());
 
@@ -422,7 +424,7 @@ void RenderWidgetTargeter::FoundFrameSinkId(
 
 void RenderWidgetTargeter::FoundTarget(
     RenderWidgetHostViewBase* target,
-    const base::Optional<gfx::PointF>& target_location,
+    const absl::optional<gfx::PointF>& target_location,
     bool latched_target,
     TargetingRequest* request) {
   DCHECK(request);
@@ -495,10 +497,10 @@ void RenderWidgetTargeter::AsyncHitTestTimedOut(
 void RenderWidgetTargeter::OnInputTargetDisconnect(
     base::WeakPtr<RenderWidgetHostViewBase> target,
     const gfx::PointF& location) {
-  if (!async_hit_test_timeout_)
+  if (!async_hit_test_timeout_.IsRunning())
     return;
 
-  async_hit_test_timeout_.reset(nullptr);
+  async_hit_test_timeout_.Stop();
   TargetingRequest request = std::move(request_in_flight_.value());
   request_in_flight_.reset();
 

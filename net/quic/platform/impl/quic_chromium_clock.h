@@ -19,6 +19,10 @@ class QUIC_EXPORT_PRIVATE QuicChromiumClock : public QuicClock {
   static QuicChromiumClock* GetInstance();
 
   QuicChromiumClock();
+
+  QuicChromiumClock(const QuicChromiumClock&) = delete;
+  QuicChromiumClock& operator=(const QuicChromiumClock&) = delete;
+
   ~QuicChromiumClock() override;
 
   // QuicClock implementation:
@@ -26,8 +30,9 @@ class QUIC_EXPORT_PRIVATE QuicChromiumClock : public QuicClock {
   QuicTime Now() const override;
   QuicWallTime WallNow() const override;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(QuicChromiumClock);
+  // Converts a QuicTime returned by QuicChromiumClock to base::TimeTicks.
+  // Helper functions to safely convert between QuicTime and TimeTicks.
+  static base::TimeTicks QuicTimeToTimeTicks(QuicTime quic_time);
 };
 
 }  // namespace quic

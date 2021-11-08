@@ -4,30 +4,46 @@
 
 #include "ios/chrome/browser/ui/webui/policy/policy_ui_handler.h"
 
+#import <UIKit/UIKit.h>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#import "base/strings/sys_string_conversions.h"
 #include "base/values.h"
+#include "components/enterprise/browser/controller/browser_dm_token_storage.h"
+#include "components/enterprise/browser/controller/chrome_browser_cloud_management_controller.h"
+#include "components/enterprise/browser/reporting/common_pref_names.h"
 #include "components/policy/core/browser/policy_conversions.h"
+#include "components/policy/core/browser/webui/json_generation.h"
+#include "components/policy/core/browser/webui/machine_level_user_cloud_policy_status_provider.h"
+#include "components/policy/core/common/cloud/machine_level_user_cloud_policy_manager.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema.h"
 #include "components/policy/core/common/schema_map.h"
 #include "components/policy/policy_constants.h"
+#include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/version_info/version_info.h"
+#include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/policy/browser_policy_connector_ios.h"
 #include "ios/chrome/browser/policy/browser_state_policy_connector.h"
 #include "ios/chrome/browser/policy/policy_conversions_client_ios.h"
+#import "ios/chrome/common/channel_info.h"
+#include "ios/chrome/grit/ios_chromium_strings.h"
+#include "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
 #include "ui/base/webui/web_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-PolicyUIHandler::PolicyUIHandler() {}
+PolicyUIHandler::PolicyUIHandler() = default;
 
 PolicyUIHandler::~PolicyUIHandler() {
   GetPolicyService()->RemoveObserver(policy::POLICY_DOMAIN_CHROME, this);
@@ -66,6 +82,9 @@ void PolicyUIHandler::AddCommonLocalizedStringsToSource(
       {"unknown", IDS_POLICY_UNKNOWN},
       {"unset", IDS_POLICY_UNSET},
       {"value", IDS_POLICY_LABEL_VALUE},
+      {"sourceDefault", IDS_POLICY_SOURCE_DEFAULT},
+      {"loadPoliciesDone", IDS_POLICY_LOAD_POLICIES_DONE},
+      {"loadingPolicies", IDS_POLICY_LOADING_POLICIES},
   };
   source->AddLocalizedStrings(kStrings);
   source->AddLocalizedStrings(policy::kPolicySources);
@@ -73,20 +92,76 @@ void PolicyUIHandler::AddCommonLocalizedStringsToSource(
 }
 
 void PolicyUIHandler::RegisterMessages() {
+  policy::MachineLevelUserCloudPolicyManager* manager =
+      GetApplicationContext()
+          ->GetBrowserPolicyConnector()
+          ->machine_level_user_cloud_policy_manager();
+
+  if (manager) {
+    policy::BrowserDMTokenStorage* dmTokenStorage =
+        policy::BrowserDMTokenStorage::Get();
+
+    base::Time lastCloudReportSent;
+    PrefService* prefService = GetApplicationContext()->GetLocalState();
+
+    if (prefService->HasPrefPath(
+            enterprise_reporting::kLastUploadSucceededTimestamp)) {
+      lastCloudReportSent = prefService->GetTime(
+          enterprise_reporting::kLastUploadSucceededTimestamp);
+    }
+
+    machine_status_provider_ =
+        std::make_unique<policy::MachineLevelUserCloudPolicyStatusProvider>(
+            manager->core(),
+            new policy::MachineLevelUserCloudPolicyContext(
+                {dmTokenStorage->RetrieveEnrollmentToken(),
+                 dmTokenStorage->RetrieveClientId(), lastCloudReportSent}));
+  }
+
+  if (!machine_status_provider_)
+    machine_status_provider_ = std::make_unique<policy::PolicyStatusProvider>();
+
+  machine_status_provider_->SetStatusChangeCallback(base::BindRepeating(
+      &PolicyUIHandler::SendStatus, base::Unretained(this)));
+
   GetPolicyService()->AddObserver(policy::POLICY_DOMAIN_CHROME, this);
 
   ChromeBrowserState* browser_state =
       ChromeBrowserState::FromWebUIIOS(web_ui());
   browser_state->GetPolicyConnector()->GetSchemaRegistry()->AddObserver(this);
 
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "listenPoliciesUpdates",
       base::BindRepeating(&PolicyUIHandler::HandleListenPoliciesUpdates,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "reloadPolicies",
       base::BindRepeating(&PolicyUIHandler::HandleReloadPolicies,
                           base::Unretained(this)));
+
+  web_ui()->RegisterDeprecatedMessageCallback(
+      "copyPoliciesJSON",
+      base::BindRepeating(&PolicyUIHandler::HandleCopyPoliciesJson,
+                          base::Unretained(this)));
+}
+
+void PolicyUIHandler::HandleCopyPoliciesJson(const base::ListValue* args) {
+  NSString* jsonString = base::SysUTF8ToNSString(GetPoliciesAsJson());
+  [UIPasteboard generalPasteboard].string = jsonString;
+}
+
+std::string PolicyUIHandler::GetPoliciesAsJson() {
+  auto client = std::make_unique<PolicyConversionsClientIOS>(
+      ChromeBrowserState::FromWebUIIOS(web_ui()));
+
+  return policy::GenerateJson(
+      std::move(client), GetStatusValue(/*include_box_legend_key=*/false),
+      policy::JsonGenerationParams()
+          .with_application_name(l10n_util::GetStringUTF8(IDS_IOS_PRODUCT_NAME))
+          .with_channel_name(GetChannelString(GetChannel()))
+          .with_processor_variation(l10n_util::GetStringUTF8(
+              sizeof(void*) == 8 ? IDS_VERSION_UI_64BIT : IDS_VERSION_UI_32BIT))
+          .with_os_name(version_info::GetOSType()));
 }
 
 void PolicyUIHandler::OnSchemaRegistryUpdated(bool has_new_schemas) {
@@ -153,8 +228,36 @@ void PolicyUIHandler::SendPolicies() {
   web_ui()->FireWebUIListener("policies-updated", args);
 }
 
+base::Value PolicyUIHandler::GetStatusValue(bool include_box_legend_key) const {
+  std::unique_ptr<base::DictionaryValue> machine_status(
+      new base::DictionaryValue);
+  machine_status_provider_->GetStatus(machine_status.get());
+
+  // Given that it's usual for users to bring their own devices and the fact
+  // that device names could expose personal information. We do not show
+  // this field in Device Policy Box
+  if (machine_status->HasKey("machine"))
+    machine_status->RemoveKey("machine");
+
+  base::DictionaryValue status;
+  if (!machine_status->DictEmpty()) {
+    if (include_box_legend_key) {
+      machine_status->SetString("boxLegendKey", "statusDevice");
+    }
+    status.Set("machine", std::move(machine_status));
+  }
+  return status;
+}
+
+void PolicyUIHandler::SendStatus() {
+  base::Value status = GetStatusValue(/*include_box_legend_key=*/true);
+  std::vector<const base::Value*> args = {&status};
+  web_ui()->FireWebUIListener("status-updated", args);
+}
+
 void PolicyUIHandler::OnRefreshPoliciesDone() {
   SendPolicies();
+  SendStatus();
 }
 
 policy::PolicyService* PolicyUIHandler::GetPolicyService() const {

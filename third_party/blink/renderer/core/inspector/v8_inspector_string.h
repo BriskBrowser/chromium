@@ -10,7 +10,6 @@
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
@@ -22,6 +21,7 @@
 #include "third_party/inspector_protocol/crdtp/serializable.h"
 #include "third_party/inspector_protocol/crdtp/serializer_traits.h"
 #include "v8/include/v8-inspector.h"
+#include "v8/include/v8-script.h"
 
 namespace blink {
 

@@ -36,6 +36,7 @@
 #include "third_party/blink/public/common/css/forced_colors.h"
 #include "third_party/blink/public/mojom/css/preferred_color_scheme.mojom-shared.h"
 #include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/renderer/core/animation/css/css_scroll_timeline.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/active_style_sheets.h"
 #include "third_party/blink/renderer/core/css/css_global_rule_set.h"
@@ -68,11 +69,13 @@ class CounterStyleMap;
 class CSSFontSelector;
 class CSSStyleSheet;
 class FontSelector;
+class HTMLSelectElement;
 class MediaQueryEvaluator;
 class Node;
 class RuleFeatureSet;
 class ShadowTreeStyleSheetCollection;
 class DocumentStyleEnvironmentVariables;
+class CascadeLayerMap;
 class StyleRuleFontFace;
 class StyleRuleUsageTracker;
 class StyleSheetContents;
@@ -101,6 +104,27 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
 
    private:
     base::AutoReset<bool> in_removal_;
+  };
+
+  class DetachLayoutTreeScope {
+    STACK_ALLOCATED();
+
+   public:
+    explicit DetachLayoutTreeScope(StyleEngine& engine)
+        : engine_(engine)
+#if DCHECK_IS_ON()
+          ,
+          in_detach_scope_(&engine.in_detach_scope_, true)
+#endif  // DCHECK_IS_ON()
+    {
+    }
+    ~DetachLayoutTreeScope() { engine_.MarkForLayoutTreeChangesAfterDetach(); }
+
+   private:
+    StyleEngine& engine_;
+#if DCHECK_IS_ON()
+    base::AutoReset<bool> in_detach_scope_;
+#endif  // DCHECK_IS_ON()
   };
 
   // There are a few instances where we are marking nodes style dirty from
@@ -185,7 +209,6 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   }
   void InitialViewportChanged();
   void ViewportRulesChanged();
-  void HtmlImportAddedOrRemoved();
 
   void InjectSheet(const StyleSheetKey&, StyleSheetContents*,
                    WebDocument::CSSOrigin =
@@ -195,16 +218,12 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
                                WebDocument::kAuthorOrigin);
   CSSStyleSheet& EnsureInspectorStyleSheet();
   RuleSet* WatchedSelectorsRuleSet() {
-    DCHECK(!IsHTMLImport());
     DCHECK(global_rule_set_);
     return global_rule_set_->WatchedSelectorsRuleSet();
   }
 
   RuleSet* RuleSetForSheet(CSSStyleSheet&);
   void MediaQueryAffectingValueChanged(MediaValueChange change);
-  void UpdateActiveStyleSheetsInImport(
-      StyleEngine& root_engine,
-      DocumentStyleSheetCollector& parent_collector);
   void UpdateActiveStyle();
 
   String PreferredStylesheetSetName() const {
@@ -238,6 +257,14 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   }
   bool UsesWindowInactiveSelector() const {
     return GetRuleFeatureSet().UsesWindowInactiveSelector();
+  }
+  bool UsesContainerQueries() const {
+    return GetRuleFeatureSet().UsesContainerQueries() ||
+           uses_container_relative_units_ || skipped_container_recalc_;
+  }
+
+  void SetUsesContainerRelativeUnits() {
+    uses_container_relative_units_ = true;
   }
 
   bool UsesRemUnits() const { return uses_rem_units_; }
@@ -273,13 +300,25 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   bool MediaQueryAffectedByViewportChange();
   bool MediaQueryAffectedByDeviceChange();
   bool HasViewportDependentMediaQueries() {
-    DCHECK(!IsHTMLImport());
     DCHECK(global_rule_set_);
     UpdateActiveStyle();
     return !global_rule_set_->GetRuleFeatureSet()
                 .ViewportDependentMediaQueryResults()
                 .IsEmpty();
   }
+
+  class InApplyAnimationUpdateScope {
+    STACK_ALLOCATED();
+
+   public:
+    explicit InApplyAnimationUpdateScope(StyleEngine& engine)
+        : auto_reset_(&engine.in_apply_animation_update_, true) {}
+
+   private:
+    base::AutoReset<bool> auto_reset_;
+  };
+
+  bool InApplyAnimationUpdate() const { return in_apply_animation_update_; }
 
   void UpdateStyleInvalidationRoot(ContainerNode* ancestor, Node* dirty_node);
   void UpdateStyleRecalcRoot(ContainerNode* ancestor, Node* dirty_node);
@@ -369,7 +408,8 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
                                const ActiveStyleSheetVector& new_style_sheets);
 
   void VisionDeficiencyChanged();
-  void ApplyVisionDeficiencyStyle(ComputedStyle* layout_view_style);
+  void ApplyVisionDeficiencyStyle(
+      scoped_refptr<ComputedStyle> layout_view_style);
 
   void CollectMatchingUserRules(ElementRuleCollector&) const;
 
@@ -377,17 +417,13 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
 
   void EnvironmentVariableChanged();
 
-  bool NeedsWhitespaceReattachment() const {
-    return !whitespace_reattach_set_.IsEmpty();
-  }
-  bool NeedsWhitespaceReattachment(Element* element) const {
-    return whitespace_reattach_set_.Contains(element);
-  }
-  void ClearNeedsWhitespaceReattachmentFor(Element* element) {
-    whitespace_reattach_set_.erase(element);
-  }
-  void ClearWhitespaceReattachSet() { whitespace_reattach_set_.clear(); }
-  void MarkForWhitespaceReattachment();
+  // Called when the set of @scroll-timeline rules changes. E.g. if a new
+  // @scroll-timeline rule was inserted.
+  //
+  // Not to be confused with ScrollTimelineInvalidated, which is called when
+  // elements *referenced* by @scroll-timeline rules change.
+  void ScrollTimelinesChanged();
+
   void MarkAllElementsForStyleRecalc(const StyleChangeReasonForTracing& reason);
   void MarkViewportStyleDirty();
   bool IsViewportStyleDirty() const { return viewport_style_dirty_; }
@@ -400,11 +436,26 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
 
   StyleRuleKeyframes* KeyframeStylesForAnimation(
       const AtomicString& animation_name);
-  StyleRuleScrollTimeline* FindScrollTimelineRule(const AtomicString& name);
+
+  void UpdateTimelines();
+
+  CSSScrollTimeline* FindScrollTimeline(const AtomicString& name);
+
+  // Called when information a @scroll-timeline depends on changes, e.g.
+  // when we have source:selector(#foo), and the element referenced by
+  // #foo changes.
+  //
+  // Not to be confused with ScrollTimelinesChanged, which is called when
+  // @scroll-timeline rules themselves change.
+  void ScrollTimelineInvalidated(CSSScrollTimeline&);
 
   CounterStyleMap* GetUserCounterStyleMap() { return user_counter_style_map_; }
   const CounterStyle& FindCounterStyleAcrossScopes(const AtomicString&,
                                                    const TreeScope*) const;
+
+  const CascadeLayerMap* GetUserCascadeLayerMap() const {
+    return user_cascade_layer_map_;
+  }
 
   DocumentStyleEnvironmentVariables& EnsureEnvironmentVariables();
 
@@ -426,13 +477,29 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   void UpdateStyleAndLayoutTreeForContainer(Element& container,
                                             const LogicalSize&,
                                             LogicalAxes contained_axes);
-  void RecalcStyle() { RecalcStyle({}, StyleRecalcContext()); }
+  void RecalcStyle();
 
   void ClearEnsuredDescendantStyles(Element& element);
   void RebuildLayoutTree();
   bool InRebuildLayoutTree() const { return in_layout_tree_rebuild_; }
+  bool InDOMRemoval() const { return in_dom_removal_; }
   bool InContainerQueryStyleRecalc() const {
     return in_container_query_style_recalc_;
+  }
+  void SkipStyleRecalcForContainer() { skipped_container_recalc_ = true; }
+  void ChangeRenderingForHTMLSelect(HTMLSelectElement& select);
+  void DetachedFromParent(LayoutObject* parent) {
+    // This method will be called for every LayoutObject while detaching a
+    // subtree. Since the trees are detached bottom up, the last parent passed
+    // in will be the parent of one of the roots being detached.
+    if (in_dom_removal_) {
+#if DCHECK_IS_ON()
+      DCHECK(in_detach_scope_)
+          << "A DetachLayoutTreeScope must wrap a DOMRemovalScope to handle "
+             "and reset parent_for_detached_subtree_";
+#endif  // DCHECK_IS_ON()
+      parent_for_detached_subtree_ = parent;
+    }
   }
 
   void SetColorSchemeFromMeta(const CSSValue* color_scheme);
@@ -469,8 +536,6 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   void MarkTreeScopeDirty(TreeScope&);
   void MarkUserStyleDirty();
 
-  bool IsHTMLImport() const { return is_html_import_; }
-  Document* HTMLImportRootDocument();
   Document& GetDocument() const { return *document_; }
 
   typedef HeapHashSet<Member<TreeScope>> UnorderedTreeScopeSet;
@@ -484,7 +549,6 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
                                        MediaValueChange);
 
   const RuleFeatureSet& GetRuleFeatureSet() const {
-    DCHECK(!IsHTMLImport());
     DCHECK(global_rule_set_);
     return global_rule_set_->GetRuleFeatureSet();
   }
@@ -544,15 +608,26 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   void ClearPropertyRules();
   void ClearScrollTimelineRules();
 
-  void AddPropertyRulesFromSheets(const ActiveStyleSheetVector&);
-  void AddScrollTimelineRulesFromSheets(const ActiveStyleSheetVector&);
+  class AtRuleCascadeMap;
+
+  void AddPropertyRulesFromSheets(AtRuleCascadeMap&,
+                                  const ActiveStyleSheetVector&,
+                                  bool is_user_style);
+  void AddScrollTimelineRulesFromSheets(AtRuleCascadeMap&,
+                                        const ActiveStyleSheetVector&,
+                                        bool is_user_style);
 
   // Returns true if any @font-face rules are added.
   bool AddUserFontFaceRules(const RuleSet&);
   void AddUserKeyframeRules(const RuleSet&);
   void AddUserKeyframeStyle(StyleRuleKeyframes*);
-  void AddPropertyRules(const RuleSet&);
-  void AddScrollTimelineRules(const RuleSet&);
+  void AddPropertyRules(AtRuleCascadeMap&, const RuleSet&, bool is_user_style);
+  void AddScrollTimelineRules(AtRuleCascadeMap&,
+                              const RuleSet&,
+                              bool is_user_style);
+  bool UserKeyframeStyleShouldOverride(
+      const StyleRuleKeyframes* new_rule,
+      const StyleRuleKeyframes* existing_rule) const;
 
   CounterStyleMap& EnsureUserCounterStyleMap();
 
@@ -567,10 +642,11 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
 
   void RecalcStyle(StyleRecalcChange, const StyleRecalcContext&);
 
-  Member<Document> document_;
+  // We may need to update whitespaces in the layout tree after a flat tree
+  // removal which caused a layout subtree to be detached.
+  void MarkForLayoutTreeChangesAfterDetach();
 
-  // True if this StyleEngine is for an HTML Import document.
-  bool is_html_import_{false};
+  Member<Document> document_;
 
   // Tracks the number of currently loading top-level stylesheets. Sheets loaded
   // using the @import directive are not included in this count. We use this
@@ -578,8 +654,6 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   // (parser-inserted scripts may not run until all pending stylesheets have
   // loaded). See:
   // https://html.spec.whatwg.org/multipage/semantics.html#interactions-of-styling-and-scripting
-  // Once the BlockHTMLParserOnStyleSheets flag has shipped, this is the same
-  // as pending_parser_blocking_stylesheets_.
   int pending_script_blocking_stylesheets_{0};
 
   // Tracks the number of currently loading top-level stylesheets which block
@@ -616,12 +690,25 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   String preferred_stylesheet_set_name_;
 
   bool uses_rem_units_{false};
+  bool uses_container_relative_units_{false};
+  // True if the previous UpdateStyleAndLayoutTree skipped style recalc for a
+  // subtree for a container to have the follow layout update the size of the
+  // container before continuing with interleaved style and layout with the
+  // correct container size for container queries. This being true is a signal
+  // to EnsureComputedStyle that we need to update layout to have up-to-date
+  // ComputedStyles.
+  bool skipped_container_recalc_{false};
   bool in_layout_tree_rebuild_{false};
   bool in_container_query_style_recalc_{false};
   bool in_dom_removal_{false};
+#if DCHECK_IS_ON()
+  bool in_detach_scope_{false};
+#endif  // DCHECK_IS_ON()
+  bool in_apply_animation_update_{false};
   bool viewport_style_dirty_{false};
   bool fonts_need_update_{false};
   bool counter_styles_need_update_{false};
+  bool timelines_need_update_{false};
 
   // Set to true if we allow marking style dirty from style recalc. Ideally, we
   // should get rid of this, but we keep track of where we allow it with
@@ -645,12 +732,6 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   StyleInvalidationRoot style_invalidation_root_;
   StyleRecalcRoot style_recalc_root_;
   LayoutTreeRebuildRoot layout_tree_rebuild_root_;
-
-  // This is a set of rendered elements which had one or more of its rendered
-  // children removed since the last lifecycle update. For such elements we need
-  // to re-attach whitespace children. Also see reattach_all_whitespace_nodes_
-  // in the WhitespaceAttacher class.
-  HeapHashSet<Member<Element>> whitespace_reattach_set_;
 
   Member<CSSFontSelector> font_selector_;
 
@@ -677,7 +758,10 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   Member<CounterStyleMap> user_counter_style_map_;
 
   HeapHashMap<AtomicString, Member<StyleRuleScrollTimeline>>
-      scroll_timeline_map_;
+      scroll_timeline_rule_map_;
+  HeapHashMap<AtomicString, Member<CSSScrollTimeline>> scroll_timeline_map_;
+
+  Member<CascadeLayerMap> user_cascade_layer_map_;
 
   scoped_refptr<DocumentStyleEnvironmentVariables> environment_variables_;
 
@@ -715,8 +799,14 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
 
   HeapHashSet<Member<TextTrack>> text_tracks_;
   Member<Element> vtt_originating_element_;
+
+  // When removing subtrees from the flat tree DOM, whitespace siblings of the
+  // root may need to be updated. The LayoutObject parent of the detached
+  // subtree is stored here during in_dom_removal_ and is marked for whitespace
+  // re-attachment after the removal.
+  Member<LayoutObject> parent_for_detached_subtree_;
 };
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CSS_STYLE_ENGINE_H_

@@ -12,6 +12,7 @@
 
 #include "base/base64url.h"
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
@@ -254,8 +255,9 @@ std::unique_ptr<base::DictionaryValue> UnlockKeyToDictionary(
                            DeviceTypeStringToEnum(device.device_type()));
   }
 
-  dictionary->Set(kExternalDeviceKeyBeaconSeeds,
-                  BeaconSeedsToListValue(device.beacon_seeds()));
+  dictionary->SetKey(kExternalDeviceKeyBeaconSeeds,
+                     base::Value::FromUniquePtrValue(
+                         BeaconSeedsToListValue(device.beacon_seeds())));
 
   if (device.has_arc_plus_plus()) {
     dictionary->SetBoolean(kExternalDeviceKeyArcPlusPlus,
@@ -283,11 +285,13 @@ std::unique_ptr<base::DictionaryValue> UnlockKeyToDictionary(
   bool legacy_mobile_hotspot_supported =
       device.has_mobile_hotspot_supported() &&
       device.mobile_hotspot_supported();
-  dictionary->Set(kDictionaryKeySoftwareFeatures,
-                  SupportedAndEnabledSoftwareFeaturesToDictionaryValue(
-                      device.supported_software_features(),
-                      device.enabled_software_features(), legacy_unlock_key,
-                      legacy_mobile_hotspot_supported));
+  dictionary->SetKey(
+      kDictionaryKeySoftwareFeatures,
+      base::Value::FromUniquePtrValue(
+          SupportedAndEnabledSoftwareFeaturesToDictionaryValue(
+              device.supported_software_features(),
+              device.enabled_software_features(), legacy_unlock_key,
+              legacy_mobile_hotspot_supported)));
 
   return dictionary;
 }
@@ -295,7 +299,7 @@ std::unique_ptr<base::DictionaryValue> UnlockKeyToDictionary(
 void AddBeaconSeedsToExternalDevice(
     const base::ListValue& beacon_seeds,
     cryptauth::ExternalDeviceInfo* external_device) {
-  for (size_t i = 0; i < beacon_seeds.GetSize(); i++) {
+  for (size_t i = 0; i < beacon_seeds.GetList().size(); i++) {
     const base::DictionaryValue* seed_dictionary = nullptr;
     if (!beacon_seeds.GetDictionary(i, &seed_dictionary)) {
       PA_LOG(WARNING) << "Unable to retrieve BeaconSeed dictionary; "
@@ -344,7 +348,7 @@ void AddSoftwareFeaturesToExternalDevice(
     cryptauth::ExternalDeviceInfo* external_device,
     bool old_unlock_key_value_from_prefs,
     bool old_mobile_hotspot_supported_from_prefs) {
-  for (const auto& it : software_features_dictionary.DictItems()) {
+  for (const auto it : software_features_dictionary.DictItems()) {
     std::string software_feature = it.first;
     if (SoftwareFeatureStringToEnum(software_feature) ==
         cryptauth::SoftwareFeature::UNKNOWN_FEATURE) {
@@ -359,14 +363,13 @@ void AddSoftwareFeaturesToExternalDevice(
           static_cast<cryptauth::SoftwareFeature>(software_feature_int));
     }
 
-    int software_feature_state;
-    if (!it.second.GetAsInteger(&software_feature_state)) {
+    if (!it.second.is_int()) {
       PA_LOG(WARNING) << "Unable to retrieve SoftwareFeature; skipping.";
       continue;
     }
 
-    switch (static_cast<multidevice::SoftwareFeatureState>(
-        software_feature_state)) {
+    switch (
+        static_cast<multidevice::SoftwareFeatureState>(it.second.GetInt())) {
       case multidevice::SoftwareFeatureState::kEnabled:
         external_device->add_enabled_software_features(software_feature);
         FALLTHROUGH;
@@ -522,8 +525,8 @@ bool DictionaryToUnlockKey(const base::DictionaryValue& dictionary,
 std::unique_ptr<SyncSchedulerImpl> CreateSyncScheduler(
     SyncScheduler::Delegate* delegate) {
   return std::make_unique<SyncSchedulerImpl>(
-      delegate, base::TimeDelta::FromHours(kRefreshPeriodHours),
-      base::TimeDelta::FromMinutes(kDeviceSyncBaseRecoveryPeriodMinutes),
+      delegate, base::Hours(kRefreshPeriodHours),
+      base::Minutes(kDeviceSyncBaseRecoveryPeriodMinutes),
       kDeviceSyncMaxJitterRatio, "CryptAuth DeviceSync");
 }
 
@@ -707,8 +710,9 @@ void CryptAuthDeviceManagerImpl::OnGetMyDevicesSuccess(
     devices_as_list->Append(std::move(device_dictionary));
   }
 
-  bool unlock_keys_changed = !devices_as_list->Equals(
-      pref_service_->GetList(prefs::kCryptAuthDeviceSyncUnlockKeys));
+  bool unlock_keys_changed =
+      *devices_as_list !=
+      *pref_service_->GetList(prefs::kCryptAuthDeviceSyncUnlockKeys);
   {
     ListPrefUpdate update(pref_service_, prefs::kCryptAuthDeviceSyncUnlockKeys);
     update.Get()->Swap(devices_as_list.get());
@@ -744,8 +748,8 @@ void CryptAuthDeviceManagerImpl::OnGetMyDevicesFailure(
 }
 
 void CryptAuthDeviceManagerImpl::OnResyncMessage(
-    const base::Optional<std::string>& session_id,
-    const base::Optional<CryptAuthFeatureType>& feature_type) {
+    const absl::optional<std::string>& session_id,
+    const absl::optional<CryptAuthFeatureType>& feature_type) {
   ForceSyncNow(cryptauth::INVOCATION_REASON_SERVER_INITIATED);
 }
 
@@ -753,7 +757,7 @@ void CryptAuthDeviceManagerImpl::UpdateUnlockKeysFromPrefs() {
   const base::ListValue* unlock_key_list =
       pref_service_->GetList(prefs::kCryptAuthDeviceSyncUnlockKeys);
   synced_devices_.clear();
-  for (size_t i = 0; i < unlock_key_list->GetSize(); ++i) {
+  for (size_t i = 0; i < unlock_key_list->GetList().size(); ++i) {
     const base::DictionaryValue* unlock_key_dictionary;
     if (unlock_key_list->GetDictionary(i, &unlock_key_dictionary)) {
       cryptauth::ExternalDeviceInfo unlock_key;

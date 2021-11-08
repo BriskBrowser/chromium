@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_logical_line_item.h"
 
+#include "base/containers/adapters.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_result.h"
 
 namespace blink {
@@ -54,13 +55,6 @@ std::ostream& operator<<(std::ostream& stream, const NGLogicalLineItem& item) {
   return stream;
 }
 
-void NGLogicalLineItem::Trace(Visitor* visitor) const {
-  visitor->Trace(layout_result);
-  visitor->Trace(layout_object);
-  visitor->Trace(out_of_flow_positioned_box);
-  visitor->Trace(unpositioned_float);
-}
-
 NGLogicalLineItem* NGLogicalLineItems::FirstInFlowChild() {
   for (auto& child : *this) {
     if (child.HasInFlowFragment())
@@ -70,10 +64,18 @@ NGLogicalLineItem* NGLogicalLineItems::FirstInFlowChild() {
 }
 
 NGLogicalLineItem* NGLogicalLineItems::LastInFlowChild() {
-  for (auto it = rbegin(); it != rend(); it++) {
-    auto& child = *it;
+  for (auto& child : base::Reversed(*this)) {
     if (child.HasInFlowFragment())
       return &child;
+  }
+  return nullptr;
+}
+
+const NGLayoutResult* NGLogicalLineItems::BlockInInlineLayoutResult() const {
+  for (const NGLogicalLineItem& item : *this) {
+    if (item.layout_result &&
+        item.layout_result->PhysicalFragment().IsBlockInInline())
+      return item.layout_result.get();
   }
   return nullptr;
 }
@@ -111,10 +113,6 @@ void NGLogicalLineItems::MoveInBlockDirection(LayoutUnit delta,
                                               unsigned end) {
   for (unsigned index = start; index < end; index++)
     children_[index].rect.offset.block_offset += delta;
-}
-
-void NGLogicalLineItems::Trace(Visitor* visitor) const {
-  visitor->Trace(children_);
 }
 
 }  // namespace blink

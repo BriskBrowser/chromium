@@ -6,7 +6,7 @@
 
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "cc/paint/skia_paint_canvas.h"
@@ -134,6 +134,12 @@ VideoTrackRecorder::VideoTrackRecorder(
 
 VideoTrackRecorderImpl::CodecProfile::CodecProfile(CodecId codec_id)
     : codec_id(codec_id) {}
+
+VideoTrackRecorderImpl::CodecProfile::CodecProfile(
+    CodecId codec_id,
+    absl::optional<media::VideoCodecProfile> opt_profile,
+    absl::optional<uint8_t> opt_level)
+    : codec_id(codec_id), profile(opt_profile), level(opt_level) {}
 
 VideoTrackRecorderImpl::CodecProfile::CodecProfile(
     CodecId codec_id,
@@ -271,6 +277,11 @@ VideoTrackRecorderImpl::Encoder::~Encoder() {
     origin_task_runner_->DeleteSoon(FROM_HERE,
                                     std::move(num_frames_in_encode_));
   }
+  if (encoder_thread_context_ &&
+      !encoding_task_runner_->RunsTasksInCurrentSequence()) {
+    encoding_task_runner_->DeleteSoon(FROM_HERE,
+                                      std::move(encoder_thread_context_));
+  }
 }
 
 void VideoTrackRecorderImpl::Encoder::StartFrameEncode(
@@ -346,10 +357,8 @@ void VideoTrackRecorderImpl::Encoder::RetrieveFrameOnEncodingTaskRunner(
     attributes.support_grcontext = true;
 
     Platform::GraphicsInfo info;
-    bool using_gpu_compositing = true;
     encoder_thread_context_ = CreateContextProviderOnWorkerThread(
-        attributes, &info, &using_gpu_compositing,
-        KURL("chrome://VideoTrackRecorderImpl"));
+        attributes, &info, KURL("chrome://VideoTrackRecorderImpl"));
 
     if (encoder_thread_context_ &&
         !encoder_thread_context_->BindToCurrentThread()) {
@@ -674,7 +683,8 @@ void VideoTrackRecorderImpl::InitializeEncoderOnEncoderSupportKnown(
 #if BUILDFLAG(RTC_USE_H264)
       case CodecId::H264:
         encoder_ = base::MakeRefCounted<H264Encoder>(
-            on_encoded_video_cb, bits_per_second, main_task_runner_);
+            on_encoded_video_cb, codec_profile, bits_per_second,
+            main_task_runner_);
         break;
 #endif
       case CodecId::VP8:
@@ -713,7 +723,8 @@ void VideoTrackRecorderImpl::ConnectToTrack(
     const VideoCaptureDeliverFrameCB& callback) {
   auto* video_track =
       static_cast<MediaStreamVideoTrack*>(track_->GetPlatformTrack());
-  video_track->AddSink(this, callback, false);
+  video_track->AddSink(this, callback, MediaStreamVideoSink::IsSecure::kNo,
+                       MediaStreamVideoSink::UsesAlpha::kDefault);
 }
 
 void VideoTrackRecorderImpl::DisconnectFromTrack() {
@@ -793,7 +804,7 @@ void VideoTrackRecorderPassthrough::HandleEncodedVideoFrame(
   }
   state_ = KeyFrameState::kKeyFrameReceivedOK;
 
-  base::Optional<gfx::ColorSpace> color_space;
+  absl::optional<gfx::ColorSpace> color_space;
   if (encoded_frame->ColorSpace())
     color_space = encoded_frame->ColorSpace()->ToGfxColorSpace();
   auto span = encoded_frame->Data();

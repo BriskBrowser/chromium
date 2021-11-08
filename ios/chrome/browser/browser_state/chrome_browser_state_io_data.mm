@@ -15,14 +15,14 @@
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/containers/contains.h"
 #include "base/debug/alias.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/content_settings/core/browser/content_settings_provider.h"
@@ -86,7 +86,7 @@ void ChromeBrowserStateIOData::InitializeOnUIThread(
     ChromeBrowserState* browser_state) {
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
   PrefService* pref_service = browser_state->GetPrefs();
-  std::unique_ptr<ProfileParams> params(new ProfileParams);
+  auto params = std::make_unique<ProfileParams>();
   params->path = browser_state->GetOriginalChromeBrowserState()->GetStatePath();
 
   params->io_thread = GetApplicationContext()->GetIOSChromeIOThread();
@@ -100,7 +100,7 @@ void ChromeBrowserStateIOData::InitializeOnUIThread(
       browser_state->GetProxyConfigTracker());
   params->system_cookie_store = web::CreateSystemCookieStore(browser_state);
   params->browser_state = browser_state;
-  profile_params_.reset(params.release());
+  profile_params_ = std::move(params);
 
   IOSChromeNetworkDelegate::InitializePrefsOnUIThread(&enable_do_not_track_,
                                                       pref_service);
@@ -305,12 +305,15 @@ void ChromeBrowserStateIOData::Init(
       true /* quick_check_enabled */);
   transport_security_state_.reset(new net::TransportSecurityState());
   if (!IsOffTheRecord()) {
+    base::FilePath transport_security_state_file_path =
+        profile_params_->path.Append(FILE_PATH_LITERAL("TransportSecurity"));
     transport_security_persister_ =
         std::make_unique<net::TransportSecurityPersister>(
-            transport_security_state_.get(), profile_params_->path,
+            transport_security_state_.get(),
             base::ThreadPool::CreateSequencedTaskRunner(
                 {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-                 base::TaskShutdownBehavior::BLOCK_SHUTDOWN}));
+                 base::TaskShutdownBehavior::BLOCK_SHUTDOWN}),
+            transport_security_state_file_path);
   }
 
   net::NetworkTrafficAnnotationTag traffic_annotation =
@@ -400,7 +403,7 @@ ChromeBrowserStateIOData::CreateHttpNetworkSession(
 
   IOSChromeIOThread* const io_thread = profile_params.io_thread;
 
-  net::HttpNetworkSession::Context session_context;
+  net::HttpNetworkSessionContext session_context;
   net::URLRequestContextBuilder::SetHttpNetworkSessionComponents(
       context, &session_context);
 

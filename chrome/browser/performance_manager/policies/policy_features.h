@@ -33,6 +33,9 @@ extern const base::Feature kTrimOnMemoryPressure;
 // trim under memory pressure.
 extern const base::Feature kTrimArcOnMemoryPressure;
 
+// If enabled we will try to trim ARCVM's crosvm under memory pressure.
+extern const base::Feature kTrimArcVmOnMemoryPressure;
+
 // The trim on freeze feature will trim the working set of a process when all
 // frames are frozen.
 extern const base::Feature kTrimOnFreeze;
@@ -78,9 +81,27 @@ extern const base::FeatureParam<int> kArcMaxProcessesPerTrim;
 // process must have been inactive before it's eligible for reclaim.
 extern const base::FeatureParam<int> kArcProcessInactivityTimeSec;
 
+// The minimum amount of time an ARCVM must have been inactive before it's
+// eligible for reclaim.
+extern const base::FeatureParam<base::TimeDelta> kArcVmInactivityTimeMs;
+
+// Specifies the frequency at which ARCVM's crosvm process can be trimmed.
+extern const base::FeatureParam<base::TimeDelta> kArcVmTrimBackoffTimeMs;
+
+// If true then we will trim ARCVM's crosvm on critical memory pressure
+// regardless of the user's interactions with ARCVM.
+extern const base::FeatureParam<bool> kTrimArcVmOnCriticalPressure;
+
+// If true then we will trim ARCVM's crosvm once on the first moderate (or
+// critical though unlikely) memory pressure after ARCVM boot. The trimming is
+// done regardless of the user's interactions with ARCVM.
+extern const base::FeatureParam<bool>
+    kTrimArcVmOnFirstMemoryPressureAfterArcVmBoot;
+
 struct TrimOnMemoryPressureParams {
   TrimOnMemoryPressureParams();
-  TrimOnMemoryPressureParams(const TrimOnMemoryPressureParams& other);
+  TrimOnMemoryPressureParams(const TrimOnMemoryPressureParams&);
+  TrimOnMemoryPressureParams& operator=(const TrimOnMemoryPressureParams&);
 
   // GetParams will return this struct with the populated parameters below.
   static TrimOnMemoryPressureParams GetParams();
@@ -97,6 +118,12 @@ struct TrimOnMemoryPressureParams {
   bool trim_arc_aggressive = false;
   int arc_max_number_processes_per_trim = -1;
   base::TimeDelta arc_process_inactivity_time;
+
+  // These are used when kTrimArcVmOnMemoryPressure is enabled.
+  base::TimeDelta arcvm_inactivity_time;
+  base::TimeDelta arcvm_trim_backoff_time;
+  bool trim_arcvm_on_critical_pressure = false;
+  bool trim_arcvm_on_first_memory_pressure_after_arcvm_boot = false;
 };
 
 #if BUILDFLAG(USE_TCMALLOC)
@@ -114,54 +141,6 @@ extern const base::FeatureParam<int> kDynamicTuningScaleInvisibleTimeSec;
 #endif  // BUILDFLAG(USE_TCMALLOC)
 
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
-#if !defined(OS_ANDROID)
-// Enables freezing pages directly from PerformanceManager rather than via
-// TabManager.
-extern const base::Feature kPageFreezingFromPerformanceManager;
-
-// Enables urgent discarding of pages directly from PerformanceManager rather
-// than via TabManager.
-extern const base::Feature kUrgentDiscardingFromPerformanceManager;
-
-// The discard strategy to use.
-// Integer values are specified to allow conversion from the integer value in
-// the DiscardStrategy feature param.
-enum class DiscardStrategy : int {
-  // Discards the least recently used tab among the eligible ones. This is the
-  // default strategy.
-  LRU = 0,
-  // Discard the tab with the biggest resident set among the eligible ones.
-  BIGGEST_RSS = 1,
-};
-
-class UrgentDiscardingParams {
- public:
-  ~UrgentDiscardingParams();
-
-  static UrgentDiscardingParams GetParams();
-
-  DiscardStrategy discard_strategy() const { return discard_strategy_; }
-
-  static constexpr base::FeatureParam<int> kDiscardStrategy{
-      &features::kUrgentDiscardingFromPerformanceManager, "DiscardStrategy",
-      static_cast<int>(DiscardStrategy::LRU)};
-
- private:
-  UrgentDiscardingParams();
-  UrgentDiscardingParams(const UrgentDiscardingParams& rhs);
-
-  DiscardStrategy discard_strategy_;
-};
-
-// Enable background tab loading of pages (restored via session restore)
-// directly from Performance Manager rather than via TabLoader.
-extern const base::Feature kBackgroundTabLoadingFromPerformanceManager;
-
-// Feature that controls whether or not tabs should be automatically discarded
-// when the total PMF is too high.
-extern const base::Feature kHighPMFDiscardPolicy;
-#endif
 
 }  // namespace features
 }  // namespace performance_manager

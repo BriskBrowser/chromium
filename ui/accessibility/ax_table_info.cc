@@ -30,9 +30,9 @@ namespace {
 void FindCellsInRow(AXNode* node, std::vector<AXNode*>* cell_nodes) {
   for (AXNode* child : node->children()) {
     if (child->IsIgnored() ||
-        child->data().role == ax::mojom::Role::kGenericContainer)
+        child->GetRole() == ax::mojom::Role::kGenericContainer)
       FindCellsInRow(child, cell_nodes);
-    else if (IsCellOrTableHeader(child->data().role))
+    else if (IsCellOrTableHeader(child->GetRole()))
       cell_nodes->push_back(child);
   }
 }
@@ -48,20 +48,21 @@ void FindCellsInRow(AXNode* node, std::vector<AXNode*>* cell_nodes) {
 void FindRowsAndThenCells(AXNode* node,
                           std::vector<AXNode*>* row_node_list,
                           std::vector<std::vector<AXNode*>>* cell_nodes_per_row,
-                          int32_t& caption_node_id) {
+                          AXNodeID& caption_node_id) {
   for (AXNode* child : node->children()) {
     if (child->IsIgnored() ||
-        child->data().role == ax::mojom::Role::kGenericContainer ||
-        child->data().role == ax::mojom::Role::kGroup ||
-        child->data().role == ax::mojom::Role::kRowGroup) {
+        child->GetRole() == ax::mojom::Role::kGenericContainer ||
+        child->GetRole() == ax::mojom::Role::kGroup ||
+        child->GetRole() == ax::mojom::Role::kRowGroup) {
       FindRowsAndThenCells(child, row_node_list, cell_nodes_per_row,
                            caption_node_id);
-    } else if (IsTableRow(child->data().role)) {
+    } else if (IsTableRow(child->GetRole())) {
       row_node_list->push_back(child);
       cell_nodes_per_row->push_back(std::vector<AXNode*>());
       FindCellsInRow(child, &cell_nodes_per_row->back());
-    } else if (child->data().role == ax::mojom::Role::kCaption)
+    } else if (child->GetRole() == ax::mojom::Role::kCaption) {
       caption_node_id = child->id();
+    }
   }
 }
 
@@ -84,7 +85,7 @@ AXTableInfo* AXTableInfo::Create(AXTree* tree, AXNode* table_node) {
   DCHECK(node == tree->root());
 #endif
 
-  if (!IsTableLike(table_node->data().role))
+  if (!IsTableLike(table_node->GetRole()))
     return nullptr;
 
   AXTableInfo* info = new AXTableInfo(tree, table_node);
@@ -133,8 +134,9 @@ bool AXTableInfo::Update() {
 
   // On Mac, we add a few extra nodes to the table - see comment
   // at the top of UpdateExtraMacNodes for details.
-  if (tree_->enable_extra_mac_nodes())
-    UpdateExtraMacNodes();
+#if defined(AX_EXTRA_MAC_NODES)
+  UpdateExtraMacNodes();
+#endif
 
   // The table metadata is now valid, any table queries will now be
   // fast. Any time a node in the table is updated, we'll have to
@@ -296,14 +298,14 @@ void AXTableInfo::BuildCellDataVectorFromRowAndCellNodes(
       row_count = std::max(row_count, cell_data.row_index + cell_data.row_span);
       col_count = std::max(col_count, cell_data.col_index + cell_data.col_span);
       if (aria_row_count != ax::mojom::kUnknownAriaColumnOrRowCount) {
-        aria_row_count =
-            std::max((aria_row_count),
-                     int{current_aria_row_index + cell_data.row_span - 1});
+        aria_row_count = std::max(
+            (aria_row_count),
+            static_cast<int>(current_aria_row_index + cell_data.row_span - 1));
       }
       if (aria_col_count != ax::mojom::kUnknownAriaColumnOrRowCount) {
-        aria_col_count =
-            std::max((aria_col_count),
-                     int{current_aria_col_index + cell_data.col_span - 1});
+        aria_col_count = std::max(
+            (aria_col_count),
+            static_cast<int>(current_aria_col_index + cell_data.col_span - 1));
       }
       // Update |current_col_index| to reflect the next available index after
       // this cell including its colspan. The next column index in this row
@@ -364,10 +366,10 @@ void AXTableInfo::BuildCellAndHeaderVectorsFromCellData() {
            c < cell_data.col_index + cell_data.col_span; c++) {
         DCHECK_LT(c, col_count);
         AXNode* cell = cell_data.cell;
-        if (cell->data().role == ax::mojom::Role::kColumnHeader) {
+        if (cell->GetRole() == ax::mojom::Role::kColumnHeader) {
           col_headers[c].push_back(cell->id());
           all_headers.push_back(cell->id());
-        } else if (cell->data().role == ax::mojom::Role::kRowHeader) {
+        } else if (cell->GetRole() == ax::mojom::Role::kRowHeader) {
           row_headers[r].push_back(cell->id());
           all_headers.push_back(cell->id());
         }
@@ -441,7 +443,7 @@ void AXTableInfo::UpdateExtraMacNodes() {
 }
 
 AXNode* AXTableInfo::CreateExtraMacColumnNode(size_t col_index) {
-  int32_t id = tree_->GetNextNegativeInternalNodeId();
+  AXNodeID id = tree_->GetNextNegativeInternalNodeId();
   size_t index_in_parent = col_index + table_node_->children().size();
   int32_t unignored_index_in_parent =
       col_index + table_node_->GetUnignoredChildCount();
@@ -457,7 +459,7 @@ AXNode* AXTableInfo::CreateExtraMacColumnNode(size_t col_index) {
 }
 
 AXNode* AXTableInfo::CreateExtraMacTableHeaderNode() {
-  int32_t id = tree_->GetNextNegativeInternalNodeId();
+  AXNodeID id = tree_->GetNextNegativeInternalNodeId();
   size_t index_in_parent = col_count + table_node_->children().size();
   int32_t unignored_index_in_parent =
       col_count + table_node_->GetUnignoredChildCount();
@@ -479,7 +481,8 @@ void AXTableInfo::UpdateExtraMacColumnNodeAttributes(size_t col_index) {
   data.int_attributes.clear();
 
   // Update the column index.
-  data.AddIntAttribute(IntAttribute::kTableColumnIndex, int32_t{col_index});
+  data.AddIntAttribute(IntAttribute::kTableColumnIndex,
+                       static_cast<int32_t>(col_index));
 
   // Update the column header.
   if (!col_headers[col_index].empty()) {
@@ -489,10 +492,10 @@ void AXTableInfo::UpdateExtraMacColumnNodeAttributes(size_t col_index) {
 
   // Update the list of cells in the column.
   data.intlist_attributes.clear();
-  std::vector<int32_t> col_nodes;
-  int32_t last = 0;
+  std::vector<AXNodeID> col_nodes;
+  AXNodeID last = 0;
   for (size_t row_index = 0; row_index < row_count; row_index++) {
-    int32_t cell_id = cell_ids[row_index][col_index];
+    AXNodeID cell_id = cell_ids[row_index][col_index];
     if (cell_id != 0 && cell_id != last)
       col_nodes.push_back(cell_id);
     last = cell_id;

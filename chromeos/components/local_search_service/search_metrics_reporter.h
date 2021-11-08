@@ -5,7 +5,6 @@
 #ifndef CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_SEARCH_METRICS_REPORTER_H_
 #define CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_SEARCH_METRICS_REPORTER_H_
 
-#include "base/optional.h"
 #include "base/timer/timer.h"
 #include "chromeos/components/local_search_service/public/mojom/local_search_service.mojom.h"
 #include "chromeos/components/local_search_service/shared_structs.h"
@@ -27,14 +26,12 @@ class SearchMetricsReporter : public mojom::SearchMetricsReporter {
 
   // A histogram recorded in UMA, showing reasons why daily metrics are
   // reported.
-  static constexpr char kDailyEventIntervalName[] =
-      "LocalSearchService.MetricsDailyEventInterval";
+  static const char kDailyEventIntervalName[];
 
   // Histogram names of daily counts, one for each IndexId.
-  static constexpr char kCrosSettingsName[] =
-      "LocalSearchService.CrosSettings.DailySearch";
-  static constexpr char kHelpAppName[] =
-      "LocalSearchService.HelpApp.DailySearch";
+  static const char kCrosSettingsName[];
+  static const char kHelpAppName[];
+  static const char kHelpAppLauncherName[];
 
   // Registers prefs used by SearchMetricsReporter in |registry|.
   static void RegisterLocalStatePrefs(PrefRegistrySimple* registry);

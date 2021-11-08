@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string>
 
+#include "components/translate/core/browser/translate_browser_metrics.h"
 #include "components/translate/core/common/translate_errors.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 
@@ -40,29 +41,51 @@ enum class TranslateState {
 // numeric values should never be reused.
 enum class TranslationStatus {
   kUninitialized = 0,
-  kSuccessFromManualTranslation = 1,
+  // kSuccessFromManualTranslation = 1,  // no longer used, split into
+  // kSuccessFromManualUiTranslation and
+  // kSuccessFromManualContextMenuTranslation enum values.
   kSuccessFromAutomaticTranslationByPref = 2,
   kSuccessFromAutomaticTranslationByLink = 3,
-  kRevertedManualTranslation = 4,
+  // kManualTranslation = 4,  // no longer used, split into
+  // kRevertedManualUiTranslation and
+  // kRevertedManualContextMenuTranslation enum values.
   kRevertedAutomaticTranslation = 5,
   kNewTranslation = 6,
   kTranslationAbandoned = 7,
-  kFailedWithNoErrorManualTranslation = 8,
+  // kFailedWithNoErrorManualTranslation = 8,  // no longer used, split into
+  // kFailedWithNoErrorManualUiTranslation and
+  // kFailedWithNoErrorManualContextMenuTranslation enum values.
   kFailedWithNoErrorAutomaticTranslation = 9,
-  kFailedWithErrorManualTranslation = 10,
+  // kFailedWithErrorManualTranslation = 10,  // no longer used, split into
+  // kFailedWithErrorManualUiTranslation and
+  // kFailedWithErrorManualContextMenuTranslation enum values.
   kFailedWithErrorAutomaticTranslation = 11,
-  kMaxValue = kFailedWithErrorAutomaticTranslation,
+  kSuccessFromManualUiTranslation = 12,
+  kRevertedManualUiTranslation = 13,
+  kFailedWithNoErrorManualUiTranslation = 14,
+  kFailedWithErrorManualUiTranslation = 15,
+  kSuccessFromManualContextMenuTranslation = 16,
+  kRevertedManualContextMenuTranslation = 17,
+  kFailedWithNoErrorManualContextMenuTranslation = 18,
+  kFailedWithErrorManualContextMenuTranslation = 19,
+  kMaxValue = kFailedWithErrorManualContextMenuTranslation,
 };
 
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
 enum class TranslationType {
   kUninitialized = 0,
-  kManualInitialTranslation = 1,
-  kManualReTranslation = 2,
+  // kManualInitialTranslation = 1,  // no longer used, split into
+  // kManualUiInitialTranslation and kManualContextMenuInitialranslation
+  // kManualReTranslation = 2,  // no longer used, split into
+  // kManualUiReTranslation and kManualContextMenuReTranslation
   kAutomaticTranslationByPref = 3,
   kAutomaticTranslationByLink = 4,
-  kMaxValue = kAutomaticTranslationByLink,
+  kManualUiInitialTranslation = 5,
+  kManualUiReTranslation = 6,
+  kManualContextMenuInitialTranslation = 7,
+  kManualContextMenuReTranslation = 8,
+  kMaxValue = kManualContextMenuReTranslation,
 };
 
 // These values are persisted to logs. Entries should not be renumbered and
@@ -84,7 +107,10 @@ enum class TriggerDecision {
   kShowUI = 13,
   kAutomaticTranslationByLink = 14,
   kAutomaticTranslationByPref = 15,
-  kMaxValue = kAutomaticTranslationByPref,
+  kShowUIFromHref = 16,
+  kAutomaticTranslationByHref = 17,
+  kAutomaticTranslationToPredefinedTarget = 18,
+  kMaxValue = kAutomaticTranslationToPredefinedTarget,
 };
 
 // These values are persisted to logs. Entries should not be renumbered and
@@ -124,8 +150,11 @@ class TranslateMetricsLogger {
   // Sets the UKM source ID for the current page load.
   virtual void SetUkmSourceId(ukm::SourceId ukm_source_id) = 0;
 
+  // Tracks information about the Translate Ranker.
   virtual void LogRankerMetrics(RankerDecision ranker_decision,
                                 uint32_t ranker_version) = 0;
+  virtual void LogRankerStart() = 0;
+  virtual void LogRankerFinish() = 0;
 
   // Records trigger decision that impacts the initial state of Translate. The
   // highest priority trigger decision will be logged to UMA at the end of the
@@ -147,13 +176,35 @@ class TranslateMetricsLogger {
   virtual void LogInitialSourceLanguage(const std::string& source_language_code,
                                         bool is_in_users_content_language) = 0;
   virtual void LogSourceLanguage(const std::string& source_language_code) = 0;
-  virtual void LogTargetLanguage(const std::string& target_language_code) = 0;
+  virtual void LogTargetLanguage(
+      const std::string& target_language_code,
+      TranslateBrowserMetrics::TargetLanguageOrigin target_language_origin) = 0;
+
+  // Used to record the language attributes specified by the HTML document.
+  // Recorded for each language detection.
+  virtual void LogHTMLDocumentLanguage(
+      const std::string& html_doc_language) = 0;
+  virtual void LogHTMLContentLanguage(
+      const std::string& html_content_language) = 0;
+
+  // Used to record the language detection model's prediction and reliability
+  // based on the page content's text. Recorded for each language detection.
+  virtual void LogDetectedLanguage(const std::string& detected_language) = 0;
+  virtual void LogDetectionReliabilityScore(
+      const float& model_detection_reliability_score) = 0;
 
   // Records the user's high level interactions with the Translate UI.
   virtual void LogUIInteraction(UIInteraction ui_interaction) = 0;
 
   // Returns the translation type of the next manual translation.
-  virtual TranslationType GetNextManualTranslationType() = 0;
+  virtual TranslationType GetNextManualTranslationType(
+      bool is_context_menu_initiated_translation) = 0;
+
+  virtual void SetHasHrefTranslateTarget(bool has_href_translate_target) = 0;
+
+  // Records whether the page content used to detect the page language
+  // was empty or not.
+  virtual void LogWasContentEmpty(bool was_content_empty) = 0;
 };
 
 }  // namespace translate

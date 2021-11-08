@@ -7,7 +7,7 @@
 #include <algorithm>
 
 #include "base/containers/contains.h"
-#include "base/stl_util.h"
+#include "base/time/default_tick_clock.h"
 #include "base/time/time.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 
@@ -18,16 +18,23 @@ UsageScenarioDataStore::~UsageScenarioDataStore() = default;
 UsageScenarioDataStore::IntervalData::IntervalData() = default;
 UsageScenarioDataStore::IntervalData::IntervalData(const IntervalData&) =
     default;
+UsageScenarioDataStore::IntervalData&
+UsageScenarioDataStore::IntervalData::operator=(const IntervalData&) = default;
 
 UsageScenarioDataStoreImpl::UsageScenarioDataStoreImpl()
-    : start_time_(base::TimeTicks::Now()) {}
+    : UsageScenarioDataStoreImpl(base::DefaultTickClock::GetInstance()) {}
+UsageScenarioDataStoreImpl::UsageScenarioDataStoreImpl(
+    const base::TickClock* tick_clock)
+    : tick_clock_(tick_clock),
+      start_time_(tick_clock_->NowTicks()),
+      last_interaction_with_browser_timestamp_(start_time_) {}
 
 UsageScenarioDataStoreImpl::~UsageScenarioDataStoreImpl() = default;
 
 UsageScenarioDataStoreImpl::IntervalData
 UsageScenarioDataStoreImpl::ResetIntervalData() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  const auto now = base::TimeTicks::Now();
+  const auto now = tick_clock_->NowTicks();
 
   FinalizeIntervalData(now);
   IntervalData ret = interval_data_;
@@ -50,6 +57,14 @@ UsageScenarioDataStoreImpl::ResetIntervalData() {
 
   if (!has_opened_webrtc_connection_since_.is_null()) {
     has_opened_webrtc_connection_since_ = now;
+  }
+
+  if (!capturing_video_since_.is_null()) {
+    capturing_video_since_ = now;
+  }
+
+  if (!playing_audio_since_.is_null()) {
+    playing_audio_since_ = now;
   }
 
   if (!playing_video_in_active_tab_since_.is_null()) {
@@ -96,29 +111,30 @@ void UsageScenarioDataStoreImpl::OnTopLevelNavigation() {
 void UsageScenarioDataStoreImpl::OnUserInteraction() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   ++interval_data_.user_interaction_count;
+  last_interaction_with_browser_timestamp_ = base::TimeTicks::Now();
 }
 
 void UsageScenarioDataStoreImpl::OnFullScreenVideoStartsOnSingleMonitor() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(is_playing_full_screen_video_single_monitor_since_.is_null());
-  is_playing_full_screen_video_single_monitor_since_ = base::TimeTicks::Now();
+  is_playing_full_screen_video_single_monitor_since_ = tick_clock_->NowTicks();
 }
 
 void UsageScenarioDataStoreImpl::OnFullScreenVideoEndsOnSingleMonitor() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!is_playing_full_screen_video_single_monitor_since_.is_null());
   interval_data_.time_playing_video_full_screen_single_monitor +=
-      base::TimeTicks::Now() -
+      tick_clock_->NowTicks() -
       is_playing_full_screen_video_single_monitor_since_;
   is_playing_full_screen_video_single_monitor_since_ = base::TimeTicks();
 }
 
 void UsageScenarioDataStoreImpl::OnWebRTCConnectionOpened() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Grab the current timestamp if there's no remaining WebRTC connection.
+  // Grab the current timestamp if there's no other WebRTC connection.
   if (webrtc_open_connection_count_ == 0) {
     DCHECK(has_opened_webrtc_connection_since_.is_null());
-    has_opened_webrtc_connection_since_ = base::TimeTicks::Now();
+    has_opened_webrtc_connection_since_ = tick_clock_->NowTicks();
   }
   ++webrtc_open_connection_count_;
   DCHECK_GE(current_tab_count_, webrtc_open_connection_count_);
@@ -135,9 +151,67 @@ void UsageScenarioDataStoreImpl::OnWebRTCConnectionClosed() {
   if (webrtc_open_connection_count_ == 0) {
     DCHECK(!has_opened_webrtc_connection_since_.is_null());
     interval_data_.time_with_open_webrtc_connection +=
-        base::TimeTicks::Now() - has_opened_webrtc_connection_since_;
+        tick_clock_->NowTicks() - has_opened_webrtc_connection_since_;
     has_opened_webrtc_connection_since_ = base::TimeTicks();
   }
+}
+
+void UsageScenarioDataStoreImpl::OnIsCapturingVideoStarted() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (tabs_capturing_video_ == 0) {
+    DCHECK(capturing_video_since_.is_null());
+    capturing_video_since_ = tick_clock_->NowTicks();
+  }
+  ++tabs_capturing_video_;
+  DCHECK_GE(current_tab_count_, tabs_capturing_video_);
+}
+
+void UsageScenarioDataStoreImpl::OnIsCapturingVideoEnded() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_GT(tabs_capturing_video_, 0U);
+  --tabs_capturing_video_;
+  DCHECK_GE(current_tab_count_, tabs_capturing_video_);
+
+  // If this was the last tab capturing video then the interval data should be
+  // updated.
+  if (tabs_capturing_video_ == 0) {
+    DCHECK(!capturing_video_since_.is_null());
+    interval_data_.time_capturing_video +=
+        tick_clock_->NowTicks() - capturing_video_since_;
+    capturing_video_since_ = base::TimeTicks();
+  }
+}
+
+void UsageScenarioDataStoreImpl::OnAudioStarts() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Grab the current timestamp if there's no other tabs playing audio.
+  if (tabs_playing_audio_ == 0) {
+    DCHECK(playing_audio_since_.is_null());
+    playing_audio_since_ = base::TimeTicks::Now();
+  }
+  ++tabs_playing_audio_;
+  DCHECK_GE(current_tab_count_, tabs_playing_audio_);
+}
+
+void UsageScenarioDataStoreImpl::OnAudioStops() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_GT(tabs_playing_audio_, 0U);
+  --tabs_playing_audio_;
+  DCHECK_GE(current_tab_count_, tabs_playing_audio_);
+
+  // If this was the last tab playing audio then the interval data should be
+  // updated.
+  if (tabs_playing_audio_ == 0) {
+    DCHECK(!playing_audio_since_.is_null());
+    interval_data_.time_playing_audio +=
+        base::TimeTicks::Now() - playing_audio_since_;
+    playing_audio_since_ = base::TimeTicks();
+  }
+}
+
+void UsageScenarioDataStoreImpl::OnSleepEvent() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  interval_data_.sleep_events++;
 }
 
 void UsageScenarioDataStoreImpl::OnVideoStartsInVisibleTab() {
@@ -145,7 +219,7 @@ void UsageScenarioDataStoreImpl::OnVideoStartsInVisibleTab() {
   ++visible_tabs_playing_video_;
   DCHECK_GE(current_visible_window_count_, visible_tabs_playing_video_);
   if (visible_tabs_playing_video_ == 1)
-    playing_video_in_active_tab_since_ = base::TimeTicks::Now();
+    playing_video_in_active_tab_since_ = tick_clock_->NowTicks();
 }
 
 void UsageScenarioDataStoreImpl::OnVideoStopsInVisibleTab() {
@@ -164,7 +238,7 @@ void UsageScenarioDataStoreImpl::OnUkmSourceBecameVisible(
   auto& source_id_iter = origin_map_iter[source];
 
   DCHECK(source_id_iter.visible_timestamp.is_null());
-  source_id_iter.visible_timestamp = base::TimeTicks::Now();
+  source_id_iter.visible_timestamp = tick_clock_->NowTicks();
 }
 
 void UsageScenarioDataStoreImpl::OnUkmSourceBecameHidden(
@@ -176,8 +250,22 @@ void UsageScenarioDataStoreImpl::OnUkmSourceBecameHidden(
 
   DCHECK(!source_id_iter.visible_timestamp.is_null());
   source_id_iter.cumulative_visible_time +=
-      base::TimeTicks::Now() - source_id_iter.visible_timestamp;
+      tick_clock_->NowTicks() - source_id_iter.visible_timestamp;
   source_id_iter.visible_timestamp = base::TimeTicks();
+}
+
+base::flat_set<ukm::SourceId>
+UsageScenarioDataStoreImpl::GetVisibleSourceIdsForTesting() {
+  base::flat_set<ukm::SourceId> ret;
+
+  for (auto& origin_iter : origin_info_map_) {
+    for (auto& source_ids_for_origin_iter : origin_iter.second) {
+      if (!source_ids_for_origin_iter.second.visible_timestamp.is_null()) {
+        ret.insert(source_ids_for_origin_iter.first);
+      }
+    }
+  }
+  return ret;
 }
 
 void UsageScenarioDataStoreImpl::FinalizeIntervalData(base::TimeTicks now) {
@@ -194,10 +282,21 @@ void UsageScenarioDataStoreImpl::FinalizeIntervalData(base::TimeTicks now) {
         now - has_opened_webrtc_connection_since_;
   }
 
+  if (!capturing_video_since_.is_null()) {
+    interval_data_.time_capturing_video += now - capturing_video_since_;
+  }
+
+  if (!playing_audio_since_.is_null()) {
+    interval_data_.time_playing_audio += now - playing_audio_since_;
+  }
+
   if (!playing_video_in_active_tab_since_.is_null()) {
     interval_data_.time_playing_video_in_visible_tab +=
         now - playing_video_in_active_tab_since_;
   }
+
+  interval_data_.time_since_last_user_interaction_with_browser =
+      now - last_interaction_with_browser_timestamp_;
 
   base::TimeDelta origin_visible_for_longest_time_duration;
   // Finalize the interval data and find the origin that has been visible for
@@ -255,6 +354,7 @@ void UsageScenarioDataStoreImpl::FinalizeIntervalData(base::TimeTicks now) {
 
     if (update_interval_data) {
       origin_visible_for_longest_time_duration = origin_visible_duration;
+      interval_data_.longest_visible_origin_duration = origin_visible_duration;
       interval_data_.source_id_for_longest_visible_origin_duration =
           longest_visible_sourceid_duration;
       interval_data_.source_id_for_longest_visible_origin =

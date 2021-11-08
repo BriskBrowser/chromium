@@ -7,10 +7,13 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
 #include "base/check.h"
+#include "base/containers/contains.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/clipboard/clipboard_buffer.h"
 #include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/ozone/platform/wayland/common/wayland_object.h"
@@ -34,15 +37,17 @@ namespace wl {
 // Wayland protocol objects.
 class Clipboard {
  public:
+  using ClipboardDataChangedCallback =
+      ui::PlatformClipboard::ClipboardDataChangedCallback;
+
   virtual ~Clipboard() = default;
 
   // Synchronously retrieves the mime types list currently available to be read.
   virtual std::vector<std::string> ReadMimeTypes() = 0;
 
   // Asynchronously reads clipboard content with |mime_type| format. The result
-  // data is expected to arrive through OnSelectionDataReceived() callback.
+  // data is expected to be delivered through |callback|.
   virtual bool Read(const std::string& mime_type,
-                    ui::PlatformClipboard::DataMap* data_map,
                     ui::PlatformClipboard::RequestDataClosure callback) = 0;
 
   // Synchronously stores and announces |data| as available from this clipboard.
@@ -51,9 +56,9 @@ class Clipboard {
   // Tells if this clipboard instance is the current selection owner.
   virtual bool IsSelectionOwner() const = 0;
 
-  // Sets the callback in charge of updating the clipboard sequence number.
-  virtual void SetSequenceNumberUpdateCb(
-      ui::PlatformClipboard::SequenceNumberUpdateCb callback) = 0;
+  // Sets the callback to be executed when clipboard data changes.
+  virtual void SetClipboardDataChangedCallback(
+      ClipboardDataChangedCallback callback) = 0;
 };
 
 // Templated wl::Clipboard implementation. Whereas DataSource is the data source
@@ -64,31 +69,22 @@ class Clipboard {
 template <typename Manager,
           typename DataSource = typename Manager::DataSource,
           typename DataDevice = typename Manager::DataDevice>
-class ClipboardImpl final : public Clipboard,
-                            public DataSource::Delegate,
-                            public DataDevice::SelectionDelegate {
+class ClipboardImpl final : public Clipboard, public DataSource::Delegate {
  public:
   explicit ClipboardImpl(Manager* manager, ui::ClipboardBuffer buffer)
       : manager_(manager), buffer_(buffer) {
-    GetDevice()->set_selection_delegate(this);
+    GetDevice()->set_selection_offer_callback(base::BindRepeating(
+        &ClipboardImpl::HandleNewSelectionOffer, weak_factory_.GetWeakPtr()));
   }
-  ~ClipboardImpl() final { GetDevice()->set_selection_delegate(nullptr); }
+  ~ClipboardImpl() final = default;
 
   ClipboardImpl(const ClipboardImpl&) = delete;
   ClipboardImpl& operator=(const ClipboardImpl&) = delete;
 
-  // TODO(crbug.com/1165466): Support nested clipboard requests.
   bool Read(const std::string& mime_type,
-            ui::PlatformClipboard::DataMap* data_map,
             ui::PlatformClipboard::RequestDataClosure callback) final {
-    DCHECK(data_map);
-    received_data_ = data_map;
-    read_clipboard_closure_ = std::move(callback);
-
-    if (GetDevice()->RequestSelectionData(mime_type))
-      return true;
-    SetData(base::MakeRefCounted<base::RefCountedBytes>(), mime_type);
-    return false;
+    return GetDevice()->ReadSelectionData(GetMimeTypeForRequest(mime_type),
+                                          std::move(callback));
   }
 
   std::vector<std::string> ReadMimeTypes() final {
@@ -108,24 +104,25 @@ class ClipboardImpl final : public Clipboard,
     } else {
       offered_data_ = *data;
       source_ = manager_->CreateSource(this);
-      source_->Offer(GetMimeTypes());
-      GetDevice()->SetSelectionSource(source_.get());
+      source_->Offer(GetOfferedMimeTypes());
     }
+    GetDevice()->SetSelectionSource(source_.get());
+
+    if (!clipboard_changed_callback_.is_null())
+      clipboard_changed_callback_.Run(buffer_);
   }
 
   bool IsSelectionOwner() const final { return !!source_; }
 
-  void SetSequenceNumberUpdateCb(
-      ui::PlatformClipboard::SequenceNumberUpdateCb callback) final {
-    CHECK(update_sequence_cb_.is_null())
-        << "The callback can be installed only once.";
-    update_sequence_cb_ = callback;
+  void SetClipboardDataChangedCallback(
+      ClipboardDataChangedCallback callback) final {
+    clipboard_changed_callback_ = std::move(callback);
   }
 
  private:
   DataDevice* GetDevice() { return manager_->GetDevice(); }
 
-  std::vector<std::string> GetMimeTypes() {
+  std::vector<std::string> GetOfferedMimeTypes() {
     std::vector<std::string> mime_types;
     for (const auto& data : offered_data_) {
       mime_types.push_back(data.first);
@@ -135,34 +132,25 @@ class ClipboardImpl final : public Clipboard,
     return mime_types;
   }
 
-  void SetData(ui::PlatformClipboard::Data contents,
-               const std::string& mime_type) {
-    if (!received_data_)
+  std::string GetMimeTypeForRequest(const std::string& mime_type) {
+    if (mime_type != ui::kMimeTypeText)
+      return mime_type;
+    // Prioritize unicode for text data.
+    for (const auto& t : GetDevice()->GetAvailableMimeTypes()) {
+      if (t == ui::kMimeTypeTextUtf8 || t == ui::kMimeTypeLinuxString ||
+          t == ui::kMimeTypeLinuxUtf8String || t == ui::kMimeTypeLinuxText) {
+        return t;
+      }
+    }
+    return mime_type;
+  }
+
+  void HandleNewSelectionOffer(ui::WaylandDataOfferBase* offer) const {
+    if (IsSelectionOwner())
       return;
 
-    DCHECK(contents);
-    (*received_data_)[mime_type] = contents;
-
-    if (!read_clipboard_closure_.is_null()) {
-      auto it = received_data_->find(mime_type);
-      DCHECK(it != received_data_->end());
-      std::move(read_clipboard_closure_).Run(it->second);
-    }
-    received_data_ = nullptr;
-  }
-
-  // WaylandDataDeviceBase::SelectionDelegate:
-  void OnSelectionOffer(ui::WaylandDataOfferBase* offer) final {
-    if (!update_sequence_cb_.is_null())
-      update_sequence_cb_.Run(buffer_);
-
-    if (!offer)
-      SetData({}, {});
-  }
-
-  void OnSelectionDataReceived(const std::string& mime_type,
-                               ui::PlatformClipboard::Data contents) final {
-    SetData(contents, mime_type);
+    if (!clipboard_changed_callback_.is_null())
+      clipboard_changed_callback_.Run(buffer_);
   }
 
   // WaylandDataSource::Delegate:
@@ -193,21 +181,15 @@ class ClipboardImpl final : public Clipboard,
   // The data currently stored in a given clipboard buffer.
   ui::PlatformClipboard::DataMap offered_data_;
 
-  // Holds a temporary instance of the client's clipboard content
-  // so that we can asynchronously write to it.
-  ui::PlatformClipboard::DataMap* received_data_ = nullptr;
+  // Notifies when clipboard data changes. Can be empty if not set.
+  ClipboardDataChangedCallback clipboard_changed_callback_;
 
-  // Stores the callback to be invoked upon data reading from clipboard.
-  ui::PlatformClipboard::RequestDataClosure read_clipboard_closure_;
-
-  // Notifies when clipboard sequence must change. Can be empty if not set.
-  ui::PlatformClipboard::SequenceNumberUpdateCb update_sequence_cb_;
+  base::WeakPtrFactory<ClipboardImpl> weak_factory_{this};
 };
 
 }  // namespace wl
 
 namespace ui {
-
 WaylandClipboard::WaylandClipboard(WaylandConnection* connection,
                                    WaylandDataDeviceManager* manager)
     : connection_(connection),
@@ -234,12 +216,11 @@ void WaylandClipboard::OfferClipboardData(
 void WaylandClipboard::RequestClipboardData(
     ClipboardBuffer buffer,
     const std::string& mime_type,
-    PlatformClipboard::DataMap* data_map,
     PlatformClipboard::RequestDataClosure callback) {
   if (auto* clipboard = GetClipboard(buffer))
-    clipboard->Read(mime_type, data_map, std::move(callback));
+    clipboard->Read(mime_type, std::move(callback));
   else
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(nullptr);
 }
 
 bool WaylandClipboard::IsSelectionOwner(ClipboardBuffer buffer) {
@@ -248,11 +229,11 @@ bool WaylandClipboard::IsSelectionOwner(ClipboardBuffer buffer) {
   return false;
 }
 
-void WaylandClipboard::SetSequenceNumberUpdateCb(
-    PlatformClipboard::SequenceNumberUpdateCb cb) {
-  copypaste_clipboard_->SetSequenceNumberUpdateCb(cb);
+void WaylandClipboard::SetClipboardDataChangedCallback(
+    ClipboardDataChangedCallback data_changed_callback) {
+  copypaste_clipboard_->SetClipboardDataChangedCallback(data_changed_callback);
   if (auto* selection_clipboard = GetClipboard(ClipboardBuffer::kSelection))
-    selection_clipboard->SetSequenceNumberUpdateCb(cb);
+    selection_clipboard->SetClipboardDataChangedCallback(data_changed_callback);
 }
 
 void WaylandClipboard::GetAvailableMimeTypes(
@@ -274,19 +255,21 @@ wl::Clipboard* WaylandClipboard::GetClipboard(ClipboardBuffer buffer) {
     return copypaste_clipboard_.get();
 
   if (buffer == ClipboardBuffer::kSelection) {
-    if (auto* manager = connection_->zwp_primary_selection_device_manager()) {
+    auto* zwp_manager = connection_->zwp_primary_selection_device_manager();
+    if (zwp_manager) {
       if (!primary_selection_clipboard_) {
         primary_selection_clipboard_ = std::make_unique<
             wl::ClipboardImpl<ZwpPrimarySelectionDeviceManager>>(
-            manager, ClipboardBuffer::kSelection);
+            zwp_manager, ClipboardBuffer::kSelection);
       }
       return primary_selection_clipboard_.get();
-    } else if (auto* manager =
-                   connection_->gtk_primary_selection_device_manager()) {
+    }
+    auto* gtk_manager = connection_->gtk_primary_selection_device_manager();
+    if (gtk_manager) {
       if (!primary_selection_clipboard_) {
         primary_selection_clipboard_ = std::make_unique<
             wl::ClipboardImpl<GtkPrimarySelectionDeviceManager>>(
-            manager, ClipboardBuffer::kSelection);
+            gtk_manager, ClipboardBuffer::kSelection);
       }
       return primary_selection_clipboard_.get();
     }

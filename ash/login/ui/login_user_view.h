@@ -8,7 +8,7 @@
 #include "ash/ash_export.h"
 #include "ash/login/ui/login_base_bubble_view.h"
 #include "ash/login/ui/login_display_style.h"
-#include "ash/login/ui/login_user_menu_view.h"
+#include "ash/login/ui/login_remove_account_dialog.h"
 #include "ash/public/cpp/login_types.h"
 #include "base/macros.h"
 #include "base/scoped_observation.h"
@@ -20,8 +20,8 @@ namespace ash {
 class HoverNotifier;
 class LoginButton;
 
-// Display the user's profile icon, name, and a menu icon in various layout
-// styles.
+// Display the user's profile icon, name, and a remove_account_dialog icon in
+// various layout styles.
 class ASH_EXPORT LoginUserView : public views::View,
                                  public display::DisplayConfigurator::Observer {
  public:
@@ -33,12 +33,12 @@ class ASH_EXPORT LoginUserView : public views::View,
 
     LoginDisplayStyle display_style() const;
 
-    const base::string16& displayed_name() const;
+    const std::u16string& displayed_name() const;
 
     views::View* user_label() const;
     views::View* tap_button() const;
     views::View* dropdown() const;
-    LoginUserMenuView* menu() const;
+    LoginRemoveAccountDialog* remove_account_dialog() const;
     views::View* enterprise_icon() const;
 
     void OnTap() const;
@@ -63,6 +63,10 @@ class ASH_EXPORT LoginUserView : public views::View,
                 const OnTap& on_tap,
                 const OnRemoveWarningShown& on_remove_warning_shown,
                 const OnRemove& on_remove);
+
+  LoginUserView(const LoginUserView&) = delete;
+  LoginUserView& operator=(const LoginUserView&) = delete;
+
   ~LoginUserView() override;
 
   // Update the user view to display the given user information.
@@ -79,11 +83,14 @@ class ASH_EXPORT LoginUserView : public views::View,
 
   const LoginUserInfo& current_user() const { return current_user_; }
 
+  void UpdateDropdownIcon();
+
   // views::View:
   const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
   void Layout() override;
   void RequestFocus() override;
+  void OnThemeChanged() override;
 
  private:
   class UserImage;
@@ -102,6 +109,8 @@ class ASH_EXPORT LoginUserView : public views::View,
 
   void SetLargeLayout();
   void SetSmallishLayout();
+
+  void DeleteDialog();
 
   // Executed when the user view is pressed.
   OnTap on_tap_;
@@ -123,10 +132,11 @@ class ASH_EXPORT LoginUserView : public views::View,
   LoginButton* dropdown_ = nullptr;
   TapButton* tap_button_ = nullptr;
 
-  // Bubble used for displaying the user dropdown menu. Its parent is the top
-  // level view, either LockContentsView or LockDebugView. This allows the menu
-  // to be clicked outside the bounds of the user view.
-  LoginUserMenuView* menu_ = nullptr;
+  // Bubble used for displaying the user remove account dialog. Its parent is
+  // the top level view, either LockContentsView or LockDebugView. This allows
+  // the remove account dialog to be clicked outside the bounds of the user
+  // view.
+  LoginRemoveAccountDialog* remove_account_dialog_ = nullptr;
 
   // True iff the view is currently opaque (ie, opacity = 1).
   bool is_opaque_ = false;
@@ -137,8 +147,6 @@ class ASH_EXPORT LoginUserView : public views::View,
   base::ScopedObservation<display::DisplayConfigurator,
                           display::DisplayConfigurator::Observer>
       display_observation_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(LoginUserView);
 };
 
 }  // namespace ash

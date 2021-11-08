@@ -14,11 +14,12 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import org.chromium.base.BuildConfig;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.StrictModeContext;
 import org.chromium.base.ThreadUtils;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Manage policy cache that will be used during browser launch stage.
@@ -54,24 +55,27 @@ public class PolicyCache {
      *         application context is not available.
      */
     private SharedPreferences getSharedPreferences() {
-        if (BuildConfig.DCHECK_IS_ON) {
-            assert mReadable;
-        }
+        assert mReadable;
         mThreadChecker.assertOnValidThread();
         if (mSharedPreferences == null) {
             Context context = ContextUtils.getApplicationContext();
             // Policy cache is not accessiable without application context.
             if (context == null) return null;
-            mSharedPreferences = context.getSharedPreferences(POLICY_PREF, Context.MODE_PRIVATE);
+            try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+                mSharedPreferences =
+                        context.getSharedPreferences(POLICY_PREF, Context.MODE_PRIVATE);
+            }
         }
         return mSharedPreferences;
     }
 
     private SharedPreferences.Editor getSharedPreferencesEditor() {
         mThreadChecker.assertOnValidThread();
-        return ContextUtils.getApplicationContext()
-                .getSharedPreferences(POLICY_PREF, Context.MODE_PRIVATE)
-                .edit();
+        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+            return ContextUtils.getApplicationContext()
+                    .getSharedPreferences(POLICY_PREF, Context.MODE_PRIVATE)
+                    .edit();
+        }
     }
 
     public static PolicyCache get() {
@@ -87,8 +91,10 @@ public class PolicyCache {
     public Integer getIntValue(String policy) {
         SharedPreferences sharedPreferences = getSharedPreferences();
         if (sharedPreferences == null) return null;
-        if (!sharedPreferences.contains(policy)) return null;
-        return sharedPreferences.getInt(policy, 0);
+        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+            if (!sharedPreferences.contains(policy)) return null;
+            return sharedPreferences.getInt(policy, 0);
+        }
     }
 
     /**
@@ -99,8 +105,10 @@ public class PolicyCache {
     public Boolean getBooleanValue(String policy) {
         SharedPreferences sharedPreferences = getSharedPreferences();
         if (sharedPreferences == null) return null;
-        if (!sharedPreferences.contains(policy)) return null;
-        return sharedPreferences.getBoolean(policy, false);
+        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+            if (!sharedPreferences.contains(policy)) return null;
+            return sharedPreferences.getBoolean(policy, false);
+        }
     }
 
     /**
@@ -111,8 +119,10 @@ public class PolicyCache {
     public String getStringValue(String policy) {
         SharedPreferences sharedPreferences = getSharedPreferences();
         if (sharedPreferences == null) return null;
-        if (!sharedPreferences.contains(policy)) return null;
-        return sharedPreferences.getString(policy, null);
+        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+            if (!sharedPreferences.contains(policy)) return null;
+            return sharedPreferences.getString(policy, null);
+        }
     }
 
     /**
@@ -123,11 +133,13 @@ public class PolicyCache {
     public JSONArray getListValue(String policy) {
         SharedPreferences sharedPreferences = getSharedPreferences();
         if (sharedPreferences == null) return null;
-        if (!sharedPreferences.contains(policy)) return null;
-        try {
-            return new JSONArray(sharedPreferences.getString(policy, null));
-        } catch (JSONException e) {
-            return null;
+        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+            if (!sharedPreferences.contains(policy)) return null;
+            try {
+                return new JSONArray(sharedPreferences.getString(policy, null));
+            } catch (JSONException e) {
+                return null;
+            }
         }
     }
 
@@ -139,11 +151,24 @@ public class PolicyCache {
     public JSONObject getDictValue(String policy) {
         SharedPreferences sharedPreferences = getSharedPreferences();
         if (sharedPreferences == null) return null;
-        if (!sharedPreferences.contains(policy)) return null;
-        try {
-            return new JSONObject(sharedPreferences.getString(policy, null));
-        } catch (JSONException e) {
-            return null;
+        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+            if (!sharedPreferences.contains(policy)) return null;
+            try {
+                return new JSONObject(sharedPreferences.getString(policy, null));
+            } catch (JSONException e) {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * @return All cached policies.
+     */
+    public Map<String, ?> getAllPolicies() {
+        SharedPreferences sharedPreferences = getSharedPreferences();
+        if (sharedPreferences == null) return null;
+        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+            return sharedPreferences.getAll();
         }
     }
 

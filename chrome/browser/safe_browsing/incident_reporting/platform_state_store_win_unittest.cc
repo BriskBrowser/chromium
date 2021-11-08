@@ -21,6 +21,8 @@
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#include <windows.h>
+
 namespace safe_browsing {
 namespace platform_state_store {
 
@@ -36,6 +38,10 @@ class PlatformStateStoreWinTest : public ::testing::Test {
   PlatformStateStoreWinTest()
       : profile_(nullptr),
         profile_manager_(TestingBrowserProcess::GetGlobal()) {}
+
+  PlatformStateStoreWinTest(const PlatformStateStoreWinTest&) = delete;
+  PlatformStateStoreWinTest& operator=(const PlatformStateStoreWinTest&) =
+      delete;
 
   void SetUp() override {
     ::testing::Test::SetUp();
@@ -57,7 +63,7 @@ class PlatformStateStoreWinTest : public ::testing::Test {
     profile_ = profile_manager_.CreateTestingProfile(
         kProfileName_, std::move(prefs), base::UTF8ToUTF16(kProfileName_), 0,
         std::string(), TestingProfile::TestingFactories(),
-        base::Optional<bool>(new_profile));
+        absl::optional<bool>(new_profile));
     if (new_profile)
       ASSERT_TRUE(profile_->IsNewProfile());
     else
@@ -104,8 +110,6 @@ class PlatformStateStoreWinTest : public ::testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   registry_util::RegistryOverrideManager registry_override_manager_;
   TestingProfileManager profile_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(PlatformStateStoreWinTest);
 };
 
 // static

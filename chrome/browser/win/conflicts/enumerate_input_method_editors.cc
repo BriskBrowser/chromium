@@ -6,17 +6,17 @@
 
 #include <algorithm>
 #include <iterator>
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/sequenced_task_runner.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/win/registry.h"

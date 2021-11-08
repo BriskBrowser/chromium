@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "content/browser/webrtc/webrtc_content_browsertest_base.h"
 #include "content/public/common/content_switches.h"
@@ -59,6 +58,12 @@ class WebRtcCaptureFromElementBrowserTest
       public testing::WithParamInterface<struct FileAndTypeParameters> {
  public:
   WebRtcCaptureFromElementBrowserTest() {}
+
+  WebRtcCaptureFromElementBrowserTest(
+      const WebRtcCaptureFromElementBrowserTest&) = delete;
+  WebRtcCaptureFromElementBrowserTest& operator=(
+      const WebRtcCaptureFromElementBrowserTest&) = delete;
+
   ~WebRtcCaptureFromElementBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -75,9 +80,6 @@ class WebRtcCaptureFromElementBrowserTest
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kExposeInternalsForTesting);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebRtcCaptureFromElementBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(WebRtcCaptureFromElementBrowserTest,

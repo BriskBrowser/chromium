@@ -23,6 +23,7 @@ goog.require('PanelCommand');
 goog.require('PanelMenu');
 goog.require('PanelMenuItem');
 goog.require('QueueMode');
+goog.require('constants');
 
 /**
  * Class to manage the panel.
@@ -289,11 +290,16 @@ Panel = class {
 
     Panel.setMode(Panel.Mode.FULLSCREEN_MENUS);
 
-    const onFocusDo = () => {
+    const onFocusDo = async () => {
       window.removeEventListener('focus', onFocusDo);
       // Clear any existing menus and clear the callback.
       Panel.clearMenus();
       Panel.pendingCallback_ = null;
+
+      // Save the ChromeVox range (on the non-ChromeVox Menu UI first).
+      const bkgnd = chrome.extension.getBackgroundPage();
+      const range = bkgnd.ChromeVoxState.instance.getCurrentRange();
+      const node = range ? range.start.node : null;
 
       // Build the top-level menus.
       const searchMenu = Panel.addSearchMenu('panel_search_menu');
@@ -305,9 +311,16 @@ Panel = class {
 
       // Add a menu item that opens the full list of ChromeBook keyboard
       // shortcuts. We want this to be at the top of the ChromeVox menu.
+      let localizedSlash = await new Promise(
+          resolve =>
+              chrome.accessibilityPrivate.getLocalizedDomKeyStringForKeyCode(
+                  KeyCode.OEM_2, resolve));
+      if (!localizedSlash) {
+        localizedSlash = '/';
+      }
       chromevoxMenu.addMenuItem(
-          Msgs.getMsg('open_keyboard_shortcuts_menu'), 'Ctrl+Alt+/', '', '',
-          function() {
+          Msgs.getMsg('open_keyboard_shortcuts_menu'),
+          `Ctrl+Alt+${localizedSlash}`, '', '', function() {
             EventGenerator.sendKeyPress(
                 KeyCode.OEM_2 /* forward slash */, {'ctrl': true, 'alt': true});
           });
@@ -334,21 +347,20 @@ Panel = class {
       // commands for touch).
 
       // Get the key map from the background page.
-      const bkgnd = chrome.extension.getBackgroundPage();
       const keymap = bkgnd['KeyMap']['get']();
 
       // Make a copy of the key bindings, get the localized title of each
       // command, and then sort them.
       const sortedBindings = keymap.bindings().slice();
-      sortedBindings.forEach(goog.bind(function(binding) {
+      for (let binding, i = 0; binding = sortedBindings[i]; i++) {
         const command = binding.command;
         const keySeq = binding.sequence;
-        binding.keySeq = KeyUtil.keySequenceToString(keySeq, true);
+        binding.keySeq = await KeyUtil.keySequenceToString(keySeq, true);
         const titleMsgId = CommandStore.messageForCommand(command);
         if (!titleMsgId) {
           console.error('No localization for: ' + command);
           binding.title = '';
-          return;
+          continue;
         }
         let title = Msgs.getMsg(titleMsgId);
         // Convert to title case.
@@ -356,7 +368,7 @@ Panel = class {
           return word.charAt(0).toUpperCase() + word.substr(1);
         });
         binding.title = title;
-      }, this));
+      }
       sortedBindings.sort(function(binding1, binding2) {
         return binding1.title.localeCompare(binding2.title);
       });
@@ -364,7 +376,7 @@ Panel = class {
       // Insert items from the bindings into the menus.
       const sawBindingSet = {};
       const gestures = Object.keys(GestureCommandData.GESTURE_COMMAND_MAP);
-      sortedBindings.forEach(goog.bind(function(binding) {
+      sortedBindings.forEach((binding) => {
         const command = binding.command;
         if (sawBindingSet[command]) {
           return;
@@ -398,7 +410,7 @@ Panel = class {
                 CommandHandler['onCommand'](binding.command);
               }, binding.command);
         }
-      }, this));
+      });
 
       // Add all open tabs to the Tabs menu.
       bkgnd.chrome.windows.getLastFocused(function(lastFocusedWindow) {
@@ -453,8 +465,6 @@ Panel = class {
         {menuTitle: 'role_table', predicate: AutomationPredicate.table}
       ];
 
-      const range = bkgnd.ChromeVoxState.instance.getCurrentRange();
-      const node = range ? range.start.node : null;
       for (let i = 0; i < roleListMenuMapping.length; ++i) {
         const menuTitle = roleListMenuMapping[i].menuTitle;
         const predicate = roleListMenuMapping[i].predicate;
@@ -1052,30 +1062,39 @@ Panel = class {
     });
   }
 
-  /**
-   * Open the tutorial.
-   * @param {string=} opt_page Show a specific page.
-   */
-  static onTutorial(opt_page) {
-    if (!$('chromevox-tutorial')) {
-      const curriculum =
-          Panel.sessionState === chrome.loginState.SessionState.IN_OOBE_SCREEN ?
-          'quick_orientation' :
-          null;
-      Panel.createITutorial(curriculum);
-    }
+  /** Open the tutorial. */
+  static onTutorial() {
+    chrome.chromeosInfoPrivate.isTabletModeEnabled((enabled) => {
+      // Use tablet mode to decide the medium for the tutorial.
+      const medium = enabled ? constants.InteractionMedium.TOUCH :
+                               constants.InteractionMedium.KEYBOARD;
+      if (!$('chromevox-tutorial')) {
+        let curriculum = null;
+        if (Panel.sessionState ===
+            chrome.loginState.SessionState.IN_OOBE_SCREEN) {
+          // We currently support two mediums: keyboard and touch, which is why
+          // we can decide the curriculum using a ternary statement.
+          curriculum = medium === constants.InteractionMedium.KEYBOARD ?
+              'quick_orientation' :
+              'touch_orientation';
+        }
+        Panel.createITutorial(curriculum, medium);
+      }
 
-    Panel.setMode(Panel.Mode.FULLSCREEN_TUTORIAL);
-    if (Panel.tutorial && Panel.tutorial.show) {
-      Panel.tutorial.show();
-    }
+      Panel.setMode(Panel.Mode.FULLSCREEN_TUTORIAL);
+      if (Panel.tutorial && Panel.tutorial.show) {
+        Panel.tutorial.medium = medium;
+        Panel.tutorial.show();
+      }
+    });
   }
 
   /**
    * Creates a <chromevox-tutorial> element and adds it to the dom.
    * @param {(string|null)} curriculum
+   * @param {constants.InteractionMedium} medium
    */
-  static createITutorial(curriculum) {
+  static createITutorial(curriculum, medium) {
     const tutorialScript = document.createElement('script');
     tutorialScript.src =
         '../../common/tutorial/components/chromevox_tutorial.js';
@@ -1091,6 +1110,7 @@ Panel = class {
     if (curriculum) {
       tutorialElement.curriculum = curriculum;
     }
+    tutorialElement.medium = medium;
     tutorialContainer.appendChild(tutorialElement);
     document.body.appendChild(tutorialContainer);
     Panel.tutorial = tutorialElement;
@@ -1143,6 +1163,10 @@ Panel = class {
     $('chromevox-tutorial').addEventListener('requestearcon', (evt) => {
       const earconId = evt.detail.earconId;
       backgroundPage['ChromeVox']['earcons']['playEarcon'](earconId);
+    });
+    $('chromevox-tutorial').addEventListener('cancelearcon', (evt) => {
+      const earconId = evt.detail.earconId;
+      backgroundPage['ChromeVox']['earcons']['cancelEarcon'](earconId);
     });
     $('chromevox-tutorial').addEventListener('readyfortesting', () => {
       Panel.tutorialReadyForTesting_ = true;

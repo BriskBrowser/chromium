@@ -4,7 +4,7 @@
 
 #include "components/feature_engagement/public/feature_list.h"
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "components/feature_engagement/public/feature_constants.h"
 
 namespace feature_engagement {
@@ -16,6 +16,13 @@ namespace {
 const base::Feature* const kAllFeatures[] = {
     &kIPHDummyFeature,  // Ensures non-empty array for all platforms.
 #if defined(OS_ANDROID)
+    &kIPHAdaptiveButtonInTopToolbarCustomizationNewTabFeature,
+    &kIPHAdaptiveButtonInTopToolbarCustomizationShareFeature,
+    &kIPHAdaptiveButtonInTopToolbarCustomizationVoiceSearchFeature,
+    &kIPHAddToHomescreenMessageFeature,
+    &kIPHAddToHomescreenTextBubbleFeature,
+    &kIPHAutoDarkOptOutFeature,
+    &kIPHAutoDarkUserEducationMessageFeature,
     &kIPHDataSaverDetailFeature,
     &kIPHDataSaverMilestonePromoFeature,
     &kIPHDataSaverPreviewFeature,
@@ -34,6 +41,7 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHContextualSearchPromotePanelOpenFeature,
     &kIPHContextualSearchOptInFeature,
     &kIPHContextualSearchTappedButShouldLongpressFeature,
+    &kIPHContextualSearchInPanelHelpFeature,
     &kIPHDownloadSettingsFeature,
     &kIPHDownloadInfoBarDownloadContinuingFeature,
     &kIPHDownloadInfoBarDownloadsAreFasterFeature,
@@ -41,13 +49,17 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHFeedCardMenuFeature,
     &kIPHHomepagePromoCardFeature,
     &kIPHIdentityDiscFeature,
+    &kIPHInstanceSwitcherFeature,
     &kIPHKeyboardAccessoryAddressFillingFeature,
     &kIPHKeyboardAccessoryBarSwipingFeature,
     &kIPHKeyboardAccessoryPasswordFillingFeature,
     &kIPHKeyboardAccessoryPaymentFillingFeature,
     &kIPHKeyboardAccessoryPaymentOfferFeature,
+    &kIPHKeyboardAccessoryPaymentVirtualCardFeature,
+    &kIPHMicToolbarFeature,
     &kIPHNewTabPageHomeButtonFeature,
     &kIPHPageInfoFeature,
+    &kIPHPageInfoStoreInfoFeature,
     &kIPHPreviewsOmniboxUIFeature,
     &kIPHPwaInstallAvailableFeature,
     &kIPHQuietNotificationPromptsFeature,
@@ -66,9 +78,19 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHVideoTutorialNTPSearchFeature,
     &kIPHVideoTutorialNTPVoiceSearchFeature,
     &kIPHVideoTutorialNTPSummaryFeature,
+    &kIPHVideoTutorialTryNowFeature,
     &kIPHExploreSitesTileFeature,
     &kIPHFeedHeaderMenuFeature,
+    &kIPHFeedSwipeRefresh,
     &kIPHShareScreenshotFeature,
+    &kIPHSharingHubLinkToggleFeature,
+    &kIPHWebFeedFollowFeature,
+    &kIPHWebFeedPostFollowDialogFeature,
+    &kIPHSharedHighlightingBuilder,
+    &kIPHSharedHighlightingReceiverFeature,
+    &kIPHStartSurfaceTabSwitcherHomeButton,
+    &kIPHUpdatedConnectionSecurityIndicatorsFeature,
+    &kIPHSharingHubWebnotesStylizeFeature,
 #endif  // defined(OS_ANDROID)
 #if defined(OS_IOS)
     &kIPHBottomToolbarTipFeature,
@@ -76,21 +98,30 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHNewTabTipFeature,
     &kIPHNewIncognitoTabTipFeature,
     &kIPHBadgedReadingListFeature,
+    &kIPHReadingListMessagesFeature,
     &kIPHBadgedTranslateManualTriggerFeature,
     &kIPHDiscoverFeedHeaderFeature,
 #endif  // defined(OS_IOS)
 #if defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) || \
-    defined(OS_CHROMEOS)
+    defined(OS_CHROMEOS) || defined(OS_FUCHSIA)
     &kIPHDesktopTabGroupsNewGroupFeature,
-    &kIPHFocusModeFeature,
-    &kIPHGlobalMediaControlsFeature,
+    &kIPHFocusHelpBubbleScreenReaderPromoFeature,
+    &kIPHGMCCastStartStopFeature,
     &kIPHLiveCaptionFeature,
     &kIPHPasswordsAccountStorageFeature,
+    &kIPHReadingListDiscoveryFeature,
+    &kIPHReadingListEntryPointFeature,
+    &kIPHReadingListInSidePanelFeature,
     &kIPHReopenTabFeature,
+    &kIPHSideSearchFeature,
+    &kIPHTabSearchFeature,
     &kIPHWebUITabStripFeature,
     &kIPHDesktopPwaInstallFeature,
+    &kIPHProfileSwitchFeature,
+    &kIPHUpdatedConnectionSecurityIndicatorsFeature,
+    &kIPHDesktopSharedHighlightingFeature,
 #endif  // defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) ||
-        // defined(OS_CHROMEOS)
+        // defined(OS_CHROMEOS) || defined(OS_FUCHSIA)
 };
 }  // namespace
 

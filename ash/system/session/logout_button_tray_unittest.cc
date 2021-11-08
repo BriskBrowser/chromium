@@ -4,7 +4,7 @@
 
 #include "ash/system/session/logout_button_tray.h"
 
-#include "ash/public/cpp/ash_pref_names.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/session/test_session_controller_client.h"
@@ -29,6 +29,10 @@ constexpr char kUserEmail[] = "user1@test.com";
 class LogoutButtonTrayTest : public NoSessionAshTestBase {
  public:
   LogoutButtonTrayTest() = default;
+
+  LogoutButtonTrayTest(const LogoutButtonTrayTest&) = delete;
+  LogoutButtonTrayTest& operator=(const LogoutButtonTrayTest&) = delete;
+
   ~LogoutButtonTrayTest() override = default;
 
   // NoSessionAshTestBase:
@@ -41,9 +45,6 @@ class LogoutButtonTrayTest : public NoSessionAshTestBase {
     return Shell::Get()->session_controller()->GetUserPrefServiceForUser(
         AccountId::FromUserEmail(kUserEmail));
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(LogoutButtonTrayTest);
 };
 
 TEST_F(LogoutButtonTrayTest, Visibility) {

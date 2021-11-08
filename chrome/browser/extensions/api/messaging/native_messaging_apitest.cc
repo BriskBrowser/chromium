@@ -5,7 +5,8 @@
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -25,6 +26,7 @@
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "content/public/test/browser_test.h"
 #include "extensions/browser/process_manager.h"
+#include "extensions/test/extension_background_page_waiter.h"
 #include "extensions/test/result_catcher.h"
 
 namespace extensions {
@@ -32,84 +34,71 @@ namespace {
 
 using ContextType = ExtensionApiTest::ContextType;
 
-class NativeMessagingApiTest : public ExtensionApiTest {
+class NativeMessagingApiTestBase : public ExtensionApiTest {
+ public:
+  explicit NativeMessagingApiTestBase(
+      ContextType context_type = ContextType::kNone)
+      : ExtensionApiTest(context_type) {}
+  ~NativeMessagingApiTestBase() override = default;
+  NativeMessagingApiTestBase(const NativeMessagingApiTestBase&) = delete;
+  NativeMessagingApiTestBase& operator=(const NativeMessagingApiTestBase&) =
+      delete;
+
  protected:
   extensions::ScopedTestNativeMessagingHost test_host_;
 };
 
-IN_PROC_BROWSER_TEST_F(NativeMessagingApiTest, NativeMessagingBasic) {
-  ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(false));
-  ASSERT_TRUE(RunExtensionTest("native_messaging")) << message_;
-}
+class NativeMessagingApiTest : public NativeMessagingApiTestBase,
+                               public testing::WithParamInterface<ContextType> {
+ public:
+  NativeMessagingApiTest() : NativeMessagingApiTestBase(GetParam()) {}
+  ~NativeMessagingApiTest() override = default;
+  NativeMessagingApiTest(const NativeMessagingApiTest&) = delete;
+  NativeMessagingApiTest& operator=(const NativeMessagingApiTest&) = delete;
 
-IN_PROC_BROWSER_TEST_F(NativeMessagingApiTest, UserLevelNativeMessaging) {
-  ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(true));
-  ASSERT_TRUE(RunExtensionTest("native_messaging")) << message_;
-}
-
-// TODO(crbug.com/1094027): Clean up duplicate test coverage.
-class NativeMessagingLazyApiTest
-    : public NativeMessagingApiTest,
-      public testing::WithParamInterface<ContextType> {
  protected:
-  bool RunLazyTest(const std::string& extension_name) {
-    return RunExtensionTest(
-        {.name = extension_name.c_str()},
-        {.load_as_service_worker = GetParam() == ContextType::kServiceWorker});
+  bool RunTest(const char* extension_name) {
+    if (GetParam() == ContextType::kPersistentBackground)
+      return RunExtensionTest(extension_name);
+    std::string lazy_exension_name = base::StrCat({extension_name, "/lazy"});
+    return RunExtensionTest(lazy_exension_name.c_str());
   }
 };
 
+INSTANTIATE_TEST_SUITE_P(PersistentBackground,
+                         NativeMessagingApiTest,
+                         ::testing::Values(ContextType::kPersistentBackground));
 INSTANTIATE_TEST_SUITE_P(EventPage,
-                         NativeMessagingLazyApiTest,
+                         NativeMessagingApiTest,
                          ::testing::Values(ContextType::kEventPage));
 INSTANTIATE_TEST_SUITE_P(ServiceWorker,
-                         NativeMessagingLazyApiTest,
+                         NativeMessagingApiTest,
                          ::testing::Values(ContextType::kServiceWorker));
 
-IN_PROC_BROWSER_TEST_P(NativeMessagingLazyApiTest, NativeMessagingBasic) {
+// Tests chrome.runtime.sendNativeMessage to a native messaging host.
+IN_PROC_BROWSER_TEST_P(NativeMessagingApiTest, NativeMessagingBasic) {
   ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(false));
-  ASSERT_TRUE(RunLazyTest("native_messaging_lazy")) << message_;
+  ASSERT_TRUE(RunTest("native_messaging")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_P(NativeMessagingLazyApiTest, UserLevelNativeMessaging) {
+IN_PROC_BROWSER_TEST_P(NativeMessagingApiTest, UserLevelNativeMessaging) {
   ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(true));
-  ASSERT_TRUE(RunLazyTest("native_messaging_lazy")) << message_;
+  ASSERT_TRUE(RunTest("native_messaging")) << message_;
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
+// Tests chrome.runtime.connectNative to a native messaging host.
+IN_PROC_BROWSER_TEST_P(NativeMessagingApiTest, ConnectNative) {
+  ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(false));
+  ASSERT_TRUE(RunTest("native_messaging_connect")) << message_;
+}
 
-class TestProcessManagerObserver : public ProcessManagerObserver {
- public:
-  TestProcessManagerObserver() = default;
-  ~TestProcessManagerObserver() override = default;
+IN_PROC_BROWSER_TEST_P(NativeMessagingApiTest,
+                       UserLevelNativeMessagingConnectNative) {
+  ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(true));
+  ASSERT_TRUE(RunTest("native_messaging_connect")) << message_;
+}
 
-  void WaitForProcessShutdown(ProcessManager* process_manager,
-                              const std::string& extension_id) {
-    DCHECK(!quit_);
-    extension_id_ = extension_id;
-    base::RunLoop run_loop;
-    quit_ = run_loop.QuitClosure();
-
-    observer_.Add(process_manager);
-    run_loop.Run();
-  }
-
- private:
-  void OnBackgroundHostClose(const std::string& extension_id) override {
-    if (extension_id != extension_id_) {
-      return;
-    }
-    observer_.RemoveAll();
-    extension_id_.clear();
-    std::move(quit_).Run();
-  }
-
-  std::string extension_id_;
-  ScopedObserver<ProcessManager, ProcessManagerObserver> observer_{this};
-  base::OnceClosure quit_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestProcessManagerObserver);
-};
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 base::CommandLine CreateNativeMessagingConnectCommandLine(
     const std::string& connect_id,
@@ -128,7 +117,7 @@ base::CommandLine CreateNativeMessagingConnectCommandLine(
   return command_line;
 }
 
-class NativeMessagingLaunchApiTest : public NativeMessagingApiTest {
+class NativeMessagingLaunchApiTest : public NativeMessagingApiTestBase {
  public:
   NativeMessagingLaunchApiTest() {
     feature_list_.InitAndEnableFeature(features::kOnConnectNative);
@@ -151,9 +140,8 @@ IN_PROC_BROWSER_TEST_F(NativeMessagingLaunchApiTest, MAYBE_Success) {
 
   auto* extension =
       LoadExtension(test_data_dir_.AppendASCII("native_messaging_launch"));
-  TestProcessManagerObserver observer;
-  observer.WaitForProcessShutdown(ProcessManager::Get(profile()),
-                                  extension->id());
+  ExtensionBackgroundPageWaiter(profile(), *extension)
+      .WaitForBackgroundClosed();
 
   ResultCatcher catcher;
 
@@ -188,9 +176,8 @@ IN_PROC_BROWSER_TEST_F(NativeMessagingLaunchApiTest, UnsupportedByNativeHost) {
 
   auto* extension = LoadExtension(
       test_data_dir_.AppendASCII("native_messaging_launch_unsupported"));
-  TestProcessManagerObserver observer;
-  observer.WaitForProcessShutdown(ProcessManager::Get(profile()),
-                                  extension->id());
+  ExtensionBackgroundPageWaiter(profile(), *extension)
+      .WaitForBackgroundClosed();
 
   ResultCatcher catcher;
 
@@ -218,17 +205,22 @@ class TestKeepAliveStateObserver : public KeepAliveStateObserver {
  public:
   TestKeepAliveStateObserver() = default;
 
+  TestKeepAliveStateObserver(const TestKeepAliveStateObserver&) = delete;
+  TestKeepAliveStateObserver& operator=(const TestKeepAliveStateObserver&) =
+      delete;
+
   void WaitForNoKeepAlive() {
     ASSERT_TRUE(KeepAliveRegistry::GetInstance()->IsKeepingAlive());
-    ScopedObserver<KeepAliveRegistry, KeepAliveStateObserver> observer(this);
-    observer.Add(KeepAliveRegistry::GetInstance());
+    base::ScopedObservation<KeepAliveRegistry, KeepAliveStateObserver> observer(
+        this);
+    observer.Observe(KeepAliveRegistry::GetInstance());
 
     // On Mac, the browser remains alive when no windows are open, so observing
     // the KeepAliveRegistry cannot detect when the native messaging keep-alive
     // has been released; poll for changes instead.
 #if defined(OS_MAC)
     polling_timer_.Start(
-        FROM_HERE, base::TimeDelta::FromMilliseconds(100),
+        FROM_HERE, base::Milliseconds(100),
         base::BindRepeating(&TestKeepAliveStateObserver::PollKeepAlive,
                             base::Unretained(this)));
 #endif
@@ -258,14 +250,12 @@ class TestKeepAliveStateObserver : public KeepAliveStateObserver {
 #endif
 
   base::OnceClosure quit_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestKeepAliveStateObserver);
 };
 
 IN_PROC_BROWSER_TEST_F(NativeMessagingLaunchApiTest, Error) {
   ASSERT_NO_FATAL_FAILURE(test_host_.RegisterTestHost(false));
   ScopedNativeMessagingErrorTimeoutOverrideForTest error_timeout_override(
-      base::TimeDelta::FromSeconds(2));
+      base::Seconds(2));
   StartupBrowserCreator::ProcessCommandLineAlreadyRunning(
       CreateNativeMessagingConnectCommandLine("test-connect-id"), {},
       profile()->GetPath());
@@ -430,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(NativeMessagingLaunchBackgroundModeApiTest,
   ASSERT_NO_FATAL_FAILURE(TestKeepAliveStateObserver().WaitForNoKeepAlive());
 }
 
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 }  // namespace
 }  // namespace extensions

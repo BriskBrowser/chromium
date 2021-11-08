@@ -41,19 +41,21 @@ class HTMLInputElement;
 class AXSlider : public AXLayoutObject {
  public:
   AXSlider(LayoutObject*, AXObjectCacheImpl&);
+
+  AXSlider(const AXSlider&) = delete;
+  AXSlider& operator=(const AXSlider&) = delete;
+
   ~AXSlider() override = default;
 
  private:
   HTMLInputElement* GetInputElement() const;
 
-  ax::mojom::Role DetermineAccessibilityRole() final;
+  ax::mojom::blink::Role NativeRoleIgnoringAria() const final;
   bool IsSlider() const final { return true; }
   bool IsControl() const final { return true; }
 
   bool OnNativeSetValueAction(const String&) final;
   AccessibilityOrientation Orientation() const final;
-
-  DISALLOW_COPY_AND_ASSIGN(AXSlider);
 };
 
 }  // namespace blink

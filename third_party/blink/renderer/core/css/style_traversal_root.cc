@@ -31,6 +31,7 @@ void StyleTraversalRoot::Update(ContainerNode* common_ancestor,
              (!root_node_ && root_type_ == RootType::kSingleRoot));
     }
     root_node_ = dirty_node;
+    AssertRootNodeInvariants();
     return;
   }
 
@@ -55,5 +56,13 @@ void StyleTraversalRoot::Update(ContainerNode* common_ancestor,
   root_node_ = common_ancestor;
   root_type_ = RootType::kCommonRoot;
 }
+
+#if DCHECK_IS_ON()
+bool StyleTraversalRoot::IsModifyingFlatTree() const {
+  DCHECK(root_node_);
+  return root_node_->GetDocument().GetStyleEngine().InDOMRemoval() ||
+         root_node_->GetDocument().IsInSlotAssignmentRecalc();
+}
+#endif
 
 }  // namespace blink

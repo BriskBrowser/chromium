@@ -31,7 +31,6 @@
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/collapsed_border_value.h"
 #include "third_party/blink/renderer/core/layout/geometry/transform_state.h"
-#include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/core/layout/layout_table_col.h"
 #include "third_party/blink/renderer/core/layout/subtree_layout_scope.h"
@@ -298,7 +297,6 @@ void LayoutTableCell::SetCellLogicalWidth(int table_layout_logical_width,
 void LayoutTableCell::UpdateLayout() {
   NOT_DESTROYED();
   DCHECK(NeedsLayout());
-  LayoutAnalyzer::Scope analyzer(*this);
 
   UpdateBlockLayout(CellChildrenNeedLayout());
 
@@ -464,7 +462,7 @@ LayoutUnit LayoutTableCell::CellBaselinePosition() const {
 void LayoutTableCell::UpdateStyleWritingModeFromRow(const LayoutObject* row) {
   NOT_DESTROYED();
   DCHECK_NE(StyleRef().GetWritingMode(), row->StyleRef().GetWritingMode());
-  ComputedStyle* new_style = ComputedStyle::Clone(StyleRef());
+  scoped_refptr<ComputedStyle> new_style = ComputedStyle::Clone(StyleRef());
   new_style->SetWritingMode(row->StyleRef().GetWritingMode());
   new_style->UpdateFontOrientation();
   SetModifiedStyleOutsideStyleRecalc(new_style,
@@ -1222,9 +1220,10 @@ void LayoutTableCell::ScrollbarsChanged(bool horizontal_scrollbar_changed,
   }
 }
 
-LayoutTableCell* LayoutTableCell::CreateAnonymous(Document* document,
-                                                  ComputedStyle* style,
-                                                  LegacyLayout legacy) {
+LayoutTableCell* LayoutTableCell::CreateAnonymous(
+    Document* document,
+    scoped_refptr<ComputedStyle> style,
+    LegacyLayout legacy) {
   LayoutBlockFlow* layout_object =
       LayoutObjectFactory::CreateTableCell(*document, *style, legacy);
   layout_object->SetDocumentForAnonymous(document);

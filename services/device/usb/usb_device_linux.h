@@ -28,10 +28,13 @@ struct UsbDeviceDescriptor;
 
 class UsbDeviceLinux : public UsbDevice {
  public:
+  UsbDeviceLinux(const UsbDeviceLinux&) = delete;
+  UsbDeviceLinux& operator=(const UsbDeviceLinux&) = delete;
+
 // UsbDevice implementation:
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   void CheckUsbAccess(ResultCallback callback) override;
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   void Open(OpenCallback callback) override;
 
   const std::string& device_path() const { return device_path_; }
@@ -52,7 +55,7 @@ class UsbDeviceLinux : public UsbDevice {
   ~UsbDeviceLinux() override;
 
  private:
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   void OnOpenRequestComplete(OpenCallback callback,
                              base::ScopedFD fd,
                              base::ScopedFD lifeline_fd);
@@ -64,7 +67,7 @@ class UsbDeviceLinux : public UsbDevice {
       OpenCallback callback,
       scoped_refptr<base::SequencedTaskRunner> task_runner,
       scoped_refptr<base::SequencedTaskRunner> blocking_task_runner);
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   void Opened(base::ScopedFD fd,
               base::ScopedFD lifeline_fd,
               OpenCallback callback,
@@ -73,8 +76,6 @@ class UsbDeviceLinux : public UsbDevice {
   SEQUENCE_CHECKER(sequence_checker_);
 
   const std::string device_path_;
-
-  DISALLOW_COPY_AND_ASSIGN(UsbDeviceLinux);
 };
 
 }  // namespace device

@@ -14,7 +14,6 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/media_galleries/media_galleries_dialog_controller.h"
 #include "chrome/browser/media_galleries/media_galleries_preferences.h"
 #include "components/storage_monitor/removable_storage_observer.h"
@@ -57,18 +56,23 @@ class MediaGalleriesPermissionController
                                      const extensions::Extension& extension,
                                      base::OnceClosure on_finish);
 
+  MediaGalleriesPermissionController(
+      const MediaGalleriesPermissionController&) = delete;
+  MediaGalleriesPermissionController& operator=(
+      const MediaGalleriesPermissionController&) = delete;
+
   // MediaGalleriesDialogController implementation.
-  base::string16 GetHeader() const override;
-  base::string16 GetSubtext() const override;
+  std::u16string GetHeader() const override;
+  std::u16string GetSubtext() const override;
   bool IsAcceptAllowed() const override;
-  std::vector<base::string16> GetSectionHeaders() const override;
+  std::vector<std::u16string> GetSectionHeaders() const override;
   Entries GetSectionEntries(size_t index) const override;
   // Auxiliary button for this dialog is the 'Add Folder' button.
-  base::string16 GetAuxiliaryButtonText() const override;
+  std::u16string GetAuxiliaryButtonText() const override;
   void DidClickAuxiliaryButton() override;
   void DidToggleEntry(GalleryDialogId gallery_id, bool selected) override;
   void DidForgetEntry(GalleryDialogId gallery_id) override;
-  base::string16 GetAcceptButtonText() const override;
+  std::u16string GetAcceptButtonText() const override;
   void DialogFinished(bool accepted) override;
   ui::MenuModel* GetContextMenu(GalleryDialogId gallery_id) override;
   content::WebContents* WebContents() override;
@@ -97,6 +101,10 @@ class MediaGalleriesPermissionController
   class DialogIdMap {
    public:
     DialogIdMap();
+
+    DialogIdMap(const DialogIdMap&) = delete;
+    DialogIdMap& operator=(const DialogIdMap&) = delete;
+
     ~DialogIdMap();
     GalleryDialogId GetDialogId(MediaGalleryPrefId pref_id);
     MediaGalleryPrefId GetPrefId(GalleryDialogId id) const;
@@ -105,7 +113,6 @@ class MediaGalleriesPermissionController
     GalleryDialogId next_dialog_id_;
     std::map<MediaGalleryPrefId, GalleryDialogId> back_map_;
     std::vector<MediaGalleryPrefId> forward_mapping_;
-    DISALLOW_COPY_AND_ASSIGN(DialogIdMap);
   };
 
 
@@ -214,8 +221,6 @@ class MediaGalleriesPermissionController
 
   // Creates the dialog. Only changed for unit tests.
   CreateDialogCallback create_dialog_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaGalleriesPermissionController);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_GALLERIES_MEDIA_GALLERIES_PERMISSION_CONTROLLER_H_

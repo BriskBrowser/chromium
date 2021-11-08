@@ -26,6 +26,11 @@ class FuzzyTokenizedStringMatch {
   typedef std::vector<gfx::Range> Hits;
 
   FuzzyTokenizedStringMatch();
+
+  FuzzyTokenizedStringMatch(const FuzzyTokenizedStringMatch&) = delete;
+  FuzzyTokenizedStringMatch& operator=(const FuzzyTokenizedStringMatch&) =
+      delete;
+
   ~FuzzyTokenizedStringMatch();
 
   // TokenSetRatio takes two sets of tokens, finds their intersection and
@@ -53,8 +58,8 @@ class FuzzyTokenizedStringMatch {
   // Finds the best ratio of shorter text with a part of longer text.
   // This function assumes that TokenizedString is already normalized (converted
   // to lower case). The return score is in range of [0, 1].
-  static double PartialRatio(const base::string16& query,
-                             const base::string16& text,
+  static double PartialRatio(const std::u16string& query,
+                             const std::u16string& text,
                              double partial_match_penalty_rate,
                              bool use_edit_distance,
                              double num_matching_blocks_penalty);
@@ -92,8 +97,6 @@ class FuzzyTokenizedStringMatch {
   // Score in range of [0,1] representing how well the query matches the text.
   double relevance_ = 0;
   Hits hits_;
-
-  DISALLOW_COPY_AND_ASSIGN(FuzzyTokenizedStringMatch);
 };
 
 }  // namespace string_matching

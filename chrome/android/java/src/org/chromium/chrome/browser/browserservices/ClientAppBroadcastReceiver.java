@@ -9,9 +9,10 @@ import android.content.Context;
 import android.content.Intent;
 
 import org.chromium.base.Log;
-import org.chromium.chrome.browser.ChromeApplication;
+import org.chromium.chrome.browser.ChromeApplicationImpl;
+import org.chromium.chrome.browser.browserservices.metrics.BrowserServicesTimingMetrics;
 import org.chromium.chrome.browser.browserservices.permissiondelegation.PermissionUpdater;
-import org.chromium.chrome.browser.metrics.WebApkUma;
+import org.chromium.chrome.browser.metrics.WebApkUninstallUmaTracker;
 import org.chromium.chrome.browser.version.ChromeVersionInfo;
 import org.chromium.components.embedder_support.util.Origin;
 import org.chromium.components.webapk.lib.common.WebApkConstants;
@@ -77,8 +78,8 @@ public class ClientAppBroadcastReceiver extends BroadcastReceiver {
     public ClientAppBroadcastReceiver() {
         this(new ClearDataStrategy(), new ClientAppDataRegister(),
                 new BrowserServicesStore(
-                        ChromeApplication.getComponent().resolveSharedPreferencesManager()),
-                ChromeApplication.getComponent().resolveTwaPermissionUpdater());
+                        ChromeApplicationImpl.getComponent().resolveSharedPreferencesManager()),
+                ChromeApplicationImpl.getComponent().resolveTwaPermissionUpdater());
     }
 
     /** Constructor to allow dependency injection in tests. */
@@ -110,13 +111,12 @@ public class ClientAppBroadcastReceiver extends BroadcastReceiver {
                     && packageName.startsWith(WebApkConstants.WEBAPK_PACKAGE_PREFIX)) {
                 // Native is likely not loaded. Defer recording UMA and UKM till the next browser
                 // launch.
-                WebApkUma.deferRecordWebApkUninstalled(packageName);
+                WebApkUninstallUmaTracker.deferRecordWebApkUninstalled(packageName);
             }
         }
 
-        try (BrowserServicesMetrics.TimingMetric unused =
-                     BrowserServicesMetrics.getClientAppDataLoadTimingContext()) {
-
+        try (BrowserServicesTimingMetrics.TimingMetric unused =
+                        BrowserServicesTimingMetrics.getClientAppDataLoadTimingContext()) {
             // The ClientAppDataRegister (because it uses Preferences) is loaded lazily, so to time
             // opening the file we must include the first read as well.
             if (!mRegister.chromeHoldsDataForPackage(uid)) {

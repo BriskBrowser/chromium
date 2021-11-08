@@ -5,13 +5,14 @@
 #ifndef ASH_IME_IME_MODE_INDICATOR_VIEW_H_
 #define ASH_IME_IME_MODE_INDICATOR_VIEW_H_
 
+#include <string>
+
 #include "ash/ash_export.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "base/timer/timer.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
@@ -28,7 +29,7 @@ class ASH_EXPORT ImeModeIndicatorView : public views::BubbleDialogDelegateView {
 
   // The cursor bounds is in the universal screen coordinates in DIP.
   ImeModeIndicatorView(const gfx::Rect& cursor_bounds,
-                       const base::string16& label);
+                       const std::u16string& label);
   ImeModeIndicatorView(const ImeModeIndicatorView&) = delete;
   ImeModeIndicatorView& operator=(const ImeModeIndicatorView&) = delete;
   ~ImeModeIndicatorView() override;

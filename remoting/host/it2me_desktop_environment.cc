@@ -4,11 +4,12 @@
 
 #include "remoting/host/it2me_desktop_environment.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/check.h"
 #include "base/memory/ptr_util.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "remoting/host/client_session_control.h"
 #include "remoting/host/host_window.h"
@@ -67,8 +68,8 @@ It2MeDesktopEnvironment::It2MeDesktopEnvironment(
   // window timer.
   if (enable_user_interface) {
     continue_window_ = HostWindow::CreateContinueWindow();
-    continue_window_.reset(new HostWindowProxy(
-        caller_task_runner, ui_task_runner, std::move(continue_window_)));
+    continue_window_ = std::make_unique<HostWindowProxy>(
+        caller_task_runner, ui_task_runner, std::move(continue_window_));
     continue_window_->Start(client_session_control);
   }
 
@@ -78,8 +79,8 @@ It2MeDesktopEnvironment::It2MeDesktopEnvironment(
   // a disconnect button to terminate the connection.
   if (enable_notifications) {
     disconnect_window_ = HostWindow::CreateDisconnectWindow();
-    disconnect_window_.reset(new HostWindowProxy(
-        caller_task_runner, ui_task_runner, std::move(disconnect_window_)));
+    disconnect_window_ = std::make_unique<HostWindowProxy>(
+        caller_task_runner, ui_task_runner, std::move(disconnect_window_));
     disconnect_window_->Start(client_session_control);
   }
 }

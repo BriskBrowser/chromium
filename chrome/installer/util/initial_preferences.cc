@@ -6,13 +6,15 @@
 
 #include <stddef.h>
 
+#include <memory>
+
+#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -44,8 +46,8 @@ std::vector<std::string> GetNamedList(const char* name,
   if (!prefs->GetList(name, &value_list))
     return list;
 
-  list.reserve(value_list->GetSize());
-  for (size_t i = 0; i < value_list->GetSize(); ++i) {
+  list.reserve(value_list->GetList().size());
+  for (size_t i = 0; i < value_list->GetList().size(); ++i) {
     const base::Value* entry;
     std::string url_entry;
     if (!value_list->Get(i, &entry) || !GetURLFromValue(entry, &url_entry)) {
@@ -113,7 +115,7 @@ void InitialPreferences::InitializeFromCommandLine(
         cmd_line.GetSwitchValuePath(installer::switches::kInstallerData));
     InitializeFromFilePath(prefs_path);
   } else {
-    initial_dictionary_.reset(new base::DictionaryValue());
+    initial_dictionary_ = std::make_unique<base::DictionaryValue>();
   }
 
   DCHECK(initial_dictionary_.get());
@@ -200,7 +202,7 @@ bool InitialPreferences::InitializeFromString(const std::string& json_data) {
 
   bool data_is_valid = true;
   if (!initial_dictionary_.get()) {
-    initial_dictionary_.reset(new base::DictionaryValue());
+    initial_dictionary_ = std::make_unique<base::DictionaryValue>();
     data_is_valid = false;
   } else {
     // Cache a pointer to the distribution dictionary.
@@ -317,8 +319,9 @@ std::string InitialPreferences::GetVariationsSeedSignature() const {
 std::string InitialPreferences::ExtractPrefString(
     const std::string& name) const {
   std::string result;
-  std::unique_ptr<base::Value> pref_value;
-  if (initial_dictionary_->Remove(name, &pref_value)) {
+  absl::optional<base::Value> pref_value =
+      initial_dictionary_->ExtractKey(name);
+  if (pref_value.has_value()) {
     if (!pref_value->GetAsString(&result))
       NOTREACHED();
   }

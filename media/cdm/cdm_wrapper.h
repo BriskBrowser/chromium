@@ -7,8 +7,6 @@
 
 #include <stdint.h>
 
-#include <string>
-
 #include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/feature_list.h"
@@ -71,6 +69,9 @@ class CdmWrapper {
                             uint32_t key_system_size,
                             GetCdmHostFunc get_cdm_host_func,
                             void* user_data);
+
+  CdmWrapper(const CdmWrapper&) = delete;
+  CdmWrapper& operator=(const CdmWrapper&) = delete;
 
   virtual ~CdmWrapper() {}
 
@@ -143,9 +144,6 @@ class CdmWrapper {
 
  protected:
   CdmWrapper() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CdmWrapper);
 };
 
 // Template class that does the CdmWrapper -> CdmInterface conversion. Default
@@ -173,6 +171,9 @@ class CdmWrapperImpl : public CdmWrapper {
     return new CdmWrapperImpl<CdmInterfaceVersion>(
         static_cast<CdmInterface*>(cdm_instance));
   }
+
+  CdmWrapperImpl(const CdmWrapperImpl&) = delete;
+  CdmWrapperImpl& operator=(const CdmWrapperImpl&) = delete;
 
   ~CdmWrapperImpl() override { cdm_->Destroy(); }
 
@@ -295,8 +296,6 @@ class CdmWrapperImpl : public CdmWrapper {
   CdmWrapperImpl(CdmInterface* cdm) : cdm_(cdm) { DCHECK(cdm_); }
 
   CdmInterface* cdm_;
-
-  DISALLOW_COPY_AND_ASSIGN(CdmWrapperImpl);
 };
 
 // Specialization for cdm::ContentDecryptionModule_10 methods.

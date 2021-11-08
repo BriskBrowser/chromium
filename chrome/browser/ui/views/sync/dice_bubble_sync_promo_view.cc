@@ -17,10 +17,10 @@
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/sync/dice_signin_button_view.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 DiceBubbleSyncPromoView::DiceBubbleSyncPromoView(
     Profile* profile,
@@ -30,10 +30,10 @@ DiceBubbleSyncPromoView::DiceBubbleSyncPromoView(
     bool signin_button_prominent,
     int text_style)
     : delegate_(delegate) {
-  DCHECK(!profile->IsGuestSession() && !profile->IsEphemeralGuestProfile());
+  DCHECK(!profile->IsGuestSession());
   AccountInfo account;
   // Signin promos can be shown in incognito, they use an empty account list.
-  if (profile->IsRegularProfile())
+  if (!profile->IsOffTheRecord())
     account = signin_ui_util::GetSingleAccountForDicePromos(profile);
 
   // Always show the accounts promo message for now.
@@ -42,12 +42,13 @@ DiceBubbleSyncPromoView::DiceBubbleSyncPromoView(
   std::unique_ptr<views::BoxLayout> layout = std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical, gfx::Insets(),
       ChromeLayoutProvider::Get()
-          ->GetDialogInsetsForContentType(views::TEXT, views::TEXT)
+          ->GetDialogInsetsForContentType(views::DialogContentType::kText,
+                                          views::DialogContentType::kText)
           .bottom());
   SetLayoutManager(std::move(layout));
 
   if (title_resource_id) {
-    base::string16 title_text = l10n_util::GetStringUTF16(title_resource_id);
+    std::u16string title_text = l10n_util::GetStringUTF16(title_resource_id);
     views::Label* title = new views::Label(
         title_text, views::style::CONTEXT_DIALOG_BODY_TEXT, text_style);
     title->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
@@ -83,7 +84,7 @@ views::View* DiceBubbleSyncPromoView::GetSigninButtonForTesting() {
 }
 
 void DiceBubbleSyncPromoView::EnableSync() {
-  base::Optional<AccountInfo> account = signin_button_view_->account();
+  absl::optional<AccountInfo> account = signin_button_view_->account();
   delegate_->OnEnableSync(account.value_or(AccountInfo()));
 }
 

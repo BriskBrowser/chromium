@@ -16,6 +16,7 @@
 #include "base/system/sys_info.h"
 #include "base/values.h"
 #include "components/crash/core/browser/crashes_ui_util.h"
+#include "components/crash/core/common/reporter_running_ios.h"
 #include "components/grit/dev_ui_components_resources.h"
 #include "components/strings/grit/components_chromium_strings.h"
 #include "components/strings/grit/components_strings.h"
@@ -47,6 +48,10 @@ web::WebUIIOSDataSource* CreateCrashesUIHTMLSource() {
   source->UseStringsJs();
   source->AddResourcePath(crash_reporter::kCrashesUICrashesJS,
                           IDR_CRASH_CRASHES_JS);
+  source->AddResourcePath(crash_reporter::kCrashesUICrashesCSS,
+                          IDR_CRASH_CRASHES_CSS);
+  source->AddResourcePath(crash_reporter::kCrashesUISadTabSVG,
+                          IDR_CRASH_SADTAB_SVG);
   source->SetDefaultResource(IDR_CRASH_CRASHES_HTML);
   return source;
 }
@@ -61,6 +66,10 @@ web::WebUIIOSDataSource* CreateCrashesUIHTMLSource() {
 class CrashesDOMHandler : public web::WebUIIOSMessageHandler {
  public:
   CrashesDOMHandler();
+
+  CrashesDOMHandler(const CrashesDOMHandler&) = delete;
+  CrashesDOMHandler& operator=(const CrashesDOMHandler&) = delete;
+
   ~CrashesDOMHandler() override;
 
   // WebUIMessageHandler implementation.
@@ -80,8 +89,6 @@ class CrashesDOMHandler : public web::WebUIIOSMessageHandler {
   scoped_refptr<UploadList> upload_list_;
   bool list_available_;
   bool first_load_;
-
-  DISALLOW_COPY_AND_ASSIGN(CrashesDOMHandler);
 };
 
 CrashesDOMHandler::CrashesDOMHandler()
@@ -96,7 +103,7 @@ CrashesDOMHandler::~CrashesDOMHandler() {
 void CrashesDOMHandler::RegisterMessages() {
   upload_list_->Load(base::BindOnce(&CrashesDOMHandler::OnUploadListAvailable,
                                     base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       crash_reporter::kCrashesUIRequestCrashList,
       base::BindRepeating(&CrashesDOMHandler::HandleRequestCrashes,
                           base::Unretained(this)));
@@ -126,22 +133,22 @@ void CrashesDOMHandler::UpdateUI() {
   base::ListValue crash_list;
   if (crash_reporting_enabled)
     crash_reporter::UploadListToValue(upload_list_.get(), &crash_list);
-  base::Value enabled(crash_reporting_enabled);
-  base::Value dynamic_backend(false);
-  base::Value manual_uploads(false);
-  base::Value version(version_info::GetVersionNumber());
-  base::Value os_string(base::SysInfo::OperatingSystemName() + " " +
-                        base::SysInfo::OperatingSystemVersion());
+
+  base::Value result(base::Value::Type::DICTIONARY);
+  result.SetBoolPath("enabled", crash_reporting_enabled);
+  result.SetBoolPath("dynamicBackend", false);
+  result.SetBoolPath("manualUploads", crash_reporter::IsCrashpadRunning());
+  result.SetPath("crashes", std::move(crash_list));
+  result.SetStringPath("version", version_info::GetVersionNumber());
+  result.SetStringPath("os", base::SysInfo::OperatingSystemName() + " " +
+                                 base::SysInfo::OperatingSystemVersion());
+
+  base::Value event_name(crash_reporter::kCrashesUIUpdateCrashList);
 
   std::vector<const base::Value*> args;
-  args.push_back(&enabled);
-  args.push_back(&dynamic_backend);
-  args.push_back(&manual_uploads);
-  args.push_back(&crash_list);
-  args.push_back(&version);
-  args.push_back(&os_string);
-  web_ui()->CallJavascriptFunction(crash_reporter::kCrashesUIUpdateCrashList,
-                                   args);
+  args.push_back(&event_name);
+  args.push_back(&result);
+  web_ui()->CallJavascriptFunction("cr.webUIListenerCallback", args);
 }
 
 }  // namespace

@@ -9,9 +9,10 @@
 
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
+#include "base/memory/memory_pressure_listener.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "components/discardable_memory/client/client_discardable_shared_memory_manager.h"
@@ -57,6 +58,8 @@ class PaintPreviewCompositorCollectionImpl
   void CreateCompositor(
       mojo::PendingReceiver<mojom::PaintPreviewCompositor> compositor,
       CreateCompositorCallback callback) override;
+  void OnMemoryPressure(base::MemoryPressureListener::MemoryPressureLevel
+                            memory_pressure_level) override;
   void ListCompositors(ListCompositorsCallback callback) override;
 
  private:

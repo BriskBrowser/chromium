@@ -25,6 +25,11 @@ namespace sync_file_system {
 class MockRemoteChangeProcessor : public RemoteChangeProcessor {
  public:
   MockRemoteChangeProcessor();
+
+  MockRemoteChangeProcessor(const MockRemoteChangeProcessor&) = delete;
+  MockRemoteChangeProcessor& operator=(const MockRemoteChangeProcessor&) =
+      delete;
+
   ~MockRemoteChangeProcessor() override;
 
   // RemoteChangeProcessor overrides.
@@ -39,14 +44,11 @@ class MockRemoteChangeProcessor : public RemoteChangeProcessor {
   MOCK_METHOD3(FinalizeRemoteSync,
                void(const storage::FileSystemURL& url,
                     bool clear_local_changes,
-                    const base::Closure& completion_callback));
+                    base::OnceClosure completion_callback));
   MOCK_METHOD3(RecordFakeLocalChange,
                void(const storage::FileSystemURL& url,
                     const FileChange& change,
                     SyncStatusCallback callback));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockRemoteChangeProcessor);
 };
 
 }  // namespace sync_file_system

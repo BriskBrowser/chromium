@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/web_contents_observer.h"  // For MediaPlayerId.
 
@@ -33,6 +32,12 @@ class WebContentsImpl;
 class CONTENT_EXPORT MediaSessionControllersManager {
  public:
   explicit MediaSessionControllersManager(WebContentsImpl* web_contents);
+
+  MediaSessionControllersManager(const MediaSessionControllersManager&) =
+      delete;
+  MediaSessionControllersManager& operator=(
+      const MediaSessionControllersManager&) = delete;
+
   ~MediaSessionControllersManager();
 
   // Clear all the MediaSessionController associated with the given
@@ -68,6 +73,9 @@ class CONTENT_EXPORT MediaSessionControllersManager {
   // Called when the WebContents was muted or unmuted.
   void WebContentsMutedStateChanged(bool muted);
 
+  // Called when the player's mute status changed.
+  void OnMediaMutedStatusChanged(const MediaPlayerId& id, bool mute);
+
   // Called when picture-in-picture availability for the player |id| has
   // changed.
   void OnPictureInPictureAvailabilityChanged(const MediaPlayerId& id,
@@ -92,8 +100,6 @@ class CONTENT_EXPORT MediaSessionControllersManager {
   WebContentsImpl* const web_contents_;
 
   ControllersMap controllers_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaSessionControllersManager);
 };
 
 }  // namespace content

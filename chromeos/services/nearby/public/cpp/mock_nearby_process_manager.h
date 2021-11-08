@@ -43,10 +43,8 @@ class MockNearbyProcessManager : public NearbyProcessManager {
 
   MOCK_METHOD(std::unique_ptr<NearbyProcessReference>,
               GetNearbyProcessReference,
-              (base::OnceClosure on_process_stopped_callback),
+              (NearbyProcessStoppedCallback on_process_stopped_callback),
               (override));
-
-  MOCK_METHOD(void, Shutdown, (), (override));
 };
 
 }  // namespace nearby

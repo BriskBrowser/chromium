@@ -169,6 +169,8 @@ let kRTCRemoteInboundRtpStreamStats =
   localId: 'string',
   roundTripTime: 'number',
   fractionLost: 'number',
+  totalRoundTripTime: 'number',
+  roundTripTimeMeasurements: 'number',
 });
 // TODO(https://crbug.com/967382): Update the browser_tests to wait for the
 // existence of remote-inbound-rtp as well (these are created later than
@@ -239,6 +241,10 @@ addRTCStatsToWhitelist(
 let kRTCRemoteOutboundRtpStreamStats = new RTCStats(kRTCSentRtpStreamStats, {
   localId: 'string',
   remoteTimestamp: 'number',
+  reportsSent: 'number',
+  roundTripTime: 'number',
+  totalRoundTripTime: 'number',
+  roundTripTimeMeasurements: 'number',
 });
 // TODO(hbos): When remote-outbound-rtp is implemented, make presence MANDATORY.
 addRTCStatsToWhitelist(
@@ -263,6 +269,8 @@ const kRTCAudioSourceStats = new RTCStats(kRTCMediaSourceStats, {
   audioLevel: 'number',
   totalAudioEnergy: 'number',
   totalSamplesDuration: 'number',
+  echoReturnLoss: 'number',
+  echoReturnLossEnhancement: 'number',
 });
 addRTCStatsToWhitelist(
     Presence.MANDATORY, 'media-source', kRTCAudioSourceStats);
@@ -533,6 +541,7 @@ let kRTCIceCandidateStats = new RTCStats(null, {
   isRemote: 'boolean',
   networkType: 'string',
   ip: 'string',
+  address: 'string',
   port: 'number',
   protocol: 'string',
   relayProtocol: 'string',
@@ -560,6 +569,8 @@ let kRTCIceCandidatePairStats = new RTCStats(null, {
   nominated: 'boolean',
   writable: 'boolean',
   readable: 'boolean',
+  packetsSent: 'number',
+  packetsReceived: 'number',
   bytesSent: 'number',
   bytesReceived: 'number',
   totalRoundTripTime: 'number',
@@ -576,6 +587,8 @@ let kRTCIceCandidatePairStats = new RTCStats(null, {
   consentRequestsSent: 'number',
   consentResponsesReceived: 'number',
   consentResponsesSent: 'number',
+  packetsDiscardedOnSend: 'number',
+  bytesDiscardedOnSend: 'number',
 });
 addRTCStatsToWhitelist(
     Presence.MANDATORY, 'candidate-pair', kRTCIceCandidatePairStats);

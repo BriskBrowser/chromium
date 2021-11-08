@@ -7,9 +7,10 @@
 
 #include "chrome/browser/ui/views/tabs/tab_slot_view.h"
 #include "components/tab_groups/tab_group_id.h"
+#include "ui/base/interaction/element_identifier.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/focus_ring.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view_targeter_delegate.h"
 #include "ui/views/widget/widget_observer.h"
 
@@ -29,6 +30,10 @@ class TabGroupHeader : public TabSlotView,
                        public views::ViewTargeterDelegate {
  public:
   METADATA_HEADER(TabGroupHeader);
+
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(TabGroupHeader,
+                                         kTabGroupHeaderIdentifier);
+
   TabGroupHeader(TabStrip* tab_strip, const tab_groups::TabGroupId& group);
   TabGroupHeader(const TabGroupHeader&) = delete;
   TabGroupHeader& operator=(const TabGroupHeader&) = delete;
@@ -46,6 +51,7 @@ class TabGroupHeader : public TabSlotView,
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   TabSlotView::ViewType GetTabSlotViewType() const override;
   TabSizeInfo GetTabSizeInfo() const override;
+  std::u16string GetTooltipText(const gfx::Point& p) const override;
 
   // views::ContextMenuController:
   void ShowContextMenuForViewImpl(views::View* source,
@@ -77,9 +83,6 @@ class TabGroupHeader : public TabSlotView,
 
   views::View* title_chip_;
   views::Label* title_;
-
-  // Focus ring for accessibility.
-  views::FocusRing* focus_ring_ = nullptr;
 
   // Time used for logging the last time the group was collapsed or expanded.
   base::TimeTicks last_modified_expansion_;

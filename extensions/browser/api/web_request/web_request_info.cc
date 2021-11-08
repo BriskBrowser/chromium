@@ -8,8 +8,8 @@
 #include <string>
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
-#include "base/stl_util.h"
 #include "base/values.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/websocket_handshake_request_info.h"
@@ -47,6 +47,10 @@ class UploadDataSource {
 class BytesUploadDataSource : public UploadDataSource {
  public:
   BytesUploadDataSource(const base::StringPiece& bytes) : bytes_(bytes) {}
+
+  BytesUploadDataSource(const BytesUploadDataSource&) = delete;
+  BytesUploadDataSource& operator=(const BytesUploadDataSource&) = delete;
+
   ~BytesUploadDataSource() override = default;
 
   // UploadDataSource:
@@ -56,13 +60,15 @@ class BytesUploadDataSource : public UploadDataSource {
 
  private:
   base::StringPiece bytes_;
-
-  DISALLOW_COPY_AND_ASSIGN(BytesUploadDataSource);
 };
 
 class FileUploadDataSource : public UploadDataSource {
  public:
   FileUploadDataSource(const base::FilePath& path) : path_(path) {}
+
+  FileUploadDataSource(const FileUploadDataSource&) = delete;
+  FileUploadDataSource& operator=(const FileUploadDataSource&) = delete;
+
   ~FileUploadDataSource() override = default;
 
   // UploadDataSource:
@@ -72,8 +78,6 @@ class FileUploadDataSource : public UploadDataSource {
 
  private:
   base::FilePath path_;
-
-  DISALLOW_COPY_AND_ASSIGN(FileUploadDataSource);
 };
 
 bool CreateUploadDataSourcesFromResourceRequest(
@@ -149,27 +153,23 @@ std::unique_ptr<base::DictionaryValue> CreateRequestBodyData(
 }  // namespace
 
 WebRequestInfoInitParams::WebRequestInfoInitParams() = default;
-WebRequestInfoInitParams::WebRequestInfoInitParams(
-    WebRequestInfoInitParams&& other) = default;
-WebRequestInfoInitParams& WebRequestInfoInitParams::operator=(
-    WebRequestInfoInitParams&& other) = default;
 
 WebRequestInfoInitParams::WebRequestInfoInitParams(
     uint64_t request_id,
     int render_process_id,
     int render_frame_id,
     std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
-    int32_t routing_id,
+    int32_t view_routing_id,
     const network::ResourceRequest& request,
     bool is_download,
     bool is_async,
     bool is_service_worker_script,
-    base::Optional<int64_t> navigation_id,
+    absl::optional<int64_t> navigation_id,
     ukm::SourceIdObj ukm_source_id)
     : id(request_id),
       url(request.url),
       render_process_id(render_process_id),
-      routing_id(routing_id),
+      view_routing_id(view_routing_id),
       frame_id(render_frame_id),
       method(request.method),
       is_navigation_request(!!navigation_ui_data),
@@ -192,6 +192,12 @@ WebRequestInfoInitParams::WebRequestInfoInitParams(
   }
 }
 
+WebRequestInfoInitParams::WebRequestInfoInitParams(
+    WebRequestInfoInitParams&& other) = default;
+
+WebRequestInfoInitParams& WebRequestInfoInitParams::operator=(
+    WebRequestInfoInitParams&& other) = default;
+
 WebRequestInfoInitParams::~WebRequestInfoInitParams() = default;
 
 void WebRequestInfoInitParams::InitializeWebViewAndFrameData(
@@ -207,7 +213,7 @@ void WebRequestInfoInitParams::InitializeWebViewAndFrameData(
     // Grab any WebView-related information if relevant.
     WebViewRendererState::WebViewInfo web_view_info;
     if (WebViewRendererState::GetInstance()->GetInfo(
-            render_process_id, routing_id, &web_view_info)) {
+            render_process_id, view_routing_id, &web_view_info)) {
       is_web_view = true;
       web_view_instance_id = web_view_info.instance_id;
       web_view_rules_registry_id = web_view_info.rules_registry_id;
@@ -215,11 +221,11 @@ void WebRequestInfoInitParams::InitializeWebViewAndFrameData(
     }
 
     // For subresource loads we attempt to resolve the FrameData immediately.
-    frame_data = ExtensionApiFrameIdMap::Get()->GetFrameData(render_process_id,
-                                                             frame_id);
+    frame_data = ExtensionApiFrameIdMap::Get()->GetFrameData(
+        content::GlobalRenderFrameHostId(render_process_id, frame_id));
 
     parent_routing_id =
-        content::GlobalFrameRoutingId(render_process_id, frame_id);
+        content::GlobalRenderFrameHostId(render_process_id, frame_id);
   }
 }
 
@@ -227,7 +233,7 @@ WebRequestInfo::WebRequestInfo(WebRequestInfoInitParams params)
     : id(params.id),
       url(std::move(params.url)),
       render_process_id(params.render_process_id),
-      routing_id(params.routing_id),
+      view_routing_id(params.view_routing_id),
       frame_id(params.frame_id),
       method(std::move(params.method)),
       is_navigation_request(params.is_navigation_request),

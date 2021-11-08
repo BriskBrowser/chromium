@@ -52,10 +52,11 @@ class TemplateURLServiceLoader {
     message_loop_runner->Run();
   }
 
+  TemplateURLServiceLoader(const TemplateURLServiceLoader&) = delete;
+  TemplateURLServiceLoader& operator=(const TemplateURLServiceLoader&) = delete;
+
  private:
   TemplateURLService* model_;
-
-  DISALLOW_COPY_AND_ASSIGN(TemplateURLServiceLoader);
 };
 
 std::unique_ptr<net::test_server::HttpResponse> SendResponse(
@@ -100,10 +101,9 @@ IN_PROC_BROWSER_TEST_F(TemplateURLScraperTest, ScrapeWithOnSubmit) {
   ui_test_utils::NavigateToURLBlockUntilNavigationsComplete(
       browser(), GURL("http://www.foo.com:" + port + "/"), 1);
 
-  base::string16 title;
+  std::u16string title;
   ui_test_utils::GetCurrentTabTitle(browser(), &title);
-  ASSERT_EQ(base::ASCIIToUTF16("Submit handler TemplateURL scraping test"),
-            title);
+  ASSERT_EQ(u"Submit handler TemplateURL scraping test", title);
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();

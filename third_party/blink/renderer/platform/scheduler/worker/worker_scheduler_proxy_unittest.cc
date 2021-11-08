@@ -8,13 +8,14 @@
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/sequence_manager/test/sequence_manager_for_test.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.h"
-#include "third_party/blink/renderer/platform/scheduler/public/worker_scheduler.h"
+#include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_thread.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_thread_scheduler.h"
 
@@ -76,9 +77,14 @@ class WorkerThreadForTest : public WorkerThread {
     auto scheduler = std::make_unique<WorkerThreadSchedulerForTest>(
         manager, worker_scheduler_proxy(), throtting_state_changed_);
     scheduler_ = scheduler.get();
-    worker_scheduler_ = std::make_unique<scheduler::WorkerScheduler>(
-        scheduler_, worker_scheduler_proxy());
     return scheduler;
+  }
+
+  void CreateWorkerScheduler() {
+    DCHECK(scheduler_);
+    DCHECK(!worker_scheduler_);
+    worker_scheduler_ = std::make_unique<scheduler::WorkerSchedulerImpl>(
+        scheduler_, worker_scheduler_proxy());
   }
 
   WorkerThreadSchedulerForTest* GetWorkerScheduler() { return scheduler_; }
@@ -86,7 +92,7 @@ class WorkerThreadForTest : public WorkerThread {
  private:
   base::WaitableEvent* throtting_state_changed_;       // NOT OWNED
   WorkerThreadSchedulerForTest* scheduler_ = nullptr;  // NOT OWNED
-  std::unique_ptr<WorkerScheduler> worker_scheduler_ = nullptr;
+  std::unique_ptr<WorkerSchedulerImpl> worker_scheduler_;
 };
 
 std::unique_ptr<WorkerThreadForTest> CreateWorkerThread(
@@ -95,6 +101,17 @@ std::unique_ptr<WorkerThreadForTest> CreateWorkerThread(
   auto thread = std::make_unique<WorkerThreadForTest>(frame_scheduler,
                                                       throtting_state_changed);
   thread->Init();
+
+  base::RunLoop run_loop;
+  thread->GetTaskRunner()->PostTask(FROM_HERE,
+                                    base::BindLambdaForTesting([&]() {
+                                      // The WorkerScheduler must be created on
+                                      // the worker thread.
+                                      thread->CreateWorkerScheduler();
+                                      run_loop.Quit();
+                                    }));
+  run_loop.Run();
+
   return thread;
 }
 
@@ -111,7 +128,7 @@ class WorkerSchedulerProxyTest : public testing::Test {
                 nullptr,
                 task_environment_.GetMainThreadTaskRunner(),
                 task_environment_.GetMockTickClock()),
-            base::nullopt)),
+            absl::nullopt)),
         agent_group_scheduler_(
             main_thread_scheduler_->CreateAgentGroupScheduler()),
         page_scheduler_(
@@ -154,7 +171,7 @@ TEST_F(WorkerSchedulerProxyTest, VisibilitySignalReceived) {
          SchedulingLifecycleState::kHidden);
 
   // Trigger full throttling.
-  task_environment_.FastForwardBy(base::TimeDelta::FromSeconds(30));
+  task_environment_.FastForwardBy(base::Seconds(30));
   throtting_state_changed.Wait();
   DCHECK(worker_thread->GetWorkerScheduler()->lifecycle_state() ==
          SchedulingLifecycleState::kThrottled);

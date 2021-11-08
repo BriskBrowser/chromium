@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.translate;
 
+import org.chromium.base.LocaleUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.browser.language.settings.LanguageItem;
@@ -27,7 +28,10 @@ public class TranslateBridge {
     }
 
     /**
-     * Initates a translation on the given tab to the given target language.
+     * Initates a translation on the given tab to the given target language. All metrics reported
+     * for this translation assume that this translation was initiated from the Translate UI. If the
+     * translation from the Context Menu or by some other means, then an extra signal needs to be
+     * passed through.
      */
     public static void translateTabToLanguage(Tab tab, String targetLanguageCode) {
         TranslateBridgeJni.get().translateToLanguage(tab.getWebContents(), targetLanguageCode);
@@ -38,7 +42,15 @@ public class TranslateBridge {
      * Logging should only be performed when this method is called to show the translate menu item.
      */
     public static boolean canManuallyTranslate(Tab tab, boolean menuLogging) {
-        return TranslateBridgeJni.get().canManuallyTranslate(tab.getWebContents(), menuLogging);
+        return canManuallyTranslate(tab.getWebContents(), menuLogging);
+    }
+
+    /**
+     * Returns true iff the contents can be manually translated.
+     * Logging should only be performed when this method is called to show the translate menu item.
+     */
+    public static boolean canManuallyTranslate(WebContents webContents, boolean menuLogging) {
+        return TranslateBridgeJni.get().canManuallyTranslate(webContents, menuLogging);
     }
 
     /**
@@ -58,12 +70,21 @@ public class TranslateBridge {
     }
 
     /**
-     * Get the original page language of the given Tab.
-     * @param tab The tab to get original language code for.
-     * @return String The original language code. Empty string if no language has been detected.
+     * Get the page source language of the given Tab.
+     * @param tab The tab to get source language code for.
+     * @return String The source language code. Empty string if no language has been detected.
      */
-    public static String getOriginalLanguage(Tab tab) {
-        return TranslateBridgeJni.get().getOriginalLanguage(tab.getWebContents());
+    public static String getSourceLanguage(Tab tab) {
+        return getSourceLanguage(tab.getWebContents());
+    }
+
+    /**
+     * Get the page source language of the given contents.
+     * @param webContents The web contents to get source language code for.
+     * @return String The source language code. Empty string if no language has been detected.
+     */
+    public static String getSourceLanguage(WebContents webContents) {
+        return TranslateBridgeJni.get().getSourceLanguage(webContents);
     }
 
     /**
@@ -72,7 +93,16 @@ public class TranslateBridge {
      * @return String The current language code. Empty string if no language has been detected.
      */
     public static String getCurrentLanguage(Tab tab) {
-        return TranslateBridgeJni.get().getCurrentLanguage(tab.getWebContents());
+        return getCurrentLanguage(tab.getWebContents());
+    }
+
+    /**
+     * Get the current page language of the given contents.
+     * @param webContents The web contents to get current language code for.
+     * @return String The current language code. Empty string if no language has been detected.
+     */
+    public static String getCurrentLanguage(WebContents webContents) {
+        return TranslateBridgeJni.get().getCurrentLanguage(webContents);
     }
 
     /**
@@ -80,6 +110,16 @@ public class TranslateBridge {
      */
     public static String getTargetLanguage() {
         return TranslateBridgeJni.get().getTargetLanguage();
+    }
+
+    /**
+     * The target language is stored in Translate format, which uses the old deprecated Java codes
+     * for several languages (Hebrew, Indonesian), and uses "tl" while Chromium uses "fil" for
+     * Tagalog/Filipino. This converts the target language into the correct Chromium format.
+     * @return The Chrome version of the users translate target language.
+     */
+    public static String getTargetLanguageForChromium() {
+        return LocaleUtils.getUpdatedLanguageForChromium(getTargetLanguage());
     }
 
     /**
@@ -131,8 +171,8 @@ public class TranslateBridge {
     }
 
     /**
-     * @return A sorted list of LanguageItems representing the Chrome accept languages with details.
-     *         Languages that are not supported on Android have been filtered out.
+     * @return A list of LanguageItems sorted by display name that represent all languages that can
+     * be on the Chrome accept languages list.
      */
     public static List<LanguageItem> getChromeLanguageList() {
         List<LanguageItem> list = new ArrayList<>();
@@ -156,6 +196,18 @@ public class TranslateBridge {
         List<String> list = new ArrayList<>();
         TranslateBridgeJni.get().getAlwaysTranslateLanguages(list);
         return list;
+    }
+
+    /** @return List of languages that translation should not be prompted for. */
+    public static List<String> getNeverTranslateLanguages() {
+        List<String> list = new ArrayList<>();
+        TranslateBridgeJni.get().getNeverTranslateLanguages(list);
+        return list;
+    }
+
+    public static void setLanguageAlwaysTranslateState(
+            String languageCode, boolean alwaysTranslate) {
+        TranslateBridgeJni.get().setLanguageAlwaysTranslateState(languageCode, alwaysTranslate);
     }
 
     /**
@@ -216,18 +268,32 @@ public class TranslateBridge {
         TranslateBridgeJni.get().setExplicitLanguageAskPromptShown(shown);
     }
 
+    /**
+     * @return Whether the app language prompt has been shown or not.
+     */
+    public static boolean getAppLanguagePromptShown() {
+        return TranslateBridgeJni.get().getAppLanguagePromptShown();
+    }
+
+    /**
+     * Set the pref indicating the app language prompt has been shown to the user.
+     */
+    public static void setAppLanguagePromptShown() {
+        TranslateBridgeJni.get().setAppLanguagePromptShown();
+    }
+
     public static void setIgnoreMissingKeyForTesting(boolean ignore) {
         TranslateBridgeJni.get().setIgnoreMissingKeyForTesting(ignore); // IN-TEST
     }
 
     @NativeMethods
-    interface Natives {
+    public interface Natives {
         void manualTranslateWhenReady(WebContents webContents);
         void translateToLanguage(WebContents webContents, String targetLanguageCode);
         boolean canManuallyTranslate(WebContents webContents, boolean menuLogging);
         boolean shouldShowManualTranslateIPH(WebContents webContents);
         void setPredefinedTargetLanguage(WebContents webContents, String targetLanguage);
-        String getOriginalLanguage(WebContents webContents);
+        String getSourceLanguage(WebContents webContents);
         String getCurrentLanguage(WebContents webContents);
         String getTargetLanguage();
         void setDefaultTargetLanguage(String targetLanguage);
@@ -236,6 +302,8 @@ public class TranslateBridge {
         void getChromeAcceptLanguages(List<LanguageItem> list);
         void getUserAcceptLanguages(List<String> list);
         void getAlwaysTranslateLanguages(List<String> list);
+        void getNeverTranslateLanguages(List<String> list);
+        void setLanguageAlwaysTranslateState(String language, boolean alwaysTranslate);
         void updateUserAcceptLanguages(String language, boolean add);
         void moveAcceptLanguage(String language, int offset);
         void setLanguageOrder(String[] codes);
@@ -243,6 +311,8 @@ public class TranslateBridge {
         void setLanguageBlockedState(String language, boolean blocked);
         boolean getExplicitLanguageAskPromptShown();
         void setExplicitLanguageAskPromptShown(boolean shown);
+        boolean getAppLanguagePromptShown();
+        void setAppLanguagePromptShown();
         void setIgnoreMissingKeyForTesting(boolean ignore);
     }
 }

@@ -10,10 +10,10 @@
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_menu_button.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/context_menu_controller.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace gfx {
 class Rect;
@@ -81,8 +81,8 @@ class CustomTabBarView : public views::AccessiblePaneView,
                                      on_icon_fetched) const override;
 
   // Methods for testing.
-  base::string16 title_for_testing() const { return last_title_; }
-  base::string16 location_for_testing() const { return last_location_; }
+  std::u16string title_for_testing() const { return last_title_; }
+  std::u16string location_for_testing() const { return last_location_; }
   views::ImageButton* close_button_for_testing() const { return close_button_; }
   ui::SimpleMenuModel* context_menu_for_testing() const {
     return context_menu_model_.get();
@@ -116,7 +116,7 @@ class CustomTabBarView : public views::AccessiblePaneView,
   }
 
   // Convenience method to return the theme color from |app_controller_|.
-  base::Optional<SkColor> GetThemeColor() const;
+  absl::optional<SkColor> GetThemeColor() const;
 
   // Populates child elements with page details from the current WebContents.
   void UpdateContents();
@@ -126,8 +126,8 @@ class CustomTabBarView : public views::AccessiblePaneView,
   SkColor title_bar_color_;
   SkColor background_color_;
 
-  base::string16 last_title_;
-  base::string16 last_location_;
+  std::u16string last_title_;
+  std::u16string last_location_;
 
   views::ImageButton* close_button_ = nullptr;
   LocationBarView::Delegate* delegate_ = nullptr;

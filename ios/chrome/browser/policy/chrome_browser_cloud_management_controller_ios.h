@@ -7,8 +7,6 @@
 
 #include "components/enterprise/browser/controller/chrome_browser_cloud_management_controller.h"
 
-#include "ios/chrome/browser/policy/reporting/reporting_delegate_factory_ios.h"
-
 namespace policy {
 
 // iOS implementation of the platform-specific operations of CBCMController.
@@ -26,7 +24,7 @@ class ChromeBrowserCloudManagementControllerIOS
   // ChromeBrowserCloudManagementController::Delegate implementation.
   void SetDMTokenStorageDelegate() override;
   int GetUserDataDirKey() override;
-  base::FilePath GetExternalPolicyPath() override;
+  base::FilePath GetExternalPolicyDir() override;
   NetworkConnectionTrackerGetter CreateNetworkConnectionTrackerGetter()
       override;
   void InitializeOAuthTokenFactory(
@@ -44,15 +42,15 @@ class ChromeBrowserCloudManagementControllerIOS
   DeviceManagementService* GetDeviceManagementService() override;
   scoped_refptr<network::SharedURLLoaderFactory> GetSharedURLLoaderFactory()
       override;
-  std::unique_ptr<enterprise_reporting::ReportScheduler> CreateReportScheduler(
-      CloudPolicyClient* client) override;
   scoped_refptr<base::SingleThreadTaskRunner> GetBestEffortTaskRunner()
       override;
+  std::unique_ptr<enterprise_reporting::ReportingDelegateFactory>
+  GetReportingDelegateFactory() override;
   void SetGaiaURLLoaderFactory(scoped_refptr<network::SharedURLLoaderFactory>
                                    url_loader_factory) override;
-
- private:
-  enterprise_reporting::ReportingDelegateFactoryIOS reporting_delegate_factory_;
+  bool ReadyToCreatePolicyManager() override;
+  bool ReadyToInit() override;
+  std::unique_ptr<ClientDataDelegate> CreateClientDataDelegate() override;
 };
 
 }  // namespace policy

@@ -21,9 +21,15 @@ namespace media {
 class CAPTURE_EXPORT Camera3AController final
     : public CaptureMetadataDispatcher::ResultMetadataObserver {
  public:
+  Camera3AController() = delete;
+
   Camera3AController(const cros::mojom::CameraMetadataPtr& static_metadata,
                      CaptureMetadataDispatcher* capture_metadata_dispatcher,
                      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+
+  Camera3AController(const Camera3AController&) = delete;
+  Camera3AController& operator=(const Camera3AController&) = delete;
+
   ~Camera3AController() final;
 
   // Trigger the camera to start exposure, focus, and white-balance metering and
@@ -60,10 +66,6 @@ class CAPTURE_EXPORT Camera3AController final
   // Set point of interest. The coordinate system is based on the active
   // pixel array.
   void SetPointOfInterest(gfx::Point point);
-
-  // Updates the availability of Zero-Shutter Lag (ZSL). We skip 3A (AE, AF,
-  // AWB) if ZSL is enabled.
-  void UpdateZeroShutterLagAvailability(bool enabled);
 
   base::WeakPtr<Camera3AController> GetWeakPtr();
 
@@ -103,6 +105,7 @@ class CAPTURE_EXPORT Camera3AController final
   bool ae_region_supported_;
   bool af_region_supported_;
   bool point_of_interest_supported_;
+  bool zero_shutter_lag_supported_;
 
   CaptureMetadataDispatcher* capture_metadata_dispatcher_;
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
@@ -132,8 +135,6 @@ class CAPTURE_EXPORT Camera3AController final
 
   bool ae_locked_for_point_of_interest_;
 
-  bool zero_shutter_lag_enabled_;
-
   base::TimeDelta latest_sensor_timestamp_;
 
   std::unordered_set<cros::mojom::CameraMetadataTag> repeating_metadata_tags_;
@@ -155,8 +156,6 @@ class CAPTURE_EXPORT Camera3AController final
   base::CancelableOnceClosure delayed_ae_unlock_callback_;
 
   base::WeakPtrFactory<Camera3AController> weak_ptr_factory_{this};
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(Camera3AController);
 };
 
 }  // namespace media

@@ -8,9 +8,9 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/json/json_writer.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -109,16 +109,18 @@ base::Value AccessibilityTreeFormatterAndroid::BuildTree(
   return std::move(dict);
 }
 
-base::Value AccessibilityTreeFormatterAndroid::BuildTreeForWindow(
-    gfx::AcceleratedWidget widget) const {
-  NOTREACHED();
-  return base::Value(base::Value::Type::DICTIONARY);
-}
-
 base::Value AccessibilityTreeFormatterAndroid::BuildTreeForSelector(
     const AXTreeSelector& selector) const {
   NOTREACHED();
   return base::Value(base::Value::Type::DICTIONARY);
+}
+
+base::Value AccessibilityTreeFormatterAndroid::BuildNode(
+    ui::AXPlatformNodeDelegate* node) const {
+  CHECK(node);
+  base::DictionaryValue dict;
+  AddProperties(*BrowserAccessibility::FromAXPlatformNodeDelegate(node), &dict);
+  return std::move(dict);
 }
 
 void AccessibilityTreeFormatterAndroid::AddDefaultFilters(
@@ -133,18 +135,23 @@ void AccessibilityTreeFormatterAndroid::AddDefaultFilters(
 void AccessibilityTreeFormatterAndroid::RecursiveBuildTree(
     const BrowserAccessibility& node,
     base::DictionaryValue* dict) const {
-  AddProperties(node, dict);
+  if (!ShouldDumpNode(node))
+    return;
 
-  auto children = std::make_unique<base::ListValue>();
+  AddProperties(node, dict);
+  if (!ShouldDumpChildren(node))
+    return;
+
+  base::ListValue children;
 
   for (size_t i = 0; i < node.PlatformChildCount(); ++i) {
     BrowserAccessibility* child_node = node.PlatformGetChild(i);
     std::unique_ptr<base::DictionaryValue> child_dict(
         new base::DictionaryValue);
     RecursiveBuildTree(*child_node, child_dict.get());
-    children->Append(std::move(child_dict));
+    children.Append(std::move(child_dict));
   }
-  dict->Set(kChildrenDictAttr, std::move(children));
+  dict->SetKey(kChildrenDictAttr, std::move(children));
 }
 
 void AccessibilityTreeFormatterAndroid::AddProperties(
@@ -165,6 +172,7 @@ void AccessibilityTreeFormatterAndroid::AddProperties(
   dict->SetBoolean("collapsed", android_node->IsCollapsed());
   dict->SetBoolean("collection", android_node->IsCollection());
   dict->SetBoolean("collection_item", android_node->IsCollectionItem());
+  dict->SetBoolean("content_invalid", android_node->IsContentInvalid());
   dict->SetBoolean("disabled", !android_node->IsEnabled());
   dict->SetBoolean("dismissable", android_node->IsDismissable());
   dict->SetBoolean("editable_text", android_node->IsTextField());
@@ -232,8 +240,7 @@ std::string AccessibilityTreeFormatterAndroid::ProcessTreeForOutput(
 
   std::string line;
   if (show_ids()) {
-    int id_value;
-    dict.GetInteger("id", &id_value);
+    int id_value = dict.FindIntKey("id").value_or(0);
     WriteAttribute(true, base::NumberToString(id_value), &line);
   }
 
@@ -251,8 +258,8 @@ std::string AccessibilityTreeFormatterAndroid::ProcessTreeForOutput(
 
   for (unsigned i = 0; i < base::size(BOOL_ATTRIBUTES); i++) {
     const char* attribute_name = BOOL_ATTRIBUTES[i];
-    bool value;
-    if (dict.GetBoolean(attribute_name, &value) && value)
+    absl::optional<bool> value = dict.FindBoolPath(attribute_name);
+    if (value && *value)
       WriteAttribute(true, attribute_name, &line);
   }
 
@@ -267,16 +274,16 @@ std::string AccessibilityTreeFormatterAndroid::ProcessTreeForOutput(
 
   for (unsigned i = 0; i < base::size(INT_ATTRIBUTES); i++) {
     const char* attribute_name = INT_ATTRIBUTES[i];
-    int value;
-    if (!dict.GetInteger(attribute_name, &value) || value == 0)
+    int value = dict.FindIntKey(attribute_name).value_or(0);
+    if (value == 0)
       continue;
     WriteAttribute(true, StringPrintf("%s=%d", attribute_name, value), &line);
   }
 
   for (unsigned i = 0; i < base::size(ACTION_ATTRIBUTES); i++) {
     const char* attribute_name = ACTION_ATTRIBUTES[i];
-    bool value;
-    if (dict.GetBoolean(attribute_name, &value) && value) {
+    absl::optional<bool> value = dict.FindBoolPath(attribute_name);
+    if (value && *value) {
       WriteAttribute(false /* Exclude actions by default */, attribute_name,
                      &line);
     }

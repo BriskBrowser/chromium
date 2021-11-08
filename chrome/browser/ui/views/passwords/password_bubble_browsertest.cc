@@ -20,17 +20,10 @@
 
 using base::StartsWith;
 
-// Test params:
-//  - bool : whether to enable account storage feature or not.
 class PasswordBubbleBrowserTest
-    : public SupportsTestDialog<ManagePasswordsTest>,
-      public testing::WithParamInterface<bool> {
+    : public SupportsTestDialog<ManagePasswordsTest> {
  public:
-  PasswordBubbleBrowserTest() {
-    scoped_feature_list_.InitWithFeatureState(
-        password_manager::features::kEnablePasswordsAccountStorage, GetParam());
-  }
-
+  PasswordBubbleBrowserTest() = default;
   ~PasswordBubbleBrowserTest() override = default;
 
   void ShowUi(const std::string& name) override {
@@ -44,14 +37,13 @@ class PasswordBubbleBrowserTest
                           base::CompareCase::SENSITIVE)) {
       // Set test form to be account-stored. Otherwise, there is no indicator.
       test_form()->in_store =
-          GetParam() ? password_manager::PasswordForm::Store::kAccountStore
-                     : password_manager::PasswordForm::Store::kProfileStore;
+          password_manager::PasswordForm::Store::kAccountStore;
       SetupManagingPasswords();
       ExecuteManagePasswordsCommand();
     } else if (StartsWith(name, "AutoSignin", base::CompareCase::SENSITIVE)) {
       test_form()->url = GURL("https://example.com");
-      test_form()->display_name = base::ASCIIToUTF16("Peter");
-      test_form()->username_value = base::ASCIIToUTF16("pet12@gmail.com");
+      test_form()->display_name = u"Peter";
+      test_form()->username_value = u"pet12@gmail.com";
       std::vector<std::unique_ptr<password_manager::PasswordForm>>
           local_credentials;
       local_credentials.push_back(
@@ -67,63 +59,51 @@ class PasswordBubbleBrowserTest
     } else if (StartsWith(name, "MoreToFixState",
                           base::CompareCase::SENSITIVE)) {
       SetupMoreToFixState();
-    } else if (StartsWith(name, "UnsafeState", base::CompareCase::SENSITIVE)) {
-      SetupUnsafeState();
     } else {
       ADD_FAILURE() << "Unknown dialog type";
       return;
     }
   }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-INSTANTIATE_TEST_SUITE_P(All, PasswordBubbleBrowserTest, ::testing::Bool());
-
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
                        InvokeUi_PendingPasswordBubble) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
                        InvokeUi_AutomaticPasswordBubble) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
                        InvokeUi_ManagePasswordBubble) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_AutoSignin) {
+IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, InvokeUi_AutoSignin) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_SafeState) {
+IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, InvokeUi_SafeState) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_MoreToFixState) {
+IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, InvokeUi_MoreToFixState) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_UnsafeState) {
-  ShowAndVerifyUi();
-}
-
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
                        InvokeUi_MoveToAccountStoreBubble) {
-  if (!GetParam()) {
-    return;  // No moving bubble available without the flag.
-  }
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, AlertAccessibleEvent) {
+IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, AlertAccessibleEvent) {
   views::test::AXEventCounter counter(views::AXEventManager::Get());
   EXPECT_EQ(0, counter.GetCount(ax::mojom::Event::kAlert));
-  ShowUi("ManagePasswordBubble");
-  // TODO(crbug.com/1082217): This should only produce one event
-  EXPECT_LT(0, counter.GetCount(ax::mojom::Event::kAlert));
+  // This needs to show a password bubble that does not trigger as a user
+  // gesture in order to fire an alert event. See
+  // LocationBarBubbleDelegateView's calls to SetAccessibleRole().
+  ShowUi("AutomaticPasswordBubble");
+  EXPECT_EQ(1, counter.GetCount(ax::mojom::Event::kAlert));
 }

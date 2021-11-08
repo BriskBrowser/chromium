@@ -30,8 +30,8 @@ TEST_F(ArchivableCredentialPasswordFormTest, Creation) {
 
   PasswordForm passwordForm;
   passwordForm.times_used = 10;
-  passwordForm.username_element = base::UTF8ToUTF16("username_element");
-  passwordForm.password_element = base::UTF8ToUTF16("password_element");
+  passwordForm.username_element = u"username_element";
+  passwordForm.password_element = u"password_element";
   passwordForm.username_value = base::SysNSStringToUTF16(username);
   passwordForm.encrypted_password = base::SysNSStringToUTF8(keychainIdentifier);
   passwordForm.url = GURL(base::SysNSStringToUTF16(url));
@@ -56,8 +56,8 @@ TEST_F(ArchivableCredentialPasswordFormTest, Creation) {
 TEST_F(ArchivableCredentialPasswordFormTest, AndroidCredentialCreation) {
   PasswordForm form;
   form.signon_realm = "android://hash@com.example.my.app";
-  form.password_element = base::ASCIIToUTF16("pwd");
-  form.password_value = base::ASCIIToUTF16("example");
+  form.password_element = u"pwd";
+  form.password_value = u"example";
 
   ArchivableCredential* credentialOnlyRealm =
       [[ArchivableCredential alloc] initWithPasswordForm:form
@@ -97,8 +97,8 @@ TEST_F(ArchivableCredentialPasswordFormTest, AndroidCredentialCreation) {
 TEST_F(ArchivableCredentialPasswordFormTest, BlockedCreation) {
   PasswordForm form;
   form.signon_realm = "android://hash@com.example.my.app";
-  form.password_element = base::ASCIIToUTF16("pwd");
-  form.password_value = base::ASCIIToUTF16("example");
+  form.password_element = u"pwd";
+  form.password_value = u"example";
   form.blocked_by_user = true;
 
   ArchivableCredential* credential =
@@ -107,6 +107,33 @@ TEST_F(ArchivableCredentialPasswordFormTest, BlockedCreation) {
                                     validationIdentifier:nil];
 
   EXPECT_FALSE(credential);
+}
+
+// Tests the creation of a PasswordForm from a Credential.
+TEST_F(ArchivableCredentialPasswordFormTest, PasswordFormFromCredential) {
+  NSString* username = @"username_value";
+  NSString* keychainIdentifier = @"keychain_identifier_value";
+  NSString* url = @"http://www.alpha.example.com/path/and?args=8";
+  NSString* recordIdentifier = @"recordIdentifier";
+
+  id<Credential> credential =
+      [[ArchivableCredential alloc] initWithFavicon:nil
+                                 keychainIdentifier:keychainIdentifier
+                                               rank:1
+                                   recordIdentifier:recordIdentifier
+                                  serviceIdentifier:url
+                                        serviceName:nil
+                                               user:username
+                               validationIdentifier:nil];
+  EXPECT_TRUE(credential);
+
+  PasswordForm passwordForm = PasswordFormFromCredential(credential);
+  EXPECT_EQ(passwordForm.times_used, credential.rank);
+  EXPECT_EQ(passwordForm.username_value, base::SysNSStringToUTF16(username));
+  EXPECT_EQ(passwordForm.encrypted_password,
+            base::SysNSStringToUTF8(keychainIdentifier));
+  EXPECT_EQ(passwordForm.url, GURL("http://www.alpha.example.com/path/and"));
+  EXPECT_EQ(passwordForm.signon_realm, "http://www.alpha.example.com/");
 }
 
 }  // namespace

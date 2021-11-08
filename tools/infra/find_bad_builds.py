@@ -1,4 +1,4 @@
-#!/usr/bin/env vpython
+#!/usr/bin/env vpython3
 # Copyright 2020 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -17,8 +17,6 @@ This script uses your chromium/src checkout, so you must keep it updated if you
 want this to be able to cancel recent builds.
 """
 
-from __future__ import print_function
-
 import argparse
 import datetime
 import functools
@@ -28,7 +26,7 @@ import multiprocessing
 import subprocess
 import sys
 
-# Provided by root level .vpython file
+# Provided by root level .vpython3 file
 import pytz
 from dateutil.tz import tzlocal
 
@@ -55,7 +53,7 @@ def _get_build_running_time(build):
     build: A dict containing information about a build.
 
   Returns:
-    The build's current runtime in minutes.
+    The build's current runtime as a datetime.timedelta.
   """
   date = datetime.datetime.strptime(build['startTime'], '%Y-%m-%dT%H:%M:%S.%fZ')
   return datetime.datetime.now(tzlocal()) - pytz.timezone('UTC').localize(date)
@@ -266,8 +264,8 @@ def main(raw_args, print_fn):
     for build, is_bad_build in zip(build_jsons, results):
       bid = build['id']
       running_time = _get_build_running_time(build).total_seconds() / 60.0
-      rows.append((bid, is_bad_build, running_time))
-    for row in rows:
+      rows.append((bid, is_bad_build, int(running_time)))
+    for row in sorted(rows, key=lambda r: r[0]):
       print_fn("%s | %s | %s" % tuple(
           (str(itm).ljust(column_lens[i]) for i, itm in enumerate(row))))
   else:

@@ -50,6 +50,10 @@ class DbusAppmenu : public AvatarMenuObserver,
                     public ui::SimpleMenuModel::Delegate {
  public:
   DbusAppmenu(BrowserView* browser_view, uint32_t browser_frame_id);
+
+  DbusAppmenu(const DbusAppmenu&) = delete;
+  DbusAppmenu& operator=(const DbusAppmenu&) = delete;
+
   ~DbusAppmenu() override;
 
   void Initialize(DbusMenu::InitializedCallback callback);
@@ -75,6 +79,16 @@ class DbusAppmenu : public AvatarMenuObserver,
   void AddHistoryItemToMenu(std::unique_ptr<HistoryItem> item,
                             ui::SimpleMenuModel* menu,
                             int index);
+
+  // Creates a menu item with the given |id| and |title| and inserts it in the
+  // history_menu_ at |index|. The creates a submenu with some standard items
+  // and an item for each tab in |tabs|.
+  void AddEntryToHistoryMenu(
+      SessionID id,
+      std::u16string title,
+      int index,
+      const std::vector<std::unique_ptr<sessions::TabRestoreService::Tab>>&
+          tabs);
 
   // Sends a message off to History for data.
   void GetTopSitesData();
@@ -180,8 +194,6 @@ class DbusAppmenu : public AvatarMenuObserver,
 
   // For callbacks may be run after destruction.
   base::WeakPtrFactory<DbusAppmenu> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DbusAppmenu);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_FRAME_DBUS_APPMENU_H_

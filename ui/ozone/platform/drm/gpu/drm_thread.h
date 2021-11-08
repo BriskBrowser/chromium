@@ -69,6 +69,10 @@ class DrmThread : public base::Thread,
                               const std::vector<OverlayStatus>&)>;
 
   DrmThread();
+
+  DrmThread(const DrmThread&) = delete;
+  DrmThread& operator=(const DrmThread&) = delete;
+
   ~DrmThread() override;
 
   void Start(base::OnceClosure receiver_completer,
@@ -175,7 +179,7 @@ class DrmThread : public base::Thread,
   void SetCursor(gfx::AcceleratedWidget widget,
                  const std::vector<SkBitmap>& bitmaps,
                  const gfx::Point& location,
-                 int32_t frame_delay_ms) override;
+                 base::TimeDelta frame_delay) override;
   void MoveCursor(gfx::AcceleratedWidget widget,
                   const gfx::Point& location) override;
 
@@ -227,8 +231,6 @@ class DrmThread : public base::Thread,
   std::unique_ptr<DrmDeviceGenerator> device_generator_;
 
   base::WeakPtrFactory<DrmThread> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DrmThread);
 };
 
 }  // namespace ui

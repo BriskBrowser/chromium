@@ -32,9 +32,11 @@ class StorageServiceRestartBrowserTest : public ContentBrowserTest {
   }
 
   DOMStorageContextWrapper* dom_storage() {
-    auto* partition = static_cast<StoragePartitionImpl*>(
-        BrowserContext::GetDefaultStoragePartition(
-            shell()->web_contents()->GetBrowserContext()));
+    auto* partition =
+        static_cast<StoragePartitionImpl*>(shell()
+                                               ->web_contents()
+                                               ->GetBrowserContext()
+                                               ->GetDefaultStoragePartition());
     return partition->GetDOMStorageContext();
   }
 
@@ -52,7 +54,7 @@ class StorageServiceRestartBrowserTest : public ContentBrowserTest {
               base::BindOnce(&StorageServiceRestartBrowserTest::
                                  WaitForAnyLocalStorageDataAsync,
                              base::Unretained(test), std::move(callback)),
-              base::TimeDelta::FromMilliseconds(50));
+              base::Milliseconds(50));
         },
         this, std::move(callback)));
   }

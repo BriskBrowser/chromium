@@ -6,10 +6,9 @@
 #define CHROME_BROWSER_UI_AUTOFILL_PAYMENTS_SAVE_CARD_BUBBLE_CONTROLLER_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "base/macros.h"
-#include "base/strings/string16.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/sync_utils.h"
@@ -30,6 +29,8 @@ enum class BubbleType;
 class SaveCardBubbleController {
  public:
   SaveCardBubbleController() = default;
+  SaveCardBubbleController(const SaveCardBubbleController&) = delete;
+  SaveCardBubbleController& operator=(const SaveCardBubbleController&) = delete;
   virtual ~SaveCardBubbleController() = default;
 
   // Returns a reference to the SaveCardBubbleController associated with the
@@ -44,15 +45,15 @@ class SaveCardBubbleController {
   static SaveCardBubbleController* Get(content::WebContents* web_contents);
 
   // Returns the title that should be displayed in the bubble.
-  virtual base::string16 GetWindowTitle() const = 0;
+  virtual std::u16string GetWindowTitle() const = 0;
 
   // Returns the explanatory text that should be displayed in the bubble.
   // Returns an empty string if no message should be displayed.
-  virtual base::string16 GetExplanatoryMessage() const = 0;
+  virtual std::u16string GetExplanatoryMessage() const = 0;
 
   // Returns the button label text for save card bubbles.
-  virtual base::string16 GetAcceptButtonText() const = 0;
-  virtual base::string16 GetDeclineButtonText() const = 0;
+  virtual std::u16string GetAcceptButtonText() const = 0;
+  virtual std::u16string GetDeclineButtonText() const = 0;
 
   // Returns the account info of the signed-in user.
   virtual const AccountInfo& GetAccountInfo() const = 0;
@@ -96,9 +97,6 @@ class SaveCardBubbleController {
   virtual BubbleType GetBubbleType() const = 0;
   // Returns the current sync state.
   virtual AutofillSyncSigninState GetSyncState() const = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SaveCardBubbleController);
 };
 
 }  // namespace autofill

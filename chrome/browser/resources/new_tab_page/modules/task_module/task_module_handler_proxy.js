@@ -4,18 +4,26 @@
 
 import './task_module.mojom-lite.js';
 
-import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
-
 /**
  * @fileoverview This file provides a class that exposes the Mojo handler
  * interface used for retrieving a shopping task for a task module.
  */
 
-export class TaskModuleHandlerProxy {
-  constructor() {
-    /** @type {!taskModule.mojom.TaskModuleHandlerRemote} */
-    this.handler = taskModule.mojom.TaskModuleHandler.getRemote();
-  }
-}
+/** @type {?taskModule.mojom.TaskModuleHandlerRemote} */
+let handler = null;
 
-addSingletonGetter(TaskModuleHandlerProxy);
+export class TaskModuleHandlerProxy {
+  /** @return {!taskModule.mojom.TaskModuleHandlerRemote} */
+  static getHandler() {
+    return handler ||
+        (handler = taskModule.mojom.TaskModuleHandler.getRemote());
+  }
+
+  /** @param {!taskModule.mojom.TaskModuleHandlerRemote} newHandler */
+  static setHandler(newHandler) {
+    handler = newHandler;
+  }
+
+  /** @private */
+  constructor() {}
+}

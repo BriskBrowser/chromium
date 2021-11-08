@@ -8,23 +8,22 @@
 #include <memory>
 #include <string>
 
-#include "ash/public/cpp/ambient/ambient_ui_model.h"
 #include "ash/public/cpp/assistant/assistant_state.h"
 #include "ash/public/cpp/session/session_activation_observer.h"
 #include "base/callback.h"
 #include "base/cancelable_callback.h"
 #include "base/component_export.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/sequence_checker.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/services/assistant/assistant_manager_service.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class GoogleServiceAuthError;
 
@@ -56,20 +55,23 @@ class ServiceContext;
 // |AssistantManagerService|'s state won't update if it's currently in the
 // process of starting up. This is the delay before we will try to update
 // |AssistantManagerService| again.
-constexpr auto kUpdateAssistantManagerDelay = base::TimeDelta::FromSeconds(1);
+constexpr auto kUpdateAssistantManagerDelay = base::Seconds(1);
 
 class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
     : public AssistantService,
       public chromeos::PowerManagerClient::Observer,
       public ash::SessionActivationObserver,
       public ash::AssistantStateObserver,
-      public AssistantManagerService::CommunicationErrorObserver,
       public AssistantManagerService::StateObserver,
-      public ash::AmbientUiModelObserver {
+      public AuthenticationStateObserver {
  public:
   Service(std::unique_ptr<network::PendingSharedURLLoaderFactory>
               pending_url_loader_factory,
           signin::IdentityManager* identity_manager);
+
+  Service(const Service&) = delete;
+  Service& operator=(const Service&) = delete;
+
   ~Service() override;
 
   // Allows tests to override the S3 server URI used by the service.
@@ -114,16 +116,11 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
   void OnArcPlayStoreEnabledChanged(bool enabled) override;
   void OnLockedFullScreenStateChanged(bool enabled) override;
 
-  // AssistantManagerService::CommunicationErrorObserver overrides:
-  void OnCommunicationError(
-      AssistantManagerService::CommunicationErrorType error_type) override;
+  // AuthenticationStateObserver overrides:
+  void OnAuthenticationError() override;
 
   // AssistantManagerService::StateObserver overrides:
   void OnStateChanged(AssistantManagerService::State new_state) override;
-
-  // ash::AmbientUiModelObserver overrides:
-  void OnAmbientUiVisibilityChanged(
-      ash::AmbientUiVisibility visibility) override;
 
   void UpdateAssistantManagerState();
 
@@ -145,7 +142,7 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
 
   void UpdateListeningState();
 
-  base::Optional<AssistantManagerService::UserInfo> GetUserInfo() const;
+  absl::optional<AssistantManagerService::UserInfo> GetUserInfo() const;
 
   ServiceContext* context() { return context_.get(); }
 
@@ -162,15 +159,13 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
 
   signin::IdentityManager* const identity_manager_;
   std::unique_ptr<ScopedAshSessionObserver> scoped_ash_session_observer_;
-  ScopedObserver<ash::AmbientUiModel, ash::AmbientUiModelObserver>
-      ambient_ui_model_observer_{this};
   std::unique_ptr<AssistantManagerService> assistant_manager_service_;
   std::unique_ptr<base::OneShotTimer> token_refresh_timer_;
   int token_refresh_error_backoff_factor = 1;
   scoped_refptr<base::SequencedTaskRunner> main_task_runner_;
-  ScopedObserver<chromeos::PowerManagerClient,
-                 chromeos::PowerManagerClient::Observer>
-      power_manager_observer_{this};
+  base::ScopedObservation<chromeos::PowerManagerClient,
+                          chromeos::PowerManagerClient::Observer>
+      power_manager_observation_{this};
 
   // Flag to guard the one-time mojom initialization.
   bool is_assistant_manager_service_finalized_ = false;
@@ -185,9 +180,9 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
   // Will be moved into |assistant_manager_service_| when the service is
   // supposed to be created.
   std::unique_ptr<AssistantManagerService>
-      assistant_manager_service_for_testing_ = nullptr;
+      assistant_manager_service_for_testing_;
 
-  base::Optional<std::string> access_token_;
+  absl::optional<std::string> access_token_;
 
   // non-null until |assistant_manager_service_| is created.
   std::unique_ptr<network::PendingSharedURLLoaderFactory>
@@ -202,8 +197,6 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<Service> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(Service);
 };
 
 }  // namespace assistant

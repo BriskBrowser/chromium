@@ -7,20 +7,20 @@
 #import <CoreText/CoreText.h>
 #import <MobileCoreServices/MobileCoreServices.h>
 
+#include <string>
+
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/ios/device_util.h"
 #include "base/ios/ios_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
-#include "base/strings/string16.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/clipboard_provider.h"
 #include "components/omnibox/browser/location_bar_model.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
-#include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/common/omnibox_focus_state.h"
 #include "components/open_from_clipboard/clipboard_recent_content.h"
 #include "ios/chrome/browser/autocomplete/autocomplete_scheme_classifier_impl.h"
@@ -30,13 +30,14 @@
 #include "ios/chrome/browser/ui/omnibox/omnibox_text_field_paste_delegate.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_util.h"
 #include "ios/chrome/browser/ui/omnibox/web_omnibox_edit_controller.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
 #include "ios/web/public/navigation/referrer.h"
 #import "net/base/mac/url_conversions.h"
 #include "skia/ext/skia_utils_ios.h"
+#include "ui/base/device_form_factor.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/window_open_disposition.h"
@@ -92,9 +93,6 @@ OmniboxViewIOS::OmniboxViewIOS(OmniboxTextFieldIOS* field,
 
   paste_delegate_ = [[OmniboxTextFieldPasteDelegate alloc] init];
   [field_ setPasteDelegate:paste_delegate_];
-
-  use_strikethrough_workaround_ = base::ios::IsRunningOnOrLater(10, 3, 0) &&
-                                  !base::ios::IsRunningOnOrLater(11, 2, 0);
 }
 
 OmniboxViewIOS::~OmniboxViewIOS() = default;
@@ -102,7 +100,7 @@ OmniboxViewIOS::~OmniboxViewIOS() = default;
 void OmniboxViewIOS::OpenMatch(const AutocompleteMatch& match,
                                WindowOpenDisposition disposition,
                                const GURL& alternate_nav_url,
-                               const base::string16& pasted_text,
+                               const std::u16string& pasted_text,
                                size_t selected_line,
                                base::TimeTicks match_selection_timestamp) {
   // It may be unsafe to modify the contents of the field.
@@ -147,10 +145,10 @@ void OmniboxViewIOS::OnReceiveClipboardURLForOpenMatch(
     const AutocompleteMatch& match,
     WindowOpenDisposition disposition,
     const GURL& alternate_nav_url,
-    const base::string16& pasted_text,
+    const std::u16string& pasted_text,
     size_t selected_line,
     base::TimeTicks match_selection_timestamp,
-    base::Optional<GURL> optional_gurl) {
+    absl::optional<GURL> optional_gurl) {
   if (!optional_gurl) {
     return;
   }
@@ -169,19 +167,19 @@ void OmniboxViewIOS::OnReceiveClipboardTextForOpenMatch(
     const AutocompleteMatch& match,
     WindowOpenDisposition disposition,
     const GURL& alternate_nav_url,
-    const base::string16& pasted_text,
+    const std::u16string& pasted_text,
     size_t selected_line,
     base::TimeTicks match_selection_timestamp,
-    base::Optional<base::string16> optional_text) {
+    absl::optional<std::u16string> optional_text) {
   if (!optional_text) {
     return;
   }
 
-  base::string16 text = std::move(optional_text).value();
+  std::u16string text = std::move(optional_text).value();
 
   ClipboardProvider* clipboard_provider =
       model()->autocomplete_controller()->clipboard_provider();
-  base::Optional<AutocompleteMatch> new_match =
+  absl::optional<AutocompleteMatch> new_match =
       clipboard_provider->NewClipboardTextMatch(text);
 
   if (!new_match) {
@@ -196,32 +194,27 @@ void OmniboxViewIOS::OnReceiveClipboardImageForOpenMatch(
     const AutocompleteMatch& match,
     WindowOpenDisposition disposition,
     const GURL& alternate_nav_url,
-    const base::string16& pasted_text,
+    const std::u16string& pasted_text,
     size_t selected_line,
     base::TimeTicks match_selection_timestamp,
-    base::Optional<gfx::Image> optional_image) {
-  if (!optional_image) {
-    return;
-  }
-
-  gfx::Image image = std::move(optional_image).value();
-
+    absl::optional<gfx::Image> optional_image) {
   ClipboardProvider* clipboard_provider =
       model()->autocomplete_controller()->clipboard_provider();
   clipboard_provider->NewClipboardImageMatch(
-      image, base::BindOnce(&OmniboxViewIOS::OnReceiveImageMatchForOpenMatch,
-                            weak_ptr_factory_.GetWeakPtr(), disposition,
-                            alternate_nav_url, pasted_text, selected_line,
-                            match_selection_timestamp));
+      optional_image,
+      base::BindOnce(&OmniboxViewIOS::OnReceiveImageMatchForOpenMatch,
+                     weak_ptr_factory_.GetWeakPtr(), disposition,
+                     alternate_nav_url, pasted_text, selected_line,
+                     match_selection_timestamp));
 }
 
 void OmniboxViewIOS::OnReceiveImageMatchForOpenMatch(
     WindowOpenDisposition disposition,
     const GURL& alternate_nav_url,
-    const base::string16& pasted_text,
+    const std::u16string& pasted_text,
     size_t selected_line,
     base::TimeTicks match_selection_timestamp,
-    base::Optional<AutocompleteMatch> optional_match) {
+    absl::optional<AutocompleteMatch> optional_match) {
   if (!optional_match) {
     return;
   }
@@ -229,11 +222,11 @@ void OmniboxViewIOS::OnReceiveImageMatchForOpenMatch(
                          pasted_text, selected_line, match_selection_timestamp);
 }
 
-base::string16 OmniboxViewIOS::GetText() const {
+std::u16string OmniboxViewIOS::GetText() const {
   return base::SysNSStringToUTF16([field_ displayedText]);
 }
 
-void OmniboxViewIOS::SetWindowTextAndCaretPos(const base::string16& text,
+void OmniboxViewIOS::SetWindowTextAndCaretPos(const std::u16string& text,
                                               size_t caret_pos,
                                               bool update_popup,
                                               bool notify_text_changed) {
@@ -300,7 +293,7 @@ void OmniboxViewIOS::UpdatePopupAppearance() {
 }
 
 void OmniboxViewIOS::OnTemporaryTextMaybeChanged(
-    const base::string16& display_text,
+    const std::u16string& display_text,
     const AutocompleteMatch& match,
     bool save_original_selection,
     bool notify_text_changed) {
@@ -310,13 +303,18 @@ void OmniboxViewIOS::OnTemporaryTextMaybeChanged(
 }
 
 void OmniboxViewIOS::OnInlineAutocompleteTextMaybeChanged(
-    const base::string16& display_text,
+    const std::u16string& display_text,
     std::vector<gfx::Range> selections,
-    size_t user_text_length) {
+    const std::u16string& prefix_autocompletion,
+    const std::u16string& inline_autocompletion) {
   if (display_text == GetText())
     return;
 
   NSAttributedString* as = ApplyTextAttributes(display_text);
+  // TODO(crbug.com/1062446): This `user_text_length` calculation  isn't
+  //  accurate when there's prefix autocompletion. This should be addressed
+  //  before we experiment with prefix autocompletion on iOS.
+  size_t user_text_length = display_text.size() - inline_autocompletion.size();
   [field_ setText:as userTextLength:user_text_length];
 }
 
@@ -361,8 +359,8 @@ bool OmniboxViewIOS::IsSelectAll() const {
   return false;
 }
 
-void OmniboxViewIOS::GetSelectionBounds(base::string16::size_type* start,
-                                        base::string16::size_type* end) const {
+void OmniboxViewIOS::GetSelectionBounds(std::u16string::size_type* start,
+                                        std::u16string::size_type* end) const {
   if ([field_ isFirstResponder]) {
     NSRange selected_range = [field_ selectedNSRange];
     *start = selected_range.location;
@@ -435,7 +433,7 @@ void OmniboxViewIOS::OnWillEndEditing() {
   // This will also be called if -resignFirstResponder is called
   // programmatically. On phone, the omnibox may still be editing when
   // the popup is open, so the Cancel button calls OnWillEndEditing.
-  if (IsIPadIdiom()) {
+  if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET) {
     [omnibox_focuser_ cancelOmniboxEdit];
   }
 }
@@ -451,12 +449,14 @@ bool OmniboxViewIOS::OnWillChange(NSRange range, NSString* new_text) {
   if ([field_ isPreEditing]) {
     [field_ setClearingPreEditText:YES];
 
-    // Exit the pre-editing state in OnWillChange() instead of OnDidChange(), as
-    // that allows IME to continue working.  The following code selects the text
-    // as if the pre-edit fake selection was real.
-    [field_ exitPreEditState];
+    if (!base::FeatureList::IsEnabled(kIOSNewOmniboxImplementation)) {
+      // Exit the pre-editing state in OnWillChange() instead of OnDidChange(),
+      // as that allows IME to continue working.  The following code selects the
+      // text as if the pre-edit fake selection was real.
+      [field_ exitPreEditState];
 
-    field_.text = @"";
+      field_.text = @"";
+    }
 
     // Reset |range| to be of zero-length at location zero, as the field will be
     // now cleared.
@@ -490,8 +490,12 @@ bool OmniboxViewIOS::OnWillChange(NSRange range, NSString* new_text) {
             NSMakeRange(field_.text.length, field_.autocompleteText.length);
       }
     } else if (deleting_text) {
-      if ([new_text length] == 0 &&
-          range.location == [field_.text length] - 1) {
+      NSString* userText = field_.text;
+      if (base::FeatureList::IsEnabled(kIOSNewOmniboxImplementation)) {
+        userText = field_.userText;
+      }
+
+      if ([new_text length] == 0 && range.location == [userText length] - 1) {
         ok_to_change = false;
       }
     }
@@ -521,10 +525,15 @@ bool OmniboxViewIOS::OnWillChange(NSRange range, NSString* new_text) {
 }
 
 void OmniboxViewIOS::OnDidChange(bool processing_user_event) {
+  if (base::FeatureList::IsEnabled(kIOSNewOmniboxImplementation)) {
+    if (field_.isPreEditing)
+      [field_ exitPreEditState];
+  }
+
   // Sanitize pasted text.
   if (model() && model()->is_pasting()) {
-    base::string16 pastedText = base::SysNSStringToUTF16(field_.text);
-    base::string16 newText = OmniboxView::SanitizeTextForPaste(pastedText);
+    std::u16string pastedText = base::SysNSStringToUTF16(field_.text);
+    std::u16string newText = OmniboxView::SanitizeTextForPaste(pastedText);
     if (pastedText != newText) {
       [field_ setText:base::SysUTF16ToNSString(newText)];
     }
@@ -600,7 +609,11 @@ void OmniboxViewIOS::OnCopy() {
   NSString* selectedText = nil;
   NSInteger start_location = 0;
   if ([field_ isPreEditing]) {
-    selectedText = field_.preEditText;
+    if (base::FeatureList::IsEnabled(kIOSNewOmniboxImplementation)) {
+      selectedText = field_.text;
+    } else {
+      selectedText = field_.preEditText;
+    }
     start_location = 0;
   } else {
     UITextRange* selected_range = [field_ selectedTextRange];
@@ -614,7 +627,7 @@ void OmniboxViewIOS::OnCopy() {
     start_location =
         [field_ offsetFromPosition:start toPosition:[selected_range start]];
   }
-  base::string16 text = base::SysNSStringToUTF16(selectedText);
+  std::u16string text = base::SysNSStringToUTF16(selectedText);
 
   GURL url;
   bool write_url = false;
@@ -658,7 +671,7 @@ UIColor* OmniboxViewIOS::GetSecureTextColor(
 }
 
 NSAttributedString* OmniboxViewIOS::ApplyTextAttributes(
-    const base::string16& text) {
+    const std::u16string& text) {
   NSMutableAttributedString* as = [[NSMutableAttributedString alloc]
       initWithString:base::SysUTF16ToNSString(text)];
   // Cache a pointer to the attributed string to allow the superclass'
@@ -744,6 +757,12 @@ void OmniboxViewIOS::RemoveQueryRefinementChip() {
 }
 
 bool OmniboxViewIOS::ShouldIgnoreUserInputDueToPendingVoiceSearch() {
+  // TODO(crbug.com/1254467): iOS 15 Cleanup: Remove the method
+  // ShouldIgnoreUserInputDueToPendingVoiceSearch and references to method in
+  // codebase
+  if (base::FeatureList::IsEnabled(kIOSOmniboxAllowEditsDuringDictation))
+    return NO;
+
   // When the response of the iOS voice entry is pending a spinning wheel is
   // visible.  The spinner's location is marked in [self text] as a Unicode
   // "Object Replacement Character".
@@ -796,7 +815,7 @@ int OmniboxViewIOS::GetOmniboxTextLength() const {
 void OmniboxViewIOS::OnSelectedMatchImageChanged(
     bool has_match,
     AutocompleteMatchType::Type match_type,
-    base::Optional<SuggestionAnswer::AnswerType> answer_type,
+    absl::optional<SuggestionAnswer::AnswerType> answer_type,
     GURL favicon_url) {
   if (has_match) {
     [left_image_consumer_ setLeftImageForAutocompleteType:match_type
@@ -820,12 +839,12 @@ void OmniboxViewIOS::OnResultsChanged(const AutocompleteResult& result) {
 }
 
 void OmniboxViewIOS::OnPopupDidScroll() {
-  if (!IsIPadIdiom()) {
+  if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_TABLET) {
     this->HideKeyboard();
   }
 }
 
-void OmniboxViewIOS::OnSelectedMatchForAppending(const base::string16& str) {
+void OmniboxViewIOS::OnSelectedMatchForAppending(const std::u16string& str) {
   // Exit preedit state and append the match. Refocus if necessary.
   if ([field_ isPreEditing])
     [field_ exitPreEditState];
@@ -840,7 +859,7 @@ void OmniboxViewIOS::OnSelectedMatchForOpening(
     AutocompleteMatch match,
     WindowOpenDisposition disposition,
     const GURL& alternate_nav_url,
-    const base::string16& pasted_text,
+    const std::u16string& pasted_text,
     size_t index) {
   this->OpenMatch(match, disposition, alternate_nav_url, pasted_text, index,
                   base::TimeTicks());

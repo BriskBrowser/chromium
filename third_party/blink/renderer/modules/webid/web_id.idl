@@ -13,4 +13,6 @@
   Promise<DOMString> get(optional WebIdRequestOptions options = {});
   [CallWith=ScriptState]
   Promise<void> provide(optional DOMString id_token = "");
+  [CallWith=ScriptState, RaisesException]
+  Promise<void> logout(optional sequence<WebIdLogoutRequest> logout_requests = []);
 };

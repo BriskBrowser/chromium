@@ -33,6 +33,9 @@ class SadTab;
 class SadTabHelper : public content::WebContentsObserver,
                      public content::WebContentsUserData<SadTabHelper> {
  public:
+  SadTabHelper(const SadTabHelper&) = delete;
+  SadTabHelper& operator=(const SadTabHelper&) = delete;
+
   ~SadTabHelper() override;
 
   SadTab* sad_tab() { return sad_tab_.get(); }
@@ -51,7 +54,8 @@ class SadTabHelper : public content::WebContentsObserver,
 
   // Overridden from content::WebContentsObserver:
   void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
-  void RenderProcessGone(base::TerminationStatus status) override;
+  void PrimaryMainFrameRenderProcessGone(
+      base::TerminationStatus status) override;
   void RenderViewReady() override;
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
@@ -59,8 +63,6 @@ class SadTabHelper : public content::WebContentsObserver,
   std::unique_ptr<SadTab> sad_tab_;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(SadTabHelper);
 };
 
 #endif  // CHROME_BROWSER_UI_SAD_TAB_HELPER_H_

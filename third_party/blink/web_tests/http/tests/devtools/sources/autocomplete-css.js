@@ -4,7 +4,8 @@
 
 (async function() {
   TestRunner.addResult(`The test verifies autocomplete suggestions for CSS file.\n`);
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('text_editor');
   await TestRunner.showPanel('sources');
   await TestRunner.addStylesheetTag('./resources/empty.css');
 
@@ -61,7 +62,7 @@
       textEditor.setSelection(TextUtils.TextRange.createFromLocation(1, 10));
       SourcesTestRunner.dumpTextWithSelection(textEditor);
       TestRunner.addSniffer(
-          TextEditor.TextEditorAutocompleteController.prototype, '_onSuggestionsShownForTest', suggestionsShown);
+          TextEditor.TextEditorAutocompleteController.prototype, 'onSuggestionsShownForTest', suggestionsShown);
       SourcesTestRunner.typeIn(textEditor, ':');
 
       function suggestionsShown(words) {

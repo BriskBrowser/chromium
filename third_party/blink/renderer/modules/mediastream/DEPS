@@ -25,9 +25,12 @@ include_rules = [
     "+skia/ext/platform_canvas.h",
 
     "+base/atomicops.h",
+    "+base/task/bind_post_task.h",
     "+base/files/file.h",
     "+base/metrics/field_trial.h",
 
+    "+base/guid.h",
+    "+base/token.h",
     "+base/trace_event/trace_event.h",
     "+base/unguessable_token.h",
     "+media/audio",
@@ -37,7 +40,7 @@ include_rules = [
     "+media/webrtc/audio_delay_stats_reporter.h",
     "+media/webrtc/audio_processor_controls.h",
     "+media/webrtc/helpers.h",
-    "+media/webrtc/webrtc_switches.h",
+    "+media/webrtc/webrtc_features.h",
     "-third_party/blink/renderer/modules",
     "+third_party/blink/renderer/modules/event_modules.h",
     "+third_party/blink/renderer/modules/event_target_modules.h",
@@ -45,9 +48,6 @@ include_rules = [
     "+third_party/blink/renderer/modules/mediastream",
     "+third_party/blink/renderer/modules/modules_export.h",
     "+third_party/blink/renderer/modules/peerconnection",
-    "+third_party/blink/renderer/modules/webcodecs/audio_frame.h",
-    "+third_party/blink/renderer/modules/webcodecs/audio_frame_serialization_data.h",
-    "+third_party/blink/renderer/modules/webcodecs/video_frame.h",
     "+third_party/blink/renderer/modules/webrtc",
     "+ui/gfx/geometry/size.h",
 ]

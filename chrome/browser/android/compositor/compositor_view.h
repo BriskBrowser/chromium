@@ -47,6 +47,9 @@ class CompositorView : public content::CompositorClient,
                  ui::WindowAndroid* window_android,
                  TabContentManager* tab_content_manager);
 
+  CompositorView(const CompositorView&) = delete;
+  CompositorView& operator=(const CompositorView&) = delete;
+
   void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& object);
 
   ui::ResourceManager* GetResourceManager();
@@ -112,6 +115,10 @@ class CompositorView : public content::CompositorClient,
       const base::android::JavaParamRef<jobject>& object);
   void OnTabChanged(JNIEnv* env,
                     const base::android::JavaParamRef<jobject>& object);
+  void PreserveChildSurfaceControls(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& object);
+  void SetDidSwapBuffersCallbackEnabled(JNIEnv* env, jboolean enable);
 
   // CompositorClient implementation:
   void RecreateSurface() override;
@@ -146,8 +153,6 @@ class CompositorView : public content::CompositorClient,
   bool overlay_immersive_ar_mode_;
 
   base::WeakPtrFactory<CompositorView> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CompositorView);
 };
 
 }  // namespace android

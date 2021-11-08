@@ -12,13 +12,13 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "components/policy/core/common/remote_commands/remote_command_job.h"
 #include "components/policy/proto/device_management_backend.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class TickClock;
@@ -47,6 +47,9 @@ using ResultReportedCallback =
 class TestingRemoteCommandsServer {
  public:
   TestingRemoteCommandsServer();
+  TestingRemoteCommandsServer(const TestingRemoteCommandsServer&) = delete;
+  TestingRemoteCommandsServer& operator=(const TestingRemoteCommandsServer&) =
+      delete;
   virtual ~TestingRemoteCommandsServer();
 
   using RemoteCommandResults =
@@ -104,7 +107,7 @@ class TestingRemoteCommandsServer {
 
   void DoIssueCommand(
       const enterprise_management::RemoteCommand& command,
-      const base::Optional<enterprise_management::SignedData>& signed_data,
+      const absl::optional<enterprise_management::SignedData>& signed_data,
       ResultReportedCallback reported_callback,
       bool skip_next_fetch);
   void ReportJobResult(
@@ -136,8 +139,6 @@ class TestingRemoteCommandsServer {
 
   base::ThreadChecker thread_checker_;
   base::WeakPtrFactory<TestingRemoteCommandsServer> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TestingRemoteCommandsServer);
 };
 
 }  // namespace policy

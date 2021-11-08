@@ -43,8 +43,8 @@ Here's what works well:
 Please keep this doc up-to-date. VS Code is still in active development and
 subject to changes. This doc is checked into the Chromium git repo, so if you
 make changes, read the [documentation
-guidelines](https://chromium.googlesource.com/chromium/src/+/master/docs/documentation_guidelines.md)
-and [submit a change list](https://www.chromium.org/developers/contributing-code).
+guidelines](documentation_guidelines.md)
+and [submit a change list](contributing.md).
 
 All file paths and commands have been tested on Linux. Windows and Mac might
 require a slightly different setup (e.g. `Ctrl` -> `Cmd`). Please update this
@@ -55,7 +55,7 @@ page accordingly.
 ### Installation
 
 Follow the steps on https://code.visualstudio.com/docs/setup/setup-overview. To
-run it on Linux, just navigate to `chromium/src` folder and type `code .` in a
+run it on Linux, just navigate to Chromium's `src` folder and type `code .` in a
 terminal. The argument to `code` is the base directory of the workspace. VS
 Code does not require project or solution files. However, it does store
 workspace settings in a `.vscode` folder in your base directory.
@@ -97,8 +97,7 @@ every day:
 *   [***Mojom IDL support***](https://github.com/GoogleChromeLabs/mojom-language-support) -
     Syntax highlighting and a
     [language server](https://microsoft.github.io/language-server-protocol/)
-    for .mojom files. This isn't available on the VS Code marketplace for now.
-    You need to install it manually.
+    for .mojom files.
 *   ***vscode-clangd*** -
     If you do not plan to use VSCode for debugging, vscode-clangd is a great
     alternative to C/C++ IntelliSense. It knows about how to compile Chromium,
@@ -128,11 +127,6 @@ The following extensions might be useful for you as well:
 *   ***Instant Markdown*** -
     Instant markdown (.md) preview in your browser as you type. This document
     was written with this extension!
-*   ***you-complete-me*** -
-    Alternative autocomplete extension. Can be configured to use a variety of
-    language servers, so helpful if not using clangd for code completion.
-    See [You-Complete-Me extension setup](#You-Complete-Me-extension-setup)
-    for additional setup instructions.
 
 Also be sure to take a look at the
 [VS Code marketplace](https://marketplace.visualstudio.com/VSCode) to check out
@@ -150,7 +144,7 @@ marketplace](https://marketplace.visualstudio.com/search?target=VSCode&category=
 *   `Ctrl+K, Ctrl+S` opens the key bindings editor.
 *   ``Ctrl+` `` toggles the built-in terminal.
 *   `Ctrl+Shift+M` toggles the problems view (linter warnings, compile errors
-    and warnings). You'll swicth a lot between terminal and problem view during
+    and warnings). You'll switch a lot between terminal and problem view during
     compilation.
 *   `Alt+O` switches between the source/header file.
 *   `Ctrl+G` jumps to a line.
@@ -168,10 +162,20 @@ marketplace](https://marketplace.visualstudio.com/search?target=VSCode&category=
     the line.
 
 ### Java/Android Support
-To get Java support in VS Code, you'll need to install the
-'Java Extension Pack' extension, but you'll want to immediately uninstall or
-disable the Maven for Java extension so it stops nagging you as we won't need
-it.
+
+*Before anything*, add these to your settings.json.
+```
+// LightWeight is the language support, the feature we care about. The other
+// modes include build functionality with Maven and Gradle. They try to build
+// on their own and end up showing thousands of errors.
+"java.server.launchMode": "LightWeight",
+// Avoids overwriting the custom .classpath file (c.f. next section).
+"java.configuration.updateBuildConfiguration": "disabled",
+```
+Then install the "Language Support for Java" extension. If you installed it
+before setting the configs above, uninstall, delete the <project> folder (c.f.
+next section) and reinstall. You also don't need any of the remaining extensions
+in "Extension Pack for Java".
 
 #### Setting up code completion/reference finding/etc.
 You'll need to generate a placeholder .classpath file and locate it. In order
@@ -238,8 +242,8 @@ $ cp tools/vscode/settings.json5 .vscode/settings.json
 ```
 
 Note: these settings assume that the workspace folder (the root folder displayed
-in the Explorer tab) is chromium/src. If this is not the case, replace any
-references to ${workspaceFolder} with the path to chromium/src.
+in the Explorer tab) is Chromium's `src/` directory. If this is not the case,
+replace any references to ${workspaceFolder} with the path to your `src/`.
 
 ### Tasks
 Next, we'll tell VS Code how to compile our code, run tests, and to read
@@ -320,10 +324,18 @@ Google-specific instructions for setting up remote development on chromebooks
 without using Crostini.
 
 #### Windows & SSH
-This currently is difficult on Windows because VSCode remote tools assumes
-'sshd' is installed, which isn't the case on Windows. If someone figures out
-how to get vscode remote working on windows with ssh please update this
-document :)
+
+VSCode remote tools requires 'sshd' which isn't installed on Windows by default.
+
+For Googlers, sshd should already be installed on your workstation, and VSCode
+should work remotely if you followed the setup instructions at
+[go/building-chrome-win](http://go/building-chrome-win). If you are still having
+problems, please refer to
+[go/vscode-remote#windows](http://go/vscode-remote#windows).
+
+Non-Googlers may follow may follow Microsoft's instructions for
+[installing the OpenSSH server](https://docs.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse).
+VSCode should work remotely after following this step.
 
 ### Snippets
 There are some useful snippets provided in
@@ -382,13 +394,30 @@ Keyboard Shortcuts` and add `{ "key": "ctrl+r", "command":
 sufficient to press `Ctrl+R` and enter `<n>`.
 
 #### Working on Laptop
-Because autocomplete is provided by the You-Complete-Me extension, consider
-disabling C/C++ autocomplete and indexing to save battery. In addition, you
-might want to disable git status autorefresh as well.
+You might want to disable git status autorefresh to save battery.
 
 ```
 "git.autorefresh": false,
-"C_Cpp.autocomplete": "Disabled",
+```
+
+#### Editing in multiple Git repositories
+If you frequently work in multiple Git repositories that are part of the Chromium repository, you might find that the built-in tooling does not work as expected for files that exist below folders that are part of a `.gitignore` file checked in to Chromium.
+
+To work around this, you can add the directories you edit as separate `folders` entries in your workspace configuration, and ensure that the directories that are ignored in Chromium are listed **before** the Chromium `src` path.
+
+To edit this, go to `Settings` -> Select the `Workspace` tab, and choose to open as JSON (button in the top right), and configure `folders` like this (change paths to match your local setup and usage):
+
+```
+{
+  "folders": [
+    {
+      "path": "chromium/src/third_party/perfetto"
+    },
+    {
+      "path": "chromium/src"
+    }
+  ]
+}
 ```
 
 ### Unable to open $File resource is not available when debugging Chromium on Linux
@@ -397,31 +426,10 @@ the file path to be relative to the output dir. Check
 `gn args out/$dir --list` if `strip_absolute_paths_from_debug_symbols` is true (which is the default),
 set `cwd` to the output dir. otherwise, set `cwd` to `${workspaceRoot}`.
 
-### You-Complete-Me extension setup
-If using the You-Complete-Me extension, complete its installation by entering
-these commands in a terminal:
-
-```
-$ git clone https://github.com/Valloric/ycmd.git ~/.ycmd
-$ cd ~/.ycmd
-$ git submodule update --init --recursive
-$ ./build.py --clang-completer
-```
-If it fails with "Your C++ compiler does NOT fully support C++11." but you know
-you have a good compiler, hack cpp/CMakeLists.txt to set CPP11_AVAILABLE true.
-
-On Mac, replace the last command above with the following.
-
-```
-$ ./build.py --clang-completer --system-libclang
-```
-
-On Windows, if depot_tools' Python is the only one installed, a separate Python
-3 install is needed. The last command should then be run as follows.
-
-```
-> <Python 3 directory>/python.exe build.py --clang-completer
-```
+### You-Complete-Me
+The You-Complete-Me VS Code extension is now
+[deprecated](https://github.com/richard1122/vscode-youcompleteme#deprecated)
+with a suggestion to use clangd.
 
 ### More
 More tips and tricks can be found

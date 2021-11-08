@@ -16,7 +16,7 @@
 namespace ash {
 
 namespace tray {
-class BluetoothDetailedView;
+class BluetoothDetailedViewLegacy;
 }  // namespace tray
 
 class DetailedViewDelegate;
@@ -29,11 +29,17 @@ class ASH_EXPORT UnifiedBluetoothDetailedViewController
  public:
   explicit UnifiedBluetoothDetailedViewController(
       UnifiedSystemTrayController* tray_controller);
+
+  UnifiedBluetoothDetailedViewController(
+      const UnifiedBluetoothDetailedViewController&) = delete;
+  UnifiedBluetoothDetailedViewController& operator=(
+      const UnifiedBluetoothDetailedViewController&) = delete;
+
   ~UnifiedBluetoothDetailedViewController() override;
 
   // DetailedViewControllerBase:
   views::View* CreateView() override;
-  base::string16 GetAccessibleName() const override;
+  std::u16string GetAccessibleName() const override;
 
   // BluetoothObserver:
   void OnBluetoothSystemStateChanged() override;
@@ -46,14 +52,12 @@ class ASH_EXPORT UnifiedBluetoothDetailedViewController
 
   const std::unique_ptr<DetailedViewDelegate> detailed_view_delegate_;
 
-  tray::BluetoothDetailedView* view_ = nullptr;
+  tray::BluetoothDetailedViewLegacy* view_ = nullptr;
 
   BluetoothDeviceList connected_devices_;
   BluetoothDeviceList connecting_devices_;
   BluetoothDeviceList paired_not_connected_devices_;
   BluetoothDeviceList discovered_not_paired_devices_;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedBluetoothDetailedViewController);
 };
 
 }  // namespace ash

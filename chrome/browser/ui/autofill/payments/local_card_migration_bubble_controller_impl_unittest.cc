@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -60,7 +59,11 @@ class TestLocalCardMigrationBubbleControllerImpl
 class LocalCardMigrationBubbleControllerImplTest
     : public BrowserWithTestWindowTest {
  public:
-  LocalCardMigrationBubbleControllerImplTest() {}
+  LocalCardMigrationBubbleControllerImplTest() = default;
+  LocalCardMigrationBubbleControllerImplTest(
+      const LocalCardMigrationBubbleControllerImplTest&) = delete;
+  LocalCardMigrationBubbleControllerImplTest& operator=(
+      const LocalCardMigrationBubbleControllerImplTest&) = delete;
 
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
@@ -95,8 +98,6 @@ class LocalCardMigrationBubbleControllerImplTest
 
  private:
   static void LocalCardMigrationCallback() {}
-
-  DISALLOW_COPY_AND_ASSIGN(LocalCardMigrationBubbleControllerImplTest);
 };
 
 TEST_F(LocalCardMigrationBubbleControllerImplTest,
@@ -146,7 +147,7 @@ TEST_F(LocalCardMigrationBubbleControllerImplTest,
        StickyBubble_ShouldNotDismissUponNavigation) {
   ShowBubble();
   base::HistogramTester histogram_tester;
-  test_clock_.Advance(base::TimeDelta::FromSeconds(10));
+  test_clock_.Advance(base::Seconds(10));
   controller()->SimulateNavigation();
 
   histogram_tester.ExpectTotalCount(

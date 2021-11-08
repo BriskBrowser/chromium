@@ -38,6 +38,11 @@ int WaitForFind(content::WebContents* web_contents, int* ordinal) {
 class FindBarPlatformHelperMacTest : public InProcessBrowserTest {
  public:
   FindBarPlatformHelperMacTest() {}
+
+  FindBarPlatformHelperMacTest(const FindBarPlatformHelperMacTest&) = delete;
+  FindBarPlatformHelperMacTest& operator=(const FindBarPlatformHelperMacTest&) =
+      delete;
+
   ~FindBarPlatformHelperMacTest() override = default;
 
   void SetUpOnMainThread() override {
@@ -52,8 +57,6 @@ class FindBarPlatformHelperMacTest : public InProcessBrowserTest {
 
  private:
   NSString* old_find_text_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(FindBarPlatformHelperMacTest);
 };
 
 // Tests that the find bar is populated with the pasteboard at construction.
@@ -81,7 +84,7 @@ IN_PROC_BROWSER_TEST_F(FindBarPlatformHelperMacTest,
 //    remain in the findbar and the old find results to remain highlighted.
 IN_PROC_BROWSER_TEST_F(FindBarPlatformHelperMacTest,
                        FindBarUpdatedFromPasteboard) {
-  ui_test_utils::NavigateToURL(browser(), GetURL(kSimple));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetURL(kSimple)));
 
   FindBarController* find_bar_controller = browser()->GetFindBarController();
   ASSERT_NE(nullptr, find_bar_controller);
@@ -125,7 +128,7 @@ IN_PROC_BROWSER_TEST_F(FindBarPlatformHelperMacTest,
   EXPECT_EQ(find_request_id + 2, helper->current_find_request_id());
   EXPECT_EQ(-1, helper->find_result().number_of_matches());
   EXPECT_EQ(-1, helper->find_result().active_match_ordinal());
-  EXPECT_EQ(base::string16(),
+  EXPECT_EQ(std::u16string(),
             find_bar->GetFindBarTesting()->GetMatchCountText());
   EXPECT_EQ(base::SysNSStringToUTF16(empty_string), find_bar->GetFindText());
 }

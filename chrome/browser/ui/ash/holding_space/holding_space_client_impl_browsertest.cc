@@ -6,11 +6,12 @@
 
 #include <string>
 
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/holding_space/holding_space_controller.h"
 #include "ash/public/cpp/holding_space/holding_space_image.h"
 #include "ash/public/cpp/holding_space/holding_space_item.h"
+#include "ash/public/cpp/holding_space/holding_space_metrics.h"
 #include "ash/public/cpp/holding_space/holding_space_model.h"
+#include "ash/public/cpp/holding_space/holding_space_util.h"
 #include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -18,7 +19,7 @@
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/unguessable_token.h"
-#include "chrome/browser/chromeos/file_manager/path_util.h"
+#include "chrome/browser/ash/file_manager/path_util.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_browsertest_base.h"
@@ -44,7 +45,7 @@ std::unique_ptr<HoldingSpaceImage> CreateTestHoldingSpaceImage(
     HoldingSpaceItem::Type type,
     const base::FilePath& file_path) {
   return std::make_unique<HoldingSpaceImage>(
-      HoldingSpaceImage::GetMaxSizeForType(type), file_path,
+      holding_space_util::GetMaxImageSizeForType(type), file_path,
       /*async_bitmap_resolver=*/base::DoNothing());
 }
 
@@ -79,6 +80,28 @@ base::FilePath TestFile(Profile* profile, const std::string& relative_path) {
 // Tests -----------------------------------------------------------------------
 
 using HoldingSpaceClientImplTest = HoldingSpaceBrowserTestBase;
+
+// Verifies that `HoldingSpaceClient::AddDiagnosticsLog()` works as intended.
+IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, AddDiagnosticsLog) {
+  ASSERT_TRUE(HoldingSpaceController::Get());
+
+  auto* holding_space_client = HoldingSpaceController::Get()->client();
+  ASSERT_TRUE(holding_space_client);
+  auto* holding_space_model = HoldingSpaceController::Get()->model();
+  ASSERT_TRUE(holding_space_model);
+
+  // Create a diagnostics log item and verify that it is in the holding space.
+
+  ASSERT_EQ(0u, holding_space_model->items().size());
+  base::FilePath log_path = TestFile(GetProfile(), kTextFilePath);
+  holding_space_client->AddDiagnosticsLog(log_path);
+  ASSERT_EQ(1u, holding_space_model->items().size());
+  HoldingSpaceItem* diagnostics_log_item =
+      holding_space_model->items()[0].get();
+  EXPECT_EQ(diagnostics_log_item->type(),
+            HoldingSpaceItem::Type::kDiagnosticsLog);
+  EXPECT_EQ(diagnostics_log_item->file_path(), log_path);
+}
 
 // Verifies that `HoldingSpaceClient::CopyImageToClipboard()` works as intended
 // when attempting to copy both image backed and non-image backed holding space
@@ -127,8 +150,7 @@ IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, CopyImageToClipboard) {
 }
 
 // Verifies that `HoldingSpaceClient::OpenDownloads()` works as intended.
-// TODO(crbug.com/1139299): Flaky.
-IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, DISABLED_OpenDownloads) {
+IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, OpenDownloads) {
   ASSERT_TRUE(HoldingSpaceController::Get());
 
   auto* holding_space_client = HoldingSpaceController::Get()->client();
@@ -170,10 +192,16 @@ IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, OpenItems) {
   auto* holding_space_client = HoldingSpaceController::Get()->client();
   ASSERT_TRUE(holding_space_client);
 
+  // Verify no failures have yet been recorded.
+  base::HistogramTester histogram_tester;
+  histogram_tester.ExpectTotalCount("HoldingSpace.Item.FailureToLaunch", 0);
+  histogram_tester.ExpectTotalCount(
+      "HoldingSpace.Item.FailureToLaunch.Extension", 0);
+
   {
     // Create a holding space item backed by a non-existing file.
     auto holding_space_item = HoldingSpaceItem::CreateFileBackedItem(
-        HoldingSpaceItem::Type::kDownload, base::FilePath("foo"),
+        HoldingSpaceItem::Type::kDownload, base::FilePath("foo.pdf"),
         GURL("filesystem:fake"), base::BindOnce(&CreateTestHoldingSpaceImage));
 
     // We expect `HoldingSpaceClient::OpenItems()` to fail when the backing file
@@ -181,8 +209,19 @@ IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, OpenItems) {
     base::RunLoop run_loop;
     holding_space_client->OpenItems(
         {holding_space_item.get()},
-        base::BindLambdaForTesting([&run_loop](bool success) {
+        base::BindLambdaForTesting([&](bool success) {
           EXPECT_FALSE(success);
+
+          // Verify the failure has been recorded.
+          histogram_tester.ExpectBucketCount(
+              "HoldingSpace.Item.FailureToLaunch", holding_space_item->type(),
+              1);
+          histogram_tester.ExpectBucketCount(
+              "HoldingSpace.Item.FailureToLaunch.Extension",
+              holding_space_metrics::FilePathToExtension(
+                  holding_space_item->file_path()),
+              1);
+
           run_loop.Quit();
         }));
     run_loop.Run();
@@ -203,18 +242,17 @@ IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, OpenItems) {
         }));
     run_loop.Run();
   }
+
+  // Verify that only the expected failure was recorded.
+  histogram_tester.ExpectTotalCount("HoldingSpace.Item.FailureToLaunch", 1);
+  histogram_tester.ExpectTotalCount(
+      "HoldingSpace.Item.FailureToLaunch.Extension", 1);
 }
 
 // Verifies that `HoldingSpaceClient::ShowItemInFolder()` works as intended when
 // attempting to open holding space items backed by both non-existing and
 // existing files.
-// Flaky on linux-chromeos-dbg (https://crbug.com/1130958)
-#ifdef NDEBUG
-#define MAYBE_ShowItemInFolder ShowItemInFolder
-#else
-#define MAYBE_ShowItemInFolder DISABLED_ShowItemInFolder
-#endif
-IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, MAYBE_ShowItemInFolder) {
+IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, ShowItemInFolder) {
   ASSERT_TRUE(HoldingSpaceController::Get());
 
   auto* holding_space_client = HoldingSpaceController::Get()->client();
@@ -275,7 +313,7 @@ IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, PinItems) {
   // same text and file path as the original download holding space item.
   HoldingSpaceItem* pinned_file_item = holding_space_model->items()[1].get();
   EXPECT_EQ(pinned_file_item->type(), HoldingSpaceItem::Type::kPinnedFile);
-  EXPECT_EQ(download_item->text(), pinned_file_item->text());
+  EXPECT_EQ(download_item->GetText(), pinned_file_item->GetText());
   EXPECT_EQ(download_item->file_path(), pinned_file_item->file_path());
 }
 

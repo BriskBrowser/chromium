@@ -12,6 +12,7 @@
 #import "ios/chrome/browser/tabs/tab_title_util.h"
 #include "ios/chrome/browser/ui/activity_services/data/chrome_activity_item_thumbnail_generator.h"
 #include "ios/chrome/browser/ui/activity_services/data/share_to_data.h"
+#import "ios/chrome/browser/ui/util/url_with_title.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_state.h"
@@ -39,7 +40,7 @@ ShareToData* ShareToDataForWebState(web::WebState* web_state,
   if (last_committed_item) {
     // Do not use WebState::GetTitle() as it returns the display title, not the
     // original page title.
-    const base::string16& original_title = last_committed_item->GetTitle();
+    const std::u16string& original_title = last_committed_item->GetTitle();
     if (!original_title.empty()) {
       // If the original page title exists, it is expected to match the Tab's
       // title. If this ever changes, then a decision has to be made on which
@@ -97,6 +98,10 @@ ShareToData* ShareToDataForURL(const GURL& URL,
                               canSendTabToSelf:NO
                                      userAgent:web::UserAgentType::NONE
                             thumbnailGenerator:nil];
+}
+
+ShareToData* ShareToDataForURLWithTitle(URLWithTitle* URLWithTitle) {
+  return ShareToDataForURL(URLWithTitle.URL, URLWithTitle.title, nil);
 }
 
 }  // namespace activity_services

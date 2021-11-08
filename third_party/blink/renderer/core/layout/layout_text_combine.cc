@@ -20,7 +20,7 @@
 
 #include "third_party/blink/renderer/core/layout/layout_text_combine.h"
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 
 namespace blink {
@@ -165,7 +165,7 @@ void LayoutTextCombine::UpdateFontStyleForCombinedText() {
   NOT_DESTROYED();
   DCHECK(is_combined_);
 
-  ComputedStyle* style = ComputedStyle::Clone(StyleRef());
+  scoped_refptr<ComputedStyle> style = ComputedStyle::Clone(StyleRef());
   SetStyleInternal(style);
 
   unsigned offset = 0;

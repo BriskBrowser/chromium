@@ -35,14 +35,14 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/policy/active_directory/active_directory_policy_manager.h"
+#include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
+#include "chrome/browser/ash/policy/core/device_cloud_policy_manager_ash.h"
+#include "chrome/browser/ash/policy/core/device_cloud_policy_store_ash.h"
+#include "chrome/browser/ash/policy/core/device_local_account.h"
+#include "chrome/browser/ash/policy/core/device_local_account_policy_service.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/policy/active_directory_policy_manager.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_cloud_policy_store_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_local_account.h"
-#include "chrome/browser/chromeos/policy/device_local_account_policy_service.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
@@ -192,8 +192,8 @@ Value ChromePolicyConversionsClient::GetDeviceLocalAccountPolicies() {
   bool current_user_policies_enabled = GetUserPoliciesEnabled();
   EnableUserPolicies(true);
 
-  BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
+  BrowserPolicyConnectorAsh* connector =
+      g_browser_process->platform_part()->browser_policy_connector_ash();
   DCHECK(connector);  // always not-null.
 
   auto* device_local_account_policy_service =
@@ -201,7 +201,7 @@ Value ChromePolicyConversionsClient::GetDeviceLocalAccountPolicies() {
   DCHECK(device_local_account_policy_service);  // always non null for
                                                 // affiliated users.
   std::vector<DeviceLocalAccount> device_local_accounts =
-      GetDeviceLocalAccounts(chromeos::CrosSettings::Get());
+      GetDeviceLocalAccounts(ash::CrosSettings::Get());
   for (const auto& account : device_local_accounts) {
     const std::string user_id = account.user_id;
 
@@ -227,8 +227,7 @@ Value ChromePolicyConversionsClient::GetDeviceLocalAccountPolicies() {
 
     // Make a copy that can be modified, since some policy values are modified
     // before being displayed.
-    PolicyMap map;
-    map.CopyFrom(cloud_policy_store->policy_map());
+    PolicyMap map = cloud_policy_store->policy_map().Clone();
 
     // Get a list of all the errors in the policy values.
     const ConfigurationPolicyHandlerList* handler_list =
@@ -264,13 +263,13 @@ Value ChromePolicyConversionsClient::GetIdentityFields() {
   Value identity_fields(Value::Type::DICTIONARY);
   if (!GetDeviceInfoEnabled())
     return Value();
-  BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
+  BrowserPolicyConnectorAsh* connector =
+      g_browser_process->platform_part()->browser_policy_connector_ash();
   if (!connector) {
     LOG(ERROR) << "Cannot dump identity fields, no policy connector";
     return Value();
   }
-  if (connector->IsEnterpriseManaged()) {
+  if (connector->IsDeviceEnterpriseManaged()) {
     identity_fields.SetKey("enrollment_domain",
                            Value(connector->GetEnterpriseEnrollmentDomain()));
 

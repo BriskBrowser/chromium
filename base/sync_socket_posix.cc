@@ -19,6 +19,7 @@
 #endif
 
 #include "base/check_op.h"
+#include "base/containers/span.h"
 #include "base/files/file_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
@@ -38,9 +39,9 @@ size_t SendHelper(SyncSocket::Handle handle,
   DCHECK_GT(length, 0u);
   DCHECK_LE(length, kMaxMessageLength);
   DCHECK_NE(handle, SyncSocket::kInvalidHandle);
-  const char* charbuffer = static_cast<const char*>(buffer);
-  return WriteFileDescriptor(handle, charbuffer, length)
-             ? static_cast<size_t>(length)
+  return WriteFileDescriptor(
+             handle, make_span(static_cast<const uint8_t*>(buffer), length))
+             ? length
              : 0;
 }
 
@@ -115,8 +116,7 @@ size_t SyncSocket::ReceiveWithTimeout(void* buffer,
 
   // Only timeouts greater than zero and less than one second are allowed.
   DCHECK_GT(timeout.InMicroseconds(), 0);
-  DCHECK_LT(timeout.InMicroseconds(),
-            TimeDelta::FromSeconds(1).InMicroseconds());
+  DCHECK_LT(timeout.InMicroseconds(), Seconds(1).InMicroseconds());
 
   // Track the start time so we can reduce the timeout as data is read.
   TimeTicks start_time = TimeTicks::Now();

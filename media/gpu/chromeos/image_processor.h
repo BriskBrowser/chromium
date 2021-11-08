@@ -16,10 +16,11 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "media/base/video_frame.h"
 #include "media/gpu/chromeos/image_processor_backend.h"
 #include "media/gpu/media_gpu_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace media {
 
@@ -54,6 +55,10 @@ class MEDIA_GPU_EXPORT ImageProcessor {
       VideoRotation relative_rotation,
       ErrorCB error_cb,
       scoped_refptr<base::SequencedTaskRunner> client_task_runner);
+
+  ImageProcessor() = delete;
+  ImageProcessor(const ImageProcessor&) = delete;
+  ImageProcessor& operator=(const ImageProcessor&) = delete;
 
   virtual ~ImageProcessor();
 
@@ -108,12 +113,12 @@ class MEDIA_GPU_EXPORT ImageProcessor {
   // Callbacks of processing frames.
   static void OnProcessDoneThunk(
       scoped_refptr<base::SequencedTaskRunner> task_runner,
-      base::Optional<base::WeakPtr<ImageProcessor>> weak_this,
+      absl::optional<base::WeakPtr<ImageProcessor>> weak_this,
       int cb_index,
       scoped_refptr<VideoFrame> frame);
   static void OnProcessLegacyDoneThunk(
       scoped_refptr<base::SequencedTaskRunner> task_runner,
-      base::Optional<base::WeakPtr<ImageProcessor>> weak_this,
+      absl::optional<base::WeakPtr<ImageProcessor>> weak_this,
       int cb_index,
       size_t buffer_id,
       scoped_refptr<VideoFrame> frame);
@@ -146,8 +151,6 @@ class MEDIA_GPU_EXPORT ImageProcessor {
   // The weak pointer of this, bound to |client_task_runner_|.
   base::WeakPtr<ImageProcessor> weak_this_;
   base::WeakPtrFactory<ImageProcessor> weak_this_factory_{this};
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(ImageProcessor);
 };
 
 }  // namespace media

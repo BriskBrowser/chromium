@@ -26,13 +26,14 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/models/image_model.h"
 #include "ui/base/models/table_model_observer.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/table/table_view.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
@@ -62,7 +63,7 @@ TaskManagerView* g_task_manager_view = nullptr;
 
 TaskManagerView::~TaskManagerView() {
   // Delete child views now, while our table model still exists.
-  RemoveAllChildViews(true);
+  RemoveAllChildViews();
 }
 
 // static
@@ -151,7 +152,11 @@ void TaskManagerView::SetSortDescriptor(const TableSortDescriptor& descriptor) {
 }
 
 gfx::Size TaskManagerView::CalculatePreferredSize() const {
-  return gfx::Size(460, 270);
+  // The TaskManagerView's preferred size is used to size the hosting Widget
+  // when the Widget does not have `initial_restored_bounds_` set. The minimum
+  // width below ensures that there is sufficient space for the task manager's
+  // columns when the above restored bounds have not been set.
+  return gfx::Size(640, 270);
 }
 
 bool TaskManagerView::AcceleratorPressed(const ui::Accelerator& accelerator) {
@@ -175,13 +180,13 @@ bool TaskManagerView::ExecuteWindowsCommand(int command_id) {
   return false;
 }
 
-gfx::ImageSkia TaskManagerView::GetWindowIcon() {
+ui::ImageModel TaskManagerView::GetWindowIcon() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // TODO(crbug.com/1162514): Move apps::CreateStandardIconImage to some
   // where lower in the stack.
-  return apps::CreateStandardIconImage(
+  return ui::ImageModel::FromImageSkia(apps::CreateStandardIconImage(
       *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-          IDR_ASH_SHELF_ICON_TASK_MANAGER));
+          IDR_ASH_SHELF_ICON_TASK_MANAGER)));
 #else
   return views::DialogDelegateView::GetWindowIcon();
 #endif

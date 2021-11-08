@@ -6,6 +6,7 @@
 
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "ui/events/event_utils.h"
 
 namespace aura {
 namespace test {
@@ -275,6 +276,15 @@ void UIControlsOzone::PostKeyEventTask(ui::EventType type,
   flags |= ui::EF_FINAL;
 
   ui::KeyEvent key_event(type, key_code, flags);
+  if (type == ui::ET_KEY_PRESSED) {
+    // Set a property as if this is a key event not consumed by IME.
+    // Ozone/X11+GTK IME works so already. Ozone/wayland IME relies on this
+    // flag to work properly.
+    key_event.SetProperties({{
+        ui::kPropertyKeyboardImeFlag,
+        std::vector<uint8_t>{ui::kPropertyKeyboardImeIgnoredFlag},
+    }});
+  }
   SendEventToSink(&key_event, display_id, std::move(closure), optional_host);
 }
 
@@ -346,14 +356,9 @@ bool UIControlsOzone::ScreenDIPToHostPixels(gfx::PointF* location,
   return true;
 }
 
-// To avoid multiple definitions when use_x11 && use_ozone is true, disable this
-// factory method for OS_LINUX as Linux has a factory method that decides what
-// UIControls to use based on IsUsingOzonePlatform feature flag.
-#if !defined(OS_LINUX) && !defined(OS_CHROMEOS)
 ui_controls::UIControlsAura* CreateUIControlsAura(WindowTreeHost* host) {
   return new UIControlsOzone(host);
 }
-#endif
 
 }  // namespace test
 }  // namespace aura

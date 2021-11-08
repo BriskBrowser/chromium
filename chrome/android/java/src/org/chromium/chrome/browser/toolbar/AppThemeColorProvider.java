@@ -43,8 +43,8 @@ public class AppThemeColorProvider extends ThemeColorProvider implements Incogni
         super(context);
 
         mActivityContext = context;
-        mStandardPrimaryColor = ChromeColors.getDefaultThemeColor(context.getResources(), false);
-        mIncognitoPrimaryColor = ChromeColors.getDefaultThemeColor(context.getResources(), true);
+        mStandardPrimaryColor = ChromeColors.getDefaultThemeColor(context, false);
+        mIncognitoPrimaryColor = ChromeColors.getDefaultThemeColor(context, true);
 
         mLayoutStateObserver = new LayoutStateProvider.LayoutStateObserver() {
             @Override
@@ -85,7 +85,8 @@ public class AppThemeColorProvider extends ThemeColorProvider implements Incogni
     private void updateTheme() {
         final boolean shouldUseIncognitoBackground = mIsIncognito
                 && (!mIsOverviewVisible
-                        || ToolbarColors.canUseIncognitoToolbarThemeColorInOverview());
+                        || ToolbarColors.canUseIncognitoToolbarThemeColorInOverview(
+                                mActivityContext));
 
         updatePrimaryColor(
                 shouldUseIncognitoBackground ? mIncognitoPrimaryColor : mStandardPrimaryColor,

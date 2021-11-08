@@ -11,11 +11,11 @@
 
 #include "base/containers/flat_map.h"
 #include "base/gtest_prod_util.h"
-#include "base/optional.h"
 #include "chrome/browser/component_updater/cros_component_manager.h"
 #include "components/component_updater/component_installer.h"
 #include "components/component_updater/component_updater_service.h"
 #include "components/update_client/update_client.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace component_updater {
 
@@ -52,16 +52,21 @@ class CrOSComponentInstallerPolicy : public ComponentInstallerPolicy {
   CrOSComponentInstallerPolicy(
       const ComponentConfig& config,
       CrOSComponentInstaller* cros_component_installer);
+
+  CrOSComponentInstallerPolicy(const CrOSComponentInstallerPolicy&) = delete;
+  CrOSComponentInstallerPolicy& operator=(const CrOSComponentInstallerPolicy&) =
+      delete;
+
   ~CrOSComponentInstallerPolicy() override;
 
   // ComponentInstallerPolicy:
   bool SupportsGroupPolicyEnabledComponentUpdates() const override;
   bool RequiresNetworkEncryption() const override;
   update_client::CrxInstaller::Result OnCustomInstall(
-      const base::DictionaryValue& manifest,
+      const base::Value& manifest,
       const base::FilePath& install_dir) override;
   void OnCustomUninstall() override;
-  bool VerifyInstallation(const base::DictionaryValue& manifest,
+  bool VerifyInstallation(const base::Value& manifest,
                           const base::FilePath& install_dir) const override;
   base::FilePath GetRelativeInstallDir() const override;
   void GetHash(std::vector<uint8_t>* hash) const override;
@@ -73,8 +78,6 @@ class CrOSComponentInstallerPolicy : public ComponentInstallerPolicy {
  private:
   const std::string name_;
   std::vector<uint8_t> sha2_hash_;
-
-  DISALLOW_COPY_AND_ASSIGN(CrOSComponentInstallerPolicy);
 };
 
 // An installer policy that does ABI compatibility checks based on
@@ -91,7 +94,7 @@ class EnvVersionInstallerPolicy : public CrOSComponentInstallerPolicy {
   // ComponentInstallerPolicy:
   void ComponentReady(const base::Version& version,
                       const base::FilePath& path,
-                      std::unique_ptr<base::DictionaryValue> manifest) override;
+                      base::Value manifest) override;
   update_client::InstallerAttributes GetInstallerAttributes() const override;
 
  private:
@@ -116,7 +119,7 @@ class LacrosInstallerPolicy : public CrOSComponentInstallerPolicy {
   // ComponentInstallerPolicy:
   void ComponentReady(const base::Version& version,
                       const base::FilePath& path,
-                      std::unique_ptr<base::DictionaryValue> manifest) override;
+                      base::Value manifest) override;
   update_client::InstallerAttributes GetInstallerAttributes() const override;
 
   static void SetAshVersionForTest(const char* version);
@@ -127,6 +130,9 @@ class CrOSComponentInstaller : public CrOSComponentManager {
  public:
   CrOSComponentInstaller(std::unique_ptr<MetadataTable> metadata_table,
                          ComponentUpdateService* component_updater);
+
+  CrOSComponentInstaller(const CrOSComponentInstaller&) = delete;
+  CrOSComponentInstaller& operator=(const CrOSComponentInstaller&) = delete;
 
   // CrOSComponentManager:
   void SetDelegate(Delegate* delegate) override;
@@ -192,7 +198,7 @@ class CrOSComponentInstaller : public CrOSComponentManager {
   void FinishLoad(LoadCallback load_callback,
                   const base::TimeTicks start_time,
                   const std::string& name,
-                  base::Optional<base::FilePath> result);
+                  absl::optional<base::FilePath> result);
 
   // Registers component |configs| to be updated.
   void RegisterN(const std::vector<ComponentConfig>& configs);
@@ -211,8 +217,6 @@ class CrOSComponentInstaller : public CrOSComponentManager {
   std::unique_ptr<MetadataTable> metadata_table_;
 
   ComponentUpdateService* const component_updater_;
-
-  DISALLOW_COPY_AND_ASSIGN(CrOSComponentInstaller);
 };
 
 }  // namespace component_updater

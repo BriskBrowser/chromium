@@ -10,7 +10,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 
-import androidx.annotation.VisibleForTesting;
+import androidx.annotation.Nullable;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
@@ -78,7 +78,13 @@ final class ChildAccountInfoFetcher {
                 this::onChildAccountStatusReady);
     }
 
-    private void onChildAccountStatusReady(@Status int status) {
+    private void onChildAccountStatusReady(@Status int status, @Nullable Account childAccount) {
+        assert mCoreAccountInfo != null;
+        assert (childAccount == null
+                || childAccount.equals(CoreAccountInfo.getAndroidAccountFrom(mCoreAccountInfo)))
+            : "childAccount " + childAccount.name + " doesn't match mCoreAccountInfo "
+              + CoreAccountInfo.getAndroidAccountFrom(mCoreAccountInfo).name;
+
         final boolean isChild = ChildAccountStatus.isChild(status);
         Log.d(TAG, "Setting child account status for %s to %s", mCoreAccountInfo.getEmail(),
                 isChild);
@@ -89,13 +95,6 @@ final class ChildAccountInfoFetcher {
     @CalledByNative
     private void destroy() {
         ContextUtils.getApplicationContext().unregisterReceiver(mAccountFlagsChangedReceiver);
-    }
-
-    @VisibleForTesting
-    @CalledByNative
-    private static void initializeForTests() {
-        AccountManagerDelegate delegate = new SystemAccountManagerDelegate();
-        AccountManagerFacadeProvider.setInstanceForTests(new AccountManagerFacadeImpl(delegate));
     }
 
     @NativeMethods

@@ -3,12 +3,14 @@
 noparent = True
 
 include_rules = [
+  "+ash/constants",
   "+base",
   "+components/viz/common",
   "+media",
   "+mojo/public",
   "+services/audio/public",
   "+services/viz/privileged/mojom/compositing",
+  "+third_party/abseil-cpp/absl",
   "+ui/gfx",
 ]
 

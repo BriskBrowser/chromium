@@ -24,11 +24,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_BLOCK_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_BLOCK_H_
 
-#include <memory>
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
-#include "third_party/blink/renderer/platform/wtf/list_hash_set.h"
+#include "third_party/blink/renderer/platform/wtf/linked_hash_set.h"
 
 namespace blink {
 
@@ -37,9 +37,9 @@ class LineLayoutBox;
 class NGBlockNode;
 class WordMeasurement;
 
-typedef HeapListHashSet<Member<LayoutBox>, 16> TrackedLayoutBoxListHashSet;
+typedef HeapLinkedHashSet<Member<LayoutBox>> TrackedLayoutBoxLinkedHashSet;
 typedef HeapHashMap<WeakMember<const LayoutBlock>,
-                    Member<TrackedLayoutBoxListHashSet>>
+                    Member<TrackedLayoutBoxLinkedHashSet>>
     TrackedDescendantsMap;
 typedef HeapHashMap<WeakMember<const LayoutBox>, Member<LayoutBlock>>
     TrackedContainerMap;
@@ -177,7 +177,7 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   void RemovePositionedObjects(LayoutObject*,
                                ContainingBlockState = kSameContainingBlock);
 
-  TrackedLayoutBoxListHashSet* PositionedObjects() const {
+  TrackedLayoutBoxLinkedHashSet* PositionedObjects() const {
     NOT_DESTROYED();
     return UNLIKELY(HasPositionedObjects()) ? PositionedObjectsInternal()
                                             : nullptr;
@@ -198,7 +198,7 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
            PercentHeightDescendantsInternal()->Contains(o);
   }
 
-  TrackedLayoutBoxListHashSet* PercentHeightDescendants() const {
+  TrackedLayoutBoxLinkedHashSet* PercentHeightDescendants() const {
     NOT_DESTROYED();
     return HasPercentHeightDescendants() ? PercentHeightDescendantsInternal()
                                          : nullptr;
@@ -378,14 +378,15 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   LayoutUnit AvailableLogicalHeightForPercentageComputation() const;
   bool HasDefiniteLogicalHeight() const;
 
+  void RebuildFragmentTreeSpine();
+
  protected:
   RecalcLayoutOverflowResult RecalcPositionedDescendantsLayoutOverflow();
-  void RecalcPositionedDescendantsVisualOverflow();
   bool RecalcSelfLayoutOverflow();
   void RecalcSelfVisualOverflow();
 
  public:
-  RecalcLayoutOverflowResult RecalcChildLayoutOverflow();
+  virtual RecalcLayoutOverflowResult RecalcChildLayoutOverflow();
   RecalcLayoutOverflowResult RecalcLayoutOverflow() override;
   void RecalcChildVisualOverflow();
   void RecalcVisualOverflow() override;
@@ -459,7 +460,7 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   virtual bool HasLineIfEmpty() const;
   // Returns baseline offset if we can get |SimpleFontData| from primary font.
   // Or returns no value if we can't get font data.
-  base::Optional<LayoutUnit> BaselineForEmptyLine(
+  absl::optional<LayoutUnit> BaselineForEmptyLine(
       LineDirectionMode line_direction) const;
 
  protected:
@@ -478,8 +479,8 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
 
   LayoutUnit FirstLineBoxBaseline() const override;
   LayoutUnit InlineBlockBaseline(LineDirectionMode) const override;
-  base::Optional<LayoutUnit> FirstLineBoxBaselineOverride() const;
-  base::Optional<LayoutUnit> InlineBlockBaselineOverride(
+  absl::optional<LayoutUnit> FirstLineBoxBaselineOverride() const;
+  absl::optional<LayoutUnit> InlineBlockBaselineOverride(
       LineDirectionMode) const;
 
   bool HitTestOverflowControl(
@@ -565,8 +566,8 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
 
   virtual void RemoveLeftoverAnonymousBlock(LayoutBlock* child);
 
-  TrackedLayoutBoxListHashSet* PositionedObjectsInternal() const;
-  TrackedLayoutBoxListHashSet* PercentHeightDescendantsInternal() const;
+  TrackedLayoutBoxLinkedHashSet* PositionedObjectsInternal() const;
+  TrackedLayoutBoxLinkedHashSet* PercentHeightDescendantsInternal() const;
 
   // Returns true if the positioned movement-only layout succeeded.
   bool TryLayoutDoingPositionedMovementOnly();
@@ -577,14 +578,6 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
 
   void ComputeBlockPreferredLogicalWidths(LayoutUnit& min_logical_width,
                                           LayoutUnit& max_logical_width) const;
-
- public:
-  bool ShouldPaintCursorCaret() const;
-  bool ShouldPaintDragCaret() const;
-  bool ShouldPaintCarets() const {
-    NOT_DESTROYED();
-    return ShouldPaintCursorCaret() || ShouldPaintDragCaret();
-  }
 
  protected:
   void InvalidatePaint(const PaintInvalidatorContext&) const override;

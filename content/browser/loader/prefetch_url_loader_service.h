@@ -43,6 +43,9 @@ class CONTENT_EXPORT PrefetchURLLoaderService final
  public:
   explicit PrefetchURLLoaderService(BrowserContext* browser_context);
 
+  PrefetchURLLoaderService(const PrefetchURLLoaderService&) = delete;
+  PrefetchURLLoaderService& operator=(const PrefetchURLLoaderService&) = delete;
+
   void GetFactory(
       mojo::PendingReceiver<network::mojom::URLLoaderFactory> receiver,
       int frame_tree_node_id,
@@ -76,7 +79,6 @@ class CONTENT_EXPORT PrefetchURLLoaderService final
   // network::mojom::URLLoaderFactory:
   void CreateLoaderAndStart(
       mojo::PendingReceiver<network::mojom::URLLoader> receiver,
-      int32_t routing_id,
       int32_t request_id,
       uint32_t options,
       const network::ResourceRequest& resource_request_in,
@@ -125,8 +127,6 @@ class CONTENT_EXPORT PrefetchURLLoaderService final
       signed_exchange_prefetch_metric_recorder_;
 
   std::string accept_langs_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrefetchURLLoaderService);
 };
 
 }  // namespace content

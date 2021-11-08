@@ -5,9 +5,12 @@
 #ifndef COMPONENTS_EXO_UI_LOCK_CONTROLLER_H_
 #define COMPONENTS_EXO_UI_LOCK_CONTROLLER_H_
 
+#include "ash/shell.h"
 #include "base/timer/timer.h"
 #include "components/exo/seat_observer.h"
 #include "ui/events/event_handler.h"
+
+class FullscreenControlPopup;
 
 namespace exo {
 
@@ -34,8 +37,10 @@ class UILockController : public ui::EventHandler, public SeatObserver {
   void OnKeyEvent(ui::KeyEvent* event) override;
 
   // Overridden from SeatObserver:
-  void OnSurfaceFocusing(Surface* gaining_focus) override {}
   void OnSurfaceFocused(Surface* gained_focus) override;
+
+  views::Widget* GetEscNotificationForTesting(aura::Window* window);
+  FullscreenControlPopup* GetExitPopupForTesting(aura::Window* window);
 
  private:
   void OnEscapeKey(bool pressed);

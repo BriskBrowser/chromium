@@ -22,6 +22,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LINE_INLINE_BOX_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LINE_INLINE_BOX_H_
 
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/api/line_layout_box_model.h"
 #include "third_party/blink/renderer/core/layout/api/line_layout_item.h"
@@ -44,12 +45,11 @@ enum MarkLineBoxes { kMarkLineBoxesDirty, kDontMarkLineBoxes };
 class CORE_EXPORT InlineBox : public GarbageCollected<InlineBox>,
                               public DisplayItemClient {
  public:
-  InlineBox(LineLayoutItem obj)
+  explicit InlineBox(LineLayoutItem obj)
       : next_(nullptr),
         prev_(nullptr),
         parent_(nullptr),
-        line_layout_item_(obj),
-        logical_width_() {}
+        line_layout_item_(obj.GetLayoutObject()) {}
 
   InlineBox(LineLayoutItem item,
             LayoutPoint top_left,
@@ -65,14 +65,14 @@ class CORE_EXPORT InlineBox : public GarbageCollected<InlineBox>,
       : next_(next),
         prev_(prev),
         parent_(parent),
-        line_layout_item_(item),
+        line_layout_item_(item.GetLayoutObject()),
         location_(top_left),
         logical_width_(logical_width),
         bitfields_(first_line, constructed, dirty, extracted, is_horizontal) {}
 
   InlineBox(const InlineBox&) = delete;
   InlineBox& operator=(const InlineBox&) = delete;
-  virtual void Trace(Visitor*) const;
+  void Trace(Visitor*) const override;
 
   virtual void Destroy();
 
@@ -193,7 +193,9 @@ class CORE_EXPORT InlineBox : public GarbageCollected<InlineBox>,
   InlineBox* NextLeafChildIgnoringLineBreak() const;
   InlineBox* PrevLeafChildIgnoringLineBreak() const;
 
-  LineLayoutItem GetLineLayoutItem() const { return line_layout_item_; }
+  LineLayoutItem GetLineLayoutItem() const {
+    return LineLayoutItem(line_layout_item_);
+  }
 
   InlineFlowBox* Parent() const {
     return parent_;
@@ -341,7 +343,7 @@ class CORE_EXPORT InlineBox : public GarbageCollected<InlineBox>,
   // Use with caution! The type is not checked!
   LineLayoutBoxModel BoxModelObject() const {
     if (!GetLineLayoutItem().IsText())
-      return LineLayoutBoxModel(line_layout_item_);
+      return LineLayoutBoxModel(GetLineLayoutItem());
     return LineLayoutBoxModel(nullptr);
   }
 
@@ -460,7 +462,10 @@ class CORE_EXPORT InlineBox : public GarbageCollected<InlineBox>,
   Member<InlineBox> prev_;  // The previous element on the same line as us.
 
   Member<InlineFlowBox> parent_;  // The box that contains us.
-  LineLayoutItem line_layout_item_;
+
+  // InlineBox cannot have LineLayoutBox itself bacuse it consists of
+  // WeakPersistent. Use GetLineLayoutItem() to create LineLayoutBox.
+  Member<LayoutObject> line_layout_item_;
 
  protected:
   // For RootInlineBox
@@ -509,8 +514,18 @@ bool CanUseInlineBox(const LayoutObject&);
 
 #if DCHECK_IS_ON()
 // Outside the blink namespace for ease of invocation from gdb.
-void showTree(const blink::InlineBox*);
-void showLineTree(const blink::InlineBox*);
+void ShowTree(const blink::InlineBox*);
+void ShowLineTree(const blink::InlineBox*);
 #endif
+
+namespace cppgc {
+// Assign InlineBox to be allocated on custom LayoutObjectSpace.
+template <typename T>
+struct SpaceTrait<
+    T,
+    std::enable_if_t<std::is_base_of<blink::InlineBox, T>::value>> {
+  using Space = blink::LayoutObjectSpace;
+};
+}  // namespace cppgc
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LINE_INLINE_BOX_H_

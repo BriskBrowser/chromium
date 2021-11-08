@@ -5,15 +5,15 @@
 #ifndef BASE_TASK_SEQUENCE_MANAGER_TIME_DOMAIN_H_
 #define BASE_TASK_SEQUENCE_MANAGER_TIME_DOMAIN_H_
 
-#include <map>
-
 #include "base/callback.h"
 #include "base/check.h"
-#include "base/task/common/intrusive_heap.h"
+#include "base/containers/intrusive_heap.h"
 #include "base/task/sequence_manager/lazy_now.h"
 #include "base/task/sequence_manager/task_queue_impl.h"
+#include "base/time/tick_clock.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 namespace sequence_manager {
@@ -33,30 +33,17 @@ class TaskQueueImpl;
 // TaskQueue maintains its own next wake-up time and communicates it
 // to the TimeDomain, which aggregates wake-ups across registered TaskQueues
 // into a global wake-up, which ultimately gets passed to the ThreadController.
-class BASE_EXPORT TimeDomain {
+class BASE_EXPORT TimeDomain : public TickClock {
  public:
   TimeDomain(const TimeDomain&) = delete;
   TimeDomain& operator=(const TimeDomain&) = delete;
-  virtual ~TimeDomain();
+  ~TimeDomain() override;
 
-  // Returns LazyNow in TimeDomain's time.
-  // Can be called from any thread.
-  // TODO(alexclarke): Make this main thread only.
-  virtual LazyNow CreateLazyNow() const = 0;
-
-  // Evaluates TimeDomain's time.
-  // Can be called from any thread.
-  // TODO(alexclarke): Make this main thread only.
-  virtual TimeTicks Now() const = 0;
-
-  // Computes the delay until the time when TimeDomain needs to wake up some
-  // TaskQueue on the main thread. Specific time domains (e.g. virtual or
-  // throttled) may return TimeDelta() if TaskQueues have any delayed tasks they
-  // deem eligible to run. It's also allowed to advance time domains's internal
-  // clock when this method is called.
-  // Can be called from main thread only.
-  // NOTE: |lazy_now| and the return value are in the SequenceManager's time.
-  virtual Optional<TimeDelta> DelayTillNextTask(LazyNow* lazy_now) = 0;
+  // Returns the ready time for the next pending delayed task, is_null() if the
+  // next task can run immediately, or is_max() if there are no more delayed
+  // tasks. Can be called from main thread only. NOTE: |lazy_now| and the return
+  // value are in the SequenceManager's time.
+  virtual TimeTicks GetNextDelayedTaskTime(LazyNow* lazy_now) const = 0;
 
   Value AsValue() const;
 
@@ -77,8 +64,11 @@ class BASE_EXPORT TimeDomain {
 
   SequenceManager* sequence_manager() const;
 
-  // Returns the earliest scheduled wake up in the TimeDomain's time.
-  Optional<TimeTicks> NextScheduledRunTime() const;
+  // Returns a DelayedWakeUp for the next pending delayed task (pending delayed
+  // tasks that are ripe may be ignored if they have already been moved to a
+  // ready queue). If there are no such tasks (immediate tasks don't count) or
+  // queues are disabled it returns nullopt.
+  absl::optional<DelayedWakeUp> GetNextDelayedWakeUp() const;
 
   size_t NumberOfScheduledWakeUps() const {
     return delayed_wake_up_queue_.size();
@@ -101,6 +91,11 @@ class BASE_EXPORT TimeDomain {
   virtual void OnRegisterWithSequenceManager(
       internal::SequenceManagerImpl* sequence_manager);
 
+  // Removes all canceled delayed tasks from the front of the queue. After
+  // calling this, GetNextDelayedWakeUp() is guaranteed to return a wake up time
+  // for a non-canceled task.
+  void RemoveAllCanceledDelayedTasksFromFront(LazyNow* lazy_now);
+
  private:
   friend class internal::TaskQueueImpl;
   friend class internal::SequenceManagerImpl;
@@ -111,7 +106,7 @@ class BASE_EXPORT TimeDomain {
   // Nullopt |wake_up| cancels a previously set wake up for |queue|.
   // NOTE: |lazy_now| is provided in TimeDomain's time.
   void SetNextWakeUpForQueue(internal::TaskQueueImpl* queue,
-                             Optional<internal::DelayedWakeUp> wake_up,
+                             absl::optional<DelayedWakeUp> wake_up,
                              LazyNow* lazy_now);
 
   // Remove the TaskQueue from any internal data sctructures.
@@ -122,28 +117,28 @@ class BASE_EXPORT TimeDomain {
   void MoveReadyDelayedTasksToWorkQueues(LazyNow* lazy_now);
 
   struct ScheduledDelayedWakeUp {
-    internal::DelayedWakeUp wake_up;
+    DelayedWakeUp wake_up;
     internal::TaskQueueImpl* queue;
 
-    bool operator<=(const ScheduledDelayedWakeUp& other) const {
-      return wake_up <= other.wake_up;
+    bool operator>(const ScheduledDelayedWakeUp& other) const {
+      return wake_up > other.wake_up;
     }
 
-    void SetHeapHandle(base::internal::HeapHandle handle) {
+    void SetHeapHandle(HeapHandle handle) {
       DCHECK(handle.IsValid());
       queue->set_heap_handle(handle);
     }
 
     void ClearHeapHandle() {
       DCHECK(queue->heap_handle().IsValid());
-      queue->set_heap_handle(base::internal::HeapHandle());
+      queue->set_heap_handle(HeapHandle());
     }
 
     HeapHandle GetHeapHandle() const { return queue->heap_handle(); }
   };
 
-  internal::SequenceManagerImpl* sequence_manager_;  // Not owned.
-  base::internal::IntrusiveHeap<ScheduledDelayedWakeUp> delayed_wake_up_queue_;
+  internal::SequenceManagerImpl* sequence_manager_ = nullptr;  // Not owned.
+  IntrusiveHeap<ScheduledDelayedWakeUp, std::greater<>> delayed_wake_up_queue_;
   int pending_high_res_wake_up_count_ = 0;
 
   scoped_refptr<internal::AssociatedThreadId> associated_thread_;

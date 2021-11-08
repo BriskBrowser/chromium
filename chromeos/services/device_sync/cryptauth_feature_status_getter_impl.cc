@@ -32,7 +32,7 @@ namespace {
 constexpr base::TimeDelta kWaitingForBatchGetFeatureStatusesResponseTimeout =
     kMaxAsyncExecutionTime;
 
-constexpr std::array<multidevice::SoftwareFeature, 12> kAllSoftwareFeatures = {
+constexpr std::array<multidevice::SoftwareFeature, 14> kAllSoftwareFeatures = {
     multidevice::SoftwareFeature::kBetterTogetherHost,
     multidevice::SoftwareFeature::kBetterTogetherClient,
     multidevice::SoftwareFeature::kSmartLockHost,
@@ -44,7 +44,9 @@ constexpr std::array<multidevice::SoftwareFeature, 12> kAllSoftwareFeatures = {
     multidevice::SoftwareFeature::kPhoneHubHost,
     multidevice::SoftwareFeature::kPhoneHubClient,
     multidevice::SoftwareFeature::kWifiSyncHost,
-    multidevice::SoftwareFeature::kWifiSyncClient};
+    multidevice::SoftwareFeature::kWifiSyncClient,
+    multidevice::SoftwareFeature::kEcheHost,
+    multidevice::SoftwareFeature::kEcheClient};
 
 CryptAuthDeviceSyncResult::ResultCode
 BatchGetFeatureStatusesNetworkRequestErrorToResultCode(
@@ -83,7 +85,7 @@ ConvertFeatureStatusesToSoftwareFeatureMap(
   base::flat_set<multidevice::SoftwareFeature> marked_enabled;
   for (const cryptauthv2::DeviceFeatureStatus::FeatureStatus& status :
        feature_statuses) {
-    base::Optional<CryptAuthFeatureType> feature_type =
+    absl::optional<CryptAuthFeatureType> feature_type =
         CryptAuthFeatureTypeFromString(status.feature_type());
 
     bool is_known_feature_type = feature_type.has_value();

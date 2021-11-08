@@ -8,12 +8,12 @@
 #error "This file requires ARC support."
 #endif
 
-const CGFloat kAccountProfilePhotoDimension = 40.0f;
-
 NSString* const kSettingsTableViewId = @"kSettingsTableViewId";
 NSString* const kSettingsSignInCellId = @"kSettingsSignInCellId";
 NSString* const kSettingsSignInDisabledCellId =
     @"kSettingsSignInDisabledCellId";
+NSString* const kSettingsSignInDisabledByPolicyCellId =
+    @"kSettingsSignInDisabledByPolicyCellId";
 NSString* const kSettingsAccountCellId = @"kSettingsAccountCellId";
 NSString* const kSettingsSearchEngineCellId = @"kSettingsSearchEngineCellId";
 NSString* const kSettingsManagedSearchEngineCellId =
@@ -42,6 +42,8 @@ NSString* const kSettingsTOSCellId = @"kSettingsTOSCellId";
 NSString* const kSettingsPrivacyNoticeCellId = @"kSettingsPrivacyNoticeCellId";
 NSString* const kSettingsPreloadCellId = @"kSettingsPreloadCellId";
 NSString* const kSettingsBlockPopupsCellId = @"kSettingsBlockPopupsCellId";
+NSString* const kSettingsShowLinkPreviewCellId =
+    @"kSettingsShowLinkPreviewCellId";
 NSString* const kSettingsDefaultAppsCellId = @"kSettingsDefaultAppsCellId";
 NSString* const kSettingsAddLanguageCellId = @"kSettingsAddLanguageCellId";
 NSString* const kSettingsClearBrowsingDataCellId =

@@ -16,6 +16,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/observer_list.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
 #include "build/build_config.h"
@@ -54,8 +55,7 @@ base::TimeDelta GetTimeToLive(const std::string& sender_id) {
       return base::TimeDelta();
     }
 
-    return base::TimeDelta::FromSeconds(
-        switches::kSyncInstanceIDTokenTTLSeconds.Get());
+    return base::Seconds(switches::kSyncInstanceIDTokenTTLSeconds.Get());
   }
 
   // This magic value is identical to kPolicyFCMInvalidationSenderID, i.e. the
@@ -65,8 +65,7 @@ base::TimeDelta GetTimeToLive(const std::string& sender_id) {
       return base::TimeDelta();
     }
 
-    return base::TimeDelta::FromSeconds(
-        switches::kPolicyInstanceIDTokenTTLSeconds.Get());
+    return base::Seconds(switches::kPolicyInstanceIDTokenTTLSeconds.Get());
   }
 
   // The default for all other FCM clients is no TTL.
@@ -98,11 +97,11 @@ std::string GetValueFromMessage(const gcm::IncomingMessage& message,
 // If the provided sender does not match either pattern, return it unchanged.
 std::string UnpackPrivateTopic(base::StringPiece private_topic) {
   if (base::StartsWith(private_topic, "/topics/private/")) {
-    return private_topic.substr(strlen("/topics")).as_string();
+    return std::string(private_topic.substr(strlen("/topics")));
   } else if (base::StartsWith(private_topic, "/topics/")) {
-    return private_topic.substr(strlen("/topics/")).as_string();
+    return std::string(private_topic.substr(strlen("/topics/")));
   } else {
-    return private_topic.as_string();
+    return std::string(private_topic);
   }
 }
 
@@ -237,8 +236,7 @@ void FCMNetworkHandler::ScheduleNextTokenValidation() {
   DCHECK(IsListening());
 
   token_validation_timer_->Start(
-      FROM_HERE,
-      base::TimeDelta::FromMinutes(kTokenValidationPeriodMinutesDefault),
+      FROM_HERE, base::Minutes(kTokenValidationPeriodMinutesDefault),
       base::BindOnce(&FCMNetworkHandler::StartTokenValidation,
                      weak_ptr_factory_.GetWeakPtr()));
 }

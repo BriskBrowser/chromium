@@ -13,11 +13,11 @@
 #include "base/bind.h"
 #include "base/check_op.h"
 #include "base/containers/circular_deque.h"
+#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_pump_default.h"
 #include "base/notreached.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/gtest_util.h"
@@ -54,6 +54,9 @@ namespace {
 class AsyncSocketDataProvider : public net::SocketDataProvider {
  public:
   AsyncSocketDataProvider() : has_pending_read_(false) {}
+
+  AsyncSocketDataProvider(const AsyncSocketDataProvider&) = delete;
+  AsyncSocketDataProvider& operator=(const AsyncSocketDataProvider&) = delete;
 
   ~AsyncSocketDataProvider() override {
     EXPECT_TRUE(writes_.empty());
@@ -126,8 +129,6 @@ class AsyncSocketDataProvider : public net::SocketDataProvider {
   bool has_pending_read_;
 
   base::circular_deque<net::MockWrite> writes_;
-
-  DISALLOW_COPY_AND_ASSIGN(AsyncSocketDataProvider);
 };
 
 class MockProxyResolvingSocket : public network::mojom::ProxyResolvingSocket {
@@ -147,6 +148,10 @@ class MockProxyResolvingSocket : public network::mojom::ProxyResolvingSocket {
   };
 
   MockProxyResolvingSocket() {}
+
+  MockProxyResolvingSocket(const MockProxyResolvingSocket&) = delete;
+  MockProxyResolvingSocket& operator=(const MockProxyResolvingSocket&) = delete;
+
   ~MockProxyResolvingSocket() override {}
 
   void Connect(mojo::PendingRemote<network::mojom::SocketObserver> observer,
@@ -164,7 +169,7 @@ class MockProxyResolvingSocket : public network::mojom::ProxyResolvingSocket {
 
     observer_.Bind(std::move(observer));
 
-    std::move(callback).Run(net::OK, base::nullopt, base::nullopt,
+    std::move(callback).Run(net::OK, absl::nullopt, absl::nullopt,
                             std::move(receive_consumer_handle),
                             std::move(send_producer_handle));
   }
@@ -186,14 +191,18 @@ class MockProxyResolvingSocket : public network::mojom::ProxyResolvingSocket {
   mojo::Remote<network::mojom::SocketObserver> observer_;
   mojo::ScopedDataPipeProducerHandle receive_pipe_handle_;
   mojo::ScopedDataPipeConsumerHandle send_pipe_handle_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockProxyResolvingSocket);
 };
 
 class MockProxyResolvingSocketFactory
     : public network::mojom::ProxyResolvingSocketFactory {
  public:
   explicit MockProxyResolvingSocketFactory() : socket_raw_(nullptr) {}
+
+  MockProxyResolvingSocketFactory(const MockProxyResolvingSocketFactory&) =
+      delete;
+  MockProxyResolvingSocketFactory& operator=(
+      const MockProxyResolvingSocketFactory&) = delete;
+
   ~MockProxyResolvingSocketFactory() override {}
 
   // mojom::ProxyResolvingSocketFactory implementation.
@@ -224,8 +233,6 @@ class MockProxyResolvingSocketFactory
 
   // Owned by |proxy_resolving_socket_receivers_|.
   MockProxyResolvingSocket* socket_raw_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockProxyResolvingSocketFactory);
 };
 
 void MockProxyResolvingSocket::RunEvents(std::vector<Event>&& events) {
@@ -299,6 +306,10 @@ class NetworkServiceAsyncSocketTest : public testing::Test,
     testing::GTEST_FLAG(death_test_style) = "threadsafe";
   }
 
+  NetworkServiceAsyncSocketTest(const NetworkServiceAsyncSocketTest&) = delete;
+  NetworkServiceAsyncSocketTest& operator=(
+      const NetworkServiceAsyncSocketTest&) = delete;
+
   ~NetworkServiceAsyncSocketTest() override {}
 
   void SetUp() override {
@@ -330,12 +341,12 @@ class NetworkServiceAsyncSocketTest : public testing::Test,
               test_url_request_context_.get());
     }
 
-    ns_async_socket_.reset(new NetworkServiceAsyncSocket(
+    ns_async_socket_ = std::make_unique<NetworkServiceAsyncSocket>(
         base::BindRepeating(
             &NetworkServiceAsyncSocketTest::BindToProxyResolvingSocketFactory,
             base::Unretained(this)),
         false, /* use_fake_tls_handshake */
-        14, 20, TRAFFIC_ANNOTATION_FOR_TESTS));
+        14, 20, TRAFFIC_ANNOTATION_FOR_TESTS);
 
     ns_async_socket_->SignalConnected.connect(
         this, &NetworkServiceAsyncSocketTest::OnConnect);
@@ -590,9 +601,6 @@ class NetworkServiceAsyncSocketTest : public testing::Test,
   std::unique_ptr<NetworkServiceAsyncSocket> ns_async_socket_;
   base::circular_deque<SignalSocketState> signal_socket_states_;
   const net::HostPortPair addr_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NetworkServiceAsyncSocketTest);
 };
 
 TEST_F(NetworkServiceAsyncSocketTest, InitialState) {

@@ -23,7 +23,6 @@
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
 
@@ -366,7 +365,7 @@ class TransformStream::DefaultSinkWriteAlgorithm final
           //    controller, chunk).
           return TransformStreamDefaultController::PerformTransform(
               script_state, stream_->transform_stream_controller_,
-              chunk_.NewLocal(isolate));
+              chunk_.Get(isolate));
         }
 
         void Trace(Visitor* visitor) const override {

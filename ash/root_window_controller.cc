@@ -9,11 +9,12 @@
 #include <queue>
 #include <vector>
 
-#include "ash/accessibility/accessibility_panel_layout_manager.h"
-#include "ash/accessibility/touch_exploration_controller.h"
-#include "ash/accessibility/touch_exploration_manager.h"
+#include "ash/accessibility/chromevox/touch_exploration_controller.h"
+#include "ash/accessibility/chromevox/touch_exploration_manager.h"
+#include "ash/accessibility/ui/accessibility_panel_layout_manager.h"
 #include "ash/ambient/ambient_controller.h"
 #include "ash/app_menu/app_menu_model_adapter.h"
+#include "ash/constants/ash_constants.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/focus_cycler.h"
@@ -27,8 +28,6 @@
 #include "ash/keyboard/virtual_keyboard_container_layout_manager.h"
 #include "ash/lock_screen_action/lock_screen_action_background_controller.h"
 #include "ash/login_status.h"
-#include "ash/public/cpp/ash_constants.h"
-#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
@@ -76,9 +75,8 @@
 #include "ash/wm/workspace_controller.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/numerics/ranges.h"
-#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/drag_drop_client.h"
@@ -111,7 +109,7 @@ namespace {
 bool IsInShelfContainer(aura::Window* container) {
   if (!container)
     return false;
-  int id = container->id();
+  int id = container->GetId();
   if (id == ash::kShellWindowId_ShelfContainer ||
       id == ash::kShellWindowId_ShelfBubbleContainer) {
     return true;
@@ -225,10 +223,11 @@ void ReparentAllWindows(aura::Window* src, aura::Window* dst) {
   // Set of windows to move.
   constexpr int kContainerIdsToMove[] = {
       kShellWindowId_AlwaysOnTopContainer,
+      kShellWindowId_FloatContainer,
       kShellWindowId_PipContainer,
       kShellWindowId_SystemModalContainer,
       kShellWindowId_LockSystemModalContainer,
-      kShellWindowId_UnparentedControlContainer,
+      kShellWindowId_UnparentedContainer,
       kShellWindowId_OverlayContainer,
       kShellWindowId_LockActionHandlerContainer,
       kShellWindowId_MenuContainer,
@@ -323,6 +322,10 @@ void ClearWorkspaceControllers(aura::Window* root) {
 class RootWindowTargeter : public aura::WindowTargeter {
  public:
   RootWindowTargeter() = default;
+
+  RootWindowTargeter(const RootWindowTargeter&) = delete;
+  RootWindowTargeter& operator=(const RootWindowTargeter&) = delete;
+
   ~RootWindowTargeter() override = default;
 
  protected:
@@ -384,14 +387,11 @@ class RootWindowTargeter : public aura::WindowTargeter {
   }
 
   gfx::Point FitPointToBounds(const gfx::Point p, const gfx::Rect& bounds) {
-    return gfx::Point(
-        base::ClampToRange(p.x(), bounds.x(), bounds.right() - 1),
-        base::ClampToRange(p.y(), bounds.y(), bounds.bottom() - 1));
+    return gfx::Point(base::clamp(p.x(), bounds.x(), bounds.right() - 1),
+                      base::clamp(p.y(), bounds.y(), bounds.bottom() - 1));
   }
 
   ui::EventType last_mouse_event_type_ = ui::ET_UNKNOWN;
-
-  DISALLOW_COPY_AND_ASSIGN(RootWindowTargeter);
 };
 
 class RootWindowMenuModelAdapter : public AppMenuModelAdapter {
@@ -407,6 +407,10 @@ class RootWindowMenuModelAdapter : public AppMenuModelAdapter {
                             source_type,
                             std::move(on_menu_closed_callback),
                             is_tablet_mode) {}
+
+  RootWindowMenuModelAdapter(const RootWindowMenuModelAdapter&) = delete;
+  RootWindowMenuModelAdapter& operator=(const RootWindowMenuModelAdapter&) =
+      delete;
 
   ~RootWindowMenuModelAdapter() override = default;
 
@@ -434,8 +438,6 @@ class RootWindowMenuModelAdapter : public AppMenuModelAdapter {
           ui::MENU_SOURCE_TYPE_LAST);
     }
   }
-
-  DISALLOW_COPY_AND_ASSIGN(RootWindowMenuModelAdapter);
 };
 
 // A layout manager that fills its container when the child window's resize
@@ -553,7 +555,7 @@ RootWindowController::GetSystemModalLayoutManager(aura::Window* window) {
   if (window) {
     aura::Window* window_container = GetContainerForWindow(window);
     if (window_container &&
-        window_container->id() >= kShellWindowId_LockScreenContainer) {
+        window_container->GetId() >= kShellWindowId_LockScreenContainer) {
       modal_container = GetContainer(kShellWindowId_LockSystemModalContainer);
     } else {
       modal_container = GetContainer(kShellWindowId_SystemModalContainer);
@@ -694,6 +696,7 @@ void RootWindowController::CloseChildWindows() {
   shelf_->ShutdownShelfWidget();
 
   ClearWorkspaceControllers(root);
+  always_on_top_controller_->ClearLayoutManagers();
 
   // Explicitly destroy top level windows. We do this because such windows may
   // query the RootWindow for state.
@@ -874,10 +877,10 @@ RootWindowController::RootWindowController(AshWindowTreeHost* ash_host)
   aura::Window* root_window = GetRootWindow();
   GetRootWindowSettings(root_window)->controller = this;
 
-  stacking_controller_.reset(new StackingController);
+  stacking_controller_ = std::make_unique<StackingController>();
   aura::client::SetWindowParentingClient(root_window,
                                          stacking_controller_.get());
-  capture_client_.reset(new ::wm::ScopedCaptureClient(root_window));
+  capture_client_ = std::make_unique<::wm::ScopedCaptureClient>(root_window);
 }
 
 void RootWindowController::Init(RootWindowType root_window_type) {
@@ -1057,8 +1060,8 @@ void RootWindowController::CreateContainers() {
   app_list_tablet_mode_container->SetProperty(::wm::kUsesScreenCoordinatesKey,
                                               true);
 
-  CreateContainer(kShellWindowId_UnparentedControlContainer,
-                  "UnparentedControlContainer", non_lock_screen_containers);
+  CreateContainer(kShellWindowId_UnparentedContainer, "UnparentedContainer",
+                  non_lock_screen_containers);
 
   for (const auto& id : desks_util::GetDesksContainersIds()) {
     aura::Window* container = CreateContainer(
@@ -1078,6 +1081,12 @@ void RootWindowController::CreateContainers() {
                       "AlwaysOnTopContainer", non_lock_screen_containers);
   ::wm::SetChildWindowVisibilityChangesAnimated(always_on_top_container);
   always_on_top_container->SetProperty(::wm::kUsesScreenCoordinatesKey, true);
+
+  aura::Window* float_container =
+      CreateContainer(kShellWindowId_FloatContainer, "FloatContainer",
+                      non_lock_screen_containers);
+  wm::SetChildWindowVisibilityChangesAnimated(float_container);
+  float_container->SetProperty(wm::kUsesScreenCoordinatesKey, true);
 
   aura::Window* app_list_container =
       CreateContainer(kShellWindowId_AppListContainer, "AppListContainer",
@@ -1233,10 +1242,10 @@ aura::Window* RootWindowController::CreateContainer(int window_id,
   aura::Window* window =
       new aura::Window(nullptr, aura::client::WINDOW_TYPE_UNKNOWN);
   window->Init(ui::LAYER_NOT_DRAWN);
-  window->set_id(window_id);
+  window->SetId(window_id);
   window->SetName(name);
   parent->AddChild(window);
-  if (window_id != kShellWindowId_UnparentedControlContainer)
+  if (window_id != kShellWindowId_UnparentedContainer)
     window->Show();
   root_window_layout_manager_->AddContainer(window);
   return window;
@@ -1254,8 +1263,8 @@ void RootWindowController::CreateSystemWallpaper(
           chromeos::switches::kFirstExecAfterBoot);
   if (is_boot_splash_screen)
     color = kChromeOsBootColor;
-  system_wallpaper_.reset(
-      new SystemWallpaperController(GetRootWindow(), color));
+  system_wallpaper_ =
+      std::make_unique<SystemWallpaperController>(GetRootWindow(), color);
 }
 
 AccessibilityPanelLayoutManager*

@@ -148,8 +148,7 @@ class ComputeFloatOffsetAdapter {
       : layout_object_(layout_object),
         line_top_(line_top),
         line_bottom_(line_bottom),
-        offset_(offset),
-        outermost_float_(nullptr) {}
+        offset_(offset) {}
 
   virtual ~ComputeFloatOffsetAdapter() = default;
 
@@ -162,11 +161,11 @@ class ComputeFloatOffsetAdapter {
  protected:
   virtual bool UpdateOffsetIfNeeded(const FloatingObject&) = 0;
 
-  const LayoutBlockFlow* layout_object_;
+  const LayoutBlockFlow* layout_object_ = nullptr;
   LayoutUnit line_top_;
   LayoutUnit line_bottom_;
   LayoutUnit offset_;
-  const FloatingObject* outermost_float_;
+  const FloatingObject* outermost_float_ = nullptr;
 };
 
 template <FloatingObject::Type FloatTypeValue>
@@ -231,7 +230,7 @@ class FindNextFloatLogicalBottomAdapter {
   LayoutUnit NextShapeLogicalBottom() { return next_shape_logical_bottom_; }
 
  private:
-  const LayoutBlockFlow* layout_object_;
+  const LayoutBlockFlow* layout_object_ = nullptr;
   LayoutUnit below_logical_height_;
   LayoutUnit above_logical_height_;
   LayoutUnit next_logical_bottom_;

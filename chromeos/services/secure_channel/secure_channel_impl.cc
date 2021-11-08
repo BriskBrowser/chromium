@@ -8,7 +8,6 @@
 #include <sstream>
 
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/services/secure_channel/active_connection_manager_impl.h"
 #include "chromeos/services/secure_channel/authenticated_channel.h"
@@ -329,7 +328,7 @@ bool SecureChannelImpl::CheckForInvalidInputDevice(
     ClientConnectionParameters* client_connection_parameters,
     ConnectionMedium connection_medium,
     bool is_local_device) {
-  base::Optional<InvalidRemoteDeviceReason> potential_invalid_reason =
+  absl::optional<InvalidRemoteDeviceReason> potential_invalid_reason =
       AddDeviceToCacheIfPossible(api_fn_name, device, connection_medium);
   if (!potential_invalid_reason)
     return false;
@@ -410,7 +409,7 @@ bool SecureChannelImpl::CheckIfBluetoothAdapterDisabledOrNotPresent(
   return false;
 }
 
-base::Optional<SecureChannelImpl::InvalidRemoteDeviceReason>
+absl::optional<SecureChannelImpl::InvalidRemoteDeviceReason>
 SecureChannelImpl::AddDeviceToCacheIfPossible(
     ApiFunctionName api_fn_name,
     const multidevice::RemoteDevice& device,
@@ -439,7 +438,7 @@ SecureChannelImpl::AddDeviceToCacheIfPossible(
   }
 
   remote_device_cache_->SetRemoteDevices({device});
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 std::ostream& operator<<(std::ostream& stream,

@@ -8,9 +8,10 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "chrome/browser/chrome_content_browser_client_parts.h"
+#include "components/download/public/common/quarantine_connection.h"
 #include "content/public/browser/browser_or_resource_context.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/network_context.mojom-forward.h"
@@ -28,6 +29,16 @@ namespace url {
 class Origin;
 }
 
+namespace blink {
+class AssociatedInterfaceRegistry;
+}
+
+namespace service_manager {
+template <typename...>
+class BinderRegistryWithArgs;
+using BinderRegistry = BinderRegistryWithArgs<>;
+}  // namespace service_manager
+
 namespace extensions {
 
 // Implements the extensions portion of ChromeContentBrowserClient.
@@ -35,6 +46,12 @@ class ChromeContentBrowserClientExtensionsPart
     : public ChromeContentBrowserClientParts {
  public:
   ChromeContentBrowserClientExtensionsPart();
+
+  ChromeContentBrowserClientExtensionsPart(
+      const ChromeContentBrowserClientExtensionsPart&) = delete;
+  ChromeContentBrowserClientExtensionsPart& operator=(
+      const ChromeContentBrowserClientExtensionsPart&) = delete;
+
   ~ChromeContentBrowserClientExtensionsPart() override;
 
   // Corresponds to the ChromeContentBrowserClient function of the same name.
@@ -60,6 +77,7 @@ class ChromeContentBrowserClientExtensionsPart
                              const GURL& site_url);
   static bool ShouldTryToUseExistingProcessHost(Profile* profile,
                                                 const GURL& url);
+  static size_t GetProcessCountToIgnoreForLimit();
   static bool ShouldSubframesTryToReuseExistingProcess(
       content::RenderFrameHost* main_frame);
   static bool ShouldSwapBrowsingInstancesForNavigation(
@@ -99,6 +117,9 @@ class ChromeContentBrowserClientExtensionsPart
   void SiteInstanceDeleting(content::SiteInstance* site_instance) override;
   void OverrideWebkitPrefs(content::WebContents* web_contents,
                            blink::web_pref::WebPreferences* web_prefs) override;
+  bool OverrideWebPreferencesAfterNavigation(
+      content::WebContents* web_contents,
+      blink::web_pref::WebPreferences* web_prefs) override;
   void BrowserURLHandlerCreated(content::BrowserURLHandler* handler) override;
   void GetAdditionalAllowedSchemesForFileSystem(
       std::vector<std::string>* additional_allowed_schemes) override;
@@ -107,14 +128,17 @@ class ChromeContentBrowserClientExtensionsPart
   void GetAdditionalFileSystemBackends(
       content::BrowserContext* browser_context,
       const base::FilePath& storage_partition_path,
+      download::QuarantineConnectionCallback quarantine_connection_callback,
       std::vector<std::unique_ptr<storage::FileSystemBackend>>*
           additional_backends) override;
   void AppendExtraRendererCommandLineSwitches(
       base::CommandLine* command_line,
       content::RenderProcessHost* process,
       Profile* profile) override;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeContentBrowserClientExtensionsPart);
+  void ExposeInterfacesToRenderer(
+      service_manager::BinderRegistry* registry,
+      blink::AssociatedInterfaceRegistry* associated_registry,
+      content::RenderProcessHost* render_process_host) override;
 };
 
 }  // namespace extensions

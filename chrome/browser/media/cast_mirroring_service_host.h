@@ -10,7 +10,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/media/offscreen_tab.h"
 #include "components/mirroring/mojom/mirroring_service.mojom.h"
 #include "components/mirroring/mojom/mirroring_service_host.mojom.h"
@@ -19,12 +19,12 @@
 #include "content/public/browser/media_stream_request.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "extensions/buildflags/buildflags.h"
+#include "media/mojo/mojom/audio_stream_factory.mojom.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/audio/public/mojom/stream_factory.mojom.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace base {
@@ -73,6 +73,9 @@ class CastMirroringServiceHost final : public mojom::MirroringServiceHost,
 
   // |source_media_id| indicates the mirroring source.
   explicit CastMirroringServiceHost(content::DesktopMediaID source_media_id);
+
+  CastMirroringServiceHost(const CastMirroringServiceHost&) = delete;
+  CastMirroringServiceHost& operator=(const CastMirroringServiceHost&) = delete;
 
   ~CastMirroringServiceHost() override;
 
@@ -127,9 +130,6 @@ class CastMirroringServiceHost final : public mojom::MirroringServiceHost,
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   // OffscreenTab::Owner implementation.
-  void RequestMediaAccessPermission(
-      const content::MediaStreamRequest& request,
-      content::MediaResponseCallback callback) override;
   void DestroyTab(OffscreenTab* tab) override;
 
   // Creates and starts a new OffscreenTab.
@@ -153,12 +153,12 @@ class CastMirroringServiceHost final : public mojom::MirroringServiceHost,
 
   // Used to create WebContents loopback capture streams, or system-wide desktop
   // capture streams, from the Audio Service.
-  mojo::Remote<audio::mojom::StreamFactory> audio_stream_factory_;
+  mojo::Remote<media::mojom::AudioStreamFactory> audio_stream_factory_;
 
   // Used to mute local audio from the WebContents being mirrored (in the tab
   // mirrorng case). See the comments in the implementation of
   // CreateAudioStream() for further explanation.
-  mojo::AssociatedRemote<audio::mojom::LocalMuter> web_contents_audio_muter_;
+  mojo::AssociatedRemote<media::mojom::LocalMuter> web_contents_audio_muter_;
 
   // The lifetime of the capture indicator icon on the tabstrip is tied to that
   // of |media_stream_ui_|.
@@ -167,8 +167,6 @@ class CastMirroringServiceHost final : public mojom::MirroringServiceHost,
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   std::unique_ptr<OffscreenTab> offscreen_tab_;
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
-
-  DISALLOW_COPY_AND_ASSIGN(CastMirroringServiceHost);
 };
 
 }  // namespace mirroring

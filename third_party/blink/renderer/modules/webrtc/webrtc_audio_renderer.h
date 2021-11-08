@@ -16,10 +16,9 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/unguessable_token.h"
@@ -28,6 +27,7 @@
 #include "media/base/audio_pull_fifo.h"
 #include "media/base/audio_renderer_sink.h"
 #include "media/base/channel_layout.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_renderer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
@@ -102,6 +102,8 @@ class MODULES_EXPORT WebRtcAudioRenderer
     PAUSED,
   };
 
+  WebRtcAudioRenderer() = delete;
+
   WebRtcAudioRenderer(
       const scoped_refptr<base::SingleThreadTaskRunner>& signaling_thread,
       MediaStreamDescriptor* media_stream_descriptor,
@@ -109,6 +111,9 @@ class MODULES_EXPORT WebRtcAudioRenderer
       const base::UnguessableToken& session_id,
       const String& device_id,
       base::RepeatingCallback<void()> on_render_error_callback);
+
+  WebRtcAudioRenderer(const WebRtcAudioRenderer&) = delete;
+  WebRtcAudioRenderer& operator=(const WebRtcAudioRenderer&) = delete;
 
   // Initialize function called by clients like WebRtcAudioDeviceImpl.
   // Stop() has to be called before |source| is deleted.
@@ -380,7 +385,7 @@ class MODULES_EXPORT WebRtcAudioRenderer
   // Used for keeping track of and logging stats for playing audio streams.
   // Created when a stream starts and destroyed when a stream stops.
   // See comments for AudioStreamTracker for more details.
-  base::Optional<AudioStreamTracker> audio_stream_tracker_;
+  absl::optional<AudioStreamTracker> audio_stream_tracker_;
 
   base::RepeatingCallback<void()> on_render_error_callback_;
 
@@ -388,8 +393,6 @@ class MODULES_EXPORT WebRtcAudioRenderer
   TranscribeAudioCallback transcribe_audio_callback_;
 
   base::WeakPtrFactory<WebRtcAudioRenderer> weak_factory_{this};
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(WebRtcAudioRenderer);
 };
 
 }  // namespace blink

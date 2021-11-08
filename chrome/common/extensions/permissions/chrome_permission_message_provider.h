@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "chrome/common/extensions/permissions/chrome_permission_message_rules.h"
 #include "extensions/common/permissions/permission_message_provider.h"
 
@@ -24,6 +23,12 @@ namespace extensions {
 class ChromePermissionMessageProvider : public PermissionMessageProvider {
  public:
   ChromePermissionMessageProvider();
+
+  ChromePermissionMessageProvider(const ChromePermissionMessageProvider&) =
+      delete;
+  ChromePermissionMessageProvider& operator=(
+      const ChromePermissionMessageProvider&) = delete;
+
   ~ChromePermissionMessageProvider() override;
 
   // PermissionMessageProvider implementation.
@@ -83,8 +88,6 @@ class ChromePermissionMessageProvider : public PermissionMessageProvider {
   PermissionMessages GetPermissionMessagesHelper(
       const PermissionIDSet& permissions,
       const std::vector<ChromePermissionMessageRule>& rules) const;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromePermissionMessageProvider);
 };
 
 }  // namespace extensions

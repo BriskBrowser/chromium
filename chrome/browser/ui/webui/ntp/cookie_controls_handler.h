@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_NTP_COOKIE_CONTROLS_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_NTP_COOKIE_CONTROLS_HANDLER_H_
 
-#include <memory>
-
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/cookie_controls/cookie_controls_service.h"
 #include "components/content_settings/core/common/cookie_controls_enforcement.h"
@@ -21,6 +19,10 @@ class CookieControlsHandler : public content::WebUIMessageHandler,
                               public CookieControlsService::Observer {
  public:
   explicit CookieControlsHandler(Profile* profile);
+
+  CookieControlsHandler(const CookieControlsHandler&) = delete;
+  CookieControlsHandler& operator=(const CookieControlsHandler&) = delete;
+
   ~CookieControlsHandler() override;
 
   // WebUIMessageHandler
@@ -42,8 +44,6 @@ class CookieControlsHandler : public content::WebUIMessageHandler,
   void SendCookieControlsUIChanges();
 
   CookieControlsService* service_;
-
-  DISALLOW_COPY_AND_ASSIGN(CookieControlsHandler);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_NTP_COOKIE_CONTROLS_HANDLER_H_

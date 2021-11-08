@@ -10,7 +10,6 @@
 #include "base/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/strings/stringprintf.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/task_environment.h"
 #include "content/public/common/content_switches.h"
@@ -135,10 +134,11 @@ class ClearSiteDataHandlerTest : public testing::Test {
   ClearSiteDataHandlerTest()
       : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP) {}
 
+  ClearSiteDataHandlerTest(const ClearSiteDataHandlerTest&) = delete;
+  ClearSiteDataHandlerTest& operator=(const ClearSiteDataHandlerTest&) = delete;
+
  private:
   BrowserTaskEnvironment task_environment_;
-
-  DISALLOW_COPY_AND_ASSIGN(ClearSiteDataHandlerTest);
 };
 
 TEST_F(ClearSiteDataHandlerTest, ParseHeaderAndExecuteClearingTask) {

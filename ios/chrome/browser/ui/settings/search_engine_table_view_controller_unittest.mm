@@ -156,7 +156,7 @@ class SearchEngineTableViewControllerTest
     data.SetURL(expected_searchable_url.possibly_invalid_spec());
     const std::string expected_url =
         TemplateURL(data).url_ref().ReplaceSearchTerms(
-            TemplateURLRef::SearchTermsArgs(base::string16()),
+            TemplateURLRef::SearchTermsArgs(std::u16string()),
             template_url_service_->search_terms_data());
     CheckItem(base::SysUTF8ToNSString(expected_text),
               base::SysUTF8ToNSString(expected_text), GURL(expected_url),
@@ -195,7 +195,7 @@ class SearchEngineTableViewControllerTest
     CheckItem(base::SysUTF16ToNSString(turl->short_name()),
               base::SysUTF16ToNSString(turl->keyword()),
               GURL(turl->url_ref().ReplaceSearchTerms(
-                  TemplateURLRef::SearchTermsArgs(base::string16()),
+                  TemplateURLRef::SearchTermsArgs(std::u16string()),
                   template_url_service_->search_terms_data())),
               expected_checked, section, row, enabled);
   }
@@ -252,17 +252,13 @@ TEST_F(SearchEngineTableViewControllerTest,
   AddPriorSearchEngine(kEngineP2Name, kEngineP2Url, 1002, true);
 
   AddCustomSearchEngine(kEngineC4Name, kEngineC4Url,
-                        base::Time::Now() - base::TimeDelta::FromDays(10),
-                        false);
+                        base::Time::Now() - base::Days(10), false);
   AddCustomSearchEngine(kEngineC1Name, kEngineC1Url,
-                        base::Time::Now() - base::TimeDelta::FromSeconds(10),
-                        false);
+                        base::Time::Now() - base::Seconds(10), false);
   AddCustomSearchEngine(kEngineC3Name, kEngineC3Url,
-                        base::Time::Now() - base::TimeDelta::FromHours(10),
-                        false);
+                        base::Time::Now() - base::Hours(10), false);
   AddCustomSearchEngine(kEngineC2Name, kEngineC2Url,
-                        base::Time::Now() - base::TimeDelta::FromMinutes(10),
-                        false);
+                        base::Time::Now() - base::Minutes(10), false);
 
   CreateController();
   CheckController();
@@ -304,17 +300,13 @@ TEST_F(SearchEngineTableViewControllerTest,
   AddPriorSearchEngine(kEngineP2Name, kEngineP2Url, 1002, false);
 
   AddCustomSearchEngine(kEngineC4Name, kEngineC4Url,
-                        base::Time::Now() - base::TimeDelta::FromDays(10),
-                        false);
+                        base::Time::Now() - base::Days(10), false);
   AddCustomSearchEngine(kEngineC1Name, kEngineC1Url,
-                        base::Time::Now() - base::TimeDelta::FromSeconds(10),
-                        false);
+                        base::Time::Now() - base::Seconds(10), false);
   AddCustomSearchEngine(kEngineC3Name, kEngineC3Url,
-                        base::Time::Now() - base::TimeDelta::FromHours(10),
-                        false);
+                        base::Time::Now() - base::Hours(10), false);
   AddCustomSearchEngine(kEngineC2Name, kEngineC2Url,
-                        base::Time::Now() - base::TimeDelta::FromMinutes(10),
-                        true);
+                        base::Time::Now() - base::Minutes(10), true);
 
   CreateController();
   CheckController();
@@ -402,8 +394,7 @@ TEST_F(SearchEngineTableViewControllerTest, TestChangeProvider) {
   TemplateURL* url_c1 = AddCustomSearchEngine(kEngineC1Name, kEngineC1Url,
                                               base::Time::Now(), false);
   AddCustomSearchEngine(kEngineC2Name, kEngineC2Url,
-                        base::Time::Now() - base::TimeDelta::FromSeconds(10),
-                        false);
+                        base::Time::Now() - base::Seconds(10), false);
 
   CreateController();
   CheckController();
@@ -484,7 +475,7 @@ TEST_F(SearchEngineTableViewControllerTest, TestChangeProvider) {
       chrome_browser_state_->GetTestingPrefService()->GetDictionary(
           DefaultSearchManager::kDefaultSearchProviderDataPrefName);
   ASSERT_TRUE(searchProviderDict);
-  base::string16 short_name;
+  std::u16string short_name;
   EXPECT_TRUE(searchProviderDict->GetString(DefaultSearchManager::kShortName,
                                             &short_name));
   EXPECT_EQ(url_c1->short_name(), short_name);
@@ -516,11 +507,9 @@ TEST_F(SearchEngineTableViewControllerTest, EditingMode) {
   EXPECT_TRUE([searchEngineController shouldHideToolbar]);
 
   AddCustomSearchEngine(kEngineC2Name, kEngineC2Url,
-                        base::Time::Now() - base::TimeDelta::FromMinutes(10),
-                        false);
+                        base::Time::Now() - base::Minutes(10), false);
   AddCustomSearchEngine(kEngineC1Name, kEngineC1Url,
-                        base::Time::Now() - base::TimeDelta::FromSeconds(10),
-                        false);
+                        base::Time::Now() - base::Seconds(10), false);
 
   EXPECT_TRUE([searchEngineController editButtonEnabled]);
   EXPECT_TRUE([searchEngineController shouldHideToolbar]);
@@ -591,17 +580,14 @@ TEST_F(SearchEngineTableViewControllerTest, DeleteItems) {
   AddPriorSearchEngine(kEngineP2Name, kEngineP2Url, 1002, false);
 
   AddCustomSearchEngine(kEngineC4Name, kEngineC4Url,
-                        base::Time::Now() - base::TimeDelta::FromDays(1),
-                        false);
+                        base::Time::Now() - base::Days(1), false);
   AddCustomSearchEngine(kEngineC1Name, kEngineC1Url,
-                        base::Time::Now() - base::TimeDelta::FromSeconds(10),
-                        false);
+                        base::Time::Now() - base::Seconds(10), false);
   AddCustomSearchEngine(kEngineC3Name, kEngineC3Url,
-                        base::Time::Now() - base::TimeDelta::FromHours(10),
-                        true);
-  TemplateURL* url_c2 = AddCustomSearchEngine(
-      kEngineC2Name, kEngineC2Url,
-      base::Time::Now() - base::TimeDelta::FromMinutes(10), false);
+                        base::Time::Now() - base::Hours(10), true);
+  TemplateURL* url_c2 =
+      AddCustomSearchEngine(kEngineC2Name, kEngineC2Url,
+                            base::Time::Now() - base::Minutes(10), false);
 
   CreateController();
   CheckController();

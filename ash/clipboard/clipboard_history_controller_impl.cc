@@ -10,22 +10,24 @@
 #include "ash/clipboard/clipboard_history_menu_model_adapter.h"
 #include "ash/clipboard/clipboard_history_resource_manager.h"
 #include "ash/clipboard/clipboard_history_util.h"
+#include "ash/clipboard/clipboard_nudge_constants.h"
 #include "ash/clipboard/clipboard_nudge_controller.h"
 #include "ash/clipboard/scoped_clipboard_history_pause_impl.h"
 #include "ash/constants/ash_features.h"
+#include "ash/display/display_util.h"
 #include "ash/public/cpp/clipboard_image_model_factory.h"
-#include "ash/public/cpp/file_icon_util.h"
+#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
 #include "ash/public/cpp/window_tree_host_lookup.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
-#include "ash/style/ash_color_provider.h"
-#include "base/base64.h"
-#include "base/files/file_path.h"
+#include "ash/wm/window_util.h"
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/clipboard/clipboard_constants.h"
@@ -39,12 +41,10 @@
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
-#include "ui/display/screen.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
 #include "ui/events/types/event_type.h"
-#include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/menu/menu_controller.h"
@@ -55,21 +55,17 @@ namespace {
 
 constexpr char kImageDataKey[] = "imageData";
 constexpr char kTextDataKey[] = "textData";
+constexpr char kFormatDataKey[] = "displayFormat";
+
+constexpr char kPngFormat[] = "png";
+constexpr char kHtmlFormat[] = "html";
+constexpr char kTextFormat[] = "text";
+constexpr char kFileFormat[] = "file";
 
 ui::ClipboardNonBacked* GetClipboard() {
   auto* clipboard = ui::ClipboardNonBacked::GetForCurrentThread();
   DCHECK(clipboard);
   return clipboard;
-}
-
-bool IsRectContainedByAnyDisplay(const gfx::Rect& rect) {
-  const std::vector<display::Display>& displays =
-      display::Screen::GetScreen()->GetAllDisplays();
-  for (const auto& display : displays) {
-    if (display.bounds().Contains(rect))
-      return true;
-  }
-  return false;
 }
 
 }  // namespace
@@ -202,6 +198,10 @@ ClipboardHistoryControllerImpl::~ClipboardHistoryControllerImpl() {
   clipboard_history_->RemoveObserver(this);
 }
 
+void ClipboardHistoryControllerImpl::Shutdown() {
+  nudge_controller_.reset();
+}
+
 void ClipboardHistoryControllerImpl::AddObserver(
     ClipboardHistoryController::Observer* observer) const {
   observers_.AddObserver(observer);
@@ -221,17 +221,20 @@ void ClipboardHistoryControllerImpl::ShowMenuByAccelerator() {
     ExecuteSelectedMenuItem(ui::EF_COMMAND_DOWN);
     return;
   }
+
+  if (ClipboardHistoryUtil::IsEnabledInCurrentMode() && IsEmpty()) {
+    nudge_controller_->ShowNudge(ClipboardNudgeType::kZeroStateNudge);
+    return;
+  }
+
   ShowMenu(CalculateAnchorRect(), ui::MENU_SOURCE_KEYBOARD,
-           ShowSource::kAccelerator);
+           crosapi::mojom::ClipboardHistoryControllerShowSource::kAccelerator);
 }
 
-gfx::Rect ClipboardHistoryControllerImpl::GetMenuBoundsInScreenForTest() const {
-  return context_menu_->GetMenuBoundsInScreenForTest();
-}
-
-void ClipboardHistoryControllerImpl::ShowMenu(const gfx::Rect& anchor_rect,
-                                              ui::MenuSourceType source_type,
-                                              ShowSource show_source) {
+void ClipboardHistoryControllerImpl::ShowMenu(
+    const gfx::Rect& anchor_rect,
+    ui::MenuSourceType source_type,
+    crosapi::mojom::ClipboardHistoryControllerShowSource show_source) {
   if (IsMenuShowing() || !CanShowMenu())
     return;
 
@@ -275,7 +278,11 @@ void ClipboardHistoryControllerImpl::ShowMenu(const gfx::Rect& anchor_rect,
           weak_ptr_factory_.GetWeakPtr()));
 
   for (auto& observer : observers_)
-    observer.OnClipboardHistoryMenuShown();
+    observer.OnClipboardHistoryMenuShown(show_source);
+}
+
+gfx::Rect ClipboardHistoryControllerImpl::GetMenuBoundsInScreenForTest() const {
+  return context_menu_->GetMenuBoundsInScreenForTest();
 }
 
 bool ClipboardHistoryControllerImpl::ShouldShowNewFeatureBadge() const {
@@ -287,9 +294,16 @@ void ClipboardHistoryControllerImpl::MarkNewFeatureBadgeShown() {
   nudge_controller_->MarkNewFeatureBadgeShown();
 }
 
+void ClipboardHistoryControllerImpl::OnScreenshotNotificationCreated() {
+  nudge_controller_->MarkScreenshotNotificationShown();
+}
+
 bool ClipboardHistoryControllerImpl::CanShowMenu() const {
-  return !clipboard_history_->IsEmpty() &&
-         ClipboardHistoryUtil::IsEnabledInCurrentMode();
+  return !IsEmpty() && ClipboardHistoryUtil::IsEnabledInCurrentMode();
+}
+
+bool ClipboardHistoryControllerImpl::IsEmpty() const {
+  return clipboard_history_->IsEmpty();
 }
 
 std::unique_ptr<ScopedClipboardHistoryPause>
@@ -313,36 +327,40 @@ base::Value ClipboardHistoryControllerImpl::GetHistoryValues(
 
     base::Value item_value(base::Value::Type::DICTIONARY);
     switch (ash::ClipboardHistoryUtil::CalculateDisplayFormat(item.data())) {
-      case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kBitmap:
-        item_value.SetKey(
-            kImageDataKey,
-            base::Value(webui::GetBitmapDataUrl(item.data().bitmap())));
+      case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kPng:
+        item_value.SetKey(kImageDataKey, base::Value(webui::GetPngDataUrl(
+                                             item.data().png().data(),
+                                             item.data().png().size())));
+        item_value.SetKey(kFormatDataKey, base::Value(kPngFormat));
         break;
       case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kHtml: {
         const SkBitmap& bitmap =
             *(resource_manager_->GetImageModel(item).GetImage().ToSkBitmap());
         item_value.SetKey(kImageDataKey,
                           base::Value(webui::GetBitmapDataUrl(bitmap)));
+        item_value.SetKey(kFormatDataKey, base::Value(kHtmlFormat));
         break;
       }
       case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kText:
         item_value.SetKey(kTextDataKey, base::Value(item.data().text()));
+        item_value.SetKey(kFormatDataKey, base::Value(kTextFormat));
         break;
       case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kFile: {
-        item_value.SetKey(
-            kTextDataKey,
-            base::Value(base::UTF16ToUTF8(resource_manager_->GetLabel(item))));
-        gfx::ImageSkia image = GetIconForPath(
-            base::FilePath(item.data().text()),
-            ash::AshColorProvider::Get()->GetContentLayerColor(
-                AshColorProvider::ContentLayerType::kIconColorPrimary));
-        item_value.SetKey(
-            kImageDataKey,
-            base::Value(webui::GetBitmapDataUrl(*image.bitmap())));
+        std::string file_name =
+            base::UTF16ToUTF8(resource_manager_->GetLabel(item));
+        item_value.SetKey(kTextDataKey, base::Value(file_name));
+        ScopedLightModeAsDefault scoped_light_mode_as_default;
+        std::string data_url = webui::GetBitmapDataUrl(
+            *ClipboardHistoryUtil::GetIconForFileClipboardItem(item, file_name)
+                 .bitmap());
+        item_value.SetKey(kImageDataKey, base::Value(data_url));
+        item_value.SetKey(kFormatDataKey, base::Value(kFileFormat));
         break;
       }
     }
-    item_value.SetKey("idToken", base::Value(item.id().ToString()));
+    item_value.SetKey("id", base::Value(item.id().ToString()));
+    item_value.SetKey("timeCopied",
+                      base::Value(item.time_copied().ToJsTimeIgnoringNull()));
     item_results.Append(std::move(item_value));
   }
 
@@ -363,9 +381,18 @@ bool ClipboardHistoryControllerImpl::PasteClipboardItemById(
   if (currently_pasting_)
     return false;
 
+  auto* active_window = window_util::GetActiveWindow();
+  if (!active_window)
+    return false;
+
   for (const auto& item : history()->GetItems()) {
     if (item.id().ToString() == item_id) {
-      PasteClipboardHistoryItem(item, /*paste_plain_text=*/false);
+      base::SequencedTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE,
+          base::BindOnce(
+              &ClipboardHistoryControllerImpl::PasteClipboardHistoryItem,
+              weak_ptr_factory_.GetWeakPtr(), active_window, item,
+              /*paste_plain_text=*/false));
       return true;
     }
   }
@@ -417,7 +444,6 @@ void ClipboardHistoryControllerImpl::OnClipboardHistoryCleared() {
   if (!IsMenuShowing())
     return;
   context_menu_->Cancel();
-  context_menu_.reset();
 }
 
 void ClipboardHistoryControllerImpl::OnOperationConfirmed(bool copy) {
@@ -516,15 +542,29 @@ void ClipboardHistoryControllerImpl::PasteMenuItemData(int command_id,
   DCHECK(context_menu_);
   context_menu_->Cancel();
 
+  auto* active_window = window_util::GetActiveWindow();
+  if (!active_window)
+    return;
+
   const ClipboardHistoryItem& selected_item =
       context_menu_->GetItemFromCommandId(command_id);
 
-  PasteClipboardHistoryItem(selected_item, paste_plain_text);
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ClipboardHistoryControllerImpl::PasteClipboardHistoryItem,
+                     weak_ptr_factory_.GetWeakPtr(), active_window,
+                     selected_item, paste_plain_text));
 }
 
 void ClipboardHistoryControllerImpl::PasteClipboardHistoryItem(
-    const ClipboardHistoryItem& item,
+    aura::Window* intended_window,
+    ClipboardHistoryItem item,
     bool paste_plain_text) {
+  // It's possible that the window could change after posting the
+  // PasteClipboardHistoryItem task is scheduled.
+  if (!intended_window || intended_window != window_util::GetActiveWindow())
+    return;
+
   auto* clipboard = GetClipboard();
   std::unique_ptr<ui::ClipboardData> original_data;
 
@@ -554,26 +594,21 @@ void ClipboardHistoryControllerImpl::PasteClipboardHistoryItem(
   }
 
   ui::KeyEvent control_press(/*type=*/ui::ET_KEY_PRESSED, ui::VKEY_CONTROL,
-                             /*code=*/static_cast<ui::DomCode>(0), /*flags=*/0);
+                             ui::EF_NONE);
   auto* host = GetWindowTreeHostForDisplay(
       display::Screen::GetScreen()->GetDisplayForNewWindows().id());
   DCHECK(host);
   host->DeliverEventToSink(&control_press);
 
-  ui::KeyEvent v_press(/*type=*/ui::ET_KEY_PRESSED, ui::VKEY_V,
-                       /*code=*/static_cast<ui::DomCode>(0),
-                       /*flags=*/ui::EF_CONTROL_DOWN);
-
+  ui::KeyEvent v_press(ui::ET_KEY_PRESSED, ui::VKEY_V, ui::EF_CONTROL_DOWN);
   host->DeliverEventToSink(&v_press);
 
   ui::KeyEvent v_release(/*type=*/ui::ET_KEY_RELEASED, ui::VKEY_V,
-                         /*code=*/static_cast<ui::DomCode>(0),
-                         /*flags=*/ui::EF_CONTROL_DOWN);
+                         ui::EF_CONTROL_DOWN);
   host->DeliverEventToSink(&v_release);
 
   ui::KeyEvent control_release(/*type=*/ui::ET_KEY_RELEASED, ui::VKEY_CONTROL,
-                               /*code=*/static_cast<ui::DomCode>(0),
-                               /*flags=*/0);
+                               ui::EF_NONE);
   host->DeliverEventToSink(&control_release);
 
   ++pastes_to_be_confirmed_;
@@ -581,6 +616,7 @@ void ClipboardHistoryControllerImpl::PasteClipboardHistoryItem(
   for (auto& observer : observers_)
     observer.OnClipboardHistoryPasted();
 
+  // `original_data` only exists if the clipboard was modified.
   if (!original_data)
     return;
 
@@ -608,7 +644,7 @@ void ClipboardHistoryControllerImpl::PasteClipboardHistoryItem(
             GetClipboard()->WriteClipboardData(std::move(original_data));
           },
           weak_ptr_factory_.GetWeakPtr(), std::move(original_data)),
-      base::TimeDelta::FromMilliseconds(200));
+      base::Milliseconds(200));
 }
 
 void ClipboardHistoryControllerImpl::DeleteSelectedMenuItemIfAny() {
@@ -638,7 +674,6 @@ void ClipboardHistoryControllerImpl::DeleteItemWithCommandId(int command_id) {
   // If the item to be deleted is the last one, close the whole menu.
   if (context_menu_->GetMenuItemsCount() == 1) {
     context_menu_->Cancel();
-    context_menu_.reset();
     return;
   }
 

@@ -61,9 +61,50 @@ class BranchUnitTest(unittest.TestCase):
             {
                 "project": "chromium-mMM",
                 "project_title": "Chromium MMM",
-                "is_master": false,
-                "is_lts_branch": false,
-                "ref": "refs/branch-heads/BBBB"
+                "ref": "refs/branch-heads/BBBB",
+                "chrome_project": "chrome-mMM",
+                "branch_types": [
+                    "standard"
+                ]
+            }
+            """))
+
+  def test_set_type_parse_args_fails_when_missing_required_args(self):
+    with self.assertRaises(ParseError) as caught:
+      branch.parse_args(['set-type'], parser_type=ArgumentParser)
+    self.assertEqual(str(caught.exception),
+                     'the following arguments are required: --type')
+
+  def test_set_type_parse_args_fails_for_invalid_type(self):
+    with self.assertRaises(ParseError) as caught:
+      branch.parse_args(['set-type', '--type', 'foo'],
+                        parser_type=ArgumentParser)
+    self.assertIn("invalid choice: 'foo'", str(caught.exception))
+
+  def test_set_type_parse_args(self):
+    args = branch.parse_args(
+        ['set-type', '--type', 'desktop-extended-stable', '--type', 'cros-lts'])
+    self.assertEqual(args.type, ['desktop-extended-stable', 'cros-lts'])
+
+  def test_set_type(self):
+    input = textwrap.dedent("""\
+        {
+            "project": "chromium-mMM",
+            "project_title": "Chromium MMM",
+            "ref": "refs/branch-heads/AAAA"
+        }""")
+    output = branch.set_type(input, ['desktop-extended-stable', 'cros-lts'])
+    self.assertEqual(
+        output,
+        textwrap.dedent("""\
+            {
+                "project": "chromium-mMM",
+                "project_title": "Chromium MMM",
+                "ref": "refs/branch-heads/AAAA",
+                "branch_types": [
+                    "desktop-extended-stable",
+                    "cros-lts"
+                ]
             }
             """))
 

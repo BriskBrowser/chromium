@@ -23,6 +23,10 @@ namespace multidevice_setup {
 class FakeMultiDeviceSetup : public MultiDeviceSetupBase {
  public:
   FakeMultiDeviceSetup();
+
+  FakeMultiDeviceSetup(const FakeMultiDeviceSetup&) = delete;
+  FakeMultiDeviceSetup& operator=(const FakeMultiDeviceSetup&) = delete;
+
   ~FakeMultiDeviceSetup() override;
 
   void FlushForTesting();
@@ -32,7 +36,7 @@ class FakeMultiDeviceSetup : public MultiDeviceSetupBase {
 
   void NotifyHostStatusChanged(
       mojom::HostStatus host_status,
-      const base::Optional<multidevice::RemoteDevice>& host_device);
+      const absl::optional<multidevice::RemoteDevice>& host_device);
   void NotifyFeatureStateChanged(
       const base::flat_map<mojom::Feature, mojom::FeatureState>&
           feature_states);
@@ -56,7 +60,7 @@ class FakeMultiDeviceSetup : public MultiDeviceSetupBase {
 
   std::vector<std::tuple<mojom::Feature,
                          bool,
-                         base::Optional<std::string>,
+                         absl::optional<std::string>,
                          SetFeatureEnabledStateCallback>>&
   set_feature_enabled_args() {
     return set_feature_enabled_args_;
@@ -102,7 +106,7 @@ class FakeMultiDeviceSetup : public MultiDeviceSetupBase {
   void GetHostStatus(GetHostStatusCallback callback) override;
   void SetFeatureEnabledState(mojom::Feature feature,
                               bool enabled,
-                              const base::Optional<std::string>& auth_token,
+                              const absl::optional<std::string>& auth_token,
                               SetFeatureEnabledStateCallback callback) override;
   void GetFeatureStates(GetFeatureStatesCallback callback) override;
   void RetrySetHostNow(RetrySetHostNowCallback callback) override;
@@ -129,7 +133,7 @@ class FakeMultiDeviceSetup : public MultiDeviceSetupBase {
   std::vector<GetHostStatusCallback> get_host_args_;
   std::vector<std::tuple<mojom::Feature,
                          bool,
-                         base::Optional<std::string>,
+                         absl::optional<std::string>,
                          SetFeatureEnabledStateCallback>>
       set_feature_enabled_args_;
   std::vector<GetFeatureStatesCallback> get_feature_states_args_;
@@ -141,8 +145,6 @@ class FakeMultiDeviceSetup : public MultiDeviceSetupBase {
       std::pair<std::string,
                 mojom::PrivilegedHostDeviceSetter::SetHostDeviceCallback>>
       set_host_without_auth_args_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeMultiDeviceSetup);
 };
 
 }  // namespace multidevice_setup

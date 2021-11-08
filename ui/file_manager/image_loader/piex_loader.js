@@ -718,7 +718,7 @@ class ImageBuffer {
 /**
  * PiexLoader: is a namespace.
  */
-/* #export */ const PiexLoader = {};
+export const PiexLoader = {};
 
 /**
  * Loads a RAW image. Returns the image metadata and the image thumbnail in a
@@ -761,4 +761,8 @@ PiexLoader.load = function(source, onPiexModuleFailed) {
       .finally(() => {
         imageBuffer && imageBuffer.close();
       });
+};
+
+export const PIEX_LOADER_TEST_ONLY = {
+  getModule: () => PiexModule
 };

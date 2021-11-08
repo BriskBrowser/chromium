@@ -11,16 +11,16 @@
 #include "base/callback.h"
 #include "base/check_op.h"
 #include "base/location.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/task/task_traits.h"
-#include "base/time/time.h"
 
 namespace base {
 namespace internal {
 class JobTaskSource;
 class PooledTaskRunnerDelegate;
 }
+
+class TaskTraits;
+enum class TaskPriority : uint8_t;
 
 // Delegate that's passed to Job's worker task, providing an entry point to
 // communicate with the scheduler. To prevent deadlocks, JobDelegate methods
@@ -34,6 +34,10 @@ class BASE_EXPORT JobDelegate {
   // should never yield -- e.g. when the main thread is a worker).
   JobDelegate(internal::JobTaskSource* task_source,
               internal::PooledTaskRunnerDelegate* pooled_task_runner_delegate);
+
+  JobDelegate(const JobDelegate&) = delete;
+  JobDelegate& operator=(const JobDelegate&) = delete;
+
   ~JobDelegate();
 
   // Returns true if this thread *must* return from the worker task on the
@@ -74,8 +78,6 @@ class BASE_EXPORT JobDelegate {
   // Value returned by the last call to ShouldYield().
   bool last_should_yield_ = false;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(JobDelegate);
 };
 
 // Handle returned when posting a Job. Provides methods to control execution of
@@ -84,6 +86,10 @@ class BASE_EXPORT JobDelegate {
 class BASE_EXPORT JobHandle {
  public:
   JobHandle();
+
+  JobHandle(const JobHandle&) = delete;
+  JobHandle& operator=(const JobHandle&) = delete;
+
   // A job must either be joined, canceled or detached before the JobHandle is
   // destroyed.
   ~JobHandle();
@@ -127,8 +133,6 @@ class BASE_EXPORT JobHandle {
   explicit JobHandle(scoped_refptr<internal::JobTaskSource> task_source);
 
   scoped_refptr<internal::JobTaskSource> task_source_;
-
-  DISALLOW_COPY_AND_ASSIGN(JobHandle);
 };
 
 // Callback used in PostJob() to control the maximum number of threads calling

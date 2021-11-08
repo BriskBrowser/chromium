@@ -41,6 +41,11 @@ class ExclusiveAccessBubbleViews : public ExclusiveAccessBubble,
       const GURL& url,
       ExclusiveAccessBubbleType bubble_type,
       ExclusiveAccessBubbleHideCallback bubble_first_hide_callback);
+
+  ExclusiveAccessBubbleViews(const ExclusiveAccessBubbleViews&) = delete;
+  ExclusiveAccessBubbleViews& operator=(const ExclusiveAccessBubbleViews&) =
+      delete;
+
   ~ExclusiveAccessBubbleViews() override;
 
   // |force_update| indicates the caller wishes to show the bubble contents
@@ -113,12 +118,10 @@ class ExclusiveAccessBubbleViews : public ExclusiveAccessBubble,
 
   // The contents of the popup.
   SubtleNotificationView* view_;
-  base::string16 browser_fullscreen_exit_accelerator_;
+  std::u16string browser_fullscreen_exit_accelerator_;
 
   base::ScopedObservation<FullscreenController, FullscreenObserver>
       fullscreen_observation_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ExclusiveAccessBubbleViews);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXCLUSIVE_ACCESS_BUBBLE_VIEWS_H_

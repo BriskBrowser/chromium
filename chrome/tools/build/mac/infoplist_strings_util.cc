@@ -34,7 +34,7 @@ std::unique_ptr<ui::DataPack> LoadResourceDataPack(
   auto path = base::FilePath(base::StringPrintf(
       "%s/%s_%s.pak", dir_path, branding_strings_name, locale_name.c_str()));
   path = base::MakeAbsoluteFilePath(path);
-  auto resource_pack = std::make_unique<ui::DataPack>(ui::SCALE_FACTOR_100P);
+  auto resource_pack = std::make_unique<ui::DataPack>(ui::k100Percent);
   if (!resource_pack->LoadFromPath(path))
     resource_pack.reset();
   return resource_pack;
@@ -53,8 +53,8 @@ std::string LoadStringFromDataPack(ui::DataPack* data_pack,
   if (data_pack->GetTextEncodingType() == ui::DataPack::UTF8)
     return (std::string)data;
   if (data_pack->GetTextEncodingType() == ui::DataPack::UTF16) {
-    return base::UTF16ToUTF8(base::string16(
-        reinterpret_cast<const base::char16*>(data.data()), data.length() / 2));
+    return base::UTF16ToUTF8(std::u16string(
+        reinterpret_cast<const char16_t*>(data.data()), data.length() / 2));
   }
 
   LOG(FATAL) << "requested string " << resource_id_str

@@ -9,7 +9,6 @@
 #include <memory>
 #include <string>
 
-#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
@@ -114,6 +113,9 @@ class MobileActivator : public NetworkStateHandlerObserver {
     Observer() {}
     virtual ~Observer() {}
   };
+
+  MobileActivator(const MobileActivator&) = delete;
+  MobileActivator& operator=(const MobileActivator&) = delete;
 
   static MobileActivator* GetInstance();
 
@@ -256,8 +258,6 @@ class MobileActivator : public NetworkStateHandlerObserver {
 
   base::ObserverList<Observer>::Unchecked observers_;
   base::WeakPtrFactory<MobileActivator> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MobileActivator);
 };
 
 }  // namespace ash

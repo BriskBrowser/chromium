@@ -70,7 +70,7 @@ class PasswordFetcherTest : public PlatformTest {
                 web::BrowserState, password_manager::TestPasswordStore>));
   }
 
-  password_manager::PasswordStore* GetPasswordStore() {
+  password_manager::PasswordStoreInterface* GetPasswordStore() {
     return IOSChromePasswordStoreFactory::GetForBrowserState(
                chrome_browser_state_.get(), ServiceAccessType::EXPLICIT_ACCESS)
         .get();
@@ -80,11 +80,11 @@ class PasswordFetcherTest : public PlatformTest {
     password_manager::PasswordForm form;
     form.url = GURL("http://www.example.com/accounts/LoginAuth");
     form.action = GURL("http://www.example.com/accounts/Login");
-    form.username_element = base::ASCIIToUTF16("Email");
-    form.username_value = base::ASCIIToUTF16("test@egmail.com");
-    form.password_element = base::ASCIIToUTF16("Passwd");
-    form.password_value = base::ASCIIToUTF16("test");
-    form.submit_element = base::ASCIIToUTF16("signIn");
+    form.username_element = u"Email";
+    form.username_value = u"test@egmail.com";
+    form.password_element = u"Passwd";
+    form.password_value = u"test";
+    form.submit_element = u"signIn";
     form.signon_realm = "http://www.example.com/";
     form.scheme = password_manager::PasswordForm::Scheme::kHtml;
     form.blocked_by_user = false;
@@ -99,11 +99,11 @@ class PasswordFetcherTest : public PlatformTest {
     auto form = std::make_unique<password_manager::PasswordForm>();
     form->url = GURL("http://www.example2.com/accounts/LoginAuth");
     form->action = GURL("http://www.example2.com/accounts/Login");
-    form->username_element = base::ASCIIToUTF16("Email");
-    form->username_value = base::ASCIIToUTF16("test@egmail.com");
-    form->password_element = base::ASCIIToUTF16("Passwd");
-    form->password_value = base::ASCIIToUTF16("test");
-    form->submit_element = base::ASCIIToUTF16("signIn");
+    form->username_element = u"Email";
+    form->username_value = u"test@egmail.com";
+    form->password_element = u"Passwd";
+    form->password_value = u"test";
+    form->submit_element = u"signIn";
     form->signon_realm = "http://www.example2.com/";
     form->scheme = password_manager::PasswordForm::Scheme::kHtml;
     form->blocked_by_user = false;
@@ -116,11 +116,11 @@ class PasswordFetcherTest : public PlatformTest {
     auto form = std::make_unique<password_manager::PasswordForm>();
     form->url = GURL("http://www.secret.com/login");
     form->action = GURL("http://www.secret.com/action");
-    form->username_element = base::ASCIIToUTF16("email");
-    form->username_value = base::ASCIIToUTF16("test@secret.com");
-    form->password_element = base::ASCIIToUTF16("password");
-    form->password_value = base::ASCIIToUTF16("cantsay");
-    form->submit_element = base::ASCIIToUTF16("signIn");
+    form->username_element = u"email";
+    form->username_value = u"test@secret.com";
+    form->password_element = u"password";
+    form->password_value = u"cantsay";
+    form->submit_element = u"signIn";
     form->signon_realm = "http://www.secret.test/";
     form->scheme = password_manager::PasswordForm::Scheme::kHtml;
     form->blocked_by_user = true;
@@ -160,7 +160,7 @@ TEST_F(PasswordFetcherTest, ReturnsPassword) {
       ^bool {
         return passwordFetcherDelegate.passwordNumber > 0;
       },
-      true, base::TimeDelta::FromSeconds(1000));
+      true, base::Seconds(1000));
 
   EXPECT_EQ(passwordFetcherDelegate.passwordNumber, 1u);
   EXPECT_TRUE(passwordFetcher);
@@ -182,7 +182,7 @@ TEST_F(PasswordFetcherTest, ReturnsTwoPasswords) {
       ^bool {
         return passwordFetcherDelegate.passwordNumber > 0;
       },
-      true, base::TimeDelta::FromSeconds(1000));
+      true, base::Seconds(1000));
 
   EXPECT_EQ(passwordFetcherDelegate.passwordNumber, 2u);
   EXPECT_TRUE(passwordFetcher);
@@ -204,7 +204,7 @@ TEST_F(PasswordFetcherTest, IgnoresBlocked) {
       ^bool {
         return passwordFetcherDelegate.passwordNumber > 0;
       },
-      true, base::TimeDelta::FromSeconds(1000));
+      true, base::Seconds(1000));
 
   EXPECT_EQ(passwordFetcherDelegate.passwordNumber, 1u);
   EXPECT_TRUE(passwordFetcher);
@@ -228,7 +228,7 @@ TEST_F(PasswordFetcherTest, IgnoresDuplicated) {
       ^bool {
         return passwordFetcherDelegate.passwordNumber > 0;
       },
-      true, base::TimeDelta::FromSeconds(1000));
+      true, base::Seconds(1000));
 
   EXPECT_EQ(passwordFetcherDelegate.passwordNumber, 1u);
   EXPECT_TRUE(passwordFetcher);
@@ -249,7 +249,7 @@ TEST_F(PasswordFetcherTest, ReceivesZeroPasswords) {
       ^bool {
         return passwordFetcherDelegate.passwordNumber > 0;
       },
-      true, base::TimeDelta::FromSeconds(1000));
+      true, base::Seconds(1000));
   EXPECT_EQ(passwordFetcherDelegate.passwordNumber, 1u);
 
   GetPasswordStore()->RemoveLogin(Form1());
@@ -258,7 +258,7 @@ TEST_F(PasswordFetcherTest, ReceivesZeroPasswords) {
       ^bool {
         return passwordFetcherDelegate.passwordNumber == 0;
       },
-      true, base::TimeDelta::FromSeconds(1000));
+      true, base::Seconds(1000));
   EXPECT_EQ(passwordFetcherDelegate.passwordNumber, 0u);
   EXPECT_TRUE(passwordFetcher);
 }
@@ -274,14 +274,14 @@ TEST_F(PasswordFetcherTest, FilterPassword) {
   PasswordFetcher* passwordFetcher = [[PasswordFetcher alloc]
       initWithPasswordStore:passwordStore
                    delegate:passwordFetcherDelegate
-                        URL:GURL("http://www.secret.test/")];
+                        URL:GURL("http://www.example.com/accounts/Login")];
   WaitUntilCondition(
       ^bool {
         return passwordFetcherDelegate.passwordNumber > 0;
       },
-      true, base::TimeDelta::FromSeconds(1000));
+      true, base::Seconds(1000));
 
-  EXPECT_EQ(passwordFetcherDelegate.passwordNumber, 2u);
+  EXPECT_EQ(passwordFetcherDelegate.passwordNumber, 1u);
   EXPECT_TRUE(passwordFetcher);
 }
 

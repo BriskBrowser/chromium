@@ -66,6 +66,7 @@ enum MediaStreamRequestResult {
   FAILED_DUE_TO_SHUTDOWN,
   KILL_SWITCH_ON,
   SYSTEM_PERMISSION_DENIED,
+  DEVICE_IN_USE,
   NUM_MEDIA_REQUEST_RESULTS
 };
 
@@ -128,6 +129,9 @@ interface MediaStreamDeviceObserver {
                   MediaStreamDevice new_device);
   // Requests to pause or resume the corresponding media stream device.
   OnDeviceRequestStateChange(string label, MediaStreamDevice device, MediaStreamStateChange new_state);
+  // Informs the render-side that the device's capture handle has changed.
+  OnDeviceCaptureHandleChange(string label,
+                              MediaStreamDevice device);
 };
 
 // Per-frame browser-side interface that is used by the renderer process to
@@ -153,6 +157,13 @@ interface MediaStreamDispatcherHost {
          array<MediaStreamDevice> audio_devices,
          array<MediaStreamDevice> video_devices,
          bool pan_tilt_zoom_allowed);
+
+  // The |focus| bit is |true| if focus should be switched to
+  // the captured source (tab/window).
+  // It is an error to set it to |true| for anything other than
+  // a video track derived from tab/window screen-capture.
+  [EnableIfNot=is_android]
+  FocusCapturedSurface(string label, bool focus);
 
   // Cancels the request for a new media stream or opening a device.
   CancelRequest(int32 request_id);

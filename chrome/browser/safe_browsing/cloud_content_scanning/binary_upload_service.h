@@ -7,23 +7,23 @@
 
 #include <list>
 #include <memory>
+#include <queue>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 #include "base/callback.h"
 #include "base/callback_forward.h"
 #include "base/containers/flat_set.h"
+#include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/binary_fcm_service.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/multipart_uploader.h"
 #include "components/enterprise/common/proto/connectors.pb.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 class Profile;
@@ -37,11 +37,10 @@ class BinaryUploadService : public KeyedService {
   // The maximum size of data that can be uploaded via this service.
   constexpr static size_t kMaxUploadSizeBytes = 50 * 1024 * 1024;  // 50 MB
 
-  explicit BinaryUploadService(Profile* profile);
+  // The maximum number of uploads that can happen in parallel.
+  static size_t GetParallelActiveRequestsMax();
 
-  BinaryUploadService(
-      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-      Profile* profile);
+  explicit BinaryUploadService(Profile* profile);
 
   // This constructor is useful in tests, if you want to keep a reference to the
   // service's |binary_fcm_service_|.
@@ -81,7 +80,11 @@ class BinaryUploadService : public KeyedService {
     // The file's type is not supported and the file was not uploaded.
     DLP_SCAN_UNSUPPORTED_FILE_TYPE = 8,
 
-    kMaxValue = DLP_SCAN_UNSUPPORTED_FILE_TYPE,
+    // The server returned a 429 HTTP status indicating too many requests are
+    // being sent.
+    TOO_MANY_REQUESTS = 9,
+
+    kMaxValue = TOO_MANY_REQUESTS,
   };
 
   // Callbacks used to pass along the results of scanning. The response protos
@@ -107,9 +110,14 @@ class BinaryUploadService : public KeyedService {
     // Structure of data returned in the callback to GetRequestData().
     struct Data {
       Data();
+      Data(const Data&);
+      ~Data();
 
-      // The data content.
+      // The data content. Only populated for string requests.
       std::string contents;
+
+      // The path to the file to be scanned. Only populated for file requests.
+      base::FilePath path;
 
       // The SHA256 of the data.
       std::string hash;
@@ -118,6 +126,9 @@ class BinaryUploadService : public KeyedService {
       // file is too large for deep scanning. This field will contain the true
       // size.
       uint64_t size = 0;
+
+      // The mime type of the data. Only populated for file requests.
+      std::string mime_type;
     };
 
     // Asynchronously returns the file contents to upload.
@@ -143,6 +154,9 @@ class BinaryUploadService : public KeyedService {
     void set_tab_url(const GURL& tab_url);
     const GURL& tab_url() const;
 
+    void set_per_profile_request(bool per_profile_request);
+    bool per_profile_request() const;
+
     // Methods for modifying the ContentAnalysisRequest.
     void set_analysis_connector(
         enterprise_connectors::AnalysisConnector connector);
@@ -156,6 +170,8 @@ class BinaryUploadService : public KeyedService {
     void set_filename(const std::string& filename);
     void set_digest(const std::string& digest);
     void clear_dlp_scan_request();
+    void set_client_metadata(enterprise_connectors::ClientMetadata metadata);
+    void set_content_type(const std::string& type);
 
     // Methods for accessing the ContentAnalysisRequest.
     enterprise_connectors::AnalysisConnector analysis_connector();
@@ -164,6 +180,7 @@ class BinaryUploadService : public KeyedService {
     const std::string& fcm_notification_token() const;
     const std::string& filename() const;
     const std::string& digest() const;
+    const std::string& content_type() const;
 
     // Finish the request, with the given |result| and |response| from the
     // server.
@@ -182,6 +199,9 @@ class BinaryUploadService : public KeyedService {
 
     // The URL of the page that initially triggered the scan.
     GURL tab_url_;
+
+    // Indicates if the request was triggered by a profile-level policy or not.
+    bool per_profile_request_ = false;
   };
 
   // Upload the given file contents for deep scanning if the browser is
@@ -211,8 +231,9 @@ class BinaryUploadService : public KeyedService {
   void SetAuthForTesting(const std::string& dm_token, bool authorized);
 
   // Returns the URL that requests are uploaded to. Scans for enterprise go to a
-  // different URL than scans for Advanced Protection users.
-  static GURL GetUploadUrl(bool is_advanced_protection_request);
+  // different URL than scans for Advanced Protection users and Enhanced
+  // Protection users.
+  static GURL GetUploadUrl(bool is_consumer_scan_eligible);
 
  protected:
   void FinishRequest(Request* request,
@@ -223,6 +244,10 @@ class BinaryUploadService : public KeyedService {
   using TokenAndConnector =
       std::pair<std::string, enterprise_connectors::AnalysisConnector>;
   friend class BinaryUploadServiceTest;
+
+  // Queue the file for deep scanning. This method should be the only caller of
+  // UploadForDeepScanning to avoid consuming too many user resources.
+  void QueueForDeepScanning(std::unique_ptr<Request> request);
 
   // Upload the given file contents for deep scanning. The results will be
   // returned asynchronously by calling |request|'s |callback|. This must be
@@ -237,6 +262,7 @@ class BinaryUploadService : public KeyedService {
 
   void OnUploadComplete(Request* request,
                         bool success,
+                        int http_status,
                         const std::string& response_data);
 
   void OnGetResponse(Request* request,
@@ -273,10 +299,19 @@ class BinaryUploadService : public KeyedService {
   // Called at the end of the FinishRequest method.
   void FinishRequestCleanup(Request* request, const std::string& instance_id);
 
+  // Tries to start uploads from |request_queue_| depending on the number of
+  // currently active requests. This should be called whenever
+  // |active_requests_| shrinks so queued requests are started as soon as
+  // possible.
+  void PopRequestQueue();
+
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   std::unique_ptr<BinaryFCMService> binary_fcm_service_;
 
   Profile* const profile_;
+
+  // Request queued for upload.
+  std::queue<std::unique_ptr<Request>> request_queue_;
 
   // Resources associated with an in-progress request.
   base::flat_map<Request*, std::unique_ptr<Request>> active_requests_;

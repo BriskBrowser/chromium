@@ -7,7 +7,6 @@
 #include "third_party/blink/renderer/core/css/media_values.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -316,7 +315,7 @@ bool SizesMathFunctionParser::Calculate() {
     }
   }
   if (stack.size() == 1 && stack.back().is_length) {
-    result_ = std::max(clampTo<float>(stack.back().value), (float)0.0);
+    result_ = std::max(ClampTo<float>(stack.back().value), 0.0f);
     return true;
   }
   return false;

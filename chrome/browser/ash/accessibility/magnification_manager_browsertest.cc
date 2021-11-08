@@ -4,19 +4,19 @@
 
 #include <string>
 
+#include "ash/accessibility/magnifier/fullscreen_magnifier_controller.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/constants/ash_switches.h"
-#include "ash/magnifier/magnification_controller.h"
-#include "ash/public/cpp/ash_pref_names.h"
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/accessibility/magnification_manager.h"
+#include "chrome/browser/ash/login/helper.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
@@ -30,11 +30,8 @@
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+namespace ash {
 namespace {
-
-// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
-// source migration is finished.
-using ::ash::ProfileHelper;
 
 constexpr char kTestUserName[] = "owner@invalid.domain";
 constexpr char kTestUserGaiaId[] = "9876543210";
@@ -44,11 +41,11 @@ void SetMagnifierEnabled(bool enabled) {
 }
 
 void SetFullScreenMagnifierScale(double scale) {
-  ash::Shell::Get()->magnification_controller()->SetScale(scale, false);
+  Shell::Get()->fullscreen_magnifier_controller()->SetScale(scale, false);
 }
 
 double GetFullScreenMagnifierScale() {
-  return ash::Shell::Get()->magnification_controller()->GetScale();
+  return Shell::Get()->fullscreen_magnifier_controller()->GetScale();
 }
 
 void SetSavedFullScreenMagnifierScale(double scale) {
@@ -74,16 +71,15 @@ PrefService* prefs() {
 }
 
 void SetScreenMagnifierEnabledPref(bool enabled) {
-  prefs()->SetBoolean(ash::prefs::kAccessibilityScreenMagnifierEnabled,
-                      enabled);
+  prefs()->SetBoolean(prefs::kAccessibilityScreenMagnifierEnabled, enabled);
 }
 
 void SetFullScreenMagnifierScalePref(double scale) {
-  prefs()->SetDouble(ash::prefs::kAccessibilityScreenMagnifierScale, scale);
+  prefs()->SetDouble(prefs::kAccessibilityScreenMagnifierScale, scale);
 }
 
 bool GetScreenMagnifierEnabledFromPref() {
-  return prefs()->GetBoolean(ash::prefs::kAccessibilityScreenMagnifierEnabled);
+  return prefs()->GetBoolean(prefs::kAccessibilityScreenMagnifierEnabled);
 }
 
 // Creates and logs into a profile with account |account_id|, and makes sure
@@ -125,6 +121,10 @@ class MockMagnificationObserver {
             base::Unretained(this)));
   }
 
+  MockMagnificationObserver(const MockMagnificationObserver&) = delete;
+  MockMagnificationObserver& operator=(const MockMagnificationObserver&) =
+      delete;
+
   virtual ~MockMagnificationObserver() {}
 
   bool observed() const { return observed_; }
@@ -146,18 +146,20 @@ class MockMagnificationObserver {
   bool observed_enabled_ = false;
 
   base::CallbackListSubscription accessibility_subscription_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockMagnificationObserver);
 };
 
 class MagnificationManagerTest : public InProcessBrowserTest {
  protected:
   MagnificationManagerTest() {}
+
+  MagnificationManagerTest(const MagnificationManagerTest&) = delete;
+  MagnificationManagerTest& operator=(const MagnificationManagerTest&) = delete;
+
   ~MagnificationManagerTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(ash::switches::kLoginManager);
-    command_line->AppendSwitchASCII(ash::switches::kLoginProfile,
+    command_line->AppendSwitch(switches::kLoginManager);
+    command_line->AppendSwitchASCII(switches::kLoginProfile,
                                     TestingProfile::kTestUserProfileDir);
   }
 
@@ -169,8 +171,6 @@ class MagnificationManagerTest : public InProcessBrowserTest {
 
   const AccountId test_account_id_ =
       AccountId::FromUserEmailGaiaId(kTestUserName, kTestUserGaiaId);
-
-  DISALLOW_COPY_AND_ASSIGN(MagnificationManagerTest);
 };
 
 IN_PROC_BROWSER_TEST_F(MagnificationManagerTest, PRE_LoginOffToOff) {
@@ -424,3 +424,5 @@ IN_PROC_BROWSER_TEST_F(MagnificationManagerTest, MagnificationObserver) {
   EXPECT_FALSE(observer.observed());
   observer.reset();
 }
+
+}  // namespace ash

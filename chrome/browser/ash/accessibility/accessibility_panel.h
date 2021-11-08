@@ -19,6 +19,8 @@ namespace views {
 class Widget;
 }
 
+namespace ash {
+
 const char EXTENSION_PREFIX[] = "chrome-extension://";
 
 // Creates a panel onscreen on which an accessibility extension can draw a
@@ -29,6 +31,10 @@ class AccessibilityPanel : public views::WidgetDelegate,
   explicit AccessibilityPanel(content::BrowserContext* browser_context,
                               std::string content_url,
                               std::string widget_name);
+
+  AccessibilityPanel(const AccessibilityPanel&) = delete;
+  AccessibilityPanel& operator=(const AccessibilityPanel&) = delete;
+
   ~AccessibilityPanel() override;
 
   // Closes the panel immediately, deleting the WebView/WebContents.
@@ -50,7 +56,7 @@ class AccessibilityPanel : public views::WidgetDelegate,
   class AccessibilityPanelWebContentsObserver;
 
   // content::WebContentsDelegate:
-  bool HandleContextMenu(content::RenderFrameHost* render_frame_host,
+  bool HandleContextMenu(content::RenderFrameHost& render_frame_host,
                          const content::ContextMenuParams& params) override;
 
   // Indirectly invoked by the component extension.
@@ -60,8 +66,8 @@ class AccessibilityPanel : public views::WidgetDelegate,
   std::unique_ptr<AccessibilityPanelWebContentsObserver> web_contents_observer_;
   views::Widget* widget_ = nullptr;
   views::View* web_view_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(AccessibilityPanel);
 };
+
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_ACCESSIBILITY_ACCESSIBILITY_PANEL_H_

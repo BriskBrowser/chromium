@@ -104,6 +104,22 @@ good) or [origin
 isolation](https://cloud.google.com/docs/chrome-enterprise/policies/?policy=IsolateOrigins)
 (even better).
 
+### Processing, Parsing, And Deserializing
+
+Turning a stream of bytes into a structured object is hard to do correctly and
+safely. For example, turning a stream of bytes into a sequence of Unicode code
+points, and from there into an HTML DOM tree with all its elements, attributes,
+and metadata, is very error-prone. The same is true of QUIC packets, video
+frames, and so on.
+
+Whenever the code branches on the byte values it's processing, the risk
+increases that an attacker can influence control flow and exploit bugs in the
+implementation.
+
+Although we are all human and mistakes are always possible, a function that does
+not branch on input values has a better chance of being free of vulnerabilities.
+(Consider an arithmetic function, such as SHA-256, for example.)
+
 ## Solutions To This Puzzle
 
 Chrome Security Team will generally not approve landing a CL or new feature
@@ -163,9 +179,11 @@ You can 'defang' a potentially-malicious input by transforming it into a
 _normal_ or _minimal_ form, usually by first transforming it into a format with
 a simpler grammar. We say that all data, file, and wire formats are defined by a
 _grammar_, even if that grammar is implicit or only partially-specified (as is
-so often the case). A file format with a particularly simple grammar is
-[Farbfeld](https://tools.suckless.org/farbfeld/). (The grammar is represented in
-the table at the top.)
+so often the case). A data format with a particularly simple grammar is
+[`SkPixmap`](https://source.chromium.org/chromium/chromium/src/+/3df9ac8e76132c586e888d1ddc7d2217574f17b0:third_party/skia/include/core/SkPixmap.h;l=712).
+(The 'grammar' is represented by the private data fields: a region of raw pixel
+data, the size of that region, and simple metadata (`SkImageInfo`) about how to
+interpret the pixels.)
 
 It's rare to find such a simple grammar for input formats, however.
 
@@ -235,7 +253,7 @@ are Java (on Android only) and JavaScript or WebAssembly (although we don't
 currently use them in high-privilege processes like the browser). One can
 imagine Swift on iOS or Kotlin on Android, too, although they are not currently
 used in Chromium. (Some of us on Security Team aspire to get more of Chromium in
-safer languages, but that's a long-term, heavy lift.)
+safer languages, and you may be able to [help with our experiments](rust-toolchain.md).)
 
 For an example of image processing, we have the pure-Java class
 [BaseGifImage](https://cs.chromium.org/chromium/src/third_party/gif_player/src/jp/tomorrowkey/android/gifplayer/BaseGifImage.java?rcl=27febd503d1bab047d73df26db83184fff8d6620&l=27).
@@ -253,6 +271,37 @@ implementation. A canonical example of this is the
 class, which is a Java wrapper [around C++
 Skia](https://cs.android.com/android/platform/superproject/+/master:frameworks/base/libs/hwui/jni/BitmapFactory.cpp;l=586;drc=864d304156d1ef8985ee39c3c1858349b133b365).
 These APIs are therefore not considered memory-safe under the rule.
+
+Regular expressions ([re2](https://cs.chromium.org/chromium/src/third_party/re2/README.chromium))
+using trustworthy patterns can be used at high privilege to match on
+untrustworthy input strings. This does not automatically turn the matched text
+or captured groups into safe values.
+
+
+## Safe Types
+
+As discussed above in [Normalization](#normalization), there are some types that
+are considered "safe," even though they are deserialized from an untrustworthy
+source, at high privilege, and in an unsafe language. These types are
+fundamental for passing data between processes using IPC, tend to have simpler
+grammar or structure, and/or have been audited or fuzzed heavily.
+
+* `GURL` and `url::Origin`
+* `SkBitmap`
+* `SkPixmap`
+* Protocol buffers (see above; this is not a preferred option and should be
+  avoided where possible)
+
+There are also classes in //base that internally hold simple values that
+represent potentially complex data, such as:
+
+* `base::FilePath`
+* `base::Token` and `base::UnguessableToken`
+* `base::Time` and `base::TimeDelta`
+
+The deserialization of these is safe, though it is important to remember that
+the value itself is still untrustworthy (e.g. a malicious path trying to escape
+its parent using `../`).
 
 ## Existing Code That Violates The Rule
 

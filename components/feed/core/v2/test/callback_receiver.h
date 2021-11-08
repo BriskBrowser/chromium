@@ -11,15 +11,17 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/optional.h"
+#include "base/callback_forward.h"
+#include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace feed {
 namespace internal {
 
 template <typename T>
-base::Optional<T> Nullopt() {
-  return base::nullopt;
+absl::optional<T> Nullopt() {
+  return absl::nullopt;
 }
 
 class CallbackReceiverBase {
@@ -50,7 +52,10 @@ class CallbackReceiver : public internal::CallbackReceiverBase {
     CallbackReceiverBase::Done();
   }
   base::OnceCallback<void(T...)> Bind() {
-    return base::BindOnce(&CallbackReceiver::Done, base::Unretained(this));
+    return base::BindOnce(&CallbackReceiver::Done, GetWeakPtr());
+  }
+  base::RepeatingCallback<void(T...)> BindRepeating() {
+    return base::BindRepeating(&CallbackReceiver::Done, GetWeakPtr());
   }
 
   void Clear() {
@@ -61,7 +66,7 @@ class CallbackReceiver : public internal::CallbackReceiverBase {
   // Get a result by its position in the arguments to Done().
   // Call GetResult() for the first argument or GetResult<I>().
   template <size_t I = 0>
-  typename std::tuple_element<I, std::tuple<base::Optional<T>...>>::type&
+  typename std::tuple_element<I, std::tuple<absl::optional<T>...>>::type&
   GetResult() {
     return std::get<I>(results_);
   }
@@ -75,12 +80,17 @@ class CallbackReceiver : public internal::CallbackReceiverBase {
   // Get a result by its type. Won't compile if there is more than one matching
   // type.
   template <class C>
-  base::Optional<C>& GetResult() {
-    return std::get<base::Optional<C>>(results_);
+  absl::optional<C>& GetResult() {
+    return std::get<absl::optional<C>>(results_);
   }
 
  private:
-  std::tuple<base::Optional<T>...> results_;
+  base::WeakPtr<CallbackReceiver> GetWeakPtr() {
+    return weak_ptr_factory_.GetWeakPtr();
+  }
+
+  std::tuple<absl::optional<T>...> results_;
+  base::WeakPtrFactory<CallbackReceiver> weak_ptr_factory_{this};
 };
 
 template <>
@@ -91,6 +101,10 @@ class CallbackReceiver<> : public internal::CallbackReceiverBase {
 
   base::OnceClosure Bind() {
     return base::BindOnce(&CallbackReceiverBase::Done, base::Unretained(this));
+  }
+  base::RepeatingClosure BindRepeating() {
+    return base::BindRepeating(&CallbackReceiverBase::Done,
+                               base::Unretained(this));
   }
 };
 

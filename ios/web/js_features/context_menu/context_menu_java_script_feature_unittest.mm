@@ -23,36 +23,68 @@ namespace web {
 
 typedef WebTestWithWebState ContextMenuJavaScriptFeatureTest;
 
-TEST_F(ContextMenuJavaScriptFeatureTest, FetchElement) {
-  ContextMenuJavaScriptFeature* feature =
-      ContextMenuJavaScriptFeature::FromBrowserState(GetBrowserState());
-
-  JavaScriptFeatureManager::FromBrowserState(GetBrowserState())
-      ->ConfigureFeatures({feature});
-
+TEST_F(ContextMenuJavaScriptFeatureTest, FetchLinkElement) {
   NSString* html =
       @"<html><head>"
        "<style>body { font-size:14em; }</style>"
        "<meta name=\"viewport\" content=\"user-scalable=no, width=100\">"
-       "</head><body><p><a id=\"linkID\" "
-       "href=\"http://destination/\">link</a></p></body></html>";
+       "</head><body><p><a href=\"http://destination/\"> "
+       "link</a></p></body></html>";
   LoadHtml(html);
 
   std::string request_id("123");
 
   __block bool callback_called = false;
-  feature->GetElementAtPoint(
-      web_state(), request_id, CGPointMake(10.0, 10.0),
-      CGSizeMake(100.0, 100.0),
-      base::BindOnce(^(const std::string& callback_request_id,
-                       const web::ContextMenuParams& params) {
-        EXPECT_EQ(request_id, callback_request_id);
-        EXPECT_EQ(true, params.is_main_frame);
-        EXPECT_NSEQ(@"destination", params.menu_title);
-        EXPECT_NSEQ(@"link", params.link_text);
-        EXPECT_EQ("http://destination/", params.link_url.spec());
-        callback_called = true;
-      }));
+  ContextMenuJavaScriptFeature::FromBrowserState(GetBrowserState())
+      ->GetElementAtPoint(
+          web_state(), request_id, CGPointMake(10.0, 10.0),
+          CGSizeMake(100.0, 100.0),
+          base::BindOnce(^(const std::string& callback_request_id,
+                           const web::ContextMenuParams& params) {
+            EXPECT_EQ(request_id, callback_request_id);
+            EXPECT_EQ(true, params.is_main_frame);
+            EXPECT_NSEQ(@"link", params.link_text);
+            EXPECT_NSEQ(nil, params.title_attribute);
+            EXPECT_NSEQ(nil, params.alt_text);
+            EXPECT_EQ("http://destination/", params.link_url.spec());
+            EXPECT_EQ("", params.src_url.spec());
+            callback_called = true;
+          }));
+
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
+    return callback_called;
+  }));
+}
+
+TEST_F(ContextMenuJavaScriptFeatureTest, FetchImageElement) {
+  NSString* html =
+      @"<html><head>"
+       "<style>body { font-size:14em; }</style>"
+       "<meta name=\"viewport\" content=\"user-scalable=no, width=100\">"
+       "</head><body><p><a href=\"http://destination/\"><img title=\"MyTitle\" "
+       "alt=\"alt text\" height=100 width=100 "
+       "src=\"myimage.png\"/></a></p></body></html>";
+  LoadHtml(html);
+
+  std::string request_id("123");
+
+  __block bool callback_called = false;
+  ContextMenuJavaScriptFeature::FromBrowserState(GetBrowserState())
+      ->GetElementAtPoint(
+          web_state(), request_id, CGPointMake(10.0, 10.0),
+          CGSizeMake(100.0, 100.0),
+          base::BindOnce(^(const std::string& callback_request_id,
+                           const web::ContextMenuParams& params) {
+            EXPECT_EQ(request_id, callback_request_id);
+            EXPECT_EQ(true, params.is_main_frame);
+            EXPECT_NSEQ(nil, params.link_text);
+            EXPECT_NSEQ(@"MyTitle", params.title_attribute);
+            EXPECT_NSEQ(@"alt text", params.alt_text);
+            EXPECT_EQ("http://destination/", params.link_url.spec());
+            EXPECT_EQ("https://chromium.test/myimage.png",
+                      params.src_url.spec());
+            callback_called = true;
+          }));
 
   ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
     return callback_called;

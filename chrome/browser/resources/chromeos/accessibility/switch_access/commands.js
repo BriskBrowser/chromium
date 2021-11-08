@@ -22,16 +22,16 @@ export class Commands {
       [SwitchAccessCommand.SELECT, ActionManager.onSelect],
       [
         SwitchAccessCommand.NEXT,
-        Navigator.instance.moveForward.bind(Navigator.instance)
+        Navigator.byItem.moveForward.bind(Navigator.byItem)
       ],
       [
         SwitchAccessCommand.PREVIOUS,
-        Navigator.instance.moveBackward.bind(Navigator.instance)
+        Navigator.byItem.moveBackward.bind(Navigator.byItem)
       ]
     ]);
 
     chrome.accessibilityPrivate.onSwitchAccessCommand.addListener(
-        this.runCommand_.bind(this));
+        command => this.runCommand_(command));
   }
 
   static initialize() {

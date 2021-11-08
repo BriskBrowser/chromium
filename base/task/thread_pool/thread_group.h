@@ -16,6 +16,7 @@
 #include "base/task/thread_pool/task_source.h"
 #include "base/task/thread_pool/tracked_ref.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if defined(OS_WIN)
 #include "base/win/scoped_windows_thread_environment.h"
@@ -122,6 +123,8 @@ class BASE_EXPORT ThreadGroup {
   // called after an update to CanRunPolicy in TaskTracker.
   virtual void DidUpdateCanRunPolicy() = 0;
 
+  virtual void OnShutdownStarted() = 0;
+
  protected:
   // Derived classes must implement a ScopedCommandsExecutor that derives from
   // this to perform operations at the end of a scope, when all locks have been
@@ -160,7 +163,8 @@ class BASE_EXPORT ThreadGroup {
    private:
     // A TransactionWithRegisteredTaskSource and the thread group in which it
     // should be enqueued.
-    Optional<TransactionWithRegisteredTaskSource> transaction_with_task_source_;
+    absl::optional<TransactionWithRegisteredTaskSource>
+        transaction_with_task_source_;
     ThreadGroup* destination_thread_group_ = nullptr;
   };
 

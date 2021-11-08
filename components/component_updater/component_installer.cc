@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -15,11 +16,13 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/path_service.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
+#include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "base/threading/thread_checker.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "base/version.h"
@@ -32,6 +35,7 @@
 #include "components/update_client/update_client.h"
 #include "components/update_client/update_client_errors.h"
 #include "components/update_client/utils.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace component_updater {
 
@@ -66,6 +70,15 @@ ComponentInstaller::~ComponentInstaller() = default;
 void ComponentInstaller::Register(ComponentUpdateService* cus,
                                   base::OnceClosure callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  DCHECK(cus);
+  Register(base::BindOnce(&ComponentUpdateService::RegisterComponent,
+                          base::Unretained(cus)),
+           std::move(callback));
+}
+
+void ComponentInstaller::Register(RegisterCallback register_callback,
+                                  base::OnceClosure callback) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   // Some components may affect user visible features, hence USER_VISIBLE.
   task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
@@ -84,25 +97,27 @@ void ComponentInstaller::Register(ComponentUpdateService* cus,
       base::BindOnce(&ComponentInstaller::StartRegistration, this,
                      registration_info),
       base::BindOnce(&ComponentInstaller::FinishRegistration, this,
-                     registration_info, cus, std::move(callback)));
+                     registration_info, std::move(register_callback),
+                     std::move(callback)));
 }
 
 void ComponentInstaller::OnUpdateError(int error) {
   LOG(ERROR) << "Component update error: " << error;
 }
 
-Result ComponentInstaller::InstallHelper(
-    const base::FilePath& unpack_path,
-    std::unique_ptr<base::DictionaryValue>* manifest,
-    base::Version* version,
-    base::FilePath* install_path) {
-  auto local_manifest = update_client::ReadManifest(unpack_path);
-  if (!local_manifest)
+Result ComponentInstaller::InstallHelper(const base::FilePath& unpack_path,
+                                         base::Value* manifest,
+                                         base::Version* version,
+                                         base::FilePath* install_path) {
+  base::Value local_manifest = update_client::ReadManifest(unpack_path);
+  if (!local_manifest.is_dict())
     return Result(InstallError::BAD_MANIFEST);
 
-  std::string version_ascii;
-  local_manifest->GetStringASCII("version", &version_ascii);
-  const base::Version manifest_version(version_ascii);
+  const std::string* version_ascii = local_manifest.FindStringKey("version");
+  if (!version_ascii || !base::IsStringASCII(*version_ascii))
+    return Result(InstallError::INVALID_VERSION);
+
+  const base::Version manifest_version(*version_ascii);
 
   VLOG(1) << "Install: version=" << manifest_version.GetString()
           << " current version=" << current_version_.GetString();
@@ -147,13 +162,14 @@ Result ComponentInstaller::InstallHelper(
   DCHECK(base::PathExists(local_install_path));
 
   const Result result =
-      installer_policy_->OnCustomInstall(*local_manifest, local_install_path);
+      installer_policy_->OnCustomInstall(local_manifest, local_install_path);
   if (result.error)
     return result;
 
-  if (!installer_policy_->VerifyInstallation(*local_manifest,
-                                             local_install_path))
+  if (!installer_policy_->VerifyInstallation(local_manifest,
+                                             local_install_path)) {
     return Result(InstallError::INSTALL_VERIFICATION_FAILED);
+  }
 
   *manifest = std::move(local_manifest);
   *version = manifest_version;
@@ -168,7 +184,7 @@ void ComponentInstaller::Install(
     std::unique_ptr<InstallParams> /*install_params*/,
     ProgressCallback /*progress_callback*/,
     Callback callback) {
-  std::unique_ptr<base::DictionaryValue> manifest;
+  base::Value manifest;
   base::Version version;
   base::FilePath install_path;
   const Result result =
@@ -215,27 +231,26 @@ bool ComponentInstaller::FindPreinstallation(
     return false;
   }
 
-  std::unique_ptr<base::DictionaryValue> manifest =
-      update_client::ReadManifest(path);
-  if (!manifest) {
+  base::Value manifest = update_client::ReadManifest(path);
+  if (!manifest.is_dict()) {
     DVLOG(1) << "Manifest does not exist: " << path.MaybeAsASCII();
     return false;
   }
 
-  if (!installer_policy_->VerifyInstallation(*manifest, path)) {
+  if (!installer_policy_->VerifyInstallation(manifest, path)) {
     DVLOG(1) << "Installation verification failed: " << path.MaybeAsASCII();
     return false;
   }
 
-  std::string version_lexical;
-  if (!manifest->GetStringASCII("version", &version_lexical)) {
+  std::string* version_lexical = manifest.FindStringKey("version");
+  if (!version_lexical || !base::IsStringASCII(*version_lexical)) {
     DVLOG(1) << "Failed to get component version from the manifest.";
     return false;
   }
 
-  const base::Version version(version_lexical);
+  const base::Version version(*version_lexical);
   if (!version.IsValid()) {
-    DVLOG(1) << "Version in the manifest is invalid:" << version_lexical;
+    DVLOG(1) << "Version in the manifest is invalid:" << *version_lexical;
     return false;
   }
 
@@ -276,7 +291,7 @@ void ComponentInstaller::StartRegistration(
 
   // Then check for a higher-versioned user-wide installation.
   base::FilePath latest_path;
-  std::unique_ptr<base::DictionaryValue> latest_manifest;
+  absl::optional<base::Value> latest_manifest;
   base::FilePath base_component_dir;
   if (!base::PathService::Get(DIR_COMPONENT_USER, &base_component_dir))
     return;
@@ -321,9 +336,9 @@ void ComponentInstaller::StartRegistration(
       continue;
     }
 
-    std::unique_ptr<base::DictionaryValue> manifest =
-        update_client::ReadManifest(path);
-    if (!manifest || !installer_policy_->VerifyInstallation(*manifest, path)) {
+    base::Value manifest = update_client::ReadManifest(path);
+    if (!manifest.is_dict() ||
+        !installer_policy_->VerifyInstallation(manifest, path)) {
       PLOG(ERROR) << "Failed to read manifest or verify installation for "
                   << installer_policy_->GetName() << " (" << path.MaybeAsASCII()
                   << ").";
@@ -343,7 +358,7 @@ void ComponentInstaller::StartRegistration(
 
   if (latest_manifest) {
     registration_info->version = latest_version;
-    registration_info->manifest = std::move(latest_manifest);
+    registration_info->manifest = std::move(*latest_manifest);
     registration_info->install_dir = latest_path;
     base::ReadFileToString(latest_path.AppendASCII("manifest.fingerprint"),
                            &registration_info->fingerprint);
@@ -394,7 +409,7 @@ void ComponentInstaller::UninstallOnTaskRunner() {
 
 void ComponentInstaller::FinishRegistration(
     scoped_refptr<RegistrationInfo> registration_info,
-    ComponentUpdateService* cus,
+    RegisterCallback register_callback,
     base::OnceClosure callback) {
   VLOG(1) << __func__ << " for " << installer_policy_->GetName();
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -419,7 +434,7 @@ void ComponentInstaller::FinishRegistration(
   crx.supports_group_policy_enable_component_updates =
       installer_policy_->SupportsGroupPolicyEnabledComponentUpdates();
 
-  if (!cus->RegisterComponent(crx)) {
+  if (!std::move(register_callback).Run(crx)) {
     LOG(ERROR) << "Component registration failed for "
                << installer_policy_->GetName();
     if (!callback.is_null())
@@ -428,7 +443,7 @@ void ComponentInstaller::FinishRegistration(
   }
 
   if (registration_info->manifest) {
-    ComponentReady(std::move(registration_info->manifest));
+    ComponentReady(std::move(*registration_info->manifest));
   } else {
     DVLOG(1) << "No component found for " << installer_policy_->GetName();
   }
@@ -437,8 +452,7 @@ void ComponentInstaller::FinishRegistration(
     std::move(callback).Run();
 }
 
-void ComponentInstaller::ComponentReady(
-    std::unique_ptr<base::DictionaryValue> manifest) {
+void ComponentInstaller::ComponentReady(base::Value manifest) {
   VLOG(1) << "Component ready, version " << current_version_.GetString()
           << " in " << current_install_dir_.value();
   installer_policy_->ComponentReady(current_version_, current_install_dir_,

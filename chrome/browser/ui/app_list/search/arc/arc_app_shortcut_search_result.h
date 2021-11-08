@@ -29,11 +29,18 @@ class ArcAppShortcutSearchResult : public ChromeSearchResult,
                                    public AppIconLoaderDelegate {
  public:
   // Constructor for ArcAppShortcutSearchResult. |is_recommendation|
-  // defines the display type of search results.
+  // defines the display type of search results. |query| will take on the
+  // default value for zero state results.
   ArcAppShortcutSearchResult(arc::mojom::AppShortcutItemPtr data,
                              Profile* profile,
                              AppListControllerDelegate* list_controller,
-                             bool is_recommendation);
+                             bool is_recommendation,
+                             const std::u16string& query);
+
+  ArcAppShortcutSearchResult(const ArcAppShortcutSearchResult&) = delete;
+  ArcAppShortcutSearchResult& operator=(const ArcAppShortcutSearchResult&) =
+      delete;
+
   ~ArcAppShortcutSearchResult() override;
 
   // ChromeSearchResult:
@@ -48,7 +55,10 @@ class ArcAppShortcutSearchResult : public ChromeSearchResult,
   std::string GetAppId() const;
 
   // Gets accessible name for this app shortcut.
-  base::string16 ComputeAccessibleName() const;
+  std::u16string ComputeAccessibleName() const;
+
+  // Callback passed to |icon_decode_request_|.
+  void OnIconDecoded(const gfx::ImageSkia&);
 
   arc::mojom::AppShortcutItemPtr data_;
   std::unique_ptr<arc::IconDecodeRequest> icon_decode_request_;
@@ -59,8 +69,6 @@ class ArcAppShortcutSearchResult : public ChromeSearchResult,
   AppListControllerDelegate* const list_controller_;  // Owned by AppListClient.
 
   base::WeakPtrFactory<ArcAppShortcutSearchResult> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ArcAppShortcutSearchResult);
 };
 
 }  // namespace app_list

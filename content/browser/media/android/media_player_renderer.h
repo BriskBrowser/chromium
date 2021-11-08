@@ -53,13 +53,16 @@ class CONTENT_EXPORT MediaPlayerRenderer
       mojo::PendingReceiver<RendererExtension> renderer_extension_receiver,
       mojo::PendingRemote<ClientExtension> client_extension_remote);
 
+  MediaPlayerRenderer(const MediaPlayerRenderer&) = delete;
+  MediaPlayerRenderer& operator=(const MediaPlayerRenderer&) = delete;
+
   ~MediaPlayerRenderer() override;
 
   // media::Renderer implementation
   void Initialize(media::MediaResource* media_resource,
                   media::RendererClient* client,
                   media::PipelineStatusCallback init_cb) override;
-  void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint) override;
+  void SetLatencyHint(absl::optional<base::TimeDelta> latency_hint) override;
   void Flush(base::OnceClosure flush_cb) override;
   void StartPlayingFrom(base::TimeDelta time) override;
 
@@ -138,8 +141,6 @@ class CONTENT_EXPORT MediaPlayerRenderer
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<MediaPlayerRenderer> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MediaPlayerRenderer);
 };
 
 }  // namespace content

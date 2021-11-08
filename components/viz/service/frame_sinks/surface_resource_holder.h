@@ -24,12 +24,16 @@ class SurfaceResourceHolderClient;
 class VIZ_SERVICE_EXPORT SurfaceResourceHolder {
  public:
   explicit SurfaceResourceHolder(SurfaceResourceHolderClient* client);
+
+  SurfaceResourceHolder(const SurfaceResourceHolder&) = delete;
+  SurfaceResourceHolder& operator=(const SurfaceResourceHolder&) = delete;
+
   ~SurfaceResourceHolder();
 
   void Reset();
   void ReceiveFromChild(const std::vector<TransferableResource>& resources);
   void RefResources(const std::vector<TransferableResource>& resources);
-  void UnrefResources(const std::vector<ReturnedResource>& resources);
+  void UnrefResources(std::vector<ReturnedResource> resources);
 
  private:
   SurfaceResourceHolderClient* client_;
@@ -43,10 +47,9 @@ class VIZ_SERVICE_EXPORT SurfaceResourceHolder {
   // ID we've received from the client. When this counter hits zero for a
   // particular resource, that ID is available to return to the client with
   // the most recently given non-empty sync token.
-  using ResourceIdInfoMap = std::unordered_map<ResourceId, ResourceRefs>;
+  using ResourceIdInfoMap =
+      std::unordered_map<ResourceId, ResourceRefs, ResourceIdHasher>;
   ResourceIdInfoMap resource_id_info_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(SurfaceResourceHolder);
 };
 
 }  // namespace viz

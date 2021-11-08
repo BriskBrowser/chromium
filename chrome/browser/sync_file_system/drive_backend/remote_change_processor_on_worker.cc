@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/sync_file_system/drive_backend/callback_helper.h"
 #include "chrome/browser/sync_file_system/drive_backend/remote_change_processor_wrapper.h"
 #include "chrome/browser/sync_file_system/file_change.h"
@@ -63,7 +63,7 @@ void RemoteChangeProcessorOnWorker::ApplyRemoteChange(
 void RemoteChangeProcessorOnWorker::FinalizeRemoteSync(
     const storage::FileSystemURL& url,
     bool clear_local_changes,
-    const base::Closure& completion_callback) {
+    base::OnceClosure completion_callback) {
   DCHECK(sequence_checker_.CalledOnValidSequence());
 
   ui_task_runner_->PostTask(
@@ -72,7 +72,7 @@ void RemoteChangeProcessorOnWorker::FinalizeRemoteSync(
           &RemoteChangeProcessorWrapper::FinalizeRemoteSync, wrapper_, url,
           clear_local_changes,
           RelayCallbackToTaskRunner(worker_task_runner_.get(), FROM_HERE,
-                                    completion_callback)));
+                                    std::move(completion_callback))));
 }
 
 void RemoteChangeProcessorOnWorker::RecordFakeLocalChange(

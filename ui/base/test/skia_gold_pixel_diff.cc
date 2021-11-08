@@ -21,8 +21,6 @@
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
-#include "base/strings/strcat.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/test/test_switches.h"
 #include "base/threading/thread_restrictions.h"
@@ -59,6 +57,10 @@ const char* kNoLuciAuth = "no-luci-auth";
 const char* kBypassSkiaGoldFunctionality = "bypass-skia-gold-functionality";
 const char* kDryRun = "dryrun";
 
+// The switch key for saving png file locally for debugging. This will allow
+// the framework to save the screenshot png file to this path.
+const char* kPngFilePathDebugging = "skia-gold-local-png-write-directory";
+
 namespace {
 
 base::FilePath GetAbsoluteSrcRelativePath(base::FilePath::StringType path) {
@@ -91,38 +93,6 @@ void FillInSystemEnvironment(base::Value::DictStorage& ds) {
   ds["processor"] = base::Value(processor);
 }
 
-// Returns whether image comparison failure should result in Gerrit comments.
-// In general, when a pixel test fails on CQ, Gold will make a gerrit
-// comment indicating that the cl breaks some pixel tests. However,
-// if the test is flaky and has a failure->passing pattern, we don't
-// want Gold to make gerrit comments on the first failure.
-// This function returns true iff:
-//  * it's a tryjob and no retries left.
-//  or * it's a CI job.
-bool ShouldMakeGerritCommentsOnFailures() {
-  base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
-  if (!cmd->HasSwitch(kIssueKey))
-    return true;
-  if (cmd->HasSwitch(switches::kTestLauncherRetriesLeft)) {
-    int retries_left = 0;
-    bool succeed = base::StringToInt(
-        cmd->GetSwitchValueASCII(switches::kTestLauncherRetriesLeft),
-        &retries_left);
-    if (!succeed) {
-      LOG(ERROR) << switches::kTestLauncherRetriesLeft << " = "
-                 << cmd->GetSwitchValueASCII(switches::kTestLauncherRetriesLeft)
-                 << " can not convert to integer.";
-      return true;
-    }
-    if (retries_left > 0) {
-      LOG(INFO) << "Test failure will not result in Gerrit comment because"
-                   " there are more retries.";
-      return false;
-    }
-  }
-  return true;
-}
-
 // Fill in test environment to the keys_file. The format is json.
 // We need the system information to determine whether a new screenshot
 // is good or not. All the information that can affect the output of pixels
@@ -152,6 +122,14 @@ bool BotModeEnabled(const base::CommandLine* command_line) {
   std::unique_ptr<base::Environment> env(base::Environment::Create());
   return command_line->HasSwitch(switches::kTestLauncherBotMode) ||
          env->HasVar("CHROMIUM_TEST_LAUNCHER_BOT_MODE");
+}
+
+// Returns true if it's running on CQ under 'without patch'. Otherwise
+// returns false.
+// The implementation is a bit hacky because there's no good indicator.
+bool IsTryjobWithoutPatch(const base::CommandLine* command_line) {
+  return BotModeEnabled(command_line) &&
+         command_line->HasSwitch(switches::kTestLauncherBatchLimit);
 }
 
 }  // namespace
@@ -280,6 +258,27 @@ bool SkiaGoldPixelDiff::UploadToSkiaGoldServer(
     return true;
   }
 
+  // Copy the png file to another place for local debugging.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kPngFilePathDebugging)) {
+    base::FilePath path =
+        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+            kPngFilePathDebugging);
+    if (!base::PathExists(path)) {
+      base::CreateDirectory(path);
+    }
+    base::FilePath filepath;
+    if (remote_golden_image_name.length() <= 4 ||
+        (remote_golden_image_name.length() > 4 &&
+         remote_golden_image_name.substr(remote_golden_image_name.length() -
+                                         4) != ".png")) {
+      filepath = path.AppendASCII(remote_golden_image_name + ".png");
+    } else {
+      filepath = path.AppendASCII(remote_golden_image_name);
+    }
+    base::CopyFile(local_file_path, filepath);
+  }
+
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::CommandLine cmd(GetAbsoluteSrcRelativePath(kSkiaGoldCtl));
   cmd.AppendSwitchASCII("test-name", remote_golden_image_name);
@@ -290,14 +289,12 @@ bool SkiaGoldPixelDiff::UploadToSkiaGoldServer(
   if (!BotModeEnabled(base::CommandLine::ForCurrentProcess())) {
     cmd.AppendSwitch(kDryRun);
   }
-
-  std::map<std::string, std::string> optional_keys;
-  if (!ShouldMakeGerritCommentsOnFailures()) {
-    optional_keys["ignore"] = "1";
-  }
-  for (auto key : optional_keys) {
-    cmd.AppendSwitchASCII("add-test-optional-key",
-                          base::StrCat({key.first, ":", key.second}));
+  // For CQ, if a Skia Gold gtest fails, then swarming runs the suite
+  // without patch, and the test succeed. The success job will override
+  // the failed job, and the failed test will not show on the triage dashboard.
+  // To resolve this, we use dryrun mode for 'run without patch'.
+  if (IsTryjobWithoutPatch(base::CommandLine::ForCurrentProcess())) {
+    cmd.AppendSwitch(kDryRun);
   }
 
   if (algorithm)

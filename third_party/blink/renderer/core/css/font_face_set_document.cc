@@ -135,7 +135,7 @@ ScriptPromise FontFaceSetDocument::ready(ScriptState* script_state) {
 
 const HeapLinkedHashSet<Member<FontFace>>&
 FontFaceSetDocument::CSSConnectedFontFaceList() const {
-  Document* document = this->GetDocument();
+  Document* document = GetDocument();
   document->GetStyleEngine().UpdateActiveStyle();
   return GetFontSelector()->GetFontFaceCache()->CssConnectedFontFaces();
 }
@@ -178,10 +178,13 @@ bool FontFaceSetDocument::ResolveFontStyle(const String& font_string,
     return true;
   }
 
-  ComputedStyle* style = ComputedStyle::Create();
+  scoped_refptr<ComputedStyle> style =
+      GetDocument()->GetStyleResolver().CreateComputedStyle();
 
   FontFamily font_family;
-  font_family.SetFamily(FontFaceSet::kDefaultFontFamily);
+  font_family.SetFamily(
+      FontFaceSet::kDefaultFontFamily,
+      FontFamily::InferredTypeFor(FontFaceSet::kDefaultFontFamily));
 
   FontDescription default_font_description;
   default_font_description.SetFamily(font_family);
@@ -191,7 +194,7 @@ bool FontFaceSetDocument::ResolveFontStyle(const String& font_string,
   style->SetFontDescription(default_font_description);
 
   GetDocument()->GetStyleEngine().ComputeFont(*GetDocument()->documentElement(),
-                                              style, *parsed_style);
+                                              style.get(), *parsed_style);
 
   font = style->GetFont();
 

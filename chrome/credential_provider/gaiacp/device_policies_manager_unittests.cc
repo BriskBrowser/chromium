@@ -38,7 +38,7 @@ void GcpDevicePoliciesBaseTest::SetUp() {
   fakes.fake_win_http_url_fetcher_creator =
       fake_http_url_fetcher_factory()->GetCreatorCallback();
   fakes.os_user_manager_for_testing = fake_os_user_manager();
-  UserPoliciesManager::Get()->SetFakesForTesting(&fakes);  // IN-TEST
+  UserPoliciesManager::Get()->SetFakesForTesting(&fakes);
 }
 
 TEST_F(GcpDevicePoliciesBaseTest, NewUserAssociationWithNoUserPoliciesPresent) {
@@ -323,6 +323,9 @@ TEST_P(GcpDevicePoliciesOmahaDomainsWinTest, TestConflict) {
   std::wstring domains_registry_str(std::get<1>(GetParam()));
   std::wstring domains_from_omaha_str(std::get<2>(GetParam()));
 
+  std::vector<std::wstring> allowed_domains_registry = base::SplitString(
+      domains_registry_str, L",", base::WhitespaceHandling::TRIM_WHITESPACE,
+      base::SplitResult::SPLIT_WANT_NONEMPTY);
   std::vector<std::wstring> allowed_domains_omaha = base::SplitString(
       domains_from_omaha_str, L",", base::WhitespaceHandling::TRIM_WHITESPACE,
       base::SplitResult::SPLIT_WANT_NONEMPTY);
@@ -340,7 +343,12 @@ TEST_P(GcpDevicePoliciesOmahaDomainsWinTest, TestConflict) {
   DevicePolicies device_policies;
   DevicePoliciesManager::Get()->GetDevicePolicies(&device_policies);
 
-  ASSERT_EQ(allowed_domains_omaha, device_policies.domains_allowed_to_login);
+  if (!allowed_domains_omaha.empty()) {
+    ASSERT_EQ(allowed_domains_omaha, device_policies.domains_allowed_to_login);
+  } else {
+    ASSERT_EQ(allowed_domains_registry,
+              device_policies.domains_allowed_to_login);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

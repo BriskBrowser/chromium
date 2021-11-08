@@ -16,8 +16,13 @@ class PrefServiceSyncable;
 // The implementation of ChromeBrowserState that is used for incognito browsing.
 // Each OffTheRecordChromeBrowserStateImpl instance is associated with and owned
 // by a non-incognito ChromeBrowserState instance.
-class OffTheRecordChromeBrowserStateImpl : public ChromeBrowserState {
+class OffTheRecordChromeBrowserStateImpl final : public ChromeBrowserState {
  public:
+  OffTheRecordChromeBrowserStateImpl(
+      const OffTheRecordChromeBrowserStateImpl&) = delete;
+  OffTheRecordChromeBrowserStateImpl& operator=(
+      const OffTheRecordChromeBrowserStateImpl&) = delete;
+
   ~OffTheRecordChromeBrowserStateImpl() override;
 
   // ChromeBrowserState:
@@ -28,7 +33,6 @@ class OffTheRecordChromeBrowserStateImpl : public ChromeBrowserState {
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
   BrowserStatePolicyConnector* GetPolicyConnector() override;
   PrefService* GetPrefs() override;
-  PrefService* GetOffTheRecordPrefs() override;
   ChromeBrowserStateIOData* GetIOData() override;
   void ClearNetworkingHistorySince(base::Time time,
                                    base::OnceClosure completion) override;
@@ -59,8 +63,6 @@ class OffTheRecordChromeBrowserStateImpl : public ChromeBrowserState {
 
   std::unique_ptr<OffTheRecordChromeBrowserStateIOData::Handle> io_data_;
   std::unique_ptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;
-
-  DISALLOW_COPY_AND_ASSIGN(OffTheRecordChromeBrowserStateImpl);
 };
 
 #endif  // IOS_CHROME_BROWSER_BROWSER_STATE_OFF_THE_RECORD_CHROME_BROWSER_STATE_IMPL_H_

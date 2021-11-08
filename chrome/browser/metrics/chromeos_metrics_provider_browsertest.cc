@@ -6,9 +6,9 @@
 
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
+#include "chrome/browser/ash/login/test/guest_session_mixin.h"
+#include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/login/test/guest_session_mixin.h"
-#include "chrome/browser/chromeos/login/test/logged_in_user_mixin.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "components/metrics/delegating_provider.h"
 #include "components/metrics/metrics_service.h"
@@ -20,11 +20,11 @@
 namespace {
 
 // Returns the user type for logging in.
-chromeos::LoggedInUserMixin::LogInType GetLogInType(
+ash::LoggedInUserMixin::LogInType GetLogInType(
     user_manager::UserType user_type) {
   if (user_type == user_manager::USER_TYPE_CHILD)
-    return chromeos::LoggedInUserMixin::LogInType::kChild;
-  return chromeos::LoggedInUserMixin::LogInType::kRegular;
+    return ash::LoggedInUserMixin::LogInType::kChild;
+  return ash::LoggedInUserMixin::LogInType::kRegular;
 }
 
 void ProvideCurrentSessionData() {
@@ -48,7 +48,7 @@ class ChromeOSMetricsProviderTest
     : public MixinBasedInProcessBrowserTest,
       public testing::WithParamInterface<user_manager::UserType> {
  protected:
-  chromeos::LoggedInUserMixin logged_in_user_mixin_{
+  ash::LoggedInUserMixin logged_in_user_mixin_{
       &mixin_host_, GetLogInType(GetParam()), embedded_test_server(), this};
 };
 
@@ -79,7 +79,7 @@ INSTANTIATE_TEST_SUITE_P(,
 class ChromeOSMetricsProviderGuestModeTest
     : public MixinBasedInProcessBrowserTest {
  private:
-  chromeos::GuestSessionMixin guest_session_mixin_{&mixin_host_};
+  ash::GuestSessionMixin guest_session_mixin_{&mixin_host_};
 };
 
 IN_PROC_BROWSER_TEST_F(ChromeOSMetricsProviderGuestModeTest, PrimaryUserType) {

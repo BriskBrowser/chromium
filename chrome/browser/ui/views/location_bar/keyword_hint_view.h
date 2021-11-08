@@ -9,9 +9,9 @@
 
 #include "base/compiler_specific.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 class Profile;
 
@@ -36,8 +36,8 @@ class KeywordHintView : public views::Button {
   KeywordHintView& operator=(const KeywordHintView&) = delete;
   ~KeywordHintView() override;
 
-  base::string16 GetKeyword() const;
-  void SetKeyword(const base::string16& keyword);
+  std::u16string GetKeyword() const;
+  void SetKeyword(const std::u16string& keyword);
 
   // views::View:
   gfx::Insets GetInsets() const override;
@@ -55,7 +55,7 @@ class KeywordHintView : public views::Button {
   views::Label* chip_label_ = nullptr;
   views::Label* trailing_label_ = nullptr;
 
-  base::string16 keyword_;
+  std::u16string keyword_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_KEYWORD_HINT_VIEW_H_

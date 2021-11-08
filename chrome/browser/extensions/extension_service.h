@@ -17,9 +17,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/scoped_observer.h"
-#include "base/strings/string16.h"
+#include "base/scoped_observation.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/blocklist.h"
 #include "chrome/browser/extensions/extension_allowlist.h"
@@ -27,7 +25,9 @@
 #include "chrome/browser/extensions/forced_extensions/force_installed_metrics.h"
 #include "chrome/browser/extensions/forced_extensions/force_installed_tracker.h"
 #include "chrome/browser/extensions/install_gate.h"
+#include "chrome/browser/extensions/omaha_attributes_handler.h"
 #include "chrome/browser/extensions/pending_extension_manager.h"
+#include "chrome/browser/extensions/safe_browsing_verdict_handler.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_manager_observer.h"
 #include "chrome/browser/upgrade_detector/upgrade_observer.h"
@@ -37,6 +37,7 @@
 #include "extensions/browser/api/declarative_net_request/ruleset_install_pref.h"
 #include "extensions/browser/crx_file_info.h"
 #include "extensions/browser/disable_reason.h"
+#include "extensions/browser/extension_host_registry.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registrar.h"
 #include "extensions/browser/external_provider_interface.h"
@@ -48,13 +49,13 @@
 #include "extensions/common/extension_id.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if !BUILDFLAG(ENABLE_EXTENSIONS)
 #error "Extensions must be enabled"
 #endif
 
 class BlocklistedExtensionSyncServiceTest;
-class HostContentSettingsMap;
 class Profile;
 
 namespace base {
@@ -78,24 +79,6 @@ class SharedModuleService;
 class UpdateObserver;
 enum class UnloadedExtensionReason;
 
-// These values are logged to UMA. Entries should not be renumbered and
-// numeric values should never be reused. Please keep in sync with
-// "ExtensionUpdateCheckDataKey" in src/tools/metrics/histograms/enums.xml.
-enum class ExtensionUpdateCheckDataKey {
-  // No update check data keys were found so no action was taken.
-  kNoKey = 0,
-  // The update check data keys had a "_malware" key resulting in the extension
-  // being disabled.
-  kMalware = 1,
-  // The update check data keys had a "_potentially_uws" key resulting in the
-  // extension being disabled.
-  kPotentiallyUWS = 2,
-  // The update check data keys had a "_policy_violation" key resulting in the
-  // extension being disabled.
-  kPolicyViolation = 3,
-  kMaxValue = kPolicyViolation
-};
-
 // This is an interface class to encapsulate the dependencies that
 // various classes have on ExtensionService. This allows easy mocking.
 class ExtensionServiceInterface
@@ -109,8 +92,6 @@ class ExtensionServiceInterface
   // Installs an update with the contents from |extension_path|. Returns true if
   // the install can be started. Sets |out_crx_installer| to the installer if
   // one was started.
-  // TODO(aa): This method can be removed. ExtensionUpdater could use
-  // CrxInstaller directly instead.
   virtual bool UpdateExtension(const CRXFileInfo& file,
                                bool file_ownership_passed,
                                CrxInstaller** out_crx_installer) = 0;
@@ -167,6 +148,12 @@ class ExtensionServiceInterface
   // Whether a user is able to disable a given extension.
   virtual bool UserCanDisableInstalledExtension(
       const std::string& extension_id) = 0;
+
+  // Ask each external extension provider to call
+  // OnExternalExtension(File|UpdateUrl)Found() with their known extensions.
+  // This will trigger an update/reinstall of the extensions saved in the
+  // provider's prefs.
+  virtual void ReinstallProviderExtensions() = 0;
 };
 
 // Manages installed and running Chromium extensions. An instance is shared
@@ -178,6 +165,7 @@ class ExtensionService : public ExtensionServiceInterface,
                          public ExtensionManagement::Observer,
                          public UpgradeObserver,
                          public ExtensionRegistrar::Delegate,
+                         public ExtensionHostRegistry::Observer,
                          public ProfileManagerObserver {
  public:
   // Constructor stores pointers to |profile| and |extension_prefs| but
@@ -190,6 +178,9 @@ class ExtensionService : public ExtensionServiceInterface,
                    bool autoupdate_enabled,
                    bool extensions_enabled,
                    base::OneShotEvent* ready);
+
+  ExtensionService(const ExtensionService&) = delete;
+  ExtensionService& operator=(const ExtensionService&) = delete;
 
   ~ExtensionService() override;
 
@@ -211,6 +202,7 @@ class ExtensionService : public ExtensionServiceInterface,
                                         bool install_immediately) override;
   void CheckManagementPolicy() override;
   void CheckForUpdatesSoon() override;
+  void ReinstallProviderExtensions() override;
 
   // ExternalProvider::VisitorInterface implementation.
   // Exposed for testing.
@@ -262,13 +254,43 @@ class ExtensionService : public ExtensionServiceInterface,
   // Returns true if an uninstall was successfully triggered; this can fail if
   // the extension cannot be uninstalled (such as a policy force-installed
   // extension).
-  bool UninstallExtension(const std::string& extension_id,
-                          UninstallReason reason,
-                          base::string16* error);
+  // |done_callback| is synchronously invoked once the site-related data and the
+  // files stored on disk are removed. If such a callback is not needed, pass in
+  // a null callback (base::NullCallback()).
+  bool UninstallExtension(
+      const std::string& extension_id,
+      UninstallReason reason,
+      std::u16string* error,
+      base::OnceClosure done_callback = base::NullCallback());
 
   // Enables the extension. If the extension is already enabled, does
   // nothing.
   void EnableExtension(const std::string& extension_id);
+
+  // Takes Safe Browsing and Omaha blocklist states into account and decides
+  // whether to remove greylist disabled reason. Called when a greylisted
+  // state is removed from the Safe Browsing blocklist or Omaha blocklist. Also
+  // clears all acknowledged states if the greylist disabled reason is removed.
+  void OnGreylistStateRemoved(const std::string& extension_id);
+
+  // Takes acknowledged blocklist states into account and decides whether to
+  // disable the greylisted extension. Called when a new greylisted state is
+  // added to the Safe Browsing blocklist or Omaha blocklist.
+  void OnGreylistStateAdded(const std::string& extension_id,
+                            BitMapBlocklistState new_state);
+
+  // Takes Safe Browsing and Omaha malware blocklist states into account and
+  // decides whether to remove the extension from the blocklist and reload it.
+  // Called when a blocklisted extension is removed from the Safe Browsing
+  // malware blocklist or Omaha malware blocklist. Also clears the acknowledged
+  // state if the extension is reloaded.
+  void OnBlocklistStateRemoved(const std::string& extension_id);
+
+  // Takes acknowledged malware blocklist state into account and decides whether
+  // to add the extension to the blocklist and unload it. Called when the
+  // extension is added to the Safe Browsing malware blocklist or the Omaha
+  // malware blocklist.
+  void OnBlocklistStateAdded(const std::string& extension_id);
 
   // Removes the disable reason and enable the extension if there are no disable
   // reasons left and is not blocked for another reason.
@@ -361,11 +383,6 @@ class ExtensionService : public ExtensionServiceInterface,
   // doesn't notify the user that the extension was terminated, if such a
   // notification is desired the calling code is responsible for doing that.
   void TerminateExtension(const std::string& extension_id);
-
-  // Register self and content settings API with the specified map.
-  static void RegisterContentSettings(
-      HostContentSettingsMap* host_content_settings_map,
-      Profile* profile);
 
   // Adds/Removes update observers.
   void AddUpdateObserver(UpdateObserver* observer);
@@ -467,6 +484,11 @@ class ExtensionService : public ExtensionServiceInterface,
   void LoadSigninProfileTestExtension(const std::string& path);
 #endif
 
+  // ExtensionHostRegistry::Observer:
+  void OnExtensionHostRenderProcessGone(
+      content::BrowserContext* browser_context,
+      ExtensionHost* extension_host) override;
+
   // content::NotificationObserver implementation:
   void Observe(int type,
                const content::NotificationSource& source,
@@ -507,9 +529,6 @@ class ExtensionService : public ExtensionServiceInterface,
   // the browser was shut down.
   void MaybeFinishShutdownDelayed();
 
-  // Populates greylist_.
-  void LoadGreylistFromPrefs();
-
   // Signals *ready_ and sends a notification to the listeners.
   void SetReadyAndNotifyListeners();
 
@@ -537,11 +556,6 @@ class ExtensionService : public ExtensionServiceInterface,
   // Common helper to finish installing the given extension.
   void FinishInstallation(const Extension* extension);
 
-  // Sets the policy settings for the extension basically
-  // by delegating this to the permission_data_updater.
-  // Holds for default and policy settings.
-  void SetPolicySettingsForExtension(const Extension* extension);
-
   // Disables the extension if the privilege level has increased
   // (e.g., due to an upgrade).
   void CheckPermissionsIncrease(const Extension* extension,
@@ -558,13 +572,6 @@ class ExtensionService : public ExtensionServiceInterface,
   // Helper method to determine if an extension can be blocked.
   bool CanBlockExtension(const Extension* extension) const;
 
-  // Handles the malware Omaha attribute for remotely disabled extensions.
-  void HandleMalwareOmahaAttribute(const std::string& extension_id,
-                                   const base::Value& attributes);
-
-  // Enables an extension that was only previously disabled remotely.
-  void MaybeEnableRemotelyDisabledExtension(const std::string& extension_id);
-
   // Helper to determine if installing an extensions should proceed immediately,
   // or if we should delay the install until further notice, or if the install
   // should be aborted. A pending install is delayed or aborted when any of the
@@ -580,16 +587,6 @@ class ExtensionService : public ExtensionServiceInterface,
   // Manages the blocklisted extensions, intended as callback from
   // Blocklist::GetBlocklistedIDs.
   void ManageBlocklist(const Blocklist::BlocklistStateMap& blocklisted_ids);
-
-  // Add extensions in |blocklisted| to blocklisted_extensions, remove
-  // extensions that are neither in |blocklisted|, nor in |unchanged|.
-  void UpdateBlocklistedExtensions(const ExtensionIdSet& to_blocklist,
-                                   const ExtensionIdSet& unchanged);
-
-  void UpdateGreylistedExtensions(
-      const ExtensionIdSet& greylist,
-      const ExtensionIdSet& unchanged,
-      const Blocklist::BlocklistStateMap& state_map);
 
   // Used only by test code.
   void UnloadAllExtensionsInternal();
@@ -612,6 +609,15 @@ class ExtensionService : public ExtensionServiceInterface,
   // Uninstall extensions that have been migrated to component extensions.
   void UninstallMigratedExtensions();
 
+  // Callback for installation finish of an extension from external file, since
+  // we need to remove this extension from the pending extension manager in case
+  // of installation failure. This is only a need for extensions installed
+  // by file, since extensions installed by URL will be intentinally kept in
+  // the manager and retried later.
+  void InstallationFromExternalFileFinished(
+      const std::string& extension_id,
+      const absl::optional<CrxInstallError>& error);
+
   const base::CommandLine* command_line_ = nullptr;
 
   // The normal profile associated with this ExtensionService.
@@ -628,16 +634,12 @@ class ExtensionService : public ExtensionServiceInterface,
 
   ExtensionAllowlist allowlist_;
 
+  SafeBrowsingVerdictHandler safe_browsing_verdict_handler_;
+
+  OmahaAttributesHandler omaha_attributes_handler_;
+
   // Sets of enabled/disabled/terminated/blocklisted extensions. Not owned.
   ExtensionRegistry* registry_ = nullptr;
-
-  // Set of greylisted extensions. These extensions are disabled if they are
-  // already installed in Chromium at the time when they are added to
-  // the greylist. Unlike blocklisted extensions, greylisted ones are visible
-  // to the user and if user re-enables such an extension, they remain enabled.
-  //
-  // These extensions should appear in registry_.
-  ExtensionSet greylist_;
 
   // Set of allowlisted enabled extensions loaded from the
   // --disable-extensions-except command line flag.
@@ -724,8 +726,12 @@ class ExtensionService : public ExtensionServiceInterface,
   // Reports force-installed extension metrics to UMA.
   ForceInstalledMetrics force_installed_metrics_;
 
-  ScopedObserver<ProfileManager, ProfileManagerObserver>
-      profile_manager_observer_{this};
+  base::ScopedObservation<ProfileManager, ProfileManagerObserver>
+      profile_manager_observation_{this};
+
+  base::ScopedObservation<ExtensionHostRegistry,
+                          ExtensionHostRegistry::Observer>
+      host_registry_observation_{this};
 
   using InstallGateRegistry =
       std::map<ExtensionPrefs::DelayReason, InstallGate*>;
@@ -744,10 +750,6 @@ class ExtensionService : public ExtensionServiceInterface,
   FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest, ReloadBlocklistedExtension);
   FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest, RemoveExtensionFromBlocklist);
   FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest, BlocklistedInPrefsFromStartup);
-  FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest, GreylistedExtensionDisabled);
-  FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest,
-                           GreylistDontEnableManuallyDisabled);
-  FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest, GreylistUnknownDontChange);
   FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest,
                            ManagementPolicyProhibitsEnableOnInstalled);
   FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest,
@@ -760,9 +762,27 @@ class ExtensionService : public ExtensionServiceInterface,
                            ExtensionsNotAllowlistedThenBlocklisted);
   FRIEND_TEST_ALL_PREFIXES(ExtensionAllowlistUnitTest,
                            ExtensionsBlocklistedThenNotAllowlisted);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           GreylistedExtensionDisabled);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           GreylistDontEnableManuallyDisabled);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           GreylistUnknownDontChange);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           UnblocklistedExtensionStillGreylisted);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           GreylistedExtensionDoesNotDisableAgain);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           GreylistedExtensionDisableAgainIfReAdded);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           DisableExtensionForDifferentGreylistState);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           DisableExtensionWhenSwitchingBetweenGreylistStates);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingVerdictHandlerUnitTest,
+                           AcknowledgedStateBackFilled);
   friend class ::BlocklistedExtensionSyncServiceTest;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionService);
+  friend class SafeBrowsingVerdictHandlerUnitTest;
+  friend class BlocklistStatesInteractionUnitTest;
 };
 
 }  // namespace extensions

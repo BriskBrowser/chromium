@@ -9,10 +9,12 @@
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/locale_settings.h"
 #include "components/vector_icons/vector_icons.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/button/label_button.h"
@@ -20,7 +22,6 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 const int kBubbleExtraIconSize = 16;
@@ -34,8 +35,8 @@ ToolbarActionsBarBubbleViews::ToolbarActionsBarBubbleViews(
                                       views::BubbleBorder::TOP_RIGHT),
       delegate_(std::move(delegate)),
       anchored_to_action_(anchored_to_action) {
-  base::string16 ok_text = delegate_->GetActionButtonText();
-  base::string16 cancel_text = delegate_->GetDismissButtonText();
+  std::u16string ok_text = delegate_->GetActionButtonText();
+  std::u16string cancel_text = delegate_->GetDismissButtonText();
 
   int buttons = ui::DIALOG_BUTTON_NONE;
   if (!ok_text.empty())
@@ -88,7 +89,7 @@ ToolbarActionsBarBubbleViews::CreateExtraInfoView() {
   }
 
   std::unique_ptr<views::View> extra_view;
-  const base::string16& text = extra_view_info->text;
+  const std::u16string& text = extra_view_info->text;
   if (!text.empty()) {
     if (extra_view_info->is_learn_more) {
       auto image_button = views::CreateVectorImageButtonWithNativeTheme(
@@ -133,7 +134,7 @@ void ToolbarActionsBarBubbleViews::NotifyDelegateOfClose(
   delegate_->OnBubbleClosed(action);
 }
 
-base::string16 ToolbarActionsBarBubbleViews::GetWindowTitle() const {
+std::u16string ToolbarActionsBarBubbleViews::GetWindowTitle() const {
   return delegate_->GetHeadingText();
 }
 
@@ -157,8 +158,8 @@ void ToolbarActionsBarBubbleViews::RemovedFromWidget() {
 }
 
 void ToolbarActionsBarBubbleViews::Init() {
-  base::string16 body_text_string = delegate_->GetBodyText(anchored_to_action_);
-  base::string16 item_list = delegate_->GetItemListText();
+  std::u16string body_text_string = delegate_->GetBodyText(anchored_to_action_);
+  std::u16string item_list = delegate_->GetItemListText();
   if (body_text_string.empty() && item_list.empty())
     return;
 

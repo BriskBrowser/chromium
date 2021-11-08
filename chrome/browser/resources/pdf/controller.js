@@ -3,12 +3,12 @@
 // found in the LICENSE file.
 
 import {assert} from 'chrome://resources/js/assert.m.js';
-import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
 import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
 
 import {NamedDestinationMessageData, Point, SaveRequestType} from './constants.js';
+import {UnseasonedPdfPluginElement} from './internal_plugin.js';
 import {PartialPoint, PinchPhase, Viewport} from './viewport.js';
 
 /** @typedef {{type: string, messageId: (string|undefined)}} */
@@ -21,7 +21,7 @@ export let MessageData;
  *   messageId: string,
  * }}
  */
-let SaveAttachmentDataMessageData;
+let SaveAttachmentMessageData;
 
 /**
  * @typedef {{
@@ -58,9 +58,8 @@ let ThumbnailMessageData;
  */
 function createToken() {
   const randomBytes = new Uint8Array(16);
-  return window.crypto.getRandomValues(randomBytes)
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+  window.crypto.getRandomValues(randomBytes);
+  return Array.from(randomBytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 /** @interface */
@@ -113,7 +112,7 @@ export class ContentController {
   /**
    * Requests that the attachment at a certain index be saved.
    * @param {number} index The index of the attachment to be saved.
-   * @return {Promise<{type: string, dataToSave: Array, messageId: string}>}
+   * @return {!Promise<!SaveAttachmentMessageData>}
    * @abstract
    */
   saveAttachment(index) {}
@@ -157,6 +156,12 @@ export class PluginController {
     /** @private {!HTMLEmbedElement} */
     this.plugin_;
 
+    /** @private {?UnseasonedPdfPluginElement} */
+    this.unseasonedPlugin_ = null;
+
+    /** @private {?Array} */
+    this.unseasonedDelayedMessages_ = null;
+
     /** @private {!Viewport} */
     this.viewport_;
 
@@ -195,6 +200,20 @@ export class PluginController {
 
     this.plugin_.addEventListener(
         'message', e => this.handlePluginMessage_(e), false);
+    if (!this.plugin_.postMessage) {
+      this.unseasonedPlugin_ =
+          /** @type {!UnseasonedPdfPluginElement} */ (this.plugin_);
+      this.unseasonedDelayedMessages_ = [];
+
+      this.unseasonedPlugin_.postMessage =
+          /**
+           * @param {*} message
+           * @param {!Array<!Transferable>=} transfer
+           */
+          (message, transfer) => {
+            this.unseasonedDelayedMessages_.push({message, transfer});
+          };
+    }
   }
 
   /**
@@ -465,16 +484,28 @@ export class PluginController {
 
   /** @override */
   async load(fileName, data) {
-    const url = URL.createObjectURL(new Blob([data]));
-    this.plugin_.removeAttribute('headers');
-    this.plugin_.setAttribute('stream-url', url);
-    this.plugin_.setAttribute('has-edits', '');
+    // Load `data` into the PDF plugin. The unseasoned plugin transfers the data
+    // to be loaded within the inner frame, while the Pepper plugin updates
+    // `src` directly.
+    let url;
+    if (this.unseasonedPlugin_) {
+      assert(this.unseasonedPlugin_ === this.plugin_);
+      this.unseasonedPlugin_.postMessage(
+          {type: 'loadArray', dataToLoad: data}, [data]);
+    } else {
+      url = URL.createObjectURL(new Blob([data]));
+      this.plugin_.setAttribute('src', url);
+      this.plugin_.setAttribute('has-edits', '');
+    }
+
     this.plugin_.style.display = 'block';
     try {
       await this.getLoadedCallback_();
       this.isActive = true;
     } finally {
-      URL.revokeObjectURL(url);
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
     }
   }
 
@@ -482,6 +513,27 @@ export class PluginController {
   unload() {
     this.plugin_.style.display = 'none';
     this.isActive = false;
+  }
+
+  /**
+   * Binds an event handler for messages received from the unseasoned plugin.
+   *
+   * TODO(crbug.com/1228987): Remove this method when a permanent postMessage()
+   * bridge is implemented for the Unseasoned viewer.
+   *
+   * @param {!MessagePort} port The message port to bind to.
+   */
+  bindUnseasonedMessageHandler(port) {
+    assert(this.unseasonedDelayedMessages_ !== null);
+    const delayedMessages = this.unseasonedDelayedMessages_;
+    this.unseasonedDelayedMessages_ = null;
+
+    this.unseasonedPlugin_.postMessage = port.postMessage.bind(port);
+    port.onmessage = e => this.handlePluginMessage_(e);
+
+    for (const {message, transfer} of delayedMessages) {
+      this.unseasonedPlugin_.postMessage(message, transfer);
+    }
   }
 
   /**
@@ -564,6 +616,12 @@ export class PluginController {
 
     resolver.resolve(messageData);
   }
+
+  /** @return {!PluginController} */
+  static getInstance() {
+    return instance || (instance = new PluginController());
+  }
 }
 
-addSingletonGetter(PluginController);
+/** @type {?PluginController} */
+let instance = null;

@@ -13,7 +13,8 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list_types.h"
 #include "base/time/time.h"
-#include "base/util/timer/wall_clock_timer.h"
+#include "base/timer/wall_clock_timer.h"
+#include "components/enterprise/browser/reporting/real_time_report_generator.h"
 #include "components/enterprise/browser/reporting/report_generator.h"
 #include "components/enterprise/browser/reporting/report_uploader.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -25,6 +26,7 @@ class CloudPolicyClient;
 namespace enterprise_reporting {
 
 class ReportingDelegateFactory;
+class RealTimeUploader;
 
 // Schedules report generation and upload every 24 hours (and upon browser
 // update for desktop Chrome) while cloud reporting is enabled via
@@ -36,14 +38,18 @@ class ReportScheduler {
   // The trigger leading to report generation. Values are bitmasks in the
   // |pending_triggers_| bitfield.
   enum ReportTrigger : uint32_t {
-    kTriggerNone = 0,                    // No trigger.
-    kTriggerTimer = 1U << 0,             // The periodic timer expired.
-    kTriggerUpdate = 1U << 1,            // An update was detected.
-    kTriggerNewVersion = 1U << 2,        // A new version is running.
-    kTriggerExtensionRequest = 1U << 3,  // Pending extension requests updated.
+    kTriggerNone = 0,              // No trigger.
+    kTriggerTimer = 1U << 0,       // The periodic timer expired.
+    kTriggerUpdate = 1U << 1,      // An update was detected.
+    kTriggerNewVersion = 1U << 2,  // A new version is running.
+    // Pending extension requests updated, with encrypted realtime pipeline.
+    kTriggerExtensionRequestRealTime = 1U << 4,
   };
 
   using ReportTriggerCallback = base::RepeatingCallback<void(ReportTrigger)>;
+  using RealtimeReportTriggerCallback =
+      base::RepeatingCallback<void(ReportTrigger,
+                                   const RealTimeReportGenerator::Data&)>;
 
   class Delegate {
    public:
@@ -54,6 +60,8 @@ class ReportScheduler {
     virtual ~Delegate();
 
     void SetReportTriggerCallback(ReportTriggerCallback callback);
+    void SetRealtimeReportTriggerCallback(
+        RealtimeReportTriggerCallback callback);
 
     virtual PrefService* GetLocalState() = 0;
 
@@ -71,15 +79,23 @@ class ReportScheduler {
 
    protected:
     ReportTriggerCallback trigger_report_callback_;
+    RealtimeReportTriggerCallback trigger_realtime_report_callback_;
   };
 
-  ReportScheduler(policy::CloudPolicyClient* client,
-                  std::unique_ptr<ReportGenerator> report_generator,
-                  ReportingDelegateFactory* delegate_factory);
+  ReportScheduler(
+      policy::CloudPolicyClient* client,
+      std::unique_ptr<ReportGenerator> report_generator,
+      std::unique_ptr<RealTimeReportGenerator> real_time_report_generator,
+      ReportingDelegateFactory* delegate_factory);
 
-  ReportScheduler(policy::CloudPolicyClient* client,
-                  std::unique_ptr<ReportGenerator> report_generator,
-                  std::unique_ptr<ReportScheduler::Delegate> delegate);
+  ReportScheduler(
+      policy::CloudPolicyClient* client,
+      std::unique_ptr<ReportGenerator> report_generator,
+      std::unique_ptr<RealTimeReportGenerator> real_time_report_generator,
+      std::unique_ptr<ReportScheduler::Delegate> delegate);
+
+  ReportScheduler(const ReportScheduler&) = delete;
+  ReportScheduler& operator=(const ReportScheduler&) = delete;
 
   ~ReportScheduler();
 
@@ -92,6 +108,9 @@ class ReportScheduler {
   bool IsNextReportScheduledForTesting() const;
 
   void SetReportUploaderForTesting(std::unique_ptr<ReportUploader> uploader);
+  void SetExtensionRequestUploaderForTesting(
+      std::unique_ptr<RealTimeUploader> uploader);
+  Delegate* GetDelegateForTesting();
 
   void OnDMTokenUpdated();
 
@@ -115,6 +134,9 @@ class ReportScheduler {
 
   // Starts report generation in response to |trigger|.
   void GenerateAndUploadReport(ReportTrigger trigger);
+  void GenerateAndUploadRealtimeReport(
+      ReportTrigger trigger,
+      const RealTimeReportGenerator::Data& data);
 
   // Continues processing a report (contained in the |requests| collection) by
   // sending it to the uploader.
@@ -128,6 +150,9 @@ class ReportScheduler {
   // of another report.
   void RunPendingTriggers();
 
+  // Creates and uploads extension requests with real time reporting pipeline.
+  void UploadExtensionRequests(const RealTimeReportGenerator::Data& data);
+
   // Records that |trigger| was responsible for an upload attempt.
   static void RecordUploadTrigger(ReportTrigger trigger);
 
@@ -138,11 +163,15 @@ class ReportScheduler {
 
   policy::CloudPolicyClient* cloud_policy_client_;
 
-  util::WallClockTimer request_timer_;
+  base::WallClockTimer request_timer_;
 
   std::unique_ptr<ReportUploader> report_uploader_;
 
   std::unique_ptr<ReportGenerator> report_generator_;
+
+  std::unique_ptr<RealTimeReportGenerator> real_time_report_generator_;
+
+  std::unique_ptr<RealTimeUploader> extension_request_uploader_;
 
   // The trigger responsible for initiating active report generation.
   ReportTrigger active_trigger_ = kTriggerNone;
@@ -153,8 +182,6 @@ class ReportScheduler {
   uint32_t pending_triggers_ = 0;
 
   base::WeakPtrFactory<ReportScheduler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ReportScheduler);
 };
 
 }  // namespace enterprise_reporting

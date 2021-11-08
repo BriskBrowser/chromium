@@ -4,8 +4,10 @@
 
 #include "ash/projector/projector_feature_pod_controller.h"
 
+#include "ash/projector/model/projector_session_impl.h"
 #include "ash/projector/projector_controller_impl.h"
 #include "ash/projector/projector_ui_controller.h"
+#include "ash/public/cpp/projector/projector_session.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
@@ -20,10 +22,17 @@ namespace ash {
 ProjectorFeaturePodController::ProjectorFeaturePodController(
     UnifiedSystemTrayController* tray_controller)
     : tray_controller_(tray_controller) {
-  // TODO(llin): Observe Projector UI model to update the toggle state.
+  Shell::Get()->projector_controller()->ui_controller()->model()->AddObserver(
+      this);
 }
 
-ProjectorFeaturePodController::~ProjectorFeaturePodController() = default;
+ProjectorFeaturePodController::~ProjectorFeaturePodController() {
+  Shell::Get()
+      ->projector_controller()
+      ->ui_controller()
+      ->model()
+      ->RemoveObserver(this);
+}
 
 FeaturePodButton* ProjectorFeaturePodController::CreateButton() {
   DCHECK(!button_);
@@ -34,9 +43,14 @@ FeaturePodButton* ProjectorFeaturePodController::CreateButton() {
   button_->SetLabel(label_text);
   button_->icon_button()->SetTooltipText(label_text);
   button_->SetLabelTooltip(label_text);
+
+  auto* projector_controller = Shell::Get()->projector_controller();
+  DCHECK(projector_controller);
   button_->SetVisible(
-      !Shell::Get()->session_controller()->IsUserSessionBlocked());
-  // TODO(llin): Update toggle state based on Projector UI model.
+      !Shell::Get()->session_controller()->IsUserSessionBlocked() &&
+      projector_controller->CanStartNewSession());
+  button_->SetToggled(
+      projector_controller->ui_controller()->model()->bar_enabled());
   return button_;
 }
 
@@ -44,11 +58,18 @@ void ProjectorFeaturePodController::OnIconPressed() {
   // Close the system tray bubble. Deletes |this|.
   tray_controller_->CloseBubble();
 
-  Shell::Get()->projector_controller()->ui_controller()->ToggleToolbar();
+  auto* projector_controller = Shell::Get()->projector_controller();
+  DCHECK(projector_controller);
+
+  projector_controller->StartProjectorSession("projector_data");
 }
 
 SystemTrayItemUmaType ProjectorFeaturePodController::GetUmaType() const {
   return SystemTrayItemUmaType::UMA_PROJECTOR;
+}
+
+void ProjectorFeaturePodController::OnProjectorBarStateChanged(bool enabled) {
+  button_->SetToggled(enabled);
 }
 
 }  // namespace ash

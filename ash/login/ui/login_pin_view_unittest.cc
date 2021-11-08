@@ -21,6 +21,10 @@ namespace ash {
 namespace {
 
 class LoginPinViewTest : public LoginTestBase {
+ public:
+  LoginPinViewTest(const LoginPinViewTest&) = delete;
+  LoginPinViewTest& operator=(const LoginPinViewTest&) = delete;
+
  protected:
   LoginPinViewTest() = default;
   ~LoginPinViewTest() override = default;
@@ -46,14 +50,11 @@ class LoginPinViewTest : public LoginTestBase {
   void OnPinSubmit() { ++submit_; }
 
   LoginPinView* view_ = nullptr;  // Owned by test widget view hierarchy.
-  base::Optional<int> value_;
+  absl::optional<int> value_;
   // Number of times the backspace event has been fired.
   int backspace_ = 0;
   // Number of times the submit event has been fired.
   int submit_ = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(LoginPinViewTest);
 };
 
 }  // namespace

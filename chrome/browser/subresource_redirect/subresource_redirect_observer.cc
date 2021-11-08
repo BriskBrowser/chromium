@@ -15,7 +15,9 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/optimization_guide/proto/public_image_metadata.pb.h"
 #include "components/subresource_redirect/common/subresource_redirect_features.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/navigation_handle_user_data.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
@@ -63,33 +65,73 @@ void SetResourceLoadingImageHints(
 
 void UpdateRobotsRules(
     mojom::SubresourceRedirectService::GetRobotsRulesCallback callback,
-    base::Optional<std::string> robots_rules_proto) {
+    absl::optional<std::string> robots_rules_proto) {
   std::move(callback).Run(robots_rules_proto);
 }
+
+class NavigationData
+    : public content::NavigationHandleUserData<NavigationData> {
+ public:
+  ~NavigationData() override = default;
+
+  static bool IsAllowedByLoginState(content::NavigationHandle& handle) {
+    DCHECK(ShouldEnableRobotsRulesFetching());
+    if (auto* self = GetForNavigationHandle(handle))
+      return self->is_allowed_by_login_state_;
+    return false;
+  }
+
+  static void SetIsAllowedByLoginState(content::NavigationHandle& handle,
+                                       bool allowed) {
+    DCHECK(ShouldEnableRobotsRulesFetching());
+    GetOrCreateForNavigationHandle(handle)->is_allowed_by_login_state_ =
+        allowed;
+  }
+
+ private:
+  explicit NavigationData(content::NavigationHandle&) {}
+  friend NavigationHandleUserData<NavigationData>;
+  NAVIGATION_HANDLE_USER_DATA_KEY_DECL();
+
+  // Whether login is allowed for the current navigation. Set when the
+  // navigation is ready to be committed.
+  bool is_allowed_by_login_state_ = false;
+};
+
+NAVIGATION_HANDLE_USER_DATA_KEY_IMPL(NavigationData);
 
 }  // namespace
 
 ImageCompressionAppliedDocument::ImageCompressionAppliedDocument(
     content::RenderFrameHost* render_frame_host)
-    : render_frame_host_(render_frame_host) {
-  DCHECK(
-      login_detection::LoginDetectionKeyedServiceFactory::GetForProfile(
-          Profile::FromBrowserContext(render_frame_host->GetBrowserContext()))
-          ->GetPersistentLoginDetection(
-              render_frame_host->GetLastCommittedURL()) ==
-      login_detection::LoginDetectionType::kNoLogin);
-}
+    : content::DocumentUserData<ImageCompressionAppliedDocument>(
+          render_frame_host) {}
 
 ImageCompressionAppliedDocument::~ImageCompressionAppliedDocument() = default;
 
-RENDER_DOCUMENT_HOST_USER_DATA_KEY_IMPL(ImageCompressionAppliedDocument)
+DOCUMENT_USER_DATA_KEY_IMPL(ImageCompressionAppliedDocument);
+
+// static
+ImageCompressionAppliedDocument::State
+ImageCompressionAppliedDocument::GetState(content::RenderFrameHost* rfh) {
+  if (auto* self = GetForCurrentDocument(rfh))
+    return self->state();
+  return kDisabled;
+}
+
+// static
+void ImageCompressionAppliedDocument::SetState(content::RenderFrameHost* rfh,
+                                               State state) {
+  GetOrCreateForCurrentDocument(rfh)->set_state(state);
+}
 
 void ImageCompressionAppliedDocument::GetAndUpdateRobotsRules(
     const url::Origin& origin,
     OriginRobotsRulesCache* rules_cache,
     mojom::SubresourceRedirectService::GetRobotsRulesCallback callback) {
+  DCHECK(ShouldEnableRobotsRulesFetching());
   if (!rules_cache) {
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
     return;
   }
   rules_cache->GetRobotsRules(
@@ -100,7 +142,7 @@ void ImageCompressionAppliedDocument::GetAndUpdateRobotsRules(
 void SubresourceRedirectObserver::MaybeCreateForWebContents(
     content::WebContents* web_contents) {
   if ((ShouldEnablePublicImageHintsBasedCompression() ||
-       ShouldEnableLoginRobotsCheckedCompression()) &&
+       ShouldEnableRobotsRulesFetching()) &&
       IsLiteModeEnabled(web_contents)) {
     SubresourceRedirectObserver::CreateForWebContents(web_contents);
   }
@@ -112,9 +154,15 @@ bool SubresourceRedirectObserver::IsHttpsImageCompressionApplied(
   if (!ShouldCompressRedirectSubresource())
     return false;
 
-  SubresourceRedirectObserver* observer =
-      SubresourceRedirectObserver::FromWebContents(web_contents);
-  return observer && observer->is_mainframe_https_image_compression_applied_;
+  switch (
+      ImageCompressionAppliedDocument::GetState(web_contents->GetMainFrame())) {
+    case ImageCompressionAppliedDocument::kDisabled:
+    case ImageCompressionAppliedDocument::kLoginRobotsRulesFetchingOnly:
+      return false;
+    case ImageCompressionAppliedDocument::kLoginRobotsCheckedEnabled:
+    case ImageCompressionAppliedDocument::kPublicImageHintsEnabled:
+      return true;
+  }
 }
 
 SubresourceRedirectObserver::SubresourceRedirectObserver(
@@ -122,7 +170,7 @@ SubresourceRedirectObserver::SubresourceRedirectObserver(
     : content::WebContentsObserver(web_contents),
       receivers_(web_contents, this) {
   DCHECK(ShouldEnablePublicImageHintsBasedCompression() ||
-         ShouldEnableLoginRobotsCheckedCompression());
+         ShouldEnableRobotsRulesFetching());
   if (ShouldEnablePublicImageHintsBasedCompression()) {
     if (auto* optimization_guide_decider =
             GetOptimizationGuideDeciderFromWebContents(web_contents)) {
@@ -134,6 +182,52 @@ SubresourceRedirectObserver::SubresourceRedirectObserver(
 
 SubresourceRedirectObserver::~SubresourceRedirectObserver() = default;
 
+void SubresourceRedirectObserver::ReadyToCommitNavigation(
+    content::NavigationHandle* navigation_handle) {
+  DCHECK(navigation_handle);
+  if (navigation_handle->IsSameDocument() ||
+      !navigation_handle->GetRenderFrameHost()) {
+    return;
+  }
+  if (!IsLiteModeEnabled(web_contents()))
+    return;
+  if (!navigation_handle->GetURL().SchemeIsHTTPOrHTTPS())
+    return;
+
+  // Send the login state when robots rules fetching is enabled for image and
+  // src-video compression.
+  if (!ShouldEnableRobotsRulesFetching())
+    return;
+
+  mojo::AssociatedRemote<mojom::SubresourceRedirectHintsReceiver>
+      hints_receiver;
+  navigation_handle->GetRenderFrameHost()
+      ->GetRemoteAssociatedInterfaces()
+      ->GetInterface(&hints_receiver);
+  // Save the logged-in state based on which DidFinishNavigation() will create
+  // ImageCompressionAppliedDocument. Note that checking for logged-in state
+  // here in ReadyToCommitNavigation() instead of in DidFinishNavigation()
+  // misses some corner cases. For example, first time OAuth logins to a site
+  // are treated as not logged-in.
+  bool is_allowed_by_login_state =
+      IsAllowedForCurrentLoginState(navigation_handle);
+  NavigationData::SetIsAllowedByLoginState(*navigation_handle,
+                                           is_allowed_by_login_state);
+  hints_receiver->SetLoggedInState(!is_allowed_by_login_state);
+}
+
+void SubresourceRedirectObserver::BindSubresourceRedirectService(
+    mojo::PendingAssociatedReceiver<mojom::SubresourceRedirectService> receiver,
+    content::RenderFrameHost* rfh) {
+  auto* web_contents = content::WebContents::FromRenderFrameHost(rfh);
+  if (!web_contents)
+    return;
+  auto* tab_helper = SubresourceRedirectObserver::FromWebContents(web_contents);
+  if (!tab_helper)
+    return;
+  tab_helper->receivers_.Bind(rfh, std::move(receiver));
+}
+
 void SubresourceRedirectObserver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   DCHECK(navigation_handle);
@@ -143,44 +237,34 @@ void SubresourceRedirectObserver::DidFinishNavigation(
     return;
   }
   if (!navigation_handle->IsInMainFrame() &&
-      !ShouldEnableLoginRobotsCheckedCompression()) {
+      !ShouldEnableRobotsRulesFetching()) {
     return;
   }
   if (!IsLiteModeEnabled(web_contents()))
     return;
 
-  // Set to disable compression by default for this navigation.
-  is_mainframe_https_image_compression_applied_ = false;
-
   if (!navigation_handle->GetURL().SchemeIsHTTPOrHTTPS())
     return;
 
-  if (!ShowInfoBarAndGetImageCompressionState(web_contents(),
+  // Check and show the one-time infobar when image compression is enabled. This
+  // needs to be done for src video compressed navigations too when that gets
+  // enabled.
+  if ((ShouldEnablePublicImageHintsBasedCompression() ||
+       ShouldEnableLoginRobotsCheckedImageCompression()) &&
+      !ShowInfoBarAndGetImageCompressionState(web_contents(),
                                               navigation_handle)) {
     return;
   }
-  content::RenderFrameHost* render_frame_host =
-      navigation_handle->GetRenderFrameHost();
 
   // Handle login robots based compression mode.
-  if (ShouldEnableLoginRobotsCheckedCompression()) {
-    mojo::AssociatedRemote<mojom::SubresourceRedirectHintsReceiver>
-        hints_receiver;
-    render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
-        &hints_receiver);
-    bool is_compression_allowed =
-        IsAllowedForCurrentLoginState(navigation_handle);
-    hints_receiver->SetLoggedInState(!is_compression_allowed);
-    if (navigation_handle->IsInMainFrame())
-      is_mainframe_https_image_compression_applied_ = is_compression_allowed;
-
-    if (!is_compression_allowed)
-      return;
-
-    // Create the ImageCompressionAppliedDocument only when compression is
-    // allowed.
-    ImageCompressionAppliedDocument::GetOrCreateForCurrentDocument(
-        navigation_handle->GetRenderFrameHost());
+  if (ShouldEnableRobotsRulesFetching()) {
+    if (NavigationData::IsAllowedByLoginState(*navigation_handle)) {
+      ImageCompressionAppliedDocument::SetState(
+          navigation_handle->GetRenderFrameHost(),
+          ShouldEnableLoginRobotsCheckedImageCompression()
+              ? ImageCompressionAppliedDocument::kLoginRobotsCheckedEnabled
+              : ImageCompressionAppliedDocument::kLoginRobotsRulesFetchingOnly);
+    }
     return;
   }
 
@@ -192,26 +276,23 @@ void SubresourceRedirectObserver::DidFinishNavigation(
   if (!optimization_guide_decider)
     return;
 
+  content::RenderFrameHost* render_frame_host =
+      navigation_handle->GetRenderFrameHost();
   optimization_guide_decider->CanApplyOptimizationAsync(
       navigation_handle, optimization_guide::proto::COMPRESS_PUBLIC_IMAGES,
       base::BindOnce(
           &SubresourceRedirectObserver::OnResourceLoadingImageHintsReceived,
           weak_factory_.GetWeakPtr(),
-          content::GlobalFrameRoutingId(
+          content::GlobalRenderFrameHostId(
               render_frame_host->GetProcess()->GetID(),
               render_frame_host->GetRoutingID())));
 }
 
 void SubresourceRedirectObserver::OnResourceLoadingImageHintsReceived(
-    content::GlobalFrameRoutingId render_frame_host_routing_id,
+    content::GlobalRenderFrameHostId render_frame_host_routing_id,
     optimization_guide::OptimizationGuideDecision decision,
     const optimization_guide::OptimizationMetadata& optimization_metadata) {
   DCHECK(ShouldEnablePublicImageHintsBasedCompression());
-
-  // Clear |is_mainframe_https_image_compression_applied_| since it may be set
-  // to true when multiple navigations are starting and image hints is received
-  // for the first one.
-  is_mainframe_https_image_compression_applied_ = false;
 
   content::RenderFrameHost* current_render_frame_host =
       content::RenderFrameHost::FromID(render_frame_host_routing_id);
@@ -237,8 +318,11 @@ void SubresourceRedirectObserver::OnResourceLoadingImageHintsReceived(
   SetResourceLoadingImageHints(
       current_render_frame_host,
       mojom::CompressPublicImagesHints::New(public_image_urls));
-  if (!public_image_urls.empty())
-    is_mainframe_https_image_compression_applied_ = true;
+  if (!public_image_urls.empty()) {
+    ImageCompressionAppliedDocument::SetState(
+        current_render_frame_host,
+        ImageCompressionAppliedDocument::kPublicImageHintsEnabled);
+  }
 }
 
 void SubresourceRedirectObserver::NotifyCompressedImageFetchFailed(
@@ -250,10 +334,10 @@ void SubresourceRedirectObserver::NotifyCompressedImageFetchFailed(
 void SubresourceRedirectObserver::GetRobotsRules(
     const url::Origin& origin,
     mojom::SubresourceRedirectService::GetRobotsRulesCallback callback) {
-  DCHECK(ShouldEnableLoginRobotsCheckedCompression());
+  DCHECK(ShouldEnableRobotsRulesFetching());
   DCHECK(!origin.opaque());
   if (!web_contents()) {
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
     return;
   }
 
@@ -263,7 +347,7 @@ void SubresourceRedirectObserver::GetRobotsRules(
       ImageCompressionAppliedDocument::GetForCurrentDocument(
           web_contents()->GetMainFrame());
   if (!subresource_redirect_document_host) {
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
     return;
   }
 
@@ -273,7 +357,7 @@ void SubresourceRedirectObserver::GetRobotsRules(
 
 bool SubresourceRedirectObserver::IsAllowedForCurrentLoginState(
     content::NavigationHandle* navigation_handle) {
-  DCHECK(ShouldEnableLoginRobotsCheckedCompression());
+  DCHECK(ShouldEnableRobotsRulesFetching());
 
   auto* login_detection_keyed_service =
       login_detection::LoginDetectionKeyedServiceFactory::GetForProfile(
@@ -291,19 +375,22 @@ bool SubresourceRedirectObserver::IsAllowedForCurrentLoginState(
   content::RenderFrameHost* parent_render_frame_host =
       navigation_handle->GetRenderFrameHost();
   while ((parent_render_frame_host = parent_render_frame_host->GetParent())) {
-    if (!parent_render_frame_host->IsCurrent())
+    if (!parent_render_frame_host->IsActive())
       continue;
-    // Existence of ImageCompressionAppliedDocument for the parent render frame
-    // indicates the parent is not logged-in and allowed fo subresource
-    // redirect.
-    if (!ImageCompressionAppliedDocument::GetForCurrentDocument(
-            parent_render_frame_host)) {
-      return false;
+    switch (
+        ImageCompressionAppliedDocument::GetState(parent_render_frame_host)) {
+      case ImageCompressionAppliedDocument::kDisabled:
+        return false;
+      case ImageCompressionAppliedDocument::kLoginRobotsRulesFetchingOnly:
+      case ImageCompressionAppliedDocument::kLoginRobotsCheckedEnabled:
+        break;
+      case ImageCompressionAppliedDocument::kPublicImageHintsEnabled:
+        NOTREACHED();
     }
   }
   return true;
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(SubresourceRedirectObserver)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SubresourceRedirectObserver);
 
 }  // namespace subresource_redirect

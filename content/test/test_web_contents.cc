@@ -11,6 +11,7 @@
 #include "base/no_destructor.h"
 #include "content/browser/browser_url_handler_impl.h"
 #include "content/browser/portal/portal.h"
+#include "content/browser/prerender/prerender_host_registry.h"
 #include "content/browser/renderer_host/cross_process_frame_connector.h"
 #include "content/browser/renderer_host/debug_urls.h"
 #include "content/browser/renderer_host/navigation_entry_impl.h"
@@ -20,7 +21,6 @@
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/site_instance_impl.h"
-#include "content/common/frame_messages.h"
 #include "content/common/render_message_filter.mojom.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_source.h"
@@ -29,6 +29,7 @@
 #include "content/public/common/url_utils.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
+#include "content/test/navigation_simulator_impl.h"
 #include "content/test/test_render_view_host.h"
 #include "third_party/blink/public/common/page_state/page_state.h"
 #include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom.h"
@@ -78,8 +79,7 @@ TestWebContents* TestWebContents::Create(const CreateParams& params) {
   return test_web_contents;
 }
 
-TestWebContents::~TestWebContents() {
-}
+TestWebContents::~TestWebContents() = default;
 
 TestRenderFrameHost* TestWebContents::GetMainFrame() {
   auto* instance = WebContentsImpl::GetMainFrame();
@@ -95,14 +95,14 @@ TestRenderViewHost* TestWebContents::GetRenderViewHost() {
   return static_cast<TestRenderViewHost*>(instance);
 }
 
-TestRenderFrameHost* TestWebContents::GetPendingMainFrame() {
+TestRenderFrameHost* TestWebContents::GetSpeculativePrimaryMainFrame() {
   return static_cast<TestRenderFrameHost*>(
-      WebContentsImpl::GetPendingMainFrame());
+      GetPrimaryFrameTree().root()->render_manager()->speculative_frame_host());
 }
 
 int TestWebContents::DownloadImage(const GURL& url,
                                    bool is_favicon,
-                                   uint32_t preferred_size,
+                                   const gfx::Size& preferred_size,
                                    uint32_t max_bitmap_size,
                                    bool bypass_cache,
                                    ImageDownloadCallback callback) {
@@ -120,7 +120,7 @@ const GURL& TestWebContents::GetLastCommittedURL() {
   return WebContentsImpl::GetLastCommittedURL();
 }
 
-const base::string16& TestWebContents::GetTitle() {
+const std::u16string& TestWebContents::GetTitle() {
   if (title_)
     return title_.value();
 
@@ -131,7 +131,7 @@ const std::string& TestWebContents::GetSaveFrameHeaders() {
   return save_frame_headers_;
 }
 
-const base::string16& TestWebContents::GetSuggestedFileName() {
+const std::u16string& TestWebContents::GetSuggestedFileName() {
   return suggested_filename_;
 }
 
@@ -143,6 +143,10 @@ void TestWebContents::OnWebPreferencesChanged() {
   WebContentsImpl::OnWebPreferencesChanged();
   if (web_preferences_changed_counter_)
     ++*web_preferences_changed_counter_;
+}
+
+void TestWebContents::SetBackForwardCacheSupported(bool supported) {
+  back_forward_cache_supported_ = supported;
 }
 
 bool TestWebContents::IsPageFrozen() {
@@ -160,8 +164,8 @@ bool TestWebContents::TestDidDownloadImage(
   ImageDownloadCallback callback =
       std::move(pending_image_downloads_[url].front().second);
   pending_image_downloads_[url].pop_front();
-  WebContentsImpl::OnDidDownloadImage(std::move(callback), id, url,
-                                      http_status_code, bitmaps,
+  WebContentsImpl::OnDidDownloadImage(/*rfh=*/nullptr, std::move(callback), id,
+                                      url, http_status_code, bitmaps,
                                       original_bitmap_sizes);
   return true;
 }
@@ -170,18 +174,16 @@ void TestWebContents::SetLastCommittedURL(const GURL& url) {
   last_committed_url_ = url;
 }
 
-void TestWebContents::SetTitle(const base::string16& title) {
+void TestWebContents::SetTitle(const std::u16string& title) {
   title_ = title;
 }
 
 void TestWebContents::SetMainFrameMimeType(const std::string& mime_type) {
-  static_cast<RenderViewHostImpl*>(GetRenderViewHost())
-      ->SetContentsMimeType(mime_type);
+  GetPrimaryPage().SetContentsMimeType(mime_type);
 }
 
 const std::string& TestWebContents::GetContentsMimeType() {
-  return static_cast<RenderViewHostImpl*>(GetRenderViewHost())
-      ->contents_mime_type();
+  return GetPrimaryPage().contents_mime_type();
 }
 
 void TestWebContents::SetIsCurrentlyAudible(bool audible) {
@@ -227,7 +229,7 @@ bool TestWebContents::CrossProcessNavigationPending() {
 
 bool TestWebContents::CreateRenderViewForRenderManager(
     RenderViewHost* render_view_host,
-    const base::Optional<base::UnguessableToken>& opener_frame_token,
+    const absl::optional<blink::FrameToken>& opener_frame_token,
     RenderFrameProxyHost* proxy_host) {
   const auto proxy_routing_id =
       proxy_host ? proxy_host->GetRoutingID() : MSG_ROUTING_NONE;
@@ -287,7 +289,7 @@ void TestWebContents::CommitPendingNavigation() {
   NavigationEntry* entry = GetController().GetPendingEntry();
   DCHECK(entry);
 
-  auto navigation = NavigationSimulator::CreateFromPending(this);
+  auto navigation = NavigationSimulator::CreateFromPending(GetController());
   navigation->Commit();
 }
 
@@ -299,12 +301,12 @@ RenderViewHostDelegateView* TestWebContents::GetDelegateView() {
 
 void TestWebContents::SetOpener(WebContents* opener) {
   frame_tree_.root()->SetOpener(
-      static_cast<WebContentsImpl*>(opener)->GetFrameTree()->root());
+      static_cast<WebContentsImpl*>(opener)->GetPrimaryFrameTree().root());
 }
 
 void TestWebContents::SetIsCrashed(base::TerminationStatus status,
                                    int error_code) {
-  SetMainFrameProcessStatus(status, error_code);
+  SetPrimaryMainFrameProcessStatus(status, error_code);
 }
 
 void TestWebContents::AddPendingContents(
@@ -318,8 +320,8 @@ void TestWebContents::AddPendingContents(
   pending_contents_[key] = CreatedWindow(std::move(contents), target_url);
 }
 
-RenderFrameHostDelegate* TestWebContents::CreateNewWindow(
-    RenderFrameHost* opener,
+FrameTree* TestWebContents::CreateNewWindow(
+    RenderFrameHostImpl* opener,
     const mojom::CreateNewWindowParams& params,
     bool is_new_browsing_instance,
     bool has_user_gesture,
@@ -337,7 +339,7 @@ RenderWidgetHostImpl* TestWebContents::CreateNewPopupWidget(
   return nullptr;
 }
 
-void TestWebContents::ShowCreatedWindow(RenderFrameHost* opener,
+void TestWebContents::ShowCreatedWindow(RenderFrameHostImpl* opener,
                                         int route_id,
                                         WindowOpenDisposition disposition,
                                         const gfx::Rect& initial_rect,
@@ -345,13 +347,15 @@ void TestWebContents::ShowCreatedWindow(RenderFrameHost* opener,
 
 void TestWebContents::ShowCreatedWidget(int process_id,
                                         int route_id,
-                                        const gfx::Rect& initial_rect) {}
+                                        const gfx::Rect& initial_rect,
+                                        const gfx::Rect& initial_anchor_rect) {}
 
 void TestWebContents::SaveFrameWithHeaders(
     const GURL& url,
     const Referrer& referrer,
     const std::string& headers,
-    const base::string16& suggested_filename) {
+    const std::u16string& suggested_filename,
+    RenderFrameHost* rfh) {
   save_frame_headers_ = headers;
   suggested_filename_ = suggested_filename;
 }
@@ -400,6 +404,47 @@ WebContents* TestWebContents::GetPortalContents(
 
 void TestWebContents::SetPageFrozen(bool frozen) {
   is_page_frozen_ = frozen;
+}
+
+bool TestWebContents::IsBackForwardCacheSupported() {
+  return back_forward_cache_supported_;
+}
+
+int TestWebContents::AddPrerender(const GURL& url) {
+  TestRenderFrameHost* rfhi = GetMainFrame();
+  return GetPrerenderHostRegistry()->CreateAndStartHost(
+      PrerenderAttributes(url, PrerenderTriggerType::kSpeculationRule,
+                          Referrer(), rfhi->GetLastCommittedOrigin(),
+                          rfhi->GetLastCommittedURL(),
+                          rfhi->GetProcess()->GetID(), rfhi->GetFrameToken(),
+                          rfhi->GetPageUkmSourceId()),
+      this);
+}
+
+TestRenderFrameHost* TestWebContents::AddPrerenderAndCommitNavigation(
+    const GURL& url) {
+  int host_id = AddPrerender(url);
+  PrerenderHost* host =
+      GetPrerenderHostRegistry()->FindNonReservedHostById(host_id);
+  DCHECK(host);
+  {
+    std::unique_ptr<NavigationSimulatorImpl> navigation =
+        NavigationSimulatorImpl::CreateFromPendingInFrame(
+            FrameTreeNode::GloballyFindByID(host->frame_tree_node_id()));
+    navigation->Commit();
+  }
+  return static_cast<TestRenderFrameHost*>(host->GetPrerenderedMainFrameHost());
+}
+
+std::unique_ptr<NavigationSimulator>
+TestWebContents::AddPrerenderAndStartNavigation(const GURL& url) {
+  int host_id = AddPrerender(url);
+  PrerenderHost* host =
+      GetPrerenderHostRegistry()->FindNonReservedHostById(host_id);
+  DCHECK(host);
+
+  return NavigationSimulatorImpl::CreateFromPendingInFrame(
+      FrameTreeNode::GloballyFindByID(host->frame_tree_node_id()));
 }
 
 }  // namespace content

@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "chromeos/components/phonehub/notification.h"
 #include "chromeos/components/phonehub/notification_click_handler.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -20,12 +21,26 @@ class FakeClickHandler : public NotificationClickHandler {
 
   int64_t get_notification_id() const { return notification_id_; }
 
-  void HandleNotificationClick(int64_t notification_id) override {
+  std::u16string get_visible_app_name() { return visible_app_name; }
+
+  std::string get_package_name() { return package_name; }
+
+  int64_t get_user_id() { return user_id; }
+
+  void HandleNotificationClick(
+      int64_t notification_id,
+      const Notification::AppMetadata& app_metadata) override {
     notification_id_ = notification_id;
+    visible_app_name = app_metadata.visible_app_name;
+    package_name = app_metadata.package_name;
+    user_id = app_metadata.user_id;
   }
 
  private:
   int64_t notification_id_ = 0;
+  std::u16string visible_app_name;
+  std::string package_name;
+  int64_t user_id = 0;
 };
 
 }  // namespace
@@ -54,6 +69,16 @@ class NotificationInteractionHandlerImplTest : public testing::Test {
     return fake_click_handler_.get_notification_id();
   }
 
+  std::u16string GetVisibleAppName() {
+    return fake_click_handler_.get_visible_app_name();
+  }
+
+  std::string GetPackageName() {
+    return fake_click_handler_.get_package_name();
+  }
+
+  int64_t GetUserId() { return fake_click_handler_.get_user_id(); }
+
   NotificationInteractionHandler& handler() { return *interaction_handler_; }
 
  private:
@@ -65,9 +90,19 @@ class NotificationInteractionHandlerImplTest : public testing::Test {
 TEST_F(NotificationInteractionHandlerImplTest,
        NotifyNotificationsClickHandler) {
   const int64_t expected_id = 599600;
+  const char16_t expected_app_visible_name[] = u"Fake App";
+  const char expected_package_name[] = "com.fakeapp";
+  const int64_t expected_user_id = 1;
+  auto expected_app_metadata = Notification::AppMetadata(
+      expected_app_visible_name, expected_package_name, gfx::Image(),
+      expected_user_id);
 
-  handler().HandleNotificationClicked(expected_id);
+  handler().HandleNotificationClicked(expected_id, expected_app_metadata);
+
   EXPECT_EQ(expected_id, GetNotificationId());
+  EXPECT_EQ(expected_app_visible_name, GetVisibleAppName());
+  EXPECT_EQ(expected_package_name, GetPackageName());
+  EXPECT_EQ(expected_user_id, GetUserId());
 }
 
 }  // namespace phonehub

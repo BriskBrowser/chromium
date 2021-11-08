@@ -14,6 +14,15 @@ bool IsSyncAllowedByFlag() {
       switches::kDisableSync);
 }
 
+#if defined(OS_IOS)
+bool IsSyncTrustedVaultPassphraseiOSRPCEnabled() {
+  return base::FeatureList::IsEnabled(
+             switches::kSyncTrustedVaultPassphraseRecovery) &&
+         base::FeatureList::IsEnabled(
+             switches::kSyncTrustedVaultPassphraseiOSRPC);
+}
+#endif  // defined(OS_IOS)
+
 // Disables syncing browser data to a Google Account.
 const char kDisableSync[] = "disable-sync";
 
@@ -48,7 +57,7 @@ const base::Feature kSyncAllowWalletDataInTransportModeWithCustomPassphrase{
 
 // Controls whether to enable syncing of Autofill Wallet offer data.
 const base::Feature kSyncAutofillWalletOfferData{
-    "SyncAutofillWalletOfferData", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SyncAutofillWalletOfferData", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Controls whether to enable syncing of Wi-Fi configurations.
 const base::Feature kSyncWifiConfigurations{"SyncWifiConfigurations",
@@ -56,26 +65,7 @@ const base::Feature kSyncWifiConfigurations{"SyncWifiConfigurations",
 
 // Stops honoring the Android master sync toggle.
 const base::Feature kDecoupleSyncFromAndroidMasterSync{
-    "DecoupleSyncFromAndroidMasterSync", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Allows trusted vault implementation to follow key rotation (including device
-// registration).
-const base::Feature kFollowTrustedVaultKeyRotation{
-    "FollowTrustedVaultKeyRotation", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Allows device registration within trusted vault server without having trusted
-// vault key. Effectively disabled if kFollowTrustedVaultKeyRotation is
-// disabled.
-const base::Feature kAllowSilentTrustedVaultDeviceRegistration{
-    "AllowSilentTrustedVaultDeviceRegistration",
-    base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Specifies how long requests to vault service shouldn't be retried after
-// encountering transient error.
-const base::FeatureParam<base::TimeDelta>
-    kTrustedVaultServiceThrottlingDuration{
-        &kFollowTrustedVaultKeyRotation,
-        "TrustedVaultServiceThrottlingDuration", base::TimeDelta::FromDays(1)};
+    "DecoupleSyncFromAndroidMasterSync", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Sync requires policies to be loaded before starting.
 const base::Feature kSyncRequiresPoliciesLoaded{
@@ -83,11 +73,36 @@ const base::Feature kSyncRequiresPoliciesLoaded{
 
 // Max time to delay the sync startup while waiting for policies to load.
 const base::FeatureParam<base::TimeDelta> kSyncPolicyLoadTimeout{
-    &kSyncRequiresPoliciesLoaded, "SyncPolicyLoadTimeout",
-    base::TimeDelta::FromSeconds(10)};
+    &kSyncRequiresPoliciesLoaded, "SyncPolicyLoadTimeout", base::Seconds(10)};
 
-const base::Feature kSyncSupportTrustedVaultPassphraseRecovery{
-    "SyncSupportTrustedVaultPassphraseRecovery",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+#if defined(OS_IOS)
+// Whether RPC is enabled.
+const base::Feature kSyncTrustedVaultPassphraseiOSRPC{
+    "SyncTrustedVaultPassphraseiOSRPC", base::FEATURE_ENABLED_BY_DEFAULT};
+#endif  // defined(OS_IOS)
+
+// Keep this entry in sync with the equivalent name in
+// ChromeFeatureList.java.
+const base::Feature kSyncTrustedVaultPassphraseRecovery{
+  "SyncTrustedVaultPassphraseRecovery",
+#if defined(OS_IOS)
+      base::FEATURE_DISABLED_BY_DEFAULT
+#else
+      base::FEATURE_ENABLED_BY_DEFAULT
+#endif
+};
+
+// Whether the entry point to opt in to trusted vault in settings should be
+// shown.
+const base::Feature kSyncTrustedVaultPassphrasePromo{
+    "SyncTrustedVaultPassphrasePromo", base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if defined(OS_CHROMEOS)
+// Whether warning should be shown in sync settings page when lacros
+// side-by-side mode is enabled.
+const base::Feature kSyncSettingsShowLacrosSideBySideWarning{
+    "SyncSettingsShowLacrosSideBySideWarning",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+#endif  // defined(OS_CHROMEOS)
 
 }  // namespace switches

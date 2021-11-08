@@ -15,9 +15,8 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/stringize_macros.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -205,7 +204,7 @@ void Me2MeNativeMessagingHost::ProcessClearPairedClients(
   if (pairing_registry_.get()) {
     pairing_registry_->ClearAllPairings(
         base::BindOnce(&Me2MeNativeMessagingHost::SendBooleanResult, weak_ptr_,
-                       base::Passed(&response)));
+                       std::move(response)));
   } else {
     SendBooleanResult(std::move(response), false);
   }
@@ -234,7 +233,7 @@ void Me2MeNativeMessagingHost::ProcessDeletePairedClient(
   if (pairing_registry_.get()) {
     pairing_registry_->DeletePairing(
         client_id, base::BindOnce(&Me2MeNativeMessagingHost::SendBooleanResult,
-                                  weak_ptr_, base::Passed(&response)));
+                                  weak_ptr_, std::move(response)));
   } else {
     SendBooleanResult(std::move(response), false);
   }
@@ -313,7 +312,7 @@ void Me2MeNativeMessagingHost::ProcessUpdateDaemonConfig(
   daemon_controller_->UpdateConfig(
       std::move(config_dict),
       base::BindOnce(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
-                     base::Passed(&response)));
+                     std::move(response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessGetDaemonConfig(
@@ -323,7 +322,7 @@ void Me2MeNativeMessagingHost::ProcessGetDaemonConfig(
 
   daemon_controller_->GetConfig(
       base::BindOnce(&Me2MeNativeMessagingHost::SendConfigResponse, weak_ptr_,
-                     base::Passed(&response)));
+                     std::move(response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessGetPairedClients(
@@ -334,7 +333,7 @@ void Me2MeNativeMessagingHost::ProcessGetPairedClients(
   if (pairing_registry_.get()) {
     pairing_registry_->GetAllPairings(
         base::BindOnce(&Me2MeNativeMessagingHost::SendPairedClientsResponse,
-                       weak_ptr_, base::Passed(&response)));
+                       weak_ptr_, std::move(response)));
   } else {
     std::unique_ptr<base::ListValue> no_paired_clients(new base::ListValue);
     SendPairedClientsResponse(std::move(response),
@@ -349,7 +348,7 @@ void Me2MeNativeMessagingHost::ProcessGetUsageStatsConsent(
 
   daemon_controller_->GetUsageStatsConsent(
       base::BindOnce(&Me2MeNativeMessagingHost::SendUsageStatsConsentResponse,
-                     weak_ptr_, base::Passed(&response)));
+                     weak_ptr_, std::move(response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessStartDaemon(
@@ -388,7 +387,7 @@ void Me2MeNativeMessagingHost::ProcessStartDaemon(
   daemon_controller_->SetConfigAndStart(
       std::move(config_dict), consent,
       base::BindOnce(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
-                     base::Passed(&response)));
+                     std::move(response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessStopDaemon(
@@ -413,7 +412,7 @@ void Me2MeNativeMessagingHost::ProcessStopDaemon(
 
   daemon_controller_->Stop(
       base::BindOnce(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
-                     base::Passed(&response)));
+                     std::move(response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessGetDaemonState(
@@ -476,7 +475,7 @@ void Me2MeNativeMessagingHost::ProcessGetCredentialsFromAuthCode(
   oauth_client_->GetCredentialsFromAuthCode(
       oauth_client_info, auth_code, need_user_email,
       base::BindOnce(&Me2MeNativeMessagingHost::SendCredentialsResponse,
-                     weak_ptr_, base::Passed(&response)));
+                     weak_ptr_, std::move(response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessIt2mePermissionCheck(
@@ -487,7 +486,7 @@ void Me2MeNativeMessagingHost::ProcessIt2mePermissionCheck(
   daemon_controller_->CheckPermission(
       /* it2me */ true,
       base::BindOnce(&Me2MeNativeMessagingHost::SendBooleanResult, weak_ptr_,
-                     base::Passed(&response)));
+                     std::move(response)));
 }
 
 void Me2MeNativeMessagingHost::SendConfigResponse(
@@ -592,12 +591,11 @@ Me2MeNativeMessagingHost::DelegateToElevatedHost(
   DCHECK(needs_elevation_);
 
   if (!elevated_host_) {
-    elevated_host_.reset(new ElevatedNativeMessagingHost(
+    elevated_host_ = std::make_unique<ElevatedNativeMessagingHost>(
         base::CommandLine::ForCurrentProcess()->GetProgram(),
         parent_window_handle_,
-        /*elevate_process=*/true,
-        base::TimeDelta::FromSeconds(kElevatedHostTimeoutSeconds),
-        client_));
+        /*elevate_process=*/true, base::Seconds(kElevatedHostTimeoutSeconds),
+        client_);
   }
 
   ProcessLaunchResult result = elevated_host_->EnsureElevatedHostCreated();

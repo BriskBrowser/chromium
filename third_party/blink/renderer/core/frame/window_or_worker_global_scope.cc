@@ -34,7 +34,10 @@
 
 #include "base/containers/span.h"
 #include "third_party/blink/renderer/bindings/core/v8/scheduled_action.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/post_message_helper.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/unpacked_serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_gc_for_context_dispose.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
@@ -42,6 +45,7 @@
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/page_dismissal_scope.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
+#include "third_party/blink/renderer/core/messaging/message_port.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -88,6 +92,12 @@ static bool IsAllowed(ExecutionContext* execution_context,
   }
   NOTREACHED();
   return false;
+}
+
+void WindowOrWorkerGlobalScope::reportError(ScriptState* script_state,
+                                            EventTarget& event_target,
+                                            const ScriptValue& e) {
+  V8ScriptRunner::ReportException(script_state->GetIsolate(), e.V8Value());
 }
 
 String WindowOrWorkerGlobalScope::btoa(EventTarget&,
@@ -142,15 +152,10 @@ int WindowOrWorkerGlobalScope::setTimeout(
   ExecutionContext* execution_context = event_target.GetExecutionContext();
   if (!IsAllowed(execution_context, false, g_empty_string))
     return 0;
-  if (timeout >= 0 && execution_context->IsWindow()) {
-    // FIXME: Crude hack that attempts to pass idle time to V8. This should
-    // be done using the scheduler instead.
-    V8GCForContextDispose::Instance().NotifyIdle();
-  }
   auto* action = MakeGarbageCollected<ScheduledAction>(
       script_state, execution_context, handler, arguments);
   return DOMTimer::Install(execution_context, action,
-                           base::TimeDelta::FromMilliseconds(timeout), true);
+                           base::Milliseconds(timeout), true);
 }
 
 int WindowOrWorkerGlobalScope::setTimeout(ScriptState* script_state,
@@ -165,15 +170,10 @@ int WindowOrWorkerGlobalScope::setTimeout(ScriptState* script_state,
   // performance issue.
   if (handler.IsEmpty())
     return 0;
-  if (timeout >= 0 && execution_context->IsWindow()) {
-    // FIXME: Crude hack that attempts to pass idle time to V8. This should
-    // be done using the scheduler instead.
-    V8GCForContextDispose::Instance().NotifyIdle();
-  }
   auto* action = MakeGarbageCollected<ScheduledAction>(
       script_state, execution_context, handler);
   return DOMTimer::Install(execution_context, action,
-                           base::TimeDelta::FromMilliseconds(timeout), true);
+                           base::Milliseconds(timeout), true);
 }
 
 int WindowOrWorkerGlobalScope::setInterval(
@@ -188,7 +188,7 @@ int WindowOrWorkerGlobalScope::setInterval(
   auto* action = MakeGarbageCollected<ScheduledAction>(
       script_state, execution_context, handler, arguments);
   return DOMTimer::Install(execution_context, action,
-                           base::TimeDelta::FromMilliseconds(timeout), false);
+                           base::Milliseconds(timeout), false);
 }
 
 int WindowOrWorkerGlobalScope::setInterval(ScriptState* script_state,
@@ -206,7 +206,7 @@ int WindowOrWorkerGlobalScope::setInterval(ScriptState* script_state,
   auto* action = MakeGarbageCollected<ScheduledAction>(
       script_state, execution_context, handler);
   return DOMTimer::Install(execution_context, action,
-                           base::TimeDelta::FromMilliseconds(timeout), false);
+                           base::Milliseconds(timeout), false);
 }
 
 void WindowOrWorkerGlobalScope::clearTimeout(EventTarget& event_target,
@@ -224,6 +224,44 @@ void WindowOrWorkerGlobalScope::clearInterval(EventTarget& event_target,
 bool WindowOrWorkerGlobalScope::crossOriginIsolated(
     const ExecutionContext& execution_context) {
   return execution_context.CrossOriginIsolatedCapability();
+}
+
+ScriptValue WindowOrWorkerGlobalScope::structuredClone(
+    ScriptState* script_state,
+    EventTarget& event_target,
+    const ScriptValue& message,
+    const StructuredSerializeOptions* options,
+    ExceptionState& exception_state) {
+  v8::Isolate* isolate = script_state->GetIsolate();
+
+  Transferables transferables;
+  scoped_refptr<SerializedScriptValue> serialized_message =
+      PostMessageHelper::SerializeMessageByMove(isolate, message, options,
+                                                transferables, exception_state);
+
+  if (exception_state.HadException()) {
+    return ScriptValue();
+  }
+
+  DCHECK(serialized_message);
+
+  auto ports = MessagePort::DisentanglePorts(
+      ExecutionContext::From(script_state), transferables.message_ports,
+      exception_state);
+  if (exception_state.HadException()) {
+    return ScriptValue();
+  }
+
+  UnpackedSerializedScriptValue* unpacked =
+      SerializedScriptValue::Unpack(std::move(serialized_message));
+  DCHECK(unpacked);
+
+  SerializedScriptValue::DeserializeOptions deserialize_options;
+  deserialize_options.message_ports = MessagePort::EntanglePorts(
+      *ExecutionContext::From(script_state), std::move(ports));
+
+  return ScriptValue(isolate,
+                     unpacked->Deserialize(isolate, deserialize_options));
 }
 
 }  // namespace blink

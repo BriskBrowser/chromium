@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_LAYOUT_ALGORITHM_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_LAYOUT_ALGORITHM_H_
 
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_logical_line_item.h"
@@ -48,20 +49,20 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
   void CreateLine(const NGLineLayoutOpportunity&,
                   NGLineInfo*,
                   NGLogicalLineItems* line_box,
-                  NGExclusionSpace*);
+                  LayoutUnit* ruby_block_start_adjust);
 
-  const NGLayoutResult* Layout() override;
+  scoped_refptr<const NGLayoutResult> Layout() override;
 
-  MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesInput&) const override {
+  MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesFloatInput&) override {
     NOTREACHED();
     return MinMaxSizesResult();
   }
 
  private:
   unsigned PositionLeadingFloats(NGExclusionSpace*, NGPositionedFloatVector*);
-  NGPositionedFloat* PositionFloat(LayoutUnit origin_block_bfc_offset,
-                                   LayoutObject* floating_object,
-                                   NGExclusionSpace*) const;
+  NGPositionedFloat PositionFloat(LayoutUnit origin_block_bfc_offset,
+                                  LayoutObject* floating_object,
+                                  NGExclusionSpace*) const;
 
   void PrepareBoxStates(const NGLineInfo&, const NGInlineBreakToken*);
   void RebuildBoxStates(const NGLineInfo&,
@@ -95,6 +96,10 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
                                       const NGLineInfo&,
                                       NGInlineItemResult*,
                                       NGLogicalLineItems* line_box);
+  void PlaceBlockInInline(const NGInlineItem&,
+                          const NGLineInfo&,
+                          NGInlineItemResult*,
+                          NGLogicalLineItems* line_box);
   void PlaceLayoutResult(NGInlineItemResult*,
                          NGLogicalLineItems* line_box,
                          NGInlineBoxState*,
@@ -105,22 +110,32 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
   void PlaceFloatingObjects(const NGLineInfo&,
                             const FontHeight&,
                             const NGLineLayoutOpportunity&,
-                            NGLogicalLineItems* line_box,
-                            NGExclusionSpace*);
+                            LayoutUnit ruby_block_start_adjust,
+                            NGLogicalLineItems* line_box);
   void PlaceRelativePositionedItems(NGLogicalLineItems* line_box);
   void PlaceListMarker(const NGInlineItem&,
                        NGInlineItemResult*,
                        const NGLineInfo&);
 
   LayoutUnit ApplyTextAlign(NGLineInfo*);
-  base::Optional<LayoutUnit> ApplyJustify(LayoutUnit space, NGLineInfo*);
+  absl::optional<LayoutUnit> ApplyJustify(LayoutUnit space, NGLineInfo*);
 
-  LayoutUnit ComputeContentSize(const NGLineInfo&,
-                                const NGExclusionSpace&,
-                                LayoutUnit line_height);
+  // Add any trailing clearance requested by a BR 'clear' attribute on the line.
+  // Return true if this was successful (this also includes cases where there is
+  // no clearance needed). Return false if the floats that we need to clear past
+  // will be resumed in a subsequent fragmentainer.
+  bool AddAnyClearanceAfterLine(const NGLineInfo&);
+
+  LayoutUnit SetAnnotationOverflow(const NGLineInfo& line_info,
+                                   const NGLogicalLineItems& line_box,
+                                   const FontHeight& line_box_metrics);
 
   NGInlineLayoutStateStack* box_states_;
   NGInlineChildLayoutContext* context_;
+
+  NGMarginStrut end_margin_strut_;
+  NGExclusionSpace exclusion_space_;
+  absl::optional<int> lines_until_clamp_;
 
   FontBaseline baseline_type_ = FontBaseline::kAlphabeticBaseline;
 

@@ -32,10 +32,10 @@ namespace credential_provider {
 
 const base::TimeDelta
     AssociatedUserValidator::kDefaultTokenHandleValidationTimeout =
-        base::TimeDelta::FromMilliseconds(3000);
+        base::Milliseconds(3000);
 
 const base::TimeDelta AssociatedUserValidator::kTokenHandleValidityLifetime =
-    base::TimeDelta::FromSeconds(60);
+    base::Seconds(60);
 
 const char AssociatedUserValidator::kTokenInfoUrl[] =
     "https://www.googleapis.com/oauth2/v2/tokeninfo";
@@ -79,14 +79,14 @@ unsigned __stdcall CheckReauthStatus(void* param) {
     }
 
     base::StringPiece response_string(response.data(), response.size());
-    base::Optional<base::Value> properties(base::JSONReader::Read(
+    absl::optional<base::Value> properties(base::JSONReader::Read(
         response_string, base::JSON_ALLOW_TRAILING_COMMAS));
     if (!properties || !properties->is_dict()) {
       LOGFN(ERROR) << "base::JSONReader::Read failed forcing reauth";
       return 0;
     }
 
-    base::Optional<int> expires_in = properties->FindIntKey("expires_in");
+    absl::optional<int> expires_in = properties->FindIntKey("expires_in");
     if (properties->FindKey("error") || !expires_in || expires_in.value() < 0) {
       LOGFN(VERBOSE) << "Needs reauth sid=" << reauth_info->sid;
       return 0;
@@ -141,7 +141,7 @@ HRESULT ModifyUserAccess(const std::unique_ptr<ScopedLsaPolicy>& policy,
     return hr;
   }
 
-  PSID psid;
+  PSID psid = nullptr;
   if (!::ConvertStringSidToSidW(sid.c_str(), &psid)) {
     hr = HRESULT_FROM_WIN32(::GetLastError());
     LOGFN(ERROR) << "ConvertStringSidToSidW sid=" << sid << " hr=" << putHR(hr);
@@ -151,8 +151,9 @@ HRESULT ModifyUserAccess(const std::unique_ptr<ScopedLsaPolicy>& policy,
   std::vector<std::wstring> account_rights{
       SE_DENY_INTERACTIVE_LOGON_NAME, SE_DENY_NETWORK_LOGON_NAME,
       SE_DENY_REMOTE_INTERACTIVE_LOGON_NAME};
+  HRESULT status;
   if (!allow) {
-    return policy->AddAccountRights(psid, account_rights);
+    status = policy->AddAccountRights(psid, account_rights);
   } else {
     // Note: We are still going to keep this time restrictions flow to avoid
     // any cornercase scenario where user is blocked on login UI because
@@ -161,8 +162,10 @@ HRESULT ModifyUserAccess(const std::unique_ptr<ScopedLsaPolicy>& policy,
     if (FAILED(hr))
       LOGFN(ERROR) << "Failed to remove time restrictions for sid : " << sid;
 
-    return policy->RemoveAccountRights(psid, account_rights);
+    status = policy->RemoveAccountRights(psid, account_rights);
   }
+  ::LocalFree(psid);
+  return status;
 }
 
 }  // namespace
@@ -224,9 +227,9 @@ bool AssociatedUserValidator::IsOnlineLoginStale(
     LOGFN(VERBOSE) << "GetUserProperty for " << kKeyLastTokenValid
                    << " failed. hr=" << putHR(hr);
     // DEPRECATED FLOW. Keeping it for backward compatibility.
-    HRESULT hr = GetUserProperty(
-        sid, base::UTF8ToWide(kKeyLastSuccessfulOnlineLoginMillis),
-        last_token_valid_millis, &last_token_valid_size);
+    hr = GetUserProperty(sid,
+                         base::UTF8ToWide(kKeyLastSuccessfulOnlineLoginMillis),
+                         last_token_valid_millis, &last_token_valid_size);
 
     if (FAILED(hr)) {
       LOGFN(VERBOSE) << "GetUserProperty for "
@@ -298,7 +301,7 @@ HRESULT AssociatedUserValidator::UpdateAssociatedSids(
       users_to_delete.insert(sid_to_association.first);
       continue;
     }
-    HRESULT hr = manager->FindUserBySID(sid.c_str(), nullptr, 0, nullptr, 0);
+    hr = manager->FindUserBySID(sid.c_str(), nullptr, 0, nullptr, 0);
     if (hr == HRESULT_FROM_WIN32(ERROR_NONE_MAPPED)) {
       users_to_delete.insert(sid_to_association.first);
       continue;
@@ -367,7 +370,7 @@ bool AssociatedUserValidator::DenySigninForUsersWithInvalidTokenHandles(
     if (GetAuthEnforceReason(sid) != EnforceAuthReason::NOT_ENFORCED &&
         !manager->IsUserDomainJoined(sid)) {
       LOGFN(VERBOSE) << "Revoking access for sid=" << sid;
-      HRESULT hr = ModifyUserAccess(policy, sid, false);
+      hr = ModifyUserAccess(policy, sid, false);
       if (FAILED(hr)) {
         LOGFN(ERROR) << "ModifyUserAccess sid=" << sid << " hr=" << putHR(hr);
       } else {

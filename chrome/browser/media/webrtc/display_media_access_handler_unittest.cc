@@ -29,7 +29,7 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/policy/dlp/mock_dlp_content_manager.h"
+#include "chrome/browser/ash/policy/dlp/mock_dlp_content_manager.h"
 #endif
 
 class DisplayMediaAccessHandlerTest : public ChromeRenderViewHostTestHarness {
@@ -52,11 +52,13 @@ class DisplayMediaAccessHandlerTest : public ChromeRenderViewHostTestHarness {
       bool request_audio) {
     FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
         {true /* expect_screens */, true /* expect_windows*/,
-         true /* expect_tabs */, request_audio,
+         true /* expect_tabs */, /* expect_current_tab, */ false, request_audio,
          fake_desktop_media_id_response /* selected_source */}};
     picker_factory_->SetTestFlags(test_flags, base::size(test_flags));
     content::MediaStreamRequest request(
-        0, 0, 0, GURL("http://origin/"), false, blink::MEDIA_GENERATE_STREAM,
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
+        web_contents()->GetMainFrame()->GetRoutingID(), 0,
+        GURL("http://origin/"), false, blink::MEDIA_GENERATE_STREAM,
         std::string(), std::string(),
         request_audio ? blink::mojom::MediaStreamType::DISPLAY_AUDIO_CAPTURE
                       : blink::mojom::MediaStreamType::NO_SERVICE,
@@ -184,8 +186,9 @@ TEST_F(DisplayMediaAccessHandlerTest, DlpRestricted) {
 #endif
 
 TEST_F(DisplayMediaAccessHandlerTest, UpdateMediaRequestStateWithClosing) {
-  const int render_process_id = 0;
-  const int render_frame_id = 0;
+  const int render_process_id =
+      web_contents()->GetMainFrame()->GetProcess()->GetID();
+  const int render_frame_id = web_contents()->GetMainFrame()->GetRoutingID();
   const int page_request_id = 0;
   const blink::mojom::MediaStreamType video_stream_type =
       blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE;
@@ -193,8 +196,9 @@ TEST_F(DisplayMediaAccessHandlerTest, UpdateMediaRequestStateWithClosing) {
       blink::mojom::MediaStreamType::DISPLAY_AUDIO_CAPTURE;
   FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
       {true /* expect_screens */, true /* expect_windows*/,
-       true /* expect_tabs */, true /* expect_audio */,
-       content::DesktopMediaID(), true /* cancelled */}};
+       true /* expect_tabs */, false /* expect_current_tab */,
+       true /* expect_audio */, content::DesktopMediaID(),
+       true /* cancelled */}};
   picker_factory_->SetTestFlags(test_flags, base::size(test_flags));
   content::MediaStreamRequest request(
       render_process_id, render_frame_id, page_request_id,
@@ -222,8 +226,9 @@ TEST_F(DisplayMediaAccessHandlerTest, UpdateMediaRequestStateWithClosing) {
 }
 
 TEST_F(DisplayMediaAccessHandlerTest, CorrectHostAsksForPermissions) {
-  const int render_process_id = 0;
-  const int render_frame_id = 0;
+  const int render_process_id =
+      web_contents()->GetMainFrame()->GetProcess()->GetID();
+  const int render_frame_id = web_contents()->GetMainFrame()->GetRoutingID();
   const int page_request_id = 0;
   const blink::mojom::MediaStreamType video_stream_type =
       blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE;
@@ -231,8 +236,9 @@ TEST_F(DisplayMediaAccessHandlerTest, CorrectHostAsksForPermissions) {
       blink::mojom::MediaStreamType::DISPLAY_AUDIO_CAPTURE;
   FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
       {true /* expect_screens */, true /* expect_windows*/,
-       true /* expect_tabs */, true /* expect_audio */,
-       content::DesktopMediaID(), true /* cancelled */}};
+       true /* expect_tabs */, false /* expect_current_tab */,
+       true /* expect_audio */, content::DesktopMediaID(),
+       true /* cancelled */}};
   picker_factory_->SetTestFlags(test_flags, base::size(test_flags));
   content::MediaStreamRequest request(
       render_process_id, render_frame_id, page_request_id,
@@ -252,12 +258,13 @@ TEST_F(DisplayMediaAccessHandlerTest, CorrectHostAsksForPermissions) {
   access_handler_->UpdateMediaRequestState(
       render_process_id, render_frame_id, page_request_id, video_stream_type,
       content::MEDIA_REQUEST_STATE_CLOSING);
-  EXPECT_EQ(base::UTF8ToUTF16("http://127.0.0.1:8000"), params.app_name);
+  EXPECT_EQ(u"http://127.0.0.1:8000", params.app_name);
 }
 
 TEST_F(DisplayMediaAccessHandlerTest, CorrectHostAsksForPermissionsNormalURLs) {
-  const int render_process_id = 0;
-  const int render_frame_id = 0;
+  const int render_process_id =
+      web_contents()->GetMainFrame()->GetProcess()->GetID();
+  const int render_frame_id = web_contents()->GetMainFrame()->GetRoutingID();
   const int page_request_id = 0;
   const blink::mojom::MediaStreamType video_stream_type =
       blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE;
@@ -265,8 +272,9 @@ TEST_F(DisplayMediaAccessHandlerTest, CorrectHostAsksForPermissionsNormalURLs) {
       blink::mojom::MediaStreamType::DISPLAY_AUDIO_CAPTURE;
   FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
       {true /* expect_screens */, true /* expect_windows*/,
-       true /* expect_tabs */, true /* expect_audio */,
-       content::DesktopMediaID(), true /* cancelled */}};
+       true /* expect_tabs */, false /* expect_current_tab */,
+       true /* expect_audio */, content::DesktopMediaID(),
+       true /* cancelled */}};
   picker_factory_->SetTestFlags(test_flags, base::size(test_flags));
   content::MediaStreamRequest request(
       render_process_id, render_frame_id, page_request_id,
@@ -285,18 +293,21 @@ TEST_F(DisplayMediaAccessHandlerTest, CorrectHostAsksForPermissionsNormalURLs) {
   access_handler_->UpdateMediaRequestState(
       render_process_id, render_frame_id, page_request_id, video_stream_type,
       content::MEDIA_REQUEST_STATE_CLOSING);
-  EXPECT_EQ(base::UTF8ToUTF16("www.google.com"), params.app_name);
+  EXPECT_EQ(u"www.google.com", params.app_name);
 }
 
 TEST_F(DisplayMediaAccessHandlerTest, WebContentsDestroyed) {
   FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
       {true /* expect_screens */, true /* expect_windows*/,
-       true /* expect_tabs */, false /* expect_audio */,
-       content::DesktopMediaID(), true /* cancelled */}};
+       true /* expect_tabs */, false /* expect_current_tab */,
+       false /* expect_audio */, content::DesktopMediaID(),
+       true /* cancelled */}};
   picker_factory_->SetTestFlags(test_flags, base::size(test_flags));
   content::MediaStreamRequest request(
-      0, 0, 0, GURL("http://origin/"), false, blink::MEDIA_GENERATE_STREAM,
-      std::string(), std::string(), blink::mojom::MediaStreamType::NO_SERVICE,
+      web_contents()->GetMainFrame()->GetProcess()->GetID(),
+      web_contents()->GetMainFrame()->GetRoutingID(), 0, GURL("http://origin/"),
+      false, blink::MEDIA_GENERATE_STREAM, std::string(), std::string(),
+      blink::mojom::MediaStreamType::NO_SERVICE,
       blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE,
       /*disable_local_echo=*/false, /*request_pan_tilt_zoom_permission=*/false);
   content::MediaResponseCallback callback;
@@ -316,12 +327,14 @@ TEST_F(DisplayMediaAccessHandlerTest, WebContentsDestroyed) {
 TEST_F(DisplayMediaAccessHandlerTest, MultipleRequests) {
   FakeDesktopMediaPickerFactory::TestFlags test_flags[] = {
       {true /* expect_screens */, true /* expect_windows*/,
-       true /* expect_tabs */, false /* expect_audio */,
+       true /* expect_tabs */, false /* expect_current_tab */,
+       false /* expect_audio */,
        content::DesktopMediaID(
            content::DesktopMediaID::TYPE_SCREEN,
            content::DesktopMediaID::kFakeId) /* selected_source */},
       {true /* expect_screens */, true /* expect_windows*/,
-       true /* expect_tabs */, false /* expect_audio */,
+       true /* expect_tabs */, false /* expect_current_tab */,
+       false /* expect_audio */,
        content::DesktopMediaID(
            content::DesktopMediaID::TYPE_WINDOW,
            content::DesktopMediaID::kNullId) /* selected_source */}};
@@ -333,7 +346,9 @@ TEST_F(DisplayMediaAccessHandlerTest, MultipleRequests) {
   base::RunLoop wait_loop[kTestFlagCount];
   for (size_t i = 0; i < kTestFlagCount; ++i) {
     content::MediaStreamRequest request(
-        0, 0, 0, GURL("http://origin/"), false, blink::MEDIA_GENERATE_STREAM,
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
+        web_contents()->GetMainFrame()->GetRoutingID(), 0,
+        GURL("http://origin/"), false, blink::MEDIA_GENERATE_STREAM,
         std::string(), std::string(), blink::mojom::MediaStreamType::NO_SERVICE,
         blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE,
         /*disable_local_echo=*/false,

@@ -11,7 +11,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
-#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/components/multidevice/software_feature.h"
@@ -60,14 +59,14 @@ void CryptAuthDeviceActivityGetterImpl::Factory::SetFactoryForTesting(
 }
 
 // static
-base::Optional<base::TimeDelta>
+absl::optional<base::TimeDelta>
 CryptAuthDeviceActivityGetterImpl::GetTimeoutForState(State state) {
   switch (state) {
     case State::kWaitingForGetDevicesActivityStatusResponse:
       return kWaitingForGetDevicesActivityStatusResponseTimeout;
     default:
       // Signifies that there should not be a timeout.
-      return base::nullopt;
+      return absl::nullopt;
   }
 }
 
@@ -109,7 +108,7 @@ void CryptAuthDeviceActivityGetterImpl::SetState(State state) {
   state_ = state;
   last_state_change_timestamp_ = base::TimeTicks::Now();
 
-  base::Optional<base::TimeDelta> timeout_for_state = GetTimeoutForState(state);
+  absl::optional<base::TimeDelta> timeout_for_state = GetTimeoutForState(state);
   if (!timeout_for_state)
     return;
 
@@ -162,7 +161,7 @@ void CryptAuthDeviceActivityGetterImpl::OnGetDevicesActivityStatusSuccess(
         std::move(device_activity_status.connectivity_status()),
         base::Time::FromTimeT(
             device_activity_status.last_update_time().seconds()) +
-            base::TimeDelta::FromNanoseconds(
+            base::Nanoseconds(
                 device_activity_status.last_update_time().nanos())));
   }
 

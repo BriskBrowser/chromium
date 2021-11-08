@@ -16,7 +16,7 @@
 namespace {
 
 // The minimum width for system tray with size of kMedium.
-constexpr int kMinWidthMediumSystemTray = 800;
+constexpr int kMinWidthMediumSystemTray = 768;
 
 // The maximum width for system tray with size of kMedium.
 constexpr int kMaxWidthMediumSystemTray = 1280;
@@ -29,10 +29,14 @@ class UnifiedSystemTrayModel::DBusObserver
     : public chromeos::PowerManagerClient::Observer {
  public:
   explicit DBusObserver(UnifiedSystemTrayModel* owner);
+
+  DBusObserver(const DBusObserver&) = delete;
+  DBusObserver& operator=(const DBusObserver&) = delete;
+
   ~DBusObserver() override;
 
  private:
-  void HandleInitialBrightness(base::Optional<double> percent);
+  void HandleInitialBrightness(absl::optional<double> percent);
 
   // chromeos::PowerManagerClient::Observer:
   void ScreenBrightnessChanged(
@@ -43,8 +47,6 @@ class UnifiedSystemTrayModel::DBusObserver
   UnifiedSystemTrayModel* const owner_;
 
   base::WeakPtrFactory<DBusObserver> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DBusObserver);
 };
 
 class UnifiedSystemTrayModel::SizeObserver : public display::DisplayObserver,
@@ -68,6 +70,8 @@ class UnifiedSystemTrayModel::SizeObserver : public display::DisplayObserver,
 
   UnifiedSystemTrayModel* const owner_;
 
+  display::ScopedDisplayObserver display_observer_{this};
+
   // Keep track of current system tray size.
   UnifiedSystemTrayModel::SystemTrayButtonSize system_tray_size_;
 };
@@ -86,7 +90,7 @@ UnifiedSystemTrayModel::DBusObserver::~DBusObserver() {
 }
 
 void UnifiedSystemTrayModel::DBusObserver::HandleInitialBrightness(
-    base::Optional<double> percent) {
+    absl::optional<double> percent) {
   if (percent.has_value())
     owner_->DisplayBrightnessChanged(percent.value() / 100.,
                                      false /* by_user */);
@@ -113,13 +117,11 @@ void UnifiedSystemTrayModel::DBusObserver::KeyboardBrightnessChanged(
 UnifiedSystemTrayModel::SizeObserver::SizeObserver(
     UnifiedSystemTrayModel* owner)
     : owner_(owner) {
-  display::Screen::GetScreen()->AddObserver(this);
   Shell::Get()->AddShellObserver(this);
   system_tray_size_ = owner_->GetSystemTrayButtonSize();
 }
 
 UnifiedSystemTrayModel::SizeObserver::~SizeObserver() {
-  display::Screen::GetScreen()->RemoveObserver(this);
   Shell::Get()->RemoveShellObserver(this);
 }
 
@@ -175,11 +177,11 @@ bool UnifiedSystemTrayModel::IsExplicitlyExpanded() const {
   return expanded_on_open_ == StateOnOpen::EXPANDED;
 }
 
-base::Optional<bool> UnifiedSystemTrayModel::GetNotificationExpanded(
+absl::optional<bool> UnifiedSystemTrayModel::GetNotificationExpanded(
     const std::string& notification_id) const {
   auto it = notification_changes_.find(notification_id);
-  return it == notification_changes_.end() ? base::Optional<bool>()
-                                           : base::Optional<bool>(it->second);
+  return it == notification_changes_.end() ? absl::optional<bool>()
+                                           : absl::optional<bool>(it->second);
 }
 
 void UnifiedSystemTrayModel::SetTargetNotification(
@@ -210,9 +212,10 @@ UnifiedSystemTrayModel::GetSystemTrayButtonSize() const {
   if (!shelf_)
     return SystemTrayButtonSize::kMedium;
 
-  int display_size = shelf_->IsHorizontalAlignment()
-                         ? GetDisplay().size().width()
-                         : GetDisplay().size().height();
+  // Handles the cases: the shelf is placed horizontally or vertically, or the
+  // screen is rotated.
+  const int display_size =
+      std::max(GetDisplay().size().width(), GetDisplay().size().height());
 
   if (display_size < kMinWidthMediumSystemTray)
     return SystemTrayButtonSize::kSmall;

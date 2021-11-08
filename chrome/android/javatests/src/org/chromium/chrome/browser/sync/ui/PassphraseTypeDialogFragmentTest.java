@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.sync.ui;
 
 import android.support.test.InstrumentationRegistry;
+import android.view.View;
 import android.widget.CheckedTextView;
 import android.widget.HeaderViewListAdapter;
 import android.widget.ListView;
@@ -21,18 +22,21 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.sync.SyncTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.sync.PassphraseType;
+import org.chromium.ui.test.util.DummyUiActivityTestCase;
+import org.chromium.ui.test.util.RenderTestRule;
+
+import java.io.IOException;
 
 /**
  * Tests to make sure that PassphraseTypeDialogFragment presents the correct options.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-public class PassphraseTypeDialogFragmentTest {
+public class PassphraseTypeDialogFragmentTest extends DummyUiActivityTestCase {
     @Rule
-    public SyncTestRule mSyncTestRule = new SyncTestRule();
+    public RenderTestRule mRenderTestRule = RenderTestRule.Builder.withPublicCorpus().build();
 
     private static final String TAG = "PassphraseTypeDialogFragmentTest";
 
@@ -100,7 +104,7 @@ public class PassphraseTypeDialogFragmentTest {
     @Test
     @SmallTest
     @Feature({"Sync"})
-    public void testKeystoreEncryptionOptionsEncryptEverythingDisallowed() {
+    public void testKeystoreEncryptionOptionsCustomPassphraseDisallowed() {
         createFragment(PassphraseType.KEYSTORE_PASSPHRASE, false);
         assertPassphraseTypeOptions(false,
                 new TypeOptions(PassphraseType.CUSTOM_PASSPHRASE, DISABLED, UNCHECKED),
@@ -110,17 +114,62 @@ public class PassphraseTypeDialogFragmentTest {
     @Test
     @SmallTest
     @Feature({"Sync"})
-    public void testImplicitEncryptionOptionsEncryptEverythingDisallowed() {
+    public void testImplicitEncryptionOptionsCustomPassphraseDisallowed() {
         createFragment(PassphraseType.IMPLICIT_PASSPHRASE, false);
         assertPassphraseTypeOptions(false,
                 new TypeOptions(PassphraseType.CUSTOM_PASSPHRASE, DISABLED, UNCHECKED),
                 new TypeOptions(PassphraseType.IMPLICIT_PASSPHRASE, ENABLED, CHECKED));
     }
 
-    public void createFragment(@PassphraseType int type, boolean isEncryptEverythingAllowed) {
-        mTypeFragment = PassphraseTypeDialogFragment.create(type, 0, isEncryptEverythingAllowed);
-        mTypeFragment.show(mSyncTestRule.getActivity().getSupportFragmentManager(), TAG);
+    @Test
+    @SmallTest
+    @Feature({"RenderTest", "Sync"})
+    public void testKeystorePassphraseRendering() throws IOException {
+        createFragment(PassphraseType.KEYSTORE_PASSPHRASE, true);
+        mRenderTestRule.render(getDialogView(), "keystore_passphrase");
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"RenderTest", "Sync"})
+    public void testCustomPassphraseRendering() throws IOException {
+        createFragment(PassphraseType.CUSTOM_PASSPHRASE, true);
+        mRenderTestRule.render(getDialogView(), "custom_passphrase");
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"RenderTest", "Sync"})
+    public void testFrozenImplicitPassphraseRendering() throws IOException {
+        createFragment(PassphraseType.FROZEN_IMPLICIT_PASSPHRASE, true);
+        mRenderTestRule.render(getDialogView(), "frozen_implicit_passphrase");
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"RenderTest", "Sync"})
+    public void testImplicitPassphraseRendering() throws IOException {
+        createFragment(PassphraseType.IMPLICIT_PASSPHRASE, true);
+        mRenderTestRule.render(getDialogView(), "implicit_passphrase");
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"RenderTest", "Sync"})
+    public void testKeystorePassphraseWithCustomPassphraseDisallowedRendering() throws IOException {
+        createFragment(PassphraseType.KEYSTORE_PASSPHRASE, false);
+        mRenderTestRule.render(
+                getDialogView(), "keystore_passphrase_with_custom_passphrase_disallowed");
+    }
+
+    public void createFragment(@PassphraseType int type, boolean isCustomPassphraseAllowed) {
+        mTypeFragment = PassphraseTypeDialogFragment.create(type, isCustomPassphraseAllowed);
+        mTypeFragment.show(getActivity().getSupportFragmentManager(), TAG);
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+    }
+
+    private View getDialogView() {
+        return mTypeFragment.getDialog().getWindow().getDecorView();
     }
 
     public void assertPassphraseTypeOptions(boolean hasFooter, TypeOptions... optionsList) {

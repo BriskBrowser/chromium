@@ -5,14 +5,13 @@
 #ifndef GPU_VULKAN_VULKAN_IMPLEMENTATION_H_
 #define GPU_VULKAN_VULKAN_IMPLEMENTATION_H_
 
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #include <memory>
 #include <vector>
 
 #include "base/component_export.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "build/build_config.h"
 #include "gpu/vulkan/semaphore_handle.h"
 #include "ui/gfx/buffer_types.h"
@@ -50,9 +49,11 @@ class SysmemBufferCollection {
 // VkSurfaceKHR objects). It also provides helper/utility functions.
 class COMPONENT_EXPORT(VULKAN) VulkanImplementation {
  public:
-  VulkanImplementation(bool use_swiftshader = false,
-                       bool allow_protected_memory = false,
-                       bool enforce_protected_memory = false);
+  explicit VulkanImplementation(bool use_swiftshader = false,
+                                bool allow_protected_memory = false);
+
+  VulkanImplementation(const VulkanImplementation&) = delete;
+  VulkanImplementation& operator=(const VulkanImplementation&) = delete;
 
   virtual ~VulkanImplementation();
 
@@ -144,13 +145,10 @@ class COMPONENT_EXPORT(VULKAN) VulkanImplementation {
 
   bool use_swiftshader() const { return use_swiftshader_; }
   bool allow_protected_memory() const { return allow_protected_memory_; }
-  bool enforce_protected_memory() const { return enforce_protected_memory_; }
 
  private:
   const bool use_swiftshader_;
   const bool allow_protected_memory_;
-  const bool enforce_protected_memory_;
-  DISALLOW_COPY_AND_ASSIGN(VulkanImplementation);
 };
 
 COMPONENT_EXPORT(VULKAN)

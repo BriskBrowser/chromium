@@ -25,7 +25,6 @@ import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.offlinepages.OfflinePageItem;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
-import org.chromium.chrome.browser.suggestions.SuggestionsConfig;
 import org.chromium.chrome.browser.suggestions.SuggestionsMetrics;
 import org.chromium.chrome.browser.suggestions.SuggestionsOfflineModelObserver;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
@@ -57,6 +56,8 @@ public class TileGroup implements MostVisitedSites.Observer {
         void removeMostVisitedItem(Tile tile, Callback<GURL> removalUndoneCallback);
 
         void openMostVisitedItem(int windowDisposition, Tile tile);
+
+        void openMostVisitedItemInGroup(int windowDisposition, Tile tile);
 
         /**
          * Gets the list of most visited sites.
@@ -343,6 +344,10 @@ public class TileGroup implements MostVisitedSites.Observer {
         if (trackLoadTask) removeTask(TileTask.FETCH_DATA);
     }
 
+    public TileSetupDelegate getTileSetupDelegate() {
+        return mTileSetupDelegate;
+    }
+
     /** Loads tile data from {@link #mPendingTiles} and clears it afterwards. */
     private void loadTiles() {
         assert mPendingTiles != null;
@@ -466,11 +471,6 @@ public class TileGroup implements MostVisitedSites.Observer {
         return mPendingTasks.contains(task);
     }
 
-    @VisibleForTesting
-    TileSetupDelegate getTileSetupDelegate() {
-        return mTileSetupDelegate;
-    }
-
     @Nullable
     public SiteSuggestion getHomepageTileData() {
         for (Tile tile : mTileSections.get(TileSectionType.PERSONALIZED)) {
@@ -491,6 +491,15 @@ public class TileGroup implements MostVisitedSites.Observer {
         newTileData.put(TileSectionType.PERSONALIZED, new ArrayList<>());
 
         return newTileData;
+    }
+
+    /**
+     * Called before this instance is abandoned to the garbage collector.
+     */
+    public void destroy() {
+        // The mOfflineModelObserver which implements SuggestionsOfflineModelObserver adds itself
+        // as the offlinePageBridge's observer. Calling onDestroy() removes itself from subscribers.
+        mOfflineModelObserver.onDestroy();
     }
 
     // TODO(dgn): I would like to move that to TileRenderer, but setting the data on the tile,
@@ -552,6 +561,14 @@ public class TileGroup implements MostVisitedSites.Observer {
         }
 
         @Override
+        public void openItemInGroup(int windowDisposition) {
+            Tile tile = findTile(mSuggestion);
+            if (tile == null) return;
+
+            mTileGroupDelegate.openMostVisitedItemInGroup(windowDisposition, tile);
+        }
+
+        @Override
         public void removeItem() {
             Tile tile = findTile(mSuggestion);
             if (tile == null) return;
@@ -563,8 +580,8 @@ public class TileGroup implements MostVisitedSites.Observer {
         }
 
         @Override
-        public String getUrl() {
-            return mSuggestion.url.getSpec();
+        public GURL getUrl() {
+            return mSuggestion.url;
         }
 
         @Override
@@ -580,8 +597,6 @@ public class TileGroup implements MostVisitedSites.Observer {
                 case ContextMenuItemId.REMOVE:
                     return mSuggestion.sectionType == TileSectionType.PERSONALIZED
                             && mSuggestion.source != TileSource.EXPLORE;
-                case ContextMenuItemId.LEARN_MORE:
-                    return SuggestionsConfig.scrollToLoad();
                 case ContextMenuItemId.OPEN_IN_INCOGNITO_TAB:
                     return mSuggestion.source != TileSource.EXPLORE;
                 default:

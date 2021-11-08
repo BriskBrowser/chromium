@@ -7,7 +7,6 @@ package org.chromium.base.task;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.base.annotations.RemovableInRelease;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -117,6 +116,14 @@ public class PostTask {
         } else {
             postTask(taskTraits, task);
         }
+    }
+
+    /**
+     * Returns true if the task can be executed immediately (i.e. the current thread is the same as
+     * the one corresponding to the SingleThreadTaskRunner)
+     */
+    public static boolean canRunTaskImmediately(TaskTraits taskTraits) {
+        return getTaskExecutorForTraits(taskTraits).canRunTaskImmediately(taskTraits);
     }
 
     /**
@@ -248,14 +255,9 @@ public class PostTask {
         }
     }
 
-    // This is here to make C++ tests work.
+    // TODO(agrieve): Move this to a test-only java file.
     @CalledByNative
     private static void onNativeSchedulerShutdownForTesting() {
-        onNativeSchedulerShutdownForTestingImpl();
-    }
-
-    @RemovableInRelease
-    private static void onNativeSchedulerShutdownForTestingImpl() {
         synchronized (sPreNativeTaskRunnerLock) {
             sPreNativeTaskRunners = new ArrayList<>();
         }

@@ -2,23 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef MEDIA_GPU_D3D11_VIDEO_DECODER_H_
-#define MEDIA_GPU_D3D11_VIDEO_DECODER_H_
+#ifndef MEDIA_GPU_WINDOWS_D3D11_VIDEO_DECODER_H_
+#define MEDIA_GPU_WINDOWS_D3D11_VIDEO_DECODER_H_
 
 #include <d3d11.h>
-#include <string>
 #include <vector>
 
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/sequence_bound.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "gpu/config/gpu_preferences.h"
 #include "media/base/callback_registry.h"
+#include "media/base/status.h"
 #include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_decoder.h"
 #include "media/gpu/command_buffer_helper.h"
@@ -26,6 +26,7 @@
 #include "media/gpu/windows/d3d11_com_defs.h"
 #include "media/gpu/windows/d3d11_decoder_configurator.h"
 #include "media/gpu/windows/d3d11_h264_accelerator.h"
+#include "media/gpu/windows/d3d11_status.h"
 #include "media/gpu/windows/d3d11_texture_selector.h"
 #include "media/gpu/windows/d3d11_video_decoder_client.h"
 #include "media/gpu/windows/d3d11_video_decoder_impl.h"
@@ -66,8 +67,10 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
       SupportedConfigs supported_configs,
       bool is_hdr_supported);
 
+  D3D11VideoDecoder(const D3D11VideoDecoder&) = delete;
+  D3D11VideoDecoder& operator=(const D3D11VideoDecoder&) = delete;
+
   // VideoDecoder implementation:
-  std::string GetDisplayName() const override;
   VideoDecoderType GetDecoderType() const override;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
@@ -145,7 +148,7 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
   void CreatePictureBuffers();
 
   // Create a D3D11VideoDecoder, if possible, based on the current config.
-  StatusOr<ComD3D11VideoDecoder> CreateD3D11Decoder();
+  D3D11Status::Or<ComD3D11VideoDecoder> CreateD3D11Decoder();
 
   enum class NotSupportedReason {
     kVideoIsSupported = 0,
@@ -174,13 +177,10 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
     // GPU workarounds has turned this off.
     kOffByWorkaround = 8,
 
-    // Operating system version too low.
-    kUnsupportedOsVersion = 9,
-
     // For UMA. Must be the last entry. It should be initialized to the
     // numerically largest value above; if you add more entries, then please
     // update this to the last one.
-    kMaxValue = kUnsupportedOsVersion
+    kMaxValue = kOffByWorkaround
   };
 
   enum class D3D11LifetimeProgression {
@@ -216,7 +216,12 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
   // pending decode as well.  Do not add new uses of the char* overload; send a
   // Status instead.
   void NotifyError(const char* reason);
-  void NotifyError(const Status& reason);
+  // void NotifyError(D3D11Status&& reason);
+  // This one sends the Status upwards, since VideoDecoder still returns a
+  // Status rather than a decoder-specific variant.  This sends the correct
+  // status code (DECODE_ERROR, for example), and attaches `reason` as the thing
+  // that caused it.
+  void NotifyError(D3D11Status reason);
 
   // The implementation, which lives on the GPU main thread.
   base::SequenceBound<D3D11VideoDecoderImpl> impl_;
@@ -306,10 +311,8 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
   uint8_t bit_depth_ = 8u;
 
   base::WeakPtrFactory<D3D11VideoDecoder> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(D3D11VideoDecoder);
 };
 
 }  // namespace media
 
-#endif  // MEDIA_GPU_D3D11_VIDEO_DECODER_H_
+#endif  // MEDIA_GPU_WINDOWS_D3D11_VIDEO_DECODER_H_

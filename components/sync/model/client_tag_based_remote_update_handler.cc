@@ -27,16 +27,16 @@ void LogNonReflectionUpdateFreshnessToUma(ModelType type,
 
   UMA_HISTOGRAM_CUSTOM_TIMES("Sync.NonReflectionUpdateFreshnessPossiblySkewed2",
                              latency,
-                             /*min=*/base::TimeDelta::FromMilliseconds(100),
-                             /*max=*/base::TimeDelta::FromDays(7),
+                             /*min=*/base::Milliseconds(100),
+                             /*max=*/base::Days(7),
                              /*bucket_count=*/50);
 
   base::UmaHistogramCustomTimes(
       std::string("Sync.NonReflectionUpdateFreshnessPossiblySkewed2.") +
           ModelTypeToHistogramSuffix(type),
       latency,
-      /*min=*/base::TimeDelta::FromMilliseconds(100),
-      /*max=*/base::TimeDelta::FromDays(7),
+      /*min=*/base::Milliseconds(100),
+      /*max=*/base::Days(7),
       /*bucket_count=*/50);
 }
 
@@ -51,7 +51,7 @@ ClientTagBasedRemoteUpdateHandler::ClientTagBasedRemoteUpdateHandler(
   DCHECK(entity_tracker_);
 }
 
-base::Optional<ModelError>
+absl::optional<ModelError>
 ClientTagBasedRemoteUpdateHandler::ProcessIncrementalUpdate(
     const sync_pb::ModelTypeState& model_type_state,
     UpdateResponseDataList updates) {
@@ -173,10 +173,6 @@ ProcessorEntity* ClientTagBasedRemoteUpdateHandler::ProcessUpdate(
     return nullptr;
   }
 
-  if (entity) {
-    entity->RecordEntityUpdateLatency(update.response_version, type_);
-  }
-
   if (entity && entity->UpdateIsReflection(update.response_version)) {
     // Seen this update before; just ignore it.
     return nullptr;
@@ -191,7 +187,7 @@ ProcessorEntity* ClientTagBasedRemoteUpdateHandler::ProcessUpdate(
                     storage_key_to_clear);
   } else {
     // Handle simple create/delete/update.
-    base::Optional<EntityChange::ChangeType> change_type;
+    absl::optional<EntityChange::ChangeType> change_type;
 
     if (entity == nullptr) {
       entity = CreateEntity(data);

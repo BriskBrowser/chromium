@@ -60,6 +60,10 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
     };
 
     H264Accelerator();
+
+    H264Accelerator(const H264Accelerator&) = delete;
+    H264Accelerator& operator=(const H264Accelerator&) = delete;
+
     virtual ~H264Accelerator();
 
     // Create a new H264Picture that the decoder client can use for decoding
@@ -91,17 +95,17 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
         scoped_refptr<H264Picture> pic) = 0;
 
     // Used for handling CENCv1 streams where the entire slice header, except
-    // for the NALU type byte, is encrypted. |data| and |size| represent the
-    // encrypted slice data. |subsamples| specifies what is encrypted and should
-    // have just a single clear byte and the rest is encrypted. |sps_nalu_data|
+    // for the NALU type byte, is encrypted. |data| represents the encrypted
+    // ranges which will include any SEI NALUs along with the encrypted slice
+    // NALU. |subsamples| specifies what is encrypted and should have just a
+    // single clear byte for each and the rest is encrypted. |sps_nalu_data|
     // and |pps_nalu_data| are the SPS and PPS NALUs respectively.
     // |slice_header_out| should have its fields filled in upon successful
     // return. Returns kOk if successful, kFail if there are errors, or
     // kTryAgain if the accelerator needs additional data before being able to
     // proceed.
     virtual Status ParseEncryptedSliceHeader(
-        const uint8_t* data,
-        size_t size,
+        const std::vector<base::span<const uint8_t>>& data,
         const std::vector<SubsampleEntry>& subsamples,
         const std::vector<uint8_t>& sps_nalu_data,
         const std::vector<uint8_t>& pps_nalu_data,
@@ -158,14 +162,15 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
     // kNotSupported.
     virtual Status SetStream(base::span<const uint8_t> stream,
                              const DecryptConfig* decrypt_config);
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(H264Accelerator);
   };
 
   H264Decoder(std::unique_ptr<H264Accelerator> accelerator,
               VideoCodecProfile profile,
               const VideoColorSpace& container_color_space = VideoColorSpace());
+
+  H264Decoder(const H264Decoder&) = delete;
+  H264Decoder& operator=(const H264Decoder&) = delete;
+
   ~H264Decoder() override;
 
   // AcceleratedVideoDecoder implementation.
@@ -194,7 +199,7 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
 
  private:
   // Internal state of the decoder.
-  enum State {
+  enum class State {
     // After initialization, need an SPS.
     kNeedStreamMetadata,
     // Ready to decode from any point.
@@ -378,12 +383,18 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
   std::unique_ptr<H264NALU> curr_nalu_;
   std::unique_ptr<H264SliceHeader> curr_slice_hdr_;
 
-  // These are base::nullopt unless get recovery point SEI message after Reset.
+  // Encrypted SEI NALUs preceding a fully encrypted slice NALU. We need to
+  // save these that are part of a single sample so they can all be decrypted
+  // together.
+  std::vector<base::span<const uint8_t>> encrypted_sei_nalus_;
+  std::vector<SubsampleEntry> sei_subsamples_;
+
+  // These are absl::nullopt unless get recovery point SEI message after Reset.
   // A frame_num of the frame at output order that is correct in content.
-  base::Optional<int> recovery_frame_num_;
+  absl::optional<int> recovery_frame_num_;
   // A value in the recovery point SEI message to compute |recovery_frame_num_|
   // later.
-  base::Optional<int> recovery_frame_cnt_;
+  absl::optional<int> recovery_frame_cnt_;
 
   // Output picture size.
   gfx::Size pic_size_;
@@ -399,8 +410,6 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
   int last_output_poc_;
 
   const std::unique_ptr<H264Accelerator> accelerator_;
-
-  DISALLOW_COPY_AND_ASSIGN(H264Decoder);
 };
 
 }  // namespace media

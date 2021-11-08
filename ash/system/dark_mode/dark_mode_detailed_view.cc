@@ -11,12 +11,16 @@
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_detailed_view.h"
 #include "ash/system/tray/tray_popup_utils.h"
+#include "ash/system/tray/tray_toggle_button.h"
+#include "base/bind.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/vector_icon_types.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/button/radio_button.h"
 #include "ui/views/controls/button/toggle_button.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/scroll_view.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -24,7 +28,7 @@ namespace {
 
 class TrayRadioButton : public views::RadioButton {
  public:
-  TrayRadioButton(PressedCallback callback, const base::string16& button_label)
+  TrayRadioButton(PressedCallback callback, const std::u16string& button_label)
       : views::RadioButton(button_label) {
     SetCallback(std::move(callback));
     SetBorder(views::CreateEmptyBorder(kTrayRadioButtonPadding));
@@ -42,10 +46,13 @@ class TrayRadioButton : public views::RadioButton {
   // views::RadioButton:
   void OnThemeChanged() override {
     views::RadioButton::OnThemeChanged();
-    SetEnabledTextColors(AshColorProvider::Get()->GetContentLayerColor(
+    auto* color_provider = AshColorProvider::Get();
+    SetEnabledTextColors(color_provider->GetContentLayerColor(
         AshColorProvider::ContentLayerType::kTextColorPrimary));
     TrayPopupUtils::SetLabelFontList(label(),
                                      TrayPopupUtils::FontStyle::kSmallTitle);
+    views::FocusRing::Get(this)->SetColor(color_provider->GetControlsLayerColor(
+        AshColorProvider::ControlsLayerType::kFocusRingColor));
   }
 };
 
@@ -77,7 +84,7 @@ void DarkModeDetailedView::CreateItems() {
   tri_view()->SetContainerVisible(TriView::Container::END, true);
 
   auto* ash_color_provider = AshColorProvider::Get();
-  toggle_ = TrayPopupUtils::CreateToggleButton(
+  toggle_ = new TrayToggleButton(
       base::BindRepeating(&AshColorProvider::ToggleColorMode,
                           base::Unretained(AshColorProvider::Get())),
       IDS_ASH_STATUS_TRAY_DARK_THEME);
@@ -122,7 +129,6 @@ void DarkModeDetailedView::OnThemeChanged() {
                                    TrayPopupUtils::FontStyle::kSystemInfo);
   TrayPopupUtils::SetLabelFontList(neutral_label_,
                                    TrayPopupUtils::FontStyle::kSystemInfo);
-  TrayPopupUtils::UpdateToggleButtonColors(toggle_);
 }
 
 void DarkModeDetailedView::UpdateToggleButton(bool dark_mode_enabled) {

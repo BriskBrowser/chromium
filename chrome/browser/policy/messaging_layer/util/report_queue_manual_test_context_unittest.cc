@@ -4,15 +4,21 @@
 
 #include "chrome/browser/policy/messaging_layer/util/report_queue_manual_test_context.h"
 
-#include "base/task_runner.h"
+#include "base/bind.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/task_runner.h"
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/policy/dm_token_utils.h"
-#include "chrome/browser/policy/messaging_layer/public/mock_report_queue.h"
-#include "chrome/browser/policy/messaging_layer/public/report_queue.h"
 #include "components/policy/core/common/cloud/dm_token.h"
-#include "components/reporting/proto/record_constants.pb.h"
+#include "components/reporting/client/mock_report_queue.h"
+#include "components/reporting/client/report_queue.h"
+#include "components/reporting/client/report_queue_configuration.h"
+#include "components/reporting/proto/synced/record_constants.pb.h"
 #include "components/reporting/util/status.h"
-#include "content/public/test/browser_task_environment.h"
+#include "components/reporting/util/test_support_callbacks.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -23,50 +29,23 @@ using testing::_;
 using testing::Invoke;
 using testing::WithArgs;
 
-class TestCallbackWaiter {
- public:
-  TestCallbackWaiter() = default;
-
-  virtual void Signal() { run_loop_.Quit(); }
-
-  void Wait() { run_loop_.Run(); }
-
- protected:
-  base::RunLoop run_loop_;
-};
-
-class TestCallbackWaiterWithCounter : public TestCallbackWaiter {
- public:
-  explicit TestCallbackWaiterWithCounter(size_t counter_limit)
-      : counter_limit_(counter_limit) {}
-
-  void Signal() override {
-    DCHECK_GT(counter_limit_, 0u);
-    if (--counter_limit_ == 0u) {
-      run_loop_.Quit();
-    }
-  }
-
- private:
-  std::atomic<size_t> counter_limit_;
-};
-
 class ReportQueueManualTestContextTest : public testing::Test {
  protected:
-  ReportQueueManualTestContextTest() = default;
+  const Priority kPriority = Priority::FAST_BATCH;
+  const Destination kDestination = Destination::UPLOAD_EVENTS;
+  const uint64_t kNumberOfMessagesToEnqueue = 5;
+  const base::TimeDelta kMessageFrequency = base::Seconds(1);
 
   void SetUp() override {
-    auto mock_report_queue = std::make_unique<reporting::MockReportQueue>();
-    mock_report_queue_ = mock_report_queue.get();
-
+    task_runner_ =
+        base::ThreadPool::CreateSequencedTaskRunner(base::TaskTraits());
+    mock_report_queue_ =
+        std::unique_ptr<reporting::MockReportQueue, base::OnTaskRunnerDeleter>(
+            new reporting::MockReportQueue(),
+            base::OnTaskRunnerDeleter(task_runner_));
     auto build_report_queue_cb = base::BindOnce(
-        [](std::unique_ptr<ReportQueue> report_queue,
-           std::unique_ptr<ReportQueueConfiguration> report_queue_config,
-           base::OnceCallback<void(StatusOr<std::unique_ptr<ReportQueue>>)>
-               report_queue_cb) {
-          std::move(report_queue_cb).Run(std::move(report_queue));
-        },
-        std::move(mock_report_queue));
+        &ReportQueueManualTestContextTest::BuildReportQueueCallback,
+        base::Unretained(this));
 
     ReportQueueManualTestContext::SetBuildReportQueueCallbackForTests(
         std::move(build_report_queue_cb));
@@ -75,42 +54,43 @@ class ReportQueueManualTestContextTest : public testing::Test {
         policy::DMToken::CreateValidTokenForTesting("ABCDEF"));
   }
 
-  const Priority priority_ = Priority::FAST_BATCH;
-  const Destination destination_ = Destination::UPLOAD_EVENTS;
-  reporting::MockReportQueue* mock_report_queue_;
+  void BuildReportQueueCallback(
+      std::unique_ptr<ReportQueueConfiguration> report_queue_config,
+      base::OnceCallback<void(
+          StatusOr<std::unique_ptr<ReportQueue, base::OnTaskRunnerDeleter>>)>
+          report_queue_cb) {
+    std::move(report_queue_cb).Run(std::move(mock_report_queue_));
+    dm_token_ = std::move(report_queue_config)->dm_token();
+  }
 
-  content::BrowserTaskEnvironment task_environment_{
-      base::test::TaskEnvironment::TimeSource::SYSTEM_TIME};
+  std::unique_ptr<reporting::MockReportQueue, base::OnTaskRunnerDeleter>
+      mock_report_queue_ = std::unique_ptr<reporting::MockReportQueue,
+                                           base::OnTaskRunnerDeleter>(
+          nullptr,
+          base::OnTaskRunnerDeleter(nullptr));
+
+  std::string dm_token_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  base::test::TaskEnvironment task_environment_;
 };
 
 TEST_F(ReportQueueManualTestContextTest,
-       BuildsReportQueueManualTestContextAndUploadsMessages) {
-  uint64_t kNumberOfMessagesToEnqueue = 5;
-  base::TimeDelta kFrequency = base::TimeDelta::FromSeconds(1);
-
-  TestCallbackWaiterWithCounter enqueue_waiter{kNumberOfMessagesToEnqueue};
-  EXPECT_CALL(*mock_report_queue_, StringPieceEnqueue_(_, _, _))
-      .WillRepeatedly(WithArgs<2>(Invoke(
-          [&enqueue_waiter](ReportQueue::EnqueueCallback enqueue_callback) {
+       BuildsReportQueueManualTestContextAndUploadsDeviceEventMessages) {
+  EXPECT_CALL(*mock_report_queue_, AddRecord(_, _, _))
+      .Times(kNumberOfMessagesToEnqueue)
+      .WillRepeatedly(
+          WithArgs<2>(Invoke([](ReportQueue::EnqueueCallback enqueue_callback) {
             std::move(enqueue_callback).Run(Status::StatusOK());
-            enqueue_waiter.Signal();
           })));
 
-  TestCallbackWaiter completion_waiter;
-  auto completion_cb = base::BindOnce(
-      [](TestCallbackWaiter* completion_waiter, Status status) {
-        EXPECT_TRUE(status.ok());
-        completion_waiter->Signal();
-      },
-      &completion_waiter);
-
+  test::TestEvent<Status> completion_event;
   Start<ReportQueueManualTestContext>(
-      kFrequency, kNumberOfMessagesToEnqueue, destination_, priority_,
-      std::move(completion_cb),
-      base::ThreadPool::CreateSequencedTaskRunner(base::TaskTraits()));
+      kMessageFrequency, kNumberOfMessagesToEnqueue, kDestination, kPriority,
+      completion_event.cb(), task_runner_);
 
-  enqueue_waiter.Wait();
-  completion_waiter.Wait();
+  const Status status = completion_event.result();
+  EXPECT_OK(status) << status;
+  EXPECT_THAT(dm_token_, testing::IsEmpty());
 }
 
 }  // namespace

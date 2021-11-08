@@ -18,6 +18,7 @@
 #include "components/sync/model/model_error.h"
 #include "components/sync/model/model_type_store.h"
 #include "components/sync_sessions/synced_session_tracker.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace sync_sessions {
 
@@ -35,7 +36,7 @@ class SessionStore {
   };
 
   using OpenCallback = base::OnceCallback<void(
-      const base::Optional<syncer::ModelError>& error,
+      const absl::optional<syncer::ModelError>& error,
       std::unique_ptr<SessionStore> store,
       std::unique_ptr<syncer::MetadataBatch> metadata_batch)>;
 
@@ -43,10 +44,9 @@ class SessionStore {
   // from disk. |sessions_client| must not be null and must outlive the
   // SessionStore instance returned via |callback|, or until the callback is
   // cancelled.
-  static void Open(
-      const std::string& cache_guid,
-      SyncSessionsClient* sessions_client,
-      OpenCallback callback);
+  static void Open(const std::string& cache_guid,
+                   SyncSessionsClient* sessions_client,
+                   OpenCallback callback);
 
   // Verifies whether a proto is malformed (e.g. required fields are missing).
   static bool AreValidSpecifics(const sync_pb::SessionSpecifics& specifics);
@@ -82,6 +82,10 @@ class SessionStore {
                CommitCallback commit_cb,
                syncer::OnceModelErrorHandler error_handler,
                SyncedSessionTracker* session_tracker);
+
+    WriteBatch(const WriteBatch&) = delete;
+    WriteBatch& operator=(const WriteBatch&) = delete;
+
     ~WriteBatch();
 
     // Most mutations below return storage keys.
@@ -106,9 +110,10 @@ class SessionStore {
     CommitCallback commit_cb_;
     syncer::OnceModelErrorHandler error_handler_;
     SyncedSessionTracker* const session_tracker_;
-
-    DISALLOW_COPY_AND_ASSIGN(WriteBatch);
   };
+
+  SessionStore(const SessionStore&) = delete;
+  SessionStore& operator=(const SessionStore&) = delete;
 
   ~SessionStore();
 
@@ -141,14 +146,14 @@ class SessionStore {
 
   static void OnStoreCreated(
       std::unique_ptr<Builder> builder,
-      const base::Optional<syncer::ModelError>& error,
+      const absl::optional<syncer::ModelError>& error,
       std::unique_ptr<syncer::ModelTypeStore> underlying_store);
   static void OnReadAllMetadata(
       std::unique_ptr<Builder> builder,
-      const base::Optional<syncer::ModelError>& error,
+      const absl::optional<syncer::ModelError>& error,
       std::unique_ptr<syncer::MetadataBatch> metadata_batch);
   static void OnReadAllData(std::unique_ptr<Builder> builder,
-                            const base::Optional<syncer::ModelError>& error);
+                            const absl::optional<syncer::ModelError>& error);
 
   // |sessions_client| must not be null and must outlive this object.
   SessionStore(const SessionInfo& local_session_info,
@@ -167,8 +172,6 @@ class SessionStore {
   SyncedSessionTracker session_tracker_;
 
   base::WeakPtrFactory<SessionStore> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SessionStore);
 };
 
 }  // namespace sync_sessions

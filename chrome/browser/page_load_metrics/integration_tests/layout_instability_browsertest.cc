@@ -10,8 +10,8 @@
 #include "content/public/test/browser_test.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 
+using absl::optional;
 using base::Bucket;
-using base::Optional;
 using base::Value;
 using trace_analyzer::Query;
 using trace_analyzer::TraceAnalyzer;
@@ -44,7 +44,7 @@ void LayoutInstabilityTest::RunWPT(const std::string& test_file,
     return;
 
   // Finish session.
-  ui_test_utils::NavigateToURL(browser(), GURL("about:blank"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL("about:blank")));
 
   // Check UKM.
   ExpectUKMPageLoadMetric(PageLoad::kLayoutInstability_CumulativeShiftScoreName,
@@ -67,23 +67,23 @@ double LayoutInstabilityTest::CheckTraceData(Value& expectations,
 
   size_t i = 0;
   for (const Value& expectation : expectations.GetList()) {
-    Optional<double> score = expectation.FindDoubleKey("score");
+    optional<double> score = expectation.FindDoubleKey("score");
     if (score && *score == 0.0) {
       // {score:0} expects no layout shift.
       continue;
     }
 
-    std::unique_ptr<Value> data;
+    Value data;
     events[i++]->GetArgAsValue("data", &data);
 
     if (score) {
-      EXPECT_EQ(*score, *data->FindDoubleKey("score"));
+      EXPECT_EQ(*score, *data.FindDoubleKey("score"));
       final_score = *score;
     }
     const Value* sources = expectation.FindListKey("sources");
     if (sources) {
       CheckSources(sources->GetList(),
-                   data->FindListKey("impacted_nodes")->GetList());
+                   data.FindListKey("impacted_nodes")->GetList());
     }
   }
 

@@ -27,21 +27,17 @@ class MediaCanPlayTypeTest : public MediaBrowserTest {
  public:
   MediaCanPlayTypeTest() = default;
 
+  MediaCanPlayTypeTest(const MediaCanPlayTypeTest&) = delete;
+  MediaCanPlayTypeTest& operator=(const MediaCanPlayTypeTest&) = delete;
+
   void SetUpOnMainThread() override {
     EXPECT_TRUE(
         NavigateToURL(shell(), GetTestUrl("media", "canplaytype_test.html")));
   }
 
   void ExecuteTest(const std::string& command) {
-    bool result;
-    EXPECT_TRUE(ExecuteScriptAndExtractBool(
-        shell(), "window.domAutomationController.send(" + command + ");",
-        &result));
-    EXPECT_TRUE(result);
+    EXPECT_EQ(true, EvalJs(shell(), command));
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MediaCanPlayTypeTest);
 };
 
 IN_PROC_BROWSER_TEST_F(MediaCanPlayTypeTest, CodecSupportTest_av1) {

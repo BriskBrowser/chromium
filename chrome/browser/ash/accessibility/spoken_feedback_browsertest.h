@@ -13,12 +13,19 @@
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
 
-using extensions::api::braille_display_private::StubBrailleController;
+namespace ash {
+
+using ::extensions::api::braille_display_private::StubBrailleController;
 
 // Spoken feedback tests only in a logged in user's window.
 class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
  public:
   LoggedInSpokenFeedbackTest();
+
+  LoggedInSpokenFeedbackTest(const LoggedInSpokenFeedbackTest&) = delete;
+  LoggedInSpokenFeedbackTest& operator=(const LoggedInSpokenFeedbackTest&) =
+      delete;
+
   ~LoggedInSpokenFeedbackTest() override;
 
   // InProcessBrowserTest:
@@ -38,11 +45,13 @@ class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
 
   void SendMouseMoveTo(const gfx::Point& location);
 
-  bool PerformAcceleratorAction(ash::AcceleratorAction action);
+  bool PerformAcceleratorAction(AcceleratorAction action);
 
   void DisableEarcons();
 
   void EnableChromeVox();
+
+  void StablizeChromeVoxState();
 
   void PressRepeatedlyUntilUtterance(ui::KeyboardCode key,
                                      const std::string& expected_utterance);
@@ -53,8 +62,8 @@ class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
   StubBrailleController braille_controller_;
   ui::ScopedAnimationDurationScaleMode animation_mode_;
   std::unique_ptr<ExtensionConsoleErrorObserver> console_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(LoggedInSpokenFeedbackTest);
 };
+
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_ACCESSIBILITY_SPOKEN_FEEDBACK_BROWSERTEST_H_

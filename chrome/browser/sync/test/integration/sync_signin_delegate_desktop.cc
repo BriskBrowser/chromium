@@ -38,7 +38,8 @@ void SyncSigninDelegateDesktop::SigninFake(Profile* profile,
     }
   } else {
     // Authenticate sync client using GAIA credentials.
-    signin::MakePrimaryAccountAvailable(identity_manager, username);
+    signin::MakePrimaryAccountAvailable(identity_manager, username,
+                                        signin::ConsentLevel::kSync);
   }
 }
 
@@ -56,8 +57,7 @@ bool SyncSigninDelegateDesktop::SigninUI(Profile* profile,
 
 bool SyncSigninDelegateDesktop::ConfirmSigninUI(Profile* profile) {
   if (!login_ui_test_utils::ConfirmSyncConfirmationDialog(
-          chrome::FindBrowserWithProfile(profile),
-          base::TimeDelta::FromSeconds(30))) {
+          chrome::FindBrowserWithProfile(profile))) {
     LOG(ERROR) << "Failed to dismiss sync confirmation dialog.";
     return false;
   }

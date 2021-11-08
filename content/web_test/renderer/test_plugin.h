@@ -62,6 +62,10 @@ class TestPlugin : public blink::WebPlugin, public cc::TextureLayerClient {
   static TestPlugin* Create(const blink::WebPluginParams& params,
                             TestRunner* test_runner,
                             blink::WebLocalFrame* frame);
+
+  TestPlugin(const TestPlugin&) = delete;
+  TestPlugin& operator=(const TestPlugin&) = delete;
+
   ~TestPlugin() override;
 
   static const blink::WebString& MimeType();
@@ -101,7 +105,7 @@ class TestPlugin : public blink::WebPlugin, public cc::TextureLayerClient {
   bool PrepareTransferableResource(
       cc::SharedBitmapIdRegistrar* bitmap_registrar,
       viz::TransferableResource* resource,
-      std::unique_ptr<viz::SingleReleaseCallback>* release_callback) override;
+      viz::ReleaseCallback* release_callback) override;
 
  private:
   TestPlugin(const blink::WebPluginParams& params,
@@ -193,8 +197,6 @@ class TestPlugin : public blink::WebPlugin, public cc::TextureLayerClient {
 
   bool is_persistent_;
   bool can_create_without_renderer_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestPlugin);
 };
 
 }  // namespace content

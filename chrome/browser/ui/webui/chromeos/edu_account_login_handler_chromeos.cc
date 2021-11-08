@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "ash/components/account_manager/account_manager.h"
 #include "ash/components/account_manager/account_manager_factory.h"
 #include "base/bind.h"
 #include "base/callback.h"
@@ -20,7 +19,7 @@
 #include "chrome/browser/profiles/profile_key.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/ui/webui/signin/inline_login_dialog_chromeos.h"
+#include "components/account_manager_core/chromeos/account_manager.h"
 #include "components/image_fetcher/core/image_fetcher_service.h"
 #include "components/image_fetcher/core/request_metadata.h"
 #include "components/signin/public/base/avatar_icon_util.h"
@@ -55,12 +54,8 @@ constexpr net::NetworkTrafficAnnotationTag traffic_annotation =
           setting: "This feature cannot be disabled by settings."
           policy_exception_justification: "Not implemented."
         })");
-constexpr char kFetchParentsListResultHistogram[] =
-    "AccountManager.EduCoexistence.FetchParentsListResult";
 constexpr char kFetchAccessTokenResultHistogram[] =
     "AccountManager.EduCoexistence.FetchAccessTokenResult";
-constexpr char kCreateRaptResultHistogram[] =
-    "AccountManager.EduCoexistence.CreateRaptResult";
 }  // namespace
 
 EduAccountLoginHandler::EduAccountLoginHandler(
@@ -124,23 +119,18 @@ void EduAccountLoginHandler::ProfileImageFetcher::OnImageFetched(
 }
 
 void EduAccountLoginHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "isNetworkReady",
       base::BindRepeating(&EduAccountLoginHandler::HandleIsNetworkReady,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getParents",
       base::BindRepeating(&EduAccountLoginHandler::HandleGetParents,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "parentSignin",
       base::BindRepeating(&EduAccountLoginHandler::HandleParentSignin,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
-      "updateEduCoexistenceFlowResult",
-      base::BindRepeating(
-          &EduAccountLoginHandler::HandleUpdateEduCoexistenceFlowResult,
-          base::Unretained(this)));
 }
 
 void EduAccountLoginHandler::OnJavascriptDisallowed() {
@@ -195,24 +185,8 @@ void EduAccountLoginHandler::HandleParentSignin(const base::ListValue* args) {
   DCHECK(obfuscated_gaia_id_value);
   std::string obfuscated_gaia_id = obfuscated_gaia_id_value->GetString();
 
-  std::string password;
-  args_list[2].GetAsString(&password);
-
-  FetchAccessToken(obfuscated_gaia_id, password);
-}
-
-void EduAccountLoginHandler::HandleUpdateEduCoexistenceFlowResult(
-    const base::ListValue* args) {
-  AllowJavascript();
-
-  const base::Value::ConstListView& args_list = args->GetList();
-  CHECK_EQ(args_list.size(), 1u);
-  int result = args_list[0].GetInt();
-  DCHECK(result <=
-         static_cast<int>(
-             InlineLoginDialogChromeOS::EduCoexistenceFlowResult::kMaxValue));
-  InlineLoginDialogChromeOS::UpdateEduCoexistenceFlowResult(
-      static_cast<InlineLoginDialogChromeOS::EduCoexistenceFlowResult>(result));
+  const std::string* password = args_list[2].GetIfString();
+  FetchAccessToken(obfuscated_gaia_id, password ? *password : std::string());
 }
 
 void EduAccountLoginHandler::FetchFamilyMembers() {
@@ -261,7 +235,7 @@ void EduAccountLoginHandler::FetchAccessToken(
               base::Unretained(this), std::move(obfuscated_gaia_id),
               std::move(password)),
           signin::PrimaryAccountAccessTokenFetcher::Mode::kImmediate,
-          signin::ConsentLevel::kNotRequired);
+          signin::ConsentLevel::kSignin);
 }
 
 void EduAccountLoginHandler::FetchReAuthProofTokenForParent(
@@ -283,8 +257,6 @@ void EduAccountLoginHandler::FetchReAuthProofTokenForParent(
 
 void EduAccountLoginHandler::OnGetFamilyMembersSuccess(
     const std::vector<FamilyInfoFetcher::FamilyMember>& members) {
-  base::UmaHistogramEnumeration(kFetchParentsListResultHistogram,
-                                FamilyInfoFetcher::ErrorCode::kSuccess);
   family_fetcher_.reset();
   base::ListValue parents;
   std::map<std::string, GURL> profile_image_urls;
@@ -309,7 +281,6 @@ void EduAccountLoginHandler::OnGetFamilyMembersSuccess(
 }
 
 void EduAccountLoginHandler::OnFailure(FamilyInfoFetcher::ErrorCode error) {
-  base::UmaHistogramEnumeration(kFetchParentsListResultHistogram, error);
   family_fetcher_.reset();
   RejectJavascriptCallback(base::Value(get_parents_callback_id_),
                            base::ListValue());
@@ -369,9 +340,6 @@ void EduAccountLoginHandler::CreateReAuthProofTokenForParent(
 
 void EduAccountLoginHandler::OnReAuthProofTokenSuccess(
     const std::string& reauth_proof_token) {
-  base::UmaHistogramEnumeration(
-      kCreateRaptResultHistogram,
-      GaiaAuthConsumer::ReAuthProofTokenStatus::kSuccess);
   gaia_auth_fetcher_.reset();
   ResolveJavascriptCallback(base::Value(parent_signin_callback_id_),
                             base::Value(reauth_proof_token));
@@ -380,7 +348,6 @@ void EduAccountLoginHandler::OnReAuthProofTokenSuccess(
 
 void EduAccountLoginHandler::OnReAuthProofTokenFailure(
     const GaiaAuthConsumer::ReAuthProofTokenStatus error) {
-  base::UmaHistogramEnumeration(kCreateRaptResultHistogram, error);
   LOG(ERROR) << "Failed to fetch ReAuthProofToken for the parent, error="
              << static_cast<int>(error);
   gaia_auth_fetcher_.reset();

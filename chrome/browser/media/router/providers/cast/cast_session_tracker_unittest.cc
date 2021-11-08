@@ -22,6 +22,7 @@ using cast_channel::kReceiverNamespace;
 using testing::_;
 using testing::ByRef;
 using testing::Eq;
+using testing::NiceMock;
 
 namespace media_router {
 
@@ -73,7 +74,7 @@ class MockCastSessionObserver : public CastSessionTracker::Observer {
   MOCK_METHOD3(OnMediaStatusUpdated,
                void(const MediaSinkInternal& sink,
                     const base::Value& media_status,
-                    base::Optional<int> request_id));
+                    absl::optional<int> request_id));
 };
 
 class CastSessionTrackerTest : public testing::Test {
@@ -111,12 +112,12 @@ class CastSessionTrackerTest : public testing::Test {
   content::BrowserTaskEnvironment task_environment_;
 
   cast_channel::MockCastSocketService socket_service_;
-  cast_channel::MockCastMessageHandler message_handler_;
+  NiceMock<cast_channel::MockCastMessageHandler> message_handler_;
 
   TestMediaSinkService media_sink_service_;
   CastSessionTracker session_tracker_;
 
-  MockCastSessionObserver observer_;
+  NiceMock<MockCastSessionObserver> observer_;
 
   MediaSinkInternal sink_ = CreateCastSink(1);
   CastSession* session_;
@@ -186,8 +187,9 @@ TEST_F(CastSessionTrackerTest, HandleMediaStatusMessageBasic) {
       {
         "playerState": "IDLE",
         "sessionId": "theSessionId"
-      }]})"),
-                                              base::Optional<int>()));
+      }
+      ]})"),
+                                              absl::optional<int>()));
 
   // This should call session_tracker_.HandleMediaStatusMessage(...).
   session_tracker_.OnInternalMessage(
@@ -200,6 +202,7 @@ TEST_F(CastSessionTrackerTest, HandleMediaStatusMessageBasic) {
       }, {
         "playerState": "IDLE",
       },
+      "not a dict; should be removed"
     ],
   })")));
 
@@ -247,7 +250,7 @@ TEST_F(CastSessionTrackerTest, HandleMediaStatusMessageFancy) {
       }],
     "xyzzy": "xyzzyValue2",
   })"),
-                                              base::make_optional(12345)));
+                                              absl::make_optional(12345)));
 
   // This should call session_tracker_.HandleMediaStatusMessage(...).
   session_tracker_.OnInternalMessage(

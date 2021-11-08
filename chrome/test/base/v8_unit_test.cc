@@ -238,6 +238,8 @@ void V8UnitTest::SetUp() {
   {
     v8::Local<v8::Context> context = context_.Get(isolate);
     v8::Context::Scope context_scope(context);
+    v8::MicrotasksScope microtasks(isolate,
+                                   v8::MicrotasksScope::kDoNotRunMicrotasks);
     context->Global()
         ->Set(context,
               v8::String::NewFromUtf8(isolate, "console",
@@ -254,6 +256,8 @@ void V8UnitTest::SetGlobalStringVar(const std::string& var_name,
   v8::Local<v8::Context> context =
       v8::Local<v8::Context>::New(isolate, context_);
   v8::Context::Scope context_scope(context);
+  v8::MicrotasksScope microtasks(isolate,
+                                 v8::MicrotasksScope::kDoNotRunMicrotasks);
   context->Global()
       ->Set(context,
             v8::String::NewFromUtf8(isolate, var_name.c_str(),
@@ -383,8 +387,8 @@ void V8UnitTest::ChromeSend(const v8::FunctionCallbackInfo<v8::Value>& args) {
   g_test_result_ok =
       test_result->Get(context, 0).ToLocalChecked()->BooleanValue(isolate);
   if (!g_test_result_ok) {
-    v8::String::Utf8Value message(
+    v8::String::Utf8Value error_message(
         isolate, test_result->Get(context, 1).ToLocalChecked());
-    LOG(ERROR) << *message;
+    LOG(ERROR) << *error_message;
   }
 }

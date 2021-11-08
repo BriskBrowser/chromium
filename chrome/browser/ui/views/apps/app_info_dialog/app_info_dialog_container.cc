@@ -12,6 +12,8 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/buildflags.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/events/event_constants.h"
@@ -22,8 +24,6 @@
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/client_view.h"
 #include "ui/views/window/dialog_delegate.h"
@@ -74,59 +74,6 @@ class AppListOverlayBackground : public views::Background {
 };
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-
-// The contents view for an App List Dialog, which covers the entire app list
-// and adds a close button.
-class AppListDialogContainer : public views::DialogDelegateView {
- public:
-  METADATA_HEADER(AppListDialogContainer);
-  explicit AppListDialogContainer(std::unique_ptr<views::View> dialog_body) {
-    SetButtons(ui::DIALOG_BUTTON_NONE);
-    SetModalType(kModalType);
-    SetBackground(std::make_unique<AppListOverlayBackground>());
-    dialog_body_ = AddChildView(std::move(dialog_body));
-    close_button_ = AddChildView(
-        views::BubbleFrameView::CreateCloseButton(base::BindRepeating(
-            [](AppListDialogContainer* container) {
-              container->GetWidget()->CloseWithReason(
-                  views::Widget::ClosedReason::kCloseButtonClicked);
-            },
-            base::Unretained(this))));
-  }
-  AppListDialogContainer(const AppListDialogContainer&) = delete;
-  AppListDialogContainer& operator=(const AppListDialogContainer&) = delete;
-  ~AppListDialogContainer() override = default;
-
- private:
-  // views::View:
-  void Layout() override {
-    // Margin of the close button from the top right-hand corner of the dialog.
-    const int kCloseButtonDialogMargin = 10;
-
-    close_button_->SetPosition(
-        gfx::Point(width() - close_button_->width() - kCloseButtonDialogMargin,
-                   kCloseButtonDialogMargin));
-
-    dialog_body_->SetBoundsRect(GetContentsBounds());
-    views::DialogDelegateView::Layout();
-  }
-
-  // views::WidgetDelegate:
-  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
-      views::Widget* widget) override {
-    return std::make_unique<views::NativeFrameView>(widget);
-  }
-
-  views::View* dialog_body_;
-  views::Button* close_button_;
-};
-
-BEGIN_METADATA(AppListDialogContainer, views::DialogDelegateView)
-END_METADATA
-
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
 // A BubbleFrameView that allows its client view to extend all the way to the
 // top of the dialog, overlapping the BubbleFrameView's close button. This
 // allows dialog content to appear closer to the top, in place of a title.
@@ -142,21 +89,6 @@ class FullSizeBubbleFrameView : public views::BubbleFrameView {
   ~FullSizeBubbleFrameView() override = default;
 
  private:
-  // Overridden from views::ViewTargeterDelegate:
-  bool DoesIntersectRect(const View* target,
-                         const gfx::Rect& rect) const override {
-    // Make sure click events can still reach the close button, even if the
-    // ClientView overlaps it.
-    // NOTE: |rect| is in the mirrored coordinate space, so we must use the
-    // close button's mirrored bounds to correctly target the close button when
-    // in RTL mode.
-    if (IsCloseButtonVisible() &&
-        GetCloseButtonMirroredBounds().Intersects(rect)) {
-      return true;
-    }
-    return views::BubbleFrameView::DoesIntersectRect(target, rect);
-  }
-
   // Overridden from views::BubbleFrameView:
   bool ExtendClientIntoTitle() const override { return true; }
 };
@@ -203,13 +135,6 @@ BEGIN_METADATA(NativeDialogContainer, views::DialogDelegateView)
 END_METADATA
 
 }  // namespace
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-views::DialogDelegateView* CreateAppListContainerForView(
-    std::unique_ptr<views::View> view) {
-  return new AppListDialogContainer(std::move(view));
-}
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 views::DialogDelegateView* CreateDialogContainerForView(
     std::unique_ptr<views::View> view,

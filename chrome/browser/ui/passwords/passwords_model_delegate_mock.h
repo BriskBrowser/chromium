@@ -19,6 +19,11 @@ class PasswordsModelDelegateMock
       public base::SupportsWeakPtr<PasswordsModelDelegateMock> {
  public:
   PasswordsModelDelegateMock();
+
+  PasswordsModelDelegateMock(const PasswordsModelDelegateMock&) = delete;
+  PasswordsModelDelegateMock& operator=(const PasswordsModelDelegateMock&) =
+      delete;
+
   ~PasswordsModelDelegateMock() override;
 
   MOCK_METHOD(content::WebContents*, GetWebContents, (), (const override));
@@ -64,7 +69,7 @@ class PasswordsModelDelegateMock
   MOCK_METHOD(void, OnPasswordsRevealed, (), (override));
   MOCK_METHOD(void,
               SavePassword,
-              (const base::string16&, const base::string16&),
+              (const std::u16string&, const std::u16string&),
               (override));
   MOCK_METHOD(void,
               SaveUnsyncedCredentialsInProfileStore,
@@ -95,19 +100,21 @@ class PasswordsModelDelegateMock
   MOCK_METHOD(bool, AuthenticateUser, (), (override));
   MOCK_METHOD(void,
               AuthenticateUserForAccountStoreOptInAndSavePassword,
-              (const base::string16&, const base::string16&),
+              (const std::u16string&, const std::u16string&),
               (override));
   MOCK_METHOD(void,
               AuthenticateUserForAccountStoreOptInAndMovePassword,
               (),
               (override));
+  MOCK_METHOD(
+      void,
+      AuthenticateUserForAccountStoreOptInAfterSavingLocallyAndMovePassword,
+      (),
+      (override));
   MOCK_METHOD(bool,
               ArePasswordsRevealedWhenBubbleIsOpened,
               (),
               (const override));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PasswordsModelDelegateMock);
 };
 
 #endif  // CHROME_BROWSER_UI_PASSWORDS_PASSWORDS_MODEL_DELEGATE_MOCK_H_

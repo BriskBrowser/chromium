@@ -5,7 +5,6 @@
 #include "chrome/browser/federated_learning/floc_remote_permission_service_factory.h"
 
 #include "chrome/browser/federated_learning/floc_remote_permission_service.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/sync/driver/sync_service.h"
 #include "content/public/browser/browser_context.h"
@@ -30,7 +29,7 @@ KeyedService* FlocRemotePermissionServiceFactory::BuildServiceInstanceFor(
   Profile* profile = static_cast<Profile*>(context);
 
   return new federated_learning::FlocRemotePermissionService(
-      content::BrowserContext::GetDefaultStoragePartition(profile)
+      profile->GetDefaultStoragePartition()
           ->GetURLLoaderFactoryForBrowserProcess());
 }
 

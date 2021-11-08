@@ -8,9 +8,9 @@
 #import <UIKit/UIKit.h>
 
 @protocol ApplicationCommands;
-class AuthenticationService;
 class Browser;
 @class DiscoverFeedConfiguration;
+@class DiscoverFeedViewControllerConfiguration;
 
 // DiscoverFeedProvider allows embedders to provide functionality for a Discover
 // Feed.
@@ -38,17 +38,16 @@ class DiscoverFeedProvider {
   // Starts the Feed using |discover_config| which contains various configs for
   // the Feed.
   virtual void StartFeed(DiscoverFeedConfiguration* discover_config);
-  // DEPRECATED. Delete once this method has been deleted downstream.
-  virtual void StartFeed(AuthenticationService* auth_service);
+  // Stops the Feed, which will disconnect all of its services.
+  virtual void StopFeed();
   // Returns true if the Discover Feed is enabled.
   virtual bool IsDiscoverFeedEnabled();
   // Returns the Discover Feed ViewController.
   virtual UIViewController* NewFeedViewController(Browser* browser);
   // Returns the Discover Feed ViewController with a custom
-  // UIScrollViewDelegate.
-  virtual UIViewController* NewFeedViewControllerWithScrollDelegate(
-      Browser* browser,
-      id<UIScrollViewDelegate> scrollDelegate);
+  // DiscoverFeedViewControllerConfiguration.
+  virtual UIViewController* NewFeedViewControllerWithConfiguration(
+      DiscoverFeedViewControllerConfiguration* configuration);
   // Removes the Discover |feedViewController|. It should be called whenever
   // |feedViewController| will no longer be used.
   virtual void RemoveFeedViewController(UIViewController* feedViewController);

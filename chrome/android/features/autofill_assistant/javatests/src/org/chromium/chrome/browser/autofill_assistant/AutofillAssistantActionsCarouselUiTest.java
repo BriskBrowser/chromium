@@ -32,6 +32,7 @@ import org.chromium.chrome.browser.autofill_assistant.carousel.AssistantActionsC
 import org.chromium.chrome.browser.autofill_assistant.carousel.AssistantCarouselModel;
 import org.chromium.chrome.browser.autofill_assistant.carousel.AssistantChip;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
+import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -71,14 +72,16 @@ public class AutofillAssistantActionsCarouselUiTest {
 
     @Before
     public void setUp() {
-        AutofillAssistantUiTestUtil.startOnBlankPage(mTestRule);
+        mTestRule.startCustomTabActivityWithIntent(CustomTabsTestUtils.createMinimalCustomTabIntent(
+                InstrumentationRegistry.getTargetContext(), "about:blank"));
     }
 
     /** Tests assumptions about the initial state of the carousel. */
     @Test
     @MediumTest
     public void testInitialState() throws Exception {
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinator = createCoordinator(model);
 
         assertThat(model.get(AssistantCarouselModel.CHIPS).size(), is(0));
@@ -89,7 +92,8 @@ public class AutofillAssistantActionsCarouselUiTest {
     @Test
     @MediumTest
     public void testAddSingleChip() throws Exception {
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinator = createCoordinator(model);
 
         TestThreadUtils.runOnUiThreadBlocking(
@@ -110,7 +114,8 @@ public class AutofillAssistantActionsCarouselUiTest {
     @Test
     @MediumTest
     public void testAddMultipleChips() throws Exception {
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinator = createCoordinator(model);
 
         // Note: this should be a small number that fits on screen without scrolling.
@@ -138,7 +143,8 @@ public class AutofillAssistantActionsCarouselUiTest {
     @Test
     @MediumTest
     public void testCancelChipAlwaysVisible() throws Exception {
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinator = createCoordinator(model);
 
         // Note: this should be a large number that does not fit on screen without scrolling.
@@ -170,7 +176,8 @@ public class AutofillAssistantActionsCarouselUiTest {
     @Test
     @MediumTest
     public void testMoveChip() throws Exception {
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinator = createCoordinator(model);
 
         List<AssistantChip> chips = new ArrayList<>();
@@ -205,7 +212,8 @@ public class AutofillAssistantActionsCarouselUiTest {
     @MediumTest
     public void testSuppliedNonEmptyContentDescriptionIsUsed() throws Exception {
         String contentDescription = "Test content description";
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinator = createCoordinator(model);
 
         TestThreadUtils.runOnUiThreadBlocking(
@@ -228,7 +236,8 @@ public class AutofillAssistantActionsCarouselUiTest {
     @MediumTest
     public void testSuppliedEmptyContentDescriptionIsUsed() throws Exception {
         String contentDescription = "";
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinator = createCoordinator(model);
 
         TestThreadUtils.runOnUiThreadBlocking(
@@ -251,7 +260,8 @@ public class AutofillAssistantActionsCarouselUiTest {
     @MediumTest
     public void testWhenNullContentDescriptionIsSuppliedChipTextIsUsed() throws Exception {
         String chipText = "Chip Text";
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinatorNonEmptyChipText = createCoordinator(model);
 
         TestThreadUtils.runOnUiThreadBlocking(
@@ -275,7 +285,8 @@ public class AutofillAssistantActionsCarouselUiTest {
     @MediumTest
     public void testWhenNullContentDescriptionIsSuppliedChipTextOrIconDescriptionIsUsed()
             throws Exception {
-        AssistantCarouselModel model = new AssistantCarouselModel();
+        AssistantCarouselModel model =
+                TestThreadUtils.runOnUiThreadBlocking(AssistantCarouselModel::new);
         AssistantActionsCarouselCoordinator coordinatorEmptyChipText = createCoordinator(model);
 
         TestThreadUtils.runOnUiThreadBlocking(

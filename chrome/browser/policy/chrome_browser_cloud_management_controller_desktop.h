@@ -7,13 +7,9 @@
 
 #include "components/enterprise/browser/controller/chrome_browser_cloud_management_controller.h"
 
-#include "chrome/browser/enterprise/reporting/reporting_delegate_factory_desktop.h"
+#include "chrome/browser/policy/cbcm_invalidations_initializer.h"
 
 class DeviceIdentityProvider;
-
-namespace enterprise_reporting {
-class ReportScheduler;
-}
 
 namespace instance_id {
 class InstanceIDDriver;
@@ -26,12 +22,12 @@ class FCMInvalidationService;
 namespace policy {
 class ChromeBrowserCloudManagementRegisterWatcher;
 class CloudPolicyInvalidator;
-class MachineLevelDeviceAccountInitializerHelper;
 class RemoteCommandsInvalidator;
 
 // Desktop implementation of the platform-specific operations of CBCMController.
 class ChromeBrowserCloudManagementControllerDesktop
-    : public ChromeBrowserCloudManagementController::Delegate {
+    : public ChromeBrowserCloudManagementController::Delegate,
+      public CBCMInvalidationsInitializer::Delegate {
  public:
   ChromeBrowserCloudManagementControllerDesktop();
   ChromeBrowserCloudManagementControllerDesktop(
@@ -44,7 +40,7 @@ class ChromeBrowserCloudManagementControllerDesktop
   // ChromeBrowserCloudManagementController::Delegate implementation.
   void SetDMTokenStorageDelegate() override;
   int GetUserDataDirKey() override;
-  base::FilePath GetExternalPolicyPath() override;
+  base::FilePath GetExternalPolicyDir() override;
   NetworkConnectionTrackerGetter CreateNetworkConnectionTrackerGetter()
       override;
   void InitializeOAuthTokenFactory(
@@ -62,33 +58,29 @@ class ChromeBrowserCloudManagementControllerDesktop
   DeviceManagementService* GetDeviceManagementService() override;
   scoped_refptr<network::SharedURLLoaderFactory> GetSharedURLLoaderFactory()
       override;
-  std::unique_ptr<enterprise_reporting::ReportScheduler> CreateReportScheduler(
-      CloudPolicyClient* client) override;
-
   scoped_refptr<base::SingleThreadTaskRunner> GetBestEffortTaskRunner()
       override;
-
+  std::unique_ptr<enterprise_reporting::ReportingDelegateFactory>
+  GetReportingDelegateFactory() override;
   void SetGaiaURLLoaderFactory(scoped_refptr<network::SharedURLLoaderFactory>
                                    url_loader_factory) override;
+  bool ReadyToCreatePolicyManager() override;
+  bool ReadyToInit() override;
+  std::unique_ptr<ClientDataDelegate> CreateClientDataDelegate() override;
 
- private:
+  // CBCMInvalidationsInitializer::Delegate:
   // Starts the services required for Policy Invalidations over FCM to be
   // enabled.
-  void StartInvalidations();
+  void StartInvalidations() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
+  bool IsInvalidationsServiceStarted() const override;
 
-  // Called by the DeviceAccountInitializer when the device service account is
-  // ready.
-  void AccountInitCallback(const std::string& account_email, bool success);
-
-  enterprise_reporting::ReportingDelegateFactoryDesktop
-      reporting_delegate_factory_;
-
+ private:
   std::unique_ptr<ChromeBrowserCloudManagementRegisterWatcher>
       cloud_management_register_watcher_;
 
   // These objects are all involved in Policy Invalidations.
-  std::unique_ptr<MachineLevelDeviceAccountInitializerHelper>
-      account_initializer_helper_;
+  CBCMInvalidationsInitializer invalidations_initializer_;
   scoped_refptr<network::SharedURLLoaderFactory> gaia_url_loader_factory_;
   std::unique_ptr<DeviceIdentityProvider> identity_provider_;
   std::unique_ptr<instance_id::InstanceIDDriver> device_instance_id_driver_;

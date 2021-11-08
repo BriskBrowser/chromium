@@ -9,22 +9,17 @@ SwitchAccessBasicNodeTest = class extends SwitchAccessE2ETest {
   setUp() {
     var runTest = this.deferRunTest(WhenTestDone.EXPECT);
     (async function() {
-      let module = await import('/switch_access/nodes/basic_node.js');
-      window.BasicNode = module.BasicNode;
-      window.BasicRootNode = module.BasicRootNode;
+      await importModule(
+          ['BasicNode', 'BasicRootNode'], '/switch_access/nodes/basic_node.js');
+      await importModule(
+          'BackButtonNode', '/switch_access/nodes/back_button_node.js');
 
-      module = await import('/switch_access/nodes/back_button_node.js');
-      window.BackButtonNode = module.BackButtonNode;
-
-      module = await import('/switch_access/nodes/desktop_node.js');
-      window.DesktopNode = module.DesktopNode;
-
-      module = await import('/switch_access/nodes/switch_access_node.js');
-      window.SARootNode = module.SARootNode;
-
-      module = await import('/switch_access/switch_access_constants.js');
-      window.SwitchAccessMenuAction = module.SwitchAccessMenuAction;
-
+      await importModule('DesktopNode', '/switch_access/nodes/desktop_node.js');
+      await importModule(
+          'SARootNode', '/switch_access/nodes/switch_access_node.js');
+      await importModule(
+          'SwitchAccessMenuAction',
+          '/switch_access/switch_access_constants.js');
       runTest();
     })();
   }
@@ -38,8 +33,8 @@ TEST_F('SwitchAccessBasicNodeTest', 'AsRootNode', function() {
                      </div>
                      <button></button>
                    </div>`;
-  this.runWithLoadedTree(website, (root) => {
-    const slider = root.find({role: chrome.automation.RoleType.SLIDER});
+  this.runWithLoadedTree(website, (rootWebArea) => {
+    const slider = rootWebArea.find({role: chrome.automation.RoleType.SLIDER});
     const inner = slider.parent;
     assertNotEquals(undefined, inner, 'Could not find inner group');
     const outer = inner.parent;
@@ -138,9 +133,9 @@ TEST_F('SwitchAccessBasicNodeTest', 'Actions', function() {
   const website = `<input type="text">
                    <button></button>
                    <input type="range" min=1 max=5 value=3>`;
-  this.runWithLoadedTree(website, (root) => {
+  this.runWithLoadedTree(website, (rootWebArea) => {
     const textField = BasicNode.create(
-        root.find({role: chrome.automation.RoleType.TEXT_FIELD}),
+        rootWebArea.find({role: chrome.automation.RoleType.TEXT_FIELD}),
         new SARootNode());
 
     assertEquals(
@@ -157,7 +152,8 @@ TEST_F('SwitchAccessBasicNodeTest', 'Actions', function() {
         'Text field has action SELECT');
 
     const button = BasicNode.create(
-        root.find({role: chrome.automation.RoleType.BUTTON}), new SARootNode());
+        rootWebArea.find({role: chrome.automation.RoleType.BUTTON}),
+        new SARootNode());
 
     assertEquals(
         chrome.automation.RoleType.BUTTON, button.role,
@@ -173,7 +169,8 @@ TEST_F('SwitchAccessBasicNodeTest', 'Actions', function() {
         'Button has action DICTATION');
 
     const slider = BasicNode.create(
-        root.find({role: chrome.automation.RoleType.SLIDER}), new SARootNode());
+        rootWebArea.find({role: chrome.automation.RoleType.SLIDER}),
+        new SARootNode());
 
     assertEquals(
         chrome.automation.RoleType.SLIDER, slider.role,

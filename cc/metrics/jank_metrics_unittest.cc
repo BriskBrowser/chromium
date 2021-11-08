@@ -21,13 +21,18 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
-const base::TimeDelta kDefaultFrameInterval =
-    base::TimeDelta::FromMillisecondsD(16.67);
+const base::TimeDelta kDefaultFrameInterval = base::Milliseconds(16.67);
 
 // All sequence numbers for simulated frame events will start at this number.
 // This makes it easier to numerically distinguish sequence numbers versus
 // frame tokens, which always start at 1.
 const uint32_t kSequenceNumberStartsAt = 100u;
+
+const char* kAllSequencesMetricName = "Graphics.Smoothness.Jank.AllSequences";
+const char* kAllAnimationsMetricName = "Graphics.Smoothness.Jank.AllAnimations";
+const char* kAllInteractionsMetricName =
+    "Graphics.Smoothness.Jank.AllInteractions";
+
 }  // namespace
 
 namespace cc {
@@ -121,7 +126,7 @@ class JankMetricsTest : public testing::Test {
             /*presented_frame_token=*/submit_to_token[presnts[i]],
             /*current_presentation_timestamp=*/start_time +
                 i * kDefaultFrameInterval +
-                base::TimeDelta::FromMillisecondsD(presentation_offset),
+                base::Milliseconds(presentation_offset),
             /*frame_interval=*/kDefaultFrameInterval);
         submit_to_token.erase(presnts[i]);
       }
@@ -157,6 +162,17 @@ TEST_F(JankMetricsTest, CompositorAnimationOneJankWithMildFluctuation) {
   histogram_tester.ExpectTotalCount(metric, 1u);
   EXPECT_THAT(histogram_tester.GetAllSamples(metric),
               testing::ElementsAre(base::Bucket(1, 1)));
+
+  // Test all-sequence metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(1, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(1, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 0u);
 
   // Stale-frame metrics
   const char* stale_metric = "Graphics.Smoothness.Stale.CompositorAnimation";
@@ -206,6 +222,17 @@ TEST_F(JankMetricsTest, MainThreadAnimationOneJankWithNoUpdate) {
   // No jank is reported for "Compositor"
   histogram_tester.ExpectTotalCount(invalid_metric, 0u);
 
+  // Test all-sequence metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(1, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(1, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 0u);
+
   // Stale-frame metrics
   const char* stale_metric = "Graphics.Smoothness.Stale.MainThreadAnimation";
   const char* maxstale_metric =
@@ -248,6 +275,11 @@ TEST_F(JankMetricsTest, VideoManyJanksOver300ExpectedFrames) {
   // No jank is reported for "Main"
   histogram_tester.ExpectTotalCount(invalid_metric, 0u);
 
+  // Test all-sequence metrics. Videos are not counted into AllSequences.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 0u);
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 0u);
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 0u);
+
   // Stale-frame metrics
   const char* stale_metric = "Graphics.Smoothness.Stale.Video";
   const char* maxstale_metric = "Graphics.Smoothness.MaxStale.Video";
@@ -288,6 +320,17 @@ TEST_F(JankMetricsTest, WheelScrollMainThreadNoJanksWithNoUpdates) {
               testing::ElementsAre(base::Bucket(0, 1)));
 
   histogram_tester.ExpectTotalCount(invalid_metric, 0u);
+
+  // Test all-sequence metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(0, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 0u);
+
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllInteractionsMetricName),
+              testing::ElementsAre(base::Bucket(0, 1)));
 
   // Stale-frame metrics
   const char* stale_metric = "Graphics.Smoothness.Stale.WheelScroll";
@@ -331,6 +374,17 @@ TEST_F(JankMetricsTest, WheelScrollCompositorTwoJanksWithLargeFluctuation) {
 
   // No reporting for "Main".
   histogram_tester.ExpectTotalCount(invalid_metric, 0u);
+
+  // Test all-sequence metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(2, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 0u);
+
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllInteractionsMetricName),
+              testing::ElementsAre(base::Bucket(2, 1)));
 
   // Stale-frame metrics
   const char* stale_metric = "Graphics.Smoothness.Stale.WheelScroll";
@@ -378,6 +432,17 @@ TEST_F(JankMetricsTest, TouchScrollCompositorThreadManyJanksLongLatency) {
 
   histogram_tester.ExpectTotalCount(invalid_metric, 0u);
 
+  // Test all-sequence metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(4, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 0u);
+
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllInteractionsMetricName),
+              testing::ElementsAre(base::Bucket(4, 1)));
+
   // Stale-frame metrics
   const char* stale_metric = "Graphics.Smoothness.Stale.TouchScroll";
   const char* maxstale_metric = "Graphics.Smoothness.MaxStale.TouchScroll";
@@ -416,15 +481,13 @@ TEST_F(JankMetricsTest, RAFMergeJanks) {
 
   jank_reporter.Merge(std::move(other_reporter));
   EXPECT_EQ(jank_reporter.jank_count(), 6);
-  EXPECT_TRUE(
-      jank_reporter.max_staleness() > base::TimeDelta::FromMilliseconds(33) &&
-      jank_reporter.max_staleness() < base::TimeDelta::FromMilliseconds(34));
+  EXPECT_TRUE(jank_reporter.max_staleness() > base::Milliseconds(33) &&
+              jank_reporter.max_staleness() < base::Milliseconds(34));
   jank_reporter.ReportJankMetrics(100u);
 
   // Jank / staleness values should be reset after reporting
   EXPECT_EQ(jank_reporter.jank_count(), 0);
-  EXPECT_EQ(jank_reporter.max_staleness(),
-            base::TimeDelta::FromMilliseconds(0));
+  EXPECT_EQ(jank_reporter.max_staleness(), base::Milliseconds(0));
 
   // Expect 6 janks for "Main" (3 from each reporter)
   const char* metric = "Graphics.Smoothness.Jank.Main.RAF";
@@ -435,6 +498,12 @@ TEST_F(JankMetricsTest, RAFMergeJanks) {
               testing::ElementsAre(base::Bucket(6, 1)));
 
   histogram_tester.ExpectTotalCount(invalid_metric, 0u);
+
+  // Test all-sequence metrics.
+  // RAF is not included in AllSequences/AllAnimations metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 0u);
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 0u);
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 0u);
 
   // Stale-frame metrics
   const char* stale_metric = "Graphics.Smoothness.Stale.RAF";
@@ -472,9 +541,146 @@ TEST_F(JankMetricsTest, CustomNotReported) {
   histogram_tester.ExpectTotalCount(
       "Graphics.Smoothness.Jank.Compositor.Custom", 0u);
 
+  // Test all-sequence metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 0u);
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 0u);
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 0u);
+
   // Stale-frame metrics
   histogram_tester.ExpectTotalCount("Graphics.Smoothness.Stale.Custom", 0u);
   histogram_tester.ExpectTotalCount("Graphics.Smoothness.MaxStale.Custom", 0u);
+}
+
+// Test a frame sequence with a long idle period >= 100 frames.
+// The presentation interval containing the idle period is excluded from
+// jank/stale calculation since the length of the idle period reaches a
+// predefined cap.
+TEST_F(JankMetricsTest, CompositorAnimationOneJankWithLongIdlePeriod) {
+  base::HistogramTester histogram_tester;
+  FrameSequenceTrackerType tracker_type =
+      FrameSequenceTrackerType::kCompositorAnimation;
+  FrameSequenceMetrics::ThreadType thread_type =
+      FrameSequenceMetrics::ThreadType::kCompositor;
+  JankMetrics jank_reporter{tracker_type, thread_type};
+
+  // One jank at E. The long delay of 100 frames between b and c is considered
+  // a long idle period and therefore does not participate in jank/stale
+  // calculation.
+  SimulateFrameSequence(&jank_reporter,
+                        {
+                            /*submit   */ std::string("a-b") +
+                                std::string(100, '-') + std::string("c--d---E"),
+                            /*noupdate */ std::string("---") +
+                                std::string(100, '*') + std::string("--------"),
+                            /*present  */ std::string("a-b") +
+                                std::string(100, '-') + std::string("c--d---E"),
+                        },
+                        {});
+  jank_reporter.ReportJankMetrics(100u);
+
+  // One sample of 1 janks reported for "Compositor".
+  const char* metric =
+      "Graphics.Smoothness.Jank.Compositor.CompositorAnimation";
+  const char* invalid_metric =
+      "Graphics.Smoothness.Jank.Main.CompositorAnimation";
+
+  histogram_tester.ExpectTotalCount(metric, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(metric),
+              testing::ElementsAre(base::Bucket(1, 1)));
+
+  // Test all-sequence metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(1, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(1, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 0u);
+
+  // Stale-frame metrics
+  const char* stale_metric = "Graphics.Smoothness.Stale.CompositorAnimation";
+  const char* maxstale_metric =
+      "Graphics.Smoothness.MaxStale.CompositorAnimation";
+
+  histogram_tester.ExpectTotalCount(stale_metric, 4u);
+  EXPECT_THAT(
+      histogram_tester.GetAllSamples(stale_metric),
+      testing::ElementsAre(base::Bucket(0, 1),  /* The long frame from b to c*/
+                           base::Bucket(16, 1), /* a-b */
+                           base::Bucket(33, 1), /* c--d */
+                           base::Bucket(50, 1)) /* d---E */);
+  histogram_tester.ExpectTotalCount(maxstale_metric, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(maxstale_metric),
+              testing::ElementsAre(base::Bucket(50, 1)));
+
+  // No reporting for "Main".
+  histogram_tester.ExpectTotalCount(invalid_metric, 0u);
+}
+
+// Test a frame sequence with an idle period < 100 frames.
+// The jank and stale are still calculated normally in this case.
+TEST_F(JankMetricsTest, CompositorAnimationTwoJanksWithModerateIdlePeriod) {
+  base::HistogramTester histogram_tester;
+  FrameSequenceTrackerType tracker_type =
+      FrameSequenceTrackerType::kCompositorAnimation;
+  FrameSequenceMetrics::ThreadType thread_type =
+      FrameSequenceMetrics::ThreadType::kCompositor;
+  JankMetrics jank_reporter{tracker_type, thread_type};
+
+  // Two janks at D and E. The long delay of 99 no-update frames does not
+  // exceed the capacity of the no-update frame queue and therefore is not
+  // excluded from jank/stale calculation.
+  SimulateFrameSequence(&jank_reporter,
+                        {
+                            /*submit   */ std::string("a-b-") +
+                                std::string(99, '-') + std::string("c--D---E"),
+                            /*noupdate */ std::string("----") +
+                                std::string(99, '*') + std::string("--------"),
+                            /*present  */ std::string("a-b-") +
+                                std::string(99, '-') + std::string("c--D---E"),
+                        },
+                        {});
+  jank_reporter.ReportJankMetrics(100u);
+
+  // One sample of 2 janks reported for "Compositor".
+  const char* metric =
+      "Graphics.Smoothness.Jank.Compositor.CompositorAnimation";
+  const char* invalid_metric =
+      "Graphics.Smoothness.Jank.Main.CompositorAnimation";
+
+  histogram_tester.ExpectTotalCount(metric, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(metric),
+              testing::ElementsAre(base::Bucket(2, 1)));
+
+  // Test all-sequence metrics.
+  histogram_tester.ExpectTotalCount(kAllSequencesMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(2, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllAnimationsMetricName, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(kAllSequencesMetricName),
+              testing::ElementsAre(base::Bucket(2, 1)));
+
+  histogram_tester.ExpectTotalCount(kAllInteractionsMetricName, 0u);
+
+  // Stale-frame metrics
+  const char* stale_metric = "Graphics.Smoothness.Stale.CompositorAnimation";
+  const char* maxstale_metric =
+      "Graphics.Smoothness.MaxStale.CompositorAnimation";
+
+  histogram_tester.ExpectTotalCount(stale_metric, 4u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(stale_metric),
+              testing::ElementsAre(base::Bucket(16, 2), /* a-b & b-c */
+                                   base::Bucket(33, 1), /* c--d */
+                                   base::Bucket(50, 1)) /* d---E */);
+  histogram_tester.ExpectTotalCount(maxstale_metric, 1u);
+  EXPECT_THAT(histogram_tester.GetAllSamples(maxstale_metric),
+              testing::ElementsAre(base::Bucket(50, 1)));
+
+  // No reporting for "Main".
+  histogram_tester.ExpectTotalCount(invalid_metric, 0u);
 }
 
 }  // namespace cc

@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <cmath>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/macros.h"
@@ -54,6 +55,10 @@ bool VerifyInstanceID(const std::string& str) {
 class InstanceIDDriverTest : public testing::Test {
  public:
   InstanceIDDriverTest();
+
+  InstanceIDDriverTest(const InstanceIDDriverTest&) = delete;
+  InstanceIDDriverTest& operator=(const InstanceIDDriverTest&) = delete;
+
   ~InstanceIDDriverTest() override;
 
   // testing::Test:
@@ -102,8 +107,6 @@ class InstanceIDDriverTest : public testing::Test {
 
   bool async_operation_completed_;
   base::OnceClosure async_operation_completed_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(InstanceIDDriverTest);
 };
 
 InstanceIDDriverTest::InstanceIDDriverTest()
@@ -116,7 +119,7 @@ InstanceIDDriverTest::~InstanceIDDriverTest() {
 }
 
 void InstanceIDDriverTest::SetUp() {
-  gcm_driver_.reset(new FakeGCMDriverForInstanceID);
+  gcm_driver_ = std::make_unique<FakeGCMDriverForInstanceID>();
   RecreateInstanceIDDriver();
 }
 
@@ -129,7 +132,7 @@ void InstanceIDDriverTest::TearDown() {
 }
 
 void InstanceIDDriverTest::RecreateInstanceIDDriver() {
-  driver_.reset(new InstanceIDDriver(gcm_driver_.get()));
+  driver_ = std::make_unique<InstanceIDDriver>(gcm_driver_.get());
 }
 
 void InstanceIDDriverTest::WaitForAsyncOperation() {

@@ -10,22 +10,22 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/optional.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/intent_helper/apps_navigation_types.h"
 #include "chrome/browser/lifetime/browser_close_manager.h"
-#include "chrome/browser/sharing/sharing_dialog_data.h"
 #include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_bubble_type.h"
+#include "chrome/browser/ui/hats/hats_service.h"
 #include "chrome/browser/ui/page_action/page_action_icon_type.h"
-#include "chrome/browser/ui/user_education/in_product_help.h"
 #include "chrome/common/buildflags.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/translate/core/common/translate_errors.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/base_window.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
@@ -37,6 +37,7 @@
 
 class Browser;
 class SharingDialog;
+struct SharingDialogData;
 class DownloadShelf;
 class ExclusiveAccessContext;
 class ExtensionsContainer;
@@ -73,6 +74,21 @@ namespace send_tab_to_self {
 class SendTabToSelfBubbleController;
 class SendTabToSelfBubbleView;
 }  // namespace send_tab_to_self
+
+namespace sharing_hub {
+class ScreenshotCapturedBubbleController;
+class ScreenshotCapturedBubble;
+class SharingHubBubbleController;
+class SharingHubBubbleView;
+}  // namespace sharing_hub
+
+namespace ui {
+class NativeTheme;
+}
+
+namespace views {
+class Button;
+}  // namespace views
 
 namespace web_modal {
 class WebContentsModalDialogHost;
@@ -172,6 +188,9 @@ class BrowserWindow : public ui::BaseWindow {
   // renderer-initiated animation of the top controls shown ratio).
   virtual bool DoBrowserControlsShrinkRendererSize(
       const content::WebContents* contents) const = 0;
+
+  // Returns the native theme associated with the frame.
+  virtual ui::NativeTheme* GetNativeTheme() = 0;
 
   // Returns the height of the browser's top controls. This height doesn't
   // change with the current shown ratio above. Renderers will call this to
@@ -320,6 +339,9 @@ class BrowserWindow : public ui::BaseWindow {
   // Moves keyboard focus to the next pane.
   virtual void RotatePaneFocus(bool forwards) = 0;
 
+  // Moves keyboard focus directly to the web contents pane.
+  virtual void FocusWebContentsPane() = 0;
+
   // Returns whether the bookmark bar is visible or not.
   virtual bool IsBookmarkBarVisible() const = 0;
 
@@ -361,25 +383,43 @@ class BrowserWindow : public ui::BaseWindow {
       bool show_stay_in_chrome,
       bool show_remember_selection,
       PageActionIconType icon_type,
-      const base::Optional<url::Origin>& initiating_origin,
+      const absl::optional<url::Origin>& initiating_origin,
       IntentPickerResponse callback) = 0;
 
   // Shows the Bookmark bubble. |url| is the URL being bookmarked,
   // |already_bookmarked| is true if the url is already bookmarked.
   virtual void ShowBookmarkBubble(const GURL& url, bool already_bookmarked) = 0;
 
+  // Shows the Screenshot bubble.
+  virtual sharing_hub::ScreenshotCapturedBubble* ShowScreenshotCapturedBubble(
+      content::WebContents* contents,
+      const gfx::Image& image,
+      sharing_hub::ScreenshotCapturedBubbleController* controller) = 0;
+
   // Shows the QR Code generator bubble. |url| is the URL for the initial code.
   virtual qrcode_generator::QRCodeGeneratorBubbleView*
   ShowQRCodeGeneratorBubble(
       content::WebContents* contents,
       qrcode_generator::QRCodeGeneratorBubbleController* controller,
-      const GURL& url) = 0;
+      const GURL& url,
+      bool show_back_button) = 0;
 
   // Shows the "send tab to self" bubble.
   virtual send_tab_to_self::SendTabToSelfBubbleView* ShowSendTabToSelfBubble(
       content::WebContents* contents,
       send_tab_to_self::SendTabToSelfBubbleController* controller,
       bool is_user_gesture) = 0;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Returns the PageActionIconView for the Sharing Hub.
+  virtual views::Button* GetSharingHubIconButton() = 0;
+#else
+  // Shows the Sharing Hub bubble.
+  virtual sharing_hub::SharingHubBubbleView* ShowSharingHubBubble(
+      content::WebContents* contents,
+      sharing_hub::SharingHubBubbleController* controller,
+      bool is_user_gesture) = 0;
+#endif
 
   // Shows the translate bubble.
   //
@@ -397,7 +437,7 @@ class BrowserWindow : public ui::BaseWindow {
   // Shows the one-click sign in confirmation UI. |email| holds the full email
   // address of the account that has signed in.
   virtual void ShowOneClickSigninConfirmation(
-      const base::string16& email,
+      const std::u16string& email,
       base::OnceCallback<void(bool)> confirmed_callback) = 0;
 #endif
 
@@ -463,20 +503,28 @@ class BrowserWindow : public ui::BaseWindow {
   virtual void ShowAvatarBubbleFromAvatarButton(
       AvatarBubbleMode mode,
       signin_metrics::AccessPoint access_point,
-      bool is_source_keyboard) = 0;
+      bool is_source_accelerator) = 0;
+
+  // Attempts showing the In-Produce-Help for profile Switching. This is called
+  // after creating a new profile or opening an existing profile. If the profile
+  // customization bubble is shown, the IPH should be shown after.
+  virtual void MaybeShowProfileSwitchIPH() = 0;
 
   // Shows User Happiness Tracking Survey's dialog after the survey associated
   // with |site_id| has been successfully loaded. Failure to load the survey
-  // will result in the dialog not being shown.
-  virtual void ShowHatsDialog(const std::string& site_id,
-                              base::OnceClosure success_callback,
-                              base::OnceClosure failure_callback) = 0;
+  // will result in the dialog not being shown. |product_specific_bits_data| and
+  // |product_specific_string_data| should contain key-value pairs where the
+  // keys match the field names set for the survey in hats_service.cc, and the
+  // values are those which will be associated with the survey response.
+  virtual void ShowHatsDialog(
+      const std::string& site_id,
+      base::OnceClosure success_callback,
+      base::OnceClosure failure_callback,
+      const SurveyBitsData& product_specific_bits_data,
+      const SurveyStringData& product_specific_string_data) = 0;
 
   // Returns object implementing ExclusiveAccessContext interface.
   virtual ExclusiveAccessContext* GetExclusiveAccessContext() = 0;
-
-  // Shows in-product help for the given feature.
-  virtual void ShowInProductHelpPromo(InProductHelpFeature iph_feature) = 0;
 
   // Returns the platform-specific ID of the workspace the browser window
   // currently resides in.
@@ -502,6 +550,12 @@ class BrowserWindow : public ui::BaseWindow {
   // Gets the windows's FeaturePromoController which manages display of
   // in-product help.
   virtual FeaturePromoController* GetFeaturePromoController() = 0;
+
+  // Shows an Incognito clear browsing data dialog.
+  virtual void ShowIncognitoClearBrowsingDataDialog() = 0;
+
+  // Shows an Incognito history disclaimer dialog.
+  virtual void ShowIncognitoHistoryDisclaimerDialog() = 0;
 
  protected:
   friend class BrowserCloseManager;

@@ -48,9 +48,10 @@ class ProfileMenuView : public ProfileMenuViewBase {
  private:
   friend class ProfileMenuViewExtensionsTest;
   friend class ProfileMenuViewSignoutTest;
+  friend class ProfileMenuInteractiveUiTest;
 
   // views::BubbleDialogDelegateView:
-  base::string16 GetAccessibleWindowTitle() const override;
+  std::u16string GetAccessibleWindowTitle() const override;
 
   // Button/link actions.
   void OnManageGoogleAccountButtonClicked();
@@ -60,7 +61,7 @@ class ProfileMenuView : public ProfileMenuViewBase {
   void OnGuestProfileButtonClicked();
   void OnExitProfileButtonClicked();
   void OnSyncSettingsButtonClicked();
-  void OnSyncErrorButtonClicked(sync_ui_util::AvatarSyncErrorType error);
+  void OnSyncErrorButtonClicked(AvatarSyncErrorType error);
   void OnSigninAccountButtonClicked(AccountInfo account);
   void OnCookiesClearedOnExitLinkClicked();
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -85,12 +86,11 @@ class ProfileMenuView : public ProfileMenuViewBase {
   void BuildFeatureButtons();
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
   void BuildSelectableProfiles();
-  void BuildProfileManagementHeading();
   void BuildProfileManagementFeatureButtons();
 #endif
 
-  base::string16 menu_title_;
-  base::string16 menu_subtitle_;
+  std::u16string menu_title_;
+  std::u16string menu_subtitle_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PROFILES_PROFILE_MENU_VIEW_H_

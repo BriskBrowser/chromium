@@ -4,8 +4,9 @@
 
 #include "chrome/browser/ui/views/webauthn/authenticator_request_dialog_view.h"
 
+#include <string>
+
 #include "base/logging.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/md_text_button_with_down_arrow.h"
@@ -18,12 +19,12 @@
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/border.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/vector_icons.h"
 
 // static
@@ -62,14 +63,14 @@ AuthenticatorRequestDialogView::~AuthenticatorRequestDialogView() {
   // ObservableAuthenticatorList is owned by AuthenticatorRequestDialogModel,
   // destroy all view components that might own models observing the list prior
   // to destroying AuthenticatorRequestDialogModel.
-  RemoveAllChildViews(true /* delete_children */);
+  RemoveAllChildViews();
 }
 
 void AuthenticatorRequestDialogView::ReplaceCurrentSheetWith(
     std::unique_ptr<AuthenticatorRequestSheetView> new_sheet) {
   DCHECK(new_sheet);
 
-  other_transports_menu_runner_.reset();
+  other_mechanisms_menu_runner_.reset();
 
   delete sheet_;
   DCHECK(children().empty());
@@ -100,7 +101,7 @@ void AuthenticatorRequestDialogView::UpdateUIForCurrentSheet() {
   // Whether to show the `Choose another option` button, or other dialog
   // configuration is delegated to the |sheet_|, and the new sheet likely wants
   // to provide a new configuration.
-  ToggleOtherTransportsButtonVisibility();
+  ToggleOtherMechanismsButtonVisibility();
   DialogModelChanged();
 
   // If the widget is not yet shown or already being torn down, we are done. In
@@ -140,14 +141,14 @@ void AuthenticatorRequestDialogView::UpdateUIForCurrentSheet() {
     GetInitiallyFocusedView()->RequestFocus();
 }
 
-void AuthenticatorRequestDialogView::ToggleOtherTransportsButtonVisibility() {
-  other_transports_button_->SetVisible(ShouldOtherTransportsButtonBeVisible());
+void AuthenticatorRequestDialogView::ToggleOtherMechanismsButtonVisibility() {
+  other_mechanisms_button_->SetVisible(ShouldOtherMechanismsButtonBeVisible());
 }
 
-bool AuthenticatorRequestDialogView::ShouldOtherTransportsButtonBeVisible()
+bool AuthenticatorRequestDialogView::ShouldOtherMechanismsButtonBeVisible()
     const {
-  return sheet_->model()->GetOtherTransportsMenuModel() &&
-         sheet_->model()->GetOtherTransportsMenuModel()->GetItemCount();
+  return sheet_->model()->GetOtherMechanismsMenuModel() &&
+         sheet_->model()->GetOtherMechanismsMenuModel()->GetItemCount();
 }
 
 bool AuthenticatorRequestDialogView::Accept() {
@@ -192,8 +193,8 @@ views::View* AuthenticatorRequestDialogView::GetInitiallyFocusedView() {
     return GetOkButton();
   }
 
-  if (ShouldOtherTransportsButtonBeVisible())
-    return other_transports_button_;
+  if (ShouldOtherMechanismsButtonBeVisible())
+    return other_mechanisms_button_;
 
   if (sheet()->model()->IsCancelButtonVisible())
     return GetCancelButton();
@@ -201,11 +202,12 @@ views::View* AuthenticatorRequestDialogView::GetInitiallyFocusedView() {
   return nullptr;
 }
 
-base::string16 AuthenticatorRequestDialogView::GetWindowTitle() const {
+std::u16string AuthenticatorRequestDialogView::GetWindowTitle() const {
   return sheet()->model()->GetStepTitle();
 }
 
-void AuthenticatorRequestDialogView::OnModelDestroyed() {
+void AuthenticatorRequestDialogView::OnModelDestroyed(
+    AuthenticatorRequestDialogModel* model) {
   NOTREACHED();
 }
 
@@ -256,11 +258,10 @@ AuthenticatorRequestDialogView::AuthenticatorRequestDialogView(
     std::unique_ptr<AuthenticatorRequestDialogModel> model)
     : content::WebContentsObserver(web_contents),
       model_(std::move(model)),
-      sheet_(nullptr),
-      other_transports_button_(
+      other_mechanisms_button_(
           SetExtraView(std::make_unique<views::MdTextButtonWithDownArrow>(
               base::BindRepeating(
-                  &AuthenticatorRequestDialogView::OtherTransportsButtonPressed,
+                  &AuthenticatorRequestDialogView::OtherMechanismsButtonPressed,
                   base::Unretained(this)),
               l10n_util::GetStringUTF16(IDS_WEBAUTHN_TRANSPORT_POPUP_LABEL)))),
       web_contents_hidden_(web_contents->GetVisibility() ==
@@ -304,18 +305,18 @@ void AuthenticatorRequestDialogView::Show() {
   GetWidget()->Show();
 }
 
-void AuthenticatorRequestDialogView::OtherTransportsButtonPressed() {
-  auto* other_transports_menu_model =
-      sheet_->model()->GetOtherTransportsMenuModel();
-  DCHECK(other_transports_menu_model);
-  DCHECK_GE(other_transports_menu_model->GetItemCount(), 1);
+void AuthenticatorRequestDialogView::OtherMechanismsButtonPressed() {
+  auto* other_mechanisms_menu_model =
+      sheet_->model()->GetOtherMechanismsMenuModel();
+  DCHECK(other_mechanisms_menu_model);
+  DCHECK_GE(other_mechanisms_menu_model->GetItemCount(), 1);
 
-  other_transports_menu_runner_ = std::make_unique<views::MenuRunner>(
-      other_transports_menu_model, views::MenuRunner::COMBOBOX);
+  other_mechanisms_menu_runner_ = std::make_unique<views::MenuRunner>(
+      other_mechanisms_menu_model, views::MenuRunner::COMBOBOX);
 
-  gfx::Rect anchor_bounds = other_transports_button_->GetBoundsInScreen();
-  other_transports_menu_runner_->RunMenuAt(
-      other_transports_button_->GetWidget(), nullptr /* MenuButtonController */,
+  gfx::Rect anchor_bounds = other_mechanisms_button_->GetBoundsInScreen();
+  other_mechanisms_menu_runner_->RunMenuAt(
+      other_mechanisms_button_->GetWidget(), nullptr /* MenuButtonController */,
       anchor_bounds, views::MenuAnchorPosition::kTopLeft,
       ui::MENU_SOURCE_MOUSE);
 }

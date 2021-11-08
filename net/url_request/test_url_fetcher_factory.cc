@@ -14,7 +14,7 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "net/base/completion_once_callback.h"
@@ -121,7 +121,7 @@ void TestURLFetcher::SetRequestContext(
 }
 
 void TestURLFetcher::SetInitiator(
-    const base::Optional<url::Origin>& initiator) {}
+    const absl::optional<url::Origin>& initiator) {}
 
 void TestURLFetcher::SetURLRequestUserData(
     const void* key,

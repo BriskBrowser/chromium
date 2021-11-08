@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "components/autofill/core/browser/payments/local_card_migration_manager.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -36,7 +36,10 @@ class MigratableCardView : public views::View {
 
   bool GetSelected() const;
   std::string GetGuid() const;
-  base::string16 GetCardIdentifierString() const;
+  std::u16string GetCardIdentifierString() const;
+
+  // views::View:
+  void OnThemeChanged() override;
 
  private:
   std::unique_ptr<views::View> GetMigratableCardDescriptionView(

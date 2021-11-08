@@ -9,12 +9,12 @@
 #include "ash/wm/window_util.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/wm/core/window_animations.h"
 
 namespace ash {
@@ -53,13 +53,15 @@ END_METADATA
 }  // namespace
 
 ImeModeIndicatorView::ImeModeIndicatorView(const gfx::Rect& cursor_bounds,
-                                           const base::string16& label)
+                                           const std::u16string& label)
     : cursor_bounds_(cursor_bounds), label_view_(new views::Label(label)) {
   SetButtons(ui::DIALOG_BUTTON_NONE);
   SetCanActivate(false);
   set_accept_events(false);
   set_shadow(views::BubbleBorder::STANDARD_SHADOW);
   SetArrow(views::BubbleBorder::TOP_CENTER);
+  // Ignore this view for accessibility purposes.
+  SetAccessibleRole(ax::mojom::Role::kNone);
 }
 
 ImeModeIndicatorView::~ImeModeIndicatorView() = default;
@@ -68,8 +70,8 @@ void ImeModeIndicatorView::ShowAndFadeOut() {
   ::wm::SetWindowVisibilityAnimationTransition(GetWidget()->GetNativeView(),
                                                ::wm::ANIMATE_HIDE);
   GetWidget()->Show();
-  timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(kShowingDuration),
-               GetWidget(), &views::Widget::Close);
+  timer_.Start(FROM_HERE, base::Milliseconds(kShowingDuration), GetWidget(),
+               &views::Widget::Close);
 }
 
 void ImeModeIndicatorView::OnBeforeBubbleWidgetInit(

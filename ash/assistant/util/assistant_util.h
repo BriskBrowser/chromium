@@ -6,7 +6,6 @@
 #define ASH_ASSISTANT_UTIL_ASSISTANT_UTIL_H_
 
 #include "base/component_export.h"
-#include "base/optional.h"
 
 namespace chromeos {
 namespace assistant {

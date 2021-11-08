@@ -7,13 +7,12 @@
 #include <iostream>
 
 #include "base/files/file_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "chrome/browser/ash/file_manager/filesystem_api_util.h"
 #include "chrome/browser/ash/system_logs/debug_log_writer.h"
 #include "chrome/browser/ash/system_logs/system_logs_writer.h"
-#include "chrome/browser/chromeos/file_manager/filesystem_api_util.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/policy/chrome_policy_conversions_client.h"
 #include "chrome/browser/profiles/profile.h"
@@ -67,10 +66,10 @@ NetworkLogsMessageHandler::~NetworkLogsMessageHandler() = default;
 
 void NetworkLogsMessageHandler::RegisterMessages() {
   out_dir_ = GetDownloadsDirectory(web_ui());
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "storeLogs", base::BindRepeating(&NetworkLogsMessageHandler::OnStoreLogs,
                                        base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "setShillDebugging",
       base::BindRepeating(&NetworkLogsMessageHandler::OnSetShillDebugging,
                           base::Unretained(this)));
@@ -86,9 +85,8 @@ void NetworkLogsMessageHandler::Respond(const std::string& callback_id,
 }
 
 void NetworkLogsMessageHandler::OnStoreLogs(const base::ListValue* list) {
-  CHECK_EQ(2u, list->GetSize());
-  std::string callback_id;
-  CHECK(list->GetString(0, &callback_id));
+  CHECK_EQ(2u, list->GetList().size());
+  std::string callback_id = list->GetList()[0].GetString();
   const base::Value* options;
   CHECK(list->Get(1, &options));
   AllowJavascript();
@@ -108,7 +106,7 @@ void NetworkLogsMessageHandler::OnStoreLogs(const base::ListValue* list) {
 void NetworkLogsMessageHandler::OnWriteSystemLogs(
     const std::string& callback_id,
     base::Value&& options,
-    base::Optional<base::FilePath> syslogs_path) {
+    absl::optional<base::FilePath> syslogs_path) {
   if (!syslogs_path) {
     Respond(callback_id, "Error writing system logs file.", /*is_error=*/true);
     return;
@@ -139,7 +137,7 @@ void NetworkLogsMessageHandler::MaybeWriteDebugLogs(
 void NetworkLogsMessageHandler::OnWriteDebugLogs(
     const std::string& callback_id,
     base::Value&& options,
-    base::Optional<base::FilePath> logs_path) {
+    absl::optional<base::FilePath> logs_path) {
   if (!logs_path) {
     Respond(callback_id, "Error writing debug logs.", /*is_error=*/true);
     return;
@@ -183,10 +181,9 @@ void NetworkLogsMessageHandler::OnWriteSystemLogsCompleted(
 
 void NetworkLogsMessageHandler::OnSetShillDebugging(
     const base::ListValue* list) {
-  CHECK_EQ(2u, list->GetSize());
-  std::string callback_id, subsystem;
-  CHECK(list->GetString(0, &callback_id));
-  CHECK(list->GetString(1, &subsystem));
+  CHECK_EQ(2u, list->GetList().size());
+  std::string callback_id = list->GetList()[0].GetString();
+  std::string subsystem = list->GetList()[1].GetString();
   AllowJavascript();
   chromeos::DBusThreadManager::Get()->GetDebugDaemonClient()->SetDebugMode(
       subsystem,

@@ -8,15 +8,14 @@ import androidx.annotation.Nullable;
 import androidx.browser.customtabs.CustomTabsService;
 
 import org.chromium.base.Promise;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
-import org.chromium.chrome.browser.browserservices.BrowserServicesMetrics;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.browserservices.ui.controller.Verifier;
 import org.chromium.chrome.browser.browserservices.verification.OriginVerifier;
 import org.chromium.chrome.browser.browserservices.verification.OriginVerifierFactory;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
-import org.chromium.chrome.browser.lifecycle.Destroyable;
+import org.chromium.chrome.browser.lifecycle.DestroyObserver;
 import org.chromium.components.embedder_support.util.Origin;
 import org.chromium.components.externalauth.ExternalAuthUtils;
 import org.chromium.content_public.browser.WebContents;
@@ -31,7 +30,7 @@ import javax.inject.Inject;
  * Provides Trusted Web Activity specific behaviour for the {@link CurrentPageVerifier}.
  */
 @ActivityScope
-public class TwaVerifier implements Verifier, Destroyable {
+public class TwaVerifier implements Verifier, DestroyObserver {
     /** The Digital Asset Link relationship used for Trusted Web Activities. */
     private static final int RELATIONSHIP = CustomTabsService.RELATION_HANDLE_ALL_URLS;
 
@@ -64,15 +63,14 @@ public class TwaVerifier implements Verifier, Destroyable {
         // TODO(peconn): See if we can get rid of the dependency on Web Contents.
         WebContents webContents =
                 tabProvider.getTab() != null ? tabProvider.getTab().getWebContents() : null;
-        mOriginVerifier = originVerifierFactory.create(clientPackageNameProvider.get(),
-                RELATIONSHIP, webContents, externalAuthUtils,
-                new BrowserServicesMetrics.OriginVerifierMetricsListener());
+        mOriginVerifier = originVerifierFactory.create(
+                clientPackageNameProvider.get(), RELATIONSHIP, webContents, externalAuthUtils);
 
         lifecycleDispatcher.register(this);
     }
 
     @Override
-    public void destroy() {
+    public void onDestroy() {
         mDestroyed = true;
     }
 

@@ -41,6 +41,10 @@ namespace content {
 class OriginTrialsBrowserTest : public content::ContentBrowserTest {
  public:
   OriginTrialsBrowserTest() : ContentBrowserTest() {}
+
+  OriginTrialsBrowserTest(const OriginTrialsBrowserTest&) = delete;
+  OriginTrialsBrowserTest& operator=(const OriginTrialsBrowserTest&) = delete;
+
   ~OriginTrialsBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -71,12 +75,9 @@ class OriginTrialsBrowserTest : public content::ContentBrowserTest {
   }
 
   RenderFrameHost* GetFrameByName(const std::string frame_name) {
-    for (RenderFrameHost* frame : shell()->web_contents()->GetAllFrames()) {
-      if (frame->GetFrameName() == frame_name)
-        return frame;
-    }
-    NOTREACHED();
-    return nullptr;
+    return FrameMatchingPredicate(
+        shell()->web_contents()->GetPrimaryPage(),
+        base::BindRepeating(FrameMatchesName, frame_name));
   }
 
   RenderFrameHost* GetMainFrame() {
@@ -99,8 +100,6 @@ class OriginTrialsBrowserTest : public content::ContentBrowserTest {
 
  private:
   std::unique_ptr<URLLoaderInterceptor> url_loader_interceptor_;
-
-  DISALLOW_COPY_AND_ASSIGN(OriginTrialsBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(OriginTrialsBrowserTest, Basic) {
@@ -218,9 +217,8 @@ IN_PROC_BROWSER_TEST_P(ForceEnabledOriginTrialsBrowserTest,
   const GURL url("https://other.test/notrial.html");
   TestNavigationObserver navigation_observer(url);
   navigation_observer.WatchExistingWebContents();
-  ASSERT_TRUE(content::ExecuteScript(
-      GetFrameByName("same-origin"),
-      content::JsReplace("location.href=$1", url.spec())));
+  ASSERT_TRUE(ExecJs(GetFrameByName("same-origin"),
+                     content::JsReplace("location.href=$1", url.spec())));
   navigation_observer.WaitForNavigationFinished();
   EXPECT_FALSE(HasTrialEnabled(GetFrameByName("same-origin")));
 }
@@ -241,7 +239,7 @@ IN_PROC_BROWSER_TEST_P(ForceEnabledOriginTrialsBrowserTest,
   // Create an iframe with origin trial and wait for it to load
   TestNavigationObserver navigation_observer(frame_url);
   navigation_observer.WatchExistingWebContents();
-  ASSERT_TRUE(content::ExecuteScript(
+  ASSERT_TRUE(ExecJs(
       GetFrameByName("same-origin"),
       content::JsReplace("{"
                          "  const ifrm = document.createElement('iframe');"

@@ -30,6 +30,7 @@
 <translation id="1710340000377843106">nu</translation>
 <translation id="1752946267035950200">{MINUTES,plural, =1{1 minuut}other{# minuten}}</translation>
 <translation id="1761785978543082658"><ph name="QUANTITY" /> B</translation>
+<translation id="1770726142253415363">Verplaatst naar rij <ph name="ROW_NUMBER" />, kolom <ph name="COLUMN_NUMBER" />.</translation>
 <translation id="1801827354178857021">Periode</translation>
 <translation id="1803208670097017349">{MONTHS,plural, =1{1 maand}other{# maanden}}</translation>
 <translation id="1809410197924942083"><ph name="QUANTITY" /> MB/s</translation>
@@ -53,11 +54,13 @@
 <translation id="2192232475740621500">Lage dichtheid gebruiken</translation>
 <translation id="219905428774326614">Launcher, alle apps</translation>
 <translation id="2267918077332197517">Alle meldingen van deze site blokkeren</translation>
+<translation id="2283117145434822734">F6</translation>
 <translation id="2289052229480071835">Tik op de tikdoelen op je scherm.</translation>
 <translation id="2295140143284145483">Enquête</translation>
 <translation id="2297836609126180313"><ph name="QUANTITY" /> TB/s</translation>
 <translation id="2353636109065292463">Je internetverbinding controleren…</translation>
 <translation id="2388990488038464401">Dit nummer bellen vanaf je telefoon?</translation>
+<translation id="2435457462613246316">Wachtwoord bekijken</translation>
 <translation id="24452542372838207">Melding uitvouwen</translation>
 <translation id="2445449901874883781">Hoge dichtheid gebruiken</translation>
 <translation id="2482878487686419369">Meldingen</translation>
@@ -79,6 +82,7 @@
 <translation id="2824719307700604149">{YEARS,plural, =1{1 jaar geleden}other{# jaar geleden}}</translation>
 <translation id="2878511608894704031">Alles verwijderen</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{over 1 d}other{over # d}}</translation>
+<translation id="2922712708897119705">Kolom <ph name="COLUMN_NAME" /> in aflopende volgorde gesorteerd.</translation>
 <translation id="2931838996092594335">klikken</translation>
 <translation id="2981684127883932071">Suggesties weergeven</translation>
 <translation id="3036649622769666520">Bestanden openen</translation>
@@ -114,6 +118,7 @@
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3909791450649380159">&amp;Knippen</translation>
 <translation id="3990502903496589789">Rechterzijde</translation>
+<translation id="3994749195054421561">Kolom <ph name="COLUMN_NAME" /> in oplopende volgorde gesorteerd.</translation>
 <translation id="40579289237549812">{UNREAD_NOTIFICATIONS,plural, =1{1 ongelezen melding}other{# ongelezen meldingen}}</translation>
 <translation id="4202807286478387388">Gaan naar</translation>
 <translation id="4250229828105606438">Screenshot</translation>
@@ -123,6 +128,7 @@
 <translation id="4306392492252714209">Verwijderen van het klembord.</translation>
 <translation id="4316910396681052118">ALLE APPS</translation>
 <translation id="4491109536499578614">Afbeelding</translation>
+<translation id="4565377596337484307">Wachtwoord verbergen</translation>
 <translation id="4588090240171750605">Naar rechts bladeren</translation>
 <translation id="4631891353005174729"><ph name="APP_NAME_TYPE" />, sterbeoordeling <ph name="RATING_SCORE" /></translation>
 <translation id="4648249871170053485"><ph name="APP_NAME" />, app-aanbeveling</translation>
@@ -165,6 +171,7 @@
 <translation id="6012623610530968780">Pagina <ph name="SELECTED_PAGE" /> van <ph name="TOTAL_PAGE_NUM" /></translation>
 <translation id="6022924867608035986">Tekst in zoekvak wissen</translation>
 <translation id="6040143037577758943">Sluiten</translation>
+<translation id="6117103120090651229">Middelste knop</translation>
 <translation id="6119846243427417423">Activeren</translation>
 <translation id="6129953537138746214">Spatie</translation>
 <translation id="6134259848159370930">Zoek op je apparaat, in apps en instellingen en op internet.</translation>
@@ -173,6 +180,7 @@
 <translation id="6156262341071374681">Uitbreiden naar alle apps</translation>
 <translation id="6165508094623778733">Meer informatie</translation>
 <translation id="6166852626429024716">Zoek op je apparaat, in apps en instellingen en op internet...</translation>
+<translation id="6237461503717005873"><ph name="ROW_NAME" /> is geselecteerd.</translation>
 <translation id="6264365405983206840">&amp;Alles selecteren</translation>
 <translation id="6351032674660237738">APP-SUGGESTIES</translation>
 <translation id="6364916375976753737">Naar links bladeren</translation>
@@ -213,6 +221,7 @@
 <translation id="7389409599945284130">- <ph name="MESSAGE" /></translation>
 <translation id="7410957453383678442">{MINUTES,plural, =1{1 minuut resterend}other{# minuten resterend}}</translation>
 <translation id="7430878839542012341">Deze zoekopdracht uit je geschiedenis verwijderen?</translation>
+<translation id="7437971918971306061">Kolom <ph name="COLUMN_NAME" /> niet gesorteerd.</translation>
 <translation id="7460907917090416791"><ph name="QUANTITY" /> TB</translation>
 <translation id="7507604095951736240">Emoji's</translation>
 <translation id="7620655452534002301">Verwijderd.</translation>
@@ -222,7 +231,7 @@
 <translation id="7848989271541991537">Verplaatst naar pagina <ph name="PAGE_NUMBER" />, rij <ph name="ROW_NUMBER" />, kolom <ph name="COLUMN_NUMBER" />.</translation>
 <translation id="7879499977785298635">Niet blokkeren</translation>
 <translation id="7907591526440419938">Bestand openen</translation>
-<translation id="7952747673138230804">Chrome OS geeft suggesties weer voor nieuwe content die je kunt bekijken. Stuurt alleen statistieken om de kwaliteit te verbeteren als je ervoor hebt gekozen gebruiksgegevens te delen. <ph name="MANAGE_SETTINGS" /></translation>
+<translation id="7952747673138230804">Chrome OS toont suggesties voor nieuwe content die je kunt bekijken. Stuurt alleen statistieken om de kwaliteit te verbeteren als je ervoor hebt gekozen gebruiksgegevens te delen. <ph name="MANAGE_SETTINGS" /></translation>
 <translation id="7969046989155602842">Command</translation>
 <translation id="8074552109918343525">{MAX_UNREAD_NOTIFICATIONS,plural, =1{Meer dan één ongelezen melding}other{Meer dan # ongelezen meldingen}}</translation>
 <translation id="8086866675552927481">{MINUTES,plural, =1{over 1 m}other{over # m}}</translation>
@@ -247,7 +256,7 @@
 <translation id="8394908167088220973">Media afspelen/onderbreken</translation>
 <translation id="8458811141851741261">{YEARS,plural, =1{1 j}other{# j}}</translation>
 <translation id="8602707065186045623"><ph name="SAVEAS_EXTENSION_TYPE" />-bestand (.<ph name="SAVEAS_EXTENSION_NAME" />)</translation>
-<translation id="8649597172973390955">Plank altijd weergegeven</translation>
+<translation id="8649597172973390955">Plank altijd zichtbaar</translation>
 <translation id="8677655579646609597"><ph name="QUANTITY" />  KB/s</translation>
 <translation id="8685326675965865247">Zoek op je apparaat, in apps en instellingen en op internet. Gebruik de pijltoetsen om te navigeren in je apps.</translation>
 <translation id="8725488761726303204">+ nog <ph name="NUMBER" /></translation>

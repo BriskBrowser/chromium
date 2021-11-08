@@ -11,12 +11,10 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
-#include "base/stl_util.h"
 #include "net/base/load_flags.h"
 #include "net/base/url_util.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
-#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -43,37 +41,8 @@ std::unique_ptr<network::SimpleURLLoader> MakeLoader(
     const std::string& request_type,
     std::vector<uint8_t> request_body,
     std::vector<std::string> header_keys,
-    std::vector<std::string> header_values) {
-  net::NetworkTrafficAnnotationTag traffic_annotation =
-      net::DefineNetworkTrafficAnnotation("chrome_android_hats", R"(
-        semantics {
-          sender: "Chrome HaTS Next Service"
-          description:
-            "Chrome use HaTS to collect user feedback in the form of surveys. "
-            "For eligible users, a survey invitation will be presented and the "
-            "user can choose to take the survey or dismiss it."
-          trigger:
-            "If a signed-in user is eligible and selected for a survey, a "
-            "request will be sent to download the survey; requests will
-           " also be sent when the user chooses to take the survey and "
-            "for responses to each question to record such user actions."
-          data:
-            "Survey questions to present to the user; subsequently, survey "
-            "visibility ack and responses to questions using session context "
-            "from the initial trigger request. All requests have auth token "
-            "tied to signed-in GAIA account."
-          destination: GOOGLE_OWNED_SERVICE
-        }
-        policy {
-          cookies_allowed: NO
-          setting:
-            "This feature is only enabled when UMA and crash reporting is "
-            "enabled (configurable in settings)."
-          policy_exception_justification:
-            "UMA and crash reporting is already controllable via Enterprise "
-            "policy."
-        })");
-
+    std::vector<std::string> header_values,
+    const net::NetworkTrafficAnnotationTag& network_traffic_annotation) {
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = gurl;
   resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
@@ -91,9 +60,8 @@ std::unique_ptr<network::SimpleURLLoader> MakeLoader(
   }
 
   auto simple_loader = network::SimpleURLLoader::Create(
-      std::move(resource_request), traffic_annotation);
-  simple_loader->SetTimeoutDuration(
-      base::TimeDelta::FromSeconds(kTimeoutDurationSeconds));
+      std::move(resource_request), network_traffic_annotation);
+  simple_loader->SetTimeoutDuration(base::Seconds(kTimeoutDurationSeconds));
 
   if (!request_body.empty()) {
     DCHECK(!content_type.empty());
@@ -106,8 +74,10 @@ std::unique_ptr<network::SimpleURLLoader> MakeLoader(
 }  // namespace
 
 SurveyHttpClient::SurveyHttpClient(
+    HttpClientType http_client_type,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
-    : loader_factory_(url_loader_factory) {}
+    : http_client_type_(http_client_type),
+      loader_factory_(url_loader_factory) {}
 
 SurveyHttpClient::~SurveyHttpClient() {
   url_loaders_.clear();
@@ -123,7 +93,8 @@ void SurveyHttpClient::Send(const GURL& gurl,
 
   std::unique_ptr<network::SimpleURLLoader> simple_loader =
       MakeLoader(std::move(gurl), request_type, std::move(request_body),
-                 std::move(header_keys), std::move(header_values));
+                 std::move(header_keys), std::move(header_values),
+                 GetTrafficAnnotation(http_client_type_));
 
   // TODO(https://crbug.com/1178921): Use flag to control the max size limit.
   simple_loader->DownloadToString(
@@ -147,6 +118,7 @@ void SurveyHttpClient::OnSimpleLoaderComplete(
   auto* response_info = simple_loader->ResponseInfo();
   if (response_info && response_info->headers) {
     response_code = response_info->headers->response_code();
+    RecordHttpResponseCodeHistogram(http_client_type_, response_code);
 
     size_t iter = 0;
     std::string name, value;

@@ -14,6 +14,7 @@
 #include "ash/ambient/model/ambient_backend_model.h"
 #include "ash/ambient/ui/ambient_view_delegate.h"
 #include "ash/ash_export.h"
+#include "ash/assistant/model/assistant_interaction_model_observer.h"
 #include "ash/public/cpp/ambient/ambient_ui_model.h"
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/session/session_controller_impl.h"
@@ -44,7 +45,6 @@ namespace ash {
 class AmbientBackendController;
 class AmbientContainerView;
 class AmbientPhotoController;
-class AmbientViewDelegateObserver;
 
 // Class to handle all ambient mode functionalities.
 class ASH_EXPORT AmbientController
@@ -55,12 +55,17 @@ class ASH_EXPORT AmbientController
       public chromeos::PowerManagerClient::Observer,
       public device::mojom::FingerprintObserver,
       public ui::UserActivityObserver,
-      public ui::EventHandler {
+      public ui::EventHandler,
+      public AssistantInteractionModelObserver {
  public:
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
   explicit AmbientController(
       mojo::PendingRemote<device::mojom::Fingerprint> fingerprint);
+
+  AmbientController(const AmbientController&) = delete;
+  AmbientController& operator=(const AmbientController&) = delete;
+
   ~AmbientController() override;
 
   // AmbientUiModelObserver:
@@ -96,8 +101,8 @@ class ASH_EXPORT AmbientController
   // ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override;
 
-  void AddAmbientViewDelegateObserver(AmbientViewDelegateObserver* observer);
-  void RemoveAmbientViewDelegateObserver(AmbientViewDelegateObserver* observer);
+  // AssistantInteractionModelObserver:
+  void OnInteractionStateChanged(InteractionState interaction_state) override;
 
   void ShowUi();
   // Ui will be enabled but not shown immediately. If there is no user activity
@@ -129,6 +134,8 @@ class ASH_EXPORT AmbientController
   }
 
   AmbientUiModel* ambient_ui_model() { return &ambient_ui_model_; }
+
+  AmbientViewDelegate* ambient_view_delegate() { return &delegate_; }
 
  private:
   friend class AmbientAshTestBase;
@@ -208,7 +215,7 @@ class ASH_EXPORT AmbientController
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
 
   // Used to record Ambient mode engagement metrics.
-  base::Optional<base::Time> start_time_ = base::nullopt;
+  absl::optional<base::Time> start_time_ = absl::nullopt;
 
   base::OneShotTimer delayed_lock_timer_;
 
@@ -221,8 +228,11 @@ class ASH_EXPORT AmbientController
   // going to suspend.
   bool is_suspend_imminent_ = false;
 
+  // Set to the off value in |ScreenIdleState| when ScreenIdleState() is
+  // called. Used to prevent Ambient mode starting after screen is off.
+  bool is_screen_off_ = false;
+
   base::WeakPtrFactory<AmbientController> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(AmbientController);
 };
 
 }  // namespace ash

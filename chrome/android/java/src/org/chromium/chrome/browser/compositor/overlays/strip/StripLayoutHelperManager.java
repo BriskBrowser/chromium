@@ -33,7 +33,6 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
@@ -87,7 +86,7 @@ public class StripLayoutHelperManager implements SceneOverlay {
     private TabModelSelectorTabModelObserver mTabModelSelectorTabModelObserver;
     private TabModelSelectorTabObserver mTabModelSelectorTabObserver;
     private final TabModelSelectorObserver mTabModelSelectorObserver =
-            new EmptyTabModelSelectorObserver() {
+            new TabModelSelectorObserver() {
                 @Override
                 public void onTabModelSelected(TabModel newModel, TabModel oldModel) {
                     tabModelSwitched(newModel.isIncognito());
@@ -329,6 +328,25 @@ public class StripLayoutHelperManager implements SceneOverlay {
         return getActiveStripLayoutHelper().getBrightness();
     }
 
+    /** Update the title cache for the available tabs in the model. */
+    private void updateTitleCacheForInit() {
+        TitleCache titleCache = mTitleCacheSupplier.get();
+        if (mTabModelSelector == null || titleCache == null) return;
+
+        // Make sure any tabs already restored get loaded into the title cache.
+        List<TabModel> models = mTabModelSelector.getModels();
+        for (int i = 0; i < models.size(); i++) {
+            TabModel model = models.get(i);
+            for (int j = 0; j < model.getCount(); j++) {
+                Tab tab = model.getTabAt(j);
+                if (tab != null) {
+                    titleCache.getUpdatedTitle(
+                            tab, tab.getContext().getString(R.string.tab_loading_default_title));
+                }
+            }
+        }
+    }
+
     /**
      * Sets the {@link TabModelSelector} that this {@link StripLayoutHelperManager} will visually
      * represent, and various objects associated with it.
@@ -350,10 +368,12 @@ public class StripLayoutHelperManager implements SceneOverlay {
 
         mTabModelSelector = modelSelector;
 
+        updateTitleCacheForInit();
+
         if (mTabModelSelector.isTabStateInitialized()) {
             updateModelSwitcherButton();
         } else {
-            mTabModelSelector.addObserver(new EmptyTabModelSelectorObserver() {
+            mTabModelSelector.addObserver(new TabModelSelectorObserver() {
                 @Override
                 public void onTabStateInitialized() {
                     updateModelSwitcherButton();
@@ -392,6 +412,11 @@ public class StripLayoutHelperManager implements SceneOverlay {
             public void tabClosureUndone(Tab tab) {
                 getStripLayoutHelper(tab.isIncognito()).tabClosureCancelled(time(), tab.getId());
                 updateModelSwitcherButton();
+            }
+
+            @Override
+            public void tabClosureCommitted(Tab tab) {
+                if (mTitleCacheSupplier.hasValue()) mTitleCacheSupplier.get().remove(tab.getId());
             }
 
             @Override

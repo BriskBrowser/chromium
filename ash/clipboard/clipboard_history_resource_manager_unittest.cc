@@ -70,6 +70,7 @@ class MockClipboardImageModelFactory : public ClipboardImageModelFactory {
               Render,
               (const base::UnguessableToken&,
                const std::string&,
+               const gfx::Size&,
                ImageModelCallback),
               (override));
   MOCK_METHOD(void, CancelRequest, (const base::UnguessableToken&), (override));
@@ -127,68 +128,64 @@ TEST_F(ClipboardHistoryResourceManagerTest, GetLabel) {
   builder.SetText("Text")
       .SetMarkup("HTML with no image or table tags")
       .SetRtf("Rtf")
-      .SetFilenames({ui::FileInfo(base::FilePath("/dir/filename"),
-                                  base::FilePath("filename"))})
+      .SetFilenames({ui::FileInfo(base::FilePath("/path/to/File.txt"),
+                                  base::FilePath("File.txt")),
+                     ui::FileInfo(base::FilePath("/path/to/Other%20File.txt"),
+                                  base::FilePath("Other%20File.txt"))})
       .SetBookmarkTitle("Bookmark Title")
-      .SetBitmap(gfx::test::CreateBitmap(10, 10))
-      .SetFileSystemData({"/path/to/File.txt", "/path/to/Other%20File.txt"})
+      .SetPng(gfx::test::CreatePNGBytes(10))
+      .SetFileSystemData({u"/path/to/File.txt", u"/path/to/Other%20File.txt"})
       .SetWebSmartPaste(true);
 
-  // Bitmap data always take precedence.
-  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("Image"));
+  // PNG data always take precedence.
+  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()), u"Image");
 
-  builder.ClearBitmap();
+  builder.ClearPng();
 
-  // In the absence of bitmap data, HTML data takes precedence, but we use
+  // In the absence of PNG data, HTML data takes precedence, but we use
   // plain-text format for the label.
-  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("Text"));
+  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()), u"Text");
 
   builder.ClearText();
 
   // If plan-text does not exist, we show a placeholder label.
-  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("HTML Content"));
+  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()), u"HTML Content");
 
   builder.SetText("Text");
 
   builder.ClearMarkup();
 
   // In the absence of markup data, text data takes precedence.
-  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("Text"));
+  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()), u"Text");
 
   builder.ClearText();
 
   // In the absence of HTML data, RTF data takes precedence.
-  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("RTF Content"));
+  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()), u"RTF Content");
 
   builder.ClearRtf();
 
   // In the absence of RTF data, Filenames data takes precedence.
   EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("filename"));
+            u"File.txt, Other File.txt");
 
   builder.ClearFilenames();
 
   // In the absence of RTF data, bookmark data takes precedence.
-  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("Bookmark Title"));
+  EXPECT_EQ(resource_manager()->GetLabel(builder.Build()), u"Bookmark Title");
 
   builder.ClearBookmarkTitle();
 
   // In the absence of bookmark data, web smart paste data takes precedence.
   EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("Web Smart Paste Content"));
+            u"Web Smart Paste Content");
 
   builder.ClearWebSmartPaste();
 
   // In the absence of web smart paste data, file system data takes precedence.
   // NOTE: File system data is the only kind of custom data currently supported.
   EXPECT_EQ(resource_manager()->GetLabel(builder.Build()),
-            base::UTF8ToUTF16("File.txt, Other File.txt"));
+            u"File.txt, Other File.txt");
 }
 
 // Tests that Render is called once when an eligible <img> is added
@@ -196,7 +193,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, GetLabel) {
 TEST_F(ClipboardHistoryResourceManagerTest, BasicImgCachedImageModel) {
   ui::ImageModel expected_image_model = GetRandomImageModel();
   ON_CALL(*mock_image_factory(), Render)
-      .WillByDefault(testing::WithArg<2>(
+      .WillByDefault(testing::WithArg<3>(
           [&](ClipboardImageModelFactory::ImageModelCallback callback) {
             std::move(callback).Run(expected_image_model);
           }));
@@ -206,7 +203,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, BasicImgCachedImageModel) {
   // Write a basic ClipboardData which is eligible to render HTML.
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-    scw.WriteHTML(base::UTF8ToUTF16("<img test>"), "source_url");
+    scw.WriteHTML(u"<img test>", "source_url");
   }
 
   FlushMessageLoop();
@@ -220,7 +217,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, BasicImgCachedImageModel) {
 TEST_F(ClipboardHistoryResourceManagerTest, BasicTableCachedImageModel) {
   ui::ImageModel expected_image_model = GetRandomImageModel();
   ON_CALL(*mock_image_factory(), Render)
-      .WillByDefault(testing::WithArg<2>(
+      .WillByDefault(testing::WithArg<3>(
           [&](ClipboardImageModelFactory::ImageModelCallback callback) {
             std::move(callback).Run(expected_image_model);
           }));
@@ -230,7 +227,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, BasicTableCachedImageModel) {
   // Write a basic ClipboardData which is eligible to render HTML.
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-    scw.WriteHTML(base::UTF8ToUTF16("<table test>"), "source_url");
+    scw.WriteHTML(u"<table test>", "source_url");
   }
 
   FlushMessageLoop();
@@ -244,7 +241,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, BasicTableCachedImageModel) {
 TEST_F(ClipboardHistoryResourceManagerTest, BasicIneligibleCachedImageModel) {
   ui::ImageModel expected_image_model = GetRandomImageModel();
   ON_CALL(*mock_image_factory(), Render)
-      .WillByDefault(testing::WithArg<2>(
+      .WillByDefault(testing::WithArg<3>(
           [&](ClipboardImageModelFactory::ImageModelCallback callback) {
             std::move(callback).Run(expected_image_model);
           }));
@@ -254,8 +251,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, BasicIneligibleCachedImageModel) {
   // Write a basic ClipboardData which is eligible to render HTML.
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-    scw.WriteHTML(base::UTF8ToUTF16("html with no img or table tag"),
-                  "source_url");
+    scw.WriteHTML(u"html with no img or table tag", "source_url");
   }
 
   FlushMessageLoop();
@@ -268,7 +264,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, DuplicateHTML) {
   // history, but they should share a CachedImageModel.
   ui::ImageModel expected_image_model = GetRandomImageModel();
   ON_CALL(*mock_image_factory(), Render)
-      .WillByDefault(testing::WithArg<2>(
+      .WillByDefault(testing::WithArg<3>(
           [&](ClipboardImageModelFactory::ImageModelCallback callback) {
             std::move(callback).Run(expected_image_model);
           }));
@@ -279,12 +275,12 @@ TEST_F(ClipboardHistoryResourceManagerTest, DuplicateHTML) {
   // to the clipboard history.
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-    scw.WriteHTML(base::UTF8ToUTF16("<img test>"), "source_url_1");
+    scw.WriteHTML(u"<img test>", "source_url_1");
   }
   FlushMessageLoop();
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-    scw.WriteHTML(base::UTF8ToUTF16("<img test>"), "source_url_2");
+    scw.WriteHTML(u"<img test>", "source_url_2");
   }
   FlushMessageLoop();
 
@@ -303,7 +299,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, DifferentHTML) {
   std::deque<ui::ImageModel> expected_image_models{first_expected_image_model,
                                                    second_expected_image_model};
   ON_CALL(*mock_image_factory(), Render)
-      .WillByDefault(testing::WithArg<2>(
+      .WillByDefault(testing::WithArg<3>(
           [&](ClipboardImageModelFactory::ImageModelCallback callback) {
             std::move(callback).Run(expected_image_models.front());
             expected_image_models.pop_front();
@@ -312,12 +308,12 @@ TEST_F(ClipboardHistoryResourceManagerTest, DifferentHTML) {
   EXPECT_CALL(*mock_image_factory(), CancelRequest).Times(0);
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-    scw.WriteHTML(base::UTF8ToUTF16("<img test>"), "source_url");
+    scw.WriteHTML(u"<img test>", "source_url");
   }
   FlushMessageLoop();
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-    scw.WriteHTML(base::UTF8ToUTF16("<img different>"), "source_url");
+    scw.WriteHTML(u"<img different>", "source_url");
   }
   FlushMessageLoop();
 
@@ -338,7 +334,7 @@ TEST_F(ClipboardHistoryResourceManagerTest, IneligibleItem) {
   EXPECT_CALL(*mock_image_factory(), CancelRequest).Times(0);
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-    scw.WriteHTML(base::UTF8ToUTF16("test"), "source_url");
+    scw.WriteHTML(u"test", "source_url");
     scw.WriteImage(GetRandomBitmap());
   }
   FlushMessageLoop();
@@ -350,11 +346,11 @@ TEST_F(ClipboardHistoryResourceManagerTest, IneligibleItem) {
   {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
 
-    scw.WriteText(base::UTF8ToUTF16("test"));
+    scw.WriteText(u"test");
 
     scw.WriteRTF("rtf");
 
-    scw.WriteBookmark(base::UTF8ToUTF16("bookmark_title"), "test_url");
+    scw.WriteBookmark(u"bookmark_title", "test_url");
   }
   FlushMessageLoop();
 

@@ -5,19 +5,11 @@
 #ifndef CHROMEOS_MEMORY_PRESSURE_SYSTEM_MEMORY_PRESSURE_EVALUATOR_H_
 #define CHROMEOS_MEMORY_PRESSURE_SYSTEM_MEMORY_PRESSURE_EVALUATOR_H_
 
-#include <vector>
-
-#include "base/base_export.h"
 #include "base/component_export.h"
-#include "base/feature_list.h"
-#include "base/files/scoped_file.h"
-#include "base/macros.h"
-#include "base/memory/memory_pressure_listener.h"
 #include "base/memory/weak_ptr.h"
-#include "base/time/time.h"
-#include "base/timer/timer.h"
-#include "base/util/memory_pressure/memory_pressure_voter.h"
-#include "base/util/memory_pressure/system_memory_pressure_evaluator.h"
+#include "chromeos/dbus/resourced/resourced_client.h"
+#include "components/memory_pressure/memory_pressure_voter.h"
+#include "components/memory_pressure/system_memory_pressure_evaluator.h"
 
 namespace chromeos {
 namespace memory {
@@ -29,55 +21,45 @@ namespace memory {
 // MemoryPressureListener of memory fill level changes, so that it can take
 // action to reduce memory resources accordingly.
 class COMPONENT_EXPORT(CHROMEOS_MEMORY) SystemMemoryPressureEvaluator
-    : public util::SystemMemoryPressureEvaluator {
+    : public memory_pressure::SystemMemoryPressureEvaluator,
+      public chromeos::ResourcedClient::Observer {
  public:
   explicit SystemMemoryPressureEvaluator(
-      std::unique_ptr<util::MemoryPressureVoter> voter);
+      std::unique_ptr<memory_pressure::MemoryPressureVoter> voter);
   ~SystemMemoryPressureEvaluator() override;
 
-  // ScheduleEarlyCheck is used by the ChromeOS tab manager delegate to force it
-  // to quickly recheck pressure levels after a tab discard or some other
-  // action.
-  void ScheduleEarlyCheck();
+  SystemMemoryPressureEvaluator(const SystemMemoryPressureEvaluator&) = delete;
+  SystemMemoryPressureEvaluator& operator=(
+      const SystemMemoryPressureEvaluator&) = delete;
 
   // Returns the current system memory pressure evaluator.
   static SystemMemoryPressureEvaluator* Get();
 
+  // Returns the cached amount of memory to reclaim.
+  uint64_t GetCachedReclaimTargetKB();
+
  protected:
   // This constructor is only used for testing.
   SystemMemoryPressureEvaluator(
-      bool disable_timer_for_testing,
-      std::unique_ptr<util::MemoryPressureVoter> voter);
+      bool for_testing,
+      std::unique_ptr<memory_pressure::MemoryPressureVoter> voter);
 
-  void CheckMemoryPressure();
-
-  // Split CheckMemoryPressure and CheckMemoryPressureImpl for testing.
-  void CheckMemoryPressureImpl(uint64_t moderate_avail_mb,
-                               uint64_t critical_avail_mb,
-                               uint64_t mem_avail_mb);
+  // Implements ResourcedClient::Observer, protected for testing.
+  void OnMemoryPressure(chromeos::ResourcedClient::PressureLevel level,
+                        uint64_t reclaim_target_kb) override;
 
  private:
-  void CheckMemoryPressureAndRecordStatistics();
-  int moderate_pressure_threshold_mb_ = 0;
-  int critical_pressure_threshold_mb_ = 0;
+  // Member variables.
+
+  std::atomic<uint64_t> cached_reclaim_target_kb_{0};
 
   // We keep track of how long it has been since we last notified at the
   // moderate level.
   base::TimeTicks last_moderate_notification_;
 
-  // We keep track of how long it's been since we notified on the
-  // Memory.PressureLevel metric.
-  base::TimeTicks last_pressure_level_report_;
-
-  // A timer to check the memory pressure and to report an UMA metric
-  // periodically.
-  base::RepeatingTimer checking_timer_;
-
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<SystemMemoryPressureEvaluator> weak_ptr_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(SystemMemoryPressureEvaluator);
 };
 
 }  // namespace memory

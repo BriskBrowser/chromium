@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-'use strict';
+import {addEntries, ENTRIES, RootPath, sendTestMessage, TestEntryInfo} from '../test_util.js';
+import {testcase} from '../testcase.js';
+
+import {isSinglePartitionFormat, navigateWithDirectoryTree, openNewWindow, remoteCall, setupAndWaitUntilReady} from './background.js';
+import {BASIC_ANDROID_ENTRY_SET, BASIC_ANDROID_ENTRY_SET_WITH_HIDDEN, BASIC_DRIVE_ENTRY_SET, BASIC_DRIVE_ENTRY_SET_WITH_HIDDEN, BASIC_LOCAL_ENTRY_SET, BASIC_LOCAL_ENTRY_SET_WITH_HIDDEN, COMPLEX_DOCUMENTS_PROVIDER_ENTRY_SET} from './test_data.js';
 
 /**
  * Gets the common steps to toggle hidden files in the Files app
@@ -554,6 +558,50 @@ testcase.showAvailableStorageSmbfs = async () => {
   await remoteCall.waitForElement(appId, '#gear-menu:not([hidden])');
 
   // Check #volume-storage is shown and disabled (can't manage SMB
+  // storage).
+  await remoteCall.waitForElement(
+      appId,
+      '#gear-menu:not([hidden]) cr-menu-item' +
+          '[command=\'#volume-storage\']' +
+          ':not([hidden])');
+};
+
+/**
+ * Tests that the "xGB available message appears in the gear menu for
+ * the DocumentsProvider volume.
+ */
+testcase.showAvailableStorageDocProvider = async () => {
+  const documentsProviderVolumeQuery =
+      '[has-children="true"] [volume-type-icon="documents_provider"]';
+
+  // Add files to the DocumentsProvider volume.
+  await addEntries(
+      ['documents_provider'], COMPLEX_DOCUMENTS_PROVIDER_ENTRY_SET);
+
+  // Open Files app.
+  const appId = await openNewWindow(RootPath.DOWNLOADS);
+
+  // Wait for the DocumentsProvider volume to mount.
+  await remoteCall.waitForElement(appId, documentsProviderVolumeQuery);
+
+  // Click to open the DocumentsProvider volume.
+  chrome.test.assertTrue(
+      !!await remoteCall.callRemoteTestUtil(
+          'fakeMouseClick', appId, [documentsProviderVolumeQuery]),
+      'fakeMouseClick failed');
+
+  // Check: the DocumentsProvider files should appear in the file list.
+  const files =
+      TestEntryInfo.getExpectedRows(COMPLEX_DOCUMENTS_PROVIDER_ENTRY_SET);
+  await remoteCall.waitForFiles(appId, files, {ignoreLastModifiedTime: true});
+
+  // Wait for the gear menu button to appear and click it.
+  await remoteCall.waitAndClickElement(appId, '#gear-button');
+
+  // Wait for the gear menu to appear.
+  await remoteCall.waitForElement(appId, '#gear-menu:not([hidden])');
+
+  // Check #volume-storage is shown and disabled (can't manage DocumentsProvider
   // storage).
   await remoteCall.waitForElement(
       appId,

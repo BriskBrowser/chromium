@@ -37,10 +37,11 @@ namespace blink {
 class FrameSelectionTest : public EditingTestBase {
  public:
   FrameSelectionTest()
-      : root_paint_property_client_("root"),
-        root_paint_chunk_id_(root_paint_property_client_,
+      : root_paint_property_client_(
+            MakeGarbageCollected<FakeDisplayItemClient>("root")),
+        root_paint_chunk_id_(root_paint_property_client_->Id(),
                              DisplayItem::kUninitializedType) {}
-  FakeDisplayItemClient root_paint_property_client_;
+  Persistent<FakeDisplayItemClient> root_paint_property_client_;
   PaintChunk::Id root_paint_chunk_id_;
 
  protected:
@@ -131,16 +132,16 @@ TEST_F(FrameSelectionTest, PaintCaretShouldNotLayout) {
       SelectionInDOMTree::Builder().Collapse(Position(text, 0)).Build());
   UpdateAllLifecyclePhasesForTest();
   EXPECT_TRUE(Selection().ComputeVisibleSelectionInDOMTree().IsCaret());
-  EXPECT_TRUE(To<LayoutBlock>(GetDocument().body()->GetLayoutObject())
-                  ->ShouldPaintCursorCaret());
+  EXPECT_TRUE(Selection().ShouldPaintCaret(
+      *To<LayoutBlock>(GetDocument().body()->GetLayoutObject())));
 
   unsigned start_count = LayoutCount();
   {
     // To force layout in next updateLayout calling, widen view.
     LocalFrameView& frame_view = GetDummyPageHolder().GetFrameView();
     IntRect frame_rect = frame_view.FrameRect();
-    frame_rect.SetWidth(frame_rect.Width() + 1);
-    frame_rect.SetHeight(frame_rect.Height() + 1);
+    frame_rect.set_width(frame_rect.width() + 1);
+    frame_rect.set_height(frame_rect.height() + 1);
     GetDummyPageHolder().GetFrameView().SetFrameRect(frame_rect);
   }
   auto paint_controller =
@@ -148,7 +149,8 @@ TEST_F(FrameSelectionTest, PaintCaretShouldNotLayout) {
   {
     GraphicsContext context(*paint_controller);
     paint_controller->UpdateCurrentPaintChunkProperties(
-        &root_paint_chunk_id_, PropertyTreeState::Root());
+        root_paint_chunk_id_, *root_paint_property_client_,
+        PropertyTreeState::Root());
     Selection().PaintCaret(context, PhysicalOffset());
   }
   paint_controller->CommitNewDisplayItems();
@@ -609,8 +611,8 @@ TEST_F(FrameSelectionTest, FocusingButtonHidesRangeInDisabledTextControl) {
   const IntRect elem_bounds = textarea->BoundsInViewport();
   WebMouseEvent double_click(WebMouseEvent::Type::kMouseDown, 0,
                              WebInputEvent::GetStaticTimeStampForTests());
-  double_click.SetPositionInWidget(elem_bounds.X(), elem_bounds.Y());
-  double_click.SetPositionInScreen(elem_bounds.X(), elem_bounds.Y());
+  double_click.SetPositionInWidget(elem_bounds.x(), elem_bounds.y());
+  double_click.SetPositionInScreen(elem_bounds.x(), elem_bounds.y());
   double_click.button = WebMouseEvent::Button::kLeft;
   double_click.click_count = 2;
   double_click.SetFrameScale(1);
@@ -1101,6 +1103,37 @@ TEST_F(FrameSelectionTest, SelectedTextForClipboardEntersTextControls) {
       SetSelectionTextToBody("^foo<input value=\"bar\">baz|"),
       SetSelectionOptions());
   EXPECT_EQ("foo\nbar\nbaz", Selection().SelectedTextForClipboard());
+}
+
+// For https://crbug.com/1177295
+TEST_F(FrameSelectionTest, PositionDisconnectedInFlatTree) {
+  SetBodyContent("<div id=host>x</div>y");
+  SetShadowContent("", "host");
+  Element* host = GetElementById("host");
+  Node* text = host->firstChild();
+  Position positions[] = {
+      Position::BeforeNode(*host),         Position::FirstPositionInNode(*host),
+      Position::LastPositionInNode(*host), Position::AfterNode(*host),
+      Position::BeforeNode(*text),         Position::FirstPositionInNode(*text),
+      Position::LastPositionInNode(*text), Position::AfterNode(*text)};
+  for (const Position& base : positions) {
+    EXPECT_TRUE(base.IsConnected());
+    bool flat_base_is_connected = ToPositionInFlatTree(base).IsConnected();
+    EXPECT_EQ(base.AnchorNode() == host, flat_base_is_connected);
+    for (const Position& extent : positions) {
+      const SelectionInDOMTree& selection =
+          SelectionInDOMTree::Builder().SetBaseAndExtent(base, extent).Build();
+      Selection().SetSelection(selection, SetSelectionOptions());
+      EXPECT_TRUE(extent.IsConnected());
+      bool flat_extent_is_connected =
+          ToPositionInFlatTree(selection.Extent()).IsConnected();
+      EXPECT_EQ(flat_base_is_connected || flat_extent_is_connected
+                    ? "<div id=\"host\"></div>|y"
+                    : "<div id=\"host\"></div>y",
+                GetSelectionTextInFlatTreeFromBody(
+                    GetVisibleSelectionInFlatTree().AsSelection()));
+    }
+  }
 }
 
 }  // namespace blink

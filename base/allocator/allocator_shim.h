@@ -6,11 +6,17 @@
 #define BASE_ALLOCATOR_ALLOCATOR_SHIM_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "base/allocator/buildflags.h"
-#include "base/allocator/partition_allocator/partition_alloc_features.h"
+#include "base/allocator/partition_allocator/partition_alloc_config.h"
 #include "base/base_export.h"
+#include "base/types/strong_alias.h"
 #include "build/build_config.h"
+
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && defined(PA_ALLOW_PCSCAN)
+#include "base/allocator/partition_allocator/starscan/pcscan.h"
+#endif
 
 namespace base {
 namespace allocator {
@@ -69,10 +75,8 @@ struct AllocatorDispatch {
   using FreeFn = void(const AllocatorDispatch* self,
                       void* address,
                       void* context);
-  // Returns the best available estimate for the actual amount of memory
-  // consumed by the allocation |address|. If possible, this should include
-  // heap overhead or at least a decent estimate of the full cost of the
-  // allocation. If no good estimate is possible, returns zero.
+  // Returns the allocated size of user data (not including heap overhead).
+  // Can be larger than the requested size.
   using GetSizeEstimateFn = size_t(const AllocatorDispatch* self,
                                    void* address,
                                    void* context);
@@ -156,6 +160,9 @@ BASE_EXPORT void ConfigurePartitionAlloc();
 #endif  // defined(OS_WIN)
 
 #if defined(OS_APPLE)
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+void InitializeDefaultAllocatorPartitionRoot();
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 // On macOS, the allocator shim needs to be turned on during runtime.
 BASE_EXPORT void InitializeAllocatorShim();
 #endif  // defined(OS_APPLE)
@@ -163,12 +170,20 @@ BASE_EXPORT void InitializeAllocatorShim();
 #if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 BASE_EXPORT void EnablePartitionAllocMemoryReclaimer();
 
-BASE_EXPORT void ConfigurePartitionRefCountSupport(bool enable_ref_count);
-#endif
+BASE_EXPORT void ReconfigurePartitionAllocLazyCommit(bool enabled);
 
-#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && PA_ALLOW_PCSCAN
-BASE_EXPORT void EnablePCScan();
+using EnableBrp = base::StrongAlias<class EnableBrpTag, bool>;
+using ForceSplitPartitions =
+    base::StrongAlias<class ForceSplitPartitionsTag, bool>;
+
+BASE_EXPORT void ConfigurePartitions(
+    EnableBrp enable_brp,
+    ForceSplitPartitions force_split_partitions);
+
+#if defined(PA_ALLOW_PCSCAN)
+BASE_EXPORT void EnablePCScan(base::internal::PCScan::InitConfig);
 #endif
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 
 }  // namespace allocator
 }  // namespace base

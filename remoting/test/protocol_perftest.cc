@@ -14,10 +14,10 @@
 #include "base/message_loop/message_pump_type.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/task_runner_util.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "jingle/glue/thread_wrapper.h"
@@ -77,11 +77,10 @@ struct NetworkPerformanceParams {
                            double signaling_latency_ms)
       : bandwidth_kbps(bandwidth_kbps),
         max_buffers(buffer_s * bandwidth_kbps * 1000 / 8),
-        latency_average(base::TimeDelta::FromMillisecondsD(latency_average_ms)),
-        latency_stddev(base::TimeDelta::FromMillisecondsD(latency_stddev_ms)),
+        latency_average(base::Milliseconds(latency_average_ms)),
+        latency_stddev(base::Milliseconds(latency_stddev_ms)),
         out_of_order_rate(out_of_order_rate),
-        signaling_latency(
-            base::TimeDelta::FromMillisecondsD(signaling_latency_ms)) {}
+        signaling_latency(base::Milliseconds(signaling_latency_ms)) {}
 
   int bandwidth_kbps;
   int max_buffers;
@@ -124,9 +123,13 @@ class ProtocolPerfTest
 
     network_change_notifier_ = net::NetworkChangeNotifier::CreateIfNeeded();
 
-    desktop_environment_factory_.reset(
-        new FakeDesktopEnvironmentFactory(capture_thread_.task_runner()));
+    desktop_environment_factory_ =
+        std::make_unique<FakeDesktopEnvironmentFactory>(
+            capture_thread_.task_runner());
   }
+
+  ProtocolPerfTest(const ProtocolPerfTest&) = delete;
+  ProtocolPerfTest& operator=(const ProtocolPerfTest&) = delete;
 
   virtual ~ProtocolPerfTest() {
     host_thread_.task_runner()->DeleteSoon(FROM_HERE, host_.release());
@@ -214,7 +217,7 @@ class ProtocolPerfTest
     client_connected_ = false;
     host_connected_ = false;
 
-    connecting_loop_.reset(new base::RunLoop());
+    connecting_loop_ = std::make_unique<base::RunLoop>();
     connecting_loop_->Run();
 
     ASSERT_TRUE(client_connected_ && host_connected_);
@@ -229,7 +232,7 @@ class ProtocolPerfTest
   std::unique_ptr<webrtc::DesktopFrame> ReceiveFrame() {
     last_video_frame_.reset();
 
-    waiting_frames_loop_.reset(new base::RunLoop());
+    waiting_frames_loop_ = std::make_unique<base::RunLoop>();
     on_frame_task_ = waiting_frames_loop_->QuitClosure();
     waiting_frames_loop_->Run();
     waiting_frames_loop_.reset();
@@ -241,7 +244,7 @@ class ProtocolPerfTest
   void WaitFrameStats(int num_frames) {
     num_expected_frame_stats_ = num_frames;
 
-    waiting_frame_stats_loop_.reset(new base::RunLoop());
+    waiting_frame_stats_loop_ = std::make_unique<base::RunLoop>();
     waiting_frame_stats_loop_->Run();
     waiting_frame_stats_loop_.reset();
 
@@ -255,8 +258,8 @@ class ProtocolPerfTest
   void StartHostAndClient(bool use_webrtc) {
     fake_network_dispatcher_ =  new FakeNetworkDispatcher();
 
-    client_signaling_.reset(
-        new FakeSignalStrategy(SignalingAddress(kClientJid)));
+    client_signaling_ =
+        std::make_unique<FakeSignalStrategy>(SignalingAddress(kClientJid));
 
     jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
 
@@ -275,7 +278,8 @@ class ProtocolPerfTest
 
     jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
 
-    host_signaling_.reset(new FakeSignalStrategy(SignalingAddress(kHostJid)));
+    host_signaling_ =
+        std::make_unique<FakeSignalStrategy>(SignalingAddress(kHostJid));
     host_signaling_->set_send_delay(GetParam().signaling_latency);
     host_signaling_->ConnectTo(client_signaling_.get());
 
@@ -292,7 +296,7 @@ class ProtocolPerfTest
         GetParam().out_of_order_rate);
     scoped_refptr<protocol::TransportContext> transport_context(
         new protocol::TransportContext(std::move(port_allocator_factory),
-                                       nullptr, network_settings,
+                                       nullptr, nullptr, network_settings,
                                        protocol::TransportRole::SERVER));
     std::unique_ptr<protocol::SessionManager> session_manager(
         new protocol::JingleSessionManager(host_signaling_.get()));
@@ -300,11 +304,11 @@ class ProtocolPerfTest
 
     // Encoder runs on a separate thread, main thread is used for everything
     // else.
-    host_.reset(new ChromotingHost(
+    host_ = std::make_unique<ChromotingHost>(
         desktop_environment_factory_.get(), std::move(session_manager),
         transport_context, host_thread_.task_runner(),
         encode_thread_.task_runner(),
-        DesktopEnvironmentOptions::CreateDefault()));
+        DesktopEnvironmentOptions::CreateDefault());
 
     base::FilePath certs_dir(net::GetTestCertsDirectory());
 
@@ -344,8 +348,8 @@ class ProtocolPerfTest
         protocol::NetworkSettings::NAT_TRAVERSAL_OUTGOING);
 
     // Initialize client.
-    client_context_.reset(
-        new ClientContext(base::ThreadTaskRunnerHandle::Get()));
+    client_context_ =
+        std::make_unique<ClientContext>(base::ThreadTaskRunnerHandle::Get());
     client_context_->Start();
 
     std::unique_ptr<FakePortAllocatorFactory> port_allocator_factory(
@@ -359,7 +363,7 @@ class ProtocolPerfTest
         GetParam().out_of_order_rate);
     scoped_refptr<protocol::TransportContext> transport_context(
         new protocol::TransportContext(std::move(port_allocator_factory),
-                                       nullptr, network_settings,
+                                       nullptr, nullptr, network_settings,
                                        protocol::TransportRole::CLIENT));
 
     protocol::ClientAuthenticationConfig client_auth_config;
@@ -367,11 +371,11 @@ class ProtocolPerfTest
     client_auth_config.fetch_secret_callback = base::BindRepeating(
         &ProtocolPerfTest::FetchPin, base::Unretained(this));
 
-    video_renderer_.reset(new SoftwareVideoRenderer(this));
+    video_renderer_ = std::make_unique<SoftwareVideoRenderer>(this);
     video_renderer_->Initialize(*client_context_, this);
 
-    client_.reset(new ChromotingClient(client_context_.get(), this,
-                                       video_renderer_.get(), nullptr));
+    client_ = std::make_unique<ChromotingClient>(
+        client_context_.get(), this, video_renderer_.get(), nullptr);
     client_->set_protocol_config(protocol_config_->Clone());
     client_->Start(client_signaling_.get(), client_auth_config,
                    transport_context, kHostJid, std::string());
@@ -428,9 +432,6 @@ class ProtocolPerfTest
   std::vector<protocol::FrameStats> frame_stats_;
 
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProtocolPerfTest);
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -492,8 +493,8 @@ void ProtocolPerfTest::MeasureTotalLatency(bool use_webrtc) {
 
   int total_frames = 0;
 
-  const base::TimeDelta kWarmUpTime = base::TimeDelta::FromSeconds(2);
-  const base::TimeDelta kTestTime = base::TimeDelta::FromSeconds(5);
+  const base::TimeDelta kWarmUpTime = base::Seconds(2);
+  const base::TimeDelta kTestTime = base::Seconds(5);
 
   base::TimeTicks start_time = base::TimeTicks::Now();
   while ((base::TimeTicks::Now() - start_time) < (kWarmUpTime + kTestTime)) {
@@ -588,8 +589,8 @@ void ProtocolPerfTest::MeasureScrollPerformance(bool use_webrtc) {
   StartHostAndClient(use_webrtc);
   ASSERT_NO_FATAL_FAILURE(WaitConnected());
 
-  const base::TimeDelta kWarmUpTime = base::TimeDelta::FromSeconds(2);
-  const base::TimeDelta kTestTime = base::TimeDelta::FromSeconds(2);
+  const base::TimeDelta kWarmUpTime = base::Seconds(2);
+  const base::TimeDelta kTestTime = base::Seconds(2);
 
   int num_frames = 0;
   int warm_up_frames = 0;

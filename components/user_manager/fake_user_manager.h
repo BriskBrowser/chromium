@@ -21,6 +21,10 @@ namespace user_manager {
 class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
  public:
   FakeUserManager();
+
+  FakeUserManager(const FakeUserManager&) = delete;
+  FakeUserManager& operator=(const FakeUserManager&) = delete;
+
   ~FakeUserManager() override;
 
   // Create and add a new user. Created user is not affiliated with the domain,
@@ -40,6 +44,11 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
       const AccountId& account_id);
 
   void LogoutAllUsers();
+
+  // Subsequent calls to IsCurrentUserNonCryptohomeDataEphemeral for
+  // |account_id| will return |is_ephemeral|.
+  void SetUserNonCryptohomeDataEphemeral(const AccountId& account_id,
+                                         bool is_ephemeral);
 
   void set_local_state(PrefService* local_state) { local_state_ = local_state; }
   void set_is_current_user_new(bool is_current_user_new) {
@@ -65,7 +74,7 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
   User* GetActiveUser() override;
   void SwitchActiveUser(const AccountId& account_id) override;
   void SaveUserDisplayName(const AccountId& account_id,
-                           const base::string16& display_name) override;
+                           const std::u16string& display_name) override;
   const AccountId& GetGuestAccountId() const override;
   bool IsFirstExecAfterBoot() const override;
   bool IsGuestAccountId(const AccountId& account_id) const override;
@@ -79,6 +88,7 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
   const AccountId& GetOwnerAccountId() const override;
   void OnSessionStarted() override {}
   void RemoveUser(const AccountId& account_id,
+                  UserRemovalReason reason,
                   RemoveUserDelegate* delegate) override {}
   void RemoveUserFromList(const AccountId& account_id) override;
   bool IsKnownUser(const AccountId& account_id) const override;
@@ -90,7 +100,7 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
   }
   void SaveForceOnlineSignin(const AccountId& account_id,
                              bool force_online_signin) override {}
-  base::string16 GetUserDisplayName(const AccountId& account_id) const override;
+  std::u16string GetUserDisplayName(const AccountId& account_id) const override;
   void SaveUserDisplayEmail(const AccountId& account_id,
                             const std::string& display_email) override {}
   bool IsCurrentUserOwner() const override;
@@ -126,7 +136,7 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
   bool IsDeprecatedSupervisedAccountId(
       const AccountId& account_id) const override;
   const gfx::ImageSkia& GetResourceImagekiaNamed(int id) const override;
-  base::string16 GetResourceStringUTF16(int string_id) const override;
+  std::u16string GetResourceStringUTF16(int string_id) const override;
   void ScheduleResolveLocale(const std::string& locale,
                              base::OnceClosure on_resolved_callback,
                              std::string* out_resolved_locale) const override;
@@ -142,10 +152,8 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
       std::set<AccountId>* device_local_accounts_set) override {}
   void PerformPostUserListLoadingActions() override {}
   void PerformPostUserLoggedInActions(bool browser_restart) override {}
-  bool IsDemoApp(const AccountId& account_id) const override;
   bool IsDeviceLocalAccountMarkedForRemoval(
       const AccountId& account_id) const override;
-  void DemoAccountLoggedIn() override {}
   void KioskAppLoggedIn(User* user) override {}
   void PublicAccountUserLoggedIn(User* user) override {}
   void OnUserRemoved(const AccountId& account_id) override {}
@@ -173,7 +181,9 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
   bool is_current_user_owner_ = false;
   bool is_current_user_new_ = false;
 
-  DISALLOW_COPY_AND_ASSIGN(FakeUserManager);
+  // Contains AccountIds for which IsCurrentUserNonCryptohomeDataEphemeral will
+  // return true.
+  std::set<AccountId> accounts_with_ephemeral_non_cryptohome_data_;
 };
 
 }  // namespace user_manager

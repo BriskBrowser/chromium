@@ -56,6 +56,9 @@ class CastSystemTracingSession {
     DETACH_FROM_SEQUENCE(worker_sequence_checker_);
   }
 
+  CastSystemTracingSession(const CastSystemTracingSession&) = delete;
+  CastSystemTracingSession& operator=(const CastSystemTracingSession&) = delete;
+
   ~CastSystemTracingSession() {
     worker_task_runner_->PostTask(FROM_HERE,
                                   base::BindOnce(&DestroySystemTracerOnWorker,
@@ -147,8 +150,6 @@ class CastSystemTracingSession {
 
   bool is_tracing_ = false;
   std::unique_ptr<chromecast::SystemTracer> system_tracer_;
-
-  DISALLOW_COPY_AND_ASSIGN(CastSystemTracingSession);
 };
 
 namespace {
@@ -160,12 +161,17 @@ class CastDataSource : public tracing::PerfettoTracedProcess::DataSourceBase {
     return instance.get();
   }
 
+  CastDataSource(const CastDataSource&) = delete;
+  CastDataSource& operator=(const CastDataSource&) = delete;
+
   // Called from the tracing::PerfettoProducer on its sequence.
-  void StartTracing(
+  void StartTracingImpl(
       tracing::PerfettoProducer* producer,
       const perfetto::DataSourceConfig& data_source_config) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(perfetto_sequence_checker_);
+    DCHECK(!producer_);
     DCHECK(!session_);
+    producer_ = producer;
     target_buffer_ = data_source_config.target_buffer();
     session_ = std::make_unique<CastSystemTracingSession>(worker_task_runner_);
     session_->StartTracing(data_source_config.chrome_config().trace_config(),
@@ -174,7 +180,7 @@ class CastDataSource : public tracing::PerfettoTracedProcess::DataSourceBase {
   }
 
   // Called from the tracing::PerfettoProducer on its sequence.
-  void StopTracing(base::OnceClosure stop_complete_callback) override {
+  void StopTracingImpl(base::OnceClosure stop_complete_callback) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(perfetto_sequence_checker_);
     DCHECK(producer_);
     DCHECK(session_);
@@ -249,14 +255,13 @@ class CastDataSource : public tracing::PerfettoTracedProcess::DataSourceBase {
   // Task runner for collecting traces in a worker thread.
   scoped_refptr<base::SequencedTaskRunner> worker_task_runner_;
 
+  tracing::PerfettoProducer* producer_ = nullptr;
   std::unique_ptr<CastSystemTracingSession> session_;
   bool session_started_ = false;
   base::OnceClosure session_started_callback_;
   std::unique_ptr<tracing::SystemTraceWriter<std::string>> trace_writer_;
   base::OnceClosure stop_complete_callback_;
   uint32_t target_buffer_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(CastDataSource);
 };
 
 }  // namespace

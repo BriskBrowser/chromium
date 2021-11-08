@@ -5,12 +5,11 @@
 #ifndef COMPONENTS_AUTOFILL_ASSISTANT_BROWSER_FAKE_SCRIPT_EXECUTOR_DELEGATE_H_
 #define COMPONENTS_AUTOFILL_ASSISTANT_BROWSER_FAKE_SCRIPT_EXECUTOR_DELEGATE_H_
 
-#include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "components/autofill_assistant/browser/client_settings.h"
 #include "components/autofill_assistant/browser/script_executor_delegate.h"
 #include "components/autofill_assistant/browser/trigger_context.h"
@@ -22,6 +21,11 @@ namespace autofill_assistant {
 class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
  public:
   FakeScriptExecutorDelegate();
+
+  FakeScriptExecutorDelegate(const FakeScriptExecutorDelegate&) = delete;
+  FakeScriptExecutorDelegate& operator=(const FakeScriptExecutorDelegate&) =
+      delete;
+
   ~FakeScriptExecutorDelegate() override;
 
   const ClientSettings& GetSettings() override;
@@ -30,26 +34,28 @@ class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
   const GURL& GetScriptURL() override;
   Service* GetService() override;
   WebController* GetWebController() override;
-  ElementStore* GetElementStore() const override;
   TriggerContext* GetTriggerContext() override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
   WebsiteLoginManager* GetWebsiteLoginManager() override;
   content::WebContents* GetWebContents() override;
   std::string GetEmailAddressForAccessTokenAccount() override;
-  std::string GetLocale() override;
+  ukm::UkmRecorder* GetUkmRecorder() override;
   bool EnterState(AutofillAssistantState state) override;
   void SetTouchableElementArea(const ElementAreaProto& element) override;
   void SetStatusMessage(const std::string& message) override;
   std::string GetStatusMessage() const override;
   void SetBubbleMessage(const std::string& message) override;
   std::string GetBubbleMessage() const override;
+  void SetTtsMessage(const std::string& message) override;
+  std::string GetTtsMessage() const override;
+  TtsButtonState GetTtsButtonState() const override;
+  void MaybePlayTtsMessage() override;
   void SetDetails(std::unique_ptr<Details> details,
                   base::TimeDelta delay) override;
   void AppendDetails(std::unique_ptr<Details> details,
                      base::TimeDelta delay) override;
   void SetInfoBox(const InfoBox& info_box) override;
   void ClearInfoBox() override;
-  void SetProgress(int progress) override;
   bool SetProgressActiveStepIdentifier(
       const std::string& active_step_identifier) override;
   void SetProgressActiveStep(int active_step) override;
@@ -73,6 +79,7 @@ class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
   ConfigureBottomSheetProto::PeekMode GetPeekMode() override;
   void ExpandBottomSheet() override;
   void CollapseBottomSheet() override;
+  void SetClientSettings(const ClientSettingsProto& client_settings) override;
   bool SetForm(
       std::unique_ptr<FormProto> form,
       base::RepeatingCallback<void(const FormProto::Result*)> changed_callback,
@@ -96,11 +103,17 @@ class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
       base::OnceCallback<void(const ClientStatus&)> end_action_callback,
       base::OnceCallback<void(const ClientStatus&)>
           view_inflation_finished_callback) override;
+  void SetPersistentGenericUi(
+      std::unique_ptr<GenericUserInterfaceProto> generic_ui,
+      base::OnceCallback<void(const ClientStatus&)>
+          view_inflation_finished_callback) override;
   void ClearGenericUi() override;
+  void ClearPersistentGenericUi() override;
   void SetOverlayBehavior(
       ConfigureUiStateProto::OverlayBehavior overlay_behavior) override;
   void SetBrowseModeInvisible(bool invisible) override;
   void SetShowFeedbackChip(bool show_feedback_chip) override;
+  ProcessedActionStatusDetailsProto& GetLogInfo() override;
 
   bool ShouldShowWarning() override;
 
@@ -112,10 +125,6 @@ class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
 
   void SetWebController(WebController* web_controller) {
     web_controller_ = web_controller;
-  }
-
-  void SetElementStore(ElementStore* element_store) {
-    element_store_ = element_store;
   }
 
   void SetTriggerContext(std::unique_ptr<TriggerContext> trigger_context) {
@@ -133,6 +142,10 @@ class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
   }
 
   const std::vector<Details>& GetDetails() { return details_; }
+
+  const GenericUserInterfaceProto* GetPersistentGenericUi() {
+    return persistent_generic_ui_.get();
+  }
 
   InfoBox* GetInfoBox() { return info_box_.get(); }
 
@@ -160,10 +173,10 @@ class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
   GURL current_url_;
   Service* service_ = nullptr;
   WebController* web_controller_ = nullptr;
-  ElementStore* element_store_ = nullptr;
   std::unique_ptr<TriggerContext> trigger_context_;
   std::vector<AutofillAssistantState> state_history_;
   std::string status_message_;
+  std::string tts_message_;
   std::string bubble_message_;
   std::vector<Details> details_;
   std::unique_ptr<InfoBox> info_box_;
@@ -173,8 +186,9 @@ class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
   std::unique_ptr<UserData> payment_request_info_;
   bool navigating_to_new_document_ = false;
   bool navigation_error_ = false;
-  std::set<ScriptExecutorDelegate::NavigationListener*> navigation_listeners_;
-  std::set<ScriptExecutorDelegate::Listener*> listeners_;
+  base::flat_set<ScriptExecutorDelegate::NavigationListener*>
+      navigation_listeners_;
+  base::flat_set<ScriptExecutorDelegate::Listener*> listeners_;
   ViewportMode viewport_mode_ = ViewportMode::NO_RESIZE;
   ConfigureBottomSheetProto::PeekMode peek_mode_ =
       ConfigureBottomSheetProto::HANDLE;
@@ -183,10 +197,10 @@ class FakeScriptExecutorDelegate : public ScriptExecutorDelegate {
   bool expand_sheet_for_prompt_ = true;
   std::vector<std::string> browse_domains_;
   UserModel* user_model_ = nullptr;
+  std::unique_ptr<GenericUserInterfaceProto> persistent_generic_ui_;
+  ProcessedActionStatusDetailsProto log_info_;
 
   bool require_ui_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeScriptExecutorDelegate);
 };
 
 }  // namespace autofill_assistant

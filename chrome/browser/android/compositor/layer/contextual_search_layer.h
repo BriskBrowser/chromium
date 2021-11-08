@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_ANDROID_COMPOSITOR_LAYER_CONTEXTUAL_SEARCH_LAYER_H_
 #define CHROME_BROWSER_ANDROID_COMPOSITOR_LAYER_CONTEXTUAL_SEARCH_LAYER_H_
 
-#include <memory>
-
 #include "chrome/browser/android/compositor/layer/overlay_panel_layer.h"
 
 namespace cc {
@@ -63,6 +61,14 @@ class ContextualSearchLayer : public OverlayPanelLayer {
                      float panel_help_height,
                      float panel_help_opacity,
                      int panel_help_container_background_color,
+                     // Related Searches
+                     int related_searches_in_content_resource_id,
+                     bool related_searches_in_content_visible,
+                     float related_searches_in_content_height,
+                     int related_searches_in_bar_resource_id,
+                     bool related_searches_in_bar_visible,
+                     float related_searches_in_bar_height,
+                     float related_searches_in_bar_redundant_padding,
                      // Banner etc
                      bool search_bar_banner_visible,
                      float search_bar_banner_height,
@@ -150,6 +156,8 @@ class ContextualSearchLayer : public OverlayPanelLayer {
   scoped_refptr<cc::SolidColorLayer> panel_help_container_;
   scoped_refptr<cc::UIResourceLayer> search_promo_;
   scoped_refptr<cc::SolidColorLayer> search_promo_container_;
+  scoped_refptr<cc::UIResourceLayer> related_searches_in_bar_;
+  scoped_refptr<cc::UIResourceLayer> related_searches_in_content_;
   scoped_refptr<cc::SolidColorLayer> bar_banner_container_;
   scoped_refptr<cc::NinePatchLayer> bar_banner_ripple_;
   scoped_refptr<cc::UIResourceLayer> bar_banner_text_;

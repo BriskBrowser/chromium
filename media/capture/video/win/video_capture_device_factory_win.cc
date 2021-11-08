@@ -17,13 +17,14 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
+#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/scoped_thread_priority.h"
 #include "base/win/core_winrt_util.h"
 #include "base/win/scoped_co_mem.h"
@@ -31,6 +32,7 @@
 #include "base/win/windows_version.h"
 #include "media/base/media_switches.h"
 #include "media/base/win/mf_initializer.h"
+#include "media/capture/capture_switches.h"
 #include "media/capture/video/win/metrics.h"
 #include "media/capture/video/win/video_capture_device_mf_win.h"
 #include "media/capture/video/win/video_capture_device_win.h"
@@ -122,7 +124,9 @@ const char* const kModelIdsBlockedForMediaFoundation[] = {
     // RBG/IR camera for Windows Hello Face Auth. See https://crbug.com/984864.
     "13d3:5257",
     // Acer Aspire f5-573g. See https://crbug.com/1034644.
-    "0bda:57f2"};
+    "0bda:57f2",
+    // Elgato Camlink 4k
+    "0fd9:0066"};
 
 // Use this list only for non-USB webcams.
 const char* const kDisplayNamesBlockedForMediaFoundation[] = {
@@ -317,22 +321,24 @@ void FindAndSetDefaultVideoCamera(
 // distributions such as Windows 7 N and Windows 7 KN.
 // static
 bool VideoCaptureDeviceFactoryWin::PlatformSupportsMediaFoundation() {
-  static bool g_dlls_available = LoadMediaFoundationDlls();
-  return g_dlls_available;
+  static const bool has_media_foundation =
+      LoadMediaFoundationDlls() && InitializeMediaFoundation();
+  return has_media_foundation;
 }
 
 VideoCaptureDeviceFactoryWin::VideoCaptureDeviceFactoryWin()
     : use_media_foundation_(
           base::FeatureList::IsEnabled(media::kMediaFoundationVideoCapture)),
-      use_d3d11_with_media_foundation_(base::FeatureList::IsEnabled(
-          media::kMediaFoundationD3D11VideoCapture)),
+      use_d3d11_with_media_foundation_(
+          base::FeatureList::IsEnabled(
+              media::kMediaFoundationD3D11VideoCapture) &&
+          switches::IsVideoCaptureUseGpuMemoryBufferEnabled()),
       com_thread_("Windows Video Capture COM Thread") {
   if (use_media_foundation_ && !PlatformSupportsMediaFoundation()) {
     use_media_foundation_ = false;
     LogVideoCaptureWinBackendUsed(
         VideoCaptureWinBackendUsed::kUsingDirectShowAsFallback);
   } else if (use_media_foundation_) {
-    session_ = InitializeMediaFoundation();
     LogVideoCaptureWinBackendUsed(
         VideoCaptureWinBackendUsed::kUsingMediaFoundationAsDefault);
   } else {
@@ -434,7 +440,7 @@ bool VideoCaptureDeviceFactoryWin::CreateDeviceFilterDirectShow(
   for (ComPtr<IMoniker> moniker;
        enum_moniker->Next(1, &moniker, nullptr) == S_OK; moniker.Reset()) {
     ComPtr<IPropertyBag> prop_bag;
-    HRESULT hr = moniker->BindToStorage(0, 0, IID_PPV_ARGS(&prop_bag));
+    hr = moniker->BindToStorage(0, 0, IID_PPV_ARGS(&prop_bag));
     if (FAILED(hr))
       continue;
 
@@ -539,7 +545,7 @@ void VideoCaptureDeviceFactoryWin::GetDevicesInfo(
 
   std::vector<VideoCaptureDeviceInfo> devices_info;
 
-  if (use_media_foundation_ && session_) {
+  if (use_media_foundation_) {
     DCHECK(PlatformSupportsMediaFoundation());
     devices_info = GetDevicesInfoMediaFoundation();
     AugmentDevicesListWithDirectShowOnlyDevices(&devices_info);
@@ -564,7 +570,7 @@ void VideoCaptureDeviceFactoryWin::GetDevicesInfo(
 void VideoCaptureDeviceFactoryWin::EnumerateDevicesUWP(
     std::vector<VideoCaptureDeviceInfo> devices_info,
     GetDevicesInfoCallback result_callback) {
-  DCHECK_GE(base::win::OSInfo::GetInstance()->version_number().build, 10240);
+  DCHECK_GE(base::win::OSInfo::GetInstance()->version_number().build, 10240u);
 
   VideoCaptureDeviceFactoryWin* factory = this;
   scoped_refptr<base::SingleThreadTaskRunner> com_thread_runner =
@@ -719,7 +725,7 @@ DevicesInfo VideoCaptureDeviceFactoryWin::GetDevicesInfoMediaFoundation() {
   DevicesInfo devices_info;
 
   if (use_d3d11_with_media_foundation_ && !dxgi_device_manager_) {
-    dxgi_device_manager_ = VideoCaptureDXGIDeviceManager::Create();
+    dxgi_device_manager_ = DXGIDeviceManager::Create();
   }
 
   // Recent non-RGB (depth, IR) cameras could be marked as sensor cameras in
@@ -974,11 +980,6 @@ VideoCaptureDeviceFactoryWin::GetSupportedFormatsMediaFoundation(
     type.Reset();
     ++stream_index;
     if (capture_format.pixel_format == PIXEL_FORMAT_UNKNOWN)
-      continue;
-    // If we're using the hardware capture path, ignore non-NV12 pixel formats
-    // to prevent copies
-    if (dxgi_device_manager_available &&
-        capture_format.pixel_format != PIXEL_FORMAT_NV12)
       continue;
     formats.push_back(capture_format);
 

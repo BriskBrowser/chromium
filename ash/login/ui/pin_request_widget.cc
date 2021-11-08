@@ -11,6 +11,7 @@
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/wm/window_dimmer.h"
+#include "base/bind.h"
 #include "base/no_destructor.h"
 #include "components/session_manager/session_manager_types.h"
 #include "ui/views/widget/widget.h"
@@ -58,8 +59,8 @@ void PinRequestWidget::SetShownCallbackForTesting(
 }
 
 void PinRequestWidget::UpdateState(PinRequestViewState state,
-                                   const base::string16& title,
-                                   const base::string16& description) {
+                                   const std::u16string& title,
+                                   const std::u16string& description) {
   DCHECK_EQ(instance_, this);
   GetView()->UpdateState(state, title, description);
 }

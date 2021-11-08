@@ -30,6 +30,8 @@ class MobileActivatorTest;
 
 namespace chromeos {
 
+class DeviceState;
+
 // Simple class to provide network state information about a network service.
 // This class should always be passed as a const* and should never be held
 // on to. Store network_state->path() (defined in ManagedState) instead and
@@ -43,6 +45,10 @@ namespace chromeos {
 class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
  public:
   explicit NetworkState(const std::string& path);
+
+  NetworkState(const NetworkState&) = delete;
+  NetworkState& operator=(const NetworkState&) = delete;
+
   ~NetworkState() override;
 
   struct VpnProviderInfo {
@@ -146,6 +152,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   const std::string& network_technology() const { return network_technology_; }
   const std::string& activation_type() const { return activation_type_; }
   const std::string& activation_state() const { return activation_state_; }
+  bool allow_roaming() const { return allow_roaming_; }
   const std::string& payment_url() const { return payment_url_; }
   const std::string& payment_post_data() const { return payment_post_data_; }
   bool cellular_out_of_credits() const { return cellular_out_of_credits_; }
@@ -184,7 +191,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   // |onc_source_|).
   bool IsManagedByPolicy() const;
 
-  // Returns true if the network is romaing and the provider does not require
+  // Returns true if the network is roaming and the provider does not require
   // roaming.
   bool IndicateRoaming() const;
 
@@ -209,9 +216,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   // Returns true if the network properties are stored in a user profile.
   bool IsPrivate() const;
 
-  // Returns true if the network is a default Cellular network (see
-  // NetworkStateHandler::EnsureCellularNetwork()).
-  bool IsDefaultCellular() const;
+  // Returns true if the network is a Cellular network not backed by Shill
+  // service.
+  bool IsNonShillCellularNetwork() const;
 
   // Returns true if Shill has detected a captive portal state.
   bool IsShillCaptivePortal() const;
@@ -273,8 +280,11 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   static bool StateIsConnecting(const std::string& connection_state);
   static bool StateIsPortalled(const std::string& connection_state);
   static bool ErrorIsValid(const std::string& error);
-  static std::unique_ptr<NetworkState> CreateDefaultCellular(
-      const std::string& device_path);
+  static std::unique_ptr<NetworkState> CreateNonShillCellularNetwork(
+      const std::string& iccid,
+      const std::string& eid,
+      const std::string& guid,
+      const DeviceState* cellular_device);
 
   // Ignore changes to signal strength less than this value.
   constexpr static const int kSignalStrengthChangeThreshold = 5;
@@ -342,6 +352,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   std::string activation_type_;
   std::string activation_state_;
   std::string roaming_;
+  bool allow_roaming_ = false;
   bool provider_requires_roaming_ = false;
   std::string payment_url_;
   std::string payment_post_data_;
@@ -378,8 +389,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   // Set by NetworkStateHandler if Chrome detects a captive portal state.
   // See IsCaptivePortal() for details.
   bool is_chrome_captive_portal_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkState);
 };
 
 }  // namespace chromeos

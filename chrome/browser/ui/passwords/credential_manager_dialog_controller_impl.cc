@@ -5,7 +5,7 @@
 #include "chrome/browser/ui/passwords/credential_manager_dialog_controller_impl.h"
 
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/passwords/password_dialog_prompts.h"
 #include "chrome/browser/ui/passwords/passwords_model_delegate.h"
@@ -61,7 +61,7 @@ CredentialManagerDialogControllerImpl::GetLocalForms() const {
   return local_credentials_;
 }
 
-base::string16 CredentialManagerDialogControllerImpl::GetAccoutChooserTitle()
+std::u16string CredentialManagerDialogControllerImpl::GetAccoutChooserTitle()
     const {
   return l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_ACCOUNT_CHOOSER_TITLE);
 }
@@ -70,7 +70,7 @@ bool CredentialManagerDialogControllerImpl::ShouldShowSignInButton() const {
   return local_credentials_.size() == 1;
 }
 
-base::string16 CredentialManagerDialogControllerImpl::GetAutoSigninPromoTitle()
+std::u16string CredentialManagerDialogControllerImpl::GetAutoSigninPromoTitle()
     const {
   int message_id = IsSyncingAutosignSetting(profile_)
                        ? IDS_AUTO_SIGNIN_FIRST_RUN_TITLE_MANY_DEVICES
@@ -78,7 +78,7 @@ base::string16 CredentialManagerDialogControllerImpl::GetAutoSigninPromoTitle()
   return l10n_util::GetStringUTF16(message_id);
 }
 
-base::string16 CredentialManagerDialogControllerImpl::GetAutoSigninText()
+std::u16string CredentialManagerDialogControllerImpl::GetAutoSigninText()
     const {
   return l10n_util::GetStringFUTF16(
       IDS_AUTO_SIGNIN_FIRST_RUN_TEXT,
@@ -87,7 +87,7 @@ base::string16 CredentialManagerDialogControllerImpl::GetAutoSigninText()
 
 bool CredentialManagerDialogControllerImpl::ShouldShowFooter() const {
   const syncer::SyncService* sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile_);
+      SyncServiceFactory::GetForProfile(profile_);
   return password_bubble_experiment::IsSmartLockUser(sync_service);
 }
 

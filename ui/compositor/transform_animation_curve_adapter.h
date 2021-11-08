@@ -9,17 +9,17 @@
 
 #include "base/macros.h"
 #include "base/time/time.h"
-#include "cc/animation/animation_curve.h"
 #include "ui/compositor/compositor_export.h"
+#include "ui/gfx/animation/keyframe/animation_curve.h"
 #include "ui/gfx/animation/tween.h"
-#include "ui/gfx/transform.h"
-#include "ui/gfx/transform_operations.h"
-#include "ui/gfx/transform_util.h"
+#include "ui/gfx/geometry/transform.h"
+#include "ui/gfx/geometry/transform_operations.h"
+#include "ui/gfx/geometry/transform_util.h"
 
 namespace ui {
 
 class COMPOSITOR_EXPORT TransformAnimationCurveAdapter
-    : public cc::TransformAnimationCurve {
+    : public gfx::TransformAnimationCurve {
  public:
   TransformAnimationCurveAdapter(gfx::Tween::Type tween_type,
                                  gfx::Transform intial_value,
@@ -28,11 +28,14 @@ class COMPOSITOR_EXPORT TransformAnimationCurveAdapter
 
   TransformAnimationCurveAdapter(const TransformAnimationCurveAdapter& other);
 
+  TransformAnimationCurveAdapter& operator=(
+      const TransformAnimationCurveAdapter&) = delete;
+
   ~TransformAnimationCurveAdapter() override;
 
   // TransformAnimationCurve implementation.
   base::TimeDelta Duration() const override;
-  std::unique_ptr<AnimationCurve> Clone() const override;
+  std::unique_ptr<gfx::AnimationCurve> Clone() const override;
   gfx::TransformOperations GetValue(base::TimeDelta t) const override;
   bool PreservesAxisAlignment() const override;
   bool MaximumScale(float* max_scale) const override;
@@ -46,8 +49,6 @@ class COMPOSITOR_EXPORT TransformAnimationCurveAdapter
   gfx::DecomposedTransform decomposed_initial_value_;
   gfx::DecomposedTransform decomposed_target_value_;
   base::TimeDelta duration_;
-
-  DISALLOW_ASSIGN(TransformAnimationCurveAdapter);
 };
 
 }  // namespace ui

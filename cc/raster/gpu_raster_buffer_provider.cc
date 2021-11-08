@@ -14,7 +14,6 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "base/trace_event/trace_event.h"
 #include "build/chromeos_buildflags.h"
@@ -35,6 +34,7 @@
 #include "gpu/command_buffer/client/shared_image_interface.h"
 #include "gpu/command_buffer/common/shared_image_trace_utils.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "skia/ext/legacy_display_globals.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -61,27 +61,38 @@ static void RasterizeSourceOOP(
     const RasterSource::PlaybackSettings& playback_settings,
     viz::RasterContextProvider* context_provider) {
   gpu::raster::RasterInterface* ri = context_provider->RasterInterface();
+  bool mailbox_needs_clear = false;
   if (mailbox->IsZero()) {
     DCHECK(!sync_token.HasData());
     auto* sii = context_provider->SharedImageInterface();
     uint32_t flags = gpu::SHARED_IMAGE_USAGE_DISPLAY |
                      gpu::SHARED_IMAGE_USAGE_RASTER |
                      gpu::SHARED_IMAGE_USAGE_OOP_RASTERIZATION;
-    if (texture_is_overlay_candidate)
+    if (texture_is_overlay_candidate) {
       flags |= gpu::SHARED_IMAGE_USAGE_SCANOUT;
+    } else if (features::IsUsingRawDraw()) {
+      flags |= gpu::SHARED_IMAGE_USAGE_RAW_DRAW;
+    }
     *mailbox = sii->CreateSharedImage(
         resource_format, resource_size, color_space, kTopLeft_GrSurfaceOrigin,
         kPremul_SkAlphaType, flags, gpu::kNullSurfaceHandle);
+    mailbox_needs_clear = true;
     ri->WaitSyncTokenCHROMIUM(sii->GenUnverifiedSyncToken().GetConstData());
   } else {
     ri->WaitSyncTokenCHROMIUM(sync_token.GetConstData());
   }
 
+  // Assume legacy MSAA if sample count is positive.
+  gpu::raster::MsaaMode msaa_mode = playback_settings.msaa_sample_count > 0
+                                        ? gpu::raster::kMSAA
+                                        : gpu::raster::kNoMSAA;
+
   ri->BeginRasterCHROMIUM(
-      raster_source->background_color(), playback_settings.msaa_sample_count,
+      raster_source->background_color(), mailbox_needs_clear,
+      playback_settings.msaa_sample_count, msaa_mode,
       playback_settings.use_lcd_text, color_space, mailbox->name);
-  float recording_to_raster_scale =
-      transform.scale() / raster_source->recording_scale_factor();
+  gfx::Vector2dF recording_to_raster_scale = transform.scale();
+  recording_to_raster_scale.Scale(1 / raster_source->recording_scale_factor());
   gfx::Size content_size = raster_source->GetContentSize(transform.scale());
 
   // TODO(enne): could skip the clear on new textures, as the service side has
@@ -498,7 +509,7 @@ gpu::SyncToken GpuRasterBufferProvider::PlaybackOnWorkerThreadInternal(
   }
 
   {
-    base::Optional<base::ElapsedTimer> timer;
+    absl::optional<base::ElapsedTimer> timer;
     if (measure_raster_metric)
       timer.emplace();
     if (enable_oop_rasterization_) {

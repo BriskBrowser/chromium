@@ -16,7 +16,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "components/safe_browsing/core/db/database_manager.h"
+#include "components/safe_browsing/core/browser/db/database_manager.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "url/gurl.h"
 
@@ -31,6 +31,11 @@ class RemoteSafeBrowsingDatabaseManager : public SafeBrowsingDatabaseManager {
   // Construct RemoteSafeBrowsingDatabaseManager.
   // Must be initialized by calling StartOnIOThread() before using.
   RemoteSafeBrowsingDatabaseManager();
+
+  RemoteSafeBrowsingDatabaseManager(const RemoteSafeBrowsingDatabaseManager&) =
+      delete;
+  RemoteSafeBrowsingDatabaseManager& operator=(
+      const RemoteSafeBrowsingDatabaseManager&) = delete;
 
   //
   // SafeBrowsingDatabaseManager implementation
@@ -52,8 +57,8 @@ class RemoteSafeBrowsingDatabaseManager : public SafeBrowsingDatabaseManager {
   bool CheckResourceUrl(const GURL& url, Client* client) override;
   AsyncMatch CheckUrlForHighConfidenceAllowlist(const GURL& url,
                                                 Client* client) override;
+  bool CheckUrlForAccuracyTips(const GURL& url, Client* client) override;
   bool CheckUrlForSubresourceFilter(const GURL& url, Client* client) override;
-  bool MatchDownloadAllowlistString(const std::string& str) override;
   bool MatchDownloadAllowlistUrl(const GURL& url) override;
   bool MatchMalwareIP(const std::string& ip_address) override;
   safe_browsing::ThreatSource GetThreatSource() const override;
@@ -79,7 +84,6 @@ class RemoteSafeBrowsingDatabaseManager : public SafeBrowsingDatabaseManager {
       request_destinations_to_check_;
 
   friend class base::RefCountedThreadSafe<RemoteSafeBrowsingDatabaseManager>;
-  DISALLOW_COPY_AND_ASSIGN(RemoteSafeBrowsingDatabaseManager);
 };  // class RemoteSafeBrowsingDatabaseManager
 
 }  // namespace safe_browsing

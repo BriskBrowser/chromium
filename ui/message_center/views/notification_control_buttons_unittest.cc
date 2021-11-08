@@ -38,14 +38,20 @@ class TestMessageView : public MessageView {
 class NotificationControlButtonsTest : public testing::Test {
  public:
   NotificationControlButtonsTest() = default;
+
+  NotificationControlButtonsTest(const NotificationControlButtonsTest&) =
+      delete;
+  NotificationControlButtonsTest& operator=(
+      const NotificationControlButtonsTest&) = delete;
+
   ~NotificationControlButtonsTest() override = default;
 
   // testing::Test
   void SetUp() override {
     Test::SetUp();
     Notification notification(
-        NOTIFICATION_TYPE_SIMPLE, "id", base::UTF8ToUTF16("title"),
-        base::UTF8ToUTF16("id"), gfx::Image(), base::string16(), GURL(),
+        NOTIFICATION_TYPE_SIMPLE, "id", u"title", u"id", gfx::Image(),
+        std::u16string(), GURL(),
         NotifierId(NotifierType::APPLICATION, "notifier_id"),
         RichNotificationData(), nullptr);
     message_view_ = std::make_unique<TestMessageView>(notification);
@@ -74,8 +80,6 @@ class NotificationControlButtonsTest : public testing::Test {
 
  private:
   std::unique_ptr<TestMessageView> message_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(NotificationControlButtonsTest);
 };
 
 TEST_F(NotificationControlButtonsTest, TestShowAndHideButtons) {

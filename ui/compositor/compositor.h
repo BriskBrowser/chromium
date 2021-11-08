@@ -8,14 +8,16 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
+#include <unordered_set>
 
 #include "base/callback_forward.h"
 #include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "base/single_thread_task_runner.h"
+#include "base/power_monitor/power_observer.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -24,14 +26,15 @@
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_host_client.h"
 #include "cc/trees/layer_tree_host_single_thread_client.h"
+#include "cc/trees/paint_holding_reason.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/host/host_frame_sink_client.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/viz/privileged/mojom/compositing/vsync_parameter_observer.mojom-forward.h"
+#include "skia/ext/skia_matrix_44.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "third_party/skia/include/core/SkMatrix44.h"
 #include "ui/compositor/compositor_animation_observer.h"
 #include "ui/compositor/compositor_export.h"
 #include "ui/compositor/compositor_lock.h"
@@ -60,9 +63,11 @@ class TaskGraphRunner;
 }
 
 namespace gfx {
+namespace mojom {
+class DelegatedInkPointRenderer;
+}  // namespace mojom
 struct PresentationFeedback;
 class Rect;
-class ScrollOffset;
 class Size;
 }
 
@@ -74,13 +79,12 @@ namespace viz {
 namespace mojom {
 class DisplayPrivate;
 class ExternalBeginFrameController;
-class DelegatedInkPointRenderer;
 }  // namespace mojom
 class ContextProvider;
 class HostFrameSinkManager;
 class LocalSurfaceId;
 class RasterContextProvider;
-}
+}  // namespace viz
 
 namespace ui {
 class Compositor;
@@ -138,7 +142,8 @@ class COMPOSITOR_EXPORT ContextFactory {
 // displayable form of pixels comprising a single widget's contents. It draws an
 // appropriately transformed texture for each transformed view in the widget's
 // view hierarchy.
-class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
+class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
+                                     public cc::LayerTreeHostClient,
                                      public cc::LayerTreeHostSingleThreadClient,
                                      public viz::HostFrameSinkClient,
                                      public ThroughputTrackerHost {
@@ -150,6 +155,10 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
              bool use_external_begin_frame_control = false,
              bool force_software_compositor = false,
              bool enable_compositing_based_throttling = false);
+
+  Compositor(const Compositor&) = delete;
+  Compositor& operator=(const Compositor&) = delete;
+
   ~Compositor() override;
 
   ui::ContextFactory* context_factory() { return context_factory_; }
@@ -185,10 +194,10 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
 
   // Gets and sets the color matrix used to transform the output colors of what
   // this compositor renders.
-  const SkMatrix44& display_color_matrix() const {
+  const skia::Matrix44& display_color_matrix() const {
     return display_color_matrix_;
   }
-  void SetDisplayColorMatrix(const SkMatrix44& matrix);
+  void SetDisplayColorMatrix(const skia::Matrix44& matrix);
 
   // Where possible, draws are scissored to a damage region calculated from
   // changes to layer properties.  This bypasses that and indicates that
@@ -233,6 +242,10 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   // the |root_layer|.
   void SetBackgroundColor(SkColor color);
 
+  // Evicts the root surface and sets the LocalSurfaceId of the root to
+  // `surface_id`.
+  void EvictRootSurface(const viz::LocalSurfaceId& surface_id);
+
   // Inform the display corresponding to this compositor if it is visible. When
   // false it does not need to produce any frames. Visibility is reset for each
   // call to CreateLayerTreeFrameSink.
@@ -244,8 +257,8 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   // Gets or sets the scroll offset for the given layer in step with the
   // cc::InputHandler. Returns true if the layer is active on the impl side.
   bool GetScrollOffsetForLayer(cc::ElementId element_id,
-                               gfx::ScrollOffset* offset) const;
-  bool ScrollLayerTo(cc::ElementId element_id, const gfx::ScrollOffset& offset);
+                               gfx::Vector2dF* offset) const;
+  bool ScrollLayerTo(cc::ElementId element_id, const gfx::Vector2dF& offset);
 
   // Mac path for transporting vsync parameters to the display. Other platforms
   // update it via the BrowserCompositorLayerTreeFrameSink directly.
@@ -291,8 +304,7 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   // timeout is null, then no timeout is used.
   std::unique_ptr<CompositorLock> GetCompositorLock(
       CompositorLockClient* client,
-      base::TimeDelta timeout =
-          base::TimeDelta::FromMilliseconds(kCompositorLockTimeoutMs)) {
+      base::TimeDelta timeout = base::Milliseconds(kCompositorLockTimeoutMs)) {
     return lock_manager_.GetCompositorLock(client, timeout,
                                            host_->DeferMainFrameUpdate());
   }
@@ -318,7 +330,7 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   void WillBeginMainFrame() override {}
   void DidBeginMainFrame() override {}
   void OnDeferMainFrameUpdatesChanged(bool) override {}
-  void OnDeferCommitsChanged(bool) override {}
+  void OnDeferCommitsChanged(bool, cc::PaintHoldingReason) override {}
   void WillUpdateLayers() override {}
   void DidUpdateLayers() override;
   void BeginMainFrame(const viz::BeginFrameArgs& args) override;
@@ -332,8 +344,8 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   void RequestNewLayerTreeFrameSink() override;
   void DidInitializeLayerTreeFrameSink() override {}
   void DidFailToInitializeLayerTreeFrameSink() override;
-  void WillCommit() override {}
-  void DidCommit(base::TimeTicks) override;
+  void WillCommit(cc::CommitState*) override {}
+  void DidCommit(base::TimeTicks, base::TimeTicks) override;
   void DidCommitAndDrawFrame() override {}
   void DidReceiveCompositorFrameAck() override;
   void DidCompletePageScaleAnimation() override {}
@@ -357,17 +369,23 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   void DidSubmitCompositorFrame() override;
   void DidLoseLayerTreeFrameSink() override {}
   void FrameIntervalUpdated(base::TimeDelta interval) override;
+  void FrameSinksToThrottleUpdated(
+      const base::flat_set<viz::FrameSinkId>& ids) override;
 
   // viz::HostFrameSinkClient implementation.
   void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
-  void OnFrameTokenChanged(uint32_t frame_token) override;
+  void OnFrameTokenChanged(uint32_t frame_token,
+                           base::TimeTicks activation_time) override;
 
   // ThroughputTrackerHost implementation.
   void StartThroughputTracker(
       TrackerId tracker_id,
       ThroughputTrackerHost::ReportCallback callback) override;
-  void StopThroughtputTracker(TrackerId tracker_id) override;
+  bool StopThroughtputTracker(TrackerId tracker_id) override;
   void CancelThroughtputTracker(TrackerId tracker_id) override;
+
+  // base::PowerSuspendObserver:
+  void OnResume() override;
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
@@ -406,7 +424,7 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   }
 
   virtual void SetDelegatedInkPointRenderer(
-      mojo::PendingReceiver<viz::mojom::DelegatedInkPointRenderer> receiver);
+      mojo::PendingReceiver<gfx::mojom::DelegatedInkPointRenderer> receiver);
 
  private:
   friend class base::RefCounted<Compositor>;
@@ -478,7 +496,7 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   scoped_refptr<cc::AnimationTimeline> animation_timeline_;
   std::unique_ptr<ScopedAnimationDurationScaleMode> slow_animations_;
 
-  SkMatrix44 display_color_matrix_;
+  skia::Matrix44 display_color_matrix_;
   gfx::DisplayColorSpaces display_color_spaces_;
 
   bool output_is_secure_ = false;
@@ -498,14 +516,27 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   bool disabled_swap_until_resize_ = false;
 
   TrackerId next_throughput_tracker_id_ = 1u;
-  using ThroughputTrackerMap =
-      base::flat_map<TrackerId, ThroughputTrackerHost::ReportCallback>;
+  struct TrackerState {
+    TrackerState();
+    TrackerState(TrackerState&&);
+    TrackerState& operator=(TrackerState&&);
+    ~TrackerState();
+
+    // Whether a tracker is waiting for report and `report_callback` should be
+    // invoked. This is set to true when a tracker is stopped.
+    bool should_report = false;
+    // Whether the report for a tracker has happened. This is set when an
+    // involuntary report happens before the tracker is stopped and set
+    // `should_report` field above.
+    bool report_attempted = false;
+    // Invoked to send report to the owner of a tracker.
+    ThroughputTrackerHost::ReportCallback report_callback;
+  };
+  using ThroughputTrackerMap = base::flat_map<TrackerId, TrackerState>;
   ThroughputTrackerMap throughput_tracker_map_;
 
   base::WeakPtrFactory<Compositor> context_creation_weak_ptr_factory_{this};
   base::WeakPtrFactory<Compositor> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(Compositor);
 };
 
 }  // namespace ui

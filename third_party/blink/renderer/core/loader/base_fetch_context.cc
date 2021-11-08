@@ -5,11 +5,12 @@
 #include "third_party/blink/renderer/core/loader/base_fetch_context.h"
 
 #include "net/http/structured_headers.h"
+#include "services/network/public/cpp/client_hints.h"
 #include "services/network/public/cpp/request_mode.h"
 #include "third_party/blink/public/common/client_hints/client_hints.h"
 #include "third_party/blink/public/common/device_memory/approximated_device_memory.h"
-#include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/permissions_policy/permissions_policy.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/platform/web_content_settings_client.h"
@@ -17,8 +18,10 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
 #include "third_party/blink/renderer/core/loader/frame_client_hints_preferences_context.h"
 #include "third_party/blink/renderer/core/loader/subresource_filter.h"
+#include "third_party/blink/renderer/core/loader/subresource_redirect_util.h"
 #include "third_party/blink/renderer/platform/exported/wrapped_resource_request.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors.h"
@@ -33,8 +36,10 @@
 
 namespace {
 
-// Simple function to add quotes to make headers strings.
-const AtomicString SerializeHeaderString(std::string str) {
+// Creates a serialized AtomicString header value out of the input string, using
+// structured headers as described in
+// https://www.rfc-editor.org/rfc/rfc8941.html.
+const AtomicString SerializeStringHeader(std::string str) {
   std::string output;
   if (!str.empty()) {
     output = net::structured_headers::SerializeItem(
@@ -45,54 +50,65 @@ const AtomicString SerializeHeaderString(std::string str) {
   return AtomicString(output.c_str());
 }
 
+// Creates a serialized AtomicString header value out of the input boolean,
+// using structured headers as described in
+// https://www.rfc-editor.org/rfc/rfc8941.html.
+const AtomicString SerializeBoolHeader(const bool value) {
+  const std::string output = net::structured_headers::SerializeItem(
+                                 net::structured_headers::Item(value))
+                                 .value_or(std::string());
+
+  return AtomicString(output.c_str());
+}
+
 }  // namespace
 
 namespace blink {
 
-base::Optional<ResourceRequestBlockedReason> BaseFetchContext::CanRequest(
+absl::optional<ResourceRequestBlockedReason> BaseFetchContext::CanRequest(
     ResourceType type,
     const ResourceRequest& resource_request,
     const KURL& url,
     const ResourceLoaderOptions& options,
     ReportingDisposition reporting_disposition,
-    const base::Optional<ResourceRequest::RedirectInfo>& redirect_info) const {
-  base::Optional<ResourceRequestBlockedReason> blocked_reason =
+    const absl::optional<ResourceRequest::RedirectInfo>& redirect_info) const {
+  absl::optional<ResourceRequestBlockedReason> blocked_reason =
       CanRequestInternal(type, resource_request, url, options,
                          reporting_disposition, redirect_info);
   if (blocked_reason &&
       reporting_disposition == ReportingDisposition::kReport) {
-    DispatchDidBlockRequest(resource_request, options.initiator_info,
-                            blocked_reason.value(), type);
+    DispatchDidBlockRequest(resource_request, options, blocked_reason.value(),
+                            type);
   }
   return blocked_reason;
 }
 
-base::Optional<ResourceRequestBlockedReason>
+absl::optional<ResourceRequestBlockedReason>
 BaseFetchContext::CanRequestBasedOnSubresourceFilterOnly(
     ResourceType type,
     const ResourceRequest& resource_request,
     const KURL& url,
     const ResourceLoaderOptions& options,
     ReportingDisposition reporting_disposition,
-    const base::Optional<ResourceRequest::RedirectInfo>& redirect_info) const {
+    const absl::optional<ResourceRequest::RedirectInfo>& redirect_info) const {
   auto* subresource_filter = GetSubresourceFilter();
-  if (subresource_filter && type != ResourceType::kImportResource &&
+  if (subresource_filter &&
       !subresource_filter->AllowLoad(url, resource_request.GetRequestContext(),
                                      reporting_disposition)) {
     if (reporting_disposition == ReportingDisposition::kReport) {
-      DispatchDidBlockRequest(resource_request, options.initiator_info,
+      DispatchDidBlockRequest(resource_request, options,
                               ResourceRequestBlockedReason::kSubresourceFilter,
                               type);
     }
     return ResourceRequestBlockedReason::kSubresourceFilter;
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 bool BaseFetchContext::CalculateIfAdSubresource(
     const ResourceRequestHead& request,
-    const base::Optional<KURL>& alias_url,
+    const absl::optional<KURL>& alias_url,
     ResourceType type,
     const FetchInitiatorInfo& initiator_info) {
   // A derived class should override this if they have more signals than just
@@ -106,8 +122,9 @@ bool BaseFetchContext::CalculateIfAdSubresource(
 
 bool BaseFetchContext::SendConversionRequestInsteadOfRedirecting(
     const KURL& url,
-    const base::Optional<ResourceRequest::RedirectInfo>& redirect_info,
-    ReportingDisposition reporting_disposition) const {
+    const absl::optional<ResourceRequest::RedirectInfo>& redirect_info,
+    ReportingDisposition reporting_disposition,
+    const String& devtools_request_id) const {
   return false;
 }
 
@@ -115,10 +132,10 @@ void BaseFetchContext::AddClientHintsIfNecessary(
     const ClientHintsPreferences& hints_preferences,
     const url::Origin& resource_origin,
     bool is_1p_origin,
-    base::Optional<UserAgentMetadata> ua,
-    const FeaturePolicy* policy,
-    const base::Optional<ClientHintImageInfo>& image_info,
-    const base::Optional<WTF::AtomicString>& lang,
+    absl::optional<UserAgentMetadata> ua,
+    const PermissionsPolicy* policy,
+    const absl::optional<ClientHintImageInfo>& image_info,
+    const absl::optional<WTF::AtomicString>& prefers_color_scheme,
     ResourceRequest& request) {
   // If the feature is enabled, then client hints are allowed only on secure
   // URLs.
@@ -133,33 +150,33 @@ void BaseFetchContext::AddClientHintsIfNecessary(
   // One exception, however, is that a custom UA is sometimes set without
   // specifying accomponying client hints, in which case we disable sending
   // them.
-  if (ClientHintsPreferences::UserAgentClientHintEnabled() && ua) {
+  if (RuntimeEnabledFeatures::UserAgentClientHintEnabled() && ua) {
     // ShouldSendClientHint is called to make sure UA is controlled by
-    // FeaturePolicy.
+    // Permissions Policy.
     if (ShouldSendClientHint(ClientHintsMode::kStandard, policy,
                              resource_origin, is_1p_origin,
                              network::mojom::blink::WebClientHintsType::kUA,
                              hints_preferences)) {
       request.SetHttpHeaderField(
-          blink::kClientHintsHeaderMapping[static_cast<size_t>(
-              network::mojom::blink::WebClientHintsType::kUA)],
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUA)
+              .c_str(),
           ua->SerializeBrandVersionList().c_str());
     }
 
     // We also send Sec-CH-UA-Mobile to all hints. It is a one-bit header
-    // identifying if the browser has opted for a "mobile" experience
-    // Formatted using the "sh-boolean" format from:
-    // https://httpwg.org/http-extensions/draft-ietf-httpbis-header-structure.html#boolean
+    // identifying if the browser has opted for a "mobile" experience.
     // ShouldSendClientHint is called to make sure it's controlled by
-    // FeaturePolicy.
+    // PermissionsPolicy.
     if (ShouldSendClientHint(
             ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
             network::mojom::blink::WebClientHintsType::kUAMobile,
             hints_preferences)) {
       request.SetHttpHeaderField(
-          blink::kClientHintsHeaderMapping[static_cast<size_t>(
-              network::mojom::blink::WebClientHintsType::kUAMobile)],
-          ua->mobile ? "?1" : "?0");
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUAMobile)
+              .c_str(),
+          SerializeBoolHeader(ua->mobile));
     }
   }
 
@@ -175,54 +192,132 @@ void BaseFetchContext::AddClientHintsIfNecessary(
   }
 
   // The next 4 hints should be enabled if we're allowing legacy hints to third
-  // parties, or if FeaturePolicy delegation says they are allowed.
+  // parties, or if PermissionsPolicy delegation says they are allowed.
   if (ShouldSendClientHint(
           ClientHintsMode::kLegacy, policy, resource_origin, is_1p_origin,
+          network::mojom::blink::WebClientHintsType::kDeviceMemory_DEPRECATED,
+          hints_preferences)) {
+    request.SetHttpHeaderField(
+        network::GetClientHintToNameMap()
+            .at(network::mojom::blink::WebClientHintsType::
+                    kDeviceMemory_DEPRECATED)
+            .c_str(),
+        AtomicString(String::Number(
+            ApproximatedDeviceMemory::GetApproximatedDeviceMemory())));
+  }
+
+  if (ShouldSendClientHint(
+          ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
           network::mojom::blink::WebClientHintsType::kDeviceMemory,
           hints_preferences)) {
     request.SetHttpHeaderField(
-        "Device-Memory",
+        network::GetClientHintToNameMap()
+            .at(network::mojom::blink::WebClientHintsType::kDeviceMemory)
+            .c_str(),
         AtomicString(String::Number(
             ApproximatedDeviceMemory::GetApproximatedDeviceMemory())));
   }
 
   // These hints only make sense if the image info is available
   if (image_info) {
-    if (ShouldSendClientHint(ClientHintsMode::kLegacy, policy, resource_origin,
-                             is_1p_origin,
-                             network::mojom::blink::WebClientHintsType::kDpr,
-                             hints_preferences)) {
-      request.SetHttpHeaderField("DPR",
-                                 AtomicString(String::Number(image_info->dpr)));
-    }
-
     if (ShouldSendClientHint(
             ClientHintsMode::kLegacy, policy, resource_origin, is_1p_origin,
-            network::mojom::blink::WebClientHintsType::kViewportWidth,
-            hints_preferences) &&
+            network::mojom::blink::WebClientHintsType::kDpr_DEPRECATED,
+            hints_preferences)) {
+      request.SetHttpHeaderField(
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kDpr_DEPRECATED)
+              .c_str(),
+          AtomicString(String::Number(image_info->dpr)));
+    }
+
+    if (ShouldSendClientHint(ClientHintsMode::kStandard, policy,
+                             resource_origin, is_1p_origin,
+                             network::mojom::blink::WebClientHintsType::kDpr,
+                             hints_preferences)) {
+      request.SetHttpHeaderField(
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kDpr)
+              .c_str(),
+          AtomicString(String::Number(image_info->dpr)));
+    }
+
+    if (ShouldSendClientHint(ClientHintsMode::kLegacy, policy, resource_origin,
+                             is_1p_origin,
+                             network::mojom::blink::WebClientHintsType::
+                                 kViewportWidth_DEPRECATED,
+                             hints_preferences) &&
         image_info->viewport_width) {
       request.SetHttpHeaderField(
-          "Viewport-Width",
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::
+                      kViewportWidth_DEPRECATED)
+              .c_str(),
           AtomicString(String::Number(image_info->viewport_width.value())));
     }
 
     if (ShouldSendClientHint(
-            ClientHintsMode::kLegacy, policy, resource_origin, is_1p_origin,
+            ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
+            network::mojom::blink::WebClientHintsType::kViewportWidth,
+            hints_preferences) &&
+        image_info->viewport_width) {
+      request.SetHttpHeaderField(
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kViewportWidth)
+              .c_str(),
+          AtomicString(String::Number(image_info->viewport_width.value())));
+    }
+
+    if (ShouldSendClientHint(
+            ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
+            network::mojom::blink::WebClientHintsType::kViewportHeight,
+            hints_preferences) &&
+        image_info->viewport_height) {
+      request.SetHttpHeaderField(
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kViewportHeight)
+              .c_str(),
+          AtomicString(String::Number(image_info->viewport_height.value())));
+    }
+
+    if (ShouldSendClientHint(ClientHintsMode::kLegacy, policy, resource_origin,
+                             is_1p_origin,
+                             network::mojom::blink::WebClientHintsType::
+                                 kResourceWidth_DEPRECATED,
+                             hints_preferences)) {
+      if (image_info->resource_width.is_set) {
+        float physical_width =
+            image_info->resource_width.width * image_info->dpr;
+        request.SetHttpHeaderField(
+            network::GetClientHintToNameMap()
+                .at(network::mojom::blink::WebClientHintsType::
+                        kResourceWidth_DEPRECATED)
+                .c_str(),
+            AtomicString(String::Number(ceil(physical_width))));
+      }
+    }
+
+    if (ShouldSendClientHint(
+            ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
             network::mojom::blink::WebClientHintsType::kResourceWidth,
             hints_preferences)) {
       if (image_info->resource_width.is_set) {
         float physical_width =
             image_info->resource_width.width * image_info->dpr;
         request.SetHttpHeaderField(
-            "Width", AtomicString(String::Number(ceil(physical_width))));
+            network::GetClientHintToNameMap()
+                .at(network::mojom::blink::WebClientHintsType::kResourceWidth)
+                .c_str(),
+            AtomicString(String::Number(ceil(physical_width))));
       }
     }
   }
 
   if (ShouldSendClientHint(
           ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
-          network::mojom::blink::WebClientHintsType::kRtt, hints_preferences)) {
-    base::Optional<base::TimeDelta> http_rtt =
+          network::mojom::blink::WebClientHintsType::kRtt_DEPRECATED,
+          hints_preferences)) {
+    absl::optional<base::TimeDelta> http_rtt =
         GetNetworkStateNotifier().GetWebHoldbackHttpRtt();
     if (!http_rtt) {
       http_rtt = GetNetworkStateNotifier().HttpRtt();
@@ -231,16 +326,17 @@ void BaseFetchContext::AddClientHintsIfNecessary(
     uint32_t rtt =
         GetNetworkStateNotifier().RoundRtt(request.Url().Host(), http_rtt);
     request.SetHttpHeaderField(
-        blink::kClientHintsHeaderMapping[static_cast<size_t>(
-            network::mojom::blink::WebClientHintsType::kRtt)],
+        network::GetClientHintToNameMap()
+            .at(network::mojom::blink::WebClientHintsType::kRtt_DEPRECATED)
+            .c_str(),
         AtomicString(String::Number(rtt)));
   }
 
-  if (ShouldSendClientHint(ClientHintsMode::kStandard, policy, resource_origin,
-                           is_1p_origin,
-                           network::mojom::blink::WebClientHintsType::kDownlink,
-                           hints_preferences)) {
-    base::Optional<double> throughput_mbps =
+  if (ShouldSendClientHint(
+          ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
+          network::mojom::blink::WebClientHintsType::kDownlink_DEPRECATED,
+          hints_preferences)) {
+    absl::optional<double> throughput_mbps =
         GetNetworkStateNotifier().GetWebHoldbackDownlinkThroughputMbps();
     if (!throughput_mbps) {
       throughput_mbps = GetNetworkStateNotifier().DownlinkThroughputMbps();
@@ -249,47 +345,40 @@ void BaseFetchContext::AddClientHintsIfNecessary(
     double mbps = GetNetworkStateNotifier().RoundMbps(request.Url().Host(),
                                                       throughput_mbps);
     request.SetHttpHeaderField(
-        blink::kClientHintsHeaderMapping[static_cast<size_t>(
-            network::mojom::blink::WebClientHintsType::kDownlink)],
+        network::GetClientHintToNameMap()
+            .at(network::mojom::blink::WebClientHintsType::kDownlink_DEPRECATED)
+            .c_str(),
         AtomicString(String::Number(mbps)));
   }
 
   if (ShouldSendClientHint(
           ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
-          network::mojom::blink::WebClientHintsType::kEct, hints_preferences)) {
-    base::Optional<WebEffectiveConnectionType> holdback_ect =
+          network::mojom::blink::WebClientHintsType::kEct_DEPRECATED,
+          hints_preferences)) {
+    absl::optional<WebEffectiveConnectionType> holdback_ect =
         GetNetworkStateNotifier().GetWebHoldbackEffectiveType();
     if (!holdback_ect)
       holdback_ect = GetNetworkStateNotifier().EffectiveType();
 
     request.SetHttpHeaderField(
-        blink::kClientHintsHeaderMapping[static_cast<size_t>(
-            network::mojom::blink::WebClientHintsType::kEct)],
+        network::GetClientHintToNameMap()
+            .at(network::mojom::blink::WebClientHintsType::kEct_DEPRECATED)
+            .c_str(),
         AtomicString(NetworkStateNotifier::EffectiveConnectionTypeToString(
             holdback_ect.value())));
   }
 
-  if (ShouldSendClientHint(ClientHintsMode::kStandard, policy, resource_origin,
-                           is_1p_origin,
-                           network::mojom::blink::WebClientHintsType::kLang,
-                           hints_preferences) &&
-      lang) {
-    request.SetHttpHeaderField(
-        blink::kClientHintsHeaderMapping[static_cast<size_t>(
-            network::mojom::blink::WebClientHintsType::kLang)],
-        lang.value());
-  }
-
   // Only send User Agent hints if the info is available
-  if (ClientHintsPreferences::UserAgentClientHintEnabled() && ua) {
+  if (RuntimeEnabledFeatures::UserAgentClientHintEnabled() && ua) {
     if (ShouldSendClientHint(ClientHintsMode::kStandard, policy,
                              resource_origin, is_1p_origin,
                              network::mojom::blink::WebClientHintsType::kUAArch,
                              hints_preferences)) {
       request.SetHttpHeaderField(
-          blink::kClientHintsHeaderMapping[static_cast<size_t>(
-              network::mojom::blink::WebClientHintsType::kUAArch)],
-          SerializeHeaderString(ua->architecture));
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUAArch)
+              .c_str(),
+          SerializeStringHeader(ua->architecture));
     }
 
     if (ShouldSendClientHint(
@@ -297,9 +386,10 @@ void BaseFetchContext::AddClientHintsIfNecessary(
             network::mojom::blink::WebClientHintsType::kUAPlatform,
             hints_preferences)) {
       request.SetHttpHeaderField(
-          blink::kClientHintsHeaderMapping[static_cast<size_t>(
-              network::mojom::blink::WebClientHintsType::kUAPlatform)],
-          SerializeHeaderString(ua->platform));
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUAPlatform)
+              .c_str(),
+          SerializeStringHeader(ua->platform));
     }
 
     if (ShouldSendClientHint(
@@ -307,9 +397,10 @@ void BaseFetchContext::AddClientHintsIfNecessary(
             network::mojom::blink::WebClientHintsType::kUAPlatformVersion,
             hints_preferences)) {
       request.SetHttpHeaderField(
-          blink::kClientHintsHeaderMapping[static_cast<size_t>(
-              network::mojom::blink::WebClientHintsType::kUAPlatformVersion)],
-          SerializeHeaderString(ua->platform_version));
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUAPlatformVersion)
+              .c_str(),
+          SerializeStringHeader(ua->platform_version));
     }
 
     if (ShouldSendClientHint(
@@ -317,9 +408,10 @@ void BaseFetchContext::AddClientHintsIfNecessary(
             network::mojom::blink::WebClientHintsType::kUAModel,
             hints_preferences)) {
       request.SetHttpHeaderField(
-          blink::kClientHintsHeaderMapping[static_cast<size_t>(
-              network::mojom::blink::WebClientHintsType::kUAModel)],
-          SerializeHeaderString(ua->model));
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUAModel)
+              .c_str(),
+          SerializeStringHeader(ua->model));
     }
 
     if (ShouldSendClientHint(
@@ -327,10 +419,48 @@ void BaseFetchContext::AddClientHintsIfNecessary(
             network::mojom::blink::WebClientHintsType::kUAFullVersion,
             hints_preferences)) {
       request.SetHttpHeaderField(
-          blink::kClientHintsHeaderMapping[static_cast<size_t>(
-              network::mojom::blink::WebClientHintsType::kUAFullVersion)],
-          SerializeHeaderString(ua->full_version));
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUAFullVersion)
+              .c_str(),
+          SerializeStringHeader(ua->full_version));
     }
+
+    if (ShouldSendClientHint(
+            ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
+            network::mojom::blink::WebClientHintsType::kUABitness,
+            hints_preferences)) {
+      request.SetHttpHeaderField(
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUABitness)
+              .c_str(),
+          SerializeStringHeader(ua->bitness));
+    }
+
+    if (ShouldSendClientHint(
+            ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
+            network::mojom::blink::WebClientHintsType::kUAReduced,
+            hints_preferences)) {
+      // If the UA-Reduced client hint should be sent according to the hints
+      // preferences, it means the Origin Trial token for User-Agent Reduction
+      // has already been validated.
+      request.SetHttpHeaderField(
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kUAReduced)
+              .c_str(),
+          SerializeBoolHeader(true));
+    }
+  }
+
+  if (ShouldSendClientHint(
+          ClientHintsMode::kStandard, policy, resource_origin, is_1p_origin,
+          network::mojom::blink::WebClientHintsType::kPrefersColorScheme,
+          hints_preferences) &&
+      prefers_color_scheme) {
+    request.SetHttpHeaderField(
+        network::GetClientHintToNameMap()
+            .at(network::mojom::blink::WebClientHintsType::kPrefersColorScheme)
+            .c_str(),
+        prefers_color_scheme.value());
   }
 }
 
@@ -356,7 +486,7 @@ void BaseFetchContext::PrintAccessDeniedMessage(const KURL& url) const {
       mojom::ConsoleMessageLevel::kError, message));
 }
 
-base::Optional<ResourceRequestBlockedReason>
+absl::optional<ResourceRequestBlockedReason>
 BaseFetchContext::CheckCSPForRequest(
     mojom::blink::RequestContextType request_context,
     network::mojom::RequestDestination request_destination,
@@ -371,7 +501,7 @@ BaseFetchContext::CheckCSPForRequest(
       ContentSecurityPolicy::CheckHeaderType::kCheckReportOnly);
 }
 
-base::Optional<ResourceRequestBlockedReason>
+absl::optional<ResourceRequestBlockedReason>
 BaseFetchContext::CheckCSPForRequestInternal(
     mojom::blink::RequestContextType request_context,
     network::mojom::RequestDestination request_destination,
@@ -383,7 +513,13 @@ BaseFetchContext::CheckCSPForRequestInternal(
     ContentSecurityPolicy::CheckHeaderType check_header_type) const {
   if (options.content_security_policy_option ==
       network::mojom::CSPDisposition::DO_NOT_CHECK) {
-    return base::nullopt;
+    return absl::nullopt;
+  }
+
+  if (ShouldDisableCSPCheckForLitePageSubresourceRedirectOrigin(
+          GetResourceFetcherProperties().GetLitePageSubresourceRedirectOrigin(),
+          request_context, redirect_status, url)) {
+    return absl::nullopt;
   }
 
   ContentSecurityPolicy* csp =
@@ -396,17 +532,17 @@ BaseFetchContext::CheckCSPForRequestInternal(
                          reporting_disposition, check_header_type)) {
     return ResourceRequestBlockedReason::kCSP;
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-base::Optional<ResourceRequestBlockedReason>
+absl::optional<ResourceRequestBlockedReason>
 BaseFetchContext::CanRequestInternal(
     ResourceType type,
     const ResourceRequest& resource_request,
     const KURL& url,
     const ResourceLoaderOptions& options,
     ReportingDisposition reporting_disposition,
-    const base::Optional<ResourceRequest::RedirectInfo>& redirect_info) const {
+    const absl::optional<ResourceRequest::RedirectInfo>& redirect_info) const {
   if (GetResourceFetcherProperties().IsDetached()) {
     if (!resource_request.GetKeepalive() || !redirect_info) {
       return ResourceRequestBlockedReason::kOther;
@@ -449,7 +585,7 @@ BaseFetchContext::CanRequestInternal(
   // restricted to data urls.
   if (options.initiator_info.name == fetch_initiator_type_names::kUacss) {
     if (type == ResourceType::kImage && url.ProtocolIsData()) {
-      return base::nullopt;
+      return absl::nullopt;
     }
     return ResourceRequestBlockedReason::kOther;
   }
@@ -475,7 +611,7 @@ BaseFetchContext::CanRequestInternal(
     return ResourceRequestBlockedReason::kCSP;
   }
 
-  if (type == ResourceType::kScript || type == ResourceType::kImportResource) {
+  if (type == ResourceType::kScript) {
     if (!AllowScriptFromSource(url)) {
       // TODO(estark): Use a different ResourceRequestBlockedReason here, since
       // this check has nothing to do with CSP. https://crbug.com/600795
@@ -521,26 +657,31 @@ BaseFetchContext::CanRequestInternal(
     return ResourceRequestBlockedReason::kOther;
   }
 
-  if (SendConversionRequestInsteadOfRedirecting(url, redirect_info,
-                                                reporting_disposition)) {
+  // Redirect `ResourceRequest`s don't have a DevToolsId set, but are
+  // associated with the requestId of the initial request. The right
+  // DevToolsId needs to be resolved via the InspectorId.
+  const String devtools_request_id =
+      IdentifiersFactory::RequestId(nullptr, resource_request.InspectorId());
+  if (SendConversionRequestInsteadOfRedirecting(
+          url, redirect_info, reporting_disposition, devtools_request_id)) {
     return ResourceRequestBlockedReason::kConversionRequest;
   }
 
   // Let the client have the final say into whether or not the load should
   // proceed.
-  if (GetSubresourceFilter() && type != ResourceType::kImportResource) {
+  if (GetSubresourceFilter()) {
     if (!GetSubresourceFilter()->AllowLoad(url, request_context,
                                            reporting_disposition)) {
       return ResourceRequestBlockedReason::kSubresourceFilter;
     }
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 bool BaseFetchContext::ShouldSendClientHint(
     ClientHintsMode mode,
-    const FeaturePolicy* policy,
+    const PermissionsPolicy* policy,
     const url::Origin& resource_origin,
     bool is_1p_origin,
     network::mojom::blink::WebClientHintsType type,
@@ -551,10 +692,13 @@ bool BaseFetchContext::ShouldSendClientHint(
       base::FeatureList::IsEnabled(features::kAllowClientHintsToThirdParty)) {
     origin_ok = true;
   } else if (RuntimeEnabledFeatures::FeaturePolicyForClientHintsEnabled()) {
-    origin_ok =
-        (policy && policy->IsFeatureEnabledForOrigin(
-                       kClientHintsFeaturePolicyMapping[static_cast<int>(type)],
-                       resource_origin));
+    // For subresource requests, if the parent frame has Sec-CH-UA-Reduced,
+    // then send Sec-CH-UA-Reduced in the fetch request, regardless of the
+    // permissions policy.
+    origin_ok = type == network::mojom::blink::WebClientHintsType::kUAReduced ||
+                (policy && policy->IsFeatureEnabledForOrigin(
+                               GetClientHintToPolicyFeatureMap().at(type),
+                               resource_origin));
   } else {
     origin_ok = is_1p_origin;
   }

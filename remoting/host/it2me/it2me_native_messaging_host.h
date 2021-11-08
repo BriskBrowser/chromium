@@ -11,13 +11,13 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
 #include "remoting/host/it2me/it2me_host.h"
 #include "remoting/protocol/errors.h"
 #include "remoting/signaling/delegating_signal_strategy.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "remoting/host/native_messaging/log_message_handler.h"
@@ -28,14 +28,6 @@ class DictionaryValue;
 class Value;
 class SingleThreadTaskRunner;
 }  // namespace base
-
-namespace net {
-class URLRequestContextGetter;
-}  // namespace net
-
-namespace policy {
-class PolicyService;
-}  // namespace policy
 
 namespace remoting {
 
@@ -51,6 +43,10 @@ class It2MeNativeMessagingHost : public It2MeHost::Observer,
                            std::unique_ptr<PolicyWatcher> policy_watcher,
                            std::unique_ptr<ChromotingHostContext> host_context,
                            std::unique_ptr<It2MeHostFactory> host_factory);
+
+  It2MeNativeMessagingHost(const It2MeNativeMessagingHost&) = delete;
+  It2MeNativeMessagingHost& operator=(const It2MeNativeMessagingHost&) = delete;
+
   ~It2MeNativeMessagingHost() override;
 
   // extensions::NativeMessageHost implementation.
@@ -71,18 +67,6 @@ class It2MeNativeMessagingHost : public It2MeHost::Observer,
   // Set a callback to be called when a policy error notification has been
   // processed.
   void SetPolicyErrorClosureForTesting(base::OnceClosure closure);
-
-  static std::string HostStateToString(It2MeHostState host_state);
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // Creates native messaging host on ChromeOS. Must be called on the UI thread
-  // of the browser process.
-  static std::unique_ptr<extensions::NativeMessageHost> CreateForChromeOS(
-      net::URLRequestContextGetter* system_request_context,
-      scoped_refptr<base::SingleThreadTaskRunner> io_runnner,
-      scoped_refptr<base::SingleThreadTaskRunner> ui_runnner,
-      policy::PolicyService* policy_service);
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
  private:
   // These "Process.." methods handle specific request types. The |response|
@@ -122,7 +106,7 @@ class It2MeNativeMessagingHost : public It2MeHost::Observer,
   std::string ExtractAccessToken(const base::DictionaryValue* message);
 
   // Returns the value of the 'allow_elevated_host' platform policy or empty.
-  base::Optional<bool> GetAllowElevatedHostPolicyValue();
+  absl::optional<bool> GetAllowElevatedHostPolicyValue();
 
   // Indicates whether the current process is already elevated.
   bool is_process_elevated_ = false;
@@ -173,8 +157,6 @@ class It2MeNativeMessagingHost : public It2MeHost::Observer,
 
   base::WeakPtr<It2MeNativeMessagingHost> weak_ptr_;
   base::WeakPtrFactory<It2MeNativeMessagingHost> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(It2MeNativeMessagingHost);
 };
 
 }  // namespace remoting

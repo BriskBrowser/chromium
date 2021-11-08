@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_FEED_CORE_V2_SURFACE_UPDATER_H_
 #define COMPONENTS_FEED_CORE_V2_SURFACE_UPDATER_H_
 
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -12,24 +13,27 @@
 #include "base/containers/flat_set.h"
 #include "base/observer_list.h"
 #include "components/feed/core/proto/v2/ui.pb.h"
+#include "components/feed/core/proto/v2/wire/reliability_logging_enums.pb.h"
 #include "components/feed/core/v2/enums.h"
-#include "components/feed/core/v2/public/feed_stream_api.h"
+#include "components/feed/core/v2/launch_reliability_logger.h"
 #include "components/feed/core/v2/stream_model.h"
+#include "components/feed/core/v2/stream_surface_set.h"
 
 namespace feedui {
 class StreamUpdate;
 }  // namespace feedui
 namespace feed {
+class FeedStreamSurface;
 class MetricsReporter;
 
-// Keeps the UI up to date by calling |SurfaceInterface::StreamUpdate()|.
+// Keeps the UI up to date by calling |FeedStreamSurface::StreamUpdate()|.
 // Updates are triggered when |StreamModel| changes, or when loading state
 // changes (for spinners and zero-state).
-class SurfaceUpdater : public StreamModel::Observer {
+class SurfaceUpdater : public StreamModel::Observer,
+                       public StreamSurfaceSet::Observer {
  public:
-  using SurfaceInterface = FeedStreamApi::SurfaceInterface;
-
-  explicit SurfaceUpdater(MetricsReporter* metrics_reporter);
+  explicit SurfaceUpdater(MetricsReporter* metrics_reporter,
+                          StreamSurfaceSet* surfaces);
   ~SurfaceUpdater() override;
   SurfaceUpdater(const SurfaceUpdater&) = delete;
   SurfaceUpdater& operator=(const SurfaceUpdater&) = delete;
@@ -44,12 +48,17 @@ class SurfaceUpdater : public StreamModel::Observer {
   // StreamModel::Observer.
   void OnUiUpdate(const StreamModel::UiUpdate& update) override;
 
-  // Signals from |FeedStream|.
-  void SurfaceAdded(SurfaceInterface* surface);
-  void SurfaceRemoved(SurfaceInterface* surface);
+  // StreamSurfaceSet::Observer.
+  void SurfaceAdded(
+      FeedStreamSurface* surface,
+      feedwire::DiscoverLaunchResult loading_not_allowed_reason) override;
+  void SurfaceRemoved(FeedStreamSurface* surface) override;
+
   // Called to indicate the initial model load is in progress.
-  void LoadStreamStarted();
-  void LoadStreamComplete(bool success, LoadStreamStatus load_stream_status);
+  void LoadStreamStarted(bool manual_refreshing);
+  void LoadStreamComplete(bool success,
+                          LoadStreamStatus load_stream_status,
+                          feedwire::DiscoverLaunchResult launch_result);
   // Called to indicate whether or not we are currently trying to load more
   // content at the bottom of the stream.
   void SetLoadingMore(bool is_loading);
@@ -58,11 +67,12 @@ class SurfaceUpdater : public StreamModel::Observer {
   // not found. Ignores all non-content slices.
   int GetSliceIndexFromSliceId(const std::string& slice_id);
 
-  // Returns whether or not at least one surface is attached.
-  bool HasSurfaceAttached() const;
-
   void SetOfflinePageAvailability(const std::string& badge_id,
                                   bool available_offline);
+
+  LaunchReliabilityLogger& launch_reliability_logger() {
+    return launch_reliability_logger_;
+  }
 
   // State that together with |model_| determines what should be sent to a
   // surface. |DrawState| is usually the same for all surfaces, except for the
@@ -78,13 +88,18 @@ class SurfaceUpdater : public StreamModel::Observer {
 
  private:
   DrawState GetState() const;
+  bool ShouldSendStreamUpdate() const;
   void SendStreamUpdateIfNeeded();
   void SendStreamUpdate(
       const std::vector<std::string>& updated_shared_state_ids);
-  void SendUpdateToSurface(SurfaceInterface* surface,
+  void SendUpdateToSurface(FeedStreamSurface* surface,
                            const feedui::StreamUpdate& update);
   void InsertDatastoreEntry(const std::string& key, const std::string& value);
   void RemoveDatastoreEntry(const std::string& key);
+
+  // Owned by |FeedStream|.
+  MetricsReporter* metrics_reporter_;
+  StreamSurfaceSet* surfaces_;
 
   // Members that affect what is sent to surfaces. A value change of these may
   // require sending an update to surfaces.
@@ -105,11 +120,9 @@ class SurfaceUpdater : public StreamModel::Observer {
 
   // Owned by |FeedStream|. Null when the model is not loaded.
   StreamModel* model_ = nullptr;
-  // Owned by |FeedStream|.
-  MetricsReporter* metrics_reporter_;
 
-  // Attached surfaces.
-  base::ObserverList<SurfaceInterface> surfaces_;
+  LaunchReliabilityLogger launch_reliability_logger_;
+  bool load_stream_started_ = false;
 };
 }  // namespace feed
 

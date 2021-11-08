@@ -5,10 +5,9 @@
 #ifndef CHROME_BROWSER_PROFILES_RENDERER_UPDATER_H_
 #define CHROME_BROWSER_PROFILES_RENDERER_UPDATER_H_
 
-#include <string>
 #include <vector>
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/common/renderer_configuration.mojom-forward.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -19,7 +18,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/signin/oauth2_login_manager.h"
+#include "chrome/browser/ash/login/signin/oauth2_login_manager.h"
 #endif
 
 class Profile;
@@ -31,7 +30,7 @@ class RenderProcessHost;
 // The RendererUpdater is responsible for updating renderers about state change.
 class RendererUpdater : public KeyedService,
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-                        public chromeos::OAuth2LoginManager::Observer,
+                        public ash::OAuth2LoginManager::Observer,
 #endif
                         public signin::IdentityManager::Observer {
  public:
@@ -54,10 +53,10 @@ class RendererUpdater : public KeyedService,
   GetRendererConfiguration(content::RenderProcessHost* render_process_host);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // chromeos::OAuth2LoginManager::Observer:
+  // ash::OAuth2LoginManager::Observer:
   void OnSessionRestoreStateChanged(
       Profile* user_profile,
-      chromeos::OAuth2LoginManager::SessionRestoreState state) override;
+      ash::OAuth2LoginManager::SessionRestoreState state) override;
 #endif
 
   // IdentityManager::Observer:
@@ -75,7 +74,7 @@ class RendererUpdater : public KeyedService,
   Profile* profile_;
   PrefChangeRegistrar pref_change_registrar_;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::OAuth2LoginManager* oauth2_login_manager_;
+  ash::OAuth2LoginManager* oauth2_login_manager_;
   bool merge_session_running_;
   std::vector<mojo::Remote<chrome::mojom::ChromeOSListener>>
       chromeos_listeners_;
@@ -86,8 +85,9 @@ class RendererUpdater : public KeyedService,
   IntegerPrefMember force_youtube_restrict_;
   StringPrefMember allowed_domains_for_apps_;
 
-  ScopedObserver<signin::IdentityManager, signin::IdentityManager::Observer>
-      identity_manager_observer_;
+  base::ScopedObservation<signin::IdentityManager,
+                          signin::IdentityManager::Observer>
+      identity_manager_observation_{this};
   signin::IdentityManager* identity_manager_;
 };
 

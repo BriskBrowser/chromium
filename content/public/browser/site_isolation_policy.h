@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/strings/string_piece_forward.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/site_isolation_mode.h"
 #include "url/origin.h"
 
 namespace content {
@@ -25,6 +26,9 @@ namespace content {
 // These methods can be called from any thread.
 class CONTENT_EXPORT SiteIsolationPolicy {
  public:
+  SiteIsolationPolicy(const SiteIsolationPolicy&) = delete;
+  SiteIsolationPolicy& operator=(const SiteIsolationPolicy&) = delete;
+
   // Returns true if every site should be placed in a dedicated process.
   static bool UseDedicatedProcessesForAllSites();
 
@@ -39,8 +43,8 @@ class CONTENT_EXPORT SiteIsolationPolicy {
   static bool IsErrorPageIsolationEnabled(bool in_main_frame);
 
   // Returns true if isolated origins may be added at runtime in response
-  // to hints such as users typing in a password or (in the future) an origin
-  // opting itself into isolation via a header.
+  // to hints such as users typing in a password or sites serving headers like
+  // Cross-Origin-Opener-Policy.
   static bool AreDynamicIsolatedOriginsEnabled();
 
   // Returns true if isolated origins preloaded with the browser should be
@@ -48,10 +52,21 @@ class CONTENT_EXPORT SiteIsolationPolicy {
   // isolated origins on Android.
   static bool ArePreloadedIsolatedOriginsEnabled();
 
-  // Returns true if opt-in origin isolation (e.g., via the "Origin-Isolation"
-  // header) should be enabled.  This is used to turn off opt-in origin
-  // isolation on low-memory Android devices.
-  static bool IsOptInOriginIsolationEnabled();
+  // Returns true if the "Origin-Agent-Cluster" header should result in a
+  // separate process for isolated origins.  This is used to turn off opt-in
+  // origin isolation on low-memory Android devices.
+  static bool IsProcessIsolationForOriginAgentClusterEnabled();
+
+  // Returns true if the OriginAgentCluster header will be respected.
+  static bool IsOriginAgentClusterEnabled();
+
+  // Returns true if Cross-Origin-Opener-Policy headers may be used as
+  // heuristics for turning on site isolation.
+  static bool IsSiteIsolationForCOOPEnabled();
+
+  // Return true if sites that were isolated due to COOP headers should be
+  // persisted across restarts.
+  static bool ShouldPersistIsolatedCOOPSites();
 
   // Applies isolated origins from all available sources, including the
   // command-line switch, field trials, enterprise policy, and the embedder.
@@ -60,14 +75,16 @@ class CONTENT_EXPORT SiteIsolationPolicy {
   // startup.
   static void ApplyGlobalIsolatedOrigins();
 
+  // Forces other methods in this class to reread flag values instead of using
+  // their cached value.
+  static void DisableFlagCachingForTesting();
+
  private:
   SiteIsolationPolicy();  // Not instantiable.
 
   // Gets isolated origins from cmdline and/or from field trial param.
   static std::string GetIsolatedOriginsFromCommandLine();
   static std::string GetIsolatedOriginsFromFieldTrial();
-
-  DISALLOW_COPY_AND_ASSIGN(SiteIsolationPolicy);
 };
 
 }  // namespace content

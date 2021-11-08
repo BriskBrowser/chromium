@@ -8,8 +8,11 @@
 #include <string>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "chromeos/services/secure_channel/authenticated_channel.h"
+#include "chromeos/services/secure_channel/file_transfer_update_callback.h"
+#include "chromeos/services/secure_channel/public/mojom/secure_channel_types.mojom.h"
 #include "chromeos/services/secure_channel/secure_channel.h"
 
 namespace chromeos {
@@ -42,6 +45,9 @@ class AuthenticatedChannelImpl : public AuthenticatedChannel,
     static Factory* test_factory_;
   };
 
+  AuthenticatedChannelImpl(const AuthenticatedChannelImpl&) = delete;
+  AuthenticatedChannelImpl& operator=(const AuthenticatedChannelImpl&) = delete;
+
   ~AuthenticatedChannelImpl() override;
 
  private:
@@ -55,6 +61,11 @@ class AuthenticatedChannelImpl : public AuthenticatedChannel,
   void PerformSendMessage(const std::string& feature,
                           const std::string& payload,
                           base::OnceClosure on_sent_callback) final;
+  void PerformRegisterPayloadFile(
+      int64_t payload_id,
+      mojom::PayloadFilesPtr payload_files,
+      FileTransferUpdateCallback file_transfer_update_callback,
+      base::OnceCallback<void(bool)> registration_result_callback) final;
   void PerformDisconnection() override;
 
   // SecureChannel::Observer:
@@ -70,14 +81,12 @@ class AuthenticatedChannelImpl : public AuthenticatedChannel,
 
   void OnRssiFetched(
       base::OnceCallback<void(mojom::ConnectionMetadataPtr)> callback,
-      base::Optional<int32_t> current_rssi);
+      absl::optional<int32_t> current_rssi);
 
   const std::vector<mojom::ConnectionCreationDetail>
       connection_creation_details_;
   std::unique_ptr<SecureChannel> secure_channel_;
   std::unordered_map<int, base::OnceClosure> sequence_number_to_callback_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(AuthenticatedChannelImpl);
 };
 
 }  // namespace secure_channel

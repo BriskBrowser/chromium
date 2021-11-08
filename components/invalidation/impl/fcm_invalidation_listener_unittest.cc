@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/task_environment.h"
 #include "components/invalidation/impl/fcm_invalidation_listener.h"
@@ -136,7 +135,7 @@ class FakeDelegate : public FCMInvalidationListener::Delegate {
   void OnInvalidate(const TopicInvalidationMap& invalidation_map) override {
     TopicSet topics = invalidation_map.GetTopics();
     for (const auto& topic : topics) {
-      const SingleObjectInvalidationSet& incoming =
+      const SingleTopicInvalidationSet& incoming =
           invalidation_map.ForTopic(topic);
       List& list = invalidations_[topic];
       list.insert(list.end(), incoming.begin(), incoming.end());
@@ -173,7 +172,7 @@ class MockSubscriptionManager : public PerUserTopicSubscriptionManager {
                void(const Topics& topics, const std::string& token));
   MOCK_METHOD0(Init, void());
   MOCK_CONST_METHOD1(LookupSubscribedPublicTopicByPrivateTopic,
-                     base::Optional<Topic>(const std::string& private_topic));
+                     absl::optional<Topic>(const std::string& private_topic));
 };
 
 class FCMInvalidationListenerTest : public testing::Test {

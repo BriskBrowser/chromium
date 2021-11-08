@@ -4,9 +4,11 @@
 
 #include "chrome/browser/device_api/managed_configuration_api.h"
 
+#include "base/containers/contains.h"
 #include "chrome/browser/device_api/managed_configuration_api_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/web_applications/policy/web_app_policy_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/prefs/pref_service.h"
@@ -36,6 +38,9 @@ const char kConfigurationData2[] = R"(
   "key2" : "value_2"
 }
 )";
+const char kConfigurationData3[] = R"(
+[1]
+)";
 const char kKey1[] = "key1";
 const char kKey2[] = "key2";
 const char kKey3[] = "key3";
@@ -59,7 +64,7 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
   std::unique_ptr<net::test_server::BasicHttpResponse> http_response;
   if (response_template.should_post_task) {
     http_response = std::make_unique<net::test_server::DelayedHttpResponse>(
-        base::TimeDelta::FromSeconds(0));
+        base::Seconds(0));
   } else {
     http_response = std::make_unique<net::test_server::BasicHttpResponse>();
   }
@@ -73,11 +78,12 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 bool DictValueEquals(std::unique_ptr<base::DictionaryValue> value,
                      std::map<std::string, std::string> expected) {
   std::map<std::string, std::string> actual;
-  for (const auto& entry : value->DictItems()) {
+  for (auto entry : value->DictItems()) {
     if (!entry.second.is_string())
       return false;
     actual.insert({entry.first, entry.second.GetString()});
   }
+
   return actual == expected;
 }
 
@@ -89,11 +95,11 @@ class ManagedConfigurationAPITest : public InProcessBrowserTest,
   void SetUpOnMainThread() override {
     InProcessBrowserTest::SetUpOnMainThread();
     origin_ = url::Origin::Create(GURL(kOrigin));
-    api()->AddObserver(origin_, this);
+    api()->AddObserver(this);
   }
 
   void TearDownOnMainThread() override {
-    api()->RemoveObserver(origin_, this);
+    api()->RemoveObserver(this);
     InProcessBrowserTest::TearDownOnMainThread();
   }
 
@@ -132,17 +138,23 @@ class ManagedConfigurationAPITest : public InProcessBrowserTest,
 
   std::unique_ptr<base::DictionaryValue> GetValues(
       const std::vector<std::string>& keys) {
+    updated_ = false;
     api()->GetOriginPolicyConfiguration(
         origin_, keys,
         base::BindOnce(&ManagedConfigurationAPITest::OnResultObtained,
                        base::Unretained(this)));
 
-    loop_get_ = std::make_unique<base::RunLoop>();
-    loop_get_->Run();
+    // We could receive a failure asynchrounously.
+    if (!updated_) {
+      loop_get_ = std::make_unique<base::RunLoop>();
+      loop_get_->Run();
+      updated_ = false;
+    }
     return std::move(result_);
   }
 
   void OnResultObtained(std::unique_ptr<base::DictionaryValue> result) {
+    updated_ = true;
     result_ = std::move(result);
     loop_get_->Quit();
   }
@@ -156,12 +168,14 @@ class ManagedConfigurationAPITest : public InProcessBrowserTest,
     }
   }
 
+  const url::Origin& GetOrigin() override { return origin(); }
+
   ManagedConfigurationAPI* api() {
     return ManagedConfigurationAPIFactory::GetForProfile(profile());
   }
 
   Profile* profile() { return browser()->profile(); }
-  url::Origin origin() { return origin_; }
+  const url::Origin& origin() { return origin_; }
 
  private:
   url::Origin origin_;
@@ -200,7 +214,7 @@ IN_PROC_BROWSER_TEST_F(ManagedConfigurationAPITest, AppRemovedFromPolicyList) {
 
   ClearConfiguration();
   WaitForUpdate();
-  ASSERT_TRUE(DictValueEquals(GetValues({kKey1, kKey2}), {}));
+  ASSERT_EQ(GetValues({kKey1, kKey2}), nullptr);
 }
 
 IN_PROC_BROWSER_TEST_F(ManagedConfigurationAPITest, UnknownKeys) {
@@ -253,4 +267,13 @@ IN_PROC_BROWSER_TEST_F(ManagedConfigurationAPITest,
   WaitForUpdate();
   ASSERT_TRUE(DictValueEquals(GetValues({kKey1, kKey2}),
                               {{kKey1, kValue1}, {kKey2, kValue2}}));
+}
+
+IN_PROC_BROWSER_TEST_F(ManagedConfigurationAPITest,
+                       NonDictionaryConfiguration) {
+  EnableTestServer({{kConfigurationUrl1, {kConfigurationData3}}});
+  SetConfiguration(kConfigurationUrl1, kConfigurationHash1);
+
+  base::RunLoop().RunUntilIdle();
+  ASSERT_TRUE(DictValueEquals(GetValues({kKey1, kKey2}), {}));
 }

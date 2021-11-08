@@ -17,8 +17,12 @@
 class PrefRegistrySimple;
 class Profile;
 
-namespace ash {
+namespace account_manager {
+class AccountManagerFacade;
 class AccountManager;
+}
+
+namespace ash {
 
 // Listens to changes to chromeos::prefs::kEduCoexistenceToSVersion policy
 // preference and invalidates secondary edu accounts with outdated terms of
@@ -29,7 +33,8 @@ class EduCoexistenceConsentInvalidationController {
 
   EduCoexistenceConsentInvalidationController(
       Profile* profile,
-      AccountManager* account_manager,
+      account_manager::AccountManager* account_manager,
+      account_manager::AccountManagerFacade* account_manager_facade,
       const AccountId& device_account_id);
   EduCoexistenceConsentInvalidationController(
       const EduCoexistenceConsentInvalidationController&) = delete;
@@ -58,7 +63,8 @@ class EduCoexistenceConsentInvalidationController {
       const std::vector<::account_manager::Account>& accounts);
 
   Profile* const profile_;
-  AccountManager* const account_manager_;
+  account_manager::AccountManager* const account_manager_;
+  account_manager::AccountManagerFacade* const account_manager_facade_;
   const AccountId device_account_id_;
   PrefChangeRegistrar pref_change_registrar_;
   base::WeakPtrFactory<EduCoexistenceConsentInvalidationController>

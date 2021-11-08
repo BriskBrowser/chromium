@@ -41,10 +41,14 @@ class WebUIMessageListener : public base::SupportsWeakPtr<WebUIMessageListener>{
  public:
   WebUIMessageListener(content::WebUI* web_ui, const std::string& message)
       : message_loop_(new content::MessageLoopRunner) {
-    web_ui->RegisterMessageCallback(
+    web_ui->RegisterDeprecatedMessageCallback(
         message,
         base::BindRepeating(&WebUIMessageListener::HandleMessage, AsWeakPtr()));
   }
+
+  WebUIMessageListener(const WebUIMessageListener&) = delete;
+  WebUIMessageListener& operator=(const WebUIMessageListener&) = delete;
+
   bool Wait() {
     message_loop_->Run();
     return true;
@@ -56,8 +60,6 @@ class WebUIMessageListener : public base::SupportsWeakPtr<WebUIMessageListener>{
   }
 
   scoped_refptr<content::MessageLoopRunner> message_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebUIMessageListener);
 };
 
 class DNDToInputNavigationObserver : public content::WebContentsObserver {
@@ -65,6 +67,11 @@ class DNDToInputNavigationObserver : public content::WebContentsObserver {
   explicit DNDToInputNavigationObserver(content::WebContents* web_contents) {
     Observe(web_contents);
   }
+
+  DNDToInputNavigationObserver(const DNDToInputNavigationObserver&) = delete;
+  DNDToInputNavigationObserver& operator=(const DNDToInputNavigationObserver&) =
+      delete;
+
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override {
     navigated = true;
@@ -73,8 +80,6 @@ class DNDToInputNavigationObserver : public content::WebContentsObserver {
 
  private:
   bool navigated = false;
-
-  DISALLOW_COPY_AND_ASSIGN(DNDToInputNavigationObserver);
 };
 
 int ExecuteHostScriptAndExtractInt(content::WebContents* web_contents,
@@ -105,6 +110,9 @@ class WebUIWebViewBrowserTest : public WebUIBrowserTest {
  public:
   WebUIWebViewBrowserTest() {}
 
+  WebUIWebViewBrowserTest(const WebUIWebViewBrowserTest&) = delete;
+  WebUIWebViewBrowserTest& operator=(const WebUIWebViewBrowserTest&) = delete;
+
   void SetUpOnMainThread() override {
     WebUIBrowserTest::SetUpOnMainThread();
     AddLibrary(
@@ -128,19 +136,17 @@ class WebUIWebViewBrowserTest : public WebUIBrowserTest {
 #else
     return GURL(signin::GetEmbeddedPromoURL(
         signin_metrics::AccessPoint::ACCESS_POINT_START_PAGE,
-        signin_metrics::Reason::REASON_FORCED_SIGNIN_PRIMARY_ACCOUNT, false));
+        signin_metrics::Reason::kForcedSigninPrimaryAccount, false));
 #endif
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebUIWebViewBrowserTest);
 };
 
 // Checks that hiding and showing the WebUI host page doesn't break guests in
 // it.
 // Regression test for http://crbug.com/515268
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DisplayNone) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testDisplayNone", base::Value(GetTestUrl("empty.html").spec())));
@@ -153,14 +159,16 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DisplayNone) {
 #define MAYBE_ExecuteScriptCode ExecuteScriptCode
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_ExecuteScriptCode) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testExecuteScriptCode", base::Value(GetTestUrl("empty.html").spec())));
 }
 
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ExecuteScriptCodeFromFile) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testExecuteScriptCodeFromFile",
@@ -174,7 +182,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ExecuteScriptCodeFromFile) {
 #define MAYBE_AddContentScript AddContentScript
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_AddContentScript) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScript", base::Value(GetTestUrl("empty.html").spec())));
@@ -187,7 +196,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_AddContentScript) {
 #define MAYBE_AddMultiContentScripts AddMultiContentScripts
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_AddMultiContentScripts) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddMultiContentScripts",
@@ -205,7 +215,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_AddMultiContentScripts) {
 IN_PROC_BROWSER_TEST_F(
     WebUIWebViewBrowserTest,
     MAYBE_AddContentScriptWithSameNameShouldOverwriteTheExistingOne) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScriptWithSameNameShouldOverwriteTheExistingOne",
@@ -223,7 +234,8 @@ IN_PROC_BROWSER_TEST_F(
 IN_PROC_BROWSER_TEST_F(
     WebUIWebViewBrowserTest,
     MAYBE_AddContentScriptToOneWebViewShouldNotInjectToTheOtherWebView) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScriptToOneWebViewShouldNotInjectToTheOtherWebView",
@@ -238,7 +250,8 @@ IN_PROC_BROWSER_TEST_F(
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
                        MAYBE_AddAndRemoveContentScripts) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddAndRemoveContentScripts",
@@ -257,7 +270,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
                        MAYBE_AddContentScriptsWithNewWindowAPI) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScriptsWithNewWindowAPI",
@@ -268,7 +282,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
 IN_PROC_BROWSER_TEST_F(
     WebUIWebViewBrowserTest,
     DISABLED_ContentScriptIsInjectedAfterTerminateAndReloadWebView) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testContentScriptIsInjectedAfterTerminateAndReloadWebView",
@@ -285,7 +300,8 @@ IN_PROC_BROWSER_TEST_F(
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
                        MAYBE_ContentScriptExistsAsLongAsWebViewTagExists) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testContentScriptExistsAsLongAsWebViewTagExists",
@@ -293,7 +309,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddContentScriptWithCode) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
 
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScriptWithCode",
@@ -319,17 +336,19 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
 #endif
 
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ContextMenuInspectElement) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
   content::ContextMenuParams params;
   TestRenderViewContextMenu menu(
-      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
+      *browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
       params);
   EXPECT_FALSE(menu.IsItemPresent(IDC_CONTENT_CONTEXT_INSPECTELEMENT));
 }
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH) && defined(USE_AURA)
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
-  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
   ASSERT_TRUE(
       WebUIBrowserTest::RunJavascriptAsyncTest("testDragAndDropToInput"));
 
@@ -375,7 +394,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
   content::DropData dropdata;
   dropdata.did_originate_from_renderer = true;
   dropdata.url = GURL(url::kAboutBlankURL);
-  dropdata.url_title = base::string16(base::ASCIIToUTF16("Drop me"));
+  dropdata.url_title = std::u16string(u"Drop me");
 
   // Drag url into input in webview.
 
@@ -392,7 +411,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
     render_view_host->GetWidget()->FilterDropData(&dropdata);
     render_view_host->GetWidget()->DragTargetDragEnter(
         dropdata, client_pt, screen_pt, drag_operation_mask,
-        blink::WebInputEvent::kLeftButtonDown);
+        blink::WebInputEvent::kLeftButtonDown, base::DoNothing());
     ASSERT_TRUE(listener.Wait());
   }
 
@@ -404,7 +423,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
                                   "Step2: destNode gets dragover");
     render_view_host->GetWidget()->DragTargetDragOver(
         client_pt, screen_pt, drag_operation_mask,
-        blink::WebInputEvent::kLeftButtonDown);
+        blink::WebInputEvent::kLeftButtonDown, base::DoNothing());
     ASSERT_TRUE(listener.Wait());
   }
 
@@ -416,7 +435,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
     WebUIMessageListener listener(embedder_web_contents->GetWebUI(),
                                   "Step3: destNode gets drop");
     render_view_host->GetWidget()->DragTargetDrop(
-        dropdata, client_pt, screen_pt, 0);
+        dropdata, client_pt, screen_pt, 0, base::DoNothing());
     ASSERT_TRUE(listener.Wait());
     // Confirm no navigation
     EXPECT_FALSE(observer.Navigated());

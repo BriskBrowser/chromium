@@ -23,6 +23,9 @@ class HorizontalSeparator : public views::View {
   explicit HorizontalSeparator(int preferred_width)
       : preferred_width_(preferred_width) {}
 
+  HorizontalSeparator(const HorizontalSeparator&) = delete;
+  HorizontalSeparator& operator=(const HorizontalSeparator&) = delete;
+
   ~HorizontalSeparator() override = default;
 
   // views::View overrides:
@@ -42,8 +45,6 @@ class HorizontalSeparator : public views::View {
 
  private:
   const int preferred_width_;
-
-  DISALLOW_COPY_AND_ASSIGN(HorizontalSeparator);
 };
 
 }  // namespace
@@ -63,7 +64,7 @@ KeyboardShortcutItemListView::KeyboardShortcutItemListView() {
 }
 
 void KeyboardShortcutItemListView::AddCategoryLabel(
-    const base::string16& text) {
+    const std::u16string& text) {
   constexpr int kLabelTopPadding = 44;
   constexpr int kLabelBottomPadding = 20;
   constexpr SkColor kLabelColor = SkColorSetARGB(0xFF, 0x42, 0x85, 0xF4);

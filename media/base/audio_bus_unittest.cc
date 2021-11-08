@@ -8,9 +8,10 @@
 #include <limits>
 #include <memory>
 
+#include "base/cxx17_backports.h"
 #include "base/memory/aligned_memory.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/bind.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "media/base/audio_bus.h"
@@ -31,6 +32,10 @@ static const int kSampleRate = 48000;
 class AudioBusTest : public testing::Test {
  public:
   AudioBusTest() = default;
+
+  AudioBusTest(const AudioBusTest&) = delete;
+  AudioBusTest& operator=(const AudioBusTest&) = delete;
+
   ~AudioBusTest() override {
     for (size_t i = 0; i < data_.size(); ++i)
       base::AlignedFree(data_[i]);
@@ -124,8 +129,6 @@ class AudioBusTest : public testing::Test {
 
  protected:
   std::vector<float*> data_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioBusTest);
 };
 
 // Verify basic Create(...) method works as advertised.
@@ -157,8 +160,16 @@ TEST_F(AudioBusTest, CreateWrapper) {
   for (int i = 0; i < bus->channels(); ++i)
     bus->SetChannelData(i, data_[i]);
 
+  bool deleted = false;
+  bus->SetWrappedDataDeleter(
+      base::BindLambdaForTesting([&]() { deleted = true; }));
+
   VerifyChannelAndFrameCount(bus.get());
   VerifyReadWriteAndAlignment(bus.get());
+
+  EXPECT_FALSE(deleted);
+  bus.reset();
+  EXPECT_TRUE(deleted);
 }
 
 // Verify an AudioBus created via wrapping a vector works as advertised.
@@ -352,7 +363,8 @@ TEST_F(AudioBusTest, FromInterleaved) {
                                                       kTestVectorFrameCount);
     VerifyAreEqualWithEpsilon(
         bus.get(), expected.get(),
-        1.0f / (std::numeric_limits<uint16_t>::max() + 1.0f));
+        1.0f /
+            (static_cast<float>(std::numeric_limits<uint16_t>::max()) + 1.0f));
   }
   {
     SCOPED_TRACE("SignedInt32SampleTypeTraits");
@@ -361,7 +373,7 @@ TEST_F(AudioBusTest, FromInterleaved) {
                                                       kTestVectorFrameCount);
     VerifyAreEqualWithEpsilon(
         bus.get(), expected.get(),
-        1.0f / (std::numeric_limits<uint32_t>::max() + 1.0f));
+        1.0f / static_cast<float>(std::numeric_limits<uint32_t>::max()));
   }
   {
     SCOPED_TRACE("Float32SampleTypeTraits");

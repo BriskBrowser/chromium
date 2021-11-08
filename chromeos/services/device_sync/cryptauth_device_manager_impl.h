@@ -53,6 +53,10 @@ class CryptAuthDeviceManagerImpl : public CryptAuthDeviceManager,
     static Factory* factory_instance_;
   };
 
+  CryptAuthDeviceManagerImpl(const CryptAuthDeviceManagerImpl&) = delete;
+  CryptAuthDeviceManagerImpl& operator=(const CryptAuthDeviceManagerImpl&) =
+      delete;
+
   ~CryptAuthDeviceManagerImpl() override;
 
   // CryptAuthDeviceManager:
@@ -90,8 +94,8 @@ class CryptAuthDeviceManagerImpl : public CryptAuthDeviceManager,
  private:
   // CryptAuthGCMManager::Observer:
   void OnResyncMessage(
-      const base::Optional<std::string>& session_id,
-      const base::Optional<CryptAuthFeatureType>& feature_type) override;
+      const absl::optional<std::string>& session_id,
+      const absl::optional<CryptAuthFeatureType>& feature_type) override;
 
   // Updates |unlock_keys_| by fetching the list stored in |pref_service_|.
   void UpdateUnlockKeysFromPrefs();
@@ -134,8 +138,6 @@ class CryptAuthDeviceManagerImpl : public CryptAuthDeviceManager,
   std::unique_ptr<CryptAuthClient> cryptauth_client_;
 
   base::WeakPtrFactory<CryptAuthDeviceManagerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthDeviceManagerImpl);
 };
 
 }  // namespace device_sync

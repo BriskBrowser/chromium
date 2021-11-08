@@ -83,6 +83,7 @@ public class ShareImageFileUtilsTest extends DummyUiActivityTestCase {
         super.setUpTest();
         Looper.prepare();
         ContentUriUtils.setFileProviderUtil(new FileProviderHelper());
+        Clipboard.getInstance().setImageFileProvider(new ClipboardImageFileProvider());
     }
 
     @Override

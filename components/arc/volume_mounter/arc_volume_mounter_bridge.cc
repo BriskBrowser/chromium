@@ -9,6 +9,7 @@
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/task/post_task.h"
 #include "chromeos/disks/disk.h"
 #include "chromeos/disks/disk_mount_manager.h"
@@ -36,6 +37,13 @@ constexpr char kMyFilesPath[] = "/home/chronos/user/MyFiles";
 constexpr char kMyFilesUuid[] = "0000000000000000000000000000CAFEF00D2019";
 // Dummy UUID for testing.
 constexpr char kDummyUuid[] = "00000000000000000000000000000000DEADBEEF";
+
+// Keep in sync with Android's ArcVolumeMounterService.MAX_MOUNT_FAILURE_COUNT.
+// Receiving this value at ReportMountFailureCount() indicates that mounting a
+// volume has been given up after failing in mount attempts the number of times.
+// It goes to the overflow bucket of the Arc.VolumeMounter.MountFailureCount
+// histogram.
+constexpr int kUmaMaxMountFailureCount = 40;
 
 // Singleton factory for ArcVolumeMounterBridge.
 class ArcVolumeMounterBridgeFactory
@@ -96,7 +104,8 @@ ArcVolumeMounterBridge::ArcVolumeMounterBridge(content::BrowserContext* context,
 }
 
 ArcVolumeMounterBridge::~ArcVolumeMounterBridge() {
-  DiskMountManager::GetInstance()->RemoveObserver(this);
+  if (DiskMountManager::GetInstance())  // for testing
+    DiskMountManager::GetInstance()->RemoveObserver(this);
   arc_bridge_service_->volume_mounter()->SetHost(nullptr);
   arc_bridge_service_->volume_mounter()->RemoveObserver(this);
 }
@@ -131,8 +140,8 @@ void ArcVolumeMounterBridge::SendMountEventForMyFiles() {
   // TODO(niwa): Add a new DeviceType enum value for MyFiles.
   chromeos::DeviceType device_type = chromeos::DeviceType::DEVICE_TYPE_SD;
 
-  // Conditionally set MyFiles to be visible for P and invisible for R. In R, we use IsVisibleRead
-  // so this is not needed.
+  // Conditionally set MyFiles to be visible for P and invisible for R. In R, we
+  // use IsVisibleRead so this is not needed.
   volume_mounter_instance->OnMountEvent(mojom::MountPointInfo::New(
       DiskMountManager::MOUNTING, kMyFilesPath, kMyFilesPath, kMyFilesUuid,
       device_label, device_type, !IsArcVmEnabled()));
@@ -270,6 +279,12 @@ void ArcVolumeMounterBridge::RequestAllMountPoints() {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&ArcVolumeMounterBridge::SendAllMountEvents,
                                 weak_ptr_factory_.GetWeakPtr()));
+}
+
+void ArcVolumeMounterBridge::ReportMountFailureCount(uint16_t count) {
+  base::UmaHistogramCustomCounts("Arc.VolumeMounter.MountFailureCount",
+                                 base::strict_cast<int>(count), /*min=*/1,
+                                 kUmaMaxMountFailureCount, /*buckets=*/10);
 }
 
 }  // namespace arc

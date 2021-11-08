@@ -12,9 +12,15 @@ import android.text.TextUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.blink.mojom.DisplayMode;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.WebApkExtras;
+import org.chromium.chrome.browser.browserservices.intents.WebApkShareTarget;
+import org.chromium.chrome.browser.browserservices.intents.WebappIcon;
+import org.chromium.chrome.browser.browserservices.intents.WebappInfo;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.components.webapps.WebApkDistributor;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.webapk.lib.common.splash.SplashLayout;
 
@@ -110,11 +116,12 @@ public class WebApkUpdateDataFetcher extends EmptyTabObserver {
     protected void onDataAvailable(String manifestStartUrl, String scopeUrl, String name,
             String shortName, String primaryIconUrl, String primaryIconMurmur2Hash,
             Bitmap primaryIconBitmap, boolean isPrimaryIconMaskable, String splashIconUrl,
-            String splashIconMurmur2Hash, Bitmap splashIconBitmap, String[] iconUrls,
-            @WebDisplayMode int displayMode, int orientation, long themeColor, long backgroundColor,
-            String shareAction, String shareParamsTitle, String shareParamsText,
-            boolean isShareMethodPost, boolean isShareEncTypeMultipart,
-            String[] shareParamsFileNames, String[][] shareParamsAccepts, String[][] shortcuts) {
+            String splashIconMurmur2Hash, Bitmap splashIconBitmap, boolean isSplashIconMaskable,
+            String[] iconUrls, @DisplayMode.EnumType int displayMode, int orientation,
+            long themeColor, long backgroundColor, String shareAction, String shareParamsTitle,
+            String shareParamsText, boolean isShareMethodPost, boolean isShareEncTypeMultipart,
+            String[] shareParamsFileNames, String[][] shareParamsAccepts, String[][] shortcuts,
+            byte[][] shortcutIconData) {
         Context appContext = ContextUtils.getApplicationContext();
 
         HashMap<String, String> iconUrlToMurmur2HashMap = new HashMap<String, String>();
@@ -129,11 +136,12 @@ public class WebApkUpdateDataFetcher extends EmptyTabObserver {
         }
 
         List<WebApkExtras.ShortcutItem> shortcutItems = new ArrayList<>();
-        for (String[] shortcutData : shortcuts) {
+        for (int i = 0; i < shortcuts.length; i++) {
+            String[] shortcutData = shortcuts[i];
             shortcutItems.add(new WebApkExtras.ShortcutItem(shortcutData[0] /* name */,
                     shortcutData[1] /* shortName */, shortcutData[2] /* launchUrl */,
                     shortcutData[3] /* iconUrl */, shortcutData[4] /* iconHash */,
-                    new WebappIcon(shortcutData[5], false /* isTrusted */)));
+                    new WebappIcon(shortcutIconData[i])));
         }
 
         // When share action is empty, we use a default empty share target
@@ -150,7 +158,7 @@ public class WebApkUpdateDataFetcher extends EmptyTabObserver {
                         new WebappIcon(primaryIconBitmap), new WebappIcon(splashIconBitmap), name,
                         shortName, displayMode, orientation, mOldInfo.source(), themeColor,
                         backgroundColor, defaultBackgroundColor, isPrimaryIconMaskable,
-                        false /* isSplashIconMaskable */, mOldInfo.webApkPackageName(),
+                        isSplashIconMaskable, mOldInfo.webApkPackageName(),
                         mOldInfo.shellApkVersion(), mOldInfo.manifestUrl(), manifestStartUrl,
                         WebApkDistributor.BROWSER, iconUrlToMurmur2HashMap, shareTarget,
                         mOldInfo.shouldForceNavigation(), mOldInfo.isSplashProvidedByWebApk(), null,

@@ -28,17 +28,21 @@ namespace {
 
 class VideoThumbnailDecoderTest : public testing::Test {
  public:
-  VideoThumbnailDecoderTest() {}
-  ~VideoThumbnailDecoderTest() override {}
+  VideoThumbnailDecoderTest() = default;
+  VideoThumbnailDecoderTest(const VideoThumbnailDecoderTest&) = delete;
+  VideoThumbnailDecoderTest& operator=(const VideoThumbnailDecoderTest&) =
+      delete;
+  ~VideoThumbnailDecoderTest() override = default;
 
  protected:
   void SetUp() override {
     auto mock_video_decoder = std::make_unique<MockVideoDecoder>();
     mock_video_decoder_ = mock_video_decoder.get();
     VideoDecoderConfig valid_config(
-        kCodecVP8, VP8PROFILE_ANY, VideoDecoderConfig::AlphaMode::kIsOpaque,
-        VideoColorSpace(), kNoTransformation, gfx::Size(1, 1), gfx::Rect(1, 1),
-        gfx::Size(1, 1), EmptyExtraData(), EncryptionScheme::kUnencrypted);
+        VideoCodec::kVP8, VP8PROFILE_ANY,
+        VideoDecoderConfig::AlphaMode::kIsOpaque, VideoColorSpace(),
+        kNoTransformation, gfx::Size(1, 1), gfx::Rect(1, 1), gfx::Size(1, 1),
+        EmptyExtraData(), EncryptionScheme::kUnencrypted);
 
     thumbnail_decoder_ = std::make_unique<VideoThumbnailDecoder>(
         std::move(mock_video_decoder), valid_config, std::vector<uint8_t>{0u});
@@ -76,8 +80,6 @@ class VideoThumbnailDecoderTest : public testing::Test {
 
   // The video frame returned from the thumbnail decoder.
   scoped_refptr<VideoFrame> frame_;
-
-  DISALLOW_COPY_AND_ASSIGN(VideoThumbnailDecoderTest);
 };
 
 // Verifies a video frame can be delivered when decoder successfully created

@@ -4,19 +4,28 @@
 
 #include "chrome/browser/ui/views/borealis/borealis_installer_view.h"
 
+#include <memory>
+
 #include "base/bind.h"
-#include "chrome/browser/chromeos/borealis/borealis_context.h"
-#include "chrome/browser/chromeos/borealis/borealis_context_manager_mock.h"
-#include "chrome/browser/chromeos/borealis/borealis_installer.h"
-#include "chrome/browser/chromeos/borealis/borealis_metrics.h"
-#include "chrome/browser/chromeos/borealis/borealis_service_fake.h"
-#include "chrome/browser/chromeos/borealis/borealis_task.h"
-#include "chrome/browser/chromeos/borealis/borealis_util.h"
+#include "base/test/scoped_feature_list.h"
+#include "chrome/browser/ash/borealis/borealis_app_launcher.h"
+#include "chrome/browser/ash/borealis/borealis_context.h"
+#include "chrome/browser/ash/borealis/borealis_context_manager_mock.h"
+#include "chrome/browser/ash/borealis/borealis_features.h"
+#include "chrome/browser/ash/borealis/borealis_installer.h"
+#include "chrome/browser/ash/borealis/borealis_metrics.h"
+#include "chrome/browser/ash/borealis/borealis_prefs.h"
+#include "chrome/browser/ash/borealis/borealis_service.h"
+#include "chrome/browser/ash/borealis/borealis_service_fake.h"
+#include "chrome/browser/ash/borealis/borealis_task.h"
+#include "chrome/browser/ash/borealis/borealis_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -35,22 +44,33 @@ class BorealisInstallerMock : public borealis::BorealisInstaller {
   MOCK_METHOD0(IsProcessing, bool());
   MOCK_METHOD0(Start, void());
   MOCK_METHOD0(Cancel, void());
+  MOCK_METHOD(void,
+              Uninstall,
+              (base::OnceCallback<void(BorealisUninstallResult)>),
+              ());
   MOCK_METHOD1(AddObserver, void(Observer*));
   MOCK_METHOD1(RemoveObserver, void(Observer*));
 };
 
 class BorealisInstallerViewBrowserTest : public DialogBrowserTest {
  public:
-  BorealisInstallerViewBrowserTest() = default;
+  BorealisInstallerViewBrowserTest() {
+    feature_list_.InitAndEnableFeature(features::kBorealis);
+  }
 
   // DialogBrowserTest:
   void SetUpOnMainThread() override {
     app_name_ = l10n_util::GetStringUTF16(IDS_BOREALIS_APP_NAME);
 
+    app_launcher_ = std::make_unique<BorealisAppLauncher>(browser()->profile());
+    features_ = std::make_unique<BorealisFeatures>(browser()->profile());
+
     BorealisServiceFake* fake_service =
         BorealisServiceFake::UseFakeForTesting(browser()->profile());
     fake_service->SetContextManagerForTesting(&mock_context_manager_);
     fake_service->SetInstallerForTesting(&mock_installer_);
+    fake_service->SetAppLauncherForTesting(app_launcher_.get());
+    fake_service->SetFeaturesForTesting(features_.get());
   }
 
   void ShowUi(const std::string& name) override {
@@ -93,9 +113,6 @@ class BorealisInstallerViewBrowserTest : public DialogBrowserTest {
   void ExpectInstallationFailedWithNoRetry() {
     EXPECT_FALSE(HasAcceptButton());
     EXPECT_TRUE(HasCancelButton());
-    EXPECT_EQ(view_->GetPrimaryMessage(),
-              l10n_util::GetStringFUTF16(
-                  IDS_BOREALIS_INSTALLER_NOT_ALLOWED_TITLE, app_name_));
   }
 
   void ExpectInstallationCompletedSucessfully() {
@@ -125,10 +142,13 @@ class BorealisInstallerViewBrowserTest : public DialogBrowserTest {
     EXPECT_TRUE(view_->GetWidget()->IsClosed());
   }
 
+  base::test::ScopedFeatureList feature_list_;
   ::testing::StrictMock<BorealisInstallerMock> mock_installer_;
   ::testing::StrictMock<BorealisContextManagerMock> mock_context_manager_;
+  std::unique_ptr<BorealisAppLauncher> app_launcher_;
+  std::unique_ptr<BorealisFeatures> features_;
   BorealisInstallerView* view_;
-  base::string16 app_name_;
+  std::u16string app_name_;
 
  private:
   // Disallow copy and assign.
@@ -149,9 +169,13 @@ IN_PROC_BROWSER_TEST_F(BorealisInstallerViewBrowserTest, SucessfulInstall) {
   ShowUi("default");
   AcceptInstallation();
 
+  browser()->profile()->GetPrefs()->SetBoolean(
+      prefs::kBorealisInstalledOnDevice, true);
   view_->OnInstallationEnded(InstallationResult::kSuccess);
   ExpectInstallationCompletedSucessfully();
 
+  EXPECT_CALL(mock_context_manager_, IsRunning())
+      .WillOnce(testing::Return(true));
   EXPECT_CALL(mock_context_manager_, StartBorealis(_));
   EXPECT_CALL(mock_installer_, RemoveObserver(_));
   view_->AcceptDialog();
@@ -191,9 +215,13 @@ IN_PROC_BROWSER_TEST_F(BorealisInstallerViewBrowserTest,
 
   AcceptInstallation();
 
+  browser()->profile()->GetPrefs()->SetBoolean(
+      prefs::kBorealisInstalledOnDevice, true);
   view_->OnInstallationEnded(InstallationResult::kSuccess);
   ExpectInstallationCompletedSucessfully();
 
+  EXPECT_CALL(mock_context_manager_, IsRunning())
+      .WillOnce(testing::Return(true));
   EXPECT_CALL(mock_context_manager_, StartBorealis(_));
   EXPECT_CALL(mock_installer_, RemoveObserver(_));
   view_->AcceptDialog();
@@ -223,6 +251,29 @@ IN_PROC_BROWSER_TEST_F(BorealisInstallerViewBrowserTest, NotAllowedError) {
 
   view_->OnInstallationEnded(error_type);
   ExpectInstallationFailedWithNoRetry();
+  EXPECT_EQ(view_->GetPrimaryMessage(),
+            l10n_util::GetStringFUTF16(IDS_BOREALIS_INSTALLER_NOT_ALLOWED_TITLE,
+                                       app_name_));
+  EXPECT_EQ(view_->GetSecondaryMessage(),
+            l10n_util::GetStringFUTF16(
+                IDS_BOREALIS_INSTALLER_NOT_ALLOWED_MESSAGE, app_name_,
+                base::NumberToString16(
+                    static_cast<std::underlying_type_t<InstallationResult>>(
+                        error_type))));
+
+  ClickCancel();
+}
+
+IN_PROC_BROWSER_TEST_F(BorealisInstallerViewBrowserTest, DlcUnsupportedError) {
+  InstallationResult error_type = InstallationResult::kDlcUnsupportedError;
+  ShowUi("default");
+  AcceptInstallation();
+
+  view_->OnInstallationEnded(error_type);
+  ExpectInstallationFailedWithNoRetry();
+  EXPECT_EQ(view_->GetPrimaryMessage(),
+            l10n_util::GetStringFUTF16(IDS_BOREALIS_INSTALLER_NOT_ALLOWED_TITLE,
+                                       app_name_));
   EXPECT_EQ(view_->GetSecondaryMessage(),
             l10n_util::GetStringFUTF16(
                 IDS_BOREALIS_INSTALLER_NOT_ALLOWED_MESSAGE, app_name_,
@@ -285,6 +336,22 @@ IN_PROC_BROWSER_TEST_F(BorealisInstallerViewBrowserTest, DlcNeedSpaceError) {
   EXPECT_EQ(
       view_->GetSecondaryMessage(),
       l10n_util::GetStringUTF16(IDS_BOREALIS_INSUFFICIENT_DISK_SPACE_MESSAGE));
+
+  ClickCancel();
+}
+
+IN_PROC_BROWSER_TEST_F(BorealisInstallerViewBrowserTest, DlcNeedUpdateError) {
+  InstallationResult error_type = InstallationResult::kDlcNeedUpdateError;
+  ShowUi("default");
+  AcceptInstallation();
+
+  view_->OnInstallationEnded(error_type);
+  ExpectInstallationFailedWithNoRetry();
+  EXPECT_EQ(view_->GetPrimaryMessage(),
+            l10n_util::GetStringUTF16(IDS_BOREALIS_INSTALLER_ERROR_TITLE));
+  EXPECT_EQ(
+      view_->GetSecondaryMessage(),
+      l10n_util::GetStringUTF16(IDS_BOREALIS_DLC_NEED_UPDATE_FAILED_MESSAGE));
 
   ClickCancel();
 }

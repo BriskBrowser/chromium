@@ -18,7 +18,6 @@
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/current_module.h"
@@ -197,7 +196,7 @@ void CALLBACK PerformPostSigninActionsW(HWND /*hwnd*/,
   // Don't log |buffer| since it contains sensitive info like password.
 
   HRESULT hr = S_OK;
-  base::Optional<base::Value> properties =
+  absl::optional<base::Value> properties =
       base::JSONReader::Read(buffer.data(), base::JSON_ALLOW_TRAILING_COMMAS);
 
   credential_provider::SecurelyClearBuffer(buffer.data(), buffer.size());
@@ -212,7 +211,7 @@ void CALLBACK PerformPostSigninActionsW(HWND /*hwnd*/,
   base::win::ScopedCOMInitializer com_initializer(
       base::win::ScopedCOMInitializer::kMTA);
   if (!com_initializer.Succeeded()) {
-    HRESULT hr = HRESULT_FROM_WIN32(::GetLastError());
+    hr = HRESULT_FROM_WIN32(::GetLastError());
     LOGFN(ERROR) << "ScopedCOMInitializer failed hr=" << putHR(hr);
   }
 

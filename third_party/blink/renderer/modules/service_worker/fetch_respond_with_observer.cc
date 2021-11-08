@@ -14,7 +14,9 @@
 #include "services/network/public/mojom/fetch_api.mojom-blink.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_response.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_stream_handle.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
@@ -146,6 +148,9 @@ class FetchLoaderClient final : public GarbageCollected<FetchLoaderClient>,
     callback_receiver_ = callback_.BindNewPipeAndPassReceiver();
   }
 
+  FetchLoaderClient(const FetchLoaderClient&) = delete;
+  FetchLoaderClient& operator=(const FetchLoaderClient&) = delete;
+
   void DidFetchDataStartedDataPipe(
       mojo::ScopedDataPipeConsumerHandle pipe) override {
     DCHECK(!body_stream_.is_valid());
@@ -186,8 +191,6 @@ class FetchLoaderClient final : public GarbageCollected<FetchLoaderClient>,
 
   mojo::Remote<mojom::blink::ServiceWorkerStreamCallback> callback_;
   std::unique_ptr<ServiceWorkerEventQueue::StayAwakeToken> token_;
-
-  DISALLOW_COPY_AND_ASSIGN(FetchLoaderClient);
 };
 
 }  // namespace
@@ -211,17 +214,15 @@ void FetchRespondWithObserver::OnResponseRejected(
   ServiceWorkerGlobalScope* service_worker_global_scope =
       To<ServiceWorkerGlobalScope>(GetExecutionContext());
   service_worker_global_scope->RespondToFetchEvent(
-      event_id_, request_url_, std::move(response), event_dispatch_time_,
-      base::TimeTicks::Now());
+      event_id_, request_url_, range_request_, std::move(response),
+      event_dispatch_time_, base::TimeTicks::Now());
   event_->RejectHandledPromise(error_message);
 }
 
 void FetchRespondWithObserver::OnResponseFulfilled(
     ScriptState* script_state,
     const ScriptValue& value,
-    ExceptionState::ContextType context_type,
-    const char* interface_name,
-    const char* property_name) {
+    const ExceptionContext& exception_context) {
   DCHECK(GetExecutionContext());
   if (!V8Response::HasInstance(value.V8Value(), script_state->GetIsolate())) {
     OnResponseRejected(ServiceWorkerResponseError::kNoV8Instance);
@@ -319,8 +320,8 @@ void FetchRespondWithObserver::OnResponseFulfilled(
     // drained or loading begins.
     fetch_api_response->side_data_blob = buffer->TakeSideDataBlob();
 
-    ExceptionState exception_state(script_state->GetIsolate(), context_type,
-                                   interface_name, property_name);
+    ExceptionState exception_state(script_state->GetIsolate(),
+                                   exception_context);
 
     scoped_refptr<BlobDataHandle> blob_data_handle =
         buffer->DrainAsBlobDataHandle(
@@ -330,8 +331,9 @@ void FetchRespondWithObserver::OnResponseFulfilled(
       // Handle the blob response body.
       fetch_api_response->blob = blob_data_handle;
       service_worker_global_scope->RespondToFetchEvent(
-          event_id_, request_url_, std::move(fetch_api_response),
-          event_dispatch_time_, base::TimeTicks::Now());
+          event_id_, request_url_, range_request_,
+          std::move(fetch_api_response), event_dispatch_time_,
+          base::TimeTicks::Now());
       event_->ResolveHandledPromise();
       return;
     }
@@ -357,13 +359,13 @@ void FetchRespondWithObserver::OnResponseFulfilled(
     }
 
     service_worker_global_scope->RespondToFetchEventWithResponseStream(
-        event_id_, request_url_, std::move(fetch_api_response),
+        event_id_, request_url_, range_request_, std::move(fetch_api_response),
         std::move(stream_handle), event_dispatch_time_, base::TimeTicks::Now());
     event_->ResolveHandledPromise();
     return;
   }
   service_worker_global_scope->RespondToFetchEvent(
-      event_id_, request_url_, std::move(fetch_api_response),
+      event_id_, request_url_, range_request_, std::move(fetch_api_response),
       event_dispatch_time_, base::TimeTicks::Now());
   event_->ResolveHandledPromise();
 }
@@ -374,11 +376,20 @@ void FetchRespondWithObserver::OnNoResponse() {
                                request_body_stream_->IsDisturbed())) {
     GetExecutionContext()->CountUse(
         WebFeature::kFetchRespondWithNoResponseWithUsedRequestBody);
+    if (!request_body_has_source_) {
+      OnResponseRejected(
+          mojom::blink::ServiceWorkerResponseError::kRequestBodyUnusable);
+      return;
+    }
+  }
+  if (request_body_stream_ && !request_body_has_source_) {
+    // TODO(crbug.com/1165690): Cancel `request_body_stream_`.
   }
   ServiceWorkerGlobalScope* service_worker_global_scope =
       To<ServiceWorkerGlobalScope>(GetExecutionContext());
   service_worker_global_scope->RespondToFetchEventWithNoResponse(
-      event_id_, request_url_, event_dispatch_time_, base::TimeTicks::Now());
+      event_id_, request_url_, range_request_, event_dispatch_time_,
+      base::TimeTicks::Now());
   event_->ResolveHandledPromise();
 }
 
@@ -405,6 +416,8 @@ FetchRespondWithObserver::FetchRespondWithObserver(
       redirect_mode_(request.redirect_mode),
       frame_type_(request.frame_type),
       request_destination_(request.destination),
+      request_body_has_source_(request.body.FormBody()),
+      range_request_(request.headers.Contains(http_names::kRange)),
       corp_checker_(std::move(corp_checker)),
       task_runner_(context->GetTaskRunner(TaskType::kNetworking)) {}
 

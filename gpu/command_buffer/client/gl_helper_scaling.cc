@@ -17,11 +17,11 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -88,6 +88,9 @@ class ShaderProgram : public base::RefCounted<ShaderProgram> {
         rgb_to_plane1_location_(-1),
         rgb_to_plane2_location_(-1) {}
 
+  ShaderProgram(const ShaderProgram&) = delete;
+  ShaderProgram& operator=(const ShaderProgram&) = delete;
+
   // Compile shader program.
   void Setup(const GLchar* vertex_shader_text,
              const GLchar* fragment_shader_text);
@@ -136,8 +139,6 @@ class ShaderProgram : public base::RefCounted<ShaderProgram> {
   GLint rgb_to_plane0_location_;
   GLint rgb_to_plane1_location_;
   GLint rgb_to_plane2_location_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShaderProgram);
 };
 
 // Implementation of a single stage in a scaler pipeline. If the pipeline has
@@ -581,7 +582,7 @@ class ScalerImpl : public GLHelper::ScalerInterface {
     gfx::Vector2d scale_to;
     GLenum readback_format;
   };
-  base::Optional<ChainProperties> chain_properties_;
+  absl::optional<ChainProperties> chain_properties_;
 };
 
 // The important inputs for this function is |x_ops| and |y_ops|. They represent

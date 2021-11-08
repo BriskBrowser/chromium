@@ -7,6 +7,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.os.Binder;
 import android.os.IBinder;
 import android.os.RemoteException;
 
@@ -134,7 +135,7 @@ public class AwNonembeddedUmaRecorder implements UmaRecorder {
 
     /**
      * Records a user action. Action names must be documented in {@code actions.xml}. See {@link
-     * https://source.chromium.org/chromium/chromium/src/+/master:tools/metrics/actions/README.md}
+     * https://source.chromium.org/chromium/chromium/src/+/main:tools/metrics/actions/README.md}
      *
      * @param name Name of the user action.
      * @param elapsedRealtimeMillis Value of {@link android.os.SystemClock.elapsedRealtime()} when
@@ -188,6 +189,8 @@ public class AwNonembeddedUmaRecorder implements UmaRecorder {
      */
     @GuardedBy("mLock")
     private void sendToServiceLocked(HistogramRecord record) {
+        // Clear the calling identity for cases when this is called locally in the same process.
+        long token = Binder.clearCallingIdentity();
         try {
             // We are not punting this to a background thread since the cost of IPC itself
             // should be relatively cheap, and the remote method does its work
@@ -195,6 +198,8 @@ public class AwNonembeddedUmaRecorder implements UmaRecorder {
             mServiceStub.recordMetrics(record.toByteArray());
         } catch (RemoteException e) {
             Log.e(TAG, "Remote Exception calling IMetricsBridgeService#recordMetrics", e);
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
     }
 

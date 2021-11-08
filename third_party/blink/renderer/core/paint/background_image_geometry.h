@@ -13,16 +13,17 @@
 
 namespace blink {
 
+class ComputedStyle;
+class Document;
 class FillLayer;
+class ImageResourceObserver;
 class LayoutBox;
 class LayoutBoxModelObject;
+class LayoutNGTableCell;
 class LayoutObject;
 class LayoutTableCell;
 class LayoutView;
-class Document;
-class ComputedStyle;
-class ImageResourceObserver;
-class LayoutNGTableCell;
+class NGPhysicalBoxFragment;
 
 class BackgroundImageGeometry {
   STACK_ALLOCATED();
@@ -47,9 +48,10 @@ class BackgroundImageGeometry {
                           const LayoutBox& table_part,
                           PhysicalSize table_part_size);
 
+  explicit BackgroundImageGeometry(const NGPhysicalBoxFragment&);
+
   void Calculate(const LayoutBoxModelObject* container,
                  PaintPhase,
-                 GlobalPaintFlags,
                  const FillLayer&,
                  const PhysicalRect& paint_rect);
 
@@ -66,6 +68,9 @@ class BackgroundImageGeometry {
   const PhysicalRect& UnsnappedDestRect() const { return unsnapped_dest_rect_; }
   const PhysicalRect& SnappedDestRect() const { return snapped_dest_rect_; }
 
+  // Compute the phase relative to the (snapped) destination offset.
+  PhysicalOffset ComputeDestPhase() const;
+
   // Tile size is the area into which to draw one copy of the image. It
   // need not be the same as the intrinsic size of the image; if not,
   // the image will be resized (via an image filter) when painted into
@@ -76,7 +81,7 @@ class BackgroundImageGeometry {
   // Phase() represents the point in the image that will appear at (0,0) in the
   // destination space. The point is defined in TileSize() coordinates, that is,
   // in the scaled image.
-  const FloatPoint& Phase() const { return phase_; }
+  const PhysicalOffset& Phase() const { return phase_; }
 
   // SpaceSize() represents extra width and height that may be added to
   // the image if used as a pattern with background-repeat: space.
@@ -94,7 +99,7 @@ class BackgroundImageGeometry {
 
   const ImageResourceObserver& ImageClient() const;
   const Document& ImageDocument() const;
-  const ComputedStyle& ImageStyle() const;
+  const ComputedStyle& ImageStyle(const ComputedStyle& fragment_style) const;
   InterpolationQuality ImageInterpolationQuality() const;
 
  private:
@@ -103,8 +108,8 @@ class BackgroundImageGeometry {
   void SetSpaceSize(const PhysicalSize& repeat_spacing) {
     repeat_spacing_ = repeat_spacing;
   }
-  void SetPhaseX(float x) { phase_.SetX(x); }
-  void SetPhaseY(float y) { phase_.SetY(y); }
+  void SetPhaseX(LayoutUnit x) { phase_.left = x; }
+  void SetPhaseY(LayoutUnit y) { phase_.top = y; }
 
   void SetNoRepeatX(const FillLayer&,
                     LayoutUnit x_offset,
@@ -149,7 +154,6 @@ class BackgroundImageGeometry {
 
   void ComputePositioningArea(const LayoutBoxModelObject*,
                               PaintPhase,
-                              GlobalPaintFlags,
                               const FillLayer&,
                               const PhysicalRect&,
                               PhysicalRect&,
@@ -179,18 +183,20 @@ class BackgroundImageGeometry {
   PhysicalSize positioning_size_override_;
 
   // The background image offset from within the background positioning area for
-  // non-fixed background attachment. Used for table cells and the view.
+  // non-fixed background attachment. Used for table cells and the view, and
+  // also when an element is block-fragmented.
   PhysicalOffset element_positioning_area_offset_;
 
   PhysicalRect unsnapped_dest_rect_;
   PhysicalRect snapped_dest_rect_;
-  FloatPoint phase_;
+  PhysicalOffset phase_;
   PhysicalSize tile_size_;
   PhysicalSize repeat_spacing_;
   bool has_non_local_geometry_ = false;
   bool painting_view_ = false;
   bool painting_table_cell_ = false;
   bool cell_using_container_background_ = false;
+  bool box_has_multiple_fragments_ = false;
 };
 
 }  // namespace blink

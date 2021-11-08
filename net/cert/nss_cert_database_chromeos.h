@@ -19,6 +19,10 @@ class NET_EXPORT NSSCertDatabaseChromeOS : public NSSCertDatabase {
  public:
   NSSCertDatabaseChromeOS(crypto::ScopedPK11Slot public_slot,
                           crypto::ScopedPK11Slot private_slot);
+
+  NSSCertDatabaseChromeOS(const NSSCertDatabaseChromeOS&) = delete;
+  NSSCertDatabaseChromeOS& operator=(const NSSCertDatabaseChromeOS&) = delete;
+
   ~NSSCertDatabaseChromeOS() override;
 
   // |system_slot| is the system TPM slot, which is only enabled for certain
@@ -32,9 +36,13 @@ class NET_EXPORT NSSCertDatabaseChromeOS : public NSSCertDatabase {
   // certificate information.
   void ListCertsInfo(ListCertsInfoCallback callback) override;
 
+  crypto::ScopedPK11Slot GetSystemSlot() const override;
+
   void ListModules(std::vector<crypto::ScopedPK11Slot>* modules,
                    bool need_rw) const override;
-  crypto::ScopedPK11Slot GetSystemSlot() const override;
+  bool SetCertTrust(CERTCertificate* cert,
+                    CertType type,
+                    TrustBits trust_bits) override;
 
   // TODO(mattm): handle trust setting, deletion, etc correctly when certs exist
   // in multiple slots.
@@ -60,8 +68,6 @@ class NET_EXPORT NSSCertDatabaseChromeOS : public NSSCertDatabase {
 
   NSSProfileFilterChromeOS profile_filter_;
   crypto::ScopedPK11Slot system_slot_;
-
-  DISALLOW_COPY_AND_ASSIGN(NSSCertDatabaseChromeOS);
 };
 
 }  // namespace net

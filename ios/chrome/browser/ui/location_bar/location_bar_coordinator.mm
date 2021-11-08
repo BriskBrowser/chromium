@@ -7,18 +7,21 @@
 #import <CoreLocation/CoreLocation.h>
 
 #include "base/memory/ptr_util.h"
+#import "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_view.h"
+#include "components/open_from_clipboard/clipboard_recent_content.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "components/search_engines/util.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "ios/chrome/browser/autocomplete/autocomplete_scheme_classifier_impl.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/browser_state_metrics/browser_state_metrics.h"
 #import "ios/chrome/browser/drag_and_drop/drag_item_util.h"
 #import "ios/chrome/browser/drag_and_drop/url_drag_drop_handler.h"
-#import "ios/chrome/browser/geolocation/omnibox_geolocation_controller.h"
 #include "ios/chrome/browser/infobars/infobar_metrics_recorder.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ntp/new_tab_page_tab_helper.h"
@@ -31,10 +34,10 @@
 #include "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/load_query_commands.h"
+#import "ios/chrome/browser/ui/default_promo/default_browser_promo_non_modal_scheduler.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_ui_updater.h"
-#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_constants.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_consumer.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_mediator.h"
@@ -42,6 +45,8 @@
 #import "ios/chrome/browser/ui/location_bar/location_bar_steady_view_mediator.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_url_loader.h"
 #include "ios/chrome/browser/ui/location_bar/location_bar_view_controller.h"
+#import "ios/chrome/browser/ui/main/default_browser_scene_agent.h"
+#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/ui/ntp/ntp_util.h"
 #include "ios/chrome/browser/ui/omnibox/location_bar_delegate.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_coordinator.h"
@@ -50,17 +55,18 @@
 #include "ios/chrome/browser/ui/omnibox/web_omnibox_edit_controller_impl.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/util/pasteboard_util.h"
+#import "ios/chrome/browser/url_loading/image_search_param_generator.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
 #import "ios/chrome/browser/url_loading/url_loading_util.h"
 #import "ios/chrome/browser/web/web_navigation_util.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
-#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#include "ios/public/provider/chrome/browser/voice/voice_search_provider.h"
+#include "ios/public/provider/chrome/browser/voice_search/voice_search_api.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/navigation/referrer.h"
 #import "ios/web/public/web_state.h"
 #include "services/network/public/cpp/resource_request.h"
+#include "ui/base/device_form_factor.h"
 #include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -147,9 +153,8 @@
       static_cast<id<ActivityServiceCommands, BrowserCommands,
                      ApplicationCommands, LoadQueryCommands, OmniboxCommands>>(
           self.browser->GetCommandDispatcher());
-  self.viewController.voiceSearchEnabled = ios::GetChromeBrowserProvider()
-                                               ->GetVoiceSearchProvider()
-                                               ->IsVoiceSearchEnabled();
+  self.viewController.voiceSearchEnabled =
+      ios::provider::IsVoiceSearchEnabled();
 
   _editController = std::make_unique<WebOmniboxEditControllerImpl>(self);
   _editController->SetURLLoader(self);
@@ -177,7 +182,6 @@
   // Create button factory that wil be used by the ViewController to get
   // BadgeButtons for a BadgeType.
   BadgeButtonFactory* buttonFactory = [[BadgeButtonFactory alloc] init];
-  buttonFactory.incognito = isIncognito;
   self.badgeViewController =
       [[BadgeViewController alloc] initWithButtonFactory:buttonFactory];
   [self.viewController addChildViewController:self.badgeViewController];
@@ -216,12 +220,7 @@
 
   self.started = YES;
 
-    self.dragDropHandler = [[URLDragDropHandler alloc] init];
-    self.dragDropHandler.origin = WindowActivityLocationBarSteadyViewOrigin;
-    self.dragDropHandler.dragDataSource = self;
-    [self.viewController.view
-        addInteraction:[[UIDragInteraction alloc]
-                           initWithDelegate:self.dragDropHandler]];
+  [self setUpDragAndDrop];
 }
 
 - (void)stop {
@@ -275,7 +274,7 @@
 - (void)loadQuery:(NSString*)query immediately:(BOOL)immediately {
   DCHECK(query);
   // Since the query is not user typed, sanitize it to make sure it's safe.
-  base::string16 sanitizedQuery =
+  std::u16string sanitizedQuery =
       OmniboxView::SanitizeTextForPaste(base::SysNSStringToUTF16(query));
   if (immediately) {
     [self loadURLForQuery:sanitizedQuery];
@@ -296,10 +295,6 @@
     LoadJavaScriptURL(url, self.browserState,
                       self.webStateList->GetActiveWebState());
   } else {
-    // When opening a URL, warn the omnibox geolocation in case it needs to stop
-    // the service.
-    [[OmniboxGeolocationController sharedInstance] locationBarDidSubmitURL];
-
     // TODO(crbug.com/785244): Is it ok to call |cancelOmniboxEdit| after
     // |loadURL|?  It doesn't seem to be causing major problems.  If we call
     // cancel before load, then any prerendered pages get destroyed before the
@@ -334,11 +329,7 @@
     }
   }
   // Dismiss the edit menu.
-#if !defined(__IPHONE_13_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_13_0
-  [[UIMenuController sharedMenuController] setMenuVisible:NO animated:NO];
-#else
   [[UIMenuController sharedMenuController] hideMenu];
-#endif
 
   // When the NTP and fakebox are visible, make the fakebox animates into place
   // before focusing the omnibox.
@@ -389,6 +380,48 @@
 
 - (void)locationBarCopyTapped {
   StoreURLInPasteboard(self.webState->GetVisibleURL());
+}
+
+- (void)recordShareButtonPressed {
+  if (!self.browserState) {
+    return;
+  }
+
+  base::UmaHistogramEnumeration(
+      "iOS.LocationBar.ShareButton.PerProfileType",
+      profile_metrics::GetBrowserProfileType(self.browserState));
+}
+
+- (void)locationBarVisitCopyLinkTapped {
+  // Don't log pastes in incognito.
+  if (self.browserState->IsOffTheRecord()) {
+    return;
+  }
+
+  SceneState* sceneState =
+      SceneStateBrowserAgent::FromBrowser(self.browser)->GetSceneState();
+  DefaultBrowserSceneAgent* agent =
+      [DefaultBrowserSceneAgent agentFromScene:sceneState];
+  [agent.nonModalScheduler logUserPastedInOmnibox];
+}
+
+- (void)searchCopiedImage {
+  ClipboardRecentContent::GetInstance()->GetRecentImageFromClipboard(
+      base::BindOnce(^(absl::optional<gfx::Image> optionalImage) {
+        if (!optionalImage) {
+          return;
+        }
+        UIImage* image = optionalImage.value().ToUIImage();
+        web::NavigationManager::WebLoadParams webParams =
+            ImageSearchParamGenerator::LoadParamsForImage(
+                image, ios::TemplateURLServiceFactory::GetForBrowserState(
+                           self.browser->GetBrowserState()));
+        UrlLoadParams params = UrlLoadParams::InCurrentTab(webParams);
+
+        UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
+
+        [self cancelOmniboxEdit];
+      }));
 }
 
 #pragma mark - LocationBarConsumer
@@ -459,7 +492,7 @@
 }
 
 // Navigate to |query| from omnibox.
-- (void)loadURLForQuery:(const base::string16&)query {
+- (void)loadURLForQuery:(const std::u16string&)query {
   GURL searchURL;
   metrics::OmniboxInputType type = AutocompleteInput::Parse(
       query, std::string(), AutocompleteSchemeClassifierImpl(), nullptr,
@@ -478,6 +511,27 @@
         ui::PAGE_TRANSITION_LINK | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
     UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
   }
+}
+
+- (void)setUpDragAndDrop {
+  // iOS 15 adds Drag and Drop support to iPhones. This causes the long-press
+  // recognizer for showing the copy/paste menu to not appear until the user
+  // lifts their finger. The long-term solution is to move to the new
+  // UIContextMenu API, but for now, disable Drag from the omnibox on iOS 15
+  // iPhones.
+  // TODO (crbug.com/1247668): Reenable this after moving to new API and move
+  // this code back to -start.
+  if (@available(iOS 15, *)) {
+    if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE) {
+      return;
+    }
+  }
+  self.dragDropHandler = [[URLDragDropHandler alloc] init];
+  self.dragDropHandler.origin = WindowActivityLocationBarSteadyViewOrigin;
+  self.dragDropHandler.dragDataSource = self;
+  [self.viewController.view
+      addInteraction:[[UIDragInteraction alloc]
+                         initWithDelegate:self.dragDropHandler]];
 }
 
 @end

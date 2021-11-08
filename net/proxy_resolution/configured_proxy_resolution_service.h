@@ -15,7 +15,6 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_checker.h"
 #include "net/base/completion_once_callback.h"
@@ -30,6 +29,7 @@
 #include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/proxy_resolution/proxy_resolver.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -108,6 +108,11 @@ class NET_EXPORT ConfiguredProxyResolutionService
       NetLog* net_log,
       bool quick_check_enabled);
 
+  ConfiguredProxyResolutionService(const ConfiguredProxyResolutionService&) =
+      delete;
+  ConfiguredProxyResolutionService& operator=(
+      const ConfiguredProxyResolutionService&) = delete;
+
   ~ConfiguredProxyResolutionService() override;
 
   // ProxyResolutionService
@@ -150,12 +155,12 @@ class NET_EXPORT ConfiguredProxyResolutionService
   void OnShutdown() override;
 
   // Returns the last configuration fetched from ProxyConfigService.
-  const base::Optional<ProxyConfigWithAnnotation>& fetched_config() const {
+  const absl::optional<ProxyConfigWithAnnotation>& fetched_config() const {
     return fetched_config_;
   }
 
   // Returns the current configuration being used by ProxyConfigService.
-  const base::Optional<ProxyConfigWithAnnotation>& config() const {
+  const absl::optional<ProxyConfigWithAnnotation>& config() const {
     return config_;
   }
 
@@ -359,8 +364,8 @@ class NET_EXPORT ConfiguredProxyResolutionService
   // and custom PAC url).
   //
   // These are "optional" as their value remains unset while being calculated.
-  base::Optional<ProxyConfigWithAnnotation> fetched_config_;
-  base::Optional<ProxyConfigWithAnnotation> config_;
+  absl::optional<ProxyConfigWithAnnotation> fetched_config_;
+  absl::optional<ProxyConfigWithAnnotation> config_;
 
   // Map of the known bad proxies and the information about the retry time.
   ProxyRetryInfoMap proxy_retry_info_;
@@ -415,8 +420,6 @@ class NET_EXPORT ConfiguredProxyResolutionService
   // synchronous callback.
   base::WeakPtrFactory<ConfiguredProxyResolutionService> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(ConfiguredProxyResolutionService);
 };
 
 }  // namespace net

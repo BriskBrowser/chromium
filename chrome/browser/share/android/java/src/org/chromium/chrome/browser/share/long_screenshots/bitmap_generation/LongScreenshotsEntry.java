@@ -4,16 +4,12 @@
 
 package org.chromium.chrome.browser.share.long_screenshots.bitmap_generation;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 
 import androidx.annotation.IntDef;
-import androidx.annotation.VisibleForTesting;
 
-import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.components.paintpreview.player.CompositorStatus;
-import org.chromium.content_public.browser.RenderCoordinates;
+import org.chromium.base.Callback;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -31,25 +27,30 @@ import java.lang.annotation.RetentionPolicy;
  * {@link getBitmap} to retrieve the generated bitmap.
  */
 public class LongScreenshotsEntry {
-    private Context mContext;
     private Rect mRect;
-    private Tab mTab;
     private BitmapGenerator mGenerator;
     private @EntryStatus int mCurrentStatus;
 
     // Generated bitmap
     private Bitmap mGeneratedBitmap;
     private EntryListener mEntryListener;
+    private Callback<Integer> mMemoryTracker;
 
     @IntDef({EntryStatus.UNKNOWN, EntryStatus.INSUFFICIENT_MEMORY, EntryStatus.GENERATION_ERROR,
-            EntryStatus.BITMAP_GENERATED})
+            EntryStatus.BITMAP_GENERATED, EntryStatus.CAPTURE_COMPLETE,
+            EntryStatus.CAPTURE_IN_PROGRESS, EntryStatus.BITMAP_GENERATION_IN_PROGRESS,
+            EntryStatus.BOUNDS_ABOVE_CAPTURE, EntryStatus.BOUNDS_BELOW_CAPTURE})
     @Retention(RetentionPolicy.SOURCE)
     public @interface EntryStatus {
         int UNKNOWN = 0;
         int INSUFFICIENT_MEMORY = 1;
         int GENERATION_ERROR = 2;
         int BITMAP_GENERATED = 3;
-        int IN_PROGRESS = 4;
+        int CAPTURE_COMPLETE = 4;
+        int CAPTURE_IN_PROGRESS = 5;
+        int BITMAP_GENERATION_IN_PROGRESS = 6;
+        int BOUNDS_ABOVE_CAPTURE = 7;
+        int BOUNDS_BELOW_CAPTURE = 8;
     }
 
     /**
@@ -65,29 +66,21 @@ public class LongScreenshotsEntry {
     }
 
     /**
-     * @param context An instance of current Android {@link Context}.
-     * @param tab The tab to capture the results for.
-     * @param yAxisRef Y-axis reference used to calculate the coordinates of the bitmap to generate.
-     * @param clipHeight Height of the capture.
-     * @param generatingAbove Whether to use the yAxisRef as the top (generatingAbove = false) or
-     * bottom yAxis coordinate (generatingAbove = true);
+     * @param generator BitmapGenerator to be used to capture and composite the website.
+     * @param bounds The bounds of the entry.
+     * @param memoryTracker Callback to be notified of the entry's memory usage.
      */
     public LongScreenshotsEntry(
-            Context context, Tab tab, int yAxisRef, int clipHeight, boolean generatingAbove) {
-        mContext = context;
-        mTab = tab;
-        calculateClipBounds(yAxisRef, clipHeight, generatingAbove);
+            BitmapGenerator generator, Rect bounds, Callback<Integer> memoryTracker) {
+        mRect = bounds;
+        mGenerator = generator;
+        mMemoryTracker = memoryTracker;
     }
 
-    public void generateBitmap() {
-        if (mGenerator == null) {
-            mGenerator =
-                    new BitmapGenerator(mContext, mTab, mRect, createBitmapGeneratorCallback());
-        }
-        mGenerator.captureScreenshot();
-        // We don't call updateStatus here as this is a silent status that should only be
-        // returned if the owner of this class wants to pull for an update.
-        mCurrentStatus = EntryStatus.IN_PROGRESS;
+    static LongScreenshotsEntry createEntryWithStatus(@EntryStatus int status) {
+        LongScreenshotsEntry entry = new LongScreenshotsEntry(null, null, null);
+        entry.updateStatus(status);
+        return entry;
     }
 
     /**
@@ -95,6 +88,10 @@ public class LongScreenshotsEntry {
      */
     public void setListener(EntryListener listener) {
         mEntryListener = listener;
+
+        if (mCurrentStatus != EntryStatus.UNKNOWN) {
+            updateStatus(mCurrentStatus);
+        }
     }
 
     /**
@@ -103,22 +100,20 @@ public class LongScreenshotsEntry {
      * @return the id of this entry.
      */
     public int getId() {
-        return mRect.top;
+        return mRect == null ? -1 : mRect.top;
     }
 
-    /**
-     * The end Y axis of the composited screenshot. Used to calculate the bounds of other entries.
-     * @return End Y axis of the composited screenshot.
-     */
     int getEndYAxis() {
-        return mRect.bottom;
+        return mRect == null ? -1 : mRect.bottom;
     }
 
-    private void updateStatus(@EntryStatus int status) {
-        mCurrentStatus = status;
-        if (mEntryListener != null) {
-            mEntryListener.onResult(mCurrentStatus);
+    void generateBitmap() {
+        if (mGenerator == null) {
+            updateStatus(EntryStatus.GENERATION_ERROR);
+            return;
         }
+        updateStatus(EntryStatus.BITMAP_GENERATION_IN_PROGRESS);
+        mGenerator.compositeBitmap(mRect, this::onBitmapGenerationError, this::onBitmapGenerated);
     }
 
     /**
@@ -137,82 +132,27 @@ public class LongScreenshotsEntry {
         return mGeneratedBitmap;
     }
 
-    /**
-     * Defines the bounds of the capture and compositing. Only the starting height and the height of
-     * the clip is needed. The entire width is always captured.
-     *
-     * @param yAxisRef Where on the scrolled page the capture and compositing should start.
-     * @param clipHeight The length of the webpage that should be captured.
-     * @param generatingAbove Whether to use the yAxisRef as the top (generatingAbove = false) or
-     * bottom yAxis coordinate (generatingAbove = true);
-     */
-    private void calculateClipBounds(int yAxisRef, int clipHeight, boolean generatingAbove) {
-        RenderCoordinates coords = RenderCoordinates.fromWebContents(mTab.getWebContents());
+    private void onBitmapGenerated(Bitmap bitmap) {
+        mGeneratedBitmap = bitmap;
 
-        int startYAxis;
-        int endYAxis;
-        int clipHeightScaled = (int) (clipHeight * coords.getPageScaleFactor());
-        if (generatingAbove) {
-            endYAxis = yAxisRef;
-            startYAxis = yAxisRef - clipHeightScaled;
-            startYAxis = startYAxis < 0 ? 0 : startYAxis;
-        } else {
-            startYAxis = yAxisRef;
-            // TODO(tgupta): Address the case where the Y axis supersedes the length of the page.
-            endYAxis = startYAxis + clipHeightScaled;
+        if (mMemoryTracker != null && mGeneratedBitmap != null) {
+            mMemoryTracker.onResult(mGeneratedBitmap.getAllocationByteCount());
         }
-
-        int clipWidth =
-                (int) Math.floor(coords.getContentWidthPixInt() / coords.getPageScaleFactor());
-
-        // TODO(tgupta) Change the clipWidth to 0 to capture the entire document once cr/2644865
-        // is submitted.
-        mRect = new Rect(0, startYAxis, clipWidth, endYAxis);
+        updateStatus(EntryStatus.BITMAP_GENERATED);
     }
 
-    @VisibleForTesting
-    public void setBitmapGenerator(BitmapGenerator generator) {
-        mGenerator = generator;
+    private void onBitmapGenerationError() {
+        updateStatus(EntryStatus.GENERATION_ERROR);
     }
 
-    /**
-     * Creates the default BitmapGenerator to be used to retrieve the state of the generation. This
-     * is the default implementation and should only be overridden for tests.
-     */
-    @VisibleForTesting
-    public BitmapGenerator.GeneratorCallBack createBitmapGeneratorCallback() {
-        return new BitmapGenerator.GeneratorCallBack() {
-            @Override
-            public void onCompositorError(@CompositorStatus int status) {
-                // TODO(tgupta): Add metrics logging here.
-                if (status == CompositorStatus.STOPPED_DUE_TO_MEMORY_PRESSURE
-                        || status == CompositorStatus.SKIPPED_DUE_TO_MEMORY_PRESSURE) {
-                    updateStatus(EntryStatus.INSUFFICIENT_MEMORY);
-                } else {
-                    updateStatus(EntryStatus.GENERATION_ERROR);
-                }
-            }
-
-            @Override
-            public void onCaptureError(@Status int status) {
-                // TODO(tgupta): Add metrics logging here.
-                if (status == Status.LOW_MEMORY_DETECTED) {
-                    updateStatus(EntryStatus.INSUFFICIENT_MEMORY);
-                } else {
-                    updateStatus(EntryStatus.GENERATION_ERROR);
-                }
-            }
-
-            @Override
-            public void onBitmapGenerated(Bitmap bitmap) {
-                // TODO(tgupta): Add metrics logging here.
-                mGeneratedBitmap = bitmap;
-                updateStatus(EntryStatus.BITMAP_GENERATED);
-            }
-        };
+    void updateStatus(@EntryStatus int status) {
+        mCurrentStatus = status;
+        if (mEntryListener != null) {
+            mEntryListener.onResult(mCurrentStatus);
+        }
     }
 
-    public void destroy() {
+    void destroy() {
         if (mGenerator != null) {
             mGenerator.destroy();
             mGenerator = null;

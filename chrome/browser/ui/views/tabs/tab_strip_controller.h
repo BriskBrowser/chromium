@@ -5,13 +5,13 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TABS_TAB_STRIP_CONTROLLER_H_
 #define CHROME_BROWSER_UI_VIEWS_TABS_TAB_STRIP_CONTROLLER_H_
 
+#include <string>
 #include <vector>
 
-#include "base/optional.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_types.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/range/range.h"
@@ -127,10 +127,7 @@ class TabStripController {
   // Creates a new tab, and loads |location| in the tab. If |location| is a
   // valid URL, then simply loads the URL, otherwise this can open a
   // search-result page for |location|.
-  virtual void CreateNewTabWithLocation(const base::string16& location) = 0;
-
-  // Invoked if the stacked layout (on or off) might have changed.
-  virtual void StackedLayoutMaybeChanged() = 0;
+  virtual void CreateNewTabWithLocation(const std::u16string& location) = 0;
 
   // Notifies controller that the user started dragging this tabstrip's tabs.
   // |dragging_window| indicates if the whole window is moving, or if tabs are
@@ -144,14 +141,14 @@ class TabStripController {
 
   // Notifies controller that the index of the tab with keyboard focus changed
   // to |index|.
-  virtual void OnKeyboardFocusedTabChanged(base::Optional<int> index) = 0;
+  virtual void OnKeyboardFocusedTabChanged(absl::optional<int> index) = 0;
 
   // Returns the title of the given |group|.
-  virtual base::string16 GetGroupTitle(
+  virtual std::u16string GetGroupTitle(
       const tab_groups::TabGroupId& group) const = 0;
 
   // Returns the string describing the contents of the given |group|.
-  virtual base::string16 GetGroupContentString(
+  virtual std::u16string GetGroupContentString(
       const tab_groups::TabGroupId& group) const = 0;
 
   // Returns the color ID of the given |group|.
@@ -170,13 +167,13 @@ class TabStripController {
   // Gets the first tab index in |group|, or nullopt if the group is
   // currently empty. This is always safe to call unlike
   // ListTabsInGroup().
-  virtual base::Optional<int> GetFirstTabInGroup(
+  virtual absl::optional<int> GetFirstTabInGroup(
       const tab_groups::TabGroupId& group) const = 0;
 
   // Gets the last tab index in |group|, or nullopt if the group is
   // currently empty. This is always safe to call unlike
   // ListTabsInGroup().
-  virtual base::Optional<int> GetLastTabInGroup(
+  virtual absl::optional<int> GetLastTabInGroup(
       const tab_groups::TabGroupId& group) const = 0;
 
   // Returns the range of tabs in the given |group|. This must not be
@@ -218,11 +215,11 @@ class TabStripController {
 
   // For non-transparent windows, returns the background tab image resource ID
   // if the image has been customized, directly or indirectly, by the theme.
-  virtual base::Optional<int> GetCustomBackgroundId(
+  virtual absl::optional<int> GetCustomBackgroundId(
       BrowserFrameActiveState active_state) const = 0;
 
   // Returns the accessible tab name.
-  virtual base::string16 GetAccessibleTabName(const Tab* tab) const = 0;
+  virtual std::u16string GetAccessibleTabName(const Tab* tab) const = 0;
 
   // Returns the profile associated with the Tabstrip.
   virtual Profile* GetProfile() const = 0;

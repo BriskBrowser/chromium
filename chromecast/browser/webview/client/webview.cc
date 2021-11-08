@@ -40,6 +40,7 @@ constexpr char kPositionCommand[] = "position";
 constexpr char kKeyCommand[] = "key";
 constexpr char kFillCommand[] = "fill";
 constexpr char kSetInsetsCommand[] = "set_insets";
+constexpr char kFocusCommand[] = "focus";
 
 void FrameCallback(void* data, wl_callback* callback, uint32_t time) {
   WebviewClient* webview_client = static_cast<WebviewClient*>(data);
@@ -128,15 +129,17 @@ void WebviewClient::Run(const InitParams& params,
 }
 
 void WebviewClient::AllocateBuffers(const InitParams& params) {
-  static wl_buffer_listener buffer_listener = {BufferReleaseCallback};
   for (size_t i = 0; i < params.num_buffers; ++i) {
-    auto buffer_callback = std::make_unique<BufferCallback>();
-    auto buffer = CreateBuffer(size_, params.drm_format, params.bo_usage,
-                               &buffer_listener, buffer_callback.get());
+    auto buffer =
+        CreateBuffer(size_, params.drm_format, params.bo_usage, false);
     if (!buffer) {
       LOG(ERROR) << "Failed to create buffer";
       return;
     }
+    static wl_buffer_listener buffer_listener = {BufferReleaseCallback};
+    auto buffer_callback = std::make_unique<BufferCallback>();
+    wl_buffer_add_listener(buffer->buffer.get(), &buffer_listener,
+                           buffer_callback.get());
     buffer_callback->client = this;
     buffer_callback->buffer = buffer.get();
     buffer_callbacks_.push_back(std::move(buffer_callback));
@@ -359,6 +362,8 @@ void WebviewClient::InputCallback() {
     HandleFillSurfaceColor(tokens);
   else if (tokens[1] == kSetInsetsCommand)
     HandleSetInsets(tokens);
+  else if (tokens[1] == kFocusCommand)
+    HandleFocus(tokens);
 
   std::cout << "Enter command: ";
   std::cout.flush();
@@ -532,6 +537,32 @@ void WebviewClient::HandleSetInsets(const std::vector<std::string>& tokens) {
   request.mutable_set_insets()->set_right(right);
   if (!webview->client->Write(request)) {
     LOG(ERROR) << "SetInsets failed";
+    return;
+  }
+}
+
+void WebviewClient::HandleFocus(const std::vector<std::string>& tokens) {
+  int id;
+  if (tokens.size() != 2 || !base::StringToInt(tokens[0], &id)) {
+    LOG(ERROR) << "Usage: [ID] " << kFocusCommand;
+    return;
+  }
+
+  if (surfaces_.find(id) == surfaces_.end()) {
+    LOG(ERROR) << "Failed to find surface " << id;
+    return;
+  }
+
+  Webview* webview = Webview::FromSurface(surfaces_[id].get());
+  if (!webview) {
+    LOG(ERROR) << "Failed to find webview " << id;
+    return;
+  }
+
+  WebviewRequest request;
+  request.mutable_focus();
+  if (!webview->client->Write(request)) {
+    LOG(ERROR) << "Focus failed";
     return;
   }
 }

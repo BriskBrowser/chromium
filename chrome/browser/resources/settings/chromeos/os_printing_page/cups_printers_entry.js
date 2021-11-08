@@ -6,11 +6,24 @@
  * @fileoverview 'settings-cups-printers-entry' is a component that holds a
  * printer.
  */
+import '//resources/cr_elements/cr_button/cr_button.m.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../settings_shared_css.js';
+
+import {FocusRowBehavior} from '//resources/js/cr/ui/focus_row_behavior.m.js';
+import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../../i18n_setup.js';
+
+import {PrinterListEntry, PrinterType} from './cups_printer_types.js';
+import {CupsPrinterInfo, CupsPrintersBrowserProxy, CupsPrintersBrowserProxyImpl, CupsPrintersList, ManufacturersInfo, ModelsInfo, PrinterMakeModel, PrinterPpdMakeModel, PrinterSetupResult, PrintServerResult} from './cups_printers_browser_proxy.js';
+
 Polymer({
+  _template: html`{__html_template__}`,
   is: 'settings-cups-printers-entry',
 
   behaviors: [
-    cr.ui.FocusRowBehavior,
+    FocusRowBehavior,
   ],
   properties: {
     /** @type {!PrinterListEntry} */
@@ -24,7 +37,18 @@ Polymer({
      */
     subtext: {type: String, value: ''},
 
+    /**
+     * This value is set to true if the printer is in saving mode.
+     */
     savingPrinter: Boolean,
+
+    /**
+     * This value is set to true if UserPrintersAllowed policy is enabled.
+     */
+    userPrintersAllowed: {
+      type: Boolean,
+      value: false,
+    }
   },
 
   /**
@@ -57,8 +81,9 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  isSavedPrinter_() {
-    return this.printerEntry.printerType === PrinterType.SAVED;
+  showActionsMenu_() {
+    return this.printerEntry.printerType === PrinterType.SAVED ||
+        this.printerEntry.printerType === PrinterType.ENTERPRISE;
   },
 
   /**
@@ -83,6 +108,14 @@ Polymer({
    */
   isPrintServerPrinter_() {
     return this.printerEntry.printerType === PrinterType.PRINTSERVER;
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  isConfigureDisabled_() {
+    return !this.userPrintersAllowed || this.savingPrinter;
   },
 
   getSaveButtonAria_() {

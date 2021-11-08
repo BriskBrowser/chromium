@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ASH_WINDOW_ROTATION_H_
-#define ASH_WINDOW_ROTATION_H_
+#ifndef ASH_ROTATOR_WINDOW_ROTATION_H_
+#define ASH_ROTATOR_WINDOW_ROTATION_H_
 
 #include <memory>
 
@@ -28,6 +28,10 @@ class ASH_EXPORT WindowRotation : public ui::LayerAnimationElement {
   // |degrees| are clockwise. |layer| is the target of the animation. Does not
   // take ownership of |layer|.
   WindowRotation(int degrees, ui::Layer* layer);
+
+  WindowRotation(const WindowRotation&) = delete;
+  WindowRotation& operator=(const WindowRotation&) = delete;
+
   ~WindowRotation() override;
 
  private:
@@ -48,10 +52,8 @@ class ASH_EXPORT WindowRotation : public ui::LayerAnimationElement {
 
   // The target origin.
   gfx::Point new_origin_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowRotation);
 };
 
 }  // namespace ash
 
-#endif  // ASH_WINDOW_ROTATION_H_
+#endif  // ASH_ROTATOR_WINDOW_ROTATION_H_

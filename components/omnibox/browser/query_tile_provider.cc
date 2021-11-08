@@ -19,7 +19,7 @@ const int kQueryTilesMatchRelevanceScore = 1599;
 // Helper function to determine if the omnibox text matches the previously
 // selected |tile_query_text|. If |tile_query_text| is empty, empty input
 // text is considered a match.
-bool TextMatchesTileQueryText(const base::string16& input_text,
+bool TextMatchesTileQueryText(const std::u16string& input_text,
                               const std::string& tile_query_text) {
   auto trimmed_input =
       base::TrimWhitespace(input_text, base::TrimPositions::TRIM_TRAILING);
@@ -127,7 +127,7 @@ void QueryTileProvider::OnTopLevelTilesFetched(
 
 void QueryTileProvider::OnSubTilesFetched(
     const AutocompleteInput& input,
-    base::Optional<query_tiles::Tile> tile) {
+    absl::optional<query_tiles::Tile> tile) {
   DCHECK(tile.has_value());
   std::vector<query_tiles::Tile> sub_tiles;
   for (const auto& sub_tile : std::move(tile->sub_tiles))
@@ -161,7 +161,7 @@ void QueryTileProvider::BuildSuggestion(const AutocompleteInput& input,
       std::make_unique<TemplateURLRef::SearchTermsArgs>(input.text());
   const TemplateURL* default_provider = GetDefaultSearchProvider(client_);
   match.keyword =
-      default_provider ? default_provider->keyword() : base::string16();
+      default_provider ? default_provider->keyword() : std::u16string();
   match.query_tiles = std::move(tiles);
 
   // The query tiles suggestion is shown as the default suggestion, unless there

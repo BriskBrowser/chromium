@@ -6,6 +6,7 @@
 #include <stddef.h>
 
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -20,19 +21,19 @@
 #include "ui/views/accessibility/view_accessibility.h"
 
 class AuraLinuxAccessibilityInProcessBrowserTest : public InProcessBrowserTest {
- public:
-  void SetUp() override {
-    ui::AXPlatformNode::NotifyAddAXModeFlags(ui::kAXModeComplete);
-    InProcessBrowserTest::SetUp();
-  }
-
  protected:
-  AuraLinuxAccessibilityInProcessBrowserTest() = default;
+  AuraLinuxAccessibilityInProcessBrowserTest()
+      : ax_mode_setter_(ui::kAXModeComplete) {}
+
+  AuraLinuxAccessibilityInProcessBrowserTest(
+      const AuraLinuxAccessibilityInProcessBrowserTest&) = delete;
+  AuraLinuxAccessibilityInProcessBrowserTest& operator=(
+      const AuraLinuxAccessibilityInProcessBrowserTest&) = delete;
 
   void VerifyEmbedRelationships();
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(AuraLinuxAccessibilityInProcessBrowserTest);
+  ui::testing::ScopedAxModeSetter ax_mode_setter_;
 };
 
 IN_PROC_BROWSER_TEST_F(AuraLinuxAccessibilityInProcessBrowserTest,
@@ -58,12 +59,14 @@ class TestTabModalConfirmDialogDelegate : public TabModalConfirmDialogDelegate {
  public:
   explicit TestTabModalConfirmDialogDelegate(content::WebContents* contents)
       : TabModalConfirmDialogDelegate(contents) {}
-  base::string16 GetTitle() override {
-    return base::ASCIIToUTF16("Dialog Title");
-  }
-  base::string16 GetDialogMessage() override { return base::string16(); }
 
-  DISALLOW_COPY_AND_ASSIGN(TestTabModalConfirmDialogDelegate);
+  TestTabModalConfirmDialogDelegate(const TestTabModalConfirmDialogDelegate&) =
+      delete;
+  TestTabModalConfirmDialogDelegate& operator=(
+      const TestTabModalConfirmDialogDelegate&) = delete;
+
+  std::u16string GetTitle() override { return u"Dialog Title"; }
+  std::u16string GetDialogMessage() override { return std::u16string(); }
 };
 
 // Open a tab-modal dialog and test IndexInParent with the modal dialog.
@@ -193,8 +196,15 @@ IN_PROC_BROWSER_TEST_F(AuraLinuxAccessibilityInProcessBrowserTest,
 
 // Tests that the embedded relationship is set on the main web contents when
 // the DevTools is opened.
+// This fails on Linux : http://crbug.com/1223047
+#if defined(OS_LINUX)
+#define MAYBE_EmbeddedRelationshipWithDevTools \
+  DISABLED_EmbeddedRelationshipWithDevTools
+#else
+#define MAYBE_EmbeddedRelationshipWithDevTools EmbeddedRelationshipWithDevTools
+#endif
 IN_PROC_BROWSER_TEST_F(AuraLinuxAccessibilityInProcessBrowserTest,
-                       EmbeddedRelationshipWithDevTools) {
+                       MAYBE_EmbeddedRelationshipWithDevTools) {
   // Force the creation of the document's native object which sets up the
   // relationship.
   content::WebContents* active_web_contents =
@@ -239,7 +249,7 @@ IN_PROC_BROWSER_TEST_F(AuraLinuxAccessibilityInProcessBrowserTest,
       webview->GetViewAccessibility().GetNativeObject();
 
   // Gets the index in its parents for the WebView.
-  base::Optional<int> index =
+  absl::optional<int> index =
       static_cast<ui::AXPlatformNodeBase*>(
           ui::AXPlatformNode::FromNativeViewAccessible(accessible))
           ->GetIndexInParent();

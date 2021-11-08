@@ -5,6 +5,8 @@
 #ifndef IOS_CHROME_BROWSER_UI_WEBUI_USER_ACTIONS_HANDLER_H_
 #define IOS_CHROME_BROWSER_UI_WEBUI_USER_ACTIONS_HANDLER_H_
 
+#include <string>
+
 #include "base/macros.h"
 #include "base/metrics/user_metrics.h"
 #include "ios/web/public/webui/web_ui_ios_message_handler.h"
@@ -19,6 +21,10 @@ class TimeTicks;
 class UserActionsHandler : public web::WebUIIOSMessageHandler {
  public:
   UserActionsHandler();
+
+  UserActionsHandler(const UserActionsHandler&) = delete;
+  UserActionsHandler& operator=(const UserActionsHandler&) = delete;
+
   ~UserActionsHandler() override;
 
   // WebUIIOSMessageHandler.
@@ -30,8 +36,6 @@ class UserActionsHandler : public web::WebUIIOSMessageHandler {
 
   // The callback to invoke whenever a user action is registered.
   base::ActionCallback action_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(UserActionsHandler);
 };
 
 #endif  // IOS_CHROME_BROWSER_UI_WEBUI_USER_ACTIONS_HANDLER_H_

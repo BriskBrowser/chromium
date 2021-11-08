@@ -9,11 +9,8 @@
 #include <set>
 
 #include "base/allocator/partition_allocator/partition_alloc_forward.h"
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/location.h"
 #include "base/no_destructor.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/thread_annotations.h"
 #include "base/timer/timer.h"
 
@@ -32,6 +29,10 @@ class BASE_EXPORT PartitionAllocMemoryReclaimer {
  public:
   static PartitionAllocMemoryReclaimer* Instance();
 
+  PartitionAllocMemoryReclaimer(const PartitionAllocMemoryReclaimer&) = delete;
+  PartitionAllocMemoryReclaimer& operator=(
+      const PartitionAllocMemoryReclaimer&) = delete;
+
   // Internal. Do not use.
   // Registers a partition to be tracked by the reclaimer.
   void RegisterPartition(PartitionRoot<internal::ThreadSafe>* partition);
@@ -40,7 +41,7 @@ class BASE_EXPORT PartitionAllocMemoryReclaimer {
   // Unregisters a partition to be tracked by the reclaimer.
   void UnregisterPartition(PartitionRoot<internal::ThreadSafe>* partition);
   void UnregisterPartition(PartitionRoot<internal::NotThreadSafe>* partition);
-  // Starts the periodic reclaim. Should be called once.
+  // Starts the periodic reclaim. Can be called several times.
   void Start(scoped_refptr<SequencedTaskRunner> task_runner);
   // Triggers an explicit reclaim now reclaiming all free memory
   void ReclaimAll();
@@ -67,7 +68,6 @@ class BASE_EXPORT PartitionAllocMemoryReclaimer {
 
   friend class NoDestructor<PartitionAllocMemoryReclaimer>;
   friend class PartitionAllocMemoryReclaimerTest;
-  DISALLOW_COPY_AND_ASSIGN(PartitionAllocMemoryReclaimer);
 };
 
 }  // namespace base

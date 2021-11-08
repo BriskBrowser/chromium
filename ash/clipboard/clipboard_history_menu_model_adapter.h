@@ -8,9 +8,9 @@
 #include <memory>
 
 #include "ash/ash_export.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/unguessable_token.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/views/controls/menu/menu_model_adapter.h"
 
@@ -62,8 +62,8 @@ class ASH_EXPORT ClipboardHistoryMenuModelAdapter : views::MenuModelAdapter {
   void Cancel();
 
   // Returns the command of the currently selected menu item. If no menu item is
-  // currently selected, returns |base::nullopt|.
-  base::Optional<int> GetSelectedMenuItemCommand() const;
+  // currently selected, returns |absl::nullopt|.
+  absl::optional<int> GetSelectedMenuItemCommand() const;
 
   // Returns the item mapped by `command_id` in `item_snapshots_`.
   const ClipboardHistoryItem& GetItemFromCommandId(int command_id) const;
@@ -156,6 +156,9 @@ class ASH_EXPORT ClipboardHistoryMenuModelAdapter : views::MenuModelAdapter {
   int item_deletion_in_progress_count_ = 0;
 
   std::unique_ptr<ScopedA11yIgnore> scoped_ignore_;
+
+  // Indicates whether `Run()` has been called before.
+  bool run_before_ = false;
 
   // Called when an item view is removed from the root menu.
   base::RepeatingClosure item_removal_callback_for_test_;

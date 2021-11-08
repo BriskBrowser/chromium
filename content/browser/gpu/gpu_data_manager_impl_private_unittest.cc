@@ -90,6 +90,11 @@ class GpuDataManagerImplPrivateTest : public testing::Test {
   class ScopedGpuDataManagerImpl {
    public:
     ScopedGpuDataManagerImpl() { EXPECT_TRUE(impl_.private_.get()); }
+
+    ScopedGpuDataManagerImpl(const ScopedGpuDataManagerImpl&) = delete;
+    ScopedGpuDataManagerImpl& operator=(const ScopedGpuDataManagerImpl&) =
+        delete;
+
     ~ScopedGpuDataManagerImpl() = default;
 
     GpuDataManagerImpl* get() { return &impl_; }
@@ -97,7 +102,6 @@ class GpuDataManagerImplPrivateTest : public testing::Test {
 
    private:
     GpuDataManagerImpl impl_;
-    DISALLOW_COPY_AND_ASSIGN(ScopedGpuDataManagerImpl);
   };
 
   // We want to test the code path where GpuDataManagerImplPrivate is created
@@ -105,6 +109,12 @@ class GpuDataManagerImplPrivateTest : public testing::Test {
   class ScopedGpuDataManagerImplPrivate {
    public:
     ScopedGpuDataManagerImplPrivate() { EXPECT_TRUE(impl_.private_.get()); }
+
+    ScopedGpuDataManagerImplPrivate(const ScopedGpuDataManagerImplPrivate&) =
+        delete;
+    ScopedGpuDataManagerImplPrivate& operator=(
+        const ScopedGpuDataManagerImplPrivate&) = delete;
+
     ~ScopedGpuDataManagerImplPrivate() = default;
 
     // NO_THREAD_SAFETY_ANALYSIS should be fine below, because unit tests
@@ -118,7 +128,6 @@ class GpuDataManagerImplPrivateTest : public testing::Test {
 
    private:
     GpuDataManagerImpl impl_;
-    DISALLOW_COPY_AND_ASSIGN(ScopedGpuDataManagerImplPrivate);
   };
 
   base::Time JustBeforeExpiration(const GpuDataManagerImplPrivate* manager);
@@ -145,7 +154,7 @@ TEST_F(GpuDataManagerImplPrivateTest, GpuInfoUpdate) {
   EXPECT_FALSE(observer.gpu_info_updated());
 
   gpu::GPUInfo gpu_info;
-  manager->UpdateGpuInfo(gpu_info, base::nullopt);
+  manager->UpdateGpuInfo(gpu_info, absl::nullopt);
   {
     base::RunLoop run_loop;
     run_loop.RunUntilIdle();
@@ -155,16 +164,16 @@ TEST_F(GpuDataManagerImplPrivateTest, GpuInfoUpdate) {
 
 base::Time GpuDataManagerImplPrivateTest::JustBeforeExpiration(
     const GpuDataManagerImplPrivate* manager) {
-  return GetTimeForTesting() + base::TimeDelta::FromMilliseconds(
-      manager->GetBlockAllDomainsDurationInMs()) -
-      base::TimeDelta::FromMilliseconds(3);
+  return GetTimeForTesting() +
+         base::Milliseconds(manager->GetBlockAllDomainsDurationInMs()) -
+         base::Milliseconds(3);
 }
 
 base::Time GpuDataManagerImplPrivateTest::JustAfterExpiration(
     const GpuDataManagerImplPrivate* manager) {
-  return GetTimeForTesting() + base::TimeDelta::FromMilliseconds(
-      manager->GetBlockAllDomainsDurationInMs()) +
-      base::TimeDelta::FromMilliseconds(3);
+  return GetTimeForTesting() +
+         base::Milliseconds(manager->GetBlockAllDomainsDurationInMs()) +
+         base::Milliseconds(3);
 }
 
 void GpuDataManagerImplPrivateTest::TestBlockingDomainFrom3DAPIs(
@@ -291,11 +300,7 @@ TEST_F(GpuDataManagerImplPrivateTest, FallbackWithSwiftShaderDisabled) {
   EXPECT_EQ(gpu::GpuMode::HARDWARE_GL, manager->GetGpuMode());
 
   manager->FallBackToNextGpuMode();
-#if defined(OS_WIN)
-  gpu::GpuMode expected_mode = gpu::GpuMode::DISABLED;
-#else
   gpu::GpuMode expected_mode = gpu::GpuMode::DISPLAY_COMPOSITOR;
-#endif  // !OS_WIN
   EXPECT_EQ(expected_mode, manager->GetGpuMode());
 }
 #endif  // !OS_FUCHSIA
@@ -314,7 +319,7 @@ TEST_F(GpuDataManagerImplPrivateTest, GpuStartsWithGpuDisabled) {
 TEST_F(GpuDataManagerImplPrivateTest, ChromecastStartsWithGpuDisabled) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(switches::kDisableGpu);
   ScopedGpuDataManagerImplPrivate manager;
-  EXPECT_EQ(gpu::GpuMode::DISABLED, manager->GetGpuMode());
+  EXPECT_EQ(gpu::GpuMode::DISPLAY_COMPOSITOR, manager->GetGpuMode());
 }
 #endif  // IS_CHROMECAST
 
@@ -338,7 +343,7 @@ TEST_F(GpuDataManagerImplPrivateTest, FallbackFromMetalWithGLDisabled) {
   // Simulate GPU process initialization completing with GL unavailable.
   gpu::GpuFeatureInfo gpu_feature_info = GetGpuFeatureInfoWithOneDisabled(
       gpu::GpuFeatureType::GPU_FEATURE_TYPE_ACCELERATED_GL);
-  manager->UpdateGpuFeatureInfo(gpu_feature_info, base::nullopt);
+  manager->UpdateGpuFeatureInfo(gpu_feature_info, absl::nullopt);
 
   manager->FallBackToNextGpuMode();
   EXPECT_EQ(gpu::GpuMode::SWIFTSHADER, manager->GetGpuMode());
@@ -384,7 +389,7 @@ TEST_F(GpuDataManagerImplPrivateTest, VulkanInitializationFails) {
   // Simulate GPU process initialization completing with Vulkan unavailable.
   gpu::GpuFeatureInfo gpu_feature_info = GetGpuFeatureInfoWithOneDisabled(
       gpu::GpuFeatureType::GPU_FEATURE_TYPE_VULKAN);
-  manager->UpdateGpuFeatureInfo(gpu_feature_info, base::nullopt);
+  manager->UpdateGpuFeatureInfo(gpu_feature_info, absl::nullopt);
 
   // GpuDataManager should update its mode to be GL.
   EXPECT_EQ(gpu::GpuMode::HARDWARE_GL, manager->GetGpuMode());
@@ -407,7 +412,7 @@ TEST_F(GpuDataManagerImplPrivateTest, FallbackFromVulkanWithGLDisabled) {
   // Simulate GPU process initialization completing with GL unavailable.
   gpu::GpuFeatureInfo gpu_feature_info = GetGpuFeatureInfoWithOneDisabled(
       gpu::GpuFeatureType::GPU_FEATURE_TYPE_ACCELERATED_GL);
-  manager->UpdateGpuFeatureInfo(gpu_feature_info, base::nullopt);
+  manager->UpdateGpuFeatureInfo(gpu_feature_info, absl::nullopt);
 
   manager->FallBackToNextGpuMode();
   EXPECT_EQ(gpu::GpuMode::SWIFTSHADER, manager->GetGpuMode());

@@ -9,9 +9,9 @@
 #include "base/win/windows_version.h"
 #include "extensions/browser/app_window/native_app_window.h"
 #include "ui/base/hit_test.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/win/hwnd_metrics.h"
 #include "ui/display/win/screen_win.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/win/hwnd_util.h"
@@ -106,13 +106,9 @@ int GlassAppWindowFrameViewWin::NonClientHitTest(const gfx::Point& point) {
   // fullscreen, as it can't be resized in those states.
   int resize_border =
       display::win::ScreenWin::GetSystemMetricsInDIP(SM_CXSIZEFRAME);
-  int frame_component =
-      GetHTComponentForFrame(point,
-                             resize_border,
-                             resize_border,
-                             kResizeAreaCornerSize - resize_border,
-                             kResizeAreaCornerSize - resize_border,
-                             can_ever_resize);
+  int frame_component = GetHTComponentForFrame(
+      point, gfx::Insets(resize_border), kResizeAreaCornerSize - resize_border,
+      kResizeAreaCornerSize - resize_border, can_ever_resize);
   if (frame_component != HTNOWHERE)
     return frame_component;
 

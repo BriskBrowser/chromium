@@ -5,25 +5,26 @@
 #include "ash/app_list/app_list_metrics.h"
 
 #include <algorithm>
+#include <string>
 
-#include "ash/app_list/model/app_list_model.h"
-#include "ash/app_list/model/search/search_model.h"
+#include "ash/app_list/app_list_controller_impl.h"
+#include "ash/app_list/app_list_model_provider.h"
+#include "ash/app_list/model/app_list_folder_item.h"
+#include "ash/app_list/model/app_list_item.h"
+#include "ash/app_list/model/app_list_item_list.h"
 #include "ash/app_list/model/search/search_result.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/app_menu_constants.h"
+#include "ash/shell.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "ui/compositor/compositor.h"
 
 namespace ash {
-namespace {
 
-// This constant affects logging, and should not be changed without
-// deprecating this UMA histogram:
-//  - Apps.AppListSearchAbandonQueryLength
-constexpr int kMaxLoggedQueryLength = 10;
-
-}  // namespace
+const char kAppListPeekingToFullscreenHistogram[] =
+    "Apps.AppListPeekingToFullscreenSource";
 
 // The UMA histogram that logs smoothness of pagination animation.
 constexpr char kPaginationTransitionAnimationSmoothness[] =
@@ -55,18 +56,16 @@ constexpr char kAppListZeroStateSearchResultUserActionHistogram[] =
 constexpr char kAppListZeroStateSearchResultRemovalHistogram[] =
     "Apps.AppList.ZeroStateSearchResultRemovalDecision";
 
-// The UMA histogram that logs the length of the query when user abandons
-// results of a queried search or recommendations of zero state(zero length
-// query) in launcher UI.
-constexpr char kSearchAbandonQueryLengthHistogram[] =
-    "Apps.AppListSearchAbandonQueryLength";
-
-// The base UMA histogram that logs app launches within the AppList and shelf.
+// The base UMA histogram that logs app launches within the HomeLauncher (tablet
+// mode AppList), and the fullscreen AppList (when ProductivityLauncher is
+// disabled in clamshell mode) and the Shelf.
 constexpr char kAppListAppLaunched[] = "Apps.AppListAppLaunchedV2";
 
-// The UMA histograms that log app launches within the AppList and shelf. The
-// app launches are divided by histogram for each of the the different AppList
-// states.
+// The UMA histograms that log app launches within the AppList, AppListBubble
+// and Shelf. The app launches are divided by histogram for each of the the
+// different AppList states.
+constexpr char kAppListAppLaunchedBubbleAllApps[] =
+    "Apps.AppListAppLaunchedV2.BubbleAllApps";
 constexpr char kAppListAppLaunchedClosed[] = "Apps.AppListAppLaunchedV2.Closed";
 constexpr char kAppListAppLaunchedPeeking[] =
     "Apps.AppListAppLaunchedV2.Peeking";
@@ -81,6 +80,10 @@ constexpr char kAppListAppLaunchedHomecherAllApps[] =
     "Apps.AppListAppLaunchedV2.HomecherAllApps";
 constexpr char kAppListAppLaunchedHomecherSearch[] =
     "Apps.AppListAppLaunchedV2.HomecherSearch";
+
+// The prefix for all the variants that track how long the app list is kept
+// open by open method. Suffix is decided in `GetAppListOpenMethod`
+constexpr char kAppListOpenTimePrefix[] = "Apps.AppListOpenTime.";
 
 // The different sources from which a search result is displayed. These values
 // are written to logs.  New enum values can be added, but existing enums must
@@ -121,28 +124,26 @@ void AppListRecordPageSwitcherSourceByEventType(ui::EventType type,
 
 void RecordPageSwitcherSource(AppListPageSwitcherSource source,
                               bool is_tablet_mode) {
-  UMA_HISTOGRAM_ENUMERATION(kAppListPageSwitcherSourceHistogram, source,
+  UMA_HISTOGRAM_ENUMERATION("Apps.AppListPageSwitcherSource", source,
                             kMaxAppListPageSwitcherSource);
   if (is_tablet_mode) {
-    UMA_HISTOGRAM_ENUMERATION(kAppListPageSwitcherSourceHistogramInTablet,
+    UMA_HISTOGRAM_ENUMERATION("Apps.AppListPageSwitcherSource.TabletMode",
                               source, kMaxAppListPageSwitcherSource);
   } else {
-    UMA_HISTOGRAM_ENUMERATION(kAppListPageSwitcherSourceHistogramInClamshell,
+    UMA_HISTOGRAM_ENUMERATION("Apps.AppListPageSwitcherSource.ClamshellMode",
                               source, kMaxAppListPageSwitcherSource);
   }
 }
 
-APP_LIST_EXPORT void RecordSearchResultOpenSource(
-    const SearchResult* result,
-    const AppListModel* model,
-    const SearchModel* search_model) {
+void RecordSearchResultOpenSource(const SearchResult* result,
+                                  AppListViewState state,
+                                  bool is_tablet_mode) {
   // Record the search metric if the SearchResult is not a suggested app.
   if (result->is_recommendation())
     return;
 
   ApplistSearchResultOpenedSource source;
-  AppListViewState state = model->state_fullscreen();
-  if (search_model->tablet_mode()) {
+  if (is_tablet_mode) {
     source = ApplistSearchResultOpenedSource::kFullscreenTablet;
   } else {
     source = state == AppListViewState::kHalf
@@ -152,12 +153,6 @@ APP_LIST_EXPORT void RecordSearchResultOpenSource(
   UMA_HISTOGRAM_ENUMERATION(
       kAppListSearchResultOpenSourceHistogram, source,
       ApplistSearchResultOpenedSource::kMaxApplistSearchResultOpenedSource);
-}
-
-void RecordSearchAbandonWithQueryLengthHistogram(int query_length) {
-  UMA_HISTOGRAM_EXACT_LINEAR(kSearchAbandonQueryLengthHistogram,
-                             std::min(query_length, kMaxLoggedQueryLength),
-                             kMaxLoggedQueryLength);
 }
 
 void RecordZeroStateSearchResultUserActionHistogram(
@@ -172,24 +167,93 @@ void RecordZeroStateSearchResultRemovalHistogram(
                             removal_decision);
 }
 
+std::string GetAppListOpenMethod(AppListShowSource source) {
+  // This switch determines which metric we submit for the Apps.AppListOpenTime
+  // metric. Adding a string requires you update the apps histogram.xml as well.
+  switch (source) {
+    case kSearchKey:
+    case kSearchKeyFullscreen:
+      return "SearchKey";
+    case kShelfButton:
+    case kShelfButtonFullscreen:
+      return "HomeButton";
+    case kSwipeFromShelf:
+      return "Swipe";
+    case kScrollFromShelf:
+      return "Scroll";
+    case kTabletMode:
+    case kAssistantEntryPoint:
+      return "Others";
+  }
+  NOTREACHED();
+}
+
+void RecordAppListUserJourneyTime(AppListShowSource source,
+                                  base::TimeDelta time) {
+  base::UmaHistogramMediumTimes(
+      kAppListOpenTimePrefix + GetAppListOpenMethod(source), time);
+}
+
+void RecordPeriodicAppListMetrics() {
+  int number_of_apps_in_launcher = 0;
+  int number_of_root_level_items = 0;
+
+  AppListModel* const model = AppListModelProvider::Get()->model();
+  AppListItemList* const item_list = model->top_level_item_list();
+  for (size_t i = 0; i < item_list->item_count(); ++i) {
+    AppListItem* item = item_list->item_at(i);
+    if (item->GetItemType() == AppListFolderItem::kItemType) {
+      AppListFolderItem* folder = static_cast<AppListFolderItem*>(item);
+      number_of_apps_in_launcher += folder->item_list()->item_count();
+      number_of_root_level_items++;
+    } else if (!item->is_page_break()) {
+      number_of_apps_in_launcher++;
+      number_of_root_level_items++;
+    }
+  }
+
+  UMA_HISTOGRAM_COUNTS_100("Apps.AppList.NumberOfApps",
+                           number_of_apps_in_launcher);
+  UMA_HISTOGRAM_COUNTS_100("Apps.AppList.NumberOfRootLevelItems",
+                           number_of_root_level_items);
+}
+
 void RecordAppListAppLaunched(AppListLaunchedFrom launched_from,
                               AppListViewState app_list_state,
                               bool is_tablet_mode,
-                              bool home_launcher_shown) {
+                              bool app_list_shown) {
   UMA_HISTOGRAM_ENUMERATION(kAppListAppLaunched, launched_from);
+
+  if (features::IsProductivityLauncherEnabled() && !is_tablet_mode) {
+    if (!app_list_shown) {
+      UMA_HISTOGRAM_ENUMERATION(kAppListAppLaunchedClosed, launched_from);
+    } else {
+      // TODO(newcomer): Handle the case where search is open.
+      UMA_HISTOGRAM_ENUMERATION(kAppListAppLaunchedBubbleAllApps,
+                                launched_from);
+    }
+    return;
+  }
+
   switch (app_list_state) {
     case AppListViewState::kClosed:
+      DCHECK(!features::IsProductivityLauncherEnabled());
+      // Only exists in clamshell mode with ProductivityLauncher disabled.
       UMA_HISTOGRAM_ENUMERATION(kAppListAppLaunchedClosed, launched_from);
       break;
     case AppListViewState::kPeeking:
+      DCHECK(!features::IsProductivityLauncherEnabled());
+      // Only exists in clamshell mode with ProductivityLauncher disabled.
       UMA_HISTOGRAM_ENUMERATION(kAppListAppLaunchedPeeking, launched_from);
       break;
     case AppListViewState::kHalf:
+      DCHECK(!features::IsProductivityLauncherEnabled());
+      // Only exists in clamshell mode with ProductivityLauncher disabled.
       UMA_HISTOGRAM_ENUMERATION(kAppListAppLaunchedHalf, launched_from);
       break;
     case AppListViewState::kFullscreenAllApps:
       if (is_tablet_mode) {
-        if (home_launcher_shown) {
+        if (app_list_shown) {
           UMA_HISTOGRAM_ENUMERATION(kAppListAppLaunchedHomecherAllApps,
                                     launched_from);
         } else {
@@ -203,7 +267,7 @@ void RecordAppListAppLaunched(AppListLaunchedFrom launched_from,
       break;
     case AppListViewState::kFullscreenSearch:
       if (is_tablet_mode) {
-        if (home_launcher_shown) {
+        if (app_list_shown) {
           UMA_HISTOGRAM_ENUMERATION(kAppListAppLaunchedHomecherSearch,
                                     launched_from);
         } else {

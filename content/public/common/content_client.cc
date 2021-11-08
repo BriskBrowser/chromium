@@ -8,6 +8,8 @@
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "content/public/common/origin_util.h"
@@ -68,18 +70,19 @@ ContentClient::ContentClient()
 ContentClient::~ContentClient() {
 }
 
-base::string16 ContentClient::GetLocalizedString(int message_id) {
-  return base::string16();
+std::u16string ContentClient::GetLocalizedString(int message_id) {
+  return std::u16string();
 }
 
-base::string16 ContentClient::GetLocalizedString(
+std::u16string ContentClient::GetLocalizedString(
     int message_id,
-    const base::string16& replacement) {
-  return base::string16();
+    const std::u16string& replacement) {
+  return std::u16string();
 }
 
-base::StringPiece ContentClient::GetDataResource(int resource_id,
-                                                 ui::ScaleFactor scale_factor) {
+base::StringPiece ContentClient::GetDataResource(
+    int resource_id,
+    ui::ResourceScaleFactor scale_factor) {
   return base::StringPiece();
 }
 
@@ -123,5 +126,10 @@ media::MediaDrmBridgeClient* ContentClient::GetMediaDrmBridgeClient() {
 void ContentClient::ExposeInterfacesToBrowser(
     scoped_refptr<base::SequencedTaskRunner> io_task_runner,
     mojo::BinderMap* binders) {}
+
+std::u16string ContentClient::GetLocalizedProtocolName(
+    const std::string& protocol) {
+  return base::UTF8ToUTF16(protocol);
+}
 
 }  // namespace content

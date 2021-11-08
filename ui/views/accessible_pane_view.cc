@@ -8,8 +8,8 @@
 
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/focus/focus_search.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_tracker.h"
 #include "ui/views/widget/widget.h"
 
@@ -24,6 +24,10 @@ class AccessiblePaneViewFocusSearch : public FocusSearch {
  public:
   explicit AccessiblePaneViewFocusSearch(AccessiblePaneView* pane_view)
       : FocusSearch(pane_view, true, true), accessible_pane_view_(pane_view) {}
+
+  AccessiblePaneViewFocusSearch(const AccessiblePaneViewFocusSearch&) = delete;
+  AccessiblePaneViewFocusSearch& operator=(
+      const AccessiblePaneViewFocusSearch&) = delete;
 
  protected:
   View* GetParent(View* v) override {
@@ -40,7 +44,6 @@ class AccessiblePaneViewFocusSearch : public FocusSearch {
 
  private:
   AccessiblePaneView* accessible_pane_view_;
-  DISALLOW_COPY_AND_ASSIGN(AccessiblePaneViewFocusSearch);
 };
 
 AccessiblePaneView::AccessiblePaneView()

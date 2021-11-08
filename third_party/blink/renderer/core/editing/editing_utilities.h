@@ -151,7 +151,7 @@ void WriteImageNodeToClipboard(SystemClipboard&, const Node&, const String&);
 // Returns true for nodes that either have no content, or have content that is
 // ignored (skipped over) while editing. There are no VisiblePositions inside
 // these nodes.
-bool EditingIgnoresContent(const Node&);
+CORE_EXPORT bool EditingIgnoresContent(const Node&);
 
 inline bool CanHaveChildrenForEditing(const Node* node) {
   return !node->IsTextNode() && node->CanContainRangeEndPoint();
@@ -262,8 +262,8 @@ CORE_EXPORT bool IsEditablePosition(const Position&);
 bool IsEditablePosition(const PositionInFlatTree&);
 bool IsRichlyEditablePosition(const Position&);
 
-PositionWithAffinity PositionRespectingEditingBoundary(const Position&,
-                                                       const HitTestResult&);
+CORE_EXPORT PositionWithAffinity
+PositionRespectingEditingBoundary(const Position&, const HitTestResult&);
 
 // Move specified position to start/end of non-editable region.
 // If it can be found, we prefer a visually equivalent position that is
@@ -375,6 +375,8 @@ FloatQuad LocalToAbsoluteQuadOf(const LocalCaretRect&);
 // -------------------------------------------------------------------------
 
 // Functions dispatch InputEvent
+InputEvent::EventCancelable InputTypeIsCancelable(
+    InputEvent::InputType input_type);
 const StaticRangeVector* TargetRangesForInputEvent(const Node&);
 DispatchEventResult DispatchBeforeInputInsertText(
     Node*,
@@ -389,4 +391,4 @@ DispatchEventResult DispatchBeforeInputDataTransfer(Node*,
                                                     DataTransfer*);
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_EDITING_UTILITIES_H_

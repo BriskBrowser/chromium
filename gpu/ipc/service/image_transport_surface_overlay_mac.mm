@@ -4,6 +4,7 @@
 
 #include "gpu/ipc/service/image_transport_surface_overlay_mac.h"
 
+#include <memory>
 #include <sstream>
 
 #include "base/bind.h"
@@ -20,6 +21,7 @@
 #include "ui/accelerated_widget_mac/io_surface_context.h"
 #include "ui/base/cocoa/remote_layer_api.h"
 #include "ui/base/ui_base_switches.h"
+#include "ui/gfx/video_types.h"
 #include "ui/gl/ca_renderer_layer_params.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_image_io_surface.h"
@@ -49,8 +51,8 @@ ImageTransportSurfaceOverlayMacBase<BaseClass>::
            ->workarounds()
            .disable_av_sample_buffer_display_layer;
 
-  ca_layer_tree_coordinator_.reset(new ui::CALayerTreeCoordinator(
-      use_remote_layer_api_, allow_av_sample_buffer_display_layer));
+  ca_layer_tree_coordinator_ = std::make_unique<ui::CALayerTreeCoordinator>(
+      use_remote_layer_api_, allow_av_sample_buffer_display_layer);
 
   // Create the CAContext to send this to the GPU process, and the layer for
   // the context.
@@ -181,13 +183,13 @@ ImageTransportSurfaceOverlayMacBase<BaseClass>::SwapBuffersInternal(
                 gfx::SwapResult::SWAP_ACK,
                 std::make_unique<gfx::CALayerParams>(params.ca_layer_params))));
   }
-  delegate_->DidSwapBuffersComplete(std::move(params));
+  delegate_->DidSwapBuffersComplete(std::move(params),
+                                    /*release_fence=*/gfx::GpuFenceHandle());
   constexpr int64_t kRefreshIntervalInMicroseconds =
       base::Time::kMicrosecondsPerSecond / 60;
   gfx::PresentationFeedback feedback(
       base::TimeTicks::Now(),
-      base::TimeDelta::FromMicroseconds(kRefreshIntervalInMicroseconds),
-      0 /* flags */);
+      base::Microseconds(kRefreshIntervalInMicroseconds), 0 /* flags */);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(
@@ -293,18 +295,14 @@ bool ImageTransportSurfaceOverlayMacBase<BaseClass>::OnMakeCurrent(
 
 template <typename BaseClass>
 bool ImageTransportSurfaceOverlayMacBase<BaseClass>::ScheduleOverlayPlane(
-    int z_order,
-    gfx::OverlayTransform transform,
     gl::GLImage* image,
-    const gfx::Rect& pixel_frame_rect,
-    const gfx::RectF& crop_rect,
-    bool enable_blend,
-    std::unique_ptr<gfx::GpuFence> gpu_fence) {
-  if (transform != gfx::OVERLAY_TRANSFORM_NONE) {
+    std::unique_ptr<gfx::GpuFence> gpu_fence,
+    const gfx::OverlayPlaneData& overlay_plane_data) {
+  if (overlay_plane_data.plane_transform != gfx::OVERLAY_TRANSFORM_NONE) {
     DLOG(ERROR) << "Invalid overlay plane transform.";
     return false;
   }
-  if (z_order) {
+  if (overlay_plane_data.z_order) {
     DLOG(ERROR) << "Invalid non-zero Z order.";
     return false;
   }
@@ -320,12 +318,13 @@ bool ImageTransportSurfaceOverlayMacBase<BaseClass>::ScheduleOverlayPlane(
       gfx::RRectF(),  // rounded_corner_bounds
       0,              // sorting_context_id
       gfx::Transform(), image,
-      crop_rect,            // contents_rect
-      pixel_frame_rect,     // rect
-      SK_ColorTRANSPARENT,  // background_color
-      0,                    // edge_aa_mask
-      1.f,                  // opacity
-      GL_LINEAR);           // filter;
+      overlay_plane_data.crop_rect,       // contents_rect
+      overlay_plane_data.display_bounds,  // rect
+      SK_ColorTRANSPARENT,                // background_color
+      0,                                  // edge_aa_mask
+      1.f,                                // opacity
+      GL_LINEAR,                          // filter
+      gfx::ProtectedVideoType::kClear);   // protected_video_type
   return ca_layer_tree_coordinator_->GetPendingCARendererLayerTree()
       ->ScheduleCALayer(overlay_as_calayer_params);
 }
@@ -391,14 +390,11 @@ void ImageTransportSurfaceOverlayMacBase<BaseClass>::OnGpuSwitched(
   }
   gl_renderer_id_ = context_renderer_id & kCGLRendererIDMatchingMask;
 
-  // Post a task holding a reference to the new GL context. The reason for
-  // this is to avoid creating-then-destroying the context for every image
-  // transport surface that is observing the GPU switch.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(
-          base::DoNothing::Once<scoped_refptr<ui::IOSurfaceContext>>(),
-          context_on_new_gpu));
+  // Delay releasing the reference to the new GL context. The reason for this
+  // is to avoid creating-then-destroying the context for every image transport
+  // surface that is observing the GPU switch.
+  base::ThreadTaskRunnerHandle::Get()->ReleaseSoon(
+      FROM_HERE, std::move(context_on_new_gpu));
 }
 
 // Template instantiation

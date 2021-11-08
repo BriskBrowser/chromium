@@ -9,19 +9,15 @@
 
 namespace syncer {
 
-FakeSyncChangeProcessor::FakeSyncChangeProcessor() {}
+FakeSyncChangeProcessor::FakeSyncChangeProcessor() = default;
 
-FakeSyncChangeProcessor::~FakeSyncChangeProcessor() {}
+FakeSyncChangeProcessor::~FakeSyncChangeProcessor() = default;
 
-base::Optional<ModelError> FakeSyncChangeProcessor::ProcessSyncChanges(
+absl::optional<ModelError> FakeSyncChangeProcessor::ProcessSyncChanges(
     const base::Location& from_here,
     const SyncChangeList& change_list) {
   changes_.insert(changes_.end(), change_list.begin(), change_list.end());
-  return base::nullopt;
-}
-
-SyncDataList FakeSyncChangeProcessor::GetAllSyncData(ModelType type) const {
-  return data_;
+  return absl::nullopt;
 }
 
 const SyncChangeList& FakeSyncChangeProcessor::changes() const {
@@ -30,14 +26,6 @@ const SyncChangeList& FakeSyncChangeProcessor::changes() const {
 
 SyncChangeList& FakeSyncChangeProcessor::changes() {
   return changes_;
-}
-
-const SyncDataList& FakeSyncChangeProcessor::data() const {
-  return data_;
-}
-
-SyncDataList& FakeSyncChangeProcessor::data() {
-  return data_;
 }
 
 }  // namespace syncer

@@ -43,9 +43,13 @@ class AudioDeviceListenerWinTest
         base::BindRepeating(&AudioDeviceListenerWinTest::OnDeviceChange,
                             base::Unretained(this)));
 
-    tick_clock_.Advance(base::TimeDelta::FromSeconds(12345));
+    tick_clock_.Advance(base::Seconds(12345));
     output_device_listener_->tick_clock_ = &tick_clock_;
   }
+
+  AudioDeviceListenerWinTest(const AudioDeviceListenerWinTest&) = delete;
+  AudioDeviceListenerWinTest& operator=(const AudioDeviceListenerWinTest&) =
+      delete;
 
   ~AudioDeviceListenerWinTest() override {
     system_monitor_.RemoveDevicesChangedObserver(this);
@@ -53,7 +57,7 @@ class AudioDeviceListenerWinTest
 
   void AdvanceLastDeviceChangeTime() {
     tick_clock_.Advance(AudioDeviceListenerWin::kDeviceChangeLimit +
-                        base::TimeDelta::FromMilliseconds(1));
+                        base::Milliseconds(1));
   }
 
   // Simulate a device change where no output devices are available.
@@ -67,7 +71,7 @@ class AudioDeviceListenerWinTest
   bool SimulateDefaultOutputDeviceChange(const char* new_device_id) {
     auto result = output_device_listener_->OnDefaultDeviceChanged(
         static_cast<EDataFlow>(eConsole), static_cast<ERole>(eRender),
-        base::ASCIIToUTF16(new_device_id).c_str());
+        base::ASCIIToWide(new_device_id).c_str());
     task_environment_.RunUntilIdle();
     return result == S_OK;
   }
@@ -81,8 +85,6 @@ class AudioDeviceListenerWinTest
   base::SystemMonitor system_monitor_;
   base::SimpleTestTickClock tick_clock_;
   std::unique_ptr<AudioDeviceListenerWin> output_device_listener_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioDeviceListenerWinTest);
 };
 
 // Simulate a device change events and ensure we get the right callbacks.

@@ -13,25 +13,25 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/send_tab_to_self/send_tab_to_self_util.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/browser_sync/browser_sync_switches.h"
 #include "components/reading_list/features/reading_list_switches.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/driver/profile_sync_service.h"
 #include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/driver/sync_service_impl.h"
 #include "content/public/test/browser_test.h"
 #include "crypto/ec_private_key.h"
 
 namespace {
 
-using syncer::ProfileSyncService;
+using syncer::SyncServiceImpl;
 
 class SyncTransportActiveChecker : public SingleClientStatusChangeChecker {
  public:
-  explicit SyncTransportActiveChecker(ProfileSyncService* service)
+  explicit SyncTransportActiveChecker(SyncServiceImpl* service)
       : SingleClientStatusChangeChecker(service) {}
 
   bool IsExitConditionSatisfied(std::ostream* os) override {
@@ -44,6 +44,10 @@ class SyncTransportActiveChecker : public SingleClientStatusChangeChecker {
 // This test verifies some basic functionality of local sync, used for roaming
 // profiles (enterprise use-case).
 class LocalSyncTest : public InProcessBrowserTest {
+ public:
+  LocalSyncTest(const LocalSyncTest&) = delete;
+  LocalSyncTest& operator=(const LocalSyncTest&) = delete;
+
  protected:
   LocalSyncTest() {
     EXPECT_TRUE(local_sync_backend_dir_.CreateUniqueTempDir());
@@ -66,7 +70,6 @@ class LocalSyncTest : public InProcessBrowserTest {
 
  private:
   base::ScopedTempDir local_sync_backend_dir_;
-  DISALLOW_COPY_AND_ASSIGN(LocalSyncTest);
 };
 
 // The local sync backend is currently only supported on Windows, Mac and Linux.
@@ -76,9 +79,8 @@ class LocalSyncTest : public InProcessBrowserTest {
 #if defined(OS_WIN) || defined(OS_MAC) || \
     (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 IN_PROC_BROWSER_TEST_F(LocalSyncTest, ShouldStart) {
-  ProfileSyncService* service =
-      ProfileSyncServiceFactory::GetAsProfileSyncServiceForProfile(
-          browser()->profile());
+  SyncServiceImpl* service =
+      SyncServiceFactory::GetAsSyncServiceImplForProfile(browser()->profile());
 
   // Wait until the first sync cycle is completed.
   ASSERT_TRUE(SyncTransportActiveChecker(service).Wait());

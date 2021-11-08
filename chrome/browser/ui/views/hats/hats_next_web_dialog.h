@@ -5,11 +5,13 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_HATS_HATS_NEXT_WEB_DIALOG_H_
 #define CHROME_BROWSER_UI_VIEWS_HATS_HATS_NEXT_WEB_DIALOG_H_
 
+#include "base/gtest_prod_util.h"
 #include "chrome/browser/profiles/profile_observer.h"
+#include "chrome/browser/ui/hats/hats_service.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/webview/web_dialog_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 
@@ -34,7 +36,9 @@ class HatsNextWebDialog : public views::BubbleDialogDelegateView,
   HatsNextWebDialog(Browser* browser,
                     const std::string& trigger_id,
                     base::OnceClosure success_callback,
-                    base::OnceClosure failure_callback);
+                    base::OnceClosure failure_callback,
+                    const SurveyBitsData& product_specific_bits_data,
+                    const SurveyStringData& product_specific_string_data);
   ~HatsNextWebDialog() override;
   HatsNextWebDialog(const HatsNextWebDialog&) = delete;
   HatsNextWebDialog& operator=(const HatsNextWebDialog&) = delete;
@@ -57,7 +61,9 @@ class HatsNextWebDialog : public views::BubbleDialogDelegateView,
                     const GURL& hats_survey_url_,
                     const base::TimeDelta& timeout,
                     base::OnceClosure success_callback,
-                    base::OnceClosure failure_callback);
+                    base::OnceClosure failure_callback,
+                    const SurveyBitsData& product_specific_bits_data,
+                    const SurveyStringData& product_specific_string_data);
 
   class HatsWebView;
 
@@ -124,6 +130,9 @@ class HatsNextWebDialog : public views::BubbleDialogDelegateView,
 
   base::OnceClosure success_callback_;
   base::OnceClosure failure_callback_;
+
+  SurveyBitsData product_specific_bits_data_;
+  SurveyStringData product_specific_string_data_;
 
   base::WeakPtrFactory<HatsNextWebDialog> weak_factory_{this};
 };

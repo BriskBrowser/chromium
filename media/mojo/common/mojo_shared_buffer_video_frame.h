@@ -47,7 +47,7 @@ class MojoSharedBufferVideoFrame : public VideoFrame {
   // Internally the data from in-memory YUV frame will be copied to a
   // consecutive block in shared memory. Will return null on failure.
   static scoped_refptr<MojoSharedBufferVideoFrame> CreateFromYUVFrame(
-      const VideoFrame& frame);
+      VideoFrame& frame);
 
   // Creates a MojoSharedBufferVideoFrame that uses the memory in |handle|.
   // This will take ownership of |handle|, so the caller can no longer use it.
@@ -64,6 +64,10 @@ class MojoSharedBufferVideoFrame : public VideoFrame {
       std::vector<uint32_t> offsets,
       std::vector<int32_t> strides,
       base::TimeDelta timestamp);
+
+  MojoSharedBufferVideoFrame(const MojoSharedBufferVideoFrame&) = delete;
+  MojoSharedBufferVideoFrame& operator=(const MojoSharedBufferVideoFrame&) =
+      delete;
 
   // Returns the offsets relative to the start of |shared_buffer| for the
   // |plane| specified.
@@ -105,8 +109,6 @@ class MojoSharedBufferVideoFrame : public VideoFrame {
   size_t shared_buffer_size_;
   size_t offsets_[kMaxPlanes];
   MojoSharedBufferDoneCB mojo_shared_buffer_done_cb_;
-
-  DISALLOW_COPY_AND_ASSIGN(MojoSharedBufferVideoFrame);
 };
 
 }  // namespace media

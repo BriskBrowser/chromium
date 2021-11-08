@@ -7,11 +7,9 @@
 
 #include <stdint.h>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/containers/span.h"
-#include "base/optional.h"
 #include "chrome/services/sharing/public/cpp/advertisement.h"
 
 namespace sharing {

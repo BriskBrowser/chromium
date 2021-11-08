@@ -41,6 +41,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_checker.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "components/crash/core/app/breakpad_linux_impl.h"
 #include "components/crash/core/app/crash_reporter_client.h"
@@ -312,6 +313,10 @@ class MimeWriter {
   static const size_t kMaxCrashChunkSize = 64;
 
   MimeWriter(int fd, const char* const mime_boundary);
+
+  MimeWriter(const MimeWriter&) = delete;
+  MimeWriter& operator=(const MimeWriter&) = delete;
+
   ~MimeWriter();
 
   // Append boundary.
@@ -368,9 +373,6 @@ class MimeWriter {
   int fd_;
 
   const char* const mime_boundary_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MimeWriter);
 };
 
 MimeWriter::MimeWriter(int fd, const char* const mime_boundary)
@@ -480,6 +482,9 @@ class CrashReporterWriter : public MimeWriter {
  public:
   explicit CrashReporterWriter(int fd);
 
+  CrashReporterWriter(const CrashReporterWriter&) = delete;
+  CrashReporterWriter& operator=(const CrashReporterWriter&) = delete;
+
   void AddBoundary() override;
 
   void AddEnd() override;
@@ -499,9 +504,6 @@ class CrashReporterWriter : public MimeWriter {
   void AddFileContents(const char* filename_msg,
                        uint8_t* file_data,
                        size_t file_size) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CrashReporterWriter);
 };
 
 
@@ -1027,6 +1029,9 @@ class NonBrowserCrashHandler : public google_breakpad::CrashGenerationClient {
       : server_fd_(
             base::GlobalDescriptors::GetInstance()->Get(kCrashDumpSignal)) {}
 
+  NonBrowserCrashHandler(const NonBrowserCrashHandler&) = delete;
+  NonBrowserCrashHandler& operator=(const NonBrowserCrashHandler&) = delete;
+
   ~NonBrowserCrashHandler() override {}
 
   bool RequestDump(const void* crash_context,
@@ -1114,8 +1119,6 @@ class NonBrowserCrashHandler : public google_breakpad::CrashGenerationClient {
  private:
   // The pipe FD to the browser process, which will handle the crash dumping.
   const int server_fd_;
-
-  DISALLOW_COPY_AND_ASSIGN(NonBrowserCrashHandler);
 };
 
 void EnableNonBrowserCrashDumping() {
@@ -2077,6 +2080,15 @@ void InitCrashReporter(const std::string& process_type) {
 void SetChannelCrashKey(const std::string& channel) {
   static crash_reporter::CrashKeyString<16> channel_key("channel");
   channel_key.Set(channel);
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  if (channel == "extended") {
+    // Extended stable reports as stable (empty string) with an extra bool.
+    static crash_reporter::CrashKeyString<5> extended_stable_key(
+        "extended_stable_channel");
+    extended_stable_key.Set("true");
+    channel_key.Set("");
+  }
+#endif
 }
 
 #if defined(OS_ANDROID)

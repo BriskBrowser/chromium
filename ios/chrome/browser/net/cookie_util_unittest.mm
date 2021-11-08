@@ -7,7 +7,6 @@
 #import <Foundation/Foundation.h>
 
 #include "base/bind.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
@@ -19,6 +18,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -95,9 +95,9 @@ TEST_F(CookieUtilTest, CreateCookieStore) {
   options.set_include_httponly();
   std::string cookie_line = base::SysNSStringToUTF8(cookie_name) + "=" +
                             base::SysNSStringToUTF8(cookie_value);
-  auto canonical_cookie =
-      net::CanonicalCookie::Create(test_url, cookie_line, base::Time::Now(),
-                                   base::nullopt /* server_time */);
+  auto canonical_cookie = net::CanonicalCookie::Create(
+      test_url, cookie_line, base::Time::Now(), /*server_time=*/absl::nullopt,
+      /*cookie_partition_key=*/absl::nullopt);
   cookie_store->SetCanonicalCookieAsync(std::move(canonical_cookie), test_url,
                                         options,
                                         net::CookieStore::SetCookiesCallback());

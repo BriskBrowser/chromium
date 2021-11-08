@@ -23,6 +23,10 @@ class EventModel;
 class NeverConditionValidator : public ConditionValidator {
  public:
   NeverConditionValidator();
+
+  NeverConditionValidator(const NeverConditionValidator&) = delete;
+  NeverConditionValidator& operator=(const NeverConditionValidator&) = delete;
+
   ~NeverConditionValidator() override;
 
   // ConditionValidator implementation.
@@ -32,15 +36,13 @@ class NeverConditionValidator : public ConditionValidator {
       const EventModel& event_model,
       const AvailabilityModel& availability_model,
       const DisplayLockController& display_lock_controller,
+      const Configuration* configuration,
       uint32_t current_day) const override;
   void NotifyIsShowing(
       const base::Feature& feature,
       const FeatureConfig& config,
       const std::vector<std::string>& all_feature_names) override;
   void NotifyDismissed(const base::Feature& feature) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NeverConditionValidator);
 };
 
 }  // namespace feature_engagement

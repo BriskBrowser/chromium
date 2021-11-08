@@ -18,7 +18,7 @@ import androidx.browser.customtabs.CustomTabsSessionToken;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
@@ -121,7 +121,7 @@ public class CustomTabObserver extends EmptyTabObserver {
         } else if (mCurrentState == State.WAITING_LOAD_FINISH) {
             if (mCustomTabsConnection != null) {
                 mCustomTabsConnection.sendNavigationInfo(
-                        mSession, tab.getUrlString(), tab.getTitle(), (Uri) null);
+                        mSession, tab.getUrl().getSpec(), tab.getTitle(), (Uri) null);
             }
             mPageLoadStartedTimestamp = SystemClock.elapsedRealtime();
         }
@@ -186,7 +186,7 @@ public class CustomTabObserver extends EmptyTabObserver {
     public void onDidFinishNavigation(Tab tab, NavigationHandle navigation) {
         boolean firstNavigation = mFirstCommitTimestamp == 0;
         boolean isFirstMainFrameCommit = firstNavigation && navigation.hasCommitted()
-                && !navigation.isErrorPage() && navigation.isInMainFrame()
+                && !navigation.isErrorPage() && navigation.isInPrimaryMainFrame()
                 && !navigation.isSameDocument() && !navigation.isFragmentNavigation();
         if (isFirstMainFrameCommit) mFirstCommitTimestamp = SystemClock.elapsedRealtime();
     }
@@ -206,7 +206,7 @@ public class CustomTabObserver extends EmptyTabObserver {
         if (tab.getWebContents() == null) return;
         String title = tab.getTitle();
         if (TextUtils.isEmpty(title)) return;
-        String urlString = tab.getUrlString();
+        String urlString = tab.getUrl().getSpec();
 
         ShareImageFileUtils.captureScreenshotForContents(tab.getWebContents(), mContentBitmapWidth,
                 mContentBitmapHeight, (Uri snapshotPath) -> {

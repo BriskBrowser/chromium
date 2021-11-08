@@ -43,7 +43,7 @@ GeneratedNotificationPref::GeneratedNotificationPref(Profile* profile)
 
   host_content_settings_map_ =
       HostContentSettingsMapFactory::GetForProfile(profile_);
-  content_setting_observer_.Add(host_content_settings_map_);
+  content_setting_observation_.Observe(host_content_settings_map_);
 }
 
 GeneratedNotificationPref::~GeneratedNotificationPref() = default;
@@ -51,8 +51,8 @@ GeneratedNotificationPref::~GeneratedNotificationPref() = default;
 void GeneratedNotificationPref::OnContentSettingChanged(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type) {
-  if (content_type == ContentSettingsType::NOTIFICATIONS) {
+    ContentSettingsTypeSet content_type_set) {
+  if (content_type_set.Contains(ContentSettingsType::NOTIFICATIONS)) {
     NotifyObservers(kGeneratedNotificationPref);
   }
 }

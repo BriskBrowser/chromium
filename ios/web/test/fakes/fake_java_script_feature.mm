@@ -4,6 +4,8 @@
 
 #import "ios/web/test/fakes/fake_java_script_feature.h"
 
+#include "base/time/time.h"
+
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
@@ -75,18 +77,19 @@ void FakeJavaScriptFeature::GetErrorCount(
     WebFrame* web_frame,
     base::OnceCallback<void(const base::Value*)> callback) {
   CallJavaScriptFunction(web_frame, kGetErrorCount, {}, std::move(callback),
-                         base::TimeDelta::FromSeconds(kGetErrorCountTimeout));
+                         base::Seconds(kGetErrorCountTimeout));
 }
 
-base::Optional<std::string> FakeJavaScriptFeature::GetScriptMessageHandlerName()
+absl::optional<std::string> FakeJavaScriptFeature::GetScriptMessageHandlerName()
     const {
   return std::string(kFakeJavaScriptFeatureScriptHandlerName);
 }
 
-void FakeJavaScriptFeature::ScriptMessageReceived(BrowserState* browser_state,
-                                                  WKScriptMessage* message) {
-  last_received_browser_state_ = browser_state;
-  last_received_message_ = message;
+void FakeJavaScriptFeature::ScriptMessageReceived(
+    WebState* web_state,
+    const ScriptMessage& message) {
+  last_received_web_state_ = web_state;
+  last_received_message_ = std::make_unique<const ScriptMessage>(message);
 }
 
 }  // namespace web

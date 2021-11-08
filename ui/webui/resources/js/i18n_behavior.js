@@ -8,10 +8,12 @@
  * strings. Typically it is used as [[i18n('someString')]] computed bindings or
  * for this.i18n('foo'). It is not needed for HTML $i18n{otherString}, which is
  * handled by a C++ templatizer.
+ * NOTE: This file is deprecated in favor of i18n_mixin.ts. Don't use it in new
+ * code.
  */
 
-// #import {parseHtmlSubset} from './parse_html_subset.m.js';
-// #import {loadTimeData, SanitizeInnerHtmlOpts} from './load_time_data.m.js';
+// #import {parseHtmlSubset, SanitizeInnerHtmlOpts, sanitizeInnerHtml} from './parse_html_subset.m.js';
+// #import {loadTimeData} from './load_time_data.m.js';
 
 /** @polymerBehavior */
 /* #export */ const I18nBehavior = {
@@ -83,7 +85,7 @@
     opts = opts || {};
     const args = [id].concat(opts.substitutions || []);
     const rawString = this.i18nRaw_.apply(this, args);
-    return loadTimeData.sanitizeInnerHtml(rawString, opts);
+    return sanitizeInnerHtml(rawString, opts);
   },
 
   /**
@@ -132,16 +134,54 @@
   },
 };
 
-/**
- * TODO(stevenjb): Replace with an interface. b/24294625
- * @typedef {{
- *   i18n: function(string, ...string): string,
- *   i18nAdvanced: function(string, SanitizeInnerHtmlOpts=): string,
- *   i18nDynamic: function(string, string, ...string): string,
- *   i18nExists: function(string),
- *   i18nUpdateLocale: function()
- * }}
- */
-I18nBehavior.Proto;
+/** @interface */
+/* #export */ class I18nBehaviorInterface {
+  constructor() {
+    // <if expr="chromeos">
+    /** @type {string} */
+    this.locale;
+    // </if>
+  }
+
+  // <if expr="chromeos">
+  i18nUpdateLocale() {}
+  // </if>
+
+  /**
+   * @param {string} id
+   * @param {...string|number} var_args
+   * @return {string}
+   */
+  i18n(id, var_args) {}
+
+  /**
+   * @param {string} id
+   * @param {SanitizeInnerHtmlOpts=} opts
+   * @return {string}
+   */
+  i18nAdvanced(id, opts) {}
+
+  /**
+   * @param {string} locale
+   * @param {string} id
+   * @param {...string} var_args
+   * @return {string}
+   */
+  i18nDynamic(locale, id, var_args) {}
+
+  /**
+   * @param {string} locale
+   * @param {string} id
+   * @param {...string} var_args
+   * @return {string}
+   */
+  i18nRecursive(locale, id, var_args) {}
+
+  /**
+   * @param {string} id
+   * @return {boolean}
+   */
+  i18nExists(id) {}
+}
 
 /* #ignore */ console.warn('crbug/1173575, non-JS module files deprecated.');

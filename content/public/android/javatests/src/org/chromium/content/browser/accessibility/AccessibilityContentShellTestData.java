@@ -5,23 +5,44 @@
 package org.chromium.content.browser.accessibility;
 
 /**
- * Simple POJO used for tracking accessibility data during content shell unit tests.
+ * Singleton used for tracking accessibility data during content shell unit tests.
  */
 public class AccessibilityContentShellTestData {
+    private static AccessibilityContentShellTestData sInstance;
+
+    public static AccessibilityContentShellTestData getInstance() {
+        if (sInstance == null) {
+            sInstance = new AccessibilityContentShellTestData();
+        }
+        return sInstance;
+    }
+
+    public static void resetData() {
+        sInstance = null;
+    }
+
     public int traverseFromIndex;
     public int traverseToIndex;
     public int selectionFromIndex;
     public int selectionToIndex;
     public String announcementText;
     public int typeWindowContentChangedCount;
+    public boolean receivedEvent;
+    public boolean receivedAccessibilityFocusEvent;
+    public boolean receivedTraversalEvent;
+    public boolean receivedSelectionEvent;
 
-    public AccessibilityContentShellTestData() {
+    private AccessibilityContentShellTestData() {
         traverseFromIndex = -1;
         traverseToIndex = -1;
         selectionFromIndex = -1;
         selectionToIndex = -1;
         announcementText = "";
         typeWindowContentChangedCount = 0;
+        receivedEvent = false;
+        receivedAccessibilityFocusEvent = false;
+        receivedTraversalEvent = false;
+        receivedSelectionEvent = false;
     }
 
     public int getTraverseFromIndex() {
@@ -74,5 +95,37 @@ public class AccessibilityContentShellTestData {
 
     public void incrementWindowContentChangedCount() {
         this.typeWindowContentChangedCount++;
+    }
+
+    public boolean hasReceivedEvent() {
+        return receivedEvent;
+    }
+
+    public void setReceivedEvent(boolean receivedEvent) {
+        this.receivedEvent = receivedEvent;
+    }
+
+    public boolean hasReceivedAccessibilityFocusEvent() {
+        return receivedAccessibilityFocusEvent;
+    }
+
+    public void setReceivedAccessibilityFocusEvent(boolean receivedAccessibilityFocusEvent) {
+        this.receivedAccessibilityFocusEvent = receivedAccessibilityFocusEvent;
+    }
+
+    public boolean hasReceivedTraversalEvent() {
+        return receivedTraversalEvent;
+    }
+
+    public void setReceivedTraversalEvent(boolean receivedTraversalEvent) {
+        this.receivedTraversalEvent = receivedTraversalEvent;
+    }
+
+    public boolean hasReceivedSelectionEvent() {
+        return receivedSelectionEvent;
+    }
+
+    public void setReceivedSelectionEvent(boolean receivedSelectionEvent) {
+        this.receivedSelectionEvent = receivedSelectionEvent;
     }
 }

@@ -78,6 +78,17 @@ const char* ProtoEnumToString(
   return "";
 }
 
+const char* ProtoEnumToString(sync_pb::BookmarkSpecifics::Type type) {
+  ASSERT_ENUM_BOUNDS(sync_pb::BookmarkSpecifics, Type, UNSPECIFIED, FOLDER);
+  switch (type) {
+    ENUM_CASE(sync_pb::BookmarkSpecifics, UNSPECIFIED);
+    ENUM_CASE(sync_pb::BookmarkSpecifics, URL);
+    ENUM_CASE(sync_pb::BookmarkSpecifics, FOLDER);
+  }
+  NOTREACHED();
+  return "";
+}
+
 const char* ProtoEnumToString(
     sync_pb::CommitResponse::ResponseType response_type) {
   ASSERT_ENUM_BOUNDS(sync_pb::CommitResponse, ResponseType, SUCCESS,
@@ -145,6 +156,19 @@ const char* ProtoEnumToString(
   return "";
 }
 
+const char* ProtoEnumToString(
+    sync_pb::SearchEngineSpecifics::ActiveStatus is_active) {
+  ASSERT_ENUM_BOUNDS(sync_pb::SearchEngineSpecifics, ActiveStatus,
+                     ACTIVE_STATUS_UNSPECIFIED, ACTIVE_STATUS_FALSE);
+  switch (is_active) {
+    ENUM_CASE(sync_pb::SearchEngineSpecifics, ACTIVE_STATUS_UNSPECIFIED);
+    ENUM_CASE(sync_pb::SearchEngineSpecifics, ACTIVE_STATUS_TRUE);
+    ENUM_CASE(sync_pb::SearchEngineSpecifics, ACTIVE_STATUS_FALSE);
+  }
+  NOTREACHED();
+  return "";
+}
+
 const char* ProtoEnumToString(sync_pb::SessionTab::FaviconType favicon_type) {
   ASSERT_ENUM_BOUNDS(sync_pb::SessionTab, FaviconType, TYPE_WEB_FAVICON,
                      TYPE_WEB_FAVICON);
@@ -171,10 +195,6 @@ const char* ProtoEnumToString(sync_pb::SyncEnums::Action action) {
                      UNKNOWN_ACTION);
   switch (action) {
     ENUM_CASE(sync_pb::SyncEnums, UPGRADE_CLIENT);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_CLEAR_USER_DATA_AND_RESYNC);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_ENABLE_SYNC_ON_ACCOUNT);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_STOP_AND_RESTART_SYNC);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_DISABLE_SYNC_ON_CLIENT);
     ENUM_CASE(sync_pb::SyncEnums, UNKNOWN_ACTION);
   }
   NOTREACHED();
@@ -201,17 +221,12 @@ const char* ProtoEnumToString(sync_pb::SyncEnums::ErrorType error_type) {
   ASSERT_ENUM_BOUNDS(sync_pb::SyncEnums, ErrorType, SUCCESS, UNKNOWN);
   switch (error_type) {
     ENUM_CASE(sync_pb::SyncEnums, SUCCESS);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_ACCESS_DENIED);
     ENUM_CASE(sync_pb::SyncEnums, NOT_MY_BIRTHDAY);
     ENUM_CASE(sync_pb::SyncEnums, THROTTLED);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_AUTH_EXPIRED);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_USER_NOT_ACTIVATED);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_AUTH_INVALID);
     ENUM_CASE(sync_pb::SyncEnums, CLEAR_PENDING);
     ENUM_CASE(sync_pb::SyncEnums, TRANSIENT_ERROR);
     ENUM_CASE(sync_pb::SyncEnums, MIGRATION_DONE);
     ENUM_CASE(sync_pb::SyncEnums, DISABLED_BY_ADMIN);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_USER_ROLLBACK);
     ENUM_CASE(sync_pb::SyncEnums, PARTIAL_FAILURE);
     ENUM_CASE(sync_pb::SyncEnums, CLIENT_DATA_OBSOLETE);
     ENUM_CASE(sync_pb::SyncEnums, ENCRYPTION_OBSOLETE);
@@ -283,11 +298,10 @@ const char* ProtoEnumToString(
     ENUM_CASE(sync_pb::SyncEnums, PASSPHRASE_ACCEPTED);
     ENUM_CASE(sync_pb::SyncEnums, INITIALIZATION_COMPLETE);
     ENUM_CASE(sync_pb::SyncEnums, STOP_SYNCING_PERMANENTLY);
-    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_ENCRYPTION_COMPLETE);
     ENUM_CASE(sync_pb::SyncEnums, ACTIONABLE_ERROR);
     ENUM_CASE(sync_pb::SyncEnums, ENCRYPTED_TYPES_CHANGED);
     ENUM_CASE(sync_pb::SyncEnums, PASSPHRASE_TYPE_CHANGED);
-    ENUM_CASE(sync_pb::SyncEnums, KEYSTORE_TOKEN_UPDATED);
+    ENUM_CASE(sync_pb::SyncEnums, DEPRECATED_KEYSTORE_TOKEN_UPDATED);
     ENUM_CASE(sync_pb::SyncEnums, CONFIGURE_COMPLETE);
     ENUM_CASE(sync_pb::SyncEnums, BOOTSTRAP_TOKEN_UPDATED);
     ENUM_CASE(sync_pb::SyncEnums, TRUSTED_VAULT_KEY_REQUIRED);
@@ -459,6 +473,20 @@ const char* ProtoEnumToString(
 }
 
 const char* ProtoEnumToString(
+    sync_pb::WalletMaskedCreditCard::VirtualCardEnrollmentState
+        virtual_card_enrollment_state) {
+  ASSERT_ENUM_BOUNDS(sync_pb::WalletMaskedCreditCard,
+                     VirtualCardEnrollmentState, UNSPECIFIED, ENROLLED);
+  switch (virtual_card_enrollment_state) {
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, UNSPECIFIED);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, UNENROLLED);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, ENROLLED);
+  }
+  NOTREACHED();
+  return "";
+}
+
+const char* ProtoEnumToString(
     sync_pb::WalletMaskedCreditCard::WalletCardStatus wallet_card_status) {
   ASSERT_ENUM_BOUNDS(sync_pb::WalletMaskedCreditCard, WalletCardStatus, VALID,
                      EXPIRED);
@@ -511,14 +539,27 @@ const char* ProtoEnumToString(
   return "";
 }
 
+const char* ProtoEnumToString(sync_pb::WebAppIconInfo::Purpose purpose) {
+  ASSERT_ENUM_BOUNDS(sync_pb::WebAppIconInfo, Purpose, UNSPECIFIED, MONOCHROME);
+  switch (purpose) {
+    ENUM_CASE(sync_pb::WebAppIconInfo, UNSPECIFIED);
+    ENUM_CASE(sync_pb::WebAppIconInfo, ANY);
+    ENUM_CASE(sync_pb::WebAppIconInfo, MASKABLE);
+    ENUM_CASE(sync_pb::WebAppIconInfo, MONOCHROME);
+  }
+  NOTREACHED();
+  return "";
+}
+
 const char* ProtoEnumToString(
     sync_pb::WebAppSpecifics::UserDisplayMode user_display_mode) {
   ASSERT_ENUM_BOUNDS(sync_pb::WebAppSpecifics, UserDisplayMode, UNSPECIFIED,
-                     STANDALONE);
+                     TABBED);
   switch (user_display_mode) {
     ENUM_CASE(sync_pb::WebAppSpecifics, UNSPECIFIED);
     ENUM_CASE(sync_pb::WebAppSpecifics, BROWSER);
     ENUM_CASE(sync_pb::WebAppSpecifics, STANDALONE);
+    ENUM_CASE(sync_pb::WebAppSpecifics, TABBED);
   }
   NOTREACHED();
   return "";
@@ -601,6 +642,41 @@ const char* ProtoEnumToString(
               PROXY_OPTION_AUTODISCOVERY);
     ENUM_CASE(sync_pb::WifiConfigurationSpecifics::ProxyConfiguration,
               PROXY_OPTION_MANUAL);
+  }
+  NOTREACHED();
+  return "";
+}
+
+const char* ProtoEnumToString(
+    sync_pb::WorkspaceDeskSpecifics::WindowState window_state) {
+  ASSERT_ENUM_BOUNDS(sync_pb::WorkspaceDeskSpecifics, WindowState,
+                     UNKNOWN_WINDOW_STATE, SECONDARY_SNAPPED);
+  switch (window_state) {
+    ENUM_CASE(sync_pb::WorkspaceDeskSpecifics, UNKNOWN_WINDOW_STATE);
+    ENUM_CASE(sync_pb::WorkspaceDeskSpecifics, NORMAL);
+    ENUM_CASE(sync_pb::WorkspaceDeskSpecifics, MINIMIZED);
+    ENUM_CASE(sync_pb::WorkspaceDeskSpecifics, MAXIMIZED);
+    ENUM_CASE(sync_pb::WorkspaceDeskSpecifics, FULLSCREEN);
+    ENUM_CASE(sync_pb::WorkspaceDeskSpecifics, PRIMARY_SNAPPED);
+    ENUM_CASE(sync_pb::WorkspaceDeskSpecifics, SECONDARY_SNAPPED);
+  }
+  NOTREACHED();
+  return "";
+}
+
+const char* ProtoEnumToString(
+    sync_pb::UserConsentTypes::AssistantActivityControlConsent::SettingType
+        setting_type) {
+  ASSERT_ENUM_BOUNDS(sync_pb::UserConsentTypes::AssistantActivityControlConsent,
+                     SettingType, SETTING_TYPE_UNSPECIFIED, DEVICE_APPS);
+  switch (setting_type) {
+    ENUM_CASE(sync_pb::UserConsentTypes::AssistantActivityControlConsent,
+              SETTING_TYPE_UNSPECIFIED);
+    ENUM_CASE(sync_pb::UserConsentTypes::AssistantActivityControlConsent, ALL);
+    ENUM_CASE(sync_pb::UserConsentTypes::AssistantActivityControlConsent,
+              WEB_AND_APP_ACTIVITY);
+    ENUM_CASE(sync_pb::UserConsentTypes::AssistantActivityControlConsent,
+              DEVICE_APPS);
   }
   NOTREACHED();
   return "";

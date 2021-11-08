@@ -6,26 +6,49 @@
 
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/extensions/extensions_menu_view.h"
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_container.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/vector_icons/vector_icons.h"
 #include "extensions/browser/extension_registry.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/button_controller.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+
+namespace {
+
+const gfx::VectorIcon& GetIcon(
+    ExtensionsToolbarButton::ButtonType button_type) {
+  return button_type == ExtensionsToolbarButton::ButtonType::kExtensions
+             ? vector_icons::kExtensionIcon
+             : kEyeIcon;
+}
+
+const std::u16string GetIconTooltip(
+    ExtensionsToolbarButton::ButtonType button_type) {
+  return l10n_util::GetStringUTF16(
+      button_type == ExtensionsToolbarButton::ButtonType::kExtensions
+          ? IDS_TOOLTIP_EXTENSIONS_BUTTON
+          : IDS_TOOLTIP_EXTENSIONS_SITE_ACCESS_BUTTON);
+}
+
+}  // namespace
 
 ExtensionsToolbarButton::ExtensionsToolbarButton(
     Browser* browser,
-    ExtensionsToolbarContainer* extensions_container)
+    ExtensionsToolbarContainer* extensions_container,
+    ButtonType button_type)
     : ToolbarButton(PressedCallback()),
       browser_(browser),
+      button_type_(button_type),
       extensions_container_(extensions_container) {
   std::unique_ptr<views::MenuButtonController> menu_button_controller =
       std::make_unique<views::MenuButtonController>(
@@ -36,9 +59,18 @@ ExtensionsToolbarButton::ExtensionsToolbarButton(
               this));
   menu_button_controller_ = menu_button_controller.get();
   SetButtonController(std::move(menu_button_controller));
-  SetTooltipText(l10n_util::GetStringUTF16(IDS_TOOLTIP_EXTENSIONS_BUTTON));
   button_controller()->set_notify_action(
       views::ButtonController::NotifyAction::kOnPress);
+
+  SetTooltipText(GetIconTooltip(button_type_));
+  SetVectorIcon(GetIcon(button_type_));
+
+  if (button_type == ButtonType::kExtensions) {
+    // Do not flip the Extensions icon in RTL.
+    SetFlipCanvasOnPaintForRTLUI(false);
+    SetID(VIEW_ID_EXTENSIONS_MENU_BUTTON);
+  }
+
   GetViewAccessibility().OverrideHasPopup(ax::mojom::HasPopup::kMenu);
 }
 
@@ -83,10 +115,17 @@ void ExtensionsToolbarButton::OnBoundsChanged(
 }
 
 void ExtensionsToolbarButton::UpdateIcon() {
-  SetImageModel(views::Button::STATE_NORMAL,
-                ui::ImageModel::FromVectorIcon(
-                    vector_icons::kExtensionIcon,
-                    extensions_container_->GetIconColor(), GetIconSize()));
+  if (browser_->app_controller()) {
+    // TODO(pbos): Remove this once PWAs have ThemeProvider color support for it
+    // and ToolbarButton can pick up icon sizes outside of a static lookup.
+    SetImageModel(views::Button::STATE_NORMAL,
+                  ui::ImageModel::FromVectorIcon(
+                      GetIcon(button_type_),
+                      extensions_container_->GetIconColor(), GetIconSize()));
+    return;
+  }
+
+  ToolbarButton::UpdateIcon();
 }
 
 void ExtensionsToolbarButton::OnWidgetDestroying(views::Widget* widget) {
@@ -96,6 +135,9 @@ void ExtensionsToolbarButton::OnWidgetDestroying(views::Widget* widget) {
 }
 
 void ExtensionsToolbarButton::ToggleExtensionsMenu() {
+  // TODO(crbug.com/1239772): Once the extension menu tabs are implemented, need
+  // to check for the button type to a) hide the menu, b) change tabs or c) open
+  // menu in the correct tab.
   if (ExtensionsMenuView::IsShowing()) {
     ExtensionsMenuView::Hide();
     return;

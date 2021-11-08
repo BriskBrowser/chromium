@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/ios/ios_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
 #include "components/sync/invalidations/switches.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
-#import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui_test_util.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -117,7 +118,8 @@ void AssertNumberOfEntities(int entity_count, syncer::ModelType entity_type) {
 }
 
 // Tests that the local cache guid does not change when sync is restarted.
-- (void)testSyncCheckSameCacheGuid_SyncRestarted {
+// TODO(crbug.com/1222348): Test is regularly failing.
+- (void)DISABLED_testSyncCheckSameCacheGuid_SyncRestarted {
   // Sign in the fake identity.
   FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
@@ -161,7 +163,8 @@ void AssertNumberOfEntities(int entity_count, syncer::ModelType entity_type) {
 // Tests that the local cache guid does not change when sync is restarted, if
 // a user previously signed out and back in.
 // Test for http://crbug.com/413611 .
-- (void)testSyncCheckSameCacheGuid_SyncRestartedAfterSignOutAndSignIn {
+// TODO(crbug.com/1222348): Test is regularly failing.
+- (void)DISABLED_testSyncCheckSameCacheGuid_SyncRestartedAfterSignOutAndSignIn {
   // Sign in a fake idenitty.
   FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];

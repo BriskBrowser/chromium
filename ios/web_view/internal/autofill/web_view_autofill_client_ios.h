@@ -16,8 +16,8 @@
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/browser/payments/card_unmask_delegate.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
-#include "components/autofill/core/browser/payments/strike_database.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/browser/strike_database.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/sync_service.h"
 #import "ios/web/public/web_state.h"
@@ -43,6 +43,10 @@ class WebViewAutofillClientIOS : public AutofillClient {
       StrikeDatabase* strike_database,
       syncer::SyncService* sync_service,
       std::unique_ptr<autofill::LogManager> log_manager);
+
+  WebViewAutofillClientIOS(const WebViewAutofillClientIOS&) = delete;
+  WebViewAutofillClientIOS& operator=(const WebViewAutofillClientIOS&) = delete;
+
   ~WebViewAutofillClientIOS() override;
 
   // AutofillClient:
@@ -68,10 +72,10 @@ class WebViewAutofillClientIOS : public AutofillClient {
                         base::WeakPtr<CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
   void ConfirmAccountNameFixFlow(
-      base::OnceCallback<void(const base::string16&)> callback) override;
+      base::OnceCallback<void(const std::u16string&)> callback) override;
   void ConfirmExpirationDateFixFlow(
       const CreditCard& card,
-      base::OnceCallback<void(const base::string16&, const base::string16&)>
+      base::OnceCallback<void(const std::u16string&, const std::u16string&)>
           callback) override;
   void ConfirmSaveCreditCardLocally(
       const CreditCard& card,
@@ -87,6 +91,8 @@ class WebViewAutofillClientIOS : public AutofillClient {
                                    base::OnceClosure callback) override;
   void ConfirmSaveAddressProfile(
       const AutofillProfile& profile,
+      const AutofillProfile* original_profile,
+      SaveAddressProfilePromptOptions options,
       AddressProfileSavePromptCallback callback) override;
   bool HasCreditCardScanFeature() override;
   void ScanCreditCard(CreditCardScanCallback callback) override;
@@ -94,8 +100,8 @@ class WebViewAutofillClientIOS : public AutofillClient {
       const AutofillClient::PopupOpenArgs& open_args,
       base::WeakPtr<AutofillPopupDelegate> delegate) override;
   void UpdateAutofillPopupDataListValues(
-      const std::vector<base::string16>& values,
-      const std::vector<base::string16>& labels) override;
+      const std::vector<std::u16string>& values,
+      const std::vector<std::u16string>& labels) override;
   base::span<const Suggestion> GetPopupSuggestions() const override;
   void PinPopupView() override;
   AutofillClient::PopupOpenArgs GetReopenPopupArgs() const override;
@@ -106,8 +112,8 @@ class WebViewAutofillClientIOS : public AutofillClient {
   void PropagateAutofillPredictions(
       content::RenderFrameHost* rfh,
       const std::vector<FormStructure*>& forms) override;
-  void DidFillOrPreviewField(const base::string16& autofilled_value,
-                             const base::string16& profile_full_name) override;
+  void DidFillOrPreviewField(const std::u16string& autofilled_value,
+                             const std::u16string& profile_full_name) override;
   bool IsContextSecure() const override;
   bool ShouldShowSigninPromo() override;
   bool AreServerCardsSupported() const override;
@@ -135,8 +141,6 @@ class WebViewAutofillClientIOS : public AutofillClient {
   StrikeDatabase* strike_database_;
   syncer::SyncService* sync_service_ = nullptr;
   std::unique_ptr<LogManager> log_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebViewAutofillClientIOS);
 };
 
 }  // namespace autofill

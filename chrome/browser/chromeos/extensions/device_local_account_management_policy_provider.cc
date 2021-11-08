@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include <cstddef>
 #include <string>
 
 #include "base/logging.h"
@@ -15,10 +14,13 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profiles_state.h"
+#include "chrome/common/extensions/api/chrome_url_overrides.h"
 #include "chrome/common/extensions/api/omnibox.h"
 #include "chrome/grit/generated_resources.h"
 #include "extensions/browser/device_local_account_util.h"
 #include "extensions/common/api/incognito.h"
+#include "extensions/common/api/oauth2.h"
+#include "extensions/common/api/requirements.h"
 #include "extensions/common/api/shared_module.h"
 #include "extensions/common/api/web_accessible_resources.h"
 #include "extensions/common/extension.h"
@@ -28,6 +30,8 @@
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permissions_info.h"
 #include "ui/base/l10n/l10n_util.h"
+
+using extensions::mojom::ManifestLocation;
 
 namespace chromeos {
 
@@ -70,7 +74,7 @@ const char* const kSafeManifestEntries[] = {
     // emk::kSettingsOverride,
 
     // Bookmark manager, history, new tab - should be safe.
-    emk::kChromeURLOverrides,
+    ext_api::chrome_url_overrides::ManifestKeys::kChromeUrlOverrides,
 
     // General risk of capturing user input, but key combos must include Ctrl or
     // Alt, so I think this is safe.
@@ -176,7 +180,7 @@ const char* const kSafeManifestEntries[] = {
 
     // Used in conjunction with the identity API - not really used when there's
     // no GAIA user signed in.
-    emk::kOAuth2,
+    ext_api::oauth2::ManifestKeys::kOauth2,
 
     // Generally safe (i.e. only whitelist apps), except for the policy to
     // whitelist apps for auto-approved token minting (we should just ignore
@@ -212,7 +216,7 @@ const char* const kSafeManifestEntries[] = {
     "plugins",
 
     // Stated 3D/WebGL requirements of an app.
-    emk::kRequirements,
+    ext_api::requirements::ManifestKeys::kRequirements,
 
     // Execute some pages in a separate sandbox.  (Note: Using string literal
     // since extensions::manifest_keys only has constants for sub-keys.)
@@ -638,7 +642,7 @@ void LogPermissionUmaStats(const std::string& permission_string) {
   if (!permission_info) return;
 
   base::UmaHistogramSparse("Enterprise.PublicSession.ExtensionPermissions",
-                           permission_info->id());
+                           static_cast<int>(permission_info->id()));
 }
 
 // Returns true for extensions that are considered safe for Public Sessions,
@@ -673,20 +677,19 @@ bool IsSafeForPublicSession(const extensions::Extension* extension) {
     // |kSafePermissionDicts|.
     if (it.key() == emk::kPermissions ||
         it.key() == emk::kOptionalPermissions) {
-      const base::ListValue* list_value;
-      if (!it.value().GetAsList(&list_value)) {
+      if (!it.value().is_list()) {
         LOG(ERROR) << extension->id() << ": " << it.key() << " is not a list.";
         safe = false;
         continue;
       }
-      for (auto it2 = list_value->begin(); it2 != list_value->end(); ++it2) {
+      for (const auto& entry : it.value().GetList()) {
         // Try to read as dictionary.
         const base::DictionaryValue *dict_value;
-        if (it2->GetAsDictionary(&dict_value)) {
-          if (dict_value->size() != 1) {
+        if (entry.GetAsDictionary(&dict_value)) {
+          if (dict_value->DictSize() != 1) {
             LOG(ERROR) << extension->id()
                        << " has dict in permission list with size "
-                       << dict_value->size() << ".";
+                       << dict_value->DictSize() << ".";
             safe = false;
             continue;
           }
@@ -705,13 +708,13 @@ bool IsSafeForPublicSession(const extensions::Extension* extension) {
           continue;
         }
         // Try to read as string.
-        std::string permission_string;
-        if (!it2->GetAsString(&permission_string)) {
+        if (!entry.is_string()) {
           LOG(ERROR) << extension->id() << ": " << it.key()
                      << " contains a token that's neither a string nor a dict.";
           safe = false;
           continue;
         }
+        const std::string permission_string = entry.GetString();
         // Log permission (usual, string form).
         LogPermissionUmaStats(permission_string);
         // Accept whitelisted permissions.
@@ -768,14 +771,13 @@ bool IsSafeForPublicSession(const extensions::Extension* extension) {
       }
     // Require v2 because that's the only version we understand.
     } else if (it.key() == emk::kManifestVersion) {
-      int version;
-      if (!it.value().GetAsInteger(&version)) {
+      if (!it.value().is_int()) {
         LOG(ERROR) << extension->id() << ": " << emk::kManifestVersion
                    << " is not an integer.";
         safe = false;
         continue;
       }
-      if (version != 2) {
+      if (it.value().GetInt() != 2) {
         LOG(ERROR) << extension->id()
                    << " has non-whitelisted manifest version.";
         safe = false;
@@ -829,12 +831,12 @@ std::string DeviceLocalAccountManagementPolicyProvider::
 
 bool DeviceLocalAccountManagementPolicyProvider::UserMayLoad(
     const extensions::Extension* extension,
-    base::string16* error) const {
+    std::u16string* error) const {
   if (account_type_ == policy::DeviceLocalAccount::TYPE_PUBLIC_SESSION ||
       account_type_ == policy::DeviceLocalAccount::TYPE_SAML_PUBLIC_SESSION) {
     // Allow extension if it is a component of Chrome.
-    if (extension->location() == extensions::Manifest::EXTERNAL_COMPONENT ||
-        extension->location() == extensions::Manifest::COMPONENT) {
+    if (extension->location() == ManifestLocation::kExternalComponent ||
+        extension->location() == ManifestLocation::kComponent) {
       return true;
     }
 
@@ -851,9 +853,9 @@ bool DeviceLocalAccountManagementPolicyProvider::UserMayLoad(
     }
 
     // Allow force-installed extension if all manifest contents are whitelisted.
-    if ((extension->location() == extensions::Manifest::EXTERNAL_POLICY_DOWNLOAD
-         || extension->location() == extensions::Manifest::EXTERNAL_POLICY)
-        && IsSafeForPublicSession(extension)) {
+    if ((extension->location() == ManifestLocation::kExternalPolicyDownload ||
+         extension->location() == ManifestLocation::kExternalPolicy) &&
+        IsSafeForPublicSession(extension)) {
       return true;
     }
   } else if (account_type_ == policy::DeviceLocalAccount::TYPE_KIOSK_APP ||

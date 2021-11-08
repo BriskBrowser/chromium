@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 
 struct FirefoxRawPasswordInfo;
 
@@ -26,6 +25,10 @@ class FilePath;
 class NSSDecryptor {
  public:
   NSSDecryptor();
+
+  NSSDecryptor(const NSSDecryptor&) = delete;
+  NSSDecryptor& operator=(const NSSDecryptor&) = delete;
+
   ~NSSDecryptor();
 
   // Initializes NSS if it hasn't already been initialized.
@@ -33,19 +36,7 @@ class NSSDecryptor {
 
   // Decrypts Firefox stored passwords. Before using this method,
   // make sure Init() returns true.
-  base::string16 Decrypt(const std::string& crypt) const;
-
-  // Parses the Firefox password file content, decrypts the
-  // username/password and reads other related information.
-  // The result will be stored in |forms|.
-  void ParseSignons(const base::FilePath& signon_file,
-                    std::vector<importer::ImportedPasswordForm>* forms);
-
-  // Reads and parses the Firefox password sqlite db, decrypts the
-  // username/password and reads other related information.
-  // The result will be stored in |forms|.
-  bool ReadAndParseSignons(const base::FilePath& sqlite_file,
-                           std::vector<importer::ImportedPasswordForm>* forms);
+  std::u16string Decrypt(const std::string& crypt) const;
 
   // Reads and parses the Firefox password file logins.json, decrypts the
   // username/password and reads other related information.
@@ -71,8 +62,6 @@ class NSSDecryptor {
 
   bool is_nss_initialized_;
   PK11SlotInfo* db_slot_;
-
-  DISALLOW_COPY_AND_ASSIGN(NSSDecryptor);
 };
 
 #endif  // CHROME_UTILITY_IMPORTER_NSS_DECRYPTOR_SYSTEM_NSS_H_

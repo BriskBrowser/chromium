@@ -7,21 +7,20 @@
 
 #include <memory>
 
-#include "cc/animation/animation_curve.h"
 #include "cc/animation/animation_timeline.h"
 #include "cc/animation/keyframe_model.h"
 #include "cc/paint/element_id.h"
 #include "cc/paint/filter_operations.h"
-#include "cc/test/geometry_test_utils.h"
-#include "ui/gfx/transform_operations.h"
+#include "ui/gfx/animation/keyframe/animation_curve.h"
+#include "ui/gfx/geometry/transform_operations.h"
 
 namespace gfx {
-class ScrollOffset;
+class Vector2dF;
 }
 
 namespace cc {
 
-class FakeFloatAnimationCurve : public FloatAnimationCurve {
+class FakeFloatAnimationCurve : public gfx::FloatAnimationCurve {
  public:
   FakeFloatAnimationCurve();
   explicit FakeFloatAnimationCurve(double duration);
@@ -29,13 +28,13 @@ class FakeFloatAnimationCurve : public FloatAnimationCurve {
 
   base::TimeDelta Duration() const override;
   float GetValue(base::TimeDelta now) const override;
-  std::unique_ptr<AnimationCurve> Clone() const override;
+  std::unique_ptr<gfx::AnimationCurve> Clone() const override;
 
  private:
   base::TimeDelta duration_;
 };
 
-class FakeTransformTransition : public TransformAnimationCurve {
+class FakeTransformTransition : public gfx::TransformAnimationCurve {
  public:
   explicit FakeTransformTransition(double duration);
   ~FakeTransformTransition() override;
@@ -45,13 +44,13 @@ class FakeTransformTransition : public TransformAnimationCurve {
   bool PreservesAxisAlignment() const override;
   bool MaximumScale(float* max_scale) const override;
 
-  std::unique_ptr<AnimationCurve> Clone() const override;
+  std::unique_ptr<gfx::AnimationCurve> Clone() const override;
 
  private:
   base::TimeDelta duration_;
 };
 
-class FakeFloatTransition : public FloatAnimationCurve {
+class FakeFloatTransition : public gfx::FloatAnimationCurve {
  public:
   FakeFloatTransition(double duration, float from, float to);
   ~FakeFloatTransition() override;
@@ -59,7 +58,7 @@ class FakeFloatTransition : public FloatAnimationCurve {
   base::TimeDelta Duration() const override;
   float GetValue(base::TimeDelta time) const override;
 
-  std::unique_ptr<AnimationCurve> Clone() const override;
+  std::unique_ptr<gfx::AnimationCurve> Clone() const override;
 
  private:
   base::TimeDelta duration_;
@@ -68,13 +67,18 @@ class FakeFloatTransition : public FloatAnimationCurve {
 };
 
 int AddScrollOffsetAnimationToAnimation(Animation* animation,
-                                        gfx::ScrollOffset initial_value,
-                                        gfx::ScrollOffset target_value);
+                                        gfx::Vector2dF initial_value,
+                                        gfx::Vector2dF target_value);
 
 int AddAnimatedTransformToAnimation(Animation* animation,
                                     double duration,
                                     int delta_x,
                                     int delta_y);
+
+int AddAnimatedCustomPropertyToAnimation(Animation* animation,
+                                         double duration,
+                                         int start_value,
+                                         int end_value);
 
 int AddAnimatedTransformToAnimation(Animation* animation,
                                     double duration,

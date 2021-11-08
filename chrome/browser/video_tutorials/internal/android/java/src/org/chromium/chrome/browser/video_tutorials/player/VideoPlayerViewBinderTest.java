@@ -25,7 +25,6 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
-import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.ApplicationTestUtils;
 import org.chromium.chrome.browser.video_tutorials.PlaybackStateObserver.WatchStateInfo.State;
@@ -36,6 +35,7 @@ import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 import org.chromium.ui.test.util.DummyUiActivity;
+import org.chromium.ui.test.util.ThemedDummyUiActivityTestRule;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -45,8 +45,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RunWith(ChromeJUnit4ClassRunner.class)
 public class VideoPlayerViewBinderTest {
     @Rule
-    public BaseActivityTestRule<DummyUiActivity> mActivityTestRule =
-            new BaseActivityTestRule<>(DummyUiActivity.class);
+    public ThemedDummyUiActivityTestRule<DummyUiActivity> mActivityTestRule =
+            new ThemedDummyUiActivityTestRule<>(
+                    DummyUiActivity.class, R.style.ColorOverlay_ChromiumAndroid);
 
     private Activity mActivity;
     private VideoPlayerView mVideoPlayerView;
@@ -63,12 +64,13 @@ public class VideoPlayerViewBinderTest {
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
-        mModel = new PropertyModel(VideoPlayerProperties.ALL_KEYS);
         mActivityTestRule.launchActivity(null);
         ApplicationTestUtils.waitForActivityState(mActivityTestRule.getActivity(), Stage.RESUMED);
         mActivity = mActivityTestRule.getActivity();
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModel = new PropertyModel(VideoPlayerProperties.ALL_KEYS);
+
             FrameLayout thinWebViewLayout = new FrameLayout(mActivity);
             Mockito.when(mThinWebView.getView()).thenReturn(thinWebViewLayout);
 
@@ -89,8 +91,10 @@ public class VideoPlayerViewBinderTest {
 
     @After
     public void tearDown() throws Exception {
-        mMCP.destroy();
-        mVideoPlayerView.destroy();
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mMCP.destroy();
+            mVideoPlayerView.destroy();
+        });
     }
 
     @Test
@@ -109,14 +113,6 @@ public class VideoPlayerViewBinderTest {
     public void testLanguagePickerVisibility() {
         mModel.set(VideoPlayerProperties.SHOW_LANGUAGE_PICKER, true);
         assertEquals(View.VISIBLE, mLanguagePickerView.getVisibility());
-    }
-
-    @Test
-    @UiThreadTest
-    @SmallTest
-    public void testControlsVisibility() {
-        mModel.set(VideoPlayerProperties.SHOW_MEDIA_CONTROLS, true);
-        assertEquals(View.VISIBLE, mControls.getVisibility());
     }
 
     @Test
@@ -156,6 +152,22 @@ public class VideoPlayerViewBinderTest {
     @Test
     @UiThreadTest
     @SmallTest
+    public void testPlayButton() {
+        View playButton = mControls.findViewById(R.id.play_button);
+        mModel.set(VideoPlayerProperties.SHOW_PLAY_BUTTON, false);
+        assertEquals(View.GONE, playButton.getVisibility());
+        mModel.set(VideoPlayerProperties.SHOW_PLAY_BUTTON, true);
+        assertEquals(View.VISIBLE, playButton.getVisibility());
+
+        AtomicBoolean buttonClicked = new AtomicBoolean();
+        mModel.set(VideoPlayerProperties.CALLBACK_PLAY_BUTTON, () -> buttonClicked.set(true));
+        playButton.performClick();
+        assertTrue(buttonClicked.get());
+    }
+
+    @Test
+    @UiThreadTest
+    @SmallTest
     public void testChangeLanguageButton() {
         TextView changeLanguage = mControls.findViewById(R.id.change_language);
         String languageName = "XYZ";
@@ -177,6 +189,8 @@ public class VideoPlayerViewBinderTest {
     @SmallTest
     public void testShareButton() {
         View shareButton = mControls.findViewById(R.id.share_button);
+        mModel.set(VideoPlayerProperties.SHOW_SHARE, true);
+        assertEquals(View.VISIBLE, shareButton.getVisibility());
         AtomicBoolean buttonClicked = new AtomicBoolean();
         mModel.set(VideoPlayerProperties.CALLBACK_SHARE, () -> buttonClicked.set(true));
         shareButton.performClick();

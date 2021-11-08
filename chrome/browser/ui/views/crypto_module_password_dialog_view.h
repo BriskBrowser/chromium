@@ -10,8 +10,8 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "chrome/browser/ui/crypto_module_password_dialog.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace views {
@@ -41,11 +41,11 @@ class CryptoModulePasswordDialogView : public views::DialogDelegateView,
 
   // views::WidgetDelegate:
   views::View* GetInitiallyFocusedView() override;
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
 
   // views::TextfieldController:
   void ContentsChanged(views::Textfield* sender,
-                       const base::string16& new_contents) override;
+                       const std::u16string& new_contents) override;
   bool HandleKeyEvent(views::Textfield* sender,
                       const ui::KeyEvent& keystroke) override;
 

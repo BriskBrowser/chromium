@@ -337,6 +337,18 @@ CommandStore.CMD_ALLOWLIST = {
     msgId: 'next_similar_item',
     category: 'navigation'
   },
+  'previousInvalidItem': {
+    backward: true,
+    announce: true,
+    msgId: 'previous_invalid_item',
+    category: 'navigation'
+  },
+  'nextInvalidItem': {
+    forward: true,
+    announce: true,
+    msgId: 'next_invalid_item',
+    category: 'navigation'
+  },
 
   'jumpToTop': {
     forward: true,
@@ -395,7 +407,8 @@ CommandStore.CMD_ALLOWLIST = {
     category: 'information'
   },
 
-  'toggleDarkScreen': {announce: false, msgId: 'toggle_dark_screen'},
+  'toggleScreen':
+      {announce: false, msgId: 'toggle_screen', category: 'modifier_keys'},
 
   'toggleBrailleTable':
       {msgId: 'toggle_braille_table', category: 'help_commands'},

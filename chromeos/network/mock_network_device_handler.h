@@ -23,6 +23,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) MockNetworkDeviceHandler
     : public NetworkDeviceHandler {
  public:
   MockNetworkDeviceHandler();
+
+  MockNetworkDeviceHandler(const MockNetworkDeviceHandler&) = delete;
+  MockNetworkDeviceHandler& operator=(const MockNetworkDeviceHandler&) = delete;
+
   virtual ~MockNetworkDeviceHandler();
 
   MOCK_CONST_METHOD2(GetDeviceProperties,
@@ -69,39 +73,13 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) MockNetworkDeviceHandler
                     base::OnceClosure callback,
                     network_handler::ErrorCallback error_callback));
 
-  MOCK_METHOD1(SetCellularAllowRoaming, void(bool allow_roaming));
+  MOCK_METHOD2(SetCellularAllowRoaming,
+               void(bool allow_roaming, bool policy_allow_roaming));
 
   MOCK_METHOD1(SetMACAddressRandomizationEnabled, void(bool enabled));
 
   MOCK_METHOD1(SetUsbEthernetMacAddressSource,
                void(const std::string& enabled));
-
-  MOCK_METHOD3(AddWifiWakeOnPacketConnection,
-               void(const net::IPEndPoint& ip_endpoint,
-                    base::OnceClosure callback,
-                    network_handler::ErrorCallback error_callback));
-
-  MOCK_METHOD3(AddWifiWakeOnPacketOfTypes,
-               void(const std::vector<std::string>& types,
-                    base::OnceClosure callback,
-                    network_handler::ErrorCallback error_callback));
-
-  MOCK_METHOD3(RemoveWifiWakeOnPacketOfTypes,
-               void(const std::vector<std::string>& types,
-                    base::OnceClosure callback,
-                    network_handler::ErrorCallback error_callback));
-
-  MOCK_METHOD3(RemoveWifiWakeOnPacketConnection,
-               void(const net::IPEndPoint& ip_endpoint,
-                    base::OnceClosure callback,
-                    network_handler::ErrorCallback error_callback));
-
-  MOCK_METHOD2(RemoveAllWifiWakeOnPacketConnections,
-               void(base::OnceClosure callback,
-                    network_handler::ErrorCallback error_callback));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockNetworkDeviceHandler);
 };
 
 }  // namespace chromeos

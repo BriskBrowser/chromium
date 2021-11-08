@@ -27,11 +27,10 @@
 namespace blink {
 
 class LayoutSVGInlineText;
-class SVGTextElement;
 
 class LayoutSVGText final : public LayoutSVGBlock {
  public:
-  explicit LayoutSVGText(SVGTextElement*);
+  explicit LayoutSVGText(Element*);
   ~LayoutSVGText() override;
   void Trace(Visitor*) const override;
 
@@ -45,17 +44,18 @@ class LayoutSVGText final : public LayoutSVGBlock {
     NOT_DESTROYED();
     needs_text_metrics_update_ = true;
   }
-  FloatRect VisualRectInLocalSVGCoordinates() const override;
-  FloatRect ObjectBoundingBox() const override;
-  FloatRect StrokeBoundingBox() const override;
+  gfx::RectF VisualRectInLocalSVGCoordinates() const override;
+  gfx::RectF ObjectBoundingBox() const override;
+  gfx::RectF StrokeBoundingBox() const override;
   bool IsObjectBoundingBoxValid() const;
 
   void AddOutlineRects(Vector<PhysicalRect>&,
                        const PhysicalOffset& additional_offset,
                        NGOutlineType) const override;
 
-  static LayoutSVGText* LocateLayoutSVGTextAncestor(LayoutObject*);
-  static const LayoutSVGText* LocateLayoutSVGTextAncestor(const LayoutObject*);
+  // These two functions return a LayoutSVGText, a LayoutNGSVGText, or nullptr.
+  static LayoutSVGBlock* LocateLayoutSVGTextAncestor(LayoutObject*);
+  static const LayoutSVGBlock* LocateLayoutSVGTextAncestor(const LayoutObject*);
 
   static void NotifySubtreeStructureChanged(LayoutObject*,
                                             LayoutInvalidationReasonForTracing);
@@ -126,4 +126,4 @@ struct DowncastTraits<LayoutSVGText> {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_TEXT_H_

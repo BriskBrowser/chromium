@@ -8,10 +8,10 @@
 
 #include <string>
 
+#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
@@ -127,8 +127,8 @@ TEST_F(ConnectorSettingsTest, CopyFrom) {
   EXPECT_EQ(settings1.server_url(), settings2.server_url());
   EXPECT_EQ(settings1.proxy_id(), settings2.proxy_id());
   EXPECT_EQ(settings1.delete_on_enum_fail(), settings2.delete_on_enum_fail());
-  EXPECT_EQ(settings1.print_system_settings()->size(),
-            settings2.print_system_settings()->size());
+  EXPECT_EQ(settings1.print_system_settings()->DictSize(),
+            settings2.print_system_settings()->DictSize());
   EXPECT_EQ(settings1.xmpp_ping_enabled(), settings2.xmpp_ping_enabled());
   EXPECT_EQ(settings1.xmpp_ping_timeout_sec(),
             settings2.xmpp_ping_timeout_sec());

@@ -18,7 +18,7 @@ import page_sets
     ],
     component='UI>Browser',
     documentation_url=
-    'https://chromium.googlesource.com/chromium/src/+/master/docs/speed/benchmark/harnesses/desktop_ui.md'
+    'https://chromium.googlesource.com/chromium/src/+/main/docs/speed/benchmark/harnesses/desktop_ui.md'
 )
 class DesktopUI(perf_benchmark.PerfBenchmark):
   """Desktop UI Benchmark."""
@@ -37,6 +37,12 @@ class DesktopUI(perf_benchmark.PerfBenchmark):
     options.config.chrome_trace_config.SetTraceBufferSizeInKb(600 * 1024)
     options.SetTimelineBasedMetrics(['umaMetric'])
     return options
+
+  def SetExtraBrowserOptions(self, options):
+    # Make sure finch experiment is turned off for benchmarking.
+    options.AppendExtraBrowserArgs('--enable-benchmarking')
+    # UIDevtools is used for driving native UI.
+    options.AppendExtraBrowserArgs('--enable-ui-devtools=0')
 
   @classmethod
   def Name(cls):

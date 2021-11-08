@@ -7,10 +7,10 @@
 #include "base/macros.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/consent_auditor/consent_auditor_factory.h"
-#include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/status_change_checker.h"
 #include "chrome/browser/sync/test/integration/sync_integration_test_util.h"
+#include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "components/consent_auditor/consent_auditor.h"
 #include "components/sync/driver/sync_driver_switches.h"
@@ -34,7 +34,7 @@ CoreAccountId GetAccountId() {
 class UserConsentEqualityChecker : public SingleClientStatusChangeChecker {
  public:
   UserConsentEqualityChecker(
-      syncer::ProfileSyncService* service,
+      syncer::SyncServiceImpl* service,
       FakeServer* fake_server,
       std::vector<UserConsentSpecifics> expected_specifics)
       : SingleClientStatusChangeChecker(service), fake_server_(fake_server) {
@@ -43,6 +43,10 @@ class UserConsentEqualityChecker : public SingleClientStatusChangeChecker {
           specifics.consent_case(), specifics));
     }
   }
+
+  UserConsentEqualityChecker(const UserConsentEqualityChecker&) = delete;
+  UserConsentEqualityChecker& operator=(const UserConsentEqualityChecker&) =
+      delete;
 
   bool IsExitConditionSatisfied(std::ostream* os) override {
     *os << "Waiting server side USER_CONSENTS to match expected.";
@@ -80,8 +84,6 @@ class UserConsentEqualityChecker : public SingleClientStatusChangeChecker {
   // int. The requires creating better expectations with a proper creation
   // time.
   std::multimap<int64_t, UserConsentSpecifics> expected_specifics_;
-
-  DISALLOW_COPY_AND_ASSIGN(UserConsentEqualityChecker);
 };
 
 class SingleClientUserConsentsSyncTest : public SyncTest {

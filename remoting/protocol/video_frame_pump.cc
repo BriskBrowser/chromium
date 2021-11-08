@@ -11,8 +11,8 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/check.h"
-#include "base/single_thread_task_runner.h"
-#include "base/task_runner_util.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner_util.h"
 #include "base/time/time.h"
 #include "remoting/base/constants.h"
 #include "remoting/proto/control.pb.h"
@@ -50,7 +50,7 @@ VideoFramePump::VideoFramePump(
       video_stub_(video_stub),
       keep_alive_timer_(
           FROM_HERE,
-          base::TimeDelta::FromMilliseconds(kKeepAlivePacketIntervalMs),
+          base::Milliseconds(kKeepAlivePacketIntervalMs),
           base::BindRepeating(&VideoFramePump::SendKeepAlivePacket,
                               base::Unretained(this))),
       capture_scheduler_(base::BindRepeating(&VideoFramePump::CaptureNextFrame,
@@ -140,7 +140,7 @@ void VideoFramePump::OnCaptureResult(
 void VideoFramePump::CaptureNextFrame() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  captured_frame_timestamps_.reset(new FrameTimestamps());
+  captured_frame_timestamps_ = std::make_unique<FrameTimestamps>();
   captured_frame_timestamps_->capture_started_time = base::TimeTicks::Now();
 
   if (event_timestamps_source_) {
@@ -166,7 +166,7 @@ VideoFramePump::EncodeFrame(VideoEncoder* encoder,
   // If |frame| is NULL, or the encoder returned nothing, return an empty
   // packet.
   if (!packet)
-    packet.reset(new VideoPacket());
+    packet = std::make_unique<VideoPacket>();
 
   if (frame)
     packet->set_capture_time_ms(frame->capture_time_ms());

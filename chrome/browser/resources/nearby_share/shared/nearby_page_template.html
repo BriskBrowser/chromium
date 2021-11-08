@@ -6,14 +6,28 @@
     <style include="cr-icons cr-shared-style"></style>
     <style>
       :host {
+        --nearby-page-linear-gradient-color-start: var(--google-blue-50);
         --nearby-page-space-block: 24px;
         --nearby-page-space-inline: 24px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :host {
+          --nearby-page-linear-gradient-color-start:
+              rgba(var(--google-blue-300-rgb), 0.2);
+        }
       }
 
       #pageContainer {
         display: flex;
         flex-direction: column;
         height: 100%;
+      }
+
+      /* pageContainer has tabindex="-1" but is focused with JS for ChromeVox
+      accessibility */
+      #pageContainer:focus {
+        outline: none;
       }
 
       #header {
@@ -33,14 +47,16 @@
       }
 
       #pageTitle {
+        color: var(--cros-text-color-primary);
         font-family: 'Google Sans';
         font-size: 16px;
-        font-weight: bold;
+        font-weight: normal;
         line-height: 24px;
         margin: 0;
       }
 
       #pageSubTitle {
+        color: var(--cros-text-color-secondary);
         font-size: 14px;
         font-weight: inherit;
         line-height: 20px;
@@ -66,9 +82,14 @@
       #utilityButton {
         margin-inline-end: auto;
       }
+      #utilityButton iron-icon {
+        --iron-icon-fill-color: var(--text-color);
+        margin-inline-end: 8px;
+      }
     </style>
     <div id="pageContainer" role="dialog" aria-modal="true"
-        aria-labelledby="[[getDialogAriaLabelledBy_(a11yAnnouncedSubTitle)]]">
+        aria-labelledby$="[[getDialogAriaLabelledBy_(a11yAnnouncedSubTitle)]]"
+        tabindex="-1">
       <div id="header">
         <h1 id="pageTitle">[[title]]</h1>
         <h2 id="pageSubTitle"
@@ -89,7 +110,10 @@
           <template is="dom-if" if="[[utilityButtonLabel]]">
             <cr-button id="utilityButton" class="cancel-button"
                 on-click="onUtilityClick_" aria-label="[[utilityButtonLabel]]">
-              [[utilityButtonLabel]]
+              <template is="dom-if" if="[[utilityButtonOpenInNew]]">
+                <iron-icon id="openInNewIcon" icon="cr:open-in-new"></iron-icon>
+              </template>
+              <span>[[utilityButtonLabel]]</span>
             </cr-button>
           </template>
           <template is="dom-if" if="[[cancelButtonLabel]]">

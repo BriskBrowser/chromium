@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/app_list/search/assistant_text_search_provider.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ash/assistant/util/deep_link_util.h"
@@ -14,7 +15,6 @@
 #include "ash/public/cpp/assistant/controller/assistant_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_suggestions_controller.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/app_list/search/chrome_search_result.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
@@ -46,20 +46,21 @@ bool AreResultsAllowed() {
 
 class AssistantTextSearchResult : public ChromeSearchResult {
  public:
-  explicit AssistantTextSearchResult(const base::string16& text)
+  explicit AssistantTextSearchResult(const std::u16string& text)
       : action_url_(ash::assistant::util::CreateAssistantQueryDeepLink(
             base::UTF16ToUTF8(text))) {
     set_id(kIdPrefix + base::UTF16ToUTF8(text));
+    SetCategory(Category::kSearchAndAssistant);
     SetDisplayType(ash::SearchResultDisplayType::kList);
     SetResultType(ash::AppListSearchResultType::kAssistantText);
     SetMetricsType(ash::SearchResultType::ASSISTANT_OMNIBOX_RESULT);
     SetTitle(text);
     SetAccessibleName(l10n_util::GetStringFUTF16(
         IDS_ASH_ASSISTANT_QUERY_ACCESSIBILITY_ANNOUNCEMENT, text));
-    SetIcon(gfx::CreateVectorIcon(
+    SetIcon(IconInfo(gfx::CreateVectorIcon(
         chromeos::kAssistantIcon,
-        ash::AppListConfig::instance().search_list_icon_dimension(),
-        gfx::kPlaceholderColor));
+        ash::SharedAppListConfig::instance().search_list_icon_dimension(),
+        gfx::kPlaceholderColor)));
 
     set_dismiss_view_on_open(false);
   }
@@ -87,8 +88,8 @@ AssistantTextSearchProvider::AssistantTextSearchProvider() {
   UpdateResults();
 
   // Bind observers.
-  assistant_controller_observer_.Add(ash::AssistantController::Get());
-  assistant_state_observer_.Add(ash::AssistantState::Get());
+  assistant_controller_observation_.Observe(ash::AssistantController::Get());
+  assistant_state_observation_.Observe(ash::AssistantState::Get());
 }
 
 AssistantTextSearchProvider::~AssistantTextSearchProvider() = default;
@@ -97,14 +98,18 @@ ash::AppListSearchResultType AssistantTextSearchProvider::ResultType() {
   return ash::AppListSearchResultType::kAssistantText;
 }
 
-void AssistantTextSearchProvider::Start(const base::string16& query) {
+void AssistantTextSearchProvider::Start(const std::u16string& query) {
   query_ = query;
   UpdateResults();
 }
 
 void AssistantTextSearchProvider::OnAssistantControllerDestroying() {
-  assistant_state_observer_.Remove(ash::AssistantState::Get());
-  assistant_controller_observer_.Remove(ash::AssistantController::Get());
+  DCHECK(assistant_state_observation_.IsObservingSource(
+      ash::AssistantState::Get()));
+  assistant_state_observation_.Reset();
+  DCHECK(assistant_controller_observation_.IsObservingSource(
+      ash::AssistantController::Get()));
+  assistant_controller_observation_.Reset();
 }
 
 void AssistantTextSearchProvider::OnAssistantFeatureAllowedChanged(

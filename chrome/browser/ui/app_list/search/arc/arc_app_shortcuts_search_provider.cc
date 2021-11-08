@@ -13,8 +13,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/app_list/search/arc/arc_app_shortcut_search_result.h"
-#include "components/arc/arc_service_manager.h"
 #include "components/arc/session/arc_bridge_service.h"
+#include "components/arc/session/arc_service_manager.h"
 
 namespace app_list {
 
@@ -32,7 +32,7 @@ ash::AppListSearchResultType ArcAppShortcutsSearchProvider::ResultType() {
   return ash::AppListSearchResultType::kArcAppShortcut;
 }
 
-void ArcAppShortcutsSearchProvider::Start(const base::string16& query) {
+void ArcAppShortcutsSearchProvider::Start(const std::u16string& query) {
   arc::mojom::AppInstance* app_instance =
       arc::ArcServiceManager::Get()
           ? ARC_GET_INSTANCE_FOR_METHOD(
@@ -47,6 +47,7 @@ void ArcAppShortcutsSearchProvider::Start(const base::string16& query) {
     ClearResults();
     return;
   }
+  last_query_ = query;
 
   if (query.empty()) {
     app_instance->GetAppShortcutGlobalQueryItems(
@@ -83,8 +84,8 @@ void ArcAppShortcutsSearchProvider::UpdateRecommendedResults(
     if (!app_info || !app_info->show_in_launcher)
       continue;
     auto result = std::make_unique<ArcAppShortcutSearchResult>(
-        std::move(item), profile_, list_controller_,
-        true /*is_recommendation*/);
+        std::move(item), profile_, list_controller_, true /*is_recommendation*/,
+        std::u16string() /*query*/);
 
     if (!app_info->install_time.is_null() ||
         !app_info->last_launch_time.is_null()) {
@@ -116,7 +117,7 @@ void ArcAppShortcutsSearchProvider::OnGetAppShortcutGlobalQueryItems(
       continue;
     search_results.emplace_back(std::make_unique<ArcAppShortcutSearchResult>(
         std::move(item), profile_, list_controller_,
-        false /*is_recommendation*/));
+        false /*is_recommendation*/, last_query_));
   }
   SwapResults(&search_results);
 }

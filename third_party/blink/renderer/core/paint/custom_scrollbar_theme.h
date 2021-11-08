@@ -38,8 +38,9 @@ class CustomScrollbarTheme final : public ScrollbarTheme {
  public:
   ~CustomScrollbarTheme() override = default;
 
-  int ScrollbarThickness(float scale_from_dip) override {
-    return GetTheme().ScrollbarThickness(scale_from_dip);
+  int ScrollbarThickness(float scale_from_dip,
+                         EScrollbarWidth scrollbar_width) override {
+    return GetTheme().ScrollbarThickness(scale_from_dip, scrollbar_width);
   }
 
   bool NativeThemeHasButtons() override {
@@ -85,7 +86,7 @@ class CustomScrollbarTheme final : public ScrollbarTheme {
                             const PhysicalRect&);
 
  protected:
-  ScrollbarPart HitTest(const Scrollbar&, const IntPoint&) override;
+  ScrollbarPart HitTest(const Scrollbar&, const gfx::Point&) override;
 
   bool HasButtons(const Scrollbar&) override;
   bool HasThumb(const Scrollbar&) override;
@@ -96,7 +97,7 @@ class CustomScrollbarTheme final : public ScrollbarTheme {
 
   void PaintTrackAndButtons(GraphicsContext&,
                             const Scrollbar&,
-                            const IntPoint&) override;
+                            const gfx::Vector2d&) override;
   void PaintButton(GraphicsContext&,
                    const Scrollbar&,
                    const IntRect&,

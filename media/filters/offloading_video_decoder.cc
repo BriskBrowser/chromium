@@ -4,11 +4,13 @@
 
 #include "media/filters/offloading_video_decoder.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/sequenced_task_runner.h"
 #include "base/synchronization/atomic_flag.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decoder_buffer.h"
@@ -23,6 +25,9 @@ class CancellationHelper {
   CancellationHelper(std::unique_ptr<OffloadableVideoDecoder> decoder)
       : cancellation_flag_(std::make_unique<base::AtomicFlag>()),
         decoder_(std::move(decoder)) {}
+
+  CancellationHelper(const CancellationHelper&) = delete;
+  CancellationHelper& operator=(const CancellationHelper&) = delete;
 
   // Safe to call from any thread.
   void Cancel() { cancellation_flag_->Set(); }
@@ -43,7 +48,7 @@ class CancellationHelper {
     // want to run |reset_cb| before we've reset the cancellation flag or the
     // client may end up issuing another Reset() before this code runs.
     decoder_->Reset(base::DoNothing());
-    cancellation_flag_.reset(new base::AtomicFlag());
+    cancellation_flag_ = std::make_unique<base::AtomicFlag>();
     std::move(reset_cb).Run();
   }
 
@@ -52,8 +57,6 @@ class CancellationHelper {
  private:
   std::unique_ptr<base::AtomicFlag> cancellation_flag_;
   std::unique_ptr<OffloadableVideoDecoder> decoder_;
-
-  DISALLOW_COPY_AND_ASSIGN(CancellationHelper);
 };
 
 OffloadingVideoDecoder::OffloadingVideoDecoder(
@@ -78,11 +81,6 @@ OffloadingVideoDecoder::~OffloadingVideoDecoder() {
 VideoDecoderType OffloadingVideoDecoder::GetDecoderType() const {
   // This call is expected to be static and safe to call from any thread.
   return helper_->decoder()->GetDecoderType();
-}
-
-std::string OffloadingVideoDecoder::GetDisplayName() const {
-  // This call is expected to be static and safe to call from any thread.
-  return helper_->decoder()->GetDisplayName();
 }
 
 void OffloadingVideoDecoder::Initialize(const VideoDecoderConfig& config,

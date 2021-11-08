@@ -51,8 +51,8 @@ async function exchangeOfferAnswerEndOnSecond(pc1, pc2, negotiator) {
   await pc2.setLocalDescription(pc1.remoteDescription); // End on pc2. No race
 }
 
-async function assertNoNegotiationNeeded(t, pc) {
-  assert_equals(pc.signalingState, "stable", "In stable state");
+async function assertNoNegotiationNeeded(t, pc, state = "stable") {
+  assert_equals(pc.signalingState, state, `In ${state} state`);
   const event = await Promise.race([
     new Promise(r => pc.onnegotiationneeded = r),
     new Promise(r => t.step_timeout(r, 10))
@@ -72,6 +72,13 @@ function assert_ufrags_equals(x, y, description) {
 function assert_ufrags_not_equals(x, y, description) {
   assert_false(x === y, description);
 }
+
+promise_test(async t => {
+  const pc = new RTCPeerConnection();
+  pc.close();
+  pc.restartIce();
+  await assertNoNegotiationNeeded(t, pc, "closed");
+}, "restartIce() has no effect on a closed peer connection");
 
 promise_test(async t => {
   const pc1 = new RTCPeerConnection();
@@ -153,22 +160,8 @@ for (const negotiator of negotiators) {
     t.add_cleanup(() => pc1.close());
     t.add_cleanup(() => pc2.close());
 
-    pc1.onicecandidate = e => {
-      if (e.candidate) {
-        pc2.addIceCandidate({
-          candidate: e.candidate.candidate,
-          sdpMid: e.candidate.sdpMid
-        });
-      }
-    }
-    pc2.onicecandidate = e => {
-      if (e.candidate) {
-        pc1.addIceCandidate({
-          candidate: e.candidate.candidate,
-          sdpMid: e.candidate.sdpMid
-        });
-      }
-    }
+    pc1.onicecandidate = e => pc2.addIceCandidate(e.candidate);
+    pc2.onicecandidate = e => pc1.addIceCandidate(e.candidate);
 
     // See the explanation below about Chrome's onnegotiationneeded firing
     // too early.

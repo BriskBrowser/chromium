@@ -27,6 +27,10 @@ class VR_UI_EXPORT ContentElement : public PlatformUiElement {
       ScreenBoundsChangedCallback;
 
   ContentElement(ContentInputDelegate* delegate, ScreenBoundsChangedCallback);
+
+  ContentElement(const ContentElement&) = delete;
+  ContentElement& operator=(const ContentElement&) = delete;
+
   ~ContentElement() override;
 
   // UiElement overrides.
@@ -41,7 +45,7 @@ class VR_UI_EXPORT ContentElement : public PlatformUiElement {
   void UpdateInput(const EditedText& info) override;
   void OnSizeAnimated(const gfx::SizeF& size,
                       int target_property_id,
-                      cc::KeyframeModel* animation) override;
+                      gfx::KeyframeModel* animation) override;
 
   void SetOverlayTextureId(unsigned int texture_id);
   void SetOverlayTextureLocation(GlTextureLocation location);
@@ -70,8 +74,6 @@ class VR_UI_EXPORT ContentElement : public PlatformUiElement {
   ContentInputDelegate* content_delegate_ = nullptr;
   base::RepeatingCallback<void(const gfx::SizeF& size)>
       on_size_changed_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(ContentElement);
 };
 
 }  // namespace vr

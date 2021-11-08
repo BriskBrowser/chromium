@@ -4,6 +4,8 @@
 
 #include "extensions/browser/extension_host.h"
 
+#include <memory>
+
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
@@ -23,13 +25,12 @@
 #include "extensions/browser/extension_host_delegate.h"
 #include "extensions/browser/extension_host_observer.h"
 #include "extensions/browser/extension_host_queue.h"
+#include "extensions/browser/extension_host_registry.h"
 #include "extensions/browser/extension_registry.h"
-#include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_web_contents_observer.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/browser/process_manager.h"
-#include "extensions/browser/runtime_data.h"
 #include "extensions/browser/view_type_utils.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_messages.h"
@@ -51,16 +52,16 @@ namespace extensions {
 ExtensionHost::ExtensionHost(const Extension* extension,
                              SiteInstance* site_instance,
                              const GURL& url,
-                             ViewType host_type)
+                             mojom::ViewType host_type)
     : delegate_(ExtensionsBrowserClient::Get()->CreateExtensionHostDelegate()),
       extension_(extension),
       extension_id_(extension->id()),
       browser_context_(site_instance->GetBrowserContext()),
       initial_url_(url),
       extension_host_type_(host_type) {
-  DCHECK(host_type == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE ||
-         host_type == VIEW_TYPE_EXTENSION_DIALOG ||
-         host_type == VIEW_TYPE_EXTENSION_POPUP);
+  DCHECK(host_type == mojom::ViewType::kExtensionBackgroundPage ||
+         host_type == mojom::ViewType::kExtensionDialog ||
+         host_type == mojom::ViewType::kExtensionPopup);
   host_contents_ = WebContents::Create(
       WebContents::CreateParams(browser_context_, site_instance)),
   content::WebContentsObserver::Observe(host_contents_.get());
@@ -77,24 +78,23 @@ ExtensionHost::ExtensionHost(const Extension* extension,
 
   ExtensionWebContentsObserver::GetForWebContents(host_contents())->
       dispatcher()->set_delegate(this);
+  ExtensionHostRegistry::Get(browser_context_)->ExtensionHostCreated(this);
 }
 
 ExtensionHost::~ExtensionHost() {
   ExtensionRegistry::Get(browser_context_)->RemoveObserver(this);
 
-  if (extension_host_type_ == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE &&
+  if (extension_host_type_ == mojom::ViewType::kExtensionBackgroundPage &&
       extension_ && BackgroundInfo::HasLazyBackgroundPage(extension_) &&
       load_start_.get()) {
     UMA_HISTOGRAM_LONG_TIMES("Extensions.EventPageActiveTime2",
                              load_start_->Elapsed());
   }
 
-  content::NotificationService::current()->Notify(
-      extensions::NOTIFICATION_EXTENSION_HOST_DESTROYED,
-      content::Source<BrowserContext>(browser_context_),
-      content::Details<ExtensionHost>(this));
   for (auto& observer : observer_list_)
     observer.OnExtensionHostDestroyed(this);
+
+  ExtensionHostRegistry::Get(browser_context_)->ExtensionHostDestroyed(this);
 
   // Remove ourselves from the queue as late as possible (before effectively
   // destroying self, but after everything else) so that queues that are
@@ -145,10 +145,6 @@ void ExtensionHost::CreateRendererNow() {
 }
 
 void ExtensionHost::Close() {
-  content::NotificationService::current()->Notify(
-      extensions::NOTIFICATION_EXTENSION_HOST_VIEW_SHOULD_CLOSE,
-      content::Source<BrowserContext>(browser_context_),
-      content::Details<ExtensionHost>(this));
   for (auto& observer : observer_list_)
     observer.OnExtensionHostShouldClose(this);
 }
@@ -184,14 +180,14 @@ const GURL& ExtensionHost::GetLastCommittedURL() const {
 }
 
 void ExtensionHost::LoadInitialURL() {
-  load_start_.reset(new base::ElapsedTimer());
+  load_start_ = std::make_unique<base::ElapsedTimer>();
   host_contents_->GetController().LoadURL(
       initial_url_, content::Referrer(), ui::PAGE_TRANSITION_LINK,
       std::string());
 }
 
 bool ExtensionHost::IsBackgroundPage() const {
-  DCHECK_EQ(extension_host_type_, VIEW_TYPE_EXTENSION_BACKGROUND_PAGE);
+  DCHECK_EQ(extension_host_type_, mojom::ViewType::kExtensionBackgroundPage);
   return true;
 }
 
@@ -213,7 +209,8 @@ void ExtensionHost::OnExtensionUnloaded(
   }
 }
 
-void ExtensionHost::RenderProcessGone(base::TerminationStatus status) {
+void ExtensionHost::PrimaryMainFrameRenderProcessGone(
+    base::TerminationStatus status) {
   // During browser shutdown, we may use sudden termination on an extension
   // process, so it is expected to lose our connection to the render view.
   // Do nothing.
@@ -234,10 +231,15 @@ void ExtensionHost::RenderProcessGone(base::TerminationStatus status) {
   // TODO(aa): This is suspicious. There can be multiple views in an extension,
   // and they aren't all going to use ExtensionHost. This should be in someplace
   // more central, like EPM maybe.
+  ExtensionHostRegistry::Get(browser_context_)
+      ->ExtensionHostRenderProcessGone(this);
   content::NotificationService::current()->Notify(
       extensions::NOTIFICATION_EXTENSION_PROCESS_TERMINATED,
       content::Source<BrowserContext>(browser_context_),
       content::Details<ExtensionHost>(this));
+
+  ProcessManager::Get(browser_context_)
+      ->NotifyExtensionProcessTerminated(extension_);
 }
 
 void ExtensionHost::DidStopLoading() {
@@ -248,31 +250,30 @@ void ExtensionHost::DidStopLoading() {
   if (first_load) {
     RecordStopLoadingUMA();
     OnDidStopFirstLoad();
-    content::NotificationService::current()->Notify(
-        extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD,
-        content::Source<BrowserContext>(browser_context_),
-        content::Details<ExtensionHost>(this));
+    ExtensionHostRegistry::Get(browser_context_)
+        ->ExtensionHostCompletedFirstLoad(this);
     for (auto& observer : observer_list_)
       observer.OnExtensionHostDidStopFirstLoad(this);
   }
 }
 
 void ExtensionHost::OnDidStopFirstLoad() {
-  DCHECK_EQ(extension_host_type_, VIEW_TYPE_EXTENSION_BACKGROUND_PAGE);
+  DCHECK_EQ(extension_host_type_, mojom::ViewType::kExtensionBackgroundPage);
   // Nothing to do for background pages.
 }
 
-void ExtensionHost::DocumentAvailableInMainFrame() {
+void ExtensionHost::DocumentAvailableInMainFrame(
+    content::RenderFrameHost* render_frame_host) {
   // If the document has already been marked as available for this host, then
   // bail. No need for the redundant setup. http://crbug.com/31170
   if (document_element_available_)
     return;
   document_element_available_ = true;
 
-  if (extension_host_type_ == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE) {
-    ExtensionSystem::Get(browser_context_)
-        ->runtime_data()
-        ->SetBackgroundPageReady(extension_->id(), true);
+  ExtensionHostRegistry::Get(browser_context_)
+      ->ExtensionHostDocumentElementAvailable(this);
+
+  if (extension_host_type_ == mojom::ViewType::kExtensionBackgroundPage) {
     content::NotificationService::current()->Notify(
         extensions::NOTIFICATION_EXTENSION_BACKGROUND_PAGE_READY,
         content::Source<const Extension>(extension_),
@@ -396,7 +397,7 @@ void ExtensionHost::AddNewContents(WebContents* source,
 }
 
 void ExtensionHost::RenderFrameCreated(content::RenderFrameHost* frame_host) {
-  // TODO(crbug.com/1170277 ): This wants to watch just the top-level main frame
+  // TODO(crbug.com/1199689): This wants to watch just the top-level main frame
   // once the WebContents could hold multiple frame trees under the upcoming
   // Multiple-Process Architecture.
   if (frame_host->GetParent())
@@ -416,10 +417,8 @@ void ExtensionHost::RenderFrameCreated(content::RenderFrameHost* frame_host) {
 }
 
 void ExtensionHost::NotifyRenderProcessReady() {
-  content::NotificationService::current()->Notify(
-      extensions::NOTIFICATION_EXTENSION_HOST_CREATED,
-      content::Source<BrowserContext>(browser_context_),
-      content::Details<ExtensionHost>(this));
+  ExtensionHostRegistry::Get(browser_context_)
+      ->ExtensionHostRenderProcessReady(this);
 }
 
 void ExtensionHost::RenderFrameDeleted(content::RenderFrameHost* frame_host) {
@@ -448,8 +447,8 @@ bool ExtensionHost::CheckMediaAccessPermission(
 }
 
 bool ExtensionHost::IsNeverComposited(content::WebContents* web_contents) {
-  ViewType view_type = extensions::GetViewType(web_contents);
-  return view_type == extensions::VIEW_TYPE_EXTENSION_BACKGROUND_PAGE;
+  mojom::ViewType view_type = extensions::GetViewType(web_contents);
+  return view_type == extensions::mojom::ViewType::kExtensionBackgroundPage;
 }
 
 content::PictureInPictureResult ExtensionHost::EnterPictureInPicture(
@@ -464,9 +463,14 @@ void ExtensionHost::ExitPictureInPicture() {
   delegate_->ExitPictureInPicture();
 }
 
+std::string ExtensionHost::GetTitleForMediaControls(
+    content::WebContents* web_contents) {
+  return extension() ? extension()->name() : std::string();
+}
+
 void ExtensionHost::RecordStopLoadingUMA() {
   CHECK(load_start_.get());
-  if (extension_host_type_ == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE) {
+  if (extension_host_type_ == mojom::ViewType::kExtensionBackgroundPage) {
     if (extension_ && BackgroundInfo::HasLazyBackgroundPage(extension_)) {
       UMA_HISTOGRAM_MEDIUM_TIMES("Extensions.EventPageLoadTime2",
                                  load_start_->Elapsed());
@@ -474,7 +478,7 @@ void ExtensionHost::RecordStopLoadingUMA() {
       UMA_HISTOGRAM_MEDIUM_TIMES("Extensions.BackgroundPageLoadTime2",
                                  load_start_->Elapsed());
     }
-  } else if (extension_host_type_ == VIEW_TYPE_EXTENSION_POPUP) {
+  } else if (extension_host_type_ == mojom::ViewType::kExtensionPopup) {
     UMA_HISTOGRAM_MEDIUM_TIMES("Extensions.PopupLoadTime2",
                                load_start_->Elapsed());
     UMA_HISTOGRAM_MEDIUM_TIMES("Extensions.PopupCreateTime",

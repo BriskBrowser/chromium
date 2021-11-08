@@ -8,7 +8,6 @@
 #include <string>
 
 #include "ash/public/cpp/ash_public_export.h"
-#include "base/strings/string16.h"
 
 namespace chromeos {
 namespace phonehub {
@@ -21,6 +20,7 @@ namespace ash {
 struct LocaleInfo;
 class SystemTrayClient;
 enum class NotificationStyle;
+struct RelaunchNotificationState;
 enum class UpdateSeverity;
 enum class UpdateType;
 
@@ -82,21 +82,18 @@ class ASH_PUBLIC_EXPORT SystemTray {
                               bool rollback,
                               UpdateType update_type) = 0;
 
-  // Sets new strings for update notification in the unified system menu,
+  // Changes the update notification in the unified system menu,
   // according to different policies, when there is an update available
   // (it may be recommended or required, from Relaunch Notification policy,
   // for example).
-  // Providing these strings allows the update countdown logic to remain in
-  // //chrome/browser, where it is shared with other platforms.
-  // |style| specifies the type of notification, according to the policy
-  // (default, recommended or required).
-  // |notification_title| the title of the notification, which overwrites
-  // the default.
-  // |notification_body| the new notification body which overwrites the default.
-  virtual void SetUpdateNotificationState(
-      NotificationStyle style,
-      const base::string16& notification_title,
-      const base::string16& notification_body) = 0;
+  // Providing the `RelaunchNotificationState` allows the update countdown logic
+  // to remain in //chrome/browser, where it is shared with other platforms.
+  virtual void SetRelaunchNotificationState(
+      const RelaunchNotificationState& relaunch_notification_state) = 0;
+
+  // Resets update state to hide the update icon and notification. It is called
+  // when a new update starts before the current update is applied.
+  virtual void ResetUpdateState() = 0;
 
   // If |visible| is true, shows an icon in the system tray which indicates that
   // a software update is available but user's agreement is required as current
@@ -109,9 +106,8 @@ class ASH_PUBLIC_EXPORT SystemTray {
   virtual void ShowVolumeSliderBubble() = 0;
 
   // Shows the network detailed view bubble at the right bottom of the primary
-  // display. Set |show_by_click| to true if bubble is shown by mouse or gesture
-  // click (it is used e.g. for timing histograms).
-  virtual void ShowNetworkDetailedViewBubble(bool show_by_click) = 0;
+  // display.
+  virtual void ShowNetworkDetailedViewBubble() = 0;
 
   // Provides Phone Hub functionality to the system tray.
   virtual void SetPhoneHubManager(

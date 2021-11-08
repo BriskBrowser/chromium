@@ -6,24 +6,27 @@
   TestRunner.addResult(`Tests that mobile, network, and CPU throttling interact with each other logically.\n`);
   await TestRunner.showPanel("network");
   await TestRunner.showPanel("timeline");
+  await TestRunner.loadLegacyModule('emulation');
+  await TestRunner.loadLegacyModule('mobile_throttling');
+  await TestRunner.loadLegacyModule('network');
   await UI.viewManager.showView("network.config");
 
   var deviceModeView = new Emulation.DeviceModeView();
 
-  var deviceModeThrottling = deviceModeView._toolbar._throttlingConditionsItem;
+  var deviceModeThrottling = deviceModeView.toolbar.throttlingConditionsItem;
   var networkPanelThrottling = UI.panels.network.throttlingSelectForTest();
-  var networkConfigView = self.runtime.sharedInstance(Network.NetworkConfigView);
+  var networkConfigView = Network.NetworkConfigView.instance();
   var networkConditionsDrawerThrottlingSelector =
       networkConfigView.contentElement.querySelector('.network-config-throttling select.chrome-select');
-  var performancePanelNetworkThrottling = UI.panels.timeline._networkThrottlingSelect;
-  var performancePanelCPUThrottling = UI.panels.timeline._cpuThrottlingSelect;
+  var performancePanelNetworkThrottling = UI.panels.timeline.networkThrottlingSelect;
+  var performancePanelCPUThrottling = UI.panels.timeline.cpuThrottlingSelect;
 
   function dumpThrottlingState() {
     TestRunner.addResult('=== THROTTLING STATE ===');
     var {download, upload, latency} = SDK.multitargetNetworkManager.networkConditions();
     TestRunner.addResult(`Network throttling - download: ${Math.round(download)} upload: ${Math.round(upload)} latency: ${latency}`);
-    TestRunner.addResult('CPU throttling rate: ' + MobileThrottling.throttlingManager().cpuThrottlingRate());
-    TestRunner.addResult('Device mode throttling: ' + deviceModeThrottling._text);
+    TestRunner.addResult('CPU throttling rate: ' + SDK.CPUThrottlingManager.instance().cpuThrottlingRate());
+    TestRunner.addResult('Device mode throttling: ' + deviceModeThrottling.text);
     TestRunner.addResult('Network panel throttling: ' + networkPanelThrottling.selectedOption().text);
     TestRunner.addResult('Network conditions drawer throttling: ' + networkConditionsDrawerThrottlingSelector.value);
     TestRunner.addResult(
@@ -55,11 +58,11 @@
   dumpThrottlingState();
 
   TestRunner.addResult('Change CPU throttling to low-end mobile');
-  MobileThrottling.throttlingManager().setCPUThrottlingRate(MobileThrottling.CPUThrottlingRates.LowEndMobile);
+  MobileThrottling.throttlingManager().setCPUThrottlingRate(SDK.CPUThrottlingManager.CPUThrottlingRates.LowEndMobile);
   dumpThrottlingState();
 
   TestRunner.addResult('Change CPU throttling to mid-tier mobile');
-  MobileThrottling.throttlingManager().setCPUThrottlingRate(MobileThrottling.CPUThrottlingRates.MidTierMobile);
+  MobileThrottling.throttlingManager().setCPUThrottlingRate(SDK.CPUThrottlingManager.CPUThrottlingRates.MidTierMobile);
   dumpThrottlingState();
 
   TestRunner.addResult('Change to no throttling in device mode');

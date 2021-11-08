@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <list>
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -19,12 +20,12 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "components/download/public/common/download_item.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_item_utils.h"
 
@@ -64,6 +65,9 @@ const base::FilePath::CharType kDownloadMetadataBasename[] =
 // it is in progress.
 class DownloadItemData : public base::SupportsUserData::Data {
  public:
+  DownloadItemData(const DownloadItemData&) = delete;
+  DownloadItemData& operator=(const DownloadItemData&) = delete;
+
   ~DownloadItemData() override {}
 
   // Sets the ClientDownloadRequest for a given DownloadItem.
@@ -83,8 +87,6 @@ class DownloadItemData : public base::SupportsUserData::Data {
       : request_(std::move(request)) {}
 
   std::unique_ptr<ClientDownloadRequest> request_;
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadItemData);
 };
 
 // Make the key's value unique by setting it to its own location.
@@ -221,6 +223,9 @@ class DownloadMetadataManager::ManagerContext
   ManagerContext(scoped_refptr<base::SequencedTaskRunner> task_runner,
                  content::DownloadManager* download_manager);
 
+  ManagerContext(const ManagerContext&) = delete;
+  ManagerContext& operator=(const ManagerContext&) = delete;
+
   // Detaches this context from its owner. The owner must not access the context
   // following this call. The context will be deleted immediately if it is not
   // waiting for a metadata load with either recorded operations or pending
@@ -333,8 +338,6 @@ class DownloadMetadataManager::ManagerContext
   std::list<GetDownloadDetailsCallback> get_details_callbacks_;
 
   base::WeakPtrFactory<ManagerContext> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ManagerContext);
 };
 
 
@@ -405,7 +408,7 @@ void DownloadMetadataManager::GetDownloadDetails(
 content::DownloadManager*
 DownloadMetadataManager::GetDownloadManagerForBrowserContext(
     content::BrowserContext* context) {
-  return content::BrowserContext::GetDownloadManager(context);
+  return context->GetDownloadManager();
 }
 
 void DownloadMetadataManager::OnDownloadCreated(
@@ -538,7 +541,7 @@ void DownloadMetadataManager::ManagerContext::CommitRequest(
     ClearPendingItems();
   }
   // Take the request.
-  download_metadata_.reset(new DownloadMetadata);
+  download_metadata_ = std::make_unique<DownloadMetadata>();
   download_metadata_->set_download_id(item->GetId());
   download_metadata_->mutable_download()->set_allocated_download(
       request.release());

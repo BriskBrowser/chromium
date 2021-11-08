@@ -16,17 +16,22 @@ class WebState;
 }  // namespace web
 
 // Implementation of LocationBarModelDelegate which uses an instance of
-// TabModel in order to fulfill its duties.
+// WebStateLisy in order to fulfill its duties.
 class LocationBarModelDelegateIOS : public LocationBarModelDelegate {
  public:
   // |web_state_list| must outlive this LocationBarModelDelegateIOS object.
   explicit LocationBarModelDelegateIOS(WebStateList* web_state_list);
+
+  LocationBarModelDelegateIOS(const LocationBarModelDelegateIOS&) = delete;
+  LocationBarModelDelegateIOS& operator=(const LocationBarModelDelegateIOS&) =
+      delete;
+
   ~LocationBarModelDelegateIOS() override;
 
   // LocationBarModelDelegate implementation:
-  base::string16 FormattedStringWithEquivalentMeaning(
+  std::u16string FormattedStringWithEquivalentMeaning(
       const GURL& url,
-      const base::string16& formatted_url) const override;
+      const std::u16string& formatted_url) const override;
   bool GetURL(GURL* url) const override;
   bool ShouldDisplayURL() const override;
   security_state::SecurityLevel GetSecurityLevel() const override;
@@ -49,8 +54,6 @@ class LocationBarModelDelegateIOS : public LocationBarModelDelegate {
   web::WebState* GetActiveWebState() const;
 
   WebStateList* web_state_list_;  // weak
-
-  DISALLOW_COPY_AND_ASSIGN(LocationBarModelDelegateIOS);
 };
 
 #endif  // IOS_CHROME_BROWSER_UI_LOCATION_BAR_LOCATION_BAR_MODEL_DELEGATE_IOS_H_

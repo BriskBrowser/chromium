@@ -47,20 +47,21 @@ class OffscreenTab final : public ProfileObserver,
                            protected content::WebContentsDelegate,
                            protected content::WebContentsObserver {
  public:
+  // TODO(crbug.com/1234929): Hold the OffscreenTab by a WeakPtr, then Owner can
+  // be deleted.
   class Owner {
    public:
     virtual ~Owner() {}
-
-    // Checks whether capturing the |contents| is permitted.
-    virtual void RequestMediaAccessPermission(
-        const content::MediaStreamRequest& request,
-        content::MediaResponseCallback callback) = 0;
 
     // |tab| is no longer valid after this call.
     virtual void DestroyTab(OffscreenTab* tab) = 0;
   };
 
   OffscreenTab(Owner* owner, content::BrowserContext* context);
+
+  OffscreenTab(const OffscreenTab&) = delete;
+  OffscreenTab& operator=(const OffscreenTab&) = delete;
+
   ~OffscreenTab() final;
 
   // The WebContents instance hosting the rendering engine for this
@@ -92,7 +93,7 @@ class OffscreenTab final : public ProfileObserver,
   void CanDownload(const GURL& url,
                    const std::string& request_method,
                    base::OnceCallback<void(bool)> callback) final;
-  bool HandleContextMenu(content::RenderFrameHost* render_frame_host,
+  bool HandleContextMenu(content::RenderFrameHost& render_frame_host,
                          const content::ContextMenuParams& params) final;
   content::KeyboardEventProcessingResult PreHandleKeyboardEvent(
       content::WebContents* source,
@@ -176,8 +177,6 @@ class OffscreenTab final : public ProfileObserver,
 #if defined(USE_AURA)
   std::unique_ptr<WindowAdoptionAgent> window_agent_;
 #endif  // defined(USE_AURA)
-
-  DISALLOW_COPY_AND_ASSIGN(OffscreenTab);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_OFFSCREEN_TAB_H_

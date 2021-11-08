@@ -18,9 +18,9 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/web_applications/components/web_app_id.h"
-#include "chrome/browser/web_applications/components/web_app_shortcut_mac.h"
 #include "chrome/browser/web_applications/extensions/web_app_extension_shortcut.h"
+#include "chrome/browser/web_applications/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_shortcut_mac.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #import "chrome/common/mac/app_mode_common.h"
 #include "chrome/common/pref_names.h"
@@ -47,8 +47,7 @@ class Latch : public base::RefCountedThreadSafe<
   // Closure does nothing. The Closure just serves to keep a reference alive
   // until |this| is ready to be destroyed; invoking the |callback|.
   base::RepeatingClosure NoOpClosure() {
-    return base::BindRepeating(base::DoNothing::Repeatedly<Latch*>(),
-                               base::RetainedRef(this));
+    return base::BindRepeating([](Latch*) {}, base::RetainedRef(this));
   }
 
  private:
@@ -111,7 +110,8 @@ bool MaybeRebuildShortcut(const base::CommandLine& command_line) {
 // required by a Chrome upgrade.
 bool ShouldUpgradeShortcutFor(Profile* profile,
                               const extensions::Extension* extension) {
-  if (extension->location() == extensions::Manifest::COMPONENT ||
+  if (extension->location() ==
+          extensions::mojom::ManifestLocation::kComponent ||
       !extensions::ui_util::CanDisplayInAppLauncher(extension, profile)) {
     return false;
   }
@@ -135,7 +135,7 @@ void UpdateShortcutsForAllApps(Profile* profile, base::OnceClosure callback) {
   for (auto& extension_refptr : *candidates) {
     const extensions::Extension* extension = extension_refptr.get();
     if (ShouldUpgradeShortcutFor(profile, extension)) {
-      UpdateAllShortcuts(base::string16(), profile, extension,
+      UpdateAllShortcuts(std::u16string(), profile, extension,
                          latch->NoOpClosure());
     }
   }

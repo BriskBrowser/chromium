@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "ash/constants/ash_features.h"
+#include "ash/public/cpp/bluetooth_config_service.h"
 #include "ash/public/cpp/esim_manager.h"
 #include "ash/public/cpp/network_config_service.h"
 #include "base/metrics/histogram_functions.h"
@@ -17,6 +18,7 @@
 #include "chrome/browser/nearby_sharing/nearby_sharing_service_impl.h"
 #include "chrome/browser/ui/webui/managed_ui_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/device_storage_handler.h"
+#include "chrome/browser/ui/webui/settings/chromeos/os_apps_page/app_notification_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_manager.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_manager_factory.h"
 #include "chrome/browser/ui/webui/settings/chromeos/pref_names.h"
@@ -64,27 +66,10 @@ OSSettingsUI::OSSettingsUI(content::WebUI* web_ui)
       std::make_unique<chromeos::settings::StorageHandler>(profile,
                                                            html_source));
 
-  int default_resource =
-      base::FeatureList::IsEnabled(chromeos::features::kOsSettingsPolymer3)
-          ? IDR_OS_SETTINGS_OS_SETTINGS_V3_HTML
-#if BUILDFLAG(OPTIMIZE_WEBUI)
-          : IDR_OS_SETTINGS_VULCANIZED_HTML;
-#else
-          : IDR_OS_SETTINGS_CHROMEOS_OS_SETTINGS_HTML;
-#endif
-
   webui::SetupWebUIDataSource(
       html_source,
       base::make_span(kOsSettingsResources, kOsSettingsResourcesSize),
-      default_resource);
-
-  // For Polymer 2 optimized builds that rely on loading individual subpages,
-  // set the default resource for tests.
-#if BUILDFLAG(OPTIMIZE_WEBUI)
-  if (!base::FeatureList::IsEnabled(chromeos::features::kOsSettingsPolymer3)) {
-    html_source->SetDefaultResource(default_resource);
-  }
-#endif
+      IDR_OS_SETTINGS_OS_SETTINGS_V3_HTML);
 
   ManagedUIHandler::Initialize(web_ui, html_source);
 
@@ -96,8 +81,8 @@ OSSettingsUI::~OSSettingsUI() {
   // Note: OSSettingsUI lifetime is tied to the lifetime of the browser window.
   base::UmaHistogramCustomTimes("ChromeOS.Settings.WindowOpenDuration",
                                 base::TimeTicks::Now() - time_when_opened_,
-                                /*min=*/base::TimeDelta::FromMicroseconds(500),
-                                /*max=*/base::TimeDelta::FromHours(1),
+                                /*min=*/base::Microseconds(500),
+                                /*max=*/base::Hours(1),
                                 /*buckets=*/50);
 }
 
@@ -132,6 +117,14 @@ void OSSettingsUI::BindInterface(
 }
 
 void OSSettingsUI::BindInterface(
+    mojo::PendingReceiver<app_notification::mojom::AppNotificationsHandler>
+        receiver) {
+  OsSettingsManagerFactory::GetForProfile(Profile::FromWebUI(web_ui()))
+      ->app_notification_handler()
+      ->BindInterface(std::move(receiver));
+}
+
+void OSSettingsUI::BindInterface(
     mojo::PendingReceiver<app_management::mojom::PageHandlerFactory> receiver) {
   if (!app_management_page_handler_factory_) {
     app_management_page_handler_factory_ =
@@ -143,6 +136,11 @@ void OSSettingsUI::BindInterface(
 
 void OSSettingsUI::BindInterface(
     mojo::PendingReceiver<nearby_share::mojom::NearbyShareSettings> receiver) {
+  if (!NearbySharingServiceFactory::IsNearbyShareSupportedForBrowserContext(
+          Profile::FromWebUI(web_ui()))) {
+    return;
+  }
+
   NearbySharingService* service =
       NearbySharingServiceFactory::GetForBrowserContext(
           Profile::FromWebUI(web_ui()));
@@ -151,6 +149,11 @@ void OSSettingsUI::BindInterface(
 
 void OSSettingsUI::BindInterface(
     mojo::PendingReceiver<nearby_share::mojom::ReceiveManager> receiver) {
+  if (!NearbySharingServiceFactory::IsNearbyShareSupportedForBrowserContext(
+          Profile::FromWebUI(web_ui()))) {
+    return;
+  }
+
   NearbySharingService* service =
       NearbySharingServiceFactory::GetForBrowserContext(
           Profile::FromWebUI(web_ui()));
@@ -160,10 +163,22 @@ void OSSettingsUI::BindInterface(
 
 void OSSettingsUI::BindInterface(
     mojo::PendingReceiver<nearby_share::mojom::ContactManager> receiver) {
+  if (!NearbySharingServiceFactory::IsNearbyShareSupportedForBrowserContext(
+          Profile::FromWebUI(web_ui()))) {
+    return;
+  }
+
   NearbySharingService* service =
       NearbySharingServiceFactory::GetForBrowserContext(
           Profile::FromWebUI(web_ui()));
   service->GetContactManager()->Bind(std::move(receiver));
+}
+
+void OSSettingsUI::BindInterface(
+    mojo::PendingReceiver<bluetooth_config::mojom::CrosBluetoothConfig>
+        receiver) {
+  DCHECK(features::IsBluetoothRevampEnabled());
+  ash::GetBluetoothConfigService(std::move(receiver));
 }
 
 WEB_UI_CONTROLLER_TYPE_IMPL(OSSettingsUI)

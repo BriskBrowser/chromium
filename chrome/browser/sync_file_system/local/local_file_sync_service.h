@@ -10,7 +10,6 @@
 #include <map>
 #include <memory>
 #include <set>
-#include <string>
 
 #include "base/callback.h"
 #include "base/macros.h"
@@ -57,6 +56,10 @@ class LocalFileSyncService
   class Observer {
    public:
     Observer() {}
+
+    Observer(const Observer&) = delete;
+    Observer& operator=(const Observer&) = delete;
+
     virtual ~Observer() {}
 
     // This is called when there're one or more local changes available.
@@ -64,9 +67,6 @@ class LocalFileSyncService
     // scheduling but the value may not be accurately reflect the real-time
     // value.
     virtual void OnLocalChangeAvailable(int64_t pending_changes_hint) = 0;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(Observer);
   };
 
   typedef base::OnceCallback<void(SyncStatusCode status,
@@ -77,6 +77,10 @@ class LocalFileSyncService
   static std::unique_ptr<LocalFileSyncService> CreateForTesting(
       Profile* profile,
       leveldb::Env* env_override);
+
+  LocalFileSyncService(const LocalFileSyncService&) = delete;
+  LocalFileSyncService& operator=(const LocalFileSyncService&) = delete;
+
   ~LocalFileSyncService() override;
 
   void Shutdown();
@@ -95,7 +99,7 @@ class LocalFileSyncService
   // Calling this method again while this already has another URL waiting
   // for sync will overwrite the previously registered URL.
   void RegisterURLForWaitingSync(const storage::FileSystemURL& url,
-                                 const base::Closure& on_syncable_callback);
+                                 base::OnceClosure on_syncable_callback);
 
   // Synchronize one (or a set of) local change(s) to the remote server
   // using local_change_processor given by SetLocalChangeProcessor().
@@ -125,7 +129,7 @@ class LocalFileSyncService
   void HasPendingLocalChanges(const storage::FileSystemURL& url,
                               HasPendingLocalChangeCallback callback);
 
-  void PromoteDemotedChanges(const base::Closure& callback);
+  void PromoteDemotedChanges(base::RepeatingClosure callback);
 
   // Returns the metadata of a remote file pointed by |url|.
   virtual void GetLocalFileMetadata(const storage::FileSystemURL& url,
@@ -140,7 +144,7 @@ class LocalFileSyncService
                          SyncStatusCallback callback) override;
   void FinalizeRemoteSync(const storage::FileSystemURL& url,
                           bool clear_local_changes,
-                          const base::Closure& completion_callback) override;
+                          base::OnceClosure completion_callback) override;
   void RecordFakeLocalChange(const storage::FileSystemURL& url,
                              const FileChange& change,
                              SyncStatusCallback callback) override;
@@ -236,8 +240,6 @@ class LocalFileSyncService
   GetLocalChangeProcessorCallback get_local_change_processor_;
 
   base::ObserverList<Observer>::Unchecked change_observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(LocalFileSyncService);
 };
 
 }  // namespace sync_file_system

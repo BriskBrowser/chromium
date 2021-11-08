@@ -16,7 +16,7 @@
 namespace media {
 namespace v4l2_vda_helpers {
 
-base::Optional<Fourcc> FindImageProcessorInputFormat(V4L2Device* vda_device) {
+absl::optional<Fourcc> FindImageProcessorInputFormat(V4L2Device* vda_device) {
   std::vector<uint32_t> processor_input_formats =
       V4L2ImageProcessorBackend::GetSupportedInputFormats();
 
@@ -32,10 +32,10 @@ base::Optional<Fourcc> FindImageProcessorInputFormat(V4L2Device* vda_device) {
     }
     ++fmtdesc.index;
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-base::Optional<Fourcc> FindImageProcessorOutputFormat(V4L2Device* ip_device) {
+absl::optional<Fourcc> FindImageProcessorOutputFormat(V4L2Device* ip_device) {
   // Prefer YVU420 and NV12 because ArcGpuVideoDecodeAccelerator only supports
   // single physical plane.
   static constexpr uint32_t kPreferredFormats[] = {V4L2_PIX_FMT_NV12,
@@ -63,7 +63,7 @@ base::Optional<Fourcc> FindImageProcessorOutputFormat(V4L2Device* ip_device) {
     }
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 std::unique_ptr<ImageProcessor> CreateImageProcessor(
@@ -147,11 +147,11 @@ std::unique_ptr<InputBufferFragmentSplitter>
 InputBufferFragmentSplitter::CreateFromProfile(
     media::VideoCodecProfile profile) {
   switch (VideoCodecProfileToVideoCodec(profile)) {
-    case kCodecH264:
+    case VideoCodec::kH264:
       return std::make_unique<
           v4l2_vda_helpers::H264InputBufferFragmentSplitter>();
-    case kCodecVP8:
-    case kCodecVP9:
+    case VideoCodec::kVP8:
+    case VideoCodec::kVP9:
       // VP8/VP9 don't need any frame splitting, use the default implementation.
       return std::make_unique<v4l2_vda_helpers::InputBufferFragmentSplitter>();
     default:

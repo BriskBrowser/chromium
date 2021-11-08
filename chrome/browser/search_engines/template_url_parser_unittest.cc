@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "chrome/common/chrome_paths.h"
@@ -116,7 +115,7 @@ TEST_F(TemplateURLParserTest, TestDictionary) {
   ASSERT_NO_FATAL_FAILURE(
       ParseFile("dictionary.xml", TemplateURLParser::ParameterFilter()));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("Dictionary.com"), template_url_->short_name());
+  EXPECT_EQ(u"Dictionary.com", template_url_->short_name());
   EXPECT_EQ(GURL("http://cache.lexico.com/g/d/favicon.ico"),
             template_url_->favicon_url());
   EXPECT_TRUE(template_url_->url_ref().SupportsReplacement(SearchTermsData()));
@@ -128,7 +127,7 @@ TEST_F(TemplateURLParserTest, TestMSDN) {
   ASSERT_NO_FATAL_FAILURE(
       ParseFile("msdn.xml", TemplateURLParser::ParameterFilter()));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("Search \" MSDN"), template_url_->short_name());
+  EXPECT_EQ(u"Search \" MSDN", template_url_->short_name());
   EXPECT_EQ(GURL("http://search.msdn.microsoft.com/search/favicon.ico"),
             template_url_->favicon_url());
   EXPECT_TRUE(template_url_->url_ref().SupportsReplacement(SearchTermsData()));
@@ -141,7 +140,7 @@ TEST_F(TemplateURLParserTest, TestWikipedia) {
   ASSERT_NO_FATAL_FAILURE(
       ParseFile("wikipedia.xml", TemplateURLParser::ParameterFilter()));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("Wikipedia (English)"), template_url_->short_name());
+  EXPECT_EQ(u"Wikipedia (English)", template_url_->short_name());
   EXPECT_EQ(GURL("http://en.wikipedia.org/favicon.ico"),
             template_url_->favicon_url());
   EXPECT_TRUE(template_url_->url_ref().SupportsReplacement(SearchTermsData()));
@@ -170,7 +169,7 @@ TEST_F(TemplateURLParserTest, TestFirefoxEbay) {
       base::BindRepeating(&TestFilter, "ebay", "ebay");
   ASSERT_NO_FATAL_FAILURE(ParseFile("firefox_ebay.xml", filter));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("eBay"), template_url_->short_name());
+  EXPECT_EQ(u"eBay", template_url_->short_name());
   EXPECT_TRUE(template_url_->url_ref().SupportsReplacement(SearchTermsData()));
   EXPECT_EQ("http://search.ebay.com/search/search.dll?query={searchTerms}&"
             "MfcISAPICommand=GetResult&ht=1&srchdesc=n&maxRecordsReturned=300&"
@@ -188,7 +187,7 @@ TEST_F(TemplateURLParserTest, TestFirefoxWebster) {
       base::BindRepeating(&TestFilter, std::string(), "Mozilla");
   ASSERT_NO_FATAL_FAILURE(ParseFile("firefox_webster.xml", filter));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("Webster"), template_url_->short_name());
+  EXPECT_EQ(u"Webster", template_url_->short_name());
   EXPECT_TRUE(template_url_->url_ref().SupportsReplacement(SearchTermsData()));
   EXPECT_EQ("http://www.webster.com/cgi-bin/dictionary?va={searchTerms}",
             template_url_->url());
@@ -204,7 +203,7 @@ TEST_F(TemplateURLParserTest, TestFirefoxYahoo) {
       base::BindRepeating(&TestFilter, std::string(), "Mozilla");
   ASSERT_NO_FATAL_FAILURE(ParseFile("firefox_yahoo.xml", filter));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("Yahoo"), template_url_->short_name());
+  EXPECT_EQ(u"Yahoo", template_url_->short_name());
   EXPECT_TRUE(template_url_->url_ref().SupportsReplacement(SearchTermsData()));
   EXPECT_EQ("http://ff.search.yahoo.com/gossip?"
             "output=fxjson&command={searchTerms}",
@@ -225,7 +224,7 @@ TEST_F(TemplateURLParserTest, TestPostSuggestion) {
       base::BindRepeating(&TestFilter, std::string(), "Mozilla");
   ASSERT_NO_FATAL_FAILURE(ParseFile("post_suggestion.xml", filter));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("Yahoo"), template_url_->short_name());
+  EXPECT_EQ(u"Yahoo", template_url_->short_name());
   EXPECT_TRUE(template_url_->url_ref().SupportsReplacement(SearchTermsData()));
   EXPECT_TRUE(template_url_->suggestions_url().empty());
   EXPECT_EQ("http://search.yahoo.com/search?p={searchTerms}&ei=UTF-8",
@@ -241,10 +240,10 @@ TEST_F(TemplateURLParserTest, TestKeyword) {
   ASSERT_NO_FATAL_FAILURE(
       ParseFile("keyword.xml", TemplateURLParser::ParameterFilter()));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("Example"), template_url_->short_name());
+  EXPECT_EQ(u"Example", template_url_->short_name());
   EXPECT_EQ("https://www.example.com/search?q={searchTerms}",
             template_url_->url());
-  EXPECT_EQ(ASCIIToUTF16("moose"), template_url_->keyword());
+  EXPECT_EQ(u"moose", template_url_->keyword());
 }
 
 // Empty <Alias> tags are ignored and the default keyword is used instead
@@ -253,10 +252,10 @@ TEST_F(TemplateURLParserTest, TestEmptyKeyword) {
   ASSERT_NO_FATAL_FAILURE(
       ParseFile("empty_keyword.xml", TemplateURLParser::ParameterFilter()));
   ASSERT_TRUE(template_url_);
-  EXPECT_EQ(ASCIIToUTF16("Example"), template_url_->short_name());
+  EXPECT_EQ(u"Example", template_url_->short_name());
   EXPECT_EQ("https://www.example.com/search?q={searchTerms}",
             template_url_->url());
-  EXPECT_EQ(ASCIIToUTF16("example.com"), template_url_->keyword());
+  EXPECT_EQ(u"example.com", template_url_->keyword());
 }
 
 // An invalid template URL should not crash the parser.

@@ -31,6 +31,10 @@ class TestTokenStorage;
 class FtlServicesPlayground {
  public:
   FtlServicesPlayground();
+
+  FtlServicesPlayground(const FtlServicesPlayground&) = delete;
+  FtlServicesPlayground& operator=(const FtlServicesPlayground&) = delete;
+
   ~FtlServicesPlayground();
 
   bool ShouldPrintHelp();
@@ -45,9 +49,6 @@ class FtlServicesPlayground {
   void OnSignInGaiaResponse(base::OnceClosure on_done,
                             const ProtobufHttpStatus& status);
 
-  void PullMessages(base::OnceClosure on_done);
-  void OnPullMessagesResponse(base::OnceClosure on_done,
-                              const ProtobufHttpStatus& status);
   void SendMessage(base::OnceClosure on_done);
   void DoSendMessage(const std::string& receiver_id,
                      const std::string& registration_id,
@@ -80,7 +81,6 @@ class FtlServicesPlayground {
   base::OnceClosure receive_messages_done_callback_;
 
   base::WeakPtrFactory<FtlServicesPlayground> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(FtlServicesPlayground);
 };
 
 }  // namespace remoting

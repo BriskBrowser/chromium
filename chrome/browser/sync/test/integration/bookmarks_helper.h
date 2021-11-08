@@ -174,10 +174,7 @@ void SetTitle(int profile,
               const std::string& new_title);
 
 // The source of the favicon.
-enum FaviconSource {
-  FROM_UI,
-  FROM_SYNC
-};
+enum FaviconSource { FROM_UI, FROM_SYNC };
 
 // Sets the |icon_url| and |image| data for the favicon for |node| in the
 // bookmark model for |profile|.
@@ -494,12 +491,17 @@ class ServerBookmarksEqualityChecker : public SingleClientStatusChangeChecker {
   // will be used to decrypt the data prior to checking for equality.
   // |fake_server| must not be nullptr and must outlive this object.
   ServerBookmarksEqualityChecker(
-      syncer::ProfileSyncService* service,
+      syncer::SyncServiceImpl* service,
       fake_server::FakeServer* fake_server,
       std::vector<ExpectedBookmark> expected_bookmarks,
       syncer::Cryptographer* cryptographer);
 
   bool IsExitConditionSatisfied(std::ostream* os) override;
+
+  ServerBookmarksEqualityChecker(const ServerBookmarksEqualityChecker&) =
+      delete;
+  ServerBookmarksEqualityChecker& operator=(
+      const ServerBookmarksEqualityChecker&) = delete;
 
   ~ServerBookmarksEqualityChecker() override;
 
@@ -507,8 +509,6 @@ class ServerBookmarksEqualityChecker : public SingleClientStatusChangeChecker {
   fake_server::FakeServer* fake_server_;
   syncer::Cryptographer* cryptographer_;
   const std::vector<ExpectedBookmark> expected_bookmarks_;
-
-  DISALLOW_COPY_AND_ASSIGN(ServerBookmarksEqualityChecker);
 };
 
 // Checker used to block until the actual number of bookmarks with the given url
@@ -543,7 +543,7 @@ class BookmarkModelMatchesFakeServerChecker
     : public SingleClientStatusChangeChecker {
  public:
   BookmarkModelMatchesFakeServerChecker(int profile,
-                                        syncer::ProfileSyncService* service,
+                                        syncer::SyncServiceImpl* service,
                                         fake_server::FakeServer* fake_server);
 
   bool IsExitConditionSatisfied(std::ostream* os) override;

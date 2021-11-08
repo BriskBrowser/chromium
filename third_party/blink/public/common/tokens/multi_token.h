@@ -18,7 +18,7 @@
 namespace blink {
 
 // Defines MultiToken, which is effectively a variant over 2 or more
-// instances of util::TokenType.
+// instances of base::TokenType.
 //
 // A MultiToken<..> emulates a token like interface. When default constructed
 // it will construct itself as an instance of |TokenVariant0|. Additionally it
@@ -34,7 +34,7 @@ namespace blink {
 //
 // A variant must have at least 2 valid input types, but can have arbitrarily
 // many. They must all be distinct, and they must all be instances of
-// util::TokenType.
+// base::TokenType.
 template <typename TokenVariant0,
           typename TokenVariant1,
           typename... TokenVariants>
@@ -131,7 +131,7 @@ class MultiToken : public internal::MultiTokenBase<TokenVariant0,
     static constexpr uint32_t kInputTokenTypeIndex =
         Base::template TypeIndex<InputTokenType>::kValue;
     return Base::CompareImpl(std::tie(value_, variant_index_),
-                             std::tie(other.value_, kInputTokenTypeIndex));
+                             std::tie(other.value(), kInputTokenTypeIndex));
   }
   template <typename InputTokenType,
             typename = typename std::enable_if<

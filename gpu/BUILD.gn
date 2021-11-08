@@ -113,6 +113,10 @@ if (!use_static_angle) {
       "//ui/gl/init",
     ]
 
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
+
     defines = [
       "COMMAND_BUFFER_GLES_LIB_SUPPORT_ONLY",
       "EGLAPIENTRY=",
@@ -218,11 +222,16 @@ static_library("test_support") {
     "//gpu/skia_bindings:skia_bindings",
     "//testing/gmock",
     "//testing/gtest",
-    "//third_party/angle:translator",
     "//ui/gfx:test_support",
     "//ui/gl:gl_unittest_utils",
     "//ui/gl:test_support",
   ]
+
+  if (use_static_angle) {
+    deps += [ "//third_party/angle:translator" ]
+  } else {
+    deps += [ "//third_party/angle:translator_gl_d3d_only" ]
+  }
 }
 
 if (!is_android && !is_fuchsia && !is_chromeos_ash) {
@@ -287,6 +296,10 @@ if (!is_android && !is_fuchsia && !is_chromeos_ash) {
       "//ui/gl:gl",
       "//ui/gl/init:init",
     ]
+
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
   }
 }
 
@@ -294,6 +307,7 @@ test("gl_tests") {
   use_xvfb = use_xvfb_in_this_config
 
   sources = [
+    "command_buffer/service/shared_image_backing_factory_gl_image_unittest.cc",
     "command_buffer/service/shared_image_backing_factory_gl_texture_unittest.cc",
     "command_buffer/service/shared_image_factory_unittest.cc",
     "command_buffer/service/shared_image_manager_unittest.cc",
@@ -338,6 +352,8 @@ test("gl_tests") {
     "command_buffer/tests/gl_set_aggressively_free_resources_unittest.cc",
     "command_buffer/tests/gl_shared_resources_unittest.cc",
     "command_buffer/tests/gl_stream_draw_unittest.cc",
+    "command_buffer/tests/gl_test_setup_helper.cc",
+    "command_buffer/tests/gl_test_setup_helper.h",
     "command_buffer/tests/gl_test_utils.cc",
     "command_buffer/tests/gl_test_utils.h",
     "command_buffer/tests/gl_tests_main.cc",
@@ -365,7 +381,6 @@ test("gl_tests") {
     sources += [
       "command_buffer/service/webgpu_decoder_unittest.cc",
       "command_buffer/tests/shared_image_gl_backing_produce_dawn_unittest.cc",
-      "command_buffer/tests/webgpu_fence_unittest.cc",
       "command_buffer/tests/webgpu_mailbox_unittest.cc",
       "command_buffer/tests/webgpu_test.cc",
       "command_buffer/tests/webgpu_test.h",
@@ -373,8 +388,6 @@ test("gl_tests") {
   }
 
   defines = [ "GL_GLEXT_PROTOTYPES" ]
-
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
     ":gles2",
@@ -415,7 +428,10 @@ test("gl_tests") {
   if (is_android) {
     libs += [ "android" ]
     deps += [ "//ui/android:ui_java" ]
-    sources += [ "command_buffer/service/shared_image_backing_factory_ahardwarebuffer_unittest.cc" ]
+    sources += [
+      "command_buffer/service/shared_image_backing_factory_ahardwarebuffer_unittest.cc",
+      "command_buffer/service/shared_image_backing_factory_egl_unittest.cc",
+    ]
   } else if (is_mac) {
     frameworks = [ "IOSurface.framework" ]
     sources += [ "command_buffer/service/shared_image_backing_factory_iosurface_unittest.cc" ]
@@ -425,6 +441,7 @@ test("gl_tests") {
       "//ui/platform_window:platform_impls",
     ]
     sources += [
+      "command_buffer/service/dxgi_shared_handle_manager_unittest.cc",
       "command_buffer/service/shared_image_backing_factory_d3d_unittest.cc",
     ]
   } else if (is_linux || is_chromeos) {
@@ -475,7 +492,6 @@ test("gpu_unittests") {
     "command_buffer/client/webgpu_implementation_unittest.cc",
     "command_buffer/client/webgpu_implementation_unittest_autogen.h",
     "command_buffer/common/activity_flags_unittest.cc",
-    "command_buffer/common/bitfield_helpers_test.cc",
     "command_buffer/common/buffer_unittest.cc",
     "command_buffer/common/command_buffer_shared_test.cc",
     "command_buffer/common/debug_marker_manager_unittest.cc",
@@ -663,9 +679,9 @@ test("gpu_unittests") {
     "//gpu/ipc/client",
     "//gpu/ipc/common",
     "//gpu/ipc/common:test_interfaces",
+    "//gpu/ipc/common:test_support",
     "//gpu/ipc/host",
     "//gpu/ipc/service",
-    "//ipc:test_support",
     "//mojo/core/embedder",
     "//mojo/public/cpp/bindings",
     "//mojo/public/cpp/test_support:test_utils",
@@ -785,6 +801,10 @@ fuzzer_test("gpu_fuzzer") {
   ]
 
   libfuzzer_options = [ "max_len=16384" ]
+
+  if (use_ozone) {
+    deps += [ "//ui/ozone" ]
+  }
 }
 
 if (is_linux || is_chromeos) {
@@ -802,6 +822,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl",
       "//ui/gl:test_support",
     ]
+
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
 
     libfuzzer_options = [ "max_len=16384" ]
   }
@@ -824,6 +848,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl:test_support",
     ]
 
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
+
     libfuzzer_options = [ "max_len=16384" ]
   }
 
@@ -841,6 +869,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl",
       "//ui/gl:test_support",
     ]
+
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
 
     libfuzzer_options = [ "max_len=16384" ]
   }
@@ -864,6 +896,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl:test_support",
     ]
 
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
+
     libfuzzer_options = [ "max_len=16384" ]
   }
 
@@ -881,6 +917,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl",
       "//ui/gl:test_support",
     ]
+
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
 
     libfuzzer_options = [ "max_len=16384" ]
   }
@@ -904,6 +944,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl:test_support",
     ]
 
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
+
     libfuzzer_options = [ "max_len=16384" ]
   }
 
@@ -925,6 +969,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl:test_support",
     ]
 
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
+
     libfuzzer_options = [ "max_len=16384" ]
   }
 
@@ -945,6 +993,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl",
       "//ui/gl:test_support",
     ]
+
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
 
     libfuzzer_options = [ "max_len=16384" ]
   }
@@ -969,6 +1021,10 @@ if (is_linux || is_chromeos) {
       "//ui/gl:test_support",
     ]
 
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
+
     libfuzzer_options = [ "max_len=16384" ]
   }
 }
@@ -979,7 +1035,6 @@ test("gpu_benchmark") {
   sources = [ "command_buffer/tests/gl_helper_benchmark.cc" ]
 
   configs += [
-    "//build/config/compiler:no_size_t_to_int_warning",
     "//build/config:precompiled_headers",
     "//third_party/khronos:khronos_headers",
   ]

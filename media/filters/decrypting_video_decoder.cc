@@ -8,8 +8,8 @@
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/cdm_context.h"
@@ -30,10 +30,6 @@ DecryptingVideoDecoder::DecryptingVideoDecoder(
 
 VideoDecoderType DecryptingVideoDecoder::GetDecoderType() const {
   return VideoDecoderType::kDecrypting;
-}
-
-std::string DecryptingVideoDecoder::GetDisplayName() const {
-  return kDecoderName;
 }
 
 void DecryptingVideoDecoder::Initialize(const VideoDecoderConfig& config,
@@ -256,7 +252,7 @@ void DecryptingVideoDecoder::DeliverFrame(Decryptor::Status status,
 
   if (status == Decryptor::kError) {
     DVLOG(2) << "DeliverFrame() - kError";
-    MEDIA_LOG(ERROR, media_log_) << GetDisplayName() << ": decode error";
+    MEDIA_LOG(ERROR, media_log_) << GetDecoderType() << ": decode error";
     state_ = kError;
     std::move(decode_cb_).Run(DecodeStatus::DECODE_ERROR);
     return;
@@ -269,7 +265,7 @@ void DecryptingVideoDecoder::DeliverFrame(Decryptor::Status status,
         "no key for key ID " + base::HexEncode(key_id.data(), key_id.size()) +
         "; will resume decoding after new usable key is available";
     DVLOG(1) << __func__ << ": " << log_message;
-    MEDIA_LOG(INFO, media_log_) << GetDisplayName() << ": " << log_message;
+    MEDIA_LOG(INFO, media_log_) << GetDecoderType() << ": " << log_message;
 
     // Set |pending_buffer_to_decode_| back as we need to try decoding the
     // pending buffer again when new key is added to the decryptor.
@@ -278,7 +274,7 @@ void DecryptingVideoDecoder::DeliverFrame(Decryptor::Status status,
     if (need_to_try_again_if_nokey_is_returned) {
       // The |state_| is still kPendingDecode.
       MEDIA_LOG(INFO, media_log_)
-          << GetDisplayName() << ": key was added, resuming decode";
+          << GetDecoderType() << ": key was added, resuming decode";
       DecodePendingBuffer();
       return;
     }
@@ -340,7 +336,7 @@ void DecryptingVideoDecoder::OnCdmContextEvent(CdmContext::Event event) {
   if (state_ == kWaitingForKey) {
     CompleteWaitingForDecryptionKey();
     MEDIA_LOG(INFO, media_log_)
-        << GetDisplayName() << ": key added, resuming decode";
+        << GetDecoderType() << ": key added, resuming decode";
     state_ = kPendingDecode;
     DecodePendingBuffer();
   }

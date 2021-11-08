@@ -6,9 +6,9 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/json/values_util.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/util/values/values_util.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/net/prediction_options.h"
@@ -152,7 +152,7 @@ bool SearchPrefetchService::MaybePrefetchURL(const GURL& url) {
                                 base::Unretained(this)));
   }
 
-  base::string16 search_terms;
+  std::u16string search_terms;
 
   // Extract the terms directly to make sure this string will match the URL
   // interception string logic.
@@ -182,7 +182,7 @@ bool SearchPrefetchService::MaybePrefetchURL(const GURL& url) {
     return false;
   }
 
-  std::unique_ptr<BaseSearchPrefetchRequest> prefetch_request = nullptr;
+  std::unique_ptr<BaseSearchPrefetchRequest> prefetch_request;
   if (StreamSearchPrefetchResponses()) {
     prefetch_request = std::make_unique<StreamingSearchPrefetchRequest>(
         url, base::BindOnce(&SearchPrefetchService::ReportError,
@@ -222,7 +222,7 @@ void SearchPrefetchService::OnURLOpenedFromOmnibox(OmniboxLog* log) {
   if (!default_search)
     return;
 
-  base::string16 match_search_terms;
+  std::u16string match_search_terms;
 
   default_search->ExtractSearchTermsFromURL(
       opened_url, template_url_service->search_terms_data(),
@@ -236,11 +236,11 @@ void SearchPrefetchService::OnURLOpenedFromOmnibox(OmniboxLog* log) {
   prefetches_[match_search_terms]->MarkPrefetchAsClicked();
 }
 
-base::Optional<SearchPrefetchStatus>
+absl::optional<SearchPrefetchStatus>
 SearchPrefetchService::GetSearchPrefetchStatusForTesting(
-    base::string16 search_terms) {
+    std::u16string search_terms) {
   if (prefetches_.find(search_terms) == prefetches_.end())
-    return base::nullopt;
+    return absl::nullopt;
   return prefetches_[search_terms]->current_status();
 }
 
@@ -275,7 +275,7 @@ SearchPrefetchService::TakePrefetchResponseFromMemoryCache(
     return nullptr;
   }
 
-  base::string16 search_terms;
+  std::u16string search_terms;
   template_url_service->GetDefaultSearchProvider()->ExtractSearchTermsFromURL(
       navigation_url, template_url_service->search_terms_data(), &search_terms);
 
@@ -377,7 +377,7 @@ void SearchPrefetchService::ClearPrefetches() {
   SaveToPrefs();
 }
 
-void SearchPrefetchService::DeletePrefetch(base::string16 search_terms) {
+void SearchPrefetchService::DeletePrefetch(std::u16string search_terms) {
   DCHECK(prefetches_.find(search_terms) != prefetches_.end());
   DCHECK(prefetch_expiry_timers_.find(search_terms) !=
          prefetch_expiry_timers_.end());
@@ -419,7 +419,7 @@ void SearchPrefetchService::OnResultChanged(
       }
       bool should_cancel_request = true;
       for (const auto& match : result) {
-        base::string16 match_search_terms;
+        std::u16string match_search_terms;
         default_search->ExtractSearchTermsFromURL(
             match.destination_url, template_url_service->search_terms_data(),
             &match_search_terms);
@@ -458,7 +458,7 @@ void SearchPrefetchService::OnTemplateURLServiceChanged() {
       TemplateURLServiceFactory::GetForProfile(profile_);
   DCHECK(template_url_service);
 
-  base::Optional<TemplateURLData> template_url_service_data;
+  absl::optional<TemplateURLData> template_url_service_data;
 
   const TemplateURL* template_url =
       template_url_service->GetDefaultSearchProvider();
@@ -538,21 +538,16 @@ bool SearchPrefetchService::LoadFromPrefs() {
       TemplateURLServiceFactory::GetForProfile(profile_);
   if (!template_url_service ||
       !template_url_service->GetDefaultSearchProvider()) {
-    return dictionary->size() > 0;
+    return dictionary->DictSize() > 0;
   }
 
-  for (const auto& element : *dictionary) {
+  for (auto element : dictionary->DictItems()) {
     GURL navigation_url(element.first);
-    if (!navigation_url.is_valid()) {
+    if (!navigation_url.is_valid())
       continue;
-    }
-
-    if (!element.second) {
-      continue;
-    }
 
     base::Value::ConstListView const prefetch_url_and_time =
-        base::Value::AsListValue(*element.second).GetList();
+        base::Value::AsListValue(element.second).GetList();
 
     if (prefetch_url_and_time.size() != 2 ||
         !prefetch_url_and_time[0].is_string() ||
@@ -560,24 +555,22 @@ bool SearchPrefetchService::LoadFromPrefs() {
       continue;
     }
 
-    std::string prefetch_url;
-    if (!prefetch_url_and_time[0].GetAsString(&prefetch_url)) {
+    const std::string* prefetch_url = prefetch_url_and_time[0].GetIfString();
+    if (!prefetch_url)
       continue;
-    }
 
     // Make sure we are only mapping same origin in case of corrupted prefs.
     if (url::Origin::Create(navigation_url) !=
-        url::Origin::Create(GURL(prefetch_url))) {
+        url::Origin::Create(GURL(*prefetch_url))) {
       continue;
     }
 
     // Don't redirect same URL.
-    if (navigation_url == prefetch_url) {
+    if (navigation_url == *prefetch_url)
       continue;
-    }
 
     // Make sure the navigation URL is still a search URL.
-    base::string16 search_terms;
+    std::u16string search_terms;
     template_url_service->GetDefaultSearchProvider()->ExtractSearchTermsFromURL(
         navigation_url, template_url_service->search_terms_data(),
         &search_terms);
@@ -586,8 +579,8 @@ bool SearchPrefetchService::LoadFromPrefs() {
       continue;
     }
 
-    base::Optional<base::Time> last_update =
-        util::ValueToTime(prefetch_url_and_time[1]);
+    absl::optional<base::Time> last_update =
+        base::ValueToTime(prefetch_url_and_time[1]);
     if (!last_update) {
       continue;
     }
@@ -599,9 +592,9 @@ bool SearchPrefetchService::LoadFromPrefs() {
 
     prefetch_cache_.emplace(
         navigation_url,
-        std::make_pair(GURL(prefetch_url), last_update.value()));
+        std::make_pair(GURL(*prefetch_url), last_update.value()));
   }
-  return dictionary->size() > prefetch_cache_.size();
+  return dictionary->DictSize() > prefetch_cache_.size();
 }
 
 void SearchPrefetchService::SaveToPrefs() const {
@@ -610,9 +603,9 @@ void SearchPrefetchService::SaveToPrefs() const {
     std::string navigation_url = element.first.spec();
     std::string prefetch_url = element.second.first.spec();
     auto time =
-        std::make_unique<base::Value>(util::TimeToValue(element.second.second));
+        std::make_unique<base::Value>(base::TimeToValue(element.second.second));
     base::ListValue value;
-    value.AppendString(prefetch_url);
+    value.Append(prefetch_url);
     value.Append(std::move(time));
     dictionary.SetKey(std::move(navigation_url), std::move(value));
   }

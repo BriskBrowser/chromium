@@ -10,7 +10,6 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/observer_list.h"
 #include "chromeos/components/tether/active_host.h"
 
 namespace chromeos {
@@ -21,6 +20,10 @@ namespace tether {
 class FakeActiveHost : public ActiveHost {
  public:
   FakeActiveHost();
+
+  FakeActiveHost(const FakeActiveHost&) = delete;
+  FakeActiveHost& operator=(const FakeActiveHost&) = delete;
+
   ~FakeActiveHost() override;
 
   // ActiveHost:
@@ -47,8 +50,6 @@ class FakeActiveHost : public ActiveHost {
   std::string active_host_device_id_;
   std::string tether_network_guid_;
   std::string wifi_network_guid_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeActiveHost);
 };
 
 }  // namespace tether

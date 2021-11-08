@@ -4,12 +4,12 @@
 
 #include "chrome/browser/ui/views/renderer_context_menu/render_view_context_menu_views.h"
 
+#include <string>
 #include <utility>
 
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/scoped_observation.h"
-#include "base/strings/string16.h"
 #include "base/task/current_thread.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -105,7 +105,7 @@ class RenderViewContextMenuViews::SubmenuViewObserver
 // RenderViewContextMenuViews, public:
 
 RenderViewContextMenuViews::RenderViewContextMenuViews(
-    content::RenderFrameHost* render_frame_host,
+    content::RenderFrameHost& render_frame_host,
     const content::ContextMenuParams& params)
     : RenderViewContextMenu(render_frame_host, params),
       bidi_submenu_model_(this) {
@@ -118,7 +118,7 @@ RenderViewContextMenuViews::~RenderViewContextMenuViews() {
 
 // static
 RenderViewContextMenuViews* RenderViewContextMenuViews::Create(
-    content::RenderFrameHost* render_frame_host,
+    content::RenderFrameHost& render_frame_host,
     const content::ContextMenuParams& params) {
   return new RenderViewContextMenuViews(render_frame_host, params);
 }
@@ -159,11 +159,6 @@ bool RenderViewContextMenuViews::GetAcceleratorForCommandId(
 
     case IDC_CONTENT_CONTEXT_COPY:
       *accel = ui::Accelerator(ui::VKEY_C, ui::EF_CONTROL_DOWN);
-      return true;
-
-    case IDC_CONTENT_CONTEXT_INSPECTELEMENT:
-      *accel = ui::Accelerator(ui::VKEY_I,
-                               ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN);
       return true;
 
     case IDC_CONTENT_CONTEXT_PASTE:
@@ -245,6 +240,10 @@ bool RenderViewContextMenuViews::GetAcceleratorForCommandId(
       *accel = ui::Accelerator(ui::VKEY_SPACE,
                                ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN);
       return true;
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
+      *accel = ui::Accelerator(ui::VKEY_SPACE,
+                               ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN);
+      return true;
 #else
       return false;
 #endif
@@ -253,6 +252,8 @@ bool RenderViewContextMenuViews::GetAcceleratorForCommandId(
 #if BUILDFLAG(IS_CHROMEOS_ASH)
       *accel = ui::Accelerator(ui::VKEY_V, ui::EF_COMMAND_DOWN);
       return true;
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+      return false;
 #else
       NOTREACHED();
       return false;

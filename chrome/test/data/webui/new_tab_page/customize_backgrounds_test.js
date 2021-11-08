@@ -3,16 +3,21 @@
 // found in the LICENSE file.
 
 import 'chrome://new-tab-page/lazy_load.js';
-import {BackgroundSelectionType, BrowserProxy} from 'chrome://new-tab-page/new_tab_page.js';
-import {assertNotStyle, assertStyle, createTestProxy} from 'chrome://test/new_tab_page/test_support.js';
-import {eventToPromise, flushTasks, isVisible} from 'chrome://test/test_util.m.js';
+
+import {BackgroundSelectionType, NewTabPageProxy, WindowProxy} from 'chrome://new-tab-page/new_tab_page.js';
+import {assertNotStyle, assertStyle, installMock} from 'chrome://test/new_tab_page/test_support.js';
+import {TestBrowserProxy} from 'chrome://test/test_browser_proxy.js';
+import {eventToPromise, flushTasks, isVisible} from 'chrome://test/test_util.js';
 
 function createCollection(id = 0, label = '', url = '') {
   return {id: id, label: label, previewImageUrl: {url: url}};
 }
 
 suite('NewTabPageCustomizeBackgroundsTest', () => {
-  /** @type {newTabPage.mojom.PageHandlerRemote} */
+  /** @type {!TestBrowserProxy} */
+  let windowProxy;
+
+  /** @type {!TestBrowserProxy} */
   let handler;
 
   async function createCustomizeBackgrounds() {
@@ -28,15 +33,19 @@ suite('NewTabPageCustomizeBackgroundsTest', () => {
   setup(() => {
     PolymerTest.clearBody();
 
-    const testProxy = createTestProxy();
-    handler = testProxy.handler;
+    windowProxy = installMock(WindowProxy);
+    windowProxy.setResultFor('createIframeSrc', '');
+
+    handler = installMock(
+        newTabPage.mojom.PageHandlerRemote,
+        mock => NewTabPageProxy.setInstance(
+            mock, new newTabPage.mojom.PageCallbackRouter()));
     handler.setResultFor('getBackgroundCollections', Promise.resolve({
       collections: [],
     }));
     handler.setResultFor('getBackgroundImages', Promise.resolve({
       images: [],
     }));
-    BrowserProxy.instance_ = testProxy;
   });
 
   test('creating element shows background collection tiles', async () => {

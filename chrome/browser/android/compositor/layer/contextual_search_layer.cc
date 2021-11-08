@@ -61,6 +61,14 @@ void ContextualSearchLayer::SetProperties(
     float panel_help_height,
     float panel_help_opacity,
     int panel_help_container_background_color,
+    // Related Searches
+    int related_searches_in_content_resource_id,
+    bool related_searches_in_content_visible,
+    float related_searches_in_content_height,
+    int related_searches_in_bar_resource_id,
+    bool related_searches_in_bar_visible,
+    float related_searches_in_bar_height,
+    float related_searches_in_bar_redundant_padding,
     // Banner etc
     bool search_bar_banner_visible,
     float search_bar_banner_height,
@@ -113,8 +121,10 @@ void ContextualSearchLayer::SetProperties(
       search_provider_icon_resource_id, drag_handlebar_resource_id,
       open_tab_icon_resource_id, close_icon_resource_id);
 
-  float content_view_top =
-      search_bar_bottom + panel_help_height + search_promo_height;
+  //  TODO(donnd): Update when moving Related Searches.
+  float content_view_top = search_bar_bottom + panel_help_height +
+                           search_promo_height +
+                           related_searches_in_content_height;
   float should_render_bar_border = search_bar_border_visible
       && !should_render_progress_bar;
 
@@ -127,13 +137,14 @@ void ContextualSearchLayer::SetProperties(
       search_bar_margin_side, search_bar_margin_top, search_bar_height,
       search_bar_top, search_term_opacity, should_render_bar_border,
       search_bar_border_height, icon_color, drag_handlebar_color,
-      close_icon_opacity, separator_line_color);
+      close_icon_opacity, separator_line_color, related_searches_in_bar_height);
 
   // -----------------------------------------------------------------
-  // Content setup, to center in space below drag handle (when present).
+  // Content setup, to center in space below drag handle.
   // -----------------------------------------------------------------
   bool is_rtl = l10n_util::IsLayoutRtl();
-  int content_height = search_bar_height - search_bar_margin_top;
+  int content_height = search_bar_height - search_bar_margin_top -
+                       related_searches_in_bar_height;
   int content_top = search_bar_top + search_bar_margin_top;
 
   // -----------------------------------------------------------------
@@ -234,11 +245,65 @@ void ContextualSearchLayer::SetProperties(
                      search_context_resource_id, search_context_opacity,
                      search_term_caption_spacing);
 
+  // Tracks the top of the next section to draw.
+  int next_section_top = search_bar_bottom;
+
+  // ---------------------------------------------------------------------------
+  // Related Searches In-Bar Control
+  // ---------------------------------------------------------------------------
+  if (related_searches_in_bar_visible) {
+    // Grabs the Related Searches in-bar resource.
+    ui::Resource* related_searches_resource = resource_manager_->GetResource(
+        ui::ANDROID_RESOURCE_TYPE_DYNAMIC, related_searches_in_bar_resource_id);
+    DCHECK(related_searches_resource);
+    if (related_searches_resource) {
+      gfx::Size related_searches_size(
+          search_panel_width, related_searches_resource->size().height());
+      if (related_searches_in_bar_->parent() != layer_) {
+        layer_->AddChild(related_searches_in_bar_);
+      }
+      related_searches_in_bar_->SetUIResourceId(
+          related_searches_resource->ui_resource()->id());
+      related_searches_in_bar_->SetBounds(related_searches_size);
+      related_searches_in_bar_->SetPosition(
+          gfx::PointF(0.f, search_bar_bottom - related_searches_in_bar_height -
+                               related_searches_in_bar_redundant_padding));
+    }
+  } else if (related_searches_in_bar_.get() &&
+             related_searches_in_bar_->parent()) {
+    related_searches_in_bar_->RemoveFromParent();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Related Searches In-Content Control
+  // ---------------------------------------------------------------------------
+  if (related_searches_in_content_visible) {
+    // Grabs the Related Searches in-content resource.
+    ui::Resource* related_searches_resource =
+        resource_manager_->GetResource(ui::ANDROID_RESOURCE_TYPE_DYNAMIC,
+                                       related_searches_in_content_resource_id);
+    DCHECK(related_searches_resource);
+    if (related_searches_resource) {
+      int related_searches_height = related_searches_resource->size().height();
+      gfx::Size related_searches_size(search_panel_width,
+                                      related_searches_height);
+      if (related_searches_in_content_->parent() != layer_)
+        layer_->AddChild(related_searches_in_content_);
+      related_searches_in_content_->SetUIResourceId(
+          related_searches_resource->ui_resource()->id());
+      related_searches_in_content_->SetBounds(related_searches_size);
+      related_searches_in_content_->SetPosition(
+          gfx::PointF(0.f, next_section_top));
+      next_section_top += related_searches_height;
+    }
+  } else if (related_searches_in_content_.get() &&
+             related_searches_in_content_->parent()) {
+    related_searches_in_content_->RemoveFromParent();
+  }
+
   // ---------------------------------------------------------------------------
   // Panel Help
   // ---------------------------------------------------------------------------
-  // Tracks the top of the next section to draw.
-  int next_section_top = search_bar_bottom;
   if (panel_help_visible) {
     ui::Resource* panel_help_resource = resource_manager_->GetResource(
         ui::ANDROID_RESOURCE_TYPE_DYNAMIC, panel_help_resource_id);
@@ -283,8 +348,9 @@ void ContextualSearchLayer::SetProperties(
     if (search_promo_container_->parent() != layer_) {
       // NOTE(donnd): This layer can appear just below the Bar so it should be
       // always placed before the Search Bar Shadow to make sure it won't
-      // occlude the shadow.
-      layer_->InsertChild(search_promo_container_, 0);
+      // occlude the shadow. Since layer 0 is the shadow for the sheet itself,
+      // this needs to be layer 1.
+      layer_->InsertChild(search_promo_container_, 1);
     }
 
     if (search_promo_resource) {
@@ -308,6 +374,8 @@ void ContextualSearchLayer::SetProperties(
       search_promo_->SetPosition(
           gfx::PointF(0.f, search_promo_height - search_promo_content_height));
       search_promo_->SetOpacity(search_promo_opacity);
+      // Next section goes beyond this section.
+      next_section_top += search_promo_content_height;
     }
   } else {
     // Search Promo Container
@@ -670,6 +738,8 @@ ContextualSearchLayer::ContextualSearchLayer(
       panel_help_container_(cc::SolidColorLayer::Create()),
       search_promo_(cc::UIResourceLayer::Create()),
       search_promo_container_(cc::SolidColorLayer::Create()),
+      related_searches_in_bar_(cc::UIResourceLayer::Create()),
+      related_searches_in_content_(cc::UIResourceLayer::Create()),
       bar_banner_container_(cc::SolidColorLayer::Create()),
       bar_banner_ripple_(cc::NinePatchLayer::Create()),
       bar_banner_text_(cc::UIResourceLayer::Create()),
@@ -700,6 +770,10 @@ ContextualSearchLayer::ContextualSearchLayer(
   search_promo_container_->SetIsDrawable(true);
   search_promo_container_->SetBackgroundColor(kSearchBackgroundColor);
   search_promo_->SetIsDrawable(true);
+
+  // Related Searches sections
+  related_searches_in_bar_->SetIsDrawable(true);
+  related_searches_in_content_->SetIsDrawable(true);
 
   // Icon - holds thumbnail, search provider icon and/or quick action icon
   icon_layer_->SetIsDrawable(true);

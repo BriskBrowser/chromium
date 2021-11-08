@@ -24,6 +24,9 @@ class WebTestBluetoothChooserFactory::Chooser : public BluetoothChooser {
     factory->choosers_.insert(this);
   }
 
+  Chooser(const Chooser&) = delete;
+  Chooser& operator=(const Chooser&) = delete;
+
   ~Chooser() override {
     CheckFactory();
     factory_->choosers_.erase(this);
@@ -65,7 +68,7 @@ class WebTestBluetoothChooserFactory::Chooser : public BluetoothChooser {
 
   void AddOrUpdateDevice(const std::string& device_id,
                          bool should_update_name,
-                         const base::string16& device_name,
+                         const std::u16string& device_name,
                          bool is_gatt_connected,
                          bool is_paired,
                          int signal_strength_level) override {
@@ -87,8 +90,6 @@ class WebTestBluetoothChooserFactory::Chooser : public BluetoothChooser {
   }
 
   base::WeakPtr<WebTestBluetoothChooserFactory> factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(Chooser);
 };
 
 WebTestBluetoothChooserFactory::WebTestBluetoothChooserFactory() {}

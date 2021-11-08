@@ -60,10 +60,10 @@ void TestLocalCardMigrationManager::ResetSyncState(
 void TestLocalCardMigrationManager::OnDidGetUploadDetails(
     bool is_from_settings_page,
     AutofillClient::PaymentsRpcResult result,
-    const base::string16& context_token,
+    const std::u16string& context_token,
     std::unique_ptr<base::Value> legal_message,
     std::vector<std::pair<int, int>> supported_bin_ranges) {
-  if (result == AutofillClient::SUCCESS) {
+  if (result == AutofillClient::PaymentsRpcResult::kSuccess) {
     local_card_migration_was_triggered_ = true;
   }
   LocalCardMigrationManager::OnDidGetUploadDetails(

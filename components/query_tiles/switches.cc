@@ -22,6 +22,9 @@ const base::Feature kQueryTilesRemoveTrendingTilesAfterInactivity{
     "QueryTilesRemoveTrendingAfterInactivity",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kQueryTilesSegmentation{"QueryTilesSegmentation",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
+
 bool IsEnabledQueryTilesInOmnibox() {
   return base::FeatureList::IsEnabled(features::kQueryTilesGeoFilter) &&
          base::FeatureList::IsEnabled(features::kQueryTilesInOmnibox);
@@ -40,5 +43,7 @@ const char kQueryTilesInstantBackgroundTask[] =
 const char kQueryTilesEnableTrending[] = "query-tiles-enable-trending";
 
 const char kQueryTilesMoreTrending[] = "query-tiles-more-trending";
+
+const char kQueryTilesRankTiles[] = "query-tiles-rank-tiles";
 }  // namespace switches
 }  // namespace query_tiles

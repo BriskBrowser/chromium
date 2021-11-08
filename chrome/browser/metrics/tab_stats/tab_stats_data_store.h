@@ -10,12 +10,12 @@
 
 #include "base/containers/flat_map.h"
 #include "base/gtest_prod_util.h"
-#include "base/optional.h"
 #include "base/profiler/sample_metadata.h"
 #include "base/sequence_checker.h"
 #include "chrome/browser/metrics/tab_stats/tab_stats_observer.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_state.mojom.h"
 #include "content/public/browser/visibility.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 using mojom::LifecycleUnitDiscardReason;
 
@@ -39,6 +39,7 @@ class TabStatsDataStore : public TabStatsObserver {
     // Constructor, initializes everything to zero.
     TabsStats();
     TabsStats(const TabsStats& other);
+    TabsStats& operator=(const TabsStats& other);
 
     // The total number of tabs opened across all the windows.
     size_t total_tab_count;
@@ -83,6 +84,10 @@ class TabStatsDataStore : public TabStatsObserver {
       base::flat_map<TabID, TabStateDuringInterval>;
 
   explicit TabStatsDataStore(PrefService* pref_service);
+
+  TabStatsDataStore(const TabStatsDataStore&) = delete;
+  TabStatsDataStore& operator=(const TabStatsDataStore&) = delete;
+
   ~TabStatsDataStore() override;
 
   // TabStatsObserver:
@@ -93,9 +98,8 @@ class TabStatsDataStore : public TabStatsObserver {
   void OnTabReplaced(content::WebContents* old_contents,
                      content::WebContents* new_contents) override;
   void OnTabInteraction(content::WebContents* web_contents) override;
-  void OnTabAudible(content::WebContents* web_contents) override;
-  void OnTabVisibilityChanged(content::WebContents* web_contents,
-                              content::Visibility visibility) override;
+  void OnTabIsAudibleChanged(content::WebContents* web_contents) override;
+  void OnTabVisibilityChanged(content::WebContents* web_contents) override;
 
   // Update the maximum number of tabs in a single window if |value| exceeds
   // this.
@@ -114,7 +118,7 @@ class TabStatsDataStore : public TabStatsObserver {
   void ResetIntervalData(TabsStateDuringIntervalMap* interval_map);
 
   const TabsStats& tab_stats() const { return tab_stats_; }
-  base::Optional<TabID> GetTabIDForTesting(content::WebContents* web_contents);
+  absl::optional<TabID> GetTabIDForTesting(content::WebContents* web_contents);
   base::flat_map<content::WebContents*, TabID>* existing_tabs_for_testing() {
     return &existing_tabs_;
   }
@@ -159,8 +163,6 @@ class TabStatsDataStore : public TabStatsObserver {
   base::flat_map<content::WebContents*, TabID> existing_tabs_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(TabStatsDataStore);
 };
 
 }  // namespace metrics

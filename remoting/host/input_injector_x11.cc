@@ -14,9 +14,8 @@
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/optional.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversion_utils.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -27,6 +26,7 @@
 #include "remoting/host/linux/x11_keyboard_impl.h"
 #include "remoting/host/linux/x11_util.h"
 #include "remoting/proto/internal.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
@@ -79,17 +79,20 @@ bool IsDomModifierKey(ui::DomCode dom_code) {
 const float kWheelTicksPerPixel = 3.0f / 160.0f;
 
 // When the user is scrolling, generate at least one tick per time period.
-const base::TimeDelta kContinuousScrollTimeout =
-    base::TimeDelta::FromMilliseconds(500);
+const base::TimeDelta kContinuousScrollTimeout = base::Milliseconds(500);
 
 // A class to generate events on X11.
 class InputInjectorX11 : public InputInjector {
  public:
   explicit InputInjectorX11(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+
+  InputInjectorX11(const InputInjectorX11&) = delete;
+  InputInjectorX11& operator=(const InputInjectorX11&) = delete;
+
   ~InputInjectorX11() override;
 
-  bool Init();
+  void Init();
 
   // Clipboard stub interface.
   void InjectClipboardEvent(const ClipboardEvent& event) override;
@@ -110,7 +113,10 @@ class InputInjectorX11 : public InputInjector {
    public:
     explicit Core(scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
-    bool Init();
+    Core(const Core&) = delete;
+    Core& operator=(const Core&) = delete;
+
+    void Init();
 
     // Mirrors the ClipboardStub interface.
     void InjectClipboardEvent(const ClipboardEvent& event);
@@ -144,8 +150,8 @@ class InputInjectorX11 : public InputInjector {
     bool IsLockKey(x11::KeyCode keycode);
 
     // Sets the keyboard lock states to those provided.
-    void SetLockStates(base::Optional<bool> caps_lock,
-                       base::Optional<bool> num_lock);
+    void SetLockStates(absl::optional<bool> caps_lock,
+                       absl::optional<bool> num_lock);
 
     void InjectScrollWheelClicks(int button, int count);
     // Compensates for global button mappings and resets the XTest device
@@ -167,8 +173,8 @@ class InputInjectorX11 : public InputInjector {
     // "tick" being injected.
     ScrollDirection latest_tick_y_direction_ = ScrollDirection::NONE;
 
-    // X11 graphics context.
-    x11::Connection connection_;
+    // X11 graphics context. Must only be accessed on the input thread.
+    x11::Connection* connection_;
 
     // Number of buttons we support.
     // Left, Right, Middle, VScroll Up/Down, HScroll Left/Right, back, forward.
@@ -185,13 +191,9 @@ class InputInjectorX11 : public InputInjector {
     std::unique_ptr<X11CharacterInjector> character_injector_;
 
     bool saved_auto_repeat_enabled_ = false;
-
-    DISALLOW_COPY_AND_ASSIGN(Core);
   };
 
   scoped_refptr<Core> core_;
-
-  DISALLOW_COPY_AND_ASSIGN(InputInjectorX11);
 };
 
 InputInjectorX11::InputInjectorX11(
@@ -203,8 +205,8 @@ InputInjectorX11::~InputInjectorX11() {
   core_->Stop();
 }
 
-bool InputInjectorX11::Init() {
-  return core_->Init();
+void InputInjectorX11::Init() {
+  core_->Init();
 }
 
 void InputInjectorX11::InjectClipboardEvent(const ClipboardEvent& event) {
@@ -236,19 +238,17 @@ InputInjectorX11::Core::Core(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : task_runner_(task_runner) {}
 
-bool InputInjectorX11::Core::Init() {
-  CHECK(connection_.Ready());
-
-  if (!task_runner_->BelongsToCurrentThread())
-    task_runner_->PostTask(FROM_HERE,
-                           base::BindOnce(&Core::InitClipboard, this));
-
-  if (!IgnoreXServerGrabs(&connection_, true)) {
-    LOG(ERROR) << "Server does not support XTest.";
-    return false;
+void InputInjectorX11::Core::Init() {
+  if (!task_runner_->BelongsToCurrentThread()) {
+    task_runner_->PostTask(FROM_HERE, base::BindOnce(&Core::Init, this));
+    return;
   }
-  InitMouseButtonMap();
-  return true;
+
+  connection_ = x11::Connection::Get();
+  if (!IgnoreXServerGrabs(connection_, true)) {
+    LOG(ERROR) << "XTEST not supported, cannot inject key/mouse events.";
+  }
+  InitClipboard();
 }
 
 void InputInjectorX11::Core::InjectClipboardEvent(const ClipboardEvent& event) {
@@ -273,6 +273,10 @@ void InputInjectorX11::Core::InjectKeyEvent(const KeyEvent& event) {
     return;
   }
 
+  if (!connection_->xtest().present()) {
+    return;
+  }
+
   int keycode =
       ui::KeycodeConverter::UsbKeycodeToNativeKeycode(event.usb_keycode());
 
@@ -290,12 +294,13 @@ void InputInjectorX11::Core::InjectKeyEvent(const KeyEvent& event) {
         return;
       // Key is already held down, so lift the key up to ensure this repeated
       // press takes effect.
-      connection_.xtest().FakeInput({x11::KeyEvent::Release, keycode});
+      connection_->xtest().FakeInput(
+          {x11::KeyEvent::Release, static_cast<uint8_t>(keycode)});
     }
 
     if (!IsLockKey(static_cast<x11::KeyCode>(keycode))) {
-      base::Optional<bool> caps_lock;
-      base::Optional<bool> num_lock;
+      absl::optional<bool> caps_lock;
+      absl::optional<bool> num_lock;
 
       // For caps lock, check both the new caps_lock field and the old
       // lock_states field.
@@ -327,9 +332,10 @@ void InputInjectorX11::Core::InjectKeyEvent(const KeyEvent& event) {
     pressed_keys_.erase(keycode);
   }
 
-  auto opcode = event.pressed() ? x11::KeyEvent::Press : x11::KeyEvent::Release;
-  connection_.xtest().FakeInput({opcode, keycode});
-  connection_.Flush();
+  uint8_t opcode =
+      event.pressed() ? x11::KeyEvent::Press : x11::KeyEvent::Release;
+  connection_->xtest().FakeInput({opcode, static_cast<uint8_t>(keycode)});
+  connection_->Flush();
 }
 
 void InputInjectorX11::Core::InjectTextEvent(const TextEvent& event) {
@@ -339,11 +345,16 @@ void InputInjectorX11::Core::InjectTextEvent(const TextEvent& event) {
     return;
   }
 
+  if (!connection_->xtest().present()) {
+    return;
+  }
+
   // Release all keys before injecting text event. This is necessary to avoid
   // any interference with the currently pressed keys. E.g. if Shift is pressed
   // when TextEvent is received.
   for (int key : pressed_keys_)
-    connection_.xtest().FakeInput({x11::KeyEvent::Release, key});
+    connection_->xtest().FakeInput(
+        {x11::KeyEvent::Release, static_cast<uint8_t>(key)});
   pressed_keys_.clear();
 
   const std::string text = event.text();
@@ -367,34 +378,34 @@ void InputInjectorX11::Core::InitClipboard() {
 }
 
 bool InputInjectorX11::Core::IsAutoRepeatEnabled() {
-  if (auto reply = connection_.GetKeyboardControl({}).Sync())
+  if (auto reply = connection_->GetKeyboardControl().Sync())
     return reply->global_auto_repeat == x11::AutoRepeatMode::On;
   LOG(ERROR) << "Failed to get keyboard auto-repeat status, assuming ON.";
   return true;
 }
 
 void InputInjectorX11::Core::SetAutoRepeatEnabled(bool mode) {
-  connection_.ChangeKeyboardControl(
+  connection_->ChangeKeyboardControl(
       {.auto_repeat_mode =
            mode ? x11::AutoRepeatMode::On : x11::AutoRepeatMode::Off});
-  connection_.Flush();
+  connection_->Flush();
 }
 
 bool InputInjectorX11::Core::IsLockKey(x11::KeyCode keycode) {
-  auto state = connection_.xkb().GetState({}).Sync();
+  auto state = connection_->xkb().GetState().Sync();
   if (!state)
     return false;
   auto mods = state->baseMods | state->latchedMods | state->lockedMods;
   auto keysym =
-      connection_.KeycodeToKeysym(keycode, static_cast<unsigned>(mods));
+      connection_->KeycodeToKeysym(keycode, static_cast<unsigned>(mods));
   if (state && keysym)
     return keysym == XK_Caps_Lock || keysym == XK_Num_Lock;
   else
     return false;
 }
 
-void InputInjectorX11::Core::SetLockStates(base::Optional<bool> caps_lock,
-                                           base::Optional<bool> num_lock) {
+void InputInjectorX11::Core::SetLockStates(absl::optional<bool> caps_lock,
+                                           absl::optional<bool> num_lock) {
   // The lock bits associated with each lock key.
   auto caps_lock_mask = static_cast<unsigned int>(x11::ModMask::Lock);
   auto num_lock_mask = static_cast<unsigned int>(x11::ModMask::c_2);
@@ -417,7 +428,7 @@ void InputInjectorX11::Core::SetLockStates(base::Optional<bool> caps_lock,
   }
 
   if (update_mask) {
-    connection_.xkb().LatchLockState(
+    connection_->xkb().LatchLockState(
         {static_cast<x11::Xkb::DeviceSpec>(x11::Xkb::Id::UseCoreKbd),
          static_cast<x11::ModMask>(update_mask),
          static_cast<x11::ModMask>(lock_values)});
@@ -425,14 +436,22 @@ void InputInjectorX11::Core::SetLockStates(base::Optional<bool> caps_lock,
 }
 
 void InputInjectorX11::Core::InjectScrollWheelClicks(int button, int count) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+
+  if (!connection_->xtest().present()) {
+    return;
+  }
+
   if (button < 0) {
     LOG(WARNING) << "Ignoring unmapped scroll wheel button";
     return;
   }
   for (int i = 0; i < count; i++) {
     // Generate a button-down and a button-up to simulate a wheel click.
-    connection_.xtest().FakeInput({x11::ButtonEvent::Press, button});
-    connection_.xtest().FakeInput({x11::ButtonEvent::Release, button});
+    connection_->xtest().FakeInput(
+        {x11::ButtonEvent::Press, static_cast<uint8_t>(button)});
+    connection_->xtest().FakeInput(
+        {x11::ButtonEvent::Release, static_cast<uint8_t>(button)});
   }
 }
 
@@ -443,15 +462,19 @@ void InputInjectorX11::Core::InjectMouseEvent(const MouseEvent& event) {
     return;
   }
 
+  if (!connection_->xtest().present()) {
+    return;
+  }
+
   if (event.has_delta_x() && event.has_delta_y() &&
       (event.delta_x() != 0 || event.delta_y() != 0)) {
     latest_mouse_position_.set(-1, -1);
     VLOG(3) << "Moving mouse by " << event.delta_x() << "," << event.delta_y();
-    connection_.xtest().FakeInput({
+    connection_->xtest().FakeInput({
         .type = x11::MotionNotifyEvent::opcode,
         .detail = true,
-        .rootX = event.delta_x(),
-        .rootY = event.delta_y(),
+        .rootX = static_cast<int16_t>(event.delta_x()),
+        .rootY = static_cast<int16_t>(event.delta_y()),
     });
   } else if (event.has_x() && event.has_y()) {
     // Injecting a motion event immediately before a button release results in
@@ -478,12 +501,12 @@ void InputInjectorX11::Core::InjectMouseEvent(const MouseEvent& event) {
 
       VLOG(3) << "Moving mouse to " << latest_mouse_position_.x() << ","
               << latest_mouse_position_.y();
-      connection_.xtest().FakeInput({
+      connection_->xtest().FakeInput({
           .type = x11::MotionNotifyEvent::opcode,
           .detail = false,
-          .root = connection_.default_root(),
-          .rootX = latest_mouse_position_.x(),
-          .rootY = latest_mouse_position_.y(),
+          .root = connection_->default_root(),
+          .rootX = static_cast<int16_t>(latest_mouse_position_.x()),
+          .rootY = static_cast<int16_t>(latest_mouse_position_.y()),
       });
     }
   }
@@ -498,9 +521,10 @@ void InputInjectorX11::Core::InjectMouseEvent(const MouseEvent& event) {
 
     VLOG(3) << "Button " << event.button() << " received, sending "
             << (event.button_down() ? "down " : "up ") << button_number;
-    auto opcode = event.button_down() ? x11::ButtonEvent::Press
-                                      : x11::ButtonEvent::Release;
-    connection_.xtest().FakeInput({opcode, button_number});
+    uint8_t opcode = event.button_down() ? x11::ButtonEvent::Press
+                                         : x11::ButtonEvent::Release;
+    connection_->xtest().FakeInput(
+        {opcode, static_cast<uint8_t>(button_number)});
   }
 
   // remotedesktop.google.com currently sends scroll events in pixels, which
@@ -569,10 +593,12 @@ void InputInjectorX11::Core::InjectMouseEvent(const MouseEvent& event) {
                             abs(ticks_x));
   }
 
-  connection_.Flush();
+  connection_->Flush();
 }
 
 void InputInjectorX11::Core::InitMouseButtonMap() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+
   // TODO(rmsousa): Run this on global/device mapping change events.
 
   // Do not touch global pointer mapping, since this may affect the local user.
@@ -580,7 +606,7 @@ void InputInjectorX11::Core::InitMouseButtonMap() {
   // Note that if a user has a global mapping that completely disables a button
   // (by assigning 0 to it), we won't be able to inject it.
   std::vector<uint8_t> pointer_mapping;
-  if (auto reply = connection_.GetPointerMapping({}).Sync())
+  if (auto reply = connection_->GetPointerMapping().Sync())
     pointer_mapping = std::move(reply->map);
   for (int& i : pointer_button_map_)
     i = -1;
@@ -594,7 +620,7 @@ void InputInjectorX11::Core::InitMouseButtonMap() {
       LOG(ERROR) << "Global pointer mapping does not support button " << i + 1;
   }
 
-  if (!connection_.QueryExtension({"XInputExtension"}).Sync()) {
+  if (!connection_->QueryExtension("XInputExtension").Sync()) {
     // If XInput is not available, we're done. But it would be very unusual to
     // have a server that supports XTest but not XInput, so log it as an error.
     LOG(ERROR) << "X Input extension not available";
@@ -607,7 +633,7 @@ void InputInjectorX11::Core::InitMouseButtonMap() {
   // may have mistakenly applied left-handed preferences to the XTEST device.
   uint8_t device_id = 0;
   bool device_found = false;
-  if (auto devices = connection_.xinput().ListInputDevices({}).Sync()) {
+  if (auto devices = connection_->xinput().ListInputDevices().Sync()) {
     for (size_t i = 0; i < devices->devices.size(); i++) {
       const auto& device_info = devices->devices[i];
       const std::string& name = devices->names[i].name;
@@ -626,27 +652,27 @@ void InputInjectorX11::Core::InitMouseButtonMap() {
     return;
   }
 
-  auto device = connection_.xinput().OpenDevice({device_id}).Sync();
+  auto device = connection_->xinput().OpenDevice({device_id}).Sync();
   if (!device) {
     LOG(ERROR) << "Cannot open XTest device.";
     return;
   }
 
   if (auto mapping =
-          connection_.xinput().GetDeviceButtonMapping({device_id}).Sync()) {
+          connection_->xinput().GetDeviceButtonMapping({device_id}).Sync()) {
     size_t num_device_buttons = mapping->map.size();
     std::vector<uint8_t> new_mapping;
     for (size_t i = 0; i < num_device_buttons; i++)
       new_mapping.push_back(i + 1);
-    if (!connection_.xinput()
+    if (!connection_->xinput()
              .SetDeviceButtonMapping({device_id, new_mapping})
              .Sync()) {
       LOG(ERROR) << "Failed to set XTest device button mapping";
     }
   }
 
-  connection_.xinput().CloseDevice({device_id});
-  connection_.Flush();
+  connection_->xinput().CloseDevice({device_id});
+  connection_->Flush();
 }
 
 int InputInjectorX11::Core::MouseButtonToX11ButtonNumber(
@@ -692,7 +718,7 @@ void InputInjectorX11::Core::Start(
   clipboard_->Start(std::move(client_clipboard));
 
   character_injector_ = std::make_unique<X11CharacterInjector>(
-      std::make_unique<X11KeyboardImpl>(&connection_));
+      std::make_unique<X11KeyboardImpl>(connection_));
 
   // Disable auto-repeat, if necessary, to avoid triggering auto-repeat
   // if network congestion delays the key-up event from the client. This is
@@ -722,10 +748,8 @@ void InputInjectorX11::Core::Stop() {
 std::unique_ptr<InputInjector> InputInjector::Create(
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner) {
-  std::unique_ptr<InputInjectorX11> injector(
-      new InputInjectorX11(main_task_runner));
-  if (!injector->Init())
-    return nullptr;
+  auto injector = std::make_unique<InputInjectorX11>(main_task_runner);
+  injector->Init();
   return std::move(injector);
 }
 

@@ -12,7 +12,6 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/ui/views/payments/editor_view_controller.h"
 #include "chrome/browser/ui/views/payments/validating_textfield.h"
 #include "components/autofill/core/browser/ui/region_combobox_model.h"
@@ -45,12 +44,18 @@ class ShippingAddressEditorViewController : public EditorViewController {
       base::OnceCallback<void(const autofill::AutofillProfile&)> on_added,
       autofill::AutofillProfile* profile,
       bool is_incognito);
+
+  ShippingAddressEditorViewController(
+      const ShippingAddressEditorViewController&) = delete;
+  ShippingAddressEditorViewController& operator=(
+      const ShippingAddressEditorViewController&) = delete;
+
   ~ShippingAddressEditorViewController() override;
 
   // EditorViewController:
   bool IsEditingExistingItem() override;
   std::vector<EditorField> GetFieldDefinitions() override;
-  base::string16 GetInitialValueForType(
+  std::u16string GetInitialValueForType(
       autofill::ServerFieldType type) override;
   bool ValidateModelAndSave() override;
   std::unique_ptr<ValidationDelegate> CreateValidationDelegate(
@@ -61,7 +66,7 @@ class ShippingAddressEditorViewController : public EditorViewController {
   void UpdateEditorView() override;
 
   // PaymentRequestSheetController:
-  base::string16 GetSheetTitle() override;
+  std::u16string GetSheetTitle() override;
 
  protected:
   int GetPrimaryButtonId() override;
@@ -73,33 +78,37 @@ class ShippingAddressEditorViewController : public EditorViewController {
     ShippingAddressValidationDelegate(
         ShippingAddressEditorViewController* parent,
         const EditorField& field);
+
+    ShippingAddressValidationDelegate(
+        const ShippingAddressValidationDelegate&) = delete;
+    ShippingAddressValidationDelegate& operator=(
+        const ShippingAddressValidationDelegate&) = delete;
+
     ~ShippingAddressValidationDelegate() override;
 
     // ValidationDelegate:
     bool ShouldFormat() override;
-    base::string16 Format(const base::string16& text) override;
+    std::u16string Format(const std::u16string& text) override;
     bool IsValidTextfield(views::Textfield* textfield,
-                          base::string16* error_message) override;
+                          std::u16string* error_message) override;
     bool IsValidCombobox(ValidatingCombobox* combobox,
-                         base::string16* error_message) override;
+                         std::u16string* error_message) override;
     bool TextfieldValueChanged(views::Textfield* textfield,
                                bool was_blurred) override;
     bool ComboboxValueChanged(ValidatingCombobox* combobox) override;
     void ComboboxModelChanged(ValidatingCombobox* combobox) override;
 
    private:
-    bool ValidateValue(const base::string16& value,
-                       base::string16* error_message);
+    bool ValidateValue(const std::u16string& value,
+                       std::u16string* error_message);
 
     EditorField field_;
 
     // Raw pointer back to the owner of this class, therefore will not be null.
     ShippingAddressEditorViewController* controller_;
-
-    DISALLOW_COPY_AND_ASSIGN(ShippingAddressValidationDelegate);
   };
 
-  base::string16 GetValueForType(const autofill::AutofillProfile& profile,
+  std::u16string GetValueForType(const autofill::AutofillProfile& profile,
                                  autofill::ServerFieldType type);
 
   bool GetSheetId(DialogViewID* sheet_id) override;
@@ -156,7 +165,7 @@ class ShippingAddressEditorViewController : public EditorViewController {
 
   // The list of country codes and names as ordered in the country combobox
   // model.
-  std::vector<std::pair<std::string, base::string16>> countries_;
+  std::vector<std::pair<std::string, std::u16string>> countries_;
 
   // Identifies whether we tried and failed to load region data.
   bool failed_to_load_region_data_;
@@ -166,8 +175,6 @@ class ShippingAddressEditorViewController : public EditorViewController {
 
   base::WeakPtrFactory<ShippingAddressEditorViewController> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(ShippingAddressEditorViewController);
 };
 
 }  // namespace payments

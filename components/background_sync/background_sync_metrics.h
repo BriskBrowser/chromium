@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 
 namespace {
@@ -31,6 +32,10 @@ class BackgroundSyncMetrics {
 
   explicit BackgroundSyncMetrics(
       background_sync::BackgroundSyncDelegate* delegate);
+
+  BackgroundSyncMetrics(const BackgroundSyncMetrics&) = delete;
+  BackgroundSyncMetrics& operator=(const BackgroundSyncMetrics&) = delete;
+
   ~BackgroundSyncMetrics();
 
   void MaybeRecordOneShotSyncRegistrationEvent(const url::Origin& origin,
@@ -57,7 +62,7 @@ class BackgroundSyncMetrics {
   friend class BackgroundSyncMetricsBrowserTest;
 
   void DidGetBackgroundSourceId(RecordCallback record_callback,
-                                base::Optional<ukm::SourceId> source_id);
+                                absl::optional<ukm::SourceId> source_id);
 
   void RecordOneShotSyncRegistrationEvent(bool can_fire,
                                           bool is_reregistered,
@@ -83,8 +88,6 @@ class BackgroundSyncMetrics {
   base::OnceClosure ukm_event_recorded_for_testing_;
 
   base::WeakPtrFactory<BackgroundSyncMetrics> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BackgroundSyncMetrics);
 };
 
 #endif  // COMPONENTS_BACKGROUND_SYNC_BACKGROUND_SYNC_METRICS_H_

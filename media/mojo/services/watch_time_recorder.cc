@@ -24,15 +24,15 @@ namespace media {
 // The minimum amount of media playback which can elapse before we'll report
 // watch time metrics for a playback.
 constexpr base::TimeDelta kMinimumElapsedWatchTime =
-    base::TimeDelta::FromSeconds(limits::kMinimumElapsedWatchTimeSecs);
+    base::Seconds(limits::kMinimumElapsedWatchTimeSecs);
 
 static void RecordWatchTimeInternal(
     base::StringPiece key,
     base::TimeDelta value,
     base::TimeDelta minimum = kMinimumElapsedWatchTime) {
   DCHECK(!key.empty());
-  base::UmaHistogramCustomTimes(key.as_string(), value, minimum,
-                                base::TimeDelta::FromHours(10), 50);
+  base::UmaHistogramCustomTimes(std::string(key), value, minimum,
+                                base::Hours(10), 50);
 }
 
 static void RecordMeanTimeBetweenRebuffers(base::StringPiece key,
@@ -41,19 +41,19 @@ static void RecordMeanTimeBetweenRebuffers(base::StringPiece key,
 
   // There are a maximum of 5 underflow events possible in a given 7s watch time
   // period, so the minimum value is 1.4s.
-  RecordWatchTimeInternal(key, value, base::TimeDelta::FromSecondsD(1.4));
+  RecordWatchTimeInternal(key, value, base::Seconds(1.4));
 }
 
 static void RecordDiscardedWatchTime(base::StringPiece key,
                                      base::TimeDelta value) {
   DCHECK(!key.empty());
-  base::UmaHistogramCustomTimes(key.as_string(), value, base::TimeDelta(),
+  base::UmaHistogramCustomTimes(std::string(key), value, base::TimeDelta(),
                                 kMinimumElapsedWatchTime, 50);
 }
 
 static void RecordRebuffersCount(base::StringPiece key, int underflow_count) {
   DCHECK(!key.empty());
-  base::UmaHistogramCounts100(key.as_string(), underflow_count);
+  base::UmaHistogramCounts100(std::string(key), underflow_count);
 }
 
 WatchTimeRecorder::WatchTimeUkmRecord::WatchTimeUkmRecord(
@@ -122,10 +122,10 @@ void WatchTimeRecorder::FinalizeWatchTime(
     // watch time requirement. Otherwise, for SRC/MSE/EME keys, log them to the
     // discard metric.
     base::StringPiece key_str = ConvertWatchTimeKeyToStringForUma(kv.first);
-    if (!key_str.empty()) {
+    if (ShouldRecordUma() && !key_str.empty()) {
       if (kv.second >= kMinimumElapsedWatchTime) {
         RecordWatchTimeInternal(key_str, kv.second);
-      } else if (kv.second > base::TimeDelta()) {
+      } else if (kv.second.is_positive()) {
         auto it = std::find_if(extended_metrics_keys_.begin(),
                                extended_metrics_keys_.end(),
                                [kv](const ExtendedMetricsKeyMap& map) {
@@ -151,7 +151,8 @@ void WatchTimeRecorder::FinalizeWatchTime(
   // Check for watch times entries that have corresponding MTBR entries and
   // report the MTBR value using watch_time / |underflow_count|. Do this only
   // for foreground reporters since we only have UMA keys for foreground.
-  if (!properties_->is_background && !properties_->is_muted) {
+  if (ShouldRecordUma() && !properties_->is_background &&
+      !properties_->is_muted) {
     for (auto& mapping : extended_metrics_keys_) {
       auto it = watch_time_info_.find(mapping.watch_time_key);
       if (it == watch_time_info_.end() || it->second < kMinimumElapsedWatchTime)
@@ -200,8 +201,8 @@ void WatchTimeRecorder::UpdateSecondaryProperties(
     // update without creating a whole new record. Not checking
     // audio_encryption_scheme and video_encryption_scheme as we want to
     // capture changes in encryption schemes.
-    if (last_record.secondary_properties->audio_codec == kUnknownAudioCodec ||
-        last_record.secondary_properties->video_codec == kUnknownVideoCodec ||
+    if (last_record.secondary_properties->audio_codec == AudioCodec::kUnknown ||
+        last_record.secondary_properties->video_codec == VideoCodec::kUnknown ||
         last_record.secondary_properties->audio_codec_profile ==
             AudioCodecProfile::kUnknown ||
         last_record.secondary_properties->video_codec_profile ==
@@ -211,9 +212,9 @@ void WatchTimeRecorder::UpdateSecondaryProperties(
         last_record.secondary_properties->video_decoder ==
             VideoDecoderType::kUnknown) {
       auto temp_props = last_record.secondary_properties.Clone();
-      if (last_record.secondary_properties->audio_codec == kUnknownAudioCodec)
+      if (last_record.secondary_properties->audio_codec == AudioCodec::kUnknown)
         temp_props->audio_codec = secondary_properties->audio_codec;
-      if (last_record.secondary_properties->video_codec == kUnknownVideoCodec)
+      if (last_record.secondary_properties->video_codec == VideoCodec::kUnknown)
         temp_props->video_codec = secondary_properties->video_codec;
       if (last_record.secondary_properties->audio_codec_profile ==
           AudioCodecProfile::kUnknown) {
@@ -327,10 +328,10 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
     return;
 
   // Round duration to the most significant digit in milliseconds for privacy.
-  base::Optional<uint64_t> clamped_duration_ms;
+  absl::optional<uint64_t> clamped_duration_ms;
   if (duration_ != kNoTimestamp && duration_ != kInfiniteDuration) {
     clamped_duration_ms = duration_.InMilliseconds();
-    if (duration_ > base::TimeDelta::FromSeconds(1)) {
+    if (duration_ > base::Seconds(1)) {
       // Turns 54321 => 10000.
       const uint64_t base =
           std::pow(10, static_cast<uint64_t>(std::log10(*clamped_duration_ms)));
@@ -424,8 +425,10 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
     }
 
     // See note in mojom::PlaybackProperties about why we have both of these.
-    builder.SetAudioCodec(ukm_record.secondary_properties->audio_codec);
-    builder.SetVideoCodec(ukm_record.secondary_properties->video_codec);
+    builder.SetAudioCodec(
+        static_cast<int64_t>(ukm_record.secondary_properties->audio_codec));
+    builder.SetVideoCodec(
+        static_cast<int64_t>(ukm_record.secondary_properties->video_codec));
     builder.SetAudioCodecProfile(static_cast<int64_t>(
         ukm_record.secondary_properties->audio_codec_profile));
     builder.SetVideoCodecProfile(
@@ -433,7 +436,7 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
     builder.SetHasAudio(properties_->has_audio);
     builder.SetHasVideo(properties_->has_video);
 
-    if (ukm_record.secondary_properties->audio_codec == kCodecAAC)
+    if (ukm_record.secondary_properties->audio_codec == AudioCodec::kAAC)
       aac_profiles.insert(ukm_record.secondary_properties->audio_codec_profile);
 
     builder.SetAudioDecoderName(
@@ -446,6 +449,8 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
         ukm_record.secondary_properties->video_encryption_scheme));
     builder.SetIsEME(properties_->is_eme);
     builder.SetIsMSE(properties_->is_mse);
+    builder.SetMediaStreamType(
+        static_cast<int64_t>(properties_->media_stream_type));
     builder.SetLastPipelineStatus(pipeline_status_);
     builder.SetRebuffersCount(ukm_record.total_underflow_count);
     builder.SetCompletedRebuffersCount(
@@ -462,18 +467,22 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
     builder.Record(ukm_recorder);
   }
 
-  if (!aac_profiles.empty()) {
+  if (ShouldRecordUma() && !aac_profiles.empty()) {
     for (auto profile : aac_profiles)
       base::UmaHistogramEnumeration("Media.AudioCodecProfile.AAC", profile);
   }
 
-  if (total_foreground_audible_watch_time > base::TimeDelta()) {
+  if (total_foreground_audible_watch_time.is_positive()) {
     std::move(record_playback_cb_)
         .Run(total_foreground_audible_watch_time, last_timestamp_,
              properties_->has_video, properties_->has_audio);
   }
 
   ukm_records_.clear();
+}
+
+bool WatchTimeRecorder::ShouldRecordUma() const {
+  return properties_->media_stream_type == mojom::MediaStreamType::kNone;
 }
 
 WatchTimeRecorder::ExtendedMetricsKeyMap::ExtendedMetricsKeyMap(

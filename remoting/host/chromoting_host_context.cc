@@ -8,7 +8,7 @@
 #include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_pump_type.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -22,9 +22,9 @@ namespace remoting {
 namespace {
 
 void DisallowBlockingOperations() {
-  base::ThreadRestrictions::SetIOAllowed(false);
+  base::DisallowBlocking();
   // TODO(crbug.com/793486): Re-enable after the underlying issue is fixed.
-  // base::ThreadRestrictions::DisallowBaseSyncPrimitives();
+  // base::DisallowBaseSyncPrimitives();
 }
 
 }  // namespace
@@ -111,6 +111,10 @@ ChromotingHostContext::url_loader_factory() {
   return url_loader_factory_owner_->GetURLLoaderFactory();
 }
 
+policy::ManagementService* ChromotingHostContext::management_service() {
+  return &platform_management_service_;
+}
+
 std::unique_ptr<ChromotingHostContext> ChromotingHostContext::Create(
     scoped_refptr<AutoThreadTaskRunner> ui_task_runner) {
 #if defined(OS_WIN)
@@ -135,10 +139,18 @@ std::unique_ptr<ChromotingHostContext> ChromotingHostContext::Create(
   network_task_runner->PostTask(FROM_HERE,
                                 base::BindOnce(&DisallowBlockingOperations));
 
-  return base::WrapUnique(new ChromotingHostContext(
-      ui_task_runner, audio_task_runner, file_task_runner,
+  // InputInjectorX11 requires an X11EventSource, which can only be created
+  // on a UI thread.
+  scoped_refptr<AutoThreadTaskRunner> input_task_runner =
       AutoThread::CreateWithType("ChromotingInputThread", ui_task_runner,
-                                 base::MessagePumpType::IO),
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+                                 base::MessagePumpType::UI);
+#else
+                                 base::MessagePumpType::IO);
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
+
+  return base::WrapUnique(new ChromotingHostContext(
+      ui_task_runner, audio_task_runner, file_task_runner, input_task_runner,
       network_task_runner,
 #if defined(OS_APPLE)
       // Mac requires a UI thread for the capturer.

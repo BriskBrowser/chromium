@@ -15,8 +15,6 @@
 @interface AlertCoordinator () {
   // Variable backing a property from Subclassing category.
   UIAlertController* _alertController;
-  // Title for the alert.
-  NSString* _title;
 }
 
 // Redefined to readwrite.
@@ -41,6 +39,7 @@
 @synthesize noInteractionAction = _noInteractionAction;
 @synthesize rawCancelAction = _rawCancelAction;
 @synthesize message = _message;
+@synthesize title = _title;
 
 - (instancetype)initWithBaseViewController:(UIViewController*)viewController
                                    browser:(Browser*)browser
@@ -84,10 +83,9 @@
       [UIAlertAction actionWithTitle:title
                                style:style
                              handler:^(UIAlertAction*) {
-                               [weakSelf setNoInteractionAction:nil];
+                               [weakSelf alertDismissed];
                                if (actionBlock)
                                  actionBlock();
-                               [weakSelf alertDismissed];
                              }];
 
   alertAction.enabled = enabled;

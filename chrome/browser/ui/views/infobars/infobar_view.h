@@ -6,13 +6,14 @@
 #define CHROME_BROWSER_UI_VIEWS_INFOBARS_INFOBAR_VIEW_H_
 
 #include "base/compiler_specific.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/infobar_container.h"
 #include "third_party/skia/include/core/SkPath.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/menu/menu_types.h"
 #include "ui/views/focus/external_focus_tracker.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -52,11 +53,11 @@ class InfoBarView : public infobars::InfoBar,
   using Labels = std::vector<views::Label*>;
 
   // Creates a label with the appropriate font and color for an infobar.
-  views::Label* CreateLabel(const base::string16& text) const;
+  views::Label* CreateLabel(const std::u16string& text) const;
 
   // Creates a link with the appropriate font and color for an infobar.
   // NOTE: Subclasses must ignore link clicks if we're unowned.
-  views::Link* CreateLink(const base::string16& text);
+  views::Link* CreateLink(const std::u16string& text);
 
   // Given |views| and the total |available_width| to display them in, sets
   // each view's size so that the longest view shrinks until it reaches the
@@ -90,13 +91,6 @@ class InfoBarView : public infobars::InfoBar,
   // Does the actual work for AssignWidths().  Assumes |views| is sorted by
   // decreasing preferred width.
   static void AssignWidthsSorted(Views* views, int available_width);
-
-  // Returns whether this infobar should draw a 1 px separator at its top.
-  bool GetDrawSeparator() const;
-
-  // Returns how much space the container should reserve for a separator between
-  // infobars, in addition to the height of the infobars themselves.
-  int GetSeparatorHeight() const;
 
   // Returns the current color for the theme property |id|.  Will return the
   // wrong value if no theme provider is available.

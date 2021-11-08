@@ -7,8 +7,6 @@
 
 #include <stdint.h>
 
-#include <string>
-
 #include "base/macros.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_renderer_sink.h"
@@ -30,6 +28,9 @@ class FakeAudioRendererSink : public AudioRendererSink {
   FakeAudioRendererSink();
 
   explicit FakeAudioRendererSink(const AudioParameters& hardware_params);
+
+  FakeAudioRendererSink(const FakeAudioRendererSink&) = delete;
+  FakeAudioRendererSink& operator=(const FakeAudioRendererSink&) = delete;
 
   void Initialize(const AudioParameters& params,
                   RenderCallback* callback) override;
@@ -69,8 +70,6 @@ class FakeAudioRendererSink : public AudioRendererSink {
   RenderCallback* callback_;
   OutputDeviceInfo output_device_info_;
   bool is_optimized_for_hw_params_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeAudioRendererSink);
 };
 
 }  // namespace media

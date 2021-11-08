@@ -15,7 +15,7 @@
 #include "base/trace_event/memory_dump_manager.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/browser/infobars/simple_alert_infobar_creator.h"
 #include "chrome/browser/ui/simple_message_box.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -23,8 +23,8 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
+#include "components/infobars/content/content_infobar_manager.h"
 #include "components/infobars/core/infobar_delegate.h"
-#include "components/infobars/core/simple_alert_infobar_delegate.h"
 #include "components/nacl/common/buildflags.h"
 #include "components/nacl/common/nacl_switches.h"
 #include "components/network_session_configurator/common/network_switches.h"
@@ -40,7 +40,6 @@
 #include "sandbox/policy/switches.h"
 #include "services/device/public/cpp/hid/hid_switches.h"
 #include "services/network/public/cpp/network_switches.h"
-#include "third_party/blink/public/common/features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -153,7 +152,6 @@ static const char* kBadFlags[] = {
 // Dangerous feature flags in about:flags for which to display a warning that
 // "stability and security will suffer".
 static const base::Feature* kBadFeatureFlagsInAboutFlags[] = {
-    &blink::features::kRawClipboard,
     &features::kWebBundlesFromNetwork,
 #if defined(OS_ANDROID)
     &chrome::android::kCommandLineOnNonRooted,
@@ -168,8 +166,8 @@ void ShowBadFlagsInfoBarHelper(content::WebContents* web_contents,
   // animate the infobar to reduce noise in perf benchmarks because they pass
   // --ignore-certificate-errors-spki-list.  This infobar only appears at
   // startup so the animation isn't visible to users anyway.
-  SimpleAlertInfoBarDelegate::Create(
-      InfoBarService::FromWebContents(web_contents),
+  CreateSimpleAlertInfoBar(
+      infobars::ContentInfoBarManager::FromWebContents(web_contents),
       infobars::InfoBarDelegate::BAD_FLAGS_INFOBAR_DELEGATE, nullptr,
       l10n_util::GetStringFUTF16(message_id, base::UTF8ToUTF16(flag)),
       /*auto_expire=*/false, /*should_animate=*/false);
@@ -228,11 +226,10 @@ void MaybeShowInvalidUserDataDirWarningDialog() {
         locale, NULL, ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
   }
 
-  const base::string16& title =
+  const std::u16string& title =
       l10n_util::GetStringUTF16(IDS_CANT_WRITE_USER_DIRECTORY_TITLE);
-  const base::string16& message =
-      l10n_util::GetStringFUTF16(IDS_CANT_WRITE_USER_DIRECTORY_SUMMARY,
-                                 user_data_dir.LossyDisplayName());
+  const std::u16string& message = l10n_util::GetStringFUTF16(
+      IDS_CANT_WRITE_USER_DIRECTORY_SUMMARY, user_data_dir.LossyDisplayName());
 
   if (cleanup_resource_bundle)
     ui::ResourceBundle::CleanupSharedInstance();

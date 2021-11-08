@@ -12,11 +12,8 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
-#include "content/common/frame_messages.h"
 #include "content/common/navigation_client.mojom-forward.h"
-#include "content/common/navigation_params.mojom-forward.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_renderer_host.h"
@@ -25,7 +22,10 @@
 #include "content/test/test_render_widget_host.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/bluetooth/web_bluetooth.mojom-forward.h"
+#include "third_party/blink/public/mojom/navigation/navigation_params.mojom-forward.h"
 #include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-forward.h"
 #include "ui/base/page_transition_types.h"
 
@@ -59,8 +59,12 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
                       FrameTreeNode* frame_tree_node,
                       int32_t routing_id,
                       mojo::PendingAssociatedRemote<mojom::Frame> frame_remote,
-                      const base::UnguessableToken& frame_token,
-                      LifecycleState lifecyle_state);
+                      const blink::LocalFrameToken& frame_token,
+                      LifecycleStateImpl lifecycle_state);
+
+  TestRenderFrameHost(const TestRenderFrameHost&) = delete;
+  TestRenderFrameHost& operator=(const TestRenderFrameHost&) = delete;
+
   ~TestRenderFrameHost() override;
 
   // RenderFrameHostImpl overrides (same values, but in Test*/Mock* types)
@@ -81,7 +85,7 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   TestRenderFrameHost* AppendChild(const std::string& frame_name) override;
   TestRenderFrameHost* AppendChildWithPolicy(
       const std::string& frame_name,
-      const blink::ParsedFeaturePolicy& allow) override;
+      const blink::ParsedPermissionsPolicy& allow) override;
   void Detach() override;
   void SendNavigateWithTransition(int nav_entry_id,
                                   bool did_create_new_entry,
@@ -92,6 +96,7 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   void SimulateUserActivation() override;
   const std::vector<std::string>& GetConsoleMessages() override;
   int GetHeavyAdIssueCount(HeavyAdIssueType type) override;
+  void SimulateManifestURLUpdate(const GURL& manifest_url) override;
 
   void SendNavigate(int nav_entry_id,
                     bool did_create_new_entry,
@@ -120,7 +125,7 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
                                               bool has_user_gesture);
 
   void SimulateDidChangeOpener(
-      const base::Optional<base::UnguessableToken>& opener_frame_token);
+      const absl::optional<blink::LocalFrameToken>& opener_frame_token);
 
   void DidEnforceInsecureRequestPolicy(
       blink::mojom::InsecureRequestPolicy policy);
@@ -146,8 +151,9 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
       bool was_fetched_via_cache,
       bool is_signed_exchange_inner_response,
       net::HttpResponseInfo::ConnectionInfo connection_info,
-      base::Optional<net::SSLInfo> ssl_info,
+      absl::optional<net::SSLInfo> ssl_info,
       scoped_refptr<net::HttpResponseHeaders> response_headers,
+      mojo::ScopedDataPipeConsumerHandle response_body,
       const std::vector<std::string>& dns_aliases);
 
   // Used to simulate the commit of a navigation having been processed in the
@@ -203,18 +209,21 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   // callbacks.
   void SimulateLoadingCompleted(LoadingScenario loading_scenario);
 
+  // Expose this for testing.
+  using RenderFrameHostImpl::SetPolicyContainerHost;
+
  protected:
   void SendCommitNavigation(
       mojom::NavigationClient* navigation_client,
       NavigationRequest* navigation_request,
-      mojom::CommonNavigationParamsPtr common_params,
-      mojom::CommitNavigationParamsPtr commit_params,
+      blink::mojom::CommonNavigationParamsPtr common_params,
+      blink::mojom::CommitNavigationParamsPtr commit_params,
       network::mojom::URLResponseHeadPtr response_head,
       mojo::ScopedDataPipeConsumerHandle response_body,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
           subresource_loader_factories,
-      base::Optional<std::vector<blink::mojom::TransferrableURLLoaderPtr>>
+      absl::optional<std::vector<blink::mojom::TransferrableURLLoaderPtr>>
           subresource_overrides,
       blink::mojom::ControllerServiceWorkerInfoPtr
           controller_service_worker_info,
@@ -226,11 +235,12 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   void SendCommitFailedNavigation(
       mojom::NavigationClient* navigation_client,
       NavigationRequest* navigation_request,
-      mojom::CommonNavigationParamsPtr common_params,
-      mojom::CommitNavigationParamsPtr commit_params,
+      blink::mojom::CommonNavigationParamsPtr common_params,
+      blink::mojom::CommitNavigationParamsPtr commit_params,
       bool has_stale_copy_in_cache,
       int32_t error_code,
-      const base::Optional<std::string>& error_page_content,
+      int32_t extended_error_code,
+      const absl::optional<std::string>& error_page_content,
       std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
           subresource_loader_factories,
       blink::mojom::PolicyContainerPtr policy_container) override;
@@ -247,8 +257,9 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
       bool was_fetched_via_cache,
       bool is_signed_exchange_inner_response,
       net::HttpResponseInfo::ConnectionInfo connection_info,
-      base::Optional<net::SSLInfo> ssl_info,
+      absl::optional<net::SSLInfo> ssl_info,
       scoped_refptr<net::HttpResponseHeaders> response_headers,
+      mojo::ScopedDataPipeConsumerHandle response_body,
       const std::vector<std::string>& dns_aliases);
 
   // Computes the page ID for a pending navigation in this RenderFrameHost;
@@ -258,7 +269,8 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
       bool did_create_new_entry,
       const GURL& url,
       ui::PageTransition transition,
-      int response_code);
+      int response_code,
+      bool is_same_document);
 
   mojom::DidCommitProvisionalLoadInterfaceParamsPtr
   BuildDidCommitInterfaceParams(bool is_same_document);
@@ -288,8 +300,6 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
 
   mojo::PendingRemote<blink::mojom::WebBluetoothService>
       dummy_web_bluetooth_service_remote_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestRenderFrameHost);
 };
 
 }  // namespace content

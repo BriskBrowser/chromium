@@ -77,6 +77,7 @@ void FramelessMediaInterfaceProxy::CreateMediaPlayerRenderer(
 // Unimplemented method as this requires CDM and media::Renderer services with
 // frame context.
 void FramelessMediaInterfaceProxy::CreateMediaFoundationRenderer(
+    mojo::PendingRemote<media::mojom::MediaLog> media_log_remote,
     mojo::PendingReceiver<media::mojom::Renderer> receiver,
     mojo::PendingReceiver<media::mojom::MediaFoundationRendererExtension>
         renderer_extension_receiver) {}
@@ -85,8 +86,7 @@ void FramelessMediaInterfaceProxy::CreateMediaFoundationRenderer(
 void FramelessMediaInterfaceProxy::CreateCdm(const std::string& key_system,
                                              const media::CdmConfig& cdm_config,
                                              CreateCdmCallback callback) {
-  std::move(callback).Run(mojo::NullRemote(), base::nullopt, mojo::NullRemote(),
-                          "CDM creation not supported");
+  std::move(callback).Run(mojo::NullRemote(), nullptr, "CDM not supported");
 }
 
 media::mojom::InterfaceFactory*

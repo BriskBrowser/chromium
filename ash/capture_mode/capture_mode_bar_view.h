@@ -7,7 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/capture_mode/capture_mode_types.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -47,7 +47,9 @@ class ASH_EXPORT CaptureModeBarView : public views::View {
  public:
   METADATA_HEADER(CaptureModeBarView);
 
-  CaptureModeBarView();
+  // |projector_mode| is true when the current session was started through the
+  // projector workflow.
+  explicit CaptureModeBarView(bool projector_mode);
   CaptureModeBarView(const CaptureModeBarView&) = delete;
   CaptureModeBarView& operator=(const CaptureModeBarView&) = delete;
   ~CaptureModeBarView() override;
@@ -57,6 +59,7 @@ class ASH_EXPORT CaptureModeBarView : public views::View {
     return capture_source_view_;
   }
   CaptureModeToggleButton* settings_button() const { return settings_button_; }
+  CaptureModeButton* close_button() const { return close_button_; }
 
   // Gets the ideal bounds in screen coordinates of the bar of widget on the
   // given |root| window.
@@ -68,8 +71,6 @@ class ASH_EXPORT CaptureModeBarView : public views::View {
 
   // Called when settings is toggled on or off.
   void SetSettingsMenuShown(bool shown);
-
-  CaptureModeButton* close_button_for_testing() const { return close_button_; }
 
  private:
   void OnSettingsButtonPressed();

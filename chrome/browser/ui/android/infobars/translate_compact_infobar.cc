@@ -15,8 +15,7 @@
 #include "base/bind.h"
 #include "chrome/android/chrome_jni_headers/TranslateCompactInfoBar_jni.h"
 #include "chrome/browser/android/tab_android.h"
-#include "chrome/browser/infobars/infobar_service.h"
-#include "components/translate/content/android/translate_utils.h"
+#include "components/infobars/content/content_infobar_manager.h"
 #include "components/translate/core/browser/translate_infobar_delegate.h"
 #include "components/translate/core/browser/translate_metrics_logger.h"
 #include "components/variations/variations_associated_data.h"
@@ -57,22 +56,20 @@ ScopedJavaLocalRef<jobject> TranslateCompactInfoBar::CreateRenderInfoBar(
     const ResourceIdMapper& resource_id_mapper) {
   translate::TranslateInfoBarDelegate* delegate = GetDelegate();
 
-  base::android::ScopedJavaLocalRef<jobjectArray> java_languages =
-      translate::TranslateUtils::GetJavaLanguages(env, delegate);
-  base::android::ScopedJavaLocalRef<jobjectArray> java_codes =
-      translate::TranslateUtils::GetJavaLanguageCodes(env, delegate);
-  base::android::ScopedJavaLocalRef<jintArray> java_hash_codes =
-      translate::TranslateUtils::GetJavaLanguageHashCodes(env, delegate);
-
+  translate::JavaLanguageInfoWrapper translate_languages =
+      translate::TranslateUtils::GetTranslateLanguagesInJavaFormat(env,
+                                                                   delegate);
+  base::android::ScopedJavaLocalRef<jobjectArray> content_languages =
+      translate::TranslateUtils::GetContentLanguagesInJavaFormat(env, delegate);
   ScopedJavaLocalRef<jstring> source_language_code =
-      base::android::ConvertUTF8ToJavaString(
-          env, delegate->original_language_code());
+      base::android::ConvertUTF8ToJavaString(env,
+                                             delegate->source_language_code());
 
   ScopedJavaLocalRef<jstring> target_language_code =
       base::android::ConvertUTF8ToJavaString(env,
                                              delegate->target_language_code());
   content::WebContents* web_contents =
-      InfoBarService::WebContentsFromInfoBar(this);
+      infobars::ContentInfoBarManager::WebContentsFromInfoBar(this);
 
   TabAndroid* tab =
       web_contents ? TabAndroid::FromWebContents(web_contents) : nullptr;
@@ -80,8 +77,11 @@ ScopedJavaLocalRef<jobject> TranslateCompactInfoBar::CreateRenderInfoBar(
   return Java_TranslateCompactInfoBar_create(
       env, tab ? tab->GetJavaObject() : nullptr, delegate->translate_step(),
       source_language_code, target_language_code,
-      delegate->ShouldAlwaysTranslate(), delegate->triggered_from_menu(),
-      java_languages, java_codes, java_hash_codes, TabDefaultTextColor());
+      delegate->ShouldNeverTranslateLanguage(),
+      delegate->IsSiteOnNeverPromptList(), delegate->ShouldAlwaysTranslate(),
+      delegate->triggered_from_menu(), translate_languages.java_languages,
+      translate_languages.java_codes, translate_languages.java_hash_codes,
+      content_languages, TabDefaultTextColor());
 }
 
 void TranslateCompactInfoBar::ProcessButton(int action) {
@@ -125,8 +125,8 @@ void TranslateCompactInfoBar::ApplyStringTranslateOption(
   if (option == translate::TranslateUtils::OPTION_SOURCE_CODE) {
     std::string source_code =
         base::android::ConvertJavaStringToUTF8(env, value);
-    if (delegate->original_language_code().compare(source_code) != 0)
-      delegate->UpdateOriginalLanguage(source_code);
+    if (delegate->source_language_code().compare(source_code) != 0)
+      delegate->UpdateSourceLanguage(source_code);
     delegate->ReportUIInteraction(
         translate::UIInteraction::kChangeSourceLanguage);
   } else if (option == translate::TranslateUtils::OPTION_TARGET_CODE) {
@@ -155,23 +155,29 @@ void TranslateCompactInfoBar::ApplyBoolTranslateOption(
     delegate->ReportUIInteraction(
         translate::UIInteraction::kAlwaysTranslateLanguage);
   } else if (option == translate::TranslateUtils::OPTION_NEVER_TRANSLATE) {
-    if (value && delegate->IsTranslatableLanguageByPrefs()) {
+    if (delegate->ShouldNeverTranslateLanguage() != value) {
       action_flags_ |= FLAG_NEVER_LANGUAGE;
       delegate->ToggleTranslatableLanguageByPrefs();
-      RemoveSelf();
-      delegate->OnInfoBarClosedByUser();
+      if (value) {
+        RemoveSelf();
+        delegate->RevertTranslation();
+        delegate->OnInfoBarClosedByUser();
+      }
+      delegate->ReportUIInteraction(
+          translate::UIInteraction::kNeverTranslateLanguage);
     }
-    delegate->ReportUIInteraction(
-        translate::UIInteraction::kNeverTranslateLanguage);
   } else if (option == translate::TranslateUtils::OPTION_NEVER_TRANSLATE_SITE) {
-    if (value && !delegate->IsSiteOnNeverPromptList()) {
+    if (delegate->IsSiteOnNeverPromptList() != value) {
       action_flags_ |= FLAG_NEVER_SITE;
-      delegate->ToggleNeverPrompt();
-      RemoveSelf();
-      delegate->OnInfoBarClosedByUser();
+      delegate->ToggleNeverPromptSite();
+      if (value) {
+        delegate->RevertTranslation();
+        RemoveSelf();
+        delegate->OnInfoBarClosedByUser();
+      }
+      delegate->ReportUIInteraction(
+          translate::UIInteraction::kNeverTranslateSite);
     }
-    delegate->ReportUIInteraction(
-        translate::UIInteraction::kNeverTranslateSite);
   } else {
     DCHECK(false);
   }
@@ -196,10 +202,18 @@ jboolean TranslateCompactInfoBar::IsIncognito(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& obj) {
   content::WebContents* web_contents =
-      InfoBarService::WebContentsFromInfoBar(this);
+      infobars::ContentInfoBarManager::WebContentsFromInfoBar(this);
   if (!web_contents)
     return false;
   return web_contents->GetBrowserContext()->IsOffTheRecord();
+}
+
+base::android::ScopedJavaLocalRef<jobjectArray>
+TranslateCompactInfoBar::GetContentLanguagesCodes(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& obj) {
+  return translate::TranslateUtils::GetContentLanguagesInJavaFormat(
+      env, GetDelegate());
 }
 
 int TranslateCompactInfoBar::GetParam(const std::string& paramName,

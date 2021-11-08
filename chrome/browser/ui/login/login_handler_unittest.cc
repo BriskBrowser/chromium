@@ -100,8 +100,8 @@ const struct TestCase {
      {"https://www.nowhere.org", "", "https://www.nowhere.org/Foo"}},
 };
 
-base::string16 ExpectedAuthority(bool is_proxy, const char* prefix) {
-  base::string16 str = base::ASCIIToUTF16(prefix);
+std::u16string ExpectedAuthority(bool is_proxy, const char* prefix) {
+  std::u16string str = base::ASCIIToUTF16(prefix);
   // Proxies and Android have additional surrounding text. Otherwise, only the
   // host URL is shown.
   bool extra_text = is_proxy;
@@ -109,7 +109,7 @@ base::string16 ExpectedAuthority(bool is_proxy, const char* prefix) {
   extra_text = true;
 #endif
   if (extra_text)
-    str += base::ASCIIToUTF16(" requires a username and password.");
+    str += u" requires a username and password.";
 
   return str;
 }
@@ -117,10 +117,13 @@ base::string16 ExpectedAuthority(bool is_proxy, const char* prefix) {
 class LoginHandlerWithWebContentsTest : public ChromeRenderViewHostTestHarness {
  public:
   LoginHandlerWithWebContentsTest() {}
-  ~LoginHandlerWithWebContentsTest() override {}
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(LoginHandlerWithWebContentsTest);
+  LoginHandlerWithWebContentsTest(const LoginHandlerWithWebContentsTest&) =
+      delete;
+  LoginHandlerWithWebContentsTest& operator=(
+      const LoginHandlerWithWebContentsTest&) = delete;
+
+  ~LoginHandlerWithWebContentsTest() override {}
 };
 
 }  // namespace
@@ -142,8 +145,8 @@ TEST(LoginHandlerTest, DialogStringsAndRealm) {
                  << " scheme:'" << auth_info.scheme << "' realm:'"
                  << auth_info.realm << "' challenger:'"
                  << auth_info.challenger.Serialize() << "' }");
-    base::string16 authority;
-    base::string16 explanation;
+    std::u16string authority;
+    std::u16string explanation;
 
     LoginHandler::GetDialogStrings(request_url, auth_info, &authority,
                                    &explanation);

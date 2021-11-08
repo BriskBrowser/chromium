@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/clipboard/data_object.h"
 
 #include "base/notreached.h"
+#include "third_party/blink/public/platform/file_path_conversion.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_drag_data.h"
 #include "third_party/blink/renderer/core/clipboard/clipboard_mime_types.h"
@@ -50,12 +51,32 @@ DataObject* DataObject::CreateFromClipboard(SystemClipboard* system_clipboard,
 #if DCHECK_IS_ON()
   HashSet<String> types_seen;
 #endif
-  uint64_t sequence_number = system_clipboard->SequenceNumber();
+  ClipboardSequenceNumberToken sequence_number =
+      system_clipboard->SequenceNumber();
   for (const String& type : system_clipboard->ReadAvailableTypes()) {
     if (paste_mode == PasteMode::kPlainTextOnly && type != kMimeTypeTextPlain)
       continue;
-    data_object->item_list_.push_back(DataObjectItem::CreateFromClipboard(
-        system_clipboard, type, sequence_number));
+    mojom::blink::ClipboardFilesPtr files;
+    if (type == kMimeTypeTextURIList) {
+      files = system_clipboard->ReadFiles();
+      // Ignore ReadFiles() result if clipboard sequence number has changed.
+      if (system_clipboard->SequenceNumber() != sequence_number) {
+        files->files.clear();
+      }
+      for (const mojom::blink::DataTransferFilePtr& file : files->files) {
+        data_object->AddFilename(
+            FilePathToString(file->path), FilePathToString(file->display_name),
+            files->file_system_id,
+            base::MakeRefCounted<FileSystemAccessDropData>(
+                std::move(file->file_system_access_token)));
+      }
+    }
+    if (files && !files->files.IsEmpty()) {
+      DraggedIsolatedFileSystem::PrepareForDataObject(data_object);
+    } else {
+      data_object->item_list_.push_back(DataObjectItem::CreateFromClipboard(
+          system_clipboard, type, sequence_number));
+    }
 #if DCHECK_IS_ON()
     DCHECK(types_seen.insert(type).is_new_entry);
 #endif
@@ -311,7 +332,10 @@ DataObject* DataObject::Create(WebDragData data) {
                                  item.file_system_access_entry);
         break;
       case WebDragData::Item::kStorageTypeBinaryData:
-        // This should never happen when dragging in.
+        data_object->AddSharedBuffer(item.binary_data,
+                                     item.binary_data_source_url,
+                                     item.binary_data_filename_extension,
+                                     item.binary_data_content_disposition);
         break;
       case WebDragData::Item::kStorageTypeFileSystemFile: {
         // TODO(http://crbug.com/429077): The file system URL may refer a user

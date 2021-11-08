@@ -13,16 +13,16 @@
 #include <utility>
 #include <vector>
 
+#include "ash/components/settings/cros_settings_names.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
+#include "chrome/browser/ash/ownership/owner_settings_service_ash.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/settings/cros_settings_names.h"
 #include "components/crx_file/id_util.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/user_manager/user_manager.h"
@@ -102,7 +102,7 @@ bool ExtractsAppIdFromInput(const std::string& input,
 
 }  // namespace
 
-KioskAppsHandler::KioskAppsHandler(OwnerSettingsServiceChromeOS* service)
+KioskAppsHandler::KioskAppsHandler(OwnerSettingsServiceAsh* service)
     : kiosk_app_manager_(KioskAppManager::Get()),
       initialized_(false),
       is_kiosk_enabled_(false),
@@ -125,30 +125,30 @@ void KioskAppsHandler::OnJavascriptDisallowed() {
 }
 
 void KioskAppsHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "initializeKioskAppSettings",
       base::BindRepeating(&KioskAppsHandler::HandleInitializeKioskAppSettings,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getKioskAppSettings",
       base::BindRepeating(&KioskAppsHandler::HandleGetKioskAppSettings,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "addKioskApp", base::BindRepeating(&KioskAppsHandler::HandleAddKioskApp,
                                          base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "removeKioskApp",
       base::BindRepeating(&KioskAppsHandler::HandleRemoveKioskApp,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "enableKioskAutoLaunch",
       base::BindRepeating(&KioskAppsHandler::HandleEnableKioskAutoLaunch,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "disableKioskAutoLaunch",
       base::BindRepeating(&KioskAppsHandler::HandleDisableKioskAutoLaunch,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "setDisableBailoutShortcut",
       base::BindRepeating(&KioskAppsHandler::HandleSetDisableBailoutShortcut,
                           base::Unretained(this)));
@@ -234,14 +234,15 @@ KioskAppsHandler::GetSettingsDictionary() {
     PopulateAppDict(app_data, app_info.get());
     apps_list->Append(std::move(app_info));
   }
-  settings->SetWithoutPathExpansion("apps", std::move(apps_list));
+  settings->SetKey("apps",
+                   base::Value::FromUniquePtrValue(std::move(apps_list)));
 
   return settings;
 }
 
 void KioskAppsHandler::HandleInitializeKioskAppSettings(
     const base::ListValue* args) {
-  CHECK_EQ(1U, args->GetSize());
+  CHECK_EQ(1U, args->GetList().size());
   std::string callback_id;
   CHECK(args->GetString(0, &callback_id));
 
@@ -252,7 +253,7 @@ void KioskAppsHandler::HandleInitializeKioskAppSettings(
 }
 
 void KioskAppsHandler::HandleGetKioskAppSettings(const base::ListValue* args) {
-  CHECK_EQ(1U, args->GetSize());
+  CHECK_EQ(1U, args->GetList().size());
   std::string callback_id;
   CHECK(args->GetString(0, &callback_id));
 
@@ -317,8 +318,9 @@ void KioskAppsHandler::HandleSetDisableBailoutShortcut(
   if (!initialized_ || !is_kiosk_enabled_)
     return;
 
-  bool disable_bailout_shortcut;
-  CHECK(args->GetBoolean(0, &disable_bailout_shortcut));
+  const auto& list = args->GetList();
+  CHECK(!list.empty());
+  const bool disable_bailout_shortcut = list[0].GetBool();
 
   owner_settings_service_->SetBoolean(
       kAccountsPrefDeviceLocalAccountAutoLoginBailoutEnabled,

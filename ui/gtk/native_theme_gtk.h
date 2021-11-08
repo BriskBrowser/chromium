@@ -5,9 +5,10 @@
 #ifndef UI_GTK_NATIVE_THEME_GTK_H_
 #define UI_GTK_NATIVE_THEME_GTK_H_
 
+#include "base/callback_list.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/glib/glib_signal.h"
 #include "ui/base/glib/scoped_gobject.h"
 #include "ui/native_theme/native_theme_base.h"
@@ -25,10 +26,10 @@ class NativeThemeGtk : public ui::NativeThemeBase {
  public:
   static NativeThemeGtk* instance();
 
-  // Overridden from ui::NativeThemeBase:
-  SkColor GetSystemColor(
-      ColorId color_id,
-      ColorScheme color_scheme = ColorScheme::kDefault) const override;
+  NativeThemeGtk(const NativeThemeGtk&) = delete;
+  NativeThemeGtk& operator=(const NativeThemeGtk&) = delete;
+
+  // ui::NativeThemeBase:
   void PaintArrowButton(cc::PaintCanvas* canvas,
                         const gfx::Rect& rect,
                         Part direction,
@@ -71,9 +72,16 @@ class NativeThemeGtk : public ui::NativeThemeBase {
                          const gfx::Rect& rect,
                          const FrameTopAreaExtraParams& frame_top_area,
                          ColorScheme color_scheme) const override;
-  void NotifyObservers() override;
+  void NotifyOnNativeThemeUpdated() override;
 
   void OnThemeChanged(GtkSettings* settings, GtkParamSpec* param);
+
+ protected:
+  // ui::NativeThemeBase:
+  bool AllowColorPipelineRedirection(ColorScheme color_scheme) const override;
+  SkColor GetSystemColorDeprecated(ColorId color_id,
+                                   ColorScheme color_scheme,
+                                   bool apply_processing) const override;
 
  private:
   friend class base::NoDestructor<NativeThemeGtk>;
@@ -83,11 +91,9 @@ class NativeThemeGtk : public ui::NativeThemeBase {
 
   void SetThemeCssOverride(ScopedCssProvider provider);
 
-  mutable base::Optional<SkColor> color_cache_[kColorId_NumColors];
+  mutable absl::optional<SkColor> color_cache_[kColorId_NumColors];
 
   ScopedCssProvider theme_css_override_;
-
-  DISALLOW_COPY_AND_ASSIGN(NativeThemeGtk);
 };
 
 }  // namespace gtk

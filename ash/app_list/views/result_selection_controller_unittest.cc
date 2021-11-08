@@ -12,12 +12,15 @@
 #include <utility>
 #include <vector>
 
-#include "ash/app_list/test/app_list_test_view_delegate.h"
-#include "ash/app_list/test/test_search_result.h"
+#include "ash/app_list/app_list_test_view_delegate.h"
+#include "ash/app_list/model/search/test_search_result.h"
 #include "ash/app_list/views/search_result_actions_view.h"
 #include "ash/app_list/views/search_result_actions_view_delegate.h"
 #include "ash/app_list/views/search_result_container_view.h"
+#include "base/bind.h"
+#include "base/i18n/rtl.h"
 #include "base/macros.h"
+#include "base/strings/stringprintf.h"
 #include "ui/events/event.h"
 
 namespace ash {
@@ -30,14 +33,15 @@ class TestResultViewWithActions;
 class TestResultView : public SearchResultBaseView {
  public:
   TestResultView() = default;
+
+  TestResultView(const TestResultView&) = delete;
+  TestResultView& operator=(const TestResultView&) = delete;
+
   ~TestResultView() override = default;
 
   virtual TestResultViewWithActions* AsResultViewWithActions() {
     return nullptr;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestResultView);
 };
 
 class TestResultViewWithActions : public TestResultView,
@@ -47,6 +51,10 @@ class TestResultViewWithActions : public TestResultView,
       : actions_view_owned_(std::make_unique<SearchResultActionsView>(this)) {
     set_actions_view(actions_view_owned_.get());
   }
+
+  TestResultViewWithActions(const TestResultViewWithActions&) = delete;
+  TestResultViewWithActions& operator=(const TestResultViewWithActions&) =
+      delete;
 
   // TestResultView:
   TestResultViewWithActions* AsResultViewWithActions() override { return this; }
@@ -61,24 +69,6 @@ class TestResultViewWithActions : public TestResultView,
 
  private:
   std::unique_ptr<SearchResultActionsView> actions_view_owned_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestResultViewWithActions);
-};
-
-// Allows immediate invocation of |VerticalTestContainer| and its derivatives,
-// by handling the fake delegate's setup.
-class TestContainerDelegateHarness {
- public:
-  TestContainerDelegateHarness() {
-    app_list_test_delegate_ = std::make_unique<test::AppListTestViewDelegate>();
-  }
-
-  ~TestContainerDelegateHarness() = default;
-
- protected:
-  std::unique_ptr<test::AppListTestViewDelegate> app_list_test_delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestContainerDelegateHarness);
 };
 
 struct TestContainerParams {
@@ -98,14 +88,14 @@ struct TestContainerParams {
 
   // If set, the container will contain TestResultViewWithActions that
   // have |actions_per_result| actions each.
-  base::Optional<int> actions_per_result;
+  absl::optional<int> actions_per_result;
 };
 
-class TestContainer : public TestContainerDelegateHarness,
-                      public SearchResultContainerView {
+class TestContainer : public SearchResultContainerView {
  public:
-  explicit TestContainer(const TestContainerParams& params)
-      : SearchResultContainerView(app_list_test_delegate_.get()) {
+  TestContainer(const TestContainerParams& params,
+                test::AppListTestViewDelegate* view_delegate)
+      : SearchResultContainerView(view_delegate) {
     set_horizontally_traversable(params.horizontal);
 
     for (int i = 0; i < params.result_count; ++i) {
@@ -120,7 +110,7 @@ class TestContainer : public TestContainerDelegateHarness,
         result_view->GetActionsView()->SetActions(
             std::vector<SearchResult::Action>(
                 params.actions_per_result.value(),
-                SearchResult::Action(gfx::ImageSkia(), base::string16(),
+                SearchResult::Action(gfx::ImageSkia(), std::u16string(),
                                      false)));
         search_result_views_.emplace_back(std::move(result_view));
       } else {
@@ -135,6 +125,10 @@ class TestContainer : public TestContainerDelegateHarness,
 
     Update();
   }
+
+  TestContainer(const TestContainer&) = delete;
+  TestContainer& operator=(const TestContainer&) = delete;
+
   ~TestContainer() override = default;
 
   // SearchResultContainerView:
@@ -148,14 +142,16 @@ class TestContainer : public TestContainerDelegateHarness,
 
   std::map<std::string, std::unique_ptr<TestSearchResult>> results_;
   std::vector<std::unique_ptr<TestResultView>> search_result_views_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestContainer);
 };
 
 class ResultSelectionTest : public testing::Test,
                             public testing::WithParamInterface<bool> {
  public:
   ResultSelectionTest() = default;
+
+  ResultSelectionTest(const ResultSelectionTest&) = delete;
+  ResultSelectionTest& operator=(const ResultSelectionTest&) = delete;
+
   ~ResultSelectionTest() override = default;
 
   void SetUp() override {
@@ -171,6 +167,7 @@ class ResultSelectionTest : public testing::Test,
       base::i18n::SetICUDefaultLocale("en");
     }
 
+    app_list_test_delegate_ = std::make_unique<test::AppListTestViewDelegate>();
     result_selection_controller_ = std::make_unique<ResultSelectionController>(
         &containers_,
         base::BindRepeating(&ResultSelectionTest::OnSelectionChanged,
@@ -182,13 +179,20 @@ class ResultSelectionTest : public testing::Test,
   void TearDown() override { g_last_created_result_index = -1; }
 
  protected:
+  std::unique_ptr<TestContainer> CreateTestContainer(bool horizontal,
+                                                     int results) {
+    return std::make_unique<TestContainer>(
+        TestContainerParams(horizontal, results),
+        app_list_test_delegate_.get());
+  }
+
   std::vector<std::unique_ptr<SearchResultContainerView>> CreateContainerVector(
       int container_count,
       const TestContainerParams& container_params) {
     std::vector<std::unique_ptr<SearchResultContainerView>> containers;
     for (int i = 0; i < container_count; i++) {
-      containers.emplace_back(
-          std::make_unique<TestContainer>(container_params));
+      containers.emplace_back(std::make_unique<TestContainer>(
+          container_params, app_list_test_delegate_.get()));
     }
     return containers;
   }
@@ -620,6 +624,7 @@ class ResultSelectionTest : public testing::Test,
     }
   }
 
+  std::unique_ptr<test::AppListTestViewDelegate> app_list_test_delegate_;
   std::unique_ptr<ResultSelectionController> result_selection_controller_;
   std::vector<SearchResultContainerView*> containers_;
 
@@ -647,8 +652,6 @@ class ResultSelectionTest : public testing::Test,
 
   bool is_rtl_ = false;
   int selection_change_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(ResultSelectionTest);
 };
 
 INSTANTIATE_TEST_SUITE_P(RTL, ResultSelectionTest, testing::Bool());
@@ -657,7 +660,7 @@ INSTANTIATE_TEST_SUITE_P(RTL, ResultSelectionTest, testing::Bool());
 
 TEST_F(ResultSelectionTest, VerticalTraversalOneContainerArrowKeys) {
   std::unique_ptr<TestContainer> vertical_container =
-      std::make_unique<TestContainer>(TestContainerParams(false, 4));
+      CreateTestContainer(false, 4);
   // The vertical container is not horizontally traversable
   ASSERT_FALSE(vertical_container->horizontally_traversable());
 
@@ -673,7 +676,7 @@ TEST_F(ResultSelectionTest, VerticalTraversalOneContainerArrowKeys) {
 
 TEST_F(ResultSelectionTest, VerticalTraversalOneContainerTabKey) {
   std::unique_ptr<TestContainer> vertical_container =
-      std::make_unique<TestContainer>(TestContainerParams(false, 4));
+      CreateTestContainer(false, 4);
 
   // The vertical container is not horizontally traversable
   ASSERT_FALSE(vertical_container->horizontally_traversable());
@@ -693,7 +696,7 @@ TEST_P(ResultSelectionTest, HorizontalTraversalOneContainerArrowKeys) {
   ui::KeyEvent* backward = is_rtl_ ? &right_arrow_ : &left_arrow_;
 
   std::unique_ptr<TestContainer> horizontal_container =
-      std::make_unique<TestContainer>(TestContainerParams(true, 4));
+      CreateTestContainer(true, 4);
 
   // The horizontal container is horizontally traversable
   ASSERT_TRUE(horizontal_container->horizontally_traversable());
@@ -710,9 +713,9 @@ TEST_P(ResultSelectionTest, HorizontalTraversalOneContainerArrowKeys) {
 
 TEST_P(ResultSelectionTest, HorizontalVerticalArrowKeys) {
   std::unique_ptr<TestContainer> horizontal_container =
-      std::make_unique<TestContainer>(TestContainerParams(true, 4));
+      CreateTestContainer(true, 4);
   std::unique_ptr<TestContainer> vertical_container =
-      std::make_unique<TestContainer>(TestContainerParams(false, 4));
+      CreateTestContainer(false, 4);
 
   containers_.clear();
   containers_.emplace_back(horizontal_container.get());
@@ -727,9 +730,9 @@ TEST_P(ResultSelectionTest, HorizontalVerticalArrowKeys) {
 
 TEST_F(ResultSelectionTest, HorizontalVerticalTab) {
   std::unique_ptr<TestContainer> horizontal_container =
-      std::make_unique<TestContainer>(TestContainerParams(true, 4));
+      CreateTestContainer(true, 4);
   std::unique_ptr<TestContainer> vertical_container =
-      std::make_unique<TestContainer>(TestContainerParams(false, 4));
+      CreateTestContainer(false, 4);
 
   containers_.clear();
   containers_.emplace_back(horizontal_container.get());
@@ -1284,7 +1287,7 @@ TEST_F(ResultSelectionTest, ActionRemovedWhileSelected) {
   // Remove two trailing actions - the result action is de-selected.
   selected_view->AsResultViewWithActions()->GetActionsView()->SetActions(
       std::vector<SearchResult::Action>(
-          1, SearchResult::Action(gfx::ImageSkia(), base::string16(), false)));
+          1, SearchResult::Action(gfx::ImageSkia(), std::u16string(), false)));
   ASSERT_EQ(create_test_location(0, 1), GetCurrentLocation());
   EXPECT_TRUE(CurrentResultActionNotSelected());
 

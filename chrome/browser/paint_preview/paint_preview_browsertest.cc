@@ -7,7 +7,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/unguessable_token.h"
@@ -30,6 +29,7 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "third_party/skia/include/core/SkStream.h"
@@ -110,14 +110,14 @@ class PaintPreviewBrowserTest
   }
 
   void LoadPage(const GURL& url) const {
-    ui_test_utils::NavigateToURL(browser(), url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   }
 
   void LoadHtml(const base::StringPiece& html) const {
     std::string base64_html;
     base::Base64Encode(html, &base64_html);
     GURL url(std::string("data:text/html;base64,") + base64_html);
-    ui_test_utils::NavigateToURL(browser(), url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   }
 
   PaintPreviewClient::PaintPreviewParams MakeParams() const {
@@ -167,7 +167,7 @@ class PaintPreviewBrowserTest
         frame_proto.embedding_token_high(), frame_proto.embedding_token_low()));
     ASSERT_NE(it, recording_map->end());
 
-    base::Optional<SkpResult> result = std::move(it->second).Deserialize();
+    absl::optional<SkpResult> result = std::move(it->second).Deserialize();
     ASSERT_TRUE(result.has_value());
     EXPECT_NE(result->skp, nullptr);
     EXPECT_GE(result->skp->cullRect().width(), 0);
@@ -368,7 +368,7 @@ IN_PROC_BROWSER_TEST_P(PaintPreviewBrowserTest,
 
 // https://crbug.com/1146573 reproduction. If a renderer crashes,
 // WebContentsObserver::RenderFrameDeleted. Paint preview implements this in an
-// observer which in turn calls DecrementCapturerCount which can cause the
+// observer which in turn releases the capture handle which can cause the
 // WebContents to be reloaded on Android where we have auto-reload. This reload
 // occurs *during* crash handling, leaving the frame in an invalid state and
 // leading to a crash when it subsequently unloaded.
@@ -390,8 +390,12 @@ IN_PROC_BROWSER_TEST_P(PaintPreviewBrowserTest, DontReloadInRenderProcessExit) {
   CreateClient();
   auto* client = PaintPreviewClient::FromWebContents(web_contents);
   // Do this twice to simulate conditions for crash.
-  web_contents->IncrementCapturerCount(gfx::Size(), true);
-  web_contents->IncrementCapturerCount(gfx::Size(), true);
+  auto handle1 =
+      web_contents->IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/true,
+                                           /*stay_awake=*/true);
+  auto handle2 =
+      web_contents->IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/true,
+                                           /*stay_awake=*/true);
 
   // A callback that causes the frame to reload and end up in an invalid state
   // if it is allowed to run during crash handling.
@@ -403,17 +407,19 @@ IN_PROC_BROWSER_TEST_P(PaintPreviewBrowserTest, DontReloadInRenderProcessExit) {
       // This callback is now posted so it shouldn't cause a crash.
       base::BindOnce(
           [](content::WebContents* web_contents, bool* did_run_ptr,
-             base::UnguessableToken guid, mojom::PaintPreviewStatus status,
+             base::ScopedClosureRunner handle1,
+             base::ScopedClosureRunner handle2, base::UnguessableToken guid,
+             mojom::PaintPreviewStatus status,
              std::unique_ptr<CaptureResult> result) {
             EXPECT_EQ(status, mojom::PaintPreviewStatus::kFailed);
             EXPECT_EQ(result, nullptr);
             // On Android crashed frames are marked as needing reload.
             web_contents->GetController().SetNeedsReload();
-            web_contents->DecrementCapturerCount(true);
-            web_contents->DecrementCapturerCount(true);
+            handle1.RunAndReset();
+            handle2.RunAndReset();
             *did_run_ptr = true;
           },
-          web_contents, &did_run)
+          web_contents, &did_run, std::move(handle1), std::move(handle2))
           .Then(finished_loop.QuitClosure()));
   // Wait for the request to execute before crashing the renderer. Otherwise in
   // the FileSystem variant it is possible there will be a race during creation

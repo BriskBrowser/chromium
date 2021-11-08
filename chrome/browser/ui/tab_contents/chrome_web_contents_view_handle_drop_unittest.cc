@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
@@ -24,12 +23,13 @@
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
-#include "components/safe_browsing/core/features.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/drop_data.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class ChromeWebContentsViewDelegateHandleOnPerformDrop : public testing::Test {
  public:
@@ -75,7 +75,7 @@ class ChromeWebContentsViewDelegateHandleOnPerformDrop : public testing::Test {
           profile_->GetPrefs(), enterprise_connectors::BULK_DATA_ENTRY);
     }
 
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
 
     using FakeDelegate = enterprise_connectors::FakeContentAnalysisDelegate;
     auto is_encrypted_callback =
@@ -240,11 +240,14 @@ TEST_F(ChromeWebContentsViewDelegateHandleOnPerformDrop, Files) {
   base::FilePath path_1 = temp_dir.GetPath().AppendASCII("Foo.doc");
   base::FilePath path_2 = temp_dir.GetPath().AppendASCII("Bar.doc");
 
-  base::File file_1(path_1, base::File::FLAG_CREATE | base::File::FLAG_READ);
-  base::File file_2(path_2, base::File::FLAG_CREATE | base::File::FLAG_READ);
+  base::File file_1(path_1, base::File::FLAG_CREATE | base::File::FLAG_WRITE);
+  base::File file_2(path_2, base::File::FLAG_CREATE | base::File::FLAG_WRITE);
 
   ASSERT_TRUE(file_1.IsValid());
   ASSERT_TRUE(file_2.IsValid());
+
+  file_1.WriteAtCurrentPos("foo content", 11);
+  file_2.WriteAtCurrentPos("bar content", 11);
 
   content::DropData data;
   data.filenames.emplace_back(path_1, path_1);
@@ -267,13 +270,17 @@ TEST_F(ChromeWebContentsViewDelegateHandleOnPerformDrop, Directories) {
   base::FilePath path_2 = temp_dir.GetPath().AppendASCII("Bar.doc");
   base::FilePath path_3 = temp_dir.GetPath().AppendASCII("Baz.doc");
 
-  base::File file_1(path_1, base::File::FLAG_CREATE | base::File::FLAG_READ);
-  base::File file_2(path_2, base::File::FLAG_CREATE | base::File::FLAG_READ);
-  base::File file_3(path_3, base::File::FLAG_CREATE | base::File::FLAG_READ);
+  base::File file_1(path_1, base::File::FLAG_CREATE | base::File::FLAG_WRITE);
+  base::File file_2(path_2, base::File::FLAG_CREATE | base::File::FLAG_WRITE);
+  base::File file_3(path_3, base::File::FLAG_CREATE | base::File::FLAG_WRITE);
 
   ASSERT_TRUE(file_1.IsValid());
   ASSERT_TRUE(file_2.IsValid());
   ASSERT_TRUE(file_3.IsValid());
+
+  file_1.WriteAtCurrentPos("foo content", 11);
+  file_2.WriteAtCurrentPos("bar content", 11);
+  file_3.WriteAtCurrentPos("baz content", 11);
 
   content::DropData data;
   data.filenames.emplace_back(temp_dir.GetPath(), temp_dir.GetPath());

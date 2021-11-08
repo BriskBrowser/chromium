@@ -55,15 +55,18 @@ public class BackNavigationTabObserverTest {
     private SearchUrlHelper.Natives mSearchUrlHelperJniMock;
 
     private BackNavigationTabObserver mBackNavigationTabObserver;
-    private String mHistogramSuffix;
+    private final @PageCategory int mPageCategory;
+    private final String mHistogramSuffix;
 
-    public BackNavigationTabObserverTest(String histogramSuffix) {
+    public BackNavigationTabObserverTest(@PageCategory int pageCategory, String histogramSuffix) {
+        mPageCategory = pageCategory;
         mHistogramSuffix = histogramSuffix;
     }
 
     @ParameterizedRobolectricTestRunner.Parameters
-    public static Collection histogramSuffixes() {
-        return Arrays.asList(new Object[][] {{".Organic"}, {".News"}});
+    public static Collection resultCategories() {
+        return Arrays.asList(new Object[][] {
+                {PageCategory.ORGANIC_SRP, ".Organic"}, {PageCategory.NEWS_SRP, ".News"}});
     }
 
     @Before
@@ -92,12 +95,12 @@ public class BackNavigationTabObserverTest {
                 .getQueryIfValidSrpUrl(eq(JUnitTestGURLs.getGURL(JUnitTestGURLs.BLUE_1)));
         doReturn(true).when(mSearchUrlHelperJniMock).isGoogleDomainUrl(eq(searchUrl));
         doReturn(false).when(mSearchUrlHelperJniMock).isGoogleDomainUrl(eq(GURL.emptyGURL()));
-        doReturn(mHistogramSuffix)
+        doReturn(mPageCategory)
                 .when(mSearchUrlHelperJniMock)
-                .getHistogramSuffixForUrl(eq(searchUrl));
-        doReturn(mHistogramSuffix)
+                .getSrpPageCategoryFromUrl(eq(searchUrl));
+        doReturn(mPageCategory)
                 .when(mSearchUrlHelperJniMock)
-                .getHistogramSuffixForUrl(eq(searchUrl2));
+                .getSrpPageCategoryFromUrl(eq(searchUrl2));
     }
 
     private NavigationEntry createNavigationEntry(GURL url) {
@@ -132,34 +135,6 @@ public class BackNavigationTabObserverTest {
     }
 
     @Test
-    public void testEndSessionWith3PSite() {
-        navigateThroughEntries(
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL),
-                        JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.RED_1),
-                        JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.BLUE_1)));
-
-        assertHistogramRecorded(1, 2);
-    }
-
-    @Test
-    public void testEndSessionWith3PSite_reload() {
-        navigateThroughEntries(
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL),
-                        JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.BLUE_1)));
-
-        assertHistogramRecorded(1, 1);
-    }
-
-    @Test
     public void testEndSessionWithAnotherSrp() {
         navigateThroughEntries(
                 createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
@@ -168,7 +143,39 @@ public class BackNavigationTabObserverTest {
                 createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
                 createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.RED_1),
                         JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
                 createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_2_URL)));
+
+        assertHistogramRecorded(1, 2);
+    }
+
+    @Test
+    public void testEndSessionWithAnotherSrp_reload() {
+        navigateThroughEntries(
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL),
+                        JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_2_URL)));
+
+        assertHistogramRecorded(1, 1);
+    }
+
+    @Test
+    public void testEndSessionWithSameSrpDifferentCategory() {
+        navigateThroughEntries(
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL),
+                        JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.RED_1),
+                        JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)));
+        when(mSearchUrlHelperJniMock.getSrpPageCategoryFromUrl(
+                     eq(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL))))
+                .thenReturn(PageCategory.NONE);
+        navigateThroughEntries(
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)));
 
         assertHistogramRecorded(1, 1);
     }
@@ -223,7 +230,7 @@ public class BackNavigationTabObserverTest {
                 createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
                 createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL),
                         JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.BLUE_1)));
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_2_URL)));
 
         assertHistogramRecorded(1, 0);
     }
@@ -232,7 +239,18 @@ public class BackNavigationTabObserverTest {
     public void testNotRecordWhenNotSeenSrp() {
         navigateThroughEntries(
                 createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL)),
-                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.BLUE_1)));
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.BLUE_1)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)));
+
+        assertHistogramRecorded(0, 0);
+    }
+
+    @Test
+    public void testNotRecordWhenSrpAbandoned() {
+        navigateThroughEntries(
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL)),
+                createNavigationEntry(JUnitTestGURLs.getGURL(JUnitTestGURLs.SEARCH_2_URL)));
 
         assertHistogramRecorded(0, 0);
     }

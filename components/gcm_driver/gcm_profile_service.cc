@@ -4,8 +4,8 @@
 
 #include "components/gcm_driver/gcm_profile_service.h"
 
+#include <memory>
 #include <utility>
-#include <vector>
 
 #include "base/macros.h"
 #include "build/build_config.h"
@@ -16,7 +16,7 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if BUILDFLAG(USE_GCM_FROM_PLATFORM)
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/gcm_driver/gcm_driver_android.h"
 #else
 #include "base/bind.h"
@@ -42,6 +42,10 @@ class GCMProfileService::IdentityObserver
       signin::IdentityManager* identity_manager,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       GCMDriver* driver);
+
+  IdentityObserver(const IdentityObserver&) = delete;
+  IdentityObserver& operator=(const IdentityObserver&) = delete;
+
   ~IdentityObserver() override;
 
   // signin::IdentityManager::Observer:
@@ -63,8 +67,6 @@ class GCMProfileService::IdentityObserver
 
   base::WeakPtrFactory<GCMProfileService::IdentityObserver> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(IdentityObserver);
 };
 
 GCMProfileService::IdentityObserver::IdentityObserver(
@@ -121,8 +123,8 @@ void GCMProfileService::IdentityObserver::StartAccountTracker(
   std::unique_ptr<AccountTracker> gaia_account_tracker(
       new AccountTracker(identity_manager_));
 
-  gcm_account_tracker_.reset(new GCMAccountTracker(
-      std::move(gaia_account_tracker), identity_manager_, driver_));
+  gcm_account_tracker_ = std::make_unique<GCMAccountTracker>(
+      std::move(gaia_account_tracker), identity_manager_, driver_);
 
   gcm_account_tracker_->Start();
 }
@@ -170,8 +172,8 @@ GCMProfileService::GCMProfileService(
       product_category_for_subtypes, ui_task_runner, io_task_runner,
       blocking_task_runner);
 
-  identity_observer_.reset(new IdentityObserver(
-      identity_manager_, url_loader_factory_, driver_.get()));
+  identity_observer_ = std::make_unique<IdentityObserver>(
+      identity_manager_, url_loader_factory_, driver_.get());
 }
 #endif  // BUILDFLAG(USE_GCM_FROM_PLATFORM)
 

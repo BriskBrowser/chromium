@@ -11,8 +11,8 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "extensions/browser/content_verifier_delegate.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 class BrowserContext;
@@ -24,7 +24,7 @@ class BackoffEntry;
 
 namespace extensions {
 
-class PolicyExtensionReinstaller;
+class CorruptedExtensionReinstaller;
 
 class ChromeContentVerifierDelegate : public ContentVerifierDelegate {
  public:
@@ -65,9 +65,13 @@ class ChromeContentVerifierDelegate : public ContentVerifierDelegate {
   };
 
   static VerifyInfo::Mode GetDefaultMode();
-  static void SetDefaultModeForTesting(base::Optional<VerifyInfo::Mode> mode);
+  static void SetDefaultModeForTesting(absl::optional<VerifyInfo::Mode> mode);
 
   explicit ChromeContentVerifierDelegate(content::BrowserContext* context);
+
+  ChromeContentVerifierDelegate(const ChromeContentVerifierDelegate&) = delete;
+  ChromeContentVerifierDelegate& operator=(
+      const ChromeContentVerifierDelegate&) = delete;
 
   ~ChromeContentVerifierDelegate() override;
 
@@ -107,9 +111,8 @@ class ChromeContentVerifierDelegate : public ContentVerifierDelegate {
   // reinstall in the future. See https://crbug.com/958794#c22 for details.
   std::set<std::string> would_be_reinstalled_ids_;
 
-  std::unique_ptr<PolicyExtensionReinstaller> policy_extension_reinstaller_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeContentVerifierDelegate);
+  std::unique_ptr<CorruptedExtensionReinstaller>
+      corrupted_extension_reinstaller_;
 };
 
 }  // namespace extensions

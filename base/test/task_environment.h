@@ -10,10 +10,10 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/observer_list.h"
-#include "base/single_thread_task_runner.h"
+#include "base/observer_list_types.h"
 #include "base/task/lazy_thread_pool_task_runner.h"
 #include "base/task/sequence_manager/sequence_manager.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_run_loop_timeout.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
@@ -212,6 +212,9 @@ class TaskEnvironment {
             trait_helpers::HasTrait<SubclassCreatesDefaultTaskRunner,
                                     TaskEnvironmentTraits...>(),
             trait_helpers::NotATraitTag()) {}
+
+  TaskEnvironment(const TaskEnvironment&) = delete;
+  TaskEnvironment& operator=(const TaskEnvironment&) = delete;
 
   // Waits until no undelayed ThreadPool tasks remain. Then, unregisters the
   // ThreadPoolInstance and the (Thread|Sequenced)TaskRunnerHandle.
@@ -412,7 +415,7 @@ class TaskEnvironment {
   TestTaskTracker* task_tracker_ = nullptr;
 
   // Ensures destruction of lazy TaskRunners when this is destroyed.
-  std::unique_ptr<internal::ScopedLazyTaskRunnerListForTesting>
+  std::unique_ptr<base::internal::ScopedLazyTaskRunnerListForTesting>
       scoped_lazy_task_runner_list_for_testing_;
 
   // Sets RunLoop::Run() to LOG(FATAL) if not Quit() in a timely manner.
@@ -427,8 +430,6 @@ class TaskEnvironment {
   // thread. This is the case for anything that modifies or drives the
   // |sequence_manager_|.
   THREAD_CHECKER(main_thread_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(TaskEnvironment);
 };
 
 // SingleThreadTaskEnvironment takes the same traits as TaskEnvironment and is

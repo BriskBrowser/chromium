@@ -55,6 +55,9 @@ class FakeCredentialProvider : public CredentialProviderInterface {
  public:
   FakeCredentialProvider() = default;
 
+  FakeCredentialProvider(const FakeCredentialProvider&) = delete;
+  FakeCredentialProvider& operator=(const FakeCredentialProvider&) = delete;
+
   void SetPasswordList(
       const std::vector<std::unique_ptr<PasswordForm>>& password_list) {
     password_list_.clear();
@@ -74,16 +77,14 @@ class FakeCredentialProvider : public CredentialProviderInterface {
 
  private:
   std::vector<std::unique_ptr<PasswordForm>> password_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeCredentialProvider);
 };
 
 // Creates a hardcoded set of credentials for tests.
 std::vector<std::unique_ptr<PasswordForm>> CreatePasswordList() {
   auto password_form = std::make_unique<PasswordForm>();
   password_form->url = GURL("http://accounts.google.com/a/LoginAuth");
-  password_form->username_value = base::ASCIIToUTF16("test@gmail.com");
-  password_form->password_value = base::ASCIIToUTF16("test1");
+  password_form->username_value = u"test@gmail.com";
+  password_form->password_value = u"test1";
 
   std::vector<std::unique_ptr<PasswordForm>> password_forms;
   password_forms.push_back(std::move(password_form));
@@ -102,6 +103,10 @@ class PasswordManagerExporterTest : public testing::Test {
         mock_set_posix_file_permissions_.Get());
   }
 
+  PasswordManagerExporterTest(const PasswordManagerExporterTest&) = delete;
+  PasswordManagerExporterTest& operator=(const PasswordManagerExporterTest&) =
+      delete;
+
   ~PasswordManagerExporterTest() override = default;
 
  protected:
@@ -117,9 +122,6 @@ class PasswordManagerExporterTest : public testing::Test {
       mock_set_posix_file_permissions_;
   base::FilePath destination_path_;
   base::HistogramTester histogram_tester_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PasswordManagerExporterTest);
 };
 
 TEST_F(PasswordManagerExporterTest, PasswordExportSetPasswordListFirst) {
@@ -275,8 +277,8 @@ TEST_F(PasswordManagerExporterTest, DeduplicatesAcrossPasswordStores) {
   auto password = std::make_unique<PasswordForm>();
   password->in_store = PasswordForm::Store::kProfileStore;
   password->url = GURL("http://g.com/auth");
-  password->username_value = base::ASCIIToUTF16("user");
-  password->password_value = base::ASCIIToUTF16("password");
+  password->username_value = u"user";
+  password->password_value = u"password";
 
   auto password_duplicate = std::make_unique<PasswordForm>(*password);
   password_duplicate->in_store = PasswordForm::Store::kAccountStore;

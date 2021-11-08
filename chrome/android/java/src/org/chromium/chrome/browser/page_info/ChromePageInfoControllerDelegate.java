@@ -9,13 +9,12 @@ import android.content.Intent;
 import android.content.res.Resources;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.text.SpannableString;
 import android.text.TextUtils;
+import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
-import androidx.appcompat.content.res.AppCompatResources;
 import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
 
@@ -26,13 +25,13 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.instantapps.InstantAppsHandler;
+import org.chromium.chrome.browser.merchant_viewer.PageInfoStoreInfoController;
+import org.chromium.chrome.browser.merchant_viewer.PageInfoStoreInfoController.StoreInfoActionHandler;
 import org.chromium.chrome.browser.offlinepages.OfflinePageItem;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils.OfflinePageLoadUrlDelegate;
 import org.chromium.chrome.browser.omnibox.ChromeAutocompleteSchemeClassifier;
 import org.chromium.chrome.browser.paint_preview.TabbedPaintPreview;
-import org.chromium.chrome.browser.performance_hints.PerformanceHintsObserver;
-import org.chromium.chrome.browser.performance_hints.PerformanceHintsObserver.PerformanceClass;
 import org.chromium.chrome.browser.previews.PreviewsAndroidBridge;
 import org.chromium.chrome.browser.previews.PreviewsUma;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -40,44 +39,51 @@ import org.chromium.chrome.browser.site_settings.ChromeSiteSettingsDelegate;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabUtils;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.chrome.browser.vr.VrModuleProvider;
-import org.chromium.components.browser_ui.settings.SettingsUtils;
 import org.chromium.components.browser_ui.site_settings.SiteSettingsCategory;
 import org.chromium.components.browser_ui.site_settings.SiteSettingsDelegate;
+import org.chromium.components.browser_ui.widget.TintedDrawable;
 import org.chromium.components.content_settings.CookieControlsBridge;
 import org.chromium.components.content_settings.CookieControlsObserver;
-import org.chromium.components.embedder_support.browser_context.BrowserContextHandle;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.page_info.PageInfoControllerDelegate;
-import org.chromium.components.page_info.PageInfoView.PageInfoViewParams;
-import org.chromium.components.security_state.ConnectionSecurityLevel;
-import org.chromium.components.security_state.SecurityStateModel;
+import org.chromium.components.page_info.PageInfoFeatures;
+import org.chromium.components.page_info.PageInfoMainController;
+import org.chromium.components.page_info.PageInfoRowView;
+import org.chromium.components.page_info.PageInfoSubpageController;
+import org.chromium.components.page_info.PageInfoView;
+import org.chromium.content_public.browser.BrowserContextHandle;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.modaldialog.ModalDialogManager;
-import org.chromium.ui.text.NoUnderlineClickableSpan;
-import org.chromium.ui.text.SpanApplier;
-import org.chromium.ui.text.SpanApplier.SpanInfo;
 import org.chromium.url.GURL;
 
 import java.text.DateFormat;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 
 /**
  * Chrome's customization of PageInfoControllerDelegate. This class provides Chrome-specific info to
- * PageInfoController. It also contains logic for Chrome-specific features, like {@link Previews}
+ * PageInfoController. It also contains logic for Chrome-specific features, like {@link
+ * TabbedPaintPreview}
  */
 public class ChromePageInfoControllerDelegate extends PageInfoControllerDelegate {
     private final WebContents mWebContents;
     private Supplier<ModalDialogManager> mModalDialogManagerSupplier;
     private final Context mContext;
     private final Profile mProfile;
+    private final Supplier<StoreInfoActionHandler> mStoreInfoActionHandlerSupplier;
+    private final boolean mPageInfoOpenedFromStoreIcon;
     private String mOfflinePageCreationDate;
     private OfflinePageLoadUrlDelegate mOfflinePageLoadUrlDelegate;
 
     public ChromePageInfoControllerDelegate(Context context, WebContents webContents,
             Supplier<ModalDialogManager> modalDialogManagerSupplier,
-            OfflinePageLoadUrlDelegate offlinePageLoadUrlDelegate) {
+            OfflinePageLoadUrlDelegate offlinePageLoadUrlDelegate,
+            @Nullable Supplier<StoreInfoActionHandler> storeInfoActionHandlerSupplier,
+            boolean pageInfoOpenedFromStoreIcon) {
         super(new ChromeAutocompleteSchemeClassifier(Profile.fromWebContents(webContents)),
                 VrModuleProvider.getDelegate(),
                 /** isSiteSettingsAvailable= */
@@ -88,34 +94,15 @@ public class ChromePageInfoControllerDelegate extends PageInfoControllerDelegate
         mWebContents = webContents;
         mModalDialogManagerSupplier = modalDialogManagerSupplier;
         mProfile = Profile.fromWebContents(mWebContents);
+        mStoreInfoActionHandlerSupplier = storeInfoActionHandlerSupplier;
+        mPageInfoOpenedFromStoreIcon = pageInfoOpenedFromStoreIcon;
 
-        mPreviewPageState = getPreviewPageStateAndRecordUma();
         initOfflinePageParams();
         mOfflinePageLoadUrlDelegate = offlinePageLoadUrlDelegate;
         initHttpsImageCompressionStateAndRecordUMA();
 
         TrackerFactory.getTrackerForProfile(Profile.getLastUsedRegularProfile())
                 .notifyEvent(EventConstants.PAGE_INFO_OPENED);
-    }
-
-    /**
-     * Return the state of the webcontents showing the preview.
-     */
-    private @PreviewPageState int getPreviewPageStateAndRecordUma() {
-        final int securityLevel = SecurityStateModel.getSecurityLevelForWebContents(mWebContents);
-        @PreviewPageState
-        int previewPageState = PreviewPageState.NOT_PREVIEW;
-        final PreviewsAndroidBridge bridge = PreviewsAndroidBridge.getInstance();
-        if (bridge.shouldShowPreviewUI(mWebContents)) {
-            previewPageState = securityLevel == ConnectionSecurityLevel.SECURE
-                    ? PreviewPageState.SECURE_PAGE_PREVIEW
-                    : PreviewPageState.INSECURE_PAGE_PREVIEW;
-
-            PreviewsUma.recordPageInfoOpened(bridge.getPreviewsType(mWebContents));
-            TrackerFactory.getTrackerForProfile(mProfile).notifyEvent(
-                    EventConstants.PREVIEWS_VERBOSE_STATUS_OPENED);
-        }
-        return previewPageState;
     }
 
     private void initOfflinePageParams() {
@@ -160,39 +147,6 @@ public class ChromePageInfoControllerDelegate extends PageInfoControllerDelegate
      * {@inheritDoc}
      */
     @Override
-    public void initPreviewUiParams(
-            PageInfoViewParams viewParams, Consumer<Runnable> runAfterDismiss) {
-        final PreviewsAndroidBridge bridge = PreviewsAndroidBridge.getInstance();
-        viewParams.previewSeparatorShown =
-                mPreviewPageState == PreviewPageState.INSECURE_PAGE_PREVIEW;
-        viewParams.previewUIShown = isShowingPreview();
-        if (isShowingPreview()) {
-            viewParams.urlTitleShown = false;
-            viewParams.connectionMessageShown = false;
-
-            viewParams.previewShowOriginalClickCallback = () -> {
-                runAfterDismiss.accept(() -> {
-                    PreviewsUma.recordOptOut(bridge.getPreviewsType(mWebContents));
-                    bridge.loadOriginal(mWebContents);
-                });
-            };
-            final String previewOriginalHost = mWebContents.getVisibleUrl().getHost();
-            final String loadOriginalText = mContext.getString(
-                    R.string.page_info_preview_load_original, previewOriginalHost);
-            final SpannableString loadOriginalSpan = SpanApplier.applySpans(loadOriginalText,
-                    new SpanInfo("<link>", "</link>",
-                            // The callback given to NoUnderlineClickableSpan is overridden in
-                            // PageInfoView so use previewShowOriginalClickCallback (above) instead
-                            // because the entire TextView will be clickable.
-                            new NoUnderlineClickableSpan(mContext.getResources(), (view) -> {})));
-            viewParams.previewLoadOriginalMessage = loadOriginalSpan;
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
     public boolean isInstantAppAvailable(String url) {
         InstantAppsHandler instantAppsHandler = InstantAppsHandler.getInstance();
         return instantAppsHandler.isInstantAppAvailable(
@@ -213,7 +167,7 @@ public class ChromePageInfoControllerDelegate extends PageInfoControllerDelegate
      */
     @Override
     public void initOfflinePageUiParams(
-            PageInfoViewParams viewParams, Consumer<Runnable> runAfterDismiss) {
+            PageInfoView.Params viewParams, Consumer<Runnable> runAfterDismiss) {
         if (isShowingOfflinePage() && OfflinePageUtils.isConnected()) {
             viewParams.openOnlineButtonClickCallback = () -> {
                 runAfterDismiss.accept(() -> {
@@ -270,31 +224,40 @@ public class ChromePageInfoControllerDelegate extends PageInfoControllerDelegate
         return mContext.getString(R.string.page_info_connection_paint_preview);
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public boolean shouldShowPerformanceBadge(GURL url) {
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.PAGE_INFO_PERFORMANCE_HINTS)) {
-            return false;
-        }
-        @PerformanceClass
-        int pagePerformanceClass =
-                PerformanceHintsObserver.getPerformanceClassForURL(mWebContents, url);
-        return pagePerformanceClass == PerformanceClass.PERFORMANCE_FAST;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void showSiteSettings(String url) {
-        SiteSettingsHelper.showSiteSettings(mContext, url);
-    }
-
     @Override
     public void showCookieSettings() {
         SiteSettingsHelper.showCategorySettings(mContext, SiteSettingsCategory.Type.COOKIES);
+    }
+
+    @Override
+    public Collection<PageInfoSubpageController> createAdditionalRowViews(
+            PageInfoMainController mainController, ViewGroup rowWrapper) {
+        Collection<PageInfoSubpageController> controllers = new ArrayList<>();
+        if (PageInfoFeatures.PAGE_INFO_HISTORY.isEnabled()) {
+            final Tab tab = TabUtils.fromWebContents(mWebContents);
+            final PageInfoRowView historyRow = new PageInfoRowView(rowWrapper.getContext(), null);
+            historyRow.setId(PageInfoHistoryController.HISTORY_ROW_ID);
+            rowWrapper.addView(historyRow);
+            controllers.add(new PageInfoHistoryController(
+                    mainController, historyRow, this, () -> { return tab; }));
+        }
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.PAGE_INFO_ABOUT_THIS_SITE)) {
+            Tab tab = TabUtils.fromWebContents(mWebContents);
+            final PageInfoRowView aboutThisSiteRow =
+                    new PageInfoRowView(rowWrapper.getContext(), null);
+            aboutThisSiteRow.setId(PageInfoAboutThisSiteController.ROW_ID);
+            rowWrapper.addView(aboutThisSiteRow);
+            controllers.add(new PageInfoAboutThisSiteController(
+                    mainController, aboutThisSiteRow, this, tab));
+        }
+        if (PageInfoFeatures.PAGE_INFO_STORE_INFO.isEnabled() && !isIncognito()) {
+            final PageInfoRowView storeInfoRow = new PageInfoRowView(rowWrapper.getContext(), null);
+            storeInfoRow.setId(PageInfoStoreInfoController.STORE_INFO_ROW_ID);
+            rowWrapper.addView(storeInfoRow);
+            controllers.add(new PageInfoStoreInfoController(mainController, storeInfoRow,
+                    mStoreInfoActionHandlerSupplier, mPageInfoOpenedFromStoreIcon));
+        }
+        return controllers;
     }
 
     /**
@@ -322,23 +285,20 @@ public class ChromePageInfoControllerDelegate extends PageInfoControllerDelegate
     @Override
     @NonNull
     public SiteSettingsDelegate getSiteSettingsDelegate() {
-        return new ChromeSiteSettingsDelegate(mContext, getBrowserContext());
+        return new ChromeSiteSettingsDelegate(mContext, mProfile);
     }
 
     @NonNull
     @Override
-    public void getFavicon(String url, Callback<Drawable> callback) {
+    public void getFavicon(GURL url, Callback<Drawable> callback) {
         Resources resources = mContext.getResources();
         int size = resources.getDimensionPixelSize(R.dimen.page_info_favicon_size);
         new FaviconHelper().getLocalFaviconImageForURL(mProfile, url, size, (image, iconUrl) -> {
-            if (isShowingPreview()) {
-                callback.onResult(SettingsUtils.getTintedIcon(mContext,
-                        R.drawable.preview_pin_round, R.color.infobar_icon_drawable_color));
-            } else if (image != null) {
+            if (image != null) {
                 callback.onResult(new BitmapDrawable(resources, image));
-            } else if (UrlUtilities.isInternalScheme(new GURL(url))) {
+            } else if (UrlUtilities.isInternalScheme(url)) {
                 callback.onResult(
-                        AppCompatResources.getDrawable(mContext, R.drawable.chromelogo16));
+                        TintedDrawable.constructTintedDrawable(mContext, R.drawable.chromelogo16));
             } else {
                 callback.onResult(null);
             }
@@ -346,9 +306,8 @@ public class ChromePageInfoControllerDelegate extends PageInfoControllerDelegate
     }
 
     @Override
-    public Drawable getPreviewUiIcon() {
-        return SettingsUtils.getTintedIcon(mContext,
-            R.drawable.preview_pin_round, R.color.infobar_icon_drawable_color);
+    public boolean isAccessibilityEnabled() {
+        return ChromeAccessibilityUtil.get().isAccessibilityEnabled();
     }
 
     @VisibleForTesting
@@ -361,5 +320,13 @@ public class ChromePageInfoControllerDelegate extends PageInfoControllerDelegate
         FragmentActivity activity = ((FragmentActivity) mContext);
         if (activity.isFinishing()) return null;
         return activity.getSupportFragmentManager();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean isIncognito() {
+        return mProfile.isOffTheRecord();
     }
 }

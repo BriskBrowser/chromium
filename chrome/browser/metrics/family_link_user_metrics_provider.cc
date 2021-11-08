@@ -11,7 +11,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/public/identity_manager/consent_level.h"
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
 #include "components/signin/public/identity_manager/scope_set.h"
@@ -84,7 +84,7 @@ void FamilyLinkUserMetricsProvider::OnUserSessionStarted(bool is_primary_user) {
               // primary_account_access_token_fetcher.h.
               base::Unretained(this)),
           signin::PrimaryAccountAccessTokenFetcher::Mode::kImmediate,
-          signin::ConsentLevel::kNotRequired);
+          signin::ConsentLevel::kSignin);
 }
 
 // static

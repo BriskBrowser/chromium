@@ -8,7 +8,6 @@
 #include <string>
 
 #include "ash/public/cpp/ash_public_export.h"
-#include "base/strings/string16.h"
 #include "base/time/time.h"
 
 class AccountId;
@@ -16,9 +15,10 @@ class AccountId;
 namespace ash {
 
 enum class FingerprintState;
+enum class SmartLockState;
 enum class OobeDialogState;
 struct AuthDisabledData;
-struct EasyUnlockIconOptions;
+struct EasyUnlockIconInfo;
 struct InputMethodItem;
 struct LocaleItem;
 struct LoginUserInfo;
@@ -37,11 +37,12 @@ class ASH_PUBLIC_EXPORT LoginScreenModel {
   // |is_enabled|:   True if pin unlock is enabled.
   virtual void SetPinEnabledForUser(const AccountId& user, bool enabled) = 0;
 
-  // Requests to show the custom icon in the user pod.
-  // |account_id|:  The account id of the user in the user pod.
-  // |icon|:        Information regarding the icon.
+  // TODO(https://crbug.com/1233614): Delete this method in favor of
+  // SetSmartLockState once the Smart Lock UI revamp is enabled. Requests to
+  // show the custom icon in the user pod. |account_id|:  The account id of the
+  // user in the user pod. |icon_info|:   Information regarding the icon.
   virtual void ShowEasyUnlockIcon(const AccountId& account_id,
-                                  const EasyUnlockIconOptions& icon) = 0;
+                                  const EasyUnlockIconInfo& icon_info) = 0;
 
   // Update the status of the challenge-response authentication against a
   // security token for the given user.
@@ -52,7 +53,7 @@ class ASH_PUBLIC_EXPORT LoginScreenModel {
   // used to notify users of important messages before they log in to their
   // session. (e.g. Tell the user that an update of the user data will start
   // on login.) If |message| is empty, the banner will be hidden.
-  virtual void UpdateWarningMessage(const base::string16& message) = 0;
+  virtual void UpdateWarningMessage(const std::u16string& message) = 0;
 
   // Update the status of fingerprint for |account_id|.
   virtual void SetFingerprintState(const AccountId& account_id,
@@ -64,6 +65,17 @@ class ASH_PUBLIC_EXPORT LoginScreenModel {
   // should be shown to the user.
   virtual void NotifyFingerprintAuthResult(const AccountId& account_id,
                                            bool successful) = 0;
+
+  // Update the status of Smart Lock for |account_id|.
+  virtual void SetSmartLockState(const AccountId& account_id,
+                                 SmartLockState state) = 0;
+
+  // Called after a Smart Lock authentication attempt has been made. If
+  // |successful| is true, then the Smart Lock authentication attempt was
+  // successful and the device should be unlocked. If false, an error message
+  // should be shown to the user.
+  virtual void NotifySmartLockAuthResult(const AccountId& account_id,
+                                         bool successful) = 0;
 
   // Called when auth should be enabled for the given user. When auth is
   // disabled, the user cannot unlock the device. Auth is enabled by default.

@@ -23,6 +23,7 @@
 #include "ash/system/unified/top_shortcut_button.h"
 #include "ash/system/unified/top_shortcuts_view.h"
 #include "ash/system/unified/user_chooser_detailed_view_controller.h"
+#include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -47,10 +48,11 @@ namespace {
 class AddUserButton : public views::Button {
  public:
   explicit AddUserButton(UserChooserDetailedViewController* controller);
-  ~AddUserButton() override = default;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(AddUserButton);
+  AddUserButton(const AddUserButton&) = delete;
+  AddUserButton& operator=(const AddUserButton&) = delete;
+
+  ~AddUserButton() override = default;
 };
 
 AddUserButton::AddUserButton(UserChooserDetailedViewController* controller)
@@ -97,10 +99,11 @@ class Separator : public views::View {
             ContentLayerType::kSeparatorColor)));
   }
 
-  DISALLOW_COPY_AND_ASSIGN(Separator);
+  Separator(const Separator&) = delete;
+  Separator& operator=(const Separator&) = delete;
 };
 
-views::View* CreateAddUserErrorView(const base::string16& message) {
+views::View* CreateAddUserErrorView(const std::u16string& message) {
   auto* label = new views::Label(message);
   label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
       ContentLayerType::kTextColorPrimary));
@@ -137,7 +140,7 @@ views::View* CreateUserAvatarView(int user_index) {
   return image_view;
 }
 
-base::string16 GetUserItemAccessibleString(int user_index) {
+std::u16string GetUserItemAccessibleString(int user_index) {
   DCHECK(Shell::Get());
   const UserSession* const user_session =
       Shell::Get()->session_controller()->GetUserSession(user_index);
@@ -265,11 +268,11 @@ void UserItemButton::SetCaptureState(MediaCaptureState capture_state) {
     capture_icon_->SetTooltipText(l10n_util::GetStringUTF16(res_id));
 }
 
-base::string16 UserItemButton::GetTooltipText(const gfx::Point& p) const {
+std::u16string UserItemButton::GetTooltipText(const gfx::Point& p) const {
   // If both of them are full shown, hide the tooltip.
   if (name_->GetPreferredSize().width() <= name_->width() &&
       email_->GetPreferredSize().width() <= email_->width()) {
-    return base::string16();
+    return std::u16string();
   }
   return views::Button::GetTooltipText(p);
 }
@@ -322,6 +325,10 @@ UserChooserView::UserChooserView(
     case AddUserSessionPolicy::ERROR_LOCKED_TO_SINGLE_USER:
       AddChildView(CreateAddUserErrorView(l10n_util::GetStringUTF16(
           IDS_ASH_STATUS_TRAY_MESSAGE_NOT_ALLOWED_PRIMARY_USER)));
+      break;
+    case AddUserSessionPolicy::ERROR_LACROS_RUNNING:
+      AddChildView(CreateAddUserErrorView(l10n_util::GetStringUTF16(
+          IDS_ASH_STATUS_TRAY_MESSAGE_NOT_ALLOWED_LACROS)));
       break;
   }
 

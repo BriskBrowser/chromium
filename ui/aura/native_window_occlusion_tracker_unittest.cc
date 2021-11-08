@@ -22,6 +22,10 @@ namespace aura {
 class TestNativeWindow : public gfx::WindowImpl {
  public:
   TestNativeWindow() {}
+
+  TestNativeWindow(const TestNativeWindow&) = delete;
+  TestNativeWindow& operator=(const TestNativeWindow&) = delete;
+
   ~TestNativeWindow() override;
 
  private:
@@ -34,13 +38,47 @@ class TestNativeWindow : public gfx::WindowImpl {
                             DWORD msg_map_id) override {
     return FALSE;  // Results in DefWindowProc().
   }
-
-  DISALLOW_COPY_AND_ASSIGN(TestNativeWindow);
 };
 
 TestNativeWindow::~TestNativeWindow() {
   if (hwnd())
     DestroyWindow(hwnd());
+}
+
+// Test wrapper around native window HWND.
+class TestWin32Window {
+ public:
+  TestWin32Window() {}
+
+  TestWin32Window(const TestWin32Window&) = delete;
+  TestWin32Window& operator=(const TestWin32Window&) = delete;
+
+  ~TestWin32Window();
+
+  HWND Create(DWORD style);
+
+ private:
+  HWND hwnd_ = NULL;
+};
+
+TestWin32Window::~TestWin32Window() {
+  if (hwnd_)
+    DestroyWindow(hwnd_);
+}
+
+HWND TestWin32Window::Create(DWORD style) {
+  const wchar_t class_name[] = L"TestWin32Window";
+  WNDCLASSEX wcex = {sizeof(wcex)};
+  wcex.lpfnWndProc = DefWindowProc;
+  wcex.hInstance = ::GetModuleHandle(nullptr);
+  wcex.lpszClassName = class_name;
+  wcex.style = CS_HREDRAW | CS_VREDRAW;
+  RegisterClassEx(&wcex);
+  hwnd_ = CreateWindowEx(0, class_name, class_name, style, 0, 0, 100, 100,
+                         nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
+  ShowWindow(hwnd_, SW_SHOWNORMAL);
+  EXPECT_TRUE(UpdateWindow(hwnd_));
+  return hwnd_;
 }
 
 // This class currently tests the behavior of
@@ -49,6 +87,11 @@ TestNativeWindow::~TestNativeWindow() {
 class NativeWindowOcclusionTrackerTest : public test::AuraTestBase {
  public:
   NativeWindowOcclusionTrackerTest() {}
+
+  NativeWindowOcclusionTrackerTest(const NativeWindowOcclusionTrackerTest&) =
+      delete;
+  NativeWindowOcclusionTrackerTest& operator=(
+      const NativeWindowOcclusionTrackerTest&) = delete;
 
   TestNativeWindow* native_win() { return native_win_.get(); }
 
@@ -90,8 +133,6 @@ class NativeWindowOcclusionTrackerTest : public test::AuraTestBase {
 
  private:
   std::unique_ptr<TestNativeWindow> native_win_;
-
-  DISALLOW_COPY_AND_ASSIGN(NativeWindowOcclusionTrackerTest);
 };
 
 TEST_F(NativeWindowOcclusionTrackerTest, VisibleOpaqueWindow) {
@@ -173,10 +214,18 @@ TEST_F(NativeWindowOcclusionTrackerTest, ComplexRegionWindow) {
   EXPECT_FALSE(CheckWindowVisibleAndFullyOpaque(hwnd, &win_rect));
 }
 
-TEST_F(NativeWindowOcclusionTrackerTest, PopupWindow) {
+TEST_F(NativeWindowOcclusionTrackerTest, PopupChromeWindow) {
   HWND hwnd = CreateNativeWindow(WS_POPUP, /*ex_style=*/0);
   gfx::Rect win_rect;
-  // Popup Windows are not considered visible.
+  // Chrome Popup Windows of class Chrome_WidgetWin_ are considered visible.
+  EXPECT_TRUE(CheckWindowVisibleAndFullyOpaque(hwnd, &win_rect));
+}
+
+TEST_F(NativeWindowOcclusionTrackerTest, PopupWindow) {
+  TestWin32Window test_window;
+  HWND hwnd = test_window.Create(WS_POPUPWINDOW);
+  gfx::Rect win_rect;
+  // Normal Popup Windows are not considered visible.
   EXPECT_FALSE(CheckWindowVisibleAndFullyOpaque(hwnd, &win_rect));
 }
 

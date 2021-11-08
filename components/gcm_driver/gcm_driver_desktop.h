@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -54,7 +55,6 @@ class GCMDriverDesktop : public GCMDriver,
   GCMDriverDesktop(
       std::unique_ptr<GCMClientFactory> gcm_client_factory,
       const GCMClient::ChromeBuildInfo& chrome_build_info,
-      const std::string& user_agent,
       PrefService* prefs,
       const base::FilePath& store_path,
       bool remove_account_mappings_with_email_key,
@@ -66,6 +66,10 @@ class GCMDriverDesktop : public GCMDriver,
       const scoped_refptr<base::SequencedTaskRunner>& ui_thread,
       const scoped_refptr<base::SequencedTaskRunner>& io_thread,
       const scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner);
+
+  GCMDriverDesktop(const GCMDriverDesktop&) = delete;
+  GCMDriverDesktop& operator=(const GCMDriverDesktop&) = delete;
+
   ~GCMDriverDesktop() override;
 
   // GCMDriver implementation:
@@ -94,7 +98,6 @@ class GCMDriverDesktop : public GCMDriver,
   void RemoveAccountMapping(const CoreAccountId& account_id) override;
   base::Time GetLastTokenFetchTime() override;
   void SetLastTokenFetchTime(const base::Time& time) override;
-  void WakeFromSuspendForHeartbeat(bool wake) override;
   InstanceIDHandler* GetInstanceIDHandlerInternal() override;
   void AddHeartbeatInterval(const std::string& scope, int interval_ms) override;
   void RemoveHeartbeatInterval(const std::string& scope) override;
@@ -224,10 +227,6 @@ class GCMDriverDesktop : public GCMDriver,
 
   std::unique_ptr<GCMDelayedTaskController> delayed_task_controller_;
 
-  // Whether the HeartbeatManager should try to wake the system from suspend for
-  // sending heartbeat messages.
-  bool wake_from_suspend_enabled_;
-
   // For all the work occurring on the IO thread. Must be destroyed on the IO
   // thread.
   std::unique_ptr<IOWorker> io_worker_;
@@ -235,8 +234,15 @@ class GCMDriverDesktop : public GCMDriver,
   // Callback for SetGCMRecording.
   GCMStatisticsRecordingCallback gcm_statistics_recording_callback_;
 
-  // Callbacks for GetInstanceIDData.
-  std::map<std::string, GetInstanceIDDataCallback>
+  // Callbacks for GetInstanceIDData. Initializing InstanceID is asynchronous,
+  // which leads to a race condition when recreating an InstanceID before such
+  // initialization has finished, causing multiple callbacks to be in flight.
+  // Expecting all InstanceID users to care for that is fragile and complicated,
+  // so allow for a queue of callbacks to be stored here instead.
+  //
+  // Note that other InstanceID callbacks don't have this concern, as they all
+  // wait for initialization of the InstanceID instance to have completed.
+  std::map<std::string, base::queue<GetInstanceIDDataCallback>>
       get_instance_id_data_callbacks_;
 
   // Callbacks for GetToken/DeleteToken.
@@ -247,8 +253,6 @@ class GCMDriverDesktop : public GCMDriver,
 
   // Used to pass a weak pointer to the IO worker.
   base::WeakPtrFactory<GCMDriverDesktop> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(GCMDriverDesktop);
 };
 
 }  // namespace gcm

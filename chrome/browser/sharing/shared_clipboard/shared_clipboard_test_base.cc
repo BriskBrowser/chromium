@@ -13,6 +13,7 @@
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/test/clipboard_test_util.h"
 #include "ui/base/clipboard/test/test_clipboard.h"
+#include "ui/gfx/codec/png_codec.h"
 #include "ui/message_center/public/cpp/notification.h"
 
 SharedClipboardTestBase::SharedClipboardTestBase()
@@ -41,33 +42,18 @@ chrome_browser_sharing::SharingMessage SharedClipboardTestBase::CreateMessage(
 }
 
 std::string SharedClipboardTestBase::GetClipboardText() {
-  base::string16 text;
+  std::u16string text;
   ui::Clipboard::GetForCurrentThread()->ReadText(
       ui::ClipboardBuffer::kCopyPaste, /* data_dst = */ nullptr, &text);
   return base::UTF16ToUTF8(text);
 }
 
 SkBitmap SharedClipboardTestBase::GetClipboardImage() {
-  return ui::clipboard_test_util::ReadImage(
-      ui::Clipboard::GetForCurrentThread());
-}
-
-bool SharedClipboardTestBase::HasImageNotification() {
-  auto notifications = notification_tester_->GetDisplayedNotificationsForType(
-      NotificationHandler::Type::SHARING);
-  if (notifications.size() != 1u)
-    return false;
-
-  return notifications[0].type() == message_center::NOTIFICATION_TYPE_IMAGE;
-}
-
-bool SharedClipboardTestBase::HasProgressNotification() {
-  auto notifications = notification_tester_->GetDisplayedNotificationsForType(
-      NotificationHandler::Type::SHARING);
-  if (notifications.size() != 1u)
-    return false;
-
-  return notifications[0].type() == message_center::NOTIFICATION_TYPE_PROGRESS;
+  SkBitmap bitmap;
+  std::vector<uint8_t> png_data =
+      ui::clipboard_test_util::ReadPng(ui::Clipboard::GetForCurrentThread());
+  gfx::PNGCodec::Decode(png_data.data(), png_data.size(), &bitmap);
+  return bitmap;
 }
 
 message_center::Notification SharedClipboardTestBase::GetNotification() {
@@ -77,29 +63,6 @@ message_center::Notification SharedClipboardTestBase::GetNotification() {
 
   const message_center::Notification& notification = notifications[0];
   EXPECT_EQ(message_center::NOTIFICATION_TYPE_SIMPLE, notification.type());
-
-  return notification;
-}
-
-message_center::Notification
-SharedClipboardTestBase::GetProgressNotification() {
-  auto notifications = notification_tester_->GetDisplayedNotificationsForType(
-      NotificationHandler::Type::SHARING);
-  EXPECT_EQ(notifications.size(), 1u);
-
-  const message_center::Notification& notification = notifications[0];
-  EXPECT_EQ(message_center::NOTIFICATION_TYPE_PROGRESS, notification.type());
-
-  return notification;
-}
-
-message_center::Notification SharedClipboardTestBase::GetImageNotification() {
-  auto notifications = notification_tester_->GetDisplayedNotificationsForType(
-      NotificationHandler::Type::SHARING);
-  EXPECT_EQ(notifications.size(), 1u);
-
-  const message_center::Notification& notification = notifications[0];
-  EXPECT_EQ(message_center::NOTIFICATION_TYPE_IMAGE, notification.type());
 
   return notification;
 }

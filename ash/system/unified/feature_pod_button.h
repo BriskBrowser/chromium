@@ -21,7 +21,7 @@ namespace ash {
 class FeaturePodControllerBase;
 
 // A toggle button with an icon used by feature pods and in other places.
-class FeaturePodIconButton : public views::ImageButton {
+class ASH_EXPORT FeaturePodIconButton : public views::ImageButton {
  public:
   // Used to determine how the button will behave when disabled.
   enum class DisabledButtonBehavior {
@@ -33,6 +33,10 @@ class FeaturePodIconButton : public views::ImageButton {
   };
 
   FeaturePodIconButton(PressedCallback callback, bool is_togglable);
+
+  FeaturePodIconButton(const FeaturePodIconButton&) = delete;
+  FeaturePodIconButton& operator=(const FeaturePodIconButton&) = delete;
+
   ~FeaturePodIconButton() override;
 
   // Change the toggle state. See FeaturePodButton::SetToggled.
@@ -47,10 +51,6 @@ class FeaturePodIconButton : public views::ImageButton {
 
   // views::ImageButton:
   void PaintButtonContents(gfx::Canvas* canvas) override;
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
-  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   const char* GetClassName() const override;
   void OnThemeChanged() override;
@@ -58,6 +58,9 @@ class FeaturePodIconButton : public views::ImageButton {
   bool toggled() const { return toggled_; }
 
  private:
+  // For unit tests.
+  friend class BluetoothFeaturePodControllerTest;
+
   // Updates vector icon. Called by SetToggled to update the icon's color on
   // toggle state.
   void UpdateVectorIcon();
@@ -71,24 +74,26 @@ class FeaturePodIconButton : public views::ImageButton {
   DisabledButtonBehavior button_behavior_ = DisabledButtonBehavior::kNone;
 
   const gfx::VectorIcon* icon_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(FeaturePodIconButton);
 };
 
 // Button internally used in FeaturePodButton. Should not be used directly.
-class FeaturePodLabelButton : public views::Button {
+class ASH_EXPORT FeaturePodLabelButton : public views::Button {
  public:
   explicit FeaturePodLabelButton(PressedCallback callback);
+
+  FeaturePodLabelButton(const FeaturePodLabelButton&) = delete;
+  FeaturePodLabelButton& operator=(const FeaturePodLabelButton&) = delete;
+
   ~FeaturePodLabelButton() override;
 
   // Set the text of label shown below the icon. See FeaturePodButton::SetLabel.
-  void SetLabel(const base::string16& label);
-  const base::string16& GetLabelText() const;
+  void SetLabel(const std::u16string& label);
+  const std::u16string& GetLabelText() const;
 
   // Set the text of sub-label shown below the label.
   // See FeaturePodButton::SetSubLabel.
-  void SetSubLabel(const base::string16& sub_label);
-  const base::string16& GetSubLabelText() const;
+  void SetSubLabel(const std::u16string& sub_label);
+  const std::u16string& GetSubLabelText() const;
 
   // Show arrow to indicate that the feature has a detailed view.
   // See FeaturePodButton::ShowDetailedViewArrow.
@@ -97,10 +102,6 @@ class FeaturePodLabelButton : public views::Button {
   // views::Button:
   void Layout() override;
   gfx::Size CalculatePreferredSize() const override;
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
-  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override;
   const char* GetClassName() const override;
   void OnThemeChanged() override;
 
@@ -118,8 +119,6 @@ class FeaturePodLabelButton : public views::Button {
       AddEnabledChangedCallback(
           base::BindRepeating(&FeaturePodLabelButton::OnEnabledChanged,
                               base::Unretained(this)));
-
-  DISALLOW_COPY_AND_ASSIGN(FeaturePodLabelButton);
 };
 
 // A button in FeaturePodsView. These buttons are main entry points of features
@@ -132,25 +131,29 @@ class ASH_EXPORT FeaturePodButton : public views::View {
  public:
   FeaturePodButton(FeaturePodControllerBase* controller,
                    bool is_togglable = true);
+
+  FeaturePodButton(const FeaturePodButton&) = delete;
+  FeaturePodButton& operator=(const FeaturePodButton&) = delete;
+
   ~FeaturePodButton() override;
 
   // Set the vector icon shown in a circle.
   void SetVectorIcon(const gfx::VectorIcon& icon);
 
   // Set the text of label shown below the icon.
-  void SetLabel(const base::string16& label);
+  void SetLabel(const std::u16string& label);
 
   // Set the text of sub-label shown below the label.
-  void SetSubLabel(const base::string16& sub_label);
+  void SetSubLabel(const std::u16string& sub_label);
 
   // Set the tooltip text of the icon button.
-  void SetIconTooltip(const base::string16& text);
+  void SetIconTooltip(const std::u16string& text);
 
   // Set the tooltip text of the label button.
-  void SetLabelTooltip(const base::string16& text);
+  void SetLabelTooltip(const std::u16string& text);
 
   // Convenience method to set both icon and label tooltip texts.
-  void SetIconAndLabelTooltips(const base::string16& text);
+  void SetIconAndLabelTooltips(const std::u16string& text);
 
   // Show arrow to indicate that the feature has a detailed view.
   void ShowDetailedViewArrow();
@@ -193,6 +196,10 @@ class ASH_EXPORT FeaturePodButton : public views::View {
   FeaturePodIconButton* icon_button() const { return icon_button_; }
 
  private:
+  // For unit tests.
+  friend class BluetoothFeaturePodControllerTest;
+  friend class NetworkFeaturePodControllerTest;
+
   void OnEnabledChanged();
 
   // Owned by views hierarchy.
@@ -210,8 +217,6 @@ class ASH_EXPORT FeaturePodButton : public views::View {
       AddEnabledChangedCallback(
           base::BindRepeating(&FeaturePodButton::OnEnabledChanged,
                               base::Unretained(this)));
-
-  DISALLOW_COPY_AND_ASSIGN(FeaturePodButton);
 };
 
 }  // namespace ash

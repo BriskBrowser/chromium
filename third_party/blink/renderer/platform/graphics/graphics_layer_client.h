@@ -26,7 +26,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_GRAPHICS_LAYER_CLIENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_GRAPHICS_LAYER_CLIENT_H_
 
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/platform/geometry/layout_size.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -36,6 +38,7 @@ class GraphicsContext;
 class GraphicsLayer;
 class IntRect;
 class ScrollableArea;
+class PaintArtifactCompositor;
 
 enum GraphicsLayerPaintingPhaseFlags {
   kGraphicsLayerPaintBackground = (1 << 0),
@@ -50,7 +53,7 @@ enum GraphicsLayerPaintingPhaseFlags {
 };
 typedef unsigned GraphicsLayerPaintingPhase;
 
-class PLATFORM_EXPORT GraphicsLayerClient {
+class PLATFORM_EXPORT GraphicsLayerClient : public GarbageCollectedMixin {
  public:
   virtual ~GraphicsLayerClient() = default;
 
@@ -76,6 +79,8 @@ class PLATFORM_EXPORT GraphicsLayerClient {
 
   virtual void GraphicsLayersDidChange() {}
 
+  virtual PaintArtifactCompositor* GetPaintArtifactCompositor() = 0;
+
   virtual String DebugName(const GraphicsLayer*) const = 0;
 
   virtual const ScrollableArea* GetScrollableAreaForTesting(
@@ -91,6 +96,8 @@ class PLATFORM_EXPORT GraphicsLayerClient {
   // while painting.
   virtual void VerifyNotPainting() {}
 #endif
+
+  void Trace(Visitor*) const override {}
 };
 
 }  // namespace blink

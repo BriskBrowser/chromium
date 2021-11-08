@@ -18,7 +18,6 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/message_loop/message_pump_for_io.h"
-#include "base/optional.h"
 #include "base/task/current_thread.h"
 #include "base/token.h"
 #include "base/trace_event/trace_event.h"
@@ -41,6 +40,7 @@
 #include "services/service_manager/public/cpp/service_receiver.h"
 #include "services/service_manager/public/mojom/connector.mojom.h"
 #include "services/service_manager/public/mojom/service.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromecast {
 namespace external_mojo {
@@ -60,7 +60,7 @@ void OnInternalBindResult(
     const std::string& service_name,
     const std::string& interface_name,
     service_manager::mojom::ConnectResult result,
-    const base::Optional<service_manager::Identity>& identity) {
+    const absl::optional<service_manager::Identity>& identity) {
   if (result != service_manager::mojom::ConnectResult::SUCCEEDED) {
     LOG(ERROR) << "Failed to bind " << service_name << ":" << interface_name
                << ", result = " << result;
@@ -72,6 +72,9 @@ void OnInternalBindResult(
 class ExternalMojoBroker::ConnectorImpl : public mojom::ExternalConnector {
  public:
   ConnectorImpl() : connector_facade_(this) {}
+
+  ConnectorImpl(const ConnectorImpl&) = delete;
+  ConnectorImpl& operator=(const ConnectorImpl&) = delete;
 
   void InitializeChromium(
       std::unique_ptr<service_manager::Connector> connector,
@@ -98,6 +101,9 @@ class ExternalMojoBroker::ConnectorImpl : public mojom::ExternalConnector {
       DCHECK(connector_);
     }
 
+    ExternalServiceProxy(const ExternalServiceProxy&) = delete;
+    ExternalServiceProxy& operator=(const ExternalServiceProxy&) = delete;
+
    private:
     void OnBindInterface(
         const service_manager::BindSourceInfo& source,
@@ -110,8 +116,6 @@ class ExternalMojoBroker::ConnectorImpl : public mojom::ExternalConnector {
     ConnectorImpl* const connector_;
     const std::string service_name_;
     service_manager::ServiceReceiver service_receiver_;
-
-    DISALLOW_COPY_AND_ASSIGN(ExternalServiceProxy);
   };
 
   class ServiceManagerConnectorFacade
@@ -137,7 +141,7 @@ class ExternalMojoBroker::ConnectorImpl : public mojom::ExternalConnector {
       connector_->BindInterface(filter.service_name(), interface_name,
                                 std::move(interface_pipe));
       std::move(callback).Run(service_manager::mojom::ConnectResult::SUCCEEDED,
-                              base::nullopt);
+                              absl::nullopt);
     }
 
     void QueryService(const std::string& service_name,
@@ -149,7 +153,7 @@ class ExternalMojoBroker::ConnectorImpl : public mojom::ExternalConnector {
     void WarmService(const ::service_manager::ServiceFilter& filter,
                      WarmServiceCallback callback) override {
       std::move(callback).Run(service_manager::mojom::ConnectResult::SUCCEEDED,
-                              base::nullopt);
+                              absl::nullopt);
     }
 
     void RegisterServiceInstance(
@@ -363,8 +367,6 @@ class ExternalMojoBroker::ConnectorImpl : public mojom::ExternalConnector {
   std::map<std::string, mojo::Remote<mojom::ExternalService>> services_;
   std::map<std::string, std::vector<PendingBindRequest>> pending_bind_requests_;
   std::map<std::string, mojom::ExternalServiceInfo> services_info_;
-
-  DISALLOW_COPY_AND_ASSIGN(ConnectorImpl);
 };
 
 class ExternalMojoBroker::ReadWatcher
@@ -379,6 +381,9 @@ class ExternalMojoBroker::ReadWatcher
         listen_handle_.GetFD().get(), true /* persistent */,
         base::MessagePumpForIO::WATCH_READ, &watch_controller_, this);
   }
+
+  ReadWatcher(const ReadWatcher&) = delete;
+  ReadWatcher& operator=(const ReadWatcher&) = delete;
 
   // base::MessagePumpForIO::FdWatcher implementation:
   void OnFileCanReadWithoutBlocking(int fd) override {
@@ -403,8 +408,6 @@ class ExternalMojoBroker::ReadWatcher
   ConnectorImpl* const connector_;
   const mojo::PlatformHandle listen_handle_;
   base::MessagePumpForIO::FdWatchController watch_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(ReadWatcher);
 };
 
 ExternalMojoBroker::ExternalMojoBroker(const std::string& broker_path) {

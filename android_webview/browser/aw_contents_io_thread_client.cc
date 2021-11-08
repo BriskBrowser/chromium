@@ -60,7 +60,7 @@ struct IoThreadClientData {
 
 IoThreadClientData::IoThreadClientData() : pending_association(false) {}
 
-typedef map<pair<int, int>, IoThreadClientData>
+typedef map<content::GlobalRenderFrameHostId, IoThreadClientData>
     RenderFrameHostToIoThreadClientType;
 
 typedef pair<base::flat_set<RenderFrameHost*>, IoThreadClientData>
@@ -74,16 +74,13 @@ typedef pair<base::flat_set<RenderFrameHost*>, IoThreadClientData>
 // therefore the FrameTreeNodeId should be removed).
 typedef map<int, HostsAndClientDataPair> FrameTreeNodeToIoThreadClientType;
 
-static pair<int, int> GetRenderFrameHostIdPair(RenderFrameHost* rfh) {
-  return pair<int, int>(rfh->GetProcess()->GetID(), rfh->GetRoutingID());
-}
-
 // RfhToIoThreadClientMap -----------------------------------------------------
 class RfhToIoThreadClientMap {
  public:
   static RfhToIoThreadClientMap* GetInstance();
-  void Set(pair<int, int> rfh_id, const IoThreadClientData& client);
-  bool Get(pair<int, int> rfh_id, IoThreadClientData* client);
+  void Set(content::GlobalRenderFrameHostId rfh_id,
+           const IoThreadClientData& client);
+  bool Get(content::GlobalRenderFrameHostId rfh_id, IoThreadClientData* client);
 
   bool Get(int frame_tree_node_id, IoThreadClientData* client);
 
@@ -114,13 +111,13 @@ RfhToIoThreadClientMap* RfhToIoThreadClientMap::GetInstance() {
   return g_instance_.Pointer();
 }
 
-void RfhToIoThreadClientMap::Set(pair<int, int> rfh_id,
+void RfhToIoThreadClientMap::Set(content::GlobalRenderFrameHostId rfh_id,
                                  const IoThreadClientData& client) {
   base::AutoLock lock(map_lock_);
   rfh_to_io_thread_client_[rfh_id] = client;
 }
 
-bool RfhToIoThreadClientMap::Get(pair<int, int> rfh_id,
+bool RfhToIoThreadClientMap::Get(content::GlobalRenderFrameHostId rfh_id,
                                  IoThreadClientData* client) {
   base::AutoLock lock(map_lock_);
   RenderFrameHostToIoThreadClientType::iterator iterator =
@@ -147,7 +144,7 @@ bool RfhToIoThreadClientMap::Get(int frame_tree_node_id,
 void RfhToIoThreadClientMap::Set(RenderFrameHost* rfh,
                                  const IoThreadClientData& client) {
   int frame_tree_node_id = rfh->GetFrameTreeNodeId();
-  pair<int, int> rfh_id = GetRenderFrameHostIdPair(rfh);
+  content::GlobalRenderFrameHostId rfh_id = rfh->GetGlobalId();
   base::AutoLock lock(map_lock_);
 
   // If this FrameTreeNodeId already has an associated IoThreadClientData, add
@@ -166,7 +163,7 @@ void RfhToIoThreadClientMap::Set(RenderFrameHost* rfh,
 
 void RfhToIoThreadClientMap::Erase(RenderFrameHost* rfh) {
   int frame_tree_node_id = rfh->GetFrameTreeNodeId();
-  pair<int, int> rfh_id = GetRenderFrameHostIdPair(rfh);
+  content::GlobalRenderFrameHostId rfh_id = rfh->GetGlobalId();
   base::AutoLock lock(map_lock_);
   HostsAndClientDataPair& current_entry =
       frame_tree_node_to_io_thread_client_[frame_tree_node_id];
@@ -231,11 +228,10 @@ void ClientMapEntryUpdater::WebContentsDestroyed() {
 
 // static
 std::unique_ptr<AwContentsIoThreadClient> AwContentsIoThreadClient::FromID(
-    int render_process_id,
-    int render_frame_id) {
-  pair<int, int> rfh_id(render_process_id, render_frame_id);
+    content::GlobalRenderFrameHostId render_frame_host_id) {
   IoThreadClientData client_data;
-  if (!RfhToIoThreadClientMap::GetInstance()->Get(rfh_id, &client_data))
+  if (!RfhToIoThreadClientMap::GetInstance()->Get(render_frame_host_id,
+                                                  &client_data))
     return nullptr;
 
   JNIEnv* env = AttachCurrentThread();
@@ -265,8 +261,10 @@ std::unique_ptr<AwContentsIoThreadClient> AwContentsIoThreadClient::FromID(
 void AwContentsIoThreadClient::SubFrameCreated(int render_process_id,
                                                int parent_render_frame_id,
                                                int child_render_frame_id) {
-  pair<int, int> parent_rfh_id(render_process_id, parent_render_frame_id);
-  pair<int, int> child_rfh_id(render_process_id, child_render_frame_id);
+  content::GlobalRenderFrameHostId parent_rfh_id(render_process_id,
+                                                 parent_render_frame_id);
+  content::GlobalRenderFrameHostId child_rfh_id(render_process_id,
+                                                child_render_frame_id);
   IoThreadClientData client_data;
   if (!RfhToIoThreadClientMap::GetInstance()->Get(parent_rfh_id,
                                                   &client_data)) {
@@ -283,7 +281,7 @@ void AwContentsIoThreadClient::RegisterPendingContents(
   IoThreadClientData client_data;
   client_data.pending_association = true;
   RfhToIoThreadClientMap::GetInstance()->Set(
-      GetRenderFrameHostIdPair(web_contents->GetMainFrame()), client_data);
+      web_contents->GetMainFrame()->GetGlobalId(), client_data);
 }
 
 // static
@@ -375,39 +373,6 @@ void RecordInterceptedScheme(bool response_is_null, const std::string& url) {
       "Android.WebView.ShouldInterceptRequest.InterceptionType", type);
 }
 
-// Record UMA for the custom response status code for the intercepted requests
-// where input stream is null. UMA is recorded only when the status codes and
-// reason phrases are actually valid.
-void RecordResponseStatusCode(
-    JNIEnv* env,
-    const std::unique_ptr<embedder_support::WebResourceResponse>& response) {
-  DCHECK(response);
-  DCHECK(!response->HasInputStream(env));
-
-  int status_code;
-  std::string reason_phrase;
-  bool status_info_valid =
-      response->GetStatusInfo(env, &status_code, &reason_phrase);
-
-  if (!status_info_valid) {
-    // Status code is not necessary set properly in the response,
-    // e.g. Webview's WebResourceResponse(String, String, InputStream) [*]
-    // does not actually set the status code or the reason phrase. In this case
-    // we just record a zero status code.
-    // The other constructor (long version) or the #setStatusCodeAndReasonPhrase
-    // method does actually perform validity checks on status code and reason
-    // phrase arguments.
-    // [*]
-    // https://developer.android.com/reference/android/webkit/WebResourceResponse.html
-    status_code = 0;
-  }
-
-  base::UmaHistogramSparse(
-      "Android.WebView.ShouldInterceptRequest.NullInputStream."
-      "ResponseStatusCode",
-      status_code);
-}
-
 std::unique_ptr<AwWebResourceInterceptResponse> NoInterceptRequest() {
   return nullptr;
 }
@@ -441,15 +406,7 @@ std::unique_ptr<AwWebResourceInterceptResponse> RunShouldInterceptRequest(
   if (!ret)
     return NoInterceptRequest();
 
-  auto response = std::make_unique<AwWebResourceInterceptResponse>(ret);
-  if (!response->RaisedException(env) && response->HasResponse(env) &&
-      !response->GetResponse(env)->HasInputStream(env)) {
-    // Only record UMA for cases where the input stream is null (see
-    // crbug.com/974273).
-    RecordResponseStatusCode(env, response->GetResponse(env));
-  }
-
-  return response;
+  return std::make_unique<AwWebResourceInterceptResponse>(ret);
 }
 
 }  // namespace

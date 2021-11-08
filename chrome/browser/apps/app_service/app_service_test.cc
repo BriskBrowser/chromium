@@ -5,14 +5,13 @@
 #include "chrome/browser/apps/app_service/app_service_test.h"
 
 #include "base/run_loop.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "ui/gfx/image/image_unittest_util.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/apps/app_service/arc_apps.h"
-#include "chrome/browser/apps/app_service/arc_apps_factory.h"
+#include "chrome/browser/apps/app_service/publishers/arc_apps.h"
+#include "chrome/browser/apps/app_service/publishers/arc_apps_factory.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace apps {
@@ -22,7 +21,6 @@ AppServiceTest::AppServiceTest() = default;
 AppServiceTest::~AppServiceTest() = default;
 
 void AppServiceTest::SetUp(Profile* profile) {
-  profile_ = profile;
   app_service_proxy_ = apps::AppServiceProxyFactory::GetForProfile(profile);
   app_service_proxy_->ReInitializeForTesting(profile);
 
@@ -31,10 +29,10 @@ void AppServiceTest::SetUp(Profile* profile) {
 }
 
 void AppServiceTest::UninstallAllApps(Profile* profile) {
-  AppServiceProxy* app_service_proxy_ =
+  auto* app_service_proxy =
       apps::AppServiceProxyFactory::GetForProfile(profile);
   std::vector<apps::mojom::AppPtr> apps;
-  app_service_proxy_->AppRegistryCache().ForEachApp(
+  app_service_proxy->AppRegistryCache().ForEachApp(
       [&apps](const apps::AppUpdate& update) {
         apps::mojom::AppPtr app = apps::mojom::App::New();
         app->app_type = update.AppType();
@@ -42,7 +40,7 @@ void AppServiceTest::UninstallAllApps(Profile* profile) {
         app->readiness = apps::mojom::Readiness::kUninstalledByUser;
         apps.push_back(app.Clone());
       });
-  app_service_proxy_->AppRegistryCache().OnApps(
+  app_service_proxy->AppRegistryCache().OnApps(
       std::move(apps), apps::mojom::AppType::kUnknown,
       false /* should_notify_initialized */);
 

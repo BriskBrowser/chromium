@@ -15,11 +15,12 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "media/audio/audio_device_description.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/mediastream/media_devices.h"
-#include "third_party/blink/public/common/widget/screen_info.h"
+#include "third_party/blink/public/mojom/media/capture_handle_config.mojom-blink.h"
 #include "third_party/blink/public/mojom/mediastream/media_devices.mojom-blink.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_source.h"
@@ -46,6 +47,7 @@
 #include "third_party/blink/renderer/platform/mediastream/media_stream_track_platform.h"
 #include "third_party/blink/renderer/platform/testing/io_task_runner_testing_platform_support.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "ui/display/screen_info.h"
 
 using testing::_;
 using testing::Mock;
@@ -257,6 +259,16 @@ class MockMediaDevicesDispatcherHost
       override {
     NOTREACHED();
   }
+
+  void SetCaptureHandleConfig(mojom::blink::CaptureHandleConfigPtr) override {
+    NOTREACHED();
+  }
+
+#if !defined(OS_ANDROID)
+  void CloseFocusWindowOfOpportunity(const String& label) override {
+    NOTREACHED();
+  }
+#endif
 
   void GetAllVideoInputDeviceFormats(
       const String&,
@@ -475,12 +487,16 @@ class UserMediaClientUnderTest : public UserMediaClient {
 
 class UserMediaChromeClient : public EmptyChromeClient {
  public:
-  ScreenInfo GetScreenInfo(LocalFrame&) const override {
-    ScreenInfo info;
-    info.rect = gfx::Rect(blink::kDefaultScreenCastWidth,
-                          blink::kDefaultScreenCastHeight);
-    return info;
+  UserMediaChromeClient() {
+    screen_info_.rect = gfx::Rect(blink::kDefaultScreenCastWidth,
+                                  blink::kDefaultScreenCastHeight);
   }
+  const display::ScreenInfo& GetScreenInfo(LocalFrame&) const override {
+    return screen_info_;
+  }
+
+ private:
+  display::ScreenInfo screen_info_;
 };
 
 }  // namespace
@@ -495,11 +511,9 @@ class UserMediaClientTest : public ::testing::Test {
     // Create our test object.
     auto* msd_observer = new blink::WebMediaStreamDeviceObserver(nullptr);
 
-    ChromeClient* client = MakeGarbageCollected<UserMediaChromeClient>();
-    Page::PageClients page_clients;
-    page_clients.chrome_client = client;
+    ChromeClient* chrome_client = MakeGarbageCollected<UserMediaChromeClient>();
     dummy_page_holder_ =
-        std::make_unique<DummyPageHolder>(IntSize(1, 1), &page_clients);
+        std::make_unique<DummyPageHolder>(IntSize(1, 1), chrome_client);
 
     user_media_processor_ = MakeGarbageCollected<UserMediaProcessorUnderTest>(
         &(dummy_page_holder_->GetFrame()), base::WrapUnique(msd_observer),
@@ -627,7 +641,7 @@ class UserMediaClientTest : public ::testing::Test {
       MediaStreamComponent* component,
       int width,
       int height,
-      const base::Optional<double>& frame_rate = base::Optional<double>()) {
+      const absl::optional<double>& frame_rate = absl::optional<double>()) {
     blink::MockConstraintFactory factory;
     factory.basic().width.SetExact(width);
     factory.basic().height.SetExact(height);

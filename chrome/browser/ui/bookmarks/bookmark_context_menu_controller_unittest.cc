@@ -10,6 +10,7 @@
 #include <string>
 
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
@@ -21,6 +22,7 @@
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
+#include "components/reading_list/features/reading_list_switches.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/test/browser_task_environment.h"
@@ -49,7 +51,9 @@ class TestingPageNavigator : public PageNavigator {
 
 class BookmarkContextMenuControllerTest : public testing::Test {
  public:
-  BookmarkContextMenuControllerTest() : model_(nullptr) {}
+  BookmarkContextMenuControllerTest() : model_(nullptr) {
+    feature_list_.InitAndEnableFeature(reading_list::switches::kReadLater);
+  }
 
   void SetUp() override {
     TestingProfile::Builder profile_builder;
@@ -81,15 +85,15 @@ class BookmarkContextMenuControllerTest : public testing::Test {
   static void AddTestData(BookmarkModel* model) {
     const BookmarkNode* bb_node = model->bookmark_bar_node();
     std::string test_base = "file:///c:/tmp/";
-    model->AddURL(bb_node, 0, ASCIIToUTF16("a"), GURL(test_base + "a"));
-    const BookmarkNode* f1 = model->AddFolder(bb_node, 1, ASCIIToUTF16("F1"));
-    model->AddURL(f1, 0, ASCIIToUTF16("f1a"), GURL(test_base + "f1a"));
-    const BookmarkNode* f11 = model->AddFolder(f1, 1, ASCIIToUTF16("F11"));
-    model->AddURL(f11, 0, ASCIIToUTF16("f11a"), GURL(test_base + "f11a"));
-    model->AddFolder(bb_node, 2, ASCIIToUTF16("F2"));
-    model->AddFolder(bb_node, 3, ASCIIToUTF16("F3"));
-    const BookmarkNode* f4 = model->AddFolder(bb_node, 4, ASCIIToUTF16("F4"));
-    model->AddURL(f4, 0, ASCIIToUTF16("f4a"), GURL(test_base + "f4a"));
+    model->AddURL(bb_node, 0, u"a", GURL(test_base + "a"));
+    const BookmarkNode* f1 = model->AddFolder(bb_node, 1, u"F1");
+    model->AddURL(f1, 0, u"f1a", GURL(test_base + "f1a"));
+    const BookmarkNode* f11 = model->AddFolder(f1, 1, u"F11");
+    model->AddURL(f11, 0, u"f11a", GURL(test_base + "f11a"));
+    model->AddFolder(bb_node, 2, u"F2");
+    model->AddFolder(bb_node, 3, u"F3");
+    const BookmarkNode* f4 = model->AddFolder(bb_node, 4, u"F4");
+    model->AddURL(f4, 0, u"f4a", GURL(test_base + "f4a"));
   }
 
   static base::RepeatingCallback<content::PageNavigator*()>
@@ -99,6 +103,7 @@ class BookmarkContextMenuControllerTest : public testing::Test {
   }
 
  protected:
+  base::test::ScopedFeatureList feature_list_;
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
   BookmarkModel* model_;
@@ -344,8 +349,8 @@ TEST_F(BookmarkContextMenuControllerTest, CutCopyPasteNode) {
   // Copy the URL.
   controller->ExecuteCommand(IDC_COPY, 0);
 
-  controller.reset(new BookmarkContextMenuController(
-      NULL, NULL, NULL, profile_.get(), NullNavigatorGetter(),
+  controller = base::WrapUnique(new BookmarkContextMenuController(
+      nullptr, nullptr, nullptr, profile_.get(), NullNavigatorGetter(),
       BOOKMARK_LAUNCH_LOCATION_NONE, nodes[0]->parent(), nodes));
   size_t old_count = bb_node->children().size();
   controller->ExecuteCommand(IDC_PASTE, 0);
@@ -354,8 +359,8 @@ TEST_F(BookmarkContextMenuControllerTest, CutCopyPasteNode) {
   ASSERT_EQ(old_count + 1, bb_node->children().size());
   ASSERT_EQ(bb_node->children()[0]->url(), bb_node->children()[1]->url());
 
-  controller.reset(new BookmarkContextMenuController(
-      NULL, NULL, NULL, profile_.get(), NullNavigatorGetter(),
+  controller = base::WrapUnique(new BookmarkContextMenuController(
+      nullptr, nullptr, nullptr, profile_.get(), NullNavigatorGetter(),
       BOOKMARK_LAUNCH_LOCATION_NONE, nodes[0]->parent(), nodes));
   // Cut the URL.
   controller->ExecuteCommand(IDC_CUT, 0);
@@ -390,4 +395,31 @@ TEST_F(BookmarkContextMenuControllerTest,
                         std::make_unique<base::Value>(true));
   EXPECT_FALSE(
       controller.IsCommandIdEnabled(IDC_BOOKMARK_BAR_SHOW_APPS_SHORTCUT));
+}
+
+TEST_F(BookmarkContextMenuControllerTest, ShowReadingListInBookmarksBar) {
+  BookmarkContextMenuController controller(
+      nullptr, nullptr, nullptr, profile_.get(), NullNavigatorGetter(),
+      BOOKMARK_LAUNCH_LOCATION_NONE, model_->bookmark_bar_node(),
+      std::vector<const BookmarkNode*>());
+
+  // By default, the command is enabled and checked.
+  sync_preferences::TestingPrefServiceSyncable* prefs =
+      profile_->GetTestingPrefService();
+  EXPECT_FALSE(prefs->IsManagedPreference(
+      bookmarks::prefs::kShowReadingListInBookmarkBar));
+  EXPECT_TRUE(
+      controller.IsCommandIdEnabled(IDC_BOOKMARK_BAR_SHOW_READING_LIST));
+  EXPECT_TRUE(
+      controller.IsCommandIdChecked(IDC_BOOKMARK_BAR_SHOW_READING_LIST));
+
+  // Execute the command and verify it is unchecked.
+  controller.ExecuteCommand(IDC_BOOKMARK_BAR_SHOW_READING_LIST, 0);
+  EXPECT_FALSE(
+      controller.IsCommandIdChecked(IDC_BOOKMARK_BAR_SHOW_READING_LIST));
+
+  // Execute the command and verify it is checked.
+  controller.ExecuteCommand(IDC_BOOKMARK_BAR_SHOW_READING_LIST, 0);
+  EXPECT_TRUE(
+      controller.IsCommandIdChecked(IDC_BOOKMARK_BAR_SHOW_READING_LIST));
 }

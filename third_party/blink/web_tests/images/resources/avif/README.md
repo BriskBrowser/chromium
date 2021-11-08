@@ -73,15 +73,31 @@ avifenc command line:
 avifenc -r f -d  8 -y 420 -s 0 --nclx 1/13/1 silver.png silver-full-range-srgb-420-8bpc.avif
 ```
 
-### red-full-range-angle-(0|1|2|3)-axis-(0|1)-420-8bpc.avif
+### red-full-range-angle-(0|1|2|3)-mode-(0|1)-420-8bpc.avif
 These are all generated from red.png with the appropriate avifenc command line:
 
 ```
 avifenc -r f -d  8 -y 420 -s 0 --irot 1 red.png red-full-range-angle-1-420-8bpc.avif
-avifenc -r f -d  8 -y 420 -s 0 --imir 0 red.png red-full-range-axis-0-420-8bpc.avif
-avifenc -r f -d  8 -y 420 -s 0 --imir 1 red.png red-full-range-axis-1-420-8bpc.avif
-avifenc -r f -d  8 -y 420 -s 0 --irot 2 --imir 0 red.png red-full-range-angle-2-axis-0-420-8bpc.avif
-avifenc -r f -d  8 -y 420 -s 0 --irot 3 --imir 1 red.png red-full-range-angle-3-axis-1-420-8bpc.avif
+avifenc -r f -d  8 -y 420 -s 0 --imir 0 red.png red-full-range-mode-0-420-8bpc.avif
+avifenc -r f -d  8 -y 420 -s 0 --imir 1 red.png red-full-range-mode-1-420-8bpc.avif
+avifenc -r f -d  8 -y 420 -s 0 --irot 2 --imir 0 red.png red-full-range-angle-2-mode-0-420-8bpc.avif
+avifenc -r f -d  8 -y 420 -s 0 --irot 3 --imir 1 red.png red-full-range-angle-3-mode-1-420-8bpc.avif
+```
+
+### tiger_3layer_1res.avif and tiger_3layer_3res.avif
+These are copied from https://github.com/AOMediaCodec/av1-avif/tree/master/testFiles/Xiph
+under the CC BY-SA 3.0 license.
+
+### green-no-alpha-ispe.avif
+The alpha auxiliary image item in this file does not have a mandatory ispe
+property. This is generated from green-alpha.png with a patched cavif encoder.
+The following commit should be reverted in avif-serialize:
+https://github.com/kornelski/avif-serialize/commit/451ff3568fa2de2fad1185654576f8f4a2db13c5
+
+The cavif command line is:
+
+```
+cavif ../../../fast/box-shadow/resources/green-alpha.png -o green-no-alpha-ispe.avif
 ```
 
 ### TODO(crbug.com/960620): Figure out how the rest of files were generated.

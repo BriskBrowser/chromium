@@ -4,10 +4,12 @@
 
 #include "components/sync/model/in_memory_metadata_change_list.h"
 
+#include <memory>
+
 namespace syncer {
 
-InMemoryMetadataChangeList::InMemoryMetadataChangeList() {}
-InMemoryMetadataChangeList::~InMemoryMetadataChangeList() {}
+InMemoryMetadataChangeList::InMemoryMetadataChangeList() = default;
+InMemoryMetadataChangeList::~InMemoryMetadataChangeList() = default;
 
 void InMemoryMetadataChangeList::TransferChangesTo(MetadataChangeList* other) {
   DCHECK(other);
@@ -39,11 +41,13 @@ void InMemoryMetadataChangeList::TransferChangesTo(MetadataChangeList* other) {
 
 void InMemoryMetadataChangeList::UpdateModelTypeState(
     const sync_pb::ModelTypeState& model_type_state) {
-  state_change_.reset(new ModelTypeStateChange{UPDATE, model_type_state});
+  state_change_ = std::make_unique<ModelTypeStateChange>(
+      ModelTypeStateChange{UPDATE, model_type_state});
 }
 
 void InMemoryMetadataChangeList::ClearModelTypeState() {
-  state_change_.reset(new ModelTypeStateChange{CLEAR});
+  state_change_ =
+      std::make_unique<ModelTypeStateChange>(ModelTypeStateChange{CLEAR});
 }
 
 void InMemoryMetadataChangeList::UpdateMetadata(

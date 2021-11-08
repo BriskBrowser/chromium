@@ -8,11 +8,11 @@
 import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {ContentSetting, ContentSettingsTypes, kControlledByLookup, SITE_EXCEPTION_WILDCARD, SiteException, SiteSettingSource, SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
+import {AddSiteDialogElement, ContentSetting, ContentSettingsTypes, SettingsEditExceptionDialogElement, SITE_EXCEPTION_WILDCARD, SiteListElement, SiteSettingSource, SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
 import {CrSettingsPrefs,Router} from 'chrome://settings/settings.js';
 
-import {assertEquals, assertFalse, assertNotEquals, assertTrue} from '../chai_assert.js';
-import {eventToPromise, waitBeforeNextRender} from '../test_util.m.js';
+import {assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {eventToPromise, waitBeforeNextRender} from 'chrome://webui-test/test_util.js';
 
 import {TestSiteSettingsPrefsBrowserProxy} from './test_site_settings_prefs_browser_proxy.js';
 import {createContentSettingTypeToValuePair, createRawSiteException, createSiteSettingsPrefs, SiteSettingsPref} from './test_util.js';
@@ -304,7 +304,7 @@ suite('SiteListEmbargoedOrigin', function() {
     populateTestExceptions();
 
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
     document.body.innerHTML = '';
     testElement =
         /** @type {!SiteListElement} */ (document.createElement('site-list'));
@@ -327,12 +327,6 @@ suite('SiteListEmbargoedOrigin', function() {
   function setUpCategory(category, subtype, prefs) {
     browserProxy.setPrefs(prefs);
     testElement.categorySubtype = subtype;
-    // Some route is needed, but the actual route doesn't matter.
-    testElement.currentRoute = {
-      page: 'dummy',
-      section: 'privacy',
-      subpage: ['site-settings', 'site-settings-category-location'],
-    };
     testElement.category = category;
   }
 
@@ -353,9 +347,9 @@ suite('SiteListEmbargoedOrigin', function() {
     // Validate that embargoed site has correct subtitle.
     assertEquals(
         loadTimeData.getString('siteSettingsSourceEmbargo'),
-        testElement.$$('#listContainer')
+        testElement.shadowRoot.querySelector('#listContainer')
             .querySelectorAll('site-list-entry')[0]
-            .$$('#siteDescription')
+            .shadowRoot.querySelector('#siteDescription')
             .innerHTML);
   });
 });
@@ -390,7 +384,7 @@ suite('SiteList', function() {
     populateTestExceptions();
 
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
     document.body.innerHTML = '';
     testElement =
         /** @type {!SiteListElement} */ (document.createElement('site-list'));
@@ -411,16 +405,17 @@ suite('SiteList', function() {
    *     open the action menu for.
    */
   function openActionMenu(index) {
-    const actionMenuButton = testElement.$$('#listContainer')
-                                 .querySelectorAll('site-list-entry')[index]
-                                 .$$('#actionMenuButton');
+    const actionMenuButton =
+        testElement.shadowRoot.querySelector('#listContainer')
+            .querySelectorAll('site-list-entry')[index]
+            .shadowRoot.querySelector('#actionMenuButton');
     actionMenuButton.click();
     flush();
   }
 
   /** Closes the action menu. */
   function closeActionMenu() {
-    const menu = testElement.$$('cr-action-menu');
+    const menu = testElement.shadowRoot.querySelector('cr-action-menu');
     if (menu.open) {
       menu.close();
     }
@@ -431,7 +426,7 @@ suite('SiteList', function() {
    * @param {!Array<string>} items The items expected to show in the menu.
    */
   function assertMenu(items) {
-    const menu = testElement.$$('cr-action-menu');
+    const menu = testElement.shadowRoot.querySelector('cr-action-menu');
     assertTrue(!!menu);
     const menuItems = menu.querySelectorAll('button:not([hidden])');
     assertEquals(items.length, menuItems.length);
@@ -458,12 +453,6 @@ suite('SiteList', function() {
   function setUpCategory(category, subtype, prefs) {
     browserProxy.setPrefs(prefs);
     testElement.categorySubtype = subtype;
-    // Some route is needed, but the actual route doesn't matter.
-    testElement.currentRoute = {
-      page: 'dummy',
-      section: 'privacy',
-      subpage: ['site-settings', 'site-settings-category-location'],
-    };
     testElement.category = category;
   }
 
@@ -475,7 +464,8 @@ suite('SiteList', function() {
           // Flush to be sure list container is populated.
           flush();
           const dotsMenu =
-              testElement.$$('site-list-entry').$$('#actionMenuButton');
+              testElement.shadowRoot.querySelector('site-list-entry')
+                  .shadowRoot.querySelector('#actionMenuButton');
           assertFalse(dotsMenu.hidden);
           testElement.setAttribute('read-only-list', true);
           flush();
@@ -508,7 +498,7 @@ suite('SiteList', function() {
 
           assertEquals(ContentSetting.ALLOW, testElement.categorySubtype);
 
-          assertFalse(testElement.$$('#category').hidden);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
         });
   });
 
@@ -532,7 +522,7 @@ suite('SiteList', function() {
           openActionMenu(0);
           assertMenu(['Block', 'Edit', 'Remove']);
 
-          assertFalse(testElement.$$('#category').hidden);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
         });
   });
 
@@ -540,7 +530,7 @@ suite('SiteList', function() {
     setUpCategory(
         ContentSettingsTypes.GEOLOCATION, ContentSetting.ALLOW,
         prefsGeolocation);
-    const actionMenu = testElement.$$('cr-action-menu');
+    const actionMenu = testElement.shadowRoot.querySelector('cr-action-menu');
     return browserProxy.whenCalled('getExceptionList')
         .then(function(contentType) {
           flush();  // Populates action menu.
@@ -560,26 +550,28 @@ suite('SiteList', function() {
         });
   });
 
-  test('exceptions are not reordered in non-ALL_SITES', function() {
+  test('exceptions are not reordered in non-ALL_SITES', async function() {
     setUpCategory(
         ContentSettingsTypes.GEOLOCATION, ContentSetting.BLOCK,
         prefsMixedProvider);
-    return browserProxy.whenCalled('getExceptionList')
-        .then(function(contentType) {
-          assertEquals(ContentSettingsTypes.GEOLOCATION, contentType);
-          assertEquals(3, testElement.sites.length);
-          for (let i = 0; i < testElement.sites.length; ++i) {
-            assertEquals(
-                prefsMixedProvider.exceptions[contentType][i].origin,
-                testElement.sites[i].origin);
-            assertEquals(
-                kControlledByLookup[prefsMixedProvider
-                                        .exceptions[contentType][i]
-                                        .source] ||
-                    chrome.settingsPrivate.ControlledBy.PRIMARY_USER,
-                testElement.sites[i].controlledBy);
-          }
-        });
+    const contentType = await browserProxy.whenCalled('getExceptionList');
+    assertEquals(ContentSettingsTypes.GEOLOCATION, contentType);
+    assertEquals(3, testElement.sites.length);
+    for (let i = 0; i < testElement.sites.length; ++i) {
+      const exception = prefsMixedProvider.exceptions[contentType][i];
+      assertEquals(exception.origin, testElement.sites[i].origin);
+
+      let expectedControlledBy =
+          chrome.settingsPrivate.ControlledBy.PRIMARY_USER;
+      if (exception.source === SiteSettingSource.EXTENSION ||
+          exception.source === SiteSettingSource.HOSTED_APP) {
+        expectedControlledBy = chrome.settingsPrivate.ControlledBy.EXTENSION;
+      } else if (exception.source === SiteSettingSource.POLICY) {
+        expectedControlledBy = chrome.settingsPrivate.ControlledBy.USER_POLICY;
+      }
+
+      assertEquals(expectedControlledBy, testElement.sites[i].controlledBy);
+    }
   });
 
   test('initial BLOCK state is correct', function() {
@@ -602,7 +594,7 @@ suite('SiteList', function() {
           openActionMenu(0);
           assertMenu(['Allow', 'Edit', 'Remove']);
 
-          assertFalse(testElement.$$('#category').hidden);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
         });
   });
 
@@ -624,7 +616,7 @@ suite('SiteList', function() {
           openActionMenu(0);
           assertMenu(['Allow', 'Block', 'Edit', 'Remove']);
 
-          assertFalse(testElement.$$('#category').hidden);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
         });
   });
 
@@ -648,7 +640,7 @@ suite('SiteList', function() {
           assertMenu(['Allow', 'Clear on exit', 'Edit', 'Remove']);
 
           // Select 'Remove' from menu.
-          const remove = testElement.$$('#reset');
+          const remove = testElement.shadowRoot.querySelector('#reset');
           assertTrue(!!remove);
           remove.click();
           return browserProxy.whenCalled('resetCategoryPermissionForPattern');
@@ -686,7 +678,7 @@ suite('SiteList', function() {
 
           // Select 'Remove' from menu on 'foo.com'.
           openActionMenu(1);
-          const remove = testElement.$$('#reset');
+          const remove = testElement.shadowRoot.querySelector('#reset');
           assertTrue(!!remove);
           remove.click();
           return browserProxy.whenCalled('resetCategoryPermissionForPattern');
@@ -718,15 +710,15 @@ suite('SiteList', function() {
 
           flush();
 
-          const item = testElement.$$('site-list-entry');
+          const item = testElement.shadowRoot.querySelector('site-list-entry');
 
           // Assert action button is hidden.
-          const dots = item.$$('#actionMenuButton');
+          const dots = item.shadowRoot.querySelector('#actionMenuButton');
           assertTrue(!!dots);
           assertTrue(dots.hidden);
 
           // Assert reset button is visible.
-          const resetButton = item.$$('#resetSite');
+          const resetButton = item.shadowRoot.querySelector('#resetSite');
           assertTrue(!!resetButton);
           assertFalse(resetButton.hidden);
 
@@ -750,15 +742,16 @@ suite('SiteList', function() {
 
       openActionMenu(0);
       assertMenu(['Allow', 'Block', 'Edit', 'Remove']);
-      const menu = testElement.$$('cr-action-menu');
+      const menu = testElement.shadowRoot.querySelector('cr-action-menu');
       assertTrue(menu.open);
-      const edit = testElement.$$('#edit');
+      const edit = testElement.shadowRoot.querySelector('#edit');
       assertTrue(!!edit);
       edit.click();
       flush();
       assertFalse(menu.open);
 
-      assertTrue(!!testElement.$$('settings-edit-exception-dialog'));
+      assertTrue(!!testElement.shadowRoot.querySelector(
+          'settings-edit-exception-dialog'));
     });
   });
 
@@ -771,18 +764,20 @@ suite('SiteList', function() {
           flush();  // Populates action menu.
 
           openActionMenu(0);
-          testElement.$$('#edit').click();
+          testElement.shadowRoot.querySelector('#edit').click();
           flush();
 
-          const dialog = /** @type {!HTMLElement} */ (
-              testElement.$$('settings-edit-exception-dialog'));
+          const dialog =
+              /** @type {!HTMLElement} */ (testElement.shadowRoot.querySelector(
+                  'settings-edit-exception-dialog'));
           assertTrue(!!dialog);
           const closeEventPromise = eventToPromise('close', dialog);
           browserProxy.setIncognito(true);
           return closeEventPromise;
         })
         .then(() => {
-          assertFalse(!!testElement.$$('settings-edit-exception-dialog'));
+          assertFalse(!!testElement.shadowRoot.querySelector(
+              'settings-edit-exception-dialog'));
         });
   });
 
@@ -806,7 +801,9 @@ suite('SiteList', function() {
               testElement.sites[1].origin);
 
           // Validate that the sites are shown in UI and can be selected.
-          const clickable = testElement.$$('site-list-entry').$$('.middle');
+          const clickable =
+              testElement.shadowRoot.querySelector('site-list-entry')
+                  .shadowRoot.querySelector('.middle');
           assertTrue(!!clickable);
           clickable.click();
           assertEquals(
@@ -825,8 +822,11 @@ suite('SiteList', function() {
           return waitBeforeNextRender(testElement);
         })
         .then(function() {
-          assertFalse(testElement.$$('#category').hidden);
-          assertNotEquals(0, testElement.$$('#listContainer').offsetHeight);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
+          assertNotEquals(
+              0,
+              testElement.shadowRoot.querySelector('#listContainer')
+                  .offsetHeight);
         });
   });
 
@@ -840,8 +840,11 @@ suite('SiteList', function() {
           return waitBeforeNextRender(testElement);
         })
         .then(function() {
-          assertFalse(testElement.$$('#category').hidden);
-          assertNotEquals(0, testElement.$$('#listContainer').offsetHeight);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
+          assertNotEquals(
+              0,
+              testElement.shadowRoot.querySelector('#listContainer')
+                  .offsetHeight);
         });
   });
 
@@ -855,8 +858,11 @@ suite('SiteList', function() {
           return waitBeforeNextRender(testElement);
         })
         .then(function() {
-          assertFalse(testElement.$$('#category').hidden);
-          assertNotEquals(0, testElement.$$('#listContainer').offsetHeight);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
+          assertNotEquals(
+              0,
+              testElement.shadowRoot.querySelector('#listContainer')
+                  .offsetHeight);
         });
   });
 
@@ -870,8 +876,11 @@ suite('SiteList', function() {
           return waitBeforeNextRender(testElement);
         })
         .then(function() {
-          assertFalse(testElement.$$('#category').hidden);
-          assertNotEquals(0, testElement.$$('#listContainer').offsetHeight);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
+          assertNotEquals(
+              0,
+              testElement.shadowRoot.querySelector('#listContainer')
+                  .offsetHeight);
         });
   });
 
@@ -882,7 +891,7 @@ suite('SiteList', function() {
     return browserProxy.whenCalled('getExceptionList')
         .then(function(actualContentType) {
           assertEquals(contentType, actualContentType);
-          assertFalse(testElement.$$('#category').hidden);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
         });
   });
 
@@ -893,7 +902,7 @@ suite('SiteList', function() {
     return browserProxy.whenCalled('getExceptionList')
         .then(function(actualContentType) {
           assertEquals(contentType, actualContentType);
-          assertFalse(testElement.$$('#category').hidden);
+          assertFalse(testElement.shadowRoot.querySelector('#category').hidden);
         });
   });
 
@@ -908,12 +917,14 @@ suite('SiteList', function() {
           // Validate that embeddingOrigin sites cannot be edited.
           const entries = testElement.root.querySelectorAll('site-list-entry');
           const firstItem = entries[0];
-          assertTrue(firstItem.$$('#actionMenuButton').hidden);
-          assertFalse(firstItem.$$('#resetSite').hidden);
+          assertTrue(
+              firstItem.shadowRoot.querySelector('#actionMenuButton').hidden);
+          assertFalse(firstItem.shadowRoot.querySelector('#resetSite').hidden);
           // Validate that non-embeddingOrigin sites can be edited.
           const secondItem = entries[1];
-          assertFalse(secondItem.$$('#actionMenuButton').hidden);
-          assertTrue(secondItem.$$('#resetSite').hidden);
+          assertFalse(
+              secondItem.shadowRoot.querySelector('#actionMenuButton').hidden);
+          assertTrue(secondItem.shadowRoot.querySelector('#resetSite').hidden);
         });
   });
 
@@ -937,7 +948,7 @@ suite('SiteList', function() {
         .then(function(contentType) {
           flush();
           openActionMenu(0);
-          const allow = testElement.$$('#allow');
+          const allow = testElement.shadowRoot.querySelector('#allow');
           assertTrue(!!allow);
           allow.click();
           return browserProxy.whenCalled('setCategoryPermissionForPattern');
@@ -954,7 +965,7 @@ suite('SiteList', function() {
           openActionMenu(0);
           assertMenu(['Allow', 'Edit', 'Remove']);
 
-          const allow = testElement.$$('#allow');
+          const allow = testElement.shadowRoot.querySelector('#allow');
           assertTrue(!!allow);
           allow.click();
           return browserProxy.whenCalled('setCategoryPermissionForPattern');
@@ -974,9 +985,9 @@ suite('SiteList', function() {
         prefsGeolocation);
     return browserProxy.whenCalled('getExceptionList').then(() => {
       flush();
-      const entry =
-          testElement.$$('#listContainer').querySelector('site-list-entry');
-      const tooltip = testElement.$$('#tooltip');
+      const entry = testElement.shadowRoot.querySelector('#listContainer')
+                        .querySelector('site-list-entry');
+      const tooltip = testElement.shadowRoot.querySelector('#tooltip');
 
       const testsParams = [
         ['a', testElement, new MouseEvent('mouseleave')],
@@ -1005,7 +1016,7 @@ suite('SiteList', function() {
             prefsFileSystemWrite);
         return browserProxy.whenCalled('getExceptionList').then(() => {
           flush();
-          assertTrue(testElement.$$('#addSite').hidden);
+          assertTrue(testElement.shadowRoot.querySelector('#addSite').hidden);
         });
       });
 });
@@ -1035,10 +1046,11 @@ suite('EditExceptionDialog', function() {
       controlledBy: chrome.settingsPrivate.ControlledBy.USER_POLICY,
       displayName: 'foo.com',
       origin: 'foo.com',
+      settingDetail: null,
     };
 
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
     document.body.innerHTML = '';
     dialog = /** @type {!SettingsEditExceptionDialogElement} */ (
         document.createElement('settings-edit-exception-dialog'));
@@ -1051,11 +1063,12 @@ suite('EditExceptionDialog', function() {
   });
 
   test('invalid input', function() {
-    const input = /** @type {!CrInputElement} */ (dialog.$$('cr-input'));
+    const input = /** @type {!CrInputElement} */ (
+        dialog.shadowRoot.querySelector('cr-input'));
     assertTrue(!!input);
     assertFalse(input.invalid);
 
-    const actionButton = dialog.$$('#actionButton');
+    const actionButton = dialog.shadowRoot.querySelector('#actionButton');
     assertTrue(!!actionButton);
     assertFalse(actionButton.disabled);
 
@@ -1082,13 +1095,13 @@ suite('EditExceptionDialog', function() {
   });
 
   test('action button calls proxy', function() {
-    const input = dialog.$$('cr-input');
+    const input = dialog.shadowRoot.querySelector('cr-input');
     assertTrue(!!input);
     // Simulate user edit.
     const newValue = input.value + ':1234';
     input.value = newValue;
 
-    const actionButton = dialog.$$('#actionButton');
+    const actionButton = dialog.shadowRoot.querySelector('#actionButton');
     assertTrue(!!actionButton);
     assertFalse(actionButton.disabled);
 
@@ -1109,7 +1122,7 @@ suite('EditExceptionDialog', function() {
           assertEquals(cookieException.setting, args[3]);
           assertEquals(cookieException.incognito, args[4]);
 
-          assertFalse(dialog.$$('#dialog').open);
+          assertFalse(dialog.shadowRoot.querySelector('#dialog').open);
         });
   });
 });
@@ -1125,7 +1138,7 @@ suite('AddExceptionDialog', function() {
     populateTestExceptions();
 
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
     document.body.innerHTML = '';
     dialog = /** @type {!AddSiteDialogElement} */ (
         document.createElement('add-site-dialog'));
@@ -1142,22 +1155,22 @@ suite('AddExceptionDialog', function() {
   test('incognito', function() {
     dialog.set('hasIncognito', true);
     flush();
-    assertFalse(dialog.$$('#incognito').checked);
-    dialog.$$('#incognito').checked = true;
+    assertFalse(dialog.shadowRoot.querySelector('#incognito').checked);
+    dialog.shadowRoot.querySelector('#incognito').checked = true;
     // Changing the incognito status will reset the checkbox.
     dialog.set('hasIncognito', false);
     flush();
-    assertFalse(dialog.$$('#incognito').checked);
+    assertFalse(dialog.shadowRoot.querySelector('#incognito').checked);
   });
 
   test('invalid input', function() {
     // Initially the action button should be disabled, but the error warning
     // should not be shown for an empty input.
-    const input = dialog.$$('cr-input');
+    const input = dialog.shadowRoot.querySelector('cr-input');
     assertTrue(!!input);
     assertFalse(input.invalid);
 
-    const actionButton = dialog.$$('#add');
+    const actionButton = dialog.shadowRoot.querySelector('#add');
     assertTrue(!!actionButton);
     assertTrue(actionButton.disabled);
 

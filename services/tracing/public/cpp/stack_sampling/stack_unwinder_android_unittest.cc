@@ -23,6 +23,10 @@ const size_t kMaxStackFrames = 40;
 class StackUnwinderTest : public testing::Test {
  public:
   StackUnwinderTest() : testing::Test() {}
+
+  StackUnwinderTest(const StackUnwinderTest&) = delete;
+  StackUnwinderTest& operator=(const StackUnwinderTest&) = delete;
+
   ~StackUnwinderTest() override {}
 
   void SetUp() override {
@@ -36,8 +40,6 @@ class StackUnwinderTest : public testing::Test {
  private:
   StackUnwinderAndroid unwinder_;
   base::test::TaskEnvironment task_environment_;
-
-  DISALLOW_COPY_AND_ASSIGN(StackUnwinderTest);
 };
 
 uintptr_t GetCurrentPC() {
@@ -45,20 +47,6 @@ uintptr_t GetCurrentPC() {
 }
 
 }  // namespace
-
-TEST_F(StackUnwinderTest, UnwindCurrentThread) {
-  const void* frames[kMaxStackFrames];
-  size_t result = unwinder()->TraceStack(frames, kMaxStackFrames);
-  EXPECT_GT(result, 0u);
-
-  // Since we are starting from chrome library function (this), all the unwind
-  // frames will be chrome frames.
-  for (size_t i = 0; i < result; ++i) {
-    EXPECT_TRUE(
-        base::trace_event::CFIBacktraceAndroid::GetInitializedInstance()
-            ->is_chrome_address(reinterpret_cast<uintptr_t>(frames[i])));
-  }
-}
 
 TEST_F(StackUnwinderTest, UnwindOtherThread) {
   base::WaitableEvent unwind_finished_event;
@@ -140,7 +128,7 @@ TEST_F(StackUnwinderTest, UnwindOtherThreadOnJNICall) {
       FROM_HERE,
       base::BindOnce(callback, base::Unretained(unwinder()),
                      base::PlatformThread::CurrentId(), GetCurrentPC()),
-      base::TimeDelta::FromMilliseconds(10));
+      base::Milliseconds(10));
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_UnwindTestHelper_blockCurrentThread(env);
 }

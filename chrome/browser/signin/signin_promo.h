@@ -26,6 +26,7 @@ class PrefRegistrySyncable;
 namespace signin {
 
 extern const char kSignInPromoQueryKeyAccessPoint[];
+// TODO(https://crbug.com/1205147): Auto close is unused. Remove it.
 extern const char kSignInPromoQueryKeyAutoClose[];
 extern const char kSignInPromoQueryKeyForceKeepData[];
 extern const char kSignInPromoQueryKeyReason[];
@@ -73,9 +74,6 @@ signin_metrics::AccessPoint GetAccessPointForEmbeddedPromoURL(const GURL& url);
 
 // Gets the sign in reason from the query portion of the sign in promo URL.
 signin_metrics::Reason GetSigninReasonForEmbeddedPromoURL(const GURL& url);
-
-// Returns true if the auto_close parameter in the given URL is set to true.
-bool IsAutoCloseEnabledInEmbeddedURL(const GURL& url);
 
 // Registers the preferences the Sign In Promo needs.
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);

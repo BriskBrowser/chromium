@@ -12,6 +12,7 @@
 #include "components/viz/common/quads/compositor_frame.h"
 #include "content/public/browser/android/synchronous_compositor.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/input/synchronous_compositor.mojom.h"
 
 namespace content {
@@ -72,6 +73,11 @@ class SynchronousCompositorSyncCallBridge
  public:
   explicit SynchronousCompositorSyncCallBridge(SynchronousCompositorHost* host);
 
+  SynchronousCompositorSyncCallBridge(
+      const SynchronousCompositorSyncCallBridge&) = delete;
+  SynchronousCompositorSyncCallBridge& operator=(
+      const SynchronousCompositorSyncCallBridge&) = delete;
+
   // Indicatation that the remote is now ready to process requests. Called
   // on either UI or IO thread.
   void RemoteReady();
@@ -83,9 +89,9 @@ class SynchronousCompositorSyncCallBridge
   bool ReceiveFrameOnIOThread(
       int frame_sink_id,
       uint32_t metadata_version,
-      base::Optional<viz::LocalSurfaceId> local_surface_id,
-      base::Optional<viz::CompositorFrame>,
-      base::Optional<viz::HitTestRegionList> hit_test_region_list);
+      absl::optional<viz::LocalSurfaceId> local_surface_id,
+      absl::optional<viz::CompositorFrame>,
+      absl::optional<viz::HitTestRegionList> hit_test_region_list);
 
   // Receive a BeginFrameResponse. Returns true if handling the response was
   // successful or not.
@@ -122,8 +128,10 @@ class SynchronousCompositorSyncCallBridge
   void BeginFrameCompleteOnUIThread();
 
   // Process metadata.
-  void ProcessFrameMetadataOnUIThread(uint32_t metadata_version,
-                                      viz::CompositorFrameMetadata metadata);
+  void ProcessFrameMetadataOnUIThread(
+      uint32_t metadata_version,
+      viz::CompositorFrameMetadata metadata,
+      const viz::LocalSurfaceId& local_surface_id);
 
   // Signal all waiters for closure. Callee must host a lock to |lock_|.
   void SignalRemoteClosedToAllWaitersOnIOThread()
@@ -151,8 +159,6 @@ class SynchronousCompositorSyncCallBridge
       GUARDED_BY(lock_);
   base::ConditionVariable begin_frame_condition_ GUARDED_BY(lock_);
   RemoteState remote_state_ GUARDED_BY(lock_) = RemoteState::INIT;
-
-  DISALLOW_COPY_AND_ASSIGN(SynchronousCompositorSyncCallBridge);
 };
 
 }  // namespace content

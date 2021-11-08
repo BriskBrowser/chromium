@@ -16,9 +16,9 @@
 #include "base/allocator/partition_allocator/page_allocator.h"
 #include "base/compiler_specific.h"
 #include "base/debug/alias.h"
+#include "base/macros.h"
 #include "base/memory/aligned_memory.h"
-#include "base/process/process_metrics.h"
-#include "base/strings/stringprintf.h"
+#include "base/memory/page_size.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -38,6 +38,9 @@
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include <malloc.h>
 #include "base/test/malloc_wrapper.h"
+#endif
+#if defined(OS_ANDROID)
+#include "base/android/build_info.h"
 #endif
 
 #if defined(OS_WIN)
@@ -171,9 +174,22 @@ class OutOfMemoryDeathTest : public OutOfMemoryTest {
     base::allocator::UninterceptMallocZonesForTesting();
   }
 #endif
+
+  // These tests don't work properly on old x86 Android; crbug.com/1181112
+  bool ShouldSkipTest() {
+#if defined(OS_ANDROID) && defined(ARCH_CPU_X86)
+    return base::android::BuildInfo::GetInstance()->sdk_int() <
+           base::android::SDK_VERSION_NOUGAT;
+#else
+    return false;
+#endif
+  }
 };
 
 TEST_F(OutOfMemoryDeathTest, New) {
+  if (ShouldSkipTest()) {
+    return;
+  }
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     value_ = operator new(test_size_);
@@ -181,6 +197,9 @@ TEST_F(OutOfMemoryDeathTest, New) {
 }
 
 TEST_F(OutOfMemoryDeathTest, NewArray) {
+  if (ShouldSkipTest()) {
+    return;
+  }
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     value_ = new char[test_size_];
@@ -188,6 +207,9 @@ TEST_F(OutOfMemoryDeathTest, NewArray) {
 }
 
 TEST_F(OutOfMemoryDeathTest, Malloc) {
+  if (ShouldSkipTest()) {
+    return;
+  }
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     value_ = malloc(test_size_);
@@ -195,6 +217,9 @@ TEST_F(OutOfMemoryDeathTest, Malloc) {
 }
 
 TEST_F(OutOfMemoryDeathTest, Realloc) {
+  if (ShouldSkipTest()) {
+    return;
+  }
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     value_ = realloc(nullptr, test_size_);
@@ -202,6 +227,9 @@ TEST_F(OutOfMemoryDeathTest, Realloc) {
 }
 
 TEST_F(OutOfMemoryDeathTest, Calloc) {
+  if (ShouldSkipTest()) {
+    return;
+  }
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     value_ = calloc(1024, test_size_ / 1024L);
@@ -209,6 +237,9 @@ TEST_F(OutOfMemoryDeathTest, Calloc) {
 }
 
 TEST_F(OutOfMemoryDeathTest, AlignedAlloc) {
+  if (ShouldSkipTest()) {
+    return;
+  }
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     value_ = base::AlignedAlloc(test_size_, 8);
@@ -218,6 +249,9 @@ TEST_F(OutOfMemoryDeathTest, AlignedAlloc) {
 // POSIX does not define an aligned realloc function.
 #if defined(OS_WIN)
 TEST_F(OutOfMemoryDeathTest, AlignedRealloc) {
+  if (ShouldSkipTest()) {
+    return;
+  }
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     value_ = _aligned_realloc(nullptr, test_size_, 8);
@@ -562,20 +596,25 @@ TEST_F(OutOfMemoryHandledTest, NewReleasesReservation) {
 #endif  // defined(ARCH_CPU_32_BITS) && (defined(OS_WIN) || defined(OS_LINUX) ||
         // defined(OS_CHROMEOS))
 
-// See the comment in |UncheckedMalloc()|, it behaves as malloc() in these
-// cases.
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
+// Fuchsia and Android do not allow overcommits, so very large
+// UncheckedMallocs will yield OOM errors on those platforms.
 
+#if defined(OS_ANDROID)
 // TODO(crbug.com/1112840): Fails on some Android bots.
 #define MAYBE_UncheckedMallocDies DISABLED_UncheckedMallocDies
 #define MAYBE_UncheckedCallocDies DISABLED_UncheckedCallocDies
+#elif defined(OS_FUCHSIA)
+#define MAYBE_UncheckedMallocDies UncheckedMallocDies
+#define MAYBE_UncheckedCallocDies UncheckedCallocDies
+#endif  // defined(OS_ANDROID)
 
 TEST_F(OutOfMemoryDeathTest, MAYBE_UncheckedMallocDies) {
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     void* data;
-    bool ok = base::UncheckedMalloc(test_size_, &data);
-    EXPECT_TRUE(!data || ok);
+    ignore_result(base::UncheckedMalloc(test_size_, &data));
+    // Death expected here.
   });
 }
 
@@ -583,8 +622,8 @@ TEST_F(OutOfMemoryDeathTest, MAYBE_UncheckedCallocDies) {
   ASSERT_OOM_DEATH({
     SetUpInDeathAssert();
     void* data;
-    bool ok = base::UncheckedCalloc(1, test_size_, &data);
-    EXPECT_TRUE(!data || ok);
+    ignore_result(base::UncheckedCalloc(1, test_size_, &data));
+    // Death expected here.
   });
 }
 
@@ -619,7 +658,6 @@ TEST_F(OutOfMemoryHandledTest, UncheckedCalloc) {
   EXPECT_TRUE(value_ == nullptr);
 }
 
-#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) || defined(OS_ANDROID)
-
+#endif  // defined(OS_ANDROID) || defined(OS_FUCHSIA)
 #endif  // !defined(OS_OPENBSD) && BUILDFLAG(USE_ALLOCATOR_SHIM) &&
         // !defined(MEMORY_TOOL_REPLACES_ALLOCATOR)

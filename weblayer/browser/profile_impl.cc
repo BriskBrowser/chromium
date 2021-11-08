@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/no_destructor.h"
 #include "base/observer_list.h"
 #include "base/task/task_traits.h"
@@ -20,12 +19,14 @@
 #include "build/build_config.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/prefs/pref_service.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "components/web_cache/browser/web_cache_manager.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/device_service.h"
 #include "content/public/browser/download_manager.h"
+#include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
@@ -134,8 +135,7 @@ class ProfileImpl::DataClearer : public content::BrowsingDataRemover::Observer {
  public:
   DataClearer(content::BrowserContext* browser_context,
               base::OnceCallback<void()> callback)
-      : remover_(
-            content::BrowserContext::GetBrowsingDataRemover(browser_context)),
+      : remover_(browser_context->GetBrowsingDataRemover()),
         callback_(std::move(callback)) {
     remover_->AddObserver(this);
   }
@@ -182,6 +182,11 @@ ProfileImpl::ProfileImpl(const std::string& name, bool is_incognito)
   }
 
   GetProfiles().insert(this);
+  profile_metrics::SetBrowserProfileType(
+      GetBrowserContext(), is_incognito
+                               ? profile_metrics::BrowserProfileType::kIncognito
+                               : profile_metrics::BrowserProfileType::kRegular);
+
   for (auto& observer : GetObservers())
     observer.ProfileCreated(this);
 
@@ -288,6 +293,7 @@ void ProfileImpl::ClearBrowsingData(
         remove_mask |= content::BrowsingDataRemover::DATA_TYPE_MEDIA_LICENSES;
         remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_ISOLATED_ORIGINS;
         remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_FAVICONS;
+        remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_AD_INTERVENTIONS;
         remove_mask |= content::BrowsingDataRemover::DATA_TYPE_TRUST_TOKENS;
         remove_mask |= content::BrowsingDataRemover::DATA_TYPE_CONVERSIONS;
         break;
@@ -385,15 +391,13 @@ void ProfileImpl::ClearRendererCache() {
 }
 
 void ProfileImpl::OnLocaleChanged() {
-  content::BrowserContext::ForEachStoragePartition(
-      GetBrowserContext(),
-      base::BindRepeating(
-          [](const std::string& accept_language,
-             content::StoragePartition* storage_partition) {
-            storage_partition->GetNetworkContext()->SetAcceptLanguage(
-                accept_language);
-          },
-          i18n::GetAcceptLangs()));
+  GetBrowserContext()->ForEachStoragePartition(base::BindRepeating(
+      [](const std::string& accept_language,
+         content::StoragePartition* storage_partition) {
+        storage_partition->GetNetworkContext()->SetAcceptLanguage(
+            accept_language);
+      },
+      i18n::GetAcceptLangs()));
 }
 
 // static
@@ -537,7 +541,7 @@ jlong ProfileImpl::GetPrerenderController(JNIEnv* env) {
 }
 
 void ProfileImpl::EnsureBrowserContextInitialized(JNIEnv* env) {
-  content::BrowserContext::GetDownloadManager(GetBrowserContext());
+  GetBrowserContext()->GetDownloadManager();
 }
 
 void ProfileImpl::SetBooleanSetting(JNIEnv* env,
@@ -590,14 +594,49 @@ base::FilePath ProfileImpl::GetBrowserPersisterDataBaseDir() const {
   return ComputeBrowserPersisterDataBaseDir(info_);
 }
 
+content::WebContents* ProfileImpl::OpenUrl(
+    const content::OpenURLParams& params) {
+#if !defined(OS_ANDROID)
+  return nullptr;
+#else
+  // We expect only NEW_FOREGROUND_TAB. The NEW_POPUP disposition is only used
+  // for payment handler windows, but WebLayer (and Android Chrome) do not
+  // support that. See ContentBrowserClient::ShowPaymentHandlerWindow().
+  DCHECK_EQ(params.disposition, WindowOpenDisposition::NEW_FOREGROUND_TAB);
+
+  JNIEnv* env = base::android::AttachCurrentThread();
+  BrowserImpl* browser = reinterpret_cast<BrowserImpl*>(
+      Java_ProfileImpl_getBrowserForNewTab(env, java_profile_));
+  if (!browser)
+    return nullptr;
+
+  std::unique_ptr<content::WebContents> new_tab_contents =
+      content::WebContents::Create(
+          content::WebContents::CreateParams(GetBrowserContext()));
+  base::WeakPtr<content::WebContents> new_tab_contents_weak_ptr(
+      new_tab_contents->GetWeakPtr());
+  Tab* tab = browser->CreateTab(std::move(new_tab_contents));
+
+  if (!new_tab_contents_weak_ptr)
+    return nullptr;
+
+  Java_ProfileImpl_onTabAdded(env, java_profile_,
+                              static_cast<TabImpl*>(tab)->GetJavaTab());
+  new_tab_contents_weak_ptr->GetController().LoadURLWithParams(
+      content::NavigationController::LoadURLParams(params));
+  return new_tab_contents_weak_ptr.get();
+#endif  // defined(OS_ANDROID)
+}
+
 void ProfileImpl::SetBooleanSetting(SettingType type, bool value) {
   auto* pref_service = GetBrowserContext()->pref_service();
   switch (type) {
     case SettingType::BASIC_SAFE_BROWSING_ENABLED:
 #if defined(OS_ANDROID)
       safe_browsing::SetSafeBrowsingState(
-          pref_service, value ? safe_browsing::STANDARD_PROTECTION
-                              : safe_browsing::NO_SAFE_BROWSING);
+          pref_service,
+          value ? safe_browsing::SafeBrowsingState::STANDARD_PROTECTION
+                : safe_browsing::SafeBrowsingState::NO_SAFE_BROWSING);
 #endif
       break;
     case SettingType::UKM_ENABLED: {
@@ -636,22 +675,25 @@ bool ProfileImpl::GetBooleanSetting(SettingType type) {
     case SettingType::BASIC_SAFE_BROWSING_ENABLED:
 #if defined(OS_ANDROID)
       return safe_browsing::IsSafeBrowsingEnabled(*pref_service);
-#endif
+#else
       return false;
+#endif
     case SettingType::UKM_ENABLED:
       return pref_service->GetBoolean(prefs::kUkmEnabled);
     case SettingType::EXTENDED_REPORTING_SAFE_BROWSING_ENABLED:
 #if defined(OS_ANDROID)
       return pref_service->GetBoolean(
           ::prefs::kSafeBrowsingScoutReportingEnabled);
-#endif
+#else
       return false;
+#endif
     case SettingType::REAL_TIME_SAFE_BROWSING_ENABLED:
 #if defined(OS_ANDROID)
       return pref_service->GetBoolean(
           unified_consent::prefs::kUrlKeyedAnonymizedDataCollectionEnabled);
-#endif
+#else
       return false;
+#endif
     case SettingType::NETWORK_PREDICTION_ENABLED:
       return pref_service->GetBoolean(prefs::kNoStatePrefetchEnabled);
   }

@@ -30,6 +30,9 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) UdpSocketClient final
                   network::mojom::NetworkContext* context,
                   base::OnceClosure error_callback);
 
+  UdpSocketClient(const UdpSocketClient&) = delete;
+  UdpSocketClient& operator=(const UdpSocketClient&) = delete;
+
   ~UdpSocketClient() override;
 
   // media::cast::PacketTransport implementations.
@@ -41,8 +44,8 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) UdpSocketClient final
 
   // network::mojom::UDPSocketListener implementation.
   void OnReceived(int32_t result,
-                  const base::Optional<net::IPEndPoint>& src_addr,
-                  base::Optional<base::span<const uint8_t>> data) override;
+                  const absl::optional<net::IPEndPoint>& src_addr,
+                  absl::optional<base::span<const uint8_t>> data) override;
 
  private:
   // The callback of network::mojom::UDPSocket::Send(). Further sending is
@@ -53,7 +56,7 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) UdpSocketClient final
   // allowed to send after the socket is successfully connected to the
   // |remote_endpoint_|.
   void OnSocketConnected(int result,
-                         const base::Optional<net::IPEndPoint>& addr);
+                         const absl::optional<net::IPEndPoint>& addr);
 
   const net::IPEndPoint remote_endpoint_;
   network::mojom::NetworkContext* const network_context_;
@@ -83,8 +86,6 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) UdpSocketClient final
   int num_packets_pending_receive_;
 
   base::WeakPtrFactory<UdpSocketClient> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(UdpSocketClient);
 };
 
 }  // namespace mirroring

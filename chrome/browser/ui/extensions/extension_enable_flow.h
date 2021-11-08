@@ -13,7 +13,6 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
-#include "base/scoped_observer.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
 #include "chrome/common/buildflags.h"
@@ -43,6 +42,10 @@ class ExtensionEnableFlow : public extensions::LoadErrorReporter::Observer,
   ExtensionEnableFlow(Profile* profile,
                       const std::string& extension_id,
                       ExtensionEnableFlowDelegate* delegate);
+
+  ExtensionEnableFlow(const ExtensionEnableFlow&) = delete;
+  ExtensionEnableFlow& operator=(const ExtensionEnableFlow&) = delete;
+
   ~ExtensionEnableFlow() override;
 
   // Starts the flow and the logic continues on |delegate_| after enabling is
@@ -103,7 +106,7 @@ class ExtensionEnableFlow : public extensions::LoadErrorReporter::Observer,
 
   void EnableExtension();
 
-  void InstallPromptDone(ExtensionInstallPrompt::Result result);
+  void InstallPromptDone(ExtensionInstallPrompt::DoneCallbackPayload payload);
 
   Profile* const profile_;
   const std::string extension_id_;
@@ -120,17 +123,15 @@ class ExtensionEnableFlow : public extensions::LoadErrorReporter::Observer,
   std::unique_ptr<ExtensionInstallPrompt> prompt_;
 
   // Listen to extension load notification.
-  ScopedObserver<extensions::ExtensionRegistry,
-                 extensions::ExtensionRegistryObserver>
-      extension_registry_observer_{this};
+  base::ScopedObservation<extensions::ExtensionRegistry,
+                          extensions::ExtensionRegistryObserver>
+      extension_registry_observation_{this};
 
   base::ScopedObservation<extensions::LoadErrorReporter,
                           extensions::LoadErrorReporter::Observer>
       load_error_observation_{this};
 
   base::WeakPtrFactory<ExtensionEnableFlow> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionEnableFlow);
 };
 
 #endif  // CHROME_BROWSER_UI_EXTENSIONS_EXTENSION_ENABLE_FLOW_H_

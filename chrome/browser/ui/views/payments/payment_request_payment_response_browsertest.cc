@@ -22,11 +22,14 @@ namespace payments {
 
 class PaymentRequestPaymentResponseAutofillPaymentAppTest
     : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestPaymentResponseAutofillPaymentAppTest(
+      const PaymentRequestPaymentResponseAutofillPaymentAppTest&) = delete;
+  PaymentRequestPaymentResponseAutofillPaymentAppTest& operator=(
+      const PaymentRequestPaymentResponseAutofillPaymentAppTest&) = delete;
+
  protected:
   PaymentRequestPaymentResponseAutofillPaymentAppTest() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestPaymentResponseAutofillPaymentAppTest);
 };
 
 // Tests that the PaymentResponse contains all the required fields for an
@@ -44,7 +47,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentResponseAutofillPaymentAppTest,
   // Complete the Payment Request.
   InvokePaymentRequestUI();
   ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
 
   // Test that the card details were sent to the merchant.
   ExpectBodyContains(
@@ -69,11 +72,14 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentResponseAutofillPaymentAppTest,
 
 class PaymentRequestPaymentResponseShippingAddressTest
     : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestPaymentResponseShippingAddressTest(
+      const PaymentRequestPaymentResponseShippingAddressTest&) = delete;
+  PaymentRequestPaymentResponseShippingAddressTest& operator=(
+      const PaymentRequestPaymentResponseShippingAddressTest&) = delete;
+
  protected:
   PaymentRequestPaymentResponseShippingAddressTest() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestPaymentResponseShippingAddressTest);
 };
 
 // Tests that the PaymentResponse contains all the required fields for a
@@ -98,7 +104,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentResponseShippingAddressTest,
   // Complete the Payment Request.
   InvokePaymentRequestUI();
   ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
 
   // Test that the shipping address was sent to the merchant.
   ExpectBodyContains(
@@ -114,11 +120,14 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentResponseShippingAddressTest,
 
 class PaymentRequestPaymentResponseAllContactDetailsTest
     : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestPaymentResponseAllContactDetailsTest(
+      const PaymentRequestPaymentResponseAllContactDetailsTest&) = delete;
+  PaymentRequestPaymentResponseAllContactDetailsTest& operator=(
+      const PaymentRequestPaymentResponseAllContactDetailsTest&) = delete;
+
  protected:
   PaymentRequestPaymentResponseAllContactDetailsTest() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestPaymentResponseAllContactDetailsTest);
 };
 
 // Tests that the PaymentResponse contains all the required fields for contact
@@ -136,7 +145,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentResponseAllContactDetailsTest,
   // Complete the Payment Request.
   InvokePaymentRequestUI();
   ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
 
   // Test that the contact details were sent to the merchant.
   ExpectBodyContains({"\"payerName\": \"John H. Doe\"",
@@ -163,7 +172,7 @@ IN_PROC_BROWSER_TEST_F(
   AddCreditCard(card);
 
   InvokePaymentRequestUI();
-  PayWithCreditCard(base::ASCIIToUTF16("123"));
+  PayWithCreditCard(u"123");
   ExpectBodyContains({"\"payerName\": \"John H. Doe\"",
                       "\"payerEmail\": \"johndoe@hades.com\"",
                       "\"payerPhone\": \"+16502111111\""});
@@ -184,11 +193,14 @@ IN_PROC_BROWSER_TEST_F(
 
 class PaymentRequestPaymentResponseOneContactDetailTest
     : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestPaymentResponseOneContactDetailTest(
+      const PaymentRequestPaymentResponseOneContactDetailTest&) = delete;
+  PaymentRequestPaymentResponseOneContactDetailTest& operator=(
+      const PaymentRequestPaymentResponseOneContactDetailTest&) = delete;
+
  protected:
   PaymentRequestPaymentResponseOneContactDetailTest() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestPaymentResponseOneContactDetailTest);
 };
 
 // Tests that the PaymentResponse contains all the required fields for contact
@@ -206,7 +218,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentResponseOneContactDetailTest,
   // Complete the Payment Request.
   InvokePaymentRequestUI();
   ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
 
   // Test that the contact details were sent to the merchant.
   ExpectBodyContains({"\"payerName\": null",

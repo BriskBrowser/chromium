@@ -8,23 +8,24 @@
 #include <utility>
 
 #include "ash/public/cpp/new_window_delegate.h"
-#include "ash/public/cpp/wallpaper_controller.h"
+#include "ash/public/cpp/wallpaper/wallpaper_controller.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
-#include "components/arc/arc_service_manager.h"
 #include "components/arc/audio/arc_audio_bridge.h"
 #include "components/arc/intent_helper/control_camera_app_delegate.h"
+#include "components/arc/intent_helper/intent_constants.h"
 #include "components/arc/intent_helper/open_url_delegate.h"
 #include "components/arc/session/arc_bridge_service.h"
+#include "components/arc/session/arc_service_manager.h"
 #include "components/url_formatter/url_fixer.h"
+#include "net/base/url_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/layout.h"
 #include "url/url_constants.h"
 
@@ -78,6 +79,37 @@ void RecordOpenType(ArcIntentHelperOpenType type) {
   UMA_HISTOGRAM_ENUMERATION("Arc.IntentHelper.OpenType", type);
 }
 
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class OpenIntentAction {
+  kUnknown = 0,
+  kView = 1,
+  kSend = 2,
+  kSendMultiple = 3,
+  kMaxValue = kSendMultiple,
+};
+
+void RecordOpenAppIntentAction(const mojom::LaunchIntentPtr& intent) {
+  OpenIntentAction action = OpenIntentAction::kUnknown;
+  if (intent->action == kIntentActionView) {
+    action = OpenIntentAction::kView;
+  } else if (intent->action == kIntentActionSend) {
+    action = OpenIntentAction::kSend;
+  } else if (intent->action == kIntentActionSendMultiple) {
+    action = OpenIntentAction::kSendMultiple;
+  }
+
+  UMA_HISTOGRAM_ENUMERATION("Arc.IntentHelper.OpenAppWithIntentAction", action);
+}
+
+// Returns true if a Web App is allowed to be opened for the given URL.
+bool CanOpenWebAppForUrl(const GURL& url) {
+  bool is_http_localhost =
+      url.SchemeIs(url::kHttpScheme) && net::IsLocalhost(url);
+  return url.is_valid() &&
+         (url.SchemeIs(url::kHttpsScheme) || is_http_localhost);
+}
+
 }  // namespace
 
 // static
@@ -91,7 +123,13 @@ ArcIntentHelperBridge* ArcIntentHelperBridge::GetForBrowserContext(
 }
 
 // static
-KeyedServiceBaseFactory* ArcIntentHelperBridge::GetFactory() {
+ArcIntentHelperBridge* ArcIntentHelperBridge::GetForBrowserContextForTesting(
+    content::BrowserContext* context) {
+  return ArcIntentHelperBridgeFactory::GetForBrowserContextForTesting(context);
+}
+
+// static
+BrowserContextKeyedServiceFactory* ArcIntentHelperBridge::GetFactory() {
   return ArcIntentHelperBridgeFactory::GetInstance();
 }
 
@@ -143,7 +181,7 @@ void ArcIntentHelperBridge::OnIntentFiltersUpdated(
     intent_filters_[filter.package_name()].push_back(std::move(filter));
 
   for (auto& observer : observer_list_)
-    observer.OnIntentFiltersUpdated(base::nullopt);
+    observer.OnIntentFiltersUpdated(absl::nullopt);
 }
 
 void ArcIntentHelperBridge::OnOpenDownloads() {
@@ -162,15 +200,6 @@ void ArcIntentHelperBridge::OnOpenUrl(const std::string& url) {
 
   if (allowed_arc_schemes_.find(gurl.scheme()) != allowed_arc_schemes_.end())
     g_open_url_delegate->OpenUrlFromArc(gurl);
-}
-
-void ArcIntentHelperBridge::OnOpenCustomTabDeprecated(
-    const std::string& url,
-    int32_t task_id,
-    int32_t surface_id,
-    int32_t top_margin,
-    OnOpenCustomTabCallback callback) {
-  OnOpenCustomTab(url, task_id, std::move(callback));
 }
 
 void ArcIntentHelperBridge::OnOpenCustomTab(const std::string& url,
@@ -206,12 +235,6 @@ void ArcIntentHelperBridge::OpenWallpaperPicker() {
   ash::WallpaperController::Get()->OpenWallpaperPickerIfAllowed();
 }
 
-void ArcIntentHelperBridge::SetWallpaperDeprecated(
-    const std::vector<uint8_t>& jpeg_data) {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  LOG(ERROR) << "IntentHelper.SetWallpaper is deprecated";
-}
-
 void ArcIntentHelperBridge::OpenVolumeControl() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   RecordOpenType(ArcIntentHelperOpenType::VOLUME_CONTROL);
@@ -225,19 +248,19 @@ void ArcIntentHelperBridge::OnOpenWebApp(const std::string& url) {
   RecordOpenType(ArcIntentHelperOpenType::WEB_APP);
   // Converts |url| to a fixed-up one and checks validity.
   const GURL gurl(url_formatter::FixupURL(url, /*desired_tld=*/std::string()));
-  if (!gurl.is_valid())
-    return;
 
   // Web app launches should only be invoked on HTTPS URLs.
-  if (gurl.SchemeIs(url::kHttpsScheme))
+  if (CanOpenWebAppForUrl(gurl))
     g_open_url_delegate->OpenWebAppFromArc(gurl);
 }
 
-void ArcIntentHelperBridge::RecordShareFilesMetrics(mojom::ShareFiles flag) {
+// TODO(b/200873831): Delete this anytime on 2022.
+void ArcIntentHelperBridge::RecordShareFilesMetricsDeprecated(
+    mojom::ShareFiles flag) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   // Record metrics coming from ARC, these are related Share files feature
   // stability.
-  UMA_HISTOGRAM_ENUMERATION("Arc.ShareFilesOnExit", flag);
+  LOG(ERROR) << "Arc.ShareFilesOnExit is deprecated, erasing incoming";
 }
 
 void ArcIntentHelperBridge::LaunchCameraApp(uint32_t intent_id,
@@ -294,13 +317,50 @@ void ArcIntentHelperBridge::IsChromeAppEnabled(
   std::move(callback).Run(false);
 }
 
-void ArcIntentHelperBridge::OnPreferredAppsChanged(
+void ArcIntentHelperBridge::OnPreferredAppsChangedDeprecated(
     std::vector<IntentFilter> added,
     std::vector<IntentFilter> deleted) {
   added_preferred_apps_ = std::move(added);
   deleted_preferred_apps_ = std::move(deleted);
   for (auto& observer : observer_list_)
     observer.OnPreferredAppsChanged();
+}
+
+void ArcIntentHelperBridge::OnSupportedLinksChanged(
+    std::vector<arc::mojom::SupportedLinksPtr> added_packages,
+    std::vector<arc::mojom::SupportedLinksPtr> removed_packages) {
+  for (auto& observer : observer_list_)
+    observer.OnArcSupportedLinksChanged(added_packages, removed_packages);
+}
+
+void ArcIntentHelperBridge::OnDownloadAdded(
+    const std::string& relative_path_as_string,
+    const std::string& owner_package_name) {
+  const base::FilePath download_folder("Download/");
+  const base::FilePath relative_path(relative_path_as_string);
+
+  // Observers should *not* be called when a download is added outside of the
+  // Download/ folder. This would be an unexpected event coming from ARC but
+  // we protect against it because ARC is treated as an untrusted source.
+  if (!download_folder.IsParent(relative_path) ||
+      relative_path.ReferencesParent()) {
+    return;
+  }
+
+  for (auto& observer : observer_list_)
+    observer.OnArcDownloadAdded(relative_path, owner_package_name);
+}
+
+void ArcIntentHelperBridge::OnOpenAppWithIntent(
+    const GURL& start_url,
+    arc::mojom::LaunchIntentPtr intent) {
+  // Web app launches should only be invoked on HTTPS URLs.
+  if (CanOpenWebAppForUrl(start_url)) {
+    RecordOpenType(ArcIntentHelperOpenType::WEB_APP);
+    RecordOpenAppIntentAction(intent);
+
+    g_open_url_delegate->OpenAppWithIntent(start_url, std::move(intent));
+  }
 }
 
 ArcIntentHelperBridge::GetResult ArcIntentHelperBridge::GetActivityIcons(

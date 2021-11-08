@@ -45,6 +45,10 @@ class V8IdleTaskRunner : public gin::V8IdleTaskRunner {
  public:
   explicit V8IdleTaskRunner(ThreadScheduler* scheduler)
       : scheduler_(scheduler) {}
+
+  V8IdleTaskRunner(const V8IdleTaskRunner&) = delete;
+  V8IdleTaskRunner& operator=(const V8IdleTaskRunner&) = delete;
+
   ~V8IdleTaskRunner() override = default;
   void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override {
     DCHECK(RuntimeEnabledFeatures::V8IdleTasksEnabled());
@@ -59,10 +63,8 @@ class V8IdleTaskRunner : public gin::V8IdleTaskRunner {
 
  private:
   ThreadScheduler* scheduler_;
-
-  DISALLOW_COPY_AND_ASSIGN(V8IdleTaskRunner);
 };
 
 }  // namespace blink
 
-#endif  // V8Initializer_h
+#endif  // THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_V8_IDLE_TASK_RUNNER_H_

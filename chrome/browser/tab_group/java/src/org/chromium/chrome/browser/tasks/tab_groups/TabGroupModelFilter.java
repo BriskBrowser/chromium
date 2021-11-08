@@ -192,8 +192,16 @@ public class TabGroupModelFilter extends TabModelFilter {
     private boolean mShouldRecordUma = true;
     private boolean mIsResetting;
 
+    // Create group automatically for target_blank links.
+    private final boolean mGroupAutoCreation;
+
     public TabGroupModelFilter(TabModel tabModel) {
+        this(tabModel, true);
+    }
+
+    public TabGroupModelFilter(TabModel tabModel, boolean autoCreation) {
         super(tabModel);
+        mGroupAutoCreation = autoCreation;
     }
 
     /**
@@ -519,7 +527,14 @@ public class TabGroupModelFilter extends TabModelFilter {
             throw new IllegalStateException("Attempting to open tab in the wrong model");
         }
 
-        if (isTabModelRestored() && !mIsResetting) {
+        if (isTabModelRestored() && !mIsResetting
+                && (mGroupAutoCreation
+                        || (tab.getLaunchType() == TabLaunchType.FROM_TAB_GROUP_UI
+                                || tab.getLaunchType()
+                                        == TabLaunchType.FROM_LONGPRESS_BACKGROUND_IN_GROUP
+                                // TODO(https://crbug.com/1194287): Investigates a better solution
+                                // without adding the TabLaunchType.FROM_START_SURFACE.
+                                || tab.getLaunchType() == TabLaunchType.FROM_START_SURFACE))) {
             Tab parentTab = TabModelUtils.getTabById(
                     getTabModel(), CriticalPersistedTabData.from(tab).getParentId());
             if (parentTab != null) {
@@ -531,8 +546,15 @@ public class TabGroupModelFilter extends TabModelFilter {
         if (mGroupIdToGroupMap.containsKey(groupId)) {
             if (mGroupIdToGroupMap.get(groupId).size() == 1) {
                 mActualGroupCount++;
+                // TODO(crbug.com/1188370): Update UMA for Context menu creation.
                 if (mShouldRecordUma
-                        && tab.getLaunchType() == TabLaunchType.FROM_LONGPRESS_BACKGROUND) {
+                        && ((mGroupAutoCreation
+                                    && tab.getLaunchType()
+                                            == TabLaunchType.FROM_LONGPRESS_BACKGROUND)
+                                || (!mGroupAutoCreation
+                                        && tab.getLaunchType()
+                                                == TabLaunchType
+                                                           .FROM_LONGPRESS_BACKGROUND_IN_GROUP))) {
                     RecordUserAction.record("TabGroup.Created.OpenInNewTab");
                 }
             }

@@ -9,8 +9,8 @@
 #include "chrome/browser/ui/toolbar/media_router_contextual_menu.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "components/media_router/browser/issues_observer.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/events/event.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 class Browser;
 
@@ -60,6 +60,7 @@ class CastToolbarButton : public ToolbarButton,
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
+  void OnThemeChanged() override;
   void UpdateIcon() override;
 
   MediaRouterContextualMenu* context_menu_for_test() {

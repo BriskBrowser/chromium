@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "ash/public/cpp/ash_features.h"
-#include "ash/public/cpp/ash_pref_names.h"
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
@@ -21,6 +21,10 @@ namespace ash {
 class MediaControllerTest : public AshTestBase {
  public:
   MediaControllerTest() = default;
+
+  MediaControllerTest(const MediaControllerTest&) = delete;
+  MediaControllerTest& operator=(const MediaControllerTest&) = delete;
+
   ~MediaControllerTest() override = default;
 
   // AshTestBase
@@ -90,8 +94,6 @@ class MediaControllerTest : public AshTestBase {
 
  private:
   std::unique_ptr<media_session::test::TestMediaController> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaControllerTest);
 };
 
 TEST_F(MediaControllerTest, EnableMediaKeysWhenUnlocked) {

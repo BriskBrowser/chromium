@@ -7,14 +7,12 @@ package org.chromium.chrome.browser.paint_preview;
 import static org.chromium.base.test.util.Batch.PER_CLASS;
 import static org.chromium.chrome.browser.paint_preview.TabbedPaintPreviewTest.assertAttachedAndShown;
 
-import android.support.test.InstrumentationRegistry;
-import android.support.test.uiautomator.UiDevice;
 import android.support.test.uiautomator.UiObjectNotFoundException;
-import android.support.test.uiautomator.UiSelector;
 
 import androidx.test.filters.MediumTest;
 
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -22,13 +20,17 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
 import org.mockito.Mockito;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.util.Batch;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.paint_preview.services.PaintPreviewTabService;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.ui.appmenu.AppMenuCoordinator;
+import org.chromium.chrome.browser.ui.appmenu.AppMenuTestSupport;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
@@ -53,6 +55,9 @@ public class DemoPaintPreviewTest {
             new BlankCTATabInitialStateRule(sActivityTestRule, true);
 
     private static final String TEST_URL = "/chrome/test/data/android/about.html";
+
+    // @Mock to tell R8 not to break the ability to mock the class.
+    @Mock
     private static PaintPreviewTabService sMockService;
 
     @BeforeClass
@@ -86,18 +91,22 @@ public class DemoPaintPreviewTest {
 
         // When PaintPreviewTabService#captureTab is called, return true for future calls to
         // PaintPreviewTabService#hasCaptureForTab and call the success callback with true.
-        ArgumentCaptor<Callback<Boolean>> mCallbackCaptor = ArgumentCaptor.forClass(Callback.class);
+        ArgumentCaptor<Callback<Boolean>> callbackCaptor = ArgumentCaptor.forClass(Callback.class);
         Mockito.doAnswer(invocation -> {
                    Mockito.doReturn(true).when(sMockService).hasCaptureForTab(Mockito.anyInt());
-                   mCallbackCaptor.getValue().onResult(true);
+                   callbackCaptor.getValue().onResult(true);
                    return null;
                })
                 .when(sMockService)
-                .captureTab(Mockito.any(Tab.class), mCallbackCaptor.capture());
+                .captureTab(Mockito.any(Tab.class), callbackCaptor.capture());
 
-        UiDevice uiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
-        uiDevice.pressMenu();
-        uiDevice.findObject(new UiSelector().text("Show Paint Preview")).click();
+        AppMenuCoordinator coordinator = sActivityTestRule.getAppMenuCoordinator();
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { AppMenuTestSupport.showAppMenu(coordinator, null, false); });
+        Assert.assertNotNull(AppMenuTestSupport.getMenuItemPropertyModel(
+                coordinator, R.id.paint_preview_show_id));
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> AppMenuTestSupport.callOnItemClick(coordinator, R.id.paint_preview_show_id));
 
         Tab tab = sActivityTestRule.getActivity().getActivityTab();
         TabbedPaintPreview tabbedPaintPreview =

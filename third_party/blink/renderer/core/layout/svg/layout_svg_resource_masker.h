@@ -43,7 +43,7 @@ class LayoutSVGResourceMasker final : public LayoutSVGResourceContainer {
 
   void RemoveAllClientsFromCache() override;
 
-  FloatRect ResourceBoundingBox(const FloatRect& reference_box,
+  FloatRect ResourceBoundingBox(const gfx::RectF& reference_box,
                                 float reference_box_zoom);
 
   SVGUnitTypes::SVGUnitType MaskUnits() const;
@@ -71,4 +71,4 @@ struct DowncastTraits<LayoutSVGResourceMasker> {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_RESOURCE_MASKER_H_

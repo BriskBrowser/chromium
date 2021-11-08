@@ -4,8 +4,10 @@
 
 #include "ash/system/power/peripheral_battery_notifier.h"
 
+#include <string>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "ash/power/hid_battery_util.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/public/cpp/system_tray_client.h"
@@ -15,10 +17,9 @@
 #include "ash/system/model/system_tray_model.h"
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/time/default_tick_clock.h"
+#include "base/time/time.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/bluetooth_device.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -36,16 +37,13 @@ namespace {
 
 // When a peripheral device's battery level is <= kLowBatteryLevel, consider
 // it to be in low battery condition.
-const uint8_t kLowBatteryLevel = 15;
+const uint8_t kLowBatteryLevel = 16;
 
 // Don't show 2 low battery notification within |kNotificationInterval|.
-constexpr base::TimeDelta kNotificationInterval =
-    base::TimeDelta::FromSeconds(60);
+constexpr base::TimeDelta kNotificationInterval = base::Seconds(60);
 
 constexpr char kNotifierStylusBattery[] = "ash.stylus-battery";
 
-// TODO(sammiequon): Add a notification url to chrome://settings/stylus once
-// battery related information is shown there.
 constexpr char kNotificationOriginUrl[] = "chrome://peripheral-battery";
 constexpr char kNotifierNonStylusBattery[] = "power.peripheral-battery";
 
@@ -57,15 +55,15 @@ constexpr char kPeripheralDeviceIdPrefix[] = "battery_notification-";
 // stylus notifications and the non stylus notifications.
 struct NotificationParams {
   std::string id;
-  base::string16 title;
-  base::string16 message;
+  std::u16string title;
+  std::u16string message;
   std::string notifier_name;
   GURL url;
   const gfx::VectorIcon* icon;
 };
 
 NotificationParams GetNonStylusNotificationParams(const std::string& map_key,
-                                                  const base::string16& name,
+                                                  const std::u16string& name,
                                                   uint8_t battery_level,
                                                   bool is_bluetooth) {
   return NotificationParams{
@@ -97,7 +95,7 @@ const char PeripheralBatteryNotifier::kStylusNotificationId[] =
 PeripheralBatteryNotifier::NotificationInfo::NotificationInfo() = default;
 
 PeripheralBatteryNotifier::NotificationInfo::NotificationInfo(
-    base::Optional<uint8_t> level,
+    absl::optional<uint8_t> level,
     base::TimeTicks last_notification_timestamp)
     : level(level),
       last_notification_timestamp(last_notification_timestamp),
@@ -123,8 +121,24 @@ PeripheralBatteryNotifier::~PeripheralBatteryNotifier() {
 }
 
 void PeripheralBatteryNotifier::OnUpdatedBatteryLevel(
-    const PeripheralBatteryListener::BatteryInfo& battery) {
-  UpdateBattery(battery);
+    const PeripheralBatteryListener::BatteryInfo& battery_info) {
+  if ((battery_info.type == PeripheralBatteryListener::BatteryInfo::
+                                PeripheralType::kStylusViaCharger ||
+       battery_info.type == PeripheralBatteryListener::BatteryInfo::
+                                PeripheralType::kStylusViaScreen) &&
+      !ash::features::IsStylusBatteryStatusEnabled()) {
+    return;
+  }
+
+  // TODO(b/187703348): it is worth listening to charger events if they
+  // might remove the notification: we want to clear it as soon as
+  // we believe the battery to have been charged, or at least starting
+  // charging.
+  if (battery_info.type == PeripheralBatteryListener::BatteryInfo::
+                               PeripheralType::kStylusViaCharger) {
+    return;
+  }
+  UpdateBattery(battery_info);
 }
 
 void PeripheralBatteryNotifier::OnAddingBattery(
@@ -139,7 +153,7 @@ void PeripheralBatteryNotifier::OnRemovingBattery(
 
 void PeripheralBatteryNotifier::UpdateBattery(
     const PeripheralBatteryListener::BatteryInfo& battery_info) {
-  if (!battery_info.level) {
+  if (!battery_info.level || !battery_info.battery_report_eligible) {
     CancelNotification(battery_info);
     return;
   }
@@ -157,7 +171,7 @@ void PeripheralBatteryNotifier::UpdateBattery(
     battery_notifications_[map_key] = new_notification_info;
   } else {
     NotificationInfo& existing_notification_info = it->second;
-    base::Optional<uint8_t> old_level = existing_notification_info.level;
+    absl::optional<uint8_t> old_level = existing_notification_info.level;
     was_old_battery_level_low = old_level && *old_level <= kLowBatteryLevel;
     existing_notification_info.level = battery_info.level;
   }
@@ -179,8 +193,10 @@ void PeripheralBatteryNotifier::UpdateBatteryNotificationIfVisible(
     const PeripheralBatteryListener::BatteryInfo& battery_info) {
   const std::string& map_key = battery_info.key;
   std::string notification_map_key =
-      battery_info.is_stylus ? kStylusNotificationId
-                             : (kPeripheralDeviceIdPrefix + map_key);
+      (battery_info.type ==
+       PeripheralBatteryListener::BatteryInfo::PeripheralType::kStylusViaScreen)
+          ? kStylusNotificationId
+          : (kPeripheralDeviceIdPrefix + map_key);
   message_center::Notification* notification =
       message_center::MessageCenter::Get()->FindVisibleNotificationById(
           notification_map_key);
@@ -207,7 +223,8 @@ void PeripheralBatteryNotifier::ShowOrUpdateNotification(
   const std::string& map_key = battery_info.key;
   // Stylus battery notifications differ slightly.
   NotificationParams params =
-      battery_info.is_stylus
+      (battery_info.type ==
+       PeripheralBatteryListener::BatteryInfo::PeripheralType::kStylusViaScreen)
           ? GetStylusNotificationParams()
           : GetNonStylusNotificationParams(
                 map_key, battery_info.name, *battery_info.level,
@@ -224,7 +241,7 @@ void PeripheralBatteryNotifier::ShowOrUpdateNotification(
 
   auto notification = CreateSystemNotification(
       message_center::NOTIFICATION_TYPE_SIMPLE, params.id, params.title,
-      params.message, base::string16(), params.url,
+      params.message, std::u16string(), params.url,
       message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
                                  params.notifier_name),
       message_center::RichNotificationData(), std::move(delegate), *params.icon,
@@ -240,8 +257,10 @@ void PeripheralBatteryNotifier::CancelNotification(
   const auto it = battery_notifications_.find(map_key);
   if (it != battery_notifications_.end()) {
     std::string notification_map_key =
-        battery_info.is_stylus ? kStylusNotificationId
-                               : (kPeripheralDeviceIdPrefix + map_key);
+        (battery_info.type == PeripheralBatteryListener::BatteryInfo::
+                                  PeripheralType::kStylusViaScreen)
+            ? kStylusNotificationId
+            : (kPeripheralDeviceIdPrefix + map_key);
 
     message_center::MessageCenter::Get()->RemoveNotification(
         notification_map_key, /*by_user=*/false);

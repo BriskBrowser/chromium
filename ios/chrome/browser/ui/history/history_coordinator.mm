@@ -11,8 +11,9 @@
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
 #import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/main/browser_observer_bridge.h"
 #import "ios/chrome/browser/policy/policy_util.h"
-#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/sync_service_factory.h"
 #import "ios/chrome/browser/ui/activity_services/activity_params.h"
 #import "ios/chrome/browser/ui/alert_coordinator/action_sheet_coordinator.h"
 #import "ios/chrome/browser/ui/history/history_clear_browsing_data_coordinator.h"
@@ -23,10 +24,9 @@
 #include "ios/chrome/browser/ui/history/history_ui_delegate.h"
 #include "ios/chrome/browser/ui/history/ios_browsing_history_driver.h"
 #import "ios/chrome/browser/ui/history/public/history_presentation_delegate.h"
-#import "ios/chrome/browser/ui/menu/action_factory.h"
+#import "ios/chrome/browser/ui/menu/browser_action_factory.h"
 #import "ios/chrome/browser/ui/menu/menu_histograms.h"
 #import "ios/chrome/browser/ui/sharing/sharing_coordinator.h"
-#import "ios/chrome/browser/ui/table_view/feature_flags.h"
 #import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
 
@@ -34,11 +34,16 @@
 #error "This file requires ARC support."
 #endif
 
-@interface HistoryCoordinator () <HistoryMenuProvider, HistoryUIDelegate> {
+@interface HistoryCoordinator () <BrowserObserving,
+                                  HistoryMenuProvider,
+                                  HistoryUIDelegate> {
   // Provides dependencies and funnels callbacks from BrowsingHistoryService.
   std::unique_ptr<IOSBrowsingHistoryDriver> _browsingHistoryDriver;
   // Abstraction to communicate with HistoryService and WebHistoryService.
   std::unique_ptr<history::BrowsingHistoryService> _browsingHistoryService;
+  // Observe BrowserObserver to prevent any access to Browser before its
+  // destroyed.
+  std::unique_ptr<BrowserObserverBridge> _browserObserver;
 }
 // ViewController being managed by this Coordinator.
 @property(nonatomic, strong)
@@ -70,9 +75,11 @@
   self.historyTableViewController.browser = self.browser;
   self.historyTableViewController.loadStrategy = self.loadStrategy;
 
-  if (@available(iOS 13.0, *)) {
-    self.historyTableViewController.menuProvider = self;
-  }
+  self.historyTableViewController.menuProvider = self;
+
+  DCHECK(!_browserObserver);
+  _browserObserver =
+      std::make_unique<BrowserObserverBridge>(self.browser, self);
 
   // Initialize and set HistoryMediator
   self.mediator = [[HistoryMediator alloc]
@@ -86,8 +93,7 @@
       _browsingHistoryDriver.get(),
       ios::HistoryServiceFactory::GetForBrowserState(
           self.browser->GetBrowserState(), ServiceAccessType::EXPLICIT_ACCESS),
-      ProfileSyncServiceFactory::GetForBrowserState(
-          self.browser->GetBrowserState()));
+      SyncServiceFactory::GetForBrowserState(self.browser->GetBrowserState()));
   self.historyTableViewController.historyService =
       _browsingHistoryService.get();
 
@@ -100,15 +106,11 @@
       self.presentationDelegate;
 
   BOOL useCustomPresentation = YES;
-  if (IsCollectionsCardPresentationStyleEnabled()) {
-    if (@available(iOS 13, *)) {
       [self.historyNavigationController
           setModalPresentationStyle:UIModalPresentationFormSheet];
       self.historyNavigationController.presentationController.delegate =
           self.historyTableViewController;
       useCustomPresentation = NO;
-    }
-  }
 
   if (useCustomPresentation) {
     self.historyTransitioningDelegate =
@@ -133,32 +135,34 @@
   [self.sharingCoordinator stop];
   self.sharingCoordinator = nil;
 
-  if (self.historyNavigationController) {
-    void (^dismissHistoryNavigation)(void) = ^void() {
-      // Make sure to stop
-      // |self.historyTableViewController.contextMenuCoordinator| before
-      // dismissing, or |self.historyNavigationController| will dismiss that
-      // instead of itself.
-      [self.historyTableViewController.contextMenuCoordinator stop];
-      [self.historyNavigationController
-          dismissViewControllerAnimated:YES
-                             completion:completionHandler];
-      self.historyNavigationController = nil;
-      _browsingHistoryDriver = nullptr;
-      _browsingHistoryService = nullptr;
-    };
-    if (self.historyClearBrowsingDataCoordinator) {
-      [self.historyClearBrowsingDataCoordinator stopWithCompletion:^() {
-        dismissHistoryNavigation();
-        self.historyClearBrowsingDataCoordinator = nil;
-      }];
+  if (_browserObserver) {
+    _browserObserver.reset();
+  }
 
+  if (self.historyNavigationController) {
+    if (self.historyClearBrowsingDataCoordinator) {
+      [self.historyClearBrowsingDataCoordinator stopWithCompletion:^{
+        [self dismissHistoryNavigationWithCompletion:completionHandler];
+      }];
     } else {
-      dismissHistoryNavigation();
+      [self dismissHistoryNavigationWithCompletion:completionHandler];
     }
   } else if (completionHandler) {
     completionHandler();
   }
+}
+
+- (void)dismissHistoryNavigationWithCompletion:(ProceduralBlock)completion {
+  // Make sure to stop |self.historyTableViewController.contextMenuCoordinator|
+  // before dismissing, or |self.historyNavigationController| will dismiss that
+  // instead of itself.
+  [self.historyTableViewController.contextMenuCoordinator stop];
+  [self.historyNavigationController dismissViewControllerAnimated:YES
+                                                       completion:completion];
+  self.historyNavigationController = nil;
+  self.historyClearBrowsingDataCoordinator = nil;
+  _browsingHistoryDriver = nullptr;
+  _browsingHistoryService = nullptr;
 }
 
 #pragma mark - HistoryUIDelegate
@@ -183,8 +187,7 @@
 
 - (UIContextMenuConfiguration*)contextMenuConfigurationForItem:
                                    (HistoryEntryItem*)item
-                                                      withView:(UIView*)view
-    API_AVAILABLE(ios(13.0)) {
+                                                      withView:(UIView*)view {
   __weak id<HistoryEntryItemDelegate> historyItemDelegate =
       self.historyTableViewController;
   __weak __typeof(self) weakSelf = self;
@@ -201,9 +204,9 @@
     // Record that this context menu was shown to the user.
     RecordMenuShown(MenuScenario::kHistoryEntry);
 
-    ActionFactory* actionFactory =
-        [[ActionFactory alloc] initWithBrowser:strongSelf.browser
-                                      scenario:MenuScenario::kHistoryEntry];
+    BrowserActionFactory* actionFactory = [[BrowserActionFactory alloc]
+        initWithBrowser:strongSelf.browser
+               scenario:MenuScenario::kHistoryEntry];
 
     NSMutableArray<UIMenuElement*>* menuElements =
         [[NSMutableArray alloc] init];
@@ -252,6 +255,13 @@
       [UIContextMenuConfiguration configurationWithIdentifier:nil
                                               previewProvider:nil
                                                actionProvider:actionProvider];
+}
+
+#pragma mark - BrowserObserving
+
+- (void)browserDestroyed:(Browser*)browser {
+  DCHECK_EQ(browser, self.browser);
+  self.historyTableViewController.browser = nil;
 }
 
 #pragma mark - Private

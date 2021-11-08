@@ -6,7 +6,6 @@
 
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
-#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -21,11 +20,6 @@ namespace commander {
 
 namespace {
 
-// The minimum size the input should have before the source returns commands to
-// open specific bookmarks without the user choosing "Open Bookmark..." first.
-// TODO(lgrey): Centralize this constant when more composite commands are added.
-size_t constexpr kNounFirstMinimum = 2;
-
 std::unique_ptr<CommandItem> CreateOpenBookmarkItem(
     const bookmarks::UrlAndTitle& bookmark,
     Browser* browser) {
@@ -35,13 +29,13 @@ std::unique_ptr<CommandItem> CreateOpenBookmarkItem(
   // base::Unretained is safe because commands are reset when a browser is
   // closed.
   item->command = base::BindOnce(&chrome::AddTabAt, base::Unretained(browser),
-                                 GURL(bookmark.url), -1, true, base::nullopt);
+                                 GURL(bookmark.url), -1, true, absl::nullopt);
   return item;
 }
 
 CommandSource::CommandResults GetMatchingBookmarks(
     Browser* browser,
-    const base::string16& input) {
+    const std::u16string& input) {
   CommandSource::CommandResults results;
   bookmarks::BookmarkModel* model =
       BookmarkModelFactory::GetForBrowserContext(browser->profile());
@@ -69,7 +63,7 @@ BookmarkCommandSource::BookmarkCommandSource() = default;
 BookmarkCommandSource::~BookmarkCommandSource() = default;
 
 CommandSource::CommandResults BookmarkCommandSource::GetCommands(
-    const base::string16& input,
+    const std::u16string& input,
     Browser* browser) const {
   CommandSource::CommandResults results;
   bookmarks::BookmarkModel* model =
@@ -79,15 +73,11 @@ CommandSource::CommandResults BookmarkCommandSource::GetCommands(
   if (!model || !model->loaded() || !model->HasBookmarks())
     return results;
 
-  if (input.size() >= kNounFirstMinimum) {
-    results = GetMatchingBookmarks(browser, input);
-  }
-
   FuzzyFinder finder(input);
   std::vector<gfx::Range> ranges;
   // TODO(lgrey): Temporarily using an untranslated string since it's not
   // yet clear which commands will ship.
-  base::string16 open_title = base::ASCIIToUTF16("Open bookmark...");
+  std::u16string open_title = u"Open bookmark...";
   double score = finder.Find(open_title, &ranges);
   if (score > 0) {
     auto verb = std::make_unique<CommandItem>(open_title, score, ranges);

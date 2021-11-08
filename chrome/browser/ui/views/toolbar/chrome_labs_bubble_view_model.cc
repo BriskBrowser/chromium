@@ -4,14 +4,19 @@
 
 #include "chrome/browser/ui/views/toolbar/chrome_labs_bubble_view_model.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
+#include "build/buildflag.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/flag_descriptions.h"
+#include "chrome/grit/generated_resources.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
-base::Optional<std::vector<LabInfo>>& GetTestData() {
-  static base::NoDestructor<base::Optional<std::vector<LabInfo>>> test_lab_data;
+absl::optional<std::vector<LabInfo>>& GetTestData() {
+  static base::NoDestructor<absl::optional<std::vector<LabInfo>>> test_lab_data;
   return *test_lab_data;
 }
 
@@ -25,8 +30,7 @@ void SetLabInfoForTesting(const std::vector<LabInfo>& test_feature_info) {
 // TODO(elainechien): Explore better ways to allow developers to add their
 // experiments.
 // Experiments featured in labs must have feature entries of type FEATURE_VALUE
-// (Default, Enabled, Disabled states). Experiments with multiple parameters may
-// be considered in the future.
+// (Default, Enabled, Disabled states) or FEATURE_WITH_PARAMS_VALUE
 const std::vector<LabInfo>& GetData() {
   if (GetTestData())
     return GetTestData().value();
@@ -34,29 +38,45 @@ const std::vector<LabInfo>& GetData() {
   static const base::NoDestructor<std::vector<LabInfo>> lab_info_([]() {
     std::vector<LabInfo> lab_info;
 
-    // Read Later.
+    // Lens Region Search
     lab_info.emplace_back(LabInfo(
-        flag_descriptions::kReadLaterFlagId, base::ASCIIToUTF16("Reading List"),
-        base::ASCIIToUTF16("Right click on a tab or click the Bookmark icon to "
-                           "add tabs to a reading "
-                           "list. Access from the Bookmarks bar."),
-        version_info::Channel::BETA));
+        flag_descriptions::kEnableLensRegionSearchFlagId,
+        l10n_util::GetStringUTF16(IDS_LENS_REGION_SEARCH_EXPERIMENT_NAME),
+        l10n_util::GetStringUTF16(
+            IDS_LENS_REGION_SEARCH_EXPERIMENT_DESCRIPTION),
+        "chrome-labs-lens-region-search", version_info::Channel::BETA));
+
+    // Side Panel.
+    lab_info.emplace_back(LabInfo(
+        flag_descriptions::kSidePanelFlagId,
+        l10n_util::GetStringUTF16(IDS_SIDE_PANEL_EXPERIMENT_NAME),
+        l10n_util::GetStringUTF16(IDS_SIDE_PANEL_EXPERIMENT_DESCRIPTION),
+        "chrome-labs-side-panel", version_info::Channel::DEV));
 
     // Tab Scrolling.
-    lab_info.emplace_back(
-        LabInfo(flag_descriptions::kScrollableTabStripFlagId,
-                base::ASCIIToUTF16("Tab Scrolling"),
-                base::ASCIIToUTF16(
-                    "Enables tab strip to scroll left and right when full."),
-                version_info::Channel::BETA));
+    std::vector<std::u16string> tab_scrolling_variation_descriptions = {
+        l10n_util::GetStringUTF16(IDS_TABS_SHRINK_TO_PINNED_TAB_WIDTH),
+        l10n_util::GetStringUTF16(IDS_TABS_SHRINK_TO_MEDIUM_WIDTH),
+        l10n_util::GetStringUTF16(IDS_TABS_SHRINK_TO_LARGE_WIDTH),
+        l10n_util::GetStringUTF16(IDS_TABS_DO_NOT_SHRINK)};
 
-    // Tab Search.
-    lab_info.emplace_back(
-        LabInfo(flag_descriptions::kEnableTabSearchFlagId,
-                base::ASCIIToUTF16("Tab Search"),
-                base::ASCIIToUTF16("Enable a popup bubble in Top Chrome UI to "
-                                   "search over currently open tabs."),
-                version_info::Channel::BETA));
+    lab_info.emplace_back(LabInfo(
+        flag_descriptions::kScrollableTabStripFlagId,
+        l10n_util::GetStringUTF16(IDS_TAB_SCROLLING_EXPERIMENT_NAME),
+        l10n_util::GetStringUTF16(IDS_TAB_SCROLLING_EXPERIMENT_DESCRIPTION),
+        "chrome-labs-tab-scrolling", version_info::Channel::BETA,
+        tab_scrolling_variation_descriptions));
+
+    // Thumbnail Tab Strip for Windows
+#if BUILDFLAG(ENABLE_WEBUI_TAB_STRIP) && \
+    (defined(OS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH))
+    lab_info.emplace_back(LabInfo(
+        flag_descriptions::kWebUITabStripFlagId,
+        l10n_util::GetStringUTF16(IDS_THUMBNAIL_TAB_STRIP_EXPERIMENT_NAME),
+        l10n_util::GetStringUTF16(
+            IDS_THUMBNAIL_TAB_STRIP_EXPERIMENT_DESCRIPTION),
+        "chrome-labs-thumbnail-tab-strip", version_info::Channel::BETA));
+#endif
 
     return lab_info;
   }());
@@ -65,14 +85,20 @@ const std::vector<LabInfo>& GetData() {
 }
 }  // namespace
 
-LabInfo::LabInfo(const std::string& internal_name,
-                 const base::string16& visible_name,
-                 const base::string16& visible_description,
-                 version_info::Channel allowed_channel)
+LabInfo::LabInfo(
+    const std::string& internal_name,
+    const std::u16string& visible_name,
+    const std::u16string& visible_description,
+    const std::string& feedback_category_name,
+    version_info::Channel allowed_channel,
+    std::vector<std::u16string> translated_feature_variation_descriptions)
     : internal_name(internal_name),
       visible_name(visible_name),
       visible_description(visible_description),
-      allowed_channel(allowed_channel) {}
+      feedback_category_name(feedback_category_name),
+      allowed_channel(allowed_channel),
+      translated_feature_variation_descriptions(
+          translated_feature_variation_descriptions) {}
 
 LabInfo::LabInfo(const LabInfo& other) = default;
 

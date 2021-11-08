@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 import os
-import urllib
+import six.moves.urllib.parse  # pylint: disable=import-error
 
 from core import benchmark_finders
 from core import benchmark_utils
@@ -36,6 +36,7 @@ class PerfPlatform(object):
                num_shards,
                platform_os,
                is_fyi=False,
+               is_calibration=False,
                run_reference_build=False,
                executables=None):
     benchmark_configs = benchmark_configs.Frozenset()
@@ -45,6 +46,7 @@ class PerfPlatform(object):
     # For sorting ignore case and "segments" in the bot name.
     self._sort_key = name.lower().replace('-', ' ')
     self._is_fyi = is_fyi
+    self._is_calibration = is_calibration
     self.run_reference_build = run_reference_build
     self.executables = executables or frozenset()
     assert num_shards
@@ -111,9 +113,17 @@ class PerfPlatform(object):
     return self._is_fyi
 
   @property
+  def is_calibration(self):
+    return self._is_calibration
+
+  @property
+  def is_official(self):
+    return not self._is_fyi and not self.is_calibration
+
+  @property
   def builder_url(self):
     return ('https://ci.chromium.org/p/chrome/builders/ci/%s' %
-             urllib.quote(self._name))
+            six.moves.urllib.parse.quote(self._name))
 
 
 class BenchmarkConfig(object):
@@ -212,7 +222,13 @@ def _GetBenchmarkConfig(benchmark_name, abridged=False):
 OFFICIAL_BENCHMARK_CONFIGS = PerfSuite(
     [_GetBenchmarkConfig(b.Name()) for b in OFFICIAL_BENCHMARKS])
 # power.mobile requires special hardware.
-OFFICIAL_BENCHMARK_CONFIGS = OFFICIAL_BENCHMARK_CONFIGS.Remove(['power.mobile'])
+# only run blink_perf.sanitizer-api on linux-perf.
+# speedometer2-chrome-health is only for use with the Chrome Health pipeline
+OFFICIAL_BENCHMARK_CONFIGS = OFFICIAL_BENCHMARK_CONFIGS.Remove([
+    'power.mobile',
+    'blink_perf.sanitizer-api',
+    'speedometer2-chrome-health',
+])
 # TODO(crbug.com/965158): Remove OFFICIAL_BENCHMARK_NAMES once sharding
 # scripts are no longer using it.
 OFFICIAL_BENCHMARK_NAMES = frozenset(
@@ -297,6 +313,8 @@ _CHROME_HEALTH_BENCHMARK_CONFIGS_DESKTOP = PerfSuite([
 _LINUX_BENCHMARK_CONFIGS = PerfSuite(OFFICIAL_BENCHMARK_CONFIGS).Remove([
     'blink_perf.display_locking',
     'v8.runtime_stats.top_25',
+]).Add([
+    'blink_perf.sanitizer-api',
 ])
 _LINUX_EXECUTABLE_CONFIGS = frozenset([
     # TODO(crbug.com/811766): Add views_perftests.
@@ -323,20 +341,16 @@ _MAC_LOW_END_EXECUTABLE_CONFIGS = frozenset([
     _load_library_perf_tests(),
     _performance_browser_tests(210),
 ])
-_MAC_ARM_DTK_BENCHMARK_CONFIGS = PerfSuite(OFFICIAL_BENCHMARK_CONFIGS).Remove([
-    'blink_perf.display_locking',
-    'v8.runtime_stats.top_25',
-])
-_MAC_ARM_DTK_EXECUTABLE_CONFIGS = frozenset([
+_MAC_M1_MINI_2020_BENCHMARK_CONFIGS = PerfSuite(
+    OFFICIAL_BENCHMARK_CONFIGS).Remove([
+        'blink_perf.display_locking',
+        'v8.runtime_stats.top_25',
+    ])
+_MAC_M1_MINI_2020_EXECUTABLE_CONFIGS = frozenset([
     _base_perftests(300),
     _dawn_perf_tests(330),
     _performance_browser_tests(190),
     _views_perftests(),
-])
-_MAC_M1_MINI_2020_BENCHMARK_CONFIGS = PerfSuite([
-    'loading.desktop',
-]).Abridge([
-    'loading.desktop',
 ])
 
 _WIN_10_BENCHMARK_CONFIGS = PerfSuite(OFFICIAL_BENCHMARK_CONFIGS).Remove([
@@ -355,7 +369,20 @@ _WIN_10_LOW_END_BENCHMARK_CONFIGS = PerfSuite(
     ])
 _WIN_10_LOW_END_HP_CANDIDATE_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('v8.browsing_desktop'),
-    _GetBenchmarkConfig('rendering.desktop'),
+    _GetBenchmarkConfig('rendering.desktop', abridged=True),
+])
+_WIN_10_AMD_BENCHMARK_CONFIGS = PerfSuite([
+    _GetBenchmarkConfig('jetstream'),
+    _GetBenchmarkConfig('jetstream2'),
+    _GetBenchmarkConfig('kraken'),
+    _GetBenchmarkConfig('octane'),
+    _GetBenchmarkConfig('system_health.common_desktop'),
+])
+_WIN_10_AMD_LAPTOP_BENCHMARK_CONFIGS = PerfSuite([
+    _GetBenchmarkConfig('jetstream'),
+    _GetBenchmarkConfig('jetstream2'),
+    _GetBenchmarkConfig('kraken'),
+    _GetBenchmarkConfig('octane'),
 ])
 _WIN_7_BENCHMARK_CONFIGS = PerfSuite([
     'loading.desktop',
@@ -431,12 +458,11 @@ _ANDROID_PIXEL4_WEBLAYER_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('system_health.weblayer_startup')
 ])
 _ANDROID_PIXEL4A_POWER_BENCHMARK_CONFIGS = PerfSuite([
-    _GetBenchmarkConfig('power.mobile')])
-_ANDROID_NEXUS5X_FYI_BENCHMARK_CONFIGS = PerfSuite([
-    # Running a sample benchmark to help testing out the work on
-    # trace_processor_shell: crbug.com/1028612
-    _GetBenchmarkConfig('system_health_infinite_scroll.common_mobile')
+    _GetBenchmarkConfig('power.mobile'),
+    _GetBenchmarkConfig('system_health.scroll_jank_mobile')
 ])
+_ANDROID_NEXUS5X_FYI_BENCHMARK_CONFIGS = PerfSuite(
+    [_GetBenchmarkConfig('system_health.scroll_jank_mobile')])
 _ANDROID_PIXEL2_AAB_FYI_BENCHMARK_CONFIGS = PerfSuite(
     [_GetBenchmarkConfig('startup.mobile')])
 _ANDROID_PIXEL2_FYI_BENCHMARK_CONFIGS = PerfSuite([
@@ -447,19 +473,33 @@ _ANDROID_PIXEL2_FYI_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('speedometer2'),
     _GetBenchmarkConfig('rendering.mobile'),
     _GetBenchmarkConfig('octane'),
-    _GetBenchmarkConfig('jetstream')
+    _GetBenchmarkConfig('jetstream'),
+    _GetBenchmarkConfig('system_health.scroll_jank_mobile')
 ])
 _CHROMEOS_KEVIN_FYI_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('rendering.desktop')])
-_LACROS_EVE_BENCHMARK_CONFIGS = PerfSuite(['loading.desktop'
-                                           ]).Abridge(['loading.desktop'])
+_LACROS_EVE_BENCHMARK_CONFIGS = PerfSuite(OFFICIAL_BENCHMARK_CONFIGS).Remove([
+    'blink_perf.display_locking',
+    'v8.runtime_stats.top_25',
+])
 _LINUX_PERF_FYI_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('power.desktop'),
     _GetBenchmarkConfig('rendering.desktop'),
     _GetBenchmarkConfig('system_health.common_desktop')
 ])
-_FUCHSIA_PERF_FYI_BENCHMARK_CONFIGS = PerfSuite(
-    [_GetBenchmarkConfig('system_health.memory_desktop')])
+_FUCHSIA_PERF_FYI_BENCHMARK_CONFIGS = PerfSuite([
+    _GetBenchmarkConfig('system_health.memory_desktop'),
+    _GetBenchmarkConfig('media.mobile')
+])
+_LINUX_PERF_CALIBRATION_BENCHMARK_CONFIGS = PerfSuite([
+    _GetBenchmarkConfig('speedometer2'),
+    _GetBenchmarkConfig('blink_perf.shadow_dom'),
+    _GetBenchmarkConfig('system_health.common_desktop'),
+])
+_ANDROID_PIXEL2_PERF_CALIBRATION_BENCHMARK_CONFIGS = PerfSuite([
+    _GetBenchmarkConfig('system_health.common_mobile'),
+    _GetBenchmarkConfig('system_health.memory_mobile'),
+])
 
 
 # Linux
@@ -483,7 +523,8 @@ MAC_HIGH_END = PerfPlatform(
     'mac-10_13_laptop_high_end-perf',
     'MacBook Pro, Core i7 2.8 GHz, 16GB RAM, 256GB SSD, Radeon 55',
     _MAC_HIGH_END_BENCHMARK_CONFIGS,
-    26,
+    # crbug/1267365: reduce as some bots are lost due to OS divergence
+    22,
     'mac',
     executables=_MAC_HIGH_END_EXECUTABLE_CONFIGS)
 MAC_LOW_END = PerfPlatform(
@@ -493,14 +534,13 @@ MAC_LOW_END = PerfPlatform(
     26,
     'mac',
     executables=_MAC_LOW_END_EXECUTABLE_CONFIGS)
-MAC_ARM_DTK_ARM = PerfPlatform('mac-arm_dtk_arm-perf',
-                               'Mac ARM DTK (ARM Chrome)',
-                               _MAC_ARM_DTK_BENCHMARK_CONFIGS,
-                               8,
-                               'mac',
-                               executables=_MAC_ARM_DTK_EXECUTABLE_CONFIGS)
-MAC_M1_MINI_2020 = PerfPlatform('mac-m1_mini_2020-perf', 'Mac M1 Mini 2020',
-                                _MAC_M1_MINI_2020_BENCHMARK_CONFIGS, 2, 'mac')
+MAC_M1_MINI_2020 = PerfPlatform(
+    'mac-m1_mini_2020-perf',
+    'Mac M1 Mini 2020',
+    _MAC_M1_MINI_2020_BENCHMARK_CONFIGS,
+    26,
+    'mac',
+    executables=_MAC_M1_MINI_2020_EXECUTABLE_CONFIGS)
 
 # Win
 WIN_10_LOW_END = PerfPlatform(
@@ -518,6 +558,11 @@ WIN_10 = PerfPlatform(
     'Windows Intel HD 630 towers, Core i7-7700 3.6 GHz, 16GB RAM,'
     ' Intel Kaby Lake HD Graphics 630', _WIN_10_BENCHMARK_CONFIGS,
     26, 'win', executables=_WIN_10_EXECUTABLE_CONFIGS)
+WIN_10_AMD = PerfPlatform('win-10_amd-perf', 'Windows AMD chipset',
+                          _WIN_10_AMD_BENCHMARK_CONFIGS, 1, 'win')
+WIN_10_AMD_LAPTOP = PerfPlatform('win-10_amd_laptop-perf',
+                                 'Windows 10 Laptop with AMD chipset.',
+                                 _WIN_10_AMD_LAPTOP_BENCHMARK_CONFIGS, 2, 'win')
 WIN_7 = PerfPlatform('Win 7 Perf', 'N/A', _WIN_7_BENCHMARK_CONFIGS, 2, 'win')
 WIN_7_GPU = PerfPlatform('Win 7 Nvidia GPU Perf', 'N/A',
                          _WIN_7_GPU_BENCHMARK_CONFIGS, 3, 'win')
@@ -570,7 +615,7 @@ ANDROID_PIXEL4A_POWER = PerfPlatform('android-pixel4a_power-perf',
 
 # Cros/Lacros
 LACROS_EVE_PERF = PerfPlatform('lacros-eve-perf', '',
-                               _LACROS_EVE_BENCHMARK_CONFIGS, 1, 'chromeos')
+                               _LACROS_EVE_BENCHMARK_CONFIGS, 8, 'chromeos')
 
 # FYI bots
 WIN_10_LOW_END_HP_CANDIDATE = PerfPlatform(
@@ -580,7 +625,7 @@ WIN_10_LOW_END_HP_CANDIDATE = PerfPlatform(
 ANDROID_NEXUS5X_PERF_FYI = PerfPlatform('android-nexus5x-perf-fyi',
                                         'Android MMB29Q',
                                         _ANDROID_NEXUS5X_FYI_BENCHMARK_CONFIGS,
-                                        3,
+                                        2,
                                         'android',
                                         is_fyi=True)
 ANDROID_PIXEL2_PERF_AAB_FYI = PerfPlatform(
@@ -611,9 +656,28 @@ LINUX_PERF_FYI = PerfPlatform('linux-perf-fyi',
 FUCHSIA_PERF_FYI = PerfPlatform('fuchsia-perf-fyi',
                                 '',
                                 _FUCHSIA_PERF_FYI_BENCHMARK_CONFIGS,
-                                1,
+                                3,
                                 'fuchsia',
                                 is_fyi=True)
+
+# Calibration bots
+LINUX_PERF_CALIBRATION = PerfPlatform(
+    'linux-perf-calibration',
+    'Ubuntu-18.04, 8 core, NVIDIA Quadro P400',
+    _LINUX_BENCHMARK_CONFIGS,
+    28,
+    'linux',
+    executables=_LINUX_EXECUTABLE_CONFIGS,
+    is_calibration=True)
+
+ANDROID_PIXEL2_PERF_CALIBRATION = PerfPlatform(
+    'android-pixel2-perf-calibration',
+    'Android OPM1.171019.021',
+    _ANDROID_PIXEL2_BENCHMARK_CONFIGS,
+    42,
+    'android',
+    executables=_ANDROID_PIXEL2_EXECUTABLE_CONFIGS,
+    is_calibration=True)
 
 ALL_PLATFORMS = {
     p for p in locals().values() if isinstance(p, PerfPlatform)
@@ -622,12 +686,17 @@ PLATFORMS_BY_NAME = {p.name: p for p in ALL_PLATFORMS}
 FYI_PLATFORMS = {
     p for p in ALL_PLATFORMS if p.is_fyi
 }
-OFFICIAL_PLATFORMS = {
-    p for p in ALL_PLATFORMS if not p.is_fyi
-}
+CALIBRATION_PLATFORMS = {p for p in ALL_PLATFORMS if p.is_calibration}
+OFFICIAL_PLATFORMS = {p for p in ALL_PLATFORMS if p.is_official}
 ALL_PLATFORM_NAMES = {
     p.name for p in ALL_PLATFORMS
 }
 OFFICIAL_PLATFORM_NAMES = {
     p.name for p in OFFICIAL_PLATFORMS
 }
+
+
+def find_bot_platform(builder_name):
+  for bot_platform in ALL_PLATFORMS:
+    if bot_platform.name == builder_name:
+      return bot_platform

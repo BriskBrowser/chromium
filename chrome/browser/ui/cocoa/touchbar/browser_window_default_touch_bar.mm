@@ -169,6 +169,10 @@ class API_AVAILABLE(macos(10.12.2)) TouchBarNotificationBridge
 
   bool show_home_button() { return show_home_button_.GetValue(); }
 
+  TouchBarNotificationBridge(const TouchBarNotificationBridge&) = delete;
+  TouchBarNotificationBridge& operator=(const TouchBarNotificationBridge&) =
+      delete;
+
   ~TouchBarNotificationBridge() override {
     BrowserList::RemoveObserver(this);
     browser_->tab_strip_model()->RemoveObserver(this);
@@ -256,8 +260,6 @@ class API_AVAILABLE(macos(10.12.2)) TouchBarNotificationBridge
   BooleanPrefMember show_home_button_;
 
   PrefChangeRegistrar profile_pref_registrar_;
-
-  DISALLOW_COPY_AND_ASSIGN(TouchBarNotificationBridge);
 };
 
 }  // namespace
@@ -388,7 +390,7 @@ class API_AVAILABLE(macos(10.12.2)) TouchBarNotificationBridge
 
     // Strip the trailing slash.
     url::Parsed parsed;
-    base::string16 displayText = url_formatter::FormatUrl(
+    std::u16string displayText = url_formatter::FormatUrl(
         contents->GetLastCommittedURL(),
         url_formatter::kFormatUrlOmitTrailingSlashOnBareHostname,
         net::UnescapeRule::SPACES, &parsed, nullptr, nullptr);
@@ -497,7 +499,7 @@ class API_AVAILABLE(macos(10.12.2)) TouchBarNotificationBridge
   const TemplateURL* defaultProvider =
       templateUrlService->GetDefaultSearchProvider();
   BOOL isGoogle = NO;
-  base::string16 title;
+  std::u16string title;
   if (defaultProvider) {
     isGoogle =
         defaultProvider->GetEngineType(

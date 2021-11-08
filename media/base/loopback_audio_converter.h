@@ -16,11 +16,15 @@ namespace media {
 // use converted audio from AudioOutputStreams as input to an AudioConverter.
 // For example, this allows converting multiple streams into a common format and
 // using the converted audio as input to another AudioConverter (i.e. a mixer).
-class LoopbackAudioConverter : public AudioConverter::InputCallback {
+class MEDIA_EXPORT LoopbackAudioConverter
+    : public AudioConverter::InputCallback {
  public:
   LoopbackAudioConverter(const AudioParameters& input_params,
                          const AudioParameters& output_params,
                          bool disable_fifo);
+
+  LoopbackAudioConverter(const LoopbackAudioConverter&) = delete;
+  LoopbackAudioConverter& operator=(const LoopbackAudioConverter&) = delete;
 
   ~LoopbackAudioConverter() override;
 
@@ -38,8 +42,6 @@ class LoopbackAudioConverter : public AudioConverter::InputCallback {
   double ProvideInput(AudioBus* audio_bus, uint32_t frames_delayed) override;
 
   AudioConverter audio_converter_;
-
-  DISALLOW_COPY_AND_ASSIGN(LoopbackAudioConverter);
 };
 
 }  // namespace media

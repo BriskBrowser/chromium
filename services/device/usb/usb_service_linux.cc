@@ -18,7 +18,6 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/scoped_blocking_call.h"
@@ -91,6 +90,10 @@ void OnDeviceOpenedToReadDescriptors(
 class UsbServiceLinux::BlockingTaskRunnerHelper : public UdevWatcher::Observer {
  public:
   explicit BlockingTaskRunnerHelper(base::WeakPtr<UsbServiceLinux> service);
+
+  BlockingTaskRunnerHelper(const BlockingTaskRunnerHelper&) = delete;
+  BlockingTaskRunnerHelper& operator=(const BlockingTaskRunnerHelper&) = delete;
+
   ~BlockingTaskRunnerHelper() override;
 
   void Start();
@@ -108,8 +111,6 @@ class UsbServiceLinux::BlockingTaskRunnerHelper : public UdevWatcher::Observer {
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
   base::SequenceChecker sequence_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(BlockingTaskRunnerHelper);
 };
 
 UsbServiceLinux::BlockingTaskRunnerHelper::BlockingTaskRunnerHelper(

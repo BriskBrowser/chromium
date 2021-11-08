@@ -43,23 +43,23 @@ InlineLoginHandler::InlineLoginHandler() = default;
 InlineLoginHandler::~InlineLoginHandler() = default;
 
 void InlineLoginHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "initialize",
       base::BindRepeating(&InlineLoginHandler::HandleInitializeMessage,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "authExtensionReady",
       base::BindRepeating(&InlineLoginHandler::HandleAuthExtensionReadyMessage,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "completeLogin",
       base::BindRepeating(&InlineLoginHandler::HandleCompleteLoginMessage,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "switchToFullTab",
       base::BindRepeating(&InlineLoginHandler::HandleSwitchToFullTabMessage,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "dialogClose", base::BindRepeating(&InlineLoginHandler::HandleDialogClose,
                                          base::Unretained(this)));
 }
@@ -111,9 +111,8 @@ void InlineLoginHandler::ContinueHandleInitializeMessage() {
   signin_metrics::Reason reason =
       signin::GetSigninReasonForEmbeddedPromoURL(current_url);
 
-  if (reason != signin_metrics::Reason::REASON_REAUTHENTICATION &&
-      reason != signin_metrics::Reason::REASON_UNLOCK &&
-      reason != signin_metrics::Reason::REASON_ADD_SECONDARY_ACCOUNT) {
+  if (reason != signin_metrics::Reason::kReauthentication &&
+      reason != signin_metrics::Reason::kAddSecondaryAccount) {
     signin_metrics::LogSigninAccessPointStarted(
         access_point,
         signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO);
@@ -126,8 +125,8 @@ void InlineLoginHandler::ContinueHandleInitializeMessage() {
 
   Profile* profile = Profile::FromWebUI(web_ui());
   std::string default_email;
-  if (reason == signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT ||
-      reason == signin_metrics::Reason::REASON_FORCED_SIGNIN_PRIMARY_ACCOUNT) {
+  if (reason == signin_metrics::Reason::kSigninPrimaryAccount ||
+      reason == signin_metrics::Reason::kForcedSigninPrimaryAccount) {
     default_email =
         profile->GetPrefs()->GetString(prefs::kGoogleServicesLastUsername);
   } else {
@@ -163,6 +162,7 @@ void InlineLoginHandler::HandleCompleteLoginMessage(
   partition->GetCookieManagerForBrowserProcess()->GetCookieList(
       GaiaUrls::GetInstance()->gaia_url(),
       net::CookieOptions::MakeAllInclusive(),
+      net::CookiePartitionKeychain::Todo(),
       base::BindOnce(&InlineLoginHandler::HandleCompleteLoginMessageWithCookies,
                      weak_ptr_factory_.GetWeakPtr(),
                      base::ListValue(args->GetList())));
@@ -185,7 +185,7 @@ void InlineLoginHandler::HandleCompleteLoginMessageWithCookies(
   }
 
   bool skip_for_now = dict.FindBoolKey("skipForNow").value_or(false);
-  base::Optional<bool> trusted = dict.FindBoolKey("trusted");
+  absl::optional<bool> trusted = dict.FindBoolKey("trusted");
   bool trusted_value = trusted.value_or(false);
   bool trusted_found = trusted.has_value();
 

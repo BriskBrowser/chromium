@@ -12,6 +12,7 @@
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #import "components/autofill/ios/browser/personal_data_manager_observer_bridge.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/application_context.h"
@@ -19,7 +20,7 @@
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_constants.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_profile_edit_table_view_controller.h"
-#import "ios/chrome/browser/ui/settings/autofill/cells/autofill_data_item.h"
+#import "ios/chrome/browser/ui/settings/autofill/cells/autofill_profile_item.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_switch_cell.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_switch_item.h"
 #import "ios/chrome/browser/ui/settings/elements/enterprise_info_popover_view_controller.h"
@@ -90,7 +91,12 @@ typedef NS_ENUM(NSInteger, ItemType) {
   self = [super initWithStyle:ChromeTableViewStyle()];
   if (self) {
     self.title = l10n_util::GetNSString(IDS_AUTOFILL_ADDRESSES_SETTINGS_TITLE);
-    self.shouldHideDoneButton = YES;
+    if (base::FeatureList::IsEnabled(
+            password_manager::features::kSupportForAddPasswordsInSettings)) {
+      self.shouldDisableDoneButtonOnEdit = YES;
+    } else {
+      self.shouldHideDoneButton = YES;
+    }
     _browserState = browserState;
     _personalDataManager =
         autofill::PersonalDataManagerFactory::GetForBrowserState(_browserState);
@@ -120,8 +126,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   [model addSectionWithIdentifier:SectionIdentifierSwitches];
 
-  if (base::FeatureList::IsEnabled(kEnableIOSManagedSettingsUI) &&
-      _browserState->GetPrefs()->IsManagedPreference(
+  if (_browserState->GetPrefs()->IsManagedPreference(
           autofill::prefs::kAutofillProfileEnabled)) {
     [model addItem:[self managedAddressItem]
         toSectionWithIdentifier:SectionIdentifierSwitches];
@@ -134,6 +139,14 @@ typedef NS_ENUM(NSInteger, ItemType) {
       forSectionWithIdentifier:SectionIdentifierSwitches];
 
   [self populateProfileSection];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+  [super viewWillAppear:animated];
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kSupportForAddPasswordsInSettings)) {
+    self.navigationController.toolbarHidden = NO;
+  }
 }
 
 #pragma mark - LoadModel Helpers
@@ -195,6 +208,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (TableViewItem*)itemForProfile:
     (const autofill::AutofillProfile&)autofillProfile {
+  assert(autofillProfile.record_type() ==
+         autofill::AutofillProfile::LOCAL_PROFILE);
   std::string guid(autofillProfile.guid());
   NSString* title = base::SysUTF16ToNSString(
       autofillProfile.GetInfo(autofill::AutofillType(autofill::NAME_FULL),
@@ -202,21 +217,14 @@ typedef NS_ENUM(NSInteger, ItemType) {
   NSString* subTitle = base::SysUTF16ToNSString(autofillProfile.GetInfo(
       autofill::AutofillType(autofill::ADDRESS_HOME_LINE1),
       GetApplicationContext()->GetApplicationLocale()));
-  bool isServerProfile = autofillProfile.record_type() ==
-                         autofill::AutofillProfile::SERVER_PROFILE;
 
-  AutofillDataItem* item =
-      [[AutofillDataItem alloc] initWithType:ItemTypeAddress];
+  AutofillProfileItem* item =
+      [[AutofillProfileItem alloc] initWithType:ItemTypeAddress];
   item.text = title;
   item.leadingDetailText = subTitle;
   item.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
   item.accessibilityIdentifier = title;
   item.GUID = guid;
-  item.deletable = !isServerProfile;
-  if (isServerProfile) {
-    item.trailingDetailText =
-        l10n_util::GetNSString(IDS_IOS_AUTOFILL_WALLET_SERVER_NAME);
-  }
   return item;
 }
 
@@ -237,6 +245,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
 #pragma mark - SettingsRootTableViewController
 
 - (BOOL)shouldShowEditButton {
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kSupportForAddPasswordsInSettings)) {
+    // The edit button is put in the toolbar instead of the navigation bar.
+    return NO;
+  }
   return YES;
 }
 
@@ -244,10 +257,24 @@ typedef NS_ENUM(NSInteger, ItemType) {
   return [self localProfilesExist];
 }
 
+- (BOOL)shouldHideToolbar {
+  return !base::FeatureList::IsEnabled(
+      password_manager::features::kSupportForAddPasswordsInSettings);
+}
+
+- (BOOL)shouldShowEditDoneButton {
+  return !base::FeatureList::IsEnabled(
+      password_manager::features::kSupportForAddPasswordsInSettings);
+}
+
 - (void)updateUIForEditState {
   [super updateUIForEditState];
   [self setSwitchItemEnabled:!self.tableView.editing
                     itemType:ItemTypeAutofillAddressSwitch];
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kSupportForAddPasswordsInSettings)) {
+    [self updatedToolbarForEditState];
+  }
 }
 
 // Override.
@@ -282,6 +309,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   // edit mode, selection is handled by the superclass. When not in edit mode
   // selection presents the editing controller for the selected entry.
   if ([self.tableView isEditing]) {
+    self.deleteButton.enabled = YES;
     return;
   }
 
@@ -298,6 +326,16 @@ typedef NS_ENUM(NSInteger, ItemType) {
   controller.dispatcher = self.dispatcher;
   [self.navigationController pushViewController:controller animated:YES];
   [self.tableView deselectRowAtIndexPath:indexPath animated:YES];
+}
+
+- (void)tableView:(UITableView*)tableView
+    didDeselectRowAtIndexPath:(NSIndexPath*)indexPath {
+  [super tableView:tableView didDeselectRowAtIndexPath:indexPath];
+  if (!self.tableView.editing)
+    return;
+
+  if (self.tableView.indexPathsForSelectedRows.count == 0)
+    self.deleteButton.enabled = NO;
 }
 
 #pragma mark - Actions
@@ -325,14 +363,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (BOOL)tableView:(UITableView*)tableView
     canEditRowAtIndexPath:(NSIndexPath*)indexPath {
-  // Only autofill data cells are editable.
+  // Only profile data cells are editable.
   TableViewItem* item = [self.tableViewModel itemAtIndexPath:indexPath];
-  if ([item isKindOfClass:[AutofillDataItem class]]) {
-    AutofillDataItem* autofillItem =
-        base::mac::ObjCCastStrict<AutofillDataItem>(item);
-    return [autofillItem isDeletable];
-  }
-  return NO;
+  return [item isKindOfClass:[AutofillProfileItem class]];
 }
 
 - (void)tableView:(UITableView*)tableView
@@ -449,7 +482,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 // Removes the item from the personal data manager model.
 - (void)willDeleteItemsAtIndexPaths:(NSArray*)indexPaths {
   for (NSIndexPath* indexPath in indexPaths) {
-    AutofillDataItem* item = base::mac::ObjCCastStrict<AutofillDataItem>(
+    AutofillProfileItem* item = base::mac::ObjCCastStrict<AutofillProfileItem>(
         [self.tableViewModel itemAtIndexPath:indexPath]);
     _personalDataManager->RemoveByGUID([item GUID]);
   }

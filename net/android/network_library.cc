@@ -101,12 +101,6 @@ std::string GetTelephonyNetworkOperator() {
           base::android::AttachCurrentThread()));
 }
 
-std::string GetTelephonySimOperator() {
-  return base::android::ConvertJavaStringToUTF8(
-      Java_AndroidNetworkLibrary_getSimOperator(
-          base::android::AttachCurrentThread()));
-}
-
 bool GetIsRoaming() {
   return Java_AndroidNetworkLibrary_getIsRoaming(
       base::android::AttachCurrentThread());
@@ -123,12 +117,12 @@ std::string GetWifiSSID() {
           base::android::AttachCurrentThread()));
 }
 
-base::Optional<int32_t> GetWifiSignalLevel() {
+absl::optional<int32_t> GetWifiSignalLevel() {
   const int count_buckets = 5;
   int signal_strength = Java_AndroidNetworkLibrary_getWifiSignalLevel(
       base::android::AttachCurrentThread(), count_buckets);
   if (signal_strength < 0)
-    return base::nullopt;
+    return absl::nullopt;
   DCHECK_LE(0, signal_strength);
   DCHECK_GE(count_buckets - 1, signal_strength);
 

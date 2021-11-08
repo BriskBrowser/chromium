@@ -5,7 +5,8 @@
 (async function() {
   TestRunner.addResult(`Test that console.log() would linkify the links. Bug 231074.\n`);
 
-  await TestRunner.loadModule('console_test_runner');
+  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('components');
   await TestRunner.showPanel('console');
   await TestRunner.evaluateInPagePromise(`
     console.log("www.chromium.org");
@@ -39,7 +40,7 @@
 
   TestRunner.addResult('Dump urls in messages');
   var consoleView = Console.ConsoleView.instance();
-  var viewMessages = consoleView._visibleViewMessages;
+  var viewMessages = consoleView.visibleViewMessages;
   for (var i = 0; i < viewMessages.length; ++i) {
     var uiMessage = viewMessages[i];
     var element = uiMessage.element().querySelector('.console-message-text');
@@ -57,8 +58,8 @@
 
   // Ensures urls with lots of slashes does not bog down the regex.
   const dummyMessage = viewMessages[0];
-  Console.ConsoleViewMessage.prototype._linkifyStringAsFragment.call(dummyMessage, '/'.repeat(1000));
-  Console.ConsoleViewMessage.prototype._linkifyStringAsFragment.call(dummyMessage, '/a/'.repeat(1000));
+  Console.ConsoleViewMessage.prototype.linkifyStringAsFragment.call(dummyMessage, '/'.repeat(1000));
+  Console.ConsoleViewMessage.prototype.linkifyStringAsFragment.call(dummyMessage, '/a/'.repeat(1000));
 
   TestRunner.completeTest();
 })();

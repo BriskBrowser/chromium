@@ -34,6 +34,10 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
       public base::SupportsUserData::Data {
  public:
   explicit BrowsingDataRemoverImpl(BrowserContext* browser_context);
+
+  BrowsingDataRemoverImpl(const BrowsingDataRemoverImpl&) = delete;
+  BrowsingDataRemoverImpl& operator=(const BrowsingDataRemoverImpl&) = delete;
+
   ~BrowsingDataRemoverImpl() override;
 
   // Is the BrowsingDataRemoverImpl currently in the process of removing data?
@@ -136,7 +140,7 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
     uint64_t origin_type_mask;
     std::unique_ptr<BrowsingDataFilterBuilder> filter_builder;
     std::vector<Observer*> observers;
-    base::Time task_started;
+    base::TimeTicks task_started;
   };
 
   // Setter for |is_removing_|; DCHECKs that we can only start removing if we're
@@ -239,8 +243,6 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
   StoragePartition* storage_partition_for_testing_;
 
   base::WeakPtrFactory<BrowsingDataRemoverImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BrowsingDataRemoverImpl);
 };
 
 }  // namespace content

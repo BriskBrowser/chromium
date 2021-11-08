@@ -9,13 +9,14 @@
 #include <utility>
 
 #include "base/mac/bundle_locations.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/version.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/infobar_manager.h"
 #include "components/version_info/version_info.h"
+#include "ios/chrome/browser/infobars/infobar_utils.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/upgrade/upgrade_constants.h"
@@ -61,6 +62,9 @@ class UpgradeInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
   UpgradeInfoBarDelegate() : trigger_upgrade_(false) {}
 
+  UpgradeInfoBarDelegate(const UpgradeInfoBarDelegate&) = delete;
+  UpgradeInfoBarDelegate& operator=(const UpgradeInfoBarDelegate&) = delete;
+
   ~UpgradeInfoBarDelegate() override {}
 
   // Returns true is the infobar was closed by pressing the accept button.
@@ -88,7 +92,7 @@ class UpgradeInfoBarDelegate : public ConfirmInfoBarDelegate {
     return icon_;
   }
 
-  base::string16 GetMessageText() const override {
+  std::u16string GetMessageText() const override {
     return l10n_util::GetStringUTF16(IDS_IOS_UPGRADE_AVAILABLE);
   }
 
@@ -99,15 +103,13 @@ class UpgradeInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   int GetButtons() const override { return BUTTON_OK; }
 
-  base::string16 GetButtonLabel(InfoBarButton button) const override {
+  std::u16string GetButtonLabel(InfoBarButton button) const override {
     DCHECK(button == BUTTON_OK);
     return l10n_util::GetStringUTF16(IDS_IOS_UPGRADE_AVAILABLE_BUTTON);
   }
 
   mutable gfx::Image icon_;
   bool trigger_upgrade_;
-
-  DISALLOW_COPY_AND_ASSIGN(UpgradeInfoBarDelegate);
 };
 
 // The InfoBarDelegate unfortunately is not called at all when an infoBar is
@@ -118,9 +120,11 @@ class UpgradeInfoBarDismissObserver
     : public infobars::InfoBarManager::Observer {
  public:
   UpgradeInfoBarDismissObserver()
-      : infobar_delegate_(nullptr),
-        dismiss_delegate_(nil),
-        scoped_observer_(this) {}
+      : infobar_delegate_(nullptr), dismiss_delegate_(nil) {}
+
+  UpgradeInfoBarDismissObserver(const UpgradeInfoBarDismissObserver&) = delete;
+  UpgradeInfoBarDismissObserver& operator=(
+      const UpgradeInfoBarDismissObserver&) = delete;
 
   ~UpgradeInfoBarDismissObserver() override {}
 
@@ -128,7 +132,7 @@ class UpgradeInfoBarDismissObserver
                         UpgradeInfoBarDelegate* infobar_delegate,
                         NSString* tab_id,
                         UpgradeCenter* dismiss_delegate) {
-    scoped_observer_.Add(infobar_manager);
+    scoped_observation_.Observe(infobar_manager);
     infobar_delegate_ = infobar_delegate;
     dismiss_delegate_ = dismiss_delegate;
     tab_id_ = [tab_id copy];
@@ -147,16 +151,16 @@ class UpgradeInfoBarDismissObserver
 
   void OnManagerShuttingDown(
       infobars::InfoBarManager* infobar_manager) override {
-    scoped_observer_.Remove(infobar_manager);
+    DCHECK(scoped_observation_.IsObservingSource(infobar_manager));
+    scoped_observation_.Reset();
   }
 
   UpgradeInfoBarDelegate* infobar_delegate_;
   __weak UpgradeCenter* dismiss_delegate_;
   __strong NSString* tab_id_;
-  ScopedObserver<infobars::InfoBarManager, infobars::InfoBarManager::Observer>
-      scoped_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(UpgradeInfoBarDismissObserver);
+  base::ScopedObservation<infobars::InfoBarManager,
+                          infobars::InfoBarManager::Observer>
+      scoped_observation_{this};
 };
 
 }  // namespace
@@ -312,8 +316,7 @@ class UpgradeInfoBarDismissObserver
                                                tabId:tabId];
 
   [_upgradeInfoBarDelegates setObject:delegateHolder forKey:tabId];
-  infoBarManager->AddInfoBar(
-      infoBarManager->CreateConfirmInfoBar(std::move(infobarDelegate)));
+  infoBarManager->AddInfoBar(CreateConfirmInfoBar(std::move(infobarDelegate)));
 }
 
 - (void)tabWillClose:(NSString*)tabId {

@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/views/frame/browser_root_view.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/browser_test.h"
@@ -17,20 +18,21 @@ class BrowserRootViewBrowserTest : public InProcessBrowserTest {
  public:
   BrowserRootViewBrowserTest() = default;
 
+  BrowserRootViewBrowserTest(const BrowserRootViewBrowserTest&) = delete;
+  BrowserRootViewBrowserTest& operator=(const BrowserRootViewBrowserTest&) =
+      delete;
+
   BrowserRootView* browser_root_view() {
     BrowserView* browser_view = static_cast<BrowserView*>(browser()->window());
     return static_cast<BrowserRootView*>(
         browser_view->GetWidget()->GetRootView());
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BrowserRootViewBrowserTest);
 };
 
 // Clear drop info after performing drop. http://crbug.com/838791
 IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, ClearDropInfo) {
   ui::OSExchangeData data;
-  data.SetURL(GURL("http://www.chromium.org/"), base::string16());
+  data.SetURL(GURL("http://www.chromium.org/"), std::u16string());
   ui::DropTargetEvent event(data, gfx::PointF(), gfx::PointF(),
                             ui::DragDropTypes::DRAG_COPY);
 
@@ -41,9 +43,15 @@ IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, ClearDropInfo) {
 }
 
 // Make sure plain string is droppable. http://crbug.com/838794
-IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, PlainString) {
+// crbug.com/1224945: Flaky on Mac.
+#if defined(OS_MAC)
+#define MAYBE_PlainString DISABLED_PlainString
+#else
+#define MAYBE_PlainString PlainString
+#endif
+IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, MAYBE_PlainString) {
   ui::OSExchangeData data;
-  data.SetString(base::ASCIIToUTF16("Plain string"));
+  data.SetString(u"Plain string");
   ui::DropTargetEvent event(data, gfx::PointF(), gfx::PointF(),
                             ui::DragDropTypes::DRAG_COPY);
 
@@ -56,7 +64,7 @@ IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, PlainString) {
 // http://crbug.com/1001942
 IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, ClearDropTarget) {
   ui::OSExchangeData data;
-  data.SetURL(GURL("http://www.chromium.org/"), base::string16());
+  data.SetURL(GURL("http://www.chromium.org/"), std::u16string());
   ui::DropTargetEvent event(data, gfx::PointF(), gfx::PointF(),
                             ui::DragDropTypes::DRAG_COPY);
 
@@ -65,4 +73,25 @@ IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, ClearDropTarget) {
   // Calling this will cause segmentation fault if |root_view| doesn't clear
   // the target.
   CloseBrowserSynchronously(browser());
+}
+
+// Drop is performed when drop callback is run.
+IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, RunDropCallback) {
+  ui::OSExchangeData data;
+  data.SetURL(GURL("http://www.chromium.org/"), std::u16string());
+  ui::DropTargetEvent event(data, gfx::PointF(), gfx::PointF(),
+                            ui::DragDropTypes::DRAG_COPY);
+
+  auto* tab_strip_model = browser()->tab_strip_model();
+
+  EXPECT_EQ(tab_strip_model->count(), 1);
+
+  BrowserRootView* root_view = browser_root_view();
+  root_view->OnDragUpdated(event);
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  auto cb = root_view->GetDropCallback(event);
+  std::move(cb).Run(event, output_drag_op);
+
+  EXPECT_EQ(output_drag_op, ui::mojom::DragOperation::kCopy);
+  EXPECT_EQ(tab_strip_model->count(), 2);
 }

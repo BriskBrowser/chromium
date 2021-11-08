@@ -7,15 +7,23 @@
 
 #include <unordered_map>
 
+#include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/buildflag.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_statistics_common.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+class ProfilePickerLacrosSignInProvider;
+#endif
 
 // The handler for Javascript messages related to the profile picker main view.
 class ProfilePickerHandler : public content::WebUIMessageHandler,
@@ -23,6 +31,10 @@ class ProfilePickerHandler : public content::WebUIMessageHandler,
                              public ProfileAttributesStorage::Observer {
  public:
   ProfilePickerHandler();
+
+  ProfilePickerHandler(const ProfilePickerHandler&) = delete;
+  ProfilePickerHandler& operator=(const ProfilePickerHandler&) = delete;
+
   ~ProfilePickerHandler() override;
 
   // Enables the startup performance metrics. Should only be called when the
@@ -36,6 +48,15 @@ class ProfilePickerHandler : public content::WebUIMessageHandler,
 
  private:
   friend class ProfilePickerHandlerTest;
+  friend class ProfilePickerCreationFlowBrowserTest;
+  FRIEND_TEST_ALL_PREFIXES(ProfilePickerCreationFlowBrowserTest,
+                           CloseBrowserBeforeCreatingNewProfile);
+  FRIEND_TEST_ALL_PREFIXES(
+      ProfilePickerEnterpriseCreationFlowBrowserTest,
+      CreateSignedInProfileSigninAlreadyExists_ConfirmSwitch);
+  FRIEND_TEST_ALL_PREFIXES(
+      ProfilePickerEnterpriseCreationFlowBrowserTest,
+      CreateSignedInProfileSigninAlreadyExists_CancelSwitch);
 
   void HandleMainViewInitialize(const base::ListValue* args);
   void HandleLaunchSelectedProfile(bool open_settings,
@@ -53,22 +74,27 @@ class ProfilePickerHandler : public content::WebUIMessageHandler,
   void HandleGetAvailableIcons(const base::ListValue* args);
   void HandleCreateProfile(const base::ListValue* args);
 
+  // Profile switch screen:
+  void HandleGetSwitchProfile(const base::ListValue* args);
+  void HandleConfirmProfileSwitch(const base::ListValue* args);
+  void HandleCancelProfileSwitch(const base::ListValue* args);
+
   // |args| is unused.
   void HandleRecordSignInPromoImpression(const base::ListValue* args);
 
   void OnLoadSigninFinished(bool success);
   void GatherProfileStatistics(Profile* profile);
-  void OnProfileStatisticsReceived(base::FilePath profile_path,
+  void OnProfileStatisticsReceived(const base::FilePath& profile_path,
                                    profiles::ProfileCategoryStats result);
   void OnSwitchToProfileComplete(bool new_profile,
                                  bool open_settings,
                                  Profile* profile,
                                  Profile::CreateStatus profile_create_status);
-  void OnProfileCreated(base::Optional<SkColor> profile_color,
+  void OnProfileCreated(absl::optional<SkColor> profile_color,
                         bool create_shortcut,
                         Profile* profile,
                         Profile::CreateStatus status);
-  void OnProfileCreationSuccess(base::Optional<SkColor> profile_color,
+  void OnProfileCreationSuccess(absl::optional<SkColor> profile_color,
                                 bool create_shortcut,
                                 Profile* profile);
   void PushProfilesList();
@@ -82,13 +108,13 @@ class ProfilePickerHandler : public content::WebUIMessageHandler,
   // ProfileAttributesStorage::Observer:
   void OnProfileAdded(const base::FilePath& profile_path) override;
   void OnProfileWasRemoved(const base::FilePath& profile_path,
-                           const base::string16& profile_name) override;
+                           const std::u16string& profile_name) override;
   void OnProfileIsOmittedChanged(const base::FilePath& profile_path) override;
   void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
   void OnProfileHighResAvatarLoaded(
       const base::FilePath& profile_path) override;
   void OnProfileNameChanged(const base::FilePath& profile_path,
-                            const base::string16& old_profile_name) override;
+                            const std::u16string& old_profile_name) override;
   void OnProfileHostedDomainChanged(
       const base::FilePath& profile_path) override;
 
@@ -100,8 +126,19 @@ class ProfilePickerHandler : public content::WebUIMessageHandler,
   // the picker when it was first shown.
   void SetProfilesOrder(const std::vector<ProfileAttributesEntry*>& entries);
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // List of usnassigned accounts used by the profile choice and the account
+  // selection screens.
+  void HandleGetUnassignedAccounts(const base::ListValue* args);
+
+  // Called when a new Lacros signed-in profile is created. The profile is
+  // omitted, ephemeral, and has a primary kSignin account.
+  void OnLacrosSignedInProfileCreated(absl::optional<SkColor> profile_color,
+                                      Profile* profile);
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
   // Returns the list of profiles in the same order as when the picker
-  // was first shown. Guest profile is not included here.
+  // was first shown.
   std::vector<ProfileAttributesEntry*> GetProfileAttributes();
 
   // Creation time of the handler, to measure performance on startup. Only set
@@ -109,13 +146,16 @@ class ProfilePickerHandler : public content::WebUIMessageHandler,
   base::TimeTicks creation_time_on_startup_;
   bool main_view_initialized_ = false;
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Takes care of getting a signed-in profile.
+  std::unique_ptr<ProfilePickerLacrosSignInProvider> lacros_sign_in_provider_;
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
   // The order of the profiles when the picker was first shown. This is used
   // to freeze the order of profiles on the picker. Newly added profiles, will
   // be added to the end of the list.
   std::unordered_map<base::FilePath, size_t> profiles_order_;
   base::WeakPtrFactory<ProfilePickerHandler> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ProfilePickerHandler);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_SIGNIN_PROFILE_PICKER_HANDLER_H_

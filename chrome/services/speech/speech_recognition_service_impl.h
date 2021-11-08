@@ -15,12 +15,20 @@
 
 namespace speech {
 
+// Implements the SpeechRecognitionService with SODA on-device speech
+// recognition. For debugging only, English speech recognition with web speech
+// be used as a fallback using the flag media::kUseSodaForLiveCaption.
 class SpeechRecognitionServiceImpl
     : public media::mojom::SpeechRecognitionService,
       public media::mojom::SpeechRecognitionContext {
  public:
   explicit SpeechRecognitionServiceImpl(
       mojo::PendingReceiver<media::mojom::SpeechRecognitionService> receiver);
+
+  SpeechRecognitionServiceImpl(const SpeechRecognitionServiceImpl&) = delete;
+  SpeechRecognitionServiceImpl& operator=(const SpeechRecognitionServiceImpl&) =
+      delete;
+
   ~SpeechRecognitionServiceImpl() override;
 
   // media::mojom::SpeechRecognitionService
@@ -42,6 +50,13 @@ class SpeechRecognitionServiceImpl
       mojo::PendingReceiver<media::mojom::SpeechRecognitionRecognizer> receiver,
       mojo::PendingRemote<media::mojom::SpeechRecognitionRecognizerClient>
           client,
+      media::mojom::SpeechRecognitionOptionsPtr options,
+      BindRecognizerCallback callback) override;
+  void BindAudioSourceFetcher(
+      mojo::PendingReceiver<media::mojom::AudioSourceFetcher> fetcher_receiver,
+      mojo::PendingRemote<media::mojom::SpeechRecognitionRecognizerClient>
+          client,
+      media::mojom::SpeechRecognitionOptionsPtr options,
       BindRecognizerCallback callback) override;
 
  protected:
@@ -61,8 +76,6 @@ class SpeechRecognitionServiceImpl
   base::FilePath config_path_ = base::FilePath();
 
   base::WeakPtrFactory<SpeechRecognitionServiceImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SpeechRecognitionServiceImpl);
 };
 
 }  // namespace speech

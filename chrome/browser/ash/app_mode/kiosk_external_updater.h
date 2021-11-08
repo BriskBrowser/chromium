@@ -13,14 +13,13 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/ash/app_mode/kiosk_external_update_validator.h"
-// TODO(https://crbug.com/1164001): use forward declaration when moved to
-// chrome/browser/ash/.
-#include "chrome/browser/chromeos/ui/kiosk_external_update_notification.h"
 #include "chromeos/disks/disk_mount_manager.h"
 
 namespace ash {
+
+class KioskExternalUpdateNotification;
 
 // Observes the disk mount/unmount events, scans the usb stick for external
 // kiosk app updates, validates the external crx, and updates the cache.
@@ -37,7 +36,8 @@ class KioskExternalUpdater : public chromeos::disks::DiskMountManager::Observer,
       const scoped_refptr<base::SequencedTaskRunner>& backend_task_runner,
       const base::FilePath& crx_cache_dir,
       const base::FilePath& crx_unpack_dir);
-
+  KioskExternalUpdater(const KioskExternalUpdater&) = delete;
+  KioskExternalUpdater& operator=(const KioskExternalUpdater&) = delete;
   ~KioskExternalUpdater() override;
 
  private:
@@ -54,7 +54,7 @@ class KioskExternalUpdater : public chromeos::disks::DiskMountManager::Observer,
     std::string app_name;
     extensions::CRXFileInfo external_crx;
     UpdateStatus update_status;
-    base::string16 error;
+    std::u16string error;
   };
 
   // chromeos::disks::DiskMountManager::Observer overrides.
@@ -108,7 +108,7 @@ class KioskExternalUpdater : public chromeos::disks::DiskMountManager::Observer,
   // the local cache. |success| is true if the operation succeeded.
   void OnPutValidatedExtension(const std::string& app_id, bool success);
 
-  void NotifyKioskUpdateProgress(const base::string16& message);
+  void NotifyKioskUpdateProgress(const std::u16string& message);
 
   void MaybeValidateNextExternalUpdate();
 
@@ -122,7 +122,7 @@ class KioskExternalUpdater : public chromeos::disks::DiskMountManager::Observer,
   void DismissKioskUpdateNotification();
 
   // Return a detailed message for kiosk updating status.
-  base::string16 GetUpdateReportMessage() const;
+  std::u16string GetUpdateReportMessage() const;
 
   // Task runner for executing file I/O tasks.
   const scoped_refptr<base::SequencedTaskRunner> backend_task_runner_;
@@ -143,8 +143,6 @@ class KioskExternalUpdater : public chromeos::disks::DiskMountManager::Observer,
   std::unique_ptr<KioskExternalUpdateNotification> notification_;
 
   base::WeakPtrFactory<KioskExternalUpdater> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(KioskExternalUpdater);
 };
 
 }  // namespace ash

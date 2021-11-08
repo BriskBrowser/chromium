@@ -37,6 +37,7 @@ import static org.chromium.chrome.browser.autofill_assistant.AssistantTagsForTes
 import static org.chromium.chrome.browser.autofill_assistant.AssistantTagsForTesting.COLLECT_USER_DATA_TERMS_REQUIRE_REVIEW;
 import static org.chromium.chrome.browser.autofill_assistant.AssistantTagsForTesting.VERTICAL_EXPANDER_CHEVRON;
 
+import android.support.test.InstrumentationRegistry;
 import android.view.View;
 import android.widget.DatePicker;
 import android.widget.TextView;
@@ -58,6 +59,9 @@ import org.chromium.chrome.browser.autofill_assistant.AutofillAssistantCollectUs
 import org.chromium.chrome.browser.autofill_assistant.generic_ui.AssistantValue;
 import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantCollectUserDataCoordinator;
 import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantCollectUserDataModel;
+import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantCollectUserDataModel.AddressModel;
+import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantCollectUserDataModel.ContactModel;
+import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantCollectUserDataModel.PaymentInstrumentModel;
 import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantContactField;
 import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantDateChoiceOptions;
 import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantDateTime;
@@ -69,6 +73,7 @@ import org.chromium.chrome.browser.autofill_assistant.user_data.additional_secti
 import org.chromium.chrome.browser.autofill_assistant.user_data.additional_sections.AssistantTextInputSection.TextInputFactory;
 import org.chromium.chrome.browser.autofill_assistant.user_data.additional_sections.AssistantTextInputType;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
+import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.payments.AutofillAddress;
 import org.chromium.chrome.browser.payments.AutofillContact;
@@ -98,7 +103,8 @@ public class AutofillAssistantCollectUserDataUiTest {
 
     @Before
     public void setUp() throws Exception {
-        AutofillAssistantUiTestUtil.startOnBlankPage(mTestRule);
+        mTestRule.startCustomTabActivityWithIntent(CustomTabsTestUtils.createMinimalCustomTabIntent(
+                InstrumentationRegistry.getTargetContext(), "about:blank"));
         mHelper = new AutofillAssistantCollectUserDataTestHelper();
 
         mDefaultContactSummaryOptions =
@@ -111,6 +117,10 @@ public class AutofillAssistantCollectUserDataUiTest {
         mDefaultContactFullOptions.mFields =
                 new int[] {AssistantContactField.NAME_FULL, AssistantContactField.EMAIL_ADDRESS};
         mDefaultContactFullOptions.mMaxNumberLines = 2;
+    }
+
+    private AssistantCollectUserDataModel createCollectUserDataModel() {
+        return TestThreadUtils.runOnUiThreadBlockingNoException(AssistantCollectUserDataModel::new);
     }
 
     /** Creates a coordinator for use in UI tests, and adds it to the global view hierarchy. */
@@ -148,7 +158,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testInitialState() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
 
         /* Test initial model state. */
@@ -202,7 +212,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testSectionVisibility() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper
                 .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
@@ -296,7 +306,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testEmptyPaymentRequest() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
@@ -412,7 +422,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testContactDetailsUpdates() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper
                 .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
@@ -445,8 +455,9 @@ public class AutofillAssistantCollectUserDataUiTest {
                     mHelper.createDummyProfile("John Doe", "john@gmail.com"),
                     /* requestName= */ true, /* requestPhone= */ true, /* requestEmail= */ false);
             model.set(AssistantCollectUserDataModel.AVAILABLE_CONTACTS,
-                    Collections.singletonList(contact));
-            model.set(AssistantCollectUserDataModel.SELECTED_CONTACT_DETAILS, contact);
+                    Collections.singletonList(new ContactModel(contact)));
+            model.set(AssistantCollectUserDataModel.SELECTED_CONTACT_DETAILS,
+                    new ContactModel(contact));
         });
 
         // Contact details section should now contain and have pre-selected the new contact.
@@ -483,7 +494,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testPaymentMethodsUpdates() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper
                 .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
@@ -516,8 +527,9 @@ public class AutofillAssistantCollectUserDataUiTest {
                     AssistantCollectUserDataModel.createAutofillPaymentInstrument(
                             mTestRule.getWebContents(), creditCard, billingAddress);
             model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
-                    Collections.singletonList(paymentInstrument));
-            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT, paymentInstrument);
+                    Collections.singletonList(new PaymentInstrumentModel(paymentInstrument)));
+            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT,
+                    new PaymentInstrumentModel(paymentInstrument));
         });
 
         // Payment method section contains the new credit card, which should be pre-selected.
@@ -550,7 +562,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testPaymentMethodsUpdatesFromWebContents() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper
                 .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
@@ -570,8 +582,9 @@ public class AutofillAssistantCollectUserDataUiTest {
                     AssistantCollectUserDataModel.createAutofillPaymentInstrument(
                             mTestRule.getWebContents(), creditCard, billingAddress);
             model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
-                    Collections.singletonList(paymentInstrument));
-            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT, paymentInstrument);
+                    Collections.singletonList(new PaymentInstrumentModel(paymentInstrument)));
+            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT,
+                    new PaymentInstrumentModel(paymentInstrument));
         });
 
         // Payment method section contains the new credit card, which should be pre-selected.
@@ -613,7 +626,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testNonEmptyPaymentRequest() throws Exception {
-        /* Add complete profile and credit card to the personal data manager. */
+        // Add complete profile and credit card to the personal data manager.
         PersonalDataManager.AutofillProfile profile = new PersonalDataManager.AutofillProfile(
                 "GUID", "https://www.example.com", /* honorificPrefix= */ "", "Maggie Simpson",
                 "Acme Inc.", "123 Main", "California", "Los Angeles", "", "90210", "", "UZ",
@@ -623,7 +636,7 @@ public class AutofillAssistantCollectUserDataUiTest {
                         "4111111111111111", "1111", "12", "2050", "visa", R.drawable.visa_card,
                         /* billingAddressId= */ "GUID", /* serverId= */ "");
 
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
@@ -631,7 +644,7 @@ public class AutofillAssistantCollectUserDataUiTest {
                 .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
                 () -> new AutofillAssistantCollectUserDataTestHelper.ViewHolder(coordinator));
 
-        /* Request all PR sections. */
+        // Request all PR sections.
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             // WEB_CONTENTS are necessary for the creation of AutofillPaymentInstrument.
             model.set(AssistantCollectUserDataModel.WEB_CONTENTS, mTestRule.getWebContents());
@@ -650,27 +663,30 @@ public class AutofillAssistantCollectUserDataUiTest {
                     mTestRule.getActivity(), profile, /* requestName= */ true,
                     /* requestPhone= */ true, /* requestEmail= */ true);
             model.set(AssistantCollectUserDataModel.AVAILABLE_CONTACTS,
-                    Collections.singletonList(contact));
-            model.set(AssistantCollectUserDataModel.SELECTED_CONTACT_DETAILS, contact);
+                    Collections.singletonList(new ContactModel(contact)));
+            model.set(AssistantCollectUserDataModel.SELECTED_CONTACT_DETAILS,
+                    new ContactModel(contact));
             AutofillAddress address = AssistantCollectUserDataModel.createAutofillAddress(
                     mTestRule.getActivity(), profile);
             model.set(AssistantCollectUserDataModel.AVAILABLE_SHIPPING_ADDRESSES,
-                    Collections.singletonList(address));
-            model.set(AssistantCollectUserDataModel.SELECTED_SHIPPING_ADDRESS, address);
+                    Collections.singletonList(new AddressModel(address)));
+            model.set(AssistantCollectUserDataModel.SELECTED_SHIPPING_ADDRESS,
+                    new AddressModel(address));
             AutofillPaymentInstrument paymentInstrument =
                     AssistantCollectUserDataModel.createAutofillPaymentInstrument(
                             mTestRule.getWebContents(), creditCard, profile);
             model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
-                    Collections.singletonList(paymentInstrument));
-            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT, paymentInstrument);
+                    Collections.singletonList(new PaymentInstrumentModel(paymentInstrument)));
+            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT,
+                    new PaymentInstrumentModel(paymentInstrument));
             model.set(AssistantCollectUserDataModel.VISIBLE, true);
             model.set(AssistantCollectUserDataModel.REQUEST_LOGIN_CHOICE, true);
-            model.set(AssistantCollectUserDataModel.AVAILABLE_LOGINS,
-                    Collections.singletonList(new AssistantLoginChoice(
+            model.set(AssistantCollectUserDataModel.SELECTED_LOGIN,
+                    new AssistantCollectUserDataModel.LoginChoiceModel(new AssistantLoginChoice(
                             "id", "Guest", "Description of guest checkout", "", 0, null, "")));
         });
 
-        /* Non-empty sections should not display the 'add' button in their title. */
+        // Non-empty sections should not display the 'add' button in their title.
         onView(allOf(withId(R.id.section_title_add_button),
                        isDescendantOfA(is(viewHolder.mContactSection))))
                 .check(matches(not(isDisplayed())));
@@ -684,7 +700,7 @@ public class AutofillAssistantCollectUserDataUiTest {
                        isDescendantOfA(is(viewHolder.mLoginsSection))))
                 .check(matches(not(isDisplayed())));
 
-        /* Non-empty sections should not be 'fixed', i.e., they can be expanded. */
+        // Non-empty sections should not be 'fixed', i.e., they can be expanded.
         onView(allOf(withTagValue(is(VERTICAL_EXPANDER_CHEVRON)),
                        isDescendantOfA(is(viewHolder.mContactSection))))
                 .check(matches(withEffectiveVisibility(Visibility.VISIBLE)));
@@ -698,12 +714,12 @@ public class AutofillAssistantCollectUserDataUiTest {
                        isDescendantOfA(is(viewHolder.mLoginsSection))))
                 .check(matches(withEffectiveVisibility(Visibility.VISIBLE)));
 
-        /* All section dividers are visible. */
+        // All section dividers are visible.
         for (View divider : viewHolder.mDividers) {
             onView(is(divider)).check(matches(withEffectiveVisibility(Visibility.VISIBLE)));
         }
 
-        /* Check contents of sections. */
+        // Check contents of sections.
         assertThat(viewHolder.mContactList.getItemCount(), is(1));
         assertThat(viewHolder.mPaymentMethodList.getItemCount(), is(1));
         assertThat(viewHolder.mShippingAddressList.getItemCount(), is(1));
@@ -722,19 +738,41 @@ public class AutofillAssistantCollectUserDataUiTest {
         testLoginDetails("Guest", "Description of guest checkout",
                 viewHolder.mLoginsSection.getCollapsedView(), viewHolder.mLoginList.getItem(0));
 
-        /* Check delegate status. */
-        assertThat(delegate.mPaymentMethod.getCard().getNumber(), is("4111111111111111"));
-        assertThat(delegate.mPaymentMethod.getCard().getName(), is("Jon Doe"));
-        assertThat(delegate.mPaymentMethod.getCard().getBasicCardIssuerNetwork(), is("visa"));
-        assertThat(delegate.mPaymentMethod.getCard().getBillingAddressId(), is("GUID"));
-        assertThat(delegate.mPaymentMethod.getCard().getMonth(), is("12"));
-        assertThat(delegate.mPaymentMethod.getCard().getYear(), is("2050"));
-        assertThat(delegate.mContact.getPayerName(), is("Maggie Simpson"));
-        assertThat(delegate.mContact.getPayerEmail(), is("maggie@simpson.com"));
-        assertThat(delegate.mAddress.getProfile().getFullName(), is("Maggie Simpson"));
-        assertThat(delegate.mAddress.getProfile().getStreetAddress(), containsString("123 Main"));
+        // Check delegate status. The selections set in the model have not been sent to the
+        // delegate. |setItems()| has been called first (without selection) and selecting the item
+        // does not trigger a notification.
+        assertThat(delegate.mPaymentMethod, is(nullValue()));
+        assertThat(delegate.mContact, is(nullValue()));
+        assertThat(delegate.mAddress, is(nullValue()));
         assertThat(delegate.mTermsStatus, is(AssistantTermsAndConditionsState.NOT_SELECTED));
-        assertThat(delegate.mLoginChoice.getIdentifier(), is("id"));
+        assertThat(delegate.mLoginChoice, is(nullValue()));
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            AutofillContact contact = AssistantCollectUserDataModel.createAutofillContact(
+                    mTestRule.getActivity(), profile, /* requestName= */ true,
+                    /* requestPhone= */ true, /* requestEmail= */ true);
+            model.set(AssistantCollectUserDataModel.AVAILABLE_CONTACTS,
+                    Collections.singletonList(new ContactModel(contact)));
+            AutofillAddress address = AssistantCollectUserDataModel.createAutofillAddress(
+                    mTestRule.getActivity(), profile);
+            model.set(AssistantCollectUserDataModel.AVAILABLE_SHIPPING_ADDRESSES,
+                    Collections.singletonList(new AddressModel(address)));
+            AutofillPaymentInstrument paymentInstrument =
+                    AssistantCollectUserDataModel.createAutofillPaymentInstrument(
+                            mTestRule.getWebContents(), creditCard, profile);
+            model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
+                    Collections.singletonList(new PaymentInstrumentModel(paymentInstrument)));
+            model.set(AssistantCollectUserDataModel.AVAILABLE_LOGINS,
+                    Collections.singletonList(new AssistantLoginChoice(
+                            "id", "Guest", "Description of guest checkout", "", 0, null, "")));
+        });
+
+        // Check delegate status. Setting items again will not send a notification to the delegate.
+        assertThat(delegate.mPaymentMethod, is(nullValue()));
+        assertThat(delegate.mContact, is(nullValue()));
+        assertThat(delegate.mAddress, is(nullValue()));
+        assertThat(delegate.mTermsStatus, is(AssistantTermsAndConditionsState.NOT_SELECTED));
+        assertThat(delegate.mLoginChoice, is(nullValue()));
     }
 
     /** Tests custom summary options for the contact details section. */
@@ -758,7 +796,7 @@ public class AutofillAssistantCollectUserDataUiTest {
                 /* requestName= */ true,
                 /* requestPhone= */ true, /* requestEmail= */ true);
 
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
@@ -787,33 +825,36 @@ public class AutofillAssistantCollectUserDataUiTest {
             model.set(AssistantCollectUserDataModel.CONTACT_SUMMARY_DESCRIPTION_OPTIONS,
                     summaryOptions);
             model.set(AssistantCollectUserDataModel.CONTACT_FULL_DESCRIPTION_OPTIONS, fullOptions);
-            List<AutofillContact> contacts = new ArrayList<>();
-            contacts.add(contactFull);
-            contacts.add(contactWithoutEmail);
+            List<ContactModel> contacts = new ArrayList<>();
+            contacts.add(new ContactModel(contactFull));
+            contacts.add(new ContactModel(contactWithoutEmail));
             model.set(AssistantCollectUserDataModel.AVAILABLE_CONTACTS, contacts);
-            model.set(AssistantCollectUserDataModel.SELECTED_CONTACT_DETAILS, contactFull);
+            model.set(AssistantCollectUserDataModel.SELECTED_CONTACT_DETAILS,
+                    new ContactModel(contactFull));
             model.set(AssistantCollectUserDataModel.VISIBLE, true);
         });
 
         testContact("Maggie Simpson\nmaggie@simpson.com\n555 123-4567",
                 "Maggie Simpson\n555 123-4567\nmaggie@simpson.com",
                 viewHolder.mContactSection.getCollapsedView(), viewHolder.mContactList.getItem(0),
-                /* isComplete = */ true);
+                /* isComplete= */ true);
 
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> model.set(AssistantCollectUserDataModel.SELECTED_CONTACT_DETAILS,
-                                contactWithoutEmail));
+                                new ContactModel(contactWithoutEmail,
+                                        Collections.singletonList("Missing email"),
+                                        /* canEdit= */ true)));
 
         testContact("John Simpson\n555 123-4567", "John Simpson\n555 123-4567",
                 viewHolder.mContactSection.getCollapsedView(), viewHolder.mContactList.getItem(0),
-                /* isComplete = */ false);
+                /* isComplete= */ false);
     }
 
     @Test
     @MediumTest
     public void testTermsAndConditions() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
@@ -878,7 +919,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testTermsRequireReview() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         createCollectUserDataCoordinator(model);
 
         // Setting a text from "backend".
@@ -895,7 +936,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testInfoSectionText() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper
                 .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
@@ -918,7 +959,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testPrivacyNotice() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper
                 .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
@@ -938,189 +979,10 @@ public class AutofillAssistantCollectUserDataUiTest {
                 .check(matches(allOf(withText("Thirdparty privacy notice"), isDisplayed())));
     }
 
-    /**
-     * Test that if the billing address does not have a postal code and the postal code is required,
-     * an error message is displayed.
-     */
-    @Test
-    @MediumTest
-    public void testCreditCardWithoutPostcode() throws Exception {
-        // add credit card without postcode.
-        PersonalDataManager.AutofillProfile profile =
-                mHelper.createDummyProfile("John Doe", "john@gmail.com", "");
-        String profileId = mHelper.setProfile(profile);
-        PersonalDataManager.CreditCard creditCard = mHelper.createDummyCreditCard(profileId);
-
-        // setup the view to require a billing postcode.
-        AutofillAssistantCollectUserDataTestHelper.ViewHolder viewHolder =
-                setupCreditCardPostalCodeTest(
-                        creditCard, profile, /* requireBillingPostalCode: */ true);
-
-        // check that the card is not accepted (i.e. an error message is shown).
-        onView(is(getPaymentSummaryErrorView(viewHolder))).check(matches(isDisplayed()));
-        onView(is(getPaymentSummaryErrorView(viewHolder)))
-                .check(matches(withText("Billing postcode missing")));
-
-        // setup the view to not require a billing postcode.
-        // TODO: clean previous view.
-        viewHolder = setupCreditCardPostalCodeTest(
-                creditCard, profile, /* requireBillingPostalCode: */ false);
-
-        // check that the card is now accepted.
-        onView(is(getPaymentSummaryErrorView(viewHolder))).check(matches(not(isDisplayed())));
-    }
-
-    /**
-     * Check the order in which errors are shown:
-     * - Incomplete card / missing or incomplete address -> Generic information missing
-     * - Missing required zip code
-     * - Expired card
-     */
-    @Test
-    @MediumTest
-    public void testOrderOfCreditCardErrorMessages() throws Exception {
-        PersonalDataManager.AutofillProfile profile =
-                mHelper.createDummyProfile("John Doe", "john@gmail.com", /* postcode= */ "");
-        String profileId = mHelper.setProfile(profile);
-        PersonalDataManager.CreditCard creditCard = mHelper.createDummyCreditCard(profileId);
-        creditCard.setYear("2000");
-
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
-        AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
-        AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
-                new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
-        AutofillAssistantCollectUserDataTestHelper
-                .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
-                () -> new AutofillAssistantCollectUserDataTestHelper.ViewHolder(coordinator));
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            // WEB_CONTENTS are necessary for the creation of the editors.
-            model.set(AssistantCollectUserDataModel.WEB_CONTENTS, mTestRule.getWebContents());
-            model.set(AssistantCollectUserDataModel.DELEGATE, delegate);
-            model.set(AssistantCollectUserDataModel.REQUEST_PAYMENT, true);
-            model.set(AssistantCollectUserDataModel.BILLING_POSTAL_CODE_MISSING_TEXT,
-                    "Missing Zip Code");
-            model.set(AssistantCollectUserDataModel.REQUIRE_BILLING_POSTAL_CODE, true);
-            model.set(AssistantCollectUserDataModel.CREDIT_CARD_EXPIRED_TEXT, "Card is expired");
-            model.set(AssistantCollectUserDataModel.VISIBLE, true);
-            AutofillPaymentInstrument paymentInstrument =
-                    AssistantCollectUserDataModel.createAutofillPaymentInstrument(
-                            mTestRule.getWebContents(), creditCard, /* billingProfile= */ null);
-            model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
-                    Collections.singletonList(paymentInstrument));
-            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT, paymentInstrument);
-        });
-
-        // Without billing profile, a generic information missing error should be shown.
-        onView(is(getPaymentSummaryErrorView(viewHolder))).check(matches(isDisplayed()));
-        onView(is(getPaymentSummaryErrorView(viewHolder)))
-                .check(matches(withText("Information missing")));
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            AutofillPaymentInstrument paymentInstrument =
-                    AssistantCollectUserDataModel.createAutofillPaymentInstrument(
-                            mTestRule.getWebContents(), creditCard, profile);
-            model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
-                    Collections.singletonList(paymentInstrument));
-            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT, paymentInstrument);
-        });
-
-        // A missing zip code with an otherwise valid billing address should show a specialized
-        // error message.
-        onView(is(getPaymentSummaryErrorView(viewHolder))).check(matches(isDisplayed()));
-        onView(is(getPaymentSummaryErrorView(viewHolder)))
-                .check(matches(withText("Missing Zip Code")));
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            profile.setPostalCode("90210");
-            AutofillPaymentInstrument validPaymentInstrument =
-                    AssistantCollectUserDataModel.createAutofillPaymentInstrument(
-                            mTestRule.getWebContents(), creditCard, profile);
-            model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
-                    Collections.singletonList(validPaymentInstrument));
-            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT,
-                    validPaymentInstrument);
-        });
-
-        // An expired card should only show a specialized error message if everything else is
-        // complete.
-        onView(is(getPaymentSummaryErrorView(viewHolder))).check(matches(isDisplayed()));
-        onView(is(getPaymentSummaryErrorView(viewHolder)))
-                .check(matches(withText("Card is expired")));
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            creditCard.setYear("2050");
-            AutofillPaymentInstrument validPaymentInstrument =
-                    AssistantCollectUserDataModel.createAutofillPaymentInstrument(
-                            mTestRule.getWebContents(), creditCard, profile);
-            model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
-                    Collections.singletonList(validPaymentInstrument));
-            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT,
-                    validPaymentInstrument);
-        });
-
-        // check that the card is now accepted.
-        onView(is(getPaymentSummaryErrorView(viewHolder))).check(matches(not(isDisplayed())));
-    }
-
-    /**
-     * Test that requiring a billing postal code for a billing address that has it does not display
-     * an error message.
-     */
-    @Test
-    @MediumTest
-    public void testCreditCardWithPostcode() throws Exception {
-        // setup a card with a postcode.
-        PersonalDataManager.AutofillProfile profile =
-                mHelper.createDummyProfile("Jane Doe", "jane@gmail.com", "98004");
-        String profileId = mHelper.setProfile(profile);
-        PersonalDataManager.CreditCard creditCard = mHelper.createDummyCreditCard(profileId);
-
-        // setup the view to require a billing postcode.
-        AutofillAssistantCollectUserDataTestHelper.ViewHolder viewHolder =
-                setupCreditCardPostalCodeTest(
-                        creditCard, profile, /* requireBillingPostalCode: */ true);
-
-        // check that the card is accepted.
-        onView(is(getPaymentSummaryErrorView(viewHolder))).check(matches(not(isDisplayed())));
-    }
-
-    private AutofillAssistantCollectUserDataTestHelper.ViewHolder setupCreditCardPostalCodeTest(
-            PersonalDataManager.CreditCard creditCard, PersonalDataManager.AutofillProfile profile,
-            boolean requireBillingPostalCode) throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
-        AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
-        AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
-                new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
-        AutofillAssistantCollectUserDataTestHelper
-                .ViewHolder viewHolder = TestThreadUtils.runOnUiThreadBlocking(
-                () -> new AutofillAssistantCollectUserDataTestHelper.ViewHolder(coordinator));
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            // WEB_CONTENTS are necessary for the creation of AutofillPaymentInstrument.
-            model.set(AssistantCollectUserDataModel.WEB_CONTENTS, mTestRule.getWebContents());
-            model.set(AssistantCollectUserDataModel.DELEGATE, delegate);
-            model.set(AssistantCollectUserDataModel.REQUIRE_BILLING_POSTAL_CODE,
-                    requireBillingPostalCode);
-            model.set(AssistantCollectUserDataModel.BILLING_POSTAL_CODE_MISSING_TEXT,
-                    "Billing postcode missing");
-            model.set(AssistantCollectUserDataModel.REQUEST_PAYMENT, true);
-            AutofillPaymentInstrument paymentInstrument =
-                    AssistantCollectUserDataModel.createAutofillPaymentInstrument(
-                            mTestRule.getWebContents(), creditCard, profile);
-            model.set(AssistantCollectUserDataModel.AVAILABLE_PAYMENT_INSTRUMENTS,
-                    Collections.singletonList(paymentInstrument));
-            model.set(AssistantCollectUserDataModel.SELECTED_PAYMENT_INSTRUMENT, paymentInstrument);
-            model.set(AssistantCollectUserDataModel.VISIBLE, true);
-        });
-
-        return viewHolder;
-    }
-
     @Test
     @MediumTest
     public void testDateRangeLocaleUS() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         Locale locale = LocaleUtils.forLanguageTag("en-US");
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(
                 model, locale, new SimpleDateFormat("MMM d, yyyy", locale));
@@ -1187,7 +1049,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testDateRangeLocaleDE() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         Locale locale = LocaleUtils.forLanguageTag("de-DE");
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(
                 model, locale, new SimpleDateFormat("dd.MM.yyyy", locale));
@@ -1254,7 +1116,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testDateOrTimeNotSet() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         Locale locale = LocaleUtils.forLanguageTag("en-US");
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(
                 model, locale, new SimpleDateFormat("MMM d, yyyy", locale));
@@ -1336,7 +1198,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testDateRangePopups() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         Locale locale = LocaleUtils.forLanguageTag("en-US");
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(
                 model, locale, new SimpleDateFormat("MMM d, yyyy", locale));
@@ -1419,7 +1281,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testAdditionalStaticSections() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
 
         List<AssistantAdditionalSectionFactory> prependedSections = new ArrayList<>();
@@ -1469,7 +1331,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testAdditionalTextInputSections() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
@@ -1512,7 +1374,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testLoginSectionInfoPopup() throws Exception {
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
@@ -1541,7 +1403,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @MediumTest
     public void testSuppliedNonEmptyEditContentDescriptionIsUsed() throws Exception {
         String contentDescription = "Description of edit button";
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
@@ -1565,7 +1427,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     @MediumTest
     public void testSuppliedEmptyEditContentDescriptionIsUsed() throws Exception {
         String contentDescription = "";
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
@@ -1590,7 +1452,7 @@ public class AutofillAssistantCollectUserDataUiTest {
     public void testWhenNullEditContentDescriptionIsSuppliedIconDescriptionIsUsed()
             throws Exception {
         String contentDescription = null;
-        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataModel model = createCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
         AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
                 new AutofillAssistantCollectUserDataTestHelper.MockDelegate();

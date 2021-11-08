@@ -30,16 +30,29 @@
 namespace autofill {
 
 AutofillOfferNotificationInfoBarDelegateMobile::
-    AutofillOfferNotificationInfoBarDelegateMobile(const CreditCard& card)
+    AutofillOfferNotificationInfoBarDelegateMobile(
+        const GURL& offer_details_url,
+        const CreditCard& card)
     : credit_card_identifier_string_(
           card.CardIdentifierStringForAutofillDisplay()),
-      network_icon_id_(CreditCard::IconResourceId(card.network())) {}
+      network_icon_id_(CreditCard::IconResourceId(card.network())),
+      deep_link_url_(offer_details_url),
+      user_manually_closed_infobar_(false) {
+  AutofillMetrics::LogOfferNotificationInfoBarShown();
+}
 
 AutofillOfferNotificationInfoBarDelegateMobile::
-    ~AutofillOfferNotificationInfoBarDelegateMobile() {}
+    ~AutofillOfferNotificationInfoBarDelegateMobile() {
+  if (!user_manually_closed_infobar_) {
+    AutofillMetrics::LogOfferNotificationInfoBarResultMetric(
+        AutofillMetrics::OfferNotificationInfoBarResultMetric::
+            OFFER_NOTIFICATION_INFOBAR_IGNORED);
+  }
+}
 
 void AutofillOfferNotificationInfoBarDelegateMobile::OnOfferDeepLinkClicked(
     GURL url) {
+  AutofillMetrics::LogOfferNotificationInfoBarDeepLinkClicked();
   infobar()->owner()->OpenURL(url, WindowOpenDisposition::NEW_FOREGROUND_TAB);
 }
 
@@ -47,9 +60,10 @@ int AutofillOfferNotificationInfoBarDelegateMobile::GetIconId() const {
   return IDR_AUTOFILL_GOOGLE_PAY_WITH_DIVIDER;
 }
 
-base::string16 AutofillOfferNotificationInfoBarDelegateMobile::GetMessageText()
+std::u16string AutofillOfferNotificationInfoBarDelegateMobile::GetMessageText()
     const {
-  return l10n_util::GetStringUTF16(IDS_AUTOFILL_OFFERS_REMINDER_TITLE);
+  return l10n_util::GetStringUTF16(
+      IDS_AUTOFILL_CARD_LINKED_OFFER_REMINDER_TITLE);
 }
 
 infobars::InfoBarDelegate::InfoBarIdentifier
@@ -61,7 +75,7 @@ int AutofillOfferNotificationInfoBarDelegateMobile::GetButtons() const {
   return BUTTON_OK;
 }
 
-base::string16 AutofillOfferNotificationInfoBarDelegateMobile::GetButtonLabel(
+std::u16string AutofillOfferNotificationInfoBarDelegateMobile::GetButtonLabel(
     InfoBarButton button) const {
   if (button == BUTTON_OK) {
     return l10n_util::GetStringUTF16(
@@ -69,7 +83,22 @@ base::string16 AutofillOfferNotificationInfoBarDelegateMobile::GetButtonLabel(
   }
 
   NOTREACHED() << "Unsupported button label requested: " << button;
-  return base::string16();
+  return std::u16string();
+}
+
+void AutofillOfferNotificationInfoBarDelegateMobile::InfoBarDismissed() {
+  AutofillMetrics::LogOfferNotificationInfoBarResultMetric(
+      AutofillMetrics::OfferNotificationInfoBarResultMetric::
+          OFFER_NOTIFICATION_INFOBAR_CLOSED);
+  user_manually_closed_infobar_ = true;
+}
+
+bool AutofillOfferNotificationInfoBarDelegateMobile::Accept() {
+  AutofillMetrics::LogOfferNotificationInfoBarResultMetric(
+      AutofillMetrics::OfferNotificationInfoBarResultMetric::
+          OFFER_NOTIFICATION_INFOBAR_ACKNOWLEDGED);
+  user_manually_closed_infobar_ = true;
+  return true;
 }
 
 }  // namespace autofill

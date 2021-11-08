@@ -2,21 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef COMPONENTS_PAYMENTS_PAYMENT_REQUEST_WEB_CONTENTS_MANAGER_H_
-#define COMPONENTS_PAYMENTS_PAYMENT_REQUEST_WEB_CONTENTS_MANAGER_H_
+#ifndef COMPONENTS_PAYMENTS_CONTENT_PAYMENT_REQUEST_WEB_CONTENTS_MANAGER_H_
+#define COMPONENTS_PAYMENTS_CONTENT_PAYMENT_REQUEST_WEB_CONTENTS_MANAGER_H_
 
 #include <map>
 #include <memory>
 
-#include "base/macros.h"
-#include "base/memory/scoped_refptr.h"
-#include "components/payments/content/payment_credential.h"
 #include "components/payments/content/payment_request.h"
-#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
-#include "third_party/blink/public/mojom/payments/payment_credential.mojom.h"
 #include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 
 namespace content {
@@ -28,7 +23,12 @@ class WebContents;
 namespace payments {
 
 class ContentPaymentRequestDelegate;
-class PaymentManifestWebDataService;
+
+enum class SPCTransactionMode {
+  NONE,
+  AUTOACCEPT,
+  AUTOREJECT,
+};
 
 // This class owns the PaymentRequest associated with a given WebContents.
 //
@@ -42,6 +42,10 @@ class PaymentRequestWebContentsManager
       public content::WebContentsUserData<PaymentRequestWebContentsManager> {
  public:
   ~PaymentRequestWebContentsManager() override;
+  PaymentRequestWebContentsManager(const PaymentRequestWebContentsManager&) =
+      delete;
+  PaymentRequestWebContentsManager& operator=(
+      const PaymentRequestWebContentsManager&) = delete;
 
   // Retrieves the instance of PaymentRequestWebContentsManager that was
   // attached to the specified WebContents.  If no instance was attached,
@@ -55,22 +59,27 @@ class PaymentRequestWebContentsManager
       content::RenderFrameHost* render_frame_host,
       std::unique_ptr<ContentPaymentRequestDelegate> delegate,
       mojo::PendingReceiver<payments::mojom::PaymentRequest> receiver,
-      PaymentRequest::ObserverForTest* observer_for_testing);
+      base::WeakPtr<PaymentRequest::ObserverForTest> observer_for_testing);
 
   // Destroys the given `request`.
   void DestroyRequest(base::WeakPtr<PaymentRequest> request);
 
-  // Creates the mojo IPC endpoint that will receive requests from the renderer
-  // to store payment credential in user's profile.
-  void CreatePaymentCredential(
-      content::GlobalFrameRoutingId initiator_frame_routing_id,
-      scoped_refptr<PaymentManifestWebDataService> web_data_sevice,
-      mojo::PendingReceiver<payments::mojom::PaymentCredential> receiver);
-
-  // WebContentsObserver::
+  // WebContentsObserver:
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override;
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
+
+  // For test automation purposes, set the 'current transaction automation
+  // mode' for Secure Payment Confirmation. See
+  // https://w3c.github.io/secure-payment-confirmation/#sctn-automation-set-spc-transaction-mode
+  void SetSPCTransactionMode(SPCTransactionMode mode);
+
+  base::WeakPtr<PaymentRequestWebContentsManager> GetWeakPtr();
+
+  const std::map<PaymentRequest*, std::unique_ptr<PaymentRequest>>&
+  GetPaymentRequestsForTesting() const {
+    return payment_requests_;
+  }
 
  private:
   explicit PaymentRequestWebContentsManager(content::WebContents* web_contents);
@@ -83,13 +92,15 @@ class PaymentRequestWebContentsManager
   // the requests themselves call DestroyRequest().
   std::map<PaymentRequest*, std::unique_ptr<PaymentRequest>> payment_requests_;
 
-  std::unique_ptr<PaymentCredential> payment_credential_;
+  // The current transaction automation mode for Secure Payment Confirmation.
+  // Used in automated testing.
+  SPCTransactionMode spc_transaction_mode_;
 
+  base::WeakPtrFactory<PaymentRequestWebContentsManager> weak_ptr_factory_{
+      this};
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestWebContentsManager);
 };
 
 }  // namespace payments
 
-#endif  // COMPONENTS_PAYMENTS_PAYMENT_REQUEST_WEB_CONTENTS_MANAGER_H_
+#endif  // COMPONENTS_PAYMENTS_CONTENT_PAYMENT_REQUEST_WEB_CONTENTS_MANAGER_H_

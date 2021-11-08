@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython
 #
 # Copyright 2016 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -409,7 +409,7 @@ def main():
     arch = args.arch or DetermineArch(device)
     cts_release = args.cts_release or DetermineCtsRelease(device)
 
-    if (args.test_filter_file or args.test_filter
+    if (args.test_filter_files or args.test_filter
         or args.isolated_script_test_filter):
       # TODO(aluo): auto-determine the module based on the test filter and the
       # available tests in each module

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -34,6 +35,8 @@ TabStatsDataStore::TabsStats::TabsStats()
       window_count(0U),
       window_count_max(0U) {}
 TabStatsDataStore::TabsStats::TabsStats(const TabsStats& other) = default;
+TabStatsDataStore::TabsStats& TabStatsDataStore::TabsStats::operator=(
+    const TabsStats& other) = default;
 
 TabStatsDataStore::TabStatsDataStore(PrefService* pref_service)
     : pref_service_(pref_service) {
@@ -114,8 +117,10 @@ void TabStatsDataStore::OnTabInteraction(content::WebContents* web_contents) {
   }
 }
 
-void TabStatsDataStore::OnTabAudible(content::WebContents* web_contents) {
-  OnTabAudibleOrVisible(web_contents);
+void TabStatsDataStore::OnTabIsAudibleChanged(
+    content::WebContents* web_contents) {
+  if (web_contents->IsCurrentlyAudible())
+    OnTabAudibleOrVisible(web_contents);
 }
 
 void TabStatsDataStore::RecordSamplingMetaData() {
@@ -123,9 +128,8 @@ void TabStatsDataStore::RecordSamplingMetaData() {
 }
 
 void TabStatsDataStore::OnTabVisibilityChanged(
-    content::WebContents* web_contents,
-    content::Visibility visibility) {
-  if (visibility == content::Visibility::VISIBLE)
+    content::WebContents* web_contents) {
+  if (web_contents->GetVisibility() == content::Visibility::VISIBLE)
     OnTabAudibleOrVisible(web_contents);
 }
 
@@ -175,10 +179,10 @@ void TabStatsDataStore::ResetIntervalData(
     AddTabToIntervalMap(iter.first, GetTabID(iter.first), true, interval_map);
 }
 
-base::Optional<TabStatsDataStore::TabID> TabStatsDataStore::GetTabIDForTesting(
+absl::optional<TabStatsDataStore::TabID> TabStatsDataStore::GetTabIDForTesting(
     content::WebContents* web_contents) {
   if (!base::Contains(existing_tabs_, web_contents))
-    return base::nullopt;
+    return absl::nullopt;
   return GetTabID(web_contents);
 }
 

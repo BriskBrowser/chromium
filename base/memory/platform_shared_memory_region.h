@@ -5,11 +5,8 @@
 #ifndef BASE_MEMORY_PLATFORM_SHARED_MEMORY_REGION_H_
 #define BASE_MEMORY_PLATFORM_SHARED_MEMORY_REGION_H_
 
-#include <utility>
-
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 
@@ -194,6 +191,9 @@ class BASE_EXPORT PlatformSharedMemoryRegion {
   // Move operations are allowed.
   PlatformSharedMemoryRegion(PlatformSharedMemoryRegion&&);
   PlatformSharedMemoryRegion& operator=(PlatformSharedMemoryRegion&&);
+  PlatformSharedMemoryRegion(const PlatformSharedMemoryRegion&) = delete;
+  PlatformSharedMemoryRegion& operator=(const PlatformSharedMemoryRegion&) =
+      delete;
 
   // Destructor closes the platform handle. Does nothing if the handle is
   // invalid.
@@ -289,8 +289,6 @@ class BASE_EXPORT PlatformSharedMemoryRegion {
   Mode mode_ = Mode::kReadOnly;
   size_t size_ = 0;
   UnguessableToken guid_;
-
-  DISALLOW_COPY_AND_ASSIGN(PlatformSharedMemoryRegion);
 };
 
 }  // namespace subtle

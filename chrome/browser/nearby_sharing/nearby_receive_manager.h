@@ -44,10 +44,13 @@ class NearbyReceiveManager : public nearby_share::mojom::ReceiveManager,
               AcceptCallback callback) override;
   void Reject(const base::UnguessableToken& share_target_id,
               RejectCallback callback) override;
+  void RecordFastInitiationNotificationUsage(bool success) override;
 
   // NearbySharingService::Observer
   void OnHighVisibilityChanged(bool in_high_visibility) override;
   void OnShutdown() override {}
+  void OnNearbyProcessStopped() override;
+  void OnStartAdvertisingFailure() override;
 
  private:
   void NotifyOnTransferUpdate(const ShareTarget& share_target,

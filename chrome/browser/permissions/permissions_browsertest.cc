@@ -4,6 +4,8 @@
 
 #include "chrome/browser/permissions/permissions_browsertest.h"
 
+#include <memory>
+
 #include "base/command_line.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -24,12 +26,13 @@ void PermissionsBrowserTest::SetUpOnMainThread() {
   permissions::PermissionRequestManager* manager =
       permissions::PermissionRequestManager::FromWebContents(
           browser()->tab_strip_model()->GetActiveWebContents());
-  prompt_factory_.reset(new permissions::MockPermissionPromptFactory(manager));
+  prompt_factory_ =
+      std::make_unique<permissions::MockPermissionPromptFactory>(manager);
 
   ASSERT_TRUE(embedded_test_server()->Start());
 
-  ui_test_utils::NavigateToURL(browser(),
-                               embedded_test_server()->GetURL(test_url()));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL(test_url())));
 }
 
 void PermissionsBrowserTest::TearDownOnMainThread() {

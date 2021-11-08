@@ -4,9 +4,11 @@
 
 #include "chrome/browser/performance_manager/policies/background_tab_loading_policy.h"
 
+#include <memory>
 #include <vector>
 
 #include "chrome/browser/performance_manager/mechanisms/page_loader.h"
+#include "components/performance_manager/graph/graph_impl.h"
 #include "components/performance_manager/graph/page_node_impl.h"
 #include "components/performance_manager/public/decorators/tab_properties_decorator.h"
 #include "components/performance_manager/test_support/graph_test_harness.h"
@@ -44,6 +46,9 @@ class BackgroundTabLoadingPolicyTest : public GraphTestHarness {
   void SetUp() override {
     Super::SetUp();
 
+    system_node_ = std::make_unique<TestNodeWrapper<SystemNodeImpl>>(
+        TestNodeWrapper<SystemNodeImpl>::Create(graph()));
+
     // Create the policy.
     auto policy = std::make_unique<BackgroundTabLoadingPolicy>();
     policy_ = policy.get();
@@ -61,6 +66,7 @@ class BackgroundTabLoadingPolicyTest : public GraphTestHarness {
 
   void TearDown() override {
     graph()->TakeFromGraph(policy_);
+    system_node_->reset();
     Super::TearDown();
   }
 
@@ -68,7 +74,12 @@ class BackgroundTabLoadingPolicyTest : public GraphTestHarness {
   BackgroundTabLoadingPolicy* policy() { return policy_; }
   MockPageLoader* loader() { return mock_loader_; }
 
+  SystemNodeImpl* system_node() { return system_node_.get()->get(); }
+
  private:
+  std::unique_ptr<
+      performance_manager::TestNodeWrapper<performance_manager::SystemNodeImpl>>
+      system_node_;
   BackgroundTabLoadingPolicy* policy_;
   MockPageLoader* mock_loader_;
 };
@@ -208,8 +219,8 @@ TEST_F(BackgroundTabLoadingPolicyTest, ShouldLoad_OldTab) {
 
   page_node = CreateNode<performance_manager::PageNodeImpl>(
       WebContentsProxy(), std::string(), GURL(), false, false,
-      base::TimeTicks::Now() - (base::TimeDelta::FromSeconds(1) +
-                                policy()->kMaxTimeSinceLastUseToLoad));
+      base::TimeTicks::Now() -
+          (base::Seconds(1) + policy()->kMaxTimeSinceLastUseToLoad));
   raw_page_node = page_node.get();
 
   // Simulate that kMinTabsToLoad have loaded.
@@ -232,19 +243,19 @@ TEST_F(BackgroundTabLoadingPolicyTest, ScoreAndScheduleTabLoad) {
   // Add a old tab to restore.
   page_nodes.push_back(CreateNode<performance_manager::PageNodeImpl>(
       WebContentsProxy(), std::string(), GURL(), false, false,
-      base::TimeTicks::Now() - base::TimeDelta::FromDays(30)));
+      base::TimeTicks::Now() - base::Days(30)));
   raw_page_nodes.push_back(page_nodes.back().get());
 
   // Add a recent tab to restore.
   page_nodes.push_back(CreateNode<performance_manager::PageNodeImpl>(
       WebContentsProxy(), std::string(), GURL(), false, false,
-      base::TimeTicks::Now() - base::TimeDelta::FromSeconds(1)));
+      base::TimeTicks::Now() - base::Seconds(1)));
   raw_page_nodes.push_back(page_nodes.back().get());
 
   // Add an internal page to restore.
   page_nodes.push_back(CreateNode<performance_manager::PageNodeImpl>(
       WebContentsProxy(), std::string(), GURL("chrome://newtab"), false, false,
-      base::TimeTicks::Now() - base::TimeDelta::FromSeconds(1)));
+      base::TimeTicks::Now() - base::Seconds(1)));
   raw_page_nodes.push_back(page_nodes.back().get());
 
   // Set |is_tab| property as this is a requirement to pass the PageNode to
@@ -315,7 +326,7 @@ TEST_F(BackgroundTabLoadingPolicyTest, OnMemoryPressure) {
   testing::Mock::VerifyAndClear(loader());
 
   // Simulate memory pressure and expect the tab loader to disable loading.
-  policy()->OnMemoryPressure(
+  system_node()->OnMemoryPressureForTesting(
       base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE);
 
   PageNodeImpl* page_node_impl = page_nodes[0].get();

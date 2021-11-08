@@ -6,17 +6,13 @@
 #define IOS_WEB_PUBLIC_WEBUI_WEB_UI_IOS_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/callback.h"
-#include "base/strings/string16.h"
+#include "base/values.h"
 
 class GURL;
-
-namespace base {
-class ListValue;
-class Value;
-}
 
 namespace web {
 
@@ -30,7 +26,7 @@ class WebUIIOS {
  public:
   // Returns JavaScript code that, when executed, calls the function specified
   // by |function_name| with the arguments specified in |arg_list|.
-  static base::string16 GetJavascriptCall(
+  static std::u16string GetJavascriptCall(
       const std::string& function_name,
       const std::vector<const base::Value*>& arg_list);
 
@@ -48,16 +44,31 @@ class WebUIIOS {
 
   // Used by WebUIIOSMessageHandlers. If the given message is already
   // registered, the call has no effect.
-  using MessageCallback = base::RepeatingCallback<void(const base::ListValue*)>;
+  using MessageCallback =
+      base::RepeatingCallback<void(base::Value::ConstListView)>;
   virtual void RegisterMessageCallback(const std::string& message,
-                                       const MessageCallback& callback) = 0;
+                                       MessageCallback callback) = 0;
+
+  // Always use RegisterMessageCallback() above in new code.
+  //
+  // TODO(crbug.com/1243386): Existing callers of
+  // RegisterDeprecatedMessageCallback() should be migrated to
+  // RegisterMessageCallback() if possible.
+  //
+  // Used by WebUIIOSMessageHandlers. If the given message is already
+  // registered, the call has no effect.
+  using DeprecatedMessageCallback =
+      base::RepeatingCallback<void(const base::ListValue*)>;
+  virtual void RegisterDeprecatedMessageCallback(
+      const std::string& message,
+      const DeprecatedMessageCallback& callback) = 0;
 
   // This is only needed if an embedder overrides handling of a WebUIIOSMessage
   // and then later wants to undo that, or to route it to a different WebUIIOS
   // object.
   virtual void ProcessWebUIIOSMessage(const GURL& source_url,
                                       const std::string& message,
-                                      const base::ListValue& args) = 0;
+                                      const base::Value& args) = 0;
 
   // Call a Javascript function.  This is asynchronous; there's no way to get
   // the result of the call, and should be thought of more like sending a

@@ -4,7 +4,7 @@
 
 (async function() {
   TestRunner.addResult(`Verifies proactive javascript compilation.\n`);
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.showPanel('sources');
   await TestRunner.addScriptTag('debugger/resources/edit-me.js');
 
@@ -12,7 +12,7 @@
 
   function onSourceFrame(sourceFrame) {
     TestRunner.addSniffer(
-        Sources.JavaScriptCompilerPlugin.prototype, '_compilationFinishedForTest',
+        Sources.JavaScriptCompilerPlugin.prototype, 'compilationFinishedForTest',
         onCompilationFinished.bind(null, sourceFrame));
     sourceFrame.textEditor.setSelection(TextUtils.TextRange.createFromLocation(0, 0));
     SourcesTestRunner.typeIn(sourceFrame.textEditor, 'test!');

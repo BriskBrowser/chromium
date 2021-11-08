@@ -11,7 +11,8 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size_f.h"
-#include "ui/gfx/transform.h"
+#include "ui/gfx/geometry/transform.h"
+#include "ui/gfx/geometry/transform_operations.h"
 
 namespace base {
 class TimeTicks;
@@ -49,7 +50,35 @@ class ANIMATION_EXPORT Tween {
     FAST_OUT_LINEAR_IN,  // Variant of EASE_IN which should should be used for
                          // fading out to 0% or motion when exiting a scene.
     ZERO,                // Returns a value of 0 always.
+
+    // TODO(zxdan): New animation curve name convention will be used to resolve
+    // the confusion caused by "IN" and "OUT".
+
+    // The new name convention is below:
+    // ACCEL_<1>_DECEL_<2> where <1> and <2> are used to express the
+    // acceleration and deceleration speeds. The corresponding cubic bezier
+    // curve parameters would be ( 0.01 * <1>, 0, 1 - 0.01 * <2>, 1 ). Note that
+    // LIN means the speed is 0. For example,
+    // ACCEL_20_DECEL_20 = (0.2, 0, 0.8, 1): https://cubic-bezier.com/#.2,0,.8,1
+    // ACCEL_100_DECEL_100 = (1, 0, 0, 1): https://cubic-bezier.com/#1,0,0,1
+    // ACCEL_LIN_DECEL_LIN = (0, 0, 1, 1): https://cubic-bezier.com/#0,0,1,1
+    // ACCEL_40_DECEL_20 = (0.4, 0, 0.8, 1): https://cubic-bezier.com/#.4,0,.8,1
+    ACCEL_LIN_DECEL_60,   // Pulling a small to medium element into a place.
+    ACCEL_LIN_DECEL_100,  // Pulling a small to medium element into a place that
+                          // has very fast deceleration.
+    ACCEL_20_DECEL_60,  // Moving a small, low emphasis or responsive elements.
+    ACCEL_20_DECEL_100,
+    ACCEL_40_DECEL_20,
+    ACCEL_80_DECEL_20,     // Slow in and fast out with ease.
+    ACCEL_0_40_DECEL_100,  // Specialized curve with an emphasized deceleration
+                           // drift.
+    ACCEL_0_80_DECEL_80,   // Variant of ACCEL_0_40_DECEL_100 which drops in
+                           // value faster, but flattens out into the drift
+                           // sooner.
   };
+
+  Tween(const Tween&) = delete;
+  Tween& operator=(const Tween&) = delete;
 
   // Returns the value based on the tween type. |state| is from 0-1.
   static double CalculateValue(Type type, double state);
@@ -90,6 +119,11 @@ class ANIMATION_EXPORT Tween {
                                               const gfx::Transform& start,
                                               const gfx::Transform& target);
 
+  static gfx::TransformOperations TransformOperationsValueBetween(
+      double value,
+      const gfx::TransformOperations& start,
+      const gfx::TransformOperations& target);
+
   static gfx::Size SizeValueBetween(double value,
                                     const gfx::Size& start,
                                     const gfx::Size& target);
@@ -101,8 +135,6 @@ class ANIMATION_EXPORT Tween {
  private:
   Tween();
   ~Tween();
-
-  DISALLOW_COPY_AND_ASSIGN(Tween);
 };
 
 }  // namespace gfx

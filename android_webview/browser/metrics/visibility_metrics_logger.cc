@@ -5,13 +5,11 @@
 #include "android_webview/browser/metrics/visibility_metrics_logger.h"
 
 #include "base/metrics/histogram_macros.h"
-#include "base/no_destructor.h"
 #include "base/rand_util.h"
 #include "base/time/time.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
-using base::NoDestructor;
 using content::BrowserThread;
 
 namespace android_webview {
@@ -27,50 +25,45 @@ VisibilityMetricsLogger::CreateHistogramForDurationTracking(const char* name,
 }
 
 base::HistogramBase* VisibilityMetricsLogger::GetGlobalVisibilityHistogram() {
-  static NoDestructor<base::HistogramBase*> histogram(
-      CreateHistogramForDurationTracking(
-          "Android.WebView.Visibility.Global",
-          static_cast<int>(VisibilityMetricsLogger::Visibility::kMaxValue)));
-  return *histogram;
+  static base::HistogramBase* histogram(CreateHistogramForDurationTracking(
+      "Android.WebView.Visibility.Global",
+      static_cast<int>(VisibilityMetricsLogger::Visibility::kMaxValue)));
+  return histogram;
 }
 
 base::HistogramBase*
 VisibilityMetricsLogger::GetPerWebViewVisibilityHistogram() {
-  static NoDestructor<base::HistogramBase*> histogram(
-      CreateHistogramForDurationTracking(
-          "Android.WebView.Visibility.PerWebView",
-          static_cast<int>(VisibilityMetricsLogger::Visibility::kMaxValue)));
-  return *histogram;
+  static base::HistogramBase* histogram(CreateHistogramForDurationTracking(
+      "Android.WebView.Visibility.PerWebView",
+      static_cast<int>(VisibilityMetricsLogger::Visibility::kMaxValue)));
+  return histogram;
 }
 
 base::HistogramBase*
 VisibilityMetricsLogger::GetGlobalOpenWebVisibilityHistogram() {
-  static NoDestructor<base::HistogramBase*> histogram(
-      CreateHistogramForDurationTracking(
-          "Android.WebView.WebViewOpenWebVisible.Global",
-          static_cast<int>(
-              VisibilityMetricsLogger::WebViewOpenWebVisibility::kMaxValue)));
-  return *histogram;
+  static base::HistogramBase* histogram(CreateHistogramForDurationTracking(
+      "Android.WebView.WebViewOpenWebVisible.Global",
+      static_cast<int>(
+          VisibilityMetricsLogger::WebViewOpenWebVisibility::kMaxValue)));
+  return histogram;
 }
 
 base::HistogramBase*
 VisibilityMetricsLogger::GetPerWebViewOpenWebVisibilityHistogram() {
-  static NoDestructor<base::HistogramBase*> histogram(
-      CreateHistogramForDurationTracking(
-          "Android.WebView.WebViewOpenWebVisible.PerWebView",
-          static_cast<int>(
-              VisibilityMetricsLogger::WebViewOpenWebVisibility::kMaxValue)));
-  return *histogram;
+  static base::HistogramBase* histogram(CreateHistogramForDurationTracking(
+      "Android.WebView.WebViewOpenWebVisible.PerWebView",
+      static_cast<int>(
+          VisibilityMetricsLogger::WebViewOpenWebVisibility::kMaxValue)));
+  return histogram;
 }
 
 base::HistogramBase*
 VisibilityMetricsLogger::GetOpenWebVisibileScreenPortionHistogram() {
-  static NoDestructor<base::HistogramBase*> histogram(
-      CreateHistogramForDurationTracking(
-          "Android.WebView.WebViewOpenWebVisible.ScreenPortion",
-          static_cast<int>(VisibilityMetricsLogger::
-                               WebViewOpenWebScreenPortion::kMaxValue)));
-  return *histogram;
+  static base::HistogramBase* histogram(CreateHistogramForDurationTracking(
+      "Android.WebView.WebViewOpenWebVisible.ScreenPortion2",
+      static_cast<int>(
+          VisibilityMetricsLogger::WebViewOpenWebScreenPortion::kMaxValue)));
+  return histogram;
 }
 
 VisibilityMetricsLogger::VisibilityMetricsLogger() {
@@ -120,9 +113,14 @@ void VisibilityMetricsLogger::UpdateOpenWebScreenArea(int pixels,
 
   DCHECK(percentage >= 0);
   DCHECK(percentage <= 100);
-  current_open_web_screen_portion_ =
-      static_cast<VisibilityMetricsLogger::WebViewOpenWebScreenPortion>(
-          percentage / 10);
+  if (pixels == 0) {
+    current_open_web_screen_portion_ = VisibilityMetricsLogger::
+        WebViewOpenWebScreenPortion::kExactlyZeroPercent;
+  } else {
+    current_open_web_screen_portion_ =
+        static_cast<VisibilityMetricsLogger::WebViewOpenWebScreenPortion>(
+            percentage / 10);
+  }
 }
 
 void VisibilityMetricsLogger::UpdateDurations(base::TimeTicks update_time) {
@@ -149,8 +147,10 @@ void VisibilityMetricsLogger::UpdateDurations(base::TimeTicks update_time) {
   webcontent_visible_tracker_.per_webview_untracked_duration_ +=
       delta * (client_visibility_.size() - visible_webcontent_client_count_);
 
-  open_web_screen_portion_tracked_duration_[static_cast<int>(
-      current_open_web_screen_portion_)] += delta;
+  if (visible_webcontent_client_count_ > 0) {
+    open_web_screen_portion_tracked_duration_[static_cast<int>(
+        current_open_web_screen_portion_)] += delta;
+  }
 
   last_update_time_ = update_time;
 }
@@ -222,20 +222,20 @@ void VisibilityMetricsLogger::RecordVisibilityMetrics() {
   any_webview_visible_seconds =
       visible_duration_tracker_.any_webview_tracked_duration_.InSeconds();
   visible_duration_tracker_.any_webview_tracked_duration_ -=
-      base::TimeDelta::FromSeconds(any_webview_visible_seconds);
+      base::Seconds(any_webview_visible_seconds);
   no_webview_visible_seconds =
       visible_duration_tracker_.no_webview_tracked_duration_.InSeconds();
   visible_duration_tracker_.no_webview_tracked_duration_ -=
-      base::TimeDelta::FromSeconds(no_webview_visible_seconds);
+      base::Seconds(no_webview_visible_seconds);
 
   total_webview_visible_seconds =
       visible_duration_tracker_.per_webview_duration_.InSeconds();
   visible_duration_tracker_.per_webview_duration_ -=
-      base::TimeDelta::FromSeconds(total_webview_visible_seconds);
+      base::Seconds(total_webview_visible_seconds);
   total_no_webview_visible_seconds =
       visible_duration_tracker_.per_webview_untracked_duration_.InSeconds();
   visible_duration_tracker_.per_webview_untracked_duration_ -=
-      base::TimeDelta::FromSeconds(total_no_webview_visible_seconds);
+      base::Seconds(total_no_webview_visible_seconds);
 
   if (any_webview_visible_seconds) {
     GetGlobalVisibilityHistogram()->AddCount(
@@ -266,20 +266,20 @@ void VisibilityMetricsLogger::RecordOpenWebDisplayMetrics() {
   any_webcontent_visible_seconds =
       webcontent_visible_tracker_.any_webview_tracked_duration_.InSeconds();
   webcontent_visible_tracker_.any_webview_tracked_duration_ -=
-      base::TimeDelta::FromSeconds(any_webcontent_visible_seconds);
+      base::Seconds(any_webcontent_visible_seconds);
   no_webcontent_visible_seconds =
       webcontent_visible_tracker_.no_webview_tracked_duration_.InSeconds();
   webcontent_visible_tracker_.no_webview_tracked_duration_ -=
-      base::TimeDelta::FromSeconds(no_webcontent_visible_seconds);
+      base::Seconds(no_webcontent_visible_seconds);
 
   total_webcontent_isible_seconds =
       webcontent_visible_tracker_.per_webview_duration_.InSeconds();
   webcontent_visible_tracker_.per_webview_duration_ -=
-      base::TimeDelta::FromSeconds(total_webcontent_isible_seconds);
+      base::Seconds(total_webcontent_isible_seconds);
   total_not_webcontent_or_not_visible_seconds =
       webcontent_visible_tracker_.per_webview_untracked_duration_.InSeconds();
   webcontent_visible_tracker_.per_webview_untracked_duration_ -=
-      base::TimeDelta::FromSeconds(total_not_webcontent_or_not_visible_seconds);
+      base::Seconds(total_not_webcontent_or_not_visible_seconds);
 
   if (any_webcontent_visible_seconds) {
     GetGlobalOpenWebVisibilityHistogram()->AddCount(
@@ -313,7 +313,7 @@ void VisibilityMetricsLogger::RecordScreenPortionMetrics() {
       continue;
 
     open_web_screen_portion_tracked_duration_[i] -=
-        base::TimeDelta::FromSeconds(elapsed_seconds);
+        base::Seconds(elapsed_seconds);
     GetOpenWebVisibileScreenPortionHistogram()->AddCount(i, elapsed_seconds);
   }
 }

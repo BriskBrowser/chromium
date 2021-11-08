@@ -59,6 +59,7 @@ class MockClipboardImageModelFactory : public ClipboardImageModelFactory {
   // ClipboardImageModelFactory:
   void Render(const base::UnguessableToken& clipboard_history_item_id,
               const std::string& markup,
+              const gfx::Size& bounding_box_size,
               ImageModelCallback callback) override {
     std::move(callback).Run(ui::ImageModel());
   }
@@ -97,10 +98,7 @@ class ClipboardHistoryControllerTest : public AshTestBase {
     return Shell::Get()->clipboard_history_controller();
   }
 
-  void ShowMenu() {
-    GetEventGenerator()->PressKey(ui::VKEY_V, ui::EF_COMMAND_DOWN);
-    GetEventGenerator()->ReleaseKey(ui::VKEY_V, ui::EF_COMMAND_DOWN);
-  }
+  void ShowMenu() { PressAndReleaseKey(ui::VKEY_V, ui::EF_COMMAND_DOWN); }
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -141,8 +139,7 @@ TEST_F(ClipboardHistoryControllerTest, MultiShowMenu) {
       "Ash.ClipboardHistory.ContextMenu.DisplayFormatShown", 1);
 
   // Hide the menu.
-  GetEventGenerator()->PressKey(ui::VKEY_ESCAPE, /*flags=*/0);
-  GetEventGenerator()->ReleaseKey(ui::VKEY_ESCAPE, /*flags=*/0);
+  PressAndReleaseKey(ui::VKEY_ESCAPE);
 
   EXPECT_FALSE(GetClipboardHistoryController()->IsMenuShowing());
   histogram_tester.ExpectBucketCount(
@@ -169,8 +166,7 @@ TEST_F(ClipboardHistoryControllerTest, MultiShowMenu) {
   histogram_tester.ExpectTotalCount(
       "Ash.ClipboardHistory.ContextMenu.DisplayFormatShown", 2);
   // Hide the menu.
-  GetEventGenerator()->PressKey(ui::VKEY_ESCAPE, /*flags=*/0);
-  GetEventGenerator()->ReleaseKey(ui::VKEY_ESCAPE, /*flags=*/0);
+  PressAndReleaseKey(ui::VKEY_ESCAPE);
 
   EXPECT_FALSE(GetClipboardHistoryController()->IsMenuShowing());
   histogram_tester.ExpectTotalCount(
@@ -221,8 +217,7 @@ TEST_F(ClipboardHistoryControllerTest, VerifyAvailabilityInUserModes) {
       EXPECT_TRUE(
           Shell::Get()->clipboard_history_controller()->IsMenuShowing());
 
-      GetEventGenerator()->PressKey(ui::VKEY_ESCAPE, /*flags=*/0);
-      GetEventGenerator()->ReleaseKey(ui::VKEY_ESCAPE, /*flags=*/0);
+      PressAndReleaseKey(ui::VKEY_ESCAPE);
 
       EXPECT_FALSE(
           Shell::Get()->clipboard_history_controller()->IsMenuShowing());
@@ -268,13 +263,13 @@ TEST_F(ClipboardHistoryControllerTest, VThenSearchDoesNotShowLauncher) {
   GetEventGenerator()->ReleaseKey(ui::VKEY_V, /*event_flags=*/0);
 
   EXPECT_FALSE(Shell::Get()->app_list_controller()->IsVisible(
-      /*display_id=*/base::nullopt));
+      /*display_id=*/absl::nullopt));
 
   // Release VKEY_LWIN(search/launcher), which could trigger the app list.
   GetEventGenerator()->ReleaseKey(ui::VKEY_LWIN, /*event_flags=*/0);
 
   EXPECT_FALSE(Shell::Get()->app_list_controller()->IsVisible(
-      /*display_id=*/base::nullopt));
+      /*display_id=*/absl::nullopt));
 }
 
 // Tests that clearing the clipboard clears ClipboardHistory

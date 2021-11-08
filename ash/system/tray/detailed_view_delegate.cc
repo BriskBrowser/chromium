@@ -99,8 +99,12 @@ void DetailedViewDelegate::CloseBubble() {
   tray_controller_->CloseBubble();
 }
 
-base::Optional<SkColor> DetailedViewDelegate::GetBackgroundColor() {
-  return base::nullopt;
+absl::optional<SkColor> DetailedViewDelegate::GetBackgroundColor() {
+  return absl::nullopt;
+}
+
+gfx::Insets DetailedViewDelegate::GetInsetsForDetailedView() const {
+  return kUnifiedDetailedViewPadding;
 }
 
 bool DetailedViewDelegate::IsOverflowIndicatorEnabled() const {
@@ -154,19 +158,10 @@ void DetailedViewDelegate::ShowStickyHeaderSeparator(views::View* view,
   view->SchedulePaint();
 }
 
-views::Separator* DetailedViewDelegate::CreateListSubHeaderSeparator() {
-  views::Separator* separator = new views::Separator();
-  separator->SetColor(AshColorProvider::Get()->GetContentLayerColor(
-      ContentLayerType::kSeparatorColor));
-  separator->SetBorder(views::CreateEmptyBorder(
-      kMenuSeparatorVerticalPadding - views::Separator::kThickness, 0, 0, 0));
-  return separator;
-}
-
 HoverHighlightView* DetailedViewDelegate::CreateScrollListItem(
     ViewClickListener* listener,
     const gfx::VectorIcon& icon,
-    const base::string16& text) {
+    const std::u16string& text) {
   HoverHighlightView* item = new HoverHighlightView(listener);
   if (icon.is_empty())
     item->AddLabelRow(text);

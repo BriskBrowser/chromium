@@ -10,6 +10,7 @@
 
 #include "base/files/scoped_temp_dir.h"
 #include "components/omnibox/browser/test_location_bar_model.h"
+#include "components/variations/scoped_variations_ids_provider.h"
 #include "components/variations/variations_ids_provider.h"
 #include "ios/chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
@@ -18,6 +19,8 @@
 #include "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
 #import "ios/chrome/browser/main/test_browser.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/ui/main/scene_state.h"
+#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_coordinator_delegate.h"
 #import "ios/chrome/browser/url_loading/fake_url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_notifier_browser_agent.h"
@@ -62,7 +65,9 @@ namespace {
 
 class LocationBarCoordinatorTest : public PlatformTest {
  protected:
-  LocationBarCoordinatorTest() : web_state_list_(&web_state_list_delegate_) {}
+  LocationBarCoordinatorTest()
+      : web_state_list_(&web_state_list_delegate_),
+        scene_state_([[SceneState alloc] initWithAppState:nil]) {}
 
   void SetUp() override {
     PlatformTest::SetUp();
@@ -96,6 +101,8 @@ class LocationBarCoordinatorTest : public PlatformTest {
     UrlLoadingNotifierBrowserAgent::CreateForBrowser(browser_.get());
     FakeUrlLoadingBrowserAgent::InjectForBrowser(browser_.get());
 
+    SceneStateBrowserAgent::CreateForBrowser(browser_.get(), scene_state_);
+
     auto web_state = std::make_unique<web::FakeWebState>();
     web_state->SetBrowserState(browser_state_.get());
     web_state->SetCurrentURL(GURL("http://test/"));
@@ -115,8 +122,6 @@ class LocationBarCoordinatorTest : public PlatformTest {
     // Started coordinator has to be stopped before WebStateList destruction.
     [coordinator_ stop];
 
-    VariationsIdsProvider::GetInstance()->ResetForTesting();
-
     PlatformTest::TearDown();
   }
 
@@ -126,11 +131,14 @@ class LocationBarCoordinatorTest : public PlatformTest {
   base::ScopedTempDir state_dir_;
 
   web::WebTaskEnvironment task_environment_;
+  variations::ScopedVariationsIdsProvider scoped_variations_ids_provider_{
+      variations::VariationsIdsProvider::Mode::kUseSignedInState};
   LocationBarCoordinator* coordinator_;
   std::unique_ptr<TestChromeBrowserState> browser_state_;
   FakeWebStateListDelegate web_state_list_delegate_;
   WebStateList web_state_list_;
   std::unique_ptr<Browser> browser_;
+  SceneState* scene_state_;
   TestToolbarCoordinatorDelegate* delegate_;
 };
 

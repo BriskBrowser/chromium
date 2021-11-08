@@ -10,7 +10,8 @@ namespace multidevice_setup {
 
 FakeMultiDeviceSetupClient::FakeMultiDeviceSetupClient()
     : host_status_with_device_(GenerateDefaultHostStatusWithDevice()),
-      feature_states_map_(GenerateDefaultFeatureStatesMap()) {}
+      feature_states_map_(GenerateDefaultFeatureStatesMap(
+          multidevice_setup::mojom::FeatureState::kProhibitedByPolicy)) {}
 
 FakeMultiDeviceSetupClient::~FakeMultiDeviceSetupClient() {
   DCHECK(get_eligible_host_devices_callback_queue_.empty());
@@ -69,7 +70,7 @@ void FakeMultiDeviceSetupClient::InvokePendingSetHostDeviceCallback(
 void FakeMultiDeviceSetupClient::InvokePendingSetFeatureEnabledStateCallback(
     mojom::Feature expected_feature,
     bool expected_enabled,
-    const base::Optional<std::string>& expected_auth_token,
+    const absl::optional<std::string>& expected_auth_token,
     bool success) {
   auto& tuple = set_feature_enabled_state_args_queue_.front();
   DCHECK_EQ(expected_feature, std::get<0>(tuple));
@@ -93,6 +94,11 @@ void FakeMultiDeviceSetupClient::InvokePendingTriggerEventForDebuggingCallback(
   std::move(trigger_event_for_debugging_type_and_callback_queue_.front().second)
       .Run(success);
   trigger_event_for_debugging_type_and_callback_queue_.pop();
+}
+
+size_t FakeMultiDeviceSetupClient::NumPendingSetFeatureEnabledStateCalls()
+    const {
+  return set_feature_enabled_state_args_queue_.size();
 }
 
 void FakeMultiDeviceSetupClient::GetEligibleHostDevices(
@@ -120,7 +126,7 @@ FakeMultiDeviceSetupClient::GetHostStatus() const {
 void FakeMultiDeviceSetupClient::SetFeatureEnabledState(
     mojom::Feature feature,
     bool enabled,
-    const base::Optional<std::string>& auth_token,
+    const absl::optional<std::string>& auth_token,
     mojom::MultiDeviceSetup::SetFeatureEnabledStateCallback callback) {
   set_feature_enabled_state_args_queue_.emplace(feature, enabled, auth_token,
                                                 std::move(callback));

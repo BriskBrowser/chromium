@@ -26,7 +26,7 @@ class XDGToplevelWrapperImpl : public ShellToplevelWrapper {
   XDGToplevelWrapperImpl& operator=(const XDGToplevelWrapperImpl&) = delete;
   ~XDGToplevelWrapperImpl() override;
 
-  // ShellSurfaceWrapper overrides:
+  // ShellToplevelWrapper overrides:
   bool Initialize() override;
   void SetMaximized() override;
   void UnSetMaximized() override;
@@ -35,13 +35,16 @@ class XDGToplevelWrapperImpl : public ShellToplevelWrapper {
   void SetMinimized() override;
   void SurfaceMove(WaylandConnection* connection) override;
   void SurfaceResize(WaylandConnection* connection, uint32_t hittest) override;
-  void SetTitle(const base::string16& title) override;
+  void SetTitle(const std::u16string& title) override;
   void AckConfigure(uint32_t serial) override;
+  bool IsConfigured() override;
   void SetWindowGeometry(const gfx::Rect& bounds) override;
   void SetMinSize(int32_t width, int32_t height) override;
   void SetMaxSize(int32_t width, int32_t height) override;
   void SetAppId(const std::string& app_id) override;
   void SetDecoration(DecorationMode decoration) override;
+  void Lock(WaylandOrientationLockType lock_type) override;
+  void Unlock() override;
 
   XDGSurfaceWrapperImpl* xdg_surface_wrapper() const;
 
@@ -75,6 +78,8 @@ class XDGToplevelWrapperImpl : public ShellToplevelWrapper {
 
   // XDG Shell Stable object.
   wl::Object<xdg_toplevel> xdg_toplevel_;
+  // Aura shell toplevel addons.
+  wl::Object<zaura_toplevel> aura_toplevel_;
 
   wl::Object<zxdg_toplevel_decoration_v1> zxdg_toplevel_decoration_;
 

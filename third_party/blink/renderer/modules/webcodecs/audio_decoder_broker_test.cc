@@ -41,7 +41,7 @@ namespace blink {
 namespace {
 
 // Constants to specify the type of audio data used.
-constexpr media::AudioCodec kCodec = media::kCodecVorbis;
+constexpr media::AudioCodec kCodec = media::AudioCodec::kVorbis;
 constexpr media::SampleFormat kSampleFormat = media::kSampleFormatPlanarF32;
 constexpr media::ChannelLayout kChannelLayout = media::CHANNEL_LAYOUT_STEREO;
 constexpr int kChannels = 2;
@@ -55,7 +55,7 @@ constexpr int kInputFramesChunk = 256;
 // - reset immediately succeeds.
 class FakeAudioDecoder : public media::MockAudioDecoder {
  public:
-  FakeAudioDecoder() : MockAudioDecoder("FakeAudioDecoder") {}
+  FakeAudioDecoder() : MockAudioDecoder() {}
   ~FakeAudioDecoder() override = default;
 
   void Initialize(const media::AudioDecoderConfig& config,
@@ -140,11 +140,11 @@ class FakeInterfaceFactory : public media::mojom::InterfaceFactory {
   void CreateCdm(const std::string& key_system,
                  const media::CdmConfig& cdm_config,
                  CreateCdmCallback callback) override {
-    std::move(callback).Run(mojo::NullRemote(), base::nullopt,
-                            mojo::NullRemote(), "CDM creation not supported");
+    std::move(callback).Run(mojo::NullRemote(), nullptr, "CDM not supported");
   }
 #if defined(OS_WIN)
   void CreateMediaFoundationRenderer(
+      mojo::PendingRemote<media::mojom::MediaLog> media_log_remote,
       mojo::PendingReceiver<media::mojom::Renderer> receiver,
       mojo::PendingReceiver<media::mojom::MediaFoundationRendererExtension>
           renderer_extension_receiver) override {}
@@ -239,7 +239,9 @@ class AudioDecoderBrokerTest : public testing::Test {
     testing::Mock::VerifyAndClearExpectations(this);
   }
 
-  std::string GetDisplayName() { return decoder_broker_->GetDisplayName(); }
+  media::AudioDecoderType GetDecoderType() {
+    return decoder_broker_->GetDecoderType();
+  }
 
   bool IsPlatformDecoder() { return decoder_broker_->IsPlatformDecoder(); }
   bool SupportsDecryption() { return decoder_broker_->SupportsDecryption(); }
@@ -255,7 +257,7 @@ TEST_F(AudioDecoderBrokerTest, Decode_Uninitialized) {
   V8TestingScope v8_scope;
 
   ConstructDecoder(*v8_scope.GetExecutionContext());
-  EXPECT_EQ(GetDisplayName(), "EmptyWebCodecsAudioDecoder");
+  EXPECT_EQ(GetDecoderType(), media::AudioDecoderType::kBroker);
 
   // No call to Initialize. Other APIs should fail gracefully.
 
@@ -290,10 +292,10 @@ TEST_F(AudioDecoderBrokerTest, Decode_NoMojoDecoder) {
   V8TestingScope v8_scope;
 
   ConstructDecoder(*v8_scope.GetExecutionContext());
-  EXPECT_EQ(GetDisplayName(), "EmptyWebCodecsAudioDecoder");
+  EXPECT_EQ(GetDecoderType(), media::AudioDecoderType::kBroker);
 
   InitializeDecoder(MakeVorbisConfig());
-  EXPECT_NE(GetDisplayName(), "EmptyWebCodecsAudioDecoder");
+  EXPECT_EQ(GetDecoderType(), media::AudioDecoderType::kFFmpeg);
 
   DecodeBuffer(media::ReadTestDataFile("vorbis-packet-0"));
   DecodeBuffer(media::ReadTestDataFile("vorbis-packet-1"));
@@ -321,15 +323,16 @@ TEST_F(AudioDecoderBrokerTest, Decode_WithMojoDecoder) {
 
   SetupMojo(*execution_context);
   ConstructDecoder(*execution_context);
-  EXPECT_EQ(GetDisplayName(), "EmptyWebCodecsAudioDecoder");
+  EXPECT_EQ(GetDecoderType(), media::AudioDecoderType::kBroker);
   EXPECT_FALSE(IsPlatformDecoder());
   EXPECT_FALSE(SupportsDecryption());
 
   // Use an MpegH config to prevent FFmpeg from being selected.
   InitializeDecoder(media::AudioDecoderConfig(
-      media::kCodecMpegHAudio, kSampleFormat, kChannelLayout, kSamplesPerSecond,
-      media::EmptyExtraData(), media::EncryptionScheme::kUnencrypted));
-  EXPECT_EQ(GetDisplayName(), "MojoAudioDecoder");
+      media::AudioCodec::kMpegHAudio, kSampleFormat, kChannelLayout,
+      kSamplesPerSecond, media::EmptyExtraData(),
+      media::EncryptionScheme::kUnencrypted));
+  EXPECT_EQ(GetDecoderType(), media::AudioDecoderType::kTesting);
 
   // Using vorbis buffer here because its easy and the fake decoder generates
   // output regardless of the input details.

@@ -9,12 +9,17 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chromeos/dbus/shill/shill_property_changed_observer.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+// TODO(https://crbug.com/1164001): remove when GeolocationHandler move to ash.
+namespace ash {
+class SimpleGeolocationWirelessTest;
+}  // namespace ash
 
 namespace chromeos {
 
@@ -34,6 +39,9 @@ namespace chromeos {
 class COMPONENT_EXPORT(CHROMEOS_NETWORK) GeolocationHandler
     : public ShillPropertyChangedObserver {
  public:
+  GeolocationHandler(const GeolocationHandler&) = delete;
+  GeolocationHandler& operator=(const GeolocationHandler&) = delete;
+
   ~GeolocationHandler() override;
 
   // This sends a request for geolocation (both wifi AP and cell tower) data.
@@ -59,14 +67,14 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) GeolocationHandler
  private:
   friend class NetworkHandler;
   friend class GeolocationHandlerTest;
-  friend class SimpleGeolocationWirelessTest;
+  friend class ash::SimpleGeolocationWirelessTest;
 
   GeolocationHandler();
 
   void Init();
 
   // ShillManagerClient callback
-  void ManagerPropertiesCallback(base::Optional<base::Value> properties);
+  void ManagerPropertiesCallback(absl::optional<base::Value> properties);
 
   // Called from OnPropertyChanged or ManagerPropertiesCallback.
   void HandlePropertyChanged(const std::string& key, const base::Value& value);
@@ -76,7 +84,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) GeolocationHandler
   void RequestGeolocationObjects();
 
   // Callback for receiving Geolocation data.
-  void GeolocationCallback(base::Optional<base::Value> properties);
+  void GeolocationCallback(absl::optional<base::Value> properties);
 
   bool cellular_enabled_;
   bool wifi_enabled_;
@@ -91,10 +99,13 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) GeolocationHandler
 
   // For Shill client callbacks
   base::WeakPtrFactory<GeolocationHandler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(GeolocationHandler);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when move to ash.
+namespace ash {
+using ::chromeos::GeolocationHandler;
+}  // namespace ash
 
 #endif  // CHROMEOS_NETWORK_GEOLOCATION_HANDLER_H_

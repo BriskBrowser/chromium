@@ -21,9 +21,6 @@ namespace content {
 
 class StoragePartitionImpl;
 
-// Key name on BrowserContext.
-extern const char kBackgroundSyncSchedulerKey[];
-
 // This contains the logic to schedule delayed processing of (periodic)
 // Background Sync registrations.
 // It keeps track of all storage partitions, and the soonest time we should
@@ -35,6 +32,9 @@ class CONTENT_EXPORT BackgroundSyncScheduler
   static BackgroundSyncScheduler* GetFor(BrowserContext* browser_context);
 
   BackgroundSyncScheduler();
+
+  BackgroundSyncScheduler(const BackgroundSyncScheduler&) = delete;
+  BackgroundSyncScheduler& operator=(const BackgroundSyncScheduler&) = delete;
 
   // Schedules delayed_processing for |sync_type| for |storage_partition|.
   // On non-Android platforms, runs |delayed_task| after |delay| has passed.
@@ -82,8 +82,6 @@ class CONTENT_EXPORT BackgroundSyncScheduler
       };
 
   base::WeakPtrFactory<BackgroundSyncScheduler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BackgroundSyncScheduler);
 };
 
 }  // namespace content

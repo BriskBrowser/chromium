@@ -4,9 +4,8 @@
 
 #include "chrome/updater/configurator.h"
 
-#include <utility>
-
-#include "base/numerics/ranges.h"
+#include "base/cxx17_backports.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/rand_util.h"
 #include "base/version.h"
 #include "build/build_config.h"
@@ -14,13 +13,15 @@
 #include "chrome/updater/constants.h"
 #include "chrome/updater/crx_downloader_factory.h"
 #include "chrome/updater/external_constants.h"
-#include "chrome/updater/patcher.h"
+#include "chrome/updater/policy/service.h"
 #include "chrome/updater/prefs.h"
-#include "chrome/updater/unzipper.h"
+#include "chrome/updater/updater_scope.h"
 #include "components/prefs/pref_service.h"
 #include "components/update_client/network.h"
+#include "components/update_client/patch/in_process_patcher.h"
 #include "components/update_client/patcher.h"
 #include "components/update_client/protocol_handler.h"
+#include "components/update_client/unzip/in_process_unzipper.h"
 #include "components/update_client/unzipper.h"
 #include "components/version_info/version_info.h"
 #include "url/gurl.h"
@@ -43,13 +44,17 @@ const int kDelayOneHour = kDelayOneMinute * 60;
 
 namespace updater {
 
-// TODO(crbug.com/1096654): Add support for machine `activity_data_service_`.
-Configurator::Configurator(std::unique_ptr<UpdaterPrefs> prefs)
-    : prefs_(std::move(prefs)),
-      external_constants_(CreateExternalConstants()),
-      activity_data_service_(std::make_unique<ActivityDataService>(false)),
-      unzip_factory_(base::MakeRefCounted<UnzipperFactory>()),
-      patch_factory_(base::MakeRefCounted<PatcherFactory>()) {}
+Configurator::Configurator(scoped_refptr<UpdaterPrefs> prefs,
+                           scoped_refptr<ExternalConstants> external_constants)
+    : prefs_(prefs),
+      policy_service_(PolicyService::Create()),
+      external_constants_(external_constants),
+      activity_data_service_(
+          std::make_unique<ActivityDataService>(GetUpdaterScope())),
+      unzip_factory_(
+          base::MakeRefCounted<update_client::InProcessUnzipperFactory>()),
+      patch_factory_(
+          base::MakeRefCounted<update_client::InProcessPatcherFactory>()) {}
 Configurator::~Configurator() = default;
 
 double Configurator::InitialDelay() const {
@@ -57,12 +62,15 @@ double Configurator::InitialDelay() const {
 }
 
 int Configurator::ServerKeepAliveSeconds() const {
-  return base::ClampToRange(external_constants_->ServerKeepAliveSeconds(), 1,
-                            kServerKeepAliveSeconds);
+  return base::clamp(external_constants_->ServerKeepAliveSeconds(), 1,
+                     kServerKeepAliveSeconds);
 }
 
 int Configurator::NextCheckDelay() const {
-  return 5 * kDelayOneHour;
+  int minutes = 0;
+  return policy_service_->GetLastCheckPeriodMinutes(nullptr, &minutes)
+             ? minutes * kDelayOneMinute
+             : 5 * kDelayOneHour;
 }
 
 int Configurator::OnDemandDelay() const {
@@ -111,13 +119,17 @@ base::flat_map<std::string, std::string> Configurator::ExtraRequestParams()
 }
 
 std::string Configurator::GetDownloadPreference() const {
-  return {};
+  std::string preference;
+  return policy_service_->GetDownloadPreferenceGroupPolicy(nullptr, &preference)
+             ? preference
+             : std::string();
 }
 
 scoped_refptr<update_client::NetworkFetcherFactory>
 Configurator::GetNetworkFetcherFactory() {
   if (!network_fetcher_factory_)
-    network_fetcher_factory_ = base::MakeRefCounted<NetworkFetcherFactory>();
+    network_fetcher_factory_ =
+        base::MakeRefCounted<NetworkFetcherFactory>(GetPolicyService());
   return network_fetcher_factory_;
 }
 
@@ -165,12 +177,21 @@ update_client::ActivityDataService* Configurator::GetActivityDataService()
 }
 
 bool Configurator::IsPerUserInstall() const {
-  return true;
+  switch (GetUpdaterScope()) {
+    case UpdaterScope::kSystem:
+      return false;
+    case UpdaterScope::kUser:
+      return true;
+  }
 }
 
 std::unique_ptr<update_client::ProtocolHandlerFactory>
 Configurator::GetProtocolHandlerFactory() const {
   return std::make_unique<update_client::ProtocolHandlerFactoryJSON>();
+}
+
+scoped_refptr<PolicyService> Configurator::GetPolicyService() const {
+  return policy_service_;
 }
 
 }  // namespace updater

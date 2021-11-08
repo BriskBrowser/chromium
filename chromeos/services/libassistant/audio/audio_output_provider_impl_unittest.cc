@@ -25,6 +25,9 @@ class FakeAudioOutputDelegate : public assistant_client::AudioOutput::Delegate {
  public:
   FakeAudioOutputDelegate() : thread_("assistant") { thread_.Start(); }
 
+  FakeAudioOutputDelegate(const FakeAudioOutputDelegate&) = delete;
+  FakeAudioOutputDelegate& operator=(const FakeAudioOutputDelegate&) = delete;
+
   ~FakeAudioOutputDelegate() override = default;
 
   // assistant_client::AudioOutput::Delegate overrides:
@@ -53,7 +56,15 @@ class FakeAudioOutputDelegate : public assistant_client::AudioOutput::Delegate {
 
   void FillBufferDone(assistant_client::Callback1<int> cb, int num_bytes) {
     cb(num_bytes);
-    quit_closure_.Run();
+
+    // AudioDeviceOwner::ScheduleFillLocked() will be called repeatedlly until
+    // the |num_bytes| is 0. Only call QuitClosure() at the last call to unblock
+    // in the test.
+    // Otherwise, the |run_loop_| may not block because the QuitClosure() is
+    // called before Run(), right after it is created in Reset(), which will
+    // cause timing issue in the test.
+    if (num_bytes == 0)
+      quit_closure_.Run();
   }
 
   bool end_of_stream() { return end_of_stream_; }
@@ -73,8 +84,6 @@ class FakeAudioOutputDelegate : public assistant_client::AudioOutput::Delegate {
   std::unique_ptr<base::RunLoop> run_loop_;
   int num_bytes_to_fill_ = 0;
   bool end_of_stream_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeAudioOutputDelegate);
 };
 
 class FakeAudioOutputDelegateMojom
@@ -102,12 +111,14 @@ class AssistantAudioDeviceOwnerTest : public testing::Test {
             base::test::TaskEnvironment::MainThreadType::DEFAULT,
             base::test::TaskEnvironment::ThreadPoolExecutionMode::QUEUED) {}
 
+  AssistantAudioDeviceOwnerTest(const AssistantAudioDeviceOwnerTest&) = delete;
+  AssistantAudioDeviceOwnerTest& operator=(
+      const AssistantAudioDeviceOwnerTest&) = delete;
+
   ~AssistantAudioDeviceOwnerTest() override { task_env_.RunUntilIdle(); }
 
  private:
   base::test::TaskEnvironment task_env_;
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantAudioDeviceOwnerTest);
 };
 
 TEST_F(AssistantAudioDeviceOwnerTest, BufferFilling) {
@@ -124,16 +135,16 @@ TEST_F(AssistantAudioDeviceOwnerTest, BufferFilling) {
   audio_output_delegate.Reset();
 
   auto owner = std::make_unique<AudioDeviceOwner>("test device");
-  // Upon start, it will start to fill the buffer.
+  // Upon start, it will start to fill the buffer. The fill should stop after
+  // Wait().
   owner->Start(&audio_output_delegate_mojom, &audio_output_delegate,
                mojo::NullRemote(), format);
   audio_output_delegate.Wait();
 
   audio_output_delegate.Reset();
   audio_bus->Zero();
-  // On first render, it will push the data to |audio_bus|. The fill should
-  // stop by now.
-  owner->Render(base::TimeDelta::FromMicroseconds(0), base::TimeTicks::Now(), 0,
+  // On first render, it will push the data to |audio_bus|.
+  owner->Render(base::Microseconds(0), base::TimeTicks::Now(), 0,
                 audio_bus.get());
   audio_output_delegate.Wait();
   EXPECT_FALSE(audio_bus->AreFramesZero());
@@ -141,7 +152,7 @@ TEST_F(AssistantAudioDeviceOwnerTest, BufferFilling) {
 
   // The subsequent Render call will detect no data available and notify
   // delegate for OnEndOfStream().
-  owner->Render(base::TimeDelta::FromMicroseconds(0), base::TimeTicks::Now(), 0,
+  owner->Render(base::Microseconds(0), base::TimeTicks::Now(), 0,
                 audio_bus.get());
   EXPECT_TRUE(audio_output_delegate.end_of_stream());
 }

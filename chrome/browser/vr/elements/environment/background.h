@@ -18,6 +18,10 @@ namespace vr {
 class Background : public UiElement {
  public:
   Background();
+
+  Background(const Background&) = delete;
+  Background& operator=(const Background&) = delete;
+
   ~Background() override;
 
   // UiElement:
@@ -36,10 +40,14 @@ class Background : public UiElement {
   void SetIncognitoFactor(float factor);
   void SetFullscreenFactor(float factor);
 
-  class Renderer : public BaseRenderer {
+  class Renderer final : public BaseRenderer {
    public:
     Renderer();
-    ~Renderer() final;
+
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
+
+    ~Renderer() override;
 
     void Draw(const gfx::Transform& view_proj_matrix,
               int texture_data_handle,
@@ -63,8 +71,6 @@ class Background : public UiElement {
     GLuint vertex_buffer_;
     GLuint index_buffer_;
     GLuint index_count_;
-
-    DISALLOW_COPY_AND_ASSIGN(Renderer);
   };
 
  private:
@@ -73,7 +79,7 @@ class Background : public UiElement {
 
   void OnFloatAnimated(const float& value,
                        int target_property_id,
-                       cc::KeyframeModel* keyframe_model) override;
+                       gfx::KeyframeModel* keyframe_model) override;
 
   std::unique_ptr<SkBitmap> initialization_bitmap_;
   std::unique_ptr<SkBitmap> initialization_normal_gradient_bitmap_;
@@ -92,8 +98,6 @@ class Background : public UiElement {
   float normal_factor_ = 1.0f;
   float incognito_factor_ = 0.0f;
   float fullscreen_factor_ = 0.0f;
-
-  DISALLOW_COPY_AND_ASSIGN(Background);
 };
 
 }  // namespace vr

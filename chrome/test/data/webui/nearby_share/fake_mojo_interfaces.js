@@ -4,7 +4,7 @@
 
 /** @fileoverview Contains fake implementations of mojo interfaces. */
 
-import {TestBrowserProxy} from '../test_browser_proxy.m.js';
+import {TestBrowserProxy} from '../test_browser_proxy.js';
 
 /**
  * @implements {nearbyShare.mojom.ConfirmationManagerInterface}
@@ -45,6 +45,8 @@ export class FakeDiscoveryManagerRemote extends TestBrowserProxy {
       'getPayloadPreview',
       'selectShareTarget',
       'startDiscovery',
+      'stopDiscovery',
+      'addDiscoveryObserver',
     ]);
 
     this.selectShareTargetResult = {
@@ -54,6 +56,8 @@ export class FakeDiscoveryManagerRemote extends TestBrowserProxy {
     };
     this.shareDescription = 'Test is a test share';
     this.startDiscoveryResult = nearbyShare.mojom.StartDiscoveryResult.kSuccess;
+    /** @private {!nearbyShare.mojom.DiscoveryObserverInterface} */
+    this.observer_;
   }
 
   /**
@@ -86,6 +90,18 @@ export class FakeDiscoveryManagerRemote extends TestBrowserProxy {
   async startDiscovery(listener) {
     this.methodCalled('startDiscovery', listener);
     return {result: this.startDiscoveryResult};
+  }
+
+  async stopDiscovery() {
+    this.methodCalled('stopDiscovery');
+  }
+
+  /**
+   * @param {!nearbyShare.mojom.DiscoveryObserverRemote} observer
+   */
+  addDiscoveryObserver(observer) {
+    this.methodCalled('addDiscoveryObserver');
+    this.observer_ = observer;
   }
 }
 

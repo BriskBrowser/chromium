@@ -255,6 +255,17 @@ ffmpeg -i bear-320x240.webm -acodec copy -vcodec copy -f webm pipe:1 > bear-320x
 a WebM file containing color metadata in MKV/WebM Colour element copied from
 libwebm/testing/testdata/colour.webm
 
+#### four-colors.png
+An image (320x240 .png file) of 4 color blocks (Y,R,G,B) is first created by
+Windows Paint.exe.
+
+#### four-colors.y4m
+A 320x240 raw YUV single frame video with 4 color blocks (Y,R,G,B)
+Converted from four-colors.png using ffmpeg:
+```
+ffmpeg -i four-colors.png  -pix_fmt yuv420p  -f yuv4mpegpipe four-colors.y4m"
+```
+
 #### four-colors.mp4
 A 960x540 H.264 mp4 video with 4 color blocks (Y,R,G,B) in every frame. The
 video playback looks like a still image. An image of 4 color blocks (.png file)
@@ -728,6 +739,29 @@ JSON file that contains all metadata related to test-25fps.av1.ivf, used by the
 video\_decode\_accelerator\_tests. This includes the video codec, resolution and
 md5 checksums of individual video frames when converted to the I420 format.
 
+#### test-25fps.hevc:
+H.265/HEVC video whose content is the same as test-25fps.h264.
+```
+ffmpeg -i test-25fps.h264 -vcodec hevc test25fps.hevc
+```
+
+#### test-25fps.hevc.json:
+JSON file that contains all metadata related to test-25fps.hevc, used by the
+video\_decode\_accelerator\_tests. This includes the video codec, resolution and
+md5 checksums of individual video frames when converted to the I420 format.
+
+#### test-25fps.hevc10:
+10-bit H.265/HEVC video whose content is the same as test-25fps.h264 but
+converted to 10bpp.
+```
+ffmpeg -i test-25fps.h264 -vcodec hevc -pix_fmt yuv420p10le test25fps.hevc10
+```
+
+#### test-25fps.hevc10.json:
+JSON file that contains all metadata related to test-25fps.hevc10, used by the
+video\_decode\_accelerator\_tests. This includes the video codec, resolution and
+md5 checksums of individual video frames when converted to the I420 format.
+
 ### VP9 video with raw vp9 frames
 
 #### buck-1280x720-vp9.webm
@@ -830,7 +864,7 @@ Metadata describing bear\_320x192.nv12.yuv.
 First frame of bear\_320x192\_40frames.yv12.yuv for image\_processor_test and
 formatted yv12.
 To get the uncompressed yuv, execute the following command.
-`ffmpeg -s:v 320x192 -pix_fmt yuv420p -i bear_320x192.i420.yuv  -c:v rawvideo -pix_fmt yuv420p -vf shuffleplanes=0:2:1 bear_320x192.yv12.2.yuv`
+`ffmpeg -s:v 320x192 -pix_fmt yuv420p -i bear_320x192.i420.yuv  -c:v rawvideo -pix_fmt yuv420p -vf shuffleplanes=0:2:1 bear_320x192.yv12.yuv`
 
 #### bear\_320x192.rgba
 RAW RGBA format data. This data is created from bear\_320x192.i420.yuv.
@@ -842,7 +876,7 @@ To get the uncompressed yuv, execute the following command.
 RAW BGRA format data. This data is created from bear\_320x192.i420.yuv.
 Alpha channel is always 0xFF.
 To get the uncompressed yuv, execute the following command.
-`ffmpeg -s 320x192 -pix_fmt yuv420p -i bear_320x192.i420.yuv -vcodec rawvideo -f image2 -pix_fmt rgba bear_320x192.bgra`
+`ffmpeg -s 320x192 -pix_fmt yuv420p -i bear_320x192.i420.yuv -vcodec rawvideo -f image2 -pix_fmt bgra bear_320x192.bgra`
 
 #### bear\_192x320\_90.nv12.yuv
 Rotate bear\_320x192.nv12.yuv by 90 degrees clockwise.
@@ -1184,6 +1218,12 @@ ffmpeg -f lavfi -i "sine=frequency=500:sample_rate=48000" -t 5 -c:v libvpx a500h
 ffmpeg -i red.webm -i green.webm -i blue.webm -i a300hz.webm -i a500hz.webm -map 0 -map 1 -map 2 -map 3 -map 4  multitrack-3video-2audio.webm
 ```
 
+### Spherical metadata WebM files
+
+#### bear-spherical-metadata.webm
+bear_silent.webm video injected with "stereo_mode=SIDE_BY_SIDE_LEFT_EYE_FIRST", "projectionType=EQUIRECTANGULAR",
+and projection pose_yaw, pose_pitch, and pose_roll = 10, 20, and 30 respectively.
+
 ### Opus pre-skip and end-trimming test clips
 https://people.xiph.org/~greg/opus_testvectors/
 
@@ -1192,4 +1232,4 @@ https://people.xiph.org/~greg/opus_testvectors/
 * opus-trimming-test.webm
 
 [libaom test vectors]: https://aomedia.googlesource.com/aom/+/master/test/test_vectors.cc
-[libaom LICENSE]: https://source.chromium.org/chromium/chromium/src/+/master:media/test/data/licenses/AOM-LICENSE
+[libaom LICENSE]: https://source.chromium.org/chromium/chromium/src/+/main:media/test/data/licenses/AOM-LICENSE

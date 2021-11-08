@@ -79,8 +79,7 @@ class TestNetworkConnectionHandler : public NetworkConnectionHandler {
       NetworkStateHandler* network_state_handler,
       NetworkConfigurationHandler* network_configuration_handler,
       ManagedNetworkConfigurationHandler* managed_network_configuration_handler,
-      CellularESimConnectionHandler* cellular_esim_connection_handler)
-      override {}
+      CellularConnectionHandler* cellular_connection_handler) override {}
 
  private:
   base::OnceClosure disconnect_callback_;
@@ -95,6 +94,12 @@ class TestNetworkConnectionHandler : public NetworkConnectionHandler {
 class WifiHotspotDisconnectorImplTest : public testing::Test {
  public:
   WifiHotspotDisconnectorImplTest() = default;
+
+  WifiHotspotDisconnectorImplTest(const WifiHotspotDisconnectorImplTest&) =
+      delete;
+  WifiHotspotDisconnectorImplTest& operator=(
+      const WifiHotspotDisconnectorImplTest&) = delete;
+
   ~WifiHotspotDisconnectorImplTest() override = default;
 
   void SetUp() override {
@@ -216,9 +221,6 @@ class WifiHotspotDisconnectorImplTest : public testing::Test {
   bool should_disconnect_successfully_;
 
   std::unique_ptr<WifiHotspotDisconnectorImpl> wifi_hotspot_disconnector_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WifiHotspotDisconnectorImplTest);
 };
 
 TEST_F(WifiHotspotDisconnectorImplTest, NetworkDoesNotExist) {

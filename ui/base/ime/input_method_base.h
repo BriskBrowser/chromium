@@ -35,6 +35,9 @@ class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
     : public InputMethod,
       public base::SupportsWeakPtr<InputMethodBase> {
  public:
+  InputMethodBase(const InputMethodBase&) = delete;
+  InputMethodBase& operator=(const InputMethodBase&) = delete;
+
   ~InputMethodBase() override;
 
   // Overriden from InputMethod.
@@ -43,8 +46,10 @@ class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
   void OnBlur() override;
 
 #if defined(OS_WIN)
-  bool OnUntranslatedIMEMessage(const MSG event,
+  bool OnUntranslatedIMEMessage(const CHROME_MSG event,
                                 NativeEventResult* result) override;
+  void OnInputLocaleChanged() override;
+  bool IsInputLocaleCJK() const override;
 #endif
 
   void SetFocusedTextInputClient(TextInputClient* client) override;
@@ -55,15 +60,9 @@ class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
   // If a derived class overrides this method, it should call parent's
   // implementation.
   void OnTextInputTypeChanged(const TextInputClient* client) override;
-  void OnInputLocaleChanged() override;
-  bool IsInputLocaleCJK() const override;
-
   TextInputType GetTextInputType() const override;
-  TextInputMode GetTextInputMode() const override;
-  int GetTextInputFlags() const override;
-  bool CanComposeInline() const override;
-  bool GetClientShouldDoLearning() override;
   void ShowVirtualKeyboardIfEnabled() override;
+  void SetVirtualKeyboardVisibilityIfEnabled(bool should_show) override;
 
   void AddObserver(InputMethodObserver* observer) override;
   void RemoveObserver(InputMethodObserver* observer) override;
@@ -125,8 +124,6 @@ class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
   gfx::Rect keyboard_bounds_;
 
   std::unique_ptr<VirtualKeyboardController> const keyboard_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(InputMethodBase);
 };
 
 }  // namespace ui

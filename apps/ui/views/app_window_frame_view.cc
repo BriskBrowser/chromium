@@ -17,6 +17,7 @@
 #include "third_party/skia/include/core/SkRegion.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
@@ -24,7 +25,6 @@
 #include "ui/strings/grit/ui_strings.h"  // Accessibility names
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 
@@ -189,12 +189,9 @@ int AppWindowFrameView::NonClientHitTest(const gfx::Point& point) {
   int resize_border = (widget_->IsMaximized() || widget_->IsFullscreen())
                           ? 0
                           : resize_inside_bounds_size_;
-  int frame_component = GetHTComponentForFrame(point,
-                                               resize_border,
-                                               resize_border,
-                                               resize_area_corner_size_,
-                                               resize_area_corner_size_,
-                                               can_ever_resize);
+  int frame_component = GetHTComponentForFrame(
+      point, gfx::Insets(resize_border), resize_area_corner_size_,
+      resize_area_corner_size_, can_ever_resize);
   if (frame_component != HTNOWHERE)
     return frame_component;
 
@@ -249,8 +246,11 @@ gfx::Size AppWindowFrameView::CalculatePreferredSize() const {
 }
 
 void AppWindowFrameView::Layout() {
+  NonClientFrameView::Layout();
+
   if (!draw_frame_)
     return;
+
   gfx::Size close_size = close_button_->GetPreferredSize();
   const int kButtonOffsetY = 0;
   const int kButtonSpacing = 1;

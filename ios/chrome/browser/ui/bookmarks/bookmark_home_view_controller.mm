@@ -25,7 +25,6 @@
 #include "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
-#include "ios/chrome/browser/policy/policy_features.h"
 #import "ios/chrome/browser/policy/policy_util.h"
 #import "ios/chrome/browser/ui/activity_services/activity_params.h"
 #import "ios/chrome/browser/ui/alert_coordinator/action_sheet_coordinator.h"
@@ -52,12 +51,13 @@
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
 #import "ios/chrome/browser/ui/elements/home_waiting_view.h"
 #import "ios/chrome/browser/ui/incognito_reauth/incognito_reauth_scene_agent.h"
 #import "ios/chrome/browser/ui/keyboard/UIKeyCommand+Chrome.h"
 #import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/ui/material_components/utils.h"
-#import "ios/chrome/browser/ui/menu/action_factory.h"
+#import "ios/chrome/browser/ui/menu/browser_action_factory.h"
 #import "ios/chrome/browser/ui/menu/menu_histograms.h"
 #import "ios/chrome/browser/ui/sharing/sharing_coordinator.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
@@ -66,9 +66,6 @@
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
 #import "ios/chrome/browser/ui/table_view/table_view_navigation_controller_constants.h"
 #import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/menu_util.h"
 #import "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
@@ -85,6 +82,10 @@
 #include "ios/web/public/navigation/referrer.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 using bookmarks::BookmarkNode;
 using l10n_util::GetNSString;
@@ -237,18 +238,12 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 
 @implementation BookmarkHomeViewController
 
-#if !defined(__has_feature) || !__has_feature(objc_arc)
-#error "This file requires ARC support."
-#endif
-
 #pragma mark - Initializer
 
 - (instancetype)initWithBrowser:(Browser*)browser {
   DCHECK(browser);
 
-  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
-                               ? ChromeTableViewStyle()
-                               : UITableViewStylePlain;
+  UITableViewStyle style = ChromeTableViewStyle();
   self = [super initWithStyle:style];
   if (self) {
     _browser = browser;
@@ -271,9 +266,18 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 }
 
 - (void)dealloc {
+  [self shutdown];
+}
+
+- (void)shutdown {
+  [_bookmarkInteractionController shutdown];
+  _bookmarkInteractionController = nil;
+
   [self.mediator disconnect];
   _sharedState.tableView.dataSource = nil;
   _sharedState.tableView.delegate = nil;
+
+  _bridge.reset();
 }
 
 - (void)setRootNode:(const bookmarks::BookmarkNode*)rootNode {
@@ -418,8 +422,7 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 
   // If we navigate back to the root level, we need to make sure the root level
   // folders are created or deleted if needed.
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates) &&
-      [self isDisplayingBookmarkRoot]) {
+  if ([self isDisplayingBookmarkRoot]) {
     [self refreshContents];
   }
 
@@ -515,16 +518,6 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
   // line will also create a default footer of height 30.
   self.tableView.sectionFooterHeight = 1;
   self.sharedState.tableView.allowsMultipleSelectionDuringEditing = YES;
-
-  if (!IsNativeContextMenuEnabled()) {
-    UILongPressGestureRecognizer* longPressRecognizer =
-        [[UILongPressGestureRecognizer alloc]
-            initWithTarget:self
-                    action:@selector(handleLongPress:)];
-    longPressRecognizer.numberOfTouchesRequired = 1;
-    longPressRecognizer.delegate = self;
-    [self.sharedState.tableView addGestureRecognizer:longPressRecognizer];
-  }
 
   // Create the mediator and hook up the table view.
   self.mediator =
@@ -710,7 +703,7 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 - (void)openAllURLs:(std::vector<GURL>)urls
         inIncognito:(BOOL)inIncognito
              newTab:(BOOL)newTab {
-  if (base::FeatureList::IsEnabled(kIncognitoAuthentication) && inIncognito) {
+  if (inIncognito) {
     IncognitoReauthSceneAgent* reauthAgent = [IncognitoReauthSceneAgent
         agentFromScene:SceneStateBrowserAgent::FromBrowser(self.browser)
                            ->GetSceneState()];
@@ -737,6 +730,7 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 
 - (void)navigationBarCancel:(id)sender {
   base::RecordAction(base::UserMetricsAction("MobileBookmarkManagerClose"));
+  LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeAllTabs);
   [self navigateAway];
   [self dismissWithURL:GURL()];
 }
@@ -880,7 +874,6 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
   }
 
   NOTREACHED();
-  return;
 }
 
 - (void)handleMoveNode:(const bookmarks::BookmarkNode*)node
@@ -1155,6 +1148,8 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
                                  new_tab_page_uma::ACTION_OPENED_BOOKMARK);
   base::RecordAction(
       base::UserMetricsAction("MobileBookmarkManagerEntryOpened"));
+  LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeAllTabs);
+
   UrlLoadParams params = UrlLoadParams::InCurrentTab(url);
   params.web_params.transition_type = ui::PAGE_TRANSITION_AUTO_BOOKMARK;
   UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
@@ -1166,7 +1161,7 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
     return;
   }
   self.sharedState.addingNewFolder = YES;
-  base::string16 folderTitle =
+  std::u16string folderTitle =
       l10n_util::GetStringUTF16(IDS_IOS_BOOKMARK_NEW_GROUP_DEFAULT_NAME);
   self.sharedState.editingFolderNode =
       self.sharedState.bookmarkModel->AddFolder(
@@ -1322,10 +1317,8 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 
 // Returns YES if user is allowed to edit any bookmarks.
 - (BOOL)isEditBookmarksEnabled {
-  if (IsEditBookmarksIOSEnabled())
     return self.browserState->GetPrefs()->GetBoolean(
         bookmarks::prefs::kEditBookmarksEnabled);
-  return YES;
 }
 
 // Returns the bookmark node associated with |indexPath|.
@@ -1507,7 +1500,6 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 
 // Shows empty bookmarks background view.
 - (void)showEmptyBackground {
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
     if (!self.emptyViewBackground) {
       self.emptyViewBackground = [[TableViewIllustratedEmptyView alloc]
           initWithFrame:self.sharedState.tableView.bounds
@@ -1540,33 +1532,16 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 
     self.sharedState.tableView.backgroundView = self.emptyViewBackground;
     self.navigationItem.searchController = nil;
-  } else {
-    if (!self.emptyTableBackgroundView) {
-      // Set up the background view shown when the table is empty.
-      self.emptyTableBackgroundView = [[BookmarkEmptyBackground alloc]
-          initWithFrame:self.sharedState.tableView.bounds];
-      self.emptyTableBackgroundView.autoresizingMask =
-          UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleWidth;
-      self.emptyTableBackgroundView.text =
-          GetNSString(IDS_IOS_BOOKMARK_NO_BOOKMARKS_LABEL);
-      self.emptyTableBackgroundView.frame = self.sharedState.tableView.bounds;
-    }
-    self.sharedState.tableView.backgroundView = self.emptyTableBackgroundView;
-  }
 }
 
 - (void)hideEmptyBackground {
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
-    if (self.sharedState.tableView.backgroundView == self.emptyViewBackground) {
-      self.sharedState.tableView.backgroundView = nil;
-    }
-    self.navigationItem.searchController = self.searchController;
-    if ([self isDisplayingBookmarkRoot]) {
-      self.navigationItem.largeTitleDisplayMode =
-          UINavigationItemLargeTitleDisplayModeAutomatic;
-    }
-  } else {
+  if (self.sharedState.tableView.backgroundView == self.emptyViewBackground) {
     self.sharedState.tableView.backgroundView = nil;
+  }
+  self.navigationItem.searchController = self.searchController;
+  if ([self isDisplayingBookmarkRoot]) {
+    self.navigationItem.largeTitleDisplayMode =
+        UINavigationItemLargeTitleDisplayModeAutomatic;
   }
 }
 
@@ -1827,7 +1802,7 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
                   if (!strongSelf)
                     return;
 
-                  base::Optional<std::set<const BookmarkNode*>> nodesFromIds =
+                  absl::optional<std::set<const BookmarkNode*>> nodesFromIds =
                       bookmark_utils_ios::FindNodesByIds(strongSelf.bookmarks,
                                                          nodeIds);
                   if (nodesFromIds)
@@ -1985,7 +1960,7 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
                   BookmarkHomeViewController* strongSelf = weakSelf;
                   if (!strongSelf)
                     return;
-                  base::Optional<std::set<const bookmarks::BookmarkNode*>>
+                  absl::optional<std::set<const bookmarks::BookmarkNode*>>
                       nodesFromIds = bookmark_utils_ios::FindNodesByIds(
                           strongSelf.bookmarks, nodeIds);
                   if (nodesFromIds) {
@@ -2322,14 +2297,7 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
 
 - (UIContextMenuConfiguration*)tableView:(UITableView*)tableView
     contextMenuConfigurationForRowAtIndexPath:(NSIndexPath*)indexPath
-                                        point:(CGPoint)point
-    API_AVAILABLE(ios(13.0)) {
-  if (!IsNativeContextMenuEnabled()) {
-    // Returning nil will allow the gesture to be captured and show the old
-    // context menus.
-    return nil;
-  }
-
+                                        point:(CGPoint)point {
   if (self.sharedState.currentlyInEditMode) {
     // Don't show the context menu when currently in editing mode.
     return nil;
@@ -2359,9 +2327,9 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
       // Record that this context menu was shown to the user.
       RecordMenuShown(MenuScenario::kBookmarkEntry);
 
-      ActionFactory* actionFactory =
-          [[ActionFactory alloc] initWithBrowser:strongSelf.browser
-                                        scenario:MenuScenario::kBookmarkEntry];
+      BrowserActionFactory* actionFactory = [[BrowserActionFactory alloc]
+          initWithBrowser:strongSelf.browser
+                 scenario:MenuScenario::kBookmarkEntry];
 
       NSMutableArray<UIMenuElement*>* menuElements =
           [[NSMutableArray alloc] init];
@@ -2456,9 +2424,8 @@ std::vector<GURL> GetUrlsToOpen(const std::vector<const BookmarkNode*>& nodes) {
       // Record that this context menu was shown to the user.
       RecordMenuShown(MenuScenario::kBookmarkFolder);
 
-      ActionFactory* actionFactory =
-          [[ActionFactory alloc] initWithBrowser:strongSelf.browser
-                                        scenario:MenuScenario::kBookmarkFolder];
+      ActionFactory* actionFactory = [[ActionFactory alloc]
+          initWithScenario:MenuScenario::kBookmarkFolder];
 
       NSMutableArray<UIMenuElement*>* menuElements =
           [[NSMutableArray alloc] init];

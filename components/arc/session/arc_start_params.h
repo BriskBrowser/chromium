@@ -45,9 +45,14 @@ struct StartParams {
   };
 
   StartParams();
-  ~StartParams();
+
+  StartParams(const StartParams&) = delete;
+  StartParams& operator=(const StartParams&) = delete;
+
   StartParams(StartParams&& other);
   StartParams& operator=(StartParams&& other);
+
+  ~StartParams();
 
   bool native_bridge_experiment = false;
   int lcd_density = -1;
@@ -72,15 +77,28 @@ struct StartParams {
   // Flag to disable scheduling of media store periodic maintenance tasks.
   bool disable_media_store_maintenance = false;
 
+  // Flag to disable Download provider in cache based tests in order to prevent
+  // installing content, that is impossible to control in ARC and which causes
+  // flakiness in tests.
+  bool disable_download_provider = false;
+
+  // Flag to disable ureadahead completely, including host and guest parts.
+  bool disable_ureadahead = false;
+
   // The number of logical CPU cores that are currently disabled on the host.
-  // This parameter is used only for starting ARCVM.
   uint32_t num_cores_disabled = 0;
 
   // Enables developer options used to generate Play Auto Install rosters.
   bool arc_generate_play_auto_install = false;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(StartParams);
+  // Flag to enable image copy & paste app compat.
+  bool enable_image_copy_paste_compat = false;
+
+  // Flag to enable keyboard shortcut helper integration.
+  bool enable_keyboard_shortcut_helper_integration = false;
+
+  // Flag to enable notification refresh.
+  bool enable_notifications_refresh = false;
 };
 
 }  // namespace arc

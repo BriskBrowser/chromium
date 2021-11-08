@@ -5,10 +5,10 @@
 #ifndef ASH_SHORTCUT_VIEWER_VIEWS_BUBBLE_VIEW_H_
 #define ASH_SHORTCUT_VIEWER_VIEWS_BUBBLE_VIEW_H_
 
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "ui/views/view.h"
 
 namespace gfx {
@@ -28,11 +28,15 @@ namespace keyboard_shortcut_viewer {
 class BubbleView : public views::View {
  public:
   BubbleView();
+
+  BubbleView(const BubbleView&) = delete;
+  BubbleView& operator=(const BubbleView&) = delete;
+
   ~BubbleView() override;
 
   void SetIcon(const gfx::VectorIcon& icon);
 
-  void SetText(const base::string16& text);
+  void SetText(const std::u16string& text);
 
  private:
   // views::View:
@@ -44,8 +48,6 @@ class BubbleView : public views::View {
   views::Label* text_ = nullptr;
 
   std::vector<gfx::ShadowValue> shadows_;
-
-  DISALLOW_COPY_AND_ASSIGN(BubbleView);
 };
 
 }  // namespace keyboard_shortcut_viewer

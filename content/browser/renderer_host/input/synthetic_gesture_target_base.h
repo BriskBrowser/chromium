@@ -29,6 +29,11 @@ class RenderWidgetHostImpl;
 class SyntheticGestureTargetBase : public SyntheticGestureTarget {
  public:
   explicit SyntheticGestureTargetBase(RenderWidgetHostImpl* host);
+
+  SyntheticGestureTargetBase(const SyntheticGestureTargetBase&) = delete;
+  SyntheticGestureTargetBase& operator=(const SyntheticGestureTargetBase&) =
+      delete;
+
   ~SyntheticGestureTargetBase() override;
 
   virtual void DispatchWebTouchEventToPlatform(
@@ -57,7 +62,7 @@ class SyntheticGestureTargetBase : public SyntheticGestureTarget {
   int GetMouseWheelMinimumGranularity() const override;
 
   void WaitForTargetAck(SyntheticGestureParams::GestureType type,
-                        SyntheticGestureParams::GestureSourceType source,
+                        content::mojom::GestureSourceType source,
                         base::OnceClosure callback) const override;
 
  protected:
@@ -67,8 +72,6 @@ class SyntheticGestureTargetBase : public SyntheticGestureTarget {
   bool PointIsWithinContents(gfx::PointF point) const;
 
   RenderWidgetHostImpl* host_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyntheticGestureTargetBase);
 };
 
 }  // namespace content

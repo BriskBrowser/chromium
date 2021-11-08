@@ -6,12 +6,14 @@ package org.chromium.chrome.browser.flags;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.FeatureList;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 
 import java.util.Arrays;
@@ -33,7 +35,7 @@ public class CachedFeatureFlagsUnitTest {
     @After
     public void tearDown() {
         CachedFeatureFlags.resetFlagsForTesting();
-        ChromeFeatureList.setTestFeatures(null);
+        FeatureList.setTestFeatures(null);
     }
 
     public static final String FEATURE_A = "FeatureA";
@@ -43,7 +45,7 @@ public class CachedFeatureFlagsUnitTest {
     public void testNativeInitializedNoDefault_throwsException() {
         // Setup FeatureA in ChromeFeatureList but not in the defaults.
         Map<String, Boolean> testFeatures = Collections.singletonMap(FEATURE_A, false);
-        ChromeFeatureList.setTestFeatures(testFeatures);
+        FeatureList.setTestFeatures(testFeatures);
 
         // Assert {@link CachedFeatureFlags} throws an exception.
         CachedFeatureFlags.cacheNativeFlags(Collections.singletonList(FEATURE_A));
@@ -88,7 +90,7 @@ public class CachedFeatureFlagsUnitTest {
 
         try {
             // Cache native flags, meaning values from ChromeFeatureList should be used from now on.
-            ChromeFeatureList.setTestFeatures(A_OFF_B_ON);
+            FeatureList.setTestFeatures(A_OFF_B_ON);
             CachedFeatureFlags.cacheNativeFlags(FEATURES_A_AND_B);
 
             // Assert {@link CachedFeatureFlags} uses the values from {@link ChromeFeatureList}.
@@ -105,7 +107,7 @@ public class CachedFeatureFlagsUnitTest {
 
         try {
             // Do not cache values from native. There are no values stored in prefs either.
-            ChromeFeatureList.setTestFeatures(A_OFF_B_ON);
+            FeatureList.setTestFeatures(A_OFF_B_ON);
 
             // Query the flags to make sure the default values are returned.
             assertIsEnabledMatches(A_OFF_B_OFF);
@@ -127,7 +129,7 @@ public class CachedFeatureFlagsUnitTest {
 
         try {
             // Cache native flags, meaning values from ChromeFeatureList should be used from now on.
-            ChromeFeatureList.setTestFeatures(A_OFF_B_ON);
+            FeatureList.setTestFeatures(A_OFF_B_ON);
             CachedFeatureFlags.cacheNativeFlags(FEATURES_A_AND_B);
             assertIsEnabledMatches(A_OFF_B_ON);
 
@@ -135,7 +137,7 @@ public class CachedFeatureFlagsUnitTest {
             CachedFeatureFlags.resetFlagsForTesting();
 
             // Simulate ChromeFeatureList retrieving new, different values for the flags.
-            ChromeFeatureList.setTestFeatures(A_ON_B_ON);
+            FeatureList.setTestFeatures(A_ON_B_ON);
 
             // Do not cache new values, but query the flags to make sure the values stored to prefs
             // are returned. Neither the defaults (false/false) or the ChromeFeatureList values
@@ -182,5 +184,14 @@ public class CachedFeatureFlagsUnitTest {
         } finally {
             CachedFeatureFlags.swapDefaultsForTesting(previousDefaults);
         }
+    }
+
+    @Test
+    public void testGetLastCachedMinimalBrowserFlagsTimeMillis() {
+        // Initial time is 0.
+        assertEquals(0, CachedFeatureFlags.getLastCachedMinimalBrowserFlagsTimeMillis());
+        final long timeMillis = System.currentTimeMillis();
+        CachedFeatureFlags.cacheMinimalBrowserFlagsTimeFromNativeTime();
+        assertTrue(CachedFeatureFlags.getLastCachedMinimalBrowserFlagsTimeMillis() >= timeMillis);
     }
 }

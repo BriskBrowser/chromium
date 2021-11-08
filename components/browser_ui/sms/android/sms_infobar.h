@@ -27,10 +27,14 @@ class SmsInfoBar : public infobars::ConfirmInfoBar {
  public:
   SmsInfoBar(content::WebContents* web_contents,
              std::unique_ptr<SmsInfoBarDelegate> delegate);
+
+  SmsInfoBar(const SmsInfoBar&) = delete;
+  SmsInfoBar& operator=(const SmsInfoBar&) = delete;
+
   ~SmsInfoBar() override;
 
   // Creates an SMS receiver infobar and delegate and adds it to
-  // |infobar_service|.
+  // |infobar_manager|.
   static void Create(content::WebContents* web_contents,
                      infobars::InfoBarManager* manager,
                      const std::vector<url::Origin>& origin_list,
@@ -45,8 +49,6 @@ class SmsInfoBar : public infobars::ConfirmInfoBar {
       const ResourceIdMapper& resource_id_mapper) override;
 
   content::WebContents* web_contents_;
-
-  DISALLOW_COPY_AND_ASSIGN(SmsInfoBar);
 };
 
 }  // namespace sms

@@ -19,8 +19,10 @@ import org.junit.runner.RunWith;
 import org.chromium.base.process_launcher.ChildConnectionAllocator;
 import org.chromium.base.process_launcher.ChildProcessConnection;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.UrlUtils;
+import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer;
@@ -105,6 +107,10 @@ public class ChildProcessLauncherIntegrationTest {
 
     @Test
     @MediumTest
+    // This test may run with --site-per-process, which also enables a feature to maintain a
+    // spare renderer process. The spare process interferes with assertions on the number of
+    // process connections in this test, so disable it.
+    @CommandLineFlags.Add({"disable-features=SpareRendererForSitePerProcess"})
     public void testCrossDomainNavigationDoNotLoseImportance() throws Throwable {
         final TestChildProcessConnectionFactory factory = new TestChildProcessConnectionFactory();
         final List<TestChildProcessConnection> connections = factory.getConnections();
@@ -136,15 +142,27 @@ public class ChildProcessLauncherIntegrationTest {
         ChildProcessLauncherTestUtils.runOnLauncherThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                Assert.assertEquals(2, connections.size());
-                // connections.get(0).didDropBothInitialAndImportantBindings();
-                connections.get(1).throwIfDroppedBothModerateAndStrongBinding();
+                if (ContentFeatureList.isEnabled(
+                            ContentFeatureList.PROCESS_SHARING_WITH_STRICT_SITE_INSTANCES)) {
+                    // If this feature is turned on all the URLs will use the same process.
+                    // Verify that the process has not lost its importance now that the
+                    // data: URL is also in the same process as the file: URLs.
+                    Assert.assertEquals(1, connections.size());
+                    connections.get(0).throwIfDroppedBothModerateAndStrongBinding();
+                } else {
+                    Assert.assertEquals(2, connections.size());
+                    connections.get(1).throwIfDroppedBothModerateAndStrongBinding();
+                }
             }
         });
     }
 
     @Test
     @MediumTest
+    // This test may run with --site-per-process, which also enables a feature to maintain a
+    // spare renderer process. The spare process interferes with assertions on the number of
+    // process connections in this test, so disable it.
+    @CommandLineFlags.Add({"disable-features=SpareRendererForSitePerProcess"})
     public void testIntentionalKillToFreeServiceSlot() throws Throwable {
         final TestChildProcessConnectionFactory factory = new TestChildProcessConnectionFactory();
         final List<TestChildProcessConnection> connections = factory.getConnections();
@@ -169,8 +187,21 @@ public class ChildProcessLauncherIntegrationTest {
         ChildProcessLauncherTestUtils.runOnLauncherThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                Assert.assertEquals(2, connections.size());
-                Assert.assertTrue(connections.get(0).isKilledByUs());
+                if (ContentFeatureList.isEnabled(
+                            ContentFeatureList.PROCESS_SHARING_WITH_STRICT_SITE_INSTANCES)) {
+                    // If this feature is turned on all the URLs will use the same process
+                    // and this test will not observe any kills.
+                    Assert.assertEquals(1, connections.size());
+                    Assert.assertFalse(connections.get(0).isKilledByUs());
+                } else {
+                    // The file: URLs and data: URL are expected to be in different processes and
+                    // the data: URL is expected to kill the process used for the file: URLs.
+                    // Note: The default SiteInstance process model also follows this path because
+                    // file: URLs are not allowed in the default SiteInstance process while data:
+                    // URLs are.
+                    Assert.assertEquals(2, connections.size());
+                    Assert.assertTrue(connections.get(0).isKilledByUs());
+                }
             }
         });
     }
@@ -196,7 +227,8 @@ public class ChildProcessLauncherIntegrationTest {
             crashServiceForTesting();
             mCrashServiceCalled = true;
             if (mConnectionBundle != null) {
-                super.setupConnection(mConnectionBundle, mClientInterfaces, mConnectionCallback);
+                super.setupConnection(
+                        mConnectionBundle, mClientInterfaces, mConnectionCallback, null);
                 mConnectionBundle = null;
                 mClientInterfaces = null;
                 mConnectionCallback = null;
@@ -211,11 +243,11 @@ public class ChildProcessLauncherIntegrationTest {
 
         @Override
         public void setupConnection(Bundle connectionBundle, List<IBinder> clientInterfaces,
-                ConnectionCallback connectionCallback) {
+                ConnectionCallback connectionCallback, ZygoteInfoCallback zygoteInfoCallback) {
             // Make sure setupConnection is called after crashServiceForTesting so that
             // setupConnection is guaranteed to fail.
             if (mCrashServiceCalled) {
-                super.setupConnection(connectionBundle, clientInterfaces, connectionCallback);
+                super.setupConnection(connectionBundle, clientInterfaces, connectionCallback, null);
                 return;
             }
             mConnectionBundle = connectionBundle;

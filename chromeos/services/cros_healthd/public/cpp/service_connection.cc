@@ -4,8 +4,12 @@
 
 #include "chromeos/services/cros_healthd/public/cpp/service_connection.h"
 
+#include <fcntl.h>
+
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/files/file_enumerator.h"
+#include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
@@ -13,6 +17,7 @@
 #include "chromeos/dbus/cros_healthd/cros_healthd_client.h"
 #include "chromeos/services/cros_healthd/public/mojom/cros_healthd.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "ui/events/ozone/evdev/event_device_info.h"  // nogncheck
 
 namespace chromeos {
 namespace cros_healthd {
@@ -23,6 +28,9 @@ namespace {
 class ServiceConnectionImpl : public ServiceConnection {
  public:
   ServiceConnectionImpl();
+
+  ServiceConnectionImpl(const ServiceConnectionImpl&) = delete;
+  ServiceConnectionImpl& operator=(const ServiceConnectionImpl&) = delete;
 
  protected:
   ~ServiceConnectionImpl() override = default;
@@ -39,7 +47,7 @@ class ServiceConnectionImpl : public ServiceConnection {
       mojom::CrosHealthdDiagnosticsService::GetRoutineUpdateCallback callback)
       override;
   void RunUrandomRoutine(
-      const base::Optional<base::TimeDelta>& length_seconds,
+      const absl::optional<base::TimeDelta>& length_seconds,
       mojom::CrosHealthdDiagnosticsService::RunUrandomRoutineCallback callback)
       override;
   void RunBatteryCapacityRoutine(
@@ -53,19 +61,19 @@ class ServiceConnectionImpl : public ServiceConnection {
           callback) override;
   void RunAcPowerRoutine(
       mojom::AcPowerStatusEnum expected_status,
-      const base::Optional<std::string>& expected_power_type,
+      const absl::optional<std::string>& expected_power_type,
       mojom::CrosHealthdDiagnosticsService::RunAcPowerRoutineCallback callback)
       override;
   void RunCpuCacheRoutine(
-      const base::Optional<base::TimeDelta>& exec_duration,
+      const absl::optional<base::TimeDelta>& exec_duration,
       mojom::CrosHealthdDiagnosticsService::RunCpuCacheRoutineCallback callback)
       override;
   void RunCpuStressRoutine(
-      const base::Optional<base::TimeDelta>& exec_duration,
+      const absl::optional<base::TimeDelta>& exec_duration,
       mojom::CrosHealthdDiagnosticsService::RunCpuStressRoutineCallback
           callback) override;
   void RunFloatingPointAccuracyRoutine(
-      const base::Optional<base::TimeDelta>& exec_duration,
+      const absl::optional<base::TimeDelta>& exec_duration,
       mojom::CrosHealthdDiagnosticsService::
           RunFloatingPointAccuracyRoutineCallback callback) override;
   void RunNvmeWearLevelRoutine(
@@ -83,7 +91,7 @@ class ServiceConnectionImpl : public ServiceConnection {
       mojom::CrosHealthdDiagnosticsService::RunDiskReadRoutineCallback callback)
       override;
   void RunPrimeSearchRoutine(
-      const base::Optional<base::TimeDelta>& exec_duration,
+      const absl::optional<base::TimeDelta>& exec_duration,
       mojom::CrosHealthdDiagnosticsService::RunPrimeSearchRoutineCallback
           callback) override;
   void RunBatteryDischargeRoutine(
@@ -133,8 +141,17 @@ class ServiceConnectionImpl : public ServiceConnection {
       mojom::CrosHealthdDiagnosticsService::RunHttpsLatencyRoutineCallback
           callback) override;
   void RunVideoConferencingRoutine(
-      const base::Optional<std::string>& stun_server_hostname,
+      const absl::optional<std::string>& stun_server_hostname,
       mojom::CrosHealthdDiagnosticsService::RunVideoConferencingRoutineCallback
+          callback) override;
+  void RunArcHttpRoutine(
+      mojom::CrosHealthdDiagnosticsService::RunArcHttpRoutineCallback callback)
+      override;
+  void RunArcPingRoutine(
+      mojom::CrosHealthdDiagnosticsService::RunArcPingRoutineCallback callback)
+      override;
+  void RunArcDnsResolutionRoutine(
+      mojom::CrosHealthdDiagnosticsService::RunArcDnsResolutionRoutineCallback
           callback) override;
   void AddBluetoothObserver(
       mojo::PendingRemote<mojom::CrosHealthdBluetoothObserver> pending_observer)
@@ -143,6 +160,14 @@ class ServiceConnectionImpl : public ServiceConnection {
                           pending_observer) override;
   void AddPowerObserver(mojo::PendingRemote<mojom::CrosHealthdPowerObserver>
                             pending_observer) override;
+  void AddNetworkObserver(
+      mojo::PendingRemote<ash::network_health::mojom::NetworkEventsObserver>
+          pending_observer) override;
+  void AddAudioObserver(mojo::PendingRemote<mojom::CrosHealthdAudioObserver>
+                            pending_observer) override;
+  void AddThunderboltObserver(
+      mojo::PendingRemote<mojom::CrosHealthdThunderboltObserver>
+          pending_observer) override;
   void ProbeTelemetryInfo(
       const std::vector<mojom::ProbeCategoryEnum>& categories_to_test,
       mojom::CrosHealthdProbeService::ProbeTelemetryInfoCallback callback)
@@ -157,6 +182,7 @@ class ServiceConnectionImpl : public ServiceConnection {
       BindNetworkHealthServiceCallback callback) override;
   void SetBindNetworkDiagnosticsRoutinesCallback(
       BindNetworkDiagnosticsRoutinesCallback callback) override;
+  std::string FetchTouchpadLibraryName() override;
   void FlushForTesting() override;
 
   // Uses |bind_network_health_callback_| if set to bind a remote to the
@@ -210,8 +236,6 @@ class ServiceConnectionImpl : public ServiceConnection {
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<ServiceConnectionImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ServiceConnectionImpl);
 };
 
 void ServiceConnectionImpl::GetAvailableRoutines(
@@ -234,7 +258,7 @@ void ServiceConnectionImpl::GetRoutineUpdate(
 }
 
 void ServiceConnectionImpl::RunUrandomRoutine(
-    const base::Optional<base::TimeDelta>& length_seconds,
+    const absl::optional<base::TimeDelta>& length_seconds,
     mojom::CrosHealthdDiagnosticsService::RunUrandomRoutineCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   BindCrosHealthdDiagnosticsServiceIfNeeded();
@@ -276,7 +300,7 @@ void ServiceConnectionImpl::RunSmartctlCheckRoutine(
 
 void ServiceConnectionImpl::RunAcPowerRoutine(
     mojom::AcPowerStatusEnum expected_status,
-    const base::Optional<std::string>& expected_power_type,
+    const absl::optional<std::string>& expected_power_type,
     mojom::CrosHealthdDiagnosticsService::RunAcPowerRoutineCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   BindCrosHealthdDiagnosticsServiceIfNeeded();
@@ -285,7 +309,7 @@ void ServiceConnectionImpl::RunAcPowerRoutine(
 }
 
 void ServiceConnectionImpl::RunCpuCacheRoutine(
-    const base::Optional<base::TimeDelta>& exec_duration,
+    const absl::optional<base::TimeDelta>& exec_duration,
     mojom::CrosHealthdDiagnosticsService::RunCpuCacheRoutineCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   BindCrosHealthdDiagnosticsServiceIfNeeded();
@@ -299,7 +323,7 @@ void ServiceConnectionImpl::RunCpuCacheRoutine(
 }
 
 void ServiceConnectionImpl::RunCpuStressRoutine(
-    const base::Optional<base::TimeDelta>& exec_duration,
+    const absl::optional<base::TimeDelta>& exec_duration,
     mojom::CrosHealthdDiagnosticsService::RunCpuStressRoutineCallback
         callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -314,7 +338,7 @@ void ServiceConnectionImpl::RunCpuStressRoutine(
 }
 
 void ServiceConnectionImpl::RunFloatingPointAccuracyRoutine(
-    const base::Optional<base::TimeDelta>& exec_duration,
+    const absl::optional<base::TimeDelta>& exec_duration,
     mojom::CrosHealthdDiagnosticsService::
         RunFloatingPointAccuracyRoutineCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -360,7 +384,7 @@ void ServiceConnectionImpl::RunDiskReadRoutine(
 }
 
 void ServiceConnectionImpl::RunPrimeSearchRoutine(
-    const base::Optional<base::TimeDelta>& exec_duration,
+    const absl::optional<base::TimeDelta>& exec_duration,
     mojom::CrosHealthdDiagnosticsService::RunPrimeSearchRoutineCallback
         callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -503,8 +527,31 @@ void ServiceConnectionImpl::RunHttpsLatencyRoutine(
       std::move(callback));
 }
 
+void ServiceConnectionImpl::RunArcHttpRoutine(
+    mojom::CrosHealthdDiagnosticsService::RunArcHttpRoutineCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BindCrosHealthdDiagnosticsServiceIfNeeded();
+  cros_healthd_diagnostics_service_->RunArcHttpRoutine(std::move(callback));
+}
+
+void ServiceConnectionImpl::RunArcPingRoutine(
+    mojom::CrosHealthdDiagnosticsService::RunArcPingRoutineCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BindCrosHealthdDiagnosticsServiceIfNeeded();
+  cros_healthd_diagnostics_service_->RunArcPingRoutine(std::move(callback));
+}
+
+void ServiceConnectionImpl::RunArcDnsResolutionRoutine(
+    mojom::CrosHealthdDiagnosticsService::RunArcDnsResolutionRoutineCallback
+        callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BindCrosHealthdDiagnosticsServiceIfNeeded();
+  cros_healthd_diagnostics_service_->RunArcDnsResolutionRoutine(
+      std::move(callback));
+}
+
 void ServiceConnectionImpl::RunVideoConferencingRoutine(
-    const base::Optional<std::string>& stun_server_hostname,
+    const absl::optional<std::string>& stun_server_hostname,
     mojom::CrosHealthdDiagnosticsService::RunVideoConferencingRoutineCallback
         callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -517,24 +564,46 @@ void ServiceConnectionImpl::AddBluetoothObserver(
     mojo::PendingRemote<mojom::CrosHealthdBluetoothObserver> pending_observer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   BindCrosHealthdEventServiceIfNeeded();
-  mojom::CrosHealthdBluetoothObserverPtr ptr{std::move(pending_observer)};
-  cros_healthd_event_service_->AddBluetoothObserver(std::move(ptr));
+  cros_healthd_event_service_->AddBluetoothObserver(
+      std::move(pending_observer));
 }
 
 void ServiceConnectionImpl::AddLidObserver(
     mojo::PendingRemote<mojom::CrosHealthdLidObserver> pending_observer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   BindCrosHealthdEventServiceIfNeeded();
-  mojom::CrosHealthdLidObserverPtr ptr{std::move(pending_observer)};
-  cros_healthd_event_service_->AddLidObserver(std::move(ptr));
+  cros_healthd_event_service_->AddLidObserver(std::move(pending_observer));
 }
 
 void ServiceConnectionImpl::AddPowerObserver(
     mojo::PendingRemote<mojom::CrosHealthdPowerObserver> pending_observer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   BindCrosHealthdEventServiceIfNeeded();
-  mojom::CrosHealthdPowerObserverPtr ptr{std::move(pending_observer)};
-  cros_healthd_event_service_->AddPowerObserver(std::move(ptr));
+  cros_healthd_event_service_->AddPowerObserver(std::move(pending_observer));
+}
+
+void ServiceConnectionImpl::AddNetworkObserver(
+    mojo::PendingRemote<ash::network_health::mojom::NetworkEventsObserver>
+        pending_observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BindCrosHealthdEventServiceIfNeeded();
+  cros_healthd_event_service_->AddNetworkObserver(std::move(pending_observer));
+}
+
+void ServiceConnectionImpl::AddAudioObserver(
+    mojo::PendingRemote<mojom::CrosHealthdAudioObserver> pending_observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BindCrosHealthdEventServiceIfNeeded();
+  cros_healthd_event_service_->AddAudioObserver(std::move(pending_observer));
+}
+
+void ServiceConnectionImpl::AddThunderboltObserver(
+    mojo::PendingRemote<mojom::CrosHealthdThunderboltObserver>
+        pending_observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BindCrosHealthdEventServiceIfNeeded();
+  cros_healthd_event_service_->AddThunderboltObserver(
+      std::move(pending_observer));
 }
 
 void ServiceConnectionImpl::ProbeTelemetryInfo(
@@ -573,6 +642,43 @@ void ServiceConnectionImpl::SetBindNetworkDiagnosticsRoutinesCallback(
     BindNetworkDiagnosticsRoutinesCallback callback) {
   bind_network_diagnostics_callback_ = std::move(callback);
   BindAndSendNetworkDiagnosticsRoutines();
+}
+
+// This is a short-term solution for CloudReady. We should remove this work
+// around after cros_healthd team develop a healthier input telemetry approach.
+std::string ServiceConnectionImpl::FetchTouchpadLibraryName() {
+#if defined(USE_LIBINPUT)
+  base::FileEnumerator file_enum(base::FilePath("/dev/input/"), false,
+                                 base::FileEnumerator::FileType::FILES);
+  for (auto path = file_enum.Next(); !path.empty(); path = file_enum.Next()) {
+    base::ScopedFD fd(open(path.value().c_str(), O_RDWR | O_NONBLOCK));
+    if (fd.get() < 0) {
+      LOG(ERROR) << "Couldn't open device path " << path;
+      continue;
+    }
+
+    auto devinfo = std::make_unique<ui::EventDeviceInfo>();
+    if (!devinfo->Initialize(fd.get(), path)) {
+      LOG(ERROR) << "Failed to get device info for " << path;
+      continue;
+    }
+
+    if (!devinfo->HasTouchpad() ||
+        devinfo->device_type() != ui::InputDeviceType::INPUT_DEVICE_INTERNAL) {
+      continue;
+    }
+
+    if (devinfo->UseLibinput()) {
+      return "libinput";
+    }
+  }
+#endif
+
+#if defined(USE_EVDEV_GESTURES)
+  return "gestures";
+#else
+  return "Default EventConverterEvdev";
+#endif
 }
 
 void ServiceConnectionImpl::FlushForTesting() {

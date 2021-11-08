@@ -21,7 +21,7 @@ namespace syncer {
 
 // A fake of the SyncEngine.
 //
-// This class implements the bare minimum required for the ProfileSyncService to
+// This class implements the bare minimum required for the SyncServiceImpl to
 // get through initialization. It often returns null pointers or nonsense
 // values; it is not intended to be used in tests that depend on SyncEngine
 // behavior.
@@ -68,10 +68,6 @@ class FakeSyncEngine : public SyncEngine,
 
   void SetDecryptionPassphrase(const std::string& passphrase) override;
 
-  void SetEncryptionBootstrapToken(const std::string& token) override;
-
-  void SetKeystoreEncryptionBootstrapToken(const std::string& token) override;
-
   void AddTrustedVaultDecryptionKeys(
       const std::vector<std::vector<uint8_t>>& keys,
       base::OnceClosure done_cb) override;
@@ -82,17 +78,18 @@ class FakeSyncEngine : public SyncEngine,
 
   void ConfigureDataTypes(ConfigureParams params) override;
 
-  void ActivateDataType(ModelType type,
-                        std::unique_ptr<DataTypeActivationResponse>) override;
-  void DeactivateDataType(ModelType type) override;
+  void ConnectDataType(ModelType type,
+                       std::unique_ptr<DataTypeActivationResponse>) override;
+  void DisconnectDataType(ModelType type) override;
 
-  void ActivateProxyDataType(ModelType type) override;
-  void DeactivateProxyDataType(ModelType type) override;
+  void SetProxyTabsDatatypeEnabled(bool enabled) override;
 
   const SyncStatus& GetDetailedStatus() const override;
 
   void HasUnsyncedItemsForTest(
       base::OnceCallback<void(bool)> cb) const override;
+  void GetThrottledDataTypesForTest(
+      base::OnceCallback<void(ModelTypeSet)> cb) const override;
 
   void RequestBufferedProtocolEventsAndEnableForwarding() override;
   void DisableProtocolEventForwarding() override;

@@ -17,7 +17,12 @@ namespace base {
 class Clock;
 }
 
-// This controller provides data and actions for the PasswordSaveUpdateView.
+namespace ui {
+class ImageModel;
+}
+
+// This controller provides data and actions for the
+// PasswordSaveUpdateWithAccountStoreView.
 class SaveUpdateBubbleController : public PasswordBubbleControllerBase {
  public:
   explicit SaveUpdateBubbleController(
@@ -38,22 +43,19 @@ class SaveUpdateBubbleController : public PasswordBubbleControllerBase {
 
   // Called by the view code when username or password is corrected using
   // the username correction or password selection features in PendingView.
-  void OnCredentialEdited(base::string16 new_username,
-                          base::string16 new_password);
+  void OnCredentialEdited(std::u16string new_username,
+                          std::u16string new_password);
 
   // The password bubble can switch its state between "save" and "update"
   // depending on the user input. |state_| only captures the correct state on
   // creation. This method returns true iff the current state is "update".
   bool IsCurrentStateUpdate() const;
 
-  // Returns true iff the bubble is supposed to show the footer about syncing
-  // to Google account.
-  bool ShouldShowFooter() const;
-
-  // Returns true and updates the internal state iff the Save bubble should
-  // switch to show a promotion after the password was saved. Otherwise,
-  // returns false and leaves the current state.
-  bool ReplaceToShowPromotionIfNeeded();
+  // The password bubble header image can switch its state between "save" and
+  // "update" depending on the user input. |state_| only captures the correct
+  // state on creation. This method returns true iff the current state is
+  // "save" or "update" to a password in the account store.
+  bool IsCurrentStateAffectingTheAccountStore();
 
   // Returns true if passwords revealing is not locked or re-authentication is
   // not available on the given platform. Otherwise, the method schedules
@@ -62,8 +64,35 @@ class SaveUpdateBubbleController : public PasswordBubbleControllerBase {
   // re-authentication is successful.
   bool RevealPasswords();
 
+  // Whether we should show the password store picker (either the account store
+  // or the profile store).
+  bool ShouldShowPasswordStorePicker() const;
+
+  // Called by the view when the selected destination store has changed.
+  void OnToggleAccountStore(bool is_account_store_selected);
+
+  // Returns true iff the password account store is used.
+  bool IsUsingAccountStore();
+
+  // Returns true if the user must opt-in to the account-scoped password storage
+  // before the save bubble action can be concluded.
+  bool IsAccountStorageOptInRequiredBeforeSave();
+
+  // Returns the email of current primary account. Returns empty string if no
+  // account is signed in.
+  std::string GetPrimaryAccountEmail();
+
+  // Returns the avatar of the primary account. Returns an empty image if no
+  // account is signed in.
+  ui::ImageModel GetPrimaryAccountAvatar(int icon_size_dip);
+
+  // Users need to reauth to their account to opt-in using their password
+  // account storage. This method returns whether account auth attempt during
+  // the last password save process failed or not.
+  bool DidAuthForAccountStoreOptInFail() const;
+
   // PasswordBubbleControllerBase methods:
-  base::string16 GetTitle() const override;
+  std::u16string GetTitle() const override;
 
   password_manager::ui::State state() const { return state_; }
 
@@ -80,10 +109,6 @@ class SaveUpdateBubbleController : public PasswordBubbleControllerBase {
 #if defined(UNIT_TEST)
   void set_clock(base::Clock* clock) { clock_ = clock; }
 
-  void allow_passwords_revealing() {
-    password_revealing_requires_reauth_ = false;
-  }
-
   bool password_revealing_requires_reauth() const {
     return password_revealing_requires_reauth_;
   }
@@ -97,7 +122,7 @@ class SaveUpdateBubbleController : public PasswordBubbleControllerBase {
   url::Origin origin_;
   password_manager::ui::State state_;
   password_manager::PasswordForm pending_password_;
-  std::vector<password_manager::PasswordForm> local_credentials_;
+  std::vector<password_manager::PasswordForm> existing_credentials_;
   password_manager::InteractionsStats interaction_stats_;
   password_manager::metrics_util::UIDisplayDisposition display_disposition_;
 

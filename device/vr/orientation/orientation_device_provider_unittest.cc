@@ -31,7 +31,19 @@
 
 namespace device {
 
+namespace {
+std::unique_ptr<XrFrameSinkClient> FrameSinkClientFactory(int32_t, int32_t) {
+  return nullptr;
+}
+}  // namespace
+
 class VROrientationDeviceProviderTest : public testing::Test {
+ public:
+  VROrientationDeviceProviderTest(const VROrientationDeviceProviderTest&) =
+      delete;
+  VROrientationDeviceProviderTest& operator=(
+      const VROrientationDeviceProviderTest&) = delete;
+
  protected:
   VROrientationDeviceProviderTest() = default;
   ~VROrientationDeviceProviderTest() override = default;
@@ -147,8 +159,6 @@ class VROrientationDeviceProviderTest : public testing::Test {
   mojo::PendingRemote<mojom::Sensor> sensor_;
   mojo::ScopedSharedBufferHandle shared_buffer_handle_;
   mojo::Remote<mojom::SensorClient> sensor_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(VROrientationDeviceProviderTest);
 };
 
 TEST_F(VROrientationDeviceProviderTest, InitializationTest) {
@@ -162,7 +172,8 @@ TEST_F(VROrientationDeviceProviderTest, InitializationCallbackSuccessTest) {
 
   provider_->Initialize(DeviceAndIdCallbackMustBeCalled(&wait_for_device),
                         DeviceIdCallbackFailIfCalled(),
-                        ClosureMustBeCalled(&wait_for_init));
+                        ClosureMustBeCalled(&wait_for_init),
+                        base::BindRepeating(&FrameSinkClientFactory));
 
   InitializeDevice(FakeInitParams());
 
@@ -177,7 +188,8 @@ TEST_F(VROrientationDeviceProviderTest, InitializationCallbackFailureTest) {
 
   provider_->Initialize(DeviceAndIdCallbackFailIfCalled(),
                         DeviceIdCallbackFailIfCalled(),
-                        ClosureMustBeCalled(&wait_for_init));
+                        ClosureMustBeCalled(&wait_for_init),
+                        base::BindRepeating(&FrameSinkClientFactory));
 
   InitializeDevice(nullptr);
 

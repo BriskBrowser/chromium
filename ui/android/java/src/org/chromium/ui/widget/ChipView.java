@@ -4,6 +4,7 @@
 package org.chromium.ui.widget;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
@@ -16,10 +17,13 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.annotation.AttrRes;
+import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.IdRes;
 import androidx.annotation.Px;
 import androidx.annotation.StyleRes;
+import androidx.appcompat.widget.AppCompatTextView;
 import androidx.core.view.ViewCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
@@ -33,6 +37,7 @@ import org.chromium.ui.R;
  * - An optional remove icon at the end, intended for use with input chips.
  * - An optional boolean (solidColorChip) to remove the default chip border.
  * - An optional boolean (allowMultipleLines) to avoid longer text strings to wrap to a second line.
+ * - An optional boolean (showLoadingView) to show a loading view in place of the start icon.
  */
 public class ChipView extends LinearLayout {
     /** An id to use for {@link #setIcon(int, boolean)} when there is no icon on the chip. */
@@ -40,9 +45,10 @@ public class ChipView extends LinearLayout {
     private static final int MAX_LINES = 2;
 
     private final RippleBackgroundHelper mRippleBackgroundHelper;
-    private final TextView mPrimaryText;
+    private final AppCompatTextView mPrimaryText;
     private final ChromeImageView mStartIcon;
     private final boolean mUseRoundedStartIcon;
+    private final LoadingView mLoadingView;
     private final @IdRes int mSecondaryTextAppearanceId;
     private final int mEndIconWidth;
     private final int mEndIconHeight;
@@ -51,30 +57,30 @@ public class ChipView extends LinearLayout {
     private final int mCornerRadius;
 
     private ViewGroup mEndIconWrapper;
-    private TextView mSecondaryText;
+    private AppCompatTextView mSecondaryText;
 
-    /**
-     * Constructor for inflating from XML.
-     */
-    public ChipView(Context context, @StyleRes int chipStyle) {
-        this(context, null, chipStyle);
+    /** Constructor for applying a theme overlay. */
+    public ChipView(Context context, @StyleRes int themeOverlay) {
+        this(new ContextThemeWrapper(context, themeOverlay), null, R.attr.chipStyle, 0);
     }
 
-    /**
-     * Constructor for inflating from XML.
-     */
+    /** Constructor for inflating from XML. */
     public ChipView(Context context, AttributeSet attrs) {
-        this(context, attrs, R.style.SuggestionChipThemeOverlay);
+        this(new ContextThemeWrapper(context, R.style.SuggestionChipThemeOverlay), attrs,
+                R.attr.chipStyle, 0);
     }
 
-    private ChipView(Context context, AttributeSet attrs, @StyleRes int themeOverlay) {
-        super(new ContextThemeWrapper(context, themeOverlay), attrs, R.attr.chipStyle);
+    /** Constructor for base classes and programmatic creation. */
+    public ChipView(Context context, AttributeSet attrs, @AttrRes int defStyleAttr,
+            @StyleRes int defStyleRes) {
+        super(context, attrs, defStyleAttr, defStyleRes);
 
         TypedArray a = getContext().obtainStyledAttributes(
-                attrs, R.styleable.ChipView, R.attr.chipStyle, 0);
+                attrs, R.styleable.ChipView, defStyleAttr, defStyleRes);
 
         boolean extendLateralPadding =
                 a.getBoolean(R.styleable.ChipView_extendLateralPadding, false);
+        boolean reduceEndPadding = a.getBoolean(R.styleable.ChipView_reduceEndPadding, false);
 
         @Px
         int leadingElementPadding = extendLateralPadding
@@ -84,7 +90,9 @@ public class ChipView extends LinearLayout {
 
         // End padding is already longer so no need to adjust in the 'extendLateralPadding' case.
         @Px
-        int endPadding = getResources().getDimensionPixelSize(R.dimen.chip_end_padding);
+        int endPadding = reduceEndPadding
+                ? getResources().getDimensionPixelSize(R.dimen.chip_reduced_end_padding)
+                : getResources().getDimensionPixelSize(R.dimen.chip_end_padding);
 
         mEndIconStartPadding = extendLateralPadding
                 ? getResources().getDimensionPixelSize(R.dimen.chip_end_icon_extended_margin_start)
@@ -102,6 +110,8 @@ public class ChipView extends LinearLayout {
                 a.getResourceId(R.styleable.ChipView_chipColor, R.color.chip_background_color);
         int rippleColorId =
                 a.getResourceId(R.styleable.ChipView_rippleColor, R.color.chip_ripple_color);
+        int chipStrokeColorId =
+                a.getResourceId(R.styleable.ChipView_chipStrokeColor, R.color.chip_stroke_color);
         mCornerRadius = a.getDimensionPixelSize(R.styleable.ChipView_cornerRadius,
                 getContext().getResources().getDimensionPixelSize(R.dimen.chip_corner_radius));
         int iconWidth = a.getDimensionPixelSize(R.styleable.ChipView_iconWidth,
@@ -122,6 +132,8 @@ public class ChipView extends LinearLayout {
                 getResources().getDimensionPixelSize(R.dimen.chip_bg_vertical_inset));
         boolean allowMultipleLines = a.getBoolean(R.styleable.ChipView_allowMultipleLines, false);
         boolean textAlignStart = a.getBoolean(R.styleable.ChipView_textAlignStart, false);
+        boolean reduceTextStartPadding =
+                a.getBoolean(R.styleable.ChipView_reduceTextStartPadding, false);
         a.recycle();
 
         mStartIcon = new ChromeImageView(getContext());
@@ -133,12 +145,24 @@ public class ChipView extends LinearLayout {
             leadingElementPadding = (chipHeight - iconHeight) / 2;
         }
 
+        int loadingViewSize = getResources().getDimensionPixelSize(R.dimen.chip_loading_view_size);
+        int loadingViewHeightPadding = (iconHeight - loadingViewSize) / 2;
+        int loadingViewWidthPadding = (iconWidth - loadingViewSize) / 2;
+        mLoadingView = new LoadingView(getContext());
+        mLoadingView.setVisibility(GONE);
+        mLoadingView.setIndeterminateTintList(ColorStateList.valueOf(ApiCompatibilityUtils.getColor(
+                getResources(), R.color.default_icon_color_accent1_baseline)));
+        mLoadingView.setPaddingRelative(loadingViewWidthPadding, loadingViewHeightPadding,
+                loadingViewWidthPadding, loadingViewHeightPadding);
+        addView(mLoadingView, new LayoutParams(iconWidth, iconHeight));
+
         // Setting this enforces 16dp padding at the end and 8dp at the start (unless overridden).
         // For text, the start padding needs to be 16dp which is why a ChipTextView contributes the
         // remaining 8dp.
         ViewCompat.setPaddingRelative(this, leadingElementPadding, 0, endPadding, 0);
 
-        mPrimaryText = new TextView(new ContextThemeWrapper(getContext(), R.style.ChipTextView));
+        mPrimaryText =
+                new AppCompatTextView(new ContextThemeWrapper(getContext(), R.style.ChipTextView));
         ApiCompatibilityUtils.setTextAppearance(mPrimaryText, primaryTextAppearance);
 
         // If false fall back to single line defined in XML styles.
@@ -158,11 +182,17 @@ public class ChipView extends LinearLayout {
             // Default of 'center' is defined in the ChipTextView style.
             mPrimaryText.setTextAlignment((View.TEXT_ALIGNMENT_VIEW_START));
         }
+        if (reduceTextStartPadding) {
+            mPrimaryText.setPaddingRelative(
+                    getResources().getDimensionPixelSize(R.dimen.chip_text_reduced_leading_padding),
+                    mPrimaryText.getPaddingTop(), mPrimaryText.getPaddingEnd(),
+                    mPrimaryText.getPaddingBottom());
+        }
         addView(mPrimaryText);
 
         // Reset icon and background:
         mRippleBackgroundHelper = new RippleBackgroundHelper(this, chipColorId, rippleColorId,
-                mCornerRadius, R.color.chip_stroke_color, chipBorderWidthId, verticalInset);
+                mCornerRadius, chipStrokeColorId, chipBorderWidthId, verticalInset);
         setIcon(INVALID_ICON_ID, false);
     }
 
@@ -175,6 +205,7 @@ public class ChipView extends LinearLayout {
     public void setEnabled(boolean enabled) {
         super.setEnabled(enabled);
         getPrimaryTextView().setEnabled(enabled);
+        mStartIcon.setEnabled(enabled);
         if (mSecondaryText != null) mSecondaryText.setEnabled(enabled);
     }
 
@@ -201,6 +232,35 @@ public class ChipView extends LinearLayout {
         mStartIcon.setVisibility(ViewGroup.VISIBLE);
         mStartIcon.setImageDrawable(drawable);
         setTint(tintWithTextColor);
+    }
+
+    /**
+     * Shows a {@link LoadingView} at the start of the chip view. This replaces the start icon.
+     * @param loadingViewObserver A {@link LoadingView.Observer} to add to the LoadingView.
+     */
+    public void showLoadingView(LoadingView.Observer loadingViewObserver) {
+        mLoadingView.addObserver(new LoadingView.Observer() {
+            @Override
+            public void onShowLoadingUIComplete() {
+                mStartIcon.setVisibility(GONE);
+            }
+
+            @Override
+            public void onHideLoadingUIComplete() {
+                mStartIcon.setVisibility(VISIBLE);
+            }
+        });
+        mLoadingView.addObserver(loadingViewObserver);
+        mLoadingView.showLoadingUI();
+    }
+
+    /**
+     * Hides the {@link LoadingView} at the start of the chip view.
+     * @param loadingViewObserver A {@link LoadingView.Observer} to add to the LoadingView.
+     */
+    public void hideLoadingView(LoadingView.Observer loadingViewObserver) {
+        mLoadingView.addObserver(loadingViewObserver);
+        mLoadingView.hideLoadingUI();
     }
 
     /**
@@ -262,8 +322,8 @@ public class ChipView extends LinearLayout {
      */
     public TextView getSecondaryTextView() {
         if (mSecondaryText == null) {
-            mSecondaryText =
-                    new TextView(new ContextThemeWrapper(getContext(), R.style.ChipTextView));
+            mSecondaryText = new AppCompatTextView(
+                    new ContextThemeWrapper(getContext(), R.style.ChipTextView));
             ApiCompatibilityUtils.setTextAppearance(mSecondaryText, mSecondaryTextAppearanceId);
             // Ensure that basic state changes are aligned with the ChipView. They update
             // automatically once the view is part of the hierarchy.
@@ -293,6 +353,20 @@ public class ChipView extends LinearLayout {
         } else {
             ApiCompatibilityUtils.setImageTintList(mStartIcon, null);
         }
+    }
+
+    /**
+     * Sets border around the chip. If width is zero, then no border is drawn.
+     * @param width of the border in pixels.
+     * @param color of the border.
+     */
+    public void setBorder(int width, @ColorInt int color) {
+        mRippleBackgroundHelper.setBorder(width, color);
+    }
+
+    @Override
+    public void setBackgroundColor(@ColorInt int color) {
+        mRippleBackgroundHelper.setBackgroundColor(color);
     }
 
     /**

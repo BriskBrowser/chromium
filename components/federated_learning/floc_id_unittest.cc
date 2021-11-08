@@ -10,12 +10,26 @@
 #include "components/federated_learning/floc_constants.h"
 #include "components/prefs/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/federated_learning/floc.mojom.h"
 
 namespace federated_learning {
+
+namespace {
+
+blink::mojom::InterestCohortPtr InterestCohortResult(
+    const std::string& id,
+    const std::string& version) {
+  blink::mojom::InterestCohortPtr result = blink::mojom::InterestCohort::New();
+  result->id = id;
+  result->version = version;
+  return result;
+}
 
 const base::Time kTime0 = base::Time();
 const base::Time kTime1 = base::Time::FromTimeT(1);
 const base::Time kTime2 = base::Time::FromTimeT(2);
+
+}  // namespace
 
 class FlocIdUnitTest : public testing::Test {
  public:
@@ -29,36 +43,60 @@ class FlocIdUnitTest : public testing::Test {
 };
 
 TEST_F(FlocIdUnitTest, IsValid) {
-  EXPECT_FALSE(FlocId().IsValid());
-  EXPECT_TRUE(FlocId(0, kTime0, kTime0, 0).IsValid());
-  EXPECT_TRUE(FlocId(0, kTime1, kTime2, 1).IsValid());
+  EXPECT_FALSE(
+      FlocId::CreateInvalid(FlocId::Status::kInvalidWaitingToStart).IsValid());
+  EXPECT_TRUE(FlocId::CreateValid(0, kTime0, kTime0, 0).IsValid());
+  EXPECT_TRUE(FlocId::CreateValid(0, kTime1, kTime2, 1).IsValid());
 }
 
 TEST_F(FlocIdUnitTest, Comparison) {
-  EXPECT_EQ(FlocId(), FlocId());
+  EXPECT_EQ(FlocId::CreateInvalid(FlocId::Status::kInvalidWaitingToStart),
+            FlocId::CreateInvalid(FlocId::Status::kInvalidWaitingToStart));
 
-  EXPECT_EQ(FlocId(0, kTime0, kTime0, 0), FlocId(0, kTime0, kTime0, 0));
-  EXPECT_EQ(FlocId(0, kTime1, kTime1, 1), FlocId(0, kTime1, kTime1, 1));
-  EXPECT_EQ(FlocId(0, kTime1, kTime2, 1), FlocId(0, kTime1, kTime2, 1));
+  EXPECT_NE(FlocId::CreateInvalid(FlocId::Status::kInvalidWaitingToStart),
+            FlocId::CreateInvalid(FlocId::Status::kInvalidBlocked));
 
-  EXPECT_NE(FlocId(), FlocId(0, kTime0, kTime0, 0));
-  EXPECT_NE(FlocId(0, kTime0, kTime0, 0), FlocId(1, kTime0, kTime0, 0));
-  EXPECT_NE(FlocId(0, kTime0, kTime1, 0), FlocId(0, kTime1, kTime1, 0));
-  EXPECT_NE(FlocId(0, kTime0, kTime0, 0), FlocId(0, kTime0, kTime0, 1));
+  EXPECT_EQ(FlocId::CreateValid(0, kTime0, kTime0, 0),
+            FlocId::CreateValid(0, kTime0, kTime0, 0));
+  EXPECT_EQ(FlocId::CreateValid(0, kTime1, kTime1, 1),
+            FlocId::CreateValid(0, kTime1, kTime1, 1));
+  EXPECT_EQ(FlocId::CreateValid(0, kTime1, kTime2, 1),
+            FlocId::CreateValid(0, kTime1, kTime2, 1));
+
+  EXPECT_NE(FlocId::CreateInvalid(FlocId::Status::kInvalidWaitingToStart),
+            FlocId::CreateValid(0, kTime0, kTime0, 0));
+  EXPECT_NE(FlocId::CreateValid(0, kTime0, kTime0, 0),
+            FlocId::CreateValid(1, kTime0, kTime0, 0));
+  EXPECT_NE(FlocId::CreateValid(0, kTime0, kTime1, 0),
+            FlocId::CreateValid(0, kTime1, kTime1, 0));
+  EXPECT_NE(FlocId::CreateValid(0, kTime0, kTime0, 0),
+            FlocId::CreateValid(0, kTime0, kTime0, 1));
 }
 
-TEST_F(FlocIdUnitTest, ToStringForJsApi) {
-  EXPECT_EQ("0.1.0", FlocId(0, kTime0, kTime0, 0).ToStringForJsApi());
-  EXPECT_EQ("12345.1.0", FlocId(12345, kTime0, kTime0, 0).ToStringForJsApi());
-  EXPECT_EQ("12345.1.2", FlocId(12345, kTime1, kTime1, 2).ToStringForJsApi());
+TEST_F(FlocIdUnitTest, ToInterestCohortForJsApi) {
+  EXPECT_EQ(
+      InterestCohortResult("0", "chrome.1.0"),
+      FlocId::CreateValid(0, kTime0, kTime0, 0).ToInterestCohortForJsApi());
+  EXPECT_EQ(
+      InterestCohortResult("12345", "chrome.1.0"),
+      FlocId::CreateValid(12345, kTime0, kTime0, 0).ToInterestCohortForJsApi());
+  EXPECT_EQ(
+      InterestCohortResult("12345", "chrome.1.2"),
+      FlocId::CreateValid(12345, kTime1, kTime1, 2).ToInterestCohortForJsApi());
 
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeatureWithParameters(
       kFederatedLearningOfCohorts, {{"finch_config_version", "99"}});
 
-  EXPECT_EQ("0.99.0", FlocId(0, kTime0, kTime0, 0).ToStringForJsApi());
-  EXPECT_EQ("12345.99.0", FlocId(12345, kTime0, kTime0, 0).ToStringForJsApi());
-  EXPECT_EQ("12345.99.2", FlocId(12345, kTime1, kTime1, 2).ToStringForJsApi());
+  EXPECT_EQ(
+      InterestCohortResult("0", "chrome.99.0"),
+      FlocId::CreateValid(0, kTime0, kTime0, 0).ToInterestCohortForJsApi());
+  EXPECT_EQ(
+      InterestCohortResult("12345", "chrome.99.0"),
+      FlocId::CreateValid(12345, kTime0, kTime0, 0).ToInterestCohortForJsApi());
+  EXPECT_EQ(
+      InterestCohortResult("12345", "chrome.99.2"),
+      FlocId::CreateValid(12345, kTime1, kTime1, 2).ToInterestCohortForJsApi());
 }
 
 TEST_F(FlocIdUnitTest, ReadFromPrefs_DefaultInvalid) {
@@ -68,6 +106,7 @@ TEST_F(FlocIdUnitTest, ReadFromPrefs_DefaultInvalid) {
   FlocId floc_id = FlocId::ReadFromPrefs(&prefs);
 
   EXPECT_FALSE(floc_id.IsValid());
+  EXPECT_EQ(FlocId::Status::kInvalidNoStatusPrefs, floc_id.status());
   EXPECT_TRUE(floc_id.history_begin_time().is_null());
   EXPECT_TRUE(floc_id.history_end_time().is_null());
   EXPECT_EQ(0u, floc_id.finch_config_version());
@@ -75,11 +114,10 @@ TEST_F(FlocIdUnitTest, ReadFromPrefs_DefaultInvalid) {
   EXPECT_TRUE(floc_id.compute_time().is_null());
 }
 
-TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedInvalid) {
+TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedInvalidNoIdPrefs_NoStatusPref) {
   TestingPrefServiceSimple prefs;
   FlocId::RegisterPrefs(prefs.registry());
 
-  prefs.ClearPref(kFlocIdValuePrefKey);
   prefs.SetTime(kFlocIdHistoryBeginTimePrefKey, base::Time::FromTimeT(1));
   prefs.SetTime(kFlocIdHistoryEndTimePrefKey, base::Time::FromTimeT(2));
   prefs.SetUint64(kFlocIdFinchConfigVersionPrefKey, 3);
@@ -88,6 +126,7 @@ TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedInvalid) {
 
   FlocId floc_id = FlocId::ReadFromPrefs(&prefs);
   EXPECT_FALSE(floc_id.IsValid());
+  EXPECT_EQ(FlocId::Status::kInvalidNoStatusPrefs, floc_id.status());
   EXPECT_EQ(base::Time::FromTimeT(1), floc_id.history_begin_time());
   EXPECT_EQ(base::Time::FromTimeT(2), floc_id.history_end_time());
   EXPECT_EQ(3u, floc_id.finch_config_version());
@@ -95,7 +134,7 @@ TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedInvalid) {
   EXPECT_EQ(base::Time::FromTimeT(5), floc_id.compute_time());
 }
 
-TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedValid) {
+TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedValid_NoStatusPref) {
   TestingPrefServiceSimple prefs;
   FlocId::RegisterPrefs(prefs.registry());
 
@@ -108,22 +147,75 @@ TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedValid) {
 
   FlocId floc_id = FlocId::ReadFromPrefs(&prefs);
   EXPECT_TRUE(floc_id.IsValid());
+  EXPECT_EQ(FlocId::Status::kValid, floc_id.status());
   EXPECT_EQ(base::Time::FromTimeT(1), floc_id.history_begin_time());
   EXPECT_EQ(base::Time::FromTimeT(2), floc_id.history_end_time());
   EXPECT_EQ(3u, floc_id.finch_config_version());
   EXPECT_EQ(4u, floc_id.sorting_lsh_version());
   EXPECT_EQ(base::Time::FromTimeT(5), floc_id.compute_time());
-  EXPECT_EQ("123.3.4", floc_id.ToStringForJsApi());
+  EXPECT_EQ(InterestCohortResult("123", "chrome.3.4"),
+            floc_id.ToInterestCohortForJsApi());
+}
+
+TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedInvalid) {
+  TestingPrefServiceSimple prefs;
+  FlocId::RegisterPrefs(prefs.registry());
+
+  prefs.SetUint64(kFlocIdValuePrefKey, 0);
+  prefs.SetInteger(
+      kFlocIdStatusPrefKey,
+      static_cast<int>(FlocId::Status::kInvalidDisallowedByUserSettings));
+  prefs.SetTime(kFlocIdHistoryBeginTimePrefKey, base::Time::FromTimeT(1));
+  prefs.SetTime(kFlocIdHistoryEndTimePrefKey, base::Time::FromTimeT(2));
+  prefs.SetUint64(kFlocIdFinchConfigVersionPrefKey, 3);
+  prefs.SetUint64(kFlocIdSortingLshVersionPrefKey, 4);
+  prefs.SetTime(kFlocIdComputeTimePrefKey, base::Time::FromTimeT(5));
+
+  FlocId floc_id = FlocId::ReadFromPrefs(&prefs);
+  EXPECT_FALSE(floc_id.IsValid());
+  EXPECT_EQ(FlocId::Status::kInvalidDisallowedByUserSettings, floc_id.status());
+  EXPECT_EQ(base::Time::FromTimeT(1), floc_id.history_begin_time());
+  EXPECT_EQ(base::Time::FromTimeT(2), floc_id.history_end_time());
+  EXPECT_EQ(3u, floc_id.finch_config_version());
+  EXPECT_EQ(4u, floc_id.sorting_lsh_version());
+  EXPECT_EQ(base::Time::FromTimeT(5), floc_id.compute_time());
+}
+
+TEST_F(FlocIdUnitTest, ReadFromPrefs_SavedValid) {
+  TestingPrefServiceSimple prefs;
+  FlocId::RegisterPrefs(prefs.registry());
+
+  prefs.SetUint64(kFlocIdValuePrefKey, 123);
+  prefs.SetInteger(kFlocIdStatusPrefKey,
+                   static_cast<int>(FlocId::Status::kValid));
+  prefs.SetTime(kFlocIdHistoryBeginTimePrefKey, base::Time::FromTimeT(1));
+  prefs.SetTime(kFlocIdHistoryEndTimePrefKey, base::Time::FromTimeT(2));
+  prefs.SetUint64(kFlocIdFinchConfigVersionPrefKey, 3);
+  prefs.SetUint64(kFlocIdSortingLshVersionPrefKey, 4);
+  prefs.SetTime(kFlocIdComputeTimePrefKey, base::Time::FromTimeT(5));
+
+  FlocId floc_id = FlocId::ReadFromPrefs(&prefs);
+  EXPECT_TRUE(floc_id.IsValid());
+  EXPECT_EQ(FlocId::Status::kValid, floc_id.status());
+  EXPECT_EQ(base::Time::FromTimeT(1), floc_id.history_begin_time());
+  EXPECT_EQ(base::Time::FromTimeT(2), floc_id.history_end_time());
+  EXPECT_EQ(3u, floc_id.finch_config_version());
+  EXPECT_EQ(4u, floc_id.sorting_lsh_version());
+  EXPECT_EQ(base::Time::FromTimeT(5), floc_id.compute_time());
+  EXPECT_EQ(InterestCohortResult("123", "chrome.3.4"),
+            floc_id.ToInterestCohortForJsApi());
 }
 
 TEST_F(FlocIdUnitTest, SaveToPrefs_InvalidFloc) {
   TestingPrefServiceSimple prefs;
   FlocId::RegisterPrefs(prefs.registry());
 
-  FlocId floc_id;
+  FlocId floc_id =
+      FlocId::CreateInvalid(FlocId::Status::kInvalidWaitingToStart);
   floc_id.SaveToPrefs(&prefs);
 
-  EXPECT_FALSE(prefs.HasPrefPath(kFlocIdValuePrefKey));
+  EXPECT_TRUE(prefs.HasPrefPath(kFlocIdValuePrefKey));
+  EXPECT_TRUE(prefs.HasPrefPath(kFlocIdStatusPrefKey));
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdHistoryBeginTimePrefKey));
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdHistoryEndTimePrefKey));
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdFinchConfigVersionPrefKey));
@@ -131,6 +223,9 @@ TEST_F(FlocIdUnitTest, SaveToPrefs_InvalidFloc) {
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdComputeTimePrefKey));
 
   EXPECT_EQ(0u, prefs.GetUint64(kFlocIdValuePrefKey));
+  EXPECT_EQ(
+      FlocId::Status::kInvalidWaitingToStart,
+      static_cast<FlocId::Status>(prefs.GetInteger(kFlocIdStatusPrefKey)));
   EXPECT_TRUE(prefs.GetTime(kFlocIdHistoryBeginTimePrefKey).is_null());
   EXPECT_TRUE(prefs.GetTime(kFlocIdHistoryEndTimePrefKey).is_null());
   EXPECT_EQ(1u, prefs.GetUint64(kFlocIdFinchConfigVersionPrefKey));
@@ -142,11 +237,12 @@ TEST_F(FlocIdUnitTest, SaveToPrefs_ValidFloc) {
   TestingPrefServiceSimple prefs;
   FlocId::RegisterPrefs(prefs.registry());
 
-  FlocId floc_id =
-      FlocId(123, base::Time::FromTimeT(1), base::Time::FromTimeT(2), 3);
+  FlocId floc_id = FlocId::CreateValid(123, base::Time::FromTimeT(1),
+                                       base::Time::FromTimeT(2), 3);
   floc_id.SaveToPrefs(&prefs);
 
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdValuePrefKey));
+  EXPECT_TRUE(prefs.HasPrefPath(kFlocIdStatusPrefKey));
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdHistoryBeginTimePrefKey));
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdHistoryEndTimePrefKey));
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdFinchConfigVersionPrefKey));
@@ -154,6 +250,9 @@ TEST_F(FlocIdUnitTest, SaveToPrefs_ValidFloc) {
   EXPECT_TRUE(prefs.HasPrefPath(kFlocIdComputeTimePrefKey));
 
   EXPECT_EQ(123u, prefs.GetUint64(kFlocIdValuePrefKey));
+  EXPECT_EQ(
+      FlocId::Status::kValid,
+      static_cast<FlocId::Status>(prefs.GetInteger(kFlocIdStatusPrefKey)));
   EXPECT_EQ(base::Time::FromTimeT(1),
             prefs.GetTime(kFlocIdHistoryBeginTimePrefKey));
   EXPECT_EQ(base::Time::FromTimeT(2),
@@ -163,18 +262,23 @@ TEST_F(FlocIdUnitTest, SaveToPrefs_ValidFloc) {
   EXPECT_EQ(base::Time::Now(), prefs.GetTime(kFlocIdComputeTimePrefKey));
 }
 
-TEST_F(FlocIdUnitTest, InvalidateIdAndSaveToPrefs) {
+TEST_F(FlocIdUnitTest, UpdateStatusAndSaveToPrefs) {
   TestingPrefServiceSimple prefs;
   FlocId::RegisterPrefs(prefs.registry());
 
-  FlocId floc_id =
-      FlocId(123, base::Time::FromTimeT(1), base::Time::FromTimeT(2), 3);
+  FlocId floc_id = FlocId::CreateValid(123, base::Time::FromTimeT(1),
+                                       base::Time::FromTimeT(2), 3);
   floc_id.SaveToPrefs(&prefs);
 
-  floc_id.InvalidateIdAndSaveToPrefs(&prefs);
+  floc_id.UpdateStatusAndSaveToPrefs(&prefs,
+                                     FlocId::Status::kInvalidHistoryDeleted);
   EXPECT_FALSE(floc_id.IsValid());
-  EXPECT_FALSE(prefs.HasPrefPath(kFlocIdValuePrefKey));
+  EXPECT_EQ(FlocId::Status::kInvalidHistoryDeleted, floc_id.status());
 
+  EXPECT_EQ(123u, prefs.GetUint64(kFlocIdValuePrefKey));
+  EXPECT_EQ(
+      FlocId::Status::kInvalidHistoryDeleted,
+      static_cast<FlocId::Status>(prefs.GetInteger(kFlocIdStatusPrefKey)));
   EXPECT_EQ(base::Time::FromTimeT(1),
             prefs.GetTime(kFlocIdHistoryBeginTimePrefKey));
   EXPECT_EQ(base::Time::FromTimeT(2),
@@ -182,6 +286,19 @@ TEST_F(FlocIdUnitTest, InvalidateIdAndSaveToPrefs) {
   EXPECT_EQ(1u, prefs.GetUint64(kFlocIdFinchConfigVersionPrefKey));
   EXPECT_EQ(3u, prefs.GetUint64(kFlocIdSortingLshVersionPrefKey));
   EXPECT_EQ(base::Time::Now(), prefs.GetTime(kFlocIdComputeTimePrefKey));
+}
+
+TEST_F(FlocIdUnitTest, ResetComputeTimeAndSaveToPrefs) {
+  TestingPrefServiceSimple prefs;
+  FlocId::RegisterPrefs(prefs.registry());
+
+  FlocId floc_id = FlocId::CreateValid(123, base::Time::FromTimeT(1),
+                                       base::Time::FromTimeT(2), 3);
+  floc_id.SaveToPrefs(&prefs);
+  EXPECT_EQ(base::Time::Now(), prefs.GetTime(kFlocIdComputeTimePrefKey));
+
+  floc_id.ResetComputeTimeAndSaveToPrefs(base::Time::FromTimeT(4), &prefs);
+  EXPECT_EQ(base::Time::FromTimeT(4), prefs.GetTime(kFlocIdComputeTimePrefKey));
 }
 
 }  // namespace federated_learning

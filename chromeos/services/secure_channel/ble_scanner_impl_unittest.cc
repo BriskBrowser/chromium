@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/bind.h"
 #include "chromeos/components/multidevice/remote_device_test_util.h"
@@ -48,12 +47,13 @@ class FakeBluetoothDevice : public device::MockBluetoothDevice {
                    [](char character) { return character; });
   }
 
+  FakeBluetoothDevice(const FakeBluetoothDevice&) = delete;
+  FakeBluetoothDevice& operator=(const FakeBluetoothDevice&) = delete;
+
   const std::vector<uint8_t>* service_data() { return &service_data_vector_; }
 
  private:
   std::vector<uint8_t> service_data_vector_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeBluetoothDevice);
 };
 
 std::vector<std::pair<ConnectionMedium, ConnectionRole>>
@@ -84,6 +84,12 @@ class SecureChannelBleScannerImplTest : public testing::Test {
 
   SecureChannelBleScannerImplTest()
       : test_devices_(multidevice::CreateRemoteDeviceRefListForTest(3)) {}
+
+  SecureChannelBleScannerImplTest(const SecureChannelBleScannerImplTest&) =
+      delete;
+  SecureChannelBleScannerImplTest& operator=(
+      const SecureChannelBleScannerImplTest&) = delete;
+
   ~SecureChannelBleScannerImplTest() override = default;
 
   // testing::Test:
@@ -142,6 +148,7 @@ class SecureChannelBleScannerImplTest : public testing::Test {
   // creating a DiscoverySession.
   void StartDiscoverySession() {
     mock_adapter_->StartDiscoverySession(
+        /*client_name=*/std::string(),
         base::BindLambdaForTesting(
             [&](std::unique_ptr<device::BluetoothDiscoverySession>
                     discovery_session) {
@@ -173,9 +180,9 @@ class SecureChannelBleScannerImplTest : public testing::Test {
       const std::string& service_data,
       multidevice::RemoteDeviceRef expected_remote_device,
       bool is_background_advertisement,
-      const base::Optional<
+      const absl::optional<
           std::vector<std::pair<ConnectionMedium, ConnectionRole>>>&
-          expected_scan_results = base::nullopt) {
+          expected_scan_results = absl::nullopt) {
     std::vector<std::pair<ConnectionMedium, ConnectionRole>>
         new_expected_results =
             expected_scan_results.has_value()
@@ -277,9 +284,6 @@ class SecureChannelBleScannerImplTest : public testing::Test {
   base::WeakPtr<device::BluetoothDiscoverySession> discovery_session_weak_ptr_;
 
   std::unique_ptr<BleScanner> ble_scanner_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SecureChannelBleScannerImplTest);
 };
 
 TEST_F(SecureChannelBleScannerImplTest, UnrelatedScanResults) {

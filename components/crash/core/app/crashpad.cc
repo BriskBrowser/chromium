@@ -99,7 +99,7 @@ void InitializeDatabasePath(const base::FilePath& database_path) {
   g_database_path = new base::FilePath(database_path);
 }
 
-void InitializeCrashpadImpl(bool initial_client,
+bool InitializeCrashpadImpl(bool initial_client,
                             const std::string& process_type,
                             const std::string& user_data_dir,
                             const base::FilePath& exe_path,
@@ -134,9 +134,12 @@ void InitializeCrashpadImpl(bool initial_client,
   }
 
   // database_path is only valid in the browser process.
-  base::FilePath database_path = internal::PlatformCrashpadInitialization(
-      initial_client, browser_process, embedded_handler, user_data_dir,
-      exe_path, initial_arguments);
+  base::FilePath database_path;
+  if (!internal::PlatformCrashpadInitialization(
+          initial_client, browser_process, embedded_handler, user_data_dir,
+          exe_path, initial_arguments, &database_path)) {
+    return false;
+  }
 
 #if defined(OS_APPLE)
 #if defined(NDEBUG)
@@ -177,7 +180,7 @@ void InitializeCrashpadImpl(bool initial_client,
 #else
   // "platform" is used to determine device_model on the crash server.
   static crashpad::StringAnnotation<24> platform("platform");
-  platform.Set(base::SysInfo::OperatingSystemArchitecture());
+  platform.Set(base::SysInfo::HardwareModelName());
 #endif  // OS_IOS
 
   logging::SetLogMessageHandler(LogMessageHandler);
@@ -212,13 +215,15 @@ void InitializeCrashpadImpl(bool initial_client,
     SetUploadConsent(crash_reporter_client->GetCollectStatsConsent());
 #endif
   }
+  return true;
 }
 
 }  // namespace
 
-void InitializeCrashpad(bool initial_client, const std::string& process_type) {
-  InitializeCrashpadImpl(initial_client, process_type, std::string(),
-                         base::FilePath(), std::vector<std::string>(), false);
+bool InitializeCrashpad(bool initial_client, const std::string& process_type) {
+  return InitializeCrashpadImpl(initial_client, process_type, std::string(),
+                                base::FilePath(), std::vector<std::string>(),
+                                false);
 }
 
 #if defined(OS_WIN)
@@ -274,6 +279,18 @@ void SetUploadConsent(bool consent) {
 void DumpWithoutCrashing() {
   CRASHPAD_SIMULATE_CRASH();
 }
+
+#if defined(OS_IOS)
+void DumpWithoutCrashAndDeferProcessing() {
+  CRASHPAD_SIMULATE_CRASH_AND_DEFER_PROCESSING();
+}
+
+void DumpWithoutCrashAndDeferProcessingAtPath(const base::FilePath& path) {
+  CRASHPAD_SIMULATE_CRASH_AND_DEFER_PROCESSING_AT_PATH(path);
+}
+
+#endif
+
 #endif
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)

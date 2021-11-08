@@ -24,6 +24,9 @@ class SharedWorkerFactoryImpl : public blink::mojom::SharedWorkerFactory {
   static void Create(
       mojo::PendingReceiver<blink::mojom::SharedWorkerFactory> receiver);
 
+  SharedWorkerFactoryImpl(const SharedWorkerFactoryImpl&) = delete;
+  SharedWorkerFactoryImpl& operator=(const SharedWorkerFactoryImpl&) = delete;
+
  private:
   SharedWorkerFactoryImpl();
 
@@ -33,6 +36,7 @@ class SharedWorkerFactoryImpl : public blink::mojom::SharedWorkerFactory {
       const blink::SharedWorkerToken& token,
       const url::Origin& constructor_origin,
       const std::string& user_agent,
+      const std::string& reduced_user_agent,
       const blink::UserAgentMetadata& ua_metadata,
       bool pause_on_start,
       const base::UnguessableToken& devtools_worker_token,
@@ -43,7 +47,6 @@ class SharedWorkerFactoryImpl : public blink::mojom::SharedWorkerFactory {
           content_settings,
       blink::mojom::ServiceWorkerContainerInfoForClientPtr
           service_worker_container_info,
-      const base::Optional<base::UnguessableToken>& appcache_host_id,
       blink::mojom::WorkerMainScriptLoadParamsPtr main_script_load_params,
       std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
           subresource_loader_factories,
@@ -53,8 +56,6 @@ class SharedWorkerFactoryImpl : public blink::mojom::SharedWorkerFactory {
       mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>
           browser_interface_broker,
       ukm::SourceId ukm_source_id) override;
-
-  DISALLOW_COPY_AND_ASSIGN(SharedWorkerFactoryImpl);
 };
 
 }  // namespace content

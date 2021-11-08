@@ -206,6 +206,12 @@ void BidirectionalStreamSpdyImpl::OnHeadersSent() {
     delegate_->OnStreamReady(/*request_headers_sent=*/true);
 }
 
+void BidirectionalStreamSpdyImpl::OnEarlyHintsReceived(
+    const spdy::Http2HeaderBlock& headers) {
+  DCHECK(stream_);
+  // TODO(crbug.com/671310): Plumb Early Hints to `delegate_` if needed.
+}
+
 void BidirectionalStreamSpdyImpl::OnHeadersReceived(
     const spdy::Http2HeaderBlock& response_headers,
     const spdy::Http2HeaderBlock* pushed_request_headers) {
@@ -357,7 +363,7 @@ void BidirectionalStreamSpdyImpl::ScheduleBufferedRead() {
   }
 
   more_read_data_pending_ = false;
-  timer_->Start(FROM_HERE, base::TimeDelta::FromMilliseconds(kBufferTimeMs),
+  timer_->Start(FROM_HERE, base::Milliseconds(kBufferTimeMs),
                 base::BindOnce(&BidirectionalStreamSpdyImpl::DoBufferedRead,
                                weak_factory_.GetWeakPtr()));
 }

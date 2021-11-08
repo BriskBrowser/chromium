@@ -4,11 +4,12 @@
 
 #include "remoting/host/me2me_desktop_environment.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "remoting/base/logging.h"
 #include "remoting/host/action_executor.h"
@@ -19,6 +20,7 @@
 #include "remoting/host/host_window_proxy.h"
 #include "remoting/host/input_injector.h"
 #include "remoting/host/input_monitor/local_input_monitor.h"
+#include "remoting/host/remote_open_url/remote_open_url_util.h"
 #include "remoting/host/resizing_host_observer.h"
 #include "remoting/host/screen_controls.h"
 #include "remoting/protocol/capability_names.h"
@@ -84,6 +86,17 @@ std::string Me2MeDesktopEnvironment::GetCapabilities() const {
     capabilities += protocol::kLockWorkstationAction;
   }
 #endif  // defined(OS_WIN)
+
+  if (desktop_environment_options().enable_remote_open_url() &&
+      IsRemoteOpenUrlSupported()) {
+    capabilities += " ";
+    capabilities += protocol::kRemoteOpenUrlCapability;
+  }
+
+  if (desktop_environment_options().enable_remote_webauthn()) {
+    capabilities += " ";
+    capabilities += protocol::kRemoteWebAuthnCapability;
+  }
 
   return capabilities;
 }
@@ -161,8 +174,8 @@ bool Me2MeDesktopEnvironment::InitializeSecurity(
 #else
     disconnect_window_ = HostWindow::CreateDisconnectWindow();
 #endif
-    disconnect_window_.reset(new HostWindowProxy(
-        caller_task_runner(), ui_task_runner(), std::move(disconnect_window_)));
+    disconnect_window_ = std::make_unique<HostWindowProxy>(
+        caller_task_runner(), ui_task_runner(), std::move(disconnect_window_));
     disconnect_window_->Start(client_session_control);
   }
 

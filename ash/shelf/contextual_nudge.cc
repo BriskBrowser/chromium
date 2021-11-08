@@ -10,6 +10,7 @@
 #include "ash/system/tray/tray_constants.h"
 #include "ash/wm/collision_detection/collision_detection_utils.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/views/border.h"
@@ -35,7 +36,7 @@ ContextualNudge::ContextualNudge(views::View* anchor,
                                  aura::Window* parent_window,
                                  Position position,
                                  const gfx::Insets& margins,
-                                 const base::string16& text,
+                                 const std::u16string& text,
                                  SkColor text_color,
                                  const base::RepeatingClosure& tap_callback)
     : views::BubbleDialogDelegateView(anchor,

@@ -9,7 +9,6 @@
 #include <sstream>
 
 #include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
@@ -36,6 +35,13 @@ bool CheckVideoFrameFormat(const ImageProcessor::PortConfig& config,
   if (frame.layout().coded_size() != config.size) {
     VLOGF(1) << "Invalid frame size=" << frame.layout().coded_size().ToString()
              << ", expected=" << config.size.ToString();
+    return false;
+  }
+
+  if (frame.visible_rect() != config.visible_rect) {
+    VLOGF(1) << "Invalid frame visible rectangle="
+             << frame.visible_rect().ToString()
+             << ", expected=" << config.visible_rect.ToString();
     return false;
   }
 
@@ -97,11 +103,7 @@ ImageProcessor::~ImageProcessor() {
   weak_this_factory_.InvalidateWeakPtrs();
 
   // Delete |backend_| on |backend_task_runner_|.
-  backend_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(
-          base::DoNothing::Once<std::unique_ptr<ImageProcessorBackend>>(),
-          std::move(backend_)));
+  backend_task_runner_->DeleteSoon(FROM_HERE, std::move(backend_));
 }
 
 bool ImageProcessor::Process(scoped_refptr<VideoFrame> input_frame,
@@ -131,7 +133,7 @@ bool ImageProcessor::Process(scoped_refptr<VideoFrame> input_frame,
 // static
 void ImageProcessor::OnProcessDoneThunk(
     scoped_refptr<base::SequencedTaskRunner> task_runner,
-    base::Optional<base::WeakPtr<ImageProcessor>> weak_this,
+    absl::optional<base::WeakPtr<ImageProcessor>> weak_this,
     int cb_index,
     scoped_refptr<VideoFrame> frame) {
   DVLOGF(4);
@@ -178,7 +180,7 @@ bool ImageProcessor::Process(scoped_refptr<VideoFrame> frame,
 // static
 void ImageProcessor::OnProcessLegacyDoneThunk(
     scoped_refptr<base::SequencedTaskRunner> task_runner,
-    base::Optional<base::WeakPtr<ImageProcessor>> weak_this,
+    absl::optional<base::WeakPtr<ImageProcessor>> weak_this,
     int cb_index,
     size_t buffer_id,
     scoped_refptr<VideoFrame> frame) {

@@ -7,7 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -51,8 +53,7 @@ const int kTestFrameHeight3 = 64;
 
 const int kFrameRate = 30;
 
-constexpr base::TimeDelta kVirtualTestDurationSeconds =
-    base::TimeDelta::FromSeconds(100);
+constexpr base::TimeDelta kVirtualTestDurationSeconds = base::Seconds(100);
 
 // The value of the padding bytes in unpacked frames.
 const uint8_t kFramePaddingValue = 0;
@@ -97,12 +98,14 @@ class InvertedDesktopFrame : public webrtc::DesktopFrame {
     mutable_updated_region()->Swap(frame->mutable_updated_region());
     original_frame_ = std::move(frame);
   }
+
+  InvertedDesktopFrame(const InvertedDesktopFrame&) = delete;
+  InvertedDesktopFrame& operator=(const InvertedDesktopFrame&) = delete;
+
   ~InvertedDesktopFrame() override {}
 
  private:
   std::unique_ptr<webrtc::DesktopFrame> original_frame_;
-
-  DISALLOW_COPY_AND_ASSIGN(InvertedDesktopFrame);
 };
 
 // DesktopFrame wrapper that copies the input frame and doubles the stride.
@@ -119,12 +122,13 @@ class UnpackedDesktopFrame : public webrtc::DesktopFrame {
     CopyPixelsFrom(*frame, webrtc::DesktopVector(),
                    webrtc::DesktopRect::MakeSize(size()));
   }
+
+  UnpackedDesktopFrame(const UnpackedDesktopFrame&) = delete;
+  UnpackedDesktopFrame& operator=(const UnpackedDesktopFrame&) = delete;
+
   ~UnpackedDesktopFrame() override {
     delete[] data_;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(UnpackedDesktopFrame);
 };
 
 // TODO(sergeyu): Move this to a separate file where it can be reused.
@@ -160,9 +164,9 @@ class FakeScreenCapturer : public webrtc::DesktopCapturer {
     std::unique_ptr<webrtc::DesktopFrame> frame = CreateBasicFrame(size);
 
     if (generate_inverted_frames_) {
-      frame.reset(new InvertedDesktopFrame(std::move(frame)));
+      frame = std::make_unique<InvertedDesktopFrame>(std::move(frame));
     } else if (generate_cropped_frames_) {
-      frame.reset(new UnpackedDesktopFrame(std::move(frame)));
+      frame = std::make_unique<UnpackedDesktopFrame>(std::move(frame));
     }
 
     if (run_callback_asynchronously_) {
@@ -467,8 +471,8 @@ TEST_F(DesktopCaptureDeviceTest, UnpackedFrame) {
       base::WaitableEvent::InitialState::NOT_SIGNALED);
 
   int frame_size = 0;
-  output_frame_.reset(new webrtc::BasicDesktopFrame(
-      webrtc::DesktopSize(kTestFrameWidth1, kTestFrameHeight1)));
+  output_frame_ = std::make_unique<webrtc::BasicDesktopFrame>(
+      webrtc::DesktopSize(kTestFrameWidth1, kTestFrameHeight1));
 
   std::unique_ptr<media::MockVideoCaptureDeviceClient> client(
       CreateMockVideoCaptureDeviceClient());
@@ -516,8 +520,8 @@ TEST_F(DesktopCaptureDeviceTest, InvertedFrame) {
       base::WaitableEvent::InitialState::NOT_SIGNALED);
 
   int frame_size = 0;
-  output_frame_.reset(new webrtc::BasicDesktopFrame(
-      webrtc::DesktopSize(kTestFrameWidth1, kTestFrameHeight1)));
+  output_frame_ = std::make_unique<webrtc::BasicDesktopFrame>(
+      webrtc::DesktopSize(kTestFrameWidth1, kTestFrameHeight1));
 
   std::unique_ptr<media::MockVideoCaptureDeviceClient> client(
       CreateMockVideoCaptureDeviceClient());
@@ -606,7 +610,7 @@ class DesktopCaptureDeviceThrottledTest : public DesktopCaptureDeviceTest {
               // here in OnIncomingCapturedData is take into account for
               // the capture duration
               const base::TimeDelta device_capture_duration =
-                  base::TimeDelta::FromMicroseconds(static_cast<int64_t>(
+                  base::Microseconds(static_cast<int64_t>(
                       static_cast<double>(base::Time::kMicrosecondsPerSecond) /
                           kFrameRate +
                       0.5 /* round to nearest int */));

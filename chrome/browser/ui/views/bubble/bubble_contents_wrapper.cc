@@ -4,9 +4,11 @@
 
 #include "chrome/browser/ui/views/bubble/bubble_contents_wrapper.h"
 
+#include "chrome/browser/ui/prefs/prefs_tab_helper.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/render_widget_host_view.h"
+#include "ui/base/models/menu_model.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/views/widget/widget.h"
 
@@ -36,8 +38,12 @@ bool BubbleContentsWrapper::Host::HandleKeyboardEvent(
 BubbleContentsWrapper::BubbleContentsWrapper(
     content::BrowserContext* browser_context,
     int task_manager_string_id,
-    bool enable_extension_apis)
-    : web_contents_(content::WebContents::Create(
+    bool enable_extension_apis,
+    bool webui_resizes_host,
+    bool esc_closes_ui)
+    : webui_resizes_host_(webui_resizes_host),
+      esc_closes_ui_(esc_closes_ui),
+      web_contents_(content::WebContents::Create(
           GetWebContentsCreateParams(browser_context))) {
   web_contents_->SetDelegate(this);
   WebContentsObserver::Observe(web_contents_.get());
@@ -48,6 +54,7 @@ BubbleContentsWrapper::BubbleContentsWrapper(
     extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
         web_contents_.get());
   }
+  PrefsTabHelper::CreateForWebContents(web_contents_.get());
   task_manager::WebContentsTags::CreateForToolContents(web_contents_.get(),
                                                        task_manager_string_id);
 }
@@ -70,7 +77,7 @@ BubbleContentsWrapper::PreHandleKeyboardEvent(
   DCHECK_EQ(web_contents(), source);
   // Close the bubble if an escape event is detected. Handle this here to
   // prevent the renderer from capturing the event and not propagating it up.
-  if (host_ && IsEscapeEvent(event)) {
+  if (host_ && IsEscapeEvent(event) && esc_closes_ui_) {
     host_->CloseUI();
     return content::KeyboardEventProcessingResult::HANDLED;
   }
@@ -84,16 +91,28 @@ bool BubbleContentsWrapper::HandleKeyboardEvent(
   return host_ ? host_->HandleKeyboardEvent(source, event) : false;
 }
 
+bool BubbleContentsWrapper::HandleContextMenu(
+    content::RenderFrameHost& render_frame_host,
+    const content::ContextMenuParams& params) {
+  // Ignores context menu.
+  return true;
+}
+
 void BubbleContentsWrapper::RenderViewHostChanged(
     content::RenderViewHost* old_host,
     content::RenderViewHost* new_host) {
   content::RenderWidgetHostView* render_widget_host_view =
       web_contents_->GetRenderWidgetHostView();
-  if (!render_widget_host_view)
+  if (!webui_resizes_host_ || !render_widget_host_view)
     return;
 
   render_widget_host_view->EnableAutoResize(gfx::Size(1, 1),
                                             gfx::Size(INT_MAX, INT_MAX));
+}
+
+void BubbleContentsWrapper::PrimaryMainFrameRenderProcessGone(
+    base::TerminationStatus status) {
+  CloseUI();
 }
 
 void BubbleContentsWrapper::ShowUI() {
@@ -106,12 +125,25 @@ void BubbleContentsWrapper::CloseUI() {
     host_->CloseUI();
 }
 
+void BubbleContentsWrapper::ShowContextMenu(
+    gfx::Point point,
+    std::unique_ptr<ui::MenuModel> menu_model) {
+  if (host_)
+    host_->ShowCustomContextMenu(point, std::move(menu_model));
+}
+
+void BubbleContentsWrapper::HideContextMenu() {
+  if (host_)
+    host_->HideCustomContextMenu();
+}
+
 base::WeakPtr<BubbleContentsWrapper::Host> BubbleContentsWrapper::GetHost() {
   return host_;
 }
 
 void BubbleContentsWrapper::SetHost(
     base::WeakPtr<BubbleContentsWrapper::Host> host) {
+  DCHECK(!web_contents_->IsCrashed());
   host_ = std::move(host);
 }
 

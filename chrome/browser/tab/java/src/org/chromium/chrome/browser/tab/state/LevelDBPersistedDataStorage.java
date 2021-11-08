@@ -10,9 +10,8 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.Callback;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.base.annotations.RemovableInRelease;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.components.embedder_support.browser_context.BrowserContextHandle;
+import org.chromium.content_public.browser.BrowserContextHandle;
 
 /**
  * Provides key -> byte[] mapping storage with namespace support for PersistedData
@@ -46,7 +45,6 @@ public class LevelDBPersistedDataStorage implements PersistedDataStorage {
         return String.format("%s_%s", mNamespace, key);
     }
 
-    @RemovableInRelease
     @MainThread
     public void saveForTesting(String key, byte[] data, Runnable onComplete) {
         makeNativeAssertion();
@@ -68,12 +66,33 @@ public class LevelDBPersistedDataStorage implements PersistedDataStorage {
                 mNativePersistedStateDB, getMasterKey(key), null);
     }
 
-    @RemovableInRelease
     @MainThread
     public void deleteForTesting(String key, Runnable onComplete) {
         makeNativeAssertion();
         LevelDBPersistedDataStorageJni.get().delete(
                 mNativePersistedStateDB, getMasterKey(key), onComplete);
+    }
+
+    @Override
+    public void performMaintenance(String[] keysToKeep, String dataId) {
+        makeNativeAssertion();
+        LevelDBPersistedDataStorageJni.get().performMaintenance(
+                mNativePersistedStateDB, getMasterKeysToKeep(keysToKeep, dataId), dataId, null);
+    }
+
+    protected void performMaintenanceForTesting(
+            String[] keysToKeep, String dataId, Runnable onComplete) {
+        makeNativeAssertion();
+        LevelDBPersistedDataStorageJni.get().performMaintenance(mNativePersistedStateDB,
+                getMasterKeysToKeep(keysToKeep, dataId), dataId, onComplete);
+    }
+
+    private String[] getMasterKeysToKeep(String[] keysToKeep, String dataId) {
+        String[] masterKeysToKeep = new String[keysToKeep.length];
+        for (int i = 0; i < keysToKeep.length; i++) {
+            masterKeysToKeep[i] = getMasterKey(keysToKeep[i]);
+        }
+        return masterKeysToKeep;
     }
 
     public void destroy() {
@@ -108,5 +127,7 @@ public class LevelDBPersistedDataStorage implements PersistedDataStorage {
         void save(long nativePersistedStateDB, String key, byte[] data, Runnable onComplete);
         void load(long nativePersistedStateDB, String key, Callback<byte[]> callback);
         void delete(long nativePersistedStateDB, String key, Runnable onComplete);
+        void performMaintenance(long nativePersistedStateDB, String[] keysToKeep, String dataId,
+                Runnable onComplete);
     }
 }

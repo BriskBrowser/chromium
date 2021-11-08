@@ -47,6 +47,10 @@ class EventReaderLibevdevCros : public EventConverterEvdev {
                           int id,
                           const EventDeviceInfo& devinfo,
                           std::unique_ptr<Delegate> delegate);
+
+  EventReaderLibevdevCros(const EventReaderLibevdevCros&) = delete;
+  EventReaderLibevdevCros& operator=(const EventReaderLibevdevCros&) = delete;
+
   ~EventReaderLibevdevCros() override;
 
   // EventConverterEvdev:
@@ -56,6 +60,7 @@ class EventReaderLibevdevCros : public EventConverterEvdev {
   bool HasPointingStick() const override;
   bool HasTouchpad() const override;
   bool HasCapsLockLed() const override;
+  bool HasStylusSwitch() const override;
   void OnDisabled() override;
 
  private:
@@ -69,6 +74,7 @@ class EventReaderLibevdevCros : public EventConverterEvdev {
   bool has_mouse_;
   bool has_pointing_stick_;
   bool has_touchpad_;
+  bool has_stylus_switch_;
 
   // LEDs for this device.
   bool has_caps_lock_led_;
@@ -84,8 +90,6 @@ class EventReaderLibevdevCros : public EventConverterEvdev {
 
   // Delegate for event processing.
   std::unique_ptr<Delegate> delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(EventReaderLibevdevCros);
 };
 
 }  // namspace ui

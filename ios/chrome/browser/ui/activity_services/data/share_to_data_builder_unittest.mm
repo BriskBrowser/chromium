@@ -30,11 +30,11 @@
 #endif
 
 using ui::test::uiimage_utils::UIImagesAreEqual;
-using ui::test::uiimage_utils::UIImageWithSizeAndSolidColor;
+using ui::test::uiimage_utils::UIImageWithSizeAndSolidColorAndScale;
 
 namespace {
 const char kExpectedUrl[] = "http://www.testurl.net/";
-const char kExpectedTitle[] = "title";
+const char16_t kExpectedTitle[] = u"title";
 }  // namespace
 
 class ShareToDataBuilderTest : public PlatformTest {
@@ -46,8 +46,7 @@ class ShareToDataBuilderTest : public PlatformTest {
     navigation_manager->AddItem(GURL(kExpectedUrl), ui::PAGE_TRANSITION_TYPED);
     navigation_manager->SetLastCommittedItem(navigation_manager->GetItemAtIndex(
         navigation_manager->GetLastCommittedItemIndex()));
-    navigation_manager->GetLastCommittedItem()->SetTitle(
-        base::UTF8ToUTF16(kExpectedTitle));
+    navigation_manager->GetLastCommittedItem()->SetTitle(kExpectedTitle);
 
     web_state_ = std::make_unique<web::FakeWebState>();
     web_state_->SetNavigationManager(std::move(navigation_manager));
@@ -62,7 +61,7 @@ class ShareToDataBuilderTest : public PlatformTest {
     // Needed by the ShareToDataForWebState to get the tab title.
     DownloadManagerTabHelper::CreateForWebState(web_state_.get(),
                                                 /*delegate=*/nullptr);
-    web_state_->SetTitle(base::UTF8ToUTF16(kExpectedTitle));
+    web_state_->SetTitle(kExpectedTitle);
 
     // Add a fake view to the FakeWebState. This will be used to capture the
     // snapshot. By default the WebState is not ready for taking snapshot.
@@ -71,6 +70,9 @@ class ShareToDataBuilderTest : public PlatformTest {
     delegate_.view.backgroundColor = [UIColor blueColor];
   }
 
+  ShareToDataBuilderTest(const ShareToDataBuilderTest&) = delete;
+  ShareToDataBuilderTest& operator=(const ShareToDataBuilderTest&) = delete;
+
   web::WebState* web_state() { return web_state_.get(); }
 
  private:
@@ -78,13 +80,11 @@ class ShareToDataBuilderTest : public PlatformTest {
   web::WebTaskEnvironment task_environment_;
   std::unique_ptr<ChromeBrowserState> chrome_browser_state_;
   std::unique_ptr<web::FakeWebState> web_state_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShareToDataBuilderTest);
 };
 
 // Verifies that ShareToData is constructed properly for a given Tab when there
 // is a URL provided for share extensions.
-TEST_F(ShareToDataBuilderTest, TestSharePageCommandHandlingNpShareUrl) {
+TEST_F(ShareToDataBuilderTest, TestSharePageCommandHandlingWithShareUrl) {
   const char* kExpectedShareUrl = "http://www.testurl.com/";
   ShareToData* actual_data = activity_services::ShareToDataForWebState(
       web_state(), GURL(kExpectedShareUrl));
@@ -92,14 +92,21 @@ TEST_F(ShareToDataBuilderTest, TestSharePageCommandHandlingNpShareUrl) {
   ASSERT_TRUE(actual_data);
   EXPECT_EQ(kExpectedShareUrl, actual_data.shareURL);
   EXPECT_EQ(kExpectedUrl, actual_data.visibleURL);
-  EXPECT_NSEQ(base::SysUTF8ToNSString(kExpectedTitle), actual_data.title);
+  EXPECT_NSEQ(base::SysUTF16ToNSString(kExpectedTitle), actual_data.title);
   EXPECT_TRUE(actual_data.isOriginalTitle);
   EXPECT_FALSE(actual_data.isPagePrintable);
 
-  const CGSize size = CGSizeMake(40, 40);
-  EXPECT_TRUE(UIImagesAreEqual(
-      [actual_data.thumbnailGenerator thumbnailWithSize:size],
-      UIImageWithSizeAndSolidColor(size, [UIColor blueColor])));
+  // TODO(crbug.com/1249831): The binary representation of the thumbnail appears
+  // to have changed in iOS 15, such that UIImagesAreEqual() no longer returns
+  // true.
+  if (@available(iOS 15, *)) {
+  } else {
+    const CGSize size = CGSizeMake(40, 40);
+    EXPECT_TRUE(UIImagesAreEqual(
+        [actual_data.thumbnailGenerator thumbnailWithSize:size],
+        UIImageWithSizeAndSolidColorAndScale(size, [UIColor blueColor],
+                                             /* scale=*/0)));
+  }
 }
 
 // Verifies that ShareToData is constructed properly for a given Tab when the
@@ -111,14 +118,21 @@ TEST_F(ShareToDataBuilderTest, TestSharePageCommandHandlingNoShareUrl) {
   ASSERT_TRUE(actual_data);
   EXPECT_EQ(kExpectedUrl, actual_data.shareURL);
   EXPECT_EQ(kExpectedUrl, actual_data.visibleURL);
-  EXPECT_NSEQ(base::SysUTF8ToNSString(kExpectedTitle), actual_data.title);
+  EXPECT_NSEQ(base::SysUTF16ToNSString(kExpectedTitle), actual_data.title);
   EXPECT_TRUE(actual_data.isOriginalTitle);
   EXPECT_FALSE(actual_data.isPagePrintable);
 
-  const CGSize size = CGSizeMake(40, 40);
-  EXPECT_TRUE(UIImagesAreEqual(
-      [actual_data.thumbnailGenerator thumbnailWithSize:size],
-      UIImageWithSizeAndSolidColor(size, [UIColor blueColor])));
+  // TODO(crbug.com/1249831): The binary representation of the thumbnail appears
+  // to have changed in iOS 15, such that UIImagesAreEqual() no longer returns
+  // true.
+  if (@available(iOS 15, *)) {
+  } else {
+    const CGSize size = CGSizeMake(40, 40);
+    EXPECT_TRUE(UIImagesAreEqual(
+        [actual_data.thumbnailGenerator thumbnailWithSize:size],
+        UIImageWithSizeAndSolidColorAndScale(size, [UIColor blueColor],
+                                             /* scale=*/0)));
+  }
 }
 
 // Verifies that |ShareToDataForWebState()| returns nil if the WebState passed

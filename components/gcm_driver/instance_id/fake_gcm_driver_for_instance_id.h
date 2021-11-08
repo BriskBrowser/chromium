@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef COMPONENTS_GCM_DRIVER_INSTANCE_ID_FAKE_GCM_DRIVER__FOR_INSTANCE_ID_H_
-#define COMPONENTS_GCM_DRIVER_INSTANCE_ID_FAKE_GCM_DRIVER__FOR_INSTANCE_ID_H_
+#ifndef COMPONENTS_GCM_DRIVER_INSTANCE_ID_FAKE_GCM_DRIVER_FOR_INSTANCE_ID_H_
+#define COMPONENTS_GCM_DRIVER_INSTANCE_ID_FAKE_GCM_DRIVER_FOR_INSTANCE_ID_H_
 
 #include <map>
 #include <string>
@@ -25,6 +25,11 @@ class FakeGCMDriverForInstanceID : public gcm::FakeGCMDriver,
   FakeGCMDriverForInstanceID();
   explicit FakeGCMDriverForInstanceID(
       const scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner);
+
+  FakeGCMDriverForInstanceID(const FakeGCMDriverForInstanceID&) = delete;
+  FakeGCMDriverForInstanceID& operator=(const FakeGCMDriverForInstanceID&) =
+      delete;
+
   ~FakeGCMDriverForInstanceID() override;
 
   // FakeGCMDriver overrides:
@@ -69,10 +74,8 @@ class FakeGCMDriverForInstanceID : public gcm::FakeGCMDriver,
   std::string last_gettoken_app_id_;
   std::string last_gettoken_authorized_entity_;
   std::string last_deletetoken_app_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeGCMDriverForInstanceID);
 };
 
 }  // namespace instance_id
 
-#endif  // COMPONENTS_GCM_DRIVER_INSTANCE_ID_FAKE_GCM_DRIVER__FOR_INSTANCE_ID_H_
+#endif  // COMPONENTS_GCM_DRIVER_INSTANCE_ID_FAKE_GCM_DRIVER_FOR_INSTANCE_ID_H_

@@ -21,7 +21,7 @@ namespace {
 // Resolve the specified test file path to an absolute path. The path can be
 // either an absolute path, a path relative to the current directory, or a path
 // relative to the test data path.
-base::Optional<base::FilePath> ResolveFilePath(
+absl::optional<base::FilePath> ResolveFilePath(
     const base::FilePath& file_path) {
   base::FilePath resolved_path = file_path;
 
@@ -35,8 +35,8 @@ base::Optional<base::FilePath> ResolveFilePath(
   }
 
   return PathExists(resolved_path)
-             ? base::Optional<base::FilePath>(resolved_path)
-             : base::nullopt;
+             ? absl::optional<base::FilePath>(resolved_path)
+             : absl::nullopt;
 }
 
 // Converts the |pixel_format| string into a VideoPixelFormat.
@@ -51,6 +51,10 @@ VideoPixelFormat ConvertStringtoPixelFormat(const std::string& pixel_format) {
     return PIXEL_FORMAT_YV12;
   } else if (pixel_format == "RGBA") {
     return PIXEL_FORMAT_ABGR;
+  } else if (pixel_format == "I422") {
+    return PIXEL_FORMAT_I422;
+  } else if (pixel_format == "YUYV") {
+    return PIXEL_FORMAT_YUY2;
   } else {
     VLOG(2) << pixel_format << " is not supported.";
     return PIXEL_FORMAT_UNKNOWN;
@@ -71,7 +75,7 @@ bool Image::Load() {
   DCHECK(!file_path_.empty());
   DCHECK(!IsLoaded());
 
-  base::Optional<base::FilePath> resolved_path = ResolveFilePath(file_path_);
+  absl::optional<base::FilePath> resolved_path = ResolveFilePath(file_path_);
   if (!resolved_path) {
     LOG(ERROR) << "Image file not found: " << file_path_;
     return false;
@@ -110,7 +114,7 @@ bool Image::LoadMetadata() {
   }
 
   base::FilePath json_path = file_path_.AddExtension(kMetadataSuffix);
-  base::Optional<base::FilePath> resolved_path = ResolveFilePath(json_path);
+  absl::optional<base::FilePath> resolved_path = ResolveFilePath(json_path);
   if (!resolved_path) {
     LOG(ERROR) << "Image metadata file not found: " << json_path;
     return false;
@@ -135,7 +139,7 @@ bool Image::LoadMetadata() {
              << metadata_result.error_message;
     return false;
   }
-  base::Optional<base::Value> metadata = std::move(metadata_result.value);
+  absl::optional<base::Value> metadata = std::move(metadata_result.value);
 
   // Get the pixel format from the json data.
   const base::Value* pixel_format =

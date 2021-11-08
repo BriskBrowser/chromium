@@ -9,6 +9,7 @@
 
 #include "base/containers/contains.h"
 #include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
@@ -17,6 +18,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/app_management/app_management.mojom.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
+#include "components/services/app_service/public/cpp/intent_constants.h"
+#include "components/services/app_service/public/cpp/intent_filter_util.h"
+#include "components/services/app_service/public/cpp/preferred_apps_list_handle.h"
+#include "components/services/app_service/public/cpp/types_util.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
@@ -29,19 +34,13 @@
 #include "mojo/public/cpp/bindings/remote.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
-#include "components/arc/arc_prefs.h"
+#include "components/arc/session/connection_holder.h"
 #endif
 
 using apps::mojom::OptionalBool;
 
 namespace {
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-constexpr char kArcFrameworkPackage[] = "android";
-constexpr int kMinAndroidFrameworkVersion = 28;  // Android P
-#endif
 
 constexpr char const* kAppIdsWithHiddenMoreSettings[] = {
     extensions::kWebStoreAppId,
@@ -49,7 +48,8 @@ constexpr char const* kAppIdsWithHiddenMoreSettings[] = {
 };
 
 constexpr char const* kAppIdsWithHiddenPinToShelf[] = {
-  extension_misc::kChromeAppId,
+    extension_misc::kChromeAppId,
+    extension_misc::kLacrosAppId,
 };
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -85,6 +85,41 @@ bool ShouldHideStoragePermission(const std::string app_id) {
 #endif
 }
 
+// Returns a list of intent filters that support http/https given an app ID.
+std::vector<apps::mojom::IntentFilterPtr> GetSupportedLinkIntentFilters(
+    Profile* profile,
+    const std::string& app_id) {
+  std::vector<apps::mojom::IntentFilterPtr> intent_filters;
+  apps::AppServiceProxyFactory::GetForProfile(profile)
+      ->AppRegistryCache()
+      .ForOneApp(app_id,
+                 [&app_id, &intent_filters](const apps::AppUpdate& update) {
+                   if (update.Readiness() == apps::mojom::Readiness::kReady) {
+                     for (auto& filter : update.IntentFilters()) {
+                       if (apps_util::IsSupportedLinkForApp(app_id, filter)) {
+                         intent_filters.emplace_back(std::move(filter));
+                       }
+                     }
+                   }
+                 });
+  return intent_filters;
+}
+
+// Returns a list of URLs supported by an app given an app ID.
+std::vector<std::string> GetSupportedLinks(Profile* profile,
+                                           const std::string& app_id) {
+  std::set<std::string> supported_links;
+  auto intent_filters = GetSupportedLinkIntentFilters(profile, app_id);
+  for (auto& filter : intent_filters) {
+    for (const auto& link : apps_util::AppManagementGetSupportedLinks(filter)) {
+      supported_links.insert(link);
+    }
+  }
+
+  return std::vector<std::string>(supported_links.begin(),
+                                  supported_links.end());
+}
+
 }  // namespace
 
 AppManagementPageHandler::AppManagementPageHandler(
@@ -93,30 +128,30 @@ AppManagementPageHandler::AppManagementPageHandler(
     Profile* profile)
     : receiver_(this, std::move(receiver)),
       page_(std::move(page)),
-      profile_(profile) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile_);
-
-  Observe(&proxy->AppRegistryCache());
-
+      profile_(profile)
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (arc::IsArcAllowedForProfile(profile_)) {
-    arc_app_list_prefs_observation_.Observe(ArcAppListPrefs::Get(profile_));
-  }
+      ,
+      shelf_delegate_(this, profile)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+      ,
+      preferred_apps_list_handle_(
+          apps::AppServiceProxyFactory::GetForProfile(profile)
+              ->PreferredApps()) {
+  app_registry_cache_observer_.Observe(
+      &apps::AppServiceProxyFactory::GetForProfile(profile_)
+           ->AppRegistryCache());
+  preferred_apps_list_handle_observer_.Observe(&preferred_apps_list_handle_);
 }
 
 AppManagementPageHandler::~AppManagementPageHandler() {}
 
 void AppManagementPageHandler::OnPinnedChanged(const std::string& app_id,
                                                bool pinned) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile_);
-
   app_management::mojom::AppPtr app;
 
-  proxy->AppRegistryCache().ForOneApp(
-      app_id, [this, &app](const apps::AppUpdate& update) {
+  apps::AppServiceProxyFactory::GetForProfile(profile_)
+      ->AppRegistryCache()
+      .ForOneApp(app_id, [this, &app](const apps::AppUpdate& update) {
         if (update.Readiness() == apps::mojom::Readiness::kReady)
           app = CreateUIAppPtr(update);
       });
@@ -131,14 +166,12 @@ void AppManagementPageHandler::OnPinnedChanged(const std::string& app_id,
 }
 
 void AppManagementPageHandler::GetApps(GetAppsCallback callback) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile_);
-
   std::vector<app_management::mojom::AppPtr> apps;
-  proxy->AppRegistryCache().ForEachApp(
-      [this, &apps](const apps::AppUpdate& update) {
+  apps::AppServiceProxyFactory::GetForProfile(profile_)
+      ->AppRegistryCache()
+      .ForEachApp([this, &apps](const apps::AppUpdate& update) {
         if (update.ShowInManagement() == apps::mojom::OptionalBool::kTrue &&
-            update.Readiness() != apps::mojom::Readiness::kUninstalledByUser) {
+            apps_util::IsInstalled(update.Readiness())) {
           apps.push_back(CreateUIAppPtr(update));
         }
       });
@@ -177,37 +210,68 @@ void AppManagementPageHandler::SetPinned(const std::string& app_id,
 void AppManagementPageHandler::SetPermission(
     const std::string& app_id,
     apps::mojom::PermissionPtr permission) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile_);
+  apps::AppServiceProxyFactory::GetForProfile(profile_)->SetPermission(
+      app_id, std::move(permission));
+}
 
-  proxy->SetPermission(app_id, std::move(permission));
+void AppManagementPageHandler::SetResizeLocked(const std::string& app_id,
+                                               bool locked) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  apps::AppServiceProxyFactory::GetForProfile(profile_)->SetResizeLocked(
+      app_id, locked ? OptionalBool::kTrue : OptionalBool::kFalse);
+#else
+  NOTREACHED();
+#endif
 }
 
 void AppManagementPageHandler::Uninstall(const std::string& app_id) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile_);
-
-  proxy->Uninstall(app_id, nullptr /* parent_window */);
+  apps::AppServiceProxyFactory::GetForProfile(profile_)->Uninstall(
+      app_id, apps::mojom::UninstallSource::kAppManagement,
+      nullptr /* parent_window */);
 }
 
 void AppManagementPageHandler::OpenNativeSettings(const std::string& app_id) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile_);
+  apps::AppServiceProxyFactory::GetForProfile(profile_)->OpenNativeSettings(
+      app_id);
+}
 
-  proxy->OpenNativeSettings(app_id);
+void AppManagementPageHandler::SetPreferredApp(const std::string& app_id,
+                                               bool is_preferred_app) {
+  bool is_preferred_app_for_supported_links =
+      preferred_apps_list_handle_.IsPreferredAppForSupportedLinks(app_id);
+  auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile_);
+
+  if (is_preferred_app && !is_preferred_app_for_supported_links) {
+    proxy->SetSupportedLinksPreference(app_id);
+  } else if (!is_preferred_app && is_preferred_app_for_supported_links) {
+    proxy->RemoveSupportedLinksPreference(app_id);
+  }
+}
+
+void AppManagementPageHandler::GetOverlappingPreferredApps(
+    const std::string& app_id,
+    GetOverlappingPreferredAppsCallback callback) {
+  auto intent_filters = GetSupportedLinkIntentFilters(profile_, app_id);
+  base::flat_set<std::string> app_ids =
+      preferred_apps_list_handle_.FindPreferredAppsForFilters(intent_filters);
+  app_ids.erase(app_id);
+  // Remove the use_browser app ID as it's mainly used inside the intent system and is not an app
+  // in app management. This prevents an overlap dialog from being shown when there are no "real"
+  // apps that overlap.
+  app_ids.erase(apps::kUseBrowserForLink);
+  std::move(callback).Run(std::move(app_ids).extract());
 }
 
 app_management::mojom::AppPtr AppManagementPageHandler::CreateUIAppPtr(
     const apps::AppUpdate& update) {
-  base::flat_map<uint32_t, apps::mojom::PermissionPtr> permissions;
+  base::flat_map<apps::mojom::PermissionType, apps::mojom::PermissionPtr>
+      permissions;
   for (const auto& permission : update.Permissions()) {
-    if (static_cast<app_management::mojom::ArcPermissionType>(
-            permission->permission_id) ==
-            app_management::mojom::ArcPermissionType::STORAGE &&
+    if (permission->permission_type == apps::mojom::PermissionType::kStorage &&
         ShouldHideStoragePermission(update.AppId())) {
       continue;
     }
-    permissions[permission->permission_id] = permission->Clone();
+    permissions[permission->permission_type] = permission->Clone();
   }
 
   auto app = app_management::mojom::App::New();
@@ -215,7 +279,7 @@ app_management::mojom::AppPtr AppManagementPageHandler::CreateUIAppPtr(
   app->type = update.AppType();
   app->title = update.Name();
   app->permissions = std::move(permissions);
-  app->install_source = update.InstallSource();
+  app->install_reason = update.InstallReason();
 
   app->description = update.Description();
 
@@ -228,12 +292,19 @@ app_management::mojom::AppPtr AppManagementPageHandler::CreateUIAppPtr(
   app->is_policy_pinned = shelf_delegate_.IsPolicyPinned(update.AppId())
                               ? OptionalBool::kTrue
                               : OptionalBool::kFalse;
+  app->resize_locked = update.ResizeLocked() == OptionalBool::kTrue;
+  app->hide_resize_locked =
+      update.ResizeLocked() == apps::mojom::OptionalBool::kUnknown;
 #endif
-
+  app->is_preferred_app =
+      preferred_apps_list_handle_.IsPreferredAppForSupportedLinks(
+          update.AppId());
   app->hide_more_settings = ShouldHideMoreSettings(app->id);
   app->hide_pin_to_shelf =
       update.ShowInShelf() == apps::mojom::OptionalBool::kFalse ||
       ShouldHidePinToShelf(app->id);
+  app->window_mode = update.WindowMode();
+  app->supported_links = GetSupportedLinks(profile_, app->id);
 
   return app;
 }
@@ -246,7 +317,7 @@ void AppManagementPageHandler::OnAppUpdate(const apps::AppUpdate& update) {
     }
 
     if (update.ShowInManagement() == apps::mojom::OptionalBool::kFalse ||
-        update.Readiness() == apps::mojom::Readiness::kUninstalledByUser) {
+        !apps_util::IsInstalled(update.Readiness())) {
       page_->OnAppRemoved(update.AppId());
     }
   } else {
@@ -256,34 +327,30 @@ void AppManagementPageHandler::OnAppUpdate(const apps::AppUpdate& update) {
 
 void AppManagementPageHandler::OnAppRegistryCacheWillBeDestroyed(
     apps::AppRegistryCache* cache) {
-  Observe(nullptr);
+  cache->RemoveObserver(this);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-// static
-bool AppManagementPageHandler::IsCurrentArcVersionSupported(Profile* profile) {
-  if (arc::IsArcAllowedForProfile(profile)) {
-    auto package =
-        ArcAppListPrefs::Get(profile)->GetPackage(kArcFrameworkPackage);
-    return package && (package->package_version >= kMinAndroidFrameworkVersion);
-  }
-  return false;
-}
+void AppManagementPageHandler::OnPreferredAppChanged(const std::string& app_id,
+                                                     bool is_preferred_app) {
+  app_management::mojom::AppPtr app;
 
-void AppManagementPageHandler::OnArcVersionChanged(int androidVersion) {
-  page_->OnArcSupportChanged(androidVersion >= kMinAndroidFrameworkVersion);
-}
+  apps::AppServiceProxyFactory::GetForProfile(profile_)
+      ->AppRegistryCache()
+      .ForOneApp(app_id, [this, &app](const apps::AppUpdate& update) {
+        if (update.Readiness() == apps::mojom::Readiness::kReady)
+          app = CreateUIAppPtr(update);
+      });
 
-void AppManagementPageHandler::OnPackageInstalled(
-    const arc::mojom::ArcPackageInfo& package_info) {
-  OnPackageModified(package_info);
-}
-
-void AppManagementPageHandler::OnPackageModified(
-    const arc::mojom::ArcPackageInfo& package_info) {
-  if (package_info.package_name != kArcFrameworkPackage) {
+  // If an app with this id is not already installed, do nothing.
+  if (!app)
     return;
-  }
-  OnArcVersionChanged(package_info.package_version);
+
+  app->is_preferred_app = is_preferred_app;
+
+  page_->OnAppChanged(std::move(app));
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+void AppManagementPageHandler::OnPreferredAppsListWillBeDestroyed(
+    apps::PreferredAppsListHandle* handle) {
+  handle->RemoveObserver(this);
+}

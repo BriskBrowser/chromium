@@ -4,7 +4,7 @@
 
 <link rel="import" href="chrome://resources/html/polymer.html">
 
-<link rel="import" href="/components/common_styles.html">
+<link rel="import" href="../common_styles/oobe_dialog_host_styles.html">
 
 <!--
   Simple OOBE polymer element which is used for displaying single slide in a
@@ -22,7 +22,7 @@
 -->
 <dom-module id="oobe-slide">
   <template>
-    <style include="oobe-dialog-host">
+    <style include="oobe-dialog-host-styles">
       :host {
         --oobe-slide-img-size: 200px;
         --oobe-slide-vertical-margin: 24px;
@@ -30,27 +30,37 @@
       }
 
       #slide-container {
-        max-height: calc(var(--oobe-slide-img-size) + 2 *
-                         var(--oobe-slide-vertical-margin));
+        display: flex;
+      }
+
+      #slide-container {
+        align-items: center;
+        flex-direction: column;
+        justify-content: start;
       }
 
       #illustration-container {
         height: var(--oobe-slide-img-size);
-        margin: var(--oobe-slide-vertical-margin)
-                var(--oobe-slide-horizontal-margin);
         width: var(--oobe-slide-img-size);
       }
 
       #context-container {
-        padding-inline-end: var(--oobe-slide-horizontal-margin);
+        align-items: center;
+        flex-direction: column;
+        justify-content: start;
+        margin-bottom: 32px; /* for navigation bar */
+      }
+
+      #slide-title {
+        padding-top: 8px;
       }
 
       #slide-title ::slotted(*) {
         color: var(--google-blue-600);
         font-family: var(--oobe-header-font-family);
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 500; /* medium */
-        line-height: 32px;
+        line-height: 28px;
       }
 
       #slide-title[is-warning] ::slotted(*) {
@@ -66,17 +76,24 @@
         font-family: var(--oobe-default-font-family);
         font-size: 14px;
         font-weight: 400; /* regular */
+        line-height: 20px;
+      }
+
+      #context-container ::slotted(*) {
+        padding-inline-end: 20px;
+        padding-inline-start: 20px;
+        text-align: center;
       }
 
       .multiline {
         white-space: normal;
       }
     </style>
-    <div id="slide-container" class="flex layout horizontal">
+    <div id="slide-container" class="flex layout">
       <div id="illustration-container" class="oobe-illustration">
         <slot name="slide-img"></slot>
       </div>
-      <div id="context-container" class="flex layout vertical center-justified">
+      <div id="context-container" class="flex layout vertical">
         <div id="slide-title" is-warning$="[[isWarning]]">
           <slot name="title" class="multiline"></slot>
         </div>

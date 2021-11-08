@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_EXTENSIONS_PERMISSIONS_UPDATER_H__
 
 #include <memory>
-#include <string>
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
@@ -68,6 +67,10 @@ class PermissionsUpdater {
   explicit PermissionsUpdater(content::BrowserContext* browser_context);
   PermissionsUpdater(content::BrowserContext* browser_context,
                      InitFlag init_flag);
+
+  PermissionsUpdater(const PermissionsUpdater&) = delete;
+  PermissionsUpdater& operator=(const PermissionsUpdater&) = delete;
+
   ~PermissionsUpdater();
 
   // Sets a delegate to provide platform-specific logic. This should be set
@@ -124,6 +127,10 @@ class PermissionsUpdater {
   void RemovePermissionsUnsafe(const Extension* extension,
                                const PermissionSet& permissions);
 
+  // Fetches the policy settings from the ExtensionManagement service and
+  // applies them to the extension.
+  void ApplyPolicyHostRestrictions(const Extension& extension);
+
   // Sets list of hosts |extension| may not interact with (overrides default).
   void SetPolicyHostRestrictions(const Extension* extension,
                                  const URLPatternSet& runtime_blocked_hosts,
@@ -179,8 +186,8 @@ class PermissionsUpdater {
   // Issues the relevant events, messages and notifications when the
   // |extension|'s permissions have |changed| (|changed| is the delta).
   // Specifically, this sends the EXTENSION_PERMISSIONS_UPDATED notification,
-  // the ExtensionMsg_UpdatePermissions IPC message, and fires the
-  // onAdded/onRemoved events in the extension.
+  // the UpdatePermissions Mojo message, and fires the onAdded/onRemoved events
+  // in the extension.
   static void NotifyPermissionsUpdated(
       content::BrowserContext* browser_context,
       EventType event_type,
@@ -232,8 +239,6 @@ class PermissionsUpdater {
   // Initialization flag that determines whether prefs is consulted about the
   // extension. Transient extensions should not have entries in prefs.
   InitFlag init_flag_;
-
-  DISALLOW_COPY_AND_ASSIGN(PermissionsUpdater);
 };
 
 }  // namespace extensions

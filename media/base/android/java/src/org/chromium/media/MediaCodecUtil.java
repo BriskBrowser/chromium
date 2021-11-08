@@ -51,6 +51,7 @@ class MediaCodecUtil {
         public static final String VIDEO_MP4 = "video/mp4";
         public static final String VIDEO_WEBM = "video/webm";
         public static final String VIDEO_H264 = "video/avc";
+        public static final String VIDEO_DOLBY_VISION = "video/dolby-vision";
         public static final String VIDEO_HEVC = "video/hevc";
         public static final String VIDEO_VP8 = "video/x-vnd.on2.vp8";
         public static final String VIDEO_VP9 = "video/x-vnd.on2.vp9";
@@ -125,14 +126,18 @@ class MediaCodecUtil {
     }
 
     /**
-     * Return true if and only if name is a software codec.
-     * @param name The codec name, e.g. from MediaCodecInfo.getName().
+     * Return true if and only if info is a software codec.
      */
-    public static boolean isSoftwareCodec(String name) {
+    private static boolean isSoftwareCodec(MediaCodecInfo info) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return !info.isHardwareAccelerated();
+
+        String name = info.getName().toLowerCase(Locale.ROOT);
         // This is taken from libstagefright/OMXCodec.cpp for pre codec2.
-        if (name.startsWith("OMX.google.")) return true;
-        // Codec2 names sw decoders this way. See hardware/google/av/codec2/vndk/C2Store.cpp .
-        if (name.startsWith("c2.google.")) return true;
+        if (name.startsWith("omx.google.")) return true;
+
+        // Codec2 names sw decoders this way.
+        // See hardware/google/av/codec2/vndk/C2Store.cpp.
+        if (name.startsWith("c2.google.") || name.startsWith("c2.android.")) return true;
 
         return false;
     }
@@ -153,7 +158,7 @@ class MediaCodecUtil {
                     info.isEncoder() ? MediaCodecDirection.ENCODER : MediaCodecDirection.DECODER;
             if (codecDirection != direction) continue;
 
-            if (requireSoftwareCodec && !isSoftwareCodec(info.getName())) continue;
+            if (requireSoftwareCodec && !isSoftwareCodec(info)) continue;
 
             for (String supportedType : info.getSupportedTypes()) {
                 if (supportedType.equalsIgnoreCase(mime)) return info.getName();
@@ -273,7 +278,7 @@ class MediaCodecUtil {
             if (videoCapabilities.getBitrateRange().contains(bitrate)) {
                 // Assume all platforms before N only support VP9 profile 0.
                 profileLevels.addCodecProfileLevel(
-                        VideoCodec.CODEC_VP9, VideoCodecProfile.VP9PROFILE_PROFILE0, level);
+                        VideoCodec.VP9, VideoCodecProfile.VP9PROFILE_PROFILE0, level);
             }
         }
     }
@@ -419,7 +424,14 @@ class MediaCodecUtil {
 
             // MediaTek decoders do not work properly on vp8. See http://crbug.com/446974 and
             // http://crbug.com/597836.
-            if (Build.HARDWARE.startsWith("mt")) return false;
+            if (Build.HARDWARE.startsWith("mt")) {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false;
+
+                // The following chipsets have been confirmed by MediaTek to work on P+
+                return Build.HARDWARE.startsWith("mt5599") || Build.HARDWARE.startsWith("mt5895")
+                        || Build.HARDWARE.startsWith("mt8768")
+                        || Build.HARDWARE.startsWith("mt5887");
+            }
         } else if (mime.equals(MimeTypes.VIDEO_VP9)) {
             // Nexus Player VP9 decoder performs poorly at >= 1080p resolution.
             if (Build.MODEL.equals("Nexus Player")) {
@@ -427,6 +439,10 @@ class MediaCodecUtil {
             }
         } else if (mime.equals(MimeTypes.VIDEO_AV1)) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false;
+        } else if (mime.equals(MimeTypes.VIDEO_DOLBY_VISION)) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                return false;
+            }
         }
         // *************************************************************
         // *** DO NOT ADD ANY NEW CODECS WITHOUT UPDATING MIME_UTIL. ***
@@ -488,16 +504,18 @@ class MediaCodecUtil {
     }
 
     // List of supported HW encoders.
-    @IntDef({HWEncoder.QcomVp8, HWEncoder.QcomH264, HWEncoder.ExynosVp8, HWEncoder.ExynosH264,
-            HWEncoder.MediatekH264})
+    @IntDef({HWEncoder.QcomVp8, HWEncoder.QcomH264, HWEncoder.ExynosVp8, HWEncoder.ExynosVp9,
+            HWEncoder.ExynosH264, HWEncoder.MediatekH264, HWEncoder.HisiH264})
     @Retention(RetentionPolicy.SOURCE)
     public @interface HWEncoder {
         int QcomVp8 = 0;
         int QcomH264 = 1;
         int ExynosVp8 = 2;
-        int ExynosH264 = 3;
-        int MediatekH264 = 4;
-        int NUM_ENTRIES = 5;
+        int ExynosVp9 = 3;
+        int ExynosH264 = 4;
+        int MediatekH264 = 5;
+        int HisiH264 = 6;
+        int NUM_ENTRIES = 7;
     }
 
     private static String getMimeForHWEncoder(@HWEncoder int decoder) {
@@ -505,24 +523,31 @@ class MediaCodecUtil {
             case HWEncoder.QcomVp8:
             case HWEncoder.ExynosVp8:
                 return MimeTypes.VIDEO_VP8;
+            case HWEncoder.ExynosVp9:
+                return MimeTypes.VIDEO_VP9;
             case HWEncoder.QcomH264:
             case HWEncoder.ExynosH264:
             case HWEncoder.MediatekH264:
+            case HWEncoder.HisiH264:
                 return MimeTypes.VIDEO_H264;
         }
         return "";
     }
 
     private static String getPrefixForHWEncoder(@HWEncoder int decoder) {
+        // NOTE: Prefixes must be lower case since the comparison is done in lower case.
         switch (decoder) {
             case HWEncoder.QcomVp8:
             case HWEncoder.QcomH264:
-                return "OMX.qcom.";
+                return "qcom";
             case HWEncoder.ExynosVp8:
+            case HWEncoder.ExynosVp9:
             case HWEncoder.ExynosH264:
-                return "OMX.Exynos.";
+                return "exynos";
             case HWEncoder.MediatekH264:
-                return "OMX.MTK.";
+                return "mtk";
+            case HWEncoder.HisiH264:
+                return "hisi";
         }
         return "";
     }
@@ -534,9 +559,12 @@ class MediaCodecUtil {
             case HWEncoder.ExynosH264:
                 return Build.VERSION_CODES.LOLLIPOP;
             case HWEncoder.ExynosVp8:
+            case HWEncoder.ExynosVp9:
                 return Build.VERSION_CODES.M;
             case HWEncoder.MediatekH264:
                 return Build.VERSION_CODES.O_MR1;
+            case HWEncoder.HisiH264:
+                return Build.VERSION_CODES.N;
         }
         return -1;
     }
@@ -550,6 +578,7 @@ class MediaCodecUtil {
                 return BitrateAdjuster.Type.NO_ADJUSTMENT;
             case HWEncoder.ExynosH264:
             case HWEncoder.MediatekH264:
+            case HWEncoder.HisiH264:
                 return BitrateAdjuster.Type.FRAMERATE_ADJUSTMENT;
         }
         throw new IllegalArgumentException("Invalid HWEncoder decoder parameter.");
@@ -613,12 +642,12 @@ class MediaCodecUtil {
     private static @Nullable @HWEncoder Integer findHWEncoder(String mime) {
         MediaCodecListHelper codecListHelper = new MediaCodecListHelper();
         for (MediaCodecInfo info : codecListHelper) {
-            if (!info.isEncoder() || isSoftwareCodec(info.getName())) continue;
+            if (!info.isEncoder() || isSoftwareCodec(info)) continue;
 
             String encoderName = null;
             for (String mimeType : info.getSupportedTypes()) {
                 if (mimeType.equalsIgnoreCase(mime)) {
-                    encoderName = info.getName();
+                    encoderName = info.getName().toLowerCase(Locale.getDefault());
                     break;
                 }
             }
@@ -632,7 +661,9 @@ class MediaCodecUtil {
                     codecProperties++) {
                 if (!mime.equalsIgnoreCase(getMimeForHWEncoder(codecProperties))) continue;
 
-                if (encoderName.startsWith(getPrefixForHWEncoder(codecProperties))) {
+                String prefix = getPrefixForHWEncoder(codecProperties);
+                if (encoderName.startsWith("omx." + prefix + ".")
+                        || encoderName.startsWith("c2." + prefix + ".")) {
                     if (Build.VERSION.SDK_INT < getMinSDKForHWEncoder(codecProperties)) {
                         Log.w(TAG, "Codec " + encoderName + " is disabled due to SDK version "
                                         + Build.VERSION.SDK_INT);

@@ -19,6 +19,10 @@ namespace testing {
 class MockSystemMediaControls : public SystemMediaControls {
  public:
   MockSystemMediaControls();
+
+  MockSystemMediaControls(const MockSystemMediaControls&) = delete;
+  MockSystemMediaControls& operator=(const MockSystemMediaControls&) = delete;
+
   ~MockSystemMediaControls() override;
 
   // SystemMediaControls implementation.
@@ -31,17 +35,14 @@ class MockSystemMediaControls : public SystemMediaControls {
   MOCK_METHOD1(SetIsStopEnabled, void(bool value));
   MOCK_METHOD1(SetIsSeekToEnabled, void(bool value));
   MOCK_METHOD1(SetPlaybackStatus, void(PlaybackStatus value));
-  MOCK_METHOD1(SetTitle, void(const base::string16& title));
-  MOCK_METHOD1(SetArtist, void(const base::string16& artist));
-  MOCK_METHOD1(SetAlbum, void(const base::string16& artist));
+  MOCK_METHOD1(SetTitle, void(const std::u16string& title));
+  MOCK_METHOD1(SetArtist, void(const std::u16string& artist));
+  MOCK_METHOD1(SetAlbum, void(const std::u16string& artist));
   MOCK_METHOD1(SetThumbnail, void(const SkBitmap& bitmap));
   MOCK_METHOD1(SetPosition, void(const media_session::MediaPosition& position));
   MOCK_METHOD0(ClearThumbnail, void());
   MOCK_METHOD0(ClearMetadata, void());
   MOCK_METHOD0(UpdateDisplay, void());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockSystemMediaControls);
 };
 
 }  // namespace testing

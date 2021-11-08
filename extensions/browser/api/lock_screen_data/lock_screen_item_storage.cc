@@ -16,6 +16,8 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/value_store/value_store.h"
+#include "components/value_store/value_store_factory_impl.h"
 #include "extensions/browser/api/lock_screen_data/data_item.h"
 #include "extensions/browser/api/lock_screen_data/lock_screen_value_store_migrator.h"
 #include "extensions/browser/api/lock_screen_data/lock_screen_value_store_migrator_impl.h"
@@ -24,8 +26,6 @@
 #include "extensions/browser/api/storage/local_value_store_cache.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extensions_browser_client.h"
-#include "extensions/browser/value_store/value_store.h"
-#include "extensions/browser/value_store/value_store_factory_impl.h"
 #include "extensions/common/api/lock_screen_data.h"
 
 namespace extensions {
@@ -57,7 +57,7 @@ std::unique_ptr<LocalValueStoreCache> CreateValueStoreCache(
   if (g_test_value_store_cache_factory_callback)
     return g_test_value_store_cache_factory_callback->Run(storage_root);
   return std::make_unique<LocalValueStoreCache>(
-      new ValueStoreFactoryImpl(storage_root));
+      new value_store::ValueStoreFactoryImpl(storage_root));
 }
 
 std::unique_ptr<LockScreenValueStoreMigrator> CreateValueStoreMigrator(
@@ -145,7 +145,7 @@ LockScreenItemStorage::LockScreenItemStorage(
       tick_clock_(base::DefaultTickClock::GetInstance()),
       value_store_cache_(CreateValueStoreCache(storage_root.Append(user_id_))) {
   CHECK(!user_id_.empty());
-  extension_registry_observer_.Add(ExtensionRegistry::Get(context));
+  extension_registry_observation_.Observe(ExtensionRegistry::Get(context));
   task_runner_ = GetBackendTaskRunner();
 
   DCHECK(!g_data_item_storage);

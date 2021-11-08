@@ -14,10 +14,10 @@
 #include "base/files/file_util.h"
 #include "base/guid.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/single_thread_task_runner.h"
 #include "base/supports_user_data.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/task_runner.h"
 #include "content/browser/blob_storage/blob_registry_wrapper.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/blob_handle.h"
@@ -205,7 +205,7 @@ std::unique_ptr<BlobHandle> ChromeBlobStorageContext::CreateMemoryBackedBlob(
   std::unique_ptr<storage::BlobDataHandle> blob_data_handle =
       context_->AddFinishedBlob(std::move(blob_data_builder));
   if (!blob_data_handle)
-    return std::unique_ptr<BlobHandle>();
+    return nullptr;
 
   std::unique_ptr<BlobHandle> blob_handle(
       new BlobHandleImpl(std::move(blob_data_handle)));

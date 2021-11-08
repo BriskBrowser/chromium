@@ -48,10 +48,10 @@ class AboutSigninInternals : public KeyedService,
    public:
     // |info| will contain the dictionary of signin_status_ values as indicated
     // in the comments for GetSigninStatus() below.
-    virtual void OnSigninStateChanged(const base::DictionaryValue* info) = 0;
+    virtual void OnSigninStateChanged(const base::Value* info) = 0;
 
     // Notification that the cookie accounts are ready to be displayed.
-    virtual void OnCookieAccountsFetched(const base::DictionaryValue* info) = 0;
+    virtual void OnCookieAccountsFetched(const base::Value* info) = 0;
   };
 
   AboutSigninInternals(signin::IdentityManager* identity_manager,
@@ -59,6 +59,10 @@ class AboutSigninInternals : public KeyedService,
                        signin::AccountConsistencyMethod account_consistency,
                        SigninClient* client,
                        AccountReconcilor* account_reconcilor);
+
+  AboutSigninInternals(const AboutSigninInternals&) = delete;
+  AboutSigninInternals& operator=(const AboutSigninInternals&) = delete;
+
   ~AboutSigninInternals() override;
 
   // Registers the preferences used by AboutSigninInternals.
@@ -92,7 +96,7 @@ class AboutSigninInternals : public KeyedService,
   //     [ List of {"name": "foo-name", "token" : "foo-token",
   //                 "status": "foo_stat", "time" : "foo_time"} elems]
   //  }
-  std::unique_ptr<base::DictionaryValue> GetSigninStatus();
+  base::Value GetSigninStatus();
 
   // signin::IdentityManager::Observer implementations.
   void OnAccountsInCookieUpdated(
@@ -104,7 +108,7 @@ class AboutSigninInternals : public KeyedService,
   struct TokenInfo {
     TokenInfo(const std::string& consumer_id, const signin::ScopeSet& scopes);
     ~TokenInfo();
-    std::unique_ptr<base::DictionaryValue> ToValue() const;
+    base::Value ToValue() const;
 
     static bool LessThan(const std::unique_ptr<TokenInfo>& a,
                          const std::unique_ptr<TokenInfo>& b);
@@ -177,12 +181,11 @@ class AboutSigninInternals : public KeyedService,
     //                           "status" : request status} elems]
     //       }],
     //  }
-    std::unique_ptr<base::DictionaryValue> ToValue(
-        signin::IdentityManager* identity_manager,
-        SigninErrorController* signin_error_controller,
-        SigninClient* signin_client,
-        signin::AccountConsistencyMethod account_consistency,
-        AccountReconcilor* account_reconcilor);
+    base::Value ToValue(signin::IdentityManager* identity_manager,
+                        SigninErrorController* signin_error_controller,
+                        SigninClient* signin_client,
+                        signin::AccountConsistencyMethod account_consistency,
+                        AccountReconcilor* account_reconcilor);
   };
 
   // IdentityManager::DiagnosticsObserver implementations.
@@ -220,9 +223,10 @@ class AboutSigninInternals : public KeyedService,
   void OnErrorChanged() override;
 
   // content_settings::Observer implementation.
-  void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
-                               const ContentSettingsPattern& secondary_pattern,
-                               ContentSettingsType content_type) override;
+  void OnContentSettingChanged(
+      const ContentSettingsPattern& primary_pattern,
+      const ContentSettingsPattern& secondary_pattern,
+      ContentSettingsTypeSet content_type_set) override;
 
   // AccountReconcilor::Observer implementation.
   void OnBlockReconcile() override;
@@ -249,8 +253,6 @@ class AboutSigninInternals : public KeyedService,
   signin::AccountConsistencyMethod account_consistency_;
 
   base::ObserverList<Observer>::Unchecked signin_observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(AboutSigninInternals);
 };
 
 #endif  // COMPONENTS_SIGNIN_CORE_BROWSER_ABOUT_SIGNIN_INTERNALS_H_

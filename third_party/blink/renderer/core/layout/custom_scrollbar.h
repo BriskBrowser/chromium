@@ -65,10 +65,12 @@ class CORE_EXPORT CustomScrollbar final : public Scrollbar {
   void PositionScrollbarParts();
 
   LayoutCustomScrollbarPart* GetPart(ScrollbarPart part_type) {
-    return parts_.at(part_type);
+    auto it = parts_.find(part_type);
+    return it != parts_.end() ? it->value : nullptr;
   }
   const LayoutCustomScrollbarPart* GetPart(ScrollbarPart part_type) const {
-    return parts_.at(part_type);
+    auto it = parts_.find(part_type);
+    return it != parts_.end() ? it->value : nullptr;
   }
 
   void InvalidateDisplayItemClientsOfScrollbarParts();
@@ -91,7 +93,9 @@ class CORE_EXPORT CustomScrollbar final : public Scrollbar {
 
   void DestroyScrollbarParts();
   void UpdateScrollbarParts();
-  const ComputedStyle* GetScrollbarPseudoElementStyle(ScrollbarPart, PseudoId);
+  scoped_refptr<const ComputedStyle> GetScrollbarPseudoElementStyle(
+      ScrollbarPart,
+      PseudoId);
   void UpdateScrollbarPart(ScrollbarPart);
 
   HeapHashMap<ScrollbarPart, Member<LayoutCustomScrollbarPart>> parts_;

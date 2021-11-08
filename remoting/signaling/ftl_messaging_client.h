@@ -46,12 +46,15 @@ class FtlMessagingClient final : public MessagingClient {
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       RegistrationManager* registration_manager,
       SignalingTracker* signaling_tracker = nullptr);
+
+  FtlMessagingClient(const FtlMessagingClient&) = delete;
+  FtlMessagingClient& operator=(const FtlMessagingClient&) = delete;
+
   ~FtlMessagingClient() override;
 
   // MessagingClient implementations.
   base::CallbackListSubscription RegisterMessageCallback(
       const MessageCallback& callback) override;
-  void PullMessages(DoneCallback on_done) override;
   void SendMessage(const std::string& destination,
                    const std::string& destination_registration_id,
                    const ftl::ChromotingMessage& message,
@@ -75,22 +78,17 @@ class FtlMessagingClient final : public MessagingClient {
                       CallbackFunctor callback_functor,
                       DoneCallback on_done);
 
-  void OnPullMessagesResponse(
-      DoneCallback on_done,
-      const ProtobufHttpStatus& status,
-      std::unique_ptr<ftl::PullMessagesResponse> response);
-
   void OnSendMessageResponse(DoneCallback on_done,
                              const ProtobufHttpStatus& status,
                              std::unique_ptr<ftl::InboxSendResponse> response);
 
-  void AckMessages(const ftl::AckMessagesRequest& request,
-                   DoneCallback on_done);
+  void BatchAckMessages(const ftl::BatchAckMessagesRequest& request,
+                        DoneCallback on_done);
 
-  void OnAckMessagesResponse(
+  void OnBatchAckMessagesResponse(
       DoneCallback on_done,
       const ProtobufHttpStatus& status,
-      std::unique_ptr<ftl::AckMessagesResponse> response);
+      std::unique_ptr<ftl::BatchAckMessagesResponse> response);
 
   std::unique_ptr<ScopedProtobufHttpRequest> OpenReceiveMessagesStream(
       base::OnceClosure on_channel_ready,
@@ -107,8 +105,6 @@ class FtlMessagingClient final : public MessagingClient {
   std::unique_ptr<MessageReceptionChannel> reception_channel_;
   MessageCallbackList callback_list_;
   MessageTracker message_tracker_;
-
-  DISALLOW_COPY_AND_ASSIGN(FtlMessagingClient);
 };
 
 }  // namespace remoting

@@ -9,13 +9,13 @@
 
 #include "base/macros.h"
 #include "chrome/browser/ui/task_manager/task_manager_table_model.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/models/table_model.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/controls/table/table_grouper.h"
 #include "ui/views/controls/table/table_view_observer.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 class Browser;
@@ -60,7 +60,7 @@ class TaskManagerView : public TableViewDelegate,
   // views::DialogDelegateView:
   views::View* GetInitiallyFocusedView() override;
   bool ExecuteWindowsCommand(int command_id) override;
-  gfx::ImageSkia GetWindowIcon() override;
+  ui::ImageModel GetWindowIcon() override;
   std::string GetWindowName() const override;
   bool Accept() override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
@@ -113,7 +113,7 @@ class TaskManagerView : public TableViewDelegate,
   std::unique_ptr<views::MenuRunner> menu_runner_;
 
   // We need to own the text of the menu, the Windows API does not copy it.
-  base::string16 always_on_top_menu_text_;
+  std::u16string always_on_top_menu_text_;
 
   views::TableView* tab_table_;
   views::View* tab_table_parent_;

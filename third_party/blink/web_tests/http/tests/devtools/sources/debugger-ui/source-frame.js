@@ -5,10 +5,11 @@
 (async function() {
   TestRunner.addResult(
       `Tests that it's possible to set breakpoint in source frame, and that source frame displays breakpoints and console errors.\n`);
-  await TestRunner.loadModule('console_test_runner');
-  await TestRunner.loadModule('sources_test_runner');
-  await TestRunner.loadModule('network_test_runner');
-  await TestRunner.loadModule('application_test_runner');
+  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
+  await TestRunner.loadTestModule('network_test_runner');
+  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('application_test_runner');
+  await TestRunner.loadLegacyModule('source_frame');
   await TestRunner.showPanel('sources');
   await TestRunner.evaluateInPagePromise(`
       function addErrorToConsole()
@@ -33,8 +34,8 @@
       function didShowScriptSource(sourceFrame) {
         TestRunner.addResult('Script source was shown.');
         shownSourceFrame = sourceFrame;
-        TestRunner.addSniffer(Sources.UISourceCodeFrame.prototype, '_addMessageToSource', didAddMessage);
-        TestRunner.addSniffer(Sources.UISourceCodeFrame.prototype, '_removeMessageFromSource', didRemoveMessage);
+        TestRunner.addSniffer(Sources.UISourceCodeFrame.prototype, 'addMessageToSource', didAddMessage);
+        TestRunner.addSniffer(Sources.UISourceCodeFrame.prototype, 'removeMessageFromSource', didRemoveMessage);
         TestRunner.evaluateInPage('addErrorToConsole()');
       }
 
@@ -64,7 +65,7 @@
       TestRunner.resourceTreeModel.forAllResources(visit);
       function visit(resource) {
         if (resource.url.indexOf('script.js') !== -1) {
-          UI.panels.resources._sidebar.showResource(resource, 1);
+          UI.panels.resources.sidebar.showResource(resource, 1);
           return true;
         }
       }

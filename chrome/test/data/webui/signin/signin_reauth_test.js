@@ -8,7 +8,7 @@ import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {SigninReauthBrowserProxyImpl} from 'chrome://signin-reauth/signin_reauth_browser_proxy.js';
-import {isVisible} from 'chrome://test/test_util.m.js';
+import {isVisible} from 'chrome://webui-test/test_util.js';
 
 import {TestSigninReauthBrowserProxy} from './test_signin_reauth_browser_proxy.js';
 
@@ -20,7 +20,7 @@ suite('SigninReauthTest', function() {
 
   setup(function() {
     browserProxy = new TestSigninReauthBrowserProxy();
-    SigninReauthBrowserProxyImpl.instance_ = browserProxy;
+    SigninReauthBrowserProxyImpl.setInstance(browserProxy);
     PolymerTest.clearBody();
     app = document.createElement('signin-reauth-app');
     document.body.append(app);
@@ -52,33 +52,22 @@ suite('SigninReauthTest', function() {
     return browserProxy.whenCalled('cancel');
   });
 
-  const requires_reauth_test_params = [
-    {
-      requires_reauth: true,
-    },
-    {
-      requires_reauth: false,
-    },
-  ];
+  test('ButtonsVisibilityAndFocus', async () => {
+    await browserProxy.whenCalled('initialize');
+    assertFalse(isVisible(app.$.confirmButton));
+    assertFalse(isVisible(app.$.cancelButton));
+    assertTrue(isVisible(app.shadowRoot.querySelector('paper-spinner-lite')));
 
-  requires_reauth_test_params.forEach(function(params) {
-    test('ButtonsVisibilityAndFocus', async () => {
-      await browserProxy.whenCalled('initialize');
-      assertFalse(isVisible(app.$.confirmButton));
-      assertFalse(isVisible(app.$.cancelButton));
-      assertTrue(isVisible(app.$$('paper-spinner-lite')));
+    webUIListenerCallback('reauth-type-determined');
+    flush();
 
-      webUIListenerCallback('reauth-type-received', params.requires_reauth);
-      flush();
+    assertTrue(isVisible(app.$.confirmButton));
+    assertTrue(isVisible(app.$.cancelButton));
+    assertFalse(isVisible(app.shadowRoot.querySelector('paper-spinner-lite')));
 
-      assertTrue(isVisible(app.$.confirmButton));
-      assertTrue(isVisible(app.$.cancelButton));
-      assertFalse(isVisible(app.$$('paper-spinner-lite')));
+    assertEquals(getDeepActiveElement(), app.$.confirmButton);
 
-      assertEquals(getDeepActiveElement(), app.$.confirmButton);
-
-      assertDefaultLocale();
-      assertEquals('Yes', app.$.confirmButton.textContent.trim());
-    });
+    assertDefaultLocale();
+    assertEquals('Yes', app.$.confirmButton.textContent.trim());
   });
 });

@@ -10,6 +10,9 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.content_public.browser.GlobalRenderFrameHostId;
+import org.chromium.content_public.browser.LifecycleState;
+import org.chromium.content_public.browser.LoadCommittedDetails;
 import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.ui.base.WindowAndroid;
@@ -64,19 +67,27 @@ class WebContentsObserverProxy extends WebContentsObserver {
         return !mObservers.isEmpty();
     }
 
-    @Override
     @CalledByNative
     public void renderFrameCreated(int renderProcessId, int renderFrameId) {
-        for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
-            mObserversIterator.next().renderFrameCreated(renderProcessId, renderFrameId);
-        }
+        renderFrameCreated(new GlobalRenderFrameHostId(renderProcessId, renderFrameId));
     }
 
     @Override
+    public void renderFrameCreated(GlobalRenderFrameHostId id) {
+        for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
+            mObserversIterator.next().renderFrameCreated(id);
+        }
+    }
+
     @CalledByNative
     public void renderFrameDeleted(int renderProcessId, int renderFrameId) {
+        renderFrameDeleted(new GlobalRenderFrameHostId(renderProcessId, renderFrameId));
+    }
+
+    @Override
+    public void renderFrameDeleted(GlobalRenderFrameHostId id) {
         for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
-            mObserversIterator.next().renderFrameDeleted(renderProcessId, renderFrameId);
+            mObserversIterator.next().renderFrameDeleted(id);
         }
     }
 
@@ -154,9 +165,11 @@ class WebContentsObserverProxy extends WebContentsObserver {
 
     @Override
     @CalledByNative
-    public void didFailLoad(boolean isMainFrame, int errorCode, GURL failingUrl) {
+    public void didFailLoad(boolean isInPrimaryMainFrame, int errorCode, GURL failingUrl,
+            @LifecycleState int frameLifecycleState) {
         for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
-            mObserversIterator.next().didFailLoad(isMainFrame, errorCode, failingUrl);
+            mObserversIterator.next().didFailLoad(
+                    isInPrimaryMainFrame, errorCode, failingUrl, frameLifecycleState);
         }
     }
 
@@ -200,27 +213,44 @@ class WebContentsObserverProxy extends WebContentsObserver {
         }
     }
 
-    @Override
     @CalledByNative
-    public void didFinishLoad(long frameId, GURL url, boolean isKnownValid, boolean isMainFrame) {
+    private void didFinishLoad(int renderProcessId, int renderFrameId, GURL url,
+            boolean isKnownValid, boolean isInPrimaryMainFrame,
+            @LifecycleState int frameLifecycleState) {
+        didFinishLoad(new GlobalRenderFrameHostId(renderProcessId, renderFrameId), url,
+                isKnownValid, isInPrimaryMainFrame, frameLifecycleState);
+    }
+
+    @Override
+    public void didFinishLoad(GlobalRenderFrameHostId rfhId, GURL url, boolean isKnownValid,
+            boolean isInPrimaryMainFrame, @LifecycleState int rfhLifecycleState) {
         for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
-            mObserversIterator.next().didFinishLoad(frameId, url, isKnownValid, isMainFrame);
+            mObserversIterator.next().didFinishLoad(
+                    rfhId, url, isKnownValid, isInPrimaryMainFrame, rfhLifecycleState);
+        }
+    }
+
+    @CalledByNative
+    private void documentLoadedInFrame(int renderProcessId, int renderFrameId,
+            boolean isInPrimaryMainFrame, @LifecycleState int rfhLifecycleState) {
+        documentLoadedInFrame(new GlobalRenderFrameHostId(renderProcessId, renderFrameId),
+                isInPrimaryMainFrame, rfhLifecycleState);
+    }
+
+    @Override
+    public void documentLoadedInFrame(GlobalRenderFrameHostId rfhId, boolean isInPrimaryMainFrame,
+            @LifecycleState int rfhLifecycleState) {
+        for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
+            mObserversIterator.next().documentLoadedInFrame(
+                    rfhId, isInPrimaryMainFrame, rfhLifecycleState);
         }
     }
 
     @Override
     @CalledByNative
-    public void documentLoadedInFrame(long frameId, boolean isMainFrame) {
+    public void navigationEntryCommitted(LoadCommittedDetails details) {
         for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
-            mObserversIterator.next().documentLoadedInFrame(frameId, isMainFrame);
-        }
-    }
-
-    @Override
-    @CalledByNative
-    public void navigationEntryCommitted() {
-        for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
-            mObserversIterator.next().navigationEntryCommitted();
+            mObserversIterator.next().navigationEntryCommitted(details);
         }
     }
 
@@ -250,9 +280,34 @@ class WebContentsObserverProxy extends WebContentsObserver {
 
     @Override
     @CalledByNative
+    public void mediaStartedPlaying() {
+        for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
+            mObserversIterator.next().mediaStartedPlaying();
+        }
+    }
+
+    @Override
+    @CalledByNative
+    public void mediaStoppedPlaying() {
+        for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
+            mObserversIterator.next().mediaStoppedPlaying();
+        }
+    }
+
+    @Override
+    @CalledByNative
     public void hasEffectivelyFullscreenVideoChange(boolean isFullscreen) {
         for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
             mObserversIterator.next().hasEffectivelyFullscreenVideoChange(isFullscreen);
+        }
+    }
+
+    @Override
+    @CalledByNative
+    public void didToggleFullscreenModeForTab(boolean enteredFullscreen, boolean willCauseResize) {
+        for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
+            mObserversIterator.next().didToggleFullscreenModeForTab(
+                    enteredFullscreen, willCauseResize);
         }
     }
 

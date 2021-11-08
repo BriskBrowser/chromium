@@ -5,7 +5,6 @@
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 
 #include "base/debug/dump_without_crashing.h"
-#include "base/feature_list.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -18,8 +17,8 @@
 #include "extensions/browser/extension_registry_factory.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/guest_os/guest_os_registry_service_factory.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/guest_os/guest_os_registry_service_factory.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -67,23 +66,11 @@ AppServiceProxy* AppServiceProxyFactory::GetForProfile(Profile* profile) {
     base::debug::DumpWithoutCrashing();
   }
 
-  auto* proxy = static_cast<AppServiceProxy*>(
+  AppServiceProxy* proxy = static_cast<AppServiceProxy*>(
       AppServiceProxyFactory::GetInstance()->GetServiceForBrowserContext(
           profile, true /* create */));
   DCHECK_NE(nullptr, proxy);
   return proxy;
-}
-
-// static
-AppServiceProxy* AppServiceProxyFactory::GetForProfileRedirectInIncognito(
-    Profile* profile) {
-  // TODO(https://crbug.com/1122463): replace this API and GetForProfile() with
-  // one that allows clients to specify different levels of incognito tolerance,
-  // where the default is to not leak out of incognito.
-  if (!IsAppServiceAvailableForProfile(profile)) {
-    profile = profile->GetOriginalProfile();
-  }
-  return GetForProfile(profile);
 }
 
 // static
@@ -110,7 +97,9 @@ AppServiceProxyFactory::~AppServiceProxyFactory() = default;
 
 KeyedService* AppServiceProxyFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  return new AppServiceProxy(Profile::FromBrowserContext(context));
+  auto* proxy = new AppServiceProxy(Profile::FromBrowserContext(context));
+  proxy->Initialize();
+  return proxy;
 }
 
 content::BrowserContext* AppServiceProxyFactory::GetBrowserContextToUse(

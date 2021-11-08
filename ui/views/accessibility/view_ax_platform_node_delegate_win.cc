@@ -15,7 +15,6 @@
 #include "base/win/windows_version.h"
 #include "third_party/iaccessible2/ia2_api_all.h"
 #include "ui/accessibility/accessibility_switches.h"
-#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/ax_text_utils.h"
 #include "ui/accessibility/platform/ax_fragment_root_win.h"
@@ -46,7 +45,7 @@ ViewAXPlatformNodeDelegateWin::ViewAXPlatformNodeDelegateWin(View* view)
 
 ViewAXPlatformNodeDelegateWin::~ViewAXPlatformNodeDelegateWin() = default;
 
-gfx::NativeViewAccessible ViewAXPlatformNodeDelegateWin::GetParent() {
+gfx::NativeViewAccessible ViewAXPlatformNodeDelegateWin::GetParent() const {
   // If the View has a parent View, return that View's IAccessible.
   if (view()->parent())
     return ViewAXPlatformNodeDelegate::GetParent();

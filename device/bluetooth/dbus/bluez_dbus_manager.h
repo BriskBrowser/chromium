@@ -25,6 +25,8 @@ namespace bluez {
 
 // Style Note: Clients are sorted by names.
 class BluetoothAdapterClient;
+class BluetoothAdminPolicyClient;
+class BluetoothAdvertisementMonitorManagerClient;
 class BluetoothAgentManagerClient;
 class BluetoothBatteryClient;
 class BluetoothDebugManagerClient;
@@ -98,6 +100,9 @@ class DEVICE_BLUETOOTH_EXPORT BluezDBusManager {
   // Gets the global instance. Initialize() must be called first.
   static BluezDBusManager* Get();
 
+  BluezDBusManager(const BluezDBusManager&) = delete;
+  BluezDBusManager& operator=(const BluezDBusManager&) = delete;
+
   // Returns various D-Bus bus instances, owned by BluezDBusManager.
   dbus::Bus* GetSystemBus();
 
@@ -118,6 +123,9 @@ class DEVICE_BLUETOOTH_EXPORT BluezDBusManager {
   // All returned objects are owned by BluezDBusManager.  Do not use these
   // pointers after BluezDBusManager has been shut down.
   BluetoothAdapterClient* GetBluetoothAdapterClient();
+  BluetoothAdminPolicyClient* GetBluetoothAdminPolicyClient();
+  BluetoothAdvertisementMonitorManagerClient*
+  GetBluetoothAdvertisementMonitorManagerClient();
   BluetoothLEAdvertisingManagerClient* GetBluetoothLEAdvertisingManagerClient();
   BluetoothAgentManagerClient* GetBluetoothAgentManagerClient();
   BluetoothBatteryClient* GetBluetoothBatteryClient();
@@ -175,16 +183,21 @@ class DEVICE_BLUETOOTH_EXPORT BluezDBusManager {
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
   base::WeakPtrFactory<BluezDBusManager> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BluezDBusManager);
 };
 
 class DEVICE_BLUETOOTH_EXPORT BluezDBusManagerSetter {
  public:
+  BluezDBusManagerSetter(const BluezDBusManagerSetter&) = delete;
+  BluezDBusManagerSetter& operator=(const BluezDBusManagerSetter&) = delete;
+
   ~BluezDBusManagerSetter();
 
   void SetBluetoothAdapterClient(
       std::unique_ptr<BluetoothAdapterClient> client);
+  void SetBluetoothAdminPolicyClient(
+      std::unique_ptr<BluetoothAdminPolicyClient> client);
+  void SetBluetoothAdvertisementMonitorManagerClient(
+      std::unique_ptr<BluetoothAdvertisementMonitorManagerClient> client);
   void SetBluetoothLEAdvertisingManagerClient(
       std::unique_ptr<BluetoothLEAdvertisingManagerClient> client);
   void SetBluetoothAgentManagerClient(
@@ -218,8 +231,6 @@ class DEVICE_BLUETOOTH_EXPORT BluezDBusManagerSetter {
   friend class BluezDBusManager;
 
   BluezDBusManagerSetter();
-
-  DISALLOW_COPY_AND_ASSIGN(BluezDBusManagerSetter);
 };
 
 }  // namespace bluez

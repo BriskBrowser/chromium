@@ -47,11 +47,15 @@ class MockSpellCheckHost : spellcheck::mojom::SpellCheckHost {
  public:
   explicit MockSpellCheckHost(content::RenderProcessHost* process_host)
       : process_host_(process_host) {}
+
+  MockSpellCheckHost(const MockSpellCheckHost&) = delete;
+  MockSpellCheckHost& operator=(const MockSpellCheckHost&) = delete;
+
   ~MockSpellCheckHost() override {}
 
   content::RenderProcessHost* process_host() const { return process_host_; }
 
-  const base::string16& text() const { return text_; }
+  const std::u16string& text() const { return text_; }
 
   bool HasReceivedText() const { return text_received_; }
 
@@ -72,7 +76,7 @@ class MockSpellCheckHost : spellcheck::mojom::SpellCheckHost {
     ui_task_runner->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&MockSpellCheckHost::Timeout, base::Unretained(this)),
-        base::TimeDelta::FromSeconds(1));
+        base::Seconds(1));
 
     base::RunLoop run_loop;
     quit_ = run_loop.QuitClosure();
@@ -86,7 +90,7 @@ class MockSpellCheckHost : spellcheck::mojom::SpellCheckHost {
   }
 
  private:
-  void TextReceived(const base::string16& text) {
+  void TextReceived(const std::u16string& text) {
     text_received_ = true;
     text_ = text;
     receiver_.reset();
@@ -101,10 +105,10 @@ class MockSpellCheckHost : spellcheck::mojom::SpellCheckHost {
 
   // spellcheck::mojom::SpellCheckHost:
   void RequestDictionary() override {}
-  void NotifyChecked(const base::string16& word, bool misspelled) override {}
+  void NotifyChecked(const std::u16string& word, bool misspelled) override {}
 
 #if BUILDFLAG(USE_RENDERER_SPELLCHECKER)
-  void CallSpellingService(const base::string16& text,
+  void CallSpellingService(const std::u16string& text,
                            CallSpellingServiceCallback callback) override {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     std::move(callback).Run(true, std::vector<SpellCheckResult>());
@@ -113,7 +117,7 @@ class MockSpellCheckHost : spellcheck::mojom::SpellCheckHost {
 #endif
 
 #if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
-  void RequestTextCheck(const base::string16& text,
+  void RequestTextCheck(const std::u16string& text,
                         int route_id,
                         RequestTextCheckCallback callback) override {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -121,20 +125,13 @@ class MockSpellCheckHost : spellcheck::mojom::SpellCheckHost {
     TextReceived(text);
   }
 
-  void CheckSpelling(const base::string16& word,
+  void CheckSpelling(const std::u16string& word,
                      int,
                      CheckSpellingCallback) override {}
-  void FillSuggestionList(const base::string16& word,
+  void FillSuggestionList(const std::u16string& word,
                           FillSuggestionListCallback) override {}
 
 #if defined(OS_WIN)
-  void GetPerLanguageSuggestions(
-      const base::string16& word,
-      GetPerLanguageSuggestionsCallback callback) override {
-    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-    std::move(callback).Run(std::vector<std::vector<base::string16>>());
-  }
-
   void InitializeDictionaries(
       InitializeDictionariesCallback callback) override {
     if (base::FeatureList::IsEnabled(
@@ -185,11 +182,9 @@ class MockSpellCheckHost : spellcheck::mojom::SpellCheckHost {
 
   content::RenderProcessHost* process_host_;
   bool text_received_ = false;
-  base::string16 text_;
+  std::u16string text_;
   mojo::Receiver<spellcheck::mojom::SpellCheckHost> receiver_{this};
   base::OnceClosure quit_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockSpellCheckHost);
 };
 
 class SpellCheckBrowserTestHelper {
@@ -199,6 +194,10 @@ class SpellCheckBrowserTestHelper {
         base::BindRepeating(&SpellCheckBrowserTestHelper::BindSpellCheckHost,
                             base::Unretained(this)));
   }
+
+  SpellCheckBrowserTestHelper(const SpellCheckBrowserTestHelper&) = delete;
+  SpellCheckBrowserTestHelper& operator=(const SpellCheckBrowserTestHelper&) =
+      delete;
 
   ~SpellCheckBrowserTestHelper() {
     SpellCheckHostChromeImpl::OverrideBinderForTesting(base::NullCallback());
@@ -235,7 +234,7 @@ class SpellCheckBrowserTestHelper {
         FROM_HERE,
         base::BindOnce(&SpellCheckBrowserTestHelper::Timeout,
                        base::Unretained(this)),
-        base::TimeDelta::FromSeconds(1));
+        base::Seconds(1));
 
     base::RunLoop run_loop;
     quit_on_bind_closure_ = run_loop.QuitClosure();
@@ -262,8 +261,6 @@ class SpellCheckBrowserTestHelper {
 
   base::OnceClosure quit_on_bind_closure_;
   std::vector<std::unique_ptr<MockSpellCheckHost>> spell_check_hosts_;
-
-  DISALLOW_COPY_AND_ASSIGN(SpellCheckBrowserTestHelper);
 };
 
 class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
@@ -291,7 +288,7 @@ class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
 
     GURL main_url(embedded_test_server()->GetURL(
         "a.com", "/page_with_contenteditable_in_cross_site_subframe.html"));
-    ui_test_utils::NavigateToURL(browser(), main_url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
     spell_check_helper.RunUntilBind();
 
     content::WebContents* web_contents =
@@ -304,7 +301,7 @@ class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
             cross_site_subframe->GetProcess());
     spell_check_host->Wait();
 
-    EXPECT_EQ(base::ASCIIToUTF16("zz."), spell_check_host->text());
+    EXPECT_EQ(u"zz.", spell_check_host->text());
   }
 
   // Tests that after disabling spellchecking, spelling in new out-of-process
@@ -326,7 +323,7 @@ class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
 
     GURL main_url(embedded_test_server()->GetURL(
         "a.com", "/page_with_contenteditable_in_cross_site_subframe.html"));
-    ui_test_utils::NavigateToURL(browser(), main_url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
     spell_check_helper.RunUntilBindOrTimeout();
 
     content::WebContents* web_contents =
@@ -361,19 +358,13 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessSpellCheckTest,
 #if BUILDFLAG(HAS_SPELLCHECK_PANEL)
 // Tests that the OSX spell check panel can be opened from an out-of-process
 // subframe, crbug.com/712395
-#if defined(OS_MAC)
-// https://crbug.com/1032617
-#define MAYBE_OOPIFSpellCheckPanelTest DISABLED_OOPIFSpellCheckPanelTest
-#else
-#define MAYBE_OOPIFSpellCheckPanelTest OOPIFSpellCheckPanelTest
-#endif
 IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessSpellCheckTest,
-                       MAYBE_OOPIFSpellCheckPanelTest) {
+                       OOPIFSpellCheckPanelTest) {
   spellcheck::SpellCheckPanelBrowserTestHelper test_helper;
 
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/page_with_contenteditable_in_cross_site_subframe.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();

@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.webapps;
-
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -20,11 +19,16 @@ import org.chromium.base.Log;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
+import org.chromium.blink.mojom.DisplayMode;
 import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BitmapHelper;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
+import org.chromium.chrome.browser.browserservices.intents.WebappInfo;
 import org.chromium.components.webapk.lib.common.WebApkConstants;
 import org.chromium.components.webapps.ShortcutSource;
 import org.chromium.device.mojom.ScreenOrientationLockType;
+import org.chromium.ui.util.ColorUtils;
 
 import java.io.File;
 
@@ -184,7 +188,7 @@ public class WebappDataStorage {
         new AsyncTask<Bitmap>() {
             @Override
             protected final Bitmap doInBackground() {
-                return ShortcutHelper.decodeBitmapFromString(
+                return BitmapHelper.decodeBitmapFromString(
                         mPreferences.getString(KEY_SPLASH_ICON, null));
             }
 
@@ -199,7 +203,7 @@ public class WebappDataStorage {
 
     /**
      * Update the splash screen image associated with the web app with the specified data. The image
-     * must have been encoded using {@link ShortcutHelper#encodeBitmapAsString}.
+     * must have been encoded using {@link BitmapHelper#encodeBitmapAsString}.
      * @param splashScreenImage The image which should be shown on the splash screen of the web app.
      */
     public void updateSplashScreenImage(String splashScreenImage) {
@@ -221,12 +225,10 @@ public class WebappDataStorage {
                 mPreferences.getString(KEY_SCOPE, null), mPreferences.getString(KEY_NAME, null),
                 mPreferences.getString(KEY_SHORT_NAME, null),
                 mPreferences.getString(KEY_ICON, null), version,
-                mPreferences.getInt(KEY_DISPLAY_MODE, WebDisplayMode.STANDALONE),
+                mPreferences.getInt(KEY_DISPLAY_MODE, DisplayMode.STANDALONE),
                 mPreferences.getInt(KEY_ORIENTATION, ScreenOrientationLockType.DEFAULT),
-                mPreferences.getLong(
-                        KEY_THEME_COLOR, ShortcutHelper.MANIFEST_COLOR_INVALID_OR_MISSING),
-                mPreferences.getLong(
-                        KEY_BACKGROUND_COLOR, ShortcutHelper.MANIFEST_COLOR_INVALID_OR_MISSING),
+                mPreferences.getLong(KEY_THEME_COLOR, ColorUtils.INVALID_COLOR),
+                mPreferences.getLong(KEY_BACKGROUND_COLOR, ColorUtils.INVALID_COLOR),
                 mPreferences.getBoolean(KEY_IS_ICON_GENERATED, false),
                 mPreferences.getBoolean(KEY_IS_ICON_ADAPTIVE, false));
     }
@@ -259,12 +261,12 @@ public class WebappDataStorage {
         }
 
         // For all other fields, assume that if the version key is present and equal to
-        // ShortcutHelper.WEBAPP_SHORTCUT_VERSION, then all fields are present and do not need to be
-        // updated. All fields except for the last used time, scope, and URL are either set or
+        // WebappConstants.WEBAPP_SHORTCUT_VERSION, then all fields are present and do not need to
+        // be updated. All fields except for the last used time, scope, and URL are either set or
         // cleared together.
         if (mPreferences.getInt(KEY_VERSION, VERSION_INVALID)
-                != ShortcutHelper.WEBAPP_SHORTCUT_VERSION) {
-            editor.putInt(KEY_VERSION, ShortcutHelper.WEBAPP_SHORTCUT_VERSION);
+                != WebappConstants.WEBAPP_SHORTCUT_VERSION) {
+            editor.putInt(KEY_VERSION, WebappConstants.WEBAPP_SHORTCUT_VERSION);
 
             if (info.isForWebApk()) {
                 editor.putString(KEY_WEBAPK_PACKAGE_NAME, info.webApkPackageName());

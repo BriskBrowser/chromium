@@ -93,21 +93,15 @@ const char kIosSettingsPromoAlreadySeen[] = "ios.settings.promo_already_seen";
 const char kIosSettingsSigninPromoDisplayedCount[] =
     "ios.settings.signin_promo_displayed_count";
 
-// True if the previous session exited cleanly.
-// This can be different from kStabilityExitedCleanly, because the last run of
-// the program may not have included a browsing session, and thus the last run
-// of the program may have happened after the run that included the last
-// session.
-const char kLastSessionExitedCleanly[] =
-    "ios.user_experience_metrics.last_session_exited_cleanly";
+// Preference that holds a boolean indicating whether the link previews are
+// enabled. Link previews display a live preview of the selected link after a
+// long press.
+const char kLinkPreviewEnabled[] = "ios.link_preview_enabled";
 
-// Preference that hold a boolean indicating whether metrics reporting should
-// be limited to wifi (when enabled).
-const char kMetricsReportingWifiOnly[] =
-    "ios.user_experience_metrics.wifi_only";
-
-// Boolean controlling whether history saving is disabled.
-const char kSavingBrowserHistoryDisabled[] = "history.saving_disabled";
+// Preference that holds a boolean indicating whether the suggestions on the NTP
+// are enabled.
+const char kNTPContentSuggestionsEnabled[] =
+    "ios.ntp.content_suggestions_enabled";
 
 // Boolean that is true when Suggest support is enabled.
 const char kSearchSuggestEnabled[] = "search.suggest_enabled";
@@ -135,16 +129,10 @@ const char kSigninLastAccountsMigrated[] = "ios.signin.last_accounts_migrated";
 const char kSigninShouldPromptForSigninAgain[] =
     "ios.signin.should_prompt_for_signin_again";
 
-// Integer which indicates whether the user has authorized using geolocation
-// for Omnibox queries or the progress towards soliciting the user's
-// authorization.
-const char kOmniboxGeolocationAuthorizationState[] =
-    "ios.omnibox.geolocation_authorization_state";
-
-// String which contains the application version when we last showed the
-// authorization alert.
-const char kOmniboxGeolocationLastAuthorizationAlertVersion[] =
-    "ios.omnibox.geolocation_last_authorization_alert_version";
+// Number of times the user dismissed the web sign-in dialog. This value is
+// reset to zero when the user signs in (using the web sign-in dialog).
+const char kSigninWebSignDismissalCount[] =
+    "ios.signin.web_signin_dismissal_count";
 
 // Dictionary which stores the zoom levels the user has changed. The zoom levels
 // are unique for a given (iOS Dynamic Type, website domain) pair. Thus, the
@@ -158,5 +146,9 @@ const char kPrintingEnabled[] = "printing.enabled";
 // Bool used for the incognito biometric authentication setting.
 const char kIncognitoAuthenticationSetting[] =
     "ios.settings.incognito_authentication_enabled";
+
+// Integer that represents the value of BrowserSigninPolicy. Values are defined
+// in ios/chrome/browser/policy/policy_util.h.
+const char kBrowserSigninPolicy[] = "signin.browser_signin_policy";
 
 }  // namespace prefs

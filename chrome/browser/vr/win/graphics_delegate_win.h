@@ -50,6 +50,7 @@ class GraphicsDelegateWin : public GraphicsDelegate {
   void ResetMemoryBuffer();
   bool BindContext();
   void ClearContext();
+  void UpdateViews(std::vector<device::mojom::XRViewPtr> views);
 
  private:
   // GraphicsDelegate:
@@ -82,7 +83,8 @@ class GraphicsDelegateWin : public GraphicsDelegate {
   bool EnsureMemoryBuffer(int width, int height);
   gfx::Rect GetTextureSize();
 
-  device::mojom::VRDisplayInfoPtr info_;
+  device::mojom::XRViewPtr left_;
+  device::mojom::XRViewPtr right_;
 
   scoped_refptr<viz::ContextProviderCommandBuffer> context_provider_;
   gpu::gles2::GLES2Interface* gl_ = nullptr;

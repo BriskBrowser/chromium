@@ -12,7 +12,11 @@
 #include "base/macros.h"
 #include "base/sequence_checker.h"
 #include "net/base/net_export.h"
+#include "net/base/network_isolation_key.h"
 #include "net/dns/host_resolver.h"
+#include "net/log/net_log_with_source.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "url/scheme_host_port.h"
 
 namespace base {
 class TickClock;
@@ -40,15 +44,24 @@ class NET_EXPORT ContextHostResolver : public HostResolver {
   // Same except the created resolver will own its own HostResolverManager.
   ContextHostResolver(std::unique_ptr<HostResolverManager> owned_manager,
                       std::unique_ptr<ResolveContext> resolve_context);
+
+  ContextHostResolver(const ContextHostResolver&) = delete;
+  ContextHostResolver& operator=(const ContextHostResolver&) = delete;
+
   ~ContextHostResolver() override;
 
   // HostResolver methods:
   void OnShutdown() override;
   std::unique_ptr<ResolveHostRequest> CreateRequest(
+      url::SchemeHostPort host,
+      NetworkIsolationKey network_isolation_key,
+      NetLogWithSource net_log,
+      absl::optional<ResolveHostParameters> optional_parameters) override;
+  std::unique_ptr<ResolveHostRequest> CreateRequest(
       const HostPortPair& host,
       const NetworkIsolationKey& network_isolation_key,
       const NetLogWithSource& net_log,
-      const base::Optional<ResolveHostParameters>& optional_parameters)
+      const absl::optional<ResolveHostParameters>& optional_parameters)
       override;
   std::unique_ptr<ProbeRequest> CreateDohProbeRequest() override;
   std::unique_ptr<MdnsListener> CreateMdnsListener(
@@ -94,8 +107,6 @@ class NET_EXPORT ContextHostResolver : public HostResolver {
   bool shutting_down_ = false;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(ContextHostResolver);
 };
 
 }  // namespace net

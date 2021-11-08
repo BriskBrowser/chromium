@@ -6,9 +6,13 @@
 
 #include <memory>
 
+#include "ash/accessibility/magnifier/docked_magnifier_controller.h"
 #include "ash/capture_mode/capture_mode_constants.h"
 #include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/capture_mode/capture_mode_metrics.h"
+#include "ash/capture_mode/recording_overlay_controller.h"
+#include "ash/constants/ash_features.h"
+#include "ash/projector/projector_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/wm/desks/desks_util.h"
@@ -22,9 +26,11 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/cursor/cursor_lookup.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/dip_util.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size_f.h"
@@ -41,14 +47,13 @@ namespace {
 // events that are too frequent will be throttled. We use the frame duration as
 // the minimum delay between any two successive such events that we use to
 // update the cursor overlay.
-constexpr base::TimeDelta kCursorEventsThrottleDelay =
-    base::TimeDelta::FromHz(30);
+constexpr base::TimeDelta kCursorEventsThrottleDelay = base::Hertz(30);
 
 // Window resizes can be done on many intermediate steps. This delay is used to
 // throttle these resize events so that we send the final size of the window to
 // the recording service when it stabilizes.
 constexpr base::TimeDelta kWindowSizeChangeThrottleDelay =
-    base::TimeDelta::FromMilliseconds(250);
+    base::Milliseconds(250);
 
 // Returns true if |window_1| and |window_2| are both windows that belong to
 // the same Desk. Note that it will return false for windows that don't belong
@@ -79,23 +84,6 @@ gfx::PointF GetEventLocationInWindow(aura::Window* window,
   return location;
 }
 
-// Returns the hotspot location of the given |cursor|.
-gfx::PointF GetCursorHotspot(const ui::Cursor& cursor,
-                             float cursor_scale_factor) {
-  DCHECK_GE(cursor_scale_factor, 1.f);
-
-  // ui::GetCursorHotspot() returns a scale-factor-200 hotspot for a
-  // scale-factor-100 bitmap when the scale factor is not 1.f, causing the
-  // hotspot to be out of bounds of the bitmap dimensions. See
-  // https://crbug.com/436993.
-  gfx::PointF hotspot(ui::GetCursorHotspot(cursor));
-  if (cursor_scale_factor > 1.f &&
-      cursor.type() != ui::mojom::CursorType::kCustom) {
-    hotspot.Scale(1.f / cursor_scale_factor);
-  }
-  return hotspot;
-}
-
 // Returns the cursor overlay bounds as defined by the documentation of the
 // FrameSinkVideoCaptureOverlay. The bounds should be relative within the bounds
 // of the recorded frame sink (i.e. in the range [0.f, 1.f) for both cursor
@@ -103,20 +91,27 @@ gfx::PointF GetCursorHotspot(const ui::Cursor& cursor,
 gfx::RectF GetCursorOverlayBounds(
     const aura::Window* recorded_window,
     const gfx::PointF& location_in_recorded_window,
-    const gfx::PointF& cursor_hotspot,
+    const gfx::Point& cursor_hotspot,
+    float cursor_image_scale_factor,
     const SkBitmap& cursor_bitmap) {
   DCHECK(recorded_window);
+  DCHECK_GT(cursor_image_scale_factor, 0);
 
-  // Even when recording a non-root window, we use the bounds of the root
-  // window, since it corresponds to the bounds of the source frame sink we are
-  // recording.
-  const auto window_size = recorded_window->GetRootWindow()->bounds().size();
+  // The video size, and the resolution constraints will be matching the size of
+  // the recorded window (whether a root or a non-root window). Hence, the
+  // bounds of the cursor overlay should be relative to that size.
+  const auto window_size = recorded_window->bounds().size();
   if (window_size.IsEmpty())
     return gfx::RectF();
 
+  const gfx::PointF cursor_hotspot_dip =
+      gfx::ConvertPointToDips(cursor_hotspot, cursor_image_scale_factor);
+  const gfx::SizeF cursor_size_dip = gfx::ConvertSizeToDips(
+      gfx::SizeF(cursor_bitmap.width(), cursor_bitmap.height()),
+      cursor_image_scale_factor);
   gfx::RectF cursor_relative_bounds(
-      location_in_recorded_window - cursor_hotspot.OffsetFromOrigin(),
-      gfx::SizeF(cursor_bitmap.width(), cursor_bitmap.height()));
+      location_in_recorded_window - cursor_hotspot_dip.OffsetFromOrigin(),
+      cursor_size_dip);
   cursor_relative_bounds.Scale(1.f / window_size.width(),
                                1.f / window_size.height());
   return cursor_relative_bounds;
@@ -171,17 +166,19 @@ VideoRecordingWatcher::VideoRecordingWatcher(
     CaptureModeController* controller,
     aura::Window* window_being_recorded,
     mojo::PendingRemote<viz::mojom::FrameSinkVideoCaptureOverlay>
-        cursor_capture_overlay)
+        cursor_capture_overlay,
+    bool projector_mode)
     : controller_(controller),
       cursor_manager_(Shell::Get()->cursor_manager()),
       window_being_recorded_(window_being_recorded),
       current_root_(window_being_recorded->GetRootWindow()),
       recording_source_(controller_->source()),
-      cursor_capture_overlay_remote_(std::move(cursor_capture_overlay)) {
+      cursor_capture_overlay_remote_(std::move(cursor_capture_overlay)),
+      is_in_projector_mode_(projector_mode) {
   DCHECK(controller_);
   DCHECK(window_being_recorded_);
   DCHECK(current_root_);
-  DCHECK(controller_->is_recording_in_progress());
+  DCHECK(!is_in_projector_mode_ || features::IsProjectorEnabled());
 
   if (!window_being_recorded_->IsRootWindow()) {
     DCHECK_EQ(recording_source_, CaptureModeSource::kWindow);
@@ -211,25 +208,45 @@ VideoRecordingWatcher::VideoRecordingWatcher(
   if (recording_source_ == CaptureModeSource::kRegion)
     partial_region_bounds_ = controller_->user_capture_region();
 
-  display::Screen::GetScreen()->AddObserver(this);
   window_being_recorded_->AddObserver(this);
   TabletModeController::Get()->AddObserver(this);
 
   // Note the following:
   // 1- We add |this| as a pre-target handler of the |window_being_recorded_| as
-  //    opposed to |Shell|. This ensures that we only get mouse events when the
+  //    opposed to |Env|. This ensures that we only get mouse events when the
   //    window being recorded is the target. This is more efficient since we
   //    won't get any event when the curosr is in a different display, or
   //    targeting a different window.
-  // 2- We use the |kSystem| priority to ensure that we get these events before
-  //    other pre-target handlers can consume them (e.g. when opening a capture
-  //    mode session to take a screenshot while recording a video).
+  // 2- We use the |kAccessibility| priority to ensure that we get these events
+  //    before other pre-target handlers can consume them (e.g. when opening a
+  //    capture mode session to take a screenshot while recording a video).
   window_being_recorded_->AddPreTargetHandler(
-      this, ui::EventTarget::Priority::kSystem);
+      this, ui::EventTarget::Priority::kAccessibility);
+
+  if (is_in_projector_mode_) {
+    recording_overlay_controller_ =
+        std::make_unique<RecordingOverlayController>(window_being_recorded_,
+                                                     GetOverlayWidgetBounds());
+    ProjectorControllerImpl::Get()->OnRecordingStarted();
+  }
 }
 
 VideoRecordingWatcher::~VideoRecordingWatcher() {
+  DCHECK(is_shutting_down_);
+}
+
+void VideoRecordingWatcher::ToggleRecordingOverlayEnabled() {
+  DCHECK(is_in_projector_mode_);
+
+  recording_overlay_controller_->Toggle();
+}
+
+void VideoRecordingWatcher::ShutDown() {
+  is_shutting_down_ = true;
   DCHECK(window_being_recorded_);
+
+  if (is_in_projector_mode_)
+    ProjectorControllerImpl::Get()->OnRecordingEnded();
 
   window_being_recorded_->RemovePreTargetHandler(this);
   TabletModeController::Get()->RemoveObserver(this);
@@ -241,14 +258,15 @@ VideoRecordingWatcher::~VideoRecordingWatcher() {
         ->cursor_window_controller()
         ->RemoveObserver(this);
   }
-  display::Screen::GetScreen()->RemoveObserver(this);
+  // Move the |non_root_window_capture_request_| so that the
+  // |window_being_recorded_| is not capturable.
+  auto to_be_removed_request = std::move(non_root_window_capture_request_);
   window_being_recorded_->RemoveObserver(this);
 }
 
 void VideoRecordingWatcher::OnWindowParentChanged(aura::Window* window,
                                                   aura::Window* parent) {
   DCHECK_EQ(window, window_being_recorded_);
-  DCHECK(controller_->is_recording_in_progress());
   DCHECK_EQ(recording_source_, CaptureModeSource::kWindow);
 
   UpdateLayerStackingAndDimmers();
@@ -265,7 +283,8 @@ void VideoRecordingWatcher::OnWindowBoundsChanged(
     const gfx::Rect& old_bounds,
     const gfx::Rect& new_bounds,
     ui::PropertyChangeReason reason) {
-  DCHECK(controller_->is_recording_in_progress());
+  if (is_in_projector_mode_)
+    recording_overlay_controller_->SetBounds(GetOverlayWidgetBounds());
 
   if (recording_source_ != CaptureModeSource::kWindow)
     return;
@@ -290,7 +309,6 @@ void VideoRecordingWatcher::OnWindowOpacitySet(
 
 void VideoRecordingWatcher::OnWindowStackingChanged(aura::Window* window) {
   DCHECK_EQ(window, window_being_recorded_);
-  DCHECK(controller_->is_recording_in_progress());
   DCHECK_EQ(recording_source_, CaptureModeSource::kWindow);
 
   UpdateLayerStackingAndDimmers();
@@ -298,7 +316,6 @@ void VideoRecordingWatcher::OnWindowStackingChanged(aura::Window* window) {
 
 void VideoRecordingWatcher::OnWindowDestroying(aura::Window* window) {
   DCHECK_EQ(window, window_being_recorded_);
-  DCHECK(controller_->is_recording_in_progress());
 
   // EndVideoRecording() destroys |this|. No need to remove observer here, since
   // it will be done in the destructor.
@@ -317,7 +334,6 @@ void VideoRecordingWatcher::OnWindowRemovingFromRootWindow(
     aura::Window* window,
     aura::Window* new_root) {
   DCHECK_EQ(window, window_being_recorded_);
-  DCHECK(controller_->is_recording_in_progress());
   DCHECK_EQ(recording_source_, CaptureModeSource::kWindow);
 
   root_observer_.reset();
@@ -378,8 +394,10 @@ void VideoRecordingWatcher::OnWindowActivated(ActivationReason reason,
 void VideoRecordingWatcher::OnDisplayMetricsChanged(
     const display::Display& display,
     uint32_t metrics) {
-  if (recording_source_ == CaptureModeSource::kFullscreen)
-    return;
+  // A change in the work area, could mean that the docked magnifier state has
+  // changed, therefore we must update the overlay widget's bounds if any.
+  if (is_in_projector_mode_ && (metrics & DISPLAY_METRIC_WORK_AREA))
+    recording_overlay_controller_->SetBounds(GetOverlayWidgetBounds());
 
   if (!(metrics & (DISPLAY_METRIC_BOUNDS | DISPLAY_METRIC_ROTATION |
                    DISPLAY_METRIC_DEVICE_SCALE_FACTOR))) {
@@ -392,7 +410,12 @@ void VideoRecordingWatcher::OnDisplayMetricsChanged(
     return;
 
   const auto& root_bounds = current_root_->bounds();
-  controller_->PushNewRootSizeToRecordingService(root_bounds.size());
+  controller_->PushNewRootSizeToRecordingService(
+      root_bounds.size(), current_root_->GetHost()->device_scale_factor());
+
+  // We don't show a dimming overlay when recording a fullscreen.
+  if (recording_source_ == CaptureModeSource::kFullscreen)
+    return;
 
   DCHECK(layer());
   layer()->SetBounds(root_bounds);
@@ -479,7 +502,6 @@ void VideoRecordingWatcher::SetLayer(std::unique_ptr<ui::Layer> layer) {
 }
 
 void VideoRecordingWatcher::OnRootHierarchyChanged(aura::Window* target) {
-  DCHECK(controller_->is_recording_in_progress());
   DCHECK_EQ(recording_source_, CaptureModeSource::kWindow);
 
   if (target != window_being_recorded_ && !dimmers_.contains(target) &&
@@ -657,11 +679,11 @@ void VideoRecordingWatcher::UpdateCursorOverlayNow(
   const gfx::NativeCursor cursor = GetCurrentCursor();
   DCHECK_NE(cursor.type(), ui::mojom::CursorType::kNull);
 
-  const float cursor_scale_factor = std::max(1.f, cursor.image_scale_factor());
+  const float cursor_image_scale_factor = cursor.image_scale_factor();
   const SkBitmap cursor_image = ui::GetCursorBitmap(cursor);
   const gfx::RectF cursor_overlay_bounds = GetCursorOverlayBounds(
-      window_being_recorded_, location,
-      GetCursorHotspot(cursor, cursor_scale_factor), cursor_image);
+      window_being_recorded_, location, ui::GetCursorHotspot(cursor),
+      cursor_image_scale_factor, cursor_image);
 
   if (cursor != last_cursor_) {
     if (cursor_image.drawsNothing()) {
@@ -701,11 +723,21 @@ void VideoRecordingWatcher::OnCursorThrottleTimerFiring() {
 }
 
 void VideoRecordingWatcher::OnWindowSizeChangeThrottleTimerFiring() {
-  DCHECK(controller_->is_recording_in_progress());
   DCHECK_EQ(recording_source_, CaptureModeSource::kWindow);
 
   controller_->OnRecordedWindowSizeChanged(
       window_being_recorded_->bounds().size());
+}
+
+gfx::Rect VideoRecordingWatcher::GetOverlayWidgetBounds() const {
+  gfx::Rect bounds = recording_source_ == CaptureModeSource::kRegion
+                         ? partial_region_bounds_
+                         : gfx::Rect(window_being_recorded_->bounds().size());
+  bounds.Subtract(Shell::Get()
+                      ->docked_magnifier_controller()
+                      ->GetTotalMagnifierBoundsForRoot(
+                          window_being_recorded_->GetRootWindow()));
+  return bounds;
 }
 
 }  // namespace ash

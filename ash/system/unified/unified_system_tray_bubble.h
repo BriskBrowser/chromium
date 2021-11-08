@@ -13,8 +13,8 @@
 #include "ash/system/tray/time_to_click_recorder.h"
 #include "ash/system/tray/tray_bubble_base.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/time/time.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/widget/widget_observer.h"
@@ -43,8 +43,11 @@ class ASH_EXPORT UnifiedSystemTrayBubble
       public TimeToClickRecorder::Delegate,
       public TabletModeObserver {
  public:
+  explicit UnifiedSystemTrayBubble(UnifiedSystemTray* tray);
 
-  explicit UnifiedSystemTrayBubble(UnifiedSystemTray* tray, bool show_by_click);
+  UnifiedSystemTrayBubble(const UnifiedSystemTrayBubble&) = delete;
+  UnifiedSystemTrayBubble& operator=(const UnifiedSystemTrayBubble&) = delete;
+
   ~UnifiedSystemTrayBubble() override;
 
   // Return the bounds of the bubble in the screen.
@@ -52,12 +55,6 @@ class ASH_EXPORT UnifiedSystemTrayBubble
 
   // True if the bubble is active.
   bool IsBubbleActive() const;
-
-  // Activate the system tray bubble.
-  void ActivateBubble();
-
-  // Close the bubble immediately.
-  void CloseNow();
 
   // Collapse the message center bubble.
   void CollapseMessageCenter();
@@ -76,6 +73,9 @@ class ASH_EXPORT UnifiedSystemTrayBubble
 
   // Show audio settings detailed view.
   void ShowAudioDetailedView();
+
+  // Show calendar view.
+  void ShowCalendarView();
 
   // Show network settings detailed view.
   void ShowNetworkDetailedView(bool force);
@@ -102,6 +102,9 @@ class ASH_EXPORT UnifiedSystemTrayBubble
 
   // Fire a notification that an accessibility event has occured on this object.
   void NotifyAccessibilityEvent(ax::mojom::Event event, bool send_native_event);
+
+  // Whether the bubble is currently showing audio details view.
+  bool ShowingAudioDetailedView() const;
 
   // TrayBubbleBase:
   TrayBackgroundView* GetTray() const override;
@@ -164,14 +167,11 @@ class ASH_EXPORT UnifiedSystemTrayBubble
   // PreTargetHandler of |unified_view_| to record TimeToClick metrics. Owned.
   std::unique_ptr<TimeToClickRecorder> time_to_click_recorder_;
 
-  // The time the bubble is created. If the bubble is not created by button
-  // click (|show_by_click| in ctor is false), it is not set.
-  base::Optional<base::TimeTicks> time_shown_by_click_;
+  // The time the bubble is created.
+  absl::optional<base::TimeTicks> time_opened_;
 
   TrayBubbleView* bubble_view_ = nullptr;
   UnifiedSystemTrayView* unified_view_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedSystemTrayBubble);
 };
 
 }  // namespace ash

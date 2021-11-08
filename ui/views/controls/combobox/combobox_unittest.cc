@@ -53,16 +53,20 @@ using TestCombobox = Combobox;
 class TestComboboxModel : public ui::ComboboxModel {
  public:
   TestComboboxModel() = default;
+
+  TestComboboxModel(const TestComboboxModel&) = delete;
+  TestComboboxModel& operator=(const TestComboboxModel&) = delete;
+
   ~TestComboboxModel() override = default;
 
   enum { kItemCount = 10 };
 
   // ui::ComboboxModel:
   int GetItemCount() const override { return item_count_; }
-  base::string16 GetItemAt(int index) const override {
+  std::u16string GetItemAt(int index) const override {
     if (IsItemSeparatorAt(index)) {
       NOTREACHED();
-      return ASCIIToUTF16("SEPARATOR");
+      return u"SEPARATOR";
     }
     return ASCIIToUTF16(index % 2 == 0 ? "PEANUT BUTTER" : "JELLY");
   }
@@ -106,8 +110,6 @@ class TestComboboxModel : public ui::ComboboxModel {
   base::ObserverList<ui::ComboboxModelObserver> observers_;
   std::set<int> separators_;
   int item_count_ = kItemCount;
-
-  DISALLOW_COPY_AND_ASSIGN(TestComboboxModel);
 };
 
 // A combobox model which refers to a vector.
@@ -115,6 +117,10 @@ class VectorComboboxModel : public ui::ComboboxModel {
  public:
   explicit VectorComboboxModel(std::vector<std::string>* values)
       : values_(values) {}
+
+  VectorComboboxModel(const VectorComboboxModel&) = delete;
+  VectorComboboxModel& operator=(const VectorComboboxModel&) = delete;
+
   ~VectorComboboxModel() override = default;
 
   void set_default_index(int default_index) { default_index_ = default_index; }
@@ -123,7 +129,7 @@ class VectorComboboxModel : public ui::ComboboxModel {
   int GetItemCount() const override {
     return static_cast<int>(values_->size());
   }
-  base::string16 GetItemAt(int index) const override {
+  std::u16string GetItemAt(int index) const override {
     return ASCIIToUTF16(values_->at(index));
   }
   bool IsItemSeparatorAt(int index) const override { return false; }
@@ -144,8 +150,6 @@ class VectorComboboxModel : public ui::ComboboxModel {
   base::ObserverList<ui::ComboboxModelObserver> observers_;
   int default_index_ = 0;
   std::vector<std::string>* const values_;
-
-  DISALLOW_COPY_AND_ASSIGN(VectorComboboxModel);
 };
 
 class EvilListener {
@@ -154,6 +158,10 @@ class EvilListener {
     combobox_->SetCallback(base::BindRepeating(&EvilListener::OnPerformAction,
                                                base::Unretained(this)));
   }
+
+  EvilListener(const EvilListener&) = delete;
+  EvilListener& operator=(const EvilListener&) = delete;
+
   ~EvilListener() = default;
 
   TestCombobox* combobox() { return combobox_.get(); }
@@ -164,13 +172,15 @@ class EvilListener {
   TestComboboxModel model_;
   std::unique_ptr<TestCombobox> combobox_ =
       std::make_unique<TestCombobox>(&model_);
-
-  DISALLOW_COPY_AND_ASSIGN(EvilListener);
 };
 
 class TestComboboxListener {
  public:
   explicit TestComboboxListener(Combobox* combobox) : combobox_(combobox) {}
+
+  TestComboboxListener(const TestComboboxListener&) = delete;
+  TestComboboxListener& operator=(const TestComboboxListener&) = delete;
+
   ~TestComboboxListener() = default;
 
   void OnPerformAction() {
@@ -188,9 +198,6 @@ class TestComboboxListener {
   Combobox* combobox_;
   int perform_action_index_ = -1;
   int actions_performed_ = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestComboboxListener);
 };
 
 }  // namespace
@@ -198,6 +205,9 @@ class TestComboboxListener {
 class ComboboxTest : public ViewsTestBase {
  public:
   ComboboxTest() = default;
+
+  ComboboxTest(const ComboboxTest&) = delete;
+  ComboboxTest& operator=(const ComboboxTest&) = delete;
 
   void TearDown() override {
     widget_.reset();
@@ -280,12 +290,9 @@ class ComboboxTest : public ViewsTestBase {
   int menu_show_count_ = 0;
 
   std::unique_ptr<ui::test::EventGenerator> event_generator_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ComboboxTest);
 };
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
 // Tests whether the various Mac specific keyboard shortcuts invoke the dropdown
 // menu or not.
 TEST_F(ComboboxTest, KeyTestMac) {
@@ -359,7 +366,7 @@ TEST_F(ComboboxTest, DisabilityTest) {
 
 // On Mac, key events can't change the currently selected index directly for a
 // combobox.
-#if !defined(OS_APPLE)
+#if !defined(OS_MAC)
 
 // Tests the behavior of various keyboard shortcuts on the currently selected
 // index.
@@ -504,7 +511,7 @@ TEST_F(ComboboxTest, SkipMultipleSeparatorsAtEnd) {
   PressKey(ui::VKEY_END);
   EXPECT_EQ(6, combobox_->GetSelectedIndex());
 }
-#endif  // !OS_APPLE
+#endif  // !OS_MAC
 
 TEST_F(ComboboxTest, GetTextForRowTest) {
   std::set<int> separators;
@@ -527,11 +534,11 @@ TEST_F(ComboboxTest, GetTextForRowTest) {
 TEST_F(ComboboxTest, SelectValue) {
   InitCombobox(nullptr);
   ASSERT_EQ(model_->GetDefaultIndex(), combobox_->GetSelectedIndex());
-  EXPECT_TRUE(combobox_->SelectValue(ASCIIToUTF16("PEANUT BUTTER")));
+  EXPECT_TRUE(combobox_->SelectValue(u"PEANUT BUTTER"));
   EXPECT_EQ(0, combobox_->GetSelectedIndex());
-  EXPECT_TRUE(combobox_->SelectValue(ASCIIToUTF16("JELLY")));
+  EXPECT_TRUE(combobox_->SelectValue(u"JELLY"));
   EXPECT_EQ(1, combobox_->GetSelectedIndex());
-  EXPECT_FALSE(combobox_->SelectValue(ASCIIToUTF16("BANANAS")));
+  EXPECT_FALSE(combobox_->SelectValue(u"BANANAS"));
   EXPECT_EQ(1, combobox_->GetSelectedIndex());
 }
 
@@ -839,7 +846,7 @@ TEST_F(ComboboxTest, MenuModel) {
   EXPECT_EQ(ui::MenuModel::TYPE_SEPARATOR,
             menu_model->GetTypeAt(kSeparatorIndex));
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
   // Comboboxes on Mac should have checkmarks, with the selected item checked,
   EXPECT_EQ(ui::MenuModel::TYPE_CHECK, menu_model->GetTypeAt(0));
   EXPECT_EQ(ui::MenuModel::TYPE_CHECK, menu_model->GetTypeAt(1));
@@ -854,8 +861,8 @@ TEST_F(ComboboxTest, MenuModel) {
   EXPECT_EQ(ui::MenuModel::TYPE_COMMAND, menu_model->GetTypeAt(1));
 #endif
 
-  EXPECT_EQ(ASCIIToUTF16("PEANUT BUTTER"), menu_model->GetLabelAt(0));
-  EXPECT_EQ(ASCIIToUTF16("JELLY"), menu_model->GetLabelAt(1));
+  EXPECT_EQ(u"PEANUT BUTTER", menu_model->GetLabelAt(0));
+  EXPECT_EQ(u"JELLY", menu_model->GetLabelAt(1));
 
   EXPECT_TRUE(menu_model->IsVisibleAt(0));
 }
@@ -863,7 +870,7 @@ TEST_F(ComboboxTest, MenuModel) {
 // Verifies SetTooltipTextAndAccessibleName will call NotifyAccessibilityEvent.
 TEST_F(ComboboxTest, SetTooltipTextNotifiesAccessibilityEvent) {
   InitCombobox(nullptr);
-  base::string16 test_tooltip_text = ASCIIToUTF16("Test Tooltip Text");
+  std::u16string test_tooltip_text = u"Test Tooltip Text";
   test::AXEventCounter counter(AXEventManager::Get());
   EXPECT_EQ(0, counter.GetCount(ax::mojom::Event::kTextChanged));
   combobox_->SetTooltipTextAndAccessibleName(test_tooltip_text);
@@ -898,7 +905,7 @@ class ConfigurableComboboxModel final : public ui::ComboboxModel {
 
   // ui::ComboboxModel:
   int GetItemCount() const override { return item_count_; }
-  base::string16 GetItemAt(int index) const override {
+  std::u16string GetItemAt(int index) const override {
     DCHECK_LT(index, item_count_);
     return base::NumberToString16(index);
   }

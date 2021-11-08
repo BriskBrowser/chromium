@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/api/file_system/consent_provider.h"
 
+#include <memory>
 #include <string>
 
 #include "base/bind.h"
@@ -13,8 +14,8 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
-#include "chrome/browser/chromeos/file_manager/volume_manager.h"
-#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/ash/file_manager/volume_manager.h"
+#include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/user_manager/scoped_user_manager.h"
@@ -28,6 +29,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using extensions::file_system_api::ConsentProvider;
+using extensions::mojom::ManifestLocation;
 using file_manager::Volume;
 
 namespace extensions {
@@ -41,6 +43,11 @@ class TestingConsentProviderDelegate
         show_notification_counter_(0),
         dialog_button_(ui::DIALOG_BUTTON_NONE),
         is_auto_launched_(false) {}
+
+  TestingConsentProviderDelegate(const TestingConsentProviderDelegate&) =
+      delete;
+  TestingConsentProviderDelegate& operator=(
+      const TestingConsentProviderDelegate&) = delete;
 
   ~TestingConsentProviderDelegate() {}
 
@@ -87,7 +94,7 @@ class TestingConsentProviderDelegate
 
   bool HasRequestDownloadsPermission(const Extension& extension) override {
     return extension.permissions_data()->HasAPIPermission(
-        APIPermission::kFileSystemRequestDownloads);
+        mojom::APIPermissionID::kFileSystemRequestDownloads);
   }
 
   int show_dialog_counter_;
@@ -95,8 +102,6 @@ class TestingConsentProviderDelegate
   ui::DialogButton dialog_button_;
   bool is_auto_launched_;
   std::string allowlisted_component_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestingConsentProviderDelegate);
 };
 
 // Rewrites result of a consent request from |result| to |log|.
@@ -112,10 +117,10 @@ class FileSystemApiConsentProviderTest : public testing::Test {
   FileSystemApiConsentProviderTest() {}
 
   void SetUp() override {
-    testing_pref_service_.reset(new TestingPrefServiceSimple);
+    testing_pref_service_ = std::make_unique<TestingPrefServiceSimple>();
     TestingBrowserProcess::GetGlobal()->SetLocalState(
         testing_pref_service_.get());
-    user_manager_ = new chromeos::FakeChromeUserManager;
+    user_manager_ = new ash::FakeChromeUserManager;
     scoped_user_manager_enabler_ =
         std::make_unique<user_manager::ScopedUserManager>(
             base::WrapUnique(user_manager_));
@@ -133,8 +138,7 @@ class FileSystemApiConsentProviderTest : public testing::Test {
  protected:
   base::WeakPtr<Volume> volume_;
   std::unique_ptr<TestingPrefServiceSimple> testing_pref_service_;
-  chromeos::FakeChromeUserManager*
-      user_manager_;  // Owned by the scope enabler.
+  ash::FakeChromeUserManager* user_manager_;  // Owned by the scope enabler.
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_enabler_;
   content::BrowserTaskEnvironment task_environment_;
   base::ScopedTempDir temp_dir_;
@@ -146,7 +150,7 @@ TEST_F(FileSystemApiConsentProviderTest, ForNonKioskApps) {
   {
     scoped_refptr<const Extension> component_extension(
         ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
-            .SetLocation(Manifest::COMPONENT)
+            .SetLocation(ManifestLocation::kComponent)
             .Build());
     TestingConsentProviderDelegate delegate;
     ConsentProvider provider(&delegate);
@@ -159,7 +163,7 @@ TEST_F(FileSystemApiConsentProviderTest, ForNonKioskApps) {
   {
     scoped_refptr<const Extension> allowlisted_component_extension(
         ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
-            .SetLocation(Manifest::COMPONENT)
+            .SetLocation(ManifestLocation::kComponent)
             .Build());
     TestingConsentProviderDelegate delegate;
     delegate.SetComponentAllowlist(allowlisted_component_extension->id());
@@ -183,7 +187,7 @@ TEST_F(FileSystemApiConsentProviderTest, ForNonKioskApps) {
   {
     scoped_refptr<const Extension> allowlisted_extension(
         ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
-            .SetLocation(Manifest::COMPONENT)
+            .SetLocation(ManifestLocation::kComponent)
             .AddPermission("fileSystem.requestDownloads")
             .Build());
     TestingConsentProviderDelegate delegate;

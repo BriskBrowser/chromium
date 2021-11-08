@@ -32,7 +32,6 @@
 #include "third_party/blink/renderer/core/page/create_window.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 using std::swap;
@@ -67,7 +66,7 @@ const AtomicString& FrameTree::GetName() const {
     }
   }
 
-  if (cross_browsing_context_group_set_nulled_name_) {
+  if (cross_site_cross_browsing_context_group_set_nulled_name_) {
     auto* frame = DynamicTo<LocalFrame>(this_frame_.Get());
     if (frame && frame->IsMainFrame() && !name_.IsEmpty()) {
       UseCounter::Count(
@@ -85,8 +84,8 @@ void FrameTree::ExperimentalSetNulledName() {
 }
 
 // TODO(shuuran): remove this once we have gathered the data
-void FrameTree::CrossBrowsingContextGroupSetNulledName() {
-  cross_browsing_context_group_set_nulled_name_ = true;
+void FrameTree::CrossSiteCrossBrowsingContextGroupSetNulledName() {
+  cross_site_cross_browsing_context_group_set_nulled_name_ = true;
 }
 
 void FrameTree::SetName(const AtomicString& name,
@@ -112,18 +111,18 @@ void FrameTree::SetName(const AtomicString& name,
   auto* frame = DynamicTo<LocalFrame>(this_frame_.Get());
   if (frame && frame->IsMainFrame() && !name.IsEmpty()) {
     // TODO(shuuran): remove this once we have gathered the data
-    cross_browsing_context_group_set_nulled_name_ = false;
+    cross_site_cross_browsing_context_group_set_nulled_name_ = false;
   }
   name_ = name;
 }
 
 DISABLE_CFI_PERF
-Frame* FrameTree::Parent() const {
-  return this_frame_->Parent();
+Frame* FrameTree::Parent(FrameTreeBoundary frame_tree_boundary) const {
+  return this_frame_->Parent(frame_tree_boundary);
 }
 
-Frame& FrameTree::Top() const {
-  return *this_frame_->Top();
+Frame& FrameTree::Top(FrameTreeBoundary frame_tree_boundary) const {
+  return *this_frame_->Top(frame_tree_boundary);
 }
 
 Frame* FrameTree::NextSibling() const {
@@ -248,10 +247,13 @@ Frame* FrameTree::FindFrameForNavigationInternal(const AtomicString& name,
     return this_frame_;
 
   if (EqualIgnoringASCIICase(name, "_top"))
-    return &Top();
+    return &Top(FrameTreeBoundary::kFenced);
 
-  if (EqualIgnoringASCIICase(name, "_parent"))
-    return Parent() ? Parent() : this_frame_.Get();
+  if (EqualIgnoringASCIICase(name, "_parent")) {
+    return Parent(FrameTreeBoundary::kFenced)
+               ? Parent(FrameTreeBoundary::kFenced)
+               : this_frame_.Get();
+  }
 
   // Since "_blank" should never be any frame's name, the following just amounts
   // to an optimization.
@@ -367,32 +369,32 @@ void FrameTree::Trace(Visitor* visitor) const {
 
 #if DCHECK_IS_ON()
 
-static void printIndent(int indent) {
+static void PrintIndent(int indent) {
   for (int i = 0; i < indent; ++i)
     printf("    ");
 }
 
-static void printFrames(const blink::Frame* frame,
+static void PrintFrames(const blink::Frame* frame,
                         const blink::Frame* targetFrame,
                         int indent) {
   if (frame == targetFrame) {
     printf("--> ");
-    printIndent(indent - 1);
+    PrintIndent(indent - 1);
   } else {
-    printIndent(indent);
+    PrintIndent(indent);
   }
 
   auto* local_frame = blink::DynamicTo<blink::LocalFrame>(frame);
   blink::LocalFrameView* view = local_frame ? local_frame->View() : nullptr;
   printf("Frame %p %dx%d\n", frame, view ? view->Width() : 0,
          view ? view->Height() : 0);
-  printIndent(indent);
+  PrintIndent(indent);
   printf("  owner=%p\n", frame->Owner());
-  printIndent(indent);
+  PrintIndent(indent);
   printf("  frameView=%p\n", view);
-  printIndent(indent);
+  PrintIndent(indent);
   printf("  document=%p\n", local_frame ? local_frame->GetDocument() : nullptr);
-  printIndent(indent);
+  PrintIndent(indent);
   printf("  uri=%s\n\n",
          local_frame && local_frame->GetDocument()
              ? local_frame->GetDocument()->Url().GetString().Utf8().c_str()
@@ -400,16 +402,16 @@ static void printFrames(const blink::Frame* frame,
 
   for (blink::Frame* child = frame->Tree().FirstChild(); child;
        child = child->Tree().NextSibling())
-    printFrames(child, targetFrame, indent + 1);
+    PrintFrames(child, targetFrame, indent + 1);
 }
 
-void showFrameTree(const blink::Frame* frame) {
+void ShowFrameTree(const blink::Frame* frame) {
   if (!frame) {
     printf("Null input frame\n");
     return;
   }
 
-  printFrames(&frame->Tree().Top(), frame, 0);
+  PrintFrames(&frame->Tree().Top(), frame, 0);
 }
 
 #endif  // DCHECK_IS_ON()

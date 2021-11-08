@@ -15,7 +15,6 @@
 #include "base/files/scoped_file.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/process/kill.h"
 #include "base/run_loop.h"
@@ -41,6 +40,7 @@
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_source.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 #if defined(OS_ANDROID)
@@ -58,6 +58,10 @@ class CrashDumpWaiter : public crash_reporter::CrashMetricsReporter::Observer {
   CrashDumpWaiter() {
     crash_reporter::CrashMetricsReporter::GetInstance()->AddObserver(this);
   }
+
+  CrashDumpWaiter(const CrashDumpWaiter&) = delete;
+  CrashDumpWaiter& operator=(const CrashDumpWaiter&) = delete;
+
   ~CrashDumpWaiter() {
     crash_reporter::CrashMetricsReporter::GetInstance()->RemoveObserver(this);
   }
@@ -81,7 +85,6 @@ class CrashDumpWaiter : public crash_reporter::CrashMetricsReporter::Observer {
 
   base::RunLoop waiter_;
   crash_reporter::CrashMetricsReporter::ReportedCrashTypeSet reported_counts_;
-  DISALLOW_COPY_AND_ASSIGN(CrashDumpWaiter);
 };
 #endif  // defined(OS_ANDROID)
 
@@ -89,6 +92,10 @@ class OutOfMemoryReporterTest : public ChromeRenderViewHostTestHarness,
                                 public OutOfMemoryReporter::Observer {
  public:
   OutOfMemoryReporterTest() {}
+
+  OutOfMemoryReporterTest(const OutOfMemoryReporterTest&) = delete;
+  OutOfMemoryReporterTest& operator=(const OutOfMemoryReporterTest&) = delete;
+
   ~OutOfMemoryReporterTest() override {}
 
   // ChromeRenderViewHostTestHarness:
@@ -110,7 +117,7 @@ class OutOfMemoryReporterTest : public ChromeRenderViewHostTestHarness,
     test_tick_clock_ = tick_clock.get();
     reporter->SetTickClockForTest(std::move(tick_clock));
     // Ensure clock is set to something that's not 0 to begin.
-    test_tick_clock_->Advance(base::TimeDelta::FromSeconds(1));
+    test_tick_clock_->Advance(base::Seconds(1));
 
     test_ukm_recorder_ = std::make_unique<ukm::TestAutoSetUkmRecorder>();
     ukm::InitializeSourceUrlRecorderForWebContents(web_contents());
@@ -130,7 +137,7 @@ class OutOfMemoryReporterTest : public ChromeRenderViewHostTestHarness,
   }
 
   void SimulateOOM() {
-    test_tick_clock_->Advance(base::TimeDelta::FromSeconds(3));
+    test_tick_clock_->Advance(base::Seconds(3));
     SimulateRendererCreated();
 #if defined(OS_ANDROID)
     process()->SimulateRenderProcessExit(base::TERMINATION_STATUS_OOM_PROTECTED,
@@ -188,13 +195,11 @@ class OutOfMemoryReporterTest : public ChromeRenderViewHostTestHarness,
  protected:
   base::ShadowingAtExitManager at_exit_;
 
-  base::Optional<GURL> last_oom_url_;
+  absl::optional<GURL> last_oom_url_;
   std::unique_ptr<ukm::TestAutoSetUkmRecorder> test_ukm_recorder_;
 
  private:
   base::SimpleTestTickClock* test_tick_clock_;
-
-  DISALLOW_COPY_AND_ASSIGN(OutOfMemoryReporterTest);
 };
 
 TEST_F(OutOfMemoryReporterTest, SimpleOOM) {

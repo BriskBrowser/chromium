@@ -8,15 +8,13 @@
 #include <memory>
 #include <string>
 
-#include "ash/constants/ash_features.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
-#include "base/sequenced_task_runner.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "chrome/browser/ash/printing/server_printers_provider.h"
 #include "chrome/browser/chromeos/printing/print_servers_provider.h"
-#include "chrome/browser/chromeos/printing/server_printers_provider.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/prefs/pref_service.h"
@@ -28,7 +26,7 @@
 namespace chromeos {
 namespace {
 
-class FakeServerPrintersProvider : public ServerPrintersProvider {
+class FakeServerPrintersProvider : public ash::ServerPrintersProvider {
  public:
   FakeServerPrintersProvider() = default;
   ~FakeServerPrintersProvider() override = default;
@@ -69,11 +67,11 @@ class FakePrintServersProvider : public PrintServersProvider {
                         const std::string& allowlist_pref) override {}
   void ClearData() override {}
 
-  base::Optional<std::vector<PrintServer>> GetPrintServers() override {
+  absl::optional<std::vector<PrintServer>> GetPrintServers() override {
     return print_servers_;
   }
 
-  void SetPrintServers(base::Optional<std::vector<PrintServer>> print_servers) {
+  void SetPrintServers(absl::optional<std::vector<PrintServer>> print_servers) {
     print_servers_ = print_servers;
     if (observer_) {
       observer_->OnServersChanged(print_servers.has_value(),
@@ -82,17 +80,13 @@ class FakePrintServersProvider : public PrintServersProvider {
   }
 
  private:
-  base::Optional<std::vector<PrintServer>> print_servers_;
+  absl::optional<std::vector<PrintServer>> print_servers_;
   PrintServersProvider::Observer* observer_;
 };
 
 class PrintServersManagerTest : public testing::Test,
                                 public PrintServersManager::Observer {
  public:
-  void SetUp() override {
-    scoped_feature_list_.InitWithFeatures(
-        {chromeos::features::kPrintServerScaling}, {});
-  }
   PrintServersManagerTest() {
     auto server_printers_provider =
         std::make_unique<FakeServerPrintersProvider>();
@@ -123,8 +117,6 @@ class PrintServersManagerTest : public testing::Test,
  protected:
   // Everything from PrintServersProvider must be called on Chrome_UIThread
   content::BrowserTaskEnvironment task_environment_;
-
-  base::test::ScopedFeatureList scoped_feature_list_;
 
   // Captured printer lists from observer callbacks.
   base::flat_map<PrinterClass, std::vector<Printer>> observed_printers_;

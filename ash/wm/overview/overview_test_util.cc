@@ -4,7 +4,6 @@
 
 #include "ash/wm/overview/overview_test_util.h"
 
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/overview_test_api.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/shell.h"
@@ -45,8 +44,7 @@ void SendKey(ui::KeyboardCode key, int flags) {
 bool HighlightOverviewWindow(const aura::Window* window) {
   if (GetOverviewHighlightedWindow() == nullptr) {
     SendKey(ui::VKEY_TAB);
-    if (features::IsBentoEnabled())
-      SendKey(ui::VKEY_TAB);
+    SendKey(ui::VKEY_TAB);
   }
   const aura::Window* start_window = GetOverviewHighlightedWindow();
   if (start_window == window)
@@ -70,9 +68,9 @@ const aura::Window* GetOverviewHighlightedWindow() {
 void ToggleOverview(OverviewEnterExitType type) {
   auto* overview_controller = Shell::Get()->overview_controller();
   if (overview_controller->InOverviewSession())
-    overview_controller->EndOverview(type);
+    overview_controller->EndOverview(OverviewEndAction::kTests, type);
   else
-    overview_controller->StartOverview(type);
+    overview_controller->StartOverview(OverviewStartAction::kTests, type);
 }
 
 void WaitForOverviewEnterAnimation() {
@@ -106,6 +104,34 @@ gfx::Rect ShrinkBoundsByHotseatInset(const gfx::Rect& rect) {
                                    ShelfConfig::Get()->hotseat_bottom_padding();
   new_rect.Inset(0, 0, 0, hotseat_bottom_inset);
   return new_rect;
+}
+
+void DragItemToPoint(OverviewItem* item,
+                     const gfx::Point& screen_location,
+                     ui::test::EventGenerator* event_generator,
+                     bool by_touch_gestures,
+                     bool drop) {
+  DCHECK(item);
+
+  const gfx::Point item_center =
+      gfx::ToRoundedPoint(item->target_bounds().CenterPoint());
+  event_generator->set_current_screen_location(item_center);
+  if (by_touch_gestures) {
+    event_generator->PressTouch();
+    // Move the touch by an enough amount in X to engage in the normal drag mode
+    // rather than the drag to close mode.
+    event_generator->MoveTouchBy(50, 0);
+    event_generator->MoveTouch(screen_location);
+    if (drop)
+      event_generator->ReleaseTouch();
+  } else {
+    event_generator->PressLeftButton();
+    Shell::Get()->cursor_manager()->SetDisplay(
+        display::Screen::GetScreen()->GetDisplayNearestPoint(screen_location));
+    event_generator->MoveMouseTo(screen_location);
+    if (drop)
+      event_generator->ReleaseLeftButton();
+  }
 }
 
 }  // namespace ash

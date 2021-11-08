@@ -35,7 +35,7 @@
 #include "third_party/blink/public/platform/web_private_ptr.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_vector.h"
-#include "v8/include/v8.h"
+#include "v8/include/v8-forward.h"
 
 namespace blink {
 
@@ -171,4 +171,4 @@ inline bool operator<(const WebNode& a, const WebNode& b) {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_NODE_H_

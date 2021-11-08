@@ -42,6 +42,11 @@ class ServiceWorkerPaymentAppCreator {
       base::WeakPtr<PaymentAppFactory::Delegate> delegate)
       : owner_(owner), delegate_(delegate), log_(delegate->GetWebContents()) {}
 
+  ServiceWorkerPaymentAppCreator(const ServiceWorkerPaymentAppCreator&) =
+      delete;
+  ServiceWorkerPaymentAppCreator& operator=(
+      const ServiceWorkerPaymentAppCreator&) = delete;
+
   ~ServiceWorkerPaymentAppCreator() {}
 
   void CreatePaymentApps(
@@ -171,8 +176,6 @@ class ServiceWorkerPaymentAppCreator {
   int number_of_pending_sw_payment_apps_ = 0;
 
   base::WeakPtrFactory<ServiceWorkerPaymentAppCreator> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ServiceWorkerPaymentAppCreator);
 };
 
 ServiceWorkerPaymentAppFactory::ServiceWorkerPaymentAppFactory()
@@ -182,7 +185,7 @@ ServiceWorkerPaymentAppFactory::~ServiceWorkerPaymentAppFactory() {}
 
 void ServiceWorkerPaymentAppFactory::Create(base::WeakPtr<Delegate> delegate) {
   auto* rfh = delegate->GetInitiatorRenderFrameHost();
-  if (!rfh || !rfh->IsCurrent() || !delegate->GetWebContents())
+  if (!rfh || !rfh->IsActive() || !delegate->GetWebContents())
     return;  // The frame or page is being unloaded.
 
   auto creator = std::make_unique<ServiceWorkerPaymentAppCreator>(

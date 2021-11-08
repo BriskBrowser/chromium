@@ -9,15 +9,14 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/cxx17_backports.h"
 #include "base/debug/alias.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "ios/web/public/browser_state.h"
 #include "ios/web/public/thread/web_task_traits.h"
@@ -55,6 +54,8 @@ const char kChromeURLContentSecurityPolicyHeaderBase[] =
 const char kXFrameOptions[] = "X-Frame-Options";
 const char kChromeURLXFrameOptionsHeader[] = "DENY";
 
+const char kWebUIResourcesHost[] = "resources";
+
 // Returns whether |url| passes some sanity checks and is a valid GURL.
 bool CheckURLIsValid(const GURL& url) {
   std::vector<std::string> additional_schemes;
@@ -82,6 +83,22 @@ void URLToRequestPath(const GURL& url, std::string* path) {
     path->assign(spec.substr(offset));
 }
 
+// Checks for webui resources path inside the given |url| and return a
+// fixed one if needed, or the original one otherwise. In js modules,
+// The use of x/../../../../ui/webui/resources is mapped by webkit to
+// x/ui/webui/resources so to not go out of scope of the module.
+GURL RedirectWebUIResources(const GURL url) {
+  static std::string kWebUIResources = "/ui/webui/resources";
+  if (base::StartsWith(url.path(), kWebUIResources,
+                       base::CompareCase::SENSITIVE)) {
+    GURL::Replacements replacements;
+    replacements.SetHostStr(kWebUIResourcesHost);
+    replacements.SetPathStr(url.path().c_str() + kWebUIResources.size());
+    return url.ReplaceComponents(replacements);
+  }
+  return url;
+}
+
 }  // namespace
 
 // URLRequestChromeJob is a net::URLRequestJob that manages running
@@ -94,6 +111,9 @@ class URLRequestChromeJob : public net::URLRequestJob {
   URLRequestChromeJob(net::URLRequest* request,
                       BrowserState* browser_state,
                       bool is_incognito);
+
+  URLRequestChromeJob(const URLRequestChromeJob&) = delete;
+  URLRequestChromeJob& operator=(const URLRequestChromeJob&) = delete;
 
   ~URLRequestChromeJob() override;
 
@@ -199,8 +219,6 @@ class URLRequestChromeJob : public net::URLRequestJob {
   URLDataManagerIOSBackend* backend_;
 
   base::WeakPtrFactory<URLRequestChromeJob> weak_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(URLRequestChromeJob);
 };
 
 URLRequestChromeJob::URLRequestChromeJob(net::URLRequest* request,
@@ -229,8 +247,9 @@ URLRequestChromeJob::~URLRequestChromeJob() {
 }
 
 void URLRequestChromeJob::Start() {
-  TRACE_EVENT_ASYNC_BEGIN1("browser", "DataManager:Request", this, "URL",
-                           request_->url().possibly_invalid_spec());
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN1("browser", "DataManager:Request",
+                                    TRACE_ID_LOCAL(this), "URL",
+                                    request_->url().possibly_invalid_spec());
 
   if (!request_)
     return;
@@ -322,7 +341,8 @@ void URLRequestChromeJob::MimeTypeAvailable(URLDataSourceIOSImpl* source,
 }
 
 void URLRequestChromeJob::DataAvailable(base::RefCountedMemory* bytes) {
-  TRACE_EVENT_ASYNC_END0("browser", "DataManager:Request", this);
+  TRACE_EVENT_NESTABLE_ASYNC_END0("browser", "DataManager:Request",
+                                  TRACE_ID_LOCAL(this));
   if (bytes) {
     data_ = bytes;
     if (pending_buf_.get()) {
@@ -396,6 +416,10 @@ class ChromeProtocolHandler
   // |is_incognito| should be set for incognito profiles.
   ChromeProtocolHandler(BrowserState* browser_state, bool is_incognito)
       : browser_state_(browser_state), is_incognito_(is_incognito) {}
+
+  ChromeProtocolHandler(const ChromeProtocolHandler&) = delete;
+  ChromeProtocolHandler& operator=(const ChromeProtocolHandler&) = delete;
+
   ~ChromeProtocolHandler() override {}
 
   std::unique_ptr<net::URLRequestJob> CreateJob(
@@ -415,8 +439,6 @@ class ChromeProtocolHandler
 
   // True when generated from an incognito profile.
   const bool is_incognito_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeProtocolHandler);
 };
 
 }  // namespace
@@ -470,15 +492,17 @@ bool URLDataManagerIOSBackend::StartRequest(const net::URLRequest* request,
   if (!CheckURLIsValid(request->url()))
     return false;
 
-  URLDataSourceIOSImpl* source = GetDataSourceFromURL(request->url());
+  GURL url = RedirectWebUIResources(request->url());
+
+  URLDataSourceIOSImpl* source = GetDataSourceFromURL(url);
   if (!source)
     return false;
 
-  if (!source->source()->ShouldServiceRequest(request->url()))
+  if (!source->source()->ShouldServiceRequest(url))
     return false;
 
   std::string path;
-  URLToRequestPath(request->url(), &path);
+  URLToRequestPath(url, &path);
 
   // Save this request so we know where to send the data.
   RequestID request_id = next_request_id_++;

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -45,7 +45,11 @@ def build(out_dir, build_target, extra_options=None):
 
 def install(out_dir):
   cmd = ['build/android/adb_install_apk.py']
-  env = {'BUILDTYPE': out_dir[4:]}
+  # Propagate PATH to avoid issues with missing tools http://crbug/1217979
+  env = {
+      'BUILDTYPE': out_dir[4:],
+      'PATH': os.environ.get('PATH', '')
+  }
   return run(cmd + ['CronetTestInstrumentation.apk'], env=env) or \
       run(cmd + ['ChromiumNetTestSupport.apk'], env=env)
 
@@ -104,7 +108,7 @@ def get_default_gn_args(target_os, is_release):
       'disable_brotli_filter=false '
       'is_component_build=false '
       'use_crash_key_stubs=true '
-      'ignore_elf32_limitations=true use_partition_alloc=false '
+      'use_partition_alloc=false '
       'include_transport_security_state_preload_list=false ') + use_goma()
   if (is_release):
     gn_args += 'is_debug=false is_official_build=true '
@@ -125,6 +129,7 @@ def get_ios_gn_args(is_release, bundle_id_prefix, target_cpu):
       'ios_app_bundle_id_prefix="%s" '
       'ios_deployment_target="10.0" '
       'enable_dsyms=true '
+      'ios_stack_profiler_enabled=false '
       'target_cpu="%s" ') % (bundle_id_prefix, target_cpu)
 
 

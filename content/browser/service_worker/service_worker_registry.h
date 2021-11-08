@@ -7,15 +7,23 @@
 
 #include <memory>
 
-#include "base/containers/flat_map.h"
-#include "base/files/file_path.h"
+#include "base/containers/flat_set.h"
+#include "base/containers/unique_ptr_adapters.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/threading/sequence_bound.h"
+#include "components/services/storage/public/cpp/buckets/bucket_info.h"
+#include "components/services/storage/public/cpp/quota_error_or.h"
 #include "components/services/storage/public/mojom/service_worker_storage_control.mojom.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "storage/browser/quota/storage_policy_observer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+namespace blink {
+class StorageKey;
+}  // namespace blink
 
 namespace storage {
 class QuotaManagerProxy;
@@ -30,26 +38,22 @@ class ServiceWorkerVersion;
 class ServiceWorkerRegistryTest;
 FORWARD_DECLARE_TEST(ServiceWorkerRegistryTest, StoragePolicyChange);
 
-// This class manages in-memory representation of service worker registrations
+// Manages in-memory representation of service worker registrations
 // (i.e., ServiceWorkerRegistration) including installing and uninstalling
-// registrations. The instance of this class is owned by
-// ServiceWorkerContextCore and has the same lifetime of the owner.
-// The instance uses ServiceWorkerStorageControl via a mojo remote to
-// store/retrieve registrations to/from persistent storage.
-// The instance lives on the UI thread.
+// registrations. Owned by ServiceWorkerContextCore and has the same lifetime of
+// the owner. Lives on the UI thread.
 //
-// Most methods of this class take callbacks. The instance tries to execute
-// callbacks as much as possible during shutdown and/or DeleteAndStartOver. In
-// other words, the destructor of the instance calls pending callbacks with
-// default values (which imply operations are aborted). The advantage
-// of this behavior is that call sites can pass callbacks which own mojo
-// callbacks without having worry about the "not-run-but-still-connected"
-// callback problem.
-// TODO(crbug.com/1168991): Make all pending callbacks being called in the
-// destructor. Currently only some pending callbacks are executed.
-// TODO(crbug.com/1168991): Revisit the current behavior. The downside of this
-// behavior is that it might hide potential bugs in call sites, e.g., a mojo
-// connection should be closed before shutdown.
+// Communicates with ServiceWorkerStorageControl via a mojo remote to
+// store/retrieve registrations to/from persistent storage. Most methods of this
+// class call relevant mojo methods. Callbacks passed to these methods are
+// invoked after mojo calls complete.
+//
+// The implementation of ServiceWorkerStorageControl lives in the Storage
+// Service. This means that the mojo remote can be disconnected when the
+// Storage Service crashes. To avoid a situation where callbacks never get
+// invoked this class has a recovery mechanism. Upon detecting a disconnection,
+// this tries to reconnect to ServiceWorkerStorageControl then retry all
+// inflight mojo calls.
 class CONTENT_EXPORT ServiceWorkerRegistry {
  public:
   using ResourceList =
@@ -59,8 +63,8 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   using FindRegistrationCallback = base::OnceCallback<void(
       blink::ServiceWorkerStatusCode status,
       scoped_refptr<ServiceWorkerRegistration> registration)>;
-  using GetRegisteredOriginsCallback =
-      storage::mojom::ServiceWorkerStorageControl::GetRegisteredOriginsCallback;
+  using GetRegisteredStorageKeysCallback = base::OnceCallback<void(
+      const std::vector<blink::StorageKey>& storage_keys)>;
   using GetRegistrationsCallback = base::OnceCallback<void(
       blink::ServiceWorkerStatusCode status,
       const std::vector<scoped_refptr<ServiceWorkerRegistration>>&
@@ -77,7 +81,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   using GetUserDataForAllRegistrationsCallback = base::OnceCallback<void(
       const std::vector<std::pair<int64_t, std::string>>& user_data,
       blink::ServiceWorkerStatusCode status)>;
-  using GetStorageUsageForOriginCallback =
+  using GetStorageUsageForStorageKeyCallback =
       base::OnceCallback<void(blink::ServiceWorkerStatusCode status,
                               int64_t usage)>;
   using StatusCallback =
@@ -101,6 +105,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
       scoped_refptr<ServiceWorkerRegistration> registration)>;
   void CreateNewRegistration(
       blink::mojom::ServiceWorkerRegistrationOptions options,
+      const blink::StorageKey& key,
       NewRegistrationCallback callback);
 
   // Create a new instance of ServiceWorkerVersion which is associated with the
@@ -113,26 +118,28 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                         blink::mojom::ScriptType script_type,
                         NewVersionCallback callback);
 
-  // Finds registration for |client_url| or |scope| or |registration_id|.
-  // The Find methods will find stored and initially installing registrations.
-  // Returns blink::ServiceWorkerStatusCode::kOk with non-null
-  // registration if registration is found, or returns
+  // Finds registration for `client_url`, `scope`, or `registration_id` with the
+  // associated `key`. The Find methods will find stored and initially
+  // installing registrations. Returns blink::ServiceWorkerStatusCode::kOk with
+  // non-null registration if registration is found, or returns
   // blink::ServiceWorkerStatusCode::kErrorNotFound if no
   // matching registration is found.  The FindRegistrationForScope method is
   // guaranteed to return asynchronously. However, the methods to find
-  // for |client_url| or |registration_id| may complete immediately
+  // for `client_url` or `registration_id` may complete immediately
   // (the callback may be called prior to the method returning) or
   // asynchronously.
   void FindRegistrationForClientUrl(const GURL& client_url,
+                                    const blink::StorageKey& key,
                                     FindRegistrationCallback callback);
   void FindRegistrationForScope(const GURL& scope,
+                                const blink::StorageKey& key,
                                 FindRegistrationCallback callback);
   // These FindRegistrationForId() methods look up live registrations and may
   // return a "findable" registration without looking up storage. A registration
   // is considered as "findable" when the registration is stored or in the
   // installing state.
   void FindRegistrationForId(int64_t registration_id,
-                             const url::Origin& origin,
+                             const blink::StorageKey& key,
                              FindRegistrationCallback callback);
   // Generally |FindRegistrationForId| should be used to look up a registration
   // by |registration_id| since it's more efficient. But if a |registration_id|
@@ -141,24 +148,24 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   // callback may be called prior to the method returning) or asynchronously.
   void FindRegistrationForIdOnly(int64_t registration_id,
                                  FindRegistrationCallback callback);
-
-  // Returns all stored and installing registrations for a given origin.
-  void GetRegistrationsForOrigin(const url::Origin& origin,
-                                 GetRegistrationsCallback callback);
-
-  // Reads the total resource size stored in the storage for a given origin.
-  void GetStorageUsageForOrigin(const url::Origin& origin,
-                                GetStorageUsageForOriginCallback callback);
+  // Returns all stored and installing registrations for a given StorageKey.
+  void GetRegistrationsForStorageKey(const blink::StorageKey& key,
+                                     GetRegistrationsCallback callback);
+  // Reads the total resource size stored in the storage for a given storage
+  // key.
+  void GetStorageUsageForStorageKey(
+      const blink::StorageKey& key,
+      GetStorageUsageForStorageKeyCallback callback);
 
   // Returns info about all stored and initially installing registrations.
   // TODO(crbug.com/807440,1055677): Consider removing this method. Getting all
   // registrations at once might not be a good idea.
   void GetAllRegistrationsInfos(GetRegistrationsInfosCallback callback);
-
-  ServiceWorkerRegistration* GetUninstallingRegistration(const GURL& scope);
-
+  ServiceWorkerRegistration* GetUninstallingRegistration(
+      const GURL& scope,
+      const blink::StorageKey& key);
   std::vector<scoped_refptr<ServiceWorkerRegistration>>
-  GetUninstallingRegistrationsForOrigin(const url::Origin& origin);
+  GetUninstallingRegistrationsForStorageKey(const blink::StorageKey& key);
 
   // Commits |registration| with the installed but not activated |version|
   // to storage, overwriting any pre-existing registration data for the scope.
@@ -169,7 +176,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                          ServiceWorkerVersion* version,
                          StatusCallback callback);
 
-  // Deletes the registration data for |registration|. The live registration is
+  // Deletes the registration data for `registration`. The live registration is
   // still findable via GetUninstallingRegistration(), and versions are usable
   // because their script resources have not been deleted. After calling this,
   // the caller should later:
@@ -179,7 +186,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   //   ServiceWorkerStorage::PurgeResources() to delete their script resources.
   // If these aren't called, on the next profile session the cleanup occurs.
   void DeleteRegistration(scoped_refptr<ServiceWorkerRegistration> registration,
-                          const GURL& origin,
+                          const blink::StorageKey& key,
                           StatusCallback callback);
 
   // Intended for use only by ServiceWorkerRegisterJob and
@@ -195,21 +202,22 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   // Wrapper functions of ServiceWorkerStorage. These wrappers provide error
   // recovering mechanism when database operations fail.
   void UpdateToActiveState(int64_t registration_id,
-                           const GURL& origin,
+                           const blink::StorageKey& key,
                            StatusCallback callback);
   void UpdateLastUpdateCheckTime(int64_t registration_id,
-                                 const GURL& origin,
+                                 const blink::StorageKey& key,
                                  base::Time last_update_check_time,
                                  StatusCallback callback);
   void UpdateNavigationPreloadEnabled(int64_t registration_id,
-                                      const GURL& origin,
+                                      const blink::StorageKey& key,
                                       bool enable,
                                       StatusCallback callback);
   void UpdateNavigationPreloadHeader(int64_t registration_id,
-                                     const GURL& origin,
+                                     const blink::StorageKey& key,
                                      const std::string& value,
                                      StatusCallback callback);
-  void StoreUncommittedResourceId(int64_t resource_id, const GURL& origin);
+  void StoreUncommittedResourceId(int64_t resource_id,
+                                  const blink::StorageKey& key);
   void DoomUncommittedResource(int64_t resource_id);
   void GetUserData(int64_t registration_id,
                    const std::vector<std::string>& keys,
@@ -222,7 +230,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                                      GetUserKeysAndDataCallback callback);
   void StoreUserData(
       int64_t registration_id,
-      const url::Origin& origin,
+      const blink::StorageKey& key,
       const std::vector<std::pair<std::string, std::string>>& key_value_pairs,
       StatusCallback callback);
   void ClearUserData(int64_t registration_id,
@@ -241,9 +249,9 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
       const std::string& key_prefix,
       GetUserDataForAllRegistrationsCallback callback);
 
-  // Returns a set of origins which have at least one stored registration.
+  // Returns a set of storage keys which have at least one stored registration.
   // The set doesn't include installing/uninstalling/uninstalled registrations.
-  void GetRegisteredOrigins(GetRegisteredOriginsCallback callback);
+  void GetRegisteredStorageKeys(GetRegisteredStorageKeysCallback callback);
 
   // Performs internal storage cleanup. Operations to the storage in the past
   // (e.g. deletion) are usually recorded in disk for a certain period until
@@ -271,15 +279,16 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                            RetryInflightCalls_ApplyPolicyUpdates);
 
   void Start();
-
-  void FindRegistrationForIdInternal(int64_t registration_id,
-                                     const base::Optional<url::Origin>& origin,
-                                     FindRegistrationCallback callback);
-
+  void FindRegistrationForIdInternal(
+      int64_t registration_id,
+      const absl::optional<blink::StorageKey>& key,
+      FindRegistrationCallback callback);
   ServiceWorkerRegistration* FindInstallingRegistrationForClientUrl(
-      const GURL& client_url);
+      const GURL& client_url,
+      const blink::StorageKey& key);
   ServiceWorkerRegistration* FindInstallingRegistrationForScope(
-      const GURL& scope);
+      const GURL& scope,
+      const blink::StorageKey& key);
   ServiceWorkerRegistration* FindInstallingRegistrationForId(
       int64_t registration_id);
 
@@ -289,117 +298,104 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
       mojo::PendingRemote<storage::mojom::ServiceWorkerLiveVersionRef>
           version_reference);
 
+  void CreateNewRegistrationWithBucketInfo(
+      blink::mojom::ServiceWorkerRegistrationOptions options,
+      const blink::StorageKey& key,
+      NewRegistrationCallback callback,
+      storage::QuotaErrorOr<storage::BucketInfo> result);
+
   // Looks up live registrations and returns an optional value which may contain
   // a "findable" registration. See the implementation of this method for
   // what "findable" means and when a registration is returned.
-  base::Optional<scoped_refptr<ServiceWorkerRegistration>>
+  absl::optional<scoped_refptr<ServiceWorkerRegistration>>
   FindFromLiveRegistrationsForId(int64_t registration_id);
 
   void DoomUncommittedResources(const std::vector<int64_t>& resource_ids);
-
   void DidFindRegistrationForClientUrl(
       const GURL& client_url,
+      const blink::StorageKey& key,
       int64_t trace_event_id,
       FindRegistrationCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       storage::mojom::ServiceWorkerFindRegistrationResultPtr result);
   void DidFindRegistrationForScope(
       FindRegistrationCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       storage::mojom::ServiceWorkerFindRegistrationResultPtr result);
   void DidFindRegistrationForId(
       int64_t registration_id,
       FindRegistrationCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       storage::mojom::ServiceWorkerFindRegistrationResultPtr result);
-
-  void DidGetRegistrationsForOrigin(
+  void DidGetRegistrationsForStorageKey(
       GetRegistrationsCallback callback,
-      const url::Origin& origin_filter,
-      uint64_t call_id,
+      const blink::StorageKey& key_filter,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       std::vector<storage::mojom::ServiceWorkerFindRegistrationResultPtr>
           entries);
   void DidGetAllRegistrations(
       GetRegistrationsInfosCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       RegistrationList registration_data_list);
-  void DidGetStorageUsageForOrigin(
-      GetStorageUsageForOriginCallback callback,
-      uint64_t call_id,
+  void DidGetStorageUsageForStorageKey(
+      GetStorageUsageForStorageKeyCallback callback,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       int64_t usage);
-
   void DidStoreRegistration(
       int64_t stored_registration_id,
       uint64_t stored_resources_total_size_bytes,
       const GURL& stored_scope,
+      const blink::StorageKey& key,
       StatusCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       uint64_t deleted_resources_size);
   void DidDeleteRegistration(
       int64_t registration_id,
-      const GURL& origin,
+      const blink::StorageKey& key,
       StatusCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
       uint64_t deleted_resources_size,
-      storage::mojom::ServiceWorkerStorageOriginState origin_state);
-
+      storage::mojom::ServiceWorkerStorageStorageKeyState storage_key_state);
   void DidUpdateRegistration(
       StatusCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidUpdateToActiveState(
-      const url::Origin& origin,
+      const blink::StorageKey& key,
       StatusCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidWriteUncommittedResourceIds(
-      const url::Origin& origin,
-      uint64_t call_id,
+      const blink::StorageKey& key,
       storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidDoomUncommittedResourceIds(
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidGetUserData(GetUserDataCallback callback,
-                      uint64_t call_id,
                       storage::mojom::ServiceWorkerDatabaseStatus status,
                       const std::vector<std::string>& data);
   void DidGetUserKeysAndData(
       GetUserKeysAndDataCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus status,
       const base::flat_map<std::string, std::string>& data_map);
   void DidStoreUserData(StatusCallback callback,
-                        uint64_t call_id,
-                        const url::Origin& origin,
+                        const blink::StorageKey& key,
                         storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidClearUserData(StatusCallback callback,
-                        uint64_t call_id,
                         storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidGetUserDataForAllRegistrations(
       GetUserDataForAllRegistrationsCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus status,
       std::vector<storage::mojom::ServiceWorkerUserDataPtr> entries);
 
   void DidGetNewRegistrationId(
       blink::mojom::ServiceWorkerRegistrationOptions options,
+      const blink::StorageKey& key,
       NewRegistrationCallback callback,
-      uint64_t call_id,
       int64_t registration_id);
+
   void DidGetNewVersionId(
       scoped_refptr<ServiceWorkerRegistration> registration,
       const GURL& script_url,
       blink::mojom::ScriptType script_type,
       NewVersionCallback callback,
-      uint64_t call_id,
       int64_t version_id,
       mojo::PendingRemote<storage::mojom::ServiceWorkerLiveVersionRef>
           version_reference);
@@ -407,23 +403,19 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   void ScheduleDeleteAndStartOver();
   void DidDeleteAndStartOver(
       StatusCallback callback,
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus status);
 
-  void DidGetRegisteredOrigins(GetRegisteredOriginsCallback callback,
-                               uint64_t call_id,
-                               const std::vector<url::Origin>& origins);
-  void DidPerformStorageCleanup(base::OnceClosure callback, uint64_t call_id);
-  void DidDisable(uint64_t call_id);
+  void DidGetRegisteredStorageKeys(GetRegisteredStorageKeysCallback callback,
+                                   const std::vector<blink::StorageKey>& keys);
+  void DidPerformStorageCleanup(base::OnceClosure callback);
+  void DidDisable();
   void DidApplyPolicyUpdates(
-      uint64_t call_id,
       storage::mojom::ServiceWorkerDatabaseStatus status);
-
-  void DidGetRegisteredOriginsOnStartup(
-      const std::vector<url::Origin>& origins);
+  void DidGetRegisteredStorageKeysOnStartup(
+      const std::vector<blink::StorageKey>& storage_keys);
   void ApplyPolicyUpdates(
       std::vector<storage::mojom::StoragePolicyUpdatePtr> policy_updates);
-  bool ShouldPurgeOnShutdownForTesting(const url::Origin& origin);
+  bool ShouldPurgeOnShutdownForTesting(const blink::StorageKey& key);
 
   void OnRemoteStorageDisconnected();
 
@@ -433,32 +425,23 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   class InflightCall {
    public:
     virtual ~InflightCall() = default;
-
-    virtual void Run(ServiceWorkerRegistry* registry) = 0;
+    virtual void Run() = 0;
   };
 
-  // An InflightCall implementation which uses a base::RepeatingClosure. Used to
-  // represent a mojo remote call of which parameters are copyable.
-  class InflightCallWithInvoker;
+  template <typename...>
+  friend class InflightCallWithInvoker;
 
-  // InflightCall implementations that need to clone move-only parameters before
-  // invoking mojo method calls.
+  void StartRemoteCall(std::unique_ptr<InflightCall> call);
+  void FinishRemoteCall(const InflightCall* call);
+
+  // A helper function to call a mojo remote call that will automatically be
+  // reissued if the mojo::Remote becomes disconnected. To allow the call to be
+  // dispatched multiple times, all arguments must be either be:
   //
-  // For StoreRegistration():
-  class InflightCallStoreRegistration;
-  // For StoreUserData():
-  class InflightCallStoreUserData;
-  // For ApplyPolicyUpdates():
-  class InflightCallApplyPolicyUpdates;
-
-  uint64_t GetNextCallId();
-  void StartRemoteCall(uint64_t call_id, std::unique_ptr<InflightCall> call);
-  void FinishRemoteCall(uint64_t call_id);
-
-  // A helper function to call a mojo remote call of which arguments are
-  // copyable. Creates an InflightCallWithInvoker and starts the call.
-  // `callback` will receive the associated call id and it needs to call
-  // FinishRemoteCall() with the call id.
+  // - passed by const reference
+  // - copyable
+  // - or clonable via `mojo::Clone()`.
+  //
   // Example:
   //
   //   (in mojom)
@@ -466,22 +449,20 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   //
   //   CreateInvokerAndStartRemoteCall(
   //       &storage::mojom::ServiceWorkerStorageControl::Foo,
-  //       base::BindRepeating(&ServiceWorkerRegistry::DidFoo,
-  //                            weak_factory_.GetWeakPtr(),
-  //                            base::Passed(&callback)),
+  //       base::BindOnce(&ServiceWorkerRegistry::DidFoo,
+  //                      weak_factory_.GetWeakPtr(),
+  //                      std::move(callback)),
   //       arg1, arg2);
   //
   //   void ServiceWorkerRegistry::DidFoo(
   //       FooCallback callback,
-  //       uint64_t call_id,
   //       storage::mojom::ServiceWorkerDatabaseStatus status) {
-  //     FinishRemoteCall(call_id);
   //     // ...
   //   }
   template <typename Functor, typename... Args, typename... CallbackArgs>
   void CreateInvokerAndStartRemoteCall(
-      Functor f,
-      base::RepeatingCallback<void(CallbackArgs...)> callback,
+      Functor&& f,
+      base::OnceCallback<void(CallbackArgs...)> callback,
       Args&&... args);
 
   // The ServiceWorkerContextCore object must outlive this.
@@ -496,7 +477,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   // ServiceWorkerStorage once QuotaManager gets mojofied.
   const scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy_;
   const scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy_;
-  base::Optional<storage::StoragePolicyObserver> storage_policy_observer_;
+  absl::optional<storage::StoragePolicyObserver> storage_policy_observer_;
 
   // For finding registrations being installed or uninstalled.
   using RegistrationRefsById =
@@ -514,8 +495,8 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   ConnectionState connection_state_ = ConnectionState::kNormal;
   size_t recovery_retry_counts_ = 0;
 
-  uint64_t next_call_id_ = 0;
-  base::flat_map<uint64_t, std::unique_ptr<InflightCall>> inflight_calls_;
+  base::flat_set<std::unique_ptr<InflightCall>, base::UniquePtrComparator>
+      inflight_calls_;
 
   base::WeakPtrFactory<ServiceWorkerRegistry> weak_factory_{this};
 };

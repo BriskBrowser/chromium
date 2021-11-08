@@ -5,12 +5,12 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_OMNIBOX_OMNIBOX_ROW_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_OMNIBOX_OMNIBOX_ROW_VIEW_H_
 
-#include "base/optional.h"
-#include "base/strings/string16.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include <string>
+
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
-class OmniboxPopupModel;
+class OmniboxEditModel;
 class OmniboxResultView;
 class PrefService;
 
@@ -25,12 +25,12 @@ class OmniboxRowView : public views::View {
  public:
   METADATA_HEADER(OmniboxRowView);
   OmniboxRowView(size_t line,
-                 OmniboxPopupModel* popup_model,
+                 OmniboxEditModel* model,
                  std::unique_ptr<OmniboxResultView> result_view,
                  PrefService* pref_service);
 
   // Sets the header that appears above this row. Also shows the header.
-  void ShowHeader(int suggestion_group_id, const base::string16& header_text);
+  void ShowHeader(int suggestion_group_id, const std::u16string& header_text);
 
   // Hides the header.
   void HideHeader();
@@ -54,8 +54,8 @@ class OmniboxRowView : public views::View {
   // Line number of this row.
   const size_t line_;
 
-  // Non-owning pointer to the backing popup model.
-  OmniboxPopupModel* const popup_model_;
+  // Non-owning pointer to the backing model.
+  OmniboxEditModel* const model_;
 
   // Non-owning pointer to the header view for this row. This is initially
   // nullptr, and lazily created when a header is first set for this row.

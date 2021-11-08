@@ -21,7 +21,7 @@ class CommandLine;
 }
 
 namespace chromeos {
-class LacrosChromeServiceImpl;
+class LacrosService;
 }
 
 namespace tracing {
@@ -42,6 +42,10 @@ class ChromeMainDelegate : public content::ContentMainDelegate {
   // |exe_entry_point_ticks| is the time at which the main function of the
   // executable was entered, or null if not available.
   explicit ChromeMainDelegate(base::TimeTicks exe_entry_point_ticks);
+
+  ChromeMainDelegate(const ChromeMainDelegate&) = delete;
+  ChromeMainDelegate& operator=(const ChromeMainDelegate&) = delete;
+
   ~ChromeMainDelegate() override;
 
  protected:
@@ -58,10 +62,13 @@ class ChromeMainDelegate : public content::ContentMainDelegate {
                           delegates) override;
   void ZygoteForked() override;
 #endif
-  void PreCreateMainMessageLoop() override;
+  void PreBrowserMain() override;
   void PostEarlyInitialization(bool is_running_tests) override;
   bool ShouldCreateFeatureList() override;
   void PostFieldTrialInitialization() override;
+#if defined(OS_WIN)
+  bool ShouldHandleConsoleControlEvents() override;
+#endif
 
   content::ContentClient* CreateContentClient() override;
   content::ContentBrowserClient* CreateContentBrowserClient() override;
@@ -86,10 +93,8 @@ class ChromeMainDelegate : public content::ContentMainDelegate {
   std::unique_ptr<HeapProfilerController> heap_profiler_controller_;
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-  std::unique_ptr<chromeos::LacrosChromeServiceImpl> lacros_chrome_service_;
+  std::unique_ptr<chromeos::LacrosService> lacros_service_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeMainDelegate);
 };
 
 #endif  // CHROME_APP_CHROME_MAIN_DELEGATE_H_

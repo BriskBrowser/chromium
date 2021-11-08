@@ -40,7 +40,7 @@ class Extension;
 // client, including metadata like the name and ID, and API handles like the
 // fsid (filesystem ID) used to hook up the API objects.
 struct MediaFileSystemInfo {
-  MediaFileSystemInfo(const base::string16& fs_name,
+  MediaFileSystemInfo(const std::u16string& fs_name,
                       const base::FilePath& fs_path,
                       const std::string& filesystem_id,
                       MediaGalleryPrefId pref_id,
@@ -51,7 +51,7 @@ struct MediaFileSystemInfo {
   MediaFileSystemInfo(const MediaFileSystemInfo& other);
   ~MediaFileSystemInfo();
 
-  base::string16 name;
+  std::u16string name;
   base::FilePath path;
   std::string fsid;
   MediaGalleryPrefId pref_id;
@@ -70,6 +70,10 @@ class MediaFileSystemRegistry
       public MediaGalleriesPreferences::GalleryChangeObserver {
  public:
   MediaFileSystemRegistry();
+
+  MediaFileSystemRegistry(const MediaFileSystemRegistry&) = delete;
+  MediaFileSystemRegistry& operator=(const MediaFileSystemRegistry&) = delete;
+
   ~MediaFileSystemRegistry() override;
 
   // Passes to |callback| the list of media filesystem IDs and paths for a
@@ -140,8 +144,6 @@ class MediaFileSystemRegistry
   std::unique_ptr<MediaFileSystemContext> file_system_context_;
 
   std::unique_ptr<GalleryWatchManager> gallery_watch_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaFileSystemRegistry);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_GALLERIES_MEDIA_FILE_SYSTEM_REGISTRY_H_

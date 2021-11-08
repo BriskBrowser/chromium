@@ -28,8 +28,9 @@
 
 #include <memory>
 #include "base/memory/scoped_refptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/thread_annotations.h"
+#include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node.h"
 #include "third_party/blink/renderer/platform/audio/audio_source_provider_client.h"
 #include "third_party/blink/renderer/platform/audio/media_multi_channel_resampler.h"
@@ -113,8 +114,12 @@ class MediaElementAudioSourceHandler final : public AudioHandler {
   bool is_origin_tainted_;
 };
 
-class MediaElementAudioSourceNode final : public AudioNode,
-                                          public AudioSourceProviderClient {
+// -----------------------------------------------------------------------------
+
+class MediaElementAudioSourceNode final
+    : public AudioNode,
+      public AudioSourceProviderClient,
+      public ActiveScriptWrappable<MediaElementAudioSourceNode> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -126,7 +131,6 @@ class MediaElementAudioSourceNode final : public AudioNode,
 
   MediaElementAudioSourceNode(AudioContext&, HTMLMediaElement&);
 
-  void Trace(Visitor*) const override;
   MediaElementAudioSourceHandler& GetMediaElementAudioSourceHandler() const;
 
   HTMLMediaElement* mediaElement() const;
@@ -141,6 +145,10 @@ class MediaElementAudioSourceNode final : public AudioNode,
   // InspectorHelperMixin
   void ReportDidCreate() final;
   void ReportWillBeDestroyed() final;
+
+  // GC
+  bool HasPendingActivity() const final;
+  void Trace(Visitor*) const override;
 
  private:
   Member<HTMLMediaElement> media_element_;

@@ -119,54 +119,13 @@ class CacheTestResponseProvider : public web::DataResponseProvider {
   // ensureAppLaunchedWithConfiguration for each test.
   if ([self isRunningTest:@selector
             (testCachingBehaviorOnSelectOmniboxSuggestion)]) {
-    // Explicitly disable delay for feature OnDeviceHeadProviderNonIncognito,
-    // which will otherwise cause flakiness for this test in build iphone-device
-    // (crbug.com/1153136).
-    config.additional_args.push_back(
-        std::string("--enable-features=") +
-        std::string(omnibox::kOnDeviceHeadProviderNonIncognito.name) +
-        std::string(":DelayOnDeviceHeadSuggestRequestMs/0"));
+    // Explicitly disable feature OnDeviceHeadProviderNonIncognito, whose delay
+    // (i.e. http://shortn/_o7kPJvU8ac) will otherwise cause flakiness for this
+    // test in build iphone-device (crbug.com/1153136).
+    config.features_disabled.push_back(
+        omnibox::kOnDeviceHeadProviderNonIncognito);
   }
   return config;
-}
-
-// Tests caching behavior on navigate back and page reload. Navigate back should
-// use the cached page. Page reload should use cache-control in the request
-// header and show updated page.
-- (void)testCachingBehaviorOnNavigateBackAndPageReload {
-  // TODO(crbug.com/747436): re-enable this test on iOS 10.3.1 and afterwards
-  // once the bug is fixed.
-  if (base::ios::IsRunningOnOrLater(10, 3, 1)) {
-    EARL_GREY_TEST_DISABLED(@"Disabled on iOS 10.3.1 and afterwards.");
-  }
-
-  web::test::SetUpHttpServer(std::make_unique<CacheTestResponseProvider>());
-
-  const GURL cacheTestFirstPageURL =
-      HttpServer::MakeUrl(kCacheTestFirstPageURL);
-
-  // 1st hit to server. Verify that the server has the correct hit count.
-  [ChromeEarlGrey loadURL:cacheTestFirstPageURL];
-  [ChromeEarlGrey waitForWebStateContainingText:"serverHitCounter: 1"];
-
-  // Navigate to another page. 2nd hit to server.
-  [ChromeEarlGrey
-      tapWebStateElementWithID:[NSString
-                                   stringWithUTF8String:kCacheTestLinkID]];
-  [ChromeEarlGrey waitForWebStateContainingText:"serverHitCounter: 2"];
-
-  // Navigate back. This should not hit the server. Verify the page has been
-  // loaded from cache. The serverHitCounter will remain the same.
-  [ChromeEarlGrey goBack];
-  [ChromeEarlGrey waitForWebStateContainingText:"serverHitCounter: 1"];
-
-  // Reload page. 3rd hit to server. Verify that page reload causes the
-  // hitCounter to show updated value.
-  [ChromeEarlGrey reload];
-  [ChromeEarlGrey waitForWebStateContainingText:"serverHitCounter: 3"];
-
-  // Verify that page reload causes Cache-Control value to be sent with request.
-  [ChromeEarlGrey waitForWebStateContainingText:"cacheControl: max-age=0"];
 }
 
 // Tests caching behavior when opening new tab. New tab should not use the
@@ -225,7 +184,9 @@ class CacheTestResponseProvider : public web::DataResponseProvider {
   // Type a search into omnnibox and select the first suggestion (second row)
   [ChromeEarlGreyUI focusOmniboxAndType:@"cachetestfirstpage"];
   [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(@"omnibox suggestion 1")]
+      selectElementWithMatcher:grey_allOf(grey_accessibilityID(
+                                              @"omnibox suggestion 1"),
+                                          grey_sufficientlyVisible(), nil)]
       performAction:grey_tap()];
 
   // Verify title and hitCount. Cache should not be used.

@@ -7,37 +7,77 @@
 #import <UIKit/UIKit.h>
 
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#include "ios/chrome/browser/favicon/favicon_service_factory.h"
+#include "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#include "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
+#include "ios/chrome/browser/history/history_service_factory.h"
 #import "ios/chrome/browser/main/browser_list.h"
 #import "ios/chrome/browser/main/browser_list_factory.h"
 #import "ios/chrome/browser/main/test_browser_list_observer.h"
+#include "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/sessions/scene_util_test_support.h"
 #include "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
 #import "ios/chrome/browser/sessions/test_session_service.h"
 #import "ios/chrome/browser/sync/send_tab_to_self_sync_service_factory.h"
-#import "ios/chrome/browser/tabs/tab_model.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
 #import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/testing/scoped_block_swizzler.h"
 #include "ios/web/public/test/web_task_environment.h"
 #include "testing/platform_test.h"
+#import "third_party/ocmock/OCMock/OCMock.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+@interface SceneStateWithFakeScene : SceneState
+
+- (instancetype)initWithScene:(id)scene NS_DESIGNATED_INITIALIZER;
+
+- (instancetype)initWithAppState:(AppState*)appState NS_UNAVAILABLE;
+
+@end
+
+@implementation SceneStateWithFakeScene
+
+- (instancetype)initWithScene:(id)scene {
+  if ((self = [super initWithAppState:nil])) {
+    [self setScene:scene];
+  }
+  return self;
+}
+
+@end
 
 namespace {
 
 class BrowserViewWranglerTest : public PlatformTest {
  protected:
   BrowserViewWranglerTest()
-      : scene_state_([[SceneState alloc] initWithAppState:nil]),
+      : fake_scene_(FakeSceneWithIdentifier([[NSUUID UUID] UUIDString])),
+        scene_state_(
+            [[SceneStateWithFakeScene alloc] initWithScene:fake_scene_]),
         test_session_service_([[TestSessionService alloc] init]) {
     TestChromeBrowserState::Builder test_cbs_builder;
     test_cbs_builder.AddTestingFactory(
         SendTabToSelfSyncServiceFactory::GetInstance(),
         SendTabToSelfSyncServiceFactory::GetDefaultFactory());
+    test_cbs_builder.AddTestingFactory(
+        ios::TemplateURLServiceFactory::GetInstance(),
+        ios::TemplateURLServiceFactory::GetDefaultFactory());
+    test_cbs_builder.AddTestingFactory(
+        IOSChromeFaviconLoaderFactory::GetInstance(),
+        IOSChromeFaviconLoaderFactory::GetDefaultFactory());
+    test_cbs_builder.AddTestingFactory(
+        IOSChromeLargeIconServiceFactory::GetInstance(),
+        IOSChromeLargeIconServiceFactory::GetDefaultFactory());
+    test_cbs_builder.AddTestingFactory(
+        ios::FaviconServiceFactory::GetInstance(),
+        ios::FaviconServiceFactory::GetDefaultFactory());
 
     chrome_browser_state_ = test_cbs_builder.Build();
+    CHECK(chrome_browser_state_->CreateHistoryService());
 
     session_service_block_ = ^SessionServiceIOS*(id self) {
       return test_session_service_;
@@ -49,6 +89,7 @@ class BrowserViewWranglerTest : public PlatformTest {
 
   web::WebTaskEnvironment task_environment_;
   std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
+  id fake_scene_;
   SceneState* scene_state_;
   TestSessionService* test_session_service_;
   id session_service_block_;
@@ -65,6 +106,7 @@ TEST_F(BrowserViewWranglerTest, TestInitNilObserver) {
          applicationCommandEndpoint:(id<ApplicationCommands>)nil
         browsingDataCommandEndpoint:nil];
     [wrangler createMainBrowser];
+    [wrangler createMainCoordinatorAndInterface];
     // Test that BVC is created on demand.
     UIViewController* bvc = wrangler.mainInterface.viewController;
     EXPECT_NE(bvc, nil);
@@ -108,6 +150,7 @@ TEST_F(BrowserViewWranglerTest, TestBrowserList) {
   // After creating the main browser, it should have been added to the browser
   // list.
   [wrangler createMainBrowser];
+  [wrangler createMainCoordinatorAndInterface];
   EXPECT_EQ(wrangler.mainInterface.browser, observer.GetLastAddedBrowser());
   EXPECT_EQ(1UL, browser_list->AllRegularBrowsers().size());
   // The lazy OTR browser creation should involve an addition to the browser

@@ -23,6 +23,10 @@ class KeyboardLock final : public GarbageCollected<KeyboardLock>,
                            public ExecutionContextClient {
  public:
   explicit KeyboardLock(ExecutionContext*);
+
+  KeyboardLock(const KeyboardLock&) = delete;
+  KeyboardLock& operator=(const KeyboardLock&) = delete;
+
   ~KeyboardLock();
 
   ScriptPromise lock(ScriptState*, const Vector<String>&, ExceptionState&);
@@ -43,12 +47,8 @@ class KeyboardLock final : public GarbageCollected<KeyboardLock>,
   void LockRequestFinished(ScriptPromiseResolver*,
                            mojom::KeyboardLockRequestResult);
 
-  HeapMojoRemote<mojom::blink::KeyboardLockService,
-                 HeapMojoWrapperMode::kWithoutContextObserver>
-      service_;
+  HeapMojoRemote<mojom::blink::KeyboardLockService> service_;
   Member<ScriptPromiseResolver> request_keylock_resolver_;
-
-  DISALLOW_COPY_AND_ASSIGN(KeyboardLock);
 };
 
 }  // namespace blink

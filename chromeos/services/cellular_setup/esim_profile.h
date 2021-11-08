@@ -41,9 +41,7 @@ class ESimProfile : public mojom::ESimProfile {
   void InstallProfile(const std::string& confirmation_code,
                       InstallProfileCallback callback) override;
   void UninstallProfile(UninstallProfileCallback callback) override;
-  void EnableProfile(EnableProfileCallback callback) override;
-  void DisableProfile(DisableProfileCallback callback) override;
-  void SetProfileNickname(const base::string16& nickname,
+  void SetProfileNickname(const std::u16string& nickname,
                           SetProfileNicknameCallback callback) override;
 
   // Update properties for this ESimProfile from D-Bus.
@@ -64,10 +62,6 @@ class ESimProfile : public mojom::ESimProfile {
   using ProfileInstallResultCallback =
       base::OnceCallback<void(mojom::ProfileInstallResult)>;
 
-  // Type of callback for other esim manager methods.
-  using ESimOperationResultCallback =
-      base::OnceCallback<void(mojom::ESimOperationResult)>;
-
   // Type of callback to be passed to EnsureProfileExists method. The callback
   // receives a boolean indicating request profile succeess status and inhibit
   // lock that was passed to the method.
@@ -78,29 +72,39 @@ class ESimProfile : public mojom::ESimProfile {
   void EnsureProfileExistsOnEuicc(
       EnsureProfileExistsOnEuiccCallback callback,
       std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock);
-  void OnRequestProfiles(
+  void OnRequestInstalledProfiles(
+      EnsureProfileExistsOnEuiccCallback callback,
+      std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock);
+  void OnRequestPendingProfiles(
       EnsureProfileExistsOnEuiccCallback callback,
       std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock,
       HermesResponseStatus status);
+  void OnRequestProfiles(
+      EnsureProfileExistsOnEuiccCallback callback,
+      std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock,
+      bool success);
   void PerformInstallProfile(
       const std::string& confirmation_code,
       bool request_profile_success,
       std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock);
   void PerformSetProfileNickname(
-      const base::string16& nickname,
+      const std::u16string& nickname,
       bool request_profile_success,
       std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock);
   void OnPendingProfileInstallResult(
       std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock,
       HermesResponseStatus status);
+  void OnNewProfileEnableSuccess(const std::string& service_path);
+  void OnPrepareCellularNetworkForConnectionFailure(
+      const std::string& service_path,
+      const std::string& error_name);
   void OnProfileUninstallResult(bool success);
-  void OnESimOperationResult(ESimOperationResultCallback callback,
-                             HermesResponseStatus status);
   void OnProfileNicknameSet(
       std::unique_ptr<CellularInhibitor::InhibitLock> inhibit_lock,
-      bool success);
+      HermesResponseStatus status);
   bool ProfileExistsOnEuicc();
   bool IsProfileInstalled();
+  bool IsProfileManaged();
 
   // Reference to Euicc that owns this profile.
   Euicc* euicc_;
@@ -118,4 +122,4 @@ class ESimProfile : public mojom::ESimProfile {
 }  // namespace cellular_setup
 }  // namespace chromeos
 
-#endif  // CHROMEOS_SERVICES_CELLULAR_SETUP_ESIM_MANAGER_H_
+#endif  // CHROMEOS_SERVICES_CELLULAR_SETUP_ESIM_PROFILE_H_

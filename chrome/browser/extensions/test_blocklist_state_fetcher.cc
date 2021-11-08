@@ -6,7 +6,7 @@
 
 #include "base/containers/contains.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "components/safe_browsing/core/db/v4_test_util.h"
+#include "components/safe_browsing/core/browser/db/v4_test_util.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -22,7 +22,6 @@ class DummySharedURLLoaderFactory : public network::SharedURLLoaderFactory {
   // network::URLLoaderFactory implementation:
   void CreateLoaderAndStart(
       mojo::PendingReceiver<network::mojom::URLLoader> loader,
-      int32_t routing_id,
       int32_t request_id,
       uint32_t options,
       const network::ResourceRequest& request,

@@ -18,6 +18,14 @@ extern NSString* const kTabGridUndoCloseAllButtonIdentifier;
 extern NSString* const kTabGridIncognitoTabsEmptyStateIdentifier;
 extern NSString* const kTabGridRegularTabsEmptyStateIdentifier;
 extern NSString* const kTabGridScrollViewIdentifier;
+extern NSString* const kRegularTabGridIdentifier;
+extern NSString* const kIncognitoTabGridIdentifier;
+
+extern NSString* const kTabGridEditButtonIdentifier;
+extern NSString* const kTabGridEditCloseTabsButtonIdentifier;
+extern NSString* const kTabGridEditSelectAllButtonIdentifier;
+extern NSString* const kTabGridEditAddToButtonIdentifier;
+extern NSString* const kTabGridEditShareButtonIdentifier;
 
 // All kxxxColor constants are RGB values stored in a Hex integer. These will be
 // converted into UIColors using the UIColorFromRGB() function, from

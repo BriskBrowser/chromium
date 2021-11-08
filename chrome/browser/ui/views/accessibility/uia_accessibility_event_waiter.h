@@ -24,8 +24,8 @@
 
 struct UiaAccessibilityWaiterInfo {
   HWND hwnd;
-  base::string16 role;
-  base::string16 name;
+  std::wstring role;
+  std::wstring name;
   ax::mojom::Event event;
 };
 
@@ -78,6 +78,10 @@ class UiaAccessibilityEventWaiter {
                          public IUIAutomationEventHandler {
      public:
       EventHandler();
+
+      EventHandler(const EventHandler&) = delete;
+      EventHandler& operator=(const EventHandler&) = delete;
+
       virtual ~EventHandler();
 
       void Init(UiaAccessibilityEventWaiter::Thread* owner,
@@ -117,8 +121,6 @@ class UiaAccessibilityEventWaiter {
       bool MatchesNameRole(IUIAutomationElement* sender);
 
       Microsoft::WRL::ComPtr<IUIAutomationElement> root_;
-
-      DISALLOW_COPY_AND_ASSIGN(EventHandler);
     };
     Microsoft::WRL::ComPtr<CComObject<EventHandler>> uia_event_handler_;
   };

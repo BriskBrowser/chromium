@@ -15,6 +15,9 @@ class GURL;
 class LegacyTLSBlockingPage
     : public security_interstitials::IOSSecurityInterstitialPage {
  public:
+  LegacyTLSBlockingPage(const LegacyTLSBlockingPage&) = delete;
+  LegacyTLSBlockingPage& operator=(const LegacyTLSBlockingPage&) = delete;
+
   ~LegacyTLSBlockingPage() override;
 
   // Creates a legacy TLS blocking page.
@@ -25,22 +28,18 @@ class LegacyTLSBlockingPage
  protected:
   // SecurityInterstitialPage implementation:
   bool ShouldCreateNewNavigation() const override;
-  void PopulateInterstitialStrings(
-      base::DictionaryValue* load_time_data) const override;
+  void PopulateInterstitialStrings(base::Value* load_time_data) const override;
 
  private:
-  void HandleScriptCommand(const base::DictionaryValue& message,
-                           const GURL& origin_url,
-                           bool user_is_interacting,
-                           web::WebFrame* sender_frame) override;
-
-  void AfterShow() override;
+  void HandleCommand(
+      security_interstitials::SecurityInterstitialCommand command,
+      const GURL& origin_url,
+      bool user_is_interacting,
+      web::WebFrame* sender_frame) override;
 
   web::WebState* web_state_ = nullptr;
   const GURL request_url_;
   std::unique_ptr<LegacyTLSControllerClient> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(LegacyTLSBlockingPage);
 };
 
 #endif  // IOS_COMPONENTS_SECURITY_INTERSTITIALS_LEGACY_TLS_LEGACY_TLS_BLOCKING_PAGE_H_

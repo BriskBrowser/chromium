@@ -6,7 +6,7 @@
  *
  * Other contributors:
  *   Robert O'Callahan <roc+@cs.cmu.edu>
- *   David Baron <dbaron@fas.harvard.edu>
+ *   David Baron <dbaron@dbaron.org>
  *   Christian Biesinger <cbiesinger@web.de>
  *   Randall Jesup <rjesup@wgate.com>
  *   Roland Mainz <roland.mainz@informatik.med.uni-giessen.de>
@@ -45,7 +45,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_PAINT_LAYER_STACKING_NODE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_PAINT_LAYER_STACKING_NODE_H_
 
-#include <memory>
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -96,9 +95,6 @@ class CORE_EXPORT PaintLayerStackingNode
   PaintLayerStackingNode(const PaintLayerStackingNode&) = delete;
   PaintLayerStackingNode& operator=(const PaintLayerStackingNode&) = delete;
   ~PaintLayerStackingNode() = default;
-#if DCHECK_IS_ON()
-  void Destroy();
-#endif
 
   void DirtyZOrderLists();
   void UpdateZOrderLists();
@@ -141,11 +137,6 @@ class CORE_EXPORT PaintLayerStackingNode
 
   struct HighestLayers;
   void CollectLayers(PaintLayer&, HighestLayers*);
-
-#if DCHECK_IS_ON()
-  void UpdateStackingParentForZOrderLists(
-      PaintLayerStackingNode* stacking_parent);
-#endif
 
   PaintLayerCompositor* Compositor() const;
 
@@ -191,17 +182,19 @@ class CORE_EXPORT PaintLayerStackingNode
   //                          |
   //               overlay overflow controls
   //
-  // This map records which PaintLayers (the values of the map) have overlay
-  // overflow controls which should paint after the given PaintLayer (the key of
+  // This map records the PaintLayers (the values of the map) that have overlay
+  // overflow controls that should paint after the given PaintLayer (the key of
   // the map). The value of the map is a list of PaintLayers because there may
   // be more than one scrolling or resizing container in the same stacking
   // context with overlay overflow controls.
+  // For the above example, this map has one entry {child: target} which means
+  // that |target|'s overlay overflow controls should be painted after |child|.
   HeapHashMap<Member<const PaintLayer>, Member<PaintLayers>>
       layer_to_overlay_overflow_controls_painting_after_;
 
   // All PaintLayers (just in current stacking context, child stacking contexts
-  // will have their own list) that have overlay overflow controls which should
-  // paint reordered.
+  // will have their own list) that have overlay overflow controls that should
+  // paint reordered. For the above example, this has one entry {target}.
   PaintLayers overlay_overflow_controls_reordered_list_;
 
   // Indicates whether the z-order lists above are dirty.

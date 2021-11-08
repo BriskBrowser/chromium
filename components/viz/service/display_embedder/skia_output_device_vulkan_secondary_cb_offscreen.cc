@@ -44,15 +44,17 @@ SkiaOutputDeviceVulkanSecondaryCBOffscreen::
     ~SkiaOutputDeviceVulkanSecondaryCBOffscreen() = default;
 
 SkSurface* SkiaOutputDeviceVulkanSecondaryCBOffscreen::BeginPaint(
+    bool allocate_frame_buffer,
     std::vector<GrBackendSemaphore>* end_semaphores) {
-  SkSurface* sk_surface = SkiaOutputDeviceOffscreen::BeginPaint(end_semaphores);
+  SkSurface* sk_surface = SkiaOutputDeviceOffscreen::BeginPaint(
+      allocate_frame_buffer, end_semaphores);
   sk_surface->getCanvas()->clear(SK_ColorTRANSPARENT);
   return sk_surface;
 }
 
 void SkiaOutputDeviceVulkanSecondaryCBOffscreen::SwapBuffers(
     BufferPresentedCallback feedback,
-    std::vector<ui::LatencyInfo> latency_info) {
+    OutputSurfaceFrame frame) {
   StartSwapBuffers(std::move(feedback));
 
   auto format_index = static_cast<int>(format_);
@@ -79,8 +81,7 @@ void SkiaOutputDeviceVulkanSecondaryCBOffscreen::SwapBuffers(
   }
 
   FinishSwapBuffers(gfx::SwapCompletionResult(result),
-                    gfx::Size(size_.width(), size_.height()),
-                    std::move(latency_info));
+                    gfx::Size(size_.width(), size_.height()), std::move(frame));
 }
 
 }  // namespace viz

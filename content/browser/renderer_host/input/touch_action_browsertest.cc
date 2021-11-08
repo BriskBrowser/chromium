@@ -6,10 +6,12 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -121,17 +123,15 @@ const char kTouchActionURLWithOverlapArea[] =
 void GiveItSomeTime(int t) {
   base::RunLoop run_loop;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, run_loop.QuitClosure(), base::TimeDelta::FromMilliseconds(t));
+      FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(t));
   run_loop.Run();
 }
 
-constexpr base::TimeDelta kNoJankTime = base::TimeDelta::FromMilliseconds(0);
-constexpr base::TimeDelta kShortJankTime =
-    base::TimeDelta::FromMilliseconds(100);
+constexpr base::TimeDelta kNoJankTime = base::Milliseconds(0);
+constexpr base::TimeDelta kShortJankTime = base::Milliseconds(100);
 // 1200ms is larger than both desktop / mobile_touch_ack_timeout_delay in the
 // PassthroughTouchEventQueue, which ensures timeout to be triggered.
-constexpr base::TimeDelta kLongJankTime =
-    base::TimeDelta::FromMilliseconds(1200);
+constexpr base::TimeDelta kLongJankTime = base::Milliseconds(1200);
 }  // namespace
 
 namespace content {
@@ -139,6 +139,10 @@ namespace content {
 class TouchActionBrowserTest : public ContentBrowserTest {
  public:
   TouchActionBrowserTest() = default;
+
+  TouchActionBrowserTest(const TouchActionBrowserTest&) = delete;
+  TouchActionBrowserTest& operator=(const TouchActionBrowserTest&) = delete;
+
   ~TouchActionBrowserTest() override = default;
 
   RenderWidgetHostImpl* GetWidgetHost() {
@@ -164,7 +168,7 @@ class TouchActionBrowserTest : public ContentBrowserTest {
         host->render_frame_metadata_provider());
     host->GetView()->SetSize(gfx::Size(400, 400));
 
-    base::string16 ready_title(base::ASCIIToUTF16("ready"));
+    std::u16string ready_title(u"ready");
     TitleWatcher watcher(shell()->web_contents(), ready_title);
     ignore_result(watcher.WaitAndGetTitle());
 
@@ -189,24 +193,18 @@ class TouchActionBrowserTest : public ContentBrowserTest {
   }
 
   int ExecuteScriptAndExtractInt(const std::string& script) {
-    int value = 0;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
-        shell(), "domAutomationController.send(" + script + ")", &value));
-    return value;
+    return EvalJs(shell(), script).ExtractInt();
   }
 
   void JankMainThread(base::TimeDelta delta) {
     std::string script = "var end = performance.now() + ";
     script.append(std::to_string(delta.InMilliseconds()));
     script.append("; while (performance.now() < end) ; ");
-    EXPECT_TRUE(content::ExecuteScript(shell(), script));
+    EXPECT_TRUE(ExecJs(shell(), script));
   }
 
   double ExecuteScriptAndExtractDouble(const std::string& script) {
-    double value = 0;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractDouble(
-        shell(), "domAutomationController.send(" + script + ")", &value));
-    return value;
+    return EvalJs(shell(), script).ExtractDouble();
   }
 
   double GetScrollTop() {
@@ -219,9 +217,9 @@ class TouchActionBrowserTest : public ContentBrowserTest {
   }
 
   bool URLLoaded() {
-    base::string16 ready_title(base::ASCIIToUTF16("ready"));
+    std::u16string ready_title(u"ready");
     TitleWatcher watcher(shell()->web_contents(), ready_title);
-    const base::string16 title = watcher.WaitAndGetTitle();
+    const std::u16string title = watcher.WaitAndGetTitle();
     return title == ready_title;
   }
 
@@ -241,14 +239,16 @@ class TouchActionBrowserTest : public ContentBrowserTest {
       bool wait_until_scrolled,
       const gfx::Vector2d& expected_scroll_position_after_scroll) {
     SyntheticSmoothScrollGestureParams params1;
-    params1.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+    params1.gesture_source_type =
+        content::mojom::GestureSourceType::kTouchInput;
     params1.anchor = gfx::PointF(25, 125);
     params1.distances.push_back(gfx::Vector2dF(-5, 0));
     params1.prevent_fling = true;
     params1.speed_in_pixels_s = 5;
 
     SyntheticSmoothScrollGestureParams params2;
-    params2.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+    params2.gesture_source_type =
+        content::mojom::GestureSourceType::kTouchInput;
     params2.anchor = gfx::PointF(25, 125);
     params2.distances.push_back(gfx::Vector2dF(-50, 0));
 
@@ -256,9 +256,8 @@ class TouchActionBrowserTest : public ContentBrowserTest {
 
     std::unique_ptr<SyntheticSmoothScrollGesture> gesture1(
         new SyntheticSmoothScrollGesture(params1));
-    GetWidgetHost()->QueueSyntheticGesture(
-        std::move(gesture1),
-        base::BindOnce([](SyntheticGesture::Result result) {}));
+    GetWidgetHost()->QueueSyntheticGesture(std::move(gesture1),
+                                           base::DoNothing());
 
     JankMainThread(kLongJankTime);
     GiveItSomeTime(800);
@@ -313,7 +312,7 @@ class TouchActionBrowserTest : public ContentBrowserTest {
       touch_point.set_y(touch_point.y() * page_scale_factor);
     }
     SyntheticSmoothScrollGestureParams params;
-    params.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+    params.gesture_source_type = content::mojom::GestureSourceType::kTouchInput;
     params.anchor = touch_point;
     params.distances.push_back(-distance);
     // Set the speed to very high so that there is one GSU only.
@@ -332,7 +331,7 @@ class TouchActionBrowserTest : public ContentBrowserTest {
         base::BindOnce(&TouchActionBrowserTest::OnSyntheticGestureCompleted,
                        base::Unretained(this)));
 
-    if (jank_time > base::TimeDelta::FromMilliseconds(0))
+    if (jank_time > base::Milliseconds(0))
       JankMainThread(jank_time);
 
     // Runs until we get the OnSyntheticGestureCompleted callback
@@ -475,8 +474,6 @@ class TouchActionBrowserTest : public ContentBrowserTest {
  private:
   std::unique_ptr<RenderFrameSubmissionObserver> frame_observer_;
   std::unique_ptr<base::RunLoop> run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(TouchActionBrowserTest);
 };
 
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \

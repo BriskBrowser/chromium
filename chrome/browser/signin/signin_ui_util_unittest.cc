@@ -5,15 +5,19 @@
 #include "chrome/browser/signin/signin_ui_util.h"
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/profiles/profile_attributes_init_params.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
+#include "chrome/browser/signin/signin_features.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
@@ -67,6 +71,11 @@ const char kSecondaryGaiaID[] = "secondary_gaia_id";
 class SigninUiUtilTestBrowserWindow : public TestBrowserWindow {
  public:
   SigninUiUtilTestBrowserWindow() = default;
+
+  SigninUiUtilTestBrowserWindow(const SigninUiUtilTestBrowserWindow&) = delete;
+  SigninUiUtilTestBrowserWindow& operator=(
+      const SigninUiUtilTestBrowserWindow&) = delete;
+
   ~SigninUiUtilTestBrowserWindow() override = default;
   void set_browser(Browser* browser) { browser_ = browser; }
 
@@ -82,8 +91,6 @@ class SigninUiUtilTestBrowserWindow : public TestBrowserWindow {
 
  private:
   Browser* browser_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(SigninUiUtilTestBrowserWindow);
 };
 
 }  // namespace
@@ -101,7 +108,8 @@ class DiceSigninUiUtilTest : public BrowserWithTestWindowTest {
         signin_metrics::AccessPoint::ACCESS_POINT_MAX;
     signin_metrics::PromoAction signin_promo_action =
         signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO;
-    signin_metrics::Reason signin_reason = signin_metrics::Reason::REASON_MAX;
+    signin_metrics::Reason signin_reason =
+        signin_metrics::Reason::kUnknownReason;
     CoreAccountId account_id;
     DiceTurnSyncOnHelper::SigninAbortedMode signin_aborted_mode =
         DiceTurnSyncOnHelper::SigninAbortedMode::REMOVE_ACCOUNT;
@@ -134,6 +142,11 @@ class DiceSigninUiUtilTest : public BrowserWithTestWindowTest {
     BrowserWithTestWindowTest::SetUp();
     static_cast<SigninUiUtilTestBrowserWindow*>(browser()->window())
         ->set_browser(browser());
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+    if (base::FeatureList::IsEnabled(kMultiProfileAccountConsistency))
+      GTEST_SKIP();
+#endif
   }
 
   // BrowserWithTestWindowTest:
@@ -258,10 +271,7 @@ TEST_F(DiceSigninUiUtilTest, EnableSyncWithExistingAccount) {
                      "Signin_Signin_FromBookmarkBubble"));
 
     EnableSync(
-        GetIdentityManager()
-            ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
-                account_id)
-            .value(),
+        GetIdentityManager()->FindExtendedAccountInfoByAccountId(account_id),
         is_default_promo_account);
     signin_metrics::PromoAction expected_promo_action =
         is_default_promo_account
@@ -289,7 +299,7 @@ TEST_F(DiceSigninUiUtilTest, EnableSyncWithExistingAccount) {
               create_dice_turn_sync_on_helper_params_.signin_access_point);
     EXPECT_EQ(expected_promo_action,
               create_dice_turn_sync_on_helper_params_.signin_promo_action);
-    EXPECT_EQ(signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT,
+    EXPECT_EQ(signin_metrics::Reason::kSigninPrimaryAccount,
               create_dice_turn_sync_on_helper_params_.signin_reason);
     EXPECT_EQ(DiceTurnSyncOnHelper::SigninAbortedMode::KEEP_ACCOUNT,
               create_dice_turn_sync_on_helper_params_.signin_aborted_mode);
@@ -318,10 +328,7 @@ TEST_F(DiceSigninUiUtilTest, EnableSyncWithAccountThatNeedsReauth) {
                      "Signin_Signin_FromBookmarkBubble"));
 
     EnableSync(
-        GetIdentityManager()
-            ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
-                account_id)
-            .value(),
+        GetIdentityManager()->FindExtendedAccountInfoByAccountId(account_id),
         is_default_promo_account);
     ASSERT_FALSE(create_dice_turn_sync_on_helper_called_);
 
@@ -485,11 +492,14 @@ TEST_F(DiceSigninUiUtilTest, MergeDiceSigninTab) {
 TEST_F(DiceSigninUiUtilTest,
        ShouldShowAnimatedIdentityOnOpeningWindow_ReturnsTrueForMultiProfiles) {
   const char kSecondProfile[] = "SecondProfile";
+  const char16_t kSecondProfile16[] = u"SecondProfile";
   const base::FilePath profile_path =
       profile_manager()->profiles_dir().AppendASCII(kSecondProfile);
+  ProfileAttributesInitParams params;
+  params.profile_path = profile_path;
+  params.profile_name = kSecondProfile16;
   profile_manager()->profile_attributes_storage()->AddProfile(
-      profile_path, base::ASCIIToUTF16(kSecondProfile), std::string(),
-      base::string16(), false, 0, std::string(), EmptyAccountId());
+      std::move(params));
 
   EXPECT_TRUE(ShouldShowAnimatedIdentityOnOpeningWindow(
       *profile_manager()->profile_attributes_storage(), profile()));
@@ -559,7 +569,7 @@ TEST(ShouldShowAnimatedIdentityOnOpeningWindow, ReturnsFalseForNewWindow) {
   RecordAnimatedIdentityTriggered(profile);
 
   // Wait a few seconds.
-  task_environment.FastForwardBy(base::TimeDelta::FromSeconds(6));
+  task_environment.FastForwardBy(base::Seconds(6));
 
   // Animation is not shown again in a new window.
   EXPECT_FALSE(ShouldShowAnimatedIdentityOnOpeningWindow(

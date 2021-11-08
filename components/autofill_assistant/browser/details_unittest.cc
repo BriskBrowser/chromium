@@ -11,6 +11,7 @@
 #include "components/autofill_assistant/browser/details.h"
 #include "components/autofill_assistant/browser/service.pb.h"
 #include "components/autofill_assistant/browser/trigger_context.h"
+#include "components/autofill_assistant/browser/user_model.h"
 #include "components/strings/grit/components_strings.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -59,6 +60,7 @@ class DetailsTest : public testing::Test {
   }
 
   UserData user_data_;
+  UserModel user_model_;
   CollectUserDataOptions user_data_options_;
 };
 
@@ -109,23 +111,6 @@ TEST_F(DetailsTest, UpdateFromParametersUpdateFromDetails) {
   EXPECT_THAT(details.totalPrice(), Eq("12"));
 }
 
-TEST_F(DetailsTest, UpdateFromParametersBackwardsCompatibility) {
-  base::test::ScopedRestoreICUDefaultLocale restore_locale;
-  base::i18n::SetICUDefaultLocale("en_US");
-
-  Details details;
-  EXPECT_TRUE(details.UpdateFromParameters(
-      {{{"MOVIES_MOVIE_NAME", "movie_name"},
-        {"MOVIES_THEATER_NAME", "movie_theater"},
-        {"MOVIES_SCREENING_DATETIME", "2019-09-26T16:40:02"}}}));
-
-  EXPECT_TRUE(details.placeholders().show_image_placeholder());
-  EXPECT_THAT(details.title(), Eq("movie_name"));
-  EXPECT_THAT(details.descriptionLine2(), Eq("movie_theater"));
-  EXPECT_THAT(details.descriptionLine1(),
-              Eq("4:40 PM \xE2\x80\xA2 Thu, Sep 26"));
-}
-
 TEST_F(DetailsTest, UpdateFromProtoNoDetails) {
   Details details;
   EXPECT_FALSE(Details::UpdateFromProto(ShowDetailsProto(), &details));
@@ -157,7 +142,8 @@ TEST_F(DetailsTest, UpdateFromContactDetailsNoUserDataOptions) {
 TEST_F(DetailsTest, UpdateFromContactDetailsNoContactInfoRequested) {
   ShowDetailsProto proto;
   proto.set_contact_details("contact");
-  user_data_.selected_addresses_["contact"] = MakeAutofillProfile();
+  user_model_.SetSelectedAutofillProfile("contact", MakeAutofillProfile(),
+                                         &user_data_);
   user_data_options_.request_payer_name = false;
   user_data_options_.request_payer_email = false;
   EXPECT_FALSE(Details::UpdateFromContactDetails(proto, &user_data_,
@@ -167,7 +153,8 @@ TEST_F(DetailsTest, UpdateFromContactDetailsNoContactInfoRequested) {
 TEST_F(DetailsTest, UpdateFromContactDetails) {
   ShowDetailsProto proto;
   proto.set_contact_details("contact");
-  user_data_.selected_addresses_["contact"] = MakeAutofillProfile();
+  user_model_.SetSelectedAutofillProfile("contact", MakeAutofillProfile(),
+                                         &user_data_);
   user_data_options_.request_payer_name = true;
   user_data_options_.request_payer_email = true;
 
@@ -184,7 +171,8 @@ TEST_F(DetailsTest, UpdateFromContactDetails) {
 TEST_F(DetailsTest, UpdateFromContactOnlyName) {
   ShowDetailsProto proto;
   proto.set_contact_details("contact");
-  user_data_.selected_addresses_["contact"] = MakeAutofillProfile();
+  user_model_.SetSelectedAutofillProfile("contact", MakeAutofillProfile(),
+                                         &user_data_);
   user_data_options_.request_payer_name = true;
   user_data_options_.request_payer_email = false;
 
@@ -201,7 +189,8 @@ TEST_F(DetailsTest, UpdateFromContactOnlyName) {
 TEST_F(DetailsTest, UpdateFromContactOnlyEmail) {
   ShowDetailsProto proto;
   proto.set_contact_details("contact");
-  user_data_.selected_addresses_["contact"] = MakeAutofillProfile();
+  user_model_.SetSelectedAutofillProfile("contact", MakeAutofillProfile(),
+                                         &user_data_);
   user_data_options_.request_payer_name = false;
   user_data_options_.request_payer_email = true;
 
@@ -223,7 +212,8 @@ TEST_F(DetailsTest, UpdateFromShippingAddressNoAddressInMemory) {
 TEST_F(DetailsTest, UpdateFromShippingAddress) {
   ShowDetailsProto proto;
   proto.set_shipping_address("shipping");
-  user_data_.selected_addresses_["shipping"] = MakeAutofillProfile();
+  user_model_.SetSelectedAutofillProfile("shipping", MakeAutofillProfile(),
+                                         &user_data_);
 
   Details details;
   EXPECT_TRUE(Details::UpdateFromShippingAddress(proto, &user_data_, &details));
@@ -246,7 +236,7 @@ TEST_F(DetailsTest, UpdateFromSelectedCreditCardEmptyMemory) {
 TEST_F(DetailsTest, UpdateFromSelectedCreditCardNotRequested) {
   ShowDetailsProto proto;
   proto.set_credit_card(false);
-  user_data_.selected_card_ = MakeCreditCard();
+  user_model_.SetSelectedCreditCard(MakeCreditCard(), &user_data_);
   EXPECT_FALSE(Details::UpdateFromSelectedCreditCard(ShowDetailsProto(),
                                                      &user_data_, nullptr));
 }
@@ -254,7 +244,7 @@ TEST_F(DetailsTest, UpdateFromSelectedCreditCardNotRequested) {
 TEST_F(DetailsTest, UpdateFromCreditCard) {
   ShowDetailsProto proto;
   proto.set_credit_card(true);
-  user_data_.selected_card_ = MakeCreditCard();
+  user_model_.SetSelectedCreditCard(MakeCreditCard(), &user_data_);
 
   Details details;
   EXPECT_TRUE(

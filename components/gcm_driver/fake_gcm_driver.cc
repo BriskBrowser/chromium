@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 
 namespace gcm {
@@ -94,9 +94,6 @@ base::Time FakeGCMDriver::GetLastTokenFetchTime() {
 }
 
 void FakeGCMDriver::SetLastTokenFetchTime(const base::Time& time) {
-}
-
-void FakeGCMDriver::WakeFromSuspendForHeartbeat(bool wake) {
 }
 
 InstanceIDHandler* FakeGCMDriver::GetInstanceIDHandlerInternal() {

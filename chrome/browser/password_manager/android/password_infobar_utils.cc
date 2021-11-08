@@ -6,13 +6,14 @@
 
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "components/autofill/core/common/autofill_features.h"
+#include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 
 namespace password_manager {
-base::Optional<AccountInfo> GetAccountInfoForPasswordInfobars(Profile* profile,
+absl::optional<AccountInfo> GetAccountInfoForPasswordInfobars(Profile* profile,
                                                               bool is_syncing) {
   DCHECK(profile);
   if (!base::FeatureList::IsEnabled(
@@ -22,16 +23,14 @@ base::Optional<AccountInfo> GetAccountInfoForPasswordInfobars(Profile* profile,
       !base::FeatureList::IsEnabled(
           autofill::features::
               kAutofillEnableInfoBarAccountIndicationFooterForSyncUsers)) {
-    return base::nullopt;
+    return absl::nullopt;
   }
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
   CoreAccountId account_id =
       identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kSync);
-  base::Optional<AccountInfo> account_info =
-      identity_manager
-          ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
-              account_id);
+  AccountInfo account_info =
+      identity_manager->FindExtendedAccountInfoByAccountId(account_id);
   bool is_single_account_user =
       identity_manager->GetAccountsWithRefreshTokens().size() == 1;
 
@@ -40,24 +39,30 @@ base::Optional<AccountInfo> GetAccountInfoForPasswordInfobars(Profile* profile,
        base::FeatureList::IsEnabled(
            autofill::features::
                kAutofillEnableInfoBarAccountIndicationFooterForSingleAccountUsers)) &&
-      account_info.has_value();
+      !account_info.IsEmpty();
 
-  return should_show_account_footer ? account_info : base::nullopt;
+  return should_show_account_footer
+             ? absl::make_optional<AccountInfo>(account_info)
+             : absl::nullopt;
 }
 
-base::Optional<AccountInfo> GetAccountInfoForPasswordMessages(Profile* profile,
-                                                              bool is_syncing) {
+absl::optional<AccountInfo> GetAccountInfoForPasswordMessages(
+    Profile* profile) {
   DCHECK(profile);
-  if (!is_syncing)
-    return base::nullopt;
 
+  if (!password_bubble_experiment::IsSmartLockUser(
+          SyncServiceFactory::GetForProfile(profile))) {
+    return absl::nullopt;
+  }
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
   CoreAccountId account_id =
       identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kSync);
-  return identity_manager
-      ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
-          account_id);
+  AccountInfo account_info =
+      identity_manager->FindExtendedAccountInfoByAccountId(account_id);
+  return account_info.IsEmpty()
+             ? absl::nullopt
+             : absl::make_optional<AccountInfo>(account_info);
 }
 
 }  // namespace password_manager

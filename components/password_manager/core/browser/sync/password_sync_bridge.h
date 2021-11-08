@@ -35,8 +35,11 @@ class PasswordSyncBridge : public syncer::ModelTypeSyncBridge {
   PasswordSyncBridge(
       std::unique_ptr<syncer::ModelTypeChangeProcessor> change_processor,
       PasswordStoreSync* password_store_sync,
-      const base::RepeatingClosure& sync_enabled_or_disabled_cb,
-      ForceInitialSyncCycle force_initial_sync = ForceInitialSyncCycle(false));
+      const base::RepeatingClosure& sync_enabled_or_disabled_cb);
+
+  PasswordSyncBridge(const PasswordSyncBridge&) = delete;
+  PasswordSyncBridge& operator=(const PasswordSyncBridge&) = delete;
+
   ~PasswordSyncBridge() override;
 
   // Notifies the bridge of changes to the password database. Callers are
@@ -47,10 +50,10 @@ class PasswordSyncBridge : public syncer::ModelTypeSyncBridge {
   // ModelTypeSyncBridge implementation.
   std::unique_ptr<syncer::MetadataChangeList> CreateMetadataChangeList()
       override;
-  base::Optional<syncer::ModelError> MergeSyncData(
+  absl::optional<syncer::ModelError> MergeSyncData(
       std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
       syncer::EntityChangeList entity_data) override;
-  base::Optional<syncer::ModelError> ApplySyncChanges(
+  absl::optional<syncer::ModelError> ApplySyncChanges(
       std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
       syncer::EntityChangeList entity_changes) override;
   void GetData(StorageKeyList storage_keys, DataCallback callback) override;
@@ -70,10 +73,10 @@ class PasswordSyncBridge : public syncer::ModelTypeSyncBridge {
   // method deletes those logins from the store. So during merge, the data in
   // sync will be added to the password store. This should be called during
   // MergeSyncData().
-  base::Optional<syncer::ModelError> CleanupPasswordStore();
+  absl::optional<syncer::ModelError> CleanupPasswordStore();
 
   // Retrieves the storage keys of all unsynced passwords in the store.
-  std::set<int> GetUnsyncedPasswordsStorageKeys();
+  std::set<FormPrimaryKey> GetUnsyncedPasswordsStorageKeys();
 
   // Password store responsible for persistence.
   PasswordStoreSync* const password_store_sync_;
@@ -85,8 +88,6 @@ class PasswordSyncBridge : public syncer::ModelTypeSyncBridge {
   bool is_processing_remote_sync_changes_ = false;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(PasswordSyncBridge);
 };
 
 }  // namespace password_manager

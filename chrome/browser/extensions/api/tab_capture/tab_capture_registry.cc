@@ -54,6 +54,9 @@ class TabCaptureRegistry::LiveRequest : public content::WebContentsObserver {
     DCHECK(registry_);
   }
 
+  LiveRequest(const LiveRequest&) = delete;
+  LiveRequest& operator=(const LiveRequest&) = delete;
+
   ~LiveRequest() override {}
 
   // Accessors.
@@ -115,14 +118,13 @@ class TabCaptureRegistry::LiveRequest : public content::WebContentsObserver {
   // calls to OnRequestUpdate() will always refer to this request by this ID.
   int render_process_id_;
   int render_frame_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(LiveRequest);
 };
 
 TabCaptureRegistry::TabCaptureRegistry(content::BrowserContext* context)
     : browser_context_(context) {
   MediaCaptureDevicesDispatcher::GetInstance()->AddObserver(this);
-  extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context_));
+  extension_registry_observation_.Observe(
+      ExtensionRegistry::Get(browser_context_));
 }
 
 TabCaptureRegistry::~TabCaptureRegistry() {
@@ -148,7 +150,7 @@ void TabCaptureRegistry::GetCapturedTabs(
     base::ListValue* list_of_capture_info) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(list_of_capture_info);
-  list_of_capture_info->Clear();
+  list_of_capture_info->ClearList();
   for (const std::unique_ptr<LiveRequest>& request : requests_) {
     if (request->is_anonymous() || !request->is_verified() ||
         request->extension_id() != extension_id)
@@ -294,9 +296,10 @@ void TabCaptureRegistry::DispatchStatusChangeEvent(
   tab_capture::CaptureInfo info;
   request->GetCaptureInfo(&info);
   args->Append(info.ToValue());
-  auto event = std::make_unique<Event>(events::TAB_CAPTURE_ON_STATUS_CHANGED,
-                                       tab_capture::OnStatusChanged::kEventName,
-                                       std::move(args), browser_context_);
+  auto event =
+      std::make_unique<Event>(events::TAB_CAPTURE_ON_STATUS_CHANGED,
+                              tab_capture::OnStatusChanged::kEventName,
+                              std::move(*args).TakeList(), browser_context_);
 
   router->DispatchEventToExtension(request->extension_id(), std::move(event));
 }

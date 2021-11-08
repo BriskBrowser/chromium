@@ -11,9 +11,7 @@
 #include "chrome/browser/policy/enrollment_status.h"
 
 #include "base/compiler_specific.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
@@ -21,7 +19,6 @@
 #include "google_apis/gaia/gaia_oauth_client.h"
 
 namespace policy {
-class DMAuth;
 class EnrollmentStatus;
 
 // Implements the logic that initializes device account during enrollment.
@@ -67,6 +64,8 @@ class DeviceAccountInitializer : public CloudPolicyClient::Observer,
   };
 
   DeviceAccountInitializer(CloudPolicyClient* client, Delegate* delegate);
+  DeviceAccountInitializer(const DeviceAccountInitializer&) = delete;
+  DeviceAccountInitializer& operator=(const DeviceAccountInitializer&) = delete;
   ~DeviceAccountInitializer() override;
 
   // Starts process that downloads OAuth2 auth code and exchanges it to OAuth2
@@ -96,9 +95,6 @@ class DeviceAccountInitializer : public CloudPolicyClient::Observer,
   void OnNetworkError(int response_code) override;
 
  private:
-  // Initiates storing of robot auth token.
-  void StartStoreRobotAuth();
-
   // Handles completion of the robot token store operation.
   void HandleStoreRobotAuthTokenResult(bool result);
 
@@ -111,7 +107,6 @@ class DeviceAccountInitializer : public CloudPolicyClient::Observer,
   Delegate* delegate_;
 
   std::unique_ptr<gaia::GaiaOAuthClient> gaia_oauth_client_;
-  std::unique_ptr<DMAuth> dm_auth_;
 
   // Flag that undicates if there are requests that were not completed yet.
   // It is used to ignore CloudPolicyClient errors that are not relevant to
@@ -122,7 +117,6 @@ class DeviceAccountInitializer : public CloudPolicyClient::Observer,
   std::string robot_refresh_token_;
 
   base::WeakPtrFactory<DeviceAccountInitializer> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(DeviceAccountInitializer);
 };
 
 }  // namespace policy

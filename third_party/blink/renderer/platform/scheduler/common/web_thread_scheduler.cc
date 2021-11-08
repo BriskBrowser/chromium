@@ -24,8 +24,7 @@ WebThreadScheduler::~WebThreadScheduler() = default;
 // static
 std::unique_ptr<WebThreadScheduler>
 WebThreadScheduler::CreateMainThreadScheduler(
-    std::unique_ptr<base::MessagePump> message_pump,
-    base::Optional<base::Time> initial_virtual_time) {
+    std::unique_ptr<base::MessagePump> message_pump) {
   auto settings =
       base::sequence_manager::SequenceManager::Settings::Builder()
           .SetMessagePumpType(base::MessagePumpType::DEFAULT)
@@ -39,10 +38,8 @@ WebThreadScheduler::CreateMainThreadScheduler(
                     std::move(message_pump), std::move(settings))
           : base::sequence_manager::CreateSequenceManagerOnCurrentThread(
                 std::move(settings));
-  std::unique_ptr<MainThreadSchedulerImpl> scheduler(
-      new MainThreadSchedulerImpl(std::move(sequence_manager),
-                                  initial_virtual_time));
-  return std::move(scheduler);
+  return std::make_unique<MainThreadSchedulerImpl>(std::move(sequence_manager),
+                                                   absl::nullopt);
 }
 
 // static
@@ -62,6 +59,12 @@ const char* WebThreadScheduler::InputEventStateToString(
 // Stubs for main thread only virtual functions.
 scoped_refptr<base::SingleThreadTaskRunner>
 WebThreadScheduler::DefaultTaskRunner() {
+  NOTREACHED();
+  return nullptr;
+}
+
+scoped_refptr<base::SingleThreadTaskRunner>
+WebThreadScheduler::InputTaskRunner() {
   NOTREACHED();
   return nullptr;
 }
@@ -152,10 +155,6 @@ void WebThreadScheduler::SetRendererHidden(bool hidden) {
 }
 
 void WebThreadScheduler::SetRendererBackgrounded(bool backgrounded) {
-  NOTREACHED();
-}
-
-void WebThreadScheduler::SetSchedulerKeepActive(bool keep_active) {
   NOTREACHED();
 }
 

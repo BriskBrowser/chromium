@@ -50,7 +50,7 @@ import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
-import org.chromium.components.signin.base.CoreAccountId;
+import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
 import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.components.signin.identitymanager.IdentityManager;
@@ -94,6 +94,8 @@ public class ChromeBackupAgentTest {
 
     @Rule
     public JniMocker mocker = new JniMocker();
+    @Rule
+    public final AccountManagerTestRule mAccountManagerTestRule = new AccountManagerTestRule();
     @Mock
     private ChromeBackupAgentImpl.Natives mChromeBackupAgentJniMock;
     @Mock
@@ -105,7 +107,7 @@ public class ChromeBackupAgentTest {
     private AsyncInitTaskRunner mTaskRunner;
 
     private final CoreAccountInfo mAccountInfo =
-            new CoreAccountInfo(new CoreAccountId("gaia_id_user1"), "user1", "gaia_id_user1");
+            CoreAccountInfo.createFromEmailAndGaiaId("user1", "gaia_id_user1");
 
     private void setUpTestPrefs(SharedPreferences prefs) {
         SharedPreferences.Editor editor = prefs.edit();
@@ -443,7 +445,7 @@ public class ChromeBackupAgentTest {
                 ParcelFileDescriptor.open(stateFile, ParcelFileDescriptor.parseMode("w"));
 
         BackupDataInput backupData = createMockBackupData();
-        doReturn(true).when(mAgent).accountExistsOnDevice(any(String.class));
+        mAccountManagerTestRule.addAccount(mAccountInfo.getEmail());
 
         // Do a restore.
         mAgent.onRestore(backupData, 0, newState);
@@ -476,7 +478,6 @@ public class ChromeBackupAgentTest {
                 ParcelFileDescriptor.open(stateFile, ParcelFileDescriptor.parseMode("w"));
 
         BackupDataInput backupData = createMockBackupData();
-        doReturn(false).when(mAgent).accountExistsOnDevice(any(String.class));
 
         // Do a restore.
         mAgent.onRestore(backupData, 0, newState);

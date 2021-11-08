@@ -10,12 +10,12 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/types/pass_key.h"
 #include "build/build_config.h"
 #include "components/viz/service/display_embedder/skia_output_device.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "gpu/vulkan/vulkan_swap_chain.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace gpu {
 class VulkanSurface;
@@ -33,6 +33,10 @@ class SkiaOutputDeviceVulkan final : public SkiaOutputDevice {
       gpu::SurfaceHandle surface_handle,
       gpu::MemoryTracker* memory_tracker,
       DidSwapBufferCompleteCallback did_swap_buffer_complete_callback);
+
+  SkiaOutputDeviceVulkan(const SkiaOutputDeviceVulkan&) = delete;
+  SkiaOutputDeviceVulkan& operator=(const SkiaOutputDeviceVulkan&) = delete;
+
   ~SkiaOutputDeviceVulkan() override;
 
   static std::unique_ptr<SkiaOutputDeviceVulkan> Create(
@@ -52,11 +56,12 @@ class SkiaOutputDeviceVulkan final : public SkiaOutputDevice {
                gfx::BufferFormat format,
                gfx::OverlayTransform transform) override;
   void SwapBuffers(BufferPresentedCallback feedback,
-                   std::vector<ui::LatencyInfo> latency_info) override;
+                   OutputSurfaceFrame frame) override;
   void PostSubBuffer(const gfx::Rect& rect,
                      BufferPresentedCallback feedback,
-                     std::vector<ui::LatencyInfo> latency_info) override;
+                     OutputSurfaceFrame frame) override;
   SkSurface* BeginPaint(
+      bool allocate_frame_buffer,
       std::vector<GrBackendSemaphore>* end_semaphores) override;
   void EndPaint() override;
 
@@ -74,7 +79,7 @@ class SkiaOutputDeviceVulkan final : public SkiaOutputDevice {
   bool RecreateSwapChain(const gfx::Size& size,
                          sk_sp<SkColorSpace> color_space,
                          gfx::OverlayTransform transform);
-  void OnPostSubBufferFinished(std::vector<ui::LatencyInfo> latency_info,
+  void OnPostSubBufferFinished(OutputSurfaceFrame frame,
                                gfx::SwapResult result);
 
   VulkanContextProvider* const context_provider_;
@@ -82,7 +87,7 @@ class SkiaOutputDeviceVulkan final : public SkiaOutputDevice {
   const gpu::SurfaceHandle surface_handle_;
   std::unique_ptr<gpu::VulkanSurface> vulkan_surface_;
 
-  base::Optional<gpu::VulkanSwapChain::ScopedWrite> scoped_write_;
+  absl::optional<gpu::VulkanSwapChain::ScopedWrite> scoped_write_;
 
 #if DCHECK_IS_ON()
   bool image_modified_ = false;
@@ -100,8 +105,6 @@ class SkiaOutputDeviceVulkan final : public SkiaOutputDevice {
   std::vector<gfx::Rect> damage_of_images_;
 
   base::WeakPtrFactory<SkiaOutputDeviceVulkan> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SkiaOutputDeviceVulkan);
 };
 
 }  // namespace viz

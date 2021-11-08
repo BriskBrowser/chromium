@@ -13,6 +13,7 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ObserverList;
+import org.chromium.base.jank_tracker.JankTracker;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.OneshotSupplierImpl;
@@ -23,11 +24,9 @@ import org.chromium.chrome.browser.compositor.LayerTitleCache;
 import org.chromium.chrome.browser.compositor.TitleCache;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
-import org.chromium.chrome.browser.compositor.layouts.phone.StackLayout;
 import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutHelperManager;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
-import org.chromium.chrome.browser.layouts.LayoutStateProvider;
 import org.chromium.chrome.browser.layouts.components.VirtualView;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
@@ -74,9 +73,6 @@ public class LayoutManagerChrome extends LayoutManagerImpl
     private boolean mCreatingNtp;
     private final ObserverList<OverviewModeObserver> mOverviewModeObservers;
 
-    /** Whether to create an overview Layout when LayoutManagerChrome is created. */
-    private boolean mCreateOverviewLayout;
-
     protected ObservableSupplier<TabContentManager> mTabContentManagerSupplier;
     private final OneshotSupplierImpl<OverviewModeBehavior> mOverviewModeBehaviorSupplier;
 
@@ -90,7 +86,6 @@ public class LayoutManagerChrome extends LayoutManagerImpl
      * @param tabContentManagerSupplier Supplier of the {@link TabContentManager} instance.
      * @param layerTitleCacheSupplier Supplier of the {@link LayerTitleCache}.
      * @param overviewModeBehaviorSupplier Supplier of the {@link OverviewModeBehavior}.
-     * @param layoutStateProviderOneshotSupplier Supplier of the {@link LayoutStateProvider}.
      * @param topUiThemeColorProvider {@link ThemeColorProvider} for top UI.
      */
     public LayoutManagerChrome(LayoutManagerHost host, ViewGroup contentContainer,
@@ -98,10 +93,9 @@ public class LayoutManagerChrome extends LayoutManagerImpl
             ObservableSupplier<TabContentManager> tabContentManagerSupplier,
             Supplier<LayerTitleCache> layerTitleCacheSupplier,
             OneshotSupplierImpl<OverviewModeBehavior> overviewModeBehaviorSupplier,
-            OneshotSupplierImpl<LayoutStateProvider> layoutStateProviderOneshotSupplier,
-            Supplier<TopUiThemeColorProvider> topUiThemeColorProvider) {
+            Supplier<TopUiThemeColorProvider> topUiThemeColorProvider, JankTracker jankTracker) {
         super(host, contentContainer, tabContentManagerSupplier, layerTitleCacheSupplier,
-                layoutStateProviderOneshotSupplier, topUiThemeColorProvider);
+                topUiThemeColorProvider);
         Context context = host.getContext();
         LayoutRenderHost renderHost = host.getLayoutRenderHost();
 
@@ -114,6 +108,7 @@ public class LayoutManagerChrome extends LayoutManagerImpl
         mTabContentManagerSupplier.addObserver(new Callback<TabContentManager>() {
             @Override
             public void onResult(TabContentManager manager) {
+                manager.addThumbnailChangeListener((id) -> requestUpdate());
                 if (mOverviewLayout != null) {
                     mOverviewLayout.setTabContentManager(manager);
                 }
@@ -123,17 +118,13 @@ public class LayoutManagerChrome extends LayoutManagerImpl
 
         if (createOverviewLayout) {
             if (startSurface != null) {
-                assert TabUiFeatureUtilities.isGridTabSwitcherEnabled();
+                assert TabUiFeatureUtilities.isGridTabSwitcherEnabled(context);
                 TabManagementDelegate tabManagementDelegate =
                         TabManagementModuleProvider.getDelegate();
                 assert tabManagementDelegate != null;
 
-                final ObservableSupplier<? extends BrowserControlsStateProvider>
-                        browserControlsSupplier = mHost.getBrowserControlsManagerSupplier();
                 mOverviewLayout = tabManagementDelegate.createStartSurfaceLayout(
-                        context, this, renderHost, startSurface);
-            } else {
-                mCreateOverviewLayout = true;
+                        context, this, renderHost, startSurface, jankTracker);
             }
         }
 
@@ -168,7 +159,8 @@ public class LayoutManagerChrome extends LayoutManagerImpl
 
     @Override
     public void init(TabModelSelector selector, TabCreatorManager creator,
-            ControlContainer controlContainer, DynamicResourceLoader dynamicResourceLoader) {
+            ControlContainer controlContainer, DynamicResourceLoader dynamicResourceLoader,
+            TopUiThemeColorProvider topUiColorProvider) {
         Context context = mHost.getContext();
         LayoutRenderHost renderHost = mHost.getLayoutRenderHost();
         BrowserControlsStateProvider browserControlsStateProvider =
@@ -177,16 +169,10 @@ public class LayoutManagerChrome extends LayoutManagerImpl
         // Build Layouts
         mOverviewListLayout =
                 new OverviewListLayout(context, this, renderHost, browserControlsStateProvider);
-        mToolbarSwipeLayout = new ToolbarSwipeLayout(context, this, renderHost);
+        mToolbarSwipeLayout = new ToolbarSwipeLayout(context, this, renderHost,
+                browserControlsStateProvider, this, topUiColorProvider);
 
-        if (mCreateOverviewLayout) {
-            final ObservableSupplier<? extends BrowserControlsStateProvider>
-                    browserControlsSupplier = mHost.getBrowserControlsManagerSupplier();
-            mOverviewLayout = new StackLayout(context, this, renderHost,
-                    (ObservableSupplier<BrowserControlsStateProvider>) browserControlsSupplier);
-        }
-
-        super.init(selector, creator, controlContainer, dynamicResourceLoader);
+        super.init(selector, creator, controlContainer, dynamicResourceLoader, topUiColorProvider);
 
         // TODO: TitleCache should be a part of the ResourceManager.
         mTitleCache = mHost.getTitleCache();
@@ -227,34 +213,6 @@ public class LayoutManagerChrome extends LayoutManagerImpl
         }
         if (mToolbarSwipeLayout != null) {
             mToolbarSwipeLayout.destroy();
-        }
-    }
-
-    /**
-     * Simulates a click on the view at the specified pixel offset
-     * from the top left of the view.
-     * This is used by UI tests.
-     * @param x Coordinate of the click in dp.
-     * @param y Coordinate of the click in dp.
-     */
-    @VisibleForTesting
-    public void simulateClick(float x, float y) {
-        if (getActiveLayout() instanceof StackLayout) {
-            ((StackLayout) getActiveLayout()).simulateClick(x, y);
-        }
-    }
-
-    /**
-     * Simulates a drag and issues Up-event to commit the drag.
-     * @param x  Coordinate to start the Drag from in dp.
-     * @param y  Coordinate to start the Drag from in dp.
-     * @param dX Amount of drag in X direction in dp.
-     * @param dY Amount of drag in Y direction in dp.
-     */
-    @VisibleForTesting
-    public void simulateDrag(float x, float y, float dX, float dY) {
-        if (getActiveLayout() instanceof StackLayout) {
-            ((StackLayout) getActiveLayout()).simulateDrag(x, y, dX, dY);
         }
     }
 
@@ -327,7 +285,7 @@ public class LayoutManagerChrome extends LayoutManagerImpl
     @Override
     protected boolean shouldDelayHideAnimation(Layout layoutBeingHidden) {
         return mEnableAnimations && layoutBeingHidden == mOverviewLayout && mCreatingNtp
-                && !TabUiFeatureUtilities.isGridTabSwitcherEnabled();
+                && !TabUiFeatureUtilities.isGridTabSwitcherEnabled(mHost.getContext());
     }
 
     @Override
@@ -406,7 +364,7 @@ public class LayoutManagerChrome extends LayoutManagerImpl
      */
     @Override
     public void showOverview(boolean animate) {
-        boolean useAccessibility = DeviceClassManager.enableAccessibilityLayout();
+        boolean useAccessibility = DeviceClassManager.enableAccessibilityLayout(mHost.getContext());
 
         boolean accessibilityIsVisible =
                 useAccessibility && getActiveLayout() == mOverviewListLayout;
@@ -429,14 +387,16 @@ public class LayoutManagerChrome extends LayoutManagerImpl
      */
     @Override
     public void hideOverview(boolean animate) {
+        hideOverviewWithNextTab(animate, Tab.INVALID_TAB_ID);
+    }
+
+    @VisibleForTesting
+    public void hideOverviewWithNextTab(boolean animate, int tabId) {
         Layout activeLayout = getActiveLayout();
+        if (!isOverviewLayout(activeLayout)) return;
+
         if (activeLayout != null && !activeLayout.isStartingToHide()) {
-            if (animate) {
-                activeLayout.onTabSelecting(time(), Tab.INVALID_TAB_ID);
-            } else {
-                startHiding(Tab.INVALID_TAB_ID, false);
-                doneHiding();
-            }
+            activeLayout.startHiding(tabId, animate);
         }
     }
 

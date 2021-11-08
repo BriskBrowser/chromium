@@ -4,6 +4,9 @@
 
 #include "extensions/shell/renderer/shell_content_renderer_client.h"
 
+#include <memory>
+
+#include "components/guest_view/renderer/guest_view_container_dispatcher.h"
 #include "components/nacl/common/buildflags.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/renderer/render_frame.h"
@@ -13,7 +16,6 @@
 #include "extensions/common/extensions_client.h"
 #include "extensions/renderer/dispatcher.h"
 #include "extensions/renderer/extension_frame_helper.h"
-#include "extensions/renderer/guest_view/extensions_guest_view_container_dispatcher.h"
 #include "extensions/shell/common/shell_extensions_client.h"
 #include "extensions/shell/renderer/shell_extensions_renderer_client.h"
 #include "third_party/blink/public/web/web_local_frame.h"
@@ -41,13 +43,14 @@ void ShellContentRendererClient::RenderThreadStarted() {
   extensions_client_.reset(CreateExtensionsClient());
   ExtensionsClient::Set(extensions_client_.get());
 
-  extensions_renderer_client_.reset(new ShellExtensionsRendererClient);
+  extensions_renderer_client_ =
+      std::make_unique<ShellExtensionsRendererClient>();
   ExtensionsRendererClient::Set(extensions_renderer_client_.get());
 
   thread->AddObserver(extensions_renderer_client_->GetDispatcher());
 
-  guest_view_container_dispatcher_.reset(
-      new ExtensionsGuestViewContainerDispatcher());
+  guest_view_container_dispatcher_ =
+      std::make_unique<guest_view::GuestViewContainerDispatcher>();
   thread->AddObserver(guest_view_container_dispatcher_.get());
 }
 

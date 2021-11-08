@@ -15,9 +15,9 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "components/services/filesystem/public/mojom/types.mojom.h"
@@ -39,6 +39,7 @@
 #include "net/base/mime_util.h"
 #include "net/http/http_byte_range.h"
 #include "net/http/http_util.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/self_deleting_url_loader_factory.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -47,6 +48,9 @@
 #include "storage/browser/file_system/file_system_operation_runner.h"
 #include "storage/browser/file_system/file_system_url.h"
 #include "storage/common/file_system/file_system_util.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
 using filesystem::mojom::DirectoryEntry;
 using storage::FileStreamReader;
@@ -103,12 +107,15 @@ class FileSystemEntryURLLoader
   explicit FileSystemEntryURLLoader(FactoryParams params)
       : params_(std::move(params)) {}
 
+  FileSystemEntryURLLoader(const FileSystemEntryURLLoader&) = delete;
+  FileSystemEntryURLLoader& operator=(const FileSystemEntryURLLoader&) = delete;
+
   // network::mojom::URLLoader:
   void FollowRedirect(
       const std::vector<std::string>& removed_headers,
       const net::HttpRequestHeaders& modified_headers,
       const net::HttpRequestHeaders& modified_cors_exempt_headers,
-      const base::Optional<GURL>& new_url) override {}
+      const absl::optional<GURL>& new_url) override {}
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override {}
   void PauseReadingBodyFromNet() override {}
@@ -197,8 +204,10 @@ class FileSystemEntryURLLoader
         }
       }
     }
-
-    url_ = params_.file_system_context->CrackURL(request.url);
+    // TODO(https://crbug.com/1221308): function will use StorageKey for the
+    // receiver frame/worker in future CL
+    url_ = params_.file_system_context->CrackURL(
+        request.url, blink::StorageKey(url::Origin::Create(request.url)));
     if (!url_.is_valid()) {
       const FileSystemRequestInfo request_info = {
           request.url, params_.storage_domain, params_.frame_tree_node_id};
@@ -217,7 +226,10 @@ class FileSystemEntryURLLoader
       OnClientComplete(result);
       return;
     }
-    url_ = params_.file_system_context->CrackURL(request.url);
+    // TODO(https://crbug.com/1221308): function will use StorageKey for the
+    // receiver frame/worker in future CL
+    url_ = params_.file_system_context->CrackURL(
+        request.url, blink::StorageKey(url::Origin::Create(request.url)));
     if (!url_.is_valid()) {
       OnClientComplete(net::ERR_FILE_NOT_FOUND);
       return;
@@ -229,8 +241,6 @@ class FileSystemEntryURLLoader
     receiver_.reset();
     MaybeDeleteSelf();
   }
-
-  DISALLOW_COPY_AND_ASSIGN(FileSystemEntryURLLoader);
 };
 
 class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
@@ -249,6 +259,10 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
     filesystem_loader->Start(request, std::move(loader),
                              std::move(client_remote), io_task_runner);
   }
+
+  FileSystemDirectoryURLLoader(const FileSystemDirectoryURLLoader&) = delete;
+  FileSystemDirectoryURLLoader& operator=(const FileSystemDirectoryURLLoader&) =
+      delete;
 
  private:
   explicit FileSystemDirectoryURLLoader(FactoryParams params)
@@ -291,7 +305,7 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
       relative_path =
           base::FilePath(FILE_PATH_LITERAL("/") + relative_path.value());
 #endif
-      const base::string16& title = relative_path.LossyDisplayName();
+      const std::u16string& title = relative_path.LossyDisplayName();
       data_.append(net::GetDirectoryListingHeader(title));
     }
 
@@ -309,7 +323,7 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
     const DirectoryEntry& entry = entries_[index];
     const FileSystemURL entry_url =
         params_.file_system_context->CreateCrackedFileSystemURL(
-            url_.origin(), url_.type(),
+            url_.storage_key(), url_.type(),
             url_.path().Append(base::FilePath(entry.name)));
     DCHECK(entry_url.is_valid());
     params_.file_system_context->operation_runner()->GetMetadata(
@@ -329,7 +343,7 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
     }
 
     const DirectoryEntry& entry = entries_[index];
-    const base::string16& name = base::FilePath(entry.name).LossyDisplayName();
+    const std::u16string& name = base::FilePath(entry.name).LossyDisplayName();
     data_.append(net::GetDirectoryListingEntry(
         name, std::string(),
         entry.type == filesystem::mojom::FsFileType::DIRECTORY, file_info.size,
@@ -351,7 +365,7 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
     mojo::ScopedDataPipeProducerHandle producer_handle;
     mojo::ScopedDataPipeConsumerHandle consumer_handle;
     MojoResult rv =
-        mojo::CreateDataPipe(&options, &producer_handle, &consumer_handle);
+        mojo::CreateDataPipe(&options, producer_handle, consumer_handle);
     if (rv != MOJO_RESULT_OK) {
       OnClientComplete(net::ERR_FAILED);
       return;
@@ -391,8 +405,6 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
   std::string data_;
   std::vector<DirectoryEntry> entries_;
   scoped_refptr<net::IOBuffer> directory_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(FileSystemDirectoryURLLoader);
 };
 
 class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
@@ -412,6 +424,9 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
     filesystem_loader->Start(request, std::move(loader),
                              std::move(client_remote), io_task_runner);
   }
+
+  FileSystemFileURLLoader(const FileSystemFileURLLoader&) = delete;
+  FileSystemFileURLLoader& operator=(const FileSystemFileURLLoader&) = delete;
 
  private:
   FileSystemFileURLLoader(
@@ -433,8 +448,8 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
         url_,
         FileSystemOperation::GET_METADATA_FIELD_IS_DIRECTORY |
             FileSystemOperation::GET_METADATA_FIELD_SIZE,
-        base::AdaptCallbackForRepeating(base::BindOnce(
-            &FileSystemFileURLLoader::DidGetMetadata, base::AsWeakPtr(this))));
+        base::BindOnce(&FileSystemFileURLLoader::DidGetMetadata,
+                       base::AsWeakPtr(this)));
   }
 
   void DidGetMetadata(base::File::Error error_code,
@@ -488,7 +503,7 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
 
     mojo::ScopedDataPipeProducerHandle producer_handle;
     MojoResult rv =
-        mojo::CreateDataPipe(&options, &producer_handle, &consumer_handle_);
+        mojo::CreateDataPipe(&options, producer_handle, consumer_handle_);
     if (rv != MOJO_RESULT_OK) {
       OnClientComplete(net::ERR_FAILED);
       return;
@@ -594,8 +609,6 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
       network::mojom::URLResponseHead::New();
   const network::ResourceRequest original_request_;
   scoped_refptr<base::SequencedTaskRunner> io_task_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(FileSystemFileURLLoader);
 };
 
 // A URLLoaderFactory used for the filesystem:// scheme used when the Network
@@ -611,12 +624,15 @@ class FileSystemURLLoaderFactory
         params_(std::move(params)),
         io_task_runner_(io_task_runner) {}
 
+  FileSystemURLLoaderFactory(const FileSystemURLLoaderFactory&) = delete;
+  FileSystemURLLoaderFactory& operator=(const FileSystemURLLoaderFactory&) =
+      delete;
+
   ~FileSystemURLLoaderFactory() override = default;
 
  private:
   void CreateLoaderAndStart(
       mojo::PendingReceiver<network::mojom::URLLoader> loader,
-      int32_t routing_id,
       int32_t request_id,
       uint32_t options,
       const network::ResourceRequest& request,
@@ -644,8 +660,6 @@ class FileSystemURLLoaderFactory
 
   const FactoryParams params_;
   scoped_refptr<base::SequencedTaskRunner> io_task_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(FileSystemURLLoaderFactory);
 };
 
 }  // anonymous namespace

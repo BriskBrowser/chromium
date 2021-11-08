@@ -88,23 +88,18 @@ void DevToolsProtocolTestBindings::WebContentsDestroyed() {
   }
 }
 
-void DevToolsProtocolTestBindings::HandleMessageFromTest(
-    const std::string& message) {
+void DevToolsProtocolTestBindings::HandleMessageFromTest(base::Value message) {
   std::string method;
   base::ListValue* params = nullptr;
   base::DictionaryValue* dict = nullptr;
-  std::unique_ptr<base::Value> parsed_message =
-      base::JSONReader::ReadDeprecated(message);
-  if (!parsed_message || !parsed_message->GetAsDictionary(&dict) ||
-      !dict->GetString("method", &method)) {
+  if (!message.GetAsDictionary(&dict) || !dict->GetString("method", &method)) {
     return;
   }
 
-  int request_id = 0;
-  dict->GetInteger("id", &request_id);
   dict->GetList("params", &params);
 
-  if (method == "dispatchProtocolMessage" && params && params->GetSize() == 1) {
+  if (method == "dispatchProtocolMessage" && params &&
+      params->GetList().size() == 1) {
     std::string protocol_message;
     if (!params->GetString(0, &protocol_message))
       return;
@@ -125,7 +120,7 @@ void DevToolsProtocolTestBindings::DispatchProtocolMessage(
     std::string param;
     base::EscapeJSONString(str_message, true, &param);
     std::string code = "DevToolsAPI.dispatchMessage(" + param + ");";
-    base::string16 javascript = base::UTF8ToUTF16(code);
+    std::u16string javascript = base::UTF8ToUTF16(code);
     web_contents()->GetMainFrame()->ExecuteJavaScriptForTests(
         javascript, base::NullCallback());
     return;
@@ -139,7 +134,7 @@ void DevToolsProtocolTestBindings::DispatchProtocolMessage(
                            true, &param);
     std::string code = "DevToolsAPI.dispatchMessageChunk(" + param + "," +
                        base::NumberToString(pos ? 0 : total_size) + ");";
-    base::string16 javascript = base::UTF8ToUTF16(code);
+    std::u16string javascript = base::UTF8ToUTF16(code);
     web_contents()->GetMainFrame()->ExecuteJavaScriptForTests(
         javascript, base::NullCallback());
   }
@@ -148,6 +143,10 @@ void DevToolsProtocolTestBindings::DispatchProtocolMessage(
 void DevToolsProtocolTestBindings::AgentHostClosed(
     DevToolsAgentHost* agent_host) {
   agent_host_ = nullptr;
+}
+
+bool DevToolsProtocolTestBindings::AllowUnsafeOperations() {
+  return true;
 }
 
 }  // namespace content

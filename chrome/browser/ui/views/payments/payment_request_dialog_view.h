@@ -16,8 +16,8 @@
 #include "components/payments/content/payment_request_dialog.h"
 #include "components/payments/content/payment_request_spec.h"
 #include "components/payments/content/payment_request_state.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/throbber.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace autofill {
@@ -100,7 +100,7 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
   // outlive this object.
   static base::WeakPtr<PaymentRequestDialogView> Create(
       base::WeakPtr<PaymentRequest> request,
-      PaymentRequestDialogView::ObserverForTest* observer);
+      base::WeakPtr<PaymentRequestDialogView::ObserverForTest> observer);
 
   // views::View
   void RequestFocus() override;
@@ -193,14 +193,16 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
   int GetActualDialogWidth() const;
 
   ViewStack* view_stack_for_testing() { return view_stack_; }
+  ControllerMap* controller_map_for_testing() { return &controller_map_; }
   views::View* throbber_overlay_for_testing() { return throbber_overlay_; }
 
  private:
   // The browsertest validates the calculated dialog size.
   friend class PaymentHandlerWindowSizeTest;
 
-  PaymentRequestDialogView(base::WeakPtr<PaymentRequest> request,
-                           PaymentRequestDialogView::ObserverForTest* observer);
+  PaymentRequestDialogView(
+      base::WeakPtr<PaymentRequest> request,
+      base::WeakPtr<PaymentRequestDialogView::ObserverForTest> observer);
   ~PaymentRequestDialogView() override;
 
   void OnDialogOpened();
@@ -224,8 +226,7 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
   views::View* throbber_overlay_;
   views::Throbber* throbber_;
 
-  // May be null.
-  ObserverForTest* observer_for_testing_;
+  base::WeakPtr<ObserverForTest> observer_for_testing_;
 
   // Used when the dialog is being closed to avoid re-entrance into the
   // controller_map_ or view_stack_.

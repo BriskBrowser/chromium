@@ -21,8 +21,13 @@ class RemoveQueryConfirmationDialog : public views::DialogDelegateView {
   // associated result.
   using RemovalConfirmationCallback = base::OnceCallback<void(bool)>;
 
-  RemoveQueryConfirmationDialog(const base::string16& query,
+  RemoveQueryConfirmationDialog(const std::u16string& query,
                                 RemovalConfirmationCallback callback);
+
+  RemoveQueryConfirmationDialog(const RemoveQueryConfirmationDialog&) = delete;
+  RemoveQueryConfirmationDialog& operator=(
+      const RemoveQueryConfirmationDialog&) = delete;
+
   ~RemoveQueryConfirmationDialog() override;
 
   // views::View:
@@ -31,8 +36,6 @@ class RemoveQueryConfirmationDialog : public views::DialogDelegateView {
 
  private:
   RemovalConfirmationCallback confirm_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(RemoveQueryConfirmationDialog);
 };
 
 }  // namespace ash

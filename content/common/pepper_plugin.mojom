@@ -34,10 +34,7 @@ interface PepperHost {
                (bool found,
                 content.mojom.WebPluginInfo plugin_info,
                 string actual_mime_type);
-};
 
-// Generic Pepper messages that run on the IO thread in the browser process.
-interface PepperIOHost {
   // Notification an in-process instance has been created.
   DidCreateInProcessInstance(int32 instance_id,
                              int32 frame_routing_id,

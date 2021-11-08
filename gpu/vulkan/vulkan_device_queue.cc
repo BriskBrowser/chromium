@@ -11,6 +11,7 @@
 
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "gpu/config/gpu_info.h"  // nogncheck
 #include "gpu/config/vulkan_info.h"
 #include "gpu/vulkan/vulkan_command_pool.h"
@@ -21,10 +22,8 @@
 
 namespace gpu {
 
-VulkanDeviceQueue::VulkanDeviceQueue(VkInstance vk_instance,
-                                     bool enforce_protected_memory)
-    : vk_instance_(vk_instance),
-      enforce_protected_memory_(enforce_protected_memory) {}
+VulkanDeviceQueue::VulkanDeviceQueue(VkInstance vk_instance)
+    : vk_instance_(vk_instance) {}
 
 VulkanDeviceQueue::~VulkanDeviceQueue() {
   DCHECK_EQ(static_cast<VkPhysicalDevice>(VK_NULL_HANDLE), vk_physical_device_);
@@ -45,7 +44,6 @@ bool VulkanDeviceQueue::Initialize(
   DCHECK_EQ(static_cast<VkDevice>(VK_NULL_HANDLE), owned_vk_device_);
   DCHECK_EQ(static_cast<VkDevice>(VK_NULL_HANDLE), vk_device_);
   DCHECK_EQ(static_cast<VkQueue>(VK_NULL_HANDLE), vk_queue_);
-  DCHECK(!enforce_protected_memory_ || allow_protected_memory);
 
   if (VK_NULL_HANDLE == vk_instance_)
     return false;
@@ -80,11 +78,15 @@ bool VulkanDeviceQueue::Initialize(
     if (device_properties.apiVersion < info.used_api_version)
       continue;
 
+      // In dual-CPU cases, we cannot detect the active GPU correctly on Linux,
+      // so don't select GPU device based on the |gpu_info|.
+#if !defined(OS_LINUX)
     // If gpu_info is provided, the device should match it.
     if (gpu_info && (device_properties.vendorID != gpu_info->gpu.vendor_id ||
                      device_properties.deviceID != gpu_info->gpu.device_id)) {
       continue;
     }
+#endif
 
     if (device_properties.deviceType < 0 ||
         device_properties.deviceType > VK_PHYSICAL_DEVICE_TYPE_CPU) {
@@ -115,7 +117,7 @@ bool VulkanDeviceQueue::Initialize(
         break;
       }
     }
-    
+
     if (!found)
       continue;
 
@@ -188,8 +190,23 @@ bool VulkanDeviceQueue::Initialize(
 
   crash_keys::vulkan_device_api_version.Set(
       VkVersionToString(vk_physical_device_properties_.apiVersion));
-  crash_keys::vulkan_device_driver_version.Set(base::StringPrintf(
-      "0x%08x", vk_physical_device_properties_.driverVersion));
+  if (vk_physical_device_properties_.vendorID == 0x10DE) {
+    // NVIDIA
+    // 10 bits = major version (up to r1023)
+    // 8 bits = minor version (up to 255)
+    // 8 bits = secondary branch version/build version (up to 255)
+    // 6 bits = tertiary branch/build version (up to 63)
+    auto version = vk_physical_device_properties_.driverVersion;
+    uint32_t major = (version >> 22) & 0x3ff;
+    uint32_t minor = (version >> 14) & 0x0ff;
+    uint32_t secondary_branch = (version >> 6) & 0x0ff;
+    uint32_t tertiary_branch = version & 0x003f;
+    crash_keys::vulkan_device_driver_version.Set(base::StringPrintf(
+        "%d.%d.%d.%d", major, minor, secondary_branch, tertiary_branch));
+  } else {
+    crash_keys::vulkan_device_driver_version.Set(
+        VkVersionToString(vk_physical_device_properties_.driverVersion));
+  }
   crash_keys::vulkan_device_vendor_id.Set(
       base::StringPrintf("0x%04x", vk_physical_device_properties_.vendorID));
   crash_keys::vulkan_device_id.Set(
@@ -202,6 +219,7 @@ bool VulkanDeviceQueue::Initialize(
     gpu_type = 0;
   crash_keys::vulkan_device_type.Set(kDeviceTypeNames[gpu_type]);
   crash_keys::vulkan_device_name.Set(vk_physical_device_properties_.deviceName);
+  LOG(ERROR) << "Vulkan: " << vk_physical_device_properties_.deviceName;
 
   // Disable all physical device features by default.
   enabled_device_features_2_ = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
@@ -334,7 +352,7 @@ void VulkanDeviceQueue::Destroy() {
 
 std::unique_ptr<VulkanCommandPool> VulkanDeviceQueue::CreateCommandPool() {
   std::unique_ptr<VulkanCommandPool> command_pool(new VulkanCommandPool(this));
-  if (!command_pool->Initialize(enforce_protected_memory_))
+  if (!command_pool->Initialize())
     return nullptr;
 
   return command_pool;

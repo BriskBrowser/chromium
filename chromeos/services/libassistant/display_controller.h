@@ -5,8 +5,12 @@
 #ifndef CHROMEOS_SERVICES_LIBASSISTANT_DISPLAY_CONTROLLER_H_
 #define CHROMEOS_SERVICES_LIBASSISTANT_DISPLAY_CONTROLLER_H_
 
-#include "chromeos/services/libassistant/assistant_manager_observer.h"
+#include "base/sequence_checker.h"
+#include "base/task/sequenced_task_runner.h"
+#include "chromeos/assistant/internal/action/assistant_action_observer.h"
+#include "chromeos/services/libassistant/grpc/assistant_client_observer.h"
 #include "chromeos/services/libassistant/public/mojom/display_controller.mojom.h"
+#include "libassistant/shared/internal_api/assistant_manager_internal.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
 
@@ -16,15 +20,23 @@ namespace mojom {
 class SpeechRecognitionObserver;
 }  // namespace mojom
 }  // namespace libassistant
+
+namespace assistant {
+namespace action {
+class CrosActionModule;
+}  // namespace action
+}  // namespace assistant
 }  // namespace chromeos
 
 namespace chromeos {
 namespace libassistant {
 
-class DisplayConnectionImpl;
+class DisplayConnection;
 
-class DisplayController : public mojom::DisplayController,
-                          public AssistantManagerObserver {
+class DisplayController
+    : public mojom::DisplayController,
+      public AssistantClientObserver,
+      public chromeos::assistant::action::AssistantActionObserver {
  public:
   explicit DisplayController(mojo::RemoteSet<mojom::SpeechRecognitionObserver>*
                                  speech_recognition_observers);
@@ -34,6 +46,9 @@ class DisplayController : public mojom::DisplayController,
 
   void Bind(mojo::PendingReceiver<mojom::DisplayController> receiver);
 
+  void SetActionModule(
+      chromeos::assistant::action::CrosActionModule* action_module);
+
   // mojom::DisplayController implementation:
   void SetArcPlayStoreEnabled(bool enabled) override;
   void SetDeviceAppsEnabled(bool enabled) override;
@@ -41,22 +56,43 @@ class DisplayController : public mojom::DisplayController,
   void SetAndroidAppList(
       const std::vector<::chromeos::assistant::AndroidAppInfo>& apps) override;
 
-  // AssistantManagerObserver implementation:
-  void OnAssistantManagerCreated(
-      assistant_client::AssistantManager* assistant_manager,
-      assistant_client::AssistantManagerInternal* assistant_manager_internal)
-      override;
+  // AssistantClientObserver implementation:
+  void OnAssistantClientCreated(AssistantClient* assistant_client) override;
+  void OnDestroyingAssistantClient(AssistantClient* assistant_client) override;
+
+  // chromeos::assistant::action::AssistantActionObserver:
+  void OnVerifyAndroidApp(
+      const std::vector<chromeos::assistant::AndroidAppInfo>& apps_info,
+      const chromeos::assistant::InteractionInfo& interaction) override;
 
  private:
   class EventObserver;
 
+  // Checks if the requested Android App with |package_name| is available on the
+  // device.
+  chromeos::assistant::AppStatus GetAndroidAppStatus(
+      const std::string& package_name);
+
   mojo::Receiver<mojom::DisplayController> receiver_{this};
   std::unique_ptr<EventObserver> event_observer_;
-  std::unique_ptr<DisplayConnectionImpl> display_connection_;
+  std::unique_ptr<DisplayConnection> display_connection_;
 
   // Owned by |LibassistantService|.
   mojo::RemoteSet<mojom::SpeechRecognitionObserver>&
       speech_recognition_observers_;
+
+  AssistantClient* assistant_client_ = nullptr;
+
+  // Owned by |ConversationController|.
+  chromeos::assistant::action::CrosActionModule* action_module_ = nullptr;
+
+  // The callbacks from Libassistant are called on a different sequence,
+  // so this sequence checker ensures that no other methods are called on the
+  // libassistant sequence.
+  SEQUENCE_CHECKER(sequence_checker_);
+
+  scoped_refptr<base::SequencedTaskRunner> mojom_task_runner_;
+  base::WeakPtrFactory<DisplayController> weak_factory_{this};
 };
 
 }  // namespace libassistant

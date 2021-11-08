@@ -9,16 +9,17 @@
 #include <string>
 #include <vector>
 
-#include "base/optional.h"
 #include "bottom_sheet_state.h"
 #include "components/autofill_assistant/browser/client_settings.h"
 #include "components/autofill_assistant/browser/event_handler.h"
 #include "components/autofill_assistant/browser/metrics.h"
 #include "components/autofill_assistant/browser/rectf.h"
 #include "components/autofill_assistant/browser/state.h"
+#include "components/autofill_assistant/browser/tts_button_state.h"
 #include "components/autofill_assistant/browser/user_action.h"
 #include "components/autofill_assistant/browser/user_data.h"
 #include "components/autofill_assistant/browser/viewport_mode.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace autofill_assistant {
 class ControllerObserver;
@@ -43,10 +44,6 @@ class UiDelegate {
   // Returns the current state of the controller.
   virtual AutofillAssistantState GetState() const = 0;
 
-  // Called when user interaction within the allowed touchable area was
-  // detected. This should cause rerun of preconditions check.
-  virtual void OnUserInteractionInsideTouchableArea() = 0;
-
   // Returns a string describing the current execution context. This is useful
   // when analyzing feedback forms and for debugging in general.
   virtual std::string GetDebugContext() = 0;
@@ -63,17 +60,20 @@ class UiDelegate {
   // Returns the current info box data. May be null if empty.
   virtual const InfoBox* GetInfoBox() const = 0;
 
-  // Returns the current progress; a percentage.
-  virtual int GetProgress() const = 0;
-
   // Returns the currently active progress step.
-  virtual base::Optional<int> GetProgressActiveStep() const = 0;
+  virtual int GetProgressActiveStep() const = 0;
 
   // Returns whether the progress bar is visible.
   virtual bool GetProgressVisible() const = 0;
 
+  // Returns whether the TTS button is visible.
+  virtual bool GetTtsButtonVisible() const = 0;
+
+  // Returns the current TTS button state.
+  virtual TtsButtonState GetTtsButtonState() const = 0;
+
   // Returns the current configuration of the step progress bar.
-  virtual base::Optional<ShowProgressBarProto::StepProgressBarConfiguration>
+  virtual ShowProgressBarProto::StepProgressBarConfiguration
   GetStepProgressBarConfiguration() const = 0;
 
   // Returns whether the progress bar should show an error state.
@@ -132,7 +132,7 @@ class UiDelegate {
 
   // Sets the chosen login option, pertaining to the current collect user data
   // options.
-  virtual void SetLoginOption(std::string identifier) = 0;
+  virtual void SetLoginOption(const std::string& identifier) = 0;
 
   // Called when the user clicks a link of the form <link0>text</link0> in a
   // text message.
@@ -141,21 +141,24 @@ class UiDelegate {
   // Called when the user clicks a link in the form action.
   virtual void OnFormActionLinkClicked(int link) = 0;
 
+  // Called when the user clicks the TTS button.
+  virtual void OnTtsButtonClicked() = 0;
+
   // Sets the start date of the date/time range.
   virtual void SetDateTimeRangeStartDate(
-      const base::Optional<DateProto>& date) = 0;
+      const absl::optional<DateProto>& date) = 0;
 
   // Sets the start timeslot of the date/time range.
   virtual void SetDateTimeRangeStartTimeSlot(
-      const base::Optional<int>& timeslot_index) = 0;
+      const absl::optional<int>& timeslot_index) = 0;
 
   // Sets the end date of the date/time range.
   virtual void SetDateTimeRangeEndDate(
-      const base::Optional<DateProto>& date) = 0;
+      const absl::optional<DateProto>& date) = 0;
 
   // Sets the end timeslot of the date/time range.
   virtual void SetDateTimeRangeEndTimeSlot(
-      const base::Optional<int>& timeslot_index) = 0;
+      const absl::optional<int>& timeslot_index) = 0;
 
   // Sets an additional value.
   virtual void SetAdditionalValue(const std::string& client_memory_key,
@@ -255,15 +258,30 @@ class UiDelegate {
   // The generic user interface to show, if any.
   virtual const GenericUserInterfaceProto* GetGenericUiProto() const = 0;
 
+  // The persistent generic user interface to show, if any.
+  virtual const GenericUserInterfaceProto* GetPersistentGenericUiProto()
+      const = 0;
+
   // Whether the overlay should be determined based on AA state or always
   // hidden.
   virtual bool ShouldShowOverlay() const = 0;
+
+  // Whether the keyboard should currently be suppressed.
+  virtual bool ShouldSuppressKeyboard() const = 0;
+
+  // Set the keyboard suppression for all frames for the current WebContent's
+  // main page.
+  virtual void SuppressKeyboard(bool suppress) = 0;
 
   // Notifies the UI delegate that it should shut down.
   virtual void ShutdownIfNecessary() = 0;
 
   // Called when the visibility of the keyboard has changed.
   virtual void OnKeyboardVisibilityChanged(bool visible) = 0;
+
+  // Called when the user starts or finishes to focus an input text field in the
+  // bottom sheet.
+  virtual void OnInputTextFocusChanged(bool is_text_focused) = 0;
 
  protected:
   UiDelegate() = default;

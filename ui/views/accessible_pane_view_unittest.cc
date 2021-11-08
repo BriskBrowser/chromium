@@ -25,6 +25,10 @@ using AccessiblePaneViewTest = ViewsTestBase;
 class TestBarView : public AccessiblePaneView {
  public:
   TestBarView();
+
+  TestBarView(const TestBarView&) = delete;
+  TestBarView& operator=(const TestBarView&) = delete;
+
   ~TestBarView() override;
 
   LabelButton* child_button() const { return child_button_; }
@@ -41,8 +45,6 @@ class TestBarView : public AccessiblePaneView {
   LabelButton* second_child_button_;
   LabelButton* third_child_button_;
   std::unique_ptr<LabelButton> not_child_button_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestBarView);
 };
 
 TestBarView::TestBarView() {
@@ -54,7 +56,7 @@ TestBarView::~TestBarView() = default;
 
 void TestBarView::Init() {
   SetLayoutManager(std::make_unique<FillLayout>());
-  base::string16 label;
+  std::u16string label;
   child_button_ = AddChildView(std::make_unique<LabelButton>());
   second_child_button_ = AddChildView(std::make_unique<LabelButton>());
   third_child_button_ = AddChildView(std::make_unique<LabelButton>());
@@ -135,7 +137,7 @@ TEST_F(AccessiblePaneViewTest, SetPaneFocusAndRestore) {
   // predictable. On Mac, Deactivate() is not implemented. Note that
   // TestBarView calls set_allow_deactivate_on_esc(true), which is only
   // otherwise used in Ash.
-#if !defined(OS_APPLE) || BUILDFLAG(IS_CHROMEOS_ASH)
+#if !defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
   // Esc should deactivate the widget.
   test_view_bar->AcceleratorPressed(test_view_bar->escape_key());
   EXPECT_TRUE(widget_main->IsActive());

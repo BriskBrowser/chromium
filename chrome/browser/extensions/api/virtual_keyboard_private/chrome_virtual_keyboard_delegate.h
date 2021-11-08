@@ -27,6 +27,11 @@ class ChromeVirtualKeyboardDelegate
  public:
   explicit ChromeVirtualKeyboardDelegate(
       content::BrowserContext* browser_context);
+
+  ChromeVirtualKeyboardDelegate(const ChromeVirtualKeyboardDelegate&) = delete;
+  ChromeVirtualKeyboardDelegate& operator=(
+      const ChromeVirtualKeyboardDelegate&) = delete;
+
   ~ChromeVirtualKeyboardDelegate() override;
 
   // TODO(oka): Create ChromeVirtualKeyboardPrivateDelegate class and move all
@@ -36,7 +41,7 @@ class ChromeVirtualKeyboardDelegate
       OnKeyboardSettingsCallback on_settings_callback) override;
   void OnKeyboardConfigChanged() override;
   bool HideKeyboard() override;
-  bool InsertText(const base::string16& text) override;
+  bool InsertText(const std::u16string& text) override;
   bool OnKeyboardLoaded() override;
   void SetHotrodKeyboard(bool enable) override;
   bool LockKeyboard(bool state) override;
@@ -81,7 +86,6 @@ class ChromeVirtualKeyboardDelegate
   std::unique_ptr<media::AudioSystem> audio_system_;
   base::WeakPtr<ChromeVirtualKeyboardDelegate> weak_this_;
   base::WeakPtrFactory<ChromeVirtualKeyboardDelegate> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(ChromeVirtualKeyboardDelegate);
 };
 
 }  // namespace extensions

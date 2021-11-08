@@ -1,4 +1,3 @@
-from __future__ import absolute_import
 import json
 import os
 import socket
@@ -6,7 +5,7 @@ import threading
 import time
 import traceback
 import uuid
-from six.moves.urllib.parse import urljoin
+from urllib.parse import urljoin
 
 from .base import (CallbackHandler,
                    RefTestExecutor,
@@ -70,7 +69,8 @@ class SeleniumBaseProtocolPart(BaseProtocolPart):
     def wait(self):
         while True:
             try:
-                self.webdriver.execute_async_script("")
+                return self.webdriver.execute_async_script("""let callback = arguments[arguments.length - 1];
+addEventListener("__test_restart", e => {e.preventDefault(); callback(true)})""")
             except exceptions.TimeoutException:
                 pass
             except (socket.timeout, exceptions.NoSuchWindowException,
@@ -79,6 +79,7 @@ class SeleniumBaseProtocolPart(BaseProtocolPart):
             except Exception:
                 self.logger.error(traceback.format_exc())
                 break
+        return False
 
 
 class SeleniumTestharnessProtocolPart(TestharnessProtocolPart):

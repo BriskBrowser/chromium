@@ -12,6 +12,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/compositor/compositor.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/wm/core/window_util.h"
 
@@ -20,8 +21,7 @@ namespace ash {
 namespace {
 
 // How long to wait before attempting to re-establish a lost connection.
-constexpr base::TimeDelta kReEstablishConnectionDelay =
-    base::TimeDelta::FromMilliseconds(100);
+constexpr base::TimeDelta kReEstablishConnectionDelay = base::Milliseconds(100);
 
 }  // namespace
 

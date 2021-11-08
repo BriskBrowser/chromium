@@ -5,16 +5,14 @@
 #ifndef COMPONENTS_SYNC_ENGINE_SYNC_ENGINE_H_
 #define COMPONENTS_SYNC_ENGINE_SYNC_ENGINE_H_
 
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
-#include "base/compiler_specific.h"
+#include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/time/time.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/sync/base/extensions_activity.h"
@@ -27,14 +25,12 @@
 #include "components/sync/engine/sync_credentials.h"
 #include "components/sync/engine/sync_encryption_handler.h"
 #include "components/sync/engine/sync_manager_factory.h"
-#include "google_apis/gaia/core_account_id.h"
 #include "url/gurl.h"
 
 namespace syncer {
 
 class EngineComponentsFactory;
 class HttpPostProviderFactory;
-class JsEventHandler;
 class SyncEngineHost;
 struct SyncStatus;
 
@@ -52,13 +48,17 @@ class SyncEngine : public ModelTypeConfigurer {
   // Utility struct for holding initialization options.
   struct InitParams {
     InitParams();
+
+    InitParams(const InitParams&) = delete;
+    InitParams& operator=(const InitParams&) = delete;
+
     InitParams(InitParams&& other);
+
     ~InitParams();
 
     SyncEngineHost* host = nullptr;
     std::unique_ptr<SyncEncryptionHandler::Observer> encryption_observer_proxy;
     scoped_refptr<ExtensionsActivity> extensions_activity;
-    WeakHandle<JsEventHandler> event_handler;
     GURL service_url;
     SyncEngine::HttpPostProviderFactoryGetter http_factory_getter;
     CoreAccountInfo authenticated_account_info;
@@ -67,12 +67,14 @@ class SyncEngine : public ModelTypeConfigurer {
     bool enable_local_sync_backend = false;
     base::FilePath local_sync_backend_folder;
     std::unique_ptr<EngineComponentsFactory> engine_components_factory;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(InitParams);
+    std::string encryption_bootstrap_token;
   };
 
   SyncEngine();
+
+  SyncEngine(const SyncEngine&) = delete;
+  SyncEngine& operator=(const SyncEngine&) = delete;
+
   ~SyncEngine() override;
 
   // Kicks off asynchronous initialization. Optionally deletes sync data during
@@ -123,12 +125,6 @@ class SyncEngine : public ModelTypeConfigurer {
   // are no pending keys.
   virtual void SetDecryptionPassphrase(const std::string& passphrase) = 0;
 
-  // Legacy bootstrap tokens stored in preferences.
-  // TODO(crbug.com/1010397): Delete this API together with the preferences.
-  virtual void SetEncryptionBootstrapToken(const std::string& token) = 0;
-  virtual void SetKeystoreEncryptionBootstrapToken(
-      const std::string& token) = 0;
-
   // Analogous to SetDecryptionPassphrase but specifically for
   // TRUSTED_VAULT_PASSPHRASE: it provides new decryption keys that could
   // allow decrypting pending Nigori keys. Notifies observers of the result of
@@ -156,6 +152,9 @@ class SyncEngine : public ModelTypeConfigurer {
   virtual void HasUnsyncedItemsForTest(
       base::OnceCallback<void(bool)> cb) const = 0;
 
+  // Returns datatypes that are currently throttled.
+  virtual void GetThrottledDataTypesForTest(
+      base::OnceCallback<void(ModelTypeSet)> cb) const = 0;
 
   // Requests that the backend forward to the fronent any protocol events in
   // its buffer and begin forwarding automatically from now on.  Repeated calls
@@ -176,9 +175,6 @@ class SyncEngine : public ModelTypeConfigurer {
 
   // Returns a ListValue representing Nigori node.
   virtual void GetNigoriNodeForDebugging(AllNodesCallback callback) = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SyncEngine);
 };
 
 }  // namespace syncer

@@ -12,6 +12,11 @@
 class BookmarkBarViewTestHelper {
  public:
   explicit BookmarkBarViewTestHelper(BookmarkBarView* bbv) : bbv_(bbv) {}
+
+  BookmarkBarViewTestHelper(const BookmarkBarViewTestHelper&) = delete;
+  BookmarkBarViewTestHelper& operator=(const BookmarkBarViewTestHelper&) =
+      delete;
+
   ~BookmarkBarViewTestHelper() {}
 
   size_t GetBookmarkButtonCount() { return bbv_->bookmark_buttons_.size(); }
@@ -28,10 +33,12 @@ class BookmarkBarViewTestHelper {
     return bbv_->managed_bookmarks_button_;
   }
 
+  int GetDropLocationModelIndexForTesting() {
+    return bbv_->GetDropLocationModelIndexForTesting();
+  }
+
  private:
   BookmarkBarView* bbv_;
-
-  DISALLOW_COPY_AND_ASSIGN(BookmarkBarViewTestHelper);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_BOOKMARKS_BOOKMARK_BAR_VIEW_TEST_HELPER_H_

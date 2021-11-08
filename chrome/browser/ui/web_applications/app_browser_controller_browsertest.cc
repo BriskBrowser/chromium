@@ -22,12 +22,13 @@
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/browser/web_applications/components/install_manager.h"
-#include "chrome/browser/web_applications/components/web_app_constants.h"
-#include "chrome/browser/web_applications/components/web_application_info.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
-#include "chrome/browser/web_applications/test/test_system_web_app_installation.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
+#include "chrome/browser/web_applications/system_web_apps/test/test_system_web_app_installation.h"
+#include "chrome/browser/web_applications/web_app_constants.h"
+#include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_utils.h"
+#include "chrome/browser/web_applications/web_application_info.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -36,8 +37,6 @@
 #include "content/public/test/test_utils.h"
 #include "content/public/test/theme_change_waiter.h"
 #include "extensions/browser/extension_registry.h"
-#include "ui/display/display.h"
-#include "ui/display/screen.h"
 #include "ui/display/types/display_constants.h"
 
 namespace {
@@ -94,7 +93,11 @@ class AppBrowserControllerBrowserTest : public InProcessBrowserTest {
  public:
   AppBrowserControllerBrowserTest()
       : test_system_web_app_installation_(
-            TestSystemWebAppInstallation::SetUpTabbedMultiWindowApp()) {}
+            TestSystemWebAppInstallation::SetUpTabbedMultiWindowApp()) {
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+    EnableSystemWebAppsInLacrosForTesting();
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+  }
   AppBrowserControllerBrowserTest(const AppBrowserControllerBrowserTest&) =
       delete;
   AppBrowserControllerBrowserTest& operator=(
@@ -132,6 +135,18 @@ class AppBrowserControllerBrowserTest : public InProcessBrowserTest {
         test_system_web_app_installation_->GetAppUrl(), *params);
   }
 
+  Browser* LaunchMockSWA() {
+    auto params = web_app::CreateSystemWebAppLaunchParams(
+        profile(), test_system_web_app_installation_->GetType(),
+        display::kInvalidDisplayId);
+    EXPECT_TRUE(params.has_value());
+    params->disposition = WindowOpenDisposition::NEW_WINDOW;
+
+    return web_app::LaunchSystemWebAppImpl(
+        profile(), test_system_web_app_installation_->GetType(),
+        test_system_web_app_installation_->GetAppUrl(), *params);
+  }
+
   void InstallAndLaunchMockApp() {
     InstallMockSystemWebApp();
     LaunchMockApp();
@@ -140,6 +155,11 @@ class AppBrowserControllerBrowserTest : public InProcessBrowserTest {
   void InstallAndLaunchMockPopup() {
     InstallMockSystemWebApp();
     LaunchMockPopup();
+  }
+
+  Browser* InstallAndLaunchMockSWA() {
+    InstallMockSystemWebApp();
+    return LaunchMockSWA();
   }
 
   GURL GetActiveTabURL() {
@@ -296,22 +316,41 @@ IN_PROC_BROWSER_TEST_F(AppBrowserControllerBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(AppBrowserControllerBrowserTest,
+                       OpenMultipleBrowsersForMultiWindowSWA) {
+  Browser* first_browser = InstallAndLaunchMockSWA();
+  // We should have the original browser for this BrowserTest, plus a new one,
+  // offset by a tasteful amount.
+  EXPECT_NE(nullptr, first_browser);
+  EXPECT_EQ(BrowserList::GetInstance()->size(), 2u);
+  Browser* second_browser = LaunchMockSWA();
+  EXPECT_NE(nullptr, second_browser);
+  EXPECT_EQ(BrowserList::GetInstance()->size(), 3u);
+
+  auto bounds1 = first_browser->window()->GetRestoredBounds();
+  auto bounds2 = second_browser->window()->GetRestoredBounds();
+  // We've already hit the bottom bounds, so the y axis didn't move.
+  EXPECT_EQ(bounds1.x() + 20, bounds2.x());
+
+  // Open a ton of windows until they start stacking. Then keep making them to
+  // make sure we don't crash.
+  bool hit_the_bottom_right = false;
+  gfx::Rect previous_bounds = bounds2;
+  for (int i = 0; i < 10; i++) {
+    Browser* next_browser = LaunchMockSWA();
+    if (previous_bounds == next_browser->window()->GetRestoredBounds()) {
+      hit_the_bottom_right = true;
+      break;
+    }
+    previous_bounds = next_browser->window()->GetRestoredBounds();
+  }
+
+  EXPECT_TRUE(hit_the_bottom_right);
+}
+
+IN_PROC_BROWSER_TEST_F(AppBrowserControllerBrowserTest,
                        NoExtensionsContainerExists) {
   InstallAndLaunchMockPopup();
   EXPECT_EQ(app_browser_->window()->GetExtensionsContainer(), nullptr);
-}
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-IN_PROC_BROWSER_TEST_F(AppBrowserControllerBrowserTest, InitialBounds) {
-  InstallAndLaunchMockApp();
-  EXPECT_EQ(app_browser_->window()->GetBounds(), gfx::Rect(64, 64, 652, 484));
-  InstallAndLaunchMockPopup();
-  gfx::Rect work_area =
-      display::Screen::GetScreen()->GetDisplayForNewWindows().work_area();
-  int x = (work_area.width() - 768) / 2;
-  int y = (work_area.height() - 512) / 2;
-  EXPECT_EQ(app_browser_->window()->GetBounds(), gfx::Rect(x, y, 768, 512));
 }
 #endif
 
@@ -320,7 +359,11 @@ class AppBrowserControllerChromeUntrustedBrowserTest
  public:
   AppBrowserControllerChromeUntrustedBrowserTest()
       : test_system_web_app_installation_(
-            TestSystemWebAppInstallation::SetUpChromeUntrustedApp()) {}
+            TestSystemWebAppInstallation::SetUpChromeUntrustedApp()) {
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+    EnableSystemWebAppsInLacrosForTesting();
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+  }
 
  protected:
   Browser* InstallAndLaunchMockApp() {

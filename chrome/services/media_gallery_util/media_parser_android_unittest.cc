@@ -26,7 +26,7 @@ namespace {
 struct ExtractVideoFrameResult {
   bool success = false;
   chrome::mojom::VideoFrameDataPtr video_frame_data;
-  base::Optional<media::VideoDecoderConfig> config;
+  absl::optional<media::VideoDecoderConfig> config;
 };
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
@@ -59,6 +59,9 @@ class TestMediaDataSource : public chrome::mojom::MediaDataSource {
       const base::FilePath& file_path)
       : file_path_(file_path), receiver_(this, std::move(receiver)) {}
 
+  TestMediaDataSource(const TestMediaDataSource&) = delete;
+  TestMediaDataSource& operator=(const TestMediaDataSource&) = delete;
+
   ~TestMediaDataSource() override = default;
 
  private:
@@ -78,13 +81,15 @@ class TestMediaDataSource : public chrome::mojom::MediaDataSource {
 
   base::FilePath file_path_;
   mojo::Receiver<chrome::mojom::MediaDataSource> receiver_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestMediaDataSource);
 };
 
 class MediaParserAndroidTest : public testing::Test {
  public:
   MediaParserAndroidTest() = default;
+
+  MediaParserAndroidTest(const MediaParserAndroidTest&) = delete;
+  MediaParserAndroidTest& operator=(const MediaParserAndroidTest&) = delete;
+
   ~MediaParserAndroidTest() override = default;
 
   void SetUp() override {
@@ -114,7 +119,7 @@ class MediaParserAndroidTest : public testing::Test {
         mime_type, size, std::move(remote_data_source),
         base::BindLambdaForTesting(
             [&](bool success, chrome::mojom::VideoFrameDataPtr video_frame_data,
-                const base::Optional<media::VideoDecoderConfig>& config) {
+                const absl::optional<media::VideoDecoderConfig>& config) {
               result.success = success;
               result.video_frame_data = std::move(video_frame_data);
               result.config = config;
@@ -130,8 +135,6 @@ class MediaParserAndroidTest : public testing::Test {
   base::test::TaskEnvironment task_environment_;
   std::unique_ptr<MediaParserAndroid> parser_;
   base::ScopedTempDir temp_dir_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaParserAndroidTest);
 };
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)

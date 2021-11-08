@@ -18,9 +18,9 @@
 #include "ui/gl/gl_switches.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/public/cpp/wallpaper_controller_observer.h"
-#include "ash/public/cpp/wallpaper_types.h"
-#include "chrome/browser/ui/ash/wallpaper_controller_client.h"
+#include "ash/public/cpp/wallpaper/wallpaper_controller_observer.h"
+#include "ash/public/cpp/wallpaper/wallpaper_types.h"
+#include "chrome/browser/ui/ash/wallpaper_controller_client_impl.h"
 #include "components/user_manager/user_names.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -37,11 +37,14 @@ class TestWallpaperObserver : public ash::WallpaperControllerObserver {
  public:
   explicit TestWallpaperObserver(base::OnceClosure closure)
       : closure_(std::move(closure)) {
-    WallpaperControllerClient::Get()->AddObserver(this);
+    WallpaperControllerClientImpl::Get()->AddObserver(this);
   }
 
+  TestWallpaperObserver(const TestWallpaperObserver&) = delete;
+  TestWallpaperObserver& operator=(const TestWallpaperObserver&) = delete;
+
   ~TestWallpaperObserver() override {
-    WallpaperControllerClient::Get()->RemoveObserver(this);
+    WallpaperControllerClientImpl::Get()->RemoveObserver(this);
   }
 
   // ash::WallpaperControllerObserver:
@@ -49,8 +52,6 @@ class TestWallpaperObserver : public ash::WallpaperControllerObserver {
 
  private:
   base::OnceClosure closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestWallpaperObserver);
 };
 
 // Creates a high resolution wallpaper and sets it as the current wallpaper as
@@ -68,10 +69,9 @@ void CreateAndSetWallpaper() {
 
   base::RunLoop run_loop;
   TestWallpaperObserver observer(run_loop.QuitClosure());
-  WallpaperControllerClient::Get()->SetCustomWallpaper(
-      user_manager::StubAccountId(), /*wallpaper_files_id=*/"dummyid",
-      /*file_name=*/"dummyfilename", ash::WALLPAPER_LAYOUT_CENTER_CROPPED,
-      image, /*preview_mode=*/false);
+  WallpaperControllerClientImpl::Get()->SetCustomWallpaper(
+      user_manager::StubAccountId(), /*file_name=*/"dummyfilename",
+      ash::WALLPAPER_LAYOUT_CENTER_CROPPED, image, /*preview_mode=*/false);
   run_loop.Run();
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

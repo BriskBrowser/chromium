@@ -5,14 +5,13 @@
 package org.chromium.components.paintpreview.player;
 
 import android.graphics.Bitmap;
+import android.graphics.Point;
 import android.graphics.Rect;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
 import org.chromium.base.UnguessableToken;
-import org.chromium.components.paint_preview.common.proto.PaintPreview.PaintPreviewProto;
 import org.chromium.components.paintpreview.browser.NativePaintPreviewServiceProvider;
 import org.chromium.url.GURL;
 
@@ -28,9 +27,9 @@ public interface PlayerCompositorDelegate {
                 @NonNull CompositorListener compositorListener,
                 Callback<Integer> compositorErrorCallback);
 
-        PlayerCompositorDelegate createForProto(NativePaintPreviewServiceProvider service,
-                @Nullable PaintPreviewProto proto, GURL url, String directoryKey,
-                boolean mainFrameMode, @NonNull CompositorListener compositorListener,
+        PlayerCompositorDelegate createForCaptureResult(NativePaintPreviewServiceProvider service,
+                long nativeCaptureResultPtr, GURL url, String directoryKey, boolean mainFrameMode,
+                @NonNull CompositorListener compositorListener,
                 Callback<Integer> compositorErrorCallback);
     }
 
@@ -42,16 +41,15 @@ public interface PlayerCompositorDelegate {
          * @param rootFrameGuid The GUID for the root frame.
          * @param frameGuids Contains all frame GUIDs that are in this hierarchy.
          * @param frameContentSize Contains the content size for each frame. In native, this is
-         *         called
-         * scroll extent. The order corresponds to {@code frameGuids}. The content width and height
-         * for the ith frame in {@code frameGuids} are respectively in the {@code 2*i} and {@code
-         * 2*i+1} indices of {@code frameContentSize}.
+         * called scroll extent. The order corresponds to {@code frameGuids}. The content width and
+         * height for the ith frame in {@code frameGuids} are respectively in the {@code 2*i} and
+         * {@code 2*i+1} indices of {@code frameContentSize}.
          * @param scrollOffsets Contains the initial scroll offsets for each frame. The order
          * corresponds to {@code frameGuids}. The offset in x and y for the ith frame in
          * {@code frameGuids} are respectively in the {@code 2*i} and {@code 2*i+1} indices of
          * {@code scrollOffsets}.
          * @param subFramesCount Contains the number of sub-frames for each frame. The order
-         *         corresponds
+         * corresponds
          * to {@code frameGuids}. The number of sub-frames for the {@code i}th frame in {@code
          * frameGuids} is {@code subFramesCount[i]}.
          * @param subFrameGuids Contains the GUIDs of all sub-frames. The GUID for the {@code j}th
@@ -59,15 +57,17 @@ public interface PlayerCompositorDelegate {
          * is: <pre> int k = j; for (int s = 0; s < i; s++) k += subFramesCount[s];
          * </pre>
          * @param subFrameClipRects Contains clip rect values for each sub-frame. Each clip rect
-         *         value
-         * comes in a series of four consecutive integers that represent x, y, width, and height.
-         * The clip rect values for the {@code j}th sub-frame of {@code frameGuids[i]} will be at
-         * {@code subFrameGuids[4*k]}, {@code subFrameGuids[4*k+1]} , {@code subFrameGuids[4*k+2]},
-         * and {@code subFrameGuids[4*k+3]}, where {@code k} has the same value as above.
+         * value comes in a series of four consecutive integers that represent x, y, width, and
+         * height. The clip rect values for the {@code j}th sub-frame of {@code frameGuids[i]} will
+         * be at {@code subFrameGuids[4*k]}, {@code subFrameGuids[4*k+1]} ,
+         * {@code subFrameGuids[4*k+2]}, and {@code subFrameGuids[4*k+3]}, where {@code k} has the
+         * same value as above.
+         * @param nativeAxTree Native pointer to the accessibility tree snapshot. The implementer
+         * of this method will be the owner of this object and should delete it once it's used.
          */
         void onCompositorReady(UnguessableToken rootFrameGuid, UnguessableToken[] frameGuids,
                 int[] frameContentSize, int[] scrollOffsets, int[] subFramesCount,
-                UnguessableToken[] subFrameGuids, int[] subFrameClipRects);
+                UnguessableToken[] subFrameGuids, int[] subFrameClipRects, long nativeAxTree);
     }
 
     /**
@@ -126,6 +126,14 @@ public interface PlayerCompositorDelegate {
      * @return The URL that was clicked on. Null if there are no URLs.
      */
     GURL onClick(UnguessableToken frameGuid, int x, int y);
+
+    /**
+     * Gets the Root Frame Offsets for scroll matching.
+     * @return The coordinates of the root frame offset.
+     */
+    default Point getRootFrameOffsets() {
+        return new Point();
+    }
 
     /**
      * Sets whether to compress the directory when closing the player.

@@ -24,17 +24,17 @@
 #include "base/linux_util.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/scoped_generic.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if !BUILDFLAG(SUPPORTS_CODE_ORDERING)
 #error Code ordering support is required for the reached code profiler.
@@ -64,9 +64,8 @@ constexpr uint64_t kIterationsBeforeSkipping = 50;
 constexpr uint64_t kIterationsBetweenUpdates = 100;
 constexpr int kProfilerSignal = SIGWINCH;
 
-constexpr base::TimeDelta kSamplingInterval =
-    base::TimeDelta::FromMilliseconds(10);
-constexpr base::TimeDelta kDumpInterval = base::TimeDelta::FromSeconds(30);
+constexpr base::TimeDelta kSamplingInterval = base::Milliseconds(10);
+constexpr base::TimeDelta kDumpInterval = base::Seconds(30);
 
 void HandleSignal(int signal, siginfo_t* info, void* context) {
   if (signal != kProfilerSignal)
@@ -82,14 +81,14 @@ void HandleSignal(int signal, siginfo_t* info, void* context) {
 }
 
 struct ScopedTimerCloseTraits {
-  static base::Optional<timer_t> InvalidValue() { return base::nullopt; }
+  static absl::optional<timer_t> InvalidValue() { return absl::nullopt; }
 
-  static void Free(base::Optional<timer_t> x) { timer_delete(*x); }
+  static void Free(absl::optional<timer_t> x) { timer_delete(*x); }
 };
 
 // RAII object holding an interval timer.
 using ScopedTimer =
-    base::ScopedGeneric<base::Optional<timer_t>, ScopedTimerCloseTraits>;
+    base::ScopedGeneric<absl::optional<timer_t>, ScopedTimerCloseTraits>;
 
 void DumpToFile(const base::FilePath& path,
                 scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
@@ -121,6 +120,9 @@ class ReachedCodeProfiler {
     static base::NoDestructor<ReachedCodeProfiler> instance;
     return instance.get();
   }
+
+  ReachedCodeProfiler(const ReachedCodeProfiler&) = delete;
+  ReachedCodeProfiler& operator=(const ReachedCodeProfiler&) = delete;
 
   // Starts to periodically send |kProfilerSignal| to all threads.
   void Start(LibraryProcessType library_process_type,
@@ -236,7 +238,7 @@ class ReachedCodeProfiler {
         std::make_unique<base::Thread>("ReachedCodeProfilerDumpingThread");
     base::Thread::Options options;
     options.priority = base::ThreadPriority::BACKGROUND;
-    dumping_thread_->StartWithOptions(options);
+    dumping_thread_->StartWithOptions(std::move(options));
     dumping_thread_->task_runner()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&DumpToFile, file_path, dumping_thread_->task_runner()),
@@ -253,8 +255,6 @@ class ReachedCodeProfiler {
   bool is_enabled_;
 
   friend class NoDestructor<ReachedCodeProfiler>;
-
-  DISALLOW_COPY_AND_ASSIGN(ReachedCodeProfiler);
 };
 
 bool ShouldEnableReachedCodeProfiler() {
@@ -282,7 +282,7 @@ void InitReachedCodeProfilerAtStartup(LibraryProcessType library_process_type) {
               switches::kReachedCodeSamplingIntervalUs),
           &interval_us) &&
       interval_us > 0) {
-    sampling_interval = base::TimeDelta::FromMicroseconds(interval_us);
+    sampling_interval = base::Microseconds(interval_us);
   }
   ReachedCodeProfiler::GetInstance()->Start(library_process_type,
                                             sampling_interval);

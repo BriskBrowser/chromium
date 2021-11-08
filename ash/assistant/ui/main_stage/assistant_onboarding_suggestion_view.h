@@ -7,8 +7,8 @@
 
 #include "base/component_export.h"
 #include "base/unguessable_token.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace chromeos {
 namespace assistant {
@@ -47,12 +47,13 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantOnboardingSuggestionView
   void ChildPreferredSizeChanged(views::View* child) override;
   void AddLayerBeneathView(ui::Layer* layer) override;
   void RemoveLayerBeneathView(ui::Layer* layer) override;
+  void OnThemeChanged() override;
 
   // Returns the icon for the suggestion.
-  const gfx::ImageSkia& GetIcon() const;
+  gfx::ImageSkia GetIcon() const;
 
   // Returns the text for the suggestion.
-  const base::string16& GetText() const;
+  const std::u16string& GetText() const;
 
  private:
   void InitLayout(const chromeos::assistant::AssistantSuggestion& suggestion);
@@ -63,6 +64,7 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantOnboardingSuggestionView
   AssistantViewDelegate* const delegate_;  // Owned by AssistantController.
   const base::UnguessableToken suggestion_id_;
   const int index_;
+  GURL url_;
 
   // Owned by view hierarchy.
   views::ImageView* icon_ = nullptr;

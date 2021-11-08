@@ -7,9 +7,12 @@
 #include <utility>
 
 #include "gpu/command_buffer/client/webgpu_interface.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
 #include "third_party/blink/public/common/privacy_budget/identifiability_study_settings.h"
 #include "third_party/blink/public/common/privacy_budget/identifiable_token_builder.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+#include "third_party/blink/public/mojom/gpu/gpu.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_graphics_context_3d_provider.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
@@ -19,8 +22,11 @@
 #include "third_party/blink/renderer/core/execution_context/navigator_base.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/webgpu/gpu_adapter.h"
+#include "third_party/blink/renderer/modules/webgpu/gpu_buffer.h"
+#include "third_party/blink/renderer/modules/webgpu/gpu_supported_features.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/dawn_control_client_holder.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/privacy_budget/identifiability_digest_helpers.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
@@ -69,6 +75,20 @@ std::unique_ptr<WebGraphicsContext3DProvider> CreateContextProvider(
     context_provider = CreateContextProviderOnMainThread(url);
   }
 
+  // Note that we check for API blocking *after* creating the context. This is
+  // because context creation synchronizes against GpuProcessHost lifetime in
+  // the browser process, and GpuProcessHost destruction is what updates API
+  // blocking state on a GPU process crash. See https://crbug.com/1215907#c10
+  // for more details.
+  bool blocked = true;
+  mojo::Remote<mojom::blink::GpuDataManager> gpu_data_manager;
+  Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
+      gpu_data_manager.BindNewPipeAndPassReceiver());
+  gpu_data_manager->Are3DAPIsBlockedForUrl(url, &blocked);
+  if (blocked) {
+    return nullptr;
+  }
+
   // TODO(kainino): we will need a better way of accessing the GPU interface
   // from multiple threads than BindToCurrentThread et al.
   if (context_provider && !context_provider->BindToCurrentThread()) {
@@ -77,6 +97,16 @@ std::unique_ptr<WebGraphicsContext3DProvider> CreateContextProvider(
     return nullptr;
   }
   return context_provider;
+}
+
+void AddConsoleWarning(ExecutionContext* execution_context,
+                       const char* message) {
+  if (execution_context) {
+    auto* console_message = MakeGarbageCollected<ConsoleMessage>(
+        mojom::blink::ConsoleMessageSource::kRendering,
+        mojom::blink::ConsoleMessageLevel::kWarning, message);
+    execution_context->AddConsoleMessage(console_message);
+  }
 }
 
 }  // anonymous namespace
@@ -104,9 +134,19 @@ void GPU::Trace(Visitor* visitor) const {
   ScriptWrappable::Trace(visitor);
   Supplement<NavigatorBase>::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);
+  visitor->Trace(mappable_buffers_);
 }
 
 void GPU::ContextDestroyed() {
+  if (!mappable_buffers_.IsEmpty()) {
+    // Destroy all mappable buffers. This ensures all mappings backed by
+    // shared memory are detached before the WebGPU command buffer and
+    // transfer buffers are destroyed.
+    v8::Isolate* isolate = ThreadState::Current()->GetIsolate();
+    for (GPUBuffer* buffer : mappable_buffers_) {
+      buffer->Destroy(isolate);
+    }
+  }
   if (!dawn_control_client_) {
     return;
   }
@@ -122,7 +162,7 @@ void GPU::OnRequestAdapterCallback(ScriptState* script_state,
   GPUAdapter* adapter = nullptr;
   if (adapter_server_id >= 0) {
     adapter = MakeGarbageCollected<GPUAdapter>(
-        "Default", adapter_server_id, properties, dawn_control_client_);
+        this, "Default", adapter_server_id, properties, dawn_control_client_);
   }
   if (error_message) {
     ExecutionContext* execution_context = ExecutionContext::From(script_state);
@@ -158,13 +198,13 @@ void GPU::RecordAdapterForIdentifiability(
   IdentifiableTokenBuilder output_builder;
   if (adapter) {
     output_builder.AddToken(IdentifiabilityBenignStringToken(adapter->name()));
-    for (const auto& extension : adapter->extensions(script_state)) {
-      output_builder.AddToken(IdentifiabilityBenignStringToken(extension));
+    for (const auto& feature : adapter->features()->FeatureNameSet()) {
+      output_builder.AddToken(IdentifiabilityBenignStringToken(feature));
     }
   }
 
   IdentifiabilityMetricBuilder(context->UkmSourceID())
-      .Set(surface, output_builder.GetToken())
+      .Add(surface, output_builder.GetToken())
       .Record(context->UkmRecorder());
 }
 
@@ -175,6 +215,7 @@ ScriptPromise GPU::requestAdapter(ScriptState* script_state,
 
   if (!dawn_control_client_ || dawn_control_client_->IsContextLost()) {
     ExecutionContext* execution_context = ExecutionContext::From(script_state);
+
     // TODO(natlee@microsoft.com): if GPU process is lost, wait for the GPU
     // process to come back instead of rejecting right away
     std::unique_ptr<WebGraphicsContext3DProvider> context_provider =
@@ -189,10 +230,26 @@ ScriptPromise GPU::requestAdapter(ScriptState* script_state,
     } else {
       // Make a new DawnControlClientHolder with the context provider we just
       // made and set the lost context callback
-      dawn_control_client_ = base::MakeRefCounted<DawnControlClientHolder>(
-          std::move(context_provider));
-      dawn_control_client_->SetLostContextCallback();
+      dawn_control_client_ = DawnControlClientHolder::Create(
+          std::move(context_provider),
+          execution_context->GetTaskRunner(TaskType::kWebGPU));
     }
+  }
+
+  bool forceFallbackAdapter = options->forceFallbackAdapter();
+
+  if (options->hasForceSoftware()) {
+    AddConsoleWarning(
+        ExecutionContext::From(script_state),
+        "forceSoftware is deprecated. Use forceFallbackAdapter instead.");
+
+    forceFallbackAdapter = options->forceSoftware();
+  }
+
+  // Software adapters are not currently supported.
+  if (forceFallbackAdapter) {
+    resolver->Resolve(v8::Null(script_state->GetIsolate()));
+    return promise;
   }
 
   // For now we choose kHighPerformance by default.
@@ -203,13 +260,21 @@ ScriptPromise GPU::requestAdapter(ScriptState* script_state,
     power_preference = gpu::webgpu::PowerPreference::kLowPower;
   }
 
-  dawn_control_client_->GetInterface()->RequestAdapterAsync(
+  auto context_provider = dawn_control_client_->GetContextProviderWeakPtr();
+  DCHECK(context_provider);
+  context_provider->ContextProvider()->WebGPUInterface()->RequestAdapterAsync(
       power_preference,
       WTF::Bind(&GPU::OnRequestAdapterCallback, WrapPersistent(this),
                 WrapPersistent(script_state), WrapPersistent(options),
                 WrapPersistent(resolver)));
 
+  UseCounter::Count(ExecutionContext::From(script_state), WebFeature::kWebGPU);
+
   return promise;
+}
+
+void GPU::TrackMappableBuffer(GPUBuffer* buffer) {
+  mappable_buffers_.insert(buffer);
 }
 
 }  // namespace blink

@@ -5,6 +5,7 @@
 #include "chromeos/ui/frame/frame_utils.h"
 
 #include "chromeos/ui/base/chromeos_ui_constants.h"
+#include "chromeos/ui/base/tablet_state.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
@@ -34,18 +35,18 @@ int FrameBorderNonClientHitTest(views::NonClientFrameView* view,
   // Check the frame first, as we allow a small area overlapping the contents
   // to be used for resize handles.
   views::Widget* widget = view->GetWidget();
-  bool can_ever_resize = widget->widget_delegate()->CanResize();
-  // Don't allow overlapping resize handles when the window is maximized or
-  // fullscreen, as it can't be resized in those states.
-  int resize_border = chromeos::kResizeInsideBoundsSize;
-  if (widget->IsMaximized() || widget->IsFullscreen()) {
-    resize_border = 0;
-    can_ever_resize = false;
-  }
+  bool in_tablet_mode = chromeos::TabletState::Get()->InTabletMode();
+  // Ignore the resize border when maximized or full screen or in (split view)
+  // tablet mode.
+  const bool has_resize_border =
+      !widget->IsMaximized() && !widget->IsFullscreen() && !in_tablet_mode;
+  const int resize_border_size =
+      has_resize_border ? chromeos::kResizeInsideBoundsSize : 0;
+
   int frame_component = view->GetHTComponentForFrame(
-      point_in_widget, resize_border, resize_border,
+      point_in_widget, gfx::Insets(resize_border_size),
       chromeos::kResizeAreaCornerSize, chromeos::kResizeAreaCornerSize,
-      can_ever_resize);
+      has_resize_border);
   if (frame_component != HTNOWHERE)
     return frame_component;
 

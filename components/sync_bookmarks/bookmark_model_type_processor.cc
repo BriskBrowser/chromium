@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/feature_list.h"
-#include "base/metrics/histogram_functions.h"
+#include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/trace_event/memory_usage_estimator.h"
@@ -22,6 +22,8 @@
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/time.h"
 #include "components/sync/engine/commit_queue.h"
+#include "components/sync/engine/data_type_activation_response.h"
+#include "components/sync/engine/model_type_processor_metrics.h"
 #include "components/sync/engine/model_type_processor_proxy.h"
 #include "components/sync/model/data_type_activation_request.h"
 #include "components/sync/model/type_entities_count.h"
@@ -59,6 +61,10 @@ class ScopedRemoteUpdateBookmarks {
     bookmark_model_->RemoveObserver(observer_);
   }
 
+  ScopedRemoteUpdateBookmarks(const ScopedRemoteUpdateBookmarks&) = delete;
+  ScopedRemoteUpdateBookmarks& operator=(const ScopedRemoteUpdateBookmarks&) =
+      delete;
+
   ~ScopedRemoteUpdateBookmarks() {
     // Notify UI intensive observers of BookmarkModel that all updates have been
     // applied, and that they may now be consumed. This prevents issues like the
@@ -75,8 +81,6 @@ class ScopedRemoteUpdateBookmarks {
   ScopedSuspendBookmarkUndo suspend_undo_;
 
   bookmarks::BookmarkModelObserver* const observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedRemoteUpdateBookmarks);
 };
 
 std::string ComputeServerDefinedUniqueTagForDebugging(
@@ -180,9 +184,19 @@ void BookmarkModelTypeProcessor::OnUpdateReceived(
   DCHECK_EQ(model_type_state.cache_guid(), cache_guid_);
   DCHECK(model_type_state.initial_sync_done());
 
+  syncer::LogUpdatesReceivedByProcessorHistogram(
+      syncer::BOOKMARKS,
+      /*is_initial_sync=*/!bookmark_tracker_, updates.size());
+
   if (!bookmark_tracker_) {
     OnInitialUpdateReceived(model_type_state, std::move(updates));
     return;
+  }
+
+  // Before applying incremental updates, run a quirk to mitigate some data
+  // corruption issue introduced by crbug.com/1231450.
+  for (syncer::UpdateResponseData& update : updates) {
+    MaybeFixGuidInSpecificsDueToPastBug(*bookmark_tracker_, &update.entity);
   }
 
   // Incremental updates.
@@ -511,11 +525,9 @@ void BookmarkModelTypeProcessor::AppendNodeAndChildrenForDebugging(
   data.modification_time =
       syncer::ProtoTimeToTime(metadata->modification_time());
   data.name = base::UTF16ToUTF8(node->GetTitle());
-  data.is_folder = node->is_folder();
-  data.unique_position = metadata->unique_position();
-  data.specifics =
-      CreateSpecificsFromBookmarkNode(node, bookmark_model_,
-                                      /*force_favicon_load=*/false);
+  data.specifics = CreateSpecificsFromBookmarkNode(
+      node, bookmark_model_, metadata->unique_position(),
+      /*force_favicon_load=*/false);
 
   if (node->is_permanent_node()) {
     data.server_defined_unique_tag =
@@ -549,8 +561,11 @@ void BookmarkModelTypeProcessor::AppendNodeAndChildrenForDebugging(
   }
   data_dictionary->SetInteger("LOCAL_EXTERNAL_ID", node->id());
   data_dictionary->SetInteger("positionIndex", index);
-  data_dictionary->Set("metadata", syncer::EntityMetadataToValue(*metadata));
+  data_dictionary->SetKey("metadata",
+                          base::Value::FromUniquePtrValue(
+                              syncer::EntityMetadataToValue(*metadata)));
   data_dictionary->SetString("modelType", "Bookmarks");
+  data_dictionary->SetBoolean("IS_DIR", node->is_folder());
   all_nodes->Append(std::move(data_dictionary));
 
   int i = 0;

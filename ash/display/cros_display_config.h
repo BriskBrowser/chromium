@@ -26,6 +26,10 @@ class TouchCalibratorController;
 class ASH_EXPORT CrosDisplayConfig : public mojom::CrosDisplayConfigController {
  public:
   CrosDisplayConfig();
+
+  CrosDisplayConfig(const CrosDisplayConfig&) = delete;
+  CrosDisplayConfig& operator=(const CrosDisplayConfig&) = delete;
+
   ~CrosDisplayConfig() override;
 
   void BindReceiver(
@@ -47,7 +51,7 @@ class ASH_EXPORT CrosDisplayConfig : public mojom::CrosDisplayConfigController {
   void SetUnifiedDesktopEnabled(bool enabled) override;
   void OverscanCalibration(const std::string& display_id,
                            mojom::DisplayConfigOperation op,
-                           const base::Optional<gfx::Insets>& delta,
+                           const absl::optional<gfx::Insets>& delta,
                            OverscanCalibrationCallback callback) override;
   void TouchCalibration(const std::string& display_id,
                         mojom::DisplayConfigOperation op,
@@ -73,8 +77,6 @@ class ASH_EXPORT CrosDisplayConfig : public mojom::CrosDisplayConfigController {
   std::map<std::string, std::unique_ptr<OverscanCalibrator>>
       overscan_calibrators_;
   std::unique_ptr<TouchCalibratorController> touch_calibrator_;
-
-  DISALLOW_COPY_AND_ASSIGN(CrosDisplayConfig);
 };
 
 }  // namespace ash

@@ -4,20 +4,22 @@
 
 #include "content/browser/utility_process_host.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/i18n/base_i18n_switches.h"
-#include "base/sequenced_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/chromeos_buildflags.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "content/browser/browser_child_process_host_impl.h"
+#include "content/browser/gpu/gpu_data_manager_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/utility_sandbox_delegate.h"
 #include "content/browser/v8_snapshot_files.h"
@@ -32,7 +34,8 @@
 #include "content/public/common/process_type.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "media/base/media_switches.h"
-#include "media/webrtc/webrtc_switches.h"
+#include "media/webrtc/webrtc_features.h"
+#include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/sandbox_type.h"
 #include "sandbox/policy/switches.h"
 #include "services/network/public/cpp/network_switches.h"
@@ -48,6 +51,10 @@
 #include "components/os_crypt/os_crypt_switches.h"
 #endif
 
+#if defined(OS_WIN)
+#include "media/capture/capture_switches.h"
+#endif
+
 namespace content {
 
 UtilityMainThreadFactoryFunction g_utility_main_thread_factory = nullptr;
@@ -61,21 +68,22 @@ UtilityProcessHost::UtilityProcessHost()
     : UtilityProcessHost(nullptr /* client */) {}
 
 UtilityProcessHost::UtilityProcessHost(std::unique_ptr<Client> client)
-    : sandbox_type_(sandbox::policy::SandboxType::kUtility),
+    : sandbox_type_(sandbox::mojom::Sandbox::kUtility),
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
       child_flags_(ChildProcessHost::CHILD_ALLOW_SELF),
 #else
       child_flags_(ChildProcessHost::CHILD_NORMAL),
 #endif
       started_(false),
-      name_(base::ASCIIToUTF16("utility process")),
+      name_(u"utility process"),
       client_(std::move(client)) {
-  process_.reset(new BrowserChildProcessHostImpl(
-      PROCESS_TYPE_UTILITY, this, ChildProcessHost::IpcMode::kNormal));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  process_ = std::make_unique<BrowserChildProcessHostImpl>(
+      PROCESS_TYPE_UTILITY, this, ChildProcessHost::IpcMode::kNormal);
 }
 
 UtilityProcessHost::~UtilityProcessHost() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (client_ && launch_state_ == LaunchState::kLaunchComplete)
     client_->OnProcessTerminatedNormally();
 }
@@ -84,15 +92,7 @@ base::WeakPtr<UtilityProcessHost> UtilityProcessHost::AsWeakPtr() {
   return weak_ptr_factory_.GetWeakPtr();
 }
 
-bool UtilityProcessHost::Send(IPC::Message* message) {
-  if (!StartProcess())
-    return false;
-
-  return process_->Send(message);
-}
-
-void UtilityProcessHost::SetSandboxType(
-    sandbox::policy::SandboxType sandbox_type) {
+void UtilityProcessHost::SetSandboxType(sandbox::mojom::Sandbox sandbox_type) {
   sandbox_type_ = sandbox_type;
 }
 
@@ -115,7 +115,7 @@ void UtilityProcessHost::RunServiceDeprecated(
     mojo::ScopedMessagePipeHandle service_pipe,
     RunServiceDeprecatedCallback callback) {
   if (launch_state_ == LaunchState::kLaunchFailed) {
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
     return;
   }
 
@@ -133,7 +133,7 @@ void UtilityProcessHost::SetMetricsName(const std::string& metrics_name) {
   metrics_name_ = metrics_name;
 }
 
-void UtilityProcessHost::SetName(const base::string16& name) {
+void UtilityProcessHost::SetName(const std::u16string& name) {
   name_ = name;
 }
 
@@ -154,7 +154,6 @@ bool UtilityProcessHost::StartProcess() {
   started_ = true;
   process_->SetName(name_);
   process_->SetMetricsName(metrics_name_);
-  process_->GetHost()->CreateChannelMojo();
 
   if (RenderProcessHost::run_renderer_in_process()) {
     DCHECK(g_utility_main_thread_factory);
@@ -206,7 +205,6 @@ bool UtilityProcessHost::StartProcess() {
                                 switches::kUtilityProcess);
     // Specify the type of utility process for debugging/profiling purposes.
     cmd_line->AppendSwitchASCII(switches::kUtilitySubType, metrics_name_);
-    BrowserChildProcessHostImpl::CopyFeatureAndFieldTrialFlags(cmd_line.get());
     BrowserChildProcessHostImpl::CopyTraceStartupFlags(cmd_line.get());
     std::string locale = GetContentClient()->browser()->GetApplicationLocale();
     cmd_line->AppendSwitchASCII(switches::kLang, locale);
@@ -227,7 +225,6 @@ bool UtilityProcessHost::StartProcess() {
       network::switches::kIgnoreUrlFetcherCertRequests,
       network::switches::kLogNetLog,
       network::switches::kNetLogCaptureMode,
-      network::switches::kExplicitlyAllowedPorts,
       sandbox::policy::switches::kNoSandbox,
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
@@ -240,12 +237,14 @@ bool UtilityProcessHost::StartProcess() {
       os_crypt::switches::kUseMockKeychain,
 #endif
       switches::kDisableTestCerts,
+      switches::kEnableBackgroundThreadPool,
       switches::kEnableExperimentalCookieFeatures,
       switches::kEnableLogging,
       switches::kForceTextDirection,
       switches::kForceUIDirection,
       switches::kIgnoreCertificateErrors,
       switches::kLoggingLevel,
+      switches::kOverrideUseSoftwareGLForHeadless,
       switches::kOverrideUseSoftwareGLForTests,
       switches::kOverrideEnabledCdmInterfaceVersion,
       switches::kProxyServer,
@@ -255,7 +254,9 @@ bool UtilityProcessHost::StartProcess() {
       switches::kUseFileForFakeVideoCapture,
       switches::kUseMockCertVerifierForTesting,
       switches::kMockCertVerifierDefaultResultForTesting,
+      switches::kTimeZoneForTesting,
       switches::kUtilityStartupDialog,
+      switches::kUseANGLE,
       switches::kUseGL,
       switches::kV,
       switches::kVModule,
@@ -271,7 +272,6 @@ bool UtilityProcessHost::StartProcess() {
       switches::kFailAudioStreamCreation,
       switches::kMuteAudio,
       switches::kUseFileForFakeAudioCapture,
-      switches::kAgcStartupMinVolume,
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_FREEBSD) || \
     defined(OS_SOLARIS)
       switches::kAlsaInputDevice,
@@ -291,7 +291,8 @@ bool UtilityProcessHost::StartProcess() {
       sandbox::policy::switches::kAddXrAppContainerCaps,
 #endif
       network::switches::kUseFirstPartySet,
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+      network::switches::kIpAddressSpaceOverrides,
+#if defined(OS_CHROMEOS)
       switches::kSchedulerBoostUrgent,
 #endif
     };
@@ -311,24 +312,26 @@ bool UtilityProcessHost::StartProcess() {
     for (const auto& extra_switch : extra_switches_)
       cmd_line->AppendSwitch(extra_switch);
 
+#if defined(OS_WIN)
+    if (base::FeatureList::IsEnabled(
+            media::kMediaFoundationD3D11VideoCapture)) {
+      // MediaFoundationD3D11VideoCapture requires Gpu memory buffers,
+      // which are unavailable if the GPU process isn't running.
+      if (!GpuDataManagerImpl::GetInstance()->IsGpuCompositingDisabled()) {
+        cmd_line->AppendSwitch(switches::kVideoCaptureUseGpuMemoryBuffer);
+      }
+    }
+#endif
+
     std::unique_ptr<UtilitySandboxedProcessLauncherDelegate> delegate =
         std::make_unique<UtilitySandboxedProcessLauncherDelegate>(
             sandbox_type_, env_, *cmd_line);
 
-#if defined(OS_MAC) && defined(ARCH_CPU_ARM64)
-    if (child_flags == ChildProcessHost::CHILD_LAUNCH_X86_64) {
-      delegate->set_launch_x86_64(true);
-    }
-#endif  // OS_MAC && ARCH_CPU_ARM64
-
+    auto snapshot_files = GetV8SnapshotFilesToPreload(*cmd_line);
     process_->LaunchWithPreloadedFiles(std::move(delegate), std::move(cmd_line),
-                                       GetV8SnapshotFilesToPreload(), true);
+                                       std::move(snapshot_files), true);
   }
 
-  return true;
-}
-
-bool UtilityProcessHost::OnMessageReceived(const IPC::Message& message) {
   return true;
 }
 
@@ -344,7 +347,7 @@ void UtilityProcessHost::OnProcessLaunched() {
 void UtilityProcessHost::OnProcessLaunchFailed(int error_code) {
   launch_state_ = LaunchState::kLaunchFailed;
   for (auto& callback : pending_run_service_callbacks_)
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
   pending_run_service_callbacks_.clear();
 }
 
@@ -367,7 +370,7 @@ void UtilityProcessHost::OnProcessCrashed(int exit_code) {
   client->OnProcessCrashed();
 }
 
-base::Optional<std::string> UtilityProcessHost::GetServiceName() {
+absl::optional<std::string> UtilityProcessHost::GetServiceName() {
   return metrics_name_;
 }
 

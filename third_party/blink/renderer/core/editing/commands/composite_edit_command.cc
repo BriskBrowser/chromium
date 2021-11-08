@@ -178,7 +178,7 @@ UndoStep* CompositeEditCommand::EnsureUndoStep() {
     command = command->Parent();
   if (!command->undo_step_) {
     command->undo_step_ = MakeGarbageCollected<UndoStep>(
-        &GetDocument(), StartingSelection(), EndingSelection(), GetInputType());
+        &GetDocument(), StartingSelection(), EndingSelection());
   }
   return command->undo_step_.Get();
 }
@@ -312,7 +312,7 @@ void CompositeEditCommand::InsertNodeAfter(Node* insert_child,
   ABORT_EDITING_COMMAND_IF(!ref_child->parentNode());
   DCHECK(insert_child);
   DCHECK(ref_child);
-  DCHECK_NE(GetDocument().body(), ref_child);
+  ABORT_EDITING_COMMAND_IF(GetDocument().body() == ref_child);
   ContainerNode* parent = ref_child->parentNode();
   DCHECK(parent);
   DCHECK(!parent->IsShadowRoot()) << parent;
@@ -793,10 +793,11 @@ void CompositeEditCommand::PrepareWhitespaceAtPositionForSplit(
 
   // Delete collapsed whitespace so that inserting nbsps doesn't uncollapse it.
   Position upstream_pos = MostBackwardCaretPosition(position);
+  RelocatablePosition relocatable_upstream_pos(upstream_pos);
   DeleteInsignificantText(upstream_pos, MostForwardCaretPosition(position));
 
   GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
-  position = MostForwardCaretPosition(upstream_pos);
+  position = MostForwardCaretPosition(relocatable_upstream_pos.GetPosition());
   VisiblePosition visible_pos = CreateVisiblePosition(position);
   VisiblePosition previous_visible_pos = PreviousPositionOf(visible_pos);
   ReplaceCollapsibleWhitespaceWithNonBreakingSpaceIfNeeded(
@@ -862,6 +863,8 @@ void CompositeEditCommand::DeleteInsignificantText(Text* text_node,
   }
 
   HeapVector<Member<InlineTextBox>> sorted_text_boxes;
+  ClearCollectionScope<HeapVector<Member<InlineTextBox>>> scope(
+      &sorted_text_boxes);
   wtf_size_t sorted_text_boxes_position = 0;
 
   for (InlineTextBox* text_box : text_layout_object->TextBoxes())
@@ -1137,9 +1140,8 @@ HTMLElement* CompositeEditCommand::MoveParagraphContentsToNewBlockIfNecessary(
   visible_pos = CreateVisiblePosition(pos);
   visible_paragraph_start = StartOfParagraph(visible_pos);
   visible_paragraph_end = EndOfParagraph(visible_pos);
-  if (visible_paragraph_end.DeepEquivalent() <
-      visible_paragraph_start.DeepEquivalent())
-    visible_paragraph_end = visible_paragraph_start;
+  DCHECK_LE(visible_paragraph_start.DeepEquivalent(),
+            visible_paragraph_end.DeepEquivalent());
   MoveParagraphs(visible_paragraph_start, visible_paragraph_end, destination,
                  editing_state);
   if (editing_state->IsAborted())
@@ -1160,7 +1162,7 @@ void CompositeEditCommand::PushAnchorElementDown(Element* anchor_node,
   if (!anchor_node)
     return;
 
-  DCHECK(IsA<HTMLAnchorElement>(anchor_node)) << anchor_node;
+  DCHECK(anchor_node->IsLink()) << anchor_node;
 
   const VisibleSelection& visible_selection = CreateVisibleSelection(
       SelectionInDOMTree::Builder().SelectAllChildren(*anchor_node).Build());
@@ -1513,12 +1515,10 @@ void CompositeEditCommand::MoveParagraphs(
   // We upstream() the end and downstream() the start so that we don't include
   // collapsed whitespace in the move. When we paste a fragment, spaces after
   // the end and before the start are treated as though they were rendered.
-  bool equal = start_candidate == end_candidate;
-  Position start =
-      equal ? start_candidate : MostForwardCaretPosition(start_candidate);
-  Position end =
-      equal ? end_candidate : MostBackwardCaretPosition(end_candidate);
-  DCHECK_LE(start, end);
+  Position start = MostForwardCaretPosition(start_candidate);
+  Position end = MostBackwardCaretPosition(end_candidate);
+  if (end < start)
+    end = start;
 
   // FIXME: This is an inefficient way to preserve style on nodes in the
   // paragraph to move. It shouldn't matter though, since moved paragraphs will
@@ -1993,13 +1993,15 @@ Node* CompositeEditCommand::SplitTreeToNode(Node* start,
     GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
     // Do not split a node when doing so introduces an empty node.
-    VisiblePosition position_in_parent =
-        VisiblePosition::FirstPositionInNode(*parent_element);
-    VisiblePosition position_in_node =
-        CreateVisiblePosition(FirstPositionInOrBeforeNode(*node));
-    if (position_in_parent.DeepEquivalent() !=
-        position_in_node.DeepEquivalent())
-      SplitElement(parent_element, node);
+    if (node->previousSibling()) {
+      const Position& first_in_parent =
+          Position::FirstPositionInNode(*parent_element);
+      const Position& before_node =
+          Position::BeforeNode(*node).ToOffsetInAnchor();
+      if (MostBackwardCaretPosition(first_in_parent) !=
+          MostBackwardCaretPosition(before_node))
+        SplitElement(parent_element, node);
+    }
   }
 
   return node;
@@ -2122,6 +2124,8 @@ void CompositeEditCommand::AppliedEditing() {
         EnsureUndoStep()->EndingSelection());
     last_edit_command->GetUndoStep()->SetSelectionIsDirectional(
         GetUndoStep()->SelectionIsDirectional());
+    editor.GetUndoStack().DidSetEndingSelection(
+        last_edit_command->GetUndoStep());
     last_edit_command->AppendCommandToUndoStep(this);
   } else {
     // Only register a new undo command if the command passed in is

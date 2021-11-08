@@ -1,4 +1,0 @@
-monorail {
-  component: "Platform>Apps>Camera"
-}
-team_email: "chromeos-camera@chromium.org"

@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
 #include "base/check_op.h"
 #include "base/feature_list.h"
 #include "base/macros.h"
@@ -42,6 +41,10 @@ class TestNetworkConnectionObserver
     tracker_->AddNetworkConnectionObserver(this);
   }
 
+  TestNetworkConnectionObserver(const TestNetworkConnectionObserver&) = delete;
+  TestNetworkConnectionObserver& operator=(
+      const TestNetworkConnectionObserver&) = delete;
+
   ~TestNetworkConnectionObserver() override {
     tracker_->RemoveNetworkConnectionObserver(this);
   }
@@ -78,8 +81,6 @@ class TestNetworkConnectionObserver
   network::mojom::ConnectionType connection_type_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(TestNetworkConnectionObserver);
 };
 
 }  // namespace

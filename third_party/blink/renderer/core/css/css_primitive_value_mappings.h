@@ -40,7 +40,6 @@
 #include "third_party/blink/renderer/core/scroll/scroll_customization.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
-#include "third_party/blink/renderer/core/style/svg_computed_style_defs.h"
 #include "third_party/blink/renderer/platform/fonts/font_description.h"
 #include "third_party/blink/renderer/platform/fonts/font_smoothing_mode.h"
 #include "third_party/blink/renderer/platform/fonts/text_rendering_mode.h"
@@ -58,31 +57,31 @@ namespace blink {
 template <>
 inline int16_t CSSPrimitiveValue::ConvertTo() const {
   DCHECK(IsNumber());
-  return clampTo<int16_t>(GetDoubleValue());
+  return ClampTo<int16_t>(GetDoubleValue());
 }
 
 template <>
 inline uint16_t CSSPrimitiveValue::ConvertTo() const {
   DCHECK(IsNumber());
-  return clampTo<uint16_t>(GetDoubleValue());
+  return ClampTo<uint16_t>(GetDoubleValue());
 }
 
 template <>
 inline int CSSPrimitiveValue::ConvertTo() const {
   DCHECK(IsNumber());
-  return clampTo<int>(GetDoubleValue());
+  return ClampTo<int>(GetDoubleValue());
 }
 
 template <>
 inline unsigned CSSPrimitiveValue::ConvertTo() const {
   DCHECK(IsNumber());
-  return clampTo<unsigned>(GetDoubleValue());
+  return ClampTo<unsigned>(GetDoubleValue());
 }
 
 template <>
 inline float CSSPrimitiveValue::ConvertTo() const {
   DCHECK(IsNumber());
-  return clampTo<float>(GetDoubleValue());
+  return ClampTo<float>(GetDoubleValue());
 }
 
 // TODO(sashab): Move these to CSSIdentifierValueMappings.h, and update to use
@@ -790,6 +789,105 @@ inline OpticalSizing CSSIdentifierValue::ConvertTo() const {
 }
 
 template <>
+inline CSSIdentifierValue::CSSIdentifierValue(
+    FontDescription::FontSynthesisWeight font_synthesis_weight)
+    : CSSValue(kIdentifierClass) {
+  switch (font_synthesis_weight) {
+    case FontDescription::kAutoFontSynthesisWeight:
+      value_id_ = CSSValueID::kAuto;
+      return;
+    case FontDescription::kNoneFontSynthesisWeight:
+      value_id_ = CSSValueID::kNone;
+      return;
+  }
+
+  NOTREACHED();
+  value_id_ = CSSValueID::kAuto;
+}
+
+template <>
+inline FontDescription::FontSynthesisWeight CSSIdentifierValue::ConvertTo()
+    const {
+  switch (value_id_) {
+    case CSSValueID::kAuto:
+      return FontDescription::kAutoFontSynthesisWeight;
+    case CSSValueID::kNone:
+      return FontDescription::kNoneFontSynthesisWeight;
+    default:
+      break;
+  }
+
+  NOTREACHED();
+  return FontDescription::kAutoFontSynthesisWeight;
+}
+
+template <>
+inline CSSIdentifierValue::CSSIdentifierValue(
+    FontDescription::FontSynthesisStyle font_synthesis_style)
+    : CSSValue(kIdentifierClass) {
+  switch (font_synthesis_style) {
+    case FontDescription::kAutoFontSynthesisStyle:
+      value_id_ = CSSValueID::kAuto;
+      return;
+    case FontDescription::kNoneFontSynthesisStyle:
+      value_id_ = CSSValueID::kNone;
+      return;
+  }
+
+  NOTREACHED();
+  value_id_ = CSSValueID::kAuto;
+}
+
+template <>
+inline FontDescription::FontSynthesisStyle CSSIdentifierValue::ConvertTo()
+    const {
+  switch (value_id_) {
+    case CSSValueID::kAuto:
+      return FontDescription::kAutoFontSynthesisStyle;
+    case CSSValueID::kNone:
+      return FontDescription::kNoneFontSynthesisStyle;
+    default:
+      break;
+  }
+
+  NOTREACHED();
+  return FontDescription::kAutoFontSynthesisStyle;
+}
+
+template <>
+inline CSSIdentifierValue::CSSIdentifierValue(
+    FontDescription::FontSynthesisSmallCaps font_synthesis_small_caps)
+    : CSSValue(kIdentifierClass) {
+  switch (font_synthesis_small_caps) {
+    case FontDescription::kAutoFontSynthesisSmallCaps:
+      value_id_ = CSSValueID::kAuto;
+      return;
+    case FontDescription::kNoneFontSynthesisSmallCaps:
+      value_id_ = CSSValueID::kNone;
+      return;
+  }
+
+  NOTREACHED();
+  value_id_ = CSSValueID::kAuto;
+}
+
+template <>
+inline FontDescription::FontSynthesisSmallCaps CSSIdentifierValue::ConvertTo()
+    const {
+  switch (value_id_) {
+    case CSSValueID::kAuto:
+      return FontDescription::kAutoFontSynthesisSmallCaps;
+    case CSSValueID::kNone:
+      return FontDescription::kNoneFontSynthesisSmallCaps;
+    default:
+      break;
+  }
+
+  NOTREACHED();
+  return FontDescription::kAutoFontSynthesisSmallCaps;
+}
+
+template <>
 inline CSSIdentifierValue::CSSIdentifierValue(EFillSizeType fill_size)
     : CSSValue(kIdentifierClass) {
   switch (fill_size) {
@@ -1005,221 +1103,6 @@ inline WindRule CSSIdentifierValue::ConvertTo() const {
 
   NOTREACHED();
   return RULE_NONZERO;
-}
-
-template <>
-inline CSSIdentifierValue::CSSIdentifierValue(EColorInterpolation e)
-    : CSSValue(kIdentifierClass) {
-  switch (e) {
-    case CI_AUTO:
-      value_id_ = CSSValueID::kAuto;
-      break;
-    case CI_SRGB:
-      value_id_ = CSSValueID::kSRGB;
-      break;
-    case CI_LINEARRGB:
-      value_id_ = CSSValueID::kLinearrgb;
-      break;
-  }
-}
-
-template <>
-inline EColorInterpolation CSSIdentifierValue::ConvertTo() const {
-  switch (value_id_) {
-    case CSSValueID::kSRGB:
-      return CI_SRGB;
-    case CSSValueID::kLinearrgb:
-      return CI_LINEARRGB;
-    case CSSValueID::kAuto:
-      return CI_AUTO;
-    default:
-      break;
-  }
-
-  NOTREACHED();
-  return CI_AUTO;
-}
-
-template <>
-inline CSSIdentifierValue::CSSIdentifierValue(EColorRendering e)
-    : CSSValue(kIdentifierClass) {
-  switch (e) {
-    case CR_AUTO:
-      value_id_ = CSSValueID::kAuto;
-      break;
-    case CR_OPTIMIZESPEED:
-      value_id_ = CSSValueID::kOptimizespeed;
-      break;
-    case CR_OPTIMIZEQUALITY:
-      value_id_ = CSSValueID::kOptimizequality;
-      break;
-  }
-}
-
-template <>
-inline EColorRendering CSSIdentifierValue::ConvertTo() const {
-  switch (value_id_) {
-    case CSSValueID::kOptimizespeed:
-      return CR_OPTIMIZESPEED;
-    case CSSValueID::kOptimizequality:
-      return CR_OPTIMIZEQUALITY;
-    case CSSValueID::kAuto:
-      return CR_AUTO;
-    default:
-      break;
-  }
-
-  NOTREACHED();
-  return CR_AUTO;
-}
-
-template <>
-inline CSSIdentifierValue::CSSIdentifierValue(EDominantBaseline e)
-    : CSSValue(kIdentifierClass) {
-  switch (e) {
-    case DB_AUTO:
-      value_id_ = CSSValueID::kAuto;
-      break;
-    case DB_USE_SCRIPT:
-      value_id_ = CSSValueID::kUseScript;
-      break;
-    case DB_NO_CHANGE:
-      value_id_ = CSSValueID::kNoChange;
-      break;
-    case DB_RESET_SIZE:
-      value_id_ = CSSValueID::kResetSize;
-      break;
-    case DB_CENTRAL:
-      value_id_ = CSSValueID::kCentral;
-      break;
-    case DB_MIDDLE:
-      value_id_ = CSSValueID::kMiddle;
-      break;
-    case DB_TEXT_BEFORE_EDGE:
-      value_id_ = CSSValueID::kTextBeforeEdge;
-      break;
-    case DB_TEXT_AFTER_EDGE:
-      value_id_ = CSSValueID::kTextAfterEdge;
-      break;
-    case DB_IDEOGRAPHIC:
-      value_id_ = CSSValueID::kIdeographic;
-      break;
-    case DB_ALPHABETIC:
-      value_id_ = CSSValueID::kAlphabetic;
-      break;
-    case DB_HANGING:
-      value_id_ = CSSValueID::kHanging;
-      break;
-    case DB_MATHEMATICAL:
-      value_id_ = CSSValueID::kMathematical;
-      break;
-  }
-}
-
-template <>
-inline EDominantBaseline CSSIdentifierValue::ConvertTo() const {
-  switch (value_id_) {
-    case CSSValueID::kAuto:
-      return DB_AUTO;
-    case CSSValueID::kUseScript:
-      return DB_USE_SCRIPT;
-    case CSSValueID::kNoChange:
-      return DB_NO_CHANGE;
-    case CSSValueID::kResetSize:
-      return DB_RESET_SIZE;
-    case CSSValueID::kIdeographic:
-      return DB_IDEOGRAPHIC;
-    case CSSValueID::kAlphabetic:
-      return DB_ALPHABETIC;
-    case CSSValueID::kHanging:
-      return DB_HANGING;
-    case CSSValueID::kMathematical:
-      return DB_MATHEMATICAL;
-    case CSSValueID::kCentral:
-      return DB_CENTRAL;
-    case CSSValueID::kMiddle:
-      return DB_MIDDLE;
-    case CSSValueID::kTextAfterEdge:
-      return DB_TEXT_AFTER_EDGE;
-    case CSSValueID::kTextBeforeEdge:
-      return DB_TEXT_BEFORE_EDGE;
-    default:
-      break;
-  }
-
-  NOTREACHED();
-  return DB_AUTO;
-}
-
-template <>
-inline CSSIdentifierValue::CSSIdentifierValue(EShapeRendering e)
-    : CSSValue(kIdentifierClass) {
-  switch (e) {
-    case SR_AUTO:
-      value_id_ = CSSValueID::kAuto;
-      break;
-    case SR_OPTIMIZESPEED:
-      value_id_ = CSSValueID::kOptimizespeed;
-      break;
-    case SR_CRISPEDGES:
-      value_id_ = CSSValueID::kCrispedges;
-      break;
-    case SR_GEOMETRICPRECISION:
-      value_id_ = CSSValueID::kGeometricprecision;
-      break;
-  }
-}
-
-template <>
-inline EShapeRendering CSSIdentifierValue::ConvertTo() const {
-  switch (value_id_) {
-    case CSSValueID::kAuto:
-      return SR_AUTO;
-    case CSSValueID::kOptimizespeed:
-      return SR_OPTIMIZESPEED;
-    case CSSValueID::kCrispedges:
-      return SR_CRISPEDGES;
-    case CSSValueID::kGeometricprecision:
-      return SR_GEOMETRICPRECISION;
-    default:
-      break;
-  }
-
-  NOTREACHED();
-  return SR_AUTO;
-}
-
-template <>
-inline CSSIdentifierValue::CSSIdentifierValue(ETextAnchor e)
-    : CSSValue(kIdentifierClass) {
-  switch (e) {
-    case TA_START:
-      value_id_ = CSSValueID::kStart;
-      break;
-    case TA_MIDDLE:
-      value_id_ = CSSValueID::kMiddle;
-      break;
-    case TA_END:
-      value_id_ = CSSValueID::kEnd;
-      break;
-  }
-}
-
-template <>
-inline ETextAnchor CSSIdentifierValue::ConvertTo() const {
-  switch (value_id_) {
-    case CSSValueID::kStart:
-      return TA_START;
-    case CSSValueID::kMiddle:
-      return TA_MIDDLE;
-    case CSSValueID::kEnd:
-      return TA_END;
-    default:
-      break;
-  }
-
-  NOTREACHED();
-  return TA_START;
 }
 
 template <>
@@ -1760,6 +1643,24 @@ inline Containment CSSIdentifierValue::ConvertTo() const {
 }
 
 template <>
+inline EContainerType CSSIdentifierValue::ConvertTo() const {
+  switch (GetValueID()) {
+    case CSSValueID::kNone:
+      return kContainerTypeNone;
+    case CSSValueID::kInlineSize:
+      return kContainerTypeInlineSize;
+    case CSSValueID::kBlockSize:
+      return kContainerTypeBlockSize;
+    case CSSValueID::kSize:
+      return kContainerTypeSize;
+    default:
+      break;
+  }
+  NOTREACHED();
+  return kContainerTypeNone;
+}
+
+template <>
 inline CSSIdentifierValue::CSSIdentifierValue(TextUnderlinePosition position)
     : CSSValue(kIdentifierClass) {
   switch (position) {
@@ -1811,14 +1712,8 @@ inline CSSIdentifierValue::CSSIdentifierValue(ScrollbarGutter scrollbar_gutter)
     case kScrollbarGutterStable:
       value_id_ = CSSValueID::kStable;
       break;
-    case kScrollbarGutterAlways:
-      value_id_ = CSSValueID::kAlways;
-      break;
-    case kScrollbarGutterBoth:
-      value_id_ = CSSValueID::kBoth;
-      break;
-    case kScrollbarGutterForce:
-      value_id_ = CSSValueID::kForce;
+    case kScrollbarGutterBothEdges:
+      value_id_ = CSSValueID::kBothEdges;
       break;
   }
 }
@@ -1830,12 +1725,8 @@ inline ScrollbarGutter CSSIdentifierValue::ConvertTo() const {
       return kScrollbarGutterAuto;
     case CSSValueID::kStable:
       return kScrollbarGutterStable;
-    case CSSValueID::kAlways:
-      return kScrollbarGutterAlways;
-    case CSSValueID::kBoth:
-      return kScrollbarGutterBoth;
-    case CSSValueID::kForce:
-      return kScrollbarGutterForce;
+    case CSSValueID::kBothEdges:
+      return kScrollbarGutterBothEdges;
     default:
       break;
   }
@@ -1845,4 +1736,4 @@ inline ScrollbarGutter CSSIdentifierValue::ConvertTo() const {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_PRIMITIVE_VALUE_MAPPINGS_H_

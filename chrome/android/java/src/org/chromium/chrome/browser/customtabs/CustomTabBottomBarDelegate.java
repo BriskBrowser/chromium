@@ -21,12 +21,16 @@ import android.widget.RemoteViews;
 import androidx.annotation.Nullable;
 import androidx.browser.customtabs.CustomTabsIntent;
 
+import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsSizer;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.CustomButtonParams;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanelManager.OverlayPanelManagerObserver;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManagerImpl;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
@@ -54,6 +58,7 @@ public class CustomTabBottomBarDelegate implements BrowserControlsStateProvider.
     private final Activity mActivity;
     private final WindowAndroid mWindowAndroid;
     private final BrowserControlsSizer mBrowserControlsSizer;
+    private final ObservableSupplier<Integer> mAutofillUiBottomInsetSupplier;
     private final BrowserServicesIntentDataProvider mDataProvider;
     private final CustomTabActivityTabProvider mTabProvider;
     private final CustomTabNightModeStateController mNightModeStateController;
@@ -89,6 +94,7 @@ public class CustomTabBottomBarDelegate implements BrowserControlsStateProvider.
     public CustomTabBottomBarDelegate(Activity activity, WindowAndroid windowAndroid,
             BrowserServicesIntentDataProvider dataProvider,
             BrowserControlsSizer browserControlsSizer,
+            ObservableSupplier<Integer> autofillUiBottomInsetSupplier,
             CustomTabNightModeStateController nightModeStateController,
             SystemNightModeMonitor systemNightModeMonitor, CustomTabActivityTabProvider tabProvider,
             CustomTabCompositorContentInitializer compositorContentInitializer) {
@@ -96,6 +102,7 @@ public class CustomTabBottomBarDelegate implements BrowserControlsStateProvider.
         mWindowAndroid = windowAndroid;
         mDataProvider = dataProvider;
         mBrowserControlsSizer = browserControlsSizer;
+        mAutofillUiBottomInsetSupplier = autofillUiBottomInsetSupplier;
         mNightModeStateController = nightModeStateController;
         mSystemNightModeMonitor = systemNightModeMonitor;
         mTabProvider = tabProvider;
@@ -103,10 +110,9 @@ public class CustomTabBottomBarDelegate implements BrowserControlsStateProvider.
 
         compositorContentInitializer.addCallback(this::addOverlayPanelManagerObserver);
 
-        mWindowAndroid.getApplicationBottomInsetProvider().addObserver((inset) -> {
-            if (mBottomBarView == null) return;
-            hideBottomBar(inset > 0);
-        });
+        Callback<Integer> insetObserver = this::onViewPortInsetChange;
+        mWindowAndroid.getApplicationBottomInsetProvider().addObserver(insetObserver);
+        mAutofillUiBottomInsetSupplier.addObserver(insetObserver);
     }
 
     /**
@@ -145,7 +151,7 @@ public class CustomTabBottomBarDelegate implements BrowserControlsStateProvider.
         if (items.isEmpty()) return;
         LinearLayout layout = new LinearLayout(mActivity);
         layout.setId(R.id.custom_tab_bottom_bar_wrapper);
-        layout.setBackgroundColor(mDataProvider.getBottomBarColor());
+        layout.setBackgroundColor(mDataProvider.getColorProvider().getBottomBarColor());
         for (CustomButtonParams params : items) {
             if (params.showOnToolbar()) continue;
             final PendingIntent pendingIntent = params.getPendingIntent();
@@ -339,7 +345,7 @@ public class CustomTabBottomBarDelegate implements BrowserControlsStateProvider.
             Activity activity, CustomTabActivityTabProvider tabProvider) {
         Intent addedIntent = extraIntent == null ? new Intent() : new Intent(extraIntent);
         Tab tab = tabProvider.getTab();
-        if (tab != null) addedIntent.setData(Uri.parse(tab.getUrlString()));
+        if (tab != null) addedIntent.setData(Uri.parse(tab.getUrl().getSpec()));
         try {
             pendingIntent.send(activity, 0, addedIntent, null, null);
         } catch (CanceledException e) {
@@ -402,5 +408,16 @@ public class CustomTabBottomBarDelegate implements BrowserControlsStateProvider.
             getBottomBarView().setVisibility(View.VISIBLE);
             mBrowserControlsSizer.setBottomControlsHeight(getBottomBarHeight(), 0);
         }
+    }
+
+    private void onViewPortInsetChange(Integer integer) {
+        if (mBottomBarView == null) return;
+        hideBottomBar(hasNonZeroInset(mAutofillUiBottomInsetSupplier)
+                || hasNonZeroInset(mWindowAndroid.getApplicationBottomInsetProvider()));
+    }
+
+    private static boolean hasNonZeroInset(Supplier<Integer> insetSupplier) {
+        Integer inset = insetSupplier.get();
+        return inset != null && inset > 0;
     }
 }

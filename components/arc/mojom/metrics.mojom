@@ -1,11 +1,12 @@
 // Copyright 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-// Next MinVersion: 8
+// Next MinVersion: 18
 
 module arc.mojom;
 
 import "mojo/public/mojom/base/time.mojom";
+import "components/arc/mojom/anr.mojom";
 
 [Extensible]
 enum BootType {
@@ -105,6 +106,87 @@ enum CompanionLibApiId {
   IS_CLIPPING_TO_TASK_DISABLED = 23,
 };
 
+[Extensible]
+enum ArcDnsQuery {
+  // All other hostnames.
+  OTHER_HOST_NAME = 0,
+
+  // android.googleapis.com used by Android checkin.
+  ANDROID_API_HOST_NAME = 1,
+};
+
+// These enum values are persisted to metrics thus must be treated as
+// append-only.
+[Extensible]
+enum ArcNetworkEvent {
+  kUnknown = 0,
+  kAndroidLegacyVpnConnection = 1,
+  kAndroidThirdPartyVpnConnection = 2,
+  kMojoConfigureAndroidVpn = 3,
+  kMojoDisconnectAndroidVpn = 4,
+  kMojoDnsTest = 5,
+  kMojoHttpTest = 6,
+  kMojoPingTest = 7,
+  kWifiScannerClientConnection = 8,
+  kWifiScannerGetScanResults = 9,
+  kWifiScannerGetSingleScanResults = 10,
+  kWifiScannerEnable = 11,
+  kWifiScannerDisable = 12,
+  kWifiScannerStartSingleScan = 13,
+  kWifiScannerStartBackgroundScan = 14,
+  kWifiScannerStartPnoScan = 15,
+  kWifiScannerRegisterListener = 16,
+  kWifiManagerStartScan = 17,
+  kWifiManagerEnable = 18,
+  kWifiManagerDisable = 19,
+  kWifiManagerDisconnect = 20,
+  kWifiManagerReconnect = 21,
+  kWifiManagerGetNetworks = 22,
+  kWifiManagerGetNetworksPrivileged = 23,
+  kWifiManagerAddNetwork = 24,
+  kWifiManagerRemoveNetwork = 25,
+  kWifiManagerEnableNetwork = 26,
+  kWifiManagerDisableNetwork = 27,
+  kWifiManagerConnect = 28,
+  kWifiManagerSave = 29,
+  kWifiManagerForget = 30,
+  kWifiManagerRegisterScanListener = 31,
+  kWifiManagerAddNetworkSuggestions = 32,
+  [MinVersion=17] kWifiManagerEnableTdls = 33,
+  [MinVersion=17] kWifiManagerStartLocalHotspot = 34,
+  [MinVersion=17] kWifiManagerAddPasspointConfiguration = 35,
+};
+
+// These enum values are persisted to metrics thus must be treated as
+// append-only.
+[Extensible]
+enum ArcNetworkError {
+  kUnknown = 0,
+  kMojoGetNetworksError = 1,
+  kMojoWifiAddNetworkFailed = 2,
+  kMojoWifiForgetNetworkFailed = 3,
+  kMojoWifiConnectFailed = 4,
+  kMojoWifiDisconnectFailed = 5,
+  kMojoWifiScanTimeout = 6,
+  kMojoWifiGetScanResultsFailed = 7,
+  kNetdGetIpv4Error = 8,
+  kNetdSetIpv4Error = 9,
+  kNetdIfaceListError = 10,
+  kNetdIfaceUpError = 11,
+  kNetdIfaceMtuError = 12,
+  kNetdIfaceClearError = 13,
+  kNetdIfconfigGetError = 14,
+  kNetdRestartIpv6Error = 15,
+  kNetdIpForwardingStartError = 16,
+  kNetdIpForwardingStopError = 17,
+  kNetdIfaceForwardingStartError = 18,
+  kNetdIfaceForwardingStopError = 19,
+  kNetdTetheringStartError = 20,
+  kNetdTetheringStopError = 21,
+  kNetdSnatStartError = 22,
+  kNetdSnatStopError = 23,
+};
+
 // Describes the type of app kill being reported.
 [Extensible]
 enum AppKillType {
@@ -137,7 +219,91 @@ enum ArcCorePriAbiMigEvent {
   kWebviewDowngradeFailure = 7,
 };
 
-// Next method ID: 8
+// Enumerates the types of a clipboard / drag-and-drop event, including its
+// direction (ARC to Chrome or Chrome to ARC) and its content type (text or
+// an image).
+[Extensible]
+enum ArcClipboardDragDropEvent {
+  kTextClipboardFromChrome = 0,
+  kImageClipboardFromChrome = 1,
+  kTextClipboardFromArc = 2,
+  kImageClipboardFromArc = 3,
+  kTextDragDropFromChrome = 4,
+  kImageDragDropFromChrome = 5,
+  kTextDragDropFromArc = 6,
+  kImageDragDropFromArc = 7,
+};
+
+[Extensible]
+enum ArcImageCopyPasteCompatAction {
+  kPasteFromFiles = 0,
+  kDragFromFiles = 1,
+  kPasteFromBrowser = 2,
+  kDragFromBrowser = 3,
+};
+
+// Enumerates variations of Low Latency Stylus Library.
+[Extensible]
+enum LowLatencyStylusLibraryType {
+  [Default] kUnsupported = 0,
+  kCPU = 1,
+  kGPU = 2,
+};
+
+// The prediction target set in Low Latency Stylus Library.
+struct LowLatencyStylusLibPredictionTarget {
+  // Variations of Low Latency Stylus Library.
+  LowLatencyStylusLibraryType type;
+  // Prediction target set in Low Latency Stylus Library.
+  uint32 target;
+};
+
+// Enumerates the API call from ChromeOS Low-latency stylus library, which
+// provides mechanisms to reduce the draw latency for ARC++ app running on
+// ChromeOS.
+[Extensible]
+enum LowLatencyStylusLibApiId {
+  // If the library version doesn't support an API call, the API
+  // call will be recorded as UNSUPPORTED.
+  [Default] kUnsupported = 0,
+
+  // com.google.android.chromeos.lowlatencystylus.InkOverlay
+  kInkOverlayLowLatencyLibInUse = 1,
+
+  // com.google.android.chromeos.lowlatencystylus.gpu.GLInkOverlay
+  kGLInkOverlayLowLatencyLibInUse = 2,
+
+  // com.google.android.chromeos.lowlatencystylus.gpu.GLInkRenderer
+  kGLInkOverlaySetProjectionMatrix = 3,
+  kGLInkOverlaySetViewMatrix = 4,
+};
+
+// Status for migration of the main account hash code from v2 to v3.
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+[Extensible]
+enum MainAccountHashMigrationStatus {
+  // Hash code migration not required.
+  kHashCodeMigrationNotRequired = 0,
+
+  // Hash code migration successful.
+  kHashCodeMigrationSuccessful = 1,
+
+  // Hash code migration failed.
+  kHashCodeMigrationFailed = 2,
+
+  // Hash code migration failed due to multiple acc hash matching.
+  kHashCodeMigrationFailedDueToMultipleAccounts = 3,
+
+  // Hash code migration failed due to multiple acc hash matching.
+  kHashCodeMigrationFailedDueToNoMatchingAccount = 4,
+
+  // NOTE: If you add any entries to this enum, you must also update the
+  // corresponding UMA ArcMainAccountHashMigrationStatus at
+  // tools/metrics/histograms/enums.xml.
+};
+
+// Next method ID: 21
 interface MetricsHost {
   // Reports boot progress events from ARC instance.
   ReportBootProgress@0(array<BootProgressEvent> events,
@@ -163,6 +329,65 @@ interface MetricsHost {
 
   // Reports boot time during ABI Migration by ARC Metrics Service.
   [MinVersion=7] ReportArcCorePriAbiMigBootTime@7(mojo_base.mojom.TimeDelta duration);
+
+  // Reports a clipboard / drag-and-drop event.
+  [MinVersion=8] ReportClipboardDragDropEvent@8(
+      ArcClipboardDragDropEvent event_type);
+
+  // Reports ANR event.
+  [MinVersion=9] ReportAnr@10(Anr anr);
+
+  // Reports System Health upgrade processing time and if any packages were
+  // deleted during the upgrade.
+  [MinVersion=10] ReportArcSystemHealthUpgrade@11(
+    mojo_base.mojom.TimeDelta duration,
+    bool packages_deleted);
+
+  // Reports api usage of Low-latency Stylus Library.
+  [MinVersion=11] ReportLowLatencyStylusLibApiUsage@12
+      (LowLatencyStylusLibApiId api_id);
+
+  // Reports prediction target used in Low-latency Stylus Library.
+  [MinVersion=11] ReportLowLatencyStylusLibPredictionTarget@13(
+    LowLatencyStylusLibPredictionTarget prediction_target);
+
+  // Reports the metrics to perform the entire fixup for P to R upgrade: the
+  // duration, the number of fixed directories, and the number of apps that
+  // contains at least one file or directory that is failed to be fixed.
+  [MinVersion=12] ReportEntireFixupMetrics@14(
+      mojo_base.mojom.TimeDelta duration,
+      uint32 number_of_directories,
+      uint32 number_of_failures);
+
+  // Reports the metrics to perform fixup per app for P to R upgrade: the
+  // duration and the number of fixed directories.
+  [MinVersion=12] ReportPerAppFixupMetrics@15(
+      mojo_base.mojom.TimeDelta duration,
+      uint32 number_of_directories);
+
+  // Reports the result of DNS query inside ARC.
+  [MinVersion=13] ReportDnsQueryResult@16(
+      ArcDnsQuery query,
+      bool success);
+
+  // Reports main account hash migration status.
+  [MinVersion=14] ReportMainAccountHashMigrationMetrics@17(
+      MainAccountHashMigrationStatus status);
+
+  // Reports the operation type (copy & paste or drag & drop) and the source of
+  // the image (from browser or Files app) when image copy-paste app compat is
+  // triggered.
+  // Image copy-paste app compat is a feature that allows insertion of images to
+  // Android apps through commitContent IME API or Android intent, when the app
+  // don't support images in the clipboard.
+  [MinVersion=15] ReportImageCopyPasteCompatAction@18(
+      ArcImageCopyPasteCompatAction action_type);
+
+  // Reports occurrence of one event in the ARC networking stack.
+  [MinVersion=16] ReportArcNetworkEvent@19(ArcNetworkEvent event);
+
+  // Reports occurrence of one error in the ARC networking stack.
+  [MinVersion=16] ReportArcNetworkError@20(ArcNetworkError error);
 };
 
 // Next method ID: 3

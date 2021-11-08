@@ -533,18 +533,6 @@ VisiblePosition TextControlElement::VisiblePositionForIndex(int index) const {
   return CreateVisiblePosition(it.EndPosition(), TextAffinity::kUpstream);
 }
 
-// TODO(yosin): We should move |TextControlElement::IndexForVisiblePosition()|
-// to "ax_layout_object.cc" since this function is used only there.
-int TextControlElement::IndexForVisiblePosition(
-    const VisiblePosition& pos) const {
-  Position index_position = pos.DeepEquivalent().ParentAnchoredEquivalent();
-  if (EnclosingTextControl(index_position) != this)
-    return 0;
-  DCHECK(index_position.IsConnected()) << index_position;
-  return TextIterator::RangeLength(Position(InnerEditorElement(), 0),
-                                   index_position);
-}
-
 unsigned TextControlElement::selectionStart() const {
   if (!IsTextControl())
     return 0;
@@ -807,6 +795,13 @@ void TextControlElement::ParseAttribute(
       if (auto* frame = GetDocument().GetFrame())
         frame->GetSpellChecker().RemoveSpellingAndGrammarMarkers(*inner_editor);
     }
+  } else if (params.name == html_names::kSpellcheckAttr) {
+    if (HTMLElement* inner_editor = InnerEditorElement()) {
+      if (auto* frame = GetDocument().GetFrame()) {
+        frame->GetSpellChecker().RespondToChangedEnablement(
+            *inner_editor, IsSpellCheckingEnabled());
+      }
+    }
   } else {
     HTMLFormControlElementWithState::ParseAttribute(params);
   }
@@ -1046,10 +1041,8 @@ String TextControlElement::DirectionForFormData() const {
       return dir_attribute_value;
 
     if (EqualIgnoringASCIICase(dir_attribute_value, "auto")) {
-      bool is_auto;
-      TextDirection text_direction =
-          element->DirectionalityIfhasDirAutoAttribute(is_auto);
-      return text_direction == TextDirection::kRtl ? "rtl" : "ltr";
+      return element->CachedDirectionality() == TextDirection::kRtl ? "rtl"
+                                                                    : "ltr";
     }
   }
 

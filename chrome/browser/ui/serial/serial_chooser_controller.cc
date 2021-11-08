@@ -11,12 +11,14 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/unguessable_token.h"
+#include "chrome/browser/chooser_controller/title_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/serial/serial_blocklist.h"
 #include "chrome/browser/serial/serial_chooser_context_factory.h"
 #include "chrome/browser/serial/serial_chooser_histograms.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -24,16 +26,16 @@ SerialChooserController::SerialChooserController(
     content::RenderFrameHost* render_frame_host,
     std::vector<blink::mojom::SerialPortFilterPtr> filters,
     content::SerialChooser::Callback callback)
-    : ChooserController(render_frame_host,
-                        IDS_SERIAL_PORT_CHOOSER_PROMPT_ORIGIN,
-                        IDS_SERIAL_PORT_CHOOSER_PROMPT_EXTENSION_NAME),
+    : ChooserController(CreateExtensionAwareChooserTitle(
+          render_frame_host,
+          IDS_SERIAL_PORT_CHOOSER_PROMPT_ORIGIN,
+          IDS_SERIAL_PORT_CHOOSER_PROMPT_EXTENSION_NAME)),
       filters_(std::move(filters)),
       callback_(std::move(callback)),
       frame_tree_node_id_(render_frame_host->GetFrameTreeNodeId()) {
   auto* web_contents =
       content::WebContents::FromRenderFrameHost(render_frame_host);
-  requesting_origin_ = render_frame_host->GetLastCommittedOrigin();
-  embedding_origin_ = web_contents->GetMainFrame()->GetLastCommittedOrigin();
+  origin_ = web_contents->GetMainFrame()->GetLastCommittedOrigin();
 
   auto* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
@@ -43,7 +45,7 @@ SerialChooserController::SerialChooserController(
 
   chooser_context_->GetPortManager()->GetDevices(base::BindOnce(
       &SerialChooserController::OnGetDevices, weak_factory_.GetWeakPtr()));
-  observer_.Add(chooser_context_.get());
+  observation_.Observe(chooser_context_.get());
 }
 
 SerialChooserController::~SerialChooserController() {
@@ -55,15 +57,15 @@ bool SerialChooserController::ShouldShowHelpButton() const {
   return true;
 }
 
-base::string16 SerialChooserController::GetNoOptionsText() const {
+std::u16string SerialChooserController::GetNoOptionsText() const {
   return l10n_util::GetStringUTF16(IDS_DEVICE_CHOOSER_NO_DEVICES_FOUND_PROMPT);
 }
 
-base::string16 SerialChooserController::GetOkButtonLabel() const {
+std::u16string SerialChooserController::GetOkButtonLabel() const {
   return l10n_util::GetStringUTF16(IDS_SERIAL_PORT_CHOOSER_CONNECT_BUTTON_TEXT);
 }
 
-std::pair<base::string16, base::string16>
+std::pair<std::u16string, std::u16string>
 SerialChooserController::GetThrobberLabelAndTooltip() const {
   return {
       l10n_util::GetStringUTF16(IDS_SERIAL_PORT_CHOOSER_LOADING_LABEL),
@@ -74,14 +76,14 @@ size_t SerialChooserController::NumOptions() const {
   return ports_.size();
 }
 
-base::string16 SerialChooserController::GetOption(size_t index) const {
+std::u16string SerialChooserController::GetOption(size_t index) const {
   DCHECK_LT(index, ports_.size());
   const device::mojom::SerialPortInfo& port = *ports_[index];
 
   // Get the last component of the device path i.e. COM1 or ttyS0 to show the
   // user something similar to other applications that ask them to choose a
   // serial port and to differentiate between ports with similar display names.
-  base::string16 display_path = port.path.BaseName().LossyDisplayName();
+  std::u16string display_path = port.path.BaseName().LossyDisplayName();
 
   if (port.display_name && !port.display_name->empty()) {
     return l10n_util::GetStringFUTF16(IDS_SERIAL_PORT_CHOOSER_NAME_WITH_PATH,
@@ -99,8 +101,7 @@ bool SerialChooserController::IsPaired(size_t index) const {
   if (!chooser_context_)
     return false;
 
-  return chooser_context_->HasPortPermission(requesting_origin_,
-                                             embedding_origin_, *ports_[index]);
+  return chooser_context_->HasPortPermission(origin_, *ports_[index]);
 }
 
 void SerialChooserController::Select(const std::vector<size_t>& indices) {
@@ -113,8 +114,7 @@ void SerialChooserController::Select(const std::vector<size_t>& indices) {
     return;
   }
 
-  chooser_context_->GrantPortPermission(requesting_origin_, embedding_origin_,
-                                        *ports_[index]);
+  chooser_context_->GrantPortPermission(origin_, *ports_[index]);
   RunCallback(ports_[index]->Clone());
 }
 
@@ -155,7 +155,7 @@ void SerialChooserController::OnPortRemoved(
 }
 
 void SerialChooserController::OnPortManagerConnectionError() {
-  observer_.RemoveAll();
+  observation_.Reset();
 }
 
 void SerialChooserController::OnGetDevices(

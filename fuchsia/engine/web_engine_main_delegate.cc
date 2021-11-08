@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/base_paths.h"
-#include "base/base_paths_fuchsia.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/fuchsia/intl_profile_watcher.h"
@@ -29,23 +28,24 @@ namespace {
 WebEngineMainDelegate* g_current_web_engine_main_delegate = nullptr;
 
 void InitializeResources() {
+  constexpr char kCommonResourcesPakPath[] = "web_engine_common_resources.pak";
+
   constexpr char kWebUiResourcesPakPath[] = "ui/resources/webui_resources.pak";
   constexpr char kWebUiGeneratedResourcesPakPath[] =
       "ui/resources/webui_generated_resources.pak";
 
-  // TODO(1164990): Update //ui's DIR_LOCALES to use DIR_ASSETS, rather than
-  // using Override() here.
   base::FilePath asset_root;
   bool result = base::PathService::Get(base::DIR_ASSETS, &asset_root);
   DCHECK(result);
-  const base::FilePath locales_path = asset_root.AppendASCII("locales");
-  result = base::PathService::Override(ui::DIR_LOCALES, locales_path);
-  DCHECK(result);
 
-  // Initialize common locale-agnostic resources.
+  // Initialize the process-global ResourceBundle, and manually load the
+  // WebEngine locale-agnostic resources.
   const std::string locale = ui::ResourceBundle::InitSharedInstanceWithLocale(
       base::i18n::GetConfiguredLocale(), nullptr,
-      ui::ResourceBundle::LOAD_COMMON_RESOURCES);
+      ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
+  ui::SetSupportedResourceScaleFactors({ui::k100Percent});
+  ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
+      asset_root.Append(kCommonResourcesPakPath), ui::kScaleFactorNone);
   VLOG(1) << "Loaded resources including locale: " << locale;
 
   // Conditionally load WebUI resource PAK if visible from namespace.
@@ -53,14 +53,14 @@ void InitializeResources() {
       asset_root.Append(kWebUiResourcesPakPath);
   if (base::PathExists(webui_resources_path)) {
     ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-        webui_resources_path, ui::SCALE_FACTOR_NONE);
+        webui_resources_path, ui::kScaleFactorNone);
   }
 
   const base::FilePath webui_generated_resources_path =
       asset_root.Append(kWebUiGeneratedResourcesPakPath);
   if (base::PathExists(webui_generated_resources_path)) {
     ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-        webui_generated_resources_path, ui::SCALE_FACTOR_NONE);
+        webui_generated_resources_path, ui::kScaleFactorNone);
   }
 }
 
@@ -71,9 +71,7 @@ WebEngineMainDelegate* WebEngineMainDelegate::GetInstanceForTest() {
   return g_current_web_engine_main_delegate;
 }
 
-WebEngineMainDelegate::WebEngineMainDelegate(
-    fidl::InterfaceRequest<fuchsia::web::Context> request)
-    : request_(std::move(request)) {
+WebEngineMainDelegate::WebEngineMainDelegate() {
   g_current_web_engine_main_delegate = this;
 }
 
@@ -130,8 +128,7 @@ content::ContentClient* WebEngineMainDelegate::CreateContentClient() {
 content::ContentBrowserClient*
 WebEngineMainDelegate::CreateContentBrowserClient() {
   DCHECK(!browser_client_);
-  browser_client_ =
-      std::make_unique<WebEngineContentBrowserClient>(std::move(request_));
+  browser_client_ = std::make_unique<WebEngineContentBrowserClient>();
   return browser_client_.get();
 }
 

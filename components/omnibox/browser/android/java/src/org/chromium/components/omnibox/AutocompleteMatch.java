@@ -12,6 +12,7 @@ import androidx.collection.ArraySet;
 import androidx.core.util.ObjectsCompat;
 
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.browser.omnibox.MatchClassificationStyle;
 import org.chromium.components.query_tiles.QueryTile;
 import org.chromium.url.GURL;
@@ -81,25 +82,26 @@ public class AutocompleteMatch {
     private final int mType;
     private final @NonNull Set<Integer> mSubtypes;
     private final boolean mIsSearchType;
-    private final String mDisplayText;
+    private String mDisplayText;
     private final List<MatchClassification> mDisplayTextClassifications;
-    private final String mDescription;
-    private final List<MatchClassification> mDescriptionClassifications;
-    private final SuggestionAnswer mAnswer;
+    private String mDescription;
+    private List<MatchClassification> mDescriptionClassifications;
+    private SuggestionAnswer mAnswer;
     private final String mFillIntoEdit;
-    private final GURL mUrl;
+    private GURL mUrl;
     private final GURL mImageUrl;
     private final String mImageDominantColor;
     private final int mRelevance;
     private final int mTransition;
     private final boolean mIsDeletable;
-    private final String mPostContentType;
-    private final byte[] mPostData;
+    private String mPostContentType;
+    private byte[] mPostData;
     private final int mGroupId;
     private final List<QueryTile> mQueryTiles;
-    private final byte[] mClipboardImageData;
-    private final boolean mHasTabMatch;
+    private byte[] mClipboardImageData;
+    private boolean mHasTabMatch;
     private final @Nullable List<NavsuggestTile> mNavsuggestTiles;
+    private long mNativeMatch;
 
     public AutocompleteMatch(int nativeType, Set<Integer> subtypes, boolean isSearchType,
             int relevance, int transition, String displayText,
@@ -139,7 +141,7 @@ public class AutocompleteMatch {
     }
 
     @CalledByNative
-    private static AutocompleteMatch build(int nativeType, int[] nativeSubtypes,
+    private static AutocompleteMatch build(long nativeObject, int nativeType, int[] nativeSubtypes,
             boolean isSearchType, int relevance, int transition, String contents,
             int[] contentClassificationOffsets, int[] contentClassificationStyles,
             String description, int[] descriptionClassificationOffsets,
@@ -155,13 +157,6 @@ public class AutocompleteMatch {
                     contentClassificationOffsets[i], contentClassificationStyles[i]));
         }
 
-        assert descriptionClassificationOffsets.length == descriptionClassificationStyles.length;
-        List<MatchClassification> descriptionClassifications = new ArrayList<>();
-        for (int i = 0; i < descriptionClassificationOffsets.length; i++) {
-            descriptionClassifications.add(new MatchClassification(
-                    descriptionClassificationOffsets[i], descriptionClassificationStyles[i]));
-        }
-
         assert navsuggestTitles.length == navsuggestUrls.length;
         List<NavsuggestTile> navsuggestTiles = new ArrayList<>();
         for (int i = 0; i < navsuggestTitles.length; i++) {
@@ -173,10 +168,77 @@ public class AutocompleteMatch {
             subtypes.add(nativeSubtypes[i]);
         }
 
-        return new AutocompleteMatch(nativeType, subtypes, isSearchType, relevance, transition,
-                contents, contentClassifications, description, descriptionClassifications, answer,
-                fillIntoEdit, url, imageUrl, imageDominantColor, isDeletable, postContentType,
-                postData, groupId, tiles, clipboardImageData, hasTabMatch, navsuggestTiles);
+        AutocompleteMatch match = new AutocompleteMatch(nativeType, subtypes, isSearchType,
+                relevance, transition, contents, contentClassifications, description,
+                new ArrayList<>(), answer, fillIntoEdit, url, imageUrl, imageDominantColor,
+                isDeletable, postContentType, postData, groupId, tiles, clipboardImageData,
+                hasTabMatch, navsuggestTiles);
+        match.updateNativeObjectRef(nativeObject);
+        match.setDescription(
+                description, descriptionClassificationOffsets, descriptionClassificationStyles);
+        return match;
+    }
+
+    @CalledByNative
+    private void updateNativeObjectRef(long nativeMatch) {
+        assert nativeMatch != 0 : "Invalid native object.";
+        mNativeMatch = nativeMatch;
+    }
+
+    /** Returns a reference to Native AutocompleteMatch object. */
+    long getNativeObjectRef() {
+        return mNativeMatch;
+    }
+
+    /**
+     * Update the suggestion with content retrieved from clilpboard.
+     *
+     * @param contents The main text content for the suggestion.
+     * @param url The URL associated with the suggestion.
+     * @param postContentType Type of post content data.
+     * @param postData Post content data.
+     * @param clipboardImageData Clipboard image data content (if any).
+     */
+    @CalledByNative
+    private void updateClipboardContent(String contents, GURL url, @Nullable String postContentType,
+            @Nullable byte[] postData, @Nullable byte[] clipboardImageData) {
+        mDisplayText = contents;
+        mUrl = url;
+        mPostContentType = postContentType;
+        mPostData = postData;
+        mClipboardImageData = clipboardImageData;
+    }
+
+    @CalledByNative
+    private void destroy() {
+        mNativeMatch = 0;
+    }
+
+    @CalledByNative
+    private void setDestinationUrl(GURL url) {
+        mUrl = url;
+    }
+
+    @CalledByNative
+    private void setAnswer(SuggestionAnswer answer) {
+        mAnswer = answer;
+    }
+
+    @CalledByNative
+    private void setDescription(String description, int[] descriptionClassificationOffsets,
+            int[] descriptionClassificationStyles) {
+        assert descriptionClassificationOffsets.length == descriptionClassificationStyles.length;
+        mDescription = description;
+        mDescriptionClassifications.clear();
+        for (int i = 0; i < descriptionClassificationOffsets.length; i++) {
+            mDescriptionClassifications.add(new MatchClassification(
+                    descriptionClassificationOffsets[i], descriptionClassificationStyles[i]));
+        }
+    }
+
+    @CalledByNative
+    private void updateMatchingTab(boolean hasTabMatch) {
+        mHasTabMatch = hasTabMatch;
     }
 
     public int getType() {
@@ -295,7 +357,8 @@ public class AutocompleteMatch {
         }
 
         AutocompleteMatch suggestion = (AutocompleteMatch) obj;
-        return mType == suggestion.mType && ObjectsCompat.equals(mSubtypes, suggestion.mSubtypes)
+        return mType == suggestion.mType && mNativeMatch == suggestion.mNativeMatch
+                && ObjectsCompat.equals(mSubtypes, suggestion.mSubtypes)
                 && TextUtils.equals(mFillIntoEdit, suggestion.mFillIntoEdit)
                 && TextUtils.equals(mDisplayText, suggestion.mDisplayText)
                 && ObjectsCompat.equals(
@@ -326,6 +389,23 @@ public class AutocompleteMatch {
         return mNavsuggestTiles;
     }
 
+    /**
+     * Retrieve the clipboard information and update this instance of AutocompleteMatch.
+     * Will terminate immediately if the native counterpart of the AutocompleteMatch object does not
+     * exist.
+     * The callback is guaranteed to be executed at all times.
+     *
+     * @param callback The callback to run when update completes.
+     */
+    public void updateWithClipboardContent(Runnable callback) {
+        if (mNativeMatch == 0) {
+            callback.run();
+            return;
+        }
+
+        AutocompleteMatchJni.get().updateWithClipboardContent(mNativeMatch, callback);
+    }
+
     @Override
     public String toString() {
         List<String> pieces = Arrays.asList("mType=" + mType, "mSubtypes=" + mSubtypes.toString(),
@@ -338,5 +418,10 @@ public class AutocompleteMatch {
                 "mDisplayTextClassifications=" + mDisplayTextClassifications,
                 "mDescriptionClassifications=" + mDescriptionClassifications, "mAnswer=" + mAnswer);
         return pieces.toString();
+    }
+
+    @NativeMethods
+    interface Natives {
+        void updateWithClipboardContent(long nativeAutocompleteMatch, Runnable callback);
     }
 }

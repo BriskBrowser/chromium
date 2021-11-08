@@ -39,10 +39,13 @@ enum class ProfileKeepAliveOrigin {
   // On macOS, Chrome doesn't exit when all windows are closed. Keep one Profile
   // alive so we can open windows for the last-used Profile when the user
   // "launches" Chrome again.
-  kAppControllerMac = 5,
+  //
+  // DEPRECATED: Not currently in use, but left here for consistency with
+  // enums.xml.
+  // kAppControllerMac = 5,
 
-  // In the middle of clearing browsing data during browsing exit, for the
-  // ClearBrowsingDataOnExistList policy.
+  // In the middle of clearing browsing data, e.g. when the user deletes it via
+  // the Profile menu, or during ephemeral profile teardown.
   kClearingBrowsingData = 6,
 
   // An app (Chrome app, web app, etc.) has a window open.
@@ -71,10 +74,33 @@ enum class ProfileKeepAliveOrigin {
   // A DevTools window is open.
   kDevToolsWindow = 14,
 
-  // A Web App is being uninstalled.
-  kAppUninstallation = 15,
+  // A web app permission dialog window is open.
+  kWebAppPermissionDialogWindow = 15,
 
-  kMaxValue = kAppUninstallation,
+  // Data for Clear on Exit is being deleted.
+  kSessionDataDeleter = 16,
+
+  // DEPRECATED: kWebAppProtocolHandlerLaunch = 17,
+
+  // An extension is being updated.
+  kExtensionUpdater = 18,
+
+  // This profile is being created (and is used to render GAIA sign-in flow).
+  kProfileCreationFlow = 19,
+
+  // The user just closed a notification. This might cause writing to the
+  // profile's NotificationDatabase, so wait for the event to finish processing.
+  kPendingNotificationCloseEvent = 20,
+
+  // The "Send Feedback" WebUI dialog is visible. Because it renders with WebUI,
+  // this dialog holds a RenderProcessHost. Closing the Profile before the RPH
+  // goes away would cause all sorts of problems...
+  kFeedbackDialog = 21,
+
+  // A web app is being updated.
+  kWebAppUpdate = 22,
+
+  kMaxValue = kWebAppUpdate,
 };
 
 std::ostream& operator<<(std::ostream& out,

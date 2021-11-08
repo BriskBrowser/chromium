@@ -20,6 +20,11 @@ namespace network {
 // which should be owned by the set of its receivers.
 class COMPONENT_EXPORT(NETWORK_CPP) SelfDeletingURLLoaderFactory
     : public mojom::URLLoaderFactory {
+ public:
+  SelfDeletingURLLoaderFactory(const SelfDeletingURLLoaderFactory&) = delete;
+  SelfDeletingURLLoaderFactory& operator=(const SelfDeletingURLLoaderFactory&) =
+      delete;
+
  protected:
   // Constructs SelfDeletingURLLoaderFactory object that will self-delete
   // once all receivers disconnect (including |factory_receiver| below as well
@@ -28,6 +33,10 @@ class COMPONENT_EXPORT(NETWORK_CPP) SelfDeletingURLLoaderFactory
       mojo::PendingReceiver<mojom::URLLoaderFactory> factory_receiver);
 
   ~SelfDeletingURLLoaderFactory() override;
+
+  // The override below is marked as |final| to make sure derived classes do not
+  // accidentally side-step lifetime management.
+  void Clone(mojo::PendingReceiver<mojom::URLLoaderFactory> loader) final;
 
   // Sometimes a derived class can no longer function, even when the set of
   // |receivers_| is still non-empty.  This should be rare (typically the
@@ -44,15 +53,9 @@ class COMPONENT_EXPORT(NETWORK_CPP) SelfDeletingURLLoaderFactory
   THREAD_CHECKER(thread_checker_);
 
  private:
-  // The override below is marked as |final| to make sure derived classes do not
-  // accidentally side-step lifetime management.
-  void Clone(mojo::PendingReceiver<mojom::URLLoaderFactory> loader) final;
-
   void OnDisconnect();
 
   mojo::ReceiverSet<mojom::URLLoaderFactory> receivers_;
-
-  DISALLOW_COPY_AND_ASSIGN(SelfDeletingURLLoaderFactory);
 };
 
 }  // namespace network

@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ASH_DISPLAY_TOUCH_CALIBRATOR_TOUCH_CALIBRATOR_CONTROLLER_H_
-#define ASH_DISPLAY_TOUCH_CALIBRATOR_TOUCH_CALIBRATOR_CONTROLLER_H_
+#ifndef ASH_DISPLAY_TOUCH_CALIBRATOR_CONTROLLER_H_
+#define ASH_DISPLAY_TOUCH_CALIBRATOR_CONTROLLER_H_
 
 #include <map>
 
 #include "ash/ash_export.h"
 #include "ash/display/window_tree_host_manager.h"
+#include "base/gtest_prod_util.h"
 #include "base/time/time.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/managed_display_info.h"
@@ -43,6 +44,11 @@ class ASH_EXPORT TouchCalibratorController
   static const base::TimeDelta kTouchIntervalThreshold;
 
   TouchCalibratorController();
+
+  TouchCalibratorController(const TouchCalibratorController&) = delete;
+  TouchCalibratorController& operator=(const TouchCalibratorController&) =
+      delete;
+
   ~TouchCalibratorController() override;
 
   // ui::EventHandler
@@ -130,9 +136,7 @@ class ASH_EXPORT TouchCalibratorController
   // linked to. We need to undo these transformations before recording the event
   // locations.
   gfx::Transform event_transformer_;
-
-  DISALLOW_COPY_AND_ASSIGN(TouchCalibratorController);
 };
 
 }  // namespace ash
-#endif  // ASH_DISPLAY_TOUCH_CALIBRATOR_TOUCH_CALIBRATOR_CONTROLLER_H_
+#endif  // ASH_DISPLAY_TOUCH_CALIBRATOR_CONTROLLER_H_

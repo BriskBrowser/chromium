@@ -16,11 +16,11 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
-#include "base/task_runner_util.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "dbus/bus.h"
@@ -105,7 +105,7 @@ void BluetoothSocketBlueZ::Connect(const BluetoothDeviceBlueZ* device,
   device_address_ = device->GetAddress();
   device_path_ = device->object_path();
   uuid_ = uuid;
-  options_.reset(new bluez::BluetoothProfileManagerClient::Options());
+  options_ = std::make_unique<bluez::BluetoothProfileManagerClient::Options>();
   if (security_level == SECURITY_LEVEL_LOW)
     options_->require_authentication = std::make_unique<bool>(false);
 
@@ -134,18 +134,18 @@ void BluetoothSocketBlueZ::Listen(
   adapter_->AddObserver(this);
 
   uuid_ = uuid;
-  options_.reset(new bluez::BluetoothProfileManagerClient::Options());
+  options_ = std::make_unique<bluez::BluetoothProfileManagerClient::Options>();
   if (service_options.name)
-    options_->name.reset(new std::string(*service_options.name));
+    options_->name = std::make_unique<std::string>(*service_options.name);
 
   switch (socket_type) {
     case kRfcomm:
-      options_->channel.reset(
-          new uint16_t(service_options.channel ? *service_options.channel : 0));
+      options_->channel = std::make_unique<uint16_t>(
+          service_options.channel ? *service_options.channel : 0);
       break;
     case kL2cap:
-      options_->psm.reset(
-          new uint16_t(service_options.psm ? *service_options.psm : 0));
+      options_->psm = std::make_unique<uint16_t>(
+          service_options.psm ? *service_options.psm : 0);
       break;
     default:
       NOTREACHED();
@@ -239,14 +239,15 @@ void BluetoothSocketBlueZ::RegisterProfile(
   DVLOG(1) << uuid_.canonical_value() << " on " << device_path_.value()
            << ": Acquiring profile.";
 
-  auto copyable_error_callback =
-      base::AdaptCallbackForRepeating(std::move(error_callback));
+  auto split_error_callback =
+      base::SplitOnceCallback(std::move(error_callback));
   adapter->UseProfile(
       uuid_, device_path_, *options_, this,
       base::BindOnce(&BluetoothSocketBlueZ::OnRegisterProfile, this,
-                     std::move(success_callback), copyable_error_callback),
+                     std::move(success_callback),
+                     std::move(split_error_callback.first)),
       base::BindOnce(&BluetoothSocketBlueZ::OnRegisterProfileError, this,
-                     copyable_error_callback));
+                     std::move(split_error_callback.second)));
 }
 
 void BluetoothSocketBlueZ::OnRegisterProfile(
@@ -313,13 +314,32 @@ void BluetoothSocketBlueZ::AdapterPresentChanged(BluetoothAdapter* adapter,
                                                  bool present) {
   DCHECK(ui_task_runner()->RunsTasksInCurrentSequence());
 
+  // Some boards cut power to their Bluetooth chip during suspension, which
+  // leads to a AdapterPresentChanged(present=false) event on wake (quickly
+  // followed by an AdapterPresentChanged(present=true) event).
+  // This 'present=false' event can occur in the middle of
+  // BluetoothSocketBlueZ's asynchronous process of acquiring |profile_|. That
+  // means the following 2 surprising edge-cases can occur on a few select
+  // boards:
+  //   1) |profile_| may not be initialized when a 'present=false' event occurs.
+  //      We must check |profile_| before calling UnregisterProfile().
+  //   2) |profile_| may already be initialized when a 'present=true' event
+  //      occurs. We must check |profile_| before attempting to redundantly
+  //      initialize it via BluetoothAdapterBlueZ::UseProfile().
+
   if (!present) {
-    // Adapter removed, we can't use the profile anymore.
-    UnregisterProfile();
+    // Edge-case (1) described above.
+    if (profile_) {
+      // Adapter removed, we can't use the profile anymore.
+      UnregisterProfile();
+    }
     return;
   }
 
-  DCHECK(!profile_);
+  // Edge-case (2) described above.
+  if (profile_) {
+    return;
+  }
 
   DVLOG(1) << uuid_.canonical_value() << " on " << device_path_.value()
            << ": Acquiring profile.";

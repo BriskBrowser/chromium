@@ -8,11 +8,12 @@
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/views/apps/app_info_dialog/app_info_label.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
+#include "extensions/common/extension.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
 
@@ -24,6 +25,8 @@ const int kSpacingBetweenKeyAndStartOfValue = 3;
 
 AppInfoPanel::AppInfoPanel(Profile* profile, const extensions::Extension* app)
     : profile_(profile), app_(app) {
+  // Bookmark Apps have been replaced by Web Apps.
+  DCHECK(!app_->from_bookmark());
 }
 
 AppInfoPanel::~AppInfoPanel() {
@@ -40,7 +43,7 @@ void AppInfoPanel::OpenLink(const GURL& url) {
 }
 
 std::unique_ptr<views::Label> AppInfoPanel::CreateHeading(
-    const base::string16& text) const {
+    const std::u16string& text) const {
   auto label = std::make_unique<AppInfoLabel>(text);
   label->SetFontList(ui::ResourceBundle::GetSharedInstance().GetFontList(
       ui::ResourceBundle::MediumFont));

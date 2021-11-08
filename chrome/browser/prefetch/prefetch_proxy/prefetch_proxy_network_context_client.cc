@@ -8,6 +8,7 @@
 
 #include "build/chromeos_buildflags.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "services/network/public/mojom/trust_tokens.mojom.h"
 
 PrefetchProxyNetworkContextClient::PrefetchProxyNetworkContextClient() =
     default;
@@ -32,16 +33,6 @@ void PrefetchProxyNetworkContextClient::OnCanSendDomainReliabilityUpload(
     const GURL& origin,
     OnCanSendDomainReliabilityUploadCallback callback) {
   std::move(callback).Run(false);
-}
-
-void PrefetchProxyNetworkContextClient::OnClearSiteData(
-    int32_t process_id,
-    int32_t routing_id,
-    const GURL& url,
-    const std::string& header_value,
-    int load_flags,
-    OnClearSiteDataCallback callback) {
-  std::move(callback).Run();
 }
 
 #if defined(OS_ANDROID)

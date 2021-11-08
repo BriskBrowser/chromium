@@ -14,7 +14,7 @@
 #endif
 
 #if defined(OS_WIN)
-#include <windows.h>
+#include "base/win/windows_types.h"
 #endif
 
 // Barebones TLS implementation for use in PartitionAlloc. This doesn't use the
@@ -23,7 +23,7 @@
 namespace base {
 namespace internal {
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 typedef pthread_key_t PartitionTlsKey;
 
 ALWAYS_INLINE bool PartitionTlsCreate(PartitionTlsKey* key,

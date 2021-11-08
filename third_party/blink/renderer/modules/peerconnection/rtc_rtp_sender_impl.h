@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/peerconnection/webrtc_media_stream_track_adapter_map.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_rtp_sender_platform.h"
@@ -186,9 +186,9 @@ class MODULES_EXPORT RTCRtpSenderOnlyTransceiver
   webrtc::RtpTransceiverDirection Direction() const override;
   webrtc::RTCError SetDirection(
       webrtc::RtpTransceiverDirection direction) override;
-  base::Optional<webrtc::RtpTransceiverDirection> CurrentDirection()
+  absl::optional<webrtc::RtpTransceiverDirection> CurrentDirection()
       const override;
-  base::Optional<webrtc::RtpTransceiverDirection> FiredDirection()
+  absl::optional<webrtc::RtpTransceiverDirection> FiredDirection()
       const override;
   webrtc::RTCError SetCodecPreferences(
       Vector<webrtc::RtpCodecCapability>) override;

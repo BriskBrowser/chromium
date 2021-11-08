@@ -7,6 +7,14 @@
 
 class PrefService;
 
+// Values for the BrowserSignin policy.
+// VALUES MUST COINCIDE WITH THE BrowserSignin POLICY DEFINITION.
+enum class BrowserSigninMode {
+  kDisabled = 0,
+  kEnabled = 1,
+  kForced = 2,
+};
+
 // The enum class for IncognitoModeAvalibility pref value, explains the meaning
 // of each value.
 enum class IncognitoModePrefs {
@@ -20,6 +28,9 @@ enum class IncognitoModePrefs {
   // Normal mode is not available for browsing.
   kForced,
 };
+
+// Returns true if IncognitoModeAvailability policy is set by enterprise.
+bool IsIncognitoPolicyApplied(PrefService* pref_service);
 
 // Returns true if incognito mode is disabled by enterprise policy.
 bool IsIncognitoModeDisabled(PrefService* pref_service);

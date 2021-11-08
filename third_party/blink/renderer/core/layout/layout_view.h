@@ -23,6 +23,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_VIEW_H_
 
 #include <memory>
+
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/public/mojom/scroll/scrollbar_mode.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/hit_test_cache.h"
@@ -121,20 +123,18 @@ class CORE_EXPORT LayoutView final : public LayoutBlockFlow {
   int ViewHeight(
       IncludeScrollbarsInRect scrollbar_inclusion = kExcludeScrollbars) const {
     NOT_DESTROYED();
-    return GetLayoutSize(scrollbar_inclusion).Height();
+    return GetLayoutSize(scrollbar_inclusion).height();
   }
   int ViewWidth(
       IncludeScrollbarsInRect scrollbar_inclusion = kExcludeScrollbars) const {
     NOT_DESTROYED();
-    return GetLayoutSize(scrollbar_inclusion).Width();
+    return GetLayoutSize(scrollbar_inclusion).width();
   }
 
   int ViewLogicalWidth(IncludeScrollbarsInRect = kExcludeScrollbars) const;
   int ViewLogicalHeight(IncludeScrollbarsInRect = kExcludeScrollbars) const;
 
   LayoutUnit ViewLogicalHeightForPercentages() const;
-
-  float ZoomFactor() const;
 
   LocalFrameView* GetFrameView() const {
     NOT_DESTROYED();
@@ -212,7 +212,7 @@ class CORE_EXPORT LayoutView final : public LayoutBlockFlow {
 
   ViewFragmentationContext* FragmentationContext() const {
     NOT_DESTROYED();
-    return fragmentation_context_.get();
+    return fragmentation_context_;
   }
 
   LayoutUnit PageLogicalHeight() const {
@@ -230,7 +230,6 @@ class CORE_EXPORT LayoutView final : public LayoutBlockFlow {
   }
 
   PaintLayerCompositor* Compositor();
-  bool UsesCompositing() const;
 
   PhysicalRect DocumentRect() const;
 
@@ -283,7 +282,11 @@ class CORE_EXPORT LayoutView final : public LayoutBlockFlow {
     NOT_DESTROYED();
     needs_marker_counter_update_ = true;
   }
-  void UpdateMarkersAndCountersAfterStyleChange();
+
+  // Update generated markers and counters after style and layout tree update.
+  // container - The container for container queries, otherwise nullptr.
+  void UpdateMarkersAndCountersAfterStyleChange(
+      LayoutObject* container = nullptr);
 
   bool BackgroundIsKnownToBeOpaqueInRect(
       const PhysicalRect& local_rect) const override;
@@ -353,9 +356,6 @@ class CORE_EXPORT LayoutView final : public LayoutBlockFlow {
                           MapCoordinatesFlags) const override;
 
  private:
-  const LayoutObject* PushMappingToContainer(
-      const LayoutBoxModelObject* ancestor_to_stop_at,
-      LayoutGeometryMap&) const override;
   bool CanHaveChildren() const override;
 
   void UpdateBlockLayout(bool relayout_children) override;
@@ -390,7 +390,7 @@ class CORE_EXPORT LayoutView final : public LayoutBlockFlow {
   // See the class comment for more details.
   LayoutState* layout_state_;
 
-  std::unique_ptr<ViewFragmentationContext> fragmentation_context_;
+  Member<ViewFragmentationContext> fragmentation_context_;
   std::unique_ptr<NamedPagesMapper> named_pages_mapper_;
   Member<PaintLayerCompositor> compositor_;
   scoped_refptr<IntervalArena> interval_arena_;

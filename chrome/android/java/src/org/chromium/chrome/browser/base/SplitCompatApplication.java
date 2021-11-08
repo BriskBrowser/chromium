@@ -23,6 +23,7 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.EarlyTraceEvent;
 import org.chromium.base.JNIUtils;
 import org.chromium.base.LocaleUtils;
+import org.chromium.base.Log;
 import org.chromium.base.PathUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.library_loader.LibraryLoader;
@@ -30,6 +31,7 @@ import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.memory.MemoryPressureMonitor;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.AsyncTask;
+import org.chromium.build.BuildConfig;
 import org.chromium.chrome.browser.ProductConfig;
 import org.chromium.chrome.browser.crash.ApplicationStatusTracker;
 import org.chromium.chrome.browser.crash.FirebaseConfig;
@@ -38,8 +40,10 @@ import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.language.GlobalAppLocaleController;
 import org.chromium.chrome.browser.metrics.UmaUtils;
+import org.chromium.chrome.browser.version.ChromeVersionInfo;
 import org.chromium.components.embedder_support.application.FontPreloadingWorkaround;
 import org.chromium.components.module_installer.util.ModuleUtil;
+import org.chromium.components.version_info.VersionConstants;
 import org.chromium.ui.base.ResourceBundle;
 
 /**
@@ -51,6 +55,7 @@ import org.chromium.ui.base.ResourceBundle;
  * {@link SplitChromeApplication}.
  */
 public class SplitCompatApplication extends Application {
+    private static final String TAG = "SplitCompatApp";
     private static final String COMMAND_LINE_FILE = "chrome-command-line";
     private static final String ATTACH_BASE_CONTEXT_EVENT = "ChromeApplication.attachBaseContext";
     // Public to allow use in ChromeBackupAgent
@@ -111,7 +116,14 @@ public class SplitCompatApplication extends Application {
     // Quirk: context.getApplicationContext() returns null during this method.
     @Override
     protected void attachBaseContext(Context context) {
+        boolean isIsolatedProcess = ContextUtils.isIsolatedProcess();
         boolean isBrowserProcess = isBrowserProcess();
+        // Using concatenation rather than %s to allow values to be inlined by R8.
+        Log.i(TAG,
+                "Launched version=" + VersionConstants.PRODUCT_VERSION
+                        + " minSdkVersion=" + BuildConfig.MIN_SDK_VERSION
+                        + " isBundle=" + ProductConfig.IS_BUNDLE + " processName=%s isIsolated=%s",
+                ContextUtils.getProcessName(), isIsolatedProcess);
 
         if (isBrowserProcess) {
             UmaUtils.recordMainEntryPointTime();
@@ -141,6 +153,14 @@ public class SplitCompatApplication extends Application {
         AsyncTask.takeOverAndroidThreadPool();
         JNIUtils.setClassLoader(getClassLoader());
         ResourceBundle.setAvailablePakLocales(ProductConfig.LOCALES);
+
+        // Temporarily disallow a LibraryLoader feature while a performance regression associated
+        // with it is being investigated. See http://crbug.com/1154224#c55.
+        if (!ChromeVersionInfo.isCanaryBuild() && !ChromeVersionInfo.isDevBuild()
+                && !ChromeVersionInfo.isLocalBuild()) {
+            LibraryLoader.setDisallowChromiumLinkerInZygote();
+        }
+
         LibraryLoader.getInstance().setLinkerImplementation(
                 ProductConfig.USE_CHROMIUM_LINKER, ProductConfig.USE_MODERN_LINKER);
         LibraryLoader.getInstance().enableJniChecks();
@@ -190,7 +210,7 @@ public class SplitCompatApplication extends Application {
 
         BuildInfo.setFirebaseAppId(FirebaseConfig.getFirebaseAppId());
 
-        if (!ContextUtils.isIsolatedProcess()) {
+        if (!isIsolatedProcess) {
             // Incremental install disables process isolation, so things in this block will
             // actually be run for incremental apks, but not normal apks.
             PureJavaExceptionHandler.installHandler();

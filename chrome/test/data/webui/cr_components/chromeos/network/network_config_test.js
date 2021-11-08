@@ -6,10 +6,12 @@
 // #import 'chrome://os-settings/strings.m.js';
 // #import 'chrome://resources/cr_components/chromeos/network/network_config.m.js';
 
+// #import {keyEventOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 // #import {FakeNetworkConfig} from 'chrome://test/chromeos/fake_network_config_mojom.m.js';
 // #import {MojoInterfaceProviderImpl} from 'chrome://resources/cr_components/chromeos/network/mojo_interface_provider.m.js';
 // #import {OncMojo} from 'chrome://resources/cr_components/chromeos/network/onc_mojo.m.js';
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// #import {eventToPromise} from '../../../test_util.js';
 // clang-format on
 
 suite('network-config', function() {
@@ -58,6 +60,17 @@ suite('network-config', function() {
     });
   }
 
+  /**
+   * Simulate an element of id |elementId| fires enter event.
+   * @param {string} elementId
+   */
+  function simulateEnterPressedInElement(elementId) {
+    let element = networkConfig.$$(`#${elementId}`);
+    networkConfig.connectOnEnter = true;
+    assertTrue(!!element);
+    element.fire('enter', {path: [element]});
+  }
+
   suite('New WiFi Config', function() {
     setup(function() {
       mojoApi_.resetForTest();
@@ -95,6 +108,8 @@ suite('network-config', function() {
       wifi1.source = chromeos.networkConfig.mojom.OncSource.kDevice;
       wifi1.typeProperties.wifi.security =
           chromeos.networkConfig.mojom.SecurityType.kWepPsk;
+      wifi1.typeProperties.wifi.ssid.activeValue = '11111111111';
+      wifi1.typeProperties.wifi.passphrase = {activeValue: 'test_passphrase'};
       setNetworkConfig(wifi1);
       initNetworkConfig();
     });
@@ -112,6 +127,118 @@ suite('network-config', function() {
         assertTrue(!!networkConfig.$$('#ssid'));
         assertTrue(!!networkConfig.$$('#security'));
         assertTrue(networkConfig.$$('#security').disabled);
+      });
+    });
+
+    test('WiFi input fires enter event on keydown', function() {
+      return flushAsync().then(() => {
+        assertFalse(networkConfig.propertiesSent_);
+        simulateEnterPressedInElement('ssid');
+        assertTrue(networkConfig.propertiesSent_);
+      });
+    });
+
+    test('Remove error text when input key is pressed', function() {
+      return flushAsync().then(() => {
+        networkConfig.error = 'bad-passphrase';
+        let passwordInput = networkConfig.$$('#wifi-passphrase');
+        assertTrue(!!passwordInput);
+        assertTrue(!!networkConfig.error);
+
+        passwordInput.fire('keypress');
+        Polymer.dom.flush();
+        assertFalse(!!networkConfig.error);
+      });
+    });
+  });
+
+  suite('WireGuard', function() {
+    setup(function() {
+      mojoApi_.resetForTest();
+      setNetworkType(chromeos.networkConfig.mojom.NetworkType.kVPN);
+      initNetworkConfig();
+    });
+
+    teardown(function() {
+      PolymerTest.clearBody();
+    });
+
+    test('Switch VPN Type', function() {
+      const configProperties = networkConfig.get('configProperties_');
+      networkConfig.set('vpnType_', 'OpenVPN');
+      Polymer.dom.flush();
+      assertFalse(!!configProperties.typeConfig.vpn.wireguard);
+      assertFalse(!!networkConfig.$$('#wireguard-ip-input'));
+      networkConfig.set('vpnType_', 'WireGuard');
+      Polymer.dom.flush();
+      assertFalse(!!configProperties.typeConfig.vpn.openvpn);
+      assertTrue(!!configProperties.typeConfig.vpn.wireguard);
+      assertTrue(!!networkConfig.$$('#wireguard-ip-input'));
+    });
+
+    test('Switch key config type', function() {
+      networkConfig.set('vpnType_', 'WireGuard');
+      Polymer.dom.flush();
+      assertFalse(!!networkConfig.$$('#wireguardPrivateKeyInput'));
+      networkConfig.set('wireguardKeyType_', 'UserInput');
+      return flushAsync().then(() => {
+        assertTrue(!!networkConfig.$$('#wireguardPrivateKeyInput'));
+      });
+    });
+
+    test('Enable Connect', function() {
+      networkConfig.set('vpnType_', 'WireGuard');
+      Polymer.dom.flush();
+      assertFalse(networkConfig.enableConnect);
+      networkConfig.set('ipAddressInput_', '10.10.0.1');
+      const configProperties = networkConfig.get('configProperties_');
+      configProperties.name = 'test-wireguard';
+      const peer = configProperties.typeConfig.vpn.wireguard.peers[0];
+      peer.publicKey = 'KFhwdv4+jKpSXMW6xEUVtOe4Mo8l/xOvGmshmjiHx1Y=';
+      assertFalse(networkConfig.enableConnect);
+      peer.endpoint = '192.168.66.66:32000';
+      peer.allowedIps = '0.0.0.0/0';
+      return flushAsync().then(() => {
+        assertTrue(networkConfig.enableConnect);
+      });
+    });
+  });
+
+  suite('Existing WireGuard', function() {
+    setup(function() {
+      mojoApi_.resetForTest();
+      const wg1 = OncMojo.getDefaultManagedProperties(
+          chromeos.networkConfig.mojom.NetworkType.kVPN, 'someguid', '');
+      wg1.typeProperties.vpn.type =
+          chromeos.networkConfig.mojom.VpnType.kWireGuard;
+      wg1.typeProperties.vpn.wireguard = {
+        peers: {
+          activeValue: [{
+            publicKey: 'KFhwdv4+jKpSXMW6xEUVtOe4Mo8l/xOvGmshmjiHx1Y=',
+            endpoint: '192.168.66.66:32000',
+            allowedIps: '0.0.0.0/0',
+          }]
+        }
+      };
+      wg1.staticIpConfig = {ipAddress: {activeValue: '10.10.0.1'}};
+      setNetworkConfig(wg1);
+      initNetworkConfig();
+    });
+
+    teardown(function() {
+      PolymerTest.clearBody();
+    });
+
+    test('Value Reflected', function() {
+      return flushAsync().then(() => {
+        const configProperties = networkConfig.get('configProperties_');
+        const peer = configProperties.typeConfig.vpn.wireguard.peers[0];
+        assertEquals('UseCurrent', networkConfig.wireguardKeyType_);
+        assertEquals('10.10.0.1', networkConfig.get('ipAddressInput_'));
+        assertEquals(
+            'KFhwdv4+jKpSXMW6xEUVtOe4Mo8l/xOvGmshmjiHx1Y=', peer.publicKey);
+        assertEquals('192.168.66.66:32000', peer.endpoint);
+        assertEquals('0.0.0.0/0', peer.allowedIps);
       });
     });
   });
@@ -200,6 +327,26 @@ suite('network-config', function() {
       });
     });
 
+    test('New Config: Authenticated, Not secure to secure', async function() {
+      // set default to insecure network
+      setNetworkType(chromeos.networkConfig.mojom.NetworkType.kWiFi);
+      setAuthenticated();
+      initNetworkConfig();
+      await flushAsync();
+      let share = networkConfig.$$('#share');
+      assertTrue(!!share);
+      assertTrue(share.disabled);
+      assertTrue(share.checked);
+
+      // change to secure network
+      networkConfig.securityType_ =
+          chromeos.networkConfig.mojom.SecurityType.kWepPsk;
+      await flushAsync();
+      assertTrue(!!share);
+      assertFalse(share.disabled);
+      assertFalse(share.checked);
+    });
+
     // Existing networks hide the shared control in the config UI.
     test('Existing Hides Shared', function() {
       const wifi1 = OncMojo.getDefaultManagedProperties(
@@ -262,6 +409,23 @@ suite('network-config', function() {
         assertEquals('PEAP', outer.value);
       });
     });
+
+    test('Ethernet input fires enter event on keydown', function() {
+      const eth = OncMojo.getDefaultManagedProperties(
+          chromeos.networkConfig.mojom.NetworkType.kEthernet, 'eapguid', '');
+      eth.typeProperties.ethernet.authentication =
+          OncMojo.createManagedString('8021x');
+      eth.typeProperties.ethernet.eap = {
+        outer: OncMojo.createManagedString('PEAP')
+      };
+      setNetworkConfig(eth);
+      initNetworkConfig();
+      return flushAsync().then(() => {
+        assertFalse(networkConfig.propertiesSent_);
+        simulateEnterPressedInElement('oncEAPIdentity');
+        assertTrue(networkConfig.propertiesSent_);
+      });
+    });
   });
 
   suite('Certificates', function() {
@@ -292,9 +456,9 @@ suite('network-config', function() {
         return flushAsync().then(() => {
           let outer = networkConfig.$$('#outer');
           assertEquals('EAP-TLS', outer.value);
-          // Check that with no certificates, 'do-not-check' amd 'no-certs'
-          // are selected.
-          assertEquals('do-not-check', networkConfig.selectedServerCaHash_);
+          // Check that with no certificates, 'default' and 'no-certs' are
+          // selected.
+          assertEquals('default', networkConfig.selectedServerCaHash_);
           assertEquals('no-certs', networkConfig.selectedUserCertHash_);
         });
       });
@@ -306,8 +470,18 @@ suite('network-config', function() {
           chromeos.networkConfig.mojom.SecurityType.kWpaEap);
       setAuthenticated();
       mojoApi_.setCertificatesForTest(
-          [{hash: kCaHash, hardwareBacked: true, deviceWide: true}],
-          [{hash: kUserHash1, hardwareBacked: true, deviceWide: false}]);
+          [{
+            hash: kCaHash,
+            availableForNetworkAuth: true,
+            hardwareBacked: true,
+            deviceWide: true
+          }],
+          [{
+            hash: kUserHash1,
+            availableForNetworkAuth: true,
+            hardwareBacked: true,
+            deviceWide: false
+          }]);
       initNetworkConfig();
       networkConfig.shareNetwork_ = false;
       networkConfig.set('eapProperties_.outer', 'EAP-TLS');
@@ -326,9 +500,25 @@ suite('network-config', function() {
           chromeos.networkConfig.mojom.SecurityType.kWpaEap);
       setAuthenticated();
       mojoApi_.setCertificatesForTest(
-          [{hash: kCaHash, hardwareBacked: true, deviceWide: true}], [
-            {hash: kUserHash1, hardwareBacked: true, deviceWide: false},
-            {hash: kUserHash2, hardwareBacked: true, deviceWide: true}
+          [{
+            hash: kCaHash,
+            availableForNetworkAuth: true,
+            hardwareBacked: true,
+            deviceWide: true
+          }],
+          [
+            {
+              hash: kUserHash1,
+              availableForNetworkAuth: true,
+              hardwareBacked: true,
+              deviceWide: false
+            },
+            {
+              hash: kUserHash2,
+              availableForNetworkAuth: true,
+              hardwareBacked: true,
+              deviceWide: true
+            }
           ]);
       initNetworkConfig();
       networkConfig.shareNetwork_ = true;

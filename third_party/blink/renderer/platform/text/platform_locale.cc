@@ -32,10 +32,10 @@
 
 #include <memory>
 
-#include "base/macros.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/strings/grit/blink_strings.h"
 #include "third_party/blink/renderer/platform/text/date_time_format.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -48,6 +48,8 @@ class DateTimeStringBuilder : private DateTimeFormat::TokenHandler {
  public:
   // The argument objects must be alive until this object dies.
   DateTimeStringBuilder(Locale&, const DateComponents&);
+  DateTimeStringBuilder(const DateTimeStringBuilder&) = delete;
+  DateTimeStringBuilder& operator=(const DateTimeStringBuilder&) = delete;
 
   bool Build(const String&);
   String ToString();
@@ -63,8 +65,6 @@ class DateTimeStringBuilder : private DateTimeFormat::TokenHandler {
   StringBuilder builder_;
   Locale& localizer_;
   const DateComponents& date_;
-
-  DISALLOW_COPY_AND_ASSIGN(DateTimeStringBuilder);
 };
 
 DateTimeStringBuilder::DateTimeStringBuilder(Locale& localizer,
@@ -495,17 +495,21 @@ bool Locale::IsSignPrefix(UChar ch) {
 }
 
 bool Locale::HasTwoSignChars(const String& str) {
-  auto pos =
-      str.Find(WTF::BindRepeating(&Locale::IsSignPrefix, WTF::Passed(this)));
+  // Unretained is safe because callback executes synchronously in Find().
+  auto pos = str.Find(
+      WTF::BindRepeating(&Locale::IsSignPrefix, WTF::Unretained(this)));
   if (pos == kNotFound)
     return false;
-  return str.Find(WTF::BindRepeating(&Locale::IsSignPrefix, WTF::Passed(this)),
-                  pos + 1) != kNotFound;
+  // Unretained is safe because callback executes synchronously in Find().
+  return str.Find(
+             WTF::BindRepeating(&Locale::IsSignPrefix, WTF::Unretained(this)),
+             pos + 1) != kNotFound;
 }
 
 bool Locale::HasSignNotAfterE(const String& str) {
-  auto pos =
-      str.Find(WTF::BindRepeating(&Locale::IsSignPrefix, WTF::Passed(this)));
+  // Unretained is safe because callback executes synchronously in Find().
+  auto pos = str.Find(
+      WTF::BindRepeating(&Locale::IsSignPrefix, WTF::Unretained(this)));
   if (pos == kNotFound)
     return false;
   return pos == 0 || !IsE(str[pos - 1]);
@@ -516,7 +520,7 @@ bool Locale::IsDigit(UChar ch) {
   if (ch >= '0' && ch <= '9')
     return true;
   // Check each digit otherwise
-  String ch_str(&ch, 1);
+  String ch_str(&ch, 1u);
   return (ch_str == decimal_symbols_[0] || ch_str == decimal_symbols_[1] ||
           ch_str == decimal_symbols_[2] || ch_str == decimal_symbols_[3] ||
           ch_str == decimal_symbols_[4] || ch_str == decimal_symbols_[5] ||
@@ -528,13 +532,14 @@ bool Locale::IsDigit(UChar ch) {
 bool Locale::IsDecimalSeparator(UChar ch) {
   if (ch == '.')
     return true;
-  return LocalizedDecimalSeparator() == String(&ch, 1);
+  return LocalizedDecimalSeparator() == String(&ch, 1u);
 }
 
 // Is there a decimal separator in a string?
 bool Locale::HasDecimalSeparator(const String& str) {
+  // Unretained is safe because callback executes synchronously in Find().
   return str.Find(WTF::BindRepeating(&Locale::IsDecimalSeparator,
-                                     WTF::Passed(this))) != kNotFound;
+                                     WTF::Unretained(this))) != kNotFound;
 }
 
 String Locale::FormatDateTime(const DateComponents& date,

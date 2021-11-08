@@ -28,12 +28,11 @@ class MockSyncEngine : public SyncEngine {
   // ModelTypeConfigurer:
   MOCK_METHOD(void, ConfigureDataTypes, (ConfigureParams), (override));
   MOCK_METHOD(void,
-              ActivateDataType,
+              ConnectDataType,
               (ModelType, std::unique_ptr<DataTypeActivationResponse>),
               (override));
-  MOCK_METHOD(void, DeactivateDataType, (ModelType), (override));
-  MOCK_METHOD(void, ActivateProxyDataType, (ModelType), (override));
-  MOCK_METHOD(void, DeactivateProxyDataType, (ModelType), (override));
+  MOCK_METHOD(void, DisconnectDataType, (ModelType), (override));
+  MOCK_METHOD(void, SetProxyTabsDatatypeEnabled, (bool), (override));
 
   // SyncEngine:
   MOCK_METHOD(void, Initialize, (InitParams), (override));
@@ -49,14 +48,6 @@ class MockSyncEngine : public SyncEngine {
   MOCK_METHOD(void, SetEncryptionPassphrase, (const std::string&), (override));
   MOCK_METHOD(void, SetDecryptionPassphrase, (const std::string&), (override));
   MOCK_METHOD(void,
-              SetEncryptionBootstrapToken,
-              (const std::string&),
-              (override));
-  MOCK_METHOD(void,
-              SetKeystoreEncryptionBootstrapToken,
-              (const std::string&),
-              (override));
-  MOCK_METHOD(void,
               AddTrustedVaultDecryptionKeys,
               (const std::vector<std::vector<uint8_t>>&, base::OnceClosure),
               (override));
@@ -66,6 +57,10 @@ class MockSyncEngine : public SyncEngine {
   MOCK_METHOD(void,
               HasUnsyncedItemsForTest,
               (base::OnceCallback<void(bool)>),
+              (const override));
+  MOCK_METHOD(void,
+              GetThrottledDataTypesForTest,
+              (base::OnceCallback<void(ModelTypeSet)>),
               (const override));
   MOCK_METHOD(void,
               RequestBufferedProtocolEventsAndEnableForwarding,

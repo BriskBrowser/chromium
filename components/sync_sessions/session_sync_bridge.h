@@ -42,6 +42,10 @@ class SessionSyncBridge : public syncer::ModelTypeSyncBridge,
       const base::RepeatingClosure& notify_foreign_session_updated_cb,
       SyncSessionsClient* sessions_client,
       std::unique_ptr<syncer::ModelTypeChangeProcessor> change_processor);
+
+  SessionSyncBridge(const SessionSyncBridge&) = delete;
+  SessionSyncBridge& operator=(const SessionSyncBridge&) = delete;
+
   ~SessionSyncBridge() override;
 
   SessionsGlobalIdMapper* GetGlobalIdMapper();
@@ -52,10 +56,10 @@ class SessionSyncBridge : public syncer::ModelTypeSyncBridge,
       const syncer::DataTypeActivationRequest& request) override;
   std::unique_ptr<syncer::MetadataChangeList> CreateMetadataChangeList()
       override;
-  base::Optional<syncer::ModelError> MergeSyncData(
+  absl::optional<syncer::ModelError> MergeSyncData(
       std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
       syncer::EntityChangeList entity_data) override;
-  base::Optional<syncer::ModelError> ApplySyncChanges(
+  absl::optional<syncer::ModelError> ApplySyncChanges(
       std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
       syncer::EntityChangeList entity_changes) override;
   void GetData(StorageKeyList storage_keys, DataCallback callback) override;
@@ -73,7 +77,7 @@ class SessionSyncBridge : public syncer::ModelTypeSyncBridge,
 
  private:
   void OnStoreInitialized(
-      const base::Optional<syncer::ModelError>& error,
+      const absl::optional<syncer::ModelError>& error,
       std::unique_ptr<SessionStore> store,
       std::unique_ptr<syncer::MetadataBatch> metadata_batch);
   void StartLocalSessionEventHandler();
@@ -111,11 +115,9 @@ class SessionSyncBridge : public syncer::ModelTypeSyncBridge,
   };
 
   // TODO(mastiz): We should rather rename this to |syncing_state_|.
-  base::Optional<SyncingState> syncing_;
+  absl::optional<SyncingState> syncing_;
 
   base::WeakPtrFactory<SessionSyncBridge> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SessionSyncBridge);
 };
 
 }  // namespace sync_sessions

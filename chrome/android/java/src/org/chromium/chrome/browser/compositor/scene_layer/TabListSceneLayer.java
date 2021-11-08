@@ -109,7 +109,7 @@ public class TabListSceneLayer extends SceneLayer {
             int urlBarBackgroundId = R.drawable.modern_location_bar;
             boolean useIncognitoColors = t.isIncognito();
 
-            int defaultThemeColor = ChromeColors.getDefaultThemeColor(res, useIncognitoColors);
+            int defaultThemeColor = ChromeColors.getDefaultThemeColor(context, useIncognitoColors);
 
             int closeButtonColor = useIncognitoColors
                     ? Color.WHITE
@@ -161,7 +161,7 @@ public class TabListSceneLayer extends SceneLayer {
     protected int getTabListBackgroundColor(Context context) {
         int colorId = R.color.default_bg_color;
 
-        if (TabUiFeatureUtilities.isGridTabSwitcherEnabled()) {
+        if (TabUiFeatureUtilities.isGridTabSwitcherEnabled(context)) {
             if (mTabModelSelector != null && mTabModelSelector.isIncognitoSelected()) {
                 colorId = R.color.default_bg_color_dark;
             } else {

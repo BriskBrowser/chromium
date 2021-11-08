@@ -18,6 +18,10 @@ class TrayBubbleWrapper;
 class PaletteTrayTestApi {
  public:
   explicit PaletteTrayTestApi(PaletteTray* palette_tray);
+
+  PaletteTrayTestApi(const PaletteTrayTestApi&) = delete;
+  PaletteTrayTestApi& operator=(const PaletteTrayTestApi&) = delete;
+
   ~PaletteTrayTestApi();
 
   PaletteToolManager* palette_tool_manager() {
@@ -36,10 +40,11 @@ class PaletteTrayTestApi {
     palette_tray_->OnStylusStateChanged(state);
   }
 
+  // Have the tray act as though it is on a display with a stylus
+  void SetDisplayHasStylus() { palette_tray_->SetDisplayHasStylusForTesting(); }
+
  private:
   PaletteTray* palette_tray_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(PaletteTrayTestApi);
 };
 
 }  // namespace ash

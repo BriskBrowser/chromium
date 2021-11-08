@@ -5,10 +5,10 @@
 
 #include "components/update_client/updater_state.h"
 
+#include <string>
 #include <utility>
 
 #include "base/enterprise_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/branding_buildflags.h"
@@ -83,8 +83,8 @@ UpdaterState::Attributes UpdaterState::BuildAttributes() const {
 }
 
 std::string UpdaterState::NormalizeTimeDelta(const base::TimeDelta& delta) {
-  const base::TimeDelta two_weeks = base::TimeDelta::FromDays(14);
-  const base::TimeDelta two_months = base::TimeDelta::FromDays(56);
+  const base::TimeDelta two_weeks = base::Days(14);
+  const base::TimeDelta two_months = base::Days(56);
 
   std::string val;  // Contains the value to return in hours.
   if (delta <= two_weeks) {

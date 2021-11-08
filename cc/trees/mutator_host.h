@@ -8,17 +8,12 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/time/time.h"
 #include "cc/paint/element_id.h"
 #include "cc/trees/layer_tree_mutator.h"
 #include "cc/trees/mutator_host_client.h"
 #include "ui/gfx/geometry/box_f.h"
 #include "ui/gfx/geometry/vector2d_f.h"
-
-namespace gfx {
-class ScrollOffset;
-}
 
 namespace cc {
 
@@ -130,20 +125,20 @@ class MutatorHost {
 
   virtual void ImplOnlyAutoScrollAnimationCreate(
       ElementId element_id,
-      const gfx::ScrollOffset& target_offset,
-      const gfx::ScrollOffset& current_offset,
+      const gfx::Vector2dF& target_offset,
+      const gfx::Vector2dF& current_offset,
       float autoscroll_velocity,
       base::TimeDelta animation_start_offset) = 0;
 
   virtual void ImplOnlyScrollAnimationCreate(
       ElementId element_id,
-      const gfx::ScrollOffset& target_offset,
-      const gfx::ScrollOffset& current_offset,
+      const gfx::Vector2dF& target_offset,
+      const gfx::Vector2dF& current_offset,
       base::TimeDelta delayed_by,
       base::TimeDelta animation_start_offset) = 0;
   virtual bool ImplOnlyScrollAnimationUpdateTarget(
       const gfx::Vector2dF& scroll_delta,
-      const gfx::ScrollOffset& max_scroll_offset,
+      const gfx::Vector2dF& max_scroll_offset,
       base::TimeTicks frame_monotonic_time,
       base::TimeDelta delayed_by) = 0;
 
@@ -154,11 +149,18 @@ class MutatorHost {
   virtual ElementId ImplOnlyScrollAnimatingElement() const = 0;
 
   virtual size_t MainThreadAnimationsCount() const = 0;
-  virtual bool HasCustomPropertyAnimations() const = 0;
+  virtual bool HasInvalidationAnimation() const = 0;
+  virtual bool HasNativePropertyAnimation() const = 0;
   virtual bool CurrentFrameHadRAF() const = 0;
   virtual bool NextFrameHasPendingRAF() const = 0;
   virtual bool HasCanvasInvalidation() const = 0;
   virtual bool HasJSAnimation() const = 0;
+  virtual bool HasSmilAnimation() const = 0;
+
+  // Iterates through all animations and returns the minimum tick interval.
+  // Returns 0 if there is a continuous animation which should be ticked
+  // as fast as possible.
+  virtual base::TimeDelta MinimumTickInterval() const = 0;
 
   using TrackedAnimationSequenceId = size_t;
   struct PendingThroughputTrackerInfo {

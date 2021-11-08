@@ -5,59 +5,57 @@
 #include "content/browser/native_io/native_io_quota_client.h"
 
 #include "base/sequence_checker.h"
+#include "content/browser/native_io/native_io_manager.h"
 #include "content/public/browser/browser_thread.h"
-#include "url/origin.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace content {
 
-NativeIOQuotaClient::NativeIOQuotaClient() = default;
+NativeIOQuotaClient::NativeIOQuotaClient(NativeIOManager* manager)
+    : manager_(manager) {}
 
 NativeIOQuotaClient::~NativeIOQuotaClient() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
-void NativeIOQuotaClient::GetOriginUsage(const url::Origin& origin,
-                                         blink::mojom::StorageType type,
-                                         GetOriginUsageCallback callback) {
+void NativeIOQuotaClient::GetStorageKeyUsage(
+    const blink::StorageKey& storage_key,
+    blink::mojom::StorageType type,
+    GetStorageKeyUsageCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(type, blink::mojom::StorageType::kTemporary);
 
-  // TODO(crbug.com/1137788): Implement quota accounting.
-  std::move(callback).Run(0);
+  manager_->GetStorageKeyUsage(storage_key, type, std::move(callback));
   return;
 }
 
-void NativeIOQuotaClient::GetOriginsForType(
+void NativeIOQuotaClient::GetStorageKeysForType(
     blink::mojom::StorageType type,
-    GetOriginsForTypeCallback callback) {
+    GetStorageKeysForTypeCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(type, blink::mojom::StorageType::kTemporary);
 
-  std::vector<url::Origin> origins;
-  // TODO(crbug.com/1137788): Implement quota accounting.
-  std::move(callback).Run(std::move(origins));
+  manager_->GetStorageKeysForType(type, std::move(callback));
 }
 
-void NativeIOQuotaClient::GetOriginsForHost(
+void NativeIOQuotaClient::GetStorageKeysForHost(
     blink::mojom::StorageType type,
     const std::string& host,
-    GetOriginsForHostCallback callback) {
+    GetStorageKeysForHostCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(type, blink::mojom::StorageType::kTemporary);
 
-  std::vector<url::Origin> origins;
-  // TODO(crbug.com/1137788): Implement quota accounting.
-  std::move(callback).Run(std::move(origins));
+  manager_->GetStorageKeysForHost(type, std::move(host), std::move(callback));
 }
 
-void NativeIOQuotaClient::DeleteOriginData(const url::Origin& origin,
-                                           blink::mojom::StorageType type,
-                                           DeleteOriginDataCallback callback) {
+void NativeIOQuotaClient::DeleteStorageKeyData(
+    const blink::StorageKey& storage_key,
+    blink::mojom::StorageType type,
+    DeleteStorageKeyDataCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(type, blink::mojom::StorageType::kTemporary);
 
-  // TODO(crbug.com/1137788): Implement quota accounting.
-  std::move(callback).Run(blink::mojom::QuotaStatusCode::kOk);
+  manager_->DeleteStorageKeyData(storage_key, std::move(callback));
 }
 
 void NativeIOQuotaClient::PerformStorageCleanup(
@@ -65,7 +63,6 @@ void NativeIOQuotaClient::PerformStorageCleanup(
     PerformStorageCleanupCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // TODO(crbug.com/1137788): Implement quota accounting.
   std::move(callback).Run();
 }
 

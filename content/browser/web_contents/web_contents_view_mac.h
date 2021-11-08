@@ -59,6 +59,10 @@ class WebContentsViewMac : public WebContentsView,
   // because that's what was easiest when they were split.
   WebContentsViewMac(WebContentsImpl* web_contents,
                      WebContentsViewDelegate* delegate);
+
+  WebContentsViewMac(const WebContentsViewMac&) = delete;
+  WebContentsViewMac& operator=(const WebContentsViewMac&) = delete;
+
   ~WebContentsViewMac() override;
 
   // WebContentsView implementation --------------------------------------------
@@ -78,12 +82,13 @@ class WebContentsViewMac : public WebContentsView,
       RenderWidgetHost* render_widget_host) override;
   RenderWidgetHostViewBase* CreateViewForChildWidget(
       RenderWidgetHost* render_widget_host) override;
-  void SetPageTitle(const base::string16& title) override;
+  void SetPageTitle(const std::u16string& title) override;
   void RenderViewReady() override;
   void RenderViewHostChanged(RenderViewHost* old_host,
                              RenderViewHost* new_host) override;
   void SetOverscrollControllerEnabled(bool enabled) override;
   bool CloseTabAfterEventTrackingIfNeeded() override;
+  void OnCapturerCountChanged() override;
 
   // RenderViewHostDelegateView:
   void StartDragging(const DropData& drop_data,
@@ -96,7 +101,7 @@ class WebContentsViewMac : public WebContentsView,
   void GotFocus(RenderWidgetHostImpl* render_widget_host) override;
   void LostFocus(RenderWidgetHostImpl* render_widget_host) override;
   void TakeFocus(bool reverse) override;
-  void ShowContextMenu(RenderFrameHost* render_frame_host,
+  void ShowContextMenu(RenderFrameHost& render_frame_host,
                        const ContextMenuParams& params) override;
   void ShowPopupMenu(
       RenderFrameHost* render_frame_host,
@@ -223,8 +228,6 @@ class WebContentsViewMac : public WebContentsView,
 
   // Used by CloseTabAfterEventTrackingIfNeeded.
   base::WeakPtrFactory<WebContentsViewMac> deferred_close_weak_ptr_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebContentsViewMac);
 };
 
 }  // namespace content

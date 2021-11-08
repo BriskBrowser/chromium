@@ -7,13 +7,15 @@
 
 #include "base/macros.h"
 #include "base/memory/singleton.h"
-#include "base/strings/string16.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
 class FindBarState;
 
 class FindBarStateFactory : public BrowserContextKeyedServiceFactory {
  public:
+  FindBarStateFactory(const FindBarStateFactory&) = delete;
+  FindBarStateFactory& operator=(const FindBarStateFactory&) = delete;
+
   static FindBarState* GetForBrowserContext(content::BrowserContext* context);
 
   static FindBarStateFactory* GetInstance();
@@ -29,8 +31,6 @@ class FindBarStateFactory : public BrowserContextKeyedServiceFactory {
       content::BrowserContext* context) const override;
   content::BrowserContext* GetBrowserContextToUse(
       content::BrowserContext* context) const override;
-
-  DISALLOW_COPY_AND_ASSIGN(FindBarStateFactory);
 };
 
 #endif  // CHROME_BROWSER_UI_FIND_BAR_FIND_BAR_STATE_FACTORY_H_

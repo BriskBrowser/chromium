@@ -30,7 +30,8 @@ import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.ShortcutHelper;
 import org.chromium.chrome.browser.app.ChromeActivity;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
@@ -80,11 +81,11 @@ public class WebappModeTest {
             // Needed for security reasons.  If the MAC is excluded, the URL of the webapp is opened
             // in a browser window, instead.
             String mac = ShortcutHelper.getEncodedMac(url);
-            intent.putExtra(ShortcutHelper.EXTRA_MAC, mac);
+            intent.putExtra(WebappConstants.EXTRA_MAC, mac);
         }
 
-        intent.putExtra(ShortcutHelper.EXTRA_ICON, icon);
-        intent.putExtra(ShortcutHelper.EXTRA_NAME, title);
+        intent.putExtra(WebappConstants.EXTRA_ICON, icon);
+        intent.putExtra(WebappConstants.EXTRA_NAME, title);
         return intent;
     }
 
@@ -246,7 +247,7 @@ public class WebappModeTest {
 
     /**
      * Starts a WebappActivity for the given data and waits for it to be initialized.  We can't use
-     * ActivityUtils.waitForActivity() because of the way WebappActivity is instanced on pre-L
+     * ActivityTestUtils.waitForActivity() because of the way WebappActivity is instanced on pre-L
      * devices.
      */
     private WebappActivity startWebappActivity(String id, String url, String title, String icon) {

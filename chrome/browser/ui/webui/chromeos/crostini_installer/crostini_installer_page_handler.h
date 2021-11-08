@@ -8,7 +8,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/chromeos/crostini/crostini_types.mojom-forward.h"
+#include "chrome/browser/ash/crostini/crostini_types.mojom-forward.h"
 #include "chrome/browser/ui/webui/chromeos/crostini_installer/crostini_installer.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -31,6 +31,11 @@ class CrostiniInstallerPageHandler
       mojo::PendingRemote<chromeos::crostini_installer::mojom::Page>
           pending_page,
       base::OnceClosure on_page_closed);
+
+  CrostiniInstallerPageHandler(const CrostiniInstallerPageHandler&) = delete;
+  CrostiniInstallerPageHandler& operator=(const CrostiniInstallerPageHandler&) =
+      delete;
+
   ~CrostiniInstallerPageHandler() override;
 
   // chromeos::crostini_installer::mojom::PageHandler:
@@ -38,7 +43,8 @@ class CrostiniInstallerPageHandler
   void Cancel() override;
   void CancelBeforeStart() override;
   void OnPageClosed() override;
-  void RequestAmountOfFreeDiskSpace() override;
+  void RequestAmountOfFreeDiskSpace(
+      RequestAmountOfFreeDiskSpaceCallback callback) override;
 
   // Send a close request to the web page.
   void RequestClosePage();
@@ -48,7 +54,6 @@ class CrostiniInstallerPageHandler
                         double progress_fraction);
   void OnInstallFinished(crostini::mojom::InstallerError error);
   void OnCanceled();
-  void OnAmountOfFreeDiskSpace(int64_t free_bytes);
 
   crostini::CrostiniInstallerUIDelegate* installer_ui_delegate_;
   mojo::Receiver<chromeos::crostini_installer::mojom::PageHandler> receiver_;
@@ -56,8 +61,6 @@ class CrostiniInstallerPageHandler
   base::OnceClosure on_page_closed_;
 
   base::WeakPtrFactory<CrostiniInstallerPageHandler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CrostiniInstallerPageHandler);
 };
 
 }  // namespace chromeos

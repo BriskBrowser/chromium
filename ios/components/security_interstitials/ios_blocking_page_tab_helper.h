@@ -5,7 +5,7 @@
 #ifndef IOS_COMPONENTS_SECURITY_INTERSTITIALS_IOS_BLOCKING_PAGE_TAB_HELPER_H_
 #define IOS_COMPONENTS_SECURITY_INTERSTITIALS_IOS_BLOCKING_PAGE_TAB_HELPER_H_
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "ios/components/security_interstitials/ios_security_interstitial_page.h"
 #include "ios/web/public/web_state_observer.h"
 #import "ios/web/public/web_state_user_data.h"
@@ -23,6 +23,9 @@ namespace security_interstitials {
 class IOSBlockingPageTabHelper
     : public web::WebStateUserData<IOSBlockingPageTabHelper> {
  public:
+  IOSBlockingPageTabHelper(const IOSBlockingPageTabHelper&) = delete;
+  IOSBlockingPageTabHelper& operator=(const IOSBlockingPageTabHelper&) = delete;
+
   ~IOSBlockingPageTabHelper() override;
 
   // Associates |blocking_page| with |navigation_id|.  When the last committed
@@ -41,12 +44,11 @@ class IOSBlockingPageTabHelper
  private:
   WEB_STATE_USER_DATA_KEY_DECL();
   explicit IOSBlockingPageTabHelper(web::WebState* web_state);
-  DISALLOW_COPY_AND_ASSIGN(IOSBlockingPageTabHelper);
   friend class web::WebStateUserData<IOSBlockingPageTabHelper>;
 
   // Handler for "blockingPage.*" JavaScript command. Dispatch to more specific
   // handler.
-  void OnBlockingPageCommand(const base::DictionaryValue& message,
+  void OnBlockingPageCommand(const base::Value& message,
                              const GURL& url,
                              bool user_is_interacting,
                              web::WebFrame* sender_frame);
@@ -74,7 +76,8 @@ class IOSBlockingPageTabHelper
     void WebStateDestroyed(web::WebState* web_state) override;
 
     IOSBlockingPageTabHelper* tab_helper_ = nullptr;
-    ScopedObserver<web::WebState, web::WebStateObserver> scoped_observer_{this};
+    base::ScopedObservation<web::WebState, web::WebStateObserver>
+        scoped_observation_{this};
   };
 
   // The navigation ID of the last committed navigation.  Used to associate

@@ -11,15 +11,13 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
@@ -37,6 +35,7 @@
 #include "components/update_client/update_engine.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 using std::string;
@@ -62,6 +61,10 @@ const char kUpdateItemId[] = "jebgalgnebhfojomionfpkfelancnnkf";
 class UpdateCheckerTest : public testing::TestWithParam<bool> {
  public:
   UpdateCheckerTest();
+
+  UpdateCheckerTest(const UpdateCheckerTest&) = delete;
+  UpdateCheckerTest& operator=(const UpdateCheckerTest&) = delete;
+
   ~UpdateCheckerTest() override;
 
   // Overrides from testing::Test.
@@ -69,7 +72,7 @@ class UpdateCheckerTest : public testing::TestWithParam<bool> {
   void TearDown() override;
 
   void UpdateCheckComplete(
-      const base::Optional<ProtocolParser::Results>& results,
+      const absl::optional<ProtocolParser::Results>& results,
       ErrorCategory error_category,
       int error,
       int retry_after_sec);
@@ -89,7 +92,7 @@ class UpdateCheckerTest : public testing::TestWithParam<bool> {
 
   std::unique_ptr<URLLoaderPostInterceptor> post_interceptor_;
 
-  base::Optional<ProtocolParser::Results> results_;
+  absl::optional<ProtocolParser::Results> results_;
   ErrorCategory error_category_ = ErrorCategory::kNone;
   int error_ = 0;
   int retry_after_sec_ = 0;
@@ -103,8 +106,6 @@ class UpdateCheckerTest : public testing::TestWithParam<bool> {
 
   base::test::TaskEnvironment task_environment_;
   base::OnceClosure quit_closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(UpdateCheckerTest);
 };
 
 // This test is parameterized for |is_foreground|.
@@ -162,7 +163,7 @@ void UpdateCheckerTest::Quit() {
 }
 
 void UpdateCheckerTest::UpdateCheckComplete(
-    const base::Optional<ProtocolParser::Results>& results,
+    const absl::optional<ProtocolParser::Results>& results,
     ErrorCategory error_category,
     int error,
     int retry_after_sec) {
@@ -231,7 +232,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckSuccess) {
   ASSERT_TRUE(request);
   EXPECT_TRUE(request->FindKey("@os"));
   EXPECT_EQ("fake_prodid", request->FindKey("@updater")->GetString());
-  EXPECT_EQ("crx2,crx3", request->FindKey("acceptformat")->GetString());
+  EXPECT_EQ("crx3", request->FindKey("acceptformat")->GetString());
   EXPECT_TRUE(request->FindKey("arch"));
   EXPECT_EQ("cr", request->FindKey("dedup")->GetString());
   EXPECT_EQ("params", request->FindKey("extra")->GetString());

@@ -11,6 +11,7 @@
 #include "net/base/data_url.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_response_headers.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 
@@ -49,7 +50,6 @@ DataURLLoaderFactory::~DataURLLoaderFactory() = default;
 
 void DataURLLoaderFactory::CreateLoaderAndStart(
     mojo::PendingReceiver<network::mojom::URLLoader> loader,
-    int32_t routing_id,
     int32_t request_id,
     uint32_t options,
     const network::ResourceRequest& request,
@@ -84,7 +84,7 @@ void DataURLLoaderFactory::CreateLoaderAndStart(
 
   mojo::ScopedDataPipeProducerHandle producer;
   mojo::ScopedDataPipeConsumerHandle consumer;
-  if (CreateDataPipe(nullptr, &producer, &consumer) != MOJO_RESULT_OK) {
+  if (CreateDataPipe(nullptr, producer, consumer) != MOJO_RESULT_OK) {
     client_remote->OnComplete(
         network::URLLoaderCompletionStatus(net::ERR_INSUFFICIENT_RESOURCES));
     return;

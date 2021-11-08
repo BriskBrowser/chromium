@@ -12,6 +12,20 @@ source_set("app_file_handling") {
     "file_handler_info.h",
   ]
 
+  public_deps = [ ":app_icon_info" ]
+
+  deps = [
+    "//base",
+    "//url",
+  ]
+}
+
+source_set("app_icon_info") {
+  sources = [
+    "icon_info.cc",
+    "icon_info.h",
+  ]
+
   deps = [
     "//base",
     "//url",
@@ -41,10 +55,14 @@ component("app_update") {
     "app_registry_cache.h",
     "app_registry_cache_wrapper.cc",
     "app_registry_cache_wrapper.h",
+    "app_types.cc",
+    "app_types.h",
     "app_update.cc",
     "app_update.h",
     "capability_access_update.cc",
     "capability_access_update.h",
+    "icon_types.cc",
+    "icon_types.h",
   ]
 
   defines = [ "IS_APP_UPDATE_IMPL" ]
@@ -52,6 +70,11 @@ component("app_update") {
   public_deps = [
     "//components/account_id:account_id",
     "//components/services/app_service/public/mojom",
+  ]
+
+  deps = [
+    ":intents",
+    "//ui/gfx",
   ]
 }
 
@@ -62,6 +85,18 @@ source_set("app_url_handling") {
   ]
 
   deps = [ "//url" ]
+}
+
+if (is_chromeos) {
+  source_set("browser_app_instance_registry_update") {
+    sources = [
+      "browser_app_instance_update.cc",
+      "browser_app_instance_update.h",
+      "browser_window_instance_update.h",
+    ]
+
+    deps = [ "//base" ]
+  }
 }
 
 if (is_chromeos_ash) {
@@ -108,6 +143,8 @@ source_set("icon_loader_test_support") {
 
 source_set("intents") {
   sources = [
+    "intent_constants.cc",
+    "intent_constants.h",
     "intent_filter_util.cc",
     "intent_filter_util.h",
     "intent_util.cc",
@@ -117,6 +154,7 @@ source_set("intents") {
   deps = [
     "//base",
     "//components/services/app_service/public/mojom",
+    "//third_party/blink/public/common",
     "//url",
   ]
 }
@@ -136,6 +174,8 @@ source_set("preferred_apps") {
     "preferred_apps_converter.h",
     "preferred_apps_list.cc",
     "preferred_apps_list.h",
+    "preferred_apps_list_handle.cc",
+    "preferred_apps_list_handle.h",
   ]
 
   deps = [
@@ -169,16 +209,44 @@ source_set("test_support") {
   ]
 }
 
+source_set("types") {
+  sources = [
+    "types_util.cc",
+    "types_util.h",
+  ]
+
+  deps = [ "//components/services/app_service/public/mojom" ]
+}
+
+source_set("crosapi_utils") {
+  sources = [ "crosapi_utils.h" ]
+
+  deps = [ "//components/services/app_service/public/mojom" ]
+}
+
+source_set("permission_utils") {
+  sources = [
+    "permission_utils.cc",
+    "permission_utils.h",
+  ]
+  deps = [ "//components/services/app_service/public/mojom" ]
+}
+
 source_set("unit_tests") {
   testonly = true
 
   sources = [
     "app_capability_access_cache_unittest.cc",
+    "app_capability_access_cache_wrapper_unittest.cc",
+    "app_registry_cache_mojom_unittest.cc",
     "app_registry_cache_unittest.cc",
+    "app_registry_cache_wrapper_unittest.cc",
+    "app_update_mojom_unittest.cc",
     "app_update_unittest.cc",
     "capability_access_update_unittest.cc",
     "icon_cache_unittest.cc",
     "icon_coalescer_unittest.cc",
+    "intent_filter_util_unittest.cc",
     "intent_util_unittest.cc",
     "preferred_apps_converter_unittest.cc",
     "preferred_apps_list_unittest.cc",

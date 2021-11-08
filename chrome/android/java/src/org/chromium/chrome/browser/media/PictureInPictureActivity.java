@@ -21,6 +21,7 @@ import android.view.View.OnLayoutChangeListener;
 import android.view.ViewGroup;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.IntentUtils;
 import org.chromium.base.MathUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
@@ -58,6 +59,7 @@ public class PictureInPictureActivity extends AsyncInitializationActivity {
 
     private CompositorView mCompositorView;
     private MediaSessionObserver mMediaSessionObserver;
+    private boolean mIsPlayPauseVisible;
 
     private BroadcastReceiver mMediaSessionReceiver = new BroadcastReceiver() {
         @Override
@@ -200,7 +202,8 @@ public class PictureInPictureActivity extends AsyncInitializationActivity {
 
     @Override
     protected ActivityWindowAndroid createWindowAndroid() {
-        return new ActivityWindowAndroid(this);
+        return new ActivityWindowAndroid(
+                this, /* listenToActivityState= */ true, getIntentRequestTracker());
     }
 
     @SuppressLint("NewApi")
@@ -216,7 +219,7 @@ public class PictureInPictureActivity extends AsyncInitializationActivity {
     }
 
     @CalledByNative
-    private void close() {
+    public void close() {
         this.finish();
     }
 
@@ -228,9 +231,10 @@ public class PictureInPictureActivity extends AsyncInitializationActivity {
         // place a play button in the Picture-in-Picture window that will
         // trigger playback.
         if (mMediaSessionObserver != null
-                && !mMediaSessionObserver.getMediaSession().isControllable()) {
-            PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                    getApplicationContext(), 0, new Intent(ACTION_PLAY), 0);
+                && !mMediaSessionObserver.getMediaSession().isControllable()
+                && mIsPlayPauseVisible) {
+            PendingIntent pendingIntent = PendingIntent.getBroadcast(getApplicationContext(), 0,
+                    new Intent(ACTION_PLAY), IntentUtils.getPendingIntentMutabilityFlag(false));
 
             actions.add(new RemoteAction(Icon.createWithResource(getApplicationContext(),
                                                  R.drawable.ic_play_arrow_white_36dp),
@@ -255,7 +259,14 @@ public class PictureInPictureActivity extends AsyncInitializationActivity {
     }
 
     @CalledByNative
-    private static void createActivity(long nativeOverlayWindowAndroid, Object initiatorTab) {
+    @SuppressLint("NewAPI")
+    private void setPlayPauseButtonVisibility(boolean isVisible) {
+        mIsPlayPauseVisible = isVisible;
+        setPictureInPictureParams(getPictureInPictureParams());
+    }
+
+    @CalledByNative
+    public static void createActivity(long nativeOverlayWindowAndroid, Object initiatorTab) {
         Context context = ContextUtils.getApplicationContext();
         Intent intent = new Intent(context, PictureInPictureActivity.class);
 
@@ -283,7 +294,7 @@ public class PictureInPictureActivity extends AsyncInitializationActivity {
     }
 
     @NativeMethods
-    interface Natives {
+    public interface Natives {
         void onActivityStart(long nativeOverlayWindowAndroid, PictureInPictureActivity self,
                 WindowAndroid window);
 

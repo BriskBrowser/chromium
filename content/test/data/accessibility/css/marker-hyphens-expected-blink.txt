@@ -3,45 +3,29 @@ rootWebArea
 ++++genericContainer ignored
 ++++++list
 ++++++++listItem
-++++++++++listMarker name='foo­bar'
-++++++++++++staticText name='foo­bar'
-++++++++++++++inlineTextBox name='foo­'
-++++++++++++++inlineTextBox
-++++++++++++++inlineTextBox name='bar'
+++++++++++listMarker name='foo%C2%ADbar'
+++++++++++++staticText ignored name='foo%C2%ADbar'
 ++++++++listItem
 ++++++++++listMarker
-++++++++++++staticText name='foo­bar'
-++++++++++++++inlineTextBox name='foo­'
-++++++++++++++inlineTextBox
-++++++++++++++inlineTextBox name='bar'
+++++++++++++staticText ignored name='foo%C2%ADbar'
 ++++++list
 ++++++++listItem
-++++++++++listMarker name='foo­bar'
-++++++++++++staticText name='foo­bar'
-++++++++++++++inlineTextBox name='foo­'
-++++++++++++++inlineTextBox
-++++++++++++++inlineTextBox name='bar'
+++++++++++listMarker name='foo%C2%ADbar'
+++++++++++++staticText ignored name='foo%C2%ADbar'
 ++++++++listItem
 ++++++++++listMarker
-++++++++++++staticText name='foo­bar'
-++++++++++++++inlineTextBox name='foo­'
-++++++++++++++inlineTextBox
-++++++++++++++inlineTextBox name='bar'
+++++++++++++staticText ignored name='foo%C2%ADbar'
 ++++++list
 ++++++++listItem
-++++++++++listMarker name='foo­bar'
-++++++++++++staticText name='foo­bar'
-++++++++++++++inlineTextBox name='foo­bar'
+++++++++++listMarker name='foo%C2%ADbar'
+++++++++++++staticText ignored name='foo%C2%ADbar'
 ++++++++listItem
 ++++++++++listMarker
-++++++++++++staticText name='foo­bar'
-++++++++++++++inlineTextBox name='foo­bar'
+++++++++++++staticText ignored name='foo%C2%ADbar'
 ++++++list
 ++++++++listItem
-++++++++++listMarker name='foo­bar'
-++++++++++++staticText name='foo­bar'
-++++++++++++++inlineTextBox name='foo­bar'
+++++++++++listMarker name='foo%C2%ADbar'
+++++++++++++staticText ignored name='foo%C2%ADbar'
 ++++++++listItem
 ++++++++++listMarker
-++++++++++++staticText name='foo­bar'
-++++++++++++++inlineTextBox name='foo­bar'
+++++++++++++staticText ignored name='foo%C2%ADbar'

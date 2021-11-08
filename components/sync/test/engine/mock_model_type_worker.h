@@ -22,7 +22,11 @@
 #include "components/sync/engine/commit_queue.h"
 #include "components/sync/engine/model_type_processor.h"
 #include "components/sync/protocol/model_type_state.pb.h"
-#include "components/sync/protocol/sync.pb.h"
+
+namespace sync_pb {
+class GarbageCollectionDirective;
+class EntitySpecifics;
+}  // namespace sync_pb
 
 namespace syncer {
 
@@ -35,6 +39,10 @@ class MockModelTypeWorker : public CommitQueue {
  public:
   MockModelTypeWorker(const sync_pb::ModelTypeState& model_type_state,
                       ModelTypeProcessor* processor);
+
+  MockModelTypeWorker(const MockModelTypeWorker&) = delete;
+  MockModelTypeWorker& operator=(const MockModelTypeWorker&) = delete;
+
   ~MockModelTypeWorker() override;
 
   // Callback when local changes are received from the processor.
@@ -171,8 +179,6 @@ class MockModelTypeWorker : public CommitQueue {
 
   // WeakPtrFactory for this worker which will be sent to sync thread.
   base::WeakPtrFactory<MockModelTypeWorker> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MockModelTypeWorker);
 };
 
 }  // namespace syncer

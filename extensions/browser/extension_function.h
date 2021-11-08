@@ -10,14 +10,16 @@
 #include <list>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
+#include "base/callback_list.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
-#include "base/sequenced_task_runner_helpers.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "base/timer/elapsed_timer.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/extension_function_histogram_value.h"
@@ -26,6 +28,7 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/features/feature.h"
 #include "ipc/ipc_message.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_database.mojom-forward.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom-forward.h"
@@ -105,12 +108,17 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
     BAD_MESSAGE
   };
 
-  using ResponseCallback =
-      base::RepeatingCallback<void(ResponseType type,
-                                   const base::ListValue& results,
-                                   const std::string& error)>;
+  // TODO(crbug.com/1196205): Convert the type of |results| to a base::Value.
+  using ResponseCallback = base::OnceCallback<void(ResponseType type,
+                                                   const base::Value& results,
+                                                   const std::string& error)>;
 
   ExtensionFunction();
+
+  ExtensionFunction(const ExtensionFunction&) = delete;
+  ExtensionFunction& operator=(const ExtensionFunction&) = delete;
+
+  static void EnsureShutdownNotifierFactoryBuilt();
 
   // Returns true if the function has permission to run.
   //
@@ -280,8 +288,8 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   extensions::functions::HistogramValue histogram_value() const {
     return histogram_value_; }
 
-  void set_response_callback(const ResponseCallback& callback) {
-    response_callback_ = callback;
+  void set_response_callback(ResponseCallback callback) {
+    response_callback_ = std::move(callback);
   }
 
   void set_source_context_type(extensions::Feature::Context type) {
@@ -319,22 +327,18 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   virtual bool OnMessageReceived(const IPC::Message& message);
 
   // Set the browser context which contains the extension that has originated
-  // this function call.
-  void set_browser_context(content::BrowserContext* context) {
-    context_ = context;
-  }
-  content::BrowserContext* browser_context() const { return context_; }
+  // this function call. Only meant for testing; if unset, uses the
+  // BrowserContext from dispatcher().
+  void SetBrowserContextForTesting(content::BrowserContext* context);
+  content::BrowserContext* browser_context() const;
 
   void SetRenderFrameHost(content::RenderFrameHost* render_frame_host);
   content::RenderFrameHost* render_frame_host() const {
     return render_frame_host_;
   }
 
-  void set_dispatcher(
-      const base::WeakPtr<extensions::ExtensionFunctionDispatcher>&
-          dispatcher) {
-    dispatcher_ = dispatcher;
-  }
+  void SetDispatcher(
+      const base::WeakPtr<extensions::ExtensionFunctionDispatcher>& dispatcher);
   extensions::ExtensionFunctionDispatcher* dispatcher() const {
     return dispatcher_.get();
   }
@@ -372,6 +376,11 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // should be using the generated Result struct and ArgumentList.
   ResponseValue TwoArguments(base::Value arg1, base::Value arg2);
   // Success, a list of arguments |results| to pass to caller.
+  ResponseValue ArgumentList(std::vector<base::Value> results);
+  // TODO(crbug.com/1139221): Deprecate this when Create() returns a base::Value
+  // instead of a std::unique_ptr<>.
+  //
+  // Success, a list of arguments |results| to pass to caller.
   // - a std::unique_ptr<> for convenience, since callers usually get this from
   //   the result of a Create(...) call on the generated Results struct. For
   //   example, alarms::Get::Results::Create(alarm).
@@ -394,6 +403,9 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // Using this ResponseValue indicates something is wrong with the API.
   // It shouldn't be possible to have both an error *and* some arguments.
   // Some legacy APIs do rely on it though, like webstorePrivate.
+  ResponseValue ErrorWithArguments(std::vector<base::Value> args,
+                                   const std::string& error);
+  // TODO(crbug.com/1139221): Deprecate this in favor of the variant above.
   ResponseValue ErrorWithArguments(std::unique_ptr<base::ListValue> args,
                                    const std::string& error);
   // Bad message. A ResponseValue equivalent to EXTENSION_FUNCTION_VALIDATE(),
@@ -417,7 +429,7 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // this return value in those cases.
   //
   // FooExtensionFunction::Run() {
-  //   Helper::FetchResults(..., base::Bind(&Success));
+  //   Helper::FetchResults(..., base::BindOnce(&Success));
   //   if (did_respond()) return AlreadyResponded();
   //   return RespondLater();
   // }
@@ -425,9 +437,9 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   //   Respond(...);
   // }
   //
-  // Helper::FetchResults(..., callback) {
+  // Helper::FetchResults(..., base::OnceCallback callback) {
   //   if (...)
-  //     callback.Run(..);  // Synchronously call |callback|.
+  //     std::move(callback).Run(..);  // Synchronously call |callback|.
   //   else
   //     // Asynchronously call |callback|.
   // }
@@ -456,6 +468,13 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // additional work or cleanup.
   virtual void OnResponded();
 
+  // Called when the `browser_context_` associated with this ExtensionFunction
+  // is shutting down. Immediately after this call, `browser_context_` will be
+  // set to null. Subclasses should override this method to perform any cleanup
+  // that needs to happen before the context shuts down, such as removing
+  // observers of KeyedServices.
+  virtual void OnBrowserContextShutdown() {}
+
   // Return true if the argument to this function at |index| was provided and
   // is non-null.
   bool HasOptionalArgument(size_t index);
@@ -467,11 +486,20 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // Sets the Blob UUIDs whose ownership is being transferred to the renderer.
   void SetTransferredBlobUUIDs(const std::vector<std::string>& blob_uuids);
 
+  bool has_args() const { return args_.has_value(); }
+
+  const std::vector<base::Value>& args() const {
+    DCHECK(args_);
+    return *args_;
+  }
+
+  std::vector<base::Value>& mutable_args() {
+    DCHECK(args_);
+    return *args_;
+  }
+
   // The extension that called this function.
   scoped_refptr<const extensions::Extension> extension_;
-
-  // The arguments to the API. Only non-null if argument were specified.
-  std::unique_ptr<base::ListValue> args_;
 
  private:
   friend struct content::BrowserThread::DeleteOnThread<
@@ -480,9 +508,19 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   friend class ResponseValueObject;
   class RenderFrameHostTracker;
 
+  // Called on BrowserContext shutdown.
+  void Shutdown();
+
   // Call with true to indicate success, false to indicate failure. If this
   // failed, |error_| should be set.
   void SendResponseImpl(bool success);
+
+  // The callback for mojom::Renderer::TransferBlobs().
+  void OnTransferBlobsAck(int process_id,
+                          const std::vector<std::string>& blob_uuids);
+
+  // The arguments to the API. Only non-null if arguments were specified.
+  absl::optional<std::vector<base::Value>> args_;
 
   base::ElapsedTimer timer_;
 
@@ -538,9 +576,6 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   extensions::functions::HistogramValue histogram_value_ =
       extensions::functions::UNKNOWN;
 
-  // The BrowserContext associated with the requesting renderer
-  content::BrowserContext* context_ = nullptr;
-
   // The type of the JavaScript context where this call originated.
   extensions::Feature::Context source_context_type_ =
       extensions::Feature::UNSPECIFIED_CONTEXT;
@@ -564,6 +599,15 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // The dispatcher that will service this extension function call.
   base::WeakPtr<extensions::ExtensionFunctionDispatcher> dispatcher_;
 
+  // Obtained via |dispatcher_| when it is set. It automatically resets to
+  // nullptr when the BrowserContext is shutdown (much like a WeakPtr).
+  content::BrowserContext* browser_context_ = nullptr;
+  content::BrowserContext* browser_context_for_testing_ = nullptr;
+
+  // Subscription for a callback that runs when the BrowserContext* is
+  // destroyed.
+  base::CallbackListSubscription shutdown_subscription_;
+
   // The RenderFrameHost we will send responses to.
   content::RenderFrameHost* render_frame_host_ = nullptr;
 
@@ -573,8 +617,6 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   std::vector<std::string> transferred_blob_uuids_;
 
   int worker_thread_id_ = -1;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionFunction);
 };
 
 #endif  // EXTENSIONS_BROWSER_EXTENSION_FUNCTION_H_

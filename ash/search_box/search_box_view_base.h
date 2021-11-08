@@ -5,17 +5,17 @@
 #ifndef ASH_SEARCH_BOX_SEARCH_BOX_VIEW_BASE_H_
 #define ASH_SEARCH_BOX_SEARCH_BOX_VIEW_BASE_H_
 
+#include <string>
 #include <vector>
 
 #include "ash/search_box/search_box_constants.h"
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "ui/events/types/event_type.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
-#include "ui/views/widget/widget_delegate.h"
+#include "ui/views/view.h"
 
 namespace gfx {
 class ImageSkia;
@@ -25,7 +25,6 @@ namespace views {
 class BoxLayout;
 class ImageView;
 class Textfield;
-class View;
 }  // namespace views
 
 namespace ash {
@@ -43,20 +42,28 @@ enum class ActivationSource {
   kMaxValue = kGestureTap,
 };
 
-// TODO(wutao): WidgetDelegateView owns itself and cannot be deleted from the
-// views hierarchy automatically. Make SearchBoxViewBase a subclass of View
-// instead of WidgetDelegateView.
 // SearchBoxViewBase consists of icons and a Textfield. The Textfiled is for
 // inputting queries and triggering callbacks. The icons include a search icon,
 // a close icon and a back icon for different functionalities. This class
 // provides common functions for the search box view across Chrome OS.
-class SearchBoxViewBase : public views::WidgetDelegateView,
+class SearchBoxViewBase : public views::View,
                           public views::TextfieldController {
  public:
   explicit SearchBoxViewBase(SearchBoxViewDelegate* delegate);
+
+  SearchBoxViewBase(const SearchBoxViewBase&) = delete;
+  SearchBoxViewBase& operator=(const SearchBoxViewBase&) = delete;
+
   ~SearchBoxViewBase() override;
 
-  void Init();
+  struct InitParams {
+    // Whether to show close button if the search box is active and empty.
+    bool show_close_button_when_active = false;
+
+    // Whether to create a rounded-rect background.
+    bool create_background = true;
+  };
+  virtual void Init(const InitParams& params);
 
   bool HasSearch() const;
 
@@ -85,6 +92,7 @@ class SearchBoxViewBase : public views::WidgetDelegateView,
   // Overridden from views::View:
   gfx::Size CalculatePreferredSize() const override;
   const char* GetClassName() const override;
+  void OnKeyEvent(ui::KeyEvent* event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void OnMouseEvent(ui::MouseEvent* event) override;
 
@@ -92,18 +100,11 @@ class SearchBoxViewBase : public views::WidgetDelegateView,
   // deactivating the searchbox.
   void NotifyGestureEvent();
 
-  // Overridden from views::WidgetDelegate:
-  ax::mojom::Role GetAccessibleWindowRole() override;
-
   // Used only in the tests to get the current search icon.
   views::ImageView* get_search_icon_for_test() { return search_icon_; }
 
   // Whether the search box is active.
   bool is_search_box_active() const { return is_search_box_active_; }
-
-  void set_show_close_button_when_active(bool show_button) {
-    show_close_button_when_active_ = show_button;
-  }
 
   bool show_assistant_button() { return show_assistant_button_; }
 
@@ -129,13 +130,15 @@ class SearchBoxViewBase : public views::WidgetDelegateView,
 
   // Overridden from views::TextfieldController:
   void ContentsChanged(views::Textfield* sender,
-                       const base::string16& new_contents) override;
+                       const std::u16string& new_contents) override;
   bool HandleMouseEvent(views::Textfield* sender,
                         const ui::MouseEvent& mouse_event) override;
   bool HandleGestureEvent(views::Textfield* sender,
                           const ui::GestureEvent& gesture_event) override;
 
+  SearchBoxViewDelegate* delegate() { return delegate_; }
   views::BoxLayout* box_layout() { return box_layout_; }
+  views::ImageView* search_icon() { return search_icon_; }
 
   void SetSearchBoxBackgroundCornerRadius(int corner_radius);
 
@@ -148,13 +151,7 @@ class SearchBoxViewBase : public views::WidgetDelegateView,
   virtual void HandleSearchBoxEvent(ui::LocatedEvent* located_event);
 
   // Updates the search box's background color.
-  virtual void UpdateBackgroundColor(SkColor color);
-
-  // Gets the search box background.
-  views::Background* GetSearchBoxBackground();
-
- private:
-  virtual void ModelChanged() {}
+  void UpdateBackgroundColor(SkColor color);
 
   // Shows/hides the virtual keyboard if the search box is active.
   virtual void UpdateKeyboardVisibility() {}
@@ -164,6 +161,9 @@ class SearchBoxViewBase : public views::WidgetDelegateView,
 
   // Updates the search icon.
   virtual void UpdateSearchIcon() {}
+
+  // Updates the color and alignment of the placeholder text.
+  virtual void UpdatePlaceholderTextStyle() {}
 
   // Update search box border based on whether the search box is activated.
   virtual void UpdateSearchBoxBorder() {}
@@ -176,9 +176,13 @@ class SearchBoxViewBase : public views::WidgetDelegateView,
   // Records in histograms the activation of the searchbox.
   virtual void RecordSearchBoxActivationHistogram(ui::EventType event_type) {}
 
+ private:
   void OnEnabledChanged();
 
-  SearchBoxViewDelegate* delegate_;  // Not owned.
+  // Gets the search box background. May return null.
+  views::Background* GetSearchBoxBackground();
+
+  SearchBoxViewDelegate* const delegate_;
 
   // Owned by views hierarchy.
   views::View* content_container_;
@@ -194,7 +198,7 @@ class SearchBoxViewBase : public views::WidgetDelegateView,
 
   // Whether the search box is active.
   bool is_search_box_active_ = false;
-  // Whether to show close button if the search box is active.
+  // Whether to show close button if the search box is active and empty.
   bool show_close_button_when_active_ = false;
   // Whether to show assistant button.
   bool show_assistant_button_ = false;
@@ -203,8 +207,6 @@ class SearchBoxViewBase : public views::WidgetDelegateView,
       AddEnabledChangedCallback(
           base::BindRepeating(&SearchBoxViewBase::OnEnabledChanged,
                               base::Unretained(this)));
-
-  DISALLOW_COPY_AND_ASSIGN(SearchBoxViewBase);
 };
 
 }  // namespace ash

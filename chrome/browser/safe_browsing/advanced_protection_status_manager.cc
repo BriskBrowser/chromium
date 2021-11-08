@@ -12,12 +12,14 @@
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
-#include "components/safe_browsing/core/features.h"
+#include "components/signin/public/base/consent_level.h"
+#include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/accounts_mutator.h"
-#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
 #include "components/signin/public/identity_manager/scope_set.h"
+#include "components/signin/public/identity_manager/tribool.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/gaia/gaia_constants.h"
@@ -29,10 +31,9 @@ namespace safe_browsing {
 
 namespace {
 
-const base::TimeDelta kRefreshAdvancedProtectionDelay =
-    base::TimeDelta::FromDays(1);
-const base::TimeDelta kRetryDelay = base::TimeDelta::FromMinutes(5);
-const base::TimeDelta kMinimumRefreshDelay = base::TimeDelta::FromMinutes(1);
+const base::TimeDelta kRefreshAdvancedProtectionDelay = base::Days(1);
+const base::TimeDelta kRetryDelay = base::Minutes(5);
+const base::TimeDelta kMinimumRefreshDelay = base::Minutes(1);
 
 const char kForceTreatUserAsAdvancedProtection[] =
     "safe-browsing-treat-user-as-advanced-protection";
@@ -55,17 +56,16 @@ void AdvancedProtectionStatusManager::Initialize() {
 
 void AdvancedProtectionStatusManager::MaybeRefreshOnStartUp() {
   // Retrieves advanced protection service status from primary account's info.
-  CoreAccountInfo core_info = identity_manager_->GetPrimaryAccountInfo(
-      signin::ConsentLevel::kNotRequired);
+  CoreAccountInfo core_info =
+      identity_manager_->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
   if (core_info.account_id.empty())
     return;
 
   is_under_advanced_protection_ = core_info.is_under_advanced_protection;
 
   if (pref_service_->HasPrefPath(prefs::kAdvancedProtectionLastRefreshInUs)) {
-    last_refreshed_ = base::Time::FromDeltaSinceWindowsEpoch(
-        base::TimeDelta::FromMicroseconds(pref_service_->GetInt64(
-            prefs::kAdvancedProtectionLastRefreshInUs)));
+    last_refreshed_ = base::Time::FromDeltaSinceWindowsEpoch(base::Microseconds(
+        pref_service_->GetInt64(prefs::kAdvancedProtectionLastRefreshInUs)));
     if (is_under_advanced_protection_)
       ScheduleNextRefresh();
   } else {
@@ -125,7 +125,7 @@ void AdvancedProtectionStatusManager::OnExtendedAccountInfoRemoved(
 
 void AdvancedProtectionStatusManager::OnPrimaryAccountChanged(
     const signin::PrimaryAccountChangeEvent& event) {
-  switch (event.GetEventTypeFor(signin::ConsentLevel::kNotRequired)) {
+  switch (event.GetEventTypeFor(signin::ConsentLevel::kSignin)) {
     case signin::PrimaryAccountChangeEvent::Type::kSet: {
       // TODO(crbug.com/926204): remove IdentityManager ensures that primary
       // account always has valid refresh token when it is set.
@@ -271,8 +271,10 @@ void AdvancedProtectionStatusManager::OnGetIDToken(
   if (is_under_advanced_protection_ !=
       service_flags.is_under_advanced_protection) {
     identity_manager_->GetAccountsMutator()->UpdateAccountInfo(
-        GetUnconsentedPrimaryAccountId(), false,
-        service_flags.is_under_advanced_protection);
+        GetUnconsentedPrimaryAccountId(),
+        /*is_child_account=*/signin::Tribool::kUnknown,
+        service_flags.is_under_advanced_protection ? signin::Tribool::kTrue
+                                                   : signin::Tribool::kFalse);
   } else if (service_flags.is_under_advanced_protection) {
     OnAdvancedProtectionEnabled();
   } else {
@@ -298,7 +300,7 @@ AdvancedProtectionStatusManager::AdvancedProtectionStatusManager(
 CoreAccountId AdvancedProtectionStatusManager::GetUnconsentedPrimaryAccountId()
     const {
   return identity_manager_ ? identity_manager_->GetPrimaryAccountId(
-                                 signin::ConsentLevel::kNotRequired)
+                                 signin::ConsentLevel::kSignin)
                            : CoreAccountId();
 }
 

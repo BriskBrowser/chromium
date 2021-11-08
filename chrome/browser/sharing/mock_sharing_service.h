@@ -14,6 +14,10 @@
 class MockSharingService : public SharingService {
  public:
   MockSharingService();
+
+  MockSharingService(const MockSharingService&) = delete;
+  MockSharingService& operator=(const MockSharingService&) = delete;
+
   ~MockSharingService() override;
 
   MOCK_CONST_METHOD1(
@@ -21,11 +25,12 @@ class MockSharingService : public SharingService {
       std::vector<std::unique_ptr<syncer::DeviceInfo>>(
           sync_pb::SharingSpecificFields::EnabledFeatures required_feature));
 
-  MOCK_METHOD4(SendMessageToDevice,
-               void(const syncer::DeviceInfo& device,
-                    base::TimeDelta response_timeout,
-                    chrome_browser_sharing::SharingMessage message,
-                    SharingMessageSender::ResponseCallback callback));
+  MOCK_METHOD4(
+      SendMessageToDevice,
+      base::OnceClosure(const syncer::DeviceInfo& device,
+                        base::TimeDelta response_timeout,
+                        chrome_browser_sharing::SharingMessage message,
+                        SharingMessageSender::ResponseCallback callback));
 
   MOCK_CONST_METHOD1(
       GetDeviceByGuid,
@@ -39,9 +44,6 @@ class MockSharingService : public SharingService {
   MOCK_METHOD1(
       UnregisterSharingHandler,
       void(chrome_browser_sharing::SharingMessage::PayloadCase payload_case));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockSharingService);
 };
 
 #endif  // CHROME_BROWSER_SHARING_MOCK_SHARING_SERVICE_H_

@@ -28,8 +28,8 @@
 //   (IO) thread has become sufficiently unresponsive, while other threads are
 //   sufficiently responsive.
 //
-//   base::TimeDelta sleep_time = base::TimeDelta::FromSeconds(5);
-//   base::TimeDelta unresponsive_time = base::TimeDelta::FromSeconds(10);
+//   base::TimeDelta sleep_time = base::Seconds(5);
+//   base::TimeDelta unresponsive_time = base::Seconds(10);
 //   uint32_t unresponsive_threshold = ThreadWatcherList::kUnresponsiveCount;
 //   bool crash_on_hang = false;
 //   ThreadWatcher::StartWatching(
@@ -51,8 +51,8 @@
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread.h"
 #include "base/threading/watchdog.h"
@@ -94,6 +94,9 @@ class ThreadWatcher {
           unresponsive_threshold(unresponsive_threshold_in),
           crash_on_hang(crash_on_hang_in) {}
   };
+
+  ThreadWatcher(const ThreadWatcher&) = delete;
+  ThreadWatcher& operator=(const ThreadWatcher&) = delete;
 
   virtual ~ThreadWatcher();
 
@@ -218,7 +221,7 @@ class ThreadWatcher {
   const std::string thread_name_;
 
   // Used to post messages to watched thread.
-  scoped_refptr<base::SingleThreadTaskRunner> watched_runner_;
+  const scoped_refptr<base::SingleThreadTaskRunner> watched_runner_;
 
   // It is the sleep time between the receipt of a pong message back, and the
   // sending of another ping message.
@@ -293,8 +296,6 @@ class ThreadWatcher {
   // use this during ping-pong messaging between WatchDog thread and watched
   // thread.
   base::WeakPtrFactory<ThreadWatcher> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ThreadWatcher);
 };
 
 // Class with a list of all active thread watchers.  A thread watcher is active
@@ -333,6 +334,9 @@ class ThreadWatcherList {
   using UnresponsiveCountThreshold = uint32_t;
   typedef std::map<std::string, UnresponsiveCountThreshold>
       CrashOnHangThreadMap;
+
+  ThreadWatcherList(const ThreadWatcherList&) = delete;
+  ThreadWatcherList& operator=(const ThreadWatcherList&) = delete;
 
   // This method posts a task on WatchDogThread to start watching all browser
   // threads.
@@ -451,8 +455,6 @@ class ThreadWatcherList {
 
   // Map of all registered watched threads, from thread_id to ThreadWatcher.
   RegistrationList registered_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThreadWatcherList);
 };
 
 // Class for WatchDogThread and in its Init method, we start watching UI, IO,
@@ -461,6 +463,9 @@ class WatchDogThread : public base::Thread {
  public:
   // Constructor.
   WatchDogThread();
+
+  WatchDogThread(const WatchDogThread&) = delete;
+  WatchDogThread& operator=(const WatchDogThread&) = delete;
 
   // Destroys the thread and stops the thread.
   ~WatchDogThread() override;
@@ -490,8 +495,6 @@ class WatchDogThread : public base::Thread {
   static bool PostTaskHelper(const base::Location& from_here,
                              base::OnceClosure task,
                              base::TimeDelta delay);
-
-  DISALLOW_COPY_AND_ASSIGN(WatchDogThread);
 };
 
 // ShutdownWatcherHelper is useless on Android because there is no shutdown,
@@ -504,6 +507,9 @@ class ShutdownWatcherHelper {
   // Create an empty holder for |shutdown_watchdog_|.
   ShutdownWatcherHelper();
 
+  ShutdownWatcherHelper(const ShutdownWatcherHelper&) = delete;
+  ShutdownWatcherHelper& operator=(const ShutdownWatcherHelper&) = delete;
+
   // Destructor disarm's shutdown_watchdog_ so that alarm doesn't go off.
   ~ShutdownWatcherHelper();
 
@@ -511,14 +517,16 @@ class ShutdownWatcherHelper {
   // |duration| specifies how long it will wait before it calls alarm.
   void Arm(const base::TimeDelta& duration);
 
+  // Get the timeout after which a shutdown hang is detected, for the current
+  // channel.
+  static base::TimeDelta GetPerChannelTimeout(base::TimeDelta duration);
+
  private:
   // shutdown_watchdog_ watches for hangs during shutdown.
   base::Watchdog* shutdown_watchdog_;
 
   // The |thread_id_| on which this object is constructed.
   const base::PlatformThreadId thread_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShutdownWatcherHelper);
 };
 
 #endif  // !defined(OS_ANDROID)

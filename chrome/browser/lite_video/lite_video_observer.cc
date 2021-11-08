@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_macros_local.h"
-#include "base/optional.h"
 #include "base/rand_util.h"
 #include "chrome/browser/lite_video/lite_video_decider.h"
 #include "chrome/browser/lite_video/lite_video_features.h"
@@ -32,6 +31,7 @@
 #include "services/metrics/public/cpp/ukm_source.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/features.h"
 
@@ -63,8 +63,23 @@ void LiteVideoObserver::MaybeCreateForWebContents(
   }
 }
 
+// static
+void LiteVideoObserver::BindLiteVideoService(
+    mojo::PendingAssociatedReceiver<lite_video::mojom::LiteVideoService>
+        receiver,
+    content::RenderFrameHost* rfh) {
+  auto* web_contents = content::WebContents::FromRenderFrameHost(rfh);
+  if (!web_contents)
+    return;
+  auto* tab_helper = LiteVideoObserver::FromWebContents(web_contents);
+  if (!tab_helper)
+    return;
+  tab_helper->receivers_.Bind(rfh, std::move(receiver));
+}
+
 LiteVideoObserver::LiteVideoObserver(content::WebContents* web_contents)
-    : content::WebContentsObserver(web_contents) {
+    : content::WebContentsObserver(web_contents),
+      receivers_(web_contents, this) {
   lite_video_decider_ = GetLiteVideoDeciderFromWebContents(web_contents);
   routing_ids_to_notify_ = {};
 }
@@ -89,7 +104,7 @@ void LiteVideoObserver::DidFinishNavigation(
   lite_video::LiteVideoBlocklistReason blocklist_reason =
       lite_video::LiteVideoBlocklistReason::kUnknown;
 
-  if (navigation_handle->IsInMainFrame()) {
+  if (navigation_handle->IsInPrimaryMainFrame()) {
     FlushUKMMetrics();
     routing_ids_to_notify_.clear();
     nav_metrics_ = lite_video::LiteVideoNavigationMetrics(
@@ -107,19 +122,22 @@ void LiteVideoObserver::DidFinishNavigation(
       navigation_handle,
       base::BindOnce(&LiteVideoObserver::OnHintAvailable,
                      weak_ptr_factory_.GetWeakPtr(),
-                     content::GlobalFrameRoutingId(
+                     content::GlobalRenderFrameHostId(
                          render_frame_host->GetProcess()->GetID(),
                          render_frame_host->GetRoutingID())));
 }
 
 void LiteVideoObserver::OnHintAvailable(
-    const content::GlobalFrameRoutingId& render_frame_host_routing_id,
-    base::Optional<lite_video::LiteVideoHint> hint,
+    const content::GlobalRenderFrameHostId& render_frame_host_routing_id,
+    absl::optional<lite_video::LiteVideoHint> hint,
     lite_video::LiteVideoBlocklistReason blocklist_reason,
     optimization_guide::OptimizationGuideDecision opt_guide_decision) {
   auto* render_frame_host =
       content::RenderFrameHost::FromID(render_frame_host_routing_id);
   if (!render_frame_host)
+    return;
+
+  if (!render_frame_host->GetPage().IsPrimary())
     return;
 
   bool is_mainframe = render_frame_host->GetMainFrame() == render_frame_host;
@@ -177,7 +195,7 @@ void LiteVideoObserver::OnHintAvailable(
 }
 
 void LiteVideoObserver::SendHintToRenderFrameAgentForID(
-    const content::GlobalFrameRoutingId& routing_id,
+    const content::GlobalRenderFrameHostId& routing_id,
     const lite_video::LiteVideoHint& hint) {
   auto* render_frame_host = content::RenderFrameHost::FromID(routing_id);
   if (!render_frame_host)
@@ -202,7 +220,7 @@ void LiteVideoObserver::SendHintToRenderFrameAgentForID(
 }
 
 lite_video::LiteVideoDecision LiteVideoObserver::MakeLiteVideoDecision(
-    base::Optional<lite_video::LiteVideoHint> hint) const {
+    absl::optional<lite_video::LiteVideoHint> hint) const {
   if (hint) {
     return is_coinflip_holdback_ ? lite_video::LiteVideoDecision::kHoldback
                                  : lite_video::LiteVideoDecision::kAllowed;
@@ -226,7 +244,7 @@ void LiteVideoObserver::FlushUKMMetrics() {
 // Returns the result of a coinflip.
 void LiteVideoObserver::MaybeUpdateCoinflipExperimentState(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame())
+  if (!navigation_handle->IsInPrimaryMainFrame())
     return;
   if (!lite_video::features::IsCoinflipExperimentEnabled())
     return;
@@ -237,7 +255,8 @@ void LiteVideoObserver::MaybeUpdateCoinflipExperimentState(
 }
 
 void LiteVideoObserver::MediaBufferUnderflow(const content::MediaPlayerId& id) {
-  content::RenderFrameHost* render_frame_host = id.render_frame_host;
+  auto* render_frame_host =
+      content::RenderFrameHost::FromID(id.frame_routing_id);
 
   if (!render_frame_host || !render_frame_host->GetProcess())
     return;
@@ -269,18 +288,19 @@ void LiteVideoObserver::MediaBufferUnderflow(const content::MediaPlayerId& id) {
   // Determine and log if the rebuffer happened in the mainframe.
   render_frame_host->GetMainFrame() == render_frame_host
       ? lite_video_decider_->DidMediaRebuffer(
-            render_frame_host->GetLastCommittedURL(), base::nullopt, true)
+            render_frame_host->GetLastCommittedURL(), absl::nullopt, true)
       : lite_video_decider_->DidMediaRebuffer(
             render_frame_host->GetMainFrame()->GetLastCommittedURL(),
             render_frame_host->GetLastCommittedURL(), true);
 }
 
 void LiteVideoObserver::MediaPlayerSeek(const content::MediaPlayerId& id) {
-  content::RenderFrameHost* render_frame_host = id.render_frame_host;
 
   if (!lite_video::features::DisableLiteVideoOnMediaPlayerSeek())
     return;
 
+  auto* render_frame_host =
+      content::RenderFrameHost::FromID(id.frame_routing_id);
   if (!render_frame_host || !render_frame_host->GetProcess())
     return;
 
@@ -305,4 +325,21 @@ void LiteVideoObserver::MediaPlayerSeek(const content::MediaPlayerId& id) {
   loading_hints_agent->StopThrottlingMediaRequests();
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(LiteVideoObserver)
+uint64_t LiteVideoObserver::GetAndClearEstimatedDataSavingBytes() {
+  if (current_throttled_video_bytes_ == 0)
+    return 0;
+  // ThrottledVideoBytesDeflatedRatio is essentially
+  //  bytes_saved / throttled_video_bytes. So use that to compute estimated
+  //  bytes saved.
+  uint64_t bytes_saved = static_cast<uint64_t>(
+      current_throttled_video_bytes_ *
+      lite_video::features::GetThrottledVideoBytesDeflatedRatio());
+  current_throttled_video_bytes_ = 0;
+  return bytes_saved;
+}
+
+void LiteVideoObserver::NotifyThrottledDataUse(uint64_t response_bytes) {
+  current_throttled_video_bytes_ += response_bytes;
+}
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(LiteVideoObserver);

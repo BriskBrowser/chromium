@@ -28,7 +28,7 @@
 
 #include "third_party/blink/renderer/core/layout/layout_image.h"
 
-#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/permissions_policy/permissions_policy.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -38,6 +38,7 @@
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/html/media/media_element_parser_helpers.h"
 #include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/intrinsic_sizing_info.h"
 #include "third_party/blink/renderer/core/layout/layout_video.h"
@@ -125,8 +126,14 @@ void LayoutImage::ImageChanged(WrappedImagePtr new_image,
 
   // If error occurred, image marker should be replaced by a LayoutText.
   // NotifyOfSubtreeChange to make list item updating its marker content.
-  if (IsListMarkerImage() && image_resource_->ErrorOccurred())
-    NotifyOfSubtreeChange();
+  if (IsListMarkerImage() && image_resource_->ErrorOccurred()) {
+    LayoutObject* item = this;
+    while (item->IsAnonymous())
+      item = item->Parent();
+    DCHECK(item);
+    if (item->NotifyOfSubtreeChange())
+      item->GetNode()->MarkAncestorsWithChildNeedsStyleRecalc();
+  }
 
   // Per the spec, we let the server-sent header override srcset/other sources
   // of dpr.
@@ -205,25 +212,6 @@ void LayoutImage::InvalidatePaintAndMarkForLayoutIfNeeded(
   if (defer == CanDeferInvalidation::kYes && ImageResource() &&
       ImageResource()->MaybeAnimated())
     SetShouldDelayFullPaintInvalidation();
-
-  // Tell any potential compositing layers that the image needs updating.
-  ContentChanged(kImageChanged);
-}
-
-void LayoutImage::ImageNotifyFinished(ImageResourceContent* new_image) {
-  NOT_DESTROYED();
-  LayoutObject::ImageNotifyFinished(new_image);
-  if (!image_resource_)
-    return;
-
-  if (DocumentBeingDestroyed())
-    return;
-
-  if (new_image == image_resource_->CachedImage()) {
-    // tell any potential compositing layers
-    // that the image is done and they can reference it directly.
-    ContentChanged(kImageChanged);
-  }
 }
 
 void LayoutImage::PaintReplaced(const PaintInfo& paint_info,
@@ -280,8 +268,9 @@ bool LayoutImage::ForegroundIsKnownToBeOpaqueInRect(
   if (object_fit != EObjectFit::kFill && object_fit != EObjectFit::kCover)
     return false;
   // Check for image with alpha.
-  TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
-               "data", inspector_paint_image_event::Data(this, *image_content));
+  DEVTOOLS_TIMELINE_TRACE_EVENT_WITH_CATEGORIES(
+      TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
+      inspector_paint_image_event::Data, this, *image_content);
   return image_content->GetImage()->CurrentFrameKnownToBeOpaque();
 }
 
@@ -343,10 +332,10 @@ FloatSize LayoutImage::ImageSizeOverriddenByIntrinsicSize(
   FloatSize overridden_intrinsic_size(kDefaultWidth, kDefaultHeight);
   if (multiplier != 1) {
     overridden_intrinsic_size.Scale(multiplier);
-    if (overridden_intrinsic_size.Width() < 1.0f)
-      overridden_intrinsic_size.SetWidth(1.0f);
-    if (overridden_intrinsic_size.Height() < 1.0f)
-      overridden_intrinsic_size.SetHeight(1.0f);
+    if (overridden_intrinsic_size.width() < 1.0f)
+      overridden_intrinsic_size.set_width(1.0f);
+    if (overridden_intrinsic_size.height() < 1.0f)
+      overridden_intrinsic_size.set_height(1.0f);
   }
 
   return overridden_intrinsic_size;
@@ -386,10 +375,10 @@ void LayoutImage::ComputeIntrinsicSizingInfo(
       if (aspect_ratio.GetType() == EAspectRatioType::kRatio ||
           (aspect_ratio.GetType() == EAspectRatioType::kAutoAndRatio &&
            intrinsic_sizing_info.aspect_ratio.IsEmpty())) {
-        intrinsic_sizing_info.aspect_ratio.SetWidth(
-            aspect_ratio.GetRatio().Width());
-        intrinsic_sizing_info.aspect_ratio.SetHeight(
-            aspect_ratio.GetRatio().Height());
+        intrinsic_sizing_info.aspect_ratio.set_width(
+            aspect_ratio.GetRatio().width());
+        intrinsic_sizing_info.aspect_ratio.set_height(
+            aspect_ratio.GetRatio().height());
       }
 
       if (!IsHorizontalWritingMode())
@@ -405,18 +394,18 @@ void LayoutImage::ComputeIntrinsicSizingInfo(
         !image_resource_->HasIntrinsicSize() && !IsListMarkerImage()) {
       if (HasOverrideContainingBlockContentLogicalWidth() &&
           HasOverrideContainingBlockContentLogicalHeight()) {
-        intrinsic_sizing_info.size.SetWidth(
+        intrinsic_sizing_info.size.set_width(
             OverrideContainingBlockContentLogicalWidth().ToFloat());
-        intrinsic_sizing_info.size.SetHeight(
+        intrinsic_sizing_info.size.set_height(
             OverrideContainingBlockContentLogicalHeight().ToFloat());
       } else {
         LayoutObject* containing_block =
             IsOutOfFlowPositioned() ? Container() : ContainingBlock();
         if (containing_block->IsBox()) {
           auto* box = To<LayoutBox>(containing_block);
-          intrinsic_sizing_info.size.SetWidth(
+          intrinsic_sizing_info.size.set_width(
               box->AvailableLogicalWidth().ToFloat());
-          intrinsic_sizing_info.size.SetHeight(
+          intrinsic_sizing_info.size.set_height(
               box->AvailableLogicalHeight(kIncludeMarginBorderPadding)
                   .ToFloat());
         }

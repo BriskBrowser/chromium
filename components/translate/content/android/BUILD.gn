@@ -13,6 +13,7 @@ android_resources("java_resources") {
     "java/res/drawable-xxhdpi/infobar_translate_compact.png",
     "java/res/drawable-xxxhdpi/infobar_translate_compact.png",
     "java/res/layout/infobar_translate_tab_content.xml",
+    "java/res/layout/translate_menu_extended_item.xml",
     "java/res/layout/translate_menu_item.xml",
     "java/res/layout/translate_menu_item_checked.xml",
     "java/res/values/dimens.xml",
@@ -37,7 +38,6 @@ android_library("java") {
   deps = [
     ":java_resources",
     "//base:base_java",
-    "//base:jni_java",
     "//components/browser_ui/widget/android:java",
     "//third_party/android_deps:material_design_java",
     "//third_party/androidx:androidx_annotation_annotation_java",
@@ -84,6 +84,7 @@ android_library("javatests") {
       [ "java/src/org/chromium/components/translate/TranslateOptionsTest.java" ]
   deps = [
     ":java",
+    "//base:base_java",
     "//base:base_java_test_support",
     "//third_party/android_support_test_runner:rules_java",
     "//third_party/android_support_test_runner:runner_java",
@@ -91,5 +92,19 @@ android_library("javatests") {
     "//third_party/androidx:androidx_appcompat_appcompat_java",
     "//third_party/androidx:androidx_test_runner_java",
     "//third_party/junit:junit",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [ "translate_utils_unittest.cc" ]
+  deps = [
+    ":android",
+    "//base",
+    "//components/infobars/core",
+    "//components/metrics:metrics",
+    "//components/translate/core/browser:test_support",
+    "//testing/gmock",
+    "//testing/gtest",
   ]
 }

@@ -31,7 +31,7 @@ const std::vector<std::string> kAllEventMetrics{
     "ResourceType", "Status",
 };
 
-network::mojom::URLResponseHeadPtr MakeHead(base::Optional<std::string> headers,
+network::mojom::URLResponseHeadPtr MakeHead(absl::optional<std::string> headers,
                                             base::TimeDelta request_start) {
   auto head = network::mojom::URLResponseHead::New();
   head->load_timing.request_start = kNavigationStartTime + request_start;
@@ -142,15 +142,13 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest,
     collector->OnMainframeResourcePrefetched(
         mainframe_url,
         /*prediction_position=*/0,
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(5)),
-        MakeCompletionStatus(net::OK, 123,
-                             base::TimeDelta::FromMilliseconds(10)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(5)),
+        MakeCompletionStatus(net::OK, 123, base::Milliseconds(10)));
 
     collector->OnSubresourcePrefetched(
         mainframe_url, GURL("http://subresource.com/"),
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(10)),
-        MakeCompletionStatus(net::OK, 234,
-                             base::TimeDelta::FromMilliseconds(16)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(10)),
+        MakeCompletionStatus(net::OK, 234, base::Milliseconds(16)));
 
     collector->OnMainframeNavigatedTo(mainframe_url);
   }
@@ -205,10 +203,8 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, Mainframe404ResponseCode) {
     collector->OnMainframeResourcePrefetched(
         mainframe_url,
         /*prediction_position=*/0,
-        MakeHead("HTTP/1.1 404 Not Found\n",
-                 base::TimeDelta::FromMilliseconds(5)),
-        MakeCompletionStatus(net::OK, 123,
-                             base::TimeDelta::FromMilliseconds(10)));
+        MakeHead("HTTP/1.1 404 Not Found\n", base::Milliseconds(5)),
+        MakeCompletionStatus(net::OK, 123, base::Milliseconds(10)));
   }
 
   std::vector<UkmEntry> expected_entries{
@@ -221,6 +217,49 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, Mainframe404ResponseCode) {
                    {"NavigationStartToFetchStartMS", 5},
                    {"ResourceType", 1},
                    {"Status", 12},
+               }},
+  };
+  auto entries = ukm_recorder.GetEntries(kEventName, kAllEventMetrics);
+  EXPECT_THAT(entries, testing::UnorderedElementsAreArray(expected_entries))
+      << ActualUkmEntriesToDebugString(entries);
+}
+
+TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, DecoySuccess) {
+  GURL mainframe_url("https://test.com");
+
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
+
+  {
+    auto collector =
+        base::MakeRefCounted<PrefetchProxyPrefetchMetricsCollector>(
+            kNavigationStartTime, kID);
+
+    // Ensure that it is ok to report it as not eligible, then still send the
+    // decoy.
+    collector->OnMainframeResourceNotEligible(
+        mainframe_url,
+        /*prediction_position=*/0,
+        PrefetchProxyPrefetchStatus::kPrefetchNotEligibleUserHasCookies);
+
+    collector->OnDecoyPrefetchComplete(
+        mainframe_url,
+        /*prediction_position=*/0,
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(5)),
+        MakeCompletionStatus(net::OK, 123, base::Milliseconds(10)));
+
+    collector->OnMainframeNavigatedTo(mainframe_url);
+  }
+
+  std::vector<UkmEntry> expected_entries{
+      UkmEntry{kID,
+               {
+                   {"DataLength", ukm::GetExponentialBucketMinForBytes(123)},
+                   {"FetchDurationMS", 5},
+                   {"LinkClicked", 1},
+                   {"LinkPosition", 0},
+                   {"NavigationStartToFetchStartMS", 5},
+                   {"ResourceType", 1},
+                   {"Status", 29},
                }},
   };
   auto entries = ukm_recorder.GetEntries(kEventName, kAllEventMetrics);
@@ -241,8 +280,7 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, NoResponseHead) {
     collector->OnMainframeResourcePrefetched(
         mainframe_url,
         /*prediction_position=*/0, nullptr,
-        MakeCompletionStatus(net::OK, 123,
-                             base::TimeDelta::FromMilliseconds(10)));
+        MakeCompletionStatus(net::OK, 123, base::Milliseconds(10)));
   }
 
   std::vector<UkmEntry> expected_entries{
@@ -273,9 +311,8 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, NetError) {
     collector->OnMainframeResourcePrefetched(
         mainframe_url,
         /*prediction_position=*/0,
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(5)),
-        MakeCompletionStatus(net::ERR_FAILED, 123,
-                             base::TimeDelta::FromMilliseconds(10)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(5)),
+        MakeCompletionStatus(net::ERR_FAILED, 123, base::Milliseconds(10)));
   }
 
   std::vector<UkmEntry> expected_entries{
@@ -288,6 +325,40 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, NetError) {
                    {"NavigationStartToFetchStartMS", 5},
                    {"ResourceType", 1},
                    {"Status", 11},
+               }},
+  };
+  auto entries = ukm_recorder.GetEntries(kEventName, kAllEventMetrics);
+  EXPECT_THAT(entries, testing::UnorderedElementsAreArray(expected_entries))
+      << ActualUkmEntriesToDebugString(entries);
+}
+
+TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, DecoyNetError) {
+  GURL mainframe_url("https://test.com");
+
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
+
+  {
+    auto collector =
+        base::MakeRefCounted<PrefetchProxyPrefetchMetricsCollector>(
+            kNavigationStartTime, kID);
+
+    collector->OnDecoyPrefetchComplete(
+        mainframe_url,
+        /*prediction_position=*/0,
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(5)),
+        MakeCompletionStatus(net::ERR_FAILED, 123, base::Milliseconds(10)));
+  }
+
+  std::vector<UkmEntry> expected_entries{
+      UkmEntry{kID,
+               {
+                   {"DataLength", ukm::GetExponentialBucketMinForBytes(123)},
+                   {"FetchDurationMS", 5},
+                   {"LinkClicked", 0},
+                   {"LinkPosition", 0},
+                   {"NavigationStartToFetchStartMS", 5},
+                   {"ResourceType", 1},
+                   {"Status", 29},
                }},
   };
   auto entries = ukm_recorder.GetEntries(kEventName, kAllEventMetrics);
@@ -321,9 +392,8 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, ProbeResult) {
       collector->OnMainframeResourcePrefetched(
           mainframe_url,
           /*prediction_position=*/0,
-          MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(5)),
-          MakeCompletionStatus(net::OK, 123,
-                               base::TimeDelta::FromMilliseconds(10)));
+          MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(5)),
+          MakeCompletionStatus(net::OK, 123, base::Milliseconds(10)));
 
       collector->OnMainframeNavigatedTo(mainframe_url);
 
@@ -366,21 +436,18 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, SubresourceReused) {
     collector->OnMainframeResourcePrefetched(
         mainframe_url,
         /*prediction_position=*/0,
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(5)),
-        MakeCompletionStatus(net::OK, 123,
-                             base::TimeDelta::FromMilliseconds(10)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(5)),
+        MakeCompletionStatus(net::OK, 123, base::Milliseconds(10)));
 
     collector->OnSubresourcePrefetched(
         mainframe_url, subresource_url,
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(6)),
-        MakeCompletionStatus(net::OK, 234,
-                             base::TimeDelta::FromMilliseconds(12)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(6)),
+        MakeCompletionStatus(net::OK, 234, base::Milliseconds(12)));
 
     collector->OnSubresourcePrefetched(
         mainframe_url, subresource_url2,
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(7)),
-        MakeCompletionStatus(net::OK, 345,
-                             base::TimeDelta::FromMilliseconds(14)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(7)),
+        MakeCompletionStatus(net::OK, 345, base::Milliseconds(14)));
 
     collector->OnMainframeNavigatedTo(mainframe_url);
 
@@ -448,9 +515,8 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, TypicalUsage) {
     collector->OnMainframeResourcePrefetched(
         mainframe_url,
         /*prediction_position=*/0,
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(5)),
-        MakeCompletionStatus(net::OK, 123,
-                             base::TimeDelta::FromMilliseconds(10)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(5)),
+        MakeCompletionStatus(net::OK, 123, base::Milliseconds(10)));
 
     collector->OnMainframeResourceNotEligible(
         GURL("http://ineligible.com"),
@@ -459,15 +525,13 @@ TEST_F(PrefetchProxyPrefetchMetricsCollectorTest, TypicalUsage) {
 
     collector->OnSubresourcePrefetched(
         mainframe_url, subresource_url,
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(6)),
-        MakeCompletionStatus(net::OK, 234,
-                             base::TimeDelta::FromMilliseconds(12)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(6)),
+        MakeCompletionStatus(net::OK, 234, base::Milliseconds(12)));
 
     collector->OnSubresourcePrefetched(
         mainframe_url, subresource_url2,
-        MakeHead("HTTP/1.1 200 OK\n", base::TimeDelta::FromMilliseconds(7)),
-        MakeCompletionStatus(net::OK, 345,
-                             base::TimeDelta::FromMilliseconds(14)));
+        MakeHead("HTTP/1.1 200 OK\n", base::Milliseconds(7)),
+        MakeCompletionStatus(net::OK, 345, base::Milliseconds(14)));
 
     collector->OnSubresourceNotEligible(
         mainframe_url, GURL("http://ineligible.com/subresource"),

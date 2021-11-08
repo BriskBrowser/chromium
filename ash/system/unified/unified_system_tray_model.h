@@ -9,6 +9,7 @@
 #include "ash/public/cpp/pagination/pagination_model.h"
 #include "base/observer_list.h"
 #include "chromeos/dbus/power/power_manager_client.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace display {
 class Display;
@@ -67,6 +68,10 @@ class ASH_EXPORT UnifiedSystemTrayModel {
   };
 
   explicit UnifiedSystemTrayModel(Shelf* shelf);
+
+  UnifiedSystemTrayModel(const UnifiedSystemTrayModel&) = delete;
+  UnifiedSystemTrayModel& operator=(const UnifiedSystemTrayModel&) = delete;
+
   ~UnifiedSystemTrayModel();
 
   void AddObserver(Observer* observer);
@@ -82,7 +87,7 @@ class ASH_EXPORT UnifiedSystemTrayModel {
   // Returns empty if it's not manually expanded/collapsed. Otherwise, the value
   // is true if the notification is manually expanded, and false if it's
   // manually collapsed.
-  base::Optional<bool> GetNotificationExpanded(
+  absl::optional<bool> GetNotificationExpanded(
       const std::string& notification_id) const;
 
   // Sets a notification of |notification_id| is manually |expanded|.
@@ -168,8 +173,6 @@ class ASH_EXPORT UnifiedSystemTrayModel {
   base::ObserverList<Observer>::Unchecked observers_;
 
   std::unique_ptr<PaginationModel> pagination_model_;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedSystemTrayModel);
 };
 
 }  // namespace ash

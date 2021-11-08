@@ -23,6 +23,12 @@ class CredentialManagerDialogControllerImpl
  public:
   CredentialManagerDialogControllerImpl(Profile* profile,
                                         PasswordsModelDelegate* delegate);
+
+  CredentialManagerDialogControllerImpl(
+      const CredentialManagerDialogControllerImpl&) = delete;
+  CredentialManagerDialogControllerImpl& operator=(
+      const CredentialManagerDialogControllerImpl&) = delete;
+
   ~CredentialManagerDialogControllerImpl() override;
 
   // Pop up the account chooser dialog.
@@ -33,11 +39,11 @@ class CredentialManagerDialogControllerImpl
 
   // CredentialManagerDialogController:
   const FormsVector& GetLocalForms() const override;
-  base::string16 GetAccoutChooserTitle() const override;
+  std::u16string GetAccoutChooserTitle() const override;
   bool IsShowingAccountChooser() const override;
   bool ShouldShowSignInButton() const override;
-  base::string16 GetAutoSigninPromoTitle() const override;
-  base::string16 GetAutoSigninText() const override;
+  std::u16string GetAutoSigninPromoTitle() const override;
+  std::u16string GetAutoSigninText() const override;
   bool ShouldShowFooter() const override;
   void OnChooseCredentials(
       const password_manager::PasswordForm& password_form,
@@ -57,8 +63,6 @@ class CredentialManagerDialogControllerImpl
   AutoSigninFirstRunPrompt* autosignin_dialog_;
   std::vector<std::unique_ptr<password_manager::PasswordForm>>
       local_credentials_;
-
-  DISALLOW_COPY_AND_ASSIGN(CredentialManagerDialogControllerImpl);
 };
 
 #endif  // CHROME_BROWSER_UI_PASSWORDS_CREDENTIAL_MANAGER_DIALOG_CONTROLLER_IMPL_H_

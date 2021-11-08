@@ -9,6 +9,7 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/test/task_environment.h"
 #include "components/sync/protocol/model_type_store_schema_descriptor.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/leveldatabase/env_chromium.h"
@@ -23,15 +24,24 @@ using sync_pb::ModelTypeStoreSchemaDescriptor;
 namespace syncer {
 namespace {
 
+class ModelTypeStoreBackendTest : public testing::Test {
+ protected:
+  ModelTypeStoreBackendTest() = default;
+  ~ModelTypeStoreBackendTest() override = default;
+
+  // Required for task-posting during destruction.
+  base::test::SingleThreadTaskEnvironment task_environment_;
+};
+
 // Test that after record is written to backend it can be read back even after
 // backend is destroyed and recreated in the same environment.
-TEST(ModelTypeStoreBackendTest, WriteThenRead) {
+TEST_F(ModelTypeStoreBackendTest, WriteThenRead) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   scoped_refptr<ModelTypeStoreBackend> backend =
       ModelTypeStoreBackend::CreateUninitialized();
-  base::Optional<ModelError> error = backend->Init(temp_dir.GetPath());
+  absl::optional<ModelError> error = backend->Init(temp_dir.GetPath());
   ASSERT_FALSE(error) << error->ToString();
 
   // Write record.
@@ -63,14 +73,14 @@ TEST(ModelTypeStoreBackendTest, WriteThenRead) {
 }
 
 // Test that ReadAllRecordsWithPrefix correclty filters records by prefix.
-TEST(ModelTypeStoreBackendTest, ReadAllRecordsWithPrefix) {
+TEST_F(ModelTypeStoreBackendTest, ReadAllRecordsWithPrefix) {
   scoped_refptr<ModelTypeStoreBackend> backend =
       ModelTypeStoreBackend::CreateInMemoryForTest();
 
   std::unique_ptr<leveldb::WriteBatch> write_batch(new leveldb::WriteBatch());
   write_batch->Put("prefix1:id1", "data1");
   write_batch->Put("prefix2:id2", "data2");
-  base::Optional<ModelError> error =
+  absl::optional<ModelError> error =
       backend->WriteModifications(std::move(write_batch));
   ASSERT_FALSE(error) << error->ToString();
 
@@ -84,7 +94,7 @@ TEST(ModelTypeStoreBackendTest, ReadAllRecordsWithPrefix) {
 
 // Test that deleted records are correctly marked as milling in results of
 // ReadRecordsWithPrefix.
-TEST(ModelTypeStoreBackendTest, ReadDeletedRecord) {
+TEST_F(ModelTypeStoreBackendTest, ReadDeletedRecord) {
   scoped_refptr<ModelTypeStoreBackend> backend =
       ModelTypeStoreBackend::CreateInMemoryForTest();
 
@@ -92,7 +102,7 @@ TEST(ModelTypeStoreBackendTest, ReadDeletedRecord) {
   std::unique_ptr<leveldb::WriteBatch> write_batch(new leveldb::WriteBatch());
   write_batch->Put("prefix:id1", "data1");
   write_batch->Put("prefix:id2", "data2");
-  base::Optional<ModelError> error =
+  absl::optional<ModelError> error =
       backend->WriteModifications(std::move(write_batch));
   ASSERT_FALSE(error) << error->ToString();
 
@@ -126,7 +136,7 @@ TEST(ModelTypeStoreBackendTest, ReadDeletedRecord) {
 }
 
 // Test that DeleteDataAndMetadataForPrefix correctly deletes records by prefix.
-TEST(ModelTypeStoreBackendTest, DeleteDataAndMetadataForPrefix) {
+TEST_F(ModelTypeStoreBackendTest, DeleteDataAndMetadataForPrefix) {
   scoped_refptr<ModelTypeStoreBackend> backend =
       ModelTypeStoreBackend::CreateInMemoryForTest();
 
@@ -135,7 +145,7 @@ TEST(ModelTypeStoreBackendTest, DeleteDataAndMetadataForPrefix) {
   write_batch->Put("prefix2:id2", "data2");
   write_batch->Put("prefix2:id3", "data3");
   write_batch->Put("prefix3:id4", "data4");
-  base::Optional<ModelError> error =
+  absl::optional<ModelError> error =
       backend->WriteModifications(std::move(write_batch));
   ASSERT_FALSE(error) << error->ToString();
 
@@ -165,7 +175,7 @@ TEST(ModelTypeStoreBackendTest, DeleteDataAndMetadataForPrefix) {
 }
 
 // Test that initializing the database migrates it to the latest schema version.
-TEST(ModelTypeStoreBackendTest, MigrateNoSchemaVersionToLatestVersionTest) {
+TEST_F(ModelTypeStoreBackendTest, MigrateNoSchemaVersionToLatestVersionTest) {
   scoped_refptr<ModelTypeStoreBackend> backend =
       ModelTypeStoreBackend::CreateInMemoryForTest();
 
@@ -174,13 +184,13 @@ TEST(ModelTypeStoreBackendTest, MigrateNoSchemaVersionToLatestVersionTest) {
 }
 
 // Test that the 0 to 1 migration succeeds and sets the schema version to 1.
-TEST(ModelTypeStoreBackendTest, Migrate0To1Test) {
+TEST_F(ModelTypeStoreBackendTest, Migrate0To1Test) {
   scoped_refptr<ModelTypeStoreBackend> backend =
       ModelTypeStoreBackend::CreateInMemoryForTest();
 
   std::unique_ptr<leveldb::WriteBatch> write_batch(new leveldb::WriteBatch());
   write_batch->Delete(ModelTypeStoreBackend::kDBSchemaDescriptorRecordId);
-  base::Optional<ModelError> error =
+  absl::optional<ModelError> error =
       backend->WriteModifications(std::move(write_batch));
   ASSERT_FALSE(error) << error->ToString();
   ASSERT_EQ(0, backend->GetStoreVersionForTest());
@@ -191,11 +201,11 @@ TEST(ModelTypeStoreBackendTest, Migrate0To1Test) {
 }
 
 // Test that migration to an unknown version fails
-TEST(ModelTypeStoreBackendTest, MigrateWithHigherExistingVersionFails) {
+TEST_F(ModelTypeStoreBackendTest, MigrateWithHigherExistingVersionFails) {
   scoped_refptr<ModelTypeStoreBackend> backend =
       ModelTypeStoreBackend::CreateInMemoryForTest();
 
-  base::Optional<ModelError> error =
+  absl::optional<ModelError> error =
       backend->MigrateForTest(ModelTypeStoreBackend::kLatestSchemaVersion + 1,
                               ModelTypeStoreBackend::kLatestSchemaVersion);
   ASSERT_TRUE(error);
@@ -204,7 +214,7 @@ TEST(ModelTypeStoreBackendTest, MigrateWithHigherExistingVersionFails) {
 
 // Tests that initializing store after corruption triggers recovery and results
 // in successful store initialization.
-TEST(ModelTypeStoreBackendTest, RecoverAfterCorruption) {
+TEST_F(ModelTypeStoreBackendTest, RecoverAfterCorruption) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
@@ -217,7 +227,7 @@ TEST(ModelTypeStoreBackendTest, RecoverAfterCorruption) {
 
   scoped_refptr<ModelTypeStoreBackend> backend =
       ModelTypeStoreBackend::CreateUninitialized();
-  base::Optional<ModelError> error = backend->Init(temp_dir.GetPath());
+  absl::optional<ModelError> error = backend->Init(temp_dir.GetPath());
   ASSERT_FALSE(error) << error->ToString();
 }
 

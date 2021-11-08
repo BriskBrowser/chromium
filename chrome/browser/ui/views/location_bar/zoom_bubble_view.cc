@@ -21,6 +21,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
@@ -35,6 +36,8 @@
 #include "extensions/grit/extensions_browser_resources.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/geometry/insets.h"
@@ -50,8 +53,6 @@
 #include "ui/views/controls/separator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 
@@ -59,13 +60,11 @@ namespace {
 
 // The default time that the bubble should stay on the screen if it will close
 // automatically.
-constexpr base::TimeDelta kBubbleCloseDelayDefault =
-    base::TimeDelta::FromMilliseconds(1500);
+constexpr base::TimeDelta kBubbleCloseDelayDefault = base::Milliseconds(1500);
 
 // A longer timeout used for how long the bubble should stay on the screen
 // before it will close automatically after + or - buttons have been used.
-constexpr base::TimeDelta kBubbleCloseDelayLong =
-    base::TimeDelta::FromMilliseconds(5000);
+constexpr base::TimeDelta kBubbleCloseDelayLong = base::Milliseconds(5000);
 
 class ZoomButtonHighlightPathGenerator : public views::HighlightPathGenerator {
  public:
@@ -95,7 +94,7 @@ class ZoomValue : public views::Label {
   METADATA_HEADER(ZoomValue);
 
   explicit ZoomValue(const content::WebContents* web_contents)
-      : Label(base::string16(),
+      : Label(std::u16string(),
               views::style::CONTEXT_LABEL,
               views::style::STYLE_PRIMARY),
         max_width_(GetLabelMaxWidth(web_contents)) {
@@ -112,7 +111,7 @@ class ZoomValue : public views::Label {
 
  private:
   int GetLabelMaxWidth(const content::WebContents* web_contents) const {
-    const int border_width = border() ? border()->GetInsets().width() : 0;
+    const int border_width = GetInsets().width();
     int max_w = 0;
     auto* zoom_controller = zoom::ZoomController::FromWebContents(web_contents);
     DCHECK(zoom_controller);
@@ -312,7 +311,7 @@ ZoomBubbleView::~ZoomBubbleView() {
     immersive_mode_controller_->RemoveObserver(this);
 }
 
-base::string16 ZoomBubbleView::GetAccessibleWindowTitle() const {
+std::u16string ZoomBubbleView::GetAccessibleWindowTitle() const {
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents());
   if (!browser)
     return {};

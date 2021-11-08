@@ -18,6 +18,10 @@ namespace vr {
 class MockBrowserUiInterface : public BrowserUiInterface {
  public:
   MockBrowserUiInterface();
+
+  MockBrowserUiInterface(const MockBrowserUiInterface&) = delete;
+  MockBrowserUiInterface& operator=(const MockBrowserUiInterface&) = delete;
+
   ~MockBrowserUiInterface() override;
 
   MOCK_METHOD1(SetWebVrMode, void(bool enabled));
@@ -37,7 +41,7 @@ class MockBrowserUiInterface : public BrowserUiInterface {
   MOCK_METHOD1(SetSpeechRecognitionEnabled, void(bool enabled));
   MOCK_METHOD1(SetHasOrCanRequestRecordAudioPermission,
                void(bool has_or_can_request_record_audio_permission));
-  MOCK_METHOD1(SetRecognitionResult, void(const base::string16& result));
+  MOCK_METHOD1(SetRecognitionResult, void(const std::u16string& result));
   MOCK_METHOD1(OnSpeechRecognitionStateChanged, void(int new_state));
   void SetOmniboxSuggestions(
       std::vector<OmniboxSuggestion> suggestions) override {}
@@ -54,16 +58,13 @@ class MockBrowserUiInterface : public BrowserUiInterface {
   MOCK_METHOD1(OnSwapContents, void(int));
   MOCK_METHOD2(SetDialogLocation, void(float, float));
   MOCK_METHOD1(SetDialogFloating, void(bool));
-  MOCK_METHOD1(ShowPlatformToast, void(const base::string16&));
+  MOCK_METHOD1(ShowPlatformToast, void(const std::u16string&));
   MOCK_METHOD0(CancelPlatformToast, void());
   MOCK_METHOD2(OnContentBoundsChanged, void(int, int));
   MOCK_METHOD0(RemoveAllTabs, void());
   MOCK_METHOD1(PerformKeyboardInputForTesting, void(KeyboardTestInput));
   MOCK_METHOD1(SetVisibleExternalPromptNotification,
                void(ExternalPromptNotificationType));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockBrowserUiInterface);
 };
 
 }  // namespace vr

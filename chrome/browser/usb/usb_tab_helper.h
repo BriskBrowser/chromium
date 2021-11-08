@@ -5,9 +5,6 @@
 #ifndef CHROME_BROWSER_USB_USB_TAB_HELPER_H_
 #define CHROME_BROWSER_USB_USB_TAB_HELPER_H_
 
-#include <map>
-#include <memory>
-
 #include "base/macros.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
@@ -18,6 +15,9 @@ class UsbTabHelper : public content::WebContentsUserData<UsbTabHelper> {
  public:
   static UsbTabHelper* GetOrCreateForWebContents(
       content::WebContents* web_contents);
+
+  UsbTabHelper(const UsbTabHelper&) = delete;
+  UsbTabHelper& operator=(const UsbTabHelper&) = delete;
 
   ~UsbTabHelper() override;
 
@@ -38,8 +38,6 @@ class UsbTabHelper : public content::WebContentsUserData<UsbTabHelper> {
   content::WebContents* web_contents_;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(UsbTabHelper);
 };
 
 #endif  // CHROME_BROWSER_USB_USB_TAB_HELPER_H_

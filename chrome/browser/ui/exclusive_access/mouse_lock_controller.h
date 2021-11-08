@@ -19,6 +19,10 @@
 class MouseLockController : public ExclusiveAccessControllerBase {
  public:
   explicit MouseLockController(ExclusiveAccessManager* manager);
+
+  MouseLockController(const MouseLockController&) = delete;
+  MouseLockController& operator=(const MouseLockController&) = delete;
+
   ~MouseLockController() override;
 
   // Returns true if the mouse is locked.
@@ -66,6 +70,8 @@ class MouseLockController : public ExclusiveAccessControllerBase {
 
   void OnBubbleHidden(content::WebContents*, ExclusiveAccessBubbleHideReason);
 
+  bool ShouldSuppressBubbleReshowForStateChange();
+
   MouseLockState mouse_lock_state_;
 
   // Optionally a WebContents instance that is granted permission to silently
@@ -92,8 +98,6 @@ class MouseLockController : public ExclusiveAccessControllerBase {
   base::TimeTicks last_user_escape_time_;
 
   base::WeakPtrFactory<MouseLockController> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MouseLockController);
 };
 
 #endif  //  CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_MOUSE_LOCK_CONTROLLER_H_

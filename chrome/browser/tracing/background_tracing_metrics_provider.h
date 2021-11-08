@@ -6,13 +6,10 @@
 #define CHROME_BROWSER_TRACING_BACKGROUND_TRACING_METRICS_PROVIDER_H_
 
 #include <memory>
+#include <vector>
 
 #include "build/build_config.h"
 #include "components/metrics/metrics_provider.h"
-
-#if defined(OS_WIN)
-#include "chrome/browser/metrics/antivirus_metrics_provider_win.h"
-#endif  // defined(OS_WIN)
 
 namespace tracing {
 
@@ -28,6 +25,12 @@ namespace tracing {
 class BackgroundTracingMetricsProvider : public metrics::MetricsProvider {
  public:
   BackgroundTracingMetricsProvider();
+
+  BackgroundTracingMetricsProvider(const BackgroundTracingMetricsProvider&) =
+      delete;
+  BackgroundTracingMetricsProvider& operator=(
+      const BackgroundTracingMetricsProvider&) = delete;
+
   ~BackgroundTracingMetricsProvider() override;
 
   // metrics::MetricsProvider:
@@ -42,10 +45,12 @@ class BackgroundTracingMetricsProvider : public metrics::MetricsProvider {
       base::HistogramSnapshotManager* snapshot_manager) override;
 
  private:
+  std::vector<std::unique_ptr<metrics::MetricsProvider>>
+      system_profile_providers_;
 #if defined(OS_WIN)
-  std::unique_ptr<AntiVirusMetricsProvider> av_metrics_provider_;
-#endif  // defined(OS_WIN)
-  DISALLOW_COPY_AND_ASSIGN(BackgroundTracingMetricsProvider);
+  // owned by |system_profile_providers_|.
+  MetricsProvider* av_metrics_provider_ = nullptr;
+#endif
 };
 
 }  // namespace tracing

@@ -11,7 +11,7 @@
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "chromeos/services/assistant/public/cpp/assistant_service.h"
+#include "chromeos/services/libassistant/public/cpp/assistant_suggestion.h"
 
 namespace base {
 class UnguessableToken;
@@ -26,6 +26,11 @@ class COMPONENT_EXPORT(ASSISTANT_MODEL) AssistantSuggestionsModel {
   using AssistantSuggestion = chromeos::assistant::AssistantSuggestion;
 
   AssistantSuggestionsModel();
+
+  AssistantSuggestionsModel(const AssistantSuggestionsModel&) = delete;
+  AssistantSuggestionsModel& operator=(const AssistantSuggestionsModel&) =
+      delete;
+
   ~AssistantSuggestionsModel();
 
   // Adds/removes the specified suggestions model |observer|.
@@ -59,8 +64,6 @@ class COMPONENT_EXPORT(ASSISTANT_MODEL) AssistantSuggestionsModel {
   std::vector<AssistantSuggestion> onboarding_suggestions_;
 
   mutable base::ObserverList<AssistantSuggestionsModelObserver> observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantSuggestionsModel);
 };
 
 }  // namespace ash

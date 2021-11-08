@@ -5,7 +5,7 @@
 #ifndef GPU_VULKAN_VULKAN_SURFACE_H_
 #define GPU_VULKAN_VULKAN_SURFACE_H_
 
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #include "base/callback.h"
 #include "base/component_export.h"
@@ -35,7 +35,10 @@ class COMPONENT_EXPORT(VULKAN) VulkanSurface {
   VulkanSurface(VkInstance vk_instance,
                 gfx::AcceleratedWidget accelerated_widget,
                 VkSurfaceKHR surface,
-                bool enforce_protected_memory);
+                uint64_t acquire_next_image_timeout_ns = UINT64_MAX);
+
+  VulkanSurface(const VulkanSurface&) = delete;
+  VulkanSurface& operator=(const VulkanSurface&) = delete;
 
   virtual ~VulkanSurface();
 
@@ -78,7 +81,7 @@ class COMPONENT_EXPORT(VULKAN) VulkanSurface {
   VkSurfaceFormatKHR surface_format_ = {};
   VulkanDeviceQueue* device_queue_ = nullptr;
 
-  const bool enforce_protected_memory_;
+  const uint64_t acquire_next_image_timeout_ns_;
 
   // The generation of |swap_chain_|, it will be increased if a new
   // |swap_chain_| is created due to resizing, etc.
@@ -93,8 +96,6 @@ class COMPONENT_EXPORT(VULKAN) VulkanSurface {
   gfx::OverlayTransform transform_ = gfx::OVERLAY_TRANSFORM_INVALID;
 
   std::unique_ptr<VulkanSwapChain> swap_chain_;
-
-  DISALLOW_COPY_AND_ASSIGN(VulkanSurface);
 };
 
 }  // namespace gpu

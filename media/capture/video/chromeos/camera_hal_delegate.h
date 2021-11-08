@@ -12,9 +12,9 @@
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/sequence_checker.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "media/capture/video/chromeos/mojom/camera3.mojom.h"
 #include "media/capture/video/chromeos/mojom/camera_common.mojom.h"
@@ -29,7 +29,6 @@
 
 namespace media {
 
-class CameraAppDeviceBridgeImpl;
 class CameraBufferFactory;
 class VideoCaptureDeviceChromeOSDelegate;
 
@@ -49,6 +48,9 @@ class CAPTURE_EXPORT CameraHalDelegate final
   explicit CameraHalDelegate(
       scoped_refptr<base::SingleThreadTaskRunner> ipc_task_runner);
 
+  CameraHalDelegate(const CameraHalDelegate&) = delete;
+  CameraHalDelegate& operator=(const CameraHalDelegate&) = delete;
+
   // Registers the camera client observer to the CameraHalDispatcher instance.
   // Returns true if successful, false if failed (e.g., authentication failure).
   bool RegisterCameraClient();
@@ -66,8 +68,7 @@ class CAPTURE_EXPORT CameraHalDelegate final
   std::unique_ptr<VideoCaptureDevice> CreateDevice(
       scoped_refptr<base::SingleThreadTaskRunner>
           task_runner_for_screen_observer,
-      const VideoCaptureDeviceDescriptor& device_descriptor,
-      CameraAppDeviceBridgeImpl* app_device_bridge);
+      const VideoCaptureDeviceDescriptor& device_descriptor);
   void GetDevicesInfo(
       VideoCaptureDeviceFactory::GetDevicesInfoCallback callback);
 
@@ -95,6 +96,8 @@ class CAPTURE_EXPORT CameraHalDelegate final
 
   void EnableVirtualDevice(const std::string& device_id, bool enable);
 
+  void DisableAllVirtualDevices();
+
  private:
   friend class base::RefCountedThreadSafe<CameraHalDelegate>;
 
@@ -108,8 +111,7 @@ class CAPTURE_EXPORT CameraHalDelegate final
   VideoCaptureDeviceChromeOSDelegate* GetVCDDelegate(
       scoped_refptr<base::SingleThreadTaskRunner>
           task_runner_for_screen_observer,
-      const VideoCaptureDeviceDescriptor& device_descriptor,
-      CameraAppDeviceBridgeImpl* camera_app_device_bridge);
+      const VideoCaptureDeviceDescriptor& device_descriptor);
 
   void SetCameraModuleOnIpcThread(
       mojo::PendingRemote<cros::mojom::CameraModule> camera_module);
@@ -223,8 +225,6 @@ class CAPTURE_EXPORT CameraHalDelegate final
   // A map from camera id to corresponding delegate instance.
   base::flat_map<int, std::unique_ptr<VideoCaptureDeviceChromeOSDelegate>>
       vcd_delegate_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(CameraHalDelegate);
 };
 
 }  // namespace media

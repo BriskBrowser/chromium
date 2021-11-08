@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/crosapi/mojom/metrics_reporting.mojom.h"
-#include "chromeos/lacros/lacros_chrome_service_impl.h"
+#include "chromeos/lacros/lacros_service.h"
 #include "content/public/test/browser_test.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace crosapi {
 namespace {
@@ -29,7 +29,7 @@ class TestObserver : public mojom::MetricsReportingObserver {
   }
 
   // Public because this is test code.
-  base::Optional<bool> metrics_enabled_;
+  absl::optional<bool> metrics_enabled_;
   base::RunLoop* on_changed_run_loop_ = nullptr;
   mojo::Receiver<mojom::MetricsReportingObserver> receiver_{this};
 };
@@ -37,7 +37,7 @@ class TestObserver : public mojom::MetricsReportingObserver {
 using MetricsReportingLacrosBrowserTest = InProcessBrowserTest;
 
 IN_PROC_BROWSER_TEST_F(MetricsReportingLacrosBrowserTest, Basics) {
-  auto* lacros_service = chromeos::LacrosChromeServiceImpl::Get();
+  auto* lacros_service = chromeos::LacrosService::Get();
   ASSERT_TRUE(lacros_service);
 
   // We don't assert the initial metrics state because it might vary depending

@@ -5,6 +5,8 @@
 #include "chrome/browser/sync_file_system/drive_backend/list_changes_task.h"
 
 #include <stddef.h>
+
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -42,6 +44,10 @@ class ListChangesTaskTest : public testing::Test {
  public:
   ListChangesTaskTest()
       : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP) {}
+
+  ListChangesTaskTest(const ListChangesTaskTest&) = delete;
+  ListChangesTaskTest& operator=(const ListChangesTaskTest&) = delete;
+
   ~ListChangesTaskTest() override {}
 
   void SetUp() override {
@@ -56,20 +62,18 @@ class ListChangesTaskTest : public testing::Test {
                                  base::ThreadTaskRunnerHandle::Get(),
                                  mojo::NullRemote()));
 
-    fake_drive_service_helper_.reset(
-        new FakeDriveServiceHelper(fake_drive_service.get(),
-                                   drive_uploader.get(),
-                                   kSyncRootFolderTitle));
+    fake_drive_service_helper_ = std::make_unique<FakeDriveServiceHelper>(
+        fake_drive_service.get(), drive_uploader.get(), kSyncRootFolderTitle);
 
-    sync_task_manager_.reset(new SyncTaskManager(
+    sync_task_manager_ = std::make_unique<SyncTaskManager>(
         base::WeakPtr<SyncTaskManager::Client>(),
-        10 /* maximum_background_task */, base::ThreadTaskRunnerHandle::Get()));
+        10 /* maximum_background_task */, base::ThreadTaskRunnerHandle::Get());
     sync_task_manager_->Initialize(SYNC_STATUS_OK);
 
-    context_.reset(new SyncEngineContext(
+    context_ = std::make_unique<SyncEngineContext>(
         std::move(fake_drive_service), std::move(drive_uploader),
         nullptr /* task_logger */, base::ThreadTaskRunnerHandle::Get(),
-        base::ThreadTaskRunnerHandle::Get()));
+        base::ThreadTaskRunnerHandle::Get());
 
     SetUpRemoteFolders();
 
@@ -174,8 +178,8 @@ class ListChangesTaskTest : public testing::Test {
     sync_task_manager_->ScheduleSyncTask(
         FROM_HERE, std::unique_ptr<SyncTask>(initializer),
         SyncTaskManager::PRIORITY_MED,
-        base::Bind(&ListChangesTaskTest::DidInitializeMetadataDatabase,
-                   base::Unretained(this), initializer, &status));
+        base::BindOnce(&ListChangesTaskTest::DidInitializeMetadataDatabase,
+                       base::Unretained(this), initializer, &status));
 
     base::RunLoop().RunUntilIdle();
 
@@ -208,8 +212,6 @@ class ListChangesTaskTest : public testing::Test {
   std::unique_ptr<FakeDriveServiceHelper> fake_drive_service_helper_;
 
   std::unique_ptr<SyncTaskManager> sync_task_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(ListChangesTaskTest);
 };
 
 TEST_F(ListChangesTaskTest, NoChange) {

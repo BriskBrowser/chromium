@@ -7,7 +7,6 @@
 #include <ostream>
 
 #include "base/notreached.h"
-#include "components/sync/protocol/sync.pb.h"
 
 namespace syncer {
 
@@ -15,10 +14,10 @@ SyncChange::SyncChange(const base::Location& from_here,
                        SyncChangeType change_type,
                        const SyncData& sync_data)
     : location_(from_here), change_type_(change_type), sync_data_(sync_data) {
-  DCHECK(IsValid());
+  DCHECK(IsValid()) << " from " << from_here.ToString();
 }
 
-SyncChange::~SyncChange() {}
+SyncChange::~SyncChange() = default;
 
 bool SyncChange::IsValid() const {
   // TODO(crbug.com/1152824): This implementation could be simplified if the
@@ -31,19 +30,9 @@ bool SyncChange::IsValid() const {
     return false;
   }
 
-  // Data from the syncer must always have valid specifics.
-  if (!sync_data_.IsLocal()) {
-    return true;
-  }
-
-  // Local changes must always have a unique tag.
+  // Changes must always have a unique tag.
   if (sync_data_.GetClientTagHash().value().empty()) {
     return false;
-  }
-
-  // Adds and updates must have a non-unique-title.
-  if (change_type_ == ACTION_ADD || change_type_ == ACTION_UPDATE) {
-    return !sync_data_.GetTitle().empty();
   }
 
   return true;
@@ -70,16 +59,13 @@ std::string SyncChange::ChangeTypeToString(SyncChangeType change_type) {
       return "ACTION_UPDATE";
     case ACTION_DELETE:
       return "ACTION_DELETE";
-    default:
-      NOTREACHED();
   }
-  return std::string();
 }
 
 std::string SyncChange::ToString() const {
-  return "{ " + location_.ToString() + ", changeType: " +
-         ChangeTypeToString(change_type_) + ", syncData: " +
-         sync_data_.ToString() + "}";
+  return "{ " + location_.ToString() +
+         ", changeType: " + ChangeTypeToString(change_type_) +
+         ", syncData: " + sync_data_.ToString() + "}";
 }
 
 void PrintTo(const SyncChange& sync_change, std::ostream* os) {

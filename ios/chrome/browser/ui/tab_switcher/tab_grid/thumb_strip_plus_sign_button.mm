@@ -14,6 +14,8 @@
 @interface ThumbStripPlusSignButton ()
 // The transparency gradient of the button.
 @property(nonatomic, strong) CAGradientLayer* gradient;
+// The current constraints for the image.
+@property(nonatomic, strong) NSLayoutConstraint* plusYConstraints;
 @end
 
 @implementation ThumbStripPlusSignButton
@@ -30,13 +32,15 @@
   plusSignImage.translatesAutoresizingMaskIntoConstraints = NO;
   [self addSubview:plusSignImage];
 
+  self.plusYConstraints = [plusSignImage.centerYAnchor
+      constraintEqualToAnchor:self.topAnchor
+                     constant:kPlusSignImageYCenterConstant];
+
   NSArray* constraints = @[
     [plusSignImage.centerXAnchor
         constraintEqualToAnchor:self.trailingAnchor
                        constant:-kPlusSignImageTrailingCenterDistance],
-    [plusSignImage.centerYAnchor
-        constraintEqualToAnchor:self.topAnchor
-                       constant:kPlusSignImageYCenterConstant],
+    self.plusYConstraints,
   ];
   [NSLayoutConstraint activateConstraints:constraints];
 }
@@ -52,15 +56,29 @@
   CAGradientLayer* gradient = [CAGradientLayer layer];
   self.gradient = gradient;
   gradient.frame = self.bounds;
-  gradient.colors =
-      @[ (id)[UIColor clearColor].CGColor, (id)[UIColor blackColor].CGColor ];
+  gradient.colors = @[
+    (id)UIColor.clearColor.CGColor,
+    (id)[UIColor.blackColor colorWithAlphaComponent:0.72].CGColor,
+    (id)UIColor.blackColor.CGColor
+  ];
   gradient.startPoint = CGPointMake(0.0, 0.5);
   gradient.endPoint = CGPointMake(1.0, 0.5);
-  gradient.locations = @[ @0, @0.5 ];
+  gradient.locations = @[ @0, @0.5, @0.87 ];
   if (UseRTLLayout()) {
     gradient.affineTransform = CGAffineTransformMakeScale(-1, 1);
   }
   [self.layer insertSublayer:gradient atIndex:0];
+}
+
+#pragma mark - Properties
+
+- (void)setPlusSignVerticalOffset:(CGFloat)verticalOffset {
+  BOOL updateNeeded = _plusSignVerticalOffset != verticalOffset;
+  _plusSignVerticalOffset = verticalOffset;
+  if (updateNeeded) {
+    self.plusYConstraints.constant =
+        kPlusSignImageYCenterConstant + self.plusSignVerticalOffset;
+  }
 }
 
 @end

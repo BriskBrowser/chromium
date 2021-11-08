@@ -7,22 +7,26 @@
 
 #include <map>
 
-#include "base/callback.h"
+#include "base/callback_forward.h"
 #include "base/callback_list.h"
+#include "base/gtest_prod_util.h"
 #include "base/observer_list.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/security_events/security_event_recorder.h"
 #include "chrome/browser/security_events/security_event_recorder_factory.h"
+#include "components/keyed_service/core/keyed_service.h"
 #include "components/password_manager/core/browser/hash_password_manager.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
-#include "components/password_manager/core/browser/password_reuse_detector.h"
+#include "components/password_manager/core/browser/password_reuse_manager.h"
 #include "components/password_manager/core/browser/password_store.h"
+#include "components/password_manager/core/browser/password_store_interface.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/safe_browsing/buildflags.h"
-#include "components/safe_browsing/content/password_protection/password_protection_service.h"
-#include "components/safe_browsing/core/triggers/trigger_manager.h"
+#include "components/safe_browsing/content/browser/password_protection/password_protection_service.h"
+#include "components/safe_browsing/content/browser/triggers/trigger_manager.h"
+#include "components/safe_browsing/core/browser/user_population.h"
 #include "components/sessions/core/session_id.h"
 #include "components/sync/protocol/gaia_password_reuse.pb.h"
 #include "components/sync/protocol/user_event_specifics.pb.h"
@@ -39,14 +43,9 @@ namespace content {
 class WebContents;
 }
 
-namespace policy {
-class BrowserPolicyConnector;
-}
-
 namespace safe_browsing {
 
 class SafeBrowsingService;
-class SafeBrowsingNavigationObserverManager;
 class SafeBrowsingUIManager;
 class ChromePasswordProtectionService;
 class VerdictCacheManager;
@@ -73,8 +72,12 @@ MaybeCreateNavigationThrottle(content::NavigationHandle* navigation_handle);
 
 // ChromePasswordProtectionService extends PasswordProtectionService by adding
 // access to SafeBrowsingNaivigationObserverManager and Profile.
-class ChromePasswordProtectionService : public PasswordProtectionService {
+class ChromePasswordProtectionService : public PasswordProtectionService,
+                                        public KeyedService {
  public:
+  using ChangePhishedCredentialsCallback = base::RepeatingCallback<void(
+      password_manager::PasswordStoreInterface*,
+      const password_manager::MatchingReusedCredential&)>;
   // Observer is used to coordinate password protection UIs (e.g. modal warning,
   // change password card, etc) in reaction to user events.
   class Observer {
@@ -98,6 +101,12 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
 
   ChromePasswordProtectionService(SafeBrowsingService* sb_service,
                                   Profile* profile);
+
+  ChromePasswordProtectionService(const ChromePasswordProtectionService&) =
+      delete;
+  ChromePasswordProtectionService& operator=(
+      const ChromePasswordProtectionService&) = delete;
+
   ~ChromePasswordProtectionService() override;
 
   static ChromePasswordProtectionService* GetPasswordProtectionService(
@@ -165,17 +174,9 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   GURL GetDefaultChangePasswordURL() const;
 
   // Gets the detailed warning text that should show in the modal warning dialog
-  // and page info bubble. |placeholder_offsets| are the start points/indices of
-  // the placeholders that are passed into the resource string. It is only set
-  // for saved passwords.
-  base::string16 GetWarningDetailText(
-      ReusedPasswordAccountType password_type,
-      std::vector<size_t>* placeholder_offsets) const;
-
-  // Get placeholders for the warning detail text for saved password reuse
-  // warnings.
-  std::vector<base::string16> GetPlaceholdersForSavedPasswordWarningText()
-      const;
+  // and page info bubble.
+  std::u16string GetWarningDetailText(
+      ReusedPasswordAccountType password_type) const;
 
   // If password protection trigger is configured via enterprise policy, gets
   // the name of the organization that owns the enterprise policy. Otherwise,
@@ -242,14 +243,16 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   LoginReputationClientRequest::ReferringAppInfo GetReferringAppInfo(
       content::WebContents* web_contents) override;
 #endif
+  // Returns the PasswordReuseManager associated with this instance.
+  password_manager::PasswordReuseManager* GetPasswordReuseManager() const;
 
-  // Returns the profile PasswordStore associated with this instance.
-  password_manager::PasswordStore* GetProfilePasswordStore() const;
+  // Returns the profile PasswordStoreInterface associated with this instance.
+  password_manager::PasswordStoreInterface* GetProfilePasswordStore() const;
 
-  // Returns the GAIA-account-scoped PasswordStore associated with this
+  // Returns the GAIA-account-scoped PasswordStoreInterface associated with this
   // instance. The account password store contains passwords stored in the
   // account and is accessible only when the user is signed in and non syncing.
-  password_manager::PasswordStore* GetAccountPasswordStore() const;
+  password_manager::PasswordStoreInterface* GetAccountPasswordStore() const;
 
   // Gets the type of sync account associated with current profile or
   // |NOT_SIGNED_IN|.
@@ -290,10 +293,16 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   // Gets |account_info_| based on |profile_|.
   AccountInfo GetAccountInfo() const override;
 
+  // Gets the UserPopulation value for this profile.
+  ChromeUserPopulation::UserPopulation GetUserPopulationPref() const override;
+
+  // KeyedService:
+  // Called before the actual deletion of the object.
+  void Shutdown() override;
+
  protected:
   // PasswordProtectionService overrides.
-  const policy::BrowserPolicyConnector* GetBrowserPolicyConnector()
-      const override;
+
   // Obtains referrer chain of |event_url| and |event_tab_id| and add this
   // info into |frame|.
   void FillReferrerChain(const GURL& event_url,
@@ -302,11 +311,7 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
 
   bool IsExtendedReporting() override;
 
-  bool IsEnhancedProtection() override;
-
   bool IsIncognito() override;
-
-  bool IsUserMBBOptedIn() override;
 
   bool IsInPasswordAlertMode(ReusedPasswordAccountType password_type) override;
 
@@ -315,8 +320,9 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   bool IsPingingEnabled(LoginReputationClientRequest::TriggerType trigger_type,
                         ReusedPasswordAccountType password_type) override;
 
-  // If current profile has enabled history syncing.
-  bool IsHistorySyncEnabled() override;
+  // Populates the ChromeUserPopulation in |request_proto|.
+  void FillUserPopulation(const GURL& main_frame_url,
+                          LoginReputationClientRequest* request_proto) override;
 
   // If primary account is syncing.
   bool IsPrimaryAccountSyncing() const override;
@@ -324,23 +330,13 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   // If primary account is signed in.
   bool IsPrimaryAccountSignedIn() const override;
 
-  // If a domain is not defined for the primary account. This means the primary
-  // account is a Gmail account.
-  bool IsPrimaryAccountGmail() const override;
+  // Checks whether the account associated with |username| is a Gmail account.
+  bool IsAccountGmail(const std::string& username) const override;
 
   // Gets the AccountInfo for the account corresponding to |username| from the
   // list of signed-in users.
-  AccountInfo GetSignedInNonSyncAccount(
+  AccountInfo GetAccountInfoForUsername(
       const std::string& username) const override;
-
-  // If the domain for the non-syncing account is equal to
-  // |kNoHostedDomainFound|, this means that the account is a Gmail account.
-  bool IsOtherGaiaAccountGmail(const std::string& username) const override;
-
-#if BUILDFLAG(FULL_SAFE_BROWSING)
-  // If user is under advanced protection.
-  bool IsUnderAdvancedProtection() override;
-#endif
 
   // If Safe browsing endpoint is not enabled in the country.
   bool IsInExcludedCountry() override;
@@ -444,6 +440,8 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
                            VerifyPersistPhishedSavedPasswordCredential);
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
                            VerifyGetPingNotSentReason);
+  FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
+                           VerifyPageLoadToken);
   // Browser tests
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceBrowserTest,
                            VerifyCheckGaiaPasswordChange);
@@ -506,19 +504,6 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   // enterprise password hashes.
   void OnWarningTriggerChanged();
 
-  // Gets the warning text for saved password reuse warnings.
-  // |placeholder_offsets| are the start points/indices of the placeholders that
-  // are passed into the resource string.
-  base::string16 GetWarningDetailTextForSavedPasswords(
-      std::vector<size_t>* placeholder_offsets) const;
-
-  // Gets the warning text of the saved password reuse warnings that tells the
-  // user to check their saved passwords. |placeholder_offsets| are the start
-  // points/indices of the placeholders that are passed into the resource
-  // string.
-  base::string16 GetWarningDetailTextToCheckSavedPasswords(
-      std::vector<size_t>* placeholder_offsets) const;
-
   // Informs PasswordReuseDetector that enterprise password URLs (login URL or
   // change password URL) have been changed.
   void OnEnterprisePasswordUrlChanged();
@@ -543,6 +528,9 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
       LoginReputationClientResponse::VerdictType verdict_type,
       const std::string& verdict_token);
 
+  // Add the bypass event to pref when the user ignore the modal warning.
+  void AddModelWarningBypasstoPref();
+
 #if BUILDFLAG(FULL_SAFE_BROWSING)
   // Get the content area size of current browsing window.
   gfx::Size GetCurrentContentAreaSize() const override;
@@ -553,12 +541,14 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
       Profile* profile,
       scoped_refptr<SafeBrowsingUIManager> ui_manager,
       StringProvider sync_password_hash_provider,
-      VerdictCacheManager* cache_manager);
+      VerdictCacheManager* cache_manager,
+      ChangePhishedCredentialsCallback add_phished_credentials,
+      ChangePhishedCredentialsCallback remove_phished_credentials);
 
   // Code shared by both ctors.
   void Init();
 
-  password_manager::PasswordStore* GetStoreForReusedCredential(
+  password_manager::PasswordStoreInterface* GetStoreForReusedCredential(
       const password_manager::MatchingReusedCredential& reused_credential);
 
   scoped_refptr<SafeBrowsingUIManager> ui_manager_;
@@ -567,8 +557,6 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   Profile* profile_;
   // Current sync password hash.
   std::string sync_password_hash_;
-  scoped_refptr<SafeBrowsingNavigationObserverManager>
-      navigation_observer_manager_;
   base::ObserverList<Observer>::Unchecked observer_list_;
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
   std::set<content::WebContents*>
@@ -584,6 +572,14 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   // Schedules the next time to log the PasswordCaptured event.
   base::OneShotTimer log_password_capture_timer_;
 
+  // Calls `password_manager::AddPhishedCredentials`. Used to facilitate
+  // testing.
+  ChangePhishedCredentialsCallback add_phished_credentials_;
+
+  // Calls `password_manager::RemovePhishedCredentials`. Used to facilitate
+  // testing.
+  ChangePhishedCredentialsCallback remove_phished_credentials_;
+
   // Bypasses the check for probability when sending sample pings.
   bool bypass_probability_for_tests_ = false;
 
@@ -594,8 +590,6 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   // member callback rather than a virtual function because it's needed in the
   // constructor.
   StringProvider sync_password_hash_provider_for_testing_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromePasswordProtectionService);
 };
 
 }  // namespace safe_browsing

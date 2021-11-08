@@ -20,9 +20,14 @@ class VIZ_SERVICE_EXPORT OverlayStrategyFullscreen
  public:
   explicit OverlayStrategyFullscreen(
       OverlayProcessorUsingStrategy* capability_checker);
+
+  OverlayStrategyFullscreen(const OverlayStrategyFullscreen&) = delete;
+  OverlayStrategyFullscreen& operator=(const OverlayStrategyFullscreen&) =
+      delete;
+
   ~OverlayStrategyFullscreen() override;
 
-  bool Attempt(const SkMatrix44& output_color_matrix,
+  bool Attempt(const skia::Matrix44& output_color_matrix,
                const OverlayProcessorInterface::FilterOperationsMap&
                    render_pass_backdrop_filters,
                DisplayResourceProvider* resource_provider,
@@ -32,7 +37,7 @@ class VIZ_SERVICE_EXPORT OverlayStrategyFullscreen
                OverlayCandidateList* candidate_list,
                std::vector<gfx::Rect>* content_bounds) override;
 
-  void ProposePrioritized(const SkMatrix44& output_color_matrix,
+  void ProposePrioritized(const skia::Matrix44& output_color_matrix,
                           const OverlayProcessorInterface::FilterOperationsMap&
                               render_pass_backdrop_filters,
                           DisplayResourceProvider* resource_provider,
@@ -43,7 +48,7 @@ class VIZ_SERVICE_EXPORT OverlayStrategyFullscreen
                           std::vector<gfx::Rect>* content_bounds) override;
 
   bool AttemptPrioritized(
-      const SkMatrix44& output_color_matrix,
+      const skia::Matrix44& output_color_matrix,
       const OverlayProcessorInterface::FilterOperationsMap&
           render_pass_backdrop_filters,
       DisplayResourceProvider* resource_provider,
@@ -59,8 +64,6 @@ class VIZ_SERVICE_EXPORT OverlayStrategyFullscreen
 
  private:
   OverlayProcessorUsingStrategy* capability_checker_;  // Weak.
-
-  DISALLOW_COPY_AND_ASSIGN(OverlayStrategyFullscreen);
 };
 
 }  // namespace viz

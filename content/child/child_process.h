@@ -45,6 +45,10 @@ class CONTENT_EXPORT ChildProcess {
       const std::string& thread_pool_name = "ContentChild",
       std::unique_ptr<base::ThreadPoolInstance::InitParams>
           thread_pool_init_params = nullptr);
+
+  ChildProcess(const ChildProcess&) = delete;
+  ChildProcess& operator=(const ChildProcess&) = delete;
+
   virtual ~ChildProcess();
 
   // May be NULL if the main thread hasn't been set explicitly.
@@ -53,6 +57,10 @@ class CONTENT_EXPORT ChildProcess {
   // Sets the object associated with the main thread of this process.
   // Takes ownership of the pointer.
   void set_main_thread(ChildThreadImpl* thread);
+
+  // We need to stop the IO thread here instead of just flushing it, so that it
+  // can no longer post tasks back to the main thread.
+  void StopIOThreadForTesting() { io_thread_.Stop(); }
 
   base::SingleThreadTaskRunner* io_task_runner() {
     return io_thread_.task_runner().get();
@@ -99,8 +107,6 @@ class CONTENT_EXPORT ChildProcess {
 
   // Whether this ChildProcess initialized ThreadPoolInstance.
   bool initialized_thread_pool_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(ChildProcess);
 };
 
 }  // namespace content

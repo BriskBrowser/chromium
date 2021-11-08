@@ -36,10 +36,13 @@ class SafeBrowsingLoudErrorUI
       ControllerClient* controller,
       bool created_prior_to_navigation);
 
+  SafeBrowsingLoudErrorUI(const SafeBrowsingLoudErrorUI&) = delete;
+  SafeBrowsingLoudErrorUI& operator=(const SafeBrowsingLoudErrorUI&) = delete;
+
   ~SafeBrowsingLoudErrorUI() override;
 
   // Implement BaseSafeBrowsingErrorUI.
-  void PopulateStringsForHtml(base::DictionaryValue* load_time_data) override;
+  void PopulateStringsForHtml(base::Value* load_time_data) override;
   void HandleCommand(SecurityInterstitialCommand command) override;
 
   int GetHTMLTemplateId() const override;
@@ -47,16 +50,14 @@ class SafeBrowsingLoudErrorUI
  private:
   // Fills the passed dictionary with the values to be passed to the template
   // when creating the HTML.
-  void PopulateExtendedReportingOption(base::DictionaryValue* load_time_data);
-  void PopulateMalwareLoadTimeData(base::DictionaryValue* load_time_data);
-  void PopulateHarmfulLoadTimeData(base::DictionaryValue* load_time_data);
-  void PopulatePhishingLoadTimeData(base::DictionaryValue* load_time_data);
-  void PopulateBillingLoadTimeData(base::DictionaryValue* load_time_data);
-  void PopulateEnhancedProtectionMessage(base::DictionaryValue* load_time_data);
+  void PopulateExtendedReportingOption(base::Value* load_time_data);
+  void PopulateMalwareLoadTimeData(base::Value* load_time_data);
+  void PopulateHarmfulLoadTimeData(base::Value* load_time_data);
+  void PopulatePhishingLoadTimeData(base::Value* load_time_data);
+  void PopulateBillingLoadTimeData(base::Value* load_time_data);
+  void PopulateEnhancedProtectionMessage(base::Value* load_time_data);
 
   const bool created_prior_to_navigation_;
-
-  DISALLOW_COPY_AND_ASSIGN(SafeBrowsingLoudErrorUI);
 };
 
 }  // security_interstitials

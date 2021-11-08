@@ -30,6 +30,7 @@ class AudioParameters;
 
 namespace audio {
 
+class InputStreamActivityMonitor;
 class InputSyncWriter;
 class UserInputMonitor;
 
@@ -39,7 +40,7 @@ class InputStream final : public media::mojom::AudioInputStream,
   using CreatedCallback =
       base::OnceCallback<void(media::mojom::ReadOnlyAudioDataPipePtr,
                               bool,
-                              const base::Optional<base::UnguessableToken>&)>;
+                              const absl::optional<base::UnguessableToken>&)>;
   using DeleteCallback = base::OnceCallback<void(InputStream*)>;
 
   InputStream(
@@ -51,10 +52,15 @@ class InputStream final : public media::mojom::AudioInputStream,
       mojo::PendingRemote<media::mojom::AudioLog> log,
       media::AudioManager* manager,
       std::unique_ptr<UserInputMonitor> user_input_monitor,
+      InputStreamActivityMonitor* activity_monitor,
       const std::string& device_id,
       const media::AudioParameters& params,
       uint32_t shared_memory_count,
       bool enable_agc);
+
+  InputStream(const InputStream&) = delete;
+  InputStream& operator=(const InputStream&) = delete;
+
   ~InputStream() override;
 
   const base::UnguessableToken& id() const { return id_; }
@@ -71,7 +77,10 @@ class InputStream final : public media::mojom::AudioInputStream,
   void OnMuted(bool is_muted) override;
 
  private:
-  void OnStreamError(bool signalPlatformError);
+  void OnStreamError(
+      absl::optional<media::mojom::AudioInputStreamObserver::DisconnectReason>
+          reason_to_report);
+  void OnStreamPlatformError();
   void CallDeleter();
   void SendLogMessage(const char* format, ...) PRINTF_FORMAT(2, 3);
 
@@ -96,8 +105,6 @@ class InputStream final : public media::mojom::AudioInputStream,
   SEQUENCE_CHECKER(owning_sequence_);
 
   base::WeakPtrFactory<InputStream> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(InputStream);
 };
 
 }  // namespace audio

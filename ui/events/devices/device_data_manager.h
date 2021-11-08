@@ -29,6 +29,10 @@ class EVENTS_DEVICES_EXPORT DeviceDataManager
     : public DeviceHotplugEventObserver {
  public:
   static const int kMaxDeviceNum = 128;
+
+  DeviceDataManager(const DeviceDataManager&) = delete;
+  DeviceDataManager& operator=(const DeviceDataManager&) = delete;
+
   ~DeviceDataManager() override;
 
   static void CreateInstance();
@@ -67,6 +71,11 @@ class EVENTS_DEVICES_EXPORT DeviceDataManager
 
   void AddObserver(InputDeviceEventObserver* observer);
   void RemoveObserver(InputDeviceEventObserver* observer);
+
+  // Resets all device lists and |device_lists_complete_|. This method exists
+  // because the DeviceDataManager instance is created early in test suite setup
+  // and is hard to replace for tests that require a fresh one.
+  void ResetDeviceListsForTest();
 
  protected:
   DeviceDataManager();
@@ -120,8 +129,6 @@ class EVENTS_DEVICES_EXPORT DeviceDataManager
 
   // Contains touchscreen device info for each device mapped by device ID.
   base::flat_map<int, TouchDeviceTransform> touch_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceDataManager);
 };
 
 }  // namespace ui

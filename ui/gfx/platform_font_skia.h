@@ -28,7 +28,10 @@ class GFX_EXPORT PlatformFontSkia : public PlatformFont {
   // Wraps the provided SkTypeface without triggering a font rematch.
   PlatformFontSkia(sk_sp<SkTypeface> typeface,
                    int font_size_pixels,
-                   const base::Optional<FontRenderParams>& params);
+                   const absl::optional<FontRenderParams>& params);
+
+  PlatformFontSkia(const PlatformFontSkia&) = delete;
+  PlatformFontSkia& operator=(const PlatformFontSkia&) = delete;
 
   // Initials the default PlatformFont. Returns true if this is successful, or
   // false if fonts resources are not available. If this returns false, the
@@ -111,8 +114,6 @@ class GFX_EXPORT PlatformFontSkia : public PlatformFont {
 
   // A font description string of the format used by FontList.
   static std::string* default_font_description_;
-
-  DISALLOW_COPY_AND_ASSIGN(PlatformFontSkia);
 };
 
 }  // namespace gfx

@@ -8,11 +8,11 @@
 #include <memory>
 #include <string>
 
-#include "base/optional.h"
 #include "base/values.h"
 #include "chrome/browser/enterprise/connectors/common.h"
 #include "chrome/browser/enterprise/connectors/service_provider_config.h"
 #include "components/url_matcher/url_matcher.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace enterprise_connectors {
 
@@ -25,12 +25,19 @@ class AnalysisServiceSettings {
   AnalysisServiceSettings(AnalysisServiceSettings&&);
   ~AnalysisServiceSettings();
 
-  // Get the settings to apply to a specific analysis. base::nullopt implies no
+  // Get the settings to apply to a specific analysis. absl::nullopt implies no
   // analysis should take place.
-  base::Optional<AnalysisSettings> GetAnalysisSettings(const GURL& url) const;
+  absl::optional<AnalysisSettings> GetAnalysisSettings(const GURL& url) const;
 
   // Get the block_until_verdict setting if the settings are valid.
   bool ShouldBlockUntilVerdict() const;
+
+  // Get the custom message/learn more URL. Returns absl::nullopt if the
+  // settings are invalid or if the message/URL are empty.
+  absl::optional<std::u16string> GetCustomMessage(const std::string& tag);
+  absl::optional<GURL> GetLearnMoreUrl(const std::string& tag);
+
+  std::string service_provider_name() const { return service_provider_name_; }
 
  private:
   // The setting to apply when a specific URL pattern is matched.
@@ -51,12 +58,12 @@ class AnalysisServiceSettings {
       std::map<url_matcher::URLMatcherConditionSet::ID, URLPatternSettings>;
 
   // Accessors for the pattern setting maps.
-  static base::Optional<URLPatternSettings> GetPatternSettings(
+  static absl::optional<URLPatternSettings> GetPatternSettings(
       const PatternSettings& patterns,
       url_matcher::URLMatcherConditionSet::ID match);
 
   // Returns true if the settings were initialized correctly. If this returns
-  // false, then GetAnalysisSettings will always return base::nullopt.
+  // false, then GetAnalysisSettings will always return absl::nullopt.
   bool IsValid() const;
 
   // Updates the states of |matcher_|, |enabled_patterns_settings_| and/or
@@ -98,8 +105,10 @@ class AnalysisServiceSettings {
   bool block_large_files_ = false;
   bool block_unsupported_file_types_ = false;
   size_t minimum_data_size_ = 100;
-  base::string16 custom_message_text_;
-  GURL custom_message_learn_more_url_;
+  // A map from tag (dlp, malware, etc) to the custom message and "learn more"
+  // link associated with it.
+  std::map<std::string, CustomMessageData> custom_message_data_;
+  std::string service_provider_name_;
 };
 
 }  // namespace enterprise_connectors

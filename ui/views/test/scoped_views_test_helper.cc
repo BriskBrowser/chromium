@@ -8,7 +8,6 @@
 
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/test/test_clipboard.h"
-#include "ui/views/test/test_views_delegate.h"
 
 #if defined(USE_AURA)
 #include "ui/aura/window.h"
@@ -18,7 +17,7 @@ namespace views {
 
 ScopedViewsTestHelper::ScopedViewsTestHelper(
     std::unique_ptr<TestViewsDelegate> test_views_delegate,
-    base::Optional<ViewsDelegate::NativeWidgetFactory> factory)
+    absl::optional<ViewsDelegate::NativeWidgetFactory> factory)
     : test_views_delegate_(test_views_delegate
                                ? std::move(test_views_delegate)
                                : test_helper_->GetFallbackTestViewsDelegate()) {

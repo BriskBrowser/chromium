@@ -61,6 +61,10 @@ class LoginAuthUserViewUnittest : public LoginTestBase,
                                   /*autosubmit_feature*/
                                   public ::testing::WithParamInterface<bool> {
  public:
+  LoginAuthUserViewUnittest(const LoginAuthUserViewUnittest&) = delete;
+  LoginAuthUserViewUnittest& operator=(const LoginAuthUserViewUnittest&) =
+      delete;
+
   static std::string ParamInfoToString(
       testing::TestParamInfo<LoginAuthUserViewUnittest::ParamType> info) {
     return base::StrCat(
@@ -145,9 +149,6 @@ class LoginAuthUserViewUnittest : public LoginTestBase,
   LoginUserInfo user_;
   views::View* container_ = nullptr;   // Owned by test widget view hierarchy.
   LoginAuthUserView* view_ = nullptr;  // Owned by test widget view hierarchy.
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(LoginAuthUserViewUnittest);
 };
 
 // Verifies showing the PIN keyboard makes the user view grow.
@@ -200,7 +201,7 @@ TEST_P(LoginAuthUserViewUnittest, PressReturnWithTapToUnlockEnabled) {
                   user_view->current_user().basic_user_info.account_id));
   SetAuthMethods(LoginAuthUserView::AUTH_PASSWORD |
                  LoginAuthUserView::AUTH_TAP);
-  password_view->Clear();
+  password_view->Reset();
 
   generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
   base::RunLoop().RunUntilIdle();
@@ -281,7 +282,7 @@ TEST_P(LoginAuthUserViewUnittest,
 
   // Set a password.
   SetAuthMethods(LoginAuthUserView::AUTH_PASSWORD);
-  password_test.textfield()->SetText(base::ASCIIToUTF16("Hello"));
+  password_test.textfield()->SetText(u"Hello");
 
   // Enable some other auth method (PIN), password is not cleared.
   EXPECT_TRUE(has_password());
@@ -299,7 +300,7 @@ TEST_P(LoginAuthUserViewUnittest, PasswordFieldChangeOnUpdateUser) {
   LoginAuthUserView::TestApi auth_test(view_);
   LoginPasswordView::TestApi password_test(auth_test.password_view());
 
-  const auto password = base::ASCIIToUTF16("abc1");
+  const std::u16string password = u"abc1";
   password_test.textfield()->SetText(password);
   view_->UpdateForUser(user_);
   EXPECT_EQ(password_test.textfield()->GetText(), password);
@@ -364,7 +365,7 @@ TEST_P(LoginAuthUserViewUnittest, PasswordOnlyFieldMode) {
   SetAuthMethods(LoginAuthUserView::AUTH_PASSWORD);
   ExpectModeVisibility(LoginAuthUserView::InputFieldMode::PASSWORD_ONLY);
 
-  password_test.textfield()->SetText(base::ASCIIToUTF16("test_password"));
+  password_test.textfield()->SetText(u"test_password");
 
   EXPECT_CALL(*client, AuthenticateUserWithPasswordOrPin_(
                            user_view->current_user().basic_user_info.account_id,
@@ -494,7 +495,7 @@ TEST_P(LoginAuthUserViewUnittest, PwdWithToggleFieldModeCorrectness) {
 
   // Insert a password consisting of numbers only and expect it to be treated
   // as a password, not a PIN. This means 'authenticated_by_pin' must be false.
-  password_test.textfield()->SetText(base::ASCIIToUTF16("12345678"));
+  password_test.textfield()->SetText(u"12345678");
 
   EXPECT_CALL(*client, AuthenticateUserWithPasswordOrPin_(
                            user_view->current_user().basic_user_info.account_id,
@@ -504,6 +505,15 @@ TEST_P(LoginAuthUserViewUnittest, PwdWithToggleFieldModeCorrectness) {
 
   generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
   base::RunLoop().RunUntilIdle();
+}
+
+// The LoginAuthFactorsView is part of the Smart Lock UI Revamp, and should not
+// be shown unless the feature flag is enabled.
+TEST_P(LoginAuthUserViewUnittest,
+       AuthFactorsViewNotSetWithSmartLockFeatureDisabled) {
+  LoginAuthUserView::TestApi auth_test(view_);
+  auto* auth_factors_view = auth_test.auth_factors_view();
+  EXPECT_FALSE(auth_factors_view);
 }
 
 INSTANTIATE_TEST_SUITE_P(LoginAuthUserViewTests,

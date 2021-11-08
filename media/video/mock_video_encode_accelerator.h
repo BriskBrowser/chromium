@@ -15,6 +15,11 @@ namespace media {
 class MockVideoEncodeAccelerator : public VideoEncodeAccelerator {
  public:
   MockVideoEncodeAccelerator();
+
+  MockVideoEncodeAccelerator(const MockVideoEncodeAccelerator&) = delete;
+  MockVideoEncodeAccelerator& operator=(const MockVideoEncodeAccelerator&) =
+      delete;
+
   ~MockVideoEncodeAccelerator() override;
 
   MOCK_METHOD0(GetSupportedProfiles,
@@ -26,12 +31,11 @@ class MockVideoEncodeAccelerator : public VideoEncodeAccelerator {
                void(scoped_refptr<VideoFrame> frame, bool force_keyframe));
   MOCK_METHOD1(UseOutputBitstreamBuffer, void(BitstreamBuffer buffer));
   MOCK_METHOD2(RequestEncodingParametersChange,
-               void(uint32_t bitrate, uint32_t framerate));
+               void(const Bitrate& bitrate, uint32_t framerate));
   MOCK_METHOD0(Destroy, void());
 
  private:
   void DeleteThis();
-  DISALLOW_COPY_AND_ASSIGN(MockVideoEncodeAccelerator);
 };
 
 }  // namespace media

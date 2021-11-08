@@ -7,16 +7,17 @@
 #include <stdint.h>
 
 #include <limits>
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include "base/base64url.h"
 #include "base/bind.h"
 #include "base/containers/circular_deque.h"
-#include "base/optional.h"
+#include "base/cxx17_backports.h"
+#include "base/numerics/safe_math.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_byteorder.h"
@@ -24,6 +25,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "net/base/idempotency.h"
 #include "net/base/ip_address.h"
 #include "net/base/port_util.h"
 #include "net/base/upload_bytes_element_reader.h"
@@ -40,11 +42,11 @@
 #include "net/dns/dns_util.h"
 #include "net/dns/public/dns_over_https_server_config.h"
 #include "net/dns/public/dns_protocol.h"
+#include "net/dns/public/secure_dns_policy.h"
 #include "net/dns/resolve_context.h"
 #include "net/log/net_log.h"
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_with_source.h"
-#include "net/log/test_net_log.h"
 #include "net/proxy_resolution/proxy_config_service_fixed.h"
 #include "net/socket/socket_test_util.h"
 #include "net/test/gtest_util.h"
@@ -56,6 +58,7 @@
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 using net::test::IsOk;
 
@@ -63,14 +66,31 @@ namespace net {
 
 namespace {
 
-base::TimeDelta kFallbackPeriod = base::TimeDelta::FromSeconds(1);
+base::TimeDelta kFallbackPeriod = base::Seconds(1);
 
 const char kMockHostname[] = "mock.http";
 
-std::string DomainFromDot(const base::StringPiece& dotted) {
-  std::string out;
-  EXPECT_TRUE(DNSDomainFromDot(dotted, &out));
-  return out;
+// Like `net::DNSDomainFromDot()` except allows converting more names than
+// accepted by that utility.
+std::string DomainFromDot(base::StringPiece dotted_name) {
+  std::string dns_name;
+
+  while (true) {
+    size_t next_dot = dotted_name.find('.');
+    if (next_dot == base::StringPiece::npos) {
+      dns_name.append(1, base::checked_cast<base::StringPiece::value_type>(
+                             dotted_name.size()));
+      dns_name.append(static_cast<std::string>(dotted_name));
+      dns_name.append(1, 0);
+      return dns_name;
+    } else {
+      dns_name.append(
+          1, base::checked_cast<base::StringPiece::value_type>(next_dot));
+      dns_name.append(
+          static_cast<std::string>(dotted_name.substr(0, next_dot)));
+      dotted_name = dotted_name.substr(next_dot + 1);
+    }
+  }
 }
 
 enum class Transport { UDP, TCP, HTTPS };
@@ -105,6 +125,10 @@ class DnsSocketData {
                                 query_->io_buffer()->size(),
                                 num_reads_and_writes()));
   }
+
+  DnsSocketData(const DnsSocketData&) = delete;
+  DnsSocketData& operator=(const DnsSocketData&) = delete;
+
   ~DnsSocketData() = default;
 
   // All responses must be added before GetProvider.
@@ -180,7 +204,7 @@ class DnsSocketData {
       reads_.push_back(MockRead(SYNCHRONOUS, ERR_IO_PENDING,
                                 writes_.size() + reads_.size()));
     }
-    provider_.reset(new SequencedSocketData(reads_, writes_));
+    provider_ = std::make_unique<SequencedSocketData>(reads_, writes_);
     if (Transport::TCP == transport_ || Transport::HTTPS == transport_) {
       provider_->set_connect_data(MockConnect(reads_[0].mode, OK));
     }
@@ -201,8 +225,6 @@ class DnsSocketData {
   std::vector<MockWrite> writes_;
   std::vector<MockRead> reads_;
   std::unique_ptr<SequencedSocketData> provider_;
-
-  DISALLOW_COPY_AND_ASSIGN(DnsSocketData);
 };
 
 class TestSocketFactory;
@@ -212,13 +234,14 @@ class FailingUDPClientSocket : public MockUDPClientSocket {
  public:
   FailingUDPClientSocket(SocketDataProvider* data, net::NetLog* net_log)
       : MockUDPClientSocket(data, net_log) {}
+
+  FailingUDPClientSocket(const FailingUDPClientSocket&) = delete;
+  FailingUDPClientSocket& operator=(const FailingUDPClientSocket&) = delete;
+
   ~FailingUDPClientSocket() override = default;
   int Connect(const IPEndPoint& endpoint) override {
     return ERR_CONNECTION_REFUSED;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FailingUDPClientSocket);
 };
 
 // A variant of MockUDPClientSocket which notifies the factory OnConnect.
@@ -228,13 +251,15 @@ class TestUDPClientSocket : public MockUDPClientSocket {
                       SocketDataProvider* data,
                       net::NetLog* net_log)
       : MockUDPClientSocket(data, net_log), factory_(factory) {}
+
+  TestUDPClientSocket(const TestUDPClientSocket&) = delete;
+  TestUDPClientSocket& operator=(const TestUDPClientSocket&) = delete;
+
   ~TestUDPClientSocket() override = default;
   int Connect(const IPEndPoint& endpoint) override;
 
  private:
   TestSocketFactory* factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestUDPClientSocket);
 };
 
 // Creates TestUDPClientSockets and keeps endpoints reported via OnConnect.
@@ -277,8 +302,8 @@ class TestSocketFactory : public MockClientSocketFactory {
     explicit RemoteNameserver(DnsOverHttpsServerConfig secure_nameserver)
         : secure_nameserver(secure_nameserver) {}
 
-    base::Optional<IPEndPoint> insecure_nameserver;
-    base::Optional<DnsOverHttpsServerConfig> secure_nameserver;
+    absl::optional<IPEndPoint> insecure_nameserver;
+    absl::optional<DnsOverHttpsServerConfig> secure_nameserver;
   };
 
   std::vector<RemoteNameserver> remote_endpoints_;
@@ -312,8 +337,9 @@ class TransactionHelper {
                         ResolveContext* context) {
     std::unique_ptr<DnsTransaction> transaction = factory->CreateTransaction(
         hostname, qtype, CompletionCallback(),
-        NetLogWithSource::Make(&net_log_, net::NetLogSourceType::NONE), secure,
-        factory->GetSecureDnsModeForTest(), context, true /* fast_timeout */);
+        NetLogWithSource::Make(net::NetLog::Get(), net::NetLogSourceType::NONE),
+        secure, factory->GetSecureDnsModeForTest(), context,
+        true /* fast_timeout */);
     transaction->SetRequestPriority(DEFAULT_PRIORITY);
     EXPECT_EQ(qtype, transaction->GetType());
     StartTransaction(std::move(transaction));
@@ -339,7 +365,7 @@ class TransactionHelper {
   void OnTransactionComplete(DnsTransaction* t,
                              int rv,
                              const DnsResponse* response,
-                             base::Optional<std::string> doh_provider_id) {
+                             absl::optional<std::string> doh_provider_id) {
     EXPECT_FALSE(completed_);
     EXPECT_EQ(transaction_.get(), t);
 
@@ -361,7 +387,7 @@ class TransactionHelper {
       ASSERT_TRUE(response != nullptr);
       EXPECT_EQ(static_cast<unsigned>(expected_answer_count_),
                 response->answer_count());
-      EXPECT_EQ(qtype_, response->qtype());
+      EXPECT_EQ(qtype_, response->GetSingleQType());
 
       DnsRecordParser parser = response->Parser();
       DnsResourceRecord record;
@@ -375,7 +401,6 @@ class TransactionHelper {
 
   bool has_completed() const { return completed_; }
   const DnsResponse* response() const { return response_; }
-  NetLog* net_log() { return &net_log_; }
 
   // Runs until the completion callback is called. Transaction must have already
   // been started or this will never complete.
@@ -394,7 +419,6 @@ class TransactionHelper {
   bool cancel_in_callback_ = false;
   base::RunLoop transaction_complete_run_loop_;
   bool completed_ = false;
-  TestNetLog net_log_;
 };
 
 // Callback that allows a test to modify HttpResponseinfo
@@ -442,6 +466,7 @@ class URLRequestMockDohJob : public URLRequestJob, public AsyncSocket {
           encoded_query, base::Base64UrlDecodePolicy::IGNORE_PADDING,
           &decoded_query));
     } else if (request->method() == "POST") {
+      EXPECT_EQ(IDEMPOTENT, request->GetIdempotency());
       const UploadDataStream* stream = request->get_upload_for_testing();
       auto* readers = stream->GetElementReaders();
       EXPECT_TRUE(readers);
@@ -474,6 +499,9 @@ class URLRequestMockDohJob : public URLRequestJob, public AsyncSocket {
         FROM_HERE, base::BindOnce(&URLRequestMockDohJob::StartAsync,
                                   weak_factory_.GetWeakPtr()));
   }
+
+  URLRequestMockDohJob(const URLRequestMockDohJob&) = delete;
+  URLRequestMockDohJob& operator=(const URLRequestMockDohJob&) = delete;
 
   ~URLRequestMockDohJob() override {
     if (data_provider_)
@@ -564,8 +592,6 @@ class URLRequestMockDohJob : public URLRequestJob, public AsyncSocket {
   int pending_buf_size_;
 
   base::WeakPtrFactory<URLRequestMockDohJob> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(URLRequestMockDohJob);
 };
 
 class DnsTransactionTestBase : public testing::Test {
@@ -620,7 +646,7 @@ class DnsTransactionTestBase : public testing::Test {
 
   // Called after fully configuring |config|.
   void ConfigureFactory() {
-    socket_factory_.reset(new TestSocketFactory());
+    socket_factory_ = std::make_unique<TestSocketFactory>();
     session_ = new DnsSession(
         config_,
         std::make_unique<DnsSocketAllocator>(
@@ -811,7 +837,7 @@ class DnsTransactionTestBase : public testing::Test {
     }
 
     EXPECT_FALSE(request->allow_credentials());
-    EXPECT_TRUE(request->disable_secure_dns());
+    EXPECT_EQ(SecureDnsPolicy::kDisable, request->secure_dns_policy());
 
     std::string accept;
     EXPECT_TRUE(request->extra_request_headers().GetHeader("Accept", &accept));
@@ -839,6 +865,10 @@ class DnsTransactionTestBase : public testing::Test {
   class DohJobInterceptor : public URLRequestInterceptor {
    public:
     explicit DohJobInterceptor(DnsTransactionTestBase* test) : test_(test) {}
+
+    DohJobInterceptor(const DohJobInterceptor&) = delete;
+    DohJobInterceptor& operator=(const DohJobInterceptor&) = delete;
+
     ~DohJobInterceptor() override {}
 
     // URLRequestInterceptor implementation:
@@ -849,8 +879,6 @@ class DnsTransactionTestBase : public testing::Test {
 
    private:
     DnsTransactionTestBase* test_;
-
-    DISALLOW_COPY_AND_ASSIGN(DohJobInterceptor);
   };
 
   void SetResponseModifierCallback(ResponseModifierCallback response_modifier) {
@@ -1114,6 +1142,10 @@ TEST_F(DnsTransactionTest, MismatchedResponseAsync) {
   helper0.RunUntilComplete();
 }
 
+// Test that responses are not accepted when only the response ID mismatches.
+// Tests against incorrect transaction ID validation, which is anti-pattern #1
+// from the "NAME:WRECK" report:
+// https://www.forescout.com/company/resources/namewreck-breaking-and-fixing-dns-implementations/
 TEST_F(DnsTransactionTest, MismatchedResponseFail) {
   ConfigureFactory();
 
@@ -2331,6 +2363,9 @@ class CookieCallback {
     loop_to_quit_->Quit();
   }
 
+  CookieCallback(const CookieCallback&) = delete;
+  CookieCallback& operator=(const CookieCallback&) = delete;
+
   void GetCookieListCallback(
       const net::CookieAccessResultList& list,
       const net::CookieAccessResultList& excluded_cookies) {
@@ -2338,7 +2373,7 @@ class CookieCallback {
     loop_to_quit_->Quit();
   }
 
-  void Reset() { loop_to_quit_.reset(new base::RunLoop()); }
+  void Reset() { loop_to_quit_ = std::make_unique<base::RunLoop>(); }
 
   void WaitUntilDone() { loop_to_quit_->Run(); }
 
@@ -2348,7 +2383,6 @@ class CookieCallback {
   net::CookieList list_;
   bool result_;
   std::unique_ptr<base::RunLoop> loop_to_quit_;
-  DISALLOW_COPY_AND_ASSIGN(CookieCallback);
 };
 
 TEST_F(DnsTransactionTest, HttpsPostTestNoCookies) {
@@ -2375,7 +2409,7 @@ TEST_F(DnsTransactionTest, HttpsPostTestNoCookies) {
   request_context_->cookie_store()->GetCookieListWithOptionsAsync(
       GURL(GetURLFromTemplateWithoutParameters(
           config_.dns_over_https_servers[0].server_template)),
-      CookieOptions::MakeAllInclusive(),
+      CookieOptions::MakeAllInclusive(), CookiePartitionKeychain(),
       base::BindOnce(&CookieCallback::GetCookieListCallback,
                      base::Unretained(&callback)));
   callback.WaitUntilDone();
@@ -2385,7 +2419,8 @@ TEST_F(DnsTransactionTest, HttpsPostTestNoCookies) {
       config_.dns_over_https_servers[0].server_template));
   auto cookie = CanonicalCookie::Create(
       cookie_url, "test-cookie=you-still-fail", base::Time::Now(),
-      base::nullopt /* server_time */);
+      absl::nullopt /* server_time */,
+      absl::nullopt /* cookie_partition_key */);
   request_context_->cookie_store()->SetCanonicalCookieAsync(
       std::move(cookie), cookie_url, CookieOptions(),
       base::BindOnce(&CookieCallback::SetCookieCallback,
@@ -2536,7 +2571,15 @@ class CountingObserver : public net::NetLog::ThreadSafeObserver {
   int dict_count_;
 };
 
-TEST_F(DnsTransactionTest, HttpsPostLookupWithLog) {
+// Flaky on MSAN. https://crbug.com/1245953
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_HttpsPostLookupWithLog \
+  DISABLED_HttpsPostLookupWithLog
+#else
+#define MAYBE_HttpsPostLookupWithLog \
+  HttpsPostLookupWithLog
+#endif
+TEST_F(DnsTransactionTest, MAYBE_HttpsPostLookupWithLog) {
   ConfigureDohServers(true /* use_post */);
   AddQueryAndResponse(0, kT0HostName, kT0Qtype, kT0ResponseDatagram,
                       base::size(kT0ResponseDatagram), SYNCHRONOUS,
@@ -2545,7 +2588,7 @@ TEST_F(DnsTransactionTest, HttpsPostLookupWithLog) {
                       false /* enqueue_transaction_id */);
   TransactionHelper helper0(kT0RecordCount);
   CountingObserver observer;
-  helper0.net_log()->AddObserver(&observer, NetLogCaptureMode::kEverything);
+  NetLog::Get()->AddObserver(&observer, NetLogCaptureMode::kEverything);
   helper0.StartTransaction(transaction_factory_.get(), kT0HostName, kT0Qtype,
                            true /* secure */, resolve_context_.get());
   helper0.RunUntilComplete();
@@ -2694,7 +2737,7 @@ TEST_F(DnsTransactionTestWithMockTime, HttpsTimeout) {
   ASSERT_FALSE(helper.has_completed());
 
   // Stop a tiny bit short to ensure transaction doesn't finish early.
-  const base::TimeDelta kTimeHoldback = base::TimeDelta::FromMilliseconds(5);
+  const base::TimeDelta kTimeHoldback = base::Milliseconds(5);
   base::TimeDelta timeout = resolve_context_->SecureTransactionTimeout(
       SecureDnsMode::kSecure, session_.get());
   ASSERT_LT(kTimeHoldback, timeout);
@@ -2754,7 +2797,7 @@ TEST_F(DnsTransactionTestWithMockTime, HttpsTimeout2) {
   timeout_remainder -= fallback_period;
 
   // Stop a tiny bit short to ensure transaction doesn't finish early.
-  const base::TimeDelta kTimeHoldback = base::TimeDelta::FromMilliseconds(5);
+  const base::TimeDelta kTimeHoldback = base::Milliseconds(5);
   ASSERT_LT(kTimeHoldback, timeout_remainder);
   FastForwardBy(timeout_remainder - kTimeHoldback);
   EXPECT_FALSE(helper.has_completed());
@@ -2883,7 +2926,7 @@ TEST_F(DnsTransactionTestWithMockTime, LastHttpsAttemptFails_Timeout) {
   base::TimeDelta timeout_remainder = timeout - fallback_period;
 
   // Stop a tiny bit short to ensure transaction doesn't finish early.
-  const base::TimeDelta kTimeHoldback = base::TimeDelta::FromMilliseconds(5);
+  const base::TimeDelta kTimeHoldback = base::Milliseconds(5);
   ASSERT_LT(kTimeHoldback, timeout_remainder);
   FastForwardBy(timeout_remainder - kTimeHoldback);
   EXPECT_FALSE(helper.has_completed());
@@ -3869,6 +3912,24 @@ TEST_F(DnsTransactionTestWithMockTime, FastProbeRestart) {
   FastForwardBy(scheduled_delay);
   EXPECT_TRUE(resolve_context_->GetDohServerAvailability(
       0u /* doh_server_index */, session_.get()));
+}
+
+// Test that queries cannot be sent when they contain a too-long name.
+// Tests against incorrect name length validation, which is anti-pattern #3 from
+// the "NAME:WRECK" report:
+// https://www.forescout.com/company/resources/namewreck-breaking-and-fixing-dns-implementations/
+TEST_F(DnsTransactionTestWithMockTime, RejectsQueryingLongNames) {
+  std::string long_dotted_name;
+  while (long_dotted_name.size() <= dns_protocol::kMaxNameLength) {
+    long_dotted_name.append("naaaaaamelabel.");
+  }
+  long_dotted_name.append("test");
+
+  TransactionHelper helper0(ERR_INVALID_ARGUMENT);
+  helper0.StartTransaction(transaction_factory_.get(), long_dotted_name.c_str(),
+                           dns_protocol::kTypeA, false /* secure */,
+                           resolve_context_.get());
+  helper0.RunUntilComplete();
 }
 
 }  // namespace

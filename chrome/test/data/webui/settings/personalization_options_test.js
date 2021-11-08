@@ -5,12 +5,13 @@
 // clang-format off
 import 'chrome://settings/lazy_load.js';
 
-import {isChromeOS} from 'chrome://resources/js/cr.m.js';
+import {isChromeOS, isLacros} from 'chrome://resources/js/cr.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {PrivacyPageBrowserProxyImpl, StatusAction, SyncBrowserProxyImpl} from 'chrome://settings/settings.js';
-import {TestPrivacyPageBrowserProxy} from 'chrome://test/settings/test_privacy_page_browser_proxy.js';
-import {TestSyncBrowserProxy} from 'chrome://test/settings/test_sync_browser_proxy.m.js';
-import {eventToPromise, isChildVisible, isVisible} from 'chrome://test/test_util.m.js';
+import {eventToPromise, isChildVisible, isVisible} from 'chrome://webui-test/test_util.js';
+
+import {TestPrivacyPageBrowserProxy} from './test_privacy_page_browser_proxy.js';
+import {TestSyncBrowserProxy} from './test_sync_browser_proxy.js';
 
 // clang-format on
 
@@ -27,14 +28,11 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
   suiteSetup(function() {
     loadTimeData.overrideValues({
       driveSuggestAvailable: true,
+      signinAvailable: true,
     });
   });
 
-  setup(function() {
-    testBrowserProxy = new TestPrivacyPageBrowserProxy();
-    PrivacyPageBrowserProxyImpl.instance_ = testBrowserProxy;
-    syncBrowserProxy = new TestSyncBrowserProxy();
-    SyncBrowserProxyImpl.instance_ = syncBrowserProxy;
+  function buildTestElement() {
     PolymerTest.clearBody();
     testElement = document.createElement('settings-personalization-options');
     testElement.prefs = {
@@ -48,6 +46,14 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
     };
     document.body.appendChild(testElement);
     flush();
+  }
+
+  setup(function() {
+    testBrowserProxy = new TestPrivacyPageBrowserProxy();
+    PrivacyPageBrowserProxyImpl.setInstance(testBrowserProxy);
+    syncBrowserProxy = new TestSyncBrowserProxy();
+    SyncBrowserProxyImpl.setInstance(syncBrowserProxy);
+    buildTestElement();
   });
 
   teardown(function() {
@@ -55,24 +61,24 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
   });
 
   test('DriveSearchSuggestControl', function() {
-    assertFalse(!!testElement.$$('#driveSuggestControl'));
+    assertFalse(!!testElement.shadowRoot.querySelector('#driveSuggestControl'));
 
     testElement.syncStatus = {
       signedIn: true,
       statusAction: StatusAction.NO_ACTION
     };
     flush();
-    assertTrue(!!testElement.$$('#driveSuggestControl'));
+    assertTrue(!!testElement.shadowRoot.querySelector('#driveSuggestControl'));
 
     testElement.syncStatus = {
       signedIn: true,
       statusAction: StatusAction.REAUTHENTICATE
     };
     flush();
-    assertFalse(!!testElement.$$('#driveSuggestControl'));
+    assertFalse(!!testElement.shadowRoot.querySelector('#driveSuggestControl'));
   });
 
-  if (!isChromeOS) {
+  if (!isChromeOS && !isLacros) {
     test('signinAllowedToggle', function() {
       const toggle = testElement.$.signinAllowedToggle;
       assertTrue(isVisible(toggle));
@@ -109,7 +115,8 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
       testElement.syncStatus = {signedIn: true};
       // When the user is signed in, clicking the toggle should open the
       // sign-out dialog.
-      assertFalse(!!testElement.$$('settings-signout-dialog'));
+      assertFalse(
+          !!testElement.shadowRoot.querySelector('settings-signout-dialog'));
       toggle.click();
       return eventToPromise('cr-dialog-open', testElement)
           .then(function() {
@@ -119,19 +126,22 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
             assertTrue(testElement.prefs.signin.allowed_on_next_startup.value);
             assertFalse(testElement.$.toast.open);
 
-            const signoutDialog = testElement.$$('settings-signout-dialog');
+            const signoutDialog =
+                testElement.shadowRoot.querySelector('settings-signout-dialog');
             assertTrue(!!signoutDialog);
-            assertTrue(signoutDialog.$$('#dialog').open);
+            assertTrue(signoutDialog.shadowRoot.querySelector('#dialog').open);
 
             // The user clicks cancel.
-            const cancel = signoutDialog.$$('#disconnectCancel');
+            const cancel =
+                signoutDialog.shadowRoot.querySelector('#disconnectCancel');
             cancel.click();
 
             return eventToPromise('close', signoutDialog);
           })
           .then(function() {
             flush();
-            assertFalse(!!testElement.$$('settings-signout-dialog'));
+            assertFalse(!!testElement.shadowRoot.querySelector(
+                'settings-signout-dialog'));
 
             // After the dialog is closed, the toggle remains turned on.
             assertTrue(toggle.checked);
@@ -144,12 +154,14 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
           })
           .then(function() {
             flush();
-            const signoutDialog = testElement.$$('settings-signout-dialog');
+            const signoutDialog =
+                testElement.shadowRoot.querySelector('settings-signout-dialog');
             assertTrue(!!signoutDialog);
-            assertTrue(signoutDialog.$$('#dialog').open);
+            assertTrue(signoutDialog.shadowRoot.querySelector('#dialog').open);
 
             // The user clicks confirm, which signs them out.
-            const disconnectConfirm = signoutDialog.$$('#disconnectConfirm');
+            const disconnectConfirm =
+                signoutDialog.shadowRoot.querySelector('#disconnectConfirm');
             disconnectConfirm.click();
 
             return eventToPromise('close', signoutDialog);
@@ -163,6 +175,14 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
             assertTrue(testElement.$.toast.open);
           });
     });
+
+    // Tests that the "Allow sign-in" toggle is hidden when signin is not
+    // available.
+    test('signinUnavailable', function() {
+      loadTimeData.overrideValues({'signinAvailable': false});
+      buildTestElement();  // Rebuild the element after modifying loadTimeData.
+      assertFalse(isVisible(testElement.$.signinAllowedToggle));
+    });
   }
 });
 
@@ -175,7 +195,7 @@ suite('PersonalizationOptionsTests_OfficialBuild', function() {
 
   setup(function() {
     testBrowserProxy = new TestPrivacyPageBrowserProxy();
-    PrivacyPageBrowserProxyImpl.instance_ = testBrowserProxy;
+    PrivacyPageBrowserProxyImpl.setInstance(testBrowserProxy);
     PolymerTest.clearBody();
     testElement = document.createElement('settings-personalization-options');
     document.body.appendChild(testElement);

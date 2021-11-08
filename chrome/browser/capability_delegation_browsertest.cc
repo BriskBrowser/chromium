@@ -22,6 +22,11 @@ class CapabilityDelegationBrowserTest
         features::kCapabilityDelegationPaymentRequest);
   }
 
+  CapabilityDelegationBrowserTest(const CapabilityDelegationBrowserTest&) =
+      delete;
+  CapabilityDelegationBrowserTest& operator=(
+      const CapabilityDelegationBrowserTest&) = delete;
+
   ~CapabilityDelegationBrowserTest() override = default;
 
   void SetUpOnMainThread() override {
@@ -35,15 +40,13 @@ class CapabilityDelegationBrowserTest
 
  private:
   base::test::ScopedFeatureList feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(CapabilityDelegationBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(CapabilityDelegationBrowserTest, PaymentRequest) {
   // Navigate the top frame.
   GURL main_url(
       https_server()->GetURL("a.com", "/payment_request_delegation.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   // Navigate the sub-frame cross-site.
   content::WebContents* active_web_contents =
@@ -53,29 +56,43 @@ IN_PROC_BROWSER_TEST_F(CapabilityDelegationBrowserTest, PaymentRequest) {
   EXPECT_TRUE(
       NavigateIframeToURL(active_web_contents, "iframe", cross_site_url));
 
-  // Confirm that the subframe is cross-process.
+  // Confirm that the subframe is cross-process depending on the process
+  // model.
   content::RenderFrameHost* frame_host =
       ChildFrameAt(active_web_contents->GetMainFrame(), 0);
   ASSERT_TRUE(frame_host);
   EXPECT_EQ(cross_site_url, frame_host->GetLastCommittedURL());
-  EXPECT_TRUE(frame_host->IsCrossProcessSubframe());
+  auto* main_instance = active_web_contents->GetMainFrame()->GetSiteInstance();
+  auto* subframe_instance = frame_host->GetSiteInstance();
+  if (main_instance->RequiresDedicatedProcess()) {
+    // Subframe is cross process because it can't be place in the main frame's
+    // process.
+    EXPECT_TRUE(frame_host->IsCrossProcessSubframe());
+  } else {
+    // The main frame does not require a dedicated process so the subframe will
+    // be placed in the same process as the main frame.
+    EXPECT_FALSE(frame_host->IsCrossProcessSubframe());
+    EXPECT_FALSE(subframe_instance->RequiresDedicatedProcess());
+    EXPECT_EQ(content::AreDefaultSiteInstancesEnabled(),
+              main_instance == subframe_instance);
+  }
 
   // Without either user activation or payment request token, PaymentRequest
   // dialog is not allowed.
-  EXPECT_EQ("NotAllowedError",
+  EXPECT_EQ("SecurityError",
             content::EvalJs(active_web_contents, "sendRequestToSubframe(false)",
                             content::EXECUTE_SCRIPT_NO_USER_GESTURE));
 
   // Without user activation but with the delegation option, PaymentRequest
   // dialog is not allowed.
-  EXPECT_EQ("NotAllowedError",
+  EXPECT_EQ("SecurityError",
             content::EvalJs(active_web_contents, "sendRequestToSubframe(true)",
                             content::EXECUTE_SCRIPT_NO_USER_GESTURE));
 
   // With user activation but without the delegation option, PaymentRequest
   // dialog is not allowed.
-  EXPECT_EQ("NotAllowedError", content::EvalJs(active_web_contents,
-                                               "sendRequestToSubframe(false)"));
+  EXPECT_EQ("SecurityError", content::EvalJs(active_web_contents,
+                                             "sendRequestToSubframe(false)"));
 
   // With both user activation and the delegation option, PaymentRequest dialog
   // is shown and then successfully aborted by the script.

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {eventToPromise} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/_test_resources/webui/test_util.m.js';
+import {eventToPromise} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/_test_resources/webui/test_util.js';
 import {PDFViewerElement, ViewerPropertiesDialogElement} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_viewer_wrapper.js';
 
 const viewer = /** @type {!PDFViewerElement} */ (
@@ -11,7 +11,7 @@ const viewer = /** @type {!PDFViewerElement} */ (
 async function ensurePropertiesDialogOpen() {
   chrome.test.assertFalse(!!getPropertiesDialog());
   const whenOpen = eventToPromise('cr-dialog-open', viewer);
-  const toolbar = viewer.shadowRoot.querySelector('viewer-pdf-toolbar-new');
+  const toolbar = viewer.shadowRoot.querySelector('viewer-toolbar');
   toolbar.dispatchEvent(new CustomEvent('properties-click'));
   await whenOpen;
   chrome.test.assertTrue(!!getPropertiesDialog());
@@ -47,10 +47,8 @@ const tests = [
   async function testPropertiesDialog() {
     await ensurePropertiesDialogOpen();
 
-    // TODO(crbug.com/93169): None of the following expected values should be
-    // '-' when support for every property is implemented.
     [['file-name', 'document_info.pdf'],
-     ['file-size', '-'],
+     ['file-size', '714 B'],
      ['title', 'Sample PDF Document Info'],
      ['author', 'Chromium Authors'],
      ['subject', 'Testing'],
@@ -61,7 +59,7 @@ const tests = [
      ['pdf-producer', 'fixup_pdf_template.py'],
      ['pdf-version', '1.7'],
      ['page-count', '1'],
-     ['page-size', '-'],
+     ['page-size', '2.78 × 2.78 in (square)'],
      ['fast-web-view', 'No'],
     ].forEach(([field, expectedValue]) => assertField(field, expectedValue));
 

@@ -4,11 +4,11 @@
 
 #include "chrome/browser/extensions/chrome_extensions_browser_client.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/optional.h"
 #include "base/strings/string_util.h"
 #include "base/version.h"
 #include "build/build_config.h"
@@ -66,11 +66,12 @@
 #include "extensions/browser/url_request_util.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/features/feature_channel.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_switches.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/extensions/updater/chromeos_extension_cache_delegate.h"
 #include "chrome/browser/extensions/updater/extension_cache_impl.h"
 #include "components/user_manager/user_manager.h"
@@ -89,10 +90,6 @@ const char kJsonUrlPath[] = "/service/update2/json";
 // new chrome update.
 bool g_did_chrome_update_for_testing = false;
 
-// The fake metrics logger instance to use for testing.
-MediaRouterExtensionAccessLogger* g_media_router_access_logger_for_testing =
-    nullptr;
-
 bool ExtensionsDisabled(const base::CommandLine& command_line) {
   return command_line.HasSwitch(::switches::kDisableExtensions) ||
          command_line.HasSwitch(::switches::kDisableExtensionsExcept);
@@ -104,10 +101,11 @@ ChromeExtensionsBrowserClient::ChromeExtensionsBrowserClient() {
   AddAPIProvider(std::make_unique<CoreExtensionsBrowserAPIProvider>());
   AddAPIProvider(std::make_unique<ChromeExtensionsBrowserAPIProvider>());
 
-  process_manager_delegate_.reset(new ChromeProcessManagerDelegate);
-  api_client_.reset(new ChromeExtensionsAPIClient);
+  process_manager_delegate_ = std::make_unique<ChromeProcessManagerDelegate>();
+  api_client_ = std::make_unique<ChromeExtensionsAPIClient>();
   SetCurrentChannel(chrome::GetChannel());
-  resource_manager_.reset(new ChromeComponentExtensionResourceManager());
+  resource_manager_ =
+      std::make_unique<ChromeComponentExtensionResourceManager>();
 }
 
 ChromeExtensionsBrowserClient::~ChromeExtensionsBrowserClient() {}
@@ -152,7 +150,8 @@ bool ChromeExtensionsBrowserClient::HasOffTheRecordContext(
 
 content::BrowserContext* ChromeExtensionsBrowserClient::GetOffTheRecordContext(
     content::BrowserContext* context) {
-  return static_cast<Profile*>(context)->GetPrimaryOTRProfile();
+  return static_cast<Profile*>(context)->GetPrimaryOTRProfile(
+      /*create_if_needed=*/true);
 }
 
 content::BrowserContext* ChromeExtensionsBrowserClient::GetOriginalContext(
@@ -200,12 +199,11 @@ void ChromeExtensionsBrowserClient::LoadResourceFromResourceBundle(
     mojo::PendingReceiver<network::mojom::URLLoader> loader,
     const base::FilePath& resource_relative_path,
     int resource_id,
-    const std::string& content_security_policy,
-    mojo::PendingRemote<network::mojom::URLLoaderClient> client,
-    bool send_cors_header) {
+    scoped_refptr<net::HttpResponseHeaders> headers,
+    mojo::PendingRemote<network::mojom::URLLoaderClient> client) {
   chrome_url_request_util::LoadResourceFromResourceBundle(
       request, std::move(loader), resource_relative_path, resource_id,
-      content_security_policy, std::move(client), send_cors_header);
+      std::move(headers), std::move(client));
 }
 
 bool ChromeExtensionsBrowserClient::AllowCrossRendererResourceLoad(
@@ -294,8 +292,7 @@ void ChromeExtensionsBrowserClient::PermitExternalProtocolHandler() {
 
 bool ChromeExtensionsBrowserClient::IsInDemoMode() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  const chromeos::DemoSession* const demo_session =
-      chromeos::DemoSession::Get();
+  const auto* const demo_session = ash::DemoSession::Get();
   return demo_session && demo_session->started();
 #else
   return false;
@@ -305,10 +302,10 @@ bool ChromeExtensionsBrowserClient::IsInDemoMode() {
 bool ChromeExtensionsBrowserClient::IsScreensaverInDemoMode(
     const std::string& app_id) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  return app_id == chromeos::DemoSession::GetScreensaverAppId() &&
-         IsInDemoMode();
-#endif
+  return app_id == ash::DemoSession::GetScreensaverAppId() && IsInDemoMode();
+#else
   return false;
+#endif
 }
 
 bool ChromeExtensionsBrowserClient::IsRunningInForcedAppMode() {
@@ -367,10 +364,10 @@ void ChromeExtensionsBrowserClient::BroadcastEventToRenderers(
 ExtensionCache* ChromeExtensionsBrowserClient::GetExtensionCache() {
   if (!extension_cache_.get()) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    extension_cache_.reset(new ExtensionCacheImpl(
-        std::make_unique<ChromeOSExtensionCacheDelegate>()));
+    extension_cache_ = std::make_unique<ExtensionCacheImpl>(
+        std::make_unique<ChromeOSExtensionCacheDelegate>());
 #else
-    extension_cache_.reset(new NullExtensionCache());
+    extension_cache_ = std::make_unique<NullExtensionCache>();
 #endif
   }
   return extension_cache_.get();
@@ -412,23 +409,27 @@ void ChromeExtensionsBrowserClient::CleanUpWebView(
       MenuItem::ExtensionKey("", embedder_process_id, view_instance_id));
 }
 
+void ChromeExtensionsBrowserClient::ClearBackForwardCache() {
+  ExtensionTabUtil::ClearBackForwardCache();
+}
+
 void ChromeExtensionsBrowserClient::AttachExtensionTaskManagerTag(
     content::WebContents* web_contents,
-    ViewType view_type) {
+    mojom::ViewType view_type) {
   switch (view_type) {
-    case VIEW_TYPE_APP_WINDOW:
-    case VIEW_TYPE_COMPONENT:
-    case VIEW_TYPE_EXTENSION_BACKGROUND_PAGE:
-    case VIEW_TYPE_EXTENSION_DIALOG:
-    case VIEW_TYPE_EXTENSION_POPUP:
+    case mojom::ViewType::kAppWindow:
+    case mojom::ViewType::kComponent:
+    case mojom::ViewType::kExtensionBackgroundPage:
+    case mojom::ViewType::kExtensionDialog:
+    case mojom::ViewType::kExtensionPopup:
       // These are the only types that are tracked by the ExtensionTag.
       task_manager::WebContentsTags::CreateForExtension(web_contents,
                                                         view_type);
       return;
 
-    case VIEW_TYPE_BACKGROUND_CONTENTS:
-    case VIEW_TYPE_EXTENSION_GUEST:
-    case VIEW_TYPE_TAB_CONTENTS:
+    case mojom::ViewType::kBackgroundContents:
+    case mojom::ViewType::kExtensionGuest:
+    case mojom::ViewType::kTabContents:
       // Those types are tracked by other tags:
       // BACKGROUND_CONTENTS --> task_manager::BackgroundContentsTag.
       // GUEST --> extensions::ChromeGuestViewManagerDelegate.
@@ -438,7 +439,7 @@ void ChromeExtensionsBrowserClient::AttachExtensionTaskManagerTag(
       // locations, and they must be ignored here.
       return;
 
-    case VIEW_TYPE_INVALID:
+    case mojom::ViewType::kInvalid:
       NOTREACHED();
       return;
   }
@@ -447,7 +448,7 @@ void ChromeExtensionsBrowserClient::AttachExtensionTaskManagerTag(
 scoped_refptr<update_client::UpdateClient>
 ChromeExtensionsBrowserClient::CreateUpdateClient(
     content::BrowserContext* context) {
-  base::Optional<GURL> override_url;
+  absl::optional<GURL> override_url;
   GURL update_url = extension_urls::GetWebstoreUpdateUrl();
   if (update_url != extension_urls::GetDefaultWebstoreUpdateUrl()) {
     if (update_url.path() == kCrxUrlPath) {
@@ -491,7 +492,7 @@ void ChromeExtensionsBrowserClient::GetTabAndWindowIdForWebContents(
 
 KioskDelegate* ChromeExtensionsBrowserClient::GetKioskDelegate() {
   if (!kiosk_delegate_)
-    kiosk_delegate_.reset(new ChromeKioskDelegate());
+    kiosk_delegate_ = std::make_unique<ChromeKioskDelegate>();
   return kiosk_delegate_.get();
 }
 
@@ -532,6 +533,11 @@ UserScriptListener* ChromeExtensionsBrowserClient::GetUserScriptListener() {
   return &user_script_listener_;
 }
 
+void ChromeExtensionsBrowserClient::SignalContentScriptsLoaded(
+    content::BrowserContext* context) {
+  user_script_listener_.OnScriptsLoaded(context);
+}
+
 std::string ChromeExtensionsBrowserClient::GetUserAgent() const {
   return embedder_support::GetUserAgent();
 }
@@ -557,13 +563,6 @@ void ChromeExtensionsBrowserClient::SetLastSaveFilePath(
   download_prefs->SetSaveFilePath(path);
 }
 
-const MediaRouterExtensionAccessLogger*
-ChromeExtensionsBrowserClient::GetMediaRouterAccessLogger() const {
-  return g_media_router_access_logger_for_testing
-             ? g_media_router_access_logger_for_testing
-             : &media_router_access_logger_;
-}
-
 bool ChromeExtensionsBrowserClient::HasIsolatedStorage(
     const std::string& extension_id,
     content::BrowserContext* context) {
@@ -580,12 +579,6 @@ bool ChromeExtensionsBrowserClient::IsValidTabId(
     int tab_id) const {
   return ExtensionTabUtil::GetTabById(
       tab_id, context, true /* include_incognito */, nullptr /* contents */);
-}
-
-// static
-void ChromeExtensionsBrowserClient::SetMediaRouterAccessLoggerForTesting(
-    MediaRouterExtensionAccessLogger* media_router_access_logger) {
-  g_media_router_access_logger_for_testing = media_router_access_logger;
 }
 
 // static

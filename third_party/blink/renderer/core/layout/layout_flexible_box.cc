@@ -51,7 +51,6 @@
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/geometry/length_functions.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
 namespace blink {
@@ -499,8 +498,7 @@ void LayoutFlexibleBox::RepositionLogicalHeightDependentFlexItems(
                                  CrossAxisContentExtent());
     for (FlexLine& line_context : line_contexts) {
       for (FlexItem& flex_item : line_context.line_items_) {
-        ResetAlignmentForChild(*flex_item.box_,
-                               flex_item.desired_location_.Y());
+        ResetAlignmentForChild(*flex_item.box_, flex_item.offset_->Y());
       }
     }
   }
@@ -815,7 +813,9 @@ bool LayoutFlexibleBox::UseChildAspectRatio(const LayoutBox& child) const {
 
 LayoutUnit LayoutFlexibleBox::ComputeMainSizeFromAspectRatioUsing(
     const LayoutBox& child,
-    const Length& cross_size_length) const {
+    const Length& cross_size_length,
+    LayoutUnit main_axis_border_and_padding,
+    LayoutUnit cross_axis_border_and_padding) const {
   NOT_DESTROYED();
   DCHECK(HasAspectRatio(child));
 
@@ -832,17 +832,22 @@ LayoutUnit LayoutFlexibleBox::ComputeMainSizeFromAspectRatioUsing(
 
   LayoutSize aspect_ratio = child.IntrinsicSize();
   EAspectRatioType ar_type = child.StyleRef().AspectRatio().GetType();
+  LayoutUnit border_and_padding;
   if (ar_type == EAspectRatioType::kRatio ||
       (ar_type == EAspectRatioType::kAutoAndRatio && aspect_ratio.IsEmpty())) {
     FloatSize int_ratio = child.StyleRef().AspectRatio().GetRatio();
-    aspect_ratio = LayoutSize{int_ratio.Width(), int_ratio.Height()};
+    aspect_ratio = LayoutSize{int_ratio.width(), int_ratio.height()};
+    if (child.StyleRef().BoxSizingForAspectRatio() == EBoxSizing::kContentBox) {
+      cross_size -= cross_axis_border_and_padding;
+      border_and_padding = main_axis_border_and_padding;
+    }
   }
+  // TODO(cbiesinger): box sizing?
   double ratio =
       aspect_ratio.Width().ToFloat() / aspect_ratio.Height().ToFloat();
-  // TODO(cbiesinger): box sizing?
   if (IsHorizontalFlow())
-    return LayoutUnit(cross_size * ratio);
-  return LayoutUnit(cross_size / ratio);
+    return LayoutUnit(cross_size * ratio) + border_and_padding;
+  return LayoutUnit(cross_size / ratio) + border_and_padding;
 }
 
 void LayoutFlexibleBox::SetFlowAwareLocationForChild(
@@ -860,7 +865,9 @@ bool LayoutFlexibleBox::MainAxisLengthIsDefinite(const LayoutBox& child,
                                                  const Length& flex_basis,
                                                  bool add_to_cb) const {
   NOT_DESTROYED();
-  if (flex_basis.IsAuto())
+  // 'content' isn't actually supported in legacy flex. Checking IsContent() and
+  // returning false on the next line prevents a DCHECK though.
+  if (flex_basis.IsAuto() || flex_basis.IsContent())
     return false;
   if (IsColumnFlow() && flex_basis.IsContentOrIntrinsicOrFillAvailable())
     return false;
@@ -942,10 +949,41 @@ void LayoutFlexibleBox::ClearCachedMainSizeForChild(const LayoutBox& child) {
   intrinsic_size_along_main_axis_.erase(&child);
 }
 
+bool LayoutFlexibleBox::CanAvoidLayoutForNGChild(const LayoutBox& child) const {
+  NOT_DESTROYED();
+  if (!child.IsLayoutNGMixin())
+    return false;
+
+  // If the last layout was done with a different override size, or different
+  // definite-ness, we need to force-relayout so that percentage sizes are
+  // resolved correctly.
+  const NGLayoutResult* cached_layout_result = child.GetCachedLayoutResult();
+  if (!cached_layout_result)
+    return false;
+
+  const NGConstraintSpace& old_space =
+      cached_layout_result->GetConstraintSpaceForCaching();
+  if (old_space.IsFixedInlineSize() != child.HasOverrideLogicalWidth())
+    return false;
+  if (old_space.IsFixedBlockSize() != child.HasOverrideLogicalHeight())
+    return false;
+  if (!old_space.IsInitialBlockSizeIndefinite() !=
+      UseOverrideLogicalHeightForPerentageResolution(child))
+    return false;
+  if (child.HasOverrideLogicalWidth() &&
+      old_space.AvailableSize().inline_size != child.OverrideLogicalWidth())
+    return false;
+  if (child.HasOverrideLogicalHeight() &&
+      old_space.AvailableSize().block_size != child.OverrideLogicalHeight())
+    return false;
+  return true;
+}
+
 DISABLE_CFI_PERF
 LayoutUnit LayoutFlexibleBox::ComputeInnerFlexBaseSizeForChild(
     LayoutBox& child,
     LayoutUnit main_axis_border_and_padding,
+    LayoutUnit cross_axis_border_and_padding,
     ChildLayoutType child_layout_type) {
   NOT_DESTROYED();
   if (child.IsImage() || IsA<LayoutVideo>(child) || child.IsCanvas())
@@ -969,9 +1007,12 @@ LayoutUnit LayoutFlexibleBox::ComputeInnerFlexBaseSizeForChild(
     const Length& cross_size_length = IsHorizontalFlow()
                                           ? child.StyleRef().Height()
                                           : child.StyleRef().Width();
-    LayoutUnit result =
-        ComputeMainSizeFromAspectRatioUsing(child, cross_size_length);
-    result = AdjustChildSizeForAspectRatioCrossAxisMinAndMax(child, result);
+    LayoutUnit result = ComputeMainSizeFromAspectRatioUsing(
+        child, cross_size_length, main_axis_border_and_padding,
+        cross_axis_border_and_padding);
+    result = AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
+        child, result, main_axis_border_and_padding,
+        cross_axis_border_and_padding);
     return result - main_axis_border_and_padding;
   }
 
@@ -1029,8 +1070,6 @@ void LayoutFlexibleBox::LayoutFlexItems(bool relayout_children,
       PrepareChildForPositionedLayout(*child);
       continue;
     }
-    DCHECK(!child->IsLayoutNGMixin()) << "Legacy flexboxes aren't supposed to "
-                                         "lay out NG objects! File a crbug.";
 
     ConstructAndAppendFlexItem(&flex_algorithm, *child, layout_type);
   }
@@ -1042,6 +1081,8 @@ void LayoutFlexibleBox::LayoutFlexItems(bool relayout_children,
   LayoutUnit cross_axis_offset = FlowAwareContentInsetBefore();
   LayoutUnit logical_width = LogicalWidth();
   FlexLine* current_line;
+  Vector<LayoutPoint> item_offsets(flex_algorithm.NumItems());
+  LayoutPoint* current_item_offset = item_offsets.begin();
   while ((current_line = flex_algorithm.ComputeNextFlexLine(logical_width))) {
     DCHECK_GE(current_line->line_items_.size(), 0ULL);
     current_line->SetContainerMainInnerSize(
@@ -1053,7 +1094,8 @@ void LayoutFlexibleBox::LayoutFlexItems(bool relayout_children,
       DCHECK_GE(current_line->total_weighted_flex_shrink_, 0);
     }
 
-    LayoutLineItems(current_line, relayout_children, layout_scope);
+    LayoutLineItems(current_line, relayout_children, layout_scope,
+                    &current_item_offset);
 
     current_line->ComputeLineItemsPosition(FlowAwareContentInsetStart(),
                                            FlowAwareContentInsetEnd(),
@@ -1131,7 +1173,8 @@ DISABLE_CFI_PERF
 MinMaxSizes LayoutFlexibleBox::ComputeMinAndMaxSizesForChild(
     const FlexLayoutAlgorithm& algorithm,
     const LayoutBox& child,
-    LayoutUnit border_and_padding) const {
+    LayoutUnit border_and_padding,
+    LayoutUnit cross_axis_border_and_padding) const {
   NOT_DESTROYED();
   MinMaxSizes sizes{LayoutUnit(), LayoutUnit::Max()};
 
@@ -1157,9 +1200,11 @@ MinMaxSizes LayoutFlexibleBox::ComputeMinAndMaxSizesForChild(
     LayoutUnit content_size = ComputeMainAxisExtentForChild(
         child, kMinSize, Length::MinContent(), border_and_padding);
     DCHECK_GE(content_size, LayoutUnit());
-    if (HasAspectRatio(child) && child.IntrinsicSize().Height() > 0)
-      content_size =
-          AdjustChildSizeForAspectRatioCrossAxisMinAndMax(child, content_size);
+    if (HasAspectRatio(child) && child.IntrinsicSize().Height() > 0) {
+      content_size = AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
+          child, content_size, border_and_padding,
+          cross_axis_border_and_padding);
+    }
     if (child.IsTable() && !IsColumnFlow()) {
       // Avoid resolving minimum size to something narrower than the minimum
       // preferred logical width of the table.
@@ -1179,14 +1224,16 @@ MinMaxSizes LayoutFlexibleBox::ComputeMinAndMaxSizesForChild(
                                  : resolved_main_size;
 
         sizes.min_size = std::min(specified_size, content_size);
-      } else if (UseChildAspectRatio(child)) {
+      } else if (child.IsLayoutReplaced() && UseChildAspectRatio(child)) {
         const Length& cross_size_length = IsHorizontalFlow()
                                               ? child.StyleRef().Height()
                                               : child.StyleRef().Width();
-        LayoutUnit transferred_size =
-            ComputeMainSizeFromAspectRatioUsing(child, cross_size_length);
+        LayoutUnit transferred_size = ComputeMainSizeFromAspectRatioUsing(
+            child, cross_size_length, border_and_padding,
+            cross_axis_border_and_padding);
         transferred_size = AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
-            child, transferred_size);
+            child, transferred_size, border_and_padding,
+            cross_axis_border_and_padding);
         sizes.min_size = std::min(transferred_size, content_size);
       } else {
         sizes.min_size = content_size;
@@ -1242,7 +1289,9 @@ bool LayoutFlexibleBox::UseOverrideLogicalHeightForPerentageResolution(
 
 LayoutUnit LayoutFlexibleBox::AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
     const LayoutBox& child,
-    LayoutUnit child_size) const {
+    LayoutUnit child_size,
+    LayoutUnit main_axis_border_and_padding,
+    LayoutUnit cross_axis_border_and_padding) const {
   NOT_DESTROYED();
   const Length& cross_min = IsHorizontalFlow() ? child.StyleRef().MinHeight()
                                                : child.StyleRef().MinWidth();
@@ -1250,14 +1299,16 @@ LayoutUnit LayoutFlexibleBox::AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
                                                : child.StyleRef().MaxWidth();
 
   if (CrossAxisLengthIsDefinite(child, cross_max)) {
-    LayoutUnit max_value =
-        ComputeMainSizeFromAspectRatioUsing(child, cross_max);
+    LayoutUnit max_value = ComputeMainSizeFromAspectRatioUsing(
+        child, cross_max, main_axis_border_and_padding,
+        cross_axis_border_and_padding);
     child_size = std::min(max_value, child_size);
   }
 
   if (CrossAxisLengthIsDefinite(child, cross_min)) {
-    LayoutUnit min_value =
-        ComputeMainSizeFromAspectRatioUsing(child, cross_min);
+    LayoutUnit min_value = ComputeMainSizeFromAspectRatioUsing(
+        child, cross_min, main_axis_border_and_padding,
+        cross_axis_border_and_padding);
     child_size = std::max(min_value, child_size);
   }
 
@@ -1308,16 +1359,16 @@ void LayoutFlexibleBox::ConstructAndAppendFlexItem(
                                              : child.BorderAndPaddingWidth();
 
   LayoutUnit child_inner_flex_base_size = ComputeInnerFlexBaseSizeForChild(
-      child, main_axis_border_padding, layout_type);
+      child, main_axis_border_padding, cross_axis_border_padding, layout_type);
 
-  MinMaxSizes sizes = ComputeMinAndMaxSizesForChild(*algorithm, child,
-                                                    main_axis_border_padding);
+  MinMaxSizes sizes = ComputeMinAndMaxSizesForChild(
+      *algorithm, child, main_axis_border_padding, cross_axis_border_padding);
 
   NGPhysicalBoxStrut physical_margins(child.MarginTop(), child.MarginRight(),
                                       child.MarginBottom(), child.MarginLeft());
   algorithm->emplace_back(
       &child, child.StyleRef(), child_inner_flex_base_size, sizes,
-      /* min_max_cross_sizes */ base::nullopt, main_axis_border_padding,
+      /* min_max_cross_sizes */ absl::nullopt, main_axis_border_padding,
       cross_axis_border_padding, physical_margins, /* unused */ NGBoxStrut());
 }
 
@@ -1578,11 +1629,16 @@ EOverflow LayoutFlexibleBox::CrossAxisOverflowForChild(
 DISABLE_CFI_PERF
 void LayoutFlexibleBox::LayoutLineItems(FlexLine* current_line,
                                         bool relayout_children,
-                                        SubtreeLayoutScope& layout_scope) {
+                                        SubtreeLayoutScope& layout_scope,
+                                        LayoutPoint** current_item_offset) {
   NOT_DESTROYED();
   for (wtf_size_t i = 0; i < current_line->line_items_.size(); ++i) {
     FlexItem& flex_item = current_line->line_items_[i];
     LayoutBox* child = flex_item.box_;
+
+    DCHECK(current_item_offset);
+    flex_item.offset_ = *current_item_offset;
+    (*current_item_offset)++;
 
     DCHECK(!flex_item.box_->IsOutOfFlowPositioned());
 
@@ -1603,9 +1659,12 @@ void LayoutFlexibleBox::LayoutLineItems(FlexLine* current_line,
     // computeInnerFlexBaseSizeForChild.
     bool force_child_relayout =
         relayout_children && !relaid_out_children_.Contains(child);
+    // TODO(dgrogan): Broaden the NG part of this check once NG types other
+    // than Mixin derivatives are cached.
     auto* child_layout_block = DynamicTo<LayoutBlock>(child);
     if (child_layout_block &&
-        child_layout_block->HasPercentHeightDescendants()) {
+        child_layout_block->HasPercentHeightDescendants() &&
+        !CanAvoidLayoutForNGChild(*child)) {
       // Have to force another relayout even though the child is sized
       // correctly, because its descendants are not sized correctly yet. Our
       // previous layout of the child was done without an override height set.
@@ -1646,7 +1705,7 @@ void LayoutFlexibleBox::ApplyLineItemsPosition(FlexLine* current_line) {
   for (wtf_size_t i = 0; i < current_line->line_items_.size(); ++i) {
     const FlexItem& flex_item = current_line->line_items_[i];
     LayoutBox* child = flex_item.box_;
-    SetFlowAwareLocationForChild(*child, flex_item.desired_location_);
+    SetFlowAwareLocationForChild(*child, *flex_item.offset_);
     child->SetMargin(flex_item.physical_margins_);
 
     if (is_paginated)
@@ -1729,7 +1788,7 @@ void LayoutFlexibleBox::AlignFlexLines(FlexLayoutAlgorithm& algorithm) {
        ++line_number) {
     FlexLine& line_context = line_contexts[line_number];
     for (FlexItem& flex_item : line_context.line_items_) {
-      ResetAlignmentForChild(*flex_item.box_, flex_item.desired_location_.Y());
+      ResetAlignmentForChild(*flex_item.box_, flex_item.offset_->Y());
     }
   }
 }
@@ -1756,7 +1815,7 @@ void LayoutFlexibleBox::AlignChildren(FlexLayoutAlgorithm& algorithm) {
         ApplyStretchAlignmentToChild(flex_item);
         flex_item.needs_relayout_for_stretch_ = false;
       }
-      ResetAlignmentForChild(*flex_item.box_, flex_item.desired_location_.Y());
+      ResetAlignmentForChild(*flex_item.box_, flex_item.offset_->Y());
       flex_item.box_->SetMargin(flex_item.physical_margins_);
     }
   }
@@ -1774,7 +1833,8 @@ void LayoutFlexibleBox::ApplyStretchAlignmentToChild(FlexItem& flex_item) {
     child.SetOverrideLogicalHeight(flex_item.cross_axis_size_);
 
     auto* child_block = DynamicTo<LayoutBlock>(child);
-    if (child_block && child_block->HasPercentHeightDescendants()) {
+    if (child_block && child_block->HasPercentHeightDescendants() &&
+        !CanAvoidLayoutForNGChild(child)) {
       // Have to force another relayout even though the child is sized
       // correctly, because its descendants are not sized correctly yet. Our
       // previous layout of the child was done without an override height set.

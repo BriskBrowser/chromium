@@ -4,22 +4,24 @@
 
 #include "fuchsia/engine/browser/web_engine_content_browser_client.h"
 
-#include <fuchsia/web/cpp/fidl.h>
 #include <string>
 #include <utility>
 
+#include "base/cxx17_backports.h"
 #include "base/i18n/rtl.h"
-#include "base/stl_util.h"
 #include "base/strings/string_split.h"
+#include "components/embedder_support/user_agent_utils.h"
 #include "components/policy/content/safe_sites_navigation_throttle.h"
-#include "components/version_info/version_info.h"
+#include "components/site_isolation/features.h"
+#include "components/site_isolation/preloaded_isolated_origins.h"
+#include "components/strings/grit/components_locale_settings.h"
 #include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/devtools_manager_delegate.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/user_agent.h"
 #include "fuchsia/base/fuchsia_dir_scheme.h"
+#include "fuchsia/base/init_logging.h"
 #include "fuchsia/engine/browser/frame_impl.h"
 #include "fuchsia/engine/browser/navigation_policy_throttle.h"
 #include "fuchsia/engine/browser/url_request_rewrite_rules_manager.h"
@@ -31,36 +33,44 @@
 #include "fuchsia/engine/common/web_engine_url_loader_throttle.h"
 #include "fuchsia/engine/switches.h"
 #include "media/base/media_switches.h"
+#include "net/cert/x509_certificate.h"
+#include "net/ssl/ssl_private_key.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/cpp/network_switches.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
+#include "third_party/blink/public/common/switches.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
-class DevToolsManagerDelegate : public content::DevToolsManagerDelegate {
+class DevToolsManagerDelegate final : public content::DevToolsManagerDelegate {
  public:
-  DevToolsManagerDelegate(content::BrowserContext* browser_context,
-                          WebEngineDevToolsController* controller)
-      : browser_context_(browser_context), controller_(controller) {
-    DCHECK(browser_context_);
-    DCHECK(controller_);
+  explicit DevToolsManagerDelegate(WebEngineBrowserMainParts* main_parts)
+      : main_parts_(main_parts) {
+    DCHECK(main_parts_);
   }
-  ~DevToolsManagerDelegate() final = default;
+  ~DevToolsManagerDelegate() override = default;
+
+  DevToolsManagerDelegate(const DevToolsManagerDelegate&) = delete;
+  DevToolsManagerDelegate& operator=(const DevToolsManagerDelegate&) = delete;
 
   // content::DevToolsManagerDelegate implementation.
-  content::BrowserContext* GetDefaultBrowserContext() final {
-    return browser_context_;
+  std::vector<content::BrowserContext*> GetBrowserContexts() override {
+    return main_parts_->browser_contexts();
   }
-  content::DevToolsAgentHost::List RemoteDebuggingTargets() final {
-    return controller_->RemoteDebuggingTargets();
+  content::BrowserContext* GetDefaultBrowserContext() override {
+    std::vector<content::BrowserContext*> contexts = GetBrowserContexts();
+    return contexts.empty() ? nullptr : contexts.front();
+  }
+  content::DevToolsAgentHost::List RemoteDebuggingTargets() override {
+    return main_parts_->devtools_controller()->RemoteDebuggingTargets();
   }
 
  private:
-  content::BrowserContext* const browser_context_;
-  WebEngineDevToolsController* const controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsManagerDelegate);
+  WebEngineBrowserMainParts* const main_parts_;
 };
 
 std::vector<std::string> GetCorsExemptHeaders() {
@@ -72,40 +82,37 @@ std::vector<std::string> GetCorsExemptHeaders() {
 
 }  // namespace
 
-WebEngineContentBrowserClient::WebEngineContentBrowserClient(
-    fidl::InterfaceRequest<fuchsia::web::Context> request)
-    : request_(std::move(request)),
-      cors_exempt_headers_(GetCorsExemptHeaders()),
+WebEngineContentBrowserClient::WebEngineContentBrowserClient()
+    : cors_exempt_headers_(GetCorsExemptHeaders()),
       allow_insecure_content_(base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAllowRunningInsecureContent)) {}
+          switches::kAllowRunningInsecureContent)) {
+  // Logging in this class ensures this is logged once per web_instance.
+  cr_fuchsia::LogComponentStartWithVersion("WebEngine web_instance");
+}
 
 WebEngineContentBrowserClient::~WebEngineContentBrowserClient() = default;
 
 std::unique_ptr<content::BrowserMainParts>
 WebEngineContentBrowserClient::CreateBrowserMainParts(
     const content::MainFunctionParams& parameters) {
-  DCHECK(request_);
-  auto browser_main_parts = std::make_unique<WebEngineBrowserMainParts>(
-      parameters, std::move(request_));
-
+  auto browser_main_parts =
+      std::make_unique<WebEngineBrowserMainParts>(this, parameters);
   main_parts_ = browser_main_parts.get();
-
   return browser_main_parts;
 }
 
-content::DevToolsManagerDelegate*
-WebEngineContentBrowserClient::GetDevToolsManagerDelegate() {
+std::unique_ptr<content::DevToolsManagerDelegate>
+WebEngineContentBrowserClient::CreateDevToolsManagerDelegate() {
   DCHECK(main_parts_);
-  return new DevToolsManagerDelegate(main_parts_->browser_context(),
-                                     main_parts_->devtools_controller());
+  return std::make_unique<DevToolsManagerDelegate>(main_parts_);
 }
 
 std::string WebEngineContentBrowserClient::GetProduct() {
-  return version_info::GetProductNameAndVersionForUserAgent();
+  return embedder_support::GetProduct();
 }
 
 std::string WebEngineContentBrowserClient::GetUserAgent() {
-  std::string user_agent = content::BuildUserAgentFromProduct(GetProduct());
+  std::string user_agent = embedder_support::GetUserAgent();
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kUserAgentProductAndVersion)) {
     user_agent +=
@@ -113,6 +120,10 @@ std::string WebEngineContentBrowserClient::GetUserAgent() {
                   switches::kUserAgentProductAndVersion);
   }
   return user_agent;
+}
+
+blink::UserAgentMetadata WebEngineContentBrowserClient::GetUserAgentMetadata() {
+  return embedder_support::GetUserAgentMetadata();
 }
 
 void WebEngineContentBrowserClient::OverrideWebkitPrefs(
@@ -123,13 +134,18 @@ void WebEngineContentBrowserClient::OverrideWebkitPrefs(
 
   if (allow_insecure_content_)
     web_prefs->allow_running_insecure_content = true;
+
+  FrameImpl* frame = FrameImpl::FromWebContents(web_contents);
+  // This method may be called when a |web_contents| is instantiated but an
+  // associated frame has not been created.
+  if (frame != nullptr)
+    frame->OverrideWebPreferences(web_prefs);
 }
 
 void WebEngineContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
     content::RenderFrameHost* render_frame_host,
     mojo::BinderMapWithContext<content::RenderFrameHost*>* map) {
-  MediaResourceProviderService* const provider =
-      main_parts_->media_resource_provider_service();
+  CdmProviderService* const provider = main_parts_->cdm_provider_service();
   DCHECK(provider);
   PopulateFuchsiaFrameBinders(map, provider);
 }
@@ -140,7 +156,7 @@ void WebEngineContentBrowserClient::
         ukm::SourceIdObj ukm_source_id,
         NonNetworkURLLoaderFactoryMap* factories) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kContentDirectories)) {
+          switches::kEnableContentDirectories)) {
     factories->emplace(cr_fuchsia::kFuchsiaDirScheme,
                        ContentDirectoryLoaderFactory::Create());
   }
@@ -152,7 +168,7 @@ void WebEngineContentBrowserClient::
         int render_frame_id,
         NonNetworkURLLoaderFactoryMap* factories) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kContentDirectories)) {
+          switches::kEnableContentDirectories)) {
     factories->emplace(cr_fuchsia::kFuchsiaDirScheme,
                        ContentDirectoryLoaderFactory::Create());
   }
@@ -171,10 +187,10 @@ void WebEngineContentBrowserClient::AppendExtraCommandLineSwitches(
     int child_process_id) {
   // TODO(https://crbug.com/1083520): Pass based on process type.
   constexpr char const* kSwitchesToCopy[] = {
-      switches::kContentDirectories,
+      blink::switches::kSharedArrayBufferAllowedOrigins,
       switches::kCorsExemptHeaders,
-      switches::kDisableSoftwareVideoDecoders,
       switches::kEnableCastStreamingReceiver,
+      switches::kEnableContentDirectories,
       switches::kEnableProtectedVideoBuffers,
       switches::kEnableWidevine,
       switches::kForceProtectedVideoOutputBuffers,
@@ -195,9 +211,10 @@ std::string WebEngineContentBrowserClient::GetApplicationLocale() {
 
 std::string WebEngineContentBrowserClient::GetAcceptLangs(
     content::BrowserContext* context) {
-  DCHECK_EQ(main_parts_->browser_context(), context);
-  return static_cast<WebEngineBrowserContext*>(context)
-      ->GetPreferredLanguages();
+  // Returns a comma-separated list of language codes, in preference order.
+  // This is passed to net::HttpUtil::GenerateAcceptLanguageHeader() to
+  // generate a legacy "accept-language" header value.
+  return l10n_util::GetStringUTF8(IDS_ACCEPT_LANGUAGES);
 }
 
 base::OnceClosure WebEngineContentBrowserClient::SelectClientCertificate(
@@ -216,6 +233,7 @@ WebEngineContentBrowserClient::CreateThrottlesForNavigation(
   std::vector<std::unique_ptr<content::NavigationThrottle>> throttles;
   auto* frame_impl =
       FrameImpl::FromWebContents(navigation_handle->GetWebContents());
+  DCHECK(frame_impl);
 
   // Only create throttle if FrameImpl has a NavigationPolicyProvider,
   // indicating an interest in navigations.
@@ -224,7 +242,7 @@ WebEngineContentBrowserClient::CreateThrottlesForNavigation(
         navigation_handle, frame_impl->navigation_policy_handler()));
   }
 
-  const base::Optional<std::string>& explicit_sites_filter_error_page =
+  const absl::optional<std::string>& explicit_sites_filter_error_page =
       frame_impl->explicit_sites_filter_error_page();
 
   if (explicit_sites_filter_error_page) {
@@ -250,9 +268,13 @@ WebEngineContentBrowserClient::CreateURLLoaderThrottles(
   }
 
   std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles;
-  throttles.emplace_back(std::make_unique<WebEngineURLLoaderThrottle>(
-      FrameImpl::FromWebContents(wc_getter.Run())
-          ->url_request_rewrite_rules_manager()));
+  auto* frame_impl = FrameImpl::FromWebContents(wc_getter.Run());
+  DCHECK(frame_impl);
+  scoped_refptr<WebEngineURLLoaderThrottle::UrlRequestRewriteRules>& rules =
+      frame_impl->url_request_rewrite_rules_manager()->GetCachedRules();
+  if (rules) {
+    throttles.emplace_back(std::make_unique<WebEngineURLLoaderThrottle>(rules));
+  }
   return throttles;
 }
 
@@ -264,12 +286,25 @@ void WebEngineContentBrowserClient::ConfigureNetworkContextParams(
     cert_verifier::mojom::CertVerifierCreationParams*
         cert_verifier_creation_params) {
   network_context_params->user_agent = GetUserAgent();
-  network_context_params
-      ->accept_language = net::HttpUtil::GenerateAcceptLanguageHeader(
-      static_cast<WebEngineBrowserContext*>(context)->GetPreferredLanguages());
+  network_context_params->accept_language =
+      net::HttpUtil::GenerateAcceptLanguageHeader(GetAcceptLangs(context));
 
   // Set the list of cors_exempt_headers which may be specified in a URLRequest,
   // starting with the headers passed in via
   // |CreateContextParams.cors_exempt_headers|.
   network_context_params->cors_exempt_header_list = cors_exempt_headers_;
+}
+
+std::vector<url::Origin>
+WebEngineContentBrowserClient::GetOriginsRequiringDedicatedProcess() {
+  std::vector<url::Origin> isolated_origin_list;
+
+  // Include additional origins preloaded with specific browser configurations,
+  // if any.
+  auto built_in_origins =
+      site_isolation::GetBrowserSpecificBuiltInIsolatedOrigins();
+  std::move(std::begin(built_in_origins), std::end(built_in_origins),
+            std::back_inserter(isolated_origin_list));
+
+  return isolated_origin_list;
 }

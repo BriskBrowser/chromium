@@ -69,6 +69,13 @@ enum ContextPriority {
   ContextPriorityHigh
 };
 
+// Angle allows selecting context virtualization group at context creation time.
+// This enum is used to specify the group number to use for a given context.
+// Currently all contexts which does not specify any group number are part of
+// default angle context virtualization group. DrDc will use below enum to
+// become part of different virtualization group.
+enum class AngleContextVirtualizationGroup { kDefault = -1, kDrDc = 1 };
+
 struct GL_EXPORT GLContextAttribs {
   GLContextAttribs();
   GLContextAttribs(const GLContextAttribs& other);
@@ -105,6 +112,9 @@ struct GL_EXPORT GLContextAttribs {
   // state when MakeCurrent was previously called.
   bool angle_restore_external_context_state = false;
 
+  AngleContextVirtualizationGroup angle_context_virtualization_group_number =
+      AngleContextVirtualizationGroup::kDefault;
+
   ContextPriority context_priority = ContextPriorityMedium;
 };
 
@@ -113,6 +123,9 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext>,
                             public base::SupportsWeakPtr<GLContext> {
  public:
   explicit GLContext(GLShareGroup* share_group);
+
+  GLContext(const GLContext&) = delete;
+  GLContext& operator=(const GLContext&) = delete;
 
   static int32_t TotalGLContexts();
 
@@ -337,13 +350,15 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext>,
   std::map<uint64_t, std::unique_ptr<GLFence>> backpressure_fences_;
   uint64_t next_backpressure_fence_ = 0;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(GLContext);
 };
 
 class GL_EXPORT GLContextReal : public GLContext {
  public:
   explicit GLContextReal(GLShareGroup* share_group);
+
+  GLContextReal(const GLContextReal&) = delete;
+  GLContextReal& operator=(const GLContextReal&) = delete;
+
   scoped_refptr<GPUTimingClient> CreateGPUTimingClient() override;
   const gfx::ExtensionSet& GetExtensions() override;
 
@@ -361,7 +376,6 @@ class GL_EXPORT GLContextReal : public GLContext {
   std::string extensions_string_;
   gfx::ExtensionSet extensions_;
   bool extensions_initialized_ = false;
-  DISALLOW_COPY_AND_ASSIGN(GLContextReal);
 };
 
 // Wraps GLContext in scoped_refptr and tries to initializes it. Returns a

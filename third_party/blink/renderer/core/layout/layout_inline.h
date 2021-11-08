@@ -200,7 +200,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   void AddOutlineRects(Vector<PhysicalRect>&,
                        const PhysicalOffset& additional_offset,
-                       NGOutlineType) const final;
+                       NGOutlineType) const override;
   // The following methods are called from the container if it has already added
   // outline rects for line boxes and/or children of this LayoutInline.
   void AddOutlineRectsForChildrenAndContinuations(
@@ -262,7 +262,8 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
                           TransformState&,
                           MapCoordinatesFlags mode) const override;
 
-  PhysicalRect AbsoluteBoundingBoxRectHandlingEmptyInline() const final;
+  PhysicalRect AbsoluteBoundingBoxRectHandlingEmptyInline(
+      MapCoordinatesFlags = 0) const final;
 
   PhysicalRect VisualRectInDocument(
       VisualRectFlags = kDefaultVisualRectFlags) const override;
@@ -285,6 +286,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   void InvalidateDisplayItemClients(PaintInvalidationReason) const override;
 
+  void LocalQuadsForSelf(Vector<FloatQuad>& quads) const override;
   void AbsoluteQuadsForSelf(Vector<FloatQuad>& quads,
                             MapCoordinatesFlags mode = 0) const override;
 
@@ -293,6 +295,11 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
       bool ignore_scroll_offset) const final;
 
  private:
+  bool AbsoluteTransformDependsOnPoint(const LayoutObject& object) const;
+  void QuadsForSelfInternal(Vector<FloatQuad>& quads,
+                            MapCoordinatesFlags mode,
+                            bool map_to_absolute) const;
+
   LayoutObjectChildList* VirtualChildren() final {
     NOT_DESTROYED();
     return Children();
@@ -360,8 +367,8 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
                  LayoutObject* new_child,
                  LayoutBoxModelObject* old_cont);
 
-  // Create an anoymous block for block children of this inline.
-  LayoutBlockFlow* CreateAnonymousContainerForBlockChildren();
+  // Create an anonymous block for block children of this inline.
+  LayoutBlockFlow* CreateAnonymousContainerForBlockChildren(bool split_flow);
 
   void UpdateLayout() final {
     NOT_DESTROYED();
@@ -379,14 +386,8 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   LayoutUnit OffsetLeft(const Element*) const final;
   LayoutUnit OffsetTop(const Element*) const final;
-  LayoutUnit OffsetWidth() const final {
-    NOT_DESTROYED();
-    return PhysicalLinesBoundingBox().Width();
-  }
-  LayoutUnit OffsetHeight() const final {
-    NOT_DESTROYED();
-    return PhysicalLinesBoundingBox().Height();
-  }
+  LayoutUnit OffsetWidth() const final;
+  LayoutUnit OffsetHeight() const final;
 
   // This method differs from VisualOverflowRect() in that
   // 1. it doesn't include the rects for culled inline boxes, which aren't
@@ -404,7 +405,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   IntRect BorderBoundingBox() const final {
     NOT_DESTROYED();
     IntRect bounding_box = EnclosingIntRect(PhysicalLinesBoundingBox());
-    return IntRect(0, 0, bounding_box.Width(), bounding_box.Height());
+    return IntRect(0, 0, bounding_box.width(), bounding_box.height());
   }
 
   virtual InlineFlowBox* CreateInlineFlowBox();  // Subclassed by SVG and Ruby
@@ -441,7 +442,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   LayoutBoxModelObject* ContinuationBefore(LayoutObject* before_child);
 
-  base::Optional<PhysicalOffset> FirstLineBoxTopLeftInternal() const;
+  absl::optional<PhysicalOffset> FirstLineBoxTopLeftInternal() const;
   PhysicalOffset AnchorPhysicalLocation() const;
 
   LayoutObjectChildList children_;

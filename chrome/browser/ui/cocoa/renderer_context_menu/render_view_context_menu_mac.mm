@@ -24,7 +24,7 @@
 // Relies on the tag being set to the command id.
 
 RenderViewContextMenuMac::RenderViewContextMenuMac(
-    content::RenderFrameHost* render_frame_host,
+    content::RenderFrameHost& render_frame_host,
     const content::ContextMenuParams& params)
     : RenderViewContextMenu(render_frame_host, params),
       text_services_context_menu_(this) {}
@@ -59,7 +59,7 @@ bool RenderViewContextMenuMac::IsCommandIdEnabled(int command_id) const {
   return RenderViewContextMenu::IsCommandIdEnabled(command_id);
 }
 
-base::string16 RenderViewContextMenuMac::GetSelectedText() const {
+std::u16string RenderViewContextMenuMac::GetSelectedText() const {
   return params_.selection_text;
 }
 
@@ -114,7 +114,7 @@ void RenderViewContextMenuMac::InitToolkitMenu() {
       index += 1; // Place it below the separator.
     }
 
-    base::string16 printable_selection_text = PrintableSelectionText();
+    std::u16string printable_selection_text = PrintableSelectionText();
     EscapeAmpersands(&printable_selection_text);
     menu_model_.InsertItemAt(
         index++, IDC_CONTENT_CONTEXT_LOOK_UP,

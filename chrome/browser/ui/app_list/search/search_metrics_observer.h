@@ -11,8 +11,7 @@
 #include "ash/public/cpp/app_list/app_list_metrics.h"
 #include "ash/public/cpp/app_list/app_list_notifier.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
-#include "base/strings/string16.h"
+#include "base/scoped_observation.h"
 
 namespace app_list {
 
@@ -21,6 +20,7 @@ namespace app_list {
 class SearchMetricsObserver : ash::AppListNotifier::Observer {
  public:
   using Result = ash::AppListNotifier::Result;
+  using Location = ash::AppListNotifier::Location;
 
   explicit SearchMetricsObserver(ash::AppListNotifier* notifier);
   ~SearchMetricsObserver() override;
@@ -28,24 +28,24 @@ class SearchMetricsObserver : ash::AppListNotifier::Observer {
   SearchMetricsObserver(const SearchMetricsObserver&) = delete;
   SearchMetricsObserver& operator=(const SearchMetricsObserver&) = delete;
 
-  // AppListNotifier::Observer:
-  void OnImpression(ash::AppListNotifier::Location location,
+  // ash::AppListNotifier::Observer:
+  void OnImpression(Location location,
                     const std::vector<Result>& results,
-                    const base::string16& query) override;
-  void OnAbandon(ash::AppListNotifier::Location location,
+                    const std::u16string& query) override;
+  void OnAbandon(Location location,
                  const std::vector<Result>& results,
-                 const base::string16& query) override;
-  void OnLaunch(ash::AppListNotifier::Location location,
+                 const std::u16string& query) override;
+  void OnLaunch(Location location,
                 const Result& launched,
                 const std::vector<Result>& shown,
-                const base::string16& query) override;
-  void OnIgnore(ash::AppListNotifier::Location location,
+                const std::u16string& query) override;
+  void OnIgnore(Location location,
                 const std::vector<Result>& results,
-                const base::string16& query) override;
+                const std::u16string& query) override;
 
  private:
-  ScopedObserver<ash::AppListNotifier, ash::AppListNotifier::Observer>
-      observer_{this};
+  base::ScopedObservation<ash::AppListNotifier, ash::AppListNotifier::Observer>
+      observation_{this};
 };
 
 }  // namespace app_list

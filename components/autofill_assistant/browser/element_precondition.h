@@ -12,12 +12,12 @@
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "components/autofill_assistant/browser/client_status.h"
 #include "components/autofill_assistant/browser/selector.h"
 #include "components/autofill_assistant/browser/service.pb.h"
 #include "components/autofill_assistant/browser/web/element.h"
 #include "components/autofill_assistant/browser/web/element_finder.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace autofill_assistant {
 class BatchElementChecker;
@@ -32,6 +32,10 @@ class ElementPrecondition {
       const base::flat_map<std::string, DomObjectFrameStack>&)>;
 
   ElementPrecondition(const ElementConditionProto& proto);
+
+  ElementPrecondition(const ElementPrecondition&) = delete;
+  ElementPrecondition& operator=(const ElementPrecondition&) = delete;
+
   ~ElementPrecondition();
 
   // Check whether the conditions are satisfied and return the result through
@@ -63,7 +67,10 @@ class ElementPrecondition {
 
     // The identifier given to this result through the script. This identifier
     // can be used to later find the element in the |ElementStore|.
-    base::Optional<std::string> client_id;
+    absl::optional<std::string> client_id;
+
+    // Whether the matching should be done strict or not.
+    bool strict = false;
   };
 
   // Add selectors from |proto| to |results_|, doing a depth-first search.
@@ -88,8 +95,6 @@ class ElementPrecondition {
   base::flat_map<std::string, DomObjectFrameStack> elements_;
 
   base::WeakPtrFactory<ElementPrecondition> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ElementPrecondition);
 };
 
 }  // namespace autofill_assistant

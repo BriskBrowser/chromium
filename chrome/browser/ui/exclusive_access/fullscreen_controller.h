@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_FULLSCREEN_CONTROLLER_H_
 #define CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_FULLSCREEN_CONTROLLER_H_
 
-#include <set>
-
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -55,6 +53,10 @@ class RenderFrameHost;
 class FullscreenController : public ExclusiveAccessControllerBase {
  public:
   explicit FullscreenController(ExclusiveAccessManager* manager);
+
+  FullscreenController(const FullscreenController&) = delete;
+  FullscreenController& operator=(const FullscreenController&) = delete;
+
   ~FullscreenController() override;
 
   void AddObserver(FullscreenObserver* observer);
@@ -207,8 +209,6 @@ class FullscreenController : public ExclusiveAccessControllerBase {
   base::ObserverList<FullscreenObserver> observer_list_;
 
   base::WeakPtrFactory<FullscreenController> ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FullscreenController);
 };
 
 #endif  // CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_FULLSCREEN_CONTROLLER_H_

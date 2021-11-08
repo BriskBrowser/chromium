@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/views/toolbar/home_button.h"
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -19,12 +20,12 @@
 #include "components/user_prefs/user_prefs.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 // HomePageUndoBubble --------------------------------------------------------
@@ -103,14 +104,13 @@ HomePageUndoBubble::~HomePageUndoBubble() = default;
 void HomePageUndoBubble::Init() {
   SetLayoutManager(std::make_unique<views::FillLayout>());
 
-  base::string16 undo_string =
+  std::u16string undo_string =
       l10n_util::GetStringUTF16(IDS_ONE_CLICK_BUBBLE_UNDO);
-  std::vector<base::string16> message = {
+  std::vector<std::u16string> message = {
       l10n_util::GetStringUTF16(IDS_TOOLBAR_INFORM_SET_HOME_PAGE), undo_string};
   views::StyledLabel* label =
       AddChildView(std::make_unique<views::StyledLabel>());
-  label->SetText(
-      base::JoinString(message, base::StringPiece16(base::ASCIIToUTF16(" "))));
+  label->SetText(base::JoinString(message, base::StringPiece16(u" ")));
 
   gfx::Range undo_range(label->GetText().length() - undo_string.length(),
                         label->GetText().length());
@@ -153,6 +153,7 @@ HomeButton::HomeButton(PressedCallback callback, Browser* browser)
     : ToolbarButton(std::move(callback)), browser_(browser) {
   SetTriggerableEventFlags(ui::EF_LEFT_MOUSE_BUTTON |
                            ui::EF_MIDDLE_MOUSE_BUTTON);
+  SetVectorIcons(kNavigateHomeIcon, kNavigateHomeTouchIcon);
   SetTooltipText(l10n_util::GetStringUTF16(IDS_TOOLTIP_HOME));
   SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_HOME));
   SetID(VIEW_ID_HOME_BUTTON);
@@ -179,11 +180,22 @@ int HomeButton::OnDragUpdated(const ui::DropTargetEvent& event) {
 
 ui::mojom::DragOperation HomeButton::OnPerformDrop(
     const ui::DropTargetEvent& event) {
-  if (!browser_)
-    return ui::mojom::DragOperation::kNone;
+  auto cb = GetDropCallback(event);
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  std::move(cb).Run(event, output_drag_op);
+  return output_drag_op;
+}
 
+views::View::DropCallback HomeButton::GetDropCallback(
+    const ui::DropTargetEvent& event) {
+  return base::BindOnce(&HomeButton::UpdateHomePage,
+                        weak_ptr_factory_.GetWeakPtr());
+}
+
+void HomeButton::UpdateHomePage(const ui::DropTargetEvent& event,
+                                ui::mojom::DragOperation& output_drag_op) {
   GURL new_homepage_url;
-  base::string16 title;
+  std::u16string title;
   if (event.data().GetURLAndTitle(ui::FilenameToURLPolicy::CONVERT_FILENAMES,
                                   &new_homepage_url, &title) &&
       new_homepage_url.is_valid()) {
@@ -196,14 +208,7 @@ ui::mojom::DragOperation HomeButton::OnPerformDrop(
 
     HomePageUndoBubble::ShowBubble(browser_, old_is_ntp, old_homepage, this);
   }
-  return ui::mojom::DragOperation::kNone;
-}
-
-void HomeButton::UpdateIcon() {
-  const gfx::VectorIcon& home_image = ui::TouchUiController::Get()->touch_ui()
-                                          ? kNavigateHomeTouchIcon
-                                          : kNavigateHomeIcon;
-  UpdateIconsWithStandardColors(home_image);
+  output_drag_op = ui::mojom::DragOperation::kNone;
 }
 
 BEGIN_METADATA(HomeButton, ToolbarButton)

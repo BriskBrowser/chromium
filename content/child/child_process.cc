@@ -11,7 +11,7 @@
 #include "base/lazy_instance.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/process/process_handle.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_local.h"
@@ -31,7 +31,7 @@
 #endif
 
 #if defined(OS_ANDROID)
-#include "content/common/android/cpu_affinity.h"
+#include "components/power_scheduler/power_scheduler.h"
 #endif
 
 namespace content {
@@ -94,7 +94,7 @@ ChildProcess::ChildProcess(base::ThreadPriority io_thread_priority,
   // For child processes, this requires allowing of the sched_setaffinity()
   // syscall in the sandbox (baseline_policy_android.cc). When this call is
   // removed, the sandbox allowlist should be updated too.
-  SetupCpuAffinityPollingOnce();
+  power_scheduler::PowerScheduler::GetInstance()->Setup();
 #endif
 
   // We can't recover from failing to start the IO thread.
@@ -108,7 +108,7 @@ ChildProcess::ChildProcess(base::ThreadPriority io_thread_priority,
     thread_options.priority = base::ThreadPriority::DISPLAY;
   }
 #endif
-  CHECK(io_thread_.StartWithOptions(thread_options));
+  CHECK(io_thread_.StartWithOptions(std::move(thread_options)));
 }
 
 ChildProcess::~ChildProcess() {

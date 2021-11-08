@@ -13,7 +13,7 @@
 #include "ash/system/media/unified_media_controls_controller.h"
 #include "ash/system/unified/unified_system_tray_model.h"
 #include "base/macros.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/compositor/throughput_tracker.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/views/animation/animation_delegate_views.h"
@@ -43,6 +43,11 @@ class ASH_EXPORT UnifiedSystemTrayController
   UnifiedSystemTrayController(UnifiedSystemTrayModel* model,
                               UnifiedSystemTrayBubble* bubble = nullptr,
                               views::View* owner_view = nullptr);
+
+  UnifiedSystemTrayController(const UnifiedSystemTrayController&) = delete;
+  UnifiedSystemTrayController& operator=(const UnifiedSystemTrayController&) =
+      delete;
+
   ~UnifiedSystemTrayController() override;
 
   // Create the view. The created view is unowned.
@@ -97,6 +102,8 @@ class ASH_EXPORT UnifiedSystemTrayController
   void ShowNotifierSettingsView();
   // Show the detailed view of media controls. Called from the view.
   void ShowMediaControlsDetailedView();
+  // Show the detailed view of Calendar. Called from the view.
+  void ShowCalendarView();
 
   // If you want to add a new detailed view, add here.
 
@@ -146,6 +153,10 @@ class ASH_EXPORT UnifiedSystemTrayController
 
   DetailedViewController* detailed_view_controller() {
     return detailed_view_controller_.get();
+  }
+
+  bool showing_audio_detailed_view() const {
+    return showing_audio_detailed_view_;
   }
 
  private:
@@ -246,9 +257,9 @@ class ASH_EXPORT UnifiedSystemTrayController
   std::unique_ptr<gfx::SlideAnimation> animation_;
 
   // Tracks the smoothness of collapse and expand animation.
-  base::Optional<ui::ThroughputTracker> animation_tracker_;
+  absl::optional<ui::ThroughputTracker> animation_tracker_;
 
-  DISALLOW_COPY_AND_ASSIGN(UnifiedSystemTrayController);
+  bool showing_audio_detailed_view_ = false;
 };
 
 }  // namespace ash

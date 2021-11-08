@@ -7,16 +7,20 @@
 
 #include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
-#include "chrome/browser/ui/android/infobars/chrome_confirm_infobar.h"
+#include "components/infobars/android/confirm_infobar.h"
 
 class SafetyTipInfoBarDelegate;
 
 // SafetyTipInfoBar is a thin vineer over ConfirmInfoBar that adds a discrete
 // description (instead of just having a title).
-class SafetyTipInfoBar : public ChromeConfirmInfoBar {
+class SafetyTipInfoBar : public infobars::ConfirmInfoBar {
  public:
   static std::unique_ptr<infobars::InfoBar> CreateInfoBar(
       std::unique_ptr<SafetyTipInfoBarDelegate> delegate);
+
+  SafetyTipInfoBar(const SafetyTipInfoBar&) = delete;
+  SafetyTipInfoBar& operator=(const SafetyTipInfoBar&) = delete;
+
   ~SafetyTipInfoBar() override;
 
  private:
@@ -28,8 +32,6 @@ class SafetyTipInfoBar : public ChromeConfirmInfoBar {
       const ResourceIdMapper& resource_id_mapper) override;
 
   SafetyTipInfoBarDelegate* GetDelegate();
-
-  DISALLOW_COPY_AND_ASSIGN(SafetyTipInfoBar);
 };
 
 #endif  // CHROME_BROWSER_REPUTATION_SAFETY_TIP_INFOBAR_H_

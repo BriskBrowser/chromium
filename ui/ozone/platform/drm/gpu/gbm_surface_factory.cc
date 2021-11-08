@@ -10,6 +10,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
@@ -68,6 +69,10 @@ class GLOzoneEGLGbm : public GLOzoneEGL {
                 DrmThreadProxy* drm_thread_proxy)
       : surface_factory_(surface_factory),
         drm_thread_proxy_(drm_thread_proxy) {}
+
+  GLOzoneEGLGbm(const GLOzoneEGLGbm&) = delete;
+  GLOzoneEGLGbm& operator=(const GLOzoneEGLGbm&) = delete;
+
   ~GLOzoneEGLGbm() override {}
 
   scoped_refptr<gl::GLSurface> CreateViewGLSurface(
@@ -162,7 +167,7 @@ class GLOzoneEGLGbm : public GLOzoneEGL {
     return native_display_;
   }
 
-  bool LoadGLES2Bindings(gl::GLImplementation impl) override {
+  bool LoadGLES2Bindings(const gl::GLImplementationParts& impl) override {
     return LoadDefaultEGLGLES2Bindings(impl);
   }
 
@@ -170,8 +175,6 @@ class GLOzoneEGLGbm : public GLOzoneEGL {
   GbmSurfaceFactory* surface_factory_;
   DrmThreadProxy* drm_thread_proxy_;
   gl::EGLDisplayPlatform native_display_;
-
-  DISALLOW_COPY_AND_ASSIGN(GLOzoneEGLGbm);
 };
 
 std::vector<gfx::BufferFormat> EnumerateSupportedBufferFormatsForTexturing() {
@@ -200,8 +203,8 @@ std::vector<gfx::BufferFormat> EnumerateSupportedBufferFormatsForTexturing() {
       return supported_buffer_formats;
     }
 
-    for (int i = 0; i <= static_cast<int>(gfx::BufferFormat::LAST); ++i) {
-      const gfx::BufferFormat buffer_format = static_cast<gfx::BufferFormat>(i);
+    for (int j = 0; j <= static_cast<int>(gfx::BufferFormat::LAST); ++j) {
+      const gfx::BufferFormat buffer_format = static_cast<gfx::BufferFormat>(j);
       if (base::Contains(supported_buffer_formats, buffer_format))
         continue;
       if (gbm_device_is_format_supported(
@@ -256,16 +259,18 @@ GbmSurfaceless* GbmSurfaceFactory::GetSurface(
   return it->second;
 }
 
-std::vector<gl::GLImplementation>
+std::vector<gl::GLImplementationParts>
 GbmSurfaceFactory::GetAllowedGLImplementations() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  return std::vector<gl::GLImplementation>{gl::kGLImplementationEGLGLES2,
-                                           gl::kGLImplementationEGLANGLE,
-                                           gl::kGLImplementationSwiftShaderGL};
+  return std::vector<gl::GLImplementationParts>{
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2),
+      gl::GLImplementationParts(gl::kGLImplementationEGLANGLE),
+      gl::GLImplementationParts(gl::kGLImplementationSwiftShaderGL)};
 }
 
-GLOzone* GbmSurfaceFactory::GetGLOzone(gl::GLImplementation implementation) {
-  switch (implementation) {
+GLOzone* GbmSurfaceFactory::GetGLOzone(
+    const gl::GLImplementationParts& implementation) {
+  switch (implementation.gl) {
     case gl::kGLImplementationEGLGLES2:
     case gl::kGLImplementationSwiftShaderGL:
     case gl::kGLImplementationEGLANGLE:
@@ -278,8 +283,7 @@ GLOzone* GbmSurfaceFactory::GetGLOzone(gl::GLImplementation implementation) {
 #if BUILDFLAG(ENABLE_VULKAN)
 std::unique_ptr<gpu::VulkanImplementation>
 GbmSurfaceFactory::CreateVulkanImplementation(bool use_swiftshader,
-                                              bool allow_protected_memory,
-                                              bool enforce_protected_memory) {
+                                              bool allow_protected_memory) {
   DCHECK(!use_swiftshader)
       << "Vulkan Swiftshader is not supported on this platform.";
   return std::make_unique<ui::VulkanImplementationGbm>();
@@ -329,8 +333,8 @@ scoped_refptr<gfx::NativePixmap> GbmSurfaceFactory::CreateNativePixmapForVulkan(
       /* .format = */ vk_format,
       /* .extent = */
       {
-          /* .width = */ size.width(),
-          /* .height = */ size.height(),
+          /* .width = */ static_cast<uint32_t>(size.width()),
+          /* .height = */ static_cast<uint32_t>(size.height()),
           /* .depth = */ 1,
       },
       /* .strideInBytes = */ buffer->GetPlaneStride(0),
@@ -368,7 +372,7 @@ scoped_refptr<gfx::NativePixmap> GbmSurfaceFactory::CreateNativePixmap(
     gfx::Size size,
     gfx::BufferFormat format,
     gfx::BufferUsage usage,
-    base::Optional<gfx::Size> framebuffer_size) {
+    absl::optional<gfx::Size> framebuffer_size) {
   if (framebuffer_size &&
       !gfx::Rect(size).Contains(gfx::Rect(*framebuffer_size))) {
     return nullptr;

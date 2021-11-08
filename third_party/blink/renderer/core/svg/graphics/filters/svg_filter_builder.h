@@ -21,7 +21,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SVG_GRAPHICS_FILTERS_SVG_FILTER_BUILDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SVG_GRAPHICS_FILTERS_SVG_FILTER_BUILDER_H_
 
-#include "third_party/blink/renderer/core/style/svg_computed_style_defs.h"
+#include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/graphics/interpolation_space.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_flags.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -55,7 +55,8 @@ class SVGFilterGraphNodeMap final
   // SvgAttributeChanged.
   FilterEffect* EffectForElement(
       SVGFilterPrimitiveStandardAttributes& primitive) {
-    return effect_element_.at(&primitive);
+    auto it = effect_element_.find(&primitive);
+    return it != effect_element_.end() ? it->value : nullptr;
   }
 
   void InvalidateDependentEffects(FilterEffect*);

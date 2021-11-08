@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_ASH_SYSTEM_INPUT_DEVICE_SETTINGS_H_
 
 #include "base/callback_forward.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
 namespace system {
@@ -68,6 +68,14 @@ class TouchpadSettings {
   bool GetScrollAcceleration() const;
   bool IsScrollAccelerationSet() const;
 
+  void SetHapticFeedback(bool enabled);
+  bool GetHapticFeedback() const;
+  bool IsHapticFeedbackSet() const;
+
+  void SetHapticClickSensitivity(int value);
+  int GetHapticClickSensitivity() const;
+  bool IsHapticClickSensitivitySet() const;
+
   // Updates |this| with |settings|. If at least one setting was updated returns
   // true.
   bool Update(const TouchpadSettings& settings);
@@ -77,14 +85,16 @@ class TouchpadSettings {
                     InputDeviceSettings* input_device_settings);
 
  private:
-  base::Optional<bool> acceleration_;
-  base::Optional<bool> natural_scroll_;
-  base::Optional<int> sensitivity_;
-  base::Optional<bool> scroll_acceleration_;
-  base::Optional<int> scroll_sensitivity_;
-  base::Optional<bool> tap_dragging_;
-  base::Optional<bool> tap_to_click_;
-  base::Optional<bool> three_finger_click_;
+  absl::optional<bool> acceleration_;
+  absl::optional<bool> haptic_feedback_;
+  absl::optional<int> haptic_click_sensitivity_;
+  absl::optional<bool> natural_scroll_;
+  absl::optional<int> sensitivity_;
+  absl::optional<bool> scroll_acceleration_;
+  absl::optional<int> scroll_sensitivity_;
+  absl::optional<bool> tap_dragging_;
+  absl::optional<bool> tap_to_click_;
+  absl::optional<bool> three_finger_click_;
 };
 
 // Auxiliary class used to update several mouse settings at a time. User
@@ -132,12 +142,12 @@ class MouseSettings {
                     InputDeviceSettings* input_device_settings);
 
  private:
-  base::Optional<bool> acceleration_;
-  base::Optional<bool> primary_button_right_;
-  base::Optional<bool> reverse_scroll_;
-  base::Optional<bool> scroll_acceleration_;
-  base::Optional<int> scroll_sensitivity_;
-  base::Optional<int> sensitivity_;
+  absl::optional<bool> acceleration_;
+  absl::optional<bool> primary_button_right_;
+  absl::optional<bool> reverse_scroll_;
+  absl::optional<bool> scroll_acceleration_;
+  absl::optional<int> scroll_sensitivity_;
+  absl::optional<int> sensitivity_;
 };
 
 // Auxiliary class used to update several pointing stick settings at a time.
@@ -173,9 +183,9 @@ class PointingStickSettings {
                     InputDeviceSettings* input_device_settings);
 
  private:
-  base::Optional<bool> acceleration_;
-  base::Optional<bool> primary_button_right_;
-  base::Optional<int> sensitivity_;
+  absl::optional<bool> acceleration_;
+  absl::optional<bool> primary_button_right_;
+  absl::optional<int> sensitivity_;
 };
 
 // Interface for configuring input device settings.
@@ -221,6 +231,13 @@ class InputDeviceSettings {
   // Sets the touchpad scroll sensitivity in the range [kMinPointerSensitivity,
   // kMaxPointerSensitivity].
   virtual void SetTouchpadScrollSensitivity(int value) = 0;
+
+  // Turns touchpad haptic feedback on/off.
+  virtual void SetTouchpadHapticFeedback(bool enabled) = 0;
+
+  // Sets the touchpad haptic click sensitivity from Soft feedback to Firm
+  // feedback [1, 3, 5].
+  virtual void SetTouchpadHapticClickSensitivity(int value) = 0;
 
   // Turns tap to click on/off.
   virtual void SetTapToClick(bool enabled) = 0;

@@ -8,7 +8,7 @@
 
 #include "base/feature_list.h"
 #import "base/ios/block_types.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/main/browser.h"
 #include "ios/chrome/browser/main/browser_observer.h"
@@ -25,7 +25,6 @@
 #import "ios/chrome/browser/ui/tabs/requirements/tab_strip_highlighting.h"
 #include "ios/chrome/browser/ui/toolbar/public/side_swipe_toolbar_interacting.h"
 #import "ios/chrome/browser/ui/toolbar/public/side_swipe_toolbar_interacting.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/web/page_placeholder_tab_helper.h"
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
 #import "ios/chrome/browser/web/web_navigation_util.h"
@@ -34,6 +33,7 @@
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/web_client.h"
 #import "ios/web/public/web_state_observer_bridge.h"
+#include "ui/base/device_form_factor.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -95,8 +95,8 @@ const NSUInteger kIpadGreySwipeTabCount = 8;
   std::unique_ptr<WebStateListObserverBridge> _webStateListObserver;
 
   // Scoped observer used to track registration of the WebStateObserverBridge.
-  std::unique_ptr<ScopedObserver<web::WebState, web::WebStateObserver>>
-      _scopedWebStateObserver;
+  std::unique_ptr<base::ScopedObservation<web::WebState, web::WebStateObserver>>
+      _scopedWebStateObservation;
 
   // Curtain over web view while waiting for it to load.
   UIView* _curtain;
@@ -143,6 +143,9 @@ const NSUInteger kIpadGreySwipeTabCount = 8;
 // Removes the |curtain_| if there was an active swipe, and resets
 // |inSwipe_| value.
 - (void)dismissCurtain;
+// Cleans up Browser, WebStateList, and WebState references in the instance of a
+// BrowserDestroyed BrowserObserver call.
+- (void)browserDestroyed;
 @end
 
 // A browser observer that nullifies SideSwipeController's pointer to browser
@@ -153,7 +156,7 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
       : side_swipe_controller_(controller) {}
 
   void BrowserDestroyed(Browser* browser) override {
-    side_swipe_controller_.browser = nullptr;
+    [side_swipe_controller_ browserDestroyed];
   }
 
  private:
@@ -183,12 +186,12 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
     _browser->GetWebStateList()->AddObserver(_webStateListObserver.get());
     _webStateObserverBridge =
         std::make_unique<web::WebStateObserverBridge>(self);
-    _scopedWebStateObserver =
-        std::make_unique<ScopedObserver<web::WebState, web::WebStateObserver>>(
-            _webStateObserverBridge.get());
-      _fullscreenController = FullscreenController::FromBrowser(self.browser);
+    _scopedWebStateObservation = std::make_unique<
+        base::ScopedObservation<web::WebState, web::WebStateObserver>>(
+        _webStateObserverBridge.get());
+    _fullscreenController = FullscreenController::FromBrowser(self.browser);
     if (self.activeWebState)
-      _scopedWebStateObserver->Add(self.activeWebState);
+      _scopedWebStateObservation->Observe(self.activeWebState);
   }
   return self;
 }
@@ -203,8 +206,16 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
     self.browser = nullptr;
   }
 
-  _scopedWebStateObserver.reset();
+  _scopedWebStateObservation.reset();
   _webStateObserverBridge.reset();
+}
+
+- (void)browserDestroyed {
+  self.webStateList->RemoveObserver(_webStateListObserver.get());
+  _scopedWebStateObservation.reset();
+  _webStateObserverBridge.reset();
+  self.browser->RemoveObserver(_browserRemover.get());
+  self.browser = nullptr;
 }
 
 - (void)addHorizontalGesturesToView:(UIView*)view {
@@ -364,7 +375,7 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
 }
 
 - (void)handlePan:(SideSwipeGestureRecognizer*)gesture {
-  if (!IsIPadIdiom()) {
+  if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_TABLET) {
     return [self handleiPhoneTabSwipe:gesture];
   } else {
     return [self handleiPadTabSwipe:gesture];
@@ -374,7 +385,7 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
 - (void)handleSwipe:(SideSwipeGestureRecognizer*)gesture {
   DCHECK(_swipeType != SwipeType::NONE);
   if (_swipeType == SwipeType::CHANGE_TAB) {
-    if (!IsIPadIdiom()) {
+    if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_TABLET) {
       return [self handleiPhoneTabSwipe:gesture];
     } else {
       return [self handleiPadTabSwipe:gesture];
@@ -519,34 +530,48 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
     _animatedFullscreenDisabler = nullptr;
   }
 
+  __weak SideSwipeController* weakSelf = self;
   [_pageSideSwipeView handleHorizontalPan:gesture
       onOverThresholdCompletion:^{
-        web::WebState* webState = self.activeWebState;
-        BOOL wantsBack = IsSwipingBack(gesture.direction);
-        if (webState) {
-          if (wantsBack) {
-            web_navigation_util::GoBack(webState);
-          } else {
-            web_navigation_util::GoForward(webState);
-          }
-        }
-        // Checking -IsLoading() is likely incorrect, but to narrow the scope of
-        // fixes for slim navigation manager, only ignore this state when
-        // slim is disabled.  With slim navigation enabled, this false when
-        // pages can be served from WKWebView's page cache.
-        if (webState) {
-          [self addCurtainWithCompletionHandler:^{
-            _inSwipe = NO;
-          }];
-        } else {
-          _inSwipe = NO;
-        }
-        [_swipeDelegate updateAccessoryViewsForSideSwipeWithVisibility:YES];
+        [weakSelf handleOverThresholdCompletion:gesture];
       }
       onUnderThresholdCompletion:^{
-        [_swipeDelegate updateAccessoryViewsForSideSwipeWithVisibility:YES];
-        _inSwipe = NO;
+        [weakSelf handleUnderThresholdCompletion];
       }];
+}
+
+- (void)handleOverThresholdCompletion:(SideSwipeGestureRecognizer*)gesture {
+  web::WebState* webState = self.activeWebState;
+  BOOL wantsBack = IsSwipingBack(gesture.direction);
+  if (webState) {
+    if (wantsBack) {
+      web_navigation_util::GoBack(webState);
+    } else {
+      web_navigation_util::GoForward(webState);
+    }
+  }
+  __weak SideSwipeController* weakSelf = self;
+  // Checking -IsLoading() is likely incorrect, but to narrow the scope of
+  // fixes for slim navigation manager, only ignore this state when
+  // slim is disabled.  With slim navigation enabled, this false when
+  // pages can be served from WKWebView's page cache.
+  if (webState) {
+    [self addCurtainWithCompletionHandler:^{
+      [weakSelf handleCurtainCompletion];
+    }];
+  } else {
+    _inSwipe = NO;
+  }
+  [_swipeDelegate updateAccessoryViewsForSideSwipeWithVisibility:YES];
+}
+
+- (void)handleCurtainCompletion {
+  _inSwipe = NO;
+}
+
+- (void)handleUnderThresholdCompletion {
+  [_swipeDelegate updateAccessoryViewsForSideSwipeWithVisibility:YES];
+  _inSwipe = NO;
 }
 
 // Show horizontal swipe stack view for iPhone.
@@ -589,9 +614,6 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
     // Layout tabs with new snapshots in the current orientation.
     [_tabSideSwipeView updateViewsForDirection:gesture.direction];
 
-    // Insert behind infobar container (which is below toolbar)
-    // so card border doesn't look janky during animation.
-    DCHECK([_swipeDelegate verifyToolbarViewPlacementInView:gesture.view]);
     // Insert above the toolbar.
     [gesture.view addSubview:_tabSideSwipeView];
   }
@@ -631,8 +653,9 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
 - (void)dismissCurtain {
   if (!_inSwipe)
     return;
+  __weak SideSwipeController* weakSelf = self;
   [self dismissCurtainWithCompletionHandler:^{
-    _inSwipe = NO;
+    [weakSelf handleCurtainCompletion];
   }];
 }
 
@@ -654,15 +677,15 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
   }
 
   // If the previous page is an NTP, enable leading edge swipe.
-  web::NavigationItemList backItems =
+  std::vector<web::NavigationItem*> backItems =
       webState->GetNavigationManager()->GetBackwardItems();
   if (backItems.size() > 0 && UseNativeSwipe(backItems[0]))
     self.leadingEdgeNavigationEnabled = YES;
 
   // If the next page is an NTP, enable trailing edge swipe.
-  web::NavigationItemList fordwardItems =
+  std::vector<web::NavigationItem*> forwardItems =
       webState->GetNavigationManager()->GetForwardItems();
-  if (fordwardItems.size() > 0 && UseNativeSwipe(fordwardItems[0]))
+  if (forwardItems.size() > 0 && UseNativeSwipe(forwardItems[0]))
     self.trailingEdgeNavigationEnabled = YES;
 }
 
@@ -694,9 +717,9 @@ class SideSwipeControllerBrowserRemover : public BrowserObserver {
   // Track the new active WebState for navigation events. Also remove the old if
   // there was one.
   if (oldWebState)
-    _scopedWebStateObserver->Remove(oldWebState);
+    _scopedWebStateObservation->Reset();
   if (newWebState)
-    _scopedWebStateObserver->Add(newWebState);
+    _scopedWebStateObservation->Observe(newWebState);
 
   [self updateNavigationEdgeSwipeForWebState:newWebState];
 }

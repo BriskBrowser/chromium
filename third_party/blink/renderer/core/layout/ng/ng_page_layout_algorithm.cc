@@ -19,7 +19,7 @@ NGPageLayoutAlgorithm::NGPageLayoutAlgorithm(
     const NGLayoutAlgorithmParams& params)
     : NGLayoutAlgorithm(params) {}
 
-const NGLayoutResult* NGPageLayoutAlgorithm::Layout() {
+scoped_refptr<const NGLayoutResult> NGPageLayoutAlgorithm::Layout() {
   LogicalSize page_size = ChildAvailableSize();
 
   NGConstraintSpace child_space = CreateConstraintSpaceForPages(page_size);
@@ -40,7 +40,7 @@ const NGLayoutResult* NGPageLayoutAlgorithm::Layout() {
         CalculateInitialFragmentGeometry(child_space, Node());
     NGBlockLayoutAlgorithm child_algorithm(
         {Node(), fragment_geometry, child_space, break_token});
-    const NGLayoutResult* result = child_algorithm.Layout();
+    scoped_refptr<const NGLayoutResult> result = child_algorithm.Layout();
     const auto& page = result->PhysicalFragment();
 
     container_builder_.AddChild(page, page_offset);
@@ -69,12 +69,12 @@ const NGLayoutResult* NGPageLayoutAlgorithm::Layout() {
 }
 
 MinMaxSizesResult NGPageLayoutAlgorithm::ComputeMinMaxSizes(
-    const MinMaxSizesInput& input) const {
-  NGFragmentGeometry fragment_geometry =
-      CalculateInitialMinMaxFragmentGeometry(ConstraintSpace(), Node());
+    const MinMaxSizesFloatInput&) {
+  NGFragmentGeometry fragment_geometry = CalculateInitialFragmentGeometry(
+      ConstraintSpace(), Node(), /* is_intrinsic */ true);
   NGBlockLayoutAlgorithm algorithm(
       {Node(), fragment_geometry, ConstraintSpace()});
-  return algorithm.ComputeMinMaxSizes(input);
+  return algorithm.ComputeMinMaxSizes(MinMaxSizesFloatInput());
 }
 
 NGConstraintSpace NGPageLayoutAlgorithm::CreateConstraintSpaceForPages(
@@ -83,7 +83,7 @@ NGConstraintSpace NGPageLayoutAlgorithm::CreateConstraintSpaceForPages(
       ConstraintSpace(), Style().GetWritingDirection(), /* is_new_fc */ true);
   space_builder.SetAvailableSize(page_size);
   space_builder.SetPercentageResolutionSize(page_size);
-  space_builder.SetStretchInlineSizeIfAuto(true);
+  space_builder.SetInlineAutoBehavior(NGAutoBehavior::kStretchImplicit);
 
   // TODO(mstensho): Handle auto block size.
   space_builder.SetFragmentationType(kFragmentPage);

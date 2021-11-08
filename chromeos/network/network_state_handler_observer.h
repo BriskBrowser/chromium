@@ -22,6 +22,11 @@ class DeviceState;
 class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandlerObserver {
  public:
   NetworkStateHandlerObserver();
+
+  NetworkStateHandlerObserver(const NetworkStateHandlerObserver&) = delete;
+  NetworkStateHandlerObserver& operator=(const NetworkStateHandlerObserver&) =
+      delete;
+
   virtual ~NetworkStateHandlerObserver();
 
   // The list of networks changed.
@@ -72,15 +77,19 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandlerObserver {
   // A scan for |device| completed.
   virtual void ScanCompleted(const DeviceState* device);
 
+  // A network has updated its identifiers (path and GUID).
+  virtual void NetworkIdentifierTransitioned(
+      const std::string& old_service_path,
+      const std::string& new_service_path,
+      const std::string& old_guid,
+      const std::string& new_guid);
+
   // The DHCP Hostname changed.
   virtual void HostnameChanged(const std::string& hostname);
 
   // Called just before NetworkStateHandler is destroyed so that observers
   // can safely stop observing.
   virtual void OnShuttingDown();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NetworkStateHandlerObserver);
 };
 
 }  // namespace chromeos

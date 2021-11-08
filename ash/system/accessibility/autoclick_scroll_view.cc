@@ -4,7 +4,7 @@
 
 #include "ash/system/accessibility/autoclick_scroll_view.h"
 
-#include "ash/autoclick/autoclick_controller.h"
+#include "ash/accessibility/autoclick/autoclick_controller.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
@@ -17,13 +17,15 @@
 #include "base/metrics/user_metrics.h"
 #include "base/timer/timer.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
+#include "ui/gfx/canvas.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/masked_targeter_delegate.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 namespace ash {
@@ -133,7 +135,7 @@ class AutoclickScrollButton : public CustomShapeButton,
     SetFlipCanvasOnPaintForRTLUI(false);
     scroll_hover_timer_ = std::make_unique<base::RetainingOneShotTimer>(
         FROM_HERE,
-        base::TimeDelta::FromMilliseconds(
+        base::Milliseconds(
             int64_t{AutoclickScrollView::kAutoclickScrollDelayMs}),
         base::BindRepeating(&AutoclickScrollButton::DoScrollAction,
                             base::Unretained(this)));
@@ -348,8 +350,8 @@ void AutoclickScrollBubbleView::UpdateAnchorRect(
       GetWidget()->GetLayer()->GetAnimator());
   settings.SetPreemptionStrategy(
       ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
-  settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
-      AutoclickMenuBubbleController::kAnimationDurationMs));
+  settings.SetTransitionDuration(
+      base::Milliseconds(AutoclickMenuBubbleController::kAnimationDurationMs));
   settings.SetTweenType(gfx::Tween::EASE_OUT);
   // SetAnchorRect will resize, so set the arrow without reizing to avoid a
   // double animation.

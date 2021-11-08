@@ -43,6 +43,9 @@ class TCPServerSocketFactory
   explicit TCPServerSocketFactory(uint16_t port)
       : port_(port), last_tethering_port_(kMinTetheringPort) {}
 
+  TCPServerSocketFactory(const TCPServerSocketFactory&) = delete;
+  TCPServerSocketFactory& operator=(const TCPServerSocketFactory&) = delete;
+
  private:
   std::unique_ptr<net::ServerSocket> CreateLocalHostServerSocket(int port) {
     std::unique_ptr<net::ServerSocket> socket(
@@ -52,7 +55,7 @@ class TCPServerSocketFactory
       return socket;
     if (socket->ListenWithAddressAndPort("::1", port, kBackLog) == net::OK)
       return socket;
-    return std::unique_ptr<net::ServerSocket>();
+    return nullptr;
   }
 
   // content::DevToolsSocketFactory.
@@ -65,7 +68,7 @@ class TCPServerSocketFactory
   std::unique_ptr<net::ServerSocket> CreateForTethering(
       std::string* name) override {
     if (!g_tethering_enabled.Get())
-      return std::unique_ptr<net::ServerSocket>();
+      return nullptr;
 
     if (last_tethering_port_ == kMaxTetheringPort)
       last_tethering_port_ = kMinTetheringPort;
@@ -77,8 +80,6 @@ class TCPServerSocketFactory
   std::string address_;
   uint16_t port_;
   uint16_t last_tethering_port_;
-
-  DISALLOW_COPY_AND_ASSIGN(TCPServerSocketFactory);
 };
 
 }  // namespace

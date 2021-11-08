@@ -14,6 +14,7 @@ component("cursor_base") {
     "cursor_factory.cc",
     "cursor_factory.h",
     "cursor_size.h",
+    "platform_cursor.h",
   ]
   defines = [ "IS_UI_BASE_CURSOR_BASE_IMPL" ]
   public_deps = [
@@ -22,11 +23,7 @@ component("cursor_base") {
     "//ui/base/cursor/mojom:cursor_type",
     "//ui/gfx/geometry",
   ]
-  deps = [ "//ui/gfx:geometry_skia" ]
-
-  if (use_aura) {
-    sources += [ "cursor_aura.cc" ]
-  }
+  deps = [ "//ui/gfx:gfx_skia" ]
 }
 
 component("theme_manager") {
@@ -44,6 +41,7 @@ if (use_aura) {
   component("cursor") {
     output_name = "ui_base_cursor"
     sources = [
+      "cursor_loader.cc",
       "cursor_loader.h",
       "cursor_lookup.cc",
       "cursor_lookup.h",
@@ -64,15 +62,13 @@ if (use_aura) {
       "//skia",
       "//ui/base",
       "//ui/gfx",
-      "//ui/gfx:geometry_skia",
+      "//ui/gfx:gfx_skia",
       "//ui/gfx/geometry",
       "//ui/resources:ui_resources_grd",
     ]
 
     if (is_win) {
       sources += [
-        "cursor_loader_win.cc",
-        "cursor_loader_win.h",
         "win/win_cursor.cc",
         "win/win_cursor.h",
         "win/win_cursor_factory.cc",
@@ -92,13 +88,6 @@ if (use_aura) {
       ]
       deps += [ "//build:chromeos_buildflags" ]
     }
-
-    if (use_x11 || use_ozone) {
-      sources += [
-        "cursor_loader_ozone.cc",
-        "cursor_loader_ozone.h",
-      ]
-    }
   }
 }
 
@@ -115,7 +104,7 @@ source_set("unittests") {
     sources += [ "cursor_unittest.cc" ]
     deps += [
       "//skia",
-      "//ui/gfx:geometry_skia",
+      "//ui/gfx:gfx_skia",
       "//ui/gfx/geometry",
     ]
   }
@@ -130,14 +119,6 @@ source_set("unittests") {
       "//skia",
       "//ui/gfx/geometry",
     ]
-
-    if (use_x11) {
-      deps += [
-        "//skia",
-        "//ui/base/x",
-        "//ui/gfx/geometry",
-      ]
-    }
   }
 
   if (use_ozone) {

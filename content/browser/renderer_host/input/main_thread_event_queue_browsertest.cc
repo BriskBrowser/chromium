@@ -75,6 +75,12 @@ namespace content {
 class MainThreadEventQueueBrowserTest : public ContentBrowserTest {
  public:
   MainThreadEventQueueBrowserTest() {}
+
+  MainThreadEventQueueBrowserTest(const MainThreadEventQueueBrowserTest&) =
+      delete;
+  MainThreadEventQueueBrowserTest& operator=(
+      const MainThreadEventQueueBrowserTest&) = delete;
+
   ~MainThreadEventQueueBrowserTest() override {}
 
   RenderWidgetHostImpl* GetWidgetHost() {
@@ -97,7 +103,7 @@ class MainThreadEventQueueBrowserTest : public ContentBrowserTest {
     RenderWidgetHostImpl* host = GetWidgetHost();
     host->GetView()->SetSize(gfx::Size(400, 400));
 
-    base::string16 ready_title(base::ASCIIToUTF16("ready"));
+    std::u16string ready_title(u"ready");
     TitleWatcher watcher(shell()->web_contents(), ready_title);
     ignore_result(watcher.WaitAndGetTitle());
 
@@ -106,10 +112,7 @@ class MainThreadEventQueueBrowserTest : public ContentBrowserTest {
   }
 
   int ExecuteScriptAndExtractInt(const std::string& script) {
-    int value = 0;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
-        shell(), "domAutomationController.send(" + script + ")", &value));
-    return value;
+    return EvalJs(shell(), script).ExtractInt();
   }
 
   void DoMouseMove() {
@@ -191,9 +194,6 @@ class MainThreadEventQueueBrowserTest : public ContentBrowserTest {
     EXPECT_EQ(35, last_touch_x);
     EXPECT_EQ(40, last_touch_y);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MainThreadEventQueueBrowserTest);
 };
 
 // Disabled due to flaky test results: crbug.com/805666.

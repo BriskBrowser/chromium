@@ -26,21 +26,19 @@
 #include <memory>
 
 #include "base/gtest_prod_util.h"
-#include "base/optional.h"
 #include "cc/input/event_listener_properties.h"
 #include "cc/input/layer_selection_bound.h"
 #include "cc/input/overscroll_behavior.h"
 #include "cc/paint/paint_image.h"
 #include "cc/trees/paint_holding_commit_trigger.h"
-#include "components/viz/common/delegated_ink_metadata.h"
+#include "cc/trees/paint_holding_reason.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "third_party/blink/public/common/dom_storage/session_storage_namespace_id.h"
-#include "third_party/blink/public/common/feature_policy/feature_policy_features.h"
 #include "third_party/blink/public/common/page/drag_operation.h"
+#include "third_party/blink/public/common/permissions_policy/permissions_policy_features.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/blame_context.h"
-#include "third_party/blink/public/web/web_swap_result.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/battery_savings.h"
@@ -57,6 +55,7 @@
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
+#include "ui/gfx/delegated_ink_metadata.h"
 
 // To avoid conflicts with the CreateWindow macro from the Windows SDK...
 #undef CreateWindow
@@ -66,6 +65,11 @@ struct ElementId;
 class Layer;
 struct OverscrollBehavior;
 }
+
+namespace display {
+struct ScreenInfo;
+struct ScreenInfos;
+}  // namespace display
 
 namespace ui {
 class Cursor;
@@ -105,7 +109,6 @@ enum class FullscreenRequestType;
 struct DateTimeChooserParameters;
 struct FrameLoadRequest;
 struct ViewportDescription;
-struct ScreenInfo;
 struct WebWindowFeatures;
 
 namespace mojom {
@@ -117,9 +120,9 @@ class TextAutosizerPageInfo;
 using CompositorElementId = cc::ElementId;
 
 class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
-  DISALLOW_COPY_AND_ASSIGN(ChromeClient);
-
  public:
+  ChromeClient(const ChromeClient&) = delete;
+  ChromeClient& operator=(const ChromeClient&) = delete;
   virtual ~ChromeClient() = default;
 
   virtual WebViewImpl* GetWebView() const = 0;
@@ -134,14 +137,17 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
 
   // For non-composited WebViews that exist to contribute to a "parent" WebView
   // painting. This informs the client of the area that needs to be redrawn.
-  virtual void InvalidateRect(const IntRect& update_rect) = 0;
+  virtual void InvalidateContainer() = 0;
 
   // Converts the rect from the viewport coordinates to screen coordinates.
   virtual IntRect ViewportToScreen(const IntRect&,
                                    const LocalFrameView*) const = 0;
 
+  void ScheduleAnimation(const LocalFrameView* view) {
+    ScheduleAnimation(view, base::TimeDelta());
+  }
   virtual void ScheduleAnimation(const LocalFrameView*,
-                                 base::TimeDelta = base::TimeDelta()) = 0;
+                                 base::TimeDelta delay) = 0;
 
   // Adjusts |pending_rect| for the minimum window size and |frame|'s screen
   // and returns the adjusted value.
@@ -156,6 +162,10 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   // Calls CalculateWindowRectWithAdjustment, then SetWindowRect.
   void SetWindowRectWithAdjustment(const IntRect& pending_rect,
                                    LocalFrame& frame);
+
+  // Tells the browser that another page has accessed the DOM of the initial
+  // empty document of a main frame.
+  virtual void DidAccessInitialMainDocument() = 0;
 
   // This gives the rect of the top level window that the given LocalFrame is a
   // part of.
@@ -191,8 +201,12 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   // reference to make it clear that callers may only call this while a local
   // main frame is present and the state does not persist between instances of
   // local main frames.
-  virtual void StartDeferringCommits(LocalFrame& main_frame,
-                                     base::TimeDelta timeout) = 0;
+  //
+  // Returns false if commits were already deferred, indicating that the call
+  // was a no-op.
+  virtual bool StartDeferringCommits(LocalFrame& main_frame,
+                                     base::TimeDelta timeout,
+                                     cc::PaintHoldingReason reason) = 0;
   virtual void StopDeferringCommits(LocalFrame& main_frame,
                                     cc::PaintHoldingCommitTrigger) = 0;
 
@@ -223,7 +237,7 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   // shown. Under some circumstances CreateWindow's implementation may return a
   // previously shown page. Calling this method should still work and the
   // browser will discard the unnecessary show request.
-  virtual void Show(const base::UnguessableToken& opener_frame_token,
+  virtual void Show(const blink::LocalFrameToken& opener_frame_token,
                     NavigationPolicy navigation_policy,
                     const IntRect& initial_rect,
                     bool consumed_user_gesture) = 0;
@@ -289,9 +303,11 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
                             String& result);
   virtual bool TabsToLinks() = 0;
 
-  virtual ScreenInfo GetScreenInfo(LocalFrame& frame) const = 0;
-  virtual void SetCursor(const ui::Cursor&, LocalFrame* local_root) = 0;
+  virtual const display::ScreenInfo& GetScreenInfo(LocalFrame& frame) const = 0;
+  virtual const display::ScreenInfos& GetScreenInfos(
+      LocalFrame& frame) const = 0;
 
+  virtual void SetCursor(const ui::Cursor&, LocalFrame* local_root) = 0;
   virtual void SetCursorOverridden(bool) = 0;
 
   virtual void AutoscrollStart(const gfx::PointF& position, LocalFrame*) {}
@@ -336,7 +352,20 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   void MouseDidMoveOverElement(LocalFrame&,
                                const HitTestLocation&,
                                const HitTestResult&);
-  virtual void SetToolTip(LocalFrame&, const String&, TextDirection) = 0;
+  virtual void UpdateTooltipUnderCursor(LocalFrame&,
+                                        const String&,
+                                        TextDirection) = 0;
+  void ElementFocusedFromKeypress(LocalFrame&, const Element*);
+  // This function allows us to trigger a tooltip to show from a keypress. The
+  // tooltip will be positioned in the gfx::Rect passed by parameter. That rect
+  // corresponds to the focused element's bounds, which are in viewport
+  // coordinates at this point. They will be converted to enclosed DIPS before
+  // being passed to the browser process.
+  virtual void UpdateTooltipFromKeyboard(LocalFrame&,
+                                         const String&,
+                                         TextDirection,
+                                         const gfx::Rect&) = 0;
+  virtual void ClearKeyboardTriggeredTooltip(LocalFrame&) = 0;
   void ClearToolTip(LocalFrame&);
   String GetLastToolTipTextForTesting() {
     return current_tool_tip_text_for_test_;
@@ -406,9 +435,6 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   virtual void SetEventListenerProperties(LocalFrame*,
                                           cc::EventListenerClass,
                                           cc::EventListenerProperties) = 0;
-  virtual cc::EventListenerProperties EventListenerProperties(
-      LocalFrame*,
-      cc::EventListenerClass) const = 0;
 
   virtual void SetHasScrollEventHandlers(LocalFrame*, bool) = 0;
   virtual void SetNeedsLowLatencyInput(LocalFrame*, bool) = 0;
@@ -492,11 +518,9 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   }
 
   // The |callback| will be fired when the corresponding renderer frame for the
-  // |frame| is presented in the display compositor. The reported time could
-  // sometimes be the swap time, as is the case when the swap is aborted. In
-  // this case, WebSwapResult will be DidNotSwap.
+  // |frame| is presented in the display compositor.
   using ReportTimeCallback =
-      WTF::CrossThreadOnceFunction<void(WebSwapResult, base::TimeTicks)>;
+      WTF::CrossThreadOnceFunction<void(base::TimeTicks)>;
   virtual void NotifyPresentationTime(LocalFrame& frame,
                                       ReportTimeCallback callback) {}
 
@@ -525,7 +549,7 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
 
   virtual void SetDelegatedInkMetadata(
       LocalFrame* frame,
-      std::unique_ptr<viz::DelegatedInkMetadata> metadata) {}
+      std::unique_ptr<gfx::DelegatedInkMetadata> metadata) {}
 
   virtual void BatterySavingsChanged(LocalFrame& main_frame,
                                      BatterySavingsFlags savings) = 0;
@@ -560,7 +584,9 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   bool CanOpenUIElementIfDuringPageDismissal(Frame& main_frame,
                                              UIElementType,
                                              const String& message);
-  void SetToolTip(LocalFrame&, const HitTestLocation&, const HitTestResult&);
+  void UpdateTooltipUnderCursor(LocalFrame&,
+                                const HitTestLocation&,
+                                const HitTestResult&);
 
   WeakMember<Node> last_mouse_over_node_;
   PhysicalOffset last_tool_tip_point_;
@@ -569,8 +595,9 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   // the tooltip text that is cleared when ClearToolTip is called.
   String current_tool_tip_text_for_test_;
 
-  FRIEND_TEST_ALL_PREFIXES(ChromeClientTest, SetToolTipFlood);
-  FRIEND_TEST_ALL_PREFIXES(ChromeClientTest, SetToolTipEmptyString);
+  FRIEND_TEST_ALL_PREFIXES(ChromeClientTest, UpdateTooltipUnderCursorFlood);
+  FRIEND_TEST_ALL_PREFIXES(ChromeClientTest,
+                           UpdateTooltipUnderCursorEmptyString);
 };
 
 }  // namespace blink

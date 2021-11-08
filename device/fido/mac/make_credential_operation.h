@@ -51,11 +51,15 @@ class API_AVAILABLE(macosx(10.12.2))
  public:
   using Callback = base::OnceCallback<void(
       CtapDeviceResponseCode,
-      base::Optional<AuthenticatorMakeCredentialResponse>)>;
+      absl::optional<AuthenticatorMakeCredentialResponse>)>;
 
   MakeCredentialOperation(CtapMakeCredentialRequest request,
                           TouchIdCredentialStore* credential_store,
                           Callback callback);
+
+  MakeCredentialOperation(const MakeCredentialOperation&) = delete;
+  MakeCredentialOperation& operator=(const MakeCredentialOperation&) = delete;
+
   ~MakeCredentialOperation() override;
 
   // Operation:
@@ -70,8 +74,6 @@ class API_AVAILABLE(macosx(10.12.2))
   const CtapMakeCredentialRequest request_;
   TouchIdCredentialStore* const credential_store_;
   Callback callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(MakeCredentialOperation);
 };
 
 }  // namespace mac

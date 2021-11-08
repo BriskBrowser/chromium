@@ -4,6 +4,8 @@
 
 #include "ash/touch/touch_hud_renderer.h"
 
+#include <memory>
+
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
@@ -13,7 +15,7 @@
 #include "ui/gfx/animation/linear_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/size.h"
-#include "ui/gfx/skia_util.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -25,8 +27,7 @@ constexpr int kPointRadius = 20;
 constexpr SkColor kProjectionFillColor = SkColorSetRGB(0xF5, 0xF5, 0xDC);
 constexpr SkColor kProjectionStrokeColor = SK_ColorGRAY;
 constexpr int kProjectionAlpha = 0xB0;
-constexpr base::TimeDelta kFadeoutDuration =
-    base::TimeDelta::FromMilliseconds(250);
+constexpr base::TimeDelta kFadeoutDuration = base::Milliseconds(250);
 constexpr int kFadeoutFrameRate = 60;
 
 // TouchPointView draws a single touch point.
@@ -44,6 +45,9 @@ class TouchPointView : public views::View,
     widget_observation_.Observe(parent_widget);
   }
 
+  TouchPointView(const TouchPointView&) = delete;
+  TouchPointView& operator=(const TouchPointView&) = delete;
+
   ~TouchPointView() override = default;
 
   // Begins fadeout animation. After this is called, |this| owns itself and is
@@ -52,8 +56,8 @@ class TouchPointView : public views::View,
   void FadeOut(std::unique_ptr<TouchPointView> self) {
     DCHECK_EQ(this, self.get());
     owned_self_reference_ = std::move(self);
-    fadeout_.reset(
-        new gfx::LinearAnimation(kFadeoutDuration, kFadeoutFrameRate, this));
+    fadeout_ = std::make_unique<gfx::LinearAnimation>(kFadeoutDuration,
+                                                      kFadeoutFrameRate, this);
     fadeout_->Start();
   }
 
@@ -121,8 +125,6 @@ class TouchPointView : public views::View,
 
   base::ScopedObservation<views::Widget, views::WidgetObserver>
       widget_observation_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TouchPointView);
 };
 
 TouchHudRenderer::TouchHudRenderer(views::Widget* parent_widget)

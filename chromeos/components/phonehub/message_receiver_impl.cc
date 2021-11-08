@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string>
 
+#include "ash/constants/ash_features.h"
 #include "base/logging.h"
 #include "chromeos/components/phonehub/proto/phonehub_api.pb.h"
 #include "chromeos/components/phonehub/util/histogram_util.h"
@@ -34,6 +35,10 @@ std::string GetMessageTypeName(proto::MessageType message_type) {
       return "NOTIFICATION_INLINE_REPLY_RESPONSE";
     case proto::MessageType::SHOW_NOTIFICATION_ACCESS_SETUP_RESPONSE:
       return "SHOW_NOTIFICATION_ACCESS_SETUP_RESPONSE";
+    case proto::MessageType::FETCH_CAMERA_ROLL_ITEMS_RESPONSE:
+      return "FETCH_CAMERA_ROLL_ITEMS_RESPONSE";
+    case proto::MessageType::FETCH_CAMERA_ROLL_ITEM_DATA_RESPONSE:
+      return "FETCH_CAMERA_ROLL_ITEM_DATA_RESPONSE";
     default:
       return "UNKOWN_MESSAGE";
   }
@@ -41,7 +46,8 @@ std::string GetMessageTypeName(proto::MessageType message_type) {
 
 }  // namespace
 
-MessageReceiverImpl::MessageReceiverImpl(ConnectionManager* connection_manager)
+MessageReceiverImpl::MessageReceiverImpl(
+    secure_channel::ConnectionManager* connection_manager)
     : connection_manager_(connection_manager) {
   DCHECK(connection_manager_);
 
@@ -88,6 +94,33 @@ void MessageReceiverImpl::OnMessageReceived(const std::string& payload) {
       return;
     }
     NotifyPhoneStatusUpdateReceived(update_proto);
+    return;
+  }
+
+  if (features::IsPhoneHubCameraRollEnabled() &&
+      message_type == proto::MessageType::FETCH_CAMERA_ROLL_ITEMS_RESPONSE) {
+    proto::FetchCameraRollItemsResponse response;
+    // Serialized proto is after the first two bytes of |payload|.
+    if (!response.ParseFromString(payload.substr(2))) {
+      PA_LOG(ERROR) << "OnMessageReceived() could not deserialize the "
+                    << "FetchCameraRollItemsResponse proto message.";
+      return;
+    }
+    NotifyFetchCameraRollItemsResponseReceived(response);
+    return;
+  }
+
+  if (features::IsPhoneHubCameraRollEnabled() &&
+      message_type ==
+          proto::MessageType::FETCH_CAMERA_ROLL_ITEM_DATA_RESPONSE) {
+    proto::FetchCameraRollItemDataResponse response;
+    // Serialized proto is after the first two bytes of |payload|.
+    if (!response.ParseFromString(payload.substr(2))) {
+      PA_LOG(ERROR) << "OnMessageReceived() could not deserialize the "
+                    << "FetchCameraRollItemDataResponse proto message.";
+      return;
+    }
+    NotifyFetchCameraRollItemDataResponseReceived(response);
     return;
   }
 }

@@ -23,10 +23,11 @@ blink::mojom::FetchAPIRequestPtr TypeConverter<
   // We put the request body data into |output->body| rather than
   // |output->blob|. The |blob| is used in cases without
   // network::ResourceRequest involved. See fetch_api_request.mojom.
-  // We leave |output->body| as base::nullopt when |input.request_body| is
+  // We leave |output->body| as absl::nullopt when |input.request_body| is
   // nullptr.
   if (input.request_body)
     output->body = input.request_body;
+  output->request_initiator = input.request_initiator;
   output->referrer = blink::mojom::Referrer::New(
       input.referrer,
       blink::ReferrerUtils::NetToMojoReferrerPolicy(input.referrer_policy));

@@ -11,12 +11,13 @@
 #include "chrome/android/chrome_jni_headers/AutofillOfferNotificationInfoBar_jni.h"
 #include "chrome/browser/android/android_theme_resources.h"
 #include "chrome/browser/android/resource_mapper.h"
-#include "chrome/browser/infobars/infobar_service.h"
 #include "components/autofill/core/browser/payments/autofill_offer_notification_infobar_delegate_mobile.h"
 #include "components/autofill/core/browser/payments/autofill_save_card_infobar_mobile.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
+#include "components/infobars/content/content_infobar_manager.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "ui/gfx/image/image.h"
+#include "url/android/gurl_android.h"
 #include "url/gurl.h"
 
 using base::android::ScopedJavaLocalRef;
@@ -24,15 +25,16 @@ using base::android::ScopedJavaLocalRef;
 AutofillOfferNotificationInfoBar::AutofillOfferNotificationInfoBar(
     std::unique_ptr<autofill::AutofillOfferNotificationInfoBarDelegateMobile>
         delegate)
-    : ChromeConfirmInfoBar(std::move(delegate)) {}
+    : infobars::ConfirmInfoBar(std::move(delegate)) {}
 
 AutofillOfferNotificationInfoBar::~AutofillOfferNotificationInfoBar() {}
 
-void AutofillOfferNotificationInfoBar::OnOfferDeepLinkClicked(JNIEnv* env,
-                                                              jobject obj,
-                                                              jstring url) {
+void AutofillOfferNotificationInfoBar::OnOfferDeepLinkClicked(
+    JNIEnv* env,
+    jobject obj,
+    const base::android::JavaParamRef<jobject>& url) {
   GetOfferNotificationDelegate()->OnOfferDeepLinkClicked(
-      GURL(base::android::ConvertJavaStringToUTF16(env, url)));
+      *url::GURLAndroid::ToNativeGURL(env, url));
 }
 
 base::android::ScopedJavaLocalRef<jobject>
@@ -50,8 +52,7 @@ AutofillOfferNotificationInfoBar::CreateRenderInfoBar(
                                                   delegate->GetMessageText()),
           base::android::ConvertUTF16ToJavaString(
               env, GetTextFor(ConfirmInfoBarDelegate::BUTTON_OK)),
-          base::android::ConvertUTF16ToJavaString(env,
-                                                  delegate->deep_link_url()));
+          url::GURLAndroid::FromNativeGURL(env, delegate->deep_link_url()));
 
   Java_AutofillOfferNotificationInfoBar_setCreditCardDetails(
       env, java_delegate,

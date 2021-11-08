@@ -13,6 +13,9 @@ namespace fileManagerPrivateInternal {
     DOMString fileFullPath;
     boolean fileIsDirectory;
   };
+  dictionary IOTaskParams {
+    DOMString? destinationFolderUrl;
+  };
 
   callback SimpleCallback = void();
   callback ResolveIsolatedEntriesCallback = void(EntryDescription[] entries);
@@ -31,7 +34,7 @@ namespace fileManagerPrivateInternal {
   callback GetUrlCallback = void(DOMString url);
   callback GetUrlCallback = void(DOMString url);
   callback StartCopyCallback = void(long copyId);
-  callback ZipSelectionCallback = void(optional boolean success);
+  callback ZipSelectionCallback = void(long zipId, double totalBytes);
   callback ValidatePathNameLengthCallback = void(boolean result);
   callback GetDirectorySizeCallback = void(double size);
   callback GetRecentFilesCallback = void(EntryDescription[] entries);
@@ -43,6 +46,7 @@ namespace fileManagerPrivateInternal {
       void(fileManagerPrivate.InstallLinuxPackageResponse response);
   callback GetThumbnailCallback = void(DOMString ThumbnailDataUrl);
   callback BooleanCallback = void(boolean result);
+  callback GetVolumeRootCallback = void(EntryDescription rootDir);
 
   interface Functions {
     static void resolveIsolatedEntries(DOMString[] urls,
@@ -75,17 +79,16 @@ namespace fileManagerPrivateInternal {
     static void pinDriveFile(DOMString url,
                              boolean pin,
                              SimpleCallback callback);
-    static void executeTask(DOMString taskId,
+    static void executeTask(fileManagerPrivate.FileTaskDescriptor descriptor,
                             DOMString[] urls,
                             ExecuteTaskCallback callback);
-    static void setDefaultTask(DOMString taskId,
+    static void setDefaultTask(fileManagerPrivate.FileTaskDescriptor descriptor,
                                DOMString[] urls,
                                DOMString[] mimeTypes,
                                SimpleCallback callback);
     static void getFileTasks(DOMString[] urls,
                              GetFileTasksCallback callback);
     static void getDownloadUrl(DOMString url, GetUrlCallback callback);
-    static void copyImageToClipboard(DOMString url, BooleanCallback callback);
     static void startCopy(DOMString url,
                           DOMString parentUrl,
                           DOMString newName,
@@ -100,6 +103,8 @@ namespace fileManagerPrivateInternal {
         ValidatePathNameLengthCallback callback);
     static void getDirectorySize(DOMString url,
                                  GetDirectorySizeCallback callback);
+    static void getVolumeRoot(fileManagerPrivate.GetVolumeRootOptions options,
+                              GetVolumeRootCallback callback);
     static void getRecentFiles(fileManagerPrivate.SourceRestriction restriction,
                                fileManagerPrivate.RecentFileType file_type,
                                GetRecentFilesCallback callback);
@@ -128,8 +133,14 @@ namespace fileManagerPrivateInternal {
                                                  long heightHint,
                                                  GetThumbnailCallback callback);
     static void sharesheetHasTargets(DOMString[] urls, BooleanCallback callback);
-    static void invokeSharesheet(DOMString[] urls, SimpleCallback callback);
+    static void invokeSharesheet(
+        DOMString[] urls,
+        fileManagerPrivate.SharesheetLaunchSource launchSource,
+        SimpleCallback callback);
     static void toggleAddedToHoldingSpace(DOMString[] urls, boolean add,
                                           optional SimpleCallback callback);
+    static void startIOTask(fileManagerPrivate.IOTaskType type,
+                            DOMString[] urls,
+                            IOTaskParams params);
   };
 };

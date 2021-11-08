@@ -5,8 +5,7 @@
 #include "components/page_load_metrics/browser/layout_shift_normalization.h"
 
 namespace page_load_metrics {
-constexpr auto NEW_SHIFT_BUFFER_WINDOW_DURATION =
-    base::TimeDelta::FromSeconds(5);
+constexpr auto NEW_SHIFT_BUFFER_WINDOW_DURATION = base::Seconds(5);
 constexpr auto MAX_SHIFT_BUFFER_SIZE = 300;
 
 LayoutShiftNormalization::LayoutShiftNormalization() = default;
@@ -15,7 +14,7 @@ LayoutShiftNormalization::~LayoutShiftNormalization() = default;
 void LayoutShiftNormalization::AddNewLayoutShifts(
     const std::vector<page_load_metrics::mojom::LayoutShiftPtr>& new_shifts,
     base::TimeTicks current_time,
-    double cumulative_layout_shift_score) {
+    float cumulative_layout_shift_score) {
   if (new_shifts.empty() || normalized_cls_data_.data_tainted)
     return;
 
@@ -61,37 +60,19 @@ void LayoutShiftNormalization::AddNewLayoutShifts(
   recent_layout_shifts_.erase(recent_layout_shifts_.begin(), first_non_stale);
 }
 
-void LayoutShiftNormalization::UpdateSlidingWindow(
-    std::vector<SlidingWindow>* sliding_windows,
-    base::TimeDelta duration,
-    base::TimeTicks current_time,
-    std::vector<std::pair<base::TimeTicks, double>>::const_iterator begin,
-    std::vector<std::pair<base::TimeTicks, double>>::const_iterator end,
-    double& max_score) {
-  for (auto it = begin; it != end; ++it) {
-    for (SlidingWindow& window : *sliding_windows) {
-      if (it->first - window.start_time <= duration) {
-        window.layout_shift_score += it->second;
-        max_score = std::max(max_score, window.layout_shift_score);
-      }
-    }
-    sliding_windows->emplace_back(SlidingWindow{it->first, it->second});
-    max_score = std::max(max_score, it->second);
-  }
-  // Erase stale sliding windows.
-  auto first_non_stale_window = std::upper_bound(
-      sliding_windows->begin(), sliding_windows->end(),
-      current_time - NEW_SHIFT_BUFFER_WINDOW_DURATION - duration,
-      [](auto time, auto const& window) { return time < window.start_time; });
-  sliding_windows->erase(sliding_windows->begin(), first_non_stale_window);
+void LayoutShiftNormalization::ClearAllLayoutShifts() {
+  normalized_cls_data_ = NormalizedCLSData();
+  recent_layout_shifts_.clear();
+  session_gap1000ms_max5000ms_ = SessionWindow();
 }
+
 void LayoutShiftNormalization::UpdateSessionWindow(
     SessionWindow* session_window,
     base::TimeDelta gap,
     base::TimeDelta max_duration,
     std::vector<std::pair<base::TimeTicks, double>>::const_iterator begin,
     std::vector<std::pair<base::TimeTicks, double>>::const_iterator end,
-    double& max_score,
+    float& max_score,
     uint32_t& count) {
   for (auto it = begin; it != end; ++it) {
     if ((it->first - session_window->last_time > gap) ||
@@ -127,65 +108,21 @@ void LayoutShiftNormalization::UpdateWindowCLS(
     std::vector<std::pair<base::TimeTicks, double>>::const_iterator
         first_non_stale,
     std::vector<std::pair<base::TimeTicks, double>>::const_iterator last,
-    double cumulative_layout_shift_score) {
-  double dummy_max = 0.0;
+    float cumulative_layout_shift_score) {
   uint32_t dummy_count = 0;
-  // Update Sliding Windows.
-  UpdateSlidingWindow(
-      &sliding_300ms_, base::TimeDelta::FromMilliseconds(300), current_time,
-      first, first_non_stale,
-      normalized_cls_data_.sliding_windows_duration300ms_max_cls);
-  UpdateSlidingWindow(
-      &sliding_1000ms_, base::TimeDelta::FromMilliseconds(1000), current_time,
-      first, first_non_stale,
-      normalized_cls_data_.sliding_windows_duration1000ms_max_cls);
-  auto tmp_sliding_300ms = sliding_300ms_;
-  auto tmp_sliding_1000ms = sliding_1000ms_;
 
   // Update Session Windows.
   UpdateSessionWindow(
-      &session_gap1000ms_max5000ms_, base::TimeDelta::FromMilliseconds(1000),
-      base::TimeDelta::FromMilliseconds(5000), first, first_non_stale,
+      &session_gap1000ms_max5000ms_, base::Milliseconds(1000),
+      base::Milliseconds(5000), first, first_non_stale,
       normalized_cls_data_.session_windows_gap1000ms_max5000ms_max_cls,
       dummy_count);
-  UpdateSessionWindow(
-      &session_gap1000ms_, base::TimeDelta::FromMilliseconds(1000),
-      base::TimeDelta::Max(), first, first_non_stale,
-      normalized_cls_data_.session_windows_gap1000ms_maxMax_max_cls,
-      dummy_count);
-  UpdateSessionWindow(&session_gap5000ms_,
-                      base::TimeDelta::FromMilliseconds(5000),
-                      base::TimeDelta::Max(), first, first_non_stale, dummy_max,
-                      session_gap5000ms_count_);
   auto tmp_session_gap1000ms_max5000ms = session_gap1000ms_max5000ms_;
-  auto tmp_session_gap1000ms_ = session_gap1000ms_;
-  auto tmp_session_gap5000ms_ = session_gap5000ms_;
-  auto tmp_session_gap5000ms_count_ = session_gap5000ms_count_;
 
-  UpdateSlidingWindow(
-      &tmp_sliding_300ms, base::TimeDelta::FromMilliseconds(300), current_time,
-      first_non_stale, last,
-      normalized_cls_data_.sliding_windows_duration300ms_max_cls);
-  UpdateSlidingWindow(
-      &tmp_sliding_1000ms, base::TimeDelta::FromMilliseconds(1000),
-      current_time, first_non_stale, last,
-      normalized_cls_data_.sliding_windows_duration1000ms_max_cls);
   UpdateSessionWindow(
-      &tmp_session_gap1000ms_max5000ms, base::TimeDelta::FromMilliseconds(1000),
-      base::TimeDelta::FromMilliseconds(5000), first_non_stale, last,
+      &tmp_session_gap1000ms_max5000ms, base::Milliseconds(1000),
+      base::Milliseconds(5000), first_non_stale, last,
       normalized_cls_data_.session_windows_gap1000ms_max5000ms_max_cls,
       dummy_count);
-  UpdateSessionWindow(
-      &tmp_session_gap1000ms_, base::TimeDelta::FromMilliseconds(1000),
-      base::TimeDelta::Max(), first_non_stale, last,
-      normalized_cls_data_.session_windows_gap1000ms_maxMax_max_cls,
-      dummy_count);
-  UpdateSessionWindow(&tmp_session_gap5000ms_,
-                      base::TimeDelta::FromMilliseconds(5000),
-                      base::TimeDelta::Max(), first_non_stale, last, dummy_max,
-                      tmp_session_gap5000ms_count_);
-
-  normalized_cls_data_.session_windows_gap5000ms_maxMax_average_cls =
-      cumulative_layout_shift_score / tmp_session_gap5000ms_count_;
 }
 }  // namespace page_load_metrics

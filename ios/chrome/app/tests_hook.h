@@ -20,6 +20,10 @@ bool DisableAppGroupAccess();
 // run unimpeded.
 bool DisableContentSuggestions();
 
+// Returns true if Discover feed should be disabled to allow tests to run
+// without it.
+bool DisableDiscoverFeed();
+
 // Returns true if the first_run path should be disabled to allow other tests to
 // run unimpeded.
 bool DisableFirstRun();
@@ -28,9 +32,9 @@ bool DisableFirstRun();
 // prompt displaying for the omnibox.
 bool DisableGeolocation();
 
-// Returns true if the signin recall promo should be disabled to allow other
+// Returns true if the upgrade sign-in promo should be disabled to allow other
 // tests to run unimpeded.
-bool DisableSigninRecallPromo();
+bool DisableUpgradeSigninPromo();
 
 // Returns true if the update service should be disabled so that the update
 // infobar won't be shown during testing.
@@ -45,8 +49,7 @@ bool DisableMainThreadFreezeDetection();
 // provider when testing. May return nullptr.
 policy::ConfigurationPolicyProvider* GetOverriddenPlatformPolicyProvider();
 
-// Global integration tests setup.  This is not used by EarlGrey-based
-// integration tests.
+// Global integration tests setup.
 void SetUpTestsIfPresent();
 
 // Runs the integration tests.  This is not used by EarlGrey-based integration

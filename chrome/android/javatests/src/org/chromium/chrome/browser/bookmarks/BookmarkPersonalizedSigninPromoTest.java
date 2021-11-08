@@ -24,6 +24,7 @@ import android.content.Context;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -33,9 +34,14 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.MetricsUtils.HistogramDelta;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.signin.SigninActivityLauncherImpl;
+import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
+import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
+import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
+import org.chromium.chrome.browser.ui.signin.SigninPromoController.SyncPromoState;
+import org.chromium.chrome.browser.ui.signin.SyncConsentActivityLauncher;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
@@ -70,63 +76,73 @@ public class BookmarkPersonalizedSigninPromoTest {
     public final RuleChain chain =
             RuleChain.outerRule(mAccountManagerTestRule).around(mBookmarkTestRule);
 
-    private final SigninActivityLauncherImpl mMockSigninActivityLauncherImpl =
-            mock(SigninActivityLauncherImpl.class);
+    private final SyncConsentActivityLauncher mMockSyncConsentActivityLauncher =
+            mock(SyncConsentActivityLauncher.class);
 
     @Before
     public void setUp() {
-        BookmarkPromoHeader.forcePromoStateForTests(
-                BookmarkPromoHeader.PromoState.PROMO_SIGNIN_PERSONALIZED);
-        SigninActivityLauncherImpl.setLauncherForTest(mMockSigninActivityLauncherImpl);
+        BookmarkPromoHeader.forcePromoStateForTests(SyncPromoState.PROMO_FOR_SIGNED_OUT_STATE);
+        SyncConsentActivityLauncherImpl.setLauncherForTest(mMockSyncConsentActivityLauncher);
     }
 
     @After
     public void tearDown() {
-        SigninActivityLauncherImpl.setLauncherForTest(null);
+        SharedPreferencesManager.getInstance().removeKey(
+                ChromePreferenceKeys.SYNC_PROMO_TOTAL_SHOW_COUNT);
+        SyncConsentActivityLauncherImpl.setLauncherForTest(null);
         BookmarkPromoHeader.forcePromoStateForTests(null);
     }
 
     @Test
     @MediumTest
     public void testSigninButtonDefaultAccount() {
+        HistogramDelta signinHistogram =
+                new HistogramDelta("Signin.SyncPromo.Continued.Count.Bookmarks", 1);
         doNothing()
-                .when(SigninActivityLauncherImpl.get())
+                .when(SyncConsentActivityLauncherImpl.get())
                 .launchActivityForPromoDefaultFlow(any(Context.class), anyInt(), anyString());
         CoreAccountInfo accountInfo =
                 mAccountManagerTestRule.addAccount(AccountManagerTestRule.TEST_ACCOUNT_EMAIL);
         showBookmarkManagerAndCheckSigninPromoIsDisplayed();
         onView(withId(R.id.signin_promo_signin_button)).perform(click());
-        verify(mMockSigninActivityLauncherImpl)
+        verify(mMockSyncConsentActivityLauncher)
                 .launchActivityForPromoDefaultFlow(any(Activity.class),
                         eq(SigninAccessPoint.BOOKMARK_MANAGER), eq(accountInfo.getEmail()));
+        Assert.assertEquals(1, signinHistogram.getDelta());
     }
 
     @Test
     @MediumTest
     public void testSigninButtonNotDefaultAccount() {
+        HistogramDelta signinHistogram =
+                new HistogramDelta("Signin.SyncPromo.Continued.Count.Bookmarks", 1);
         doNothing()
-                .when(SigninActivityLauncherImpl.get())
+                .when(SyncConsentActivityLauncherImpl.get())
                 .launchActivityForPromoChooseAccountFlow(any(Context.class), anyInt(), anyString());
         CoreAccountInfo accountInfo =
                 mAccountManagerTestRule.addAccount(AccountManagerTestRule.TEST_ACCOUNT_EMAIL);
         showBookmarkManagerAndCheckSigninPromoIsDisplayed();
         onView(withId(R.id.signin_promo_choose_account_button)).perform(click());
-        verify(mMockSigninActivityLauncherImpl)
+        verify(mMockSyncConsentActivityLauncher)
                 .launchActivityForPromoChooseAccountFlow(any(Activity.class),
                         eq(SigninAccessPoint.BOOKMARK_MANAGER), eq(accountInfo.getEmail()));
+        Assert.assertEquals(1, signinHistogram.getDelta());
     }
 
     @Test
     @MediumTest
     public void testSigninButtonNewAccount() {
+        HistogramDelta signinHistogram =
+                new HistogramDelta("Signin.SyncPromo.Continued.Count.Bookmarks", 1);
         doNothing()
-                .when(SigninActivityLauncherImpl.get())
+                .when(SyncConsentActivityLauncherImpl.get())
                 .launchActivityForPromoAddAccountFlow(any(Context.class), anyInt());
         showBookmarkManagerAndCheckSigninPromoIsDisplayed();
         onView(withId(R.id.signin_promo_signin_button)).perform(click());
-        verify(mMockSigninActivityLauncherImpl)
+        verify(mMockSyncConsentActivityLauncher)
                 .launchActivityForPromoAddAccountFlow(
                         any(Activity.class), eq(SigninAccessPoint.BOOKMARK_MANAGER));
+        Assert.assertEquals(1, signinHistogram.getDelta());
     }
 
     private void showBookmarkManagerAndCheckSigninPromoIsDisplayed() {

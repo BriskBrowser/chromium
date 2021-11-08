@@ -13,7 +13,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/message.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-shared.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-shared.h"
 
 namespace payments {
 
@@ -33,7 +33,7 @@ PaymentRequestFactoryCallback& GetTestingFactoryCallback() {
 void CreatePaymentRequest(
     content::RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<mojom::PaymentRequest> receiver) {
-  if (!render_frame_host->IsCurrent()) {
+  if (!render_frame_host->IsActive()) {
     // This happens when the page has navigated away, which would cause the
     // blink PaymentRequest to be released shortly, or when the iframe is being
     // removed from the page, which is not a use case that we support.
@@ -43,8 +43,8 @@ void CreatePaymentRequest(
   }
 
   if (!render_frame_host->IsFeatureEnabled(
-          blink::mojom::FeaturePolicyFeature::kPayment)) {
-    mojo::ReportBadMessage("Feature policy blocks Payment");
+          blink::mojom::PermissionsPolicyFeature::kPayment)) {
+    mojo::ReportBadMessage("Permissions policy blocks Payment");
     return;
   }
 

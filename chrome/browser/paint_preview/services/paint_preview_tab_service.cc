@@ -18,6 +18,7 @@
 #include "components/paint_preview/browser/file_manager.h"
 #include "components/paint_preview/browser/warm_compositor.h"
 #include "content/public/browser/render_process_host.h"
+#include "ui/accessibility/ax_mode.h"
 #include "ui/gfx/geometry/rect.h"
 
 #if defined(OS_ANDROID)
@@ -33,8 +34,12 @@ namespace paint_preview {
 
 namespace {
 
-constexpr size_t kMaxPerCaptureSizeBytes = 5 * 1000L * 1000L;    // 5 MB.
-constexpr size_t kMaximumTotalCaptureSize = 25 * 1000L * 1000L;  // 25 MB.
+// The maximum X and Y dimension in pixels.
+// TODO(crbug/1239291): Tune this value.
+constexpr int kMaxCaptureSizePixels = 100000;
+
+constexpr size_t kMaxPerCaptureSizeBytes = 8 * 1000L * 1000L;       // 8 MB.
+constexpr uint64_t kMaxDecodedImageSizeBytes = 10 * 1000L * 1000L;  // 10 MB.
 
 #if defined(OS_ANDROID)
 void JavaBooleanCallbackAdapter(base::OnceCallback<void(bool)> callback,
@@ -53,6 +58,20 @@ int TabIdFromDirectoryKey(const DirectoryKey& key) {
 }
 
 }  // namespace
+
+PaintPreviewTabService::TabServiceTask::TabServiceTask(
+    int tab_id,
+    const DirectoryKey& key,
+    int frame_tree_node_id,
+    content::GlobalRenderFrameHostId frame_routing_id,
+    base::ScopedClosureRunner capture_handle)
+    : tab_id_(tab_id),
+      key_(key),
+      frame_tree_node_id_(frame_tree_node_id),
+      frame_routing_id_(frame_routing_id),
+      capture_handle_(std::move(capture_handle)) {}
+
+PaintPreviewTabService::TabServiceTask::~TabServiceTask() = default;
 
 PaintPreviewTabService::PaintPreviewTabService(
     std::unique_ptr<PaintPreviewFileMixin> file_mixin,
@@ -96,6 +115,7 @@ PaintPreviewTabService::~PaintPreviewTabService() {
 
 void PaintPreviewTabService::CaptureTab(int tab_id,
                                         content::WebContents* contents,
+                                        bool accessibility_enabled,
                                         FinishedCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -109,19 +129,33 @@ void PaintPreviewTabService::CaptureTab(int tab_id,
   // Mark |contents| as being captured so that the renderer doesn't go away
   // until the capture is finished. This is done even before a file is created
   // to ensure the renderer doesn't go away while that happens.
-  contents->IncrementCapturerCount(gfx::Size(), true);
+  auto capture_handle =
+      contents->IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/true,
+                                       /*stay_awake=*/true);
 
   auto file_manager = GetFileMixin()->GetFileManager();
+
   auto key = file_manager->CreateKey(tab_id);
+  auto it = tasks_.emplace(
+      tab_id,
+      std::make_unique<TabServiceTask>(
+          tab_id, key, contents->GetMainFrame()->GetFrameTreeNodeId(),
+          contents->GetMainFrame()->GetGlobalId(), std::move(capture_handle)));
+  if (!it.second) {
+    std::move(callback).Run(Status::kCaptureInProgress);
+    return;
+  }
+  it.first->second->SetCallback(std::move(callback).Then(
+      base::BindOnce(&PaintPreviewTabService::DeleteTask,
+                     weak_ptr_factory_.GetWeakPtr(), tab_id)));
+
   GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
       FROM_HERE,
       base::BindOnce(&FileManager::CreateOrGetDirectory,
                      GetFileMixin()->GetFileManager(), key, true),
       base::BindOnce(&PaintPreviewTabService::CaptureTabInternal,
-                     weak_ptr_factory_.GetWeakPtr(), tab_id, key,
-                     contents->GetMainFrame()->GetFrameTreeNodeId(),
-                     contents->GetMainFrame()->GetGlobalFrameRoutingId(),
-                     std::move(callback)));
+                     weak_ptr_factory_.GetWeakPtr(),
+                     it.first->second->GetWeakPtr(), accessibility_enabled));
 }
 
 void PaintPreviewTabService::TabClosed(int tab_id) {
@@ -132,7 +166,7 @@ void PaintPreviewTabService::TabClosed(int tab_id) {
         FROM_HERE,
         base::BindOnce(&PaintPreviewTabService::TabClosed,
                        weak_ptr_factory_.GetWeakPtr(), tab_id),
-        base::TimeDelta::FromSeconds(5));
+        base::Seconds(5));
     return;
   }
 
@@ -158,7 +192,7 @@ void PaintPreviewTabService::AuditArtifacts(
         FROM_HERE,
         base::BindOnce(&PaintPreviewTabService::AuditArtifacts,
                        weak_ptr_factory_.GetWeakPtr(), active_tab_ids),
-        base::TimeDelta::FromSeconds(5));
+        base::Seconds(5));
     return;
   }
 
@@ -175,10 +209,11 @@ void PaintPreviewTabService::CaptureTabAndroid(
     JNIEnv* env,
     jint j_tab_id,
     const base::android::JavaParamRef<jobject>& j_web_contents,
+    jboolean accessibility_enabled,
     const base::android::JavaParamRef<jobject>& j_callback) {
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(j_web_contents);
-  CaptureTab(static_cast<int>(j_tab_id), web_contents,
+  CaptureTab(static_cast<int>(j_tab_id), web_contents, accessibility_enabled,
              base::BindOnce(
                  &JavaBooleanCallbackAdapter,
                  base::BindOnce(
@@ -214,121 +249,117 @@ PaintPreviewTabService::GetPathAndroid(JNIEnv* env) {
 }
 #endif  // defined(OS_ANDROID)
 
+void PaintPreviewTabService::DeleteTask(int tab_id) {
+  tasks_.erase(tab_id);
+}
+
 void PaintPreviewTabService::InitializeCache(
     const base::flat_set<DirectoryKey>& in_use_keys) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  std::vector<int> tab_ids;
-  tab_ids.reserve(in_use_keys.size());
-  for (const auto& key : in_use_keys)
-    tab_ids.push_back(TabIdFromDirectoryKey(key));
-
-  captured_tab_ids_ = base::flat_set<int>(std::move(tab_ids));
+  captured_tab_ids_ =
+      base::MakeFlatSet<int>(in_use_keys, {}, &TabIdFromDirectoryKey);
   cache_ready_ = true;
 }
 
 void PaintPreviewTabService::CaptureTabInternal(
-    int tab_id,
-    const DirectoryKey& key,
-    int frame_tree_node_id,
-    content::GlobalFrameRoutingId frame_routing_id,
-    FinishedCallback callback,
-    const base::Optional<base::FilePath>& file_path) {
+    base::WeakPtr<TabServiceTask> task,
+    bool accessibility_enabled,
+    const absl::optional<base::FilePath>& file_path) {
+  if (!task) {
+    return;
+  }
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!file_path.has_value()) {
-    std::move(callback).Run(Status::kDirectoryCreationFailed);
+    task->OnCaptured(Status::kDirectoryCreationFailed);
     return;
   }
   auto* contents =
-      content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
-  auto* rfh = content::RenderFrameHost::FromID(frame_routing_id);
+      content::WebContents::FromFrameTreeNodeId(task->frame_tree_node_id());
+  auto* rfh = content::RenderFrameHost::FromID(task->frame_routing_id());
   if (!contents || !rfh || contents->IsBeingDestroyed() ||
-      contents->GetMainFrame() != rfh || !rfh->IsCurrent() ||
+      contents->GetMainFrame() != rfh || !rfh->IsActive() ||
       !rfh->IsRenderFrameCreated() || !rfh->IsRenderFrameLive()) {
-    std::move(callback).Run(Status::kWebContentsGone);
+    task->OnCaptured(Status::kWebContentsGone);
     return;
   }
+  if (accessibility_enabled) {
+    task->SetWaitForAccessibility();
+    contents->RequestAXTreeSnapshot(
+        base::BindOnce(&PaintPreviewFileMixin::WriteAXTreeUpdate,
+                       GetFileMixin()->GetWeakPtr(), task->key(),
+                       base::BindOnce(&PaintPreviewTabService::OnAXTreeWritten,
+                                      weak_ptr_factory_.GetWeakPtr(), task)),
+        ui::kAXModeWebContentsOnly,
+        /* exclude_offscreen= */ false,
+        /* max_nodes= */ 5000,
+        /* timeout= */ {});
+  }
+
   CaptureParams capture_params;
   capture_params.web_contents = contents;
   capture_params.render_frame_host = rfh;
   capture_params.root_dir = &file_path.value();
   capture_params.persistence = RecordingPersistence::kFileSystem;
-  capture_params.clip_rect = gfx::Rect();
+  capture_params.clip_rect =
+      gfx::Rect(-1, -1, kMaxCaptureSizePixels, kMaxCaptureSizePixels);
   capture_params.capture_links = true;
   capture_params.max_per_capture_size = kMaxPerCaptureSizeBytes;
-  CapturePaintPreview(
-      capture_params,
-      base::BindOnce(&PaintPreviewTabService::OnCaptured,
-                     weak_ptr_factory_.GetWeakPtr(), tab_id, key,
-                     frame_tree_node_id, std::move(callback)));
+  capture_params.max_decoded_image_size_bytes = kMaxDecodedImageSizeBytes;
+  capture_params.skip_accelerated_content = true;
+  CapturePaintPreview(capture_params,
+                      base::BindOnce(&PaintPreviewTabService::OnCaptured,
+                                     weak_ptr_factory_.GetWeakPtr(), task));
+}
+
+void PaintPreviewTabService::OnAXTreeWritten(base::WeakPtr<TabServiceTask> task,
+                                             bool result) {
+  if (task) {
+    task->OnAXTreeWritten(result);
+  }
 }
 
 void PaintPreviewTabService::OnCaptured(
-    int tab_id,
-    const DirectoryKey& key,
-    int frame_tree_node_id,
-    FinishedCallback callback,
+    base::WeakPtr<TabServiceTask> task,
     PaintPreviewBaseService::CaptureStatus status,
     std::unique_ptr<CaptureResult> result) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  auto* web_contents =
-      content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
-  if (web_contents)
-    web_contents->DecrementCapturerCount(true);
+  if (!task) {
+    return;
+  }
 
+  task->ReleaseCaptureHandle();
   if (status != PaintPreviewBaseService::CaptureStatus::kOk ||
       !result->capture_success) {
-    std::move(callback).Run(Status::kCaptureFailed);
+    task->OnCaptured(Status::kCaptureFailed);
     return;
   }
   auto file_manager = GetFileMixin()->GetFileManager();
   GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
       FROM_HERE,
       base::BindOnce(&FileManager::SerializePaintPreviewProto,
-                     GetFileMixin()->GetFileManager(), key, result->proto,
-                     true),
+                     GetFileMixin()->GetFileManager(), task->key(),
+                     result->proto, true),
       base::BindOnce(&PaintPreviewTabService::OnFinished,
-                     weak_ptr_factory_.GetWeakPtr(), tab_id,
-                     std::move(callback)));
+                     weak_ptr_factory_.GetWeakPtr(), task));
 }
 
-void PaintPreviewTabService::OnFinished(int tab_id,
-                                        FinishedCallback callback,
+void PaintPreviewTabService::OnFinished(base::WeakPtr<TabServiceTask> task,
                                         bool success) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (success)
-    captured_tab_ids_.insert(tab_id);
-  std::move(callback).Run(success ? Status::kOk
-                                  : Status::kProtoSerializationFailed);
-  auto file_manager = GetFileMixin()->GetFileManager();
-  GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
-      FROM_HERE,
-      base::BindOnce(&FileManager::GetOldestArtifactsForCleanup, file_manager,
-                     kMaximumTotalCaptureSize,
-                     base::TimeDelta::FromHours(
-                         PaintPreviewTabServiceFileMixin::kExpiryHorizonHrs)),
-      base::BindOnce(&PaintPreviewTabService::CleanupOldestFiles,
-                     weak_ptr_factory_.GetWeakPtr(), tab_id));
-}
-
-void PaintPreviewTabService::CleanupOldestFiles(
-    int tab_id,
-    const std::vector<DirectoryKey>& keys) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  std::vector<DirectoryKey> keys_to_delete;
-  keys_to_delete.reserve(keys.size());
-  for (const auto& key : keys) {
-    auto id = TabIdFromDirectoryKey(key);
-    if (id == tab_id)
-      continue;
-
-    captured_tab_ids_.erase(id);
-    keys_to_delete.push_back(key);
+  if (!task) {
+    return;
   }
+  int tab_id = task->tab_id();
 
-  GetFileMixin()->GetTaskRunner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&FileManager::DeleteArtifactSets,
-                     GetFileMixin()->GetFileManager(), keys_to_delete));
+  if (success) {
+    captured_tab_ids_.insert(tab_id);
+  }
+  // WARNING: `task` may be invalidated by this call.
+  task->OnCaptured(success ? Status::kOk : Status::kProtoSerializationFailed);
+
+  // Remove all captures excluding the one just completed.
+  AuditArtifacts({tab_id});
 }
 
 void PaintPreviewTabService::RunAudit(
@@ -336,11 +367,9 @@ void PaintPreviewTabService::RunAudit(
     const base::flat_set<DirectoryKey>& in_use_keys) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto file_manager = GetFileMixin()->GetFileManager();
-  std::vector<DirectoryKey> keys;
-  keys.reserve(active_tab_ids.size());
-  for (const auto& tab_id : active_tab_ids)
-    keys.push_back(file_manager->CreateKey(tab_id));
-  base::flat_set<DirectoryKey> active_tab_keys(std::move(keys));
+  auto active_tab_keys = base::MakeFlatSet<DirectoryKey>(
+      active_tab_ids, {},
+      [&](const auto& tab_id) { return file_manager->CreateKey(tab_id); });
 
   std::vector<DirectoryKey> keys_to_delete(active_tab_keys.size() +
                                            in_use_keys.size());
@@ -350,8 +379,7 @@ void PaintPreviewTabService::RunAudit(
   keys_to_delete.resize(it - keys_to_delete.begin());
 
   // The performance of this is poor (O(n) per removal). However,
-  // |keys_to_delete| should normally be 0 or small and this is only run once at
-  // startup.
+  // |keys_to_delete| should normally be small.
   for (const auto& key : keys_to_delete)
     captured_tab_ids_.erase(TabIdFromDirectoryKey(key));
 

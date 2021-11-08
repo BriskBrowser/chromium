@@ -7,10 +7,10 @@
 
 #include <memory>
 
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "chromeos/services/multidevice_setup/host_device_timestamp_manager.h"
 #include "chromeos/services/multidevice_setup/host_status_provider.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -48,12 +48,17 @@ class HostDeviceTimestampManagerImpl : public HostDeviceTimestampManager,
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
+  HostDeviceTimestampManagerImpl(const HostDeviceTimestampManagerImpl&) =
+      delete;
+  HostDeviceTimestampManagerImpl& operator=(
+      const HostDeviceTimestampManagerImpl&) = delete;
+
   ~HostDeviceTimestampManagerImpl() override;
 
   // HostDeviceTimestampManager:
   bool WasHostSetFromThisChromebook() override;
-  base::Optional<base::Time> GetLatestSetupFlowCompletionTimestamp() override;
-  base::Optional<base::Time> GetLatestVerificationTimestamp() override;
+  absl::optional<base::Time> GetLatestSetupFlowCompletionTimestamp() override;
+  absl::optional<base::Time> GetLatestVerificationTimestamp() override;
 
  private:
   static const char kWasHostSetFromThisChromebookPrefName[];
@@ -71,8 +76,6 @@ class HostDeviceTimestampManagerImpl : public HostDeviceTimestampManager,
   HostStatusProvider* host_status_provider_;
   PrefService* pref_service_;
   base::Clock* clock_;
-
-  DISALLOW_COPY_AND_ASSIGN(HostDeviceTimestampManagerImpl);
 };
 
 }  // namespace multidevice_setup

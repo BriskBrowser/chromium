@@ -18,6 +18,10 @@ class SyntheticGestureTargetMac : public SyntheticGestureTargetBase {
   SyntheticGestureTargetMac(RenderWidgetHostImpl* host,
                             RenderWidgetHostViewCocoa* cocoa_view);
 
+  SyntheticGestureTargetMac(const SyntheticGestureTargetMac&) = delete;
+  SyntheticGestureTargetMac& operator=(const SyntheticGestureTargetMac&) =
+      delete;
+
   // SyntheticGestureTargetBase:
   void DispatchWebTouchEventToPlatform(
       const blink::WebTouchEvent& event,
@@ -33,8 +37,8 @@ class SyntheticGestureTargetMac : public SyntheticGestureTargetBase {
       const ui::LatencyInfo& latency_info) override;
 
   // SyntheticGestureTarget:
-  SyntheticGestureParams::GestureSourceType
-  GetDefaultSyntheticGestureSourceType() const override;
+  content::mojom::GestureSourceType GetDefaultSyntheticGestureSourceType()
+      const override;
 
   float GetTouchSlopInDips() const override;
   float GetSpanSlopInDips() const override;
@@ -45,8 +49,6 @@ class SyntheticGestureTargetMac : public SyntheticGestureTargetBase {
   bool PointIsWithinContents(RenderWidgetHostView* view,
                              const gfx::PointF& point);
   RenderWidgetHostViewCocoa* cocoa_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyntheticGestureTargetMac);
 };
 
 }  // namespace content

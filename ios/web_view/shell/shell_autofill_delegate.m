@@ -61,8 +61,8 @@
                          message:nil
                   preferredStyle:UIAlertControllerStyleActionSheet];
     alertController.popoverPresentationController.sourceView =
-        UIApplication.sharedApplication.keyWindow;
-    CGRect bounds = UIApplication.sharedApplication.keyWindow.bounds;
+        [self anyKeyWindow];
+    CGRect bounds = [self anyKeyWindow].bounds;
     alertController.popoverPresentationController.sourceRect =
         CGRectMake(CGRectGetWidth(bounds) / 2, 60, 1, 1);
     UIAlertAction* cancelAction =
@@ -74,7 +74,7 @@
       [alertController addAction:[self actionForSuggestion:suggestion]];
     }
 
-    [UIApplication.sharedApplication.keyWindow.rootViewController
+    [[self anyKeyWindow].rootViewController
         presentViewController:alertController
                      animated:YES
                    completion:nil];
@@ -132,16 +132,29 @@
       [UIAlertController alertControllerWithTitle:@"Save card?"
                                           message:creditCard.debugDescription
                                    preferredStyle:UIAlertControllerStyleAlert];
+  __weak UIAlertController* weakAlertController = alertController;
+  __weak ShellAutofillDelegate* weakSelf = self;
   UIAlertAction* allowAction = [UIAlertAction
       actionWithTitle:@"Allow"
                 style:UIAlertActionStyleDefault
               handler:^(UIAlertAction* _Nonnull action) {
-                [saver acceptWithRiskData:self.riskDataLoader.riskData
-                        completionHandler:^(BOOL cardSaved) {
-                          if (!cardSaved) {
-                            NSLog(@"Failed to save: %@", saver.creditCard);
-                          }
-                        }];
+                NSString* cardHolderFullName =
+                    weakAlertController.textFields[0].text;
+                NSString* expirationMonth =
+                    weakAlertController.textFields[1].text;
+                NSString* expirationYear =
+                    weakAlertController.textFields[2].text;
+                [saver acceptWithCardHolderFullName:cardHolderFullName
+                                    expirationMonth:expirationMonth
+                                     expirationYear:expirationYear
+                                           riskData:weakSelf.riskDataLoader
+                                                        .riskData
+                                  completionHandler:^(BOOL cardSaved) {
+                                    if (!cardSaved) {
+                                      NSLog(@"Failed to save: %@",
+                                            saver.creditCard);
+                                    }
+                                  }];
               }];
   UIAlertAction* cancelAction =
       [UIAlertAction actionWithTitle:@"Cancel"
@@ -152,20 +165,25 @@
   [alertController addAction:allowAction];
   [alertController addAction:cancelAction];
 
-  [UIApplication.sharedApplication.keyWindow.rootViewController
-      presentViewController:alertController
-                   animated:YES
-                 completion:nil];
-}
+  [alertController
+      addTextFieldWithConfigurationHandler:^(UITextField* textField) {
+        textField.placeholder = @"Card holder full name";
+        textField.keyboardType = UIKeyboardTypeDefault;
+      }];
+  [alertController
+      addTextFieldWithConfigurationHandler:^(UITextField* textField) {
+        textField.placeholder = @"Expiration month (MM)";
+        textField.keyboardType = UIKeyboardTypeNumberPad;
+      }];
+  [alertController
+      addTextFieldWithConfigurationHandler:^(UITextField* textField) {
+        textField.placeholder = @"Expiration year (YYYY)";
+        textField.keyboardType = UIKeyboardTypeNumberPad;
+      }];
 
-- (void)autofillController:(CWVAutofillController*)autofillController
-    confirmCreditCardNameWithFixer:(CWVCreditCardNameFixer*)fixer {
-  [fixer acceptWithName:fixer.inferredCardHolderName ?: @""];
-}
-
-- (void)autofillController:(CWVAutofillController*)autofillController
-    confirmCreditCardExpirationWithFixer:(CWVCreditCardExpirationFixer*)fixer {
-  [fixer cancel];
+  [[self anyKeyWindow].rootViewController presentViewController:alertController
+                                                       animated:YES
+                                                     completion:nil];
 }
 
 - (void)autofillController:(CWVAutofillController*)autofillController
@@ -201,10 +219,9 @@
                              }];
   [alertController addAction:yesAction];
 
-  [UIApplication.sharedApplication.keyWindow.rootViewController
-      presentViewController:alertController
-                   animated:YES
-                 completion:nil];
+  [[self anyKeyWindow].rootViewController presentViewController:alertController
+                                                       animated:YES
+                                                     completion:nil];
 }
 
 - (void)autofillController:(CWVAutofillController*)autofillController
@@ -232,15 +249,14 @@
                              }];
   [alertController addAction:yesAction];
 
-  [UIApplication.sharedApplication.keyWindow.rootViewController
-      presentViewController:alertController
-                   animated:YES
-                 completion:nil];
+  [[self anyKeyWindow].rootViewController presentViewController:alertController
+                                                       animated:YES
+                                                     completion:nil];
 }
 
 - (void)autofillController:(CWVAutofillController*)autofillController
     verifyCreditCardWithVerifier:(CWVCreditCardVerifier*)verifier {
-  [UIApplication.sharedApplication.keyWindow endEditing:YES];
+  [[self anyKeyWindow] endEditing:YES];
 
   UIAlertController* alertController =
       [UIAlertController alertControllerWithTitle:@"Verify Card"
@@ -248,6 +264,7 @@
                                    preferredStyle:UIAlertControllerStyleAlert];
 
   __weak UIAlertController* weakAlertController = alertController;
+  __weak ShellAutofillDelegate* weakSelf = self;
   UIAlertAction* submit = [UIAlertAction
       actionWithTitle:@"Confirm"
                 style:UIAlertActionStyleDefault
@@ -258,7 +275,7 @@
                 [verifier verifyWithCVC:CVC
                         expirationMonth:nil
                          expirationYear:nil
-                               riskData:self.riskDataLoader.riskData
+                               riskData:weakSelf.riskDataLoader.riskData
                       completionHandler:^(NSError* error) {
                         if (error) {
                           NSLog(@"Card %@ failed to verify error: %@",
@@ -281,10 +298,9 @@
         textField.keyboardType = UIKeyboardTypeNumberPad;
       }];
 
-  [UIApplication.sharedApplication.keyWindow.rootViewController
-      presentViewController:alertController
-                   animated:YES
-                 completion:nil];
+  [[self anyKeyWindow].rootViewController presentViewController:alertController
+                                                       animated:YES
+                                                     completion:nil];
 }
 
 - (void)autofillController:(CWVAutofillController*)autofillController
@@ -317,8 +333,23 @@
                 }
                 [strongSelf.autofillController acceptSuggestion:suggestion
                                               completionHandler:nil];
-                [UIApplication.sharedApplication.keyWindow endEditing:YES];
+                [[self anyKeyWindow] endEditing:YES];
               }];
+}
+
+#pragma mark - Private
+
+- (UIWindow*)anyKeyWindow {
+#if !defined(__IPHONE_13_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_13_0
+  return [UIApplication sharedApplication].keyWindow;
+#else
+  NSArray<UIWindow*>* windows = [UIApplication sharedApplication].windows;
+  for (UIWindow* window in windows) {
+    if (window.isKeyWindow)
+      return window;
+  }
+  return nil;
+#endif
 }
 
 @end

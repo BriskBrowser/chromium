@@ -12,7 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/subresource_filter/content/browser/ruleset_publisher.h"
 #include "components/subresource_filter/content/browser/ruleset_version.h"
 #include "components/subresource_filter/content/browser/verified_ruleset_dealer.h"
@@ -35,14 +35,18 @@ class RulesetPublisherImpl : public RulesetPublisher,
   RulesetPublisherImpl(
       RulesetService* ruleset_service,
       scoped_refptr<base::SequencedTaskRunner> blocking_task_runner);
+
+  RulesetPublisherImpl(const RulesetPublisherImpl&) = delete;
+  RulesetPublisherImpl& operator=(const RulesetPublisherImpl&) = delete;
+
   ~RulesetPublisherImpl() override;
 
   // RulesetPublisher:
   void TryOpenAndSetRulesetFile(
       const base::FilePath& file_path,
       int expected_checksum,
-      base::OnceCallback<void(base::File)> callback) override;
-  void PublishNewRulesetVersion(base::File ruleset_data) override;
+      base::OnceCallback<void(RulesetFilePtr)> callback) override;
+  void PublishNewRulesetVersion(RulesetFilePtr ruleset_data) override;
   scoped_refptr<base::SingleThreadTaskRunner> BestEffortTaskRunner() override;
   VerifiedRulesetDealer::Handle* GetRulesetDealer() override;
   void SetRulesetPublishedCallbackForTesting(
@@ -63,17 +67,15 @@ class RulesetPublisherImpl : public RulesetPublisher,
                const content::NotificationDetails& details) override;
 
   content::NotificationRegistrar notification_registrar_;
-  base::File ruleset_data_;
+  RulesetFilePtr ruleset_data_{nullptr, base::OnTaskRunnerDeleter{nullptr}};
   base::OnceClosure ruleset_published_callback_;
 
   // The service owns the publisher, and therefore outlives it.
   RulesetService* ruleset_service_;
   std::unique_ptr<VerifiedRulesetDealer::Handle> ruleset_dealer_;
   scoped_refptr<base::SingleThreadTaskRunner> best_effort_task_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(RulesetPublisherImpl);
 };
 
 }  // namespace subresource_filter
 
-#endif  // COMPONENTS_SUBRESOURCE_FILTER_CONTENT_BROWSER_RULESET_SERVICE_H_
+#endif  // COMPONENTS_SUBRESOURCE_FILTER_CONTENT_BROWSER_RULESET_PUBLISHER_IMPL_H_

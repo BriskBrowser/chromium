@@ -192,21 +192,18 @@ public class PickerCategoryView extends RelativeLayout
      *         selection.
      * @param contentResolver The ContentResolver to use to retrieve image metadata from disk.
      * @param multiSelectionAllowed Whether to allow the user to select more than one image.
-     * @param animatedThumbnailsSupported Whether animated thumbnails should be generated for video
-     *         clips.
      */
     @SuppressWarnings("unchecked") // mSelectableListLayout
     public PickerCategoryView(WindowAndroid windowAndroid, ContentResolver contentResolver,
-            boolean multiSelectionAllowed, boolean animatedThumbnailsSupported,
-            PhotoPickerToolbar.PhotoPickerToolbarDelegate delegate) {
+            boolean multiSelectionAllowed, PhotoPickerToolbar.PhotoPickerToolbarDelegate delegate) {
         super(windowAndroid.getContext().get());
         mWindowAndroid = windowAndroid;
         Context context = mWindowAndroid.getContext().get();
         mContentResolver = contentResolver;
         mMultiSelectionAllowed = multiSelectionAllowed;
 
-        mDecoderServiceHost = new DecoderServiceHost(this, context, animatedThumbnailsSupported);
-        mDecoderServiceHost.bind(context);
+        mDecoderServiceHost = new DecoderServiceHost(this, context);
+        mDecoderServiceHost.bind();
 
         mSelectionDelegate = new SelectionDelegate<PickerBitmap>();
         mSelectionDelegate.addObserver(this);
@@ -221,8 +218,7 @@ public class PickerCategoryView extends RelativeLayout
         int titleId = multiSelectionAllowed ? R.string.photo_picker_select_images
                                             : R.string.photo_picker_select_image;
         PhotoPickerToolbar toolbar = (PhotoPickerToolbar) mSelectableListLayout.initializeToolbar(
-                R.layout.photo_picker_toolbar, mSelectionDelegate, titleId, 0, 0, null, false,
-                false);
+                R.layout.photo_picker_toolbar, mSelectionDelegate, titleId, 0, 0, null, false);
         toolbar.setNavigationOnClickListener(this);
         toolbar.setDelegate(delegate);
         Button doneButton = (Button) toolbar.findViewById(R.id.done);
@@ -275,7 +271,7 @@ public class PickerCategoryView extends RelativeLayout
         }
 
         if (mDecoderServiceHost != null) {
-            mDecoderServiceHost.unbind(mWindowAndroid.getContext().get());
+            mDecoderServiceHost.unbind();
             mDecoderServiceHost = null;
         }
 
@@ -288,7 +284,7 @@ public class PickerCategoryView extends RelativeLayout
      */
     public void startVideoPlaybackAsync(Uri uri) {
         if (mDialog == null) return;
-        mVideoPlayer.startVideoPlaybackAsync(uri, mDialog.getWindow().getDecorView());
+        mVideoPlayer.startVideoPlaybackAsync(uri, mDialog.getWindow());
     }
 
     /**
@@ -411,10 +407,15 @@ public class PickerCategoryView extends RelativeLayout
 
         mMagnifyingMode = !mMagnifyingMode;
 
+        Context context = mWindowAndroid.getContext().get();
         if (mMagnifyingMode) {
             mZoom.setImageResource(R.drawable.zoom_out);
+            mZoom.setContentDescription(
+                    context.getString(R.string.photo_picker_accessibility_zoom_out));
         } else {
             mZoom.setImageResource(R.drawable.zoom_in);
+            mZoom.setContentDescription(
+                    context.getString(R.string.photo_picker_accessibility_zoom_in));
         }
 
         calculateGridMetrics();

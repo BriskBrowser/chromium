@@ -20,15 +20,21 @@ class JavaScriptTabModalDialogManagerDelegateDesktop
  public:
   explicit JavaScriptTabModalDialogManagerDelegateDesktop(
       content::WebContents* web_contents);
+
+  JavaScriptTabModalDialogManagerDelegateDesktop(
+      const JavaScriptTabModalDialogManagerDelegateDesktop&) = delete;
+  JavaScriptTabModalDialogManagerDelegateDesktop& operator=(
+      const JavaScriptTabModalDialogManagerDelegateDesktop&) = delete;
+
   ~JavaScriptTabModalDialogManagerDelegateDesktop() override;
 
   // javascript_dialogs::TabModalDialogManagerDelegate
   base::WeakPtr<javascript_dialogs::TabModalDialogView> CreateNewDialog(
       content::WebContents* alerting_web_contents,
-      const base::string16& title,
+      const std::u16string& title,
       content::JavaScriptDialogType dialog_type,
-      const base::string16& message_text,
-      const base::string16& default_prompt_text,
+      const std::u16string& message_text,
+      const std::u16string& default_prompt_text,
       content::JavaScriptDialogManager::DialogClosedCallback dialog_callback,
       base::OnceClosure dialog_closed_callback) override;
   void WillRunDialog() override;
@@ -70,8 +76,6 @@ class JavaScriptTabModalDialogManagerDelegateDesktop
   // be different from the WebContents that requested the dialog, such as with
   // Chrome app <webview>s.
   content::WebContents* web_contents_;
-
-  DISALLOW_COPY_AND_ASSIGN(JavaScriptTabModalDialogManagerDelegateDesktop);
 };
 
 #endif  // CHROME_BROWSER_UI_JAVASCRIPT_DIALOGS_JAVASCRIPT_TAB_MODAL_DIALOG_MANAGER_DELEGATE_DESKTOP_H_

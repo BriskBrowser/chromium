@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "content/browser/loader/navigation_early_hints_manager.h"
 #include "content/browser/loader/navigation_url_loader_delegate.h"
 #include "content/browser/navigation_subresource_loader_params.h"
 #include "content/public/browser/global_request_id.h"
@@ -30,6 +31,10 @@ TestNavigationURLLoader::TestNavigationURLLoader(
       redirect_count_(0),
       loader_type_(loader_type) {}
 
+void TestNavigationURLLoader::Start() {
+  // Do nothing.
+}
+
 void TestNavigationURLLoader::FollowRedirect(
     const std::vector<std::string>& removed_headers,
     const net::HttpRequestHeaders& modified_headers,
@@ -37,6 +42,11 @@ void TestNavigationURLLoader::FollowRedirect(
     blink::PreviewsState new_previews_state) {
   DCHECK_EQ(loader_type_, NavigationURLLoader::LoaderType::kRegular);
   redirect_count_++;
+}
+
+bool TestNavigationURLLoader::SetNavigationTimeout(base::TimeDelta timeout) {
+  // Do nothing. `false` here means no timeout was started.
+  return false;
 }
 
 void TestNavigationURLLoader::SimulateServerRedirect(const GURL& redirect_url) {
@@ -62,6 +72,10 @@ void TestNavigationURLLoader::SimulateErrorWithStatus(
   delegate_->OnRequestFailed(status);
 }
 
+void TestNavigationURLLoader::SimulateEarlyHintsPreloadLinkHeaderReceived() {
+  was_resource_hints_received_ = true;
+}
+
 void TestNavigationURLLoader::CallOnRequestRedirected(
     const net::RedirectInfo& redirect_info,
     network::mojom::URLResponseHeadPtr response_head) {
@@ -73,7 +87,8 @@ void TestNavigationURLLoader::CallOnRequestRedirected(
 }
 
 void TestNavigationURLLoader::CallOnResponseStarted(
-    network::mojom::URLResponseHeadPtr response_head) {
+    network::mojom::URLResponseHeadPtr response_head,
+    mojo::ScopedDataPipeConsumerHandle response_body) {
   if (!response_head->parsed_headers)
     response_head->parsed_headers = network::mojom::ParsedHeaders::New();
   // Create a bidirectionnal communication pipe between a URLLoader and a
@@ -87,12 +102,15 @@ void TestNavigationURLLoader::CallOnResponseStarted(
           std::move(url_loader_remote),
           url_loader_client_remote.InitWithNewPipeAndPassReceiver());
 
+  NavigationURLLoaderDelegate::EarlyHints early_hints;
+  early_hints.was_resource_hints_received = was_resource_hints_received_;
+
   delegate_->OnResponseStarted(
       std::move(url_loader_client_endpoints), std::move(response_head),
-      mojo::ScopedDataPipeConsumerHandle(),
-      GlobalRequestID::MakeBrowserInitiated(), false,
+      std::move(response_body), GlobalRequestID::MakeBrowserInitiated(), false,
       blink::NavigationDownloadPolicy(),
-      request_info_->isolation_info.network_isolation_key(), base::nullopt);
+      request_info_->isolation_info.network_isolation_key(), absl::nullopt,
+      std::move(early_hints));
 }
 
 TestNavigationURLLoader::~TestNavigationURLLoader() {}

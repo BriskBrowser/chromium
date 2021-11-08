@@ -29,7 +29,7 @@ FakePeripheral::FakePeripheral(FakeCentral* fake_central,
 
 FakePeripheral::~FakePeripheral() = default;
 
-void FakePeripheral::SetName(base::Optional<std::string> name) {
+void FakePeripheral::SetName(absl::optional<std::string> name) {
   name_ = std::move(name);
 }
 
@@ -54,9 +54,14 @@ void FakePeripheral::SetServiceUUIDs(UUIDSet service_uuids) {
   device_uuids_.ReplaceServiceUUIDs(gatt_services);
 }
 
+void FakePeripheral::SetManufacturerData(
+    ManufacturerDataMap manufacturer_data) {
+  manufacturer_data_ = std::move(manufacturer_data);
+}
+
 void FakePeripheral::SetNextGATTConnectionResponse(uint16_t code) {
   DCHECK(!next_connection_response_);
-  DCHECK(create_gatt_connection_error_callbacks_.empty());
+  DCHECK(create_gatt_connection_callbacks_.empty());
   next_connection_response_ = code;
 }
 
@@ -167,12 +172,12 @@ uint16_t FakePeripheral::GetAppearance() const {
   return 0;
 }
 
-base::Optional<std::string> FakePeripheral::GetName() const {
+absl::optional<std::string> FakePeripheral::GetName() const {
   return name_;
 }
 
-base::string16 FakePeripheral::GetNameForDisplay() const {
-  return base::string16();
+std::u16string FakePeripheral::GetNameForDisplay() const {
+  return std::u16string();
 }
 
 bool FakePeripheral::IsPaired() const {
@@ -202,6 +207,13 @@ bool FakePeripheral::IsConnecting() const {
   return false;
 }
 
+#if defined(OS_CHROMEOS)
+bool FakePeripheral::IsBlockedByPolicy() const {
+  NOTREACHED();
+  return false;
+}
+#endif
+
 bool FakePeripheral::ExpectingPinCode() const {
   NOTREACHED();
   return false;
@@ -228,8 +240,7 @@ void FakePeripheral::SetConnectionLatency(ConnectionLatency connection_latency,
 }
 
 void FakePeripheral::Connect(PairingDelegate* pairing_delegate,
-                             base::OnceClosure callback,
-                             ConnectErrorCallback error_callback) {
+                             ConnectCallback callback) {
   NOTREACHED();
 }
 
@@ -279,15 +290,13 @@ void FakePeripheral::ConnectToServiceInsecurely(
 
 void FakePeripheral::CreateGattConnection(
     GattConnectionCallback callback,
-    ConnectErrorCallback error_callback,
-    base::Optional<device::BluetoothUUID> service_uuid) {
-  create_gatt_connection_success_callbacks_.push_back(std::move(callback));
-  create_gatt_connection_error_callbacks_.push_back(std::move(error_callback));
+    absl::optional<device::BluetoothUUID> service_uuid) {
+  create_gatt_connection_callbacks_.push_back(std::move(callback));
 
   // TODO(crbug.com/728870): Stop overriding CreateGattConnection once
   // IsGattConnected() is fixed. See issue for more details.
   if (gatt_connected_)
-    return DidConnectGatt();
+    return DidConnectGatt(/*error_code=*/absl::nullopt);
 
   CreateGattConnectionImpl(std::move(service_uuid));
 }
@@ -318,7 +327,7 @@ bool FakePeripheral::IsGattServicesDiscoveryComplete() const {
 }
 
 void FakePeripheral::CreateGattConnectionImpl(
-    base::Optional<device::BluetoothUUID>) {
+    absl::optional<device::BluetoothUUID>) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&FakePeripheral::DispatchConnectionResponse,
                                 weak_ptr_factory_.GetWeakPtr()));
@@ -332,11 +341,11 @@ void FakePeripheral::DispatchConnectionResponse() {
 
   if (code == mojom::kHCISuccess) {
     gatt_connected_ = true;
-    DidConnectGatt();
+    DidConnectGatt(/*error_code=*/absl::nullopt);
   } else if (code == mojom::kHCIConnectionTimeout) {
-    DidFailToConnectGatt(ERROR_FAILED);
+    DidConnectGatt(ERROR_FAILED);
   } else {
-    DidFailToConnectGatt(ERROR_UNKNOWN);
+    DidConnectGatt(ERROR_UNKNOWN);
   }
 }
 

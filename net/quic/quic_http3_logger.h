@@ -7,9 +7,6 @@
 
 #include <stddef.h>
 
-#include <bitset>
-#include <string>
-
 #include "base/macros.h"
 #include "base/timer/timer.h"
 #include "net/log/net_log_with_source.h"
@@ -23,6 +20,9 @@ class NET_EXPORT_PRIVATE QuicHttp3Logger : public quic::Http3DebugVisitor {
  public:
   explicit QuicHttp3Logger(const NetLogWithSource& net_log);
 
+  QuicHttp3Logger(const QuicHttp3Logger&) = delete;
+  QuicHttp3Logger& operator=(const QuicHttp3Logger&) = delete;
+
   ~QuicHttp3Logger() override;
 
   // Implementation of Http3DebugVisitor.
@@ -33,7 +33,6 @@ class NET_EXPORT_PRIVATE QuicHttp3Logger : public quic::Http3DebugVisitor {
   void OnPeerQpackEncoderStreamCreated(quic::QuicStreamId stream_id) override;
   void OnPeerQpackDecoderStreamCreated(quic::QuicStreamId stream_id) override;
 
-  void OnCancelPushFrameReceived(const quic::CancelPushFrame& frame) override;
   void OnSettingsFrameReceived(const quic::SettingsFrame& frame) override;
   void OnSettingsFrameResumed(const quic::SettingsFrame& frame) override;
   void OnGoAwayFrameReceived(const quic::GoAwayFrame& frame) override;
@@ -48,13 +47,6 @@ class NET_EXPORT_PRIVATE QuicHttp3Logger : public quic::Http3DebugVisitor {
       quic::QuicByteCount compressed_headers_length) override;
   void OnHeadersDecoded(quic::QuicStreamId stream_id,
                         quic::QuicHeaderList headers) override;
-  void OnPushPromiseFrameReceived(
-      quic::QuicStreamId stream_id,
-      quic::QuicStreamId push_id,
-      quic::QuicByteCount compressed_headers_length) override;
-  void OnPushPromiseDecoded(quic::QuicStreamId stream_id,
-                            quic::QuicStreamId push_id,
-                            quic::QuicHeaderList headers) override;
 
   void OnUnknownFrameReceived(quic::QuicStreamId stream_id,
                               uint64_t frame_type,
@@ -70,15 +62,9 @@ class NET_EXPORT_PRIVATE QuicHttp3Logger : public quic::Http3DebugVisitor {
                        quic::QuicByteCount payload_length) override;
   void OnHeadersFrameSent(quic::QuicStreamId stream_id,
                           const spdy::Http2HeaderBlock& header_block) override;
-  void OnPushPromiseFrameSent(
-      quic::QuicStreamId stream_id,
-      quic::QuicStreamId push_id,
-      const spdy::Http2HeaderBlock& header_block) override;
 
  private:
   NetLogWithSource net_log_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuicHttp3Logger);
 };
 }  // namespace net
 

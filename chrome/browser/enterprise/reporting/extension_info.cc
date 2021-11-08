@@ -7,11 +7,14 @@
 #include <string>
 
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_url_handlers.h"
 #include "extensions/common/permissions/permissions_data.h"
+
+using extensions::mojom::ManifestLocation;
 
 namespace em = ::enterprise_management;
 
@@ -20,26 +23,26 @@ namespace enterprise_reporting {
 namespace {
 
 em::Extension_InstallType GetExtensionInstallType(
-    extensions::Manifest::Location extension_location) {
+    ManifestLocation extension_location) {
   switch (extension_location) {
-    case extensions::Manifest::INTERNAL:
+    case ManifestLocation::kInternal:
       return em::Extension_InstallType_TYPE_NORMAL;
-    case extensions::Manifest::UNPACKED:
-    case extensions::Manifest::COMMAND_LINE:
+    case ManifestLocation::kUnpacked:
+    case ManifestLocation::kCommandLine:
       return em::Extension_InstallType_TYPE_DEVELOPMENT;
-    case extensions::Manifest::EXTERNAL_PREF:
-    case extensions::Manifest::EXTERNAL_REGISTRY:
-    case extensions::Manifest::EXTERNAL_PREF_DOWNLOAD:
+    case ManifestLocation::kExternalPref:
+    case ManifestLocation::kExternalRegistry:
+    case ManifestLocation::kExternalPrefDownload:
       return em::Extension_InstallType_TYPE_SIDELOAD;
-    case extensions::Manifest::EXTERNAL_POLICY:
-    case extensions::Manifest::EXTERNAL_POLICY_DOWNLOAD:
+    case ManifestLocation::kExternalPolicy:
+    case ManifestLocation::kExternalPolicyDownload:
       return em::Extension_InstallType_TYPE_ADMIN;
-    case extensions::Manifest::NUM_LOCATIONS:
+    default:
       NOTREACHED();
       FALLTHROUGH;
-    case extensions::Manifest::INVALID_LOCATION:
-    case extensions::Manifest::COMPONENT:
-    case extensions::Manifest::EXTERNAL_COMPONENT:
+    case ManifestLocation::kInvalidLocation:
+    case ManifestLocation::kComponent:
+    case ManifestLocation::kExternalComponent:
       return em::Extension_InstallType_TYPE_OTHER;
   }
 }
@@ -83,6 +86,9 @@ void AddExtensions(const extensions::ExtensionSet& extensions,
     AddPermission(extension.get(), extension_info);
     AddHostPermission(extension.get(), extension_info);
     extension_info->set_from_webstore(extension->from_webstore());
+    if (base::FeatureList::IsEnabled(
+            features::kEnterpriseReportingExtensionManifestVersion))
+      extension_info->set_manifest_version(extension->manifest_version());
   }
 }
 
@@ -108,6 +114,8 @@ em::Extension_ExtensionType ConvertExtensionTypeToProto(
       return em::Extension_ExtensionType_TYPE_PLATFORM_APP;
     case extensions::Manifest::TYPE_LOGIN_SCREEN_EXTENSION:
       return em::Extension_ExtensionType_TYPE_LOGIN_SCREEN_EXTENSION;
+    case extensions::Manifest::TYPE_CHROMEOS_SYSTEM_EXTENSION:
+      return em::Extension_ExtensionType_TYPE_CHROMEOS_SYSTEM_EXTENSION;
     case extensions::Manifest::NUM_LOAD_TYPES:
       NOTREACHED();
       return em::Extension_ExtensionType_TYPE_UNKNOWN;

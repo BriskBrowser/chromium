@@ -7,6 +7,7 @@
 #include <memory>
 #include <set>
 
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -32,6 +33,9 @@ class ExampleMenuModel : public ui::SimpleMenuModel,
  public:
   ExampleMenuModel();
 
+  ExampleMenuModel(const ExampleMenuModel&) = delete;
+  ExampleMenuModel& operator=(const ExampleMenuModel&) = delete;
+
   // ui::SimpleMenuModel::Delegate:
   bool IsCommandIdChecked(int command_id) const override;
   bool IsCommandIdEnabled(int command_id) const override;
@@ -56,13 +60,15 @@ class ExampleMenuModel : public ui::SimpleMenuModel,
   std::unique_ptr<ui::SimpleMenuModel> submenu_;
   std::set<int> checked_fruits_;
   int current_encoding_command_id_ = COMMAND_SELECT_ASCII;
-
-  DISALLOW_COPY_AND_ASSIGN(ExampleMenuModel);
 };
 
 class ExampleMenuButton : public MenuButton {
  public:
-  explicit ExampleMenuButton(const base::string16& test);
+  explicit ExampleMenuButton(const std::u16string& test);
+
+  ExampleMenuButton(const ExampleMenuButton&) = delete;
+  ExampleMenuButton& operator=(const ExampleMenuButton&) = delete;
+
   ~ExampleMenuButton() override;
 
  private:
@@ -72,8 +78,6 @@ class ExampleMenuButton : public MenuButton {
 
   std::unique_ptr<ExampleMenuModel> menu_model_;
   std::unique_ptr<MenuRunner> menu_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExampleMenuButton);
 };
 
 // ExampleMenuModel ---------------------------------------------------------
@@ -170,7 +174,7 @@ void ExampleMenuModel::ExecuteCommand(int command_id, int event_flags) {
 
 // ExampleMenuButton -----------------------------------------------------------
 
-ExampleMenuButton::ExampleMenuButton(const base::string16& test)
+ExampleMenuButton::ExampleMenuButton(const std::u16string& test)
     : MenuButton(base::BindRepeating(&ExampleMenuButton::ButtonPressed,
                                      base::Unretained(this)),
                  test) {}

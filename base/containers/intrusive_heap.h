@@ -132,13 +132,13 @@
 #include <algorithm>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "base/base_export.h"
 #include "base/check_op.h"
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
 
 namespace base {

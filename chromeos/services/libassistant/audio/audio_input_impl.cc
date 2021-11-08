@@ -4,18 +4,18 @@
 
 #include "chromeos/services/libassistant/audio/audio_input_impl.h"
 
+#include <cstdint>
 #include <utility>
 
 #include "base/bind.h"
-#include "base/callback_forward.h"
+#include "base/command_line.h"
+#include "base/containers/cxx20_erase.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/timer/timer.h"
-#include "chromeos/services/assistant/public/cpp/assistant_client.h"
+#include "chromeos/services/assistant/public/cpp/assistant_browser_delegate.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
 #include "chromeos/services/libassistant/audio/audio_input_stream.h"
 #include "libassistant/shared/public/platform_audio_buffer.h"
@@ -23,8 +23,9 @@
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_sample_types.h"
 #include "media/base/channel_layout.h"
+#include "media/mojo/mojom/audio_stream_factory.mojom.h"
 #include "services/audio/public/cpp/device_factory.h"
-#include "services/audio/public/mojom/stream_factory.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 namespace libassistant {
@@ -79,7 +80,7 @@ class DspHotwordStateManager : public AudioInputImpl::HotwordStateManager {
       // libassistant has rejected the hotword supplied by DSP. Thus, we reset
       // and reopen the device on hotword state.
       second_phase_timer_.Start(
-          FROM_HERE, base::TimeDelta::FromSeconds(1),
+          FROM_HERE, base::Seconds(1),
           base::BindRepeating(
               &DspHotwordStateManager::OnConversationTurnFinished,
               base::Unretained(this)));
@@ -211,8 +212,10 @@ class AudioCapturer : public media::AudioCapturerSource::CaptureCallback {
   }
 
   // Runs on audio service thread.
-  void OnCaptureError(const std::string& message) override {
-    LOG(ERROR) << "Capture error " << message;
+  void OnCaptureError(media::AudioCapturerSource::ErrorCode code,
+                      const std::string& message) override {
+    LOG(ERROR) << "Capture error " << message
+               << ", code=" << static_cast<uint32_t>(code);
     base::AutoLock lock(observers_lock_);
     for (auto* observer : observers_)
       observer->OnAudioError(assistant_client::AudioInput::Error::FATAL_ERROR);
@@ -233,8 +236,7 @@ class AudioCapturer : public media::AudioCapturerSource::CaptureCallback {
     captured_frames_count_ += num_arrived_frames;
     if (VLOG_IS_ON(1)) {
       auto now = base::TimeTicks::Now();
-      if ((now - last_frame_count_report_time_) >
-          base::TimeDelta::FromMinutes(2)) {
+      if ((now - last_frame_count_report_time_) > base::Minutes(2)) {
         VLOG(1) << "Captured frames: " << captured_frames_count_;
         last_frame_count_report_time_ = now;
       }
@@ -268,7 +270,7 @@ void AudioInputImpl::HotwordStateManager::RecreateAudioInputStream() {
   input_->RecreateAudioInputStream(/*use_dsp=*/false);
 }
 
-AudioInputImpl::AudioInputImpl(const base::Optional<std::string>& device_id)
+AudioInputImpl::AudioInputImpl(const absl::optional<std::string>& device_id)
     : task_runner_(base::SequencedTaskRunnerHandle::Get()),
       preferred_device_id_(device_id),
       weak_factory_(this) {
@@ -380,11 +382,30 @@ void AudioInputImpl::OnHotwordEnabled(bool enable) {
   UpdateRecordingState();
 }
 
-void AudioInputImpl::SetDeviceId(const base::Optional<std::string>& device_id) {
-  if (preferred_device_id_ == device_id)
+void AudioInputImpl::SetDeviceId(const absl::optional<std::string>& device_id) {
+  DVLOG(1) << "Set audio input preferred_device_id to "
+           << device_id.value_or("<null>");
+  auto new_device_id = device_id;
+
+  constexpr char kAssistantForceDefaultAudioInput[] =
+      "assistant-force-default-audio-input";
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(kAssistantForceDefaultAudioInput)) {
+    // Sometimes there may not be a preferred audio device,
+    // e.g. if the device does not have built-in mic and using a bluetooth
+    // microphone, in this case we do not want to open the bluetooth device by
+    // default to drain the battery; also if running linux chromeos chrome
+    // build, there won't be cras and we won't have a device id set. Force using
+    // default audio input in these cases to mimic the common Assistant hotword
+    // behaviors.
+    DVLOG(1) << "Force audio input preferred_device_id to default.";
+    new_device_id = media::AudioDeviceDescription::kDefaultDeviceId;
+  }
+
+  if (preferred_device_id_ == new_device_id)
     return;
 
-  preferred_device_id_ = device_id;
+  preferred_device_id_ = new_device_id;
 
   UpdateRecordingState();
   if (HasOpenAudioStream())
@@ -392,7 +413,7 @@ void AudioInputImpl::SetDeviceId(const base::Optional<std::string>& device_id) {
 }
 
 void AudioInputImpl::SetHotwordDeviceId(
-    const base::Optional<std::string>& device_id) {
+    const absl::optional<std::string>& device_id) {
   if (hotword_device_id_ == device_id)
     return;
 
@@ -438,14 +459,18 @@ bool AudioInputImpl::IsUsingHotwordDeviceForTesting() const {
          && GetOpenDeviceId() == hotword_device_id_ && IsHotwordAvailable();
 }
 
-base::Optional<std::string> AudioInputImpl::GetOpenDeviceIdForTesting() const {
+bool AudioInputImpl::IsMicOpenForTesting() const {
+  return mic_open_;
+}
+
+absl::optional<std::string> AudioInputImpl::GetOpenDeviceIdForTesting() const {
   return GetOpenDeviceId();
 }
 
-base::Optional<bool> AudioInputImpl::IsUsingDeadStreamDetectionForTesting()
+absl::optional<bool> AudioInputImpl::IsUsingDeadStreamDetectionForTesting()
     const {
   if (!open_audio_stream_)
-    return base::nullopt;
+    return absl::nullopt;
   return open_audio_stream_->has_dead_stream_detection();
 }
 
@@ -503,9 +528,9 @@ std::string AudioInputImpl::GetDeviceId(bool use_dsp) const {
     return media::AudioDeviceDescription::kDefaultDeviceId;
 }
 
-base::Optional<std::string> AudioInputImpl::GetOpenDeviceId() const {
+absl::optional<std::string> AudioInputImpl::GetOpenDeviceId() const {
   if (!open_audio_stream_)
-    return base::nullopt;
+    return absl::nullopt;
   return open_audio_stream_->device_id();
 }
 

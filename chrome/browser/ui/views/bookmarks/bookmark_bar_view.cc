@@ -14,12 +14,13 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "base/metrics/user_metrics.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -30,7 +31,6 @@
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/favicon/favicon_utils.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/bookmarks/bookmark_drag_drop.h"
@@ -40,6 +40,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/tabs/tab_group_model.h"
+#include "chrome/browser/ui/tabs/tab_group_theme.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view_observer.h"
@@ -60,11 +62,13 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/browser/bookmark_node.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/bookmarks/managed/managed_bookmark_service.h"
 #include "components/metrics/metrics_service.h"
 #include "components/prefs/pref_service.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "components/reading_list/features/reading_list_switches.h"
 #include "components/url_formatter/elide_url.h"
 #include "components/url_formatter/url_formatter.h"
@@ -73,14 +77,19 @@
 #include "extensions/common/extension_set.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/color/color_id.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/types/event_type.h"
@@ -97,10 +106,14 @@
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_mask.h"
+#include "ui/views/background.h"
+#include "ui/views/border.h"
 #include "ui/views/button_drag_utils.h"
+#include "ui/views/cascading_property.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/controls/button/menu_button.h"
@@ -109,8 +122,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/drag_utils.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+#include "ui/views/image_model_utils.h"
 #include "ui/views/metrics.h"
 #include "ui/views/view_constants.h"
 #include "ui/views/widget/tooltip_manager.h"
@@ -122,6 +134,8 @@ namespace {
 using ::bookmarks::BookmarkModel;
 using ::bookmarks::BookmarkNode;
 using ::ui::mojom::DragOperation;
+using ::views::Background;
+using ::views::Border;
 using ::views::LabelButtonBorder;
 using ::views::MenuButton;
 
@@ -133,12 +147,6 @@ bool animations_enabled = true;
 
 gfx::ImageSkia* GetImageSkiaNamed(int id) {
   return ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(id);
-}
-
-std::unique_ptr<views::InkDrop> CreateBookmarkButtonInkDrop(
-    std::unique_ptr<views::InkDropImpl> ink_drop) {
-  ink_drop->SetShowHighlightOnFocus(false);
-  return std::move(ink_drop);
 }
 
 std::unique_ptr<LabelButtonBorder> CreateBookmarkButtonBorder() {
@@ -155,15 +163,13 @@ std::unique_ptr<LabelButtonBorder> CreateBookmarkButtonBorder() {
 class BookmarkButtonBase : public views::LabelButton {
  public:
   METADATA_HEADER(BookmarkButtonBase);
-  BookmarkButtonBase(PressedCallback callback, const base::string16& title)
+  BookmarkButtonBase(PressedCallback callback, const std::u16string& title)
       : LabelButton(std::move(callback), title) {
+    ConfigureInkDropForToolbar(this);
     SetImageLabelSpacing(ChromeLayoutProvider::Get()->GetDistanceMetric(
         DISTANCE_RELATED_LABEL_HORIZONTAL_LIST));
 
     views::InstallPillHighlightPathGenerator(this);
-    SetInkDropMode(InkDropMode::ON);
-    SetHasInkDropActionOnClick(true);
-    SetInkDropVisibleOpacity(kToolbarInkDropVisibleOpacity);
 
     SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
 
@@ -191,19 +197,6 @@ class BookmarkButtonBase : public views::LabelButton {
   }
 
   // LabelButton:
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override {
-    return CreateBookmarkButtonInkDrop(CreateDefaultFloodFillInkDropImpl());
-  }
-
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override {
-    return CreateToolbarInkDropHighlight(this);
-  }
-
-  SkColor GetInkDropBaseColor() const override {
-    return GetToolbarInkDropBaseColor(this);
-  }
-
   std::unique_ptr<LabelButtonBorder> CreateDefaultBorder() const override {
     return CreateBookmarkButtonBorder();
   }
@@ -231,13 +224,13 @@ class BookmarkButton : public BookmarkButtonBase {
   METADATA_HEADER(BookmarkButton);
   BookmarkButton(PressedCallback callback,
                  const GURL& url,
-                 const base::string16& title)
+                 const std::u16string& title)
       : BookmarkButtonBase(std::move(callback), title), url_(url) {}
   BookmarkButton(const BookmarkButton&) = delete;
   BookmarkButton& operator=(const BookmarkButton&) = delete;
 
   // views::View:
-  base::string16 GetTooltipText(const gfx::Point& p) const override {
+  std::u16string GetTooltipText(const gfx::Point& p) const override {
     const views::TooltipManager* tooltip_manager =
         GetWidget()->GetTooltipManager();
     gfx::Point location(p);
@@ -253,7 +246,7 @@ class BookmarkButton : public BookmarkButtonBase {
     return tooltip_text_;
   }
 
-  void SetText(const base::string16& text) override {
+  void SetText(const std::u16string& text) override {
     BookmarkButtonBase::SetText(text);
     tooltip_text_.clear();
   }
@@ -262,7 +255,7 @@ class BookmarkButton : public BookmarkButtonBase {
   // A cached value of maximum width for tooltip to skip generating
   // new tooltip text.
   mutable int max_tooltip_width_ = 0;
-  mutable base::string16 tooltip_text_;
+  mutable std::u16string tooltip_text_;
   const GURL& url_;
 };
 
@@ -276,7 +269,7 @@ END_METADATA
 class ShortcutButton : public BookmarkButtonBase {
  public:
   METADATA_HEADER(ShortcutButton);
-  ShortcutButton(PressedCallback callback, const base::string16& title)
+  ShortcutButton(PressedCallback callback, const std::u16string& title)
       : BookmarkButtonBase(std::move(callback), title) {}
   ShortcutButton(const ShortcutButton&) = delete;
   ShortcutButton& operator=(const ShortcutButton&) = delete;
@@ -293,31 +286,17 @@ class BookmarkMenuButtonBase : public MenuButton {
   METADATA_HEADER(BookmarkMenuButtonBase);
   explicit BookmarkMenuButtonBase(
       PressedCallback callback,
-      const base::string16& title = base::string16())
+      const std::u16string& title = std::u16string())
       : MenuButton(std::move(callback), title) {
+    ConfigureInkDropForToolbar(this);
     SetImageLabelSpacing(ChromeLayoutProvider::Get()->GetDistanceMetric(
         DISTANCE_RELATED_LABEL_HORIZONTAL_LIST));
     views::InstallPillHighlightPathGenerator(this);
-    SetInkDropMode(InkDropMode::ON);
-    SetInkDropVisibleOpacity(kToolbarInkDropVisibleOpacity);
   }
   BookmarkMenuButtonBase(const BookmarkMenuButtonBase&) = delete;
   BookmarkMenuButtonBase& operator=(const BookmarkMenuButtonBase&) = delete;
 
   // MenuButton:
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override {
-    return CreateBookmarkButtonInkDrop(CreateDefaultFloodFillInkDropImpl());
-  }
-
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override {
-    return CreateToolbarInkDropHighlight(this);
-  }
-
-  SkColor GetInkDropBaseColor() const override {
-    return GetToolbarInkDropBaseColor(this);
-  }
-
   std::unique_ptr<LabelButtonBorder> CreateDefaultBorder() const override {
     return CreateBookmarkButtonBorder();
   }
@@ -334,7 +313,7 @@ class BookmarkFolderButton : public BookmarkMenuButtonBase {
  public:
   METADATA_HEADER(BookmarkFolderButton);
   explicit BookmarkFolderButton(PressedCallback callback,
-                                const base::string16& title = base::string16())
+                                const std::u16string& title = std::u16string())
       : BookmarkMenuButtonBase(std::move(callback), title) {
     show_animation_ = std::make_unique<gfx::SlideAnimation>(this);
     if (!animations_enabled) {
@@ -352,10 +331,10 @@ class BookmarkFolderButton : public BookmarkMenuButtonBase {
   BookmarkFolderButton(const BookmarkFolderButton&) = delete;
   BookmarkFolderButton& operator=(const BookmarkFolderButton&) = delete;
 
-  base::string16 GetTooltipText(const gfx::Point& p) const override {
+  std::u16string GetTooltipText(const gfx::Point& p) const override {
     return label()->GetPreferredSize().width() > label()->size().width()
                ? GetText()
-               : base::string16();
+               : std::u16string();
   }
 
   bool OnMousePressed(const ui::MouseEvent& event) override {
@@ -363,7 +342,8 @@ class BookmarkFolderButton : public BookmarkMenuButtonBase {
       // TODO(bruthig): The ACTION_PENDING triggering logic should be in
       // MenuButton::OnPressed() however there is a bug with the pressed state
       // logic in MenuButton. See http://crbug.com/567252.
-      AnimateInkDrop(views::InkDropState::ACTION_PENDING, &event);
+      views::InkDrop::Get(this)->AnimateToState(
+          views::InkDropState::ACTION_PENDING, &event);
     }
     return BookmarkMenuButtonBase::OnMousePressed(event);
   }
@@ -381,6 +361,132 @@ class BookmarkFolderButton : public BookmarkMenuButtonBase {
 };
 
 BEGIN_METADATA(BookmarkFolderButton, BookmarkMenuButtonBase)
+END_METADATA
+
+// BookmarkTabGroupButton
+// -------------------------------------------------------
+
+// Buttons used for tab groups on the bookmark bar
+class BookmarkTabGroupButton : public BookmarkMenuButtonBase {
+ public:
+  METADATA_HEADER(BookmarkTabGroupButton);
+  explicit BookmarkTabGroupButton(
+      PressedCallback callback,
+      const std::u16string& title = std::u16string())
+      : BookmarkMenuButtonBase(std::move(callback), title) {
+    show_animation_ = std::make_unique<gfx::SlideAnimation>(this);
+    if (!animations_enabled) {
+      // For some reason during testing the events generated by animating
+      // throw off the test. So, don't animate while testing.
+      show_animation_->Reset(1);
+    } else {
+      show_animation_->Show();
+    }
+  }
+  BookmarkTabGroupButton(const BookmarkTabGroupButton&) = delete;
+  BookmarkTabGroupButton& operator=(const BookmarkTabGroupButton&) = delete;
+
+  std::u16string GetTooltipText(const gfx::Point& p) const override {
+    return label()->GetPreferredSize().width() > label()->size().width()
+               ? GetText()
+               : std::u16string();
+  }
+
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
+    BookmarkMenuButtonBase::GetAccessibleNodeData(node_data);
+    node_data->AddStringAttribute(
+        ax::mojom::StringAttribute::kRoleDescription,
+        l10n_util::GetStringUTF8(
+            IDS_ACCNAME_BOOKMARK_FOLDER_BUTTON_ROLE_DESCRIPTION));
+  }
+
+  // Set the background color and stroke width/color according to flag
+  // parameter. Colored dot icon added and text inversion set in
+  // ConfigureButton.
+  void OnPaintBackground(gfx::Canvas* canvas) override {
+    const ui::ThemeProvider* const tp = GetThemeProvider();
+    gfx::RectF rect_f = gfx::RectF(width(), height());
+    rect_f.Inset(1.0f, 1.0f);
+    float border_thickness_ = 2.0f;
+
+    SkColor tab_strip_color =
+        tp->GetColor(GetTabGroupDialogColorId(tab_group_color_id_));
+    const float tab_group_chip_alpha = 0.48f;
+    const SkColor default_dark_toolbar_color = ThemeProperties::GetDefaultColor(
+        ThemeProperties::COLOR_TOOLBAR, false, true);
+
+    // Set UI options based on flag parameter.
+    int ui_option = base::GetFieldTrialParamByFeatureAsInt(
+        features::kTabGroupsSave,
+        features::kTabGroupsSaveUIVariationsParameterName, 0);
+
+    // Relies on logic in theme_helper.cc to determine dark/light palette.
+    // Sets border color to be same as background color.
+    // Sets for ui_option 0, 1, 3, and 4.
+    SkColor background_color =
+        tp->GetColor(GetTabGroupBookmarkColorId(tab_group_color_id_));
+    SkColor border_color = background_color;
+
+    switch (ui_option) {
+      case 2:
+        // Set 1dp stroke border at full opacity.
+        border_thickness_ = 1.0f;
+        rect_f.Inset(border_thickness_ / 2, border_thickness_ / 2);
+        border_color = tab_strip_color;
+        break;
+      case 5:
+        // Set 1dp stroke border at 48% opacity.
+        border_thickness_ = 1.0;
+        rect_f.Inset(border_thickness_ / 2, border_thickness_ / 2);
+        border_color = color_utils::AlphaBlend(
+            tab_strip_color, default_dark_toolbar_color, tab_group_chip_alpha);
+        break;
+      case 6:
+        // Use tab strip colors for background.
+        background_color = tab_strip_color;
+        border_color = tab_strip_color;
+        break;
+      case 7:
+        // Use tab strip colors for custom theme background, otherwise 24%
+        // opacity colors.
+        if (tp->HasCustomColor(ThemeProperties::COLOR_TOOLBAR)) {
+          background_color = tab_strip_color;
+          border_color = tab_strip_color;
+        }
+        break;
+    }
+
+    // Show 2px border on hover.
+    if (GetState() == STATE_HOVERED || GetState() == STATE_PRESSED) {
+      border_color =
+          tp->GetColor(GetTabGroupDialogColorId(tab_group_color_id_));
+      border_thickness_ = 2.0f;
+      rect_f.Inset(border_thickness_ / 2, border_thickness_ / 2);
+    }
+
+    // Draw background.
+    cc::PaintFlags flags;
+    flags.setAntiAlias(true);
+    flags.setStyle(cc::PaintFlags::kFill_Style);
+    flags.setColor(background_color);
+    canvas->DrawRoundRect(rect_f, button_radius_, flags);
+
+    // Draw border.
+    flags.setStyle(cc::PaintFlags::kStroke_Style);
+    flags.setColor(border_color);
+    flags.setStrokeWidth(SkIntToScalar(border_thickness_));
+    canvas->DrawRoundRect(rect_f, border_radius_, flags);
+  }
+
+ private:
+  std::unique_ptr<gfx::SlideAnimation> show_animation_;
+  tab_groups::TabGroupColorId tab_group_color_id_ =
+      tab_groups::TabGroupColorId::kRed;
+  float border_radius_ = 4.5f;
+  float button_radius_ = 5.0f;
+};
+
+BEGIN_METADATA(BookmarkTabGroupButton, BookmarkMenuButtonBase)
 END_METADATA
 
 // OverflowButton (chevron) --------------------------------------------------
@@ -428,7 +534,7 @@ struct BookmarkBarView::DropLocation {
   }
 
   // Index into the model the drop is over. This is relative to the root node.
-  base::Optional<size_t> index;
+  absl::optional<size_t> index;
 
   // Drop constants.
   DragOperation operation = DragOperation::kNone;
@@ -445,17 +551,15 @@ struct BookmarkBarView::DropLocation {
 // Tracks drops on the BookmarkBarView.
 
 struct BookmarkBarView::DropInfo {
-  DropInfo() : valid(false), is_menu_showing(false), x(0), y(0) {}
-
   // Whether the data is valid.
-  bool valid;
+  bool valid = false;
 
   // If true, the menu is being shown.
-  bool is_menu_showing;
+  bool is_menu_showing = false;
 
   // Coordinates of the drag (in terms of the BookmarkBarView).
-  int x;
-  int y;
+  int x = 0;
+  int y = 0;
 
   // DropData for the drop.
   bookmarks::BookmarkNodeData data;
@@ -522,6 +626,9 @@ BookmarkBarView::BookmarkBarView(Browser* browser, BrowserView* browser_view)
   // May be null for tests.
   if (browser_view)
     SetBackground(std::make_unique<TopContainerBackground>(browser_view));
+
+  views::SetCascadingThemeProviderColor(this, views::kCascadingBackgroundColor,
+                                        ThemeProperties::COLOR_TOOLBAR);
 }
 
 BookmarkBarView::~BookmarkBarView() {
@@ -601,6 +708,9 @@ const BookmarkNode* BookmarkBarView::GetNodeForButtonAtModelIndex(
     return managed_->managed_node();
   }
 
+  // TODO: add logic to get saved groups node(crbug.com/1223929 and
+  // crbug.com/1223919)
+
   // Then check the bookmark buttons.
   for (size_t i = 0; i < bookmark_buttons_.size(); ++i) {
     views::View* child = bookmark_buttons_[i];
@@ -633,10 +743,13 @@ MenuButton* BookmarkBarView::GetMenuButtonForNode(const BookmarkNode* node) {
     return other_bookmarks_button_;
   if (node == model_->bookmark_bar_node())
     return overflow_button_;
+  // TODO: add logic to handle saved groups node(crbug.com/1223929 and
+  // crbug.com/1223919)
   int index = model_->bookmark_bar_node()->GetIndexOf(node);
   if (index == -1 || !node->is_folder())
     return nullptr;
-  return static_cast<MenuButton*>(bookmark_buttons_[size_t{index}]);
+  return static_cast<MenuButton*>(
+      bookmark_buttons_[static_cast<size_t>(index)]);
 }
 
 void BookmarkBarView::GetAnchorPositionForButton(
@@ -671,16 +784,16 @@ void BookmarkBarView::StopThrobbing(bool immediate) {
 }
 
 // static
-base::string16 BookmarkBarView::CreateToolTipForURLAndTitle(
+std::u16string BookmarkBarView::CreateToolTipForURLAndTitle(
     int max_width,
     const gfx::FontList& tt_fonts,
     const GURL& url,
-    const base::string16& title) {
-  base::string16 result;
+    const std::u16string& title) {
+  std::u16string result;
 
   // First the title.
   if (!title.empty()) {
-    base::string16 localized_title = title;
+    std::u16string localized_title = title;
     base::i18n::AdjustStringForLocaleDirection(&localized_title);
     result.append(
         gfx::ElideText(localized_title, tt_fonts, max_width, gfx::ELIDE_TAIL));
@@ -697,7 +810,7 @@ base::string16 BookmarkBarView::CreateToolTipForURLAndTitle(
     // "/http://www.yahoo.com" when rendered, as is, in an RTL context since
     // the Unicode BiDi algorithm puts certain characters on the left by
     // default.
-    base::string16 elided_url(
+    std::u16string elided_url(
         url_formatter::ElideUrl(url, tt_fonts, max_width));
     elided_url = base::i18n::GetDisplayStringInLTRDirectionality(elided_url);
     result.append(elided_url);
@@ -745,7 +858,7 @@ gfx::Size BookmarkBarView::GetMinimumSize() const {
     gfx::Size size = apps_page_shortcut_->GetPreferredSize();
     width += size.width() + bookmark_bar_button_padding;
   }
-  if (read_later_button_) {
+  if (read_later_button_ && read_later_button_->GetVisible()) {
     gfx::Size separator_size = read_later_separator_view_->GetPreferredSize();
     gfx::Size size = read_later_button_->GetPreferredSize();
     width +=
@@ -803,10 +916,16 @@ void BookmarkBarView::Layout() {
 
   int max_x = kBookmarkBarHorizontalMargin + width - overflow_pref.width() -
               bookmarks_separator_pref.width();
-  if (other_bookmarks_button_->GetVisible())
-    max_x -= other_bookmarks_pref.width() + bookmark_bar_button_padding;
+  if (other_bookmarks_button_->GetVisible()) {
+    max_x -= other_bookmarks_pref.width();
+    // Additional spacing is only needed for this button if it is the last
+    // button in the bookmark bar. When the read later button exists this is no
+    // longer the last button.
+    if (!read_later_button_ || !read_later_button_->GetVisible())
+      max_x -= bookmark_bar_button_padding;
+  }
 
-  if (read_later_button_) {
+  if (read_later_button_ && read_later_button_->GetVisible()) {
     if (bookmarks_separator_view_->GetVisible())
       max_x -= bookmarks_separator_pref.width();
     max_x -= read_later_button_->GetPreferredSize().width() +
@@ -846,6 +965,9 @@ void BookmarkBarView::Layout() {
         button_count = bookmark_buttons_.size();
       }
       views::View* child = bookmark_buttons_[i];
+
+      // customize child appearance??
+
       gfx::Size pref = child->GetPreferredSize();
       int next_x = x + pref.width() + bookmark_bar_button_padding;
       last_visible = next_x < max_x;
@@ -883,11 +1005,15 @@ void BookmarkBarView::Layout() {
   if (other_bookmarks_button_->GetVisible()) {
     other_bookmarks_button_->SetBounds(x, y, other_bookmarks_pref.width(),
                                        button_height);
-    x += other_bookmarks_pref.width() + bookmark_bar_button_padding;
+    x += other_bookmarks_pref.width();
+    // Additional spacing is only needed for the last button in the bookmark
+    // bar. When the read later button exists this is no longer the last button.
+    if (!read_later_button_ || !read_later_button_->GetVisible())
+      x += bookmark_bar_button_padding;
   }
 
   // Read-later button and separator.
-  if (read_later_button_) {
+  if (read_later_button_ && read_later_button_->GetVisible()) {
     gfx::Size read_later_separator_pref =
         read_later_separator_view_->GetPreferredSize();
     gfx::Size read_later_pref = read_later_button_->GetPreferredSize();
@@ -920,7 +1046,7 @@ void BookmarkBarView::ViewHierarchyChanged(
 void BookmarkBarView::PaintChildren(const views::PaintInfo& paint_info) {
   View::PaintChildren(paint_info);
 
-  if (drop_info_.get() && drop_info_->valid &&
+  if (drop_info_ && drop_info_->valid &&
       drop_info_->location.operation != DragOperation::kNone &&
       drop_info_->location.index.has_value() &&
       drop_info_->location.button_type != DROP_OVERFLOW &&
@@ -1051,8 +1177,6 @@ void BookmarkBarView::OnDragExited() {
   // NOTE: we don't hide the menu on exit as it's possible the user moved the
   // mouse over the menu, which triggers an exit on us.
 
-  drop_info_->valid = false;
-
   if (drop_info_->location.index.has_value()) {
     // TODO(sky): optimize the paint region.
     SchedulePaint();
@@ -1066,40 +1190,42 @@ DragOperation BookmarkBarView::OnPerformDrop(const ui::DropTargetEvent& event) {
   if (bookmark_drop_menu_)
     bookmark_drop_menu_->Cancel();
 
-  if (!drop_info_.get() ||
+  if (!drop_info_ || !drop_info_->valid ||
       drop_info_->location.operation == DragOperation::kNone)
     return DragOperation::kNone;
 
-  const BookmarkNode* root =
-      (drop_info_->location.button_type == DROP_OTHER_FOLDER)
-          ? model_->other_node()
-          : model_->bookmark_bar_node();
-
-  if (drop_info_->location.index.has_value()) {
-    // TODO(sky): optimize the SchedulePaint region.
-    SchedulePaint();
-  }
-
-  const BookmarkNode* parent_node;
-  size_t index;
-  if (drop_info_->location.button_type == DROP_OTHER_FOLDER) {
-    parent_node = root;
-    index = parent_node->children().size();
-  } else if (drop_info_->location.on) {
-    parent_node = root->children()[drop_info_->location.index.value()].get();
-    index = parent_node->children().size();
-  } else {
-    parent_node = root;
-    index = drop_info_->location.index.value();
-  }
-  const bookmarks::BookmarkNodeData data = drop_info_->data;
-  DCHECK(data.is_valid());
+  size_t index = -1;
+  const bookmarks::BookmarkNode* parent_node =
+      GetParentNodeAndIndexForDrop(index);
   bool copy = drop_info_->location.operation == DragOperation::kCopy;
+  DragOperation output_drag_op = DragOperation::kNone;
+  bookmarks::BookmarkNodeData drop_data = drop_info_->data;
   drop_info_.reset();
+  PerformDrop(std::move(drop_data), parent_node, index, copy, event,
+              output_drag_op);
+  return output_drag_op;
+}
 
-  base::RecordAction(base::UserMetricsAction("BookmarkBar_DragEnd"));
-  return chrome::DropBookmarks(browser_->profile(), data, parent_node, index,
-                               copy);
+views::View::DropCallback BookmarkBarView::GetDropCallback(
+    const ui::DropTargetEvent& event) {
+  StopShowFolderDropMenuTimer();
+
+  if (bookmark_drop_menu_)
+    bookmark_drop_menu_->Cancel();
+
+  if (!drop_info_ || !drop_info_->valid ||
+      drop_info_->location.operation == DragOperation::kNone)
+    return base::NullCallback();
+
+  size_t index = -1;
+  const bookmarks::BookmarkNode* parent_node =
+      GetParentNodeAndIndexForDrop(index);
+  bool copy = drop_info_->location.operation == DragOperation::kCopy;
+  bookmarks::BookmarkNodeData drop_data = drop_info_->data;
+  drop_info_.reset();
+  return base::BindOnce(&BookmarkBarView::PerformDrop,
+                        drop_weak_ptr_factory_.GetWeakPtr(),
+                        std::move(drop_data), parent_node, index, copy);
 }
 
 void BookmarkBarView::OnThemeChanged() {
@@ -1178,6 +1304,8 @@ void BookmarkBarView::BookmarkModelBeingDeleted(BookmarkModel* model) {
   // Do minimal cleanup, presumably we'll be deleted shortly.
   model_->RemoveObserver(this);
   model_ = nullptr;
+
+  drop_weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void BookmarkBarView::BookmarkNodeMoved(BookmarkModel* model,
@@ -1185,6 +1313,12 @@ void BookmarkBarView::BookmarkNodeMoved(BookmarkModel* model,
                                         size_t old_index,
                                         const BookmarkNode* new_parent,
                                         size_t new_index) {
+  // It is extremely rare for the model to mutate during a drop. Rather than
+  // trying to validate the location (which may no longer be valid), this takes
+  // the simple route of marking the drop as invalid. If the user moves the
+  // mouse/touch-device, the location will update accordingly.
+  InvalidateDrop();
+
   bool was_throbbing =
       throbbing_view_ &&
       throbbing_view_ == DetermineViewToThrobFromRemove(old_parent, old_index);
@@ -1198,13 +1332,19 @@ void BookmarkBarView::BookmarkNodeMoved(BookmarkModel* model,
     StartThrobbing(new_parent->children()[new_index].get(), false);
   if (needs_layout_and_paint)
     LayoutAndPaint();
+
+  drop_weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void BookmarkBarView::BookmarkNodeAdded(BookmarkModel* model,
                                         const BookmarkNode* parent,
                                         size_t index) {
+  // See comment in BookmarkNodeMoved() for details on this.
+  InvalidateDrop();
   if (BookmarkNodeAddedImpl(model, parent, index))
     LayoutAndPaint();
+
+  drop_weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void BookmarkBarView::BookmarkNodeRemoved(BookmarkModel* model,
@@ -1212,16 +1352,24 @@ void BookmarkBarView::BookmarkNodeRemoved(BookmarkModel* model,
                                           size_t old_index,
                                           const BookmarkNode* node,
                                           const std::set<GURL>& removed_urls) {
+  // See comment in BookmarkNodeMoved() for details on this.
+  InvalidateDrop();
+
   // Close the menu if the menu is showing for the deleted node.
   if (bookmark_menu_ && bookmark_menu_->node() == node)
     bookmark_menu_->Cancel();
   if (BookmarkNodeRemovedImpl(model, parent, old_index))
     LayoutAndPaint();
+
+  drop_weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void BookmarkBarView::BookmarkAllUserNodesRemoved(
     BookmarkModel* model,
     const std::set<GURL>& removed_urls) {
+  // See comment in BookmarkNodeMoved() for details on this.
+  InvalidateDrop();
+
   UpdateOtherAndManagedButtonsVisibility();
 
   StopThrobbing(true);
@@ -1233,15 +1381,22 @@ void BookmarkBarView::BookmarkAllUserNodesRemoved(
   bookmark_buttons_.clear();
 
   LayoutAndPaint();
+
+  drop_weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void BookmarkBarView::BookmarkNodeChanged(BookmarkModel* model,
                                           const BookmarkNode* node) {
   BookmarkNodeChangedImpl(model, node);
+
+  drop_weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void BookmarkBarView::BookmarkNodeChildrenReordered(BookmarkModel* model,
                                                     const BookmarkNode* node) {
+  // See comment in BookmarkNodeMoved() for details on this.
+  InvalidateDrop();
+
   if (node != model->bookmark_bar_node())
     return;  // We only care about reordering of the bookmark bar node.
 
@@ -1258,6 +1413,8 @@ void BookmarkBarView::BookmarkNodeChildrenReordered(BookmarkModel* model,
   }
 
   LayoutAndPaint();
+
+  drop_weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void BookmarkBarView::BookmarkNodeFaviconChanged(BookmarkModel* model,
@@ -1272,21 +1429,20 @@ void BookmarkBarView::WriteDragDataForView(View* sender,
 
   const auto* node = GetNodeForSender(sender);
   ui::ImageModel icon;
-  views::Widget* widget = sender->GetWidget();
   if (node->is_url()) {
     const gfx::Image& image = model_->GetFavicon(node);
     icon = image.IsEmpty()
                ? ui::ImageModel::FromImage(favicon::GetDefaultFavicon())
                : ui::ImageModel::FromImage(image);
   } else {
-    icon =
-        chrome::GetBookmarkFolderIcon(widget->GetNativeTheme()->GetSystemColor(
-            ui::NativeTheme::kColorId_LabelEnabledColor));
+    icon = chrome::GetBookmarkFolderIcon(
+        chrome::BookmarkFolderIconType::kNormal, ui::kColorMenuIcon);
   }
 
-  button_drag_utils::SetDragImage(node->url(), node->GetTitle(),
-                                  *icon.GetImage().ToImageSkia(), &press_pt,
-                                  *widget, data);
+  button_drag_utils::SetDragImage(
+      node->url(), node->GetTitle(),
+      views::GetImageSkiaFromImageModel(icon, GetColorProvider()), &press_pt,
+      data);
   WriteBookmarkDragData(node, data);
 }
 
@@ -1345,7 +1501,7 @@ void BookmarkBarView::OnButtonPressed(const bookmarks::BookmarkNode* node,
   page_navigator_->OpenURL(params);
   RecordBookmarkLaunch(
       BOOKMARK_LAUNCH_LOCATION_ATTACHED_BAR,
-      ProfileMetrics::GetBrowserProfileType(browser_->profile()));
+      profile_metrics::GetBrowserProfileType(browser_->profile()));
 }
 
 void BookmarkBarView::OnMenuButtonPressed(const bookmarks::BookmarkNode* node,
@@ -1356,16 +1512,30 @@ void BookmarkBarView::OnMenuButtonPressed(const bookmarks::BookmarkNode* node,
       (event.flags() & ui::EF_PLATFORM_ACCELERATOR)) {
     RecordBookmarkFolderLaunch(BOOKMARK_LAUNCH_LOCATION_ATTACHED_BAR);
     chrome::OpenAllIfAllowed(browser_, GetPageNavigatorGetter(), {node},
-                             ui::DispositionFromEventFlags(event.flags()));
+                             ui::DispositionFromEventFlags(event.flags()),
+                             false);
   } else {
-    RecordBookmarkFolderOpen(BOOKMARK_LAUNCH_LOCATION_ATTACHED_BAR);
-    const size_t start_index =
-        (node == model_->bookmark_bar_node()) ? GetFirstHiddenNodeIndex() : 0;
-    bookmark_menu_ =
-        new BookmarkMenuController(browser_, GetPageNavigatorGetter(),
-                                   GetWidget(), node, start_index, false);
-    bookmark_menu_->set_observer(this);
-    bookmark_menu_->RunMenuAt(this);
+    // saved tab groups flag
+    if (base::FeatureList::IsEnabled(features::kTabGroupsSave)) {
+      // Record as bookmark folder launch in dev when rendering tab groups from
+      // folder data.
+      RecordBookmarkFolderLaunch(BOOKMARK_LAUNCH_LOCATION_ATTACHED_BAR);
+      // TODO: Handle click if group has already been opened (crbug.com/1238539)
+      // left click on a saved tab group opens all links in new group
+      std::vector<const bookmarks::BookmarkNode*> selection = {node};
+      DCHECK(chrome::HasBookmarkURLs(selection));
+      chrome::OpenAllIfAllowed(browser_, GetPageNavigatorGetter(), selection,
+                               WindowOpenDisposition::NEW_BACKGROUND_TAB, true);
+    } else {
+      RecordBookmarkFolderOpen(BOOKMARK_LAUNCH_LOCATION_ATTACHED_BAR);
+      const size_t start_index =
+          (node == model_->bookmark_bar_node()) ? GetFirstHiddenNodeIndex() : 0;
+      bookmark_menu_ =
+          new BookmarkMenuController(browser_, GetPageNavigatorGetter(),
+                                     GetWidget(), node, start_index, false);
+      bookmark_menu_->set_observer(this);
+      bookmark_menu_->RunMenuAt(this);
+    }
   }
 }
 
@@ -1388,17 +1558,32 @@ void BookmarkBarView::ShowContextMenuForViewImpl(
   } else if (source == managed_bookmarks_button_) {
     parent = managed_->managed_node();
     nodes.push_back(parent);
+  } else if (source == read_later_button_) {
+    // Do nothing here for now.
   } else if (source != this && source != apps_page_shortcut_) {
     // User clicked on one of the bookmark buttons, find which one they
     // clicked on, except for the apps page shortcut, which must behave as if
     // the user clicked on the bookmark bar background.
     size_t bookmark_button_index = GetIndexForButton(source);
-    DCHECK_NE(size_t{-1}, bookmark_button_index);
+    DCHECK_NE(static_cast<size_t>(-1), bookmark_button_index);
     DCHECK_LT(bookmark_button_index, bookmark_buttons_.size());
     const BookmarkNode* node =
         model_->bookmark_bar_node()->children()[bookmark_button_index].get();
     nodes.push_back(node);
     parent = node->parent();
+    // saved tab groups feature flag.
+    if (base::FeatureList::IsEnabled(features::kTabGroupsSave) &&
+        !node->is_url()) {
+      RecordBookmarkFolderOpen(BOOKMARK_LAUNCH_LOCATION_ATTACHED_BAR);
+      const size_t start_index =
+          (node == model_->bookmark_bar_node()) ? GetFirstHiddenNodeIndex() : 0;
+      bookmark_menu_ =
+          new BookmarkMenuController(browser_, GetPageNavigatorGetter(),
+                                     GetWidget(), node, start_index, false);
+      bookmark_menu_->set_observer(this);
+      bookmark_menu_->RunMenuAt(this);
+      return;
+    }
   } else {
     parent = model_->bookmark_bar_node();
     nodes.push_back(parent);
@@ -1433,11 +1618,13 @@ void BookmarkBarView::Init() {
   // We'll re-enable when the model is loaded.
   other_bookmarks_button_->SetEnabled(false);
 
-  if (base::FeatureList::IsEnabled(reading_list::switches::kReadLater)) {
+  if (base::FeatureList::IsEnabled(reading_list::switches::kReadLater) &&
+      !base::FeatureList::IsEnabled(features::kSidePanel)) {
     read_later_separator_view_ =
         AddChildView(std::make_unique<ButtonSeparatorView>());
     read_later_button_ =
         AddChildView(std::make_unique<ReadLaterButton>(browser_));
+    read_later_button_->set_context_menu_controller(this);
   }
 
   profile_pref_registrar_.Init(browser_->profile()->GetPrefs());
@@ -1446,12 +1633,23 @@ void BookmarkBarView::Init() {
       base::BindRepeating(
           &BookmarkBarView::OnAppsPageShortcutVisibilityPrefChanged,
           base::Unretained(this)));
+  if (read_later_button_) {
+    profile_pref_registrar_.Add(
+        bookmarks::prefs::kShowReadingListInBookmarkBar,
+        base::BindRepeating(
+            &BookmarkBarView::OnReadingListVisibilityPrefChanged,
+            base::Unretained(this)));
+  }
   profile_pref_registrar_.Add(
       bookmarks::prefs::kShowManagedBookmarksInBookmarkBar,
       base::BindRepeating(&BookmarkBarView::OnShowManagedBookmarksPrefChanged,
                           base::Unretained(this)));
   apps_page_shortcut_->SetVisible(
       chrome::ShouldShowAppsShortcutInBookmarkBar(browser_->profile()));
+  if (read_later_button_) {
+    read_later_button_->SetVisible(
+        chrome::ShouldShowReadingListInBookmarkBar(browser_->profile()));
+  }
 
   bookmarks_separator_view_ =
       AddChildView(std::make_unique<ButtonSeparatorView>());
@@ -1542,11 +1740,19 @@ std::unique_ptr<views::View> BookmarkBarView::CreateBookmarkButton(
         node->url(), url_formatter::kFormatUrlOmitDefaults,
         net::UnescapeRule::SPACES, nullptr, nullptr, nullptr));
   } else {
-    button = std::make_unique<BookmarkFolderButton>(
-        base::BindRepeating(&BookmarkBarView::OnMenuButtonPressed,
-                            base::Unretained(this), node),
-        node->GetTitle());
-    button->GetViewAccessibility().OverrideDescription("");
+    // saved tab groups feature flag.
+    if (base::FeatureList::IsEnabled(features::kTabGroupsSave)) {
+      button = std::make_unique<BookmarkTabGroupButton>(
+          base::BindRepeating(&BookmarkBarView::OnMenuButtonPressed,
+                              base::Unretained(this), node),
+          node->GetTitle());
+      button->GetViewAccessibility().OverrideDescription("");
+    } else {
+      button = std::make_unique<BookmarkFolderButton>(
+          base::BindRepeating(&BookmarkBarView::OnMenuButtonPressed,
+                              base::Unretained(this), node),
+          node->GetTitle());
+    }
   }
   ConfigureButton(node, button.get());
   bookmark_buttons_.insert(bookmark_buttons_.cbegin() + index, button.get());
@@ -1581,8 +1787,61 @@ void BookmarkBarView::ConfigureButton(const BookmarkNode* node,
     text_color = tp->GetColor(ThemeProperties::COLOR_BOOKMARK_TEXT);
     button->SetEnabledTextColors(text_color);
     if (node->is_folder()) {
-      button->SetImageModel(views::Button::STATE_NORMAL,
-                            chrome::GetBookmarkFolderIcon(text_color));
+      // If saved tab groups is enabled, set text color or dot if indicated by
+      // flag parameter. Chip background and border colors are set in
+      // OnPaintBackground.
+      if (base::FeatureList::IsEnabled(features::kTabGroupsSave)) {
+        SkColor tab_strip_color = tp->GetColor(
+            GetTabGroupDialogColorId(tab_groups::TabGroupColorId::kRed));
+        int ui_option = base::GetFieldTrialParamByFeatureAsInt(
+            features::kTabGroupsSave,
+            features::kTabGroupsSaveUIVariationsParameterName, 0);
+        switch (ui_option) {
+          case 4:
+            // Set 6dp colored tab group dot icon.
+            button->SetImageModel(views::Button::STATE_NORMAL,
+                                  ui::ImageModel::FromVectorIcon(
+                                      kTabGroupIcon, tab_strip_color, 6));
+            break;
+          case 6:
+            // Invert bookmark text colors for chip with tab strip color
+            // background.
+            button->SetEnabledTextColors(
+                color_utils::GetColorWithMaxContrast(tab_strip_color));
+            break;
+          case 7:
+            // If a custom theme is set, invert bookmark text colors for chip
+            // with tab strip color background.
+            if (tp->HasCustomColor(ThemeProperties::COLOR_TOOLBAR)) {
+              button->SetEnabledTextColors(
+                  color_utils::GetColorWithMaxContrast(tab_strip_color));
+            }
+            break;
+        }
+        // Set empty border using the default horizontal padding (but leaving
+        // vertical empty). This provides enough space to render some
+        // background to the left and right of the label. There's no need to
+        // set the top and bottom margins because the bookmarks bar is a fixed
+        // height and the button will be stretched vertically to fit.
+        gfx::Insets insets =
+            GetLayoutProvider()->GetInsetsMetric(views::INSETS_LABEL_BUTTON);
+        insets.set_top(0);
+        insets.set_bottom(0);
+        button->SetBorder(views::CreateEmptyBorder(insets));
+      } else {
+        if (tp->HasCustomColor(ThemeProperties::COLOR_BOOKMARK_TEXT)) {
+          button->SetImageModel(
+              views::Button::STATE_NORMAL,
+              chrome::GetBookmarkFolderIcon(
+                  chrome::BookmarkFolderIconType::kNormal,
+                  color_utils::DeriveDefaultIconColor(text_color)));
+        } else {
+          button->SetImageModel(
+              views::Button::STATE_NORMAL,
+              chrome::GetBookmarkFolderIcon(
+                  chrome::BookmarkFolderIconType::kNormal, ui::kColorIcon));
+        }
+      }
     }
   }
 
@@ -1657,7 +1916,12 @@ bool BookmarkBarView::BookmarkNodeRemovedImpl(BookmarkModel* model,
 
   views::LabelButton* button = bookmark_buttons_[index];
   bookmark_buttons_.erase(bookmark_buttons_.cbegin() + index);
-  delete button;
+  // Set not visible before removing to advance focus if needed. See
+  // crbug.com/1183980. TODO(crbug.com/1189729): remove this workaround if
+  // FocusManager behavior is changed.
+  button->SetVisible(false);
+  RemoveChildViewT(button);
+
   return true;
 }
 
@@ -1677,9 +1941,9 @@ void BookmarkBarView::BookmarkNodeChangedImpl(BookmarkModel* model,
   }
   int index = model->bookmark_bar_node()->GetIndexOf(node);
   DCHECK_NE(-1, index);
-  if (size_t{index} >= bookmark_buttons_.size())
+  if (static_cast<size_t>(index) >= bookmark_buttons_.size())
     return;  // Buttons are created as needed.
-  views::LabelButton* button = bookmark_buttons_[size_t{index}];
+  views::LabelButton* button = bookmark_buttons_[static_cast<size_t>(index)];
   const int old_pref_width = button->GetPreferredSize().width();
   ConfigureButton(node, button);
   if (old_pref_width != button->GetPreferredSize().width())
@@ -1729,7 +1993,7 @@ void BookmarkBarView::StartShowFolderDropMenuTimer(const BookmarkNode* node) {
       FROM_HERE,
       base::BindOnce(&BookmarkBarView::ShowDropFolderForNode,
                      show_folder_method_factory_.GetWeakPtr(), node),
-      base::TimeDelta::FromMilliseconds(views::GetMenuShowDelay()));
+      base::Milliseconds(views::GetMenuShowDelay()));
 }
 
 void BookmarkBarView::CalculateDropLocation(
@@ -1844,6 +2108,16 @@ void BookmarkBarView::CalculateDropLocation(
   }
 }
 
+void BookmarkBarView::InvalidateDrop() {
+  if (drop_info_ && drop_info_->valid) {
+    drop_info_->valid = false;
+    SchedulePaint();
+  }
+  if (bookmark_drop_menu_)
+    bookmark_drop_menu_->Cancel();
+  StopShowFolderDropMenuTimer();
+}
+
 const BookmarkNode* BookmarkBarView::GetNodeForSender(View* sender) const {
   const auto i =
       std::find(bookmark_buttons_.cbegin(), bookmark_buttons_.cend(), sender);
@@ -1874,7 +2148,7 @@ void BookmarkBarView::StartThrobbing(const BookmarkNode* node,
     parent_on_bb = parent;
   }
   if (parent_on_bb) {
-    size_t index = size_t{bbn->GetIndexOf(parent_on_bb)};
+    size_t index = static_cast<size_t>(bbn->GetIndexOf(parent_on_bb));
     if (index >= GetFirstHiddenNodeIndex()) {
       // Node is hidden, animate the overflow button.
       throbbing_view_ = overflow_button_;
@@ -1899,12 +2173,12 @@ views::Button* BookmarkBarView::DetermineViewToThrobFromRemove(
   const BookmarkNode* old_node = parent;
   size_t old_index_on_bb = old_index;
   while (old_node && old_node != bbn) {
-    const BookmarkNode* parent = old_node->parent();
-    if (parent == bbn) {
-      old_index_on_bb = size_t{bbn->GetIndexOf(old_node)};
+    const BookmarkNode* old_parent = old_node->parent();
+    if (old_parent == bbn) {
+      old_index_on_bb = static_cast<size_t>(bbn->GetIndexOf(old_node));
       break;
     }
-    old_node = parent;
+    old_node = old_parent;
   }
   if (old_node) {
     if (old_index_on_bb >= GetFirstHiddenNodeIndex()) {
@@ -1932,11 +2206,27 @@ void BookmarkBarView::UpdateAppearanceForTheme() {
   const SkColor color =
       theme_provider->GetColor(ThemeProperties::COLOR_BOOKMARK_TEXT);
   other_bookmarks_button_->SetEnabledTextColors(color);
-  other_bookmarks_button_->SetImageModel(views::Button::STATE_NORMAL,
-                                         chrome::GetBookmarkFolderIcon(color));
   managed_bookmarks_button_->SetEnabledTextColors(color);
-  managed_bookmarks_button_->SetImageModel(
-      views::Button::STATE_NORMAL, chrome::GetBookmarkManagedFolderIcon(color));
+  if (theme_provider->HasCustomColor(ThemeProperties::COLOR_BOOKMARK_TEXT)) {
+    SkColor folder_color = color_utils::DeriveDefaultIconColor(color);
+    other_bookmarks_button_->SetImageModel(
+        views::Button::STATE_NORMAL,
+        chrome::GetBookmarkFolderIcon(chrome::BookmarkFolderIconType::kNormal,
+                                      folder_color));
+    managed_bookmarks_button_->SetImageModel(
+        views::Button::STATE_NORMAL,
+        chrome::GetBookmarkFolderIcon(chrome::BookmarkFolderIconType::kManaged,
+                                      folder_color));
+  } else {
+    other_bookmarks_button_->SetImageModel(
+        views::Button::STATE_NORMAL,
+        chrome::GetBookmarkFolderIcon(chrome::BookmarkFolderIconType::kNormal,
+                                      ui::kColorIcon));
+    managed_bookmarks_button_->SetImageModel(
+        views::Button::STATE_NORMAL,
+        chrome::GetBookmarkFolderIcon(chrome::BookmarkFolderIconType::kManaged,
+                                      ui::kColorIcon));
+  }
 
   if (apps_page_shortcut_->GetVisible())
     apps_page_shortcut_->SetEnabledTextColors(color);
@@ -1995,6 +2285,18 @@ void BookmarkBarView::OnAppsPageShortcutVisibilityPrefChanged() {
   LayoutAndPaint();
 }
 
+void BookmarkBarView::OnReadingListVisibilityPrefChanged() {
+  DCHECK(read_later_button_);
+  bool visible =
+      chrome::ShouldShowReadingListInBookmarkBar(browser_->profile());
+  if (read_later_button_->GetVisible() == visible)
+    return;
+  read_later_button_->CloseBubble();
+  read_later_button_->SetVisible(visible);
+  read_later_separator_view_->SetVisible(visible);
+  LayoutAndPaint();
+}
+
 void BookmarkBarView::OnShowManagedBookmarksPrefChanged() {
   if (UpdateOtherAndManagedButtonsVisibility())
     LayoutAndPaint();
@@ -2012,25 +2314,31 @@ void BookmarkBarView::InsertBookmarkButtonAtIndex(
   DCHECK_EQ(*i++, managed_bookmarks_button_);
   const auto is_bookmark_button = [this](const auto* v) {
     const char* class_name = v->GetClassName();
-    return (class_name == BookmarkButton::kViewClassName ||
-            class_name == BookmarkFolderButton::kViewClassName) &&
-           v != overflow_button_ && v != other_bookmarks_button_;
+    if (base::FeatureList::IsEnabled(features::kTabGroupsSave))
+      return (class_name == BookmarkButton::kViewClassName ||
+              class_name == BookmarkFolderButton::kViewClassName ||
+              class_name == BookmarkTabGroupButton::kViewClassName) &&
+             v != overflow_button_ && v != other_bookmarks_button_;
+    else
+      return (class_name == BookmarkButton::kViewClassName ||
+              class_name == BookmarkFolderButton::kViewClassName) &&
+             v != overflow_button_ && v != other_bookmarks_button_;
   };
   i = std::find_if_not(i, children().cend(), is_bookmark_button);
   DCHECK_EQ(*i++, overflow_button_);
   DCHECK_EQ(*i++, other_bookmarks_button_);
 #endif
-  AddChildViewAt(std::move(button),
-                 GetIndexOf(managed_bookmarks_button_) + 1 + int{index});
+  AddChildViewAt(std::move(button), GetIndexOf(managed_bookmarks_button_) + 1 +
+                                        static_cast<int>(index));
 }
 
 size_t BookmarkBarView::GetIndexForButton(views::View* button) {
   auto it =
       std::find(bookmark_buttons_.cbegin(), bookmark_buttons_.cend(), button);
   if (it == bookmark_buttons_.cend())
-    return size_t{-1};
+    return static_cast<size_t>(-1);
 
-  return size_t{it - bookmark_buttons_.cbegin()};
+  return static_cast<size_t>(it - bookmark_buttons_.cbegin());
 }
 
 base::RepeatingCallback<content::PageNavigator*()>
@@ -2042,6 +2350,54 @@ BookmarkBarView::GetPageNavigatorGetter() {
     return bookmark_bar->page_navigator_;
   };
   return base::BindRepeating(getter, weak_ptr_factory_.GetWeakPtr());
+}
+
+const BookmarkNode* BookmarkBarView::GetParentNodeAndIndexForDrop(
+    size_t& index) {
+  const BookmarkNode* root =
+      (drop_info_->location.button_type == DROP_OTHER_FOLDER)
+          ? model_->other_node()
+          : model_->bookmark_bar_node();
+
+  if (drop_info_->location.index.has_value()) {
+    // TODO(sky): optimize the SchedulePaint region.
+    SchedulePaint();
+  }
+
+  const BookmarkNode* parent_node;
+  if (drop_info_->location.button_type == DROP_OTHER_FOLDER) {
+    parent_node = root;
+    index = parent_node->children().size();
+  } else if (drop_info_->location.on) {
+    parent_node = root->children()[drop_info_->location.index.value()].get();
+    index = parent_node->children().size();
+  } else {
+    parent_node = root;
+    index = drop_info_->location.index.value();
+  }
+  return parent_node;
+}
+
+void BookmarkBarView::PerformDrop(const bookmarks::BookmarkNodeData data,
+                                  const BookmarkNode* parent_node,
+                                  const size_t index,
+                                  const bool copy,
+                                  const ui::DropTargetEvent& event,
+                                  ui::mojom::DragOperation& output_drag_op) {
+  DCHECK(data.is_valid());
+  DCHECK(parent_node);
+  DCHECK_NE(index, static_cast<size_t>(-1));
+
+  base::RecordAction(base::UserMetricsAction("BookmarkBar_DragEnd"));
+  output_drag_op = chrome::DropBookmarks(browser_->profile(), data, parent_node,
+                                         index, copy);
+}
+
+int BookmarkBarView::GetDropLocationModelIndexForTesting() const {
+  return (drop_info_ && drop_info_->valid &&
+          drop_info_->location.index.has_value())
+             ? *(drop_info_->location.index)
+             : -1;
 }
 
 BEGIN_METADATA(BookmarkBarView, views::AccessiblePaneView)

@@ -13,13 +13,13 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #import "chrome/updater/app/server/mac/service_protocol.h"
 #import "chrome/updater/mac/xpc_service_names.h"
-#include "chrome/updater/service_scope.h"
+#include "chrome/updater/updater_scope.h"
 
 // Interface to communicate with the XPC Update Service Internal.
 @interface CRUUpdateServiceInternalProxyImpl
     : NSObject <CRUUpdateServicingInternal>
 
-- (instancetype)initPrivileged;
+- (instancetype)initWithScope:(updater::UpdaterScope)scope;
 
 @end
 
@@ -27,18 +27,22 @@
   base::scoped_nsobject<NSXPCConnection> _xpcConnection;
 }
 
-- (instancetype)init {
-  return [self initWithConnectionOptions:0];
+- (instancetype)initWithScope:(updater::UpdaterScope)scope {
+  switch (scope) {
+    case updater::UpdaterScope::kUser:
+      return [self initWithConnectionOptions:0 withScope:scope];
+    case updater::UpdaterScope::kSystem:
+      return [self initWithConnectionOptions:NSXPCConnectionPrivileged
+                                   withScope:scope];
+  }
+  return nil;
 }
 
-- (instancetype)initPrivileged {
-  return [self initWithConnectionOptions:NSXPCConnectionPrivileged];
-}
-
-- (instancetype)initWithConnectionOptions:(NSXPCConnectionOptions)options {
+- (instancetype)initWithConnectionOptions:(NSXPCConnectionOptions)options
+                                withScope:(updater::UpdaterScope)scope {
   if ((self = [super init])) {
     _xpcConnection.reset([[NSXPCConnection alloc]
-        initWithMachServiceName:updater::GetUpdateServiceInternalMachName()
+        initWithMachServiceName:updater::GetUpdateServiceInternalMachName(scope)
                                     .get()
                         options:options]);
 
@@ -90,16 +94,15 @@
 
 namespace updater {
 
-UpdateServiceInternalProxy::UpdateServiceInternalProxy(ServiceScope scope)
+scoped_refptr<UpdateServiceInternal> CreateUpdateServiceInternalProxy(
+    UpdaterScope updater_scope) {
+  return base::MakeRefCounted<UpdateServiceInternalProxy>(updater_scope);
+}
+
+UpdateServiceInternalProxy::UpdateServiceInternalProxy(UpdaterScope scope)
     : callback_runner_(base::SequencedTaskRunnerHandle::Get()) {
-  switch (scope) {
-    case ServiceScope::kSystem:
-      client_.reset([[CRUUpdateServiceInternalProxyImpl alloc] initPrivileged]);
-      break;
-    case ServiceScope::kUser:
-      client_.reset([[CRUUpdateServiceInternalProxyImpl alloc] init]);
-      break;
-  }
+  client_.reset(
+      [[CRUUpdateServiceInternalProxyImpl alloc] initWithScope:scope]);
 }
 
 void UpdateServiceInternalProxy::Run(base::OnceClosure callback) {

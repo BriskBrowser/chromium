@@ -10,7 +10,7 @@
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
@@ -57,6 +57,9 @@ class ArcSessionRunnerTest : public testing::Test,
  public:
   ArcSessionRunnerTest()
       : task_environment_(base::test::TaskEnvironment::MainThreadType::UI) {}
+
+  ArcSessionRunnerTest(const ArcSessionRunnerTest&) = delete;
+  ArcSessionRunnerTest& operator=(const ArcSessionRunnerTest&) = delete;
 
   void SetUp() override {
     chromeos::SessionManagerClient::InitializeFakeInMemory();
@@ -137,8 +140,6 @@ class ArcSessionRunnerTest : public testing::Test,
   bool restarting_called_;
   std::unique_ptr<ArcSessionRunner> arc_session_runner_;
   base::test::TaskEnvironment task_environment_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArcSessionRunnerTest);
 };
 
 // Exercises the basic functionality of the ArcSessionRunner. Observer should
@@ -147,6 +148,9 @@ TEST_F(ArcSessionRunnerTest, Basic) {
   class Observer : public ArcSessionRunner::Observer {
    public:
     Observer() = default;
+
+    Observer(const Observer&) = delete;
+    Observer& operator=(const Observer&) = delete;
 
     bool stopped_called() const { return stopped_called_; }
 
@@ -158,8 +162,6 @@ TEST_F(ArcSessionRunnerTest, Basic) {
 
    private:
     bool stopped_called_ = false;
-
-    DISALLOW_COPY_AND_ASSIGN(Observer);
   };
 
   arc_session_runner()->ResumeRunner();

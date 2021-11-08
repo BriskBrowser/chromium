@@ -4,9 +4,10 @@
 
 #include "chrome/browser/chromeos/fileapi/external_file_resolver.h"
 
+#include <utility>
 #include "base/bind.h"
+#include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/file_manager/fileapi_util.h"
 #include "chrome/browser/chromeos/fileapi/external_file_url_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -51,6 +52,9 @@ class URLHelper {
                        std::move(lifetime), profile_id, url));
   }
 
+  URLHelper(const URLHelper&) = delete;
+  URLHelper& operator=(const URLHelper&) = delete;
+
  private:
   void RunOnUIThread(Lifetime lifetime, void* profile_id, const GURL& url) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -60,7 +64,7 @@ class URLHelper {
     }
     Profile* const profile = reinterpret_cast<Profile*>(profile_id);
     content::StoragePartition* const storage =
-        content::BrowserContext::GetStoragePartitionForSite(profile, url);
+        profile->GetDefaultStoragePartition();
     DCHECK(storage);
 
     scoped_refptr<storage::FileSystemContext> context =
@@ -90,7 +94,7 @@ class URLHelper {
     extensions::app_file_handler_util::GetMimeTypeForLocalPath(
         profile, isolated_file_system_.url.path(),
         base::BindOnce(&URLHelper::OnGotMimeTypeOnUIThread,
-                       base::Unretained(this), base::Passed(&lifetime)));
+                       base::Unretained(this), std::move(lifetime)));
   }
 
   void OnGotMimeTypeOnUIThread(Lifetime lifetime,
@@ -118,8 +122,6 @@ class URLHelper {
   scoped_refptr<storage::FileSystemContext> file_system_context_;
   file_manager::util::FileSystemURLAndHandle isolated_file_system_;
   std::string mime_type_;
-
-  DISALLOW_COPY_AND_ASSIGN(URLHelper);
 };
 
 }  // namespace

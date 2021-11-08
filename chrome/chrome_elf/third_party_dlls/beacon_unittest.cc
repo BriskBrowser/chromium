@@ -5,10 +5,10 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 
 #include "chrome/chrome_elf/third_party_dlls/beacon.h"
 
-#include "base/strings/string16.h"
 #include "base/test/test_reg_util_win.h"
 #include "base/win/registry.h"
 #include "chrome/chrome_elf/chrome_elf_constants.h"
@@ -34,12 +34,12 @@ class BeaconTest : public testing::Test {
         override_manager_.OverrideRegistry(HKEY_CURRENT_USER, &temp));
     ASSERT_TRUE(nt::SetTestingOverride(nt::HKCU, temp));
 
-    beacon_registry_key_.reset(
-        new base::win::RegKey(HKEY_CURRENT_USER,
-                              install_static::GetRegistryPath()
-                                  .append(blacklist::kRegistryBeaconKeyName)
-                                  .c_str(),
-                              KEY_QUERY_VALUE | KEY_SET_VALUE));
+    beacon_registry_key_ = std::make_unique<base::win::RegKey>(
+        HKEY_CURRENT_USER,
+        install_static::GetRegistryPath()
+            .append(blacklist::kRegistryBeaconKeyName)
+            .c_str(),
+        KEY_QUERY_VALUE | KEY_SET_VALUE);
   }
 
   void TearDown() override {

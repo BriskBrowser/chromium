@@ -3,18 +3,18 @@
 // found in the LICENSE file.
 
 // clang-format off
-// #import {LanguagesBrowserProxyImpl, LanguagesMetricsProxyImpl, LanguagesPageInteraction} from 'chrome://os-settings/chromeos/lazy_load.js';
+// #import {LanguagesBrowserProxyImpl, LanguagesMetricsProxyImpl, LanguagesPageInteraction, InputsShortcutReminderState} from 'chrome://os-settings/chromeos/lazy_load.js';
 // #import {CrSettingsPrefs, Router, routes} from 'chrome://os-settings/chromeos/os_settings.js';
 // #import {keyDownOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-// #import {getFakeLanguagePrefs} from '../fake_language_settings_private.m.js'
-// #import {FakeSettingsPrivate} from '../fake_settings_private.m.js';
+// #import {getFakeLanguagePrefs} from './fake_language_settings_private.js'
+// #import {FakeSettingsPrivate} from '../fake_settings_private.js';
 // #import {TestLanguagesBrowserProxy} from './test_os_languages_browser_proxy.m.js';
 // #import {TestLanguagesMetricsProxy} from './test_os_languages_metrics_proxy.m.js';
 // #import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-// #import {fakeDataBind} from '../../test_util.m.js';
+// #import {fakeDataBind} from '../../test_util.js';
 // #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
-// #import {waitAfterNextRender} from 'chrome://test/test_util.m.js';
+// #import {isVisible, waitAfterNextRender} from 'chrome://test/test_util.js';
 // clang-format on
 
 suite('input page', () => {
@@ -38,12 +38,69 @@ suite('input page', () => {
     const settingsPrivate =
         new settings.FakeSettingsPrivate(settings.getFakeLanguagePrefs());
     prefElement.initialize(settingsPrivate);
+
+    /**
+     * Prefs listener to emulate SpellcheckService listeners.
+     * As we use a mocked prefs object in tests, we also need to mock the
+     * behavior of SpellcheckService as it relies on a C++ PrefChangeRegistrar
+     * to listen to pref changes - which do not work when the prefs are mocked.
+     * @param {!Array<!chrome.settingsPrivate.PrefObject>} prefs
+     */
+    function spellCheckServiceListener(prefs) {
+      for (const pref of prefs) {
+        switch (pref.key) {
+          case 'spellcheck.dictionaries':
+            // Emulate SpellcheckService::OnSpellCheckDictionariesChanged:
+            // If there are no dictionaries, set browser.enable_spellchecking
+            // to false.
+            if (pref.value.length === 0) {
+              settingsPrivate.setPref(
+                  'browser.enable_spellchecking', false, '', () => {});
+            }
+            break;
+
+          case 'intl.accept_languages':
+            // Emulate SpellcheckService::OnAcceptLanguagesChanged:
+            // Filter spellcheck.dictionaries and remove all dictionaries not
+            // in intl.accept_languages. We won't "normalize" it here as it is
+            // extremely difficult to do in JavaScript, and should not matter
+            // for tests.
+            // Disabled for LSV2 Update 2.
+            if (inputPage.languageSettingsV2Update2Enabled_) {
+              break;
+            }
+
+            // Normally, getting prefs is an asynchronous action with callbacks,
+            // but we can cheat in tests using FakeSettingsPrivate.
+            const dictionaries =
+                settingsPrivate.prefs['spellcheck.dictionaries'].value;
+            const acceptLanguages = new Set(pref.value.split(','));
+
+            const filteredDictionaries = dictionaries.filter(
+                dictionary => acceptLanguages.has(dictionary));
+            settingsPrivate.setPref(
+                'spellcheck.dictionaries', filteredDictionaries, '', () => {});
+            break;
+        }
+      }
+    }
+
+    // Listen to prefs changes using settingsPrivate.onPrefsChanged.
+    // While prefElement (<settings-prefs>) is normally a synchronous wrapper
+    // around the asynchronous settingsPrivate, the two's prefs are always
+    // synchronously kept in sync both ways in tests.
+    // However, it's possible that a settingsPrivate.onPrefsChanged listener
+    // receives a change before prefElement does if the change is made by
+    // settingsPrivate, so prefer to use settingsPrivate getters/setters
+    // whenever possible.
+    settingsPrivate.onPrefsChanged.addListener(spellCheckServiceListener);
+
     document.body.appendChild(prefElement);
 
     return CrSettingsPrefs.initialized.then(() => {
       // Set up test browser proxy.
       browserProxy = new settings.TestLanguagesBrowserProxy();
-      settings.LanguagesBrowserProxyImpl.instance_ = browserProxy;
+      settings.LanguagesBrowserProxyImpl.setInstance(browserProxy);
 
       // Sets up test metrics proxy.
       metricsProxy = new settings.TestLanguagesMetricsProxy();
@@ -74,6 +131,24 @@ suite('input page', () => {
 
   teardown(function() {
     settings.Router.getInstance().resetRouteForTesting();
+  });
+
+  suite('language pack notice', () => {
+    test('is shown when needed', () => {
+      inputPage.shouldShowLanguagePacksNotice_ = true;
+      loadTimeData.overrideValues({languagePacksHandwritingEnabled: true});
+      Polymer.dom.flush();
+
+      assertTrue(isVisible(inputPage.$$('#languagePacksNotice')));
+    });
+
+    test('is hidden when needed', () => {
+      inputPage.shouldShowLanguagePacksNotice_ = false;
+      loadTimeData.overrideValues({languagePacksHandwritingEnabled: false});
+      Polymer.dom.flush();
+
+      assertFalse(isVisible(inputPage.$$('#languagePacksNotice')));
+    });
   });
 
   suite('input method list', () => {
@@ -171,10 +246,6 @@ suite('input page', () => {
 
   suite('input page', () => {
     test('Deep link to spell check', async () => {
-      loadTimeData.overrideValues({
-        isDeepLinkingEnabled: true,
-      });
-
       const params = new URLSearchParams;
       params.append('settingId', '1207');
       settings.Router.getInstance().navigateTo(
@@ -182,8 +253,8 @@ suite('input page', () => {
 
       Polymer.dom.flush();
 
-      const deepLinkElement =
-          inputPage.$$('#enableSpellcheckingToggle').$$('cr-toggle');
+      const deepLinkElement = inputPage.$$('#enableSpellcheckingToggle')
+                                  .shadowRoot.querySelector('cr-toggle');
       await test_util.waitAfterNextRender(deepLinkElement);
       assertEquals(
           deepLinkElement, getDeepActiveElement(),
@@ -283,23 +354,23 @@ suite('input page', () => {
                 expectedItems[i].name}`);
         assertEquals(
             expectedItems[i].checkboxDisabled,
-            allItems[i].querySelector('cr-checkbox').disabled,
+            allItems[i].shadowRoot.querySelector('cr-checkbox').disabled,
             `expect ${expectedItems[i].name}'s checkbox disabled state to be ${
                 expectedItems[i].checkboxDisabled}`);
         assertEquals(
             expectedItems[i].checkboxChecked,
-            allItems[i].querySelector('cr-checkbox').checked,
+            allItems[i].shadowRoot.querySelector('cr-checkbox').checked,
             `expect ${expectedItems[i].name}'s checkbox checked state to be ${
                 expectedItems[i].checkboxChecked}`);
         assertEquals(
             expectedItems[i].policyIcon,
-            !!allItems[i].querySelector('iron-icon'),
+            !!allItems[i].shadowRoot.querySelector('iron-icon'),
             `expect ${expectedItems[i].name}'s policy icon presence to be ${
                 expectedItems[i].policyIcon}`);
       }
 
       // selecting Vietnamese keyboard
-      allItems[3].querySelector('cr-checkbox').click();
+      allItems[3].shadowRoot.querySelector('cr-checkbox').click();
 
       actionButton.click();
 
@@ -312,6 +383,7 @@ suite('input page', () => {
     });
 
     test('suggested input methods hidden when no languages is enabled', () => {
+      languageHelper.setPrefValue('intl.accept_languages', '');
       languageHelper.setPrefValue('settings.language.preferred_languages', '');
       Polymer.dom.flush();
 
@@ -323,6 +395,7 @@ suite('input page', () => {
 
     test('suggested input methods hidden when no input methods left', () => {
       const languageCode = 'sw';
+      languageHelper.setPrefValue('intl.accept_languages', languageCode);
       languageHelper.setPrefValue(
           'settings.language.preferred_languages', languageCode);
       languageHelper.getInputMethodsForLanguage(languageCode)
@@ -422,16 +495,85 @@ suite('input page', () => {
           settings.LanguagesPageInteraction.SWITCH_INPUT_METHOD,
           await metricsProxy.whenCalled('recordInteraction'));
     });
+
+    test('when dismissing shortcut reminder', async () => {
+      // Enable Update 2.
+      inputPage.languageSettingsV2Update2Enabled_ = true;
+      loadTimeData.overrideValues({enableLanguageSettingsV2Update2: true});
+      Polymer.dom.flush();
+
+      // Default shortcut reminder with two elements should show "last used IME"
+      // reminder.
+      inputPage.$$('keyboard-shortcut-banner').$.dismiss.click();
+      assertEquals(
+          InputsShortcutReminderState.LAST_USED_IME,
+          await metricsProxy.whenCalled('recordShortcutReminderDismissed'));
+      metricsProxy.resetResolver('recordShortcutReminderDismissed');
+
+      // Add US Swahili keyboard, a third party IME.
+      languageHelper.addInputMethod(
+          'ime_abcdefghijklmnopqrstuvwxyzabcdefxkb:us:sw');
+      Polymer.dom.flush();
+
+      // Shortcut reminder should show "next IME" shortcut.
+      inputPage.$$('keyboard-shortcut-banner').$.dismiss.click();
+      assertEquals(
+          InputsShortcutReminderState.NEXT_IME,
+          await metricsProxy.whenCalled('recordShortcutReminderDismissed'));
+      metricsProxy.resetResolver('recordShortcutReminderDismissed');
+
+      // Reset shortcut reminder dismissals to display both shortcuts.
+      inputPage.setPrefValue(
+          'ash.shortcut_reminders.last_used_ime_dismissed', false);
+      inputPage.setPrefValue(
+          'ash.shortcut_reminders.next_ime_dismissed', false);
+      Polymer.dom.flush();
+
+      // Shortcut reminder should show both shortcuts.
+      inputPage.$$('keyboard-shortcut-banner').$.dismiss.click();
+      assertEquals(
+          InputsShortcutReminderState.LAST_USED_IME_AND_NEXT_IME,
+          await metricsProxy.whenCalled('recordShortcutReminderDismissed'));
+    });
+
+    test('when clicking on "learn more" about language packs', async () => {
+      inputPage.shouldShowLanguagePacksNotice_ = true;
+      loadTimeData.overrideValues({languagePacksHandwritingEnabled: true});
+      Polymer.dom.flush();
+
+      const anchor = inputPage.$$('#languagePacksNotice').$$('a');
+      // The below would normally create a new window, which would change the
+      // focus from this test to the new window.
+      // Prevent this from happening by adding an event listener on the anchor
+      // element which stops the default behaviour (of opening a new window).
+      anchor.addEventListener('click', (e) => e.preventDefault());
+      anchor.click();
+      assertEquals(
+          await metricsProxy.whenCalled('recordInteraction'),
+          LanguagesPageInteraction.OPEN_LANGUAGE_PACKS_LEARN_MORE);
+    });
   });
 
-  suite('spell check', () => {
+  suite('spell check v1', () => {
     let spellCheckToggle;
     let spellCheckListContainer;
     let spellCheckList;
 
     setup(() => {
+      // Disable Update 2.
+      // We use the property directly instead of loadTimeData, as overriding
+      // loadTimeData does not work as the property is set using a value().
+      inputPage.languageSettingsV2Update2Enabled_ = false;
+      // However, we should still set loadTimeData as some other code may use
+      // it (such as languages.js).
+      loadTimeData.overrideValues({
+        enableLanguageSettingsV2Update2: false,
+        onDeviceGrammarCheckEnabled: false,
+      });
+
+      Polymer.dom.flush();
       // spell check is initially on
-      spellCheckToggle = inputPage.$.enableSpellcheckingToggle;
+      spellCheckToggle = inputPage.$$('#enableSpellcheckingToggle');
       assertTrue(!!spellCheckToggle);
       assertTrue(spellCheckToggle.checked);
 
@@ -461,6 +603,11 @@ suite('input page', () => {
       assertFalse(spellCheckLanguageToggle.checked);
       assertDeepEquals([], languageHelper.prefs.spellcheck.dictionaries.value);
 
+      // The spell check toggle should be off now.
+      assertFalse(spellCheckToggle.checked);
+      spellCheckToggle.click();
+      assertTrue(spellCheckToggle.checked);
+
       // toggle on
       spellCheckLanguageToggle.click();
 
@@ -485,6 +632,11 @@ suite('input page', () => {
           assertFalse(spellCheckLanguageToggle.checked);
           assertDeepEquals(
               [], languageHelper.prefs.spellcheck.dictionaries.value);
+
+          // The spell check toggle should be off now.
+          assertFalse(spellCheckToggle.checked);
+          spellCheckToggle.click();
+          assertTrue(spellCheckToggle.checked);
 
           // toggle on by clicking name
           spellCheckList[0].querySelector('.name-with-error').click();
@@ -539,6 +691,42 @@ suite('input page', () => {
               forceEnabledNbLanguageRow.querySelector('.name-with-error'))
               .pointerEvents,
           'none');
+    });
+
+    test('can disable non-enabled spell check language', () => {
+      // Add a new language to spellcheck.dictionaries which isn't enabled.
+      languageHelper.setPrefValue('spellcheck.dictionaries', ['en-US', 'nb']);
+      Polymer.dom.flush();
+
+      let newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      // The spell check list should have en-US (enabled), sw (disabled) and
+      // nb (enabled).
+      assertEquals(3, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+      assertTrue(newSpellCheckList[0].querySelector('cr-toggle').checked);
+      assertTrue(newSpellCheckList[1].textContent.includes('Swahili'));
+      assertFalse(newSpellCheckList[1].querySelector('cr-toggle').checked);
+      assertTrue(newSpellCheckList[2].textContent.includes('Norwegian Bokmål'));
+      assertTrue(newSpellCheckList[2].querySelector('cr-toggle').checked);
+
+      // Disable nb.
+      newSpellCheckList[2].querySelector('cr-toggle').click();
+      Polymer.dom.flush();
+      newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+
+      // The spell check list should have en-US (enabled) and sw (disabled).
+      assertEquals(2, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+      assertTrue(newSpellCheckList[0].querySelector('cr-toggle').checked);
+      assertTrue(newSpellCheckList[1].textContent.includes('Swahili'));
+      assertFalse(newSpellCheckList[1].querySelector('cr-toggle').checked);
+
+      assertDeepEquals(
+          ['en-US'], languageHelper.prefs.spellcheck.dictionaries.value);
     });
 
     test(
@@ -613,11 +801,13 @@ suite('input page', () => {
       assertEquals(spellCheckList.length, spellCheckLanguagesCount);
     });
 
-    test('toggle is disabled when there is no supported languages', () => {
+    test('toggle is disabled when there are no supported languages', () => {
       assertFalse(spellCheckToggle.disabled);
 
       // Empty out supported languages
-      languageHelper.setPrefValue('settings.language.preferred_languages', '');
+      for (const lang of languageHelper.languages.enabled) {
+        languageHelper.disableLanguage(lang.language.code);
+      }
 
       assertTrue(spellCheckToggle.disabled);
       assertFalse(spellCheckToggle.checked);
@@ -689,6 +879,637 @@ suite('input page', () => {
       assertEquals(
           router.getCurrentRoute().getAbsolutePath(),
           'chrome://os-settings/osLanguages/editDictionary');
+    });
+  });
+
+  suite('spell check v2', () => {
+    let spellCheckToggle;
+    let spellCheckListContainer;
+    // This list is not dynamically updated.
+    let spellCheckList;
+
+    setup(() => {
+      // Enable Update 2.
+      // We use the property directly instead of loadTimeData, as overriding
+      // loadTimeData does not work as the property is set using a value().
+      inputPage.languageSettingsV2Update2Enabled_ = true;
+      // However, we should still set loadTimeData as some other code may use
+      // it (such as languages.js).
+      loadTimeData.overrideValues({
+        enableLanguageSettingsV2Update2: true,
+        onDeviceGrammarCheckEnabled: true,
+      });
+      Polymer.dom.flush();
+
+      // Spell check is initially on.
+      spellCheckToggle = inputPage.$$('#enableSpellcheckingToggle');
+      assertTrue(!!spellCheckToggle);
+      assertTrue(spellCheckToggle.checked);
+
+      spellCheckListContainer = inputPage.$$('#spellCheckLanguagesListV2');
+      assertTrue(!!spellCheckListContainer);
+
+      // The spell check list should only have en-US (excluding the "add
+      // languages" button).
+      spellCheckList = spellCheckListContainer.querySelectorAll('.list-item');
+      assertEquals(1 + 1, spellCheckList.length);
+      assertTrue(
+          spellCheckList[0].textContent.includes('English (United States)'));
+      assertTrue(spellCheckList[1].textContent.includes('Add languages'));
+    });
+
+    test('can remove enabled language from spell check list', () => {
+      assertDeepEquals(
+          ['en-US'], languageHelper.prefs.spellcheck.dictionaries.value);
+      // Get remove button for en-US.
+      const spellCheckLanguageToggle =
+          spellCheckList[0].querySelector('cr-icon-button');
+
+      // Remove the language.
+      spellCheckLanguageToggle.click();
+      Polymer.dom.flush();
+
+      const newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      // The spell check list should just have "add languages".
+      assertEquals(0 + 1, newSpellCheckList.length);
+
+      assertDeepEquals([], languageHelper.prefs.spellcheck.dictionaries.value);
+    });
+
+    test('can remove non-enabled language from spell check list', () => {
+      // Add a new non-enabled language to spellcheck.dictionaries.
+      languageHelper.setPrefValue('spellcheck.dictionaries', ['en-US', 'nb']);
+      Polymer.dom.flush();
+
+      let newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+
+      // The spell check list should have en-US, nb and "add languages".
+      assertEquals(2 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+      assertTrue(newSpellCheckList[1].textContent.includes('Norwegian Bokmål'));
+
+      // Remove nb.
+      newSpellCheckList[1].querySelector('cr-icon-button').click();
+      Polymer.dom.flush();
+      newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+
+      // The spell check list should have en-US and "add languages".
+      assertEquals(1 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+
+      assertDeepEquals(
+          ['en-US'], languageHelper.prefs.spellcheck.dictionaries.value);
+    });
+
+    test('shows force-on spell check language turned on by user', () => {
+      // Force-enable a spell check language originally set by the user.
+      languageHelper.setPrefValue('spellcheck.forced_dictionaries', ['en-US']);
+      Polymer.dom.flush();
+
+      const newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+
+      // The spell check list should have en-US and "add languages".
+      assertEquals(1 + 1, newSpellCheckList.length);
+
+      const forceEnabledEnUSLanguageRow = newSpellCheckList[0];
+      assertTrue(forceEnabledEnUSLanguageRow.textContent.includes(
+          'English (United States)'));
+      assertTrue(!!forceEnabledEnUSLanguageRow.querySelector(
+          'cr-policy-pref-indicator'));
+      // Polymer sometimes hides the old enabled element by using a
+      // display: none, so we use the managed-button class to get a reference to
+      // the new disabled button.
+      const managedButton =
+          forceEnabledEnUSLanguageRow.querySelector('.managed-button');
+      assertTrue(managedButton.disabled);
+    });
+
+    test('shows force-on enabled spell check language', () => {
+      // Force-enable an enabled language via policy.
+      languageHelper.setPrefValue('spellcheck.forced_dictionaries', ['sw']);
+      Polymer.dom.flush();
+
+      const newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+
+      // The spell check list should have en-US, sw and "add languages".
+      assertEquals(2 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+
+      const forceEnabledSwLanguageRow = newSpellCheckList[1];
+      assertTrue(forceEnabledSwLanguageRow.textContent.includes('Swahili'));
+      assertTrue(!!forceEnabledSwLanguageRow.querySelector(
+          'cr-policy-pref-indicator'));
+      const managedButton =
+          forceEnabledSwLanguageRow.querySelector('.managed-button');
+      assertTrue(managedButton.disabled);
+    });
+
+    test('shows force-on non-enabled spell check language', () => {
+      // Force-enable a non-enabled language via policy.
+      languageHelper.setPrefValue('spellcheck.forced_dictionaries', ['nb']);
+      Polymer.dom.flush();
+
+      const newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+
+      // The spell check list should have en-US, nb and "add languages".
+      assertEquals(2 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+
+      const forceEnabledNbLanguageRow = newSpellCheckList[1];
+      assertTrue(
+          forceEnabledNbLanguageRow.textContent.includes('Norwegian Bokmål'));
+      assertTrue(!!forceEnabledNbLanguageRow.querySelector(
+          'cr-policy-pref-indicator'));
+      const managedButton =
+          forceEnabledNbLanguageRow.querySelector('.managed-button');
+      assertTrue(managedButton.disabled);
+    });
+
+    test('does not show force-off spell check language enabled by user', () => {
+      // Force-disable a spell check language originally set by the user.
+      languageHelper.setPrefValue('spellcheck.blocked_dictionaries', ['en-US']);
+      Polymer.dom.flush();
+
+      // The spell check list should just have "add languages".
+      const newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      assertEquals(0 + 1, newSpellCheckList.length);
+    });
+
+    test('does not show force-off enabled spell check language', () => {
+      // Force-disable an enabled language via policy.
+      languageHelper.setPrefValue('spellcheck.blocked_dictionaries', ['sw']);
+      Polymer.dom.flush();
+
+      // The spell check list should be the same (en-US, "add languages").
+      const newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      assertEquals(1 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+    });
+
+    test('does not show force-off non-enabled spell check language', () => {
+      // Force-disable a non-enabled language via policy.
+      languageHelper.setPrefValue('spellcheck.blocked_dictionaries', ['nb']);
+      Polymer.dom.flush();
+
+      // The spell check list should be the same (en-US, "add languages").
+      const newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      assertEquals(1 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+    });
+
+    test('toggle off disables buttons', () => {
+      assertTrue(spellCheckToggle.checked);
+      assertFalse(spellCheckList[0].querySelector('cr-icon-button').disabled);
+      // "Add languages" uses a cr-button instead of a cr-icon-button.
+      assertFalse(spellCheckList[1].querySelector('cr-button').disabled);
+
+      spellCheckToggle.click();
+
+      assertFalse(spellCheckToggle.checked);
+      assertTrue(spellCheckList[0].querySelector('cr-icon-button').disabled);
+      assertTrue(spellCheckList[1].querySelector('cr-button').disabled);
+    });
+
+    test('languages are in sorted order', () => {
+      languageHelper.setPrefValue(
+          'spellcheck.dictionaries', ['sw', 'en-US', 'nb', 'en-CA']);
+      Polymer.dom.flush();
+      // The spell check list should be sorted by display name:
+      // English (Canada), English (United States), Norwegian Bokmål, then
+      // Swahili.
+      const newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      assertEquals(4 + 1, newSpellCheckList.length);
+      assertTrue(newSpellCheckList[0].textContent.includes('English (Canada)'));
+      assertTrue(
+          newSpellCheckList[1].textContent.includes('English (United States)'));
+      assertTrue(newSpellCheckList[2].textContent.includes('Norwegian Bokmål'));
+      assertTrue(newSpellCheckList[3].textContent.includes('Swahili'));
+    });
+
+    test('removing all languages, then adding enabled language works', () => {
+      // See https://crbug.com/1197386 for more information.
+      // Remove en-US so there are no spell check languages.
+      const spellCheckLanguageToggle =
+          spellCheckList[0].querySelector('cr-icon-button');
+      spellCheckLanguageToggle.click();
+      Polymer.dom.flush();
+
+      let newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+
+      // The spell check list should just have "add languages".
+      assertEquals(0 + 1, newSpellCheckList.length);
+      // The "enable spellchecking" toggle should be off as well.
+      assertFalse(spellCheckToggle.checked);
+
+      // Enable spell checking again.
+      spellCheckToggle.click();
+      newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      // The spell check list shouldn't have changed...
+      assertEquals(0 + 1, newSpellCheckList.length);
+      // ...but the "enable spellchecking" toggle should be checked.
+      assertTrue(spellCheckToggle.checked);
+
+      // Add an enabled language (en-US).
+      languageHelper.toggleSpellCheck('en-US', true);
+      Polymer.dom.flush();
+
+      newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      // The spell check list should now have en-US.
+      assertEquals(1 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+      // Spell check should still be enabled.
+      assertTrue(spellCheckToggle.checked);
+    });
+
+    test('changing Accept-Language does not change spellcheck', () => {
+      // Remove en-US from Accept-Language, which is also an enabled spell check
+      // language.
+      languageHelper.disableLanguage('en-US');
+      Polymer.dom.flush();
+
+      // en-US should still be there.
+      let newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      assertEquals(1 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+
+      // Add a spell check language not in Accept-Language.
+      languageHelper.toggleSpellCheck('nb', true);
+      Polymer.dom.flush();
+
+      // The spell check list should now have en-US, nb and "add languages".
+      newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      assertEquals(2 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+      assertTrue(newSpellCheckList[1].textContent.includes('Norwegian Bokmål'));
+
+      // Add an arbitrary language to Accept-Language.
+      languageHelper.enableLanguage('tk');
+      Polymer.dom.flush();
+
+      // The spell check list should remain the same.
+      newSpellCheckList =
+          spellCheckListContainer.querySelectorAll('.list-item');
+      assertEquals(2 + 1, newSpellCheckList.length);
+      assertTrue(
+          newSpellCheckList[0].textContent.includes('English (United States)'));
+      assertTrue(newSpellCheckList[1].textContent.includes('Norwegian Bokmål'));
+    });
+
+    // TODO(crbug.com/1201540): Add test to ensure that it is impossible to
+    //     enable spell check without a spell check language added (i.e. the
+    //     "add spell check languages" dialog appears when turning it on).
+
+    // TODO(crbug.com/1201540): Add a test for the "automatically determining
+    //     spell check language" behaviour when the user has no spell check
+    //     languages.
+
+    // TODO(crbug.com/1201540): Add a test for the shortcut reminder.
+
+    test('error handling', () => {
+      // Enable Swahili so we have two languages for testing.
+      languageHelper.setPrefValue('spellcheck.dictionaries', ['en-US', 'sw']);
+      Polymer.dom.flush();
+      const checkAllHidden = nodes => {
+        assertTrue(nodes.every(node => node.hidden));
+      };
+
+      const languageSettingsPrivate = browserProxy.getLanguageSettingsPrivate();
+      const errorDivs = Array.from(
+          spellCheckListContainer.querySelectorAll('.name-with-error div'));
+      assertEquals(2, errorDivs.length);
+      checkAllHidden(errorDivs);
+
+      const retryButtons = Array.from(spellCheckListContainer.querySelectorAll(
+          'cr-button:not(#addSpellcheckLanguages)'));
+      assertEquals(2, retryButtons.length);
+
+      const languageCode = inputPage.get('languages.enabled.0.language.code');
+      languageSettingsPrivate.onSpellcheckDictionariesChanged.callListeners([
+        {languageCode, isReady: false, downloadFailed: true},
+      ]);
+
+      Polymer.dom.flush();
+      assertFalse(errorDivs[0].hidden);
+      assertFalse(retryButtons[0].hidden);
+      assertFalse(retryButtons[0].disabled);
+
+      // turns off spell check disable retry button.
+      spellCheckToggle.click();
+      assertTrue(retryButtons[0].disabled);
+
+      // turns spell check back on and enable download.
+      spellCheckToggle.click();
+      languageSettingsPrivate.onSpellcheckDictionariesChanged.callListeners([
+        {languageCode, isReady: true, downloadFailed: false},
+      ]);
+
+      Polymer.dom.flush();
+      assertTrue(errorDivs[0].hidden);
+      assertTrue(retryButtons[0].hidden);
+    });
+
+    test('toggle off disables edit dictionary', () => {
+      const editDictionarySubpageTrigger =
+          inputPage.$$('#editDictionarySubpageTrigger');
+      assertFalse(editDictionarySubpageTrigger.disabled);
+      spellCheckToggle.click();
+
+      assertTrue(editDictionarySubpageTrigger.disabled);
+    });
+
+    test('opens edit dictionary page', () => {
+      const editDictionarySubpageTrigger =
+          inputPage.$$('#editDictionarySubpageTrigger');
+      editDictionarySubpageTrigger.click();
+      const router = settings.Router.getInstance();
+      assertEquals(
+          router.getCurrentRoute().getAbsolutePath(),
+          'chrome://os-settings/osLanguages/editDictionary');
+    });
+  });
+
+  suite('add spell check languages dialog', () => {
+    let dialog;
+    let suggestedLanguages;
+    let allLanguages;
+    let cancelButton;
+    let actionButton;
+
+    /**
+     * Returns the list items in the dialog.
+     * @return {!Array<!Element>}
+     */
+    function getAllLanguagesCheckboxWithPolicies() {
+      // If an element (the <iron-list> in this case) is hidden in Polymer,
+      // Polymer will intelligently not update the DOM of the hidden element
+      // to prevent DOM updates that the user can't see. However, this means
+      // that when the <iron-list> is hidden (due to no results), the list
+      // items still exist in the DOM.
+      // This function should return the *visible* items that the user can
+      // select, so if the <iron-list> is hidden we should return an empty
+      // list instead.
+      const list = allLanguages.querySelector('iron-list');
+      if (!isVisible(list)) {
+        return [];
+      }
+      return [...allLanguages.querySelectorAll(
+          'cr-checkbox-with-policy:not([hidden])')];
+    }
+
+    /**
+     * Returns the internal cr-checkboxes in allLanguages.
+     * @return {!Array<!Element>}
+     */
+    function getAllLanguagesCheckboxes() {
+      const checkboxWithPolicies = getAllLanguagesCheckboxWithPolicies();
+      return checkboxWithPolicies.map(
+          checkboxWithPolicy => checkboxWithPolicy.$.checkbox);
+    }
+
+    setup(() => {
+      // Enable Update 2.
+      // We use the property directly instead of loadTimeData, as overriding
+      // loadTimeData does not work as the property is set using a value().
+      inputPage.languageSettingsV2Update2Enabled_ = true;
+      // However, we should still set loadTimeData as some other code may use
+      // it (such as languages.js).
+      loadTimeData.overrideValues({enableLanguageSettingsV2Update2: true});
+      Polymer.dom.flush();
+
+      assertFalse(
+          !!inputPage.$$('os-settings-add-spellcheck-languages-dialog'));
+      inputPage.$$('#addSpellcheckLanguages').click();
+      Polymer.dom.flush();
+
+      dialog = inputPage.$$('os-settings-add-spellcheck-languages-dialog');
+      assertTrue(!!dialog);
+      assertTrue(dialog.$.dialog.open);
+
+      suggestedLanguages = dialog.$$('#suggestedLanguages');
+      assertTrue(!!suggestedLanguages);
+      allLanguages = dialog.$$('#allLanguages');
+      assertTrue(!!allLanguages);
+
+      actionButton = dialog.$$('.action-button');
+      assertTrue(!!actionButton);
+      cancelButton = dialog.$$('.cancel-button');
+      assertTrue(!!cancelButton);
+    });
+
+    test('action button is enabled and disabled when necessary', () => {
+      // Mimic $$, but with a querySelectorAll instead of querySelector.
+      const checkboxes = getAllLanguagesCheckboxes();
+      assertTrue(checkboxes.length > 0);
+
+      // By default, no languages have been selected so the action button is
+      // disabled.
+      assertTrue(actionButton.disabled);
+
+      // Selecting a language enables the action button.
+      checkboxes[0].click();
+      assertFalse(actionButton.disabled);
+
+      // Selecting the same language again disables the action button.
+      checkboxes[0].click();
+      assertTrue(actionButton.disabled);
+    });
+
+    test('cancel button is never disabled', () => {
+      assertFalse(cancelButton.disabled);
+    });
+
+    test('initial expected layout', () => {
+      // As Swahili is an enabled language, it should be shown as a suggested
+      // language.
+      const suggestedItems = suggestedLanguages.querySelectorAll('cr-checkbox');
+      assertEquals(suggestedItems.length, 1);
+      assertTrue(suggestedItems[0].textContent.includes('Swahili'));
+
+      // There are four languages with spell check enabled in
+      // fake_language_settings_private.js: en-US, en-CA, sw, nb.
+      // en-US shouldn't be displayed as it is already enabled.
+      const allItems = getAllLanguagesCheckboxWithPolicies();
+      assertEquals(allItems.length, 3);
+      assertTrue(allItems[0].textContent.includes('English (Canada)'));
+      assertTrue(allItems[1].textContent.includes('Swahili'));
+      assertTrue(allItems[2].textContent.includes('Norwegian Bokmål'));
+
+      // By default, all checkboxes should not be disabled, and should not be
+      // checked.
+      const checkboxes = [...suggestedItems, ...getAllLanguagesCheckboxes()];
+      assertTrue(checkboxes.every(checkbox => !checkbox.disabled));
+      assertTrue(checkboxes.every(checkbox => !checkbox.checked));
+
+      // There should be a label for both sections.
+      const suggestedLabel = suggestedLanguages.querySelector('.label');
+      assertTrue(!!suggestedLabel);
+      assertFalse(suggestedLabel.hidden);
+
+      const allLanguagesLabel = allLanguages.querySelector('.label');
+      assertTrue(!!allLanguagesLabel);
+      assertFalse(allLanguagesLabel.hidden);
+    });
+
+    test('can add single language and uncheck language', () => {
+      const checkboxes = getAllLanguagesCheckboxes();
+      const swCheckbox = checkboxes[1];
+      const nbCheckbox = checkboxes[2];
+
+      // By default, en-US should be the only enabled spell check dictionary.
+      assertDeepEquals(
+          ['en-US'], languageHelper.prefs.spellcheck.dictionaries.value);
+
+      swCheckbox.click();
+      assertTrue(swCheckbox.checked);
+
+      // Check and uncheck nb to ensure that it gets "ignored".
+      nbCheckbox.click();
+      assertTrue(nbCheckbox.checked);
+
+      nbCheckbox.click();
+      assertFalse(nbCheckbox.checked);
+
+      actionButton.click();
+      assertDeepEquals(
+          ['en-US', 'sw'], languageHelper.prefs.spellcheck.dictionaries.value);
+      assertFalse(dialog.$.dialog.open);
+    });
+
+    test('can add multiple languages', () => {
+      const checkboxes = getAllLanguagesCheckboxes();
+
+      assertDeepEquals(
+          ['en-US'], languageHelper.prefs.spellcheck.dictionaries.value);
+
+      // Click en-CA and nb.
+      checkboxes[0].click();
+      assertTrue(checkboxes[0].checked);
+      checkboxes[2].click();
+      assertTrue(checkboxes[2].checked);
+
+      actionButton.click();
+      // The two possible results are en-US, en-CA, nb OR en-US, nb, en-CA.
+      // We do not care about the ordering of the last two, but the first one
+      // should still be en-US.
+      assertEquals(
+          'en-US', languageHelper.prefs.spellcheck.dictionaries.value[0]);
+      // Note that .sort() mutates the array, but as this is the end of the test
+      // the prefs will be reset after this anyway.
+      assertDeepEquals(
+          ['en-CA', 'en-US', 'nb'],
+          languageHelper.prefs.spellcheck.dictionaries.value.sort());
+      assertFalse(dialog.$.dialog.open);
+    });
+
+    test('policy disabled languages cannot be selected and show icon', () => {
+      // Force-disable sw.
+      languageHelper.setPrefValue('spellcheck.blocked_dictionaries', ['sw']);
+      Polymer.dom.flush();
+
+      const swCheckboxWithPolicy = getAllLanguagesCheckboxWithPolicies()[1];
+      const swCheckbox =
+          swCheckboxWithPolicy.shadowRoot.querySelector('cr-checkbox');
+      const swPolicyIcon =
+          swCheckboxWithPolicy.shadowRoot.querySelector('iron-icon');
+
+      assertTrue(swCheckbox.disabled);
+      assertFalse(swCheckbox.checked);
+      assertTrue(!!swPolicyIcon);
+    });
+
+    test('labels do not appear if there are no suggested languages', () => {
+      // Disable sw, the only default suggested language, as a web language.
+      languageHelper.disableLanguage('sw');
+      Polymer.dom.flush();
+
+      // Suggested languages should not show up whatsoever.
+      assertFalse(isVisible(suggestedLanguages));
+      // The label for all languages should not appear either.
+      assertFalse(isVisible(allLanguages.querySelector('.label')));
+    });
+
+    test('input method languages appear as suggested languages', () => {
+      // Remove en-US from the dictionary list AND the enabled languages list.
+      languageHelper.setPrefValue('spellcheck.dictionaries', []);
+      languageHelper.disableLanguage('en-US');
+      Polymer.dom.flush();
+
+      // Both Swahili (as it is an enabled language) and English (US) (as it is
+      // enabled as an input method) should appear in the list.
+      const suggestedListItems =
+          suggestedLanguages.querySelectorAll('.list-item');
+      assertEquals(suggestedListItems.length, 2);
+      assertTrue(suggestedListItems[0].textContent.includes(
+          'English (United States)'));
+      assertTrue(suggestedListItems[1].textContent.includes('Swahili'));
+
+      // en-US should also appear in the all languages list now.
+      assertEquals(allLanguages.querySelectorAll('.list-item').length, 4);
+    });
+
+    test('searches languages on display name', () => {
+      const searchInput = dialog.$$('cr-search-field');
+
+      // Expecting a few languages to be displayed when no query exists.
+      assertGE(getAllLanguagesCheckboxWithPolicies().length, 1);
+
+      // Issue query that matches the |displayedName| in lowercase.
+      searchInput.setValue('norwegian');
+      Polymer.dom.flush();
+      assertEquals(getAllLanguagesCheckboxWithPolicies().length, 1);
+      assertTrue(getAllLanguagesCheckboxWithPolicies()[0].textContent.includes(
+          'Norwegian Bokmål'));
+
+      // Issue query that matches the |nativeDisplayedName|.
+      searchInput.setValue('norsk');
+      Polymer.dom.flush();
+      assertEquals(getAllLanguagesCheckboxWithPolicies().length, 1);
+
+      // Issue query that does not match any language.
+      searchInput.setValue('egaugnal');
+      Polymer.dom.flush();
+      assertEquals(getAllLanguagesCheckboxWithPolicies().length, 0);
+      assertFalse(dialog.$$('#no-search-results').hidden);
+    });
+
+    test('has escape key behavior working correctly', function() {
+      const searchInput = dialog.$$('cr-search-field');
+      searchInput.setValue('dummyquery');
+
+      // Test that dialog is not closed if 'Escape' is pressed on the input
+      // and a search query exists.
+      MockInteractions.keyDownOn(searchInput, 19, [], 'Escape');
+      assertTrue(dialog.$.dialog.open);
+
+      // Test that dialog is closed if 'Escape' is pressed on the input and no
+      // search query exists.
+      searchInput.setValue('');
+      MockInteractions.keyDownOn(searchInput, 19, [], 'Escape');
+      assertFalse(dialog.$.dialog.open);
     });
   });
 });

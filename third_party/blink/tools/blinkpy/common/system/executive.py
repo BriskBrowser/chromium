@@ -68,6 +68,8 @@ class ScriptError(Exception):
             message += '\n\noutput: %s' % shortened_output
 
         Exception.__init__(self, message)
+        if six.PY3:
+            self.message = message
         self.script_args = script_args  # 'args' is already used by Exception
         self.exit_code = exit_code
         self.output = output
@@ -105,7 +107,12 @@ class Executive(object):
         return sys.platform != 'win32'
 
     def cpu_count(self):
-        return multiprocessing.cpu_count()
+        cpu_count = multiprocessing.cpu_count()
+        if sys.platform == 'win32':
+            # TODO(crbug.com/1190269) - we can't use more than 56
+            # cores on Windows or Python3 may hang.
+            cpu_count = min(cpu_count, 56)
+        return cpu_count
 
     def kill_process(self, pid, kill_tree=True):
         """Attempts to kill the given pid.
@@ -227,7 +234,7 @@ class Executive(object):
             for line in stdout.splitlines():
                 # In some cases the line can contain one or more
                 # leading white-spaces, so strip it before split.
-                pid, process_name = line.strip().split(' ', 1)
+                pid, process_name = line.strip().split(b' ', 1)
                 processes.append([process_name, pid])
         return processes
 
@@ -315,7 +322,7 @@ class Executive(object):
                 # Escape any non-ascii characters for easy copy/paste
                 arg = arg.encode('unicode_escape')
             # FIXME: Do we need to fix quotes here?
-            escaped_args.append(arg)
+            escaped_args.append(arg.decode(self._child_process_encoding()))
         return ' '.join(escaped_args)
 
     def run_command(
@@ -474,8 +481,7 @@ class Executive(object):
     def map(self, thunk, arglist, processes=None):
         if sys.platform == 'win32' or len(arglist) == 1:
             return map(thunk, arglist)
-        pool = multiprocessing.Pool(
-            processes=(processes or multiprocessing.cpu_count()))
+        pool = multiprocessing.Pool(processes=(processes or self.cpu_count()))
         try:
             return pool.map(thunk, arglist)
         finally:

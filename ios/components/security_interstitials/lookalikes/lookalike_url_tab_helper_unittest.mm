@@ -47,7 +47,8 @@ class LookalikeUrlTabHelperTest : public PlatformTest {
           policy_decision = decision;
           callback_called = true;
         });
-    web_state_.ShouldAllowResponse(response, for_main_frame,
+    web::WebStatePolicyDecider::ResponseInfo response_info(for_main_frame);
+    web_state_.ShouldAllowResponse(response, response_info,
                                    std::move(callback));
     EXPECT_TRUE(callback_called);
     return policy_decision;
@@ -56,9 +57,9 @@ class LookalikeUrlTabHelperTest : public PlatformTest {
   LookalikeUrlTabAllowList* allow_list() { return allow_list_; }
 
   base::HistogramTester histogram_tester_;
+  web::FakeWebState web_state_;
 
  private:
-  web::FakeWebState web_state_;
   LookalikeUrlTabAllowList* allow_list_;
 };
 
@@ -101,7 +102,7 @@ TEST_F(LookalikeUrlTabHelperTest, ShouldAllowResponse) {
 TEST_F(LookalikeUrlTabHelperTest, ShouldAllowResponseForAllowlistedDomains) {
   GURL lookalike_url("https://xn--googl-fsa.com/");
   reputation::InitializeSafetyTipConfig();
-  reputation::SetSafetyTipAllowlistPatterns({"xn--googl-fsa.com/"}, {});
+  reputation::SetSafetyTipAllowlistPatterns({"xn--googl-fsa.com/"}, {}, {});
 
   EXPECT_TRUE(ShouldAllowResponseUrl(lookalike_url, /*main_frame=*/true)
                   .ShouldAllowNavigation());
@@ -124,4 +125,8 @@ TEST_F(LookalikeUrlTabHelperTest, ShouldAllowResponseForPunycode) {
       lookalikes::features::kLookalikeInterstitialForPunycode);
   EXPECT_FALSE(ShouldAllowResponseUrl(lookalike_url, /*main_frame=*/true)
                    .ShouldAllowNavigation());
+  std::unique_ptr<LookalikeUrlContainer::LookalikeUrlInfo> lookalike_url_info =
+      LookalikeUrlContainer::FromWebState(&web_state_)
+          ->ReleaseLookalikeUrlInfo();
+  EXPECT_TRUE(lookalike_url_info.get());
 }

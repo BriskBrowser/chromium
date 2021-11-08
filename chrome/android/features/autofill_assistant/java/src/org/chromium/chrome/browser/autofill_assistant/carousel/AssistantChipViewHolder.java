@@ -86,8 +86,7 @@ public class AssistantChipViewHolder extends ViewHolder {
         // Setting this view to clickable may be required for a11y to correctly announce it.
         mView.setClickable(true);
 
-        // If a popup is specified, instead of invoking chip.getSelectedListener, show the popup
-        // menu and invoke the popup callback.
+        // If a popup is specified, show the popup menu and invoke the popup callback.
         if (chip.getPopupItems() != null) {
             mPopupMenu = new PopupMenu(mView.getContext(), mView);
             for (int i = 0; i < chip.getPopupItems().size(); i++) {
@@ -97,16 +96,23 @@ public class AssistantChipViewHolder extends ViewHolder {
                 chip.getOnPopupItemSelectedCallback().onResult(item.getItemId());
                 return true;
             });
-            mView.setOnClickListener(ignoredView -> mPopupMenu.show());
+            mView.setOnClickListener(ignoredView -> {
+                if (chip.getSelectedListener() != null) {
+                    chip.getSelectedListener().run();
+                }
+                mPopupMenu.show();
+            });
         } else {
-            mView.setOnClickListener(ignoredView -> chip.getSelectedListener().run());
+            if (chip.getSelectedListener() != null) {
+                mView.setOnClickListener(ignoredView -> chip.getSelectedListener().run());
+            }
         }
 
         int iconResource;
         int iconDescriptionResource = 0;
         switch (chip.getIcon()) {
             case AssistantChip.Icon.CLEAR:
-                iconResource = R.drawable.ic_clear_black_24dp;
+                iconResource = R.drawable.ic_clear_black_chrome_24dp;
                 iconDescriptionResource = R.string.close;
                 break;
             case AssistantChip.Icon.DONE:

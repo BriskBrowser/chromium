@@ -13,6 +13,7 @@
 #include <string>
 #include <utility>
 
+#include "base/gtest_prod_util.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -52,6 +53,9 @@ class MEDIA_EXPORT MediaLog {
 #else
   static constexpr size_t kLogLimit = 512;
 #endif
+
+  MediaLog(const MediaLog&) = delete;
+  MediaLog& operator=(const MediaLog&) = delete;
 
   // Constructor is protected, see below.
   virtual ~MediaLog();
@@ -162,6 +166,9 @@ class MEDIA_EXPORT MediaLog {
   struct ParentLogRecord : base::RefCountedThreadSafe<ParentLogRecord> {
     explicit ParentLogRecord(MediaLog* log);
 
+    ParentLogRecord(const ParentLogRecord&) = delete;
+    ParentLogRecord& operator=(const ParentLogRecord&) = delete;
+
     // A unique (to this process) id for this MediaLog.
     int32_t id;
 
@@ -174,8 +181,6 @@ class MEDIA_EXPORT MediaLog {
    protected:
     friend class base::RefCountedThreadSafe<ParentLogRecord>;
     virtual ~ParentLogRecord();
-
-    DISALLOW_COPY_AND_ASSIGN(ParentLogRecord);
   };
 
  private:
@@ -192,8 +197,6 @@ class MEDIA_EXPORT MediaLog {
 
   // The underlying media log.
   scoped_refptr<ParentLogRecord> parent_log_record_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaLog);
 };
 
 // Helper class to make it easier to use MediaLog like DVLOG().
@@ -214,8 +217,9 @@ class MEDIA_EXPORT LogHelper {
 
 // Provides a stringstream to collect a log entry to pass to the provided
 // MediaLog at the requested level.
-#define MEDIA_LOG(level, media_log) \
-  LogHelper((MediaLogMessageLevel::k##level), (media_log)).stream()
+#define MEDIA_LOG(level, media_log)                                      \
+  media::LogHelper((media::MediaLogMessageLevel::k##level), (media_log)) \
+      .stream()
 
 // Logs only while |count| < |max|, increments |count| for each log, and warns
 // in the log if |count| has just reached |max|.

@@ -9,15 +9,18 @@
 #include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/capture_mode/capture_mode_settings_entry_view.h"
 #include "ash/capture_mode/capture_mode_toggle_button.h"
+#include "ash/public/cpp/style/color_provider.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "base/bind.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/toggle_button.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/platform_style.h"
 
 namespace ash {
@@ -32,13 +35,17 @@ constexpr gfx::RoundedCornersF kBorderRadius{10.f};
 
 }  // namespace
 
-CaptureModeSettingsView::CaptureModeSettingsView()
+CaptureModeSettingsView::CaptureModeSettingsView(bool projector_mode)
     : microphone_view_(
           AddChildView(std::make_unique<CaptureModeSettingsEntryView>(
               base::BindRepeating(&CaptureModeSettingsView::OnMicrophoneToggled,
                                   base::Unretained(this)),
               kCaptureModeMicOffIcon,
               IDS_ASH_SCREEN_CAPTURE_LABEL_MICROPHONE))) {
+  // Users are not allowed to disable audio recording when in a projector mode
+  // session.
+  microphone_view_->toggle_button_view()->SetEnabled(!projector_mode);
+
   SetPaintToLayer();
   auto* color_provider = AshColorProvider::Get();
   SkColor background_color = color_provider->GetBaseLayerColor(
@@ -46,9 +53,8 @@ CaptureModeSettingsView::CaptureModeSettingsView()
   SetBackground(views::CreateSolidBackground(background_color));
   layer()->SetFillsBoundsOpaquely(false);
   layer()->SetRoundedCornerRadius(kBorderRadius);
-  layer()->SetBackgroundBlur(
-      static_cast<float>(AshColorProvider::LayerBlurSigma::kBlurDefault));
-  layer()->SetBackdropFilterQuality(capture_mode::kBlurQuality);
+  layer()->SetBackgroundBlur(ColorProvider::kBackgroundBlurSigma);
+  layer()->SetBackdropFilterQuality(ColorProvider::kBackgroundBlurQuality);
 
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical, kSettingsPadding,
@@ -77,6 +83,11 @@ void CaptureModeSettingsView::OnMicrophoneChanged(bool microphone_enabled) {
   microphone_view_->toggle_button_view()->SetIsOn(microphone_enabled);
   microphone_view_->SetIcon(microphone_enabled ? kCaptureModeMicIcon
                                                : kCaptureModeMicOffIcon);
+
+  // This view's widget is not activatable, so `this` will not get true focus.
+  // For spoken feedback to say the correct thing, we need to manually notify.
+  microphone_view_->toggle_button_view()->NotifyAccessibilityEvent(
+      ax::mojom::Event::kCheckedStateChanged, true);
 }
 
 void CaptureModeSettingsView::OnMicrophoneToggled() {

@@ -81,7 +81,8 @@ class MimeHandlerStreamManager::EmbedderObserver
  private:
   // WebContentsObserver overrides.
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
-  void RenderProcessGone(base::TerminationStatus status) override;
+  void PrimaryMainFrameRenderProcessGone(
+      base::TerminationStatus status) override;
   void WebContentsDestroyed() override;
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override;
@@ -194,14 +195,14 @@ void MimeHandlerStreamManager::EmbedderObserver::RenderFrameDeleted(
   // picked, a specualtive RenderFrameHost might be deleted. Do not abort the
   // stream in that case.
   if (frame_tree_node_id_ != content::RenderFrameHost::kNoFrameTreeNodeId &&
-      !render_frame_host->IsCurrent())
+      !render_frame_host->IsActive())
     return;
 
   AbortStream();
 }
 
-void MimeHandlerStreamManager::EmbedderObserver::RenderProcessGone(
-    base::TerminationStatus status) {
+void MimeHandlerStreamManager::EmbedderObserver::
+    PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) {
   AbortStream();
 }
 
@@ -228,7 +229,10 @@ void MimeHandlerStreamManager::EmbedderObserver::ReadyToCommitNavigation(
 void MimeHandlerStreamManager::EmbedderObserver::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
   // If the top level frame is navigating away, clean up the stream.
-  if (navigation_handle->IsInMainFrame() &&
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (navigation_handle->IsInPrimaryMainFrame() &&
       !navigation_handle->IsSameDocument()) {
     AbortStream();
   }

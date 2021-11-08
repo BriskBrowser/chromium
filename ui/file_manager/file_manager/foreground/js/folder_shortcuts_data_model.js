@@ -2,27 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import {FilteredVolumeManager} from '../../../base/js/filtered_volume_manager.m.js';
-// #import {util} from '../../common/js/util.m.js';
-// #import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
-// #import {AsyncUtil} from '../../common/js/async_util.m.js';
-// #import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
-// #import {metrics} from '../../common/js/metrics.m.js';
-// clang-format on
+import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+
+import {AsyncUtil} from '../../common/js/async_util.js';
+import {FilteredVolumeManager} from '../../common/js/filtered_volume_manager.js';
+import {metrics} from '../../common/js/metrics.js';
+import {util} from '../../common/js/util.js';
+import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
+import {xfm} from '../../common/js/xfm.js';
 
 /**
- * The drive mount path used in the storage. It must be '/drive'.
+ * The drive mount path used in the xfm.storage. It must be '/drive'.
  * @type {string}
  */
 const STORED_DRIVE_MOUNT_PATH = '/drive';
 
 /**
- * Model for the folder shortcuts. This object is cr.ui.ArrayDataModel-like
+ * Model for the folder shortcuts. This object is ArrayDataModel-like
  * object with additional methods for the folder shortcut feature.
- * This uses chrome.storage as backend. Items are always sorted by URL.
+ * This uses xfm.storage as backend. Items are always sorted by URL.
  */
-/* #export */ class FolderShortcutsDataModel extends cr.EventTarget {
+export class FolderShortcutsDataModel extends EventTarget {
   /**
    * @param {!FilteredVolumeManager} volumeManager Volume manager instance.
    */
@@ -43,8 +43,8 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
     // Load the shortcuts. Runs within the queue.
     this.load_();
 
-    // Listening for changes in the storage.
-    chrome.storage.onChanged.addListener((changes, namespace) => {
+    // Listening for changes in the xfm.storage.
+    xfm.storage.onChanged.addListener((changes, namespace) => {
       if (!(FolderShortcutsDataModel.NAME in changes) || namespace !== 'sync') {
         return;
       }
@@ -141,7 +141,7 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
           }
         }
         // Not adding to the model nor to the |unresolvablePaths_| means
-        // that it will be removed from the storage permanently after the
+        // that it will be removed from the xfm.storage permanently after the
         // next call to save_().
       };
 
@@ -195,25 +195,25 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
    * Initializes the model and loads the shortcuts.
    * @private
    */
-  load_() {
-    this.queue_.run(callback => {
-      chrome.storage.sync.get(FolderShortcutsDataModel.NAME, value => {
-        if (chrome.runtime.lastError) {
-          console.error(
-              'Failed to load shortcut paths from chrome.storage: ' +
-              chrome.runtime.lastError.message);
-          callback();
-          return;
+  async load_() {
+    this.queue_.run(async (callback) => {
+      try {
+        const value =
+            await xfm.storage.sync.getAsync(FolderShortcutsDataModel.NAME);
+        if (value) {
+          const shortcutPaths = /** @type {!Array} */ (
+              value[FolderShortcutsDataModel.NAME] || []);
+
+          // Record metrics.
+          metrics.recordSmallCount(
+              'FolderShortcut.Count', shortcutPaths.length);
+
+          // Resolve and add the entries to the model.
+          this.processEntries_(shortcutPaths);  // Runs within a queue.
         }
-        const shortcutPaths = value[FolderShortcutsDataModel.NAME] || [];
-
-        // Record metrics.
-        metrics.recordSmallCount('FolderShortcut.Count', shortcutPaths.length);
-
-        // Resolve and add the entries to the model.
-        this.processEntries_(shortcutPaths);  // Runs within a queue.
+      } finally {
         callback();
-      });
+      }
     });
   }
 
@@ -223,12 +223,16 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
    */
   reload_() {
     let shortcutPaths;
-    this.queue_.run(callback => {
-      chrome.storage.sync.get(FolderShortcutsDataModel.NAME, value => {
-        const shortcutPaths = value[FolderShortcutsDataModel.NAME] || [];
+    this.queue_.run(async (callback) => {
+      try {
+        const value =
+            await xfm.storage.sync.getAsync(FolderShortcutsDataModel.NAME);
+        const shortcutPaths =
+            /** @type {!Array} */ (value[FolderShortcutsDataModel.NAME] || []);
         this.processEntries_(shortcutPaths);  // Runs within a queue.
+      } finally {
         callback();
-      });
+      }
     });
   }
 
@@ -401,7 +405,7 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
   }
 
   /**
-   * Saves the current array to chrome.storage.
+   * Saves the current array to xfm.storage.
    * @private
    */
   save_() {
@@ -421,7 +425,7 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
 
     const prefs = {};
     prefs[FolderShortcutsDataModel.NAME] = paths;
-    chrome.storage.sync.set(prefs, () => {});
+    xfm.storage.sync.setAsync(prefs);
   }
 
   /**
@@ -470,7 +474,7 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
   }
 
   /**
-   * Fires a 'permuted' event, which is compatible with cr.ui.ArrayDataModel.
+   * Fires a 'permuted' event, which is compatible with ArrayDataModel.
    * @param {Array<number>} permutation Permutation array.
    */
   firePermutedEvent_(permutation) {
@@ -546,7 +550,7 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
 }
 
 /**
- * Key name in chrome.storage. The array are stored with this name.
+ * Key name in xfm.storage. The array are stored with this name.
  * @type {string}
  * @const
  */

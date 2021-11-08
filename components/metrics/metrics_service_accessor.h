@@ -6,7 +6,6 @@
 #define COMPONENTS_METRICS_METRICS_SERVICE_ACCESSOR_H_
 
 #include <stdint.h>
-#include <vector>
 
 #include "base/macros.h"
 #include "base/strings/string_piece.h"
@@ -21,6 +20,10 @@ class MetricsService;
 // These methods are protected so each user has to inherit own program-specific
 // specialization and enable access there by declaring friends.
 class MetricsServiceAccessor {
+ public:
+  MetricsServiceAccessor(const MetricsServiceAccessor&) = delete;
+  MetricsServiceAccessor& operator=(const MetricsServiceAccessor&) = delete;
+
  protected:
   // Constructor declared as protected to enable inheritance. Descendants should
   // disallow instantiation.
@@ -31,12 +34,11 @@ class MetricsServiceAccessor {
   // has enabled reporting.
   static bool IsMetricsReportingEnabled(PrefService* pref_service);
 
-
   // Registers a field trial name and group with |metrics_service| (if not
   // null), to be used to annotate a UMA report with a particular configuration
   // state. Returns true on success.
-  // See the comment on MetricsService::RegisterSyntheticFieldTrial() for
-  // details.
+  // See the comment on SyntheticTrialRegistry::RegisterSyntheticFieldTrial()
+  // for details.
   static bool RegisterSyntheticFieldTrial(MetricsService* metrics_service,
                                           base::StringPiece trial_name,
                                           base::StringPiece group_name);
@@ -54,9 +56,6 @@ class MetricsServiceAccessor {
   // forces non-official builds to look at the prefs value official builds look
   // at.
   static void SetForceIsMetricsReportingEnabledPrefLookup(bool value);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MetricsServiceAccessor);
 };
 
 }  // namespace metrics

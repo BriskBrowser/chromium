@@ -21,27 +21,26 @@ namespace {
 
 const char kUserInitiatedAbort[] = "UserInitiatedAbort";
 
-// TODO(https://crbug.com/1042727): Fix test GURL scoping and remove this getter
-// function.
-GURL OriginUrl() {
-  return GURL("https://example.com/");
-}
-
 }  // namespace
 
 class BackgroundFetchDelegateImplTest : public testing::Test {
  public:
   void SetUp() override {
+    TestingProfile::Builder profile_builder;
+    profile_builder.AddTestingFactory(
+        HistoryServiceFactory::GetInstance(),
+        HistoryServiceFactory::GetDefaultFactory());
+    profile_ = profile_builder.Build();
+
     recorder_ = std::make_unique<ukm::TestAutoSetUkmRecorder>();
     delegate_ = static_cast<BackgroundFetchDelegateImpl*>(
-        profile_.GetBackgroundFetchDelegate());
+        profile_->GetBackgroundFetchDelegate());
 
-    // Add |OriginUrl()| to |profile_|'s history so the UKM background
+    // Add |kOriginUrl| to |profile_|'s history so the UKM background
     // recording conditions are met.
-    ASSERT_TRUE(profile_.CreateHistoryService());
     auto* history_service = HistoryServiceFactory::GetForProfile(
-        &profile_, ServiceAccessType::EXPLICIT_ACCESS);
-    history_service->AddPage(OriginUrl(), base::Time::Now(),
+        profile_.get(), ServiceAccessType::EXPLICIT_ACCESS);
+    history_service->AddPage(kOriginUrl, base::Time::Now(),
                              history::SOURCE_BROWSED);
   }
 
@@ -52,11 +51,12 @@ class BackgroundFetchDelegateImplTest : public testing::Test {
 
   std::unique_ptr<ukm::TestAutoSetUkmRecorder> recorder_;
   BackgroundFetchDelegateImpl* delegate_;
-  TestingProfile profile_;
+  std::unique_ptr<TestingProfile> profile_;
+  const GURL kOriginUrl{"https://example.com/"};
 };
 
 TEST_F(BackgroundFetchDelegateImplTest, RecordUkmEvent) {
-  url::Origin origin = url::Origin::Create(OriginUrl());
+  url::Origin origin = url::Origin::Create(kOriginUrl);
 
   {
     std::vector<const ukm::mojom::UkmEntry*> entries =

@@ -8,10 +8,10 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/extensions/extension_install_prompt_show_params.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -114,7 +114,7 @@ void ExtensionInstallPrompt::Prompt::SetWebstoreData(
   has_webstore_data_ = true;
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetDialogTitle() const {
+std::u16string ExtensionInstallPrompt::Prompt::GetDialogTitle() const {
   int id = -1;
   switch (type_) {
     case INSTALL_PROMPT:
@@ -181,7 +181,7 @@ int ExtensionInstallPrompt::Prompt::GetDialogButtons() const {
   return ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL;
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetAcceptButtonLabel() const {
+std::u16string ExtensionInstallPrompt::Prompt::GetAcceptButtonLabel() const {
   int id = -1;
   switch (type_) {
     case INSTALL_PROMPT:
@@ -253,10 +253,10 @@ base::string16 ExtensionInstallPrompt::Prompt::GetAcceptButtonLabel() const {
       NOTREACHED();
   }
 
-  return id != -1 ? l10n_util::GetStringUTF16(id) : base::string16();
+  return id != -1 ? l10n_util::GetStringUTF16(id) : std::u16string();
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetAbortButtonLabel() const {
+std::u16string ExtensionInstallPrompt::Prompt::GetAbortButtonLabel() const {
   int id = -1;
   switch (type_) {
     case INSTALL_PROMPT:
@@ -265,6 +265,7 @@ base::string16 ExtensionInstallPrompt::Prompt::GetAbortButtonLabel() const {
     case REMOTE_INSTALL_PROMPT:
     case REPAIR_PROMPT:
     case DELEGATED_PERMISSIONS_PROMPT:
+    case EXTENSION_REQUEST_PROMPT:
       id = IDS_CANCEL;
       break;
     case PERMISSIONS_PROMPT:
@@ -274,7 +275,6 @@ base::string16 ExtensionInstallPrompt::Prompt::GetAbortButtonLabel() const {
       id = IDS_EXTENSION_EXTERNAL_INSTALL_PROMPT_ABORT_BUTTON;
       break;
     case POST_INSTALL_PERMISSIONS_PROMPT:
-    case EXTENSION_REQUEST_PROMPT:
     case EXTENSION_PENDING_REQUEST_PROMPT:
       id = IDS_CLOSE;
       break;
@@ -286,7 +286,7 @@ base::string16 ExtensionInstallPrompt::Prompt::GetAbortButtonLabel() const {
   return l10n_util::GetStringUTF16(id);
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetPermissionsHeading() const {
+std::u16string ExtensionInstallPrompt::Prompt::GetPermissionsHeading() const {
   int id = -1;
   switch (type_) {
     case INSTALL_PROMPT:
@@ -315,12 +315,12 @@ base::string16 ExtensionInstallPrompt::Prompt::GetPermissionsHeading() const {
   return l10n_util::GetStringUTF16(id);
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetRetainedFilesHeading() const {
+std::u16string ExtensionInstallPrompt::Prompt::GetRetainedFilesHeading() const {
   return l10n_util::GetPluralStringFUTF16(
       IDS_EXTENSION_PROMPT_RETAINED_FILES, GetRetainedFileCount());
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetRetainedDevicesHeading()
+std::u16string ExtensionInstallPrompt::Prompt::GetRetainedDevicesHeading()
     const {
   return l10n_util::GetPluralStringFUTF16(
       IDS_EXTENSION_PROMPT_RETAINED_DEVICES, GetRetainedDeviceCount());
@@ -359,33 +359,33 @@ void ExtensionInstallPrompt::Prompt::AppendRatingStars(
   }
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetRatingCount() const {
+std::u16string ExtensionInstallPrompt::Prompt::GetRatingCount() const {
   CHECK(AllowWebstoreData(type_));
   return l10n_util::GetStringFUTF16(IDS_EXTENSION_RATING_COUNT,
                                     base::NumberToString16(rating_count_));
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetUserCount() const {
+std::u16string ExtensionInstallPrompt::Prompt::GetUserCount() const {
   CHECK(AllowWebstoreData(type_));
 
   if (show_user_count_) {
     return l10n_util::GetStringFUTF16(IDS_EXTENSION_USER_COUNT,
                                       base::UTF8ToUTF16(localized_user_count_));
   }
-  return base::string16();
+  return std::u16string();
 }
 
 size_t ExtensionInstallPrompt::Prompt::GetPermissionCount() const {
   return prompt_permissions_.permissions.size();
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetPermission(
+std::u16string ExtensionInstallPrompt::Prompt::GetPermission(
     size_t index) const {
   CHECK_LT(index, prompt_permissions_.permissions.size());
   return prompt_permissions_.permissions[index];
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetPermissionsDetails(
+std::u16string ExtensionInstallPrompt::Prompt::GetPermissionsDetails(
     size_t index) const {
   CHECK_LT(index, prompt_permissions_.details.size());
   return prompt_permissions_.details[index];
@@ -395,8 +395,8 @@ size_t ExtensionInstallPrompt::Prompt::GetRetainedFileCount() const {
   return retained_files_.size();
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetRetainedFile(size_t index)
-    const {
+std::u16string ExtensionInstallPrompt::Prompt::GetRetainedFile(
+    size_t index) const {
   CHECK_LT(index, retained_files_.size());
   return retained_files_[index].AsUTF16Unsafe();
 }
@@ -405,7 +405,7 @@ size_t ExtensionInstallPrompt::Prompt::GetRetainedDeviceCount() const {
   return retained_device_messages_.size();
 }
 
-base::string16 ExtensionInstallPrompt::Prompt::GetRetainedDeviceMessageString(
+std::u16string ExtensionInstallPrompt::Prompt::GetRetainedDeviceMessageString(
     size_t index) const {
   CHECK_LT(index, retained_device_messages_.size());
   return retained_device_messages_[index];
@@ -449,6 +449,14 @@ bool ExtensionInstallPrompt::Prompt::ShouldDisplayWithholdingUI() const {
          is_requesting_host_permissions_ && type_ == INSTALL_PROMPT;
 }
 
+ExtensionInstallPrompt::DoneCallbackPayload::DoneCallbackPayload(Result result)
+    : DoneCallbackPayload(result, std::string()) {}
+
+ExtensionInstallPrompt::DoneCallbackPayload::DoneCallbackPayload(
+    Result result,
+    std::string justification)
+    : result(result), justification(std::move(justification)) {}
+
 // static
 ExtensionInstallPrompt::PromptType
 ExtensionInstallPrompt::GetReEnablePromptTypeForExtension(
@@ -485,7 +493,7 @@ scoped_refptr<Extension>
   }
 
   return Extension::Create(
-      base::FilePath(), Manifest::INTERNAL,
+      base::FilePath(), extensions::mojom::ManifestLocation::kInternal,
       localized_manifest.get() ? *localized_manifest : *manifest, flags, id,
       error);
 }
@@ -553,7 +561,7 @@ void ExtensionInstallPrompt::ShowDialog(
   if (extension->is_theme() && extension->from_webstore() &&
       prompt_->type() != EXTENSION_REQUEST_PROMPT &&
       prompt_->type() != EXTENSION_PENDING_REQUEST_PROMPT) {
-    std::move(done_callback_).Run(Result::ACCEPTED);
+    std::move(done_callback_).Run(DoneCallbackPayload(Result::ACCEPTED));
     return;
   }
 
@@ -615,10 +623,8 @@ void ExtensionInstallPrompt::LoadImageIfNeeded() {
 
   std::vector<extensions::ImageLoader::ImageRepresentation> images_list;
   images_list.push_back(extensions::ImageLoader::ImageRepresentation(
-      image,
-      extensions::ImageLoader::ImageRepresentation::NEVER_RESIZE,
-      gfx::Size(),
-      ui::SCALE_FACTOR_100P));
+      image, extensions::ImageLoader::ImageRepresentation::NEVER_RESIZE,
+      gfx::Size(), ui::k100Percent));
   loader->LoadImagesAsync(extension_.get(), images_list,
                           base::BindOnce(&ExtensionInstallPrompt::OnImageLoaded,
                                          weak_factory_.GetWeakPtr()));
@@ -647,7 +653,7 @@ void ExtensionInstallPrompt::ShowConfirmation() {
   prompt_->set_icon(gfx::Image::CreateFrom1xBitmap(icon_));
 
   if (show_params_->WasParentDestroyed()) {
-    std::move(done_callback_).Run(Result::ABORTED);
+    std::move(done_callback_).Run(DoneCallbackPayload(Result::ABORTED));
     return;
   }
 
@@ -667,7 +673,7 @@ void ExtensionInstallPrompt::ShowConfirmation() {
   // a callback on the stack.
   auto cb = std::move(done_callback_);
   std::move(show_dialog_callback_)
-      .Run(show_params_.get(), std::move(cb), std::move(prompt_));
+      .Run(std::move(show_params_), std::move(cb), std::move(prompt_));
 }
 
 bool ExtensionInstallPrompt::AutoConfirmPromptIfEnabled() {
@@ -679,21 +685,30 @@ bool ExtensionInstallPrompt::AutoConfirmPromptIfEnabled() {
     // pumping a few times before the user clicks accept or cancel.
     case extensions::ScopedTestDialogAutoConfirm::ACCEPT:
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::BindOnce(std::move(done_callback_),
-                                    ExtensionInstallPrompt::Result::ACCEPTED));
+          FROM_HERE,
+          base::BindOnce(
+              std::move(done_callback_),
+              DoneCallbackPayload(ExtensionInstallPrompt::Result::ACCEPTED,
+                                  extensions::ScopedTestDialogAutoConfirm::
+                                      GetJustification())));
       return true;
     case extensions::ScopedTestDialogAutoConfirm::ACCEPT_AND_OPTION:
+    case extensions::ScopedTestDialogAutoConfirm::ACCEPT_AND_REMEMBER_OPTION:
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
           base::BindOnce(
               std::move(done_callback_),
-              ExtensionInstallPrompt::Result::ACCEPTED_AND_OPTION_CHECKED));
+              DoneCallbackPayload(
+                  ExtensionInstallPrompt::Result::ACCEPTED_AND_OPTION_CHECKED,
+                  extensions::ScopedTestDialogAutoConfirm::
+                      GetJustification())));
       return true;
     case extensions::ScopedTestDialogAutoConfirm::CANCEL:
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(done_callback_),
-                         ExtensionInstallPrompt::Result::USER_CANCELED));
+                         DoneCallbackPayload(
+                             ExtensionInstallPrompt::Result::USER_CANCELED)));
       return true;
   }
 

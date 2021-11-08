@@ -59,9 +59,8 @@ class BackgroundXhrTest : public ExtensionBrowserTest {
     ResultCatcher catcher;
     GURL test_url = net::AppendQueryParameter(extension->GetResourceURL(path),
                                               "url", url.spec());
-    ui_test_utils::NavigateToURL(browser(), test_url);
-    content::BrowserContext::GetDefaultStoragePartition(profile())
-        ->FlushNetworkInterfaceForTesting();
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
+    profile()->GetDefaultStoragePartition()->FlushNetworkInterfaceForTesting();
     constexpr char kSendXHRScript[] = R"(
       var xhr = new XMLHttpRequest();
       xhr.open('GET', '%s');
@@ -107,6 +106,11 @@ IN_PROC_BROWSER_TEST_F(BackgroundXhrTest, HttpAuth) {
 class BackgroundXhrWebstoreTest : public ExtensionApiTestWithManagementPolicy {
  public:
   BackgroundXhrWebstoreTest() = default;
+
+  BackgroundXhrWebstoreTest(const BackgroundXhrWebstoreTest&) = delete;
+  BackgroundXhrWebstoreTest& operator=(const BackgroundXhrWebstoreTest&) =
+      delete;
+
   ~BackgroundXhrWebstoreTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -132,12 +136,12 @@ class BackgroundXhrWebstoreTest : public ExtensionApiTestWithManagementPolicy {
         content::JsReplace("executeFetch($1);", url));
     std::string json;
     EXPECT_TRUE(message_queue.WaitForMessage(&json));
-    base::Optional<base::Value> value =
+    absl::optional<base::Value> value =
         base::JSONReader::Read(json, base::JSON_ALLOW_TRAILING_COMMAS);
-    std::string result;
-    EXPECT_TRUE(value->GetAsString(&result));
+    EXPECT_TRUE(value->is_string());
     std::string trimmed_result;
-    base::TrimWhitespaceASCII(result, base::TRIM_ALL, &trimmed_result);
+    base::TrimWhitespaceASCII(value->GetString(), base::TRIM_ALL,
+                              &trimmed_result);
     return trimmed_result;
   }
 
@@ -168,9 +172,6 @@ class BackgroundXhrWebstoreTest : public ExtensionApiTestWithManagementPolicy {
     EXPECT_TRUE(listener.WaitUntilSatisfied());
     return extension;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BackgroundXhrWebstoreTest);
 };
 
 // Extensions should not be able to XHR to the webstore.

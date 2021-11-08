@@ -5,8 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/scoped_observer.h"
-#include "base/strings/string16.h"
+#include <string>
+
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
@@ -17,9 +17,12 @@
 #endif
 #include "content/browser/accessibility/test_browser_accessibility_delegate.h"
 #include "content/public/browser/ax_event_notification_details.h"
+#include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/ax_tree.h"
 
 namespace content {
+
 namespace {
 
 class CountingAXTreeObserver : public ui::AXTreeObserver {
@@ -47,16 +50,21 @@ class CountingAXTreeObserver : public ui::AXTreeObserver {
 class BrowserAccessibilityManagerTest : public testing::Test {
  public:
   BrowserAccessibilityManagerTest() = default;
+
+  BrowserAccessibilityManagerTest(const BrowserAccessibilityManagerTest&) =
+      delete;
+  BrowserAccessibilityManagerTest& operator=(
+      const BrowserAccessibilityManagerTest&) = delete;
+
   ~BrowserAccessibilityManagerTest() override = default;
 
  protected:
   std::unique_ptr<TestBrowserAccessibilityDelegate>
       test_browser_accessibility_delegate_;
+  const content::BrowserTaskEnvironment task_environment_;
 
  private:
   void SetUp() override;
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserAccessibilityManagerTest);
 };
 
 void BrowserAccessibilityManagerTest::SetUp() {
@@ -1130,69 +1138,60 @@ TEST_F(BrowserAccessibilityManagerTest, TestGetTextForRange) {
   EXPECT_EQ(line_break_accessible, text_only_objects[1]);
   EXPECT_EQ(paragraph_text_accessible, text_only_objects[2]);
 
-  EXPECT_EQ(base::ASCIIToUTF16("Text\nHello world."),
+  EXPECT_EQ(u"Text\nHello world.",
             BrowserAccessibilityManager::GetTextForRange(*root_accessible, 0,
                                                          *root_accessible, 16));
-  EXPECT_EQ(base::ASCIIToUTF16("xt\nHello world."),
+  EXPECT_EQ(u"xt\nHello world.",
             BrowserAccessibilityManager::GetTextForRange(*root_accessible, 2,
                                                          *root_accessible, 12));
-  EXPECT_EQ(base::ASCIIToUTF16("Text\nHello world."),
+  EXPECT_EQ(u"Text\nHello world.",
             BrowserAccessibilityManager::GetTextForRange(
                 *div_accessible, 0, *paragraph_accessible, 12));
-  EXPECT_EQ(base::ASCIIToUTF16("xt\nHello world."),
+  EXPECT_EQ(u"xt\nHello world.",
             BrowserAccessibilityManager::GetTextForRange(
                 *div_accessible, 2, *paragraph_accessible, 12));
-  EXPECT_EQ(base::ASCIIToUTF16("Text\n"),
-            BrowserAccessibilityManager::GetTextForRange(*div_accessible, 0,
-                                                         *div_accessible, 4));
-  EXPECT_EQ(base::ASCIIToUTF16("Text\n"),
-            BrowserAccessibilityManager::GetTextForRange(
-                *button_accessible, 0, *line_break_accessible, 4));
+  EXPECT_EQ(u"Text\n", BrowserAccessibilityManager::GetTextForRange(
+                           *div_accessible, 0, *div_accessible, 4));
+  EXPECT_EQ(u"Text\n", BrowserAccessibilityManager::GetTextForRange(
+                           *button_accessible, 0, *line_break_accessible, 4));
 
-  EXPECT_EQ(base::ASCIIToUTF16("Hello world."),
+  EXPECT_EQ(u"Hello world.",
             BrowserAccessibilityManager::GetTextForRange(
                 *paragraph_accessible, 0, *paragraph_accessible, 12));
-  EXPECT_EQ(base::ASCIIToUTF16("Hello wor"),
+  EXPECT_EQ(u"Hello wor",
             BrowserAccessibilityManager::GetTextForRange(
                 *paragraph_accessible, 0, *paragraph_accessible, 9));
-  EXPECT_EQ(base::ASCIIToUTF16("Hello world."),
+  EXPECT_EQ(u"Hello world.",
             BrowserAccessibilityManager::GetTextForRange(
                 *paragraph_text_accessible, 0, *paragraph_text_accessible, 12));
-  EXPECT_EQ(base::ASCIIToUTF16(" world."),
+  EXPECT_EQ(u" world.",
             BrowserAccessibilityManager::GetTextForRange(
                 *paragraph_text_accessible, 5, *paragraph_text_accessible, 12));
-  EXPECT_EQ(base::ASCIIToUTF16("Hello world."),
+  EXPECT_EQ(u"Hello world.",
             BrowserAccessibilityManager::GetTextForRange(
                 *paragraph_accessible, 0, *paragraph_text_accessible, 12));
-  EXPECT_EQ(
-      base::ASCIIToUTF16("Hello "),
-      BrowserAccessibilityManager::GetTextForRange(
-          *paragraph_line1_accessible, 0, *paragraph_line1_accessible, 6));
-  EXPECT_EQ(
-      base::ASCIIToUTF16("Hello"),
-      BrowserAccessibilityManager::GetTextForRange(
-          *paragraph_line1_accessible, 0, *paragraph_line1_accessible, 5));
-  EXPECT_EQ(
-      base::ASCIIToUTF16("ello "),
-      BrowserAccessibilityManager::GetTextForRange(
-          *paragraph_line1_accessible, 1, *paragraph_line1_accessible, 6));
-  EXPECT_EQ(
-      base::ASCIIToUTF16("world."),
-      BrowserAccessibilityManager::GetTextForRange(
-          *paragraph_line2_accessible, 0, *paragraph_line2_accessible, 6));
-  EXPECT_EQ(
-      base::ASCIIToUTF16("orld"),
-      BrowserAccessibilityManager::GetTextForRange(
-          *paragraph_line2_accessible, 1, *paragraph_line2_accessible, 5));
-  EXPECT_EQ(
-      base::ASCIIToUTF16("Hello world."),
-      BrowserAccessibilityManager::GetTextForRange(
-          *paragraph_line1_accessible, 0, *paragraph_line2_accessible, 6));
+  EXPECT_EQ(u"Hello ", BrowserAccessibilityManager::GetTextForRange(
+                           *paragraph_line1_accessible, 0,
+                           *paragraph_line1_accessible, 6));
+  EXPECT_EQ(u"Hello", BrowserAccessibilityManager::GetTextForRange(
+                          *paragraph_line1_accessible, 0,
+                          *paragraph_line1_accessible, 5));
+  EXPECT_EQ(u"ello ", BrowserAccessibilityManager::GetTextForRange(
+                          *paragraph_line1_accessible, 1,
+                          *paragraph_line1_accessible, 6));
+  EXPECT_EQ(u"world.", BrowserAccessibilityManager::GetTextForRange(
+                           *paragraph_line2_accessible, 0,
+                           *paragraph_line2_accessible, 6));
+  EXPECT_EQ(u"orld", BrowserAccessibilityManager::GetTextForRange(
+                         *paragraph_line2_accessible, 1,
+                         *paragraph_line2_accessible, 5));
+  EXPECT_EQ(u"Hello world.", BrowserAccessibilityManager::GetTextForRange(
+                                 *paragraph_line1_accessible, 0,
+                                 *paragraph_line2_accessible, 6));
   // Start and end positions could be reversed.
-  EXPECT_EQ(
-      base::ASCIIToUTF16("Hello world."),
-      BrowserAccessibilityManager::GetTextForRange(
-          *paragraph_line2_accessible, 6, *paragraph_line1_accessible, 0));
+  EXPECT_EQ(u"Hello world.", BrowserAccessibilityManager::GetTextForRange(
+                                 *paragraph_line2_accessible, 6,
+                                 *paragraph_line1_accessible, 0));
 }
 #endif  // defined(OS_WIN) || BUILDFLAG(USE_ATK)
 
@@ -1222,9 +1221,11 @@ TEST_F(BrowserAccessibilityManagerTest, DeletingFocusedNodeDoesNotCrash) {
   root2.id = 3;
   root2.role = ax::mojom::Role::kRootWebArea;
 
+  ui::AXTreeUpdate update2 = MakeAXTreeUpdate(root2);
+  update2.node_id_to_clear = root.id;
+  update2.root_id = root2.id;
   AXEventNotificationDetails events2;
-  events2.updates.resize(1);
-  events2.updates[0] = MakeAXTreeUpdate(root2);
+  events2.updates = {update2};
   ASSERT_TRUE(manager->OnAccessibilityEvents(events2));
 
   // Make sure that the focused node was updated to the new root and
@@ -1268,11 +1269,12 @@ TEST_F(BrowserAccessibilityManagerTest, DeletingFocusedNodeDoesNotCrash2) {
   root2.id = 3;
   root2.role = ax::mojom::Role::kRootWebArea;
 
-  // Make an update the explicitly clears the previous root.
+  // Make an update that explicitly clears the previous root.
+  ui::AXTreeUpdate update2 = MakeAXTreeUpdate(root2);
+  update2.node_id_to_clear = root.id;
+  update2.root_id = root2.id;
   AXEventNotificationDetails events2;
-  events2.updates.resize(1);
-  events2.updates[0] = MakeAXTreeUpdate(root2);
-  events2.updates[0].node_id_to_clear = 1;
+  events2.updates = {update2};
   ASSERT_TRUE(manager->OnAccessibilityEvents(events2));
 
   // Make sure that the focused node was updated to the new root and
@@ -1280,6 +1282,43 @@ TEST_F(BrowserAccessibilityManagerTest, DeletingFocusedNodeDoesNotCrash2) {
   EXPECT_EQ(3, manager->GetRoot()->GetId());
   ASSERT_NE(nullptr, manager->GetFocus());
   EXPECT_EQ(3, manager->GetFocus()->GetId());
+}
+
+TEST_F(BrowserAccessibilityManagerTest, IsIgnoredChangedDueToFocusChange) {
+  ui::AXTree::SetFocusedNodeShouldNeverBeIgnored();
+  ui::AXNodeData root;
+  ui::AXNodeData button;
+  root.id = 1;
+  button.id = 2;
+
+  root.role = ax::mojom::Role::kRootWebArea;
+  root.child_ids = {button.id};
+
+  button.role = ax::mojom::Role::kButton;
+  button.AddState(ax::mojom::State::kIgnored);
+
+  ui::AXTreeUpdate initial_state = MakeAXTreeUpdate(root, button);
+  std::unique_ptr<BrowserAccessibilityManager> manager(
+      BrowserAccessibilityManager::Create(
+          initial_state, test_browser_accessibility_delegate_.get()));
+  ASSERT_EQ(0u, manager->GetRoot()->PlatformChildCount());
+
+  // On purpose we omit "button" from the list of updated nodes. It should be
+  // added due to the focus changing.
+  ui::AXTreeUpdate update = MakeAXTreeUpdate(root);
+  ui::AXTreeData tree_data;
+  tree_data.focused_tree_id = manager->GetTreeID();
+  tree_data.focus_id = button.id;
+  update.has_tree_data = true;
+  update.tree_data = tree_data;
+  AXEventNotificationDetails events;
+  events.updates = {update};
+  ASSERT_TRUE(manager->OnAccessibilityEvents(events));
+
+  // Now that the button is focused, it is no longer ignored.
+  ASSERT_EQ(1u, manager->GetRoot()->PlatformChildCount());
+  EXPECT_EQ(ax::mojom::Role::kButton,
+            manager->GetRoot()->PlatformGetChild(0)->GetRole());
 }
 
 TEST_F(BrowserAccessibilityManagerTest, TreeUpdatesAreMergedWhenPossible) {
@@ -1365,9 +1404,7 @@ TEST_F(BrowserAccessibilityManagerTest, TestHitTestScaled) {
 
   ui::AXNodeData parent_childtree;
   parent_childtree.id = 3;
-  parent_childtree.AddStringAttribute(
-      ax::mojom::StringAttribute::kChildTreeId,
-      child_update.tree_data.tree_id.ToString());
+  parent_childtree.AddChildTreeId(child_update.tree_data.tree_id);
   parent_childtree.SetName("parent_childtree");
   parent_childtree.relative_bounds.bounds = gfx::RectF(100, 100, 100, 100);
 
@@ -1397,13 +1434,13 @@ TEST_F(BrowserAccessibilityManagerTest, TestHitTestScaled) {
   // start from the parent_manager or the child_manager.
   auto* hittest1 = parent_manager->CachingAsyncHitTest(gfx::Point(75, 75));
   ASSERT_NE(nullptr, hittest1);
-  ASSERT_EQ("parent_child", hittest1->GetData().GetStringAttribute(
-                                ax::mojom::StringAttribute::kName));
+  ASSERT_EQ("parent_child",
+            hittest1->GetStringAttribute(ax::mojom::StringAttribute::kName));
 
   auto* hittest2 = child_manager->CachingAsyncHitTest(gfx::Point(75, 75));
   ASSERT_NE(nullptr, hittest2);
-  ASSERT_EQ("parent_child", hittest2->GetData().GetStringAttribute(
-                                ax::mojom::StringAttribute::kName));
+  ASSERT_EQ("parent_child",
+            hittest2->GetStringAttribute(ax::mojom::StringAttribute::kName));
 }
 
 TEST_F(BrowserAccessibilityManagerTest, TestShouldFireEventForNode) {

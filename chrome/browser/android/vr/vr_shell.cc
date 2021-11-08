@@ -87,11 +87,9 @@ namespace vr {
 namespace {
 vr::VrShell* g_vr_shell_instance;
 
-constexpr base::TimeDelta kPollCapturingStateInterval =
-    base::TimeDelta::FromSecondsD(0.2);
+constexpr base::TimeDelta kPollCapturingStateInterval = base::Seconds(0.2);
 
-constexpr base::TimeDelta kAssetsComponentWaitDelay =
-    base::TimeDelta::FromSeconds(2);
+constexpr base::TimeDelta kAssetsComponentWaitDelay = base::Seconds(2);
 
 static constexpr float kInchesToMeters = 0.0254f;
 // Screen pixel density of the Google Pixel phone in pixels per inch.
@@ -576,7 +574,7 @@ void VrShell::SetDialogFloating(JNIEnv* env,
 void VrShell::ShowToast(JNIEnv* env,
                         const base::android::JavaParamRef<jobject>& obj,
                         jstring jtext) {
-  base::string16 text;
+  std::u16string text;
   base::android::ConvertJavaStringToUTF16(env, jtext, &text);
   gl_thread_->ShowPlatformToast(text);
 }
@@ -818,7 +816,7 @@ void VrShell::SetVoiceSearchActive(bool active) {
     std::string profile_locale = g_browser_process->GetApplicationLocale();
     speech_recognizer_.reset(new SpeechRecognizer(
         this, ui_,
-        content::BrowserContext::GetDefaultStoragePartition(profile)
+        profile->GetDefaultStoragePartition()
             ->GetURLLoaderFactoryForBrowserProcessIOThread(),
         profile->GetPrefs()->GetString(language::prefs::kAcceptLanguages),
         profile_locale));
@@ -993,7 +991,7 @@ bool VrShell::ShouldDisplayURL() const {
   return ChromeLocationBarModelDelegate::ShouldDisplayURL();
 }
 
-void VrShell::OnVoiceResults(const base::string16& result) {
+void VrShell::OnVoiceResults(const std::u16string& result) {
   JNIEnv* env = base::android::AttachCurrentThread();
   GURL url;
   bool input_was_url;
@@ -1174,7 +1172,7 @@ std::unique_ptr<PageInfo> VrShell::CreatePageInfo() {
   auto page_info = std::make_unique<PageInfo>(
       std::make_unique<ChromePageInfoDelegate>(web_contents_), web_contents_,
       entry->GetVirtualURL());
-  page_info->InitializeUiState(this);
+  page_info->InitializeUiState(this, base::DoNothing());
   return page_info;
 }
 

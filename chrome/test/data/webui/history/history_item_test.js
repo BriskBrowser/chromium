@@ -6,7 +6,7 @@ import {BrowserService, ensureLazyLoaded} from 'chrome://history/history.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {TestBrowserService} from 'chrome://test/history/test_browser_service.js';
 import {createHistoryEntry, createSearchEntry} from 'chrome://test/history/test_util.js';
-import {flushTasks} from 'chrome://test/test_util.m.js';
+import {flushTasks} from 'chrome://test/test_util.js';
 
 const TEST_HISTORY_RESULTS = [
   createHistoryEntry('2016-03-16 10:00', 'http://www.google.com'),
@@ -28,7 +28,7 @@ suite('<history-item> unit test', function() {
 
   setup(function() {
     document.body.innerHTML = '';
-    BrowserService.instance_ = new TestBrowserService();
+    BrowserService.setInstance(new TestBrowserService());
 
     item = document.createElement('history-item');
     item.item = TEST_HISTORY_RESULTS[0];
@@ -72,7 +72,7 @@ suite('<history-item> integration test', function() {
   setup(function() {
     document.body.innerHTML = '';
     const testService = new TestBrowserService();
-    BrowserService.instance_ = testService;
+    BrowserService.setInstance(testService);
 
     const app = document.createElement('history-app');
     document.body.appendChild(app);

@@ -14,8 +14,8 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "components/wifi/wifi_export.h"
 
@@ -31,6 +31,9 @@ class WIFI_EXPORT WiFiService {
   using NetworkGuidList = std::vector<std::string>;
   using NetworkGuidListCallback =
       base::RepeatingCallback<void(const NetworkGuidList& network_guid_list)>;
+
+  WiFiService(const WiFiService&) = delete;
+  WiFiService& operator=(const WiFiService&) = delete;
 
   virtual ~WiFiService() {}
 
@@ -136,9 +139,6 @@ class WIFI_EXPORT WiFiService {
   static const char kErrorNotImplemented[];
   static const char kErrorScanForNetworksWithName[];
   static const char kErrorWiFiService[];
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WiFiService);
 };
 
 }  // namespace wifi

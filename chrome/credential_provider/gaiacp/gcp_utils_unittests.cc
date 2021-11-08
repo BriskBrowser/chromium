@@ -4,9 +4,9 @@
 
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/cxx17_backports.h"
 #include "base/macros.h"
 #include "base/process/launch.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_reg_util_win.h"
@@ -37,6 +37,28 @@ TEST(GcpPasswordTest, GenerateRandomPassword) {
               manager->GenerateRandomPassword(password, base::size(password)));
     ASSERT_LT(24u, wcslen(password));
   }
+}
+
+TEST(GcpOsVersionTest, GetOsFromRegistries) {
+  registry_util::RegistryOverrideManager registry_override_;
+  InitializeRegistryOverrideForTesting(&registry_override_);
+  wchar_t kOsRegistryPath[] =
+      L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+  wchar_t kOsMajorName[] = L"CurrentMajorVersionNumber";
+  wchar_t kOsMinorName[] = L"CurrentMinorVersionNumber";
+  wchar_t kOsBuildName[] = L"CurrentBuildNumber";
+  wchar_t kOsBuild[] = L"10819";
+  DWORD major = 15;
+  DWORD minor = 1;
+
+  SetMachineRegDWORD(kOsRegistryPath, kOsMajorName, major);
+  SetMachineRegDWORD(kOsRegistryPath, kOsMinorName, minor);
+  SetMachineRegString(kOsRegistryPath, kOsBuildName, kOsBuild);
+
+  std::string version;
+  GetOsVersion(&version);
+
+  ASSERT_EQ(version, "15.1.10819");
 }
 
 class GcpProcHelperTest : public ::testing::Test {

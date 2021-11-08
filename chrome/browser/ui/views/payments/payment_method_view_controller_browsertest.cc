@@ -22,6 +22,12 @@
 namespace payments {
 
 class PaymentMethodViewControllerTest : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentMethodViewControllerTest(const PaymentMethodViewControllerTest&) =
+      delete;
+  PaymentMethodViewControllerTest& operator=(
+      const PaymentMethodViewControllerTest&) = delete;
+
  protected:
   PaymentMethodViewControllerTest()
       : gpay_server_(net::EmbeddedTestServer::TYPE_HTTPS),
@@ -43,7 +49,7 @@ class PaymentMethodViewControllerTest : public PaymentRequestBrowserTestBase {
     content::BrowserContext* context =
         GetActiveWebContents()->GetBrowserContext();
     auto downloader = std::make_unique<TestDownloader>(
-        content::BrowserContext::GetDefaultStoragePartition(context)
+        context->GetDefaultStoragePartition()
             ->GetURLLoaderFactoryForBrowserProcess());
     downloader->AddTestServerURL("https://kylepay.com/",
                                  kylepay_server_.GetURL("kylepay.com", "/"));
@@ -58,8 +64,6 @@ class PaymentMethodViewControllerTest : public PaymentRequestBrowserTestBase {
  private:
   net::EmbeddedTestServer gpay_server_;
   net::EmbeddedTestServer kylepay_server_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentMethodViewControllerTest);
 };
 
 IN_PROC_BROWSER_TEST_F(PaymentMethodViewControllerTest, OneCardSelected) {
@@ -103,7 +107,7 @@ IN_PROC_BROWSER_TEST_F(PaymentMethodViewControllerTest,
 
   // Slightly different visa.
   autofill::CreditCard card2 = autofill::test::GetCreditCard();
-  card2.SetNumber(base::ASCIIToUTF16("4111111111111112"));
+  card2.SetNumber(u"4111111111111112");
   card2.set_billing_address_id(billing_profile.guid());
   card2.set_use_count(1U);
   AddCreditCard(card2);
@@ -176,10 +180,12 @@ IN_PROC_BROWSER_TEST_F(PaymentMethodViewControllerTest,
   SetDownloaderAndIgnorePortInOriginComparisonForTesting();
 
   ResetEventWaiterForDialogOpened();
-  EXPECT_TRUE(content::ExecJs(GetActiveWebContents(),
-                              "testPaymentMethods([{supportedMethods: "
-                              "'https://google.com/pay'},{supportedMethods: "
-                              "'https://kylepay.com/webpay'}])"));
+  content::ExecuteScriptAsync(GetActiveWebContents(), R"(
+    testPaymentMethods([
+      {supportedMethods: 'https://google.com/pay'},
+      {supportedMethods: 'https://kylepay.com/webpay'},
+    ]);
+  )");
   WaitForObservedEvent();
 
   // Confirm that "Add card" button is not shown since "basic-card" is not

@@ -21,13 +21,13 @@
 
 namespace {
 
-base::Optional<extensions::Command> CommandForExtensionAction(
+absl::optional<extensions::Command> CommandForExtensionAction(
     const extensions::Extension* extension,
     Profile* profile) {
   const auto* info = extensions::ActionInfo::GetExtensionActionInfo(extension);
 
   if (!info)
-    return base::nullopt;
+    return absl::nullopt;
 
   auto* service = extensions::CommandService::Get(profile);
   extensions::Command command;
@@ -38,13 +38,13 @@ base::Optional<extensions::Command> CommandForExtensionAction(
     return command;
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-base::string16 MakeHowToUseText(const extensions::ActionInfo* action,
-                                base::Optional<extensions::Command> command,
+std::u16string MakeHowToUseText(const extensions::ActionInfo* action,
+                                absl::optional<extensions::Command> command,
                                 const std::string& keyword) {
-  base::string16 extra;
+  std::u16string extra;
   if (command.has_value())
     extra = command->accelerator().GetShortcutText();
 
@@ -64,7 +64,7 @@ base::string16 MakeHowToUseText(const extensions::ActionInfo* action,
   }
 
   if (!message_id)
-    return base::string16();
+    return std::u16string();
 
   return extra.empty() ? l10n_util::GetStringUTF16(message_id)
                        : l10n_util::GetStringFUTF16(message_id, extra);
@@ -80,15 +80,12 @@ ExtensionInstalledBubbleModel::ExtensionInstalledBubbleModel(
       extension_id_(extension->id()),
       extension_name_(extension->name()) {
   const std::string& keyword = extensions::OmniboxInfo::GetKeyword(extension);
-  base::Optional<extensions::Command> command =
+  absl::optional<extensions::Command> command =
       CommandForExtensionAction(extension, profile);
   const auto* action_info =
       extensions::ActionInfo::GetExtensionActionInfo(extension);
 
-  // TODO(ellyjones): There is no logical reason why TYPE_ACTION should be
-  // different here, but the existing bubble behaves this way.
-  const bool toolbar_action =
-      action_info && action_info->type != extensions::ActionInfo::TYPE_ACTION;
+  const bool toolbar_action = !!action_info;
 
   anchor_to_action_ = toolbar_action;
   anchor_to_omnibox_ = !toolbar_action && !keyword.empty();
@@ -109,7 +106,7 @@ ExtensionInstalledBubbleModel::ExtensionInstalledBubbleModel(
 
 ExtensionInstalledBubbleModel::~ExtensionInstalledBubbleModel() = default;
 
-base::string16 ExtensionInstalledBubbleModel::GetHowToUseText() const {
+std::u16string ExtensionInstalledBubbleModel::GetHowToUseText() const {
   DCHECK(show_how_to_use_);
   return how_to_use_text_;
 }

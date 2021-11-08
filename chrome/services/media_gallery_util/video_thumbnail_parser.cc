@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/optional.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -20,6 +19,7 @@
 #include "media/filters/vpx_video_decoder.h"
 #include "media/media_buildflags.h"
 #include "media/mojo/common/mojo_shared_buffer_video_frame.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace {
 
@@ -34,7 +34,7 @@ void OnSoftwareVideoFrameDecoded(
 
   if (!frame) {
     std::move(video_frame_callback)
-        .Run(false, chrome::mojom::VideoFrameData::New(), base::nullopt);
+        .Run(false, chrome::mojom::VideoFrameData::New(), absl::nullopt);
     return;
   }
 
@@ -53,7 +53,7 @@ void OnEncodedVideoFrameExtracted(
     const media::VideoDecoderConfig& config) {
   if (!success || data.empty()) {
     std::move(video_frame_callback)
-        .Run(false, chrome::mojom::VideoFrameData::New(), base::nullopt);
+        .Run(false, chrome::mojom::VideoFrameData::New(), absl::nullopt);
     return;
   }
 
@@ -61,7 +61,7 @@ void OnEncodedVideoFrameExtracted(
     !BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
   // H264 currently needs to be decoded in GPU process when no software decoder
   // is provided.
-  if (config.codec() == media::VideoCodec::kCodecH264) {
+  if (config.codec() == media::VideoCodec::kH264) {
     std::move(video_frame_callback)
         .Run(success,
              chrome::mojom::VideoFrameData::NewEncodedData(std::move(data)),
@@ -70,10 +70,10 @@ void OnEncodedVideoFrameExtracted(
   }
 #endif
 
-  if (config.codec() != media::VideoCodec::kCodecVP8 &&
-      config.codec() != media::VideoCodec::kCodecVP9) {
+  if (config.codec() != media::VideoCodec::kVP8 &&
+      config.codec() != media::VideoCodec::kVP9) {
     std::move(video_frame_callback)
-        .Run(false, chrome::mojom::VideoFrameData::New(), base::nullopt);
+        .Run(false, chrome::mojom::VideoFrameData::New(), absl::nullopt);
     return;
   }
 

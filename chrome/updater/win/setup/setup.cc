@@ -19,7 +19,6 @@
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/version.h"
 #include "base/win/scoped_com_initializer.h"
@@ -31,19 +30,20 @@
 #include "chrome/updater/app/server/win/updater_legacy_idl.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/updater_branding.h"
+#include "chrome/updater/updater_scope.h"
 #include "chrome/updater/updater_version.h"
 #include "chrome/updater/util.h"
-#include "chrome/updater/win/constants.h"
 #include "chrome/updater/win/setup/setup_util.h"
 #include "chrome/updater/win/task_scheduler.h"
-#include "chrome/updater/win/util.h"
+#include "chrome/updater/win/win_constants.h"
+#include "chrome/updater/win/win_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 namespace {
 
-// Adds work items to register the COM Server with Windows.
-void AddComServerWorkItems(HKEY root,
-                           const base::FilePath& com_server_path,
+// Adds work items to register the per-user internal COM Server with Windows.
+void AddComServerWorkItems(const base::FilePath& com_server_path,
                            WorkItemList* list) {
   DCHECK(list);
   if (com_server_path.empty()) {
@@ -51,8 +51,9 @@ void AddComServerWorkItems(HKEY root,
     return;
   }
 
-  for (const auto& clsid : GetSideBySideServers()) {
-    AddInstallServerWorkItems(root, clsid, com_server_path, list);
+  for (const auto& clsid : GetSideBySideServers(UpdaterScope::kUser)) {
+    AddInstallServerWorkItems(HKEY_CURRENT_USER, clsid, com_server_path, true,
+                              list);
   }
 }
 
@@ -99,10 +100,18 @@ std::vector<base::FilePath> GetSetupFiles(const base::FilePath& source_dir) {
 }  // namespace
 
 // TODO(crbug.com/1069976): use specific return values for different code paths.
-int Setup(bool is_machine) {
-  VLOG(1) << __func__ << ", is_machine: " << is_machine;
-  DCHECK(!is_machine || ::IsUserAnAdmin());
-  HKEY key = is_machine ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
+int Setup(UpdaterScope scope) {
+  VLOG(1) << __func__ << ", scope: " << scope;
+  DCHECK(scope == UpdaterScope::kUser || ::IsUserAnAdmin());
+  HKEY key;
+  switch (scope) {
+    case UpdaterScope::kSystem:
+      key = HKEY_LOCAL_MACHINE;
+      break;
+    case UpdaterScope::kUser:
+      key = HKEY_CURRENT_USER;
+      break;
+  }
 
   auto scoped_com_initializer =
       std::make_unique<base::win::ScopedCOMInitializer>(
@@ -113,8 +122,9 @@ int Setup(bool is_machine) {
     LOG(ERROR) << "GetTempDir failed.";
     return -1;
   }
-  base::FilePath versioned_dir;
-  if (!GetVersionedDirectory(&versioned_dir)) {
+  const absl::optional<base::FilePath> versioned_dir =
+      GetVersionedDirectory(scope);
+  if (!versioned_dir) {
     LOG(ERROR) << "GetVersionedDirectory failed.";
     return -1;
   }
@@ -141,7 +151,7 @@ int Setup(bool is_machine) {
   // versioned directory, hence the BaseName function call below.
   std::unique_ptr<WorkItemList> install_list(WorkItem::CreateWorkItemList());
   for (const auto& file : setup_files) {
-    const base::FilePath target_path = versioned_dir.Append(file.BaseName());
+    const base::FilePath target_path = versioned_dir->Append(file.BaseName());
     const base::FilePath source_path = source_dir.Append(file);
     install_list->AddCopyTreeWorkItem(source_path, target_path, temp_dir,
                                       WorkItem::ALWAYS);
@@ -149,36 +159,43 @@ int Setup(bool is_machine) {
 
   for (const auto& key_path :
        {GetRegistryKeyClientsUpdater(), GetRegistryKeyClientStateUpdater()}) {
-    install_list->AddCreateRegKeyWorkItem(key, key_path,
-                                          WorkItem::kWow64Default);
+    install_list->AddCreateRegKeyWorkItem(key, key_path, Wow6432(0));
+    install_list->AddSetRegValueWorkItem(key, key_path, Wow6432(0), kRegValuePV,
+                                         kUpdaterVersionUtf16, true);
     install_list->AddSetRegValueWorkItem(
-        key, key_path, WorkItem::kWow64Default, kRegValuePV,
-        base::ASCIIToWide(UPDATER_VERSION_STRING), true);
-    install_list->AddSetRegValueWorkItem(
-        key, key_path, WorkItem::kWow64Default, kRegValueName,
+        key, key_path, Wow6432(0), kRegValueName,
         base::ASCIIToWide(PRODUCT_FULLNAME_STRING), true);
   }
 
   static constexpr base::FilePath::StringPieceType kUpdaterExe =
       FILE_PATH_LITERAL("updater.exe");
-  AddComServerWorkItems(key, versioned_dir.Append(kUpdaterExe),
-                        install_list.get());
 
-  AddComInterfacesWorkItems(key, versioned_dir.Append(kUpdaterExe),
+  AddComInterfacesWorkItems(key, versioned_dir->Append(kUpdaterExe),
                             install_list.get());
+  switch (scope) {
+    case UpdaterScope::kUser:
+      AddComServerWorkItems(versioned_dir->Append(kUpdaterExe),
+                            install_list.get());
+      break;
+    case UpdaterScope::kSystem:
+      AddComServiceWorkItems(versioned_dir->Append(kUpdaterExe), true,
+                             install_list.get());
+      break;
+  }
 
-  base::CommandLine run_updater_wake_command(versioned_dir.Append(kUpdaterExe));
+  base::CommandLine run_updater_wake_command(
+      versioned_dir->Append(kUpdaterExe));
   run_updater_wake_command.AppendSwitch(kWakeSwitch);
-
-#if !defined(NDEBUG)
+  if (scope == UpdaterScope::kSystem)
+    run_updater_wake_command.AppendSwitch(kSystemSwitch);
   run_updater_wake_command.AppendSwitch(kEnableLoggingSwitch);
   run_updater_wake_command.AppendSwitchASCII(kLoggingModuleSwitch,
-                                             "*/chrome/updater/*=2");
-#endif
-  if (!install_list->Do() || !RegisterWakeTask(run_updater_wake_command)) {
+                                             kLoggingModuleSwitchValue);
+  if (!install_list->Do() ||
+      !RegisterWakeTask(run_updater_wake_command, scope)) {
     LOG(ERROR) << "Install failed, rolling back...";
     install_list->Rollback();
-    UnregisterWakeTask();
+    UnregisterWakeTask(scope);
     LOG(ERROR) << "Rollback complete.";
     return -1;
   }

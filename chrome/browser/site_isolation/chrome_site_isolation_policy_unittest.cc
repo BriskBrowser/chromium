@@ -17,6 +17,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/buildflags/buildflags.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -47,6 +48,10 @@ class ChromeSiteIsolationPolicyTest : public testing::Test {
  public:
   ChromeSiteIsolationPolicyTest() = default;
 
+  ChromeSiteIsolationPolicyTest(const ChromeSiteIsolationPolicyTest&) = delete;
+  ChromeSiteIsolationPolicyTest& operator=(
+      const ChromeSiteIsolationPolicyTest&) = delete;
+
   void SetUp() override {
     // This way the test always sees the same amount of physical memory
     // (kLowMemoryDeviceThresholdMB = 512MB), regardless of how much memory is
@@ -58,11 +63,13 @@ class ChromeSiteIsolationPolicyTest : public testing::Test {
     mode_feature_.InitAndEnableFeature(features::kSitePerProcess);
   }
 
+  // Note that this only sets the memory threshold for strict site isolation,
+  // which is the only mode this test currently cares about.
   void SetMemoryThreshold(const std::string& threshold) {
     threshold_feature_.InitAndEnableFeatureWithParameters(
-        site_isolation::features::kSitePerProcessOnlyForHighMemoryClients,
+        site_isolation::features::kSiteIsolationMemoryThresholds,
         {{site_isolation::features::
-              kSitePerProcessOnlyForHighMemoryClientsParamName,
+              kStrictSiteIsolationMemoryThresholdParamName,
           threshold}});
   }
 
@@ -70,8 +77,6 @@ class ChromeSiteIsolationPolicyTest : public testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   base::test::ScopedFeatureList mode_feature_;
   base::test::ScopedFeatureList threshold_feature_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeSiteIsolationPolicyTest);
 };
 
 TEST_F(ChromeSiteIsolationPolicyTest, NoIsolationBelowMemoryThreshold) {

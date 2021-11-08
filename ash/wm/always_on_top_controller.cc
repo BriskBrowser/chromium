@@ -4,7 +4,6 @@
 
 #include "ash/wm/always_on_top_controller.h"
 
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/wm/desks/desks_controller.h"
@@ -42,6 +41,11 @@ AlwaysOnTopController::~AlwaysOnTopController() {
   DCHECK(!pip_container_);
 }
 
+// static
+void AlwaysOnTopController::SetDisallowReparent(aura::Window* window) {
+  window->SetProperty(kDisallowReparentKey, true);
+}
+
 aura::Window* AlwaysOnTopController::GetContainer(aura::Window* window) const {
   DCHECK(always_on_top_container_);
   DCHECK(pip_container_);
@@ -56,10 +60,9 @@ aura::Window* AlwaysOnTopController::GetContainer(aura::Window* window) const {
     // TODO(afakhry): Do we need to worry about the context of |window| here? Or
     // is it safe to assume that |window| should always be parented to the
     // active desks' container.
-    int window_workspace =
+    const int window_workspace =
         window->GetProperty(aura::client::kWindowWorkspaceKey);
-    if (features::IsBentoEnabled() &&
-        window_workspace != aura::client::kUnassignedWorkspace) {
+    if (window_workspace != aura::client::kWindowWorkspaceUnassignedWorkspace) {
       auto* desk_container =
           DesksController::Get()->GetDeskContainer(root, window_workspace);
       if (desk_container)
@@ -73,13 +76,14 @@ aura::Window* AlwaysOnTopController::GetContainer(aura::Window* window) const {
   return always_on_top_container_;
 }
 
+void AlwaysOnTopController::ClearLayoutManagers() {
+  always_on_top_container_->SetLayoutManager(nullptr);
+  pip_container_->SetLayoutManager(nullptr);
+}
+
 void AlwaysOnTopController::SetLayoutManagerForTest(
     std::unique_ptr<WorkspaceLayoutManager> layout_manager) {
   always_on_top_container_->SetLayoutManager(layout_manager.release());
-}
-
-void AlwaysOnTopController::SetDisallowReparent(aura::Window* window) {
-  window->SetProperty(kDisallowReparentKey, true);
 }
 
 void AlwaysOnTopController::AddWindow(aura::Window* window) {
@@ -93,8 +97,8 @@ void AlwaysOnTopController::RemoveWindow(aura::Window* window) {
 }
 
 void AlwaysOnTopController::ReparentWindow(aura::Window* window) {
-  DCHECK(window->type() == aura::client::WINDOW_TYPE_NORMAL ||
-         window->type() == aura::client::WINDOW_TYPE_POPUP);
+  DCHECK(window->GetType() == aura::client::WINDOW_TYPE_NORMAL ||
+         window->GetType() == aura::client::WINDOW_TYPE_POPUP);
   aura::Window* container = GetContainer(window);
   if (window->parent() != container &&
       !window->GetProperty(kDisallowReparentKey))

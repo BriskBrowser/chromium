@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef GPU_GLES2_CONFORM_TEST_SURFACE_H_
-#define GPU_GLES2_CONFORM_TEST_SURFACE_H_
+#ifndef GPU_GLES2_CONFORM_SUPPORT_EGL_SURFACE_H_
+#define GPU_GLES2_CONFORM_SUPPORT_EGL_SURFACE_H_
 
 #include <EGL/egl.h>
 
@@ -20,6 +20,10 @@ class Config;
 class Surface : public base::RefCountedThreadSafe<Surface> {
  public:
   explicit Surface(gl::GLSurface* gl_surface, const Config* config);
+
+  Surface(const Surface&) = delete;
+  Surface& operator=(const Surface&) = delete;
+
   void set_is_current_in_some_thread(bool flag) {
     is_current_in_some_thread_ = flag;
   }
@@ -35,10 +39,9 @@ class Surface : public base::RefCountedThreadSafe<Surface> {
   bool is_current_in_some_thread_;
   scoped_refptr<gl::GLSurface> gl_surface_;
   const Config* config_;
-  DISALLOW_COPY_AND_ASSIGN(Surface);
 };
 
 }  // namespace egl
 }  // namespace gles2_conform_support
 
-#endif  // GPU_GLES2_CONFORM_TEST_SURFACE_H_
+#endif  // GPU_GLES2_CONFORM_SUPPORT_EGL_SURFACE_H_

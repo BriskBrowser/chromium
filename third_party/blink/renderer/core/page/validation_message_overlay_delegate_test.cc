@@ -49,8 +49,7 @@ TEST_P(ValidationMessageOverlayDelegateTest,
   // When WebTestSupport::IsRunningWebTest is set, the animations in
   // ValidationMessageOverlayDelegate are disabled. We are specifically testing
   // animations, so make sure that doesn't happen.
-  bool was_running_web_test = WebTestSupport::IsRunningWebTest();
-  WebTestSupport::SetIsRunningWebTest(false);
+  ScopedWebTestMode web_test_mode(false);
 
   SetBodyInnerHTML("<div id='anchor'></div>");
   Element* anchor = GetElementById("anchor");
@@ -61,10 +60,10 @@ TEST_P(ValidationMessageOverlayDelegateTest,
       TextDirection::kLtr);
   ValidationMessageOverlayDelegate* delegate_ptr = delegate.get();
 
-  auto overlay =
-      std::make_unique<FrameOverlay>(&GetFrame(), std::move(delegate));
+  auto* overlay =
+      MakeGarbageCollected<FrameOverlay>(&GetFrame(), std::move(delegate));
   delegate_ptr->CreatePage(*overlay);
-  ASSERT_TRUE(GetFrame().View()->UpdateLifecycleToCompositingCleanPlusScrolling(
+  ASSERT_TRUE(GetFrame().View()->UpdateAllLifecyclePhasesExceptPaint(
       DocumentUpdateReason::kTest));
 
   // Trigger the overlay animations.
@@ -86,7 +85,7 @@ TEST_P(ValidationMessageOverlayDelegateTest,
     EXPECT_FALSE(animation->HasActiveAnimationsOnCompositor());
   }
 
-  WebTestSupport::SetIsRunningWebTest(was_running_web_test);
+  overlay->Destroy();
 }
 
 // Regression test for https://crbug.com/990680, where we found we were not
@@ -126,7 +125,7 @@ TEST_P(ValidationMessageOverlayDelegateTest,
   AnimationClock& external_clock = GetPage().Animator().Clock();
   base::TimeTicks current_time = external_clock.CurrentTime();
 
-  base::TimeTicks new_time = current_time + base::TimeDelta::FromSeconds(1);
+  base::TimeTicks new_time = current_time + base::Seconds(1);
   PageWidgetDelegate::Animate(GetPage(), new_time);
 
   // TODO(crbug.com/785940): Until this bug is fixed, this comparison could pass

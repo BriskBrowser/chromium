@@ -19,7 +19,7 @@ class WebAppProviderUnitTest : public WebAppTest {
 
   void SetUp() override {
     WebAppTest::SetUp();
-    provider_ = WebAppProvider::Get(profile());
+    provider_ = WebAppProvider::GetForTest(profile());
   }
 
   WebAppProvider* provider() { return provider_; }
@@ -29,7 +29,7 @@ class WebAppProviderUnitTest : public WebAppTest {
 };
 
 TEST_F(WebAppProviderUnitTest, Registrar) {
-  AppRegistrar& registrar = provider()->registrar();
+  WebAppRegistrar& registrar = provider()->registrar();
   EXPECT_FALSE(registrar.IsInstalled("unknown"));
 }
 

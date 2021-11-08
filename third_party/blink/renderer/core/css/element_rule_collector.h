@@ -25,12 +25,12 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/css/css_rule_list.h"
-#include "third_party/blink/renderer/core/css/pseudo_style_request.h"
 #include "third_party/blink/renderer/core/css/resolver/element_resolve_context.h"
 #include "third_party/blink/renderer/core/css/resolver/match_request.h"
 #include "third_party/blink/renderer/core/css/resolver/match_result.h"
 #include "third_party/blink/renderer/core/css/selector_checker.h"
 #include "third_party/blink/renderer/core/css/style_recalc.h"
+#include "third_party/blink/renderer/core/css/style_request.h"
 #include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -48,11 +48,11 @@ class MatchedRule {
 
  public:
   MatchedRule(const RuleData* rule_data,
-              unsigned specificity,
+              unsigned layer_order,
               unsigned style_sheet_index,
               const CSSStyleSheet* parent_style_sheet)
       : rule_data_(rule_data),
-        specificity_(specificity),
+        layer_order_(layer_order),
         parent_style_sheet_(parent_style_sheet) {
     DCHECK(rule_data_);
     static const unsigned kBitsForPositionInRuleData = 18;
@@ -63,9 +63,8 @@ class MatchedRule {
 
   const RuleData* GetRuleData() const { return rule_data_; }
   uint64_t GetPosition() const { return position_; }
-  unsigned Specificity() const {
-    return GetRuleData()->Specificity() + specificity_;
-  }
+  unsigned Specificity() const { return GetRuleData()->Specificity(); }
+  unsigned LayerOrder() const { return layer_order_; }
   const CSSStyleSheet* ParentStyleSheet() const { return parent_style_sheet_; }
   void Trace(Visitor* visitor) const {
     visitor->Trace(parent_style_sheet_);
@@ -74,7 +73,7 @@ class MatchedRule {
 
  private:
   Member<const RuleData> rule_data_;
-  unsigned specificity_;
+  unsigned layer_order_;
   uint64_t position_;
   Member<const CSSStyleSheet> parent_style_sheet_;
 };
@@ -110,7 +109,7 @@ class CORE_EXPORT ElementRuleCollector {
   ~ElementRuleCollector();
 
   void SetMode(SelectorChecker::Mode mode) { mode_ = mode; }
-  void SetPseudoElementStyleRequest(const PseudoElementStyleRequest& request) {
+  void SetPseudoElementStyleRequest(const StyleRequest& request) {
     pseudo_style_request_ = request;
   }
   void SetSameOriginOnly(bool f) { same_origin_only_ = f; }
@@ -123,16 +122,17 @@ class CORE_EXPORT ElementRuleCollector {
   StyleRuleList* MatchedStyleRuleList();
   RuleIndexList* MatchedCSSRuleList();
 
-  void CollectMatchingRules(const MatchRequest&,
-                            bool matching_tree_boundary_rules = false);
+  void CollectMatchingRules(const MatchRequest&);
   void CollectMatchingShadowHostRules(const MatchRequest&);
+  void CollectMatchingSlottedRules(const MatchRequest&);
   void CollectMatchingPartPseudoRules(const MatchRequest&,
                                       PartNames&,
                                       bool for_shadow_pseudo);
   void SortAndTransferMatchedRules();
   void ClearMatchedRules();
   void AddElementStyleProperties(const CSSPropertyValueSet*,
-                                 bool is_cacheable = true);
+                                 bool is_cacheable = true,
+                                 bool is_inline_style = false);
   void FinishAddingUARules() { result_.FinishAddingUARules(); }
   void FinishAddingUserRules() {
     result_.FinishAddingUserRules();
@@ -159,12 +159,14 @@ class CORE_EXPORT ElementRuleCollector {
   template <typename RuleDataListType>
   void CollectMatchingRulesForList(const RuleDataListType*,
                                    const MatchRequest&,
+                                   const SelectorChecker&,
                                    PartRequest* = nullptr);
 
   bool Match(SelectorChecker&,
              const SelectorChecker::SelectorCheckingContext&,
              MatchResult&);
   void DidMatchRule(const RuleData*,
+                    unsigned layer_order,
                     const SelectorChecker::MatchResult&,
                     const MatchRequest&);
 
@@ -181,9 +183,10 @@ class CORE_EXPORT ElementRuleCollector {
   const ElementResolveContext& context_;
   StyleRecalcContext style_recalc_context_;
   const SelectorFilter& selector_filter_;
-  ComputedStyle* style_;  // FIXME: This can be mutated during matching!
+  scoped_refptr<ComputedStyle>
+      style_;  // FIXME: This can be mutated during matching!
 
-  PseudoElementStyleRequest pseudo_style_request_;
+  StyleRequest pseudo_style_request_;
   SelectorChecker::Mode mode_;
   bool can_use_fast_reject_;
   bool same_origin_only_;

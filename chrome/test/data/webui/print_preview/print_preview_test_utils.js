@@ -2,24 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {CapabilitiesResponse, Cdd, DEFAULT_MAX_COPIES, Destination, DestinationCertificateStatus, DestinationConnectionStatus, DestinationOrigin, DestinationStore, DestinationType, LocalDestinationInfo, MeasurementSystemUnitType, NativeInitialSettings, SelectOption} from 'chrome://print/print_preview.js';
+import {DEFAULT_MAX_COPIES, Destination, DestinationCertificateStatus, DestinationConnectionStatus, DestinationOrigin, DestinationStore, DestinationType, GooglePromotedDestinationId, MeasurementSystemUnitType} from 'chrome://print/print_preview.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
-import {isChromeOS} from 'chrome://resources/js/cr.m.js';
+import {isChromeOS, isLacros} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
 import {Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {eventToPromise} from '../test_util.m.js';
+import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
-/** @return {!NativeInitialSettings} */
-export function getDefaultInitialSettings() {
+/**
+ * @param {boolean=} isPdf
+ * @return {!NativeInitialSettings}
+ */
+export function getDefaultInitialSettings(isPdf = false) {
   return {
     isInKioskAutoPrintMode: false,
     isInAppKioskMode: false,
     pdfPrinterDisabled: false,
     thousandsDelimiter: ',',
     decimalDelimiter: '.',
-    previewIsPdf: false,
-    previewModifiable: true,
+    previewIsPdf: isPdf,
+    previewModifiable: !isPdf,
     documentTitle: 'title',
     documentHasSelection: true,
     shouldPrintSelectionOnly: false,
@@ -38,7 +41,8 @@ export function getDefaultInitialSettings() {
 /**
  * @param {string} printerId
  * @param {string=} opt_printerName Defaults to an empty string.
- * @return {!{printer: !LocalDestinationInfo, capabilities: !Cdd}}
+ * @return {!{printer: {deviceName: string, printerName: string},
+ *                      capabilities: !Cdd}}
  */
 export function getCddTemplate(printerId, opt_printerName) {
   const template = {
@@ -96,7 +100,7 @@ export function getCddTemplate(printerId, opt_printerName) {
       }
     }
   };
-  if (isChromeOS) {
+  if (isChromeOS || isLacros) {
     template.capabilities.printer.pin = {supported: true};
   }
   return template;
@@ -261,7 +265,8 @@ export function getDefaultOrientation(device) {
  */
 export function getDestinations(localDestinations) {
   const destinations = [];
-  const origin = isChromeOS ? DestinationOrigin.CROS : DestinationOrigin.LOCAL;
+  const origin =
+      isChromeOS || isLacros ? DestinationOrigin.CROS : DestinationOrigin.LOCAL;
   // Five destinations. FooDevice is the system default.
   [{deviceName: 'ID1', printerName: 'One'},
    {deviceName: 'ID2', printerName: 'Two'},
@@ -344,16 +349,32 @@ export function createDestinationStore() {
  * @return {!Destination} The Google Drive destination.
  */
 export function getGoogleDriveDestination(account) {
+  return isChromeOS || isLacros ?
+      new Destination(
+          'Save to Drive CrOS', DestinationType.LOCAL, DestinationOrigin.LOCAL,
+          'Save to Google Drive', DestinationConnectionStatus.ONLINE) :
+      getCloudDestination(
+          GooglePromotedDestinationId.DOCS, GooglePromotedDestinationId.DOCS,
+          account);
+}
+
+/**
+ * @param {string} id
+ * @param {string} name
+ * @param {string} account The user account the destination should be
+ *     associated with.
+ * @return {!Destination} The cloud destination.
+ */
+export function getCloudDestination(id, name, account) {
   return new Destination(
-      Destination.GooglePromotedId.DOCS, DestinationType.GOOGLE,
-      DestinationOrigin.COOKIES, Destination.GooglePromotedId.DOCS,
+      id, DestinationType.GOOGLE, DestinationOrigin.COOKIES, name,
       DestinationConnectionStatus.ONLINE, {account: account});
 }
 
 /** @return {!Destination} The Save as PDF destination. */
 export function getSaveAsPdfDestination() {
   return new Destination(
-      Destination.GooglePromotedId.SAVE_AS_PDF, DestinationType.LOCAL,
+      GooglePromotedDestinationId.SAVE_AS_PDF, DestinationType.LOCAL,
       DestinationOrigin.LOCAL, loadTimeData.getString('printToPDF'),
       DestinationConnectionStatus.ONLINE);
 }
@@ -366,7 +387,7 @@ export function getSaveAsPdfDestination() {
  *     selected and the process-select-change event has fired.
  */
 export function selectOption(section, option) {
-  const select = section.$$('select');
+  const select = section.shadowRoot.querySelector('select');
   select.value = option;
   select.dispatchEvent(new CustomEvent('change'));
   return eventToPromise('process-select-change', section);

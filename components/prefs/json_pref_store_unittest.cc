@@ -11,6 +11,7 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
@@ -18,12 +19,11 @@
 #include "base/metrics/histogram_samples.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -64,6 +64,10 @@ class InterceptingPrefFilter : public PrefFilter {
  public:
   InterceptingPrefFilter();
   InterceptingPrefFilter(OnWriteCallbackPair callback_pair);
+
+  InterceptingPrefFilter(const InterceptingPrefFilter&) = delete;
+  InterceptingPrefFilter& operator=(const InterceptingPrefFilter&) = delete;
+
   ~InterceptingPrefFilter() override;
 
   // PrefFilter implementation:
@@ -87,8 +91,6 @@ class InterceptingPrefFilter : public PrefFilter {
   PostFilterOnLoadCallback post_filter_on_load_callback_;
   std::unique_ptr<base::DictionaryValue> intercepted_prefs_;
   OnWriteCallbackPair on_write_callback_pair_;
-
-  DISALLOW_COPY_AND_ASSIGN(InterceptingPrefFilter);
 };
 
 InterceptingPrefFilter::InterceptingPrefFilter() {}
@@ -178,6 +180,9 @@ class JsonPrefStoreTest
       : task_environment_(base::test::TaskEnvironment::MainThreadType::DEFAULT,
                           GetExecutionMode(GetParam())) {}
 
+  JsonPrefStoreTest(const JsonPrefStoreTest&) = delete;
+  JsonPrefStoreTest& operator=(const JsonPrefStoreTest&) = delete;
+
  protected:
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
@@ -187,8 +192,6 @@ class JsonPrefStoreTest
   base::ScopedTempDir temp_dir_;
 
   base::test::TaskEnvironment task_environment_;
-
-  DISALLOW_COPY_AND_ASSIGN(JsonPrefStoreTest);
 };
 
 }  // namespace
@@ -240,55 +243,51 @@ void RunBasicJsonPrefStoreTest(JsonPrefStore* pref_store,
 
   const Value* actual;
   EXPECT_TRUE(pref_store->GetValue(kHomePage, &actual));
-  std::string string_value;
-  EXPECT_TRUE(actual->GetAsString(&string_value));
-  EXPECT_EQ(cnn, string_value);
+  EXPECT_TRUE(actual->is_string());
+  EXPECT_EQ(cnn, actual->GetString());
 
   const char kSomeDirectory[] = "some_directory";
 
   EXPECT_TRUE(pref_store->GetValue(kSomeDirectory, &actual));
-  std::string path;
-  EXPECT_TRUE(actual->GetAsString(&path));
-  EXPECT_EQ("/usr/local/", path);
+  EXPECT_TRUE(actual->is_string());
+  EXPECT_EQ("/usr/local/", actual->GetString());
   base::FilePath some_path(FILE_PATH_LITERAL("/usr/sbin/"));
 
   pref_store->SetValue(kSomeDirectory,
                        std::make_unique<Value>(some_path.AsUTF8Unsafe()),
                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   EXPECT_TRUE(pref_store->GetValue(kSomeDirectory, &actual));
-  EXPECT_TRUE(actual->GetAsString(&path));
-  EXPECT_EQ(some_path.AsUTF8Unsafe(), path);
+  EXPECT_TRUE(actual->is_string());
+  EXPECT_EQ(some_path.AsUTF8Unsafe(), actual->GetString());
 
   // Test reading some other data types from sub-dictionaries.
   EXPECT_TRUE(pref_store->GetValue(kNewWindowsInTabs, &actual));
-  bool boolean = false;
-  EXPECT_TRUE(actual->GetAsBoolean(&boolean));
-  EXPECT_TRUE(boolean);
+  EXPECT_TRUE(actual->is_bool());
+  EXPECT_TRUE(actual->GetBool());
 
   pref_store->SetValue(kNewWindowsInTabs, std::make_unique<Value>(false),
                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   EXPECT_TRUE(pref_store->GetValue(kNewWindowsInTabs, &actual));
-  EXPECT_TRUE(actual->GetAsBoolean(&boolean));
-  EXPECT_FALSE(boolean);
+  EXPECT_TRUE(actual->is_bool());
+  EXPECT_FALSE(actual->GetBool());
 
   EXPECT_TRUE(pref_store->GetValue(kMaxTabs, &actual));
-  int integer = 0;
-  EXPECT_TRUE(actual->GetAsInteger(&integer));
-  EXPECT_EQ(20, integer);
+  ASSERT_TRUE(actual->is_int());
+  EXPECT_EQ(20, actual->GetInt());
   pref_store->SetValue(kMaxTabs, std::make_unique<Value>(10),
                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   EXPECT_TRUE(pref_store->GetValue(kMaxTabs, &actual));
-  EXPECT_TRUE(actual->GetAsInteger(&integer));
-  EXPECT_EQ(10, integer);
+  ASSERT_TRUE(actual->is_int());
+  EXPECT_EQ(10, actual->GetInt());
 
   pref_store->SetValue(
       kLongIntPref,
       std::make_unique<Value>(base::NumberToString(214748364842LL)),
       WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   EXPECT_TRUE(pref_store->GetValue(kLongIntPref, &actual));
-  EXPECT_TRUE(actual->GetAsString(&string_value));
+  EXPECT_TRUE(actual->is_string());
   int64_t value;
-  base::StringToInt64(string_value, &value);
+  base::StringToInt64(actual->GetString(), &value);
   EXPECT_EQ(214748364842LL, value);
 
   // Serialize and compare to expected output.
@@ -578,6 +577,10 @@ class JsonPrefStoreLossyWriteTest : public JsonPrefStoreTest {
  public:
   JsonPrefStoreLossyWriteTest() = default;
 
+  JsonPrefStoreLossyWriteTest(const JsonPrefStoreLossyWriteTest&) = delete;
+  JsonPrefStoreLossyWriteTest& operator=(const JsonPrefStoreLossyWriteTest&) =
+      delete;
+
  protected:
   void SetUp() override {
     JsonPrefStoreTest::SetUp();
@@ -604,8 +607,6 @@ class JsonPrefStoreLossyWriteTest : public JsonPrefStoreTest {
 
  private:
   base::FilePath test_file_;
-
-  DISALLOW_COPY_AND_ASSIGN(JsonPrefStoreLossyWriteTest);
 };
 
 TEST_P(JsonPrefStoreLossyWriteTest, LossyWriteBasic) {
@@ -734,6 +735,10 @@ class SuccessfulWriteReplyObserver {
  public:
   SuccessfulWriteReplyObserver() = default;
 
+  SuccessfulWriteReplyObserver(const SuccessfulWriteReplyObserver&) = delete;
+  SuccessfulWriteReplyObserver& operator=(const SuccessfulWriteReplyObserver&) =
+      delete;
+
   // Returns true if a successful write was observed via on_successful_write()
   // and resets the observation state to false regardless.
   bool GetAndResetObservationState() {
@@ -752,8 +757,6 @@ class SuccessfulWriteReplyObserver {
 
  private:
   bool successful_write_reply_observed_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(SuccessfulWriteReplyObserver);
 };
 
 void SuccessfulWriteReplyObserver::ObserveNextWriteCallback(
@@ -772,6 +775,9 @@ enum WriteCallbackObservationState {
 class WriteCallbacksObserver {
  public:
   WriteCallbacksObserver() = default;
+
+  WriteCallbacksObserver(const WriteCallbacksObserver&) = delete;
+  WriteCallbacksObserver& operator=(const WriteCallbacksObserver&) = delete;
 
   // Register OnWrite() to be called on the next write of |json_pref_store|.
   void ObserveNextWriteCallback(JsonPrefStore* json_pref_store);
@@ -805,8 +811,6 @@ class WriteCallbacksObserver {
  private:
   bool pre_write_called_ = false;
   WriteCallbackObservationState post_write_observation_state_ = NOT_CALLED;
-
-  DISALLOW_COPY_AND_ASSIGN(WriteCallbacksObserver);
 };
 
 void WriteCallbacksObserver::ObserveNextWriteCallback(JsonPrefStore* writer) {
@@ -830,6 +834,10 @@ WriteCallbacksObserver::GetAndResetPostWriteObservationState() {
 class JsonPrefStoreCallbackTest : public testing::Test {
  public:
   JsonPrefStoreCallbackTest() = default;
+
+  JsonPrefStoreCallbackTest(const JsonPrefStoreCallbackTest&) = delete;
+  JsonPrefStoreCallbackTest& operator=(const JsonPrefStoreCallbackTest&) =
+      delete;
 
  protected:
   void SetUp() override {
@@ -867,8 +875,6 @@ class JsonPrefStoreCallbackTest : public testing::Test {
 
  private:
   base::FilePath test_file_;
-
-  DISALLOW_COPY_AND_ASSIGN(JsonPrefStoreCallbackTest);
 };
 
 TEST_F(JsonPrefStoreCallbackTest, TestSerializeDataCallbacks) {

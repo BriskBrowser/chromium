@@ -4,8 +4,10 @@
 
 #include "third_party/blink/renderer/platform/scheduler/public/thread_cpu_throttler.h"
 
+#include <memory>
+
 #include "base/atomicops.h"
-#include "base/macros.h"
+#include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/synchronization/atomic_flag.h"
 #include "base/threading/platform_thread.h"
@@ -29,6 +31,8 @@ class ThreadCPUThrottler::ThrottlingThread final
     : public base::PlatformThread::Delegate {
  public:
   explicit ThrottlingThread(double rate);
+  ThrottlingThread(const ThrottlingThread&) = delete;
+  ThrottlingThread& operator=(const ThrottlingThread&) = delete;
   ~ThrottlingThread() override;
 
   void SetThrottlingRate(double rate);
@@ -58,8 +62,6 @@ class ThreadCPUThrottler::ThrottlingThread final
   base::PlatformThreadHandle throttled_thread_handle_;
   base::PlatformThreadHandle throttling_thread_handle_;
   base::AtomicFlag cancellation_flag_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThrottlingThread);
 };
 
 #ifdef USE_SIGNALS
@@ -136,8 +138,7 @@ void ThreadCPUThrottler::ThrottlingThread::HandleSignal(int signal) {
       std::min(run_duration.InMicroseconds(), static_cast<int64_t>(1000)));
   uint32_t sleep_duration_us =
       run_duration_us * throttling_rate_percent / 100 - run_duration_us;
-  base::TimeTicks wake_up_time =
-      now + base::TimeDelta::FromMicroseconds(sleep_duration_us);
+  base::TimeTicks wake_up_time = now + base::Microseconds(sleep_duration_us);
   do {
     now = base::TimeTicks::Now();
   } while (now < wake_up_time);
@@ -150,13 +151,13 @@ void ThreadCPUThrottler::ThrottlingThread::Throttle() {
   const int quant_time_us = 200;
 #ifdef USE_SIGNALS
   pthread_kill(throttled_thread_handle_.platform_handle(), SIGUSR2);
-  Sleep(base::TimeDelta::FromMicroseconds(quant_time_us));
+  Sleep(base::Microseconds(quant_time_us));
 #elif defined(OS_WIN)
   double rate = Acquire_Load(&throttling_rate_percent_) / 100.;
   base::TimeDelta run_duration =
-      base::TimeDelta::FromMicroseconds(static_cast<int>(quant_time_us / rate));
+      base::Microseconds(static_cast<int>(quant_time_us / rate));
   base::TimeDelta sleep_duration =
-      base::TimeDelta::FromMicroseconds(quant_time_us) - run_duration;
+      base::Microseconds(quant_time_us) - run_duration;
   Sleep(run_duration);
   ::SuspendThread(throttled_thread_handle_.platform_handle());
   Sleep(sleep_duration);
@@ -212,7 +213,7 @@ void ThreadCPUThrottler::SetThrottlingRate(double rate) {
   if (throttling_thread_) {
     throttling_thread_->SetThrottlingRate(rate);
   } else {
-    throttling_thread_.reset(new ThrottlingThread(rate));
+    throttling_thread_ = std::make_unique<ThrottlingThread>(rate);
   }
 }
 

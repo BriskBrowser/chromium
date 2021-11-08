@@ -72,18 +72,22 @@ AtomicString AtomicString::FromUTF8(const char* chars) {
   return AtomicString(AtomicStringTable::Instance().AddUTF8(chars, nullptr));
 }
 
-AtomicString AtomicString::LowerASCII() const {
-  StringImpl* impl = this->Impl();
-  if (UNLIKELY(!impl))
-    return *this;
+AtomicString AtomicString::LowerASCII(AtomicString source) {
+  if (LIKELY(source.IsLowerASCII()))
+    return source;
+  StringImpl* impl = source.Impl();
+  // if impl is null, then IsLowerASCII() should have returned true.
+  DCHECK(impl);
   scoped_refptr<StringImpl> new_impl = impl->LowerASCII();
-  if (LIKELY(new_impl == impl))
-    return *this;
   return AtomicString(String(std::move(new_impl)));
 }
 
+AtomicString AtomicString::LowerASCII() const {
+  return AtomicString::LowerASCII(*this);
+}
+
 AtomicString AtomicString::UpperASCII() const {
-  StringImpl* impl = this->Impl();
+  StringImpl* impl = Impl();
   if (UNLIKELY(!impl))
     return *this;
   return AtomicString(impl->UpperASCII());
@@ -98,7 +102,7 @@ std::ostream& operator<<(std::ostream& out, const AtomicString& s) {
   return out << s.GetString();
 }
 
-void AtomicString::WriteIntoTracedValue(perfetto::TracedValue context) const {
+void AtomicString::WriteIntoTrace(perfetto::TracedValue context) const {
   perfetto::WriteIntoTracedValue(std::move(context), GetString());
 }
 

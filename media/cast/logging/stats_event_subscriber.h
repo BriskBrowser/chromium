@@ -8,7 +8,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <map>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -35,6 +38,9 @@ class StatsEventSubscriber final : public RawEventSubscriber {
   StatsEventSubscriber(EventMediaType event_media_type,
                        const base::TickClock* clock,
                        ReceiverTimeOffsetEstimator* offset_estimator);
+
+  StatsEventSubscriber(const StatsEventSubscriber&) = delete;
+  StatsEventSubscriber& operator=(const StatsEventSubscriber&) = delete;
 
   ~StatsEventSubscriber() final;
 
@@ -279,7 +285,6 @@ class StatsEventSubscriber final : public RawEventSubscriber {
   HistogramMap histograms_;
 
   base::ThreadChecker thread_checker_;
-  DISALLOW_COPY_AND_ASSIGN(StatsEventSubscriber);
 };
 
 }  // namespace cast

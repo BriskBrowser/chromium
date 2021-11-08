@@ -8,9 +8,9 @@
 
 #include "base/big_endian.h"
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "content/public/browser/browser_thread.h"
@@ -110,6 +110,9 @@ class WebRtcRtpDumpWriter::FileWorker {
     DCHECK_EQ(Z_OK, result);
   }
 
+  FileWorker(const FileWorker&) = delete;
+  FileWorker& operator=(const FileWorker&) = delete;
+
   ~FileWorker() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -168,12 +171,9 @@ class WebRtcRtpDumpWriter::FileWorker {
     int bytes_written = -1;
 
     if (base::PathExists(dump_path_)) {
-      bytes_written =
-          base::AppendToFile(dump_path_, reinterpret_cast<const char*>(
-                                             compressed_buffer.data()),
-                             compressed_buffer.size())
-              ? compressed_buffer.size()
-              : -1;
+      bytes_written = base::AppendToFile(dump_path_, compressed_buffer)
+                          ? compressed_buffer.size()
+                          : -1;
     } else {
       bytes_written = base::WriteFile(
           dump_path_,
@@ -238,9 +238,7 @@ class WebRtcRtpDumpWriter::FileWorker {
     memset(&stream_, 0, sizeof(z_stream));
 
     DCHECK(!output_buffer.empty());
-    return base::AppendToFile(
-        dump_path_, reinterpret_cast<const char*>(output_buffer.data()),
-        output_buffer.size());
+    return base::AppendToFile(dump_path_, output_buffer);
   }
 
   const base::FilePath dump_path_;
@@ -248,8 +246,6 @@ class WebRtcRtpDumpWriter::FileWorker {
   z_stream stream_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(FileWorker);
 };
 
 WebRtcRtpDumpWriter::WebRtcRtpDumpWriter(

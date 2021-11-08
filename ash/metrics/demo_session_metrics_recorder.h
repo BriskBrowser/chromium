@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "ash/ash_export.h"
-#include "ash/public/cpp/app_types.h"
+#include "ash/constants/app_types.h"
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/scoped_observation.h"
@@ -60,7 +60,7 @@ class ASH_EXPORT DemoSessionMetricsRecorder
     kScreensaver = 19,    // Demo Mode screensaver app.
     kAsphalt9 = 20,       // Android racing game demo app.
     kStardewValley = 21,  // Android farming game demo app.
-    kKinemaster = 22,     // Android video editing software demo app.
+    kKinemaster = 22,     // Android video editing software demo app. nocheck
     kGoogleKeepAndroidApp = 23,
     kAutoCAD = 24,     // Android 2D/3D drawing software demo app.
     kPixlr = 25,       // Android photo editing software demo app.
@@ -69,15 +69,29 @@ class ASH_EXPORT DemoSessionMetricsRecorder
     kGoogleDocsChromeApp = 28,
     kGoogleSheetsChromeApp = 29,
     kGoogleSlidesChromeApp = 30,
+    kYoutubePwa = 31,
+    kGoogleDocsPwa = 32,
+    kGoogleMeetPwa = 33,
+    kGoogleSheetsPwa = 34,
+    kSpotify = 35,
+    kBeFunky = 36,
+    kClipchamp = 37,
+    kGeForceNow = 38,
+    kZoom = 39,
     // Add future entries above this comment, in sync with enums.xml.
     // Update kMaxValue to the last value.
-    kMaxValue = kGoogleSlidesChromeApp,
+    kMaxValue = kZoom,
   };
 
   // The recorder will create a normal timer by default. Tests should provide a
   // mock timer to control sampling periods.
   explicit DemoSessionMetricsRecorder(
       std::unique_ptr<base::RepeatingTimer> timer = nullptr);
+
+  DemoSessionMetricsRecorder(const DemoSessionMetricsRecorder&) = delete;
+  DemoSessionMetricsRecorder& operator=(const DemoSessionMetricsRecorder&) =
+      delete;
+
   ~DemoSessionMetricsRecorder() override;
 
   // ui::UserActivityObserver:
@@ -150,8 +164,6 @@ class ASH_EXPORT DemoSessionMetricsRecorder
 
   std::unique_ptr<ActiveAppArcPackageNameObserver>
       active_app_arc_package_name_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(DemoSessionMetricsRecorder);
 };
 
 }  // namespace ash

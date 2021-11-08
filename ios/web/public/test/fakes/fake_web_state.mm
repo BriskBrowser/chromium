@@ -18,6 +18,7 @@
 #import "ios/web/public/session/crw_navigation_item_storage.h"
 #import "ios/web/public/session/crw_session_storage.h"
 #import "ios/web/public/session/serializable_user_data_manager.h"
+#import "ios/web/session/session_certificate_policy_cache_impl.h"
 #import "ios/web/web_state/policy_decision_state_tracker.h"
 #include "ui/gfx/image/image.h"
 
@@ -196,11 +197,11 @@ void FakeWebState::LoadData(NSData* data,
   OnPageLoaded(web::PageLoadCompletionStatus::SUCCESS);
 }
 
-void FakeWebState::ExecuteJavaScript(const base::string16& javascript) {
+void FakeWebState::ExecuteJavaScript(const std::u16string& javascript) {
   last_executed_javascript_ = javascript;
 }
 
-void FakeWebState::ExecuteJavaScript(const base::string16& javascript,
+void FakeWebState::ExecuteJavaScript(const std::u16string& javascript,
                                      JavaScriptResultCallback callback) {
   last_executed_javascript_ = javascript;
   std::move(callback).Run(nullptr);
@@ -234,15 +235,9 @@ GURL FakeWebState::GetCurrentURL(URLVerificationTrustLevel* trust_level) const {
 base::CallbackListSubscription FakeWebState::AddScriptCommandCallback(
     const ScriptCommandCallback& callback,
     const std::string& command_prefix) {
+  last_added_callback_ = callback;
+  last_command_prefix_ = command_prefix;
   return callback_list_.Add(callback);
-}
-
-bool FakeWebState::IsShowingWebInterstitial() const {
-  return false;
-}
-
-WebInterstitial* FakeWebState::GetWebInterstitial() const {
-  return nullptr;
 }
 
 void FakeWebState::SetBrowserState(BrowserState* browser_state) {
@@ -262,11 +257,11 @@ void FakeWebState::SetContentsMimeType(const std::string& mime_type) {
   mime_type_ = mime_type;
 }
 
-void FakeWebState::SetTitle(const base::string16& title) {
+void FakeWebState::SetTitle(const std::u16string& title) {
   title_ = title;
 }
 
-const base::string16& FakeWebState::GetTitle() const {
+const std::u16string& FakeWebState::GetTitle() const {
   return title_;
 }
 
@@ -360,23 +355,34 @@ void FakeWebState::OnWebFrameWillBecomeUnavailable(WebFrame* frame) {
   }
 }
 
-WebStatePolicyDecider::PolicyDecision FakeWebState::ShouldAllowRequest(
+void FakeWebState::ShouldAllowRequest(
     NSURLRequest* request,
-    const WebStatePolicyDecider::RequestInfo& request_info) {
+    WebStatePolicyDecider::RequestInfo request_info,
+    WebStatePolicyDecider::PolicyDecisionCallback callback) {
+  auto request_state_tracker =
+      std::make_unique<PolicyDecisionStateTracker>(std::move(callback));
+  PolicyDecisionStateTracker* request_state_tracker_ptr =
+      request_state_tracker.get();
+  auto policy_decider_callback = base::BindRepeating(
+      &PolicyDecisionStateTracker::OnSinglePolicyDecisionReceived,
+      base::Owned(std::move(request_state_tracker)));
+  int num_decisions_requested = 0;
   for (auto& policy_decider : policy_deciders_) {
-    WebStatePolicyDecider::PolicyDecision result =
-        policy_decider.ShouldAllowRequest(request, request_info);
-    if (result.ShouldCancelNavigation()) {
-      return result;
-    }
+    policy_decider.ShouldAllowRequest(request, request_info,
+                                      policy_decider_callback);
+    num_decisions_requested++;
+    if (request_state_tracker_ptr->DeterminedFinalResult())
+      break;
   }
-  return WebStatePolicyDecider::PolicyDecision::Allow();
+
+  request_state_tracker_ptr->FinishedRequestingDecisions(
+      num_decisions_requested);
 }
 
 void FakeWebState::ShouldAllowResponse(
     NSURLResponse* response,
-    bool for_main_frame,
-    base::OnceCallback<void(WebStatePolicyDecider::PolicyDecision)> callback) {
+    WebStatePolicyDecider::ResponseInfo response_info,
+    WebStatePolicyDecider::PolicyDecisionCallback callback) {
   auto response_state_tracker =
       std::make_unique<PolicyDecisionStateTracker>(std::move(callback));
   PolicyDecisionStateTracker* response_state_tracker_ptr =
@@ -386,7 +392,7 @@ void FakeWebState::ShouldAllowResponse(
       base::Owned(std::move(response_state_tracker)));
   int num_decisions_requested = 0;
   for (auto& policy_decider : policy_deciders_) {
-    policy_decider.ShouldAllowResponse(response, for_main_frame,
+    policy_decider.ShouldAllowResponse(response, response_info,
                                        policy_decider_callback);
     num_decisions_requested++;
     if (response_state_tracker_ptr->DeterminedFinalResult())
@@ -397,8 +403,17 @@ void FakeWebState::ShouldAllowResponse(
       num_decisions_requested);
 }
 
-base::string16 FakeWebState::GetLastExecutedJavascript() const {
+std::u16string FakeWebState::GetLastExecutedJavascript() const {
   return last_executed_javascript_;
+}
+
+absl::optional<WebState::ScriptCommandCallback>
+FakeWebState::GetLastAddedCallback() const {
+  return last_added_callback_;
+}
+
+std::string FakeWebState::GetLastCommandPrefix() const {
+  return last_command_prefix_;
 }
 
 NSData* FakeWebState::GetLastLoadedData() const {
@@ -465,6 +480,33 @@ void FakeWebState::TakeSnapshot(const gfx::RectF& rect,
 void FakeWebState::CreateFullPagePdf(
     base::OnceCallback<void(NSData*)> callback) {
   std::move(callback).Run([[NSData alloc] init]);
+}
+
+bool FakeWebState::SetSessionStateData(NSData* data) {
+  return false;
+}
+
+NSData* FakeWebState::SessionStateData() {
+  return nil;
+}
+
+FakeWebStateWithPolicyCache::FakeWebStateWithPolicyCache(
+    BrowserState* browser_state)
+    : FakeWebState(),
+      certificate_policy_cache_(
+          std::make_unique<web::SessionCertificatePolicyCacheImpl>(
+              browser_state)) {}
+
+FakeWebStateWithPolicyCache::~FakeWebStateWithPolicyCache() {}
+
+const SessionCertificatePolicyCache*
+FakeWebStateWithPolicyCache::GetSessionCertificatePolicyCache() const {
+  return certificate_policy_cache_.get();
+}
+
+SessionCertificatePolicyCache*
+FakeWebStateWithPolicyCache::GetSessionCertificatePolicyCache() {
+  return certificate_policy_cache_.get();
 }
 
 }  // namespace web

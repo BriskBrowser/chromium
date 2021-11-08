@@ -6,10 +6,6 @@
 
 #include <stdint.h>
 
-#include <memory>
-#include <set>
-#include <string>
-
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/process/process.h"
@@ -30,6 +26,9 @@ class MHTMLGenerationManager {
  public:
   static MHTMLGenerationManager* GetInstance();
 
+  MHTMLGenerationManager(const MHTMLGenerationManager&) = delete;
+  MHTMLGenerationManager& operator=(const MHTMLGenerationManager&) = delete;
+
   // Instructs the RenderFrames in |web_contents| to generate a MHTML
   // representation of the current page.
   void SaveMHTML(WebContents* web_contents,
@@ -42,8 +41,6 @@ class MHTMLGenerationManager {
 
   MHTMLGenerationManager();
   virtual ~MHTMLGenerationManager();
-
-  DISALLOW_COPY_AND_ASSIGN(MHTMLGenerationManager);
 };
 
 }  // namespace content

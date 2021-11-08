@@ -203,7 +203,7 @@ class ProofVerifierChromiumTest : public ::testing::Test {
   void GetSCTTestCertificates(std::vector<std::string>* certs) {
     std::string der_test_cert(ct::GetDerEncodedX509Cert());
     scoped_refptr<X509Certificate> test_cert = X509Certificate::CreateFromBytes(
-        der_test_cert.data(), der_test_cert.length());
+        base::as_bytes(base::make_span(der_test_cert)));
     ASSERT_TRUE(test_cert.get());
 
     certs->clear();
@@ -300,6 +300,12 @@ TEST_F(ProofVerifierChromiumTest, FailsIfCertFails) {
   ASSERT_EQ(quic::QUIC_FAILURE, status);
 }
 
+class DoNothingLogNotifier : public MultiLogCTVerifier::CTLogProvider {
+ public:
+  DoNothingLogNotifier() = default;
+  ~DoNothingLogNotifier() = default;
+};
+
 // Valid SCT and cert
 TEST_F(ProofVerifierChromiumTest, ValidSCTList) {
   // Use different certificates for SCT tests.
@@ -307,7 +313,7 @@ TEST_F(ProofVerifierChromiumTest, ValidSCTList) {
 
   std::string der_test_cert(ct::GetDerEncodedX509Cert());
   scoped_refptr<X509Certificate> test_cert = X509Certificate::CreateFromBytes(
-      der_test_cert.data(), der_test_cert.length());
+      base::as_bytes(base::make_span(der_test_cert)));
   ASSERT_TRUE(test_cert);
   CertVerifyResult dummy_result;
   dummy_result.verified_cert = test_cert;
@@ -322,8 +328,9 @@ TEST_F(ProofVerifierChromiumTest, ValidSCTList) {
       CTLogVerifier::Create(ct::GetTestPublicKey(), kLogDescription));
   ASSERT_TRUE(log);
   log_verifiers.push_back(log);
-  auto ct_verifier = std::make_unique<MultiLogCTVerifier>();
-  ct_verifier->AddLogs(log_verifiers);
+  DoNothingLogNotifier notifier;
+  auto ct_verifier = std::make_unique<MultiLogCTVerifier>(&notifier);
+  ct_verifier->SetLogs(log_verifiers);
 
   CertAndCTVerifier cert_verifier(std::move(dummy_verifier),
                                   std::move(ct_verifier));
@@ -349,7 +356,7 @@ TEST_F(ProofVerifierChromiumTest, InvalidSCTList) {
 
   std::string der_test_cert(ct::GetDerEncodedX509Cert());
   scoped_refptr<X509Certificate> test_cert = X509Certificate::CreateFromBytes(
-      der_test_cert.data(), der_test_cert.length());
+      base::as_bytes(base::make_span(der_test_cert)));
   ASSERT_TRUE(test_cert);
   CertVerifyResult dummy_result;
   dummy_result.verified_cert = test_cert;
@@ -364,8 +371,9 @@ TEST_F(ProofVerifierChromiumTest, InvalidSCTList) {
       CTLogVerifier::Create(ct::GetTestPublicKey(), kLogDescription));
   ASSERT_TRUE(log);
   log_verifiers.push_back(log);
-  auto ct_verifier = std::make_unique<MultiLogCTVerifier>();
-  ct_verifier->AddLogs(log_verifiers);
+  DoNothingLogNotifier notifier;
+  auto ct_verifier = std::make_unique<MultiLogCTVerifier>(&notifier);
+  ct_verifier->SetLogs(log_verifiers);
 
   CertAndCTVerifier cert_verifier(std::move(dummy_verifier),
                                   std::move(ct_verifier));
@@ -651,8 +659,7 @@ TEST_F(ProofVerifierChromiumTest, IsFatalErrorSetForFatalError) {
   dummy_verifier.AddResultForCert(test_cert_.get(), dummy_result_,
                                   ERR_CERT_DATE_INVALID);
 
-  const base::Time expiry =
-      base::Time::Now() + base::TimeDelta::FromSeconds(1000);
+  const base::Time expiry = base::Time::Now() + base::Seconds(1000);
   transport_security_state_.AddHSTS(kTestHostname, expiry, true);
 
   ProofVerifierChromium proof_verifier(&dummy_verifier, &ct_policy_enforcer_,
@@ -782,7 +789,7 @@ TEST_F(ProofVerifierChromiumTest, PKPReport) {
 
   GURL report_uri("https://foo.test/");
   transport_security_state_.AddHPKP(
-      kCTAndPKPHost, base::Time::Now() + base::TimeDelta::FromDays(1),
+      kCTAndPKPHost, base::Time::Now() + base::Days(1),
       false /* include_subdomains */, spki_hashes, report_uri);
   ScopedTransportSecurityStateSource scoped_security_state_source;
 

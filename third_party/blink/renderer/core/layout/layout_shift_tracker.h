@@ -15,6 +15,7 @@
 #include "third_party/blink/renderer/platform/graphics/dom_node_id.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace blink {
 
@@ -46,32 +47,41 @@ class CORE_EXPORT LayoutShiftTracker final
   // |old_rect| and |old_paint_offset| so that we can calculate the correct old
   // visual representation and old starting point in the initial containing
   // block and the viewport with the new property tree state in most cases.
-  // |old_transform_indifferent_paint_offset| is the adjusted old paint offset
-  // with transform changes excluded.
-  void NotifyBoxPrePaint(
-      const LayoutBox& box,
-      const PropertyTreeStateOrAlias& property_tree_state,
-      const PhysicalRect& old_rect,
-      const PhysicalRect& new_rect,
-      const PhysicalOffset& old_paint_offset,
-      const PhysicalOffset& old_transform_indifferent_paint_offset,
-      const PhysicalOffset& new_paint_offset);
+  // The adjustment should include the deltas of 2d translations and scrolls,
+  // and LayoutShiftTracker can determine stability by including (by default)
+  // or excluding |translation_delta| and/or |scroll_delta|.
+  //
+  // See renderer/core/layout/layout-shift-tracker-old-paint-offset.md for
+  // more details about |old_paint_offset|.
+  void NotifyBoxPrePaint(const LayoutBox& box,
+                         const PropertyTreeStateOrAlias& property_tree_state,
+                         const PhysicalRect& old_rect,
+                         const PhysicalRect& new_rect,
+                         const PhysicalOffset& old_paint_offset,
+                         const gfx::Vector2dF& translation_delta,
+                         const gfx::Vector2dF& scroll_delta,
+                         const gfx::Vector2dF& scroll_anchor_adjustment,
+                         const PhysicalOffset& new_paint_offset);
 
-  void NotifyTextPrePaint(
-      const LayoutText& text,
-      const PropertyTreeStateOrAlias& property_tree_state,
-      const LogicalOffset& old_starting_point,
-      const LogicalOffset& new_starting_point,
-      const PhysicalOffset& old_paint_offset,
-      const PhysicalOffset& old_transform_indifferent_paint_offset,
-      const PhysicalOffset& new_paint_offset,
-      const LayoutUnit logical_height);
+  void NotifyTextPrePaint(const LayoutText& text,
+                          const PropertyTreeStateOrAlias& property_tree_state,
+                          const LogicalOffset& old_starting_point,
+                          const LogicalOffset& new_starting_point,
+                          const PhysicalOffset& old_paint_offset,
+                          const gfx::Vector2dF& translation_delta,
+                          const gfx::Vector2dF& scroll_delta,
+                          const gfx::Vector2dF& scroll_anchor_adjustment,
+                          const PhysicalOffset& new_paint_offset,
+                          const LayoutUnit logical_height);
 
   void NotifyPrePaintFinished();
   void NotifyInput(const WebInputEvent&);
   void NotifyScroll(mojom::blink::ScrollType, ScrollOffset delta);
   void NotifyViewportSizeChanged();
   void NotifyFindInPageInput();
+  void NotifyChangeEvent();
+  void NotifyZoomLevelChanged();
+  void NotifyBrowserInitiatedSameDocumentNavigation();
   bool IsActive() const { return is_active_; }
   double Score() const { return score_; }
   double WeightedScore() const { return weighted_score_; }
@@ -81,6 +91,7 @@ class CORE_EXPORT LayoutShiftTracker final
   base::TimeTicks MostRecentInputTimestamp() {
     return most_recent_input_timestamp_;
   }
+  void ResetTimerForTesting();
   void Trace(Visitor* visitor) const;
 
   // Saves and restores geometry on layout boxes when a layout tree is rebuilt
@@ -151,9 +162,11 @@ class CORE_EXPORT LayoutShiftTracker final
                      const PropertyTreeStateOrAlias&,
                      const PhysicalRect& old_rect,
                      const PhysicalRect& new_rect,
-                     const FloatPoint& old_starting_point,
-                     const FloatPoint& old_transform_indifferent_starting_point,
-                     const FloatPoint& new_starting_point);
+                     const gfx::PointF& old_starting_point,
+                     const gfx::Vector2dF& translation_delta,
+                     const gfx::Vector2dF& scroll_offset_delta,
+                     const gfx::Vector2dF& scroll_anchor_adjustment,
+                     const gfx::PointF& new_starting_point);
 
   void ReportShift(double score_delta, double weighted_score_delta);
   void TimerFired(TimerBase*) {}
@@ -162,11 +175,18 @@ class CORE_EXPORT LayoutShiftTracker final
                                                  bool input_detected) const;
   void AttributionsToTracedValue(TracedValue&) const;
   double SubframeWeightingFactor() const;
-  void SetLayoutShiftRects(const Vector<IntRect>& int_rects);
+
+  // Sends layout shift rects to the heads-up display (HUD) layer, if
+  // visualization is enabled (by --show-layout-shift-regions or devtools
+  // "Layout Shift Regions" option).
+  void SendLayoutShiftRectsToHud(const Vector<gfx::Rect>& rects);
+
   void UpdateInputTimestamp(base::TimeTicks timestamp);
   LayoutShift::AttributionList CreateAttributionList() const;
   void SubmitPerformanceEntry(double score_delta, bool input_detected) const;
   void NotifyPrePaintFinishedInternal();
+  double LastInputTimestamp() const;
+  void UpdateTimerAndInputTimestamp();
 
   Member<LocalFrameView> frame_view_;
   bool is_active_;
@@ -188,11 +208,11 @@ class CORE_EXPORT LayoutShiftTracker final
   // treatment is known, the pending layout shifts are reported appropriately
   // and the PointerdownPendingData object is reset.
   struct PointerdownPendingData {
-    PointerdownPendingData()
-        : saw_pointerdown(false), score_delta(0), weighted_score_delta(0) {}
-    bool saw_pointerdown;
-    double score_delta;
-    double weighted_score_delta;
+    PointerdownPendingData() = default;
+    int num_pointerdowns = 0;
+    int num_pressed_mouse_buttons = 0;
+    double score_delta = 0;
+    double weighted_score_delta = 0;
   };
 
   PointerdownPendingData pointerdown_pending_data_;
@@ -213,9 +233,6 @@ class CORE_EXPORT LayoutShiftTracker final
   // frames.
   float overall_max_distance_;
 
-  // Sum of all scroll deltas that occurred in the current animation frame.
-  ScrollOffset frame_scroll_delta_;
-
   // Whether either a user input or document scroll have been observed during
   // the session. (This is only tracked so UkmPageLoadMetricsObserver to report
   // LayoutInstability.CumulativeShiftScore.MainFrame.BeforeInputOrScroll. It's
@@ -228,19 +245,14 @@ class CORE_EXPORT LayoutShiftTracker final
   bool most_recent_input_timestamp_initialized_;
 
   struct Attribution {
-    DOMNodeId node_id;
-    IntRect old_visual_rect;
-    IntRect new_visual_rect;
-
-    Attribution();
-    Attribution(DOMNodeId node_id,
-                IntRect old_visual_rect,
-                IntRect new_visual_rect);
+    DOMNodeId node_id = kInvalidDOMNodeId;
+    gfx::Rect old_visual_rect;
+    gfx::Rect new_visual_rect;
 
     explicit operator bool() const;
     bool Encloses(const Attribution&) const;
     bool MoreImpactfulThan(const Attribution&) const;
-    int Area() const;
+    uint64_t Area() const;
   };
 
   void MaybeRecordAttribution(const Attribution&);

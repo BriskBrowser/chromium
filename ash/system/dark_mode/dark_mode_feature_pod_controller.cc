@@ -35,8 +35,12 @@ FeaturePodButton* DarkModeFeaturePodController::CreateButton() {
       IDS_ASH_STATUS_TRAY_DARK_THEME_SETTINGS_TOOLTIP));
   button_->ShowDetailedViewArrow();
   // TODO(minch): Add the logic for login screen.
+  // Disable dark mode feature pod in OOBE since only light mode should be
+  // allowed there.
   button_->SetVisible(
-      Shell::Get()->session_controller()->IsActiveUserSessionStarted());
+      Shell::Get()->session_controller()->IsActiveUserSessionStarted() &&
+      Shell::Get()->session_controller()->GetSessionState() !=
+          session_manager::SessionState::OOBE);
 
   UpdateButton(AshColorProvider::Get()->IsDarkModeEnabled());
   return button_;
@@ -64,7 +68,7 @@ void DarkModeFeaturePodController::UpdateButton(bool dark_mode_enabled) {
       dark_mode_enabled ? IDS_ASH_STATUS_TRAY_DARK_THEME_ON_STATE
                         : IDS_ASH_STATUS_TRAY_DARK_THEME_OFF_STATE));
 
-  base::string16 tooltip_state = l10n_util::GetStringUTF16(
+  std::u16string tooltip_state = l10n_util::GetStringUTF16(
       dark_mode_enabled
           ? IDS_ASH_STATUS_TRAY_DARK_THEME_ENABLED_STATE_TOOLTIP
           : IDS_ASH_STATUS_TRAY_DARK_THEME_DISABLED_STATE_TOOLTIP);

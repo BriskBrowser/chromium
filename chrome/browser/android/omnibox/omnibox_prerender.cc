@@ -7,7 +7,6 @@
 #include "base/android/jni_string.h"
 #include "base/check.h"
 #include "base/notreached.h"
-#include "chrome/android/chrome_jni_headers/OmniboxPrerender_jni.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
@@ -15,6 +14,7 @@
 #include "chrome/browser/predictors/loading_predictor_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_android.h"
+#include "chrome/browser/ui/android/omnibox/jni_headers/OmniboxPrerender_jni.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/autocomplete_result.h"
 #include "content/public/browser/web_contents.h"
@@ -46,7 +46,7 @@ void OmniboxPrerender::Clear(JNIEnv* env,
     return;
   AutocompleteActionPredictor* action_predictor =
       AutocompleteActionPredictorFactory::GetForProfile(profile);
-  action_predictor->ClearTransitionalMatches();
+  action_predictor->UpdateDatabaseFromTransitionalMatches(GURL());
   action_predictor->CancelPrerender();
 }
 
@@ -71,9 +71,9 @@ void OmniboxPrerender::PrerenderMaybe(
   AutocompleteResult* autocomplete_result =
       reinterpret_cast<AutocompleteResult*>(jsource_match);
   Profile* profile = ProfileAndroid::FromProfileAndroid(j_profile_android);
-  base::string16 url_string =
+  std::u16string url_string =
       base::android::ConvertJavaStringToUTF16(env, j_url);
-  base::string16 current_url_string =
+  std::u16string current_url_string =
       base::android::ConvertJavaStringToUTF16(env, j_current_url);
   content::WebContents* web_contents =
       TabAndroid::GetNativeTab(env, j_tab)->web_contents();

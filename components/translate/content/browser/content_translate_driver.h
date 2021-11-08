@@ -50,15 +50,20 @@ class ContentTranslateDriver : public TranslateDriver,
     virtual void OnTranslateEnabledChanged(content::WebContents* source) {}
 
     // Called when the page has been translated.
-    virtual void OnPageTranslated(const std::string& original_lang,
+    virtual void OnPageTranslated(const std::string& source_lang,
                                   const std::string& translated_lang,
                                   translate::TranslateErrors::Type error_type) {
     }
   };
 
-  ContentTranslateDriver(content::NavigationController* nav_controller,
+  ContentTranslateDriver(content::WebContents& web_contents,
+                         content::NavigationController* nav_controller,
                          language::UrlLanguageHistogram* url_language_histogram,
                          TranslateModelService* translate_model_service);
+
+  ContentTranslateDriver(const ContentTranslateDriver&) = delete;
+  ContentTranslateDriver& operator=(const ContentTranslateDriver&) = delete;
+
   ~ContentTranslateDriver() override;
 
   // Adds or removes observers.
@@ -100,7 +105,7 @@ class ContentTranslateDriver : public TranslateDriver,
       content::NavigationHandle* navigation_handle) override;
 
   void OnPageTranslated(bool cancelled,
-                        const std::string& original_lang,
+                        const std::string& source_lang,
                         const std::string& translated_lang,
                         TranslateErrors::Type error_type);
 
@@ -138,10 +143,14 @@ class ContentTranslateDriver : public TranslateDriver,
   void InitiateTranslationIfReload(
       content::NavigationHandle* navigation_handle);
 
-  // Runs the provided callback with the loaded model file
-  // to pass it to the connected translate agent.
-  void OnLanguageDetectionModelFile(GetLanguageDetectionModelCallback callback,
-                                    base::File model_file);
+  // Notifies |this| that the translate model service is available for model
+  // requests or is invalidating existing requests specified by |is_available|.
+  //  |callback| will be either forwarded to a request to get the actual model
+  // file or will be run with an empty file if the translate model service is
+  // rejecting requests.
+  void OnLanguageModelFileAvailabilityChanged(
+      GetLanguageDetectionModelCallback callback,
+      bool is_available);
 
   // The navigation controller of the tab we are associated with.
   content::NavigationController* navigation_controller_;
@@ -179,8 +188,6 @@ class ContentTranslateDriver : public TranslateDriver,
   TranslateModelService* const translate_model_service_;
 
   base::WeakPtrFactory<ContentTranslateDriver> weak_pointer_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ContentTranslateDriver);
 };
 
 }  // namespace translate

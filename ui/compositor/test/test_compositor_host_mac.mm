@@ -29,12 +29,12 @@
   ui::Compositor* _compositor;
 }
 // Designated initializer.
-- (id)init;
+- (instancetype)init;
 - (void)setCompositor:(ui::Compositor*)compositor;
 @end
 
 @implementation AcceleratedTestView
-- (id)init {
+- (instancetype)init {
   // The frame will be resized when reparented into the window's view hierarchy.
   if ((self = [super initWithFrame:NSZeroRect])) {
     [self setWantsLayer:YES];
@@ -58,30 +58,40 @@ namespace ui {
 // NSAutoreleasePool set up and initialized prior to execution and drained upon
 // exit.  The tests will leak otherwise.
 class FoundationHost {
+ public:
+  FoundationHost(const FoundationHost&) = delete;
+  FoundationHost& operator=(const FoundationHost&) = delete;
+
  protected:
   FoundationHost() { pool_ = [[NSAutoreleasePool alloc] init]; }
   virtual ~FoundationHost() { [pool_ drain]; }
 
  private:
   NSAutoreleasePool* pool_;
-  DISALLOW_COPY_AND_ASSIGN(FoundationHost);
 };
 
 // Tests that use the AppKit framework need to have the NSApplication
 // initialized prior to doing anything with display objects such as windows,
 // views, or controls.
 class AppKitHost : public FoundationHost {
+ public:
+  AppKitHost(const AppKitHost&) = delete;
+  AppKitHost& operator=(const AppKitHost&) = delete;
+
  protected:
   AppKitHost() { [NSApplication sharedApplication]; }
   ~AppKitHost() override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AppKitHost);
 };
 
 class TestAcceleratedWidgetMacNSView : public AcceleratedWidgetMacNSView {
  public:
   TestAcceleratedWidgetMacNSView(NSView* view) : view_([view retain]) {}
+
+  TestAcceleratedWidgetMacNSView(const TestAcceleratedWidgetMacNSView&) =
+      delete;
+  TestAcceleratedWidgetMacNSView& operator=(
+      const TestAcceleratedWidgetMacNSView&) = delete;
+
   virtual ~TestAcceleratedWidgetMacNSView() { [view_ release]; }
 
   // AcceleratedWidgetMacNSView
@@ -89,8 +99,6 @@ class TestAcceleratedWidgetMacNSView : public AcceleratedWidgetMacNSView {
 
  private:
   NSView* view_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(TestAcceleratedWidgetMacNSView);
 };
 
 // TestCompositorHostMac provides a window surface and a coordinated compositor
@@ -99,6 +107,10 @@ class TestCompositorHostMac : public TestCompositorHost, public AppKitHost {
  public:
   TestCompositorHostMac(const gfx::Rect& bounds,
                         ui::ContextFactory* context_factory);
+
+  TestCompositorHostMac(const TestCompositorHostMac&) = delete;
+  TestCompositorHostMac& operator=(const TestCompositorHostMac&) = delete;
+
   ~TestCompositorHostMac() override;
 
  private:
@@ -116,8 +128,6 @@ class TestCompositorHostMac : public TestCompositorHost, public AppKitHost {
   // Owned.  Released when window is closed.
   NSWindow* window_;
   viz::ParentLocalSurfaceIdAllocator allocator_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestCompositorHostMac);
 };
 
 TestCompositorHostMac::TestCompositorHostMac(

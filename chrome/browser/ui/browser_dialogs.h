@@ -11,19 +11,28 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/optional.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/bookmarks/bookmark_editor.h"
+#include "chrome/browser/web_applications/web_app_callback_app_identity.h"
+#include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/common/buildflags.h"
-#include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/bluetooth_delegate.h"
+#include "content/public/browser/login_delegate.h"
 #include "extensions/buildflags/buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/interaction/element_identifier.h"
+#include "ui/base/models/dialog_model.h"
 #include "ui/gfx/native_widget_types.h"
 
+#if defined(OS_WIN) || defined(OS_MAC) || \
+    (defined(OS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
+#include "chrome/browser/web_applications/web_app_id.h"
+#endif
+
 class Browser;
-class ChooserController;
+class GURL;
 class LoginHandler;
 class Profile;
 struct WebApplicationInfo;
@@ -38,6 +47,7 @@ class FilePath;
 
 namespace content {
 class BrowserContext;
+class RenderFrameHost;
 class WebContents;
 }  // namespace content
 
@@ -50,6 +60,7 @@ class AuthChallengeInfo;
 }
 
 namespace permissions {
+class ChooserController;
 enum class PermissionAction;
 }
 
@@ -69,6 +80,13 @@ class WebDialogDelegate;
 struct SelectedFileInfo;
 }  // namespace ui
 
+#if defined(OS_WIN) || defined(OS_MAC) || \
+    (defined(OS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
+namespace web_app {
+struct UrlHandlerLaunchParams;
+}
+#endif
+
 namespace chrome {
 
 // Shows or hides the Task Manager. |browser| can be NULL when called from Ash.
@@ -85,7 +103,21 @@ void HideTaskManager();
 // to do so, i.e. before OnDialogClosed() is called on the delegate.
 gfx::NativeWindow ShowWebDialog(gfx::NativeView parent,
                                 content::BrowserContext* context,
-                                ui::WebDialogDelegate* delegate);
+                                ui::WebDialogDelegate* delegate,
+                                bool show = true);
+
+// Show `dialog_model` as a modal dialog to `browser`.
+void ShowBrowserModal(Browser* browser,
+                      std::unique_ptr<ui::DialogModel> dialog_model);
+
+// Show `dialog_model` as a bubble anchored to `anchor_element` in `browser`.
+// `anchor_element` must refer to an element currently present in `browser`.
+// TODO(pbos): Make utility functions for querying whether an anchor_element is
+// present in `browser` or `browser_window` and then refer to those here so that
+// a call site can provide fallback options for `anchor_element`.
+void ShowBubble(Browser* browser,
+                ui::ElementIdentifier anchor_element,
+                std::unique_ptr<ui::DialogModel> dialog_model);
 
 // Shows the create chrome app shortcut dialog box.
 // |close_callback| may be null.
@@ -103,6 +135,17 @@ void ShowCreateChromeAppShortcutsDialog(
     const std::string& web_app_id,
     base::OnceCallback<void(bool /* created */)> close_callback);
 
+#if PAIR_BLUETOOTH_ON_DEMAND()
+// Shows the dialog to request the Bluetooth credentials for the device
+// identified by |device_identifier|. |device_identifier| is the most
+// appropriate string to display to the user for device identification
+// (e.g. name, MAC address).
+void ShowBluetoothDeviceCredentialsDialog(
+    content::WebContents* web_contents,
+    const std::u16string& device_identifier,
+    content::BluetoothDelegate::CredentialsCallback close_callback);
+#endif  // PAIR_BLUETOOTH_ON_DEMAND()
+
 // Callback used to indicate whether a user has accepted the installation of a
 // web app. The boolean parameter is true when the user accepts the dialog. The
 // WebApplicationInfo parameter contains the information about the app,
@@ -118,6 +161,72 @@ using AppInstallationAcceptanceCallback =
 void ShowWebAppInstallDialog(content::WebContents* web_contents,
                              std::unique_ptr<WebApplicationInfo> web_app_info,
                              AppInstallationAcceptanceCallback callback);
+
+// When an app changes its icon or name, that is considered an app identity
+// change which (for some types of apps) needs confirmation from the user.
+// This function shows that confirmation dialog. |app_id| is the unique id of
+// the app that is updating and |title_change| and |icon_change| specify which
+// piece of information is changing. Can be one or the other, or both (but
+// both cannot be |false|). |old_title| and |new_title|, as well as |old_icon|
+// and |new_icon| show the 'before' and 'after' values. A response is sent
+// back via the |callback|.
+void ShowWebAppIdentityUpdateDialog(
+    const std::string& app_id,
+    bool title_change,
+    bool icon_change,
+    const std::u16string& old_title,
+    const std::u16string& new_title,
+    const SkBitmap& old_icon,
+    const SkBitmap& new_icon,
+    content::WebContents* web_contents,
+    web_app::AppIdentityDialogCallback callback);
+
+// Sets whether |ShowWebAppIdentityUpdateDialog| should accept immediately
+// without any user interaction.
+void SetAutoAcceptAppIdentityUpdateForTesting(bool auto_accept);
+
+#if !defined(OS_ANDROID)
+// Callback used to indicate whether a user has accepted the launch of a
+// web app. The |allowed| is true when the user allows the app to launch.
+// |remember_user_choice| is true if the user wants to persist the decision.
+using WebAppLaunchAcceptanceCallback =
+    base::OnceCallback<void(bool allowed, bool remember_user_choice)>;
+
+// Shows the Web App Protocol Handler Intent Picker view.
+void ShowWebAppProtocolHandlerIntentPicker(
+    const GURL& url,
+    Profile* profile,
+    const web_app::AppId& app_id,
+    WebAppLaunchAcceptanceCallback close_callback);
+
+// Shows the pre-launch dialog for a file handling PWA launch. The user can
+// allow or block the launch.
+void ShowWebAppFileLaunchDialog(const std::vector<base::FilePath>& file_paths,
+                                Profile* profile,
+                                const web_app::AppId& app_id,
+                                WebAppLaunchAcceptanceCallback close_callback);
+#endif  // !defined(OS_ANDROID)
+
+#if defined(OS_WIN) || defined(OS_MAC) || \
+    (defined(OS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
+// Callback that runs when the Web App URL Handler Intent Picker dialog is
+// closed. `accepted` is true when the dialog is accepted, false otherwise.
+// `launch_params` contains information of the app that is selected to open by
+// the user. It is null when the user selects to open the browser.
+using WebAppUrlHandlerAcceptanceCallback = base::OnceCallback<void(
+    bool accepted,
+    absl::optional<web_app::UrlHandlerLaunchParams> launch_params)>;
+
+// Shows the Web App URL Handler Intent Picker dialog and runs
+// `dialog_close_callback` on closure with the dialog acceptance status and
+// information of the user-selected app. `launch_params_list` contains
+// information of all the apps to show. `url` is the URL to launch if the
+// dialog is accepted by the user.
+void ShowWebAppUrlHandlerIntentPickerDialog(
+    const GURL& url,
+    std::vector<web_app::UrlHandlerLaunchParams> launch_params_list,
+    WebAppUrlHandlerAcceptanceCallback dialog_close_callback);
+#endif
 
 // Sets whether |ShowWebAppDialog| should accept immediately without any
 // user interaction. |auto_open_in_window| sets whether the open in window
@@ -150,7 +259,7 @@ void ShowPWAInstallBubble(
 // user interaction.
 void SetAutoAcceptPWAInstallConfirmationForTesting(bool auto_accept);
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 
 // Shows the print job confirmation dialog bubble anchored to the toolbar icon
 // for the extension.
@@ -159,13 +268,13 @@ void SetAutoAcceptPWAInstallConfirmationForTesting(bool auto_accept);
 // have no |parent| window.
 void ShowPrintJobConfirmationDialog(gfx::NativeWindow parent,
                                     const std::string& extension_id,
-                                    const base::string16& extension_name,
+                                    const std::u16string& extension_name,
                                     const gfx::ImageSkia& extension_icon,
-                                    const base::string16& print_job_title,
-                                    const base::string16& printer_name,
+                                    const std::u16string& print_job_title,
+                                    const std::u16string& printer_name,
                                     base::OnceCallback<void(bool)> callback);
 
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_MAC)
 
@@ -181,7 +290,7 @@ void HideTaskManagerViews();
 std::unique_ptr<LoginHandler> CreateLoginHandlerViews(
     const net::AuthChallengeInfo& auth_info,
     content::WebContents* web_contents,
-    LoginAuthRequiredCallback auth_required_callback);
+    content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback);
 
 #endif  // TOOLKIT_VIEWS
 
@@ -265,8 +374,8 @@ enum class DialogIdentifier {
   TAB_MODAL_CONFIRM = 72,
   TASK_MANAGER = 73,
   TELEPORT_WARNING = 74,
-  USER_MANAGER = 75,
-  USER_MANAGER_PROFILE = 76,
+  // USER_MANAGER = 75,  Deprecated
+  // USER_MANAGER_PROFILE = 76,  Deprecated
   VALIDATION_MESSAGE = 77,
   WEB_SHARE_TARGET_PICKER = 78,
   ZOOM = 79,
@@ -297,6 +406,12 @@ enum class DialogIdentifier {
   PARENT_PERMISSION = 104,  // ChromeOS only.
   SIGNIN_REAUTH = 105,
   CURRENT_BROWSING_CONTEXT_CONFIRMATION_BOX = 106,
+  PROFILE_PICKER_FORCE_SIGNIN = 107,
+  EXTENSION_INSTALL_FRICTION = 108,
+  FILE_HANDLING_PERMISSION_REQUEST = 109,
+  SIGNIN_ENTERPRISE_INTERCEPTION = 110,
+  APP_IDENTITY_UPDATE_CONFIRMATION = 111,
+  BLUETOOTH_DEVICE_CREDENTIALS = 112,
   // Add values above this line with a corresponding label in
   // tools/metrics/histograms/enums.xml
   MAX_VALUE
@@ -334,8 +449,9 @@ void ShowChromeCleanerRebootPrompt(
 // blocked due to policy. It also show additional information from administrator
 // if it exists.
 void ShowExtensionInstallBlockedDialog(
+    const std::string& extension_id,
     const std::string& extension_name,
-    const base::string16& custom_error_message,
+    const std::u16string& custom_error_message,
     const gfx::ImageSkia& icon,
     content::WebContents* web_contents,
     base::OnceClosure done_callback);
@@ -364,6 +480,16 @@ void ShowExtensionInstallBlockedByParentDialog(
 void ShowExtensionSettingsOverriddenDialog(
     std::unique_ptr<SettingsOverriddenDialogController> controller,
     Browser* browser);
+
+// Modal dialog shown to Enhanced Safe Browsing users before the extension
+// install dialog if the extension is not included in the Safe Browsing CRX
+// allowlist.
+//
+// `callback` will be invoked with `true` if the user accepts or `false` if the
+// user cancels the dialog.
+void ShowExtensionInstallFrictionDialog(
+    content::WebContents* contents,
+    base::OnceCallback<void(bool)> callback);
 #endif
 
 // Returns a OnceClosure that client code can call to close the device chooser.
@@ -372,15 +498,28 @@ void ShowExtensionSettingsOverriddenDialog(
 #if defined(TOOLKIT_VIEWS)
 base::OnceClosure ShowDeviceChooserDialog(
     content::RenderFrameHost* owner,
-    std::unique_ptr<ChooserController> controller);
+    std::unique_ptr<permissions::ChooserController> controller);
 bool IsDeviceChooserShowingForTesting(Browser* browser);
 #endif
 
 // Show the prompt to set a window name for browser's window, optionally with
 // the given context.
 void ShowWindowNamePrompt(Browser* browser);
-void ShowWindowNamePromptForTesting(Browser* browser,
-                                    gfx::NativeWindow context);
+std::unique_ptr<ui::DialogModel> CreateWindowNamePromptDialogModelForTesting(
+    Browser* browser);
+
+// Callback used to indicate whether Direct Sockets connection dialog is
+// accepted or not. If accepted, the remote address and port number are
+// provided.
+using OnProceedCallback = base::OnceCallback<
+    void(bool accepted, const std::string& address, const std::string& port)>;
+
+// Show dialog to accept remote address and port number information, which will
+// be used to make a socket connection. The window is automatically destroyed
+// when it is closed.
+void ShowDirectSocketsConnectionDialog(Browser* browser,
+                                       const std::string& address,
+                                       OnProceedCallback callback);
 
 }  // namespace chrome
 

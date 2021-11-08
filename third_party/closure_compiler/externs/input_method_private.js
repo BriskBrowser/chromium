@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 // NOTE: The format of types has changed. 'FooType' is now
 //   'chrome.inputMethodPrivate.FooType'.
 // Please run the closure compiler before committing changes.
-// See https://chromium.googlesource.com/chromium/src/+/master/docs/closure_compilation.md
+// See https://chromium.googlesource.com/chromium/src/+/main/docs/closure_compilation.md
 
 /** @fileoverview Externs generated from namespace: inputMethodPrivate */
 
@@ -164,7 +164,9 @@ chrome.inputMethodPrivate.InputMethodSettings;
 chrome.inputMethodPrivate.getInputMethodConfig = function(callback) {};
 
 /**
- * Gets all whitelisted input methods.
+ * Gets all enabled input methods, sorted in ascending order of their localized
+ * full display names, according to the lexicographical order defined by the
+ * current system locale aka. display language.
  * @param {function(!Array<{
  *   id: string,
  *   name: string,
@@ -281,7 +283,9 @@ chrome.inputMethodPrivate.openOptionsPage = function(inputMethodId) {};
 chrome.inputMethodPrivate.getCompositionBounds = function(callback) {};
 
 /**
- * Gets the surrounding text of the current selection
+ * Gets the surrounding text of the current selection. WARNING: This could
+ * return a stale cache that doesn't reflect reality, due to async between IMF
+ * and TextInputClient.
  * @param {number} beforeLength The number of characters before the current
  *     selection.
  * @param {number} afterLength The number of characters after the current
@@ -352,7 +356,8 @@ chrome.inputMethodPrivate.setCompositionRange = function(parameters, callback) {
 chrome.inputMethodPrivate.setComposingRange = function(parameters, callback) {};
 
 /**
- * Get the autocorrected word's bounds.
+ * Get the autocorrected word's bounds. Returns an empty range if there is no
+ * autocorrected word.
  * @param {{
  *   contextID: number
  * }} parameters
@@ -401,14 +406,30 @@ chrome.inputMethodPrivate.reset = function() {};
 
 /**
  * Called after a word has been autocorrected to show some UI for autocorrect.
- * @param{{
- *  contextID: number,
- *  typedWord: string,
- *  correctedWord: string,
- *  startIndex: number
+ * @param {{
+ *   contextID: number,
+ *   typedWord: string,
+ *   correctedWord: string,
+ *   startIndex: number
  * }} parameters
  */
 chrome.inputMethodPrivate.onAutocorrect = function(parameters) {};
+
+/**
+ * Get the bounds of the current text field
+ * @param {{
+ *   contextID: number
+ * }} parameters
+ * @param {function({
+ *   x: number,
+ *   y: number,
+ *   width: number,
+ *   height: number
+ * }): void} callback Called with screen coordinates of the text field when the
+ *     operation completes. On failure, $(ref:runtime.lastError) is set.
+ */
+chrome.inputMethodPrivate.getTextFieldBounds = function(
+    parameters, callback) {};
 
 /**
  * Fired when the input method is changed.

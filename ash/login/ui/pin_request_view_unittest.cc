@@ -25,13 +25,13 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "components/account_id/account_id.h"
 #include "components/session_manager/session_manager_types.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -49,6 +49,10 @@ namespace ash {
 
 class PinRequestViewTest : public LoginTestBase,
                            public PinRequestView::Delegate {
+ public:
+  PinRequestViewTest(const PinRequestViewTest&) = delete;
+  PinRequestViewTest& operator=(const PinRequestViewTest&) = delete;
+
  protected:
   PinRequestViewTest() {}
   ~PinRequestViewTest() override = default;
@@ -73,8 +77,8 @@ class PinRequestViewTest : public LoginTestBase,
     ++pin_submitted_;
     last_code_submitted_ = code;
     if (!will_authenticate_) {
-      view_->UpdateState(PinRequestViewState::kError, base::string16(),
-                         base::string16());
+      view_->UpdateState(PinRequestViewState::kError, std::u16string(),
+                         std::u16string());
       return PinRequestView::SubmissionResult::kPinError;
     }
     return PinRequestView::SubmissionResult::kPinAccepted;
@@ -82,27 +86,25 @@ class PinRequestViewTest : public LoginTestBase,
 
   void OnBack() override { ++back_action_; }
 
-  void OnHelp(gfx::NativeWindow parent_window) override {
-    ++help_dialog_opened_;
-  }
+  void OnHelp() override { ++help_dialog_opened_; }
 
-  void StartView(base::Optional<int> pin_length = 6) {
+  void StartView(absl::optional<int> pin_length = 6) {
     PinRequest request;
     request.help_button_enabled = true;
     request.obscure_pin = false;
     request.pin_length = pin_length;
-    request.on_pin_request_done = base::DoNothing::Once<bool>();
+    request.on_pin_request_done = base::DoNothing();
     view_ = new PinRequestView(std::move(request), this);
 
     SetWidget(CreateWidgetWithContent(view_));
   }
 
   // Shows pin request widget with the specified |reason|.
-  void ShowWidget(base::Optional<int> pin_length = 6) {
+  void ShowWidget(absl::optional<int> pin_length = 6) {
     PinRequest request;
     request.help_button_enabled = true;
     request.pin_length = pin_length;
-    request.on_pin_request_done = base::DoNothing::Once<bool>();
+    request.on_pin_request_done = base::DoNothing();
     PinRequestWidget::Show(std::move(request), this);
     PinRequestWidget* widget = PinRequestWidget::Get();
     ASSERT_TRUE(widget);
@@ -176,9 +178,6 @@ class PinRequestViewTest : public LoginTestBase,
   bool will_authenticate_ = true;
 
   PinRequestView* view_ = nullptr;  // Owned by test widget view hierarchy.
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PinRequestViewTest);
 };
 
 // Tests that back button works.
@@ -358,7 +357,7 @@ TEST_F(PinRequestViewTest, Backspace) {
 
 // Tests digit-only input with unknown pin length.
 TEST_F(PinRequestViewTest, FlexCodeInput) {
-  StartView(base::nullopt);
+  StartView(absl::nullopt);
   PinRequestView::TestApi test_api(view_);
   ui::test::EventGenerator* generator = GetEventGenerator();
   will_authenticate_ = false;
@@ -383,7 +382,7 @@ TEST_F(PinRequestViewTest, FlexCodeInput) {
 
 // Tests non-digit input with unknown pin length.
 TEST_F(PinRequestViewTest, FlexCodeInputCharacters) {
-  StartView(base::nullopt);
+  StartView(absl::nullopt);
   PinRequestView::TestApi test_api(view_);
   ui::test::EventGenerator* generator = GetEventGenerator();
   will_authenticate_ = false;

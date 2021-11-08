@@ -19,17 +19,17 @@ std::unique_ptr<StoreUpdateData>
 StoreUpdateData::CreateComponentStoreUpdateData(
     const base::Version& component_version) {
   return base::WrapUnique<StoreUpdateData>(new StoreUpdateData(
-      base::Optional<base::Version>(component_version),
-      base::Optional<base::Time>(), base::Optional<base::Time>()));
+      absl::optional<base::Version>(component_version),
+      absl::optional<base::Time>(), absl::optional<base::Time>()));
 }
 
 // static
 std::unique_ptr<StoreUpdateData> StoreUpdateData::CreateFetchedStoreUpdateData(
     base::Time fetch_update_time) {
   return base::WrapUnique<StoreUpdateData>(
-      new StoreUpdateData(base::Optional<base::Version>(),
-                          base::Optional<base::Time>(fetch_update_time),
-                          base::Optional<base::Time>()));
+      new StoreUpdateData(absl::optional<base::Version>(),
+                          absl::optional<base::Time>(fetch_update_time),
+                          absl::optional<base::Time>()));
 }
 
 // static
@@ -85,9 +85,9 @@ StoreUpdateData::StoreUpdateData(base::Time expiry_time)
 }
 
 StoreUpdateData::StoreUpdateData(
-    base::Optional<base::Version> component_version,
-    base::Optional<base::Time> fetch_update_time,
-    base::Optional<base::Time> expiry_time)
+    absl::optional<base::Version> component_version,
+    absl::optional<base::Time> fetch_update_time,
+    absl::optional<base::Time> expiry_time)
     : component_version_(component_version),
       update_time_(fetch_update_time),
       expiry_time_(expiry_time),
@@ -146,8 +146,7 @@ void StoreUpdateData::MoveHintIntoUpdateData(proto::Hint&& hint) {
   } else if (update_time()) {
     base::TimeDelta expiry_duration;
     if (hint.has_max_cache_duration()) {
-      expiry_duration =
-          base::TimeDelta().FromSeconds(hint.max_cache_duration().seconds());
+      expiry_duration = base::Seconds(hint.max_cache_duration().seconds());
     } else {
       expiry_duration = features::StoredFetchedHintsFreshnessDuration();
     }

@@ -8,6 +8,8 @@
 
 #include "base/check_op.h"
 #include "base/notreached.h"
+#import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/identity_chooser/identity_chooser_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/identity_chooser/identity_chooser_mediator.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/identity_chooser/identity_chooser_transition_delegate.h"
@@ -78,7 +80,11 @@ typedef NS_ENUM(NSInteger, IdentityChooserCoordinatorState) {
       UIModalPresentationCustom;
 
   // Creates the mediator.
-  self.identityChooserMediator = [[IdentityChooserMediator alloc] init];
+  self.identityChooserMediator = [[IdentityChooserMediator alloc]
+      initWithAccountManagerService:ChromeAccountManagerServiceFactory::
+                                        GetForBrowserState(
+                                            self.browser->GetBrowserState())];
+
   self.identityChooserMediator.consumer = self.identityChooserViewController;
   // Setups.
   self.identityChooserViewController.presentationDelegate = self;
@@ -88,6 +94,12 @@ typedef NS_ENUM(NSInteger, IdentityChooserCoordinatorState) {
       presentViewController:self.identityChooserViewController
                    animated:YES
                  completion:nil];
+}
+
+- (void)stop {
+  [super stop];
+  [self.identityChooserMediator disconnect];
+  self.identityChooserMediator = nil;
 }
 
 #pragma mark - Setters/Getters

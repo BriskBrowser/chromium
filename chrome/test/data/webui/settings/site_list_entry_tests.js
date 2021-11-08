@@ -12,8 +12,9 @@ import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {ContentSettingsTypes,SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
 import {Router, routes} from 'chrome://settings/settings.js';
-import {TestSiteSettingsPrefsBrowserProxy} from 'chrome://test/settings/test_site_settings_prefs_browser_proxy.js';
-import {eventToPromise} from 'chrome://test/test_util.m.js';
+import {eventToPromise} from 'chrome://webui-test/test_util.js';
+
+import {TestSiteSettingsPrefsBrowserProxy} from './test_site_settings_prefs_browser_proxy.js';
 
 // clang-format on
 
@@ -28,7 +29,7 @@ suite('SiteListEntry', function() {
 
   setup(function() {
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
     PolymerTest.clearBody();
     testElement = document.createElement('site-list-entry');
     document.body.appendChild(testElement);
@@ -72,6 +73,51 @@ suite('SiteListEntry', function() {
           siteDescription.textContent);
     });
   }
+
+  test('shows settingDetail', function() {
+    // Verify that `settingDetail` is respected.
+    testElement.model = {
+      origin: 'http://example.com',
+      settingDetail: '.txt',
+      category: ContentSettingsTypes.FILE_HANDLING,
+    };
+    flush();
+    const siteDescription = testElement.$$('#siteDescription');
+    assertEquals('.txt', siteDescription.textContent);
+
+    // Verify that with no settingDetail, a computed label is used.
+    testElement.model = {
+      origin: 'http://example.com',
+      category: ContentSettingsTypes.GEOLOCATION,
+    };
+    flush();
+    assertEquals(
+        loadTimeData.getString('embeddedOnAnyHost'),
+        siteDescription.textContent);
+
+    // Verify that settingDetail overrides other (computed) labels.
+    testElement.model = {
+      origin: 'http://example.com',
+      category: ContentSettingsTypes.GEOLOCATION,
+      settingDetail: '.txt',
+    };
+    flush();
+    assertEquals('.txt', siteDescription.textContent);
+  });
+
+  // Verify that with GEOLOCATION, the "embedded on any host" text is shown.
+  // Regression test for crbug.com/1205103
+  test('location embedded on any host', function() {
+    testElement.model = {
+      origin: 'http://example.com',
+      category: ContentSettingsTypes.GEOLOCATION,
+    };
+    flush();
+    const siteDescription = testElement.$$('#siteDescription');
+    assertEquals(
+        loadTimeData.getString('embeddedOnAnyHost'),
+        siteDescription.textContent);
+  });
 
   test('not valid origin does not go to site details page', function() {
     browserProxy.setIsOriginValid(false);

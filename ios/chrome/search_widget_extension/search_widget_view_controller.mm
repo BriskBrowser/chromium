@@ -12,6 +12,7 @@
 #include "ios/chrome/common/app_group/app_group_constants.h"
 #include "ios/chrome/common/app_group/app_group_field_trial_version.h"
 #include "ios/chrome/common/app_group/app_group_metrics.h"
+#import "ios/chrome/common/crash_report/crash_helper.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/common/ui/util/image_util.h"
 #import "ios/chrome/search_widget_extension/copied_content_view.h"
@@ -34,6 +35,14 @@
 @end
 
 @implementation SearchWidgetViewController
+
++ (void)initialize {
+  if (self == [SearchWidgetViewController self]) {
+    if (crash_helper::common::CanCrashpadStart()) {
+      crash_helper::common::StartCrashpad();
+    }
+  }
+}
 
 - (instancetype)init {
   self = [super init];
@@ -115,8 +124,7 @@
 // handler with whether any updates occured..
 - (void)updateWidgetWithCompletionHandler:(void (^)(BOOL))completionHandler {
   NSUserDefaults* sharedDefaults = app_group::GetGroupUserDefaults();
-  NSString* fieldTrialKey =
-      base::SysUTF8ToNSString(app_group::kChromeExtensionFieldTrialPreference);
+  NSString* fieldTrialKey = app_group::kChromeExtensionFieldTrialPreference;
   self.fieldTrialValues = [sharedDefaults dictionaryForKey:fieldTrialKey];
 
   NSString* supportsSearchByImageKey =

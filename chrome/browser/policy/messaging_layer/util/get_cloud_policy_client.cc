@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -25,9 +26,8 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/settings/device_settings_service.h"
+#include "chrome/browser/ash/login/users/chrome_user_manager.h"
+#include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #else
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
@@ -41,9 +41,7 @@ namespace {
 // if it isn't will recall itself to do so.
 // TODO(chromium:1078512) Wrap CloudPolicyClient in a new object so that its
 // methods and retrieval are accessed on the correct thread.
-void GetCloudPolicyClient(
-    base::OnceCallback<void(StatusOr<policy::CloudPolicyClient*>)>
-        get_client_cb) {
+void GetCloudPolicyClient(CloudPolicyClientResultCb get_client_cb) {
   if (!content::GetUIThreadTaskRunner({})->RunsTasksInCurrentSequence()) {
     content::GetUIThreadTaskRunner({})->PostTask(
         FROM_HERE,
@@ -51,17 +49,17 @@ void GetCloudPolicyClient(
     return;
   }
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  policy::CloudPolicyManager* cloud_policy_manager =
+  policy::CloudPolicyManager* const cloud_policy_manager =
       g_browser_process->platform_part()
-          ->browser_policy_connector_chromeos()
+          ->browser_policy_connector_ash()
           ->GetDeviceCloudPolicyManager();
 #elif defined(OS_ANDROID)
   // Android doesn't have access to a device level CloudPolicyClient, so get the
   // PrimaryUserProfile CloudPolicyClient.
-  policy::CloudPolicyManager* cloud_policy_manager =
+  policy::CloudPolicyManager* const cloud_policy_manager =
       ProfileManager::GetPrimaryUserProfile()->GetUserCloudPolicyManager();
 #else
-  policy::CloudPolicyManager* cloud_policy_manager =
+  policy::CloudPolicyManager* const cloud_policy_manager =
       g_browser_process->browser_policy_connector()
           ->machine_level_user_cloud_policy_manager();
 #endif
@@ -82,8 +80,8 @@ void GetCloudPolicyClient(
 }
 }  // namespace
 
-base::OnceCallback<void(CloudPolicyClientResultCb)> GetCloudPolicyClientCb() {
-  return base::BindOnce(&GetCloudPolicyClient);
+GetCloudPolicyClientCallback GetCloudPolicyClientCb() {
+  return base::BindRepeating(&GetCloudPolicyClient);
 }
 
 }  // namespace reporting

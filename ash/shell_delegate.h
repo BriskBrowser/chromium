@@ -7,11 +7,16 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "ash/ash_export.h"
 #include "base/callback.h"
-#include "base/strings/string16.h"
+#include "base/callback_forward.h"
+#include "base/files/file_path.h"
 #include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom-forward.h"
+#include "chromeos/ui/base/window_pin_type.h"
+#include "components/favicon_base/favicon_callback.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/device/public/mojom/bluetooth_system.mojom-forward.h"
 #include "services/device/public/mojom/fingerprint.mojom-forward.h"
@@ -22,17 +27,29 @@ namespace aura {
 class Window;
 }
 
+namespace base {
+class CancelableTaskTracker;
+}
+
 namespace ui {
 class OSExchangeData;
+}
+
+namespace app_restore {
+struct AppLaunchInfo;
+}
+
+namespace desks_storage {
+class DeskModel;
 }
 
 namespace ash {
 
 class AccessibilityDelegate;
-class CaptureModeDelegate;
-class ScreenshotDelegate;
-class BackGestureContextualNudgeDelegate;
 class BackGestureContextualNudgeController;
+class BackGestureContextualNudgeDelegate;
+class CaptureModeDelegate;
+class DeskTemplate;
 class NearbyShareController;
 class NearbyShareDelegate;
 
@@ -50,9 +67,6 @@ class ASH_EXPORT ShellDelegate {
   virtual std::unique_ptr<CaptureModeDelegate> CreateCaptureModeDelegate()
       const = 0;
 
-  // Creates the screenshot delegate, which has dependencies on //chrome.
-  virtual std::unique_ptr<ScreenshotDelegate> CreateScreenshotDelegate() = 0;
-
   // Creates a accessibility delegate. Shell takes ownership of the delegate.
   virtual AccessibilityDelegate* CreateAccessibilityDelegate() = 0;
 
@@ -63,10 +77,6 @@ class ASH_EXPORT ShellDelegate {
 
   virtual std::unique_ptr<NearbyShareDelegate> CreateNearbyShareDelegate(
       NearbyShareController* controller) const = 0;
-
-  // Notifies the browser that there was a change in the state for desks and now
-  // there are |num_desks| desks.
-  virtual void DesksStateChanged(int num_desks) const;
 
   // Check whether the current tab of the browser window can go back.
   virtual bool CanGoBack(gfx::NativeWindow window) const = 0;
@@ -87,11 +97,9 @@ class ASH_EXPORT ShellDelegate {
   // Checks whether a drag-drop operation is a tab drag.
   virtual bool IsTabDrag(const ui::OSExchangeData& drop_data);
 
-  // Drops tab in a new browser window. |drop_data| must be from a tab
-  // drag as determined by IsTabDrag() above.
-  virtual aura::Window* CreateBrowserForTabDrop(
-      aura::Window* source_window,
-      const ui::OSExchangeData& drop_data);
+  // Return the height of WebUI tab strip used to determine if a tab has
+  // dragged out of it.
+  virtual int GetBrowserWebUITabStripHeight() = 0;
 
   // Binds a BluetoothSystemFactory receiver if possible.
   virtual void BindBluetoothSystemFactory(
@@ -115,11 +123,61 @@ class ASH_EXPORT ShellDelegate {
   // Returns if window browser sessions are restoring.
   virtual bool IsSessionRestoreInProgress() const = 0;
 
+  // Adjust system configuration for a Locked Fullscreen window.
+  virtual void SetUpEnvironmentForLockedFullscreen(bool locked) = 0;
+
   // Ui Dev Tools control.
   virtual bool IsUiDevToolsStarted() const;
   virtual void StartUiDevTools() {}
   virtual void StopUiDevTools() {}
   virtual int GetUiDevToolsPort() const;
+
+  // Returns true if Chrome was started with --disable-logging-redirect option.
+  virtual bool IsLoggingRedirectDisabled() const = 0;
+
+  // Returns empty path if user session has not started yet, or path to the
+  // primary user Downloads folder if user has already logged in.
+  virtual base::FilePath GetPrimaryUserDownloadsFolder() const = 0;
+
+  // Opens the feedback page with pre-populated description #BentoBar for
+  // persistent desks bar. Note, this will be removed once the feature is fully
+  // launched or removed.
+  virtual void OpenFeedbackPageForPersistentDesksBar() = 0;
+
+  // Returns the app launch data that's associated with a particular |window| in
+  // order to construct a desk template. Return nullptr if no such app launch
+  // data can be constructed, which can happen if the |window| does not have
+  // an app id associated with it, or we're not in the primary active user
+  // session.
+  virtual std::unique_ptr<app_restore::AppLaunchInfo>
+  GetAppLaunchDataForDeskTemplate(aura::Window* window) const = 0;
+
+  // Returns either the local desk storage backend or Chrome sync desk storage
+  // backend depending on the feature flag DeskTemplateSync.
+  virtual desks_storage::DeskModel* GetDeskModel();
+
+  // Fetches the favicon for `page_url` and returns it via the provided
+  // `callback`. `callback` may be called synchronously.
+  virtual void GetFaviconForUrl(const std::string& page_url,
+                                int desired_icon_size,
+                                favicon_base::FaviconRawBitmapCallback callback,
+                                base::CancelableTaskTracker* teacker) const = 0;
+
+  // Fetches the icon for the app with `app_id` and returns it via the provided
+  // `callback`. `callback` may be called synchronously.
+  virtual void GetIconForAppId(
+      const std::string& app_id,
+      int desired_icon_size,
+      base::OnceCallback<void(apps::mojom::IconValuePtr icon_value)> callback)
+      const = 0;
+
+  // Launches apps into the active desk. Ran immediately after a desk is created
+  // for a template.
+  virtual void LaunchAppsFromTemplate(
+      std::unique_ptr<DeskTemplate> desk_template) = 0;
+
+  // Checks whether `window` is supported in the desks templates feature.
+  virtual bool IsWindowSupportedForDeskTemplate(aura::Window* window) const = 0;
 };
 
 }  // namespace ash

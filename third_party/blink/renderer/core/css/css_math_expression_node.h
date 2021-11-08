@@ -31,6 +31,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_MATH_EXPRESSION_NODE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_MATH_EXPRESSION_NODE_H_
 
+#include "base/dcheck_is_on.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_math_operator.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
@@ -40,6 +42,8 @@
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
+
+static const int kMaxExpressionDepth = 100;
 
 class CalculationExpressionNode;
 class CSSNumericLiteralValue;
@@ -90,12 +94,13 @@ class CORE_EXPORT CSSMathExpressionNode
       CSSPrimitiveValue::LengthTypeFlags& types) const = 0;
   virtual scoped_refptr<const CalculationExpressionNode>
   ToCalculationExpression(const CSSToLengthConversionData&) const = 0;
-  virtual base::Optional<PixelsAndPercent> ToPixelsAndPercent(
+  virtual absl::optional<PixelsAndPercent> ToPixelsAndPercent(
       const CSSToLengthConversionData&) const = 0;
 
-  scoped_refptr<CalculationValue> ToCalcValue(
+  scoped_refptr<const CalculationValue> ToCalcValue(
       const CSSToLengthConversionData& conversion_data,
-      ValueRange range) const;
+      Length::ValueRange range,
+      bool allows_negative_percentage_reference) const;
 
   // Evaluates the expression with type conversion (e.g., cm -> px) handled, and
   // returns the result value in the canonical unit of the corresponding
@@ -107,11 +112,11 @@ class CORE_EXPORT CSSMathExpressionNode
   // - A type conversion that doesn't have a fixed conversion ratio is needed
   //   (e.g., between 'px' and 'em').
   // - There's an unsupported calculation, e.g., dividing two lengths.
-  virtual base::Optional<double> ComputeValueInCanonicalUnit() const = 0;
+  virtual absl::optional<double> ComputeValueInCanonicalUnit() const = 0;
 
   virtual String CustomCSSText() const = 0;
   virtual bool operator==(const CSSMathExpressionNode& other) const {
-    return category_ == other.category_ && is_integer_ == other.is_integer_;
+    return category_ == other.category_;
   }
 
   virtual bool IsComputationallyIndependent() const = 0;
@@ -125,8 +130,6 @@ class CORE_EXPORT CSSMathExpressionNode
   // conversion* (e.g., 1px + 1em needs type conversion to resolve).
   // Returns |UnitType::kUnknown| if type conversion is required.
   virtual CSSPrimitiveValue::UnitType ResolvedUnitType() const = 0;
-
-  bool IsInteger() const { return is_integer_; }
 
   bool IsNestedCalc() const { return is_nested_calc_; }
   void SetIsNestedCalc() { is_nested_calc_ = true; }
@@ -144,17 +147,12 @@ class CORE_EXPORT CSSMathExpressionNode
   virtual void Trace(Visitor* visitor) const {}
 
  protected:
-  CSSMathExpressionNode(CalculationCategory category,
-                        bool is_integer,
-                        bool has_comparisons)
-      : category_(category),
-        is_integer_(is_integer),
-        has_comparisons_(has_comparisons) {
+  CSSMathExpressionNode(CalculationCategory category, bool has_comparisons)
+      : category_(category), has_comparisons_(has_comparisons) {
     DCHECK_NE(category, kCalcOther);
   }
 
   CalculationCategory category_;
-  bool is_integer_;
   bool is_nested_calc_ = false;
   bool has_comparisons_;
 };
@@ -163,13 +161,12 @@ class CORE_EXPORT CSSMathExpressionNumericLiteral final
     : public CSSMathExpressionNode {
  public:
   static CSSMathExpressionNumericLiteral* Create(
-      const CSSNumericLiteralValue* value,
-      bool is_integer = false);
-  static CSSMathExpressionNumericLiteral*
-  Create(double value, CSSPrimitiveValue::UnitType type, bool is_integer);
+      const CSSNumericLiteralValue* value);
+  static CSSMathExpressionNumericLiteral* Create(
+      double value,
+      CSSPrimitiveValue::UnitType type);
 
-  CSSMathExpressionNumericLiteral(const CSSNumericLiteralValue* value,
-                                  bool is_integer);
+  explicit CSSMathExpressionNumericLiteral(const CSSNumericLiteralValue* value);
 
   const CSSNumericLiteralValue& GetValue() const { return *value_; }
 
@@ -179,10 +176,10 @@ class CORE_EXPORT CSSMathExpressionNumericLiteral final
   String CustomCSSText() const final;
   scoped_refptr<const CalculationExpressionNode> ToCalculationExpression(
       const CSSToLengthConversionData&) const final;
-  base::Optional<PixelsAndPercent> ToPixelsAndPercent(
+  absl::optional<PixelsAndPercent> ToPixelsAndPercent(
       const CSSToLengthConversionData&) const final;
   double DoubleValue() const final;
-  base::Optional<double> ComputeValueInCanonicalUnit() const final;
+  absl::optional<double> ComputeValueInCanonicalUnit() const final;
   double ComputeLengthPx(
       const CSSToLengthConversionData& conversion_data) const final;
   bool AccumulateLengthArray(CSSLengthArray& length_array,
@@ -236,10 +233,10 @@ class CORE_EXPORT CSSMathExpressionBinaryOperation final
   bool IsZero() const final;
   scoped_refptr<const CalculationExpressionNode> ToCalculationExpression(
       const CSSToLengthConversionData&) const final;
-  base::Optional<PixelsAndPercent> ToPixelsAndPercent(
+  absl::optional<PixelsAndPercent> ToPixelsAndPercent(
       const CSSToLengthConversionData&) const final;
   double DoubleValue() const final;
-  base::Optional<double> ComputeValueInCanonicalUnit() const final;
+  absl::optional<double> ComputeValueInCanonicalUnit() const final;
   double ComputeLengthPx(
       const CSSToLengthConversionData& conversion_data) const final;
   bool AccumulateLengthArray(CSSLengthArray& length_array,
@@ -289,7 +286,6 @@ class CSSMathExpressionVariadicOperation final : public CSSMathExpressionNode {
                                                     CSSMathOperator op);
 
   CSSMathExpressionVariadicOperation(CalculationCategory category,
-                                     bool is_integer_result,
                                      Operands&& operands,
                                      CSSMathOperator op);
 
@@ -305,7 +301,7 @@ class CSSMathExpressionVariadicOperation final : public CSSMathExpressionNode {
   String CustomCSSText() const final;
   scoped_refptr<const CalculationExpressionNode> ToCalculationExpression(
       const CSSToLengthConversionData&) const final;
-  base::Optional<PixelsAndPercent> ToPixelsAndPercent(
+  absl::optional<PixelsAndPercent> ToPixelsAndPercent(
       const CSSToLengthConversionData&) const final;
   double DoubleValue() const final;
   double ComputeLengthPx(
@@ -314,7 +310,7 @@ class CSSMathExpressionVariadicOperation final : public CSSMathExpressionNode {
                              double multiplier) const final;
   void AccumulateLengthUnitTypes(
       CSSPrimitiveValue::LengthTypeFlags& types) const final;
-  base::Optional<double> ComputeValueInCanonicalUnit() const final;
+  absl::optional<double> ComputeValueInCanonicalUnit() const final;
   bool IsComputationallyIndependent() const final;
   bool operator==(const CSSMathExpressionNode& other) const final;
   CSSPrimitiveValue::UnitType ResolvedUnitType() const final;

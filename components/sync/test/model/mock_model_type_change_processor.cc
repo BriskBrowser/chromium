@@ -21,7 +21,7 @@ class ForwardingModelTypeChangeProcessor : public ModelTypeChangeProcessor {
   // |other| must not be nullptr and must outlive this object.
   explicit ForwardingModelTypeChangeProcessor(ModelTypeChangeProcessor* other)
       : other_(other) {}
-  ~ForwardingModelTypeChangeProcessor() override {}
+  ~ForwardingModelTypeChangeProcessor() override = default;
 
   void Put(const std::string& client_tag,
            std::unique_ptr<EntityData> entity_data,
@@ -83,7 +83,7 @@ class ForwardingModelTypeChangeProcessor : public ModelTypeChangeProcessor {
     other_->ReportError(error);
   }
 
-  base::Optional<ModelError> GetError() const override {
+  absl::optional<ModelError> GetError() const override {
     return other_->GetError();
   }
 
@@ -97,9 +97,9 @@ class ForwardingModelTypeChangeProcessor : public ModelTypeChangeProcessor {
 
 }  // namespace
 
-MockModelTypeChangeProcessor::MockModelTypeChangeProcessor() {}
+MockModelTypeChangeProcessor::MockModelTypeChangeProcessor() = default;
 
-MockModelTypeChangeProcessor::~MockModelTypeChangeProcessor() {}
+MockModelTypeChangeProcessor::~MockModelTypeChangeProcessor() = default;
 
 std::unique_ptr<ModelTypeChangeProcessor>
 MockModelTypeChangeProcessor::CreateForwardingProcessor() {

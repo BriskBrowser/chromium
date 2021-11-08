@@ -23,6 +23,7 @@ using CompositingReasons = uint64_t;
   V(Canvas)                                                                   \
   V(Plugin)                                                                   \
   V(IFrame)                                                                   \
+  V(DocumentTransitionContentElement)                                         \
   /* This is used for pre-CompositAfterPaint + CompositeSVG only. */          \
   V(SVGRoot)                                                                  \
   V(BackfaceVisibilityHidden)                                                 \
@@ -31,7 +32,8 @@ using CompositingReasons = uint64_t;
   V(ActiveFilterAnimation)                                                    \
   V(ActiveBackdropFilterAnimation)                                            \
   V(AffectedByOuterViewportBoundsDelta)                                       \
-  V(ScrollDependentPosition)                                                  \
+  V(FixedPosition)                                                            \
+  V(StickyPosition)                                                           \
   V(OverflowScrolling)                                                        \
   V(OverflowScrollingParent)                                                  \
   V(OutOfFlowClipping)                                                        \
@@ -86,7 +88,10 @@ using CompositingReasons = uint64_t;
   /* Composited layer painted on top of all other layers as decoration. */    \
   V(LayerForDecoration)                                                       \
   /* Used in CompositeAfterPaint for link highlight, frame overlay, etc. */   \
-  V(LayerForOther)
+  V(LayerForOther)                                                            \
+  /* DocumentTransition shared element.                                       \
+  See third_party/blink/renderer/core/document_transition/README.md. */       \
+  V(DocumentTransitionSharedElement)
 
 class PLATFORM_EXPORT CompositingReason {
   DISALLOW_NEW();
@@ -128,17 +133,20 @@ class PLATFORM_EXPORT CompositingReason {
         kWillChangeFilter | kWillChangeOther | kBackdropFilter |
         kWillChangeBackdropFilter,
 
+    kComboScrollDependentPosition = kFixedPosition | kStickyPosition,
+
     kComboAllDirectNonStyleDeterminedReasons =
         kVideo | kCanvas | kPlugin | kIFrame | kSVGRoot |
         kOverflowScrollingParent | kOutOfFlowClipping | kVideoOverlay |
-        kXrOverlay | kRoot | kRootScroller | kScrollDependentPosition | 
-        kAffectedByOuterViewportBoundsDelta | kBackfaceInvisibility3DAncestor,
+        kXrOverlay | kRoot | kRootScroller | kComboScrollDependentPosition |
+        kAffectedByOuterViewportBoundsDelta | kBackfaceInvisibility3DAncestor |
+        kDocumentTransitionSharedElement,
 
     kComboAllDirectReasons = kComboAllDirectStyleDeterminedReasons |
                              kComboAllDirectNonStyleDeterminedReasons,
 
     kComboAllCompositedScrollingDeterminedReasons =
-        kScrollDependentPosition | kAffectedByOuterViewportBoundsDelta |
+        kComboScrollDependentPosition | kAffectedByOuterViewportBoundsDelta |
         kOverflowScrolling,
 
     kComboCompositedDescendants =
@@ -160,7 +168,7 @@ class PLATFORM_EXPORT CompositingReason {
     kPreventingSubpixelAccumulationReasons = kWillChangeTransform,
 
     kDirectReasonsForPaintOffsetTranslationProperty =
-        kScrollDependentPosition | kAffectedByOuterViewportBoundsDelta |
+        kComboScrollDependentPosition | kAffectedByOuterViewportBoundsDelta |
         kVideo | kCanvas | kPlugin | kIFrame | kSVGRoot,
     kDirectReasonsForTransformProperty =
         k3DTransform | kTrivial3DTransform | kWillChangeTransform |
@@ -170,7 +178,8 @@ class PLATFORM_EXPORT CompositingReason {
         kRootScroller | kOverflowScrolling,
     kDirectReasonsForEffectProperty =
         kActiveOpacityAnimation | kWillChangeOpacity | kBackdropFilter |
-        kWillChangeBackdropFilter | kActiveBackdropFilterAnimation,
+        kWillChangeBackdropFilter | kActiveBackdropFilterAnimation |
+        kDocumentTransitionSharedElement,
     kDirectReasonsForFilterProperty =
         kActiveFilterAnimation | kWillChangeFilter,
     kDirectReasonsForBackdropFilter = kBackdropFilter |
@@ -191,14 +200,6 @@ inline bool RequiresSquashing(CompositingReasons reasons) {
   return !RequiresCompositing(reasons) &&
          (reasons & CompositingReason::kComboSquashableReasons);
 }
-
-struct CompositingReasonsStats {
-  size_t overlap_layers = 0;
-  size_t active_animation_layers = 0;
-  size_t assumed_overlap_layers = 0;
-  size_t indirect_composited_layers = 0;
-  size_t total_composited_layers = 0;
-};
 
 }  // namespace blink
 

@@ -9,7 +9,7 @@
 
 #include "ash/wm/overview/overview_types.h"
 #include "base/macros.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/compositor/animation_throughput_reporter.h"
 
 namespace aura {
@@ -33,6 +33,12 @@ class ScopedOverviewAnimationSettings {
                                   aura::Window* window);
   ScopedOverviewAnimationSettings(OverviewAnimationType animation_type,
                                   ui::LayerAnimator* animator);
+
+  ScopedOverviewAnimationSettings(const ScopedOverviewAnimationSettings&) =
+      delete;
+  ScopedOverviewAnimationSettings& operator=(
+      const ScopedOverviewAnimationSettings&) = delete;
+
   ~ScopedOverviewAnimationSettings();
   void AddObserver(ui::ImplicitAnimationObserver* observer);
   void CacheRenderSurface();
@@ -45,9 +51,7 @@ class ScopedOverviewAnimationSettings {
   std::unique_ptr<ui::ScopedLayerAnimationSettings> animation_settings_;
 
   // Report smoothness of close animation.
-  base::Optional<ui::AnimationThroughputReporter> close_reporter_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedOverviewAnimationSettings);
+  absl::optional<ui::AnimationThroughputReporter> close_reporter_;
 };
 
 }  // namespace ash

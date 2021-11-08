@@ -18,6 +18,7 @@
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "base/bind.h"
 #include "base/callback.h"
+#include "ui/compositor/layer.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/focus/focus_manager.h"
@@ -72,8 +73,9 @@ SuggestionChipContainerView::SuggestionChipContainerView(
   layout_manager_->set_main_axis_alignment(
       views::BoxLayout::MainAxisAlignment::kCenter);
 
-  for (size_t i = 0; i < static_cast<size_t>(
-                             AppListConfig::instance().num_start_page_tiles());
+  for (size_t i = 0;
+       i < static_cast<size_t>(
+               SharedAppListConfig::instance().num_start_page_tiles());
        ++i) {
     SearchResultSuggestionChipView* chip =
         new SearchResultSuggestionChipView(view_delegate());
@@ -93,6 +95,15 @@ SearchResultSuggestionChipView* SuggestionChipContainerView::GetResultViewAt(
 }
 
 int SuggestionChipContainerView::DoUpdate() {
+  const size_t kMaxSuggestionChips =
+      SharedAppListConfig::instance().num_start_page_tiles();
+  if (!results()) {
+    for (size_t i = 0; i < kMaxSuggestionChips; ++i)
+      suggestion_chip_views_[i]->SetResult(nullptr);
+    InvalidateLayout();
+    return 0;
+  }
+
   // Filter out priority suggestion chips with a non-default value
   // for |display_index|.
   auto filter_requested_index_chips = [](const SearchResult& r) -> bool {
@@ -101,7 +112,7 @@ int SuggestionChipContainerView::DoUpdate() {
   std::vector<SearchResult*> requested_index_results =
       SearchModel::FilterSearchResultsByFunction(
           results(), base::BindRepeating(filter_requested_index_chips),
-          AppListConfig::instance().num_start_page_tiles());
+          kMaxSuggestionChips);
 
   std::sort(requested_index_results.begin(), requested_index_results.end(),
             CompareByDisplayIndexAndThenPositionPriority());
@@ -131,15 +142,13 @@ int SuggestionChipContainerView::DoUpdate() {
   std::vector<SearchResult*> display_results =
       SearchModel::FilterSearchResultsByFunction(
           results(), base::BindRepeating(filter_chip_and_policy),
-          AppListConfig::instance().num_start_page_tiles() -
-              requested_index_results.size());
+          kMaxSuggestionChips - requested_index_results.size());
 
   // Update display results list by placing policy result chips at their
   // specified |display_index|. Do not add with a |display_index| that is out
   // of bounds.
   for (auto* result : requested_index_results) {
-    if (result->display_index() <=
-        AppListConfig::instance().num_start_page_tiles() - 1) {
+    if (result->display_index() <= kMaxSuggestionChips - 1) {
       display_results.emplace(display_results.begin() + result->display_index(),
                               result);
     }
@@ -147,9 +156,7 @@ int SuggestionChipContainerView::DoUpdate() {
 
   // Update search results here, but wait until layout to add them as child
   // views when we know this view's bounds.
-  for (size_t i = 0; i < static_cast<size_t>(
-                             AppListConfig::instance().num_start_page_tiles());
-       ++i) {
+  for (size_t i = 0; i < kMaxSuggestionChips; ++i) {
     suggestion_chip_views_[i]->SetResult(
         i < display_results.size() ? display_results[i] : nullptr);
   }
@@ -163,9 +170,8 @@ int SuggestionChipContainerView::DoUpdate() {
                                    notifier_results);
   }
 
-  Layout();
-  return std::min(AppListConfig::instance().num_start_page_tiles(),
-                  display_results.size());
+  InvalidateLayout();
+  return std::min(kMaxSuggestionChips, display_results.size());
 }
 
 const char* SuggestionChipContainerView::GetClassName() const {
@@ -275,9 +281,7 @@ void SuggestionChipContainerView::DisableFocusForShowingActiveFolder(
 
   // Ignore the container view in accessibility tree so that suggestion chips
   // will not be accessed by ChromeVox.
-  GetViewAccessibility().OverrideIsIgnored(disabled);
-  GetViewAccessibility().NotifyAccessibilityEvent(
-      ax::mojom::Event::kTreeChanged);
+  SetViewIgnoredForAccessibility(this, disabled);
 }
 
 void SuggestionChipContainerView::OnTabletModeChanged(bool started) {

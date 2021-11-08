@@ -11,6 +11,10 @@
 #include "ui/views/controls/slider.h"
 #include "ui/views/view.h"
 
+namespace views {
+class Label;
+}
+
 namespace ash {
 
 class UnifiedSliderListener : public views::SliderListener {
@@ -28,6 +32,10 @@ class UnifiedSliderButton : public views::ImageButton {
   UnifiedSliderButton(PressedCallback callback,
                       const gfx::VectorIcon& icon,
                       int accessible_name_id);
+
+  UnifiedSliderButton(const UnifiedSliderButton&) = delete;
+  UnifiedSliderButton& operator=(const UnifiedSliderButton&) = delete;
+
   ~UnifiedSliderButton() override;
 
   // Set the vector icon shown in a circle.
@@ -37,14 +45,9 @@ class UnifiedSliderButton : public views::ImageButton {
   void SetToggled(bool toggled);
 
   // views::ImageButton:
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
-  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override;
   void PaintButtonContents(gfx::Canvas* canvas) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   const char* GetClassName() const override;
-  gfx::Size CalculatePreferredSize() const override;
   void OnThemeChanged() override;
 
  private:
@@ -54,8 +57,6 @@ class UnifiedSliderButton : public views::ImageButton {
   bool toggled_ = false;
 
   const gfx::VectorIcon* icon_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedSliderButton);
 };
 
 // Base view class of a slider row in UnifiedSystemTray. It has a button on the
@@ -68,10 +69,15 @@ class UnifiedSliderView : public views::View {
                     const gfx::VectorIcon& icon,
                     int accessible_name_id,
                     bool readonly = false);
+
+  UnifiedSliderView(const UnifiedSliderView&) = delete;
+  UnifiedSliderView& operator=(const UnifiedSliderView&) = delete;
+
   ~UnifiedSliderView() override;
 
   UnifiedSliderButton* button() { return button_; }
   views::Slider* slider() { return slider_; }
+  views::Label* toast_label() { return toast_label_; }
 
   // Sets a slider value. If |by_user| is false, accessibility events will not
   // be triggered.
@@ -79,13 +85,16 @@ class UnifiedSliderView : public views::View {
 
   // views::View:
   const char* GetClassName() const override;
+  void OnThemeChanged() override;
+
+ protected:
+  void CreateToastLabel();
 
  private:
   // Unowned. Owned by views hierarchy.
   UnifiedSliderButton* const button_;
   views::Slider* const slider_;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedSliderView);
+  views::Label* toast_label_ = nullptr;
 };
 
 }  // namespace ash

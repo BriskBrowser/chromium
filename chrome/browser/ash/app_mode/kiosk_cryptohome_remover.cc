@@ -13,8 +13,8 @@
 #include "chrome/browser/ash/app_mode/pref_names.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chromeos/cryptohome/cryptohome_util.h"
-#include "chromeos/dbus/cryptohome/cryptohome_client.h"
+#include "chromeos/cryptohome/userdataauth_util.h"
+#include "chromeos/dbus/userdataauth/userdataauth_client.h"
 #include "components/account_id/account_id.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -27,7 +27,7 @@ namespace ash {
 
 namespace {
 
-using ::chromeos::CryptohomeClient;
+using ::chromeos::UserDataAuthClient;
 
 void ScheduleDelayedCryptohomeRemoval(const AccountId& account_id) {
   PrefService* const local_state = g_browser_process->local_state();
@@ -50,45 +50,11 @@ void UnscheduleDelayedCryptohomeRemoval(const cryptohome::Identification& id) {
   local_state->CommitPendingWrite();
 }
 
-// Functions to deal with legacy prefs -- update the current list from the old
-// pref values(dict for regular kiosk and list for arc kiosk).
-void UpdateFromDictValue(const char* dict_pref_name) {
-  PrefService* local_state = g_browser_process->local_state();
-  const base::DictionaryValue* const users_to_remove =
-      local_state->GetDictionary(dict_pref_name);
-  {
-    DictionaryPrefUpdate dict_update(local_state,
-                                     prefs::kAllKioskUsersToRemove);
-    for (auto& element : *users_to_remove) {
-      std::string app_id;
-      element.second->GetAsString(&app_id);
-      dict_update->SetKey(element.first, base::Value(app_id));
-    }
-  }
-  local_state->ClearPref(dict_pref_name);
-  local_state->CommitPendingWrite();
-}
-
-void UpdateFromListValue(const std::string& list_pref_name) {
-  PrefService* local_state = g_browser_process->local_state();
-  const base::ListValue* const users_to_remove =
-      local_state->GetList(list_pref_name);
-  {
-    DictionaryPrefUpdate dict_update(local_state,
-                                     prefs::kAllKioskUsersToRemove);
-    for (auto& element : *users_to_remove) {
-      dict_update->SetKey(element.GetString(), base::Value(""));
-    }
-  }
-  local_state->ClearPref(list_pref_name);
-  local_state->CommitPendingWrite();
-}
-
 void OnRemoveAppCryptohomeComplete(
     const cryptohome::Identification& id,
     base::OnceClosure callback,
-    base::Optional<cryptohome::BaseReply> reply) {
-  cryptohome::MountError error = BaseReplyToMountError(reply);
+    absl::optional<user_data_auth::RemoveReply> reply) {
+  cryptohome::MountError error = ReplyToMountError(reply);
   if (error == cryptohome::MOUNT_ERROR_NONE ||
       error == cryptohome::MOUNT_ERROR_USER_DOES_NOT_EXIST) {
     UnscheduleDelayedCryptohomeRemoval(id);
@@ -103,19 +69,13 @@ void PerformDelayedCryptohomeRemovals(bool service_is_available) {
     return;
   }
 
-  // Legacy: we need to support cases when the prefs are stored in the old
-  // format.
-  // TODO(crbug.com/1014431): Remove this where the migration is
-  // completed.
-  UpdateFromDictValue(prefs::kRegularKioskUsersToRemove);
-  UpdateFromListValue(prefs::kArcKioskUsersToRemove);
-
   PrefService* local_state = g_browser_process->local_state();
   const base::DictionaryValue* const dict =
       local_state->GetDictionary(prefs::kAllKioskUsersToRemove);
-  for (auto& it : *dict) {
+  for (const auto it : dict->DictItems()) {
     std::string app_id;
-    it.second->GetAsString(&app_id);
+    if (it.second.is_string())
+      app_id = it.second.GetString();
     VLOG(1) << "Removing obsolete cryptohome for " << app_id;
 
     const cryptohome::Identification cryptohome_id(
@@ -123,9 +83,11 @@ void PerformDelayedCryptohomeRemovals(bool service_is_available) {
     cryptohome::AccountIdentifier account_id_proto;
     account_id_proto.set_account_id(cryptohome_id.id());
 
-    CryptohomeClient::Get()->RemoveEx(
-        account_id_proto, base::BindOnce(&OnRemoveAppCryptohomeComplete,
-                                         cryptohome_id, base::OnceClosure()));
+    user_data_auth::RemoveRequest request;
+    *request.mutable_identifier() = account_id_proto;
+    UserDataAuthClient::Get()->Remove(
+        request, base::BindOnce(&OnRemoveAppCryptohomeComplete, cryptohome_id,
+                                base::OnceClosure()));
   }
 }
 
@@ -133,12 +95,10 @@ void PerformDelayedCryptohomeRemovals(bool service_is_available) {
 
 void KioskCryptohomeRemover::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(prefs::kAllKioskUsersToRemove);
-  registry->RegisterListPref(prefs::kArcKioskUsersToRemove);
-  registry->RegisterDictionaryPref(prefs::kRegularKioskUsersToRemove);
 }
 
 void KioskCryptohomeRemover::RemoveObsoleteCryptohomes() {
-  auto* client = CryptohomeClient::Get();
+  auto* client = UserDataAuthClient::Get();
   client->WaitForServiceToBeAvailable(
       base::BindOnce(&PerformDelayedCryptohomeRemovals));
 }
@@ -168,13 +128,12 @@ void KioskCryptohomeRemover::RemoveCryptohomesAndExitIfNeeded(
 
   for (auto& account_id : account_ids) {
     if (account_id != active_account_id) {
+      user_data_auth::RemoveRequest request;
       const cryptohome::Identification cryptohome_id(account_id);
-      cryptohome::AccountIdentifier account_id_proto;
-      account_id_proto.set_account_id(cryptohome_id.id());
-      CryptohomeClient::Get()->RemoveEx(
-          account_id_proto,
-          base::BindOnce(&OnRemoveAppCryptohomeComplete, cryptohome_id,
-                         cryptohomes_barrier_closure));
+      request.mutable_identifier()->set_account_id(cryptohome_id.id());
+      UserDataAuthClient::Get()->Remove(
+          request, base::BindOnce(&OnRemoveAppCryptohomeComplete, cryptohome_id,
+                                  cryptohomes_barrier_closure));
     }
   }
 }

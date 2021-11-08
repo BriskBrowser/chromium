@@ -194,13 +194,13 @@ void ExtensionEnableFlow::OnBlockedByParentDialogDone() {
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 void ExtensionEnableFlow::StartObserving() {
-  extension_registry_observer_.Add(
+  extension_registry_observation_.Observe(
       extensions::ExtensionRegistry::Get(profile_));
   load_error_observation_.Observe(extensions::LoadErrorReporter::GetInstance());
 }
 
 void ExtensionEnableFlow::StopObserving() {
-  extension_registry_observer_.RemoveAll();
+  extension_registry_observation_.Reset();
   load_error_observation_.Reset();
 }
 
@@ -264,13 +264,14 @@ void ExtensionEnableFlow::EnableExtension() {
 }
 
 void ExtensionEnableFlow::InstallPromptDone(
-    ExtensionInstallPrompt::Result result) {
-  if (result == ExtensionInstallPrompt::Result::ACCEPTED) {
+    ExtensionInstallPrompt::DoneCallbackPayload payload) {
+  if (payload.result == ExtensionInstallPrompt::Result::ACCEPTED) {
     EnableExtension();
   } else {
     delegate_->ExtensionEnableFlowAborted(/*user_initiated=*/
-                                          result == ExtensionInstallPrompt::
-                                                        Result::USER_CANCELED);
+                                          payload.result ==
+                                          ExtensionInstallPrompt::Result::
+                                              USER_CANCELED);
     // |delegate_| may delete us.
   }
 }

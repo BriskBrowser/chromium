@@ -55,6 +55,11 @@ class ExtensionActivityDataService final
     : public update_client::ActivityDataService {
  public:
   explicit ExtensionActivityDataService(ExtensionPrefs* extension_prefs);
+
+  ExtensionActivityDataService(const ExtensionActivityDataService&) = delete;
+  ExtensionActivityDataService& operator=(const ExtensionActivityDataService&) =
+      delete;
+
   ~ExtensionActivityDataService() override = default;
 
   // update_client::ActivityDataService:
@@ -71,8 +76,6 @@ class ExtensionActivityDataService final
   // This member is not owned by this class, it's owned by a profile keyed
   // service.
   ExtensionPrefs* extension_prefs_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionActivityDataService);
 };
 
 // Calculates the value to use for the ping days parameter.
@@ -129,7 +132,7 @@ void ExtensionActivityDataService::GetAndClearActiveBits(
 // communication with the update backend.
 ChromeUpdateClientConfig::ChromeUpdateClientConfig(
     content::BrowserContext* context,
-    base::Optional<GURL> url_override)
+    absl::optional<GURL> url_override)
     : context_(context),
       impl_(ExtensionUpdateClientCommandLineConfigPolicy(
                 base::CommandLine::ForCurrentProcess()),
@@ -179,7 +182,7 @@ base::Version ChromeUpdateClientConfig::GetBrowserVersion() const {
 }
 
 std::string ChromeUpdateClientConfig::GetChannel() const {
-  return chrome::GetChannelName();
+  return chrome::GetChannelName(chrome::WithExtendedStable(true));
 }
 
 std::string ChromeUpdateClientConfig::GetBrand() const {
@@ -210,7 +213,7 @@ ChromeUpdateClientConfig::GetNetworkFetcherFactory() {
   if (!network_fetcher_factory_) {
     network_fetcher_factory_ =
         base::MakeRefCounted<update_client::NetworkFetcherChromiumFactory>(
-            content::BrowserContext::GetDefaultStoragePartition(context_)
+            context_->GetDefaultStoragePartition()
                 ->GetURLLoaderFactoryForBrowserProcess(),
             // Only extension updates that require authentication are served
             // from chrome.google.com, so send cookies if and only if that is
@@ -292,7 +295,7 @@ ChromeUpdateClientConfig::~ChromeUpdateClientConfig() = default;
 // static
 scoped_refptr<ChromeUpdateClientConfig> ChromeUpdateClientConfig::Create(
     content::BrowserContext* context,
-    base::Optional<GURL> update_url_override) {
+    absl::optional<GURL> update_url_override) {
   FactoryCallback& factory = GetFactoryCallback();
   return factory.is_null() ? base::MakeRefCounted<ChromeUpdateClientConfig>(
                                  context, update_url_override)

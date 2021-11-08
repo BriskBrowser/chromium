@@ -25,6 +25,11 @@ class BackgroundFetchPermissionContextTest
  protected:
   BackgroundFetchPermissionContextTest() = default;
 
+  BackgroundFetchPermissionContextTest(
+      const BackgroundFetchPermissionContextTest&) = delete;
+  BackgroundFetchPermissionContextTest& operator=(
+      const BackgroundFetchPermissionContextTest&) = delete;
+
   ~BackgroundFetchPermissionContextTest() override = default;
 
   ContentSetting GetPermissonStatus(
@@ -53,9 +58,6 @@ class BackgroundFetchPermissionContextTest
     host_content_settings_map->SetContentSettingDefaultScope(
         url /* primary_url*/, url /* secondary_url*/, content_type, setting);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BackgroundFetchPermissionContextTest);
 };
 
 // Test that Background Fetch permission is "allow" by default, when queried
@@ -68,7 +70,7 @@ TEST_F(BackgroundFetchPermissionContextTest, TestOutcomeAllowWithFrame) {
             CONTENT_SETTING_ALLOW);
 }
 
-// Test that Background Fetch permission is "allow" when queried from a worker
+// Test that Background Fetch permission is "prompt" when queried from a worker
 // context, if the Automatic Downloads content setting is set to
 // CONTENT_SETTING_ALLOW.
 TEST_F(BackgroundFetchPermissionContextTest, TestOutcomeAllowWithoutFrame) {
@@ -79,7 +81,7 @@ TEST_F(BackgroundFetchPermissionContextTest, TestOutcomeAllowWithoutFrame) {
   BackgroundFetchPermissionContext permission_context(profile());
 
   EXPECT_EQ(GetPermissonStatus(url, &permission_context, /*with_frame =*/false),
-            CONTENT_SETTING_ALLOW);
+            CONTENT_SETTING_ASK);
 }
 
 // Test that Background Fetch permission is "deny" when queried from a worker

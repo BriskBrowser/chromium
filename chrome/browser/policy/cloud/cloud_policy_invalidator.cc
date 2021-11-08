@@ -12,8 +12,8 @@
 #include "base/location.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/rand_util.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/strcat.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -266,7 +266,7 @@ void CloudPolicyInvalidator::OnIncomingInvalidation(
     const invalidation::TopicInvalidationMap& invalidation_map) {
   DCHECK(state_ == STARTED);
   DCHECK(thread_checker_.CalledOnValidThread());
-  const invalidation::SingleObjectInvalidationSet& list =
+  const invalidation::SingleTopicInvalidationSet& list =
       invalidation_map.ForTopic(topic_);
   if (list.IsEmpty()) {
     NOTREACHED();
@@ -405,7 +405,7 @@ void CloudPolicyInvalidator::HandleInvalidation(
   // invalidations are received in quick succession, only one fetch will be
   // performed.
   base::TimeDelta delay =
-      base::TimeDelta::FromMilliseconds(base::RandInt(20, max_fetch_delay_));
+      base::Milliseconds(base::RandInt(20, max_fetch_delay_));
 
   // If there is a payload, the policy can be refreshed at any time, so set
   // the version and payload on the client immediately. Otherwise, the refresh
@@ -413,7 +413,7 @@ void CloudPolicyInvalidator::HandleInvalidation(
   if (!payload.empty())
     core_->client()->SetInvalidationInfo(version, payload);
   else
-    delay += base::TimeDelta::FromMinutes(kMissingPayloadDelay);
+    delay += base::Minutes(kMissingPayloadDelay);
 
   // Schedule the policy to be refreshed.
   task_runner_->PostDelayedTask(
@@ -480,13 +480,11 @@ void CloudPolicyInvalidator::Unregister() {
 }
 
 void CloudPolicyInvalidator::UpdateMaxFetchDelay(const PolicyMap& policy_map) {
-  int delay;
-
   // Try reading the delay from the policy.
   const base::Value* delay_policy_value =
       policy_map.GetValue(key::kMaxInvalidationFetchDelay);
-  if (delay_policy_value && delay_policy_value->GetAsInteger(&delay)) {
-    set_max_fetch_delay(delay);
+  if (delay_policy_value && delay_policy_value->is_int()) {
+    set_max_fetch_delay(delay_policy_value->GetInt());
     return;
   }
 

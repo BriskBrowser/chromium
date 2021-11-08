@@ -11,9 +11,10 @@
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/net/network_portal_detector_test_impl.h"
+#include "chrome/browser/ash/net/network_portal_detector_test_impl.h"
 #include "chromeos/dbus/shill/shill_clients.h"
 #include "chromeos/network/network_handler.h"
+#include "chromeos/network/network_handler_test_helper.h"
 #include "chromeos/network/network_state_handler.h"
 #include "components/image_fetcher/core/mock_image_fetcher.h"
 #include "components/image_fetcher/core/request_metadata.h"
@@ -168,8 +169,7 @@ class EduAccountLoginHandlerTest : public testing::Test {
   EduAccountLoginHandlerTest() = default;
 
   void SetUp() override {
-    shill_clients::InitializeFakes();
-    NetworkHandler::Initialize();
+    network_handler_test_helper_ = std::make_unique<NetworkHandlerTestHelper>();
     base::RunLoop().RunUntilIdle();
   }
 
@@ -203,8 +203,7 @@ class EduAccountLoginHandlerTest : public testing::Test {
   void TearDown() override {
     handler_.reset();
     network_portal_detector::InitializeForTesting(nullptr);
-    chromeos::NetworkHandler::Shutdown();
-    chromeos::shill_clients::Shutdown();
+    network_handler_test_helper_.reset();
   }
 
   void VerifyJavascriptCallbackResolved(
@@ -217,9 +216,8 @@ class EduAccountLoginHandlerTest : public testing::Test {
     ASSERT_TRUE(data.arg1()->GetAsString(&callback_id));
     EXPECT_EQ(event_name, callback_id);
 
-    bool callback_success = false;
-    ASSERT_TRUE(data.arg2()->GetAsBoolean(&callback_success));
-    EXPECT_EQ(success, callback_success);
+    ASSERT_TRUE(data.arg2()->is_bool());
+    EXPECT_EQ(success, data.arg2()->GetBool());
   }
 
   image_fetcher::MockImageFetcher* mock_image_fetcher() const {
@@ -236,13 +234,14 @@ class EduAccountLoginHandlerTest : public testing::Test {
   std::unique_ptr<image_fetcher::MockImageFetcher> mock_image_fetcher_;
   std::unique_ptr<MockEduAccountLoginHandler> handler_;
   content::TestWebUI web_ui_;
+  std::unique_ptr<NetworkHandlerTestHelper> network_handler_test_helper_;
 };
 
 TEST_F(EduAccountLoginHandlerTest, HandleGetParentsSuccess) {
   SetupNetwork();
   constexpr char callback_id[] = "handle-get-parents-callback";
   base::ListValue list_args;
-  list_args.AppendString(callback_id);
+  list_args.Append(callback_id);
 
   EXPECT_CALL(*handler(), FetchFamilyMembers());
   handler()->HandleGetParents(&list_args);
@@ -267,7 +266,7 @@ TEST_F(EduAccountLoginHandlerTest, HandleGetParentsFailure) {
   SetupNetwork();
   constexpr char callback_id[] = "handle-get-parents-callback";
   base::ListValue list_args;
-  list_args.AppendString(callback_id);
+  list_args.Append(callback_id);
 
   EXPECT_CALL(*handler(), FetchFamilyMembers());
   handler()->HandleGetParents(&list_args);
@@ -286,7 +285,7 @@ TEST_F(EduAccountLoginHandlerTest, HandleParentSigninSuccess) {
 
   constexpr char callback_id[] = "handle-parent-signin-callback";
   base::ListValue list_args;
-  list_args.AppendString(callback_id);
+  list_args.Append(callback_id);
   list_args.Append(GetFakeParent());
   list_args.Append(kFakeParentCredential);
 
@@ -301,8 +300,7 @@ TEST_F(EduAccountLoginHandlerTest, HandleParentSigninSuccess) {
       kFakeParentGaiaId, kFakeParentCredential,
       GoogleServiceAuthError(GoogleServiceAuthError::NONE),
       signin::AccessTokenInfo(kFakeAccessToken,
-                              base::Time::Now() + base::TimeDelta::FromHours(1),
-                              "id_token"));
+                              base::Time::Now() + base::Hours(1), "id_token"));
 
   constexpr char fake_rapt[] = "fakeReauthProofToken";
   // Simulate successful fetching of ReAuthProofToken.
@@ -319,7 +317,7 @@ TEST_F(EduAccountLoginHandlerTest, HandleParentSigninAccessTokenFailure) {
 
   constexpr char callback_id[] = "handle-parent-signin-callback";
   base::ListValue list_args;
-  list_args.AppendString(callback_id);
+  list_args.Append(callback_id);
   list_args.Append(GetFakeParent());
   list_args.Append(kFakeParentCredential);
 
@@ -345,7 +343,7 @@ TEST_F(EduAccountLoginHandlerTest, HandleParentSigninReAuthProofTokenFailure) {
 
   constexpr char callback_id[] = "handle-parent-signin-callback";
   base::ListValue list_args;
-  list_args.AppendString(callback_id);
+  list_args.Append(callback_id);
   list_args.Append(GetFakeParent());
   list_args.Append(kFakeParentCredential);
 
@@ -360,8 +358,7 @@ TEST_F(EduAccountLoginHandlerTest, HandleParentSigninReAuthProofTokenFailure) {
       kFakeParentGaiaId, kFakeParentCredential,
       GoogleServiceAuthError(GoogleServiceAuthError::NONE),
       signin::AccessTokenInfo(kFakeAccessToken,
-                              base::Time::Now() + base::TimeDelta::FromHours(1),
-                              "id_token"));
+                              base::Time::Now() + base::Hours(1), "id_token"));
 
   // Simulate failed fetching of ReAuthProofToken.
   handler()->OnReAuthProofTokenFailure(
@@ -411,34 +408,32 @@ TEST_F(EduAccountLoginHandlerTest, HandleIsNetworkReadyOffline) {
   SetupNetwork(/*network_status_online=*/false);
   constexpr char callback_id[] = "is-network-ready-callback";
   base::ListValue list_args;
-  list_args.AppendString(callback_id);
+  list_args.Append(callback_id);
 
   handler()->HandleIsNetworkReady(&list_args);
 
   const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
   VerifyJavascriptCallbackResolved(data, callback_id);
 
-  bool result = false;
-  ASSERT_TRUE(data.arg3()->GetAsBoolean(&result));
+  ASSERT_TRUE(data.arg3()->is_bool());
   // IsNetworkReady should return false.
-  ASSERT_FALSE(result);
+  ASSERT_FALSE(data.arg3()->GetBool());
 }
 
 TEST_F(EduAccountLoginHandlerTest, HandleIsNetworkReadyOnline) {
   SetupNetwork(/*network_status_online=*/true);
   constexpr char callback_id[] = "is-network-ready-callback";
   base::ListValue list_args;
-  list_args.AppendString(callback_id);
+  list_args.Append(callback_id);
 
   handler()->HandleIsNetworkReady(&list_args);
 
   const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
   VerifyJavascriptCallbackResolved(data, callback_id);
 
-  bool result = false;
-  ASSERT_TRUE(data.arg3()->GetAsBoolean(&result));
+  ASSERT_TRUE(data.arg3()->is_bool());
   // IsNetworkReady should return true.
-  ASSERT_TRUE(result);
+  ASSERT_TRUE(data.arg3()->GetBool());
 }
 
 }  // namespace chromeos

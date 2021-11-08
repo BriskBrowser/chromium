@@ -12,28 +12,26 @@
 #include <algorithm>
 #include <cstring>
 #include <functional>
-#include <iterator>
+#include <string>
 #include <utility>
-#include <vector>
 
 #include "base/callback.h"
 #include "base/json/json_writer.h"
-#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
-#include "base/sequenced_task_runner.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_byteorder.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
 #include "base/win/registry.h"
 #include "base/win/win_util.h"
 #include "components/policy/core/common/async_policy_provider.h"
 #include "components/policy/core/common/configuration_policy_provider_test.h"
 #include "components/policy/core/common/external_data_fetcher.h"
+#include "components/policy/core/common/management/platform_management_service.h"
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
@@ -71,29 +69,25 @@ bool InstallValue(const base::Value& value,
       return key.WriteValue(name.c_str(), L"") == ERROR_SUCCESS;
 
     case base::Value::Type::BOOLEAN: {
-      bool bool_value;
-      if (!value.GetAsBoolean(&bool_value))
+      if (!value.is_bool())
         return false;
-      return key.WriteValue(name.c_str(), bool_value ? 1 : 0) == ERROR_SUCCESS;
+      return key.WriteValue(name.c_str(), value.GetBool() ? 1 : 0) ==
+             ERROR_SUCCESS;
     }
 
     case base::Value::Type::INTEGER: {
-      int int_value;
-      if (!value.GetAsInteger(&int_value))
+      if (!value.is_int())
         return false;
-      return key.WriteValue(name.c_str(), int_value) == ERROR_SUCCESS;
+      return key.WriteValue(name.c_str(), value.GetInt()) == ERROR_SUCCESS;
     }
 
     case base::Value::Type::DOUBLE: {
-      double double_value;
-      if (!value.GetAsDouble(&double_value))
-        return false;
-      std::wstring str_value = base::NumberToWString(double_value);
+      std::wstring str_value = base::NumberToWString(value.GetDouble());
       return key.WriteValue(name.c_str(), str_value.c_str()) == ERROR_SUCCESS;
     }
 
     case base::Value::Type::STRING: {
-      base::string16 str_value;
+      std::u16string str_value;
       if (!value.GetAsString(&str_value))
         return false;
       return key.WriteValue(name.c_str(), base::as_wcstr(str_value)) ==
@@ -101,13 +95,11 @@ bool InstallValue(const base::Value& value,
     }
 
     case base::Value::Type::DICTIONARY: {
-      const base::DictionaryValue* sub_dict = nullptr;
-      if (!value.GetAsDictionary(&sub_dict))
+      if (!value.is_dict())
         return false;
-      for (base::DictionaryValue::Iterator it(*sub_dict);
-           !it.IsAtEnd(); it.Advance()) {
-        if (!InstallValue(it.value(), hive, path + kPathSep + name,
-                          base::UTF8ToWide(it.key()))) {
+      for (auto key_value : value.DictItems()) {
+        if (!InstallValue(key_value.second, hive, path + kPathSep + name,
+                          base::UTF8ToWide(key_value.first))) {
           return false;
         }
       }
@@ -115,14 +107,11 @@ bool InstallValue(const base::Value& value,
     }
 
     case base::Value::Type::LIST: {
-      const base::ListValue* list = nullptr;
-      if (!value.GetAsList(&list))
+      if (!value.is_list())
         return false;
-      for (size_t i = 0; i < list->GetSize(); ++i) {
-        const base::Value* item;
-        if (!list->Get(i, &item))
-          return false;
-        if (!InstallValue(*item, hive, path + kPathSep + name,
+      const base::Value::ConstListView& list_view = value.GetList();
+      for (size_t i = 0; i < list_view.size(); ++i) {
+        if (!InstallValue(list_view[i], hive, path + kPathSep + name,
                           base::NumberToWString(i + 1))) {
           return false;
         }
@@ -132,14 +121,8 @@ bool InstallValue(const base::Value& value,
 
     case base::Value::Type::BINARY:
       return false;
-
-    // TODO(crbug.com/859477): Remove after root cause is found.
-    case base::Value::Type::DEAD:
-      CHECK(false);
-      return false;
   }
-  // TODO(crbug.com/859477): Revert to NOTREACHED() after root cause is found.
-  CHECK(false);
+  NOTREACHED();
   return false;
 }
 
@@ -152,6 +135,10 @@ bool InstallValue(const base::Value& value,
 class ScopedGroupPolicyRegistrySandbox {
  public:
   ScopedGroupPolicyRegistrySandbox();
+  ScopedGroupPolicyRegistrySandbox(const ScopedGroupPolicyRegistrySandbox&) =
+      delete;
+  ScopedGroupPolicyRegistrySandbox& operator=(
+      const ScopedGroupPolicyRegistrySandbox&) = delete;
   ~ScopedGroupPolicyRegistrySandbox();
 
   // Activates the registry keys overrides. This must be called before doing any
@@ -171,14 +158,14 @@ class ScopedGroupPolicyRegistrySandbox {
   // the sandboxed HKCU and HKLM hives, respectively.
   RegKey temp_hkcu_hive_key_;
   RegKey temp_hklm_hive_key_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedGroupPolicyRegistrySandbox);
 };
 
 // A test harness that feeds policy via the Chrome GPO registry subtree.
 class RegistryTestHarness : public PolicyProviderTestHarness {
  public:
   RegistryTestHarness(HKEY hive, PolicyScope scope);
+  RegistryTestHarness(const RegistryTestHarness&) = delete;
+  RegistryTestHarness& operator=(const RegistryTestHarness&) = delete;
   ~RegistryTestHarness() override;
 
   // PolicyProviderTestHarness:
@@ -197,9 +184,8 @@ class RegistryTestHarness : public PolicyProviderTestHarness {
                             bool policy_value) override;
   void InstallStringListPolicy(const std::string& policy_name,
                                const base::ListValue* policy_value) override;
-  void InstallDictionaryPolicy(
-      const std::string& policy_name,
-      const base::DictionaryValue* policy_value) override;
+  void InstallDictionaryPolicy(const std::string& policy_name,
+                               const base::Value* policy_value) override;
   void Install3rdPartyPolicy(const base::DictionaryValue* policies) override;
 
   // Creates a harness instance that will install policy in HKCU or HKLM,
@@ -211,8 +197,7 @@ class RegistryTestHarness : public PolicyProviderTestHarness {
   HKEY hive_;
 
   ScopedGroupPolicyRegistrySandbox registry_sandbox_;
-
-  DISALLOW_COPY_AND_ASSIGN(RegistryTestHarness);
+  PlatformManagementService platform_management_service_;
 };
 
 ScopedGroupPolicyRegistrySandbox::ScopedGroupPolicyRegistrySandbox() {}
@@ -293,8 +278,8 @@ ConfigurationPolicyProvider* RegistryTestHarness::CreateProvider(
     SchemaRegistry* registry,
     scoped_refptr<base::SequencedTaskRunner> task_runner) {
   base::win::ScopedDomainStateForTesting scoped_domain(true);
-  std::unique_ptr<AsyncPolicyLoader> loader(
-      new PolicyLoaderWin(task_runner, kTestPolicyKey));
+  std::unique_ptr<AsyncPolicyLoader> loader(new PolicyLoaderWin(
+      task_runner, &platform_management_service_, kTestPolicyKey));
   return new AsyncPolicyProvider(registry, std::move(loader));
 }
 
@@ -338,21 +323,19 @@ void RegistryTestHarness::InstallStringListPolicy(
       KEY_ALL_ACCESS);
   ASSERT_TRUE(key.Valid());
   int index = 1;
-  for (base::ListValue::const_iterator element(policy_value->begin());
-       element != policy_value->end();
-       ++element) {
-    std::string element_value;
-    if (!element->GetAsString(&element_value))
+  for (const auto& element : policy_value->GetList()) {
+    if (!element.is_string())
       continue;
+
     std::string name(base::NumberToString(index++));
     key.WriteValue(base::UTF8ToWide(name).c_str(),
-                   base::UTF8ToWide(element_value).c_str());
+                   base::UTF8ToWide(element.GetString()).c_str());
   }
 }
 
 void RegistryTestHarness::InstallDictionaryPolicy(
     const std::string& policy_name,
-    const base::DictionaryValue* policy_value) {
+    const base::Value* policy_value) {
   std::string json;
   base::JSONWriter::Write(*policy_value, &json);
   RegKey key(hive_, kTestPolicyKey, KEY_ALL_ACCESS);
@@ -367,18 +350,16 @@ void RegistryTestHarness::Install3rdPartyPolicy(
   // components to their policy.
   const std::wstring kPathPrefix =
       std::wstring(kTestPolicyKey) + kPathSep + kThirdParty + kPathSep;
-  for (base::DictionaryValue::Iterator domain(*policies);
-       !domain.IsAtEnd(); domain.Advance()) {
-    const base::DictionaryValue* components = nullptr;
-    if (!domain.value().GetAsDictionary(&components)) {
+  for (auto domain : policies->DictItems()) {
+    const base::Value& components = domain.second;
+    if (!components.is_dict()) {
       ADD_FAILURE();
       continue;
     }
-    for (base::DictionaryValue::Iterator component(*components);
-         !component.IsAtEnd(); component.Advance()) {
-      const std::wstring path = kPathPrefix + base::UTF8ToWide(domain.key()) +
-                                kPathSep + base::UTF8ToWide(component.key());
-      InstallValue(component.value(), hive_, path, kMandatory);
+    for (auto component : components.DictItems()) {
+      const std::wstring path = kPathPrefix + base::UTF8ToWide(domain.first) +
+                                kPathSep + base::UTF8ToWide(component.first);
+      InstallValue(component.second, hive_, path, kMandatory);
     }
   }
 }
@@ -428,7 +409,7 @@ class PolicyLoaderWinTest : public PolicyTestBase {
 
   bool Matches(const PolicyBundle& expected) {
     PolicyLoaderWin loader(task_environment_.GetMainThreadTaskRunner(),
-                           kTestPolicyKey);
+                           &platform_management_service_, kTestPolicyKey);
     std::unique_ptr<PolicyBundle> loaded(
         loader.InitialLoad(schema_registry_.schema_map()));
     return loaded->Equals(expected);
@@ -436,6 +417,7 @@ class PolicyLoaderWinTest : public PolicyTestBase {
 
   ScopedGroupPolicyRegistrySandbox registry_sandbox_;
   base::win::ScopedDomainStateForTesting scoped_domain_;
+  PlatformManagementService platform_management_service_;
 };
 
 const wchar_t PolicyLoaderWinTest::kTestPolicyKey[] =

@@ -4,13 +4,13 @@
 
 import 'chrome://commander/app.js';
 
-import {BrowserProxyImpl} from 'chrome://commander/browser_proxy.js';
+import {BrowserProxy} from 'chrome://commander/browser_proxy.js';
 import {Action, Entity, ViewModel} from 'chrome://commander/types.js';
 import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {keyDownOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 
 import {assertDeepEquals, assertEquals, assertGT} from '../chai_assert.js';
-import {flushTasks} from '../test_util.m.js';
+import {flushTasks} from '../test_util.js';
 
 import {TestCommanderBrowserProxy} from './test_commander_browser_proxy.js';
 
@@ -50,13 +50,16 @@ suite('CommanderWebUIBrowserTest', () => {
     assertGT(elements.length, 0);
     Array.from(elements).forEach((element, index) => {
       const isFocused = element.classList.contains('focused');
+      const isAriaSelected =
+          element.getAttribute('aria-selected') === 'true' ? true : false;
       assertEquals(index === focusedIndex, isFocused);
+      assertEquals(isFocused, isAriaSelected);
     });
   }
 
   setup(async () => {
     testProxy = new TestCommanderBrowserProxy();
-    BrowserProxyImpl.instance_ = testProxy;
+    BrowserProxy.setInstance(testProxy);
     document.body.innerHTML = '';
     app = document.createElement('commander-app');
     document.body.appendChild(app);
@@ -99,11 +102,11 @@ suite('CommanderWebUIBrowserTest', () => {
   });
 
   test('display results view model change sends heightChanged', async () => {
+    testProxy.resetResolver('heightChanged');
     webUIListenerCallback('view-model-updated', createStubViewModel(42, [
                             'William of Orange', 'Orangutan', 'Orange Juice'
                           ]));
     await flushTasks();
-
     const height = await testProxy.whenCalled('heightChanged');
     assertEquals(document.body.offsetHeight, height);
   });
@@ -133,6 +136,16 @@ suite('CommanderWebUIBrowserTest', () => {
     const optionElements = app.shadowRoot.querySelectorAll('commander-option');
     assertFocused(optionElements, 0);
   });
+
+  test('no results view shown if no results', async () => {
+    assertEquals(null, app.shadowRoot.querySelector('#noResults'));
+    webUIListenerCallback('view-model-updated', createStubViewModel(42, []));
+    await flushTasks();
+
+    assertEquals(0, app.shadowRoot.querySelectorAll('commander-option').length);
+    assertNotEquals(null, app.shadowRoot.querySelector('#noResults'));
+  });
+
 
   test('arrow keys change selection', async () => {
     const input = app.$.input;
@@ -202,5 +215,22 @@ suite('CommanderWebUIBrowserTest', () => {
     input.value = '';
     keyDownOn(input, 0, [], 'Backspace');
     assertEquals(1, testProxy.getCallCount('promptCancelled'));
+  });
+  test('focusing options updates aria-activedescendant', async () => {
+    const input = app.$.input;
+    const inputRow = app.shadowRoot.querySelector('#inputRow');
+    assertEquals(null, inputRow.getAttribute('aria-selected'));
+
+    webUIListenerCallback('view-model-updated', createStubViewModel(42, [
+                            'William of Orange', 'Orangutan', 'Orange Juice'
+                          ]));
+    await flushTasks();
+
+    const optionElements = app.shadowRoot.querySelectorAll('commander-option');
+    assertEquals(
+        optionElements[0].id, inputRow.getAttribute('aria-activedescendant'));
+    keyDownOn(input, 0, [], 'ArrowDown');
+    assertEquals(
+        optionElements[1].id, inputRow.getAttribute('aria-activedescendant'));
   });
 });

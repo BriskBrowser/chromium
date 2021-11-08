@@ -10,7 +10,6 @@
 
 #include "base/containers/flat_set.h"
 #include "base/gtest_prod_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_piece_forward.h"
 #include "components/url_formatter/spoof_checks/skeleton_generator.h"
 #include "net/extras/preload_data/decoder.h"
@@ -147,6 +146,11 @@ class IDNSpoofChecker {
   TopDomainEntry LookupSkeletonInTopDomains(
       const std::string& skeleton,
       SkeletonType skeleton_type = SkeletonType::kFull);
+
+  // Removes diacritics from |hostname| and returns the new string if the input
+  // only contains Latin-Greek-Cyrillic characters. Otherwise, returns the
+  // input string.
+  std::u16string MaybeRemoveDiacritics(const std::u16string& hostname);
 
   // Used for unit tests.
   static void SetTrieParamsForTesting(const HuffmanTrieParams& trie_params);

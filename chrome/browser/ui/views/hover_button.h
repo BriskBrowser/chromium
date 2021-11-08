@@ -5,22 +5,23 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_HOVER_BUTTON_H_
 #define CHROME_BROWSER_UI_VIEWS_HOVER_BUTTON_H_
 
+#include <string>
+
 #include "base/gtest_prod_util.h"
-#include "base/optional.h"
 #include "base/scoped_observation.h"
-#include "base/strings/string16.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/menu_button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-
-namespace gfx {
-class ImageSkia;
-}  // namespace gfx
+#include "ui/views/metadata/view_factory.h"
 
 namespace media_router {
 FORWARD_DECLARE_TEST(CastDialogSinkButtonTest, SetTitleLabel);
 FORWARD_DECLARE_TEST(CastDialogSinkButtonTest, SetStatusLabel);
 }  // namespace media_router
+
+namespace ui {
+class ImageModel;
+}
 
 namespace views {
 class Label;
@@ -39,12 +40,12 @@ class HoverButton : public views::LabelButton {
   enum Style { STYLE_PROMINENT, STYLE_ERROR };
 
   // Creates a single line hover button with no icon.
-  HoverButton(PressedCallback callback, const base::string16& text);
+  HoverButton(PressedCallback callback, const std::u16string& text);
 
   // Creates a single line hover button with an icon.
   HoverButton(PressedCallback callback,
-              const gfx::ImageSkia& icon,
-              const base::string16& text);
+              const ui::ImageModel& icon,
+              const std::u16string& text);
 
   // Creates a HoverButton with custom subviews. |icon_view| replaces the
   // LabelButton icon, and titles appear on separate rows. An empty |subtitle|
@@ -53,10 +54,12 @@ class HoverButton : public views::LabelButton {
   // When |resize_row_for_secondary_icon| is false, the button tries to
   // accommodate the view's preferred size by reducing the top and bottom
   // insets appropriately up to a value of 0.
+  // Warning: |icon_view| must have a fixed size and be correctly set during its
+  // constructor for the HoverButton to layout correctly.
   HoverButton(PressedCallback callback,
               std::unique_ptr<views::View> icon_view,
-              const base::string16& title,
-              const base::string16& subtitle = base::string16(),
+              const std::u16string& title,
+              const std::u16string& subtitle = std::u16string(),
               std::unique_ptr<views::View> secondary_view = nullptr,
               bool resize_row_for_secondary_view = true,
               bool secondary_view_can_process_events = false);
@@ -86,8 +89,6 @@ class HoverButton : public views::LabelButton {
   // views::MenuButton:
   KeyClickAction GetKeyClickActionForEvent(const ui::KeyEvent& event) override;
   void StateChanged(ButtonState old_state) override;
-  SkColor GetInkDropBaseColor() const override;
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
   views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
 
   views::StyledLabel* title() const { return title_; }
@@ -115,5 +116,11 @@ class HoverButton : public views::LabelButton {
   base::ScopedObservation<views::View, views::ViewObserver> label_observation_{
       this};
 };
+
+BEGIN_VIEW_BUILDER(, HoverButton, views::LabelButton)
+VIEW_BUILDER_METHOD(SetTitleTextStyle, views::style::TextStyle, SkColor)
+END_VIEW_BUILDER
+
+DEFINE_VIEW_BUILDER(, HoverButton)
 
 #endif  // CHROME_BROWSER_UI_VIEWS_HOVER_BUTTON_H_

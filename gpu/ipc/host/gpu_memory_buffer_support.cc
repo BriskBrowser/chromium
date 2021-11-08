@@ -4,6 +4,7 @@
 
 #include "gpu/ipc/host/gpu_memory_buffer_support.h"
 
+#include "base/containers/contains.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
 #include "gpu/ipc/common/gpu_memory_buffer_support.h"
@@ -23,13 +24,21 @@ GpuMemoryBufferConfigurationSet GetNativeGpuMemoryBufferConfigurations(
     return configurations;
 #endif
   const gfx::BufferFormat kBufferFormats[] = {
-      gfx::BufferFormat::R_8,          gfx::BufferFormat::R_16,
-      gfx::BufferFormat::RG_88,        gfx::BufferFormat::BGR_565,
-      gfx::BufferFormat::RGBA_4444,    gfx::BufferFormat::RGBX_8888,
-      gfx::BufferFormat::RGBA_8888,    gfx::BufferFormat::BGRX_8888,
-      gfx::BufferFormat::BGRA_1010102, gfx::BufferFormat::RGBA_1010102,
-      gfx::BufferFormat::BGRA_8888,    gfx::BufferFormat::RGBA_F16,
-      gfx::BufferFormat::YVU_420,      gfx::BufferFormat::YUV_420_BIPLANAR,
+      gfx::BufferFormat::R_8,
+      gfx::BufferFormat::R_16,
+      gfx::BufferFormat::RG_88,
+      gfx::BufferFormat::RG_1616,
+      gfx::BufferFormat::BGR_565,
+      gfx::BufferFormat::RGBA_4444,
+      gfx::BufferFormat::RGBX_8888,
+      gfx::BufferFormat::RGBA_8888,
+      gfx::BufferFormat::BGRX_8888,
+      gfx::BufferFormat::BGRA_1010102,
+      gfx::BufferFormat::RGBA_1010102,
+      gfx::BufferFormat::BGRA_8888,
+      gfx::BufferFormat::RGBA_F16,
+      gfx::BufferFormat::YVU_420,
+      gfx::BufferFormat::YUV_420_BIPLANAR,
       gfx::BufferFormat::P010};
 
   const gfx::BufferUsage kUsages[] = {
@@ -43,6 +52,7 @@ GpuMemoryBufferConfigurationSet GetNativeGpuMemoryBufferConfigurations(
       gfx::BufferUsage::GPU_READ_CPU_READ_WRITE,
       gfx::BufferUsage::SCANOUT_VEA_CPU_READ,
       gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE,
+      gfx::BufferUsage::SCANOUT_FRONT_RENDERING,
   };
 
   for (auto format : kBufferFormats) {

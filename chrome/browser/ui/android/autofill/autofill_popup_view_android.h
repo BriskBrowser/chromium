@@ -21,6 +21,10 @@ class AutofillPopupController;
 class AutofillPopupViewAndroid : public AutofillPopupView {
  public:
   explicit AutofillPopupViewAndroid(AutofillPopupController* controller);
+
+  AutofillPopupViewAndroid(const AutofillPopupViewAndroid&) = delete;
+  AutofillPopupViewAndroid& operator=(const AutofillPopupViewAndroid&) = delete;
+
   ~AutofillPopupViewAndroid() override;
 
   // --------------------------------------------------------------------------
@@ -45,10 +49,10 @@ class AutofillPopupViewAndroid : public AutofillPopupView {
   // AutofillPopupView implementation.
   void Show() override;
   void Hide() override;
-  void OnSelectedRowChanged(base::Optional<int> previous_row_selection,
-                            base::Optional<int> current_row_selection) override;
+  void OnSelectedRowChanged(absl::optional<int> previous_row_selection,
+                            absl::optional<int> current_row_selection) override;
   void OnSuggestionsChanged() override;
-  base::Optional<int32_t> GetAxUniqueId() override;
+  absl::optional<int32_t> GetAxUniqueId() override;
 
  private:
   friend class AutofillPopupView;
@@ -69,8 +73,6 @@ class AutofillPopupViewAndroid : public AutofillPopupView {
 
   // Popup view
   ui::ViewAndroid::ScopedAnchorView popup_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(AutofillPopupViewAndroid);
 };
 
 }  // namespace autofill

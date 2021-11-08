@@ -12,7 +12,6 @@
 #include <string>
 
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/strings/string_piece.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
@@ -33,6 +32,7 @@ class UserInputMonitor;
 }  // namespace media
 
 namespace audio {
+class InputStreamActivityMonitor;
 
 // Only do power monitoring for non-mobile platforms to save resources.
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
@@ -59,6 +59,12 @@ class InputController final : public StreamMonitor {
     // Native input stream reports an error. Exact reason differs between
     // platforms.
     STREAM_ERROR,  // = 3
+
+    // Open failed due to lack of system permissions.
+    STREAM_OPEN_SYSTEM_PERMISSIONS_ERROR,  // = 4
+
+    // Open failed due to device in use by another app.
+    STREAM_OPEN_DEVICE_IN_USE_ERROR,  // = 5
   };
 
 #if defined(AUDIO_POWER_MONITORING)
@@ -122,6 +128,9 @@ class InputController final : public StreamMonitor {
     FAKE = 3,
   };
 
+  InputController(const InputController&) = delete;
+  InputController& operator=(const InputController&) = delete;
+
   ~InputController() final;
 
   media::AudioInputStream* stream_for_testing() { return stream_; }
@@ -132,6 +141,7 @@ class InputController final : public StreamMonitor {
       EventHandler* event_handler,
       SyncWriter* sync_writer,
       media::UserInputMonitor* user_input_monitor,
+      InputStreamActivityMonitor* activity_monitor,
       const media::AudioParameters& params,
       const std::string& device_id,
       bool agc_is_enabled);
@@ -179,6 +189,7 @@ class InputController final : public StreamMonitor {
   InputController(EventHandler* handler,
                   SyncWriter* sync_writer,
                   media::UserInputMonitor* user_input_monitor,
+                  InputStreamActivityMonitor* activity_monitor,
                   const media::AudioParameters& params,
                   StreamType type);
 
@@ -249,6 +260,9 @@ class InputController final : public StreamMonitor {
 
   media::UserInputMonitor* const user_input_monitor_;
 
+  // Notified when the stream starts/stops recording.
+  InputStreamActivityMonitor* const activity_monitor_;
+
 #if defined(AUDIO_POWER_MONITORING)
   // Whether the silence state and microphone levels should be checked and sent
   // as UMA stats.
@@ -289,8 +303,6 @@ class InputController final : public StreamMonitor {
   // InputController that has already been closed.
   // All outstanding weak pointers, are invalidated at the end of DoClose.
   base::WeakPtrFactory<InputController> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(InputController);
 };
 
 }  // namespace audio

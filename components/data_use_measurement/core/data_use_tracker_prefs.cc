@@ -17,6 +17,8 @@
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/time/clock.h"
+#include "base/time/time.h"
+#include "base/values.h"
 #include "build/build_config.h"
 #include "components/data_use_measurement/core/data_use_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -71,14 +73,15 @@ void DataUseTrackerPrefs::RemoveExpiredEntriesForPref(
   const base::DictionaryValue* user_pref_dict =
       pref_service_->GetDictionary(pref_name);
   const base::Time current_date = GetCurrentMeasurementDate();
-  const base::Time last_date = current_date - base::TimeDelta::FromDays(60);
+  const base::Time last_date = current_date - base::Days(60);
 
   base::DictionaryValue user_pref_new_dict;
-  for (const auto& it : user_pref_dict->DictItems()) {
+  for (auto it : user_pref_dict->DictItems()) {
     base::Time key_date;
     if (base::Time::FromUTCString(it.first.c_str(), &key_date) &&
         key_date > last_date) {
-      user_pref_new_dict.Set(it.first, it.second.CreateDeepCopy());
+      user_pref_new_dict.Set(it.first,
+                             base::Value::ToUniquePtrValue(it.second.Clone()));
     }
   }
   pref_service_->Set(pref_name, user_pref_new_dict);
@@ -103,12 +106,11 @@ void DataUseTrackerPrefs::UpdateUsagePref(const std::string& pref_name,
     return;
 
   DictionaryPrefUpdate pref_updater(pref_service_, pref_name);
-  double todays_traffic = 0;
   std::string todays_key = GetCurrentMeasurementDateAsString();
 
   const base::DictionaryValue* user_pref_dict =
       pref_service_->GetDictionary(pref_name);
-  user_pref_dict->GetDouble(todays_key, &todays_traffic);
+  double todays_traffic = user_pref_dict->FindDoubleKey(todays_key).value_or(0);
   pref_updater->SetDouble(
       todays_key,
       todays_traffic + (static_cast<double>(message_size_bytes) / 1024.0));

@@ -39,14 +39,12 @@ class CORE_EXPORT HTMLHtmlElement final : public HTMLElement {
 
   bool HasNonInBodyInsertionMode() const override { return true; }
   void PropagateWritingModeAndDirectionFromBody();
-  const ComputedStyle* LayoutStyleForElement(const ComputedStyle* style);
+  scoped_refptr<const ComputedStyle> LayoutStyleForElement(
+      scoped_refptr<const ComputedStyle> style);
 
  private:
-  void MaybeSetupApplicationCache();
-
   bool IsURLAttribute(const Attribute&) const override;
   const CSSPropertyValueSet* AdditionalPresentationAttributeStyle() override;
-  void AttachLayoutTree(AttachContext&) override;
 };
 
 }  // namespace blink

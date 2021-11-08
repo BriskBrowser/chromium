@@ -59,14 +59,21 @@ class OverlayWindowAndroid : public content::OverlayWindow,
   gfx::Rect GetBounds() override;
   void UpdateVideoSize(const gfx::Size& natural_size) override;
   void SetPlaybackState(PlaybackState playback_state) override {}
-  void SetPlayPauseButtonVisibility(bool is_visible) override {}
+  void SetPlayPauseButtonVisibility(bool is_visible) override;
   void SetSkipAdButtonVisibility(bool is_visible) override {}
   void SetNextTrackButtonVisibility(bool is_visible) override {}
   void SetPreviousTrackButtonVisibility(bool is_visible) override {}
+  void SetMicrophoneMuted(bool muted) override {}
+  void SetCameraState(bool turned_on) override {}
+  void SetToggleMicrophoneButtonVisibility(bool is_visible) override {}
+  void SetToggleCameraButtonVisibility(bool is_visible) override {}
+  void SetHangUpButtonVisibility(bool is_visible) override {}
   void SetSurfaceId(const viz::SurfaceId& surface_id) override;
   cc::Layer* GetLayerForTesting() override;
 
  private:
+  void CloseInternal();
+
   // A weak reference to Java PictureInPictureActivity object.
   JavaObjectWeakGlobalRef java_ref_;
   ui::WindowAndroid* window_android_;
@@ -74,6 +81,8 @@ class OverlayWindowAndroid : public content::OverlayWindow,
   scoped_refptr<cc::SurfaceLayer> surface_layer_;
   gfx::Rect bounds_;
   gfx::Size video_size_;
+
+  bool is_play_pause_button_visible_ = false;
 
   content::PictureInPictureWindowController* controller_;
 };

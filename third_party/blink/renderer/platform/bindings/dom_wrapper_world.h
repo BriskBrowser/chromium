@@ -31,8 +31,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_DOM_WRAPPER_WORLD_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_DOM_WRAPPER_WORLD_H_
 
-#include <memory>
-
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -52,6 +50,7 @@ namespace blink {
 class DOMDataStore;
 class ScriptWrappable;
 class SecurityOrigin;
+class V8ObjectDataStore;
 
 enum IsolatedWorldId {
   // Embedder isolated worlds can use IDs in [1, 1<<29).
@@ -161,6 +160,9 @@ class PLATFORM_EXPORT DOMWrapperWorld : public RefCounted<DOMWrapperWorld> {
   WorldType GetWorldType() const { return world_type_; }
   int GetWorldId() const { return world_id_; }
   DOMDataStore& DomDataStore() const { return *dom_data_store_; }
+  V8ObjectDataStore& GetV8ObjectDataStore() const {
+    return *v8_object_data_store_;
+  }
 
   // Clear the reference pointing from |object| to |handle| in any world.
   static bool UnsetSpecificWrapperIfSet(
@@ -184,6 +186,7 @@ class PLATFORM_EXPORT DOMWrapperWorld : public RefCounted<DOMWrapperWorld> {
   const WorldType world_type_;
   const int32_t world_id_;
   Persistent<DOMDataStore> dom_data_store_;
+  Persistent<V8ObjectDataStore> v8_object_data_store_;
 };
 
 // static

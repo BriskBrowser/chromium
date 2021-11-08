@@ -4,7 +4,7 @@
 
 #include "base/check.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/aura/test/ui_controls_factory_aura.h"
 #include "ui/aura/window.h"
@@ -28,6 +28,9 @@ using ui_controls::UP;
 class UIControlsWin : public UIControlsAura {
  public:
   UIControlsWin() {}
+
+  UIControlsWin(const UIControlsWin&) = delete;
+  UIControlsWin& operator=(const UIControlsWin&) = delete;
 
   // UIControlsAura overrides:
   bool SendKeyPress(gfx::NativeWindow native_window,
@@ -84,9 +87,6 @@ class UIControlsWin : public UIControlsAura {
   bool SendTouchEvents(int action, int num, int x, int y) override {
     return ui_controls::internal::SendTouchEventsImpl(action, num, x, y);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(UIControlsWin);
 };
 
 }  // namespace

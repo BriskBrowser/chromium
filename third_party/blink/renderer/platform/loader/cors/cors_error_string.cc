@@ -111,7 +111,7 @@ String GetErrorString(const network::CorsErrorStatus& status,
       break;
     case CorsError::kInsecurePrivateNetwork:
       Append(builder, {"The request client is not a secure context and the "
-                       "resource is in more-private adress space `",
+                       "resource is in more-private address space `",
                        ShortAddressSpace(status.resource_address_space), "`."});
       break;
     case CorsError::kWildcardOriginNotAllowed:
@@ -227,6 +227,16 @@ String GetErrorString(const network::CorsErrorStatus& status,
                        "' contains a username and password, which is "
                        "disallowed for cross-origin requests."});
       break;
+    case CorsError::kInvalidPrivateNetworkAccess:
+      Append(builder, {"Request had a target IP address space of `",
+                       ShortAddressSpace(status.target_address_space),
+                       "` yet the resource is in address space `",
+                       ShortAddressSpace(status.resource_address_space), "`."});
+      break;
+    case CorsError::kUnexpectedPrivateNetworkAccess:
+      Append(builder, {"Request had no target IP address space, yet the "
+                       "resource is in address space `",
+                       ShortAddressSpace(status.resource_address_space), "`."});
   }
   return builder.ToString();
 }

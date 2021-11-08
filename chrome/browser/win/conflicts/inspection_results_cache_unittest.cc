@@ -19,17 +19,16 @@ namespace {
 ModuleInspectionResult CreateTestModuleInspectionResult() {
   ModuleInspectionResult inspection_result;
 
-  inspection_result.location = STRING16_LITERAL("location");
-  inspection_result.basename = STRING16_LITERAL("basename");
-  inspection_result.product_name = STRING16_LITERAL("product_name");
-  inspection_result.description = STRING16_LITERAL("description");
-  inspection_result.version = STRING16_LITERAL("version");
+  inspection_result.location = u"location";
+  inspection_result.basename = u"basename";
+  inspection_result.product_name = u"product_name";
+  inspection_result.description = u"description";
+  inspection_result.version = u"version";
   inspection_result.certificate_info.type =
       CertificateInfo::Type::CERTIFICATE_IN_FILE;
   inspection_result.certificate_info.path =
       base::FilePath(L"certificate_info_path");
-  inspection_result.certificate_info.subject =
-      STRING16_LITERAL("certificate_info_subject");
+  inspection_result.certificate_info.subject = u"certificate_info_subject";
 
   return inspection_result;
 }
@@ -51,6 +50,10 @@ class InspectionResultsCacheTest : public testing::Test {
   InspectionResultsCacheTest()
       : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
 
+  InspectionResultsCacheTest(const InspectionResultsCacheTest&) = delete;
+  InspectionResultsCacheTest& operator=(const InspectionResultsCacheTest&) =
+      delete;
+
   void SetUp() override {
     ASSERT_TRUE(scoped_temp_dir_.CreateUniqueTempDir());
     scoped_feature_list_.InitAndEnableFeature(kInspectionResultsCache);
@@ -68,8 +71,6 @@ class InspectionResultsCacheTest : public testing::Test {
   base::test::TaskEnvironment task_environment_;
 
   base::ScopedTempDir scoped_temp_dir_;
-
-  DISALLOW_COPY_AND_ASSIGN(InspectionResultsCacheTest);
 };
 
 TEST_F(InspectionResultsCacheTest, ReadMissingCache) {

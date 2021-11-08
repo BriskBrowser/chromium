@@ -9,18 +9,19 @@ of Chromium's repository.
 
 As always, consider the following resources as of primary importance:
 
--   [Coding Style](https://chromium.googlesource.com/chromium/src/+/master/styleguide/styleguide.md)
+-   [Coding Style](https://chromium.googlesource.com/chromium/src/+/main/styleguide/styleguide.md)
 -   [Callback<> and Bind()](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/callback.md)
--   [Threading and Tasks in Chrome](https://chromium.googlesource.com/chromium/src/+/master/docs/threading_and_tasks.md)
--   [Intro to Mojo & Services](https://chromium.googlesource.com/chromium/src.git/+/master/docs/mojo_and_services.md)
+-   [Threading and Tasks in Chrome](https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks.md)
+-   [Intro to Mojo & Services](https://chromium.googlesource.com/chromium/src.git/+/main/docs/mojo_and_services.md)
 -   [Important Abstractions and Data Structures](https://sites.google.com/a/chromium.org/dev/developers/coding-style/important-abstractions-and-data-structures) (badly needs updating)
 
 This tutorial does not assume you have read any of the above,
 though you should feel free to peruse them when necessary.
 This tutorial will cover information across all of those guides.
 
-Exercise solutions are available in the `codelabs/cpp101/` directory of the
-Chromium source code. Build all of the example solutions with
+Exercise solutions are available in the [codelabs/cpp101/](
+https://source.chromium.org/chromium/chromium/src/+/main:codelabs/cpp101/)
+directory of the Chromium source code. Build all of the example solutions with
 `autoninja -C out/Default codelabs`. You are encouraged to create a new
 `base/cpp101/` directory locally if you want to try implementing these
 exercises yourself.
@@ -48,9 +49,10 @@ Hello, world!
 ```
 
 ### More information
+[Targets](https://gn.googlesource.com/gn/+/refs/heads/main/docs/language.md#Targets)
 
-[Git Tips](https://chromium.googlesource.com/chromium/src.git/+/master/docs/git_tips.md)
-and [Git Cookbook](https://chromium.googlesource.com/chromium/src.git/+/master/docs/git_cookbook.md)
+[Git Tips](https://chromium.googlesource.com/chromium/src.git/+/main/docs/git_tips.md)
+and [Git Cookbook](https://chromium.googlesource.com/chromium/src.git/+/main/docs/git_cookbook.md)
 
 [Life of a Chromium Developer](https://docs.google.com/a/google.com/presentation/d/1abnqM9j6zFodPHA38JG1061rG2iGj_GABxEDgZsdbJg/)
 
@@ -193,7 +195,7 @@ and uses your function to print out the first `n` Fibonacci numbers.
 ## Part 3: Threads and task runners
 
 Chromium has a number of abstractions for sequencing and threading.
-[Threading and Tasks in Chrome](https://chromium.googlesource.com/chromium/src/+/master/docs/threading_and_tasks.md)
+[Threading and Tasks in Chrome](https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks.md)
 is a must-read and go-to reference for anything related to tasks, thread pools,
 task runners, and more.
 
@@ -261,22 +263,22 @@ as long as the factoring task is executing.
 
 ### More information
 
-[Threading and Tasks in Chrome](https://chromium.googlesource.com/chromium/src/+/master/docs/threading_and_tasks.md)
+[Threading and Tasks in Chrome](https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks.md)
 
 ## Part 4: Mojo
 
 Mojo is Chromium's abstraction of IPC. Mojo allows for developers to easily
 connect interface clients and implementations across arbitrary intra- and
 inter-process boundaries. See the
-[Intro to Mojo and Services](https://chromium.googlesource.com/chromium/src.git/+/master/docs/mojo_and_services.md)
+[Intro to Mojo and Services](https://chromium.googlesource.com/chromium/src.git/+/main/docs/mojo_and_services.md)
 guide to get started.
 
  ### Exercise 4: Building a simple out-of-process service
 
-See the [building a simple out-of-process service](https://chromium.googlesource.com/chromium/src.git/+/master/docs/mojo_and_services.md#example_building-a-simple-out_of_process-service)
+See the [building a simple out-of-process service](https://chromium.googlesource.com/chromium/src.git/+/main/docs/mojo_and_services.md#example_building-a-simple-out_of_process-service)
 tutorial on using Mojo to define, hook up, and launch an out-of-process service.
 
 ### More Information
 
-[Mojo C++ Bindings API Docs](https://chromium.googlesource.com/chromium/src.git/+/master/mojo/public/cpp/bindings/README.md)
-[Mojo Docs](https://chromium.googlesource.com/chromium/src.git/+/master/mojo/README.md)
+[Mojo C++ Bindings API Docs](https://chromium.googlesource.com/chromium/src.git/+/main/mojo/public/cpp/bindings/README.md)
+[Mojo Docs](https://chromium.googlesource.com/chromium/src.git/+/main/mojo/README.md)

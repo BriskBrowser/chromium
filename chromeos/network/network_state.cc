@@ -11,9 +11,12 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
+#include "base/strings/string_util.h"
 #include "base/values.h"
+#include "chromeos/network/cellular_utils.h"
+#include "chromeos/network/device_state.h"
 #include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_profile_handler.h"
 #include "chromeos/network/network_type_pattern.h"
@@ -28,12 +31,6 @@
 #include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
 
 namespace {
-
-// Cellular Service EID property.
-// TODO(crbug.com/1093185): Use dbus-constants when property is added in shill.
-const char kCellularEidProperty[] = "Cellular.EID";
-
-const char kDefaultCellularNetworkPath[] = "/cellular";
 
 // TODO(tbarzic): Add payment portal method values to shill/dbus-constants.
 constexpr char kPaymentPortalMethodPost[] = "POST";
@@ -98,6 +95,8 @@ bool NetworkState::PropertyChanged(const std::string& key,
     return GetStringValue(key, value, &activation_state_);
   } else if (key == shill::kRoamingStateProperty) {
     return GetStringValue(key, value, &roaming_);
+  } else if (key == shill::kCellularAllowRoamingProperty) {
+    return GetBooleanValue(key, value, &allow_roaming_);
   } else if (key == shill::kPaymentPortalProperty) {
     if (!value.is_dict())
       return false;
@@ -147,20 +146,20 @@ bool NetworkState::PropertyChanged(const std::string& key,
     return GetBooleanValue(key, value, &cellular_out_of_credits_);
   } else if (key == shill::kIccidProperty) {
     return GetStringValue(key, value, &iccid_);
-  } else if (key == kCellularEidProperty) {
+  } else if (key == shill::kEidProperty) {
     return GetStringValue(key, value, &eid_);
   } else if (key == shill::kProxyConfigProperty) {
-    std::string proxy_config_str;
-    if (!value.GetAsString(&proxy_config_str)) {
+    const std::string* proxy_config_str = value.GetIfString();
+    if (!proxy_config_str) {
       NET_LOG(ERROR) << "Failed to parse " << path() << "." << key;
       return false;
     }
 
-    if (proxy_config_str.empty()) {
+    if ((*proxy_config_str).empty()) {
       proxy_config_ = base::Value();
       return true;
     }
-    base::Value proxy_config = onc::ReadDictionaryFromJson(proxy_config_str);
+    base::Value proxy_config = onc::ReadDictionaryFromJson(*proxy_config_str);
     if (!proxy_config.is_dict()) {
       NET_LOG(ERROR) << "Failed to parse " << path() << "." << key;
       proxy_config_ = base::Value();
@@ -306,6 +305,12 @@ void NetworkState::GetStateProperties(base::Value* dictionary) const {
     dictionary->SetKey(shill::kOutOfCreditsProperty,
                        base::Value(cellular_out_of_credits()));
   }
+
+  // Cellular properties
+  if (NetworkTypePattern::Cellular().MatchesType(type())) {
+    dictionary->SetKey(shill::kIccidProperty, base::Value(iccid()));
+    dictionary->SetKey(shill::kEidProperty, base::Value(eid()));
+  }
 }
 
 bool NetworkState::IsActive() const {
@@ -349,8 +354,8 @@ std::string NetworkState::GetVpnProviderType() const {
 
 bool NetworkState::RequiresActivation() const {
   return type() == shill::kTypeCellular &&
-         activation_state() != shill::kActivationStateActivated &&
-         activation_state() != shill::kActivationStateUnknown;
+         (activation_state() == shill::kActivationStateNotActivated ||
+          activation_state() == shill::kActivationStatePartiallyActivated);
 }
 
 bool NetworkState::SecurityRequiresPassphraseOnly() const {
@@ -454,7 +459,7 @@ bool NetworkState::IsInProfile() const {
 }
 
 bool NetworkState::IsNonProfileType() const {
-  return type() == kTypeTether || IsDefaultCellular();
+  return type() == kTypeTether || IsNonShillCellularNetwork();
 }
 
 bool NetworkState::IsPrivate() const {
@@ -462,9 +467,8 @@ bool NetworkState::IsPrivate() const {
          profile_path_ != NetworkProfileHandler::GetSharedProfilePath();
 }
 
-bool NetworkState::IsDefaultCellular() const {
-  return type() == shill::kTypeCellular &&
-         path() == kDefaultCellularNetworkPath;
+bool NetworkState::IsNonShillCellularNetwork() const {
+  return type() == shill::kTypeCellular && IsStubCellularServicePath(path());
 }
 
 bool NetworkState::IsShillCaptivePortal() const {
@@ -523,7 +527,8 @@ std::string NetworkState::GetSpecifier() const {
   }
   if (type() == shill::kTypeWifi)
     return name() + "_" + security_class_;
-  // TODO(b/154014577): Use IMSI for Cellular once available.
+  if (type() == shill::kTypeCellular && !iccid().empty())
+    return iccid();
   if (!name().empty())
     return type() + "_" + name();
   return type();  // For unnamed networks, i.e. Ethernet.
@@ -536,8 +541,6 @@ void NetworkState::SetGuid(const std::string& guid) {
 network_config::mojom::ActivationStateType
 NetworkState::GetMojoActivationState() const {
   using network_config::mojom::ActivationStateType;
-  if (IsDefaultCellular())
-    return ActivationStateType::kNoService;
   if (activation_state_.empty())
     return ActivationStateType::kUnknown;
   if (activation_state_ == shill::kActivationStateActivated)
@@ -615,13 +618,21 @@ bool NetworkState::ErrorIsValid(const std::string& error) {
 }
 
 // static
-std::unique_ptr<NetworkState> NetworkState::CreateDefaultCellular(
-    const std::string& device_path) {
-  auto new_state = std::make_unique<NetworkState>(kDefaultCellularNetworkPath);
+std::unique_ptr<NetworkState> NetworkState::CreateNonShillCellularNetwork(
+    const std::string& iccid,
+    const std::string& eid,
+    const std::string& guid,
+    const DeviceState* cellular_device) {
+  std::string path = GenerateStubCellularServicePath(iccid);
+  auto new_state = std::make_unique<NetworkState>(path);
   new_state->set_type(shill::kTypeCellular);
   new_state->set_update_received();
   new_state->set_visible(true);
-  new_state->device_path_ = device_path;
+  new_state->device_path_ = cellular_device->path();
+  new_state->iccid_ = iccid;
+  new_state->eid_ = eid;
+  new_state->guid_ = guid;
+  new_state->activation_state_ = shill::kActivationStateActivated;
   return new_state;
 }
 

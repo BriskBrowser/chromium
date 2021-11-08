@@ -4,11 +4,11 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/online_login_helper.h"
 
+#include "chrome/browser/ash/login/signin_partition_manager.h"
+#include "chrome/browser/ash/login/ui/login_display_host_webui.h"
+#include "chrome/browser/ash/login/ui/signin_ui.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/login/signin_partition_manager.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_webui.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/installer/util/google_update_settings.h"
@@ -26,7 +26,8 @@ namespace {
 
 const char kGAPSCookie[] = "GAPS";
 const char kOAUTHCodeCookie[] = "oauth_code";
-constexpr base::TimeDelta kCookieDelay = base::TimeDelta::FromSeconds(20);
+const char kRAPTCookie[] = "RAPT";
+constexpr base::TimeDelta kCookieDelay = base::Seconds(20);
 
 }  // namespace
 
@@ -74,7 +75,7 @@ void SetCookieForPartition(
   const GURL& gaia_url = GaiaUrls::GetInstance()->gaia_url();
   std::unique_ptr<net::CanonicalCookie> cc(net::CanonicalCookie::Create(
       gaia_url, gaps_cookie_value, base::Time::Now(),
-      base::nullopt /* server_time */));
+      absl::nullopt /* server_time */, net::CookiePartitionKey::Todo()));
   if (!cc)
     return;
 
@@ -110,11 +111,11 @@ bool BuildUserContextForGaiaSignIn(
     bool using_saml_api,
     const std::string& password,
     const SamlPasswordAttributes& password_attributes,
-    const base::Optional<SyncTrustedVaultKeys>& sync_trusted_vault_keys,
+    const absl::optional<SyncTrustedVaultKeys>& sync_trusted_vault_keys,
     const LoginClientCertUsageObserver&
         extension_provided_client_cert_usage_observer,
     UserContext* user_context,
-    std::string* error_message) {
+    SigninError* error) {
   *user_context = UserContext(user_type, account_id);
   if (using_saml &&
       extension_provided_client_cert_usage_observer.ClientCertsWereUsed()) {
@@ -123,15 +124,15 @@ bool BuildUserContextForGaiaSignIn(
     std::string extension_id;
     if (!extension_provided_client_cert_usage_observer.GetOnlyUsedClientCert(
             &saml_client_cert, &signature_algorithms, &extension_id)) {
-      *error_message = l10n_util::GetStringUTF8(
-          IDS_CHALLENGE_RESPONSE_AUTH_MULTIPLE_CLIENT_CERTS_ERROR);
+      if (error)
+        *error = SigninError::kChallengeResponseAuthMultipleClientCerts;
       return false;
     }
     ChallengeResponseKey challenge_response_key;
     if (!ExtractChallengeResponseKeyFromCert(
             *saml_client_cert, signature_algorithms, &challenge_response_key)) {
-      *error_message = l10n_util::GetStringUTF8(
-          IDS_CHALLENGE_RESPONSE_AUTH_INVALID_CLIENT_CERT_ERROR);
+      if (error)
+        *error = SigninError::kChallengeResponseAuthInvalidClientCert;
       return false;
     }
     challenge_response_key.set_extension_id(extension_id);
@@ -207,6 +208,7 @@ void OnlineLoginHelper::RequestCookiesAndCompleteAuthentication() {
       net::CookieOptions::MakeAllInclusive();
   cookie_manager->GetCookieList(
       GaiaUrls::GetInstance()->gaia_url(), cookie_options,
+      net::CookiePartitionKeychain::Todo(),
       base::BindOnce(&OnlineLoginHelper::OnGetCookiesForCompleteAuthentication,
                      weak_factory_.GetWeakPtr()));
 }
@@ -226,13 +228,15 @@ void OnlineLoginHelper::OnCookieWaitTimeout() {
 void OnlineLoginHelper::OnGetCookiesForCompleteAuthentication(
     const net::CookieAccessResultList& cookies,
     const net::CookieAccessResultList& excluded_cookies) {
-  std::string auth_code, gaps_cookie;
+  std::string auth_code, gaps_cookie, rapt;
   for (const auto& cookie_with_access_result : cookies) {
     const auto& cookie = cookie_with_access_result.cookie;
     if (cookie.Name() == login::kOAUTHCodeCookie)
       auth_code = cookie.Value();
     else if (cookie.Name() == login::kGAPSCookie)
       gaps_cookie = cookie.Value();
+    else if (cookie.Name() == login::kRAPTCookie)
+      rapt = cookie.Value();
   }
 
   if (auth_code.empty()) {
@@ -249,6 +253,8 @@ void OnlineLoginHelper::OnGetCookiesForCompleteAuthentication(
   user_context.SetAuthCode(auth_code);
   if (!gaps_cookie.empty())
     user_context.SetGAPSCookie(gaps_cookie);
+  if (!rapt.empty())
+    user_context.SetReauthProofToken(rapt);
 
   std::move(complete_login_callback_).Run(user_context);
 }

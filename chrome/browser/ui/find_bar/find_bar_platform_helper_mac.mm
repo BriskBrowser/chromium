@@ -4,8 +4,9 @@
 
 #import <Foundation/Foundation.h>
 
+#include <string>
+
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -35,12 +36,15 @@ class FindBarPlatformHelperMac : public FindBarPlatformHelper {
     UpdateFindBarControllerFromPasteboard();
   }
 
+  FindBarPlatformHelperMac(const FindBarPlatformHelperMac&) = delete;
+  FindBarPlatformHelperMac& operator=(const FindBarPlatformHelperMac&) = delete;
+
   ~FindBarPlatformHelperMac() override {
     [[NSNotificationCenter defaultCenter]
         removeObserver:find_pasteboard_notification_observer_];
   }
 
-  void OnUserChangedFindText(base::string16 text) override {
+  void OnUserChangedFindText(std::u16string text) override {
     if (find_bar_controller_->web_contents()
             ->GetBrowserContext()
             ->IsOffTheRecord()) {
@@ -85,8 +89,6 @@ class FindBarPlatformHelperMac : public FindBarPlatformHelper {
   }
 
   id find_pasteboard_notification_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(FindBarPlatformHelperMac);
 };
 
 }  // namespace

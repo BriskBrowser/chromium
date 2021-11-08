@@ -15,16 +15,16 @@
 #include "base/android/jni_string.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/sys_byteorder.h"
 #include "base/system/sys_info.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/android/android_util.h"
 #include "media/base/android/media_codec_util.h"
@@ -165,6 +165,10 @@ CdmKeyInformation::KeyStatus ConvertKeyStatus(KeyStatus key_status,
 class KeySystemManager {
  public:
   KeySystemManager();
+
+  KeySystemManager(const KeySystemManager&) = delete;
+  KeySystemManager& operator=(const KeySystemManager&) = delete;
+
   UUID GetUUID(const std::string& key_system);
   std::vector<std::string> GetPlatformKeySystemNames();
 
@@ -172,8 +176,6 @@ class KeySystemManager {
   using KeySystemUuidMap = MediaDrmBridgeClient::KeySystemUuidMap;
 
   KeySystemUuidMap key_system_uuid_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(KeySystemManager);
 };
 
 KeySystemManager::KeySystemManager() {
@@ -265,22 +267,6 @@ std::string GetSecurityLevelString(
   return "";
 }
 
-bool AreMediaDrmApisAvailable() {
-  if (base::android::BuildInfo::GetInstance()->sdk_int() <
-      base::android::SDK_VERSION_KITKAT)
-    return false;
-
-  int32_t os_major_version = 0;
-  int32_t os_minor_version = 0;
-  int32_t os_bugfix_version = 0;
-  base::SysInfo::OperatingSystemVersionNumbers(
-      &os_major_version, &os_minor_version, &os_bugfix_version);
-  if (os_major_version == 4 && os_minor_version == 4 && os_bugfix_version == 0)
-    return false;
-
-  return true;
-}
-
 int GetFirstApiLevel() {
   JNIEnv* env = AttachCurrentThread();
   int first_api_level = Java_MediaDrmBridge_getFirstApiLevel(env);
@@ -293,7 +279,7 @@ int GetFirstApiLevel() {
 // APIs and MediaCodec APIs must be enabled and not blocked.
 // static
 bool MediaDrmBridge::IsAvailable() {
-  return AreMediaDrmApisAvailable() && MediaCodecUtil::IsMediaCodecAvailable();
+  return MediaCodecUtil::IsMediaCodecAvailable();
 }
 
 // static
@@ -375,7 +361,6 @@ scoped_refptr<MediaDrmBridge> MediaDrmBridge::CreateInternal(
     const SessionKeysChangeCB& session_keys_change_cb,
     const SessionExpirationUpdateCB& session_expiration_update_cb) {
   // All paths requires the MediaDrmApis.
-  DCHECK(AreMediaDrmApisAvailable());
   DCHECK(!scheme_uuid.empty());
 
   // TODO(crbug.com/917527): Check that |origin_id| is specified on devices
@@ -399,10 +384,6 @@ scoped_refptr<MediaDrmBridge> MediaDrmBridge::CreateWithoutSessionSupport(
     SecurityLevel security_level,
     CreateFetcherCB create_fetcher_cb) {
   DVLOG(1) << __func__;
-
-  // Sessions won't be used so decoding capability is not required.
-  if (!AreMediaDrmApisAvailable())
-    return nullptr;
 
   UUID scheme_uuid = GetKeySystemManager()->GetUUID(key_system);
   if (scheme_uuid.empty())
@@ -768,8 +749,10 @@ void MediaDrmBridge::OnSessionClosed(
   DVLOG(2) << __func__;
   std::string session_id;
   JavaByteArrayToString(env, j_session_id, &session_id);
+  // TODO(crbug.com/1208618): Support other closed reasons.
   task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(session_closed_cb_, std::move(session_id)));
+      FROM_HERE, base::BindOnce(session_closed_cb_, std::move(session_id),
+                                CdmSessionClosedReason::kClose));
 }
 
 void MediaDrmBridge::OnSessionKeysChange(

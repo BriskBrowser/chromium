@@ -33,6 +33,7 @@ import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.base.compat.ApiHelperForS;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -554,6 +555,10 @@ class AudioManagerAndroid {
         // Check if this process has the BLUETOOTH permission or not.
         mHasBluetoothPermission = hasPermission(
                 android.Manifest.permission.BLUETOOTH);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            mHasBluetoothPermission &= ApiHelperForS.hasBluetoothConnectPermission();
+        }
 
         // Add a Bluetooth headset to the list of available devices if a BT
         // headset is detected and if we have the BLUETOOTH permission.

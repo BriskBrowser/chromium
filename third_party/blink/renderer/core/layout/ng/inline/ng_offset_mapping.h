@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_OFFSET_MAPPING_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_OFFSET_MAPPING_H_
 
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
@@ -128,6 +128,12 @@ class CORE_EXPORT NGOffsetMapping final
   // given position.
   static const NGOffsetMapping* GetFor(const Position&);
 
+  // Returns the mapping object of the inline formatting context laying out the
+  // given position even if legacy layout tree.
+  // TODO(yosin): Once we get rid of legacy layout, we should get rid of
+  // |ForceGetFor()|.
+  static const NGOffsetMapping* ForceGetFor(const Position&);
+
   // Returns the mapping object of the inline formatting context containing the
   // given LayoutObject, if it's laid out with LayoutNG. If the LayoutObject is
   // itself an inline formatting context, returns its own offset mapping object.
@@ -174,7 +180,7 @@ class CORE_EXPORT NGOffsetMapping final
 
   // Returns the text content offset corresponding to the given position.
   // Returns nullopt when the position is not laid out in this context.
-  base::Optional<unsigned> GetTextContentOffset(const Position&) const;
+  absl::optional<unsigned> GetTextContentOffset(const Position&) const;
 
   // Starting from the given position, searches for non-collapsed content in
   // the anchor node in forward/backward direction and returns the position
@@ -191,7 +197,7 @@ class CORE_EXPORT NGOffsetMapping final
 
   // Maps the given position to a text content offset, and then returns the text
   // content character before the offset. Returns nullopt if it does not exist.
-  base::Optional<UChar> GetCharacterBefore(const Position&) const;
+  absl::optional<UChar> GetCharacterBefore(const Position&) const;
 
   // ------ Mapping APIs from text content to DOM ------
 

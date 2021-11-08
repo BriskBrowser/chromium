@@ -38,7 +38,6 @@
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
-#include "third_party/blink/renderer/core/layout/layout_details_marker.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 #include "third_party/blink/renderer/core/layout/layout_file_upload_control.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
@@ -110,6 +109,40 @@ String QuoteAndEscapeNonPrintables(const String& s) {
 
 WTF::TextStream& operator<<(WTF::TextStream& ts, const Color& c) {
   return ts << c.NameForLayoutTreeAsText();
+}
+
+WTF::TextStream& operator<<(WTF::TextStream& ts, const gfx::Point& p) {
+  return ts << "(" << p.x() << "," << p.y() << ")";
+}
+
+WTF::TextStream& operator<<(WTF::TextStream& ts, const gfx::Size& s) {
+  return ts << "width=" << s.width() << " height=" << s.height();
+}
+
+WTF::TextStream& operator<<(WTF::TextStream& ts, const gfx::Rect& r) {
+  return ts << "at " << r.origin() << " size " << r.width() << "x"
+            << r.height();
+}
+
+WTF::TextStream& operator<<(WTF::TextStream& ts, const gfx::SizeF& s) {
+  ts << "width=" << WTF::TextStream::FormatNumberRespectingIntegers(s.width());
+  ts << " height="
+     << WTF::TextStream::FormatNumberRespectingIntegers(s.height());
+  return ts;
+}
+
+WTF::TextStream& operator<<(WTF::TextStream& ts, const gfx::PointF& p) {
+  ts << "(" << WTF::TextStream::FormatNumberRespectingIntegers(p.x());
+  ts << "," << WTF::TextStream::FormatNumberRespectingIntegers(p.y());
+  ts << ")";
+  return ts;
+}
+
+WTF::TextStream& operator<<(WTF::TextStream& ts, const gfx::RectF& r) {
+  ts << "at " << r.origin();
+  ts << " size " << WTF::TextStream::FormatNumberRespectingIntegers(r.width());
+  ts << "x" << WTF::TextStream::FormatNumberRespectingIntegers(r.height());
+  return ts;
 }
 
 void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
@@ -233,25 +266,6 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
        << " rs=" << c.ResolvedRowSpan() << " cs=" << c.ColSpan() << "]";
   }
 
-  if (o.IsDetailsMarker()) {
-    ts << ": ";
-    const auto& marker = To<LayoutDetailsMarker>(o);
-    switch (marker.GetOrientation(marker.StyleRef(), marker.IsOpen())) {
-      case LayoutDetailsMarker::kLeft:
-        ts << "left";
-        break;
-      case LayoutDetailsMarker::kRight:
-        ts << "right";
-        break;
-      case LayoutDetailsMarker::kUp:
-        ts << "up";
-        break;
-      case LayoutDetailsMarker::kDown:
-        ts << "down";
-        break;
-    }
-  }
-
   if (o.IsListMarkerForNormalContent()) {
     String text = To<LayoutListMarker>(o).GetText();
     if (!text.IsEmpty()) {
@@ -343,7 +357,7 @@ static void WriteInlineBox(WTF::TextStream& ts,
      << " pos=(" << box.X() << "," << box.Y() << ")"
      << " size=(" << box.Width() << "," << box.Height() << ")"
      << " baseline=" << box.BaselinePosition(kAlphabeticBaseline) << "/"
-     << box.BaselinePosition(kIdeographicBaseline);
+     << box.BaselinePosition(kCentralBaseline);
 }
 
 static void WriteInlineTextBox(WTF::TextStream& ts,
@@ -479,7 +493,7 @@ static void WritePaintProperties(WTF::TextStream& ts,
       ts << " state=(" << fragment->LocalBorderBoxProperties().ToString()
          << ")";
     }
-    if (RuntimeEnabledFeatures::CullRectUpdateEnabled()) {
+    if (RuntimeEnabledFeatures::CullRectUpdateEnabled() && o.HasLayer()) {
       ts << " cull_rect=(" << fragment->GetCullRect().ToString()
          << ") contents_cull_rect=("
          << fragment->GetContentsCullRect().ToString() << ")";
@@ -629,10 +643,10 @@ static void Write(WTF::TextStream& ts,
     ScrollOffset adjusted_scroll_offset =
         scrollable_area->GetScrollOffset() +
         ToFloatSize(FloatPoint(scrollable_area->ScrollOrigin()));
-    if (adjusted_scroll_offset.Width())
-      ts << " scrollX " << adjusted_scroll_offset.Width();
-    if (adjusted_scroll_offset.Height())
-      ts << " scrollY " << adjusted_scroll_offset.Height();
+    if (adjusted_scroll_offset.width())
+      ts << " scrollX " << adjusted_scroll_offset.width();
+    if (adjusted_scroll_offset.height())
+      ts << " scrollY " << adjusted_scroll_offset.height();
     if (layer.GetLayoutBox() &&
         layer.GetLayoutBox()->PixelSnappedClientWidth() !=
             layer.GetLayoutBox()->PixelSnappedScrollWidth())
@@ -703,15 +717,13 @@ void LayoutTreeAsText::WriteLayers(WTF::TextStream& ts,
     layer->Clipper(PaintLayer::GeometryMapperOption::kUseGeometryMapper)
         .CalculateRects(
             ClipRectsContext(root_layer,
-                             &root_layer->GetLayoutObject().FirstFragment(),
-                             kUncachedClipRects),
+                             &root_layer->GetLayoutObject().FirstFragment()),
             &layer->GetLayoutObject().FirstFragment(), nullptr, layer_bounds,
             damage_rect, clip_rect_to_apply);
   } else {
     layer->Clipper(PaintLayer::GeometryMapperOption::kDoNotUseGeometryMapper)
-        .CalculateRects(
-            ClipRectsContext(root_layer, nullptr, kUncachedClipRects), nullptr,
-            nullptr, layer_bounds, damage_rect, clip_rect_to_apply);
+        .CalculateRects(ClipRectsContext(root_layer, nullptr), nullptr, nullptr,
+                        layer_bounds, damage_rect, clip_rect_to_apply);
   }
 
   PhysicalOffset offset_from_root;

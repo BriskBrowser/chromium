@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/containers/mru_cache.h"
+#include "base/containers/lru_cache.h"
 #include "base/macros.h"
 
 namespace base {
@@ -21,6 +21,10 @@ namespace nacl {
 class NaClValidationCache {
  public:
   NaClValidationCache();
+
+  NaClValidationCache(const NaClValidationCache&) = delete;
+  NaClValidationCache& operator=(const NaClValidationCache&) = delete;
+
   ~NaClValidationCache();
 
   // Get the key used for HMACing validation signatures.  This should be a
@@ -60,12 +64,10 @@ class NaClValidationCache {
  private:
   bool DeserializeImpl(const base::Pickle* pickle);
 
-  typedef base::HashingMRUCache<std::string, bool> ValidationCacheType;
+  typedef base::HashingLRUCache<std::string, bool> ValidationCacheType;
   ValidationCacheType validation_cache_;
 
   std::string validation_cache_key_;
-
-  DISALLOW_COPY_AND_ASSIGN(NaClValidationCache);
 };
 
 } // namespace nacl

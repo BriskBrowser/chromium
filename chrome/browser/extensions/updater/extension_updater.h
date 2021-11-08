@@ -16,7 +16,6 @@
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/extension_registry_observer.h"
@@ -29,6 +28,7 @@
 
 class PrefService;
 class Profile;
+class ScopedProfileKeepAlive;
 
 namespace extensions {
 
@@ -95,10 +95,13 @@ class ExtensionUpdater : public ExtensionDownloaderDelegate,
   class ScopedSkipScheduledCheckForTest {
    public:
     ScopedSkipScheduledCheckForTest();
-    ~ScopedSkipScheduledCheckForTest();
 
-   private:
-    DISALLOW_COPY_AND_ASSIGN(ScopedSkipScheduledCheckForTest);
+    ScopedSkipScheduledCheckForTest(const ScopedSkipScheduledCheckForTest&) =
+        delete;
+    ScopedSkipScheduledCheckForTest& operator=(
+        const ScopedSkipScheduledCheckForTest&) = delete;
+
+    ~ScopedSkipScheduledCheckForTest();
   };
 
   // Holds a pointer to the passed |service|, using it for querying installed
@@ -187,8 +190,13 @@ class ExtensionUpdater : public ExtensionDownloaderDelegate,
     bool install_immediately = false;
     bool awaiting_update_service = false;
     FinishedCallback callback;
+    // Prevents the destruction of the Profile* while an update check is in
+    // progress.
+    // TODO(crbug.com/1191460): Find a way to pass the keepalive to UpdateClient
+    // instead of holding it here.
+    std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive;
     // The ids of extensions that have in-progress update checks.
-    std::set<ExtensionId> in_progress_ids_;
+    std::set<ExtensionId> in_progress_ids;
   };
 
   // Ensure that we have a valid ExtensionDownloader instance referenced by
@@ -232,6 +240,8 @@ class ExtensionUpdater : public ExtensionDownloaderDelegate,
                                  const PingResult& ping,
                                  const std::set<int>& request_ids,
                                  const FailureData& data) override;
+  void OnExtensionDownloadRetry(const ExtensionId& id,
+                                const FailureData& data) override;
   void OnExtensionDownloadFinished(const CRXFileInfo& file,
                                    bool file_ownership_passed,
                                    const GURL& download_url,

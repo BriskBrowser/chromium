@@ -4,61 +4,72 @@
 
 #include "chrome/updater/test/server.h"
 
+#include <algorithm>
 #include <list>
 #include <memory>
 #include <string>
+#include <utility>
 
-#include "chrome/updater/test/integration_tests.h"
+#include "base/logging.h"
+#include "chrome/updater/test/integration_test_commands.h"
+#include "chrome/updater/test/integration_tests_impl.h"
 #include "net/http/http_status_code.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/re2/src/re2/re2.h"
 
 namespace updater {
 namespace test {
 
-ScopedServer::ScopedServer()
-    : test_server_(std::make_unique<net::test_server::EmbeddedTestServer>()) {
+ScopedServer::ScopedServer(
+    scoped_refptr<IntegrationTestCommands> integration_test_commands)
+    : test_server_(std::make_unique<net::test_server::EmbeddedTestServer>()),
+      integration_test_commands_(integration_test_commands) {
   test_server_->RegisterRequestHandler(base::BindRepeating(
       &ScopedServer::HandleRequest, base::Unretained(this)));
   EXPECT_TRUE((test_server_handle_ = test_server_->StartAndReturnHandle()));
-  EnterTestMode(test_server_->base_url());
+
+  integration_test_commands_->EnterTestMode(test_server_->base_url());
 }
 
 ScopedServer::~ScopedServer() {
-  for (const auto& regex : request_body_regexes_) {
-    ADD_FAILURE() << "Unmet expectation: " << regex;
+  for (const auto& request_matcher : request_matchers_) {
+    // Forces `request_matcher` to log to help debugging, unless the
+    // predicate matches "..." string in the request.
+    ADD_FAILURE() << "Unmet expectation: ";
+    std::for_each(request_matcher.begin(), request_matcher.end(),
+                  [](RequestMatcherPredicate pred) { pred.Run("..."); });
   }
 }
 
-void ScopedServer::ExpectOnce(const std::string& request_body_regex,
+void ScopedServer::ExpectOnce(RequestMatcher request_matcher,
                               const std::string& response_body) {
-  request_body_regexes_.push_back(request_body_regex);
+  request_matchers_.push_back(std::move(request_matcher));
   response_bodies_.push_back(response_body);
 }
 
 std::unique_ptr<net::test_server::HttpResponse> ScopedServer::HandleRequest(
     const net::test_server::HttpRequest& request) {
-  if (request_body_regexes_.empty()) {
-    ADD_FAILURE() << "Unexpected request with body: " << request.content;
-    auto response = std::make_unique<net::test_server::BasicHttpResponse>();
-    response->set_code(net::HTTP_INTERNAL_SERVER_ERROR);
-    return response;
-  }
-  if (!re2::RE2::PartialMatch(request.content, request_body_regexes_.front())) {
-    ADD_FAILURE() << "Request with body: " << request.content
-                  << " did not match expected regex "
-                  << request_body_regexes_.front();
-    auto response = std::make_unique<net::test_server::BasicHttpResponse>();
-    response->set_code(net::HTTP_INTERNAL_SERVER_ERROR);
-    return response;
-  }
+  VLOG(0) << "HandleRequest: " << request.content;
   auto response = std::make_unique<net::test_server::BasicHttpResponse>();
+  if (request_matchers_.empty()) {
+    ADD_FAILURE() << "Unexpected request: " << request.content;
+    response->set_code(net::HTTP_INTERNAL_SERVER_ERROR);
+    return response;
+  }
+  if (!std::all_of(request_matchers_.front().begin(),
+                   request_matchers_.front().end(),
+                   [&request](RequestMatcherPredicate pred) {
+                     return pred.Run(request.content);
+                   })) {
+    ADD_FAILURE() << "Request did not match: " << request.content;
+    response->set_code(net::HTTP_INTERNAL_SERVER_ERROR);
+    return response;
+  }
   response->set_code(net::HTTP_OK);
   response->set_content(response_bodies_.front());
-  request_body_regexes_.pop_front();
+  request_matchers_.pop_front();
   response_bodies_.pop_front();
   return response;
 }

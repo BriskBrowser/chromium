@@ -7,24 +7,26 @@
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
+#include "ash/public/cpp/shelf_item_delegate.h"
+#include "ash/public/cpp/shelf_model.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/apps/app_service/app_service_metrics.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/launch_utils.h"
+#include "chrome/browser/apps/app_service/metrics/app_service_metrics.h"
 #include "chrome/browser/favicon/large_icon_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_service/app_service_app_item.h"
 #include "chrome/browser/ui/app_list/app_service/app_service_context_menu.h"
 #include "chrome/browser/ui/app_list/internal_app/internal_app_metadata.h"
-#include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
+#include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
-#include "chrome/common/chrome_features.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "components/favicon/core/large_icon_service.h"
 #include "components/services/app_service/public/cpp/app_update.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
@@ -43,11 +45,9 @@ AppServiceAppResult::AppServiceAppResult(Profile* profile,
       app_type_(apps::mojom::AppType::kUnknown),
       is_platform_app_(false),
       show_in_launcher_(false) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile);
-
-  proxy->AppRegistryCache().ForOneApp(
-      app_id, [this](const apps::AppUpdate& update) {
+  apps::AppServiceProxyFactory::GetForProfile(profile)
+      ->AppRegistryCache()
+      .ForOneApp(app_id, [this](const apps::AppUpdate& update) {
         app_type_ = update.AppType();
         is_platform_app_ =
             update.IsPlatformApp() == apps::mojom::OptionalBool::kTrue;
@@ -72,6 +72,7 @@ AppServiceAppResult::AppServiceAppResult(Profile* profile,
   }
 
   SetMetricsType(GetSearchResultType());
+  SetCategory(Category::kApps);
 
   switch (app_type_) {
     case apps::mojom::AppType::kBuiltIn:
@@ -130,8 +131,10 @@ ash::SearchResultType AppServiceAppResult::GetSearchResultType() const {
       return ash::CROSTINI_APP;
     case apps::mojom::AppType::kExtension:
     case apps::mojom::AppType::kWeb:
+    case apps::mojom::AppType::kSystemWeb:
+    case apps::mojom::AppType::kStandaloneBrowserExtension:
       return ash::EXTENSION_APP;
-    case apps::mojom::AppType::kLacros:
+    case apps::mojom::AppType::kStandaloneBrowser:
       return ash::LACROS;
     case apps::mojom::AppType::kRemote:
       return ash::REMOTE_APP;
@@ -166,9 +169,9 @@ void AppServiceAppResult::Launch(int event_flags,
   apps::AppServiceProxy* proxy =
       apps::AppServiceProxyFactory::GetForProfile(profile());
 
-  // For Chrome apps or Web apps, if it is non-platform app, it could be
+  // For Crostini apps, non-platform Chrome apps, Web apps, it could be
   // selecting an existing delegate for the app, so call
-  // ChromeLauncherController's ActivateApp interface. Platform apps or ARC
+  // ChromeShelfController's ActivateApp interface. Platform apps or ARC
   // apps, Crostini apps treat activations as a launch. The app can decide
   // whether to show a new window or focus an existing window as it sees fit.
   //
@@ -178,20 +181,31 @@ void AppServiceAppResult::Launch(int event_flags,
   proxy->AppRegistryCache().ForOneApp(
       app_id(), [&is_active_app](const apps::AppUpdate& update) {
         if (update.AppType() == apps::mojom::AppType::kCrostini ||
-            ((update.AppType() == apps::mojom::AppType::kExtension ||
-              update.AppType() == apps::mojom::AppType::kWeb) &&
+            update.AppType() == apps::mojom::AppType::kWeb ||
+            update.AppType() == apps::mojom::AppType::kSystemWeb ||
+            (update.AppType() == apps::mojom::AppType::kExtension &&
              update.IsPlatformApp() == apps::mojom::OptionalBool::kFalse)) {
           is_active_app = true;
         }
       });
   if (is_active_app) {
-    ChromeLauncherController::instance()->ActivateApp(
-        app_id(), ash::LAUNCH_FROM_APP_LIST_SEARCH, event_flags,
-        controller()->GetAppListDisplayId());
-  } else {
-    proxy->Launch(app_id(), event_flags, launch_source,
-                  apps::MakeWindowInfo(controller()->GetAppListDisplayId()));
+    ash::ShelfLaunchSource source =
+        is_recommendation() ? ash::LAUNCH_FROM_APP_LIST_RECOMMENDATION
+                            : ash::LAUNCH_FROM_APP_LIST_SEARCH;
+    ash::ShelfID shelf_id(app_id());
+    ash::ShelfModel* model = ChromeShelfController::instance()->shelf_model();
+    ash::ShelfItemDelegate* delegate = model->GetShelfItemDelegate(shelf_id);
+    if (delegate) {
+      delegate->ItemSelected(/*event=*/nullptr,
+                             controller()->GetAppListDisplayId(), source,
+                             /*callback=*/base::DoNothing(),
+                             /*filter_predicate=*/base::NullCallback());
+      return;
+    }
   }
+
+  proxy->Launch(app_id(), event_flags, launch_source,
+                apps::MakeWindowInfo(controller()->GetAppListDisplayId()));
 }
 
 void AppServiceAppResult::CallLoadIcon(bool chip, bool allow_placeholder_icon) {
@@ -199,14 +213,12 @@ void AppServiceAppResult::CallLoadIcon(bool chip, bool allow_placeholder_icon) {
     // If |icon_loader_releaser_| is non-null, assigning to it will signal to
     // |icon_loader_| that the previous icon is no longer being used, as a hint
     // that it could be flushed from any caches.
-    auto icon_type =
-        (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon))
-            ? apps::mojom::IconType::kStandard
-            : apps::mojom::IconType::kUncompressed;
+    auto icon_type = apps::mojom::IconType::kStandard;
     icon_loader_releaser_ = icon_loader_->LoadIcon(
         app_type_, app_id(), icon_type,
-        chip ? ash::AppListConfig::instance().suggestion_chip_icon_dimension()
-             : ash::AppListConfig::instance().GetPreferredIconDimension(
+        chip ? ash::SharedAppListConfig::instance()
+                   .suggestion_chip_icon_dimension()
+             : ash::SharedAppListConfig::instance().GetPreferredIconDimension(
                    display_type()),
         allow_placeholder_icon,
         base::BindOnce(&AppServiceAppResult::OnLoadIcon,
@@ -216,10 +228,7 @@ void AppServiceAppResult::CallLoadIcon(bool chip, bool allow_placeholder_icon) {
 
 void AppServiceAppResult::OnLoadIcon(bool chip,
                                      apps::mojom::IconValuePtr icon_value) {
-  auto icon_type =
-      (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon))
-          ? apps::mojom::IconType::kStandard
-          : apps::mojom::IconType::kUncompressed;
+  auto icon_type = apps::mojom::IconType::kStandard;
   if (icon_value->icon_type != icon_type) {
     return;
   }
@@ -227,7 +236,7 @@ void AppServiceAppResult::OnLoadIcon(bool chip,
   if (chip) {
     SetChipIcon(icon_value->uncompressed);
   } else {
-    SetIcon(icon_value->uncompressed);
+    SetIcon(IconInfo(icon_value->uncompressed));
   }
 
   if (icon_value->is_placeholder_icon) {
@@ -251,7 +260,7 @@ void AppServiceAppResult::HandleSuggestionChip(Profile* profile) {
 
 void AppServiceAppResult::UpdateContinueReadingFavicon(
     bool continue_to_google_server) {
-  base::string16 title;
+  std::u16string title;
   GURL url;
   if (app_list::HasRecommendableForeignTab(profile(), &title, &url,
                                            /*test_delegate=*/nullptr)) {

@@ -28,18 +28,18 @@ base::FilePath GetProfileIconPath(const base::FilePath& profile_path);
 // Returns the default shortcut filename for the given profile name. Returns a
 // filename appropriate for a single-user installation if |profile_name| is
 // empty.
-std::wstring GetShortcutFilenameForProfile(const base::string16& profile_name);
+std::wstring GetShortcutFilenameForProfile(const std::u16string& profile_name);
 
 // The same as GetShortcutFilenameForProfile but uniqueness is guaranteed.
 // Makes an unique filename among |excludes|.
 std::wstring GetUniqueShortcutFilenameForProfile(
-    const base::string16& profile_name,
+    const std::u16string& profile_name,
     const std::set<base::FilePath>& excludes);
 
 // This class checks that shortcut filename matches certain profile.
 class ShortcutFilenameMatcher {
  public:
-  explicit ShortcutFilenameMatcher(const base::string16& profile_name);
+  explicit ShortcutFilenameMatcher(const std::u16string& profile_name);
   ShortcutFilenameMatcher(const ShortcutFilenameMatcher&) = delete;
   ShortcutFilenameMatcher& operator=(const ShortcutFilenameMatcher&) = delete;
 
@@ -80,6 +80,8 @@ class ProfileShortcutManagerWin : public ProfileShortcutManager,
     UPDATE_NON_PROFILE_SHORTCUTS,
   };
 
+  static void DisableUnpinningForUnitTests();
+
   explicit ProfileShortcutManagerWin(ProfileManager* manager);
   ProfileShortcutManagerWin(const ProfileShortcutManagerWin&) = delete;
   ProfileShortcutManagerWin& operator=(const ProfileShortcutManagerWin&) =
@@ -102,10 +104,12 @@ class ProfileShortcutManagerWin : public ProfileShortcutManager,
   // ProfileAttributesStorage::Observer implementation:
   void OnProfileAdded(const base::FilePath& profile_path) override;
   void OnProfileWasRemoved(const base::FilePath& profile_path,
-                           const base::string16& profile_name) override;
+                           const std::u16string& profile_name) override;
   void OnProfileNameChanged(const base::FilePath& profile_path,
-                            const base::string16& old_profile_name) override;
+                            const std::u16string& old_profile_name) override;
   void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
+  void OnProfileHighResAvatarLoaded(
+      const base::FilePath& profile_path) override;
 
   // ProfileManagerObserver:
   void OnProfileAdded(Profile* profile) override;
@@ -125,6 +129,9 @@ class ProfileShortcutManagerWin : public ProfileShortcutManager,
       bool incognito);
 
   ProfileManager* profile_manager_;
+  // The profile icon of these profiles needs to be updated when an avatar image
+  // is loaded.
+  std::set<base::FilePath> profiles_with_pending_avatar_load_;
 };
 
 #endif  // CHROME_BROWSER_PROFILES_PROFILE_SHORTCUT_MANAGER_WIN_H_

@@ -2,8 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
+import os
 import re
-import mock
+import sys
+
+if sys.version_info[0] == 2:
+  import mock
+else:
+  import unittest.mock as mock
 
 # This set must be the union of the driver tags used in WebGL and WebGL2
 # expectations files.
@@ -22,6 +30,13 @@ EXPECTATIONS_DRIVER_TAGS = frozenset([
 # Driver tag format: VENDOR_OPERATION_VERSION
 DRIVER_TAG_MATCHER = re.compile(
     r'^([a-z\d]+)_(eq|ne|ge|gt|le|lt)_([a-z\d\.]+)$')
+
+REMOTE_BROWSER_TYPES = [
+    'android-chromium',
+    'android-webview-instrumentation',
+    'cros-chrome',
+    'web-engine-shell',
+]
 
 
 def _ParseANGLEGpuVendorString(device_string):
@@ -156,7 +171,30 @@ def GetSkiaRenderer(gpu_feature_status, extra_browser_args):
   return retval
 
 
-# TODO(sgilhuly): Use GPU feature status for Dawn instead of command line.
+def GetDisplayServer(browser_type):
+  # Browser types run on a remote device aren't Linux, but the host running
+  # this code uses Linux, so return early to avoid erroneously reporting a
+  # display server.
+  if browser_type in REMOTE_BROWSER_TYPES:
+    return None
+  if sys.platform.startswith('linux'):
+    if 'WAYLAND_DISPLAY' in os.environ:
+      return 'display-server-wayland'
+    else:
+      return 'display-server-x'
+  else:
+    return None
+
+
+def GetOOPCanvasStatus(gpu_feature_status):
+  if gpu_feature_status and gpu_feature_status.get(
+      'canvas_oop_rasterization') == 'enabled_on':
+    return 'oop-c'
+  else:
+    return 'no-oop-c'
+
+
+# TODO(rivr): Use GPU feature status for Dawn instead of command line.
 def HasDawnSkiaRenderer(extra_browser_args):
   if extra_browser_args:
     for arg in extra_browser_args:
@@ -217,19 +255,10 @@ def EvaluateVersionComparison(version,
       if not ver[i].isdigit():
         return int(ver[:i]) if i > 0 else 0, ver[i:]
 
-  def is_old_intel_driver(ver_list):
-    assert len(ver_list) == 4
-    num, suffix = parse_version(ver_list[2])
-    assert not suffix
-    return num < 100
-
   def versions_can_be_compared(ver_list1, ver_list2):
     # If either of the two versions doesn't match the Intel driver version
-    # schema, or they belong to different generation of version schema, they
-    # should not be compared.
+    # schema, they should not be compared.
     if len(ver_list1) != 4 or len(ver_list2) != 4:
-      return False
-    if is_old_intel_driver(ver_list1) != is_old_intel_driver(ver_list2):
       return False
     return True
 
@@ -241,12 +270,9 @@ def EvaluateVersionComparison(version,
   if os_name == 'win' and driver_vendor == 'intel':
     if not versions_can_be_compared(ver_list1, ver_list2):
       return operation == 'ne'
-    if is_old_intel_driver(ver_list1):
-      ver_list1 = ver_list1[3:]
-      ver_list2 = ver_list2[3:]
-    else:
-      ver_list1 = ver_list1[2:]
-      ver_list2 = ver_list2[2:]
+
+    ver_list1 = ver_list1[2:]
+    ver_list2 = ver_list2[2:]
 
   for i in range(0, max(len(ver_list1), len(ver_list2))):
     ver1 = ver_list1[i] if i < len(ver_list1) else '0'

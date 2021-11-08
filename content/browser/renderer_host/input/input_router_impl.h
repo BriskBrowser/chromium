@@ -13,7 +13,6 @@
 #include "base/containers/flat_map.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/time/time.h"
 #include "cc/input/touch_action.h"
 #include "content/browser/renderer_host/input/fling_scheduler.h"
 #include "content/browser/renderer_host/input/gesture_event_queue.h"
@@ -63,6 +62,10 @@ class CONTENT_EXPORT InputRouterImpl
                   InputDispositionHandler* disposition_handler,
                   FlingControllerSchedulerClient* fling_scheduler_client,
                   const Config& config);
+
+  InputRouterImpl(const InputRouterImpl&) = delete;
+  InputRouterImpl& operator=(const InputRouterImpl&) = delete;
+
   ~InputRouterImpl() override;
 
   // InputRouter
@@ -78,12 +81,11 @@ class CONTENT_EXPORT InputRouterImpl
   void NotifySiteIsMobileOptimized(bool is_mobile_optimized) override;
   bool HasPendingEvents() const override;
   void SetDeviceScaleFactor(float device_scale_factor) override;
-  void SetFrameTreeNodeId(int frame_tree_node_id) override;
   void SetForceEnableZoom(bool enabled) override;
-  base::Optional<cc::TouchAction> AllowedTouchAction() override;
-  base::Optional<cc::TouchAction> ActiveTouchAction() override;
-  mojo::PendingRemote<blink::mojom::WidgetInputHandlerHost> BindNewHost()
-      override;
+  absl::optional<cc::TouchAction> AllowedTouchAction() override;
+  absl::optional<cc::TouchAction> ActiveTouchAction() override;
+  mojo::PendingRemote<blink::mojom::WidgetInputHandlerHost> BindNewHost(
+      scoped_refptr<base::SequencedTaskRunner> task_runner) override;
   void StopFling() override;
   void ForceSetTouchActionAuto() override;
 
@@ -234,7 +236,6 @@ class CONTENT_EXPORT InputRouterImpl
 
   InputRouterImplClient* client_;
   InputDispositionHandler* disposition_handler_;
-  int frame_tree_node_id_;
 
   // Whether the TouchScrollStarted event has been sent for the current
   // gesture scroll yet.
@@ -259,8 +260,6 @@ class CONTENT_EXPORT InputRouterImpl
 
   base::WeakPtr<InputRouterImpl> weak_this_;
   base::WeakPtrFactory<InputRouterImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(InputRouterImpl);
 };
 
 }  // namespace content

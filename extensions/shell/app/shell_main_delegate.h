@@ -25,6 +25,10 @@ namespace extensions {
 class ShellMainDelegate : public content::ContentMainDelegate {
  public:
   ShellMainDelegate();
+
+  ShellMainDelegate(const ShellMainDelegate&) = delete;
+  ShellMainDelegate& operator=(const ShellMainDelegate&) = delete;
+
   ~ShellMainDelegate() override;
 
   // ContentMainDelegate implementation:
@@ -44,7 +48,10 @@ class ShellMainDelegate : public content::ContentMainDelegate {
   void ZygoteForked() override;
 #endif
 #if defined(OS_MAC)
-  void PreCreateMainMessageLoop() override;
+  void PreBrowserMain() override;
+#endif
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  void PostEarlyInitialization(bool is_running_tests) override;
 #endif
 
  private:
@@ -55,8 +62,6 @@ class ShellMainDelegate : public content::ContentMainDelegate {
   std::unique_ptr<content::ContentClient> content_client_;
   std::unique_ptr<content::ContentBrowserClient> browser_client_;
   std::unique_ptr<content::ContentRendererClient> renderer_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShellMainDelegate);
 };
 
 }  // namespace extensions

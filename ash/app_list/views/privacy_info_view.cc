@@ -18,6 +18,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
@@ -220,7 +221,7 @@ void PrivacyInfoView::InitLayout() {
   SetBorder(views::CreateRoundedRectBorder(
       /*thickness=*/1,
       views::LayoutProvider::Get()->GetCornerRadiusMetric(
-          views::EMPHASIS_MEDIUM),
+          views::Emphasis::kMedium),
       gfx::Insets(kRowMarginDip, kRowMarginDip), gfx::kGoogleGrey300));
 
   // Info icon.
@@ -245,9 +246,9 @@ void PrivacyInfoView::InitInfoIcon() {
 }
 
 void PrivacyInfoView::InitText() {
-  const base::string16 link = l10n_util::GetStringUTF16(link_string_id_);
+  const std::u16string link = l10n_util::GetStringUTF16(link_string_id_);
   size_t offset;
-  const base::string16 text =
+  const std::u16string text =
       l10n_util::GetStringFUTF16(info_string_id_, link, &offset);
   text_view_ = AddChildView(std::make_unique<PrivacyTextView>(this));
   text_view_->SetText(text);
@@ -286,7 +287,7 @@ void PrivacyInfoView::InitCloseButton() {
                                                gfx::kGoogleGrey700));
   close_button->SetImageHorizontalAlignment(views::ImageButton::ALIGN_CENTER);
   close_button->SetImageVerticalAlignment(views::ImageButton::ALIGN_MIDDLE);
-  base::string16 close_button_label(l10n_util::GetStringUTF16(IDS_APP_CLOSE));
+  std::u16string close_button_label(l10n_util::GetStringUTF16(IDS_APP_CLOSE));
   close_button->SetAccessibleName(close_button_label);
   close_button->SetTooltipText(close_button_label);
   close_button->SetFocusBehavior(FocusBehavior::ALWAYS);
@@ -297,13 +298,16 @@ void PrivacyInfoView::InitCloseButton() {
   close_button->SizeToPreferredSize();
 
   // Ink ripple.
-  close_button->SetInkDropMode(views::InkDropHostView::InkDropMode::ON);
+  views::InkDrop::Get(close_button.get())
+      ->SetMode(views::InkDropHost::InkDropMode::ON);
   constexpr SkColor kInkDropBaseColor = gfx::kGoogleGrey900;
   constexpr float kInkDropVisibleOpacity = 0.06f;
   constexpr float kInkDropHighlightOpacity = 0.08f;
-  close_button->SetInkDropVisibleOpacity(kInkDropVisibleOpacity);
-  close_button->SetInkDropHighlightOpacity(kInkDropHighlightOpacity);
-  close_button->SetInkDropBaseColor(kInkDropBaseColor);
+  views::InkDrop::Get(close_button.get())
+      ->SetVisibleOpacity(kInkDropVisibleOpacity);
+  views::InkDrop::Get(close_button.get())
+      ->SetHighlightOpacity(kInkDropHighlightOpacity);
+  views::InkDrop::Get(close_button.get())->SetBaseColor(kInkDropBaseColor);
   close_button->SetHasInkDropActionOnClick(true);
   views::InstallCircleHighlightPathGenerator(close_button.get());
   close_button_ = AddChildView(std::move(close_button));

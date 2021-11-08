@@ -182,6 +182,10 @@ gfx::SwapResult AwGLSurfaceExternalStencil::SwapBuffers(
     DCHECK(framebuffer_);
     DCHECK(blit_context_);
 
+    // Flush skia renderer rendering. This is working around what appears to be
+    // a driver bug that causes rendering to break.
+    glFlush();
+
     // Restore stencil state.
     glEnable(GL_STENCIL_TEST);
     glStencilFuncSeparate(GL_FRONT, stencil_state.stencil_front_func,
@@ -291,6 +295,12 @@ void AwGLSurfaceExternalStencil::RecalculateClipAndTransform(
     // memory, assuming |stencil_test_enabled| doesn't change often.
     framebuffer_.reset();
   }
+}
+
+bool AwGLSurfaceExternalStencil::IsDrawingToFBO() {
+  const auto& stencil_state =
+      android_webview::ScopedAppGLStateRestore::Current()->stencil_state();
+  return stencil_state.stencil_test_enabled;
 }
 
 }  // namespace android_webview

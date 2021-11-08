@@ -21,27 +21,28 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 
 import static org.chromium.base.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
+import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.startAutofillAssistant;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.tapElement;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntil;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntilKeyboardMatchesCondition;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntilViewAssertionTrue;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntilViewMatchesCondition;
+import static org.chromium.chrome.browser.autofill_assistant.ProtoTestUtil.toCssSelector;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.annotation.Nullable;
 import androidx.test.espresso.Espresso;
 import androidx.test.filters.MediumTest;
 
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.RuleChain;
+import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.autofill_assistant.R;
 import org.chromium.chrome.browser.autofill_assistant.proto.ActionProto;
-import org.chromium.chrome.browser.autofill_assistant.proto.ChipProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ClientSettingsProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ClientSettingsProto.BackButtonSettings;
 import org.chromium.chrome.browser.autofill_assistant.proto.ClientSettingsProto.IntegrationTestSettings;
@@ -58,8 +59,6 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.net.test.EmbeddedTestServer;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -70,65 +69,47 @@ import java.util.Arrays;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 @RunWith(ChromeJUnit4ClassRunner.class)
 public class AutofillAssistantBackButtonIntegrationTest {
-    @Rule
-    public ChromeTabbedActivityTestRule mTestRule = new ChromeTabbedActivityTestRule();
-
-    private static final String HTML_DIRECTORY = "/components/test/data/autofill_assistant/html/";
     private static final String TEST_PAGE_A = "autofill_assistant_target_website.html";
     private static final String TEST_PAGE_B = "form_target_website.html";
 
-    private EmbeddedTestServer mTestServer;
+    private final ChromeTabbedActivityTestRule mTestRule = new ChromeTabbedActivityTestRule();
+    private final AutofillAssistantChromeTabTestRule mTabTestRule =
+            new AutofillAssistantChromeTabTestRule(mTestRule, TEST_PAGE_A);
+
+    @Rule
+    public final TestRule mRulesChain = RuleChain.outerRule(mTestRule).around(mTabTestRule);
 
     private String getURL(String page) {
-        return mTestServer.getURL(HTML_DIRECTORY + page);
+        return mTabTestRule.getURL(page);
     }
 
-    private void setupScripts(
-            ClientSettingsProto settings, AutofillAssistantTestScript... scripts) {
-        AutofillAssistantTestService testService =
-                new AutofillAssistantTestService(Arrays.asList(scripts), settings);
-        testService.scheduleForInjection();
+    private void startAutofillAssistantOnTab(
+            String pageToLoad, AutofillAssistantTestScript... scripts) {
+        startAutofillAssistantOnTab(pageToLoad, null, scripts);
     }
 
-    private void setupScripts(AutofillAssistantTestScript... scripts) {
-        AutofillAssistantTestService testService =
-                new AutofillAssistantTestService(Arrays.asList(scripts));
-        testService.scheduleForInjection();
-    }
-
-    private void startAutofillAssistantOnTab(String pageToLoad) {
-        TestThreadUtils.runOnUiThreadBlocking(
-                ()
-                        -> AutofillAssistantFacade.start(mTestRule.getActivity(),
-                                /* bundleExtras= */ null, getURL(pageToLoad)));
-    }
-
-    @Before
-    public void setUp() throws Exception {
-        AutofillAssistantPreferencesUtil.setInitialPreferences(true);
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
-        mTestRule.startMainActivityWithURL(getURL(TEST_PAGE_A));
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        mTestServer.stopAndDestroyServer();
+    private void startAutofillAssistantOnTab(String pageToLoad,
+            @Nullable ClientSettingsProto settings, AutofillAssistantTestScript... scripts) {
+        AutofillAssistantTestService testService;
+        if (settings != null) {
+            testService = new AutofillAssistantTestService(Arrays.asList(scripts), settings);
+        } else {
+            testService = new AutofillAssistantTestService(Arrays.asList(scripts));
+        }
+        startAutofillAssistant(mTestRule.getActivity(), testService, getURL(pageToLoad));
     }
 
     @Test
     @MediumTest
+    @DisabledTest(message = "https://crbug.com/1220426")
     public void backButtonWithSnackbarDestroysAutofillAssistantUi() throws Exception {
         ChromeTabUtils.loadUrlOnUiThread(
                 mTestRule.getActivity().getActivityTab(), getURL(TEST_PAGE_B));
 
-        SelectorProto element =
-                (SelectorProto) SelectorProto.newBuilder()
-                        .addFilters(
-                                SelectorProto.Filter.newBuilder().setCssSelector("#profile_name"))
-                        .build();
+        SelectorProto element = toCssSelector("#profile_name");
 
         ArrayList<ActionProto> list = new ArrayList<>();
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setShowCast(ShowCastProto.newBuilder()
                                               .setElementToPresent(element)
                                               .setTouchableElementArea(
@@ -136,20 +117,18 @@ public class AutofillAssistantBackButtonIntegrationTest {
                                                               Rectangle.newBuilder().addElements(
                                                                       element))))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setPrompt(PromptProto.newBuilder().setMessage("Prompt").addChoices(
                                  PromptProto.Choice.newBuilder()))
                          .build());
 
         AutofillAssistantTestScript script = new AutofillAssistantTestScript(
-                (SupportedScriptProto) SupportedScriptProto.newBuilder()
+                SupportedScriptProto.newBuilder()
                         .setPath(TEST_PAGE_A)
-                        .setPresentation(PresentationProto.newBuilder().setAutostart(true).setChip(
-                                ChipProto.newBuilder().setText("Done")))
+                        .setPresentation(PresentationProto.newBuilder().setAutostart(true))
                         .build(),
                 list);
-        setupScripts(script);
-        startAutofillAssistantOnTab(TEST_PAGE_B);
+        startAutofillAssistantOnTab(TEST_PAGE_B, script);
 
         waitUntilViewMatchesCondition(withText("Prompt"), isCompletelyDisplayed());
 
@@ -182,19 +161,16 @@ public class AutofillAssistantBackButtonIntegrationTest {
 
     @Test
     @MediumTest
+    @DisabledTest(message = "https://crbug.com/1220329")
     public void backButtonWithSettingsShowsErrorMessageAndDestroysAutofillAssistantUi()
             throws Exception {
         ChromeTabUtils.loadUrlOnUiThread(
                 mTestRule.getActivity().getActivityTab(), getURL(TEST_PAGE_B));
 
-        SelectorProto element =
-                (SelectorProto) SelectorProto.newBuilder()
-                        .addFilters(
-                                SelectorProto.Filter.newBuilder().setCssSelector("#profile_name"))
-                        .build();
+        SelectorProto element = toCssSelector("#profile_name");
 
         ArrayList<ActionProto> list = new ArrayList<>();
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setShowCast(ShowCastProto.newBuilder()
                                               .setElementToPresent(element)
                                               .setTouchableElementArea(
@@ -202,32 +178,31 @@ public class AutofillAssistantBackButtonIntegrationTest {
                                                               Rectangle.newBuilder().addElements(
                                                                       element))))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setTell(TellProto.newBuilder().setMessage("Tell"))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setPrompt(PromptProto.newBuilder().addChoices(
                                  PromptProto.Choice.newBuilder()))
                          .build());
 
         AutofillAssistantTestScript script = new AutofillAssistantTestScript(
-                (SupportedScriptProto) SupportedScriptProto.newBuilder()
+                SupportedScriptProto.newBuilder()
                         .setPath(TEST_PAGE_A)
-                        .setPresentation(PresentationProto.newBuilder().setAutostart(true).setChip(
-                                ChipProto.newBuilder().setText("Done")))
+                        .setPresentation(PresentationProto.newBuilder().setAutostart(true))
                         .build(),
                 list);
-        setupScripts((ClientSettingsProto) ClientSettingsProto.newBuilder()
-                             .setIntegrationTestSettings(
-                                     IntegrationTestSettings.newBuilder()
-                                             .setDisableHeaderAnimations(true)
-                                             .setDisableCarouselChangeAnimations(true))
-                             .setBackButtonSettings(BackButtonSettings.newBuilder()
-                                                            .setMessage("Back button pressed")
-                                                            .setUndoLabel("Undo"))
-                             .build(),
+        startAutofillAssistantOnTab(TEST_PAGE_B,
+                ClientSettingsProto.newBuilder()
+                        .setIntegrationTestSettings(
+                                IntegrationTestSettings.newBuilder()
+                                        .setDisableHeaderAnimations(true)
+                                        .setDisableCarouselChangeAnimations(true))
+                        .setBackButtonSettings(BackButtonSettings.newBuilder()
+                                                       .setMessage("Back button pressed")
+                                                       .setUndoLabel("Undo"))
+                        .build(),
                 script);
-        startAutofillAssistantOnTab(TEST_PAGE_B);
 
         waitUntilViewMatchesCondition(withText("Tell"), isCompletelyDisplayed());
 
@@ -277,20 +252,18 @@ public class AutofillAssistantBackButtonIntegrationTest {
                 mTestRule.getActivity().getActivityTab(), getURL(TEST_PAGE_B));
 
         ArrayList<ActionProto> list = new ArrayList<>();
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setTell(TellProto.newBuilder().setMessage("Shutdown"))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder().setStop(StopProto.newBuilder()).build());
+        list.add(ActionProto.newBuilder().setStop(StopProto.newBuilder()).build());
 
         AutofillAssistantTestScript script = new AutofillAssistantTestScript(
-                (SupportedScriptProto) SupportedScriptProto.newBuilder()
+                SupportedScriptProto.newBuilder()
                         .setPath(TEST_PAGE_A)
-                        .setPresentation(PresentationProto.newBuilder().setAutostart(true).setChip(
-                                ChipProto.newBuilder().setText("Done")))
+                        .setPresentation(PresentationProto.newBuilder().setAutostart(true))
                         .build(),
                 list);
-        setupScripts(script);
-        startAutofillAssistantOnTab(TEST_PAGE_B);
+        startAutofillAssistantOnTab(TEST_PAGE_B, script);
 
         waitUntilViewMatchesCondition(withText("Shutdown"), isCompletelyDisplayed());
 
@@ -314,14 +287,10 @@ public class AutofillAssistantBackButtonIntegrationTest {
         ChromeTabUtils.loadUrlOnUiThread(
                 mTestRule.getActivity().getActivityTab(), getURL(TEST_PAGE_B));
 
-        SelectorProto element =
-                (SelectorProto) SelectorProto.newBuilder()
-                        .addFilters(
-                                SelectorProto.Filter.newBuilder().setCssSelector("#profile_name"))
-                        .build();
+        SelectorProto element = toCssSelector("#profile_name");
 
         ArrayList<ActionProto> list = new ArrayList<>();
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setShowCast(ShowCastProto.newBuilder()
                                               .setElementToPresent(element)
                                               .setTouchableElementArea(
@@ -329,32 +298,31 @@ public class AutofillAssistantBackButtonIntegrationTest {
                                                               Rectangle.newBuilder().addElements(
                                                                       element))))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setTell(TellProto.newBuilder().setMessage("Tell"))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setPrompt(PromptProto.newBuilder().addChoices(
                                  PromptProto.Choice.newBuilder()))
                          .build());
 
         AutofillAssistantTestScript script = new AutofillAssistantTestScript(
-                (SupportedScriptProto) SupportedScriptProto.newBuilder()
+                SupportedScriptProto.newBuilder()
                         .setPath(TEST_PAGE_A)
-                        .setPresentation(PresentationProto.newBuilder().setAutostart(true).setChip(
-                                ChipProto.newBuilder().setText("Done")))
+                        .setPresentation(PresentationProto.newBuilder().setAutostart(true))
                         .build(),
                 list);
-        setupScripts((ClientSettingsProto) ClientSettingsProto.newBuilder()
-                             .setIntegrationTestSettings(
-                                     IntegrationTestSettings.newBuilder()
-                                             .setDisableHeaderAnimations(true)
-                                             .setDisableCarouselChangeAnimations(true))
-                             .setBackButtonSettings(BackButtonSettings.newBuilder()
-                                                            .setMessage("Back button pressed")
-                                                            .setUndoLabel("Undo"))
-                             .build(),
+        startAutofillAssistantOnTab(TEST_PAGE_B,
+                ClientSettingsProto.newBuilder()
+                        .setIntegrationTestSettings(
+                                IntegrationTestSettings.newBuilder()
+                                        .setDisableHeaderAnimations(true)
+                                        .setDisableCarouselChangeAnimations(true))
+                        .setBackButtonSettings(BackButtonSettings.newBuilder()
+                                                       .setMessage("Back button pressed")
+                                                       .setUndoLabel("Undo"))
+                        .build(),
                 script);
-        startAutofillAssistantOnTab(TEST_PAGE_B);
 
         waitUntilViewMatchesCondition(withText("Tell"), isCompletelyDisplayed());
 
@@ -382,7 +350,7 @@ public class AutofillAssistantBackButtonIntegrationTest {
                 mTestRule.getActivity().getActivityTab(), getURL(TEST_PAGE_B));
 
         ArrayList<ActionProto> list = new ArrayList<>();
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setPrompt(PromptProto.newBuilder()
                                             .setMessage("Prompt")
                                             .setBrowseMode(true)
@@ -390,14 +358,12 @@ public class AutofillAssistantBackButtonIntegrationTest {
                          .build());
 
         AutofillAssistantTestScript script = new AutofillAssistantTestScript(
-                (SupportedScriptProto) SupportedScriptProto.newBuilder()
+                SupportedScriptProto.newBuilder()
                         .setPath(TEST_PAGE_A)
-                        .setPresentation(PresentationProto.newBuilder().setAutostart(true).setChip(
-                                ChipProto.newBuilder().setText("Done")))
+                        .setPresentation(PresentationProto.newBuilder().setAutostart(true))
                         .build(),
                 list);
-        setupScripts(script);
-        startAutofillAssistantOnTab(TEST_PAGE_B);
+        startAutofillAssistantOnTab(TEST_PAGE_B, script);
 
         // BROWSE state must not automatically collapse the UI.
         waitUntilViewMatchesCondition(withText("Prompt"), isCompletelyDisplayed());

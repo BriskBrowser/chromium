@@ -108,8 +108,8 @@ class ChromeUnwinderCreator {
 // Encapsulates the setup required to create the Android native unwinder.
 class NativeUnwinderCreator {
  public:
-  NativeUnwinderCreator()
-      : module_(stack_unwinder::Module::Load()),
+  explicit NativeUnwinderCreator(stack_unwinder::Module* stack_unwinder_module)
+      : module_(stack_unwinder_module),
         memory_regions_map_(module_->CreateMemoryRegionsMap()) {}
   NativeUnwinderCreator(const NativeUnwinderCreator&) = delete;
   NativeUnwinderCreator& operator=(const NativeUnwinderCreator&) = delete;
@@ -121,12 +121,16 @@ class NativeUnwinderCreator {
   }
 
  private:
-  const std::unique_ptr<stack_unwinder::Module> module_;
+  stack_unwinder::Module* const module_;
   const std::unique_ptr<stack_unwinder::MemoryRegionsMap> memory_regions_map_;
 };
 
-std::vector<std::unique_ptr<base::Unwinder>> CreateCoreUnwinders() {
-  static base::NoDestructor<NativeUnwinderCreator> native_unwinder_creator;
+std::vector<std::unique_ptr<base::Unwinder>> CreateCoreUnwinders(
+    stack_unwinder::Module* const stack_unwinder_module) {
+  DCHECK_NE(getpid(), gettid());
+
+  static base::NoDestructor<NativeUnwinderCreator> native_unwinder_creator(
+      stack_unwinder_module);
   static base::NoDestructor<ChromeUnwinderCreator> chrome_unwinder_creator;
 
   // Note order matters: the more general unwinder must appear first in the
@@ -145,15 +149,9 @@ base::StackSamplingProfiler::UnwindersFactory CreateCoreUnwindersFactory() {
   CHECK(
       ThreadProfilerConfiguration::Get()->IsProfilerEnabledForCurrentProcess());
 
-  // Temporarily run CreateCoreUnwinders() on the main thread to test a
-  // hypothesis about cause of crashes seen in https://crbug.com/1135152.
-  // TODO(https://crbug.com/1135152): Move CreateCoreUnwinders() execution back
-  // into the bound function.
-  return base::BindOnce(
-      [](std::vector<std::unique_ptr<base::Unwinder>> unwinders) {
-        return unwinders;
-      },
-      CreateCoreUnwinders());
+  static base::NoDestructor<std::unique_ptr<stack_unwinder::Module>>
+      stack_unwinder_module(stack_unwinder::Module::Load());
+  return base::BindOnce(CreateCoreUnwinders, stack_unwinder_module->get());
 #else
   return base::StackSamplingProfiler::UnwindersFactory();
 #endif
@@ -161,7 +159,7 @@ base::StackSamplingProfiler::UnwindersFactory CreateCoreUnwindersFactory() {
 
 const base::RepeatingClosure GetApplyPerSampleMetadataCallback(
     CallStackProfileParams::Process process) {
-  if (process != CallStackProfileParams::RENDERER_PROCESS)
+  if (process != CallStackProfileParams::Process::kRenderer)
     return base::RepeatingClosure();
   static const base::SampleMetadata process_backgrounded("ProcessBackgrounded");
   return base::BindRepeating(
@@ -253,8 +251,8 @@ std::unique_ptr<ThreadProfiler> ThreadProfiler::CreateAndStartOnMainThread() {
   bool is_single_process = command_line->HasSwitch(switches::kSingleProcess) ||
                            command_line->HasSwitch(switches::kInProcessGPU);
   DCHECK(!g_main_thread_instance || is_single_process);
-  auto instance =
-      base::WrapUnique(new ThreadProfiler(CallStackProfileParams::MAIN_THREAD));
+  auto instance = base::WrapUnique(
+      new ThreadProfiler(CallStackProfileParams::Thread::kMain));
   if (!g_main_thread_instance)
     g_main_thread_instance = instance.get();
   return instance;
@@ -284,8 +282,7 @@ void ThreadProfiler::SetAuxUnwinderFactory(
 void ThreadProfiler::StartOnChildThread(CallStackProfileParams::Thread thread) {
   // The profiler object is stored in a SequenceLocalStorageSlot on child
   // threads to give it the same lifetime as the threads.
-  static base::NoDestructor<
-      base::SequenceLocalStorageSlot<std::unique_ptr<ThreadProfiler>>>
+  static base::SequenceLocalStorageSlot<std::unique_ptr<ThreadProfiler>>
       child_thread_profiler_sequence_local_storage;
 
   if (!ThreadProfilerConfiguration::Get()
@@ -293,7 +290,7 @@ void ThreadProfiler::StartOnChildThread(CallStackProfileParams::Thread thread) {
     return;
   }
 
-  child_thread_profiler_sequence_local_storage->emplace(
+  child_thread_profiler_sequence_local_storage.emplace(
       new ThreadProfiler(thread, base::ThreadTaskRunnerHandle::Get()));
 }
 
@@ -310,7 +307,7 @@ void ThreadProfiler::SetCollectorForChildProcess(
   if (!ThreadProfilerConfiguration::Get()->IsProfilerEnabledForCurrentProcess())
     return;
 
-  DCHECK_NE(CallStackProfileParams::BROWSER_PROCESS,
+  DCHECK_NE(CallStackProfileParams::Process::kBrowser,
             GetProfileParamsProcess(*base::CommandLine::ForCurrentProcess()));
   CallStackProfileBuilder::SetParentProfileCollectorForChildProcess(
       std::move(collector));
@@ -354,8 +351,9 @@ ThreadProfiler::ThreadProfiler(
   startup_profiler_ = std::make_unique<StackSamplingProfiler>(
       base::GetSamplingProfilerCurrentThreadToken(), sampling_params,
       std::make_unique<CallStackProfileBuilder>(
-          CallStackProfileParams(process_, thread,
-                                 CallStackProfileParams::PROCESS_STARTUP),
+          CallStackProfileParams(
+              process_, thread,
+              CallStackProfileParams::Trigger::kProcessStartup),
           work_id_recorder_.get()),
       CreateCoreUnwindersFactory(),
       GetApplyPerSampleMetadataCallback(process_));
@@ -419,8 +417,9 @@ void ThreadProfiler::StartPeriodicSamplingCollection() {
       base::GetSamplingProfilerCurrentThreadToken(),
       ThreadProfilerConfiguration::Get()->GetSamplingParams(),
       std::make_unique<CallStackProfileBuilder>(
-          CallStackProfileParams(process_, thread_,
-                                 CallStackProfileParams::PERIODIC_COLLECTION),
+          CallStackProfileParams(
+              process_, thread_,
+              CallStackProfileParams::Trigger::kPeriodicCollection),
           work_id_recorder_.get(),
           base::BindOnce(&ThreadProfiler::OnPeriodicCollectionCompleted,
                          owning_thread_task_runner_,

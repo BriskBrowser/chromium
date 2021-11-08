@@ -58,7 +58,7 @@ class ExternalMetricsTest : public testing::Test {
     // We don't use the scheduling feature when testing ExternalMetrics, instead
     // we just call CollectMetrics directly. So make up a time interval here
     // that we'll never reach in a test.
-    const auto one_hour = base::TimeDelta::FromHours(1);
+    const auto one_hour = base::Hours(1);
     external_metrics_ = std::make_unique<ExternalMetrics>(
         temp_dir_.GetPath(), one_hour,
         base::BindRepeating(&ExternalMetricsTest::OnEventsCollected,
@@ -71,7 +71,9 @@ class ExternalMetricsTest : public testing::Test {
     CHECK(proto_.has_value());
   }
 
-  void OnEventsCollected(EventsProto proto) { proto_ = std::move(proto); }
+  void OnEventsCollected(const EventsProto& proto) {
+    proto_ = std::move(proto);
+  }
 
   void WriteToDisk(const std::string& name, const EventsProto& proto) {
     CHECK(base::WriteFile(temp_dir_.GetPath().Append(name),
@@ -86,7 +88,7 @@ class ExternalMetricsTest : public testing::Test {
 
   base::ScopedTempDir temp_dir_;
   std::unique_ptr<ExternalMetrics> external_metrics_;
-  base::Optional<EventsProto> proto_;
+  absl::optional<EventsProto> proto_;
 
   base::test::TaskEnvironment task_environment_{
       base::test::TaskEnvironment::MainThreadType::UI,
@@ -159,6 +161,29 @@ TEST_F(ExternalMetricsTest, HandleCorruptFile) {
   AssertEqualsTestingProto(proto_.value(), {111, 222, 333});
   // Should have deleted the invalid file too.
   ASSERT_TRUE(base::IsDirectoryEmpty(temp_dir_.GetPath()));
+}
+
+// TODO(b/181724341): Remove this when the bluetooth metrics feature is enabled
+// by default.
+TEST_F(ExternalMetricsTest, FilterBluetoothEvents) {
+  // Event name hash for cros's BluetoothPairingStateChanged event.
+  const uint64_t event_hash = UINT64_C(11839023048095184048);
+
+  Init();
+
+  // Use the profile_event_id as an marker of which event is which, and assign a
+  // bluetooth event hash to ids > 100.
+  EventsProto proto;
+  for (const auto id : {101, 1, 2, 102, 103, 3, 104}) {
+    auto* event = proto.add_uma_events();
+    event->set_profile_event_id(id);
+    if (id > 100)
+      event->set_event_name_hash(event_hash);
+  }
+  WriteToDisk("proto", proto);
+
+  CollectEvents();
+  AssertEqualsTestingProto(proto_.value(), {1, 2, 3});
 }
 
 // TODO(crbug.com/1148168): Add a test for concurrent reading and writing here

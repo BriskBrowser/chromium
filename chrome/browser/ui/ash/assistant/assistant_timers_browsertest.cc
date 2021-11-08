@@ -13,10 +13,11 @@
 #include "ash/system/message_center/unified_message_center_view.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/unified/unified_system_tray.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string_util.h"
 #include "base/test/bind.h"
 #include "base/test/icu_test_util.h"
+#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ui/ash/assistant/assistant_test_mixin.h"
 #include "chrome/browser/ui/ash/assistant/test_support/test_util.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
@@ -28,7 +29,8 @@
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_observer.h"
 #include "ui/message_center/public/cpp/notification.h"
-#include "ui/message_center/views/notification_view_md.h"
+#include "ui/message_center/views/notification_view.h"
+#include "ui/views/controls/button/label_button.h"
 
 namespace chromeos {
 namespace assistant {
@@ -48,12 +50,13 @@ constexpr int kVersion = 1;
 
 #define EXPECT_VISIBLE_NOTIFICATIONS_BY_PREFIXED_ID(prefix_)                  \
   {                                                                           \
-    if (!FindVisibleNotificationsByPrefixedId(prefix_).empty())               \
+    if (!FindVisibleNotificationsByPrefixedId(prefix_).empty()) {             \
       return;                                                                 \
-                                                                              \
+    }                                                                         \
     MockMessageCenterObserver mock;                                           \
-    ScopedObserver<MessageCenter, MessageCenterObserver> observer_{&mock};    \
-    observer_.Add(MessageCenter::Get());                                      \
+    base::ScopedObservation<MessageCenter, MessageCenterObserver>             \
+        observation_{&mock};                                                  \
+    observation_.Observe(MessageCenter::Get());                               \
                                                                               \
     base::RunLoop run_loop;                                                   \
     EXPECT_CALL(mock, OnNotificationAdded)                                    \
@@ -119,12 +122,11 @@ message_center::MessageView* FindViewForNotification(
 }
 
 // Returns the action buttons for the specified |notification|.
-std::vector<message_center::NotificationMdTextButton*>
-FindActionButtonsForNotification(
+std::vector<views::LabelButton*> FindActionButtonsForNotification(
     const message_center::Notification* notification) {
   auto* notification_view = FindViewForNotification(notification);
 
-  std::vector<message_center::NotificationMdTextButton*> action_buttons;
+  std::vector<views::LabelButton*> action_buttons;
   FindDescendentsOfClass(notification_view, &action_buttons);
 
   return action_buttons;
@@ -189,7 +191,9 @@ class MockMessageCenterObserver
 class AssistantTimersBrowserTest : public MixinBasedInProcessBrowserTest {
  public:
   AssistantTimersBrowserTest() {
-    feature_list_.InitAndEnableFeature(features::kAssistantTimersV2);
+    // TODO(b/190633242): enable sandbox in browser tests.
+    feature_list_.InitAndDisableFeature(
+        chromeos::assistant::features::kEnableLibAssistantSandbox);
   }
 
   AssistantTimersBrowserTest(const AssistantTimersBrowserTest&) = delete;
@@ -215,8 +219,10 @@ class AssistantTimersBrowserTest : public MixinBasedInProcessBrowserTest {
 // Tests -----------------------------------------------------------------------
 
 // Timer notifications should be dismissed when disabling Assistant in settings.
-IN_PROC_BROWSER_TEST_F(AssistantTimersBrowserTest,
-                       ShouldDismissTimerNotificationsWhenDisablingAssistant) {
+// Flaky. See https://crbug.com/1196564.
+IN_PROC_BROWSER_TEST_F(
+    AssistantTimersBrowserTest,
+    DISABLED_ShouldDismissTimerNotificationsWhenDisablingAssistant) {
   tester()->StartAssistantAndWaitForReady();
 
   ShowAssistantUi();
@@ -244,8 +250,9 @@ IN_PROC_BROWSER_TEST_F(AssistantTimersBrowserTest,
 
 // Pressing the "STOP" action button in a timer notification should result in
 // the timer being removed.
+// Flaky. See https://crbug.com/1196564.
 IN_PROC_BROWSER_TEST_F(AssistantTimersBrowserTest,
-                       ShouldRemoveTimerWhenStoppingViaNotification) {
+                       DISABLED_ShouldRemoveTimerWhenStoppingViaNotification) {
   tester()->StartAssistantAndWaitForReady();
 
   ShowAssistantUi();
@@ -256,13 +263,7 @@ IN_PROC_BROWSER_TEST_F(AssistantTimersBrowserTest,
 
   // Start a timer for five minutes.
   tester()->SendTextQuery("Set a timer for 5 minutes");
-  tester()->ExpectAnyOfTheseTextResponses({
-      "Alright, 5 min. Starting… now.",
-      "OK, 5 min. And we're starting… now.",
-      "OK, 5 min. Starting… now.",
-      "Sure, 5 min. And that's starting… now.",
-      "Sure, 5 min. Starting now.",
-  });
+  tester()->ExpectTextResponse("5 min.");
 
   // Tap status area widget (to show notifications in the Message Center).
   TapOnAndWait(FindStatusAreaWidget());
@@ -277,7 +278,7 @@ IN_PROC_BROWSER_TEST_F(AssistantTimersBrowserTest,
   EXPECT_EQ(2u, action_buttons.size());
 
   // Tap the "CANCEL" action button in the notification.
-  EXPECT_EQ(base::UTF8ToUTF16("CANCEL"), action_buttons.at(1)->GetText());
+  EXPECT_EQ(u"CANCEL", action_buttons.at(1)->GetText());
   TapOnAndWait(action_buttons.at(1));
 
   ShowAssistantUi();
@@ -295,8 +296,9 @@ IN_PROC_BROWSER_TEST_F(AssistantTimersBrowserTest,
                        ShouldTickNotificationsAtRegularIntervals) {
   // Observe notifications.
   MockMessageCenterObserver mock;
-  ScopedObserver<MessageCenter, MessageCenterObserver> scoped_observer{&mock};
-  scoped_observer.Add(MessageCenter::Get());
+  base::ScopedObservation<MessageCenter, MessageCenterObserver>
+      scoped_observation{&mock};
+  scoped_observation.Observe(MessageCenter::Get());
 
   // Show Assistant UI (once ready).
   tester()->StartAssistantAndWaitForReady();

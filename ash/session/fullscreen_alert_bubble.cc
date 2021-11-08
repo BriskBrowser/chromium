@@ -19,13 +19,14 @@
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 #include "ui/wm/core/visibility_controller.h"
 #include "ui/wm/core/window_animations.h"
@@ -40,9 +41,8 @@ constexpr int kBubbleBetweenChildSpacingDp = 16;
 constexpr int kBubbleBorderRadius = 8;
 constexpr int kButtonPaddingDp = 8;
 constexpr int kOffsetFromEdge = 32;
-constexpr base::TimeDelta kAlertDuration = base::TimeDelta::FromSeconds(4);
-constexpr base::TimeDelta kBubbleAnimationDuration =
-    base::TimeDelta::FromMilliseconds(300);
+constexpr base::TimeDelta kAlertDuration = base::Seconds(4);
+constexpr base::TimeDelta kBubbleAnimationDuration = base::Milliseconds(300);
 
 constexpr SkColor kAlertTextColor =
     SkColorSetA(gfx::kGoogleGrey200, SK_AlphaOPAQUE);
@@ -58,8 +58,7 @@ class FullscreenAlertBubbleView : public views::View {
     SetPaintToLayer();
     SkColor background_color = AshColorProvider::Get()->GetBaseLayerColor(
         AshColorProvider::BaseLayerType::kTransparent80);
-    layer()->SetBackgroundBlur(
-        static_cast<float>(AshColorProvider::LayerBlurSigma::kBlurDefault));
+    layer()->SetBackgroundBlur(ColorProvider::kBackgroundBlurSigma);
     SetBackground(views::CreateRoundedRectBackground(background_color,
                                                      kBubbleBorderRadius));
     layer()->SetFillsBoundsOpaquely(false);
@@ -87,15 +86,14 @@ class FullscreenAlertBubbleView : public views::View {
     auto* dismiss =
         button_container->AddChildView(std::make_unique<SystemLabelButton>(
             views::Button::PressedCallback(),
-            l10n_util::GetStringUTF16(IDS_DISMISS_BUTTON),
-            SystemLabelButton::DisplayType::DEFAULT));
+            l10n_util::GetStringUTF16(IDS_DISMISS_BUTTON)));
     dismiss->SetCallback(on_dismiss);
 
     auto* exit_fullscreen =
         button_container->AddChildView(std::make_unique<SystemLabelButton>(
             views::Button::PressedCallback(),
-            l10n_util::GetStringUTF16(IDS_EXIT_FULLSCREEN_BUTTON),
-            SystemLabelButton::DisplayType::ALERT_NO_ICON));
+            l10n_util::GetStringUTF16(IDS_EXIT_FULLSCREEN_BUTTON)));
+    exit_fullscreen->SetBackgroundAndFont(/*alert_mode=*/true);
     exit_fullscreen->SetCallback(on_exit_fullscreen);
   }
 

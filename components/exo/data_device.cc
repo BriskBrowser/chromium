@@ -4,6 +4,8 @@
 
 #include "components/exo/data_device.h"
 
+#include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "components/exo/data_device_delegate.h"
 #include "components/exo/data_exchange_delegate.h"
@@ -25,8 +27,12 @@ namespace {
 
 using ::ui::mojom::DragOperation;
 
+constexpr int kDataDeviceSeatObserverPriority = 0;
+static_assert(Seat::IsValidObserverPriority(kDataDeviceSeatObserverPriority),
+              "kDataDeviceSeatObserverPriority is not in the valid range.");
+
 constexpr base::TimeDelta kDataOfferDestructionTimeout =
-    base::TimeDelta::FromMilliseconds(1000);
+    base::Milliseconds(1000);
 
 DragOperation DndActionToDragOperation(DndAction dnd_action) {
   switch (dnd_action) {
@@ -48,9 +54,9 @@ DataDevice::DataDevice(DataDeviceDelegate* delegate, Seat* seat)
   WMHelper::GetInstance()->AddDragDropObserver(this);
   ui::ClipboardMonitor::GetInstance()->AddObserver(this);
 
-  seat_->AddObserver(this);
+  seat_->AddObserver(this, kDataDeviceSeatObserverPriority);
 
-  OnSurfaceFocusing(seat_->GetFocusedSurface());
+  OnSurfaceFocused(seat_->GetFocusedSurface());
 }
 
 DataDevice::~DataDevice() {
@@ -165,13 +171,21 @@ DragOperation DataDevice::OnPerformDrop(const ui::DropTargetEvent& event) {
   return DndActionToDragOperation(dnd_action);
 }
 
+WMHelper::DragDropObserver::DropCallback DataDevice::GetDropCallback(
+    const ui::DropTargetEvent& event) {
+  base::ScopedClosureRunner drag_exit(
+      base::BindOnce(&DataDevice::OnDragExited, weak_factory_.GetWeakPtr()));
+  return base::BindOnce(&DataDevice::PerformDropOrExitDrag,
+                        drop_weak_factory_.GetWeakPtr(), std::move(drag_exit));
+}
+
 void DataDevice::OnClipboardDataChanged() {
   if (!focused_surface_)
     return;
   SetSelectionToCurrentClipboardData();
 }
 
-void DataDevice::OnSurfaceFocusing(Surface* surface) {
+void DataDevice::OnSurfaceFocused(Surface* surface) {
   Surface* next_focused_surface =
       surface && delegate_->CanAcceptDataEventsForSurface(surface) ? surface
                                                                    : nullptr;
@@ -190,8 +204,6 @@ void DataDevice::OnSurfaceFocusing(Surface* surface) {
     SetSelectionToCurrentClipboardData();
 }
 
-void DataDevice::OnSurfaceFocused(Surface* surface) {}
-
 void DataDevice::OnDataOfferDestroying(DataOffer* data_offer) {
   if (data_offer_ && data_offer_->get() == data_offer) {
     drop_succeeded_ = data_offer_->get()->finished();
@@ -199,6 +211,7 @@ void DataDevice::OnDataOfferDestroying(DataOffer* data_offer) {
       std::move(quit_closure_).Run();
     data_offer_.reset();
   }
+  drop_weak_factory_.InvalidateWeakPtrs();
 }
 
 void DataDevice::OnSurfaceDestroying(Surface* surface) {
@@ -226,6 +239,14 @@ void DataDevice::SetSelectionToCurrentClipboardData() {
       seat_->data_exchange_delegate()->GetDataTransferEndpointType(
           focused_surface_->get()->window()));
   delegate_->OnSelection(*data_offer);
+}
+
+void DataDevice::PerformDropOrExitDrag(
+    base::ScopedClosureRunner exit_drag,
+    const ui::DropTargetEvent& event,
+    ui::mojom::DragOperation& output_drag_op) {
+  output_drag_op = OnPerformDrop(event);
+  exit_drag.ReplaceClosure(base::DoNothing());
 }
 
 }  // namespace exo

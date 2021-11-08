@@ -4,6 +4,10 @@
 
 package org.chromium.chrome.browser.browsing_data;
 
+import android.os.Bundle;
+
+import androidx.preference.Preference;
+
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 
@@ -15,6 +19,23 @@ import java.util.List;
  * explanatory text.
  */
 public class ClearBrowsingDataFragmentAdvanced extends ClearBrowsingDataFragment {
+    @Override
+    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
+        super.onCreatePreferences(savedInstanceState, rootKey);
+        // Remove the search history text preferences if they exist, since they should only appear
+        // on the basic tab of Clear Browsing Data.
+        Preference googleDataTextPref =
+                findPreference(ClearBrowsingDataFragment.PREF_GOOGLE_DATA_TEXT);
+        if (googleDataTextPref != null) {
+            getPreferenceScreen().removePreference(googleDataTextPref);
+        }
+        Preference nonGoogleSearchHistoryTextPref =
+                findPreference(ClearBrowsingDataFragment.PREF_SEARCH_HISTORY_NON_GOOGLE_TEXT);
+        if (nonGoogleSearchHistoryTextPref != null) {
+            getPreferenceScreen().removePreference(nonGoogleSearchHistoryTextPref);
+        }
+    }
+
     @Override
     protected int getClearBrowsingDataTabType() {
         return ClearBrowsingDataTab.ADVANCED;

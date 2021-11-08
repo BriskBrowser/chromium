@@ -85,6 +85,24 @@
     <message name="IDS_PDF_PROPERTIES_PAGE_SIZE" desc="Name of the property describing the size of the pages of the PDF document.">
       Page size:
     </message>
+    <message name="IDS_PDF_PROPERTIES_PAGE_SIZE_VALUE_INCH" desc="Value for the page size of a PDF in inches.">
+      <ph name="WIDTH">$1<ex>8.5</ex></ph> × <ph name="HEIGHT">$2<ex>11.00</ex></ph> in (<ph name="ORIENTATION">$3<ex>portrait</ex></ph>)
+    </message>
+    <message name="IDS_PDF_PROPERTIES_PAGE_SIZE_VALUE_MM" desc="Value for the page size of a PDF in millimeters.">
+      <ph name="WIDTH">$1<ex>210</ex></ph> × <ph name="HEIGHT">$2<ex>297</ex></ph> mm (<ph name="ORIENTATION">$3<ex>portrait</ex></ph>)
+    </message>
+    <message name="IDS_PDF_PROPERTIES_PAGE_SIZE_PORTRAIT" desc="Label for a portrait page orientation.">
+      portrait
+    </message>
+    <message name="IDS_PDF_PROPERTIES_PAGE_SIZE_LANDSCAPE" desc="Label for a landscape page orientation.">
+      landscape
+    </message>
+    <message name="IDS_PDF_PROPERTIES_PAGE_SIZE_SQUARE" desc="Label for a square page that has neither portrait nor landscape orientation.">
+      square
+    </message>
+    <message name="IDS_PDF_PROPERTIES_PAGE_SIZE_VARIABLE" desc="Value for the page size of a PDF that lacks a uniform page size.">
+      Varies
+    </message>
     <message name="IDS_PDF_PROPERTIES_FAST_WEB_VIEW" desc="Name of the property describing whether the PDF document is organized to be viewed efficiently in network environments.">
       Fast web view:
     </message>
@@ -151,18 +169,6 @@
       Thumbnail for page <ph name="THUMBNAIL_PAGE"><ex>1</ex>$1</ph>
     </message>
     <if expr="chromeos">
-      <message name="IDS_PDF_DISCARD_FORM_CHANGES" desc="Title for a dialog that informs the user that the changes they have made to a form will be lost if they continue">
-        Discard changes?
-      </message>
-      <message name="IDS_PDF_DISCARD_FORM_CHANGES_DETAIL" desc="Warning message in dialog that informs the user that the changes they have made to a form will be lost if they continue">
-        Form changes will be lost. Are you sure you want to continue?
-      </message>
-      <message name="IDS_PDF_KEEP_EDITING" desc="Button label for the button that lets the user return and keep editing the changes they made">
-        Keep editing
-      </message>
-      <message name="IDS_PDF_DISCARD" desc="Button label for the button that lets the user discard their unneeded changes">
-        Discard
-      </message>
       <message name="IDS_PDF_ANNOTATION_ANNOTATE" desc="Button tooltip for entering the 'Annotation mode' which allows writing, drawing and highlighting of the PDF document">
         Annotate
       </message>

@@ -6,21 +6,21 @@
 
 #include <stddef.h>
 
+#include <string>
 #include <vector>
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_shortcut_win.h"
 #include "base/win/scoped_com_initializer.h"
 #include "chrome/browser/shell_integration.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/browser/web_applications/components/web_app_shortcut_win.h"
+#include "chrome/browser/web_applications/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_shortcut_win.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/install_static/install_util.h"
@@ -40,6 +40,12 @@ struct ShortcutTestObject {
 };
 
 class ShellIntegrationWinMigrateShortcutTest : public testing::Test {
+ public:
+  ShellIntegrationWinMigrateShortcutTest(
+      const ShellIntegrationWinMigrateShortcutTest&) = delete;
+  ShellIntegrationWinMigrateShortcutTest& operator=(
+      const ShellIntegrationWinMigrateShortcutTest&) = delete;
+
  protected:
   ShellIntegrationWinMigrateShortcutTest() {}
 
@@ -263,9 +269,6 @@ class ShellIntegrationWinMigrateShortcutTest : public testing::Test {
 
   // The app id of the example app for the non-default profile.
   std::wstring non_default_profile_extension_app_id_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ShellIntegrationWinMigrateShortcutTest);
 };
 
 }  // namespace
@@ -329,7 +332,7 @@ TEST_F(ShellIntegrationWinMigrateShortcutTest, MigrateChromeProxyTest) {
   temp_properties.set_target(web_app::GetChromeProxyPath());
   temp_properties.set_app_id(L"Dumbo3.Default");
   base::CommandLine cmd_line = shell_integration::CommandLineArgsForLauncher(
-      GURL(), base::WideToUTF8(extension_id_), base::FilePath());
+      GURL(), base::WideToUTF8(extension_id_), base::FilePath(), "");
   ASSERT_EQ(cmd_line.GetCommandLineString(), L" --app-id=" + extension_id_);
   temp_properties.set_arguments(cmd_line.GetCommandLineString());
   ASSERT_NO_FATAL_FAILURE(
@@ -340,8 +343,8 @@ TEST_F(ShellIntegrationWinMigrateShortcutTest, MigrateChromeProxyTest) {
   temp_properties.set_target(web_app::GetChromeProxyPath());
   temp_properties.set_app_id(L"Dumbo4.Default");
   GURL url("http://www.example.com");
-  cmd_line = shell_integration::CommandLineArgsForLauncher(url, std::string(),
-                                                           base::FilePath());
+  cmd_line = shell_integration::CommandLineArgsForLauncher(
+      url, std::string(), base::FilePath(), "");
   ASSERT_EQ(cmd_line.GetCommandLineString(), L" --app=http://www.example.com/");
   temp_properties.set_arguments(cmd_line.GetCommandLineString());
   ASSERT_NO_FATAL_FAILURE(

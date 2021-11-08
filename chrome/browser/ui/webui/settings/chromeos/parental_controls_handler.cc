@@ -10,7 +10,7 @@
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/launch_utils.h"
-#include "chrome/browser/chromeos/child_accounts/child_user_service.h"
+#include "chrome/browser/ash/child_accounts/child_user_service.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
@@ -35,13 +35,13 @@ ParentalControlsHandler::ParentalControlsHandler(Profile* profile)
 ParentalControlsHandler::~ParentalControlsHandler() = default;
 
 void ParentalControlsHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "showAddSupervisionDialog",
       base::BindRepeating(
           &ParentalControlsHandler::HandleShowAddSupervisionDialog,
           base::Unretained(this)));
 
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "launchFamilyLinkSettings",
       base::BindRepeating(
           &ParentalControlsHandler::HandleLaunchFamilyLinkSettings,
@@ -53,14 +53,14 @@ void ParentalControlsHandler::OnJavascriptDisallowed() {}
 
 void ParentalControlsHandler::HandleShowAddSupervisionDialog(
     const base::ListValue* args) {
-  DCHECK(args->empty());
+  DCHECK(args->GetList().empty());
   AddSupervisionDialog::Show(
       web_ui()->GetWebContents()->GetTopLevelNativeWindow());
 }
 
 void ParentalControlsHandler::HandleLaunchFamilyLinkSettings(
     const base::ListValue* args) {
-  DCHECK(args->empty());
+  DCHECK(args->GetList().empty());
 
   apps::AppServiceProxy* proxy =
       apps::AppServiceProxyFactory::GetForProfile(profile_);
@@ -79,7 +79,7 @@ void ParentalControlsHandler::HandleLaunchFamilyLinkSettings(
   // No FLH app installed, so try to launch Play Store to FLH app install page.
   if (registry.GetAppType(arc::kPlayStoreAppId) !=
       apps::mojom::AppType::kUnknown) {
-    apps::AppServiceProxyFactory::GetForProfile(profile_)->LaunchAppWithUrl(
+    proxy->LaunchAppWithUrl(
         arc::kPlayStoreAppId, ui::EF_NONE,
         GURL(chromeos::ChildUserService::kFamilyLinkHelperAppPlayStoreURL),
         apps::mojom::LaunchSource::kFromChromeInternal);

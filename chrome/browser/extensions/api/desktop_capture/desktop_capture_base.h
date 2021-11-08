@@ -44,7 +44,7 @@ class DesktopCaptureChooseDesktopMediaFunctionBase : public ExtensionFunction {
           sources,
       content::WebContents* web_contents,
       const GURL& origin,
-      const base::string16 target_name);
+      const std::u16string target_name);
 
   // Returns the calling application name to show in the picker.
   std::string GetCallerDisplayName() const;
@@ -76,6 +76,12 @@ class DesktopCaptureCancelChooseDesktopMediaFunctionBase
 class DesktopCaptureRequestsRegistry {
  public:
   DesktopCaptureRequestsRegistry();
+
+  DesktopCaptureRequestsRegistry(const DesktopCaptureRequestsRegistry&) =
+      delete;
+  DesktopCaptureRequestsRegistry& operator=(
+      const DesktopCaptureRequestsRegistry&) = delete;
+
   ~DesktopCaptureRequestsRegistry();
 
   static DesktopCaptureRequestsRegistry* GetInstance();
@@ -103,8 +109,6 @@ class DesktopCaptureRequestsRegistry {
       std::map<RequestId, DesktopCaptureChooseDesktopMediaFunctionBase*>;
 
   RequestsMap requests_;
-
-  DISALLOW_COPY_AND_ASSIGN(DesktopCaptureRequestsRegistry);
 };
 
 }  // namespace extensions

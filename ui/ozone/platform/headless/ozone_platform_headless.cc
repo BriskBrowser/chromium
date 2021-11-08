@@ -43,10 +43,12 @@ namespace {
 class HeadlessPlatformEventSource : public PlatformEventSource {
  public:
   HeadlessPlatformEventSource() = default;
-  ~HeadlessPlatformEventSource() override = default;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(HeadlessPlatformEventSource);
+  HeadlessPlatformEventSource(const HeadlessPlatformEventSource&) = delete;
+  HeadlessPlatformEventSource& operator=(const HeadlessPlatformEventSource&) =
+      delete;
+
+  ~HeadlessPlatformEventSource() override = default;
 };
 
 // OzonePlatform for headless mode
@@ -54,6 +56,10 @@ class OzonePlatformHeadless : public OzonePlatform {
  public:
   explicit OzonePlatformHeadless(const base::FilePath& dump_file)
       : file_path_(dump_file) {}
+
+  OzonePlatformHeadless(const OzonePlatformHeadless&) = delete;
+  OzonePlatformHeadless& operator=(const OzonePlatformHeadless&) = delete;
+
   ~OzonePlatformHeadless() override = default;
 
   // OzonePlatform:
@@ -86,6 +92,7 @@ class OzonePlatformHeadless : public OzonePlatform {
   std::unique_ptr<PlatformScreen> CreateScreen() override {
     return std::make_unique<HeadlessScreen>();
   }
+  void InitScreen(PlatformScreen* screen) override {}
   std::unique_ptr<InputMethod> CreateInputMethod(
       internal::InputMethodDelegate* delegate,
       gfx::AcceleratedWidget widget) override {
@@ -123,8 +130,6 @@ class OzonePlatformHeadless : public OzonePlatform {
   std::unique_ptr<GpuPlatformSupportHost> gpu_platform_support_host_;
   std::unique_ptr<OverlayManagerOzone> overlay_manager_;
   base::FilePath file_path_;
-
-  DISALLOW_COPY_AND_ASSIGN(OzonePlatformHeadless);
 };
 
 }  // namespace
@@ -135,6 +140,7 @@ OzonePlatform* CreateOzonePlatformHeadless() {
   if (cmd->HasSwitch(switches::kOzoneDumpFile))
     location = cmd->GetSwitchValuePath(switches::kOzoneDumpFile);
   cmd->AppendSwitch(switches::kDisableRunningAsSystemCompositor);
+
   return new OzonePlatformHeadless(location);
 }
 

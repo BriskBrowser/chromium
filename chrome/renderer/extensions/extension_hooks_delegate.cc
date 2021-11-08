@@ -9,7 +9,8 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
-#include "extensions/common/view_type.h"
+#include "extensions/common/mojom/view_type.mojom.h"
+#include "extensions/common/view_type_util.h"
 #include "extensions/renderer/bindings/api_signature.h"
 #include "extensions/renderer/extension_frame_helper.h"
 #include "extensions/renderer/extensions_renderer_client.h"
@@ -227,8 +228,10 @@ RequestResult ExtensionHooksDelegate::HandleSendRequest(
   }
 
   v8::Local<v8::Value> v8_message = arguments[1];
+
   std::unique_ptr<Message> message = messaging_util::MessageFromV8(
-      script_context->v8_context(), v8_message, &error);
+      script_context->v8_context(), v8_message,
+      messaging_util::GetSerializationFormat(*script_context), &error);
   if (!message) {
     RequestResult result(RequestResult::INVALID_INVOCATION);
     result.error = std::move(error);
@@ -261,7 +264,7 @@ APIBindingHooks::RequestResult ExtensionHooksDelegate::HandleGetViews(
   const Extension* extension = script_context->extension();
   DCHECK(extension);
 
-  ViewType view_type = VIEW_TYPE_INVALID;
+  mojom::ViewType view_type = mojom::ViewType::kInvalid;
   int window_id = extension_misc::kUnknownWindowId;
   int tab_id = extension_misc::kUnknownTabId;
 
@@ -313,7 +316,7 @@ RequestResult ExtensionHooksDelegate::HandleGetExtensionTabs(
   const Extension* extension = script_context->extension();
   DCHECK(extension);
 
-  ViewType view_type = VIEW_TYPE_TAB_CONTENTS;
+  mojom::ViewType view_type = mojom::ViewType::kTabContents;
   int window_id = extension_misc::kUnknownWindowId;
   int tab_id = extension_misc::kUnknownTabId;
 

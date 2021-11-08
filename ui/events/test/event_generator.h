@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/event.h"
 #include "ui/events/event_dispatcher.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -83,13 +84,6 @@ class EventGeneratorDelegate {
   // |hosted_target| into the root window's coordinate system.
   virtual void ConvertPointFromHost(const EventTarget* hosted_target,
                                     gfx::Point* point) const = 0;
-
-  // Determines if the input method should be the first to handle key events
-  // before dispatching to Views. If it does, the given |event| will be
-  // dispatched and processed by the input method from the host of |target|.
-  virtual ui::EventDispatchDetails DispatchKeyEventToIME(EventTarget* target,
-                                                         ui::KeyEvent* event)
-      WARN_UNUSED_RESULT = 0;
 };
 
 // ui::test::EventGenerator is a tool that generates and dispatches events.
@@ -136,6 +130,9 @@ class EventGenerator {
   EventGenerator(gfx::NativeWindow root_window,
                  gfx::NativeWindow target_window);
 
+  EventGenerator(const EventGenerator&) = delete;
+  EventGenerator& operator=(const EventGenerator&) = delete;
+
   virtual ~EventGenerator();
 
   // Explicitly sets the location used by mouse/touch events, in screen
@@ -173,20 +170,6 @@ class EventGenerator {
   // Resets the event flags bitmask.
   void set_flags(int flags) { flags_ = flags; }
   int flags() const { return flags_; }
-
-  // Many tests assume a window created at (0,0) will remain there when shown.
-  // However, an operating system's window manager may reposition the window
-  // into the work area. This can disrupt the coordinates used on test events,
-  // so an EventGeneratorDelegate may skip the step that remaps coordinates in
-  // the root window to window coordinates when dispatching events.
-  // Setting this to false skips that step, in which case the test must ensure
-  // it correctly maps coordinates in window coordinates to root window (screen)
-  // coordinates when calling, e.g., set_current_screen_location().
-  // Default is true. This only has any effect on Mac.
-  void set_assume_window_at_origin(bool assume_window_at_origin) {
-    assume_window_at_origin_ = assume_window_at_origin;
-  }
-  bool assume_window_at_origin() { return assume_window_at_origin_; }
 
   // Generates a left button press event.
   void PressLeftButton();
@@ -292,14 +275,14 @@ class EventGenerator {
   // Generates a touch press event. If |touch_location_in_screen| is not null,
   // the touch press event will happen at |touch_location_in_screen|. Otherwise,
   // it will happen at the current event location |current_screen_location_|.
-  void PressTouch(const base::Optional<gfx::Point>& touch_location_in_screen =
-                      base::nullopt);
+  void PressTouch(const absl::optional<gfx::Point>& touch_location_in_screen =
+                      absl::nullopt);
 
   // Generates a touch press event with |touch_id|. See PressTouch() event for
   // the description of |touch_location_in_screen| parameter.
   void PressTouchId(int touch_id,
-                    const base::Optional<gfx::Point>& touch_location_in_screen =
-                        base::nullopt);
+                    const absl::optional<gfx::Point>& touch_location_in_screen =
+                        absl::nullopt);
 
   // Generates a ET_TOUCH_MOVED event to |point|.
   void MoveTouch(const gfx::Point& point);
@@ -456,6 +439,11 @@ class EventGenerator {
                   int flags,
                   int source_device_id = ED_UNKNOWN_DEVICE);
 
+  // Calls PressKey() then ReleaseKey() to simulate typing one character.
+  void PressAndReleaseKey(KeyboardCode key_code,
+                          int flags = EF_NONE,
+                          int source_device_id = ED_UNKNOWN_DEVICE);
+
   // Dispatch the event to the WindowEventDispatcher.
   void Dispatch(Event* event);
 
@@ -476,6 +464,7 @@ class EventGenerator {
                         int flags,
                         int source_device_id);
 
+  void SetCurrentScreenLocation(const gfx::Point& point);
   void UpdateCurrentDispatcher(const gfx::Point& point);
   void PressButton(int flag);
   void ReleaseButton(int flag);
@@ -491,15 +480,9 @@ class EventGenerator {
 
   ui::PointerDetails touch_pointer_details_;
 
-  // Whether to skip mapping of coordinates from the root window to a hit window
-  // when dispatching events.
-  bool assume_window_at_origin_ = true;
-
   Target target_ = Target::WIDGET;
 
   std::unique_ptr<TestTickClock> tick_clock_;
-
-  DISALLOW_COPY_AND_ASSIGN(EventGenerator);
 };
 
 }  // namespace test

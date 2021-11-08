@@ -21,10 +21,10 @@
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram.h"
 #include "base/ranges/algorithm.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/task_runner_util.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/task_runner_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "base/values.h"
@@ -220,8 +220,8 @@ void JsonPrefStore::SetValue(const std::string& key,
   DCHECK(value);
   base::Value* old_value = nullptr;
   prefs_->Get(key, &old_value);
-  if (!old_value || !value->Equals(old_value)) {
-    prefs_->Set(key, std::move(value));
+  if (!old_value || *value != *old_value) {
+    prefs_->SetPath(key, std::move(*value));
     ReportValueChanged(key, flags);
   }
 }
@@ -234,8 +234,8 @@ void JsonPrefStore::SetValueSilently(const std::string& key,
   DCHECK(value);
   base::Value* old_value = nullptr;
   prefs_->Get(key, &old_value);
-  if (!old_value || !value->Equals(old_value)) {
-    prefs_->Set(key, std::move(value));
+  if (!old_value || *value != *old_value) {
+    prefs_->SetPath(key, std::move(*value));
     ScheduleWrite(flags);
   }
 }
@@ -243,7 +243,7 @@ void JsonPrefStore::SetValueSilently(const std::string& key,
 void JsonPrefStore::RemoveValue(const std::string& key, uint32_t flags) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (prefs_->RemovePath(key, nullptr))
+  if (prefs_->RemovePath(key))
     ReportValueChanged(key, flags);
 }
 
@@ -251,7 +251,7 @@ void JsonPrefStore::RemoveValueSilently(const std::string& key,
                                         uint32_t flags) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  prefs_->RemovePath(key, nullptr);
+  prefs_->RemovePath(key);
   ScheduleWrite(flags);
 }
 

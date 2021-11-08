@@ -24,10 +24,14 @@ class BubbleContentsWrapperT<TestWebUIController>
   BubbleContentsWrapperT(const GURL& webui_url,
                          content::BrowserContext* browser_context,
                          int task_manager_string_id,
-                         bool enable_extension_apis = false)
+                         bool enable_extension_apis = false,
+                         bool webui_resizes_host = true,
+                         bool esc_closes_ui = true)
       : BubbleContentsWrapper(browser_context,
                               task_manager_string_id,
-                              enable_extension_apis) {}
+                              enable_extension_apis,
+                              webui_resizes_host,
+                              esc_closes_ui) {}
   void ReloadWebContents() override {}
 };
 

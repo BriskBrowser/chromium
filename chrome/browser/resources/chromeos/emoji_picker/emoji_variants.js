@@ -6,21 +6,18 @@ import {beforeNextRender, html, PolymerElement} from 'chrome://resources/polymer
 import {createCustomEvent, EMOJI_VARIANTS_SHOWN} from './events.js';
 import {Emoji} from './types.js';
 
-const GENDER_FEMALE = 9792;       // U+2640 FEMALE_SIGN
-const SKIN_TONE_MEDIUM = 127997;  // U+1F3FD EMOJI MODIFIER FITZPATRICK TYPE-4
-const FAMILY = 128106;            // U+1F46A FAMILY
-const COUPLE = 128107;            // U+1F46B MAN AND WOMAN HOLDING HANDS
+const SKIN_TONE_MEDIUM = '🏽';  // U+1F3FD EMOJI MODIFIER FITZPATRICK TYPE-4
+const FAMILY = '👪';           // U+1F46A FAMILY
 
 /**
  * Determines if the given list of variants has any variant which contains
  * the given codepoint.
  * @param {!Array<!Emoji>} variants
- * @param {!number} codepoint
+ * @param {!string} codepoint
  * @return {boolean}
  */
 function hasVariation(variants, codepoint) {
-  const codepointString = String.fromCodePoint(codepoint);
-  return variants.findIndex(x => x.string.includes(codepointString)) !== -1;
+  return variants.findIndex(x => x.string.includes(codepoint)) !== -1;
 }
 
 
@@ -36,7 +33,6 @@ function hasVariation(variants, codepoint) {
 function partitionArray(array, subarrayLengths) {
   const subarrays = [];
   let used = 0;
-
   for (const len of subarrayLengths) {
     if (len < 0) {
       used += -len;
@@ -67,6 +63,10 @@ export class EmojiVariants extends PolymerElement {
       baseEmoji: {type: Array},
       /** @private {boolean} */
       showSkinTones: {type: Boolean},
+      /** @private {boolean} */
+      showBaseEmoji: {type: Boolean},
+      /** @private {!string} */
+      tooltip: {type: String},
     };
   }
 
@@ -78,21 +78,18 @@ export class EmojiVariants extends PolymerElement {
     super.ready();
 
     // family picker is basic 5x5 grid.
-    const isFamily = this.variants.length === 26 && this.variants[0] == FAMILY;
+    const isFamily =
+        this.variants.length === 26 && this.variants[0].string === FAMILY;
     // two people is 5x5 grid with 5 skin tones per person.
     const isTwoPeople = this.variants.length === 26 &&
         hasVariation(this.variants, SKIN_TONE_MEDIUM);
-
-    if (isFamily || isTwoPeople) {
-      // for these cases, the first variant is the generic one.
-      this.baseEmoji = this.variants[0].string;
-    } else {
-      this.baseEmoji = null;
-    }
+    this.showBaseEmoji = isFamily || isTwoPeople;
+    this.baseEmoji = this.variants[0].string;
     this.showSkinTones = isTwoPeople;
 
     // if we are showing a base emoji separately, omit it from the main grid.
-    const gridEmoji = this.baseEmoji ? this.variants.slice(1) : this.variants;
+    const gridEmoji =
+        this.showBaseEmoji ? this.variants.slice(1) : this.variants;
     const rowLengths = this.computeVariantRowLengths(gridEmoji);
     this.variantRows = partitionArray(gridEmoji, rowLengths);
 
@@ -101,9 +98,7 @@ export class EmojiVariants extends PolymerElement {
   }
 
   connectedCallback() {
-    beforeNextRender(
-        this,
-        () => this.shadowRoot.querySelector('emoji-button').focusButton());
+    beforeNextRender(this, () => this.$['fake-focus-target'].focus());
   }
 
   computeVariantRowLengths(variants) {
@@ -122,7 +117,6 @@ export class EmojiVariants extends PolymerElement {
       return [5, 5, 5, 5, 5];
     }
 
-    console.error('unimplemented variation: ', variants);
     return [];
   }
 

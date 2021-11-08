@@ -11,11 +11,11 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/containers/contains.h"
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/stl_util.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface_stub.h"
 #include "gpu/command_buffer/common/capabilities.h"
@@ -193,14 +193,15 @@ class TestGLES2Interface : public gpu::gles2::GLES2InterfaceStub {
  protected:
   struct Buffer {
     Buffer();
+
+    Buffer(const Buffer&) = delete;
+    Buffer& operator=(const Buffer&) = delete;
+
     ~Buffer();
 
     GLenum target;
     std::unique_ptr<uint8_t[]> pixels;
     size_t size;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(Buffer);
   };
 
   unsigned context_id_;

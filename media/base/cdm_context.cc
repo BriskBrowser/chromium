@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "media/base/cdm_context.h"
-#include "build/chromeos_buildflags.h"
 
 #include "media/base/callback_registry.h"
 
@@ -22,19 +21,19 @@ Decryptor* CdmContext::GetDecryptor() {
   return nullptr;
 }
 
-base::Optional<base::UnguessableToken> CdmContext::GetCdmId() const {
-  return base::nullopt;
+absl::optional<base::UnguessableToken> CdmContext::GetCdmId() const {
+  return absl::nullopt;
 }
 
 std::string CdmContext::CdmIdToString(const base::UnguessableToken* cdm_id) {
   return cdm_id ? cdm_id->ToString() : "null";
 }
 
+#if defined(OS_WIN)
 bool CdmContext::RequiresMediaFoundationRenderer() {
   return false;
 }
 
-#if defined(OS_WIN)
 bool CdmContext::GetMediaFoundationCdmProxy(
     GetMediaFoundationCdmProxyCB get_mf_cdm_proxy_cb) {
   return false;
@@ -53,7 +52,7 @@ FuchsiaCdmContext* CdmContext::GetFuchsiaCdmContext() {
 }
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 chromeos::ChromeOsCdmContext* CdmContext::GetChromeOsCdmContext() {
   return nullptr;
 }

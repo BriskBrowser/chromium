@@ -11,13 +11,13 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/desks/desks_util.h"
 #include "base/i18n/rtl.h"
-#include "base/stl_util.h"
 #include "base/test/icu_test_util.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "chromeos/ui/frame/caption_buttons/frame_back_button.h"
 #include "chromeos/ui/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "chromeos/ui/frame/frame_header.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/gfx/animation/animation_test_api.h"
 #include "ui/gfx/color_utils.h"
@@ -277,7 +277,7 @@ TEST_F(DefaultFrameHeaderTest, ResizeAndReorderDuringAnimation) {
     LayerDestroyedChecker checker(animating_layer);
 
     // Change the view's stacking order should stop the animation.
-    ASSERT_EQ(2u, frame_view_1->children().size());
+    ASSERT_EQ(3u, frame_view_1->children().size());
     frame_view_1->ReorderChildView(extra_view_1, 0);
 
     EXPECT_EQ(

@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "components/viz/service/display_embedder/skia_output_surface_dependency.h"
@@ -22,8 +23,15 @@ class GpuServiceImpl;
 class VIZ_SERVICE_EXPORT SkiaOutputSurfaceDependencyImpl
     : public SkiaOutputSurfaceDependency {
  public:
-  SkiaOutputSurfaceDependencyImpl(GpuServiceImpl* gpu_service_impl,
-                                  gpu::SurfaceHandle surface_handle);
+  SkiaOutputSurfaceDependencyImpl(
+      GpuServiceImpl* gpu_service_impl,
+      gpu::SurfaceHandle surface_handle);
+
+  SkiaOutputSurfaceDependencyImpl(const SkiaOutputSurfaceDependencyImpl&) =
+      delete;
+  SkiaOutputSurfaceDependencyImpl& operator=(
+      const SkiaOutputSurfaceDependencyImpl&) = delete;
+
   ~SkiaOutputSurfaceDependencyImpl() override;
 
   std::unique_ptr<gpu::SingleTaskSequence> CreateSequence() override;
@@ -66,8 +74,6 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceDependencyImpl
   GpuServiceImpl* const gpu_service_impl_;
   const gpu::SurfaceHandle surface_handle_;
   scoped_refptr<base::SingleThreadTaskRunner> client_thread_task_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(SkiaOutputSurfaceDependencyImpl);
 };
 
 }  // namespace viz

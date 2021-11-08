@@ -29,6 +29,10 @@ class TsSectionCetsEcm : public TsSection {
 
   explicit TsSectionCetsEcm(
       const RegisterNewKeyIdAndIvCB& register_new_key_id_and_iv_cb);
+
+  TsSectionCetsEcm(const TsSectionCetsEcm&) = delete;
+  TsSectionCetsEcm& operator=(const TsSectionCetsEcm&) = delete;
+
   ~TsSectionCetsEcm() override;
 
   // TsSection implementation.
@@ -40,11 +44,9 @@ class TsSectionCetsEcm : public TsSection {
 
  private:
   RegisterNewKeyIdAndIvCB register_new_key_id_and_iv_cb_;
-
-  DISALLOW_COPY_AND_ASSIGN(TsSectionCetsEcm);
 };
 
 }  // namespace mp2t
 }  // namespace media
 
-#endif
+#endif  // MEDIA_FORMATS_MP2T_TS_SECTION_CETS_ECM_H_

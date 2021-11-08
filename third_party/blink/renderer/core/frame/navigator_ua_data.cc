@@ -5,7 +5,7 @@
 #include "third_party/blink/renderer/core/frame/navigator_ua_data.h"
 
 #include "base/compiler_specific.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
 #include "third_party/blink/public/common/privacy_budget/identifiability_study_settings.h"
 #include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
@@ -33,7 +33,7 @@ void MaybeRecordMetric(bool record_identifiability,
       IdentifiableSurface::Type::kNavigatorUAData_GetHighEntropyValues,
       IdentifiableToken(hint.Utf8()));
   IdentifiabilityMetricBuilder(execution_context->UkmSourceID())
-      .Set(identifiable_surface, IdentifiableToken(value.Utf8()))
+      .Add(identifiable_surface, IdentifiableToken(value.Utf8()))
       .Record(execution_context->UkmRecorder());
 }
 
@@ -84,6 +84,10 @@ void NavigatorUAData::SetUAFullVersion(const String& ua_full_version) {
   ua_full_version_ = ua_full_version;
 }
 
+void NavigatorUAData::SetBitness(const String& bitness) {
+  bitness_ = bitness;
+}
+
 bool NavigatorUAData::mobile() const {
   if (GetExecutionContext()) {
     return is_mobile_;
@@ -97,6 +101,13 @@ const HeapVector<Member<NavigatorUABrandVersion>>& NavigatorUAData::brands()
     return brand_set_;
   }
   return empty_brand_set_;
+}
+
+const String& NavigatorUAData::platform() const {
+  if (GetExecutionContext()) {
+    return platform_;
+  }
+  return WTF::g_empty_string;
 }
 
 ScriptPromise NavigatorUAData::getHighEntropyValues(
@@ -113,6 +124,8 @@ ScriptPromise NavigatorUAData::getHighEntropyValues(
           IdentifiableSurface::Type::kNavigatorUAData_GetHighEntropyValues);
   UADataValues* values = MakeGarbageCollected<UADataValues>();
   for (const String& hint : hints) {
+    values->setBrands(brand_set_);
+    values->setMobile(is_mobile_);
     if (hint == "platform") {
       values->setPlatform(platform_);
       MaybeRecordMetric(record_identifiability, hint, platform_,
@@ -133,6 +146,10 @@ ScriptPromise NavigatorUAData::getHighEntropyValues(
       values->setUaFullVersion(ua_full_version_);
       MaybeRecordMetric(record_identifiability, hint, ua_full_version_,
                         execution_context);
+    } else if (hint == "bitness") {
+      values->setBitness(bitness_);
+      MaybeRecordMetric(record_identifiability, hint, bitness_,
+                        execution_context);
     }
   }
 
@@ -144,6 +161,13 @@ ScriptPromise NavigatorUAData::getHighEntropyValues(
                     WrapPersistent(resolver), WrapPersistent(values)));
 
   return promise;
+}
+
+ScriptValue NavigatorUAData::toJSON(ScriptState* script_state) const {
+  V8ObjectBuilder builder(script_state);
+  builder.Add("brands", brands());
+  builder.Add("mobile", mobile());
+  return builder.GetScriptValue();
 }
 
 void NavigatorUAData::Trace(Visitor* visitor) const {

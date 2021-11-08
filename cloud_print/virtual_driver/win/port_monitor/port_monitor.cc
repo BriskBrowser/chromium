@@ -14,6 +14,9 @@
 #include <userenv.h>
 #include <winspool.h>
 
+#include <memory>
+#include <string>
+
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
@@ -22,7 +25,6 @@
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_handle.h"
@@ -121,7 +123,7 @@ base::FilePath GetAppDataDir() {
 
 // Delete files which where not deleted by chrome.
 void DeleteLeakedFiles(const base::FilePath& dir) {
-  base::Time delete_before = base::Time::Now() - base::TimeDelta::FromDays(1);
+  base::Time delete_before = base::Time::Now() - base::Days(1);
   base::FileEnumerator enumerator(dir, false, base::FileEnumerator::FILES);
   for (base::FilePath file_path = enumerator.Next(); !file_path.empty();
        file_path = enumerator.Next()) {
@@ -668,7 +670,7 @@ MONITOR2* WINAPI InitializePrintMonitor2(MONITORINIT*, HANDLE* handle) {
   *handle = monitor_data;
   if (!cloud_print::kIsUnittest) {
     // Unit tests set up their own AtExitManager
-    monitor_data->at_exit_manager.reset(new base::AtExitManager());
+    monitor_data->at_exit_manager = std::make_unique<base::AtExitManager>();
     // Single spooler.exe handles verbose users.
     base::PathService::DisableCache();
   }

@@ -7,7 +7,10 @@
 
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/ime/input_method_delegate.h"
+#include "ui/events/event.h"
 
 namespace arc {
 
@@ -21,9 +24,11 @@ class KeyEventResultReceiver {
 
   // Called when the host IME receives the event and passes it to the later
   // stage. This method has to call the callback exactly once.
-  void DispatchKeyEventPostIME(ui::KeyEvent* key_event);
+  // Returns true when |key_event| is the waiting key event and the callback is
+  // called. Returns false otherwise.
+  bool DispatchKeyEventPostIME(ui::KeyEvent* key_event);
 
-  void SetCallback(KeyEventDoneCallback callback);
+  void SetCallback(KeyEventDoneCallback callback, const ui::KeyEvent* event);
   bool HasCallback() const;
 
  private:
@@ -32,7 +37,11 @@ class KeyEventResultReceiver {
 
   void RunCallbackIfNeeded(bool result);
 
+  void RecordImeLatency();
+
   KeyEventDoneCallback callback_{};
+  absl::optional<ui::KeyEvent> expected_key_event_{};
+  absl::optional<base::TimeTicks> callback_set_time_{};
   base::WeakPtrFactory<KeyEventResultReceiver> weak_ptr_factory_{this};
 };
 

@@ -22,6 +22,10 @@ class TranslateBubbleModelImpl : public TranslateBubbleModel {
   TranslateBubbleModelImpl(
       translate::TranslateStep step,
       std::unique_ptr<translate::TranslateUIDelegate> ui_delegate);
+
+  TranslateBubbleModelImpl(const TranslateBubbleModelImpl&) = delete;
+  TranslateBubbleModelImpl& operator=(const TranslateBubbleModelImpl&) = delete;
+
   ~TranslateBubbleModelImpl() override;
 
   // Converts a TranslateStep to a ViewState.
@@ -36,11 +40,11 @@ class TranslateBubbleModelImpl : public TranslateBubbleModel {
   void GoBackFromAdvanced() override;
   int GetNumberOfSourceLanguages() const override;
   int GetNumberOfTargetLanguages() const override;
-  base::string16 GetSourceLanguageNameAt(int index) const override;
-  base::string16 GetTargetLanguageNameAt(int index) const override;
-  std::string GetOriginalLanguageCode() const override;
-  int GetOriginalLanguageIndex() const override;
-  void UpdateOriginalLanguageIndex(int index) override;
+  std::u16string GetSourceLanguageNameAt(int index) const override;
+  std::u16string GetTargetLanguageNameAt(int index) const override;
+  std::string GetSourceLanguageCode() const override;
+  int GetSourceLanguageIndex() const override;
+  void UpdateSourceLanguageIndex(int index) override;
   int GetTargetLanguageIndex() const override;
   void UpdateTargetLanguageIndex(int index) override;
   void DeclineTranslation() override;
@@ -56,7 +60,7 @@ class TranslateBubbleModelImpl : public TranslateBubbleModel {
   void RevertTranslation() override;
   void OnBubbleClosing() override;
   bool IsPageTranslatedInCurrentLanguages() const override;
-  bool CanBlocklistSite() override;
+  bool CanAddSiteToNeverPromptList() override;
   void ReportUIInteraction(translate::UIInteraction ui_interaction) override;
 
  private:
@@ -65,8 +69,6 @@ class TranslateBubbleModelImpl : public TranslateBubbleModel {
 
   bool translation_declined_;
   bool translate_executed_;
-
-  DISALLOW_COPY_AND_ASSIGN(TranslateBubbleModelImpl);
 };
 
 #endif  // CHROME_BROWSER_UI_TRANSLATE_TRANSLATE_BUBBLE_MODEL_IMPL_H_

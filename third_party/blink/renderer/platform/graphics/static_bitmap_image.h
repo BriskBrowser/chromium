@@ -21,6 +21,7 @@ class GLES2Interface;
 }  // namespace gpu
 
 namespace blink {
+class CanvasResourceProvider;
 
 class PLATFORM_EXPORT StaticBitmapImage : public Image {
  public:
@@ -40,7 +41,7 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   // Methods overridden by all sub-classes
   ~StaticBitmapImage() override = default;
 
-  IntSize PreferredDisplaySize() const override;
+  IntSize SizeWithConfig(SizeConfig) const final;
 
   virtual scoped_refptr<StaticBitmapImage> ConvertToColorSpace(
       sk_sp<SkColorSpace>,
@@ -68,8 +69,13 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
                              GLint,
                              bool,
                              bool,
-                             const IntPoint&,
+                             const gfx::Point&,
                              const IntRect&) {
+    NOTREACHED();
+    return false;
+  }
+
+  virtual bool CopyToResourceProvider(CanvasResourceProvider*) {
     NOTREACHED();
     return false;
   }
@@ -82,6 +88,12 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   virtual void UpdateSyncToken(const gpu::SyncToken&) { NOTREACHED(); }
   virtual bool IsPremultiplied() const { return true; }
 
+  // Return resource format for shared image backing.
+  virtual SkColorType GetSkColorType() const {
+    NOTREACHED();
+    return kUnknown_SkColorType;
+  }
+
   // Methods have exactly the same implementation for all sub-classes
   bool OriginClean() const { return is_origin_clean_; }
   void SetOriginClean(bool flag) { is_origin_clean_ = flag; }
@@ -92,8 +104,9 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   ImageOrientation CurrentFrameOrientation() const override {
     return orientation_;
   }
-  bool HasDefaultOrientation() const override {
-    return orientation_ == ImageOrientationEnum::kDefault;
+
+  void SetOrientation(ImageOrientation orientation) {
+    orientation_ = orientation;
   }
 
  protected:
@@ -102,10 +115,10 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
                   const cc::PaintFlags&,
                   const FloatRect&,
                   const FloatRect&,
-                  const SkSamplingOptions&,
-                  ImageClampingMode,
-                  RespectImageOrientationEnum,
+                  const ImageDrawOptions&,
                   const PaintImage&);
+
+  virtual IntSize SizeInternal() const = 0;
 
   // The image orientation is stored here because it is only available when the
   // static image is created and the underlying representations do not store
@@ -129,4 +142,4 @@ struct DowncastTraits<StaticBitmapImage> {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_STATIC_BITMAP_IMAGE_H_

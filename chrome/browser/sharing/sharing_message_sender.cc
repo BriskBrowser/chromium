@@ -22,7 +22,7 @@ SharingMessageSender::SharingMessageSender(
 
 SharingMessageSender::~SharingMessageSender() = default;
 
-void SharingMessageSender::SendMessageToDevice(
+base::OnceClosure SharingMessageSender::SendMessageToDevice(
     const syncer::DeviceInfo& device,
     base::TimeDelta response_timeout,
     chrome_browser_sharing::SharingMessage message,
@@ -56,7 +56,7 @@ void SharingMessageSender::SendMessageToDevice(
     InvokeSendMessageCallback(message_guid,
                               SharingSendMessageResult::kInternalError,
                               /*response=*/nullptr);
-    return;
+    return base::NullCallback();
   }
   SendMessageDelegate* delegate = delegate_iter->second.get();
   DCHECK(delegate);
@@ -70,7 +70,7 @@ void SharingMessageSender::SendMessageToDevice(
     InvokeSendMessageCallback(message_guid,
                               SharingSendMessageResult::kInternalError,
                               /*response=*/nullptr);
-    return;
+    return base::NullCallback();
   }
 
   content::GetUIThreadTaskRunner({base::TaskPriority::USER_VISIBLE})
@@ -92,11 +92,15 @@ void SharingMessageSender::SendMessageToDevice(
       device, response_timeout, std::move(message),
       base::BindOnce(&SharingMessageSender::OnMessageSent,
                      weak_ptr_factory_.GetWeakPtr(), message_guid));
+
+  return base::BindOnce(&SharingMessageSender::InvokeSendMessageCallback,
+                        weak_ptr_factory_.GetWeakPtr(), message_guid,
+                        SharingSendMessageResult::kCancelled, nullptr);
 }
 
 void SharingMessageSender::OnMessageSent(const std::string& message_guid,
                                          SharingSendMessageResult result,
-                                         base::Optional<std::string> message_id,
+                                         absl::optional<std::string> message_id,
                                          SharingChannelType channel_type) {
   auto metadata_iter = message_metadata_.find(message_guid);
   DCHECK(metadata_iter != message_metadata_.end());

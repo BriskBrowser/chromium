@@ -15,6 +15,7 @@
 #include <wrl/client.h>
 
 #include <memory>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -25,13 +26,12 @@
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
-#include "base/task_runner_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_bstr.h"
@@ -134,7 +134,6 @@ bool StoreDMTokenInRegistry(const std::string& token) {
 
 std::string BrowserDMTokenStorageWin::InitClientId() {
   // For the client id, use the Windows machine GUID.
-  // TODO(crbug.com/821977): Need a backup plan if machine GUID doesn't exist.
   base::win::RegKey key;
   LSTATUS status =
       key.Open(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Cryptography",
@@ -179,7 +178,7 @@ std::string BrowserDMTokenStorageWin::InitDMToken() {
       continue;
 
     DWORD dtype = REG_NONE;
-    DWORD size = DWORD{raw_value.size()};
+    DWORD size = static_cast<DWORD>(raw_value.size());
     auto result = key.ReadValue(dm_token_value_name.c_str(), raw_value.data(),
                                 &size, &dtype);
     if (result == ERROR_MORE_DATA && size <= installer::kMaxDMTokenLength) {
@@ -191,9 +190,8 @@ std::string BrowserDMTokenStorageWin::InitDMToken() {
       continue;
 
     DCHECK_LE(size, installer::kMaxDMTokenLength);
-    return base::TrimWhitespaceASCII(base::StringPiece(raw_value.data(), size),
-                                     base::TRIM_ALL)
-        .as_string();
+    return std::string(base::TrimWhitespaceASCII(
+        base::StringPiece(raw_value.data(), size), base::TRIM_ALL));
   }
 
   DVLOG(1) << "Failed to get DMToken from Registry.";

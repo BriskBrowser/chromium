@@ -10,12 +10,12 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/ranges/algorithm.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/atomic_flag.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool/delayed_task_manager.h"
 #include "base/task/thread_pool/priority_queue.h"
@@ -107,7 +107,7 @@ class WorkerThreadDelegate : public WorkerThread::Delegate {
     return thread_label_;
   }
 
-  void OnMainEntry(const WorkerThread* /* worker */) override {
+  void OnMainEntry(WorkerThread* /* worker */) override {
     thread_ref_checker_.Set();
     PlatformThread::SetName(thread_name_);
   }
@@ -115,6 +115,7 @@ class WorkerThreadDelegate : public WorkerThread::Delegate {
   RegisteredTaskSource GetWork(WorkerThread* worker) override {
     CheckedAutoLock auto_lock(lock_);
     DCHECK(worker_awake_);
+
     auto task_source = GetWorkLockRequired(worker);
     if (!task_source) {
       // The worker will sleep after this returns nullptr.
@@ -255,7 +256,7 @@ class WorkerThreadCOMDelegate : public WorkerThreadDelegate {
   ~WorkerThreadCOMDelegate() override { DCHECK(!scoped_com_initializer_); }
 
   // WorkerThread::Delegate:
-  void OnMainEntry(const WorkerThread* worker) override {
+  void OnMainEntry(WorkerThread* worker) override {
     WorkerThreadDelegate::OnMainEntry(worker);
 
     scoped_com_initializer_ = std::make_unique<win::ScopedCOMInitializer>();
@@ -348,7 +349,7 @@ class WorkerThreadCOMDelegate : public WorkerThreadDelegate {
                                    DispatchMessage(&msg);
                                  },
                                  std::move(msg)),
-                             TimeDelta());
+                             TimeTicks::Now(), TimeDelta());
       if (task_tracker()->WillPostTask(
               &pump_message_task, TaskShutdownBehavior::SKIP_ON_SHUTDOWN)) {
         auto transaction = message_pump_sequence_->BeginTransaction();
@@ -409,7 +410,7 @@ class PooledSingleThreadTaskRunnerManager::PooledSingleThreadTaskRunner
     if (!g_manager_is_alive)
       return false;
 
-    Task task(from_here, std::move(closure), delay);
+    Task task(from_here, std::move(closure), TimeTicks::Now(), delay);
 
     if (!outer_->task_tracker_->WillPostTask(&task,
                                              sequence_->shutdown_behavior())) {

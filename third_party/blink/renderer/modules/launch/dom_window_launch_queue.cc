@@ -15,7 +15,7 @@ namespace blink {
 const char DOMWindowLaunchQueue::kSupplementName[] = "DOMWindowLaunchQueue";
 
 DOMWindowLaunchQueue::DOMWindowLaunchQueue()
-    : launch_queue_(MakeGarbageCollected<LaunchQueue>()) {}
+    : Supplement(nullptr), launch_queue_(MakeGarbageCollected<LaunchQueue>()) {}
 
 Member<LaunchQueue> DOMWindowLaunchQueue::launchQueue(LocalDOMWindow& window) {
   return FromState(&window)->launch_queue_;
@@ -26,6 +26,12 @@ void DOMWindowLaunchQueue::UpdateLaunchFiles(
     HeapVector<Member<FileSystemHandle>> files) {
   FromState(window)->launch_queue_->Enqueue(
       MakeGarbageCollected<LaunchParams>(std::move(files)));
+}
+
+void DOMWindowLaunchQueue::EnqueueLaunchParams(LocalDOMWindow* window,
+                                               const KURL& launch_url) {
+  FromState(window)->launch_queue_->Enqueue(
+      MakeGarbageCollected<LaunchParams>(launch_url));
 }
 
 void DOMWindowLaunchQueue::Trace(Visitor* visitor) const {

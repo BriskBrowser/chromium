@@ -5,7 +5,6 @@
 #ifndef UI_GL_GL_SURFACE_H_
 #define UI_GL_GL_SURFACE_H_
 
-#include <string>
 #include <vector>
 
 #include "base/callback.h"
@@ -13,11 +12,14 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "ui/gfx/delegated_ink_metadata.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/overlay_priority_hint.h"
 #include "ui/gfx/overlay_transform.h"
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/gfx/surface_origin.h"
@@ -28,6 +30,9 @@
 #include "ui/gl/gl_surface_format.h"
 
 namespace gfx {
+namespace mojom {
+class DelegatedInkPointRenderer;
+}  // namespace mojom
 class ColorSpace;
 class GpuFence;
 class VSyncProvider;
@@ -49,6 +54,9 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface>,
                             public base::SupportsWeakPtr<GLSurface> {
  public:
   GLSurface();
+
+  GLSurface(const GLSurface&) = delete;
+  GLSurface& operator=(const GLSurface&) = delete;
 
   // Non-virtual initialization, this always calls Initialize with a
   // default GLSurfaceFormat. Subclasses should override the format-
@@ -106,6 +114,10 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface>,
 
   // Get the underlying platform specific surface "handle".
   virtual void* GetHandle() = 0;
+
+  // Android SurfaceControl specific, notifies that we should not detach child
+  // surface controls during destruction.
+  virtual void PreserveChildSurfaceControls() {}
 
   // Returns whether or not the surface supports SwapBuffersWithBounds
   virtual bool SupportsSwapBuffersWithBounds();
@@ -216,24 +228,14 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface>,
 
   // Schedule an overlay plane to be shown at swap time, or on the next
   // CommitOverlayPlanes call.
-  // |z_order| specifies the stacking order of the plane relative to the
-  // main framebuffer located at index 0. For the case where there is no
-  // main framebuffer, overlays may be scheduled at 0, taking its place.
-  // |transform| specifies how the buffer is to be transformed during
-  // composition.
   // |image| to be presented by the overlay.
   // |bounds_rect| specify where it is supposed to be on the screen in pixels.
-  // |crop_rect| specifies the region within the buffer to be placed inside
-  // |bounds_rect|.
-  // |enable_blend| specifies if alpha blending, with premultiplied alpha
-  // should be applied at scanout.
-  virtual bool ScheduleOverlayPlane(int z_order,
-                                    gfx::OverlayTransform transform,
-                                    GLImage* image,
-                                    const gfx::Rect& bounds_rect,
-                                    const gfx::RectF& crop_rect,
-                                    bool enable_blend,
-                                    std::unique_ptr<gfx::GpuFence> gpu_fence);
+  // |overlay_plane_data| specifies overlay data such as opacity, z_order, size,
+  // etc.
+  virtual bool ScheduleOverlayPlane(
+      GLImage* image,
+      std::unique_ptr<gfx::GpuFence> gpu_fence,
+      const gfx::OverlayPlaneData& overlay_plane_data);
 
   // Schedule a CALayer to be shown at swap time.
   // All arguments correspond to their CALayer properties.
@@ -249,13 +251,18 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface>,
   virtual void ScheduleCALayerInUseQuery(
       std::vector<CALayerInUseQuery> queries);
 
-  virtual bool ScheduleDCLayer(const ui::DCRendererLayerParams& params);
+  virtual bool ScheduleDCLayer(
+      std::unique_ptr<ui::DCRendererLayerParams> params);
 
   // Enables or disables DC layers, returning success. If failed, it is possible
   // that the context is no longer current.
   virtual bool SetEnableDCLayers(bool enable);
 
   virtual bool IsSurfaceless() const;
+
+  // Returns true if this surface permits scheduling an isothetic sub-rectangle
+  // (i.e. viewport) of its contents for display.
+  virtual bool SupportsViewporter() const;
 
   virtual gfx::SurfaceOrigin GetOrigin() const;
 
@@ -314,6 +321,11 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface>,
   static bool ExtensionsContain(const char* extensions, const char* name);
 
   virtual bool SupportsDelegatedInk();
+  virtual void SetDelegatedInkTrailStartPoint(
+      std::unique_ptr<gfx::DelegatedInkMetadata> metadata) {}
+  virtual void InitDelegatedInkPointRendererReceiver(
+      mojo::PendingReceiver<gfx::mojom::DelegatedInkPointRenderer>
+          pending_receiver);
 
  protected:
   virtual ~GLSurface();
@@ -323,8 +335,6 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface>,
 
   friend class base::RefCounted<GLSurface>;
   friend class GLContext;
-
-  DISALLOW_COPY_AND_ASSIGN(GLSurface);
 };
 
 // Implementation of GLSurface that forwards all calls through to another
@@ -332,6 +342,9 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface>,
 class GL_EXPORT GLSurfaceAdapter : public GLSurface {
  public:
   explicit GLSurfaceAdapter(GLSurface* surface);
+
+  GLSurfaceAdapter(const GLSurfaceAdapter&) = delete;
+  GLSurfaceAdapter& operator=(const GLSurfaceAdapter&) = delete;
 
   bool Initialize(GLSurfaceFormat format) override;
   void PrepareToDestroy(bool have_context) override;
@@ -369,6 +382,7 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
   bool SupportsAsyncSwap() override;
   gfx::Size GetSize() override;
   void* GetHandle() override;
+  void PreserveChildSurfaceControls() override;
   unsigned int GetBackingFramebufferObject() override;
   bool OnMakeCurrent(GLContext* context) override;
   bool SetBackbufferAllocation(bool allocated) override;
@@ -379,16 +393,15 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
   GLSurfaceFormat GetFormat() override;
   gfx::VSyncProvider* GetVSyncProvider() override;
   void SetVSyncEnabled(bool enabled) override;
-  bool ScheduleOverlayPlane(int z_order,
-                            gfx::OverlayTransform transform,
-                            GLImage* image,
-                            const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect,
-                            bool enable_blend,
-                            std::unique_ptr<gfx::GpuFence> gpu_fence) override;
-  bool ScheduleDCLayer(const ui::DCRendererLayerParams& params) override;
+  bool ScheduleOverlayPlane(
+      GLImage* image,
+      std::unique_ptr<gfx::GpuFence> gpu_fence,
+      const gfx::OverlayPlaneData& overlay_plane_data) override;
+  bool ScheduleDCLayer(
+      std::unique_ptr<ui::DCRendererLayerParams> params) override;
   bool SetEnableDCLayers(bool enable) override;
   bool IsSurfaceless() const override;
+  bool SupportsViewporter() const override;
   gfx::SurfaceOrigin GetOrigin() const override;
   bool BuffersFlipped() const override;
   bool SupportsDCLayers() const override;
@@ -410,6 +423,11 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
   bool IsCurrent() override;
 
   bool SupportsDelegatedInk() override;
+  void SetDelegatedInkTrailStartPoint(
+      std::unique_ptr<gfx::DelegatedInkMetadata> metadata) override;
+  void InitDelegatedInkPointRendererReceiver(
+      mojo::PendingReceiver<gfx::mojom::DelegatedInkPointRenderer>
+          pending_receiver) override;
 
   GLSurface* surface() const { return surface_.get(); }
 
@@ -418,8 +436,6 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
 
  private:
   scoped_refptr<GLSurface> surface_;
-
-  DISALLOW_COPY_AND_ASSIGN(GLSurfaceAdapter);
 };
 
 // Wraps GLSurface in scoped_refptr and tries to initializes it. Returns a

@@ -14,6 +14,12 @@
 namespace payments {
 
 class PaymentRequestNoUpdateWithTest : public PaymentRequestBrowserTestBase {
+ public:
+  PaymentRequestNoUpdateWithTest(const PaymentRequestNoUpdateWithTest&) =
+      delete;
+  PaymentRequestNoUpdateWithTest& operator=(
+      const PaymentRequestNoUpdateWithTest&) = delete;
+
  protected:
   PaymentRequestNoUpdateWithTest() {}
 
@@ -26,9 +32,6 @@ class PaymentRequestNoUpdateWithTest : public PaymentRequestBrowserTestBase {
 
     WaitForObservedEvent();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestNoUpdateWithTest);
 };
 
 // A merchant that does not listen to shipping address update events will not
@@ -59,7 +62,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestNoUpdateWithTest, BuyWithoutListeners) {
   // updated) and this hits a DCHECK.
   WaitForAnimation();
 
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
 
   ExpectBodyContains({"freeShipping"});
 }
@@ -93,7 +96,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestNoUpdateWithTest,
   // updated) and this hits a DCHECK.
   WaitForAnimation();
 
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
 
   ExpectBodyContains({"freeShipping"});
 }
@@ -112,7 +115,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestNoUpdateWithTest, BuyWithoutPromises) {
   RunJavaScriptFunctionToOpenPaymentRequestUI("buyWithoutPromises");
 
   OpenOrderSummaryScreen();
-  EXPECT_EQ(base::ASCIIToUTF16("$5.00"),
+  EXPECT_EQ(u"$5.00",
             GetLabelText(DialogViewID::ORDER_SUMMARY_TOTAL_AMOUNT_LABEL));
   ClickOnBackArrow();
 
@@ -132,11 +135,11 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestNoUpdateWithTest, BuyWithoutPromises) {
   WaitForAnimation();
 
   OpenOrderSummaryScreen();
-  EXPECT_EQ(base::ASCIIToUTF16("$10.00"),
+  EXPECT_EQ(u"$10.00",
             GetLabelText(DialogViewID::ORDER_SUMMARY_TOTAL_AMOUNT_LABEL));
   ClickOnBackArrow();
 
-  PayWithCreditCardAndWait(base::ASCIIToUTF16("123"));
+  PayWithCreditCardAndWait(u"123");
 
   ExpectBodyContains({"updatedShipping"});
 }

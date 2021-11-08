@@ -11,16 +11,13 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/compositor/layer.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/shadow_controller.h"
 
 #if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && \
     BUILDFLAG(ENABLE_DESKTOP_AURA)
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
-#endif
-
-#if defined(USE_X11)
-#include "ui/base/x/x11_util.h"  // nogncheck
 #endif
 
 namespace views {
@@ -130,19 +127,7 @@ gfx::Size WidgetTest::GetNativeWidgetMinimumContentSize(Widget* widget) {
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
 #elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
-#if defined(USE_OZONE)
-  if (features::IsUsingOzonePlatform())
-    return widget->GetNativeWindow()->delegate()->GetMinimumSize();
-#endif  // USE_OZONE
-#if defined(USE_X11)
-  EXPECT_FALSE(features::IsUsingOzonePlatform());
-  ui::SizeHints hints;
-  ui::GetWmNormalHints(
-      static_cast<x11::Window>(
-          widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget()),
-      &hints);
-  return gfx::Size(hints.min_width, hints.min_height);
-#endif  // USE_X11
+  return widget->GetNativeWindow()->delegate()->GetMinimumSize();
 #endif  // OS_LINUX && !OS_CHROMEOS
   NOTREACHED();
   return gfx::Size();
@@ -161,7 +146,7 @@ ui::internal::InputMethodDelegate* WidgetTest::GetInputMethodDelegateForWidget(
 
 // static
 bool WidgetTest::IsNativeWindowTransparent(gfx::NativeWindow window) {
-  return window->transparent();
+  return window->GetTransparent();
 }
 
 // static

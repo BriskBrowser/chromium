@@ -5,9 +5,9 @@
 #ifndef COMPONENTS_JS_INJECTION_RENDERER_JS_COMMUNICATION_H_
 #define COMPONENTS_JS_INJECTION_RENDERER_JS_COMMUNICATION_H_
 
+#include <string>
 #include <vector>
 
-#include "base/strings/string16.h"
 #include "components/js_injection/common/interfaces.mojom.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "content/public/renderer/render_frame_observer_tracker.h"
@@ -29,6 +29,10 @@ class JsCommunication
       public content::RenderFrameObserverTracker<JsCommunication> {
  public:
   explicit JsCommunication(content::RenderFrame* render_frame);
+
+  JsCommunication(const JsCommunication&) = delete;
+  JsCommunication& operator=(const JsCommunication&) = delete;
+
   ~JsCommunication() override;
 
   // mojom::JsCommunication implementation
@@ -46,7 +50,7 @@ class JsCommunication
   void RunScriptsAtDocumentStart();
 
   mojom::JsToBrowserMessaging* GetJsToJavaMessage(
-      const base::string16& js_object_name);
+      const std::u16string& js_object_name);
 
  private:
   struct JsObjectInfo;
@@ -55,7 +59,7 @@ class JsCommunication
   void BindPendingReceiver(
       mojo::PendingAssociatedReceiver<mojom::JsCommunication> pending_receiver);
 
-  using JsObjectMap = std::map<base::string16, std::unique_ptr<JsObjectInfo>>;
+  using JsObjectMap = std::map<std::u16string, std::unique_ptr<JsObjectInfo>>;
   JsObjectMap js_objects_;
 
   // In some cases DidClearWindowObject will be called twice in a row, we need
@@ -67,8 +71,6 @@ class JsCommunication
 
   // Associated with legacy IPC channel.
   mojo::AssociatedReceiver<mojom::JsCommunication> receiver_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(JsCommunication);
 };
 
 }  // namespace js_injection

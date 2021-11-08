@@ -15,7 +15,6 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/notreached.h"
-#include "base/strings/nullable_string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/android/chrome_jni_headers/ActionInfo_jni.h"
 #include "chrome/android/chrome_jni_headers/NotificationPlatformBridge_jni.h"
@@ -26,6 +25,8 @@
 #include "chrome/browser/profiles/profile_android.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/notifications/notification_constants.h"
+#include "chrome/common/notifications/notification_operation.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -46,10 +47,6 @@ using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
 
 namespace {
-
-// Value used to represent the absence of a button index following a user
-// interaction with a notification.
-constexpr int kNotificationInvalidButtonIndex = -1;
 
 // A Java counterpart will be generated for this enum.
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.notifications
@@ -172,7 +169,7 @@ void NotificationPlatformBridgeAndroid::OnNotificationClicked(
   std::string webapk_package =
       ConvertJavaStringToUTF8(env, java_webapk_package);
 
-  base::Optional<base::string16> reply;
+  absl::optional<std::u16string> reply;
   if (java_reply)
     reply = ConvertJavaStringToUTF16(env, java_reply);
 
@@ -181,7 +178,7 @@ void NotificationPlatformBridgeAndroid::OnNotificationClicked(
   regenerated_notification_infos_[notification_id] =
       RegeneratedNotificationInfo(scope_url, webapk_package);
 
-  base::Optional<int> action_index;
+  absl::optional<int> action_index;
   if (java_action_index != kNotificationInvalidButtonIndex)
     action_index = java_action_index;
 
@@ -192,11 +189,11 @@ void NotificationPlatformBridgeAndroid::OnNotificationClicked(
       JavaToNotificationType(java_notification_type);
 
   profile_manager->LoadProfile(
-      profile_id, incognito,
+      GetProfileBaseNameFromProfileId(profile_id), incognito,
       base::BindOnce(&NotificationDisplayServiceImpl::ProfileLoadedCallback,
-                     NotificationCommon::OPERATION_CLICK, notification_type,
-                     origin, notification_id, std::move(action_index),
-                     std::move(reply), base::nullopt /* by_user */));
+                     NotificationOperation::kClick, notification_type, origin,
+                     notification_id, std::move(action_index), std::move(reply),
+                     absl::nullopt /* by_user */));
 }
 
 void NotificationPlatformBridgeAndroid::
@@ -241,12 +238,12 @@ void NotificationPlatformBridgeAndroid::OnNotificationClosed(
       JavaToNotificationType(java_notification_type);
 
   profile_manager->LoadProfile(
-      profile_id, incognito,
+      GetProfileBaseNameFromProfileId(profile_id), incognito,
       base::BindOnce(&NotificationDisplayServiceImpl::ProfileLoadedCallback,
-                     NotificationCommon::OPERATION_CLOSE, notification_type,
+                     NotificationOperation::kClose, notification_type,
                      GURL(ConvertJavaStringToUTF8(env, java_origin)),
-                     notification_id, base::nullopt /* action index */,
-                     base::nullopt /* reply */, by_user));
+                     notification_id, absl::nullopt /* action index */,
+                     absl::nullopt /* reply */, by_user));
 }
 
 void NotificationPlatformBridgeAndroid::Display(
@@ -258,9 +255,9 @@ void NotificationPlatformBridgeAndroid::Display(
 
   JNIEnv* env = AttachCurrentThread();
 
-  GURL origin_url(notification.origin_url().GetOrigin());
+  GURL origin_url(notification.origin_url().DeprecatedGetOriginAsURL());
 
-  // TODO(knollr): Reconsider the meta-data system to try to remove this branch.
+  // TODO(peter): Reconsider the meta-data system to try to remove this branch.
   const PersistentNotificationMetadata* persistent_notification_metadata =
       PersistentNotificationMetadata::From(metadata.get());
 
@@ -318,7 +315,7 @@ void NotificationPlatformBridgeAndroid::Display(
       notification.silent(), actions);
 
   regenerated_notification_infos_[notification.id()] =
-      RegeneratedNotificationInfo(scope_url, base::nullopt);
+      RegeneratedNotificationInfo(scope_url, absl::nullopt);
 }
 
 void NotificationPlatformBridgeAndroid::Close(
@@ -384,7 +381,7 @@ NotificationPlatformBridgeAndroid::RegeneratedNotificationInfo::
 NotificationPlatformBridgeAndroid::RegeneratedNotificationInfo::
     RegeneratedNotificationInfo(
         const GURL& service_worker_scope,
-        const base::Optional<std::string>& webapk_package)
+        const absl::optional<std::string>& webapk_package)
     : service_worker_scope(service_worker_scope),
       webapk_package(webapk_package) {}
 

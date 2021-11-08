@@ -45,7 +45,11 @@ class AXInlineTextBox final : public AXObject {
  public:
   AXInlineTextBox(scoped_refptr<AbstractInlineTextBox>, AXObjectCacheImpl&);
 
+  AXInlineTextBox(const AXInlineTextBox&) = delete;
+  AXInlineTextBox& operator=(const AXInlineTextBox&) = delete;
+
   // AXObject overrides.
+  RGBA32 GetColor() const override { return Color::kTransparent; }
   String GetName(ax::mojom::blink::NameFrom&,
                  AXObject::AXObjectVector* name_objects) const override;
   void TextCharacterOffsets(Vector<int>&) const override;
@@ -55,7 +59,7 @@ class AXInlineTextBox final : public AXObject {
   int TextOffsetInContainer(int offset) const override;
   void GetRelativeBounds(AXObject** out_container,
                          FloatRect& out_bounds_in_container,
-                         SkMatrix44& out_container_transform,
+                         skia::Matrix44& out_container_transform,
                          bool* clips_children = nullptr) const override;
   ax::mojom::blink::WritingDirection GetTextDirection() const override;
   Node* GetNode() const override;
@@ -63,11 +67,12 @@ class AXInlineTextBox final : public AXObject {
   AXObject* NextOnLine() const override;
   AXObject* PreviousOnLine() const override;
   void SerializeMarkerAttributes(ui::AXNodeData* node_data) const override;
-  ax::mojom::blink::Role DetermineAccessibilityRole() override {
+  ax::mojom::blink::Role NativeRoleIgnoringAria() const override {
     // role_ is set manually in Init(), but must implement pure virtual method.
     NOTREACHED();
     return ax::mojom::blink::Role::kInlineTextBox;
   }
+  void ClearChildren() const override;
 
  protected:
   void Init(AXObject* parent) override;
@@ -84,8 +89,6 @@ class AXInlineTextBox final : public AXObject {
   bool ComputeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
 
   scoped_refptr<AbstractInlineTextBox> inline_text_box_;
-
-  DISALLOW_COPY_AND_ASSIGN(AXInlineTextBox);
 };
 
 }  // namespace blink

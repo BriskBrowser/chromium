@@ -56,24 +56,27 @@ x11::Pixmap XPixmapFromNativePixmap(
   auto fd = HANDLE_EINTR(dup(native_pixmap.GetDmaBufFd(0)));
   if (fd < 0)
     return x11::Pixmap::None;
-  base::ScopedFD scoped_fd(fd);
+  x11::RefCountedFD ref_counted_fd(fd);
 
   auto* connection = x11::Connection::Get();
   x11::Pixmap pixmap_id = connection->GenerateId<x11::Pixmap>();
-  connection->dri3().PixmapFromBuffer({pixmap_id, connection->default_root(),
-                                       native_pixmap.GetDmaBufPlaneSize(0),
-                                       native_pixmap.GetBufferSize().width(),
-                                       native_pixmap.GetBufferSize().height(),
-                                       native_pixmap.GetDmaBufPitch(0), depth,
-                                       bpp, std::move(scoped_fd)});
+  connection->dri3().PixmapFromBuffer(pixmap_id, connection->default_root(),
+                                      native_pixmap.GetDmaBufPlaneSize(0),
+                                      native_pixmap.GetBufferSize().width(),
+                                      native_pixmap.GetBufferSize().height(),
+                                      native_pixmap.GetDmaBufPitch(0), depth,
+                                      bpp, ref_counted_fd);
   return pixmap_id;
 }
 
 }  // namespace
 
 GLImageGLXNativePixmap::GLImageGLXNativePixmap(const gfx::Size& size,
-                                               gfx::BufferFormat format)
-    : GLImageGLX(size, format) {}
+                                               gfx::BufferFormat format,
+                                               gfx::BufferPlane plane)
+    : GLImageGLX(size, format) {
+  DCHECK_EQ(plane, gfx::BufferPlane::DEFAULT);
+}
 
 GLImageGLXNativePixmap::~GLImageGLXNativePixmap() = default;
 

@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <string>
 #include <vector>
 
 #include "base/bind.h"
@@ -21,10 +22,10 @@
 #include "base/pending_task.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/current_thread.h"
 #include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_observer.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/bind.h"
@@ -36,9 +37,11 @@
 #include "base/threading/sequence_local_storage_slot.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/java_handler_thread.h"
@@ -49,10 +52,11 @@
 #if defined(OS_WIN)
 #include "base/message_loop/message_pump_win.h"
 #include "base/process/memory.h"
-#include "base/strings/string16.h"
 #include "base/win/current_module.h"
 #include "base/win/message_window.h"
 #include "base/win/scoped_handle.h"
+
+#include <windows.h>
 #endif
 
 using ::testing::IsNull;
@@ -97,6 +101,9 @@ class Foo : public RefCounted<Foo> {
  public:
   Foo() : test_count_(0) {}
 
+  Foo(const Foo&) = delete;
+  Foo& operator=(const Foo&) = delete;
+
   void Test0() { ++test_count_; }
 
   void Test1ConstRef(const std::string& a) {
@@ -133,8 +140,6 @@ class Foo : public RefCounted<Foo> {
 
   int test_count_;
   std::string result_;
-
-  DISALLOW_COPY_AND_ASSIGN(Foo);
 };
 
 // This function runs slowly to simulate a large amount of work being done.
@@ -152,7 +157,7 @@ static void RecordRunTimeFunc(TimeTicks* run_time, int* quit_counter) {
   // Cause our Run function to take some time to execute.  As a result we can
   // count on subsequent RecordRunTimeFunc()s running at a future time,
   // without worry about the resolution of our system clock being an issue.
-  SlowFunc(TimeDelta::FromMilliseconds(10), quit_counter);
+  SlowFunc(Milliseconds(10), quit_counter);
 }
 
 enum TaskType {
@@ -252,6 +257,9 @@ class DummyTaskObserver : public TaskObserver {
         num_tasks_processed_(0),
         num_tasks_(num_tasks) {}
 
+  DummyTaskObserver(const DummyTaskObserver&) = delete;
+  DummyTaskObserver& operator=(const DummyTaskObserver&) = delete;
+
   ~DummyTaskObserver() override = default;
 
   void WillProcessTask(const PendingTask& pending_task,
@@ -274,8 +282,6 @@ class DummyTaskObserver : public TaskObserver {
   int num_tasks_started_;
   int num_tasks_processed_;
   const int num_tasks_;
-
-  DISALLOW_COPY_AND_ASSIGN(DummyTaskObserver);
 };
 
 // A method which reposts itself |depth| times.
@@ -292,13 +298,6 @@ void QuitFunc(TaskList* order, int cookie) {
   order->RecordStart(QUITMESSAGELOOP, cookie);
   RunLoop::QuitCurrentWhenIdleDeprecated();
   order->RecordEnd(QUITMESSAGELOOP, cookie);
-}
-
-void PostNTasks(int posts_remaining) {
-  if (posts_remaining > 1) {
-    ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, BindOnce(&PostNTasks, posts_remaining - 1));
-  }
 }
 
 #if defined(OS_WIN)
@@ -321,7 +320,7 @@ const wchar_t kMessageBoxTitle[] = L"SingleThreadTaskExecutor Unit Test";
 // can cause implicit message loops.
 void MessageBoxFunc(TaskList* order, int cookie, bool is_reentrant) {
   order->RecordStart(MESSAGEBOX, cookie);
-  Optional<CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop>
+  absl::optional<CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop>
       maybe_allow_nesting;
   if (is_reentrant)
     maybe_allow_nesting.emplace();
@@ -368,11 +367,11 @@ void RecursiveFuncWin(scoped_refptr<SingleThreadTaskRunner> task_runner,
   // Poll for the MessageBox. Don't do this at home! At the speed we do it,
   // you will never realize one MessageBox was shown.
   for (; expect_window;) {
-    HWND window = ::FindWindow(L"#32770", kMessageBoxTitle);
+    HWND window = ::FindWindowW(L"#32770", kMessageBoxTitle);
     if (window) {
       // Dismiss it.
       for (;;) {
-        HWND button = ::FindWindowEx(window, NULL, L"Button", NULL);
+        HWND button = ::FindWindowExW(window, NULL, L"Button", NULL);
         if (button != NULL) {
           EXPECT_EQ(0, ::SendMessage(button, WM_LBUTTONDOWN, 0, 0));
           EXPECT_EQ(0, ::SendMessage(button, WM_LBUTTONUP, 0, 0));
@@ -386,27 +385,54 @@ void RecursiveFuncWin(scoped_refptr<SingleThreadTaskRunner> task_runner,
 
 #endif  // defined(OS_WIN)
 
-void PostNTasksThenQuit(int posts_remaining) {
-  if (posts_remaining > 1) {
-    ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, BindOnce(&PostNTasksThenQuit, posts_remaining - 1));
-  } else {
-    RunLoop::QuitCurrentWhenIdleDeprecated();
+void Post128KTasksThenQuit(SingleThreadTaskRunner* executor_task_runner,
+                           TimeTicks begin_ticks,
+                           TimeTicks last_post_ticks,
+                           TimeDelta slowest_delay,
+                           OnceClosure on_done,
+                           int num_posts_done = 0) {
+  const int kNumTimes = 128000;
+
+  // Tasks should be running on a decent heart beat. Some platforms/bots however
+  // have a hard time posting+running *all* tasks before test timeout, add
+  // detailed logging for diagnosis where this flakes.
+  const auto now = TimeTicks::Now();
+  const auto scheduling_delay = now - last_post_ticks;
+  if (scheduling_delay > slowest_delay)
+    slowest_delay = scheduling_delay;
+
+  if (num_posts_done == kNumTimes) {
+    std::move(on_done).Run();
+    return;
+  } else if (now - begin_ticks >= TestTimeouts::action_max_timeout()) {
+    ADD_FAILURE() << "Couldn't run all tasks."
+                  << "\nNumber of tasks remaining: "
+                  << kNumTimes - num_posts_done
+                  << "\nSlowest scheduling delay: " << slowest_delay
+                  << "\nAverage per task: "
+                  << (now - begin_ticks) / num_posts_done;
+    std::move(on_done).Run();
+    return;
   }
+
+  executor_task_runner->PostTask(
+      FROM_HERE,
+      BindOnce(&Post128KTasksThenQuit, Unretained(executor_task_runner),
+               begin_ticks, now, slowest_delay, std::move(on_done),
+               num_posts_done + 1));
 }
 
 #if defined(OS_WIN)
 
 class TestIOHandler : public MessagePumpForIO::IOHandler {
  public:
-  TestIOHandler(const wchar_t* name, HANDLE signal, bool wait);
+  TestIOHandler(const wchar_t* name, HANDLE signal);
 
   void OnIOCompleted(MessagePumpForIO::IOContext* context,
                      DWORD bytes_transfered,
                      DWORD error) override;
 
   void Init();
-  void WaitForIO();
   OVERLAPPED* context() { return &context_.overlapped; }
   DWORD size() { return sizeof(buffer_); }
 
@@ -415,11 +441,10 @@ class TestIOHandler : public MessagePumpForIO::IOHandler {
   MessagePumpForIO::IOContext context_;
   HANDLE signal_;
   win::ScopedHandle file_;
-  bool wait_;
 };
 
-TestIOHandler::TestIOHandler(const wchar_t* name, HANDLE signal, bool wait)
-    : MessagePumpForIO::IOHandler(FROM_HERE), signal_(signal), wait_(wait) {
+TestIOHandler::TestIOHandler(const wchar_t* name, HANDLE signal)
+    : MessagePumpForIO::IOHandler(FROM_HERE), signal_(signal) {
   memset(buffer_, 0, sizeof(buffer_));
 
   file_.Set(CreateFile(name, GENERIC_READ, 0, NULL, OPEN_EXISTING,
@@ -433,8 +458,6 @@ void TestIOHandler::Init() {
   DWORD read;
   EXPECT_FALSE(ReadFile(file_.Get(), buffer_, size(), &read, context()));
   EXPECT_EQ(static_cast<DWORD>(ERROR_IO_PENDING), GetLastError());
-  if (wait_)
-    WaitForIO();
 }
 
 void TestIOHandler::OnIOCompleted(MessagePumpForIO::IOContext* context,
@@ -442,11 +465,6 @@ void TestIOHandler::OnIOCompleted(MessagePumpForIO::IOContext* context,
                                   DWORD error) {
   ASSERT_TRUE(context == &context_);
   ASSERT_TRUE(SetEvent(signal_));
-}
-
-void TestIOHandler::WaitForIO() {
-  EXPECT_TRUE(CurrentIOThread::Get()->WaitForIOCompletion(300, this));
-  EXPECT_TRUE(CurrentIOThread::Get()->WaitForIOCompletion(400, this));
 }
 
 void RunTest_IOHandler() {
@@ -461,71 +479,19 @@ void RunTest_IOHandler() {
   Thread thread("IOHandler test");
   Thread::Options options;
   options.message_pump_type = MessagePumpType::IO;
-  ASSERT_TRUE(thread.StartWithOptions(options));
+  ASSERT_TRUE(thread.StartWithOptions(std::move(options)));
 
-  TestIOHandler handler(kPipeName, callback_called.Get(), false);
+  TestIOHandler handler(kPipeName, callback_called.Get());
   thread.task_runner()->PostTask(
       FROM_HERE, BindOnce(&TestIOHandler::Init, Unretained(&handler)));
   // Make sure the thread runs and sleeps for lack of work.
-  PlatformThread::Sleep(TimeDelta::FromMilliseconds(100));
+  PlatformThread::Sleep(Milliseconds(100));
 
   const char buffer[] = "Hello there!";
   DWORD written;
   EXPECT_TRUE(WriteFile(server.Get(), buffer, sizeof(buffer), &written, NULL));
 
   DWORD result = WaitForSingleObject(callback_called.Get(), 1000);
-  EXPECT_EQ(WAIT_OBJECT_0, result);
-
-  thread.Stop();
-}
-
-void RunTest_WaitForIO() {
-  win::ScopedHandle callback1_called(CreateEvent(NULL, TRUE, FALSE, NULL));
-  win::ScopedHandle callback2_called(CreateEvent(NULL, TRUE, FALSE, NULL));
-  ASSERT_TRUE(callback1_called.IsValid());
-  ASSERT_TRUE(callback2_called.IsValid());
-
-  const wchar_t* kPipeName1 = L"\\\\.\\pipe\\iohandler_pipe1";
-  const wchar_t* kPipeName2 = L"\\\\.\\pipe\\iohandler_pipe2";
-  win::ScopedHandle server1(
-      CreateNamedPipe(kPipeName1, PIPE_ACCESS_OUTBOUND, 0, 1, 0, 0, 0, NULL));
-  win::ScopedHandle server2(
-      CreateNamedPipe(kPipeName2, PIPE_ACCESS_OUTBOUND, 0, 1, 0, 0, 0, NULL));
-  ASSERT_TRUE(server1.IsValid());
-  ASSERT_TRUE(server2.IsValid());
-
-  Thread thread("IOHandler test");
-  Thread::Options options;
-  options.message_pump_type = MessagePumpType::IO;
-  ASSERT_TRUE(thread.StartWithOptions(options));
-
-  TestIOHandler handler1(kPipeName1, callback1_called.Get(), false);
-  TestIOHandler handler2(kPipeName2, callback2_called.Get(), true);
-  thread.task_runner()->PostTask(
-      FROM_HERE, BindOnce(&TestIOHandler::Init, Unretained(&handler1)));
-  // TODO(ajwong): Do we really need such long Sleeps in this function?
-  // Make sure the thread runs and sleeps for lack of work.
-  TimeDelta delay = TimeDelta::FromMilliseconds(100);
-  PlatformThread::Sleep(delay);
-  thread.task_runner()->PostTask(
-      FROM_HERE, BindOnce(&TestIOHandler::Init, Unretained(&handler2)));
-  PlatformThread::Sleep(delay);
-
-  // At this time handler1 is waiting to be called, and the thread is waiting
-  // on the Init method of handler2, filtering only handler2 callbacks.
-
-  const char buffer[] = "Hello there!";
-  DWORD written;
-  EXPECT_TRUE(WriteFile(server1.Get(), buffer, sizeof(buffer), &written, NULL));
-  PlatformThread::Sleep(2 * delay);
-  EXPECT_EQ(static_cast<DWORD>(WAIT_TIMEOUT),
-            WaitForSingleObject(callback1_called.Get(), 0))
-      << "handler1 has not been called";
-
-  EXPECT_TRUE(WriteFile(server2.Get(), buffer, sizeof(buffer), &written, NULL));
-
-  HANDLE objects[2] = {callback1_called.Get(), callback2_called.Get()};
-  DWORD result = WaitForMultipleObjects(2, objects, TRUE, 1000);
   EXPECT_EQ(WAIT_OBJECT_0, result);
 
   thread.Stop();
@@ -545,6 +511,12 @@ class SingleThreadTaskExecutorTypedTest
     : public ::testing::TestWithParam<MessagePumpType> {
  public:
   SingleThreadTaskExecutorTypedTest() = default;
+
+  SingleThreadTaskExecutorTypedTest(const SingleThreadTaskExecutorTypedTest&) =
+      delete;
+  SingleThreadTaskExecutorTypedTest& operator=(
+      const SingleThreadTaskExecutorTypedTest&) = delete;
+
   ~SingleThreadTaskExecutorTypedTest() = default;
 
   static std::string ParamInfoToString(
@@ -574,9 +546,6 @@ class SingleThreadTaskExecutorTypedTest
     NOTREACHED();
     return "";
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SingleThreadTaskExecutorTypedTest);
 };
 
 TEST_P(SingleThreadTaskExecutorTypedTest, PostTask) {
@@ -612,7 +581,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, PostDelayedTask_Basic) {
 
   // Test that PostDelayedTask results in a delayed task.
 
-  const TimeDelta kDelay = TimeDelta::FromMilliseconds(100);
+  const TimeDelta kDelay = Milliseconds(100);
 
   int num_tasks = 1;
   TimeTicks run_time;
@@ -636,12 +605,12 @@ TEST_P(SingleThreadTaskExecutorTypedTest, PostDelayedTask_InDelayOrder) {
 
   executor.task_runner()->PostDelayedTask(
       FROM_HERE, BindOnce(&RecordRunTimeFunc, &run_time1, &num_tasks),
-      TimeDelta::FromMilliseconds(200));
+      Milliseconds(200));
   // If we get a large pause in execution (due to a context switch) here, this
   // test could fail.
   executor.task_runner()->PostDelayedTask(
       FROM_HERE, BindOnce(&RecordRunTimeFunc, &run_time2, &num_tasks),
-      TimeDelta::FromMilliseconds(10));
+      Milliseconds(10));
 
   RunLoop().Run();
   EXPECT_EQ(0, num_tasks);
@@ -660,7 +629,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, PostDelayedTask_InPostOrder) {
   // posted at the exact same time.  It would be nice if the API allowed us to
   // specify the desired run time.
 
-  const TimeDelta kDelay = TimeDelta::FromMilliseconds(100);
+  const TimeDelta kDelay = Milliseconds(100);
 
   int num_tasks = 2;
   TimeTicks run_time1, run_time2;
@@ -682,7 +651,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, PostDelayedTask_InPostOrder_2) {
   // Test that a delayed task still runs after a normal tasks even if the
   // normal tasks take a long time to run.
 
-  const TimeDelta kPause = TimeDelta::FromMilliseconds(50);
+  const TimeDelta kPause = Milliseconds(50);
 
   int num_tasks = 2;
   TimeTicks run_time;
@@ -691,7 +660,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, PostDelayedTask_InPostOrder_2) {
                                    BindOnce(&SlowFunc, kPause, &num_tasks));
   executor.task_runner()->PostDelayedTask(
       FROM_HERE, BindOnce(&RecordRunTimeFunc, &run_time, &num_tasks),
-      TimeDelta::FromMilliseconds(10));
+      Milliseconds(10));
 
   TimeTicks time_before_run = TimeTicks::Now();
   RunLoop().Run();
@@ -721,7 +690,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, PostDelayedTask_InPostOrder_3) {
 
   executor.task_runner()->PostDelayedTask(
       FROM_HERE, BindOnce(&RecordRunTimeFunc, &run_time2, &num_tasks),
-      TimeDelta::FromMilliseconds(1));
+      Milliseconds(1));
 
   RunLoop().Run();
   EXPECT_EQ(0, num_tasks);
@@ -742,10 +711,10 @@ TEST_P(SingleThreadTaskExecutorTypedTest, PostDelayedTask_SharedTimer) {
 
   executor.task_runner()->PostDelayedTask(
       FROM_HERE, BindOnce(&RecordRunTimeFunc, &run_time1, &num_tasks),
-      TimeDelta::FromSeconds(1000));
+      Seconds(1000));
   executor.task_runner()->PostDelayedTask(
       FROM_HERE, BindOnce(&RecordRunTimeFunc, &run_time2, &num_tasks),
-      TimeDelta::FromMilliseconds(10));
+      Milliseconds(10));
 
   TimeTicks start_time = TimeTicks::Now();
 
@@ -759,7 +728,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, PostDelayedTask_SharedTimer) {
   // In case both timers somehow run at nearly the same time, sleep a little
   // and then run all pending to force them both to have run.  This is just
   // encouraging flakiness if there is any.
-  PlatformThread::Sleep(TimeDelta::FromMilliseconds(100));
+  PlatformThread::Sleep(Milliseconds(100));
   RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(run_time1.is_null());
@@ -810,7 +779,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, DISABLED_EnsureDeletion) {
         FROM_HERE,
         BindOnce(&RecordDeletionProbe::Run,
                  new RecordDeletionProbe(nullptr, &b_was_deleted)),
-        TimeDelta::FromMilliseconds(1000));
+        Milliseconds(1000));
   }
   EXPECT_TRUE(a_was_deleted);
   EXPECT_TRUE(b_was_deleted);
@@ -957,8 +926,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, NonNestableDelayedInNestedLoop) {
   ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
                                           BindOnce(&OrderedFunc, &order, 3));
   ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      BindOnce(&SleepFunc, &order, 4, TimeDelta::FromMilliseconds(50)));
+      FROM_HERE, BindOnce(&SleepFunc, &order, 4, Milliseconds(50)));
   ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
                                           BindOnce(&OrderedFunc, &order, 5));
   ThreadTaskRunnerHandle::Get()->PostNonNestableTask(
@@ -1314,26 +1282,29 @@ TEST_P(SingleThreadTaskExecutorTypedTest, RunLoopQuitOrderAfter) {
   EXPECT_EQ(static_cast<size_t>(task_index), order.Size());
 }
 
-// There was a bug in the MessagePumpGLib where posting tasks recursively
-// caused the message loop to hang, due to the buffer of the internal pipe
-// becoming full. Test all SingleThreadTaskExecutor types to ensure this issue
-// does not exist in other MessagePumps.
+// Regression test for crbug.com/170904 where posting tasks recursively caused
+// the message loop to hang in MessagePumpGLib, due to the buffer of the
+// internal pipe becoming full. Test all SingleThreadTaskExecutor types to
+// ensure this issue does not exist in other MessagePumps.
 //
-// On Linux, the pipe buffer size is 64KiB by default. The bug caused one
-// byte accumulated in the pipe per two posts, so we should repeat 128K
-// times to reproduce the bug.
-#if defined(OS_FUCHSIA)
-// TODO(crbug.com/810077): This is flaky on Fuchsia.
-#define MAYBE_RecursivePosts DISABLED_RecursivePosts
+// On Linux, the pipe buffer size is 64KiB by default. The bug caused one byte
+// accumulated in the pipe per two posts, so we should repeat 128K times to
+// reproduce the bug.
+#if defined(OS_CHROMEOS)
+// TODO(crbug.com/1188497): This test is unreasonably slow on CrOS and flakily
+// times out (100x slower than other platforms which take < 1s to complete
+// it).
+#define MAYBE_RecursivePostsDoNotFloodPipe DISABLED_RecursivePostsDoNotFloodPipe
 #else
-#define MAYBE_RecursivePosts RecursivePosts
+#define MAYBE_RecursivePostsDoNotFloodPipe RecursivePostsDoNotFloodPipe
 #endif
-TEST_P(SingleThreadTaskExecutorTypedTest, MAYBE_RecursivePosts) {
-  const int kNumTimes = 1 << 17;
+TEST_P(SingleThreadTaskExecutorTypedTest, MAYBE_RecursivePostsDoNotFloodPipe) {
   SingleThreadTaskExecutor executor(GetParam());
-  executor.task_runner()->PostTask(FROM_HERE,
-                                   BindOnce(&PostNTasksThenQuit, kNumTimes));
-  RunLoop().Run();
+  const auto begin_ticks = TimeTicks::Now();
+  RunLoop run_loop;
+  Post128KTasksThenQuit(executor.task_runner().get(), begin_ticks, begin_ticks,
+                        TimeDelta(), run_loop.QuitClosure());
+  run_loop.Run();
 }
 
 TEST_P(SingleThreadTaskExecutorTypedTest, NestableTasksAllowedAtTopLevel) {
@@ -1416,12 +1387,12 @@ TEST_P(SingleThreadTaskExecutorTypedTest, IsIdleForTesting) {
   EXPECT_TRUE(CurrentThread::Get()->IsIdleForTesting());
   executor.task_runner()->PostTask(FROM_HERE, BindOnce([]() {}));
   executor.task_runner()->PostDelayedTask(FROM_HERE, BindOnce([]() {}),
-                                          TimeDelta::FromMilliseconds(10));
+                                          Milliseconds(10));
   EXPECT_FALSE(CurrentThread::Get()->IsIdleForTesting());
   RunLoop().RunUntilIdle();
   EXPECT_TRUE(CurrentThread::Get()->IsIdleForTesting());
 
-  PlatformThread::Sleep(TimeDelta::FromMilliseconds(20));
+  PlatformThread::Sleep(Milliseconds(20));
   EXPECT_TRUE(CurrentThread::Get()->IsIdleForTesting());
 }
 
@@ -1511,12 +1482,11 @@ TEST(SingleThreadTaskExecutorTest, PostDelayedTask_SharedTimer_SubPump) {
   // This very delayed task should never run.
   executor.task_runner()->PostDelayedTask(
       FROM_HERE, BindOnce(&RecordRunTimeFunc, &run_time, &num_tasks),
-      TimeDelta::FromSeconds(1000));
+      Seconds(1000));
 
   // This slightly delayed task should run from within SubPumpFunc.
-  executor.task_runner()->PostDelayedTask(FROM_HERE,
-                                          BindOnce(&::PostQuitMessage, 0),
-                                          TimeDelta::FromMilliseconds(10));
+  executor.task_runner()->PostDelayedTask(
+      FROM_HERE, BindOnce(&::PostQuitMessage, 0), Milliseconds(10));
 
   Time start_time = Time::Now();
 
@@ -1530,7 +1500,7 @@ TEST(SingleThreadTaskExecutorTest, PostDelayedTask_SharedTimer_SubPump) {
   // In case both timers somehow run at nearly the same time, sleep a little
   // and then run all pending to force them both to have run.  This is just
   // encouraging flakiness if there is any.
-  PlatformThread::Sleep(TimeDelta::FromMilliseconds(100));
+  PlatformThread::Sleep(Milliseconds(100));
   RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(run_time.is_null());
@@ -1560,8 +1530,7 @@ bool DelayedQuitOnSystemTimer(UINT message,
                               LRESULT* result) {
   if (message == static_cast<UINT>(WM_TIMER)) {
     ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, BindOnce(&::PostQuitMessage, 0),
-        TimeDelta::FromMilliseconds(10));
+        FROM_HERE, BindOnce(&::PostQuitMessage, 0), Milliseconds(10));
   }
   *result = 0;
   return true;
@@ -1756,9 +1725,9 @@ TEST(SingleThreadTaskExecutorTest,
   executor.task_runner()->PostTask(
       FROM_HERE, BindOnce(&SubPumpFunc, run_loop.QuitClosure()));
   executor.task_runner()->PostTask(FROM_HERE,
-                                   BindOnce(&SubPumpFunc, DoNothing::Once()));
+                                   BindOnce(&SubPumpFunc, DoNothing()));
   executor.task_runner()->PostTask(FROM_HERE,
-                                   BindOnce(&SubPumpFunc, DoNothing::Once()));
+                                   BindOnce(&SubPumpFunc, DoNothing()));
 
   // Quit two layers (with tasks in between to allow each quit to be handled
   // before continuing -- ::PostQuitMessage() sets a bit, it's not a real queued
@@ -1792,7 +1761,7 @@ void RunTest_NestingDenial2(MessagePumpType message_pump_type) {
   Thread worker("NestingDenial2_worker");
   Thread::Options options;
   options.message_pump_type = message_pump_type;
-  ASSERT_EQ(true, worker.StartWithOptions(options));
+  ASSERT_EQ(true, worker.StartWithOptions(std::move(options)));
   TaskList order;
   win::ScopedHandle event(CreateEvent(NULL, FALSE, FALSE, NULL));
   worker.task_runner()->PostTask(
@@ -1842,7 +1811,7 @@ TEST(SingleThreadTaskExecutorTest, NestingSupport2) {
   Thread worker("NestingSupport2_worker");
   Thread::Options options;
   options.message_pump_type = MessagePumpType::UI;
-  ASSERT_EQ(true, worker.StartWithOptions(options));
+  ASSERT_EQ(true, worker.StartWithOptions(std::move(options)));
   TaskList order;
   win::ScopedHandle event(CreateEvent(NULL, FALSE, FALSE, NULL));
   worker.task_runner()->PostTask(
@@ -1886,16 +1855,12 @@ TEST(SingleThreadTaskExecutorTest, IOHandler) {
   RunTest_IOHandler();
 }
 
-TEST(SingleThreadTaskExecutorTest, WaitForIO) {
-  RunTest_WaitForIO();
-}
-
 TEST(SingleThreadTaskExecutorTest, HighResolutionTimer) {
   SingleThreadTaskExecutor executor;
   Time::EnableHighResolutionTimer(true);
 
-  constexpr TimeDelta kFastTimer = TimeDelta::FromMilliseconds(5);
-  constexpr TimeDelta kSlowTimer = TimeDelta::FromMilliseconds(100);
+  constexpr TimeDelta kFastTimer = Milliseconds(5);
+  constexpr TimeDelta kSlowTimer = Milliseconds(100);
 
   {
     // Post a fast task to enable the high resolution timers.
@@ -1985,7 +1950,7 @@ TEST(SingleThreadTaskExecutorTest, DestructionObserverTest) {
   // Verify that the destruction observer gets called at the very end (after
   // all the pending tasks have been destroyed).
   auto executor = std::make_unique<SingleThreadTaskExecutor>();
-  const TimeDelta kDelay = TimeDelta::FromMilliseconds(100);
+  const TimeDelta kDelay = Milliseconds(100);
 
   bool task_destroyed = false;
   bool destruction_observer_called = false;
@@ -2170,6 +2135,10 @@ namespace {
 class PostTaskOnDestroy {
  public:
   PostTaskOnDestroy(int times) : times_remaining_(times) {}
+
+  PostTaskOnDestroy(const PostTaskOnDestroy&) = delete;
+  PostTaskOnDestroy& operator=(const PostTaskOnDestroy&) = delete;
+
   ~PostTaskOnDestroy() { PostTaskWithPostingDestructor(times_remaining_); }
 
   // Post a task that will repost itself on destruction |times| times.
@@ -2183,8 +2152,6 @@ class PostTaskOnDestroy {
 
  private:
   const int times_remaining_;
-
-  DISALLOW_COPY_AND_ASSIGN(PostTaskOnDestroy);
 };
 
 }  // namespace

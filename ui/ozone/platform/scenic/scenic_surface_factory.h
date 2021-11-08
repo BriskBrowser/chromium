@@ -12,7 +12,7 @@
 
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/thread_annotations.h"
 #include "base/threading/thread_checker.h"
 #include "gpu/vulkan/buildflags.h"
@@ -31,6 +31,10 @@ class ScenicSurface;
 class ScenicSurfaceFactory : public SurfaceFactoryOzone {
  public:
   ScenicSurfaceFactory();
+
+  ScenicSurfaceFactory(const ScenicSurfaceFactory&) = delete;
+  ScenicSurfaceFactory& operator=(const ScenicSurfaceFactory&) = delete;
+
   ~ScenicSurfaceFactory() override;
 
   // Initializes the surface factory. Binds the surface factory to the
@@ -42,8 +46,8 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
   void Shutdown();
 
   // SurfaceFactoryOzone implementation.
-  std::vector<gl::GLImplementation> GetAllowedGLImplementations() override;
-  GLOzone* GetGLOzone(gl::GLImplementation implementation) override;
+  std::vector<gl::GLImplementationParts> GetAllowedGLImplementations() override;
+  GLOzone* GetGLOzone(const gl::GLImplementationParts& implementation) override;
   std::unique_ptr<PlatformWindowSurface> CreatePlatformWindowSurface(
       gfx::AcceleratedWidget widget) override;
   std::unique_ptr<SurfaceOzoneCanvas> CreateCanvasForWidget(
@@ -54,7 +58,7 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
       gfx::Size size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
-      base::Optional<gfx::Size> framebuffer_size = base::nullopt) override;
+      absl::optional<gfx::Size> framebuffer_size = absl::nullopt) override;
   void CreateNativePixmapAsync(gfx::AcceleratedWidget widget,
                                VkDevice vk_device,
                                gfx::Size size,
@@ -64,8 +68,7 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
 #if BUILDFLAG(ENABLE_VULKAN)
   std::unique_ptr<gpu::VulkanImplementation> CreateVulkanImplementation(
       bool use_swiftshader,
-      bool allow_protected_memory,
-      bool enforce_protected_memory) override;
+      bool allow_protected_memory) override;
 #endif
 
   // Registers a surface for a |widget|.
@@ -112,8 +115,6 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
   THREAD_CHECKER(thread_checker_);
 
   base::WeakPtrFactory<ScenicSurfaceFactory> weak_ptr_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScenicSurfaceFactory);
 };
 
 }  // namespace ui

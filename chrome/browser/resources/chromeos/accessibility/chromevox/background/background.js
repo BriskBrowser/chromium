@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {Earcons} from './earcons.js';
 import {FindHandler} from './find_handler.js';
+import {LiveRegions} from './live_regions.js';
 import {MediaAutomationHandler} from './media_automation_handler.js';
-import {NextEarcons} from './next_earcons.js';
+import {PageLoadSoundHandler} from './page_load_sound_handler.js';
 import {RangeAutomationHandler} from './range_automation_handler.js';
 
 /**
@@ -29,20 +31,18 @@ export class Background extends ChromeVoxState {
     ChromeVoxBackground.init();
     LocaleOutputHelper.init();
 
-    /**
-     * @type {cursors.Range}
-     * @private
-     */
+    /** @private {cursors.Range} */
     this.currentRange_ = null;
 
+    /** @private {cursors.Range} */
+    this.previousRange_ = null;
+
     /** @type {!AbstractEarcons} @private */
-    this.nextEarcons_ = new NextEarcons();
+    this.earcons_ = new Earcons();
 
     // Read-only earcons.
     Object.defineProperty(ChromeVox, 'earcons', {
-      get: (function() {
-             return this.nextEarcons_;
-           }).bind(this)
+      get: () => this.earcons_,
     });
 
     Object.defineProperty(ChromeVox, 'typingEcho', {
@@ -75,17 +75,12 @@ export class Background extends ChromeVoxState {
     /** @private {string|undefined} */
     this.lastClipboardEvent_;
 
-    chrome.clipboard.onClipboardDataChanged.addListener(
-        this.onClipboardDataChanged_.bind(this));
-    document.addEventListener('copy', this.onClipboardCopyEvent_.bind(this));
-
-    /**
-     * Maps a non-desktop root automation node to a range position suitable for
-     *     restoration.
-     * @type {WeakMap<AutomationNode, cursors.Range>}
-     * @private
-     */
-    this.focusRecoveryMap_ = new WeakMap();
+    chrome.clipboard.onClipboardDataChanged.addListener(() => {
+      this.onClipboardDataChanged_();
+    });
+    document.addEventListener('copy', (event) => {
+      this.onClipboardCopyEvent_(event);
+    });
 
     /** @private {cursors.Range} */
     this.pageSel_;
@@ -101,11 +96,13 @@ export class Background extends ChromeVoxState {
     this.focusAutomationHandler_ = new FocusAutomationHandler();
     /** @private {!MediaAutomationHandler} */
     this.mediaAutomationHandler_ = new MediaAutomationHandler();
+    /** @private {!PageLoadSoundHandler} */
+    this.pageLoadSoundHandler_ = new PageLoadSoundHandler();
 
     CommandHandler.init();
     FindHandler.init();
     DownloadHandler.init();
-    PhoneticData.init();
+    JaPhoneticData.init(JaPhoneticMap.MAP);
 
     chrome.accessibilityPrivate.onAnnounceForAccessibility.addListener(
         (announceText) => {
@@ -115,32 +112,13 @@ export class Background extends ChromeVoxState {
         (enabled) => {
           this.talkBackEnabled = enabled;
         });
+    chrome.accessibilityPrivate.onShowChromeVoxTutorial.addListener(() => {
+      (new PanelCommand(PanelCommandType.TUTORIAL)).send();
+    });
 
     // Set the darkScreen state to false, since the display will be on whenever
     // ChromeVox starts.
     sessionStorage.setItem('darkScreen', 'false');
-
-    chrome.loginState.getSessionState((sessionState) => {
-      // If starting ChromeVox from OOBE, start the tutorial.
-      if (sessionState === chrome.loginState.SessionState.IN_OOBE_SCREEN) {
-        chrome.chromeosInfoPrivate.isTabletModeEnabled((enabled) => {
-          // Only start the tutorial if we are not in tablet mode. This
-          // is a temporary workaround until we implement a touch-specific
-          // tutorial.
-          if (!enabled) {
-            (new PanelCommand(PanelCommandType.TUTORIAL)).send();
-          }
-        });
-      }
-    });
-  }
-
-  /**
-   * Maps the last node with range in a given root.
-   * @type {WeakMap<AutomationNode>}
-   */
-  get focusRecoveryMap() {
-    return this.focusRecoveryMap_;
   }
 
   /**
@@ -168,11 +146,14 @@ export class Background extends ChromeVoxState {
     // the user navigates.
     ChromeVox.braille.thaw();
 
-    if (newRange && !newRange.isValid()) {
+    // There's nothing to be updated in this case.
+    if ((!newRange && !this.currentRange_) ||
+        (newRange && !newRange.isValid())) {
       ChromeVoxState.instance.setFocusBounds([]);
       return;
     }
 
+    this.previousRange_ = this.currentRange_;
     this.currentRange_ = newRange;
     ChromeVoxState.observers.forEach(function(observer) {
       observer.onCurrentRangeChanged(newRange);
@@ -289,8 +270,7 @@ export class Background extends ChromeVoxState {
     }
 
     o.withRichSpeechAndBraille(
-         selectedRange || range, prevRange, Output.EventType.NAVIGATE)
-        .withQueueMode(QueueMode.FLUSH)
+         selectedRange || range, prevRange, OutputEventType.NAVIGATE)
         .withInitialSpeechProperties(opt_speechProps);
 
     if (msg) {
@@ -344,14 +324,16 @@ export class Background extends ChromeVoxState {
   /**
    * @override
    */
-  markCurrentRange() {
-    if (!this.currentRange) {
+  restoreLastValidRangeIfNeeded() {
+    // Never restore range when TalkBack is enabled as commands such as
+    // Search+Left, go directly to TalkBack.
+    if (this.talkBackEnabled) {
       return;
     }
 
-    const root = AutomationUtil.getTopLevelRoot(this.currentRange.start.node);
-    if (root) {
-      this.focusRecoveryMap_.set(root, this.currentRange);
+
+    if (!this.currentRange_ || !this.currentRange_.isValid()) {
+      this.setCurrentRange(this.previousRange_);
     }
   }
 
@@ -395,13 +377,13 @@ export class Background extends ChromeVoxState {
 
   /** @private */
   setCurrentRangeToFocus_() {
-    chrome.automation.getFocus(function(focus) {
+    chrome.automation.getFocus((focus) => {
       if (focus) {
         this.setCurrentRange(cursors.Range.fromNode(focus));
       } else {
         this.setCurrentRange(null);
       }
-    }.bind(this));
+    });
   }
 
   /**

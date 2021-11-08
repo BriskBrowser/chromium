@@ -4,27 +4,43 @@
 
 #include "chrome/browser/flags/android/chrome_session_state.h"
 
+#include "base/notreached.h"
 #include "chrome/browser/flags/jni_headers/ChromeSessionState_jni.h"
-
 #include "services/metrics/public/cpp/ukm_source.h"
 
 using chrome::android::ActivityType;
+using chrome::android::DarkModeState;
 
 namespace {
-bool custom_tab_visible = false;
 ActivityType activity_type = ActivityType::kTabbed;
 bool is_in_multi_window_mode = false;
+DarkModeState dark_mode_state = DarkModeState::kUnknown;
 }  // namespace
 
 namespace chrome {
 namespace android {
 
-CustomTabsVisibilityHistogram GetCustomTabsVisibleValue() {
-  return custom_tab_visible ? VISIBLE_CUSTOM_TAB : VISIBLE_CHROME_TAB;
+CustomTabsVisibilityHistogram GetCustomTabsVisibleValue(
+    ActivityType activity_type) {
+  switch (activity_type) {
+    case ActivityType::kTabbed:
+    case ActivityType::kWebapp:
+    case ActivityType::kWebApk:
+      return VISIBLE_CHROME_TAB;
+    case ActivityType::kCustomTab:
+    case ActivityType::kTrustedWebActivity:
+      return VISIBLE_CUSTOM_TAB;
+  }
+  NOTREACHED();
+  return VISIBLE_CHROME_TAB;
 }
 
 ActivityType GetActivityType() {
   return activity_type;
+}
+
+DarkModeState GetDarkModeState() {
+  return dark_mode_state;
 }
 
 bool GetIsInMultiWindowModeValue() {
@@ -34,15 +50,17 @@ bool GetIsInMultiWindowModeValue() {
 }  // namespace android
 }  // namespace chrome
 
-static void JNI_ChromeSessionState_SetCustomTabVisible(JNIEnv* env,
-                                                       jboolean visible) {
-  custom_tab_visible = visible;
-  ukm::UkmSource::SetCustomTabVisible(visible);
-}
-
 static void JNI_ChromeSessionState_SetActivityType(JNIEnv* env, jint type) {
   activity_type = static_cast<ActivityType>(type);
-  // TODO(peconn): Look into adding this for UKM as well.
+  // TODO(crbug/1228735): deprecate custom tab field.
+  ukm::UkmSource::SetCustomTabVisible(
+      GetCustomTabsVisibleValue(activity_type) ==
+      chrome::android::VISIBLE_CUSTOM_TAB);
+  ukm::UkmSource::SetAndroidActivityTypeState(type);
+}
+
+static void JNI_ChromeSessionState_SetDarkModeState(JNIEnv* env, jint state) {
+  dark_mode_state = static_cast<DarkModeState>(state);
 }
 
 static void JNI_ChromeSessionState_SetIsInMultiWindowMode(

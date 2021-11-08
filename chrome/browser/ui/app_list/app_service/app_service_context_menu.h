@@ -10,13 +10,15 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/chromeos/arc/app_shortcuts/arc_app_shortcut_item.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_forward.h"
+#include "chrome/browser/apps/app_service/app_shortcut_item.h"
 #include "chrome/browser/ui/app_list/app_context_menu.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
 
 class AppContextMenuDelegate;
 class AppListControllerDelegate;
 class Profile;
+class StandaloneBrowserExtensionAppContextMenu;
 
 namespace extensions {
 class ContextMenuMatcher;
@@ -52,17 +54,22 @@ class AppServiceContextMenu : public app_list::AppContextMenu {
 
   void ExecutePublisherContextMenuCommand(int command_id);
 
-  apps::mojom::AppType app_type_;
+  apps::mojom::AppType app_type_ = apps::mojom::AppType::kUnknown;
 
   // The SimpleMenuModel used to hold the submenu items.
   std::unique_ptr<ui::SimpleMenuModel> submenu_;
 
   std::unique_ptr<extensions::ContextMenuMatcher> extension_menu_items_;
 
+  // This member holds all logic for context menus associated with standalone
+  // browser extension apps.
+  std::unique_ptr<StandaloneBrowserExtensionAppContextMenu>
+      standalone_browser_extension_menu_;
+
   // Caches the app shortcut items.
-  // TODO(crbug.com/1140356): Extract arc::ArcAppShortcutItems class as public
-  // apps::AppShortcutItems.
-  std::unique_ptr<arc::ArcAppShortcutItems> app_shortcut_items_;
+  std::unique_ptr<apps::AppShortcutItems> app_shortcut_items_;
+
+  apps::AppServiceProxy* const proxy_;
 
   base::WeakPtrFactory<AppServiceContextMenu> weak_ptr_factory_{this};
 };

@@ -5,9 +5,10 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_METRICS_REPORTING_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_METRICS_REPORTING_HANDLER_H_
 
+#include "build/branding_buildflags.h"
 #include "build/chromeos_buildflags.h"
 
-#if defined(GOOGLE_CHROME_BUILD) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
 #include <memory>
 
@@ -30,6 +31,10 @@ namespace settings {
 class MetricsReportingHandler : public SettingsPageUIHandler {
  public:
   MetricsReportingHandler();
+
+  MetricsReportingHandler(const MetricsReportingHandler&) = delete;
+  MetricsReportingHandler& operator=(const MetricsReportingHandler&) = delete;
+
   ~MetricsReportingHandler() override;
 
   // SettingsPageUIHandler:
@@ -74,12 +79,10 @@ class MetricsReportingHandler : public SettingsPageUIHandler {
   // The metrics reporting interface in ash-chrome.
   mojo::Remote<crosapi::mojom::MetricsReporting> metrics_reporting_remote_;
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
-
-  DISALLOW_COPY_AND_ASSIGN(MetricsReportingHandler);
 };
 
 }  // namespace settings
 
-#endif  // defined(GOOGLE_CHROME_BUILD) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
 #endif  // CHROME_BROWSER_UI_WEBUI_SETTINGS_METRICS_REPORTING_HANDLER_H_

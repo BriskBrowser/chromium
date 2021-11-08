@@ -12,8 +12,8 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/enterprise_startup_dialog.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/ui_base_types.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/window/dialog_delegate.h"
 
@@ -30,9 +30,9 @@ class EnterpriseStartupDialogView : public views::DialogDelegateView {
   ~EnterpriseStartupDialogView() override;
 
   void DisplayLaunchingInformationWithThrobber(
-      const base::string16& information);
-  void DisplayErrorMessage(const base::string16& error_message,
-                           const base::Optional<base::string16>& accept_button);
+      const std::u16string& information);
+  void DisplayErrorMessage(const std::u16string& error_message,
+                           const absl::optional<std::u16string>& accept_button);
   void CloseDialog();
 
   void AddWidgetObserver(views::WidgetObserver* observer);
@@ -75,10 +75,10 @@ class EnterpriseStartupDialogImpl : public EnterpriseStartupDialog,
 
   // Override EnterpriseStartupDialog
   void DisplayLaunchingInformationWithThrobber(
-      const base::string16& information) override;
+      const std::u16string& information) override;
   void DisplayErrorMessage(
-      const base::string16& error_message,
-      const base::Optional<base::string16>& accept_button) override;
+      const std::u16string& error_message,
+      const absl::optional<std::u16string>& accept_button) override;
   bool IsShowing() override;
 
   // views::WidgetObserver:

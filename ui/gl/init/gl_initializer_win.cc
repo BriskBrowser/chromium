@@ -13,7 +13,6 @@
 #include "base/logging.h"
 #include "base/native_library.h"
 #include "base/path_service.h"
-#include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/win/windows_version.h"
@@ -33,9 +32,9 @@ const wchar_t kD3DCompiler[] = L"D3DCompiler_47.dll";
 bool LoadD3DXLibrary(const base::FilePath& module_path,
                      const base::FilePath::StringType& name) {
   base::NativeLibrary library =
-      base::LoadNativeLibrary(base::FilePath(name), nullptr);
+      base::LoadNativeLibrary(module_path.Append(name), nullptr);
   if (!library) {
-    library = base::LoadNativeLibrary(module_path.Append(name), nullptr);
+    library = base::LoadNativeLibrary(base::FilePath(name), nullptr);
     if (!library) {
       DVLOG(1) << name << " not found.";
       return false;
@@ -49,10 +48,9 @@ bool InitializeStaticEGLInternalFromLibrary(GLImplementation implementation) {
   if (!base::PathService::Get(base::DIR_MODULE, &module_path))
     return false;
 
-  // Attempt to load the D3DX shader compiler using the default search path
-  // and if that fails, using an absolute path. This is to ensure these DLLs
-  // are loaded before ANGLE is loaded in case they are not in the default
-  // search path.
+  // Attempt to load the D3DX shader compiler using an absolute path. This is to
+  // ensure that we load the versions of these DLLs that we ship. If that fails,
+  // load the OS version.
   LoadD3DXLibrary(module_path, kD3DCompiler);
 
   base::FilePath gles_path;
@@ -109,22 +107,22 @@ bool InitializeStaticEGLInternalFromLibrary(GLImplementation implementation) {
   return true;
 }
 
-bool InitializeStaticEGLInternal(GLImplementation implementation) {
+bool InitializeStaticEGLInternal(GLImplementationParts implementation) {
 #if BUILDFLAG(USE_STATIC_ANGLE)
-  if (implementation == kGLImplementationEGLANGLE) {
+  if (implementation.gl == kGLImplementationEGLANGLE) {
     // Use ANGLE if it is requested and it is statically linked
     if (!InitializeStaticANGLEEGL())
       return false;
-  } else if (!InitializeStaticEGLInternalFromLibrary(implementation)) {
+  } else if (!InitializeStaticEGLInternalFromLibrary(implementation.gl)) {
     return false;
   }
 #else
-  if (!InitializeStaticEGLInternalFromLibrary(implementation)) {
+  if (!InitializeStaticEGLInternalFromLibrary(implementation.gl)) {
     return false;
   }
 #endif  // !BUILDFLAG(USE_STATIC_ANGLE)
 
-  SetGLImplementation(implementation);
+  SetGLImplementationParts(implementation);
   InitializeStaticGLBindingsGL();
   InitializeStaticGLBindingsEGL();
 
@@ -153,7 +151,7 @@ bool InitializeGLOneOffPlatform() {
   return true;
 }
 
-bool InitializeStaticGLBindings(GLImplementation implementation) {
+bool InitializeStaticGLBindings(GLImplementationParts implementation) {
   // Prevent reinitialization with a different implementation. Once the gpu
   // unit tests have initialized with kGLImplementationMock, we don't want to
   // later switch to another GL implementation.
@@ -165,13 +163,13 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
   // one-time initialization cost is small, between 2 and 5 ms.
   base::ThreadRestrictions::ScopedAllowIO allow_io;
 
-  switch (implementation) {
+  switch (implementation.gl) {
     case kGLImplementationSwiftShaderGL:
     case kGLImplementationEGLANGLE:
       return InitializeStaticEGLInternal(implementation);
     case kGLImplementationMockGL:
     case kGLImplementationStubGL:
-      SetGLImplementation(implementation);
+      SetGLImplementationParts(implementation);
       InitializeStaticGLBindingsGL();
       return true;
     default:

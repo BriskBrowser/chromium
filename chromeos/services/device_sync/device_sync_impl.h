@@ -102,6 +102,9 @@ class DeviceSyncImpl : public DeviceSyncBase,
     static Factory* custom_factory_instance_;
   };
 
+  DeviceSyncImpl(const DeviceSyncImpl&) = delete;
+  DeviceSyncImpl& operator=(const DeviceSyncImpl&) = delete;
+
   ~DeviceSyncImpl() override;
 
  protected:
@@ -230,14 +233,14 @@ class DeviceSyncImpl : public DeviceSyncBase,
   void FetchClientAppMetadata();
   void OnClientAppMetadataFetchTimeout();
   void OnClientAppMetadataFetched(
-      const base::Optional<cryptauthv2::ClientAppMetadata>&
+      const absl::optional<cryptauthv2::ClientAppMetadata>&
           client_app_metadata);
   void OnClientAppMetadataFetchFailure();
   void WaitForValidEnrollment();
   void InitializeCryptAuthManagementObjects();
   void CompleteInitializationAfterSuccessfulEnrollment();
 
-  base::Optional<multidevice::RemoteDevice> GetSyncedDeviceWithPublicKey(
+  absl::optional<multidevice::RemoteDevice> GetSyncedDeviceWithPublicKey(
       const std::string& public_key) const;
 
   void OnSetSoftwareFeatureStateSuccess();
@@ -247,15 +250,14 @@ class DeviceSyncImpl : public DeviceSyncBase,
   void OnSetFeatureStatusError(const base::UnguessableToken& request_id,
                                NetworkRequestError error);
   void OnFindEligibleDevicesSuccess(
-      const base::RepeatingCallback<
-          void(mojom::NetworkRequestResult,
-               mojom::FindEligibleDevicesResponsePtr)>& callback,
+      base::OnceCallback<void(mojom::NetworkRequestResult,
+                              mojom::FindEligibleDevicesResponsePtr)> callback,
       const std::vector<cryptauth::ExternalDeviceInfo>& eligible_devices,
       const std::vector<cryptauth::IneligibleDevice>& ineligible_devices);
   void OnFindEligibleDevicesError(
-      const base::RepeatingCallback<
-          void(mojom::NetworkRequestResult,
-               mojom::FindEligibleDevicesResponsePtr)>& callback,
+      const base::OnceCallback<void(mojom::NetworkRequestResult,
+                                    mojom::FindEligibleDevicesResponsePtr)>
+          callback,
       NetworkRequestError error);
   void OnNotifyDevicesSuccess(const base::UnguessableToken& request_id);
   void OnNotifyDevicesError(const base::UnguessableToken& request_id,
@@ -295,7 +297,7 @@ class DeviceSyncImpl : public DeviceSyncBase,
   base::flat_map<base::UnguessableToken, GetDevicesActivityStatusCallback>
       get_devices_activity_status_callbacks_;
 
-  base::Optional<cryptauthv2::ClientAppMetadata> client_app_metadata_;
+  absl::optional<cryptauthv2::ClientAppMetadata> client_app_metadata_;
   size_t num_gcm_registration_failures_ = 0;
   size_t num_client_app_metadata_fetch_failures_ = 0;
   base::TimeTicks initialization_start_timestamp_;
@@ -323,12 +325,17 @@ class DeviceSyncImpl : public DeviceSyncBase,
       cryptauth_device_activity_getter_;
 
   base::WeakPtrFactory<DeviceSyncImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceSyncImpl);
 };
 
 }  // namespace device_sync
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the migration is finished.
+namespace ash {
+namespace device_sync {
+using ::chromeos::device_sync::DeviceSyncImpl;
+}
+}  // namespace ash
 
 #endif  // CHROMEOS_SERVICES_DEVICE_SYNC_DEVICE_SYNC_IMPL_H_

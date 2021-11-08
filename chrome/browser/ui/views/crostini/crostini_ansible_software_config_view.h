@@ -5,12 +5,12 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_CROSTINI_CROSTINI_ANSIBLE_SOFTWARE_CONFIG_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_CROSTINI_CROSTINI_ANSIBLE_SOFTWARE_CONFIG_VIEW_H_
 
-#include "chrome/browser/chromeos/crostini/ansible/ansible_management_service.h"
+#include "chrome/browser/ash/crostini/ansible/ansible_management_service.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/progress_bar.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 class Profile;
 
@@ -21,6 +21,11 @@ class CrostiniAnsibleSoftwareConfigView
     : public views::BubbleDialogDelegateView,
       public crostini::AnsibleManagementService::Observer {
  public:
+  CrostiniAnsibleSoftwareConfigView(const CrostiniAnsibleSoftwareConfigView&) =
+      delete;
+  CrostiniAnsibleSoftwareConfigView& operator=(
+      const CrostiniAnsibleSoftwareConfigView&) = delete;
+
   METADATA_HEADER(CrostiniAnsibleSoftwareConfigView);
 
   // views::DialogDelegateView:
@@ -30,7 +35,7 @@ class CrostiniAnsibleSoftwareConfigView
   void OnAnsibleSoftwareConfigurationStarted() override;
   void OnAnsibleSoftwareConfigurationFinished(bool success) override;
 
-  base::string16 GetSubtextLabelStringForTesting();
+  std::u16string GetSubtextLabelStringForTesting();
 
   static CrostiniAnsibleSoftwareConfigView* GetActiveViewForTesting();
 
@@ -43,10 +48,10 @@ class CrostiniAnsibleSoftwareConfigView
     ERROR_OFFLINE,
   };
 
-  static base::string16 GetWindowTitleForState(State state);
+  static std::u16string GetWindowTitleForState(State state);
 
   void OnStateChanged();
-  base::string16 GetSubtextLabel() const;
+  std::u16string GetSubtextLabel() const;
 
   State state_ = State::CONFIGURING;
   crostini::AnsibleManagementService* ansible_management_service_ = nullptr;
@@ -55,8 +60,6 @@ class CrostiniAnsibleSoftwareConfigView
   views::ProgressBar* progress_bar_ = nullptr;
 
   ~CrostiniAnsibleSoftwareConfigView() override;
-
-  DISALLOW_COPY_AND_ASSIGN(CrostiniAnsibleSoftwareConfigView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_CROSTINI_CROSTINI_ANSIBLE_SOFTWARE_CONFIG_VIEW_H_

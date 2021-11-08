@@ -4,6 +4,7 @@
 
 #include "chromeos/services/device_sync/cryptauth_client_impl.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -80,6 +81,10 @@ class MockCryptAuthApiCallFlow : public CryptAuthApiCallFlow {
   MockCryptAuthApiCallFlow() : CryptAuthApiCallFlow() {
     SetPartialNetworkTrafficAnnotation(PARTIAL_TRAFFIC_ANNOTATION_FOR_TESTS);
   }
+
+  MockCryptAuthApiCallFlow(const MockCryptAuthApiCallFlow&) = delete;
+  MockCryptAuthApiCallFlow& operator=(const MockCryptAuthApiCallFlow&) = delete;
+
   virtual ~MockCryptAuthApiCallFlow() {}
 
   void StartPostRequest(
@@ -122,9 +127,6 @@ class MockCryptAuthApiCallFlow : public CryptAuthApiCallFlow {
            const std::string& access_token,
            ResultCallback& result_callback,
            ErrorCallback& error_callback));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockCryptAuthApiCallFlow);
 };
 
 // Callback that should never be invoked.
@@ -183,12 +185,13 @@ class DeviceSyncCryptAuthClientTest : public testing::Test {
     device_classifier.set_device_software_package(kDeviceSoftwarePackage);
     device_classifier.set_device_type(DeviceTypeEnumToString(kDeviceType));
 
-    identity_test_environment_.MakeUnconsentedPrimaryAccountAvailable(kEmail);
+    identity_test_environment_.MakePrimaryAccountAvailable(
+        kEmail, signin::ConsentLevel::kSignin);
 
-    client_.reset(
-        new CryptAuthClientImpl(base::WrapUnique(api_call_flow_),
-                                identity_test_environment_.identity_manager(),
-                                shared_factory_, device_classifier));
+    client_ = std::make_unique<CryptAuthClientImpl>(
+        base::WrapUnique(api_call_flow_),
+        identity_test_environment_.identity_manager(), shared_factory_,
+        device_classifier);
   }
 
   // Sets up an expectation and captures a CryptAuth API POST request to

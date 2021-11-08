@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_SETTINGS_PAGE_UI_HANDLER_H_
 
 #include "base/macros.h"
-#include "base/values.h"
 #include "content/public/browser/web_ui_message_handler.h"
 
 namespace settings {
@@ -15,14 +14,16 @@ namespace settings {
 class SettingsPageUIHandler : public content::WebUIMessageHandler {
  public:
   SettingsPageUIHandler();
+
+  SettingsPageUIHandler(const SettingsPageUIHandler&) = delete;
+  SettingsPageUIHandler& operator=(const SettingsPageUIHandler&) = delete;
+
   ~SettingsPageUIHandler() override;
 
  private:
   // SettingsPageUIHandler subclasses must be JavaScript-lifecycle safe.
   void OnJavascriptAllowed() override = 0;
   void OnJavascriptDisallowed() override = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(SettingsPageUIHandler);
 };
 
 }  // namespace settings

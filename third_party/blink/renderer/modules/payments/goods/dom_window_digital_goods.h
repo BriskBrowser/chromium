@@ -22,12 +22,15 @@ class DOMWindowDigitalGoods final
  public:
   static const char kSupplementName[];
 
+  DOMWindowDigitalGoods();
+
   // IDL Interface:
   static ScriptPromise getDigitalGoodsService(ScriptState*,
                                               LocalDOMWindow&,
                                               const String& payment_method);
 
   ScriptPromise GetDigitalGoodsService(ScriptState*,
+                                       LocalDOMWindow&,
                                        const String& payment_method);
   void Trace(Visitor* visitor) const override;
 

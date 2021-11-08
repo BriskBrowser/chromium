@@ -9,14 +9,11 @@
 #include <stdint.h>
 
 #include <list>
-#include <string>
 #include <vector>
 
-#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner_helpers.h"
-#include "base/strings/string16.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "build/build_config.h"
 #include "content/common/render_message_filter.mojom.h"
 #include "content/public/browser/browser_associated_interface.h"
@@ -46,7 +43,6 @@ namespace content {
 class BrowserContext;
 class MediaInternals;
 class RenderWidgetHelper;
-class ResourceContext;
 
 // This class filters out incoming IPC messages for the renderer process on the
 // IPC thread.
@@ -59,6 +55,9 @@ class CONTENT_EXPORT RenderMessageFilter
                       BrowserContext* browser_context,
                       RenderWidgetHelper* render_widget_helper,
                       MediaInternals* media_internals);
+
+  RenderMessageFilter(const RenderMessageFilter&) = delete;
+  RenderMessageFilter& operator=(const RenderMessageFilter&) = delete;
 
   // BrowserMessageFilter methods:
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -96,9 +95,6 @@ class CONTENT_EXPORT RenderMessageFilter
   bool CheckBenchmarkingEnabled() const;
   bool CheckPreparsedJsCachingEnabled() const;
 
-  // The ResourceContext which is to be used on the IO thread.
-  ResourceContext* resource_context_;
-
   scoped_refptr<RenderWidgetHelper> render_widget_helper_;
 
   int render_process_id_;
@@ -106,8 +102,6 @@ class CONTENT_EXPORT RenderMessageFilter
   MediaInternals* media_internals_;
 
   base::WeakPtrFactory<RenderMessageFilter> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(RenderMessageFilter);
 };
 
 }  // namespace content

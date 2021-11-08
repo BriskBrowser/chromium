@@ -4,6 +4,11 @@
 
 #include "chromecast/graphics/rounded_window_corners_manager.h"
 
+#include <memory>
+#include <string>
+#include <unordered_set>
+
+#include "base/containers/contains.h"
 #include "base/strings/string_number_conversions.h"
 #include "chromecast/graphics/cast_window_manager.h"
 #include "components/exo/surface.h"
@@ -31,13 +36,14 @@ aura::Window* FindTopmostVisibleNonCornersWindow(
       return found_window;
   }
 
-  return window->id() != CastWindowManager::CORNERS_OVERLAY ? window : nullptr;
+  return window->GetId() != CastWindowManager::CORNERS_OVERLAY ? window
+                                                               : nullptr;
 }
 
 bool HasNonAppParent(const aura::Window* window) {
   const aura::Window* parent = window->parent();
   while (parent && parent->IsVisible()) {
-    if (parent->id() != CastWindowManager::APP)
+    if (parent->GetId() != CastWindowManager::APP)
       return true;
     else
       parent = parent->parent();
@@ -112,7 +118,7 @@ class RoundedCornersObserver : public aura::WindowObserver,
     if (!topmost_visible_window)
       return;
 
-    int window_id = topmost_visible_window->id();
+    int window_id = topmost_visible_window->GetId();
     // The window may be a child to a visible non-app window that does not draw
     // its own corners, so this needs to be checked for.
     bool set_rounded_corners =

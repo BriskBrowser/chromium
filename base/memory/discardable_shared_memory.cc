@@ -15,9 +15,9 @@
 #include "base/logging.h"
 #include "base/memory/discardable_memory.h"
 #include "base/memory/discardable_memory_internal.h"
+#include "base/memory/page_size.h"
 #include "base/memory/shared_memory_tracker.h"
 #include "base/numerics/safe_math.h"
-#include "base/process/process_metrics.h"
 #include "base/tracing_buildflags.h"
 #include "build/build_config.h"
 
@@ -67,7 +67,7 @@ int64_t TimeToWireFormat(Time time);
 // Note: 19 January 2038, this will cease to work.
 template <>
 Time ALLOW_UNUSED_TYPE TimeFromWireFormat<4>(int64_t value) {
-  return value ? Time::UnixEpoch() + TimeDelta::FromSeconds(value) : Time();
+  return value ? Time::UnixEpoch() + Seconds(value) : Time();
 }
 template <>
 int64_t ALLOW_UNUSED_TYPE TimeToWireFormat<4>(Time time) {

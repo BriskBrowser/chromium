@@ -36,6 +36,10 @@ class DomainReliabilityBrowserTest : public InProcessBrowserTest {
     net::URLRequestFailedJob::AddUrlHandler();
   }
 
+  DomainReliabilityBrowserTest(const DomainReliabilityBrowserTest&) = delete;
+  DomainReliabilityBrowserTest& operator=(const DomainReliabilityBrowserTest&) =
+      delete;
+
   ~DomainReliabilityBrowserTest() override {}
 
   // Note: In an ideal world, instead of appending the command-line switch and
@@ -59,8 +63,9 @@ class DomainReliabilityBrowserTest : public InProcessBrowserTest {
   }
 
   network::mojom::NetworkContext* GetNetworkContext() {
-    return content::BrowserContext::GetDefaultStoragePartition(
-               browser()->profile())
+    return browser()
+        ->profile()
+        ->GetDefaultStoragePartition()
         ->GetNetworkContext();
   }
 
@@ -68,12 +73,16 @@ class DomainReliabilityBrowserTest : public InProcessBrowserTest {
 
  private:
   net::EmbeddedTestServer test_server_;
-
-  DISALLOW_COPY_AND_ASSIGN(DomainReliabilityBrowserTest);
 };
 
 class DomainReliabilityDisabledBrowserTest
     : public DomainReliabilityBrowserTest {
+ public:
+  DomainReliabilityDisabledBrowserTest(
+      const DomainReliabilityDisabledBrowserTest&) = delete;
+  DomainReliabilityDisabledBrowserTest& operator=(
+      const DomainReliabilityDisabledBrowserTest&) = delete;
+
  protected:
   DomainReliabilityDisabledBrowserTest() {}
 
@@ -82,9 +91,6 @@ class DomainReliabilityDisabledBrowserTest
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kDisableDomainReliability);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DomainReliabilityDisabledBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(DomainReliabilityDisabledBrowserTest,
@@ -106,7 +112,7 @@ std::unique_ptr<net::test_server::HttpResponse> TestRequestHandler(
     const base::RepeatingClosure& quit_closure,
     const net::test_server::HttpRequest& request) {
   if (request.relative_url != kUploadPath)
-    return std::unique_ptr<net::test_server::HttpResponse>();
+    return nullptr;
 
   ++*request_count_out;
   *last_request_content_out = request.has_content ? request.content : "";
@@ -140,12 +146,12 @@ IN_PROC_BROWSER_TEST_F(DomainReliabilityBrowserTest, Upload) {
   {
     mojo::ScopedAllowSyncCallForTesting allow_sync_call;
     GetNetworkContext()->AddDomainReliabilityContextForTesting(
-        test_server()->base_url().GetOrigin(), upload_url);
+        test_server()->base_url().DeprecatedGetOriginAsURL(), upload_url);
   }
 
   // Trigger an error.
 
-  ui_test_utils::NavigateToURL(browser(), error_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), error_url));
 
   {
     mojo::ScopedAllowSyncCallForTesting allow_sync_call;
@@ -165,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(DomainReliabilityBrowserTest, Upload) {
 
   const base::ListValue* entries;
   ASSERT_TRUE(dict->GetList("entries", &entries));
-  ASSERT_EQ(1u, entries->GetSize());
+  ASSERT_EQ(1u, entries->GetList().size());
 
   const base::DictionaryValue* entry;
   ASSERT_TRUE(entries->GetDictionary(0u, &entry));
@@ -185,7 +191,8 @@ IN_PROC_BROWSER_TEST_F(DomainReliabilityBrowserTest, UploadAtShutdown) {
         GURL("https://localhost/"), upload_url);
   }
 
-  ui_test_utils::NavigateToURL(browser(), GURL("https://localhost/"));
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GURL("https://localhost/")));
 
   {
     mojo::ScopedAllowSyncCallForTesting allow_sync_call;
@@ -216,8 +223,7 @@ IN_PROC_BROWSER_TEST_F(DomainReliabilityBrowserTest, RequestAtShutdown) {
   resource_request->url = hung_url;
   auto simple_loader = network::SimpleURLLoader::Create(
       std::move(resource_request), TRAFFIC_ANNOTATION_FOR_TESTS);
-  auto* storage_partition =
-      content::BrowserContext::GetDefaultStoragePartition(browser()->profile());
+  auto* storage_partition = browser()->profile()->GetDefaultStoragePartition();
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       storage_partition->GetURLLoaderFactoryForBrowserProcess().get(),
       base::BindOnce([](std::unique_ptr<std::string> body) {}));

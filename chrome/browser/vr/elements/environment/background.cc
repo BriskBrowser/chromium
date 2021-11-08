@@ -142,7 +142,7 @@ float RemapLatitude(float t) {
 Background::Background() {
   SetTransitionedProperties(
       {NORMAL_COLOR_FACTOR, INCOGNITO_COLOR_FACTOR, FULLSCREEN_COLOR_FACTOR});
-  SetTransitionDuration(base::TimeDelta::FromMilliseconds(2500));
+  SetTransitionDuration(base::Milliseconds(2500));
 }
 
 Background::~Background() = default;
@@ -187,19 +187,18 @@ void Background::SetGradientImages(
 }
 
 void Background::SetNormalFactor(float factor) {
-  animation().TransitionFloatTo(this, last_frame_time(), NORMAL_COLOR_FACTOR,
-                                normal_factor_, factor);
+  animator().TransitionFloatTo(this, last_frame_time(), NORMAL_COLOR_FACTOR,
+                               normal_factor_, factor);
 }
 
 void Background::SetIncognitoFactor(float factor) {
-  animation().TransitionFloatTo(this, last_frame_time(), INCOGNITO_COLOR_FACTOR,
-                                incognito_factor_, factor);
+  animator().TransitionFloatTo(this, last_frame_time(), INCOGNITO_COLOR_FACTOR,
+                               incognito_factor_, factor);
 }
 
 void Background::SetFullscreenFactor(float factor) {
-  animation().TransitionFloatTo(this, last_frame_time(),
-                                FULLSCREEN_COLOR_FACTOR, fullscreen_factor_,
-                                factor);
+  animator().TransitionFloatTo(this, last_frame_time(), FULLSCREEN_COLOR_FACTOR,
+                               fullscreen_factor_, factor);
 }
 
 void Background::CreateBackgroundTexture() {
@@ -224,7 +223,7 @@ void Background::CreateGradientTextures() {
 
 void Background::OnFloatAnimated(const float& value,
                                  int target_property_id,
-                                 cc::KeyframeModel* keyframe_model) {
+                                 gfx::KeyframeModel* keyframe_model) {
   switch (target_property_id) {
     case NORMAL_COLOR_FACTOR:
       normal_factor_ = value;

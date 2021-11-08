@@ -11,15 +11,18 @@
 #include "components/reading_list/core/reading_list_model.h"
 #include "components/reading_list/core/reading_list_model_observer.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/multi_animation.h"
 #include "ui/views/controls/button/label_button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/widget/widget_utils.h"
 
 class Browser;
-class WebUIBubbleDialogView;
+
+namespace views {
+class DotIndicator;
+}
 
 // Button in the bookmarks bar that provides access to the corresponding
 // read later menu.
@@ -36,6 +39,8 @@ class ReadLaterButton : public views::LabelButton,
 
   void CloseBubble();
 
+  views::DotIndicator* dot_indicator_for_testing() { return dot_indicator_; }
+
  private:
   class HighlightColorAnimation : gfx::AnimationDelegate {
    public:
@@ -46,13 +51,13 @@ class ReadLaterButton : public views::LabelButton,
 
     void Show();
     void Hide();
-    void SetColor(SkColor color) { highlight_color_ = color; }
+    void SetColor(SkColor color);
 
     // Returns current text / background / icon color based on
     // |highlight_color_| and on the current animation state (which
     // influences the alpha channel).
     SkColor GetTextColor() const;
-    base::Optional<SkColor> GetBackgroundColor() const;
+    absl::optional<SkColor> GetBackgroundColor() const;
     SkColor GetIconColor() const;
 
     void AnimationEnded(const gfx::Animation* animation) override;
@@ -73,17 +78,14 @@ class ReadLaterButton : public views::LabelButton,
   };
 
   // LabelButton:
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override;
-  SkColor GetInkDropBaseColor() const override;
   void OnThemeChanged() override;
+  void Layout() override;
 
   // views::WidgetObserver:
   void OnWidgetDestroying(views::Widget* widget) override;
 
   // ReadingListModelObserver:
-  void ReadingListModelLoaded(const ReadingListModel* model) override {}
+  void ReadingListModelLoaded(const ReadingListModel* model) override;
   void ReadingListModelBeingDeleted(const ReadingListModel* model) override;
   void ReadingListDidAddEntry(const ReadingListModel* model,
                               const GURL& url,
@@ -95,8 +97,7 @@ class ReadLaterButton : public views::LabelButton,
 
   Browser* const browser_;
 
-  // TODO(pbos): Figure out a better way to handle this.
-  WebUIBubbleDialogView* read_later_side_panel_bubble_ = nullptr;
+  views::DotIndicator* dot_indicator_ = nullptr;
 
   ReadingListModel* reading_list_model_ = nullptr;
   base::ScopedObservation<ReadingListModel, ReadingListModelObserver>
@@ -105,8 +106,6 @@ class ReadLaterButton : public views::LabelButton,
   std::unique_ptr<WebUIBubbleManagerT<ReadLaterUI>> webui_bubble_manager_;
 
   views::WidgetOpenTimer widget_open_timer_;
-
-  std::unique_ptr<BubbleContentsWrapperT<ReadLaterUI>> contents_wrapper_;
 
   base::ScopedObservation<views::Widget, views::WidgetObserver>
       bubble_widget_observation_{this};

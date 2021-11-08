@@ -10,7 +10,7 @@
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_constants.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/common/chrome_constants.h"
-#include "components/autofill/core/browser/payments/strike_database.h"
+#include "components/autofill/core/browser/strike_database.h"
 #include "components/bookmarks/common/bookmark_constants.h"
 #include "components/history/core/browser/history_constants.h"
 #include "components/password_manager/core/browser/password_manager_constants.h"
@@ -58,7 +58,7 @@ std::vector<SnapshotItemDetails> CollectProfileItems() {
   // deleted. When cookies are deleted, the kZeroSuggestCachedResults pref has
   // to be reset. When history and isolated origins are deleted, the
   // kPrefLastLaunchTime and kUserTriggeredIsolatedOrigins prefs have to be
-  // reset. When data type content is deleted, blacklisted sites are deleted
+  // reset. When data type content is deleted, blocklisted sites are deleted
   // from the translation prefs.
   int pref_data_type =
       content::BrowsingDataRemover::DATA_TYPE_COOKIES |

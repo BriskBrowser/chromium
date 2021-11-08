@@ -97,10 +97,10 @@ editing.EditableLine = class {
   }
 
   /**
-* @param {boolean=} opt_baseLineOnStart Computes the line based on the start
-node if true.
- @private
- */
+   * @param {boolean=} opt_baseLineOnStart Computes the line based on the start
+   * node if true.
+   * @private
+   */
   computeLineData_(opt_baseLineOnStart) {
     // Note that we calculate the line based only upon |start_| or
     // |end_| even if they do not fall on the same line. It is up to
@@ -145,90 +145,147 @@ node if true.
     // the case of inline text boxes, or the node itself).
     const parents = [this.startContainer_];
 
-    // Compute the start of line.
-    let lineStart = this.lineStart_;
-
-    // Hack: note underlying bugs require these hacks.
-    while ((lineStart.previousOnLine && lineStart.previousOnLine.role) ||
-           (lineStart.previousSibling && lineStart.previousSibling.lastChild &&
-            lineStart.previousSibling.lastChild.nextOnLine === lineStart)) {
-      if (lineStart.previousOnLine) {
-        lineStart = lineStart.previousOnLine;
-      } else {
-        lineStart = lineStart.previousSibling.lastChild;
-      }
-
-      this.lineStart_ = lineStart;
-
-      if (lineStart.role !== RoleType.INLINE_TEXT_BOX) {
-        parents.unshift(lineStart);
-      } else if (parents[0] !== lineStart.parent) {
-        parents.unshift(lineStart.parent);
-      }
-
-      const prepend = new Spannable(lineStart.name, lineStart);
-      prepend.append(this.value_);
-      this.value_ = prepend;
+    // Keep track of visited nodes to ensure we don't visit the same node twice.
+    // Workaround for crbug.com/1203840.
+    const visited = new WeakSet();
+    if (this.lineStart_) {
+      visited.add(this.lineStart_);
     }
+
+    let data = this.computeLineStartMetadata_(
+        this.lineStart_, this.value_, parents, visited);
+    this.lineStart_ = data.lineStart;
     this.lineStartContainer_ = this.lineStart_.parent;
-
-    let lineEnd = this.lineEnd_;
-
-    // Hack: note underlying bugs require these hacks.
-    while ((lineEnd.nextOnLine && lineEnd.nextOnLine.role) ||
-           (lineEnd.nextSibling &&
-            lineEnd.nextSibling.previousOnLine === lineEnd)) {
-      if (lineEnd.nextOnLine) {
-        lineEnd = lineEnd.nextOnLine;
-      } else {
-        lineEnd = lineEnd.nextSibling.firstChild;
-      }
-
-      this.lineEnd_ = lineEnd;
-
-      if (lineEnd.role !== RoleType.INLINE_TEXT_BOX) {
-        parents.push(this.lineEnd_);
-      } else if (parents[parents.length - 1] !== lineEnd.parent) {
-        parents.push(this.lineEnd_.parent);
-      }
-
-      let annotation = lineEnd;
-      if (lineEnd === this.end_.node) {
-        annotation = this.end_;
-      }
-
-      this.value_.append(new Spannable(lineEnd.name, annotation));
-    }
-    this.lineEndContainer_ = this.lineEnd_.parent;
-
-    // Finally, annotate with all parent static texts as NodeSpan's so that
-    // braille routing can key properly into the node with an offset.
-    // Note that both line start and end needs to account for
-    // potential offsets into the static texts as follows.
-    let textCountBeforeLineStart = 0, textCountAfterLineEnd = 0;
-    let finder = this.lineStart_;
-    while (finder.previousSibling) {
-      finder = finder.previousSibling;
-      textCountBeforeLineStart += finder.name ? finder.name.length : 0;
-    }
+    this.value_ = data.value;
+    const textCountBeforeLineStart = data.textCountBeforeLineStart;
     this.localLineStartContainerOffset_ = textCountBeforeLineStart;
-
     if (this.lineStartContainer_) {
       this.lineStartContainerRecovery_ =
           new TreePathRecoveryStrategy(this.lineStartContainer_);
     }
 
-    finder = this.lineEnd_;
-    while (finder.nextSibling) {
-      finder = finder.nextSibling;
-      textCountAfterLineEnd += finder.name ? finder.name.length : 0;
-    }
-
+    data = this.computeLineEndMetadata_(
+        this.lineEnd_, this.value_, parents, visited);
+    this.lineEnd_ = data.lineEnd;
+    this.lineEndContainer_ = this.lineEnd_.parent;
+    this.value_ = data.value;
+    const textCountAfterLineEnd = data.textCountAfterLineEnd;
     if (this.lineEndContainer_.name) {
       this.localLineEndContainerOffset_ =
           this.lineEndContainer_.name.length - textCountAfterLineEnd;
     }
 
+    // Annotate with all parent static texts as NodeSpans so that braille
+    // routing can key properly into the node with an offset.
+    this.value_ = this.annotateWithParents_(
+        this.value_, parents, textCountBeforeLineStart, textCountAfterLineEnd);
+  }
+
+  /**
+   * @param {AutomationNode|undefined} scanNode
+   * @param {Spannable} value
+   * @param {!Array<!AutomationNode>} parents
+   * @param {!WeakSet<!AutomationNode>} visited
+   * @return {!{
+   *      lineStart: (AutomationNode|undefined),
+   *      value: Spannable,
+   *      textCountBeforeLineStart: number}}
+   * @private
+   */
+  computeLineStartMetadata_(scanNode, value, parents, visited) {
+    let lineStart = scanNode;
+    if (scanNode) {
+      scanNode = this.getPreviousOnLine_(scanNode);
+    }
+    // Compute |lineStart|.
+    while (scanNode && !visited.has(scanNode)) {
+      visited.add(scanNode);
+      lineStart = scanNode;
+
+      if (scanNode.role !== RoleType.INLINE_TEXT_BOX) {
+        parents.unshift(scanNode);
+      } else if (parents[0] !== scanNode.parent) {
+        parents.unshift(scanNode.parent);
+      }
+
+      const prepend = new Spannable(scanNode.name, scanNode);
+      prepend.append(/** @type {!Spannable} */ (value));
+      value = prepend;
+
+      scanNode = this.getPreviousOnLine_(scanNode);
+    }
+
+    // Note that we need to account for potential offsets into the static texts
+    // as follows.
+    let textCountBeforeLineStart = 0;
+    let finder = lineStart;
+    while (finder.previousSibling) {
+      finder = finder.previousSibling;
+      textCountBeforeLineStart += finder.name ? finder.name.length : 0;
+    }
+
+    return {lineStart, value, textCountBeforeLineStart};
+  }
+
+  /**
+   * @param {AutomationNode|undefined} scanNode
+   * @param {Spannable} value
+   * @param {!Array<!AutomationNode>} parents
+   * @param {!WeakSet<!AutomationNode>} visited
+   * @return {!{
+   *      lineEnd: (AutomationNode|undefined),
+   *      value: Spannable,
+   *      textCountAfterLineEnd: number}}
+   * @private
+   */
+  computeLineEndMetadata_(scanNode, value, parents, visited) {
+    let lineEnd = scanNode;
+    if (scanNode) {
+      scanNode = this.getNextOnLine_(scanNode);
+    }
+    // Compute |lineEnd|.
+    while (scanNode && !visited.has(scanNode)) {
+      visited.add(scanNode);
+      lineEnd = scanNode;
+
+      if (scanNode.role !== RoleType.INLINE_TEXT_BOX) {
+        parents.push(scanNode);
+      } else if (parents[parents.length - 1] !== scanNode.parent) {
+        parents.push(scanNode.parent);
+      }
+
+      let annotation = scanNode;
+      if (scanNode === this.end_.node) {
+        annotation = this.end_;
+      }
+
+      value.append(new Spannable(scanNode.name, annotation));
+
+      scanNode = this.getNextOnLine_(scanNode);
+    }
+
+    // Note that we need to account for potential offsets into the static texts
+    // as follows.
+    let textCountAfterLineEnd = 0;
+    let finder = lineEnd;
+    while (finder.nextSibling) {
+      finder = finder.nextSibling;
+      textCountAfterLineEnd += finder.name ? finder.name.length : 0;
+    }
+
+    return {lineEnd, value, textCountAfterLineEnd};
+  }
+
+  /**
+   * @param {Spannable} value
+   * @param {!Array<!AutomationNode>} parents
+   * @param {number} textCountBeforeLineStart
+   * @param {number} textCountAfterLineEnd
+   * @return {Spannable}
+   * @private
+   */
+  annotateWithParents_(
+      value, parents, textCountBeforeLineStart, textCountAfterLineEnd) {
     let len = 0;
     for (let i = 0; i < parents.length; i++) {
       const parent = parents[i];
@@ -238,7 +295,6 @@ node if true.
       }
 
       const prevLen = len;
-
       let currentLen = parent.name.length;
       let offset = 0;
 
@@ -256,15 +312,63 @@ node if true.
       len += currentLen;
 
       try {
-        this.value_.setSpan(new Output.NodeSpan(parent, offset), prevLen, len);
+        value.setSpan(new OutputNodeSpan(parent, offset), prevLen, len);
 
-        // Also, annotate this span if it is associated with line containre.
+        // Also, annotate this span if it is associated with line container.
         if (parent === this.startContainer_) {
-          this.value_.setSpan(parent, prevLen, len);
+          value.setSpan(parent, prevLen, len);
         }
       } catch (e) {
       }
     }
+    return value;
+  }
+
+  /**
+   * @param {!AutomationNode} node
+   * @return {!AutomationNode|undefined}
+   * @private
+   */
+  getNextOnLine_(node) {
+    const nextOnLine = node.nextOnLine;
+    const nextSibling = node.nextSibling;
+    if (nextOnLine && nextOnLine.role) {
+      // Ensure that there is a next-on-line node. The role can be undefined
+      // for an object that has been destroyed since the object was first
+      // cached.
+      return nextOnLine;
+    }
+
+    if (nextSibling && nextSibling.previousOnLine === node) {
+      // Catches potential breaks in the chain of next-on-line nodes.
+      return nextSibling.firstChild;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * @param {!AutomationNode} node
+   * @return {!AutomationNode|undefined}
+   * @private
+   */
+  getPreviousOnLine_(node) {
+    const previousLine = node.previousOnLine;
+    const previousSibling = node.previousSibling;
+    if (previousLine && previousLine.role) {
+      // Ensure that there is a previous-on-line node. The role can be undefined
+      // for an object that has been destroyed since the object was first
+      // cached.
+      return previousLine;
+    }
+
+    if (previousSibling && previousSibling.lastChild &&
+        previousSibling.lastChild.nextOnLine === node) {
+      // Catches potential breaks in the chain of previous-on-line nodes.
+      return previousSibling.lastChild;
+    }
+
+    return undefined;
   }
 
   /**
@@ -384,11 +488,6 @@ node if true.
   /** @return {string} */
   get startContainerValue() {
     return this.startContainerValue_;
-  }
-
-  /** @return {!cursors.Cursor} */
-  get startCursor() {
-    return this.start_;
   }
 
   /** @return {boolean} */
@@ -529,18 +628,15 @@ node if true.
     const lineNodes =
         /** @type {Array<!AutomationNode>} */ (this.value_.getSpansInstanceOf(
             /** @type {function()} */ (this.startContainer_.constructor)));
-    let queueMode = QueueMode.CATEGORY_FLUSH;
     for (let i = 0, cur; cur = lineNodes[i]; i++) {
       if (cur.children.length) {
         continue;
       }
 
-      const o = new Output()
-                    .withRichSpeech(
-                        Range.fromNode(cur),
-                        prev ? Range.fromNode(prev) : Range.fromNode(cur),
-                        Output.EventType.NAVIGATE)
-                    .withQueueMode(queueMode);
+      const o = new Output().withRichSpeech(
+          Range.fromNode(cur),
+          prev ? Range.fromNode(prev) : Range.fromNode(cur),
+          OutputEventType.NAVIGATE);
 
       // Ignore whitespace only output except if it is leading content on the
       // line.
@@ -548,8 +644,45 @@ node if true.
         o.go();
       }
       prev = cur;
-      queueMode = QueueMode.QUEUE;
     }
+  }
+
+  /**
+   * Creates a range around the character to the right of the line's starting
+   * position.
+   * @return {!Range}
+   */
+  createCharRange() {
+    const start = this.start_;
+    let end = start.move(Unit.CHARACTER, Movement.DIRECTIONAL, Dir.FORWARD);
+
+    // The following conditions detect when|start|moves across a node boundary
+    // to|end|.
+    if (start.node !== end.node ||
+        // When |start| and |end| are equal, that means we've reached
+        // the end of the document. This is a node boundary as well.
+        start.equals(end)) {
+      end = new cursors.Cursor(start.node, start.index + 1);
+    }
+    return new Range(start, end);
+  }
+
+  /**
+   * @param {boolean} shouldMoveToPreviousWord
+   * @return {!Range}
+   */
+  createWordRange(shouldMoveToPreviousWord) {
+    const pos = this.start_;
+    // When movement goes to the end of a word, we actually want to
+    // describe the word itself; this is considered the previous word so
+    // impacts the movement type below. We can give further context e.g.
+    // by saying "end of word", if we chose to be more verbose.
+    const start = pos.move(
+        Unit.WORD,
+        shouldMoveToPreviousWord ? Movement.DIRECTIONAL : Movement.BOUND,
+        Dir.BACKWARD);
+    const end = pos.move(Unit.WORD, Movement.BOUND, Dir.FORWARD);
+    return new Range(start, end);
   }
 };
 });  // goog.scope

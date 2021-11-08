@@ -8,17 +8,18 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/accelerators.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/system/status_area_widget.h"
 #include "base/macros.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/metadata/view_factory.h"
 #include "ui/views/mouse_watcher.h"
 
@@ -42,6 +43,10 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
   class ASH_EXPORT Delegate {
    public:
     Delegate() {}
+
+    Delegate(const Delegate&) = delete;
+    Delegate& operator=(const Delegate&) = delete;
+
     virtual ~Delegate();
 
     // Called when the view is destroyed. Any pointers to the view should be
@@ -56,7 +61,7 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
 
     // Called from GetAccessibleNodeData(); should return the appropriate
     // accessible name for the bubble.
-    virtual base::string16 GetAccessibleNameForBubble();
+    virtual std::u16string GetAccessibleNameForBubble();
 
     // Should return true if extra keyboard accessibility is enabled.
     // TrayBubbleView will put focus on the default item if extra keyboard
@@ -67,8 +72,9 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
     // child view was closed).
     virtual void HideBubble(const TrayBubbleView* bubble_view);
 
-   private:
-    DISALLOW_COPY_AND_ASSIGN(Delegate);
+    // Returns the accelerator action associated with the delegate's bubble
+    // view.
+    virtual absl::optional<AcceleratorAction> GetAcceleratorAction() const;
   };
 
   // Anchor mode being set at creation.
@@ -93,13 +99,13 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
     int preferred_width = 0;
     int max_height = 0;
     bool close_on_deactivate = true;
-    // Indicates whether tray bubble view is shown by click on the tray view.
-    bool show_by_click = false;
+    // Indicates whether tray bubble view should add a pre target event handler.
+    bool reroute_event_handler = false;
     // If not provided, the bg color will be derived from the NativeTheme.
-    base::Optional<SkColor> bg_color;
-    base::Optional<int> corner_radius;
-    base::Optional<gfx::Insets> insets;
-    base::Optional<gfx::Insets> margin;
+    absl::optional<SkColor> bg_color;
+    absl::optional<int> corner_radius;
+    absl::optional<gfx::Insets> insets;
+    absl::optional<gfx::Insets> margin;
     bool has_shadow = true;
     // Use half opaque widget instead of fully opaque.
     bool translucent = false;
@@ -128,6 +134,9 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
 
   // Returns the border insets. Called by TrayEventFilter.
   gfx::Insets GetBorderInsets() const;
+
+  // Returns the accelerator action associated with this bubble view.
+  absl::optional<AcceleratorAction> GetAcceleratorAction() const;
 
   // Called when the delegate is destroyed. This must be called before the
   // delegate is actually destroyed. TrayBubbleView will do clean up in
@@ -164,7 +173,7 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
       views::Widget* widget) override;
   bool WidgetHasHitTestMask() const override;
   void GetWidgetHitTestMask(SkPath* mask) const override;
-  base::string16 GetAccessibleWindowTitle() const override;
+  std::u16string GetAccessibleWindowTitle() const override;
 
   // views::BubbleDialogDelegateView:
   void OnBeforeBubbleWidgetInit(views::Widget::InitParams* params,
@@ -185,9 +194,6 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
   void MouseMovedOutOfHost() override;
 
  protected:
-  // views::BubbleDialogDelegateView:
-  ax::mojom::Role GetAccessibleWindowRole() override;
-
   // views::View:
   void ChildPreferredSizeChanged(View* child) override;
 
@@ -204,7 +210,11 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
   // process accelerator as menu is currently open.
   class RerouteEventHandler : public ui::EventHandler {
    public:
-    RerouteEventHandler(TrayBubbleView* tray_bubble_view);
+    explicit RerouteEventHandler(TrayBubbleView* tray_bubble_view);
+
+    RerouteEventHandler(const RerouteEventHandler&) = delete;
+    RerouteEventHandler& operator=(const RerouteEventHandler&) = delete;
+
     ~RerouteEventHandler() override;
 
     // Overridden from ui::EventHandler
@@ -213,8 +223,6 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
    private:
     // TrayBubbleView to which key events are going to be rerouted. Not owned.
     TrayBubbleView* tray_bubble_view_;
-
-    DISALLOW_COPY_AND_ASSIGN(RerouteEventHandler);
   };
 
   void CloseBubbleView();
@@ -240,7 +248,7 @@ class ASH_EXPORT TrayBubbleView : public views::BubbleDialogDelegateView,
   // keyboard.
   std::unique_ptr<EventHandler> reroute_event_handler_;
 
-  base::Optional<StatusAreaWidget::ScopedTrayBubbleCounter>
+  absl::optional<StatusAreaWidget::ScopedTrayBubbleCounter>
       tray_bubble_counter_;
 };
 

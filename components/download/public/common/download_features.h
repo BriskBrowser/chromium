@@ -12,13 +12,13 @@
 namespace download {
 namespace features {
 
-// The Finch parameter for download later feature to function only on cellular
-// network.
-constexpr char kDownloadLaterRequireCellular[] = "require_cellular";
+// The Finch parameter to control whether download later dialog should show the
+// date time picker option.
+constexpr char kDownloadLaterShowDateTimePicker[] = "show_date_time_picker";
 
-// The Finch parameter for download later feature to enable only in lite
-// mode(data saver).
-constexpr char kDownloadLaterRequireLiteMode[] = "require_lite_mode";
+// The Finch parameter to control the minimum download file size to show the
+// download later dialog.
+constexpr char kDownloadLaterMinFileSizeKb[] = "min_file_size_kb";
 
 // Whether offline content provider should be used for the downloads UI..
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
@@ -52,11 +52,6 @@ COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
     kAllowDownloadResumptionWithoutStrongValidators;
 
-// Whether parallel requests are used if server response doesn't reveal range
-// support.
-COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
-    kUseParallelRequestsForUnknwonRangeSupport;
-
 // Whether parallel download is used for HTTP2 connections.
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
     kUseParallelRequestsForHTTP2;
@@ -71,6 +66,17 @@ COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature kDeleteExpiredDownloads;
 // Whether to delete downloads that are overwritten by others.
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
     kDeleteOverwrittenDownloads;
+
+// Whether to allow changing the size of file buffer.
+COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
+    kAllowFileBufferSizeControl;
+
+// Whether to allow scanning save packages before saving them to disk.
+COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature kAllowSavePackageScanning;
+
+// Whether to show warning when downloading in incognito.
+COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
+    kIncognitoDownloadsWarning;
 
 }  // namespace features
 

@@ -2,16 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {assertEquals,assertFalse, assertTrue} from 'chrome://test/chai_assert.js';
 
-import {installMockChrome} from '../../../base/js/mock_chrome.m.js';
-import {ProgressItemState} from '../../common/js/progress_center_common.m.js';
+import {installMockChrome} from '../../common/js/mock_chrome.js';
+import {ProgressItemState} from '../../common/js/progress_center_common.js';
+import {toFilesAppURL} from '../../common/js/url_constants.js';
 
-import {DriveSyncHandlerImpl} from './drive_sync_handler.m.js';
-import {MockProgressCenter} from './mock_progress_center.m.js';
-// clang-format on
+import {DriveSyncHandlerImpl} from './drive_sync_handler.js';
+import {MockProgressCenter} from './mock_progress_center.js';
 
 /**
  * @type {!MockProgressCenter}
@@ -22,6 +21,14 @@ let progressCenter;
  * @type {!DriveSyncHandlerImpl}
  */
 let driveSyncHandler;
+
+/**
+ * @param {string} name file name
+ * @return {string} Valid file URL
+ */
+function asFileURL(name) {
+  return 'filesystem:' + toFilesAppURL(`external/${name}`).toString();
+}
 
 /**
  * Mock chrome APIs.
@@ -86,6 +93,15 @@ mockChrome.fileManagerPrivate = {
     },
     listener_: null
   },
+  onMountCompleted: {
+    addListener: function(callback) {
+      mockChrome.fileManagerPrivate.onMountCompleted.listener_ = callback;
+    },
+    removeListener: function() {
+      mockChrome.fileManagerPrivate.onMountCompleted.listener_ = null;
+    },
+    listener_: null
+  },
   getPreferences: function() {},
   setPreferences: function() {},
 
@@ -101,6 +117,15 @@ mockChrome.notifications = {
     },
     removeListener: function() {
       mockChrome.notifications.onButtonClicked.listener_ = null;
+    },
+    listener_: null
+  },
+  onClosed: {
+    addListener: function(callback) {
+      mockChrome.notifications.onClosed.listener_ = callback;
+    },
+    removeListener: function() {
+      mockChrome.notifications.onClosed.listener_ = null;
     },
     listener_: null
   },
@@ -121,7 +146,7 @@ window.webkitResolveLocalFileSystemURL =
 // Set up the test components.
 export function setUp() {
   // Mock LoadTimeData strings.
-  loadTimeData.data = {};
+  loadTimeData.resetForTesting({});
   loadTimeData.getString = id => id;
 
   // Install mock chrome APIs.
@@ -211,7 +236,7 @@ export function testErrorWithoutPath() {
 export async function testOffline() {
   // Start a transfer.
   await mockChrome.fileManagerPrivate.onFileTransfersUpdated.listener_({
-    fileUrl: 'name',
+    fileUrl: asFileURL('name'),
     transferState: 'in_progress',
     processed: 50.0,
     total: 100.0,
@@ -242,7 +267,7 @@ export async function testOffline() {
 export async function testTransferUpdate() {
   // Start a pin transfer.
   await mockChrome.fileManagerPrivate.onPinTransfersUpdated.listener_({
-    fileUrl: 'name',
+    fileUrl: asFileURL('name'),
     transferState: 'in_progress',
     processed: 50.0,
     total: 100.0,
@@ -259,7 +284,7 @@ export async function testTransferUpdate() {
 
   // Start a sync transfer.
   await mockChrome.fileManagerPrivate.onFileTransfersUpdated.listener_({
-    fileUrl: 'name',
+    fileUrl: asFileURL('name'),
     transferState: 'in_progress',
     processed: 25.0,
     total: 100.0,
@@ -274,7 +299,7 @@ export async function testTransferUpdate() {
 
   // Finish the pin transfer.
   await mockChrome.fileManagerPrivate.onPinTransfersUpdated.listener_({
-    fileUrl: 'name',
+    fileUrl: asFileURL('name'),
     transferState: 'completed',
     processed: 100.0,
     total: 100.0,
@@ -291,7 +316,7 @@ export async function testTransferUpdate() {
 
   // Fail the sync transfer.
   await mockChrome.fileManagerPrivate.onFileTransfersUpdated.listener_({
-    fileUrl: 'name',
+    fileUrl: asFileURL('name'),
     transferState: 'failed',
     processed: 40.0,
     total: 100.0,

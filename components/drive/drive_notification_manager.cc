@@ -13,6 +13,7 @@
 #include "base/rand_util.h"
 #include "base/strings/char_traits.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "components/drive/drive_notification_observer.h"
 #include "components/invalidation/public/invalidation_service.h"
@@ -195,7 +196,7 @@ void DriveNotificationManager::RestartPollingTimer() {
 
   polling_timer_.Stop();
   polling_timer_.Start(
-      FROM_HERE, base::TimeDelta::FromSeconds(interval_secs + jitter),
+      FROM_HERE, base::Seconds(interval_secs + jitter),
       base::BindOnce(&DriveNotificationManager::NotifyObserversToUpdate,
                      weak_ptr_factory_.GetWeakPtr(), NOTIFICATION_POLLING,
                      std::map<std::string, int64_t>()));
@@ -208,8 +209,7 @@ void DriveNotificationManager::RestartBatchTimer() {
 
   batch_timer_.Stop();
   batch_timer_.Start(
-      FROM_HERE,
-      base::TimeDelta::FromSeconds(kInvalidationBatchIntervalSecs + jitter),
+      FROM_HERE, base::Seconds(kInvalidationBatchIntervalSecs + jitter),
       base::BindOnce(&DriveNotificationManager::OnBatchTimerExpired,
                      weak_ptr_factory_.GetWeakPtr()));
 }
@@ -317,7 +317,7 @@ std::string DriveNotificationManager::ExtractTeamDriveId(
   if (!base::StartsWith(topic_name, prefix)) {
     return {};
   }
-  return topic_name.substr(prefix.size()).as_string();
+  return std::string(topic_name.substr(prefix.size()));
 }
 
 }  // namespace drive

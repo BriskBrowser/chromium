@@ -4,16 +4,16 @@
 
 #include "ash/public/cpp/network_icon_image_source.h"
 
-#include "ash/public/cpp/ash_constants.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/scoped_canvas.h"
-#include "ui/gfx/skia_util.h"
 #include "ui/gfx/vector_icon_types.h"
+#include "ui/gfx/vector_icon_utils.h"
 
 namespace ash {
 namespace network_icon {
@@ -70,6 +70,7 @@ void NetworkIconImageSource::Draw(gfx::Canvas* canvas) {
 
   if (badges_.top_left.icon)
     paint_badge(badges_.top_left, 0, icon_y);
+
   if (badges_.bottom_left.icon) {
     paint_badge(
         badges_.bottom_left, 0,

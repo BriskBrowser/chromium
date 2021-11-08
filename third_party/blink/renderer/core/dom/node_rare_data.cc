@@ -80,23 +80,28 @@ void NodeMutationObserverData::RemoveRegistration(
 }
 
 void NodeData::Trace(Visitor* visitor) const {
-  if (bit_field_.get_concurrently<IsRareData>()) {
-    if (bit_field_.get_concurrently<IsElementRareData>())
-      static_cast<const ElementRareData*>(this)->TraceAfterDispatch(visitor);
-    else
-      static_cast<const NodeRareData*>(this)->TraceAfterDispatch(visitor);
-  } else {
-    static_cast<const NodeRenderingData*>(this)->TraceAfterDispatch(visitor);
+  switch (GetClassType()) {
+    case ClassType::kNodeRareData:
+      To<NodeRareData>(this)->TraceAfterDispatch(visitor);
+      break;
+    case ClassType::kElementRareData:
+      To<ElementRareData>(this)->TraceAfterDispatch(visitor);
+      break;
+    case ClassType::kNodeRenderingData:
+      To<NodeRenderingData>(this)->TraceAfterDispatch(visitor);
+      break;
   }
 }
 
-NodeRenderingData::NodeRenderingData(LayoutObject* layout_object,
-                                     const ComputedStyle* computed_style)
-    : NodeData(false, false),
+NodeRenderingData::NodeRenderingData(
+    LayoutObject* layout_object,
+    scoped_refptr<const ComputedStyle> computed_style)
+    : NodeData(ClassType::kNodeRenderingData),
       layout_object_(layout_object),
       computed_style_(computed_style) {}
 
-void NodeRenderingData::SetComputedStyle(const ComputedStyle* computed_style) {
+void NodeRenderingData::SetComputedStyle(
+    scoped_refptr<const ComputedStyle> computed_style) {
   DCHECK_NE(&SharedEmptyData(), this);
   computed_style_ = computed_style;
 }
@@ -109,7 +114,6 @@ NodeRenderingData& NodeRenderingData::SharedEmptyData() {
 }
 void NodeRenderingData::TraceAfterDispatch(Visitor* visitor) const {
   visitor->Trace(layout_object_);
-  visitor->Trace(computed_style_);
   NodeData::TraceAfterDispatch(visitor);
 }
 
@@ -131,13 +135,6 @@ void NodeRareData::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(node_lists_);
   visitor->Trace(scroll_timelines_);
   NodeData::TraceAfterDispatch(visitor);
-}
-
-void NodeRareData::FinalizeGarbageCollectedObject() {
-  if (bit_field_.get<IsElementRareData>())
-    static_cast<ElementRareData*>(this)->~ElementRareData();
-  else
-    this->~NodeRareData();
 }
 
 void NodeRareData::IncrementConnectedSubframeCount() {

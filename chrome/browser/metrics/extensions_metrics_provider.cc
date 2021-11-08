@@ -22,6 +22,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/metrics/metrics_log.h"
 #include "components/metrics/metrics_state_manager.h"
+#include "extensions/browser/blocklist_extension_prefs.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
@@ -35,6 +36,7 @@
 
 using extensions::Extension;
 using extensions::Manifest;
+using extensions::mojom::ManifestLocation;
 using metrics::ExtensionInstallProto;
 
 namespace {
@@ -148,6 +150,9 @@ ExtensionInstallProto::Type GetType(Manifest::Type type) {
       return ExtensionInstallProto::SHARED_MODULE;
     case Manifest::TYPE_LOGIN_SCREEN_EXTENSION:
       return ExtensionInstallProto::LOGIN_SCREEN_EXTENSION;
+    case Manifest::TYPE_CHROMEOS_SYSTEM_EXTENSION:
+      // TODO(mgawad): introduce new CHROMEOS_SYSTEM_EXTENSION type.
+      return ExtensionInstallProto::EXTENSION;
     case Manifest::NUM_LOAD_TYPES:
       NOTREACHED();
       // Fall through.
@@ -156,33 +161,30 @@ ExtensionInstallProto::Type GetType(Manifest::Type type) {
 }
 
 ExtensionInstallProto::InstallLocation GetInstallLocation(
-    Manifest::Location location) {
+    ManifestLocation location) {
   switch (location) {
-    case Manifest::INVALID_LOCATION:
+    case ManifestLocation::kInvalidLocation:
       return ExtensionInstallProto::UNKNOWN_LOCATION;
-    case Manifest::INTERNAL:
+    case ManifestLocation::kInternal:
       return ExtensionInstallProto::INTERNAL;
-    case Manifest::EXTERNAL_PREF:
+    case ManifestLocation::kExternalPref:
       return ExtensionInstallProto::EXTERNAL_PREF;
-    case Manifest::EXTERNAL_REGISTRY:
+    case ManifestLocation::kExternalRegistry:
       return ExtensionInstallProto::EXTERNAL_REGISTRY;
-    case Manifest::UNPACKED:
+    case ManifestLocation::kUnpacked:
       return ExtensionInstallProto::UNPACKED;
-    case Manifest::COMPONENT:
+    case ManifestLocation::kComponent:
       return ExtensionInstallProto::COMPONENT;
-    case Manifest::EXTERNAL_PREF_DOWNLOAD:
+    case ManifestLocation::kExternalPrefDownload:
       return ExtensionInstallProto::EXTERNAL_PREF_DOWNLOAD;
-    case Manifest::EXTERNAL_POLICY_DOWNLOAD:
+    case ManifestLocation::kExternalPolicyDownload:
       return ExtensionInstallProto::EXTERNAL_POLICY_DOWNLOAD;
-    case Manifest::COMMAND_LINE:
+    case ManifestLocation::kCommandLine:
       return ExtensionInstallProto::COMMAND_LINE;
-    case Manifest::EXTERNAL_POLICY:
+    case ManifestLocation::kExternalPolicy:
       return ExtensionInstallProto::EXTERNAL_POLICY;
-    case Manifest::EXTERNAL_COMPONENT:
+    case ManifestLocation::kExternalComponent:
       return ExtensionInstallProto::EXTERNAL_COMPONENT;
-    case Manifest::NUM_LOCATIONS:
-      NOTREACHED();
-      // Fall through.
   }
   return ExtensionInstallProto::UNKNOWN_LOCATION;
 }
@@ -252,14 +254,10 @@ std::vector<ExtensionInstallProto::DisableReason> GetDisableReasons(
        ExtensionInstallProto::CUSTODIAN_APPROVAL_REQUIRED},
       {extensions::disable_reason::DISABLE_BLOCKED_BY_POLICY,
        ExtensionInstallProto::BLOCKED_BY_POLICY},
-      {extensions::disable_reason::DISABLE_REMOTELY_FOR_MALWARE,
-       ExtensionInstallProto::DISABLE_REMOTELY_FOR_MALWARE},
       {extensions::disable_reason::DISABLE_REINSTALL,
        ExtensionInstallProto::REINSTALL},
-      // TODO(jeffcyr): Uncomment when ExtensionInstallProto is updated in third
-      // party.
-      // {extensions::disable_reason::DISABLE_NOT_ALLOWLISTED,
-      //  ExtensionInstallProto::NOT_ALLOWLISTED},
+      {extensions::disable_reason::DISABLE_NOT_ALLOWLISTED,
+       ExtensionInstallProto::NOT_ALLOWLISTED},
   };
 
   int disable_reasons = prefs->GetDisableReasons(id);
@@ -284,20 +282,19 @@ std::vector<ExtensionInstallProto::DisableReason> GetDisableReasons(
 ExtensionInstallProto::BlacklistState GetBlacklistState(
     const extensions::ExtensionId& id,
     extensions::ExtensionPrefs* prefs) {
-  extensions::BlocklistState state = prefs->GetExtensionBlocklistState(id);
+  extensions::BitMapBlocklistState state =
+      extensions::blocklist_prefs::GetExtensionBlocklistState(id, prefs);
   switch (state) {
-    case extensions::NOT_BLOCKLISTED:
+    case extensions::BitMapBlocklistState::NOT_BLOCKLISTED:
       return ExtensionInstallProto::NOT_BLACKLISTED;
-    case extensions::BLOCKLISTED_MALWARE:
+    case extensions::BitMapBlocklistState::BLOCKLISTED_MALWARE:
       return ExtensionInstallProto::BLACKLISTED_MALWARE;
-    case extensions::BLOCKLISTED_SECURITY_VULNERABILITY:
+    case extensions::BitMapBlocklistState::BLOCKLISTED_SECURITY_VULNERABILITY:
       return ExtensionInstallProto::BLACKLISTED_SECURITY_VULNERABILITY;
-    case extensions::BLOCKLISTED_CWS_POLICY_VIOLATION:
+    case extensions::BitMapBlocklistState::BLOCKLISTED_CWS_POLICY_VIOLATION:
       return ExtensionInstallProto::BLACKLISTED_CWS_POLICY_VIOLATION;
-    case extensions::BLOCKLISTED_POTENTIALLY_UNWANTED:
+    case extensions::BitMapBlocklistState::BLOCKLISTED_POTENTIALLY_UNWANTED:
       return ExtensionInstallProto::BLACKLISTED_POTENTIALLY_UNWANTED;
-    case extensions::BLOCKLISTED_UNKNOWN:
-      return ExtensionInstallProto::BLACKLISTED_UNKNOWN;
   }
   NOTREACHED();
   return ExtensionInstallProto::BLACKLISTED_UNKNOWN;
@@ -387,7 +384,7 @@ ExtensionsMetricsProvider::GetInstalledExtensions(Profile* profile) {
     return extensions::ExtensionRegistry::Get(profile)
         ->GenerateInstalledExtensionsSet();
   }
-  return std::unique_ptr<extensions::ExtensionSet>();
+  return nullptr;
 }
 
 uint64_t ExtensionsMetricsProvider::GetClientID() const {

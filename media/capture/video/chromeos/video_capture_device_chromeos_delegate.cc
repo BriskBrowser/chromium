@@ -14,7 +14,9 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/platform_thread.h"
 #include "base/trace_event/trace_event.h"
+#include "chromeos/dbus/power/power_manager_client.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/capture/video/chromeos/camera_app_device_bridge_impl.h"
 #include "media/capture/video/chromeos/camera_device_delegate.h"
 #include "media/capture/video/chromeos/camera_hal_delegate.h"
 #include "ui/display/display.h"
@@ -23,11 +25,88 @@
 
 namespace media {
 
+class VideoCaptureDeviceChromeOSDelegate::PowerManagerClientProxy
+    : public base::RefCountedThreadSafe<PowerManagerClientProxy>,
+      public chromeos::PowerManagerClient::Observer {
+ public:
+  PowerManagerClientProxy() = default;
+
+  PowerManagerClientProxy(const PowerManagerClientProxy&) = delete;
+  PowerManagerClientProxy& operator=(const PowerManagerClientProxy&) = delete;
+
+  void Init(base::WeakPtr<VideoCaptureDeviceChromeOSDelegate> device,
+            scoped_refptr<base::SingleThreadTaskRunner> device_task_runner,
+            scoped_refptr<base::SingleThreadTaskRunner> dbus_task_runner) {
+    device_ = std::move(device);
+    device_task_runner_ = std::move(device_task_runner);
+    dbus_task_runner_ = std::move(dbus_task_runner);
+
+    dbus_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&PowerManagerClientProxy::InitOnDBusThread, this));
+  }
+
+  void Shutdown() {
+    dbus_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&PowerManagerClientProxy::ShutdownOnDBusThread, this));
+  }
+
+  void UnblockSuspend(const base::UnguessableToken& unblock_suspend_token) {
+    dbus_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&PowerManagerClientProxy::UnblockSuspendOnDBusThread,
+                       this, unblock_suspend_token));
+  }
+
+ private:
+  friend class base::RefCountedThreadSafe<PowerManagerClientProxy>;
+
+  ~PowerManagerClientProxy() override = default;
+
+  void InitOnDBusThread() {
+    DCHECK(dbus_task_runner_->RunsTasksInCurrentSequence());
+    chromeos::PowerManagerClient::Get()->AddObserver(this);
+  }
+
+  void ShutdownOnDBusThread() {
+    DCHECK(dbus_task_runner_->RunsTasksInCurrentSequence());
+    chromeos::PowerManagerClient::Get()->RemoveObserver(this);
+  }
+
+  void UnblockSuspendOnDBusThread(
+      const base::UnguessableToken& unblock_suspend_token) {
+    DCHECK(dbus_task_runner_->RunsTasksInCurrentSequence());
+    chromeos::PowerManagerClient::Get()->UnblockSuspend(unblock_suspend_token);
+  }
+
+  // chromeos::PowerManagerClient::Observer:
+  void SuspendImminent(power_manager::SuspendImminent::Reason reason) final {
+    auto token = base::UnguessableToken::Create();
+    chromeos::PowerManagerClient::Get()->BlockSuspend(
+        token, "VideoCaptureDeviceChromeOSDelegate");
+    device_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&VideoCaptureDeviceChromeOSDelegate::CloseDevice,
+                       device_, token));
+  }
+
+  void SuspendDone(base::TimeDelta sleep_duration) final {
+    device_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&VideoCaptureDeviceChromeOSDelegate::OpenDevice,
+                       device_));
+  }
+
+  base::WeakPtr<VideoCaptureDeviceChromeOSDelegate> device_;
+  scoped_refptr<base::SingleThreadTaskRunner> device_task_runner_;
+  scoped_refptr<base::SingleThreadTaskRunner> dbus_task_runner_;
+};
+
 VideoCaptureDeviceChromeOSDelegate::VideoCaptureDeviceChromeOSDelegate(
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
     const VideoCaptureDeviceDescriptor& device_descriptor,
     scoped_refptr<CameraHalDelegate> camera_hal_delegate,
-    CameraAppDeviceImpl* camera_app_device,
     base::OnceClosure cleanup_callback)
     : device_descriptor_(device_descriptor),
       camera_hal_delegate_(std::move(camera_hal_delegate)),
@@ -42,17 +121,14 @@ VideoCaptureDeviceChromeOSDelegate::VideoCaptureDeviceChromeOSDelegate(
       rotates_with_device_(lens_facing_ !=
                            VideoFacingMode::MEDIA_VIDEO_FACING_NONE),
       rotation_(0),
-      camera_app_device_(camera_app_device),
       cleanup_callback_(std::move(cleanup_callback)),
       device_closed_(base::WaitableEvent::ResetPolicy::MANUAL,
-                     base::WaitableEvent::InitialState::NOT_SIGNALED) {
-  // TODO(b/175168296): Hook power manager client on LaCrOS.
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  power_manager_client_proxy_ = base::MakeRefCounted<PowerManagerClientProxy>();
-  power_manager_client_proxy_->Init(
-      weak_ptr_factory_.GetWeakPtr(), "VideoCaptureDeviceChromeOSDelegate",
-      capture_task_runner_, std::move(ui_task_runner));
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+                     base::WaitableEvent::InitialState::NOT_SIGNALED),
+      power_manager_client_proxy_(
+          base::MakeRefCounted<PowerManagerClientProxy>()) {
+  power_manager_client_proxy_->Init(weak_ptr_factory_.GetWeakPtr(),
+                                    capture_task_runner_,
+                                    std::move(ui_task_runner));
 }
 
 VideoCaptureDeviceChromeOSDelegate::~VideoCaptureDeviceChromeOSDelegate() {}
@@ -62,10 +138,9 @@ void VideoCaptureDeviceChromeOSDelegate::Shutdown() {
   if (!HasDeviceClient()) {
     DCHECK(!camera_device_ipc_thread_.IsRunning());
     screen_observer_delegate_->RemoveObserver();
-#if BUILDFLAG(IS_CHROMEOS_ASH)
     power_manager_client_proxy_->Shutdown();
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-    std::move(cleanup_callback_).Run();
+    camera_hal_delegate_->DisableAllVirtualDevices();
+    capture_task_runner_->PostTask(FROM_HERE, std::move(cleanup_callback_));
   }
 }
 
@@ -78,7 +153,6 @@ void VideoCaptureDeviceChromeOSDelegate::AllocateAndStart(
     std::unique_ptr<VideoCaptureDevice::Client> client,
     ClientType client_type) {
   DCHECK(capture_task_runner_->BelongsToCurrentThread());
-  DCHECK(!camera_device_delegate_);
   if (!HasDeviceClient()) {
     TRACE_EVENT0("camera", "Start Device");
     if (!camera_device_ipc_thread_.Start()) {
@@ -95,9 +169,11 @@ void VideoCaptureDeviceChromeOSDelegate::AllocateAndStart(
       capture_params_[client_type] = params;
       camera_device_delegate_ = std::make_unique<CameraDeviceDelegate>(
           device_descriptor_, camera_hal_delegate_,
-          camera_device_ipc_thread_.task_runner(), camera_app_device_);
+          camera_device_ipc_thread_.task_runner());
       OpenDevice();
     }
+    CameraAppDeviceBridgeImpl::GetInstance()->OnVideoCaptureDeviceCreated(
+        device_descriptor_.device_id, camera_device_ipc_thread_.task_runner());
   } else {
     if (device_context_->AddClient(client_type, std::move(client))) {
       capture_params_[client_type] = params;
@@ -112,7 +188,9 @@ void VideoCaptureDeviceChromeOSDelegate::StopAndDeAllocate(
   DCHECK(camera_device_delegate_);
   device_context_->RemoveClient(client_type);
   if (!HasDeviceClient()) {
-    CloseDevice();
+    CloseDevice(base::UnguessableToken());
+    CameraAppDeviceBridgeImpl::GetInstance()->OnVideoCaptureDeviceClosing(
+        device_descriptor_.device_id);
     camera_device_ipc_thread_.Stop();
     camera_device_delegate_.reset();
     device_context_.reset();
@@ -148,18 +226,6 @@ void VideoCaptureDeviceChromeOSDelegate::SetPhotoOptions(
                                 std::move(settings), std::move(callback)));
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-
-void VideoCaptureDeviceChromeOSDelegate::SuspendDone() {
-  OpenDevice();
-}
-
-void VideoCaptureDeviceChromeOSDelegate::SuspendImminent() {
-  CloseDevice();
-}
-
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
 void VideoCaptureDeviceChromeOSDelegate::OpenDevice() {
   DCHECK(capture_task_runner_->BelongsToCurrentThread());
 
@@ -180,10 +246,27 @@ void VideoCaptureDeviceChromeOSDelegate::OpenDevice() {
                      camera_device_delegate_->GetWeakPtr(), rotation_));
 }
 
-void VideoCaptureDeviceChromeOSDelegate::CloseDevice() {
+void VideoCaptureDeviceChromeOSDelegate::ReconfigureStreams() {
+  DCHECK(capture_task_runner_->BelongsToCurrentThread());
+  DCHECK(camera_device_delegate_);
+
+  camera_device_ipc_thread_.task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&CameraDeviceDelegate::ReconfigureStreams,
+                     camera_device_delegate_->GetWeakPtr(), capture_params_));
+  camera_device_ipc_thread_.task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&CameraDeviceDelegate::SetRotation,
+                     camera_device_delegate_->GetWeakPtr(), rotation_));
+}
+
+void VideoCaptureDeviceChromeOSDelegate::CloseDevice(
+    base::UnguessableToken unblock_suspend_token) {
   DCHECK(capture_task_runner_->BelongsToCurrentThread());
 
   if (!camera_device_delegate_) {
+    if (!unblock_suspend_token.is_empty())
+      power_manager_client_proxy_->UnblockSuspend(unblock_suspend_token);
     return;
   }
   // We do our best to allow the camera HAL cleanly shut down the device.  In
@@ -204,22 +287,10 @@ void VideoCaptureDeviceChromeOSDelegate::CloseDevice() {
                                       device_closed->Signal();
                                     },
                                     base::Unretained(&device_closed_))));
-  base::TimeDelta kWaitTimeoutSecs = base::TimeDelta::FromSeconds(3);
+  base::TimeDelta kWaitTimeoutSecs = base::Seconds(3);
   device_closed_.TimedWait(kWaitTimeoutSecs);
-}
-
-void VideoCaptureDeviceChromeOSDelegate::ReconfigureStreams() {
-  DCHECK(capture_task_runner_->BelongsToCurrentThread());
-  DCHECK(camera_device_delegate_);
-
-  camera_device_ipc_thread_.task_runner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&CameraDeviceDelegate::ReconfigureStreams,
-                     camera_device_delegate_->GetWeakPtr(), capture_params_));
-  camera_device_ipc_thread_.task_runner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&CameraDeviceDelegate::SetRotation,
-                     camera_device_delegate_->GetWeakPtr(), rotation_));
+  if (!unblock_suspend_token.is_empty())
+    power_manager_client_proxy_->UnblockSuspend(unblock_suspend_token);
 }
 
 void VideoCaptureDeviceChromeOSDelegate::SetDisplayRotation(

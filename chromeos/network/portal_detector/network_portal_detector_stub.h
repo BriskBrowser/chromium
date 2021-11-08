@@ -14,6 +14,11 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkPortalDetectorStub
     : public NetworkPortalDetector {
  public:
   NetworkPortalDetectorStub();
+
+  NetworkPortalDetectorStub(const NetworkPortalDetectorStub&) = delete;
+  NetworkPortalDetectorStub& operator=(const NetworkPortalDetectorStub&) =
+      delete;
+
   ~NetworkPortalDetectorStub() override;
 
  private:
@@ -26,10 +31,13 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkPortalDetectorStub
   void Enable(bool start_detection) override;
   void StartPortalDetection() override;
   void SetStrategy(PortalDetectorStrategy::StrategyId id) override;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkPortalDetectorStub);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the migration is finished.
+namespace ash {
+using ::chromeos::NetworkPortalDetectorStub;
+}
 
 #endif  // CHROMEOS_NETWORK_PORTAL_DETECTOR_NETWORK_PORTAL_DETECTOR_STUB_H_

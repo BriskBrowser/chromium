@@ -17,6 +17,7 @@
 #include "components/sync/engine/net/server_connection_manager.h"
 #include "components/sync/engine/syncer.h"
 #include "components/sync/engine/traffic_logger.h"
+#include "components/sync/protocol/data_type_progress_marker.pb.h"
 #include "components/sync/protocol/sync_enums.pb.h"
 #include "components/sync/protocol/sync_protocol_error.h"
 #include "google_apis/google_api_keys.h"
@@ -30,8 +31,7 @@ namespace syncer {
 namespace {
 
 // Time to backoff syncing after receiving a throttled response.
-constexpr base::TimeDelta kSyncDelayAfterThrottled =
-    base::TimeDelta::FromHours(2);
+constexpr base::TimeDelta kSyncDelayAfterThrottled = base::Hours(2);
 
 void LogResponseProfilingData(const ClientToServerResponse& response) {
   if (response.has_profiling_data()) {
@@ -121,12 +121,6 @@ SyncProtocolErrorType PBErrorTypeToSyncProtocolErrorType(
       return UNKNOWN_ERROR;
     case sync_pb::SyncEnums::ENCRYPTION_OBSOLETE:
       return ENCRYPTION_OBSOLETE;
-    case sync_pb::SyncEnums::DEPRECATED_ACCESS_DENIED:
-    case sync_pb::SyncEnums::DEPRECATED_AUTH_EXPIRED:
-    case sync_pb::SyncEnums::DEPRECATED_AUTH_INVALID:
-    case sync_pb::SyncEnums::DEPRECATED_USER_NOT_ACTIVATED:
-    case sync_pb::SyncEnums::DEPRECATED_USER_ROLLBACK:
-      return UNKNOWN_ERROR;
   }
 
   NOTREACHED();
@@ -137,10 +131,6 @@ ClientAction PBActionToClientAction(const sync_pb::SyncEnums::Action& action) {
   switch (action) {
     case sync_pb::SyncEnums::UPGRADE_CLIENT:
       return UPGRADE_CLIENT;
-    case sync_pb::SyncEnums::DEPRECATED_CLEAR_USER_DATA_AND_RESYNC:
-    case sync_pb::SyncEnums::DEPRECATED_ENABLE_SYNC_ON_ACCOUNT:
-    case sync_pb::SyncEnums::DEPRECATED_STOP_AND_RESTART_SYNC:
-    case sync_pb::SyncEnums::DEPRECATED_DISABLE_SYNC_ON_CLIENT:
     case sync_pb::SyncEnums::UNKNOWN_ACTION:
       return UNKNOWN_ACTION;
   }
@@ -374,14 +364,6 @@ bool SyncerProtoUtil::PostAndProcessHeaders(ServerConnectionManager* scm,
   UMA_HISTOGRAM_MEDIUM_TIMES("Sync.PostedClientToServerMessageLatency",
                              base::Time::Now() - start_time);
 
-  if (response->error_code() != sync_pb::SyncEnums::SUCCESS) {
-    // TODO(crbug.com/1004302): Stop recording once
-    // Sync.PostedClientToServerMessageError2 (recorded below) has reached
-    // Stable. The reason is so the two can be compared for the same population.
-    base::UmaHistogramSparse("Sync.PostedClientToServerMessageError",
-                             response->error_code());
-  }
-
   // The error can be specified in 2 different fields, so consider both of them.
   sync_pb::SyncEnums::ErrorType error_type =
       response->has_error() ? response->error().error_type()
@@ -400,8 +382,7 @@ base::TimeDelta SyncerProtoUtil::GetThrottleDelay(
   if (response.has_client_command()) {
     const sync_pb::ClientCommand& command = response.client_command();
     if (command.has_throttle_delay_seconds()) {
-      throttle_delay =
-          base::TimeDelta::FromSeconds(command.throttle_delay_seconds());
+      throttle_delay = base::Seconds(command.throttle_delay_seconds());
     }
   }
   return throttle_delay;
@@ -474,7 +455,7 @@ SyncerError SyncerProtoUtil::PostClientToServerMessage(
 
     if (command.has_set_sync_poll_interval()) {
       base::TimeDelta interval =
-          base::TimeDelta::FromSeconds(command.set_sync_poll_interval());
+          base::Seconds(command.set_sync_poll_interval());
       if (interval.is_zero()) {
         DLOG(WARNING) << "Received zero poll interval from server. Ignoring.";
       } else {
@@ -486,7 +467,7 @@ SyncerError SyncerProtoUtil::PostClientToServerMessage(
     if (command.has_sessions_commit_delay_seconds()) {
       std::map<ModelType, base::TimeDelta> delay_map;
       delay_map[SESSIONS] =
-          base::TimeDelta::FromSeconds(command.sessions_commit_delay_seconds());
+          base::Seconds(command.sessions_commit_delay_seconds());
       cycle->delegate()->OnReceivedCustomNudgeDelays(delay_map);
     }
 
@@ -497,7 +478,7 @@ SyncerError SyncerProtoUtil::PostClientToServerMessage(
 
     if (command.has_gu_retry_delay_seconds()) {
       cycle->delegate()->OnReceivedGuRetryDelay(
-          base::TimeDelta::FromSeconds(command.gu_retry_delay_seconds()));
+          base::Seconds(command.gu_retry_delay_seconds()));
     }
 
     if (command.custom_nudge_delays_size() > 0) {
@@ -508,9 +489,9 @@ SyncerError SyncerProtoUtil::PostClientToServerMessage(
       for (int i = 0; i < command.custom_nudge_delays_size(); ++i) {
         ModelType type = GetModelTypeFromSpecificsFieldNumber(
             command.custom_nudge_delays(i).datatype_id());
-        if (ProtocolTypes().Has(type)) {
-          delay_map[type] = base::TimeDelta::FromMilliseconds(
-              command.custom_nudge_delays(i).delay_ms());
+        if (type != UNSPECIFIED) {
+          delay_map[type] =
+              base::Milliseconds(command.custom_nudge_delays(i).delay_ms());
         }
       }
       cycle->delegate()->OnReceivedCustomNudgeDelays(delay_map);
@@ -584,7 +565,7 @@ bool SyncerProtoUtil::ShouldMaintainPosition(
     const sync_pb::SyncEntity& sync_entity) {
   // Maintain positions for bookmarks that are not server-defined top-level
   // folders.
-  return GetModelType(sync_entity) == BOOKMARKS &&
+  return GetModelTypeFromSpecifics(sync_entity.specifics()) == BOOKMARKS &&
          !(sync_entity.folder() &&
            !sync_entity.server_defined_unique_tag().empty());
 }
@@ -593,24 +574,8 @@ bool SyncerProtoUtil::ShouldMaintainPosition(
 bool SyncerProtoUtil::ShouldMaintainHierarchy(
     const sync_pb::SyncEntity& sync_entity) {
   // Maintain hierarchy for bookmarks or top-level items.
-  return GetModelType(sync_entity) == BOOKMARKS ||
+  return GetModelTypeFromSpecifics(sync_entity.specifics()) == BOOKMARKS ||
          sync_entity.parent_id_string() == "0";
-}
-
-// static
-const std::string& SyncerProtoUtil::NameFromSyncEntity(
-    const sync_pb::SyncEntity& entry) {
-  if (entry.has_non_unique_name())
-    return entry.non_unique_name();
-  return entry.name();
-}
-
-// static
-const std::string& SyncerProtoUtil::NameFromCommitEntryResponse(
-    const sync_pb::CommitResponse_EntryResponse& entry) {
-  if (entry.has_non_unique_name())
-    return entry.non_unique_name();
-  return entry.name();
 }
 
 std::string SyncerProtoUtil::SyncEntityDebugString(

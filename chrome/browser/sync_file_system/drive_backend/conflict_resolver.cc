@@ -58,8 +58,8 @@ void ConflictResolver::RunExclusive(std::unique_ptr<SyncTaskToken> token) {
   }
 
   TrackerIDSet trackers;
-  if (metadata_database()->GetMultiParentFileTrackers(
-          &target_file_id_, &trackers)) {
+  if (metadata_database()->GetMultiParentFileTrackers(&target_file_id_,
+                                                      &trackers)) {
     DCHECK_LT(1u, trackers.size());
     if (!trackers.has_active()) {
       NOTREACHED();
@@ -114,10 +114,10 @@ void ConflictResolver::RunExclusive(std::unique_ptr<SyncTaskToken> token) {
       }
     }
 
-    token->RecordLog(base::StringPrintf(
-        "Detected %" PRIuS " conflicting trackers "
-        "(primary tracker_id=%" PRId64 ")",
-        non_primary_file_ids_.size(), primary_tracker_id));
+    token->RecordLog(
+        base::StringPrintf("Detected %" PRIuS " conflicting trackers "
+                           "(primary tracker_id=%" PRId64 ")",
+                           non_primary_file_ids_.size(), primary_tracker_id));
 
     RemoveNonPrimaryFiles(std::move(token));
     return;
@@ -136,20 +136,17 @@ void ConflictResolver::DetachFromNonPrimaryParents(
   parents_to_remove_.pop_back();
 
   token->RecordLog(base::StringPrintf(
-      "Detach %s from %s",
-      target_file_id_.c_str(), parent_folder_id.c_str()));
+      "Detach %s from %s", target_file_id_.c_str(), parent_folder_id.c_str()));
 
   drive_service()->RemoveResourceFromDirectory(
       parent_folder_id, target_file_id_,
-      base::Bind(&ConflictResolver::DidDetachFromParent,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 base::Passed(&token)));
+      base::BindOnce(&ConflictResolver::DidDetachFromParent,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(token)));
 }
 
-void ConflictResolver::DidDetachFromParent(
-    std::unique_ptr<SyncTaskToken> token,
-    google_apis::DriveApiErrorCode error) {
-  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
+void ConflictResolver::DidDetachFromParent(std::unique_ptr<SyncTaskToken> token,
+                                           google_apis::ApiErrorCode error) {
+  SyncStatusCode status = ApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     SyncTaskManager::NotifyTaskDone(std::move(token), status);
     return;
@@ -173,8 +170,8 @@ std::string ConflictResolver::PickPrimaryFile(const TrackerIDSet& trackers) {
     }
 
     std::unique_ptr<FileMetadata> file_metadata(new FileMetadata);
-    if (!metadata_database()->FindFileByFileID(
-            tracker.file_id(), file_metadata.get())) {
+    if (!metadata_database()->FindFileByFileID(tracker.file_id(),
+                                               file_metadata.get())) {
       NOTREACHED();
       continue;
     }
@@ -237,28 +234,28 @@ void ConflictResolver::RemoveNonPrimaryFiles(
 
   DCHECK_NE(target_file_id_, file_id);
 
-  token->RecordLog(base::StringPrintf(
-      "Remove non-primary file %s", file_id.c_str()));
+  token->RecordLog(
+      base::StringPrintf("Remove non-primary file %s", file_id.c_str()));
 
   // TODO(tzik): Check if the file is a folder, and merge its contents into
   // the folder identified by |target_file_id_|.
   drive_service()->DeleteResource(
       file_id, etag,
-      base::Bind(&ConflictResolver::DidRemoveFile,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 base::Passed(&token), file_id));
+      base::BindOnce(&ConflictResolver::DidRemoveFile,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(token),
+                     file_id));
 }
 
 void ConflictResolver::DidRemoveFile(std::unique_ptr<SyncTaskToken> token,
                                      const std::string& file_id,
-                                     google_apis::DriveApiErrorCode error) {
+                                     google_apis::ApiErrorCode error) {
   if (error == google_apis::HTTP_PRECONDITION ||
       error == google_apis::HTTP_CONFLICT) {
     UpdateFileMetadata(file_id, std::move(token));
     return;
   }
 
-  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = ApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK && error != google_apis::HTTP_NOT_FOUND) {
     SyncTaskManager::NotifyTaskDone(std::move(token), status);
     return;
@@ -270,14 +267,14 @@ void ConflictResolver::DidRemoveFile(std::unique_ptr<SyncTaskToken> token,
     return;
   }
 
-  status = metadata_database()->UpdateByDeletedRemoteFileList(
-      deleted_file_ids_);
+  status =
+      metadata_database()->UpdateByDeletedRemoteFileList(deleted_file_ids_);
   SyncTaskManager::NotifyTaskDone(std::move(token), status);
 }
 
 bool ConflictResolver::IsContextReady() {
   return sync_context_->GetDriveService() &&
-      sync_context_->GetMetadataDatabase();
+         sync_context_->GetMetadataDatabase();
 }
 
 void ConflictResolver::UpdateFileMetadata(
@@ -286,15 +283,15 @@ void ConflictResolver::UpdateFileMetadata(
   drive_service()->GetFileResource(
       file_id, base::BindOnce(&ConflictResolver::DidGetRemoteMetadata,
                               weak_ptr_factory_.GetWeakPtr(), file_id,
-                              base::Passed(&token)));
+                              std::move(token)));
 }
 
 void ConflictResolver::DidGetRemoteMetadata(
     const std::string& file_id,
     std::unique_ptr<SyncTaskToken> token,
-    google_apis::DriveApiErrorCode error,
+    google_apis::ApiErrorCode error,
     std::unique_ptr<google_apis::FileResource> entry) {
-  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = ApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK && error != google_apis::HTTP_NOT_FOUND) {
     SyncTaskManager::NotifyTaskDone(std::move(token), status);
     return;

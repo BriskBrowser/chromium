@@ -9,7 +9,7 @@
 #include "base/check_op.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/webui/settings/chromeos/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/base/pref_names.h"
@@ -37,23 +37,23 @@ OSSyncHandler::~OSSyncHandler() {
 }
 
 void OSSyncHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "DidNavigateToOsSyncPage",
       base::BindRepeating(&OSSyncHandler::HandleDidNavigateToOsSyncPage,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "DidNavigateAwayFromOsSyncPage",
       base::BindRepeating(&OSSyncHandler::HandleDidNavigateAwayFromOsSyncPage,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "OsSyncPrefsDispatch",
       base::BindRepeating(&OSSyncHandler::HandleOsSyncPrefsDispatch,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "SetOsSyncFeatureEnabled",
       base::BindRepeating(&OSSyncHandler::HandleSetOsSyncFeatureEnabled,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "SetOsSyncDatatypes",
       base::BindRepeating(&OSSyncHandler::HandleSetOsSyncDatatypes,
                           base::Unretained(this)));
@@ -92,15 +92,16 @@ void OSSyncHandler::HandleDidNavigateAwayFromOsSyncPage(
 }
 
 void OSSyncHandler::HandleSetOsSyncFeatureEnabled(const base::ListValue* args) {
-  CHECK_EQ(1u, args->GetSize());
-  CHECK(args->GetBoolean(0, &feature_enabled_));
+  const auto& list = args->GetList();
+  CHECK(!list.empty());
+  feature_enabled_ = list[0].GetBool();
   should_commit_feature_enabled_ = true;
   // Changing the feature enabled state may change toggle state.
   PushSyncPrefs();
 }
 
 void OSSyncHandler::HandleSetOsSyncDatatypes(const base::ListValue* args) {
-  CHECK_EQ(1u, args->GetSize());
+  CHECK_EQ(1u, args->GetList().size());
   const base::DictionaryValue* result;
   CHECK(args->GetDictionary(0, &result));
 
@@ -189,21 +190,20 @@ void OSSyncHandler::PushSyncPrefs() {
 }
 
 syncer::SyncService* OSSyncHandler::GetSyncService() const {
-  const bool is_sync_allowed =
-      ProfileSyncServiceFactory::IsSyncAllowed(profile_);
-  return is_sync_allowed ? ProfileSyncServiceFactory::GetForProfile(profile_)
+  const bool is_sync_allowed = SyncServiceFactory::IsSyncAllowed(profile_);
+  return is_sync_allowed ? SyncServiceFactory::GetForProfile(profile_)
                          : nullptr;
 }
 
 void OSSyncHandler::AddSyncServiceObserver() {
   // Observe even if sync isn't allowed. IsSyncAllowed() can change mid-session.
-  SyncService* service = ProfileSyncServiceFactory::GetForProfile(profile_);
+  SyncService* service = SyncServiceFactory::GetForProfile(profile_);
   if (service)
     service->AddObserver(this);
 }
 
 void OSSyncHandler::RemoveSyncServiceObserver() {
-  SyncService* service = ProfileSyncServiceFactory::GetForProfile(profile_);
+  SyncService* service = SyncServiceFactory::GetForProfile(profile_);
   if (service)
     service->RemoveObserver(this);
 }

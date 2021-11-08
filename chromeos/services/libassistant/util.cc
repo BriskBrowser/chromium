@@ -4,22 +4,27 @@
 
 #include "chromeos/services/libassistant/util.h"
 
+#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
-#include "build/util/webkit_version.h"
+#include "build/util/chromium_git_revision.h"
+#include "chromeos/assistant/buildflags.h"
 #include "chromeos/assistant/internal/internal_constants.h"
+#include "chromeos/assistant/internal/internal_util.h"
 #include "chromeos/assistant/internal/util_headers.h"
 #include "chromeos/dbus/util/version_loader.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
+#include "chromeos/services/libassistant/constants.h"
+#include "chromeos/services/libassistant/public/cpp/android_app_info.h"
 
+using ::assistant::api::Interaction;
 using chromeos::assistant::shared::ClientInteraction;
 using chromeos::assistant::shared::ClientOpResult;
 using chromeos::assistant::shared::GetDeviceSettingsResult;
-using chromeos::assistant::shared::Interaction;
 using chromeos::assistant::shared::Protobuf;
 using chromeos::assistant::shared::ProviderVerificationResult;
 using chromeos::assistant::shared::ResponseCode;
@@ -37,24 +42,14 @@ void CreateUserAgent(std::string* user_agent) {
   DCHECK(user_agent->empty());
   base::StringAppendF(user_agent,
                       "Mozilla/5.0 (X11; CrOS %s %s; %s) "
-                      "AppleWebKit/%d.%d (KHTML, like Gecko)",
+                      "AppleWebKit/537.36 (KHTML, like Gecko)",
                       base::SysInfo::OperatingSystemArchitecture().c_str(),
                       base::SysInfo::OperatingSystemVersion().c_str(),
-                      base::SysInfo::GetLsbReleaseBoard().c_str(),
-                      WEBKIT_VERSION_MAJOR, WEBKIT_VERSION_MINOR);
+                      base::SysInfo::GetLsbReleaseBoard().c_str());
 
   std::string arc_version = chromeos::version_loader::GetARCVersion();
   if (!arc_version.empty())
     base::StringAppendF(user_agent, " ARC/%s", arc_version.c_str());
-}
-
-// Get the root path for assistant files.
-base::FilePath GetRootPath() {
-  base::FilePath home_dir;
-  CHECK(base::PathService::Get(base::DIR_HOME, &home_dir));
-  // Ensures DIR_HOME is overridden after primary user sign-in.
-  CHECK_NE(base::GetHomeDir(), home_dir);
-  return home_dir;
 }
 
 ProviderVerificationResult::VerificationStatus GetProviderVerificationStatus(
@@ -136,6 +131,8 @@ class V1InteractionBuilder {
 
   std::string SerializeAsString() { return interaction_.SerializeAsString(); }
 
+  Interaction Proto() { return interaction_; }
+
  private:
   ClientInteraction* client_interaction() {
     return interaction_.mutable_from_client();
@@ -148,16 +145,41 @@ class V1InteractionBuilder {
   Interaction interaction_;
 };
 
+bool ShouldPutLogsInHomeDirectory() {
+  // Redirects libassistant logging to /var/log/chrome/. This is mainly used to
+  // help collect logs when running tests.
+  constexpr char kRedirectLibassistantLogging[] =
+      "redirect-libassistant-logging";
+
+  const bool redirect_logging =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kRedirectLibassistantLogging);
+  return !redirect_logging;
+}
+
+bool ShouldLogToFile() {
+  // Redirects libassistant logging to stdout. This is mainly used to help test
+  // locally.
+  constexpr char kDisableLibAssistantLogfile[] = "disable-libassistant-logfile";
+
+  const bool disable_logfile =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kDisableLibAssistantLogfile);
+  return !disable_logfile;
+}
+
 }  // namespace
 
 base::FilePath GetBaseAssistantDir() {
-  return GetRootPath().Append(FILE_PATH_LITERAL("google-assistant-library"));
+  if (base::SysInfo::IsRunningOnChromeOS())
+    return base::FilePath(FILE_PATH_LITERAL(kAssistantBaseDirPath));
+
+  return base::FilePath(FILE_PATH_LITERAL(kAssistantTempBaseDirPath));
 }
 
 std::string CreateLibAssistantConfig(
-    base::Optional<std::string> s3_server_uri_override,
-    base::Optional<std::string> device_id_override,
-    bool log_in_home_dir) {
+    absl::optional<std::string> s3_server_uri_override,
+    absl::optional<std::string> device_id_override) {
   using Value = base::Value;
   using Type = base::Value::Type;
 
@@ -172,6 +194,15 @@ std::string CreateLibAssistantConfig(
   device.SetKey("model_id", Value(assistant::kModelId));
   device.SetKey("model_revision", Value(1));
   config.SetKey("device", std::move(device));
+
+  // Enables Libassistant gRPC server for V2.
+  if (chromeos::assistant::features::IsLibAssistantV2Enabled()) {
+    Value libas_server(Type::DICTIONARY);
+    libas_server.SetKey("libas_server_address",
+                        Value(assistant::kLibassistantServiceAddress));
+    libas_server.SetKey("enable_display_service", Value(true));
+    config.SetKey("libas_server", std::move(libas_server));
+  }
 
   Value discovery(Type::DICTIONARY);
   discovery.SetKey("enable_mdns", Value(false));
@@ -192,11 +223,21 @@ std::string CreateLibAssistantConfig(
   // See //libassistant/shared/proto/device_properties.proto.
   internal.SetKey("visibility", Value("PRIVATE"));
 
-  if (base::SysInfo::IsRunningOnChromeOS()) {
+  if (ShouldLogToFile()) {
     Value logging(Type::DICTIONARY);
-    const std::string log_dir =
-        log_in_home_dir ? GetRootPath().Append(FILE_PATH_LITERAL("log")).value()
-                        : "/var/log/chrome/";
+    std::string log_dir("/var/log/chrome/");
+    if (ShouldPutLogsInHomeDirectory()) {
+      base::FilePath log_path =
+          GetBaseAssistantDir().Append(FILE_PATH_LITERAL("log"));
+
+      // The directory will be created by LibassistantPreSandboxHook if sandbox
+      // is enabled.
+      if (!assistant::features::IsLibAssistantSandboxEnabled())
+        CHECK(base::CreateDirectory(log_path));
+
+      log_dir = log_path.value();
+    }
+
     logging.SetKey("directory", Value(log_dir));
     // Maximum disk space consumed by all log files. There are 5 rotating log
     // files on disk.
@@ -263,24 +304,24 @@ std::string CreateLibAssistantConfig(
   return json;
 }
 
-std::string CreateVerifyProviderResponseInteraction(
+Interaction CreateVerifyProviderResponseInteraction(
     const int interaction_id,
-    const std::vector<libassistant::mojom::AndroidAppInfoPtr>& apps_info) {
+    const std::vector<chromeos::assistant::AndroidAppInfo>& apps_info) {
   // Construct verify provider result proto.
   VerifyProviderClientOpResult result_proto;
   bool any_provider_available = false;
   for (const auto& android_app_info : apps_info) {
     auto* provider_status = result_proto.add_provider_status();
     provider_status->set_status(
-        GetProviderVerificationStatus(android_app_info->status));
+        GetProviderVerificationStatus(android_app_info.status));
     auto* app_info =
         provider_status->mutable_provider_info()->mutable_android_app_info();
-    app_info->set_package_name(android_app_info->package_name);
-    app_info->set_app_version(android_app_info->version);
-    app_info->set_localized_app_name(android_app_info->localized_app_name);
-    app_info->set_android_intent(android_app_info->intent);
+    app_info->set_package_name(android_app_info.package_name);
+    app_info->set_app_version(android_app_info.version);
+    app_info->set_localized_app_name(android_app_info.localized_app_name);
+    app_info->set_android_intent(android_app_info.intent);
 
-    if (android_app_info->status == AppStatus::kAvailable)
+    if (android_app_info.status == AppStatus::kAvailable)
       any_provider_available = true;
   }
 
@@ -289,16 +330,16 @@ std::string CreateVerifyProviderResponseInteraction(
       .SetInResponseTo(interaction_id)
       .SetStatusCodeFromEntityFound(any_provider_available)
       .AddResult(assistant::kResultKeyVerifyProvider, result_proto)
-      .SerializeAsString();
+      .Proto();
 }
 
-std::string CreateGetDeviceSettingInteraction(
+Interaction CreateGetDeviceSettingInteraction(
     int interaction_id,
-    const std::vector<libassistant::mojom::DeviceSettingPtr>& device_settings) {
+    const std::vector<chromeos::assistant::DeviceSetting>& device_settings) {
   GetDeviceSettingsResult result_proto;
   for (const auto& setting : device_settings) {
-    (*result_proto.mutable_settings_info())[setting->setting_id] =
-        ToSettingInfo(setting->is_supported);
+    (*result_proto.mutable_settings_info())[setting.setting_id] =
+        ToSettingInfo(setting.is_supported);
   }
 
   // Construct response interaction.
@@ -306,7 +347,78 @@ std::string CreateGetDeviceSettingInteraction(
       .SetInResponseTo(interaction_id)
       .SetStatusCode(ResponseCode::OK)
       .AddResult(/*key=*/assistant::kResultKeyGetDeviceSettings, result_proto)
-      .SerializeAsString();
+      .Proto();
+}
+
+Interaction CreateNotificationRequestInteraction(
+    const std::string& notification_id,
+    const std::string& consistent_token,
+    const std::string& opaque_token,
+    const int action_index) {
+  auto request_param = assistant::CreateNotificationRequestParam(
+      notification_id, consistent_token, opaque_token, action_index);
+
+  return V1InteractionBuilder()
+      .SetClientInputName(assistant::kClientInputRequestNotification)
+      .AddClientInputParams(assistant::kNotificationRequestParamsKey,
+                            request_param)
+      .Proto();
+}
+
+Interaction CreateNotificationDismissedInteraction(
+    const std::string& notification_id,
+    const std::string& consistent_token,
+    const std::string& opaque_token,
+    const std::vector<std::string>& grouping_keys) {
+  auto dismiss_param = assistant::CreateNotificationDismissedParam(
+      notification_id, consistent_token, opaque_token, grouping_keys);
+
+  return V1InteractionBuilder()
+      .SetClientInputName(assistant::kClientInputDismissNotification)
+      .AddClientInputParams(assistant::kNotificationDismissParamsKey,
+                            dismiss_param)
+      .Proto();
+}
+
+Interaction CreateEditReminderInteraction(const std::string& reminder_id) {
+  auto intent_input = assistant::CreateEditReminderParam(reminder_id);
+
+  return V1InteractionBuilder()
+      .SetClientInputName(assistant::kClientInputEditReminder)
+      .AddClientInputParams(assistant::kEditReminderParamsKey, intent_input)
+      .Proto();
+}
+
+Interaction CreateOpenProviderResponseInteraction(const int interaction_id,
+                                                  const bool provider_found) {
+  return V1InteractionBuilder()
+      .SetInResponseTo(interaction_id)
+      .SetStatusCodeFromEntityFound(provider_found)
+      .Proto();
+}
+
+Interaction CreateSendFeedbackInteraction(
+    bool assistant_debug_info_allowed,
+    const std::string& feedback_description,
+    const std::string& screenshot_png) {
+  auto feedback_arg = assistant::CreateFeedbackParam(
+      assistant_debug_info_allowed, feedback_description, screenshot_png);
+
+  return V1InteractionBuilder()
+      .SetClientInputName(assistant::kClientInputText)
+      .AddClientInputParams(
+          assistant::kTextParamsKey,
+          assistant::CreateTextParam(assistant::kFeedbackText))
+      .AddClientInputParams(assistant::kFeedbackParamsKey, feedback_arg)
+      .Proto();
+}
+
+Interaction CreateTextQueryInteraction(const std::string& query) {
+  return V1InteractionBuilder()
+      .SetClientInputName(assistant::kClientInputText)
+      .AddClientInputParams(assistant::kTextParamsKey,
+                            assistant::CreateTextParam(query))
+      .Proto();
 }
 
 }  // namespace libassistant

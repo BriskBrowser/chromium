@@ -2,10 +2,14 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 from gpu_tests import gpu_integration_test
 
 import os
 import sys
+
+import six
 
 
 class InfoCollectionTestArgs(object):
@@ -105,7 +109,7 @@ class InfoCollectionTest(gpu_integration_test.GpuIntegrationTest):
       aux_attributes = test_args.gpu.aux_attributes
       if not aux_attributes:
         self.fail('GPU info does not have aux_attributes.')
-      for field, expected in overlay_bot_config.iteritems():
+      for field, expected in overlay_bot_config.items():
         detected = aux_attributes.get(field, 'NONE')
         if expected != detected:
           self.fail(
@@ -129,7 +133,7 @@ class InfoCollectionTest(gpu_integration_test.GpuIntegrationTest):
         self.fail('GPU info does not have aux_attributes.')
 
       dx12_vulkan_bot_config = self.GetDx12VulkanBotConfig()
-      for field, expected in dx12_vulkan_bot_config.iteritems():
+      for field, expected in dx12_vulkan_bot_config.items():
         detected = aux_attributes.get(field)
         if expected != detected:
           self.fail(
@@ -138,10 +142,8 @@ class InfoCollectionTest(gpu_integration_test.GpuIntegrationTest):
 
   @staticmethod
   def _ValueToStr(value):
-    if isinstance(value, str):
+    if isinstance(value, six.string_types):
       return value
-    if isinstance(value, unicode):
-      return str(value)
     if isinstance(value, bool):
       return 'supported' if value else 'unsupported'
     assert False

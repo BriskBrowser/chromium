@@ -29,6 +29,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -38,7 +39,7 @@
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_handle.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
-#include "components/no_state_prefetch/common/prerender_final_status.h"
+#include "components/no_state_prefetch/common/no_state_prefetch_final_status.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -54,7 +55,7 @@ namespace {
 
 const char* kMediaEngagementTestDataPath = "chrome/test/data/media/engagement";
 
-const base::string16 kReadyTitle = base::ASCIIToUTF16("Ready");
+const std::u16string kReadyTitle = u"Ready";
 
 // Watches WasRecentlyAudible changes on a WebContents, blocking until the
 // tab is audible. The audio stream monitor runs at 15Hz so we need have
@@ -67,12 +68,17 @@ class WasRecentlyAudibleWatcher {
   // entire lifetime of |this|.
   explicit WasRecentlyAudibleWatcher(content::WebContents* web_contents)
       : audible_helper_(RecentlyAudibleHelper::FromWebContents(web_contents)) {}
+
+  WasRecentlyAudibleWatcher(const WasRecentlyAudibleWatcher&) = delete;
+  WasRecentlyAudibleWatcher& operator=(const WasRecentlyAudibleWatcher&) =
+      delete;
+
   ~WasRecentlyAudibleWatcher() = default;
 
   // Waits until WasRecentlyAudible is true.
   void WaitForWasRecentlyAudible() {
     if (!audible_helper_->WasRecentlyAudible()) {
-      timer_.Start(FROM_HERE, base::TimeDelta::FromMicroseconds(100),
+      timer_.Start(FROM_HERE, base::Microseconds(100),
                    base::BindRepeating(
                        &WasRecentlyAudibleWatcher::TestWasRecentlyAudible,
                        base::Unretained(this)));
@@ -93,8 +99,6 @@ class WasRecentlyAudibleWatcher {
 
   base::RepeatingTimer timer_;
   std::unique_ptr<base::RunLoop> run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(WasRecentlyAudibleWatcher);
 };
 
 }  // namespace
@@ -127,7 +131,6 @@ class MediaEngagementBrowserTest : public InProcessBrowserTest {
     command_line->AppendSwitchASCII(
         switches::kAutoplayPolicy,
         switches::autoplay::kNoUserGestureRequiredPolicy);
-    InProcessBrowserTest::SetUpCommandLine(command_line);
   }
 
   void LoadTestPage(const GURL& url) {
@@ -135,7 +138,7 @@ class MediaEngagementBrowserTest : public InProcessBrowserTest {
     // need it before the page navigates.
     InjectTimerTaskRunner();
 
-    ui_test_utils::NavigateToURL(browser(), url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   }
 
   void LoadTestPageAndWaitForPlay(const GURL& url, bool web_contents_muted) {
@@ -259,8 +262,8 @@ class MediaEngagementBrowserTest : public InProcessBrowserTest {
     // need it before the page navigates.
     InjectTimerTaskRunner();
 
-    ui_test_utils::NavigateToURL(
-        browser(), http_server_origin2_.GetURL("/engagement_test.html"));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(
+        browser(), http_server_origin2_.GetURL("/engagement_test.html")));
   }
 
   const net::EmbeddedTestServer& http_server() const { return http_server_; }
@@ -308,7 +311,7 @@ class MediaEngagementBrowserTest : public InProcessBrowserTest {
 
   const base::TimeDelta kMaxWaitingTime =
       MediaEngagementContentsObserver::kSignificantMediaPlaybackTime +
-      base::TimeDelta::FromSeconds(2);
+      base::Seconds(2);
 };
 
 // Class used to test the MEI preload component.
@@ -353,7 +356,7 @@ IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
 IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
                        DoNotRecordEngagement_NotTime) {
   LoadTestPageAndWaitForPlayAndAudible("engagement_test.html", false);
-  Advance(base::TimeDelta::FromSeconds(1));
+  Advance(base::Seconds(1));
   CloseTab();
   ExpectScores(1, 0);
 }
@@ -369,7 +372,7 @@ IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
 IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
                        MAYBE_DoNotRecordEngagement_NotTime_AudioOnly) {
   LoadTestPageAndWaitForPlayAndAudible("engagement_test_audio.html", false);
-  Advance(base::TimeDelta::FromSeconds(1));
+  Advance(base::Seconds(1));
   CloseTab();
   ExpectScores(1, 0);
 }
@@ -420,7 +423,7 @@ IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
 IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
                        DISABLED_DoNotRecordEngagement_PlaybackStopped) {
   LoadTestPageAndWaitForPlayAndAudible("engagement_test.html", false);
-  Advance(base::TimeDelta::FromSeconds(1));
+  Advance(base::Seconds(1));
   ExecuteScript("document.getElementById(\"media\").pause();");
   AdvanceMeaningfulPlaybackTime();
   CloseTab();
@@ -438,7 +441,7 @@ IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
 IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
                        MAYBE_DoNotRecordEngagement_PlaybackStopped_AudioOnly) {
   LoadTestPageAndWaitForPlayAndAudible("engagement_test_audio.html", false);
-  Advance(base::TimeDelta::FromSeconds(1));
+  Advance(base::Seconds(1));
   ExecuteScript("document.getElementById(\"media\").pause();");
   AdvanceMeaningfulPlaybackTime();
   CloseTab();
@@ -617,13 +620,19 @@ IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest, MAYBE_MultipleElements) {
 IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
                        RecordAudibleBasedOnShortTime) {
   LoadTestPageAndWaitForPlayAndAudible("engagement_test.html", false);
-  Advance(base::TimeDelta::FromSeconds(4));
+  Advance(base::Seconds(4));
   CloseTab();
   ExpectScores(1, 0);
 }
 
+#if defined(OS_MAC) && defined(ARCH_CPU_ARM64)
+// https://crbug.com/1222896
+#define MAYBE_SessionNewTabNavigateSameURL DISABLED_SessionNewTabNavigateSameURL
+#else
+#define MAYBE_SessionNewTabNavigateSameURL SessionNewTabNavigateSameURL
+#endif
 IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
-                       SessionNewTabNavigateSameURL) {
+                       MAYBE_SessionNewTabNavigateSameURL) {
   const GURL& url = http_server().GetURL("/engagement_test.html");
 
   LoadTestPageAndWaitForPlayAndAudible(url, false);
@@ -638,7 +647,13 @@ IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
   ExpectScores(2, 2);
 }
 
-IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest, SessionNewTabSameURL) {
+#if defined(OS_MAC) && defined(ARCH_CPU_ARM64)
+// https://crbug.com/1222896
+#define MAYBE_SessionNewTabSameURL DISABLED_SessionNewTabSameURL
+#else
+#define MAYBE_SessionNewTabSameURL SessionNewTabSameURL
+#endif
+IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest, MAYBE_SessionNewTabSameURL) {
   const GURL& url = http_server().GetURL("/engagement_test.html");
 
   LoadTestPageAndWaitForPlayAndAudible(url, false);
@@ -716,8 +731,16 @@ IN_PROC_BROWSER_TEST_F(MediaEngagementPreloadBrowserTest,
   EXPECT_TRUE(MediaEngagementPreloadedList::GetInstance()->loaded());
 }
 
+#if defined(OS_MAC) && defined(ARCH_CPU_ARM64)
+// https://crbug.com/1222896
+#define MAYBE_SessionNewTabNavigateSameURLWithOpener_Typed \
+  DISABLED_SessionNewTabNavigateSameURLWithOpener_Typed
+#else
+#define MAYBE_SessionNewTabNavigateSameURLWithOpener_Typed \
+  SessionNewTabNavigateSameURLWithOpener_Typed
+#endif
 IN_PROC_BROWSER_TEST_F(MediaEngagementBrowserTest,
-                       SessionNewTabNavigateSameURLWithOpener_Typed) {
+                       MAYBE_SessionNewTabNavigateSameURLWithOpener_Typed) {
   const GURL& url = http_server().GetURL("/engagement_test.html");
 
   LoadTestPageAndWaitForPlayAndAudible(url, false);

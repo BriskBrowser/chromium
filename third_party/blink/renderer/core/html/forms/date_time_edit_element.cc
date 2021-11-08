@@ -29,7 +29,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
-#include "third_party/blink/renderer/core/frame/use_counter_helper.h"
+#include "third_party/blink/renderer/core/frame/use_counter_impl.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_field_elements.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_fields_state.h"
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
@@ -292,7 +292,12 @@ void DateTimeEditBuilder::VisitField(DateTimeFormat::FieldType field_type,
       return;
     }
 
-    case DateTimeFormat::kFieldTypePeriod: {
+    // TODO(crbug.com/1261272): We don't support UI for
+    // kFieldTypePeriodAmPmNoonMidnight and kFieldTypePeriodFlexible. Apply
+    // the normal am/pm UI instead.
+    case DateTimeFormat::kFieldTypePeriod:
+    case DateTimeFormat::kFieldTypePeriodAmPmNoonMidnight:
+    case DateTimeFormat::kFieldTypePeriodFlexible: {
       DateTimeFieldElement* field =
           MakeGarbageCollected<DateTimeAMPMFieldElement>(
               document, EditElement(), parameters_.locale.TimeAMPMLabels());
@@ -486,9 +491,10 @@ void DateTimeEditBuilder::VisitLiteral(const String& text) {
     WTF::unicode::CharDirection dir = WTF::unicode::Direction(text[0]);
     if (dir == WTF::unicode::kSegmentSeparator ||
         dir == WTF::unicode::kWhiteSpaceNeutral ||
-        dir == WTF::unicode::kOtherNeutral)
-      element->AppendChild(Text::Create(EditElement().GetDocument(),
-                                        String(&kRightToLeftMarkCharacter, 1)));
+        dir == WTF::unicode::kOtherNeutral) {
+      element->AppendChild(Text::Create(
+          EditElement().GetDocument(), String(&kRightToLeftMarkCharacter, 1u)));
+    }
   }
   element->AppendChild(Text::Create(EditElement().GetDocument(), text));
   EditElement().FieldsWrapperElement()->AppendChild(element);
@@ -571,11 +577,12 @@ void DateTimeEditElement::BlurByOwner() {
     field->blur();
 }
 
-ComputedStyle* DateTimeEditElement::CustomStyleForLayoutObject(
+scoped_refptr<ComputedStyle> DateTimeEditElement::CustomStyleForLayoutObject(
     const StyleRecalcContext& style_recalc_context) {
-  // FIXME: This is a kind of layout. We might want to introduce new
-  // layoutObject.
-  ComputedStyle* style = OriginalStyleForLayoutObject(style_recalc_context);
+  // TODO(crbug.com/1181868): This is a kind of layout. We might want to
+  // introduce new LayoutObject.
+  scoped_refptr<ComputedStyle> style =
+      OriginalStyleForLayoutObject(style_recalc_context);
   float width = 0;
   for (Node* child = FieldsWrapperElement()->firstChild(); child;
        child = child->nextSibling()) {
@@ -595,6 +602,7 @@ ComputedStyle* DateTimeEditElement::CustomStyleForLayoutObject(
     }
   }
   style->SetWidth(Length::Fixed(ceilf(width)));
+  style->SetCustomStyleCallbackDependsOnFont();
   return style;
 }
 

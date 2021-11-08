@@ -12,14 +12,11 @@
 
 namespace permissions {
 ClientFeatures_Platform GetCurrentPlatformProto() {
-#if defined(OS_WIN)
-  return permissions::ClientFeatures_Platform_PLATFORM_WINDOWS;
-#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
-  return permissions::ClientFeatures_Platform_PLATFORM_LINUX;
-#elif defined(OS_ANDROID)
-  return permissions::ClientFeatures_Platform_PLATFORM_ANDROID;
-#elif defined(OS_MAC)
-  return permissions::ClientFeatures_Platform_PLATFORM_MAC_OS;
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS) || \
+    defined(OS_MAC)
+  return permissions::ClientFeatures_Platform_PLATFORM_DESKTOP;
+#elif defined(OS_ANDROID) || defined(OS_FUCHSIA)
+  return permissions::ClientFeatures_Platform_PLATFORM_MOBILE;
 #else
   return permissions::ClientFeatures_Platform_PLATFORM_UNSPECIFIED;
 #endif
@@ -43,7 +40,7 @@ constexpr char kDiscretizedLikelihood[] = "discretizedLikelihood";
 
 std::string GeneratePredictionsRequestMessageToJson(
     const GeneratePredictionsRequest& message) {
-  base::DictionaryValue dict_message;
+  base::Value dict_message(base::Value::Type::DICTIONARY);
 
   base::Value client_features(base::Value::Type::DICTIONARY);
   client_features.SetKey(kPlatform, base::Value(ClientFeatures_Platform_Name(

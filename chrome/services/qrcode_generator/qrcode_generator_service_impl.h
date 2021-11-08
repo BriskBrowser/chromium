@@ -5,8 +5,6 @@
 #ifndef CHROME_SERVICES_QRCODE_GENERATOR_QRCODE_GENERATOR_SERVICE_IMPL_H_
 #define CHROME_SERVICES_QRCODE_GENERATOR_QRCODE_GENERATOR_SERVICE_IMPL_H_
 
-#include <vector>
-
 #include "chrome/services/qrcode_generator/public/mojom/qrcode_generator.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -23,6 +21,11 @@ class QRCodeGeneratorServiceImpl : public mojom::QRCodeGeneratorService {
  public:
   explicit QRCodeGeneratorServiceImpl(
       mojo::PendingReceiver<mojom::QRCodeGeneratorService> receiver);
+
+  QRCodeGeneratorServiceImpl(const QRCodeGeneratorServiceImpl&) = delete;
+  QRCodeGeneratorServiceImpl& operator=(const QRCodeGeneratorServiceImpl&) =
+      delete;
+
   ~QRCodeGeneratorServiceImpl() override;
 
  private:
@@ -64,8 +67,6 @@ class QRCodeGeneratorServiceImpl : public mojom::QRCodeGeneratorService {
   mojo::Receiver<mojom::QRCodeGeneratorService> receiver_;
 
   SkBitmap dino_bitmap_;
-
-  DISALLOW_COPY_AND_ASSIGN(QRCodeGeneratorServiceImpl);
 };
 
 }  // namespace qrcode_generator

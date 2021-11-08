@@ -4,7 +4,7 @@
 
 // clang-format off
 // #import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
-// #import 'chrome://resources/mojo/chromeos/services/network_health/public/mojom/network_diagnostics.mojom-lite.js';
+// #import 'chrome://resources/mojo/ash/services/network_health/public/mojom/network_diagnostics.mojom-lite.js';
 // clang-format on
 
 /**
@@ -15,11 +15,8 @@
 /**
  * A routine response from the Network Diagnostics mojo service.
  * @typedef {{
- *   verdict: chromeos.networkDiagnostics.mojom.RoutineVerdict,
+ *   result: ash.networkDiagnostics.mojom.RoutineResult,
  * }}
- * RoutineResponse can optionally have a `problems` field, which is an array of
- * enums relevant to the routine run. Unfortunately the closure compiler cannot
- * handle optional object fields.
  */
 /* #export */ let RoutineResponse;
 
@@ -28,35 +25,15 @@
  * routine, and it's transient state.
  * @typedef {{
  *   name: string,
- *   type: !RoutineType,
+ *   type: !ash.networkDiagnostics.mojom.RoutineType,
  *   group: !RoutineGroup,
  *   func: function(),
  *   running: boolean,
  *   resultMsg: string,
- *   result: ?RoutineResponse,
+ *   result: ?ash.networkDiagnostics.mojom.RoutineResult,
  * }}
  */
 /* #export */ let Routine;
-
-/**
- * Definition for all Network diagnostic routine types. This enum is intended
- * to be used as an index in an array of routines.
- * @enum {number}
- */
-/* #export */ const RoutineType = {
-  LAN_CONNECTIVITY: 0,
-  SIGNAL_STRENGTH: 1,
-  GATEWAY_PING: 2,
-  SECURE_WIFI: 3,
-  DNS_RESOLVER: 4,
-  DNS_LATENCY: 5,
-  DNS_RESOLUTION: 6,
-  HTTP_FIREWALL: 7,
-  HTTPS_FIREWALL: 8,
-  HTTPS_LATENCY: 9,
-  CAPTIVE_PORTAL: 10,
-  VIDEO_CONFERENCING: 11,
-};
 
 /**
  * Definition for different groups of network routines.
@@ -70,6 +47,7 @@
   FIREWALL: 4,
   DNS: 5,
   GOOGLE_SERVICES: 6,
+  ARC: 7
 };
 
 /* #export */ const Icons = {

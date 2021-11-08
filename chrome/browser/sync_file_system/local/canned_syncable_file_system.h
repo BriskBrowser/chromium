@@ -21,6 +21,7 @@
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/file_system/file_system_operation.h"
 #include "storage/browser/file_system/file_system_url.h"
+#include "storage/browser/file_system/file_system_util.h"
 #include "storage/browser/quota/quota_callbacks.h"
 #include "storage/common/file_system/file_system_types.h"
 #include "storage/common/file_system/file_system_util.h"
@@ -69,6 +70,10 @@ class CannedSyncableFileSystem
       bool in_memory_file_system,
       const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
       const scoped_refptr<base::SingleThreadTaskRunner>& file_task_runner);
+
+  CannedSyncableFileSystem(const CannedSyncableFileSystem&) = delete;
+  CannedSyncableFileSystem& operator=(const CannedSyncableFileSystem&) = delete;
+
   ~CannedSyncableFileSystem() override;
 
   // SetUp must be called before using this instance.
@@ -238,8 +243,6 @@ class CannedSyncableFileSystem
   bool is_filesystem_opened_;  // Should be accessed only on the IO thread.
 
   scoped_refptr<ObserverList> sync_status_observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(CannedSyncableFileSystem);
 };
 
 }  // namespace sync_file_system

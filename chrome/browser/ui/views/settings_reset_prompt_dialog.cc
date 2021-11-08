@@ -15,12 +15,12 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
@@ -74,7 +74,7 @@ SettingsResetPromptDialog::SettingsResetPromptDialog(
       views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
 
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-      views::TEXT, views::TEXT));
+      views::DialogContentType::kText, views::DialogContentType::kText));
   SetLayoutManager(std::make_unique<views::FillLayout>());
 
   views::StyledLabel* const dialog_label =
@@ -104,8 +104,8 @@ void SettingsResetPromptDialog::Show() {
   controller_->DialogShown();
 }
 
-base::string16 SettingsResetPromptDialog::GetWindowTitle() const {
-  return controller_ ? controller_->GetWindowTitle() : base::string16();
+std::u16string SettingsResetPromptDialog::GetWindowTitle() const {
+  return controller_ ? controller_->GetWindowTitle() : std::u16string();
 }
 
 BEGIN_METADATA(SettingsResetPromptDialog, views::DialogDelegateView)

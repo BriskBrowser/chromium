@@ -21,10 +21,6 @@
 @class JsTranslateManager;
 class GURL;
 
-namespace base {
-class DictionaryValue;
-}  // namespace base
-
 namespace web {
 class NavigationContext;
 }  // namespace web
@@ -47,11 +43,15 @@ class TranslateController : public web::WebStateObserver {
     // Called when the translation is complete.
     // |error_type| Indicates error code.
     virtual void OnTranslateComplete(TranslateErrors::Type error_type,
-                                     const std::string& original_language,
+                                     const std::string& source_language,
                                      double translation_time) = 0;
   };
 
   TranslateController(web::WebState* web_state, JsTranslateManager* manager);
+
+  TranslateController(const TranslateController&) = delete;
+  TranslateController& operator=(const TranslateController&) = delete;
+
   ~TranslateController() override;
 
   // Sets the observer.
@@ -92,16 +92,16 @@ class TranslateController : public web::WebStateObserver {
                            OnTranslateSendRequestWithBadMethod);
 
   // Called when a JavaScript command is received.
-  bool OnJavascriptCommandReceived(const base::DictionaryValue& command,
+  bool OnJavascriptCommandReceived(const base::Value& command,
                                    const GURL& url,
                                    bool interacting,
                                    web::WebFrame* sender_frame);
   // Methods to handle specific JavaScript commands.
   // Return false if the command is invalid.
-  bool OnTranslateReady(const base::DictionaryValue& command);
-  bool OnTranslateComplete(const base::DictionaryValue& command);
-  bool OnTranslateLoadJavaScript(const base::DictionaryValue& command);
-  bool OnTranslateSendRequest(const base::DictionaryValue& command);
+  bool OnTranslateReady(const base::Value& command);
+  bool OnTranslateComplete(const base::Value& command);
+  bool OnTranslateLoadJavaScript(const base::Value& command);
+  bool OnTranslateSendRequest(const base::Value& command);
 
   // The callback when the script is fetched or a server error occurred.
   void OnScriptFetchComplete(std::unique_ptr<std::string> response_body);
@@ -132,8 +132,6 @@ class TranslateController : public web::WebStateObserver {
   Observer* observer_;
   __strong JsTranslateManager* js_manager_;
   base::WeakPtrFactory<TranslateController> weak_method_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(TranslateController);
 };
 
 }  // namespace translate

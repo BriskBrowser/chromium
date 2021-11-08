@@ -13,11 +13,10 @@
 #include "base/files/file.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/thread_annotations.h"
 #include "chrome/services/sharing/nearby/nearby_connections_stream_buffer_manager.h"
 #include "chromeos/services/nearby/public/mojom/nearby_connections.mojom.h"
@@ -27,7 +26,8 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/shared_remote.h"
-#include "third_party/nearby/src/cpp/core/internal/service_controller.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/nearby/src/cpp/core/internal/service_controller_router.h"
 
 namespace location {
 namespace nearby {
@@ -52,8 +52,7 @@ class NearbyConnections : public mojom::NearbyConnections {
       mojo::PendingReceiver<mojom::NearbyConnections> nearby_connections,
       mojom::NearbyConnectionsDependenciesPtr dependencies,
       scoped_refptr<base::SequencedTaskRunner> io_task_runner,
-      base::OnceClosure on_disconnect,
-      std::unique_ptr<ServiceController> service_controller = nullptr);
+      base::OnceClosure on_disconnect);
 
   NearbyConnections(const NearbyConnections&) = delete;
   NearbyConnections& operator=(const NearbyConnections&) = delete;
@@ -73,9 +72,10 @@ class NearbyConnections : public mojom::NearbyConnections {
       const {
     return socket_manager_;
   }
-  const mojo::SharedRemote<network::mojom::MdnsResponder>& mdns_responder()
-      const {
-    return mdns_responder_;
+  const mojo::SharedRemote<
+      location::nearby::connections::mojom::MdnsResponderFactory>&
+  mdns_responder_factory() const {
+    return mdns_responder_factory_;
   }
   const mojo::SharedRemote<sharing::mojom::IceConfigFetcher>&
   ice_config_fetcher() const {
@@ -153,6 +153,9 @@ class NearbyConnections : public mojom::NearbyConnections {
   // Returns the task runner for the thread that created |this|.
   scoped_refptr<base::SingleThreadTaskRunner> GetThreadTaskRunner();
 
+  void SetServiceControllerRouterForTesting(
+      std::unique_ptr<ServiceControllerRouter> service_controller_router);
+
  private:
   // These values are used for metrics. Entries should not be renumbered and
   // numeric values should never be reused. If entries are added, kMaxValue
@@ -180,16 +183,17 @@ class NearbyConnections : public mojom::NearbyConnections {
   // to sequence binding the Remote.
   mojo::SharedRemote<bluetooth::mojom::Adapter> bluetooth_adapter_;
   mojo::SharedRemote<network::mojom::P2PSocketManager> socket_manager_;
-  mojo::SharedRemote<network::mojom::MdnsResponder> mdns_responder_;
+  mojo::SharedRemote<location::nearby::connections::mojom::MdnsResponderFactory>
+      mdns_responder_factory_;
   mojo::SharedRemote<sharing::mojom::IceConfigFetcher> ice_config_fetcher_;
   mojo::SharedRemote<sharing::mojom::WebRtcSignalingMessenger>
       webrtc_signaling_messenger_;
 
-  std::unique_ptr<ServiceController> service_controller_;
+  std::unique_ptr<ServiceControllerRouter> service_controller_router_;
 
   // Map from service ID to the Core object to be used for that service. Each
   // service uses its own Core object, but all Core objects share the underlying
-  // ServiceController instance.
+  // ServiceControllerRouter instance.
   base::flat_map<std::string, std::unique_ptr<Core>> service_id_to_core_map_;
 
   // Handles incoming stream payloads. This object buffers partial streams as

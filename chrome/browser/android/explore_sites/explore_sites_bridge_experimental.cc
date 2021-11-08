@@ -54,7 +54,8 @@ semantics {
 }
 policy {
   cookies_allowed: YES
-  setting: "user"
+  cookies_store: "user"
+  setting: "TODO(crbug.com/1231780): Add this field."
   policy_exception_justification:
     "This feature is only enabled explicitly by flag."
 })");
@@ -126,7 +127,7 @@ static void JNI_ExploreSitesBridgeExperimental_GetIcon(
   Profile* profile = ProfileAndroid::FromProfileAndroid(j_profile);
   GURL icon_url(ConvertJavaStringToUTF8(env, j_url));
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
-      content::BrowserContext::GetDefaultStoragePartition(profile)
+      profile->GetDefaultStoragePartition()
           ->GetURLLoaderFactoryForBrowserProcess();
   image_fetcher::ImageFetcherParams params(kTrafficAnnotation,
                                            kImageFetcherUmaClientName);

@@ -10,9 +10,9 @@
 
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <utility>
-#include <vector>
 
 #include "base/base64.h"
 #include "base/bind.h"
@@ -26,7 +26,7 @@
 #include "base/message_loop/message_pump_type.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -45,8 +45,10 @@
 #include "net/base/url_util.h"
 #include "net/cert/caching_cert_verifier.h"
 #include "net/cert/cert_verifier.h"
+#include "net/cert/x509_certificate.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/http/http_auth_handler_factory.h"
+#include "net/http/transport_security_state.h"
 #include "net/log/file_net_log_observer.h"
 #include "net/log/net_log_util.h"
 #include "net/net_buildflags.h"
@@ -70,6 +72,10 @@ class NetLogWithNetworkChangeEvents {
  public:
   NetLogWithNetworkChangeEvents() : net_log_(net::NetLog::Get()) {}
 
+  NetLogWithNetworkChangeEvents(const NetLogWithNetworkChangeEvents&) = delete;
+  NetLogWithNetworkChangeEvents& operator=(
+      const NetLogWithNetworkChangeEvents&) = delete;
+
   net::NetLog* net_log() { return net_log_; }
   // This function registers with the NetworkChangeNotifier and so must be
   // called *after* the NetworkChangeNotifier is created. Should only be
@@ -85,7 +91,8 @@ class NetLogWithNetworkChangeEvents {
     DCHECK(cronet::OnInitThread());
     if (net_change_logger_)
       return;
-    net_change_logger_.reset(new net::LoggingNetworkChangeObserver(net_log_));
+    net_change_logger_ =
+        std::make_unique<net::LoggingNetworkChangeObserver>(net_log_);
   }
 
  private:
@@ -94,8 +101,6 @@ class NetLogWithNetworkChangeEvents {
   // This class bundles one LoggingNetworkChangeObserver with one NetLog,
   // so network change event are logged just once in the NetLog.
   std::unique_ptr<net::LoggingNetworkChangeObserver> net_change_logger_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetLogWithNetworkChangeEvents);
 };
 
 // Use a global NetLog instance. See crbug.com/486120.
@@ -105,13 +110,22 @@ static base::LazyInstance<NetLogWithNetworkChangeEvents>::Leaky g_net_log =
 class BasicNetworkDelegate : public net::NetworkDelegateImpl {
  public:
   BasicNetworkDelegate() {}
+
+  BasicNetworkDelegate(const BasicNetworkDelegate&) = delete;
+  BasicNetworkDelegate& operator=(const BasicNetworkDelegate&) = delete;
+
   ~BasicNetworkDelegate() override {}
 
  private:
   // net::NetworkDelegate implementation.
-  bool OnCanGetCookies(const net::URLRequest& request,
-                       bool allowed_from_caller) override {
+  bool OnAnnotateAndMoveUserBlockedCookies(
+      const net::URLRequest& request,
+      net::CookieAccessResultList& maybe_included_cookies,
+      net::CookieAccessResultList& excluded_cookies,
+      bool allowed_from_caller) override {
     // Disallow sending cookies by default.
+    ExcludeAllCookies(net::CookieInclusionStatus::EXCLUDE_USER_PREFERENCES,
+                      maybe_included_cookies, excluded_cookies);
     return false;
   }
 
@@ -122,8 +136,6 @@ class BasicNetworkDelegate : public net::NetworkDelegateImpl {
     // Disallow saving cookies by default.
     return false;
   }
-
-  DISALLOW_COPY_AND_ASSIGN(BasicNetworkDelegate);
 };
 
 }  // namespace
@@ -144,7 +156,7 @@ CronetURLRequestContext::CronetURLRequestContext(
     network_thread_ = std::make_unique<base::Thread>("network");
     base::Thread::Options options;
     options.message_pump_type = base::MessagePumpType::IO;
-    network_thread_->StartWithOptions(options);
+    network_thread_->StartWithOptions(std::move(options));
     network_task_runner_ = network_thread_->task_runner();
   }
 }
@@ -330,8 +342,8 @@ void CronetURLRequestContext::NetworkTasks::Initialize(
 
   // Explicitly disable the persister for Cronet to avoid persistence of dynamic
   // HPKP. This is a safety measure ensuring that nobody enables the persistence
-  // of HPKP by specifying transport_security_persister_path in the future.
-  context_builder.set_transport_security_persister_path(base::FilePath());
+  // of HPKP by specifying transport_security_persister_file_path in the future.
+  context_builder.set_transport_security_persister_file_path(base::FilePath());
 
   // Disable net::CookieStore.
   context_builder.SetCookieStore(nullptr);
@@ -419,8 +431,8 @@ void CronetURLRequestContext::NetworkTasks::Initialize(
 #if BUILDFLAG(ENABLE_REPORTING)
   if (context_->reporting_service()) {
     for (const auto& preloaded_header : config->preloaded_report_to_headers) {
-      context_->reporting_service()->ProcessHeader(
-          preloaded_header.origin.GetURL(), net::NetworkIsolationKey(),
+      context_->reporting_service()->ProcessReportToHeader(
+          preloaded_header.origin, net::NetworkIsolationKey(),
           preloaded_header.value);
     }
   }
@@ -458,6 +470,9 @@ class CronetURLRequestContext::ContextGetter
     DCHECK(cronet_context_);
   }
 
+  ContextGetter(const ContextGetter&) = delete;
+  ContextGetter& operator=(const ContextGetter&) = delete;
+
   net::URLRequestContext* GetURLRequestContext() override {
     return cronet_context_->GetURLRequestContext();
   }
@@ -473,8 +488,6 @@ class CronetURLRequestContext::ContextGetter
 
   // CronetURLRequestContext associated with this ContextGetter.
   CronetURLRequestContext* const cronet_context_;
-
-  DISALLOW_COPY_AND_ASSIGN(ContextGetter);
 };
 
 net::URLRequestContextGetter*
@@ -562,7 +575,7 @@ int CronetURLRequestContext::default_load_flags() const {
 base::Thread* CronetURLRequestContext::GetFileThread() {
   DCHECK(OnInitThread());
   if (!file_thread_) {
-    file_thread_.reset(new base::Thread("Network File Thread"));
+    file_thread_ = std::make_unique<base::Thread>("Network File Thread");
     file_thread_->Start();
   }
   return file_thread_.get();

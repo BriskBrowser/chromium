@@ -22,6 +22,11 @@ namespace {
 class ArcAppfuseProviderClientImpl : public ArcAppfuseProviderClient {
  public:
   ArcAppfuseProviderClientImpl() {}
+
+  ArcAppfuseProviderClientImpl(const ArcAppfuseProviderClientImpl&) = delete;
+  ArcAppfuseProviderClientImpl& operator=(const ArcAppfuseProviderClientImpl&) =
+      delete;
+
   ~ArcAppfuseProviderClientImpl() override = default;
 
   // ArcAppfuseProviderClient override:
@@ -89,14 +94,14 @@ class ArcAppfuseProviderClientImpl : public ArcAppfuseProviderClient {
   void OnFDMethod(DBusMethodCallback<base::ScopedFD> callback,
                   dbus::Response* response) {
     if (!response) {
-      std::move(callback).Run(base::nullopt);
+      std::move(callback).Run(absl::nullopt);
       return;
     }
     dbus::MessageReader reader(response);
     base::ScopedFD fd;
     if (!reader.PopFileDescriptor(&fd)) {
       LOG(ERROR) << "Failed to pop FD.";
-      std::move(callback).Run(base::nullopt);
+      std::move(callback).Run(absl::nullopt);
       return;
     }
     std::move(callback).Run(std::move(fd));
@@ -105,8 +110,6 @@ class ArcAppfuseProviderClientImpl : public ArcAppfuseProviderClient {
   dbus::ObjectProxy* proxy_ = nullptr;
 
   base::WeakPtrFactory<ArcAppfuseProviderClientImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ArcAppfuseProviderClientImpl);
 };
 
 }  // namespace

@@ -18,6 +18,11 @@ namespace extensions {
 class StorageSchemaManifestHandler : public ManifestHandler {
  public:
   StorageSchemaManifestHandler();
+
+  StorageSchemaManifestHandler(const StorageSchemaManifestHandler&) = delete;
+  StorageSchemaManifestHandler& operator=(const StorageSchemaManifestHandler&) =
+      delete;
+
   ~StorageSchemaManifestHandler() override;
 
   // Returns the managed storage schema defined for |extension|.
@@ -29,13 +34,11 @@ class StorageSchemaManifestHandler : public ManifestHandler {
 
  private:
   // ManifestHandler implementation:
-  bool Parse(Extension* extension, base::string16* error) override;
+  bool Parse(Extension* extension, std::u16string* error) override;
   bool Validate(const Extension* extension,
                 std::string* error,
                 std::vector<InstallWarning>* warnings) const override;
   base::span<const char* const> Keys() const override;
-
-  DISALLOW_COPY_AND_ASSIGN(StorageSchemaManifestHandler);
 };
 
 }  // namespace extensions

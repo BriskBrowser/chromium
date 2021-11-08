@@ -32,7 +32,9 @@ enum ShellWindowId {
 
   // A higher-level container that holds all of the containers stacked below
   // kShellWindowId_LockScreenContainer.  Only used by PowerButtonController for
-  // animating lower-level containers.
+  // animating lower-level containers and AccessibilityController for hiding
+  // non-lock screen windows from Accessibility when the user session is
+  // blocked.
   kShellWindowId_NonLockScreenContainersContainer,
 
   // A higher-level container that holds containers that hold lock-screen
@@ -48,9 +50,10 @@ enum ShellWindowId {
   // PowerButtonController for animating lower-level containers.
   kShellWindowId_LockScreenRelatedContainersContainer,
 
-  // A container used for windows of WINDOW_TYPE_CONTROL that have no parent.
+  // A container used for windows that temporarily have no parent. It is
+  // expected the windows will get parented to another container shortly after.
   // This container is not visible.
-  kShellWindowId_UnparentedControlContainer,
+  kShellWindowId_UnparentedContainer,
 
   // The wallpaper (desktop background) window.
   kShellWindowId_WallpaperContainer,
@@ -78,6 +81,9 @@ enum ShellWindowId {
 
   // The container for the app list.
   kShellWindowId_AppListContainer,
+
+  // The container for the floating window.
+  kShellWindowId_FloatContainer,
 
   // The container for the home screen, e.g. the app list in tablet mode.
   kShellWindowId_HomeScreenContainer,
@@ -195,6 +201,13 @@ enum NonContainerWindowId {
   // Only one window exists whenever the display settings page is open with
   // multiple displays connected.
   kShellWindowId_DisplayIdentificationHighlightWindow,
+
+  // The window specified as the owner of the folder selection menu for capture
+  // mode, which will be a transient window parent of the about to be created
+  // dialog window. This is needed in order to prevent
+  // |SelectFileDialogExtension| from favoring to parent the dialog to a browser
+  // window (if one exists).
+  kShellWindowId_CaptureModeFolderSelectionDialogOwner,
 };
 
 // A list of system modal container IDs. The order of the list is important that

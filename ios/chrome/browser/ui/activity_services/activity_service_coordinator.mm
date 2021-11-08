@@ -22,6 +22,8 @@
 #import "ios/chrome/browser/ui/activity_services/requirements/activity_service_presentation.h"
 #import "ios/chrome/browser/ui/commands/bookmarks_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/main/default_browser_scene_agent.h"
+#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "net/base/mac/url_conversions.h"
@@ -66,22 +68,41 @@
   ChromeBrowserState* browserState = self.browser->GetBrowserState();
   bookmarks::BookmarkModel* bookmarkModel =
       ios::BookmarkModelFactory::GetForBrowserState(browserState);
+  id<BookmarksCommands> bookmarksHandler = HandlerForProtocol(
+      self.browser->GetCommandDispatcher(), BookmarksCommands);
   self.mediator =
       [[ActivityServiceMediator alloc] initWithHandler:self.handler
-                                      bookmarksHandler:self.scopedHandler
+                                      bookmarksHandler:bookmarksHandler
                                    qrGenerationHandler:self.scopedHandler
                                            prefService:browserState->GetPrefs()
-                                         bookmarkModel:bookmarkModel];
+                                         bookmarkModel:bookmarkModel
+                                    baseViewController:self.baseViewController];
+
+  SceneState* sceneState =
+      SceneStateBrowserAgent::FromBrowser(self.browser)->GetSceneState();
+  self.mediator.promoScheduler =
+      [DefaultBrowserSceneAgent agentFromScene:sceneState].nonModalScheduler;
 
   [self.mediator shareStartedWithScenario:self.params.scenario];
 
+  // Image item
   if (self.params.image) {
     [self shareImage];
-  } else if (!self.params.URL.is_empty()) {
-    [self shareURL];
-  } else {
-    [self shareCurrentPage];
+    return;
   }
+
+  if (self.params.URLs.count > 0) {
+    // If at least one valid URL is found, share the URLs in |_params|.
+    for (URLWithTitle* urlWithTitle in self.params.URLs) {
+      if (!urlWithTitle.URL.is_empty()) {
+        [self shareURLs];
+        return;
+      }
+    }
+  }
+
+  // Default to sharing the current page
+  [self shareCurrentPage];
 }
 
 - (void)stop {
@@ -109,10 +130,16 @@
 
   // Set-up popover positioning (for iPad).
   DCHECK(self.positionProvider);
-  self.viewController.popoverPresentationController.sourceView =
-      self.positionProvider.sourceView;
-  self.viewController.popoverPresentationController.sourceRect =
-      self.positionProvider.sourceRect;
+  if ([self.positionProvider respondsToSelector:@selector(barButtonItem)] &&
+      self.positionProvider.barButtonItem) {
+    self.viewController.popoverPresentationController.barButtonItem =
+        self.positionProvider.barButtonItem;
+  } else {
+    self.viewController.popoverPresentationController.sourceView =
+        self.positionProvider.sourceView;
+    self.viewController.popoverPresentationController.sourceRect =
+        self.positionProvider.sourceRect;
+  }
 
   // Set completion callback.
   __weak __typeof(self) weakSelf = self;
@@ -159,8 +186,9 @@
     return;
 
   NSArray<ChromeActivityURLSource*>* items =
-      [self.mediator activityItemsForData:data];
-  NSArray* activities = [self.mediator applicationActivitiesForData:data];
+      [self.mediator activityItemsForDataItems:@[ data ]];
+  NSArray* activities =
+      [self.mediator applicationActivitiesForDataItems:@[ data ]];
 
   [self shareItems:items activities:activities];
 }
@@ -172,7 +200,7 @@
 - (void)shareImage {
   ShareImageData* data =
       [[ShareImageData alloc] initWithImage:self.params.image
-                                      title:self.params.title];
+                                      title:self.params.imageTitle];
 
   NSArray<ChromeActivityImageSource*>* items =
       [self.mediator activityItemsForImageData:data];
@@ -186,13 +214,19 @@
 // Configures activities and items for a URL and its title, and shows
 // an activity view. Also adds another activity item for additional text, if
 // there is any.
-- (void)shareURL {
-  ShareToData* data = activity_services::ShareToDataForURL(
-      self.params.URL, self.params.title, self.params.additionalText);
+- (void)shareURLs {
+  NSMutableArray* dataItems = [[NSMutableArray alloc] init];
+
+  for (URLWithTitle* urlWithTitle in self.params.URLs) {
+    ShareToData* data =
+        activity_services::ShareToDataForURLWithTitle(urlWithTitle);
+    [dataItems addObject:data];
+  }
 
   NSArray<id<ChromeActivityItemSource>>* items =
-      [self.mediator activityItemsForData:data];
-  NSArray* activities = [self.mediator applicationActivitiesForData:data];
+      [self.mediator activityItemsForDataItems:dataItems];
+  NSArray* activities =
+      [self.mediator applicationActivitiesForDataItems:dataItems];
 
   [self shareItems:items activities:activities];
 }

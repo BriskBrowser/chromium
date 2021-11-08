@@ -5,9 +5,9 @@
 #import "ios/chrome/browser/ui/gestures/view_revealing_vertical_pan_handler.h"
 
 #import "base/check_op.h"
+#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #import "base/notreached.h"
-#include "base/numerics/ranges.h"
 #import "ios/chrome/browser/ui/gestures/layout_switcher.h"
 #import "ios/chrome/browser/ui/gestures/pan_handler_scroll_view.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
@@ -64,7 +64,8 @@ enum class LayoutTransitionState {
 // The progress of the animator.
 @property(nonatomic, assign) CGFloat progressWhenInterrupted;
 // Set of UI elements which are animated during view reveal transitions.
-@property(nonatomic, strong) NSHashTable<id<ViewRevealingAnimatee>>* animatees;
+@property(nonatomic, strong)
+    NSMutableOrderedSet<id<ViewRevealingAnimatee>>* animatees;
 // The current state tracking whether the revealed view is undergoing a
 // transition of layout. This is |::Inactive| initially. It is set to |::Active|
 // when the transition layout is created.  It is set to |::Finishing| when the
@@ -100,7 +101,7 @@ enum class LayoutTransitionState {
     _revealedHeight = baseViewHeight - revealedCoverHeight;
     _remainingHeight = _revealedHeight - peekedHeight;
     _currentState = initialState;
-    _animatees = [NSHashTable weakObjectsHashTable];
+    _animatees = [[NSMutableOrderedSet alloc] init];
     _layoutTransitionState = LayoutTransitionState::Inactive;
   }
   return self;
@@ -256,21 +257,25 @@ enum class LayoutTransitionState {
   }
   DCHECK_EQ(self.layoutTransitionState, LayoutTransitionState::Inactive);
   auto completion = ^(BOOL completed, BOOL finished) {
-    if (self.nextState == self.currentState) {
+    if (self.nextState == self.currentState ||
+        self.animator.state == UIViewAnimatingStateActive) {
       self.layoutTransitionState = LayoutTransitionState::Inactive;
       return;
     }
-    // If current state doesn't match the next state, then next state has been
-    // changed while the transition is finishing. Start a new programmatic
-    // transition to the correct final state. Triggering a transiton from inside
-    // the completion block of a transition seems to cause the new transition's
-    // completion block to never fire, so do that on the next run loop.
+    // If current state doesn't match the next state and the animator is not
+    // active, then next state has been changed while the transition is
+    // finishing. Start a new programmatic transition to the correct final
+    // state. Triggering a transiton from inside the completion block of a
+    // transition seems to cause the new transition's completion block to never
+    // fire, so do that on the next run loop.
     dispatch_async(dispatch_get_main_queue(), ^{
       self.layoutTransitionState = LayoutTransitionState::Inactive;
       // Make sure the next state hasn't changed.
-      if (self.nextState != self.currentState) {
-        [self setNextState:self.nextState animated:YES];
+      if (self.nextState == self.currentState ||
+          self.animator.state == UIViewAnimatingStateActive) {
+        return;
       }
+      [self setNextState:self.nextState animated:YES];
     });
   };
   [self.layoutSwitcherProvider.layoutSwitcher
@@ -385,7 +390,7 @@ enum class LayoutTransitionState {
   }
 
   progress += self.progressWhenInterrupted;
-  progress = base::ClampToRange<CGFloat>(progress, 0, 1);
+  progress = base::clamp<CGFloat>(progress, 0, 1);
   self.animator.fractionComplete = progress;
   if (self.layoutTransitionState == LayoutTransitionState::Active) {
     [self.layoutSwitcherProvider.layoutSwitcher

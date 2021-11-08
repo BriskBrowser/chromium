@@ -5,6 +5,7 @@
 #ifndef ANDROID_WEBVIEW_BROWSER_GFX_SKIA_OUTPUT_SURFACE_DEPENDENCY_WEBVIEW_H_
 #define ANDROID_WEBVIEW_BROWSER_GFX_SKIA_OUTPUT_SURFACE_DEPENDENCY_WEBVIEW_H_
 
+#include "base/callback_helpers.h"
 #include "components/viz/service/display_embedder/skia_output_surface_dependency.h"
 #include "gpu/command_buffer/service/shared_context_state.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
@@ -25,6 +26,12 @@ class SkiaOutputSurfaceDependencyWebView
       gpu::SharedContextState* shared_context_state,
       gl::GLSurface* gl_surface,
       AwVulkanContextProvider* vulkan_context_provider);
+
+  SkiaOutputSurfaceDependencyWebView(
+      const SkiaOutputSurfaceDependencyWebView&) = delete;
+  SkiaOutputSurfaceDependencyWebView& operator=(
+      const SkiaOutputSurfaceDependencyWebView&) = delete;
+
   ~SkiaOutputSurfaceDependencyWebView() override;
 
   std::unique_ptr<gpu::SingleTaskSequence> CreateSequence() override;
@@ -63,8 +70,6 @@ class SkiaOutputSurfaceDependencyWebView
   GpuServiceWebView* gpu_service_;
   gpu::GpuDriverBugWorkarounds workarounds_;
   gpu::SharedContextState* const shared_context_state_;
-
-  DISALLOW_COPY_AND_ASSIGN(SkiaOutputSurfaceDependencyWebView);
 };
 
 }  // namespace android_webview

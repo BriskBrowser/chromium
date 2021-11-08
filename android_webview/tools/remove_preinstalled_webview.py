@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython
 #
 # Copyright 2018 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -87,13 +87,13 @@ def RemovePreinstalledWebViews(device):
     UninstallWebViewSystemImages(device)
     CheckWebViewIsUninstalled(device)
   except device_errors.CommandFailedError:
-    if device.adb.is_emulator:
+    if device.is_emulator:
       # Point the user to documentation, since there's a good chance they can
       # workaround this. Use lots of newlines to make sure this message doesn't
       # get lost.
       logging.error('Did you start the emulator with "-writable-system?"\n'
                     'See https://chromium.googlesource.com/chromium/src/+/'
-                    'master/docs/android_emulator.md#writable-system-partition'
+                    'main/docs/android_emulator.md#writable-system-partition'
                     '\n')
     raise
   device.SetWebViewFallbackLogic(False)  # Allow standalone WebView on N+
@@ -118,4 +118,4 @@ development.
 
 
 if __name__ == '__main__':
-  sys.exit(main())
+  main()

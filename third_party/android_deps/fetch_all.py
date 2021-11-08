@@ -12,7 +12,6 @@ For each dependency in `build.gradle`:
   - Generate a README.chromium file
   - Generate a GN target in BUILD.gn
   - Generate .info files for AAR libraries
-  - Generate CIPD yaml files describing the packages
   - Generate a 'deps' entry in DEPS.
 """
 
@@ -203,8 +202,17 @@ def Copy(src_dir, src_paths, dst_dir, dst_paths, src_path_must_exist=True):
             src_dir, missing_files))
 
 
-def CopyFileOrDirectory(src_path, dst_path):
-    """Copy file or directory |src_path| into |dst_path| exactly."""
+def CopyFileOrDirectory(src_path, dst_path, ignore_extension=None):
+    """Copy file or directory |src_path| into |dst_path| exactly.
+
+    Args:
+      src_path: Source path.
+      dst_path: Destination path.
+      ignore_extension: File extension of files not to copy, starting with '.'. If None, all files
+          are copied.
+    """
+    assert not ignore_extension or ignore_extension[0] == '.'
+
     src_path = os.path.normpath(src_path)
     dst_path = os.path.normpath(dst_path)
     logging.debug('copy [%s -> %s]', src_path, dst_path)
@@ -212,8 +220,12 @@ def CopyFileOrDirectory(src_path, dst_path):
     if os.path.isdir(src_path):
         # Copy directory recursively.
         DeleteDirectory(dst_path)
-        shutil.copytree(src_path, dst_path)
-    else:
+        ignore = None
+        if ignore_extension:
+            ignore = shutil.ignore_patterns('*' + ignore_extension)
+        shutil.copytree(src_path, dst_path, ignore=ignore)
+    elif not ignore_extension or not re.match('.*\.' + ignore_extension[1:],
+                                              src_path):
         shutil.copy(src_path, dst_path)
 
 
@@ -404,36 +416,6 @@ def PrintPackageList(packages, list_name):
     print('\n'.join('    - ' + p for p in packages))
 
 
-def _GenerateCipdUploadCommands(android_deps_dir, cipd_pkg_infos):
-    """Generates a shell command to upload missing packages."""
-
-    def cipd_describe(info):
-        pkg_name, pkg_tag = info[1:]
-        result = subprocess.call(
-            ['cipd', 'describe', pkg_name, '-version', pkg_tag],
-            stdout=subprocess.DEVNULL)
-        return info, result
-
-    # Re-run the describe step to prevent mistakes if run multiple times.
-    TEMPLATE = ('(cd "{0}"; '
-                'cipd describe "{1}" -version "{2}" || '
-                'cipd create --pkg-def cipd.yaml -tag "{2}")')
-    cmds = []
-    # max_workers chosen arbitrarily.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=80) as executor:
-        for info, result in executor.map(cipd_describe, cipd_pkg_infos):
-            if result:
-                pkg_path, pkg_name, pkg_tag = info
-                # pkg_path is implicitly relative to _CHROMIUM_SRC, make it
-                # explicit.
-                pkg_path = os.path.join(_CHROMIUM_SRC, android_deps_dir,
-                                        pkg_path)
-                # Now make pkg_path relative to os.curdir.
-                pkg_path = os.path.relpath(pkg_path)
-                cmds.append(TEMPLATE.format(pkg_path, pkg_name, pkg_tag))
-    return cmds
-
-
 def _CreateAarInfos(aar_files):
     jobs = []
 
@@ -504,8 +486,8 @@ def main():
 
         subprojects = _ParseSubprojects(
             os.path.join(args.android_deps_dir, 'subprojects.txt'))
+        subproject_dirs = []
         if subprojects:
-            subproject_dirs = []
             for (index, subproject) in enumerate(subprojects):
                 subproject_dir = 'subproject{}'.format(index)
                 Copy(args.android_deps_dir, [subproject],
@@ -513,11 +495,11 @@ def main():
                      [os.path.join(subproject_dir, 'build.gradle')])
                 subproject_dirs.append(subproject_dir)
 
-            _GenerateSettingsGradle(
-                subproject_dirs,
-                os.path.join(args.android_deps_dir,
-                             'settings.gradle.template'),
-                os.path.join(build_android_deps_dir, 'settings.gradle'))
+        _GenerateSettingsGradle(
+            subproject_dirs,
+            os.path.join(_PRIMARY_ANDROID_DEPS_DIR,
+                         'settings.gradle.template'),
+            os.path.join(build_android_deps_dir, 'settings.gradle'))
 
         if not args.ignore_vulnerabilities:
             report_dst = os.path.join(args.android_deps_dir,
@@ -583,12 +565,6 @@ def main():
 
         new_packages = sorted(set(build_packages) - set(existing_packages))
 
-        # Generate CIPD package upload commands.
-        logging.info('Querying %d CIPD packages', len(build_packages))
-        cipd_commands = _GenerateCipdUploadCommands(
-            args.android_deps_dir,
-            (build_packages[pkg] for pkg in build_packages))
-
         # Copy updated DEPS and BUILD.gn to build directory.
         update_cmds = []
         Copy(build_android_deps_dir,
@@ -607,7 +583,9 @@ def main():
             pkg_path = pkg.path
             dst_pkg_path = os.path.join(args.android_deps_dir, pkg_path)
             src_pkg_path = os.path.join(build_android_deps_dir, pkg_path)
-            CopyFileOrDirectory(src_pkg_path, dst_pkg_path)
+            CopyFileOrDirectory(src_pkg_path,
+                                dst_pkg_path,
+                                ignore_extension=".tmp")
 
         # Useful for printing timestamp.
         logging.info('All Done.')
@@ -618,14 +596,6 @@ def main():
             PrintPackageList(updated_packages, 'updated')
         if deleted_packages:
             PrintPackageList(deleted_packages, 'deleted')
-
-        if cipd_commands:
-            print('Run the following to upload CIPD packages:')
-            print('-------------------- cut here ------------------------')
-            print('\n'.join(cipd_commands))
-            print('-------------------- cut here ------------------------')
-        else:
-            print('Done. All packages were already up-to-date on CIPD')
 
 
 if __name__ == "__main__":

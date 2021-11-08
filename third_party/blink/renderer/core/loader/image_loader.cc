@@ -25,8 +25,8 @@
 #include <memory>
 #include <utility>
 
+#include "services/network/public/mojom/web_client_hints_types.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
-#include "third_party/blink/public/platform/web_client_hints_type.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
@@ -78,7 +78,7 @@ bool CheckForUnoptimizedImagePolicy(ExecutionContext* context,
     return false;
 
   // Render the image as a placeholder image if the image is not sufficiently
-  // well-compressed, according to the unoptimized image feature policies on
+  // well-compressed, according to the unoptimized image policies on
   // |document|.
   if (RuntimeEnabledFeatures::ExperimentalPoliciesEnabled() &&
       !new_image->IsAcceptableCompressionRatio(*context)) {
@@ -171,9 +171,6 @@ void ImageLoader::Dispose() {
       << ", has pending error event=" << pending_error_event_.IsActive();
 
   if (image_content_) {
-    image_content_->RemoveObserver(this);
-    image_content_ = nullptr;
-    image_content_for_image_document_ = nullptr;
     delay_until_image_notify_finished_ = nullptr;
   }
 }
@@ -277,6 +274,7 @@ void ImageLoader::Trace(Visitor* visitor) const {
   visitor->Trace(image_content_for_image_document_);
   visitor->Trace(element_);
   visitor->Trace(decode_requests_);
+  ImageResourceObserver::Trace(visitor);
 }
 
 void ImageLoader::SetImageForTest(ImageResourceContent* new_image) {
@@ -383,10 +381,13 @@ static void ConfigureRequest(
   }
 
   auto* html_image_element = DynamicTo<HTMLImageElement>(element);
-  if (client_hints_preferences.ShouldSend(
-          network::mojom::WebClientHintsType::kResourceWidth) &&
-      html_image_element)
+  if ((client_hints_preferences.ShouldSend(
+           network::mojom::WebClientHintsType::kResourceWidth_DEPRECATED) ||
+       client_hints_preferences.ShouldSend(
+           network::mojom::WebClientHintsType::kResourceWidth)) &&
+      html_image_element) {
     params.SetResourceWidth(html_image_element->GetResourceWidth());
+  }
 }
 
 inline void ImageLoader::DispatchErrorEvent() {
@@ -399,8 +400,8 @@ inline void ImageLoader::DispatchErrorEvent() {
       *GetElement()->GetDocument().GetTaskRunner(TaskType::kDOMManipulation),
       FROM_HERE,
       WTF::Bind(&ImageLoader::DispatchPendingErrorEvent, WrapPersistent(this),
-                WTF::Passed(std::make_unique<IncrementLoadEventDelayCount>(
-                    GetElement()->GetDocument()))));
+                std::make_unique<IncrementLoadEventDelayCount>(
+                    GetElement()->GetDocument())));
 }
 
 inline void ImageLoader::CrossSiteOrCSPViolationOccurred(
@@ -417,8 +418,7 @@ inline void ImageLoader::EnqueueImageLoadingMicroTask(
     network::mojom::ReferrerPolicy referrer_policy) {
   auto task = std::make_unique<Task>(this, update_behavior, referrer_policy);
   pending_task_ = task->GetWeakPtr();
-  Microtask::EnqueueMicrotask(
-      WTF::Bind(&Task::Run, WTF::Passed(std::move(task))));
+  Microtask::EnqueueMicrotask(WTF::Bind(&Task::Run, std::move(task)));
   delay_until_do_update_from_element_ =
       std::make_unique<IncrementLoadEventDelayCount>(element_->GetDocument());
 }
@@ -668,9 +668,6 @@ void ImageLoader::UpdateFromElement(
     delay_until_do_update_from_element_ = nullptr;
   }
 
-  // TODO(crbug.com/1175295): Remove this CHECK once the investigation is done.
-  CHECK(element_->GetDocument().GetExecutionContext());
-
   if (ShouldLoadImmediately(ImageSourceToKURL(image_source_url))) {
     DoUpdateFromElement(element_->GetExecutionContext()->GetCurrentWorld(),
                         update_behavior, referrer_policy, UpdateType::kSync);
@@ -819,7 +816,7 @@ void ImageLoader::ImageNotifyFinished(ImageResourceContent* content) {
   if (content->ErrorOccurred()) {
     pending_load_event_.Cancel();
 
-    base::Optional<ResourceError> error = content->GetResourceError();
+    absl::optional<ResourceError> error = content->GetResourceError();
     if (error && error->IsAccessCheck())
       CrossSiteOrCSPViolationOccurred(AtomicString(error->FailingURL()));
 
@@ -838,8 +835,8 @@ void ImageLoader::ImageNotifyFinished(ImageResourceContent* content) {
       *GetElement()->GetDocument().GetTaskRunner(TaskType::kDOMManipulation),
       FROM_HERE,
       WTF::Bind(&ImageLoader::DispatchPendingLoadEvent, WrapPersistent(this),
-                WTF::Passed(std::make_unique<IncrementLoadEventDelayCount>(
-                    GetElement()->GetDocument()))));
+                std::make_unique<IncrementLoadEventDelayCount>(
+                    GetElement()->GetDocument())));
 }
 
 LayoutImageResource* ImageLoader::GetLayoutImageResource() {
@@ -894,8 +891,7 @@ void ImageLoader::DispatchPendingLoadEvent(
   if (!image_content_)
     return;
   CHECK(image_complete_);
-  if (GetElement()->GetDocument().GetFrame())
-    DispatchLoadEvent();
+  DispatchLoadEvent();
 
   // Checks Document's load event synchronously here for performance.
   // This is safe because DispatchPendingLoadEvent() is called asynchronously.
@@ -904,8 +900,7 @@ void ImageLoader::DispatchPendingLoadEvent(
 
 void ImageLoader::DispatchPendingErrorEvent(
     std::unique_ptr<IncrementLoadEventDelayCount> count) {
-  if (GetElement()->GetDocument().GetFrame())
-    GetElement()->DispatchEvent(*Event::Create(event_type_names::kError));
+  GetElement()->DispatchEvent(*Event::Create(event_type_names::kError));
 
   // Checks Document's load event synchronously here for performance.
   // This is safe because DispatchPendingErrorEvent() is called asynchronously.

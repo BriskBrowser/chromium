@@ -36,6 +36,9 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
                           float zoom,
                           float device_scale_factor);
 
+  PaintRenderingContext2D(const PaintRenderingContext2D&) = delete;
+  PaintRenderingContext2D& operator=(const PaintRenderingContext2D&) = delete;
+
   void Trace(Visitor* visitor) const override {
     visitor->Trace(context_settings_);
     ScriptWrappable::Trace(visitor);
@@ -55,8 +58,9 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
 
   cc::PaintCanvas* GetOrCreatePaintCanvas() final { return GetPaintCanvas(); }
   cc::PaintCanvas* GetPaintCanvas() const final;
-
-  void DidDraw(const SkIRect&) final;
+  cc::PaintCanvas* GetPaintCanvasForDraw(
+      const SkIRect&,
+      CanvasPerformanceMonitor::DrawType) final;
 
   double shadowOffsetX() const final;
   void setShadowOffsetX(double) final;
@@ -67,7 +71,6 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
   double shadowBlur() const final;
   void setShadowBlur(double) final;
 
-  bool StateHasFilter() final;
   sk_sp<PaintFilter> StateGetFilter() final;
   void SnapshotStateForFilter() final {}
 
@@ -92,6 +95,7 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
   void resetTransform() final;
 
   sk_sp<PaintRecord> GetRecord();
+  cc::PaintCanvas* GetDrawingPaintCanvas();
 
  protected:
   CanvasColorParams GetCanvas2DColorParams() const override;
@@ -111,8 +115,6 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
   // paint worklet canvas needs to handle device scale factor and browser zoom,
   // and this is designed for that purpose.
   const float effective_zoom_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaintRenderingContext2D);
 };
 
 }  // namespace blink

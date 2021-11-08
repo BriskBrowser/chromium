@@ -4,6 +4,8 @@
 
 #include <windows.h>
 
+#include <memory>
+
 #include "base/base_paths_win.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_reader.h"
@@ -14,6 +16,7 @@
 #include "chrome/credential_provider/extension/app_inventory_manager.h"
 #include "chrome/credential_provider/extension/user_device_context.h"
 #include "chrome/credential_provider/gaiacp/gcpw_strings.h"
+#include "chrome/credential_provider/gaiacp/mdm_utils.h"
 #include "chrome/credential_provider/gaiacp/reg_utils.h"
 #include "chrome/credential_provider/test/gls_runner_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -34,7 +37,7 @@ void AppInventoryManagerBaseTest::SetUp() {
   FakesForTesting fakes;
   fakes.fake_win_http_url_fetcher_creator =
       fake_http_url_fetcher_factory()->GetCreatorCallback();
-  AppInventoryManager::Get()->SetFakesForTesting(&fakes);  // IN-TEST
+  AppInventoryManager::Get()->SetFakesForTesting(&fakes);
 }
 
 std::wstring AppInventoryManagerBaseTest::CreateUser() {
@@ -78,6 +81,7 @@ TEST_P(AppInventoryManagerTest, uploadAppInventory) {
   const char kAppDisplayName[] = "name";
   const char kAppDisplayVersion[] = "version";
   const char kAppPublisher[] = "publisher";
+  const char kAppType[] = "app_type";
 
   const wchar_t kApp1[] = L"app1";
   const wchar_t kAppDisplayName1[] = L"appName1";
@@ -175,7 +179,7 @@ TEST_P(AppInventoryManagerTest, uploadAppInventory) {
     FakeWinHttpUrlFetcherFactory::RequestData request_data =
         fake_http_url_fetcher_factory()->GetRequestData(0);
 
-    base::Optional<base::Value> body_value =
+    absl::optional<base::Value> body_value =
         base::JSONReader::Read(request_data.body);
 
     base::Value request(base::Value::Type::DICTIONARY);
@@ -188,22 +192,27 @@ TEST_P(AppInventoryManagerTest, uploadAppInventory) {
 
     if (has_app_data) {
       std::unique_ptr<base::Value> request_dict_1;
-      request_dict_1.reset(new base::Value(base::Value::Type::DICTIONARY));
+      request_dict_1 =
+          std::make_unique<base::Value>(base::Value::Type::DICTIONARY);
       request_dict_1->SetStringKey(kAppDisplayName,
                                    base::WideToUTF8(kAppDisplayName1));
       request_dict_1->SetStringKey(kAppDisplayVersion,
                                    base::WideToUTF8(kAppDisplayVersion1));
       request_dict_1->SetStringKey(kAppPublisher,
                                    base::WideToUTF8(kAppPublisher1));
+      // WIN_32
+      request_dict_1->SetIntKey(kAppType, 1);
       app_info_value_list.Append(
           base::Value::FromUniquePtrValue(std::move(request_dict_1)));
 
       std::unique_ptr<base::Value> request_dict_2;
-      request_dict_2.reset(new base::Value(base::Value::Type::DICTIONARY));
+      request_dict_2 =
+          std::make_unique<base::Value>(base::Value::Type::DICTIONARY);
       request_dict_2->SetStringKey(kAppDisplayName,
                                    base::WideToUTF8(kAppDisplayName2));
       request_dict_2->SetStringKey(kAppDisplayVersion,
                                    base::WideToUTF8(kAppDisplayVersion2));
+      request_dict_2->SetIntKey(kAppType, 1);
       app_info_value_list.Append(
           base::Value::FromUniquePtrValue(std::move(request_dict_2)));
     }

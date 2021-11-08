@@ -32,7 +32,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SHAPING_SHAPE_RESULT_H_
 
 #include <memory>
+
 #include "base/containers/span.h"
+#include "base/dcheck_is_on.h"
+#include "base/types/strong_alias.h"
 #include "third_party/blink/renderer/platform/fonts/canvas_rotation_in_vertical.h"
 #include "third_party/blink/renderer/platform/fonts/glyph.h"
 #include "third_party/blink/renderer/platform/fonts/opentype/open_type_math_stretch_data.h"
@@ -45,7 +48,7 @@
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/text/unicode.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_uchar.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 struct hb_buffer_t;
@@ -78,19 +81,16 @@ struct ShapeResultCharacterData {
 // IncludePartialGlyphs - decides what to do when the position hits more than
 // 50% of the glyph. If enabled, we count that glyph, if disable we don't.
 enum IncludePartialGlyphsOption {
-  OnlyFullGlyphs,
-  IncludePartialGlyphs,
+  kOnlyFullGlyphs,
+  kIncludePartialGlyphs,
 };
 
-// BreakGlyphs - allows OffsetForPosition to consider graphemes separations
-// inside a glyph. It allows the function to return a point inside a glyph when
-// multiple graphemes share a glyph (for example, in a ligature)
-enum BreakGlyphsOption {
-  DontBreakGlyphs,
-  BreakGlyphs,
-};
+// BreakGlyphsOption - allows OffsetForPosition to consider graphemes
+// separations inside a glyph. It allows the function to return a point inside
+// a glyph when multiple graphemes share a glyph (for example, in a ligature)
+using BreakGlyphsOption = base::StrongAlias<class BreakGlyphsOptionTag, bool>;
 
-// std::function is forbidden in Chromium and base::Callback is way too
+// std::function is forbidden in Chromium and base::RepeatingCallback is way too
 // expensive so we resort to a good old function pointer instead.
 typedef void (*GlyphCallback)(void* context,
                               unsigned character_index,
@@ -173,7 +173,8 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
   TextDirection Direction() const {
     return static_cast<TextDirection>(direction_);
   }
-  bool Rtl() const { return Direction() == TextDirection::kRtl; }
+  bool IsLtr() const { return blink::IsLtr(Direction()); }
+  bool IsRtl() const { return blink::IsRtl(Direction()); }
 
   // True if at least one glyph in this result has vertical offsets.
   //
@@ -214,15 +215,15 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
   unsigned OffsetForPosition(float x,
                              const StringView& text,
                              IncludePartialGlyphsOption include_partial_glyphs,
-                             BreakGlyphsOption break_glyphs_option) const {
-    if (include_partial_glyphs == OnlyFullGlyphs) {
-      // TODO(kojii): Consider prohibiting OnlyFullGlyphs+BreakGlyphs, used only
-      // in tests.
-      if (break_glyphs_option == BreakGlyphs)
+                             BreakGlyphsOption break_glyphs) const {
+    if (include_partial_glyphs == kOnlyFullGlyphs) {
+      // TODO(kojii): Consider prohibiting OnlyFullGlyphs +
+      // BreakGlyphsOption(true), sed only in tests.
+      if (break_glyphs)
         EnsureGraphemes(text);
-      return OffsetForPosition(x, break_glyphs_option);
+      return OffsetForPosition(x, break_glyphs);
     }
-    return CaretOffsetForHitTest(x, text, break_glyphs_option);
+    return CaretOffsetForHitTest(x, text, break_glyphs);
   }
 
   // Returns the position for a given offset, relative to StartIndex.

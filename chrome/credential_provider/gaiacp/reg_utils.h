@@ -209,6 +209,12 @@ HRESULT GetSidFromKey(const wchar_t* key,
                       wchar_t* sid,
                       ULONG length);
 
+// Returns the SID corresponding to given domain user from the user properties.
+HRESULT GetSidFromDomainAccountInfo(const std::wstring& domain,
+                                    const std::wstring& username,
+                                    wchar_t* sid,
+                                    ULONG length);
+
 // Gets the gaia id associated with the given SID.  If none exists, returns
 // HRESULT_FROM_WIN32(ERROR_NONE_MAPPED).
 HRESULT GetIdFromSid(const wchar_t* sid, std::wstring* id);
@@ -242,6 +248,11 @@ HRESULT SetMachineGuidForTesting(const std::wstring& machine_guid);
 HRESULT SetMachineRegString(const std::wstring& key_name,
                             const std::wstring& name,
                             const std::wstring& value);
+
+// Sets DWORD value at registry path key_name/name.
+HRESULT SetMachineRegDWORD(const std::wstring& key_name,
+                           const std::wstring& name,
+                           DWORD value);
 
 // Set corresponding registry entry that would make GCPW as the default
 // credential provider.

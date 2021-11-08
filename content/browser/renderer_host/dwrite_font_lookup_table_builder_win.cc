@@ -24,6 +24,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
@@ -52,8 +53,7 @@ const base::FilePath::CharType kProtobufFilename[] =
 // local lookup table is cleared. Font scanning and lookup table construction is
 // only needed pre Windows 10. If the timeout is hit, no local font matching
 // will be performed on this particular pre Win 10 system.
-constexpr base::TimeDelta kFontIndexingTimeoutDefault =
-    base::TimeDelta::FromMinutes(5);
+constexpr base::TimeDelta kFontIndexingTimeoutDefault = base::Minutes(5);
 
 // In timeout test case, slow down indexing of one font file to this percentage
 // of the timeout value. Assuming that at least two fonts are indexed, the
@@ -451,7 +451,7 @@ DWriteFontLookupTableBuilder::ExtractPathAndNamesFromFamily(
   TRACE_EVENT0("dwrite,fonts",
                "DWriteFontLookupTableBuilder::ExtractPathAndNamesFromFamily");
 
-  static base::NoDestructor<base::string16> windows_fonts_path(
+  static base::NoDestructor<std::u16string> windows_fonts_path(
       GetWindowsFontsPath());
 
   DWriteFontLookupTableBuilder::FamilyResult family_result;

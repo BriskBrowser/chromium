@@ -17,6 +17,7 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/signin/public/identity_manager/access_token_info.h"
 #include "net/base/url_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace network {
@@ -30,6 +31,10 @@ class NtpBackgroundService : public KeyedService {
  public:
   NtpBackgroundService(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
+
+  NtpBackgroundService(const NtpBackgroundService&) = delete;
+  NtpBackgroundService& operator=(const NtpBackgroundService&) = delete;
+
   ~NtpBackgroundService() override;
 
   // KeyedService implementation.
@@ -53,7 +58,7 @@ class NtpBackgroundService : public KeyedService {
   // dropped until the currently active loader completes.
   void FetchNextCollectionImage(
       const std::string& collection_id,
-      const base::Optional<std::string>& resume_token);
+      const absl::optional<std::string>& resume_token);
 
   // Add/remove observers. All observers must unregister themselves before the
   // NtpBackgroundService is destroyed.
@@ -172,8 +177,6 @@ class NtpBackgroundService : public KeyedService {
   ErrorInfo collection_error_info_;
   ErrorInfo collection_images_error_info_;
   ErrorInfo next_image_error_info_;
-
-  DISALLOW_COPY_AND_ASSIGN(NtpBackgroundService);
 };
 
 #endif  // CHROME_BROWSER_SEARCH_BACKGROUND_NTP_BACKGROUND_SERVICE_H_

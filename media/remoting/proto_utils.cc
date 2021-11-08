@@ -24,7 +24,7 @@ constexpr size_t kProtoBufferHeaderSize = sizeof(uint16_t);
 constexpr size_t kDataBufferHeaderSize = sizeof(uint32_t);
 
 scoped_refptr<DecoderBuffer> ConvertProtoToDecoderBuffer(
-    const pb::DecoderBuffer& buffer_message,
+    const openscreen::cast::DecoderBuffer& buffer_message,
     scoped_refptr<DecoderBuffer> buffer) {
   if (buffer_message.is_eos()) {
     VLOG(1) << "EOS data";
@@ -32,13 +32,11 @@ scoped_refptr<DecoderBuffer> ConvertProtoToDecoderBuffer(
   }
 
   if (buffer_message.has_timestamp_usec()) {
-    buffer->set_timestamp(
-        base::TimeDelta::FromMicroseconds(buffer_message.timestamp_usec()));
+    buffer->set_timestamp(base::Microseconds(buffer_message.timestamp_usec()));
   }
 
   if (buffer_message.has_duration_usec()) {
-    buffer->set_duration(
-        base::TimeDelta::FromMicroseconds(buffer_message.duration_usec()));
+    buffer->set_duration(base::Microseconds(buffer_message.duration_usec()));
   }
   VLOG(3) << "timestamp:" << buffer_message.timestamp_usec()
           << " duration:" << buffer_message.duration_usec();
@@ -50,14 +48,12 @@ scoped_refptr<DecoderBuffer> ConvertProtoToDecoderBuffer(
   base::TimeDelta front_discard;
   if (buffer_message.has_front_discard_usec()) {
     has_discard = true;
-    front_discard =
-        base::TimeDelta::FromMicroseconds(buffer_message.front_discard_usec());
+    front_discard = base::Microseconds(buffer_message.front_discard_usec());
   }
   base::TimeDelta back_discard;
   if (buffer_message.has_back_discard_usec()) {
     has_discard = true;
-    back_discard =
-        base::TimeDelta::FromMicroseconds(buffer_message.back_discard_usec());
+    back_discard = base::Microseconds(buffer_message.back_discard_usec());
   }
 
   if (has_discard) {
@@ -74,8 +70,9 @@ scoped_refptr<DecoderBuffer> ConvertProtoToDecoderBuffer(
   return buffer;
 }
 
-void ConvertDecoderBufferToProto(const DecoderBuffer& decoder_buffer,
-                                 pb::DecoderBuffer* buffer_message) {
+void ConvertDecoderBufferToProto(
+    const DecoderBuffer& decoder_buffer,
+    openscreen::cast::DecoderBuffer* buffer_message) {
   if (decoder_buffer.end_of_stream()) {
     buffer_message->set_is_eos(true);
     return;
@@ -106,7 +103,7 @@ scoped_refptr<DecoderBuffer> ByteArrayToDecoderBuffer(const uint8_t* data,
   base::BigEndianReader reader(reinterpret_cast<const char*>(data), size);
   uint8_t payload_version = 0;
   uint16_t proto_size = 0;
-  pb::DecoderBuffer segment;
+  openscreen::cast::DecoderBuffer segment;
   uint32_t buffer_size = 0;
   if (reader.ReadU8(&payload_version) && payload_version == 0 &&
       reader.ReadU16(&proto_size) && proto_size < reader.remaining() &&
@@ -128,7 +125,7 @@ scoped_refptr<DecoderBuffer> ByteArrayToDecoderBuffer(const uint8_t* data,
 
 std::vector<uint8_t> DecoderBufferToByteArray(
     const DecoderBuffer& decoder_buffer) {
-  pb::DecoderBuffer decoder_buffer_message;
+  openscreen::cast::DecoderBuffer decoder_buffer_message;
   ConvertDecoderBufferToProto(decoder_buffer, &decoder_buffer_message);
 
   size_t decoder_buffer_size =
@@ -160,8 +157,9 @@ std::vector<uint8_t> DecoderBufferToByteArray(
   return buffer;
 }
 
-void ConvertAudioDecoderConfigToProto(const AudioDecoderConfig& audio_config,
-                                      pb::AudioDecoderConfig* audio_message) {
+void ConvertAudioDecoderConfigToProto(
+    const AudioDecoderConfig& audio_config,
+    openscreen::cast::AudioDecoderConfig* audio_message) {
   DCHECK(audio_config.IsValidConfig());
   DCHECK(audio_message);
 
@@ -185,7 +183,7 @@ void ConvertAudioDecoderConfigToProto(const AudioDecoderConfig& audio_config,
 }
 
 bool ConvertProtoToAudioDecoderConfig(
-    const pb::AudioDecoderConfig& audio_message,
+    const openscreen::cast::AudioDecoderConfig& audio_message,
     AudioDecoderConfig* audio_config) {
   DCHECK(audio_config);
   audio_config->Initialize(
@@ -196,13 +194,14 @@ bool ConvertProtoToAudioDecoderConfig(
       std::vector<uint8_t>(audio_message.extra_data().begin(),
                            audio_message.extra_data().end()),
       EncryptionScheme::kUnencrypted,
-      base::TimeDelta::FromMicroseconds(audio_message.seek_preroll_usec()),
+      base::Microseconds(audio_message.seek_preroll_usec()),
       audio_message.codec_delay());
   return audio_config->IsValidConfig();
 }
 
-void ConvertVideoDecoderConfigToProto(const VideoDecoderConfig& video_config,
-                                      pb::VideoDecoderConfig* video_message) {
+void ConvertVideoDecoderConfigToProto(
+    const VideoDecoderConfig& video_config,
+    openscreen::cast::VideoDecoderConfig* video_message) {
   DCHECK(video_config.IsValidConfig());
   DCHECK(video_message);
 
@@ -211,36 +210,40 @@ void ConvertVideoDecoderConfigToProto(const VideoDecoderConfig& video_config,
   video_message->set_profile(
       ToProtoVideoDecoderConfigProfile(video_config.profile()).value());
   // TODO(dalecurtis): Remove |format| it's now unused.
-  video_message->set_format(video_config.alpha_mode() ==
-                                    VideoDecoderConfig::AlphaMode::kHasAlpha
-                                ? pb::VideoDecoderConfig::PIXEL_FORMAT_I420A
-                                : pb::VideoDecoderConfig::PIXEL_FORMAT_I420);
+  video_message->set_format(
+      video_config.alpha_mode() == VideoDecoderConfig::AlphaMode::kHasAlpha
+          ? openscreen::cast::VideoDecoderConfig::PIXEL_FORMAT_I420A
+          : openscreen::cast::VideoDecoderConfig::PIXEL_FORMAT_I420);
 
   // TODO(hubbe): Update proto to use color_space_info()
   if (video_config.color_space_info() == VideoColorSpace::JPEG()) {
-    video_message->set_color_space(pb::VideoDecoderConfig::COLOR_SPACE_JPEG);
+    video_message->set_color_space(
+        openscreen::cast::VideoDecoderConfig::COLOR_SPACE_JPEG);
   } else if (video_config.color_space_info() == VideoColorSpace::REC709()) {
     video_message->set_color_space(
-        pb::VideoDecoderConfig::COLOR_SPACE_HD_REC709);
+        openscreen::cast::VideoDecoderConfig::COLOR_SPACE_HD_REC709);
   } else if (video_config.color_space_info() == VideoColorSpace::REC601()) {
     video_message->set_color_space(
-        pb::VideoDecoderConfig::COLOR_SPACE_SD_REC601);
+        openscreen::cast::VideoDecoderConfig::COLOR_SPACE_SD_REC601);
   } else {
     video_message->set_color_space(
-        pb::VideoDecoderConfig::COLOR_SPACE_SD_REC601);
+        openscreen::cast::VideoDecoderConfig::COLOR_SPACE_SD_REC601);
   }
 
-  pb::Size* coded_size_message = video_message->mutable_coded_size();
+  openscreen::cast::Size* coded_size_message =
+      video_message->mutable_coded_size();
   coded_size_message->set_width(video_config.coded_size().width());
   coded_size_message->set_height(video_config.coded_size().height());
 
-  pb::Rect* visible_rect_message = video_message->mutable_visible_rect();
+  openscreen::cast::Rect* visible_rect_message =
+      video_message->mutable_visible_rect();
   visible_rect_message->set_x(video_config.visible_rect().x());
   visible_rect_message->set_y(video_config.visible_rect().y());
   visible_rect_message->set_width(video_config.visible_rect().width());
   visible_rect_message->set_height(video_config.visible_rect().height());
 
-  pb::Size* natural_size_message = video_message->mutable_natural_size();
+  openscreen::cast::Size* natural_size_message =
+      video_message->mutable_natural_size();
   natural_size_message->set_width(video_config.natural_size().width());
   natural_size_message->set_height(video_config.natural_size().height());
 
@@ -251,22 +254,22 @@ void ConvertVideoDecoderConfigToProto(const VideoDecoderConfig& video_config,
 }
 
 bool ConvertProtoToVideoDecoderConfig(
-    const pb::VideoDecoderConfig& video_message,
+    const openscreen::cast::VideoDecoderConfig& video_message,
     VideoDecoderConfig* video_config) {
   DCHECK(video_config);
 
   // TODO(hubbe): Update pb to use VideoColorSpace
   VideoColorSpace color_space;
   switch (video_message.color_space()) {
-    case pb::VideoDecoderConfig::COLOR_SPACE_UNSPECIFIED:
+    case openscreen::cast::VideoDecoderConfig::COLOR_SPACE_UNSPECIFIED:
       break;
-    case pb::VideoDecoderConfig::COLOR_SPACE_JPEG:
+    case openscreen::cast::VideoDecoderConfig::COLOR_SPACE_JPEG:
       color_space = VideoColorSpace::JPEG();
       break;
-    case pb::VideoDecoderConfig::COLOR_SPACE_HD_REC709:
+    case openscreen::cast::VideoDecoderConfig::COLOR_SPACE_HD_REC709:
       color_space = VideoColorSpace::REC709();
       break;
-    case pb::VideoDecoderConfig::COLOR_SPACE_SD_REC601:
+    case openscreen::cast::VideoDecoderConfig::COLOR_SPACE_SD_REC601:
       color_space = VideoColorSpace::REC601();
       break;
   }
@@ -292,7 +295,7 @@ bool ConvertProtoToVideoDecoderConfig(
 }
 
 void ConvertProtoToPipelineStatistics(
-    const pb::PipelineStatistics& stats_message,
+    const openscreen::cast::PipelineStatistics& stats_message,
     PipelineStatistics* stats) {
   stats->audio_bytes_decoded = stats_message.audio_bytes_decoded();
   stats->video_bytes_decoded = stats_message.video_bytes_decoded();
@@ -311,23 +314,25 @@ void ConvertProtoToPipelineStatistics(
   // that sender provided the values.
   if (stats_message.has_audio_decoder_info()) {
     auto audio_info = stats_message.audio_decoder_info();
-    stats->audio_decoder_info.decoder_type =
+    stats->audio_pipeline_info.decoder_type =
         static_cast<AudioDecoderType>(audio_info.decoder_type());
-    stats->audio_decoder_info.is_platform_decoder =
+    stats->audio_pipeline_info.is_platform_decoder =
         audio_info.is_platform_decoder();
-    stats->audio_decoder_info.has_decrypting_demuxer_stream = false;
+    stats->audio_pipeline_info.has_decrypting_demuxer_stream = false;
+    stats->audio_pipeline_info.encryption_type = EncryptionType::kClear;
   }
   if (stats_message.has_video_decoder_info()) {
     auto video_info = stats_message.video_decoder_info();
-    stats->video_decoder_info.decoder_type =
+    stats->video_pipeline_info.decoder_type =
         static_cast<VideoDecoderType>(video_info.decoder_type());
-    stats->video_decoder_info.is_platform_decoder =
+    stats->video_pipeline_info.is_platform_decoder =
         video_info.is_platform_decoder();
-    stats->video_decoder_info.has_decrypting_demuxer_stream = false;
+    stats->video_pipeline_info.has_decrypting_demuxer_stream = false;
+    stats->video_pipeline_info.encryption_type = EncryptionType::kClear;
   }
   if (stats_message.has_video_frame_duration_average_usec()) {
-    stats->video_frame_duration_average = base::TimeDelta::FromMicroseconds(
-        stats_message.video_frame_duration_average_usec());
+    stats->video_frame_duration_average =
+        base::Microseconds(stats_message.video_frame_duration_average_usec());
   }
 }
 

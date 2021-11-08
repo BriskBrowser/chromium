@@ -6,11 +6,9 @@ package org.chromium.chrome.browser.toolbar.top;
 
 import android.content.Context;
 import android.view.View;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
-
 import org.chromium.base.supplier.BooleanSupplier;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.OneshotSupplier;
@@ -24,9 +22,10 @@ import org.chromium.chrome.browser.toolbar.R;
 import org.chromium.chrome.browser.toolbar.ToolbarIntentMetadata;
 import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
 import org.chromium.chrome.browser.user_education.UserEducationHelper;
+import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightParams;
+import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightShape;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.feature_engagement.FeatureConstants;
-import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.url.GURL;
 
 /**
@@ -40,10 +39,6 @@ public class HomeButtonCoordinator {
     static final String MAIN_INTENT_FROM_LAUNCHER_PARAM_NAME = "isMainIntentFromLauncher";
     @VisibleForTesting
     static final String INTENT_WITH_EFFECT_PARAM_NAME = "intentWithEffect";
-    // This is used to lookup the name of a feature used to track a cohort of users who triggered
-    // a particular IPH, or would have triggered for control groups with the tracking_only
-    // configuration.
-    private static final String COHORT_FEATURE_NAME_PARAM_NAME = "cohortFeatureName";
 
     private final Context mContext;
     private final View mHomeButton;
@@ -65,7 +60,6 @@ public class HomeButtonCoordinator {
      * @param isHomepageNonNtpSupplier Supplier for whether the current homepage is not NTP.
      * @param isFeedEnabled Supplier for whether feed is enabled.
      * @param tabSupplier Supplier of the activity tab.
-     * @param tracker Feature engagement interface to check triggered state.
      */
     public HomeButtonCoordinator(@NonNull Context context, @Nullable View homeButton,
             @NonNull UserEducationHelper userEducationHelper,
@@ -73,8 +67,7 @@ public class HomeButtonCoordinator {
             @NonNull OneshotSupplier<ToolbarIntentMetadata> intentMetadataOneshotSupplier,
             @NonNull OneshotSupplier<Boolean> promoShownOneshotSupplier,
             @NonNull Supplier<Boolean> isHomepageNonNtpSupplier,
-            @NonNull BooleanSupplier isFeedEnabled, @NonNull ObservableSupplier<Tab> tabSupplier,
-            @NonNull Tracker tracker) {
+            @NonNull BooleanSupplier isFeedEnabled, @NonNull ObservableSupplier<Tab> tabSupplier) {
         mContext = context;
         mHomeButton = homeButton;
         mUserEducationHelper = userEducationHelper;
@@ -89,8 +82,6 @@ public class HomeButtonCoordinator {
                 handlePageLoadFinished(url);
             }
         }, /*swapCallback=*/null);
-        CohortUtils.tagCohortGroupIfTriggered(tracker,
-                FeatureConstants.NEW_TAB_PAGE_HOME_BUTTON_FEATURE, COHORT_FEATURE_NAME_PARAM_NAME);
     }
 
     /** Cleans up observers. */
@@ -132,7 +123,8 @@ public class HomeButtonCoordinator {
         mUserEducationHelper.requestShowIPH(new IPHCommandBuilder(mContext.getResources(),
                 FeatureConstants.NEW_TAB_PAGE_HOME_BUTTON_FEATURE, textId, accessibilityTextId)
                                                     .setAnchorView(mHomeButton)
-                                                    .setShouldHighlight(true)
+                                                    .setHighlightParams(new HighlightParams(
+                                                            HighlightShape.CIRCLE))
                                                     .build());
     }
 }

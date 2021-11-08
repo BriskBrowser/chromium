@@ -12,10 +12,10 @@
 
 #include "base/check.h"
 #include "base/macros.h"
-#include "base/optional.h"
+#include "base/template_util.h"
 #include "mojo/public/cpp/bindings/lib/hash_util.h"
 #include "mojo/public/cpp/bindings/type_converter.h"
-#include "third_party/perfetto/include/perfetto/tracing/traced_value.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace mojo {
 namespace internal {
@@ -42,6 +42,9 @@ class StructPtr {
 
   StructPtr() = default;
   StructPtr(std::nullptr_t) {}
+
+  StructPtr(const StructPtr&) = delete;
+  StructPtr& operator=(const StructPtr&) = delete;
 
   ~StructPtr() = default;
 
@@ -111,8 +114,8 @@ class StructPtr {
 
   // If T is serialisable into trace, StructPtr<T> is also serialisable.
   template <class U = S>
-  perfetto::check_traced_value_support_t<U> WriteIntoTracedValue(
-      perfetto::TracedValue context) const {
+  typename perfetto::check_traced_value_support<U>::type WriteIntoTrace(
+      perfetto::TracedValue&& context) const {
     perfetto::WriteIntoTracedValue(std::move(context), ptr_);
   }
 
@@ -124,8 +127,6 @@ class StructPtr {
   }
 
   std::unique_ptr<Struct> ptr_;
-
-  DISALLOW_COPY_AND_ASSIGN(StructPtr);
 };
 
 // Designed to be used when Struct is small and copyable.
@@ -140,6 +141,9 @@ class InlinedStructPtr {
 
   InlinedStructPtr() = default;
   InlinedStructPtr(std::nullptr_t) {}
+
+  InlinedStructPtr(const InlinedStructPtr&) = delete;
+  InlinedStructPtr& operator=(const InlinedStructPtr&) = delete;
 
   ~InlinedStructPtr() = default;
 
@@ -212,13 +216,9 @@ class InlinedStructPtr {
 
   // If T is serialisable into trace, StructPtr<T> is also serialisable.
   template <class U = S>
-  perfetto::check_traced_value_support_t<U> WriteIntoTracedValue(
-      perfetto::TracedValue context) const {
-    if (is_null()) {
-      std::move(context).WritePointer(nullptr);
-      return;
-    }
-    perfetto::WriteIntoTracedValue(std::move(context), value_);
+  typename perfetto::check_traced_value_support<U>::type WriteIntoTrace(
+      perfetto::TracedValue&& context) const {
+    perfetto::WriteIntoTracedValue(std::move(context), get());
   }
 
  private:
@@ -236,8 +236,6 @@ class InlinedStructPtr {
 
   mutable Struct value_;
   State state_ = NIL;
-
-  DISALLOW_COPY_AND_ASSIGN(InlinedStructPtr);
 };
 
 namespace internal {

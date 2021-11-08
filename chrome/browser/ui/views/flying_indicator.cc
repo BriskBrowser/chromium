@@ -17,12 +17,9 @@
 #include "ui/views/window/dialog_delegate.h"
 
 namespace {
-static constexpr base::TimeDelta kFadeInDuration =
-    base::TimeDelta::FromMilliseconds(100);
-static constexpr base::TimeDelta kFlyDuration =
-    base::TimeDelta::FromMilliseconds(580);
-static constexpr base::TimeDelta kFadeOutDuration =
-    base::TimeDelta::FromMilliseconds(100);
+static constexpr base::TimeDelta kFadeInDuration = base::Milliseconds(100);
+static constexpr base::TimeDelta kFlyDuration = base::Milliseconds(580);
+static constexpr base::TimeDelta kFadeOutDuration = base::Milliseconds(100);
 }  // namespace
 
 // static
@@ -41,14 +38,11 @@ FlyingIndicator::FlyingIndicator(const gfx::VectorIcon& icon,
                                  base::OnceClosure done_callback)
     : start_(start),
       target_(target),
-      animation_(
-          std::vector<gfx::MultiAnimation::Part>{
-              gfx::MultiAnimation::Part(kFadeInDuration,
-                                        gfx::Tween::Type::LINEAR),
-              gfx::MultiAnimation::Part(kFlyDuration, gfx::Tween::Type::LINEAR),
-              gfx::MultiAnimation::Part(kFadeOutDuration,
-                                        gfx::Tween::Type::LINEAR)},
-          gfx::MultiAnimation::kDefaultTimerInterval),
+      animation_(std::vector<gfx::MultiAnimation::Part>{
+          gfx::MultiAnimation::Part(kFadeInDuration, gfx::Tween::Type::LINEAR),
+          gfx::MultiAnimation::Part(kFlyDuration, gfx::Tween::Type::LINEAR),
+          gfx::MultiAnimation::Part(kFadeOutDuration,
+                                    gfx::Tween::Type::LINEAR)}),
       done_callback_(std::move(done_callback)) {
   animation_.set_delegate(this);
   animation_.set_continuous(false);

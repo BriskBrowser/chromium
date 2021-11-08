@@ -39,7 +39,7 @@
 #include "ui/base/resource/resource_bundle.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/dbus_thread_manager.h"  // nogncheck
 #include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
 #endif
 
@@ -67,6 +67,10 @@ content::WebUIDataSource* CreateCrashesUIHTMLSource() {
   source->UseStringsJs();
   source->AddResourcePath(crash_reporter::kCrashesUICrashesJS,
                           IDR_CRASH_CRASHES_JS);
+  source->AddResourcePath(crash_reporter::kCrashesUICrashesCSS,
+                          IDR_CRASH_CRASHES_CSS);
+  source->AddResourcePath(crash_reporter::kCrashesUISadTabSVG,
+                          IDR_CRASH_SADTAB_SVG);
   source->SetDefaultResource(IDR_CRASH_CRASHES_HTML);
   return source;
 }
@@ -81,6 +85,10 @@ content::WebUIDataSource* CreateCrashesUIHTMLSource() {
 class CrashesDOMHandler : public WebUIMessageHandler {
  public:
   CrashesDOMHandler();
+
+  CrashesDOMHandler(const CrashesDOMHandler&) = delete;
+  CrashesDOMHandler& operator=(const CrashesDOMHandler&) = delete;
+
   ~CrashesDOMHandler() override;
 
   // WebUIMessageHandler implementation.
@@ -90,24 +98,22 @@ class CrashesDOMHandler : public WebUIMessageHandler {
   void OnUploadListAvailable();
 
   // Asynchronously fetches the list of crashes. Called from JS.
-  void HandleRequestCrashes(const base::ListValue* args);
+  void HandleRequestCrashes(base::Value::ConstListView args);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Asynchronously triggers crash uploading. Called from JS.
-  void HandleRequestUploads(const base::ListValue* args);
+  void HandleRequestUploads(base::Value::ConstListView args);
 #endif
 
   // Sends the recent crashes list JS.
   void UpdateUI();
 
   // Asynchronously requests a user triggered upload. Called from JS.
-  void HandleRequestSingleCrashUpload(const base::ListValue* args);
+  void HandleRequestSingleCrashUpload(base::Value::ConstListView args);
 
   scoped_refptr<UploadList> upload_list_;
   bool list_available_;
   bool first_load_;
-
-  DISALLOW_COPY_AND_ASSIGN(CrashesDOMHandler);
 };
 
 CrashesDOMHandler::CrashesDOMHandler()
@@ -140,7 +146,8 @@ void CrashesDOMHandler::RegisterMessages() {
                           base::Unretained(this)));
 }
 
-void CrashesDOMHandler::HandleRequestCrashes(const base::ListValue* args) {
+void CrashesDOMHandler::HandleRequestCrashes(base::Value::ConstListView args) {
+  AllowJavascript();
   if (first_load_) {
     first_load_ = false;
     if (list_available_)
@@ -153,7 +160,7 @@ void CrashesDOMHandler::HandleRequestCrashes(const base::ListValue* args) {
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-void CrashesDOMHandler::HandleRequestUploads(const base::ListValue* args) {
+void CrashesDOMHandler::HandleRequestUploads(base::Value::ConstListView args) {
   chromeos::DebugDaemonClient* debugd_client =
       chromeos::DBusThreadManager::Get()->GetDebugDaemonClient();
   DCHECK(debugd_client);
@@ -216,39 +223,27 @@ void CrashesDOMHandler::UpdateUI() {
   if (upload_list)
     crash_reporter::UploadListToValue(upload_list_.get(), &crash_list);
 
-  base::Value enabled(crash_reporting_enabled);
-  base::Value dynamic_backend(system_crash_reporter);
-  base::Value manual_uploads(support_manual_uploads);
-  base::Value version(version_info::GetVersionNumber());
-  base::Value os_string(base::SysInfo::OperatingSystemName() + " " +
-                        base::SysInfo::OperatingSystemVersion());
-  base::Value is_google_account(is_internal);
-
-  std::vector<const base::Value*> args;
-  args.push_back(&enabled);
-  args.push_back(&dynamic_backend);
-  args.push_back(&manual_uploads);
-  args.push_back(&crash_list);
-  args.push_back(&version);
-  args.push_back(&os_string);
-  args.push_back(&is_google_account);
-  web_ui()->CallJavascriptFunctionUnsafe(
-      crash_reporter::kCrashesUIUpdateCrashList, args);
+  base::Value result(base::Value::Type::DICTIONARY);
+  result.SetBoolPath("enabled", crash_reporting_enabled);
+  result.SetBoolPath("dynamicBackend", system_crash_reporter);
+  result.SetBoolPath("manualUploads", support_manual_uploads);
+  result.SetPath("crashes", std::move(crash_list));
+  result.SetStringPath("version", version_info::GetVersionNumber());
+  result.SetStringPath("os", base::SysInfo::OperatingSystemName() + " " +
+                                 base::SysInfo::OperatingSystemVersion());
+  result.SetBoolPath("isGoogleAccount", is_internal);
+  FireWebUIListener(crash_reporter::kCrashesUIUpdateCrashList, result);
 }
 
 void CrashesDOMHandler::HandleRequestSingleCrashUpload(
-    const base::ListValue* args) {
-  DCHECK(args);
-
-  std::string local_id;
-  bool success = args->GetString(0, &local_id);
-  DCHECK(success);
-
+    base::Value::ConstListView args) {
   // Only allow manual uploads if crash uploads aren’t disabled by policy.
   if (!ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled() &&
       IsMetricsReportingPolicyManaged()) {
     return;
   }
+
+  std::string local_id = args[0].GetString();
   upload_list_->RequestSingleUploadAsync(local_id);
 }
 
@@ -270,7 +265,7 @@ CrashesUI::CrashesUI(content::WebUI* web_ui) : WebUIController(web_ui) {
 
 // static
 base::RefCountedMemory* CrashesUI::GetFaviconResourceBytes(
-    ui::ScaleFactor scale_factor) {
+    ui::ResourceScaleFactor scale_factor) {
   return ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
       IDR_CRASH_SAD_FAVICON, scale_factor);
 }

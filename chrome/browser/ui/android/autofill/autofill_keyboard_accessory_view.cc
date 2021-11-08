@@ -20,8 +20,10 @@
 #include "ui/android/view_android.h"
 #include "ui/android/window_android.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "url/android/gurl_android.h"
 
 using base::android::ConvertUTF16ToJavaString;
+using base::android::ConvertUTF8ToJavaString;
 using base::android::JavaParamRef;
 using base::android::JavaRef;
 using base::android::ScopedJavaLocalRef;
@@ -72,8 +74,19 @@ void AutofillKeyboardAccessoryView::Show() {
       android_icon_id = ResourceMapper::MapToJavaDrawableId(
           GetIconResourceID(suggestion.icon));
     }
+
+    std::u16string value;
+    std::u16string label;
+    if (controller_->GetSuggestionMinorTextAt(i).empty()) {
+      value = controller_->GetSuggestionMainTextAt(i);
+      label = controller_->GetSuggestionLabelAt(i);
+    } else {
+      value = controller_->GetSuggestionMainTextAt(i);
+      label = controller_->GetSuggestionMinorTextAt(i);
+    }
+
     // Set the offer title to display as the item tag.
-    base::string16 item_tag = base::string16();
+    std::u16string item_tag = std::u16string();
     if (base::FeatureList::IsEnabled(
             features::kAutofillEnableOffersInClankKeyboardAccessory) &&
         !suggestion.offer_label.empty()) {
@@ -84,20 +97,21 @@ void AutofillKeyboardAccessoryView::Show() {
           ResourceMapper::MapToJavaDrawableId(GetIconResourceID("offerTag"));
     }
     Java_AutofillKeyboardAccessoryViewBridge_addToAutofillSuggestionArray(
-        env, data_array, position++,
-        ConvertUTF16ToJavaString(env, controller_->GetSuggestionValueAt(i)),
-        ConvertUTF16ToJavaString(env, controller_->GetSuggestionLabelAt(i)),
+        env, data_array, position++, ConvertUTF16ToJavaString(env, value),
+        ConvertUTF16ToJavaString(env, label),
         ConvertUTF16ToJavaString(env, item_tag), android_icon_id,
         suggestion.frontend_id,
-        controller_->GetRemovalConfirmationText(i, nullptr, nullptr));
+        controller_->GetRemovalConfirmationText(i, nullptr, nullptr),
+        ConvertUTF8ToJavaString(env, suggestion.feature_for_iph),
+        url::GURLAndroid::FromNativeGURL(env, suggestion.custom_icon_url));
   }
   Java_AutofillKeyboardAccessoryViewBridge_show(env, java_object_, data_array,
                                                 controller_->IsRTL());
 }
 
 void AutofillKeyboardAccessoryView::ConfirmDeletion(
-    const base::string16& confirmation_title,
-    const base::string16& confirmation_body,
+    const std::u16string& confirmation_title,
+    const std::u16string& confirmation_body,
     base::OnceClosure confirm_deletion) {
   JNIEnv* env = base::android::AttachCurrentThread();
   confirm_deletion_ = std::move(confirm_deletion);

@@ -23,7 +23,7 @@
   X(ComputePassEncoder, computePassEncoder)   \
   X(ComputePipeline, computePipeline)         \
   X(Device, device)                           \
-  X(Fence, fence)                             \
+  X(ExternalTexture, externalTexture)         \
   X(Instance, instance)                       \
   X(PipelineLayout, pipelineLayout)           \
   X(QuerySet, querySet)                       \
@@ -35,7 +35,6 @@
   X(Sampler, sampler)                         \
   X(ShaderModule, shaderModule)               \
   X(Surface, surface)                         \
-  X(SwapChain, swapChain)                     \
   X(Texture, texture)                         \
   X(TextureView, textureView)
 
@@ -73,8 +72,13 @@ class DawnObjectBase {
       scoped_refptr<DawnControlClientHolder> dawn_control_client);
 
   const scoped_refptr<DawnControlClientHolder>& GetDawnControlClient() const;
-  gpu::webgpu::WebGPUInterface* GetInterface() const;
-  const DawnProcTable& GetProcs() const;
+  base::WeakPtr<WebGraphicsContext3DProviderWrapper> GetContextProviderWeakPtr()
+      const {
+    return dawn_control_client_->GetContextProviderWeakPtr();
+  }
+  const DawnProcTable& GetProcs() const {
+    return dawn_control_client_->GetProcs();
+  }
 
   // Ensure commands up until now on this object's parent device are flushed by
   // the end of the task.

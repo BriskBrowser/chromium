@@ -21,15 +21,16 @@ class LayerAnimationObserver;
 
 namespace ash {
 
-class HoldingSpaceItemViewDelegate;
+class HoldingSpaceItemView;
 class HoldingSpaceItemViewsSection;
+class HoldingSpaceViewDelegate;
 
 // Child bubble of the `HoldingSpaceTrayBubble`.
 class HoldingSpaceTrayChildBubble : public views::View,
                                     public HoldingSpaceControllerObserver,
                                     public HoldingSpaceModelObserver {
  public:
-  explicit HoldingSpaceTrayChildBubble(HoldingSpaceItemViewDelegate* delegate);
+  explicit HoldingSpaceTrayChildBubble(HoldingSpaceViewDelegate* delegate);
   HoldingSpaceTrayChildBubble(const HoldingSpaceTrayChildBubble& other) =
       delete;
   HoldingSpaceTrayChildBubble& operator=(
@@ -44,6 +45,10 @@ class HoldingSpaceTrayChildBubble : public views::View,
   // are created while the bubble widget is begin asynchronously closed.
   void Reset();
 
+  // Returns all holding space item views in the child bubble. Views are
+  // returned in top-to-bottom, left-to-right order (or mirrored for RTL).
+  std::vector<HoldingSpaceItemView*> GetHoldingSpaceItemViews();
+
   // HoldingSpaceControllerObserver:
   void OnHoldingSpaceModelAttached(HoldingSpaceModel* model) override;
   void OnHoldingSpaceModelDetached(HoldingSpaceModel* model) override;
@@ -53,14 +58,14 @@ class HoldingSpaceTrayChildBubble : public views::View,
       const std::vector<const HoldingSpaceItem*>& items) override;
   void OnHoldingSpaceItemsRemoved(
       const std::vector<const HoldingSpaceItem*>& items) override;
-  void OnHoldingSpaceItemFinalized(const HoldingSpaceItem* item) override;
+  void OnHoldingSpaceItemInitialized(const HoldingSpaceItem* item) override;
 
  protected:
   // Invoked to create the `sections_` for this child bubble.
   virtual std::vector<std::unique_ptr<HoldingSpaceItemViewsSection>>
   CreateSections() = 0;
 
-  HoldingSpaceItemViewDelegate* delegate() { return delegate_; }
+  HoldingSpaceViewDelegate* delegate() { return delegate_; }
 
  private:
   // views::View:
@@ -69,6 +74,7 @@ class HoldingSpaceTrayChildBubble : public views::View,
   void ChildVisibilityChanged(views::View* child) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
+  void OnThemeChanged() override;
 
   // Invoked to animate in/out this view if necessary.
   void MaybeAnimateIn();
@@ -85,7 +91,7 @@ class HoldingSpaceTrayChildBubble : public views::View,
   void OnAnimateInCompleted(bool aborted);
   void OnAnimateOutCompleted(bool aborted);
 
-  HoldingSpaceItemViewDelegate* const delegate_;
+  HoldingSpaceViewDelegate* const delegate_;
 
   // Views owned by view hierarchy.
   std::vector<HoldingSpaceItemViewsSection*> sections_;

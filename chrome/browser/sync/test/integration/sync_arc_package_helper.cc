@@ -9,8 +9,8 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/ash/arc/arc_util.h"
+#include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
@@ -19,6 +19,8 @@
 #include "components/arc/session/connection_holder.h"
 #include "components/arc/test/connection_holder_util.h"
 #include "components/arc/test/fake_app_instance.h"
+#include "components/sync/protocol/arc_package_specifics.pb.h"
+#include "components/sync/protocol/entity_specifics.pb.h"
 
 namespace arc {
 

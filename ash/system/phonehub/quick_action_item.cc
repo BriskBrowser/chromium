@@ -8,8 +8,11 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/tray/tray_constants.h"
+#include "base/bind.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 
@@ -84,7 +87,7 @@ QuickActionItem::QuickActionItem(Delegate* delegate,
 
 QuickActionItem::~QuickActionItem() = default;
 
-void QuickActionItem::SetSubLabel(const base::string16& sub_label) {
+void QuickActionItem::SetSubLabel(const std::u16string& sub_label) {
   sub_label_->SetText(sub_label);
 }
 
@@ -99,7 +102,7 @@ void QuickActionItem::SetIcon(bool is_on) {
   icon_button_->SetVectorIcon(is_on ? icon_on_ : icon_off_);
 }
 
-void QuickActionItem::SetIconTooltip(const base::string16& text) {
+void QuickActionItem::SetIconTooltip(const std::u16string& text) {
   icon_button_->SetTooltipText(text);
 }
 
@@ -112,7 +115,7 @@ bool QuickActionItem::IsToggled() const {
   return icon_button_->toggled();
 }
 
-const base::string16& QuickActionItem::GetItemLabel() const {
+const std::u16string& QuickActionItem::GetItemLabel() const {
   return label_->GetText();
 }
 

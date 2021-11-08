@@ -28,6 +28,9 @@ class VIEWS_EXPORT TouchSelectionMenuViews : public BubbleDialogDelegateView {
                           ui::TouchSelectionMenuClient* client,
                           aura::Window* context);
 
+  TouchSelectionMenuViews(const TouchSelectionMenuViews&) = delete;
+  TouchSelectionMenuViews& operator=(const TouchSelectionMenuViews&) = delete;
+
   void ShowMenu(const gfx::Rect& anchor_rect,
                 const gfx::Size& handle_image_size);
 
@@ -45,13 +48,15 @@ class VIEWS_EXPORT TouchSelectionMenuViews : public BubbleDialogDelegateView {
   virtual void CreateButtons();
 
   // Helper method to create a single button.
-  LabelButton* CreateButton(const base::string16& title,
+  LabelButton* CreateButton(const std::u16string& title,
                             Button::PressedCallback callback);
 
  private:
   friend class TouchSelectionMenuRunnerViews::TestApi;
 
   void ButtonPressed(int command, const ui::Event& event);
+
+  void EllipsisPressed(const ui::Event& event);
 
   // Helper to disconnect this menu object from its owning menu runner.
   void DisconnectOwner();
@@ -62,8 +67,6 @@ class VIEWS_EXPORT TouchSelectionMenuViews : public BubbleDialogDelegateView {
 
   TouchSelectionMenuRunnerViews* owner_;
   ui::TouchSelectionMenuClient* const client_;
-
-  DISALLOW_COPY_AND_ASSIGN(TouchSelectionMenuViews);
 };
 
 }  // namespace views

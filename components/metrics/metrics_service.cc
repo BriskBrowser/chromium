@@ -3,9 +3,9 @@
 // found in the LICENSE file.
 
 //------------------------------------------------------------------------------
-// Description of the life cycle of a instance of MetricsService.
+// Description of a MetricsService instance's life cycle.
 //
-//  OVERVIEW
+// OVERVIEW
 //
 // A MetricsService instance is typically created at application startup.  It is
 // the central controller for the acquisition of log data, and the automatic
@@ -17,7 +17,7 @@
 // results for transmission.  Transmission includes submitting a compressed log
 // as data in a URL-post, and retransmitting (or retaining at process
 // termination) if the attempted transmission failed.  Retention across process
-// terminations is done using the the PrefServices facilities. The retained logs
+// terminations is done using the PrefServices facilities. The retained logs
 // (the ones that never got transmitted) are compressed and base64-encoded
 // before being persisted.
 //
@@ -79,25 +79,32 @@
 //  CONSTRUCTED,          // Constructor was called.
 //  INITIALIZED,          // InitializeMetricsRecordingState() was called.
 //  INIT_TASK_SCHEDULED,  // Waiting for deferred init tasks to finish.
+//  INIT_TASK_DONE,       // Waiting for timer to send initial log.
 //  SENDING_LOGS,         // Sending logs and creating new ones when we run out.
 //
 // In more detail, we have:
 //
 //    INIT_TASK_SCHEDULED,    // Waiting for deferred init tasks to finish.
-// Typically about 30 seconds after startup, a task is sent to a background
-// thread to perform deferred (lower priority and slower) initialization steps
-// such as getting the list of plugins.  That task will (when complete) make an
-// async callback (via a Task) to indicate the completion.
+// Typically about 30 seconds after startup, a task is sent to a second thread
+// (the file thread) to perform deferred (lower priority and slower)
+// initialization steps such as getting the list of plugins.  That task will
+// (when complete) make an async callback (via a Task) to indicate the
+// completion.
 //
-//    SENDING_LOGS,  // Sending logs and creating new ones when we run out.
-// Logs from previous sessions have been loaded, and an optional initial
-// stability log has been created.  We will send all of these logs, and when
-// they run out, we will start cutting new logs to send.  We will also cut a
-// new log if we expect a shutdown.
+//    INIT_TASK_DONE,         // Waiting for timer to send initial log.
+// The callback has arrived, and it is now possible for an initial log to be
+// created.  This callback typically arrives back less than one second after
+// the deferred init task is dispatched.
+//
+//    SENDING_LOGS,  // Sending logs an creating new ones when we run out.
+// Logs from previous sessions have been loaded, and initial logs have been
+// created (an optional stability log and the first metrics log).  We will
+// send all of these logs, and when run out, we will start cutting new logs
+// to send.  We will also cut a new log if we expect a shutdown.
 //
 // The progression through the above states is simple, and sequential.
-// States proceed from INITIALIZED to SENDING_LOGS, and remain in the latter
-// until shutdown.
+// States proceed from INITIAL to SENDING_LOGS, and remain in the latter until
+// shutdown.
 //
 // Also note that whenever we successfully send a log, we mirror the list
 // of logs into the PrefService. This ensures that IF we crash, we won't start
@@ -117,6 +124,7 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -128,11 +136,15 @@
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/persistent_histogram_allocator.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/single_thread_task_runner.h"
+#include "base/process/process_handle.h"
+#include "base/rand_util.h"
 #include "base/strings/string_piece.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "components/metrics/clean_exit_beacon.h"
 #include "components/metrics/environment_recorder.h"
 #include "components/metrics/field_trials_provider.h"
 #include "components/metrics/metrics_log.h"
@@ -148,6 +160,10 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/entropy_provider.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "components/metrics/structured/neutrino_logging.h"  // nogncheck
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace metrics {
 
@@ -168,20 +184,7 @@ const int kInitializationDelaySeconds = 30;
 // The browser last live timestamp is updated every 15 minutes.
 const int kUpdateAliveTimestampSeconds = 15 * 60;
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
-void MarkAppCleanShutdownAndCommit(CleanExitBeacon* clean_exit_beacon,
-                                   PrefService* local_state) {
-  clean_exit_beacon->WriteBeaconValue(true);
-  // Start writing right away (write happens on a different thread).
-  local_state->CommitPendingWrite();
-}
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
-
 }  // namespace
-
-// static
-MetricsService::ShutdownCleanliness MetricsService::clean_shutdown_status_ =
-    MetricsService::CLEANLY_SHUTDOWN;
 
 // static
 void MetricsService::RegisterPrefs(PrefRegistrySimple* registry) {
@@ -225,8 +228,7 @@ MetricsService::~MetricsService() {
 }
 
 void MetricsService::InitializeMetricsRecordingState() {
-  // TODO(crbug.com/1176977): Downgrade to a DCHECK once bug is fixed.
-  CHECK_EQ(CONSTRUCTED, state_);
+  DCHECK_EQ(CONSTRUCTED, state_);
 
   // The FieldTrialsProvider should be registered last. This ensures that
   // studies whose features are checked when providers add their information to
@@ -240,13 +242,13 @@ void MetricsService::InitializeMetricsRecordingState() {
   base::RepeatingClosure upload_callback = base::BindRepeating(
       &MetricsService::StartScheduledUpload, self_ptr_factory_.GetWeakPtr());
 
-  rotation_scheduler_.reset(new MetricsRotationScheduler(
+  rotation_scheduler_ = std::make_unique<MetricsRotationScheduler>(
       upload_callback,
       // MetricsServiceClient outlives MetricsService, and
       // MetricsRotationScheduler is tied to the lifetime of |this|.
       base::BindRepeating(&MetricsServiceClient::GetUploadInterval,
                           base::Unretained(client_)),
-      client_->ShouldStartUpFastForTesting()));
+      client_->ShouldStartUpFastForTesting());
 
   // Init() has to be called after LogCrash() in order for LogCrash() to work.
   delegating_provider_.Init();
@@ -271,7 +273,7 @@ void MetricsService::StartUpdatingLastLiveTimestamp() {
       FROM_HERE,
       base::BindOnce(&MetricsService::UpdateLastLiveTimestampTask,
                      self_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSeconds(kUpdateAliveTimestampSeconds));
+      base::Seconds(kUpdateAliveTimestampSeconds));
 }
 
 void MetricsService::Stop() {
@@ -295,10 +297,6 @@ std::string MetricsService::GetClientId() const {
   return state_manager_->client_id();
 }
 
-int64_t MetricsService::GetInstallDate() {
-  return state_manager_->GetInstallDate();
-}
-
 bool MetricsService::WasLastShutdownClean() const {
   return state_manager_->clean_exit_beacon()->exited_cleanly();
 }
@@ -317,11 +315,19 @@ void MetricsService::EnableRecording() {
     OpenNewLog();
 
   delegating_provider_.OnRecordingEnabled();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // This must be after OnRecordingEnabled() to ensure that the structured
+  // logging has been enabled.
+  metrics::structured::NeutrinoDevicesLogWithClientId(
+      state_manager_->client_id(),
+      metrics::structured::NeutrinoDevicesLocation::kEnableRecording);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-  // Fill in the system profile in the log and persist it (to prefs, .pma and
-  // crashpad). This includes running the providers so that information like
-  // field trials and hardware info is provided. If Chrome crashes before this
-  // log is completed, the .pma file will have this system profile.
+  // Fill in the system profile in the log and persist it (to prefs, .pma
+  // and crashpad). This includes running the providers so that information
+  // like field trials and hardware info is provided. If Chrome crashes
+  // before this log is completed, the .pma file will have this system
+  // profile.
   RecordCurrentEnvironment(log_manager_.current_log(), /*complete=*/false);
 
   base::RemoveActionCallback(action_callback_);
@@ -394,8 +400,9 @@ void MetricsService::OnAppEnterBackground(bool keep_recording_in_background) {
     reporting_service_.Stop();
   }
 
-  MarkAppCleanShutdownAndCommit(state_manager_->clean_exit_beacon(),
-                                local_state_);
+  state_manager_->LogHasSessionShutdownCleanly(true);
+  // Schedule a write, which happens on a different thread.
+  local_state_->CommitPendingWrite();
 
   // Give providers a chance to persist histograms as part of being
   // backgrounded.
@@ -416,7 +423,7 @@ void MetricsService::OnAppEnterBackground(bool keep_recording_in_background) {
 
 void MetricsService::OnAppEnterForeground(bool force_open_new_log) {
   is_in_foreground_ = true;
-  state_manager_->clean_exit_beacon()->WriteBeaconValue(false);
+  state_manager_->LogHasSessionShutdownCleanly(false);
   StartSchedulerIfNecessary();
 
   if (force_open_new_log && recording_active() && state_ >= SENDING_LOGS) {
@@ -429,16 +436,83 @@ void MetricsService::OnAppEnterForeground(bool force_open_new_log) {
 
 #else
 void MetricsService::LogNeedForCleanShutdown() {
-  state_manager_->clean_exit_beacon()->WriteBeaconValue(false);
-  // Redundant setting to be sure we call for a clean shutdown.
-  clean_shutdown_status_ = NEED_TO_SHUTDOWN;
+  state_manager_->LogHasSessionShutdownCleanly(false);
 }
 #endif  // defined(OS_ANDROID) || defined(OS_IOS)
-
 
 void MetricsService::ClearSavedStabilityMetrics() {
   delegating_provider_.ClearSavedStabilityMetrics();
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+void MetricsService::SetUserLogStore(
+    std::unique_ptr<UnsentLogStore> user_log_store) {
+  if (log_store()->has_alternate_ongoing_log_store())
+    return;
+
+  if (state_ >= SENDING_LOGS) {
+    // Closes the current log so that a new log can be opened in the user log
+    // store.
+    PushPendingLogsToPersistentStorage();
+    log_store()->SetAlternateOngoingLogStore(std::move(user_log_store));
+    OpenNewLog();
+  } else {
+    // Initial log has not yet been created and flushing now would result in
+    // incomplete information in the current log.
+    //
+    // Logs recorded before a user login will be appended to user logs. This
+    // should not happen frequently.
+    //
+    // TODO(crbug/1264627): Look for a way to "pause" pre-login logs and flush
+    // when INIT_TASK is done.
+    // TODO(crbug/1264625): Add histogram before launch to monitor how
+    // frequently this happens.
+    log_store()->SetAlternateOngoingLogStore(std::move(user_log_store));
+  }
+}
+
+void MetricsService::UnsetUserLogStore() {
+  if (!log_store()->has_alternate_ongoing_log_store())
+    return;
+
+  if (state_ >= SENDING_LOGS) {
+    PushPendingLogsToPersistentStorage();
+    log_store()->UnsetAlternateOngoingLogStore();
+    OpenNewLog();
+  } else {
+    // Fast startup and logout case. A call to |RecordCurrentHistograms()| is
+    // made to flush all histograms into the current log and the log is
+    // discarded. This is to prevent histograms captured during the user session
+    // from leaking into local state logs.
+    //
+    // TODO(crbug/1264625): Add histogram before launch to monitor how
+    // frequently this happens.
+    RecordCurrentHistograms();
+    log_manager_.DiscardCurrentLog();
+    log_store()->UnsetAlternateOngoingLogStore();
+  }
+}
+
+void MetricsService::UpdateCurrentUserMetricsConsent(
+    bool user_metrics_consent) {
+  client_->UpdateCurrentUserMetricsConsent(user_metrics_consent);
+}
+
+void MetricsService::InitPerUserMetrics() {
+  client_->InitPerUserMetrics();
+}
+
+void MetricsService::ResetClientId() {
+  // Pref must be cleared in order for ForceClientIdCreation to generate a new
+  // client ID.
+  //
+  // TODO(jongahn): Add histogram to monitor how frequently this is called
+  // before launching per-user collection.
+  local_state_->ClearPref(prefs::kMetricsClientID);
+  state_manager_->ForceClientIdCreation();
+  client_->SetMetricsClientId(state_manager_->client_id());
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 bool MetricsService::StageCurrentLogForTest() {
   CloseCurrentLog();
@@ -456,12 +530,11 @@ bool MetricsService::StageCurrentLogForTest() {
 // private methods
 //------------------------------------------------------------------------------
 
-
 //------------------------------------------------------------------------------
 // Initialization methods
 
 void MetricsService::InitializeMetricsState() {
-  SCOPED_UMA_HISTOGRAM_SHORT_TIMER("UMA.MetricsService.Initialize.Time");
+  SCOPED_UMA_HISTOGRAM_TIMER_MICROS("UMA.MetricsService.Initialize.Time");
 
   const int64_t buildtime = MetricsLog::GetBuildTime();
   const std::string version = client_->GetVersionString();
@@ -481,9 +554,25 @@ void MetricsService::InitializeMetricsState() {
   if (!state_manager_->clean_exit_beacon()->exited_cleanly()) {
     provider.LogCrash(
         state_manager_->clean_exit_beacon()->browser_last_live_timestamp());
-    // Reset flag, and wait until we call LogNeedForCleanShutdown() before
-    // monitoring.
-    state_manager_->clean_exit_beacon()->WriteBeaconValue(true);
+#if defined(OS_ANDROID)
+    if (!state_manager_->is_foreground_session()) {
+      // Android can have background sessions in which the app may not come to
+      // the foreground, so signal that Chrome should stop watching for crashes
+      // here. This ensures that the termination of such sessions is not
+      // considered a crash. If and when the app enters the foreground, Chrome
+      // starts watching for crashes via MetricsService::OnAppEnterForeground().
+      //
+      // TODO(crbug/1232027): Such sessions do not yet exist on iOS. When they
+      // do, it may not be possible to know at this point whether a session is a
+      // background session.
+      //
+      // TODO(crbug/1245347): On WebLayer, it is not possible to know whether
+      // it's a background session at this point.
+      //
+      // TODO(crbug/1245676): Ditto for WebView.
+      state_manager_->clean_exit_beacon()->WriteBeaconValue(true);
+    }
+#endif  // defined(OS_ANDROID)
   }
 
   // HasPreviousSessionData is called first to ensure it is never bypassed.
@@ -522,13 +611,8 @@ void MetricsService::InitializeMetricsState() {
   // Update session ID.
   ++session_id_;
   local_state_->SetInteger(prefs::kMetricsSessionID, session_id_);
-  // Log the session id to diagnose crbug.com/1176977.
-  // Mod the value with 1000 to limit the number of unique values reported.
-  base::UmaHistogramSparse("Stability.Experimental.SessionId",
-                           session_id_ % 1000);
 
   // Notify stability metrics providers about the launch.
-  UMA_HISTOGRAM_BOOLEAN("UMA.MetricsService.Initialize", true);
   provider.LogLaunch();
   provider.CheckLastSessionEndCompleted();
 
@@ -548,7 +632,17 @@ void MetricsService::OnUserAction(const std::string& action,
 
 void MetricsService::FinishedInitTask() {
   DCHECK_EQ(INIT_TASK_SCHEDULED, state_);
-  state_ = SENDING_LOGS;
+  state_ = INIT_TASK_DONE;
+
+  // Create the initial log.
+  if (!initial_metrics_log_) {
+    initial_metrics_log_ = CreateLog(MetricsLog::ONGOING_LOG);
+    // Note: We explicitly do not call OnDidCreateMetricsLog() here, as this
+    // function would have already been called in Start() and this log will
+    // already contain any histograms logged there. OnDidCreateMetricsLog()
+    // will be called again after the initial log is closed, for the next log.
+    // TODO(crbug.com/1171830): Consider getting rid of |initial_metrics_log_|.
+  }
 
   rotation_scheduler_->InitTaskComplete();
 }
@@ -577,13 +671,12 @@ void MetricsService::OpenNewLog() {
   log_manager_.BeginLoggingWithLog(CreateLog(MetricsLog::ONGOING_LOG));
   delegating_provider_.OnDidCreateMetricsLog();
 
-  // TODO(crbug.com/1176977): Downgrade to a DCHECK once bug is fixed.
-  CHECK_NE(CONSTRUCTED, state_);
+  DCHECK_NE(CONSTRUCTED, state_);
   if (state_ == INITIALIZED) {
     // We only need to schedule that run once.
     state_ = INIT_TASK_SCHEDULED;
 
-    base::TimeDelta initialization_delay = base::TimeDelta::FromSeconds(
+    base::TimeDelta initialization_delay = base::Seconds(
         client_->ShouldStartUpFastForTesting() ? 0
                                                : kInitializationDelaySeconds);
     base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
@@ -634,13 +727,12 @@ void MetricsService::CloseCurrentLog() {
   log_manager_.FinishCurrentLog(log_store());
 }
 
-bool MetricsService::PushPendingLogsToPersistentStorage() {
+void MetricsService::PushPendingLogsToPersistentStorage() {
   if (state_ < SENDING_LOGS)
-    return false;
+    return;  // We didn't and still don't have time to get plugin list etc.
 
   CloseCurrentLog();
   log_store()->TrimAndPersistUnsentLogs();
-  return true;
 }
 
 //------------------------------------------------------------------------------
@@ -654,8 +746,7 @@ void MetricsService::StartSchedulerIfNecessary() {
   // Even if reporting is disabled, the scheduler is needed to trigger the
   // creation of the initial log, which must be done in order for any logs to be
   // persisted on shutdown or backgrounding.
-  if (recording_active() &&
-      (reporting_active() || state_ < SENDING_LOGS)) {
+  if (recording_active() && (reporting_active() || state_ < SENDING_LOGS)) {
     rotation_scheduler_->Start();
     reporting_service_.Start();
   }
@@ -663,7 +754,7 @@ void MetricsService::StartSchedulerIfNecessary() {
 
 void MetricsService::StartScheduledUpload() {
   DVLOG(1) << "StartScheduledUpload";
-  DCHECK(state_ >= SENDING_LOGS);
+  DCHECK(state_ >= INIT_TASK_DONE);
 
   // If we're getting no notifications, then the log won't have much in it, and
   // it's possible the computer is about to go to sleep, so don't upload and
@@ -673,8 +764,7 @@ void MetricsService::StartScheduledUpload() {
   // that has to happen in order for logs to be cut and stored when persisting.
   // TODO(stuartmorgan): Call Stop() on the scheduler when reporting and/or
   // recording are turned off instead of letting it fire and then aborting.
-  if (idle_since_last_transmission_ ||
-      !recording_active() ||
+  if (idle_since_last_transmission_ || !recording_active() ||
       (!reporting_active() && state_ >= SENDING_LOGS)) {
     rotation_scheduler_->Stop();
     rotation_scheduler_->RotationFinished();
@@ -704,11 +794,13 @@ void MetricsService::OnFinalLogInfoCollectionDone() {
     return;
   }
 
-  DCHECK_EQ(SENDING_LOGS, state_);
-  bool success = PushPendingLogsToPersistentStorage();
-  DCHECK(success);
-  OpenNewLog();
-
+  if (state_ == INIT_TASK_DONE) {
+    PrepareInitialMetricsLog();
+  } else {
+    DCHECK_EQ(SENDING_LOGS, state_);
+    CloseCurrentLog();
+    OpenNewLog();
+  }
   reporting_service_.Start();
   rotation_scheduler_->RotationFinished();
   HandleIdleSinceLastTransmission(true);
@@ -721,13 +813,10 @@ bool MetricsService::PrepareInitialStabilityLog(
   std::unique_ptr<MetricsLog> initial_stability_log(
       CreateLog(MetricsLog::INITIAL_STABILITY_LOG));
 
-  // Do not call OnDidCreateMetricsLog here because the stability
-  // log describes stats from the _previous_ session.
-  std::string system_profile_app_version;
-  if (!initial_stability_log->LoadSavedEnvironmentFromPrefs(
-          local_state_, &system_profile_app_version)) {
+  // Do not call OnDidCreateMetricsLog here because the stability log describes
+  // stats from the _previous_ session.
+  if (!initial_stability_log->LoadSavedEnvironmentFromPrefs(local_state_))
     return false;
-  }
 
   log_manager_.PauseCurrentLog();
   log_manager_.BeginLoggingWithLog(std::move(initial_stability_log));
@@ -737,7 +826,7 @@ bool MetricsService::PrepareInitialStabilityLog(
   log_manager_.current_log()->RecordPreviousSessionData(&delegating_provider_);
   RecordCurrentStabilityHistograms();
 
-  DVLOG(1) << "Generated an stability log.";
+  DVLOG(1) << "Generated a stability log.";
   log_manager_.FinishCurrentLog(log_store());
   log_manager_.ResumePausedLog();
 
@@ -748,10 +837,46 @@ bool MetricsService::PrepareInitialStabilityLog(
   return true;
 }
 
-bool MetricsService::UmaMetricsProperlyShutdown() {
-  CHECK(clean_shutdown_status_ == CLEANLY_SHUTDOWN ||
-        clean_shutdown_status_ == NEED_TO_SHUTDOWN);
-  return clean_shutdown_status_ == CLEANLY_SHUTDOWN;
+void MetricsService::PrepareInitialMetricsLog() {
+  DCHECK_EQ(INIT_TASK_DONE, state_);
+
+  RecordCurrentEnvironment(initial_metrics_log_.get(), /*complete=*/true);
+  base::TimeDelta incremental_uptime;
+  base::TimeDelta uptime;
+  GetUptimes(local_state_, &incremental_uptime, &uptime);
+
+  // Histograms only get written to the current log, so make the new log current
+  // before writing them.
+  log_manager_.PauseCurrentLog();
+  log_manager_.BeginLoggingWithLog(std::move(initial_metrics_log_));
+
+  // Note: Some stability providers may record stability stats via histograms,
+  //       so this call has to be after BeginLoggingWithLog().
+  log_manager_.current_log()->RecordCurrentSessionData(
+      &delegating_provider_, base::TimeDelta(), base::TimeDelta());
+  RecordCurrentHistograms();
+
+  DVLOG(1) << "Generated an initial log.";
+  log_manager_.FinishCurrentLog(log_store());
+  log_manager_.ResumePausedLog();
+
+  // We call OnDidCreateMetricsLog() here for the next log. Normally, this is
+  // called when the log is created, but in this special case, the log we paused
+  // was created much earlier - by Start(). The histograms that were recorded
+  // via OnDidCreateMetricsLog() are now in the initial metrics log we just
+  // processed, so we need to record new ones for the next log.
+  delegating_provider_.OnDidCreateMetricsLog();
+
+  // Store unsent logs, including the initial log that was just saved, so
+  // that they're not lost in case of a crash before upload time.
+  log_store()->TrimAndPersistUnsentLogs();
+
+  state_ = SENDING_LOGS;
+}
+
+void MetricsService::IncrementLongPrefsValue(const char* path) {
+  int64_t value = local_state_->GetInt64(path);
+  local_state_->SetInt64(path, value + 1);
 }
 
 void MetricsService::RegisterMetricsProvider(
@@ -803,11 +928,8 @@ void MetricsService::RecordCurrentEnvironment(MetricsLog* log, bool complete) {
 
 void MetricsService::RecordCurrentHistograms() {
   DCHECK(log_manager_.current_log());
-
-  // "true" indicates that StatisticsRecorder should include histograms held in
-  // persistent storage.
   base::StatisticsRecorder::PrepareDeltas(
-      true, base::Histogram::kNoFlags,
+      /*include_persistent=*/true, base::Histogram::kNoFlags,
       base::Histogram::kUmaTargetedHistogramFlag, &histogram_snapshot_manager_);
   delegating_provider_.RecordHistogramSnapshots(&histogram_snapshot_manager_);
 }
@@ -886,8 +1008,7 @@ bool MetricsService::PrepareProviderMetricsLog() {
 void MetricsService::PrepareProviderMetricsTask() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   bool found = PrepareProviderMetricsLog();
-  base::TimeDelta next_check = found ? base::TimeDelta::FromSeconds(5)
-                                     : base::TimeDelta::FromMinutes(15);
+  base::TimeDelta next_check = found ? base::Seconds(5) : base::Minutes(15);
   base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&MetricsService::PrepareProviderMetricsTask,
@@ -897,11 +1018,7 @@ void MetricsService::PrepareProviderMetricsTask() {
 
 void MetricsService::LogCleanShutdown(bool end_completed) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Redundant setting to assure that we always reset this value at shutdown
-  // (and that we don't use some alternate path, and not call LogCleanShutdown).
-  clean_shutdown_status_ = CLEANLY_SHUTDOWN;
-  client_->OnLogCleanShutdown();
-  state_manager_->clean_exit_beacon()->WriteBeaconValue(true);
+  state_manager_->LogHasSessionShutdownCleanly(true);
   StabilityMetricsProvider(local_state_).MarkSessionEndCompleted(end_completed);
 }
 

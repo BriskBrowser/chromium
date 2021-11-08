@@ -47,7 +47,7 @@ namespace {
 base::FilePath g_temp_history_dir;
 
 // History is automatically expired after 90 days.
-base::TimeDelta kHistoryExpirationThreshold = base::TimeDelta::FromDays(90);
+base::TimeDelta kHistoryExpirationThreshold = base::Days(90);
 
 // Waits until a change is observed in media engagement content settings.
 class MediaEngagementChangeWaiter : public content_settings::Observer {
@@ -56,16 +56,21 @@ class MediaEngagementChangeWaiter : public content_settings::Observer {
     HostContentSettingsMapFactory::GetForProfile(profile)->AddObserver(this);
   }
 
+  MediaEngagementChangeWaiter(const MediaEngagementChangeWaiter&) = delete;
+  MediaEngagementChangeWaiter& operator=(const MediaEngagementChangeWaiter&) =
+      delete;
+
   ~MediaEngagementChangeWaiter() override {
     HostContentSettingsMapFactory::GetForProfile(profile_)->RemoveObserver(
         this);
   }
 
   // Overridden from content_settings::Observer:
-  void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
-                               const ContentSettingsPattern& secondary_pattern,
-                               ContentSettingsType content_type) override {
-    if (content_type == ContentSettingsType::MEDIA_ENGAGEMENT)
+  void OnContentSettingChanged(
+      const ContentSettingsPattern& primary_pattern,
+      const ContentSettingsPattern& secondary_pattern,
+      ContentSettingsTypeSet content_type_set) override {
+    if (content_type_set.Contains(ContentSettingsType::MEDIA_ENGAGEMENT))
       Proceed();
   }
 
@@ -76,8 +81,6 @@ class MediaEngagementChangeWaiter : public content_settings::Observer {
 
   Profile* profile_;
   base::RunLoop run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaEngagementChangeWaiter);
 };
 
 base::Time GetReferenceTime() {
@@ -205,9 +208,7 @@ class MediaEngagementServiceTest : public ChromeRenderViewHostTestHarness,
     ChromeRenderViewHostTestHarness::TearDown();
   }
 
-  void AdvanceClock() {
-    test_clock_.SetNow(Now() + base::TimeDelta::FromHours(1));
-  }
+  void AdvanceClock() { test_clock_.SetNow(Now() + base::Hours(1)); }
 
   void RecordVisit(const url::Origin& origin) { service_->RecordVisit(origin); }
 
@@ -376,8 +377,8 @@ TEST_P(MediaEngagementServiceTest, IncognitoEngagementService) {
   base::Time origin1_time = Now();
   RecordVisitAndPlaybackAndAdvanceClock(origin2);
 
-  MediaEngagementService* incognito_service =
-      MediaEngagementService::Get(profile()->GetPrimaryOTRProfile());
+  MediaEngagementService* incognito_service = MediaEngagementService::Get(
+      profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true));
   ExpectScores(incognito_service, origin1, 0.05, 1, 1, origin1_time);
   ExpectScores(incognito_service, origin2, 0.05, 1, 1, Now());
   ExpectScores(incognito_service, origin3, 0.0, 0, 0, TimeNotSet());
@@ -411,8 +412,8 @@ TEST_P(MediaEngagementServiceTest, IncognitoOverrideRegularProfile) {
                TimeNotSet());
   ExpectScores(kOrigin2, 0.0, 1, 0, TimeNotSet());
 
-  MediaEngagementService* incognito_service =
-      MediaEngagementService::Get(profile()->GetPrimaryOTRProfile());
+  MediaEngagementService* incognito_service = MediaEngagementService::Get(
+      profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true));
   ExpectScores(incognito_service, kOrigin1, 0.05,
                MediaEngagementScore::GetScoreMinVisits(), 1, TimeNotSet());
   ExpectScores(incognito_service, kOrigin2, 0.0, 1, 0, TimeNotSet());
@@ -496,11 +497,10 @@ TEST_P(MediaEngagementServiceTest, CleanupOriginsOnHistoryDeletion) {
   SetScores(origin4, MediaEngagementScore::GetScoreMinVisits(), 10);
 
   base::Time today = GetReferenceTime();
-  base::Time yesterday = GetReferenceTime() - base::TimeDelta::FromDays(1);
-  base::Time yesterday_afternoon = GetReferenceTime() -
-                                   base::TimeDelta::FromDays(1) +
-                                   base::TimeDelta::FromHours(4);
-  base::Time yesterday_week = GetReferenceTime() - base::TimeDelta::FromDays(8);
+  base::Time yesterday = GetReferenceTime() - base::Days(1);
+  base::Time yesterday_afternoon =
+      GetReferenceTime() - base::Days(1) + base::Hours(4);
+  base::Time yesterday_week = GetReferenceTime() - base::Days(8);
   SetNow(today);
 
   history::HistoryService* history = HistoryServiceFactory::GetForProfile(
@@ -646,7 +646,7 @@ TEST_P(MediaEngagementServiceTest, MAYBE_CleanUpDatabaseWhenHistoryIsExpired) {
   // Now, fast forward time to ensure that the expiration job is completed. This
   // will start by triggering the backend initialization. 30 seconds is the
   // value of kExpirationDelaySec.
-  mock_time_task_runner_->FastForwardBy(base::TimeDelta::FromSeconds(30));
+  mock_time_task_runner_->FastForwardBy(base::Seconds(30));
   waiter.Wait();
 
   // Check the scores for the test origins.
@@ -675,10 +675,9 @@ TEST_P(MediaEngagementServiceTest, CleanUpDatabaseWhenHistoryIsDeleted) {
   SetScores(origin4, MediaEngagementScore::GetScoreMinVisits(), 10);
 
   base::Time today = GetReferenceTime();
-  base::Time yesterday_afternoon = GetReferenceTime() -
-                                   base::TimeDelta::FromDays(1) +
-                                   base::TimeDelta::FromHours(4);
-  base::Time yesterday_week = GetReferenceTime() - base::TimeDelta::FromDays(8);
+  base::Time yesterday_afternoon =
+      GetReferenceTime() - base::Days(1) + base::Hours(4);
+  base::Time yesterday_week = GetReferenceTime() - base::Days(8);
   SetNow(today);
 
   history::HistoryService* history = HistoryServiceFactory::GetForProfile(
@@ -761,7 +760,7 @@ TEST_P(MediaEngagementServiceTest, HistoryExpirationIsNoOp) {
     service()->OnURLsDeleted(
         history, history::DeletionInfo(history::DeletionTimeRange::Invalid(),
                                        true, history::URLRows(),
-                                       std::set<GURL>(), base::nullopt));
+                                       std::set<GURL>(), absl::nullopt));
 
     // Same as above, nothing should have changed.
     ExpectScores(origin1, 7.0 / 11.0,
@@ -788,8 +787,7 @@ TEST_P(MediaEngagementServiceTest,
   SetScores(origin, 1, 1);
   SetLastMediaPlaybackTime(origin, today);
 
-  ClearDataBetweenTime(today - base::TimeDelta::FromDays(2),
-                       today - base::TimeDelta::FromDays(1));
+  ClearDataBetweenTime(today - base::Days(2), today - base::Days(1));
   ExpectScores(origin, 0.05, 1, 1, today);
 }
 
@@ -799,8 +797,8 @@ TEST_P(MediaEngagementServiceTest,
   url::Origin origin2 = url::Origin::Create(GURL("https://www.google.co.uk"));
 
   base::Time today = GetReferenceTime();
-  base::Time yesterday = today - base::TimeDelta::FromDays(1);
-  base::Time two_days_ago = today - base::TimeDelta::FromDays(2);
+  base::Time yesterday = today - base::Days(1);
+  base::Time two_days_ago = today - base::Days(2);
   SetNow(today);
 
   SetScores(origin1, 1, 1);
@@ -821,8 +819,7 @@ TEST_P(MediaEngagementServiceTest, CleanupDataOnSiteDataCleanup_NoTimeSet) {
   SetNow(GetReferenceTime());
   SetScores(origin, 1, 0);
 
-  ClearDataBetweenTime(today - base::TimeDelta::FromDays(2),
-                       today - base::TimeDelta::FromDays(1));
+  ClearDataBetweenTime(today - base::Days(2), today - base::Days(1));
   ExpectScores(origin, 0.0, 1, 0, TimeNotSet());
 }
 
@@ -831,8 +828,8 @@ TEST_P(MediaEngagementServiceTest, CleanupDataOnSiteDataCleanup_All) {
   url::Origin origin2 = url::Origin::Create(GURL("https://www.google.co.uk"));
 
   base::Time today = GetReferenceTime();
-  base::Time yesterday = today - base::TimeDelta::FromDays(1);
-  base::Time two_days_ago = today - base::TimeDelta::FromDays(2);
+  base::Time yesterday = today - base::Days(1);
+  base::Time two_days_ago = today - base::Days(2);
   SetNow(today);
 
   SetScores(origin1, 1, 1);

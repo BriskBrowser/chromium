@@ -45,17 +45,14 @@ constexpr double kMiddleAFreq = 440;
 constexpr double kMiddleCFreq = 261.626;
 
 // Audio buffer duration.
-constexpr base::TimeDelta kBufferDuration =
-    base::TimeDelta::FromMilliseconds(10);
+constexpr base::TimeDelta kBufferDuration = base::Milliseconds(10);
 
 // Local audio output delay.
-constexpr base::TimeDelta kDelayUntilOutput =
-    base::TimeDelta::FromMilliseconds(20);
+constexpr base::TimeDelta kDelayUntilOutput = base::Milliseconds(20);
 
 // The amount of audio signal to record each time PumpAudioAndTakeNewRecording()
 // is called.
-constexpr base::TimeDelta kTestRecordingDuration =
-    base::TimeDelta::FromMilliseconds(250);
+constexpr base::TimeDelta kTestRecordingDuration = base::Milliseconds(250);
 
 const media::AudioParameters& GetLoopbackStreamParams() {
   // 48 kHz, 2-channel audio, with 10 ms buffers.
@@ -82,7 +79,7 @@ class MockClientAndObserver : public media::mojom::AudioInputStreamClient,
   void CloseClientBinding() { client_receiver_.reset(); }
   void CloseObserverBinding() { observer_receiver_.reset(); }
 
-  MOCK_METHOD0(OnError, void());
+  MOCK_METHOD1(OnError, void(media::mojom::InputStreamErrorCode));
   MOCK_METHOD0(DidStartRecording, void());
   void OnMutedStateChanged(bool) override { NOTREACHED(); }
 
@@ -128,6 +125,9 @@ class FakeSyncWriter : public FakeConsumer, public InputController::SyncWriter {
 class LoopbackStreamTest : public testing::Test {
  public:
   LoopbackStreamTest() : group_id_(base::UnguessableToken::Create()) {}
+
+  LoopbackStreamTest(const LoopbackStreamTest&) = delete;
+  LoopbackStreamTest& operator=(const LoopbackStreamTest&) = delete;
 
   ~LoopbackStreamTest() override = default;
 
@@ -260,8 +260,6 @@ class LoopbackStreamTest : public testing::Test {
   FakeSyncWriter* consumer_ = nullptr;  // Owned by |stream_|.
 
   mojo::Remote<media::mojom::AudioInputStream> remote_input_stream_;
-
-  DISALLOW_COPY_AND_ASSIGN(LoopbackStreamTest);
 };
 
 TEST_F(LoopbackStreamTest, ShutsDownStreamWhenInterfacePtrIsClosed) {
@@ -269,7 +267,7 @@ TEST_F(LoopbackStreamTest, ShutsDownStreamWhenInterfacePtrIsClosed) {
   EXPECT_CALL(*client(), DidStartRecording());
   StartLoopbackRecording();
   PumpAudioAndTakeNewRecording();
-  EXPECT_CALL(*client(), OnError());
+  EXPECT_CALL(*client(), OnError(media::mojom::InputStreamErrorCode::kUnknown));
   CloseInputStreamPtr();
   EXPECT_FALSE(stream());
   Mock::VerifyAndClearExpectations(client());
@@ -282,7 +280,7 @@ TEST_F(LoopbackStreamTest, ShutsDownStreamWhenClientBindingIsClosed) {
   PumpAudioAndTakeNewRecording();
   // Note: Expect no call to client::OnError() because it is the client binding
   // that is being closed and causing the error.
-  EXPECT_CALL(*client(), OnError()).Times(0);
+  EXPECT_CALL(*client(), OnError(_)).Times(0);
   client()->CloseClientBinding();
   RunMojoTasks();
   EXPECT_FALSE(stream());
@@ -294,7 +292,7 @@ TEST_F(LoopbackStreamTest, ShutsDownStreamWhenObserverBindingIsClosed) {
   EXPECT_CALL(*client(), DidStartRecording());
   StartLoopbackRecording();
   PumpAudioAndTakeNewRecording();
-  EXPECT_CALL(*client(), OnError());
+  EXPECT_CALL(*client(), OnError(media::mojom::InputStreamErrorCode::kUnknown));
   client()->CloseObserverBinding();
   RunMojoTasks();
   EXPECT_FALSE(stream());

@@ -57,12 +57,18 @@ class CORE_EXPORT ScrollbarTheme {
   // |context|'s current space is the space of the scrollbar's FrameRect().
   void Paint(const Scrollbar&,
              GraphicsContext& context,
-             const IntPoint& paint_offset);
+             const gfx::Vector2d& paint_offset);
 
-  ScrollbarPart HitTestRootFramePosition(const Scrollbar&, const IntPoint&);
+  ScrollbarPart HitTestRootFramePosition(const Scrollbar&, const gfx::Point&);
 
-  virtual int ScrollbarThickness(float scale_from_dip) { return 0; }
-  virtual int ScrollbarMargin(float scale_from_dip) const { return 0; }
+  virtual int ScrollbarThickness(float scale_from_dip,
+                                 EScrollbarWidth scrollbar_width) {
+    return 0;
+  }
+  virtual int ScrollbarMargin(float scale_from_dip,
+                              EScrollbarWidth scrollbar_width) const {
+    return 0;
+  }
 
   virtual bool IsSolidColor() const { return false; }
   virtual bool UsesOverlayScrollbars() const { return false; }
@@ -165,7 +171,7 @@ class CORE_EXPORT ScrollbarTheme {
   // current space.
   void PaintTrackButtonsTickmarks(GraphicsContext& context,
                                   const Scrollbar&,
-                                  const IntPoint& offset);
+                                  const gfx::Vector2d& offset);
 
   virtual int MaxOverlapBetweenPages() {
     return std::numeric_limits<int>::max();
@@ -205,7 +211,7 @@ class CORE_EXPORT ScrollbarTheme {
 
  protected:
   // The point is in the same coordinate space as the scrollbar's FrameRect.
-  virtual ScrollbarPart HitTest(const Scrollbar&, const IntPoint&);
+  virtual ScrollbarPart HitTest(const Scrollbar&, const gfx::Point&);
 
   virtual int TickmarkBorderWidth() { return 0; }
   virtual void PaintTrack(GraphicsContext&, const Scrollbar&, const IntRect&) {}
@@ -218,7 +224,7 @@ class CORE_EXPORT ScrollbarTheme {
   // scrollbar's FrameRect().
   virtual void PaintTrackAndButtons(GraphicsContext& context,
                                     const Scrollbar&,
-                                    const IntPoint& offset);
+                                    const gfx::Vector2d& offset);
 
   // Paint the thumb with Opacity() applied.
   virtual void PaintThumbWithOpacity(GraphicsContext& context,
@@ -255,4 +261,4 @@ class CORE_EXPORT ScrollbarTheme {
 };
 
 }  // namespace blink
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_SCROLL_SCROLLBAR_THEME_H_

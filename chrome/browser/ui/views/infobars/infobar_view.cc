@@ -22,7 +22,9 @@
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/class_property.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/theme_provider.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image.h"
@@ -39,7 +41,6 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/controls/menu/menu_runner.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
@@ -62,6 +63,8 @@ DEFINE_UI_CLASS_PROPERTY_KEY(LabelType, kLabelType, LabelType::kNone)
 // IDs of the colors to use for infobar elements.
 constexpr int kInfoBarLabelBackgroundColor = ThemeProperties::COLOR_INFOBAR;
 constexpr int kInfoBarLabelTextColor = ThemeProperties::COLOR_BOOKMARK_TEXT;
+
+constexpr int kSeparatorHeightDip = 1;
 
 bool SortViewsByDecreasingWidth(views::View* view_1, views::View* view_2) {
   return view_1->GetPreferredSize().width() >
@@ -149,7 +152,7 @@ void InfoBarView::RecalculateHeight() {
     const int margin_height = margins ? margins->height() : 0;
     height = std::max(height, child->height() + margin_height);
   }
-  SetTargetHeight(height + GetSeparatorHeight());
+  SetTargetHeight(height + kSeparatorHeightDip);
 }
 
 void InfoBarView::Layout() {
@@ -217,13 +220,12 @@ void InfoBarView::ViewHierarchyChanged(
 void InfoBarView::OnPaint(gfx::Canvas* canvas) {
   views::View::OnPaint(canvas);
 
-  if (GetDrawSeparator()) {
-    const SkColor color =
-        GetColor(ThemeProperties::COLOR_TOOLBAR_CONTENT_AREA_SEPARATOR);
-    const gfx::Rect local_bounds = GetLocalBounds();
-    canvas->DrawSharpLine({local_bounds.x(), local_bounds.y()},
-                          {local_bounds.right(), local_bounds.y()}, color);
-  }
+  const SkColor color =
+      GetColor(ThemeProperties::COLOR_TOOLBAR_CONTENT_AREA_SEPARATOR);
+  const gfx::RectF local_bounds(GetLocalBounds());
+  const gfx::Vector2d separator_offset(0, kSeparatorHeightDip);
+  canvas->DrawSharpLine(local_bounds.bottom_left() - separator_offset,
+                        local_bounds.bottom_right() - separator_offset, color);
 }
 
 void InfoBarView::OnThemeChanged() {
@@ -262,7 +264,7 @@ void InfoBarView::OnWillChangeFocus(View* focused_before, View* focused_now) {
   }
 }
 
-views::Label* InfoBarView::CreateLabel(const base::string16& text) const {
+views::Label* InfoBarView::CreateLabel(const std::u16string& text) const {
   views::Label* label =
       new views::Label(text, views::style::CONTEXT_DIALOG_BODY_TEXT);
   SetLabelDetails(label);
@@ -271,7 +273,7 @@ views::Label* InfoBarView::CreateLabel(const base::string16& text) const {
   return label;
 }
 
-views::Link* InfoBarView::CreateLink(const base::string16& text) {
+views::Link* InfoBarView::CreateLink(const std::u16string& text) {
   views::Link* link =
       new views::Link(text, views::style::CONTEXT_DIALOG_BODY_TEXT);
   SetLabelDetails(link);
@@ -305,8 +307,7 @@ int InfoBarView::GetEndX() const {
 }
 
 int InfoBarView::OffsetY(views::View* view) const {
-  return GetSeparatorHeight() +
-         std::max((target_height() - view->height()) / 2, 0) -
+  return std::max((target_height() - view->height()) / 2, 0) -
          (target_height() - height());
 }
 
@@ -359,23 +360,6 @@ void InfoBarView::AssignWidthsSorted(Views* views, int available_width) {
   AssignWidthsSorted(views, available_width - back_view_size.width());
 }
 
-bool InfoBarView::GetDrawSeparator() const {
-  // There will be no parent when this infobar is not in a container, e.g. if
-  // it's in a background tab.  It's still possible to reach here in that case,
-  // e.g. if ElevationIconSetter triggers a Layout().
-  return parent() && parent()->children().front() != this;
-}
-
-int InfoBarView::GetSeparatorHeight() const {
-  // We only need a separator for infobars after the first; the topmost infobar
-  // uses the toolbar as its top separator.
-  //
-  // This only works because all infobars have padding at the top; if we
-  // actually draw all the way to the top, we'd risk drawing a separator atop
-  // some infobar content.
-  return GetDrawSeparator() ? 1 : 0;
-}
-
 SkColor InfoBarView::GetColor(int id) const {
   const auto* theme_provider = GetThemeProvider();
   // When there's no theme provider, this color will never be used; it will be
@@ -411,6 +395,4 @@ BEGIN_METADATA(InfoBarView, views::View)
 ADD_READONLY_PROPERTY_METADATA(int, ContentMinimumWidth)
 ADD_READONLY_PROPERTY_METADATA(int, StartX)
 ADD_READONLY_PROPERTY_METADATA(int, EndX)
-ADD_READONLY_PROPERTY_METADATA(bool, DrawSeparator)
-ADD_READONLY_PROPERTY_METADATA(int, SeparatorHeight)
 END_METADATA

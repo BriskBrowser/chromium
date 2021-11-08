@@ -1,6 +1,5 @@
 <!doctype html>
-<html class="starting-up" dir="$i18n{textdirection}"
-    bookmarkbarattached="$i18n{bookmarkbarattached}" lang="$i18n{language}">
+<html class="starting-up" dir="$i18n{textdirection}" lang="$i18n{language}">
 <head>
 <meta charset="utf-8">
 <title>$i18n{title}</title>
@@ -69,13 +68,6 @@ document.getElementById('themecss').href = 'chrome://theme/css/new_tab_theme.css
       </div>
     </div>
   </div>
-
-  <div id="login-container" hidden>
-    <div id="login-status-header-container" class="login-status-row">
-      <div id="login-status-header"></div>
-    </div>
-    <div id="login-status-sub-header"></div>
-  </div>
 </body>
 
 <!-- A div to hold all the templates, and in the darkness bind them. -->
@@ -86,7 +78,9 @@ document.getElementById('themecss').href = 'chrome://theme/css/new_tab_theme.css
   <div class="app-img-container" aria-hidden="true">
     <img class="invisible" alt="">
   </div>
-  <span class="title"></span>
+  <div class="app-title-container">
+    <span class="title"></span>
+  </div>
 </div>
 
 <!-- App Contents w/ Small Icon -->
@@ -97,7 +91,9 @@ document.getElementById('themecss').href = 'chrome://theme/css/new_tab_theme.css
     </div>
     <div class="color-stripe"></div>
   </div>
-  <span class="title"></span>
+  <div class="app-title-container">
+    <span class="title"></span>
+  </div>
 </div>
 
 </div>

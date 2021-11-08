@@ -28,6 +28,10 @@ class ASH_EXPORT OverscanCalibrator : public ui::LayerDelegate,
  public:
   OverscanCalibrator(const display::Display& target_display,
                      const gfx::Insets& initial_insets);
+
+  OverscanCalibrator(const OverscanCalibrator&) = delete;
+  OverscanCalibrator& operator=(const OverscanCalibrator&) = delete;
+
   ~OverscanCalibrator() override;
 
   // Commits the current insets data to the system.
@@ -70,7 +74,8 @@ class ASH_EXPORT OverscanCalibrator : public ui::LayerDelegate,
   // The visualization layer for the current calibration region.
   std::unique_ptr<ui::Layer> calibration_layer_;
 
-  DISALLOW_COPY_AND_ASSIGN(OverscanCalibrator);
+  // Register for DisplayObserver callbacks.
+  display::ScopedDisplayObserver display_observer_{this};
 };
 
 }  // namespace ash

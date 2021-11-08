@@ -12,8 +12,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/ash/arc/arc_util.h"
+#include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
@@ -22,8 +22,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "components/arc/arc_util.h"
 #include "components/arc/mojom/app.mojom.h"
+#include "components/arc/test/arc_util_test_support.h"
 #include "components/arc/test/connection_holder_util.h"
 #include "components/arc/test/fake_app_instance.h"
 #include "content/public/test/browser_test.h"
@@ -34,6 +34,11 @@ namespace arc {
 class ArcAppUninstallDialogViewBrowserTest : public InProcessBrowserTest {
  public:
   ArcAppUninstallDialogViewBrowserTest() {}
+
+  ArcAppUninstallDialogViewBrowserTest(
+      const ArcAppUninstallDialogViewBrowserTest&) = delete;
+  ArcAppUninstallDialogViewBrowserTest& operator=(
+      const ArcAppUninstallDialogViewBrowserTest&) = delete;
 
   ~ArcAppUninstallDialogViewBrowserTest() override = default;
 
@@ -106,14 +111,18 @@ class ArcAppUninstallDialogViewBrowserTest : public InProcessBrowserTest {
   Profile* profile_ = nullptr;
 
   std::unique_ptr<arc::FakeAppInstance> app_instance_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArcAppUninstallDialogViewBrowserTest);
 };
 
 class ArcAppPermissionDialogViewBrowserTest
     : public ArcAppUninstallDialogViewBrowserTest {
  public:
   ArcAppPermissionDialogViewBrowserTest() {}
+
+  ArcAppPermissionDialogViewBrowserTest(
+      const ArcAppPermissionDialogViewBrowserTest&) = delete;
+  ArcAppPermissionDialogViewBrowserTest& operator=(
+      const ArcAppPermissionDialogViewBrowserTest&) = delete;
+
   // InProcessBrowserTest:
   ~ArcAppPermissionDialogViewBrowserTest() override = default;
 
@@ -165,7 +174,7 @@ class ArcAppPermissionDialogViewBrowserTest
   }
 
   const std::string& guid() const { return guid_; }
-  const base::string16& serial_number() const { return serial_number_; }
+  const std::u16string& serial_number() const { return serial_number_; }
   uint16_t vendor_id() const { return vendor_id_; }
   uint16_t product_id() const { return product_id_; }
 
@@ -176,16 +185,14 @@ class ArcAppPermissionDialogViewBrowserTest
 
   // USB flow test related.
   const std::string guid_ = "TestGuidXXXXXX";
-  const base::string16 serial_number_ = base::UTF8ToUTF16("TestSerialNumber");
-  const base::string16 manufacturer_string_ = base::UTF8ToUTF16("Factory");
-  const base::string16 product_string_ = base::UTF8ToUTF16("Product");
+  const std::u16string serial_number_ = u"TestSerialNumber";
+  const std::u16string manufacturer_string_ = u"Factory";
+  const std::u16string product_string_ = u"Product";
   uint16_t vendor_id_ = 123;
   uint16_t product_id_ = 456;
 
   base::WeakPtrFactory<ArcAppPermissionDialogViewBrowserTest> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(ArcAppPermissionDialogViewBrowserTest);
 };
 
 // Basic flow of requesting scan device list or access permission.

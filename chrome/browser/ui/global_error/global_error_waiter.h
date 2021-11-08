@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/ui/global_error/global_error_observer.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 
@@ -20,6 +20,10 @@ namespace test {
 class GlobalErrorWaiter : public GlobalErrorObserver {
  public:
   explicit GlobalErrorWaiter(Profile* profile);
+
+  GlobalErrorWaiter(const GlobalErrorWaiter&) = delete;
+  GlobalErrorWaiter& operator=(const GlobalErrorWaiter&) = delete;
+
   ~GlobalErrorWaiter() override;
 
   // GlobalErrorObserver:
@@ -32,10 +36,8 @@ class GlobalErrorWaiter : public GlobalErrorObserver {
  private:
   bool errors_changed_ = false;
   base::RunLoop run_loop_;
-  ScopedObserver<GlobalErrorService, GlobalErrorObserver> scoped_observer_{
-      this};
-
-  DISALLOW_COPY_AND_ASSIGN(GlobalErrorWaiter);
+  base::ScopedObservation<GlobalErrorService, GlobalErrorObserver>
+      scoped_observation_{this};
 };
 
 }  // namespace test

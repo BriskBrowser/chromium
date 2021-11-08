@@ -45,6 +45,11 @@ class SigninEmailConfirmationDialog::DialogWebContentsObserver
                             SigninEmailConfirmationDialog* dialog)
       : content::WebContentsObserver(web_contents),
         signin_email_confirmation_dialog_(dialog) {}
+
+  DialogWebContentsObserver(const DialogWebContentsObserver&) = delete;
+  DialogWebContentsObserver& operator=(const DialogWebContentsObserver&) =
+      delete;
+
   ~DialogWebContentsObserver() override {}
 
  private:
@@ -54,13 +59,12 @@ class SigninEmailConfirmationDialog::DialogWebContentsObserver
     signin_email_confirmation_dialog_->ResetDialogObserver();
   }
 
-  void RenderProcessGone(base::TerminationStatus status) override {
+  void PrimaryMainFrameRenderProcessGone(
+      base::TerminationStatus status) override {
     signin_email_confirmation_dialog_->CloseDialog();
   }
 
   SigninEmailConfirmationDialog* const signin_email_confirmation_dialog_;
-
-  DISALLOW_COPY_AND_ASSIGN(DialogWebContentsObserver);
 };
 
 SigninEmailConfirmationDialog::SigninEmailConfirmationDialog(
@@ -143,8 +147,8 @@ ui::ModalType SigninEmailConfirmationDialog::GetDialogModalType() const {
   return ui::MODAL_TYPE_WINDOW;
 }
 
-base::string16 SigninEmailConfirmationDialog::GetDialogTitle() const {
-  return base::string16();
+std::u16string SigninEmailConfirmationDialog::GetDialogTitle() const {
+  return std::u16string();
 }
 
 GURL SigninEmailConfirmationDialog::GetDialogContentURL() const {

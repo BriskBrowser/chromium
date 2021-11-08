@@ -19,7 +19,7 @@
 #include "third_party/blink/public/common/security/security_style.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
-#include "third_party/blink/public/mojom/page_state/page_state.mojom.h"
+#include "third_party/blink/public/mojom/page_state/page_state.mojom-shared.h"
 #include "third_party/blink/public/mojom/permissions/permission_status.mojom.h"
 #include "third_party/blink/public/mojom/v8_cache_options.mojom.h"
 #include "third_party/blink/public/mojom/window_features/window_features.mojom.h"
@@ -27,9 +27,9 @@
 #include "ui/accessibility/ax_param_traits.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/gfx/geometry/transform.h"
 #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
-#include "ui/gfx/transform.h"
 
 #undef IPC_MESSAGE_EXPORT
 #define IPC_MESSAGE_EXPORT CONTENT_EXPORT
@@ -88,6 +88,7 @@ IPC_STRUCT_TRAITS_BEGIN(blink::UserAgentMetadata)
   IPC_STRUCT_TRAITS_MEMBER(architecture)
   IPC_STRUCT_TRAITS_MEMBER(model)
   IPC_STRUCT_TRAITS_MEMBER(mobile)
+  IPC_STRUCT_TRAITS_MEMBER(bitness)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(blink::UserAgentOverride)
@@ -140,7 +141,7 @@ IPC_STRUCT_TRAITS_BEGIN(blink::RendererPreferences)
   IPC_STRUCT_TRAITS_MEMBER(arrow_bitmap_height_vertical_scroll_bar_in_dips)
   IPC_STRUCT_TRAITS_MEMBER(arrow_bitmap_width_horizontal_scroll_bar_in_dips)
 #endif
-#if defined(USE_X11) || defined(USE_OZONE)
+#if defined(USE_OZONE)
   IPC_STRUCT_TRAITS_MEMBER(selection_clipboard_buffer_available)
 #endif
 IPC_STRUCT_TRAITS_END()

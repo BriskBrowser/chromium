@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
@@ -14,8 +15,8 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/button_style.h"
 #include "ash/system/model/system_tray_model.h"
-#include "ash/system/phonehub/interstitial_view_button.h"
 #include "ash/system/phonehub/phone_hub_content_view.h"
 #include "ash/system/phonehub/phone_hub_interstitial_view.h"
 #include "ash/system/phonehub/phone_hub_metrics.h"
@@ -23,15 +24,14 @@
 #include "ash/system/phonehub/phone_hub_view_ids.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/tray_bubble_view.h"
-#include "ash/system/unified/rounded_label_button.h"
+#include "base/bind.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string16.h"
 #include "chromeos/components/phonehub/onboarding_ui_tracker.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -79,23 +79,21 @@ class OnboardingMainView : public PhoneHubInterstitialView {
         IDS_ASH_PHONE_HUB_ONBOARDING_DIALOG_DESCRIPTION));
 
     // Add "Dismiss" and "Get started" buttons.
-    auto dismiss = std::make_unique<InterstitialViewButton>(
+    auto dismiss = std::make_unique<PillButton>(
         base::BindRepeating(&OnboardingMainView::DismissButtonPressed,
                             base::Unretained(this)),
         l10n_util::GetStringUTF16(
             IDS_ASH_PHONE_HUB_ONBOARDING_DIALOG_DISMISS_BUTTON),
-        /*paint_background=*/false);
-    dismiss->SetEnabledTextColors(AshColorProvider::Get()->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kTextColorPrimary));
+        PillButton::Type::kIconlessFloating, /*icon=*/nullptr);
     dismiss->SetID(PhoneHubViewID::kOnboardingDismissButton);
     AddButton(std::move(dismiss));
 
-    auto get_started = std::make_unique<InterstitialViewButton>(
+    auto get_started = std::make_unique<PillButton>(
         base::BindRepeating(&OnboardingMainView::GetStartedButtonPressed,
                             base::Unretained(this)),
         l10n_util::GetStringUTF16(
             IDS_ASH_PHONE_HUB_ONBOARDING_DIALOG_GET_STARTED_BUTTON),
-        /*paint_background=*/true);
+        PillButton::Type::kIconless, /*icon=*/nullptr);
     get_started->SetID(PhoneHubViewID::kOnboardingGetStartedButton);
     AddButton(std::move(get_started));
   }
@@ -134,20 +132,20 @@ class OnboardingDismissPromptView : public PhoneHubInterstitialView {
     // Adds title and description.
     SetTitle(l10n_util::GetStringUTF16(
         IDS_ASH_PHONE_HUB_ONBOARDING_DISMISS_DIALOG_TITLE));
-    base::string16 part1 = l10n_util::GetStringUTF16(
+    std::u16string part1 = l10n_util::GetStringUTF16(
         IDS_ASH_PHONE_HUB_ONBOARDING_DISMISS_DIALOG_DESCRIPTION_PART_1);
-    base::string16 part2 = l10n_util::GetStringUTF16(
+    std::u16string part2 = l10n_util::GetStringUTF16(
         IDS_ASH_PHONE_HUB_ONBOARDING_DISMISS_DIALOG_DESCRIPTION_PART_2);
     // Uses "\n" to create a newline separator between two text paragraphs.
-    SetDescription(base::StrCat({part1, base::ASCIIToUTF16("\n\n"), part2}));
+    SetDescription(base::StrCat({part1, u"\n\n", part2}));
 
     // Adds "Ok, got it" button.
-    auto ack_button = std::make_unique<InterstitialViewButton>(
+    auto ack_button = std::make_unique<PillButton>(
         base::BindRepeating(&OnboardingDismissPromptView::ButtonPressed,
                             base::Unretained(this)),
         l10n_util::GetStringUTF16(
             IDS_ASH_PHONE_HUB_ONBOARDING_DISMISS_DIALOG_OK_BUTTON),
-        /*paint_background=*/true);
+        PillButton::Type::kIconless, /*icon=*/nullptr);
     ack_button->SetID(PhoneHubViewID::kOnboardingDismissAckButton);
     AddButton(std::move(ack_button));
   }
@@ -211,7 +209,7 @@ void OnboardingView::ShowDismissPrompt() {
 
   LogInterstitialScreenEvent(InterstitialScreenEvent::kShown);
 
-  RemoveChildView(main_view_);
+  RemoveChildViewT(main_view_);
   main_view_ = AddChildView(
       std::make_unique<OnboardingDismissPromptView>(onboarding_ui_tracker_));
 

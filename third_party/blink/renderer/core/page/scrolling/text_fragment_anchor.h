@@ -5,10 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_SCROLLING_TEXT_FRAGMENT_ANCHOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_SCROLLING_TEXT_FRAGMENT_ANCHOR_H_
 
+#include "third_party/blink/public/mojom/loader/same_document_navigation_type.mojom-blink.h"
 #include "third_party/blink/public/web/web_frame_load_type.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
-#include "third_party/blink/renderer/core/loader/frame_loader_types.h"
 #include "third_party/blink/renderer/core/page/scrolling/element_fragment_anchor.h"
 #include "third_party/blink/renderer/core/page/scrolling/fragment_anchor.h"
 #include "third_party/blink/renderer/core/page/scrolling/text_fragment_anchor_metrics.h"
@@ -22,16 +22,7 @@ namespace blink {
 class DocumentLoader;
 class LocalFrame;
 class KURL;
-
-constexpr char kFragmentDirectivePrefix[] = ":~:";
-// Subtract 1 because base::size includes the \0 string terminator.
-constexpr size_t kFragmentDirectivePrefixStringLength =
-    base::size(kFragmentDirectivePrefix) - 1;
-
-constexpr char kTextFragmentIdentifierPrefix[] = "text=";
-// Subtract 1 because base::size includes the \0 string terminator.
-constexpr size_t kTextFragmentIdentifierPrefixStringLength =
-    base::size(kTextFragmentIdentifierPrefix) - 1;
+class TextDirective;
 
 class CORE_EXPORT TextFragmentAnchor final : public FragmentAnchor,
                                              public TextFragmentFinder::Client {
@@ -48,20 +39,19 @@ class CORE_EXPORT TextFragmentAnchor final : public FragmentAnchor,
   // In this case, we also avoid generating the token unless the new URL has a
   // text fragment in it (and thus it'll be consumed immediately).
   static bool GenerateNewTokenForSameDocument(
-      const String& fragment,
+      const DocumentLoader&,
       WebFrameLoadType load_type,
-      bool is_content_initiated,
-      SameDocumentNavigationSource source);
+      mojom::blink::SameDocumentNavigationType same_document_navigation_type);
 
-  static TextFragmentAnchor* TryCreateFragmentDirective(
-      const KURL& url,
-      LocalFrame& frame,
-      bool should_scroll);
+  static TextFragmentAnchor* TryCreate(const KURL& url,
+                                       LocalFrame& frame,
+                                       bool should_scroll);
 
-  TextFragmentAnchor(
-      const Vector<TextFragmentSelector>& text_fragment_selectors,
-      LocalFrame& frame,
-      bool should_scroll);
+  TextFragmentAnchor(HeapVector<Member<TextDirective>>& text_directives,
+                     LocalFrame& frame,
+                     bool should_scroll);
+  TextFragmentAnchor(const TextFragmentAnchor&) = delete;
+  TextFragmentAnchor& operator=(const TextFragmentAnchor&) = delete;
   ~TextFragmentAnchor() override = default;
 
   bool Invoke() override;
@@ -80,11 +70,21 @@ class CORE_EXPORT TextFragmentAnchor final : public FragmentAnchor,
   void Trace(Visitor*) const override;
 
   // TextFragmentFinder::Client interface
-  void DidFindMatch(const EphemeralRangeInFlatTree& range,
+  void DidFindMatch(const RangeInFlatTree& range,
                     const TextFragmentAnchorMetrics::Match match_metrics,
                     bool is_unique) override;
 
   void NoMatchFound() override {}
+
+  static bool ShouldDismissOnScrollOrClick();
+
+  using DirectiveFinderPair =
+      std::pair<Member<TextDirective>, Member<TextFragmentFinder>>;
+  const HeapVector<DirectiveFinderPair>& DirectiveFinderPairs() const {
+    return directive_finder_pairs_;
+  }
+
+  bool IsTextFragmentAnchor() override { return true; }
 
  private:
   // Called when the search is finished. Reports metrics and activates the
@@ -97,7 +97,11 @@ class CORE_EXPORT TextFragmentAnchor final : public FragmentAnchor,
 
   bool HasSearchEngineSource();
 
-  Vector<TextFragmentFinder> text_fragment_finders_;
+  // This keeps track of each TextDirective and its associated
+  // TextFragmentFinder. The directive is the DOM object exposed to JS that's
+  // parsed from the URL while the finder is the object responsible for
+  // performing the search for the specified text in the Document.
+  HeapVector<DirectiveFinderPair> directive_finder_pairs_;
 
   Member<LocalFrame> frame_;
 
@@ -130,6 +134,8 @@ class CORE_EXPORT TextFragmentAnchor final : public FragmentAnchor,
   // Whether we performed a non-zero scroll to scroll a match into view. Used
   // to determine whether the user subsequently scrolls back to the top.
   bool did_non_zero_scroll_ = false;
+  // Whether PerformPreRafActions should run at the next rAF.
+  bool needs_perform_pre_raf_actions_ = false;
 
   // Whether a text fragment finder was run.
   bool has_performed_first_text_search_ = false;
@@ -141,8 +147,6 @@ class CORE_EXPORT TextFragmentAnchor final : public FragmentAnchor,
   } beforematch_state_ = kNoMatchFound;
 
   Member<TextFragmentAnchorMetrics> metrics_;
-
-  DISALLOW_COPY_AND_ASSIGN(TextFragmentAnchor);
 };
 
 }  // namespace blink

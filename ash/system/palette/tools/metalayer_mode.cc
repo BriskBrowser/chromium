@@ -23,6 +23,7 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/view.h"
+#include "ui/views/view_utils.h"
 
 namespace ash {
 
@@ -84,7 +85,7 @@ void MetalayerMode::OnDisable() {
 }
 
 const gfx::VectorIcon& MetalayerMode::GetActiveTrayIcon() const {
-  return kPaletteTrayIconMetalayerIcon;
+  return kPaletteModeMetalayerIcon;
 }
 
 const gfx::VectorIcon& MetalayerMode::GetPaletteIcon() const {
@@ -92,7 +93,7 @@ const gfx::VectorIcon& MetalayerMode::GetPaletteIcon() const {
 }
 
 views::View* MetalayerMode::CreateView() {
-  views::View* view = CreateDefaultView(base::string16());
+  views::View* view = CreateDefaultView(std::u16string());
   UpdateView();
   return view;
 }
@@ -120,7 +121,7 @@ void MetalayerMode::OnTouchEvent(ui::TouchEvent* event) {
     return;
 
   if (event->time_stamp() - previous_stroke_end_ <
-      base::TimeDelta::FromMilliseconds(kMaxStrokeGapWhenWritingMs)) {
+      base::Milliseconds(kMaxStrokeGapWhenWritingMs)) {
     // The press is happening too soon after the release, the user is most
     // likely writing/sketching and does not want the metalayer to activate.
     return;
@@ -139,7 +140,7 @@ void MetalayerMode::OnTouchEvent(ui::TouchEvent* event) {
     ToastData toast(
         kToastId,
         l10n_util::GetStringUTF16(IDS_ASH_STYLUS_TOOLS_METALAYER_TOAST_LOADING),
-        kToastDurationMs, base::Optional<base::string16>());
+        kToastDurationMs, absl::optional<std::u16string>());
     Shell::Get()->toast_manager()->Show(toast);
   } else {
     delegate()->RecordPaletteOptionsUsage(
@@ -213,7 +214,7 @@ void MetalayerMode::UpdateView() {
   if (!highlight_view_)
     return;
 
-  const base::string16 text = l10n_util::GetStringUTF16(
+  const std::u16string text = l10n_util::GetStringUTF16(
       loading() ? IDS_ASH_STYLUS_TOOLS_METALAYER_MODE_LOADING
                 : IDS_ASH_STYLUS_TOOLS_METALAYER_MODE);
   highlight_view_->text_label()->SetText(text);
@@ -235,7 +236,11 @@ void MetalayerMode::UpdateView() {
       AshColorProvider::ContentLayerType::kIconColorPrimary);
   if (!enabled)
     icon_color = AshColorProvider::GetDisabledColor(icon_color);
-  highlight_view_->left_icon()->SetImage(
+
+  DCHECK(views::IsViewClass<views::ImageView>(highlight_view_->left_view()));
+  views::ImageView* left_icon =
+      static_cast<views::ImageView*>(highlight_view_->left_view());
+  left_icon->SetImage(
       CreateVectorIcon(GetPaletteIcon(), kMenuIconSize, icon_color));
 }
 

@@ -7,13 +7,13 @@
 #include <stddef.h>
 #include <utility>
 
+#include "base/cxx17_backports.h"
 #include "base/metrics/field_trial.h"
-#include "base/stl_util.h"
-#include "chrome/browser/performance_manager/policies/policy_features.h"
 #include "chrome/browser/sessions/session_restore_stats_collector.h"
 #include "chrome/browser/sessions/tab_loader.h"
 #include "chrome/common/url_constants.h"
 #include "components/favicon/content/content_favicon_driver.h"
+#include "components/performance_manager/public/features.h"
 #include "components/performance_manager/public/graph/policies/background_tab_loading_policy.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
@@ -47,7 +47,7 @@ SessionRestoreDelegate::RestoredTab::RestoredTab(
     bool is_active,
     bool is_app,
     bool is_pinned,
-    const base::Optional<tab_groups::TabGroupId>& group)
+    const absl::optional<tab_groups::TabGroupId>& group)
     : contents_(contents),
       is_active_(is_active),
       is_app_(is_app),
@@ -55,8 +55,10 @@ SessionRestoreDelegate::RestoredTab::RestoredTab(
       is_pinned_(is_pinned),
       group_(group) {}
 
-SessionRestoreDelegate::RestoredTab::RestoredTab(const RestoredTab& other) =
-    default;
+SessionRestoreDelegate::RestoredTab::RestoredTab(const RestoredTab&) = default;
+
+SessionRestoreDelegate::RestoredTab&
+SessionRestoreDelegate::RestoredTab::operator=(const RestoredTab&) = default;
 
 bool SessionRestoreDelegate::RestoredTab::operator<(
     const RestoredTab& right) const {

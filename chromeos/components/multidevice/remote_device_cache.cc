@@ -5,7 +5,6 @@
 #include "chromeos/components/multidevice/remote_device_cache.h"
 
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 
 namespace chromeos {
@@ -73,9 +72,9 @@ RemoteDeviceRefList RemoteDeviceCache::GetRemoteDevices() const {
   return remote_devices;
 }
 
-base::Optional<RemoteDeviceRef> RemoteDeviceCache::GetRemoteDevice(
-    const base::Optional<std::string>& instance_id,
-    const base::Optional<std::string>& legacy_device_id) const {
+absl::optional<RemoteDeviceRef> RemoteDeviceCache::GetRemoteDevice(
+    const absl::optional<std::string>& instance_id,
+    const absl::optional<std::string>& legacy_device_id) const {
   DCHECK((instance_id && !instance_id->empty()) ||
          (legacy_device_id && !legacy_device_id->empty()));
 
@@ -84,12 +83,12 @@ base::Optional<RemoteDeviceRef> RemoteDeviceCache::GetRemoteDevice(
   if (cached_device)
     return RemoteDeviceRef(cached_device);
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 std::shared_ptr<RemoteDevice> RemoteDeviceCache::GetRemoteDeviceFromCache(
-    const base::Optional<std::string>& instance_id,
-    const base::Optional<std::string>& legacy_device_id) const {
+    const absl::optional<std::string>& instance_id,
+    const absl::optional<std::string>& legacy_device_id) const {
   for (const std::shared_ptr<RemoteDevice>& cached_device :
        cached_remote_devices_) {
     if (instance_id && !instance_id->empty() &&

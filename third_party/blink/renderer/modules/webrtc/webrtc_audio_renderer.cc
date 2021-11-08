@@ -6,10 +6,11 @@
 
 #include <utility>
 
+#include "base/containers/contains.h"
+#include "base/containers/cxx20_erase.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/strings/stringprintf.h"
 #include "base/threading/thread_checker.h"
 #include "build/build_config.h"
 #include "media/audio/audio_sink_parameters.h"
@@ -17,6 +18,7 @@
 #include "media/base/audio_capturer_source.h"
 #include "media/base/audio_latency.h"
 #include "media/base/audio_parameters.h"
+#include "media/base/audio_timestamp_helper.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/channel_layout.h"
 #include "media/base/sample_rates.h"
@@ -56,11 +58,10 @@ const media::AudioParameters::Format kFormat =
 // Time constant for AudioPowerMonitor. See See AudioPowerMonitor ctor comments
 // for details.
 constexpr base::TimeDelta kPowerMeasurementTimeConstant =
-    base::TimeDelta::FromMilliseconds(10);
+    base::Milliseconds(10);
 
 // Time in seconds between two successive measurements of audio power levels.
-constexpr base::TimeDelta kPowerMonitorLogInterval =
-    base::TimeDelta::FromSeconds(15);
+constexpr base::TimeDelta kPowerMonitorLogInterval = base::Seconds(15);
 
 // Used for UMA histograms.
 const int kRenderTimeHistogramMinMicroseconds = 100;
@@ -236,7 +237,7 @@ WebRtcAudioRenderer::AudioStreamTracker::AudioStreamTracker(
   // CheckAlive() will look to see if |render_callbacks_started_| is true
   // after the timeout expires and log this. If the stream is paused/closed
   // before the timer fires, a warning is logged instead.
-  check_alive_timer_.StartOneShot(base::TimeDelta::FromSeconds(5), FROM_HERE);
+  check_alive_timer_.StartOneShot(base::Seconds(5), FROM_HERE);
 }
 
 WebRtcAudioRenderer::AudioStreamTracker::~AudioStreamTracker() {
@@ -701,19 +702,15 @@ void WebRtcAudioRenderer::SourceCallback(int fifo_frame_delay,
   DVLOG(2) << "WRAR::SourceCallback(" << fifo_frame_delay << ", "
            << audio_bus->channels() << ", " << audio_bus->frames() << ")";
 
-  int output_delay_milliseconds =
-      static_cast<int>(audio_delay_.InMilliseconds());
-  // TODO(grunell): This integer division by sample_rate will cause loss of
-  // partial milliseconds, and may cause avsync drift. http://crbug.com/586540
-  output_delay_milliseconds += fifo_frame_delay *
-                               base::Time::kMillisecondsPerSecond /
-                               sink_params_.sample_rate();
-  DVLOG(2) << "output_delay_milliseconds: " << output_delay_milliseconds;
+  const base::TimeDelta output_delay =
+      audio_delay_ + media::AudioTimestampHelper::FramesToTime(
+                         fifo_frame_delay, sink_params_.sample_rate());
+  DVLOG(2) << "output_delay (ms): " << output_delay.InMillisecondsF();
 
   // We need to keep render data for the |source_| regardless of |state_|,
   // otherwise the data will be buffered up inside |source_|.
-  source_->RenderData(audio_bus, sink_params_.sample_rate(),
-                      output_delay_milliseconds, &current_time_);
+  source_->RenderData(audio_bus, sink_params_.sample_rate(), output_delay,
+                      &current_time_);
 
   // Avoid filling up the audio bus if we are not playing; instead
   // return here and ensure that the returned value in Render() is 0.

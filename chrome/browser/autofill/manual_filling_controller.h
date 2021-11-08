@@ -5,14 +5,11 @@
 #ifndef CHROME_BROWSER_AUTOFILL_MANUAL_FILLING_CONTROLLER_H_
 #define CHROME_BROWSER_AUTOFILL_MANUAL_FILLING_CONTROLLER_H_
 
-#include <memory>
-#include <string>
-
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "components/autofill/core/browser/ui/accessory_sheet_data.h"
 #include "components/autofill/core/common/mojom/autofill_types.mojom-forward.h"
+#include "components/autofill/core/common/unique_ids.h"
 #include "content/public/browser/web_contents_user_data.h"
 
 // Controller interface for the view that includes the keyboard accessory and
@@ -46,10 +43,13 @@ class ManualFillingController {
     PASSWORD_FALLBACKS,
     CREDIT_CARD_FALLBACKS,
     ADDRESS_FALLBACKS,
-    TOUCH_TO_FILL,
   };
 
   ManualFillingController() = default;
+
+  ManualFillingController(const ManualFillingController&) = delete;
+  ManualFillingController& operator=(const ManualFillingController&) = delete;
+
   virtual ~ManualFillingController() = default;
 
   // Returns a weak pointer to the unique ManualFillingController instance
@@ -80,6 +80,7 @@ class ManualFillingController {
   // Notifies that the focused field changed which allows the controller to
   // update the UI visibility.
   virtual void NotifyFocusedInputChanged(
+      autofill::FieldRendererId focused_field_id,
       autofill::mojom::FocusedFieldType focused_field_type) = 0;
 
   // Reports for a source whether it provides suggestions or just default
@@ -101,6 +102,11 @@ class ManualFillingController {
   // action (given by an enum param) is available.
   virtual void OnAutomaticGenerationStatusChanged(bool available) = 0;
 
+  // Instructs the view to show the manual filling sheet for the given
+  // |tab_type|.
+  virtual void ShowAccessorySheetTab(
+      const autofill::AccessoryTabType& tab_type) = 0;
+
   // --------------------------
   // Methods called by UI code:
   // --------------------------
@@ -110,7 +116,7 @@ class ManualFillingController {
   // accessory controller.
   virtual void OnFillingTriggered(
       autofill::AccessoryTabType type,
-      const autofill::UserInfo::Field& selection) = 0;
+      const autofill::AccessorySheetField& selection) = 0;
 
   // Called by the UI code because a user triggered the |selected_action|,
   // such as "Manage passwords...".
@@ -122,15 +128,18 @@ class ManualFillingController {
   virtual void OnToggleChanged(autofill::AccessoryAction toggled_action,
                                bool enabled) const = 0;
 
+  // Called by the UI to explicitly request a new sheet of the given type.
+  virtual void RequestAccessorySheet(
+      autofill::AccessoryTabType tab_type,
+      base::OnceCallback<void(const autofill::AccessorySheetData&)>
+          callback) = 0;
+
   // -----------------
   // Member accessors:
   // -----------------
 
   // The web page view containing the focused field.
   virtual gfx::NativeView container_view() const = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ManualFillingController);
 };
 
 #endif  // CHROME_BROWSER_AUTOFILL_MANUAL_FILLING_CONTROLLER_H_

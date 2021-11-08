@@ -18,6 +18,7 @@ import org.chromium.chrome.autofill_assistant.R;
 import org.chromium.chrome.browser.autofill_assistant.AssistantBottomBarDelegate;
 import org.chromium.chrome.browser.autofill_assistant.AssistantBottomSheetContent;
 import org.chromium.chrome.browser.autofill_assistant.AssistantRootViewContainer;
+import org.chromium.chrome.browser.autofill_assistant.AutofillAssistantDependencyInjector;
 import org.chromium.chrome.browser.autofill_assistant.BottomSheetUtils;
 import org.chromium.chrome.browser.autofill_assistant.LayoutUtils;
 import org.chromium.chrome.browser.autofill_assistant.ScrollToHideGestureListener;
@@ -65,8 +66,6 @@ public class AssistantTriggerScript {
     private ScrollToHideGestureListener mGestureListener;
     private LinearLayout mChipsContainer;
     private final int mInnerChipSpacing;
-    /** Height of the bottom sheet's shadow, used to compute the viewport resize offset. */
-    private final int mShadowHeight;
     /** Whether the visual viewport should be resized while the trigger script is shown. */
     private boolean mResizeVisualViewport;
 
@@ -110,8 +109,6 @@ public class AssistantTriggerScript {
         };
         mInnerChipSpacing = mContext.getResources().getDimensionPixelSize(
                 R.dimen.autofill_assistant_actions_spacing);
-        mShadowHeight = mContext.getResources().getDimensionPixelSize(
-                R.dimen.bottom_sheet_toolbar_shadow_height);
     }
 
     private void createBottomSheetContents() {
@@ -187,11 +184,6 @@ public class AssistantTriggerScript {
     }
 
     @VisibleForTesting
-    public void disableBottomSheetAnimationsForTesting(boolean disable) {
-        mAnimateBottomSheet = !disable;
-    }
-
-    @VisibleForTesting
     public List<AssistantChip> getLeftAlignedChipsForTest() {
         return mLeftAlignedChips;
     }
@@ -226,6 +218,10 @@ public class AssistantTriggerScript {
         mHeaderCoordinator = new AssistantHeaderCoordinator(mContext, mHeaderModel);
         mHeaderModel.set(
                 AssistantHeaderModel.FEEDBACK_BUTTON_CALLBACK, mDelegate::onFeedbackButtonClicked);
+        if (AutofillAssistantDependencyInjector.hasServiceRequestSenderToInject()) {
+            mHeaderModel.set(AssistantHeaderModel.DISABLE_ANIMATIONS_FOR_TESTING, true);
+            mAnimateBottomSheet = false;
+        }
         return mHeaderModel;
     }
 
@@ -237,10 +233,9 @@ public class AssistantTriggerScript {
             if (actions[index] == TriggerScriptAction.SHOW_CANCEL_POPUP) {
                 chips.get(index).setPopupItems(mCancelPopupItems,
                         result -> mDelegate.onTriggerScriptAction(mCancelPopupActions.get(result)));
-            } else {
-                chips.get(index).setSelectedListener(
-                        () -> mDelegate.onTriggerScriptAction(actions[index]));
             }
+            chips.get(index).setSelectedListener(
+                    () -> mDelegate.onTriggerScriptAction(actions[index]));
         }
     }
 
@@ -308,10 +303,8 @@ public class AssistantTriggerScript {
             setVisualViewportResizing(0);
             return;
         }
-        // In order to align the bottom of a website with the top of the bottom sheet, we need to
-        // remove the shadow height from the sheet's current offset. Note that mShadowHeight is
-        // different from the sheet controller's getTopShadowHeight().
-        setVisualViewportResizing(mBottomSheetController.getCurrentOffset() - mShadowHeight);
+
+        setVisualViewportResizing(mBottomSheetController.getCurrentOffset());
     }
 
     /**

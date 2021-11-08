@@ -32,7 +32,7 @@ void SaveUPIBubbleControllerImpl::OfferUpiIdLocalSave(
   ShowBubble();
 }
 
-base::string16 SaveUPIBubbleControllerImpl::GetUpiId() const {
+std::u16string SaveUPIBubbleControllerImpl::GetUpiId() const {
   return base::UTF8ToUTF16(upi_id_);
 }
 
@@ -58,6 +58,6 @@ void SaveUPIBubbleControllerImpl::ShowBubble() {
   DCHECK(save_upi_bubble_);
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(SaveUPIBubbleControllerImpl)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SaveUPIBubbleControllerImpl);
 
 }  // namespace autofill

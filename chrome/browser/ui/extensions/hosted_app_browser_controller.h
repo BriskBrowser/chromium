@@ -9,13 +9,10 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/optional.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "components/services/app_service/public/mojom/types.mojom-forward.h"
-#include "third_party/skia/include/core/SkColor.h"
 
 class Browser;
 
@@ -27,33 +24,38 @@ namespace extensions {
 
 class Extension;
 
-// Class to encapsulate logic to control the browser UI for extension based web
-// apps.
+// Class to encapsulate logic to control the browser UI for extension based
+// Chrome Apps (platform apps and legacy packaged apps).
 class HostedAppBrowserController : public web_app::AppBrowserController,
                                    public ExtensionUninstallDialog::Delegate {
  public:
   explicit HostedAppBrowserController(Browser* browser);
+
+  HostedAppBrowserController(const HostedAppBrowserController&) = delete;
+  HostedAppBrowserController& operator=(const HostedAppBrowserController&) =
+      delete;
+
   ~HostedAppBrowserController() override;
 
   // web_app::AppBrowserController:
   bool HasMinimalUiButtons() const override;
-  gfx::ImageSkia GetWindowAppIcon() const override;
-  gfx::ImageSkia GetWindowIcon() const override;
-  base::Optional<SkColor> GetThemeColor() const override;
-  base::string16 GetTitle() const override;
-  base::string16 GetAppShortName() const override;
-  base::string16 GetFormattedUrlOrigin() const override;
+  ui::ImageModel GetWindowAppIcon() const override;
+  ui::ImageModel GetWindowIcon() const override;
+  std::u16string GetTitle() const override;
+  std::u16string GetAppShortName() const override;
+  std::u16string GetFormattedUrlOrigin() const override;
   GURL GetAppStartUrl() const override;
   bool IsUrlInAppScope(const GURL& url) const override;
-  bool CanUninstall() const override;
-  void Uninstall() override;
+  bool CanUserUninstall() const override;
+  void Uninstall(
+      webapps::WebappUninstallSource webapp_uninstall_source) override;
   bool IsInstalled() const override;
   bool IsHostedApp() const override;
 
  protected:
   // ExtensionUninstallDialog::Delegate:
   void OnExtensionUninstallDialogClosed(bool success,
-                                        const base::string16& error) override;
+                                        const std::u16string& error) override;
 
   // web_app::AppBrowserController:
   void OnTabInserted(content::WebContents* contents) override;
@@ -73,7 +75,6 @@ class HostedAppBrowserController : public web_app::AppBrowserController,
   std::unique_ptr<ExtensionUninstallDialog> uninstall_dialog_;
 
   base::WeakPtrFactory<HostedAppBrowserController> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(HostedAppBrowserController);
 };
 
 }  // namespace extensions

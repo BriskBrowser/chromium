@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.view.ViewGroup;
 import android.webkit.ValueCallback;
 
 import androidx.annotation.NonNull;
@@ -23,15 +24,19 @@ import org.chromium.components.browser_ui.site_settings.SiteSettingsDelegate;
 import org.chromium.components.content_settings.ContentSettingsType;
 import org.chromium.components.content_settings.CookieControlsBridge;
 import org.chromium.components.content_settings.CookieControlsObserver;
-import org.chromium.components.embedder_support.browser_context.BrowserContextHandle;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.page_info.PageInfoControllerDelegate;
+import org.chromium.components.page_info.PageInfoMainController;
+import org.chromium.components.page_info.PageInfoSubpageController;
+import org.chromium.content_public.browser.BrowserContextHandle;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.url.GURL;
 import org.chromium.weblayer_private.interfaces.ObjectWrapper;
 import org.chromium.weblayer_private.interfaces.SettingsIntentHelper;
 import org.chromium.weblayer_private.settings.WebLayerSiteSettingsDelegate;
+
+import java.util.Collection;
 
 /**
  * WebLayer's customization of PageInfoControllerDelegate.
@@ -69,17 +74,6 @@ public class PageInfoControllerDelegateImpl extends PageInfoControllerDelegate {
         return mBrowser.getWindowAndroid().getModalDialogManager();
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void showSiteSettings(String url) {
-        Intent intent = SettingsIntentHelper.createIntentForSiteSettingsSingleWebsite(
-                mContext, mProfile.getName(), mProfile.isIncognito(), url);
-
-        launchIntent(intent);
-    }
-
     @Override
     public void showCookieSettings() {
         String category = SiteSettingsCategory.preferenceKey(SiteSettingsCategory.Type.COOKIES);
@@ -110,6 +104,16 @@ public class PageInfoControllerDelegateImpl extends PageInfoControllerDelegate {
      * {@inheritDoc}
      */
     @Override
+    @Nullable
+    public Collection<PageInfoSubpageController> createAdditionalRowViews(
+            PageInfoMainController mainController, ViewGroup rowWrapper) {
+        return null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     @NonNull
     public BrowserContextHandle getBrowserContext() {
         return mProfile;
@@ -125,9 +129,9 @@ public class PageInfoControllerDelegateImpl extends PageInfoControllerDelegate {
     }
 
     @Override
-    public void getFavicon(String url, Callback<Drawable> callback) {
+    public void getFavicon(GURL url, Callback<Drawable> callback) {
         mProfile.getCachedFaviconForPageUri(
-                url, ObjectWrapper.wrap((ValueCallback<Bitmap>) (bitmap) -> {
+                url.getSpec(), ObjectWrapper.wrap((ValueCallback<Bitmap>) (bitmap) -> {
                     if (bitmap != null) {
                         callback.onResult(new BitmapDrawable(mContext.getResources(), bitmap));
                     } else {
@@ -140,9 +144,8 @@ public class PageInfoControllerDelegateImpl extends PageInfoControllerDelegate {
      * {@inheritDoc}
      */
     @Override
-    @Nullable
-    public Drawable getPreviewUiIcon() {
-        return null;
+    public boolean isAccessibilityEnabled() {
+        return WebLayerAccessibilityUtil.get().isAccessibilityEnabled();
     }
 
     private static boolean isHttpOrHttps(GURL url) {
@@ -156,5 +159,13 @@ public class PageInfoControllerDelegateImpl extends PageInfoControllerDelegate {
     @Override
     public FragmentManager getFragmentManager() {
         return mBrowser.getFragmentManager();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean isIncognito() {
+        return mProfile.isIncognito();
     }
 }

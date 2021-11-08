@@ -26,7 +26,7 @@ namespace gcm {
 
 // A heartbeat management class, capable of sending and handling heartbeat
 // receipt/failures and triggering reconnection as necessary.
-class GCM_EXPORT HeartbeatManager : public base::PowerObserver {
+class GCM_EXPORT HeartbeatManager : public base::PowerSuspendObserver {
  public:
   using ReconnectCallback =
       base::RepeatingCallback<void(ConnectionFactory::ConnectionResetReason)>;
@@ -40,6 +40,10 @@ class GCM_EXPORT HeartbeatManager : public base::PowerObserver {
       scoped_refptr<base::SequencedTaskRunner> io_task_runner,
       scoped_refptr<base::SequencedTaskRunner>
           maybe_power_wrapped_io_task_runner);
+
+  HeartbeatManager(const HeartbeatManager&) = delete;
+  HeartbeatManager& operator=(const HeartbeatManager&) = delete;
+
   ~HeartbeatManager() override;
 
   // Start the heartbeat logic.
@@ -69,7 +73,7 @@ class GCM_EXPORT HeartbeatManager : public base::PowerObserver {
   // Updates the timer used for scheduling heartbeats.
   void UpdateHeartbeatTimer(std::unique_ptr<base::RetainingOneShotTimer> timer);
 
-  // base::PowerObserver override.
+  // base::PowerSuspendObserver override.
   void OnSuspend() override;
   void OnResume() override;
 
@@ -137,8 +141,6 @@ class GCM_EXPORT HeartbeatManager : public base::PowerObserver {
   ReconnectCallback trigger_reconnect_callback_;
 
   base::WeakPtrFactory<HeartbeatManager> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(HeartbeatManager);
 };
 
 }  // namespace gcm

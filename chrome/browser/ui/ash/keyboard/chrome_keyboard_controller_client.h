@@ -17,9 +17,9 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
-#include "base/optional.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/session_manager/core/session_manager_observer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 class ChromeKeyboardWebContents;
@@ -45,6 +45,9 @@ class ChromeKeyboardControllerClient
     // Forwards the 'OnKeyboardVisibilityChanged' observer method.
     // This is used by oobe and login to adjust the UI.
     virtual void OnKeyboardVisibilityChanged(bool visible) {}
+
+    virtual void OnKeyboardVisibleBoundsChanged(
+        const gfx::Rect& screen_bounds) {}
 
     // Forwards the 'OnKeyboardOccludedBoundsChanged' observer method.
     // This is used to update the insets of browser and app windows when the
@@ -75,6 +78,11 @@ class ChromeKeyboardControllerClient
 
   // Used in tests to determine whether this has been instantiated.
   static bool HasInstance();
+
+  ChromeKeyboardControllerClient(const ChromeKeyboardControllerClient&) =
+      delete;
+  ChromeKeyboardControllerClient& operator=(
+      const ChromeKeyboardControllerClient&) = delete;
 
   ~ChromeKeyboardControllerClient() override;
 
@@ -188,7 +196,7 @@ class ChromeKeyboardControllerClient
   std::unique_ptr<ChromeKeyboardWebContents> keyboard_contents_;
 
   // Cached copy of the latest config provided by KeyboardController.
-  base::Optional<keyboard::KeyboardConfig> cached_keyboard_config_;
+  absl::optional<keyboard::KeyboardConfig> cached_keyboard_config_;
 
   // Cached copy of the active enabled flags provided by KeyboardController.
   std::set<keyboard::KeyboardEnableFlag> keyboard_enable_flags_;
@@ -208,8 +216,6 @@ class ChromeKeyboardControllerClient
   GURL virtual_keyboard_url_for_test_;
 
   base::WeakPtrFactory<ChromeKeyboardControllerClient> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeKeyboardControllerClient);
 };
 
 #endif  // CHROME_BROWSER_UI_ASH_KEYBOARD_CHROME_KEYBOARD_CONTROLLER_CLIENT_H_

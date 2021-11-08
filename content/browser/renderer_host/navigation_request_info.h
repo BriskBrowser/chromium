@@ -5,18 +5,17 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_NAVIGATION_REQUEST_INFO_H_
 #define CONTENT_BROWSER_RENDERER_HOST_NAVIGATION_REQUEST_INFO_H_
 
-#include <string>
-
 #include "base/memory/ref_counted.h"
 #include "base/unguessable_token.h"
 #include "content/common/content_export.h"
-#include "content/common/navigation_params.h"
-#include "content/common/navigation_params.mojom.h"
 #include "content/public/common/referrer.h"
 #include "net/base/isolation_info.h"
+#include "net/filter/source_stream.h"
 #include "net/http/http_request_headers.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/client_security_state.mojom-forward.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/mojom/navigation/navigation_params.mojom-forward.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -27,16 +26,14 @@ namespace content {
 // to the IO thread by a NavigationRequest object.
 struct CONTENT_EXPORT NavigationRequestInfo {
   NavigationRequestInfo(
-      mojom::CommonNavigationParamsPtr common_params,
-      mojom::BeginNavigationParamsPtr begin_params,
+      blink::mojom::CommonNavigationParamsPtr common_params,
+      blink::mojom::BeginNavigationParamsPtr begin_params,
+      network::mojom::WebSandboxFlags sandbox_flags,
       const net::IsolationInfo& isolation_info,
       bool is_main_frame,
-      bool parent_is_main_frame,
       bool are_ancestors_secure,
       int frame_tree_node_id,
-      bool is_for_guests_only,
       bool report_raw_headers,
-      bool is_prerendering,
       bool upgrade_if_insecure,
       std::unique_ptr<network::PendingSharedURLLoaderFactory>
           blob_url_loader_factory,
@@ -44,12 +41,25 @@ struct CONTENT_EXPORT NavigationRequestInfo {
       const base::UnguessableToken& devtools_frame_token,
       bool obey_origin_policy,
       net::HttpRequestHeaders cors_exempt_headers,
-      network::mojom::ClientSecurityStatePtr client_security_state);
+      network::mojom::ClientSecurityStatePtr client_security_state,
+      const absl::optional<std::vector<net::SourceStream::SourceType>>&
+          devtools_accepted_stream_types,
+      bool is_pdf);
   NavigationRequestInfo(const NavigationRequestInfo& other) = delete;
   ~NavigationRequestInfo();
 
-  mojom::CommonNavigationParamsPtr common_params;
-  mojom::BeginNavigationParamsPtr begin_params;
+  blink::mojom::CommonNavigationParamsPtr common_params;
+  blink::mojom::BeginNavigationParamsPtr begin_params;
+
+  // Sandbox flags inherited from the frame where this navigation occurs. In
+  // particular, this does not include:
+  // - Sandbox flags inherited from the creator via the PolicyContainer.
+  // - Sandbox flags forced for MHTML documents.
+  // - Sandbox flags from the future response via CSP.
+  // It is used by the ExternalProtocolHandler to ensure sandboxed iframe won't
+  // navigate the user toward a different application, which can be seen as a
+  // main frame navigation somehow.
+  const network::mojom::WebSandboxFlags sandbox_flags;
 
   // Contains information used to prevent sharing information from a navigation
   // request across first party contexts. In particular, tracks the
@@ -60,7 +70,6 @@ struct CONTENT_EXPORT NavigationRequestInfo {
   const net::IsolationInfo isolation_info;
 
   const bool is_main_frame;
-  const bool parent_is_main_frame;
 
   // Whether all ancestor frames of the frame that is navigating have a secure
   // origin. True for main frames.
@@ -68,11 +77,7 @@ struct CONTENT_EXPORT NavigationRequestInfo {
 
   const int frame_tree_node_id;
 
-  const bool is_for_guests_only;
-
   const bool report_raw_headers;
-
-  const bool is_prerendering;
 
   // If set to true, any HTTP redirects of this request will be upgraded to
   // HTTPS. This only applies for subframe navigations.
@@ -99,6 +104,15 @@ struct CONTENT_EXPORT NavigationRequestInfo {
   // TODO(https://crbug.com/1129326): Set this for top-level navigation requests
   // too once the UX story is sorted out.
   const network::mojom::ClientSecurityStatePtr client_security_state;
+
+  // If not null, the network service will not advertise any stream types
+  // (via Accept-Encoding) that are not listed. Also, it will not attempt
+  // decoding any non-listed stream types.
+  absl::optional<std::vector<net::SourceStream::SourceType>>
+      devtools_accepted_stream_types;
+
+  // Indicates that this navigation is for PDF content in a renderer.
+  const bool is_pdf;
 };
 
 }  // namespace content

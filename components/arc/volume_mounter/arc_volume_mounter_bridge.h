@@ -60,6 +60,10 @@ class ArcVolumeMounterBridge
 
   ArcVolumeMounterBridge(content::BrowserContext* context,
                          ArcBridgeService* bridge_service);
+
+  ArcVolumeMounterBridge(const ArcVolumeMounterBridge&) = delete;
+  ArcVolumeMounterBridge& operator=(const ArcVolumeMounterBridge&) = delete;
+
   ~ArcVolumeMounterBridge() override;
 
   // chromeos::disks::DiskMountManager::Observer overrides:
@@ -70,6 +74,7 @@ class ArcVolumeMounterBridge
 
   // mojom::VolumeMounterHost overrides:
   void RequestAllMountPoints() override;
+  void ReportMountFailureCount(uint16_t count) override;
 
   // Initialize ArcVolumeMounterBridge with delegate.
   void Initialize(Delegate* delegate);
@@ -99,8 +104,6 @@ class ArcVolumeMounterBridge
   PrefChangeRegistrar change_registerar_;
 
   base::WeakPtrFactory<ArcVolumeMounterBridge> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ArcVolumeMounterBridge);
 };
 
 }  // namespace arc

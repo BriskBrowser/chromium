@@ -10,7 +10,7 @@
 
 #include "base/atomicops.h"
 #include "base/check_op.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "build/branding_buildflags.h"
@@ -115,6 +115,8 @@ std::string GetHostAttributes() {
     }
   }
 
+  // TODO(crbug.com/1184041): Remove this and/or the entire HostAttributes class
+  // so we can remove //remoting/host:common from //media/gpu's visibility list.
   if (media::MediaFoundationVideoEncodeAccelerator
       ::PreSandboxInitialization() &&
       media::InitializeMediaFoundation()) {

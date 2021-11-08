@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.page_annotations;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -66,7 +67,7 @@ public class PageAnnotationsServiceProxyUnitTest {
     private static final String EMPTY_RESPONSE = "{}";
     private static final String ENDPOINT_RESPONSE_BUYABLE_PRODUCT =
             "{\"annotations\":[{\"type\":\"BUYABLE_PRODUCT\",\"buyableProduct\":"
-            + "{\"title\":\"foo title\",\"imageUrl\":\"https://images.com?q=1234\","
+            + "{\"title\":\"foo title\", \"offerId\":\"123\", \"imageUrl\":\"https://images.com?q=1234\","
             + "\"currentPrice\":{\"currencyCode\":\"USD\",\"amountMicros\":\"123456789012345\"},"
             + "\"referenceType\":\"MAIN_PRODUCT\"}}]}";
 
@@ -147,7 +148,19 @@ public class PageAnnotationsServiceProxyUnitTest {
             Assert.assertNotNull(result.getAnnotations());
             verifyAnnotations(result.getAnnotations());
         });
-        verifyEndpointFetcherCalled(1, "my-endpoint.com?url=" + DUMMY_PAGE_URL.getSpec(),
+        verifyEndpointFetcherCalled(1, "my-endpoint.com?url=https%3A%2F%2Fwww.red.com%2Fpage1",
+                new String[] {"Accept-Language", LocaleUtils.getDefaultLocaleListString()});
+    }
+
+    @Test
+    @SmallTest
+    @CommandLineFlags.
+    Add({"force-fieldtrial-params=Study.Group:page_annotations_base_url/my-endpoint.com"})
+    public void testFetchSinglePageAnnotationsUrlEscaping() {
+        mServiceProxy.fetchAnnotations(
+                new GURL("http://foo.bar?some=param with spaces"), (result) -> {});
+        verifyEndpointFetcherCalled(1,
+                "my-endpoint.com?url=http%3A%2F%2Ffoo.bar%2F%3Fsome%3Dparam%2520with%2520spaces",
                 new String[] {"Accept-Language", LocaleUtils.getDefaultLocaleListString()});
     }
 
@@ -156,21 +169,21 @@ public class PageAnnotationsServiceProxyUnitTest {
         verify(mEndpointFetcherJniMock, times(numTimes))
                 .nativeFetchChromeAPIKey(any(Profile.class), eq(expectedUrl), eq(EXPECTED_METHOD),
                         eq(EXPECTED_CONTENT_TYPE), anyString(), anyLong(), eq(expectedHeaders),
-                        any(Callback.class));
+                        anyInt(), any(Callback.class));
     }
 
     private void mockEndpointResponse(String response) {
         doAnswer(new Answer<Void>() {
             @Override
             public Void answer(InvocationOnMock invocation) {
-                Callback callback = (Callback) invocation.getArguments()[7];
+                Callback callback = (Callback) invocation.getArguments()[8];
                 callback.onResult(new EndpointResponse(response));
                 return null;
             }
         })
                 .when(mEndpointFetcherJniMock)
                 .nativeFetchChromeAPIKey(any(Profile.class), anyString(), anyString(), anyString(),
-                        anyString(), anyLong(), any(String[].class), any(Callback.class));
+                        anyString(), anyLong(), any(String[].class), anyInt(), any(Callback.class));
     }
 
     private void verifyAnnotations(List<PageAnnotation> annotations) {

@@ -15,6 +15,7 @@
 #include "content/public/browser/context_factory.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/common/content_paths.h"
+#include "content/public/common/result_codes.h"
 #include "content/shell/browser/shell_application_mac.h"
 #include "content/shell/browser/shell_browser_context.h"
 #include "ui/views/test/test_views_delegate.h"
@@ -42,15 +43,19 @@ class ViewsContentClientMainPartsMac : public ViewsContentClientMainParts {
   ViewsContentClientMainPartsMac(
       const content::MainFunctionParams& content_params,
       ViewsContentClient* views_content_client);
+
+  ViewsContentClientMainPartsMac(const ViewsContentClientMainPartsMac&) =
+      delete;
+  ViewsContentClientMainPartsMac& operator=(
+      const ViewsContentClientMainPartsMac&) = delete;
+
   ~ViewsContentClientMainPartsMac() override;
 
   // content::BrowserMainParts:
-  void PreMainMessageLoopRun() override;
+  int PreMainMessageLoopRun() override;
 
  private:
   base::scoped_nsobject<ViewsContentClientAppController> app_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewsContentClientMainPartsMac);
 };
 
 ViewsContentClientMainPartsMac::ViewsContentClientMainPartsMac(
@@ -65,7 +70,7 @@ ViewsContentClientMainPartsMac::ViewsContentClientMainPartsMac(
   [[NSApplication sharedApplication] setDelegate:app_controller_];
 }
 
-void ViewsContentClientMainPartsMac::PreMainMessageLoopRun() {
+int ViewsContentClientMainPartsMac::PreMainMessageLoopRun() {
   ViewsContentClientMainParts::PreMainMessageLoopRun();
 
   views_delegate()->set_context_factory(content::GetContextFactory());
@@ -80,6 +85,8 @@ void ViewsContentClientMainPartsMac::PreMainMessageLoopRun() {
                          base::Unretained(views_content_client()),
                          base::Unretained(browser_context()),
                          base::Unretained(window_context))];
+
+  return content::RESULT_CODE_NORMAL_EXIT;
 }
 
 ViewsContentClientMainPartsMac::~ViewsContentClientMainPartsMac() {
@@ -98,7 +105,7 @@ ViewsContentClientMainParts::Create(
 }
 
 // static
-void ViewsContentClientMainParts::PreCreateMainMessageLoop() {
+void ViewsContentClientMainParts::PreBrowserMain() {
   // Simply instantiating an instance of ShellCrApplication serves to register
   // it as the application class. Do make sure that no other code has done this
   // first, though.

@@ -2,26 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/app/chrome_exe_main_win.h"
+
 #include <windows.h>
 #include <malloc.h>
 #include <stddef.h>
 #include <tchar.h>
 
 #include <algorithm>
+#include <array>
 #include <string>
 
 #include "base/at_exit.h"
 #include "base/base_switches.h"
 #include "base/command_line.h"
+#include "base/containers/cxx20_erase.h"
+#include "base/cxx17_backports.h"
 #include "base/debug/alias.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/memory.h"
 #include "base/process/process.h"
-#include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -32,6 +36,7 @@
 #include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "chrome/app/main_dll_loader_win.h"
+#include "chrome/app/packed_resources_integrity.h"
 #include "chrome/browser/policy/policy_path_parser.h"
 #include "chrome/browser/win/chrome_process_finder.h"
 #include "chrome/chrome_elf/chrome_elf_main.h"
@@ -55,6 +60,26 @@ int main();
 #endif
 
 namespace {
+
+// Sets the current working directory for the process to the directory holding
+// the executable if this is the browser process. This avoids leaking a handle
+// to an arbitrary directory to child processes (e.g., the crashpad handler
+// process) created before MainDllLoader changes the current working directory
+// to the browser's version directory.
+void SetCwdForBrowserProcess() {
+  if (!::IsBrowserProcess())
+    return;
+
+  std::array<wchar_t, MAX_PATH + 1> buffer;
+  buffer[0] = L'\0';
+  DWORD length = ::GetModuleFileName(nullptr, &buffer[0], buffer.size());
+  if (!length || length >= buffer.size())
+    return;
+
+  base::SetCurrentDirectory(
+      base::FilePath(base::FilePath::StringPieceType(&buffer[0], length))
+          .DirName());
+}
 
 bool IsFastStartSwitch(const std::string& command_line_switch) {
   return command_line_switch == switches::kProfileDirectory;
@@ -162,10 +187,6 @@ int RunFallbackCrashHandler(const base::CommandLine& cmd_line) {
       base::WideToUTF8(channel_name));
 }
 
-}  // namespace
-
-namespace {
-
 // In 32-bit builds, the main thread starts with the default (small) stack size.
 // The ARCH_CPU_32_BITS blocks here and below are in support of moving the main
 // thread to a fiber with a larger stack size.
@@ -199,6 +220,15 @@ void WINAPI FiberBinder(void* params) {
 #endif  // defined(ARCH_CPU_32_BITS)
 
 }  // namespace
+
+__declspec(dllexport) __cdecl void GetPakFileHashes(
+    const uint8_t** resources_pak,
+    const uint8_t** chrome_100_pak,
+    const uint8_t** chrome_200_pak) {
+  *resources_pak = kSha256_resources_pak.data();
+  *chrome_100_pak = kSha256_chrome_100_percent_pak.data();
+  *chrome_200_pak = kSha256_chrome_200_percent_pak.data();
+}
 
 #if !defined(WIN_CONSOLE_APP)
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prev, wchar_t*, int) {
@@ -247,6 +277,7 @@ int main() {
   // If we are already a fiber then continue normal execution.
 #endif  // defined(ARCH_CPU_32_BITS)
 
+  SetCwdForBrowserProcess();
   install_static::InitializeFromPrimaryModule();
   SignalInitializeCrashReporting();
 #if defined(ARCH_CPU_32_BITS)

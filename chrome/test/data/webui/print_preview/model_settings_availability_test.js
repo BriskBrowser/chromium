@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, DuplexType, Margins, MarginsType, Size} from 'chrome://print/print_preview.js';
+import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, DuplexType, GooglePromotedDestinationId, Margins, MarginsType, PrintPreviewModelElement, Size} from 'chrome://print/print_preview.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
-import {isChromeOS, isMac, isWindows} from 'chrome://resources/js/cr.m.js';
+import {isChromeOS, isLacros, isLinux} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 
-import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
+import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
-import {getCddTemplate, getGoogleDriveDestination, getSaveAsPdfDestination} from './print_preview_test_utils.js';
+import {getCddTemplate, getCloudDestination, getSaveAsPdfDestination} from './print_preview_test_utils.js';
 
 suite('ModelSettingsAvailabilityTest', function() {
   /** @type {!PrintPreviewModelElement} */
@@ -27,7 +27,6 @@ suite('ModelSettingsAvailabilityTest', function() {
       hasSelection: false,
       isFromArc: false,
       isModifiable: true,
-      isPdf: false,
       isScalingDisabled: false,
       fitToPageScaling: 100,
       pageCount: 3,
@@ -226,10 +225,15 @@ suite('ModelSettingsAvailabilityTest', function() {
       assertTrue(model.settings.color.available);
     });
 
-    // Google Drive always has an unavailableValue of true.
-    model.set('destination', getGoogleDriveDestination('foo@chromium.org'));
+    // Google Drive always has an unavailableValue of true when using the cloud
+    // destination.
+    model.set(
+        'destination',
+        getCloudDestination(
+            GooglePromotedDestinationId.DOCS, GooglePromotedDestinationId.DOCS,
+            'foo@chromium.org'));
     const capabilities =
-        getCddTemplate(Destination.GooglePromotedId.DOCS).capabilities;
+        getCddTemplate(GooglePromotedDestinationId.DOCS).capabilities;
     delete capabilities.printer.color;
     model.set('destination.capabilities', capabilities);
     assertFalse(model.settings.color.available);
@@ -297,15 +301,19 @@ suite('ModelSettingsAvailabilityTest', function() {
     // The settings are available since the printer has multiple DPI options.
     assertTrue(model.settings.dpi.available);
 
-    // No resolution settings for ARC.
+    // No resolution settings for ARC, but uses the default value.
     model.set('documentSettings.isFromArc', true);
+    let capabilities = getCddTemplate(model.destination.id).capabilities;
+    model.set('destination.capabilities', capabilities);
     assertFalse(model.settings.dpi.available);
+    assertEquals(200, model.settings.dpi.unavailableValue.horizontal_dpi);
+    assertEquals(200, model.settings.dpi.unavailableValue.vertical_dpi);
 
     model.set('documentSettings.isFromArc', false);
     assertTrue(model.settings.dpi.available);
 
     // Remove capability.
-    let capabilities = getCddTemplate(model.destination.id).capabilities;
+    capabilities = getCddTemplate(model.destination.id).capabilities;
     delete capabilities.printer.dpi;
 
     // Section should now be hidden.
@@ -334,7 +342,6 @@ suite('ModelSettingsAvailabilityTest', function() {
 
     // PDF -> Save as PDF
     model.set('documentSettings.isModifiable', false);
-    model.set('documentSettings.isPdf', true);
     assertFalse(model.settings.scaling.available);
 
     // PDF -> printer
@@ -342,18 +349,9 @@ suite('ModelSettingsAvailabilityTest', function() {
     assertTrue(model.settings.scaling.available);
     assertFalse(model.settings.scaling.setFromUi);
 
-    // Non-PDF Plugin -> Save as PDF
-    setSaveAsPdfDestination();
-    model.set('documentSettings.isPdf', false);
-    assertFalse(model.settings.scaling.available);
-
-    // Non-PDF Plugin -> printer
-    model.set('destination', defaultDestination);
-    assertFalse(model.settings.scaling.available);
-
     // ARC -> printer
+    model.set('destination', defaultDestination);
     model.set('documentSettings.isFromArc', true);
-    model.set('documentSettings.isPdf', true);
     assertFalse(model.settings.scaling.available);
 
     // ARC -> Save as PDF
@@ -372,25 +370,14 @@ suite('ModelSettingsAvailabilityTest', function() {
 
     // PDF -> Save as PDF
     model.set('documentSettings.isModifiable', false);
-    model.set('documentSettings.isPdf', true);
     assertFalse(model.settings.scalingType.available);
 
     // PDF -> printer
     model.set('destination', defaultDestination);
     assertFalse(model.settings.scalingType.available);
 
-    // Non-PDF Plugin -> Save as PDF
-    setSaveAsPdfDestination();
-    model.set('documentSettings.isPdf', false);
-    assertFalse(model.settings.scalingType.available);
-
-    // Non-PDF Plugin -> printer
-    model.set('destination', defaultDestination);
-    assertFalse(model.settings.scalingType.available);
-
     // ARC -> printer
     model.set('documentSettings.isFromArc', true);
-    model.set('documentSettings.isPdf', true);
     assertFalse(model.settings.scalingType.available);
 
     // ARC -> Save as PDF
@@ -409,25 +396,14 @@ suite('ModelSettingsAvailabilityTest', function() {
 
     // PDF -> Save as PDF
     model.set('documentSettings.isModifiable', false);
-    model.set('documentSettings.isPdf', true);
     assertFalse(model.settings.scalingTypePdf.available);
 
     // PDF -> printer
     model.set('destination', defaultDestination);
     assertTrue(model.settings.scalingTypePdf.available);
 
-    // Non-PDF Plugin -> Save as PDF
-    setSaveAsPdfDestination();
-    model.set('documentSettings.isPdf', false);
-    assertFalse(model.settings.scalingTypePdf.available);
-
-    // Non-PDF Plugin -> printer
-    model.set('destination', defaultDestination);
-    assertFalse(model.settings.scalingTypePdf.available);
-
     // ARC -> printer
     model.set('documentSettings.isFromArc', true);
-    model.set('documentSettings.isPdf', true);
     assertFalse(model.settings.scalingTypePdf.available);
 
     // ARC -> Save as PDF
@@ -581,12 +557,15 @@ suite('ModelSettingsAvailabilityTest', function() {
   });
 
   test('rasterize', function() {
-    assertFalse(model.settings.rasterize.available);
-
-    // Available on non-Windows and Mac for PDFs.
+    // Availability for PDFs varies depening upon OS.
+    // Windows and macOS depend on policy - see policy_test.js for their
+    // testing coverage.
     model.set('documentSettings.isModifiable', false);
-    assertEquals(!isWindows && !isMac, model.settings.rasterize.available);
-    assertFalse(model.settings.rasterize.setFromUi);
+    if (isChromeOS || isLacros || isLinux) {
+      // Always available for PDFs on Linux and ChromeOS
+      assertTrue(model.settings.rasterize.available);
+      assertFalse(model.settings.rasterize.setFromUi);
+    }
 
     // Unavailable for ARC.
     model.set('documentSettings.isFromArc', true);
@@ -612,32 +591,21 @@ suite('ModelSettingsAvailabilityTest', function() {
   });
 
   test('pages per sheet', function() {
-    // Pages per sheet is available everywhere except for Flash content.
+    // Pages per sheet is available everywhere except for ARC.
     // With the default settings for Blink content, it is available.
     model.set('documentSettings.isModifiable', true);
-    model.set('documentSettings.isPdf', false);
-    assertTrue(model.settings.pagesPerSheet.available);
-
-    // This state should never occur, but if it does, |isModifiable| takes
-    // precedence and this is still interpreted as Blink content.
-    model.set('documentSettings.isPdf', true);
     assertTrue(model.settings.pagesPerSheet.available);
 
     // Still available for PDF content.
     model.set('documentSettings.isModifiable', false);
     assertTrue(model.settings.pagesPerSheet.available);
 
-    // Not available for Flash content.
-    model.set('documentSettings.isPdf', false);
-    assertFalse(model.settings.pagesPerSheet.available);
-
     // Not available for ARC.
     model.set('documentSettings.isFromArc', true);
-    model.set('documentSettings.isPdf', true);
     assertFalse(model.settings.pagesPerSheet.available);
   });
 
-  if (isChromeOS) {
+  if (isChromeOS || isLacros) {
     test('pin', function() {
       // Make device unmanaged.
       loadTimeData.overrideValues({isEnterpriseManaged: false});

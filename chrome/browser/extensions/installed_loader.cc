@@ -26,6 +26,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/chrome_manifest_url_handlers.h"
 #include "chrome/common/extensions/manifest_handlers/settings_overrides_handler.h"
+#include "chrome/common/webui_url_constants.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/url_constants.h"
@@ -48,6 +49,7 @@
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 using content::BrowserThread;
 
@@ -169,6 +171,92 @@ void RecordDisableReasons(int reasons) {
   }
 }
 
+// Returns the current access level for the given `extension`.
+HostPermissionsAccess GetHostPermissionAccessLevelForExtension(
+    const Extension& extension) {
+  if (!util::CanWithholdPermissionsFromExtension(extension))
+    return HostPermissionsAccess::kCannotAffect;
+
+  bool has_active_hosts = !extension.permissions_data()
+                               ->active_permissions()
+                               .effective_hosts()
+                               .is_empty();
+  size_t active_hosts_size = extension.permissions_data()
+                                 ->active_permissions()
+                                 .effective_hosts()
+                                 .size();
+  bool has_withheld_hosts = !extension.permissions_data()
+                                 ->withheld_permissions()
+                                 .effective_hosts()
+                                 .is_empty();
+
+  if (!has_active_hosts && !has_withheld_hosts) {
+    // No hosts are granted or withheld, so none were requested.
+    // Check if the extension is using activeTab.
+    return extension.permissions_data()->HasAPIPermission(
+               mojom::APIPermissionID::kActiveTab)
+               ? HostPermissionsAccess::kOnActiveTabOnly
+               : HostPermissionsAccess::kNotRequested;
+  }
+
+  if (!has_withheld_hosts) {
+    // No hosts were withheld; the extension is running all requested sites.
+    return HostPermissionsAccess::kOnAllRequestedSites;
+  }
+
+  // The extension is running automatically on some of the requested sites.
+  // <all_urls> (strangely) includes the chrome://favicon/ permission. Thus,
+  // we avoid counting the favicon pattern in the active hosts.
+  if (active_hosts_size > 1) {
+    return HostPermissionsAccess::kOnSpecificSites;
+  }
+  if (active_hosts_size == 1) {
+    const URLPattern& single_pattern = *extension.permissions_data()
+                                            ->active_permissions()
+                                            .effective_hosts()
+                                            .begin();
+    if (single_pattern.scheme() != content::kChromeUIScheme ||
+        single_pattern.host() != chrome::kChromeUIFaviconHost)
+      return HostPermissionsAccess::kOnSpecificSites;
+  }
+
+  // The extension is not running automatically anywhere. All its hosts were
+  // withheld.
+  return HostPermissionsAccess::kOnClick;
+}
+
+void LogHostPermissionsAccess(const Extension& extension) {
+  HostPermissionsAccess access_level =
+      GetHostPermissionAccessLevelForExtension(extension);
+  // Extensions.HostPermissions.GrantedAccess is emitted for every
+  // extension.
+  base::UmaHistogramEnumeration("Extensions.HostPermissions.GrantedAccess",
+                                access_level);
+
+  const PermissionSet& active_permissions =
+      extension.permissions_data()->active_permissions();
+  const PermissionSet& withheld_permissions =
+      extension.permissions_data()->withheld_permissions();
+
+  // Since we only care about host permissions here, we don't want to
+  // look at API permissions that might cause Chrome to warn about all hosts
+  // (like debugger or devtools).
+  static constexpr bool kIncludeApiPermissions = false;
+  if (active_permissions.ShouldWarnAllHosts(kIncludeApiPermissions) ||
+      withheld_permissions.ShouldWarnAllHosts(kIncludeApiPermissions)) {
+    // Extension requests access to at least one eTLD.
+    base::UmaHistogramEnumeration(
+        "Extensions.HostPermissions.GrantedAccessForBroadRequests",
+        access_level);
+  } else if (!active_permissions.effective_hosts().is_empty() ||
+             !withheld_permissions.effective_hosts().is_empty()) {
+    // Extension requests access to hosts, but not eTLD.
+    base::UmaHistogramEnumeration(
+        "Extensions.HostPermissions.GrantedAccessForTargetedRequests",
+        access_level);
+  }
+}
+
 }  // namespace
 
 InstalledLoader::InstalledLoader(ExtensionService* extension_service)
@@ -189,12 +277,9 @@ void InstalledLoader::Load(const ExtensionInfo& info, bool write_to_prefs) {
   std::string error;
   scoped_refptr<const Extension> extension;
   if (info.extension_manifest) {
-    extension = Extension::Create(
-        info.extension_path,
-        info.extension_location,
-        *info.extension_manifest,
-        GetCreationFlags(&info),
-        &error);
+    extension = Extension::Create(info.extension_path, info.extension_location,
+                                  *info.extension_manifest,
+                                  GetCreationFlags(&info), &error);
   } else {
     error = manifest_errors::kManifestUnreadable;
   }
@@ -231,19 +316,30 @@ void InstalledLoader::Load(const ExtensionInfo& info, bool write_to_prefs) {
         extension_prefs_->SetExtensionEnabled(extension->id());
     }
 
-    if ((disable_reasons & disable_reason::DISABLE_CORRUPTED) &&
-        policy->MustRemainEnabled(extension.get(), nullptr)) {
-      // This extension must have been disabled due to corruption on a
-      // previous run of chrome, and for some reason we weren't successful in
-      // auto-reinstalling it. So we want to notify the
-      // PendingExtensionManager that we'd still like to keep attempt to
-      // re-download and reinstall it whenever the ExtensionService checks for
-      // external updates.
+    if ((disable_reasons & disable_reason::DISABLE_CORRUPTED)) {
       PendingExtensionManager* pending_manager =
           extension_service_->pending_extension_manager();
-      pending_manager->ExpectPolicyReinstallForCorruption(
-          extension->id(), PendingExtensionManager::PolicyReinstallReason::
-                               CORRUPTION_DETECTED_IN_PRIOR_SESSION);
+      if (policy->MustRemainEnabled(extension.get(), nullptr)) {
+        // This extension must have been disabled due to corruption on a
+        // previous run of chrome, and for some reason we weren't successful in
+        // auto-reinstalling it. So we want to notify the
+        // PendingExtensionManager that we'd still like to keep attempt to
+        // re-download and reinstall it whenever the ExtensionService checks for
+        // external updates.
+        LOG(ERROR) << "Expecting reinstall for extension id: "
+                   << extension->id()
+                   << " due to corruption detected in prior session.";
+        pending_manager->ExpectReinstallForCorruption(
+            extension->id(),
+            PendingExtensionManager::PolicyReinstallReason::
+                CORRUPTION_DETECTED_IN_PRIOR_SESSION,
+            extension->location());
+      } else if (extension->from_webstore()) {
+        // Non-policy extensions are repaired on startup. Add any corrupted
+        // user-installed extensions to the PendingExtensionManager as well.
+        pending_manager->ExpectReinstallForCorruption(
+            extension->id(), absl::nullopt, extension->location());
+      }
     }
   } else {
     // Extension is enabled. Check management policy to verify if it should
@@ -277,7 +373,7 @@ void InstalledLoader::LoadAllExtensions() {
 
     // Skip extensions that were loaded from the command-line because we don't
     // want those to persist across browser restart.
-    if (info->extension_location == Manifest::COMMAND_LINE)
+    if (info->extension_location == mojom::ManifestLocation::kCommandLine)
       continue;
 
     ManifestReloadReason reload_reason = ShouldReloadExtensionManifest(*info);
@@ -293,11 +389,9 @@ void InstalledLoader::LoadAllExtensions() {
       base::ThreadRestrictions::ScopedAllowIO allow_io;
 
       std::string error;
-      scoped_refptr<const Extension> extension(
-          file_util::LoadExtension(info->extension_path,
-                                   info->extension_location,
-                                   GetCreationFlags(info),
-                                   &error));
+      scoped_refptr<const Extension> extension(file_util::LoadExtension(
+          info->extension_path, info->extension_location,
+          GetCreationFlags(info), &error));
 
       if (!extension.get() || extension->id() != info->extension_id) {
         invalid_extensions_.insert(info->extension_path);
@@ -315,7 +409,8 @@ void InstalledLoader::LoadAllExtensions() {
   }
 
   for (size_t i = 0; i < extensions_info->size(); ++i) {
-    if (extensions_info->at(i)->extension_location != Manifest::COMMAND_LINE)
+    if (extensions_info->at(i)->extension_location !=
+        mojom::ManifestLocation::kCommandLine)
       Load(*extensions_info->at(i), should_write_prefs);
   }
 
@@ -379,7 +474,7 @@ void InstalledLoader::RecordExtensionsMetrics() {
        iter != extensions.end();
        ++iter) {
     const Extension* extension = iter->get();
-    Manifest::Location location = extension->location();
+    mojom::ManifestLocation location = extension->location();
     Manifest::Type type = extension->GetType();
 
     // For the first few metrics, include all extensions and apps (component,
@@ -387,15 +482,12 @@ void InstalledLoader::RecordExtensionsMetrics() {
     // muck up any of the stats. Later, though, we want to omit component and
     // unpacked, as they are less interesting.
     if (extension->is_app())
-      UMA_HISTOGRAM_ENUMERATION(
-          "Extensions.AppLocation", location, Manifest::NUM_LOCATIONS);
+      UMA_HISTOGRAM_ENUMERATION("Extensions.AppLocation", location);
     else if (extension->is_extension())
-      UMA_HISTOGRAM_ENUMERATION(
-          "Extensions.ExtensionLocation", location, Manifest::NUM_LOCATIONS);
+      UMA_HISTOGRAM_ENUMERATION("Extensions.ExtensionLocation", location);
 
     if (!extension_management->UpdatesFromWebstore(*extension)) {
-      UMA_HISTOGRAM_ENUMERATION(
-          "Extensions.NonWebstoreLocation", location, Manifest::NUM_LOCATIONS);
+      UMA_HISTOGRAM_ENUMERATION("Extensions.NonWebstoreLocation", location);
 
       // Check for inconsistencies if the extension was supposedly installed
       // from the webstore.
@@ -425,12 +517,12 @@ void InstalledLoader::RecordExtensionsMetrics() {
     }
 
     if (extension->permissions_data()->HasAPIPermission(
-            APIPermission::kWebRequestBlocking)) {
+            mojom::APIPermissionID::kWebRequestBlocking)) {
       web_request_blocking_count++;
     }
 
     if (extension->permissions_data()->HasAPIPermission(
-            APIPermission::kWebRequest)) {
+            mojom::APIPermissionID::kWebRequest)) {
       web_request_count++;
     }
 
@@ -604,8 +696,10 @@ void InstalledLoader::RecordExtensionsMetrics() {
       }
     }
 
-    if (extension_prefs_->GetExtensionAllowlistState(extension->id()) ==
-        ALLOWLIST_NOT_ALLOWLISTED) {
+    LogHostPermissionsAccess(*extension);
+
+    if (extension_service_->allowlist()->GetExtensionAllowlistState(
+            extension->id()) == ALLOWLIST_NOT_ALLOWLISTED) {
       // Record the number of not allowlisted enabled extensions.
       ++enabled_not_allowlisted_count;
     }
@@ -634,8 +728,8 @@ void InstalledLoader::RecordExtensionsMetrics() {
       }
     }
 
-    if (extension_prefs_->GetExtensionAllowlistState((*ex)->id()) ==
-        ALLOWLIST_NOT_ALLOWLISTED) {
+    if (extension_service_->allowlist()->GetExtensionAllowlistState(
+            (*ex)->id()) == ALLOWLIST_NOT_ALLOWLISTED) {
       // Record the number of not allowlisted disabled extensions.
       ++disabled_not_allowlisted_count;
     }

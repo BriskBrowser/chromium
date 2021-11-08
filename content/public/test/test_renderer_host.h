@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "content/public/browser/render_frame_host.h"
@@ -110,7 +109,7 @@ class RenderFrameHostTester {
   // used as the container policy.
   virtual RenderFrameHost* AppendChildWithPolicy(
       const std::string& frame_name,
-      const blink::ParsedFeaturePolicy& allow) = 0;
+      const blink::ParsedPermissionsPolicy& allow) = 0;
 
   // Gives tests access to RenderFrameHostImpl::OnDetach. Destroys |this|.
   virtual void Detach() = 0;
@@ -133,6 +132,9 @@ class RenderFrameHostTester {
 
   // Get a count of the total number of heavy ad issues reported.
   virtual int GetHeavyAdIssueCount(HeavyAdIssueType type) = 0;
+
+  // Simulates the receipt of a manifest URL.
+  virtual void SimulateManifestURLUpdate(const GURL& manifest_url) = 0;
 };
 
 // An interface and utility for driving tests of RenderViewHost.
@@ -143,8 +145,6 @@ class RenderViewHostTester {
   // RenderViewHost testing was enabled; use a
   // RenderViewHostTestEnabler instance (see below) to do this.
   static RenderViewHostTester* For(RenderViewHost* host);
-
-  static void SimulateFirstPaint(RenderViewHost* rvh);
 
   static std::unique_ptr<content::InputMsgWatcher> CreateInputWatcher(
       RenderViewHost* rvh,
@@ -173,10 +173,13 @@ class RenderViewHostTester {
 class RenderViewHostTestEnabler {
  public:
   RenderViewHostTestEnabler();
+
+  RenderViewHostTestEnabler(const RenderViewHostTestEnabler&) = delete;
+  RenderViewHostTestEnabler& operator=(const RenderViewHostTestEnabler&) =
+      delete;
+
   ~RenderViewHostTestEnabler();
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(RenderViewHostTestEnabler);
   friend class RenderViewHostTestHarness;
 
 #if defined(OS_ANDROID)
@@ -192,7 +195,7 @@ class RenderViewHostTestEnabler {
 };
 
 // RenderViewHostTestHarness ---------------------------------------------------
-class RenderViewHostTestHarness : public testing::Test {
+class RenderViewHostTestHarness : public ::testing::Test {
  public:
   // Constructs a RenderViewHostTestHarness which uses |traits| to initialize
   // its BrowserTaskEnvironment.
@@ -200,6 +203,10 @@ class RenderViewHostTestHarness : public testing::Test {
   explicit RenderViewHostTestHarness(TaskEnvironmentTraits&&... traits)
       : RenderViewHostTestHarness(std::make_unique<BrowserTaskEnvironment>(
             std::forward<TaskEnvironmentTraits>(traits)...)) {}
+
+  RenderViewHostTestHarness(const RenderViewHostTestHarness&) = delete;
+  RenderViewHostTestHarness& operator=(const RenderViewHostTestHarness&) =
+      delete;
 
   ~RenderViewHostTestHarness() override;
 
@@ -215,21 +222,12 @@ class RenderViewHostTestHarness : public testing::Test {
   //   web_contents()->GetRenderViewHost()
   RenderViewHost* rvh();
 
-  // pending_rvh() is equivalent to:
-  //   WebContentsTester::For(web_contents())->GetPendingRenderViewHost()
-  RenderViewHost* pending_rvh();
-
-  // active_rvh() is equivalent to pending_rvh() ? pending_rvh() : rvh()
-  RenderViewHost* active_rvh();
-
   // main_rfh() is equivalent to web_contents()->GetMainFrame()
   RenderFrameHost* main_rfh();
 
-  // pending_main_rfh() is equivalent to:
-  //   WebContentsTester::For(web_contents())->GetPendingMainFrame()
-  RenderFrameHost* pending_main_rfh();
-
   BrowserContext* browser_context();
+
+  // Returns |main_rfh()|'s process.
   MockRenderProcessHost* process();
 
   // Frees the current WebContents for tests that want to test destruction.
@@ -314,8 +312,6 @@ class RenderViewHostTestHarness : public testing::Test {
   std::unique_ptr<aura::test::AuraTestHelper> aura_test_helper_;
 #endif
   RenderProcessHostFactory* factory_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(RenderViewHostTestHarness);
 };
 
 }  // namespace content

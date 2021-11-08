@@ -70,7 +70,7 @@ void ApplyReplaceUrl(network::ResourceRequest* request,
 void ApplyRemoveHeader(
     network::ResourceRequest* request,
     const mojom::UrlRequestRewriteRemoveHeaderPtr& remove_header) {
-  base::Optional<std::string> query_pattern = remove_header->query_pattern;
+  absl::optional<std::string> query_pattern = remove_header->query_pattern;
   if (query_pattern &&
       request->url.query().find(query_pattern.value()) == std::string::npos) {
     // Per the FIDL API, the header should be removed if there is no query
@@ -171,9 +171,9 @@ bool IsRequestAllowed(
 }  // namespace
 
 WebEngineURLLoaderThrottle::WebEngineURLLoaderThrottle(
-    CachedRulesProvider* cached_rules_provider)
-    : cached_rules_provider_(cached_rules_provider) {
-  DCHECK(cached_rules_provider);
+    scoped_refptr<UrlRequestRewriteRules> rules)
+    : rules_(rules) {
+  DCHECK(rules_);
 }
 
 WebEngineURLLoaderThrottle::~WebEngineURLLoaderThrottle() = default;
@@ -183,19 +183,14 @@ void WebEngineURLLoaderThrottle::DetachFromCurrentSequence() {}
 void WebEngineURLLoaderThrottle::WillStartRequest(
     network::ResourceRequest* request,
     bool* defer) {
-  scoped_refptr<WebEngineURLLoaderThrottle::UrlRequestRewriteRules>
-      cached_rules = cached_rules_provider_->GetCachedRules();
-  // |cached_rules| may be empty if no rule was ever sent to WebEngine.
-  if (cached_rules) {
-    if (!IsRequestAllowed(request, *cached_rules)) {
-      delegate_->CancelWithError(net::ERR_ABORTED,
-                                 "Resource load blocked by embedder policy.");
-      return;
-    }
-
-    for (const auto& rule : cached_rules->data)
-      ApplyRule(request, rule);
+  if (!IsRequestAllowed(request, *rules_)) {
+    delegate_->CancelWithError(net::ERR_ABORTED,
+                               "Resource load blocked by embedder policy.");
+    return;
   }
+
+  for (const auto& rule : rules_->data)
+    ApplyRule(request, rule);
   *defer = false;
 }
 
@@ -247,6 +242,11 @@ void WebEngineURLLoaderThrottle::ApplyAddHeaders(
   // Bucket each |header| into the regular/CORS-compliant header list or the
   // CORS-exempt header list.
   for (const auto& header : add_headers->headers.GetHeaderVector()) {
+    if (request->headers.HasHeader(header.key) ||
+        request->cors_exempt_headers.HasHeader(header.key)) {
+      // Skip headers already present in the request at this point.
+      continue;
+    }
     if (IsHeaderCorsExempt(header.key)) {
       request->cors_exempt_headers.SetHeader(header.key, header.value);
     } else {

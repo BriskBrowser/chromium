@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
-#include "base/metrics/field_trial.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/win/scoped_handle.h"
@@ -26,12 +25,12 @@ void ChildProcessLauncherHelper::BeforeLaunchOnClientThread() {
   DCHECK(client_task_runner_->RunsTasksInCurrentSequence());
 }
 
-base::Optional<mojo::NamedPlatformChannel>
+absl::optional<mojo::NamedPlatformChannel>
 ChildProcessLauncherHelper::CreateNamedPlatformChannelOnClientThread() {
   DCHECK(client_task_runner_->RunsTasksInCurrentSequence());
 
   if (!delegate_->ShouldLaunchElevated())
-    return base::nullopt;
+    return absl::nullopt;
 
   mojo::NamedPlatformChannel::Options options;
   mojo::NamedPlatformChannel named_channel(options);
@@ -41,13 +40,17 @@ ChildProcessLauncherHelper::CreateNamedPlatformChannelOnClientThread() {
 
 std::unique_ptr<FileMappedForLaunch>
 ChildProcessLauncherHelper::GetFilesToMap() {
-  return std::unique_ptr<FileMappedForLaunch>();
+  return nullptr;
 }
 
 bool ChildProcessLauncherHelper::BeforeLaunchOnLauncherThread(
     FileMappedForLaunch& files_to_register,
     base::LaunchOptions* options) {
   DCHECK(CurrentlyOnProcessLauncherTaskRunner());
+  if (!delegate_->ShouldLaunchElevated()) {
+    mojo_channel_->PrepareToPassRemoteEndpoint(&options->handles_to_inherit,
+                                               command_line());
+  }
   return true;
 }
 
@@ -68,15 +71,10 @@ ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
     process.process = base::LaunchElevatedProcess(*command_line(), win_options);
     return process;
   }
-  base::HandlesToInheritVector handles;
-  mojo_channel_->PrepareToPassRemoteEndpoint(&handles, command_line());
-  base::FieldTrialList::AppendFieldTrialHandleIfNeeded(&handles);
   ChildProcessLauncherHelper::Process process;
-  *launch_result = StartSandboxedProcess(
-      delegate_.get(),
-      command_line(),
-      handles,
-      &process.process);
+  *launch_result =
+      StartSandboxedProcess(delegate_.get(), *command_line(),
+                            options.handles_to_inherit, &process.process);
   return process;
 }
 

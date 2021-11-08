@@ -11,7 +11,7 @@
 #include "base/check_op.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #import "base/test/ios/wait_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "components/open_from_clipboard/clipboard_recent_content.h"
@@ -58,6 +58,12 @@ const char kTimeRangeDeletionHistogram[] =
 class TestBrowsingDataRemoverObserver : public BrowsingDataRemoverObserver {
  public:
   TestBrowsingDataRemoverObserver() = default;
+
+  TestBrowsingDataRemoverObserver(const TestBrowsingDataRemoverObserver&) =
+      delete;
+  TestBrowsingDataRemoverObserver& operator=(
+      const TestBrowsingDataRemoverObserver&) = delete;
+
   ~TestBrowsingDataRemoverObserver() override = default;
 
   // BrowsingDataRemoverObserver implementation.
@@ -71,8 +77,6 @@ class TestBrowsingDataRemoverObserver : public BrowsingDataRemoverObserver {
  private:
   BrowsingDataRemoveMask last_remove_mask_ =
       BrowsingDataRemoveMask::REMOVE_NOTHING;
-
-  DISALLOW_COPY_AND_ASSIGN(TestBrowsingDataRemoverObserver);
 };
 
 void TestBrowsingDataRemoverObserver::OnBrowsingDataRemoved(
@@ -94,6 +98,10 @@ class BrowsingDataRemoverImplTest : public PlatformTest {
         std::make_unique<FakeClipboardRecentContent>());
   }
 
+  BrowsingDataRemoverImplTest(const BrowsingDataRemoverImplTest&) = delete;
+  BrowsingDataRemoverImplTest& operator=(const BrowsingDataRemoverImplTest&) =
+      delete;
+
   ~BrowsingDataRemoverImplTest() override {
     DCHECK_NE(ClipboardRecentContent::GetInstance(), nullptr);
     ClipboardRecentContent::SetInstance(nullptr);
@@ -104,9 +112,6 @@ class BrowsingDataRemoverImplTest : public PlatformTest {
   web::WebTaskEnvironment task_environment_;
   std::unique_ptr<ChromeBrowserState> browser_state_;
   BrowsingDataRemoverImpl browsing_data_remover_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BrowsingDataRemoverImplTest);
 };
 
 // Tests that BrowsingDataRemoverImpl::Remove() invokes the observers.
@@ -114,9 +119,9 @@ TEST_F(BrowsingDataRemoverImplTest, InvokesObservers) {
   TestBrowsingDataRemoverObserver observer;
   ASSERT_TRUE(observer.last_remove_mask() != kRemoveMask);
 
-  ScopedObserver<BrowsingDataRemover, BrowsingDataRemoverObserver>
+  base::ScopedObservation<BrowsingDataRemover, BrowsingDataRemoverObserver>
       scoped_observer(&observer);
-  scoped_observer.Add(&browsing_data_remover_);
+  scoped_observer.Observe(&browsing_data_remover_);
 
   browsing_data_remover_.Remove(browsing_data::TimePeriod::ALL_TIME,
                                 kRemoveMask, base::DoNothing());

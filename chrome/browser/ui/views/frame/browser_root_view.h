@@ -7,8 +7,9 @@
 
 #include <memory>
 
+#include "base/gtest_prod_util.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/widget/root_view.h"
 
 class ToolbarView;
@@ -35,8 +36,14 @@ class BrowserRootView : public views::internal::RootView {
     // If false, the dropped item should replace the tab at |tab_index|.
     bool drop_before = false;
 
+    // If |drop_before| is true, and |value| is the first tab in a tab
+    // group, determines whether to drop in the group or just before it.
+    // This disambiguates a drop before or after a group header.
+    bool drop_in_group = false;
+
     bool operator==(const DropIndex& other) const {
-      return value == other.value && drop_before == other.drop_before;
+      return value == other.value && drop_before == other.drop_before &&
+             drop_in_group == other.drop_in_group;
     }
   };
 
@@ -48,7 +55,7 @@ class BrowserRootView : public views::internal::RootView {
     virtual DropIndex GetDropIndex(const ui::DropTargetEvent& event) = 0;
     virtual views::View* GetViewForDrop() = 0;
 
-    virtual void HandleDragUpdate(const base::Optional<DropIndex>& index) {}
+    virtual void HandleDragUpdate(const absl::optional<DropIndex>& index) {}
     virtual void HandleDragExited() {}
 
    protected:
@@ -72,6 +79,7 @@ class BrowserRootView : public views::internal::RootView {
   void OnDragExited() override;
   ui::mojom::DragOperation OnPerformDrop(
       const ui::DropTargetEvent& event) override;
+  DropCallback GetDropCallback(const ui::DropTargetEvent& event) override;
   bool OnMouseWheel(const ui::MouseWheelEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
 
@@ -90,7 +98,7 @@ class BrowserRootView : public views::internal::RootView {
     DropTarget* target = nullptr;
 
     // Where to drop the url.
-    base::Optional<DropIndex> index;
+    absl::optional<DropIndex> index;
 
     // The URL for the drop event.
     GURL url;
@@ -121,6 +129,11 @@ class BrowserRootView : public views::internal::RootView {
   // If |url| is non-null and the user can "paste and go", |url| is set to the
   // desired destination.
   bool GetPasteAndGoURL(const ui::OSExchangeData& data, GURL* url);
+
+  // Navigates to the dropped URL.
+  void NavigateToDropUrl(std::unique_ptr<DropInfo> drop_info,
+                         const ui::DropTargetEvent& event,
+                         ui::mojom::DragOperation& output_drag_op);
 
   // The BrowserView.
   BrowserView* browser_view_ = nullptr;

@@ -13,6 +13,7 @@
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/platform_event_controller.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 #include "third_party/blink/renderer/modules/device_orientation/device_motion_data.h"
@@ -36,6 +37,11 @@ class MockDeviceMotionController final
       : PlatformEventController(window),
         did_change_device_motion_(false),
         motion_pump_(motion_pump) {}
+
+  MockDeviceMotionController(const MockDeviceMotionController&) = delete;
+  MockDeviceMotionController& operator=(const MockDeviceMotionController&) =
+      delete;
+
   ~MockDeviceMotionController() override {}
 
   void Trace(Visitor* visitor) const override {
@@ -68,13 +74,15 @@ class MockDeviceMotionController final
   bool did_change_device_motion_;
   int number_of_events_;
   Member<DeviceMotionEventPump> motion_pump_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockDeviceMotionController);
 };
 
 class DeviceMotionEventPumpTest : public testing::Test {
  public:
   DeviceMotionEventPumpTest() = default;
+
+  DeviceMotionEventPumpTest(const DeviceMotionEventPumpTest&) = delete;
+  DeviceMotionEventPumpTest& operator=(const DeviceMotionEventPumpTest&) =
+      delete;
 
  protected:
   void SetUp() override {
@@ -131,8 +139,6 @@ class DeviceMotionEventPumpTest : public testing::Test {
   std::unique_ptr<DummyPageHolder> page_holder_;
 
   FakeSensorProvider sensor_provider_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceMotionEventPumpTest);
 };
 
 TEST_F(DeviceMotionEventPumpTest, AllSensorsAreActive) {
@@ -330,8 +336,7 @@ TEST_F(DeviceMotionEventPumpTest, PumpThrottlesEventRate) {
 
   base::RunLoop loop;
   blink::scheduler::GetSingleThreadTaskRunnerForTesting()->PostDelayedTask(
-      FROM_HERE, loop.QuitWhenIdleClosure(),
-      base::TimeDelta::FromMilliseconds(100));
+      FROM_HERE, loop.QuitWhenIdleClosure(), base::Milliseconds(100));
   loop.Run();
   controller()->UnregisterWithDispatcher();
 

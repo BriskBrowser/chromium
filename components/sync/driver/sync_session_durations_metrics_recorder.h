@@ -6,8 +6,6 @@
 #define COMPONENTS_SYNC_DRIVER_SYNC_SESSION_DURATIONS_METRICS_RECORDER_H_
 
 #include <memory>
-#include <string>
-#include <vector>
 
 #include "base/scoped_observation.h"
 #include "base/timer/elapsed_timer.h"
@@ -28,6 +26,12 @@ class SyncSessionDurationsMetricsRecorder
   SyncSessionDurationsMetricsRecorder(
       SyncService* sync_service,
       signin::IdentityManager* identity_manager);
+
+  SyncSessionDurationsMetricsRecorder(
+      const SyncSessionDurationsMetricsRecorder&) = delete;
+  SyncSessionDurationsMetricsRecorder& operator=(
+      const SyncSessionDurationsMetricsRecorder&) = delete;
+
   ~SyncSessionDurationsMetricsRecorder() override;
 
   // Informs this service that a session started at |session_start| time.
@@ -38,6 +42,8 @@ class SyncSessionDurationsMetricsRecorder
   void OnStateChanged(syncer::SyncService* sync) override;
 
   // IdentityManager::Observer:
+  void OnPrimaryAccountChanged(
+      const signin::PrimaryAccountChangeEvent& event) override;
   void OnRefreshTokenUpdatedForAccount(
       const CoreAccountInfo& account_info) override;
   void OnRefreshTokenRemovedForAccount(
@@ -55,6 +61,9 @@ class SyncSessionDurationsMetricsRecorder
   // out of UNKNOWN, it can alternate between OFF and ON.
   enum class FeatureState { UNKNOWN, OFF, ON };
 
+  static constexpr int GetFeatureStates(FeatureState feature1,
+                                        FeatureState feature2);
+
   void LogSigninDuration(base::TimeDelta session_length);
 
   void LogSyncAndAccountDuration(base::TimeDelta session_length);
@@ -67,9 +76,12 @@ class SyncSessionDurationsMetricsRecorder
 
   void HandleSyncAndAccountChange();
 
-  // Returns |FeatureState::ON| iff there is at least one account in
-  // |identity_manager| that has a valid refresh token.
-  FeatureState DetermineAccountStatus() const;
+  // Returns |FeatureState::ON| iff there is a primary account with a valid
+  // refresh token in the identity manager.
+  FeatureState DeterminePrimaryAccountStatus() const;
+
+  // Determines the syns status..
+  FeatureState DetermineSyncStatus() const;
 
   SyncService* const sync_service_;
   signin::IdentityManager* const identity_manager_;
@@ -96,8 +108,6 @@ class SyncSessionDurationsMetricsRecorder
   // Tracks the elapsed active session time in the current sync and account
   // status. The timer is absent if there's no active session.
   std::unique_ptr<base::ElapsedTimer> sync_account_session_timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyncSessionDurationsMetricsRecorder);
 };
 
 }  // namespace syncer

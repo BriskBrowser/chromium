@@ -32,6 +32,10 @@ namespace {
 class DummyClient final : public RtpStreamClient {
  public:
   DummyClient() {}
+
+  DummyClient(const DummyClient&) = delete;
+  DummyClient& operator=(const DummyClient&) = delete;
+
   ~DummyClient() override {}
 
   // RtpStreamClient implementation.
@@ -39,9 +43,6 @@ class DummyClient final : public RtpStreamClient {
   void RequestRefreshFrame() override {}
   void CreateVideoEncodeAccelerator(
       media::cast::ReceiveVideoEncodeAcceleratorCallback callback) override {}
-  void CreateVideoEncodeMemory(
-      size_t size,
-      media::cast::ReceiveVideoEncodeMemoryCallback callback) override {}
 
   base::WeakPtr<RtpStreamClient> GetWeakPtr() {
     return weak_factory_.GetWeakPtr();
@@ -49,8 +50,6 @@ class DummyClient final : public RtpStreamClient {
 
  private:
   base::WeakPtrFactory<DummyClient> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DummyClient);
 };
 
 }  // namespace
@@ -66,6 +65,9 @@ class RtpStreamTest : public ::testing::Test {
     testing_clock_.Advance(base::TimeTicks::Now() - base::TimeTicks());
   }
 
+  RtpStreamTest(const RtpStreamTest&) = delete;
+  RtpStreamTest& operator=(const RtpStreamTest&) = delete;
+
   ~RtpStreamTest() override { task_environment_.RunUntilIdle(); }
 
  protected:
@@ -74,9 +76,6 @@ class RtpStreamTest : public ::testing::Test {
   const scoped_refptr<media::cast::CastEnvironment> cast_environment_;
   DummyClient client_;
   media::cast::MockCastTransport transport_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(RtpStreamTest);
 };
 
 // Test the video streaming pipeline.
@@ -90,8 +89,8 @@ TEST_F(RtpStreamTest, VideoStreaming) {
 
   auto video_sender = std::make_unique<media::cast::VideoSender>(
       cast_environment_, media::cast::GetDefaultVideoSenderConfig(),
-      base::DoNothing(), base::DoNothing(), base::DoNothing(), &transport_,
-      base::DoNothing(), base::DoNothing());
+      base::DoNothing(), base::DoNothing(), &transport_, base::DoNothing(),
+      base::DoNothing());
   VideoRtpStream video_stream(std::move(video_sender), client_.GetWeakPtr());
   {
     base::RunLoop run_loop;
@@ -109,7 +108,7 @@ TEST_F(RtpStreamTest, VideoStreaming) {
 // Test the audio streaming pipeline.
 TEST_F(RtpStreamTest, AudioStreaming) {
   // Create audio data.
-  const base::TimeDelta kDuration = base::TimeDelta::FromMilliseconds(10);
+  const base::TimeDelta kDuration = base::Milliseconds(10);
   media::cast::FrameSenderConfig audio_config =
       media::cast::GetDefaultAudioSenderConfig();
   std::unique_ptr<media::AudioBus> audio_bus =

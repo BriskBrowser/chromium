@@ -6,17 +6,17 @@
 
 #include <memory>
 
+#include "ash/components/settings/cros_settings_names.h"
 #include "base/bind.h"
 #include "base/logging.h"
+#include "chrome/browser/ash/ownership/owner_settings_service_ash.h"
+#include "chrome/browser/ash/ownership/owner_settings_service_ash_factory.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/ash/system/system_clock_observer.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
-#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/login/login_state/login_state.h"
-#include "chromeos/settings/cros_settings_names.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
@@ -36,8 +36,8 @@ void SetShouldUse24HourClock(bool use_24_hour_clock) {
   Profile* const profile = ProfileHelper::Get()->GetProfileByUser(user);
   if (!profile)
     return;  // May occur in tests or if not running on a device.
-  OwnerSettingsServiceChromeOS* const service =
-      OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(profile);
+  OwnerSettingsServiceAsh* const service =
+      OwnerSettingsServiceAshFactory::GetForBrowserContext(profile);
   CHECK(service);
   service->SetBoolean(kSystemUse24HourClock, use_24_hour_clock);
 }
@@ -74,7 +74,8 @@ void SystemClock::LoggedInStateChanged() {
 
 void SystemClock::OnProfileWillBeDestroyed(Profile* profile) {
   DCHECK_EQ(profile, user_profile_);
-  profile_observer_.Remove(profile);
+  DCHECK(profile_observation_.IsObservingSource(profile));
+  profile_observation_.Reset();
   user_pref_registrar_.reset();
   user_profile_ = nullptr;
 }
@@ -102,10 +103,10 @@ void SystemClock::SetProfileByUser(const user_manager::User* user) {
 
 void SystemClock::SetProfile(Profile* profile) {
   user_profile_ = profile;
-  profile_observer_.RemoveAll();
-  profile_observer_.Add(profile);
+  profile_observation_.Reset();
+  profile_observation_.Observe(profile);
   PrefService* prefs = profile->GetPrefs();
-  user_pref_registrar_.reset(new PrefChangeRegistrar);
+  user_pref_registrar_ = std::make_unique<PrefChangeRegistrar>();
   user_pref_registrar_->Init(prefs);
   user_pref_registrar_->Add(prefs::kUse24HourClock,
                             base::BindRepeating(&SystemClock::UpdateClockType,
@@ -187,10 +188,7 @@ bool SystemClock::ShouldUse24HourClock() const {
       user_pref->IsDefaultValue()) {
     return default_value;
   }
-
-  bool use_24_hour_clock = true;
-  user_pref->GetValue()->GetAsBoolean(&use_24_hour_clock);
-  return use_24_hour_clock;
+  return user_pref->GetValue()->GetIfBool().value_or(true);
 }
 
 void SystemClock::OnSystemPrefChanged() {

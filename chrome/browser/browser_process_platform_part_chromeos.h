@@ -6,21 +6,27 @@
 #define CHROME_BROWSER_BROWSER_PROCESS_PLATFORM_PART_CHROMEOS_H_
 
 #include <memory>
-#include <string>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/sequence_checker.h"
 #include "chrome/browser/browser_process_platform_part_base.h"
 #include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
+#include "chrome/browser/ui/browser_list_observer.h"
 #include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
 
+class Browser;
 class BrowserProcessPlatformPartTestApi;
 class Profile;
 
 namespace ash {
 class AccountManagerFactory;
+class ChromeSessionManager;
+class ChromeUserManager;
+class InSessionPasswordChangeManager;
+class KernelFeatureManager;
 class ProfileHelper;
+class TimeZoneResolver;
 
 namespace system {
 class AutomaticRebootManager;
@@ -32,15 +38,11 @@ class SystemClock;
 }  // namespace ash
 
 namespace chromeos {
-class ChromeSessionManager;
-class ChromeUserManager;
-class InSessionPasswordChangeManager;
 class SchedulerConfigurationManager;
-class TimeZoneResolver;
 }  // namespace chromeos
 
 namespace policy {
-class BrowserPolicyConnectorChromeOS;
+class BrowserPolicyConnectorAsh;
 }
 
 class ScopedKeepAlive;
@@ -48,6 +50,11 @@ class ScopedKeepAlive;
 class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
  public:
   BrowserProcessPlatformPart();
+
+  BrowserProcessPlatformPart(const BrowserProcessPlatformPart&) = delete;
+  BrowserProcessPlatformPart& operator=(const BrowserProcessPlatformPart&) =
+      delete;
+
   ~BrowserProcessPlatformPart() override;
 
   void InitializeAutomaticRebootManager();
@@ -67,6 +74,9 @@ class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
 
   void InitializeSchedulerConfigurationManager();
   void ShutdownSchedulerConfigurationManager();
+
+  void InitializeKernelFeatureManager();
+  void ShutdownKernelFeatureManager();
 
   // Initializes all services that need the primary profile. Gets called as soon
   // as the primary profile is available, which implies that the primary user
@@ -91,18 +101,20 @@ class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
     return automatic_reboot_manager_.get();
   }
 
-  policy::BrowserPolicyConnectorChromeOS* browser_policy_connector_chromeos();
+  policy::BrowserPolicyConnectorAsh* browser_policy_connector_ash();
 
-  chromeos::ChromeSessionManager* session_manager() {
+  ash::ChromeSessionManager* session_manager() {
     return session_manager_.get();
   }
 
-  chromeos::ChromeUserManager* user_manager() {
-    return chrome_user_manager_.get();
-  }
+  ash::ChromeUserManager* user_manager() { return chrome_user_manager_.get(); }
 
   chromeos::SchedulerConfigurationManager* scheduler_configuration_manager() {
     return scheduler_configuration_manager_.get();
+  }
+
+  ash::KernelFeatureManager* kernel_feature_manager() {
+    return kernel_feature_manager_.get();
   }
 
   ash::system::DeviceDisablingManager* device_disabling_manager() {
@@ -116,29 +128,50 @@ class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
 
   ash::system::TimeZoneResolverManager* GetTimezoneResolverManager();
 
-  chromeos::TimeZoneResolver* GetTimezoneResolver();
+  ash::TimeZoneResolver* GetTimezoneResolver();
 
   // Overridden from BrowserProcessPlatformPartBase:
   void StartTearDown() override;
+  void AttemptExit(bool try_to_quit_application) override;
 
   ash::system::SystemClock* GetSystemClock();
   void DestroySystemClock();
 
   ash::AccountManagerFactory* GetAccountManagerFactory();
 
-  chromeos::InSessionPasswordChangeManager*
-  in_session_password_change_manager() {
+  ash::InSessionPasswordChangeManager* in_session_password_change_manager() {
     return in_session_password_change_manager_.get();
   }
 
  private:
   friend class BrowserProcessPlatformPartTestApi;
 
+  // An observer that restores urls based on the on startup setting after a new
+  // browser is added to the BrowserList.
+  class BrowserRestoreObserver : public BrowserListObserver {
+   public:
+    BrowserRestoreObserver();
+
+    ~BrowserRestoreObserver() override;
+
+   protected:
+    // BrowserListObserver:
+    void OnBrowserAdded(Browser* browser) override;
+
+   private:
+    // Returns true, if the url defined in the on startup setting should be
+    // opened. Otherwise, returns false.
+    bool ShouldRestoreUrls(Browser* browser);
+
+    // Restores urls based on the on startup setting.
+    void RestoreUrls(Browser* browser);
+  };
+
   void CreateProfileHelper();
 
   void ShutdownPrimaryProfileServices();
 
-  std::unique_ptr<chromeos::ChromeSessionManager> session_manager_;
+  std::unique_ptr<ash::ChromeSessionManager> session_manager_;
 
   bool created_profile_helper_;
   std::unique_ptr<ash::ProfileHelper> profile_helper_;
@@ -146,7 +179,7 @@ class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
   std::unique_ptr<ash::system::AutomaticRebootManager>
       automatic_reboot_manager_;
 
-  std::unique_ptr<chromeos::ChromeUserManager> chrome_user_manager_;
+  std::unique_ptr<ash::ChromeUserManager> chrome_user_manager_;
 
   std::unique_ptr<ash::system::DeviceDisablingManagerDefaultDelegate>
       device_disabling_manager_delegate_;
@@ -155,7 +188,7 @@ class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
 
   std::unique_ptr<ash::system::TimeZoneResolverManager>
       timezone_resolver_manager_;
-  std::unique_ptr<chromeos::TimeZoneResolver> timezone_resolver_;
+  std::unique_ptr<ash::TimeZoneResolver> timezone_resolver_;
 
   std::unique_ptr<ash::system::SystemClock> system_clock_;
 
@@ -169,17 +202,18 @@ class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
 
   std::unique_ptr<ash::AccountManagerFactory> account_manager_factory_;
 
-  std::unique_ptr<chromeos::InSessionPasswordChangeManager>
+  std::unique_ptr<ash::InSessionPasswordChangeManager>
       in_session_password_change_manager_;
 
   base::CallbackListSubscription primary_profile_shutdown_subscription_;
 
   std::unique_ptr<chromeos::SchedulerConfigurationManager>
       scheduler_configuration_manager_;
+  std::unique_ptr<ash::KernelFeatureManager> kernel_feature_manager_;
+
+  BrowserRestoreObserver browser_restore_observer;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserProcessPlatformPart);
 };
 
 #endif  // CHROME_BROWSER_BROWSER_PROCESS_PLATFORM_PART_CHROMEOS_H_

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ash/system/device_disabling_manager.h"
 
+#include <memory>
+
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
@@ -11,14 +13,13 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/ash/policy/core/device_cloud_policy_manager_ash.h"
+#include "chrome/browser/ash/policy/core/device_policy_builder.h"
+#include "chrome/browser/ash/policy/server_backed_state/server_backed_device_state.h"
+#include "chrome/browser/ash/settings/device_settings_service.h"
+#include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_policy_builder.h"
-#include "chrome/browser/chromeos/policy/server_backed_device_state.h"
-#include "chrome/browser/chromeos/settings/device_settings_service.h"
-#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chromeos/dbus/session_manager/fake_session_manager_client.h"
@@ -53,6 +54,11 @@ class DeviceDisablingManagerTestBase : public testing::Test,
  public:
   DeviceDisablingManagerTestBase();
 
+  DeviceDisablingManagerTestBase(const DeviceDisablingManagerTestBase&) =
+      delete;
+  DeviceDisablingManagerTestBase& operator=(
+      const DeviceDisablingManagerTestBase&) = delete;
+
   // testing::Test:
   void TearDown() override;
 
@@ -75,12 +81,10 @@ class DeviceDisablingManagerTestBase : public testing::Test,
 
  private:
   content::BrowserTaskEnvironment task_environment_;
-  chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
-  chromeos::FakeChromeUserManager fake_user_manager_;
+  ScopedCrosSettingsTestHelper cros_settings_test_helper_;
+  FakeChromeUserManager fake_user_manager_;
   std::unique_ptr<DeviceDisablingManager> device_disabling_manager_;
   chromeos::system::FakeStatisticsProvider statistics_provider_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceDisablingManagerTestBase);
 };
 
 DeviceDisablingManagerTestBase::DeviceDisablingManagerTestBase() {
@@ -92,10 +96,8 @@ void DeviceDisablingManagerTestBase::TearDown() {
 }
 
 void DeviceDisablingManagerTestBase::CreateDeviceDisablingManager() {
-  device_disabling_manager_.reset(new DeviceDisablingManager(
-      this,
-      CrosSettings::Get(),
-      &fake_user_manager_));
+  device_disabling_manager_ = std::make_unique<DeviceDisablingManager>(
+      this, CrosSettings::Get(), &fake_user_manager_);
   device_disabling_manager_->Init();
 }
 
@@ -126,6 +128,11 @@ class DeviceDisablingManagerOOBETest : public DeviceDisablingManagerTestBase {
  public:
   DeviceDisablingManagerOOBETest();
 
+  DeviceDisablingManagerOOBETest(const DeviceDisablingManagerOOBETest&) =
+      delete;
+  DeviceDisablingManagerOOBETest& operator=(
+      const DeviceDisablingManagerOOBETest&) = delete;
+
   // DeviceDisablingManagerTestBase:
   void SetUp() override;
   void TearDown() override;
@@ -144,8 +151,6 @@ class DeviceDisablingManagerOOBETest : public DeviceDisablingManagerTestBase {
 
   base::RunLoop run_loop_;
   bool device_disabled_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceDisablingManagerOOBETest);
 };
 
 DeviceDisablingManagerOOBETest::DeviceDisablingManagerOOBETest()
@@ -156,8 +161,7 @@ DeviceDisablingManagerOOBETest::DeviceDisablingManagerOOBETest()
 
 void DeviceDisablingManagerOOBETest::SetUp() {
   TestingBrowserProcess::GetGlobal()->SetLocalState(&local_state_);
-  policy::DeviceCloudPolicyManagerChromeOS::RegisterPrefs(
-      local_state_.registry());
+  policy::DeviceCloudPolicyManagerAsh::RegisterPrefs(local_state_.registry());
   CreateDeviceDisablingManager();
   chromeos::system::StatisticsProvider::SetTestProvider(&statistics_provider_);
 }
@@ -179,7 +183,7 @@ void DeviceDisablingManagerOOBETest::SetDeviceDisabled(bool disabled) {
   if (disabled) {
     dict->SetString(policy::kDeviceStateMode, policy::kDeviceStateModeDisabled);
   } else {
-    dict->Remove(policy::kDeviceStateMode, nullptr);
+    dict->RemoveKey(policy::kDeviceStateMode);
   }
   dict->SetString(policy::kDeviceStateManagementDomain, kEnrollmentDomain);
   dict->SetString(policy::kDeviceStateDisabledMessage, kDisabledMessage1);
@@ -253,6 +257,10 @@ class DeviceDisablingManagerTest : public DeviceDisablingManagerTestBase,
  public:
   DeviceDisablingManagerTest();
 
+  DeviceDisablingManagerTest(const DeviceDisablingManagerTest&) = delete;
+  DeviceDisablingManagerTest& operator=(const DeviceDisablingManagerTest&) =
+      delete;
+
   // DeviceDisablingManagerTestBase:
   void TearDown() override;
   void CreateDeviceDisablingManager() override;
@@ -271,15 +279,13 @@ class DeviceDisablingManagerTest : public DeviceDisablingManagerTestBase,
 
   FakeSessionManagerClient session_manager_client_;
   policy::DevicePolicyBuilder device_policy_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceDisablingManagerTest);
 };
 
 DeviceDisablingManagerTest::DeviceDisablingManagerTest() {
 }
 
 void DeviceDisablingManagerTest::TearDown() {
-  chromeos::DeviceSettingsService::Get()->UnsetSessionManager();
+  DeviceSettingsService::Get()->UnsetSessionManager();
   DeviceDisablingManagerTestBase::TearDown();
 }
 
@@ -298,8 +304,8 @@ void DeviceDisablingManagerTest::MakeCrosSettingsTrusted() {
   scoped_refptr<ownership::MockOwnerKeyUtil> owner_key_util(
       new ownership::MockOwnerKeyUtil);
   owner_key_util->SetPublicKeyFromPrivateKey(*device_policy_.GetSigningKey());
-  chromeos::DeviceSettingsService::Get()->SetSessionManager(
-      &session_manager_client_, owner_key_util);
+  DeviceSettingsService::Get()->SetSessionManager(&session_manager_client_,
+                                                  owner_key_util);
   SimulatePolicyFetch();
 }
 
@@ -323,7 +329,7 @@ void DeviceDisablingManagerTest::SetDisabledMessage(
 void DeviceDisablingManagerTest::SimulatePolicyFetch() {
   device_policy_.Build();
   session_manager_client_.set_device_policy(device_policy_.GetBlob());
-  chromeos::DeviceSettingsService::Get()->OwnerKeySet(true);
+  DeviceSettingsService::Get()->OwnerKeySet(true);
   content::RunAllTasksUntilIdle();
 }
 

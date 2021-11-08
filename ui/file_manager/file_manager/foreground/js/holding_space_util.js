@@ -6,13 +6,11 @@
  * @fileoverview Utility methods for the holding space feature.
  */
 
-// clang-format off
-// #import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
-// #import {metrics} from '../../common/js/metrics.m.js';
-// #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-// clang-format on
+import {metrics} from '../../common/js/metrics.js';
+import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
+import {xfm} from '../../common/js/xfm.js';
 
-/* #export */ class HoldingSpaceUtil {
+export class HoldingSpaceUtil {
   /**
    * Returns the key in localStorage to store the time (in milliseconds) of the
    * first pin to holding space.
@@ -33,23 +31,19 @@
     return 'holdingSpaceTimeOfFirstWelcomeBannerShow';
   }
 
-  /** @return {boolean} */
-  static isFeatureEnabled() {
-    return loadTimeData.valueExists('HOLDING_SPACE_ENABLED') &&
-        loadTimeData.getBoolean('HOLDING_SPACE_ENABLED');
-  }
-
   /**
    * Returns the volume types for which the holding space feature is allowed.
    * @return {!Array<?VolumeManagerCommon.VolumeType>}
    */
   static getAllowedVolumeTypes() {
+    // TODO(crbug.com/1228128): Update this to the new configuration style
+    // defined at ../externs/banner.js once fully migrated to the new Banner
+    // framework.
     return [
       VolumeManagerCommon.VolumeType.ANDROID_FILES,
       VolumeManagerCommon.VolumeType.CROSTINI,
       VolumeManagerCommon.VolumeType.DRIVE,
       VolumeManagerCommon.VolumeType.DOWNLOADS,
-      VolumeManagerCommon.VolumeType.MY_FILES,
     ];
   }
 
@@ -62,7 +56,7 @@
   static getTimeOfFirstPin_() {
     return new Promise(resolve => {
       const key = HoldingSpaceUtil.TIME_OF_FIRST_PIN_KEY_;
-      chrome.storage.local.get(key, values => {
+      xfm.storage.local.get(key, values => {
         resolve(values[key]);
       });
     });
@@ -78,7 +72,7 @@
   static getTimeOfFirstWelcomeBannerShow_() {
     return new Promise(resolve => {
       const key = HoldingSpaceUtil.TIME_OF_FIRST_WELCOME_BANNER_SHOW_KEY_;
-      chrome.storage.local.get(key, values => {
+      xfm.storage.local.get(key, values => {
         resolve(values[key]);
       });
     });
@@ -99,7 +93,7 @@
     // Store time of first pin.
     const values = {};
     values[HoldingSpaceUtil.TIME_OF_FIRST_PIN_KEY_] = now;
-    chrome.storage.local.set(values);
+    xfm.storage.local.set(values);
 
     // Record a metric of the interval from the first time the holding space
     // welcome banner was shown to the time of the first pin to holding space.
@@ -117,7 +111,7 @@
     const oneDayInMillis = 24 * 60 * 60 * 1000;
     metrics.recordValue(
         /*name=*/ 'HoldingSpace.TimeFromFirstWelcomeBannerShowToFirstPin',
-        /*type=*/ 'histogram-log',
+        chrome.metricsPrivate.MetricTypeType.HISTOGRAM_LOG,
         /*min=*/ oneSecondInMillis,
         /*max=*/ oneDayInMillis,
         /*buckets=*/ 50,
@@ -139,6 +133,6 @@
     // Store time of first show.
     const values = {};
     values[HoldingSpaceUtil.TIME_OF_FIRST_WELCOME_BANNER_SHOW_KEY_] = now;
-    chrome.storage.local.set(values);
+    xfm.storage.local.set(values);
   }
 }

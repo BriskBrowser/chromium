@@ -16,11 +16,12 @@
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/infobars/infobar_ios.h"
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
+#include "ios/chrome/browser/infobars/infobar_utils.h"
 #include "ios/chrome/browser/signin/authentication_service.h"
 #include "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/ui/authentication/signin_presenter.h"
 #import "ios/chrome/browser/ui/commands/show_signin_command.h"
 #include "ios/chrome/grit/ios_strings.h"
-#import "ios/public/provider/chrome/browser/signin/signin_presenter.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -54,7 +55,7 @@ std::unique_ptr<infobars::InfoBar> ReSignInInfoBarDelegate::CreateInfoBar(
       ReSignInInfoBarDelegate::CreateInfoBarDelegate(browser_state, presenter);
   if (!delegate)
     return nullptr;
-  return infobar_manager->CreateConfirmInfoBar(std::move(delegate));
+  return CreateConfirmInfoBar(std::move(delegate));
 }
 
 // static
@@ -69,11 +70,11 @@ ReSignInInfoBarDelegate::CreateInfoBarDelegate(
   // Returns null if user does not need to be prompted to sign in again.
   AuthenticationService* authService =
       AuthenticationServiceFactory::GetForBrowserState(browser_state);
-  if (!authService->ShouldPromptForSignIn())
+  if (!authService->ShouldReauthPromptForSignInAndSync())
     return nullptr;
   // Returns null if user has already signed in via some other path.
-  if (authService->IsAuthenticated()) {
-    authService->ResetPromptForSignIn();
+  if (authService->HasPrimaryIdentity(signin::ConsentLevel::kSignin)) {
+    authService->ResetReauthPromptForSignInAndSync();
     return nullptr;
   }
   signin_metrics::RecordSigninImpressionUserActionForAccessPoint(
@@ -100,7 +101,7 @@ ReSignInInfoBarDelegate::GetIdentifier() const {
   return RE_SIGN_IN_INFOBAR_DELEGATE_IOS;
 }
 
-base::string16 ReSignInInfoBarDelegate::GetMessageText() const {
+std::u16string ReSignInInfoBarDelegate::GetMessageText() const {
   return l10n_util::GetStringUTF16(IDS_IOS_SYNC_LOGIN_INFO_OUT_OF_DATE);
 }
 
@@ -108,7 +109,7 @@ int ReSignInInfoBarDelegate::GetButtons() const {
   return BUTTON_OK;
 }
 
-base::string16 ReSignInInfoBarDelegate::GetButtonLabel(
+std::u16string ReSignInInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
   return l10n_util::GetStringUTF16(
       IDS_IOS_SYNC_INFOBAR_SIGN_IN_SETTINGS_BUTTON_MOBILE);
@@ -130,12 +131,12 @@ bool ReSignInInfoBarDelegate::Accept() {
 
   // Stop displaying the infobar once user interacted with it.
   AuthenticationServiceFactory::GetForBrowserState(browser_state_)
-      ->ResetPromptForSignIn();
+      ->ResetReauthPromptForSignInAndSync();
   return true;
 }
 
 void ReSignInInfoBarDelegate::InfoBarDismissed() {
   // Stop displaying the infobar once user interacted with it.
   AuthenticationServiceFactory::GetForBrowserState(browser_state_)
-      ->ResetPromptForSignIn();
+      ->ResetReauthPromptForSignInAndSync();
 }

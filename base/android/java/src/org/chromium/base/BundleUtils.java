@@ -20,6 +20,7 @@ import dalvik.system.PathClassLoader;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.build.BuildConfig;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
@@ -77,7 +78,6 @@ public final class BundleUtils {
         sIsBundle = isBundle;
     }
 
-    @CalledByNative
     public static boolean isolatedSplitsEnabled() {
         return BuildConfig.ISOLATED_SPLITS_ENABLED;
     }
@@ -141,21 +141,28 @@ public final class BundleUtils {
             boolean shouldReplaceClassLoader = isolatedSplitsEnabled()
                     && !parent.equals(BundleUtils.class.getClassLoader()) && appContext != null
                     && !parent.equals(appContext.getClassLoader());
-            if (shouldReplaceClassLoader) {
-                synchronized (sCachedClassLoaders) {
-                    if (!sCachedClassLoaders.containsKey(splitName)) {
-                        String[] splitNames =
-                                ApiHelperForO.getSplitNames(context.getApplicationInfo());
-                        int idx = Arrays.binarySearch(splitNames, splitName);
-                        assert idx >= 0;
-                        // The librarySearchPath argument to PathClassLoader is not needed here
-                        // because the framework doesn't pass it either, see b/171269960.
-                        sCachedClassLoaders.put(splitName,
-                                new PathClassLoader(
-                                        context.getApplicationInfo().splitSourceDirs[idx],
-                                        appContext.getClassLoader()));
+            synchronized (sCachedClassLoaders) {
+                if (shouldReplaceClassLoader && !sCachedClassLoaders.containsKey(splitName)) {
+                    String[] splitNames = ApiHelperForO.getSplitNames(context.getApplicationInfo());
+                    int idx = Arrays.binarySearch(splitNames, splitName);
+                    assert idx >= 0;
+                    // The librarySearchPath argument to PathClassLoader is not needed here
+                    // because the framework doesn't pass it either, see b/171269960.
+                    sCachedClassLoaders.put(splitName,
+                            new PathClassLoader(context.getApplicationInfo().splitSourceDirs[idx],
+                                    appContext.getClassLoader()));
+                }
+                // Always replace the ClassLoader if we have a cached version to make sure all
+                // ClassLoaders are consistent.
+                ClassLoader cachedClassLoader = sCachedClassLoaders.get(splitName);
+                if (cachedClassLoader != null) {
+                    if (!cachedClassLoader.equals(context.getClassLoader())) {
+                        // Set this for recording the histogram below.
+                        shouldReplaceClassLoader = true;
+                        replaceClassLoader(context, cachedClassLoader);
                     }
-                    replaceClassLoader(context, sCachedClassLoaders.get(splitName));
+                } else {
+                    sCachedClassLoaders.put(splitName, context.getClassLoader());
                 }
             }
             RecordHistogram.recordBooleanHistogram(
@@ -199,8 +206,13 @@ public final class BundleUtils {
 
             // SplitCompat is installed on the application context, so check there for library paths
             // which were added to that ClassLoader.
-            path = ((BaseDexClassLoader) ContextUtils.getApplicationContext().getClassLoader())
-                           .findLibrary(libraryName);
+            ClassLoader classLoader = ContextUtils.getApplicationContext().getClassLoader();
+            // In WebLayer, the class loader will be a WrappedClassLoader.
+            if (classLoader instanceof BaseDexClassLoader) {
+                path = ((BaseDexClassLoader) classLoader).findLibrary(libraryName);
+            } else if (classLoader instanceof WrappedClassLoader) {
+                path = ((WrappedClassLoader) classLoader).findLibrary(libraryName);
+            }
             if (path != null) {
                 return path;
             }

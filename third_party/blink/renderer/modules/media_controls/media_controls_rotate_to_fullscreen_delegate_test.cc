@@ -6,10 +6,7 @@
 
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "services/device/public/mojom/screen_orientation.mojom-blink.h"
-#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/mojom/widget/screen_orientation.mojom-blink.h"
-#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/core/css/css_style_declaration.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
@@ -22,6 +19,7 @@
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
+#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/modules/device_orientation/device_orientation_controller.h"
 #include "third_party/blink/renderer/modules/device_orientation/device_orientation_data.h"
@@ -32,10 +30,7 @@
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
-
-using testing::_;
-using testing::AtLeast;
-using testing::Return;
+#include "ui/display/mojom/screen_orientation.mojom-blink.h"
 
 namespace blink {
 
@@ -43,10 +38,16 @@ namespace {
 
 class MockVideoWebMediaPlayer : public EmptyWebMediaPlayer {
  public:
+  ~MockVideoWebMediaPlayer() override = default;
+
   // EmptyWebMediaPlayer overrides:
   bool HasVideo() const override { return true; }
+  gfx::Size NaturalSize() const override { return mock_natural_size_; }
 
-  MOCK_CONST_METHOD0(NaturalSize, gfx::Size());
+  gfx::Size& MockNaturalSize() { return mock_natural_size_; }
+
+ private:
+  gfx::Size mock_natural_size_ = {};
 };
 
 class MockChromeClient : public EmptyChromeClient {
@@ -71,7 +72,14 @@ class MockChromeClient : public EmptyChromeClient {
     Fullscreen::DidExitFullscreen(*frame.GetDocument());
   }
 
-  MOCK_CONST_METHOD1(GetScreenInfo, ScreenInfo(LocalFrame&));
+  const display::ScreenInfo& GetScreenInfo(LocalFrame&) const override {
+    return mock_screen_info_;
+  }
+
+  display::ScreenInfo& MockScreenInfo() { return mock_screen_info_; }
+
+ private:
+  display::ScreenInfo mock_screen_info_ = {};
 };
 
 class StubLocalFrameClient : public EmptyLocalFrameClient {
@@ -101,12 +109,7 @@ class MediaControlsRotateToFullscreenDelegateTest
 
   void SetUp() override {
     chrome_client_ = MakeGarbageCollected<MockChromeClient>();
-
-    Page::PageClients clients;
-    FillWithEmptyClients(clients);
-    clients.chrome_client = chrome_client_.Get();
-
-    SetupPageWithClients(&clients,
+    SetupPageWithClients(chrome_client_,
                          MakeGarbageCollected<StubLocalFrameClient>());
     video_ = MakeGarbageCollected<HTMLVideoElement>(GetDocument());
     GetVideo().setAttribute(html_names::kControlsAttr, g_empty_atom);
@@ -154,7 +157,7 @@ class MediaControlsRotateToFullscreenDelegateTest
   }
 
   void InitScreenAndVideo(
-      mojom::blink::ScreenOrientation initial_screen_orientation,
+      display::mojom::blink::ScreenOrientation initial_screen_orientation,
       gfx::Size video_size,
       bool with_device_orientation = true);
 
@@ -166,7 +169,8 @@ class MediaControlsRotateToFullscreenDelegateTest
     test::RunPendingTasks();
   }
 
-  void RotateTo(mojom::blink::ScreenOrientation new_screen_orientation);
+  void RotateTo(
+      display::mojom::blink::ScreenOrientation new_screen_orientation);
 
   MockChromeClient& GetChromeClient() const { return *chrome_client_; }
   LocalDOMWindow& GetWindow() const { return *GetDocument().domWindow(); }
@@ -185,15 +189,12 @@ class MediaControlsRotateToFullscreenDelegateTest
 };
 
 void MediaControlsRotateToFullscreenDelegateTest::InitScreenAndVideo(
-    mojom::blink::ScreenOrientation initial_screen_orientation,
+    display::mojom::blink::ScreenOrientation initial_screen_orientation,
     gfx::Size video_size,
     bool with_device_orientation /* = true */) {
   // Set initial screen orientation (called by `Attach` during `AppendChild`).
-  ScreenInfo screen_info;
-  screen_info.orientation_type = initial_screen_orientation;
-  EXPECT_CALL(GetChromeClient(), GetScreenInfo(_))
-      .Times(AtLeast(1))
-      .WillRepeatedly(Return(screen_info));
+  GetChromeClient().MockScreenInfo().orientation_type =
+      initial_screen_orientation;
 
   // Set up the WebMediaPlayer instance.
   GetDocument().body()->AppendChild(&GetVideo());
@@ -202,8 +203,7 @@ void MediaControlsRotateToFullscreenDelegateTest::InitScreenAndVideo(
   SimulateVideoReadyState(HTMLMediaElement::kHaveMetadata);
 
   // Set video size.
-  EXPECT_CALL(GetWebMediaPlayer(), NaturalSize())
-      .WillRepeatedly(Return(video_size));
+  GetWebMediaPlayer().MockNaturalSize() = video_size;
 
   if (with_device_orientation) {
     // Dispatch an arbitrary Device Orientation event to satisfy
@@ -226,13 +226,8 @@ void MediaControlsRotateToFullscreenDelegateTest::PlayVideo() {
 }
 
 void MediaControlsRotateToFullscreenDelegateTest::RotateTo(
-    mojom::blink::ScreenOrientation new_screen_orientation) {
-  ScreenInfo screen_info;
-  screen_info.orientation_type = new_screen_orientation;
-  testing::Mock::VerifyAndClearExpectations(&GetChromeClient());
-  EXPECT_CALL(GetChromeClient(), GetScreenInfo(_))
-      .Times(AtLeast(1))
-      .WillRepeatedly(Return(screen_info));
+    display::mojom::blink::ScreenOrientation new_screen_orientation) {
+  GetChromeClient().MockScreenInfo().orientation_type = new_screen_orientation;
   DispatchEvent(GetWindow(), event_type_names::kOrientationchange);
   test::RunPendingTasks();
 }
@@ -261,39 +256,28 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, ComputeVideoOrientation) {
   GetVideo().SetSrc("https://example.com");
   test::RunPendingTasks();
 
-  // Each `ComputeVideoOrientation` calls `NaturalSize` twice, except the first
-  // one where the video is not yet ready.
-  EXPECT_CALL(GetWebMediaPlayer(), NaturalSize())
-      .Times(12)
-      .WillOnce(Return(gfx::Size(400, 400)))
-      .WillOnce(Return(gfx::Size(400, 400)))
-      .WillOnce(Return(gfx::Size(300, 200)))
-      .WillOnce(Return(gfx::Size(300, 200)))
-      .WillOnce(Return(gfx::Size(200, 300)))
-      .WillOnce(Return(gfx::Size(200, 300)))
-      .WillOnce(Return(gfx::Size(300, 199)))
-      .WillOnce(Return(gfx::Size(300, 199)))
-      .WillOnce(Return(gfx::Size(199, 300)))
-      .WillOnce(Return(gfx::Size(199, 300)))
-      .WillOnce(Return(gfx::Size(0, 0)))
-      .WillOnce(Return(gfx::Size(0, 0)));
-
   // Video is not yet ready.
   EXPECT_EQ(SimpleOrientation::kUnknown, ComputeVideoOrientation());
 
   SimulateVideoReadyState(HTMLMediaElement::kHaveMetadata);
 
   // 400x400 is square, which is currently treated as landscape.
+  GetWebMediaPlayer().MockNaturalSize() = gfx::Size(400, 400);
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
   // 300x200 is landscape.
+  GetWebMediaPlayer().MockNaturalSize() = gfx::Size(300, 200);
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
   // 200x300 is portrait.
+  GetWebMediaPlayer().MockNaturalSize() = gfx::Size(200, 300);
   EXPECT_EQ(SimpleOrientation::kPortrait, ComputeVideoOrientation());
   // 300x199 is too small.
+  GetWebMediaPlayer().MockNaturalSize() = gfx::Size(300, 199);
   EXPECT_EQ(SimpleOrientation::kUnknown, ComputeVideoOrientation());
   // 199x300 is too small.
+  GetWebMediaPlayer().MockNaturalSize() = gfx::Size(199, 300);
   EXPECT_EQ(SimpleOrientation::kUnknown, ComputeVideoOrientation());
   // 0x0 is empty.
+  GetWebMediaPlayer().MockNaturalSize() = gfx::Size(0, 0);
   EXPECT_EQ(SimpleOrientation::kUnknown, ComputeVideoOrientation());
 }
 
@@ -339,7 +323,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterSuccessPortraitToLandscape) {
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -352,7 +336,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_FALSE(GetVideo().IsFullscreen());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should enter fullscreen.
   EXPECT_TRUE(GetVideo().IsFullscreen());
@@ -361,8 +345,9 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterSuccessLandscapeToPortrait) {
   // Landscape screen, portrait video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kLandscapePrimary,
-                     gfx::Size(480, 640));
+  InitScreenAndVideo(
+      display::mojom::blink::ScreenOrientation::kLandscapePrimary,
+      gfx::Size(480, 640));
   EXPECT_EQ(SimpleOrientation::kLandscape, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kPortrait, ComputeVideoOrientation());
 
@@ -374,7 +359,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_FALSE(GetVideo().IsFullscreen());
 
   // Rotate screen to portrait.
-  RotateTo(mojom::blink::ScreenOrientation::kPortraitPrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kPortraitPrimary);
 
   // Should enter fullscreen.
   EXPECT_TRUE(GetVideo().IsFullscreen());
@@ -383,7 +368,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterSuccessSquarePortraitToLandscape) {
   // Portrait screen, square video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(400, 400));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -396,7 +381,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_FALSE(GetVideo().IsFullscreen());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should enter fullscreen, since square videos are currently treated the same
   // as landscape videos.
@@ -405,8 +390,9 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 
 TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailWrongOrientation) {
   // Landscape screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kLandscapePrimary,
-                     gfx::Size(640, 480));
+  InitScreenAndVideo(
+      display::mojom::blink::ScreenOrientation::kLandscapePrimary,
+      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kLandscape, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
 
@@ -417,7 +403,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailWrongOrientation) {
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to portrait.
-  RotateTo(mojom::blink::ScreenOrientation::kPortraitPrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kPortraitPrimary);
 
   // Should not enter fullscreen since the orientation that the device was
   // rotated to does not match the orientation of the video.
@@ -427,8 +413,9 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailWrongOrientation) {
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterFailSquareWrongOrientation) {
   // Landscape screen, square video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kLandscapePrimary,
-                     gfx::Size(400, 400));
+  InitScreenAndVideo(
+      display::mojom::blink::ScreenOrientation::kLandscapePrimary,
+      gfx::Size(400, 400));
   EXPECT_EQ(SimpleOrientation::kLandscape, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
 
@@ -439,7 +426,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to portrait.
-  RotateTo(mojom::blink::ScreenOrientation::kPortraitPrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kPortraitPrimary);
 
   // Should not enter fullscreen since square videos are treated as landscape,
   // so rotating to portrait does not match the orientation of the video.
@@ -450,7 +437,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailNoControls) {
   DisableControls();
 
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -462,7 +449,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailNoControls) {
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen since video has no controls.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -471,7 +458,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailNoControls) {
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterFailNoDeviceOrientation) {
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480), false /* with_device_orientation */);
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -489,7 +476,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen since Device Orientation is not available.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -498,7 +485,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterFailZeroDeviceOrientation) {
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480), false /* with_device_orientation */);
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -519,7 +506,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen since Device Orientation is not available.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -527,7 +514,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 
 TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailPaused) {
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -539,7 +526,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailPaused) {
   EXPECT_FALSE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen since video is paused.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -547,7 +534,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailPaused) {
 
 TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailHidden) {
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -568,7 +555,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailHidden) {
   EXPECT_FALSE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen since video is not visible.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -577,8 +564,9 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailHidden) {
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterFail180DegreeRotation) {
   // Landscape screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kLandscapeSecondary,
-                     gfx::Size(640, 480));
+  InitScreenAndVideo(
+      display::mojom::blink::ScreenOrientation::kLandscapeSecondary,
+      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kLandscape, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
 
@@ -590,7 +578,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 
   // Rotate screen 180 degrees to the opposite landscape (without passing via a
   // portrait orientation).
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen since this is a 180 degree orientation.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -598,7 +586,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 
 TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailSmall) {
   // Portrait screen, small landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(300, 199));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kUnknown, ComputeVideoOrientation());
@@ -610,7 +598,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailSmall) {
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen since video is too small.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -619,7 +607,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, EnterFailSmall) {
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterFailDocumentFullscreen) {
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -640,7 +628,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen on video, since document is already fullscreen.
   EXPECT_TRUE(Fullscreen::IsFullscreenElement(*GetDocument().body()));
@@ -650,8 +638,9 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        ExitSuccessLandscapeFullscreenToPortraitInline) {
   // Landscape screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kLandscapePrimary,
-                     gfx::Size(640, 480));
+  InitScreenAndVideo(
+      display::mojom::blink::ScreenOrientation::kLandscapePrimary,
+      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kLandscape, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
 
@@ -671,7 +660,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 
   // Rotate screen to portrait. This relies on the screen orientation not being
   // locked by MediaControlsOrientationLockDelegate (which has its own tests).
-  RotateTo(mojom::blink::ScreenOrientation::kPortraitPrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kPortraitPrimary);
 
   // Should exit fullscreen.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -680,7 +669,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        ExitSuccessPortraitFullscreenToLandscapeInline) {
   // Portrait screen, portrait video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(480, 640));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kPortrait, ComputeVideoOrientation());
@@ -701,7 +690,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 
   // Rotate screen to landscape. This relies on the screen orientation not being
   // locked by MediaControlsOrientationLockDelegate (which has its own tests).
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should exit fullscreen.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -710,8 +699,9 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        ExitFailDocumentFullscreen) {
   // Landscape screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kLandscapePrimary,
-                     gfx::Size(640, 480));
+  InitScreenAndVideo(
+      display::mojom::blink::ScreenOrientation::kLandscapePrimary,
+      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kLandscape, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
 
@@ -729,7 +719,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_FALSE(ObservedVisibility());
 
   // Rotate screen to portrait.
-  RotateTo(mojom::blink::ScreenOrientation::kPortraitPrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kPortraitPrimary);
 
   // Should not exit fullscreen, since video was not the fullscreen element.
   EXPECT_TRUE(Fullscreen::IsFullscreenElement(*GetDocument().body()));
@@ -739,7 +729,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterFailControlsListNoFullscreen) {
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -754,7 +744,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should not enter fullscreen when controlsList=nofullscreen.
   EXPECT_FALSE(GetVideo().IsFullscreen());
@@ -763,7 +753,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
 TEST_F(MediaControlsRotateToFullscreenDelegateTest,
        EnterSuccessControlsListNoDownload) {
   // Portrait screen, landscape video.
-  InitScreenAndVideo(mojom::blink::ScreenOrientation::kPortraitPrimary,
+  InitScreenAndVideo(display::mojom::blink::ScreenOrientation::kPortraitPrimary,
                      gfx::Size(640, 480));
   EXPECT_EQ(SimpleOrientation::kPortrait, ObservedScreenOrientation());
   EXPECT_EQ(SimpleOrientation::kLandscape, ComputeVideoOrientation());
@@ -778,7 +768,7 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest,
   EXPECT_TRUE(ObservedVisibility());
 
   // Rotate screen to landscape.
-  RotateTo(mojom::blink::ScreenOrientation::kLandscapePrimary);
+  RotateTo(display::mojom::blink::ScreenOrientation::kLandscapePrimary);
 
   // Should enter fullscreen when controlsList is not set to nofullscreen.
   EXPECT_TRUE(GetVideo().IsFullscreen());

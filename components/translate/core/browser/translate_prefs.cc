@@ -8,22 +8,24 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "base/containers/contains.h"
+#include "base/containers/cxx20_erase.h"
 #include "base/feature_list.h"
 #include "base/i18n/rtl.h"
+#include "base/json/values_util.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/util/values/values_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/language/core/browser/language_prefs.h"
+#include "components/language/core/browser/pref_names.h"
 #include "components/language/core/common/language_experiments.h"
 #include "components/language/core/common/language_util.h"
 #include "components/language/core/common/locale_util.h"
@@ -87,19 +89,16 @@ const char TranslatePrefs::kPrefNeverPromptSitesDeprecated[] =
     "translate_site_blacklist";
 const char TranslatePrefs::kPrefNeverPromptSitesWithTime[] =
     "translate_site_blacklist_with_time";
-const char TranslatePrefs::kPrefAlwaysTranslateLists[] = "translate_whitelists";
 const char TranslatePrefs::kPrefTranslateDeniedCount[] =
     "translate_denied_count_for_language";
 const char TranslatePrefs::kPrefTranslateIgnoredCount[] =
     "translate_ignored_count_for_language";
 const char TranslatePrefs::kPrefTranslateAcceptedCount[] =
     "translate_accepted_count";
-const char TranslatePrefs::kPrefTranslateLastDeniedTimeForLanguage[] =
-    "translate_last_denied_time_for_language";
-const char TranslatePrefs::kPrefTranslateTooOftenDeniedForLanguage[] =
-    "translate_too_often_denied_for_language";
-const char TranslatePrefs::kPrefTranslateRecentTarget[] =
-    "translate_recent_target";
+
+// Deprecated 10/2021.
+const char TranslatePrefs::kPrefAlwaysTranslateListDeprecated[] =
+    "translate_whitelists";
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
 const char TranslatePrefs::kPrefTranslateAutoAlwaysCount[] =
@@ -125,60 +124,6 @@ const base::Feature kTranslateRecentTarget{"TranslateRecentTarget",
 
 const base::Feature kTranslate{"Translate", base::FEATURE_ENABLED_BY_DEFAULT};
 
-DenialTimeUpdate::DenialTimeUpdate(PrefService* prefs,
-                                   base::StringPiece language,
-                                   size_t max_denial_count)
-    : denial_time_dict_update_(
-          prefs,
-          TranslatePrefs::kPrefTranslateLastDeniedTimeForLanguage),
-      language_(language),
-      max_denial_count_(max_denial_count),
-      time_list_(nullptr) {}
-
-DenialTimeUpdate::~DenialTimeUpdate() {}
-
-// Gets the list of timestamps when translation was denied.
-base::ListValue* DenialTimeUpdate::GetDenialTimes() {
-  if (time_list_)
-    return time_list_;
-
-  // Any consumer of GetDenialTimes _will_ write to them, so let's get an
-  // update started.
-  base::DictionaryValue* denial_time_dict = denial_time_dict_update_.Get();
-  DCHECK(denial_time_dict);
-
-  base::Value* denial_value = nullptr;
-  bool has_value = denial_time_dict->Get(language_, &denial_value);
-  bool has_list = has_value && denial_value->GetAsList(&time_list_);
-
-  if (!has_list) {
-    auto time_list = std::make_unique<base::ListValue>();
-    double oldest_denial_time = 0;
-    bool has_old_style =
-        has_value && denial_value->GetAsDouble(&oldest_denial_time);
-    if (has_old_style)
-      time_list->AppendDouble(oldest_denial_time);
-    time_list_ = denial_time_dict->SetList(language_, std::move(time_list));
-  }
-  return time_list_;
-}
-
-base::Time DenialTimeUpdate::GetOldestDenialTime() {
-  double oldest_time;
-  bool result = GetDenialTimes()->GetDouble(0, &oldest_time);
-  if (!result)
-    return base::Time();
-  return base::Time::FromJsTime(oldest_time);
-}
-
-void DenialTimeUpdate::AddDenialTime(base::Time denial_time) {
-  DCHECK(GetDenialTimes());
-  GetDenialTimes()->AppendDouble(denial_time.ToJsTime());
-
-  while (GetDenialTimes()->GetSize() >= max_denial_count_)
-    GetDenialTimes()->Remove(0, nullptr);
-}
-
 TranslateLanguageInfo::TranslateLanguageInfo() = default;
 
 TranslateLanguageInfo::TranslateLanguageInfo(const TranslateLanguageInfo&) =
@@ -198,6 +143,14 @@ TranslatePrefs::TranslatePrefs(PrefService* user_prefs)
 }
 
 TranslatePrefs::~TranslatePrefs() = default;
+
+// static
+std::string TranslatePrefs::MapPreferenceName(const std::string& pref_name) {
+  if (pref_name == kPrefNeverPromptSitesDeprecated) {
+    return "translate_site_blocklist";
+  }
+  return pref_name;
+}
 
 bool TranslatePrefs::IsOfferTranslateEnabled() const {
   return prefs_->GetBoolean(prefs::kOfferTranslateEnabled);
@@ -227,21 +180,114 @@ void TranslatePrefs::ResetToDefaults() {
   prefs_->ClearPref(kPrefTranslateDeniedCount);
   prefs_->ClearPref(kPrefTranslateIgnoredCount);
   prefs_->ClearPref(kPrefTranslateAcceptedCount);
-  prefs_->ClearPref(kPrefTranslateRecentTarget);
+  prefs_->ClearPref(prefs::kPrefTranslateRecentTarget);
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
   prefs_->ClearPref(kPrefTranslateAutoAlwaysCount);
   prefs_->ClearPref(kPrefTranslateAutoNeverCount);
 #endif
 
-  prefs_->ClearPref(kPrefTranslateLastDeniedTimeForLanguage);
-  prefs_->ClearPref(kPrefTranslateTooOftenDeniedForLanguage);
-
   prefs_->ClearPref(prefs::kOfferTranslateEnabled);
 }
 
+// static
+base::Value TranslatePrefs::GetDefaultBlockedLanguages() {
+  typename base::Value::ListStorage languages;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Preferred languages.
+  std::string language = language::kFallbackInputMethodLocale;
+  language::ToTranslateLanguageSynonym(&language);
+  languages.push_back(base::Value(std::move(language)));
+#else
+  // Accept languages.
+#pragma GCC diagnostic push
+// See comment above the |break;| in the loop just below for why.
+#pragma GCC diagnostic ignored "-Wunreachable-code"
+  for (std::string& language :
+       base::SplitString(l10n_util::GetStringUTF8(IDS_ACCEPT_LANGUAGES), ",",
+                         base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
+    language::ToTranslateLanguageSynonym(&language);
+    languages.push_back(base::Value(std::move(language)));
+
+    // crbug.com/958348: The default value for Accept-Language *should* be the
+    // same as the one for Blocked Languages. However, Accept-Language contains
+    // English (and more) in addition to the local language in most locales due
+    // to historical reasons. Exiting early from this loop is a temporary fix
+    // that allows Blocked Languages to be at least populated with the UI
+    // language while still allowing Translate to trigger on other languages,
+    // most importantly English.
+    // Once the change to remove English from Accept-Language defaults lands,
+    // this break should be removed to enable the Blocked Language List and the
+    // Accept-Language list to be initialized to the same values.
+    break;
+#pragma GCC diagnostic pop
+  }
+#endif
+
+  std::sort(languages.begin(), languages.end());
+  languages.erase(std::unique(languages.begin(), languages.end()),
+                  languages.end());
+
+  return base::Value(std::move(languages));
+}
+
 bool TranslatePrefs::IsBlockedLanguage(base::StringPiece input_language) const {
-  return language_prefs_->IsFluent(input_language);
+  std::string canonical_lang(input_language);
+  language::ToTranslateLanguageSynonym(&canonical_lang);
+  const base::Value* blocked =
+      prefs_->GetList(translate::prefs::kBlockedLanguages);
+  return base::Contains(blocked->GetList(),
+                        base::Value(std::move(canonical_lang)));
+}
+
+void TranslatePrefs::BlockLanguage(base::StringPiece input_language) {
+  DCHECK(!input_language.empty());
+  if (!IsBlockedLanguage(input_language)) {
+    std::string canonical_lang(input_language);
+    language::ToTranslateLanguageSynonym(&canonical_lang);
+    ListPrefUpdate update(prefs_, translate::prefs::kBlockedLanguages);
+    update->Append(std::move(canonical_lang));
+  }
+  // Remove the blocked language from the always translate list if present.
+  SetLanguageAlwaysTranslateState(input_language, false);
+}
+
+void TranslatePrefs::UnblockLanguage(base::StringPiece input_language) {
+  DCHECK(!input_language.empty());
+  // Never remove last fluent language.
+  if (GetNeverTranslateLanguages().size() <= 1) {
+    return;
+  }
+  std::string canonical_lang(input_language);
+  language::ToTranslateLanguageSynonym(&canonical_lang);
+  ListPrefUpdate update(prefs_, translate::prefs::kBlockedLanguages);
+  update->EraseListValue(base::Value(std::move(canonical_lang)));
+}
+
+void TranslatePrefs::ResetEmptyBlockedLanguagesToDefaults() {
+  if (GetNeverTranslateLanguages().size() == 0) {
+    ResetBlockedLanguagesToDefault();
+  }
+}
+
+void TranslatePrefs::ResetBlockedLanguagesToDefault() {
+  prefs_->ClearPref(translate::prefs::kBlockedLanguages);
+}
+
+std::vector<std::string> TranslatePrefs::GetNeverTranslateLanguages() const {
+  const base::Value* fluent_languages_value =
+      prefs_->GetList(translate::prefs::kBlockedLanguages);
+  if (!fluent_languages_value) {
+    NOTREACHED() << "Fluent languages pref is unregistered";
+  }
+
+  std::vector<std::string> languages;
+  for (const auto& language : fluent_languages_value->GetList()) {
+    std::string chrome_language(language.GetString());
+    language::ToChromeLanguageSynonym(&chrome_language);
+    languages.push_back(chrome_language);
+  }
+  return languages;
 }
 
 // Note: the language codes used in the language settings list have the Chrome
@@ -256,12 +302,15 @@ void TranslatePrefs::AddToLanguageList(base::StringPiece input_language,
   language::ToChromeLanguageSynonym(&chrome_language);
 
   std::vector<std::string> languages;
+  std::vector<std::string> user_selected_languages;
   GetLanguageList(&languages);
+  GetUserSelectedLanguageList(&user_selected_languages);
 
   // We should block the language if the list does not already contain another
-  // language with the same base language.
+  // language with the same base language. Policy-forced languages aren't
+  // counted as "blocking", so only user-selected languages are checked.
   const bool should_block =
-      !ContainsSameBaseLanguage(languages, chrome_language);
+      !ContainsSameBaseLanguage(user_selected_languages, chrome_language);
 
   if (force_blocked || should_block) {
     BlockLanguage(input_language);
@@ -269,8 +318,8 @@ void TranslatePrefs::AddToLanguageList(base::StringPiece input_language,
 
   // Add the language to the list.
   if (!base::Contains(languages, chrome_language)) {
-    languages.push_back(chrome_language);
-    language_prefs_->SetAcceptLanguagesList(languages);
+    user_selected_languages.push_back(chrome_language);
+    language_prefs_->SetUserSelectedLanguagesList(user_selected_languages);
   }
 }
 
@@ -281,26 +330,32 @@ void TranslatePrefs::RemoveFromLanguageList(base::StringPiece input_language) {
   language::ToChromeLanguageSynonym(&chrome_language);
 
   std::vector<std::string> languages;
-  GetLanguageList(&languages);
+  std::vector<std::string> user_selected_languages;
+  GetUserSelectedLanguageList(&user_selected_languages);
 
   // Remove the language from the list.
-  const auto& it =
-      std::find(languages.begin(), languages.end(), chrome_language);
-  if (it != languages.end()) {
-    // If the language being removed is the most recent language, erase that
-    // data so that Chrome won't try to translate to it next time Translate is
-    // triggered.
-    if (chrome_language == GetRecentTargetLanguage())
-      ResetRecentTargetLanguage();
+  const auto& it = std::find(user_selected_languages.begin(),
+                             user_selected_languages.end(), chrome_language);
+  if (it != user_selected_languages.end()) {
 
-    languages.erase(it);
-    PurgeUnsupportedLanguagesInLanguageFamily(chrome_language, &languages);
-    language_prefs_->SetAcceptLanguagesList(languages);
+    user_selected_languages.erase(it);
+    PurgeUnsupportedLanguagesInLanguageFamily(chrome_language,
+                                              &user_selected_languages);
+    language_prefs_->SetUserSelectedLanguagesList(user_selected_languages);
 
     // We should unblock the language if this was the last one from the same
     // language family.
+    GetLanguageList(&languages);
     if (!ContainsSameBaseLanguage(languages, chrome_language)) {
       UnblockLanguage(input_language);
+      // If the recent translate target matches the last language of a family
+      // being removed, reset the most recent target language so it will not be
+      // used the next time Translate is triggered.
+      std::string translate_language(input_language);
+      language::ToTranslateLanguageSynonym(&translate_language);
+      if (translate_language == GetRecentTargetLanguage()) {
+        ResetRecentTargetLanguage();
+      }
     }
   }
 }
@@ -314,7 +369,7 @@ void TranslatePrefs::RearrangeLanguage(
   DCHECK(!(offset < 1 && (where == kUp || where == kDown)));
 
   std::vector<std::string> languages;
-  GetLanguageList(&languages);
+  GetUserSelectedLanguageList(&languages);
 
   auto pos = std::find(languages.begin(), languages.end(), language);
   if (pos == languages.end())
@@ -339,11 +394,15 @@ void TranslatePrefs::RearrangeLanguage(
       while (pos != languages.begin()) {
         auto next_pos = pos - 1;
         // Skip over non-enabled languages without decrementing |offset|.
-        if (std::binary_search(enabled.begin(), enabled.end(), *next_pos)) {
-          // By only checking |offset| when an enabled language is found, and
-          // decrementing |offset| after checking it (instead of before), this
-          // means that |language| will be moved up the list until it has either
-          // reached the next enabled language or the top of the list.
+        // Also skip over languages hidden due to duplication between forced
+        // and user-selected languages.
+        if (std::binary_search(enabled.begin(), enabled.end(), *next_pos) &&
+            !language_prefs_->IsForcedLanguage(*next_pos)) {
+          // By only checking |offset| when an enabled, non-forced language is
+          // found, and decrementing |offset| after checking it (instead of
+          // before), this means that |language| will be moved up the list until
+          // it has either reached the next enabled language or the top of the
+          // list.
           if (offset <= 0)
             break;
           --offset;
@@ -358,11 +417,13 @@ void TranslatePrefs::RearrangeLanguage(
         return;
       for (auto next_pos = pos + 1; next_pos != languages.end() && offset > 0;
            pos = next_pos++) {
-        // Skip over non-enabled languages without decrementing offset. Unlike
-        // moving languages up in the list, moving languages down in the list
-        // stops as soon as |offset| reaches zero, instead of continuing to skip
-        // non-enabled languages after |offset| has reached zero.
-        if (std::binary_search(enabled.begin(), enabled.end(), *next_pos))
+        // Skip over non-enabled or forced languages without decrementing
+        // offset. Unlike moving languages up in the list, moving languages down
+        // in the list stops as soon as |offset| reaches zero, instead of
+        // continuing to skip non-enabled languages after |offset| has reached
+        // zero.
+        if (std::binary_search(enabled.begin(), enabled.end(), *next_pos) &&
+            !language_prefs_->IsForcedLanguage(*next_pos))
           --offset;
         std::swap(*next_pos, *pos);
       }
@@ -376,12 +437,12 @@ void TranslatePrefs::RearrangeLanguage(
       return;
   }
 
-  language_prefs_->SetAcceptLanguagesList(languages);
+  language_prefs_->SetUserSelectedLanguagesList(languages);
 }
 
 void TranslatePrefs::SetLanguageOrder(
     const std::vector<std::string>& new_order) {
-  language_prefs_->SetAcceptLanguagesList(new_order);
+  language_prefs_->SetUserSelectedLanguagesList(new_order);
 }
 
 // static
@@ -409,9 +470,9 @@ void TranslatePrefs::GetLanguageInfoList(
     collator.reset();
   }
   // Map of [display name -> language code].
-  std::map<base::string16, std::string,
-           l10n_util::StringComparator<base::string16>>
-      language_map(l10n_util::StringComparator<base::string16>(collator.get()));
+  std::map<std::u16string, std::string,
+           l10n_util::StringComparator<std::u16string>>
+      language_map(l10n_util::StringComparator<std::u16string>(collator.get()));
 
   // Build the list of display names and the language map.
   for (std::string& code : language_codes) {
@@ -433,11 +494,11 @@ void TranslatePrefs::GetLanguageInfoList(
     TranslateLanguageInfo language;
     language.code = std::move(entry.second);
 
-    base::string16 adjusted_display_name = entry.first;
+    std::u16string adjusted_display_name = entry.first;
     base::i18n::AdjustStringForLocaleDirection(&adjusted_display_name);
     language.display_name = base::UTF16ToUTF8(adjusted_display_name);
 
-    base::string16 adjusted_native_display_name =
+    std::u16string adjusted_native_display_name =
         l10n_util::GetDisplayNameForLocale(language.code, language.code, false);
     base::i18n::AdjustStringForLocaleDirection(&adjusted_native_display_name);
     language.native_display_name =
@@ -456,14 +517,38 @@ void TranslatePrefs::GetLanguageInfoList(
   }
 }
 
-void TranslatePrefs::BlockLanguage(base::StringPiece input_language) {
-  DCHECK(!input_language.empty());
-  language_prefs_->SetFluent(input_language);
-}
+void TranslatePrefs::GetTranslatableContentLanguages(
+    const std::string& app_locale,
+    std::vector<std::string>* codes) {
+  DCHECK(codes != nullptr);
 
-void TranslatePrefs::UnblockLanguage(base::StringPiece input_language) {
-  DCHECK(!input_language.empty());
-  language_prefs_->ClearFluent(input_language);
+  if (app_locale.empty()) {
+    return;
+  }
+  codes->clear();
+
+  // Get the language codes of user content languages.
+  // Returned in Chrome format.
+  std::vector<std::string> language_codes;
+  GetLanguageList(&language_codes);
+
+  std::set<std::string> unique_languages;
+  for (auto& entry : language_codes) {
+    std::string supports_translate_code = entry;
+    // Get the language in Translate format.
+    language::ToTranslateLanguageSynonym(&supports_translate_code);
+    // Extract the language code, for example for en-US it returns en.
+    std::string lang_code =
+        TranslateDownloadManager::GetLanguageCode(supports_translate_code);
+    // If the language code for a translatable language hasn't yet been added,
+    // add it to the result list.
+    if (TranslateDownloadManager::IsSupportedLanguage(lang_code)) {
+      if (unique_languages.count(lang_code) == 0) {
+        unique_languages.insert(lang_code);
+        codes->push_back(lang_code);
+      }
+    }
+  }
 }
 
 bool TranslatePrefs::IsSiteOnNeverPromptList(base::StringPiece site) const {
@@ -474,16 +559,14 @@ void TranslatePrefs::AddSiteToNeverPromptList(base::StringPiece site) {
   DCHECK(!site.empty());
   AddValueToNeverPromptList(kPrefNeverPromptSitesDeprecated, site);
   DictionaryPrefUpdate update(prefs_, kPrefNeverPromptSitesWithTime);
-  base::DictionaryValue* dict = update.Get();
-  dict->SetKey(site, util::TimeToValue(base::Time::Now()));
+  update.Get()->SetKey(site, base::TimeToValue(base::Time::Now()));
 }
 
 void TranslatePrefs::RemoveSiteFromNeverPromptList(base::StringPiece site) {
   DCHECK(!site.empty());
   RemoveValueFromNeverPromptList(kPrefNeverPromptSitesDeprecated, site);
   DictionaryPrefUpdate update(prefs_, kPrefNeverPromptSitesWithTime);
-  base::DictionaryValue* dict = update.Get();
-  dict->RemoveKey(site);
+  update.Get()->RemoveKey(site);
 }
 
 std::vector<std::string> TranslatePrefs::GetNeverPromptSitesBetween(
@@ -491,8 +574,8 @@ std::vector<std::string> TranslatePrefs::GetNeverPromptSitesBetween(
     base::Time end) const {
   std::vector<std::string> result;
   auto* dict = prefs_->GetDictionary(kPrefNeverPromptSitesWithTime);
-  for (const auto& entry : dict->DictItems()) {
-    base::Optional<base::Time> time = util::ValueToTime(entry.second);
+  for (auto entry : dict->DictItems()) {
+    absl::optional<base::Time> time = base::ValueToTime(entry.second);
     if (!time) {
       NOTREACHED();
       continue;
@@ -510,13 +593,12 @@ void TranslatePrefs::DeleteNeverPromptSitesBetween(base::Time begin,
 }
 
 bool TranslatePrefs::IsLanguagePairOnAlwaysTranslateList(
-    base::StringPiece original_language,
+    base::StringPiece source_language,
     base::StringPiece target_language) {
-  const base::DictionaryValue* dict =
-      prefs_->GetDictionary(kPrefAlwaysTranslateLists);
+  const base::Value* dict =
+      prefs_->GetDictionary(prefs::kPrefAlwaysTranslateList);
   if (dict) {
-    const std::string* auto_target_lang =
-        dict->FindStringKey(original_language);
+    const std::string* auto_target_lang = dict->FindStringKey(source_language);
     if (auto_target_lang && *auto_target_lang == target_language)
       return true;
   }
@@ -524,47 +606,59 @@ bool TranslatePrefs::IsLanguagePairOnAlwaysTranslateList(
 }
 
 void TranslatePrefs::AddLanguagePairToAlwaysTranslateList(
-    base::StringPiece original_language,
+    base::StringPiece source_language,
     base::StringPiece target_language) {
-  DictionaryPrefUpdate update(prefs_, kPrefAlwaysTranslateLists);
-  base::DictionaryValue* dict = update.Get();
-  if (!dict) {
-    NOTREACHED() << "Always translate pref is unregistered";
-    return;
-  }
-  dict->SetStringKey(original_language, target_language);
+  DictionaryPrefUpdate update(prefs_, prefs::kPrefAlwaysTranslateList);
+  DCHECK(update.Get()) << "Always translated pref is unregistered";
+
+  // Get translate version of language codes.
+  std::string translate_source_language(source_language);
+  language::ToTranslateLanguageSynonym(&translate_source_language);
+  std::string translate_target_language(target_language);
+  language::ToTranslateLanguageSynonym(&translate_target_language);
+
+  update.Get()->SetStringKey(translate_source_language,
+                             translate_target_language);
+  // Remove source language from block list if present.
+  UnblockLanguage(translate_source_language);
 }
 
 void TranslatePrefs::RemoveLanguagePairFromAlwaysTranslateList(
-    base::StringPiece original_language,
+    base::StringPiece source_language,
     base::StringPiece target_language) {
-  DictionaryPrefUpdate update(prefs_, kPrefAlwaysTranslateLists);
-  base::DictionaryValue* dict = update.Get();
-  if (!dict) {
-    NOTREACHED() << "Always translate pref is unregistered";
-    return;
+  DictionaryPrefUpdate update(prefs_, prefs::kPrefAlwaysTranslateList);
+  DCHECK(update.Get()) << "Always translate pref is unregistered";
+
+  // Get translate version of language codes.
+  std::string translate_source_language(source_language);
+  language::ToTranslateLanguageSynonym(&translate_source_language);
+  update.Get()->RemoveKey(translate_source_language);
+}
+
+void TranslatePrefs::SetLanguageAlwaysTranslateState(
+    base::StringPiece source_language,
+    bool always_translate) {
+  if (always_translate) {
+    AddLanguagePairToAlwaysTranslateList(source_language,
+                                         GetRecentTargetLanguage());
+  } else {
+    RemoveLanguagePairFromAlwaysTranslateList(source_language,
+                                              GetRecentTargetLanguage());
   }
-  dict->RemoveKey(original_language);
 }
 
 std::vector<std::string> TranslatePrefs::GetAlwaysTranslateLanguages() const {
-  const base::DictionaryValue* dict =
-      prefs_->GetDictionary(kPrefAlwaysTranslateLists);
-  if (!dict) {
-    NOTREACHED() << "Always translate pref is unregistered";
-  }
+  const base::Value* dict =
+      prefs_->GetDictionary(prefs::kPrefAlwaysTranslateList);
+  DCHECK(dict) << "Always translate pref is unregistered";
 
   std::vector<std::string> languages;
-  for (const auto& language_pair : dict->DictItems()) {
+  for (auto language_pair : dict->DictItems()) {
     std::string chrome_language(language_pair.first);
     language::ToChromeLanguageSynonym(&chrome_language);
     languages.push_back(chrome_language);
   }
   return languages;
-}
-
-void TranslatePrefs::ResetBlockedLanguagesToDefault() {
-  language_prefs_->ResetFluentLanguagesToDefaults();
 }
 
 void TranslatePrefs::ClearNeverPromptSiteList() {
@@ -573,131 +667,120 @@ void TranslatePrefs::ClearNeverPromptSiteList() {
 }
 
 bool TranslatePrefs::HasLanguagePairsToAlwaysTranslate() const {
-  return !IsDictionaryEmpty(kPrefAlwaysTranslateLists);
+  return !IsDictionaryEmpty(prefs::kPrefAlwaysTranslateList);
 }
 
 void TranslatePrefs::ClearAlwaysTranslateLanguagePairs() {
-  prefs_->ClearPref(kPrefAlwaysTranslateLists);
+  prefs_->ClearPref(prefs::kPrefAlwaysTranslateList);
 }
 
 int TranslatePrefs::GetTranslationDeniedCount(
     base::StringPiece language) const {
-  const base::DictionaryValue* dict =
-      prefs_->GetDictionary(kPrefTranslateDeniedCount);
-  int count = 0;
-  return dict->GetInteger(language, &count) ? count : 0;
+  const base::Value* dict = prefs_->GetDictionary(kPrefTranslateDeniedCount);
+  return dict->FindIntKey(language).value_or(0);
 }
 
 void TranslatePrefs::IncrementTranslationDeniedCount(
     base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateDeniedCount);
-  base::DictionaryValue* dict = update.Get();
+  base::Value* dict = update.Get();
 
-  int count = 0;
-  dict->GetInteger(language, &count);
+  int count = dict->FindIntKey(language).value_or(0);
   if (count < std::numeric_limits<int>::max())
-    dict->SetInteger(language, count + 1);
+    dict->SetIntKey(language, count + 1);
 }
 
 void TranslatePrefs::ResetTranslationDeniedCount(base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateDeniedCount);
-  update.Get()->SetInteger(language, 0);
+  update.Get()->SetIntKey(language, 0);
 }
 
 int TranslatePrefs::GetTranslationIgnoredCount(
     base::StringPiece language) const {
-  const base::DictionaryValue* dict =
-      prefs_->GetDictionary(kPrefTranslateIgnoredCount);
-  int count = 0;
-  return dict->GetInteger(language, &count) ? count : 0;
+  const base::Value* dict = prefs_->GetDictionary(kPrefTranslateIgnoredCount);
+  return dict->FindIntKey(language).value_or(0);
 }
 
 void TranslatePrefs::IncrementTranslationIgnoredCount(
     base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateIgnoredCount);
-  base::DictionaryValue* dict = update.Get();
+  base::Value* dict = update.Get();
 
-  int count = 0;
-  dict->GetInteger(language, &count);
+  int count = dict->FindIntKey(language).value_or(0);
   if (count < std::numeric_limits<int>::max())
-    dict->SetInteger(language, count + 1);
+    dict->SetIntKey(language, count + 1);
 }
 
 void TranslatePrefs::ResetTranslationIgnoredCount(base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateIgnoredCount);
-  update.Get()->SetInteger(language, 0);
+  update.Get()->SetIntKey(language, 0);
 }
 
 int TranslatePrefs::GetTranslationAcceptedCount(
     base::StringPiece language) const {
-  const base::DictionaryValue* dict =
-      prefs_->GetDictionary(kPrefTranslateAcceptedCount);
-  int count = 0;
-  return dict->GetInteger(language, &count) ? count : 0;
+  const base::Value* dict = prefs_->GetDictionary(kPrefTranslateAcceptedCount);
+  return dict->FindIntKey(language).value_or(0);
 }
 
 void TranslatePrefs::IncrementTranslationAcceptedCount(
     base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateAcceptedCount);
-  base::DictionaryValue* dict = update.Get();
-  int count = 0;
-  dict->GetInteger(language, &count);
+  base::Value* dict = update.Get();
+
+  int count = dict->FindIntKey(language).value_or(0);
   if (count < std::numeric_limits<int>::max())
-    dict->SetInteger(language, count + 1);
+    dict->SetIntKey(language, count + 1);
 }
 
 void TranslatePrefs::ResetTranslationAcceptedCount(base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateAcceptedCount);
-  update.Get()->SetInteger(language, 0);
+  update.Get()->SetIntKey(language, 0);
 }
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
 int TranslatePrefs::GetTranslationAutoAlwaysCount(
     base::StringPiece language) const {
-  const base::DictionaryValue* dict =
+  const base::Value* dict =
       prefs_->GetDictionary(kPrefTranslateAutoAlwaysCount);
-  int count = 0;
-  return dict->GetInteger(language, &count) ? count : 0;
+  return dict->FindIntKey(language).value_or(0);
 }
 
 void TranslatePrefs::IncrementTranslationAutoAlwaysCount(
     base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateAutoAlwaysCount);
-  base::DictionaryValue* dict = update.Get();
-  int count = 0;
-  dict->GetInteger(language, &count);
+  base::Value* dict = update.Get();
+
+  int count = dict->FindIntKey(language).value_or(0);
   if (count < std::numeric_limits<int>::max())
-    dict->SetInteger(language, count + 1);
+    dict->SetIntKey(language, count + 1);
 }
 
 void TranslatePrefs::ResetTranslationAutoAlwaysCount(
     base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateAutoAlwaysCount);
-  update.Get()->SetInteger(language, 0);
+  update.Get()->SetIntKey(language, 0);
 }
 
 int TranslatePrefs::GetTranslationAutoNeverCount(
     base::StringPiece language) const {
-  const base::DictionaryValue* dict =
-      prefs_->GetDictionary(kPrefTranslateAutoNeverCount);
-  int count = 0;
-  return dict->GetInteger(language, &count) ? count : 0;
+  const base::Value* dict = prefs_->GetDictionary(kPrefTranslateAutoNeverCount);
+  return dict->FindIntKey(language).value_or(0);
 }
 
 void TranslatePrefs::IncrementTranslationAutoNeverCount(
     base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateAutoNeverCount);
-  base::DictionaryValue* dict = update.Get();
-  int count = 0;
-  dict->GetInteger(language, &count);
+  base::Value* dict = update.Get();
+
+  int count = dict->FindIntKey(language).value_or(0);
   if (count < std::numeric_limits<int>::max())
-    dict->SetInteger(language, count + 1);
+    dict->SetIntKey(language, count + 1);
 }
 
 void TranslatePrefs::ResetTranslationAutoNeverCount(
     base::StringPiece language) {
   DictionaryPrefUpdate update(prefs_, kPrefTranslateAutoNeverCount);
-  update.Get()->SetInteger(language, 0);
+  update.Get()->SetIntKey(language, 0);
 }
 #endif  // defined(OS_ANDROID) || defined(OS_IOS)
 
@@ -709,60 +792,42 @@ bool TranslatePrefs::GetExplicitLanguageAskPromptShown() const {
 void TranslatePrefs::SetExplicitLanguageAskPromptShown(bool shown) {
   prefs_->SetBoolean(kPrefExplicitLanguageAskShown, shown);
 }
+
+bool TranslatePrefs::GetAppLanguagePromptShown() const {
+  return prefs_->GetBoolean(language::prefs::kAppLanguagePromptShown);
+}
+
+void TranslatePrefs::SetAppLanguagePromptShown() {
+  prefs_->SetBoolean(language::prefs::kAppLanguagePromptShown, true);
+}
 #endif  // defined(OS_ANDROID)
-
-void TranslatePrefs::UpdateLastDeniedTime(base::StringPiece language) {
-  if (IsTooOftenDenied(language))
-    return;
-
-  DenialTimeUpdate update(prefs_, language, 2);
-  base::Time now = base::Time::Now();
-  base::Time oldest_denial_time = update.GetOldestDenialTime();
-  update.AddDenialTime(now);
-
-  if (oldest_denial_time.is_null())
-    return;
-
-  if (now - oldest_denial_time <= base::TimeDelta::FromDays(1)) {
-    DictionaryPrefUpdate update(prefs_,
-                                kPrefTranslateTooOftenDeniedForLanguage);
-    update.Get()->SetBoolean(language, true);
-  }
-}
-
-bool TranslatePrefs::IsTooOftenDenied(base::StringPiece language) const {
-  return prefs_->GetDictionary(kPrefTranslateTooOftenDeniedForLanguage)
-      ->FindBoolPath(language)
-      .value_or(false);
-}
-
-void TranslatePrefs::ResetDenialState() {
-  prefs_->ClearPref(kPrefTranslateLastDeniedTimeForLanguage);
-  prefs_->ClearPref(kPrefTranslateTooOftenDeniedForLanguage);
-}
 
 void TranslatePrefs::GetLanguageList(
     std::vector<std::string>* const languages) const {
   language_prefs_->GetAcceptLanguagesList(languages);
 }
 
+void TranslatePrefs::GetUserSelectedLanguageList(
+    std::vector<std::string>* const languages) const {
+  language_prefs_->GetUserSelectedLanguagesList(languages);
+}
+
 bool TranslatePrefs::CanTranslateLanguage(
     TranslateAcceptLanguages* accept_languages,
     base::StringPiece language) {
-  // Don't translate any user blocklisted languages.
+  // Languages not on the blocklist can always be translated.
   if (!IsBlockedLanguage(language))
     return true;
 
-  // Checking |is_accept_language| is necessary because if the user eliminates
-  // the language from the preference, it is natural to forget whether or not
-  // the language should be translated. Checking |cannot_be_accept_language| is
-  // also necessary because some minor languages can't be selected in the
-  // language preference even though the language is available in Translate
-  // server.
+  // Languages not on the Accept-Language list should not be blocked unless the
+  // detailed language settings are showing or the language can not be on the
+  // Accept-Language list (this is true for languages that do not have a ICU
+  // localization for the current UI locale.
   bool can_be_accept_language =
       TranslateAcceptLanguages::CanBeAcceptLanguage(language);
   bool is_accept_language = accept_languages->IsAcceptLanguage(language);
-  if (!is_accept_language && can_be_accept_language)
+  if (!is_accept_language && can_be_accept_language &&
+      !IsDetailedLanguageSettingsEnabled())
     return true;
 
   // Under this experiment, translate English page even though English may be
@@ -773,20 +838,41 @@ bool TranslatePrefs::CanTranslateLanguage(
   return false;
 }
 
-bool TranslatePrefs::ShouldAutoTranslate(base::StringPiece original_language,
-                                         std::string* target_language) {
-  const base::DictionaryValue* dict =
-      prefs_->GetDictionary(kPrefAlwaysTranslateLists);
-  if (dict && dict->GetString(original_language, target_language)) {
-    DCHECK(!target_language->empty());
-    return !target_language->empty();
-  }
+// static
+bool TranslatePrefs::IsDetailedLanguageSettingsEnabled() {
+#if defined(OS_ANDROID)
+  return base::FeatureList::IsEnabled(language::kDetailedLanguageSettings);
+#elif defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX)
+  return base::FeatureList::IsEnabled(
+      language::kDesktopDetailedLanguageSettings);
+#else
   return false;
+#endif
+}
+
+bool TranslatePrefs::ShouldAutoTranslate(base::StringPiece source_language,
+                                         std::string* target_language) {
+  const base::Value* dict =
+      prefs_->GetDictionary(prefs::kPrefAlwaysTranslateList);
+  if (!dict)
+    return false;
+
+  const std::string* value = dict->FindStringKey(source_language);
+  if (!value)
+    return false;
+
+  DCHECK(!value->empty());
+  target_language->assign(*value);
+  return true;
 }
 
 void TranslatePrefs::SetRecentTargetLanguage(
     const std::string& target_language) {
-  prefs_->SetString(kPrefTranslateRecentTarget, target_language);
+  // Get translate version of language code.
+  std::string translate_target_language(target_language);
+  language::ToTranslateLanguageSynonym(&translate_target_language);
+  prefs_->SetString(prefs::kPrefTranslateRecentTarget,
+                    translate_target_language);
 }
 
 void TranslatePrefs::ResetRecentTargetLanguage() {
@@ -794,7 +880,7 @@ void TranslatePrefs::ResetRecentTargetLanguage() {
 }
 
 std::string TranslatePrefs::GetRecentTargetLanguage() const {
-  return prefs_->GetString(kPrefTranslateRecentTarget);
+  return prefs_->GetString(prefs::kPrefTranslateRecentTarget);
 }
 
 int TranslatePrefs::GetForceTriggerOnEnglishPagesCount() const {
@@ -822,7 +908,7 @@ void TranslatePrefs::RegisterProfilePrefs(
       kPrefNeverPromptSitesWithTime,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterDictionaryPref(
-      kPrefAlwaysTranslateLists,
+      prefs::kPrefAlwaysTranslateList,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterDictionaryPref(
       kPrefTranslateDeniedCount,
@@ -833,16 +919,14 @@ void TranslatePrefs::RegisterProfilePrefs(
   registry->RegisterDictionaryPref(
       kPrefTranslateAcceptedCount,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  registry->RegisterDictionaryPref(kPrefTranslateLastDeniedTimeForLanguage);
-  registry->RegisterDictionaryPref(
-      kPrefTranslateTooOftenDeniedForLanguage,
-      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  registry->RegisterStringPref(kPrefTranslateRecentTarget, "",
+  registry->RegisterStringPref(prefs::kPrefTranslateRecentTarget, "",
                                user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterIntegerPref(
       kPrefForceTriggerTranslateCount, 0,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-
+  registry->RegisterListPref(translate::prefs::kBlockedLanguages,
+                             TranslatePrefs::GetDefaultBlockedLanguages(),
+                             user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 #if defined(OS_ANDROID) || defined(OS_IOS)
   registry->RegisterDictionaryPref(
       kPrefTranslateAutoAlwaysCount,
@@ -857,37 +941,58 @@ void TranslatePrefs::RegisterProfilePrefs(
       kPrefExplicitLanguageAskShown, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 #endif
+
+  RegisterProfilePrefsForMigration(registry);
+}
+
+// static
+void TranslatePrefs::RegisterProfilePrefsForMigration(
+    user_prefs::PrefRegistrySyncable* registry) {
+  // Deprecated 10/2021.
+  registry->RegisterDictionaryPref(kPrefAlwaysTranslateListDeprecated);
 }
 
 void TranslatePrefs::MigrateNeverPromptSites() {
-  // Migration should only be necessary once but there could still be old
-  // Chrome instances that sync the old preference, so do it once per
-  // startup.
-  static bool migrated = false;
-  if (migrated)
-    return;
+  // Migration copies any sites on the deprecated never prompt pref to
+  // the new version and clears all references to the old one. This will
+  // make subsequent calls to migrate no-ops.
   DictionaryPrefUpdate never_prompt_list_update(prefs_,
                                                 kPrefNeverPromptSitesWithTime);
-  base::DictionaryValue* never_prompt_list = never_prompt_list_update.Get();
+  base::Value* never_prompt_list = never_prompt_list_update.Get();
   if (never_prompt_list) {
-    const base::ListValue* list =
-        prefs_->GetList(kPrefNeverPromptSitesDeprecated);
-    for (auto& site : *list) {
-      if (!never_prompt_list->HasKey(site.GetString())) {
-        never_prompt_list->SetKey(site.GetString(), base::Value(0));
+    ListPrefUpdate deprecated_prompt_list_update(
+        prefs_, kPrefNeverPromptSitesDeprecated);
+    base::Value* deprecated_list = deprecated_prompt_list_update.Get();
+    for (auto& site : deprecated_list->GetList()) {
+      if (!never_prompt_list->FindKey(site.GetString()) ||
+          !base::ValueToTime(never_prompt_list->FindKey(site.GetString()))) {
+        never_prompt_list->SetKey(site.GetString(),
+                                  base::TimeToValue(base::Time::Now()));
       }
     }
+    deprecated_list->ClearList();
   }
-  migrated = true;
 }
 
-void TranslatePrefs::ResetEmptyBlockedLanguagesToDefaults() {
-  language_prefs_->ResetEmptyFluentLanguagesToDefault();
+// static
+void TranslatePrefs::MigrateObsoleteProfilePrefs(PrefService* profile_prefs) {
+  const base::Value* deprecated_always_translate_list =
+      profile_prefs->GetUserPrefValue(kPrefAlwaysTranslateListDeprecated);
+  if (deprecated_always_translate_list &&
+      !profile_prefs->GetUserPrefValue(prefs::kPrefAlwaysTranslateList)) {
+    profile_prefs->Set(prefs::kPrefAlwaysTranslateList,
+                       *deprecated_always_translate_list);
+  }
+}
+
+// static
+void TranslatePrefs::ClearObsoleteProfilePrefs(PrefService* profile_prefs) {
+  profile_prefs->ClearPref(kPrefAlwaysTranslateListDeprecated);
 }
 
 bool TranslatePrefs::IsValueOnNeverPromptList(const char* pref_id,
                                               base::StringPiece value) const {
-  const base::ListValue* never_prompt_list = prefs_->GetList(pref_id);
+  const base::Value* never_prompt_list = prefs_->GetList(pref_id);
   if (!never_prompt_list)
     return false;
   for (const base::Value& value_in_list : never_prompt_list->GetList()) {
@@ -900,7 +1005,7 @@ bool TranslatePrefs::IsValueOnNeverPromptList(const char* pref_id,
 void TranslatePrefs::AddValueToNeverPromptList(const char* pref_id,
                                                base::StringPiece value) {
   ListPrefUpdate update(prefs_, pref_id);
-  base::ListValue* never_prompt_list = update.Get();
+  base::Value* never_prompt_list = update.Get();
   if (!never_prompt_list) {
     NOTREACHED() << "Unregistered never-translate pref";
     return;
@@ -909,13 +1014,13 @@ void TranslatePrefs::AddValueToNeverPromptList(const char* pref_id,
   if (IsValueOnNeverPromptList(pref_id, value)) {
     return;
   }
-  never_prompt_list->AppendString(value);
+  never_prompt_list->Append(value);
 }
 
 void TranslatePrefs::RemoveValueFromNeverPromptList(const char* pref_id,
                                                     base::StringPiece value) {
   ListPrefUpdate update(prefs_, pref_id);
-  base::ListValue* never_prompt_list = update.Get();
+  base::Value* never_prompt_list = update.Get();
   if (!never_prompt_list) {
     NOTREACHED() << "Unregistered never-translate pref";
     return;
@@ -930,13 +1035,12 @@ void TranslatePrefs::RemoveValueFromNeverPromptList(const char* pref_id,
 }
 
 size_t TranslatePrefs::GetListSize(const char* pref_id) const {
-  const base::ListValue* never_prompt_list = prefs_->GetList(pref_id);
+  const base::Value* never_prompt_list = prefs_->GetList(pref_id);
   return never_prompt_list == nullptr ? 0 : never_prompt_list->GetList().size();
 }
 
 bool TranslatePrefs::IsDictionaryEmpty(const char* pref_id) const {
-  const base::DictionaryValue* dict = prefs_->GetDictionary(pref_id);
-  return (dict == nullptr || dict->empty());
+  const base::Value* dict = prefs_->GetDictionary(pref_id);
+  return (dict == nullptr || dict->DictEmpty());
 }
-
 }  // namespace translate

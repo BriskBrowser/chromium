@@ -2,18 +2,26 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <drm_fourcc.h>
+
+#include <cstdint>
 #include <memory>
 #include <utility>
+#include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/test/mock_callback.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "ui/gfx/buffer_types.h"
 #include "ui/gfx/linux/gbm_buffer.h"
 #include "ui/gfx/linux/gbm_device.h"
 #include "ui/gfx/linux/test/mock_gbm_device.h"
 #include "ui/gfx/native_pixmap.h"
+#include "ui/gfx/overlay_plane_data.h"
+#include "ui/gfx/overlay_priority_hint.h"
 #include "ui/gl/gl_image_egl.h"
 #include "ui/ozone/platform/wayland/gpu/gbm_surfaceless_wayland.h"
 #include "ui/ozone/platform/wayland/gpu/wayland_buffer_manager_gpu.h"
@@ -32,6 +40,7 @@
 using ::testing::_;
 using ::testing::Expectation;
 using ::testing::SaveArg;
+using ::testing::Values;
 
 namespace ui {
 
@@ -66,23 +75,6 @@ class FakeGLImageNativePixmap : public gl::GLImageEGL {
 
   // Overridden from GLImage:
   void Flush() override {}
-  bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                            int z_order,
-                            gfx::OverlayTransform transform,
-                            const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect,
-                            bool enable_blend,
-                            std::unique_ptr<gfx::GpuFence> gpu_fence) override {
-    // The GLImage must be set busy as it has been scheduled before when
-    // GbmSurfacelessWayland::ScheduleOverlayPlane was called.
-    DCHECK(busy_);
-    std::vector<gfx::GpuFence> acquire_fences;
-    if (gpu_fence)
-      acquire_fences.push_back(std::move(*gpu_fence));
-    return pixmap_->ScheduleOverlayPlane(widget, z_order, transform,
-                                         bounds_rect, crop_rect, enable_blend,
-                                         std::move(acquire_fences), {});
-  }
   scoped_refptr<gfx::NativePixmap> GetNativePixmap() override {
     return pixmap_;
   }
@@ -172,13 +164,30 @@ class CallbacksHelper {
 class WaylandSurfaceFactoryTest : public WaylandTest {
  public:
   WaylandSurfaceFactoryTest() = default;
+
+  WaylandSurfaceFactoryTest(const WaylandSurfaceFactoryTest&) = delete;
+  WaylandSurfaceFactoryTest& operator=(const WaylandSurfaceFactoryTest&) =
+      delete;
+
   ~WaylandSurfaceFactoryTest() override = default;
 
   void SetUp() override {
+    const base::flat_map<gfx::BufferFormat, std::vector<uint64_t>>
+        kSupportedFormatsWithModifiers{
+            {gfx::BufferFormat::BGRA_8888, {DRM_FORMAT_MOD_LINEAR}}};
+
     WaylandTest::SetUp();
 
+    window_->set_update_visual_size_immediately(false);
+    window_->set_apply_pending_state_on_update_visual_size(false);
+
     auto manager_ptr = connection_->buffer_manager_host()->BindInterface();
-    buffer_manager_gpu_->Initialize(std::move(manager_ptr), {}, false, false);
+    buffer_manager_gpu_->Initialize(
+        std::move(manager_ptr), kSupportedFormatsWithModifiers,
+        /*supports_dma_buf=*/false,
+        /*supports_viewporter=*/true,
+        /*supports_acquire_fence=*/false,
+        /*supports_non_backed_solid_color_buffers*/ false);
 
     // Wait until initialization and mojo calls go through.
     base::RunLoop().RunUntilIdle();
@@ -199,8 +208,18 @@ class WaylandSurfaceFactoryTest : public WaylandTest {
     return canvas;
   }
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(WaylandSurfaceFactoryTest);
+  void ScheduleOverlayPlane(gl::GLSurface* gl_surface,
+                            gl::GLImage* image,
+                            int z_order) {
+    gl_surface->ScheduleOverlayPlane(
+        image, nullptr,
+        gfx::OverlayPlaneData(z_order,
+                              gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
+                              window_->GetBounds(), {}, false,
+                              gfx::Rect(window_->GetBounds().size()), 1.0f,
+                              gfx::OverlayPriorityHint::kNone, gfx::RRectF(),
+                              gfx::ColorSpace::CreateSRGB(), absl::nullopt));
+  }
 };
 
 TEST_P(WaylandSurfaceFactoryTest,
@@ -213,7 +232,8 @@ TEST_P(WaylandSurfaceFactoryTest,
 
   buffer_manager_gpu_->set_gbm_device(std::make_unique<MockGbmDevice>());
 
-  auto* gl_ozone = surface_factory_->GetGLOzone(gl::kGLImplementationEGLGLES2);
+  auto* gl_ozone = surface_factory_->GetGLOzone(
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2));
   auto gl_surface = gl_ozone->CreateSurfacelessViewGLSurface(widget_);
   EXPECT_TRUE(gl_surface);
   gl_surface->SetRelyOnImplicitSync();
@@ -262,9 +282,8 @@ TEST_P(WaylandSurfaceFactoryTest,
     fake_gl_image[0]->SetBusy(true);
 
     // Prepare overlay plane.
-    gl_surface->ScheduleOverlayPlane(
-        0, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-        fake_gl_image[0].get(), window_->GetBounds(), {}, false, nullptr);
+    ScheduleOverlayPlane(gl_surface.get(), fake_gl_image[0].get(),
+                         /*z_order=*/0);
 
     std::vector<scoped_refptr<FakeGLImageNativePixmap>> gl_images;
     gl_images.push_back(fake_gl_image[0]);
@@ -325,9 +344,8 @@ TEST_P(WaylandSurfaceFactoryTest,
     fake_gl_image[1]->SetBusy(true);
 
     // Prepare overlay plane.
-    gl_surface->ScheduleOverlayPlane(
-        0, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-        fake_gl_image[1].get(), window_->GetBounds(), {}, false, nullptr);
+    ScheduleOverlayPlane(gl_surface.get(), fake_gl_image[1].get(),
+                         /*z_order=*/0);
 
     std::vector<scoped_refptr<FakeGLImageNativePixmap>> gl_images;
     gl_images.push_back(fake_gl_image[1]);
@@ -376,9 +394,8 @@ TEST_P(WaylandSurfaceFactoryTest,
     fake_gl_image[2]->SetBusy(true);
 
     // Prepare overlay plane.
-    gl_surface->ScheduleOverlayPlane(
-        -1, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-        fake_gl_image[2].get(), window_->GetBounds(), {}, false, nullptr);
+    ScheduleOverlayPlane(gl_surface.get(), fake_gl_image[2].get(),
+                         /*z_order=*/-1);
 
     // Associate the image with the next swap id so that we can easily track if
     // it became free to reuse.
@@ -387,9 +404,8 @@ TEST_P(WaylandSurfaceFactoryTest,
     fake_gl_image[3]->SetBusy(true);
 
     // Prepare overlay plane.
-    gl_surface->ScheduleOverlayPlane(
-        1, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-        fake_gl_image[3].get(), window_->GetBounds(), {}, false, nullptr);
+    ScheduleOverlayPlane(gl_surface.get(), fake_gl_image[3].get(),
+                         /*z_order=*/1);
 
     std::vector<scoped_refptr<FakeGLImageNativePixmap>> gl_images;
     gl_images.push_back(fake_gl_image[2]);
@@ -462,7 +478,8 @@ TEST_P(WaylandSurfaceFactoryTest,
 
   buffer_manager_gpu_->set_gbm_device(std::make_unique<MockGbmDevice>());
 
-  auto* gl_ozone = surface_factory_->GetGLOzone(gl::kGLImplementationEGLGLES2);
+  auto* gl_ozone = surface_factory_->GetGLOzone(
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2));
   auto gl_surface = gl_ozone->CreateSurfacelessViewGLSurface(widget_);
   EXPECT_TRUE(gl_surface);
   gl_surface->SetRelyOnImplicitSync();
@@ -511,9 +528,8 @@ TEST_P(WaylandSurfaceFactoryTest,
     fake_gl_image[0]->SetBusy(true);
 
     // Prepare overlay plane.
-    gl_surface->ScheduleOverlayPlane(
-        0, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-        fake_gl_image[0].get(), window_->GetBounds(), {}, false, nullptr);
+    ScheduleOverlayPlane(gl_surface.get(), fake_gl_image[0].get(),
+                         /*z_order=*/0);
 
     // Associate the image with the next swap id so that we can easily track if
     // it became free to reuse.
@@ -522,9 +538,8 @@ TEST_P(WaylandSurfaceFactoryTest,
     fake_gl_image[1]->SetBusy(true);
 
     // Prepare overlay plane.
-    gl_surface->ScheduleOverlayPlane(
-        1, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-        fake_gl_image[1].get(), window_->GetBounds(), {}, false, nullptr);
+    ScheduleOverlayPlane(gl_surface.get(), fake_gl_image[1].get(),
+                         /*z_order=*/1);
 
     std::vector<scoped_refptr<FakeGLImageNativePixmap>> gl_images;
     gl_images.push_back(fake_gl_image[0]);
@@ -589,9 +604,8 @@ TEST_P(WaylandSurfaceFactoryTest,
     fake_gl_image[2]->SetBusy(true);
 
     // Prepare overlay plane.
-    gl_surface->ScheduleOverlayPlane(
-        0, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-        fake_gl_image[2].get(), window_->GetBounds(), {}, false, nullptr);
+    ScheduleOverlayPlane(gl_surface.get(), fake_gl_image[2].get(),
+                         /*z_order=*/0);
 
     // Associate the image with the next swap id so that we can easily track if
     // it became free to reuse.
@@ -600,9 +614,8 @@ TEST_P(WaylandSurfaceFactoryTest,
     fake_gl_image[3]->SetBusy(true);
 
     // Prepare overlay plane.
-    gl_surface->ScheduleOverlayPlane(
-        1, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-        fake_gl_image[3].get(), window_->GetBounds(), {}, false, nullptr);
+    ScheduleOverlayPlane(gl_surface.get(), fake_gl_image[3].get(),
+                         /*z_order=*/1);
 
     std::vector<scoped_refptr<FakeGLImageNativePixmap>> gl_images;
     gl_images.push_back(fake_gl_image[2]);
@@ -689,30 +702,44 @@ TEST_P(WaylandSurfaceFactoryTest,
 }
 
 TEST_P(WaylandSurfaceFactoryTest, Canvas) {
-  auto canvas = CreateCanvas(widget_);
-  ASSERT_TRUE(canvas);
+  const std::vector<float> scale_factors = {1, 1.2, 1.3, 1.5, 1.7, 2, 2.3, 2.8};
+  for (auto scale_factor : scale_factors) {
+    auto canvas = CreateCanvas(widget_);
+    ASSERT_TRUE(canvas);
 
-  canvas->ResizeCanvas(window_->GetBounds().size());
-  auto* sk_canvas = canvas->GetCanvas();
-  DCHECK(sk_canvas);
-  canvas->PresentCanvas(gfx::Rect(5, 10, 20, 15));
+    auto bounds_px = window_->GetBounds();
+    bounds_px = gfx::ScaleToRoundedRect(bounds_px, scale_factor);
 
-  // Wait until the mojo calls are done.
-  base::RunLoop().RunUntilIdle();
+    canvas->ResizeCanvas(bounds_px.size(), scale_factor);
+    auto* sk_canvas = canvas->GetCanvas();
+    DCHECK(sk_canvas);
+    canvas->PresentCanvas(gfx::Rect(5, 10, 20, 15));
 
-  Expectation damage = EXPECT_CALL(*surface_, DamageBuffer(5, 10, 20, 15));
-  wl_resource* buffer_resource = nullptr;
-  Expectation attach = EXPECT_CALL(*surface_, Attach(_, 0, 0))
-                           .WillOnce(SaveArg<0>(&buffer_resource));
-  EXPECT_CALL(*surface_, Commit()).After(damage, attach);
+    // Wait until the mojo calls are done.
+    base::RunLoop().RunUntilIdle();
 
-  Sync();
+    Expectation damage = EXPECT_CALL(*surface_, DamageBuffer(5, 10, 20, 15));
+    wl_resource* buffer_resource = nullptr;
+    Expectation attach = EXPECT_CALL(*surface_, Attach(_, 0, 0))
+                             .WillOnce(SaveArg<0>(&buffer_resource));
+    EXPECT_CALL(*surface_, Commit()).After(damage, attach);
 
-  ASSERT_TRUE(buffer_resource);
-  wl_shm_buffer* buffer = wl_shm_buffer_get(buffer_resource);
-  ASSERT_TRUE(buffer);
-  EXPECT_EQ(wl_shm_buffer_get_width(buffer), 800);
-  EXPECT_EQ(wl_shm_buffer_get_height(buffer), 600);
+    Sync();
+
+    ASSERT_TRUE(buffer_resource);
+    wl_shm_buffer* buffer = wl_shm_buffer_get(buffer_resource);
+    ASSERT_TRUE(buffer);
+    EXPECT_EQ(wl_shm_buffer_get_width(buffer), bounds_px.width());
+    EXPECT_EQ(wl_shm_buffer_get_height(buffer), bounds_px.height());
+
+    // Release the buffer immediately as the test always attaches the same
+    // buffer.
+    surface_->ReleaseBufferFenced(buffer_resource, {});
+
+    surface_->SendFrameCallback();
+
+    Sync();
+  }
 
   // TODO(forney): We could check that the contents match something drawn to the
   // SkSurface above.
@@ -722,10 +749,10 @@ TEST_P(WaylandSurfaceFactoryTest, CanvasResize) {
   auto canvas = CreateCanvas(widget_);
   ASSERT_TRUE(canvas);
 
-  canvas->ResizeCanvas(window_->GetBounds().size());
+  canvas->ResizeCanvas(window_->GetBounds().size(), 1);
   auto* sk_canvas = canvas->GetCanvas();
   DCHECK(sk_canvas);
-  canvas->ResizeCanvas(gfx::Size(100, 50));
+  canvas->ResizeCanvas(gfx::Size(100, 50), 1);
   sk_canvas = canvas->GetCanvas();
   DCHECK(sk_canvas);
   canvas->PresentCanvas(gfx::Rect(0, 0, 100, 50));
@@ -754,7 +781,8 @@ TEST_P(WaylandSurfaceFactoryTest, CreateSurfaceCheckGbm) {
   // used.
   EXPECT_FALSE(buffer_manager_gpu_->gbm_device());
 
-  auto* gl_ozone = surface_factory_->GetGLOzone(gl::kGLImplementationEGLGLES2);
+  auto* gl_ozone = surface_factory_->GetGLOzone(
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2));
   EXPECT_TRUE(gl_ozone);
   auto gl_surface = gl_ozone->CreateSurfacelessViewGLSurface(widget_);
   EXPECT_FALSE(gl_surface);
@@ -774,9 +802,11 @@ TEST_P(WaylandSurfaceFactoryTest, CreateSurfaceCheckGbm) {
 
 INSTANTIATE_TEST_SUITE_P(XdgVersionStableTest,
                          WaylandSurfaceFactoryTest,
-                         ::testing::Values(kXdgShellStable));
+                         Values(wl::ServerConfig{
+                             .shell_version = wl::ShellVersion::kStable}));
 INSTANTIATE_TEST_SUITE_P(XdgVersionV6Test,
                          WaylandSurfaceFactoryTest,
-                         ::testing::Values(kXdgShellV6));
+                         Values(wl::ServerConfig{
+                             .shell_version = wl::ShellVersion::kV6}));
 
 }  // namespace ui

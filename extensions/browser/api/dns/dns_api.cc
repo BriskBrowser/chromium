@@ -29,7 +29,7 @@ DnsResolveFunction::~DnsResolveFunction() {}
 
 ExtensionFunction::ResponseAction DnsResolveFunction::Run() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  std::unique_ptr<Resolve::Params> params(Resolve::Params::Create(*args_));
+  std::unique_ptr<Resolve::Params> params(Resolve::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   // Yes, we are passing zero as the port. There are some interesting but not
@@ -38,14 +38,15 @@ ExtensionFunction::ResponseAction DnsResolveFunction::Run() {
   // determining its answer.
   net::HostPortPair host_port_pair(params->hostname, 0);
   url::Origin origin = url::Origin::Create(extension_->url());
-  content::BrowserContext::GetDefaultStoragePartition(browser_context())
+  browser_context()
+      ->GetDefaultStoragePartition()
       ->GetNetworkContext()
       ->ResolveHost(host_port_pair, net::NetworkIsolationKey(origin, origin),
                     nullptr, receiver_.BindNewPipeAndPassRemote());
   receiver_.set_disconnect_handler(
       base::BindOnce(&DnsResolveFunction::OnComplete, base::Unretained(this),
                      net::ERR_NAME_NOT_RESOLVED,
-                     net::ResolveErrorInfo(net::ERR_FAILED), base::nullopt));
+                     net::ResolveErrorInfo(net::ERR_FAILED), absl::nullopt));
 
   // Balanced in OnComplete().
   AddRef();
@@ -55,7 +56,7 @@ ExtensionFunction::ResponseAction DnsResolveFunction::Run() {
 void DnsResolveFunction::OnComplete(
     int result,
     const net::ResolveErrorInfo& resolve_error_info,
-    const base::Optional<net::AddressList>& resolved_addresses) {
+    const absl::optional<net::AddressList>& resolved_addresses) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   receiver_.reset();
 

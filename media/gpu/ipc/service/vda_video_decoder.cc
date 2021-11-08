@@ -6,6 +6,7 @@
 
 #include <string.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -22,6 +23,7 @@
 #include "media/base/bitstream_buffer.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/media_log.h"
+#include "media/base/video_aspect_ratio.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_types.h"
 #include "media/base/video_util.h"
@@ -207,12 +209,6 @@ VdaVideoDecoder::~VdaVideoDecoder() {
   DCHECK(!gpu_weak_vda_);
 }
 
-std::string VdaVideoDecoder::GetDisplayName() const {
-  DVLOG(3) << __func__;
-  DCHECK(parent_task_runner_->BelongsToCurrentThread());
-  return "VdaVideoDecoder";
-}
-
 VideoDecoderType VdaVideoDecoder::GetDecoderType() const {
   DVLOG(3) << __func__;
   DCHECK(parent_task_runner_->BelongsToCurrentThread());
@@ -383,8 +379,9 @@ void VdaVideoDecoder::InitializeOnGpuThread() {
     return;
   }
 
-  gpu_weak_vda_factory_.reset(
-      new base::WeakPtrFactory<VideoDecodeAccelerator>(vda_.get()));
+  gpu_weak_vda_factory_ =
+      std::make_unique<base::WeakPtrFactory<VideoDecodeAccelerator>>(
+          vda_.get());
   gpu_weak_vda_ = gpu_weak_vda_factory_->GetWeakPtr();
 
   vda_initialized_ = true;
@@ -489,7 +486,8 @@ bool VdaVideoDecoder::NeedsBitstreamConversion() const {
 
   // TODO(sandersd): Can we move bitstream conversion into VdaVideoDecoder and
   // always return false?
-  return config_.codec() == kCodecH264 || config_.codec() == kCodecHEVC;
+  return config_.codec() == VideoCodec::kH264 ||
+         config_.codec() == VideoCodec::kHEVC;
 }
 
 bool VdaVideoDecoder::CanReadWithoutStalling() const {
@@ -551,7 +549,6 @@ void VdaVideoDecoder::ProvidePictureBuffersAsync(uint32_t count,
   std::vector<PictureBuffer> picture_buffers =
       picture_buffer_manager_->CreatePictureBuffers(
           count, pixel_format, planes, texture_size, texture_target,
-          vda_->SupportsSharedImagePictureBuffers(),
           vda_->GetSharedImageTextureAllocationMode());
   if (picture_buffers.empty()) {
     parent_task_runner_->PostTask(
@@ -640,7 +637,7 @@ void VdaVideoDecoder::PictureReadyOnParentThread(Picture picture) {
   // Create a VideoFrame for the picture.
   scoped_refptr<VideoFrame> frame = picture_buffer_manager_->CreateVideoFrame(
       picture, timestamp, visible_rect,
-      GetNaturalSize(visible_rect, config_.GetPixelAspectRatio()));
+      config_.aspect_ratio().GetNaturalSize(visible_rect));
   if (!frame) {
     EnterErrorState();
     return;

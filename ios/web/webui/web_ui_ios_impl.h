@@ -26,6 +26,10 @@ class WebUIIOSImpl : public web::WebUIIOS,
                      public base::SupportsWeakPtr<WebUIIOSImpl> {
  public:
   explicit WebUIIOSImpl(WebState* web_state);
+
+  WebUIIOSImpl(const WebUIIOSImpl&) = delete;
+  WebUIIOSImpl& operator=(const WebUIIOSImpl&) = delete;
+
   ~WebUIIOSImpl() override;
 
   // WebUIIOS implementation:
@@ -34,12 +38,18 @@ class WebUIIOSImpl : public web::WebUIIOS,
   void SetController(std::unique_ptr<WebUIIOSController> controller) override;
   void AddMessageHandler(
       std::unique_ptr<WebUIIOSMessageHandler> handler) override;
-  typedef base::RepeatingCallback<void(const base::ListValue*)> MessageCallback;
+  using MessageCallback =
+      base::RepeatingCallback<void(base::Value::ConstListView)>;
   void RegisterMessageCallback(const std::string& message,
-                               const MessageCallback& callback) override;
+                               MessageCallback callback) override;
+  using DeprecatedMessageCallback =
+      base::RepeatingCallback<void(const base::ListValue*)>;
+  void RegisterDeprecatedMessageCallback(
+      const std::string& message,
+      const DeprecatedMessageCallback& callback) override;
   void ProcessWebUIIOSMessage(const GURL& source_url,
                               const std::string& message,
-                              const base::ListValue& args) override;
+                              const base::Value& args) override;
   void CallJavascriptFunction(
       const std::string& function_name,
       const std::vector<const base::Value*>& args) override;
@@ -51,17 +61,22 @@ class WebUIIOSImpl : public web::WebUIIOS,
                          const std::vector<const base::Value*>& args) override;
 
  private:
-  void OnJsMessage(const base::DictionaryValue& message,
+  void OnJsMessage(const base::Value& message,
                    const GURL& page_url,
                    bool user_is_interacting,
                    web::WebFrame* sender_frame);
 
   // Executes JavaScript asynchronously on the page.
-  void ExecuteJavascript(const base::string16& javascript);
+  void ExecuteJavascript(const std::u16string& javascript);
 
   // A map of message name -> message handling callback.
-  typedef std::map<std::string, MessageCallback> MessageCallbackMap;
+  using MessageCallbackMap = std::map<std::string, MessageCallback>;
   MessageCallbackMap message_callbacks_;
+
+  // A map of message name -> message handling callback.
+  using DeprecatedMessageCallbackMap =
+      std::map<std::string, DeprecatedMessageCallback>;
+  DeprecatedMessageCallbackMap deprecated_message_callbacks_;
 
   // The WebUIIOSMessageHandlers we own.
   std::vector<std::unique_ptr<WebUIIOSMessageHandler>> handlers_;
@@ -73,8 +88,6 @@ class WebUIIOSImpl : public web::WebUIIOS,
   WebState* web_state_;
 
   std::unique_ptr<WebUIIOSController> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebUIIOSImpl);
 };
 
 }  // namespace web

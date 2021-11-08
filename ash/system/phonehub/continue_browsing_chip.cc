@@ -13,12 +13,14 @@
 #include "ash/system/phonehub/phone_hub_metrics.h"
 #include "ash/system/phonehub/phone_hub_tray.h"
 #include "ash/system/status_area_widget.h"
+#include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/components/phonehub/user_action_recorder.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -51,7 +53,7 @@ ContinueBrowsingChip::ContinueBrowsingChip(
       user_action_recorder_(user_action_recorder) {
   auto* color_provider = AshColorProvider::Get();
   SetFocusBehavior(FocusBehavior::ALWAYS);
-  focus_ring()->SetColor(color_provider->GetControlsLayerColor(
+  views::FocusRing::Get(this)->SetColor(color_provider->GetControlsLayerColor(
       AshColorProvider::ControlsLayerType::kFocusRingColor));
 
   // Install this highlight path generator to set the desired shape for
@@ -110,7 +112,7 @@ ContinueBrowsingChip::ContinueBrowsingChip(
   title_label->SetFontList(
       title_label->font_list().DeriveWithWeight(gfx::Font::Weight::BOLD));
 
-  const base::string16 card_label = l10n_util::GetStringFUTF16(
+  const std::u16string card_label = l10n_util::GetStringFUTF16(
       IDS_ASH_PHONE_HUB_CONTINUE_BROWSING_TAB_LABEL,
       base::NumberToString16(index_ + 1), base::NumberToString16(total_count_),
       metadata.title, base::UTF8ToUTF16(url_.spec()));
@@ -139,8 +141,8 @@ void ContinueBrowsingChip::ButtonPressed() {
   phone_hub_metrics::LogTabContinuationChipClicked(index_);
   user_action_recorder_->RecordBrowserTabOpened();
 
-  NewWindowDelegate::GetInstance()->NewTabWithUrl(
-      url_, /*from_user_interaction=*/true);
+  NewWindowDelegate::GetInstance()->OpenUrl(url_,
+                                            /*from_user_interaction=*/true);
 
   // Close Phone Hub bubble in current display.
   views::Widget* const widget = GetWidget();

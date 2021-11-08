@@ -21,6 +21,7 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #import "chrome/browser/ui/cocoa/window_size_autosaver.h"
 #include "chrome/browser/ui/task_manager/task_manager_columns.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
@@ -30,8 +31,10 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/cocoa/controls/button_utils.h"
 #include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_util_mac.h"
+#include "ui/views/image_model_utils.h"
 
 namespace {
 
@@ -57,8 +60,9 @@ NSString* ColumnIdentifier(int id) {
 
 @implementation TaskManagerWindowController
 
-- (id)initWithTaskManagerMac:(task_manager::TaskManagerMac*)taskManagerMac
-                  tableModel:(task_manager::TaskManagerTableModel*)tableModel {
+- (instancetype)
+    initWithTaskManagerMac:(task_manager::TaskManagerMac*)taskManagerMac
+                tableModel:(task_manager::TaskManagerTableModel*)tableModel {
   base::scoped_nsobject<NSWindow> window = [self createAndLayOutWindow];
   if ((self = [super initWithWindow:window])) {
     _taskManagerMac = taskManagerMac;
@@ -605,7 +609,7 @@ NSString* ColumnIdentifier(int id) {
     NSSortDescriptor* initialDescriptor = [column sortDescriptorPrototype];
     if ([newDescriptor ascending] == [initialDescriptor ascending]) {
       _withinSortDescriptorsDidChange = YES;
-      [_tableView setSortDescriptors:[NSArray array]];
+      [_tableView setSortDescriptors:@[]];
       newDescriptor = nil;
       _withinSortDescriptorsDidChange = NO;
     }
@@ -712,7 +716,8 @@ void TaskManagerMac::WindowWasClosed() {
 
 NSImage* TaskManagerMac::GetImageForRow(int row) {
   const NSSize kImageSize = NSMakeSize(16.0, 16.0);
-  NSImage* image = gfx::NSImageFromImageSkia(table_model_.GetIcon(row));
+  NSImage* image = gfx::NSImageFromImageSkia(
+      views::GetImageSkiaFromImageModel(table_model_.GetIcon(row), nullptr));
   if (image)
     image.size = kImageSize;
   else
@@ -752,11 +757,15 @@ namespace chrome {
 
 // Declared in browser_dialogs.h.
 task_manager::TaskManagerTableModel* ShowTaskManager(Browser* browser) {
-  return task_manager::TaskManagerMac::Show();
+  return base::FeatureList::IsEnabled(features::kViewsTaskManager)
+             ? ShowTaskManagerViews(browser)
+             : task_manager::TaskManagerMac::Show();
 }
 
 void HideTaskManager() {
-  task_manager::TaskManagerMac::Hide();
+  base::FeatureList::IsEnabled(features::kViewsTaskManager)
+      ? HideTaskManagerViews()
+      : task_manager::TaskManagerMac::Hide();
 }
 
 }  // namespace chrome

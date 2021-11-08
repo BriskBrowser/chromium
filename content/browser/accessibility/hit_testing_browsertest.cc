@@ -5,6 +5,7 @@
 #include "content/browser/accessibility/hit_testing_browsertest.h"
 
 #include "base/check.h"
+#include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
 #include "build/chromecast_buildflags.h"
@@ -12,6 +13,7 @@
 #include "content/browser/accessibility/accessibility_tree_formatter_blink.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+#include "content/browser/accessibility/touch_passthrough_manager.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/ax_inspect_factory.h"
 #include "content/public/browser/web_contents.h"
@@ -54,6 +56,8 @@ void AccessibilityHitTestingBrowserTest::SetUpCommandLine(
       base::StringPrintf("%.2f", device_scale_factor));
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       switches::kEnableUseZoomForDSF, use_zoom_for_dsf ? "true" : "false");
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      switches::kEnableBlinkFeatures, "AccessibilityAriaTouchPassthrough");
 }
 
 std::string AccessibilityHitTestingBrowserTest::TestPassToString::operator()(
@@ -108,6 +112,18 @@ gfx::Point AccessibilityHitTestingBrowserTest::CSSToFramePoint(
 
   gfx::Point frame_point = page_point - scroll_offset_;
   return frame_point;
+}
+
+gfx::Point AccessibilityHitTestingBrowserTest::FrameToCSSPoint(
+    gfx::Point frame_point) {
+  gfx::Point page_point = frame_point + scroll_offset_;
+
+  gfx::Point css_point;
+  if (IsUseZoomForDSFEnabled())
+    css_point = ScaleToRoundedPoint(page_point, 1.0 / GetDeviceScaleFactor());
+  else
+    css_point = page_point;
+  return css_point;
 }
 
 gfx::Point AccessibilityHitTestingBrowserTest::CSSToPhysicalPixelPoint(
@@ -328,8 +344,14 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(::testing::Values(1, 2), ::testing::Bool()),
     AccessibilityHitTestingBrowserTest::TestPassToString());
 
+#if defined(THREAD_SANITIZER)
+// TODO(https://crbug.com/1224979): Times out flakily on TSAN builds.
+#define MAYBE_CachingAsyncHitTest DISABLED_CachingAsyncHitTest
+#else
+#define MAYBE_CachingAsyncHitTest CachingAsyncHitTest
+#endif
 IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
-                       CachingAsyncHitTest) {
+                       MAYBE_CachingAsyncHitTest) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
@@ -364,7 +386,13 @@ IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
   }
 }
 
-IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest, HitTest) {
+#if defined(THREAD_SANITIZER)
+// TODO(https://crbug.com/1224938): Times out flakily on TSAN builds.
+#define MAYBE_HitTest DISABLED_HitTest
+#else
+#define MAYBE_HitTest HitTest
+#endif
+IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest, MAYBE_HitTest) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
@@ -464,7 +492,7 @@ IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingCrossProcessBrowserTest,
                                                 "rectA");
 
   auto* web_contents = static_cast<WebContentsImpl*>(shell()->web_contents());
-  FrameTreeNode* root = web_contents->GetFrameTree()->root();
+  FrameTreeNode* root = web_contents->GetPrimaryFrameTree().root();
   ASSERT_EQ(1U, root->child_count());
 
   FrameTreeNode* child = root->child_at(0);
@@ -495,14 +523,11 @@ IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingCrossProcessBrowserTest,
 
   // Scroll div up 100px.
   int scroll_delta = 100;
-  double actual_scroll_delta = 0;
   std::string scroll_string = base::StringPrintf(
-      "window.scrollTo(0, %d); "
-      "window.domAutomationController.send(window.scrollY);",
-      scroll_delta);
-  EXPECT_TRUE(ExecuteScriptAndExtractDouble(
-      child->current_frame_host(), scroll_string, &actual_scroll_delta));
-  EXPECT_NEAR(static_cast<double>(scroll_delta), actual_scroll_delta, 1.0);
+      "window.scrollTo(0, %d); window.scrollY;", scroll_delta);
+  EXPECT_NEAR(
+      EvalJs(child->current_frame_host(), scroll_string).ExtractDouble(),
+      static_cast<double>(scroll_delta), 1.0);
 
   // After scrolling.
   {
@@ -622,8 +647,14 @@ IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
   }
 }
 
+#if defined(THREAD_SANITIZER)
+// TODO(https://crbug.com/1224978): Times out flakily on TSAN builds.
+#define MAYBE_HitTest_WithPinchZoom DISABLED_HitTest_WithPinchZoom
+#else
+#define MAYBE_HitTest_WithPinchZoom HitTest_WithPinchZoom
+#endif
 IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
-                       HitTest_WithPinchZoom) {
+                       MAYBE_HitTest_WithPinchZoom) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
@@ -739,9 +770,7 @@ IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
 
 // GetAXPlatformNode is currently only supported on windows and linux (excluding
 // Chrome OS or Chromecast)
-#if defined(OS_WIN) ||                                       \
-    ((defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
-     !BUILDFLAG(IS_CHROMECAST))
+#if defined(OS_WIN) || (defined(OS_LINUX) && !BUILDFLAG(IS_CHROMECAST))
 IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
                        NearestLeafInIframes) {
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -778,4 +807,66 @@ IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
   }
 }
 #endif
+
+IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
+                       AriaTouchPassthroughKeypadTap) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
+
+  AccessibilityNotificationWaiter waiter(shell()->web_contents(),
+                                         ui::kAXModeComplete,
+                                         ax::mojom::Event::kLoadComplete);
+
+  GURL url(embedded_test_server()->GetURL(
+      "/accessibility/hit_testing/aria_touchpassthrough_key.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+  SynchronizeThreads();
+  waiter.WaitForNotification();
+
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "Dial");
+
+  BrowserAccessibility* field = FindNode(ax::mojom::Role::kTextField, "");
+  ASSERT_TRUE(field);
+
+  BrowserAccessibility* key5 = FindNode(ax::mojom::Role::kButton, "5");
+  ASSERT_TRUE(key5);
+
+  // Press on the '5' key
+  {
+    // Hit test a point within the '5' key and ensure we hit the right node.
+    gfx::Point key5_ctr = key5->GetClippedRootFrameBoundsRect().CenterPoint();
+    LOG(ERROR) << "AXAX key5 before: " << key5_ctr.x() << ", " << key5_ctr.y();
+    key5_ctr = FrameToCSSPoint(key5_ctr);
+    LOG(ERROR) << "AXAX key5 after: " << key5_ctr.x() << ", " << key5_ctr.y();
+    BrowserAccessibility* hit_node = HitTestAndWaitForResult(key5_ctr);
+    ASSERT_TRUE(hit_node);
+
+    while (hit_node && hit_node->GetRole() != ax::mojom::Role::kButton)
+      hit_node = hit_node->PlatformGetParent();
+    ASSERT_TRUE(hit_node);
+
+    EXPECT_ACCESSIBILITY_HIT_TEST_RESULT(key5_ctr, key5, hit_node);
+
+    // Ensure that element has touch-passthrough set.
+    EXPECT_TRUE(
+        key5->GetBoolAttribute(ax::mojom::BoolAttribute::kTouchPassthrough));
+
+    AccessibilityNotificationWaiter event_waiter(
+        shell()->web_contents(), ui::kAXModeComplete,
+        ui::AXEventGenerator::Event::VALUE_IN_TEXT_FIELD_CHANGED);
+
+    // Simulate a tap at that point using TouchPassthroughManager.
+    TouchPassthroughManager touch_passthrough_manager(
+        static_cast<WebContentsImpl*>(shell()->web_contents())->GetMainFrame());
+    touch_passthrough_manager.OnTouchStart(CSSToFramePoint(key5_ctr));
+    touch_passthrough_manager.OnTouchEnd();
+    event_waiter.WaitForNotification();
+
+    EXPECT_EQ("5",
+              field->GetStringAttribute(ax::mojom::StringAttribute::kValue));
+  }
+}
+
 }  // namespace content

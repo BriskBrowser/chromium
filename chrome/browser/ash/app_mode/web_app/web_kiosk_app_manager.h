@@ -15,6 +15,7 @@
 
 class Browser;
 class PrefRegistrySimple;
+class Profile;
 struct WebApplicationInfo;
 
 namespace ash {
@@ -30,10 +31,15 @@ class WebKioskAppManager : public KioskAppManagerBase {
   // Will return the manager instance or will crash if it not yet initiazlied.
   static WebKioskAppManager* Get();
   WebKioskAppManager();
+  WebKioskAppManager(const WebKioskAppManager&) = delete;
+  WebKioskAppManager& operator=(const WebKioskAppManager&) = delete;
   ~WebKioskAppManager() override;
 
   // Registers kiosk app entries in local state.
   static void RegisterPrefs(PrefRegistrySimple* registry);
+
+  // Create app instance by app data.
+  static KioskAppManagerBase::App CreateAppByData(const WebKioskAppData& data);
 
   // KioskAppManagerBase:
   void GetApps(std::vector<App>* apps) const override;
@@ -55,7 +61,7 @@ class WebKioskAppManager : public KioskAppManagerBase {
   void AddAppForTesting(const AccountId& account_id, const GURL& install_url);
 
   // Initialize current app session with the browser that is running the app.
-  void InitSession(Browser* browser);
+  void InitSession(Browser* browser, Profile* profile);
 
  private:
   // KioskAppManagerBase:
@@ -64,16 +70,8 @@ class WebKioskAppManager : public KioskAppManagerBase {
 
   std::vector<std::unique_ptr<WebKioskAppData>> apps_;
   AccountId auto_launch_account_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebKioskAppManager);
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::WebKioskAppManager;
-}
 
 #endif  // CHROME_BROWSER_ASH_APP_MODE_WEB_APP_WEB_KIOSK_APP_MANAGER_H_

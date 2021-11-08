@@ -58,6 +58,8 @@ class CORE_EXPORT AbstractInlineTextBox
 
   enum Direction { kLeftToRight, kRightToLeft, kTopToBottom, kBottomToTop };
 
+  static void GetWordBoundariesForText(Vector<WordBoundaries>&, const String&);
+
   virtual ~AbstractInlineTextBox();
 
   LineLayoutText GetLineLayoutItem() const { return line_layout_item_; }
@@ -75,6 +77,7 @@ class CORE_EXPORT AbstractInlineTextBox
   virtual Direction GetDirection() const = 0;
   Node* GetNode() const;
   LayoutObject* GetLayoutObject() const;
+  AXObjectCache* ExistingAXObjectCache() const;
   virtual void CharacterWidths(Vector<float>&) const = 0;
   void GetWordBoundaries(Vector<WordBoundaries>&) const;
   virtual String GetText() const = 0;

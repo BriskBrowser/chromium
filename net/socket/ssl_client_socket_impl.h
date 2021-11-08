@@ -13,11 +13,10 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "base/containers/mru_cache.h"
+#include "base/containers/lru_cache.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
@@ -33,6 +32,7 @@
 #include "net/ssl/ssl_client_session_cache.h"
 #include "net/ssl/ssl_config.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/boringssl/src/include/openssl/base.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 
@@ -59,6 +59,10 @@ class SSLClientSocketImpl : public SSLClientSocket,
                       std::unique_ptr<StreamSocket> stream_socket,
                       const HostPortPair& host_and_port,
                       const SSLConfig& ssl_config);
+
+  SSLClientSocketImpl(const SSLClientSocketImpl&) = delete;
+  SSLClientSocketImpl& operator=(const SSLClientSocketImpl&) = delete;
+
   ~SSLClientSocketImpl() override;
 
   const HostPortPair& host_and_port() const { return host_and_port_; }
@@ -66,6 +70,9 @@ class SSLClientSocketImpl : public SSLClientSocket,
   // Log SSL key material to |logger|. Must be called before any
   // SSLClientSockets are created.
   static void SetSSLKeyLogger(std::unique_ptr<SSLKeyLogger> logger);
+
+  // SSLClientSocket implementation.
+  std::vector<uint8_t> GetECHRetryConfigs() override;
 
   // SSLSocket implementation.
   int ExportKeyingMaterial(const base::StringPiece& label,
@@ -86,13 +93,12 @@ class SSLClientSocketImpl : public SSLClientSocket,
   bool WasEverUsed() const override;
   bool WasAlpnNegotiated() const override;
   NextProto GetNegotiatedProtocol() const override;
-  base::Optional<base::StringPiece> GetPeerApplicationSettings() const override;
+  absl::optional<base::StringPiece> GetPeerApplicationSettings() const override;
   bool GetSSLInfo(SSLInfo* ssl_info) override;
   void GetConnectionAttempts(ConnectionAttempts* out) const override;
   void ClearConnectionAttempts() override {}
   void AddConnectionAttempts(const ConnectionAttempts& attempts) override {}
   int64_t GetTotalReceivedBytes() const override;
-  void DumpMemoryStats(SocketMemoryStats* stats) const override;
   void GetSSLCertRequestInfo(
       SSLCertRequestInfo* cert_request_info) const override;
 
@@ -161,7 +167,7 @@ class SSLClientSocketImpl : public SSLClientSocket,
 
   // Returns a session cache key for this socket.
   SSLClientSessionCache::Key GetSessionCacheKey(
-      base::Optional<IPAddress> dest_ip_addr) const;
+      absl::optional<IPAddress> dest_ip_addr) const;
 
   // Returns true if renegotiations are allowed.
   bool IsRenegotiationAllowed() const;
@@ -199,6 +205,15 @@ class SSLClientSocketImpl : public SSLClientSocket,
   int MapLastOpenSSLError(int ssl_error,
                           const crypto::OpenSSLErrStackTracer& tracer,
                           OpenSSLErrorInfo* info);
+
+  // Wraps SSL_get0_ech_name_override. See documentation for that function.
+  base::StringPiece GetECHNameOverride() const;
+
+  // Returns true if |cert| is one of the certs in |allowed_bad_certs|.
+  // The expected cert status is written to |cert_status|. |*cert_status| can
+  // be nullptr if user doesn't care about the cert status. This method checks
+  // handshake state, so it may only be called during certificate verification.
+  bool IsAllowedBadCert(X509Certificate* cert, CertStatus* cert_status) const;
 
   CompletionOnceCallback user_connect_callback_;
   CompletionOnceCallback user_read_callback_;
@@ -272,6 +287,9 @@ class SSLClientSocketImpl : public SSLClientSocket,
   // True if the socket has been disconnected.
   bool disconnected_;
 
+  // True if certificate verification used an ECH name override.
+  bool used_ech_name_override_ = false;
+
   NextProto negotiated_protocol_;
 
   // Set to true if a CertificateRequest was received.
@@ -302,8 +320,6 @@ class SSLClientSocketImpl : public SSLClientSocket,
 
   NetLogWithSource net_log_;
   base::WeakPtrFactory<SSLClientSocketImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SSLClientSocketImpl);
 };
 
 }  // namespace net

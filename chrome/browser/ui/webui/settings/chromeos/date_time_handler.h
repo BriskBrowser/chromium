@@ -5,12 +5,10 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_DATE_TIME_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_DATE_TIME_HANDLER_H_
 
-#include <memory>
-
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
 #include "chromeos/dbus/system_clock/system_clock_client.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -27,6 +25,10 @@ class DateTimeHandler : public ::settings::SettingsPageUIHandler,
                         public SystemClockClient::Observer {
  public:
   DateTimeHandler();
+
+  DateTimeHandler(const DateTimeHandler&) = delete;
+  DateTimeHandler& operator=(const DateTimeHandler&) = delete;
+
   ~DateTimeHandler() override;
 
   // SettingsPageUIHandler implementation.
@@ -67,8 +69,6 @@ class DateTimeHandler : public ::settings::SettingsPageUIHandler,
   base::ScopedObservation<SystemClockClient, SystemClockClient::Observer>
       scoped_observation_{this};
   base::WeakPtrFactory<DateTimeHandler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DateTimeHandler);
 };
 
 }  // namespace settings

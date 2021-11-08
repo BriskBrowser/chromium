@@ -6,13 +6,12 @@
 
 #include "ash/accelerators/accelerator_controller_impl.h"
 #include "ash/accessibility/accessibility_controller_impl.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/events/event_rewriter_controller_impl.h"
 #include "ash/metrics/task_switch_metrics_recorder.h"
 #include "ash/metrics/task_switch_source.h"
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/public/cpp/accelerators.h"
-#include "ash/public/cpp/ash_features.h"
-#include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
@@ -22,12 +21,15 @@
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/mru_window_tracker.h"
+#include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/screen_pinning_controller.h"
 #include "ash/wm/window_cycle/window_cycle_event_filter.h"
 #include "ash/wm/window_cycle/window_cycle_list.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/bind.h"
+#include "base/check.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
@@ -36,6 +38,27 @@
 namespace ash {
 
 namespace {
+
+constexpr char kAltTabDesksSwitchDistanceHistogramName[] =
+    "Ash.WindowCycleController.DesksSwitchDistance";
+constexpr char kAltTabInitialModeHistogramName[] =
+    "Ash.WindowCycleController.InitialMode";
+constexpr char kAltTabItemsHistogramName[] = "Ash.WindowCycleController.Items";
+constexpr char kAltTabSwitchModeHistogramName[] =
+    "Ash.WindowCycleController.SwitchMode";
+constexpr char kAltTabModeSwitchSourceHistogramName[] =
+    "Ash.WindowCycleController.ModeSwitchSource";
+
+// Enumeration of the alt-tab modes to record initial mode and mode switch.
+// Note that these values are persisted to histograms so existing values should
+// remain unchanged and new values should be added to the end.
+enum class AltTabMode {
+  // The window list includes all windows from all desks.
+  kAllDesks,
+  // The window list only includes windows from the active desk.
+  kCurrentDesk,
+  kMaxValue = kCurrentDesk,
+};
 
 // Returns the most recently active window from the |window_list| or nullptr
 // if the list is empty.
@@ -67,9 +90,9 @@ void ReportPossibleDesksSwitchStats(int active_desk_container_id_before_cycle) {
   const int desks_switch_distance =
       std::abs(active_desk_container_id_after_cycle -
                active_desk_container_id_before_cycle);
-  UMA_HISTOGRAM_EXACT_LINEAR("Ash.WindowCycleController.DesksSwitchDistance",
-                             desks_switch_distance,
-                             desks_util::GetMaxNumberOfDesks());
+  base::UmaHistogramExactLinear(kAltTabDesksSwitchDistanceHistogramName,
+                                desks_switch_distance,
+                                desks_util::kMaxNumberOfDesks);
 }
 
 }  // namespace
@@ -78,13 +101,11 @@ void ReportPossibleDesksSwitchStats(int active_desk_container_id_before_cycle) {
 // WindowCycleController, public:
 
 WindowCycleController::WindowCycleController() {
-  if (features::IsBentoEnabled())
-    Shell::Get()->session_controller()->AddObserver(this);
+  Shell::Get()->session_controller()->AddObserver(this);
 }
 
 WindowCycleController::~WindowCycleController() {
-  if (features::IsBentoEnabled())
-    Shell::Get()->session_controller()->RemoveObserver(this);
+  Shell::Get()->session_controller()->RemoveObserver(this);
 }
 
 // static
@@ -98,10 +119,7 @@ bool WindowCycleController::CanCycle() {
 
 // static
 void WindowCycleController::RegisterProfilePrefs(PrefRegistrySimple* registry) {
-  if (features::IsBentoEnabled()) {
-    registry->RegisterBooleanPref(prefs::kAltTabPerDesk,
-                                  DesksMruType::kAllDesks);
-  }
+  registry->RegisterBooleanPref(prefs::kAltTabPerDesk, DesksMruType::kAllDesks);
 }
 
 void WindowCycleController::HandleCycleWindow(
@@ -109,34 +127,11 @@ void WindowCycleController::HandleCycleWindow(
   if (!CanCycle())
     return;
 
-  if (!IsCycling())
+  const bool should_start_alt_tab = !IsCycling();
+  if (should_start_alt_tab)
     StartCycling();
 
-  Step(direction);
-}
-
-bool WindowCycleController::IsValidKeyboardNavigation(
-    KeyboardNavDirection direction) {
-  // Only allow Left and Right arrow keys if interactive alt-tab mode is not
-  // in use.
-  if (!IsInteractiveAltTabModeAllowed()) {
-    return direction == KeyboardNavDirection::kLeft ||
-           direction == KeyboardNavDirection::kRight;
-  }
-
-  // If the focus is on the window cycle list, the user can navigate up to
-  // focus the mode buttons, or left and right to change the window selection.
-  if (!IsTabSliderFocused())
-    return direction != KeyboardNavDirection::kDown;
-
-  // If the focus is on the tab slider button, the user can navigate down to
-  // focus the non-empty list, determined by non-null target window. The user
-  // can only navigate left while focusing the right button and vice versa.
-  const bool per_desk = IsAltTabPerActiveDesk();
-  return (direction == KeyboardNavDirection::kDown &&
-          window_cycle_list_->GetTargetWindow()) ||
-         (per_desk && direction == KeyboardNavDirection::kLeft) ||
-         (!per_desk && direction == KeyboardNavDirection::kRight);
+  Step(direction, /*starting_alt_tab_or_switching_mode=*/should_start_alt_tab);
 }
 
 void WindowCycleController::HandleKeyboardNavigation(
@@ -148,7 +143,7 @@ void WindowCycleController::HandleKeyboardNavigation(
     // Pressing the Up arrow key moves the focus from the window cycle list
     // to the tab slider button.
     case KeyboardNavDirection::kUp:
-      DCHECK(!IsTabSliderFocused());
+      DCHECK(!IsTabSliderFocused() && IsInteractiveAltTabModeAllowed());
       window_cycle_list_->SetFocusTabSlider(true);
       // Focusing the alt-tab mode button announces the current mode.
       Shell::Get()
@@ -197,23 +192,28 @@ void WindowCycleController::HandleKeyboardNavigation(
   }
 }
 
-void WindowCycleController::Scroll(WindowCyclingDirection direction) {
-  if (!CanCycle())
-    return;
-
-  if (!IsCycling())
-    StartCycling();
-
+void WindowCycleController::Drag(float delta_x) {
   DCHECK(window_cycle_list_);
-  window_cycle_list_->ScrollInDirection(direction);
+  window_cycle_list_->Drag(delta_x);
+}
+
+void WindowCycleController::StartFling(float velocity_x) {
+  DCHECK(window_cycle_list_);
+  window_cycle_list_->StartFling(velocity_x);
 }
 
 void WindowCycleController::StartCycling() {
+  Shell* shell = Shell::Get();
+
   // Close the wallpaper preview if it is open to prevent visual glitches where
   // the window view item for the preview is transparent
   // (http://crbug.com/895265).
-  Shell::Get()->wallpaper_controller()->MaybeClosePreviewWallpaper();
-  Shell::Get()->event_rewriter_controller()->SetAltDownRemappingEnabled(false);
+  shell->wallpaper_controller()->MaybeClosePreviewWallpaper();
+  shell->event_rewriter_controller()->SetAltDownRemappingEnabled(false);
+
+  // End overview as the window cycle list takes over window switching.
+  shell->overview_controller()->EndOverview(
+      OverviewEndAction::kStartedWindowCycle);
 
   WindowCycleController::WindowList window_list = CreateWindowList();
   SaveCurrentActiveDeskAndWindow(window_list);
@@ -221,11 +221,21 @@ void WindowCycleController::StartCycling() {
   window_cycle_list_ = std::make_unique<WindowCycleList>(window_list);
   event_filter_ = std::make_unique<WindowCycleEventFilter>();
   base::RecordAction(base::UserMetricsAction("WindowCycleController_Cycle"));
-  UMA_HISTOGRAM_COUNTS_100("Ash.WindowCycleController.Items",
-                           window_list.size());
+  base::UmaHistogramCounts100(kAltTabItemsHistogramName, window_list.size());
+  if (IsInteractiveAltTabModeAllowed()) {
+    // When alt-tab interactive mode is available, report the initial alt-tab
+    // mode which indicates the user's preferred mode.
+    base::UmaHistogramEnumeration(kAltTabInitialModeHistogramName,
+                                  IsAltTabPerActiveDesk()
+                                      ? AltTabMode::kCurrentDesk
+                                      : AltTabMode::kAllDesks);
+  }
+
+  desks_observation_.Observe(DesksController::Get());
 }
 
 void WindowCycleController::CompleteCycling() {
+  DCHECK(window_cycle_list_);
   window_cycle_list_->set_user_did_accept(true);
   StopCycling();
 }
@@ -253,8 +263,20 @@ void WindowCycleController::SetFocusedWindow(aura::Window* window) {
   window_cycle_list_->SetFocusedWindow(window);
 }
 
-bool WindowCycleController::IsEventInCycleView(ui::LocatedEvent* event) {
+bool WindowCycleController::IsEventInCycleView(const ui::LocatedEvent* event) {
   return window_cycle_list_ && window_cycle_list_->IsEventInCycleView(event);
+}
+
+aura::Window* WindowCycleController::GetWindowAtPoint(
+    const ui::LocatedEvent* event) {
+  return window_cycle_list_ ? window_cycle_list_->GetWindowAtPoint(event)
+                            : nullptr;
+}
+
+bool WindowCycleController::IsEventInTabSliderContainer(
+    const ui::LocatedEvent* event) {
+  return window_cycle_list_ &&
+         window_cycle_list_->IsEventInTabSliderContainer(event);
 }
 
 bool WindowCycleController::IsWindowListVisible() {
@@ -262,14 +284,12 @@ bool WindowCycleController::IsWindowListVisible() {
 }
 
 bool WindowCycleController::IsInteractiveAltTabModeAllowed() {
-  return features::IsBentoEnabled() &&
-         Shell::Get()->desks_controller()->GetNumberOfDesks() > 1;
+  return Shell::Get()->desks_controller()->GetNumberOfDesks() > 1;
 }
 
 bool WindowCycleController::IsAltTabPerActiveDesk() {
-  return IsInteractiveAltTabModeAllowed() && active_user_pref_service_
-             ? active_user_pref_service_->GetBoolean(prefs::kAltTabPerDesk)
-             : features::IsAltTabLimitedToActiveDesk();
+  return IsInteractiveAltTabModeAllowed() && active_user_pref_service_ &&
+         active_user_pref_service_->GetBoolean(prefs::kAltTabPerDesk);
 }
 
 bool WindowCycleController::IsSwitchingMode() {
@@ -283,8 +303,6 @@ bool WindowCycleController::IsTabSliderFocused() {
 
 void WindowCycleController::OnActiveUserPrefServiceChanged(
     PrefService* pref_service) {
-  if (!features::IsBentoEnabled())
-    return;
   active_user_pref_service_ = pref_service;
   InitFromUserPrefs();
 }
@@ -302,6 +320,12 @@ void WindowCycleController::OnModeChanged(bool per_desk,
   if (per_desk == prefs->GetBoolean(prefs::kAltTabPerDesk))
     return;
   prefs->SetBoolean(prefs::kAltTabPerDesk, per_desk);
+
+  // Report the alt-tab mode the user switches to and the source of switch.
+  base::UmaHistogramEnumeration(
+      kAltTabSwitchModeHistogramName,
+      per_desk ? AltTabMode::kCurrentDesk : AltTabMode::kAllDesks);
+  base::UmaHistogramEnumeration(kAltTabModeSwitchSourceHistogramName, source);
 
   // Announce the new mode and the updated window selection via ChromeVox.
   aura::Window* target_window = window_cycle_list_->GetTargetWindow();
@@ -342,6 +366,14 @@ void WindowCycleController::OnModeChanged(bool per_desk,
   }
 }
 
+void WindowCycleController::OnDeskAdded(const Desk* desk) {
+  CancelCycling();
+}
+
+void WindowCycleController::OnDeskRemoved(const Desk* desk) {
+  CancelCycling();
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // WindowCycleController, private:
 
@@ -364,13 +396,25 @@ void WindowCycleController::SaveCurrentActiveDeskAndWindow(
   active_window_before_window_cycle_ = GetActiveWindow(window_list);
 }
 
-void WindowCycleController::Step(WindowCyclingDirection direction) {
+void WindowCycleController::Step(WindowCyclingDirection direction,
+                                 bool starting_alt_tab_or_switching_mode) {
   DCHECK(window_cycle_list_);
-  window_cycle_list_->Step(direction);
+  window_cycle_list_->Step(direction, starting_alt_tab_or_switching_mode);
 }
 
 void WindowCycleController::StopCycling() {
-  const bool has_window_targeter = window_cycle_list_->HasWindowTargeter();
+  // There's an edge case where `StopCycling()` is already triggered via an alt
+  // release event, but user doesn't release the tap on the
+  // `window_cycle_list_`. If we reset `window_cycle_list_` first,
+  // `WindowEventDispatcher::DispatchSyntheticTouchEvent` will be triggered
+  // because of the availability changed for the `window_cycle_list_`. Thus
+  // `event_filter_` will still receive the event and try to handle the event
+  // even though it's in the process of stopping cycling. To avoid this, we
+  // should remove our event filter first. Please check
+  // https://crbug.com/1228381 for more details.
+  event_filter_.reset();
+
+  desks_observation_.Reset();
   window_cycle_list_.reset();
 
   // We can't use the MRU window list here to get the active window, since
@@ -379,9 +423,6 @@ void WindowCycleController::StopCycling() {
   // will always be for the current active desk, not the target active desk.
   aura::Window* active_window_after_window_cycle =
       window_util::GetActiveWindow();
-
-  // Remove our key event filter.
-  event_filter_.reset();
 
   if (active_window_after_window_cycle != nullptr &&
       active_window_before_window_cycle_ != active_window_after_window_cycle) {
@@ -394,24 +435,10 @@ void WindowCycleController::StopCycling() {
   active_window_before_window_cycle_ = nullptr;
   active_desk_container_id_before_cycle_ = kShellWindowId_Invalid;
   Shell::Get()->event_rewriter_controller()->SetAltDownRemappingEnabled(true);
-
-  if (has_window_targeter) {
-    // Resend the alt-key release, dropped by |window_targeter_|, to the
-    // accelerator controller to cancel out the alt-key press in its
-    // history from using the accelerator, prior to the targeter creation.
-    // Without this resending, the future key events will be interpreted
-    // incorrectly as if the user still holds the alt key (crbug.com/1160676).
-    ui::Accelerator alt_release(ui::VKEY_MENU, ui::EF_NONE,
-                                ui::Accelerator::KeyState::RELEASED);
-    AcceleratorController::Get()
-        ->GetAcceleratorHistory()
-        ->StoreCurrentAccelerator(alt_release);
-  }
 }
 
 void WindowCycleController::InitFromUserPrefs() {
   DCHECK(active_user_pref_service_);
-  DCHECK(features::IsBentoEnabled());
 
   pref_change_registrar_ = std::make_unique<PrefChangeRegistrar>();
   pref_change_registrar_->Init(active_user_pref_service_);
@@ -437,12 +464,37 @@ void WindowCycleController::OnAltTabModePrefChanged() {
   // After the cycle is reset, imitate the same forward cycling behavior as
   // starting alt-tab with `Step()`, which makes sure the correct window is
   // selected and highlighted.
-  Step(WindowCyclingDirection::kForward);
+  Step(WindowCyclingDirection::kForward,
+       /*starting_alt_tab_or_switching_mode=*/true);
 
   // Update tab slider button UI.
   window_cycle_list_->OnModePrefsChanged();
 
   is_switching_mode_ = false;
+}
+
+bool WindowCycleController::IsValidKeyboardNavigation(
+    KeyboardNavDirection direction) {
+  // Only allow Left and Right arrow keys if interactive alt-tab mode is not
+  // in use.
+  if (!IsInteractiveAltTabModeAllowed()) {
+    return direction == KeyboardNavDirection::kLeft ||
+           direction == KeyboardNavDirection::kRight;
+  }
+
+  // If the focus is on the window cycle list, the user can navigate up to
+  // focus the mode buttons, or left and right to change the window selection.
+  if (!IsTabSliderFocused())
+    return direction != KeyboardNavDirection::kDown;
+
+  // If the focus is on the tab slider button, the user can navigate down to
+  // focus the non-empty list, determined by non-null target window. The user
+  // can only navigate left while focusing the right button and vice versa.
+  const bool per_desk = IsAltTabPerActiveDesk();
+  return (direction == KeyboardNavDirection::kDown &&
+          window_cycle_list_->GetTargetWindow()) ||
+         (per_desk && direction == KeyboardNavDirection::kLeft) ||
+         (!per_desk && direction == KeyboardNavDirection::kRight);
 }
 
 }  // namespace ash

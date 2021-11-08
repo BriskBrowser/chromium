@@ -10,16 +10,24 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
+#include "base/test/scoped_feature_list.h"
+#include "components/app_restore/features.h"
+#include "components/app_restore/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/views/widget/widget_delegate.h"
+#include "ui/wm/core/window_util.h"
 
 namespace ash {
 
 class MruWindowTrackerTest : public AshTestBase {
  public:
   MruWindowTrackerTest() = default;
+
+  MruWindowTrackerTest(const MruWindowTrackerTest&) = delete;
+  MruWindowTrackerTest& operator=(const MruWindowTrackerTest&) = delete;
+
   ~MruWindowTrackerTest() override = default;
 
   std::unique_ptr<aura::Window> CreateTestWindow() {
@@ -29,9 +37,6 @@ class MruWindowTrackerTest : public AshTestBase {
   MruWindowTracker* mru_window_tracker() {
     return Shell::Get()->mru_window_tracker();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MruWindowTrackerTest);
 };
 
 // Basic test that the activation order is tracked.
@@ -133,7 +138,7 @@ TEST_P(MruWindowTrackerOrderTest, Basic) {
   delegate->SetModalType(ui::MODAL_TYPE_SYSTEM);
   std::unique_ptr<views::Widget> modal =
       CreateTestWidget(delegate.release(), kShellWindowId_Invalid);
-  EXPECT_EQ(modal.get()->GetNativeView()->parent()->id(),
+  EXPECT_EQ(modal.get()->GetNativeView()->parent()->GetId(),
             kShellWindowId_SystemModalContainer);
 
   window_list = BuildMruWindowList();
@@ -146,6 +151,99 @@ TEST_P(MruWindowTrackerOrderTest, Basic) {
     EXPECT_EQ(w6.get(), *iter++);
   }
   EXPECT_EQ(iter, window_list.end());
+}
+
+// A test class for testing the Full Restore feature.
+class MruWindowTrackerFullRestoreTest : public MruWindowTrackerTest {
+ public:
+  MruWindowTrackerFullRestoreTest() = default;
+  MruWindowTrackerFullRestoreTest(const MruWindowTrackerFullRestoreTest&) =
+      delete;
+  MruWindowTrackerFullRestoreTest& operator=(
+      const MruWindowTrackerFullRestoreTest&) = delete;
+  ~MruWindowTrackerFullRestoreTest() override = default;
+
+  // MruWindowTrackerTest:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        full_restore::features::kFullRestore);
+    MruWindowTrackerTest::SetUp();
+  }
+
+  // Simulates restoring a window using Full Restore by init'ing a window with
+  // the `app_restore::kActivationIndexKey`.
+  std::unique_ptr<aura::Window> CreateTestFullRestoredWindow(
+      int activation_index) {
+    auto window = std::make_unique<aura::Window>(
+        nullptr, aura::client::WINDOW_TYPE_NORMAL);
+    window->SetProperty(app_restore::kActivationIndexKey, activation_index);
+    window->Init(ui::LAYER_NOT_DRAWN);
+    return window;
+  }
+
+  void VerifyMruWindowsOrder(
+      const MruWindowTracker::WindowList& expected_list) {
+    auto actual_list = mru_window_tracker()->GetMruWindowsForTesting();
+    ASSERT_EQ(expected_list.size(), actual_list.size());
+    for (size_t i = 0; i < expected_list.size(); ++i)
+      EXPECT_EQ(expected_list[i], actual_list[i]);
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Tests whether MRU order is properly restored for the Full Restore feature.
+TEST_F(MruWindowTrackerFullRestoreTest, RestoreMruOrder) {
+  // Simulate restoring Full Restored windows out-of-order. Start with `w5`,
+  // which has an activation index of 5. The lower
+  // `app_restore::kActivationIndexKey` is, the more recently it was used. Also
+  // the most recently used window is at the end of
+  // `MruWindowTracker::mru_windows_`.
+  auto w5 = CreateTestFullRestoredWindow(/*activation_index=*/5);
+  VerifyMruWindowsOrder({w5.get()});
+
+  // Simulate restoring `w2`.
+  auto w2 = CreateTestFullRestoredWindow(/*activation_index=*/2);
+  VerifyMruWindowsOrder({w5.get(), w2.get()});
+
+  // Simulate restoring `w3`.
+  auto w3 = CreateTestFullRestoredWindow(/*activation_index=*/3);
+  VerifyMruWindowsOrder({w5.get(), w3.get(), w2.get()});
+
+  // Simulate a user creating a window while Full Restore is ongoing.
+  auto user_created_window = CreateTestWindow();
+  wm::ActivateWindow(user_created_window.get());
+  VerifyMruWindowsOrder(
+      {w5.get(), w3.get(), w2.get(), user_created_window.get()});
+
+  // Simulate restoring `w4`.
+  auto w4 = CreateTestFullRestoredWindow(/*activation_index=*/4);
+  VerifyMruWindowsOrder(
+      {w5.get(), w4.get(), w3.get(), w2.get(), user_created_window.get()});
+
+  // Simulate restoring `w1`.
+  auto w1 = CreateTestFullRestoredWindow(/*activation_index=*/1);
+  VerifyMruWindowsOrder({w5.get(), w4.get(), w3.get(), w2.get(), w1.get(),
+                         user_created_window.get()});
+}
+
+// Tests that Full Restore'd windows are included in the MRU window list. See
+// crbug.com/1229260.
+TEST_F(MruWindowTrackerFullRestoreTest, FullRestoredWindowsInMRUWindowList) {
+  // Create an `aura::Window` using `CreateTestWindow()` so that the window is
+  // parented to something. Then set its
+  // `app_restore::kLaunchedFromFullRestoreKey` to simulate it being Full
+  // Restore'd.
+  std::unique_ptr<aura::Window> w1(CreateTestWindow());
+  w1->SetProperty(app_restore::kLaunchedFromFullRestoreKey, true);
+
+  // Build the MRU window list. `w1` should be included despite not being
+  // activatable.
+  MruWindowTracker::WindowList window_list =
+      mru_window_tracker()->BuildMruWindowList(kAllDesks);
+  EXPECT_EQ(1u, window_list.size());
+  EXPECT_EQ(w1.get(), window_list[0]);
 }
 
 INSTANTIATE_TEST_SUITE_P(MruWindowTrackerOrder,

@@ -46,6 +46,9 @@ need to be translated for each locale.-->
       <output filename="ui_strings_zh-HK.pak" type="data_package" lang="zh-HK" />
       <output filename="ui_strings_zu.pak" type="data_package" lang="zu" />
     </if>
+    <if expr="chromeos or lacros">
+      <output filename="ui_strings_is.pak" type="data_package" lang="is" />
+    </if>
     <output filename="ui_strings_am.pak" type="data_package" lang="am" />
     <output filename="ui_strings_ar.pak" type="data_package" lang="ar" />
     <output filename="ui_strings_bg.pak" type="data_package" lang="bg" />
@@ -533,6 +536,9 @@ need to be translated for each locale.-->
       <message name="IDS_APP_ACCNAME_BACK" desc="The accessible name for the back button on the window frame.">
         Back button
       </message>
+      <message name="IDS_APP_ACCNAME_CENTER" desc="The accessible name for the center button on the window frame.">
+        Center button
+      </message>
       <message name="IDS_APP_ACCNAME_CLOSE" desc="The accessible name for the Close button.">
         Close
       </message>
@@ -585,6 +591,17 @@ need to be translated for each locale.-->
       </message>
       <message name="IDS_APP_SCROLLBAR_CXMENU_SCROLLDOWN" desc="The label for the 'Scroll Down' item">
         Scroll Down
+      </message>
+
+      <!-- TableView accessible strings -->
+      <message name="IDS_APP_TABLE_COLUMN_NOT_SORTED_ACCNAME" desc="The text to be announced when specified column becomes unsorted.">
+        Column <ph name="COLUMN_NAME">$1<ex>Column Name</ex></ph> unsorted.
+      </message>
+      <message name="IDS_APP_TABLE_COLUMN_SORTED_ASC_ACCNAME" desc="The text to be announced when specified column is sorted in ascending order.">
+        Column <ph name="COLUMN_NAME">$1<ex>Column Name</ex></ph> sorted in ascending order.
+      </message>
+      <message name="IDS_APP_TABLE_COLUMN_SORTED_DESC_ACCNAME" desc="The text to be announced when specified column is sorted in descending order.">
+        Column <ph name="COLUMN_NAME">$1<ex>Column Name</ex></ph> sorted in descending order.
       </message>
 
       <!-- Textfield context menu item labels. -->
@@ -685,6 +702,9 @@ need to be translated for each locale.-->
       </message>
       <message name="IDS_APP_F1_KEY" desc="F1 key">
         F1
+      </message>
+      <message name="IDS_APP_F6_KEY" is_accessibility_with_no_ui="true" desc="F6 key">
+        F6
       </message>
       <message name="IDS_APP_F11_KEY" desc="F11 key">
         F11
@@ -917,8 +937,11 @@ need to be translated for each locale.-->
       <message name="IDS_APP_LIST_APP_FOCUS_NOTIFICATION_BADGE" desc="The spoken feedback text for when an app icon is focused and has a notification badge shown on the icon.">
         <ph name="FOCUSED_APP_NAME">$1<ex>App Name</ex></ph> requests your attention.
       </message>
-      <message name="IDS_APP_LIST_APP_DRAG_LOCATION_ACCESSIBILE_NAME" desc="The spoken feedback which tells the location that a dragged app has dropped to.">
+      <message name="IDS_APP_LIST_APP_DRAG_LOCATION_ACCESSIBILE_NAME" desc="The spoken feedback which tells the location that a dragged app has dropped to when the app list has pages.">
         Moved to Page <ph name="PAGE_NUMBER">$1<ex>1</ex></ph>, row <ph name="ROW_NUMBER">$2<ex>4</ex></ph>, column <ph name="COLUMN_NUMBER">$3<ex>2</ex></ph>.
+      </message>
+      <message name="IDS_APP_LIST_APP_DRAG_ROW_COLUMN_ACCESSIBILE_NAME" desc="The spoken feedback which tells the location that a dragged app has dropped to when the app list does not have pages.">
+        Moved to row <ph name="ROW_NUMBER">$1<ex>4</ex></ph>, column <ph name="COLUMN_NUMBER">$2<ex>2</ex></ph>.
       </message>
       <message name="IDS_APP_LIST_APP_DRAG_CREATE_FOLDER_ACCESSIBILE_NAME" desc="The spoken feedback text which describes the app that is currently being dragged over another app, and how to create a folder.">
         <ph name="DRAGGED_APP_NAME">$1<ex>App Name</ex></ph> on top of <ph name="IN_PLACE_APP">$2<ex>Other App Name</ex></ph>, release to create folder.
@@ -1071,7 +1094,7 @@ need to be translated for each locale.-->
       </message>
 
       <!-- Clipboard history menu -->
-      <message name="IDS_CLIPBOARD_HISTORY_MENU_BITMAP_IMAGE" desc="Accessibility text for the bitmap image shown on the clipboard history menu">
+      <message name="IDS_CLIPBOARD_HISTORY_MENU_PNG_IMAGE" desc="Accessibility text for the PNG image shown on the clipboard history menu">
         Image.
       </message>
       <message name="IDS_CLIPBOARD_HISTORY_MENU_HTML_IMAGE" desc="Accessibility text for the HTML-rendered image shown on the clipboard history menu">
@@ -1203,6 +1226,19 @@ need to be translated for each locale.-->
           Checking your internet connection
         </message>
       </if>
+
+      <!-- Settings string -->
+      <message name="IDS_SETTINGS_PASSWORD_SHOW" desc="A tool tip on a button that reveals the saved password.">
+       Show password
+      </message>
+      <message name="IDS_SETTINGS_PASSWORD_HIDE" desc="A tool tip on a button that hides the saved password that is being shown.">
+       Hide password
+      </message>
+
+      <!-- Table View -->
+      <message name="IDS_TABLE_VIEW_AX_ANNOUNCE_ROW_SELECTED" desc="Screenreader announcement that a row is selected">
+        <ph name="ROW_NAME">$1<ex>A row in the table</ex></ph> is selected.
+      </message>
     </messages>
   </release>
 </grit>

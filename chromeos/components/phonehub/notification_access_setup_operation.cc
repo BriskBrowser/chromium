@@ -8,6 +8,7 @@
 
 #include "base/check.h"
 #include "base/containers/contains.h"
+#include "base/metrics/histogram_functions.h"
 
 namespace chromeos {
 namespace phonehub {
@@ -24,6 +25,11 @@ constexpr std::array<NotificationAccessSetupOperation::Status, 4>
         NotificationAccessSetupOperation::Status::
             kProhibitedFromProvidingAccess,
     };
+
+// Used for metrics; do not change.
+constexpr size_t kNumSetupDurationHistogramBuckets = 50;
+constexpr base::TimeDelta kSetupDurationHistogramMinTime = base::Seconds(1);
+constexpr base::TimeDelta kSetupDurationHistogramMaxTime = base::Minutes(10);
 
 }  // namespace
 
@@ -42,10 +48,26 @@ NotificationAccessSetupOperation::NotificationAccessSetupOperation(
 }
 
 NotificationAccessSetupOperation::~NotificationAccessSetupOperation() {
+  if (current_status_) {
+    base::UmaHistogramEnumeration("PhoneHub.NotificationAccessSetup.LastStatus",
+                                  *current_status_);
+  }
+
   std::move(destructor_callback_).Run();
 }
 
 void NotificationAccessSetupOperation::NotifyStatusChanged(Status new_status) {
+  base::UmaHistogramEnumeration("PhoneHub.NotificationAccessSetup.AllStatuses",
+                                new_status);
+  if (new_status == Status::kCompletedSuccessfully) {
+    base::UmaHistogramCustomTimes(
+        "PhoneHub.NotificationAccessSetup.SuccessfulSetupDuration",
+        base::TimeTicks::Now() - start_timestamp_,
+        kSetupDurationHistogramMinTime, kSetupDurationHistogramMaxTime,
+        kNumSetupDurationHistogramBuckets);
+  }
+  current_status_ = new_status;
+
   delegate_->OnStatusChange(new_status);
 }
 

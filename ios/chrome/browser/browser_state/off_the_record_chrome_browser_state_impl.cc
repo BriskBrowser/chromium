@@ -5,10 +5,12 @@
 #include "ios/chrome/browser/browser_state/off_the_record_chrome_browser_state_impl.h"
 
 #include "base/metrics/histogram_functions.h"
+#include "base/metrics/user_metrics.h"
 #include "base/notreached.h"
-#include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "components/proxy_config/ios/proxy_service_factory.h"
 #include "components/proxy_config/pref_proxy_config_tracker.h"
 #include "components/sync_preferences/pref_service_syncable.h"
@@ -34,6 +36,9 @@ OffTheRecordChromeBrowserStateImpl::OffTheRecordChromeBrowserStateImpl(
   io_data_.reset(new OffTheRecordChromeBrowserStateIOData::Handle(this));
   BrowserStateDependencyManager::GetInstance()->CreateBrowserStateServices(
       this);
+  profile_metrics::SetBrowserProfileType(
+      this, profile_metrics::BrowserProfileType::kIncognito);
+  base::RecordAction(base::UserMetricsAction("IncognitoMode_Started"));
 }
 
 OffTheRecordChromeBrowserStateImpl::~OffTheRecordChromeBrowserStateImpl() {
@@ -43,9 +48,9 @@ OffTheRecordChromeBrowserStateImpl::~OffTheRecordChromeBrowserStateImpl() {
     pref_proxy_config_tracker_->DetachFromPrefService();
 
   const base::TimeDelta duration = base::Time::Now() - start_time_;
-  base::UmaHistogramCustomCounts(
-      "Profile.Incognito.Lifetime", duration.InMinutes(), 1,
-      base::TimeDelta::FromDays(28).InMinutes(), 100);
+  base::UmaHistogramCustomCounts("Profile.Incognito.Lifetime",
+                                 duration.InMinutes(), 1,
+                                 base::Days(28).InMinutes(), 100);
 
   // Clears any data the network stack contains that may be related to the
   // OTR session.
@@ -80,10 +85,6 @@ OffTheRecordChromeBrowserStateImpl::GetPolicyConnector() {
 
 PrefService* OffTheRecordChromeBrowserStateImpl::GetPrefs() {
   return prefs_.get();
-}
-
-PrefService* OffTheRecordChromeBrowserStateImpl::GetOffTheRecordPrefs() {
-  return GetPrefs();
 }
 
 bool OffTheRecordChromeBrowserStateImpl::IsOffTheRecord() const {

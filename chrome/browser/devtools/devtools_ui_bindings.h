@@ -13,12 +13,12 @@
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/devtools/device/devtools_android_bridge.h"
 #include "chrome/browser/devtools/devtools_embedder_message_dispatcher.h"
 #include "chrome/browser/devtools/devtools_file_helper.h"
 #include "chrome/browser/devtools/devtools_file_system_indexer.h"
 #include "chrome/browser/devtools/devtools_infobar_delegate.h"
+#include "chrome/browser/devtools/devtools_settings.h"
 #include "chrome/browser/devtools/devtools_targets_ui.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -26,13 +26,16 @@
 #include "ui/gfx/geometry/size.h"
 
 class DevToolsAndroidBridge;
-class InfoBarService;
 class Profile;
 class PortForwardingStatusSerializer;
 
 namespace content {
 class NavigationHandle;
 class WebContents;
+}
+
+namespace infobars {
+class ContentInfoBarManager;
 }
 
 // Base implementation of DevTools bindings around front-end.
@@ -60,7 +63,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
     virtual void ReadyForTest() = 0;
     virtual void ConnectionReady() = 0;
     virtual void SetOpenNewWindowForPopups(bool value) = 0;
-    virtual InfoBarService* GetInfoBarService() = 0;
+    virtual infobars::ContentInfoBarManager* GetInfoBarManager() = 0;
     virtual void RenderProcessGone(bool crashed) = 0;
     virtual void ShowCertificateViewer(const std::string& cert_chain) = 0;
   };
@@ -72,6 +75,10 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   static bool IsValidRemoteFrontendURL(const GURL& url);
 
   explicit DevToolsUIBindings(content::WebContents* web_contents);
+
+  DevToolsUIBindings(const DevToolsUIBindings&) = delete;
+  DevToolsUIBindings& operator=(const DevToolsUIBindings&) = delete;
+
   ~DevToolsUIBindings() override;
 
   content::WebContents* web_contents() { return web_contents_; }
@@ -89,11 +96,17 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
       base::OnceCallback<void(base::Value)> completion_callback =
           base::OnceCallback<void(base::Value)>());
   void AttachTo(const scoped_refptr<content::DevToolsAgentHost>& agent_host);
+  void AttachViaBrowserTarget(
+      const scoped_refptr<content::DevToolsAgentHost>& agent_host);
   void Detach();
   bool IsAttachedTo(content::DevToolsAgentHost* agent_host);
 
+  static base::Value GetSyncInformationForProfile(Profile* profile);
+
  private:
-  void HandleMessageFromDevToolsFrontend(const std::string& message);
+  using DevToolsUIBindingsList = std::vector<DevToolsUIBindings*>;
+
+  void HandleMessageFromDevToolsFrontend(base::Value);
 
   // content::DevToolsAgentHostClient implementation.
   void DispatchProtocolMessage(content::DevToolsAgentHost* agent_host,
@@ -160,11 +173,14 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   void SendJsonRequest(DispatchCallback callback,
                        const std::string& browser_id,
                        const std::string& url) override;
+  void RegisterPreference(const std::string& name,
+                          const RegisterOptions& options) override;
   void GetPreferences(DispatchCallback callback) override;
   void SetPreference(const std::string& name,
                      const std::string& value) override;
   void RemovePreference(const std::string& name) override;
   void ClearPreferences() override;
+  void GetSyncInformation(DispatchCallback callback) override;
   void Reattach(DispatchCallback callback) override;
   void ReadyForTest() override;
   void ConnectionReady() override;
@@ -187,7 +203,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
 
   // Forwards discovered devices to frontend.
   virtual void DevicesUpdated(const std::string& source,
-                              const base::ListValue& targets);
+                              const base::Value& targets);
 
   void ReadyToCommitNavigation(content::NavigationHandle* navigation_handle);
   void DocumentOnLoadCompletedInMainFrame();
@@ -223,11 +239,13 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   void SearchCompleted(int request_id,
                        const std::string& file_system_path,
                        const std::vector<std::string>& file_paths);
-  void ShowDevToolsInfoBar(const base::string16& message,
+  void ShowDevToolsInfoBar(const std::u16string& message,
                            DevToolsInfoBarDelegate::Callback callback);
 
   // Extensions support.
   void AddDevToolsExtensionsToClient();
+
+  static DevToolsUIBindingsList& GetDevToolsUIBindings();
 
   class FrontendWebContentsObserver;
   std::unique_ptr<FrontendWebContentsObserver> frontend_contents_observer_;
@@ -261,10 +279,11 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
 
   using ExtensionsAPIs = std::map<std::string, std::string>;
   ExtensionsAPIs extensions_api_;
+  std::string initial_target_id_;
+
+  DevToolsSettings settings_;
 
   base::WeakPtrFactory<DevToolsUIBindings> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsUIBindings);
 };
 
 #endif  // CHROME_BROWSER_DEVTOOLS_DEVTOOLS_UI_BINDINGS_H_

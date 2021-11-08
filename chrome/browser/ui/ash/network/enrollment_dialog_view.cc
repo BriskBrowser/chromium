@@ -90,7 +90,7 @@ EnrollmentDialogView::EnrollmentDialogView(const std::string& network_name,
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_NETWORK_ENROLLMENT_HANDLER_BUTTON));
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-      views::TEXT, views::TEXT));
+      views::DialogContentType::kText, views::DialogContentType::kText));
   chrome::RecordDialogCreation(chrome::DialogIdentifier::ENROLLMENT);
 }
 
@@ -190,6 +190,10 @@ class DialogEnrollmentDelegate {
   DialogEnrollmentDelegate(const std::string& network_guid,
                            const std::string& network_name,
                            Profile* profile);
+
+  DialogEnrollmentDelegate(const DialogEnrollmentDelegate&) = delete;
+  DialogEnrollmentDelegate& operator=(const DialogEnrollmentDelegate&) = delete;
+
   ~DialogEnrollmentDelegate();
 
   bool Enroll(const std::vector<std::string>& uri_list);
@@ -198,8 +202,6 @@ class DialogEnrollmentDelegate {
   std::string network_guid_;
   std::string network_name_;
   Profile* profile_;
-
-  DISALLOW_COPY_AND_ASSIGN(DialogEnrollmentDelegate);
 };
 
 DialogEnrollmentDelegate::DialogEnrollmentDelegate(
@@ -262,8 +264,6 @@ bool EnrollmentDialogAllowed(Profile* profile) {
     case LoginState::LOGGED_IN_USER_PUBLIC_ACCOUNT:
     case LoginState::LOGGED_IN_USER_PUBLIC_ACCOUNT_MANAGED:
       return false;
-    case LoginState::LOGGED_IN_USER_SUPERVISED_DEPRECATED:
-      return true;
     case LoginState::LOGGED_IN_USER_KIOSK_APP:
       return false;
     case LoginState::LOGGED_IN_USER_CHILD:

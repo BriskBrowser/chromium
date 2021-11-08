@@ -18,6 +18,8 @@
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "gpu/ipc/gpu_task_scheduler_helper.h"
+#include "ui/gfx/geometry/rrect_f.h"
+#include "ui/gfx/overlay_priority_hint.h"
 
 #if defined(OS_WIN)
 #include "components/viz/service/display/dc_layer_overlay.h"
@@ -44,6 +46,15 @@ class RendererSettings;
 class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
  public:
 #if defined(OS_APPLE)
+  using PlatformOverlayCandidate = CALayerOverlay;
+#elif defined(OS_WIN)
+  using PlatformOverlayCandidate = DCLayerOverlay;
+#else
+  // Default.
+  using PlatformOverlayCandidate = OverlayCandidate;
+#endif
+
+#if defined(OS_APPLE)
   using CandidateList = CALayerOverlayList;
 #elif defined(OS_WIN)
   using CandidateList = DCLayerOverlayList;
@@ -67,11 +78,18 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   // default values for the primary plane, this is a partial list of
   // OverlayCandidate.
   struct VIZ_SERVICE_EXPORT OutputSurfaceOverlayPlane {
+    OutputSurfaceOverlayPlane();
+    OutputSurfaceOverlayPlane(const OutputSurfaceOverlayPlane&);
+    OutputSurfaceOverlayPlane& operator=(const OutputSurfaceOverlayPlane&);
+    ~OutputSurfaceOverlayPlane();
     // Display's rotation information.
     gfx::OverlayTransform transform;
     // Rect on the display to position to. This takes in account of Display's
     // rotation.
     gfx::RectF display_rect;
+    // Specifies the region within the buffer to be cropped and (maybe)scaled to
+    // place inside |display_rect|.
+    gfx::RectF uv_rect;
     // Size of output surface in pixels.
     gfx::Size resource_size;
     // Format of the buffer to scanout.
@@ -80,11 +98,18 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
     gfx::ColorSpace color_space;
     // Enable blending when we have underlay.
     bool enable_blending;
+    // Opacity of the overlay independent of buffer alpha. When rendered:
+    // src-alpha = |opacity| * buffer-component-alpha.
+    float opacity;
     // TODO(weiliangc): Should be replaced by SharedImage mailbox.
     // Gpu fence to wait for before overlay is ready for display.
     unsigned gpu_fence_id;
     // Mailbox corresponding to the buffer backing the primary plane.
     gpu::Mailbox mailbox;
+    // Hints for overlay prioritization.
+    gfx::OverlayPriorityHint priority_hint;
+    // Specifies the rounded corners.
+    gfx::RRectF rounded_corners;
   };
 
   // TODO(weiliangc): Eventually the asymmetry between primary plane and
@@ -92,9 +117,11 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   // API.
   static OutputSurfaceOverlayPlane ProcessOutputSurfaceAsOverlay(
       const gfx::Size& viewport_size,
+      const gfx::Size& resource_size,
       const gfx::BufferFormat& buffer_format,
       const gfx::ColorSpace& color_space,
       bool has_alpha,
+      float opacity,
       const gpu::Mailbox& mailbox);
 
   static std::unique_ptr<OverlayProcessorInterface> CreateOverlayProcessor(
@@ -105,6 +132,10 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
       gpu::SharedImageInterface* shared_image_interface,
       const RendererSettings& renderer_settings,
       const DebugRendererSettings* debug_settings);
+
+  OverlayProcessorInterface(const OverlayProcessorInterface&) = delete;
+  OverlayProcessorInterface& operator=(const OverlayProcessorInterface&) =
+      delete;
 
   virtual ~OverlayProcessorInterface() = default;
 
@@ -125,7 +156,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   virtual void ProcessForOverlays(
       DisplayResourceProvider* resource_provider,
       AggregatedRenderPassList* render_passes,
-      const SkMatrix44& output_color_matrix,
+      const skia::Matrix44& output_color_matrix,
       const FilterOperationsMap& render_pass_filters,
       const FilterOperationsMap& render_pass_backdrop_filters,
       SurfaceDamageRectList surface_damage_rect_list,
@@ -136,11 +167,11 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
 
   // For Mac, if we successfully generated a candidate list for CALayerOverlay,
   // we no longer need the |output_surface_plane|. This function takes a pointer
-  // to the base::Optional instance so the instance can be reset.
+  // to the absl::optional instance so the instance can be reset.
   // TODO(weiliangc): Internalize the |output_surface_plane| inside the overlay
   // processor.
   virtual void AdjustOutputSurfaceOverlay(
-      base::Optional<OutputSurfaceOverlayPlane>* output_surface_plane) = 0;
+      absl::optional<OutputSurfaceOverlayPlane>* output_surface_plane) = 0;
 
   // Before the overlay refactor to use OverlayProcessorOnGpu, overlay
   // candidates are stored inside DirectRenderer. Those overlay candidates are
@@ -169,11 +200,11 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   // benefits of individual overlay candidates.
   virtual void SetFrameSequenceNumber(uint64_t frame_sequence_number) {}
 
+  // If true, video capture is enabled for this frame.
+  virtual void SetIsVideoCaptureEnabled(bool enabled) {}
+
  protected:
   OverlayProcessorInterface() = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(OverlayProcessorInterface);
 };
 
 }  // namespace viz

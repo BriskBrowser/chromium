@@ -33,13 +33,18 @@ invalidation::ProfileInvalidationProvider* GetInvalidationProvider(
 
 InvalidationsMessageHandler::InvalidationsMessageHandler() : logger_(nullptr) {}
 
-InvalidationsMessageHandler::~InvalidationsMessageHandler() = default;
+InvalidationsMessageHandler::~InvalidationsMessageHandler() {
+  // This handler can be destroyed without OnJavascriptDisallowed() ever being
+  // called (https://crbug.com/1199198). Call it to ensure that `this` is
+  // removed as an observer.
+  OnJavascriptDisallowed();
+}
 
 void InvalidationsMessageHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "doneLoading", base::BindRepeating(&InvalidationsMessageHandler::UIReady,
                                          base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "requestDetailedStatus",
       base::BindRepeating(
           &InvalidationsMessageHandler::HandleRequestDetailedStatus,
@@ -85,7 +90,7 @@ void InvalidationsMessageHandler::OnRegistrationChange(
   base::ListValue list_of_handlers;
   for (auto it = registered_handlers.begin(); it != registered_handlers.end();
        ++it) {
-    list_of_handlers.AppendString(*it);
+    list_of_handlers.Append(*it);
   }
   FireWebUIListener("handlers-updated", list_of_handlers);
 }

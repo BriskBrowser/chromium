@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.ui.messages.snackbar;
 import android.graphics.drawable.Drawable;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
@@ -91,8 +92,16 @@ public class Snackbar {
     public static final int UMA_PAINT_PREVIEW_UPGRADE_NOTIFICATION = 36;
     public static final int UMA_READING_LIST_BOOKMARK_ADDED = 37;
     public static final int UMA_PRIVACY_SANDBOX_PAGE_OPEN = 38;
+    public static final int UMA_WEB_FEED_FOLLOW_SUCCESS = 39;
+    public static final int UMA_WEB_FEED_FOLLOW_FAILURE = 40;
+    public static final int UMA_WEB_FEED_UNFOLLOW_SUCCESS = 41;
+    public static final int UMA_WEB_FEED_UNFOLLOW_FAILURE = 42;
+    public static final int UMA_LANGUAGE_SPLIT_RESTART = 43;
+    public static final int UMA_AUTOFILL_VIRTUAL_CARD_FILLED = 44;
+    public static final int UMA_WINDOW_ERROR = 45;
+    public static final int UMA_MODULE_INSTALL_FAILURE = 46;
 
-    private SnackbarController mController;
+    private @Nullable SnackbarController mController;
     private CharSequence mText;
     private String mTemplateText;
     private String mActionText;
@@ -123,12 +132,13 @@ public class Snackbar {
      * feature shown to the user, please add the feature name to SnackbarIdentifier in histograms.
      *
      * @param text The text to show on the snackbar.
-     * @param controller The SnackbarController to receive callbacks about the snackbar's state.
+     * @param controller The SnackbarController to receive callbacks about the snackbar's state. The
+     *         controller can be null when no callbacks are required for a snackbar.
      * @param type Type of the snackbar. Either {@link #TYPE_ACTION} or {@link #TYPE_NOTIFICATION}.
      * @param identifier The feature code of the snackbar. Should be one of the UMA* constants above
      */
     public static Snackbar make(
-            CharSequence text, SnackbarController controller, int type, int identifier) {
+            CharSequence text, @Nullable SnackbarController controller, int type, int identifier) {
         Snackbar s = new Snackbar();
         s.mText = text;
         s.mController = controller;
@@ -234,7 +244,7 @@ public class Snackbar {
     /**
      * @return The {@link SnackbarController} that controls this snackbar.
      */
-    public SnackbarController getController() {
+    public @Nullable SnackbarController getController() {
         return mController;
     }
 
@@ -246,7 +256,8 @@ public class Snackbar {
         return mTemplateText;
     }
 
-    String getActionText() {
+    @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
+    public String getActionText() {
         return mActionText;
     }
 
@@ -323,5 +334,10 @@ public class Snackbar {
     @VisibleForTesting
     public int getIdentifierForTesting() {
         return mIdentifier;
+    }
+
+    @VisibleForTesting
+    public CharSequence getTextForTesting() {
+        return mText;
     }
 }

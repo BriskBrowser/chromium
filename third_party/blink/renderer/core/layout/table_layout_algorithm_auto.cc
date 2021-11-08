@@ -178,7 +178,7 @@ void TableLayoutAlgorithmAuto::FullRecalc() {
   unsigned n_eff_cols = table_->NumEffectiveColumns();
   layout_struct_.resize(n_eff_cols);
   layout_struct_.Fill(Layout());
-  span_cells_.Fill(nullptr);
+  span_cells_.clear();
 
   Length group_logical_width;
   unsigned current_column = 0;
@@ -661,7 +661,7 @@ void TableLayoutAlgorithmAuto::InsertSpanCell(LayoutTableCell* cell) {
   if (!size || span_cells_[size - 1] != 0) {
     span_cells_.Grow(size + 10);
     for (unsigned i = 0; i < 10; i++)
-      span_cells_[size + i] = 0;
+      span_cells_[size + i] = nullptr;
     size += 10;
   }
 
@@ -927,4 +927,10 @@ void TableLayoutAlgorithmAuto::ShrinkColumnWidth(
     }
   }
 }
+
+void TableLayoutAlgorithmAuto::Trace(Visitor* visitor) const {
+  visitor->Trace(span_cells_);
+  TableLayoutAlgorithm::Trace(visitor);
+}
+
 }  // namespace blink

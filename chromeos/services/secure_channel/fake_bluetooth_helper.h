@@ -11,10 +11,10 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "chromeos/components/multidevice/remote_device_ref.h"
 #include "chromeos/services/secure_channel/bluetooth_helper.h"
 #include "chromeos/services/secure_channel/data_with_timestamp.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -24,6 +24,10 @@ namespace secure_channel {
 class FakeBluetoothHelper : public BluetoothHelper {
  public:
   FakeBluetoothHelper();
+
+  FakeBluetoothHelper(const FakeBluetoothHelper&) = delete;
+  FakeBluetoothHelper& operator=(const FakeBluetoothHelper&) = delete;
+
   ~FakeBluetoothHelper() override;
 
   // Sets the data to be returned by a GenerateForegroundAdvertisement() call.
@@ -45,7 +49,7 @@ class FakeBluetoothHelper : public BluetoothHelper {
   // BluetoothHelper:
   std::unique_ptr<DataWithTimestamp> GenerateForegroundAdvertisement(
       const DeviceIdPair& device_id_pair) override;
-  base::Optional<DeviceWithBackgroundBool> PerformIdentifyRemoteDevice(
+  absl::optional<DeviceWithBackgroundBool> PerformIdentifyRemoteDevice(
       const std::string& service_data,
       const DeviceIdPairSet& device_id_pair_set) override;
   std::string GetBluetoothPublicAddress(const std::string& device_id) override;
@@ -60,8 +64,6 @@ class FakeBluetoothHelper : public BluetoothHelper {
 
   std::unordered_map<std::string, std::string>
       device_id_to_bluetooth_public_address_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeBluetoothHelper);
 };
 
 }  // namespace secure_channel

@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/external_files/external_file_remover_impl.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
@@ -160,7 +162,7 @@ void ExternalFileRemoverImpl::RemoveAfterDelay(base::TimeDelta delay,
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::ScopedClosureRunner closure_runner =
       base::ScopedClosureRunner(std::move(callback));
-  bool remove_all_files = delay == base::TimeDelta::FromSeconds(0);
+  bool remove_all_files = delay == base::Seconds(0);
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&ExternalFileRemoverImpl::RemoveFiles,
@@ -227,12 +229,12 @@ void ExternalFileRemoverImpl::RemoveFiles(
   base::ThreadPool::PostTaskAndReply(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&RemoveFilesWithOptions, referenced_files, age_in_days),
-      base::BindOnce(&RunCallback, base::Passed(&closure_runner)));
+      base::BindOnce(&RunCallback, std::move(closure_runner)));
 }
 
 NSSet* ExternalFileRemoverImpl::GetReferencedExternalFiles() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Add files from all TabModels.
+  // Add files from all Browsers.
   NSMutableSet* referenced_external_files = [NSMutableSet set];
   BrowserList* browser_list =
       BrowserListFactory::GetForBrowserState(browser_state_);

@@ -14,11 +14,13 @@
 #include "cc/animation/animation_events.h"
 #include "cc/animation/animation_export.h"
 #include "cc/animation/element_animations.h"
+#include "cc/animation/keyframe_model.h"
 #include "cc/paint/element_id.h"
 #include "cc/trees/mutator_host_client.h"
 #include "cc/trees/target_property.h"
+#include "ui/gfx/animation/keyframe/keyframe_effect.h"
 #include "ui/gfx/geometry/box_f.h"
-#include "ui/gfx/geometry/scroll_offset.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 
 namespace cc {
 
@@ -37,7 +39,7 @@ struct PropertyAnimationState;
 // KeyframeModels. The commonality between keyframe models on the same target
 // is found via ElementAnimations - there is only one ElementAnimations for a
 // given target.
-class CC_ANIMATION_EXPORT KeyframeEffect {
+class CC_ANIMATION_EXPORT KeyframeEffect : public gfx::KeyframeEffect {
  public:
   explicit KeyframeEffect(Animation* animation);
   KeyframeEffect(const KeyframeEffect&) = delete;
@@ -57,7 +59,7 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
   ElementId element_id() const { return element_id_; }
 
   // Returns true if there are any KeyframeModels at all to process.
-  bool has_any_keyframe_model() const { return !keyframe_models_.empty(); }
+  bool has_any_keyframe_model() const { return !keyframe_models().empty(); }
 
   // When a scroll animation is removed on the main thread, its compositor
   // thread counterpart continues producing scroll deltas until activation.
@@ -79,9 +81,7 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
   void AttachElement(ElementId element_id);
   void DetachElement();
 
-  virtual void Tick(base::TimeTicks monotonic_time);
-  static void TickKeyframeModel(base::TimeTicks monotonic_time,
-                                KeyframeModel* keyframe_model);
+  void Tick(base::TimeTicks monotonic_time) override;
   void RemoveFromTicking();
 
   void UpdateState(bool start_ready_keyframe_models, AnimationEvents* events);
@@ -90,9 +90,9 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
   void Pause(base::TimeDelta pause_offset,
              PauseCondition = PauseCondition::kUnconditional);
 
-  void AddKeyframeModel(std::unique_ptr<KeyframeModel> keyframe_model);
+  void AddKeyframeModel(
+      std::unique_ptr<gfx::KeyframeModel> keyframe_model) override;
   void PauseKeyframeModel(int keyframe_model_id, base::TimeDelta time_offset);
-  void RemoveKeyframeModel(int keyframe_model_id);
   void AbortKeyframeModel(int keyframe_model_id);
   void AbortKeyframeModelsWithProperty(TargetProperty::Type target_property,
                                        bool needs_completion);
@@ -109,7 +109,8 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
   // nor aborted.
   bool HasTickingKeyframeModel() const;
 
-  bool AffectsCustomProperty() const;
+  bool RequiresInvalidation() const;
+  bool AffectsNativeProperty() const;
 
   bool HasNonDeletedKeyframeModel() const;
 
@@ -131,9 +132,6 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
   bool IsCurrentlyAnimatingProperty(TargetProperty::Type target_property,
                                     ElementListType list_type) const;
 
-  KeyframeModel* GetKeyframeModel(TargetProperty::Type target_property) const;
-  KeyframeModel* GetKeyframeModelById(int keyframe_model_id) const;
-
   void GetPropertyAnimationState(PropertyAnimationState* pending_state,
                                  PropertyAnimationState* active_state) const;
 
@@ -148,6 +146,20 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
 
   std::string KeyframeModelsToString() const;
 
+  // Iterates through all |keyframe_models_| and returns the minimum of their
+  // animation curve's tick intervals.
+  // Returns 0 if there is a continuous animation which should be ticked as
+  // fast as possible.
+  base::TimeDelta MinimumTickInterval() const;
+
+ protected:
+  // We override this because we have additional bookkeeping (eg, noting if
+  // we've aborted a scroll animation, updating ticking state, sending updates
+  // to the impl instance, informing |element_animations_|).
+  void RemoveKeyframeModelRange(
+      typename KeyframeModels::iterator to_remove_begin,
+      typename KeyframeModels::iterator to_remove_end) override;
+
  private:
   void StartKeyframeModels(base::TimeTicks monotonic_time);
   void PromoteStartedKeyframeModels(AnimationEvents* events);
@@ -157,7 +169,7 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
   void MarkFinishedKeyframeModels(base::TimeTicks monotonic_time);
 
   bool HasElementInActiveList() const;
-  gfx::ScrollOffset ScrollOffsetForAnimation() const;
+  gfx::Vector2dF ScrollOffsetForAnimation() const;
   void GenerateEvent(AnimationEvents* events,
                      const KeyframeModel& keyframe_model,
                      AnimationEvent::Type type,
@@ -167,7 +179,6 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
       const KeyframeModel& keyframe_model,
       base::TimeTicks monotonic_time);
 
-  std::vector<std::unique_ptr<KeyframeModel>> keyframe_models_;
   Animation* animation_;
 
   ElementId element_id_;
@@ -183,7 +194,7 @@ class CC_ANIMATION_EXPORT KeyframeEffect {
   bool scroll_offset_animation_was_interrupted_;
 
   bool is_ticking_;
-  base::Optional<base::TimeTicks> last_tick_time_;
+  absl::optional<base::TimeTicks> last_tick_time_;
 
   bool needs_push_properties_;
 };

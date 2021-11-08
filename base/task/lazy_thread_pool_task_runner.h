@@ -10,9 +10,9 @@
 #include "base/atomicops.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
 #include "base/task/common/checked_lock.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/single_thread_task_runner_thread_mode.h"
 #include "base/task/task_traits.h"
 #include "base/thread_annotations.h"
@@ -95,8 +95,6 @@ using LazyThreadPoolCOMSTATaskRunner =
 // |traits| are TaskTraits used when creating the SequencedTaskRunner.
 #define LAZY_THREAD_POOL_SEQUENCED_TASK_RUNNER_INITIALIZER(traits)     \
   base::LazyThreadPoolSequencedTaskRunner::CreateInternal(traits);     \
-  /* ThreadPool() as a trait is deprecated and implicit here */        \
-  static_assert(!traits.use_thread_pool(), "");                        \
   ALLOW_UNUSED_TYPE constexpr base::TaskTraits                         \
       LAZY_TASK_RUNNER_CONCATENATE_INTERNAL(kVerifyTraitsAreConstexpr, \
                                             __LINE__) = traits
@@ -108,8 +106,6 @@ using LazyThreadPoolCOMSTATaskRunner =
                                                                thread_mode) \
   base::LazyThreadPoolSingleThreadTaskRunner::CreateInternal(traits,        \
                                                              thread_mode);  \
-  /* ThreadPool() as a trait is deprecated and implicit here */             \
-  static_assert(!traits.use_thread_pool(), "");                             \
   ALLOW_UNUSED_TYPE constexpr base::TaskTraits                              \
       LAZY_TASK_RUNNER_CONCATENATE_INTERNAL(kVerifyTraitsAreConstexpr,      \
                                             __LINE__) = traits;             \
@@ -123,8 +119,6 @@ using LazyThreadPoolCOMSTATaskRunner =
 // SingleThreadTaskRunners.
 #define LAZY_COM_STA_TASK_RUNNER_INITIALIZER(traits, thread_mode)            \
   base::LazyThreadPoolCOMSTATaskRunner::CreateInternal(traits, thread_mode); \
-  /* ThreadPool() as a trait is deprecated and implicit here */              \
-  static_assert(!traits.use_thread_pool(), "");                              \
   ALLOW_UNUSED_TYPE constexpr base::TaskTraits                               \
       LAZY_TASK_RUNNER_CONCATENATE_INTERNAL(kVerifyTraitsAreConstexpr,       \
                                             __LINE__) = traits;              \
@@ -199,6 +193,12 @@ class BASE_EXPORT LazyThreadPoolTaskRunner {
 class BASE_EXPORT ScopedLazyTaskRunnerListForTesting {
  public:
   ScopedLazyTaskRunnerListForTesting();
+
+  ScopedLazyTaskRunnerListForTesting(
+      const ScopedLazyTaskRunnerListForTesting&) = delete;
+  ScopedLazyTaskRunnerListForTesting& operator=(
+      const ScopedLazyTaskRunnerListForTesting&) = delete;
+
   ~ScopedLazyTaskRunnerListForTesting();
 
  private:
@@ -216,8 +216,6 @@ class BASE_EXPORT ScopedLazyTaskRunnerListForTesting {
 
   // List of callbacks to run on destruction.
   std::vector<OnceClosure> callbacks_ GUARDED_BY(lock_);
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedLazyTaskRunnerListForTesting);
 };
 
 }  // namespace internal

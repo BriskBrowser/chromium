@@ -5,9 +5,9 @@
 (async function() {
   TestRunner.addResult(
       `Tests that editing sourcecode which is referred by multiple stylesheets (via sourceURL comment) updates all stylesheets.\n`);
-  await TestRunner.loadModule('elements_test_runner');
-  await TestRunner.loadModule('sources_test_runner');
-  await TestRunner.loadModule('bindings_test_runner');
+  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
+  await TestRunner.loadTestModule('bindings_test_runner');
   await TestRunner.showPanel('sources');
   await TestRunner.loadHTML(`
       <div id="inspected">Inspected node</div>
@@ -34,13 +34,13 @@
   TestRunner.markStep('Make edits with Sources Panel');
   var sourceFrame = await new Promise(x => SourcesTestRunner.showScriptSource('stylesheet.css', x));
   SourcesTestRunner.replaceInSource(sourceFrame, 'red', 'EDITED');
-  await TestRunner.addSnifferPromise(Bindings.StyleFile.prototype, '_styleFileSyncedForTest');
+  await TestRunner.addSnifferPromise(Bindings.StyleFile.prototype, 'styleFileSyncedForTest');
   await checkHeadersContent();
 
 
   TestRunner.markStep('Make edits via css model');
   TestRunner.cssModel.setStyleSheetText(headers[0].id, '* { --foo: "bar" }');
-  await TestRunner.addSnifferPromise(Bindings.StyleFile.prototype, '_styleFileSyncedForTest');
+  await TestRunner.addSnifferPromise(Bindings.StyleFile.prototype, 'styleFileSyncedForTest');
   await checkHeadersContent();
   TestRunner.completeTest();
 

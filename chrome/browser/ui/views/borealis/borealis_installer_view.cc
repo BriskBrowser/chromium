@@ -9,13 +9,15 @@
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/window_properties.h"
 #include "base/bind.h"
-#include "base/optional.h"
+#include "base/callback_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/borealis/borealis_context_manager.h"
-#include "chrome/browser/chromeos/borealis/borealis_installer.h"
-#include "chrome/browser/chromeos/borealis/borealis_service.h"
-#include "chrome/browser/chromeos/borealis/borealis_util.h"
+#include "chrome/browser/ash/borealis/borealis_app_launcher.h"
+#include "chrome/browser/ash/borealis/borealis_context_manager.h"
+#include "chrome/browser/ash/borealis/borealis_installer.h"
+#include "chrome/browser/ash/borealis/borealis_metrics.h"
+#include "chrome/browser/ash/borealis/borealis_service.h"
+#include "chrome/browser/ash/borealis/borealis_util.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
@@ -23,10 +25,13 @@
 #include "chrome/grit/chrome_unscaled_resources.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/strings/grit/ui_strings.h"
@@ -35,8 +40,6 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/progress_bar.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 
 namespace {
@@ -49,7 +52,7 @@ constexpr int kWindowHeight = 636;
 
 }  // namespace
 
-// Defined in chrome/browser/chromeos/borealis/borealis_util.h.
+// Defined in chrome/browser/ash/borealis/borealis_util.h.
 void borealis::ShowBorealisInstallerView(Profile* profile) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!g_borealis_installer_view) {
@@ -71,8 +74,8 @@ class BorealisInstallerView::TitleLabel : public views::Label {
 
   METADATA_HEADER(TitleLabel);
 
-  TitleLabel() {}
-  ~TitleLabel() override {}
+  TitleLabel() = default;
+  ~TitleLabel() override = default;
 
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
     node_data->SetName(GetText());
@@ -151,7 +154,7 @@ BorealisInstallerView::BorealisInstallerView(Profile* profile)
   upper_container_view->AddChildView(progress_bar_);
 
   installation_progress_message_label_ =
-      new views::Label(base::string16(), CONTEXT_DIALOG_BODY_TEXT_SMALL,
+      new views::Label(std::u16string(), CONTEXT_DIALOG_BODY_TEXT_SMALL,
                        views::style::STYLE_SECONDARY);
   installation_progress_message_label_->SetEnabledColor(gfx::kGoogleGrey700);
   installation_progress_message_label_->SetProperty(
@@ -201,9 +204,14 @@ bool BorealisInstallerView::Accept() {
 
   if (state_ == State::kCompleted) {
     // Launch button has been clicked.
-    borealis::BorealisService::GetForProfile(profile_)
-        ->ContextManager()
-        .StartBorealis(base::DoNothing());
+    borealis::BorealisService::GetForProfile(profile_)->AppLauncher().Launch(
+        borealis::kBorealisMainAppId,
+        base::BindOnce([](borealis::BorealisAppLauncher::LaunchResult result) {
+          if (result == borealis::BorealisAppLauncher::LaunchResult::kSuccess)
+            return;
+          LOG(ERROR) << "Failed to launch borealis after install: code="
+                     << static_cast<int>(result);
+        }));
     return true;
   }
 
@@ -215,6 +223,17 @@ bool BorealisInstallerView::Accept() {
 }
 
 bool BorealisInstallerView::Cancel() {
+  if (state_ == State::kCompleted) {
+    borealis::BorealisService::GetForProfile(profile_)
+        ->ContextManager()
+        .ShutDownBorealis(
+            base::BindOnce([](borealis::BorealisShutdownResult result) {
+              if (result == borealis::BorealisShutdownResult::kSuccess)
+                return;
+              LOG(ERROR) << "Failed to shutdown borealis after install: code="
+                         << static_cast<int>(result);
+            }));
+  }
   return true;
 }
 
@@ -236,7 +255,6 @@ void BorealisInstallerView::OnInstallationEnded(
   switch (result) {
     using ResultEnum = borealis::BorealisInstallResult;
     case ResultEnum::kSuccess:
-      DCHECK_EQ(installing_state_, InstallingState::kInstallingDlc);
       state_ = State::kCompleted;
       break;
     case ResultEnum::kCancelled:
@@ -255,7 +273,7 @@ gfx::Size BorealisInstallerView::CalculatePreferredSize() const {
   return gfx::Size(kWindowWidth, kWindowHeight);
 }
 
-base::string16 BorealisInstallerView::GetPrimaryMessage() const {
+std::u16string BorealisInstallerView::GetPrimaryMessage() const {
   switch (state_) {
     case State::kConfirmInstall:
       return l10n_util::GetStringFUTF16(
@@ -278,7 +296,7 @@ base::string16 BorealisInstallerView::GetPrimaryMessage() const {
   }
 }
 
-base::string16 BorealisInstallerView::GetSecondaryMessage() const {
+std::u16string BorealisInstallerView::GetSecondaryMessage() const {
   switch (state_) {
     case State::kConfirmInstall:
       return l10n_util::GetStringUTF16(
@@ -319,6 +337,9 @@ base::string16 BorealisInstallerView::GetSecondaryMessage() const {
         case ResultEnum::kDlcNeedSpaceError:
           return l10n_util::GetStringUTF16(
               IDS_BOREALIS_INSUFFICIENT_DISK_SPACE_MESSAGE);
+        case ResultEnum::kDlcNeedUpdateError:
+          return l10n_util::GetStringUTF16(
+              IDS_BOREALIS_DLC_NEED_UPDATE_FAILED_MESSAGE);
         case ResultEnum::kDlcUnknownError:
           return l10n_util::GetStringFUTF16(
               IDS_BOREALIS_GENERIC_ERROR_MESSAGE, app_name_,
@@ -344,14 +365,28 @@ int BorealisInstallerView::GetCurrentDialogButtons() const {
       DCHECK(result_);
       switch (*result_) {
         case borealis::BorealisInstallResult::kBorealisNotAllowed:
+        case borealis::BorealisInstallResult::kDlcUnsupportedError:
+        case borealis::BorealisInstallResult::kDlcNeedUpdateError:
+        case borealis::BorealisInstallResult::kStartupFailed:
+        case borealis::BorealisInstallResult::kMainAppNotPresent:
           return ui::DIALOG_BUTTON_CANCEL;
-        default:
+        case borealis::BorealisInstallResult::kBorealisInstallInProgress:
+        case borealis::BorealisInstallResult::kDlcInternalError:
+        case borealis::BorealisInstallResult::kDlcBusyError:
+        case borealis::BorealisInstallResult::kDlcNeedRebootError:
+        case borealis::BorealisInstallResult::kDlcNeedSpaceError:
+        case borealis::BorealisInstallResult::kDlcUnknownError:
+        case borealis::BorealisInstallResult::kOffline:
           return ui::DIALOG_BUTTON_CANCEL | ui::DIALOG_BUTTON_OK;
+        case borealis::BorealisInstallResult::kSuccess:
+        case borealis::BorealisInstallResult::kCancelled:
+          NOTREACHED();
+          return 0;
       }
   }
 }
 
-base::string16 BorealisInstallerView::GetCurrentDialogButtonLabel(
+std::u16string BorealisInstallerView::GetCurrentDialogButtonLabel(
     ui::DialogButton button) const {
   switch (state_) {
     case State::kConfirmInstall:
@@ -463,7 +498,7 @@ void BorealisInstallerView::StartInstallation() {
 }
 
 BEGIN_METADATA(BorealisInstallerView, views::DialogDelegateView)
-ADD_READONLY_PROPERTY_METADATA(base::string16, PrimaryMessage)
-ADD_READONLY_PROPERTY_METADATA(base::string16, SecondaryMessage)
+ADD_READONLY_PROPERTY_METADATA(std::u16string, PrimaryMessage)
+ADD_READONLY_PROPERTY_METADATA(std::u16string, SecondaryMessage)
 ADD_READONLY_PROPERTY_METADATA(int, CurrentDialogButtons)
 END_METADATA

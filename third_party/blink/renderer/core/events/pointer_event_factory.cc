@@ -4,13 +4,15 @@
 
 #include "third_party/blink/renderer/core/events/pointer_event_factory.h"
 
-#include "third_party/blink/public/common/widget/screen_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_pointer_event_init.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/pointer_type_names.h"
 #include "third_party/blink/renderer/platform/geometry/float_size.h"
+#include "ui/display/screen_info.h"
 
 namespace blink {
 
@@ -18,24 +20,6 @@ namespace {
 
 inline int ToInt(WebPointerProperties::PointerType t) {
   return static_cast<int>(t);
-}
-
-const char* PointerTypeNameForWebPointPointerType(
-    WebPointerProperties::PointerType type) {
-  // TODO(mustaq): Fix when the spec starts supporting hovering erasers.
-  switch (type) {
-    case WebPointerProperties::PointerType::kUnknown:
-      return "";
-    case WebPointerProperties::PointerType::kTouch:
-      return "touch";
-    case WebPointerProperties::PointerType::kPen:
-      return "pen";
-    case WebPointerProperties::PointerType::kMouse:
-      return "mouse";
-    default:
-      NOTREACHED();
-      return "";
-  }
 }
 
 uint16_t ButtonToButtonsBitfield(WebPointerProperties::Button button) {
@@ -121,12 +105,12 @@ void UpdateCommonPointerEventInit(const WebPointerEvent& web_pointer_event,
     pointer_event_init->setMovementX(
         base::saturated_cast<int>(web_pointer_event.PositionInScreen().x() *
                                   device_scale_factor) -
-        base::saturated_cast<int>(last_global_position.X() *
+        base::saturated_cast<int>(last_global_position.x() *
                                   device_scale_factor));
     pointer_event_init->setMovementY(
         base::saturated_cast<int>(web_pointer_event.PositionInScreen().y() *
                                   device_scale_factor) -
-        base::saturated_cast<int>(last_global_position.Y() *
+        base::saturated_cast<int>(last_global_position.y() *
                                   device_scale_factor));
   }
 
@@ -141,8 +125,8 @@ void UpdateCommonPointerEventInit(const WebPointerEvent& web_pointer_event,
     FloatSize point_shape = FloatSize(web_pointer_event_in_root_frame.width,
                                       web_pointer_event_in_root_frame.height)
                                 .ScaledBy(scale_factor);
-    pointer_event_init->setWidth(point_shape.Width());
-    pointer_event_init->setHeight(point_shape.Height());
+    pointer_event_init->setWidth(point_shape.width());
+    pointer_event_init->setHeight(point_shape.height());
   }
   pointer_event_init->setPressure(GetPointerEventPressure(
       web_pointer_event.force, pointer_event_init->buttons()));
@@ -154,6 +138,26 @@ void UpdateCommonPointerEventInit(const WebPointerEvent& web_pointer_event,
 }
 
 }  // namespace
+
+// static
+const AtomicString& PointerEventFactory::PointerTypeNameForWebPointPointerType(
+    WebPointerProperties::PointerType type) {
+  // TODO(mustaq): Fix when the spec starts supporting hovering erasers.
+  // See spec https://github.com/w3c/pointerevents/issues/134
+  switch (type) {
+    case WebPointerProperties::PointerType::kUnknown:
+      return g_empty_atom;
+    case WebPointerProperties::PointerType::kTouch:
+      return pointer_type_names::kTouch;
+    case WebPointerProperties::PointerType::kPen:
+      return pointer_type_names::kPen;
+    case WebPointerProperties::PointerType::kMouse:
+      return pointer_type_names::kMouse;
+    default:
+      NOTREACHED();
+      return g_empty_atom;
+  }
+}
 
 HeapVector<Member<PointerEvent>> PointerEventFactory::CreateEventSequence(
     const WebPointerEvent& web_pointer_event,
@@ -213,6 +217,7 @@ HeapVector<Member<PointerEvent>> PointerEventFactory::CreateEventSequence(
   return result;
 }
 
+const PointerId PointerEventFactory::kReservedNonPointerId = -1;
 const PointerId PointerEventFactory::kInvalidId = 0;
 
 // Mouse id is 1 to behave the same as MS Edge for compatibility reasons.

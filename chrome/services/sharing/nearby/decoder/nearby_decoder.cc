@@ -9,11 +9,11 @@
 #include <utility>
 
 #include "base/callback.h"
-#include "base/optional.h"
 #include "chrome/services/sharing/nearby/decoder/advertisement_decoder.h"
 #include "chrome/services/sharing/public/cpp/advertisement.h"
 #include "chrome/services/sharing/public/proto/wire_format.pb.h"
 #include "chromeos/services/nearby/public/mojom/nearby_decoder_types.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace sharing {
 
@@ -194,10 +194,9 @@ mojom::CertificateInfoFramePtr GetCertificateInfoFrame(
         certificate.metadata_encryption_key_tag().end());
     // Convert timestamp from milliseconds since the Unix epoch.
     base::Time start =
-        base::Time::UnixEpoch() +
-        base::TimeDelta::FromMilliseconds(certificate.start_time());
-    base::Time end = base::Time::UnixEpoch() +
-                     base::TimeDelta::FromMilliseconds(certificate.end_time());
+        base::Time::UnixEpoch() + base::Milliseconds(certificate.start_time());
+    base::Time end =
+        base::Time::UnixEpoch() + base::Milliseconds(certificate.end_time());
 
     mojo_certificates.push_back(mojom::PublicCertificate::New(
         std::move(secret_id), std::move(authenticity_key),

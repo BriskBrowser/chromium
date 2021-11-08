@@ -8,8 +8,9 @@
 #include <utility>
 
 #include "ash/accelerators/accelerator_commands.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/hud_display/hud_display.h"
-#include "ash/public/cpp/ash_switches.h"
+#include "ash/public/cpp/accelerators.h"
 #include "ash/public/cpp/debug_utils.h"
 #include "ash/public/cpp/toast_data.h"
 #include "ash/shell.h"
@@ -25,6 +26,7 @@
 #include "ui/aura/client/aura_constants.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
 #include "ui/views/widget/widget.h"
@@ -32,6 +34,24 @@
 namespace ash {
 namespace debug {
 namespace {
+
+void HandlePrintLayerHierarchy() {
+  std::ostringstream out;
+  PrintLayerHierarchy(&out);
+  LOG(ERROR) << out.str();
+}
+
+void HandlePrintViewHierarchy() {
+  std::ostringstream out;
+  PrintViewHierarchy(&out);
+  LOG(ERROR) << out.str();
+}
+
+void HandlePrintWindowHierarchy() {
+  std::ostringstream out;
+  PrintWindowHierarchy(&out, /*scrub_data=*/false);
+  LOG(ERROR) << out.str();
+}
 
 gfx::ImageSkia CreateWallpaperImage(SkColor fill, SkColor rect) {
   // TODO(oshima): Consider adding a command line option to control wallpaper
@@ -54,7 +74,7 @@ gfx::ImageSkia CreateWallpaperImage(SkColor fill, SkColor rect) {
 void HandleToggleWallpaperMode() {
   static int index = 0;
   auto* wallpaper_controller = Shell::Get()->wallpaper_controller();
-  WallpaperInfo info("", WALLPAPER_LAYOUT_STRETCH, DEFAULT,
+  WallpaperInfo info("", WALLPAPER_LAYOUT_STRETCH, WallpaperType::kDefault,
                      base::Time::Now().LocalMidnight());
   switch (++index % 4) {
     case 0:
@@ -108,24 +128,6 @@ void HandleTriggerHUDDisplay() {
 
 }  // namespace
 
-void HandlePrintLayerHierarchy() {
-  std::ostringstream out;
-  PrintLayerHierarchy(&out);
-  LOG(ERROR) << out.str();
-}
-
-void HandlePrintViewHierarchy() {
-  std::ostringstream out;
-  PrintViewHierarchy(&out);
-  LOG(ERROR) << out.str();
-}
-
-void HandlePrintWindowHierarchy() {
-  std::ostringstream out;
-  PrintWindowHierarchy(&out, /*scrub_data=*/false);
-  LOG(ERROR) << out.str();
-}
-
 void PrintUIHierarchies() {
   // This is a separate command so the user only has to hit one key to generate
   // all the logs. Developers use the individual dumps repeatedly, so keep
@@ -150,6 +152,9 @@ void PerformDebugActionIfEnabled(AcceleratorAction action) {
     return;
 
   switch (action) {
+    case DEBUG_MICROPHONE_MUTE_TOGGLE:
+      accelerators::MicrophoneMuteToggle();
+      break;
     case DEBUG_PRINT_LAYER_HIERARCHY:
       HandlePrintLayerHierarchy();
       break;
@@ -161,11 +166,7 @@ void PerformDebugActionIfEnabled(AcceleratorAction action) {
       break;
     case DEBUG_SHOW_TOAST:
       Shell::Get()->toast_manager()->Show(
-          ToastData("id", base::ASCIIToUTF16("Toast"), 5000 /* duration_ms */,
-                    base::ASCIIToUTF16("Dismiss")));
-      break;
-    case DEBUG_TOGGLE_DEVICE_SCALE_FACTOR:
-      Shell::Get()->display_manager()->ToggleDisplayScaleFactor();
+          ToastData("id", u"Toast", 5000 /* duration_ms */, u"Dismiss"));
       break;
     case DEBUG_TOGGLE_TOUCH_PAD:
       HandleToggleTouchpad();

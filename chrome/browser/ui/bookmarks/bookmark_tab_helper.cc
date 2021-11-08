@@ -15,6 +15,7 @@
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
 #include "chrome/browser/ui/sad_tab.h"
 #include "chrome/browser/ui/webui/new_tab_page/new_tab_page_ui.h"
+#include "chrome/browser/ui/webui/new_tab_page_third_party/new_tab_page_third_party_ui.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
@@ -39,6 +40,7 @@ bool IsNTP(content::WebContents* web_contents) {
     return false;
   const GURL& url = entry->GetURL();
   return NewTabUI::IsNewTab(url) || NewTabPageUI::IsNewTabPageOrigin(url) ||
+         NewTabPageThirdPartyUI::IsNewTabPageOrigin(url) ||
          search::NavEntryIsInstantNTP(web_contents, entry);
 }
 
@@ -60,7 +62,7 @@ bool BookmarkTabHelper::ShouldShowBookmarkBar() const {
       Profile::FromBrowserContext(web_contents()->GetBrowserContext());
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  if (profile->IsGuestSession() || profile->IsEphemeralGuestProfile())
+  if (profile->IsGuestSession())
     return false;
 #endif
 
@@ -146,7 +148,7 @@ void BookmarkTabHelper::BookmarkNodeChanged(BookmarkModel* model,
 
 void BookmarkTabHelper::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame() ||
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       navigation_handle->IsSameDocument())
     return;
   UpdateStarredStateForCurrentURL();
@@ -154,9 +156,10 @@ void BookmarkTabHelper::DidStartNavigation(
 
 void BookmarkTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame() || !navigation_handle->HasCommitted())
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
+      !navigation_handle->HasCommitted())
     return;
   UpdateStarredStateForCurrentURL();
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(BookmarkTabHelper)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(BookmarkTabHelper);

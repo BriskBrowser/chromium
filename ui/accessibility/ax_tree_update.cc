@@ -23,17 +23,21 @@ std::string AXTreeUpdate::ToString() const {
     result += "AXTreeUpdate tree data:" + tree_data.ToString() + "\n";
   }
 
-  if (node_id_to_clear != 0) {
+  if (node_id_to_clear != kInvalidAXNodeID) {
     result += "AXTreeUpdate: clear node " +
               base::NumberToString(node_id_to_clear) + "\n";
   }
 
-  if (root_id != 0) {
+  if (root_id != kInvalidAXNodeID) {
     result += "AXTreeUpdate: root id " + base::NumberToString(root_id) + "\n";
   }
 
   if (event_from != ax::mojom::EventFrom::kNone)
     result += "event_from=" + std::string(ui::ToString(event_from)) + "\n";
+  if (event_from_action != ax::mojom::Action::kNone)
+    result +=
+        "event_from_action=" + std::string(ui::ToString(event_from_action)) +
+        "\n";
 
   if (!event_intents.empty()) {
     result += "event_intents=[\n";
@@ -47,13 +51,13 @@ std::string AXTreeUpdate::ToString() const {
   // to the rest of the tree for context, so we have to try to show the
   // relative indentation of child nodes in this update relative to their
   // parents.
-  std::unordered_map<int32_t, int> id_to_indentation;
-  for (size_t i = 0; i < nodes.size(); ++i) {
-    int indent = id_to_indentation[nodes[i].id];
+  std::map<AXNodeID, int> id_to_indentation;
+  for (const AXNodeData& node_data : nodes) {
+    int indent = id_to_indentation[node_data.id];
     result += std::string(2 * indent, ' ');
-    result += nodes[i].ToString() + "\n";
-    for (size_t j = 0; j < nodes[i].child_ids.size(); ++j)
-      id_to_indentation[nodes[i].child_ids[j]] = indent + 1;
+    result += node_data.ToString() + "\n";
+    for (AXNodeID child_id : node_data.child_ids)
+      id_to_indentation[child_id] = indent + 1;
   }
 
   return result;

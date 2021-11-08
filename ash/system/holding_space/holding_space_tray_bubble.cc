@@ -21,9 +21,11 @@
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_utils.h"
 #include "ash/wm/work_area_insets.h"
+#include "base/bind.h"
 #include "base/containers/adapters.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/compositor.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/geometry/insets.h"
@@ -36,8 +38,7 @@ namespace ash {
 namespace {
 
 // Animation.
-constexpr base::TimeDelta kAnimationDuration =
-    base::TimeDelta::FromMilliseconds(167);
+constexpr base::TimeDelta kAnimationDuration = base::Milliseconds(167);
 
 // Helpers ---------------------------------------------------------------------
 
@@ -66,9 +67,9 @@ void RecordTimeFromFirstAvailabilityToFirstEntry(PrefService* prefs) {
 
 class HoldingSpaceTrayBubbleEventHandler : public ui::EventHandler {
  public:
-  explicit HoldingSpaceTrayBubbleEventHandler(
-      HoldingSpaceItemViewDelegate* delegate)
-      : delegate_(delegate) {
+  HoldingSpaceTrayBubbleEventHandler(HoldingSpaceTrayBubble* bubble,
+                                     HoldingSpaceViewDelegate* delegate)
+      : bubble_(bubble), delegate_(delegate) {
     aura::Env::GetInstance()->AddPreTargetHandler(
         this, ui::EventTarget::Priority::kSystem);
   }
@@ -85,13 +86,22 @@ class HoldingSpaceTrayBubbleEventHandler : public ui::EventHandler {
  private:
   // ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override {
-    if (event->type() == ui::ET_KEY_PRESSED &&
-        delegate_->OnHoldingSpaceTrayBubbleKeyPressed(*event)) {
+    if (event->type() != ui::ET_KEY_PRESSED)
+      return;
+
+    // Only handle `event`s that would otherwise escape the `bubble_` window.
+    aura::Window* target = static_cast<aura::Window*>(event->target());
+    aura::Window* bubble_window = bubble_->GetBubbleWidget()->GetNativeView();
+    if (target && (bubble_window->Contains(target)))
+      return;
+
+    // If `delegate_` handles the `event`, prevent additional bubbling up.
+    if (delegate_->OnHoldingSpaceTrayBubbleKeyPressed(*event))
       event->StopPropagation();
-    }
   }
 
-  HoldingSpaceItemViewDelegate* const delegate_;
+  HoldingSpaceTrayBubble* const bubble_;
+  HoldingSpaceViewDelegate* const delegate_;
 };
 
 // ChildBubbleContainerLayout --------------------------------------------------
@@ -286,14 +296,13 @@ class HoldingSpaceTrayBubble::ChildBubbleContainer
   mutable views::ProposedLayout target_layout_;   // Layout being animated to.
 
   std::unique_ptr<gfx::SlideAnimation> layout_animation_;
-  base::Optional<ui::ThroughputTracker> layout_animation_throughput_tracker_;
+  absl::optional<ui::ThroughputTracker> layout_animation_throughput_tracker_;
 };
 
 // HoldingSpaceTrayBubble ------------------------------------------------------
 
 HoldingSpaceTrayBubble::HoldingSpaceTrayBubble(
-    HoldingSpaceTray* holding_space_tray,
-    bool show_by_click)
+    HoldingSpaceTray* holding_space_tray)
     : holding_space_tray_(holding_space_tray) {
   TrayBubbleView::InitParams init_params;
   init_params.delegate = holding_space_tray;
@@ -302,15 +311,18 @@ HoldingSpaceTrayBubble::HoldingSpaceTrayBubble(
   init_params.anchor_mode = TrayBubbleView::AnchorMode::kRect;
   init_params.anchor_rect =
       holding_space_tray->shelf()->GetSystemTrayAnchorRect();
+  init_params.bg_color = SK_ColorTRANSPARENT;
   init_params.insets = GetTrayBubbleInsets();
   init_params.shelf_alignment = holding_space_tray->shelf()->alignment();
   init_params.preferred_width = kHoldingSpaceBubbleWidth;
   init_params.close_on_deactivate = true;
-  init_params.show_by_click = show_by_click;
   init_params.has_shadow = false;
+  init_params.reroute_event_handler = true;
 
   // Create and customize bubble view.
   TrayBubbleView* bubble_view = new TrayBubbleView(init_params);
+  // Ensure bubble frame does not draw background behind bubble view.
+  bubble_view->set_color(SK_ColorTRANSPARENT);
   child_bubble_container_ =
       bubble_view->AddChildView(std::make_unique<ChildBubbleContainer>());
   child_bubble_container_->SetMaxHeight(CalculateMaxHeight());
@@ -328,17 +340,11 @@ HoldingSpaceTrayBubble::HoldingSpaceTrayBubble(
     child_bubble->Init();
 
   // Show the bubble.
-  bubble_wrapper_ = std::make_unique<TrayBubbleWrapper>(
-      holding_space_tray, bubble_view, false /* is_persistent */);
-
-  // Set bubble frame to be invisible.
-  bubble_wrapper_->GetBubbleWidget()
-      ->non_client_view()
-      ->frame_view()
-      ->SetVisible(false);
+  bubble_wrapper_ =
+      std::make_unique<TrayBubbleWrapper>(holding_space_tray, bubble_view);
 
   event_handler_ =
-      std::make_unique<HoldingSpaceTrayBubbleEventHandler>(&delegate_);
+      std::make_unique<HoldingSpaceTrayBubbleEventHandler>(this, &delegate_);
 
   PrefService* const prefs =
       Shell::Get()->session_controller()->GetLastActiveUserPrefService();
@@ -377,6 +383,17 @@ TrayBubbleView* HoldingSpaceTrayBubble::GetBubbleView() {
 
 views::Widget* HoldingSpaceTrayBubble::GetBubbleWidget() {
   return bubble_wrapper_->GetBubbleWidget();
+}
+
+std::vector<HoldingSpaceItemView*>
+HoldingSpaceTrayBubble::GetHoldingSpaceItemViews() {
+  std::vector<HoldingSpaceItemView*> views;
+  for (HoldingSpaceTrayChildBubble* child_bubble : child_bubbles_) {
+    auto child_bubble_views = child_bubble->GetHoldingSpaceItemViews();
+    views.insert(views.end(), child_bubble_views.begin(),
+                 child_bubble_views.end());
+  }
+  return views;
 }
 
 int HoldingSpaceTrayBubble::CalculateMaxHeight() const {

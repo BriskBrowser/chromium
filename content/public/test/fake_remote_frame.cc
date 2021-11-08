@@ -21,11 +21,6 @@ void FakeRemoteFrame::Init(blink::AssociatedInterfaceProvider* provider) {
 
 void FakeRemoteFrame::WillEnterFullscreen(blink::mojom::FullscreenOptionsPtr) {}
 
-void FakeRemoteFrame::AddReplicatedContentSecurityPolicies(
-    std::vector<network::mojom::ContentSecurityPolicyPtr> csps) {}
-
-void FakeRemoteFrame::ResetReplicatedContentSecurityPolicy() {}
-
 void FakeRemoteFrame::EnforceInsecureNavigationsSet(
     const std::vector<uint32_t>& set) {}
 
@@ -39,8 +34,7 @@ void FakeRemoteFrame::SetReplicatedOrigin(
     const url::Origin& origin,
     bool is_potentially_trustworthy_unique_origin) {}
 
-void FakeRemoteFrame::SetReplicatedAdFrameType(
-    blink::mojom::AdFrameType ad_frame_type) {}
+void FakeRemoteFrame::SetReplicatedIsAdSubframe(bool is_ad_subframe) {}
 
 void FakeRemoteFrame::SetReplicatedName(const std::string& name,
                                         const std::string& unique_name) {}
@@ -70,6 +64,10 @@ void FakeRemoteFrame::SetPageFocus(bool is_focused) {}
 
 void FakeRemoteFrame::RenderFallbackContent() {}
 
+void FakeRemoteFrame::RenderFallbackContentWithResourceTiming(
+    blink::mojom::ResourceTimingInfoPtr,
+    const std::string& server_timing_value) {}
+
 void FakeRemoteFrame::AddResourceTimingFromChild(
     blink::mojom::ResourceTimingInfoPtr timing) {}
 
@@ -85,7 +83,7 @@ void FakeRemoteFrame::IntrinsicSizingInfoOfChildChanged(
     blink::mojom::IntrinsicSizingInfoPtr sizing_info) {}
 
 void FakeRemoteFrame::UpdateOpener(
-    const base::Optional<base::UnguessableToken>& opener_frame_token) {}
+    const absl::optional<blink::FrameToken>& opener_frame_token) {}
 
 void FakeRemoteFrame::FakeRemoteFrame::BindFrameHostReceiver(
     mojo::ScopedInterfaceEndpointHandle handle) {
@@ -105,4 +103,5 @@ void FakeRemoteFrame::DidUpdateVisualProperties(
 
 void FakeRemoteFrame::SetFrameSinkId(const viz::FrameSinkId& frame_sink_id) {}
 
+void FakeRemoteFrame::ChildProcessGone() {}
 }  // namespace content

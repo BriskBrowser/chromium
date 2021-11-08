@@ -22,6 +22,10 @@ namespace arc {
 class FakeArcSession : public ArcSession {
  public:
   FakeArcSession();
+
+  FakeArcSession(const FakeArcSession&) = delete;
+  FakeArcSession& operator=(const FakeArcSession&) = delete;
+
   ~FakeArcSession() override;
 
   // ArcSession overrides:
@@ -35,6 +39,8 @@ class FakeArcSession : public ArcSession {
                    const std::string& serial_number) override;
   void SetDemoModeDelegate(
       ArcClientAdapter::DemoModeDelegate* delegate) override;
+  void TrimVmMemory(TrimVmMemoryCallback callback) override;
+  void SetDefaultDeviceScaleFactor(float scale_factor) override;
 
   // To emulate unexpected stop, such as crash.
   void StopWithReason(ArcStopReason reason);
@@ -71,8 +77,6 @@ class FakeArcSession : public ArcSession {
   bool running_ = false;
   bool stop_requested_ = false;
   std::string upgrade_locale_param_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeArcSession);
 };
 
 }  // namespace arc

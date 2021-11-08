@@ -2,24 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {BrowserProxy} from 'chrome://new-tab-page/new_tab_page.js';
-import {createTestProxy} from 'chrome://test/new_tab_page/test_support.js';
+import {WindowProxy} from 'chrome://new-tab-page/new_tab_page.js';
+import {installMock} from 'chrome://test/new_tab_page/test_support.js';
+import {TestBrowserProxy} from 'chrome://test/test_browser_proxy.js';
 
 suite('NewTabPageDoodleShareDialogTest', () => {
   /** @type {!DoodleShareDialogElement} */
   let doodleShareDialog;
 
-  /**
-   * @implements {BrowserProxy}
-   * @extends {TestBrowserProxy}
-   */
-  let testProxy;
+  /** @type {!TestBrowserProxy} */
+  let windowProxy;
 
   setup(() => {
     PolymerTest.clearBody();
 
-    testProxy = createTestProxy();
-    BrowserProxy.instance_ = testProxy;
+    windowProxy = installMock(WindowProxy);
 
     doodleShareDialog = document.createElement('ntp-doodle-share-dialog');
     document.body.appendChild(doodleShareDialog);
@@ -67,7 +64,7 @@ suite('NewTabPageDoodleShareDialogTest', () => {
       doodleShareDialog.$[buttonId].click();
 
       // Assert.
-      const openedUrl = await testProxy.whenCalled('open');
+      const openedUrl = await windowProxy.whenCalled('open');
       assertEquals(openedUrl, url);
     });
   });
@@ -81,7 +78,7 @@ suite('NewTabPageDoodleShareDialogTest', () => {
     doodleShareDialog.$.emailButton.click();
 
     // Assert.
-    const navigateUrl = await testProxy.whenCalled('navigate');
+    const navigateUrl = await windowProxy.whenCalled('navigate');
     assertEquals(
         navigateUrl,
         `mailto:?subject=foo&body=${encodeURIComponent('https://bar.com')}`);

@@ -16,12 +16,12 @@
 #include "base/debug/activity_tracker.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
-#include "base/optional.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/kill.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/base_tracing.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if defined(OS_MAC)
 #include <sys/event.h>
@@ -157,7 +157,7 @@ bool WaitForSingleNonChildProcess(base::ProcessHandle handle,
     } else {
       break;
     }
-  } while (wait_forever || remaining_delta > base::TimeDelta());
+  } while (wait_forever || remaining_delta.is_positive());
 
   if (result < 0) {
     DPLOG(ERROR) << "kevent (wait " << handle << ")";
@@ -267,15 +267,6 @@ Process Process::OpenWithExtraPrivileges(ProcessId pid) {
   return Open(pid);
 }
 
-#if !defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_MAC) && \
-    !defined(OS_AIX)
-// static
-bool Process::CanBackgroundProcesses() {
-  return false;
-}
-#endif  // !defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_MAC) &&
-        // !defined(OS_AIX)
-
 // static
 void Process::TerminateCurrentProcessImmediately(int exit_code) {
 #if BUILDFLAG(CLANG_PROFILING)
@@ -328,7 +319,7 @@ bool Process::Terminate(int exit_code, bool wait) const {
   bool did_terminate = kill(process_, SIGTERM) == 0;
 
   if (wait && did_terminate) {
-    if (WaitForExitWithTimeout(TimeDelta::FromSeconds(60), nullptr))
+    if (WaitForExitWithTimeout(Seconds(60), nullptr))
       return true;
     did_terminate = kill(process_, SIGKILL) == 0;
     if (did_terminate)
@@ -348,7 +339,7 @@ bool Process::WaitForExit(int* exit_code) const {
 
 bool Process::WaitForExitWithTimeout(TimeDelta timeout, int* exit_code) const {
   // Record the event that this thread is blocking upon (for hang diagnosis).
-  Optional<debug::ScopedProcessWaitActivity> process_activity;
+  absl::optional<debug::ScopedProcessWaitActivity> process_activity;
   if (!timeout.is_zero()) {
     process_activity.emplace(this);
     // Assert that this thread is allowed to wait below. This intentionally
@@ -369,24 +360,6 @@ bool Process::WaitForExitWithTimeout(TimeDelta timeout, int* exit_code) const {
 }
 
 void Process::Exited(int exit_code) const {}
-
-#if !defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_MAC) && \
-    !defined(OS_AIX)
-bool Process::IsProcessBackgrounded() const {
-  // See SetProcessBackgrounded().
-  DCHECK(IsValid());
-  return false;
-}
-
-bool Process::SetProcessBackgrounded(bool value) {
-  // Not implemented for POSIX systems other than Linux and Mac. With POSIX, if
-  // we were to lower the process priority we wouldn't be able to raise it back
-  // to its initial priority.
-  NOTIMPLEMENTED();
-  return false;
-}
-#endif  // !defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_MAC) &&
-        // !defined(OS_AIX)
 
 int Process::GetPriority() const {
   DCHECK(IsValid());

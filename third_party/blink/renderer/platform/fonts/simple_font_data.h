@@ -143,6 +143,9 @@ class PLATFORM_EXPORT SimpleFontData : public FontData {
   bool IsLoadingFallback() const override {
     return custom_font_data_ ? custom_font_data_->IsLoadingFallback() : false;
   }
+  bool IsPendingDataUrlCustomFont() const {
+    return custom_font_data_ ? custom_font_data_->IsPendingDataUrl() : false;
+  }
   bool IsSegmented() const override;
   bool ShouldSkipDrawing() const override {
     return custom_font_data_ && custom_font_data_->ShouldSkipDrawing();
@@ -156,12 +159,6 @@ class PLATFORM_EXPORT SimpleFontData : public FontData {
   unsigned VisualOverflowInflationForDescent() const {
     return visual_overflow_inflation_for_descent_;
   }
-
-  bool HasAdvanceOverride() const override {
-    return advance_override_.has_value();
-  }
-
-  float GetAdvanceOverride() const { return advance_override_.value_or(1); }
 
  protected:
   SimpleFontData(
@@ -196,11 +193,11 @@ class PLATFORM_EXPORT SimpleFontData : public FontData {
 
    public:
     DerivedFontData() = default;
+    DerivedFontData(const DerivedFontData&) = delete;
+    DerivedFontData& operator=(const DerivedFontData&) = delete;
 
     scoped_refptr<SimpleFontData> small_caps;
     scoped_refptr<SimpleFontData> emphasis_mark;
-
-    DISALLOW_COPY_AND_ASSIGN(DerivedFontData);
   };
 
   mutable std::unique_ptr<DerivedFontData> derived_font_data_;
@@ -212,10 +209,6 @@ class PLATFORM_EXPORT SimpleFontData : public FontData {
   // overflows, we should add the inflations.
   unsigned visual_overflow_inflation_for_ascent_;
   unsigned visual_overflow_inflation_for_descent_;
-
-  // The multiplier to the advance of each letter as defined by the
-  // advance-override value in @font-face.
-  base::Optional<float> advance_override_;
 
   mutable FontHeight normalized_typo_ascent_descent_;
 
@@ -236,7 +229,7 @@ ALWAYS_INLINE FloatRect SimpleFontData::BoundsForGlyph(Glyph glyph) const {
   FloatRect bounds_result;
   if (glyph_to_bounds_map_) {
     bounds_result = glyph_to_bounds_map_->MetricsForGlyph(glyph);
-    if (bounds_result.Width() != kCGlyphSizeUnknown)
+    if (bounds_result.width() != kCGlyphSizeUnknown)
       return bounds_result;
   }
 

@@ -75,11 +75,7 @@ std::unique_ptr<media::Demuxer> ContentRendererClient::OverrideDemuxerForUrl(
   return nullptr;
 }
 
-blink::WebThemeEngine* ContentRendererClient::OverrideThemeEngine() {
-  return nullptr;
-}
-
-std::unique_ptr<WebSocketHandshakeThrottleProvider>
+std::unique_ptr<blink::WebSocketHandshakeThrottleProvider>
 ContentRendererClient::CreateWebSocketHandshakeThrottleProvider() {
   return nullptr;
 }
@@ -106,7 +102,6 @@ ContentRendererClient::GetProtocolHandlerSecurityLevel() {
 #if defined(OS_ANDROID)
 bool ContentRendererClient::HandleNavigation(
     RenderFrame* render_frame,
-    bool is_content_initiated,
     bool render_view_was_created_by_renderer,
     blink::WebFrame* frame,
     const blink::WebURLRequest& request,
@@ -182,7 +177,7 @@ bool ContentRendererClient::IsSupportedBitstreamAudioCodec(
 }
 
 bool ContentRendererClient::ShouldReportDetailedMessageForSource(
-    const base::string16& source) {
+    const std::u16string& source) {
   return false;
 }
 
@@ -211,18 +206,8 @@ bool ContentRendererClient::AllowScriptExtensionForServiceWorker(
   return false;
 }
 
-bool ContentRendererClient::IsExcludedHeaderForServiceWorkerFetchEvent(
-    const std::string& header_name) {
-  return false;
-}
-
 bool ContentRendererClient::ShouldEnforceWebRTCRoutingPreferences() {
   return true;
-}
-
-base::Optional<std::string>
-ContentRendererClient::WebRTCPlatformSpecificAudioProcessingConfiguration() {
-  return base::Optional<std::string>();
 }
 
 GURL ContentRendererClient::OverrideFlashEmbedWithHTML(const GURL& url) {
@@ -233,9 +218,9 @@ bool ContentRendererClient::IsIdleMediaSuspendEnabled() {
   return true;
 }
 
-std::unique_ptr<URLLoaderThrottleProvider>
+std::unique_ptr<blink::URLLoaderThrottleProvider>
 ContentRendererClient::CreateURLLoaderThrottleProvider(
-    URLLoaderThrottleProviderType provider_type) {
+    blink::URLLoaderThrottleProviderType provider_type) {
   return nullptr;
 }
 
@@ -251,19 +236,24 @@ bool ContentRendererClient::IsSafeRedirectTarget(const GURL& url) {
 
 void ContentRendererClient::DidSetUserAgent(const std::string& user_agent) {}
 
-bool ContentRendererClient::RequiresHtmlImports(const GURL& url) {
-  return false;
-}
-
-base::Optional<::media::AudioRendererAlgorithmParameters>
+absl::optional<::media::AudioRendererAlgorithmParameters>
 ContentRendererClient::GetAudioRendererAlgorithmParameters(
     media::AudioParameters audio_parameters) {
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-void ContentRendererClient::MaybeProxyURLLoaderFactory(
-    RenderFrame* render_frame,
-    mojo::PendingReceiver<network::mojom::URLLoaderFactory>* factory_receiver) {
+void ContentRendererClient::AppendContentSecurityPolicy(
+    const blink::WebURL& url,
+    blink::WebVector<blink::WebContentSecurityPolicyHeader>* csp) {}
+
+std::unique_ptr<media::RendererFactory>
+ContentRendererClient::GetBaseRendererFactory(
+    content::RenderFrame* render_frame,
+    media::MediaLog* media_log,
+    media::DecoderFactory* decoder_factory,
+    base::RepeatingCallback<media::GpuVideoAcceleratorFactories*()>
+        get_gpu_factories_cb) {
+  return nullptr;
 }
 
 }  // namespace content

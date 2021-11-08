@@ -32,6 +32,12 @@ class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactoryIOSurface
       public ImageFactory {
  public:
   GpuMemoryBufferFactoryIOSurface();
+
+  GpuMemoryBufferFactoryIOSurface(const GpuMemoryBufferFactoryIOSurface&) =
+      delete;
+  GpuMemoryBufferFactoryIOSurface& operator=(
+      const GpuMemoryBufferFactoryIOSurface&) = delete;
+
   ~GpuMemoryBufferFactoryIOSurface() override;
 
   // Overridden from GpuMemoryBufferFactory:
@@ -45,6 +51,9 @@ class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactoryIOSurface
       SurfaceHandle surface_handle) override;
   void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
                               int client_id) override;
+  bool FillSharedMemoryRegionWithBufferContents(
+      gfx::GpuMemoryBufferHandle buffer_handle,
+      base::UnsafeSharedMemoryRegion shared_memory) override;
   ImageFactory* AsImageFactory() override;
 
   // Overridden from ImageFactory:
@@ -52,6 +61,7 @@ class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactoryIOSurface
       gfx::GpuMemoryBufferHandle handle,
       const gfx::Size& size,
       gfx::BufferFormat format,
+      gfx::BufferPlane plane,
       int client_id,
       SurfaceHandle surface_handle) override;
   bool SupportsCreateAnonymousImage() const override;
@@ -72,8 +82,6 @@ class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactoryIOSurface
   // used with any GPU process by passing a mach_port to CreateImageCHROMIUM.
   IOSurfaceMap io_surfaces_;
   base::Lock io_surfaces_lock_;
-
-  DISALLOW_COPY_AND_ASSIGN(GpuMemoryBufferFactoryIOSurface);
 };
 
 }  // namespace gpu

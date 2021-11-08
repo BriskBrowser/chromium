@@ -7,15 +7,16 @@
 #include <memory>
 #include <string>
 
+#include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wm/toplevel_window_event_handler.h"
 #include "base/check.h"
 #include "base/check_op.h"
 #include "base/logging.h"
 #include "base/notreached.h"
-#include "base/optional.h"
 #include "components/exo/data_source.h"
 #include "components/exo/surface.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
@@ -33,14 +34,16 @@
 
 namespace exo {
 
+using ::ui::mojom::DragOperation;
+
 // static
 ExtendedDragSource* ExtendedDragSource::instance_ = nullptr;
 
 // Internal representation of a toplevel window, backed by an Exo shell surface,
 // which is being dragged. It supports both already mapped/visible windows as
 // well as newly created ones (i.e: not added to a root window yet), in which
-// case OnDraggedWindowVisibilityChanging callback is called to notify when it
-// is about to get visible.
+// case OnDraggedWindowVisibilityChanged callback is called to notify when it
+// has just got visible.
 class ExtendedDragSource::DraggedWindowHolder : public aura::WindowObserver {
  public:
   DraggedWindowHolder(Surface* surface,
@@ -79,10 +82,10 @@ class ExtendedDragSource::DraggedWindowHolder : public aura::WindowObserver {
     surface_->window()->RemoveObserver(this);
   }
 
-  void OnWindowVisibilityChanging(aura::Window* window, bool visible) override {
+  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override {
     DCHECK(window);
     if (window == toplevel_window_)
-      source_->OnDraggedWindowVisibilityChanging(visible);
+      source_->OnDraggedWindowVisibilityChanged(visible);
   }
 
   bool FindToplevelWindow() {
@@ -168,20 +171,23 @@ bool ExtendedDragSource::IsActive() const {
 
 void ExtendedDragSource::OnToplevelWindowDragStarted(
     const gfx::PointF& start_location,
-    ui::mojom::DragEventSource source) {
+    ui::mojom::DragEventSource source,
+    aura::Window* drag_source_window) {
   pointer_location_ = start_location;
   drag_event_source_ = source;
+  drag_source_window_ =
+      drag_source_window ? drag_source_window->GetToplevelWindow() : nullptr;
   MaybeLockCursor();
 
   if (dragged_window_holder_ && dragged_window_holder_->toplevel_window())
     StartDrag(dragged_window_holder_->toplevel_window(), start_location);
 }
 
-int ExtendedDragSource::OnToplevelWindowDragDropped() {
+DragOperation ExtendedDragSource::OnToplevelWindowDragDropped() {
   DVLOG(1) << "OnDragDropped()";
   Cleanup();
-  return delegate_->ShouldAllowDropAnywhere() ? ui::DragDropTypes::DRAG_MOVE
-                                              : ui::DragDropTypes::DRAG_NONE;
+  return delegate_->ShouldAllowDropAnywhere() ? DragOperation::kMove
+                                              : DragOperation::kNone;
 }
 
 void ExtendedDragSource::OnToplevelWindowDragCancelled() {
@@ -203,8 +209,12 @@ void ExtendedDragSource::OnToplevelWindowDragEvent(ui::LocatedEvent* event) {
     return;
   }
 
-  // TODO(crbug.com/1099418): Support touch move source.
-  NOTIMPLEMENTED() << "Non-mouse window dragging not supported yet.";
+  if (event->IsGestureEvent()) {
+    handler->OnGestureEvent(event->AsGestureEvent());
+    return;
+  }
+
+  NOTREACHED() << "Only mouse and touch events are supported.";
 }
 
 void ExtendedDragSource::OnDataSourceDestroying(DataSource* source) {
@@ -241,13 +251,26 @@ void ExtendedDragSource::StartDrag(aura::Window* toplevel,
   auto move_source = drag_event_source_ == ui::mojom::DragEventSource::kTouch
                          ? ::wm::WINDOW_MOVE_SOURCE_TOUCH
                          : ::wm::WINDOW_MOVE_SOURCE_MOUSE;
-  toplevel_handler->AttemptToStartDrag(
-      toplevel, pointer_location, HTCAPTION, move_source,
-      ash::ToplevelWindowEventHandler::EndClosure(),
-      /*update_gesture_target=*/true, /*grab_capture=*/false);
+
+  auto end_closure = base::BindOnce(
+      [](aura::Window* toplevel,
+         ash::ToplevelWindowEventHandler::DragResult result) {
+        if (toplevel) {
+          toplevel->ClearProperty(ash::kIsDraggingTabsKey);
+          toplevel->ClearProperty(ash::kTabDraggingSourceWindowKey);
+        }
+      },
+      base::Unretained(toplevel));
+
+  // TODO(crbug.com/1167581): Experiment setting |update_gesture_target| back
+  // to true when capture is removed from drag and drop.
+  toplevel_handler->AttemptToStartDrag(toplevel, pointer_location, HTCAPTION,
+                                       move_source, std::move(end_closure),
+                                       /*update_gesture_target=*/false,
+                                       /*grab_capture=*/false);
 }
 
-void ExtendedDragSource::OnDraggedWindowVisibilityChanging(bool visible) {
+void ExtendedDragSource::OnDraggedWindowVisibilityChanged(bool visible) {
   DCHECK(dragged_window_holder_);
   DVLOG(1) << "Dragged window visibility changed. visible=" << visible;
 
@@ -258,6 +281,13 @@ void ExtendedDragSource::OnDraggedWindowVisibilityChanging(bool visible) {
 
   aura::Window* toplevel = dragged_window_holder_->toplevel_window();
   DCHECK(toplevel);
+
+  DCHECK(drag_source_window_);
+  toplevel->SetProperty(ash::kIsDraggingTabsKey, true);
+  if (drag_source_window_ != toplevel) {
+    toplevel->SetProperty(ash::kTabDraggingSourceWindowKey,
+                          drag_source_window_);
+  }
 
   // The |toplevel| window for the dragged surface has just been created and
   // it's about to be mapped. Calculate and set its position based on
@@ -287,6 +317,7 @@ void ExtendedDragSource::Cleanup() {
   }
   event_blocker_.reset();
   dragged_window_holder_.reset();
+  drag_source_window_ = nullptr;
   UnlockCursor();
 }
 
@@ -295,11 +326,11 @@ aura::Window* ExtendedDragSource::GetDraggedWindowForTesting() {
                                 : nullptr;
 }
 
-base::Optional<gfx::Vector2d> ExtendedDragSource::GetDragOffsetForTesting()
+absl::optional<gfx::Vector2d> ExtendedDragSource::GetDragOffsetForTesting()
     const {
   return dragged_window_holder_
-             ? base::Optional<gfx::Vector2d>(dragged_window_holder_->offset())
-             : base::nullopt;
+             ? absl::optional<gfx::Vector2d>(dragged_window_holder_->offset())
+             : absl::nullopt;
 }
 
 }  // namespace exo

@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_offscreen_canvas.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_string_resource.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_union_float32array_uint16array_uint8clampedarray.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/fileapi/file_list.h"
@@ -760,7 +761,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageData) {
   // ImageData objects should serialize and deserialize correctly.
   V8TestingScope scope;
   ImageData* image_data = ImageData::ValidateAndCreate(
-      2, 1, base::nullopt, nullptr, ASSERT_NO_EXCEPTION);
+      2, 1, absl::nullopt, nullptr, ImageData::ValidateAndCreateParams(),
+      ASSERT_NO_EXCEPTION);
   SkPixmap pm = image_data->GetSkPixmap();
   pm.writable_addr32(0, 0)[0] = 200u;
   pm.writable_addr32(1, 0)[0] = 100u;
@@ -781,10 +783,11 @@ TEST(V8ScriptValueSerializerTest, RoundTripDetachedImageData) {
   // deserialized.
   V8TestingScope scope;
   ImageData* image_data = ImageData::ValidateAndCreate(
-      2, 1, base::nullopt, nullptr, ASSERT_NO_EXCEPTION);
+      2, 1, absl::nullopt, nullptr, ImageData::ValidateAndCreateParams(),
+      ASSERT_NO_EXCEPTION);
   SkPixmap pm = image_data->GetSkPixmap();
   pm.writable_addr32(0, 0)[0] = 200u;
-  image_data->data().GetAsUint8ClampedArray()->BufferBase()->Detach();
+  image_data->data()->GetAsUint8ClampedArray()->BufferBase()->Detach();
 
   v8::Local<v8::Value> wrapper =
       ToV8(image_data, scope.GetContext()->Global(), scope.GetIsolate());
@@ -800,7 +803,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageDataWithColorSpaceInfo) {
   image_data_settings->setColorSpace("display-p3");
   image_data_settings->setStorageFormat("float32");
   ImageData* image_data = ImageData::ValidateAndCreate(
-      2, 1, base::nullopt, image_data_settings, ASSERT_NO_EXCEPTION);
+      2, 1, absl::nullopt, image_data_settings,
+      ImageData::ValidateAndCreateParams(), ASSERT_NO_EXCEPTION);
   SkPixmap pm = image_data->GetSkPixmap();
   EXPECT_EQ(kRGBA_F32_SkColorType, pm.info().colorType());
   static_cast<float*>(pm.writable_addr(0, 0))[0] = 200.f;
@@ -1602,7 +1606,7 @@ TEST(V8ScriptValueSerializerTest, DecodeFileV4WithSnapshot) {
   // From v4 to v7, the last modified time is written in seconds.
   // So -0.25 represents 250 ms before the Unix epoch.
   EXPECT_EQ(-250, new_file->lastModified());
-  EXPECT_EQ(base::TimeDelta::FromMillisecondsD(-250.0),
+  EXPECT_EQ(base::Milliseconds(-250.0),
             new_file->LastModifiedTime() - base::Time::UnixEpoch());
 }
 
@@ -1654,7 +1658,7 @@ TEST(V8ScriptValueSerializerTest, DecodeFileV8WithSnapshot) {
   EXPECT_EQ(512u, new_file->size());
   // From v8, the last modified time is written in milliseconds.
   // So -0.25 represents 0.25 ms before the Unix epoch.
-  EXPECT_EQ(base::TimeDelta::FromMillisecondsD(-0.25),
+  EXPECT_EQ(base::Milliseconds(-0.25),
             new_file->LastModifiedTime() - base::Time::UnixEpoch());
   // lastModified IDL attribute can't represent -0.25 ms.
   EXPECT_EQ(INT64_C(0), new_file->lastModified());
@@ -1949,11 +1953,12 @@ TEST(V8ScriptValueSerializerTest, TransformStreamIntegerOverflow) {
   // The final 5 bytes is the offset of the two message ports inside the
   // transferred message port array. In order to trigger integer overflow this
   // is set to 0xffffffff, encoded as a varint.
-  char serialized_value[] = {0xff, 0x14, 0xff, 0x0d, 0x5c, 0x6d,
-                             0xff, 0xff, 0xff, 0xff, 0x0f};
+  uint8_t serialized_value[] = {0xff, 0x14, 0xff, 0x0d, 0x5c, 0x6d,
+                                0xff, 0xff, 0xff, 0xff, 0x0f};
 
-  auto corrupted_serialized_script_value =
-      SerializedScriptValue::Create(serialized_value, sizeof(serialized_value));
+  auto corrupted_serialized_script_value = SerializedScriptValue::Create(
+      reinterpret_cast<const char*>(serialized_value),
+      sizeof(serialized_value));
   corrupted_serialized_script_value->GetStreams() =
       std::move(serialized_script_value->GetStreams());
 

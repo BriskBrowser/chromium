@@ -2,15 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/containers/contains.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/ash/login/login_manager_test.h"
+#include "chrome/browser/ash/login/test/login_manager_mixin.h"
+#include "chrome/browser/ash/login/ui/user_adding_screen.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/login/login_manager_test.h"
-#include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
-#include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
@@ -23,7 +24,7 @@ using user_manager::UserManager;
 
 namespace {
 
-class SystemMenuModelBuilderMultiUserTest : public chromeos::LoginManagerTest {
+class SystemMenuModelBuilderMultiUserTest : public ash::LoginManagerTest {
  public:
   SystemMenuModelBuilderMultiUserTest() : LoginManagerTest() {
     login_mixin_.AppendRegularUsers(2);
@@ -35,7 +36,7 @@ class SystemMenuModelBuilderMultiUserTest : public chromeos::LoginManagerTest {
  protected:
   AccountId account_id1_;
   AccountId account_id2_;
-  chromeos::LoginManagerMixin login_mixin_{&mixin_host_};
+  ash::LoginManagerMixin login_mixin_{&mixin_host_};
 };
 
 // Regression test for https://crbug.com/1023043
@@ -44,14 +45,14 @@ IN_PROC_BROWSER_TEST_F(SystemMenuModelBuilderMultiUserTest,
   // Log in 2 users.
   LoginUser(account_id1_);
   base::RunLoop().RunUntilIdle();
-  chromeos::UserAddingScreen::Get()->Start();
+  ash::UserAddingScreen::Get()->Start();
   AddUser(account_id2_);
   base::RunLoop().RunUntilIdle();
 
   // Install the Settings App.
   Profile* profile = ProfileHelper::Get()->GetProfileByUser(
       UserManager::Get()->FindUser(account_id1_));
-  web_app::WebAppProvider::Get(profile)
+  web_app::WebAppProvider::GetForTest(profile)
       ->system_web_app_manager()
       .InstallSystemAppsForTesting();
 

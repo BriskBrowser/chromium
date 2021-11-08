@@ -12,11 +12,12 @@
 #include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
-#include "base/values.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "chrome/updater/persisted_data.h"
+#include "chrome/updater/updater_scope.h"
 #include "components/update_client/update_client.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 
@@ -37,11 +38,15 @@ namespace updater {
 class Installer final : public update_client::CrxInstaller {
  public:
   Installer(const std::string& app_id,
+            const std::string& target_channel,
+            const std::string& target_version_prefix,
+            bool rollback_allowed,
+            bool update_disabled,
             scoped_refptr<PersistedData> persisted_data);
   Installer(const Installer&) = delete;
   Installer& operator=(const Installer&) = delete;
 
-  const std::string app_id() const { return app_id_; }
+  std::string app_id() const { return app_id_; }
 
   // Returns a CrxComponent instance that describes the current install
   // state of the app. Updates the values of |pv_| and the |fingerprint_| with
@@ -94,15 +99,22 @@ class Installer final : public update_client::CrxInstaller {
   void DeleteOlderInstallPaths();
 
   // Returns an install directory matching the |pv_| version.
-  base::FilePath GetCurrentInstallDir() const;
+  absl::optional<base::FilePath> GetCurrentInstallDir() const;
 
   SEQUENCE_CHECKER(sequence_checker_);
 
+  UpdaterScope updater_scope_;
+
   const std::string app_id_;
+  const bool rollback_allowed_;
+  const std::string target_channel_;
+  const std::string target_version_prefix_;
+  const bool update_disabled_;
   scoped_refptr<PersistedData> persisted_data_;
 
   // These members are not updated when the installer succeeds.
   base::Version pv_;
+  std::string ap_;
   base::FilePath checker_path_;
   std::string fingerprint_;
 };

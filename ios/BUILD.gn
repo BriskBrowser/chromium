@@ -5,6 +5,7 @@
 assert(!is_component_build, "component build is unsupported on iOS")
 
 import("//build/config/gclient_args.gni")
+import("//build/config/ios/config.gni")
 import("//build/config/ios/ios_sdk.gni")
 import("//ios/features.gni")
 
@@ -16,9 +17,9 @@ group("all") {
   testonly = true
   if (is_cronet_build) {
     deps = [ "//components/cronet/ios:cronet_package_ios" ]
-  } else {
-    assert(xcode_version_int >= 1000, "Xcode 10 is required.")
-
+  } else if (is_webkit_only_build) {
+    deps = [ "//ios/third_party/webkit" ]
+  } else if (ios_build_chrome) {
     deps = [
       # List all the targets that need to be built on iOS by default.
       "//ios/chrome/app:chrome",

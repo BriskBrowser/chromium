@@ -15,6 +15,7 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/one_shot_event.h"
+#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
@@ -320,13 +321,13 @@ std::string InstallVerifier::GetDebugPolicyProviderName() const {
 
 bool InstallVerifier::MustRemainDisabled(const Extension* extension,
                                          disable_reason::DisableReason* reason,
-                                         base::string16* error) const {
+                                         std::u16string* error) const {
   CHECK(extension);
   if (!CanUseExtensionApis(*extension))
     return false;
   if (Manifest::IsUnpackedLocation(extension->location()))
     return false;
-  if (extension->location() == Manifest::COMPONENT)
+  if (extension->location() == mojom::ManifestLocation::kComponent)
     return false;
   if (AllowedByEnterprisePolicy(extension->id()))
     return false;
@@ -504,9 +505,8 @@ void InstallVerifier::BeginFetch() {
     ids_to_sign.insert(operation.ids.begin(), operation.ids.end());
   }
 
-  auto url_loader_factory =
-      content::BrowserContext::GetDefaultStoragePartition(context_)
-          ->GetURLLoaderFactoryForBrowserProcess();
+  auto url_loader_factory = context_->GetDefaultStoragePartition()
+                                ->GetURLLoaderFactoryForBrowserProcess();
   signer_ = std::make_unique<InstallSigner>(url_loader_factory, ids_to_sign);
   signer_->GetSignature(base::BindOnce(&InstallVerifier::SignatureCallback,
                                        weak_factory_.GetWeakPtr()));

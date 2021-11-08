@@ -7,7 +7,6 @@
 
 #include <list>
 #include <memory>
-#include <string>
 
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
@@ -164,6 +163,10 @@ class FileMetricsProvider : public MetricsProvider,
   };
 
   explicit FileMetricsProvider(PrefService* local_state);
+
+  FileMetricsProvider(const FileMetricsProvider&) = delete;
+  FileMetricsProvider& operator=(const FileMetricsProvider&) = delete;
+
   ~FileMetricsProvider() override;
 
   // Indicates a file or directory to be monitored and how the file or files
@@ -239,6 +242,9 @@ class FileMetricsProvider : public MetricsProvider,
 
     // The file had internal data corruption.
     ACCESS_RESULT_DATA_CORRUPTION,
+
+    // The file is not writable when it should be.
+    ACCESS_RESULT_NOT_WRITABLE,
 
     ACCESS_RESULT_MAX
   };
@@ -353,8 +359,6 @@ class FileMetricsProvider : public MetricsProvider,
 
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<FileMetricsProvider> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FileMetricsProvider);
 };
 
 }  // namespace metrics

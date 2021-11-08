@@ -12,22 +12,23 @@ import static org.mockito.ArgumentMatchers.anyObject;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 
+import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
 import static org.chromium.chrome.browser.preferences.ChromePreferenceKeys.ASSISTANT_VOICE_SEARCH_ENABLED;
-import static org.chromium.chrome.browser.preferences.ChromePreferenceKeys.ASSISTANT_VOICE_SEARCH_SUPPORTED;
 
-import android.support.test.filters.MediumTest;
+import androidx.test.filters.MediumTest;
 
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -36,6 +37,7 @@ import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
+import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.externalauth.ExternalAuthUtils;
 import org.chromium.ui.test.util.DisableAnimationsTestRule;
@@ -47,6 +49,7 @@ import java.io.IOException;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
         "enable-features=" + ChromeFeatureList.OMNIBOX_ASSISTANT_VOICE_SEARCH + "<Study",
         "force-fieldtrials=Study/Group"})
+@Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
 public class AssistantVoiceSearchServiceRenderTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
@@ -59,33 +62,36 @@ public class AssistantVoiceSearchServiceRenderTest {
     @Rule
     public DisableAnimationsTestRule mDisableAnimationsTestRule = new DisableAnimationsTestRule();
 
+    @Rule
+    public final AccountManagerTestRule mAccountManagerTestRule = new AccountManagerTestRule();
+
     @Mock
-    GSAState mGsaState;
+    private GSAState mGsaState;
+    @Mock
+    private ExternalAuthUtils mExternalAuthUtils;
 
     @Before
-    public void setUp() {
-        AssistantVoiceSearchService.setAgsaSupportsAssistantVoiceSearchForTesting(true);
+    public void setUp() throws Exception {
         SharedPreferencesManager.getInstance().writeBoolean(ASSISTANT_VOICE_SEARCH_ENABLED, true);
-        SharedPreferencesManager.getInstance().writeBoolean(ASSISTANT_VOICE_SEARCH_SUPPORTED, true);
 
-        GSAState gsaState = Mockito.mock(GSAState.class);
-        doReturn(false).when(gsaState).isAgsaVersionBelowMinimum(anyString(), anyString());
-        doReturn(true).when(gsaState).doesGsaAccountMatchChrome();
-        doReturn(true).when(gsaState).canAgsaHandleIntent(anyObject());
-        GSAState.setInstanceForTesting(gsaState);
+        doReturn(false).when(mGsaState).isAgsaVersionBelowMinimum(anyString(), anyString());
+        doReturn(true).when(mGsaState).canAgsaHandleIntent(anyObject());
+        doReturn(true).when(mGsaState).isGsaInstalled();
+        GSAState.setInstanceForTesting(mGsaState);
 
-        ExternalAuthUtils externalAuthUtils = Mockito.mock(ExternalAuthUtils.class);
-        doReturn(true).when(externalAuthUtils).isGoogleSigned(anyString());
-        doReturn(true).when(externalAuthUtils).isChromeGoogleSigned();
-        ExternalAuthUtils.setInstanceForTesting(externalAuthUtils);
+        doReturn(true).when(mExternalAuthUtils).isGoogleSigned(anyString());
+        doReturn(true).when(mExternalAuthUtils).isChromeGoogleSigned();
+        ExternalAuthUtils.setInstanceForTesting(mExternalAuthUtils);
 
         mActivityTestRule.startMainActivityOnBlankPage();
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
     }
 
     @Test
     @MediumTest
     @CommandLineFlags.Add({"force-fieldtrial-params=Study.Group:colorful_mic/true"})
     @Feature({"RenderTest"})
+    @DisabledTest(message = "crbug.com/1196384")
     public void testAssistantColorfulMic() throws IOException {
         mActivityTestRule.loadUrl(UrlConstants.NTP_URL);
 
@@ -101,6 +107,7 @@ public class AssistantVoiceSearchServiceRenderTest {
     @MediumTest
     @CommandLineFlags.Add({"force-fieldtrial-params=Study.Group:colorful_mic/false"})
     @Feature({"RenderTest"})
+    @DisabledTest(message = "crbug.com/1221496")
     public void testAssistantMic() throws IOException {
         mActivityTestRule.loadUrl(UrlConstants.NTP_URL);
 

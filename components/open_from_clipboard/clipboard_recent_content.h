@@ -6,11 +6,13 @@
 #define COMPONENTS_OPEN_FROM_CLIPBOARD_CLIPBOARD_RECENT_CONTENT_H_
 
 #include <memory>
+#include <set>
 #include <string>
 
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
@@ -22,6 +24,10 @@ enum class ClipboardContentType { URL, Text, Image };
 class ClipboardRecentContent {
  public:
   ClipboardRecentContent();
+
+  ClipboardRecentContent(const ClipboardRecentContent&) = delete;
+  ClipboardRecentContent& operator=(const ClipboardRecentContent&) = delete;
+
   virtual ~ClipboardRecentContent();
 
   // Returns the global instance of the ClipboardRecentContent singleton. This
@@ -35,12 +41,12 @@ class ClipboardRecentContent {
   // Returns clipboard content as URL, if it has a compatible type,
   // is recent enough, has not been suppressed and will not trigger a system
   // notification that the clipboard has been accessed.
-  virtual base::Optional<GURL> GetRecentURLFromClipboard() = 0;
+  virtual absl::optional<GURL> GetRecentURLFromClipboard() = 0;
 
   // Returns clipboard content as text, if it has a compatible type,
   // is recent enough, has not been suppressed and will not trigger a system
   // notification that the clipboard has been accessed.
-  virtual base::Optional<base::string16> GetRecentTextFromClipboard() = 0;
+  virtual absl::optional<std::u16string> GetRecentTextFromClipboard() = 0;
 
   // Return if system's clipboard contains an image that will not trigger a
   // system notification that the clipboard has been accessed.
@@ -52,11 +58,11 @@ class ClipboardRecentContent {
    */
   using HasDataCallback =
       base::OnceCallback<void(std::set<ClipboardContentType>)>;
-  using GetRecentURLCallback = base::OnceCallback<void(base::Optional<GURL>)>;
+  using GetRecentURLCallback = base::OnceCallback<void(absl::optional<GURL>)>;
   using GetRecentTextCallback =
-      base::OnceCallback<void(base::Optional<base::string16>)>;
+      base::OnceCallback<void(absl::optional<std::u16string>)>;
   using GetRecentImageCallback =
-      base::OnceCallback<void(base::Optional<gfx::Image>)>;
+      base::OnceCallback<void(absl::optional<gfx::Image>)>;
 
   // Returns whether the clipboard contains a URL to |HasDataCallback| if it
   // is recent enough and has not been suppressed.
@@ -91,9 +97,6 @@ class ClipboardRecentContent {
   // GetRecentURLFromClipboard() should never return a URL from a clipboard
   // older than this.
   static base::TimeDelta MaximumAgeOfClipboard();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ClipboardRecentContent);
 };
 
 #endif  // COMPONENTS_OPEN_FROM_CLIPBOARD_CLIPBOARD_RECENT_CONTENT_H_

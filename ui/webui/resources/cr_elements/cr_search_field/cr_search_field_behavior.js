@@ -7,7 +7,7 @@
  * <settings-subpage-search> for a simple implementation.
  * @polymerBehavior
  */
-/* #export */ const CrSearchFieldBehavior = {
+export const CrSearchFieldBehavior = {
   properties: {
     label: {
       type: String,
@@ -33,8 +33,8 @@
   searchDelayTimer_: -1,
 
   /**
-   * @return {!HTMLInputElement} The input field element the behavior should
-   *     use.
+   * @return {!HTMLInputElement|!CrInputElement} The input field element the
+   *     behavior should use.
    */
   getSearchInput() {},
 
@@ -139,7 +139,7 @@
 };
 
 /** @interface */
-/* #export */ class CrSearchFieldBehaviorInterface {
+export class CrSearchFieldBehaviorInterface {
   constructor() {
     /** @type {string} */
     this.label;
@@ -152,8 +152,8 @@
   }
 
   /**
-   * @return {!HTMLInputElement} The input field element the behavior should
-   *     use.
+   * @return {!HTMLInputElement|!CrInputElement} The input field element the
+   *     behavior should use.
    */
   getSearchInput() {}
 

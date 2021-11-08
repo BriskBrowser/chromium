@@ -24,6 +24,11 @@ class ServiceWorkerRegistrationContentIndex final
   explicit ServiceWorkerRegistrationContentIndex(
       ServiceWorkerRegistration* registration);
 
+  ServiceWorkerRegistrationContentIndex(
+      const ServiceWorkerRegistrationContentIndex&) = delete;
+  ServiceWorkerRegistrationContentIndex& operator=(
+      const ServiceWorkerRegistrationContentIndex&) = delete;
+
   static ServiceWorkerRegistrationContentIndex& From(
       ServiceWorkerRegistration& registration);
 
@@ -33,10 +38,7 @@ class ServiceWorkerRegistrationContentIndex final
   void Trace(Visitor* visitor) const override;
 
  private:
-  Member<ServiceWorkerRegistration> registration_;
   Member<ContentIndex> content_index_;
-
-  DISALLOW_COPY_AND_ASSIGN(ServiceWorkerRegistrationContentIndex);
 };
 
 }  // namespace blink

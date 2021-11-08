@@ -27,8 +27,9 @@
 #include "third_party/blink/renderer/core/frame/dom_timer.h"
 
 #include "base/numerics/clamped_math.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/scheduled_action.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -45,8 +46,7 @@ namespace {
 // that a timeout less than 4ms is increased to 4ms when the nesting level is
 // greater than 5.
 constexpr int kMaxTimerNestingLevel = 5;
-constexpr base::TimeDelta kMinimumInterval =
-    base::TimeDelta::FromMilliseconds(4);
+constexpr base::TimeDelta kMinimumInterval = base::Milliseconds(4);
 
 }  // namespace
 
@@ -61,9 +61,8 @@ int DOMTimer::Install(ExecutionContext* context,
 
 void DOMTimer::RemoveByID(ExecutionContext* context, int timeout_id) {
   DOMTimer* timer = context->Timers()->RemoveTimeoutByID(timeout_id);
-  TRACE_EVENT_INSTANT1("devtools.timeline", "TimerRemove",
-                       TRACE_EVENT_SCOPE_THREAD, "data",
-                       inspector_timer_remove_event::Data(context, timeout_id));
+  DEVTOOLS_TIMELINE_TRACE_EVENT_INSTANT(
+      "TimerRemove", inspector_timer_remove_event::Data, context, timeout_id);
   // Eagerly unregister as ExecutionContext observer.
   if (timer)
     timer->SetExecutionContext(nullptr);
@@ -82,7 +81,7 @@ DOMTimer::DOMTimer(ExecutionContext* context,
   DCHECK_GT(timeout_id, 0);
 
   // Step 10:
-  if (timeout < base::TimeDelta())
+  if (timeout.is_negative())
     timeout = base::TimeDelta();
 
   // Steps 12 and 13:
@@ -109,17 +108,18 @@ DOMTimer::DOMTimer(ExecutionContext* context,
   MoveToNewTaskRunner(context->GetTaskRunner(task_type));
 
   // Clamping up to 1ms for historical reasons crbug.com/402694.
-  timeout = std::max(timeout, base::TimeDelta::FromMilliseconds(1));
+  // Removing clamp for single_shot behind a feature flag.
+  if (!single_shot || !blink::features::IsSetTimeoutWithoutClampEnabled())
+    timeout = std::max(timeout, base::Milliseconds(1));
 
   if (single_shot)
     StartOneShot(timeout, FROM_HERE);
   else
     StartRepeating(timeout, FROM_HERE);
 
-  TRACE_EVENT_INSTANT1("devtools.timeline", "TimerInstall",
-                       TRACE_EVENT_SCOPE_THREAD, "data",
-                       inspector_timer_install_event::Data(
-                           context, timeout_id, timeout, single_shot));
+  DEVTOOLS_TIMELINE_TRACE_EVENT_INSTANT(
+      "TimerInstall", inspector_timer_install_event::Data, context, timeout_id,
+      timeout, single_shot);
   probe::AsyncTaskScheduledBreakable(
       context, single_shot ? "setTimeout" : "setInterval", &async_task_id_);
 }
@@ -160,8 +160,8 @@ void DOMTimer::Fired() {
   // Only the first execution of a multi-shot timer should get an affirmative
   // user gesture indicator.
 
-  TRACE_EVENT1("devtools.timeline", "TimerFire", "data",
-               inspector_timer_fire_event::Data(context, timeout_id_));
+  DEVTOOLS_TIMELINE_TRACE_EVENT("TimerFire", inspector_timer_fire_event::Data,
+                                context, timeout_id_);
   const bool is_interval = !RepeatInterval().is_zero();
   probe::UserCallback probe(context, is_interval ? "setInterval" : "setTimeout",
                             g_null_atom, true);

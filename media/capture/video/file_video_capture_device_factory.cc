@@ -23,7 +23,6 @@ base::FilePath GetFilePathFromCommandLine() {
   base::FilePath command_line_file_path =
       base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
           switches::kUseFileForFakeVideoCapture);
-  CHECK(!command_line_file_path.empty());
   return command_line_file_path;
 }
 
@@ -44,7 +43,7 @@ std::unique_ptr<VideoCaptureDevice> FileVideoCaptureDeviceFactory::CreateDevice(
 void FileVideoCaptureDeviceFactory::GetDevicesInfo(
     GetDevicesInfoCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  base::ThreadRestrictions::SetIOAllowed(true);
+  base::ScopedAllowBlocking allow_blocking;
 
   std::vector<VideoCaptureDeviceInfo> devices_info;
 

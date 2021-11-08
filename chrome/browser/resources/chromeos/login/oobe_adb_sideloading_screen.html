@@ -2,24 +2,29 @@
      Use of this source code is governed by a BSD-style license that can be
      found in the LICENSE file. -->
 
-<link rel="import" href="chrome://resources/html/action_link.html">
+<link rel="import" href="chrome://resources/html/polymer.html">
 
-<link rel="import" href="/components/common_styles.html">
-<link rel="import" href="/components/hd_iron_icon.html">
-<link rel="import" href="/components/oobe_adaptive_dialog.html">
-<link rel="import" href="/components/oobe_dialog_host_behavior.html">
+<link rel="import" href="chrome://resources/html/action_link.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
+
+<link rel="import" href="/components/oobe_icons.html">
+<link rel="import" href="/components/behaviors/login_screen_behavior.html">
+<link rel="import" href="/components/behaviors/multi_step_behavior.html">
+<link rel="import" href="/components/behaviors/oobe_dialog_host_behavior.html">
+<link rel="import" href="/components/buttons/oobe_text_button.html">
+<link rel="import" href="/components/common_styles/common_styles.html">
+<link rel="import" href="/components/common_styles/oobe_dialog_host_styles.html">
+<link rel="import" href="/components/dialogs/oobe_adaptive_dialog.html">
 
 <dom-module id="oobe-adb-sideloading-element">
   <template>
-    <style include="oobe-dialog-host"></style>
+    <style include="oobe-dialog-host-styles"></style>
 
     <!-- Dialog for normal confirmation -->
     <oobe-adaptive-dialog id="enableAdbSideloadDialog" role="dialog"
         for-step="setup" footer-shrinkable
         aria-label$="[[i18nDynamic(locale, 'enableAdbSideloadingSetupTitle')]]">
-      <hd-iron-icon slot="icon"
-          icon1x="oobe-32:alert" icon2x="oobe-64:alert">
-      </hd-iron-icon>
+      <iron-icon slot="icon" icon="oobe-32:alert"></iron-icon>
       <h1 slot="title">
         [[i18nDynamic(locale, 'enableAdbSideloadingSetupTitle')]]
       </h1>
@@ -33,9 +38,7 @@
       <div slot="content" class="flex layout vertical center center-justified">
         <img srcset="images/1x/arc_sideloading_illustration.svg 1x,
                      images/2x/arc_sideloading_illustration.svg 2x"
-             class="oobe-illustration"
-             alt="[[i18nDynamic(locale,
-                    'enableAdbSideloadingIllustrationTitle')]]">
+             class="oobe-illustration">
       </div>
       <div slot="bottom-buttons">
         <oobe-text-button border on-click="onCancelTap_"
@@ -51,9 +54,7 @@
     <oobe-adaptive-dialog id="enableAdbSideloadErrorDialog" role="dialog"
         for-step="error" footer-shrinkable
         aria-label$="[[i18nDynamic(locale, 'enableAdbSideloadingSetupTitle')]]">
-      <hd-iron-icon slot="icon"
-          icon1x="oobe-32:warning" icon2x="oobe-64:warning">
-      </hd-iron-icon>
+      <iron-icon slot="icon" icon="oobe-32:warning"></iron-icon>
       <h1 slot="title">
         [[i18nDynamic(locale, 'enableAdbSideloadingErrorTitle')]]
       </h1>
@@ -64,11 +65,7 @@
         </a>
       </p>
       <div slot="content" class="flex layout vertical center center-justified">
-        <img srcset="images/1x/error.svg 1x,
-                     images/2x/error.svg 2x"
-             class="oobe-illustration"
-             alt="[[i18nDynamic(locale,
-                    'enableAdbSideloadingErrorIllustrationTitle')]]">
+        <img src="images/error.svg" class="oobe-illustration">
       </div>
       <div slot="bottom-buttons">
         <oobe-text-button inverse on-click="onCancelTap_" class="focus-on-show"

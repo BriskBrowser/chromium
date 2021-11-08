@@ -11,12 +11,12 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/location.h"
-#include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/system/sys_info_internal.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -76,14 +76,12 @@ bool DetectLowEndDevice() {
 
 // static
 bool SysInfo::IsLowEndDeviceImpl() {
-  static base::NoDestructor<
-      internal::LazySysInfoValue<bool, DetectLowEndDevice>>
-      instance;
-  return instance->value();
+  static internal::LazySysInfoValue<bool, DetectLowEndDevice> instance;
+  return instance.value();
 }
 #endif
 
-#if !defined(OS_APPLE) && !defined(OS_ANDROID) && \
+#if !defined(OS_APPLE) && !defined(OS_ANDROID) && !defined(OS_WIN) && \
     !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
 std::string SysInfo::HardwareModelName() {
   return std::string();
@@ -100,8 +98,8 @@ void SysInfo::GetHardwareInfo(base::OnceCallback<void(HardwareInfo)> callback) {
       std::move(callback));
 #else
   NOTIMPLEMENTED();
-  base::ThreadPool::PostTask(
-      FROM_HERE, {}, base::BindOnce(std::move(callback), HardwareInfo()));
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), HardwareInfo()));
 #endif
 }
 
@@ -111,7 +109,7 @@ base::TimeDelta SysInfo::Uptime() {
   // its return value happens to coincide with the system uptime value in
   // microseconds, on Win/Mac/iOS/Linux/ChromeOS and Android.
   int64_t uptime_in_microseconds = TimeTicks::Now().ToInternalValue();
-  return base::TimeDelta::FromMicroseconds(uptime_in_microseconds);
+  return base::Microseconds(uptime_in_microseconds);
 }
 
 // static

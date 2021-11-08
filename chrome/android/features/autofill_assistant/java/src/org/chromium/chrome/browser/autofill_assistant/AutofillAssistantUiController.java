@@ -4,24 +4,30 @@
 
 package org.chromium.chrome.browser.autofill_assistant;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.res.Configuration;
+import android.view.Window;
 
 import androidx.annotation.Nullable;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.autofill_assistant.R;
 import org.chromium.chrome.browser.ActivityTabProvider;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.autofill_assistant.carousel.AssistantChip;
 import org.chromium.chrome.browser.autofill_assistant.metrics.DropOutReason;
-import org.chromium.chrome.browser.autofill_assistant.onboarding.BaseOnboardingCoordinator;
+import org.chromium.chrome.browser.autofill_assistant.overlay.AssistantOverlayCoordinator;
+import org.chromium.chrome.browser.compositor.CompositorViewHolder;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.feedback.ScreenshotMode;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabUtils;
 import org.chromium.chrome.browser.ui.TabObscuringHandler;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager.SnackbarController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
@@ -106,7 +112,7 @@ public class AutofillAssistantUiController {
     @CalledByNative
     private static AutofillAssistantUiController create(ChromeActivity activity,
             boolean allowTabSwitching, long nativeUiController,
-            @Nullable BaseOnboardingCoordinator onboardingCoordinator) {
+            @Nullable AssistantOverlayCoordinator overlayCoordinator) {
         BottomSheetController sheetController =
                 BottomSheetControllerProvider.from(activity.getWindowAndroid());
         assert activity != null;
@@ -121,17 +127,20 @@ public class AutofillAssistantUiController {
         //         than obtaining them from ChromeActivity getters.
         return new AutofillAssistantUiController(activity, sheetController,
                 activity.getTabObscuringHandler(), allowTabSwitching, nativeUiController,
-                onboardingCoordinator);
+                overlayCoordinator);
     }
 
     private AutofillAssistantUiController(ChromeActivity activity, BottomSheetController controller,
             TabObscuringHandler tabObscuringHandler, boolean allowTabSwitching,
-            long nativeUiController, @Nullable BaseOnboardingCoordinator onboardingCoordinator) {
+            long nativeUiController, @Nullable AssistantOverlayCoordinator overlayCoordinator) {
         mNativeUiController = nativeUiController;
         mActivity = activity;
+        Supplier<CompositorViewHolder> cvh = activity.getCompositorViewHolderSupplier();
         mCoordinator = new AssistantCoordinator(activity, controller, tabObscuringHandler,
-                onboardingCoordinator == null ? null : onboardingCoordinator.transferControls(),
-                this::safeNativeOnKeyboardVisibilityChanged);
+                overlayCoordinator, this::safeNativeOnKeyboardVisibilityChanged,
+                activity.getWindowAndroid().getKeyboardDelegate(), cvh.get(),
+                activity.getActivityTabProvider(), activity.getBrowserControlsManager(),
+                activity.getWindowAndroid().getApplicationBottomInsetProvider());
         mActivityTabObserver =
                 new ActivityTabProvider.ActivityTabTabObserver(
                         activity.getActivityTabProvider(), /* shouldTrigger = */ true) {
@@ -315,9 +324,9 @@ public class AutofillAssistantUiController {
     }
 
     @CalledByNative
-    private void showSnackbar(int delayMs, String message) {
+    private void showSnackbar(int delayMs, String message, String undoString) {
         mSnackbarController = AssistantSnackbar.show(mActivity, mActivity.getSnackbarManager(),
-                delayMs, message, this::safeSnackbarResult);
+                delayMs, message, undoString, this::safeSnackbarResult);
     }
 
     private void dismissSnackbar() {
@@ -431,6 +440,28 @@ public class AutofillAssistantUiController {
     @CalledByNative
     private Context getContext() {
         return mActivity;
+    }
+
+    @CalledByNative
+    private int[] getWindowSize() {
+        Activity activity = TabUtils.getActivity(TabUtils.fromWebContents(mWebContents));
+        if (activity == null) {
+            return null;
+        }
+        Window window = activity.getWindow();
+        if (window == null) {
+            return null;
+        }
+        return new int[] {window.getDecorView().getWidth(), window.getDecorView().getHeight()};
+    }
+
+    @CalledByNative
+    private int getScreenOrientation() {
+        Activity activity = TabUtils.getActivity(TabUtils.fromWebContents(mWebContents));
+        if (activity == null) {
+            return Configuration.ORIENTATION_UNDEFINED;
+        }
+        return activity.getResources().getConfiguration().orientation;
     }
 
     // Native methods.

@@ -6,7 +6,6 @@
 
 #include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/common/frame.mojom-test-utils.h"
-#include "content/common/frame_messages.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 
@@ -22,6 +21,9 @@ class DidCommitNavigationInterceptor::FrameAgent
         rfhi_(static_cast<RenderFrameHostImpl*>(rfh)) {
     rfhi_->SetCommitCallbackInterceptorForTesting(this);
   }
+
+  FrameAgent(const FrameAgent&) = delete;
+  FrameAgent& operator=(const FrameAgent&) = delete;
 
   ~FrameAgent() override {
     rfhi_->SetCommitCallbackInterceptorForTesting(nullptr);
@@ -40,17 +42,18 @@ class DidCommitNavigationInterceptor::FrameAgent
   DidCommitNavigationInterceptor* interceptor_;
 
   RenderFrameHostImpl* rfhi_;
-
-  DISALLOW_COPY_AND_ASSIGN(FrameAgent);
 };
 
 DidCommitNavigationInterceptor::DidCommitNavigationInterceptor(
     WebContents* web_contents)
     : WebContentsObserver(web_contents) {
-  for (auto* rfh : web_contents->GetAllFrames()) {
-    if (rfh->IsRenderFrameLive())
-      RenderFrameCreated(rfh);
-  }
+  web_contents->ForEachRenderFrameHost(base::BindRepeating(
+      [](DidCommitNavigationInterceptor* interceptor,
+         RenderFrameHost* render_frame_host) {
+        if (render_frame_host->IsRenderFrameLive())
+          interceptor->RenderFrameCreated(render_frame_host);
+      },
+      this));
 }
 
 DidCommitNavigationInterceptor::~DidCommitNavigationInterceptor() = default;
@@ -67,34 +70,6 @@ void DidCommitNavigationInterceptor::RenderFrameDeleted(
     RenderFrameHost* render_frame_host) {
   bool did_remove = !!frame_agents_.erase(render_frame_host);
   DCHECK(did_remove);
-}
-
-CommitMessageDelayer::CommitMessageDelayer(WebContents* web_contents,
-                                           const GURL& deferred_url,
-                                           DidCommitCallback deferred_action)
-    : DidCommitNavigationInterceptor(web_contents),
-      deferred_url_(deferred_url),
-      deferred_action_(std::move(deferred_action)) {}
-
-CommitMessageDelayer::~CommitMessageDelayer() = default;
-
-void CommitMessageDelayer::Wait() {
-  run_loop_ = std::make_unique<base::RunLoop>();
-  run_loop_->Run();
-  run_loop_.reset();
-}
-
-bool CommitMessageDelayer::WillProcessDidCommitNavigation(
-    RenderFrameHost* render_frame_host,
-    NavigationRequest* navigation_request,
-    mojom::DidCommitProvisionalLoadParamsPtr* params,
-    mojom::DidCommitProvisionalLoadInterfaceParamsPtr* interface_params) {
-  if ((**params).url == deferred_url_) {
-    std::move(deferred_action_).Run(render_frame_host);
-    if (run_loop_)
-      run_loop_->Quit();
-  }
-  return true;
 }
 
 }  // namespace content

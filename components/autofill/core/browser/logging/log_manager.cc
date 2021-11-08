@@ -16,6 +16,9 @@ class LogManagerImpl : public LogManager {
   LogManagerImpl(LogRouter* log_router,
                  base::RepeatingClosure notification_callback);
 
+  LogManagerImpl(const LogManagerImpl&) = delete;
+  LogManagerImpl& operator=(const LogManagerImpl&) = delete;
+
   ~LogManagerImpl() override;
 
   // LogManager
@@ -37,8 +40,6 @@ class LogManagerImpl : public LogManager {
 
   // Called every time the logging activity status changes.
   base::RepeatingClosure notification_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(LogManagerImpl);
 };
 
 LogManagerImpl::LogManagerImpl(LogRouter* log_router,
@@ -104,6 +105,11 @@ std::unique_ptr<LogManager> LogManager::Create(
     base::RepeatingClosure notification_callback) {
   return std::make_unique<LogManagerImpl>(log_router,
                                           std::move(notification_callback));
+}
+
+// static
+LogBufferSubmitter LogManager::DevNull() {
+  return LogBufferSubmitter(nullptr, false);
 }
 
 }  // namespace autofill

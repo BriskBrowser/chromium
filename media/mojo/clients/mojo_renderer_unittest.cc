@@ -4,6 +4,8 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -72,10 +74,10 @@ class MojoRendererTest : public ::testing::Test {
         &mojo_cdm_service_context_, std::move(mock_renderer),
         remote_renderer_remote.InitWithNewPipeAndPassReceiver());
 
-    mojo_renderer_.reset(
-        new MojoRenderer(message_loop_.task_runner(),
-                         std::unique_ptr<VideoOverlayFactory>(nullptr), nullptr,
-                         std::move(remote_renderer_remote)));
+    mojo_renderer_ = std::make_unique<MojoRenderer>(
+        message_loop_.task_runner(),
+        std::unique_ptr<VideoOverlayFactory>(nullptr), nullptr,
+        std::move(remote_renderer_remote));
 
     // CreateAudioStream() and CreateVideoStream() overrides expectations for
     // expected non-NULL streams.
@@ -84,6 +86,9 @@ class MojoRendererTest : public ::testing::Test {
     EXPECT_CALL(*mock_renderer_, GetMediaTime())
         .WillRepeatedly(Return(base::TimeDelta()));
   }
+
+  MojoRendererTest(const MojoRendererTest&) = delete;
+  MojoRendererTest& operator=(const MojoRendererTest&) = delete;
 
   ~MojoRendererTest() override = default;
 
@@ -168,19 +173,17 @@ class MojoRendererTest : public ::testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
-  void OnCdmServiceCreated(std::unique_ptr<MojoCdmService> cdm_service,
-                           mojo::PendingRemote<mojom::Decryptor> decryptor,
-                           const std::string& error_message) {
-    EXPECT_TRUE(!!cdm_service);
-    cdm_context_.set_cdm_id(base::OptionalOrNullptr(cdm_service->cdm_id()));
-    mojo_cdm_service_ = std::move(cdm_service);
+  void OnCdmServiceInitialized(mojom::CdmContextPtr cdm_context,
+                               const std::string& error_message) {
+    cdm_context_.set_cdm_id(cdm_context->cdm_id);
   }
 
   void CreateCdm() {
-    MojoCdmService::Create(
-        &cdm_factory_, &mojo_cdm_service_context_, kClearKeyKeySystem,
-        CdmConfig(),
-        base::BindOnce(&MojoRendererTest::OnCdmServiceCreated,
+    mojo_cdm_service_ =
+        std::make_unique<MojoCdmService>(&mojo_cdm_service_context_);
+    mojo_cdm_service_->Initialize(
+        &cdm_factory_, kClearKeyKeySystem, CdmConfig(),
+        base::BindOnce(&MojoRendererTest::OnCdmServiceInitialized,
                        base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
   }
@@ -192,9 +195,7 @@ class MojoRendererTest : public ::testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
-  void Play() {
-    StartPlayingFrom(base::TimeDelta::FromMilliseconds(kStartPlayingTimeInMs));
-  }
+  void Play() { StartPlayingFrom(base::Milliseconds(kStartPlayingTimeInMs)); }
 
   // Fixture members.
   base::TestMessageLoop message_loop_;
@@ -223,9 +224,6 @@ class MojoRendererTest : public ::testing::Test {
   RendererClient* remote_renderer_client_;
 
   mojo::SelfOwnedReceiverRef<mojom::Renderer> renderer_receiver_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MojoRendererTest);
 };
 
 TEST_F(MojoRendererTest, Initialize_Success) {
@@ -304,8 +302,7 @@ TEST_F(MojoRendererTest, SetCdm_InvalidCdmId) {
 
 TEST_F(MojoRendererTest, SetCdm_NonExistCdmId) {
   Initialize();
-  auto cdm_id = base::UnguessableToken::Create();
-  cdm_context_.set_cdm_id(&cdm_id);
+  cdm_context_.set_cdm_id(base::UnguessableToken::Create());
   SetCdmAndExpect(false);
 }
 
@@ -376,9 +373,8 @@ TEST_F(MojoRendererTest, GetMediaTime) {
   Initialize();
   EXPECT_EQ(base::TimeDelta(), mojo_renderer_->GetMediaTime());
 
-  const base::TimeDelta kSleepTime = base::TimeDelta::FromMilliseconds(500);
-  const base::TimeDelta kStartTime =
-      base::TimeDelta::FromMilliseconds(kStartPlayingTimeInMs);
+  const base::TimeDelta kSleepTime = base::Milliseconds(500);
+  const base::TimeDelta kStartTime = base::Milliseconds(kStartPlayingTimeInMs);
 
   // Media time should not advance since playback rate is 0.
   EXPECT_CALL(*mock_renderer_, SetPlaybackRate(0));

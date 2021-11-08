@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -13,13 +14,13 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/optional.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/sessions/chrome_tab_restore_service_client.h"
+#include "chrome/browser/sessions/exit_type_service.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_factory.h"
 #include "chrome/browser/sessions/session_service_utils.h"
@@ -48,6 +49,7 @@
 #include "content/public/test/test_utils.h"
 #include "content/public/test/web_contents_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 
 typedef sessions::TabRestoreService::Entry Entry;
@@ -92,6 +94,7 @@ class TabRestoreServiceImplTest : public ChromeRenderViewHostTestHarness {
     user_agent_override_.ua_metadata_override->full_version = "18.0.1025.45";
     user_agent_override_.ua_metadata_override->platform = "Linux";
     user_agent_override_.ua_metadata_override->architecture = "x86_64";
+    user_agent_override_.ua_metadata_override->bitness = "32";
   }
 
   ~TabRestoreServiceImplTest() override {}
@@ -109,9 +112,9 @@ class TabRestoreServiceImplTest : public ChromeRenderViewHostTestHarness {
     ChromeRenderViewHostTestHarness::SetUp();
     live_tab_ = base::WrapUnique(new sessions::ContentLiveTab(web_contents()));
     time_factory_ = new TabRestoreTimeFactory();
-    service_.reset(new sessions::TabRestoreServiceImpl(
+    service_ = std::make_unique<sessions::TabRestoreServiceImpl>(
         std::make_unique<ChromeTabRestoreServiceClient>(profile()),
-        profile()->GetPrefs(), time_factory_));
+        profile()->GetPrefs(), time_factory_);
   }
 
   void TearDown() override {
@@ -147,9 +150,9 @@ class TabRestoreServiceImplTest : public ChromeRenderViewHostTestHarness {
     service_->Shutdown();
     content::RunAllTasksUntilIdle();
     service_.reset();
-    service_.reset(new sessions::TabRestoreServiceImpl(
+    service_ = std::make_unique<sessions::TabRestoreServiceImpl>(
         std::make_unique<ChromeTabRestoreServiceClient>(profile()),
-        profile()->GetPrefs(), time_factory_));
+        profile()->GetPrefs(), time_factory_);
     SynchronousLoadTabsFromLastSession();
   }
 
@@ -159,9 +162,9 @@ class TabRestoreServiceImplTest : public ChromeRenderViewHostTestHarness {
   // |group_visual_data| is also present, sets |group|'s visual data.
   void AddWindowWithOneTabToSessionService(
       bool pinned,
-      base::Optional<tab_groups::TabGroupId> group = base::nullopt,
-      base::Optional<tab_groups::TabGroupVisualData> group_visual_data =
-          base::nullopt) {
+      absl::optional<tab_groups::TabGroupId> group = absl::nullopt,
+      absl::optional<tab_groups::TabGroupVisualData> group_visual_data =
+          absl::nullopt) {
     // Create new window / tab IDs so that these remain distinct.
     window_id_ = SessionID::NewUnique();
     tab_id_ = SessionID::NewUnique();
@@ -198,7 +201,8 @@ class TabRestoreServiceImplTest : public ChromeRenderViewHostTestHarness {
     AddWindowWithOneTabToSessionService(pinned);
 
     // Set this, otherwise previous session won't be loaded.
-    profile()->set_last_session_exited_cleanly(false);
+    ExitTypeService::GetInstanceForProfile(profile())
+        ->SetLastSessionExitTypeForTest(ExitType::kCrashed);
   }
 
   void SynchronousLoadTabsFromLastSession() {
@@ -269,7 +273,7 @@ TEST_F(TabRestoreServiceImplTest, Basic) {
   EXPECT_EQ(url3_, tab->navigations[2].virtual_url());
   EXPECT_EQ(user_agent_override_.ua_string_override,
             tab->user_agent_override.ua_string_override);
-  base::Optional<blink::UserAgentMetadata> client_hints_override =
+  absl::optional<blink::UserAgentMetadata> client_hints_override =
       blink::UserAgentMetadata::Demarshal(
           tab->user_agent_override.opaque_ua_metadata_override);
   EXPECT_EQ(user_agent_override_.ua_metadata_override, client_hints_override);
@@ -562,7 +566,8 @@ TEST_F(TabRestoreServiceImplTest, DontLoadAfterCleanExit) {
   SessionServiceFactory::GetForProfile(profile())
       ->MoveCurrentSessionToLastSession();
 
-  profile()->set_last_session_exited_cleanly(true);
+  ExitTypeService::GetInstanceForProfile(profile())
+      ->SetLastSessionExitTypeForTest(ExitType::kClean);
 
   SynchronousLoadTabsFromLastSession();
 
@@ -596,6 +601,31 @@ TEST_F(TabRestoreServiceImplTest, DontLoadWhenSavingIsDisabled) {
   SynchronousLoadTabsFromLastSession();
 
   ASSERT_EQ(0U, service_->entries().size());
+}
+
+// Regression test to ensure Window::show_state is set correctly when reading
+// TabRestoreSession from saved state.
+TEST_F(TabRestoreServiceImplTest, WindowShowStateIsSet) {
+  CreateSessionServiceWithOneWindow(false);
+
+  SessionServiceFactory::GetForProfile(profile())
+      ->MoveCurrentSessionToLastSession();
+
+  SynchronousLoadTabsFromLastSession();
+
+  RecreateService();
+
+  // There should be at least one window and its show state should be the
+  // default.
+  bool got_window = false;
+  for (auto& entry : service_->entries()) {
+    if (entry->type == sessions::TabRestoreService::WINDOW) {
+      got_window = true;
+      Window* window = static_cast<Window*>(entry.get());
+      EXPECT_EQ(window->show_state, ui::SHOW_STATE_DEFAULT);
+    }
+  }
+  EXPECT_TRUE(got_window);
 }
 
 TEST_F(TabRestoreServiceImplTest, LoadPreviousSessionAndTabs) {
@@ -776,8 +806,8 @@ TEST_F(TabRestoreServiceImplTest, ManyWindowsInSessionService) {
 
 // Makes sure we restore timestamps correctly.
 TEST_F(TabRestoreServiceImplTest, TimestampSurvivesRestore) {
-  base::Time tab_timestamp(base::Time::FromDeltaSinceWindowsEpoch(
-      base::TimeDelta::FromMicroseconds(123456789)));
+  base::Time tab_timestamp(
+      base::Time::FromDeltaSinceWindowsEpoch(base::Microseconds(123456789)));
 
   AddThreeNavigations();
 
@@ -804,7 +834,8 @@ TEST_F(TabRestoreServiceImplTest, TimestampSurvivesRestore) {
   }
 
   // Set this, otherwise previous session won't be loaded.
-  profile()->set_last_session_exited_cleanly(false);
+  ExitTypeService::GetInstanceForProfile(profile())
+      ->SetLastSessionExitTypeForTest(ExitType::kCrashed);
 
   RecreateService();
 
@@ -851,7 +882,8 @@ TEST_F(TabRestoreServiceImplTest, StatusCodesSurviveRestore) {
   }
 
   // Set this, otherwise previous session won't be loaded.
-  profile()->set_last_session_exited_cleanly(false);
+  ExitTypeService::GetInstanceForProfile(profile())
+      ->SetLastSessionExitTypeForTest(ExitType::kCrashed);
 
   RecreateService();
 
@@ -999,7 +1031,7 @@ TEST_F(TabRestoreServiceImplTest, TabGroupsRestoredFromSessionData) {
 
   auto group = tab_groups::TabGroupId::GenerateNew();
   auto group_visual_data = tab_groups::TabGroupVisualData(
-      base::ASCIIToUTF16("Foo"), tab_groups::TabGroupColorId::kBlue);
+      u"Foo", tab_groups::TabGroupColorId::kBlue);
   AddWindowWithOneTabToSessionService(false, group, group_visual_data);
 
   SessionServiceFactory::GetForProfile(profile())

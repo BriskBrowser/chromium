@@ -22,6 +22,8 @@
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/image/image_skia_operations.h"
@@ -114,8 +116,7 @@ void LocalCardMigrationBubbleViews::AddedToWidget() {
 #else
   gfx::ImageSkia image = gfx::CreateVectorIcon(
       kCreditCardIcon, kMigrationBubbleGooglePayLogoHeight,
-      GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_DefaultIconColor));
+      GetColorProvider()->GetColor(ui::kColorIcon));
 #endif
   views::ImageView* icon_view = new views::ImageView();
   icon_view->SetImage(image);
@@ -136,10 +137,10 @@ void LocalCardMigrationBubbleViews::AddedToWidget() {
   GetBubbleFrameView()->SetTitleView(std::move(title_container));
 }
 
-base::string16 LocalCardMigrationBubbleViews::GetWindowTitle() const {
+std::u16string LocalCardMigrationBubbleViews::GetWindowTitle() const {
   return controller_ ? l10n_util::GetStringUTF16(
                            IDS_AUTOFILL_LOCAL_CARD_MIGRATION_BUBBLE_TITLE)
-                     : base::string16();
+                     : std::u16string();
 }
 
 void LocalCardMigrationBubbleViews::WindowClosing() {

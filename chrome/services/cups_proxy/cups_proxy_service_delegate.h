@@ -12,6 +12,7 @@
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "chromeos/printing/printer_configuration.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #include "base/task/post_task.h"
 
@@ -36,7 +37,7 @@ class CupsProxyServiceDelegate {
 
   virtual std::vector<chromeos::Printer> GetPrinters(
       chromeos::PrinterClass printer_class) = 0;
-  virtual base::Optional<chromeos::Printer> GetPrinter(
+  virtual absl::optional<chromeos::Printer> GetPrinter(
       const std::string& id) = 0;
   virtual std::vector<std::string> GetRecentlyUsedPrinters() = 0;
   virtual bool IsPrinterInstalled(const chromeos::Printer& printer) = 0;

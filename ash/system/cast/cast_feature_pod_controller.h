@@ -19,7 +19,12 @@ class ASH_EXPORT CastFeaturePodController
     : public FeaturePodControllerBase,
       public CastConfigController::Observer {
  public:
-  CastFeaturePodController(UnifiedSystemTrayController* tray_controller);
+  explicit CastFeaturePodController(
+      UnifiedSystemTrayController* tray_controller);
+
+  CastFeaturePodController(const CastFeaturePodController&) = delete;
+  CastFeaturePodController& operator=(const CastFeaturePodController&) = delete;
+
   ~CastFeaturePodController() override;
 
   // FeaturePodControllerBase:
@@ -36,8 +41,6 @@ class ASH_EXPORT CastFeaturePodController
   // Unowned.
   UnifiedSystemTrayController* const tray_controller_;
   FeaturePodButton* button_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(CastFeaturePodController);
 };
 
 }  // namespace ash

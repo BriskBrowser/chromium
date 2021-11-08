@@ -21,9 +21,9 @@
 #include "ui/gfx/animation/throb_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
-#include "ui/gfx/skia_util.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/controls/button/button.h"
@@ -55,11 +55,48 @@ class PageSwitcherButton : public views::Button {
       : is_root_app_grid_page_switcher_(is_root_app_grid_page_switcher),
         background_color_(background_color) {
     SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
-    SetInkDropMode(InkDropMode::ON);
+    views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
+    views::InkDrop::UseInkDropForFloodFillRipple(views::InkDrop::Get(this));
+    views::InkDrop::Get(this)->SetCreateHighlightCallback(base::BindRepeating(
+        [](PageSwitcherButton* host) {
+          const AppListColorProvider* const color_provider =
+              AppListColorProvider::Get();
+          auto highlight = std::make_unique<views::InkDropHighlight>(
+              gfx::SizeF(host->size()),
+              color_provider->GetRippleAttributesBaseColor(
+                  host->background_color_));
+          highlight->set_visible_opacity(
+              color_provider->GetRippleAttributesHighlightOpacity(
+                  host->background_color_));
+          return highlight;
+        },
+        this));
+    views::InkDrop::Get(this)->SetCreateRippleCallback(base::BindRepeating(
+        [](PageSwitcherButton* host) -> std::unique_ptr<views::InkDropRipple> {
+          const gfx::Point center = host->GetLocalBounds().CenterPoint();
+          const int max_radius =
+              host->is_root_app_grid_page_switcher_
+                  ? PageSwitcher::kMaxButtonRadiusForRootGrid
+                  : PageSwitcher::kMaxButtonRadiusForFolderGrid;
+          gfx::Rect bounds(center.x() - max_radius, center.y() - max_radius,
+                           2 * max_radius, 2 * max_radius);
+          const AppListColorProvider* const color_provider =
+              AppListColorProvider::Get();
+          return std::make_unique<views::FloodFillInkDropRipple>(
+              host->size(), host->GetLocalBounds().InsetsFrom(bounds),
+              views::InkDrop::Get(host)->GetInkDropCenterBasedOnLastEvent(),
+              color_provider->GetRippleAttributesBaseColor(
+                  host->background_color_),
+              color_provider->GetRippleAttributesInkDropOpacity(
+                  host->background_color_));
+        },
+        this));
+
     views::InstallFixedSizeCircleHighlightPathGenerator(
         this, is_root_app_grid_page_switcher ? kInkDropRadiusForRootGrid
                                              : kInkDropRadiusForFolderGrid);
   }
+
   PageSwitcherButton(const PageSwitcherButton&) = delete;
   PageSwitcherButton& operator=(const PageSwitcherButton&) = delete;
 
@@ -75,7 +112,7 @@ class PageSwitcherButton : public views::Button {
       NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
   }
 
-  // Overridden from views::View:
+  // views::Button:
   gfx::Size CalculatePreferredSize() const override {
     const int max_radius = is_root_app_grid_page_switcher_
                                ? PageSwitcher::kMaxButtonRadiusForRootGrid
@@ -88,43 +125,11 @@ class PageSwitcherButton : public views::Button {
   }
 
  protected:
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override {
-    std::unique_ptr<views::InkDropImpl> ink_drop =
-        Button::CreateDefaultInkDropImpl();
-    ink_drop->SetAutoHighlightMode(
-        views::InkDropImpl::AutoHighlightMode::SHOW_ON_RIPPLE);
-    return std::move(ink_drop);
-  }
-
-  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override {
-    gfx::Point center = GetLocalBounds().CenterPoint();
-    const int max_radius = is_root_app_grid_page_switcher_
-                               ? PageSwitcher::kMaxButtonRadiusForRootGrid
-                               : PageSwitcher::kMaxButtonRadiusForFolderGrid;
-    gfx::Rect bounds(center.x() - max_radius, center.y() - max_radius,
-                     2 * max_radius, 2 * max_radius);
-    const AppListColorProvider* color_provider = AppListColorProvider::Get();
-    return std::make_unique<views::FloodFillInkDropRipple>(
-        size(), GetLocalBounds().InsetsFrom(bounds),
-        GetInkDropCenterBasedOnLastEvent(),
-        color_provider->GetRippleAttributesBaseColor(background_color_),
-        color_provider->GetRippleAttributesInkDropOpacity(background_color_));
-  }
-
-  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
-      const override {
-    const AppListColorProvider* color_provider = AppListColorProvider::Get();
-    auto highlight = std::make_unique<views::InkDropHighlight>(
-        gfx::SizeF(size()),
-        color_provider->GetRippleAttributesBaseColor(background_color_));
-    highlight->set_visible_opacity(
-        color_provider->GetRippleAttributesHighlightOpacity(background_color_));
-    return highlight;
-  }
-
+  // views::Button:
   void NotifyClick(const ui::Event& event) override {
     Button::NotifyClick(event);
-    GetInkDrop()->AnimateToState(views::InkDropState::ACTION_TRIGGERED);
+    views::InkDrop::Get(this)->GetInkDrop()->AnimateToState(
+        views::InkDropState::ACTION_TRIGGERED);
   }
 
  private:
@@ -275,7 +280,7 @@ void PageSwitcher::TotalPagesChanged(int previous_page_count,
   if (!model_)
     return;
 
-  buttons_->RemoveAllChildViews(true);
+  buttons_->RemoveAllChildViews();
   for (int i = 0; i < model_->total_pages(); ++i) {
     PageSwitcherButton* button =
         buttons_->AddChildView(std::make_unique<PageSwitcherButton>(
@@ -293,10 +298,14 @@ void PageSwitcher::TotalPagesChanged(int previous_page_count,
 }
 
 void PageSwitcher::SelectedPageChanged(int old_selected, int new_selected) {
-  if (old_selected >= 0 && size_t{old_selected} < buttons_->children().size())
-    GetButtonByIndex(buttons_, size_t{old_selected})->SetSelected(false);
-  if (new_selected >= 0 && size_t{new_selected} < buttons_->children().size())
-    GetButtonByIndex(buttons_, size_t{new_selected})->SetSelected(true);
+  if (old_selected >= 0 &&
+      static_cast<size_t>(old_selected) < buttons_->children().size())
+    GetButtonByIndex(buttons_, static_cast<size_t>(old_selected))
+        ->SetSelected(false);
+  if (new_selected >= 0 &&
+      static_cast<size_t>(new_selected) < buttons_->children().size())
+    GetButtonByIndex(buttons_, static_cast<size_t>(new_selected))
+        ->SetSelected(true);
 }
 
 }  // namespace ash

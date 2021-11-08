@@ -11,7 +11,6 @@
 #include <stddef.h>
 
 #include <memory>
-#include <string>
 
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -38,6 +37,11 @@ class QuicClientMessageLooplNetworkHelper
   // EpollServer.
   QuicClientMessageLooplNetworkHelper(quic::QuicChromiumClock* clock,
                                       quic::QuicClientBase* client);
+
+  QuicClientMessageLooplNetworkHelper(
+      const QuicClientMessageLooplNetworkHelper&) = delete;
+  QuicClientMessageLooplNetworkHelper& operator=(
+      const QuicClientMessageLooplNetworkHelper&) = delete;
 
   ~QuicClientMessageLooplNetworkHelper() override;
 
@@ -71,8 +75,6 @@ class QuicClientMessageLooplNetworkHelper
 
   quic::QuicChromiumClock* clock_;
   quic::QuicClientBase* client_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuicClientMessageLooplNetworkHelper);
 };
 
 }  // namespace net

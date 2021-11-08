@@ -5,12 +5,12 @@
 #ifndef CHROME_BROWSER_LOOKALIKES_LOOKALIKE_URL_SERVICE_H_
 #define CHROME_BROWSER_LOOKALIKES_LOOKALIKE_URL_SERVICE_H_
 
-#include <string>
 #include <vector>
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/sequence_checker.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
@@ -31,6 +31,10 @@ class Clock;
 class LookalikeUrlService : public KeyedService {
  public:
   explicit LookalikeUrlService(Profile* profile);
+
+  LookalikeUrlService(const LookalikeUrlService&) = delete;
+  LookalikeUrlService& operator=(const LookalikeUrlService&) = delete;
+
   ~LookalikeUrlService() override;
 
   using EngagedSitesCallback =
@@ -53,6 +57,8 @@ class LookalikeUrlService : public KeyedService {
   void SetClockForTesting(base::Clock* clock);
   base::Clock* clock() const { return clock_; }
 
+  static const base::FeatureParam<base::TimeDelta> kManifestFetchDelay;
+
  private:
   void OnUpdateEngagedSitesCompleted(std::vector<DomainInfo> new_engaged_sites);
 
@@ -69,7 +75,6 @@ class LookalikeUrlService : public KeyedService {
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<LookalikeUrlService> weak_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(LookalikeUrlService);
 };
 
 #endif  // CHROME_BROWSER_LOOKALIKES_LOOKALIKE_URL_SERVICE_H_

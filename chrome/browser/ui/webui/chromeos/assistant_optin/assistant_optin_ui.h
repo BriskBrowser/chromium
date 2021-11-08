@@ -24,6 +24,10 @@ namespace chromeos {
 class AssistantOptInUI : public ui::WebDialogUI {
  public:
   explicit AssistantOptInUI(content::WebUI* web_ui);
+
+  AssistantOptInUI(const AssistantOptInUI&) = delete;
+  AssistantOptInUI& operator=(const AssistantOptInUI&) = delete;
+
   ~AssistantOptInUI() override;
 
   // Called when the dialog is closed.
@@ -36,13 +40,14 @@ class AssistantOptInUI : public ui::WebDialogUI {
   JSCallsContainer js_calls_container_;
   AssistantOptInFlowScreenHandler* assistant_handler_ptr_;
   base::WeakPtrFactory<AssistantOptInUI> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantOptInUI);
 };
 
 // Dialog delegate for the assistant optin page.
 class AssistantOptInDialog : public SystemWebDialogDelegate {
  public:
+  AssistantOptInDialog(const AssistantOptInDialog&) = delete;
+  AssistantOptInDialog& operator=(const AssistantOptInDialog&) = delete;
+
   // Shows the assistant optin dialog.
   static void Show(ash::FlowType type = ash::FlowType::kConsentFlow,
                    ash::AssistantSetup::StartAssistantOptInFlowCallback
@@ -67,14 +72,10 @@ class AssistantOptInDialog : public SystemWebDialogDelegate {
   void OnDialogClosed(const std::string& json_retval) override;
 
  private:
-  GURL CreateAssistantOptInURL(ash::FlowType type);
-
   AssistantOptInUI* assistant_ui_ = nullptr;
 
   // Callback to run if the flow is completed.
   ash::AssistantSetup::StartAssistantOptInFlowCallback callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantOptInDialog);
 };
 
 }  // namespace chromeos

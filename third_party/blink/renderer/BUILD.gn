@@ -48,14 +48,10 @@ config("inside_blink") {
       "-Wno-sign-conversion",
       "-Wno-implicit-float-conversion",
       "-Wno-implicit-int-conversion",
-      "-Wno-shorten-64-to-32",
     ]
-
-    if (!is_chromeos_ash ||
-        default_toolchain != "//build/toolchain/cros:target") {
-      cflags += [ "-Wno-enum-float-conversion" ]
-    }
   }
+
+  configs = [ "//build/config/compiler:noshadowing" ]
 }
 
 # blink_pch --------------------------------------------------------------------
@@ -83,6 +79,8 @@ config("blink_pch") {
       cflags = [ "/FI$precompiled_header" ]
     } else if (is_mac) {
       precompiled_source = "//third_party/blink/renderer/build/mac/prefix.h"
+    } else if (is_linux) {
+      precompiled_source = "//third_party/blink/renderer/build/linux/prefix.h"
     }
   }
 }
@@ -99,7 +97,6 @@ config("config") {
       "/wd4324",  # Struct padded due to declspec(align).
       "/wd4714",  # Function marked forceinline not inlined.
       "/wd4800",  # Value forced to bool.
-      "/wd4996",  # Deprecated function call.
     ]
   }
 
@@ -117,15 +114,6 @@ config("config") {
       "-add-plugin",
       "-Xclang",
       "blink-gc-plugin",
-    ]
-
-    # TODO(bikineev): Remove when clang pre-built has been updated.
-    # Disallow members in stack allocated classes.
-    cflags += [
-      "-Xclang",
-      "-plugin-arg-blink-gc-plugin",
-      "-Xclang",
-      "no-members-in-stack-allocated",
     ]
 
     # Add arguments for enabled GC plugin options:
@@ -148,4 +136,6 @@ config("non_test_config") {
   if (is_clang) {
     cflags += [ "-Wglobal-constructors" ]
   }
+
+  configs = [ "//build/config/compiler:noshadowing" ]
 }

@@ -25,20 +25,22 @@ class TestManagementProvider : public extensions::ManagementPolicy::Provider {
  public:
   explicit TestManagementProvider(const extensions::ExtensionId& extension_id)
       : extension_id_(extension_id) {}
+
+  TestManagementProvider(const TestManagementProvider&) = delete;
+  TestManagementProvider& operator=(const TestManagementProvider&) = delete;
+
   ~TestManagementProvider() override {}
 
   // MananagementPolicy::Provider:
   std::string GetDebugPolicyProviderName() const override { return "test"; }
   bool MustRemainDisabled(const extensions::Extension* extension,
                           extensions::disable_reason::DisableReason* reason,
-                          base::string16* error) const override {
+                          std::u16string* error) const override {
     return extension->id() == extension_id_;
   }
 
  private:
   const extensions::ExtensionId extension_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestManagementProvider);
 };
 
 }  // namespace

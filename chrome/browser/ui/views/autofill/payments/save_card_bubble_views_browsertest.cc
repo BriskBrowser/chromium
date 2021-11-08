@@ -17,9 +17,9 @@
 #include "chrome/browser/autofill/autofill_uitest_util.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/sync/test/integration/secondary_account_helper.h"
+#include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/autofill/payments/payments_ui_constants.h"
@@ -58,8 +58,8 @@
 #include "components/signin/public/base/signin_buildflags.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
-#include "components/sync/driver/profile_sync_service.h"
 #include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/driver/sync_service_impl.h"
 #include "components/sync/test/fake_server/fake_server.h"
 #include "components/sync/test/fake_server/fake_server_network_resources.h"
 #include "content/public/browser/render_process_host.h"
@@ -93,7 +93,7 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #endif
 
@@ -132,7 +132,7 @@ namespace autofill {
 
 class SaveCardBubbleViewsFullFormBrowserTest
     : public SyncTest,
-      public AutofillHandler::ObserverForTest,
+      public AutofillManager::ObserverForTest,
       public CreditCardSaveManager::ObserverForTest,
       public SaveCardBubbleControllerImpl::ObserverForTest {
  protected:
@@ -172,8 +172,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
         "components/test/data/autofill");
     embedded_test_server()->StartAcceptingConnections();
 
-    ProfileSyncServiceFactory::GetAsProfileSyncServiceForProfile(
-        browser()->profile())
+    SyncServiceFactory::GetAsSyncServiceImplForProfile(browser()->profile())
         ->OverrideNetworkForTest(
             fake_server::CreateFakeServerHttpPostProviderFactory(
                 GetFakeServer()->AsWeakPtr()));
@@ -188,16 +187,16 @@ class SaveCardBubbleViewsFullFormBrowserTest
     username = info.email;
 
     // Install the Settings App.
-    web_app::WebAppProvider::Get(browser()->profile())
+    web_app::WebAppProvider::GetForTest(browser()->profile())
         ->system_web_app_manager()
         .InstallSystemAppsForTesting();
 #endif
     if (username.empty())
       username = "user@gmail.com";
 
-    harness_ = ProfileSyncServiceHarness::Create(
+    harness_ = SyncServiceImplHarness::Create(
         browser()->profile(), username, "password",
-        ProfileSyncServiceHarness::SigninType::FAKE_SIGNIN);
+        SyncServiceImplHarness::SigninType::FAKE_SIGNIN);
 
     // Set up the URL loader factory for the payments client so we can intercept
     // those network requests too.
@@ -206,7 +205,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
             &test_url_loader_factory_);
     ContentAutofillDriver::GetForRenderFrameHost(
         GetActiveWebContents()->GetMainFrame())
-        ->autofill_manager()
+        ->browser_autofill_manager()
         ->client()
         ->GetPaymentsClient()
         ->set_url_loader_factory_for_testing(test_shared_loader_factory_);
@@ -218,7 +217,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
     // Set up this class as the ObserverForTest implementation.
     credit_card_save_manager_ = ContentAutofillDriver::GetForRenderFrameHost(
                                     GetActiveWebContents()->GetMainFrame())
-                                    ->autofill_manager()
+                                    ->browser_autofill_manager()
                                     ->client()
                                     ->GetFormDataImporter()
                                     ->credit_card_save_manager_.get();
@@ -226,11 +225,11 @@ class SaveCardBubbleViewsFullFormBrowserTest
     AddEventObserverToController();
 
     // Set up this class as the ObserverForTest implementation.
-    AutofillHandler* autofill_handler =
+    AutofillManager* autofill_manager =
         ContentAutofillDriver::GetForRenderFrameHost(
             GetActiveWebContents()->GetMainFrame())
-            ->autofill_handler();
-    autofill_handler->SetEventObserverForTesting(this);
+            ->autofill_manager();
+    autofill_manager->SetEventObserverForTesting(this);
 
     // Set up the fake geolocation data.
     geolocation_overrider_ =
@@ -238,7 +237,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
             kFakeGeolocationLatitude, kFakeGeolocationLongitude);
   }
 
-  // AutofillHandler::ObserverForTest:
+  // AutofillManager::ObserverForTest:
   void OnFormParsed() override {
     if (event_waiter_)
       event_waiter_->OnEvent(DialogEvent::DYNAMIC_FORM_PARSED);
@@ -336,10 +335,10 @@ class SaveCardBubbleViewsFullFormBrowserTest
 
   void NavigateTo(const std::string& file_path) {
     if (file_path.find("data:") == 0U) {
-      ui_test_utils::NavigateToURL(browser(), GURL(file_path));
+      ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL(file_path)));
     } else {
-      ui_test_utils::NavigateToURL(browser(),
-                                   embedded_test_server()->GetURL(file_path));
+      ASSERT_TRUE(ui_test_utils::NavigateToURL(
+          browser(), embedded_test_server()->GetURL(file_path)));
     }
   }
 
@@ -770,8 +769,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
     GetSaveCardIconView()->ReduceAnimationTimeForTesting();
     auto* const animating_layout = GetAnimatingLayoutManager();
     if (animating_layout) {
-      animating_layout->SetAnimationDuration(
-          base::TimeDelta::FromMilliseconds(1));
+      animating_layout->SetAnimationDuration(base::Milliseconds(1));
     }
   }
 
@@ -792,7 +790,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
     return &test_url_loader_factory_;
   }
 
-  std::unique_ptr<ProfileSyncServiceHarness> harness_;
+  std::unique_ptr<SyncServiceImplHarness> harness_;
 
   CreditCardSaveManager* credit_card_save_manager_ = nullptr;
 
@@ -998,10 +996,9 @@ class SaveCardBubbleViewsSyncTransportFullFormBrowserTest
   }
 
   void SetUpForSyncTransportModeTest() {
-    // Signing in (without making the account Chrome's primary one or explicitly
-    // setting up Sync) causes the Sync machinery to start up in standalone
-    // transport mode.
-    secondary_account_helper::SignInSecondaryAccount(
+    // Signing in (without granting sync consent or explicitly setting up Sync)
+    // should trigger starting the Sync machinery in standalone transport mode.
+    secondary_account_helper::SignInUnconsentedAccount(
         browser()->profile(), test_url_loader_factory(), "user@gmail.com");
     ASSERT_NE(syncer::SyncService::TransportState::DISABLED,
               harness_->service()->GetTransportState());
@@ -1052,8 +1049,19 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsSyncTransportFullFormBrowserTest,
 
 // Tests the implicit sync state. Ensures that the (i) info icon does not appear
 // for local save offers.
+// TODO(crbug.com/1245213)
+// This test is not applicable for explicit address save dialogs.
+// The test relies on the following sequence of events: First a credit card is
+// imported first, but the upload fails. Subsequently, an address profile is
+// imported which is than used to complement the information needed to offer a
+// local save prompt. With explicit address save prompts, the storage of a new
+// address is omitted if a credit card can be stored to avoid showing two
+// dialogs at the same time.
+// To make test work one need to inject an existing address into the
+// PersonalDataManager. Alternatively, the import logic should try to get an
+// address candidate from the form even though no address was imported yet.
 IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsSyncTransportFullFormBrowserTest,
-                       Local_TransportMode_InfoTextIconDoesNotExist) {
+                       DISABLED_Local_TransportMode_InfoTextIconDoesNotExist) {
   SetUpForSyncTransportModeTest();
   FillForm();
 
@@ -1079,10 +1087,9 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsSyncTransportFullFormBrowserTest,
 IN_PROC_BROWSER_TEST_F(
     SaveCardBubbleViewsSyncTransportFullFormBrowserTest,
     Upload_TransportMode_RequestedCardholderNameTextfieldIsPrefilledWithFocusName) {
-  // Signing in (without making the account Chrome's primary one or explicitly
-  // setting up Sync) causes the Sync machinery to start up in standalone
-  // transport mode.
-  secondary_account_helper::SignInSecondaryAccount(
+  // Signing in (without granting sync consent or explicitly setting up Sync)
+  // should trigger starting the Sync machinery in standalone transport mode.
+  secondary_account_helper::SignInUnconsentedAccount(
       browser()->profile(), test_url_loader_factory(), "user@gmail.com");
   SetAccountFullName("John Smith");
 
@@ -1102,8 +1109,7 @@ IN_PROC_BROWSER_TEST_F(
   // Account.
   views::Textfield* cardholder_name_textfield = static_cast<views::Textfield*>(
       FindViewInBubbleById(DialogViewId::CARDHOLDER_NAME_TEXTFIELD));
-  EXPECT_EQ(cardholder_name_textfield->GetText(),
-            base::ASCIIToUTF16("John Smith"));
+  EXPECT_EQ(cardholder_name_textfield->GetText(), u"John Smith");
 }
 
 #endif  // !OS_CHROMEOS
@@ -1193,9 +1199,20 @@ IN_PROC_BROWSER_TEST_F(
 
 // Tests the upload save bubble. Ensures that the bubble surfaces a textfield
 // requesting cardholder name if cardholder name is conflicting.
+// TODO(crbug.com/1245213)
+// This test is not applicable for explicit address save dialogs.
+// The test relies on the following sequence of events: First a credit card is
+// imported first, but the upload fails. Subsequently, an address profile is
+// imported which is than used to complement the information needed to offer a
+// local save prompt. With explicit address save prompts, the storage of a new
+// address is omitted if a credit card can be stored to avoid showing two
+// dialogs at the same time.
+// To make test work one need to inject an existing address into the
+// PersonalDataManager. Alternatively, the import logic should try to get an
+// address candidate from the form even though no address was imported yet.
 IN_PROC_BROWSER_TEST_F(
     SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
-    Upload_SubmittingFormWithConflictingNamesRequestsCardholderNameIfExpOn) {
+    DISABLED_Upload_SubmittingFormWithConflictingNamesRequestsCardholderNameIfExpOn) {
   // Start sync.
   harness_->SetupSync();
 
@@ -1229,14 +1246,13 @@ IN_PROC_BROWSER_TEST_F(
   // button.
   views::Textfield* cardholder_name_textfield = static_cast<views::Textfield*>(
       FindViewInBubbleById(DialogViewId::CARDHOLDER_NAME_TEXTFIELD));
-  cardholder_name_textfield->InsertOrReplaceText(base::ASCIIToUTF16(""));
+  cardholder_name_textfield->InsertOrReplaceText(u"");
   views::LabelButton* save_button = static_cast<views::LabelButton*>(
       FindViewInBubbleById(DialogViewId::OK_BUTTON));
   EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_DISABLED);
   // Setting a cardholder name should enable the [Save] button.
-  cardholder_name_textfield->InsertOrReplaceText(
-      base::ASCIIToUTF16("John Smith"));
+  cardholder_name_textfield->InsertOrReplaceText(u"John Smith");
   EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_NORMAL);
 }
@@ -1260,8 +1276,7 @@ IN_PROC_BROWSER_TEST_F(
   ResetEventWaiterForSequence({DialogEvent::SENT_UPLOAD_CARD_REQUEST});
   views::Textfield* cardholder_name_textfield = static_cast<views::Textfield*>(
       FindViewInBubbleById(DialogViewId::CARDHOLDER_NAME_TEXTFIELD));
-  cardholder_name_textfield->InsertOrReplaceText(
-      base::ASCIIToUTF16("John Smith"));
+  cardholder_name_textfield->InsertOrReplaceText(u"John Smith");
   base::HistogramTester histogram_tester;
   ClickOnDialogViewWithIdAndWait(DialogViewId::OK_BUTTON);
   // UMA should have recorded bubble acceptance for both regular save UMA and
@@ -1299,8 +1314,7 @@ IN_PROC_BROWSER_TEST_F(
   // user's Google Account should also be visible.
   views::Textfield* cardholder_name_textfield = static_cast<views::Textfield*>(
       FindViewInBubbleById(DialogViewId::CARDHOLDER_NAME_TEXTFIELD));
-  EXPECT_EQ(cardholder_name_textfield->GetText(),
-            base::ASCIIToUTF16("John Smith"));
+  EXPECT_EQ(cardholder_name_textfield->GetText(), u"John Smith");
   histogram_tester.ExpectUniqueSample(
       "Autofill.SaveCardCardholderNamePrefilled", true, 1);
   EXPECT_TRUE(FindViewInBubbleById(DialogViewId::CARDHOLDER_NAME_TOOLTIP));
@@ -1382,8 +1396,7 @@ IN_PROC_BROWSER_TEST_F(
   ResetEventWaiterForSequence({DialogEvent::SENT_UPLOAD_CARD_REQUEST});
   views::Textfield* cardholder_name_textfield = static_cast<views::Textfield*>(
       FindViewInBubbleById(DialogViewId::CARDHOLDER_NAME_TEXTFIELD));
-  cardholder_name_textfield->InsertOrReplaceText(
-      base::ASCIIToUTF16("Jane Doe"));
+  cardholder_name_textfield->InsertOrReplaceText(u"Jane Doe");
   base::HistogramTester histogram_tester;
   ClickOnDialogViewWithIdAndWait(DialogViewId::OK_BUTTON);
   histogram_tester.ExpectUniqueSample(
@@ -1398,9 +1411,20 @@ IN_PROC_BROWSER_TEST_F(
 
 // Tests the upload save logic. Ensures that Chrome offers a local save when the
 // data is complete, even if Payments rejects the data.
+// TODO(crbug.com/1245213)
+// This test is not applicable for explicit address save dialogs.
+// The test relies on the following sequence of events: First a credit card is
+// imported first, but the upload fails. Subsequently, an address profile is
+// imported which is than used to complement the information needed to offer a
+// local save prompt. With explicit address save prompts, the storage of a new
+// address is omitted if a credit card can be stored to avoid showing two
+// dialogs at the same time.
+// To make test work one need to inject an existing address into the
+// PersonalDataManager. Alternatively, the import logic should try to get an
+// address candidate from the form even though no address was imported yet.
 IN_PROC_BROWSER_TEST_F(
     SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
-    Logic_ShouldOfferLocalSaveIfPaymentsDeclines) {
+    DISABLED_Logic_ShouldOfferLocalSaveIfPaymentsDeclines) {
   // Start sync.
   harness_->SetupSync();
 
@@ -1424,9 +1448,20 @@ IN_PROC_BROWSER_TEST_F(
 
 // Tests the upload save logic. Ensures that Chrome offers a local save when the
 // data is complete, even if the Payments upload fails unexpectedly.
+// TODO(crbug.com/1245213)
+// This test is not applicable for explicit address save dialogs.
+// The test relies on the following sequence of events: First a credit card is
+// imported first, but the upload fails. Subsequently, an address profile is
+// imported which is than used to complement the information needed to offer a
+// local save prompt. With explicit address save prompts, the storage of a new
+// address is omitted if a credit card can be stored to avoid showing two
+// dialogs at the same time.
+// To make test work one need to inject an existing address into the
+// PersonalDataManager. Alternatively, the import logic should try to get an
+// address candidate from the form even though no address was imported yet.
 IN_PROC_BROWSER_TEST_F(
     SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
-    Logic_ShouldOfferLocalSaveIfPaymentsFails) {
+    DISABLED_Logic_ShouldOfferLocalSaveIfPaymentsFails) {
   // Start sync.
   harness_->SetupSync();
 
@@ -1739,7 +1774,7 @@ IN_PROC_BROWSER_TEST_F(
   // be selected, so selecting the current January will always be expired.
   autofill::TestAutofillClock test_clock;
   test_clock.SetNow(base::Time::Now());
-  test_clock.Advance(base::TimeDelta::FromDays(40));
+  test_clock.Advance(base::Days(40));
   // Selecting expired date will disable [Save] button.
   month_input()->SetSelectedRow(1);
   year_input()->SetSelectedRow(1);
@@ -1778,7 +1813,7 @@ IN_PROC_BROWSER_TEST_F(
   VerifyExpirationDateDropdownsAreVisible();
 
   // Ensure the December is pre-populated but year is not checked.
-  EXPECT_EQ(base::ASCIIToUTF16("12"),
+  EXPECT_EQ(u"12",
             month_input()->GetTextForRow(month_input()->GetSelectedIndex()));
   EXPECT_EQ(0, year_input()->GetSelectedIndex());
 }
@@ -1814,7 +1849,7 @@ IN_PROC_BROWSER_TEST_F(
   VerifyExpirationDateDropdownsAreVisible();
 
   // Ensure no pre-populated expiration date.
-  EXPECT_EQ(base::ASCIIToUTF16("08"),
+  EXPECT_EQ(u"08",
             month_input()->GetTextForRow(month_input()->GetSelectedIndex()));
   EXPECT_EQ(0, year_input()->GetSelectedRow());
 }
@@ -1835,9 +1870,9 @@ IN_PROC_BROWSER_TEST_F(
   VerifyExpirationDateDropdownsAreVisible();
 
   // Ensure pre-populated expiration date.
-  EXPECT_EQ(base::ASCIIToUTF16("03"),
+  EXPECT_EQ(u"03",
             month_input()->GetTextForRow(month_input()->GetSelectedIndex()));
-  EXPECT_EQ(base::ASCIIToUTF16("2017"),
+  EXPECT_EQ(u"2017",
             year_input()->GetTextForRow(year_input()->GetSelectedIndex()));
 }
 
@@ -2029,8 +2064,8 @@ IN_PROC_BROWSER_TEST_F(
   base::HistogramTester histogram_tester;
   CreditCard card = test::GetCreditCard();
   // Set card number to match the number to be filled in the form.
-  card.SetNumber(base::ASCIIToUTF16("5454545454545454"));
-  card.SetNickname(base::ASCIIToUTF16("nickname"));
+  card.SetNumber(u"5454545454545454");
+  card.SetNickname(u"nickname");
   AddTestCreditCard(browser()->profile(), card);
 
   // Start sync.
@@ -2049,7 +2084,7 @@ IN_PROC_BROWSER_TEST_F(
   base::HistogramTester histogram_tester;
   CreditCard card = test::GetCreditCard();
   // Set card number to match the number to be filled in the form.
-  card.SetNumber(base::ASCIIToUTF16("5454545454545454"));
+  card.SetNumber(u"5454545454545454");
   AddTestCreditCard(browser()->profile(), card);
 
   // Start sync.
@@ -2074,9 +2109,17 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTestForStatusChip,
   EXPECT_TRUE(GetSaveCardIconView()->GetVisible());
 }
 
+// Disabled on Linux due to crashes; https://crbug.com/1216300.
+#if defined(OS_LINUX)
+#define MAYBE_ClickingOnCreditCardIconInStatusChipReshowsBubble \
+    DISABLED_ClickingOnCreditCardIconInStatusChipReshowsBubble
+#else
+#define MAYBE_ClickingOnCreditCardIconInStatusChipReshowsBubble \
+    ClickingOnCreditCardIconInStatusChipReshowsBubble
+#endif
 // Ensures that the clicking on the credit card icon will reshow bubble.
 IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTestForStatusChip,
-                       ClickingOnCreditCardIconInStatusChipReshowsBubble) {
+                       MAYBE_ClickingOnCreditCardIconInStatusChipReshowsBubble) {
   FillForm();
   SubmitFormAndWaitForCardLocalSaveBubble();
   ClickOnCloseButton();

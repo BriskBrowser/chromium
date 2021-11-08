@@ -5,6 +5,8 @@
 #ifndef IOS_CHROME_BROWSER_POLICY_ENTERPRISE_POLICY_TEST_HELPER_H_
 #define IOS_CHROME_BROWSER_POLICY_ENTERPRISE_POLICY_TEST_HELPER_H_
 
+#include <memory>
+
 #include "base/files/file_path.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 
@@ -34,7 +36,7 @@ class EnterprisePolicyTestHelper {
 
  private:
   // The enterprise configuration policy provider.
-  policy::MockConfigurationPolicyProvider policy_provider_;
+  testing::NiceMock<policy::MockConfigurationPolicyProvider> policy_provider_;
   // The application-level policy connector. Must outlive |local_state_|.
   std::unique_ptr<BrowserPolicyConnectorIOS> browser_policy_connector_;
   // The local state PrefService managed by policy.

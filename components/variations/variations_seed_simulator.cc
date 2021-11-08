@@ -26,8 +26,8 @@ namespace {
 void GetCurrentTrialState(std::map<std::string, std::string>* current_state) {
   base::FieldTrial::ActiveGroups trial_groups;
   base::FieldTrialList::GetActiveFieldTrialGroups(&trial_groups);
-  for (size_t i = 0; i < trial_groups.size(); ++i)
-    (*current_state)[trial_groups[i].trial_name] = trial_groups[i].group_name;
+  for (auto& group : trial_groups)
+    (*current_state)[group.trial_name] = group.group_name;
 }
 
 // Simulate group assignment for the specified study with PERMANENT consistency.
@@ -118,7 +118,7 @@ VariationsSeedSimulator::Result VariationsSeedSimulator::SimulateSeedStudies(
     const VariationsSeed& seed,
     const ClientFilterableState& client_state) {
   std::vector<ProcessedStudy> filtered_studies;
-  VariationsLayers layers(seed, low_entropy_provider_);
+  VariationsLayers layers(seed, &low_entropy_provider_);
   FilterAndValidateStudies(seed, client_state, layers, &filtered_studies);
 
   return ComputeDifferences(filtered_studies);

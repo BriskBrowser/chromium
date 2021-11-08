@@ -369,12 +369,13 @@ Polymer({
 
   /**
    * Sets current metrics mode.
-   * @param {string} text Describes current metrics state.
+   * @param {string} textKey Key of the text which describes current metrics
+   *     state.
    * @param {boolean} visible If metrics text is visible.
    */
-  setMetricsMode(text, visible) {
+  setMetricsMode(textKey, visible) {
     this.isMetricsHidden = !visible;
-    this.metricsText = text;
+    this.metricsTextKey = textKey;
   },
 
   /**
@@ -394,8 +395,8 @@ Polymer({
    * @param {boolean} managed Defines whether this setting is set by policy.
    */
   setLocationServicesMode(enabled, managed) {
-    this.backupRestore = enabled;
-    this.backupRestoreManaged = managed;
+    this.locationService = enabled;
+    this.locationServiceManaged = managed;
   },
 
   /**
@@ -672,14 +673,6 @@ Polymer({
     return this.demoMode;
   },
 
-  /**
-   * Shows loading screen for debugging purpose
-   */
-  showLoadingScreenForTesting() {
-    this.setUIStep(UIState.LOADING);
-    this.enableButtons_(false);
-  },
-
   onPolicyLinkClick_() {
     this.userActed('policy-link');
 
@@ -783,5 +776,13 @@ Polymer({
       this.lastFocusedElement_ = null;
     }
   },
+
+  /**
+   * Returns dialog title based on whether the active user is child.
+   */
+  getDialogTitle_(locale, isChild) {
+    return isChild ? this.i18n('arcTermsOfServiceScreenHeadingForChild') :
+                     this.i18n('arcTermsOfServiceScreenHeading');
+  }
 });
 })();

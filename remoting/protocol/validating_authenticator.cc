@@ -64,9 +64,9 @@ void ValidatingAuthenticator::ProcessMessage(
   state_ = PROCESSING_MESSAGE;
 
   current_authenticator_->ProcessMessage(
-      message, base::BindOnce(&ValidatingAuthenticator::UpdateState,
-                              weak_factory_.GetWeakPtr(),
-                              base::Passed(std::move(resume_callback))));
+      message,
+      base::BindOnce(&ValidatingAuthenticator::UpdateState,
+                     weak_factory_.GetWeakPtr(), std::move(resume_callback)));
 }
 
 std::unique_ptr<jingle_xmpp::XmlElement> ValidatingAuthenticator::GetNextMessage() {
@@ -98,7 +98,7 @@ void ValidatingAuthenticator::OnValidateComplete(base::OnceClosure callback,
       break;
 
     case Result::ERROR_INVALID_ACCOUNT:
-      rejection_reason_ = Authenticator::INVALID_ACCOUNT;
+      rejection_reason_ = Authenticator::INVALID_ACCOUNT_ID;
       break;
 
     case Result::ERROR_TOO_MANY_CONNECTIONS:
@@ -111,6 +111,11 @@ void ValidatingAuthenticator::OnValidateComplete(base::OnceClosure callback,
   }
 
   state_ = Authenticator::REJECTED;
+
+  // Clear the pending message so the signal strategy will generate a new
+  // SESSION_REJECT message in response to this state change.
+  pending_auth_message_.reset();
+
   std::move(callback).Run();
 }
 
@@ -132,8 +137,7 @@ void ValidatingAuthenticator::UpdateState(base::OnceClosure resume_callback) {
     validation_callback_.Run(
         remote_jid_,
         base::BindOnce(&ValidatingAuthenticator::OnValidateComplete,
-                       weak_factory_.GetWeakPtr(),
-                       base::Passed(std::move(resume_callback))));
+                       weak_factory_.GetWeakPtr(), std::move(resume_callback)));
   } else {
     std::move(resume_callback).Run();
   }

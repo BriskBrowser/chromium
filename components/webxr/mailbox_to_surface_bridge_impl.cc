@@ -12,6 +12,7 @@
 #include "base/logging.h"
 #include "base/system/sys_info.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "content/public/browser/android/compositor.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -28,7 +29,7 @@
 #include "gpu/ipc/common/gpu_surface_tracker.h"
 #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 #include "ui/gfx/color_space.h"
-#include "ui/gfx/transform.h"
+#include "ui/gfx/geometry/transform.h"
 #include "ui/gl/android/surface_texture.h"
 
 #include <android/native_window_jni.h>

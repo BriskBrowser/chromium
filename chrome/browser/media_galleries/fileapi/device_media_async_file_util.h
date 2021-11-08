@@ -34,6 +34,9 @@ enum MediaFileValidationType {
 
 class DeviceMediaAsyncFileUtil : public storage::AsyncFileUtil {
  public:
+  DeviceMediaAsyncFileUtil(const DeviceMediaAsyncFileUtil&) = delete;
+  DeviceMediaAsyncFileUtil& operator=(const DeviceMediaAsyncFileUtil&) = delete;
+
   ~DeviceMediaAsyncFileUtil() override;
 
   // Returns an instance of DeviceMediaAsyncFileUtil.
@@ -80,14 +83,14 @@ class DeviceMediaAsyncFileUtil : public storage::AsyncFileUtil {
       std::unique_ptr<storage::FileSystemOperationContext> context,
       const storage::FileSystemURL& src_url,
       const storage::FileSystemURL& dest_url,
-      CopyOrMoveOption option,
+      CopyOrMoveOptionSet options,
       CopyFileProgressCallback progress_callback,
       StatusCallback callback) override;
   void MoveFileLocal(
       std::unique_ptr<storage::FileSystemOperationContext> context,
       const storage::FileSystemURL& src_url,
       const storage::FileSystemURL& dest_url,
-      CopyOrMoveOption option,
+      CopyOrMoveOptionSet options,
       StatusCallback callback) override;
   void CopyInForeignFile(
       std::unique_ptr<storage::FileSystemOperationContext> context,
@@ -197,8 +200,6 @@ class DeviceMediaAsyncFileUtil : public storage::AsyncFileUtil {
 
   // For callbacks that may run after destruction.
   base::WeakPtrFactory<DeviceMediaAsyncFileUtil> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceMediaAsyncFileUtil);
 };
 
 #endif  // CHROME_BROWSER_MEDIA_GALLERIES_FILEAPI_DEVICE_MEDIA_ASYNC_FILE_UTIL_H_

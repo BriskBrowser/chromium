@@ -12,7 +12,6 @@
 #include "content/common/content_export.h"
 #include "content/public/common/zygote/zygote_buildflags.h"
 #include "sandbox/policy/sandbox_delegate.h"
-#include "sandbox/policy/sandbox_type.h"
 
 #if BUILDFLAG(USE_ZYGOTE_HANDLE)
 #include "content/public/common/zygote/zygote_handle.h"  // nogncheck
@@ -58,9 +57,9 @@ class CONTENT_EXPORT SandboxedProcessLauncherDelegate
   // false. See base::LaunchOptions::disclaim_responsibility.
   virtual bool DisclaimResponsibility();
 
-#if defined(ARCH_CPU_ARM64)
-  virtual bool LaunchX86_64();
-#endif  // ARCH_CPU_ARM64
+  // Whether or not to enable CPU security mitigations against side-channel
+  // attacks. See base::LaunchOptions::enable_cpu_security_mitigations.
+  virtual bool EnableCpuSecurityMitigations();
 #endif  // OS_MAC
 };
 

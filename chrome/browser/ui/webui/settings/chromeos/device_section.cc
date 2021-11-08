@@ -7,7 +7,6 @@
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/ash_interfaces.h"
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/night_light_controller.h"
 #include "ash/public/cpp/stylus_utils.h"
 #include "base/command_line.h"
@@ -16,8 +15,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
-#include "chrome/browser/ui/ui_features.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/ui/webui/settings/chromeos/device_display_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/device_keyboard_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/device_pointer_handler.h"
@@ -194,6 +192,30 @@ GetTouchpadScrollAccelerationSearchConcepts() {
        mojom::SearchResultDefaultRank::kMedium,
        mojom::SearchResultType::kSetting,
        {.setting = mojom::Setting::kTouchpadScrollAcceleration}},
+  });
+  return *tags;
+}
+
+const std::vector<SearchConcept>& GetTouchpadHapticFeedback() {
+  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+      {IDS_OS_SETTINGS_TAG_TOUCHPAD_HAPTIC_FEEDBACK,
+       mojom::kPointersSubpagePath,
+       mojom::SearchResultIcon::kLaptop,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSetting,
+       {.setting = mojom::Setting::kTouchpadHapticFeedback}},
+  });
+  return *tags;
+}
+
+const std::vector<SearchConcept>& GetTouchpadHapticClickSensitivity() {
+  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+      {IDS_OS_SETTINGS_TAG_TOUCHPAD_HAPTIC_CLICK_SENSITIVITY,
+       mojom::kPointersSubpagePath,
+       mojom::SearchResultIcon::kLaptop,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSetting,
+       {.setting = mojom::Setting::kTouchpadHapticClickSensitivity}},
   });
   return *tags;
 }
@@ -528,6 +550,7 @@ void AddDeviceKeyboardStrings(content::WebUIDataSource* html_source) {
       {"keyRepeatRateFast", IDS_SETTINGS_KEYBOARD_AUTO_REPEAT_FAST},
       {"showKeyboardShortcutViewer",
        IDS_SETTINGS_KEYBOARD_SHOW_SHORTCUT_VIEWER},
+      // TODO(crbug.com/1097328): Remove this string, as it is unused.
       {"keyboardShowLanguageAndInput",
        IDS_SETTINGS_KEYBOARD_SHOW_LANGUAGE_AND_INPUT},
       {"keyboardShowInputSettings", IDS_SETTINGS_KEYBOARD_SHOW_INPUT_SETTINGS},
@@ -592,9 +615,6 @@ void AddDeviceDisplayStrings(content::WebUIDataSource* html_source) {
        IDS_SETTINGS_DISPLAY_NIGHT_LIGHT_SCHEDULE_NEVER},
       {"displayNightLightScheduleSunsetToSunRise",
        IDS_SETTINGS_DISPLAY_NIGHT_LIGHT_SCHEDULE_SUNSET_TO_SUNRISE},
-      {"displayNightLightStartTime",
-       IDS_SETTINGS_DISPLAY_NIGHT_LIGHT_START_TIME},
-      {"displayNightLightStopTime", IDS_SETTINGS_DISPLAY_NIGHT_LIGHT_STOP_TIME},
       {"displayNightLightText", IDS_SETTINGS_DISPLAY_NIGHT_LIGHT_TEXT},
       {"displayNightLightTemperatureLabel",
        IDS_SETTINGS_DISPLAY_NIGHT_LIGHT_TEMPERATURE_LABEL},
@@ -673,10 +693,6 @@ void AddDeviceDisplayStrings(content::WebUIDataSource* html_source) {
 
   html_source->AddBoolean("enableTouchCalibrationSetting",
                           IsTouchCalibrationAvailable());
-
-  html_source->AddBoolean(
-      "allowDisplayIdentificationApi",
-      base::FeatureList::IsEnabled(ash::features::kDisplayIdentification));
 
   html_source->AddString("invalidDisplayId",
                          base::NumberToString(display::kInvalidDisplayId));
@@ -792,7 +808,7 @@ DeviceSection::DeviceSection(Profile* profile,
   if (power_manager_client) {
     power_manager_client->AddObserver(this);
 
-    const base::Optional<power_manager::PowerSupplyProperties>& last_status =
+    const absl::optional<power_manager::PowerSupplyProperties>& last_status =
         power_manager_client->GetLastStatus();
     if (last_status)
       PowerChanged(*last_status);
@@ -851,11 +867,7 @@ void DeviceSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
   };
   html_source->AddLocalizedStrings(kDeviceStrings);
 
-  html_source->AddBoolean("isDemoSession",
-                          chromeos::DemoSession::IsDeviceInDemoMode());
-  html_source->AddBoolean("enableLanguageSettingsV2",
-                          base::FeatureList::IsEnabled(
-                              ::chromeos::features::kLanguageSettingsUpdate));
+  html_source->AddBoolean("isDemoSession", DemoSession::IsDeviceInDemoMode());
 
   AddDevicePointersStrings(html_source);
   AddDeviceKeyboardStrings(html_source);
@@ -867,12 +879,8 @@ void DeviceSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
 }
 
 void DeviceSection::AddHandlers(content::WebUI* web_ui) {
-  if (ash::features::IsDisplayIdentificationEnabled() ||
-      ash::features::IsDisplayAlignmentAssistanceEnabled()) {
-    web_ui->AddMessageHandler(
-        std::make_unique<chromeos::settings::DisplayHandler>());
-  }
-
+  web_ui->AddMessageHandler(
+      std::make_unique<chromeos::settings::DisplayHandler>());
   web_ui->AddMessageHandler(
       std::make_unique<chromeos::settings::KeyboardHandler>());
   web_ui->AddMessageHandler(
@@ -931,6 +939,8 @@ void DeviceSection::RegisterHierarchy(HierarchyGenerator* generator) const {
       mojom::Setting::kTouchpadAcceleration,
       mojom::Setting::kTouchpadScrollAcceleration,
       mojom::Setting::kTouchpadSpeed,
+      mojom::Setting::kTouchpadHapticFeedback,
+      mojom::Setting::kTouchpadHapticClickSensitivity,
       mojom::Setting::kPointingStickSwapPrimaryButtons,
       mojom::Setting::kPointingStickSpeed,
       mojom::Setting::kPointingStickAcceleration,
@@ -1021,11 +1031,23 @@ void DeviceSection::TouchpadExists(bool exists) {
   SearchTagRegistry::ScopedTagUpdater updater = registry()->StartUpdate();
   updater.RemoveSearchTags(GetTouchpadSearchConcepts());
   updater.RemoveSearchTags(GetTouchpadScrollAccelerationSearchConcepts());
+  updater.RemoveSearchTags(GetTouchpadHapticFeedback());
+  updater.RemoveSearchTags(GetTouchpadHapticClickSensitivity());
 
   if (exists) {
     updater.AddSearchTags(GetTouchpadSearchConcepts());
     if (base::FeatureList::IsEnabled(chromeos::features::kAllowScrollSettings))
       updater.AddSearchTags(GetTouchpadScrollAccelerationSearchConcepts());
+    // TODO (gavinwill): Move the haptic touchpad search concepts into
+    // HapticTouchpadExists() once available.
+    if (base::FeatureList::IsEnabled(
+            ::features::kAllowDisableTouchpadHapticFeedback)) {
+      updater.AddSearchTags(GetTouchpadHapticFeedback());
+    }
+    if (base::FeatureList::IsEnabled(
+            ::features::kAllowTouchpadHapticClickSettings)) {
+      updater.AddSearchTags(GetTouchpadHapticClickSensitivity());
+    }
   }
 }
 
@@ -1164,7 +1186,7 @@ void DeviceSection::OnGetDisplayLayoutInfo(
 }
 
 void DeviceSection::OnGotSwitchStates(
-    base::Optional<PowerManagerClient::SwitchStates> result) {
+    absl::optional<PowerManagerClient::SwitchStates> result) {
   SearchTagRegistry::ScopedTagUpdater updater = registry()->StartUpdate();
 
   if (result && result->lid_state != PowerManagerClient::LidState::NOT_PRESENT)
@@ -1215,6 +1237,14 @@ void DeviceSection::AddDevicePointersStrings(
       {"pointingStickAccelerationLabel",
        IDS_SETTINGS_POINTING_STICK_ACCELERATION_LABEL},
       {"touchpadAccelerationLabel", IDS_SETTINGS_TOUCHPAD_ACCELERATION_LABEL},
+      {"touchpadHapticClickSensitivityLabel",
+       IDS_SETTINGS_TOUCHPAD_HAPTIC_CLICK_SENSITIVITY_LABEL},
+      {"touchpadHapticFeedbackLabel",
+       IDS_SETTINGS_TOUCHPAD_HAPTIC_FEEDBACK_LABEL},
+      {"touchpadHapticFirmClickLabel",
+       IDS_SETTINGS_TOUCHPAD_HAPTIC_FIRM_CLICK_LABEL},
+      {"touchpadHapticLightClickLabel",
+       IDS_SETTINGS_TOUCHPAD_HAPTIC_LIGHT_CLICK_LABEL},
       {"touchpadScrollAccelerationLabel",
        IDS_SETTINGS_TOUCHPAD_SCROLL_ACCELERATION_LABEL},
       {"touchpadScrollSpeed", IDS_SETTINGS_TOUCHPAD_SCROLL_SPEED_LABEL},
@@ -1228,9 +1258,12 @@ void DeviceSection::AddDevicePointersStrings(
       "allowDisableMouseAcceleration",
       base::FeatureList::IsEnabled(::features::kAllowDisableMouseAcceleration));
   html_source->AddBoolean("allowScrollSettings", AreScrollSettingsAllowed());
-  html_source->AddBoolean(
-      "separatePointingStickSettings",
-      base::FeatureList::IsEnabled(::features::kSeparatePointingStickSettings));
+  html_source->AddBoolean("allowTouchpadHapticFeedback",
+                          base::FeatureList::IsEnabled(
+                              ::features::kAllowDisableTouchpadHapticFeedback));
+  html_source->AddBoolean("allowTouchpadHapticClickSettings",
+                          base::FeatureList::IsEnabled(
+                              ::features::kAllowTouchpadHapticClickSettings));
 }
 
 }  // namespace settings

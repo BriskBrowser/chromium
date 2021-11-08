@@ -82,8 +82,8 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
                     Features.FORCE_DARK_BEHAVIOR,
                     Features.WEB_MESSAGE_LISTENER,
                     Features.SET_SUPPORT_LIBRARY_VERSION + Features.DEV_SUFFIX,
-                    Features.DOCUMENT_START_SCRIPT + Features.DEV_SUFFIX,
-                    Features.PROXY_OVERRIDE_REVERSE_BYPASS + Features.DEV_SUFFIX,
+                    Features.DOCUMENT_START_SCRIPT,
+                    Features.PROXY_OVERRIDE_REVERSE_BYPASS,
             };
 
     // These values are persisted to logs. Entries should not be renumbered and

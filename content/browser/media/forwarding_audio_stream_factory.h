@@ -13,16 +13,16 @@
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "content/browser/media/audio_muting_session.h"
 #include "content/browser/media/audio_stream_broker.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "media/mojo/mojom/audio_output_stream.mojom.h"
+#include "media/mojo/mojom/audio_stream_factory.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/audio/public/mojom/stream_factory.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/media/renderer_audio_input_stream_factory.mojom.h"
 
 namespace media {
@@ -58,6 +58,10 @@ class CONTENT_EXPORT ForwardingAudioStreamFactory final
     Core(base::WeakPtr<ForwardingAudioStreamFactory> owner,
          media::UserInputMonitorBase* user_input_monitor,
          std::unique_ptr<AudioStreamBrokerFactory> factory);
+
+    Core(const Core&) = delete;
+    Core& operator=(const Core&) = delete;
+
     ~Core() final;
 
     const base::UnguessableToken& group_id() const { return group_id_; }
@@ -119,7 +123,7 @@ class CONTENT_EXPORT ForwardingAudioStreamFactory final
     void RemoveInput(AudioStreamBroker* handle);
     void RemoveOutput(AudioStreamBroker* handle);
 
-    audio::mojom::StreamFactory* GetFactory();
+    media::mojom::AudioStreamFactory* GetFactory();
     void ResetRemoteFactoryPtrIfIdle();
     void ResetRemoteFactoryPtr();
 
@@ -141,7 +145,7 @@ class CONTENT_EXPORT ForwardingAudioStreamFactory final
     // since we want to clean up the service when not in use. If we have active
     // muting but nothing else, we should stop it and start it again when we
     // need to reacquire the factory for some other reason.
-    mojo::Remote<audio::mojom::StreamFactory> remote_factory_;
+    mojo::Remote<media::mojom::AudioStreamFactory> remote_factory_;
 
     // Running id used for tracking audible streams. We keep count here to avoid
     // collisions.
@@ -150,7 +154,7 @@ class CONTENT_EXPORT ForwardingAudioStreamFactory final
     int stream_id_counter_ = 0;
 
     // Instantiated when |outputs_| should be muted, empty otherwise.
-    base::Optional<AudioMutingSession> muter_;
+    absl::optional<AudioMutingSession> muter_;
 
     StreamBrokerSet inputs_;
     StreamBrokerSet outputs_;
@@ -158,8 +162,6 @@ class CONTENT_EXPORT ForwardingAudioStreamFactory final
 
     base::WeakPtrFactory<ForwardingAudioStreamFactory::Core> weak_ptr_factory_{
         this};
-
-    DISALLOW_COPY_AND_ASSIGN(Core);
   };
 
   // Returns the ForwardingAudioStreamFactory which takes care of stream
@@ -180,6 +182,10 @@ class CONTENT_EXPORT ForwardingAudioStreamFactory final
       media::UserInputMonitorBase* user_input_monitor,
       std::unique_ptr<AudioStreamBrokerFactory> factory);
 
+  ForwardingAudioStreamFactory(const ForwardingAudioStreamFactory&) = delete;
+  ForwardingAudioStreamFactory& operator=(const ForwardingAudioStreamFactory&) =
+      delete;
+
   ~ForwardingAudioStreamFactory() final;
 
   const base::UnguessableToken& group_id() const {
@@ -199,23 +205,24 @@ class CONTENT_EXPORT ForwardingAudioStreamFactory final
 
   // WebContentsObserver implementation. We observe these events so that we can
   // clean up streams belonging to a frame when that frame is destroyed.
-  void FrameDeleted(RenderFrameHost* render_frame_host) final;
+  void RenderFrameDeleted(RenderFrameHost* render_frame_host) final;
 
   Core* core() { return core_.get(); }
 
-  // Allows tests to override how StreamFactory interface receivers are bound
-  // instead of sending them to the Audio Service.
-  using StreamFactoryBinder = base::RepeatingCallback<void(
-      mojo::PendingReceiver<audio::mojom::StreamFactory>)>;
-  static void OverrideStreamFactoryBinderForTesting(StreamFactoryBinder binder);
+  // Allows tests to override how AudioStreamFactory interface receivers are
+  // bound instead of sending them to the Audio Service.
+  using AudioStreamFactoryBinder = base::RepeatingCallback<void(
+      mojo::PendingReceiver<media::mojom::AudioStreamFactory>)>;
+  static void OverrideAudioStreamFactoryBinderForTesting(
+      AudioStreamFactoryBinder binder);
 
  private:
   std::unique_ptr<Core> core_;
   bool is_muted_ = false;
 
-  base::WeakPtrFactory<ForwardingAudioStreamFactory> weak_ptr_factory_{this};
+  base::ScopedClosureRunner capture_handle_;
 
-  DISALLOW_COPY_AND_ASSIGN(ForwardingAudioStreamFactory);
+  base::WeakPtrFactory<ForwardingAudioStreamFactory> weak_ptr_factory_{this};
 };
 
 }  // namespace content

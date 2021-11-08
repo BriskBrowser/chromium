@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/containers/span.h"
 #include "base/macros.h"
 #include "build/chromeos_buildflags.h"
 #include "device/bluetooth/bluetooth_remote_gatt_characteristic.h"
@@ -35,6 +34,12 @@ class MockBluetoothGattCharacteristic
                                   const BluetoothUUID& uuid,
                                   Properties properties,
                                   Permissions permissions);
+
+  MockBluetoothGattCharacteristic(const MockBluetoothGattCharacteristic&) =
+      delete;
+  MockBluetoothGattCharacteristic& operator=(
+      const MockBluetoothGattCharacteristic&) = delete;
+
   ~MockBluetoothGattCharacteristic() override;
 
   MOCK_CONST_METHOD0(GetIdentifier, std::string());
@@ -68,10 +73,10 @@ class MockBluetoothGattCharacteristic
   }
   MOCK_METHOD2(StopNotifySession_,
                void(BluetoothGattNotifySession*, base::OnceClosure&));
-  void ReadRemoteCharacteristic(ValueCallback c, ErrorCallback ec) override {
-    ReadRemoteCharacteristic_(c, ec);
+  void ReadRemoteCharacteristic(ValueCallback c) override {
+    ReadRemoteCharacteristic_(c);
   }
-  MOCK_METHOD2(ReadRemoteCharacteristic_, void(ValueCallback&, ErrorCallback&));
+  MOCK_METHOD1(ReadRemoteCharacteristic_, void(ValueCallback&));
   void WriteRemoteCharacteristic(const std::vector<uint8_t>& v,
                                  WriteType t,
                                  base::OnceClosure c,
@@ -140,9 +145,6 @@ class MockBluetoothGattCharacteristic
                void(BluetoothRemoteGattDescriptor*,
                     base::OnceClosure&,
                     ErrorCallback&));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockBluetoothGattCharacteristic);
 };
 
 }  // namespace device

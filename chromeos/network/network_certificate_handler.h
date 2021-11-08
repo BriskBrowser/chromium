@@ -21,6 +21,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkCertificateHandler
  public:
   class Observer {
    public:
+    Observer(const Observer&) = delete;
+    Observer& operator=(const Observer&) = delete;
+
     virtual ~Observer() {}
 
     // Called for any Observers whenever the certificates are loaded and any
@@ -29,9 +32,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkCertificateHandler
 
    protected:
     Observer() {}
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(Observer);
   };
 
   struct Certificate {
@@ -57,6 +57,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkCertificateHandler
     // The PKCS#11 identifier in slot:id format for user certificates.
     std::string pkcs11_id;
 
+    // True if a user certificate is stored in a slot that is available for
+    // network authentication.
+    bool available_for_network_auth = false;
+
     // True if a user certificate is stored in a hardware slot.
     bool hardware_backed = false;
 
@@ -65,6 +69,11 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkCertificateHandler
   };
 
   NetworkCertificateHandler();
+
+  NetworkCertificateHandler(const NetworkCertificateHandler&) = delete;
+  NetworkCertificateHandler& operator=(const NetworkCertificateHandler&) =
+      delete;
+
   ~NetworkCertificateHandler() override;
 
   void AddObserver(Observer* observer);
@@ -95,8 +104,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkCertificateHandler
 
   std::vector<Certificate> server_ca_certificates_;
   std::vector<Certificate> client_certificates_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkCertificateHandler);
 };
 
 }  // namespace chromeos

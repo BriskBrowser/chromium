@@ -31,6 +31,10 @@ namespace net {
 class URLSecurityManagerWin : public URLSecurityManagerAllowlist {
  public:
   URLSecurityManagerWin();
+
+  URLSecurityManagerWin(const URLSecurityManagerWin&) = delete;
+  URLSecurityManagerWin& operator=(const URLSecurityManagerWin&) = delete;
+
   ~URLSecurityManagerWin() override;
 
   // URLSecurityManager methods:
@@ -40,8 +44,6 @@ class URLSecurityManagerWin : public URLSecurityManagerAllowlist {
   bool EnsureSystemSecurityManager();
 
   Microsoft::WRL::ComPtr<IInternetSecurityManager> security_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(URLSecurityManagerWin);
 };
 
 URLSecurityManagerWin::URLSecurityManagerWin() {}
@@ -54,7 +56,7 @@ bool URLSecurityManagerWin::CanUseDefaultCredentials(
   if (!const_cast<URLSecurityManagerWin*>(this)->EnsureSystemSecurityManager())
     return false;
 
-  base::string16 url16 = base::ASCIIToUTF16(auth_origin.spec());
+  std::u16string url16 = base::ASCIIToUTF16(auth_origin.spec());
   DWORD policy = 0;
   HRESULT hr;
   hr = security_manager_->ProcessUrlAction(

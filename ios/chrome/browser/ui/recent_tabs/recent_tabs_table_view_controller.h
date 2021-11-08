@@ -48,22 +48,22 @@ class DistantSession;
 @property(nonatomic, weak) id<TableViewFaviconDataSource> imageDataSource;
 
 // Provider of menu configurations for the recentTabs component.
-@property(nonatomic, weak) id<RecentTabsMenuProvider> menuProvider
-    API_AVAILABLE(ios(13.0));
+@property(nonatomic, weak) id<RecentTabsMenuProvider> menuProvider;
 
 // Multi-window session for this vc's recent tabs.
-@property(nonatomic, assign) UISceneSession* session API_AVAILABLE(ios(13.0));
+@property(nonatomic, assign) UISceneSession* session;
 
 // Initializers.
 - (instancetype)init NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithStyle:(UITableViewStyle)style NS_UNAVAILABLE;
 
 // Returns Sessions corresponding to the given |sectionIdentifier|.
-- (synced_sessions::DistantSession const*)sessionForSectionIdentifier:
+- (synced_sessions::DistantSession const*)sessionForTableSectionWithIdentifier:
     (NSInteger)sectionIdentifer;
 
-// Hides Sessions corresponding to the given |sectionIdentifier|.
-- (void)removeSessionAtSessionSectionIdentifier:(NSInteger)sectionIdentifier;
+// Hides Sessions corresponding to the given the table view's
+// |sectionIdentifier|.
+- (void)removeSessionAtTableSectionWithIdentifier:(NSInteger)sectionIdentifier;
 
 @end
 

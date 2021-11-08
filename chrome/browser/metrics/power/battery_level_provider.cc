@@ -7,7 +7,7 @@
 BatteryLevelProvider::BatteryState::BatteryState(
     size_t interface_count,
     size_t battery_count,
-    base::Optional<double> charge_level,
+    absl::optional<double> charge_level,
     bool on_battery,
     base::TimeTicks capture_time)
     : interface_count(interface_count),
@@ -17,6 +17,9 @@ BatteryLevelProvider::BatteryState::BatteryState(
       capture_time(capture_time) {}
 
 BatteryLevelProvider::BatteryState::BatteryState(const BatteryState&) = default;
+
+BatteryLevelProvider::BatteryState&
+BatteryLevelProvider::BatteryState::operator=(const BatteryState&) = default;
 
 BatteryLevelProvider::BatteryInterface::BatteryInterface(
     bool battery_present_in)
@@ -29,10 +32,9 @@ BatteryLevelProvider::BatteryInterface::BatteryInterface(
 BatteryLevelProvider::BatteryInterface::BatteryInterface(
     const BatteryInterface&) = default;
 
-BatteryLevelProvider::BatteryState BatteryLevelProvider::GetBatteryState() {
+BatteryLevelProvider::BatteryState BatteryLevelProvider::MakeBatteryState(
+    const std::vector<BatteryInterface>& battery_interfaces) {
   const base::TimeTicks capture_time = base::TimeTicks::Now();
-
-  std::vector<BatteryInterface> battery_interfaces = GetBatteryInterfaceList();
 
   uint64_t total_max_capacity = 0;
   uint64_t total_current_capacity = 0;
@@ -63,7 +65,7 @@ BatteryLevelProvider::BatteryState BatteryLevelProvider::GetBatteryState() {
     total_max_capacity += interface.details->full_charged_capacity;
   }
 
-  base::Optional<double> charge_level;
+  absl::optional<double> charge_level;
   // Avoid invalid division.
   if (!any_capacity_invalid && total_max_capacity != 0) {
     charge_level = static_cast<double>(total_current_capacity) /

@@ -6,11 +6,15 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_DISPLAY_RESOURCE_PROVIDER_SOFTWARE_H_
 
 #include <utility>
+#include <vector>
 
 #include "components/viz/service/display/display_resource_provider.h"
 #include "components/viz/service/viz_service_export.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
 namespace viz {
+
+class SharedBitmapManager;
 
 // DisplayResourceProvider implementation used with SoftwareRenderer.
 class VIZ_SERVICE_EXPORT DisplayResourceProviderSoftware
@@ -18,13 +22,13 @@ class VIZ_SERVICE_EXPORT DisplayResourceProviderSoftware
  public:
   explicit DisplayResourceProviderSoftware(
       SharedBitmapManager* shared_bitmap_manager);
+  ~DisplayResourceProviderSoftware() override;
 
   class VIZ_SERVICE_EXPORT ScopedReadLockSkImage {
    public:
     ScopedReadLockSkImage(DisplayResourceProviderSoftware* resource_provider,
                           ResourceId resource_id,
-                          SkAlphaType alpha_type = kPremul_SkAlphaType,
-                          GrSurfaceOrigin origin = kTopLeft_GrSurfaceOrigin);
+                          SkAlphaType alpha_type);
     ~ScopedReadLockSkImage();
 
     ScopedReadLockSkImage(const ScopedReadLockSkImage&) = delete;
@@ -48,8 +52,18 @@ class VIZ_SERVICE_EXPORT DisplayResourceProviderSoftware
   const ChildResource* LockForRead(ResourceId id);
   void UnlockForRead(ResourceId id);
 
+  // DisplayResourceProvider overrides:
+  std::vector<ReturnedResource> DeleteAndReturnUnusedResourcesToChildImpl(
+      Child& child_info,
+      DeleteStyle style,
+      const std::vector<ResourceId>& unused) override;
+
   void PopulateSkBitmapWithResource(SkBitmap* sk_bitmap,
-                                    const ChildResource* resource);
+                                    const ChildResource* resource,
+                                    SkAlphaType alpha_type);
+
+  SharedBitmapManager* const shared_bitmap_manager_;
+  base::flat_map<ResourceId, sk_sp<SkImage>> resource_sk_images_;
 };
 
 }  // namespace viz

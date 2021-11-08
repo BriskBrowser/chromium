@@ -20,11 +20,9 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/dbus/constants/dbus_switches.h"
 #include "chromeos/dbus/dlcservice/fake_dlcservice_client.h"
@@ -32,6 +30,7 @@
 #include "dbus/message.h"
 #include "dbus/object_path.h"
 #include "dbus/object_proxy.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
@@ -53,6 +52,11 @@ class DlcserviceErrorResponseHandler {
     VLOG(1) << "Handling err=" << err_ << " err_msg=" << err_msg_;
   }
 
+  DlcserviceErrorResponseHandler(const DlcserviceErrorResponseHandler&) =
+      delete;
+  DlcserviceErrorResponseHandler& operator=(
+      const DlcserviceErrorResponseHandler&) = delete;
+
   ~DlcserviceErrorResponseHandler() = default;
 
   std::string get_err() { return err_; }
@@ -68,6 +72,7 @@ class DlcserviceErrorResponseHandler {
         dlcservice::kErrorBusy,
         dlcservice::kErrorNeedReboot,
         dlcservice::kErrorInvalidDlc,
+        dlcservice::kErrorNoImageFound,
     });
     // Lookup the dlcservice error code and provide default on invalid.
     auto itr = err_set->find(err);
@@ -91,8 +96,6 @@ class DlcserviceErrorResponseHandler {
 
   // Holds the entire error message from error response.
   std::string err_msg_;
-
-  DISALLOW_COPY_AND_ASSIGN(DlcserviceErrorResponseHandler);
 };
 
 }  // namespace
@@ -101,6 +104,9 @@ class DlcserviceErrorResponseHandler {
 class DlcserviceClientImpl : public DlcserviceClient {
  public:
   DlcserviceClientImpl() : dlcservice_proxy_(nullptr) {}
+
+  DlcserviceClientImpl(const DlcserviceClientImpl&) = delete;
+  DlcserviceClientImpl& operator=(const DlcserviceClientImpl&) = delete;
 
   ~DlcserviceClientImpl() override = default;
 
@@ -454,8 +460,6 @@ class DlcserviceClientImpl : public DlcserviceClient {
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
   base::WeakPtrFactory<DlcserviceClientImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DlcserviceClientImpl);
 };
 
 DlcserviceClient::DlcserviceClient() {

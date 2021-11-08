@@ -14,6 +14,7 @@ import static org.hamcrest.Matchers.allOf;
 
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntil;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntilViewMatchesCondition;
+import static org.chromium.chrome.browser.autofill_assistant.PasswordChangeFixtureTestUtils.MAX_WAIT_BETWEEN_TESTS_IN_MS;
 import static org.chromium.chrome.browser.autofill_assistant.PasswordChangeFixtureTestUtils.MAX_WAIT_TIME_IN_MS;
 import static org.chromium.chrome.browser.autofill_assistant.PasswordChangeFixtureTestUtils.TAG;
 import static org.chromium.chrome.browser.autofill_assistant.PasswordChangeFixtureTestUtils.checkCredentialsDifferByPassword;
@@ -91,29 +92,27 @@ public class PasswordChangeFixtureTest implements PasswordStoreBridge.PasswordSt
         Log.i(TAG, "[Test started]");
 
         mTestRule.startCustomTabActivityWithIntent(CustomTabsTestUtils.createMinimalCustomTabIntent(
-                InstrumentationRegistry.getTargetContext(),
-                mTestRule.getTestServer().getURL(mParameters.getDomainUrl().getSpec())));
+                InstrumentationRegistry.getTargetContext(), mParameters.getDomainUrl().getSpec()));
 
         /**
          * PasswordStoreBridge requests credentials from the password store on initialization. The
          * request needs to be posted from the main thread.
          */
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> { mPasswordStoreBridge = new PasswordStoreBridge(this); });
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mPasswordStoreBridge = new PasswordStoreBridge(this);
+            // Load initial credentials.
+            PasswordStoreCredential[] seedCredentials = mParameters.getSeedCredentials();
+            for (int i = 0; i < seedCredentials.length; i++) {
+                mPasswordStoreBridge.insertPasswordCredential(seedCredentials[i]);
+            }
+        });
 
-        // Load initial credentials.
-        PasswordStoreCredential[] seedCredentials = mParameters.getSeedCredentials();
-        for (int i = 0; i < seedCredentials.length; i++) {
-            mPasswordStoreBridge.insertPasswordCredential(seedCredentials[i]);
-        }
         // Wait until operation finishes and credentials cache is updated.
-        waitUntil(() -> mCredentials.length == seedCredentials.length);
+        waitUntil(() -> mCredentials.length == mParameters.getSeedCredentials().length);
     }
 
     @After
     public void tearDown() {
-        mPasswordStoreBridge.clearAllPasswords();
-        waitUntil(() -> mPasswordStoreBridge.getPasswordStoreCredentialsCount() == 0);
         TestThreadUtils.runOnUiThreadBlocking(() -> { mPasswordStoreBridge.destroy(); });
     }
 
@@ -150,28 +149,21 @@ public class PasswordChangeFixtureTest implements PasswordStoreBridge.PasswordSt
     }
 
     /**
-     * Runs the script a single time. Checks the script successfully changes password in Chrome
-     * password manager.
-     */
-    @Test
-    @Manual
-    public void testSingleRun() throws Exception {
-        testRun(mParameters.getUsername());
-        logPasswordStoreCredentials(mPasswordStoreBridge, "Final password store state");
-    }
-
-    /**
      * Runs the script multiple times (defined by --num-runs) consecutively. Checks the script
      * successfully changes password in Chrome password manager. There should be only one entry for
      * that domain with the new password.
      */
     @Test
     @Manual
-    public void testMultipleRuns() throws Exception {
+    public void testDefaultRuns() throws Exception {
         for (int i = 0; i < mParameters.getNumRuns(); i++) {
             // Run and test script.
             testRun(mParameters.getUsername());
-            Log.i(TAG, "[EVENT: Run #%s succeded]", String.valueOf(i + 1));
+
+            if (i + 1 < mParameters.getNumRuns()) {
+                Log.i(TAG, "[Run #%s succeeded]", String.valueOf(i + 1));
+                Thread.sleep(MAX_WAIT_BETWEEN_TESTS_IN_MS);
+            }
         }
 
         logPasswordStoreCredentials(mPasswordStoreBridge, "Final password store state");
@@ -183,14 +175,21 @@ public class PasswordChangeFixtureTest implements PasswordStoreBridge.PasswordSt
      */
     @Test
     @Manual
-    public void testSingleRunNoCookies() throws Exception {
-        clearBrowsingData(new int[] {BrowsingDataType.HISTORY, BrowsingDataType.CACHE,
-                                  BrowsingDataType.COOKIES, BrowsingDataType.SITE_SETTINGS},
-                TimePeriod.ALL_TIME);
-        Log.i(TAG, "[EVENT: Site settings cleared]");
+    public void testNoCookies() throws Exception {
+        for (int i = 0; i < mParameters.getNumRuns(); i++) {
+            clearBrowsingData(new int[] {BrowsingDataType.HISTORY, BrowsingDataType.CACHE,
+                                      BrowsingDataType.COOKIES, BrowsingDataType.SITE_SETTINGS},
+                    TimePeriod.ALL_TIME);
+            Log.i(TAG, "[Site settings cleared]");
 
-        // Run and test password change.
-        testRun(mParameters.getUsername());
+            // Run and test password change.
+            testRun(mParameters.getUsername());
+
+            if (i + 1 < mParameters.getNumRuns()) {
+                Log.i(TAG, "[Run #%s succeeded]", String.valueOf(i + 1));
+                Thread.sleep(MAX_WAIT_BETWEEN_TESTS_IN_MS);
+            }
+        }
 
         logPasswordStoreCredentials(mPasswordStoreBridge, "Final password store state");
     }
@@ -207,13 +206,13 @@ public class PasswordChangeFixtureTest implements PasswordStoreBridge.PasswordSt
         // Run script.
         runScriptForUser(mParameters.getUsername());
 
-        // Opening site settings.
+        // Opening site's settings.
         waitUntilViewMatchesCondition(
-                withText("Opening site settings..."), isDisplayed(), MAX_WAIT_TIME_IN_MS);
+                withText("Opening site's settings..."), isDisplayed(), MAX_WAIT_TIME_IN_MS);
 
-        // Should fail during login. Wait for error opening site settings.
-        waitUntilViewMatchesCondition(withText("Sorry, could not open site settings"),
-                isDisplayed(), MAX_WAIT_TIME_IN_MS);
+        // Should fail during login. Wait for error opening site's settings.
+        waitUntilViewMatchesCondition(
+                withText("Can't change your password"), isDisplayed(), MAX_WAIT_TIME_IN_MS);
 
         // Assert initial credential has not changed.
         PasswordStoreCredential newCredential = getCredentialForDomainAndUser(
@@ -237,9 +236,9 @@ public class PasswordChangeFixtureTest implements PasswordStoreBridge.PasswordSt
         // Run script.
         runScriptForUser(mParameters.getUsername());
 
-        // Opening site settings.
+        // Opening site's settings.
         waitUntilViewMatchesCondition(
-                withText("Opening site settings..."), isDisplayed(), MAX_WAIT_TIME_IN_MS);
+                withText("Opening site's settings..."), isDisplayed(), MAX_WAIT_TIME_IN_MS);
 
         // Filling out old password.
         waitUntilViewMatchesCondition(
@@ -262,6 +261,44 @@ public class PasswordChangeFixtureTest implements PasswordStoreBridge.PasswordSt
     }
 
     /**
+     * Fills out the current password field with a wrong password, submits the
+     * password change form and validates that the script ends gracefully with an error.
+     */
+    @Test
+    @Manual
+    public void testWrongCurrentPassword() throws Exception {
+        // Fetch login credential for username.
+        PasswordStoreCredential initialCredential = getCredentialForDomainAndUser(
+                mCredentials, mParameters.getDomainUrl(), mParameters.getUsername());
+        // Run script.
+        runScriptForUser(mParameters.getUsername());
+
+        // Opening site's settings.
+        waitUntilViewMatchesCondition(
+                withText("Opening site's settings..."), isDisplayed(), MAX_WAIT_TIME_IN_MS);
+
+        // Filling out old password.
+        waitUntilViewMatchesCondition(
+                withText("Changing password..."), isDisplayed(), MAX_WAIT_TIME_IN_MS);
+
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { mPasswordStoreBridge.editPassword(initialCredential, "wrongpassword"); });
+
+        // Requesting authorization to change the password.
+        waitUntilViewMatchesCondition(
+                withText("Use suggested password?"), isDisplayed(), MAX_WAIT_TIME_IN_MS);
+
+        // Accept generated password.
+        onView(withText("Use password")).perform(click());
+
+        // Password change submission failed.
+        waitUntilViewMatchesCondition(
+                withText("Can't change your password"), isDisplayed(), MAX_WAIT_TIME_IN_MS);
+
+        logPasswordStoreCredentials(mPasswordStoreBridge, "Final password store state");
+    }
+
+    /**
      * Runs the password change flow for all credentials in the store and validates the changes.
      */
     @Test
@@ -274,8 +311,15 @@ public class PasswordChangeFixtureTest implements PasswordStoreBridge.PasswordSt
             for (int i = 0; i < initialCredentials.length; i++) {
                 // Run and test script.
                 testRun(initialCredentials[i].getUsername());
+                if (i + 1 < initialCredentials.length) {
+                    Thread.sleep(MAX_WAIT_BETWEEN_TESTS_IN_MS);
+                }
             }
-            Log.i(TAG, "[EVENT: Run #%s succeded]", String.valueOf(run + 1));
+
+            if (run + 1 < mParameters.getNumRuns()) {
+                Log.i(TAG, "[Run #%s succeeded]", String.valueOf(run + 1));
+                Thread.sleep(MAX_WAIT_BETWEEN_TESTS_IN_MS);
+            }
         }
 
         logPasswordStoreCredentials(mPasswordStoreBridge, "Final password store state");
@@ -283,13 +327,12 @@ public class PasswordChangeFixtureTest implements PasswordStoreBridge.PasswordSt
 
     @Override
     public void onSavedPasswordsChanged(int count) {
-        logPasswordStoreCredentials(
-                mPasswordStoreBridge, "EVENT: New set of credentials available");
+        logPasswordStoreCredentials(mPasswordStoreBridge, "New set of credentials available");
         mCredentials = mPasswordStoreBridge.getAllCredentials();
     }
 
     @Override
     public void onEdit(PasswordStoreCredential credential) {
-        Log.i(TAG, "[EVENT: Credential %s edited]", credential.toString());
+        Log.i(TAG, "[Credential %s edited]", credential.toString());
     }
 }

@@ -13,17 +13,18 @@
 #include <initializer_list>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/base_paths.h"
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/kill.h"
 #include "base/process/process_iterator.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -45,7 +46,6 @@
 #include "chrome/installer/setup/setup_util.h"
 #include "chrome/installer/setup/user_hive_visitor.h"
 #include "chrome/installer/util/auto_launch_util.h"
-#include "chrome/installer/util/channel_info.h"
 #include "chrome/installer/util/delete_after_reboot_helper.h"
 #include "chrome/installer/util/firewall_manager_win.h"
 #include "chrome/installer/util/google_update_constants.h"
@@ -209,29 +209,18 @@ void RetargetUserShortcutsWithArgs(const InstallerState& installer_state,
   }
 }
 
-// Deletes shortcuts at |install_level| from Start menu, Desktop,
-// Quick Launch, taskbar, and secondary tiles on the Start Screen (Win8+).
-// Only shortcuts pointing to |target_exe| will be removed.
+// Deletes shortcuts from Start menu, Desktop, Quick Launch, taskbar, and
+// secondary tiles on the Start Screen (Win8+). Only shortcuts pointing to any
+// of |target_paths| will be removed.
 void DeleteShortcuts(const InstallerState& installer_state,
-                     const base::FilePath& target_exe) {
+                     const std::vector<base::FilePath>& target_paths) {
   // The per-user shortcut for this user, if present on a system-level install,
   // has already been deleted in chrome_browser_main_win.cc::DoUninstallTasks().
   ShellUtil::ShellChange install_level = installer_state.system_install()
                                              ? ShellUtil::SYSTEM_LEVEL
                                              : ShellUtil::CURRENT_USER;
-
-  // Delete and unpin all shortcuts that point to |target_exe| from all
-  // ShellUtil::ShortcutLocations.
   VLOG(1) << "Deleting shortcuts.";
-  for (int location = ShellUtil::SHORTCUT_LOCATION_FIRST;
-       location < ShellUtil::NUM_SHORTCUT_LOCATIONS; ++location) {
-    if (!ShellUtil::RemoveShortcuts(
-            static_cast<ShellUtil::ShortcutLocation>(location), install_level,
-            target_exe)) {
-      LOG(WARNING) << "Failed to delete shortcuts in ShortcutLocation: "
-                   << location;
-    }
-  }
+  ShellUtil::RemoveAllShortcuts(install_level, target_paths);
 }
 
 bool ScheduleParentAndGrandparentForDeletion(const base::FilePath& path) {
@@ -852,13 +841,17 @@ InstallStatus UninstallProduct(const ModifyParams& modify_params,
 
   auto_launch_util::DisableBackgroundStartAtLogin();
 
+  base::FilePath chrome_proxy_exe(
+      installer_state.target_path().Append(installer::kChromeProxyExe));
+
   // If user-level chrome is self-destructing as a result of encountering a
   // system-level chrome, retarget owned non-default shortcuts (app shortcuts,
   // profile shortcuts, etc.) to the system-level chrome.
   if (cmd_line.HasSwitch(installer::switches::kSelfDestruct) &&
       !installer_state.system_install()) {
+    const base::FilePath system_install_path(GetChromeInstallPath(true));
     const base::FilePath system_chrome_path(
-        GetChromeInstallPath(true).Append(installer::kChromeExe));
+        system_install_path.Append(installer::kChromeExe));
     VLOG(1) << "Retargeting user-generated Chrome shortcuts.";
     if (base::PathExists(system_chrome_path)) {
       RetargetUserShortcutsWithArgs(installer_state, chrome_exe,
@@ -866,9 +859,20 @@ InstallStatus UninstallProduct(const ModifyParams& modify_params,
     } else {
       LOG(ERROR) << "Retarget failed: system-level Chrome not found.";
     }
+
+    // Retarget owned app shortcuts to the system-level chrome_proxy.
+    const base::FilePath system_chrome_proxy_path(
+        system_install_path.Append(installer::kChromeProxyExe));
+    VLOG(1) << "Retargeting user-generated Chrome Proxy shortcuts.";
+    if (base::PathExists(system_chrome_proxy_path)) {
+      RetargetUserShortcutsWithArgs(installer_state, chrome_proxy_exe,
+                                    system_chrome_proxy_path);
+    } else {
+      LOG(ERROR) << "Retarget failed: system-level Chrome Proxy not found.";
+    }
   }
 
-  DeleteShortcuts(installer_state, chrome_exe);
+  DeleteShortcuts(installer_state, {chrome_exe, std::move(chrome_proxy_exe)});
 
   // Delete the registry keys (Uninstall key and Version key).
   HKEY reg_root = installer_state.root_key();

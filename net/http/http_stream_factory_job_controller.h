@@ -49,7 +49,7 @@ class HttpStreamFactory::JobController
   const Job* main_job() const { return main_job_.get(); }
   const Job* alternative_job() const { return alternative_job_.get(); }
 
-  GURL ApplyHostMappingRules(const GURL& url, HostPortPair* endpoint);
+  void RewriteUrlWithHostMappingRules(GURL& url);
 
   // Methods below are called by HttpStreamFactory only.
   // Creates request and hands out to HttpStreamFactory, this will also create
@@ -157,9 +157,6 @@ class HttpStreamFactory::JobController
 
   // Returns true if |this| has a pending alternative job that is not completed.
   bool HasPendingAltJob() const;
-
-  // Returns the estimated memory usage in bytes.
-  size_t EstimateMemoryUsage() const;
 
  private:
   friend class test::JobControllerPeer;

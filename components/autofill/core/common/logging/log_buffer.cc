@@ -87,6 +87,7 @@ LogBuffer::LogBuffer() {
 }
 
 LogBuffer::LogBuffer(LogBuffer&& other) noexcept = default;
+LogBuffer& LogBuffer::operator=(LogBuffer&& other) = default;
 LogBuffer::~LogBuffer() = default;
 
 base::Value LogBuffer::RetrieveResult() {
@@ -104,7 +105,7 @@ base::Value LogBuffer::RetrieveResult() {
   // If the fragment has a single child, remove it from |children| and return
   // that directly.
   if (children->GetList().size() == 1) {
-    return std::move(children->TakeList().back());
+    return std::move(std::move(*children).TakeList().back());
   }
 
   return std::exchange(buffer_.back(), CreateEmptyFragment());
@@ -209,7 +210,7 @@ LogBuffer& operator<<(LogBuffer& buf, const GURL& url) {
     return buf;
   if (!url.is_valid())
     return buf << "Invalid URL";
-  return buf << url.GetOrigin().spec();
+  return buf << url.DeprecatedGetOriginAsURL().spec();
 }
 
 LogTableRowBuffer::LogTableRowBuffer(LogBuffer* parent) : parent_(parent) {
@@ -238,10 +239,9 @@ LogTableRowBuffer&& operator<<(LogTableRowBuffer&& buf, Attrib&& attrib) {
 
 namespace {
 // Highlights the first |needle| in |haystack| by wrapping it in <b> tags.
-template <typename STRING_TYPE>
-LogBuffer HighlightValueInternal(base::BasicStringPiece<STRING_TYPE> haystack,
-                                 base::BasicStringPiece<STRING_TYPE> needle) {
-  using StringPieceT = base::BasicStringPiece<STRING_TYPE>;
+template <typename T, typename CharT = typename T::value_type>
+LogBuffer HighlightValueInternal(T haystack, T needle) {
+  using StringPieceT = base::BasicStringPiece<CharT>;
   LogBuffer buffer;
   size_t pos = haystack.find(needle);
   if (pos == StringPieceT::npos || needle.empty()) {

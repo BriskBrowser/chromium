@@ -42,18 +42,17 @@ class DataSaverWebAPIsBrowserTest : public InProcessBrowserTest {
   void VerifySaveDataAPI(bool expected_header_set, Browser* browser = nullptr) {
     if (!browser)
       browser = InProcessBrowserTest::browser();
-    ui_test_utils::NavigateToURL(browser,
-                                 test_server_.GetURL("/net_info.html"));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(
+        browser, test_server_.GetURL("/net_info.html")));
     EXPECT_EQ(expected_header_set,
               RunScriptExtractBool(browser, "getSaveData()"));
   }
 
  private:
   bool RunScriptExtractBool(Browser* browser, const std::string& script) {
-    bool data;
-    EXPECT_TRUE(ExecuteScriptAndExtractBool(
-        browser->tab_strip_model()->GetActiveWebContents(), script, &data));
-    return data;
+    return content::EvalJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           script, content::EXECUTE_SCRIPT_USE_MANUAL_REPLY)
+        .ExtractBool();
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {

@@ -8,6 +8,7 @@
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2extchromium.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -19,7 +20,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/renderer/pepper/pepper_video_decoder_host.h"
@@ -47,7 +48,7 @@ namespace {
 
 bool IsCodecSupported(media::VideoCodec codec) {
 #if BUILDFLAG(ENABLE_LIBVPX)
-  if (codec == media::kCodecVP9)
+  if (codec == media::VideoCodec::kVP9)
     return true;
 #endif
 
@@ -81,14 +82,15 @@ VideoDecoderShim::PendingDecode::~PendingDecode() {
 struct VideoDecoderShim::PendingFrame {
   explicit PendingFrame(uint32_t decode_id);
   PendingFrame(uint32_t decode_id, scoped_refptr<media::VideoFrame> frame);
+
+  // This could be expensive to copy, so guard against that.
+  PendingFrame(const PendingFrame&) = delete;
+  PendingFrame& operator=(const PendingFrame&) = delete;
+
   ~PendingFrame();
 
   const uint32_t decode_id;
   scoped_refptr<media::VideoFrame> video_frame;
-
- private:
-  // This could be expensive to copy, so guard against that.
-  DISALLOW_COPY_AND_ASSIGN(PendingFrame);
 };
 
 VideoDecoderShim::PendingFrame::PendingFrame(uint32_t decode_id)
@@ -157,8 +159,8 @@ void VideoDecoderShim::DecoderImpl::Initialize(
   DCHECK(!decoder_);
 #if BUILDFLAG(ENABLE_LIBVPX) || BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
 #if BUILDFLAG(ENABLE_LIBVPX)
-  if (config.codec() == media::kCodecVP9) {
-    decoder_.reset(new media::VpxVideoDecoder());
+  if (config.codec() == media::VideoCodec::kVP9) {
+    decoder_ = std::make_unique<media::VpxVideoDecoder>();
   } else
 #endif  // BUILDFLAG(ENABLE_LIBVPX)
 #if BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
@@ -281,10 +283,12 @@ void VideoDecoderShim::DecoderImpl::OnOutputComplete(
   DCHECK(awaiting_decoder_);
 
   std::unique_ptr<PendingFrame> pending_frame;
-  if (!frame->metadata().end_of_stream)
-    pending_frame.reset(new PendingFrame(decode_id_, std::move(frame)));
-  else
-    pending_frame.reset(new PendingFrame(decode_id_));
+  if (!frame->metadata().end_of_stream) {
+    pending_frame =
+        std::make_unique<PendingFrame>(decode_id_, std::move(frame));
+  } else {
+    pending_frame = std::make_unique<PendingFrame>(decode_id_);
+  }
 
   main_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&VideoDecoderShim::OnOutputComplete, shim_,
@@ -309,7 +313,7 @@ VideoDecoderShim::VideoDecoderShim(PepperVideoDecoderHost* host,
   DCHECK(host_);
   DCHECK(media_task_runner_.get());
   DCHECK(context_provider_.get());
-  decoder_impl_.reset(new DecoderImpl(weak_ptr_factory_.GetWeakPtr()));
+  decoder_impl_ = std::make_unique<DecoderImpl>(weak_ptr_factory_.GetWeakPtr());
 }
 
 VideoDecoderShim::~VideoDecoderShim() {
@@ -338,14 +342,14 @@ bool VideoDecoderShim::Initialize(const Config& vda_config, Client* client) {
     return false;
   }
 
-  media::VideoCodec codec = media::kUnknownVideoCodec;
+  media::VideoCodec codec = media::VideoCodec::kUnknown;
   if (vda_config.profile <= media::H264PROFILE_MAX)
-    codec = media::kCodecH264;
+    codec = media::VideoCodec::kH264;
   else if (vda_config.profile <= media::VP8PROFILE_MAX)
-    codec = media::kCodecVP8;
+    codec = media::VideoCodec::kVP8;
   else if (vda_config.profile <= media::VP9PROFILE_MAX)
-    codec = media::kCodecVP9;
-  DCHECK_NE(codec, media::kUnknownVideoCodec);
+    codec = media::VideoCodec::kVP9;
+  DCHECK_NE(codec, media::VideoCodec::kUnknown);
 
   if (!IsCodecSupported(codec))
     return false;

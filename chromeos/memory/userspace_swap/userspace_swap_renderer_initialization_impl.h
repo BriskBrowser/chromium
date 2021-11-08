@@ -9,7 +9,6 @@
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "chromeos/chromeos_export.h"
-#include "chromeos/memory/userspace_swap/userspace_swap.mojom.h"
 #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
 
 namespace chromeos {
@@ -19,6 +18,12 @@ namespace userspace_swap {
 class CHROMEOS_EXPORT UserspaceSwapRendererInitializationImpl {
  public:
   UserspaceSwapRendererInitializationImpl();
+
+  UserspaceSwapRendererInitializationImpl(
+      const UserspaceSwapRendererInitializationImpl&) = delete;
+  UserspaceSwapRendererInitializationImpl& operator=(
+      const UserspaceSwapRendererInitializationImpl&) = delete;
+
   ~UserspaceSwapRendererInitializationImpl();
 
   static bool UserspaceSwapSupportedAndEnabled();
@@ -38,7 +43,9 @@ class CHROMEOS_EXPORT UserspaceSwapRendererInitializationImpl {
   int uffd_errno_ = 0;
   base::ScopedFD uffd_;
 
-  DISALLOW_COPY_AND_ASSIGN(UserspaceSwapRendererInitializationImpl);
+  int mmap_errno_ = 0;
+  uint64_t swap_area_ = 0;
+  uint64_t swap_area_len_ = 0;
 };
 
 }  // namespace userspace_swap

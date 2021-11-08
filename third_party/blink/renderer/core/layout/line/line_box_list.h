@@ -29,11 +29,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LINE_LINE_BOX_LIST_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LINE_LINE_BOX_LIST_H_
 
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/api/hit_test_action.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
 

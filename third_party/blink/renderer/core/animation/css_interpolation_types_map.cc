@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/core/animation/css_angle_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_aspect_ratio_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_basic_shape_interpolation_type.h"
@@ -25,6 +25,7 @@
 #include "third_party/blink/renderer/core/animation/css_image_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_image_list_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_image_slice_interpolation_type.h"
+#include "third_party/blink/renderer/core/animation/css_intrinsic_length_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_length_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_length_list_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_length_pair_interpolation_type.h"
@@ -52,8 +53,8 @@
 #include "third_party/blink/renderer/core/css/css_syntax_definition.h"
 #include "third_party/blink/renderer/core/css/properties/css_property.h"
 #include "third_party/blink/renderer/core/css/property_registry.h"
-#include "third_party/blink/renderer/core/feature_policy/layout_animations_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/permissions_policy/layout_animations_policy.h"
 
 namespace blink {
 
@@ -84,28 +85,22 @@ const InterpolationTypes& CSSInterpolationTypesMap::Get(
   DEFINE_STATIC_LOCAL(ApplicableTypesMap, all_applicable_types_map, ());
   DEFINE_STATIC_LOCAL(ApplicableTypesMap, composited_applicable_types_map, ());
 
+  // Custom property interpolation types may change over time so don't trust the
+  // applicable_types_map without checking the registry. Also since the static
+  // map is shared between documents, the registered type may be different in
+  // the different documents.
+  if (registry_ && property.IsCSSCustomProperty()) {
+    if (const auto* registration = GetRegistration(registry_, property))
+      return registration->GetInterpolationTypes();
+  }
+
   ApplicableTypesMap& applicable_types_map =
       allow_all_animations_ ? all_applicable_types_map
                             : composited_applicable_types_map;
 
   auto entry = applicable_types_map.find(property);
-  bool found_entry = entry != applicable_types_map.end();
-
-  // Custom property interpolation types may change over time so don't trust the
-  // applicableTypesMap without checking the registry.
-  if (registry_ && property.IsCSSCustomProperty()) {
-    const auto* registration = GetRegistration(registry_, property);
-    if (registration) {
-      if (found_entry) {
-        applicable_types_map.erase(entry);
-      }
-      return registration->GetInterpolationTypes();
-    }
-  }
-
-  if (found_entry) {
+  if (entry != applicable_types_map.end())
     return *entry->value;
-  }
 
   std::unique_ptr<InterpolationTypes> applicable_types =
       std::make_unique<InterpolationTypes>();
@@ -118,10 +113,10 @@ const InterpolationTypes& CSSInterpolationTypesMap::Get(
   PropertyHandle used_property =
       property.IsCSSProperty() ? property : PropertyHandle(css_property);
   // TODO(crbug.com/838263): Support site-defined list of acceptable properties
-  // through feature policy declarations.
-  bool property_maybe_blocked_by_feature_policy =
+  // through permissions policy declarations.
+  bool property_maybe_blocked_by_permissions_policy =
       LayoutAnimationsPolicy::AffectedCSSProperties().Contains(&css_property);
-  if (allow_all_animations_ || !property_maybe_blocked_by_feature_policy) {
+  if (allow_all_animations_ || !property_maybe_blocked_by_permissions_policy) {
     switch (css_property.PropertyID()) {
       case CSSPropertyID::kBaselineShift:
       case CSSPropertyID::kBorderBottomWidth:
@@ -184,6 +179,12 @@ const InterpolationTypes& CSSInterpolationTypesMap::Get(
         applicable_types->push_back(
             std::make_unique<CSSAspectRatioInterpolationType>(used_property));
         break;
+      case CSSPropertyID::kContainIntrinsicWidth:
+      case CSSPropertyID::kContainIntrinsicHeight:
+        applicable_types->push_back(
+            std::make_unique<CSSIntrinsicLengthInterpolationType>(
+                used_property));
+        break;
       case CSSPropertyID::kFlexGrow:
       case CSSPropertyID::kFlexShrink:
       case CSSPropertyID::kFillOpacity:
@@ -210,6 +211,7 @@ const InterpolationTypes& CSSInterpolationTypesMap::Get(
         applicable_types->push_back(
             std::make_unique<CSSNumberInterpolationType>(used_property));
         break;
+      case CSSPropertyID::kAccentColor:
       case CSSPropertyID::kBackgroundColor:
       case CSSPropertyID::kBorderBottomColor:
       case CSSPropertyID::kBorderLeftColor:
@@ -304,7 +306,6 @@ const InterpolationTypes& CSSInterpolationTypesMap::Get(
       case CSSPropertyID::kBorderBottomRightRadius:
       case CSSPropertyID::kBorderTopLeftRadius:
       case CSSPropertyID::kBorderTopRightRadius:
-      case CSSPropertyID::kContainIntrinsicSize:
         applicable_types->push_back(
             std::make_unique<CSSLengthPairInterpolationType>(used_property));
         break;

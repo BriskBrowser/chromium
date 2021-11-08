@@ -105,7 +105,10 @@ void FaviconTabHelper::OnFaviconUpdated(
 
 void FaviconTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame() ||
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       !navigation_handle->HasCommitted() || navigation_handle->IsErrorPage() ||
       navigation_handle->IsSameDocument()) {
     return;
@@ -118,6 +121,6 @@ void FaviconTabHelper::DidFinishNavigation(
     delegate.OnFaviconChanged(favicon_);
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(FaviconTabHelper)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(FaviconTabHelper);
 
 }  // namespace weblayer

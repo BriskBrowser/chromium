@@ -1,8 +1,8 @@
 This is a testharness.js-based test.
-Found 276 tests; 196 PASS, 80 FAIL, 0 TIMEOUT, 0 NOTRUN.
+Found 275 tests; 195 PASS, 80 FAIL, 0 TIMEOUT, 0 NOTRUN.
 PASS idl_test setup
 PASS idl_test validation
-FAIL USB device setup promise_test: Unhandled rejection with value: object "TypeError: Cannot read property 'configurations' of undefined"
+FAIL USB device setup promise_test: Unhandled rejection with value: object "TypeError: Cannot read properties of undefined (reading 'configurations')"
 PASS Partial interface Navigator: original interface defined
 PASS Partial interface Navigator: valid exposure set
 PASS Partial interface Navigator: member names are unique
@@ -273,7 +273,6 @@ FAIL USBPermissionResult interface: existence and properties of interface protot
 FAIL USBPermissionResult interface: existence and properties of interface prototype object's "constructor" property assert_own_property: self does not have own property "USBPermissionResult" expected property "USBPermissionResult" missing
 FAIL USBPermissionResult interface: existence and properties of interface prototype object's @@unscopables property assert_own_property: self does not have own property "USBPermissionResult" expected property "USBPermissionResult" missing
 FAIL USBPermissionResult interface: attribute devices assert_own_property: self does not have own property "USBPermissionResult" expected property "USBPermissionResult" missing
-PASS Navigator interface: existence and properties of interface object
 PASS WorkerNavigator interface: attribute usb
 PASS WorkerNavigator interface: navigator must inherit property "usb" with the proper type
 Harness: the test ran to completion.

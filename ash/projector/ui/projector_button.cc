@@ -12,6 +12,7 @@
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/background.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/highlight_path_generator.h"
 
 namespace ash {
@@ -21,21 +22,21 @@ constexpr gfx::Insets kButtonPadding{0};
 
 }  // namespace
 
-ProjectorButton::ProjectorButton(views::Button::PressedCallback callback)
-    : ToggleImageButton(callback) {
+ProjectorButton::ProjectorButton(views::Button::PressedCallback callback,
+                                 const std::u16string& name)
+    : ToggleImageButton(callback), name_(name) {
   SetPreferredSize({kProjectorButtonSize, kProjectorButtonSize});
   SetBorder(views::CreateEmptyBorder(kButtonPadding));
 
   // Rounded background.
   views::InstallRoundRectHighlightPathGenerator(this, gfx::Insets(),
                                                 kProjectorButtonSize / 2.f);
-}
 
-std::unique_ptr<views::InkDrop> ProjectorButton::CreateInkDrop() {
-  std::unique_ptr<views::InkDrop> ink_drop = views::Button::CreateInkDrop();
-  ink_drop->SetShowHighlightOnHover(true);
-  ink_drop->SetShowHighlightOnFocus(true);
-  return ink_drop;
+  views::InkDrop::UseInkDropForFloodFillRipple(views::InkDrop::Get(this),
+                                               /*highlight_on_hover=*/true,
+                                               /*highlight_on_focus=*/true);
+
+  SetTooltipText(name);
 }
 
 void ProjectorButton::OnPaintBackground(gfx::Canvas* canvas) {
@@ -58,10 +59,16 @@ void ProjectorButton::OnThemeChanged() {
   // Ink Drop.
   const AshColorProvider::RippleAttributes ripple_attributes =
       AshColorProvider::Get()->GetRippleAttributes();
-  SetInkDropMode(views::InkDropHostView::InkDropMode::ON);
+  views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
   SetHasInkDropActionOnClick(true);
-  SetInkDropBaseColor(ripple_attributes.base_color);
-  SetInkDropHighlightOpacity(ripple_attributes.highlight_opacity);
+  views::InkDrop::Get(this)->SetBaseColor(ripple_attributes.base_color);
+  views::InkDrop::Get(this)->SetHighlightOpacity(
+      ripple_attributes.highlight_opacity);
+}
+
+void ProjectorButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ax::mojom::Role::kButton;
+  node_data->SetName(name_);
 }
 
 }  // namespace ash

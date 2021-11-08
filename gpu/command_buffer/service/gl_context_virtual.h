@@ -6,7 +6,6 @@
 #define GPU_COMMAND_BUFFER_SERVICE_GL_CONTEXT_VIRTUAL_H_
 
 #include <string>
-#include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -29,6 +28,9 @@ class GPU_GLES2_EXPORT GLContextVirtual : public gl::GLContext {
   GLContextVirtual(gl::GLShareGroup* share_group,
                    gl::GLContext* shared_context,
                    base::WeakPtr<GLContextVirtualDelegate> delegate);
+
+  GLContextVirtual(const GLContextVirtual&) = delete;
+  GLContextVirtual& operator=(const GLContextVirtual&) = delete;
 
   // Implement GLContext.
   bool Initialize(gl::GLSurface* compatible_surface,
@@ -62,8 +64,6 @@ class GPU_GLES2_EXPORT GLContextVirtual : public gl::GLContext {
 
   scoped_refptr<gl::GLContext> shared_context_;
   base::WeakPtr<GLContextVirtualDelegate> delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(GLContextVirtual);
 };
 
 }  // namespace gpu

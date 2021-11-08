@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/stl_util.h"
 #include "components/password_manager/core/browser/credentials_filter.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -35,6 +36,7 @@ void StubPasswordManagerClient::HideManualFallbackForSaving() {}
 
 void StubPasswordManagerClient::FocusedInputChanged(
     password_manager::PasswordManagerDriver* driver,
+    autofill::FieldRendererId focused_field_id,
     autofill::mojom::FocusedFieldType focused_field_type) {}
 
 bool StubPasswordManagerClient::PromptUserToChooseCredentials(
@@ -63,11 +65,18 @@ PrefService* StubPasswordManagerClient::GetPrefs() const {
   return nullptr;
 }
 
-PasswordStore* StubPasswordManagerClient::GetProfilePasswordStore() const {
+PasswordStoreInterface* StubPasswordManagerClient::GetProfilePasswordStore()
+    const {
   return nullptr;
 }
 
-PasswordStore* StubPasswordManagerClient::GetAccountPasswordStore() const {
+PasswordStoreInterface* StubPasswordManagerClient::GetAccountPasswordStore()
+    const {
+  return nullptr;
+}
+
+PasswordReuseManager* StubPasswordManagerClient::GetPasswordReuseManager()
+    const {
   return nullptr;
 }
 

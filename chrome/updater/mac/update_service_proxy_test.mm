@@ -18,7 +18,6 @@
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_policy.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
@@ -29,10 +28,11 @@
 #import "chrome/updater/app/server/mac/update_service_wrappers.h"
 #include "chrome/updater/mac/scoped_xpc_service_mock.h"
 #import "chrome/updater/mac/xpc_service_names.h"
-#include "chrome/updater/service_scope.h"
 #include "chrome/updater/unittest_util.h"
+#include "chrome/updater/updater_scope.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #include "third_party/ocmock/gtest_support.h"
 
@@ -294,7 +294,7 @@ void MacUpdateServiceProxyTest::SetUp() {
   base::SequencedTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindLambdaForTesting([this]() {
         service_ =
-            base::MakeRefCounted<UpdateServiceProxy>(ServiceScope::kUser);
+            base::MakeRefCounted<UpdateServiceProxy>(UpdaterScope::kUser);
       }));
 }
 
@@ -444,8 +444,8 @@ StateChangeTestEngine::StatePair UpdatedStates(const std::string& app_id,
 }
 
 #pragma mark Test cases
-
-TEST_F(MacUpdateServiceProxyTest, NoProductsUpdateAll) {
+// TODO(crbug.com/1247504): Flaky on macOS 10.12.6.
+TEST_F(MacUpdateServiceProxyTest, DISABLED_NoProductsUpdateAll) {
   ScopedXPCServiceMock::ConnectionMockRecord* conn_rec =
       mock_driver_.PrepareNewMockConnection();
   ScopedXPCServiceMock::RemoteObjectMockRecord* mock_rec =

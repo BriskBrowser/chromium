@@ -5,10 +5,10 @@
 function dumpBackgroundServiceGrid() {
   TestRunner.addResult('Grid Entries:');
 
-  const treeElement = UI.panels.resources._sidebar.backgroundFetchTreeElement;
+  const treeElement = UI.panels.resources.sidebar.backgroundFetchTreeElement;
   treeElement.onselect(false);
 
-  const dataGrid = treeElement._view._dataGrid;
+  const dataGrid = treeElement.view.dataGrid;
   if (!dataGrid.rootNode().children.length) {
     TestRunner.addResult('    [empty]');
     return;
@@ -29,17 +29,18 @@ function dumpBackgroundServiceGrid() {
 };
 
 function setOriginCheckbox(value) {
-  const treeElement = UI.panels.resources._sidebar.backgroundFetchTreeElement;
+  const treeElement = UI.panels.resources.sidebar.backgroundFetchTreeElement;
   treeElement.onselect(false);
-  treeElement._view._originCheckbox.setChecked(value);
+  treeElement.view.originCheckbox.setChecked(value);
   // Simulate click.
-  treeElement._view._refreshView();
+  treeElement.view.refreshView();
 }
 
 (async function() {
   Root.Runtime.experiments.setEnabled('backgroundServices', true);
 
   TestRunner.addResult(`Tests that the grid shows information as expected.\n`);
+  await TestRunner.loadLegacyModule('resources');
   await TestRunner.showPanel('resources');
 
   const backgroundServiceModel = TestRunner.mainTarget.model(Resources.BackgroundServiceModel);
@@ -100,7 +101,7 @@ function setOriginCheckbox(value) {
   dumpBackgroundServiceGrid();
 
   // Simulate clicking the clear button.
-  UI.panels.resources._sidebar.backgroundFetchTreeElement._view._clearEvents();
+  UI.panels.resources.sidebar.backgroundFetchTreeElement.view.clearEvents();
   dumpBackgroundServiceGrid();
 
   TestRunner.completeTest();

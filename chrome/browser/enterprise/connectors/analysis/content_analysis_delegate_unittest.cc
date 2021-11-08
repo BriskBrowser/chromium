@@ -16,6 +16,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
@@ -34,8 +35,8 @@
 #include "components/enterprise/common/proto/connectors.pb.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
-#include "components/safe_browsing/core/features.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
@@ -137,12 +138,13 @@ class BaseTest : public testing::Test {
 
   void CreateFilesForTest(
       const std::vector<base::FilePath::StringType>& file_names,
-      ContentAnalysisDelegate::Data* data) {
+      ContentAnalysisDelegate::Data* data,
+      const std::string& content = "content") {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     for (const auto& file_name : file_names) {
       base::FilePath path = temp_dir_.GetPath().Append(file_name);
       base::File file(path, base::File::FLAG_CREATE | base::File::FLAG_WRITE);
-      file.WriteAtCurrentPos("content", 7);
+      file.WriteAtCurrentPos(content.data(), content.size());
       data->paths.emplace_back(path);
     }
   }
@@ -401,7 +403,6 @@ TEST_F(ContentAnalysisDelegateIsEnabledTest, DlpDisabledByListWithPatterns) {
               "url_list": [
                 "http://example.com/",
                 "https://*",
-                "chrome://*",
                 "devtools://*",
                 "*/a/specific/path/",
                 "*:1234",
@@ -417,7 +418,6 @@ TEST_F(ContentAnalysisDelegateIsEnabledTest, DlpDisabledByListWithPatterns) {
   ValidateIsEnabled("http://google.com", /*dlp*/ true, /*malware*/ false);
   ValidateIsEnabled("https://google.com", /*dlp*/ false, /*malware*/ false);
   ValidateIsEnabled("custom://google.com", /*dlp*/ true, /*malware*/ false);
-  ValidateIsEnabled("chrome://version/", /*dlp*/ false, /*malware*/ false);
   ValidateIsEnabled("custom://version", /*dlp*/ true, /*malware*/ false);
   ValidateIsEnabled("devtools://devtools/bundled/inspector.html", /*dlp*/ false,
                     /*malware*/ false);
@@ -513,12 +513,14 @@ TEST_F(ContentAnalysisDelegateIsEnabledTest, NoScanInIncognito) {
 
   // The same URL should not trigger a scan in incognito.
   EXPECT_FALSE(ContentAnalysisDelegate::IsEnabled(
-      profile()->GetPrimaryOTRProfile(), url, &data, FILE_ATTACHED));
+      profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true), url, &data,
+      FILE_ATTACHED));
 
   // The same URL should not trigger a scan in non-primary OTR profiles
   EXPECT_FALSE(ContentAnalysisDelegate::IsEnabled(
       profile()->GetOffTheRecordProfile(
-          Profile::OTRProfileID("Test::DeepScanning")),
+          Profile::OTRProfileID::CreateUniqueForTesting(),
+          /*create_if_needed=*/true),
       url, &data, FILE_ATTACHED));
 }
 
@@ -535,7 +537,6 @@ TEST_F(ContentAnalysisDelegateIsEnabledTest, MalwareEnabledWithPatterns) {
               "url_list": [
                 "http://example.com/",
                 "https://*",
-                "chrome://*",
                 "devtools://*",
                 "*/a/specific/path/",
                 "*:1234",
@@ -553,7 +554,6 @@ TEST_F(ContentAnalysisDelegateIsEnabledTest, MalwareEnabledWithPatterns) {
   ValidateIsEnabled("http://google.com", /*dlp*/ false, /*malware*/ false);
   ValidateIsEnabled("https://google.com", /*dlp*/ false, /*malware*/ true);
   ValidateIsEnabled("custom://google.com", /*dlp*/ false, /*malware*/ false);
-  ValidateIsEnabled("chrome://version/", /*dlp*/ false, /*malware*/ true);
   ValidateIsEnabled("custom://version", /*dlp*/ false, /*malware*/ false);
   ValidateIsEnabled("devtools://devtools/bundled/inspector.html", /*dlp*/ false,
                     /*malware*/ true);
@@ -671,7 +671,7 @@ class ContentAnalysisDelegateAuditOnlyTest : public BaseTest {
   std::set<base::FilePath> encrypted_;
 
   // DLP response to ovewrite in the callback if present.
-  base::Optional<ContentAnalysisResponse> dlp_response_ = base::nullopt;
+  absl::optional<ContentAnalysisResponse> dlp_response_ = absl::nullopt;
 };
 
 TEST_F(ContentAnalysisDelegateAuditOnlyTest, Empty) {
@@ -704,7 +704,7 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, StringData) {
   ASSERT_TRUE(ContentAnalysisDelegate::IsEnabled(profile(), url, &data,
                                                  BULK_DATA_ENTRY));
 
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
+  data.text.emplace_back(large_text());
 
   bool called = false;
   ScanUpload(contents(), std::move(data),
@@ -729,8 +729,8 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, StringData2) {
   ASSERT_TRUE(ContentAnalysisDelegate::IsEnabled(profile(), url, &data,
                                                  BULK_DATA_ENTRY));
 
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
+  data.text.emplace_back(large_text());
+  data.text.emplace_back(large_text());
 
   bool called = false;
   ScanUpload(contents(), std::move(data),
@@ -758,8 +758,8 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, StringData3) {
 
   // Because the strings are small, they are exempt from scanning and will be
   // allowed even when a negative verdict is mocked.
-  data.text.emplace_back(base::UTF8ToUTF16(small_text()));
-  data.text.emplace_back(base::UTF8ToUTF16(small_text()));
+  data.text.emplace_back(small_text());
+  data.text.emplace_back(small_text());
 
   SetDLPResponse(FakeContentAnalysisDelegate::DlpResponse(
       ContentAnalysisResponse::Result::SUCCESS, "rule", TriggeredRule::BLOCK));
@@ -1089,7 +1089,7 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, StringFileData) {
   ASSERT_TRUE(ContentAnalysisDelegate::IsEnabled(profile(), url, &data,
                                                  BULK_DATA_ENTRY));
 
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
+  data.text.emplace_back(large_text());
   CreateFilesForTest(
       {FILE_PATH_LITERAL("foo.doc"), FILE_PATH_LITERAL("bar.doc")}, &data);
 
@@ -1120,8 +1120,8 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, StringFileDataNoDLP) {
   ASSERT_TRUE(ContentAnalysisDelegate::IsEnabled(profile(), url, &data,
                                                  BULK_DATA_ENTRY));
 
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
+  data.text.emplace_back(large_text());
+  data.text.emplace_back(large_text());
   CreateFilesForTest(
       {FILE_PATH_LITERAL("foo.doc"), FILE_PATH_LITERAL("bar.doc")}, &data);
 
@@ -1152,8 +1152,8 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, StringFileDataFailedDLP) {
   ASSERT_TRUE(ContentAnalysisDelegate::IsEnabled(profile(), url, &data,
                                                  BULK_DATA_ENTRY));
 
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
+  data.text.emplace_back(large_text());
+  data.text.emplace_back(large_text());
 
   SetDLPResponse(FakeContentAnalysisDelegate::DlpResponse(
       ContentAnalysisResponse::Result::SUCCESS, "rule", TriggeredRule::BLOCK));
@@ -1182,7 +1182,7 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, StringFileDataPartialSuccess) {
   ASSERT_TRUE(ContentAnalysisDelegate::IsEnabled(profile(), url, &data,
                                                  BULK_DATA_ENTRY));
 
-  data.text.emplace_back(base::UTF8ToUTF16(large_text()));
+  data.text.emplace_back(large_text());
   CreateFilesForTest({FILE_PATH_LITERAL("foo.doc"),
                       FILE_PATH_LITERAL("foo_fail_malware_1.doc"),
                       FILE_PATH_LITERAL("foo_fail_malware_2.doc"),
@@ -1241,7 +1241,7 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, NoDelay) {
   ASSERT_TRUE(
       ContentAnalysisDelegate::IsEnabled(profile(), url, &data, FILE_ATTACHED));
 
-  data.text.emplace_back(base::UTF8ToUTF16("dlp_text"));
+  data.text.emplace_back("dlp_text");
   CreateFilesForTest({FILE_PATH_LITERAL("foo_fail_malware_0.doc"),
                       FILE_PATH_LITERAL("foo_fail_malware_1.doc"),
                       FILE_PATH_LITERAL("foo_fail_malware_2.doc"),
@@ -1339,12 +1339,12 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, SupportedTypes) {
              base::BindOnce(
                  [](bool* called, const ContentAnalysisDelegate::Data& data,
                     const ContentAnalysisDelegate::Result& result) {
-                   EXPECT_EQ(24u, data.paths.size());
-                   EXPECT_EQ(24u, result.paths_results.size());
+                   EXPECT_EQ(26u, data.paths.size());
+                   EXPECT_EQ(26u, result.paths_results.size());
 
                    // The supported types should be marked as false.
-                   for (const auto& result : result.paths_results)
-                     EXPECT_FALSE(result);
+                   for (auto paths_result : result.paths_results)
+                     EXPECT_FALSE(paths_result);
                    *called = true;
                  },
                  &called));
@@ -1359,11 +1359,13 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, UnsupportedTypesDefaultPolicy) {
   ASSERT_TRUE(
       ContentAnalysisDelegate::IsEnabled(profile(), url, &data, FILE_ATTACHED));
 
+  // The file content bytes correspond to an unsupported type (png) so that
+  // sniffing doesn't indicate the file is supported.
   CreateFilesForTest(
       {FILE_PATH_LITERAL("foo.these"), FILE_PATH_LITERAL("foo.file"),
        FILE_PATH_LITERAL("foo.types"), FILE_PATH_LITERAL("foo.are"),
        FILE_PATH_LITERAL("foo.not"), FILE_PATH_LITERAL("foo.supported")},
-      &data);
+      &data, /*content*/ "\x89PNG\x0D\x0A\x1A\x0A");
 
   // Mark all files with failed scans.
   for (const auto& path : data.paths) {
@@ -1409,11 +1411,13 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, UnsupportedTypesBlockPolicy) {
   EXPECT_TRUE(
       ContentAnalysisDelegate::IsEnabled(profile(), url, &data, FILE_ATTACHED));
 
+  // The file content bytes correspond to an unsupported type (png) so that
+  // sniffing doesn't indicate the file is supported.
   CreateFilesForTest(
       {FILE_PATH_LITERAL("foo.these"), FILE_PATH_LITERAL("foo.file"),
        FILE_PATH_LITERAL("foo.types"), FILE_PATH_LITERAL("foo.are"),
        FILE_PATH_LITERAL("foo.not"), FILE_PATH_LITERAL("foo.supported")},
-      &data);
+      &data, /*content*/ "\x89PNG\x0D\x0A\x1A\x0A");
 
   // Mark all files with failed scans.
   for (const auto& path : data.paths) {
@@ -1449,14 +1453,16 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, SupportedAndUnsupportedTypes) {
       ContentAnalysisDelegate::IsEnabled(profile(), url, &data, FILE_ATTACHED));
 
   // Only 3 of these file types are supported (bzip, cab and doc). They are
-  // mixed in the list so as to show that insertion order does not matter.
+  // mixed in the list so as to show that insertion order does not matter. The
+  // file content bytes correspond to an unsupported type (png) so that sniffing
+  // doesn't indicate the file is supported.
   CreateFilesForTest(
       {FILE_PATH_LITERAL("foo.bzip"), FILE_PATH_LITERAL("foo.these"),
        FILE_PATH_LITERAL("foo.file"), FILE_PATH_LITERAL("foo.types"),
        FILE_PATH_LITERAL("foo.cab"), FILE_PATH_LITERAL("foo.are"),
        FILE_PATH_LITERAL("foo.not"), FILE_PATH_LITERAL("foo.supported"),
        FILE_PATH_LITERAL("foo_no_extension"), FILE_PATH_LITERAL("foo.doc")},
-      &data);
+      &data, /*content*/ "\x89PNG\x0D\x0A\x1A\x0A");
 
   // Mark all files with failed scans.
   for (const auto& path : data.paths) {
@@ -1496,9 +1502,11 @@ TEST_F(ContentAnalysisDelegateAuditOnlyTest, UnsupportedTypeAndDLPFailure) {
   ASSERT_TRUE(
       ContentAnalysisDelegate::IsEnabled(profile(), url, &data, FILE_ATTACHED));
 
+  // The file content bytes correspond to an unsupported type (png) so that
+  // sniffing doesn't indicate the file is supported.
   CreateFilesForTest({FILE_PATH_LITERAL("foo.unsupported_extension"),
                       FILE_PATH_LITERAL("dlp_fail.doc")},
-                     &data);
+                     &data, /*content*/ "\x89PNG\x0D\x0A\x1A\x0A");
 
   // Mark DLP as failure.
   SetDLPResponse(FakeContentAnalysisDelegate::DlpResponse(
@@ -1623,7 +1631,7 @@ class ContentAnalysisDelegateSettingsTest
   const char* bool_setting() const { return GetParam() ? "true" : "false"; }
 
   AnalysisSettings settings() {
-    base::Optional<AnalysisSettings> settings =
+    absl::optional<AnalysisSettings> settings =
         ConnectorsServiceFactory::GetForBrowserContext(profile())
             ->GetAnalysisSettings(GURL(kTestUrl), FILE_ATTACHED);
     EXPECT_TRUE(settings.has_value());

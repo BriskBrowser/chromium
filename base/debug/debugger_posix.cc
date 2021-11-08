@@ -15,12 +15,10 @@
 #include <unistd.h>
 
 #include <memory>
-#include <vector>
 
 #include "base/check_op.h"
-#include "base/clang_profiling_buildflags.h"
+#include "base/cxx17_backports.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
@@ -42,11 +40,6 @@
 #include <sys/user.h>
 #endif
 
-#if defined(OS_FUCHSIA)
-#include <zircon/process.h>
-#include <zircon/syscalls.h>
-#endif
-
 #include <ostream>
 
 #include "base/check.h"
@@ -58,10 +51,6 @@
 #include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
-
-#if BUILDFLAG(CLANG_PROFILING)
-#include "base/test/clang_profiling.h"
-#endif
 
 #if defined(USE_SYMBOLIZE)
 #include "base/third_party/symbolize/symbolize.h"
@@ -146,7 +135,7 @@ void VerifyDebugger() {
       << "Detected lldb without sourcing //tools/lldb/lldbinit.py. lldb may "
          "not be able to find debug symbols. Please see debug instructions for "
          "using //tools/lldb/lldbinit.py:\n"
-         "https://chromium.googlesource.com/chromium/src/+/master/docs/"
+         "https://chromium.googlesource.com/chromium/src/+/main/docs/"
          "lldbinit.md\n"
          "To continue anyway, type 'continue' in lldb. To always skip this "
          "check, define an environment variable CHROMIUM_LLDBINIT_SOURCED=1";
@@ -229,25 +218,12 @@ void VerifyDebugger() {
       << "Detected gdb without sourcing //tools/gdb/gdbinit.  gdb may not be "
          "able to find debug symbols, and pretty-printing of STL types may not "
          "work.  Please see debug instructions for using //tools/gdb/gdbinit:\n"
-         "https://chromium.googlesource.com/chromium/src/+/master/docs/"
+         "https://chromium.googlesource.com/chromium/src/+/main/docs/"
          "gdbinit.md\n"
          "To continue anyway, type 'continue' in gdb.  To always skip this "
          "check, define an environment variable CHROMIUM_GDBINIT_SOURCED=1";
 #endif
 }
-
-#elif defined(OS_FUCHSIA)
-
-bool BeingDebugged() {
-  zx_info_process_t info = {};
-  // Ignore failures. The 0-initialization above will result in "false" for
-  // error cases.
-  zx_object_get_info(zx_process_self(), ZX_INFO_PROCESS, &info, sizeof(info),
-                     nullptr, nullptr);
-  return info.debugger_attached;
-}
-
-void VerifyDebugger() {}
 
 #else
 
@@ -315,7 +291,7 @@ void DebugBreak() {
 #else
     volatile int go = 0;
     while (!go)
-      PlatformThread::Sleep(TimeDelta::FromMilliseconds(100));
+      PlatformThread::Sleep(Milliseconds(100));
 #endif
   }
 }
@@ -327,11 +303,7 @@ void DebugBreak() {
 #error "Don't know how to debug break on this architecture/OS"
 #endif
 
-void BreakDebugger() {
-#if BUILDFLAG(CLANG_PROFILING)
-  WriteClangProfilingProfile();
-#endif
-
+void BreakDebuggerAsyncSafe() {
   // NOTE: This code MUST be async-signal safe (it's used by in-process
   // stack dumping signal handler). NO malloc or stdio is allowed here.
 

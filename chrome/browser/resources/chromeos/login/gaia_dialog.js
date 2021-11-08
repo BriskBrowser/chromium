@@ -7,7 +7,12 @@
  * authenticator.js and SAML notice handling.
  */
 
-// TODO(https://crbug.com/1171232): Make it compiled by closure.
+'use strict';
+
+(function() {
+
+const CHROMEOS_GAIA_PASSWORD_METRIC = 'ChromeOS.Gaia.PasswordFlow';
+
 Polymer({
   is: 'gaia-dialog',
 
@@ -36,6 +41,14 @@ Polymer({
      * Whether SAML IdP page is shown
      */
     isSamlSsoVisible: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * Whether to hide back button if form can't go back.
+     */
+    hideBackButtonIfCantGoBack: {
       type: Boolean,
       value: false,
     },
@@ -130,7 +143,6 @@ Polymer({
     },
   },
 
-
   /**
    * Emulate click on the primary action button when it is visible and enabled.
    * @type {boolean}
@@ -142,10 +154,7 @@ Polymer({
    * @type {!cr.login.Authenticator|undefined}
    * @private
    */
-  authenticator_: {
-    type: Object,
-    value: undefined,
-  },
+  authenticator_: undefined,
 
   getAuthenticator() {
     return this.authenticator_;
@@ -212,9 +221,35 @@ Polymer({
       },
       'dialogShown': (e) => {
         this.navigationEnabled = false;
+        chrome.send('enableShelfButtons', [false]);
       },
       'dialogHidden': (e) => {
         this.navigationEnabled = true;
+        chrome.send('enableShelfButtons', [true]);
+      },
+      'exit': (e) => {
+        this.fire('exit', e.detail);
+      },
+      'removeUserByEmail': (e) => {
+        this.fire('removeuserbyemail', e.detail);
+      },
+      'apiPasswordAdded': (e) => {
+        // Only record the metric for Gaia flow without 3rd-party SAML IdP.
+        if (this.authFlow !== cr.login.Authenticator.AuthFlow.DEFAULT)
+          return;
+        chrome.send(
+            'metricsHandler:recordBooleanHistogram',
+            [CHROMEOS_GAIA_PASSWORD_METRIC, false]);
+        chrome.send('passwordEntered');
+      },
+      'authCompleted': (e) => {
+        // Only record the metric for Gaia flow without 3rd-party SAML IdP.
+        if (this.authFlow === cr.login.Authenticator.AuthFlow.DEFAULT) {
+          chrome.send(
+              'metricsHandler:recordBooleanHistogram',
+              [CHROMEOS_GAIA_PASSWORD_METRIC, true]);
+        }
+        this.fire('authcompleted', e.detail);
       },
     };
 
@@ -222,6 +257,13 @@ Polymer({
       this.authenticator_.addEventListener(
           eventName, authenticatorEventListeners[eventName].bind(this));
     }
+
+    cr.sendWithPromise('getIsSshConfigured')
+        .then(this.updateSshWarningVisibility.bind(this));
+  },
+
+  updateSshWarningVisibility(show) {
+    this.$.sshWarning.hidden = !show;
   },
 
   show() {
@@ -232,7 +274,7 @@ Polymer({
     // Note: Can't use |this.$|, since it returns cached references to elements
     // originally present in DOM, while the signin-frame is  dynamically
     // recreated (see Authenticator.setWebviewPartition()).
-    return this.$$('#signin-frame');
+    return this.shadowRoot.querySelector('#signin-frame');
   },
 
   clickPrimaryButtonForTesting() {
@@ -302,6 +344,16 @@ Polymer({
   },
 
   /**
+   * Whether the back button is hidden.
+   * @param {boolean} hideBackButtonIfCantGoBack - whether it should be hidden.
+   * @param {boolean} canGoBack - whether the form can go back.
+   * @private
+   */
+  isBackButtonHidden(hideBackButtonIfCantGoBack, canGoBack) {
+    return hideBackButtonIfCantGoBack && !canGoBack;
+  },
+
+  /**
    * Whether popup overlay should be open.
    * @param {boolean} navigationEnabled
    * @param {boolean} isSamlSsoVisible
@@ -312,3 +364,4 @@ Polymer({
   },
 
 });
+})();

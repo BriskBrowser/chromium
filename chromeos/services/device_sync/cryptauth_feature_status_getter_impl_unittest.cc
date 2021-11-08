@@ -8,10 +8,10 @@
 #include <string>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/timer/mock_timer.h"
 #include "chromeos/components/multidevice/software_feature.h"
 #include "chromeos/components/multidevice/software_feature_state.h"
@@ -27,6 +27,7 @@
 #include "chromeos/services/device_sync/proto/cryptauth_devicesync.pb.h"
 #include "chromeos/services/device_sync/proto/cryptauth_v2_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -106,6 +107,12 @@ cryptauthv2::DeviceFeatureStatus ConvertDeviceToDeviceFeatureStatus(
 class DeviceSyncCryptAuthFeatureStatusGetterImplTest
     : public testing::Test,
       public MockCryptAuthClientFactory::Observer {
+ public:
+  DeviceSyncCryptAuthFeatureStatusGetterImplTest(
+      const DeviceSyncCryptAuthFeatureStatusGetterImplTest&) = delete;
+  DeviceSyncCryptAuthFeatureStatusGetterImplTest& operator=(
+      const DeviceSyncCryptAuthFeatureStatusGetterImplTest&) = delete;
+
  protected:
   DeviceSyncCryptAuthFeatureStatusGetterImplTest()
       : client_factory_(std::make_unique<MockCryptAuthClientFactory>(
@@ -170,7 +177,7 @@ class DeviceSyncCryptAuthFeatureStatusGetterImplTest
       const base::flat_set<CryptAuthFeatureType>& feature_types) {
     cryptauthv2::BatchGetFeatureStatusesResponse response;
     for (const std::string& device_id : device_ids) {
-      base::Optional<CryptAuthDevice> device = GetTestDeviceWithId(device_id);
+      absl::optional<CryptAuthDevice> device = GetTestDeviceWithId(device_id);
       if (!device)
         continue;
 
@@ -237,7 +244,7 @@ class DeviceSyncCryptAuthFeatureStatusGetterImplTest
     device_sync_result_code_ = device_sync_result_code;
   }
 
-  base::Optional<cryptauthv2::BatchGetFeatureStatusesRequest>
+  absl::optional<cryptauthv2::BatchGetFeatureStatusesRequest>
       batch_get_feature_statuses_request_;
   CryptAuthClient::BatchGetFeatureStatusesCallback
       batch_get_feature_statuses_success_callback_;
@@ -245,15 +252,13 @@ class DeviceSyncCryptAuthFeatureStatusGetterImplTest
 
   CryptAuthFeatureStatusGetter::IdToDeviceSoftwareFeatureInfoMap
       id_to_device_software_feature_info_map_;
-  base::Optional<CryptAuthDeviceSyncResult::ResultCode>
+  absl::optional<CryptAuthDeviceSyncResult::ResultCode>
       device_sync_result_code_;
 
   std::unique_ptr<MockCryptAuthClientFactory> client_factory_;
   base::MockOneShotTimer* timer_;
 
   std::unique_ptr<CryptAuthFeatureStatusGetter> feature_status_getter_;
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceSyncCryptAuthFeatureStatusGetterImplTest);
 };
 
 TEST_F(DeviceSyncCryptAuthFeatureStatusGetterImplTest, Success) {

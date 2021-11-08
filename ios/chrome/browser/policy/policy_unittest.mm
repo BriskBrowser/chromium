@@ -39,6 +39,8 @@ class PolicyTest : public PlatformTest {
         switches::kEnableEnterprisePolicy);
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kInstallURLBlocklistHandlers);
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kEnableForcedSignInPolicy);
   }
 
   void SetUp() override {
@@ -78,10 +80,9 @@ TEST_F(PolicyTest, AllPoliciesHaveATestCase) {
 }
 
 TEST_F(PolicyTest, PolicyToPrefMappings) {
-  const std::string no_skipped_prefix;
   policy::VerifyPolicyToPrefMappings(
       policy_test_cases_path_, enterprise_policy_helper_->GetLocalState(),
       enterprise_policy_helper_->GetBrowserState()->GetPrefs(),
       /* signin_profile_prefs= */ nullptr,
-      enterprise_policy_helper_->GetPolicyProvider(), no_skipped_prefix);
+      enterprise_policy_helper_->GetPolicyProvider());
 }

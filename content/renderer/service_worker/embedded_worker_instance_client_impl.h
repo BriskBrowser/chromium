@@ -26,9 +26,7 @@ class ServiceWorkerContextClient;
 // the Mojo connection to the browser breaks first, the instance waits for the
 // service worker to stop and then deletes itself.
 //
-// All methods are called on the thread that creates the instance of this class.
-// Currently it's the main thread but it could be a background thread in the
-// future. https://crbug.com/692909
+// Created and lives on a ThreadPool background thread.
 class CONTENT_EXPORT EmbeddedWorkerInstanceClientImpl
     : public blink::mojom::EmbeddedWorkerInstanceClient {
  public:
@@ -58,6 +56,11 @@ class CONTENT_EXPORT EmbeddedWorkerInstanceClientImpl
       const std::vector<std::string>& cors_exempt_header_list,
       mojo::PendingReceiver<blink::mojom::EmbeddedWorkerInstanceClient>
           receiver);
+
+  EmbeddedWorkerInstanceClientImpl(const EmbeddedWorkerInstanceClientImpl&) =
+      delete;
+  EmbeddedWorkerInstanceClientImpl& operator=(
+      const EmbeddedWorkerInstanceClientImpl&) = delete;
 
   ~EmbeddedWorkerInstanceClientImpl() override;
 
@@ -96,8 +99,6 @@ class CONTENT_EXPORT EmbeddedWorkerInstanceClientImpl
 
   // nullptr means worker is not running.
   std::unique_ptr<ServiceWorkerContextClient> service_worker_context_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(EmbeddedWorkerInstanceClientImpl);
 };
 
 }  // namespace content

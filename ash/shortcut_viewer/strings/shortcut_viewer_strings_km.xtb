@@ -5,7 +5,6 @@
 <translation id="104962181688258143">បើក​កម្មវិធី​ឯកសារ</translation>
 <translation id="1122869341872663659">កំពុងបង្ហាញ​លទ្ធផល​ស្វែងរក​ចំនួន <ph name="N" /> សម្រាប់ <ph name="QUERY" /></translation>
 <translation id="1195667586424773550">អូស​តំណ​ទៅ​របារអាសយដ្ឋាន​របស់ផ្ទាំង</translation>
-<translation id="1204450209689312104">បើក​វិនដូ​ថ្មី​ក្នុង​មុខងារ​ឯកជន</translation>
 <translation id="1251638888133819822">បិទ ឬបើក​កែវពង្រីក​ពេញអេក្រង់</translation>
 <translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /></translation>
 <translation id="1293699935367580298">Esc</translation>
@@ -15,6 +14,7 @@
 <translation id="1477442857810932985">ទៅកាន់ផ្នែក​ខាងចុងបន្ទាត់</translation>
 <translation id="1499072997694708844">បិទ​វិនដូស្វែងរកទាំងឡាយ ឬបញ្ឈប់ការផ្ទុកទំព័រ​បច្ចុប្បន្ន​របស់អ្នក</translation>
 <translation id="1510238584712386396">ឡាន់ឆ័រ</translation>
+<translation id="1516966594427080024">បើក​វិនដូថ្មី​នៅក្នុង​មុខងារ​ឯកជន</translation>
 <translation id="152892567002884378">បង្កើន​សំឡេង</translation>
 <translation id="1560480564179555003"><ph name="SHIFT" /><ph name="SEPARATOR1" /><ph name="ALT" /><ph name="SEPARATOR2" /><ph name="L" /> បន្ទាប់មក <ph name="ESC" /></translation>
 <translation id="1652741121070700329">ផ្លាស់ទី​ទៅ​ផ្នែក​ដំបូង​នៃ​ពាក្យពីមុន</translation>
@@ -29,6 +29,7 @@
 <translation id="1996162290124031907">ទៅកាន់​ផ្ទាំង​បន្ទាប់</translation>
 <translation id="2010818616644390445">ទៅ​កាន់​ផ្ទាំងចុងក្រោយ​នៅក្នុង​វិនដូ</translation>
 <translation id="2040706009561734834">បើក/បិទ​កម្មវិធី​ចាប់ផ្ដើម</translation>
+<translation id="2086334242442703436">បើកផ្ទាំង​ជ្រើសរើស​រូបអារម្មណ៍</translation>
 <translation id="2088054208777350526">ស្វែងរក​ផ្លូវកាត់​ក្តារចុច</translation>
 <translation id="2125211348069077981"><ph name="ALT" /><ph name="SEPARATOR" /><ph name="E" /> ឬ <ph name="F" /></translation>
 <translation id="2145908266289632567">ការ​កែ​សម្រួល​អត្ថបទ</translation>
@@ -51,7 +52,6 @@
 <translation id="2530339807289914946">រំកិល​ទំព័រ​ចុះក្រោម</translation>
 <translation id="2530896289327917474">បើក ឬបិទ​មុខងារ caret browsing</translation>
 <translation id="2574014812750545982">កំណត់​កម្រិត​ពង្រីកបង្រួម​នៅលើទំព័រឡើងវិញ</translation>
-<translation id="2596078834055697711">ថត​រូបថត​អេក្រង់​វិនដូ</translation>
 <translation id="2685170433750953446"><ph name="SHIFT" /><ph name="SEPARATOR1" /><ph name="ALT" /><ph name="SEPARATOR2" /><ph name="L" /> បន្ទាប់មក <ph name="TAB" /> ឬ <ph name="RIGHT" /></translation>
 <translation id="2750942583782703988">ផ្ទុក​ទំព័រ​បច្ចុប្បន្ន​របស់អ្នកឡើងវិញ</translation>
 <translation id="2764005613199379871">ដាក់ការ​ផ្ដោត​នៅក្នុង​របារស្វែងរក​អាសយដ្ឋាន</translation>
@@ -66,12 +66,13 @@
 <translation id="3020183492814296499">ផ្លូវកាត់</translation>
 <translation id="3084301071537457911">រំលេច​ធាតុ​បន្ទាប់​នៅលើ​ធ្នើ​របស់អ្នក</translation>
 <translation id="309173601632226815">រំលេច​ប៊ូតុង​កម្មវិធី​ចាប់ផ្តើម​នៅលើ​ធ្នើ​របស់អ្នក</translation>
-<translation id="3105917916468784889">ថតអេក្រង់</translation>
 <translation id="3126026824346185272">Ctrl</translation>
 <translation id="3140353188828248647">របាអាសយដ្ឋានផ្តោត</translation>
 <translation id="3256109297135787951">លុបការ​រំលេច​ចេញពី​ធាតុ​នៅលើ​ធ្នើ​របស់អ្នក</translation>
 <translation id="3288816184963444640">បិទ​វិនដូ​បច្ចុប្បន្ន</translation>
+<translation id="3350805006883559974">បណ្ដែតវិនដូសកម្មនៅផ្នែកខាងលើ</translation>
 <translation id="3407560819924487926">បង្ហាញកម្មវិធី​គ្រប់គ្រង​កិច្ចការ</translation>
+<translation id="3417835166382867856">ស្វែងរកផ្ទាំង</translation>
 <translation id="3422679037938588196">ទៅកាន់​ការ​ផ្គូ​ផ្គង​ពីមុន​សម្រាប់​ការ​ស្វែង​រក​របស់អ្នក</translation>
 <translation id="353037708190149633">រក្សាទុក​ទំព័របើកទាំងអស់​នៅក្នុង​វិនដូ​បច្ចុប្បន្ន​របស់អ្នក​ជា​ចំណាំ​នៅក្នុង​ថត​ថ្មី</translation>
 <translation id="355103131818127604">បើក​តំណ​នៅក្នុង​ផ្ទាំង​ថ្មី​នៅ​ផ្ទៃខាងក្រោយ</translation>
@@ -107,7 +108,6 @@
 <translation id="4556221320735744018">មើល​កម្មវិធី​ជំនួយផ្លូវកាត់ក្ដារ​ចុច</translation>
 <translation id="4609344656788228519"><ph name="CTRL1" /><ph name="SEPARATOR1" /><ph name="BACK1" /> ឬ <ph name="CTRL2" /><ph name="SEPARATOR2" /><ph name="SHIFT" /><ph name="SEPARATOR3" /><ph name="BACK2" /></translation>
 <translation id="4628718545549558538">បើក​តំបន់​ស្ថាន​ភាព (ត្រង់​កន្លែង​ដែល​រូបភាព​គណនី​របស់អ្នក​បង្ហាញ)</translation>
-<translation id="4642092649622328492">ថត​រូប​អេក្រង់​មួយ​ផ្នែក</translation>
 <translation id="4698850295812410683">បង្ហាញ​ឧបករណ៍​ប៊ិច</translation>
 <translation id="4801989101741319327">ផ្លាស់ទី​ទៅ​ខាងចុង​នៃ​ពាក្យបន្ទាប់</translation>
 <translation id="4866066940972151697">បើកដំណើរការ​តុនៅខាងស្ដាំ</translation>
@@ -123,6 +123,7 @@
 <translation id="526651782186312376">ជ្រើសរើស​អត្ថបទ​រហូត​ដល់​ដើម​បន្ទាត់</translation>
 <translation id="5316716239522500219">ឆ្លុះអេក្រង់ត្រួតពិនិត្យ</translation>
 <translation id="539072479502328326">បិទ ឬបើកកែវ​ពង្រីក​ដាក់​ខាង​លើ​បំផុត</translation>
+<translation id="5466615362193675484">បិទ/បើកម៉ឺនុយសម្រាប់មុខងារចាក់សោការប្ដូរទំហំ</translation>
 <translation id="5541719484267030947">ខណៈពេល​អូសផ្ទាំង សូមចុច <ph name="ESC" /></translation>
 <translation id="5554139136362089836">ស្វែងរក​ទំព័រ​បច្ចុប្បន្ន</translation>
 <translation id="5563050856984839829">ចុច <ph name="CTRL" /><ph name="SEPARATOR" /><ph name="SHIFT" /> រួច​ចុច​តំណ</translation>
@@ -146,6 +147,7 @@
 <translation id="6276708887952587684">មើល​ប្រភព​ទំព័រ</translation>
 <translation id="6321940490215594447">បើក​ទំព័រ​ប្រវត្តិ</translation>
 <translation id="6340769215862220182">ពង្រីក​ការបង្ហាញ</translation>
+<translation id="634687982629734605">ប្ដូរការ​ផ្ដោត​រវាង៖ តំបន់​ស្ថានភាព (ត្រង់​កន្លែង​ដែល​រូបភាព​គណនី​របស់អ្នក​បង្ហាញ) កម្មវិធី​ចាប់ផ្ដើម របារអាសយដ្ឋាន របារចំណាំ (ប្រសិន​បើមើល​ឃើញ) គេហទំព័រ​ដែល​បើក និង​របារទាញយក (ប្រសិនបើ​មើលឃើញ)។ ប្រសិនបើ​បង្ហាញ​ប្រអប់​ដែលអាចផ្ដោតបាន សូមផ្លាស់ទី​ការផ្ដោត​ទៅប្រអប់នោះ​ជំនួសវិញ។</translation>
 <translation id="6359811074279051077"><ph name="MODIFIER" /><ph name="SEPARATOR" /><ph name="KEY" /></translation>
 <translation id="6395172954772765143">ជ្រើសរើស​អត្ថបទ​រហូត​ដល់​ចុង​បន្ទាត់</translation>
 <translation id="6425378783626925378">ចុច​រូប​តំណាង 1-8 នៅលើ​ធ្នើ​របស់អ្នក</translation>
@@ -189,7 +191,6 @@
 <translation id="8026334261755873520">ជម្រះទិន្នន័យរុករក</translation>
 <translation id="8130528849632411619">ទៅកាន់​ផ្នែក​ខាងដើមនៃ​ឯកសារ</translation>
 <translation id="8147954207400281792"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="K" /> ឬ <ph name="E" /></translation>
-<translation id="8232835244134740473">ប្ដូរការ​ផ្ដោត​រវាង៖ តំបន់​ស្ថានភាព (ត្រង់​កន្លែង​ដែល​រូបភាព​គណនី​របស់អ្នក​បង្ហាញ), កម្មវិធី​ចាប់ផ្ដើម, របារអាសយដ្ឋាន, របារចំណាំ (ប្រសិន​បើមើល​ឃើញ), គេហទំព័រ​ដែល​បើក, និង​របារទាញយក (ប្រសិនបើ​មើលឃើញ)។</translation>
 <translation id="8234414138295101081">បង្វិលអេក្រង់ 90 ដឺក្រេ</translation>
 <translation id="8241665785394195545">តង្កៀបខាងស្ដាំ</translation>
 <translation id="8264941229485248811">បង្ហាញ ឬ​លាក់​កម្មវិធី​ត្រួតពិនិត្យ​ឧបករណ៍​អ្នកអភិវឌ្ឍន៍</translation>
@@ -207,6 +208,7 @@
 <translation id="8881584919399569791">ផ្លាស់ទី​វិនដូ​សកម្មទៅ​តុនៅខាងឆ្វេង</translation>
 <translation id="88986195241502842">Page down</translation>
 <translation id="8924883688469390268">ប្ដូរទៅ​អ្នកប្រើប្រាស់ពី​មុន</translation>
+<translation id="8941626538514548667">ផ្ដោតលើខ្លឹមសារបណ្ដាញនៅក្នុងកម្មវិធីរុករកតាមអ៊ីនធឺណិត</translation>
 <translation id="8977648847395357314">ជ្រើសរើស​ខ្លឹមសារ​នៅក្នុង​របារ​អាសយដ្ឋាន</translation>
 <translation id="8982190978301344584">បង្ហាញ​ម៉ឺនុយ​ដែលបង្ហាញ​បញ្ជី IMEs ដែល​ប្រើបាន</translation>
 <translation id="8990356943438003669"><ph name="ALT" /><ph name="SEPARATOR" /> 1 ដល់ 8</translation>

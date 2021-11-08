@@ -8,6 +8,7 @@
 #include <vector>
 #include "base/callback.h"
 #include "chromeos/components/phonehub/browser_tabs_model.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace sync_sessions {
 struct SyncedSession;
@@ -28,11 +29,11 @@ class BrowserTabsMetadataFetcher {
       delete;
 
   using BrowserTabsMetadataResponse =
-      base::Optional<std::vector<BrowserTabsModel::BrowserTabMetadata>>;
+      absl::optional<std::vector<BrowserTabsModel::BrowserTabMetadata>>;
 
   // Fetches the metadata of the most recently visited tabs. Only one fetch is
   // possible at a given time, and if a new fetch is started when another is
-  // already in progress, the previous fetch will be passed a base::nullopt.
+  // already in progress, the previous fetch will be passed a absl::nullopt.
   virtual void Fetch(
       const sync_sessions::SyncedSession* session,
       base::OnceCallback<void(BrowserTabsMetadataResponse)> callback) = 0;
@@ -43,5 +44,12 @@ class BrowserTabsMetadataFetcher {
 
 }  // namespace phonehub
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the migration is finished.
+namespace ash {
+namespace phonehub {
+using ::chromeos::phonehub::BrowserTabsMetadataFetcher;
+}
+}  // namespace ash
 
 #endif  // CHROMEOS_COMPONENTS_PHONEHUB_BROWSER_TABS_METADATA_FETCHER_H_

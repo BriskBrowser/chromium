@@ -25,6 +25,8 @@ class CORE_EXPORT DOMRectReadOnly : public ScriptWrappable {
                                  double y,
                                  double width,
                                  double height);
+  static DOMRectReadOnly* FromRect(const gfx::Rect&);
+  static DOMRectReadOnly* FromRectF(const gfx::RectF&);
   static DOMRectReadOnly* FromIntRect(const IntRect&);
   static DOMRectReadOnly* FromFloatRect(const FloatRect&);
   static DOMRectReadOnly* fromRect(const DOMRectInit*);
@@ -52,4 +54,4 @@ class CORE_EXPORT DOMRectReadOnly : public ScriptWrappable {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_GEOMETRY_DOM_RECT_READ_ONLY_H_

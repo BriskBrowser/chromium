@@ -7,7 +7,6 @@
 #include "base/ios/ios_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#import "ios/chrome/browser/open_in/features.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
@@ -30,18 +29,20 @@ namespace {
 const char kPDFPath[] = "/testpage.pdf";
 
 // Path wich leads to a PNG file.
-const char KPNGPath[] = "/chromium_logo.png";
+const char kPNGPath[] = "/chromium_logo.png";
+
+// Path wich leads to a MOV file.
+const char kMOVPath[] = "/video_sample.mov";
 
 // Matcher for the Cancel button.
 id<GREYMatcher> ShareMenuDismissButton() {
-  if (@available(iOS 13, *)) {
-    return chrome_test_util::CloseButton();
-  } else {
-    return chrome_test_util::CancelButton();
-  }
+  return chrome_test_util::CloseButton();
 }
 
 }  // namespace
+
+using base::test::ios::kWaitForDownloadTimeout;
+using base::test::ios::WaitUntilConditionOrTimeout;
 
 // Tests Open in Feature.
 @interface OpenInManagerTestCase : ChromeTestCase
@@ -51,7 +52,6 @@ id<GREYMatcher> ShareMenuDismissButton() {
 
 - (AppLaunchConfiguration)appConfigurationForTestCase {
   AppLaunchConfiguration config;
-  config.features_enabled.push_back(kExtendOpenInFilesSupport);
   return config;
 }
 
@@ -68,38 +68,23 @@ id<GREYMatcher> ShareMenuDismissButton() {
   if ([ChromeEarlGrey isIPadIdiom])
     EARL_GREY_TEST_SKIPPED(@"Test skipped on iPad.");
 
-  // UIActivityViewController doesn't display the filename on iOS 12.
-  if (!base::ios::IsRunningOnOrLater(13, 0, 0)) {
-    EARL_GREY_TEST_SKIPPED(@"Test disabled on iOS 12 and lower.");
-  }
-
   // Open the activity menu.
   [ChromeEarlGrey loadURL:self.testServer->GetURL(kPDFPath)];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::OpenInButton()]
       performAction:grey_tap()];
 
-    // Test filename label.
-  {
-    // Turn off synchronization of GREYAssert to test the appearance of open in
-    // toolbar. If synchronization is on, the UIActivityViewController could be
-    // not visible.
-    ScopedSynchronizationDisabler disabler;
-    GREYCondition* openInVisibleFilenameCondition = [GREYCondition
-        conditionWithName:@"Check that the open in toolbar is not visible"
-                    block:^BOOL {
-                      NSError* error = nil;
-                      [[EarlGrey
-                          selectElementWithMatcher:
-                              grey_allOf(grey_text(@"testpage"),
-                                         grey_sufficientlyVisible(), nil)]
-                          assertWithMatcher:grey_notNil()
-                                      error:&error];
-                      return error == nil;
-                    }];
-    BOOL openInVisibleFilename = [openInVisibleFilenameCondition
-        waitWithTimeout:base::test::ios::kWaitForUIElementTimeout];
-    GREYAssertTrue(openInVisibleFilename, @"The filename is visible.");
-  }
+  // Wait for the dialog with filename label to appear.
+  ConditionBlock condition = ^{
+    NSError* error = nil;
+    [[EarlGrey
+        selectElementWithMatcher:grey_allOf(grey_text(@"testpage"),
+                                            grey_sufficientlyVisible(), nil)]
+        assertWithMatcher:grey_notNil()
+                    error:&error];
+    return error == nil;
+  };
+  GREYAssert(WaitUntilConditionOrTimeout(kWaitForDownloadTimeout, condition),
+             @"Waiting for the open in dialog to appear");
 
   // Check that tapping on the Cancel button closes the activity menu and hides
   // the open in toolbar.
@@ -119,38 +104,23 @@ id<GREYMatcher> ShareMenuDismissButton() {
   if ([ChromeEarlGrey isIPadIdiom])
     EARL_GREY_TEST_SKIPPED(@"Test skipped on iPad.");
 
-  // UIActivityViewController doesn't display the filename on iOS 12.
-  if (!base::ios::IsRunningOnOrLater(13, 0, 0)) {
-    EARL_GREY_TEST_SKIPPED(@"Test disabled on iOS 12 and lower.");
-  }
-
   // Open the activity menu.
-  [ChromeEarlGrey loadURL:self.testServer->GetURL(KPNGPath)];
+  [ChromeEarlGrey loadURL:self.testServer->GetURL(kPNGPath)];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::OpenInButton()]
       performAction:grey_tap()];
 
-  // Test filename label.
-  {
-    // Turn off synchronization of GREYAssert to test the appearance of open in
-    // toolbar. If synchronization is on, the UIActivityViewController could be
-    // not visible.
-    ScopedSynchronizationDisabler disabler;
-    GREYCondition* openInVisibleFilenameCondition = [GREYCondition
-        conditionWithName:@"Check that the open in toolbar is not visible"
-                    block:^BOOL {
-                      NSError* error = nil;
-                      [[EarlGrey
-                          selectElementWithMatcher:
-                              grey_allOf(grey_text(@"chromium_logo"),
-                                         grey_sufficientlyVisible(), nil)]
-                          assertWithMatcher:grey_notNil()
-                                      error:&error];
-                      return error == nil;
-                    }];
-    BOOL openInVisibleFilename = [openInVisibleFilenameCondition
-        waitWithTimeout:base::test::ios::kWaitForUIElementTimeout];
-    GREYAssertTrue(openInVisibleFilename, @"The filename is visible.");
-  }
+  // Wait for the dialog with filename label to appear.
+  ConditionBlock condition = ^{
+    NSError* error = nil;
+    [[EarlGrey
+        selectElementWithMatcher:grey_allOf(grey_text(@"chromium_logo"),
+                                            grey_sufficientlyVisible(), nil)]
+        assertWithMatcher:grey_notNil()
+                    error:&error];
+    return error == nil;
+  };
+  GREYAssert(WaitUntilConditionOrTimeout(kWaitForDownloadTimeout, condition),
+             @"Waiting for the open in dialog to appear");
 
   // Check that tapping on the Cancel button closes the activity menu and hides
   // the open in toolbar.
@@ -160,6 +130,44 @@ id<GREYMatcher> ShareMenuDismissButton() {
       assertWithMatcher:grey_notVisible()];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::OpenInButton()]
       assertWithMatcher:grey_notVisible()];
+}
+
+// Tests that open in button do not appears when opening a MOV file.
+- (void)testOpenInMOV {
+  [ChromeEarlGrey loadURL:self.testServer->GetURL(kMOVPath)];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OpenInButton()]
+      assertWithMatcher:grey_nil()];
+}
+
+// Tests that open in button appears when opening a PNG and when shutting down
+// the test server, the appropriate error message is displayed.
+- (void)testOpenInOfflineServer {
+  [ChromeEarlGrey loadURL:self.testServer->GetURL(kPNGPath)];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OpenInButton()]
+      assertWithMatcher:grey_notNil()];
+
+  // Shutdown the test server.
+  GREYAssertTrue(self.testServer->ShutdownAndWaitUntilComplete(),
+                 @"Server did not shutdown.");
+
+  // Open the activity menu.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OpenInButton()]
+      performAction:grey_tap()];
+
+  // Wait for the dialog containing the error to appear.
+  ConditionBlock condition = ^{
+    NSError* error = nil;
+    [[EarlGrey
+        selectElementWithMatcher:grey_allOf(
+                                     grey_text(l10n_util::GetNSStringWithFixup(
+                                         IDS_IOS_OPEN_IN_FILE_DOWNLOAD_FAILED)),
+                                     grey_sufficientlyVisible(), nil)]
+        assertWithMatcher:grey_notNil()
+                    error:&error];
+    return error == nil;
+  };
+  GREYAssert(WaitUntilConditionOrTimeout(kWaitForDownloadTimeout, condition),
+             @"Waiting for the error dialog to appear");
 }
 
 @end

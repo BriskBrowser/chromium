@@ -5,11 +5,13 @@
 #include "weblayer/browser/permissions/weblayer_permissions_client.h"
 
 #include "components/content_settings/core/browser/cookie_settings.h"
+#include "components/subresource_filter/content/browser/subresource_filter_content_settings_manager.h"
+#include "components/subresource_filter/content/browser/subresource_filter_profile_context.h"
 #include "weblayer/browser/cookie_settings_factory.h"
-#include "weblayer/browser/default_search_engine.h"
 #include "weblayer/browser/host_content_settings_map_factory.h"
 #include "weblayer/browser/permissions/permission_decision_auto_blocker_factory.h"
 #include "weblayer/browser/permissions/permission_manager_factory.h"
+#include "weblayer/browser/subresource_filter_profile_context_factory.h"
 
 #if defined(OS_ANDROID)
 #include "weblayer/browser/android/permission_request_utils.h"
@@ -38,9 +40,10 @@ WebLayerPermissionsClient::GetCookieSettings(
 bool WebLayerPermissionsClient::IsSubresourceFilterActivated(
     content::BrowserContext* browser_context,
     const GURL& url) {
-  // As the web layer does not currently support subresource filtering, the
-  // activation setting does not change any browser behavior.
-  return false;
+  return SubresourceFilterProfileContextFactory::GetForBrowserContext(
+             browser_context)
+      ->settings_manager()
+      ->GetSiteActivationFromMetadata(url);
 }
 
 permissions::PermissionDecisionAutoBlocker*
@@ -50,36 +53,27 @@ WebLayerPermissionsClient::GetPermissionDecisionAutoBlocker(
       browser_context);
 }
 
+// PermissionActionsHistory would never be read in WebLayer, so it seems logical
+// not to have the service at all.
+permissions::PermissionActionsHistory*
+WebLayerPermissionsClient::GetPermissionActionsHistory(
+    content::BrowserContext* browser_context) {
+  return nullptr;
+}
+
 permissions::PermissionManager* WebLayerPermissionsClient::GetPermissionManager(
     content::BrowserContext* browser_context) {
   return PermissionManagerFactory::GetForBrowserContext(browser_context);
 }
 
-permissions::ChooserContextBase* WebLayerPermissionsClient::GetChooserContext(
+permissions::ObjectPermissionContextBase*
+WebLayerPermissionsClient::GetChooserContext(
     content::BrowserContext* browser_context,
     ContentSettingsType type) {
   return nullptr;
 }
 
 #if defined(OS_ANDROID)
-bool WebLayerPermissionsClient::IsPermissionControlledByDse(
-    content::BrowserContext* browser_context,
-    ContentSettingsType type,
-    const url::Origin& origin) {
-  return weblayer::IsPermissionControlledByDse(type, origin);
-}
-
-bool WebLayerPermissionsClient::ResetPermissionIfControlledByDse(
-    content::BrowserContext* browser_context,
-    ContentSettingsType type,
-    const url::Origin& origin) {
-  if (IsPermissionControlledByDse(browser_context, type, origin)) {
-    ResetDsePermissions(browser_context);
-    return true;
-  }
-  return false;
-}
-
 void WebLayerPermissionsClient::RepromptForAndroidPermissions(
     content::WebContents* web_contents,
     const std::vector<ContentSettingsType>& content_settings_types,

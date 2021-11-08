@@ -7,13 +7,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/optional.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "chromeos/components/local_search_service/search_utils.h"
 #include "chromeos/components/string_matching/fuzzy_tokenized_string_match.h"
 #include "chromeos/components/string_matching/tokenized_string.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 namespace local_search_service {
@@ -96,7 +96,7 @@ void LinearMapSearch::AddOrUpdate(const std::vector<Data>& data,
     UpdateData(id, item.contents, &data_);
   }
 
-  MaybeLogIndexSize(data_.size());
+  MaybeLogIndexSize();
   std::move(callback).Run();
 }
 
@@ -108,7 +108,7 @@ void LinearMapSearch::Delete(const std::vector<std::string>& ids,
     num_deleted += data_.erase(id);
   }
 
-  MaybeLogIndexSize(data_.size());
+  MaybeLogIndexSize();
   std::move(callback).Run(num_deleted);
 }
 
@@ -126,25 +126,25 @@ void LinearMapSearch::UpdateDocuments(const std::vector<Data>& data,
     }
   }
 
-  MaybeLogIndexSize(data_.size());
+  MaybeLogIndexSize();
   std::move(callback).Run(num_deleted);
 }
 
-void LinearMapSearch::Find(const base::string16& query,
+void LinearMapSearch::Find(const std::u16string& query,
                            uint32_t max_results,
                            FindCallback callback) {
   const base::TimeTicks start = base::TimeTicks::Now();
   if (query.empty()) {
     const ResponseStatus status = ResponseStatus::kEmptyQuery;
     MaybeLogSearchResultsStats(status, 0u, base::TimeDelta());
-    std::move(callback).Run(status, base::nullopt);
+    std::move(callback).Run(status, absl::nullopt);
     return;
   }
 
   if (data_.empty()) {
     const ResponseStatus status = ResponseStatus::kEmptyIndex;
     MaybeLogSearchResultsStats(status, 0u, base::TimeDelta());
-    std::move(callback).Run(status, base::nullopt);
+    std::move(callback).Run(status, absl::nullopt);
     return;
   }
 
@@ -162,8 +162,12 @@ void LinearMapSearch::ClearIndex(ClearIndexCallback callback) {
   std::move(callback).Run();
 }
 
+uint32_t LinearMapSearch::GetIndexSize() const {
+  return data_.size();
+}
+
 std::vector<Result> LinearMapSearch::GetSearchResults(
-    const base::string16& query,
+    const std::u16string& query,
     uint32_t max_results) const {
   std::vector<Result> results;
   const TokenizedString tokenized_query(query);

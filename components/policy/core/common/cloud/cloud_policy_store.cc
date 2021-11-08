@@ -10,13 +10,15 @@
 
 namespace policy {
 
-CloudPolicyStore::Observer::~Observer() {}
+CloudPolicyStore::Observer::~Observer() = default;
+void CloudPolicyStore::Observer::OnStoreDestruction(CloudPolicyStore* store) {}
 
 CloudPolicyStore::CloudPolicyStore() = default;
 
 CloudPolicyStore::~CloudPolicyStore() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!external_data_manager_);
+  NotifyStoreDestruction();
 }
 
 bool CloudPolicyStore::is_managed() const {
@@ -49,7 +51,8 @@ void CloudPolicyStore::RemoveObserver(CloudPolicyStore::Observer* observer) {
 
 void CloudPolicyStore::NotifyStoreLoaded() {
   is_initialized_ = true;
-  first_policies_loaded_ |= has_policy();
+  UpdateFirstPoliciesLoaded();
+
   // The |external_data_manager_| must be notified first so that when other
   // observers are informed about the changed policies and try to fetch external
   // data referenced by these, the |external_data_manager_| has the required
@@ -60,11 +63,21 @@ void CloudPolicyStore::NotifyStoreLoaded() {
     observer.OnStoreLoaded(this);
 }
 
+void CloudPolicyStore::UpdateFirstPoliciesLoaded() {
+  first_policies_loaded_ |= has_policy();
+}
+
 void CloudPolicyStore::NotifyStoreError() {
   is_initialized_ = true;
-  first_policies_loaded_ |= has_policy();
+  UpdateFirstPoliciesLoaded();
+
   for (auto& observer : observers_)
     observer.OnStoreError(this);
+}
+
+void CloudPolicyStore::NotifyStoreDestruction() {
+  for (auto& observer : observers_)
+    observer.OnStoreDestruction(this);
 }
 
 void CloudPolicyStore::SetExternalDataManager(
@@ -75,13 +88,6 @@ void CloudPolicyStore::SetExternalDataManager(
   external_data_manager_ = external_data_manager;
   if (is_initialized_)
     external_data_manager_->OnPolicyStoreLoaded();
-}
-
-void CloudPolicyStore::SetPolicyMapForTesting(const PolicyMap& policy_map) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  policy_map_.CopyFrom(policy_map);
-  NotifyStoreLoaded();
 }
 
 void CloudPolicyStore::SetFirstPoliciesLoaded(bool loaded) {

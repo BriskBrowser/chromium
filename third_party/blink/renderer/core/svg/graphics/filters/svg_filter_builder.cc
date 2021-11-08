@@ -156,15 +156,16 @@ static EColorInterpolation ColorInterpolationForElement(
 
 InterpolationSpace SVGFilterBuilder::ResolveInterpolationSpace(
     EColorInterpolation color_interpolation) {
-  return color_interpolation == CI_LINEARRGB ? kInterpolationSpaceLinear
-                                             : kInterpolationSpaceSRGB;
+  return color_interpolation == EColorInterpolation::kLinearrgb
+             ? kInterpolationSpaceLinear
+             : kInterpolationSpaceSRGB;
 }
 
 void SVGFilterBuilder::BuildGraph(Filter* filter,
                                   SVGFilterElement& filter_element,
                                   const FloatRect& reference_box) {
   EColorInterpolation filter_color_interpolation =
-      ColorInterpolationForElement(filter_element, CI_AUTO);
+      ColorInterpolationForElement(filter_element, EColorInterpolation::kAuto);
   SVGUnitTypes::SVGUnitType primitive_units =
       filter_element.primitiveUnits()->CurrentEnumValue();
 
@@ -195,6 +196,7 @@ void SVGFilterBuilder::BuildGraph(Filter* filter,
 }
 
 void SVGFilterBuilder::Add(const AtomicString& id, FilterEffect* effect) {
+  DCHECK(effect);
   if (id.IsEmpty()) {
     last_effect_ = effect;
     return;
@@ -209,16 +211,20 @@ void SVGFilterBuilder::Add(const AtomicString& id, FilterEffect* effect) {
 
 FilterEffect* SVGFilterBuilder::GetEffectById(const AtomicString& id) const {
   if (!id.IsEmpty()) {
-    if (FilterEffect* builtin_effect = builtin_effects_.at(id))
-      return builtin_effect;
+    auto builtin_it = builtin_effects_.find(id);
+    if (builtin_it != builtin_effects_.end())
+      return builtin_it->value;
 
-    if (FilterEffect* named_effect = named_effects_.at(id))
-      return named_effect;
+    auto named_it = named_effects_.find(id);
+    if (named_it != named_effects_.end())
+      return named_it->value;
   }
 
   if (last_effect_)
     return last_effect_;
 
+  // Fallback to the 'SourceGraphic' input. We add it in the constructor so it will always be
+  // present.
   return builtin_effects_.at(FilterInputKeywords::GetSourceGraphic());
 }
 

@@ -58,6 +58,7 @@ class MEDIA_EXPORT DecoderStreamTraits<DemuxerStream::AUDIO> {
   void ReportStatistics(const StatisticsCB& statistics_cb, int bytes_decoded);
   void SetIsPlatformDecoder(bool is_platform_decoder);
   void SetIsDecryptingDemuxerStream(bool is_dds);
+  void SetEncryptionType(EncryptionType decryption_type);
   void InitializeDecoder(DecoderType* decoder,
                          const DecoderConfigType& config,
                          bool low_delay,
@@ -116,6 +117,7 @@ class MEDIA_EXPORT DecoderStreamTraits<DemuxerStream::VIDEO> {
   void ReportStatistics(const StatisticsCB& statistics_cb, int bytes_decoded);
   void SetIsPlatformDecoder(bool is_platform_decoder);
   void SetIsDecryptingDemuxerStream(bool is_dds);
+  void SetEncryptionType(EncryptionType decryption_type);
   void InitializeDecoder(DecoderType* decoder,
                          const DecoderConfigType& config,
                          bool low_delay,
@@ -128,6 +130,10 @@ class MEDIA_EXPORT DecoderStreamTraits<DemuxerStream::VIDEO> {
   PostDecodeAction OnDecodeDone(OutputType* buffer);
   void OnStreamReset(DemuxerStream* stream);
   void OnOutputReady(OutputType* output);
+
+  // Set whether or not software decoder implementations will be preferred.
+  void SetPreferNonPlatformDecoders(bool);
+  bool GetPreferNonPlatformDecoders() const;
 
  private:
   base::TimeDelta last_keyframe_timestamp_;
@@ -142,6 +148,10 @@ class MEDIA_EXPORT DecoderStreamTraits<DemuxerStream::VIDEO> {
   base::flat_map<base::TimeDelta, FrameMetadata> frame_metadata_;
 
   PipelineStatistics stats_;
+
+  VideoTransformation transform_ = kNoTransformation;
+
+  bool prefer_non_platform_decoders_ = false;
 
   base::WeakPtr<DecoderStreamTraits<DemuxerStream::VIDEO>> weak_this_;
   base::WeakPtrFactory<DecoderStreamTraits<DemuxerStream::VIDEO>> weak_factory_{

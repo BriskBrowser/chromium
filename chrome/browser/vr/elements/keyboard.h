@@ -18,6 +18,10 @@ namespace vr {
 class VR_UI_EXPORT Keyboard : public UiElement {
  public:
   Keyboard();
+
+  Keyboard(const Keyboard&) = delete;
+  Keyboard& operator=(const Keyboard&) = delete;
+
   ~Keyboard() override;
 
   // The gvr keyboard requires that we advance its frame after initilization,
@@ -29,7 +33,7 @@ class VR_UI_EXPORT Keyboard : public UiElement {
                HitTestResult* result) const final;
   void OnFloatAnimated(const float& value,
                        int target_property_id,
-                       cc::KeyframeModel* keyframe_model) override;
+                       gfx::KeyframeModel* keyframe_model) override;
 
   void OnHoverEnter(const gfx::PointF& position,
                     base::TimeTicks timestamp) override;
@@ -44,11 +48,12 @@ class VR_UI_EXPORT Keyboard : public UiElement {
   class Renderer : public BaseRenderer {
    public:
     Renderer();
+
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
+
     ~Renderer() override;
     void Draw(const CameraModel& camera_model, KeyboardDelegate* delegate);
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(Renderer);
   };
 
  private:
@@ -61,8 +66,6 @@ class VR_UI_EXPORT Keyboard : public UiElement {
   void UpdateDelegateVisibility();
 
   KeyboardDelegate* delegate_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(Keyboard);
 };
 
 }  // namespace vr

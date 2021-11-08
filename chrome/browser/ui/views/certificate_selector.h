@@ -6,12 +6,12 @@
 #define CHROME_BROWSER_UI_VIEWS_CERTIFICATE_SELECTOR_H_
 
 #include <memory>
+#include <string>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "net/ssl/client_cert_identity.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/table/table_view_observer.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace content {
@@ -68,7 +68,7 @@ class CertificateSelector : public views::DialogDelegateView,
 
   // DialogDelegateView:
   bool Accept() override;
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   views::View* GetInitiallyFocusedView() override;
 

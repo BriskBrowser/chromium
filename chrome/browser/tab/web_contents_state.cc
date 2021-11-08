@@ -28,6 +28,7 @@
 #include "content/public/browser/restore_type.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 using base::android::ConvertUTF16ToJavaString;
 using base::android::ConvertUTF8ToJavaString;
@@ -91,7 +92,7 @@ void UpgradeNavigationFromV0ToV2(
     base::Pickle v2_pickle;
     std::string virtual_url_spec;
     std::string str_referrer;
-    base::string16 title;
+    std::u16string title;
     std::string content_state;
     int transition_type_int;
     if (!iterator->ReadString(&virtual_url_spec) ||
@@ -121,7 +122,7 @@ void UpgradeNavigationFromV0ToV2(
     // timestamp_internal_value
     v2_pickle.WriteInt64(0);
     // search_terms
-    v2_pickle.WriteString16(base::string16());
+    v2_pickle.WriteString16(std::u16string());
 
     base::PickleIterator tab_navigation_pickle_iterator(v2_pickle);
     sessions::SerializedNavigationEntry nav;
@@ -176,7 +177,7 @@ void UpgradeNavigationFromV1ToV2(
 
     int index;
     std::string virtual_url_spec;
-    base::string16 title;
+    std::u16string title;
     std::string content_state;
     int transition_type_int;
     if (!iterator->ReadInt(&index) ||
@@ -219,7 +220,7 @@ void UpgradeNavigationFromV1ToV2(
       v2_pickle.WriteInt64(timestamp_internal_value);
 
     // Force output of search_terms
-    v2_pickle.WriteString16(base::string16());
+    v2_pickle.WriteString16(std::u16string());
 
     base::PickleIterator tab_navigation_pickle_iterator(v2_pickle);
     sessions::SerializedNavigationEntry nav;
@@ -369,7 +370,7 @@ WebContents* RestoreContentsFromByteBuffer(void* data,
     // Serialization and deserialization related functionalities are only
     // supported for Incognito tabbed Activities and they use primary OTR
     // profile.
-    profile = profile->GetPrimaryOTRProfile();
+    profile = profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
   }
 
   WebContents::CreateParams params(profile);

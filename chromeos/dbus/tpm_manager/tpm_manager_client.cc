@@ -29,8 +29,7 @@ namespace chromeos {
 namespace {
 
 // An arbitrary timeout for taking ownership.
-constexpr base::TimeDelta kTakeOwnershipTimeout =
-    base::TimeDelta::FromSeconds(80);
+constexpr base::TimeDelta kTakeOwnershipTimeout = base::Seconds(80);
 
 TpmManagerClient* g_instance = nullptr;
 
@@ -60,7 +59,7 @@ void OnSignalConnected(const std::string& interface_name,
                            << interface_name << "; signal: " << signal_name;
 }
 
-// "Real" implementation of TpmManagerClient taking to the TpmManager daemon
+// "Real" implementation of TpmManagerClient talking to the TpmManager daemon
 // on the Chrome OS side.
 class TpmManagerClientImpl : public TpmManagerClient {
  public:
@@ -83,6 +82,12 @@ class TpmManagerClientImpl : public TpmManagerClient {
   void GetVersionInfo(const ::tpm_manager::GetVersionInfoRequest& request,
                       GetVersionInfoCallback callback) override {
     CallProtoMethod(::tpm_manager::kGetVersionInfo, request,
+                    std::move(callback));
+  }
+  void GetSupportedFeatures(
+      const ::tpm_manager::GetSupportedFeaturesRequest& request,
+      GetSupportedFeaturesCallback callback) override {
+    CallProtoMethod(::tpm_manager::kGetSupportedFeatures, request,
                     std::move(callback));
   }
   void GetDictionaryAttackInfo(

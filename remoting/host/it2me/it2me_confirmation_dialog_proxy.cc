@@ -4,6 +4,7 @@
 
 #include "remoting/host/it2me/it2me_confirmation_dialog_proxy.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -19,6 +20,10 @@ class It2MeConfirmationDialogProxy::Core {
        scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
        base::WeakPtr<It2MeConfirmationDialogProxy> parent,
        std::unique_ptr<It2MeConfirmationDialog> dialog);
+
+  Core(const Core&) = delete;
+  Core& operator=(const Core&) = delete;
+
   ~Core();
 
   // Shows the wrapped dialog. Must be called on the UI thread.
@@ -40,8 +45,6 @@ class It2MeConfirmationDialogProxy::Core {
   scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner_;
   base::WeakPtr<It2MeConfirmationDialogProxy> parent_;
   std::unique_ptr<It2MeConfirmationDialog> dialog_;
-
-  DISALLOW_COPY_AND_ASSIGN(Core);
 };
 
 It2MeConfirmationDialogProxy::Core::Core(
@@ -79,8 +82,9 @@ void It2MeConfirmationDialogProxy::Core::ReportResult(
 It2MeConfirmationDialogProxy::It2MeConfirmationDialogProxy(
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
     std::unique_ptr<It2MeConfirmationDialog> dialog) {
-  core_.reset(new Core(ui_task_runner, base::ThreadTaskRunnerHandle::Get(),
-                       weak_factory_.GetWeakPtr(), std::move(dialog)));
+  core_ = std::make_unique<Core>(ui_task_runner,
+                                 base::ThreadTaskRunnerHandle::Get(),
+                                 weak_factory_.GetWeakPtr(), std::move(dialog));
 }
 
 It2MeConfirmationDialogProxy::~It2MeConfirmationDialogProxy() {

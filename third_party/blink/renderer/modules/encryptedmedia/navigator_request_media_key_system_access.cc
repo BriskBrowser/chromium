@@ -8,7 +8,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/web_encrypted_media_client.h"
 #include "third_party/blink/public/platform/web_encrypted_media_request.h"
 #include "third_party/blink/public/platform/web_media_key_system_configuration.h"
@@ -34,7 +34,6 @@
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/network/mime/content_type.h"
 #include "third_party/blink/renderer/platform/network/parsed_content_type.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -52,6 +51,12 @@ class MediaKeySystemAccessInitializer final
       const String& key_system,
       const HeapVector<Member<MediaKeySystemConfiguration>>&
           supported_configurations);
+
+  MediaKeySystemAccessInitializer(const MediaKeySystemAccessInitializer&) =
+      delete;
+  MediaKeySystemAccessInitializer& operator=(
+      const MediaKeySystemAccessInitializer&) = delete;
+
   ~MediaKeySystemAccessInitializer() override = default;
 
   // EncryptedMediaRequest implementation.
@@ -59,12 +64,11 @@ class MediaKeySystemAccessInitializer final
       std::unique_ptr<WebContentDecryptionModuleAccess>) override;
   void RequestNotSupported(const WebString& error_message) override;
 
+  void StartRequestAsync();
+
   void Trace(Visitor* visitor) const override {
     MediaKeySystemAccessInitializerBase::Trace(visitor);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MediaKeySystemAccessInitializer);
 };
 
 MediaKeySystemAccessInitializer::MediaKeySystemAccessInitializer(
@@ -100,6 +104,21 @@ void MediaKeySystemAccessInitializer::RequestNotSupported(
   resolver_.Clear();
 }
 
+void MediaKeySystemAccessInitializer::StartRequestAsync() {
+  if (!IsExecutionContextValid() || !DomWindow())
+    return;
+
+  // 6. Asynchronously determine support, and if allowed, create and
+  //    initialize the MediaKeySystemAccess object.
+  DCHECK(!DomWindow()->document()->IsPrerendering());
+
+  MediaKeysController* controller =
+      MediaKeysController::From(DomWindow()->GetFrame()->GetPage());
+  WebEncryptedMediaClient* media_client =
+      controller->EncryptedMediaClient(DomWindow());
+  media_client->RequestMediaKeySystemAccess(WebEncryptedMediaRequest(this));
+}
+
 }  // namespace
 
 ScriptPromise NavigatorRequestMediaKeySystemAccess::requestMediaKeySystemAccess(
@@ -113,14 +132,14 @@ ScriptPromise NavigatorRequestMediaKeySystemAccess::requestMediaKeySystemAccess(
 
   LocalDOMWindow* window = LocalDOMWindow::From(script_state);
   if (!window->IsFeatureEnabled(
-          mojom::blink::FeaturePolicyFeature::kEncryptedMedia,
+          mojom::blink::PermissionsPolicyFeature::kEncryptedMedia,
           ReportOptions::kReportOnFailure)) {
     UseCounter::Count(window,
                       WebFeature::kEncryptedMediaDisabledByFeaturePolicy);
     window->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::ConsoleMessageSource::kJavaScript,
         mojom::ConsoleMessageLevel::kWarning,
-        kEncryptedMediaFeaturePolicyConsoleWarning));
+        kEncryptedMediaPermissionsPolicyConsoleWarning));
     exception_state.ThrowSecurityError(
         "requestMediaKeySystemAccess is disabled by permissions policy.");
     return ScriptPromise();
@@ -164,6 +183,14 @@ ScriptPromise NavigatorRequestMediaKeySystemAccess::requestMediaKeySystemAccess(
       MakeGarbageCollected<MediaKeySystemAccessInitializer>(
           script_state, key_system, supported_configurations);
   ScriptPromise promise = initializer->Promise();
+
+  // Defer to determine support until the prerendering page is activated.
+  if (window->document()->IsPrerendering()) {
+    window->document()->AddPostPrerenderingActivationStep(
+        WTF::Bind(&MediaKeySystemAccessInitializer::StartRequestAsync,
+                  WrapWeakPersistent(initializer)));
+    return promise;
+  }
 
   // 6. Asynchronously determine support, and if allowed, create and
   //    initialize the MediaKeySystemAccess object.

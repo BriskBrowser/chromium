@@ -22,10 +22,8 @@ bool DefaultBrowserIsDisabledByPolicy() {
       g_browser_process->local_state()->FindPreference(
           prefs::kDefaultBrowserSettingEnabled);
   DCHECK(pref);
-  bool may_set_default_browser;
-  bool success = pref->GetValue()->GetAsBoolean(&may_set_default_browser);
-  DCHECK(success);
-  return pref->IsManaged() && !may_set_default_browser;
+  DCHECK(pref->GetValue()->is_bool());
+  return pref->IsManaged() && !pref->GetValue()->GetBool();
 }
 
 }  // namespace
@@ -35,11 +33,11 @@ DefaultBrowserHandler::DefaultBrowserHandler() = default;
 DefaultBrowserHandler::~DefaultBrowserHandler() = default;
 
 void DefaultBrowserHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "requestDefaultBrowserState",
       base::BindRepeating(&DefaultBrowserHandler::RequestDefaultBrowserState,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "setAsDefaultBrowser",
       base::BindRepeating(&DefaultBrowserHandler::SetAsDefaultBrowser,
                           base::Unretained(this)));
@@ -65,8 +63,8 @@ void DefaultBrowserHandler::RequestDefaultBrowserState(
     const base::ListValue* args) {
   AllowJavascript();
 
-  CHECK_EQ(args->GetSize(), 1U);
-  CHECK(args->GetString(0, &check_default_callback_id_));
+  CHECK_EQ(args->GetList().size(), 1U);
+  check_default_callback_id_ = args->GetList()[0].GetString();
 
   default_browser_worker_->StartCheckIsDefault(
       base::BindOnce(&DefaultBrowserHandler::OnDefaultBrowserWorkerFinished,

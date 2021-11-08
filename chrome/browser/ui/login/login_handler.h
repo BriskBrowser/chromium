@@ -13,7 +13,6 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/synchronization/lock.h"
 #include "components/password_manager/core/browser/http_auth_manager.h"
 #include "components/password_manager/core/browser/password_form.h"
@@ -22,20 +21,16 @@
 #include "content/public/browser/login_delegate.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/web_contents_observer.h"
+#include "content/public/browser/web_contents.h"
 #include "net/base/auth.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class GURL;
-
-namespace content {
-class WebContents;
-}  // namespace content
 
 // This is the base implementation for the OS-specific classes that prompt for
 // authentication information.
 class LoginHandler : public content::LoginDelegate,
-                     public content::NotificationObserver,
-                     public content::WebContentsObserver {
+                     public content::NotificationObserver {
  public:
   // The purpose of this struct is to enforce that BuildViewImpl receives either
   // both the login model and the observed form, or none. That is a bit spoiled
@@ -90,7 +85,7 @@ class LoginHandler : public content::LoginDelegate,
 
   // Resend the request with authentication credentials.
   // This function can be called from either thread.
-  void SetAuth(const base::string16& username, const base::string16& password);
+  void SetAuth(const std::u16string& username, const std::u16string& password);
 
   // Display the error page without asking for credentials again.
   // This function can be called from either thread.
@@ -107,6 +102,9 @@ class LoginHandler : public content::LoginDelegate,
   // Who/where/what asked for the authentication.
   const net::AuthChallengeInfo& auth_info() const { return auth_info_; }
 
+  // The WebContents.
+  content::WebContents* web_contents() { return web_contents_.get(); }
+
  protected:
   LoginHandler(const net::AuthChallengeInfo& auth_info,
                content::WebContents* web_contents,
@@ -115,8 +113,8 @@ class LoginHandler : public content::LoginDelegate,
   // Implement this to initialize the underlying platform specific view. If
   // |login_model_data| is not null, the contained LoginModel and PasswordForm
   // should be used to register the view with the password manager.
-  virtual void BuildViewImpl(const base::string16& authority,
-                             const base::string16& explanation,
+  virtual void BuildViewImpl(const std::u16string& authority,
+                             const std::u16string& explanation,
                              LoginModelData* login_model_data) = 0;
 
   // Closes the native dialog.
@@ -134,8 +132,8 @@ class LoginHandler : public content::LoginDelegate,
   void NotifyAuthNeeded();
 
   // Notify observers that authentication is supplied.
-  void NotifyAuthSupplied(const base::string16& username,
-                          const base::string16& password);
+  void NotifyAuthSupplied(const std::u16string& username,
+                          const std::u16string& password);
 
   // Notify observers that authentication is cancelled.
   void NotifyAuthCancelled();
@@ -173,8 +171,8 @@ class LoginHandler : public content::LoginDelegate,
 
   static void GetDialogStrings(const GURL& request_url,
                                const net::AuthChallengeInfo& auth_info,
-                               base::string16* authority,
-                               base::string16* explanation);
+                               std::u16string* authority,
+                               std::u16string* explanation);
 
   // Continuation from |Start| after any potential interception from the
   // extensions WebRequest API. If |cancelled_by_extension| is |true| the
@@ -187,14 +185,16 @@ class LoginHandler : public content::LoginDelegate,
       const GURL& request_url,
       const content::GlobalRequestID& request_id,
       bool is_main_frame,
-      const base::Optional<net::AuthCredentials>& credentials,
+      const absl::optional<net::AuthCredentials>& credentials,
       bool cancelled_by_extension);
 
   void ShowLoginPrompt(const GURL& request_url);
 
-  void BuildViewAndNotify(const base::string16& authority,
-                          const base::string16& explanation,
+  void BuildViewAndNotify(const std::u16string& authority,
+                          const std::u16string& explanation,
                           LoginModelData* login_model_data);
+
+  base::WeakPtr<content::WebContents> web_contents_;
 
   // Who/where/what asked for the authentication.
   net::AuthChallengeInfo auth_info_;
@@ -225,14 +225,16 @@ class LoginNotificationDetails {
  public:
   explicit LoginNotificationDetails(LoginHandler* handler)
       : handler_(handler) {}
+
+  LoginNotificationDetails(const LoginNotificationDetails&) = delete;
+  LoginNotificationDetails& operator=(const LoginNotificationDetails&) = delete;
+
   LoginHandler* handler() const { return handler_; }
 
  private:
-  LoginNotificationDetails() {}
+  LoginNotificationDetails() = default;
 
   LoginHandler* handler_;  // Where to send the response.
-
-  DISALLOW_COPY_AND_ASSIGN(LoginNotificationDetails);
 };
 
 // Details to provide the NotificationObserver.  Used by the automation proxy
@@ -241,22 +243,26 @@ class LoginNotificationDetails {
 class AuthSuppliedLoginNotificationDetails : public LoginNotificationDetails {
  public:
   AuthSuppliedLoginNotificationDetails(LoginHandler* handler,
-                                       const base::string16& username,
-                                       const base::string16& password)
+                                       const std::u16string& username,
+                                       const std::u16string& password)
       : LoginNotificationDetails(handler),
         username_(username),
         password_(password) {}
-  const base::string16& username() const { return username_; }
-  const base::string16& password() const { return password_; }
+
+  AuthSuppliedLoginNotificationDetails(
+      const AuthSuppliedLoginNotificationDetails&) = delete;
+  AuthSuppliedLoginNotificationDetails& operator=(
+      const AuthSuppliedLoginNotificationDetails&) = delete;
+
+  const std::u16string& username() const { return username_; }
+  const std::u16string& password() const { return password_; }
 
  private:
   // The username that was used for the authentication.
-  const base::string16 username_;
+  const std::u16string username_;
 
   // The password that was used for the authentication.
-  const base::string16 password_;
-
-  DISALLOW_COPY_AND_ASSIGN(AuthSuppliedLoginNotificationDetails);
+  const std::u16string password_;
 };
 
 #endif  // CHROME_BROWSER_UI_LOGIN_LOGIN_HANDLER_H_

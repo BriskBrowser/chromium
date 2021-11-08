@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/chromeos_buildflags.h"
 #include "components/feedback/feedback_uploader.h"
 #include "components/signin/public/identity_manager/access_token_info.h"
@@ -20,6 +20,10 @@
 #endif  // BUILDFLAG(PLATFORM_CFM)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
+namespace content {
+class BrowserContext;
+}  // namespace content
+
 namespace signin {
 class PrimaryAccountAccessTokenFetcher;
 }  // namespace signin
@@ -30,9 +34,11 @@ namespace feedback {
 
 class FeedbackUploaderChrome : public FeedbackUploader {
  public:
-  FeedbackUploaderChrome(
-      content::BrowserContext* context,
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+  explicit FeedbackUploaderChrome(content::BrowserContext* context);
+
+  FeedbackUploaderChrome(const FeedbackUploaderChrome&) = delete;
+  FeedbackUploaderChrome& operator=(const FeedbackUploaderChrome&) = delete;
+
   ~FeedbackUploaderChrome() override;
 
   class Delegate {
@@ -77,7 +83,7 @@ class FeedbackUploaderChrome : public FeedbackUploader {
 
   Delegate* delegate_ = nullptr;  // Not owned.
 
-  DISALLOW_COPY_AND_ASSIGN(FeedbackUploaderChrome);
+  content::BrowserContext* context_ = nullptr;
 };
 
 }  // namespace feedback

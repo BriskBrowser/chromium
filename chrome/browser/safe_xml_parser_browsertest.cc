@@ -8,6 +8,7 @@
 #include "base/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
+#include "base/strings/string_piece.h"
 #include "base/token.h"
 #include "base/values.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -29,6 +30,10 @@ constexpr char kTestJson[] = R"(
 class SafeXmlParserTest : public InProcessBrowserTest {
  public:
   SafeXmlParserTest() = default;
+
+  SafeXmlParserTest(const SafeXmlParserTest&) = delete;
+  SafeXmlParserTest& operator=(const SafeXmlParserTest&) = delete;
+
   ~SafeXmlParserTest() override = default;
 
  protected:
@@ -45,7 +50,7 @@ class SafeXmlParserTest : public InProcessBrowserTest {
     }
 
     data_decoder::DataDecoder::ParseXmlIsolated(
-        xml.as_string(),
+        std::string(xml),
         base::BindOnce(&SafeXmlParserTest::XmlParsingDone,
                        base::Unretained(this), run_loop.QuitClosure(),
                        std::move(expected_value)));
@@ -66,8 +71,6 @@ class SafeXmlParserTest : public InProcessBrowserTest {
     ASSERT_TRUE(result.value);
     EXPECT_EQ(*expected_value, *result.value);
   }
-
-  DISALLOW_COPY_AND_ASSIGN(SafeXmlParserTest);
 };
 
 }  // namespace

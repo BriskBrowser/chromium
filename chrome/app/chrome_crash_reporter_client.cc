@@ -128,7 +128,7 @@ void ChromeCrashReporterClient::GetProductNameAndVersion(
   GetProductNameAndVersion(&c_product_name, &c_version);
   *product_name = c_product_name;
   *version = c_version;
-  *channel = chrome::GetChannelName();
+  *channel = chrome::GetChannelName(chrome::WithExtendedStable(true));
 }
 
 base::FilePath ChromeCrashReporterClient::GetReporterLogFilename() {
@@ -144,6 +144,8 @@ bool ChromeCrashReporterClient::GetCrashDumpLocation(
 #if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 bool ChromeCrashReporterClient::GetCrashMetricsLocation(
     base::FilePath* metrics_dir) {
+  if (!GetCollectStatsConsent())
+    return false;
   return base::PathService::Get(chrome::DIR_USER_DATA, metrics_dir);
 }
 #endif  // defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)

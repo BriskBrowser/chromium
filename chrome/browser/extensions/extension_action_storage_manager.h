@@ -9,7 +9,7 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "extensions/browser/extension_action.h"
 #include "extensions/browser/extension_registry.h"
@@ -27,6 +27,11 @@ class ExtensionActionStorageManager : public ExtensionActionAPI::Observer,
                                       public ExtensionRegistryObserver {
  public:
   explicit ExtensionActionStorageManager(content::BrowserContext* context);
+
+  ExtensionActionStorageManager(const ExtensionActionStorageManager&) = delete;
+  ExtensionActionStorageManager& operator=(
+      const ExtensionActionStorageManager&) = delete;
+
   ~ExtensionActionStorageManager() override;
 
  private:
@@ -52,15 +57,13 @@ class ExtensionActionStorageManager : public ExtensionActionAPI::Observer,
 
   content::BrowserContext* browser_context_;
 
-  ScopedObserver<ExtensionActionAPI, ExtensionActionAPI::Observer>
-      extension_action_observer_{this};
+  base::ScopedObservation<ExtensionActionAPI, ExtensionActionAPI::Observer>
+      extension_action_observation_{this};
 
-  ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
-      extension_registry_observer_{this};
+  base::ScopedObservation<ExtensionRegistry, ExtensionRegistryObserver>
+      extension_registry_observation_{this};
 
   base::WeakPtrFactory<ExtensionActionStorageManager> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionActionStorageManager);
 };
 
 }  // namespace extensions

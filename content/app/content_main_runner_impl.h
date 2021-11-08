@@ -44,6 +44,10 @@ class ContentMainRunnerImpl : public ContentMainRunner {
   static std::unique_ptr<ContentMainRunnerImpl> Create();
 
   ContentMainRunnerImpl();
+
+  ContentMainRunnerImpl(const ContentMainRunnerImpl&) = delete;
+  ContentMainRunnerImpl& operator=(const ContentMainRunnerImpl&) = delete;
+
   ~ContentMainRunnerImpl() override;
 
   int TerminateForFatalInitializationError();
@@ -61,6 +65,11 @@ class ContentMainRunnerImpl : public ContentMainRunner {
 
   // The hang watcher is leaked to make sure it survives all watched threads.
   base::HangWatcher* hang_watcher_;
+
+  // Unregisters UI thread from hang watching on destruction.
+  // NOTE: The thread should be unregistered before HangWatcher stops so this
+  // member must be after |hang_watcher|.
+  base::ScopedClosureRunner unregister_thread_closure_;
 
   std::unique_ptr<discardable_memory::DiscardableSharedMemoryManager>
       discardable_shared_memory_manager_;
@@ -90,8 +99,6 @@ class ContentMainRunnerImpl : public ContentMainRunner {
   base::OnceClosure* ui_task_ = nullptr;
 
   CreatedMainPartsClosure* created_main_parts_closure_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(ContentMainRunnerImpl);
 };
 
 // The BrowserTestBase on Android does not call ContentMain(). It tries instead

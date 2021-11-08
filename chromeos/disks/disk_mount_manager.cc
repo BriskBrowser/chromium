@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
@@ -24,7 +25,6 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/observer_list.h"
 #include "base/strings/string_util.h"
-#include "chromeos/dbus/cros_disks_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/disks/disk.h"
 #include "chromeos/disks/suspend_unmount_manager.h"
@@ -73,10 +73,13 @@ class DiskMountManagerImpl : public DiskMountManager,
   DiskMountManagerImpl() : already_refreshed_(false) {
     DBusThreadManager* dbus_thread_manager = DBusThreadManager::Get();
     cros_disks_client_ = dbus_thread_manager->GetCrosDisksClient();
-    suspend_unmount_manager_.reset(new SuspendUnmountManager(this));
+    suspend_unmount_manager_ = std::make_unique<SuspendUnmountManager>(this);
 
     cros_disks_client_->AddObserver(this);
   }
+
+  DiskMountManagerImpl(const DiskMountManagerImpl&) = delete;
+  DiskMountManagerImpl& operator=(const DiskMountManagerImpl&) = delete;
 
   ~DiskMountManagerImpl() override { cros_disks_client_->RemoveObserver(this); }
 
@@ -106,11 +109,8 @@ class DiskMountManagerImpl : public DiskMountManager,
         return;
       }
     }
-    std::vector<std::string> options = mount_options;
-    if (base::FeatureList::IsEnabled(chromeos::features::kFsNosymfollow))
-      options.push_back("nosymfollow");
     cros_disks_client_->Mount(
-        source_path, source_format, mount_label, options, access_mode,
+        source_path, source_format, mount_label, mount_options, access_mode,
         REMOUNT_OPTION_MOUNT_NEW_DEVICE,
         base::BindOnce(&DiskMountManagerImpl::OnMount,
                        weak_ptr_factory_.GetWeakPtr(), source_path, type));
@@ -491,9 +491,9 @@ class DiskMountManagerImpl : public DiskMountManager,
         mount_info.mount_type == MOUNT_TYPE_DEVICE &&
         !mount_info.source_path.empty() &&
         !mount_info.mount_path.empty()) {
-      DiskMap::iterator iter = disks_.find(mount_info.source_path);
-      if (iter != disks_.end()) {  // disk might have been removed by now?
-        disk = iter->second.get();
+      DiskMap::iterator disk_map_iter = disks_.find(mount_info.source_path);
+      if (disk_map_iter != disks_.end()) {  // disk might have been removed?
+        disk = disk_map_iter->second.get();
         DCHECK(disk);
         // Currently the MountCompleted signal doesn't tell whether the device
         // is mounted in read-only mode or not. Instead use the mount option
@@ -1068,8 +1068,6 @@ class DiskMountManagerImpl : public DiskMountManager,
   AccessModeMap access_modes_;
 
   base::WeakPtrFactory<DiskMountManagerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DiskMountManagerImpl);
 };
 
 }  // namespace

@@ -136,10 +136,16 @@
                                      animated:YES];
 }
 
+- (void)addToReadingListBadgeButtonTapped:(id)sender {
+}
+
 - (void)passwordsBadgeButtonTapped:(id)sender {
 }
 
 - (void)saveCardBadgeButtonTapped:(id)sender {
+}
+
+- (void)saveAddressProfileBadgeButtonTapped:(id)sender {
 }
 
 - (void)translateBadgeButtonTapped:(id)sender {

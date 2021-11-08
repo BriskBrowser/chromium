@@ -5,7 +5,6 @@
 #include "components/permissions/contexts/geolocation_permission_context_android.h"
 
 #include <utility>
-#include <vector>
 
 #include "base/bind.h"
 #include "base/feature_list.h"
@@ -46,8 +45,7 @@ const char kLocationSettingsMetricDSESuffix[] = "DSE";
 const char kLocationSettingsMetricNonDSESuffix[] = "NonDSE";
 
 base::Time GetTimeNow() {
-  return base::Time::Now() +
-         base::TimeDelta::FromDays(g_day_offset_for_testing);
+  return base::Time::Now() + base::Days(g_day_offset_for_testing);
 }
 
 void LogLocationSettingsMetric(
@@ -82,7 +80,10 @@ GeolocationPermissionContextAndroid::GeolocationPermissionContextAndroid(
     std::unique_ptr<Delegate> delegate)
     : GeolocationPermissionContext(browser_context, std::move(delegate)),
       location_settings_(std::make_unique<LocationSettingsImpl>()),
-      location_settings_dialog_request_id_(0, 0, 0) {}
+      location_settings_dialog_request_id_(
+          0,
+          0,
+          PermissionRequestID::RequestLocalId()) {}
 
 GeolocationPermissionContextAndroid::~GeolocationPermissionContextAndroid() =
     default;
@@ -100,18 +101,24 @@ void GeolocationPermissionContextAndroid::RequestPermission(
     BrowserPermissionCallback callback) {
   if (!IsLocationAccessPossible(web_contents, requesting_frame_origin,
                                 user_gesture)) {
-    NotifyPermissionSet(id, requesting_frame_origin,
-                        web_contents->GetLastCommittedURL().GetOrigin(),
-                        std::move(callback), /*persist=*/false,
-                        CONTENT_SETTING_BLOCK, /*is_one_time=*/false);
+    NotifyPermissionSet(
+        id, requesting_frame_origin,
+        PermissionUtil::GetLastCommittedOriginAsURL(web_contents),
+        std::move(callback), /*persist=*/false, CONTENT_SETTING_BLOCK,
+        /*is_one_time=*/false);
     return;
   }
 
-  GURL embedding_origin = web_contents->GetLastCommittedURL().GetOrigin();
+  GURL embedding_origin =
+      PermissionUtil::GetLastCommittedOriginAsURL(web_contents);
+
+  content::RenderFrameHost* render_frame_host =
+      content::RenderFrameHost::FromID(id.render_process_id(),
+                                       id.render_frame_id());
+  DCHECK(render_frame_host);
   ContentSetting content_setting =
       GeolocationPermissionContext::GetPermissionStatus(
-          nullptr /* render_frame_host */, requesting_frame_origin,
-          embedding_origin)
+          render_frame_host, requesting_frame_origin, embedding_origin)
           .content_setting;
   if (content_setting == CONTENT_SETTING_ALLOW &&
       ShouldRepromptUserForPermissions(web_contents,
@@ -292,17 +299,17 @@ void GeolocationPermissionContextAndroid::UpdateLocationSettingsBackOff(
   switch (backoff_level) {
     case LocationSettingsDialogBackOff::kNoBackOff:
       backoff_level = LocationSettingsDialogBackOff::kOneWeek;
-      next_show += base::TimeDelta::FromDays(7);
+      next_show += base::Days(7);
       break;
     case LocationSettingsDialogBackOff::kOneWeek:
       backoff_level = LocationSettingsDialogBackOff::kOneMonth;
-      next_show += base::TimeDelta::FromDays(30);
+      next_show += base::Days(30);
       break;
     case LocationSettingsDialogBackOff::kOneMonth:
       backoff_level = LocationSettingsDialogBackOff::kThreeMonths;
       FALLTHROUGH;
     case LocationSettingsDialogBackOff::kThreeMonths:
-      next_show += base::TimeDelta::FromDays(90);
+      next_show += base::Days(90);
       break;
     default:
       NOTREACHED();
@@ -406,7 +413,8 @@ void GeolocationPermissionContextAndroid::OnLocationSettingsDialogShown(
       location_settings_dialog_request_id_, requesting_origin, embedding_origin,
       std::move(location_settings_dialog_callback_), persist, content_setting);
 
-  location_settings_dialog_request_id_ = PermissionRequestID(0, 0, 0);
+  location_settings_dialog_request_id_ =
+      PermissionRequestID(0, 0, PermissionRequestID::RequestLocalId());
 }
 
 void GeolocationPermissionContextAndroid::FinishNotifyPermissionSet(

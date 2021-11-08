@@ -13,8 +13,8 @@ namespace views {
 
 class Checkbox;
 class Combobox;
-class GridLayout;
 class Label;
+class View;
 
 namespace examples {
 
@@ -22,6 +22,10 @@ class VIEWS_EXAMPLES_EXPORT LabelExample : public ExampleBase,
                                            public TextfieldController {
  public:
   LabelExample();
+
+  LabelExample(const LabelExample&) = delete;
+  LabelExample& operator=(const LabelExample&) = delete;
+
   ~LabelExample() override;
 
   // ExampleBase:
@@ -33,15 +37,15 @@ class VIEWS_EXAMPLES_EXPORT LabelExample : public ExampleBase,
 
   // TextfieldController:
   void ContentsChanged(Textfield* sender,
-                       const base::string16& new_contents) override;
+                       const std::u16string& new_contents) override;
 
  private:
   // Add a customizable label and various controls to modify its presentation.
   void AddCustomLabel(View* container);
 
   // Creates and adds a combobox to the layout.
-  Combobox* AddCombobox(GridLayout* layout,
-                        const char* name,
+  Combobox* AddCombobox(View* parent,
+                        std::u16string name,
                         const char** strings,
                         int count,
                         void (LabelExample::*function)());
@@ -56,8 +60,6 @@ class VIEWS_EXAMPLES_EXPORT LabelExample : public ExampleBase,
   Checkbox* shadows_ = nullptr;
   Checkbox* selectable_ = nullptr;
   Label* custom_label_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(LabelExample);
 };
 
 }  // namespace examples

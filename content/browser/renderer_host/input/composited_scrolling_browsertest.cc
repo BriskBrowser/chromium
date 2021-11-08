@@ -72,6 +72,11 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
         blink::features::kResamplingScrollEvents);
   }
 
+  CompositedScrollingBrowserTest(const CompositedScrollingBrowserTest&) =
+      delete;
+  CompositedScrollingBrowserTest& operator=(
+      const CompositedScrollingBrowserTest&) = delete;
+
   ~CompositedScrollingBrowserTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* cmd) override {
@@ -100,7 +105,7 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
     HitTestRegionObserver observer(GetWidgetHost()->GetFrameSinkId());
     host->GetView()->SetSize(gfx::Size(400, 400));
 
-    base::string16 ready_title(base::ASCIIToUTF16("ready"));
+    std::u16string ready_title(u"ready");
     TitleWatcher watcher(shell()->web_contents(), ready_title);
     ignore_result(watcher.WaitAndGetTitle());
 
@@ -111,17 +116,11 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
 
   // ContentBrowserTest:
   int ExecuteScriptAndExtractInt(const std::string& script) {
-    int value = 0;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
-        shell(), "domAutomationController.send(" + script + ")", &value));
-    return value;
+    return EvalJs(shell(), script).ExtractInt();
   }
 
   double ExecuteScriptAndExtractDouble(const std::string& script) {
-    double value = 0;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractDouble(
-        shell(), "domAutomationController.send(" + script + ")", &value));
-    return value;
+    return EvalJs(shell(), script).ExtractDouble();
   }
 
   double GetScrollTop() {
@@ -131,7 +130,7 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
 
   // Generate touch events for a synthetic scroll from |point| for |distance|.
   // Returns the distance scrolled.
-  double DoScroll(SyntheticGestureParams::GestureSourceType type,
+  double DoScroll(content::mojom::GestureSourceType type,
                   const gfx::Point& point,
                   const gfx::Vector2d& distance) {
     SyntheticSmoothScrollGestureParams params;
@@ -157,18 +156,18 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
   }
 
   double DoTouchScroll(const gfx::Point& point, const gfx::Vector2d& distance) {
-    return DoScroll(SyntheticGestureParams::TOUCH_INPUT, point, distance);
+    return DoScroll(content::mojom::GestureSourceType::kTouchInput, point,
+                    distance);
   }
 
   double DoWheelScroll(const gfx::Point& point, const gfx::Vector2d& distance) {
-    return DoScroll(SyntheticGestureParams::MOUSE_INPUT, point, distance);
+    return DoScroll(content::mojom::GestureSourceType::kMouseInput, point,
+                    distance);
   }
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
   scoped_refptr<MessageLoopRunner> runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(CompositedScrollingBrowserTest);
 };
 
 // Verify transforming a scroller doesn't prevent it from scrolling. See

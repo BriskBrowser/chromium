@@ -13,7 +13,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/clock.h"
-#include "base/time/time.h"
 #include "chromeos/components/multidevice/remote_device_ref.h"
 #include "chromeos/components/tether/host_scanner.h"
 #include "chromeos/components/tether/host_scanner_operation.h"
@@ -74,6 +73,10 @@ class HostScannerImpl : public HostScanner,
       HostScanCache* host_scan_cache,
       ConnectionPreserver* connection_preserver,
       base::Clock* clock);
+
+  HostScannerImpl(const HostScannerImpl&) = delete;
+  HostScannerImpl& operator=(const HostScannerImpl&) = delete;
+
   ~HostScannerImpl() override;
 
   // HostScanner:
@@ -139,8 +142,6 @@ class HostScannerImpl : public HostScanner,
 
   base::ObserverList<Observer>::Unchecked observer_list_;
   base::WeakPtrFactory<HostScannerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(HostScannerImpl);
 };
 
 }  // namespace tether

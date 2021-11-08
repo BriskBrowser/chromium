@@ -7,9 +7,12 @@
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ambient/ambient_backend_controller.h"
 #include "ash/public/cpp/ambient/ambient_client.h"
+#include "ash/public/cpp/ambient/proto/photo_cache_entry.pb.h"
 #include "ash/style/ash_color_provider.h"
 #include "base/no_destructor.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/shadow_value.h"
 
@@ -19,7 +22,6 @@ namespace util {
 
 // Appearance of the text shadow.
 constexpr int kTextShadowElevation = 2;
-constexpr SkColor kTextShadowColor = gfx::kGoogleGrey800;
 
 bool IsShowing(LockScreen::ScreenType type) {
   return LockScreen::HasInstance() && LockScreen::Get()->screen_type() == type;
@@ -49,29 +51,40 @@ const gfx::FontList& GetDefaultFontlist() {
   return *font_list;
 }
 
-gfx::ShadowValues GetTextShadowValues() {
-  return gfx::ShadowValue::MakeRefreshShadowValues(kTextShadowElevation,
-                                                   kTextShadowColor);
+gfx::ShadowValues GetTextShadowValues(const ui::ColorProvider* color_provider) {
+  // If `color_provider` does not exist the shadow values are being created in
+  // order to calculate margins. In that case the color plays no role so set it
+  // to gfx::kPlaceholderColor.
+  // Currently an elevation of 2 falls back to MakeMdShadowValues so use
+  // ui::kColorShadowBase, which is the base shadow color for MdShadowValues,
+  // until MakeMdShadowValues is refactored to take in it’s own
+  // |key_shadow_color| and |ambient_shadow_color|.
+  // TODO(elainechien): crbug.com/1056950
+  SkColor shadow_base_color =
+      color_provider ? color_provider->GetColor(ui::kColorShadowBase)
+                     : gfx::kPlaceholderColor;
+  return gfx::ShadowValue::MakeShadowValues(
+      kTextShadowElevation, shadow_base_color, shadow_base_color);
 }
 
-bool IsAmbientModeTopicTypeAllowed(AmbientModeTopicType topic_type) {
+bool IsAmbientModeTopicTypeAllowed(::ambient::TopicType topic_type) {
   switch (topic_type) {
-    case ash::AmbientModeTopicType::kCurated:
+    case ::ambient::TopicType::kCurated:
       return chromeos::features::kAmbientModeDefaultFeedEnabled.Get();
-    case ash::AmbientModeTopicType::kCapturedOnPixel:
+    case ::ambient::TopicType::kCapturedOnPixel:
       return chromeos::features::kAmbientModeCapturedOnPixelPhotosEnabled.Get();
-    case ash::AmbientModeTopicType::kCulturalInstitute:
+    case ::ambient::TopicType::kCulturalInstitute:
       return chromeos::features::kAmbientModeCulturalInstitutePhotosEnabled
           .Get();
-    case ash::AmbientModeTopicType::kFeatured:
+    case ::ambient::TopicType::kFeatured:
       return chromeos::features::kAmbientModeFeaturedPhotosEnabled.Get();
-    case ash::AmbientModeTopicType::kGeo:
+    case ::ambient::TopicType::kGeo:
       return chromeos::features::kAmbientModeGeoPhotosEnabled.Get();
-    case ash::AmbientModeTopicType::kPersonal:
+    case ::ambient::TopicType::kPersonal:
       return chromeos::features::kAmbientModePersonalPhotosEnabled.Get();
-    case ash::AmbientModeTopicType::kRss:
+    case ::ambient::TopicType::kRss:
       return chromeos::features::kAmbientModeRssPhotosEnabled.Get();
-    case ash::AmbientModeTopicType::kOther:
+    case ::ambient::TopicType::kOther:
       return false;
   }
 }

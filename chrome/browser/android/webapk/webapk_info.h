@@ -10,7 +10,8 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "services/device/public/mojom/screen_orientation_lock_types.mojom-shared.h"
-#include "third_party/blink/public/common/manifest/manifest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 #include "third_party/skia/include/core/SkColor.h"
 
 // Structure with information about a WebAPK.
@@ -32,18 +33,22 @@ struct WebApkInfo {
              std::string manifest_start_url,
              blink::mojom::DisplayMode display,
              device::mojom::ScreenOrientationLockType orientation,
-             base::Optional<SkColor> theme_color,
-             base::Optional<SkColor> background_color,
+             absl::optional<SkColor> theme_color,
+             absl::optional<SkColor> background_color,
              base::Time last_update_check_time,
              base::Time last_update_completion_time,
              bool relax_updates,
              std::string backing_browser_package_name,
              bool is_backing_browser,
              std::string update_status);
-  ~WebApkInfo();
+
+  WebApkInfo(const WebApkInfo&) = delete;
+  WebApkInfo& operator=(const WebApkInfo&) = delete;
 
   WebApkInfo& operator=(WebApkInfo&& other) noexcept;
   WebApkInfo(WebApkInfo&& other) noexcept;
+
+  ~WebApkInfo();
 
   // Short name of the WebAPK.
   std::string name;
@@ -69,8 +74,8 @@ struct WebApkInfo {
   std::string manifest_start_url;
   blink::mojom::DisplayMode display;
   device::mojom::ScreenOrientationLockType orientation;
-  base::Optional<SkColor> theme_color;
-  base::Optional<SkColor> background_color;
+  absl::optional<SkColor> theme_color;
+  absl::optional<SkColor> background_color;
   base::Time last_update_check_time;
   base::Time last_update_completion_time;
   bool relax_updates;
@@ -79,9 +84,6 @@ struct WebApkInfo {
 
   // Update Status of the WebAPK.
   std::string update_status;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebApkInfo);
 };
 
 #endif  // CHROME_BROWSER_ANDROID_WEBAPK_WEBAPK_INFO_H_

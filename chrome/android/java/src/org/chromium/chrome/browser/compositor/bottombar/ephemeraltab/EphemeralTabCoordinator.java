@@ -21,7 +21,6 @@ import org.chromium.chrome.browser.WebContentsFactory;
 import org.chromium.chrome.browser.content.ContentUtils;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.incognito.IncognitoUtils;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
@@ -43,6 +42,7 @@ import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.ActivityWindowAndroid;
+import org.chromium.ui.base.IntentRequestTracker;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.url.GURL;
@@ -108,15 +108,14 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
      * @return {@code true} if the feature is enabled.
      */
     public static boolean isSupported() {
-        return ChromeFeatureList.isEnabled(ChromeFeatureList.EPHEMERAL_TAB_USING_BOTTOM_SHEET)
-                && !SysUtils.isLowEndDevice();
+        return !SysUtils.isLowEndDevice();
     }
 
     /**
      * Checks if the preview tab is in open (peek) state.
      */
     public boolean isOpened() {
-        return mPeeked;
+        return mPeeked || mFullyOpened;
     }
 
     /**
@@ -140,12 +139,9 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
             assert mSheetContent == null;
             createWebContents(profile);
             mSheetObserver = new EmptyBottomSheetObserver() {
-                private int mCloseReason;
-
                 @Override
                 public void onSheetContentChanged(BottomSheetContent newContent) {
                     if (newContent != mSheetContent) {
-                        mMetrics.recordMetricsForClosed(mCloseReason);
                         mPeeked = false;
                         destroyWebContents();
                     }
@@ -160,7 +156,7 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
                 }
 
                 @Override
-                public void onSheetStateChanged(int newState) {
+                public void onSheetStateChanged(int newState, int reason) {
                     if (mSheetContent == null) return;
                     switch (newState) {
                         case SheetState.PEEK:
@@ -179,21 +175,17 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
                 }
 
                 @Override
-                public void onSheetClosed(int reason) {
-                    // "Closed" actually means "Peek" for bottom sheet. Save the reason to
-                    // log when the sheet goes to hidden state. See http://crbug.com/986310.
-                    mCloseReason = reason;
-                }
-
-                @Override
                 public void onSheetOffsetChanged(float heightFraction, float offsetPx) {
                     if (mSheetContent == null) return;
                     if (mCanPromoteToNewTab) mSheetContent.showOpenInNewTabButton(heightFraction);
                 }
             };
             mBottomSheetController.addObserver(mSheetObserver);
+            IntentRequestTracker intentRequestTracker = mWindow.getIntentRequestTracker();
+            assert intentRequestTracker
+                    != null : "ActivityWindowAndroid must have a IntentRequestTracker.";
             mSheetContent = new EphemeralTabSheetContent(mContext, this::openInNewTab,
-                    this::onToolbarClick, this::close, getMaxViewHeight());
+                    this::onToolbarClick, this::close, getMaxViewHeight(), intentRequestTracker);
             mMediator.init(mWebContents, mContentView, mSheetContent, profile);
             mLayoutView.addOnLayoutChangeListener(this);
         }
@@ -210,8 +202,9 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
     private Profile getProfile(boolean isIncognito) {
         if (!isIncognito) return Profile.getLastUsedRegularProfile();
         Profile otrProfile = IncognitoUtils.getNonPrimaryOTRProfileFromWindowAndroid(mWindow);
-        return (otrProfile == null) ? Profile.getLastUsedRegularProfile().getPrimaryOTRProfile()
-                                    : otrProfile;
+        return (otrProfile == null)
+                ? Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(/*createIfNeeded=*/true)
+                : otrProfile;
     }
 
     private void createWebContents(Profile profile) {
@@ -226,11 +219,14 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
         mWebContents.initialize(ChromeVersionInfo.getProductVersion(),
                 ViewAndroidDelegate.createBasicDelegate(mContentView), mContentView, mWindow,
                 WebContents.createDefaultInternalsHolder());
-        ContentUtils.setUserAgentOverride(mWebContents);
+        ContentUtils.setUserAgentOverride(mWebContents, /* overrideInNewTabs= */ false);
     }
 
     private void destroyWebContents() {
         mSheetContent = null; // Will be destroyed by BottomSheet controller.
+
+        mPeeked = false;
+        mFullyOpened = false;
 
         if (mWebContents != null) {
             mWebContents.destroy();
@@ -332,8 +328,7 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
                 callback.onResult(drawable);
             };
 
-            mFaviconHelper.getLocalFaviconImageForURL(
-                    profile, url.getSpec(), mFaviconSize, imageCallback);
+            mFaviconHelper.getLocalFaviconImageForURL(profile, url, mFaviconSize, imageCallback);
         }
     }
 }

@@ -17,6 +17,7 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial_params.h"
 #include "cc/layers/layer.h"
@@ -36,6 +37,7 @@
 #include "ui/gfx/android/java_bitmap.h"
 #include "ui/gfx/geometry/dip_util.h"
 #include "ui/gfx/geometry/rect.h"
+#include "url/android/gurl_android.h"
 #include "url/gurl.h"
 
 using base::android::JavaParamRef;
@@ -75,7 +77,7 @@ class TabContentManager::TabReadbackRequest {
       double aspect_ratio = base::GetFieldTrialParamByFeatureAsDouble(
           chrome::android::kTabGridLayoutAndroid, "thumbnail_aspect_ratio",
           kDefaultThumbnailAspectRatio);
-      aspect_ratio = ThumbnailCache::clampAspectRatio(aspect_ratio, 0.5, 2.0);
+      aspect_ratio = base::clamp(aspect_ratio, 0.5, 2.0);
       int height = std::min(view_size_in_pixels.height(),
                             (int)(view_size_in_pixels.width() / aspect_ratio));
       view_size_in_pixels.set_height(height);
@@ -86,6 +88,9 @@ class TabContentManager::TabReadbackRequest {
     rwhv->CopyFromSurface(source_rect, thumbnail_size,
                           std::move(result_callback));
   }
+
+  TabReadbackRequest(const TabReadbackRequest&) = delete;
+  TabReadbackRequest& operator=(const TabReadbackRequest&) = delete;
 
   virtual ~TabReadbackRequest() {}
 
@@ -108,8 +113,6 @@ class TabContentManager::TabReadbackRequest {
   bool drop_after_readback_;
 
   base::WeakPtrFactory<TabReadbackRequest> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(TabReadbackRequest);
 };
 
 // static
@@ -305,9 +308,9 @@ void TabContentManager::CacheTabWithBitmap(JNIEnv* env,
 void TabContentManager::InvalidateIfChanged(JNIEnv* env,
                                             const JavaParamRef<jobject>& obj,
                                             jint tab_id,
-                                            const JavaParamRef<jstring>& jurl) {
-  thumbnail_cache_->InvalidateThumbnailIfChanged(
-      tab_id, GURL(base::android::ConvertJavaStringToUTF8(env, jurl)));
+                                            const JavaParamRef<jobject>& jurl) {
+  std::unique_ptr<GURL> url = url::GURLAndroid::ToNativeGURL(env, jurl);
+  thumbnail_cache_->InvalidateThumbnailIfChanged(tab_id, *url);
 }
 
 void TabContentManager::UpdateVisibleIds(
@@ -398,7 +401,7 @@ void TabContentManager::SendThumbnailToJava(
     double aspect_ratio = base::GetFieldTrialParamByFeatureAsDouble(
         chrome::android::kTabGridLayoutAndroid, "thumbnail_aspect_ratio",
         kDefaultThumbnailAspectRatio);
-    aspect_ratio = ThumbnailCache::clampAspectRatio(aspect_ratio, 0.5, 2.0);
+    aspect_ratio = base::clamp(aspect_ratio, 0.5, 2.0);
 
     int width = std::min(bitmap.width() / scale,
                          (int)(bitmap.height() * aspect_ratio / scale));

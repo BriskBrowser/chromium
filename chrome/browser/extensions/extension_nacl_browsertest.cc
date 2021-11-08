@@ -30,6 +30,7 @@ using content::PluginService;
 using content::WebContents;
 using extensions::Extension;
 using extensions::Manifest;
+using extensions::mojom::ManifestLocation;
 
 namespace {
 
@@ -132,7 +133,7 @@ class NaClExtensionTest : public extensions::ExtensionBrowserTest {
   }
 
   void CheckPluginsCreated(const GURL& url, PluginType expected_to_succeed) {
-    ui_test_utils::NavigateToURL(browser(), url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
     // Don't run tests if the NaCl plugin isn't loaded.
     if (!IsNaClPluginLoaded())
       return;
@@ -184,7 +185,7 @@ IN_PROC_BROWSER_TEST_F(NaClExtensionTest, DISABLED_NonWebStoreExtension) {
 IN_PROC_BROWSER_TEST_F(NaClExtensionTest, DISABLED_ComponentExtension) {
   const Extension* extension = InstallExtension(INSTALL_TYPE_COMPONENT);
   ASSERT_TRUE(extension);
-  ASSERT_EQ(extension->location(), Manifest::COMPONENT);
+  ASSERT_EQ(extension->location(), ManifestLocation::kComponent);
   CheckPluginsCreated(extension, PLUGIN_TYPE_ALL);
 }
 
@@ -193,7 +194,7 @@ IN_PROC_BROWSER_TEST_F(NaClExtensionTest, DISABLED_ComponentExtension) {
 IN_PROC_BROWSER_TEST_F(NaClExtensionTest, DISABLED_UnpackedExtension) {
   const Extension* extension = InstallExtension(INSTALL_TYPE_UNPACKED);
   ASSERT_TRUE(extension);
-  ASSERT_EQ(extension->location(), Manifest::UNPACKED);
+  ASSERT_EQ(extension->location(), ManifestLocation::kUnpacked);
   CheckPluginsCreated(extension, PLUGIN_TYPE_ALL);
 }
 
@@ -247,7 +248,7 @@ IN_PROC_BROWSER_TEST_F(NaClExtensionTest, MainFrameIsRemote) {
 
   // Navigate to a page with an iframe.
   GURL main_url(embedded_test_server()->GetURL("a.com", "/iframe.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
 
   // Navigate the subframe to the extension's html file.
   content::WebContents* web_contents =
@@ -257,7 +258,7 @@ IN_PROC_BROWSER_TEST_F(NaClExtensionTest, MainFrameIsRemote) {
 
   // Sanity check - the test setup should cause main frame and subframe to be in
   // a different process.
-  content::RenderFrameHost* subframe = web_contents->GetAllFrames()[1];
+  content::RenderFrameHost* subframe = ChildFrameAt(web_contents, 0);
   EXPECT_NE(web_contents->GetMainFrame()->GetProcess(), subframe->GetProcess());
 
   // Insert a plugin element into the subframe.  Before the fix from

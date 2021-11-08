@@ -32,6 +32,8 @@ namespace chromeos {
 
 namespace {
 
+const char kStubWiFi1[] = "stub_wifi1";
+
 void ErrorCallbackFunction(const std::string& error_name,
                            const std::string& error_message) {
   LOG(ERROR) << "Shill Error: " << error_name << " : " << error_message;
@@ -44,7 +46,7 @@ class TestListener : public internal::ShillPropertyHandler::Listener {
   void UpdateManagedList(ManagedState::ManagedType type,
                          const base::ListValue& entries) override {
     VLOG(1) << "UpdateManagedList[" << ManagedState::TypeToString(type)
-            << "]: " << entries.GetSize();
+            << "]: " << entries.GetList().size();
     UpdateEntries(GetTypeString(type), entries);
   }
 
@@ -136,11 +138,9 @@ class TestListener : public internal::ShillPropertyHandler::Listener {
     if (type.empty())
       return;
     entries_[type].clear();
-    for (base::ListValue::const_iterator iter = entries.begin();
-         iter != entries.end(); ++iter) {
-      std::string path;
-      if (iter->GetAsString(&path))
-        entries_[type].push_back(path);
+    for (const auto& entry : entries.GetList()) {
+      if (entry.is_string())
+        entries_[type].push_back(entry.GetString());
     }
   }
 
@@ -179,6 +179,10 @@ class ShillPropertyHandlerTest : public testing::Test {
         device_test_(NULL),
         service_test_(NULL),
         profile_test_(NULL) {}
+
+  ShillPropertyHandlerTest(const ShillPropertyHandlerTest&) = delete;
+  ShillPropertyHandlerTest& operator=(const ShillPropertyHandlerTest&) = delete;
+
   ~ShillPropertyHandlerTest() override = default;
 
   void SetUp() override {
@@ -249,9 +253,9 @@ class ShillPropertyHandlerTest : public testing::Test {
   // Call this after any initial Shill client setup
   void SetupShillPropertyHandler() {
     SetupDefaultShillState();
-    listener_.reset(new TestListener);
-    shill_property_handler_.reset(
-        new internal::ShillPropertyHandler(listener_.get()));
+    listener_ = std::make_unique<TestListener>();
+    shill_property_handler_ =
+        std::make_unique<internal::ShillPropertyHandler>(listener_.get());
     shill_property_handler_->Init();
   }
 
@@ -269,7 +273,7 @@ class ShillPropertyHandlerTest : public testing::Test {
     AddDevice(shill::kTypeCellular, "stub_cellular_device1");
     service_test_->ClearServices();
     AddService(shill::kTypeEthernet, "stub_ethernet", shill::kStateOnline);
-    AddService(shill::kTypeWifi, "stub_wifi1", shill::kStateOnline);
+    AddService(shill::kTypeWifi, kStubWiFi1, shill::kStateOnline);
     AddService(shill::kTypeWifi, "stub_wifi2", shill::kStateIdle);
     AddService(shill::kTypeCellular, "stub_cellular1", shill::kStateIdle);
   }
@@ -281,9 +285,6 @@ class ShillPropertyHandlerTest : public testing::Test {
   ShillDeviceClient::TestInterface* device_test_;
   ShillServiceClient::TestInterface* service_test_;
   ShillProfileClient::TestInterface* profile_test_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ShillPropertyHandlerTest);
 };
 
 TEST_F(ShillPropertyHandlerTest, ShillPropertyHandlerStub) {
@@ -478,8 +479,8 @@ TEST_F(ShillPropertyHandlerTest, ShillPropertyHandlerIPConfigPropertyChanged) {
                                           shill::kAddressProperty, ip_address,
                                           base::DoNothing());
   base::ListValue dns_servers;
-  dns_servers.AppendString("192.168.1.100");
-  dns_servers.AppendString("192.168.1.101");
+  dns_servers.Append("192.168.1.100");
+  dns_servers.Append("192.168.1.101");
   ShillIPConfigClient::Get()->SetProperty(dbus::ObjectPath(kTestIPConfigPath),
                                           shill::kNameServersProperty,
                                           dns_servers, base::DoNothing());
@@ -578,6 +579,41 @@ TEST_F(ShillPropertyHandlerTest, ProhibitedTechnologies) {
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(
       shill_property_handler_->IsTechnologyEnabled(shill::kTypeEthernet));
+}
+
+TEST_F(ShillPropertyHandlerTest, RequestTrafficCounters) {
+  // Set up the traffic counters.
+  base::Value traffic_counters(base::Value::Type::LIST);
+
+  base::Value chrome_dict(base::Value::Type::DICTIONARY);
+  chrome_dict.SetKey("source", base::Value(shill::kTrafficCounterSourceChrome));
+  chrome_dict.SetKey("rx_bytes", base::Value(12));
+  chrome_dict.SetKey("tx_bytes", base::Value(32));
+  traffic_counters.Append(std::move(chrome_dict));
+
+  base::Value user_dict(base::Value::Type::DICTIONARY);
+  user_dict.SetKey("source", base::Value(shill::kTrafficCounterSourceUser));
+  user_dict.SetKey("rx_bytes", base::Value(90));
+  user_dict.SetKey("tx_bytes", base::Value(87));
+  traffic_counters.Append(std::move(user_dict));
+
+  service_test_->SetFakeTrafficCounters(traffic_counters.Clone());
+  ASSERT_TRUE(traffic_counters.is_list());
+
+  base::RunLoop run_loop;
+  shill_property_handler_->RequestTrafficCounters(
+      kStubWiFi1, base::BindOnce(
+                      [](base::Value* expected_traffic_counters,
+                         base::OnceClosure quit_closure,
+                         absl::optional<base::Value> actual_traffic_counters) {
+                        ASSERT_TRUE(actual_traffic_counters);
+                        EXPECT_EQ(*expected_traffic_counters,
+                                  *actual_traffic_counters);
+                        std::move(quit_closure).Run();
+                      },
+                      &traffic_counters, run_loop.QuitClosure()));
+
+  run_loop.Run();
 }
 
 }  // namespace chromeos

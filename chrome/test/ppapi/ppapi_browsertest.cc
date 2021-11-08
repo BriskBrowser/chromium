@@ -9,9 +9,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_util.h"
-#include "base/optional.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
@@ -70,6 +68,7 @@
 #include "services/network/public/mojom/udp_socket.mojom.h"
 #include "services/network/test/test_dns_util.h"
 #include "services/network/test/test_network_context.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 
@@ -390,8 +389,8 @@ class MockTCPConnectedSocket : public network::mojom::TCPConnectedSocket,
         receiver_(this, std::move(receiver)) {
     if (tcp_failure_type_ == TCPFailureType::kConnectError) {
       std::move(callback).Run(
-          net::ERR_FAILED, base::nullopt /* local_addr */,
-          base::nullopt /* peer_addr */,
+          net::ERR_FAILED, absl::nullopt /* local_addr */,
+          absl::nullopt /* peer_addr */,
           mojo::ScopedDataPipeConsumerHandle() /* receive_stream */,
           mojo::ScopedDataPipeProducerHandle() /* send_stream */);
       return;
@@ -427,7 +426,7 @@ class MockTCPConnectedSocket : public network::mojom::TCPConnectedSocket,
         receiver_(this) {
     if (tcp_failure_type_ == TCPFailureType::kAcceptError) {
       std::move(callback).Run(
-          net::ERR_FAILED, base::nullopt /* remote_addr */,
+          net::ERR_FAILED, absl::nullopt /* remote_addr */,
           mojo::NullRemote() /* connected_socket */,
           mojo::ScopedDataPipeConsumerHandle() /* receive_stream */,
           mojo::ScopedDataPipeProducerHandle() /* send_stream */);
@@ -455,6 +454,9 @@ class MockTCPConnectedSocket : public network::mojom::TCPConnectedSocket,
     ClosePipeIfNeeded();
   }
 
+  MockTCPConnectedSocket(const MockTCPConnectedSocket&) = delete;
+  MockTCPConnectedSocket& operator=(const MockTCPConnectedSocket&) = delete;
+
   ~MockTCPConnectedSocket() override {}
 
   // mojom::TCPConnectedSocket implementation:
@@ -481,7 +483,7 @@ class MockTCPConnectedSocket : public network::mojom::TCPConnectedSocket,
     if (tcp_failure_type_ == TCPFailureType::kUpgradeToTLSError) {
       std::move(callback).Run(
           net::ERR_FAILED, mojo::ScopedDataPipeConsumerHandle(),
-          mojo::ScopedDataPipeProducerHandle(), base::nullopt /* ssl_info */);
+          mojo::ScopedDataPipeProducerHandle(), absl::nullopt /* ssl_info */);
       return;
     }
 
@@ -591,8 +593,6 @@ class MockTCPConnectedSocket : public network::mojom::TCPConnectedSocket,
   mojo::Receiver<network::mojom::TCPConnectedSocket> receiver_;
   mojo::Receiver<network::mojom::TLSClientSocket> tls_client_socket_receiver_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(MockTCPConnectedSocket);
 };
 
 class MockTCPServerSocket : public network::mojom::TCPServerSocket {
@@ -605,7 +605,7 @@ class MockTCPServerSocket : public network::mojom::TCPServerSocket {
       : tcp_failure_type_(tcp_failure_type),
         receiver_(this, std::move(receiver)) {
     if (tcp_failure_type_ == TCPFailureType::kCreateTCPServerSocketError) {
-      std::move(callback).Run(net::ERR_FAILED, base::nullopt /* local_addr */);
+      std::move(callback).Run(net::ERR_FAILED, absl::nullopt /* local_addr */);
       return;
     }
     if (tcp_failure_type_ == TCPFailureType::kCreateTCPServerSocketHangs) {
@@ -633,6 +633,9 @@ class MockTCPServerSocket : public network::mojom::TCPServerSocket {
     std::move(callback).Run(net::OK);
   }
 
+  MockTCPServerSocket(const MockTCPServerSocket&) = delete;
+  MockTCPServerSocket& operator=(const MockTCPServerSocket&) = delete;
+
   ~MockTCPServerSocket() override {}
 
   // TCPServerSocket implementation:
@@ -656,8 +659,6 @@ class MockTCPServerSocket : public network::mojom::TCPServerSocket {
   network::mojom::TCPBoundSocket::ListenCallback listen_callback_;
 
   mojo::Receiver<network::mojom::TCPServerSocket> receiver_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockTCPServerSocket);
 };
 
 class MockTCPBoundSocket : public network::mojom::TCPBoundSocket {
@@ -669,7 +670,7 @@ class MockTCPBoundSocket : public network::mojom::TCPBoundSocket {
       : tcp_failure_type_(tcp_failure_type),
         receiver_(this, std::move(receiver)) {
     if (tcp_failure_type_ == TCPFailureType::kBindError) {
-      std::move(callback).Run(net::ERR_FAILED, base::nullopt /* local_addr */);
+      std::move(callback).Run(net::ERR_FAILED, absl::nullopt /* local_addr */);
       return;
     }
     if (tcp_failure_type_ == TCPFailureType::kBindHangs) {
@@ -678,6 +679,9 @@ class MockTCPBoundSocket : public network::mojom::TCPBoundSocket {
     }
     std::move(callback).Run(net::OK, LocalAddress());
   }
+
+  MockTCPBoundSocket(const MockTCPBoundSocket&) = delete;
+  MockTCPBoundSocket& operator=(const MockTCPBoundSocket&) = delete;
 
   ~MockTCPBoundSocket() override {}
 
@@ -719,8 +723,6 @@ class MockTCPBoundSocket : public network::mojom::TCPBoundSocket {
   network::mojom::NetworkContext::CreateTCPBoundSocketCallback callback_;
 
   mojo::Receiver<network::mojom::TCPBoundSocket> receiver_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockTCPBoundSocket);
 };
 
 class MockNetworkContext : public network::TestNetworkContext {
@@ -732,6 +734,9 @@ class MockNetworkContext : public network::TestNetworkContext {
       : tcp_failure_type_(tcp_failure_type),
         browser_(browser),
         receiver_(this, std::move(receiver)) {}
+
+  MockNetworkContext(const MockNetworkContext&) = delete;
+  MockNetworkContext& operator=(const MockNetworkContext&) = delete;
 
   ~MockNetworkContext() override {}
 
@@ -753,7 +758,7 @@ class MockNetworkContext : public network::TestNetworkContext {
   }
 
   void CreateTCPConnectedSocket(
-      const base::Optional<net::IPEndPoint>& local_addr,
+      const absl::optional<net::IPEndPoint>& local_addr,
       const net::AddressList& remote_addr_list,
       network::mojom::TCPConnectedSocketOptionsPtr tcp_connected_socket_options,
       const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
@@ -804,8 +809,6 @@ class MockNetworkContext : public network::TestNetworkContext {
   std::vector<std::unique_ptr<MockTCPConnectedSocket>> connected_sockets_;
 
   mojo::Receiver<network::mojom::NetworkContext> receiver_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockNetworkContext);
 };
 
 // Runs a TCP test using a MockNetworkContext, through a Mojo pipe. Using a Mojo
@@ -987,18 +990,33 @@ PPAPI_SOCKET_TEST(UDPSocket_ReadWrite)
 PPAPI_SOCKET_TEST(UDPSocket_SetOption)
 PPAPI_SOCKET_TEST(UDPSocket_SetOption_1_0)
 PPAPI_SOCKET_TEST(UDPSocket_SetOption_1_1)
+
+// Fails on MacOS 11, crbug.com/1211138.
+#if !defined(OS_MAC)
 PPAPI_SOCKET_TEST(UDPSocket_Broadcast)
+#endif
+
 PPAPI_SOCKET_TEST(UDPSocket_ParallelSend)
 PPAPI_SOCKET_TEST(UDPSocket_Multicast)
 
 // UDPSocketPrivate tests.
 TEST_PPAPI_OUT_OF_PROCESS_VIA_HTTP(UDPSocketPrivate_Connect)
 TEST_PPAPI_OUT_OF_PROCESS_VIA_HTTP(UDPSocketPrivate_ConnectFailure)
+
+// Fails on MacOS 11, crbug.com/1211138.
+#if !defined(OS_MAC)
 TEST_PPAPI_OUT_OF_PROCESS_VIA_HTTP(UDPSocketPrivate_Broadcast)
+#endif
+
 TEST_PPAPI_OUT_OF_PROCESS_VIA_HTTP(UDPSocketPrivate_SetSocketFeatureErrors)
 TEST_PPAPI_NACL(UDPSocketPrivate_Connect)
 TEST_PPAPI_NACL(UDPSocketPrivate_ConnectFailure)
+
+// Fails on MacOS 11, crbug.com/1211138.
+#if !defined(OS_MAC)
 TEST_PPAPI_NACL(UDPSocketPrivate_Broadcast)
+#endif
+
 TEST_PPAPI_NACL(UDPSocketPrivate_SetSocketFeatureErrors)
 
 namespace {
@@ -1042,6 +1060,9 @@ class WrappedUDPSocket : public network::mojom::UDPSocket {
         base::BindOnce(&WrappedUDPSocket::Close, base::Unretained(this)));
   }
 
+  WrappedUDPSocket(const WrappedUDPSocket&) = delete;
+  WrappedUDPSocket& operator=(const WrappedUDPSocket&) = delete;
+
   // network::mojom::UDPSocket implementation.
   void Connect(const net::IPEndPoint& remote_addr,
                network::mojom::UDPSocketOptionsPtr options,
@@ -1052,7 +1073,7 @@ class WrappedUDPSocket : public network::mojom::UDPSocket {
             network::mojom::UDPSocketOptionsPtr options,
             BindCallback callback) override {
     if (failure_type_ == FailureType::kBindError) {
-      std::move(callback).Run(net::ERR_FAILED, base::nullopt);
+      std::move(callback).Run(net::ERR_FAILED, absl::nullopt);
       return;
     }
     if (failure_type_ == FailureType::kBindDropPipe) {
@@ -1096,8 +1117,8 @@ class WrappedUDPSocket : public network::mojom::UDPSocket {
     }
     if (failure_type_ == FailureType::kReadError) {
       for (uint32_t i = 0; i < num_additional_datagrams; ++i) {
-        socket_listener_->OnReceived(net::ERR_FAILED, base::nullopt,
-                                     base::nullopt);
+        socket_listener_->OnReceived(net::ERR_FAILED, absl::nullopt,
+                                     absl::nullopt);
       }
       return;
     }
@@ -1144,8 +1165,6 @@ class WrappedUDPSocket : public network::mojom::UDPSocket {
 
   // Only populated on certain read FailureTypes.
   mojo::Remote<network::mojom::UDPSocketListener> socket_listener_;
-
-  DISALLOW_COPY_AND_ASSIGN(WrappedUDPSocket);
 };
 
 void TestCreateUDPSocketCallback(
@@ -1238,8 +1257,7 @@ TEST_PPAPI_NACL_DISALLOWED_SOCKETS(UDPSocketPrivateDisallowed)
 // looked up across tabs with different first party origins.
 void CheckTestHostNameUsedWithCorrectNetworkIsolationKey(Browser* browser) {
   network::mojom::NetworkContext* network_context =
-      content::BrowserContext::GetDefaultStoragePartition(browser->profile())
-          ->GetNetworkContext();
+      browser->profile()->GetDefaultStoragePartition()->GetNetworkContext();
   const net::HostPortPair kHostPortPair(
       net::HostPortPair("host_resolver.test", 80));
 
@@ -1512,8 +1530,7 @@ IN_PROC_BROWSER_TEST_F(PPAPINaClNewlibTest, NaClIRTStackAlignment) {
   // Windows kernel, only 64-bit NaCl works.  This test matches the condition
   // used in //components/nacl/browser/nacl_browser.cc::NaClIrtName to
   // choose which kind of NaCl nexe to load, so it better be right.
-  is32 = (base::win::OSInfo::GetInstance()->wow64_status() !=
-          base::win::OSInfo::WOW64_ENABLED);
+  is32 = !base::win::OSInfo::GetInstance()->IsWowX86OnAMD64();
 #endif
   if (is32)
     RunTestViaHTTP(STRIP_PREFIXES(NaClIRTStackAlignment));
@@ -2003,7 +2020,7 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, DISABLED_View_PageHideShow) {
       &handler);
 
   GURL url = GetTestFileUrl("View_PageHideShow");
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   ASSERT_TRUE(observer.Run()) << handler.error_message();
   EXPECT_STREQ("TestPageHideShow:Created", handler.message().c_str());
@@ -2188,7 +2205,7 @@ class PackagedAppTest : public extensions::ExtensionBrowserTest {
     apps::AppLaunchParams params(
         extension->id(), apps::mojom::LaunchContainer::kLaunchContainerNone,
         WindowOpenDisposition::NEW_WINDOW,
-        apps::mojom::AppLaunchSource::kSourceTest);
+        apps::mojom::LaunchSource::kFromTest);
     params.command_line = *base::CommandLine::ForCurrentProcess();
     apps::AppServiceProxyFactory::GetForProfile(browser()->profile())
         ->BrowserAppLauncher()

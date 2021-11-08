@@ -33,6 +33,9 @@ class ProxiedServiceConnector : public mojom::Connector {
         proxies_(proxies),
         test_instance_group_(test_instance_group) {}
 
+  ProxiedServiceConnector(const ProxiedServiceConnector&) = delete;
+  ProxiedServiceConnector& operator=(const ProxiedServiceConnector&) = delete;
+
   ~ProxiedServiceConnector() override = default;
 
  private:
@@ -53,7 +56,7 @@ class ProxiedServiceConnector : public mojom::Connector {
     auto* proxy = GetServiceProxy(service_filter.service_name());
     if (!proxy && factory_->ignore_unknown_service_requests()) {
       std::move(callback).Run(mojom::ConnectResult::ACCESS_DENIED,
-                              base::nullopt);
+                              absl::nullopt);
       return;
     }
 
@@ -65,7 +68,7 @@ class ProxiedServiceConnector : public mojom::Connector {
                                 base::Token{}, fake_guid_),
                        CapabilitySet()),
         interface_name, std::move(interface_pipe), base::DoNothing());
-    std::move(callback).Run(mojom::ConnectResult::SUCCEEDED, base::nullopt);
+    std::move(callback).Run(mojom::ConnectResult::SUCCEEDED, absl::nullopt);
   }
 
   void WarmService(const ServiceFilter& filter,
@@ -95,8 +98,6 @@ class ProxiedServiceConnector : public mojom::Connector {
   TestConnectorFactory::NameToServiceProxyMap* const proxies_;
   const base::Token test_instance_group_;
   mojo::ReceiverSet<mojom::Connector> receivers_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProxiedServiceConnector);
 };
 
 }  // namespace

@@ -136,19 +136,17 @@ class UkmManagerTest : public testing::Test {
 
  protected:
   base::TimeTicks AdvanceNowByMs(int advance_ms) {
-    test_tick_clock_.Advance(base::TimeDelta::FromMicroseconds(advance_ms));
+    test_tick_clock_.Advance(base::Microseconds(advance_ms));
     return test_tick_clock_.NowTicks();
   }
 
   std::unique_ptr<EventMetrics> CreateEventMetrics(
       ui::EventType type,
-      base::Optional<EventMetrics::ScrollUpdateType> scroll_update_type,
-      base::Optional<ui::ScrollInputType> scroll_input_type) {
+      absl::optional<EventMetrics::GestureParams> gesture_params) {
     base::TimeTicks event_time = AdvanceNowByMs(10);
     AdvanceNowByMs(10);
     std::unique_ptr<EventMetrics> metrics = EventMetrics::CreateForTesting(
-        type, scroll_update_type, scroll_input_type, event_time,
-        &test_tick_clock_);
+        type, gesture_params, event_time, &test_tick_clock_);
     if (metrics) {
       AdvanceNowByMs(10);
       metrics->SetDispatchStageTimestamp(
@@ -201,16 +199,16 @@ class UkmManagerTest : public testing::Test {
 
   BeginMainFrameMetrics BuildBlinkBreakdown() {
     BeginMainFrameMetrics breakdown;
-    breakdown.handle_input_events = base::TimeDelta::FromMicroseconds(10);
-    breakdown.animate = base::TimeDelta::FromMicroseconds(9);
-    breakdown.style_update = base::TimeDelta::FromMicroseconds(8);
-    breakdown.layout_update = base::TimeDelta::FromMicroseconds(7);
-    breakdown.compositing_inputs = base::TimeDelta::FromMicroseconds(6);
-    breakdown.prepaint = base::TimeDelta::FromMicroseconds(5);
-    breakdown.compositing_assignments = base::TimeDelta::FromMicroseconds(4);
-    breakdown.paint = base::TimeDelta::FromMicroseconds(3);
-    breakdown.composite_commit = base::TimeDelta::FromMicroseconds(2);
-    breakdown.update_layers = base::TimeDelta::FromMicroseconds(1);
+    breakdown.handle_input_events = base::Microseconds(10);
+    breakdown.animate = base::Microseconds(9);
+    breakdown.style_update = base::Microseconds(8);
+    breakdown.layout_update = base::Microseconds(7);
+    breakdown.compositing_inputs = base::Microseconds(6);
+    breakdown.prepaint = base::Microseconds(5);
+    breakdown.compositing_assignments = base::Microseconds(4);
+    breakdown.paint = base::Microseconds(3);
+    breakdown.composite_commit = base::Microseconds(2);
+    breakdown.update_layers = base::Microseconds(1);
 
     // Advance now by the sum of the breakdowns.
     AdvanceNowByMs(10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2 + 1);
@@ -381,7 +379,7 @@ TEST_P(UkmManagerCompositorLatencyTest, CompositorLatency) {
       },
   };
 
-  CompositorFrameReporter::ActiveTrackers active_trackers;
+  ActiveTrackers active_trackers;
   active_trackers.set(
       static_cast<size_t>(FrameSequenceTrackerType::kScrollbarScroll));
   active_trackers.set(
@@ -523,15 +521,25 @@ TEST_P(UkmManagerCompositorLatencyTest, CompositorLatency) {
 }
 
 TEST_F(UkmManagerTest, EventLatency) {
+  const bool kScrollIsInertial = true;
+  const bool kScrollIsNotInertial = false;
   std::unique_ptr<EventMetrics> event_metrics_ptrs[] = {
-      CreateEventMetrics(ui::ET_GESTURE_SCROLL_BEGIN, base::nullopt,
-                         ui::ScrollInputType::kWheel),
+      CreateEventMetrics(
+          ui::ET_GESTURE_SCROLL_BEGIN,
+          EventMetrics::GestureParams(ui::ScrollInputType::kWheel,
+                                      kScrollIsNotInertial)),
       CreateEventMetrics(ui::ET_GESTURE_SCROLL_UPDATE,
-                         EventMetrics::ScrollUpdateType::kStarted,
-                         ui::ScrollInputType::kWheel),
+                         EventMetrics::GestureParams(
+                             ui::ScrollInputType::kWheel, kScrollIsNotInertial,
+                             EventMetrics::ScrollUpdateType::kStarted)),
       CreateEventMetrics(ui::ET_GESTURE_SCROLL_UPDATE,
-                         EventMetrics::ScrollUpdateType::kContinued,
-                         ui::ScrollInputType::kWheel),
+                         EventMetrics::GestureParams(
+                             ui::ScrollInputType::kWheel, kScrollIsNotInertial,
+                             EventMetrics::ScrollUpdateType::kContinued)),
+      CreateEventMetrics(ui::ET_GESTURE_SCROLL_UPDATE,
+                         EventMetrics::GestureParams(
+                             ui::ScrollInputType::kWheel, kScrollIsInertial,
+                             EventMetrics::ScrollUpdateType::kContinued)),
   };
   EXPECT_THAT(event_metrics_ptrs, ::testing::Each(::testing::NotNull()));
   EventMetrics::List events_metrics(
@@ -609,7 +617,7 @@ TEST_F(UkmManagerTest, EventLatency) {
                                   processed_viz_breakdown);
 
   const auto& entries = test_ukm_recorder_->GetEntriesByName(kEventLatency);
-  EXPECT_EQ(3u, entries.size());
+  EXPECT_EQ(4u, entries.size());
   for (size_t i = 0; i < entries.size(); i++) {
     const auto* entry = entries[i];
     const auto* event_metrics = events_metrics[i].get();

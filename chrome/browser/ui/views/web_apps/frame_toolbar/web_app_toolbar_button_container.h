@@ -11,10 +11,10 @@
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_container.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
-#include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/ui/web_applications/web_app_menu_model.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/views/layout/flex_layout_types.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -25,9 +25,9 @@ class ToolbarButtonProvider;
 class ExtensionsToolbarContainer;
 class WebAppMenuButton;
 class WebAppOriginText;
+class WindowControlsOverlayToggleButton;
 
 class WebAppToolbarButtonContainer : public views::View,
-                                     public BrowserActionsContainer::Delegate,
                                      public IconLabelBubbleView::Delegate,
                                      public ContentSettingImageView::Delegate,
                                      public ImmersiveModeController::Observer,
@@ -41,11 +41,11 @@ class WebAppToolbarButtonContainer : public views::View,
   // These control how long it takes for the origin text and menu button
   // highlight to fade in, pause then fade out.
   static constexpr base::TimeDelta kOriginFadeInDuration =
-      base::TimeDelta::FromMilliseconds(800);
+      base::Milliseconds(800);
   static constexpr base::TimeDelta kOriginPauseDuration =
-      base::TimeDelta::FromMilliseconds(2500);
+      base::Milliseconds(2500);
   static constexpr base::TimeDelta kOriginFadeOutDuration =
-      base::TimeDelta::FromMilliseconds(800);
+      base::Milliseconds(800);
 
   // The total duration of the origin fade animation.
   static base::TimeDelta OriginTotalDuration();
@@ -57,7 +57,9 @@ class WebAppToolbarButtonContainer : public views::View,
 
   void UpdateStatusIconsVisibility();
 
-  void SetColors(SkColor foreground_color, SkColor background_color);
+  void SetColors(SkColor foreground_color,
+                 SkColor background_color,
+                 bool color_changed);
 
   views::FlexRule GetFlexRule() const;
 
@@ -69,15 +71,15 @@ class WebAppToolbarButtonContainer : public views::View,
     return page_action_icon_controller_.get();
   }
 
-  BrowserActionsContainer* browser_actions_container() {
-    return browser_actions_container_;
-  }
-
   ExtensionsToolbarContainer* extensions_container() {
     return extensions_container_;
   }
 
   WebAppMenuButton* web_app_menu_button() { return web_app_menu_button_; }
+
+  WindowControlsOverlayToggleButton* window_controls_overlay_toggle_button() {
+    return window_controls_overlay_toggle_button_;
+  }
 
   static void DisableAnimationForTesting();
 
@@ -86,10 +88,10 @@ class WebAppToolbarButtonContainer : public views::View,
 
   // Duration to wait before starting the opening animation.
   static constexpr base::TimeDelta kTitlebarAnimationDelay =
-      base::TimeDelta::FromMilliseconds(750);
+      base::Milliseconds(750);
 
   // PageActionIconContainer:
-  void AddPageActionIcon(views::View* icon) override;
+  void AddPageActionIcon(std::unique_ptr<views::View> icon) override;
 
   // PageActionIconView::Delegate:
   int GetPageActionIconSize() const override;
@@ -106,15 +108,6 @@ class WebAppToolbarButtonContainer : public views::View,
   void FadeInContentSettingIcons();
 
   void ChildPreferredSizeChanged(views::View* child) override;
-
-  // BrowserActionsContainer::Delegate:
-  views::LabelButton* GetOverflowReferenceView() override;
-  base::Optional<int> GetMaxBrowserActionsWidth() const override;
-  bool CanShowIconInToolbar() const override;
-  std::unique_ptr<ToolbarActionsBar> CreateToolbarActionsBar(
-      ToolbarActionsBarDelegate* delegate,
-      Browser* browser,
-      ToolbarActionsBar* main_bar) const override;
 
   // IconLabelBubbleView::Delegate:
   SkColor GetIconLabelBubbleSurroundingForegroundColor() const override;
@@ -134,11 +127,8 @@ class WebAppToolbarButtonContainer : public views::View,
   // PageActionIconView::Delegate:
   content::WebContents* GetWebContentsForPageActionIconView() override;
 
-  // views::WidgetObserver:
-  void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override;
-
-  // Whether we're waiting for the widget to become visible.
-  bool pending_widget_visibility_ = true;
+  // views::View:
+  void AddedToWidget() override;
 
   base::ScopedObservation<views::Widget, views::WidgetObserver>
       scoped_widget_observation_{this};
@@ -159,8 +149,9 @@ class WebAppToolbarButtonContainer : public views::View,
 
   // All remaining members are owned by the views hierarchy.
   WebAppOriginText* web_app_origin_text_ = nullptr;
+  WindowControlsOverlayToggleButton* window_controls_overlay_toggle_button_ =
+      nullptr;
   WebAppContentSettingsContainer* content_settings_container_ = nullptr;
-  BrowserActionsContainer* browser_actions_container_ = nullptr;
   ExtensionsToolbarContainer* extensions_container_ = nullptr;
   WebAppMenuButton* web_app_menu_button_ = nullptr;
 };

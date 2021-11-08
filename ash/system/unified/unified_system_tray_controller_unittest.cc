@@ -4,7 +4,6 @@
 
 #include "ash/system/unified/unified_system_tray_controller.h"
 
-#include "ash/public/cpp/ash_features.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/system/message_center/ash_message_center_lock_screen_controller.h"
@@ -35,6 +34,12 @@ class UnifiedSystemTrayControllerTest : public AshTestBase,
                                         public views::ViewObserver {
  public:
   UnifiedSystemTrayControllerTest() = default;
+
+  UnifiedSystemTrayControllerTest(const UnifiedSystemTrayControllerTest&) =
+      delete;
+  UnifiedSystemTrayControllerTest& operator=(
+      const UnifiedSystemTrayControllerTest&) = delete;
+
   ~UnifiedSystemTrayControllerTest() override = default;
 
   // testing::Test:
@@ -99,8 +104,6 @@ class UnifiedSystemTrayControllerTest : public AshTestBase,
   std::unique_ptr<UnifiedSystemTrayView> view_;
 
   int preferred_size_changed_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(UnifiedSystemTrayControllerTest);
 };
 
 TEST_F(UnifiedSystemTrayControllerTest, ToggleExpanded) {

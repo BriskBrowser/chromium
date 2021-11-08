@@ -6,15 +6,16 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/check.h"
 #include "chromeos/assistant/internal/internal_util.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
-#include "chromeos/services/assistant/public/cpp/migration/assistant_manager_service_delegate.h"
-#include "chromeos/services/assistant/public/cpp/migration/libassistant_v1_api.h"
 #include "chromeos/services/libassistant/chromium_api_delegate.h"
+#include "chromeos/services/libassistant/grpc/assistant_client.h"
+#include "chromeos/services/libassistant/libassistant_factory.h"
+#include "chromeos/services/libassistant/settings_controller.h"
 #include "chromeos/services/libassistant/util.h"
 #include "libassistant/shared/internal_api/assistant_manager_internal.h"
-#include "libassistant/shared/public/device_state_listener.h"
 #include "services/network/public/cpp/cross_thread_pending_shared_url_loader_factory.h"
 #include "services/network/public/cpp/wrapper_shared_url_loader_factory.h"
 
@@ -41,20 +42,9 @@ constexpr char kServersideDogfoodExperimentId[] = "20347368";
 constexpr char kServersideOpenAppExperimentId[] = "39651593";
 constexpr char kServersideResponseProcessingV2ExperimentId[] = "1793869";
 
-std::vector<std::pair<std::string, std::string>> ToAuthTokens(
-    const std::vector<mojom::AuthenticationTokenPtr>& mojo_tokens) {
-  std::vector<std::pair<std::string, std::string>> result;
-
-  for (const auto& token : mojo_tokens)
-    result.emplace_back(token->gaia_id, token->access_token);
-
-  return result;
-}
-
 std::string ToLibassistantConfig(const mojom::BootupConfig& bootup_config) {
   return CreateLibAssistantConfig(bootup_config.s3_server_uri_override,
-                                  bootup_config.device_id_override,
-                                  bootup_config.log_in_home_dir);
+                                  bootup_config.device_id_override);
 }
 
 std::unique_ptr<network::PendingSharedURLLoaderFactory>
@@ -86,45 +76,25 @@ void FillServerExperimentIds(std::vector<std::string>* server_experiment_ids) {
       kServersideResponseProcessingV2ExperimentId);
 }
 
-void SetServerExperiments(
-    assistant_client::AssistantManagerInternal* assistant_manager_internal) {
+void SetServerExperiments(AssistantClient* assistant_client) {
   std::vector<std::string> server_experiment_ids;
   FillServerExperimentIds(&server_experiment_ids);
 
   if (server_experiment_ids.size() > 0) {
-    assistant_manager_internal->AddExtraExperimentIds(server_experiment_ids);
+    assistant_client->AddExperimentIds(server_experiment_ids);
   }
 }
 
 }  // namespace
 
-class ServiceController::DeviceStateListener
-    : public assistant_client::DeviceStateListener {
- public:
-  explicit DeviceStateListener(ServiceController* parent)
-      : parent_(parent),
-        mojom_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
-  DeviceStateListener(const DeviceStateListener&) = delete;
-  DeviceStateListener& operator=(const DeviceStateListener&) = delete;
-  ~DeviceStateListener() override = default;
+////////////////////////////////////////////////////////////////////////////////
+//  ServiceController
+////////////////////////////////////////////////////////////////////////////////
 
-  // assistant_client::DeviceStateListener overrides:
-  // Called on Libassistant thread.
-  void OnStartFinished() override {
-    ENSURE_MOJOM_THREAD(&DeviceStateListener::OnStartFinished);
-    parent_->OnStartFinished();
-  }
-
- private:
-  ServiceController* const parent_;
-  scoped_refptr<base::SequencedTaskRunner> mojom_task_runner_;
-  base::WeakPtrFactory<DeviceStateListener> weak_factory_{this};
-};
-
-ServiceController::ServiceController(
-    assistant::AssistantManagerServiceDelegate* delegate,
-    assistant_client::PlatformApi* platform_api)
-    : delegate_(delegate), platform_api_(platform_api), receiver_(this) {}
+ServiceController::ServiceController(LibassistantFactory* factory)
+    : libassistant_factory_(*factory) {
+  DCHECK(factory);
+}
 
 ServiceController::~ServiceController() {
   // Ensure all our observers know this service is no longer running.
@@ -133,36 +103,45 @@ ServiceController::~ServiceController() {
 }
 
 void ServiceController::Bind(
-    mojo::PendingReceiver<mojom::ServiceController> receiver) {
+    mojo::PendingReceiver<mojom::ServiceController> receiver,
+    mojom::SettingsController* settings_controller) {
   DCHECK(!receiver_.is_bound());
   receiver_.Bind(std::move(receiver));
-}
-
-void ServiceController::SetInitializeCallback(InitializeCallback callback) {
-  initialize_callback_ = std::move(callback);
+  settings_controller_ = settings_controller;
 }
 
 void ServiceController::Initialize(
     mojom::BootupConfigPtr config,
     mojo::PendingRemote<network::mojom::URLLoaderFactory> url_loader_factory) {
-  if (assistant_manager_ != nullptr) {
+  if (assistant_client_) {
     LOG(ERROR) << "Initialize() should only be called once.";
     return;
   }
 
-  assistant_manager_ = delegate_->CreateAssistantManager(
-      platform_api_, ToLibassistantConfig(*config));
-  assistant_manager_internal_ =
-      delegate_->UnwrapAssistantManagerInternal(assistant_manager_.get());
+  auto assistant_manager = libassistant_factory_.CreateAssistantManager(
+      ToLibassistantConfig(*config));
+  auto* assistant_manager_internal =
+      libassistant_factory_.UnwrapAssistantManagerInternal(
+          assistant_manager.get());
 
-  CreateAndRegisterDeviceStateListener();
+  assistant_client_ = AssistantClient::Create(std::move(assistant_manager),
+                                              assistant_manager_internal);
+
+  DCHECK(settings_controller_);
+  settings_controller_->SetAuthenticationTokens(
+      std::move(config->authentication_tokens));
+  settings_controller_->SetLocale(config->locale);
+  settings_controller_->SetHotwordEnabled(config->hotword_enabled);
+  settings_controller_->SetSpokenFeedbackEnabled(
+      config->spoken_feedback_enabled);
+  settings_controller_->SetDarkModeEnabled(config->dark_mode_enabled);
+
   CreateAndRegisterChromiumApiDelegate(std::move(url_loader_factory));
 
-  SetServerExperiments(assistant_manager_internal());
+  SetServerExperiments(assistant_client_.get());
 
-  for (auto& observer : assistant_manager_observers_) {
-    observer.OnAssistantManagerCreated(assistant_manager(),
-                                       assistant_manager_internal());
+  for (auto& observer : assistant_client_observers_) {
+    observer.OnAssistantClientCreated(assistant_client_.get());
   }
 }
 
@@ -173,24 +152,8 @@ void ServiceController::Start() {
   DCHECK(IsInitialized()) << "Initialize() must be called before Start()";
   DVLOG(1) << "Starting Libassistant service";
 
-  if (initialize_callback_) {
-    std::move(initialize_callback_)
-        .Run(assistant_manager(), assistant_manager_internal());
-  }
-
-  assistant_manager()->Start();
-
-  libassistant_v1_api_ = std::make_unique<assistant::LibassistantV1Api>(
-      assistant_manager_.get(), assistant_manager_internal_);
-
-  SetStateAndInformObservers(ServiceState::kStarted);
-
-  for (auto& observer : assistant_manager_observers_) {
-    observer.OnAssistantManagerStarted(assistant_manager(),
-                                       assistant_manager_internal());
-  }
-
-  DVLOG(1) << "Started Libassistant service";
+  // |this| will outlive |assistant_client_|.
+  assistant_client_->StartServices(/*services_status_observer=*/this);
 }
 
 void ServiceController::Stop() {
@@ -200,27 +163,23 @@ void ServiceController::Stop() {
   DVLOG(1) << "Stopping Libassistant service";
   SetStateAndInformObservers(ServiceState::kStopped);
 
-  for (auto& observer : assistant_manager_observers_) {
-    observer.OnDestroyingAssistantManager(assistant_manager(),
-                                          assistant_manager_internal());
+  for (auto& observer : assistant_client_observers_) {
+    observer.OnDestroyingAssistantClient(assistant_client_.get());
   }
 
-  libassistant_v1_api_ = nullptr;
-  assistant_manager_ = nullptr;
-  assistant_manager_internal_ = nullptr;
+  assistant_client_ = nullptr;
   chromium_api_delegate_ = nullptr;
-  device_state_listener_ = nullptr;
 
-  for (auto& observer : assistant_manager_observers_)
-    observer.OnAssistantManagerDestroyed();
+  for (auto& observer : assistant_client_observers_)
+    observer.OnAssistantClientDestroyed();
 
   DVLOG(1) << "Stopped Libassistant service";
 }
 
 void ServiceController::ResetAllDataAndStop() {
-  if (assistant_manager()) {
+  if (assistant_client_) {
     DVLOG(1) << "Resetting all Libassistant data";
-    assistant_manager()->ResetAllDataAndShutdown();
+    assistant_client_->ResetAllDataAndShutdown();
   }
   Stop();
 }
@@ -234,66 +193,50 @@ void ServiceController::AddAndFireStateObserver(
   state_observers_.Add(std::move(observer));
 }
 
-void ServiceController::SetLocaleOverride(const std::string& value) {
-  DCHECK(IsInitialized());
-
-  assistant_manager_internal()->SetLocaleOverride(value);
+void ServiceController::OnServicesStatusChanged(ServicesStatus status) {
+  switch (status) {
+    case ServicesStatus::ONLINE_ALL_SERVICES_AVAILABLE:
+      OnAllServicesReady();
+      break;
+    case ServicesStatus::ONLINE_BOOTING_UP:
+      // Configing internal options or other essential services that are
+      // supported during bootup stage should happen here.
+      OnServicesBootingUp();
+      break;
+    case ServicesStatus::OFFLINE:
+      // No action needed.
+      break;
+  }
 }
 
-void ServiceController::SetInternalOptions(const std::string& locale,
-                                           bool spoken_feedback_enabled) {
-  DCHECK(IsInitialized());
-
-  auto* internal_options =
-      assistant_manager_internal()->CreateDefaultInternalOptions();
-  assistant::SetAssistantOptions(internal_options, locale,
-                                 spoken_feedback_enabled);
-
-  internal_options->SetClientControlEnabled(
-      assistant::features::IsRoutinesEnabled());
-
-  if (!assistant::features::IsVoiceMatchDisabled())
-    internal_options->EnableRequireVoiceMatchVerification();
-
-  assistant_manager_internal()->SetOptions(*internal_options, [](bool success) {
-    DVLOG(2) << "set options: " << success;
-  });
-}
-
-void ServiceController::SetAuthenticationTokens(
-    std::vector<mojom::AuthenticationTokenPtr> tokens) {
-  DCHECK(IsInitialized());
-
-  assistant_manager()->SetAuthTokens(ToAuthTokens(tokens));
-}
-
-void ServiceController::AddAndFireAssistantManagerObserver(
-    AssistantManagerObserver* observer) {
+void ServiceController::AddAndFireAssistantClientObserver(
+    AssistantClientObserver* observer) {
   DCHECK(observer);
 
-  assistant_manager_observers_.AddObserver(observer);
+  assistant_client_observers_.AddObserver(observer);
 
   if (IsInitialized()) {
-    observer->OnAssistantManagerCreated(assistant_manager(),
-                                        assistant_manager_internal());
+    observer->OnAssistantClientCreated(assistant_client_.get());
   }
-  // Note we do send the |OnAssistantManagerStarted| event even if the service
+  // Note we do send the |OnAssistantClientStarted| event even if the service
   // is currently running, to ensure that an observer that only observes
-  // |OnAssistantManagerStarted| will not miss a currently running instance
+  // |OnAssistantClientStarted| will not miss a currently running instance
   // when it is being added.
   if (IsStarted()) {
-    observer->OnAssistantManagerStarted(assistant_manager(),
-                                        assistant_manager_internal());
+    observer->OnAssistantClientStarted(assistant_client_.get());
   }
   if (IsRunning()) {
-    observer->OnAssistantManagerRunning(assistant_manager(),
-                                        assistant_manager_internal());
+    observer->OnAssistantClientRunning(assistant_client_.get());
   }
 }
 
-void ServiceController::RemoveAssistantManagerObserver(
-    AssistantManagerObserver* observer) {
-  assistant_manager_observers_.RemoveObserver(observer);
+void ServiceController::RemoveAssistantClientObserver(
+    AssistantClientObserver* observer) {
+  assistant_client_observers_.RemoveObserver(observer);
+}
+
+void ServiceController::RemoveAllAssistantClientObservers() {
+  assistant_client_observers_.Clear();
 }
 
 bool ServiceController::IsStarted() const {
@@ -307,7 +250,7 @@ bool ServiceController::IsStarted() const {
 }
 
 bool ServiceController::IsInitialized() const {
-  return assistant_manager_ != nullptr;
+  return assistant_client_ != nullptr;
 }
 
 bool ServiceController::IsRunning() const {
@@ -320,23 +263,38 @@ bool ServiceController::IsRunning() const {
   }
 }
 
+AssistantClient* ServiceController::assistant_client() {
+  return assistant_client_.get();
+}
+
 assistant_client::AssistantManager* ServiceController::assistant_manager() {
-  return assistant_manager_.get();
+  return assistant_client_ ? assistant_client_->assistant_manager() : nullptr;
 }
 
 assistant_client::AssistantManagerInternal*
 ServiceController::assistant_manager_internal() {
-  return assistant_manager_internal_;
+  return assistant_client_ ? assistant_client_->assistant_manager_internal()
+                           : nullptr;
 }
 
-void ServiceController::OnStartFinished() {
-  DVLOG(1) << "Libassistant start is finished";
+void ServiceController::OnAllServicesReady() {
+  DVLOG(1) << "Libassistant services are ready.";
+
+  // Notify observers on Libassistant services ready.
   SetStateAndInformObservers(mojom::ServiceState::kRunning);
 
-  for (auto& observer : assistant_manager_observers_) {
-    observer.OnAssistantManagerRunning(assistant_manager(),
-                                       assistant_manager_internal());
-  }
+  for (auto& observer : assistant_client_observers_)
+    observer.OnAssistantClientRunning(assistant_client_.get());
+}
+
+void ServiceController::OnServicesBootingUp() {
+  DVLOG(1) << "Started Libassistant service";
+
+  // Notify observer on Libassistant services started.
+  SetStateAndInformObservers(ServiceState::kStarted);
+
+  for (auto& observer : assistant_client_observers_)
+    observer.OnAssistantClientStarted(assistant_client_.get());
 }
 
 void ServiceController::SetStateAndInformObservers(
@@ -349,19 +307,11 @@ void ServiceController::SetStateAndInformObservers(
     observer->OnStateChanged(state_);
 }
 
-void ServiceController::CreateAndRegisterDeviceStateListener() {
-  device_state_listener_ = std::make_unique<DeviceStateListener>(this);
-  assistant_manager()->AddDeviceStateListener(device_state_listener_.get());
-}
-
 void ServiceController::CreateAndRegisterChromiumApiDelegate(
     mojo::PendingRemote<network::mojom::URLLoaderFactory>
         url_loader_factory_remote) {
   CreateChromiumApiDelegate(std::move(url_loader_factory_remote));
-
-  assistant_manager_internal()
-      ->GetFuchsiaApiHelperOrDie()
-      ->SetFuchsiaApiDelegate(chromium_api_delegate_.get());
+  assistant_client_->SetChromeOSApiDelegate(chromium_api_delegate_.get());
 }
 
 void ServiceController::CreateChromiumApiDelegate(

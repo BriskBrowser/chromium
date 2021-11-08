@@ -6,8 +6,8 @@
 
 #include <memory>
 
+#include "ash/components/settings/timezone_settings.h"
 #include "base/macros.h"
-#include "chromeos/settings/timezone_settings.h"
 #include "third_party/icu/source/i18n/unicode/timezone.h"
 
 namespace device {
@@ -20,6 +20,9 @@ class TimeZoneMonitorChromeOS
     chromeos::system::TimezoneSettings::GetInstance()->AddObserver(this);
   }
 
+  TimeZoneMonitorChromeOS(const TimeZoneMonitorChromeOS&) = delete;
+  TimeZoneMonitorChromeOS& operator=(const TimeZoneMonitorChromeOS&) = delete;
+
   ~TimeZoneMonitorChromeOS() override {
     chromeos::system::TimezoneSettings::GetInstance()->RemoveObserver(this);
   }
@@ -30,9 +33,6 @@ class TimeZoneMonitorChromeOS
     // it with detectHostTimeZone() or to update ICU.
     NotifyClients(GetTimeZoneId(time_zone));
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TimeZoneMonitorChromeOS);
 };
 
 // static

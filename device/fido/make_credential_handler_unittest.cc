@@ -7,9 +7,11 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/cbor/reader.h"
 #include "components/cbor/values.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
@@ -47,7 +49,7 @@ namespace {
 
 using TestMakeCredentialRequestCallback = test::StatusAndValuesCallbackReceiver<
     MakeCredentialStatus,
-    base::Optional<AuthenticatorMakeCredentialResponse>,
+    absl::optional<AuthenticatorMakeCredentialResponse>,
     const FidoAuthenticator*>;
 
 }  // namespace
@@ -79,8 +81,7 @@ class FidoMakeCredentialHandlerTest : public ::testing::Test {
         test_data::kClientDataJson, std::move(rp), std::move(user),
         std::move(credential_params));
 
-    MakeCredentialRequestHandler::Options options(
-        authenticator_selection_criteria);
+    MakeCredentialOptions options(authenticator_selection_criteria);
     options.allow_skipping_pin_touch = true;
 
     auto handler = std::make_unique<MakeCredentialRequestHandler>(
@@ -151,7 +152,7 @@ TEST_F(FidoMakeCredentialHandlerTest, TransportAvailabilityInfo) {
   auto request_handler = CreateMakeCredentialHandler();
 
   EXPECT_EQ(request_handler->transport_availability_info().request_type,
-            FidoRequestHandlerBase::RequestType::kMakeCredential);
+            FidoRequestType::kMakeCredential);
 }
 
 TEST_F(FidoMakeCredentialHandlerTest, TransportAvailabilityInfoRk) {
@@ -392,10 +393,10 @@ ACTION_P(Reply, reply) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(
-          [](base::OnceCallback<void(base::Optional<std::vector<uint8_t>>)>
+          [](base::OnceCallback<void(absl::optional<std::vector<uint8_t>>)>
                  callback,
-             std::vector<uint8_t> reply) {
-            std::move(callback).Run(std::move(reply));
+             std::vector<uint8_t> reply_bytes) {
+            std::move(callback).Run(std::move(reply_bytes));
           },
           std::move(arg1), std::vector<uint8_t>(reply.begin(), reply.end())));
 }

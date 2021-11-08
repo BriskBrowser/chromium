@@ -12,9 +12,8 @@
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
-#include "base/metrics/field_trial.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -36,7 +35,7 @@
 #include "content/public/common/zygote/zygote_buildflags.h"
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/ppapi_permissions.h"
-#include "sandbox/policy/sandbox_type.h"
+#include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/switches.h"
 #include "services/network/public/cpp/network_connection_tracker.h"
 #include "ui/base/ui_base_switches.h"
@@ -67,6 +66,11 @@ class PpapiPluginSandboxedProcessLauncherDelegate
 #endif
   {
   }
+
+  PpapiPluginSandboxedProcessLauncherDelegate(
+      const PpapiPluginSandboxedProcessLauncherDelegate&) = delete;
+  PpapiPluginSandboxedProcessLauncherDelegate& operator=(
+      const PpapiPluginSandboxedProcessLauncherDelegate&) = delete;
 
   ~PpapiPluginSandboxedProcessLauncherDelegate() override {}
 
@@ -119,20 +123,19 @@ class PpapiPluginSandboxedProcessLauncherDelegate
   }
 #endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
 
-  sandbox::policy::SandboxType GetSandboxType() override {
-    return sandbox::policy::SandboxType::kPpapi;
+  sandbox::mojom::Sandbox GetSandboxType() override {
+    return sandbox::mojom::Sandbox::kPpapi;
   }
 
 #if defined(OS_MAC)
   bool DisclaimResponsibility() override { return true; }
+  bool EnableCpuSecurityMitigations() override { return true; }
 #endif
 
  private:
 #if defined(OS_WIN)
   const ppapi::PpapiPermissions permissions_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(PpapiPluginSandboxedProcessLauncherDelegate);
 };
 
 class PpapiPluginProcessHost::PluginNetworkObserver
@@ -178,7 +181,7 @@ PpapiPluginProcessHost::~PpapiPluginProcessHost() {
 PpapiPluginProcessHost* PpapiPluginProcessHost::CreatePluginHost(
     const PepperPluginInfo& info,
     const base::FilePath& profile_data_directory,
-    const base::Optional<url::Origin>& origin_lock) {
+    const absl::optional<url::Origin>& origin_lock) {
   PpapiPluginProcessHost* plugin_host =
       new PpapiPluginProcessHost(info, profile_data_directory, origin_lock);
   if (plugin_host->Init(info))
@@ -230,7 +233,7 @@ void PpapiPluginProcessHost::DidDeleteOutOfProcessInstance(
 
 // static
 void PpapiPluginProcessHost::FindByName(
-    const base::string16& name,
+    const std::u16string& name,
     std::vector<PpapiPluginProcessHost*>* hosts) {
   for (PpapiPluginProcessHostIterator iter; !iter.Done(); ++iter) {
     if (iter->process_.get() && iter->process_->GetData().name == name)
@@ -258,7 +261,7 @@ void PpapiPluginProcessHost::OpenChannelToPlugin(Client* client) {
 PpapiPluginProcessHost::PpapiPluginProcessHost(
     const PepperPluginInfo& info,
     const base::FilePath& profile_data_directory,
-    const base::Optional<url::Origin>& origin_lock)
+    const absl::optional<url::Origin>& origin_lock)
     : profile_data_directory_(profile_data_directory),
       origin_lock_(origin_lock) {
   uint32_t base_permissions = info.permissions;
@@ -277,8 +280,6 @@ PpapiPluginProcessHost::PpapiPluginProcessHost(
       this, permissions_, info.name, info.path, profile_data_directory,
       false /* in_process */, false /* external_plugin */);
 
-  filter_ = new PepperMessageFilter();
-  process_->AddFilter(filter_.get());
   process_->GetHost()->AddFilter(host_impl_->message_filter().get());
 
   GetContentClient()->browser()->DidCreatePpapiPlugin(host_impl_.get());
@@ -320,7 +321,6 @@ bool PpapiPluginProcessHost::Init(const PepperPluginInfo& info) {
       std::make_unique<base::CommandLine>(exe_path);
   cmd_line->AppendSwitchASCII(switches::kProcessType,
                               switches::kPpapiPluginProcess);
-  BrowserChildProcessHostImpl::CopyFeatureAndFieldTrialFlags(cmd_line.get());
   BrowserChildProcessHostImpl::CopyTraceStartupFlags(cmd_line.get());
 
 #if defined(OS_WIN)
@@ -341,6 +341,7 @@ bool PpapiPluginProcessHost::Init(const PepperPluginInfo& info) {
     sandbox::policy::switches::kEnableSandboxLogging,
 #endif
     switches::kPpapiStartupDialog,
+    switches::kTimeZoneForTesting,
   };
   cmd_line->CopySwitchesFrom(browser_command_line, kPluginForwardSwitches,
                              base::size(kPluginForwardSwitches));

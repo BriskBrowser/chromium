@@ -11,11 +11,11 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "chromeos/services/device_sync/cryptauth_api_call_flow.h"
 #include "chromeos/services/device_sync/cryptauth_client.h"
 #include "chromeos/services/device_sync/proto/cryptauth_api.pb.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace signin {
 struct AccessTokenInfo;
@@ -48,6 +48,10 @@ class CryptAuthClientImpl : public CryptAuthClient {
       signin::IdentityManager* identity_manager,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const cryptauth::DeviceClassifier& device_classifier);
+
+  CryptAuthClientImpl(const CryptAuthClientImpl&) = delete;
+  CryptAuthClientImpl& operator=(const CryptAuthClientImpl&) = delete;
+
   ~CryptAuthClientImpl() override;
 
   // CryptAuthClient:
@@ -132,8 +136,8 @@ class CryptAuthClientImpl : public CryptAuthClient {
   void MakeApiCall(
       const GURL& request_url,
       RequestType request_type,
-      const base::Optional<std::string>& serialized_request,
-      const base::Optional<std::vector<std::pair<std::string, std::string>>>&
+      const absl::optional<std::string>& serialized_request,
+      const absl::optional<std::vector<std::pair<std::string, std::string>>>&
           request_as_query_parameters,
       base::OnceCallback<void(const ResponseProto&)> response_callback,
       ErrorCallback error_callback,
@@ -144,8 +148,8 @@ class CryptAuthClientImpl : public CryptAuthClient {
   template <class ResponseProto>
   void OnAccessTokenFetched(
       RequestType request_type,
-      const base::Optional<std::string>& serialized_request,
-      const base::Optional<std::vector<std::pair<std::string, std::string>>>&
+      const absl::optional<std::string>& serialized_request,
+      const absl::optional<std::vector<std::pair<std::string, std::string>>>&
           request_as_query_parameters,
       base::OnceCallback<void(const ResponseProto&)> response_callback,
       GoogleServiceAuthError error,
@@ -196,8 +200,6 @@ class CryptAuthClientImpl : public CryptAuthClient {
   ErrorCallback error_callback_;
 
   base::WeakPtrFactory<CryptAuthClientImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthClientImpl);
 };
 
 // Implementation of CryptAuthClientFactory.
@@ -211,6 +213,11 @@ class CryptAuthClientFactoryImpl : public CryptAuthClientFactory {
       signin::IdentityManager* identity_manager,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const cryptauth::DeviceClassifier& device_classifier);
+
+  CryptAuthClientFactoryImpl(const CryptAuthClientFactoryImpl&) = delete;
+  CryptAuthClientFactoryImpl& operator=(const CryptAuthClientFactoryImpl&) =
+      delete;
+
   ~CryptAuthClientFactoryImpl() override;
 
   // CryptAuthClientFactory:
@@ -220,8 +227,6 @@ class CryptAuthClientFactoryImpl : public CryptAuthClientFactory {
   signin::IdentityManager* identity_manager_;
   const scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   const cryptauth::DeviceClassifier device_classifier_;
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthClientFactoryImpl);
 };
 
 }  // namespace device_sync

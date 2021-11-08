@@ -7,12 +7,14 @@
 
 #include <string>
 
-#include "ash/components/account_manager/account_manager.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
-#include "base/optional.h"
+#include "base/observer_list.h"
 #include "chrome/browser/ui/webui/chromeos/system_web_dialog_delegate.h"
 #include "chrome/browser/ui/webui/signin/inline_login_handler_modal_delegate.h"
 #include "components/account_manager_core/account_manager_facade.h"
+#include "components/account_manager_core/chromeos/account_manager.h"
+#include "components/web_modal/modal_dialog_host.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 
 class GURL;
@@ -29,44 +31,11 @@ namespace chromeos {
 class InlineLoginDialogChromeOS : public SystemWebDialogDelegate,
                                   public web_modal::WebContentsModalDialogHost {
  public:
-  // Represents the last reached step in the flow.
-  // Keep in sync with
-  // chrome/browser/resources/chromeos/edu_login/edu_login_util.js
-  // Used in UMA, do not delete or reorder values.
-  // Note: Please update enums.xml after adding new values.
-  enum class EduCoexistenceFlowResult : int {
-    kParentsListScreen = 0,
-    kParentPasswordScreen = 1,
-    kParentInfoScreen1 = 2,
-    kParentInfoScreen2 = 3,
-    kEduAccountLoginScreen = 4,
-    kFlowCompleted = 5,
-    kMaxValue = kFlowCompleted
-  };
+  InlineLoginDialogChromeOS(const InlineLoginDialogChromeOS&) = delete;
+  InlineLoginDialogChromeOS& operator=(const InlineLoginDialogChromeOS&) =
+      delete;
 
   static bool IsShown();
-
-  // Displays the dialog. |email| pre-fills the account email field in the
-  // sign-in dialog - useful for account re-authentication. |source| specifies
-  // the source UX surface used for launching the dialog.
-  // DEPRECATED: Use AccountManagerFacade instead (see
-  // https://crbug.com/1140469).
-  static void ShowDeprecated(
-      const std::string& email,
-      const ::account_manager::AccountManagerFacade::AccountAdditionSource&
-          source);
-
-  // Displays the dialog for account addition. |source| specifies the source UX
-  // surface used for launching the dialog.
-  // DEPRECATED: Use AccountManagerFacade instead (see
-  // https://crbug.com/1140469).
-  static void ShowDeprecated(
-      const ::account_manager::AccountManagerFacade::AccountAdditionSource&
-          source);
-
-  // Updates the value of the last reached step in 'Add Account' flow for child
-  // users. Before the dialog will close, this value will be reported to UMA.
-  static void UpdateEduCoexistenceFlowResult(EduCoexistenceFlowResult result);
 
   // ui::SystemWebDialogDelegate overrides.
   void AdjustWidgetInitParams(views::Widget::InitParams* params) override;
@@ -77,7 +46,6 @@ class InlineLoginDialogChromeOS : public SystemWebDialogDelegate,
   gfx::Point GetDialogPosition(const gfx::Size& size) override;
   void AddObserver(web_modal::ModalDialogHostObserver* observer) override;
   void RemoveObserver(web_modal::ModalDialogHostObserver* observer) override;
-  void SetEduCoexistenceFlowResult(EduCoexistenceFlowResult result);
 
  protected:
   InlineLoginDialogChromeOS();
@@ -115,10 +83,9 @@ class InlineLoginDialogChromeOS : public SystemWebDialogDelegate,
 
   InlineLoginHandlerModalDelegate delegate_;
   const GURL url_;
-  base::Optional<EduCoexistenceFlowResult> edu_coexistence_flow_result_;
   base::OnceClosure close_dialog_closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(InlineLoginDialogChromeOS);
+  base::ObserverList<web_modal::ModalDialogHostObserver>::Unchecked
+      modal_dialog_host_observer_list_;
 };
 
 }  // namespace chromeos

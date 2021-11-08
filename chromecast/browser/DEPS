@@ -1,6 +1,8 @@
 include_rules = [
   "+cc/base/switches.h",
   "+chromecast/activity",
+  "+chromecast/bindings",
+  "+chromecast/bindings/public/mojom",
   "+chromecast/common",
   "+chromecast/common/mojom",
   "+chromecast/graphics",
@@ -10,9 +12,11 @@ include_rules = [
   "+chromecast/internal/shell/browser",
   "+chromecast/media",
   "+chromecast/metrics",
+  "+chromecast/mojo",
   "+chromecast/net",
   "+chromecast/service",
   "+chromecast/ui",
+  "+components/cast",
   "+components/cdm/browser",
   "+components/crash",
   "+components/download/public/common",
@@ -21,20 +25,24 @@ include_rules = [
   "+components/keyed_service",
   "+components/media_control/browser",
   "+components/media_control/mojom",
+  "+components/memory_pressure",
   "+components/network_hints",
   "+components/network_session_configurator/common",
   "+components/on_load_script_injector/browser",
   "+components/policy/core/browser",
   "+components/prefs",
   "+components/pref_registry",
+  "+components/profile_metrics",
   "+components/proxy_config",
   "+components/safe_search_api",
+  "+components/services/app_service/public/mojom/types.mojom-shared.h",
   "+components/services/heap_profiling/heap_profiling_service.h",
   "+components/services/heap_profiling/public/mojom",
   "+components/services/heap_profiling/public/cpp/settings.h",
   "+components/storage_monitor",
   "+components/ui_devtools",
   "+components/user_prefs",
+  "+components/value_store",
   "+components/variations/net",
   "+components/version_info",
   "+components/viz/common/switches.h",
@@ -69,6 +77,7 @@ include_rules = [
   "+third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h",
   "+third_party/blink/public/mojom/messaging",
   "+third_party/blink/public/mojom/speech/speech_synthesis.mojom.h",
+  "+third_party/blink/public/mojom/webpreferences/web_preferences.mojom.h",
   "+third_party/skia/include/core/SkColor.h",
   "+ui/accessibility",
   "+ui/aura",
@@ -88,14 +97,8 @@ include_rules = [
   # TODO(slan): Remove this when the network service is shipped on Cast.
   "+services/network",
 
-  # Needed to insert video plane callback.
-  # TODO(halliwell): Need to re-work this dependency otherwise Cast can't run
-  # with Viz out of process.
-  "+components/viz/service/display/overlay_strategy_underlay_cast.h",
-  # TODO(guohuideng): 1. When Display Compositor is fully moved to GPU process,
-  # remove the above dependency on "overlay_strategy_underlay_cast.h".
-  # 2. Separate SetGeometry from VideoPlaneController, and get rid of the
-  # dependency on.
+  # TODO(guohuideng): Separate SetGeometry from VideoPlaneController, and get
+  # rid of the dependency on cast_renderer.h.
   "+chromecast/media/service/cast_renderer.h",
 
   # For favicon url

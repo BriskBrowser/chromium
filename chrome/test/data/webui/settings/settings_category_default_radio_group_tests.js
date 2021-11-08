@@ -4,10 +4,10 @@
 
 // clang-format off
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {ContentSetting, ContentSettingProvider, ContentSettingsTypes, SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
+import {ContentSetting, ContentSettingProvider, ContentSettingsTypes, SettingsCategoryDefaultRadioGroupElement, SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
 
-import {assertEquals, assertNotEquals, assertTrue} from '../chai_assert.js';
-import {flushTasks} from '../test_util.m.js';
+import {assertEquals, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {flushTasks} from 'chrome://webui-test/test_util.js';
 
 import {TestSiteSettingsPrefsBrowserProxy} from './test_site_settings_prefs_browser_proxy.js';
 import {createContentSettingTypeToValuePair, createDefaultContentSetting, createSiteSettingsPrefs, SiteSettingsPref} from './test_util.js';
@@ -30,7 +30,7 @@ suite('SettingsCategoryDefaultRadioGroup', function() {
   // Initialize a settings-category-default-radio-group before each test.
   setup(function() {
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
     document.body.innerHTML = '';
     testElement = /** @type {!SettingsCategoryDefaultRadioGroupElement} */
         (document.createElement('settings-category-default-radio-group'));
@@ -77,7 +77,8 @@ suite('SettingsCategoryDefaultRadioGroup', function() {
     element.set('category', expectedCategory);
 
     let category = await proxy.whenCalled('getDefaultValueForContentType');
-    let categoryEnabled = element.$$('#enabledRadioOption').checked;
+    let categoryEnabled =
+        element.shadowRoot.querySelector('#enabledRadioOption').checked;
     assertEquals(expectedCategory, category);
     assertEquals(expectedEnabled, categoryEnabled);
 
@@ -86,7 +87,7 @@ suite('SettingsCategoryDefaultRadioGroup', function() {
     proxy.resetResolver('setDefaultValueForContentType');
     const oppositeRadioButton =
         expectedEnabled ? '#disabledRadioOption' : '#enabledRadioOption';
-    element.$$(oppositeRadioButton).click();
+    element.shadowRoot.querySelector(oppositeRadioButton).click();
 
     let setting;
     [category, setting] =
@@ -94,7 +95,8 @@ suite('SettingsCategoryDefaultRadioGroup', function() {
     assertEquals(expectedCategory, category);
     const oppositeSetting =
         expectedEnabled ? ContentSetting.BLOCK : expectedEnabledContentSetting;
-    categoryEnabled = element.$$('#enabledRadioOption').checked;
+    categoryEnabled =
+        element.shadowRoot.querySelector('#enabledRadioOption').checked;
     assertEquals(oppositeSetting, setting);
     assertNotEquals(expectedEnabled, categoryEnabled);
 
@@ -103,14 +105,15 @@ suite('SettingsCategoryDefaultRadioGroup', function() {
     proxy.resetResolver('setDefaultValueForContentType');
     const initialRadioButton =
         expectedEnabled ? '#enabledRadioOption' : '#disabledRadioOption';
-    element.$$(initialRadioButton).click();
+    element.shadowRoot.querySelector(initialRadioButton).click();
 
     [category, setting] =
         await proxy.whenCalled('setDefaultValueForContentType');
     assertEquals(expectedCategory, category);
     const initialSetting =
         expectedEnabled ? expectedEnabledContentSetting : ContentSetting.BLOCK;
-    categoryEnabled = element.$$('#enabledRadioOption').checked;
+    categoryEnabled =
+        element.shadowRoot.querySelector('#enabledRadioOption').checked;
     assertEquals(initialSetting, setting);
     assertEquals(expectedEnabled, categoryEnabled);
   }
@@ -165,7 +168,9 @@ suite('SettingsCategoryDefaultRadioGroup', function() {
     testElement.category = ContentSettingsTypes.GEOLOCATION;
 
     await browserProxy.whenCalled('getDefaultValueForContentType');
-    assertTrue(testElement.$$('#enabledRadioOption').disabled);
-    assertTrue(testElement.$$('#disabledRadioOption').disabled);
+    assertTrue(
+        testElement.shadowRoot.querySelector('#enabledRadioOption').disabled);
+    assertTrue(
+        testElement.shadowRoot.querySelector('#disabledRadioOption').disabled);
   });
 });

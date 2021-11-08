@@ -34,11 +34,15 @@ class API_AVAILABLE(macosx(10.12.2))
  public:
   using Callback = base::OnceCallback<void(
       CtapDeviceResponseCode,
-      base::Optional<AuthenticatorGetAssertionResponse>)>;
+      absl::optional<AuthenticatorGetAssertionResponse>)>;
 
   GetAssertionOperation(CtapGetAssertionRequest request,
                         TouchIdCredentialStore* credential_store,
                         Callback callback);
+
+  GetAssertionOperation(const GetAssertionOperation&) = delete;
+  GetAssertionOperation& operator=(const GetAssertionOperation&) = delete;
+
   ~GetAssertionOperation() override;
 
   // Operation:
@@ -50,7 +54,7 @@ class API_AVAILABLE(macosx(10.12.2))
 
  private:
   void PromptTouchIdDone(bool success);
-  base::Optional<AuthenticatorGetAssertionResponse> ResponseForCredential(
+  absl::optional<AuthenticatorGetAssertionResponse> ResponseForCredential(
       const Credential& credential);
 
   const std::unique_ptr<TouchIdContext> touch_id_context_ =
@@ -60,8 +64,6 @@ class API_AVAILABLE(macosx(10.12.2))
   TouchIdCredentialStore* const credential_store_;
   Callback callback_;
   std::list<Credential> matching_credentials_;
-
-  DISALLOW_COPY_AND_ASSIGN(GetAssertionOperation);
 };
 
 }  // namespace mac

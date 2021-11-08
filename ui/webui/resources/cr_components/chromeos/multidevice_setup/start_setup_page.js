@@ -2,6 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/**
+ * The multidevice setup animation for light mode.
+ * @type {string}
+ */
+const MULTIDEVICE_ANIMATION_DARK_URL = 'multidevice_setup_dark.json';
+
+/**
+ * The multidevice setup animation for dark mode.
+ * @type {string}
+ */
+const MULTIDEVICE_ANIMATION_LIGHT_URL = 'multidevice_setup_light.json';
+
 Polymer({
   is: 'start-setup-page',
 
@@ -53,21 +65,21 @@ Polymer({
     delegate: Object,
 
     /** @private */
-    phoneHubEnabled_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.valueExists('phoneHubEnabled') &&
-            loadTimeData.getBoolean('phoneHubEnabled');
-      },
-    },
-
-    /** @private */
     wifiSyncEnabled_: {
       type: Boolean,
       value() {
         return loadTimeData.valueExists('wifiSyncEnabled') &&
             loadTimeData.getBoolean('wifiSyncEnabled');
       },
+    },
+
+    /**
+     * Whether the multidevice setup page is being rendered in dark mode.
+     * @private {boolean}
+     */
+    isDarkModeActive_: {
+      type: Boolean,
+      value: false,
     },
   },
 
@@ -80,7 +92,16 @@ Polymer({
   attached() {
     this.addWebUIListener(
         'multidevice_setup.initializeSetupFlow',
-        this.initializeSetupFlow_.bind(this));
+        () => this.initializeSetupFlow_());
+  },
+
+  /**
+   * This will play or stop the screen's lottie animation.
+   * @param {boolean} enabled Whether the animation should play or not.
+   */
+  setPlayAnimation(enabled) {
+    /** @type {!CrLottieElement} */ (this.$.multideviceSetupAnimation)
+        .setPlay(enabled);
   },
 
   /** @private */
@@ -90,7 +111,6 @@ Polymer({
     // manaully add onclick handlers.
     const helpArticleLinks = [
       this.$$('#multidevice-summary-message a'),
-      this.$$('#awm-summary-message a')
     ];
     for (let i = 0; i < helpArticleLinks.length; i++) {
       helpArticleLinks[i].onclick = this.fire.bind(
@@ -218,5 +238,16 @@ Polymer({
    */
   i18nAdvancedDynamic_(locale, textId) {
     return this.i18nAdvanced(textId);
+  },
+
+  /**
+   * Returns the URL for the asset that defines the multidevice setup page's
+   * animation
+   * @return {string}
+   * @private
+   */
+  getAnimationUrl_() {
+    return this.isDarkModeActive_ ? MULTIDEVICE_ANIMATION_DARK_URL :
+                                    MULTIDEVICE_ANIMATION_LIGHT_URL;
   },
 });

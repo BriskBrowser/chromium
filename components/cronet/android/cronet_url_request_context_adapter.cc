@@ -28,7 +28,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -266,8 +266,8 @@ static jlong JNI_CronetUrlRequestContext_CreateRequestContextConfig(
       jenable_network_quality_estimator,
       jbypass_public_key_pinning_for_local_trust_anchors,
       jnetwork_thread_priority >= -20 && jnetwork_thread_priority <= 19
-          ? base::Optional<double>(jnetwork_thread_priority)
-          : base::Optional<double>()));
+          ? absl::optional<double>(jnetwork_thread_priority)
+          : absl::optional<double>()));
 }
 
 // Add a QUIC hint to a URLRequestContextConfig.
@@ -304,8 +304,7 @@ static void JNI_CronetUrlRequestContext_AddPkp(
       new URLRequestContextConfig::Pkp(
           base::android::ConvertJavaStringToUTF8(env, jhost),
           jinclude_subdomains,
-          base::Time::UnixEpoch() +
-              base::TimeDelta::FromMilliseconds(jexpiration_time)));
+          base::Time::UnixEpoch() + base::Milliseconds(jexpiration_time)));
   for (auto bytes_array : jhashes.ReadElements<jbyteArray>()) {
     static_assert(std::is_pod<net::SHA256HashValue>::value,
                   "net::SHA256HashValue is not POD");

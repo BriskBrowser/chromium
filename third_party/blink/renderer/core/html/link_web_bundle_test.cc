@@ -7,18 +7,25 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/html/html_link_element.h"
+#include "third_party/blink/renderer/core/testing/sim/sim_request.h"
+#include "third_party/blink/renderer/core/testing/sim/sim_test.h"
 
 namespace blink {
 
 namespace {
 
 void TestParseResourceUrl(const AtomicString& url, bool is_valid) {
-  ASSERT_EQ(LinkWebBundle::ParseResourceUrl(url).IsValid(), is_valid);
+  ASSERT_EQ(LinkWebBundle::ParseResourceUrl(
+                url, base::BindRepeating(&LinkWebBundle::CompleteURL, KURL()))
+                .IsValid(),
+            is_valid);
 }
 
 }  // namespace
 
-TEST(LinkWebBundleTest, ParseResourceUrl) {
+class LinkWebBundleTest : public SimTest {};
+
+TEST_F(LinkWebBundleTest, ParseResourceUrl) {
   TestParseResourceUrl("https://test.example.com/", true);
   TestParseResourceUrl("http://test.example.com/", true);
   TestParseResourceUrl("https://user@test.example.com/", false);
@@ -28,10 +35,13 @@ TEST(LinkWebBundleTest, ParseResourceUrl) {
   TestParseResourceUrl("file:///test.html", false);
 }
 
-TEST(LinkWebBundleTest, ResourcesAttribute) {
-  auto* document = Document::CreateForTest();
-  auto* link =
-      MakeGarbageCollected<HTMLLinkElement>(*document, CreateElementFlags());
+TEST_F(LinkWebBundleTest, ResourcesAttribute) {
+  SimRequest request("https://example.com/test.html", "text/html");
+  LoadURL("https://example.com/test.html");
+  request.Complete("<!DOCTYPE html>");
+
+  auto* link = MakeGarbageCollected<HTMLLinkElement>(GetDocument(),
+                                                     CreateElementFlags());
   DOMTokenList* resources = link->resources();
   EXPECT_EQ(g_null_atom, resources->value());
 

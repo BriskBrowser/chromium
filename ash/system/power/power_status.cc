@@ -15,7 +15,6 @@
 #include "base/i18n/time_formatting.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/numerics/ranges.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/dbus/power/power_manager_client.h"
@@ -31,26 +30,24 @@ namespace {
 
 static PowerStatus* g_power_status = nullptr;
 
-base::string16 GetBatteryTimeAccessibilityString(int hour, int min) {
+std::u16string GetBatteryTimeAccessibilityString(int hour, int min) {
   DCHECK(hour || min);
   if (hour && !min) {
     return ui::TimeFormat::Simple(ui::TimeFormat::FORMAT_DURATION,
                                   ui::TimeFormat::LENGTH_LONG,
-                                  base::TimeDelta::FromHours(hour));
+                                  base::Hours(hour));
   }
   if (min && !hour) {
     return ui::TimeFormat::Simple(ui::TimeFormat::FORMAT_DURATION,
                                   ui::TimeFormat::LENGTH_LONG,
-                                  base::TimeDelta::FromMinutes(min));
+                                  base::Minutes(min));
   }
   return l10n_util::GetStringFUTF16(
       IDS_ASH_STATUS_TRAY_BATTERY_TIME_ACCESSIBLE,
       ui::TimeFormat::Simple(ui::TimeFormat::FORMAT_DURATION,
-                             ui::TimeFormat::LENGTH_LONG,
-                             base::TimeDelta::FromHours(hour)),
+                             ui::TimeFormat::LENGTH_LONG, base::Hours(hour)),
       ui::TimeFormat::Simple(ui::TimeFormat::FORMAT_DURATION,
-                             ui::TimeFormat::LENGTH_LONG,
-                             base::TimeDelta::FromMinutes(min)));
+                             ui::TimeFormat::LENGTH_LONG, base::Minutes(min)));
 }
 
 int PowerSourceToMessageID(
@@ -173,24 +170,24 @@ bool PowerStatus::IsBatteryTimeBeingCalculated() const {
   return proto_.is_calculating_battery_time();
 }
 
-base::Optional<base::TimeDelta> PowerStatus::GetBatteryTimeToEmpty() const {
+absl::optional<base::TimeDelta> PowerStatus::GetBatteryTimeToEmpty() const {
   // powerd omits the field if no battery is present and sends -1 if it couldn't
   // compute a reasonable estimate.
   if (!proto_.has_battery_time_to_empty_sec() ||
       proto_.battery_time_to_empty_sec() < 0) {
-    return base::nullopt;
+    return absl::nullopt;
   }
-  return base::TimeDelta::FromSeconds(proto_.battery_time_to_empty_sec());
+  return base::Seconds(proto_.battery_time_to_empty_sec());
 }
 
-base::Optional<base::TimeDelta> PowerStatus::GetBatteryTimeToFull() const {
+absl::optional<base::TimeDelta> PowerStatus::GetBatteryTimeToFull() const {
   // powerd omits the field if no battery is present and sends -1 if it couldn't
   // compute a reasonable estimate.
   if (!proto_.has_battery_time_to_full_sec() ||
       proto_.battery_time_to_full_sec() < 0) {
-    return base::nullopt;
+    return absl::nullopt;
   }
-  return base::TimeDelta::FromSeconds(proto_.battery_time_to_full_sec());
+  return base::Seconds(proto_.battery_time_to_full_sec());
 }
 
 bool PowerStatus::IsLinePowerConnected() const {
@@ -286,14 +283,14 @@ gfx::ImageSkia PowerStatus::GetBatteryImage(const BatteryImageInfo& info,
   return gfx::ImageSkia(base::WrapUnique(source), source->size());
 }
 
-base::string16 PowerStatus::GetAccessibleNameString(
+std::u16string PowerStatus::GetAccessibleNameString(
     bool full_description) const {
   if (IsBatteryFull()) {
     return l10n_util::GetStringUTF16(
         IDS_ASH_STATUS_TRAY_BATTERY_FULL_CHARGE_ACCESSIBLE);
   }
 
-  base::string16 battery_percentage_accessible = l10n_util::GetStringFUTF16(
+  std::u16string battery_percentage_accessible = l10n_util::GetStringFUTF16(
       IsBatteryCharging()
           ? IDS_ASH_STATUS_TRAY_BATTERY_PERCENT_CHARGING_ACCESSIBLE
           : IDS_ASH_STATUS_TRAY_BATTERY_PERCENT_ACCESSIBLE,
@@ -301,8 +298,8 @@ base::string16 PowerStatus::GetAccessibleNameString(
   if (!full_description)
     return battery_percentage_accessible;
 
-  base::string16 battery_time_accessible = base::string16();
-  const base::Optional<base::TimeDelta> time =
+  std::u16string battery_time_accessible = std::u16string();
+  const absl::optional<base::TimeDelta> time =
       IsBatteryCharging() ? GetBatteryTimeToFull() : GetBatteryTimeToEmpty();
 
   if (IsUsbChargerConnected()) {
@@ -315,9 +312,8 @@ base::string16 PowerStatus::GetAccessibleNameString(
              !IsBatteryDischargingOnLinePower()) {
     int hour = 0, min = 0;
     power_utils::SplitTimeIntoHoursAndMinutes(*time, &hour, &min);
-    base::string16 minute =
-        min < 10 ? base::ASCIIToUTF16("0") + base::NumberToString16(min)
-                 : base::NumberToString16(min);
+    std::u16string minute = min < 10 ? u"0" + base::NumberToString16(min)
+                                     : base::NumberToString16(min);
     battery_time_accessible = l10n_util::GetStringFUTF16(
         IsBatteryCharging()
             ? IDS_ASH_STATUS_TRAY_BATTERY_TIME_UNTIL_FULL_ACCESSIBLE
@@ -326,14 +322,13 @@ base::string16 PowerStatus::GetAccessibleNameString(
   }
   return battery_time_accessible.empty()
              ? battery_percentage_accessible
-             : battery_percentage_accessible + base::ASCIIToUTF16(" ") +
-                   battery_time_accessible;
+             : battery_percentage_accessible + u" " + battery_time_accessible;
 }
 
-std::pair<base::string16, base::string16> PowerStatus::GetStatusStrings()
+std::pair<std::u16string, std::u16string> PowerStatus::GetStatusStrings()
     const {
-  base::string16 percentage;
-  base::string16 status;
+  std::u16string percentage;
+  std::u16string status;
   if (IsBatteryFull()) {
     status = l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_BATTERY_FULL);
   } else {
@@ -345,12 +340,12 @@ std::pair<base::string16, base::string16> PowerStatus::GetStatusStrings()
       status =
           l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_BATTERY_CALCULATING);
     } else {
-      base::Optional<base::TimeDelta> time = IsBatteryCharging()
+      absl::optional<base::TimeDelta> time = IsBatteryCharging()
                                                  ? GetBatteryTimeToFull()
                                                  : GetBatteryTimeToEmpty();
       if (time && power_utils::ShouldDisplayBatteryTime(*time) &&
           !IsBatteryDischargingOnLinePower()) {
-        base::string16 duration;
+        std::u16string duration;
         if (!base::TimeDurationFormat(*time, base::DURATION_WIDTH_NUMERIC,
                                       &duration))
           LOG(ERROR) << "Failed to format duration " << *time;
@@ -366,9 +361,9 @@ std::pair<base::string16, base::string16> PowerStatus::GetStatusStrings()
   return std::make_pair(percentage, status);
 }
 
-base::string16 PowerStatus::GetInlinedStatusString() const {
-  base::string16 percentage_text;
-  base::string16 status_text;
+std::u16string PowerStatus::GetInlinedStatusString() const {
+  std::u16string percentage_text;
+  std::u16string status_text;
   std::tie(percentage_text, status_text) = GetStatusStrings();
 
   if (!percentage_text.empty() && !status_text.empty()) {

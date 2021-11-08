@@ -13,7 +13,7 @@
 #include "build/build_config.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/browser/infobars/simple_alert_infobar_creator.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/plugins/plugin_finder.h"
 #include "chrome/browser/plugins/plugin_infobar_delegates.h"
@@ -27,7 +27,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/download/public/common/download_url_parameters.h"
-#include "components/infobars/core/simple_alert_infobar_delegate.h"
+#include "components/infobars/content/content_infobar_manager.h"
 #include "components/metrics_services_manager/metrics_services_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
@@ -46,6 +46,10 @@
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "ui/base/l10n/l10n_util.h"
 
+#if defined(OS_WIN)
+#include "base/win/windows_types.h"
+#endif
+
 using content::PluginService;
 
 // PluginObserver -------------------------------------------------------------
@@ -54,7 +58,7 @@ class PluginObserver::PluginPlaceholderHost : public PluginInstallerObserver {
  public:
   PluginPlaceholderHost(
       PluginObserver* observer,
-      base::string16 plugin_name,
+      std::u16string plugin_name,
       PluginInstaller* installer,
       mojo::PendingRemote<chrome::mojom::PluginRenderer> plugin_renderer_remote)
       : PluginInstallerObserver(installer),
@@ -75,6 +79,18 @@ class PluginObserver::PluginPlaceholderHost : public PluginInstallerObserver {
   mojo::Remote<chrome::mojom::PluginRenderer> plugin_renderer_remote_;
 };
 
+void PluginObserver::BindPluginHost(
+    mojo::PendingAssociatedReceiver<chrome::mojom::PluginHost> receiver,
+    content::RenderFrameHost* rfh) {
+  auto* web_contents = content::WebContents::FromRenderFrameHost(rfh);
+  if (!web_contents)
+    return;
+  auto* plugin_helper = PluginObserver::FromWebContents(web_contents);
+  if (!plugin_helper)
+    return;
+  plugin_helper->plugin_host_receivers_.Bind(rfh, std::move(receiver));
+}
+
 PluginObserver::PluginObserver(content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents),
       plugin_host_receivers_(web_contents, this) {}
@@ -86,9 +102,9 @@ void PluginObserver::PluginCrashed(const base::FilePath& plugin_path,
                                    base::ProcessId plugin_pid) {
   DCHECK(!plugin_path.value().empty());
 
-  base::string16 plugin_name =
+  std::u16string plugin_name =
       PluginService::GetInstance()->GetPluginDisplayNameByPath(plugin_path);
-  base::string16 infobar_text;
+  std::u16string infobar_text;
 #if defined(OS_WIN)
   // Find out whether the plugin process is still alive.
   // Note: Although the chances are slim, it is possible that after the plugin
@@ -127,17 +143,16 @@ void PluginObserver::PluginCrashed(const base::FilePath& plugin_path,
 #endif
 
   ReloadPluginInfoBarDelegate::Create(
-      InfoBarService::FromWebContents(web_contents()),
-      &web_contents()->GetController(),
-      infobar_text);
+      infobars::ContentInfoBarManager::FromWebContents(web_contents()),
+      &web_contents()->GetController(), infobar_text);
 }
 
 // static
 void PluginObserver::CreatePluginObserverInfoBar(
-    InfoBarService* infobar_service,
-    const base::string16& plugin_name) {
-  SimpleAlertInfoBarDelegate::Create(
-      infobar_service,
+    infobars::ContentInfoBarManager* infobar_manager,
+    const std::u16string& plugin_name) {
+  CreateSimpleAlertInfoBar(
+      infobar_manager,
       infobars::InfoBarDelegate::PLUGIN_OBSERVER_INFOBAR_DELEGATE,
       &kExtensionCrashedIcon,
       l10n_util::GetStringFUTF16(IDS_PLUGIN_INITIALIZATION_ERROR_PROMPT,
@@ -158,8 +173,8 @@ void PluginObserver::BlockedOutdatedPlugin(
         std::move(plugin_placeholder);
 
     OutdatedPluginInfoBarDelegate::Create(
-        InfoBarService::FromWebContents(web_contents()), installer,
-        std::move(plugin));
+        infobars::ContentInfoBarManager::FromWebContents(web_contents()),
+        installer, std::move(plugin));
   } else {
     NOTREACHED();
   }
@@ -170,19 +185,14 @@ void PluginObserver::RemovePluginPlaceholderHost(
   plugin_placeholders_.erase(placeholder);
 }
 
-void PluginObserver::ShowFlashPermissionBubble() {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  // TODO(tommycli): This is a no-op now. Delete this method in a followup.
-}
-
 void PluginObserver::CouldNotLoadPlugin(const base::FilePath& plugin_path) {
   g_browser_process->GetMetricsServicesManager()->OnPluginLoadingError(
       plugin_path);
-  base::string16 plugin_name =
+  std::u16string plugin_name =
       PluginService::GetInstance()->GetPluginDisplayNameByPath(plugin_path);
-  CreatePluginObserverInfoBar(InfoBarService::FromWebContents(web_contents()),
-                              plugin_name);
+  CreatePluginObserverInfoBar(
+      infobars::ContentInfoBarManager::FromWebContents(web_contents()),
+      plugin_name);
 }
 
 void PluginObserver::OpenPDF(const GURL& url) {
@@ -199,7 +209,7 @@ void PluginObserver::OpenPDF(const GURL& url) {
   }
 
   content::Referrer referrer = content::Referrer::SanitizeForRequest(
-      url, content::Referrer(web_contents()->GetURL(),
+      url, content::Referrer(web_contents()->GetLastCommittedURL(),
                              network::mojom::ReferrerPolicy::kDefault));
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -236,9 +246,8 @@ void PluginObserver::OpenPDF(const GURL& url) {
   params->set_referrer_policy(
       content::Referrer::ReferrerPolicyForUrlRequest(referrer.policy));
 
-  content::BrowserContext::GetDownloadManager(
-      web_contents()->GetBrowserContext())
-      ->DownloadUrl(std::move(params));
+  web_contents()->GetBrowserContext()->GetDownloadManager()->DownloadUrl(
+      std::move(params));
 
 #else   // !BUILDFLAG(ENABLE_PLUGINS)
   content::OpenURLParams open_url_params(
@@ -250,4 +259,4 @@ void PluginObserver::OpenPDF(const GURL& url) {
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(PluginObserver)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(PluginObserver);

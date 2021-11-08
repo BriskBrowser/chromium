@@ -17,7 +17,7 @@ namespace sandbox {
 namespace policy {
 namespace features {
 
-#if !defined(OS_MAC)
+#if !defined(OS_MAC) && !defined(OS_FUCHSIA)
 SANDBOX_POLICY_EXPORT extern const base::Feature kNetworkServiceSandbox;
 #endif
 
@@ -37,6 +37,18 @@ SANDBOX_POLICY_EXPORT extern const base::Feature kSpectreVariant2Mitigation;
 SANDBOX_POLICY_EXPORT extern const base::Feature
     kForceSpectreVariant2Mitigation;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if defined(OS_WIN)
+// Returns whether the Network Service Sandbox is supported by the current
+// Windows platform. Call this function rather than checking the
+// kNetworkServiceSandbox feature directly.
+SANDBOX_POLICY_EXPORT bool IsWinNetworkServiceSandboxSupported();
+#endif
+
+// Returns whether the network sandbox is enabled for the current platform
+// configuration. This might be overridden by the content embedder so prefer
+// calling ContentBrowserClient::ShouldSandboxNetworkService().
+SANDBOX_POLICY_EXPORT bool IsNetworkSandboxEnabled();
 
 }  // namespace features
 }  // namespace policy

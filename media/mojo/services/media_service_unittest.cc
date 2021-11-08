@@ -61,6 +61,10 @@ const char kInvalidKeySystem[] = "invalid.key.system";
 class MockRendererClient : public mojom::RendererClient {
  public:
   MockRendererClient() = default;
+
+  MockRendererClient(const MockRendererClient&) = delete;
+  MockRendererClient& operator=(const MockRendererClient&) = delete;
+
   ~MockRendererClient() override = default;
 
   // mojom::RendererClient implementation.
@@ -81,9 +85,6 @@ class MockRendererClient : public mojom::RendererClient {
   MOCK_METHOD1(OnWaiting, void(WaitingReason));
   MOCK_METHOD1(OnDurationChange, void(base::TimeDelta duration));
   MOCK_METHOD1(OnRemotePlayStateChange, void(MediaStatus::State state));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockRendererClient);
 };
 
 ACTION_P(QuitLoop, run_loop) {
@@ -99,6 +100,10 @@ class MediaServiceTest : public testing::Test {
   MediaServiceTest()
       : renderer_client_receiver_(&renderer_client_),
         video_stream_(DemuxerStream::VIDEO) {}
+
+  MediaServiceTest(const MediaServiceTest&) = delete;
+  MediaServiceTest& operator=(const MediaServiceTest&) = delete;
+
   ~MediaServiceTest() override = default;
 
   void SetUp() override {
@@ -138,8 +143,8 @@ class MediaServiceTest : public testing::Test {
     video_stream_.set_video_decoder_config(video_config);
 
     mojo::PendingRemote<mojom::DemuxerStream> video_stream_proxy;
-    mojo_video_stream_.reset(new MojoDemuxerStreamImpl(
-        &video_stream_, video_stream_proxy.InitWithNewPipeAndPassReceiver()));
+    mojo_video_stream_ = std::make_unique<MojoDemuxerStreamImpl>(
+        &video_stream_, video_stream_proxy.InitWithNewPipeAndPassReceiver());
 
     mojo::PendingAssociatedRemote<mojom::RendererClient> client_remote;
     renderer_client_receiver_.Bind(
@@ -162,14 +167,12 @@ class MediaServiceTest : public testing::Test {
  protected:
   void OnCdmCreated(bool expected_result,
                     mojo::PendingRemote<mojom::ContentDecryptionModule> remote,
-                    const base::Optional<base::UnguessableToken>& cdm_id,
-                    mojo::PendingRemote<mojom::Decryptor> decryptor,
+                    media::mojom::CdmContextPtr cdm_context,
                     const std::string& error_message) {
     if (!expected_result) {
       EXPECT_FALSE(remote);
-      EXPECT_FALSE(decryptor);
+      EXPECT_FALSE(cdm_context);
       EXPECT_TRUE(!error_message.empty());
-      EXPECT_FALSE(cdm_id);
       return;
     }
     EXPECT_TRUE(remote);
@@ -192,9 +195,6 @@ class MediaServiceTest : public testing::Test {
 
   StrictMock<MockDemuxerStream> video_stream_;
   std::unique_ptr<MojoDemuxerStreamImpl> mojo_video_stream_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MediaServiceTest);
 };
 
 }  // namespace

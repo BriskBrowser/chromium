@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef GPU_GLES2_CONFORM_TEST_CONTEXT_H_
-#define GPU_GLES2_CONFORM_TEST_CONTEXT_H_
+#ifndef GPU_GLES2_CONFORM_SUPPORT_EGL_CONTEXT_H_
+#define GPU_GLES2_CONFORM_SUPPORT_EGL_CONTEXT_H_
 
 #include <memory>
 
@@ -46,6 +46,10 @@ class Context : public base::RefCountedThreadSafe<Context>,
                 public gpu::GpuControl {
  public:
   Context(Display* display, const Config* config);
+
+  Context(const Context&) = delete;
+  Context& operator=(const Context&) = delete;
+
   bool is_current_in_some_thread() const { return is_current_in_some_thread_; }
   void set_is_current_in_some_thread(bool flag) {
     is_current_in_some_thread_ = flag;
@@ -132,11 +136,9 @@ class Context : public base::RefCountedThreadSafe<Context>,
   std::unique_ptr<gpu::gles2::GLES2Interface> client_gl_context_;
 
   gpu::Capabilities capabilities_;
-
-  DISALLOW_COPY_AND_ASSIGN(Context);
 };
 
 }  // namespace egl
 }  // namespace gles2_conform_support
 
-#endif  // GPU_GLES2_CONFORM_TEST_CONTEXT_H_
+#endif  // GPU_GLES2_CONFORM_SUPPORT_EGL_CONTEXT_H_

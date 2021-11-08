@@ -9,8 +9,8 @@
 #include "base/json/json_reader.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/shill/shill_manager_client.h"
@@ -65,8 +65,16 @@ const char NetworkConnectionHandler::kErrorTetherAttemptWithNoDelegate[] =
     "tether-with-no-delegate";
 const char NetworkConnectionHandler::kErrorCellularInhibitFailure[] =
     "cellular-inhibit-failure";
+const char NetworkConnectionHandler::kErrorCellularOutOfCredits[] =
+    "cellular-out-of-credits";
 const char NetworkConnectionHandler::kErrorESimProfileIssue[] =
     "esim-profile-issue";
+const char NetworkConnectionHandler::kErrorSimLocked[] = "sim-locked";
+const char NetworkConnectionHandler::kErrorCellularDeviceBusy[] =
+    "cellular-device-busy";
+const char NetworkConnectionHandler::kErrorConnectTimeout[] = "connect-timeout";
+const char NetworkConnectionHandler::kConnectableCellularTimeout[] =
+    "connectable-timeout";
 
 NetworkConnectionHandler::NetworkConnectionHandler()
     : tether_delegate_(nullptr) {}
@@ -146,11 +154,11 @@ NetworkConnectionHandler::InitializeForTesting(
     NetworkStateHandler* network_state_handler,
     NetworkConfigurationHandler* network_configuration_handler,
     ManagedNetworkConfigurationHandler* managed_network_configuration_handler,
-    CellularESimConnectionHandler* cellular_esim_connection_handler) {
+    CellularConnectionHandler* cellular_connection_handler) {
   NetworkConnectionHandlerImpl* handler = new NetworkConnectionHandlerImpl();
   handler->Init(network_state_handler, network_configuration_handler,
                 managed_network_configuration_handler,
-                cellular_esim_connection_handler);
+                cellular_connection_handler);
   return base::WrapUnique(handler);
 }
 

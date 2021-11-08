@@ -9,13 +9,14 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/fuchsia/process_context.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "third_party/angle/src/common/fuchsia_egl/fuchsia_egl.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/native_pixmap.h"
-#include "ui/gfx/skia_util.h"
 #include "ui/gfx/vsync_provider.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/ozone/common/egl_util.h"
@@ -46,9 +47,8 @@ fuchsia::ui::scenic::ScenicPtr ConnectToScenic() {
       base::ComponentContextForProcess()
           ->svc()
           ->Connect<fuchsia::ui::scenic::Scenic>();
-  scenic.set_error_handler([](zx_status_t status) {
-    ZX_LOG(FATAL, status) << "Scenic connection failed";
-  });
+  scenic.set_error_handler(
+      base::LogFidlErrorAndExitProcess(FROM_HERE, "fuchsia.ui.scenic.Scenic"));
   return scenic;
 }
 
@@ -98,6 +98,10 @@ class GLOzoneEGLScenic : public GLOzoneEGL {
  public:
   explicit GLOzoneEGLScenic(ScenicSurfaceFactory* scenic_surface_factory)
       : scenic_surface_factory_(scenic_surface_factory) {}
+
+  GLOzoneEGLScenic(const GLOzoneEGLScenic&) = delete;
+  GLOzoneEGLScenic& operator=(const GLOzoneEGLScenic&) = delete;
+
   ~GLOzoneEGLScenic() override = default;
 
   // GLOzone:
@@ -111,7 +115,7 @@ class GLOzoneEGLScenic : public GLOzoneEGL {
   scoped_refptr<gl::GLSurface> CreateOffscreenGLSurface(
       const gfx::Size& size) override {
     return gl::InitializeGLSurface(
-        base::MakeRefCounted<gl::PbufferGLSurfaceEGL>(size));
+        base::MakeRefCounted<gl::SurfacelessEGL>(size));
   }
 
   gl::EGLDisplayPlatform GetNativeDisplay() override {
@@ -119,13 +123,13 @@ class GLOzoneEGLScenic : public GLOzoneEGL {
   }
 
  protected:
-  bool LoadGLES2Bindings(gl::GLImplementation implementation) override {
+  bool LoadGLES2Bindings(
+      const gl::GLImplementationParts& implementation) override {
     return LoadDefaultEGLGLES2Bindings(implementation);
   }
 
  private:
   ScenicSurfaceFactory* const scenic_surface_factory_;
-  DISALLOW_COPY_AND_ASSIGN(GLOzoneEGLScenic);
 };
 
 fuchsia::sysmem::AllocatorHandle ConnectSysmemAllocator() {
@@ -173,18 +177,19 @@ void ScenicSurfaceFactory::Shutdown() {
   scenic_ = nullptr;
 }
 
-std::vector<gl::GLImplementation>
+std::vector<gl::GLImplementationParts>
 ScenicSurfaceFactory::GetAllowedGLImplementations() {
-  return std::vector<gl::GLImplementation>{
-      gl::kGLImplementationEGLANGLE,
-      gl::kGLImplementationSwiftShaderGL,
-      gl::kGLImplementationEGLGLES2,
-      gl::kGLImplementationStubGL,
+  return std::vector<gl::GLImplementationParts>{
+      gl::GLImplementationParts(gl::kGLImplementationEGLANGLE),
+      gl::GLImplementationParts(gl::kGLImplementationSwiftShaderGL),
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2),
+      gl::GLImplementationParts(gl::kGLImplementationStubGL),
   };
 }
 
-GLOzone* ScenicSurfaceFactory::GetGLOzone(gl::GLImplementation implementation) {
-  switch (implementation) {
+GLOzone* ScenicSurfaceFactory::GetGLOzone(
+    const gl::GLImplementationParts& implementation) {
+  switch (implementation.gl) {
     case gl::kGLImplementationSwiftShaderGL:
     case gl::kGLImplementationEGLGLES2:
     case gl::kGLImplementationEGLANGLE:
@@ -198,8 +203,8 @@ std::unique_ptr<PlatformWindowSurface>
 ScenicSurfaceFactory::CreatePlatformWindowSurface(
     gfx::AcceleratedWidget window) {
   DCHECK_NE(window, gfx::kNullAcceleratedWidget);
-  auto surface =
-      std::make_unique<ScenicSurface>(this, window, CreateScenicSession());
+  auto surface = std::make_unique<ScenicSurface>(this, &sysmem_buffer_manager_,
+                                                 window, CreateScenicSession());
   main_thread_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&ScenicSurfaceFactory::AttachSurfaceToWindow,
                                 weak_ptr_factory_.GetWeakPtr(), window,
@@ -219,8 +224,17 @@ scoped_refptr<gfx::NativePixmap> ScenicSurfaceFactory::CreateNativePixmap(
     gfx::Size size,
     gfx::BufferFormat format,
     gfx::BufferUsage usage,
-    base::Optional<gfx::Size> framebuffer_size) {
+    absl::optional<gfx::Size> framebuffer_size) {
   DCHECK(!framebuffer_size || framebuffer_size == size);
+
+  if (widget != gfx::kNullAcceleratedWidget &&
+      usage == gfx::BufferUsage::SCANOUT) {
+    // The usage SCANOUT is for a primary plane buffer.
+    auto* surface = GetSurface(widget);
+    CHECK(surface);
+    return surface->AllocatePrimaryPlanePixmap(vk_device, size, format);
+  }
+
   auto collection = sysmem_buffer_manager_.CreateCollection(vk_device, size,
                                                             format, usage, 1);
   if (!collection)
@@ -242,13 +256,10 @@ void ScenicSurfaceFactory::CreateNativePixmapAsync(
 
 #if BUILDFLAG(ENABLE_VULKAN)
 std::unique_ptr<gpu::VulkanImplementation>
-ScenicSurfaceFactory::CreateVulkanImplementation(
-    bool use_swiftshader,
-    bool allow_protected_memory,
-    bool enforce_protected_memory) {
+ScenicSurfaceFactory::CreateVulkanImplementation(bool use_swiftshader,
+                                                 bool allow_protected_memory) {
   return std::make_unique<ui::VulkanImplementationScenic>(
-      this, &sysmem_buffer_manager_, allow_protected_memory,
-      enforce_protected_memory);
+      this, &sysmem_buffer_manager_, allow_protected_memory);
 }
 #endif
 

@@ -4,11 +4,13 @@
 
 #include "remoting/host/mouse_cursor_monitor_proxy.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/chromeos_buildflags.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capture_options.h"
@@ -26,6 +28,10 @@ class MouseCursorMonitorProxy::Core
     : public webrtc::MouseCursorMonitor::Callback {
  public:
   explicit Core(base::WeakPtr<MouseCursorMonitorProxy> proxy);
+
+  Core(const Core&) = delete;
+  Core& operator=(const Core&) = delete;
+
   ~Core() override;
 
   void CreateMouseCursorMonitor(const webrtc::DesktopCaptureOptions& options);
@@ -46,8 +52,6 @@ class MouseCursorMonitorProxy::Core
   base::WeakPtr<MouseCursorMonitorProxy> proxy_;
   scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner_;
   std::unique_ptr<webrtc::MouseCursorMonitor> mouse_cursor_monitor_;
-
-  DISALLOW_COPY_AND_ASSIGN(Core);
 };
 
 MouseCursorMonitorProxy::Core::Core(
@@ -65,7 +69,7 @@ void MouseCursorMonitorProxy::Core::CreateMouseCursorMonitor(
   DCHECK(thread_checker_.CalledOnValidThread());
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  mouse_cursor_monitor_.reset(new MouseCursorMonitorAura());
+  mouse_cursor_monitor_ = std::make_unique<MouseCursorMonitorAura>();
 #else   // BUILDFLAG(IS_CHROMEOS_ASH)
   mouse_cursor_monitor_.reset(webrtc::MouseCursorMonitor::CreateForScreen(
       options, webrtc::kFullDesktopScreenId));
@@ -116,7 +120,7 @@ MouseCursorMonitorProxy::MouseCursorMonitorProxy(
     scoped_refptr<base::SingleThreadTaskRunner> capture_task_runner,
     const webrtc::DesktopCaptureOptions& options)
     : capture_task_runner_(capture_task_runner) {
-  core_.reset(new Core(weak_factory_.GetWeakPtr()));
+  core_ = std::make_unique<Core>(weak_factory_.GetWeakPtr());
   capture_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&Core::CreateMouseCursorMonitor,
                                 base::Unretained(core_.get()), options));

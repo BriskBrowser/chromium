@@ -32,13 +32,22 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.base.PackageManagerUtils;
+import org.chromium.blink.mojom.DisplayMode;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
-import org.chromium.chrome.browser.webapps.WebApkExtras.ShortcutItem;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.WebApkExtras;
+import org.chromium.chrome.browser.browserservices.intents.WebApkExtras.ShortcutItem;
+import org.chromium.chrome.browser.browserservices.intents.WebApkShareTarget;
+import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
+import org.chromium.chrome.browser.browserservices.intents.WebappExtras;
+import org.chromium.chrome.browser.browserservices.intents.WebappIcon;
+import org.chromium.chrome.browser.browserservices.intents.WebappIntentUtils;
 import org.chromium.components.webapk.lib.common.WebApkMetaDataKeys;
 import org.chromium.components.webapps.ShortcutSource;
+import org.chromium.components.webapps.WebApkDistributor;
 import org.chromium.device.mojom.ScreenOrientationLockType;
+import org.chromium.ui.util.ColorUtils;
 import org.chromium.webapk.lib.common.WebApkCommonUtils;
 import org.chromium.webapk.lib.common.WebApkMetaDataUtils;
 import org.chromium.webapk.lib.common.splash.SplashLayout;
@@ -85,10 +94,10 @@ public class WebApkIntentDataProviderFactory {
         }
 
         // Force navigation if the extra is not specified to avoid breaking deep linking for old
-        // WebAPKs which don't specify the {@link ShortcutHelper#EXTRA_FORCE_NAVIGATION} intent
+        // WebAPKs which don't specify the {@link WebappConstants#EXTRA_FORCE_NAVIGATION} intent
         // extra.
         boolean forceNavigation = IntentUtils.safeGetBooleanExtra(
-                intent, ShortcutHelper.EXTRA_FORCE_NAVIGATION, true);
+                intent, WebappConstants.EXTRA_FORCE_NAVIGATION, true);
 
         ShareData shareData = null;
 
@@ -249,16 +258,15 @@ public class WebApkIntentDataProviderFactory {
 
         String scope = IntentUtils.safeGetString(bundle, WebApkMetaDataKeys.SCOPE);
 
-        @WebDisplayMode
+        @DisplayMode.EnumType
         int displayMode = displayModeFromString(
                 IntentUtils.safeGetString(bundle, WebApkMetaDataKeys.DISPLAY_MODE));
         int orientation = orientationFromString(
                 IntentUtils.safeGetString(bundle, WebApkMetaDataKeys.ORIENTATION));
-        long themeColor = WebApkMetaDataUtils.getLongFromMetaData(bundle,
-                WebApkMetaDataKeys.THEME_COLOR, ShortcutHelper.MANIFEST_COLOR_INVALID_OR_MISSING);
-        long backgroundColor =
-                WebApkMetaDataUtils.getLongFromMetaData(bundle, WebApkMetaDataKeys.BACKGROUND_COLOR,
-                        ShortcutHelper.MANIFEST_COLOR_INVALID_OR_MISSING);
+        long themeColor = WebApkMetaDataUtils.getLongFromMetaData(
+                bundle, WebApkMetaDataKeys.THEME_COLOR, ColorUtils.INVALID_COLOR);
+        long backgroundColor = WebApkMetaDataUtils.getLongFromMetaData(
+                bundle, WebApkMetaDataKeys.BACKGROUND_COLOR, ColorUtils.INVALID_COLOR);
 
         // Fetch the default background color from the WebAPK's resources. Fetching the default
         // background color from the WebAPK is important for consistency when:
@@ -376,7 +384,7 @@ public class WebApkIntentDataProviderFactory {
      */
     public static BrowserServicesIntentDataProvider create(Intent intent, String url, String scope,
             WebappIcon primaryIcon, WebappIcon splashIcon, String name, String shortName,
-            @WebDisplayMode int displayMode, int orientation, int source, long themeColor,
+            @DisplayMode.EnumType int displayMode, int orientation, int source, long themeColor,
             long backgroundColor, int defaultBackgroundColor, boolean isPrimaryIconMaskable,
             boolean isSplashIconMaskable, String webApkPackageName, int shellApkVersion,
             String manifestUrl, String manifestStartUrl, @WebApkDistributor int distributor,
@@ -426,7 +434,7 @@ public class WebApkIntentDataProviderFactory {
 
     private static int computeSource(Intent intent, ShareData shareData) {
         int source = IntentUtils.safeGetIntExtra(
-                intent, ShortcutHelper.EXTRA_SOURCE, ShortcutSource.UNKNOWN);
+                intent, WebappConstants.EXTRA_SOURCE, ShortcutSource.UNKNOWN);
         if (source >= ShortcutSource.COUNT) {
             return ShortcutSource.UNKNOWN;
         }
@@ -487,25 +495,25 @@ public class WebApkIntentDataProviderFactory {
     }
 
     /**
-     * Returns the WebDisplayMode which matches {@link displayMode}.
+     * Returns the DisplayMode which matches {@link DisplayMode}.
      * @param displayMode One of https://www.w3.org/TR/appmanifest/#dfn-display-modes-values
-     * @return The matching WebDisplayMode. {@link WebDisplayMode#Undefined} if there is no match.
+     * @return The matching DisplayMode. {@link DisplayMode#Undefined} if there is no match.
      */
-    private static @WebDisplayMode int displayModeFromString(String displayMode) {
+    private static @DisplayMode.EnumType int displayModeFromString(String displayMode) {
         if (displayMode == null) {
-            return WebDisplayMode.UNDEFINED;
+            return DisplayMode.UNDEFINED;
         }
 
         if (displayMode.equals("fullscreen")) {
-            return WebDisplayMode.FULLSCREEN;
+            return DisplayMode.FULLSCREEN;
         } else if (displayMode.equals("standalone")) {
-            return WebDisplayMode.STANDALONE;
+            return DisplayMode.STANDALONE;
         } else if (displayMode.equals("minimal-ui")) {
-            return WebDisplayMode.MINIMAL_UI;
+            return DisplayMode.MINIMAL_UI;
         } else if (displayMode.equals("browser")) {
-            return WebDisplayMode.BROWSER;
+            return DisplayMode.BROWSER;
         } else {
-            return WebDisplayMode.UNDEFINED;
+            return DisplayMode.UNDEFINED;
         }
     }
 

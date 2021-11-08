@@ -5,19 +5,19 @@
 #ifndef CHROMEOS_SERVICES_ASSISTANT_PLATFORM_AUDIO_INPUT_HOST_IMPL_H_
 #define CHROMEOS_SERVICES_ASSISTANT_PLATFORM_AUDIO_INPUT_HOST_IMPL_H_
 
-#include "chromeos/services/assistant/public/cpp/migration/audio_input_host.h"
+#include "chromeos/services/assistant/platform/audio_input_host.h"
 
 #include <string>
 
 #include "base/component_export.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/services/assistant/platform/audio_devices.h"
 #include "chromeos/services/libassistant/public/mojom/audio_input_controller.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 namespace assistant {
@@ -43,12 +43,11 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) AudioInputHostImpl
   void SetMicState(bool mic_open) override;
   void OnHotwordEnabled(bool enable) override;
   void OnConversationTurnStarted() override;
-  void OnConversationTurnFinished() override;
 
   // AudioDevices::Observer implementation:
-  void SetDeviceId(const base::Optional<std::string>& device_id) override;
+  void SetDeviceId(const absl::optional<std::string>& device_id) override;
   void SetHotwordDeviceId(
-      const base::Optional<std::string>& device_id) override;
+      const absl::optional<std::string>& device_id) override;
 
  private:
   // chromeos::PowerManagerClient::Observer overrides:
@@ -56,7 +55,7 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) AudioInputHostImpl
                         base::TimeTicks timestamp) override;
 
   void OnInitialLidStateReceived(
-      base::Optional<chromeos::PowerManagerClient::SwitchStates> switch_states);
+      absl::optional<chromeos::PowerManagerClient::SwitchStates> switch_states);
 
   mojo::Remote<chromeos::libassistant::mojom::AudioInputController> remote_;
   chromeos::PowerManagerClient* const power_manager_client_;

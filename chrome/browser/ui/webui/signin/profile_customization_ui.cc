@@ -14,12 +14,14 @@
 #include "chrome/browser/ui/webui/signin/profile_customization_handler.h"
 #include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/webui_url_constants.h"
-#include "chrome/grit/browser_resources.h"
+#include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/signin_resources.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
+#include "ui/base/webui/resource_path.h"
 #include "ui/base/webui/web_ui_util.h"
 #include "ui/resources/grit/webui_generated_resources.h"
 #include "ui/resources/grit/webui_resources.h"
@@ -30,21 +32,24 @@ ProfileCustomizationUI::ProfileCustomizationUI(content::WebUI* web_ui)
   content::WebUIDataSource* source = content::WebUIDataSource::Create(
       chrome::kChromeUIProfileCustomizationHost);
   webui::SetJSModuleDefaults(source);
-  source->SetDefaultResource(IDR_PROFILE_CUSTOMIZATION_HTML);
-  source->AddResourcePath("profile_customization_app.js",
-                          IDR_PROFILE_CUSTOMIZATION_APP_JS);
-  source->AddResourcePath("profile_customization_browser_proxy.js",
-                          IDR_PROFILE_CUSTOMIZATION_BROWSER_PROXY_JS);
-  source->AddResourcePath("signin_shared_css.js", IDR_SIGNIN_SHARED_CSS_JS);
-  source->AddResourcePath("signin_vars_css.js", IDR_SIGNIN_VARS_CSS_JS);
+  source->SetDefaultResource(
+      IDR_SIGNIN_PROFILE_CUSTOMIZATION_PROFILE_CUSTOMIZATION_HTML);
+  static constexpr webui::ResourcePath kResources[] = {
+      {"profile_customization_app.js",
+       IDR_SIGNIN_PROFILE_CUSTOMIZATION_PROFILE_CUSTOMIZATION_APP_JS},
+      {"profile_customization_browser_proxy.js",
+       IDR_SIGNIN_PROFILE_CUSTOMIZATION_PROFILE_CUSTOMIZATION_BROWSER_PROXY_JS},
+      {"signin_shared_css.js", IDR_SIGNIN_SIGNIN_SHARED_CSS_JS},
+      {"signin_vars_css.js", IDR_SIGNIN_SIGNIN_VARS_CSS_JS},
+  };
+  source->AddResourcePaths(kResources);
 
   // Localized strings.
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
       {"profileCustomizationDoneLabel",
        IDS_PROFILE_CUSTOMIZATION_DONE_BUTTON_LABEL},
-      {"profileCustomizationPickThemeTitle",
-       IDS_PROFILE_CUSTOMIZATION_PICK_THEME_TITLE},
       {"profileCustomizationInputLabel", IDS_PROFILE_CUSTOMIZATION_INPUT_LABEL},
+      {"profileCustomizationText", IDS_PROFILE_CUSTOMIZATION_TEXT},
 
       // Color picker strings:
       {"colorPickerLabel", IDS_NTP_CUSTOMIZE_COLOR_PICKER_LABEL},

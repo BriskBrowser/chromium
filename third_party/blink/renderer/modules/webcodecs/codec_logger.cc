@@ -10,6 +10,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/inspector/inspector_media_context_impl.h"
+#include "third_party/blink/renderer/platform/wtf/wtf.h"
 
 namespace blink {
 
@@ -25,7 +26,8 @@ CodecLogger::CodecLogger(
   // collected before |parent_media_log_| is destroyed.
   if (!context->IsContextDestroyed()) {
     parent_media_log_ = Platform::Current()->GetMediaLog(
-        MediaInspectorContextImpl::From(*context), task_runner);
+        MediaInspectorContextImpl::From(*context), task_runner,
+        /*is_on_worker=*/!IsMainThread());
   }
 
   // NullMediaLog silently and safely does nothing.
@@ -37,13 +39,14 @@ CodecLogger::CodecLogger(
   media_log_ = parent_media_log_->Clone();
 }
 
-CodecLogger::CodecLogger()
-    : parent_media_log_(std::make_unique<media::NullMediaLog>()),
-      media_log_(parent_media_log_->Clone()) {}
-
 DOMException* CodecLogger::MakeException(std::string error_msg,
                                          media::Status status) {
   media_log_->NotifyError(status);
+
+  if (status_code_ == media::StatusCode::kOk) {
+    DCHECK(!status.is_ok());
+    status_code_ = status.code();
+  }
 
   return MakeGarbageCollected<DOMException>(DOMExceptionCode::kOperationError,
                                             error_msg.c_str());
@@ -52,6 +55,11 @@ DOMException* CodecLogger::MakeException(std::string error_msg,
 DOMException* CodecLogger::MakeException(std::string error_msg,
                                          media::StatusCode code,
                                          const base::Location& location) {
+  if (status_code_ == media::StatusCode::kOk) {
+    DCHECK_NE(code, media::StatusCode::kOk);
+    status_code_ = code;
+  }
+
   return MakeException(error_msg, media::Status(code, error_msg, location));
 }
 

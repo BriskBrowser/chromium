@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
+
 #include "ash/shell.h"
 #include "base/strings/pattern.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
@@ -12,30 +14,28 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/browser_accessibility_state.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/test/browser_test.h"
-#include "content/public/test/browser_test_utils.h"
-#include "extensions/browser/notification_types.h"
+#include "extensions/browser/extension_host_test_helper.h"
 #include "net/dns/mock_host_resolver.h"
 #include "ui/events/test/event_generator.h"
 #include "url/url_constants.h"
+
+namespace ash {
 
 class AccessibilityLiveSiteTest : public InProcessBrowserTest {
  protected:
   void SetUpOnMainThread() override {
     ASSERT_FALSE(AccessibilityManager::Get()->IsSelectToSpeakEnabled());
 
-    content::WindowedNotificationObserver extension_load_waiter(
-        extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD,
-        content::NotificationService::AllSources());
+    extensions::ExtensionHostTestHelper host_helper(browser()->profile());
     AccessibilityManager::Get()->SetSelectToSpeakEnabled(true);
-    extension_load_waiter.Wait();
+    host_helper.WaitForHostCompletedFirstLoad();
 
-    aura::Window* root_window = ash::Shell::Get()->GetPrimaryRootWindow();
-    generator_.reset(new ui::test::EventGenerator(root_window));
+    aura::Window* root_window = Shell::Get()->GetPrimaryRootWindow();
+    generator_ = std::make_unique<ui::test::EventGenerator>(root_window);
 
-    ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL));
+    ASSERT_TRUE(
+        ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL)));
   }
 
   void SetUpInProcessBrowserTestFixture() override {
@@ -47,8 +47,8 @@ class AccessibilityLiveSiteTest : public InProcessBrowserTest {
         new net::RuleBasedHostResolverProc(host_resolver());
     resolver->AllowDirectLookup("*.google.com");
     resolver->AllowDirectLookup("*.gstatic.com");
-    mock_host_resolver_override_.reset(
-        new net::ScopedDefaultHostResolverProc(resolver.get()));
+    mock_host_resolver_override_ =
+        std::make_unique<net::ScopedDefaultHostResolverProc>(resolver.get());
   }
 
   void TearDownInProcessBrowserTestFixture() override {
@@ -81,7 +81,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityLiveSiteTest,
 
   content::BrowserAccessibilityState::GetInstance()->EnableAccessibility();
 
-  ui_test_utils::NavigateToURL(browser(), GURL(kGoogleDocsUrl));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL(kGoogleDocsUrl)));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   content::EnableAccessibilityForWebContents(web_contents);
@@ -100,3 +100,5 @@ IN_PROC_BROWSER_TEST_F(AccessibilityLiveSiteTest,
   speech_monitor_.ExpectSpeech(kTextFoundInGoogleDoc);
   speech_monitor_.Replay();
 }
+
+}  // namespace ash

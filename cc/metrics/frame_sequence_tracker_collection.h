@@ -11,7 +11,6 @@
 
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
-#include "base/optional.h"
 #include "cc/cc_export.h"
 #include "cc/metrics/frame_sequence_metrics.h"
 
@@ -85,7 +84,8 @@ class CC_EXPORT FrameSequenceTrackerCollection {
   void NotifyBeginMainFrame(const viz::BeginFrameArgs& args);
   void NotifyMainFrameProcessed(const viz::BeginFrameArgs& args);
   void NotifyImplFrameCausedNoDamage(const viz::BeginFrameAck& ack);
-  void NotifyMainFrameCausedNoDamage(const viz::BeginFrameArgs& args);
+  void NotifyMainFrameCausedNoDamage(const viz::BeginFrameArgs& args,
+                                     bool aborted);
   void NotifyPauseFrameProduction();
   void NotifySubmitFrame(uint32_t frame_token,
                          bool has_missing_content,
@@ -105,7 +105,7 @@ class CC_EXPORT FrameSequenceTrackerCollection {
   // Return the type of each active frame tracker, encoded into a 16 bit
   // integer with the bit at each position corresponding to the enum value of
   // each type.
-  ActiveFrameSequenceTrackers FrameSequenceTrackerActiveTypes();
+  ActiveFrameSequenceTrackers FrameSequenceTrackerActiveTypes() const;
 
   FrameSequenceTracker* GetRemovalTrackerForTesting(
       FrameSequenceTrackerType type);

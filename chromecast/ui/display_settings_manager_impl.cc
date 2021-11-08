@@ -17,15 +17,13 @@
 #include "chromecast/browser/cast_browser_process.h"
 #include "chromecast/browser/cast_display_configurator.h"
 #include "chromecast/ui/display_settings/gamma_configurator.h"
-#include "ui/aura/window.h"
-#include "ui/aura/window_tree_host.h"
 #endif  // defined(USE_AURA)
 
 namespace chromecast {
 
 namespace {
 
-constexpr base::TimeDelta kAnimationDuration = base::TimeDelta::FromSeconds(2);
+constexpr base::TimeDelta kAnimationDuration = base::Seconds(2);
 
 const float kMinApiBrightness = 0.0f;
 const float kMaxApiBrightness = 1.0f;
@@ -42,15 +40,13 @@ DisplaySettingsManagerImpl::DisplaySettingsManagerImpl(
       display_configurator_(
           shell::CastBrowserProcess::GetInstance()->display_configurator()),
       gamma_configurator_(
-          std::make_unique<GammaConfigurator>(window_manager_,
-                                              display_configurator_)),
+          std::make_unique<GammaConfigurator>(display_configurator_)),
 #else
       display_configurator_(nullptr),
 #endif  // defined(USE_AURA)
       brightness_(-1.0f),
       screen_power_controller_(ScreenPowerController::Create(this)),
       color_temperature_animation_(std::make_unique<ColorTemperatureAnimation>(
-          window_manager_,
           display_configurator_,
           color_temperature_config)),
       weak_factory_(this) {
@@ -100,9 +96,7 @@ void DisplaySettingsManagerImpl::AddReceiver(
 
 void DisplaySettingsManagerImpl::SetScreenPowerOn(PowerToggleCallback callback) {
 #if defined(USE_AURA)
-  display_configurator_->EnableDisplay(
-      base::BindOnce(&DisplaySettingsManagerImpl::OnScreenEnabled,
-                     weak_factory_.GetWeakPtr(), std::move(callback)));
+  display_configurator_->EnableDisplay(std::move(callback));
 #endif  // defined(USE_AURA)
 }
 
@@ -138,7 +132,7 @@ void DisplaySettingsManagerImpl::ResetColorTemperature() {
 }
 
 void DisplaySettingsManagerImpl::SetBrightness(float brightness) {
-  SetBrightnessSmooth(brightness, base::TimeDelta::FromSeconds(0));
+  SetBrightnessSmooth(brightness, base::Seconds(0));
 }
 
 void DisplaySettingsManagerImpl::SetBrightnessSmooth(float brightness,
@@ -194,19 +188,6 @@ void DisplaySettingsManagerImpl::UpdateBrightness(float brightness,
                                                   base::TimeDelta duration) {
   if (brightness_animation_)
     brightness_animation_->AnimateToNewValue(brightness, duration);
-}
-
-void DisplaySettingsManagerImpl::OnScreenEnabled(PowerToggleCallback callback,
-                                                 bool status) {
-#if defined(USE_AURA)
-  // Force a swap buffers otherwise we might be stuck showing the modeset
-  // buffer.
-  window_manager_->GetRootWindow()
-      ->GetHost()
-      ->compositor()
-      ->ScheduleFullRedraw();
-#endif  // defined(USE_AURA)
-  std::move(callback).Run(status);
 }
 
 }  // namespace chromecast

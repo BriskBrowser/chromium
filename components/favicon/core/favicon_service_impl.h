@@ -39,6 +39,10 @@ class FaviconServiceImpl : public FaviconService {
   // |history_service| most not be nullptr and  must outlive this object.
   FaviconServiceImpl(std::unique_ptr<FaviconClient> favicon_client,
                      history::HistoryService* history_service);
+
+  FaviconServiceImpl(const FaviconServiceImpl&) = delete;
+  FaviconServiceImpl& operator=(const FaviconServiceImpl&) = delete;
+
   ~FaviconServiceImpl() override;
 
   // FaviconService implementation.
@@ -99,7 +103,7 @@ class FaviconServiceImpl : public FaviconService {
   void SetImportedFavicons(
       const favicon_base::FaviconUsageDataList& favicon_usage) override;
   void AddPageNoVisitForBookmark(const GURL& url,
-                                 const base::string16& title) override;
+                                 const std::u16string& title) override;
   void MergeFavicon(const GURL& page_url,
                     const GURL& icon_url,
                     favicon_base::IconType icon_type,
@@ -162,8 +166,6 @@ class FaviconServiceImpl : public FaviconService {
   std::unordered_set<MissingFaviconURLHash> missing_favicon_urls_;
   std::unique_ptr<FaviconClient> favicon_client_;
   history::HistoryService* history_service_;
-
-  DISALLOW_COPY_AND_ASSIGN(FaviconServiceImpl);
 };
 
 }  // namespace favicon

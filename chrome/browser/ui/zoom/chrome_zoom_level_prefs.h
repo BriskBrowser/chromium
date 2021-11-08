@@ -10,7 +10,6 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/observer_list.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
@@ -43,6 +42,10 @@ class ChromeZoomLevelPrefs : public content::ZoomLevelDelegate {
       const base::FilePath& profile_path,
       const base::FilePath& partition_path,
       base::WeakPtr<zoom::ZoomEventManager> zoom_event_manager);
+
+  ChromeZoomLevelPrefs(const ChromeZoomLevelPrefs&) = delete;
+  ChromeZoomLevelPrefs& operator=(const ChromeZoomLevelPrefs&) = delete;
+
   ~ChromeZoomLevelPrefs() override;
 
   static std::string GetPartitionKeyForTesting(
@@ -71,9 +74,7 @@ class ChromeZoomLevelPrefs : public content::ZoomLevelDelegate {
   content::HostZoomMap* host_zoom_map_;
   base::CallbackListSubscription zoom_subscription_;
   std::string partition_key_;
-  base::CallbackList<void(void)> default_zoom_changed_callbacks_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeZoomLevelPrefs);
+  base::RepeatingClosureList default_zoom_changed_callbacks_;
 };
 
 #endif  // CHROME_BROWSER_UI_ZOOM_CHROME_ZOOM_LEVEL_PREFS_H_

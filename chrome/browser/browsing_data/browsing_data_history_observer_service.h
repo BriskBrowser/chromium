@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_BROWSING_DATA_BROWSING_DATA_HISTORY_OBSERVER_SERVICE_H_
 #define CHROME_BROWSER_BROWSING_DATA_BROWSING_DATA_HISTORY_OBSERVER_SERVICE_H_
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
@@ -29,6 +29,12 @@ class BrowsingDataHistoryObserverService
       public history::HistoryServiceObserver {
  public:
   explicit BrowsingDataHistoryObserverService(Profile* profile);
+
+  BrowsingDataHistoryObserverService(
+      const BrowsingDataHistoryObserverService&) = delete;
+  BrowsingDataHistoryObserverService& operator=(
+      const BrowsingDataHistoryObserverService&) = delete;
+
   ~BrowsingDataHistoryObserverService() override;
 
   // history::HistoryServiceObserver:
@@ -58,10 +64,9 @@ class BrowsingDataHistoryObserverService
 
   content::StoragePartition* storage_partition_for_testing_ = nullptr;
 
-  ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
-      history_observer_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BrowsingDataHistoryObserverService);
+  base::ScopedObservation<history::HistoryService,
+                          history::HistoryServiceObserver>
+      history_observation_{this};
 };
 
 #endif  // CHROME_BROWSER_BROWSING_DATA_BROWSING_DATA_HISTORY_OBSERVER_SERVICE_H_

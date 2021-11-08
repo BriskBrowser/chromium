@@ -7,18 +7,18 @@
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/surface.h"
 #include "ui/aura/window_targeter.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
 namespace {
 
-class OverlayNativeViewHost : public views::NativeViewHost {
+class OverlayNativeViewHost final : public views::NativeViewHost {
  public:
-  OverlayNativeViewHost() = default;
+  OverlayNativeViewHost() { set_suppress_default_focus_handling(); }
   OverlayNativeViewHost(const OverlayNativeViewHost&) = delete;
   OverlayNativeViewHost& operator=(const OverlayNativeViewHost&) = delete;
-  ~OverlayNativeViewHost() final = default;
+  ~OverlayNativeViewHost() override = default;
   METADATA_HEADER(OverlayNativeViewHost);
 
   // views::NativeViewHost:

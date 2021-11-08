@@ -4,11 +4,11 @@
 
 // clang-format off
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {ContentSetting, ContentSettingsTypes, SiteSettingSource, SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
+import {ContentSetting, ContentSettingsTypes, SettingsRecentSitePermissionsElement, SiteSettingSource, SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
 import {Router, routes} from 'chrome://settings/settings.js';
 
-import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {isChildVisible, isVisible} from '../test_util.m.js';
+import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {flushTasks, isChildVisible, isVisible} from 'chrome://webui-test/test_util.js';
 
 import {TestSiteSettingsPrefsBrowserProxy} from './test_site_settings_prefs_browser_proxy.js';
 
@@ -26,7 +26,7 @@ suite('CrSettingsRecentSitePermissionsTest', function() {
 
   setup(function() {
     browserProxy = new TestSiteSettingsPrefsBrowserProxy();
-    SiteSettingsPrefsBrowserProxyImpl.instance_ = browserProxy;
+    SiteSettingsPrefsBrowserProxyImpl.setInstance(browserProxy);
 
     document.body.innerHTML = '';
     testElement =
@@ -47,6 +47,27 @@ suite('CrSettingsRecentSitePermissionsTest', function() {
     await browserProxy.whenCalled('getRecentSitePermissions');
     flush();
     assertTrue(isChildVisible(testElement, '#noPermissionsText'));
+  });
+
+  test('Content setting strings', async function() {
+    // Ensure no errors are generated for recent permissions for any content
+    // settings type. Any JS errors are treated as a test failure, so no
+    // explicit assertions are included.
+    for (const key of Object.keys(ContentSettingsTypes)) {
+      Router.getInstance().navigateTo(routes.BASIC);
+      await flushTasks();
+      const mockData = [{
+        origin: 'https://bar.com',
+        recentPermissions: [{
+          setting: ContentSetting.BLOCK,
+          type: ContentSettingsTypes[key],
+        }]
+      }];
+      browserProxy.setRecentSitePermissions(mockData);
+      Router.getInstance().navigateTo(routes.SITE_SETTINGS);
+      await browserProxy.whenCalled('getRecentSitePermissions');
+      browserProxy.reset();
+    }
   });
 
   test('Various recent permissions', async function() {

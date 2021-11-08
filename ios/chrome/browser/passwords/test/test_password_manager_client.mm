@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/passwords/test/test_password_manager_client.h"
 
+#include "base/callback_helpers.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
@@ -23,7 +24,7 @@ constexpr char kHttpsWebOrigin[] = "https://www.example.com/";
 TestPasswordManagerClient::TestPasswordManagerClient()
     : last_committed_url_(kHttpsWebOrigin), password_manager_(this) {
   store_ = base::MakeRefCounted<TestPasswordStore>();
-  store_->Init(nullptr);
+  store_->Init(/*prefs=*/nullptr, /*affiliated_match_helper=*/nullptr);
   prefs_ = std::make_unique<TestingPrefServiceSimple>();
   prefs_->registry()->RegisterBooleanPref(
       password_manager::prefs::kCredentialsEnableAutosignin, true);
@@ -61,7 +62,8 @@ PrefService* TestPasswordManagerClient::GetPrefs() const {
   return prefs_.get();
 }
 
-PasswordStore* TestPasswordManagerClient::GetProfilePasswordStore() const {
+PasswordStoreInterface* TestPasswordManagerClient::GetProfilePasswordStore()
+    const {
   return store_.get();
 }
 

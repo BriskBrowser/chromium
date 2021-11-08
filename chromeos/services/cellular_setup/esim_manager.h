@@ -21,8 +21,12 @@ class ObjectPath;
 
 namespace chromeos {
 
+class CellularConnectionHandler;
+class CellularESimInstaller;
 class CellularESimUninstallHandler;
 class CellularInhibitor;
+class NetworkConnectionHandler;
+class NetworkStateHandler;
 
 namespace cellular_setup {
 
@@ -38,10 +42,16 @@ class ESimManager : public mojom::ESimManager,
                     HermesManagerClient::Observer,
                     HermesEuiccClient::Observer {
  public:
+  static std::string GetRootSmdsAddress();
+
   ESimManager();
-  ESimManager(CellularESimProfileHandler* cellular_esim_profile_handler,
+  ESimManager(CellularConnectionHandler* cellular_connection_handler,
+              CellularESimInstaller* cellular_esim_installer,
+              CellularESimProfileHandler* cellular_esim_profile_handler,
               CellularESimUninstallHandler* cellular_esim_uninstall_handler,
-              CellularInhibitor* cellular_inhibitor);
+              CellularInhibitor* cellular_inhibitor,
+              NetworkConnectionHandler* network_connection_handler,
+              NetworkStateHandler* network_state_handler);
   ESimManager(const ESimManager&) = delete;
   ESimManager& operator=(const ESimManager&) = delete;
   ~ESimManager() override;
@@ -70,11 +80,31 @@ class ESimManager : public mojom::ESimManager,
   // Notifies observers of changes to ESimProfile Lists.
   void NotifyESimProfileListChanged(Euicc* euicc);
 
+  CellularESimInstaller* cellular_esim_installer() {
+    return cellular_esim_installer_;
+  }
+
+  CellularESimProfileHandler* cellular_esim_profile_handler() {
+    return cellular_esim_profile_handler_;
+  }
+
+  CellularConnectionHandler* cellular_connection_handler() {
+    return cellular_connection_handler_;
+  }
+
   CellularESimUninstallHandler* cellular_esim_uninstall_handler() {
     return cellular_esim_uninstall_handler_;
   }
 
   CellularInhibitor* cellular_inhibitor() { return cellular_inhibitor_; }
+
+  NetworkConnectionHandler* network_connection_handler() {
+    return network_connection_handler_;
+  }
+
+  NetworkStateHandler* network_state_handler() {
+    return network_state_handler_;
+  }
 
  private:
   void UpdateAvailableEuiccs();
@@ -86,9 +116,15 @@ class ESimManager : public mojom::ESimManager,
   // exist. Returns true if a new object was created.
   bool CreateEuiccIfNew(const dbus::ObjectPath& euicc_path);
 
+  CellularConnectionHandler* cellular_connection_handler_;
+  CellularESimInstaller* cellular_esim_installer_;
   CellularESimProfileHandler* cellular_esim_profile_handler_;
   CellularESimUninstallHandler* cellular_esim_uninstall_handler_;
   CellularInhibitor* cellular_inhibitor_;
+
+  NetworkConnectionHandler* network_connection_handler_;
+  NetworkStateHandler* network_state_handler_;
+
   std::vector<std::unique_ptr<Euicc>> available_euiccs_;
   mojo::RemoteSet<mojom::ESimManagerObserver> observers_;
   mojo::ReceiverSet<mojom::ESimManager> receivers_;

@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
@@ -14,18 +15,28 @@
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/web_app_dialog_manager.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
 #include "chrome/browser/ui/web_applications/web_app_metrics.h"
-#include "chrome/browser/web_applications/components/app_registry_controller.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
+#include "chrome/browser/ui/webui/web_app_internals/web_app_internals_source.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_shortcut.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
+#include "chrome/browser/web_applications/web_app_callback_app_identity.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_sync_bridge.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
+#include "components/constrained_window/constrained_window_views.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
+#include "components/services/app_service/public/cpp/types_util.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
 #include "extensions/browser/app_sorting.h"
+#include "extensions/browser/extension_prefs.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -33,7 +44,9 @@
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
 #include "chrome/browser/ui/app_list/extension_app_utils.h"
-#include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
+#include "chrome/browser/ui/ash/shelf/app_shortcut_shelf_item_controller.h"
+#include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
+#include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_util.h"
 #endif
 
 #if defined(OS_WIN)
@@ -44,22 +57,23 @@ namespace web_app {
 
 namespace {
 
-bool IsAppInstalled(apps::AppServiceProxy* proxy, const AppId& app_id) {
+bool IsAppInstalled(Profile* profile, const AppId& app_id) {
   bool installed = false;
+  auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
   proxy->AppRegistryCache().ForOneApp(
       app_id, [&installed](const apps::AppUpdate& update) {
-        installed =
-            update.Readiness() != apps::mojom::Readiness::kUninstalledByUser;
+        installed = apps_util::IsInstalled(update.Readiness());
       });
   return installed;
 }
 
 #if defined(OS_WIN)
 
-// UninstallWebAppWithDialog handles WebApp uninstallation from the
-// Windows Settings.
-void UninstallWebAppWithDialog(const AppId& app_id, Profile* profile) {
-  auto* provider = WebAppProvider::Get(profile);
+// UninstallWebAppWithDialogFromStartupSwitch handles WebApp uninstallation from
+// the Windows Settings.
+void UninstallWebAppWithDialogFromStartupSwitch(const AppId& app_id,
+                                                Profile* profile,
+                                                WebAppProvider* provider) {
   if (!provider->registrar().IsLocallyInstalled(app_id)) {
     // App does not exist and controller is destroyed.
     return;
@@ -68,12 +82,30 @@ void UninstallWebAppWithDialog(const AppId& app_id, Profile* profile) {
   // Note: WebAppInstallFinalizer::UninstallWebApp creates a ScopedKeepAlive
   // object which ensures the browser stays alive during the WebApp
   // uninstall.
-  WebAppUiManagerImpl::Get(profile)->dialog_manager().UninstallWebApp(
-      app_id, WebAppDialogManager::UninstallSource::kOsSettings,
+  WebAppUiManagerImpl::Get(provider)->dialog_manager().UninstallWebApp(
+      app_id, webapps::WebappUninstallSource::kOsSettings,
       gfx::kNullNativeWindow, base::DoNothing());
 }
 
 #endif  // defined(OS_WIN)
+
+DisplayMode GetExtensionDisplayMode(Profile* profile,
+                                    const extensions::Extension* extension) {
+  // Platform apps always open in an app window and their user preference is
+  // meaningless.
+  if (extension->is_platform_app())
+    return DisplayMode::kStandalone;
+
+  switch (extensions::GetLaunchContainer(
+      extensions::ExtensionPrefs::Get(profile), extension)) {
+    case extensions::LaunchContainer::kLaunchContainerWindow:
+    case extensions::LaunchContainer::kLaunchContainerPanelDeprecated:
+      return DisplayMode::kStandalone;
+    case extensions::LaunchContainer::kLaunchContainerTab:
+    case extensions::LaunchContainer::kLaunchContainerNone:
+      return DisplayMode::kBrowser;
+  }
+}
 
 }  // namespace
 
@@ -83,20 +115,26 @@ std::unique_ptr<WebAppUiManager> WebAppUiManager::Create(Profile* profile) {
 }
 
 // static
-WebAppUiManagerImpl* WebAppUiManagerImpl::Get(Profile* profile) {
-  auto* provider = WebAppProvider::Get(profile);
+WebAppUiManagerImpl* WebAppUiManagerImpl::Get(
+    web_app::WebAppProvider* provider) {
   return provider ? provider->ui_manager().AsImpl() : nullptr;
 }
 
 WebAppUiManagerImpl::WebAppUiManagerImpl(Profile* profile)
     : dialog_manager_(std::make_unique<WebAppDialogManager>(profile)),
-      profile_(profile) {}
+      profile_(profile) {
+  // Register the source for the chrome://web-app-internals page.
+  content::URLDataSource::Add(
+      profile_, std::make_unique<WebAppInternalsSource>(profile_));
+}
 
 WebAppUiManagerImpl::~WebAppUiManagerImpl() = default;
 
 void WebAppUiManagerImpl::SetSubsystems(
-    AppRegistryController* app_registry_controller) {
-  app_registry_controller_ = app_registry_controller;
+    WebAppSyncBridge* sync_bridge,
+    OsIntegrationManager* os_integration_manager) {
+  sync_bridge_ = sync_bridge;
+  os_integration_manager_ = os_integration_manager;
 }
 
 void WebAppUiManagerImpl::Start() {
@@ -110,9 +148,9 @@ void WebAppUiManagerImpl::Start() {
     ++num_windows_for_apps_map_[GetAppIdForBrowser(browser)];
   }
 
-  extensions::ExtensionSystem::Get(profile_)
-      ->app_sorting()
-      ->InitializePageOrdinalMapFromWebApps();
+  extensions::ExtensionSystem::Get(profile_)->ready().Post(
+      FROM_HERE, base::BindOnce(&WebAppUiManagerImpl::OnExtensionSystemReady,
+                                weak_ptr_factory_.GetWeakPtr()));
 
   BrowserList::AddObserver(this);
 }
@@ -159,11 +197,9 @@ bool WebAppUiManagerImpl::UninstallAndReplaceIfExists(
     const std::vector<AppId>& from_apps,
     const AppId& to_app) {
   bool has_migrated = false;
-  bool did_uninstall = false;
+  bool uninstall_triggered = false;
   for (const AppId& from_app : from_apps) {
-    apps::AppServiceProxy* proxy =
-        apps::AppServiceProxyFactory::GetForProfile(profile_);
-    if (!IsAppInstalled(proxy, from_app))
+    if (!IsAppInstalled(profile_, from_app))
       continue;
 
     if (!has_migrated) {
@@ -192,31 +228,98 @@ bool WebAppUiManagerImpl::UninstallAndReplaceIfExists(
         app_sorting->SetPageOrdinal(to_app,
                                     app_sorting->GetPageOrdinal(from_app));
 
-        // User pref for window/tab launch.
-        switch (extensions::GetLaunchContainer(
-            extensions::ExtensionPrefs::Get(profile_), from_extension)) {
-          case extensions::LaunchContainer::kLaunchContainerWindow:
-          case extensions::LaunchContainer::kLaunchContainerPanelDeprecated:
-            app_registry_controller_->SetAppUserDisplayMode(
-                to_app, DisplayMode::kStandalone, /*is_user_action=*/false);
-            break;
-          case extensions::LaunchContainer::kLaunchContainerTab:
-          case extensions::LaunchContainer::kLaunchContainerNone:
-            app_registry_controller_->SetAppUserDisplayMode(
-                to_app, DisplayMode::kBrowser, /*is_user_action=*/false);
-            break;
-        }
+        sync_bridge_->SetAppUserDisplayMode(
+            to_app, GetExtensionDisplayMode(profile_, from_extension),
+            /*is_user_action=*/false);
 
         has_migrated = true;
+        auto shortcut_info = web_app::ShortcutInfoForExtensionAndProfile(
+            from_extension, profile_);
+        auto callback =
+            base::BindOnce(&WebAppUiManagerImpl::OnShortcutLocationGathered,
+                           weak_ptr_factory_.GetWeakPtr(), from_app, to_app);
+        os_integration_manager_->GetAppExistingShortCutLocation(
+            std::move(callback), std::move(shortcut_info));
+        uninstall_triggered = true;
+        continue;
       }
+      has_migrated = true;
+      // The from_app could be a web app.
+      os_integration_manager_->GetShortcutInfoForApp(
+          from_app,
+          base::BindOnce(&WebAppUiManagerImpl::
+                             OnShortcutInfoReceivedSearchShortcutLocations,
+                         weak_ptr_factory_.GetWeakPtr(), from_app, to_app));
+      uninstall_triggered = true;
+      continue;
     }
 
+    auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile_);
     proxy->UninstallSilently(from_app,
                              apps::mojom::UninstallSource::kMigration);
-    did_uninstall = true;
+    uninstall_triggered = true;
   }
 
-  return did_uninstall;
+  return uninstall_triggered;
+}
+
+void WebAppUiManagerImpl::OnExtensionSystemReady() {
+  extensions::ExtensionSystem::Get(profile_)
+      ->app_sorting()
+      ->InitializePageOrdinalMapFromWebApps();
+}
+
+void WebAppUiManagerImpl::OnShortcutInfoReceivedSearchShortcutLocations(
+    const AppId& from_app,
+    const AppId& app_id,
+    std::unique_ptr<ShortcutInfo> shortcut_info) {
+  if (!shortcut_info) {
+    // The shortcut info couldn't be found, simply uninstall.
+    auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile_);
+    proxy->UninstallSilently(from_app,
+                             apps::mojom::UninstallSource::kMigration);
+    return;
+  }
+  auto callback =
+      base::BindOnce(&WebAppUiManagerImpl::OnShortcutLocationGathered,
+                     weak_ptr_factory_.GetWeakPtr(), from_app, app_id);
+  os_integration_manager_->GetAppExistingShortCutLocation(
+      std::move(callback), std::move(shortcut_info));
+}
+
+void WebAppUiManagerImpl::OnShortcutLocationGathered(
+    const AppId& from_app,
+    const AppId& app_id,
+    ShortcutLocations locations) {
+  auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile_);
+
+  const bool is_extension = proxy->AppRegistryCache().GetAppType(from_app) ==
+                            apps::mojom::AppType::kExtension;
+  if (is_extension) {
+    WaitForExtensionShortcutsDeleted(
+        from_app,
+        base::BindOnce(&WebAppUiManagerImpl::InstallOsHooksForReplacementApp,
+                       weak_ptr_factory_.GetWeakPtr(), app_id, locations));
+  }
+
+  proxy->UninstallSilently(from_app, apps::mojom::UninstallSource::kMigration);
+
+  if (!is_extension)
+    InstallOsHooksForReplacementApp(app_id, locations);
+}
+
+void WebAppUiManagerImpl::InstallOsHooksForReplacementApp(
+    const AppId& app_id,
+    ShortcutLocations locations) {
+  InstallOsHooksOptions options;
+  options.os_hooks[OsHookType::kShortcuts] =
+      locations.on_desktop || locations.applications_menu_location ||
+      locations.in_quick_launch_bar || locations.in_startup;
+  options.add_to_desktop = locations.on_desktop;
+  options.add_to_quick_launch_bar = locations.in_quick_launch_bar;
+  options.os_hooks[OsHookType::kRunOnOsLogin] = locations.in_startup;
+  os_integration_manager_->InstallOsHooks(app_id, base::DoNothing(), nullptr,
+                                          options);
 }
 
 bool WebAppUiManagerImpl::CanAddAppToQuickLaunchBar() const {
@@ -230,9 +333,9 @@ bool WebAppUiManagerImpl::CanAddAppToQuickLaunchBar() const {
 void WebAppUiManagerImpl::AddAppToQuickLaunchBar(const AppId& app_id) {
   DCHECK(CanAddAppToQuickLaunchBar());
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // ChromeLauncherController does not exist in unit tests.
-  if (auto* controller = ChromeLauncherController::instance()) {
-    controller->PinAppWithID(app_id);
+  // ChromeShelfController does not exist in unit tests.
+  if (auto* controller = ChromeShelfController::instance()) {
+    PinAppWithIDToShelf(app_id);
     controller->UpdateV1AppState(app_id);
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -278,6 +381,36 @@ void WebAppUiManagerImpl::ReparentAppTabToWindow(content::WebContents* contents,
   ReparentWebContentsIntoAppBrowser(contents, app_id);
 }
 
+content::WebContents* WebAppUiManagerImpl::NavigateExistingWindow(
+    const AppId& app_id,
+    const GURL& url) {
+  for (Browser* open_browser : *BrowserList::GetInstance()) {
+    if (web_app::AppBrowserController::IsForWebApp(open_browser, app_id)) {
+      open_browser->OpenURL(content::OpenURLParams(
+          url, content::Referrer(), WindowOpenDisposition::CURRENT_TAB,
+          ui::PAGE_TRANSITION_LINK,
+          /*is_renderer_initiated=*/false));
+      return open_browser->tab_strip_model()->GetActiveWebContents();
+    }
+  }
+  return nullptr;
+}
+
+void WebAppUiManagerImpl::ShowWebAppIdentityUpdateDialog(
+    const std::string& app_id,
+    bool title_change,
+    bool icon_change,
+    const std::u16string& old_title,
+    const std::u16string& new_title,
+    const SkBitmap& old_icon,
+    const SkBitmap& new_icon,
+    content::WebContents* web_contents,
+    web_app::AppIdentityDialogCallback callback) {
+  chrome::ShowWebAppIdentityUpdateDialog(
+      app_id, title_change, icon_change, old_title, new_title, old_icon,
+      new_icon, web_contents, std::move(callback));
+}
+
 void WebAppUiManagerImpl::OnBrowserAdded(Browser* browser) {
   DCHECK(started_);
   if (!IsBrowserForInstalledApp(browser))
@@ -313,8 +446,10 @@ void WebAppUiManagerImpl::OnBrowserRemoved(Browser* browser) {
 #if defined(OS_WIN)
 void WebAppUiManagerImpl::UninstallWebAppFromStartupSwitch(
     const AppId& app_id) {
-  WebAppProvider::Get(profile_)->on_registry_ready().Post(
-      FROM_HERE, base::BindOnce(&UninstallWebAppWithDialog, app_id, profile_));
+  WebAppProvider* provider = WebAppProvider::GetForWebApps(profile_);
+  provider->on_registry_ready().Post(
+      FROM_HERE, base::BindOnce(&UninstallWebAppWithDialogFromStartupSwitch,
+                                app_id, profile_, provider));
 }
 #endif  //  defined(OS_WIN)
 
@@ -325,14 +460,11 @@ bool WebAppUiManagerImpl::IsBrowserForInstalledApp(Browser* browser) {
   if (!browser->app_controller())
     return false;
 
-  if (!browser->app_controller()->HasAppId())
-    return false;
-
   return true;
 }
 
 const AppId WebAppUiManagerImpl::GetAppIdForBrowser(Browser* browser) {
-  return browser->app_controller()->GetAppId();
+  return browser->app_controller()->app_id();
 }
 
 }  // namespace web_app

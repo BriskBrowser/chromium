@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "ash/public/cpp/ash_pref_names.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "base/bind.h"
@@ -15,6 +15,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
+#include "device/bluetooth/chromeos/bluetooth_utils.h"
 
 namespace ash {
 
@@ -175,12 +176,12 @@ void BluetoothPowerController::AdapterPresentChanged(
         base::BindOnce(
             &BluetoothPowerController::TriggerRunPendingBluetoothTasks,
             weak_ptr_factory_.GetWeakPtr()),
-        base::TimeDelta::FromMilliseconds(kBluetoothInitializationDelay));
+        base::Milliseconds(kBluetoothInitializationDelay));
   }
 }
 
 void BluetoothPowerController::ApplyBluetoothPrimaryUserPref() {
-  base::Optional<user_manager::UserType> user_type =
+  absl::optional<user_manager::UserType> user_type =
       Shell::Get()->session_controller()->GetUserType();
   if (!user_type || !ShouldApplyUserBluetoothSetting(*user_type)) {
     // Do not apply bluetooth setting if user is not of the allowed types.
@@ -242,12 +243,21 @@ void BluetoothPowerController::SetBluetoothPowerOnAdapterReady() {
   DCHECK(pending_bluetooth_power_target_.has_value());
   bool enabled = pending_bluetooth_power_target_.value();
   pending_bluetooth_power_target_.reset();
-  // Always run the next pending task after SetPowered completes regardless
-  // the error.
-  auto run_next_task = base::BindRepeating(
-      &BluetoothPowerController::RunNextPendingBluetoothTask,
-      weak_ptr_factory_.GetWeakPtr());
-  bluetooth_adapter_->SetPowered(enabled, run_next_task, run_next_task);
+
+  device::PoweredStateOperation power_operation =
+      enabled ? device::PoweredStateOperation::kEnable
+              : device::PoweredStateOperation::kDisable;
+
+  bluetooth_adapter_->SetPowered(
+      enabled,
+      base::BindOnce(&BluetoothPowerController::OnSetBluetoothPower,
+                     weak_ptr_factory_.GetWeakPtr(), power_operation,
+                     /*success=*/true),
+      base::BindOnce(&BluetoothPowerController::OnSetBluetoothPower,
+                     weak_ptr_factory_.GetWeakPtr(), power_operation,
+                     /*success=*/false));
+
+  device::RecordPoweredState(enabled);
 }
 
 void BluetoothPowerController::RunBluetoothTaskWhenAdapterReady(
@@ -294,8 +304,15 @@ bool BluetoothPowerController::ShouldApplyUserBluetoothSetting(
     user_manager::UserType user_type) const {
   return user_type == user_manager::USER_TYPE_REGULAR ||
          user_type == user_manager::USER_TYPE_CHILD ||
-         user_type == user_manager::USER_TYPE_SUPERVISED_DEPRECATED ||
          user_type == user_manager::USER_TYPE_ACTIVE_DIRECTORY;
 }
 
+void BluetoothPowerController::OnSetBluetoothPower(
+    device::PoweredStateOperation power_operation,
+    bool success) {
+  device::RecordPoweredStateOperationResult(power_operation, success);
+  // Always run the next pending task after SetPowered completes regardless
+  // of whether there was an error.
+  RunNextPendingBluetoothTask();
+}
 }  // namespace ash

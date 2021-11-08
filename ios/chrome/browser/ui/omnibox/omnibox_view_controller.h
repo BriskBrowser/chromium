@@ -24,6 +24,15 @@ class OmniboxTextChangeDelegate;
 // means that the active keyboard has changed.
 - (void)omniboxViewControllerTextInputModeDidChange:
     (OmniboxViewController*)omniboxViewController;
+
+// Called after the user uses the "Visit copied link" context menu entry.
+- (void)omniboxViewControllerUserDidVisitCopiedLink:
+    (OmniboxViewController*)omniboxViewController;
+
+// Starts a reverse image search for the image currently in the pasteboard.
+- (void)omniboxViewControllerSearchCopiedImage:
+    (OmniboxViewController*)omniboxViewController;
+
 @end
 
 @interface OmniboxViewController : UIViewController<EditViewAnimatee,

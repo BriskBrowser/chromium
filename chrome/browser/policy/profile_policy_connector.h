@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -57,8 +58,6 @@ class ProfilePolicyConnector final {
 
   void InitForTesting(std::unique_ptr<PolicyService> service);
   void OverrideIsManagedForTesting(bool is_managed);
-  void SetPlatformPolicyProviderForTesting(
-      ConfigurationPolicyProvider* platform_policy_provider_for_testing);
 
   void Shutdown();
 
@@ -68,7 +67,6 @@ class ProfilePolicyConnector final {
   // Returns true if this Profile is under any kind of policy management. You
   // must call this method only when the policies system is fully initialized.
   bool IsManaged() const;
-
 
   // Returns true if the |policy_key| user policy is currently set via the
   // |configuration_policy_provider_| and isn't being overridden by a
@@ -81,6 +79,10 @@ class ProfilePolicyConnector final {
   void TriggerProxiedPoliciesWaitTimeoutForTesting();
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
+  // Returns affiliation IDs contained in the PolicyData corresponding to the
+  // profile.
+  base::flat_set<std::string> user_affiliation_ids() const;
+
  private:
   // Returns the policy store which is actually used.
   const CloudPolicyStore* GetActualPolicyStore() const;
@@ -91,11 +93,9 @@ class ProfilePolicyConnector final {
   const ConfigurationPolicyProvider* DeterminePolicyProviderForPolicy(
       const char* policy_key) const;
 
-  // Returns the platform policy provider, which will be used as the highest
-  // priority policy provider in PolicyService created by this
-  // ProfilePolicyConnector.
-  ConfigurationPolicyProvider* GetPlatformProvider(
-      policy::ChromeBrowserPolicyConnector* browser_policy_connector);
+  void AppendPolicyProviderWithSchemaTracking(
+      ConfigurationPolicyProvider* policy_provider,
+      SchemaRegistry* schema_registry);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // On Chrome OS, primary Profile user policies are forwarded to the
@@ -142,17 +142,15 @@ class ProfilePolicyConnector final {
   // until the policies have been reflected in the device-wide PolicyService.
   std::unique_ptr<internal::ProxiedPoliciesPropagatedWatcher>
       proxied_policies_propagated_watcher_;
-
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-  std::unique_ptr<ConfigurationPolicyProvider>
-      wrapped_platform_policy_provider_;
+  // Wrap policy provider with SchemaRegistryTrackingPolicyProvider to track
+  // extensions' policy schema update.
+  std::vector<std::unique_ptr<ConfigurationPolicyProvider>>
+      wrapped_policy_providers_;
+
   const ConfigurationPolicyProvider* configuration_policy_provider_ = nullptr;
   const CloudPolicyStore* policy_store_ = nullptr;
-
-  // If this is not nullptr, this provider will be used as (highest priority)
-  // platform policy provider.
-  ConfigurationPolicyProvider* platform_policy_provider_for_testing_ = nullptr;
 
   // |policy_providers_| contains a list of the policy providers available for
   // the PolicyService of this connector, in decreasing order of priority.
@@ -166,6 +164,16 @@ class ProfilePolicyConnector final {
 
   std::unique_ptr<PolicyService> policy_service_;
   std::unique_ptr<bool> is_managed_override_;
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Returns |true| when this is the main profile.
+  bool IsMainProfile() const;
+
+  // The |browser_policy_connector_| is owned by the |BrowserProcess| whereas
+  // the |ProfilePolicyConnector| is owned by the Profile - which gets deleted
+  // first - so the lifetime of the pointer is guaranteed.
+  ChromeBrowserPolicyConnector* browser_policy_connector_ = nullptr;
+#endif
 };
 
 }  // namespace policy

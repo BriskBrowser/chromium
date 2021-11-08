@@ -5,8 +5,6 @@
 #ifndef ANDROID_WEBVIEW_BROWSER_AW_SETTINGS_H_
 #define ANDROID_WEBVIEW_BROWSER_AW_SETTINGS_H_
 
-#include <memory>
-
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -103,7 +101,6 @@ class AwSettings : public content::WebContentsObserver {
   bool javascript_can_open_windows_automatically_;
   bool allow_third_party_cookies_;
   bool allow_file_access_;
-  bool is_dark_mode_;
 
   JavaObjectWeakGlobalRef aw_settings_;
 };

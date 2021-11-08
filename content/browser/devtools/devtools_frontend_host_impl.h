@@ -20,19 +20,21 @@ class DevToolsFrontendHostImpl : public DevToolsFrontendHost,
   DevToolsFrontendHostImpl(
       RenderFrameHost* frame_host,
       const HandleMessageCallback& handle_message_callback);
+
+  DevToolsFrontendHostImpl(const DevToolsFrontendHostImpl&) = delete;
+  DevToolsFrontendHostImpl& operator=(const DevToolsFrontendHostImpl&) = delete;
+
   ~DevToolsFrontendHostImpl() override;
 
   void BadMessageReceived() override;
 
  private:
   // blink::mojom::DevToolsFrontendHost implementation.
-  void DispatchEmbedderMessage(const std::string& message) override;
+  void DispatchEmbedderMessage(base::Value message) override;
 
   WebContents* web_contents_;
   HandleMessageCallback handle_message_callback_;
   mojo::AssociatedReceiver<blink::mojom::DevToolsFrontendHost> receiver_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsFrontendHostImpl);
 };
 
 }  // namespace content

@@ -10,6 +10,8 @@
 #include <string>
 #include <utility>
 
+#include "ash/components/settings/timezone_settings.h"
+#include "ash/components/timezone/timezone_request.h"
 #include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
@@ -21,16 +23,13 @@
 #include "base/synchronization/lock.h"
 #include "base/values.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/ash/system/timezone_resolver_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/settings/timezone_settings.h"
-#include "chromeos/timezone/timezone_request.h"
 #include "chromeos/tpm/install_attributes.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
@@ -54,7 +53,7 @@ base::LazyInstance<base::Lock>::Leaky g_timezone_bundle_lock =
     LAZY_INSTANCE_INITIALIZER;
 
 // Returns an exemplary city in the given timezone.
-base::string16 GetExemplarCity(const icu::TimeZone& zone) {
+std::u16string GetExemplarCity(const icu::TimeZone& zone) {
   // These will be leaked at the end.
   static UResourceBundle* zone_bundle = nullptr;
   static UResourceBundle* zone_strings = nullptr;
@@ -104,7 +103,7 @@ base::string16 GetExemplarCity(const icu::TimeZone& zone) {
 }
 
 // Gets the given timezone's name for visualization.
-base::string16 GetTimezoneName(const icu::TimeZone& timezone) {
+std::u16string GetTimezoneName(const icu::TimeZone& timezone) {
   // Instead of using the raw_offset, use the offset in effect now.
   // For instance, US Pacific Time, the offset shown will be -7 in summer
   // while it'll be -8 in winter.
@@ -142,7 +141,7 @@ base::string16 GetTimezoneName(const icu::TimeZone& timezone) {
   } else {
     timezone.getDisplayName(dst_offset != 0, icu::TimeZone::LONG, name);
   }
-  base::string16 result(l10n_util::GetStringFUTF16(
+  std::u16string result(l10n_util::GetStringFUTF16(
       IDS_OPTIONS_SETTINGS_TIMEZONE_DISPLAY_TEMPLATE,
       base::ASCIIToUTF16(offset_str), base::i18n::UnicodeStringToString16(name),
       GetExemplarCity(timezone)));
@@ -170,7 +169,6 @@ bool CanSetSystemTimezone(const user_manager::User* user) {
 
   switch (user->GetType()) {
     case user_manager::USER_TYPE_REGULAR:
-    case user_manager::USER_TYPE_SUPERVISED_DEPRECATED:
     case user_manager::USER_TYPE_KIOSK_APP:
     case user_manager::USER_TYPE_ARC_KIOSK_APP:
     case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
@@ -198,7 +196,7 @@ bool CanSetSystemTimezone(const user_manager::User* user) {
 namespace ash {
 namespace system {
 
-base::string16 GetCurrentTimezoneName() {
+std::u16string GetCurrentTimezoneName() {
   return GetTimezoneName(TimezoneSettings::GetInstance()->GetTimezone());
 }
 
@@ -208,8 +206,8 @@ std::unique_ptr<base::ListValue> GetTimezoneList() {
   auto timezone_list = std::make_unique<base::ListValue>();
   for (const auto& timezone : timezones) {
     auto option = std::make_unique<base::ListValue>();
-    option->AppendString(TimezoneSettings::GetTimezoneID(*timezone));
-    option->AppendString(GetTimezoneName(*timezone));
+    option->Append(TimezoneSettings::GetTimezoneID(*timezone));
+    option->Append(GetTimezoneName(*timezone));
     timezone_list->Append(std::move(option));
   }
   return timezone_list;

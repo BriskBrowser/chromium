@@ -8,9 +8,9 @@
 #include <utility>
 #include <vector>
 
+#include "ash/app_list/app_list_test_view_delegate.h"
 #include "ash/app_list/model/app_list_model.h"
-#include "ash/app_list/test/app_list_test_view_delegate.h"
-#include "ash/app_list/test/test_search_result.h"
+#include "ash/app_list/model/search/test_search_result.h"
 #include "ash/app_list/views/app_list_main_view.h"
 #include "ash/app_list/views/app_list_view.h"
 #include "ash/app_list/views/contents_view.h"
@@ -18,6 +18,7 @@
 #include "ash/app_list/views/search_result_tile_item_list_view.h"
 #include "ash/app_list/views/search_result_view.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/test/test_app_list_color_provider.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -30,6 +31,10 @@ namespace test {
 class SearchResultPageViewTest : public views::ViewsTestBase {
  public:
   SearchResultPageViewTest() = default;
+
+  SearchResultPageViewTest(const SearchResultPageViewTest&) = delete;
+  SearchResultPageViewTest& operator=(const SearchResultPageViewTest&) = delete;
+
   ~SearchResultPageViewTest() override = default;
 
   // Overridden from testing::Test:
@@ -44,10 +49,11 @@ class SearchResultPageViewTest : public views::ViewsTestBase {
 
     ContentsView* contents_view =
         app_list_view_->app_list_main_view()->contents_view();
-    view_ = contents_view->search_results_page_view();
-    tile_list_view_ =
-        contents_view->search_result_tile_item_list_view_for_test();
-    list_view_ = contents_view->search_result_list_view_for_test();
+    view_ = contents_view->search_result_page_view();
+    tile_list_view_ = contents_view->search_result_page_view()
+                          ->GetSearchResultTileItemListViewForTest();
+    list_view_ = contents_view->search_result_page_view()
+                     ->GetSearchResultListViewForTest();
   }
   void TearDown() override {
     app_list_view_->GetWidget()->Close();
@@ -63,18 +69,17 @@ class SearchResultPageViewTest : public views::ViewsTestBase {
   SearchResultListView* list_view() const { return list_view_; }
 
   SearchModel::SearchResults* GetResults() const {
-    return delegate_->GetSearchModel()->results();
+    return AppListModelProvider::Get()->search_model()->results();
   }
 
  private:
+  TestAppListColorProvider color_provider_;  // Needed by AppListView.
   AppListView* app_list_view_ = nullptr;  // Owned by native widget.
   SearchResultPageView* view_ = nullptr;  // Owned by views hierarchy.
   SearchResultTileItemListView* tile_list_view_ =
       nullptr;                                 // Owned by views hierarchy.
   SearchResultListView* list_view_ = nullptr;  // Owned by views hierarchy.
   std::unique_ptr<AppListTestViewDelegate> delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(SearchResultPageViewTest);
 };
 
 TEST_F(SearchResultPageViewTest, ResultsSorted) {
@@ -102,8 +107,13 @@ TEST_F(SearchResultPageViewTest, ResultsSorted) {
   // Adding results will schedule Update().
   RunPendingMessages();
 
-  EXPECT_EQ(tile_list_view(), view()->result_container_views()[0]);
-  EXPECT_EQ(list_view(), view()->result_container_views()[1]);
+  ASSERT_GE(view()->result_container_views().size(), 3u);
+  // Privacy container is hidden.
+  EXPECT_FALSE(view()->result_container_views()[0]->GetVisible());
+  EXPECT_TRUE(tile_list_view()->GetVisible());
+  EXPECT_EQ(tile_list_view(), view()->result_container_views()[1]);
+  EXPECT_TRUE(list_view()->GetVisible());
+  EXPECT_EQ(list_view(), view()->result_container_views()[2]);
 
   // Change the relevance of the tile result to be lower than list results. The
   // tile container should still be displayed first.
@@ -112,15 +122,19 @@ TEST_F(SearchResultPageViewTest, ResultsSorted) {
   results->NotifyItemsChanged(0, 1);
   RunPendingMessages();
 
-  EXPECT_EQ(tile_list_view(), view()->result_container_views()[0]);
-  EXPECT_EQ(list_view(), view()->result_container_views()[1]);
+  // Privacy container is hidden.
+  EXPECT_FALSE(view()->result_container_views()[0]->GetVisible());
+  EXPECT_EQ(tile_list_view(), view()->result_container_views()[1]);
+  EXPECT_TRUE(tile_list_view()->GetVisible());
+  EXPECT_EQ(list_view(), view()->result_container_views()[2]);
+  EXPECT_TRUE(list_view()->GetVisible());
 }
 
-TEST_F(SearchResultPageViewTest, TileResultsSortedBeforeEmptyListResults) {
+TEST_F(SearchResultPageViewTest, EmptyResultListNotVisible) {
   SearchModel::SearchResults* results = GetResults();
 
   // Add a tile result with 0 score and leave the list results empty - list
-  // result container should be sorted after tile results.
+  // result container should be hidden.
   auto tile_result = std::make_unique<TestSearchResult>();
   tile_result->set_display_type(ash::SearchResultDisplayType::kTile);
   tile_result->set_display_score(0.0);
@@ -129,14 +143,15 @@ TEST_F(SearchResultPageViewTest, TileResultsSortedBeforeEmptyListResults) {
   // Adding results will schedule Update().
   RunPendingMessages();
 
-  EXPECT_EQ(tile_list_view(), view()->result_container_views()[0]);
+  EXPECT_TRUE(tile_list_view()->GetVisible());
+  EXPECT_FALSE(list_view()->GetVisible());
 }
 
-TEST_F(SearchResultPageViewTest, ListResultsSortedBeforeEmptyTileResults) {
+TEST_F(SearchResultPageViewTest, EmptyTileItemListResultsContainerHidden) {
   SearchModel::SearchResults* results = GetResults();
 
-  // Add a list result with 0 score and leave the tile results empty - list
-  // result container should be sorted before tile results.
+  // Add a list result with 0 score and leave the tile results empty - the tile
+  // item list container should be hidden.
   auto list_result = std::make_unique<TestSearchResult>();
   list_result->set_display_type(ash::SearchResultDisplayType::kList);
   list_result->set_display_score(0.0);
@@ -145,7 +160,8 @@ TEST_F(SearchResultPageViewTest, ListResultsSortedBeforeEmptyTileResults) {
   // Adding results will schedule Update().
   RunPendingMessages();
 
-  EXPECT_EQ(list_view(), view()->result_container_views()[0]);
+  EXPECT_TRUE(list_view()->GetVisible());
+  EXPECT_FALSE(tile_list_view()->GetVisible());
 }
 
 }  // namespace test

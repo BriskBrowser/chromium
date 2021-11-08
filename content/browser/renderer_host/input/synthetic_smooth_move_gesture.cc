@@ -66,14 +66,14 @@ SyntheticGesture::Result SyntheticSmoothMoveGesture::ForwardInputEvents(
   switch (params_.input_type) {
     case SyntheticSmoothMoveGestureParams::TOUCH_INPUT:
       if (!synthetic_pointer_driver_)
-        synthetic_pointer_driver_ =
-            SyntheticPointerDriver::Create(SyntheticGestureParams::TOUCH_INPUT);
+        synthetic_pointer_driver_ = SyntheticPointerDriver::Create(
+            content::mojom::GestureSourceType::kTouchInput);
       ForwardTouchInputEvents(timestamp, target);
       break;
     case SyntheticSmoothMoveGestureParams::MOUSE_DRAG_INPUT:
       if (!synthetic_pointer_driver_)
-        synthetic_pointer_driver_ =
-            SyntheticPointerDriver::Create(SyntheticGestureParams::MOUSE_INPUT);
+        synthetic_pointer_driver_ = SyntheticPointerDriver::Create(
+            content::mojom::GestureSourceType::kMouseInput);
       ForwardMouseClickInputEvents(timestamp, target);
       break;
     case SyntheticSmoothMoveGestureParams::MOUSE_WHEEL_INPUT:
@@ -356,9 +356,8 @@ void SyntheticSmoothMoveGesture::ComputeNextMoveSegment() {
                params_.speed_in_pixels_s));
     DCHECK_GT(total_duration_in_us, 0);
     current_move_segment_start_time_ = current_move_segment_stop_time_;
-    current_move_segment_stop_time_ =
-        current_move_segment_start_time_ +
-        base::TimeDelta::FromMicroseconds(total_duration_in_us);
+    current_move_segment_stop_time_ = current_move_segment_start_time_ +
+                                      base::Microseconds(total_duration_in_us);
   }
 }
 

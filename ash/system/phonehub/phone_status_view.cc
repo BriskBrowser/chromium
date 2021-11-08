@@ -4,6 +4,8 @@
 
 #include "ash/system/phonehub/phone_status_view.h"
 
+#include <string>
+
 #include "ash/public/cpp/network_icon_image_source.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -12,20 +14,21 @@
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/phonehub/phone_hub_tray.h"
 #include "ash/system/phonehub/phone_hub_view_ids.h"
-#include "ash/system/power/battery_image_source.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_popup_utils.h"
+#include "base/bind.h"
 #include "base/i18n/number_formatting.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/text_elider.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/separator.h"
@@ -70,42 +73,10 @@ int GetSignalStrengthAsInt(PhoneStatusModel::SignalStrength signal_strength) {
   }
 }
 
-// ImageSource for the battery icon.
-class PhoneHubBatteryImageSource : public BatteryImageSource {
- public:
-  PhoneHubBatteryImageSource(const PowerStatus::BatteryImageInfo& info,
-                             int height,
-                             SkColor bg_color,
-                             SkColor fg_color,
-                             bool in_battery_saver_mode)
-      : BatteryImageSource(info, height, bg_color, fg_color),
-        bg_color_(bg_color),
-        in_battery_saver_mode_(in_battery_saver_mode) {}
-
-  ~PhoneHubBatteryImageSource() override = default;
-
-  // BatteryImageSource:
-  void Draw(gfx::Canvas* canvas) override {
-    BatteryImageSource::Draw(canvas);
-
-    if (!in_battery_saver_mode_)
-      return;
-
-    SkColor saver_color = AshColorProvider::Get()->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kIconColorWarning);
-
-    gfx::ImageSkia icon = CreateVectorIcon(kBatteryIcon, saver_color);
-    // Draw the solid outline of the battery icon.
-    canvas->DrawImageInt(icon, 0, 0);
-
-    PaintVectorIcon(canvas, kPhoneHubBatterySaverOutlineIcon, bg_color_);
-    PaintVectorIcon(canvas, kPhoneHubBatterySaverIcon, saver_color);
-  }
-
- private:
-  const SkColor bg_color_;
-  bool in_battery_saver_mode_ = false;
-};
+bool IsBatterySaverModeOn(const PhoneStatusModel& phone_status) {
+  return phone_status.battery_saver_state() ==
+         PhoneStatusModel::BatterySaverState::kOn;
+}
 
 }  // namespace
 
@@ -187,7 +158,7 @@ void PhoneStatusView::OnModelChanged() {
 void PhoneStatusView::Update() {
   // Set phone name text and elide it if needed.
   phone_name_label_->SetText(
-      gfx::ElideText(phone_model_->phone_name().value_or(base::string16()),
+      gfx::ElideText(phone_model_->phone_name().value_or(std::u16string()),
                      phone_name_label_->font_list(), kPhoneNameLabelWidthMax,
                      gfx::ELIDE_TAIL));
 
@@ -212,7 +183,7 @@ void PhoneStatusView::UpdateMobileStatus() {
       AshColorProvider::ContentLayerType::kIconColorPrimary);
 
   gfx::ImageSkia signal_image;
-  base::string16 tooltip_text;
+  std::u16string tooltip_text;
   switch (phone_status.mobile_status()) {
     case PhoneStatusModel::MobileStatus::kNoSim:
       signal_image = CreateVectorIcon(kPhoneHubMobileNoSimIcon, primary_color);
@@ -258,16 +229,12 @@ void PhoneStatusView::UpdateBatteryStatus() {
       ShelfConfig::Get()->GetShelfControlButtonColor(),
       AshColorProvider::Get()->GetBackgroundColor());
   const SkColor icon_fg_color = AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kIconColorPrimary);
+      IsBatterySaverModeOn(phone_status)
+          ? AshColorProvider::ContentLayerType::kIconColorWarning
+          : AshColorProvider::ContentLayerType::kIconColorPrimary);
 
-  bool in_battery_saver_mode = phone_status.battery_saver_state() ==
-                               PhoneStatusModel::BatterySaverState::kOn;
-
-  auto* source = new PhoneHubBatteryImageSource(info, kStatusIconSize.height(),
-                                                icon_bg_color, icon_fg_color,
-                                                in_battery_saver_mode);
-  battery_icon_->SetImage(
-      gfx::ImageSkia(base::WrapUnique(source), source->size()));
+  battery_icon_->SetImage(PowerStatus::GetBatteryImage(
+      info, kUnifiedTrayBatteryIconSize, icon_bg_color, icon_fg_color));
   SetBatteryTooltipText();
   battery_label_->SetText(
       base::FormatPercent(phone_status.battery_percentage()));
@@ -283,6 +250,12 @@ PowerStatus::BatteryImageInfo PhoneStatusView::CalculateBatteryInfo() {
       phone_model_->phone_status_model().value();
 
   info.charge_percent = phone_status.battery_percentage();
+
+  if (IsBatterySaverModeOn(phone_status)) {
+    info.icon_badge = &kPhoneHubBatterySaverIcon;
+    info.badge_outline = &kPhoneHubBatterySaverOutlineIcon;
+    return info;
+  }
 
   switch (phone_status.charging_state()) {
     case PhoneStatusModel::ChargingState::kNotCharging:
@@ -321,12 +294,12 @@ void PhoneStatusView::SetBatteryTooltipText() {
       charging_tooltip_id = IDS_ASH_PHONE_HUB_BATTERY_STATUS_CHARGING_USB;
       break;
   }
-  base::string16 charging_tooltip =
+  std::u16string charging_tooltip =
       l10n_util::GetStringUTF16(charging_tooltip_id);
 
   bool battery_saver_on = phone_status.battery_saver_state() ==
                           PhoneStatusModel::BatterySaverState::kOn;
-  base::string16 batter_saver_tooltip =
+  std::u16string batter_saver_tooltip =
       battery_saver_on
           ? l10n_util::GetStringUTF16(IDS_ASH_PHONE_HUB_BATTERY_SAVER_ON)
           : l10n_util::GetStringUTF16(IDS_ASH_PHONE_HUB_BATTERY_SAVER_OFF);
@@ -342,7 +315,7 @@ void PhoneStatusView::ClearExistingStatus() {
 
   // Clear battery status.
   battery_icon_->SetImage(gfx::ImageSkia());
-  battery_label_->SetText(base::string16());
+  battery_label_->SetText(std::u16string());
 }
 
 void PhoneStatusView::ConfigureTriViewContainer(TriView::Container container) {

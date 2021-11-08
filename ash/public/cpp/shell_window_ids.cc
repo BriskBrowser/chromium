@@ -6,7 +6,6 @@
 
 #include <array>
 
-#include "ash/public/cpp/ash_features.h"
 #include "base/containers/contains.h"
 
 namespace ash {
@@ -33,12 +32,13 @@ constexpr std::array<int, 11> kPreDesksActivatableContainersIds = {
 
 // List of IDs of the containers whose windows are actiavated *after* windows in
 // the desks containers.
-constexpr std::array<int, 4> kPostDesksActivatableContainersIds = {
+constexpr std::array<int, 5> kPostDesksActivatableContainersIds = {
     kShellWindowId_HomeScreenContainer,
 
     // Launcher and status are intentionally checked after other containers
     // even though these layers are higher. The user expects their windows
     // to be focused before these elements.
+    kShellWindowId_FloatContainer,
     kShellWindowId_PipContainer,
     kShellWindowId_ShelfContainer,
     kShellWindowId_ShelfBubbleContainer,
@@ -56,12 +56,10 @@ std::vector<int> GetActivatableShellWindowIds() {
   ids.emplace_back(kShellWindowId_DeskContainerB);
   ids.emplace_back(kShellWindowId_DeskContainerC);
   ids.emplace_back(kShellWindowId_DeskContainerD);
-  if (features::IsBentoEnabled()) {
-    ids.emplace_back(kShellWindowId_DeskContainerE);
-    ids.emplace_back(kShellWindowId_DeskContainerF);
-    ids.emplace_back(kShellWindowId_DeskContainerG);
-    ids.emplace_back(kShellWindowId_DeskContainerH);
-  }
+  ids.emplace_back(kShellWindowId_DeskContainerE);
+  ids.emplace_back(kShellWindowId_DeskContainerF);
+  ids.emplace_back(kShellWindowId_DeskContainerG);
+  ids.emplace_back(kShellWindowId_DeskContainerH);
 
   ids.insert(ids.end(), kPostDesksActivatableContainersIds.begin(),
              kPostDesksActivatableContainersIds.end());

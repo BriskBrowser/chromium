@@ -33,6 +33,9 @@ class SaveCardBubbleViews : public AutofillBubbleBase,
                       content::WebContents* web_contents,
                       SaveCardBubbleController* controller);
 
+  SaveCardBubbleViews(const SaveCardBubbleViews&) = delete;
+  SaveCardBubbleViews& operator=(const SaveCardBubbleViews&) = delete;
+
   void Show(DisplayReason reason);
 
   // AutofillBubbleBase:
@@ -40,7 +43,7 @@ class SaveCardBubbleViews : public AutofillBubbleBase,
 
   // LocationBarBubbleDelegateView:
   void AddedToWidget() override;
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   void WindowClosing() override;
   void OnWidgetClosing(views::Widget* widget) override;
 
@@ -48,7 +51,7 @@ class SaveCardBubbleViews : public AutofillBubbleBase,
   // Exists for testing (specifically, browsertests).
   views::View* GetFootnoteViewForTesting();
 
-  const base::string16 GetCardIdentifierString() const;
+  const std::u16string GetCardIdentifierString() const;
 
  protected:
   // Create the dialog's content view containing everything except for the
@@ -80,8 +83,6 @@ class SaveCardBubbleViews : public AutofillBubbleBase,
 
   PaymentsBubbleClosedReason closed_reason_ =
       PaymentsBubbleClosedReason::kUnknown;
-
-  DISALLOW_COPY_AND_ASSIGN(SaveCardBubbleViews);
 };
 
 }  // namespace autofill

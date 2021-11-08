@@ -25,12 +25,15 @@
 
 #include "third_party/blink/renderer/modules/webaudio/media_element_audio_source_node.h"
 
+#include <memory>
+
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_element_audio_source_options.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_context.h"
+#include "third_party/blink/renderer/modules/webaudio/audio_graph_tracer.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node_output.h"
 #include "third_party/blink/renderer/platform/audio/audio_utilities.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -48,12 +51,16 @@ class MediaElementAudioSourceHandlerLocker final {
       : lockable_(lockable) {
     lockable_.lock();
   }
+
+  MediaElementAudioSourceHandlerLocker(
+      const MediaElementAudioSourceHandlerLocker&) = delete;
+  MediaElementAudioSourceHandlerLocker& operator=(
+      const MediaElementAudioSourceHandlerLocker&) = delete;
+
   ~MediaElementAudioSourceHandlerLocker() { lockable_.unlock(); }
 
  private:
   MediaElementAudioSourceHandler& lockable_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaElementAudioSourceHandlerLocker);
 };
 
 MediaElementAudioSourceHandler::MediaElementAudioSourceHandler(
@@ -139,12 +146,12 @@ void MediaElementAudioSourceHandler::SetFormat(uint32_t number_of_channels,
 
     if (source_sample_rate != Context()->sampleRate()) {
       double scale_factor = source_sample_rate / Context()->sampleRate();
-      multi_channel_resampler_.reset(new MediaMultiChannelResampler(
+      multi_channel_resampler_ = std::make_unique<MediaMultiChannelResampler>(
           number_of_channels, scale_factor,
-          audio_utilities::kRenderQuantumFrames,
+          GetDeferredTaskHandler().RenderQuantumFrames(),
           CrossThreadBindRepeating(
               &MediaElementAudioSourceHandler::ProvideResamplerInput,
-              CrossThreadUnretained(this))));
+              CrossThreadUnretained(this)));
     } else {
       // Bypass resampling.
       multi_channel_resampler_.reset();
@@ -183,7 +190,8 @@ void MediaElementAudioSourceHandler::ProvideResamplerInput(
   DCHECK(Context()->IsAudioThread());
   DCHECK(MediaElement());
   DCHECK(dest);
-  MediaElement()->GetAudioSourceProvider().ProvideInput(dest, dest->length());
+  MediaElement()->GetAudioSourceProvider().ProvideInput(
+      dest, base::checked_cast<int>(dest->length()));
 }
 
 void MediaElementAudioSourceHandler::Process(uint32_t number_of_frames) {
@@ -211,14 +219,15 @@ void MediaElementAudioSourceHandler::Process(uint32_t number_of_frames) {
     AudioSourceProvider& provider = MediaElement()->GetAudioSourceProvider();
     // Grab data from the provider so that the element continues to make
     // progress, even if we're going to output silence anyway.
+    const int frames_int = base::checked_cast<int>(number_of_frames);
     if (multi_channel_resampler_.get()) {
       DCHECK_NE(source_sample_rate_, Context()->sampleRate());
-      multi_channel_resampler_->Resample(number_of_frames, output_bus);
+      multi_channel_resampler_->Resample(frames_int, output_bus);
     } else {
       // Bypass the resampler completely if the source is at the context's
       // sample-rate.
       DCHECK_EQ(source_sample_rate_, Context()->sampleRate());
-      provider.ProvideInput(output_bus, number_of_frames);
+      provider.ProvideInput(output_bus, frames_int);
     }
     // Output silence if we don't have access to the element.
     if (is_origin_tainted_) {
@@ -238,7 +247,7 @@ void MediaElementAudioSourceHandler::unlock() {
   process_lock_.unlock();
 }
 
-// ----------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 MediaElementAudioSourceNode::MediaElementAudioSourceNode(
     AudioContext& context,
@@ -286,12 +295,6 @@ MediaElementAudioSourceNode* MediaElementAudioSourceNode::Create(
   return Create(*context, *options->mediaElement(), exception_state);
 }
 
-void MediaElementAudioSourceNode::Trace(Visitor* visitor) const {
-  visitor->Trace(media_element_);
-  AudioSourceProviderClient::Trace(visitor);
-  AudioNode::Trace(visitor);
-}
-
 MediaElementAudioSourceHandler&
 MediaElementAudioSourceNode::GetMediaElementAudioSourceHandler() const {
   return static_cast<MediaElementAudioSourceHandler&>(Handler());
@@ -321,6 +324,17 @@ void MediaElementAudioSourceNode::ReportDidCreate() {
 
 void MediaElementAudioSourceNode::ReportWillBeDestroyed() {
   GraphTracer().WillDestroyAudioNode(this);
+}
+
+bool MediaElementAudioSourceNode::HasPendingActivity() const {
+  // The node stays alive as long as the context is running.
+  return context()->ContextState() == BaseAudioContext::kRunning;
+}
+
+void MediaElementAudioSourceNode::Trace(Visitor* visitor) const {
+  visitor->Trace(media_element_);
+  AudioSourceProviderClient::Trace(visitor);
+  AudioNode::Trace(visitor);
 }
 
 }  // namespace blink

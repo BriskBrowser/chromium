@@ -113,6 +113,10 @@ class DisplayConfigurator::DisplayLayoutManagerImpl
     : public DisplayLayoutManager {
  public:
   explicit DisplayLayoutManagerImpl(DisplayConfigurator* configurator);
+
+  DisplayLayoutManagerImpl(const DisplayLayoutManagerImpl&) = delete;
+  DisplayLayoutManagerImpl& operator=(const DisplayLayoutManagerImpl&) = delete;
+
   ~DisplayLayoutManagerImpl() override;
 
   // DisplayLayoutManager:
@@ -159,8 +163,6 @@ class DisplayConfigurator::DisplayLayoutManagerImpl
                                    bool preserve_native_aspect_ratio) const;
 
   DisplayConfigurator* configurator_;  // Not owned.
-
-  DISALLOW_COPY_AND_ASSIGN(DisplayLayoutManagerImpl);
 };
 
 DisplayConfigurator::DisplayLayoutManagerImpl::DisplayLayoutManagerImpl(
@@ -201,10 +203,9 @@ DisplayConfigurator::DisplayLayoutManagerImpl::ParseDisplays(
     cached_displays.push_back(display_state);
   }
 
-  // TODO(crbug.com/1161556): Hardware mirroring is now disabled by deafult.
-  // This is the first step towards permanently disabling HW mirroring. The use
-  // of a feature flag will be removed once we verify no regressions occur due
-  // to disabling HW mirroring.
+  // Hardware mirroring is now disabled by default until it is decided whether
+  // to permanently remove hardware mirroring support. See crbug.com/1161556 for
+  // details.
   if (!features::IsHardwareMirrorModeEnabled())
     return cached_displays;
 
@@ -878,9 +879,8 @@ void DisplayConfigurator::OnConfigurationChanged() {
 
   // Configure displays with |kConfigureDelayMs| delay,
   // so that time-consuming ConfigureDisplays() won't be called multiple times.
-  configure_timer_.Start(FROM_HERE,
-                         base::TimeDelta::FromMilliseconds(kConfigureDelayMs),
-                         this, &DisplayConfigurator::ConfigureDisplays);
+  configure_timer_.Start(FROM_HERE, base::Milliseconds(kConfigureDelayMs), this,
+                         &DisplayConfigurator::ConfigureDisplays);
 }
 
 void DisplayConfigurator::OnDisplaySnapshotsInvalidated() {
@@ -931,8 +931,7 @@ void DisplayConfigurator::ResumeDisplays() {
     // before configuration is performed, so we won't immediately resize the
     // desktops and the windows on it to fit on a single display.
     configure_timer_.Start(
-        FROM_HERE,
-        base::TimeDelta::FromMilliseconds(kResumeConfigureMultiDisplayDelayMs),
+        FROM_HERE, base::Milliseconds(kResumeConfigureMultiDisplayDelayMs),
         this, &DisplayConfigurator::ConfigureDisplays);
   }
 
@@ -1011,8 +1010,7 @@ void DisplayConfigurator::OnConfigured(
 
   if (success && !configure_timer_.IsRunning() &&
       ShouldRunConfigurationTask()) {
-    configure_timer_.Start(FROM_HERE,
-                           base::TimeDelta::FromMilliseconds(kConfigureDelayMs),
+    configure_timer_.Start(FROM_HERE, base::Milliseconds(kConfigureDelayMs),
                            this, &DisplayConfigurator::RunPendingConfiguration);
   } else {
     // If a new configuration task isn't scheduled respond to all queued

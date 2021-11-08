@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
@@ -37,6 +38,7 @@ OutputStream::OutputStream(
         observer,
     mojo::PendingRemote<media::mojom::AudioLog> log,
     media::AudioManager* audio_manager,
+    OutputStreamActivityMonitor* activity_monitor,
     const std::string& output_device_id,
     const media::AudioParameters& params,
     LoopbackCoordinator* coordinator,
@@ -53,7 +55,12 @@ OutputStream::OutputStream(
                    : base::DoNothing(),
               params,
               &foreign_socket_),
-      controller_(audio_manager, this, params, output_device_id, &reader_),
+      controller_(audio_manager,
+                  this,
+                  activity_monitor,
+                  params,
+                  output_device_id,
+                  &reader_),
       loopback_group_id_(loopback_group_id) {
   DCHECK(receiver_.is_bound());
   DCHECK(created_callback);
@@ -147,7 +154,7 @@ void OutputStream::SetVolume(double volume) {
                                       volume);
 
   if (volume < 0 || volume > 1) {
-    mojo::ReportBadMessage("Invalid volume");
+    receiver_.ReportBadMessage("Invalid volume");
     OnControllerError();
     return;
   }
@@ -190,11 +197,9 @@ void OutputStream::OnControllerPlaying() {
   if (OutputController::will_monitor_audio_levels()) {
     DCHECK(!poll_timer_.IsRunning());
     // base::Unretained is safe because |this| owns |poll_timer_|.
-    poll_timer_.Start(
-        FROM_HERE,
-        base::TimeDelta::FromSeconds(1) / kPowerMeasurementsPerSecond,
-        base::BindRepeating(&OutputStream::PollAudioLevel,
-                            base::Unretained(this)));
+    poll_timer_.Start(FROM_HERE, base::Seconds(1) / kPowerMeasurementsPerSecond,
+                      base::BindRepeating(&OutputStream::PollAudioLevel,
+                                          base::Unretained(this)));
     return;
   }
 
@@ -245,7 +250,7 @@ void OutputStream::OnControllerError() {
 void OutputStream::OnLog(base::StringPiece message) {
   // No sequence check: |log_| is thread-safe.
   if (log_) {
-    log_->OnLogMessage(base::StringPrintf("%s", message.as_string().c_str()));
+    log_->OnLogMessage(base::StringPrintf("%s", std::string(message).c_str()));
   }
 }
 
@@ -299,7 +304,10 @@ void OutputStream::SendLogMessage(const char* format, ...) {
     return;
   va_list args;
   va_start(args, format);
-  log_->OnLogMessage("audio::OS::" + base::StringPrintV(format, args));
+  log_->OnLogMessage(
+      "audio::OS::" + base::StringPrintV(format, args) +
+      base::StringPrintf(" [controller=0x%" PRIXPTR "]",
+                         reinterpret_cast<uintptr_t>(&controller_)));
   va_end(args);
 }
 

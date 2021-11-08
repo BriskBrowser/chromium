@@ -18,7 +18,12 @@ namespace {
 
 class DiagnosticsProviderTest : public testing::Test {
  public:
-  DiagnosticsProviderTest() = default;
+  DiagnosticsProviderTest() {
+    identity_test_env()->WaitForRefreshTokensLoaded();
+  }
+
+  DiagnosticsProviderTest(const DiagnosticsProviderTest&) = delete;
+  DiagnosticsProviderTest& operator=(const DiagnosticsProviderTest&) = delete;
 
   signin::IdentityTestEnvironment* identity_test_env() {
     return &identity_test_env_;
@@ -33,8 +38,6 @@ class DiagnosticsProviderTest : public testing::Test {
 
  private:
   signin::IdentityTestEnvironment identity_test_env_;
-
-  DISALLOW_COPY_AND_ASSIGN(DiagnosticsProviderTest);
 };
 
 }  // namespace

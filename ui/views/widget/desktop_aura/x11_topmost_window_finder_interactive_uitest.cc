@@ -29,11 +29,7 @@
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
 #include "ui/views/widget/widget.h"
-
-#if defined(USE_OZONE)
-#include "ui/base/ui_base_features.h"
 #include "ui/ozone/public/ozone_platform.h"
-#endif
 
 namespace views {
 
@@ -44,6 +40,9 @@ class MinimizeWaiter : public ui::X11PropertyChangeWaiter {
  public:
   explicit MinimizeWaiter(x11::Window window)
       : ui::X11PropertyChangeWaiter(window, "_NET_WM_STATE") {}
+
+  MinimizeWaiter(const MinimizeWaiter&) = delete;
+  MinimizeWaiter& operator=(const MinimizeWaiter&) = delete;
 
   ~MinimizeWaiter() override = default;
 
@@ -57,44 +56,6 @@ class MinimizeWaiter : public ui::X11PropertyChangeWaiter {
     }
     return true;
   }
-
-  DISALLOW_COPY_AND_ASSIGN(MinimizeWaiter);
-};
-
-// Waits till |_NET_CLIENT_LIST_STACKING| is updated to include
-// |expected_windows|.
-class StackingClientListWaiter : public ui::X11PropertyChangeWaiter {
- public:
-  StackingClientListWaiter(x11::Window* expected_windows, size_t count)
-      : ui::X11PropertyChangeWaiter(ui::GetX11RootWindow(),
-                                    "_NET_CLIENT_LIST_STACKING"),
-        expected_windows_(expected_windows, expected_windows + count) {}
-
-  ~StackingClientListWaiter() override = default;
-
-  // X11PropertyChangeWaiter:
-  void Wait() override {
-    // StackingClientListWaiter may be created after
-    // _NET_CLIENT_LIST_STACKING already contains |expected_windows|.
-    if (!ShouldKeepOnWaiting())
-      return;
-
-    ui::X11PropertyChangeWaiter::Wait();
-  }
-
- private:
-  // ui::X11PropertyChangeWaiter:
-  bool ShouldKeepOnWaiting() override {
-    std::vector<x11::Window> stack;
-    ui::GetXWindowStack(ui::GetX11RootWindow(), &stack);
-    return !std::all_of(
-        expected_windows_.cbegin(), expected_windows_.cend(),
-        [&stack](x11::Window window) { return base::Contains(stack, window); });
-  }
-
-  std::vector<x11::Window> expected_windows_;
-
-  DISALLOW_COPY_AND_ASSIGN(StackingClientListWaiter);
 };
 
 void IconifyWindow(x11::Connection* connection, x11::Window window) {
@@ -108,20 +69,23 @@ void IconifyWindow(x11::Connection* connection, x11::Window window) {
 class X11TopmostWindowFinderTest : public test::DesktopWidgetTestInteractive {
  public:
   X11TopmostWindowFinderTest() = default;
+
+  X11TopmostWindowFinderTest(const X11TopmostWindowFinderTest&) = delete;
+  X11TopmostWindowFinderTest& operator=(const X11TopmostWindowFinderTest&) =
+      delete;
+
   ~X11TopmostWindowFinderTest() override = default;
 
   // DesktopWidgetTestInteractive
   void SetUp() override {
-#if defined(USE_OZONE)
-    // Run tests only for X11 (ozone or not Ozone).
-    if (features::IsUsingOzonePlatform() &&
-        ui::OzonePlatform::GetPlatformNameForTest() != "x11") {
+    // Run tests only for X11.
+    if (ui::OzonePlatform::GetPlatformNameForTest() != "x11") {
       // SetUp still is required to be run. Otherwise, ViewsTestBase CHECKs in
       // the dtor.
       DesktopWidgetTestInteractive::SetUp();
       GTEST_SKIP();
     }
-#endif
+
     // Make X11 synchronous for our display connection. This does not force the
     // window manager to behave synchronously.
     connection()->SynchronizeForTest(true);
@@ -158,6 +122,10 @@ class X11TopmostWindowFinderTest : public test::DesktopWidgetTestInteractive {
         .width = 1,
         .height = 1,
     });
+
+    // This is necessary because X11TopmostWindowFinder skips over unnamed
+    // windows.
+    SetStringProperty(window, x11::Atom::WM_NAME, x11::Atom::STRING, "");
 
     ui::SetUseOSWindowFrame(window, false);
     ShowAndSetXWindowBounds(window, bounds);
@@ -215,9 +183,6 @@ class X11TopmostWindowFinderTest : public test::DesktopWidgetTestInteractive {
                      widget)
                : nullptr;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(X11TopmostWindowFinderTest);
 };
 
 TEST_F(X11TopmostWindowFinderTest, Basic) {
@@ -238,9 +203,6 @@ TEST_F(X11TopmostWindowFinderTest, Basic) {
   x11::Window x11_window3 =
       static_cast<x11::Window>(window3->GetHost()->GetAcceleratedWidget());
 
-  x11::Window windows[] = {x11_window1, x11_window2, x11_window3};
-  StackingClientListWaiter waiter(windows, base::size(windows));
-  waiter.Wait();
   connection()->DispatchAll();
 
   EXPECT_EQ(x11_window1, FindTopmostXWindowAt(150, 150));
@@ -282,9 +244,6 @@ TEST_F(X11TopmostWindowFinderTest, Minimized) {
       static_cast<x11::Window>(window1->GetHost()->GetAcceleratedWidget());
   x11::Window x11_window2 = CreateAndShowXWindow(gfx::Rect(300, 100, 100, 100));
 
-  x11::Window windows[] = {x11_window1, x11_window2};
-  StackingClientListWaiter stack_waiter(windows, base::size(windows));
-  stack_waiter.Wait();
   connection()->DispatchAll();
 
   EXPECT_EQ(x11_window1, FindTopmostXWindowAt(150, 150));
@@ -336,9 +295,6 @@ TEST_F(X11TopmostWindowFinderTest, NonRectangular) {
       .destination_window = window2,
       .rectangles = *region2,
   });
-  x11::Window windows[] = {window1, window2};
-  StackingClientListWaiter stack_waiter(windows, base::size(windows));
-  stack_waiter.Wait();
   connection()->DispatchAll();
 
   EXPECT_EQ(window1, FindTopmostXWindowAt(105, 120));
@@ -368,9 +324,6 @@ TEST_F(X11TopmostWindowFinderTest, NonRectangularEmptyShape) {
   // Widget takes ownership of |shape1|.
   widget1->SetShape(std::move(shape1));
 
-  x11::Window windows[] = {window1};
-  StackingClientListWaiter stack_waiter(windows, base::size(windows));
-  stack_waiter.Wait();
   connection()->DispatchAll();
 
   EXPECT_NE(window1, FindTopmostXWindowAt(105, 105));
@@ -398,9 +351,6 @@ TEST_F(X11TopmostWindowFinderTest, MAYBE_NonRectangularNullShape) {
   // Remove the shape - this is now just a normal window.
   widget1->SetShape(nullptr);
 
-  x11::Window windows[] = {window1};
-  StackingClientListWaiter stack_waiter(windows, base::size(windows));
-  stack_waiter.Wait();
   connection()->DispatchAll();
 
   EXPECT_EQ(window1, FindTopmostXWindowAt(105, 105));
@@ -430,11 +380,6 @@ TEST_F(X11TopmostWindowFinderTest, DISABLED_Menu) {
   ui::SetUseOSWindowFrame(menu_window, false);
   ShowAndSetXWindowBounds(menu_window, gfx::Rect(140, 110, 100, 100));
   connection()->DispatchAll();
-
-  // |menu_window| is never added to _NET_CLIENT_LIST_STACKING.
-  x11::Window windows[] = {window};
-  StackingClientListWaiter stack_waiter(windows, base::size(windows));
-  stack_waiter.Wait();
 
   EXPECT_EQ(window, FindTopmostXWindowAt(110, 110));
   EXPECT_EQ(menu_window, FindTopmostXWindowAt(150, 120));

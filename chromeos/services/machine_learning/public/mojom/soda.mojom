@@ -11,14 +11,33 @@
 // Example: A backwards-compatible mojom change (and corresponding
 // implementation change) can be made in Chrome OS first, then replicated to the
 // clients (Chromium, other downstream repos) later.
-// Use //chromeos/services/machine_learning/public/mojom/roll_mojom.sh to help
+// Use //chromeos/services/machine_learning/public/mojom/roll_mojoms.sh to help
 // replicate Chrome OS-side changes over to Chromium.
-
+// Versions list:
+// Version 0: Initial
+// Version 1: Include HypothesisPart Info in Final result.
+// Version 2: Include enable formatting in request config.
+// Version 3: Include recognition mode in request config.
 module chromeos.machine_learning.mojom;
 
 import "mojo/public/mojom/base/time.mojom";
 
+// Augments a bool to include an 'unknown' value.
+[Stable, Extensible]
+enum OptionalBool {
+  [Default] kUnknown = 0,
+  kFalse,
+  kTrue,
+};
+
+[Stable, Extensible]
+enum SodaRecognitionMode {
+  [Default] kCaption,
+  kIme,
+};
+
 // The configuration used to load Soda recognizer.
+[Stable]
 struct SodaConfig {
   // Number of channels of the audio that will be sent to Soda recognizer.
   uint32 channel_count;
@@ -30,9 +49,15 @@ struct SodaConfig {
   string library_dlc_path;
   // Path to already-installed SODA language pack to use.
   string language_dlc_path;
+  // Whether to enable automated punctuation. Defaults to true as this
+  // is the default in the underlying protocol buffer.
+  [MinVersion=2] OptionalBool enable_formatting = kTrue;
+  // Which mode to execute in: IME or CAPTION. Default CAPTION.
+  [MinVersion=3] SodaRecognitionMode recognition_mode = kCaption;
 };
 
 // From the endpointer, What kind of endpointer event to record.
+[Stable, Extensible]
 enum EndpointerType {
   // Speech detected.
   START_OF_SPEECH,
@@ -45,6 +70,7 @@ enum EndpointerType {
 };
 
 // Common information about the timing of reported SODA events.
+[Stable]
 struct TimingInfo {
   // Epoch time of the first audio buffer of the main query that is fed into
   // ASR. This is the wall time read from the system clock when the first audio
@@ -74,6 +100,7 @@ struct TimingInfo {
 };
 
 // Start/end events.
+[Stable]
 struct EndpointerEvent {
   EndpointerType endpointer_type;
   TimingInfo? timing_event;
@@ -81,6 +108,7 @@ struct EndpointerEvent {
 
 // A result _during_ a recognition. Could change at any time with the
 // next partial or the final recognition for this chunk.
+[Stable]
 struct PartialResult {
   // Most likely hypothesis so far. First is the most likely, followed by others.
   // Note: the relationship from first to other hypothess is not guaranteed in
@@ -89,6 +117,7 @@ struct PartialResult {
   TimingInfo? timing_event;
 };
 
+[Stable, Extensible]
 enum EndpointReason {
   // Default value, unknown reason.
   ENDPOINT_UNKNOWN,
@@ -101,14 +130,35 @@ enum EndpointReason {
   ENDPOINT_END_OF_AUDIO,
 };
 
+
+// Detail about a part of a hypothesis in a result. Only makes sense
+// in context of an array of them for a hypothesis.
+[Stable]
+struct HypothesisPartInResult {
+  // Typically 1 item for a a word/piece of text. If formatting is
+  // enabled, the raw text is the second item.
+  array<string> text;
+
+  // Offset from the beginning of this part of the hypothesis from
+  // audio_start_time in TimingInfo.
+  mojo_base.mojom.TimeDelta alignment;
+};
+
+[Stable]
 struct FinalResult {
   // Sorted in decreasing order of probability.
   array<string> final_hypotheses;
   EndpointReason endpoint_reason;
   TimingInfo? timing_event;
+
+  // If populated, this array contains the hypothesis parts for the
+  // first final hypothesis in the array of final_hypotheses.
+  [MinVersion=1] array<HypothesisPartInResult>? hypothesis_part;
 };
 
-// Frequent event from recognizer, almost from every frame. Gives an indication of speechiness and audio level.
+// Frequent event from recognizer, almost from every frame. Gives an indication
+// of speechiness and audio level.
+[Stable]
 struct AudioLevelEvent {
   // RMS audio level, from PowerEvaluator . Score is [0, 1)
   float rms;
@@ -118,6 +168,7 @@ struct AudioLevelEvent {
 
 // This essentially mirrors the subset of SODA's SodaEvent proto we will
 // support.
+[Stable]
 union SpeechRecognizerEvent {
   AudioLevelEvent audio_event;
   PartialResult partial_result;
@@ -128,18 +179,22 @@ union SpeechRecognizerEvent {
 // This interface is called upon by the SodaRecognizer. Implemented by
 // the client, SODA then calls these as 'events' with appropriate details
 // when recognition occurs.
+// Next ordinal: 3
+[Stable]
 interface SodaClient {
-  // After SODA successfully starts / stops, in case the client
+  // After SODA successfully starts / warms up / stops, in case the client
   // cares:
-  OnStart();
-  OnStop();
+  OnStart@0();
+  OnStop@1();
 
   // This is how the client receives actual recognized text as well as other
   // conclusions from the SODA model like "speech ended".
-  OnSpeechRecognizerEvent(SpeechRecognizerEvent event);
+  OnSpeechRecognizerEvent@2(SpeechRecognizerEvent event);
 };
 
 // The mojom interface for performing the recognition of handwritten text.
+// Next ordinal: 4
+[Stable]
 interface SodaRecognizer {
   // Add Audio for speech recognition.
   AddAudio@0(array<uint8> audio);

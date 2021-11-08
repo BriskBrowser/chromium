@@ -2,38 +2,58 @@
      Use of this source code is governed by a BSD-style license that can be
      found in the LICENSE file. -->
 
-<link rel="import" href="chrome://resources/cr_elements/shared_style_css.html">
+<link rel="import" href="chrome://resources/html/polymer.html">
 
-<link rel="import" href="chrome://resources/html/i18n_behavior.html">
-
-<link rel="import" href="chrome://resources/html/assert.html">
-<link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/cr_components/chromeos/quick_unlock/setup_pin_keyboard.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_input/cr_input.html">
+<link rel="import" href="chrome://resources/cr_elements/shared_style_css.html">
+<link rel="import" href="chrome://resources/html/assert.html">
+<link rel="import" href="chrome://resources/html/i18n_behavior.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 
-<link rel="import" href="/components/common_styles.html">
-<link rel="import" href="/components/hd_iron_icon.html">
-<link rel="import" href="/components/oobe_adaptive_dialog.html">
-<link rel="import" href="/components/oobe_dialog_host_behavior.html">
+<link rel="import" href="/components/oobe_icons.html">
+<link rel="import" href="/components/behaviors/login_screen_behavior.html">
+<link rel="import" href="/components/behaviors/multi_step_behavior.html">
+<link rel="import" href="/components/behaviors/oobe_dialog_host_behavior.html">
+<link rel="import" href="/components/buttons/oobe_back_button.html">
+<link rel="import" href="/components/buttons/oobe_next_button.html">
+<link rel="import" href="/components/buttons/oobe_text_button.html">
+<link rel="import" href="/components/common_styles/common_styles.html">
+<link rel="import" href="/components/common_styles/oobe_dialog_host_styles.html">
+<link rel="import" href="/components/dialogs/oobe_adaptive_dialog.html">
 
 <dom-module id="pin-setup-element">
   <template>
-    <style include="cr-shared-style oobe-dialog-host">
+    <style include="cr-shared-style oobe-dialog-host-styles">
       setup-pin-keyboard {
-        margin-top: 17px;
+        margin-top: 37px;
       }
     </style>
     <oobe-adaptive-dialog id="setup" role="dialog" for-step="start,confirm">
-      <hd-iron-icon slot="icon" icon1x="oobe-32:lock" icon2x="oobe-64:lock">
-      </hd-iron-icon>
+      <iron-icon slot="icon" icon="oobe-32:lock"></iron-icon>
       <h1 slot="title" for-step="start">
-        [[i18nDynamic(locale, 'discoverPinSetupTitle1')]]
+        <div hidden="[[isChildAccount_]]">
+          [[i18nDynamic(locale, 'discoverPinSetupTitle1')]]
+        </div>
+        <div hidden="[[!isChildAccount_]]">
+          [[i18nDynamic(locale, 'discoverPinSetupTitle1ForChild')]]
+        </div>
       </h1>
       <h1 slot="title" for-step="confirm">
-        [[i18nDynamic(locale, 'discoverPinSetupTitle2')]]
+        <div hidden="[[isChildAccount_]]">
+          [[i18nDynamic(locale, 'discoverPinSetupTitle2')]]
+        </div>
+        <div hidden="[[!isChildAccount_]]">
+          [[i18nDynamic(locale, 'discoverPinSetupTitle2ForChild')]]
+        </div>
       </h1>
       <div slot="subtitle" for-step="start">
-        [[i18nDynamic(locale, 'discoverPinSetupSubtitle1')]]
+        <div hidden="[[isChildAccount_]]">
+          [[i18nDynamic(locale, 'discoverPinSetupSubtitle1')]]
+        </div>
+        <div hidden="[[!isChildAccount_]]">
+          [[i18nDynamic(locale, 'discoverPinSetupSubtitle1ForChild')]]
+        </div>
       </div>
       <div slot="content" class="flex-grow layout vertical center
           center-justified">
@@ -67,24 +87,36 @@
     </oobe-adaptive-dialog>
     <oobe-adaptive-dialog id="setup" role="dialog" for-step="done"
         footer-shrinkable>
-      <hd-iron-icon slot="icon" icon1x="oobe-32:lock" icon2x="oobe-64:lock">
-      </hd-iron-icon>
-      <h1 slot="title">
+      <iron-icon slot="icon" icon="oobe-32:lock"></iron-icon>
+      <h1 slot="title" hidden="[[isChildAccount_]]">
         [[i18nDynamic(locale, 'discoverPinSetupTitle3')]]
+      </h1>
+      <h1 slot="title" hidden="[[!isChildAccount_]]">
+        [[i18nDynamic(locale, 'discoverPinSetupTitle3ForChild')]]
       </h1>
       <div slot="subtitle">
         <div hidden="[[hasLoginSupport_]]">
-          [[i18nDynamic(locale, 'discoverPinSetupSubtitle3NoLogin')]]
+          <div hidden="[[isChildAccount_]]">
+            [[i18nDynamic(locale, 'discoverPinSetupSubtitle3NoLogin')]]
+          </div>
+          <div hidden="[[!isChildAccount_]]">
+            [[i18nDynamic(locale, 'discoverPinSetupSubtitle3NoLoginForChild')]]
+          </div>
         </div>
         <div hidden="[[!hasLoginSupport_]]">
-          [[i18nDynamic(locale, 'discoverPinSetupSubtitle3WithLogin')]]
+          <div hidden="[[isChildAccount_]]">
+            [[i18nDynamic(locale, 'discoverPinSetupSubtitle3WithLogin')]]
+          </div>
+          <div hidden="[[!isChildAccount_]]">
+            [[i18nDynamic(locale,
+                'discoverPinSetupSubtitle3WithLoginForChild')]]
+          </div>
         </div>
       </div>
       <div slot="content" class="flex layout vertical center
           center-justified">
         <img id="done-illustration" class="oobe-illustration"
-            srcset="images/pin_illustration_1x.svg 1x,
-                    images/pin_illustration_2x.svg 2x">
+            src="images/pin_illustration.svg">
       </div>
       <div slot="bottom-buttons">
         <oobe-text-button id="doneButton" inverse on-click="onDoneButton_"

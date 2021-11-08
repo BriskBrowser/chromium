@@ -53,7 +53,7 @@ PayloadTracker::PayloadTracker(
 PayloadTracker::~PayloadTracker() = default;
 
 void PayloadTracker::OnStatusUpdate(PayloadTransferUpdatePtr update,
-                                    base::Optional<Medium> upgraded_medium) {
+                                    absl::optional<Medium> upgraded_medium) {
   auto it = payload_state_.find(update->payload_id);
   if (it == payload_state_.end())
     return;
@@ -190,6 +190,8 @@ void PayloadTracker::EmitFinalMetrics(
   DCHECK_NE(status,
             location::nearby::connections::mojom::PayloadStatus::kInProgress);
   RecordNearbySharePayloadFinalStatusMetric(status, last_upgraded_medium_);
+  RecordNearbySharePayloadMediumMetric(
+      last_upgraded_medium_, share_target_.type, GetTotalTransferred());
   RecordNearbySharePayloadSizeMetric(share_target_.is_incoming,
                                      share_target_.type, last_upgraded_medium_,
                                      status, total_transfer_size_);
@@ -205,5 +207,15 @@ void PayloadTracker::EmitFinalMetrics(
         share_target_.is_incoming, share_target_.type, last_upgraded_medium_,
         status, transferred_bytes_with_offset,
         base::TimeTicks::Now() - *first_update_timestamp_);
+  }
+
+  for (const auto& file_attachment : share_target_.file_attachments) {
+    RecordNearbySharePayloadFileAttachmentTypeMetric(
+        file_attachment.type(), share_target_.is_incoming, status);
+  }
+
+  for (const auto& text_attachment : share_target_.text_attachments) {
+    RecordNearbySharePayloadTextAttachmentTypeMetric(
+        text_attachment.type(), share_target_.is_incoming, status);
   }
 }

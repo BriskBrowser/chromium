@@ -6,9 +6,10 @@
 
 #include <stdint.h>
 
+#include <string>
+
 #include "base/metrics/metrics_hashes.h"
 #include "base/notreached.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
@@ -64,9 +65,9 @@ void ExpectUkmValueCount(ukm::TestUkmRecorder* test_ukm_recorder,
     if (expected_count) {
       test_ukm_recorder->ExpectEntryMetric(entry, metric_name, value);
     } else {
-      const int64_t* value =
+      const int64_t* count =
           test_ukm_recorder->GetEntryMetric(entry, metric_name);
-      EXPECT_TRUE(value == nullptr || *value != expected_count);
+      EXPECT_TRUE(count == nullptr || *count != expected_count);
     }
   }
 }
@@ -629,7 +630,7 @@ struct FillingAssistanceTestCase {
   std::vector<std::string> saved_passwords;
   std::vector<InteractionsStats> interactions_stats;
 
-  base::Optional<PasswordFormMetricsRecorder::FillingAssistance> expectation;
+  absl::optional<PasswordFormMetricsRecorder::FillingAssistance> expectation;
 };
 
 FormData ConvertToFormData(const std::vector<TestCaseFieldInfo>& fields) {
@@ -656,11 +657,11 @@ FormData ConvertToFormData(const std::vector<TestCaseFieldInfo>& fields) {
   return form;
 }
 
-std::set<std::pair<base::string16, PasswordForm::Store>>
+std::set<std::pair<std::u16string, PasswordForm::Store>>
 ConvertToString16AndStoreSet(
     const std::vector<std::string>& profile_store_values,
     const std::vector<std::string>& account_store_values) {
-  std::set<std::pair<base::string16, PasswordForm::Store>> result;
+  std::set<std::pair<std::u16string, PasswordForm::Store>> result;
   for (const std::string& str : profile_store_values)
     result.emplace(ASCIIToUTF16(str), PasswordForm::Store::kProfileStore);
   for (const std::string& str : account_store_values)
@@ -735,10 +736,10 @@ void CheckFillingAssistanceTestCase(
 
     // Note: Don't bother with the profile store vs. account store distinction
     // here; there are separate tests that cover the filling source.
-    std::set<std::pair<base::string16, PasswordForm::Store>> saved_usernames =
+    std::set<std::pair<std::u16string, PasswordForm::Store>> saved_usernames =
         ConvertToString16AndStoreSet(test_case.saved_usernames,
                                      /*account_store_values=*/{});
-    std::set<std::pair<base::string16, PasswordForm::Store>> saved_passwords =
+    std::set<std::pair<std::u16string, PasswordForm::Store>> saved_passwords =
         ConvertToString16AndStoreSet(test_case.saved_passwords,
                                      /*account_store_values=*/{});
 
@@ -1082,7 +1083,7 @@ TEST(PasswordFormMetricsRecorder, FillingAssistanceBlocklistedBySmartBubble) {
                   {.value = "password1", .is_password = true}},
        .saved_usernames = {},
        .saved_passwords = {},
-       .interactions_stats = {{.username_value = ASCIIToUTF16("user1"),
+       .interactions_stats = {{.username_value = u"user1",
                                .dismissal_count = 10}},
        .expectation = PasswordFormMetricsRecorder::FillingAssistance::
            kNoSavedCredentialsAndBlocklistedBySmartBubble});
@@ -1124,7 +1125,7 @@ struct FillingSourceTestCase {
   std::vector<std::string> saved_account_usernames;
   std::vector<std::string> saved_account_passwords;
 
-  base::Optional<PasswordFormMetricsRecorder::FillingSource> expectation;
+  absl::optional<PasswordFormMetricsRecorder::FillingSource> expectation;
 };
 
 void CheckFillingSourceTestCase(const FillingSourceTestCase& test_case) {
@@ -1135,10 +1136,10 @@ void CheckFillingSourceTestCase(const FillingSourceTestCase& test_case) {
 
   FormData form_data = ConvertToFormData(test_case.fields);
 
-  std::set<std::pair<base::string16, PasswordForm::Store>> saved_usernames =
+  std::set<std::pair<std::u16string, PasswordForm::Store>> saved_usernames =
       ConvertToString16AndStoreSet(test_case.saved_profile_usernames,
                                    test_case.saved_account_usernames);
-  std::set<std::pair<base::string16, PasswordForm::Store>> saved_passwords =
+  std::set<std::pair<std::u16string, PasswordForm::Store>> saved_passwords =
       ConvertToString16AndStoreSet(test_case.saved_profile_passwords,
                                    test_case.saved_account_passwords);
 
@@ -1246,9 +1247,9 @@ TEST(PasswordFormMetricsRecorder, StoresUsedForFillingInLast7And28Days) {
   sync_preferences::TestingPrefServiceSyncable pref_service;
   PasswordManager::RegisterProfilePrefs(pref_service.registry());
 
-  std::set<std::pair<base::string16, PasswordForm::Store>> saved_usernames =
+  std::set<std::pair<std::u16string, PasswordForm::Store>> saved_usernames =
       ConvertToString16AndStoreSet({"profileuser"}, {"accountuser"});
-  std::set<std::pair<base::string16, PasswordForm::Store>> saved_passwords =
+  std::set<std::pair<std::u16string, PasswordForm::Store>> saved_passwords =
       ConvertToString16AndStoreSet({"profilepass"}, {"accountpass"});
 
   // Phase 1: The user manually enters a credential that's not stored.
@@ -1379,9 +1380,9 @@ TEST(PasswordFormMetricsRecorder, StoresUsedForFillingInLast7And28DaysExpiry) {
   base::SimpleTestClock clock;
   clock.SetNow(base::Time::Now());
 
-  std::set<std::pair<base::string16, PasswordForm::Store>> saved_usernames =
+  std::set<std::pair<std::u16string, PasswordForm::Store>> saved_usernames =
       ConvertToString16AndStoreSet({"profileuser"}, {"accountuser"});
-  std::set<std::pair<base::string16, PasswordForm::Store>> saved_passwords =
+  std::set<std::pair<std::u16string, PasswordForm::Store>> saved_passwords =
       ConvertToString16AndStoreSet({"profilepass"}, {"accountpass"});
 
   // Day 0: A credential from the profile store is filled.
@@ -1415,7 +1416,7 @@ TEST(PasswordFormMetricsRecorder, StoresUsedForFillingInLast7And28DaysExpiry) {
         PasswordFormMetricsRecorder::FillingSource::kFilledFromProfileStore, 1);
   }
 
-  clock.Advance(base::TimeDelta::FromDays(2));
+  clock.Advance(base::Days(2));
 
   // Day 2: A credential from the account store is filled.
   {
@@ -1450,7 +1451,7 @@ TEST(PasswordFormMetricsRecorder, StoresUsedForFillingInLast7And28DaysExpiry) {
         PasswordFormMetricsRecorder::FillingSource::kFilledFromBothStores, 1);
   }
 
-  clock.Advance(base::TimeDelta::FromDays(6));
+  clock.Advance(base::Days(6));
 
   // Day 8: A credential from the account store is filled (again).
   {
@@ -1485,7 +1486,7 @@ TEST(PasswordFormMetricsRecorder, StoresUsedForFillingInLast7And28DaysExpiry) {
         PasswordFormMetricsRecorder::FillingSource::kFilledFromBothStores, 1);
   }
 
-  clock.Advance(base::TimeDelta::FromDays(27));
+  clock.Advance(base::Days(27));
 
   // Day 35: The user manually enters a credential that's not stored.
   {
@@ -1519,7 +1520,7 @@ TEST(PasswordFormMetricsRecorder, StoresUsedForFillingInLast7And28DaysExpiry) {
         PasswordFormMetricsRecorder::FillingSource::kFilledFromAccountStore, 1);
   }
 
-  clock.Advance(base::TimeDelta::FromDays(2));
+  clock.Advance(base::Days(2));
 
   // Day 37: The user again manually enters a credential that's not stored.
   {

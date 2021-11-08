@@ -20,10 +20,10 @@
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/sequence_checker.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -35,6 +35,7 @@
 #include "base/test/test_timeouts.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/tracing/common/tracing_switches.h"
 #include "content/common/url_schemes.h"
 #include "content/public/app/content_main.h"
 #include "content/public/app/content_main_delegate.h"
@@ -43,6 +44,7 @@
 #include "content/public/common/sandbox_init.h"
 #include "gpu/config/gpu_switches.h"
 #include "net/base/escape.h"
+#include "services/tracing/public/cpp/perfetto/perfetto_traced_process.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/buildflags.h"
 #include "ui/base/ui_base_features.h"
@@ -57,6 +59,9 @@
 #include "sandbox/policy/win/sandbox_win.h"
 #include "sandbox/win/src/sandbox_factory.h"
 #include "sandbox/win/src/sandbox_types.h"
+
+// To avoid conflicts with the macro from the Windows SDK...
+#undef GetCommandLine
 #elif defined(OS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "sandbox/mac/seatbelt_exec.h"
@@ -135,6 +140,10 @@ class WrapperTestLauncherDelegate : public base::TestLauncherDelegate {
         switches::kRunManualTestsFlag);
   }
 
+  WrapperTestLauncherDelegate(const WrapperTestLauncherDelegate&) = delete;
+  WrapperTestLauncherDelegate& operator=(const WrapperTestLauncherDelegate&) =
+      delete;
+
   // base::TestLauncherDelegate:
   bool GetTests(std::vector<base::TestIdentifier>* output) override;
 
@@ -164,8 +173,6 @@ class WrapperTestLauncherDelegate : public base::TestLauncherDelegate {
   content::TestLauncherDelegate* launcher_delegate_;
 
   bool run_manual_tests_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(WrapperTestLauncherDelegate);
 };
 
 bool WrapperTestLauncherDelegate::GetTests(
@@ -212,6 +219,25 @@ base::CommandLine WrapperTestLauncherDelegate::GetCommandLine(
   *output_file = output_file->AppendASCII("test_results.xml");
 
   new_cmd_line.AppendSwitchPath(switches::kTestLauncherOutput, *output_file);
+
+  // Selecting sample tests to enable switches::kEnableTracing.
+  if (switches.find(switches::kEnableTracingFraction) != switches.end()) {
+    double enable_tracing_fraction = 0;
+    if (!base::StringToDouble(switches[switches::kEnableTracingFraction],
+                              &enable_tracing_fraction) ||
+        enable_tracing_fraction > 1 || enable_tracing_fraction <= 0) {
+      LOG(ERROR) << switches::kEnableTracingFraction
+                 << " should have range (0,1].";
+    } else {
+      // Assuming the hash of all tests are uniformly distributed across the
+      // domain of the hash result.
+      if (base::PersistentHash(test_name) <=
+          UINT32_MAX * enable_tracing_fraction) {
+        new_cmd_line.AppendSwitch(switches::kEnableTracing);
+      }
+    }
+    switches.erase(switches::kEnableTracingFraction);
+  }
 
   for (base::CommandLine::SwitchMap::const_iterator iter = switches.begin();
        iter != switches.end(); ++iter) {
@@ -339,6 +365,12 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
   params.argc = argc;
   params.argv = const_cast<const char**>(argv);
 #endif  // defined(OS_WIN)
+
+  // Disable system tracing for browser tests by default. This prevents breakage
+  // of tests that spin the run loop until idle on platforms with system tracing
+  // (e.g. Chrome OS). Browser tests exercising this feature re-enable it with a
+  // custom system tracing service.
+  tracing::PerfettoTracedProcess::SetSystemProducerEnabledForTesting(false);
 
 #if !defined(OS_ANDROID)
   // This needs to be before trying to run tests as otherwise utility processes

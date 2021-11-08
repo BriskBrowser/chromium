@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// TODO(crbug.com/1179821): Migrate to JS module Mojo bindings.
+import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
+import 'chrome://resources/mojo/url/mojom/url.mojom-lite.js';
 import './chrome_cart.mojom-lite.js';
-
-import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
 
 /**
  * @fileoverview This file provides a class that exposes the Mojo handler
@@ -12,11 +13,20 @@ import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
  * browser and receiving the browser response.
  */
 
-export class ChromeCartProxy {
-  constructor() {
-    /** @type {!chromeCart.mojom.CartHandlerRemote} */
-    this.handler = chromeCart.mojom.CartHandler.getRemote();
-  }
-}
+/** @type {?chromeCart.mojom.CartHandlerRemote} */
+let handler = null;
 
-addSingletonGetter(ChromeCartProxy);
+export class ChromeCartProxy {
+  /** @return {!chromeCart.mojom.CartHandlerRemote} */
+  static getHandler() {
+    return handler || (handler = chromeCart.mojom.CartHandler.getRemote());
+  }
+
+  /** @param {!chromeCart.mojom.CartHandlerRemote} newHandler */
+  static setHandler(newHandler) {
+    handler = newHandler;
+  }
+
+  /** @private */
+  constructor() {}
+}

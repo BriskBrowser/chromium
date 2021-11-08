@@ -23,15 +23,18 @@
 #include "ash/assistant/assistant_view_delegate_impl.h"
 #include "ash/assistant/assistant_web_ui_controller.h"
 #include "ash/assistant/ui/assistant_view_delegate.h"
+#include "ash/components/audio/cras_audio_handler.h"
 #include "ash/public/cpp/assistant/assistant_interface_binder.h"
 #include "ash/public/cpp/assistant/controller/assistant_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_controller_observer.h"
 #include "ash/public/cpp/image_downloader.h"
+#include "ash/public/cpp/style/color_mode_observer.h"
 #include "ash/public/mojom/assistant_volume_control.mojom.h"
+#include "ash/style/ash_color_provider.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "chromeos/audio/cras_audio_handler.h"
+#include "base/scoped_observation.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "components/prefs/pref_service.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -50,11 +53,16 @@ class ASH_EXPORT AssistantControllerImpl
       public AssistantControllerObserver,
       public AssistantStateObserver,
       public mojom::AssistantVolumeControl,
-      public chromeos::CrasAudioHandler::AudioObserver,
+      public CrasAudioHandler::AudioObserver,
       public AccessibilityObserver,
-      public AssistantInterfaceBinder {
+      public AssistantInterfaceBinder,
+      public ColorModeObserver {
  public:
   AssistantControllerImpl();
+
+  AssistantControllerImpl(const AssistantControllerImpl&) = delete;
+  AssistantControllerImpl& operator=(const AssistantControllerImpl&) = delete;
+
   ~AssistantControllerImpl() override;
 
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
@@ -91,12 +99,15 @@ class ASH_EXPORT AssistantControllerImpl
   void AddVolumeObserver(
       mojo::PendingRemote<mojom::VolumeObserver> observer) override;
 
-  // chromeos::CrasAudioHandler::AudioObserver:
+  // CrasAudioHandler::AudioObserver:
   void OnOutputMuteChanged(bool mute_on) override;
   void OnOutputNodeVolumeChanged(uint64_t node, int volume) override;
 
   // AccessibilityObserver:
   void OnAccessibilityStatusChanged() override;
+
+  // ColorModeObserver:
+  void OnColorModeChanged(bool dark_mode_enabled) override;
 
   AssistantAlarmTimerControllerImpl* alarm_timer_controller() {
     return &assistant_alarm_timer_controller_;
@@ -146,6 +157,8 @@ class ASH_EXPORT AssistantControllerImpl
       assistant_volume_control_receiver_{this};
   mojo::RemoteSet<mojom::VolumeObserver> volume_observers_;
 
+  // |assistant_| can be nullptr if libassistant creation is not yet completed,
+  // i.e. it cannot take a request.
   chromeos::assistant::Assistant* assistant_ = nullptr;
 
   // Assistant sub-controllers.
@@ -162,9 +175,10 @@ class ASH_EXPORT AssistantControllerImpl
 
   AssistantViewDelegateImpl view_delegate_{this};
 
-  base::WeakPtrFactory<AssistantControllerImpl> weak_factory_{this};
+  base::ScopedObservation<AshColorProvider, ColorModeObserver>
+      color_mode_observer_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(AssistantControllerImpl);
+  base::WeakPtrFactory<AssistantControllerImpl> weak_factory_{this};
 };
 
 }  // namespace ash

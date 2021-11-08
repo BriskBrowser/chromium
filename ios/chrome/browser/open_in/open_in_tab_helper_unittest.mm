@@ -9,7 +9,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
-#import "ios/chrome/browser/open_in/features.h"
 #import "ios/chrome/browser/open_in/open_in_tab_helper_delegate.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/web/public/navigation/navigation_item.h"
@@ -71,41 +70,29 @@ std::string ContentTypeForMimeType(OpenInMimeType parameter) {
   switch (parameter) {
     case OpenInMimeType::kMimeTypeMicrosoftPowerPointOpenXML:
       return content_type::kMimeTypeMicrosoftPowerPointOpenXML;
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftWordOpenXML:
       return content_type::kMimeTypeMicrosoftWordOpenXML;
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftExcelOpenXML:
       return content_type::kMimeTypeMicrosoftExcelOpenXML;
-      break;
     case OpenInMimeType::kMimeTypePDF:
       return content_type::kMimeTypePDF;
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftWord:
       return content_type::kMimeTypeMicrosoftWord;
-      break;
     case OpenInMimeType::kMimeTypeJPEG:
       return content_type::kMimeTypeJPEG;
-      break;
     case OpenInMimeType::kMimeTypePNG:
       return content_type::kMimeTypePNG;
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftPowerPoint:
       return content_type::kMimeTypeMicrosoftPowerPoint;
-      break;
     case OpenInMimeType::kMimeTypeRTF:
       return content_type::kMimeTypeRTF;
-      break;
     case OpenInMimeType::kMimeTypeSVG:
       return content_type::kMimeTypeSVG;
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftExcel:
       return content_type::kMimeTypeMicrosoftExcel;
-      break;
     // Should not be reached.
     case OpenInMimeType::kMimeTypeNotHandled:
       return "";
-      break;
   }
 }
 
@@ -114,41 +101,29 @@ std::string ExtensionForMimeType(OpenInMimeType parameter) {
   switch (parameter) {
     case OpenInMimeType::kMimeTypeMicrosoftPowerPointOpenXML:
       return ".pptx";
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftWordOpenXML:
       return ".docx";
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftExcelOpenXML:
       return ".xlsx";
-      break;
     case OpenInMimeType::kMimeTypePDF:
       return ".pdf";
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftWord:
       return ".doc";
-      break;
     case OpenInMimeType::kMimeTypeJPEG:
       return ".jpeg";
-      break;
     case OpenInMimeType::kMimeTypePNG:
       return ".png";
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftPowerPoint:
       return ".ppt";
-      break;
     case OpenInMimeType::kMimeTypeRTF:
       return ".rtf";
-      break;
     case OpenInMimeType::kMimeTypeSVG:
       return ".svg";
-      break;
     case OpenInMimeType::kMimeTypeMicrosoftExcel:
       return ".xls";
-      break;
     // Should not be reached.
     case OpenInMimeType::kMimeTypeNotHandled:
       return "";
-      break;
   }
 }
 
@@ -227,7 +202,6 @@ TEST_F(OpenInTabHelperTest, WebStateObservationDestruction) {
 TEST_P(OpenInTabHelperTest,
        OpenInForExportableFilesWithFileNameFromContentDesposition) {
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(kExtendOpenInFilesSupport);
   ASSERT_FALSE(delegate_.openInDisabled);
 
   const std::string file_name =
@@ -251,7 +225,6 @@ TEST_P(OpenInTabHelperTest,
 // doesn't have file name.
 TEST_P(OpenInTabHelperTest, OpenInForExportableFilesWithFileNameFromURL) {
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(kExtendOpenInFilesSupport);
   ASSERT_FALSE(delegate_.openInDisabled);
 
   const std::string file_name =
@@ -273,7 +246,6 @@ TEST_P(OpenInTabHelperTest, OpenInForExportableFilesWithFileNameFromURL) {
 // response headers has a file name.
 TEST_P(OpenInTabHelperTest, OpenInForExportableFilesWithDefaultFileName) {
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(kExtendOpenInFilesSupport);
   ASSERT_FALSE(delegate_.openInDisabled);
 
   GURL url(kInvalidFileNameUrl);
@@ -288,12 +260,6 @@ TEST_P(OpenInTabHelperTest, OpenInForExportableFilesWithDefaultFileName) {
       l10n_util::GetStringUTF8(IDS_IOS_OPEN_IN_FILE_DEFAULT_TITLE) +
       ExtensionForMimeType(OpenInTabHelperTest::GetParam());
 
-  // .rtf files return a default name without extension.
-  if (OpenInTabHelperTest::GetParam() == OpenInMimeType::kMimeTypeRTF) {
-    default_file_name =
-        l10n_util::GetStringUTF8(IDS_IOS_OPEN_IN_FILE_DEFAULT_TITLE);
-  }
-
   EXPECT_NSEQ(base::SysUTF8ToNSString(default_file_name),
               delegate_.lastSuggestedFileName);
 }
@@ -301,7 +267,6 @@ TEST_P(OpenInTabHelperTest, OpenInForExportableFilesWithDefaultFileName) {
 // Tests that openIn is disabled for non exportable files.
 TEST_F(OpenInTabHelperTest, OpenInDisabledForNonExportableFiles) {
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(kExtendOpenInFilesSupport);
   ASSERT_FALSE(delegate_.openInDisabled);
 
   // Testing PDF.

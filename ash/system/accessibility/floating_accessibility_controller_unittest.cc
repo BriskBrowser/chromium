@@ -6,7 +6,7 @@
 
 #include "ash/accelerators/accelerator_controller_impl.h"
 #include "ash/accessibility/accessibility_controller_impl.h"
-#include "ash/autoclick/autoclick_controller.h"
+#include "ash/accessibility/autoclick/autoclick_controller.h"
 #include "ash/public/cpp/session/session_types.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
@@ -15,6 +15,8 @@
 #include "ash/system/accessibility/tray_accessibility.h"
 #include "ash/test/ash_test_base.h"
 #include "base/barrier_closure.h"
+#include "base/callback_helpers.h"
+#include "base/strings/stringprintf.h"
 
 namespace ash {
 
@@ -220,8 +222,8 @@ TEST_F(FloatingAccessibilityControllerTest, LocaleChangeObserver) {
   // RTL should position the menu on the bottom left.
   base::i18n::SetICUDefaultLocale("he");
   // Trigger the LocaleChangeObserver, which should cause a layout of the menu.
-  ash::LocaleUpdateController::Get()->ConfirmLocaleChange(
-      "en", "en", "he", base::DoNothing::Once<ash::LocaleNotificationResult>());
+  ash::LocaleUpdateController::Get()->ConfirmLocaleChange("en", "en", "he",
+                                                          base::DoNothing());
   EXPECT_TRUE(base::i18n::IsRTL());
   EXPECT_LT(
       GetMenuViewBounds().ManhattanDistanceToPoint(window_bounds.bottom_left()),
@@ -229,8 +231,8 @@ TEST_F(FloatingAccessibilityControllerTest, LocaleChangeObserver) {
 
   // LTR should position the menu on the bottom right.
   base::i18n::SetICUDefaultLocale("en");
-  ash::LocaleUpdateController::Get()->ConfirmLocaleChange(
-      "he", "he", "en", base::DoNothing::Once<ash::LocaleNotificationResult>());
+  ash::LocaleUpdateController::Get()->ConfirmLocaleChange("he", "he", "en",
+                                                          base::DoNothing());
   EXPECT_FALSE(base::i18n::IsRTL());
   EXPECT_LT(GetMenuViewBounds().ManhattanDistanceToPoint(
                 window_bounds.bottom_right()),
@@ -385,8 +387,6 @@ TEST_F(FloatingAccessibilityControllerTest, ActiveFeaturesButtons) {
                          {FloatingAccessibilityView::ButtonId::kVirtualKeyboard,
                           AccessibilityControllerImpl::kVirtualKeyboard}};
 
-  accessibility_controller()->dictation().SetDialogAccepted();
-
   gfx::Rect original_bounds = GetMenuViewBounds();
 
   for (FeatureWithButton feature : kFeatureButtons) {
@@ -490,7 +490,6 @@ TEST_F(FloatingAccessibilityControllerTest, AccelatorFocusMenu) {
 }
 
 TEST_F(FloatingAccessibilityControllerTest, ShowingAlreadyEnabledFeatures) {
-  accessibility_controller()->dictation().SetDialogAccepted();
   accessibility_controller()->select_to_speak().SetEnabled(true);
   accessibility_controller()->dictation().SetEnabled(true);
   accessibility_controller()->virtual_keyboard().SetEnabled(true);

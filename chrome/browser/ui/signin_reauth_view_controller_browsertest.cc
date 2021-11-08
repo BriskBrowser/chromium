@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/notreached.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -16,6 +15,9 @@
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/reauth_result.h"
 #include "chrome/browser/signin/signin_features.h"
+#include "chrome/browser/sync/sync_encryption_keys_tab_helper.h"
+#include "chrome/browser/sync/sync_service_factory.h"
+#include "chrome/browser/sync/test/integration/encryption_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/signin_reauth_view_controller.h"
 #include "chrome/browser/ui/signin_view_controller.h"
@@ -23,8 +25,8 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/base/signin_metrics.h"
-#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "content/public/test/browser_test.h"
@@ -40,6 +42,7 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/embedded_test_server/request_handler_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/ui_base_switches.h"
 
 using ::testing::ElementsAre;
@@ -50,12 +53,8 @@ const char kReauthUserActionHistogramName[] =
     "Signin.TransactionalReauthUserAction";
 const char kReauthUserActionToFillPasswordHistogramName[] =
     "Signin.TransactionalReauthUserAction.ToFillPassword";
-const char kReauthGaiaNavigationDurationFromReauthStartHistogramName[] =
-    "Signin.TransactionalReauthGaiaNavigationDuration.FromReauthStart";
-const char kReauthGaiaNavigationDurationFromConfirmClickHistogramName[] =
-    "Signin.TransactionalReauthGaiaNavigationDuration.FromConfirmClick";
 
-const base::TimeDelta kReauthDialogTimeout = base::TimeDelta::FromSeconds(30);
+const base::TimeDelta kReauthDialogTimeout = base::Seconds(30);
 const char kReauthDonePath[] = "/embedded/xreauth/chrome?done";
 const char kReauthUnexpectedResponsePath[] =
     "/embedded/xreauth/chrome?unexpected";
@@ -173,9 +172,10 @@ class SigninReauthViewControllerBrowserTest : public InProcessBrowserTest {
             https_server(), kChallengePath);
     https_server()->StartAcceptingConnections();
 
-    account_id_ = signin::SetUnconsentedPrimaryAccount(identity_manager(),
-                                                       "alice@gmail.com")
-                      .account_id;
+    account_id_ =
+        signin::SetPrimaryAccount(identity_manager(), "alice@gmail.com",
+                                  signin::ConsentLevel::kSignin)
+            .account_id;
 
     reauth_result_loop_ = std::make_unique<base::RunLoop>();
     InProcessBrowserTest::SetUpOnMainThread();
@@ -201,7 +201,7 @@ class SigninReauthViewControllerBrowserTest : public InProcessBrowserTest {
     reauth_result_loop_->Quit();
   }
 
-  base::Optional<signin::ReauthResult> WaitForReauthResult() {
+  absl::optional<signin::ReauthResult> WaitForReauthResult() {
     reauth_result_loop_->Run();
     return reauth_result_;
   }
@@ -241,7 +241,7 @@ class SigninReauthViewControllerBrowserTest : public InProcessBrowserTest {
   std::unique_ptr<SigninViewController::ReauthAbortHandle> abort_handle_;
 
   std::unique_ptr<base::RunLoop> reauth_result_loop_;
-  base::Optional<signin::ReauthResult> reauth_result_;
+  absl::optional<signin::ReauthResult> reauth_result_;
 };
 
 // Tests that the abort handle cancels an ongoing reauth flow.
@@ -371,10 +371,6 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
   histogram_tester()->ExpectUniqueSample(
       kReauthUserActionToFillPasswordHistogramName,
       SigninReauthViewController::UserAction::kClickConfirmButton, 1);
-  histogram_tester()->ExpectTotalCount(
-      kReauthGaiaNavigationDurationFromReauthStartHistogramName, 1);
-  histogram_tester()->ExpectTotalCount(
-      kReauthGaiaNavigationDurationFromConfirmClickHistogramName, 1);
 }
 
 // Tests completing the Gaia reauth challenge in a dialog.
@@ -409,6 +405,46 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
               SigninReauthViewController::UserAction::kClickNextButton),
           OnceUserAction(
               SigninReauthViewController::UserAction::kPassGaiaReauth)));
+}
+
+// Tests the sync encryption-related Javascript APIs exercised by the Gaia
+// reauth challenge.
+// Regression test for crbug.com/1266415.
+IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
+                       SetSyncEncryptionKeysDuringReauthChallenge) {
+  // The URL contains a link that navigates to the reauth success URL.
+  const std::string target_path = net::test_server::GetFilePathWithReplacements(
+      "/signin/link_with_replacements.html",
+      {{"REPLACE_WITH_URL", https_server()->GetURL(kReauthDonePath).spec()}});
+  const GURL target_url = https_server()->GetURL(target_path);
+
+  content::TestNavigationObserver target_content_observer(target_url);
+  target_content_observer.StartWatchingNewWebContents();
+  ShowReauthPrompt();
+  RedirectGaiaChallengeTo(target_url);
+
+  ReauthTestObserver reauth_observer(signin_reauth_view_controller());
+  ASSERT_TRUE(login_ui_test_utils::ConfirmReauthConfirmationDialog(
+      browser(), kReauthDialogTimeout));
+  reauth_observer.WaitUntilGaiaReauthPageIsShown();
+  target_content_observer.Wait();
+
+  content::WebContents* target_contents =
+      signin_reauth_view_controller()->GetWebContents();
+
+  SyncEncryptionKeysTabHelper* encryption_keys_tab_helper =
+      SyncEncryptionKeysTabHelper::FromWebContents(target_contents);
+  ASSERT_NE(encryption_keys_tab_helper, nullptr);
+  EXPECT_TRUE(encryption_keys_tab_helper->IsEncryptionKeysApiBoundForTesting());
+
+  // The invocation of the API, even with dummy values, should propagate until
+  // TrustedVaultClient and its observers.
+  TrustedVaultKeysChangedStateChecker keys_added_checker(
+      SyncServiceFactory::GetAsSyncServiceImplForProfile(browser()->profile()));
+  EXPECT_TRUE(content::ExecuteScript(
+      target_contents,
+      "chrome.setSyncEncryptionKeys(() => {}, \"\", [new ArrayBuffer()], 0);"));
+  EXPECT_TRUE(keys_added_checker.Wait());
 }
 
 // Tests that links from the Gaia page are opened in a new tab.

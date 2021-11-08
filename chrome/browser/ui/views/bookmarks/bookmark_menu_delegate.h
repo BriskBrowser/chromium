@@ -12,11 +12,13 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "chrome/browser/ui/bookmarks/bookmark_stats.h"
+#include "chrome/browser/ui/toolbar/app_menu_model.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_context_menu.h"
 #include "components/bookmarks/browser/base_bookmark_model_observer.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom-forward.h"
 #include "ui/views/controls/menu/menu_delegate.h"
+#include "ui/views/view.h"
 
 class Browser;
 class Profile;
@@ -60,6 +62,10 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
       Browser* browser,
       base::RepeatingCallback<content::PageNavigator*()> get_navigator,
       views::Widget* parent);
+
+  BookmarkMenuDelegate(const BookmarkMenuDelegate&) = delete;
+  BookmarkMenuDelegate& operator=(const BookmarkMenuDelegate&) = delete;
+
   ~BookmarkMenuDelegate() override;
 
   // Creates the menus from the model.
@@ -89,7 +95,7 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
 
   // Returns the context menu, or NULL if the context menu isn't showing.
   views::MenuItemView* context_menu() {
-    return context_menu_.get() ? context_menu_->menu() : NULL;
+    return context_menu_ ? context_menu_->menu() : nullptr;
   }
 
   views::Widget* parent() { return parent_; }
@@ -100,7 +106,7 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
   bool is_mutating_model() const { return is_mutating_model_; }
 
   // MenuDelegate like methods (see class description for details).
-  base::string16 GetTooltipText(int id, const gfx::Point& p) const;
+  std::u16string GetTooltipText(int id, const gfx::Point& p) const;
   bool IsTriggerableEvent(views::MenuItemView* menu,
                           const ui::Event& e);
   void ExecuteCommand(int id, int mouse_event_flags);
@@ -115,6 +121,10 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
       const ui::DropTargetEvent& event,
       views::MenuDelegate::DropPosition* position);
   ui::mojom::DragOperation OnPerformDrop(
+      views::MenuItemView* menu,
+      views::MenuDelegate::DropPosition position,
+      const ui::DropTargetEvent& event);
+  views::View::DropCallback GetDropCallback(
       views::MenuItemView* menu,
       views::MenuDelegate::DropPosition position,
       const ui::DropTargetEvent& event);
@@ -181,7 +191,12 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
 
   // Escapes ampersands within |title| if necessary, depending on
   // |menu_uses_mnemonics_|.
-  base::string16 MaybeEscapeLabel(const base::string16& title);
+  std::u16string MaybeEscapeLabel(const std::u16string& title);
+
+  // Returns |next_menu_id_| and increments it by 2. This allows for 'sharing'
+  // command ids with the recent tabs menu, which also uses every other int as
+  // an id.
+  int GetAndIncrementNextMenuID();
 
   Browser* const browser_;
   Profile* profile_;
@@ -223,8 +238,6 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
   // Whether the involved menu uses mnemonics or not. If it does, ampersands
   // inside bookmark titles need to be escaped.
   bool menu_uses_mnemonics_;
-
-  DISALLOW_COPY_AND_ASSIGN(BookmarkMenuDelegate);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_BOOKMARKS_BOOKMARK_MENU_DELEGATE_H_

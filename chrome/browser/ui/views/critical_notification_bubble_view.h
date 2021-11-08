@@ -7,8 +7,8 @@
 
 #include "base/macros.h"
 #include "base/timer/timer.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 class CriticalNotificationBubbleView : public views::BubbleDialogDelegateView {
  public:
@@ -21,7 +21,7 @@ class CriticalNotificationBubbleView : public views::BubbleDialogDelegateView {
   ~CriticalNotificationBubbleView() override;
 
   // views::BubbleDialogDelegateView overrides:
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   void WindowClosing() override;
   void Init() override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;

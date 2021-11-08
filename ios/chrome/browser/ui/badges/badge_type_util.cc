@@ -14,10 +14,14 @@ BadgeType BadgeTypeForInfobarType(InfobarType infobar_type) {
       return BadgeType::kBadgeTypePasswordSave;
     case InfobarType::kInfobarTypePasswordUpdate:
       return BadgeType::kBadgeTypePasswordUpdate;
+    case InfobarType::kInfobarTypeSaveAutofillAddressProfile:
+      return BadgeType::kBadgeTypeSaveAddressProfile;
     case InfobarType::kInfobarTypeSaveCard:
       return BadgeType::kBadgeTypeSaveCard;
     case InfobarType::kInfobarTypeTranslate:
       return BadgeType::kBadgeTypeTranslate;
+    case InfobarType::kInfobarTypeAddToReadingList:
+      return BadgeType::kBadgeTypeAddToReadingList;
     default:
       return BadgeType::kBadgeTypeNone;
   }
@@ -29,10 +33,14 @@ InfobarType InfobarTypeForBadgeType(BadgeType badge_type) {
       return InfobarType::kInfobarTypePasswordSave;
     case BadgeType::kBadgeTypePasswordUpdate:
       return InfobarType::kInfobarTypePasswordUpdate;
+    case BadgeType::kBadgeTypeSaveAddressProfile:
+      return InfobarType::kInfobarTypeSaveAutofillAddressProfile;
     case BadgeType::kBadgeTypeSaveCard:
       return InfobarType::kInfobarTypeSaveCard;
     case BadgeType::kBadgeTypeTranslate:
       return InfobarType::kInfobarTypeTranslate;
+    case BadgeType::kBadgeTypeAddToReadingList:
+      return InfobarType::kInfobarTypeAddToReadingList;
     default:
       NOTREACHED() << "Unsupported badge type.";
       return InfobarType::kInfobarTypeConfirm;

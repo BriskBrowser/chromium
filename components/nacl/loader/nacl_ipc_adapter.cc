@@ -16,7 +16,7 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/platform_shared_memory_region.h"
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "base/tuple.h"
 #include "build/build_config.h"
 #include "ipc/ipc_channel.h"
@@ -69,11 +69,12 @@ struct DescThunker {
       : adapter(adapter_arg) {
   }
 
+  DescThunker(const DescThunker&) = delete;
+  DescThunker& operator=(const DescThunker&) = delete;
+
   ~DescThunker() { adapter->CloseChannel(); }
 
   scoped_refptr<NaClIPCAdapter> adapter;
-
-  DISALLOW_COPY_AND_ASSIGN(DescThunker);
 };
 
 NaClIPCAdapter* ToAdapter(void* handle) {
@@ -225,6 +226,10 @@ int TranslatePepperFileReadWriteOpenFlags(int32_t pp_open_flags) {
 class NaClDescWrapper {
  public:
   explicit NaClDescWrapper(NaClDesc* desc): desc_(desc) {}
+
+  NaClDescWrapper(const NaClDescWrapper&) = delete;
+  NaClDescWrapper& operator=(const NaClDescWrapper&) = delete;
+
   ~NaClDescWrapper() {
     NaClDescUnref(desc_);
   }
@@ -233,7 +238,6 @@ class NaClDescWrapper {
 
  private:
   NaClDesc* desc_;
-  DISALLOW_COPY_AND_ASSIGN(NaClDescWrapper);
 };
 
 std::unique_ptr<NaClDescWrapper> MakeShmRegionNaClDesc(
@@ -562,13 +566,13 @@ bool NaClIPCAdapter::RewriteMessage(const IPC::Message& msg, uint32_t type) {
           break;
         }
         case ppapi::proxy::SerializedHandle::SOCKET: {
-          nacl_desc.reset(new NaClDescWrapper(NaClDescSyncSocketMake(
+          nacl_desc = std::make_unique<NaClDescWrapper>(NaClDescSyncSocketMake(
 #if defined(OS_WIN)
               handle.descriptor().GetHandle()
 #else
               handle.descriptor().fd
 #endif
-                  )));
+                  ));
           break;
         }
         case ppapi::proxy::SerializedHandle::FILE: {
@@ -586,7 +590,7 @@ bool NaClIPCAdapter::RewriteMessage(const IPC::Message& msg, uint32_t type) {
                 locked_data_.nacl_msg_scanner_.GetFile(handle.file_io()), desc);
           }
           if (desc)
-            nacl_desc.reset(new NaClDescWrapper(desc));
+            nacl_desc = std::make_unique<NaClDescWrapper>(desc);
           break;
         }
 

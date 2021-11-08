@@ -26,6 +26,9 @@ import java.util.concurrent.TimeoutException;
  * CustomTabActivity}.
  */
 public class IncognitoCustomTabActivityTestRule extends CustomTabActivityTestRule {
+    private boolean mRemoveFirstPartyOverride;
+    private boolean mCustomSessionInitiatedForIntent;
+
     @Rule
     private final TestRule mModuleOverridesRule = new ModuleOverridesRule().setOverride(
             AppHooksModule.Factory.class, AppHooksModuleForTest::new);
@@ -40,6 +43,7 @@ public class IncognitoCustomTabActivityTestRule extends CustomTabActivityTestRul
             return new ExternalAuthUtils() {
                 @Override
                 public boolean isGoogleSigned(String packageName) {
+                    if (mRemoveFirstPartyOverride) return false;
                     return true;
                 }
             };
@@ -60,7 +64,7 @@ public class IncognitoCustomTabActivityTestRule extends CustomTabActivityTestRul
 
     @Override
     public void startCustomTabActivityWithIntent(Intent intent) {
-        if (isIntentIncognito(intent)) {
+        if (isIntentIncognito(intent) && !mCustomSessionInitiatedForIntent) {
             try {
                 createNewCustomTabSessionForIntent(intent);
             } catch (TimeoutException e) {
@@ -68,6 +72,22 @@ public class IncognitoCustomTabActivityTestRule extends CustomTabActivityTestRul
             }
         }
         super.startCustomTabActivityWithIntent(intent);
+    }
+
+    public void setRemoveFirstPartyOverride() {
+        mRemoveFirstPartyOverride = true;
+    }
+
+    public void setCustomSessionInitiatedForIntent() {
+        mCustomSessionInitiatedForIntent = true;
+    }
+
+    public void buildSessionWithHiddenTab(
+            CustomTabsConnection connection, CustomTabsSessionToken token) {
+        Assert.assertTrue(connection.newSession(token));
+        // Need to set params to reach |CustomTabsConnection#doMayLaunchUrlOnUiThread|.
+        connection.mClientManager.setHideDomainForSession(token, true);
+        connection.setCanUseHiddenTabForSession(token, true);
     }
 
     @Override

@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/time/time.h"
 #include "chromeos/services/device_sync/cryptauth_device_manager.h"
 #include "chromeos/services/device_sync/proto/cryptauth_api.pb.h"
 
@@ -19,6 +20,11 @@ namespace device_sync {
 class FakeCryptAuthDeviceManager : public CryptAuthDeviceManager {
  public:
   FakeCryptAuthDeviceManager();
+
+  FakeCryptAuthDeviceManager(const FakeCryptAuthDeviceManager&) = delete;
+  FakeCryptAuthDeviceManager& operator=(const FakeCryptAuthDeviceManager&) =
+      delete;
+
   ~FakeCryptAuthDeviceManager() override;
 
   bool has_started() { return has_started_; }
@@ -122,8 +128,6 @@ class FakeCryptAuthDeviceManager : public CryptAuthDeviceManager {
   std::vector<cryptauth::ExternalDeviceInfo> pixel_unlock_keys_;
   std::vector<cryptauth::ExternalDeviceInfo> tether_hosts_;
   std::vector<cryptauth::ExternalDeviceInfo> pixel_tether_hosts_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeCryptAuthDeviceManager);
 };
 
 }  // namespace device_sync

@@ -12,8 +12,8 @@
 #include "chrome/browser/vr/test/constants.h"
 #include "chrome/browser/vr/ui_scene.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/gfx/transform_operation.h"
-#include "ui/gfx/transform_operations.h"
+#include "ui/gfx/geometry/transform_operation.h"
+#include "ui/gfx/geometry/transform_operations.h"
 
 namespace vr {
 
@@ -35,11 +35,11 @@ TEST(Throbber, CircleGrowAnimation) {
   scene.AddUiElement(kRoot, std::move(element));
 
   throbber->SetCircleGrowAnimationEnabled(true);
-  scene.OnBeginFrame(MsToTicks(1), kStartHeadPose);
+  scene.OnBeginFrame(gfx::MsToTicks(1), kStartHeadPose);
   EXPECT_TRUE(throbber->IsAnimatingProperty(CIRCLE_GROW));
 
   // Half way through animation.
-  scene.OnBeginFrame(MsToTicks(501), kStartHeadPose);
+  scene.OnBeginFrame(gfx::MsToTicks(501), kStartHeadPose);
   EXPECT_FLOAT_EQ(throbber->opacity(), kInitialOpacity / 2);
   EXPECT_FLOAT_EQ(
       throbber->GetTargetTransform().at(UiElement::kScaleIndex).scale.x,

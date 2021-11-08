@@ -36,24 +36,25 @@ class VaapiTFPPicture : public VaapiPicture {
                   uint32_t client_texture_id,
                   uint32_t texture_target);
 
+  VaapiTFPPicture(const VaapiTFPPicture&) = delete;
+  VaapiTFPPicture& operator=(const VaapiTFPPicture&) = delete;
+
   ~VaapiTFPPicture() override;
 
   // VaapiPicture implementation.
-  Status Allocate(gfx::BufferFormat format) override;
+  VaapiStatus Allocate(gfx::BufferFormat format) override;
   bool ImportGpuMemoryBufferHandle(
       gfx::BufferFormat format,
       gfx::GpuMemoryBufferHandle gpu_memory_buffer_handle) override;
   bool DownloadFromSurface(scoped_refptr<VASurface> va_surface) override;
 
  private:
-  Status Initialize();
+  VaapiStatus Initialize();
 
   x11::Connection* const connection_;
 
   x11::Pixmap x_pixmap_;
   scoped_refptr<gl::GLImageGLX> glx_image_;
-
-  DISALLOW_COPY_AND_ASSIGN(VaapiTFPPicture);
 };
 
 }  // namespace media

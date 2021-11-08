@@ -9,7 +9,7 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/search/local_ntp_test_utils.h"
+#include "chrome/browser/ui/search/ntp_test_utils.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/crx_file/id_util.h"
@@ -23,10 +23,16 @@
 namespace extensions {
 
 namespace {
-const std::string kAllUrlsTarget = "/extensions/api_test/all_urls/index.html";
-}
+
+const char kAllUrlsTarget[] = "/extensions/api_test/all_urls/index.html";
+
+}  // namespace
 
 class AllUrlsApiTest : public ExtensionApiTest {
+ public:
+  AllUrlsApiTest(const AllUrlsApiTest&) = delete;
+  AllUrlsApiTest& operator=(const AllUrlsApiTest&) = delete;
+
  protected:
   AllUrlsApiTest() {}
   ~AllUrlsApiTest() override {}
@@ -51,13 +57,13 @@ class AllUrlsApiTest : public ExtensionApiTest {
     std::string expected_url = url;
     if (url == chrome::kChromeUINewTabURL) {
       expected_url =
-          local_ntp_test_utils::GetFinalNtpUrl(browser()->profile()).spec();
+          ntp_test_utils::GetFinalNtpUrl(browser()->profile()).spec();
     }
     ExtensionTestMessageListener listener_a("content script: " + expected_url,
                                             false);
     ExtensionTestMessageListener listener_b("execute: " + expected_url, false);
 
-    ui_test_utils::NavigateToURL(browser(), GURL(url));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL(url)));
     ASSERT_TRUE(listener_a.WaitUntilSatisfied());
     ASSERT_TRUE(listener_b.WaitUntilSatisfied());
   }
@@ -74,8 +80,6 @@ class AllUrlsApiTest : public ExtensionApiTest {
 
   scoped_refptr<const Extension> content_script_;
   scoped_refptr<const Extension> execute_script_;
-
-  DISALLOW_COPY_AND_ASSIGN(AllUrlsApiTest);
 };
 
 IN_PROC_BROWSER_TEST_F(AllUrlsApiTest, AllowlistedExtension) {

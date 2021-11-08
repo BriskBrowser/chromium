@@ -6,14 +6,11 @@
 #define SERVICES_NETWORK_CORS_PREFLIGHT_CONTROLLER_H_
 
 #include <memory>
-#include <string>
 
 #include "base/callback.h"
 #include "base/component_export.h"
-#include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/types/strong_alias.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/cors/preflight_cache.h"
@@ -23,7 +20,12 @@
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom-forward.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
+
+namespace net {
+class NetLogWithSource;
+}  // namespace net
 
 namespace network {
 
@@ -35,8 +37,8 @@ namespace cors {
 // its result, and owning a CORS-preflight cache.
 class COMPONENT_EXPORT(NETWORK_SERVICE) PreflightController final {
  public:
-  using CompletionCallback =
-      base::OnceCallback<void(int net_error, base::Optional<CorsErrorStatus>)>;
+  using CompletionCallback = base::OnceCallback<
+      void(int net_error, absl::optional<CorsErrorStatus>, bool)>;
   using WithTrustedHeaderClient =
       base::StrongAlias<class WithTrustedHeaderClientTag, bool>;
   // Creates a CORS-preflight ResourceRequest for a specified |request| for a
@@ -50,9 +52,25 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) PreflightController final {
       const mojom::URLResponseHead& head,
       const ResourceRequest& original_request,
       bool tainted,
-      base::Optional<CorsErrorStatus>* detected_error_status);
+      absl::optional<CorsErrorStatus>* detected_error_status);
+  // Checks CORS aceess on the CORS-preflight response parameters for testing.
+  static absl::optional<CorsErrorStatus> CheckPreflightAccessForTesting(
+      const GURL& response_url,
+      const int response_status_code,
+      const absl::optional<std::string>& allow_origin_header,
+      const absl::optional<std::string>& allow_credentials_header,
+      mojom::CredentialsMode actual_credentials_mode,
+      const url::Origin& origin);
+  // Checks errors for the currently experimental
+  // "Access-Control-Allow-External" header for testing.
+  static absl::optional<CorsErrorStatus> CheckExternalPreflightForTesting(
+      const absl::optional<std::string>& allow_external);
 
   explicit PreflightController(NetworkService* network_service);
+
+  PreflightController(const PreflightController&) = delete;
+  PreflightController& operator=(const PreflightController&) = delete;
+
   ~PreflightController();
 
   // Determines if a CORS-preflight request is needed, and checks the cache, or
@@ -62,11 +80,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) PreflightController final {
       CompletionCallback callback,
       const ResourceRequest& resource_request,
       WithTrustedHeaderClient with_trusted_header_client,
+      NonWildcardRequestHeadersSupport non_wildcard_request_headers_support,
       bool tainted,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
       mojom::URLLoaderFactory* loader_factory,
-      int32_t process_id,
-      const net::IsolationInfo& isolation_info);
+      const net::IsolationInfo& isolation_info,
+      mojo::PendingRemote<mojom::DevToolsObserver> devtools_observer,
+      const net::NetLogWithSource& net_log);
 
  private:
   class PreflightLoader;
@@ -84,8 +104,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) PreflightController final {
       loaders_;
 
   NetworkService* const network_service_;
-
-  DISALLOW_COPY_AND_ASSIGN(PreflightController);
 };
 
 }  // namespace cors

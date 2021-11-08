@@ -6,13 +6,13 @@
 
 #include <stddef.h>
 
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "base/win/scoped_bstr.h"
@@ -183,7 +183,7 @@ bool WriteConfig(const std::string& content) {
   // Extract the unprivileged fields from the configuration.
   base::DictionaryValue unprivileged_config_dict;
   for (const char* key : kUnprivilegedConfigKeys) {
-    base::string16 value;
+    std::u16string value;
     if (config_dict->GetString(key, &value)) {
       unprivileged_config_dict.SetString(key, value);
     }
@@ -223,17 +223,14 @@ DaemonController::State ConvertToDaemonState(DWORD service_state) {
   case SERVICE_CONTINUE_PENDING:
   case SERVICE_START_PENDING:
     return DaemonController::STATE_STARTING;
-    break;
 
   case SERVICE_PAUSE_PENDING:
   case SERVICE_STOP_PENDING:
     return DaemonController::STATE_STOPPING;
-    break;
 
   case SERVICE_PAUSED:
   case SERVICE_STOPPED:
     return DaemonController::STATE_STOPPED;
-    break;
 
   default:
     NOTREACHED();

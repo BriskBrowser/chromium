@@ -10,9 +10,9 @@
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/sequenced_task_runner.h"
 #include "base/task/lazy_thread_pool_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/onc/onc_constants.h"
 #include "content/public/browser/browser_thread.h"
@@ -133,7 +133,7 @@ void NetworkingPrivateServiceClient::GetProperties(
                      properties_ptr, error),
       base::BindOnce(&NetworkingPrivateServiceClient::AfterGetProperties,
                      weak_factory_.GetWeakPtr(), std::move(callback), guid,
-                     base::Passed(&properties), base::Owned(error)));
+                     std::move(properties), base::Owned(error)));
 }
 
 void NetworkingPrivateServiceClient::GetManagedProperties(
@@ -150,7 +150,7 @@ void NetworkingPrivateServiceClient::GetManagedProperties(
                      properties_ptr, error),
       base::BindOnce(&NetworkingPrivateServiceClient::AfterGetProperties,
                      weak_factory_.GetWeakPtr(), std::move(callback), guid,
-                     base::Passed(&properties), base::Owned(error)));
+                     std::move(properties), base::Owned(error)));
 }
 
 void NetworkingPrivateServiceClient::GetState(
@@ -172,7 +172,7 @@ void NetworkingPrivateServiceClient::GetState(
                      properties_ptr, error),
       base::BindOnce(&NetworkingPrivateServiceClient::AfterGetState,
                      weak_factory_.GetWeakPtr(), service_callbacks->id, guid,
-                     base::Passed(&properties), base::Owned(error)));
+                     std::move(properties), base::Owned(error)));
 }
 
 void NetworkingPrivateServiceClient::SetProperties(
@@ -193,7 +193,7 @@ void NetworkingPrivateServiceClient::SetProperties(
       FROM_HERE,
       base::BindOnce(&WiFiService::SetProperties,
                      base::Unretained(wifi_service_.get()), guid,
-                     base::Passed(&properties), error),
+                     std::move(properties), error),
       base::BindOnce(&NetworkingPrivateServiceClient::AfterSetProperties,
                      weak_factory_.GetWeakPtr(), service_callbacks->id,
                      base::Owned(error)));
@@ -215,7 +215,7 @@ void NetworkingPrivateServiceClient::CreateNetwork(
       FROM_HERE,
       base::BindOnce(&WiFiService::CreateNetwork,
                      base::Unretained(wifi_service_.get()), shared,
-                     base::Passed(&properties), network_guid, error),
+                     std::move(properties), network_guid, error),
       base::BindOnce(&NetworkingPrivateServiceClient::AfterCreateNetwork,
                      weak_factory_.GetWeakPtr(), service_callbacks->id,
                      base::Owned(network_guid), base::Owned(error)));
@@ -254,7 +254,7 @@ void NetworkingPrivateServiceClient::GetNetworks(
                      networks_ptr, false),
       base::BindOnce(&NetworkingPrivateServiceClient::AfterGetVisibleNetworks,
                      weak_factory_.GetWeakPtr(), service_callbacks->id,
-                     base::Passed(&networks)));
+                     std::move(networks)));
 }
 
 void NetworkingPrivateServiceClient::StartConnect(
@@ -329,10 +329,9 @@ void NetworkingPrivateServiceClient::SelectCellularMobileNetwork(
   std::move(failure_callback).Run(networking_private::kErrorNotSupported);
 }
 
-std::unique_ptr<base::ListValue>
-NetworkingPrivateServiceClient::GetEnabledNetworkTypes() {
-  auto network_list = std::make_unique<base::ListValue>();
-  network_list->AppendString(::onc::network_type::kWiFi);
+base::Value NetworkingPrivateServiceClient::GetEnabledNetworkTypes() {
+  base::Value network_list(base::Value::Type::LIST);
+  network_list.Append(::onc::network_type::kWiFi);
   return network_list;
 }
 
@@ -383,10 +382,10 @@ void NetworkingPrivateServiceClient::AfterGetProperties(
     std::unique_ptr<base::DictionaryValue> properties,
     const std::string* error) {
   if (!error->empty()) {
-    std::move(callback).Run(base::nullopt, *error);
+    std::move(callback).Run(absl::nullopt, *error);
     return;
   }
-  std::move(callback).Run(std::move(*properties), base::nullopt);
+  std::move(callback).Run(std::move(*properties), absl::nullopt);
 }
 
 void NetworkingPrivateServiceClient::AfterGetState(

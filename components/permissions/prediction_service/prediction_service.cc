@@ -24,10 +24,15 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 namespace {
 
-constexpr base::TimeDelta kURLLookupTimeout = base::TimeDelta::FromSeconds(2);
+constexpr base::TimeDelta kURLLookupTimeout = base::Seconds(2);
+
+constexpr float kRoundToMultiplesOf = 0.1f;
+
+constexpr int kCountBuckets[] = {20, 15, 12, 10, 9, 8, 7, 6, 5, 4};
 
 permissions::ClientFeatures_Gesture ConvertToProtoGesture(
     const permissions::PermissionRequestGestureType type) {
@@ -46,30 +51,22 @@ permissions::ClientFeatures_Gesture ConvertToProtoGesture(
   return permissions::ClientFeatures_Gesture_GESTURE_UNSPECIFIED;
 }
 
-inline float GetRatioRoundedToTwoDecimals(int numerator, int denominator) {
-  if (denominator == 0)
-    return 0;
-  return roundf(100.f * numerator / denominator) / 100.f;
-}
-
 void FillInStatsFeatures(
     const permissions::PredictionRequestFeatures::ActionCounts& counts,
     permissions::StatsFeatures* features) {
+  using PredictionService = permissions::PredictionService;
   int total_counts = counts.total();
 
   // Round to only 2 decimal places to help prevent fingerprinting.
   features->set_avg_deny_rate(
-      GetRatioRoundedToTwoDecimals(counts.denies, total_counts));
+      PredictionService::GetRoundedRatio(counts.denies, total_counts));
   features->set_avg_dismiss_rate(
-      GetRatioRoundedToTwoDecimals(counts.dismissals, total_counts));
+      PredictionService::GetRoundedRatio(counts.dismissals, total_counts));
   features->set_avg_grant_rate(
-      GetRatioRoundedToTwoDecimals(counts.grants, total_counts));
+      PredictionService::GetRoundedRatio(counts.grants, total_counts));
   features->set_avg_ignore_rate(
-      GetRatioRoundedToTwoDecimals(counts.ignores, total_counts));
-
-  // Prevent hyperspecific large counts from becoming usable to fingerprint
-  // users that see an unexpectedly large prompt count.
-  features->set_prompts_count(std::min(total_counts, 100));
+      PredictionService::GetRoundedRatio(counts.ignores, total_counts));
+  features->set_prompts_count(PredictionService::BucketizeValue(total_counts));
 }
 
 net::NetworkTrafficAnnotationTag GetTrafficAnnotationTag() {
@@ -201,11 +198,14 @@ PredictionService::GetPredictionRequestProto(
 
   switch (entity.type) {
     case RequestType::kNotifications:
-      permission_features->mutable_notification_permission()
-          ->Clear();
+      permission_features->mutable_notification_permission()->Clear();
+      break;
+    case RequestType::kGeolocation:
+      permission_features->mutable_geolocation_permission()->Clear();
       break;
     default:
-      NOTREACHED() << "CPSS only supports notifications at the moment.";
+      NOTREACHED()
+          << "CPSS only supports notifications and geolocation at the moment.";
   }
 
   return proto_request;
@@ -245,9 +245,9 @@ void PredictionService::OnURLLoaderComplete(
           CreatePredictionsResponse(loader, response_body.get());
 
       if (request.second) {
+        bool lookup_success = prediction_response != nullptr;
         std::move(request.second)
-            .Run(prediction_response != nullptr /* Lookup successful */,
-                 false /* Response from cache */,
+            .Run(lookup_success, false /* Response from cache */,
                  std::move(prediction_response));
       }
 
@@ -273,13 +273,34 @@ PredictionService::CreatePredictionsResponse(network::SimpleURLLoader* loader,
     return GeneratePredictionsResponseJsonToMessage(*response_body);
   }
 
-  std::unique_ptr<GeneratePredictionsResponse> predictions_response;
-  predictions_response = std::make_unique<GeneratePredictionsResponse>();
+  auto predictions_response = std::make_unique<GeneratePredictionsResponse>();
   if (!predictions_response->ParseFromString(*response_body)) {
     return nullptr;
   }
 
   return predictions_response;
+}
+
+// static
+float PredictionService::GetRoundedRatio(int numerator, int denominator) {
+  if (denominator == 0)
+    return 0;
+  return roundf(numerator / kRoundToMultiplesOf / denominator) *
+         kRoundToMultiplesOf;
+}
+
+// static
+int PredictionService::GetRoundedRatioForUkm(int numerator, int denominator) {
+  return GetRoundedRatio(numerator, denominator) * 100;
+}
+
+// static
+int PredictionService::BucketizeValue(int count) {
+  for (const int bucket : kCountBuckets) {
+    if (count >= bucket)
+      return bucket;
+  }
+  return 0;
 }
 
 }  // namespace permissions

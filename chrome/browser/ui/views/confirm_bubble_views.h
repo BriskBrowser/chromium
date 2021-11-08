@@ -9,7 +9,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 class ConfirmBubbleModel;
@@ -37,12 +37,10 @@ class ConfirmBubbleViews : public views::DialogDelegateView {
  protected:
   ~ConfirmBubbleViews() override;
 
-  // views::WidgetDelegate implementation.
-  base::string16 GetWindowTitle() const override;
+  // views::DialogDelegateView:
+  std::u16string GetWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
-
-  // views::DialogDelegateView implementation.
-  void OnDialogInitialized() override;
+  void OnWidgetInitialized() override;
 
  private:
   // The model to customize this bubble view.

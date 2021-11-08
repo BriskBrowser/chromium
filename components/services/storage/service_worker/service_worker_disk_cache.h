@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <memory>
 #include <set>
 #include <vector>
@@ -70,7 +71,6 @@ class ServiceWorkerDiskCache {
 
   // Initializes the object to use disk backed storage.
   net::Error InitWithDiskBackend(const base::FilePath& disk_cache_directory,
-                                 bool force,
                                  base::OnceClosure post_cleanup_callback,
                                  net::CompletionOnceCallback callback);
 
@@ -97,8 +97,6 @@ class ServiceWorkerDiskCache {
     is_waiting_to_initialize_ = is_waiting_to_initialize;
   }
 
-  disk_cache::Backend* disk_cache() { return disk_cache_.get(); }
-
  private:
   class CreateBackendCallbackShim;
   friend class ServiceWorkerDiskCacheEntry;
@@ -111,7 +109,6 @@ class ServiceWorkerDiskCache {
   net::Error Init(net::CacheType cache_type,
                   const base::FilePath& directory,
                   int64_t cache_size,
-                  bool force,
                   base::OnceClosure post_cleanup_callback,
                   net::CompletionOnceCallback callback);
   void OnCreateBackendComplete(int return_value);

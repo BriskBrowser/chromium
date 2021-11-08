@@ -5,10 +5,6 @@
 #ifndef CHROMEOS_COMPONENTS_PROXIMITY_AUTH_PROXIMITY_AUTH_LOCAL_STATE_PREF_MANAGER_H_
 #define CHROMEOS_COMPONENTS_PROXIMITY_AUTH_PROXIMITY_AUTH_LOCAL_STATE_PREF_MANAGER_H_
 
-#include <memory>
-#include <string>
-#include <vector>
-
 #include "base/macros.h"
 #include "chromeos/components/proximity_auth/proximity_auth_pref_manager.h"
 #include "components/account_id/account_id.h"
@@ -31,6 +27,12 @@ namespace proximity_auth {
 class ProximityAuthLocalStatePrefManager : public ProximityAuthPrefManager {
  public:
   explicit ProximityAuthLocalStatePrefManager(PrefService* local_state);
+
+  ProximityAuthLocalStatePrefManager(
+      const ProximityAuthLocalStatePrefManager&) = delete;
+  ProximityAuthLocalStatePrefManager& operator=(
+      const ProximityAuthLocalStatePrefManager&) = delete;
+
   ~ProximityAuthLocalStatePrefManager() override;
 
   // Registers the prefs used by this class to the given |pref_service|.
@@ -47,6 +49,7 @@ class ProximityAuthLocalStatePrefManager : public ProximityAuthPrefManager {
   bool IsEasyUnlockEnabledStateSet() const override;
   bool IsChromeOSLoginAllowed() const override;
   bool IsChromeOSLoginEnabled() const override;
+  bool IsSmartLockEligible() const override;
 
  private:
   // ProximityAuthPrefManager:
@@ -68,8 +71,6 @@ class ProximityAuthLocalStatePrefManager : public ProximityAuthPrefManager {
 
   // The account id of the active user for which to fetch the prefs.
   AccountId active_user_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProximityAuthLocalStatePrefManager);
 };
 
 }  // namespace proximity_auth

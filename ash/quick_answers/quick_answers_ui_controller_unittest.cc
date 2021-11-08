@@ -8,7 +8,6 @@
 #include "ash/quick_answers/quick_answers_controller_impl.h"
 #include "ash/quick_answers/quick_answers_ui_controller.h"
 #include "ash/test/ash_test_base.h"
-#include "base/test/scoped_feature_list.h"
 
 namespace ash {
 
@@ -21,10 +20,7 @@ constexpr gfx::Rect kDefaultAnchorBoundsInScreen =
 
 class QuickAnswersUiControllerTest : public AshTestBase {
  protected:
-  QuickAnswersUiControllerTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        chromeos::features::kQuickAnswers);
-  }
+  QuickAnswersUiControllerTest() = default;
   QuickAnswersUiControllerTest(const QuickAnswersUiControllerTest&) = delete;
   QuickAnswersUiControllerTest& operator=(const QuickAnswersUiControllerTest&) =
       delete;
@@ -44,21 +40,21 @@ class QuickAnswersUiControllerTest : public AshTestBase {
 
  private:
   QuickAnswersUiController* ui_controller_ = nullptr;
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 TEST_F(QuickAnswersUiControllerTest, TearDownWhileQuickAnswersViewShowing) {
   EXPECT_FALSE(ui_controller()->is_showing_quick_answers_view());
   ui_controller()->CreateQuickAnswersView(kDefaultAnchorBoundsInScreen,
-                                          "default_title", "default_query");
+                                          "default_title", "default_query",
+                                          /*is_internal=*/false);
   EXPECT_TRUE(ui_controller()->is_showing_quick_answers_view());
 }
 
-TEST_F(QuickAnswersUiControllerTest, TearDownWhileNoticeViewShowing) {
-  EXPECT_FALSE(ui_controller()->is_showing_user_notice_view());
-  ui_controller()->CreateUserNoticeView(kDefaultAnchorBoundsInScreen,
-                                        base::string16(), base::string16());
-  EXPECT_TRUE(ui_controller()->is_showing_user_notice_view());
+TEST_F(QuickAnswersUiControllerTest, TearDownWhileConsentViewShowing) {
+  EXPECT_FALSE(ui_controller()->is_showing_user_consent_view());
+  ui_controller()->CreateUserConsentView(kDefaultAnchorBoundsInScreen,
+                                         std::u16string(), std::u16string());
+  EXPECT_TRUE(ui_controller()->is_showing_user_consent_view());
 }
 
 }  // namespace ash

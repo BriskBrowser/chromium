@@ -37,12 +37,12 @@ class SyncInvalidationsServiceImpl : public SyncInvalidationsService {
   void RemoveListener(InvalidationsListener* listener) override;
   void AddTokenObserver(FCMRegistrationTokenObserver* observer) override;
   void RemoveTokenObserver(FCMRegistrationTokenObserver* observer) override;
-  base::Optional<std::string> GetFCMRegistrationToken() const override;
+  absl::optional<std::string> GetFCMRegistrationToken() const override;
   void SetInterestedDataTypesHandler(
       InterestedDataTypesHandler* handler) override;
-  base::Optional<ModelTypeSet> GetInterestedDataTypes() const override;
-  void SetInterestedDataTypes(
-      const ModelTypeSet& data_types,
+  absl::optional<ModelTypeSet> GetInterestedDataTypes() const override;
+  void SetInterestedDataTypes(const ModelTypeSet& data_types) override;
+  void SetCommittedAdditionalInterestedDataTypesCallback(
       InterestedDataTypesAppliedCallback callback) override;
 
   // KeyedService overrides.

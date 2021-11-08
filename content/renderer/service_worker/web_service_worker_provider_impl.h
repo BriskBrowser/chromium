@@ -33,6 +33,11 @@ class CONTENT_EXPORT WebServiceWorkerProviderImpl
     : public blink::WebServiceWorkerProvider {
  public:
   explicit WebServiceWorkerProviderImpl(ServiceWorkerProviderContext* context);
+
+  WebServiceWorkerProviderImpl(const WebServiceWorkerProviderImpl&) = delete;
+  WebServiceWorkerProviderImpl& operator=(const WebServiceWorkerProviderImpl&) =
+      delete;
+
   ~WebServiceWorkerProviderImpl() override;
 
   void SetClient(blink::WebServiceWorkerProviderClient* client) override;
@@ -70,20 +75,20 @@ class CONTENT_EXPORT WebServiceWorkerProviderImpl
   void OnRegistered(
       std::unique_ptr<WebServiceWorkerRegistrationCallbacks> callbacks,
       blink::mojom::ServiceWorkerErrorType error,
-      const base::Optional<std::string>& error_msg,
+      const absl::optional<std::string>& error_msg,
       blink::mojom::ServiceWorkerRegistrationObjectInfoPtr registration);
 
   void OnDidGetRegistration(
       std::unique_ptr<WebServiceWorkerGetRegistrationCallbacks> callbacks,
       blink::mojom::ServiceWorkerErrorType error,
-      const base::Optional<std::string>& error_msg,
+      const absl::optional<std::string>& error_msg,
       blink::mojom::ServiceWorkerRegistrationObjectInfoPtr registration);
 
   void OnDidGetRegistrations(
       std::unique_ptr<WebServiceWorkerGetRegistrationsCallbacks> callbacks,
       blink::mojom::ServiceWorkerErrorType error,
-      const base::Optional<std::string>& error_msg,
-      base::Optional<
+      const absl::optional<std::string>& error_msg,
+      absl::optional<
           std::vector<blink::mojom::ServiceWorkerRegistrationObjectInfoPtr>>
           infos);
 
@@ -99,8 +104,6 @@ class CONTENT_EXPORT WebServiceWorkerProviderImpl
   blink::WebServiceWorkerProviderClient* provider_client_;
 
   base::WeakPtrFactory<WebServiceWorkerProviderImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(WebServiceWorkerProviderImpl);
 };
 
 }  // namespace content

@@ -5,8 +5,6 @@
 #ifndef COMPONENTS_SYNC_TEST_ENGINE_SYNC_ENGINE_HOST_STUB_H_
 #define COMPONENTS_SYNC_TEST_ENGINE_SYNC_ENGINE_HOST_STUB_H_
 
-#include <string>
-
 #include "components/sync/engine/sync_engine_host.h"
 
 namespace syncer {
@@ -18,7 +16,6 @@ class SyncEngineHostStub : public SyncEngineHost {
 
   // SyncEngineHost implementation.
   void OnEngineInitialized(
-      const WeakHandle<JsBackend>& js_backend,
       const WeakHandle<DataTypeDebugInfoListener>& debug_info_listener,
       bool success,
       bool is_first_time_sync_configure) override;

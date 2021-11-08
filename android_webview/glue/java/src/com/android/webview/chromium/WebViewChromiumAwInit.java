@@ -10,6 +10,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Looper;
 import android.os.Process;
+import android.os.SystemClock;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
@@ -37,7 +38,6 @@ import org.chromium.android_webview.common.AwResource;
 import org.chromium.android_webview.common.AwSwitches;
 import org.chromium.android_webview.gfx.AwDrawFnImpl;
 import org.chromium.android_webview.variations.VariationsSeedLoader;
-import org.chromium.base.BuildConfig;
 import org.chromium.base.BuildInfo;
 import org.chromium.base.BundleUtils;
 import org.chromium.base.CommandLine;
@@ -51,6 +51,7 @@ import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.base.task.PostTask;
+import org.chromium.build.BuildConfig;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.ResourceBundle;
@@ -94,9 +95,21 @@ public class WebViewChromiumAwInit {
     private static final int INIT_FINISHED = 2;
     // Read/write protected by mLock
     private int mInitState;
-    private Looper mFirstWebViewConstructedOn;
 
     private final WebViewChromiumFactoryProvider mFactory;
+
+    // These values are persisted to logs. Entries should not be renumbered and
+    // numeric values should never be reused.
+    @IntDef({WebViewInitType.SYNC, WebViewInitType.ASYNC, WebViewInitType.BOTH})
+    private @interface WebViewInitType {
+        int SYNC = 0;
+        int ASYNC = 1;
+        int BOTH = 2;
+        int COUNT = 3;
+    }
+
+    private boolean mIsInitializedFromUIThread;
+    private boolean mIsPostedFromBackgroundThread;
 
     WebViewChromiumAwInit(WebViewChromiumFactoryProvider factory) {
         mFactory = factory;
@@ -131,6 +144,7 @@ public class WebViewChromiumAwInit {
     private static final int DIR_RESOURCE_PAKS_ANDROID = 3003;
 
     protected void startChromiumLocked() {
+        long startTime = SystemClock.uptimeMillis();
         try (ScopedSysTraceEvent event =
                         ScopedSysTraceEvent.scoped("WebViewChromiumAwInit.startChromiumLocked")) {
             assert Thread.holdsLock(mLock) && ThreadUtils.runningOnUiThread();
@@ -142,6 +156,17 @@ public class WebViewChromiumAwInit {
             if (mInitState == INIT_FINISHED) {
                 return;
             }
+
+            @WebViewInitType
+            int type;
+            if (mIsPostedFromBackgroundThread) {
+                type = mIsInitializedFromUIThread ? WebViewInitType.BOTH : WebViewInitType.ASYNC;
+            } else {
+                type = WebViewInitType.SYNC;
+            }
+
+            RecordHistogram.recordEnumeratedHistogram(
+                    "Android.WebView.Startup.InitType", type, WebViewInitType.COUNT);
 
             final Context context = ContextUtils.getApplicationContext();
 
@@ -178,6 +203,11 @@ public class WebViewChromiumAwInit {
             AwBrowserProcess.start();
             AwBrowserProcess.handleMinidumpsAndSetMetricsConsent(true /* updateMetricsConsent */);
 
+            // This has to be done after variations are initialized, so components could be
+            // registered or not depending on the variations flags.
+            AwBrowserProcess.loadComponents();
+            AwBrowserProcess.initializeMetricsLogUploader();
+
             mSharedStatics = new SharedStatics();
             if (BuildInfo.isDebugAndroid()) {
                 mSharedStatics.setWebContentsDebuggingEnabledUnconditionally(true);
@@ -207,6 +237,9 @@ public class WebViewChromiumAwInit {
                 logCommandLineAndActiveTrials();
             }
         }
+        RecordHistogram.recordTimesHistogram(
+                "Android.WebView.Startup.CreationTime.StartChromiumLocked",
+                SystemClock.uptimeMillis() - startTime);
     }
 
     /**
@@ -249,32 +282,6 @@ public class WebViewChromiumAwInit {
         }
     }
 
-    // Only called for apps which target <JB MR2, and which construct WebView on a non-main thread.
-    void setFirstWebViewConstructedOn(Looper looper) {
-        synchronized (mLock) {
-            if (mInitState != INIT_FINISHED && mFirstWebViewConstructedOn == null) {
-                mFirstWebViewConstructedOn = looper;
-            }
-        }
-    }
-
-    // Used to record the UMA histogram Android.WebView.ActualUiThread. Since these values are
-    // persisted to logs, they should never be renumbered or reused.
-    @IntDef({ActualUiThread.FIRST_WEBVIEW_CONSTRUCTED, ActualUiThread.MAIN_LOOPER,
-            ActualUiThread.OTHER})
-    @interface ActualUiThread {
-        int FIRST_WEBVIEW_CONSTRUCTED = 0;
-        int MAIN_LOOPER = 1;
-        int OTHER = 2;
-
-        int COUNT = 3;
-    }
-
-    private static void recordActualUiThread(@ActualUiThread int value) {
-        RecordHistogram.recordEnumeratedHistogram(
-                "Android.WebView.ActualUiThread", value, ActualUiThread.COUNT);
-    }
-
     boolean hasStarted() {
         return mInitState == INIT_FINISHED;
     }
@@ -306,9 +313,12 @@ public class WebViewChromiumAwInit {
             // If we are currently running on the UI thread then we must do init now. If there was
             // already a task posted to the UI thread from another thread to do it, it will just
             // no-op when it runs.
+            mIsInitializedFromUIThread = true;
             startChromiumLocked();
             return;
         }
+
+        mIsPostedFromBackgroundThread = true;
 
         // If we're not running on the UI thread (because init was triggered by a thread-safe
         // function), post init to the UI thread, since init is *not* thread-safe.
@@ -347,23 +357,6 @@ public class WebViewChromiumAwInit {
                         + (Looper.getMainLooper().equals(looper) ? "main" : "background")
                         + " looper " + looper);
         ThreadUtils.setUiThread(looper);
-
-        // For apps targeting <JBMR2 which aren't required to commit to a thread in
-        // WebViewChromium.init, record a metric stating which thread we picked.
-        if (mFirstWebViewConstructedOn != null) {
-            if (looper == mFirstWebViewConstructedOn) {
-                // Using the same thread that the first WebView was constructed on.
-                recordActualUiThread(ActualUiThread.FIRST_WEBVIEW_CONSTRUCTED);
-            } else if (looper == Looper.getMainLooper()) {
-                // Using the main looper.
-                recordActualUiThread(ActualUiThread.MAIN_LOOPER);
-            } else {
-                // Using some other thread.
-                recordActualUiThread(ActualUiThread.OTHER);
-            }
-            // Reset to null to avoid leaking the app's looper.
-            mFirstWebViewConstructedOn = null;
-        }
     }
 
     private void initPlatSupportLibrary() {
@@ -406,7 +399,7 @@ public class WebViewChromiumAwInit {
     AwBrowserContext getBrowserContextOnUiThread() {
         assert mInitState == INIT_FINISHED;
 
-        if (BuildConfig.DCHECK_IS_ON && !ThreadUtils.runningOnUiThread()) {
+        if (BuildConfig.ENABLE_ASSERTS && !ThreadUtils.runningOnUiThread()) {
             throw new RuntimeException(
                     "getBrowserContextOnUiThread called on " + Thread.currentThread());
         }

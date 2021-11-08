@@ -16,6 +16,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.util.Pair;
 import android.webkit.WebResourceResponse;
 
 import androidx.test.filters.SmallTest;
@@ -40,6 +41,8 @@ import org.chromium.weblayer.Navigation;
 import org.chromium.weblayer.NavigationCallback;
 import org.chromium.weblayer.NavigationController;
 import org.chromium.weblayer.NavigationState;
+import org.chromium.weblayer.NewTabCallback;
+import org.chromium.weblayer.Page;
 import org.chromium.weblayer.Tab;
 import org.chromium.weblayer.TabCallback;
 import org.chromium.weblayer.TabListCallback;
@@ -72,6 +75,8 @@ public class NavigationTest {
     private static final String URL2 = "data:text,bar";
     private static final String URL3 = "data:text,baz";
     private static final String URL4 = "data:text,bat";
+    private static final String ENGLISH_PAGE = "english_page.html";
+    private static final String FRENCH_PAGE = "french_page.html";
     private static final String STREAM_URL = "https://doesntreallyexist123.com/bar";
     private static final String STREAM_HTML = "<html>foobar</html>";
     private static final String STREAM_INNER_BODY = "foobar";
@@ -79,9 +84,10 @@ public class NavigationTest {
     // A URL with a custom scheme/host that is handled by WebLayer Shell.
     private static final String CUSTOM_SCHEME_URL_WITH_DEFAULT_EXTERNAL_HANDLER =
             "weblayer://weblayertest/intent";
-    // An intent that opens Chrome to view a specified URL.
-    private static final String INTENT_TO_CHROME_URL =
-            "intent://play.google.com/store/apps/details?id=com.facebook.katana/#Intent;scheme=https;action=android.intent.action.VIEW;package=com.android.chrome;end";
+    // An intent that sends an url with a custom scheme that is handled by WebLayer Shell.
+    private static final String INTENT_TO_CUSTOM_SCHEME_URL =
+            "intent://weblayertest/intent#Intent;scheme=weblayer;"
+            + "action=android.intent.action.VIEW;end";
 
     // An IntentInterceptor that simply drops intents to ensure that intent launches don't interfere
     // with running of tests.
@@ -90,19 +96,39 @@ public class NavigationTest {
         public void interceptIntent(Intent intent, int requestCode, Bundle options) {}
     }
 
+    private <E extends Throwable> void assertThrows(Class<E> exceptionType, Runnable runnable) {
+        Throwable actualException = null;
+        try {
+            runnable.run();
+        } catch (Throwable e) {
+            actualException = e;
+        }
+        assertNotNull("Exception not thrown", actualException);
+        assertEquals(exceptionType, actualException.getClass());
+    }
+
     private class Callback extends NavigationCallback {
         public class NavigationCallbackHelper extends CallbackHelper {
             private Uri mUri;
             private boolean mIsSameDocument;
             private int mHttpStatusCode;
+            private Map<String, String> mResponseHeaders;
             private List<Uri> mRedirectChain;
             private @LoadError int mLoadError;
             private @NavigationState int mNavigationState;
             private boolean mIsKnownProtocol;
             private boolean mIsPageInitiatedNavigation;
             private boolean mIsServedFromBackForwardCache;
+            private boolean mIsFormSubmission;
+            private Uri mReferrer;
+            private Page mPage;
+            private int mNavigationEntryOffset;
 
             public void notifyCalled(Navigation navigation) {
+                notifyCalled(navigation, false);
+            }
+
+            public void notifyCalled(Navigation navigation, boolean getPage) {
                 mUri = navigation.getUri();
                 mIsSameDocument = navigation.isSameDocument();
                 mHttpStatusCode = navigation.getHttpStatusCode();
@@ -115,6 +141,19 @@ public class NavigationTest {
                 if (majorVersion >= 89) {
                     mIsKnownProtocol = navigation.isKnownProtocol();
                     mIsServedFromBackForwardCache = navigation.isServedFromBackForwardCache();
+                }
+                if (majorVersion >= 90) {
+                    mIsFormSubmission = navigation.isFormSubmission();
+                    mReferrer = navigation.getReferrer();
+                    if (getPage) {
+                        mPage = navigation.getPage();
+                    }
+                }
+                if (majorVersion >= 91) {
+                    mResponseHeaders = navigation.getResponseHeaders();
+                }
+                if (majorVersion >= 92) {
+                    mNavigationEntryOffset = navigation.getNavigationEntryOffset();
                 }
                 notifyCalled();
             }
@@ -148,6 +187,10 @@ public class NavigationTest {
                 return mHttpStatusCode;
             }
 
+            public Map<String, String> getResponseHeaders() {
+                return mResponseHeaders;
+            }
+
             @NavigationState
             public int getNavigationState() {
                 return mNavigationState;
@@ -164,6 +207,22 @@ public class NavigationTest {
             public boolean isPageInitiated() {
                 return mIsPageInitiatedNavigation;
             }
+
+            public boolean isFormSubmission() {
+                return mIsFormSubmission;
+            }
+
+            public Uri getReferrer() {
+                return mReferrer;
+            }
+
+            public Page getPage() {
+                return mPage;
+            }
+
+            public int getNavigationEntryOffset() {
+                return mNavigationEntryOffset;
+            }
         }
 
         public class UriCallbackHelper extends CallbackHelper {
@@ -176,6 +235,24 @@ public class NavigationTest {
 
             public Uri getUri() {
                 return mUri;
+            }
+        }
+
+        public class PageCallbackHelper extends CallbackHelper {
+            private Page mPage;
+
+            public void notifyCalled(Page page) {
+                mPage = page;
+                notifyCalled();
+            }
+
+            public Page getPage() {
+                return mPage;
+            }
+
+            public void assertCalledWith(int currentCallCount, Page page) throws TimeoutException {
+                waitForCallback(currentCallCount);
+                assertEquals(mPage, page);
             }
         }
 
@@ -235,6 +312,25 @@ public class NavigationTest {
             }
         }
 
+        public class PageLanguageDeterminedCallbackHelper extends CallbackHelper {
+            private Page mPage;
+            private String mLanguage;
+
+            public void notifyCalled(Page page, String language) {
+                mPage = page;
+                mLanguage = language;
+                notifyCalled();
+            }
+
+            public Page getPage() {
+                return mPage;
+            }
+
+            public String getLanguage() {
+                return mLanguage;
+            }
+        }
+
         public NavigationCallbackHelper onStartedCallback = new NavigationCallbackHelper();
         public NavigationCallbackHelper onRedirectedCallback = new NavigationCallbackHelper();
         public NavigationCallbackHelper onCompletedCallback = new NavigationCallbackHelper();
@@ -249,6 +345,9 @@ public class NavigationTest {
         public LargestContentfulPaintCallbackHelper onLargestContentfulPaintCallback =
                 new LargestContentfulPaintCallbackHelper();
         public UriCallbackHelper onOldPageNoLongerRenderedCallback = new UriCallbackHelper();
+        public PageCallbackHelper onPageDestroyedCallback = new PageCallbackHelper();
+        public PageLanguageDeterminedCallbackHelper onPageLanguageDeterminedCallback =
+                new PageLanguageDeterminedCallbackHelper();
 
         @Override
         public void onNavigationStarted(Navigation navigation) {
@@ -262,7 +361,7 @@ public class NavigationTest {
 
         @Override
         public void onNavigationCompleted(Navigation navigation) {
-            onCompletedCallback.notifyCalled(navigation);
+            onCompletedCallback.notifyCalled(navigation, true);
         }
 
         @Override
@@ -304,6 +403,16 @@ public class NavigationTest {
         public void onLoadProgressChanged(double progress) {
             loadProgressChangedCallback.recordValue(
                     progress == 1 ? "load complete" : "load started");
+        }
+
+        @Override
+        public void onPageDestroyed(Page page) {
+            onPageDestroyedCallback.notifyCalled(page);
+        }
+
+        @Override
+        public void onPageLanguageDetermined(Page page, String language) {
+            onPageLanguageDeterminedCallback.notifyCalled(page, language);
         }
     }
 
@@ -544,6 +653,95 @@ public class NavigationTest {
                 curRedirectedCount, Arrays.asList(Uri.parse(url), Uri.parse(finalUrl)));
     }
 
+    /**
+     * This test verifies that calling getPage() from within onNavigationFailed for a
+     * navigation that results in an error page returns a non-null Page object, and that an
+     * onPageDestroyed() callback is triggered for that page when the user navigates away.
+     */
+    @MinWebLayerVersion(93)
+    @Test
+    @SmallTest
+    public void testPageCallbacksForNavigationResultingInErrorPage() throws Throwable {
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(null);
+        CallbackHelper navigationFailedCallbackHelper = new CallbackHelper();
+        CallbackHelper pageDestroyedCallbackHelper = new CallbackHelper();
+        final Page[] pageForFailedNavigation = {null};
+        runOnUiThreadBlocking(() -> {
+            NavigationController navigationController = activity.getTab().getNavigationController();
+            navigationController.registerNavigationCallback(new NavigationCallback() {
+                @Override
+                public void onNavigationFailed(Navigation navigation) {
+                    assertTrue(navigation.isErrorPage());
+                    pageForFailedNavigation[0] = navigation.getPage();
+                    assertNotNull(pageForFailedNavigation[0]);
+                    navigationFailedCallbackHelper.notifyCalled();
+                }
+                @Override
+                public void onPageDestroyed(Page page) {
+                    assertEquals(pageForFailedNavigation[0], page);
+                    navigationController.unregisterNavigationCallback(this);
+                    pageDestroyedCallbackHelper.notifyCalled();
+                }
+            });
+        });
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            // Do a navigation that will result in an error page.
+            activity.getTab().getNavigationController().navigate(
+                    Uri.parse("http://localhost:7/non_existent"));
+        });
+        navigationFailedCallbackHelper.waitForFirst();
+
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { activity.getTab().getNavigationController().navigate(Uri.parse(URL1)); });
+        pageDestroyedCallbackHelper.waitForFirst();
+    }
+
+    /**
+     * This test verifies that initial renderer-initiated navigations to about:blank in WebLayer get
+     * marked as failing due to the fact that such navigations are not committed within //content.
+     * It additionally verifies that calling Navigation#getPage() on such a failed navigation raises
+     * an exception rather than crashing the browser (regression test for crbug.com/1233480).
+     */
+    @MinWebLayerVersion(96)
+    @Test
+    @SmallTest
+    public void testInitialRendererInitiatedNavigationToAboutBlankFails() throws Exception {
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(URL1);
+
+        // Setup a callback for when the navigation in a new tab fails.
+        CallbackHelper callbackHelper = new CallbackHelper();
+        NewTabCallback newTabCallback = new NewTabCallback() {
+            @Override
+            public void onNewTab(Tab tab, int mode) {
+                NavigationController navigationController = tab.getNavigationController();
+                navigationController.registerNavigationCallback(new NavigationCallback() {
+                    @Override
+                    public void onNavigationFailed(Navigation navigation) {
+                        assertEquals(NavigationState.FAILED, navigation.getState());
+
+                        // Calling Navigation#getPage() should throw an exception here because the
+                        // navigation has not committed.
+                        assertThrows(IllegalStateException.class, () -> { navigation.getPage(); });
+
+                        navigationController.unregisterNavigationCallback(this);
+                        callbackHelper.notifyCalled();
+                    }
+                });
+            }
+        };
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { activity.getBrowser().getActiveTab().setNewTabCallback(newTabCallback); });
+
+        // Click on the document to invoke window.open(), which results in a renderer-initiated
+        // navigation to about:blank in a new tab.
+        mActivityTestRule.executeScriptSync(
+                "document.onclick = () => window.open();", true /* useSeparateIsolate */);
+        EventUtils.simulateTouchCenterOfView(activity.getWindow().getDecorView());
+
+        callbackHelper.waitForFirst();
+    }
+
     @Test
     @SmallTest
     public void testNavigationList() throws Exception {
@@ -617,7 +815,7 @@ public class NavigationTest {
         assertEquals(true, mCallback.onCompletedCallback.isKnownProtocol());
 
         // Test external protocol cases.
-        mActivityTestRule.navigateAndWaitForFailure(activity.getTab(), INTENT_TO_CHROME_URL,
+        mActivityTestRule.navigateAndWaitForFailure(activity.getTab(), INTENT_TO_CUSTOM_SCHEME_URL,
                 /*waitForPaint=*/false);
         assertEquals(false, mCallback.onStartedCallback.isKnownProtocol());
         assertEquals(false, mCallback.onFailedCallback.isKnownProtocol());
@@ -1099,10 +1297,10 @@ public class NavigationTest {
     }
 
     private void navigateToStream(InstrumentationActivity activity, String mimeType,
-            String cacheControl) throws Exception {
+            String cacheControl, String html) throws Exception {
         int curOnFirstContentfulPaintCount =
                 mCallback.onFirstContentfulPaintCallback.getCallCount();
-        InputStream stream = new ByteArrayInputStream(STREAM_HTML.getBytes(StandardCharsets.UTF_8));
+        InputStream stream = new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8));
         WebResourceResponse response = new WebResourceResponse(mimeType, "UTF-8", stream);
         if (cacheControl != null) {
             Map<String, String> headers = new HashMap<>();
@@ -1116,6 +1314,11 @@ public class NavigationTest {
                         -> activity.getTab().getNavigationController().navigate(
                                 Uri.parse(STREAM_URL), params));
         mCallback.onFirstContentfulPaintCallback.waitForCallback(curOnFirstContentfulPaintCount);
+    }
+
+    private void navigateToStream(InstrumentationActivity activity, String mimeType,
+            String cacheControl) throws Exception {
+        navigateToStream(activity, mimeType, cacheControl, STREAM_HTML);
     }
 
     private void assertStreamContent() throws Exception {
@@ -1218,6 +1421,7 @@ public class NavigationTest {
                 curFailedCount, STREAM_URL, LoadError.CONNECTIVITY_ERROR);
     }
 
+    @DisabledTest(message = "https://crbug.com/1238151")
     @Test
     @SmallTest
     public void testWebResponseExpired() throws Exception {
@@ -1235,6 +1439,39 @@ public class NavigationTest {
         runOnUiThreadBlocking(() -> { activity.getTab().getNavigationController().goBack(); });
         mCallback.onFailedCallback.assertCalledWith(
                 curFailedCount, STREAM_URL, LoadError.CONNECTIVITY_ERROR);
+    }
+
+    // Verifies that a request which uses a stream can still set the user agent that is used for
+    // subresources.
+    @Test
+    @SmallTest
+    // The flags are necessary for the following reasons:
+    // ignore-certificate-errors: TestWebServer doesn't have a real cert.
+    @CommandLineFlags.Add({"ignore-certificate-errors"})
+    public void testWebResponseWithUserAgent() throws Exception {
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(URL1);
+        TestThreadUtils.runOnUiThreadBlocking(() -> { activity.getBrowser().setTopView(null); });
+        setNavigationCallback(activity);
+
+        // Avoid mixed http/https errors since the stream url is https.
+        TestWebServer testServer = TestWebServer.startSsl();
+        String scriptUrl = testServer.setResponse("/foo.js", "", null);
+        String streamHtml = "<html><script src='" + scriptUrl + "'/>bar</html>";
+
+        String customUserAgent = "custom-ua";
+        UserAgentSetter setter = new UserAgentSetter(customUserAgent);
+        registerNavigationCallback(setter);
+
+        navigateToStream(activity, "", null, streamHtml);
+
+        // Ensure the script is fetched.
+        CriteriaHelper.pollInstrumentationThread(
+                ()
+                        -> Criteria.checkThat(
+                                testServer.getLastRequest("/foo.js"), Matchers.notNullValue()));
+
+        String actualUserAgent = testServer.getLastRequest("/foo.js").headerValue("User-Agent");
+        assertEquals(customUserAgent, actualUserAgent);
     }
 
     @MinWebLayerVersion(88)
@@ -1292,11 +1529,13 @@ public class NavigationTest {
         Assert.assertTrue(largestContentfulPaint <= (current - navigationStart));
     }
 
+    /* Disable BackForwardCacheMemoryControls to allow BackForwardCache for all devices regardless
+     * of their memory. */
     @MinWebLayerVersion(89)
     @Test
     @SmallTest
-    @CommandLineFlags.Add("enable-features=BackForwardCache")
-    @DisabledTest(message = "https://crbug.com/1172938")
+    @CommandLineFlags.
+    Add({"enable-features=BackForwardCache", "disable-features=BackForwardCacheMemoryControls"})
     public void testServedFromBackForwardCache() throws Exception {
         TestWebServer testServer = TestWebServer.start();
         InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(null);
@@ -1314,5 +1553,174 @@ public class NavigationTest {
         navigateAndWaitForCompletion(
                 url, () -> { activity.getTab().getNavigationController().goBack(); });
         Assert.assertTrue(mCallback.onStartedCallback.isServedFromBackForwardCache());
+    }
+
+    @MinWebLayerVersion(90)
+    @Test
+    @SmallTest
+    public void testIsFormSubmission() throws Exception {
+        InstrumentationActivity activity =
+                mActivityTestRule.launchShellWithUrl(mActivityTestRule.getTestDataURL("form.html"));
+        setNavigationCallback(activity);
+
+        // Touch the page; this should submit the form.
+        int currentCallCount = mCallback.onStartedCallback.getCallCount();
+        EventUtils.simulateTouchCenterOfView(activity.getWindow().getDecorView());
+
+        mCallback.onStartedCallback.waitForCallback(currentCallCount);
+        assertEquals(true, mCallback.onStartedCallback.isFormSubmission());
+    }
+
+    @MinWebLayerVersion(90)
+    @Test
+    @SmallTest
+    public void testGetReferrer() throws Exception {
+        TestWebServer testServer = TestWebServer.start();
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(null);
+        setNavigationCallback(activity);
+        String referrer = "http://foo.com/";
+        NavigationCallback navigationCallback = new NavigationCallback() {
+            @Override
+            public void onNavigationStarted(Navigation navigation) {
+                try {
+                    navigation.setRequestHeader("Referer", referrer);
+                } catch (IllegalStateException e) {
+                }
+            }
+        };
+
+        registerNavigationCallback(navigationCallback);
+        int currentCallCount = mCallback.onCompletedCallback.getCallCount();
+        String url = testServer.setResponse("/ok.html", "<html>ok</html>", null);
+        mActivityTestRule.navigateAndWait(url);
+        mCallback.onCompletedCallback.waitForCallback(currentCallCount);
+        assertEquals(referrer, mCallback.onCompletedCallback.getReferrer().toString());
+    }
+
+    /* Disable BackForwardCacheMemoryControls to allow BackForwardCache for all devices regardless
+     * of their memory. */
+    @MinWebLayerVersion(90)
+    @Test
+    @SmallTest
+    @CommandLineFlags.
+    Add({"enable-features=BackForwardCache", "disable-features=BackForwardCacheMemoryControls"})
+    public void testPageApi() throws Exception {
+        TestWebServer testServer = TestWebServer.start();
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(null);
+        setNavigationCallback(activity);
+
+        String url1 = mActivityTestRule.getTestServer().getURL("/echo");
+        navigateAndWaitForCompletion(url1,
+                () -> { activity.getTab().getNavigationController().navigate(Uri.parse(url1)); });
+        Page page1 = mCallback.onCompletedCallback.getPage();
+
+        // Ensure the second page doesn't go into bfcache so that we can observe its Page object
+        // being destroyed.
+        List<Pair<String, String>> headers =
+                Collections.singletonList(Pair.create("Cache-Control", "no-store"));
+        String url2 = testServer.setResponse("/ok.html", "<html>ok</html>", headers);
+        mActivityTestRule.navigateAndWait(url2);
+        Page page2 = mCallback.onCompletedCallback.getPage();
+        assertNotEquals(page1, page2);
+
+        int curOnPageDestroyedCount = mCallback.onPageDestroyedCallback.getCallCount();
+
+        navigateAndWaitForCompletion(
+                url1, () -> { activity.getTab().getNavigationController().goBack(); });
+        Assert.assertTrue(mCallback.onCompletedCallback.isServedFromBackForwardCache());
+        Page page3 = mCallback.onCompletedCallback.getPage();
+        assertEquals(page1, page3);
+
+        mCallback.onPageDestroyedCallback.assertCalledWith(curOnPageDestroyedCount, page2);
+    }
+
+    @MinWebLayerVersion(91)
+    @Test
+    @SmallTest
+    public void testResponseHeaders() throws Exception {
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(null);
+        setNavigationCallback(activity);
+
+        int curCompletedCount = mCallback.onCompletedCallback.getCallCount();
+
+        String url = mActivityTestRule.getTestServer().getURL("/echo");
+        mActivityTestRule.navigateAndWait(url);
+
+        mCallback.onCompletedCallback.assertCalledWith(curCompletedCount, url);
+
+        Map<String, String> headers = mCallback.onCompletedCallback.getResponseHeaders();
+        assertEquals(headers.get("Content-Type"), "text/html");
+    }
+
+    @MinWebLayerVersion(92)
+    @Test
+    @SmallTest
+    public void testGetNavigationEntryOffset() throws Exception {
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(URL1);
+        setNavigationCallback(activity);
+
+        mActivityTestRule.navigateAndWait(URL2);
+        assertEquals(1, mCallback.onCompletedCallback.getNavigationEntryOffset());
+
+        mActivityTestRule.navigateAndWait(URL3);
+        assertEquals(1, mCallback.onCompletedCallback.getNavigationEntryOffset());
+
+        NavigationController navigationController =
+                runOnUiThreadBlocking(() -> activity.getTab().getNavigationController());
+
+        navigateAndWaitForCompletion(URL2, () -> navigationController.goBack());
+        assertEquals(-1, mCallback.onCompletedCallback.getNavigationEntryOffset());
+
+        navigateAndWaitForCompletion(URL3, () -> navigationController.goForward());
+        assertEquals(1, mCallback.onCompletedCallback.getNavigationEntryOffset());
+
+        navigateAndWaitForCompletion(URL3, () -> navigationController.reload());
+        assertEquals(0, mCallback.onCompletedCallback.getNavigationEntryOffset());
+
+        navigateAndWaitForCompletion(URL1, () -> navigationController.goToIndex(0));
+        assertEquals(-2, mCallback.onCompletedCallback.getNavigationEntryOffset());
+
+        navigateAndWaitForCompletion(URL3, () -> navigationController.goToIndex(2));
+        assertEquals(2, mCallback.onCompletedCallback.getNavigationEntryOffset());
+    }
+
+    @MinWebLayerVersion(93)
+    @Test
+    @SmallTest
+    public void testOnPageLanguageDetermined() throws Exception {
+        TestWebServer testServer = TestWebServer.start();
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(null);
+        setNavigationCallback(activity);
+
+        int curLanguageDeterminedCount = mCallback.onPageLanguageDeterminedCallback.getCallCount();
+
+        // Navigate to a page in English.
+        String url = mActivityTestRule.getTestDataURL(ENGLISH_PAGE);
+        mActivityTestRule.navigateAndWait(url);
+
+        Page committedPage = mCallback.onCompletedCallback.getPage();
+        assertNotNull(committedPage);
+
+        // Verify that the language determined callback is fired as expected.
+        mCallback.onPageLanguageDeterminedCallback.waitForCallback(curLanguageDeterminedCount);
+
+        assertEquals(committedPage, mCallback.onPageLanguageDeterminedCallback.getPage());
+        assertEquals("en", mCallback.onPageLanguageDeterminedCallback.getLanguage());
+
+        // Now navigate to a page in French.
+        committedPage = null;
+        curLanguageDeterminedCount = mCallback.onPageLanguageDeterminedCallback.getCallCount();
+
+        url = mActivityTestRule.getTestDataURL(FRENCH_PAGE);
+        mActivityTestRule.navigateAndWait(url);
+
+        committedPage = mCallback.onCompletedCallback.getPage();
+        assertNotNull(committedPage);
+
+        // Verify that the language determined callback is fired as expected.
+        mCallback.onPageLanguageDeterminedCallback.waitForCallback(curLanguageDeterminedCount);
+
+        assertEquals(committedPage, mCallback.onPageLanguageDeterminedCallback.getPage());
+        assertEquals("fr", mCallback.onPageLanguageDeterminedCallback.getLanguage());
     }
 }

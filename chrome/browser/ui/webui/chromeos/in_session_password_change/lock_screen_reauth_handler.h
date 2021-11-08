@@ -7,6 +7,8 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
+// TODO(https://crbug.com/1164001): move to forward declaration.
+#include "chrome/browser/ash/login/saml/in_session_password_sync_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/online_login_helper.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "net/cookies/cookie_access_result.h"
@@ -20,13 +22,28 @@ class LockScreenReauthHandler : public content::WebUIMessageHandler {
 
   void RegisterMessages() override;
 
+  void ShowPasswordChangedScreen();
+
   // WebUI message handlers.
   void HandleInitialize(const base::ListValue*);
   void HandleCompleteAuthentication(const base::ListValue*);
-
   void HandleAuthenticatorLoaded(const base::ListValue*);
+  void HandleUpdateUserPassword(const base::ListValue*);
+
+  bool IsAuthenticatorLoaded(base::OnceClosure callback);
+  bool IsJsReadyForTesting(base::OnceClosure js_ready_callback);
+
+  void force_saml_redirect_for_testing() {
+    force_saml_redirect_for_testing_ = true;
+  }
 
  private:
+  enum class AuthenticatorState {
+    NOT_LOADED,
+    LOADING,
+    LOADED
+  };
+
   void LoadAuthenticatorParam();
 
   void LoadGaia(const login::GaiaContext& context);
@@ -43,15 +60,26 @@ class LockScreenReauthHandler : public content::WebUIMessageHandler {
 
   void OnCookieWaitTimeout();
 
+  void OnReauthDialogReadyForTesting();
+
   void CheckCredentials(const UserContext& user_context);
 
-  // True if the authenticator is still loading.
-  bool authenticator_being_loaded_ = false;
+  void UpdateOrientationAndWidth();
+
+  void CallJavascript(const std::string& function,
+                      const base::Value& params);
+
+  AuthenticatorState authenticator_state_ = AuthenticatorState::NOT_LOADED;
+
+  // For testing only. Forces SAML redirect regardless of email.
+  bool force_saml_redirect_for_testing_ = false;
 
   // User non-canonicalized email for display
   std::string email_;
 
   std::string signin_partition_name_;
+
+  InSessionPasswordSyncManager* password_sync_manager_ = nullptr;
 
   std::unique_ptr<UserContext> pending_user_context_;
 
@@ -60,9 +88,18 @@ class LockScreenReauthHandler : public content::WebUIMessageHandler {
 
   std::unique_ptr<OnlineLoginHelper> online_login_helper_;
 
+  // A test may be waiting for the authenticator to load.
+  base::OnceClosure waiting_caller_;
+
   base::WeakPtrFactory<LockScreenReauthHandler> weak_factory_{this};
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::LockScreenReauthHandler;
+}
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CHROMEOS_IN_SESSION_PASSWORD_CHANGE_LOCK_SCREEN_REAUTH_HANDLER_H_

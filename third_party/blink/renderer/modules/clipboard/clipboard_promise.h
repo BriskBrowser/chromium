@@ -42,6 +42,10 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
                                           const String&);
 
   ClipboardPromise(ExecutionContext*, ScriptState*);
+
+  ClipboardPromise(const ClipboardPromise&) = delete;
+  ClipboardPromise& operator=(const ClipboardPromise&) = delete;
+
   ~ClipboardPromise() override;
 
   // Completes current write and starts next write.
@@ -74,7 +78,6 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
 
   void OnReadAvailableFormatNames(const Vector<String>& format_names);
   void ReadNextRepresentation();
-  void OnRawRead(mojo_base::BigBuffer data);
   void ResolveRead();
 
   // Checks for permissions (interacting with PermissionService).
@@ -95,22 +98,19 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
   Member<ClipboardWriter> clipboard_writer_;
 
   // Checks for Read and Write permission.
-  HeapMojoRemote<mojom::blink::PermissionService,
-                 HeapMojoWrapperMode::kWithoutContextObserver>
-      permission_service_;
+  HeapMojoRemote<mojom::blink::PermissionService> permission_service_;
 
   // Only for use in writeText().
   String plain_text_;
   HeapVector<std::pair<String, Member<Blob>>> clipboard_item_data_;
-  bool is_raw_;  // Corresponds to allowWithoutSanitization in ClipboardItem.
   // Index of clipboard representation currently being processed.
   wtf_size_t clipboard_representation_index_;
+  // Stores all the custom formats defined in `ClipboardItemOptions`.
+  Vector<String> custom_format_items_;
 
   // Because v8 is thread-hostile, ensures that all interactions with
   // ScriptState and ScriptPromiseResolver occur on the main thread.
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(ClipboardPromise);
 };
 
 }  // namespace blink

@@ -17,6 +17,10 @@ class JniHdrMetadata {
  public:
   JniHdrMetadata(const VideoColorSpace& color_space,
                  const gfx::HDRMetadata& hdr_metadata);
+
+  JniHdrMetadata(const JniHdrMetadata&) = delete;
+  JniHdrMetadata& operator=(const JniHdrMetadata&) = delete;
+
   ~JniHdrMetadata();
 
   base::android::ScopedJavaLocalRef<jobject> obj() { return jobject_; }
@@ -46,10 +50,12 @@ class JniHdrMetadata {
   jfloat WhitePointChromaticityY(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
-  jfloat MaxMasteringLuminance(JNIEnv* env,
-                               const base::android::JavaParamRef<jobject>& obj);
-  jfloat MinMasteringLuminance(JNIEnv* env,
-                               const base::android::JavaParamRef<jobject>& obj);
+  jfloat MaxColorVolumeLuminance(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj);
+  jfloat MinColorVolumeLuminance(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj);
   jint MaxContentLuminance(JNIEnv* env,
                            const base::android::JavaParamRef<jobject>& obj);
   jint MaxFrameAverageLuminance(
@@ -60,8 +66,6 @@ class JniHdrMetadata {
   const VideoColorSpace& color_space_;
   const gfx::HDRMetadata& hdr_metadata_;
   base::android::ScopedJavaLocalRef<jobject> jobject_;
-
-  DISALLOW_COPY_AND_ASSIGN(JniHdrMetadata);
 };
 
 }  // namespace media

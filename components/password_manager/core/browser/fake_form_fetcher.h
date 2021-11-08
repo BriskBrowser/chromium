@@ -23,6 +23,9 @@ class FakeFormFetcher : public FormFetcher {
  public:
   FakeFormFetcher();
 
+  FakeFormFetcher(const FakeFormFetcher&) = delete;
+  FakeFormFetcher& operator=(const FakeFormFetcher&) = delete;
+
   ~FakeFormFetcher() override;
 
   // Registers consumers to be notified when results are set. Unlike the
@@ -45,7 +48,7 @@ class FakeFormFetcher : public FormFetcher {
   std::vector<const PasswordForm*> GetFederatedMatches() const override;
   bool IsBlocklisted() const override;
   bool IsMovingBlocked(const autofill::GaiaIdHash& destination,
-                       const base::string16& username) const override;
+                       const std::u16string& username) const override;
   const std::vector<const PasswordForm*>& GetAllRelevantMatches()
       const override;
   const std::vector<const PasswordForm*>& GetBestMatches() const override;
@@ -88,8 +91,6 @@ class FakeFormFetcher : public FormFetcher {
   std::vector<InsecureCredential> insecure_credentials_;
   const PasswordForm* preferred_match_ = nullptr;
   bool is_blocklisted_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeFormFetcher);
 };
 
 }  // namespace password_manager

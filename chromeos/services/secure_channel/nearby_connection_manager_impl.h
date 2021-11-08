@@ -60,7 +60,8 @@ class NearbyConnectionManagerImpl : public NearbyConnectionManager,
   void OnReceivedAdvertisement(multidevice::RemoteDeviceRef remote_device,
                                device::BluetoothDevice* bluetooth_device,
                                ConnectionMedium connection_medium,
-                               ConnectionRole connection_role) override;
+                               ConnectionRole connection_role,
+                               const std::vector<uint8_t>& eid) override;
 
   // SecureChannel::Observer:
   void OnSecureChannelStatusChanged(
@@ -111,7 +112,7 @@ class NearbyConnectionManagerImpl : public NearbyConnectionManager,
 
   base::flat_map<std::string, std::unique_ptr<SecureChannel>>
       remote_device_id_to_secure_channel_map_;
-  base::Optional<std::string> notifying_remote_device_id_;
+  absl::optional<std::string> notifying_remote_device_id_;
 };
 
 }  // namespace secure_channel

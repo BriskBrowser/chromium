@@ -11,7 +11,6 @@
 #include "components/payments/content/payment_manifest_web_data_service.h"
 #include "components/payments/content/payment_request.h"
 #include "components/payments/content/payment_request_display_manager.h"
-#include "components/payments/core/features.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 
@@ -32,10 +31,11 @@ void PaymentRequestWebContentsManager::CreatePaymentRequest(
     content::RenderFrameHost* render_frame_host,
     std::unique_ptr<ContentPaymentRequestDelegate> delegate,
     mojo::PendingReceiver<payments::mojom::PaymentRequest> receiver,
-    PaymentRequest::ObserverForTest* observer_for_testing) {
+    base::WeakPtr<PaymentRequest::ObserverForTest> observer_for_testing) {
   auto new_request = std::make_unique<PaymentRequest>(
-      render_frame_host, std::move(delegate), /*manager=*/this,
-      delegate->GetDisplayManager(), std::move(receiver), observer_for_testing);
+      render_frame_host, std::move(delegate), /*manager=*/GetWeakPtr(),
+      delegate->GetDisplayManager()->GetWeakPtr(), std::move(receiver),
+      spc_transaction_mode_, observer_for_testing);
   PaymentRequest* request_ptr = new_request.get();
   payment_requests_.insert(std::make_pair(request_ptr, std::move(new_request)));
 }
@@ -44,7 +44,10 @@ void PaymentRequestWebContentsManager::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
   // Navigations that are not in the main frame (e.g. iframe) or that are in the
   // same document do not close the Payment Request. Disregard those.
-  if (!navigation_handle->IsInMainFrame() ||
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       navigation_handle->IsSameDocument()) {
     return;
   }
@@ -55,23 +58,32 @@ void PaymentRequestWebContentsManager::DidStartNavigation(
     it.second->DidStartMainFrameNavigationToDifferentDocument(
         !navigation_handle->IsRendererInitiated());
   }
-  payment_credential_ = nullptr;
 }
 
 void PaymentRequestWebContentsManager::RenderFrameDeleted(
     content::RenderFrameHost* render_frame_host) {
+  const auto render_frame_host_id = render_frame_host->GetGlobalId();
   // Two passes to avoid modifying the |payment_requests_| map while iterating
   // over it.
   std::vector<PaymentRequest*> obsolete;
   for (auto& it : payment_requests_) {
-    if (content::RenderFrameHost::FromID(
-            it.second->initiator_frame_routing_id()) == render_frame_host) {
+    if (it.second->initiator_frame_routing_id() == render_frame_host_id) {
       obsolete.push_back(it.first);
     }
   }
   for (auto* request : obsolete) {
     request->RenderFrameDeleted(render_frame_host);
   }
+}
+
+void PaymentRequestWebContentsManager::SetSPCTransactionMode(
+    SPCTransactionMode mode) {
+  spc_transaction_mode_ = mode;
+}
+
+base::WeakPtr<PaymentRequestWebContentsManager>
+PaymentRequestWebContentsManager::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 void PaymentRequestWebContentsManager::DestroyRequest(
@@ -83,19 +95,11 @@ void PaymentRequestWebContentsManager::DestroyRequest(
   payment_requests_.erase(request.get());
 }
 
-void PaymentRequestWebContentsManager::CreatePaymentCredential(
-    content::GlobalFrameRoutingId initiator_frame_routing_id,
-    scoped_refptr<PaymentManifestWebDataService> web_data_sevice,
-    mojo::PendingReceiver<payments::mojom::PaymentCredential> receiver) {
-  payment_credential_ = std::make_unique<PaymentCredential>(
-      web_contents(), initiator_frame_routing_id, web_data_sevice,
-      std::move(receiver));
-}
-
 PaymentRequestWebContentsManager::PaymentRequestWebContentsManager(
     content::WebContents* web_contents)
-    : content::WebContentsObserver(web_contents) {}
+    : content::WebContentsObserver(web_contents),
+      spc_transaction_mode_(SPCTransactionMode::NONE) {}
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(PaymentRequestWebContentsManager)
+WEB_CONTENTS_USER_DATA_KEY_IMPL(PaymentRequestWebContentsManager);
 
 }  // namespace payments

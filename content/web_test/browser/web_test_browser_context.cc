@@ -4,6 +4,7 @@
 
 #include "content/web_test/browser/web_test_browser_context.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -18,6 +19,7 @@
 #include "content/shell/browser/shell_content_browser_client.h"
 #include "content/test/mock_background_sync_controller.h"
 #include "content/test/mock_client_hints_controller_delegate.h"
+#include "content/test/mock_platform_notification_service.h"
 #include "content/web_test/browser/web_test_background_fetch_delegate.h"
 #include "content/web_test/browser/web_test_download_manager_delegate.h"
 #include "content/web_test/browser/web_test_permission_manager.h"
@@ -44,19 +46,28 @@ WebTestBrowserContext::WebTestBrowserContext(bool off_the_record)
 }
 
 WebTestBrowserContext::~WebTestBrowserContext() {
-  BrowserContext::NotifyWillBeDestroyed(this);
+  NotifyWillBeDestroyed();
 }
 
 DownloadManagerDelegate* WebTestBrowserContext::GetDownloadManagerDelegate() {
   if (!download_manager_delegate_) {
-    download_manager_delegate_.reset(new WebTestDownloadManagerDelegate());
-    download_manager_delegate_->SetDownloadManager(
-        BrowserContext::GetDownloadManager(this));
+    download_manager_delegate_ =
+        std::make_unique<WebTestDownloadManagerDelegate>();
+    download_manager_delegate_->SetDownloadManager(GetDownloadManager());
     download_manager_delegate_->SetDownloadBehaviorForTesting(
         GetPath().Append(FILE_PATH_LITERAL("downloads")));
   }
 
   return download_manager_delegate_.get();
+}
+
+PlatformNotificationService*
+WebTestBrowserContext::GetPlatformNotificationService() {
+  if (!platform_notification_service_) {
+    platform_notification_service_ =
+        std::make_unique<MockPlatformNotificationService>(this);
+  }
+  return platform_notification_service_.get();
 }
 
 PushMessagingService* WebTestBrowserContext::GetPushMessagingService() {

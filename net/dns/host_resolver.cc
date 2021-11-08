@@ -35,33 +35,37 @@ class FailingRequestImpl : public HostResolver::ResolveHostRequest,
                            public HostResolver::ProbeRequest {
  public:
   explicit FailingRequestImpl(int error) : error_(error) {}
+
+  FailingRequestImpl(const FailingRequestImpl&) = delete;
+  FailingRequestImpl& operator=(const FailingRequestImpl&) = delete;
+
   ~FailingRequestImpl() override = default;
 
   int Start(CompletionOnceCallback callback) override { return error_; }
   int Start() override { return error_; }
 
-  const base::Optional<AddressList>& GetAddressResults() const override {
-    static base::NoDestructor<base::Optional<AddressList>> nullopt_result;
+  const absl::optional<AddressList>& GetAddressResults() const override {
+    static base::NoDestructor<absl::optional<AddressList>> nullopt_result;
     return *nullopt_result;
   }
 
-  const base::Optional<std::vector<std::string>>& GetTextResults()
+  const absl::optional<std::vector<std::string>>& GetTextResults()
       const override {
-    static const base::NoDestructor<base::Optional<std::vector<std::string>>>
+    static const base::NoDestructor<absl::optional<std::vector<std::string>>>
         nullopt_result;
     return *nullopt_result;
   }
 
-  const base::Optional<std::vector<HostPortPair>>& GetHostnameResults()
+  const absl::optional<std::vector<HostPortPair>>& GetHostnameResults()
       const override {
-    static const base::NoDestructor<base::Optional<std::vector<HostPortPair>>>
+    static const base::NoDestructor<absl::optional<std::vector<HostPortPair>>>
         nullopt_result;
     return *nullopt_result;
   }
 
-  const base::Optional<std::vector<std::string>>& GetDnsAliasResults()
+  const absl::optional<std::vector<std::string>>& GetDnsAliasResults()
       const override {
-    static const base::NoDestructor<base::Optional<std::vector<std::string>>>
+    static const base::NoDestructor<absl::optional<std::vector<std::string>>>
         nullopt_result;
     return *nullopt_result;
   }
@@ -70,22 +74,19 @@ class FailingRequestImpl : public HostResolver::ResolveHostRequest,
     return ResolveErrorInfo(error_);
   }
 
-  const base::Optional<HostCache::EntryStaleness>& GetStaleInfo()
+  const absl::optional<HostCache::EntryStaleness>& GetStaleInfo()
       const override {
-    static const base::NoDestructor<base::Optional<HostCache::EntryStaleness>>
-        nullopt_result;
-    return *nullopt_result;
+    static const absl::optional<HostCache::EntryStaleness> nullopt_result;
+    return nullopt_result;
   }
 
  private:
   const int error_;
-
-  DISALLOW_COPY_AND_ASSIGN(FailingRequestImpl);
 };
 
 }  // namespace
 
-const base::Optional<std::vector<bool>>&
+const absl::optional<std::vector<bool>>&
 HostResolver::ResolveHostRequest::GetExperimentalResultsForTesting() const {
   IMMEDIATE_CRASH();
 }
@@ -186,7 +187,7 @@ std::unique_ptr<HostResolver> HostResolver::CreateResolver(
 // static
 std::unique_ptr<HostResolver> HostResolver::CreateStandaloneResolver(
     NetLog* net_log,
-    base::Optional<ManagerOptions> options,
+    absl::optional<ManagerOptions> options,
     base::StringPiece host_mapping_rules,
     bool enable_caching) {
   std::unique_ptr<ContextHostResolver> resolver =
@@ -205,7 +206,7 @@ std::unique_ptr<HostResolver> HostResolver::CreateStandaloneResolver(
 std::unique_ptr<ContextHostResolver>
 HostResolver::CreateStandaloneContextResolver(
     NetLog* net_log,
-    base::Optional<ManagerOptions> options,
+    absl::optional<ManagerOptions> options,
     bool enable_caching) {
   auto resolve_context = std::make_unique<ResolveContext>(
       nullptr /* url_request_context */, enable_caching);
@@ -238,23 +239,21 @@ AddressFamily HostResolver::DnsQueryTypeToAddressFamily(
 HostResolverFlags HostResolver::ParametersToHostResolverFlags(
     const ResolveHostParameters& parameters) {
   HostResolverFlags flags = 0;
-  if (parameters.source == HostResolverSource::SYSTEM)
-    flags |= HOST_RESOLVER_SYSTEM_ONLY;
   if (parameters.include_canonical_name)
     flags |= HOST_RESOLVER_CANONNAME;
   if (parameters.loopback_only)
     flags |= HOST_RESOLVER_LOOPBACK_ONLY;
+  if (parameters.avoid_multicast_resolution)
+    flags |= HOST_RESOLVER_AVOID_MULTICAST;
   return flags;
 }
 
 // static
 int HostResolver::SquashErrorCode(int error) {
-  // TODO(crbug.com/1040686): Once InProcessBrowserTests do not use
-  // ERR_NOT_IMPLEMENTED to simulate DNS failures, it should be ok to squash
-  // ERR_NOT_IMPLEMENTED.
   // TODO(crbug.com/1043281): Consider squashing ERR_INTERNET_DISCONNECTED.
-  if (error == OK || error == ERR_IO_PENDING || error == ERR_NOT_IMPLEMENTED ||
-      error == ERR_INTERNET_DISCONNECTED || error == ERR_NAME_NOT_RESOLVED) {
+  if (error == OK || error == ERR_IO_PENDING ||
+      error == ERR_INTERNET_DISCONNECTED || error == ERR_NAME_NOT_RESOLVED ||
+      error == ERR_DNS_NAME_HTTPS_ONLY) {
     return error;
   } else {
     return ERR_NAME_NOT_RESOLVED;

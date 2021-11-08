@@ -22,13 +22,16 @@ class PowerTrayView : public TrayItemView,
  public:
   explicit PowerTrayView(Shelf* shelf);
 
+  PowerTrayView(const PowerTrayView&) = delete;
+  PowerTrayView& operator=(const PowerTrayView&) = delete;
+
   ~PowerTrayView() override;
 
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
-  base::string16 GetTooltipText(const gfx::Point& p) const override;
+  std::u16string GetTooltipText(const gfx::Point& p) const override;
   const char* GetClassName() const override;
   void OnThemeChanged() override;
 
@@ -43,16 +46,14 @@ class PowerTrayView : public TrayItemView,
 
  private:
   void UpdateStatus();
-  void UpdateImage();
+  void UpdateImage(bool icon_color_changed);
 
-  base::string16 accessible_name_;
-  base::string16 tooltip_;
-  base::Optional<PowerStatus::BatteryImageInfo> info_;
-  session_manager::SessionState icon_session_state_color_ =
+  std::u16string accessible_name_;
+  std::u16string tooltip_;
+  absl::optional<PowerStatus::BatteryImageInfo> info_;
+  session_manager::SessionState session_state_ =
       session_manager::SessionState::UNKNOWN;
   ScopedSessionObserver session_observer_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(PowerTrayView);
 };
 
 }  // namespace tray

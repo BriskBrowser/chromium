@@ -18,6 +18,7 @@ namespace metrics {
 // The values here correspond to values in the Stability message in
 // system_profile.proto.
 // This must stay 1-1 with the StabilityEventType enum in enums.xml.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.components.metrics
 enum class StabilityEventType {
   kPageLoad = 2,
   kRendererCrash = 3,
@@ -37,11 +38,15 @@ enum class StabilityEventType {
 
 class SystemProfileProto;
 
-// StabilityMetricsHelper is a class that providers functionality common to
-// different embedders' stability metrics providers.
+// Responsible for providing functionality common to different embedders'
+// stability metrics providers.
 class StabilityMetricsHelper {
  public:
   explicit StabilityMetricsHelper(PrefService* local_state);
+
+  StabilityMetricsHelper(const StabilityMetricsHelper&) = delete;
+  StabilityMetricsHelper& operator=(const StabilityMetricsHelper&) = delete;
+
   ~StabilityMetricsHelper();
 
   // Provides stability metrics.
@@ -97,8 +102,6 @@ class StabilityMetricsHelper {
   void LogRendererLaunchFailed(bool was_extension_process);
 
   PrefService* local_state_;
-
-  DISALLOW_COPY_AND_ASSIGN(StabilityMetricsHelper);
 };
 
 }  // namespace metrics

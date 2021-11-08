@@ -12,7 +12,6 @@
 #include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "media/base/android/media_codec_loop.h"
 #include "media/base/android/media_crypto_context.h"
@@ -82,10 +81,13 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
  public:
   explicit MediaCodecAudioDecoder(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+
+  MediaCodecAudioDecoder(const MediaCodecAudioDecoder&) = delete;
+  MediaCodecAudioDecoder& operator=(const MediaCodecAudioDecoder&) = delete;
+
   ~MediaCodecAudioDecoder() override;
 
   // AudioDecoder implementation.
-  std::string GetDisplayName() const override;
   AudioDecoderType GetDecoderType() const override;
   void Initialize(const AudioDecoderConfig& config,
                   CdmContext* cdm_context,
@@ -212,8 +214,6 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
   JavaObjectPtr media_crypto_;
 
   base::WeakPtrFactory<MediaCodecAudioDecoder> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MediaCodecAudioDecoder);
 };
 
 }  // namespace media

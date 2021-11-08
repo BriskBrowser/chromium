@@ -7,6 +7,7 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/element_style.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -14,6 +15,7 @@
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_impl.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/highlight_path_generator.h"
 
 namespace ash {
@@ -48,32 +50,16 @@ void CollapseButton::PaintButtonContents(gfx::Canvas* canvas) {
   canvas->DrawImageInt(image, -image.width() / 2, -image.height() / 2);
 }
 
-std::unique_ptr<views::InkDrop> CollapseButton::CreateInkDrop() {
-  return TrayPopupUtils::CreateInkDrop(this);
-}
-
-std::unique_ptr<views::InkDropRipple> CollapseButton::CreateInkDropRipple()
-    const {
-  return TrayPopupUtils::CreateInkDropRipple(
-      TrayPopupInkDropStyle::FILL_BOUNDS, this,
-      GetInkDropCenterBasedOnLastEvent());
-}
-
-std::unique_ptr<views::InkDropHighlight>
-CollapseButton::CreateInkDropHighlight() const {
-  return TrayPopupUtils::CreateInkDropHighlight(this);
-}
-
 const char* CollapseButton::GetClassName() const {
   return "CollapseButton";
 }
 
 void CollapseButton::OnThemeChanged() {
   views::ImageButton::OnThemeChanged();
-  AshColorProvider::Get()->DecorateFloatingIconButton(this,
-                                                      kUnifiedMenuExpandIcon);
-  focus_ring()->SetColor(AshColorProvider::Get()->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kFocusRingColor));
+  element_style::DecorateFloatingIconButton(this, kUnifiedMenuExpandIcon);
+  views::FocusRing::Get(this)->SetColor(
+      AshColorProvider::Get()->GetControlsLayerColor(
+          AshColorProvider::ControlsLayerType::kFocusRingColor));
 }
 
 }  // namespace ash

@@ -79,6 +79,9 @@ export class RangeAutomationHandler extends BaseAutomationHandler {
     this.addListener_(EventType.AUTOCORRECTION_OCCURED, this.onEventIfInRange);
     this.addListener_(
         EventType.CHECKED_STATE_CHANGED, this.onCheckedStateChanged);
+    this.addListener_(
+        EventType.CHECKED_STATE_DESCRIPTION_CHANGED,
+        this.onCheckedStateChanged);
     this.addListener_(EventType.COLLAPSED, this.onEventIfInRange);
     this.addListener_(EventType.EXPANDED, this.onEventIfInRange);
     this.addListener_(EventType.INVALID_STATUS_CHANGED, this.onEventIfInRange);
@@ -115,7 +118,7 @@ export class RangeAutomationHandler extends BaseAutomationHandler {
       this.lastAttributeTarget_ = evt.target.activeDescendant || evt.target;
       this.lastAttributeOutput_ = new Output().withRichSpeechAndBraille(
           cursors.Range.fromNode(this.lastAttributeTarget_), prev,
-          Output.EventType.NAVIGATE);
+          OutputEventType.NAVIGATE);
       if (this.lastAttributeTarget_ === prevTarget && prevOutput &&
           prevOutput.equals(this.lastAttributeOutput_)) {
         return;
@@ -192,9 +195,12 @@ export class RangeAutomationHandler extends BaseAutomationHandler {
       return;
     }
 
-    const event = new CustomAutomationEvent(
-        EventType.CHECKED_STATE_CHANGED, evt.target, evt.eventFrom,
-        evt.intents);
+    const event =
+        new CustomAutomationEvent(EventType.CHECKED_STATE_CHANGED, evt.target, {
+          eventFrom: evt.eventFrom,
+          eventFromAction: evt.eventFromAction,
+          intents: evt.intents
+        });
     this.onEventIfInRange(event);
   }
 

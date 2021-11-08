@@ -66,6 +66,9 @@ class ServiceVideoCaptureProvider::ServiceProcessObserver
     ServiceProcessHost::AddObserver(this);
   }
 
+  ServiceProcessObserver(const ServiceProcessObserver&) = delete;
+  ServiceProcessObserver& operator=(const ServiceProcessObserver&) = delete;
+
   ~ServiceProcessObserver() override {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     ServiceProcessHost::RemoveObserver(this);
@@ -92,8 +95,6 @@ class ServiceVideoCaptureProvider::ServiceProcessObserver
   const scoped_refptr<base::TaskRunner> io_task_runner_;
   const base::RepeatingClosure start_callback_;
   const base::RepeatingClosure stop_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(ServiceProcessObserver);
 };
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -251,15 +252,16 @@ void ServiceVideoCaptureProvider::GetDeviceInfosAsyncForRetry(
   service_connection->SetRetryCount(retry_count);
   // Make sure that |result_callback| gets invoked with an empty result in case
   // that the service drops the request.
+  auto split_callback = base::SplitOnceCallback(std::move(result_callback));
   service_connection->source_provider()->GetSourceInfos(
       mojo::WrapCallbackWithDropHandler(
           base::BindOnce(&ServiceVideoCaptureProvider::OnDeviceInfosReceived,
                          weak_ptr_factory_.GetWeakPtr(), service_connection,
-                         result_callback, retry_count),
+                         std::move(split_callback.first), retry_count),
           base::BindOnce(
               &ServiceVideoCaptureProvider::OnDeviceInfosRequestDropped,
               weak_ptr_factory_.GetWeakPtr(), service_connection,
-              result_callback, retry_count)));
+              std::move(split_callback.second), retry_count)));
 }
 
 void ServiceVideoCaptureProvider::OnDeviceInfosReceived(

@@ -19,6 +19,7 @@
 #include "base/files/file_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/trace_event_analyzer.h"
@@ -94,10 +95,8 @@ constexpr int kMinDataPointsForQuickRun = 3;
 
 // These are how long the browser is run with trace event recording taking
 // place.
-constexpr base::TimeDelta kFullRunObservationPeriod =
-    base::TimeDelta::FromSeconds(15);
-constexpr base::TimeDelta kQuickRunObservationPeriod =
-    base::TimeDelta::FromSeconds(4);
+constexpr base::TimeDelta kFullRunObservationPeriod = base::Seconds(15);
+constexpr base::TimeDelta kQuickRunObservationPeriod = base::Seconds(4);
 
 constexpr char kMetricPrefixCastV2[] = "CastV2.";
 constexpr char kMetricTimeBetweenCapturesMs[] = "time_between_captures";
@@ -226,7 +225,7 @@ void QueryTraceEvents(trace_analyzer::TraceAnalyzer* analyzer,
                       base::StringPiece event_name,
                       trace_analyzer::TraceEventVector* events) {
   const trace_analyzer::Query kQuery =
-      trace_analyzer::Query::EventNameIs(event_name.as_string()) &&
+      trace_analyzer::Query::EventNameIs(std::string(event_name)) &&
       (trace_analyzer::Query::EventPhaseIs(TRACE_EVENT_PHASE_BEGIN) ||
        trace_analyzer::Query::EventPhaseIs(TRACE_EVENT_PHASE_ASYNC_BEGIN) ||
        trace_analyzer::Query::EventPhaseIs(TRACE_EVENT_PHASE_FLOW_BEGIN) ||
@@ -314,7 +313,7 @@ class SkewedCastEnvironment : public media::cast::StandaloneCastEnvironment {
     // per million faster or slower than the local sender's clock. This is the
     // worst-case scenario for skew in-the-wild.
     if (!delta.is_zero()) {
-      const double skew = delta < base::TimeDelta() ? 0.999950 : 1.000050;
+      const double skew = delta.is_negative() ? 0.999950 : 1.000050;
       skewed_clock_.SetSkew(skew, delta);
     }
     clock_ = &skewed_clock_;
@@ -416,6 +415,9 @@ class TestPatternReceiver : public media::cast::InProcessReceiver {
             WithSharedConfig(media::cast::GetDefaultVideoReceiverConfig(),
                              configs.video)),
         is_full_performance_run_(is_full_performance_run) {}
+
+  TestPatternReceiver(const TestPatternReceiver&) = delete;
+  TestPatternReceiver& operator=(const TestPatternReceiver&) = delete;
 
   typedef std::map<uint16_t, base::TimeTicks> TimeMap;
 
@@ -566,8 +568,6 @@ class TestPatternReceiver : public media::cast::InProcessReceiver {
 
   // The height (number of lines) of each video frame received.
   std::vector<int> video_frame_lines_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestPatternReceiver);
 };
 
 class TestCompleteObserver {
@@ -637,8 +637,6 @@ class CastV2PerformanceTest : public InProcessBrowserTest,
     } else {
       command_line->AppendSwitchASCII(switches::kWindowSize, "2000,1500");
     }
-
-    InProcessBrowserTest::SetUpCommandLine(command_line);
   }
 
   // The key contains the name of the argument and the argument.
@@ -679,7 +677,8 @@ class CastV2PerformanceTest : public InProcessBrowserTest,
   }
 
   void NavigateToTestPagePath(const std::string& path) const {
-    ui_test_utils::NavigateToURL(browser(), https_server_->GetURL(path));
+    ASSERT_TRUE(
+        ui_test_utils::NavigateToURL(browser(), https_server_->GetURL(path)));
   }
 
   // Given a vector of vector of data, extract the difference between
@@ -818,12 +817,12 @@ class CastV2PerformanceTest : public InProcessBrowserTest,
                      const SharedSenderReceiverConfigs& shared_configs) {
     // Start the in-process receiver that examines audio/video for the expected
     // test patterns.
-    base::TimeDelta delta = base::TimeDelta::FromSeconds(0);
+    base::TimeDelta delta = base::Seconds(0);
     if (HasFlag(kFastClock)) {
-      delta = base::TimeDelta::FromSeconds(10);
+      delta = base::Seconds(10);
     }
     if (HasFlag(kSlowClock)) {
-      delta = base::TimeDelta::FromSeconds(-10);
+      delta = base::Seconds(-10);
     }
 
     cast_environment_ = base::MakeRefCounted<SkewedCastEnvironment>(delta);
@@ -834,7 +833,7 @@ class CastV2PerformanceTest : public InProcessBrowserTest,
 
  protected:
   // Ensure best effort tasks are not required for this test to pass.
-  base::Optional<base::ThreadPoolInstance::ScopedBestEffortExecutionFence>
+  absl::optional<base::ThreadPoolInstance::ScopedBestEffortExecutionFence>
       best_effort_fence_;
 
   // HTTPS server for loading pages from the test data dir.
@@ -880,8 +879,7 @@ class TestTabMirroringSession : public mirroring::mojom::SessionObserver,
     const std::string receiver_model_name{};
     auto session_params = mirroring::mojom::SessionParameters::New(
         mirroring::mojom::SessionType::AUDIO_AND_VIDEO, endpoint.address(),
-        receiver_model_name,
-        base::TimeDelta::FromMilliseconds(kTargetPlayoutDelayMs));
+        receiver_model_name, base::Milliseconds(kTargetPlayoutDelayMs));
 
     host_->Start(std::move(session_params), std::move(observer_remote),
                  std::move(channel_remote),
@@ -1080,7 +1078,10 @@ IN_PROC_BROWSER_TEST_P(CastV2PerformanceTest, Performance) {
   AnalyzeLatency(analyzer.get());
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) || !defined(MEMORY_SANITIZER)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+// Skip test on Chrome OS MSAN.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(CastV2PerformanceTest);
+#else
 // TODO(b/161545049): reenable FPS value features.
 INSTANTIATE_TEST_SUITE_P(All,
                          CastV2PerformanceTest,

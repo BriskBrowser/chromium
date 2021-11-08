@@ -27,7 +27,7 @@ namespace media {
 
 namespace {
 
-constexpr base::TimeDelta kRenderBufferSize = base::TimeDelta::FromSeconds(4);
+constexpr base::TimeDelta kRenderBufferSize = base::Seconds(4);
 
 }  // namespace
 
@@ -114,7 +114,7 @@ void CmaAudioOutputStream::Start(
 void CmaAudioOutputStream::Stop(base::WaitableEvent* finished) {
   DCHECK_CALLED_ON_VALID_THREAD(media_thread_checker_);
   // Prevent further pushes to the audio buffer after stopping.
-  push_timer_.Stop();
+  push_timer_.AbandonAndStop();
   // Don't actually stop the backend.  Stop() gets called when the stream is
   // paused.  We rely on Flush() to stop the backend.
   if (output_) {
@@ -128,7 +128,7 @@ void CmaAudioOutputStream::Stop(base::WaitableEvent* finished) {
 void CmaAudioOutputStream::Flush(base::WaitableEvent* finished) {
   DCHECK_CALLED_ON_VALID_THREAD(media_thread_checker_);
   // Prevent further pushes to the audio buffer after stopping.
-  push_timer_.Stop();
+  push_timer_.AbandonAndStop();
 
   if (output_ && (cma_backend_state_ == CmaBackendState::kPaused ||
                   cma_backend_state_ == CmaBackendState::kStarted)) {
@@ -143,7 +143,7 @@ void CmaAudioOutputStream::Flush(base::WaitableEvent* finished) {
 void CmaAudioOutputStream::Close(base::OnceClosure closure) {
   DCHECK_CALLED_ON_VALID_THREAD(media_thread_checker_);
   // Prevent further pushes to the audio buffer after stopping.
-  push_timer_.Stop();
+  push_timer_.AbandonAndStop();
   // Only stop the backend if it was started.
   if (output_ && cma_backend_state_ != CmaBackendState::kStopped) {
     output_->Stop();
@@ -202,9 +202,9 @@ void CmaAudioOutputStream::PushBuffer() {
     // The rendering delay to account for buffering is not included in
     // rendering_delay.delay_microseconds but is in delay_timestamp which isn't
     // used by AudioOutputStreamImpl.
-    delay = base::TimeDelta::FromMicroseconds(
-        rendering_delay.delay_microseconds +
-        rendering_delay.timestamp_microseconds - MonotonicClockNow());
+    delay = base::Microseconds(rendering_delay.delay_microseconds +
+                               rendering_delay.timestamp_microseconds -
+                               MonotonicClockNow());
     if (delay.InMicroseconds() < 0) {
       delay = base::TimeDelta();
     }
@@ -256,7 +256,7 @@ void CmaAudioOutputStream::OnPushBufferComplete(BufferStatus status) {
     last_push_complete_time_ = now;
 
     if (render_buffer_size_estimate_ >= buffer_duration_) {
-      delay = base::TimeDelta::FromSeconds(0);
+      delay = base::Seconds(0);
     } else {
       delay = buffer_duration_;
     }

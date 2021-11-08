@@ -22,6 +22,10 @@ namespace chromeos {
 class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) StubAuthenticatorBuilder {
  public:
   explicit StubAuthenticatorBuilder(const UserContext& expected_user_context);
+
+  StubAuthenticatorBuilder(const StubAuthenticatorBuilder&) = delete;
+  StubAuthenticatorBuilder& operator=(const StubAuthenticatorBuilder&) = delete;
+
   ~StubAuthenticatorBuilder();
 
   scoped_refptr<Authenticator> Create(AuthStatusConsumer* consumer);
@@ -65,10 +69,14 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) StubAuthenticatorBuilder {
 
   // For kAuthFailure action - the failure reason.
   AuthFailure::FailureReason failure_reason_ = AuthFailure::NONE;
-
-  DISALLOW_COPY_AND_ASSIGN(StubAuthenticatorBuilder);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::StubAuthenticatorBuilder;
+}
 
 #endif  // CHROMEOS_LOGIN_AUTH_STUB_AUTHENTICATOR_BUILDER_H_

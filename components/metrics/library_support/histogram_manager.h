@@ -8,7 +8,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/lazy_instance.h"
@@ -26,6 +25,10 @@ namespace metrics {
 class HistogramManager : public base::HistogramFlattener {
  public:
   HistogramManager();
+
+  HistogramManager(const HistogramManager&) = delete;
+  HistogramManager& operator=(const HistogramManager&) = delete;
+
   ~HistogramManager() override;
 
   // Snapshot all histograms to record the delta into |uma_proto_| and then
@@ -51,8 +54,6 @@ class HistogramManager : public base::HistogramFlattener {
   // Should be acquired whenever GetDeltas() is executing to maintain
   // thread-safety.
   base::Lock get_deltas_lock_;
-
-  DISALLOW_COPY_AND_ASSIGN(HistogramManager);
 };
 
 }  // namespace metrics

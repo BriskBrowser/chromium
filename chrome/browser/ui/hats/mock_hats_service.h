@@ -26,19 +26,28 @@ class MockHatsService : public HatsService {
               LaunchSurvey,
               (const std::string& trigger,
                base::OnceClosure success_callback,
-               base::OnceClosure failure_callback),
+               base::OnceClosure failure_callback,
+               (const SurveyBitsData&)survey_specific_bits_data,
+               (const SurveyStringData&)survey_specific_string_data),
               (override));
   MOCK_METHOD(bool,
               LaunchDelayedSurvey,
-              (const std::string& trigger, int timeout_ms),
+              (const std::string& trigger,
+               int timeout_ms,
+               (const SurveyBitsData&)survey_specific_bits_data,
+               (const SurveyStringData&)survey_specific_string_data),
               (override));
   MOCK_METHOD(bool,
               LaunchDelayedSurveyForWebContents,
               (const std::string& trigger,
                content::WebContents* web_contents,
-               int timeout_ms),
+               int timeout_ms,
+               (const SurveyBitsData&)survey_specific_bits_data,
+               (const SurveyStringData&)survey_specific_string_data,
+               bool require_same_origin),
               (override));
   MOCK_METHOD(void, HatsNextDialogClosed, (), (override));
+  MOCK_METHOD(bool, CanShowAnySurvey, (bool user_prompted), (const override));
 };
 
 std::unique_ptr<KeyedService> BuildMockHatsService(

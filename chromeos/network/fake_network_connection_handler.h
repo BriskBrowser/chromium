@@ -21,6 +21,11 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) FakeNetworkConnectionHandler
     : public NetworkConnectionHandler {
  public:
   FakeNetworkConnectionHandler();
+
+  FakeNetworkConnectionHandler(const FakeNetworkConnectionHandler&) = delete;
+  FakeNetworkConnectionHandler& operator=(const FakeNetworkConnectionHandler&) =
+      delete;
+
   ~FakeNetworkConnectionHandler() override;
 
   // Parameters captured by calls to ConnectToNetwork() and DisconnectNetwork().
@@ -59,8 +64,8 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) FakeNetworkConnectionHandler
     std::string service_path_;
     base::OnceClosure success_callback_;
     network_handler::ErrorCallback error_callback_;
-    base::Optional<bool> check_error_state_;
-    base::Optional<ConnectCallbackMode> connect_callback_mode_;
+    absl::optional<bool> check_error_state_;
+    absl::optional<ConnectCallbackMode> connect_callback_mode_;
   };
 
   std::vector<ConnectionParams>& connect_calls() { return connect_calls_; }
@@ -83,12 +88,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) FakeNetworkConnectionHandler
       NetworkStateHandler* network_state_handler,
       NetworkConfigurationHandler* network_configuration_handler,
       ManagedNetworkConfigurationHandler* managed_network_configuration_handler,
-      CellularESimConnectionHandler* cellular_esim_connection_handler) override;
+      CellularConnectionHandler* cellular_connection_handler) override;
 
   std::vector<ConnectionParams> connect_calls_;
   std::vector<ConnectionParams> disconnect_calls_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeNetworkConnectionHandler);
 };
 
 }  // namespace chromeos

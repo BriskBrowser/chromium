@@ -4,6 +4,7 @@
 
 #include "content/public/test/text_input_test_utils.h"
 
+#include <memory>
 #include <unordered_set>
 
 #include "base/strings/utf_string_conversions.h"
@@ -50,6 +51,9 @@ class TextInputManagerTester::InternalObserver
     DCHECK(!!text_input_manager_);
     text_input_manager_->AddObserver(this);
   }
+
+  InternalObserver(const InternalObserver&) = delete;
+  InternalObserver& operator=(const InternalObserver&) = delete;
 
   ~InternalObserver() override {
     if (text_input_manager_)
@@ -98,7 +102,7 @@ class TextInputManagerTester::InternalObserver
   }
 
   void OnSelectionBoundsChanged(
-      TextInputManager* text_input_manager_,
+      TextInputManager* text_input_manager,
       RenderWidgetHostViewBase* updated_view) override {
     updated_view_ = updated_view;
     if (!on_selection_bounds_changed_callback_.is_null())
@@ -112,7 +116,8 @@ class TextInputManagerTester::InternalObserver
     const gfx::Range* range =
         text_input_manager_->GetCompositionRangeForTesting();
     DCHECK(range);
-    last_composition_range_.reset(new gfx::Range(range->start(), range->end()));
+    last_composition_range_ =
+        std::make_unique<gfx::Range>(range->start(), range->end());
     if (!on_ime_composition_range_changed_callback_.is_null())
       on_ime_composition_range_changed_callback_.Run();
   }
@@ -140,8 +145,6 @@ class TextInputManagerTester::InternalObserver
   base::RepeatingClosure on_selection_bounds_changed_callback_;
   base::RepeatingClosure on_ime_composition_range_changed_callback_;
   base::RepeatingClosure on_text_selection_changed_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(InternalObserver);
 };
 
 // This class observes the lifetime of a RenderWidgetHostView. An instance of
@@ -154,6 +157,9 @@ class TestRenderWidgetHostViewDestructionObserver::InternalObserver
       : view_(view), destroyed_(false) {
     view->AddObserver(this);
   }
+
+  InternalObserver(const InternalObserver&) = delete;
+  InternalObserver& operator=(const InternalObserver&) = delete;
 
   ~InternalObserver() override {
     if (view_)
@@ -181,8 +187,6 @@ class TestRenderWidgetHostViewDestructionObserver::InternalObserver
   RenderWidgetHostViewBase* view_;
   bool destroyed_;
   scoped_refptr<MessageLoopRunner> message_loop_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(InternalObserver);
 };
 
 #if defined(USE_AURA)
@@ -193,6 +197,9 @@ class InputMethodObserverAura : public TestInputMethodObserver,
       : input_method_(input_method), text_input_client_(nullptr) {
     input_method_->AddObserver(this);
   }
+
+  InputMethodObserverAura(const InputMethodObserverAura&) = delete;
+  InputMethodObserverAura& operator=(const InputMethodObserverAura&) = delete;
 
   ~InputMethodObserverAura() override {
     if (input_method_)
@@ -226,8 +233,6 @@ class InputMethodObserverAura : public TestInputMethodObserver,
   ui::InputMethod* input_method_;
   const ui::TextInputClient* text_input_client_;
   base::RepeatingClosure on_show_ime_if_needed_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(InputMethodObserverAura);
 };
 #endif
 
@@ -273,7 +278,7 @@ bool DoesFrameHaveFocusedEditableElement(RenderFrameHost* frame) {
 
 void SendImeCommitTextToWidget(
     RenderWidgetHost* rwh,
-    const base::string16& text,
+    const std::u16string& text,
     const std::vector<ui::ImeTextSpan>& ime_text_spans,
     const gfx::Range& replacement_range,
     int relative_cursor_pos) {
@@ -283,7 +288,7 @@ void SendImeCommitTextToWidget(
 
 void SendImeSetCompositionTextToWidget(
     RenderWidgetHost* rwh,
-    const base::string16& text,
+    const std::u16string& text,
     const std::vector<ui::ImeTextSpan>& ime_text_spans,
     const gfx::Range& replacement_range,
     int selection_start,
@@ -303,7 +308,7 @@ bool DestroyRenderWidgetHost(int32_t process_id,
     rfh = rfh->GetParent();
 
   FrameTreeNode* ftn = rfh->frame_tree_node();
-  if (ftn->IsMainFrame()) {
+  if (rfh->is_main_frame()) {
     WebContents::FromRenderFrameHost(rfh)->Close();
   } else {
     ftn->frame_tree()->RemoveFrame(ftn);
@@ -568,7 +573,7 @@ std::unique_ptr<TestInputMethodObserver> TestInputMethodObserver::Create(
 #if defined(USE_AURA)
   RenderWidgetHostViewAura* view = static_cast<RenderWidgetHostViewAura*>(
       web_contents->GetRenderWidgetHostView());
-  observer.reset(new InputMethodObserverAura(view->GetInputMethod()));
+  observer = std::make_unique<InputMethodObserverAura>(view->GetInputMethod());
 #endif
   return observer;
 }

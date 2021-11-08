@@ -47,6 +47,11 @@ class CONTENT_EXPORT AudioOutputAuthorizationHandler {
                                   MediaStreamManager* media_stream_manager,
                                   int render_process_id_);
 
+  AudioOutputAuthorizationHandler(const AudioOutputAuthorizationHandler&) =
+      delete;
+  AudioOutputAuthorizationHandler& operator=(
+      const AudioOutputAuthorizationHandler&) = delete;
+
   ~AudioOutputAuthorizationHandler();
 
   // Checks authorization of the device with the hashed id |device_id| for the
@@ -104,7 +109,7 @@ class CONTENT_EXPORT AudioOutputAuthorizationHandler {
       AuthorizationCompletedCallback cb,
       const std::string& device_id_for_renderer,
       const std::string& raw_device_id,
-      const base::Optional<media::AudioParameters>& params) const;
+      const absl::optional<media::AudioParameters>& params) const;
 
   media::AudioSystem* const audio_system_;
   MediaStreamManager* const media_stream_manager_;
@@ -117,8 +122,6 @@ class CONTENT_EXPORT AudioOutputAuthorizationHandler {
   // const, so this can be mutable.
   mutable base::WeakPtrFactory<const AudioOutputAuthorizationHandler>
       weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AudioOutputAuthorizationHandler);
 };
 
 }  // namespace content

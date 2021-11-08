@@ -36,6 +36,7 @@ import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
+import org.chromium.chrome.browser.tab.TabUtils;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -73,7 +74,6 @@ public class NavigateTest {
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     private static final String HTTPS_SCHEME = "https://";
-    private static final String NEW_TAB_PAGE = "chrome-native://newtab/";
 
     private EmbeddedTestServer mTestServer;
 
@@ -290,8 +290,8 @@ public class NavigateTest {
         final Tab tab = mActivityTestRule.getActivity().getActivityTab();
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> tab.getWebContents().getNavigationController().setUseDesktopUserAgent(
-                                true /* useDesktop */, true /* reloadOnChange */));
+                        -> TabUtils.switchUserAgent(
+                                tab, /* switchToDesktop */ true, /* forcedByUser */ true));
         ChromeTabUtils.waitForTabPageLoaded(tab, url1);
 
         navigateAndObserve(url2, url2);
@@ -323,8 +323,8 @@ public class NavigateTest {
         final Tab tab = mActivityTestRule.getActivity().getActivityTab();
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> tab.getWebContents().getNavigationController().setUseDesktopUserAgent(
-                                true /* useDesktop */, true /* reloadOnChange */));
+                        -> TabUtils.switchUserAgent(
+                                tab, /* switchToDesktop */ true, /* forcedByUser */ true));
 
         navigateAndObserve(url, url);
         ChromeTabUtils.waitForTabPageLoaded(tab, url);
@@ -355,7 +355,7 @@ public class NavigateTest {
             }
         };
         Tab tab = mActivityTestRule.getActivity().getActivityTab();
-        tab.addObserver(onPageLoadStartedObserver);
+        TestThreadUtils.runOnUiThreadBlocking(() -> tab.addObserver(onPageLoadStartedObserver));
         DOMUtils.clickNode(tab.getWebContents(), "aboutLink");
         ChromeTabUtils.waitForTabPageLoaded(tab, url2);
         Assert.assertEquals("Desired Link not open", url2,
@@ -392,11 +392,6 @@ public class NavigateTest {
     @MediumTest
     @Feature({"Navigation"})
     public void testIntentFallbackRedirection() throws Exception {
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        Assert.assertEquals(NEW_TAB_PAGE,
-                ChromeTabUtils.getUrlStringOnUiThread(
-                        mActivityTestRule.getActivity().getActivityTab()));
-
         final String fallbackUrl =
                 mTestServer.getURL("/chrome/test/data/android/redirect/about.html");
         final String redirectUrl = "intent://non_existent/#Intent;scheme=non_existent;"
@@ -405,12 +400,19 @@ public class NavigateTest {
                 mTestServer.getURL("/chrome/test/data/android/redirect/js_redirect.html"
                         + "?replace_text="
                         + Base64.encodeToString(
-                                  ApiCompatibilityUtils.getBytesUtf8("PARAM_URL"), Base64.URL_SAFE)
+                                ApiCompatibilityUtils.getBytesUtf8("PARAM_URL"), Base64.URL_SAFE)
                         + ":"
-                        + Base64.encodeToString(ApiCompatibilityUtils.getBytesUtf8(redirectUrl),
-                                  Base64.URL_SAFE));
-        final String targetUrl =
-                mTestServer.getURL("/chrome/test/data/android/redirect/one.html");
+                        + Base64.encodeToString(
+                                ApiCompatibilityUtils.getBytesUtf8(redirectUrl), Base64.URL_SAFE));
+        final String targetUrl = mTestServer.getURL("/chrome/test/data/android/redirect/one.html");
+
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+        // We should start on the homepage, which is something other than our test page.
+        String originalUrl = ChromeTabUtils.getUrlStringOnUiThread(
+                mActivityTestRule.getActivity().getActivityTab());
+        Criteria.checkThat(originalUrl, Matchers.not(targetUrl));
+
         typeInOmniboxAndNavigate(initialUrl, null);
 
         // Now intent fallback should be triggered assuming 'non_existent' scheme cannot be handled.
@@ -438,7 +440,7 @@ public class NavigateTest {
                                                .getEntryAtIndex(0)
                                                .getUrl()
                                                .getSpec();
-        Assert.assertEquals(NEW_TAB_PAGE, previousNavigationUrl);
+        Assert.assertEquals(originalUrl, previousNavigationUrl);
     }
 
     /**
@@ -640,7 +642,7 @@ public class NavigateTest {
             }
         };
         Tab tab = mActivityTestRule.getActivity().getActivityTab();
-        tab.addObserver(onPageLoadStartedObserver);
+        TestThreadUtils.runOnUiThreadBlocking(() -> tab.addObserver(onPageLoadStartedObserver));
         DOMUtils.clickNode(tab.getWebContents(), "rendererInitiated");
         ChromeTabUtils.waitForTabPageLoaded(tab, finalUrl);
     }

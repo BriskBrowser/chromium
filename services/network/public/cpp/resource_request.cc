@@ -4,9 +4,14 @@
 
 #include "services/network/public/cpp/resource_request.h"
 
+#include "base/stl_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/load_flags.h"
+#include "net/log/net_log_source.h"
 #include "services/network/public/mojom/cookie_access_observer.mojom.h"
+#include "services/network/public/mojom/devtools_observer.mojom.h"
+#include "services/network/public/mojom/url_request.mojom.h"
 #include "services/network/public/mojom/web_bundle_handle.mojom.h"
 
 namespace network {
@@ -24,35 +29,80 @@ mojo::PendingRemote<mojom::CookieAccessObserver> Clone(
   return new_remote;
 }
 
-mojo::PendingRemote<mojom::AuthenticationAndCertificateObserver> Clone(
-    mojo::PendingRemote<mojom::AuthenticationAndCertificateObserver>*
-        observer) {
+mojo::PendingRemote<mojom::URLLoaderNetworkServiceObserver> Clone(
+    mojo::PendingRemote<mojom::URLLoaderNetworkServiceObserver>* observer) {
   if (!*observer)
     return mojo::NullRemote();
-  mojo::Remote<mojom::AuthenticationAndCertificateObserver> remote(
+  mojo::Remote<mojom::URLLoaderNetworkServiceObserver> remote(
       std::move(*observer));
-  mojo::PendingRemote<mojom::AuthenticationAndCertificateObserver> new_remote;
+  mojo::PendingRemote<mojom::URLLoaderNetworkServiceObserver> new_remote;
   remote->Clone(new_remote.InitWithNewPipeAndPassReceiver());
   *observer = remote.Unbind();
   return new_remote;
 }
 
+mojo::PendingRemote<mojom::DevToolsObserver> Clone(
+    mojo::PendingRemote<mojom::DevToolsObserver>* observer) {
+  if (!*observer)
+    return mojo::NullRemote();
+  mojo::Remote<mojom::DevToolsObserver> remote(std::move(*observer));
+  mojo::PendingRemote<mojom::DevToolsObserver> new_remote;
+  remote->Clone(new_remote.InitWithNewPipeAndPassReceiver());
+  *observer = remote.Unbind();
+  return new_remote;
+}
+
+mojo::PendingRemote<mojom::AcceptCHFrameObserver> Clone(
+    mojo::PendingRemote<mojom::AcceptCHFrameObserver>& observer) {
+  if (!observer)
+    return mojo::NullRemote();
+  mojo::Remote<mojom::AcceptCHFrameObserver> remote(std::move(observer));
+  mojo::PendingRemote<mojom::AcceptCHFrameObserver> new_remote;
+  remote->Clone(new_remote.InitWithNewPipeAndPassReceiver());
+  observer = remote.Unbind();
+  return new_remote;
+}
 // Returns true iff either holds true:
 //
 //  - both |lhs| and |rhs| are nullopt, or
 //  - neither is nullopt and they both contain equal values
 //
 bool OptionalTrustedParamsEqualsForTesting(
-    const base::Optional<ResourceRequest::TrustedParams>& lhs,
-    const base::Optional<ResourceRequest::TrustedParams>& rhs) {
+    const absl::optional<ResourceRequest::TrustedParams>& lhs,
+    const absl::optional<ResourceRequest::TrustedParams>& rhs) {
   return (!lhs && !rhs) || (lhs && rhs && lhs->EqualsForTesting(*rhs));
 }
 
 bool OptionalWebBundleTokenParamsEqualsForTesting(  // IN-TEST
-    const base::Optional<ResourceRequest::WebBundleTokenParams>& lhs,
-    const base::Optional<ResourceRequest::WebBundleTokenParams>& rhs) {
+    const absl::optional<ResourceRequest::WebBundleTokenParams>& lhs,
+    const absl::optional<ResourceRequest::WebBundleTokenParams>& rhs) {
   return (!lhs && !rhs) ||
          (lhs && rhs && lhs->EqualsForTesting(*rhs));  // IN-TEST
+}
+
+bool OptionalNetLogInfoEqualsForTesting(
+    const absl::optional<net::NetLogSource>& lhs,
+    const absl::optional<net::NetLogSource>& rhs) {
+  bool equal_members = lhs && rhs && lhs.value() == rhs.value();
+  return (!lhs && !rhs) || equal_members;
+}
+
+base::debug::CrashKeyString* GetRequestUrlCrashKey() {
+  static auto* crash_key = base::debug::AllocateCrashKeyString(
+      "request_url", base::debug::CrashKeySize::Size256);
+  return crash_key;
+}
+
+base::debug::CrashKeyString* GetRequestInitiatorCrashKey() {
+  static auto* crash_key = base::debug::AllocateCrashKeyString(
+      "request_initiator", base::debug::CrashKeySize::Size64);
+  return crash_key;
+}
+
+base::debug::CrashKeyString* GetRequestResourceTypeCrashKey() {
+  static auto* crash_key = base::debug::AllocateCrashKeyString(
+      "request_resource_type", base::debug::CrashKeySize::Size32);
+  return crash_key;
 }
 
 }  // namespace
@@ -72,20 +122,25 @@ ResourceRequest::TrustedParams& ResourceRequest::TrustedParams::operator=(
   cookie_observer =
       Clone(&const_cast<mojo::PendingRemote<mojom::CookieAccessObserver>&>(
           other.cookie_observer));
-  auth_cert_observer =
-      Clone(&const_cast<
-            mojo::PendingRemote<mojom::AuthenticationAndCertificateObserver>&>(
-          other.auth_cert_observer));
+  url_loader_network_observer = Clone(
+      &const_cast<mojo::PendingRemote<mojom::URLLoaderNetworkServiceObserver>&>(
+          other.url_loader_network_observer));
+  devtools_observer =
+      Clone(&const_cast<mojo::PendingRemote<mojom::DevToolsObserver>&>(
+          other.devtools_observer));
   client_security_state = other.client_security_state.Clone();
+  accept_ch_frame_observer =
+      Clone(const_cast<mojo::PendingRemote<mojom::AcceptCHFrameObserver>&>(
+          other.accept_ch_frame_observer));
   return *this;
 }
 
 bool ResourceRequest::TrustedParams::EqualsForTesting(
-    const TrustedParams& trusted_params) const {
-  return isolation_info.IsEqualForTesting(trusted_params.isolation_info) &&
-         disable_secure_dns == trusted_params.disable_secure_dns &&
-         has_user_activation == trusted_params.has_user_activation &&
-         client_security_state == trusted_params.client_security_state;
+    const TrustedParams& other) const {
+  return isolation_info.IsEqualForTesting(other.isolation_info) &&
+         disable_secure_dns == other.disable_secure_dns &&
+         has_user_activation == other.has_user_activation &&
+         client_security_state == other.client_security_state;
 }
 
 ResourceRequest::WebBundleTokenParams::WebBundleTokenParams() = default;
@@ -99,6 +154,7 @@ ResourceRequest::WebBundleTokenParams::WebBundleTokenParams(
 ResourceRequest::WebBundleTokenParams&
 ResourceRequest::WebBundleTokenParams::operator=(
     const WebBundleTokenParams& other) {
+  bundle_url = other.bundle_url;
   token = other.token;
   handle = other.CloneHandle();
   render_process_id = other.render_process_id;
@@ -106,18 +162,22 @@ ResourceRequest::WebBundleTokenParams::operator=(
 }
 
 ResourceRequest::WebBundleTokenParams::WebBundleTokenParams(
+    const GURL& bundle_url,
     const base::UnguessableToken& token,
     mojo::PendingRemote<mojom::WebBundleHandle> handle)
-    : token(token), handle(std::move(handle)) {}
+    : bundle_url(bundle_url), token(token), handle(std::move(handle)) {}
 
 ResourceRequest::WebBundleTokenParams::WebBundleTokenParams(
+    const GURL& bundle_url,
     const base::UnguessableToken& token,
     int32_t render_process_id)
-    : token(token), render_process_id(render_process_id) {}
+    : bundle_url(bundle_url),
+      token(token),
+      render_process_id(render_process_id) {}
 
 bool ResourceRequest::WebBundleTokenParams::EqualsForTesting(
     const WebBundleTokenParams& other) const {
-  return token == other.token &&
+  return bundle_url == other.bundle_url && token == other.token &&
          ((handle && other.handle) || (!handle && !other.handle)) &&
          render_process_id == other.render_process_id;
 }
@@ -136,9 +196,9 @@ ResourceRequest::WebBundleTokenParams::CloneHandle() const {
   return new_remote;
 }
 
-ResourceRequest::ResourceRequest() {}
+ResourceRequest::ResourceRequest() = default;
 ResourceRequest::ResourceRequest(const ResourceRequest& request) = default;
-ResourceRequest::~ResourceRequest() {}
+ResourceRequest::~ResourceRequest() = default;
 
 bool ResourceRequest::EqualsForTesting(const ResourceRequest& request) const {
   return method == request.method && url == request.url &&
@@ -173,10 +233,8 @@ bool ResourceRequest::EqualsForTesting(const ResourceRequest& request) const {
          enable_load_timing == request.enable_load_timing &&
          enable_upload_progress == request.enable_upload_progress &&
          do_not_prompt_for_login == request.do_not_prompt_for_login &&
-         render_frame_id == request.render_frame_id &&
          is_main_frame == request.is_main_frame &&
          transition_type == request.transition_type &&
-         report_raw_headers == request.report_raw_headers &&
          previews_state == request.previews_state &&
          upgrade_if_insecure == request.upgrade_if_insecure &&
          is_revalidating == request.is_revalidating &&
@@ -195,9 +253,16 @@ bool ResourceRequest::EqualsForTesting(const ResourceRequest& request) const {
          recursive_prefetch_token == request.recursive_prefetch_token &&
          OptionalTrustedParamsEqualsForTesting(trusted_params,
                                                request.trusted_params) &&
+         devtools_accepted_stream_types ==
+             request.devtools_accepted_stream_types &&
          trust_token_params == request.trust_token_params &&
          OptionalWebBundleTokenParamsEqualsForTesting(  // IN-TEST
-             web_bundle_token_params, request.web_bundle_token_params);
+             web_bundle_token_params, request.web_bundle_token_params) &&
+         OptionalNetLogInfoEqualsForTesting(net_log_create_info,
+                                            request.net_log_create_info) &&
+         OptionalNetLogInfoEqualsForTesting(net_log_reference_info,
+                                            request.net_log_reference_info) &&
+         target_ip_address_space == request.target_ip_address_space;
 }
 
 bool ResourceRequest::SendsCookies() const {
@@ -237,4 +302,17 @@ net::ReferrerPolicy ReferrerPolicyForUrlRequest(
   return net::ReferrerPolicy::CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE;
 }
 
+namespace debug {
+
+ScopedResourceRequestCrashKeys::ScopedResourceRequestCrashKeys(
+    const network::ResourceRequest& request)
+    : url_(GetRequestUrlCrashKey(), request.url.possibly_invalid_spec()),
+      request_initiator_(GetRequestInitiatorCrashKey(),
+                         base::OptionalOrNullptr(request.request_initiator)),
+      resource_type_(GetRequestResourceTypeCrashKey(),
+                     base::NumberToString(request.resource_type)) {}
+
+ScopedResourceRequestCrashKeys::~ScopedResourceRequestCrashKeys() = default;
+
+}  // namespace debug
 }  // namespace network

@@ -18,11 +18,16 @@ namespace ui {
 class GLOzoneEGL : public GLOzone {
  public:
   GLOzoneEGL() {}
+
+  GLOzoneEGL(const GLOzoneEGL&) = delete;
+  GLOzoneEGL& operator=(const GLOzoneEGL&) = delete;
+
   ~GLOzoneEGL() override {}
 
   // GLOzone:
   bool InitializeGLOneOffPlatform() override;
-  bool InitializeStaticGLBindings(gl::GLImplementation implementation) override;
+  bool InitializeStaticGLBindings(
+      const gl::GLImplementationParts& implementation) override;
   void SetDisabledExtensionsPlatform(
       const std::string& disabled_extensions) override;
   bool InitializeExtensionSettingsOneOffPlatform() override;
@@ -48,10 +53,8 @@ class GLOzoneEGL : public GLOzone {
   virtual gl::EGLDisplayPlatform GetNativeDisplay() = 0;
 
   // Sets up GL bindings for the native surface.
-  virtual bool LoadGLES2Bindings(gl::GLImplementation implementation) = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GLOzoneEGL);
+  virtual bool LoadGLES2Bindings(
+      const gl::GLImplementationParts& implementation) = 0;
 };
 
 }  // namespace ui

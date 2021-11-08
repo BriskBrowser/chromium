@@ -41,7 +41,7 @@ class ContextualSearchDelegate
       SearchTermResolutionCallback;
   // Provides text surrounding the selection to Java.
   typedef base::RepeatingCallback<
-      void(const std::string&, const base::string16&, size_t, size_t)>
+      void(const std::string&, const std::u16string&, size_t, size_t)>
       SurroundingTextCallback;
 
   // Constructs a delegate that will always call back to the given callbacks
@@ -51,18 +51,16 @@ class ContextualSearchDelegate
       TemplateURLService* template_url_service,
       SearchTermResolutionCallback search_term_callback,
       SurroundingTextCallback surrounding_callback);
+
+  ContextualSearchDelegate(const ContextualSearchDelegate&) = delete;
+  ContextualSearchDelegate& operator=(const ContextualSearchDelegate&) = delete;
+
   virtual ~ContextualSearchDelegate();
 
   // Gathers surrounding text and saves it locally in the given context.
   void GatherAndSaveSurroundingText(
       base::WeakPtr<ContextualSearchContext> contextual_search_context,
       content::WebContents* web_contents);
-
-  // If the caller chooses not to call |GatherAndSaveSurroundingText| then they
-  // must call this method to set the active context before calling
-  // |StartSearchTermResolutionRequest|.
-  void SetActiveContext(
-      base::WeakPtr<ContextualSearchContext> contextual_search_context);
 
   // Starts an asynchronous search term resolution request.
   // The given context includes some content from a web page and must be able
@@ -123,7 +121,7 @@ class ContextualSearchDelegate
       const bool may_send_base_page_url);
 
   void OnTextSurroundingSelectionAvailable(
-      const base::string16& surrounding_text,
+      const std::u16string& surrounding_text,
       uint32_t start_offset,
       uint32_t end_offset);
 
@@ -155,11 +153,12 @@ class ContextualSearchDelegate
       std::string* search_url_full,
       std::string* search_url_preload,
       int* coca_card_tag,
-      std::vector<std::string>* related_searches);
+      std::string* related_searches_json);
 
   // Extracts the start and end location from a mentions list, and sets the
   // integers referenced by |startResult| and |endResult|.
-  void ExtractMentionsStartEnd(const base::ListValue& mentions_list,
+  // |mentions_list| must be a list.
+  void ExtractMentionsStartEnd(const std::vector<base::Value>& mentions_list,
                                int* startResult,
                                int* endResult);
 
@@ -175,7 +174,7 @@ class ContextualSearchDelegate
   // of the selection in the function result.
   // |return| the trimmed surrounding text with selection at the
   // updated start/end offsets.
-  base::string16 SampleSurroundingText(const base::string16& surrounding_text,
+  std::u16string SampleSurroundingText(const std::u16string& surrounding_text,
                                        int padding_each_side,
                                        size_t* start,
                                        size_t* end);
@@ -207,8 +206,6 @@ class ContextualSearchDelegate
   // Used to hold the context until an upcoming search term request is started.
   // Owned by the Java ContextualSearchContext.
   base::WeakPtr<ContextualSearchContext> context_;
-
-  DISALLOW_COPY_AND_ASSIGN(ContextualSearchDelegate);
 };
 
 #endif  // CHROME_BROWSER_ANDROID_CONTEXTUALSEARCH_CONTEXTUAL_SEARCH_DELEGATE_H_

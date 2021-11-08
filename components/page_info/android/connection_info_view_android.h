@@ -28,6 +28,11 @@ class ConnectionInfoViewAndroid : public PageInfoUI {
   ConnectionInfoViewAndroid(JNIEnv* env,
                             jobject java_page_info,
                             content::WebContents* web_contents);
+
+  ConnectionInfoViewAndroid(const ConnectionInfoViewAndroid&) = delete;
+  ConnectionInfoViewAndroid& operator=(const ConnectionInfoViewAndroid&) =
+      delete;
+
   ~ConnectionInfoViewAndroid() override;
   void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
@@ -39,11 +44,7 @@ class ConnectionInfoViewAndroid : public PageInfoUI {
       const base::android::JavaParamRef<jobject>& java_web_contents);
 
   // PageInfoUI implementations.
-  void SetCookieInfo(const CookieInfoList& cookie_info_list) override;
-  void SetPermissionInfo(const PermissionInfoList& permission_info_list,
-                         ChosenObjectInfoList chosen_object_info_list) override;
   void SetIdentityInfo(const IdentityInfo& identity_info) override;
-  void SetPageFeatureInfo(const PageFeatureInfo& info) override;
 
  private:
   // The presenter that controls the Page Info UI.
@@ -54,8 +55,6 @@ class ConnectionInfoViewAndroid : public PageInfoUI {
 
   // The java prompt implementation.
   base::android::ScopedJavaGlobalRef<jobject> popup_jobject_;
-
-  DISALLOW_COPY_AND_ASSIGN(ConnectionInfoViewAndroid);
 };
 
-#endif  // COMPONENTS_PAGE_INFO_ANDROID_CONNECTION_INFO_VIEW_ANDROID_H_s
+#endif  // COMPONENTS_PAGE_INFO_ANDROID_CONNECTION_INFO_VIEW_ANDROID_H_

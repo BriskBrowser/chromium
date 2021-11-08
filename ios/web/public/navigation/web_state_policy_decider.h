@@ -102,34 +102,49 @@ class WebStatePolicyDecider {
     bool has_user_gesture = false;
   };
 
+  // Data Transfer Object for the additional information about response
+  // request passed to WebStatePolicyDecider::ShouldAllowResponse().
+  struct ResponseInfo {
+    explicit ResponseInfo(bool for_main_frame)
+        : for_main_frame(for_main_frame) {}
+    // Indicates whether the response target frame is the main frame.
+    bool for_main_frame = false;
+  };
+
+  WebStatePolicyDecider(const WebStatePolicyDecider&) = delete;
+  WebStatePolicyDecider& operator=(const WebStatePolicyDecider&) = delete;
+
   // Removes self as a policy decider of |web_state_|.
   virtual ~WebStatePolicyDecider();
 
   // Asks the decider whether the navigation corresponding to |request| should
-  // be allowed to continue. The first policy decider returning a PolicyDecision
-  // where ShouldCancelNavigation() is true will be the PolicyDecision used for
-  // the navigation. This means that a policy decider may not be called and have
-  // its expected decision performed for a given navigation. As such, the
-  // highest priority policy deciders should be added first to ensure those
-  // decisions are prioritized.
-  // Called before WebStateObserver::DidStartNavigation.
-  // Defaults to PolicyDecision::Allow() if not overridden.
-  // Never called in the following cases:
+  // be allowed to continue. Defaults to PolicyDecision::Allow() if not
+  // overridden. Called before WebStateObserver::DidStartNavigation. Calls
+  // |callback| with the decision. Never called in the following cases:
   //  - same-document back-forward and state change navigations
-  virtual PolicyDecision ShouldAllowRequest(NSURLRequest* request,
-                                            const RequestInfo& request_info);
+  virtual void ShouldAllowRequest(NSURLRequest* request,
+                                  RequestInfo request_info,
+                                  PolicyDecisionCallback callback);
+
+  // Asks the decider whether the navigation corresponding to |response| should
+  // be allowed to display an error page if an error occurs. Defaults to
+  // true if not overridden. This can be used to suppress error pages in certain
+  // cases such as attempting to upgrade an omnibox navigation to HTTPS. In that
+  // scenario, failed upgrade attempts (e.g. due to SSL or DNS resolution
+  // errors) should immediately fall back to HTTP without showing an error page.
+  virtual bool ShouldAllowErrorPageToBeDisplayed(NSURLResponse* response,
+                                                 bool for_main_frame);
 
   // Asks the decider whether the navigation corresponding to |response| should
   // be allowed to continue. Defaults to PolicyDecision::Allow() if not
-  // overridden. |for_main_frame| indicates whether the frame being navigated is
-  // the main frame. Called before WebStateObserver::DidFinishNavigation. Calls
+  // overridden. Called before WebStateObserver::DidFinishNavigation. Calls
   // |callback| with the decision.
   // Never called in the following cases:
-  //  - same-document navigations (unless ititiated via LoadURLWithParams)
+  //  - same-document navigations (unless initiated via LoadURLWithParams)
   //  - going back after form submission navigation
   //  - user-initiated POST navigation on iOS 10
   virtual void ShouldAllowResponse(NSURLResponse* response,
-                                   bool for_main_frame,
+                                   ResponseInfo response_info,
                                    PolicyDecisionCallback callback);
 
   // Notifies the policy decider that the web state is being destroyed.
@@ -153,8 +168,6 @@ class WebStatePolicyDecider {
 
   // The web state to decide navigation policy for.
   WebState* web_state_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebStatePolicyDecider);
 };
 }  // namespace web
 

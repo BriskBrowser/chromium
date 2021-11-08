@@ -78,7 +78,7 @@ namespace absl {
 ABSL_NAMESPACE_BEGIN
 
 template <typename Arg, typename Callback = void()>
-class ABSL_MUST_USE_RESULT Cleanup {
+class ABSL_MUST_USE_RESULT Cleanup final {
   static_assert(cleanup_internal::WasDeduced<Arg>(),
                 "Explicit template parameters are not supported.");
 
@@ -86,25 +86,25 @@ class ABSL_MUST_USE_RESULT Cleanup {
                 "Callbacks that return values are not supported.");
 
  public:
-  Cleanup(Callback callback)  // NOLINT
-      : storage_(std::move(callback), /* is_callback_engaged = */ true) {}
+  Cleanup(Callback callback) : storage_(std::move(callback)) {}  // NOLINT
 
   Cleanup(Cleanup&& other) = default;
 
   void Cancel() && {
     ABSL_HARDENING_ASSERT(storage_.IsCallbackEngaged());
-    storage_.DisengageCallback();
+    storage_.DestroyCallback();
   }
 
   void Invoke() && {
     ABSL_HARDENING_ASSERT(storage_.IsCallbackEngaged());
-    storage_.DisengageCallback();
     storage_.InvokeCallback();
+    storage_.DestroyCallback();
   }
 
   ~Cleanup() {
     if (storage_.IsCallbackEngaged()) {
       storage_.InvokeCallback();
+      storage_.DestroyCallback();
     }
   }
 

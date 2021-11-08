@@ -6,6 +6,8 @@
 
 #include "third_party/blink/public/common/input/web_touch_event.h"
 #include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/public/platform/web_theme_engine.h"
+#include "third_party/blink/public/web/web_render_theme.h"
 #include "third_party/blink/renderer/core/css/vision_deficiency.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -20,6 +22,7 @@
 #include "third_party/blink/renderer/platform/geometry/double_rect.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/loader/fetch/loader_freeze_mode.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/url_loader/request_conversion.h"
@@ -55,13 +58,13 @@ InspectorEmulationAgent::InspectorEmulationAgent(
                                 /*default_value=*/WTF::String()),
       locale_override_(&agent_state_, /*default_value=*/WTF::String()),
       virtual_time_budget_(&agent_state_, /*default_value*/ 0.0),
-      virtual_time_budget_initial_offset_(&agent_state_, /*default_value=*/0.0),
       initial_virtual_time_(&agent_state_, /*default_value=*/0.0),
-      virtual_time_offset_(&agent_state_, /*default_value=*/0.0),
       virtual_time_policy_(&agent_state_, /*default_value=*/WTF::String()),
       virtual_time_task_starvation_count_(&agent_state_, /*default_value=*/0),
       wait_for_navigation_(&agent_state_, /*default_value=*/false),
       emulate_focus_(&agent_state_, /*default_value=*/false),
+      emulate_auto_dark_mode_(&agent_state_, /*default_value=*/false),
+      auto_dark_mode_override_(&agent_state_, /*default_value=*/false),
       timezone_id_override_(&agent_state_, /*default_value=*/WTF::String()),
       disabled_image_types_(&agent_state_, /*default_value=*/false) {}
 
@@ -117,17 +120,13 @@ void InspectorEmulationAgent::Restore() {
   if (status_or_rgba.ok())
     setDefaultBackgroundColorOverride(std::move(status_or_rgba).value());
   setFocusEmulationEnabled(emulate_focus_.Get());
-
+  if (emulate_auto_dark_mode_.Get())
+    setAutoDarkModeOverride(auto_dark_mode_override_.Get());
   if (!timezone_id_override_.Get().IsNull())
     setTimezoneOverride(timezone_id_override_.Get());
 
   if (virtual_time_policy_.Get().IsNull())
     return;
-  // Tell the scheduler about the saved virtual time progress to ensure that
-  // virtual time monotonically advances despite the cross origin navigation.
-  // This should be done regardless of the virtual time mode.
-  web_local_frame_->View()->Scheduler()->SetInitialVirtualTimeOffset(
-      base::TimeDelta::FromMillisecondsD(virtual_time_offset_.Get()));
 
   // Preserve wait for navigation in all modes.
   bool wait_for_navigation = wait_for_navigation_.Get();
@@ -146,9 +145,7 @@ void InspectorEmulationAgent::Restore() {
   }
 
   // Calculate remaining budget for the advancing modes.
-  double budget_remaining = virtual_time_budget_.Get() +
-                            virtual_time_budget_initial_offset_.Get() -
-                            virtual_time_offset_.Get();
+  double budget_remaining = virtual_time_budget_.Get();
   DCHECK_GE(budget_remaining, 0);
 
   setVirtualTimePolicy(virtual_time_policy_.Get(), budget_remaining,
@@ -184,6 +181,9 @@ Response InspectorEmulationAgent::disable() {
     setEmulatedVisionDeficiency(String("none"));
   setCPUThrottlingRate(1);
   setFocusEmulationEnabled(false);
+  if (emulate_auto_dark_mode_.Get()) {
+    setAutoDarkModeOverride(Maybe<bool>());
+  }
   setDefaultBackgroundColorOverride(Maybe<protocol::DOM::RGBA>());
   disabled_image_types_.Clear();
   return Response::Success();
@@ -272,21 +272,76 @@ Response InspectorEmulationAgent::setEmulatedMedia(
     emulated_media_.Set("");
     GetWebViewImpl()->GetPage()->GetSettings().SetMediaTypeOverride("");
   }
-  for (const WTF::String& feature : emulated_media_features_.Keys()) {
-    GetWebViewImpl()->GetPage()->SetMediaFeatureOverride(AtomicString(feature),
-                                                         "");
-  }
+
+  auto const old_emulated_media_features_keys = emulated_media_features_.Keys();
   emulated_media_features_.Clear();
+
   if (features.isJust()) {
     auto featuresValue = features.takeJust();
     for (auto const& mediaFeature : *featuresValue.get()) {
       auto const& name = mediaFeature->getName();
       auto const& value = mediaFeature->getValue();
       emulated_media_features_.Set(name, value);
-      GetWebViewImpl()->GetPage()->SetMediaFeatureOverride(AtomicString(name),
-                                                           value);
+    }
+
+    auto const& forced_colors_value =
+        emulated_media_features_.Get("forced-colors");
+    auto const& prefers_color_scheme_value =
+        emulated_media_features_.Get("prefers-color-scheme");
+
+    if (forced_colors_value == "active") {
+      if (!forced_colors_override_) {
+        initial_system_color_info_state_ =
+            Platform::Current()->ThemeEngine()->GetSystemColorInfo();
+      }
+      forced_colors_override_ = true;
+      bool is_dark_mode = false;
+      if (prefers_color_scheme_value.IsEmpty()) {
+        is_dark_mode = GetWebViewImpl()
+                           ->GetPage()
+                           ->GetSettings()
+                           .GetPreferredColorScheme() ==
+                       mojom::blink::PreferredColorScheme::kDark;
+      } else {
+        is_dark_mode = prefers_color_scheme_value == "dark";
+      }
+      Platform::Current()->ThemeEngine()->OverrideForcedColorsTheme(
+          is_dark_mode);
+    } else if (forced_colors_value == "none") {
+      if (!forced_colors_override_) {
+        initial_system_color_info_state_ =
+            Platform::Current()->ThemeEngine()->GetSystemColorInfo();
+      }
+      forced_colors_override_ = true;
+      Platform::Current()->ThemeEngine()->SetForcedColors(ForcedColors::kNone);
+    } else if (forced_colors_override_) {
+      Platform::Current()->ThemeEngine()->ResetToSystemColors(
+          initial_system_color_info_state_);
+    }
+
+    for (const WTF::String& feature : emulated_media_features_.Keys()) {
+      auto const& value = emulated_media_features_.Get(feature);
+      GetWebViewImpl()->GetPage()->SetMediaFeatureOverride(
+          AtomicString(feature), value);
+    }
+
+    if (forced_colors_override_) {
+      blink::SystemColorsChanged();
+
+      if (forced_colors_value != "none" && forced_colors_value != "active") {
+        forced_colors_override_ = false;
+      }
     }
   }
+
+  for (const WTF::String& feature : old_emulated_media_features_keys) {
+    auto const& value = emulated_media_features_.Get(feature);
+    if (!value) {
+      GetWebViewImpl()->GetPage()->SetMediaFeatureOverride(
+          AtomicString(feature), "");
+    }
+  }
+
   return response;
 }
 
@@ -337,6 +392,22 @@ Response InspectorEmulationAgent::setFocusEmulationEnabled(bool enabled) {
   return response;
 }
 
+Response InspectorEmulationAgent::setAutoDarkModeOverride(Maybe<bool> enabled) {
+  Response response = AssertPage();
+  if (!response.IsSuccess())
+    return response;
+  if (enabled.isJust()) {
+    emulate_auto_dark_mode_.Set(true);
+    auto_dark_mode_override_.Set(enabled.fromJust());
+    GetWebViewImpl()->GetDevToolsEmulator()->SetAutoDarkModeOverride(
+        enabled.fromJust());
+  } else {
+    emulate_auto_dark_mode_.Set(false);
+    GetWebViewImpl()->GetDevToolsEmulator()->ResetAutoDarkModeOverride();
+  }
+  return response;
+}
+
 Response InspectorEmulationAgent::setVirtualTimePolicy(
     const String& policy,
     Maybe<double> virtual_time_budget_ms,
@@ -375,9 +446,6 @@ Response InspectorEmulationAgent::setVirtualTimePolicy(
   if (virtual_time_budget_ms.isJust()) {
     new_policy.virtual_time_budget_ms = virtual_time_budget_ms.fromJust();
     virtual_time_budget_.Set(*new_policy.virtual_time_budget_ms);
-    // Record the current virtual time offset so Restore can compute how much
-    // budget is left.
-    virtual_time_budget_initial_offset_.Set(virtual_time_offset_.Get());
   } else {
     virtual_time_budget_.Clear();
   }
@@ -429,13 +497,13 @@ void InspectorEmulationAgent::ApplyVirtualTimePolicy(
                                       TRACE_ID_LOCAL(this), "budget",
                                       *new_policy.virtual_time_budget_ms);
     base::TimeDelta budget_amount =
-        base::TimeDelta::FromMillisecondsD(*new_policy.virtual_time_budget_ms);
+        base::Milliseconds(*new_policy.virtual_time_budget_ms);
     web_local_frame_->View()->Scheduler()->GrantVirtualTimeBudget(
         budget_amount,
         WTF::Bind(&InspectorEmulationAgent::VirtualTimeBudgetExpired,
                   WrapWeakPersistent(this)));
     for (DocumentLoader* loader : pending_document_loaders_)
-      loader->SetDefersLoading(WebURLLoader::DeferType::kNotDeferred);
+      loader->SetDefersLoading(LoaderFreezeMode::kNone);
     pending_document_loaders_.clear();
   }
   if (new_policy.max_virtual_time_task_starvation_count) {
@@ -448,19 +516,19 @@ void InspectorEmulationAgent::FrameStartedLoading(LocalFrame*) {
   if (pending_virtual_time_policy_) {
     wait_for_navigation_.Set(false);
     ApplyVirtualTimePolicy(*pending_virtual_time_policy_);
-    pending_virtual_time_policy_ = base::nullopt;
+    pending_virtual_time_policy_ = absl::nullopt;
   }
 }
 
 AtomicString InspectorEmulationAgent::OverrideAcceptImageHeader(
     const HashSet<String>* disabled_image_types) {
-  String header(kImageAcceptHeader);
+  String header(ImageAcceptHeader());
   for (String type : *disabled_image_types) {
     // The header string is expected to be like
-    // `image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8` and is
-    // expected to be always ending with `image/*,*/*;q=xxx`, therefore, to
-    // remove a type we replace `image/x,` with empty string. Only webp and avif
-    // types can be disabled.
+    // `image/jxl,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8`
+    // and is expected to be always ending with `image/*,*/*;q=xxx`, therefore,
+    // to remove a type we replace `image/x,` with empty string. Only webp, avif
+    // and jxl types can be disabled.
     header.Replace(String(type + ","), "");
   }
   return AtomicString(header);
@@ -531,7 +599,7 @@ Response InspectorEmulationAgent::setDefaultBackgroundColorOverride(
     return response;
   if (!color.isJust()) {
     // Clear the override and state.
-    GetWebViewImpl()->ClearBaseBackgroundColorOverride();
+    GetWebViewImpl()->SetBaseBackgroundColorOverrideForInspector(absl::nullopt);
     default_background_color_override_rgba_.Clear();
     return Response::Success();
   }
@@ -540,7 +608,7 @@ Response InspectorEmulationAgent::setDefaultBackgroundColorOverride(
   default_background_color_override_rgba_.Set(rgba->Serialize());
   // Clamping of values is done by Color() constructor.
   int alpha = static_cast<int>(lroundf(255.0f * rgba->getA(1.0f)));
-  GetWebViewImpl()->SetBaseBackgroundColorOverride(
+  GetWebViewImpl()->SetBaseBackgroundColorOverrideForInspector(
       Color(rgba->getR(), rgba->getG(), rgba->getB(), alpha).Rgb());
   return Response::Success();
 }
@@ -593,7 +661,7 @@ Response InspectorEmulationAgent::setUserAgentOverride(
         Platform::Current()->UserAgentMetadata();
 
     if (user_agent.IsEmpty()) {
-      ua_metadata_override_ = base::nullopt;
+      ua_metadata_override_ = absl::nullopt;
       serialized_ua_metadata_override_.Set(std::vector<uint8_t>());
       return Response::InvalidParams(
           "Can't specify UserAgentMetadata but no UA string");
@@ -628,7 +696,7 @@ Response InspectorEmulationAgent::setUserAgentOverride(
     ua_metadata_override_->model = ua_metadata->getModel().Ascii();
     ua_metadata_override_->mobile = ua_metadata->getMobile();
   } else {
-    ua_metadata_override_ = base::nullopt;
+    ua_metadata_override_ = absl::nullopt;
   }
 
   std::string marshalled =
@@ -695,7 +763,7 @@ void InspectorEmulationAgent::WillCommitLoad(LocalFrame*,
       protocol::Emulation::VirtualTimePolicyEnum::Pause) {
     return;
   }
-  loader->SetDefersLoading(WebURLLoader::DeferType::kDeferred);
+  loader->SetDefersLoading(LoaderFreezeMode::kStrict);
   pending_document_loaders_.push_back(loader);
 }
 
@@ -710,7 +778,7 @@ void InspectorEmulationAgent::ApplyUserAgentOverride(String* user_agent) {
 }
 
 void InspectorEmulationAgent::ApplyUserAgentMetadataOverride(
-    base::Optional<blink::UserAgentMetadata>* ua_metadata) {
+    absl::optional<blink::UserAgentMetadata>* ua_metadata) {
   // This applies when UA override is set.
   if (!user_agent_override_.Get().IsEmpty()) {
     *ua_metadata = ua_metadata_override_;
@@ -723,6 +791,8 @@ void InspectorEmulationAgent::InnerEnable() {
   enabled_ = true;
   instrumenting_agents_->AddInspectorEmulationAgent(this);
 }
+
+void InspectorEmulationAgent::SetSystemThemeState() {}
 
 Response InspectorEmulationAgent::AssertPage() {
   if (!web_local_frame_) {
@@ -749,6 +819,7 @@ protocol::Response InspectorEmulationAgent::setDisabledImageTypes(
   namespace DisabledImageTypeEnum = protocol::Emulation::DisabledImageTypeEnum;
   for (protocol::Emulation::DisabledImageType type : *disabled_types) {
     if (DisabledImageTypeEnum::Avif == type ||
+        DisabledImageTypeEnum::Jxl == type ||
         DisabledImageTypeEnum::Webp == type) {
       disabled_image_types_.Set(prefix + type, true);
       continue;

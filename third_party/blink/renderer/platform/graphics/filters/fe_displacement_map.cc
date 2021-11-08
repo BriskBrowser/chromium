@@ -24,6 +24,7 @@
 
 #include "third_party/blink/renderer/platform/graphics/filters/fe_displacement_map.h"
 
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/platform/graphics/filters/filter.h"
 #include "third_party/blink/renderer/platform/graphics/filters/paint_filter_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_stream.h"
@@ -41,8 +42,8 @@ FEDisplacementMap::FEDisplacementMap(Filter* filter,
 
 FloatRect FEDisplacementMap::MapEffect(const FloatRect& rect) const {
   FloatRect result = rect;
-  result.InflateX(GetFilter()->ApplyHorizontalScale(std::abs(scale_) / 2));
-  result.InflateY(GetFilter()->ApplyVerticalScale(std::abs(scale_) / 2));
+  result.OutsetX(GetFilter()->ApplyHorizontalScale(std::abs(scale_) / 2));
+  result.OutsetY(GetFilter()->ApplyVerticalScale(std::abs(scale_) / 2));
   return result;
 }
 
@@ -115,7 +116,7 @@ sk_sp<PaintFilter> FEDisplacementMap::CreateImageFilter() {
       InputEffect(1), OperatingInterpolationSpace());
   SkColorChannel type_x = ToSkiaMode(x_channel_selector_);
   SkColorChannel type_y = ToSkiaMode(y_channel_selector_);
-  base::Optional<PaintFilter::CropRect> crop_rect = GetCropRect();
+  absl::optional<PaintFilter::CropRect> crop_rect = GetCropRect();
   // FIXME : Only applyHorizontalScale is used and applyVerticalScale is ignored
   // This can be fixed by adding a 2nd scale parameter to
   // DisplacementMapEffectPaintFilter.

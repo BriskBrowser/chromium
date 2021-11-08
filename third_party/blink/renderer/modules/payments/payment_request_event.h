@@ -49,6 +49,10 @@ class MODULES_EXPORT PaymentRequestEvent final : public ExtendableEvent {
       RespondWithObserver*,
       WaitUntilObserver*,
       ExecutionContext* execution_context);
+
+  PaymentRequestEvent(const PaymentRequestEvent&) = delete;
+  PaymentRequestEvent& operator=(const PaymentRequestEvent&) = delete;
+
   ~PaymentRequestEvent() override;
 
   const AtomicString& InterfaceName() const override;
@@ -61,7 +65,7 @@ class MODULES_EXPORT PaymentRequestEvent final : public ExtendableEvent {
   const HeapVector<Member<PaymentDetailsModifier>>& modifiers() const;
   const String& instrumentKey() const;
   const ScriptValue paymentOptions(ScriptState*) const;
-  base::Optional<HeapVector<Member<PaymentShippingOption>>> shippingOptions()
+  absl::optional<HeapVector<Member<PaymentShippingOption>>> shippingOptions()
       const;
 
   ScriptPromise openWindow(ScriptState*, const String& url);
@@ -99,11 +103,8 @@ class MODULES_EXPORT PaymentRequestEvent final : public ExtendableEvent {
 
   Member<ScriptPromiseResolver> change_payment_request_details_resolver_;
   Member<RespondWithObserver> observer_;
-  HeapMojoRemote<payments::mojom::blink::PaymentHandlerHost,
-                 HeapMojoWrapperMode::kWithoutContextObserver>
+  HeapMojoRemote<payments::mojom::blink::PaymentHandlerHost>
       payment_handler_host_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentRequestEvent);
 };
 
 }  // namespace blink

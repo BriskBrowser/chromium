@@ -101,7 +101,9 @@ public class WebApkInitializationTest {
                     screenOrientationProvider, notificationManagerProxySupplier,
                     tabContentManagerSupplier, activityTabStartupMetricsTrackerSupplier,
                     compositorViewHolderInitializer, chromeActivityNativeDelegate,
-                    modalDialogManagerSupplier, browserControlsStateProvider) -> {
+                    modalDialogManagerSupplier, browserControlsStateProvider,
+                    savedInstanceStateSupplier, autofillUiBottomInsetSupplier,
+                    shareDelegateSupplier, tabModelInitializer, activityType) -> {
                 mTrackingActivityLifecycleDispatcher.init(lifecycleDispatcher);
                 return new ChromeActivityCommonsModule(activity, bottomSheetControllerSupplier,
                         tabModelSelectorSupplier, browserControlsManager,
@@ -113,7 +115,9 @@ public class WebApkInitializationTest {
                         screenOrientationProvider, notificationManagerProxySupplier,
                         tabContentManagerSupplier, activityTabStartupMetricsTrackerSupplier,
                         compositorViewHolderInitializer, chromeActivityNativeDelegate,
-                        modalDialogManagerSupplier, browserControlsStateProvider);
+                        modalDialogManagerSupplier, browserControlsStateProvider,
+                        savedInstanceStateSupplier, autofillUiBottomInsetSupplier,
+                        shareDelegateSupplier, tabModelInitializer, activityType);
             });
 
     private final WebApkActivityTestRule mActivityRule = new WebApkActivityTestRule();

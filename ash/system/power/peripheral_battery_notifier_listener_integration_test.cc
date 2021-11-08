@@ -5,17 +5,20 @@
 #include "ash/system/power/peripheral_battery_listener.h"
 
 #include <memory>
+#include <string>
 
+#include "ash/constants/ash_features.h"
 #include "ash/shell.h"
 #include "ash/system/power/peripheral_battery_notifier.h"
 #include "ash/system/power/peripheral_battery_tests.h"
 #include "ash/test/ash_test_base.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/bluetooth_device.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
 #include "device/bluetooth/test/mock_bluetooth_device.h"
@@ -26,16 +29,18 @@
 #include "ui/message_center/public/cpp/notification.h"
 
 using testing::NiceMock;
+using BatteryInfo = device::BluetoothDevice::BatteryInfo;
+using BatteryType = device::BluetoothDevice::BatteryType;
 
 namespace {
 
-const base::string16& NotificationMessagePrefix() {
-  static const base::string16 prefix(base::ASCIIToUTF16("Battery low ("));
+const std::u16string& NotificationMessagePrefix() {
+  static const std::u16string prefix(u"Battery low (");
   return prefix;
 }
 
-const base::string16& NotificationMessageSuffix() {
-  static const base::string16 suffix(base::ASCIIToUTF16("%)"));
+const std::u16string& NotificationMessageSuffix() {
+  static const std::u16string suffix(u"%)");
   return suffix;
 }
 
@@ -45,6 +50,11 @@ namespace ash {
 
 class PeripheralBatteryNotifierListenerTest : public AshTestBase {
  public:
+  // Constants for active field of PeripheralBatteryStylusReceived().
+  const bool kBluetoothBatteryUpdate = true;
+  const bool kBatteryPolledUpdate = false;
+  const bool kBatteryEventUpdate = true;
+
   PeripheralBatteryNotifierListenerTest()
       : AshTestBase(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
   PeripheralBatteryNotifierListenerTest(
@@ -54,9 +64,8 @@ class PeripheralBatteryNotifierListenerTest : public AshTestBase {
   ~PeripheralBatteryNotifierListenerTest() override = default;
 
   void SetUp() override {
-    ui::DeviceDataManager::CreateInstance();
-
     AshTestBase::SetUp();
+    ASSERT_TRUE(ui::DeviceDataManager::HasInstance());
 
     // Simulate the complete listing of input devices, required by the listener.
     if (complete_devices_)
@@ -71,6 +80,8 @@ class PeripheralBatteryNotifierListenerTest : public AshTestBase {
         mock_adapter_.get(), /*bluetooth_class=*/0, kBluetoothDeviceName2,
         kBluetoothDeviceAddress2, /*paired=*/true, /*connected=*/true);
 
+    device::BluetoothAdapterFactory::SetAdapterForTesting(mock_adapter_);
+
     message_center_ = message_center::MessageCenter::Get();
 
     battery_listener_ = std::make_unique<PeripheralBatteryListener>();
@@ -84,12 +95,33 @@ class PeripheralBatteryNotifierListenerTest : public AshTestBase {
     battery_notifier_.reset();
     battery_listener_.reset();
     AshTestBase::TearDown();
-    ui::DeviceDataManager::DeleteInstance();
+  }
+
+  void SendBatteryUpdate(const std::string& path,
+                         const std::string& name,
+                         int level) {
+    battery_listener_->PeripheralBatteryStatusReceived(
+        path, name, level,
+        power_manager::
+            PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+        /*serial_number=*/kStylusEligibleSerialNumbers[0],
+        kBatteryPolledUpdate);
+  }
+
+  void SendBatteryUpdate(
+      const std::string& path,
+      const std::string& name,
+      int level,
+      power_manager::PeripheralBatteryStatus_ChargeStatus status,
+      const std::string& serial_number,
+      bool active_update) {
+    battery_listener_->PeripheralBatteryStatusReceived(
+        path, name, level, status, serial_number, active_update);
   }
 
   // Extracts the battery percentage from the message of a notification.
   uint8_t ExtractBatteryPercentage(message_center::Notification* notification) {
-    const base::string16& message = notification->message();
+    const std::u16string& message = notification->message();
     EXPECT_TRUE(base::StartsWith(message, NotificationMessagePrefix(),
                                  base::CompareCase::SENSITIVE));
     EXPECT_TRUE(base::EndsWith(message, NotificationMessageSuffix(),
@@ -136,34 +168,37 @@ class PeripheralBatteryNotifierListenerIncompleteDevicesTest
   PeripheralBatteryNotifierListenerIncompleteDevicesTest() {
     set_complete_devices(false);
   }
-  ~PeripheralBatteryNotifierListenerIncompleteDevicesTest() override {}
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(
-      PeripheralBatteryNotifierListenerIncompleteDevicesTest);
+  PeripheralBatteryNotifierListenerIncompleteDevicesTest(
+      const PeripheralBatteryNotifierListenerIncompleteDevicesTest&) = delete;
+  PeripheralBatteryNotifierListenerIncompleteDevicesTest& operator=(
+      const PeripheralBatteryNotifierListenerIncompleteDevicesTest&) = delete;
+
+  ~PeripheralBatteryNotifierListenerIncompleteDevicesTest() override {}
 };
 
 TEST_F(PeripheralBatteryNotifierListenerTest, Basic) {
-
   // Level 50 at time 100, no low-battery notification.
-  ClockAdvance(base::TimeDelta::FromSeconds(100));
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, 50);
+  ClockAdvance(base::Seconds(100));
+  SendBatteryUpdate(kTestBatteryPath, kTestDeviceName, 50);
   EXPECT_EQ(1u,
             battery_notifier_->battery_notifications_.count(kTestBatteryId));
 
   const PeripheralBatteryNotifier::NotificationInfo& info =
       battery_notifier_->battery_notifications_[kTestBatteryId];
 
-  EXPECT_EQ(base::nullopt, info.level);
+  EXPECT_EQ(absl::nullopt, info.level);
   EXPECT_EQ(GetTestingClock(), info.last_notification_timestamp);
   EXPECT_FALSE(
       message_center_->FindVisibleNotificationById(kTestBatteryNotificationId));
 
   // Level 5 at time 110, low-battery notification.
-  ClockAdvance(base::TimeDelta::FromSeconds(10));
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, 5);
+  ClockAdvance(base::Seconds(10));
+  SendBatteryUpdate(
+      kTestBatteryPath, kTestDeviceName, 5,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      /*serial_number=*/"", kBatteryEventUpdate);
   EXPECT_EQ(5, info.level);
 
   EXPECT_EQ(GetTestingClock(), info.last_notification_timestamp);
@@ -175,31 +210,28 @@ TEST_F(PeripheralBatteryNotifierListenerTest, Basic) {
       PeripheralBatteryNotifier::kStylusNotificationId));
 
   // Level -1 at time 115, cancel previous notification
-  ClockAdvance(base::TimeDelta::FromSeconds(5));
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, -1);
-  EXPECT_EQ(base::nullopt, info.level);
-  EXPECT_EQ(GetTestingClock() - base::TimeDelta::FromSeconds(5),
+  ClockAdvance(base::Seconds(5));
+  SendBatteryUpdate(kTestBatteryPath, kTestDeviceName, -1);
+  EXPECT_EQ(absl::nullopt, info.level);
+  EXPECT_EQ(GetTestingClock() - base::Seconds(5),
             info.last_notification_timestamp);
   EXPECT_FALSE(
       message_center_->FindVisibleNotificationById(kTestBatteryNotificationId));
 
   // Level 50 at time 120, no low-battery notification.
-  ClockAdvance(base::TimeDelta::FromSeconds(5));
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, 50);
-  EXPECT_EQ(base::nullopt, info.level);
-  EXPECT_EQ(GetTestingClock() - base::TimeDelta::FromSeconds(10),
+  ClockAdvance(base::Seconds(5));
+  SendBatteryUpdate(kTestBatteryPath, kTestDeviceName, 50);
+  EXPECT_EQ(absl::nullopt, info.level);
+  EXPECT_EQ(GetTestingClock() - base::Seconds(10),
             info.last_notification_timestamp);
   EXPECT_FALSE(
       message_center_->FindVisibleNotificationById(kTestBatteryNotificationId));
 
   // Level 5 at time 130, no low-battery notification (throttling).
-  ClockAdvance(base::TimeDelta::FromSeconds(10));
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, 5);
+  ClockAdvance(base::Seconds(10));
+  SendBatteryUpdate(kTestBatteryPath, kTestDeviceName, 5);
   EXPECT_EQ(5, info.level);
-  EXPECT_EQ(GetTestingClock() - base::TimeDelta::FromSeconds(20),
+  EXPECT_EQ(GetTestingClock() - base::Seconds(20),
             info.last_notification_timestamp);
   EXPECT_FALSE(
       message_center_->FindVisibleNotificationById(kTestBatteryNotificationId));
@@ -209,24 +241,19 @@ TEST_F(PeripheralBatteryNotifierListenerTest, InvalidBatteryInfo) {
   const std::string invalid_path1 = "invalid-path";
   const std::string invalid_path2 = "/sys/class/power_supply/hid-battery";
 
-  battery_listener_->PeripheralBatteryStatusReceived(invalid_path1,
-                                                     kTestDeviceName, 10);
+  SendBatteryUpdate(invalid_path1, kTestDeviceName, 10);
   EXPECT_TRUE(battery_notifier_->battery_notifications_.empty());
 
-  battery_listener_->PeripheralBatteryStatusReceived(invalid_path2,
-                                                     kTestDeviceName, 10);
+  SendBatteryUpdate(invalid_path2, kTestDeviceName, 10);
   EXPECT_TRUE(battery_notifier_->battery_notifications_.empty());
 
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, -2);
+  SendBatteryUpdate(kTestBatteryPath, kTestDeviceName, -2);
   EXPECT_TRUE(battery_notifier_->battery_notifications_.empty());
 
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, 101);
+  SendBatteryUpdate(kTestBatteryPath, kTestDeviceName, 101);
   EXPECT_TRUE(battery_notifier_->battery_notifications_.empty());
 
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, -1);
+  SendBatteryUpdate(kTestBatteryPath, kTestDeviceName, -1);
   EXPECT_TRUE(battery_notifier_->battery_notifications_.empty());
 }
 
@@ -242,16 +269,21 @@ TEST_F(PeripheralBatteryNotifierListenerTest, ExtractBluetoothAddress) {
   const std::string non_bluetooth_path =
       "/sys/class/power_supply/hid-notbluetooth-battery";
 
-  battery_listener_->PeripheralBatteryStatusReceived(bluetooth_path,
-                                                     kTestDeviceName, 10);
-  battery_listener_->PeripheralBatteryStatusReceived(non_bluetooth_path,
-                                                     kTestDeviceName, 10);
+  SendBatteryUpdate(
+      bluetooth_path, kTestDeviceName, 10,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      /*serial_number=*/"", kBluetoothBatteryUpdate);
+  SendBatteryUpdate(
+      non_bluetooth_path, kTestDeviceName, 10,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      /*serial_number=*/"", kBatteryPolledUpdate);
   EXPECT_EQ(2u, battery_notifier_->battery_notifications_.size());
 }
 
 TEST_F(PeripheralBatteryNotifierListenerTest, DeviceRemove) {
-  battery_listener_->PeripheralBatteryStatusReceived(kTestBatteryPath,
-                                                     kTestDeviceName, 5);
+  SendBatteryUpdate(kTestBatteryPath, kTestDeviceName, 5);
   EXPECT_EQ(1u,
             battery_notifier_->battery_notifications_.count(kTestBatteryId));
   EXPECT_TRUE(
@@ -267,6 +299,8 @@ TEST_F(PeripheralBatteryNotifierListenerIncompleteDevicesTest,
   const std::string kTestStylusBatteryPath =
       "/sys/class/power_supply/hid-AAAA:BBBB:CCCC.DDDD-battery";
   const std::string kTestStylusName = "test_stylus";
+  base::test::ScopedFeatureList flags;
+  flags.InitAndEnableFeature(features::kStylusBatteryStatus);
 
   // Add an external stylus to our test device manager.
   ui::TouchscreenDevice stylus(/*id=*/0, ui::INPUT_DEVICE_USB, kTestStylusName,
@@ -279,8 +313,11 @@ TEST_F(PeripheralBatteryNotifierListenerIncompleteDevicesTest,
   // Verify that when the battery level is 5, a stylus low battery notification
   // is not shown due to input device list not being complete. Also check that
   // a non stylus device low battery notification will not show up.
-  battery_listener_->PeripheralBatteryStatusReceived(kTestStylusBatteryPath,
-                                                     kTestStylusName, 5);
+  SendBatteryUpdate(
+      kTestStylusBatteryPath, kTestStylusName, 5,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      kStylusEligibleSerialNumbers[0], kBatteryEventUpdate);
   EXPECT_FALSE(message_center_->FindVisibleNotificationById(
       PeripheralBatteryNotifier::kStylusNotificationId));
   EXPECT_FALSE(
@@ -292,9 +329,58 @@ TEST_F(PeripheralBatteryNotifierListenerIncompleteDevicesTest,
   // Verify that when the battery level is 5, a stylus low battery notification
   // is now shown. Also check that a non stylus device low battery notification
   // will still not show up.
-  battery_listener_->PeripheralBatteryStatusReceived(kTestStylusBatteryPath,
-                                                     kTestStylusName, 5);
+  SendBatteryUpdate(
+      kTestStylusBatteryPath, kTestStylusName, 5,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      kStylusEligibleSerialNumbers[0], kBatteryEventUpdate);
   EXPECT_TRUE(message_center_->FindVisibleNotificationById(
+      PeripheralBatteryNotifier::kStylusNotificationId));
+  EXPECT_FALSE(
+      message_center_->FindVisibleNotificationById(kTestBatteryAddress));
+}
+
+TEST_F(PeripheralBatteryNotifierListenerIncompleteDevicesTest,
+       StylusNotificationDisabled) {
+  const std::string kTestStylusBatteryPath =
+      "/sys/class/power_supply/hid-AAAA:BBBB:CCCC.DDDD-battery";
+  const std::string kTestStylusName = "test_stylus";
+  base::test::ScopedFeatureList flags;
+  flags.InitAndDisableFeature(features::kStylusBatteryStatus);
+
+  // Add an external stylus to our test device manager.
+  ui::TouchscreenDevice stylus(/*id=*/0, ui::INPUT_DEVICE_USB, kTestStylusName,
+                               gfx::Size(),
+                               /*touch_points=*/1, /*has_stylus=*/true);
+  stylus.sys_path = base::FilePath(kTestStylusBatteryPath);
+
+  ui::DeviceDataManagerTestApi().SetTouchscreenDevices({stylus});
+
+  // Verify that when the battery level is 5, a stylus low battery notification
+  // is not shown due to input device list not being complete. Also check that
+  // a non stylus device low battery notification will not show up.
+  SendBatteryUpdate(
+      kTestStylusBatteryPath, kTestStylusName, 5,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      /*serial_number=*/"", kBatteryEventUpdate);
+  EXPECT_FALSE(message_center_->FindVisibleNotificationById(
+      PeripheralBatteryNotifier::kStylusNotificationId));
+  EXPECT_FALSE(
+      message_center_->FindVisibleNotificationById(kTestBatteryAddress));
+
+  // Complete devices
+  ui::DeviceDataManagerTestApi().OnDeviceListsComplete();
+
+  // Verify that when the battery level is 5, a stylus low battery notification
+  // is now shown. Also check that a non stylus device low battery notification
+  // will still not show up.
+  SendBatteryUpdate(
+      kTestStylusBatteryPath, kTestStylusName, 5,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      /*serial_number=*/"", kBatteryEventUpdate);
+  EXPECT_FALSE(message_center_->FindVisibleNotificationById(
       PeripheralBatteryNotifier::kStylusNotificationId));
   EXPECT_FALSE(
       message_center_->FindVisibleNotificationById(kTestBatteryAddress));
@@ -304,6 +390,8 @@ TEST_F(PeripheralBatteryNotifierListenerTest, StylusNotification) {
   const std::string kTestStylusBatteryPath =
       "/sys/class/power_supply/hid-AAAA:BBBB:CCCC.DDDD-battery";
   const std::string kTestStylusName = "test_stylus";
+  base::test::ScopedFeatureList flags;
+  flags.InitAndEnableFeature(features::kStylusBatteryStatus);
 
   // Add an external stylus to our test device manager.
   ui::TouchscreenDevice stylus(/*id=*/0, ui::INPUT_DEVICE_USB, kTestStylusName,
@@ -315,16 +403,18 @@ TEST_F(PeripheralBatteryNotifierListenerTest, StylusNotification) {
 
   // Verify that when the battery level is 50, no stylus low battery
   // notification is shown.
-  battery_listener_->PeripheralBatteryStatusReceived(kTestStylusBatteryPath,
-                                                     kTestStylusName, 50);
+  SendBatteryUpdate(kTestStylusBatteryPath, kTestStylusName, 50);
   EXPECT_FALSE(message_center_->FindVisibleNotificationById(
       PeripheralBatteryNotifier::kStylusNotificationId));
 
   // Verify that when the battery level is 5, a stylus low battery notification
   // is shown. Also check that a non stylus device low battery notification will
   // not show up.
-  battery_listener_->PeripheralBatteryStatusReceived(kTestStylusBatteryPath,
-                                                     kTestStylusName, 5);
+  SendBatteryUpdate(
+      kTestStylusBatteryPath, kTestStylusName, 5,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      kStylusEligibleSerialNumbers[0], kBatteryPolledUpdate);
   EXPECT_TRUE(message_center_->FindVisibleNotificationById(
       PeripheralBatteryNotifier::kStylusNotificationId));
   EXPECT_FALSE(
@@ -332,8 +422,48 @@ TEST_F(PeripheralBatteryNotifierListenerTest, StylusNotification) {
 
   // Verify that when the battery level is -1, the previous stylus low battery
   // notification is cancelled.
-  battery_listener_->PeripheralBatteryStatusReceived(kTestStylusBatteryPath,
-                                                     kTestStylusName, -1);
+  SendBatteryUpdate(
+      kTestStylusBatteryPath, kTestStylusName, -1,
+      power_manager::
+          PeripheralBatteryStatus_ChargeStatus_CHARGE_STATUS_DISCHARGING,
+      kStylusEligibleSerialNumbers[0], kBatteryPolledUpdate);
+  EXPECT_FALSE(message_center_->FindVisibleNotificationById(
+      PeripheralBatteryNotifier::kStylusNotificationId));
+}
+
+TEST_F(PeripheralBatteryNotifierListenerTest, StylusNotificationDisabled) {
+  const std::string kTestStylusBatteryPath =
+      "/sys/class/power_supply/hid-AAAA:BBBB:CCCC.DDDD-battery";
+  const std::string kTestStylusName = "test_stylus";
+  base::test::ScopedFeatureList flags;
+  flags.InitAndDisableFeature(features::kStylusBatteryStatus);
+
+  // Add an external stylus to our test device manager.
+  ui::TouchscreenDevice stylus(/*id=*/0, ui::INPUT_DEVICE_USB, kTestStylusName,
+                               gfx::Size(),
+                               /*touch_points=*/1, /*has_stylus=*/true);
+  stylus.sys_path = base::FilePath(kTestStylusBatteryPath);
+
+  ui::DeviceDataManagerTestApi().SetTouchscreenDevices({stylus});
+
+  // Verify that when the battery level is 50, no stylus low battery
+  // notification is shown.
+  SendBatteryUpdate(kTestStylusBatteryPath, kTestStylusName, 50);
+  EXPECT_FALSE(message_center_->FindVisibleNotificationById(
+      PeripheralBatteryNotifier::kStylusNotificationId));
+
+  // Verify that when the battery level is 5, a stylus low battery notification
+  // is shown. Also check that a non stylus device low battery notification will
+  // not show up.
+  SendBatteryUpdate(kTestStylusBatteryPath, kTestStylusName, 5);
+  EXPECT_FALSE(message_center_->FindVisibleNotificationById(
+      PeripheralBatteryNotifier::kStylusNotificationId));
+  EXPECT_FALSE(
+      message_center_->FindVisibleNotificationById(kTestBatteryAddress));
+
+  // Verify that when the battery level is -1, the previous stylus low battery
+  // notification is cancelled.
+  SendBatteryUpdate(kTestStylusBatteryPath, kTestStylusName, -1);
   EXPECT_FALSE(message_center_->FindVisibleNotificationById(
       PeripheralBatteryNotifier::kStylusNotificationId));
 }
@@ -341,19 +471,16 @@ TEST_F(PeripheralBatteryNotifierListenerTest, StylusNotification) {
 TEST_F(PeripheralBatteryNotifierListenerTest,
        Bluetooth_OnlyShowNotificationForLowBatteryLevels) {
   // Should not create a notification for battery changes above the threshold.
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/80);
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/80));
   EXPECT_EQ(0u, message_center_->NotificationCount());
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/100);
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/100));
   EXPECT_EQ(0u, message_center_->NotificationCount());
 
-  // Should trigger notificaiton.
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/10);
+  // Should trigger notification.
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/10));
   EXPECT_EQ(1u, message_center_->NotificationCount());
   message_center::Notification* notification =
       message_center_->FindVisibleNotificationById(
@@ -364,12 +491,10 @@ TEST_F(PeripheralBatteryNotifierListenerTest,
 
 TEST_F(PeripheralBatteryNotifierListenerTest,
        Bluetooth_CreatesANotificationForEachDevice) {
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/5);
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_2_.get(),
-                                          /*new_battery_percentage=*/0);
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/5));
+  mock_device_2_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/0));
 
   // Verify 2 notifications were posted with the correct values.
   EXPECT_EQ(2u, message_center_->NotificationCount());
@@ -390,12 +515,10 @@ TEST_F(PeripheralBatteryNotifierListenerTest,
 
 TEST_F(PeripheralBatteryNotifierListenerTest,
        Bluetooth_RemovesNotificationForDisconnectedDevices) {
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/5);
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_2_.get(),
-                                          /*new_battery_percentage=*/0);
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/5));
+  mock_device_2_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/0));
 
   // Verify 2 notifications were posted.
   EXPECT_EQ(2u, message_center_->NotificationCount());
@@ -414,16 +537,13 @@ TEST_F(PeripheralBatteryNotifierListenerTest,
 
 TEST_F(PeripheralBatteryNotifierListenerTest,
        Bluetooth_CancelNotificationForInvalidBatteryLevel) {
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/1);
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/1));
   EXPECT_TRUE(message_center_->FindVisibleNotificationById(
       kBluetoothDeviceNotificationId1));
 
   // The notification should get canceled.
-  battery_listener_->DeviceBatteryChanged(
-      mock_adapter_.get(), mock_device_1_.get(),
-      /*new_battery_percentage=*/base::nullopt);
+  mock_device_1_->RemoveBatteryInfo(BatteryType::kDefault);
   EXPECT_FALSE(message_center_->FindVisibleNotificationById(
       kBluetoothDeviceNotificationId1));
 }
@@ -432,29 +552,25 @@ TEST_F(PeripheralBatteryNotifierListenerTest,
 // threshold before kNotificationInterval is completed.
 TEST_F(PeripheralBatteryNotifierListenerTest,
        DontShowSecondNotificationWithinASmallTimeInterval) {
-  ClockAdvance(base::TimeDelta::FromSeconds(100));
+  ClockAdvance(base::Seconds(100));
 
   // Post a notification.
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/1);
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/1));
   EXPECT_TRUE(message_center_->FindVisibleNotificationById(
       kBluetoothDeviceNotificationId1));
 
   // Cancel the notification.
-  ClockAdvance(base::TimeDelta::FromSeconds(1));
-  battery_listener_->DeviceBatteryChanged(
-      mock_adapter_.get(), mock_device_1_.get(),
-      /*new_battery_percentage=*/base::nullopt);
+  ClockAdvance(base::Seconds(1));
+  mock_device_1_->RemoveBatteryInfo(BatteryType::kDefault);
   EXPECT_FALSE(message_center_->FindVisibleNotificationById(
       kBluetoothDeviceNotificationId1));
 
   // The battery level falls below the threshold after a short time period. No
   // notification should get posted.
-  ClockAdvance(base::TimeDelta::FromSeconds(1));
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/1);
+  ClockAdvance(base::Seconds(1));
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/1));
   EXPECT_FALSE(message_center_->FindVisibleNotificationById(
       kBluetoothDeviceNotificationId1));
 }
@@ -463,28 +579,24 @@ TEST_F(PeripheralBatteryNotifierListenerTest,
 // then is again under the threshold after kNotificationInterval is completed.
 TEST_F(PeripheralBatteryNotifierListenerTest,
        PostNotificationIfBatteryGoesFromUnknownLevelToBelowThreshold) {
-  ClockAdvance(base::TimeDelta::FromSeconds(100));
+  ClockAdvance(base::Seconds(100));
 
   // Post a notification.
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/1);
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/1));
   EXPECT_TRUE(message_center_->FindVisibleNotificationById(
       kBluetoothDeviceNotificationId1));
 
   // Cancel the notification.
-  ClockAdvance(base::TimeDelta::FromSeconds(1));
-  battery_listener_->DeviceBatteryChanged(
-      mock_adapter_.get(), mock_device_1_.get(),
-      /*new_battery_percentage=*/base::nullopt);
+  ClockAdvance(base::Seconds(1));
+  mock_device_1_->RemoveBatteryInfo(BatteryType::kDefault);
   EXPECT_FALSE(message_center_->FindVisibleNotificationById(
       kBluetoothDeviceNotificationId1));
 
   // Post notification if we are out of the kNotificationInterval.
-  ClockAdvance(base::TimeDelta::FromSeconds(100));
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/1);
+  ClockAdvance(base::Seconds(100));
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/1));
   EXPECT_TRUE(message_center_->FindVisibleNotificationById(
       kBluetoothDeviceNotificationId1));
 }
@@ -493,40 +605,35 @@ TEST_F(PeripheralBatteryNotifierListenerTest,
 // dismissed the previous notification.
 TEST_F(PeripheralBatteryNotifierListenerTest,
        DontRepostNotificationIfUserDismissedPreviousOne) {
-  ClockAdvance(base::TimeDelta::FromSeconds(100));
+  ClockAdvance(base::Seconds(100));
 
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/5);
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/5));
   EXPECT_EQ(1u, message_center_->NotificationCount());
 
   // Simulate the user clears the notification.
   message_center_->RemoveAllNotifications(
       /*by_user=*/true, message_center::MessageCenter::RemoveType::ALL);
 
-  // The battery level remains low, but shouldn't post a notificaiton.
-  ClockAdvance(base::TimeDelta::FromSeconds(100));
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/3);
+  // The battery level remains low, but shouldn't post a notification.
+  ClockAdvance(base::Seconds(100));
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/3));
   EXPECT_EQ(0u, message_center_->NotificationCount());
 }
 
-// If there is an existing notificaiton and the battery level remains low,
+// If there is an existing notification and the battery level remains low,
 // update its content.
 TEST_F(PeripheralBatteryNotifierListenerTest, UpdateNotificationIfVisible) {
-  ClockAdvance(base::TimeDelta::FromSeconds(100));
+  ClockAdvance(base::Seconds(100));
 
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/5);
+  mock_device_1_->SetBatteryInfo(BatteryInfo(BatteryType::kDefault, 5));
   EXPECT_EQ(1u, message_center_->NotificationCount());
 
   // The battery level remains low, should update the notification.
-  ClockAdvance(base::TimeDelta::FromSeconds(100));
-  battery_listener_->DeviceBatteryChanged(mock_adapter_.get(),
-                                          mock_device_1_.get(),
-                                          /*new_battery_percentage=*/3);
+  ClockAdvance(base::Seconds(100));
+  mock_device_1_->SetBatteryInfo(
+      BatteryInfo(BatteryType::kDefault, /*percentage=*/3));
 
   message_center::Notification* notification =
       message_center_->FindVisibleNotificationById(

@@ -12,10 +12,9 @@
 #include "chrome/browser/vr/ui.h"
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/numerics/math_constants.h"
-#include "base/numerics/ranges.h"
-#include "base/strings/string16.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/vr/content_input_delegate.h"
@@ -277,10 +276,9 @@ void Ui::SetSpeechRecognitionEnabled(bool enabled) {
       OnSpeechRecognitionEnded();
     } else {
       auto sequence = std::make_unique<Sequence>();
-      sequence->Add(
-          base::BindOnce(&Ui::OnSpeechRecognitionEnded,
-                         weak_ptr_factory_.GetWeakPtr()),
-          base::TimeDelta::FromMilliseconds(kSpeechRecognitionResultTimeoutMs));
+      sequence->Add(base::BindOnce(&Ui::OnSpeechRecognitionEnded,
+                                   weak_ptr_factory_.GetWeakPtr()),
+                    base::Milliseconds(kSpeechRecognitionResultTimeoutMs));
       scene_->AddSequence(std::move(sequence));
     }
   }
@@ -294,7 +292,7 @@ void Ui::OnSpeechRecognitionEnded() {
   }
 }
 
-void Ui::SetRecognitionResult(const base::string16& result) {
+void Ui::SetRecognitionResult(const std::u16string& result) {
   model_->speech.recognition_result = result;
 }
 
@@ -379,7 +377,7 @@ void Ui::SetDialogFloating(bool floating) {
   model_->hosted_platform_ui.floating = floating;
 }
 
-void Ui::ShowPlatformToast(const base::string16& text) {
+void Ui::ShowPlatformToast(const std::u16string& text) {
   model_->platform_toast = std::make_unique<PlatformToast>(text);
 }
 
@@ -869,11 +867,10 @@ FovRectangle Ui::GetMinimalFov(const gfx::Transform& view_matrix,
     }
 
     // Clamp to Z near plane's boundary.
-    bounds_left = base::ClampToRange(bounds_left, z_near_left, z_near_right);
-    bounds_right = base::ClampToRange(bounds_right, z_near_left, z_near_right);
-    bounds_bottom =
-        base::ClampToRange(bounds_bottom, z_near_bottom, z_near_top);
-    bounds_top = base::ClampToRange(bounds_top, z_near_bottom, z_near_top);
+    bounds_left = base::clamp(bounds_left, z_near_left, z_near_right);
+    bounds_right = base::clamp(bounds_right, z_near_left, z_near_right);
+    bounds_bottom = base::clamp(bounds_bottom, z_near_bottom, z_near_top);
+    bounds_top = base::clamp(bounds_top, z_near_bottom, z_near_top);
 
     left = std::min(bounds_left, left);
     right = std::max(bounds_right, right);

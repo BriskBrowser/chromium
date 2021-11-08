@@ -10,7 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner_helpers.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "base/thread_annotations.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "third_party/blink/public/mojom/buckets/bucket_manager_host.mojom-forward.h"
@@ -57,7 +57,8 @@ class BucketContext : public base::RefCountedDeleteOnSequence<BucketContext> {
   // and bind the blink::mojom::BucketManagerHost receiver.
   void BindBucketManagerHostOnIOThread(
       const url::Origin& origin,
-      mojo::PendingReceiver<blink::mojom::BucketManagerHost> receiver);
+      mojo::PendingReceiver<blink::mojom::BucketManagerHost> receiver,
+      mojo::ReportBadMessageCallback bad_message_callback);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

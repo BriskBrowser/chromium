@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CLOUD_PRINT_COMMON_CLOUD_PRINT_UTILS_H_
-#define CLOUD_PRINT_COMMON_CLOUD_PRINT_UTILS_H_
+#ifndef CLOUD_PRINT_COMMON_WIN_CLOUD_PRINT_UTILS_H_
+#define CLOUD_PRINT_COMMON_WIN_CLOUD_PRINT_UTILS_H_
 
 #include <wtypes.h>
 
-#include "base/strings/string16.h"
+#include <string>
+
 
 namespace cloud_print {
 
@@ -26,4 +27,4 @@ void SetGoogleUpdateUsage(const std::wstring& product_id);
 
 }  // namespace cloud_print
 
-#endif  // CLOUD_PRINT_COMMON_CLOUD_PRINT_UTILS_H_
+#endif  // CLOUD_PRINT_COMMON_WIN_CLOUD_PRINT_UTILS_H_

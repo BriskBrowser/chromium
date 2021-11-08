@@ -23,6 +23,7 @@
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/win/registry.h"
+#include "build/branding_buildflags.h"
 #include "chrome/browser/browser_switcher/browser_switcher_policy_migrator.h"
 #include "chrome/browser/browser_switcher/browser_switcher_prefs.h"
 #include "chrome/browser/browser_switcher/browser_switcher_sitelist.h"
@@ -42,22 +43,43 @@ const wchar_t kIeSiteListValue[] = L"SiteList";
 
 const int kCurrentFileVersion = 1;
 
+// Rule sets after merging from the 3 sources (XML sitelist, EMIE sitelist, and
+// policies). This stores the rules as raw-pointers rather than unique-pointers,
+// to avoid copying/moving them from their original source.
+struct MergedRuleSet {
+  std::vector<Rule*> sitelist;
+  std::vector<Rule*> greylist;
+};
+
 // Creates a RuleSet that is the concatenation of all 3 sources.
-RuleSet GetRules(const BrowserSwitcherPrefs& prefs,
-                 const BrowserSwitcherSitelist* sitelist) {
+MergedRuleSet GetRules(const BrowserSwitcherPrefs& prefs,
+                       const BrowserSwitcherSitelist* sitelist) {
   const RuleSet* source_rulesets[] = {
       &prefs.GetRules(),
       sitelist->GetIeemSitelist(),
       sitelist->GetExternalSitelist(),
   };
-  RuleSet rules;
+  MergedRuleSet rules;
   for (const RuleSet* source : source_rulesets) {
-    rules.sitelist.insert(rules.sitelist.end(), source->sitelist.begin(),
-                          source->sitelist.end());
-    rules.greylist.insert(rules.greylist.end(), source->greylist.begin(),
-                          source->greylist.end());
+    for (const auto& rule : source->sitelist)
+      rules.sitelist.push_back(rule.get());
+    for (const auto& rule : source->greylist)
+      rules.greylist.push_back(rule.get());
   }
   return rules;
+}
+
+// Convert a ParsingMode enum value to a string, for writing to cache.dat.
+std::string ParsingModeToString(ParsingMode parsing_mode) {
+  switch (parsing_mode) {
+    case ParsingMode::kDefault:
+      return "default";
+    case ParsingMode::kIESiteListMode:
+      return "ie_sitelist";
+    default:
+      // BrowserSwitcherPrefs should've sanitized the value for us.
+      NOTREACHED();
+  }
 }
 
 // Serialize prefs to a string for writing to cache.dat.
@@ -74,15 +96,17 @@ std::string SerializeCacheFile(const BrowserSwitcherPrefs& prefs,
   buffer << prefs.GetChromePath() << std::endl;
   buffer << base::JoinString(prefs.GetChromeParameters(), " ") << std::endl;
 
-  const RuleSet rules = GetRules(prefs, sitelist);
+  const auto rules = GetRules(prefs, sitelist);
 
   buffer << rules.sitelist.size() << std::endl;
-  if (!rules.sitelist.empty())
-    buffer << base::JoinString(rules.sitelist, "\n") << std::endl;
+  for (const Rule* rule : rules.sitelist)
+    buffer << rule->ToString() << std::endl;
 
   buffer << rules.greylist.size() << std::endl;
-  if (!rules.greylist.empty())
-    buffer << base::JoinString(rules.greylist, "\n") << std::endl;
+  for (const Rule* rule : rules.greylist)
+    buffer << rule->ToString() << std::endl;
+
+  buffer << ParsingModeToString(prefs.GetParsingMode()) << std::endl;
 
   return buffer.str();
 }
@@ -113,8 +137,8 @@ void SaveDataToFile(const std::string& data, base::FilePath path) {
 }
 
 // URL to fetch the IEEM sitelist from. Only used for testing.
-base::Optional<std::string>* IeemSitelistUrlForTesting() {
-  static base::NoDestructor<base::Optional<std::string>>
+absl::optional<std::string>* IeemSitelistUrlForTesting() {
+  static base::NoDestructor<absl::optional<std::string>>
       ieem_sitelist_url_for_testing;
   return ieem_sitelist_url_for_testing.get();
 }
@@ -172,13 +196,13 @@ void BrowserSwitcherServiceWin::LoadRulesFromPrefs() {
   BrowserSwitcherService::LoadRulesFromPrefs();
   if (prefs().UseIeSitelist())
     sitelist()->SetIeemSitelist(
-        ParsedXml(prefs().GetCachedIeemSitelist(), base::nullopt));
+        ParsedXml(prefs().GetCachedIeemSitelist(), absl::nullopt));
 }
 
 base::FilePath BrowserSwitcherServiceWin::GetCacheDir() {
   if (!cache_dir_for_testing_.empty())
     return cache_dir_for_testing_;
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   base::FilePath path;
   if (!base::PathService::Get(base::DIR_LOCAL_APP_DATA, &path))
     return path;
@@ -203,7 +227,7 @@ GURL BrowserSwitcherServiceWin::GetIeemSitelistUrl() {
   if (!prefs().UseIeSitelist())
     return GURL();
 
-  if (*IeemSitelistUrlForTesting() != base::nullopt)
+  if (*IeemSitelistUrlForTesting() != absl::nullopt)
     return GURL((*IeemSitelistUrlForTesting()).value());
 
   base::win::RegKey key;

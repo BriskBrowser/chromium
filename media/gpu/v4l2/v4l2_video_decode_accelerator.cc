@@ -15,12 +15,13 @@
 #include <sys/mman.h>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/trace_event/memory_dump_manager.h"
@@ -36,6 +37,7 @@
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/v4l2_image_processor_backend.h"
 #include "media/gpu/v4l2/v4l2_stateful_workaround.h"
+#include "media/gpu/v4l2/v4l2_utils.h"
 #include "media/gpu/v4l2/v4l2_vda_helpers.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_pixmap_handle.h"
@@ -589,7 +591,9 @@ void V4L2VideoDecodeAccelerator::ImportBufferForPictureForImportTask(
   // the final output format from the image processor (if exists).
   // Use |egl_image_format_fourcc_|, it will be the final output format.
   if (pixel_format != egl_image_format_fourcc_->ToVideoPixelFormat()) {
-    LOG(ERROR) << "Unsupported import format: " << pixel_format;
+    LOG(ERROR) << "Unsupported import format: " << pixel_format << ", expected "
+               << VideoPixelFormatToString(
+                      egl_image_format_fourcc_->ToVideoPixelFormat());
     NOTIFY_ERROR(INVALID_ARGUMENT);
     return;
   }
@@ -1283,7 +1287,7 @@ void V4L2VideoDecodeAccelerator::CheckGLFences() {
             FROM_HERE,
             base::BindOnce(&V4L2VideoDecodeAccelerator::Enqueue,
                            base::Unretained(this)),
-            base::TimeDelta::FromMilliseconds(resched_delay));
+            base::Milliseconds(resched_delay));
       }
       break;
     }
@@ -1400,7 +1404,7 @@ bool V4L2VideoDecodeAccelerator::DequeueResolutionChangeEvent() {
   DCHECK_NE(decoder_state_, kUninitialized);
   DVLOGF(3);
 
-  while (base::Optional<struct v4l2_event> event = device_->DequeueEvent()) {
+  while (absl::optional<struct v4l2_event> event = device_->DequeueEvent()) {
     if (event->type == V4L2_EVENT_SOURCE_CHANGE) {
       if (event->u.src_change.changes & V4L2_EVENT_SRC_CH_RESOLUTION) {
         VLOGF(2) << "got resolution change event.";
@@ -1614,7 +1618,8 @@ void V4L2VideoDecodeAccelerator::FlushTask() {
     return;
   }
 
-  TRACE_EVENT_ASYNC_BEGIN0("media,gpu", "V4L2VDA::FlushTask", this);
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("media,gpu", "V4L2VDA::FlushTask",
+                                    TRACE_ID_LOCAL(this));
 
   // We don't support stacked flushing.
   DCHECK(!decoder_flushing_);
@@ -1685,7 +1690,8 @@ void V4L2VideoDecodeAccelerator::NotifyFlushDoneIfNeeded() {
 }
 
 void V4L2VideoDecodeAccelerator::NofityFlushDone() {
-  TRACE_EVENT_ASYNC_END0("media,gpu", "V4L2VDA::FlushTask", this);
+  TRACE_EVENT_NESTABLE_ASYNC_END0("media,gpu", "V4L2VDA::FlushTask",
+                                  TRACE_ID_LOCAL(this));
   decoder_delay_bitstream_buffer_id_ = -1;
   decoder_flushing_ = false;
   VLOGF(2) << "returning flush";
@@ -1734,7 +1740,8 @@ void V4L2VideoDecodeAccelerator::ResetTask() {
     return;
   }
 
-  TRACE_EVENT_ASYNC_BEGIN0("media,gpu", "V4L2VDA::ResetTask", this);
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("media,gpu", "V4L2VDA::ResetTask",
+                                    TRACE_ID_LOCAL(this));
 
   decoder_current_bitstream_buffer_.reset();
   while (!decoder_input_queue_.empty())
@@ -1810,7 +1817,8 @@ void V4L2VideoDecodeAccelerator::ResetDoneTask() {
     return;
   }
 
-  TRACE_EVENT_ASYNC_END0("media,gpu", "V4L2VDA::ResetTask", this);
+  TRACE_EVENT_NESTABLE_ASYNC_END0("media,gpu", "V4L2VDA::ResetTask",
+                                  TRACE_ID_LOCAL(this));
 
   // Start poll thread if NotifyFlushDoneIfNeeded has not already.
   if (!device_poll_thread_.IsRunning()) {
@@ -1918,7 +1926,7 @@ bool V4L2VideoDecodeAccelerator::StopDevicePoll() {
   // Must be done after the Stop() above to ensure
   // |cancelable_service_device_task_callback_| is not copied.
   cancelable_service_device_task_.Cancel();
-  cancelable_service_device_task_callback_ = {};
+  cancelable_service_device_task_callback_ = base::NullCallback();
   // Clear the interrupt now, to be sure.
   if (!device_->ClearDevicePollInterrupt()) {
     PLOG(ERROR) << "ClearDevicePollInterrupt: failed";
@@ -2359,7 +2367,33 @@ bool V4L2VideoDecodeAccelerator::ProcessFrame(int32_t bitstream_buffer_id,
 
   scoped_refptr<VideoFrame> input_frame = buf->GetVideoFrame();
   if (!input_frame) {
-    VLOGF(1) << "Failed wrapping input frame!";
+    VLOGF(1) << "Could not get the input frame for the image processor!";
+    return false;
+  }
+
+  // The |input_frame| has a potentially incorrect visible rectangle and natural
+  // size: that frame gets created by V4L2Buffer::CreateVideoFrame() which uses
+  // v4l2_format::fmt.pix_mp.width and v4l2_format::fmt.pix_mp.height as the
+  // visible rectangle and natural size. However, those dimensions actually
+  // correspond to the coded size. Therefore, we should wrap |input_frame| into
+  // another frame with the right visible rectangle and natural size.
+  DCHECK(input_frame->visible_rect().origin().IsOrigin());
+  const gfx::Rect visible_rect = image_processor_->input_config().visible_rect;
+  const gfx::Size natural_size = visible_rect.size();
+  if (!gfx::Rect(input_frame->coded_size()).Contains(visible_rect) ||
+      !input_frame->visible_rect().Contains(visible_rect)) {
+    VLOGF(1) << "The visible size is too large!";
+    return false;
+  }
+  if (!gfx::Rect(input_frame->natural_size())
+           .Contains(gfx::Rect(natural_size))) {
+    VLOGF(1) << "The natural size is too large!";
+    return false;
+  }
+  scoped_refptr<VideoFrame> cropped_input_frame = VideoFrame::WrapVideoFrame(
+      input_frame, input_frame->format(), visible_rect, natural_size);
+  if (!cropped_input_frame) {
+    VLOGF(1) << "Could not wrap the input frame for the image processor!";
     return false;
   }
 
@@ -2371,13 +2405,13 @@ bool V4L2VideoDecodeAccelerator::ProcessFrame(int32_t bitstream_buffer_id,
   // FrameReadyCB is executed.
   if (image_processor_->output_mode() == ImageProcessor::OutputMode::IMPORT) {
     image_processor_->Process(
-        input_frame, output_record.output_frame,
+        cropped_input_frame, output_record.output_frame,
         base::BindOnce(&V4L2VideoDecodeAccelerator::FrameProcessed,
                        base::Unretained(this), bitstream_buffer_id,
                        buf->BufferId()));
   } else {
     image_processor_->Process(
-        input_frame,
+        cropped_input_frame,
         base::BindOnce(&V4L2VideoDecodeAccelerator::FrameProcessed,
                        base::Unretained(this), bitstream_buffer_id));
   }
@@ -2655,7 +2689,7 @@ bool V4L2VideoDecodeAccelerator::OnMemoryDump(
   if (input_queue_) {
     input_queue_buffers_count = input_queue_->AllocatedBuffersCount();
     input_queue_buffers_memory_type =
-        V4L2Device::V4L2MemoryToString(input_queue_->GetMemoryType());
+        V4L2MemoryToString(input_queue_->GetMemoryType());
     if (output_queue_->GetMemoryType() == V4L2_MEMORY_MMAP)
       input_queue_memory_usage = input_queue_->GetMemoryUsage();
   }
@@ -2666,7 +2700,7 @@ bool V4L2VideoDecodeAccelerator::OnMemoryDump(
   if (output_queue_) {
     output_queue_buffers_count = output_queue_->AllocatedBuffersCount();
     output_queue_buffers_memory_type =
-        V4L2Device::V4L2MemoryToString(output_queue_->GetMemoryType());
+        V4L2MemoryToString(output_queue_->GetMemoryType());
     if (output_queue_->GetMemoryType() == V4L2_MEMORY_MMAP)
       output_queue_memory_usage = output_queue_->GetMemoryUsage();
   }

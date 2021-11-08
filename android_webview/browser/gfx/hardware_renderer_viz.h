@@ -23,6 +23,10 @@ class HardwareRendererViz : public HardwareRenderer {
   HardwareRendererViz(RenderThreadManager* state,
                       RootFrameSinkGetter root_frame_sink_getter,
                       AwVulkanContextProvider* context_provider);
+
+  HardwareRendererViz(const HardwareRendererViz&) = delete;
+  HardwareRendererViz& operator=(const HardwareRendererViz&) = delete;
+
   ~HardwareRendererViz() override;
 
   // HardwareRenderer overrides.
@@ -30,12 +34,15 @@ class HardwareRendererViz : public HardwareRenderer {
                    const OverlaysParams& overlays_params) override;
   void RemoveOverlays(
       OverlaysParams::MergeTransactionFn merge_transaction) override;
+  void AbandonContext() override;
 
  private:
   class OnViz;
 
   void InitializeOnViz(RootFrameSinkGetter root_frame_sink_getter);
   bool IsUsingVulkan() const;
+  void MergeTransactionIfNeeded(
+      OverlaysParams::MergeTransactionFn merge_transaction);
 
   // Information about last delegated frame.
   float device_scale_factor_ = 0;
@@ -49,8 +56,6 @@ class HardwareRendererViz : public HardwareRenderer {
   std::unique_ptr<OnViz> on_viz_;
 
   THREAD_CHECKER(render_thread_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(HardwareRendererViz);
 };
 
 }  // namespace android_webview

@@ -41,6 +41,12 @@ namespace arc {
 // - GetChildDocuments()
 // - GetRecentDocuments()
 // - GetRoots()
+// - GetRootSize()
+// - DeleteDocument()
+// - RenameDocument()
+// - CreateDocument()
+// - CopyDocument()
+// - MoveDocument()
 // Fake documents for those functions can be set up by AddDocument() and fake
 // roots for those functions can be set up by AddRoot().
 //
@@ -90,7 +96,7 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
     Seekable seekable;
 
     // Override of |content| length in bytes.
-    base::Optional<int64_t> size_override;
+    absl::optional<int64_t> size_override;
 
     // The thumbnail of a file, which can be read by OpenThumbnail().
     std::string thumbnail_content;
@@ -188,15 +194,27 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
     // Title of this root.
     std::string title;
 
+    // Available bytes in this root.
+    int64_t available_bytes;
+
+    // Capacity bytes in this root.
+    int64_t capacity_bytes;
+
     Root(const std::string& authority,
          const std::string& root_id,
          const std::string& document_id,
-         const std::string& title);
+         const std::string& title,
+         int64_t available_bytes,
+         int64_t capacity_bytes);
     Root(const Root& that);
     ~Root();
   };
 
   FakeFileSystemInstance();
+
+  FakeFileSystemInstance(const FakeFileSystemInstance&) = delete;
+  FakeFileSystemInstance& operator=(const FakeFileSystemInstance&) = delete;
+
   ~FakeFileSystemInstance() override;
 
   // Returns true if Init() has been called.
@@ -247,6 +265,9 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
                       const std::string& root_document_id,
                       const base::FilePath& path);
 
+  // Returns true if there is a root with the given authority and root_id.
+  bool RootExists(const std::string& authority, const std::string& root_id);
+
   // Returns a document with the given authority and document_id.
   Document GetDocument(const std::string& authority,
                        const std::string& document_id);
@@ -295,6 +316,9 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
                           const std::string& root_id,
                           GetRecentDocumentsCallback callback) override;
   void GetRoots(GetRootsCallback callback) override;
+  void GetRootSize(const std::string& authority,
+                   const std::string& root_id,
+                   GetRootSizeCallback callback) override;
   void DeleteDocument(const std::string& authority,
                       const std::string& document_id,
                       DeleteDocumentCallback callback) override;
@@ -334,6 +358,10 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
   void ReindexDirectory(const std::string& directory_path) override;
   void OpenUrlsWithPermission(mojom::OpenUrlsRequestPtr request,
                               OpenUrlsWithPermissionCallback callback) override;
+  void OpenUrlsWithPermissionAndWindowInfo(
+      mojom::OpenUrlsRequestPtr request,
+      mojom::WindowInfoPtr window_info,
+      OpenUrlsWithPermissionCallback callback) override;
 
  private:
   // A pair of an authority and a document ID which identifies the location
@@ -387,8 +415,11 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
   // Mapping from a document key to its child documents.
   std::map<DocumentKey, std::vector<DocumentKey>> child_documents_;
 
-  // Mapping from a root to its recent documents.
+  // Mapping from a root key to its recent documents.
   std::map<RootKey, std::vector<Document>> recent_documents_;
+
+  // Mapping from a root key to a root.
+  std::map<RootKey, Root> roots_;
 
   // Mapping from a document key to its watchers.
   std::map<DocumentKey, std::set<int64_t>> document_to_watchers_;
@@ -400,7 +431,7 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
   std::vector<mojom::OpenUrlsRequestPtr> handled_url_requests_;
 
   // List of roots added by AddRoot().
-  std::vector<Root> roots_;
+  std::vector<Root> roots_list_;
 
   // Fake MediaStore database index.
   std::map<base::FilePath, base::Time> media_store_;
@@ -413,8 +444,6 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
 
   int64_t next_watcher_id_ = 1;
   int get_child_documents_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeFileSystemInstance);
 };
 
 }  // namespace arc

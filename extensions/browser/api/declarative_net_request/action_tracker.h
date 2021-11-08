@@ -13,6 +13,7 @@
 #include "extensions/common/api/declarative_net_request.h"
 #include "extensions/common/api/declarative_net_request/constants.h"
 #include "extensions/common/extension_id.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class Clock;
@@ -36,8 +37,7 @@ class ActionTracker {
  public:
   // The lifespan of matched rules in |rules_matched_| not associated with an
   // active document,
-  static constexpr base::TimeDelta kNonActiveTabRuleLifespan =
-      base::TimeDelta::FromMinutes(5);
+  static constexpr base::TimeDelta kNonActiveTabRuleLifespan = base::Minutes(5);
 
   explicit ActionTracker(content::BrowserContext* browser_context);
   ~ActionTracker();
@@ -91,7 +91,7 @@ class ActionTracker {
   // rules matched for |tab_id| will be returned.
   std::vector<api::declarative_net_request::MatchedRuleInfo> GetMatchedRules(
       const Extension& extension,
-      const base::Optional<int>& tab_id,
+      const absl::optional<int>& tab_id,
       const base::Time& min_time_stamp);
 
   // Returns the number of matched rules in |rules_tracked_| for the given

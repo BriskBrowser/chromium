@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef SANDBOX_SRC_RESTRICTED_TOKEN_H_
-#define SANDBOX_SRC_RESTRICTED_TOKEN_H_
+#ifndef SANDBOX_WIN_SRC_RESTRICTED_TOKEN_H_
+#define SANDBOX_WIN_SRC_RESTRICTED_TOKEN_H_
 
 #include <windows.h>
 
@@ -49,6 +49,10 @@ class RestrictedToken {
  public:
   // Init() has to be called before calling any other method in the class.
   RestrictedToken();
+
+  RestrictedToken(const RestrictedToken&) = delete;
+  RestrictedToken& operator=(const RestrictedToken&) = delete;
+
   ~RestrictedToken();
 
   // Initializes the RestrictedToken object with effective_token.
@@ -198,10 +202,8 @@ class RestrictedToken {
   bool init_;
   // Lockdown the default DACL when creating new tokens.
   bool lockdown_default_dacl_;
-
-  DISALLOW_COPY_AND_ASSIGN(RestrictedToken);
 };
 
 }  // namespace sandbox
 
-#endif  // SANDBOX_SRC_RESTRICTED_TOKEN_H_
+#endif  // SANDBOX_WIN_SRC_RESTRICTED_TOKEN_H_

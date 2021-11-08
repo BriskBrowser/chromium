@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "base/run_loop.h"
+#include "base/task/thread_pool.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
@@ -12,6 +13,7 @@
 #include "chrome/updater/prefs.h"
 #include "chrome/updater/prefs_impl.h"
 #include "chrome/updater/registration_data.h"
+#include "chrome/updater/updater_scope.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/update_client/update_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,14 +40,14 @@ TEST(PrefsTest, AcquireGlobalPrefsLock_LockThenTryLockInThreadFail) {
       base::test::SingleThreadTaskEnvironment::MainThreadType::UI);
 
   std::unique_ptr<ScopedPrefsLock> lock =
-      AcquireGlobalPrefsLock(base::TimeDelta::FromSeconds(0));
+      AcquireGlobalPrefsLock(GetUpdaterScope(), base::Seconds(0));
   EXPECT_TRUE(lock);
 
   base::RunLoop run_loop;
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, base::BindOnce([]() {
         std::unique_ptr<ScopedPrefsLock> lock =
-            AcquireGlobalPrefsLock(base::TimeDelta::FromSeconds(0));
+            AcquireGlobalPrefsLock(GetUpdaterScope(), base::Seconds(0));
         return lock.get() != nullptr;
       }),
       base::OnceCallback<void(bool)>(
@@ -64,7 +66,7 @@ TEST(PrefsTest, AcquireGlobalPrefsLock_TryLockInThreadSuccess) {
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, base::BindOnce([]() {
         std::unique_ptr<ScopedPrefsLock> lock =
-            AcquireGlobalPrefsLock(base::TimeDelta::FromSeconds(0));
+            AcquireGlobalPrefsLock(GetUpdaterScope(), base::Seconds(0));
         return lock.get() != nullptr;
       }),
       base::OnceCallback<void(bool)>(
@@ -74,7 +76,7 @@ TEST(PrefsTest, AcquireGlobalPrefsLock_TryLockInThreadSuccess) {
           })));
   run_loop.Run();
 
-  auto lock = AcquireGlobalPrefsLock(base::TimeDelta::FromSeconds(0));
+  auto lock = AcquireGlobalPrefsLock(GetUpdaterScope(), base::Seconds(0));
   EXPECT_TRUE(lock);
 }
 

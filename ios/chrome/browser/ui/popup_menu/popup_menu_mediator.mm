@@ -8,6 +8,7 @@
 #include "base/feature_list.h"
 #import "base/ios/ios_util.h"
 #include "base/mac/foundation_util.h"
+#import "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/bookmarks/browser/bookmark_model.h"
@@ -20,6 +21,7 @@
 #import "components/prefs/ios/pref_observer_bridge.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "components/translate/core/browser/translate_manager.h"
 #include "components/translate/core/browser/translate_prefs.h"
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
@@ -34,6 +36,7 @@
 #include "ios/chrome/browser/policy/policy_features.h"
 #import "ios/chrome/browser/policy/policy_util.h"
 #import "ios/chrome/browser/search_engines/search_engines_util.h"
+#include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #import "ios/chrome/browser/translate/chrome_ios_translate_client.h"
 #import "ios/chrome/browser/ui/activity_services/canonical_url_retriever.h"
 #include "ios/chrome/browser/ui/bookmarks/bookmark_model_bridge_observer.h"
@@ -51,15 +54,17 @@
 #import "ios/chrome/browser/ui/reading_list/reading_list_menu_notifier.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/browser/web/features.h"
-#import "ios/chrome/browser/web/font_size_tab_helper.h"
+#import "ios/chrome/browser/url_loading/image_search_param_generator.h"
+#import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
+#import "ios/chrome/browser/url_loading/url_loading_params.h"
+#import "ios/chrome/browser/web/font_size/font_size_tab_helper.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/components/webui/web_ui_url_constants.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#import "ios/public/provider/chrome/browser/text_zoom_provider.h"
+#import "ios/public/provider/chrome/browser/text_zoom/text_zoom_api.h"
 #import "ios/public/provider/chrome/browser/user_feedback/user_feedback_provider.h"
 #include "ios/web/common/features.h"
 #include "ios/web/common/user_agent.h"
@@ -532,7 +537,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
       bookmarks::prefs::kEditBookmarksEnabled, _prefChangeRegistrar.get());
 }
 
-#pragma mark - PopupMenuActionHandlerCommands
+#pragma mark - PopupMenuActionHandlerDelegate
 
 - (void)readPageLater {
   if (!self.webState)
@@ -563,6 +568,40 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
       self.webState->GetNavigationManager()->GetIndexOfItem(navigationItem);
   DCHECK_NE(index, -1);
   self.webState->GetNavigationManager()->GoToIndex(index);
+}
+
+- (void)recordSettingsMetricsPerProfile {
+  profile_metrics::BrowserProfileType type =
+      _isIncognito ? profile_metrics::BrowserProfileType::kIncognito
+                   : profile_metrics::BrowserProfileType::kRegular;
+  base::UmaHistogramEnumeration("Settings.OpenSettingsFromMenu.PerProfileType",
+                                type);
+}
+
+- (void)recordDownloadsMetricsPerProfile {
+  profile_metrics::BrowserProfileType type =
+      _isIncognito ? profile_metrics::BrowserProfileType::kIncognito
+                   : profile_metrics::BrowserProfileType::kRegular;
+  base::UmaHistogramEnumeration("Download.OpenDownloadsFromMenu.PerProfileType",
+                                type);
+}
+
+- (void)searchCopiedImage {
+  ClipboardRecentContent* clipboardRecentContent =
+      ClipboardRecentContent::GetInstance();
+  clipboardRecentContent->GetRecentImageFromClipboard(
+      base::BindOnce(^(absl::optional<gfx::Image> optionalImage) {
+        if (!optionalImage) {
+          return;
+        }
+        UIImage* image = [optionalImage.value().ToUIImage() copy];
+        web::NavigationManager::WebLoadParams webParams =
+            ImageSearchParamGenerator::LoadParamsForImage(
+                image, self.templateURLService);
+        UrlLoadParams params = UrlLoadParams::InCurrentTab(webParams);
+
+        self.URLLoadingBrowserAgent->Load(params);
+      }));
 }
 
 #pragma mark - IOSLanguageDetectionTabHelperObserving
@@ -604,8 +643,8 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 // status.
 - (void)updatePopupMenu {
   [self updateReloadStopItem];
-  // The "Read Later" functionality requires JavaScript execution, which is
-  // paused while overlays are displayed over the web content area.
+  // The "Add to Reading List" functionality requires JavaScript execution,
+  // which is paused while overlays are displayed over the web content area.
   self.readLaterItem.enabled =
       !self.webContentAreaShowingOverlay && [self isCurrentURLWebURL];
   [self updateBookmarkItem];
@@ -786,10 +825,17 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   for (web::NavigationItem* navigationItem : navigationItems) {
     PopupMenuNavigationItem* item =
         [[PopupMenuNavigationItem alloc] initWithType:kItemTypeEnumZero];
-    item.title = base::SysUTF16ToNSString(navigationItem->GetTitleForDisplay());
-    const gfx::Image& image = navigationItem->GetFavicon().image;
-    if (!image.IsEmpty())
-      item.favicon = image.ToUIImage();
+    if ([self shouldUseIncognitoNTPResourcesForURL:navigationItem
+                                                       ->GetVirtualURL()]) {
+      item.title = l10n_util::GetNSStringWithFixup(IDS_IOS_NEW_INCOGNITO_TAB);
+      item.favicon = [UIImage imageNamed:@"incognito_badge"];
+    } else {
+      item.title =
+          base::SysUTF16ToNSString(navigationItem->GetTitleForDisplay());
+      const gfx::Image& image = navigationItem->GetFavicon().image;
+      if (!image.IsEmpty())
+        item.favicon = image.ToUIImage();
+    }
     item.actionIdentifier = PopupMenuActionNavigate;
     item.navigationItem = navigationItem;
     [items addObject:item];
@@ -906,8 +952,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
   NSArray* collectionActions = [self collectionItems];
 
-  if (base::FeatureList::IsEnabled(kEnableIOSManagedSettingsUI) &&
-      _browserPolicyConnector &&
+  if (_browserPolicyConnector &&
       _browserPolicyConnector->HasMachineLevelPolicies()) {
     // Show enterprise infomation when chrome is managed by policy and the
     // settings UI flag is enabled.
@@ -975,7 +1020,8 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
       @"popup_menu_translate", kToolsMenuTranslateId);
   if (self.engagementTracker &&
       self.engagementTracker->ShouldTriggerHelpUI(
-          feature_engagement::kIPHBadgedTranslateManualTriggerFeature)) {
+          feature_engagement::kIPHBadgedTranslateManualTriggerFeature) &&
+      self.isTranslateEnabled) {
     self.translateItem.badgeText = l10n_util::GetNSStringWithFixup(
         IDS_IOS_TOOLS_MENU_CELL_NEW_FEATURE_BADGE);
   }
@@ -988,9 +1034,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   [actionsArray addObject:self.findInPageItem];
 
   // Text Zoom
-  if (ios::GetChromeBrowserProvider()
-          ->GetTextZoomProvider()
-          ->IsTextZoomEnabled()) {
+  if (ios::provider::IsTextZoomEnabled()) {
     self.textZoomItem = CreateTableViewItem(
         IDS_IOS_TOOLS_MENU_TEXT_ZOOM, PopupMenuActionTextZoom,
         @"popup_menu_text_zoom", kToolsMenuTextZoom);
@@ -1022,7 +1066,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
   // Report an Issue.
   if (ios::GetChromeBrowserProvider()
-          ->GetUserFeedbackProvider()
+          .GetUserFeedbackProvider()
           ->IsUserFeedbackEnabled()) {
     TableViewItem* reportIssue = CreateTableViewItem(
         IDS_IOS_OPTIONS_REPORT_AN_ISSUE, PopupMenuActionReportIssue,
@@ -1099,6 +1143,11 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
       CreateTableViewItem(IDS_IOS_TOOLS_MENU_SETTINGS, PopupMenuActionSettings,
                           @"popup_menu_settings", kToolsMenuSettingsId);
 
+  if (self.isIncognito &&
+      base::FeatureList::IsEnabled(kUpdateHistoryEntryPointsInIncognito)) {
+    return @[ bookmarks, self.readingListItem, downloadsFolder, settings ];
+  }
+
   return @[
     bookmarks, self.readingListItem, recentTabs, history, downloadsFolder,
     settings
@@ -1130,10 +1179,16 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 // Returns YES if user is allowed to edit any bookmarks.
 - (BOOL)isEditBookmarksEnabled {
-  if (IsEditBookmarksIOSEnabled())
     return self.prefService->GetBoolean(
         bookmarks::prefs::kEditBookmarksEnabled);
-  return YES;
+}
+
+// Returns YES if incognito NTP title and image should be used for back/forward
+// item associated with |URL|.
+- (BOOL)shouldUseIncognitoNTPResourcesForURL:(const GURL&)URL {
+  return URL.DeprecatedGetOriginAsURL() == kChromeUINewTabURL &&
+         self.isIncognito &&
+         base::FeatureList::IsEnabled(kUpdateHistoryEntryPointsInIncognito);
 }
 
 @end

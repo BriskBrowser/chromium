@@ -14,7 +14,6 @@
 
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "media/capture/mojom/image_capture.mojom.h"
 #include "media/capture/video/chromeos/camera_app_device_impl.h"
 #include "media/capture/video/chromeos/camera_device_context.h"
@@ -27,6 +26,7 @@
 #include "media/capture/video_capture_types.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace media {
 
@@ -45,7 +45,6 @@ constexpr int32_t kMinConfiguredStreams = 1;
 
 // Maximum configured streams could contain two optional YUV streams.
 constexpr int32_t kMaxConfiguredStreams = 4;
-
 
 // RequestManager is responsible for managing the flow for sending capture
 // requests and receiving capture results. Having RequestBuilder to build
@@ -94,13 +93,16 @@ class CAPTURE_EXPORT RequestManager final
     // NO_EFFECT if it is not a reprocess request.
     cros::mojom::Effect reprocess_effect;
     // The input buffer id for this capture request.
-    base::Optional<uint64_t> input_buffer_id;
+    absl::optional<uint64_t> input_buffer_id;
     // The orientation which is stored at the time the request is prepared. It
     // can be used to construct the reprocess job info when the result is back.
     int32_t orientation;
   };
 
-  RequestManager(mojo::PendingReceiver<cros::mojom::Camera3CallbackOps>
+  RequestManager() = delete;
+
+  RequestManager(const std::string& device_id,
+                 mojo::PendingReceiver<cros::mojom::Camera3CallbackOps>
                      callback_ops_receiver,
                  std::unique_ptr<StreamCaptureInterface> capture_interface,
                  CameraDeviceContext* device_context,
@@ -108,7 +110,11 @@ class CAPTURE_EXPORT RequestManager final
                  std::unique_ptr<CameraBufferFactory> camera_buffer_factory,
                  BlobifyCallback blobify_callback,
                  scoped_refptr<base::SingleThreadTaskRunner> ipc_task_runner,
-                 CameraAppDeviceImpl* camera_app_device);
+                 uint32_t device_api_version);
+
+  RequestManager(const RequestManager&) = delete;
+  RequestManager& operator=(const RequestManager&) = delete;
+
   ~RequestManager() override;
 
   // Sets up the stream context and allocate buffers according to the
@@ -197,9 +203,12 @@ class CAPTURE_EXPORT RequestManager final
     int32_t orientation;
   };
 
-  // Puts Jpeg orientation information into the metadata.
+  // Puts JPEG orientation information into the metadata.
   void SetJpegOrientation(cros::mojom::CameraMetadataPtr* settings,
                           int32_t orientation);
+
+  // Puts JPEG thumbnail size information into the metadata.
+  void SetJpegThumbnailSize(cros::mojom::CameraMetadataPtr* settings) const;
 
   // Puts sensor timestamp into the metadata for reprocess request.
   void SetSensorTimestamp(cros::mojom::CameraMetadataPtr* settings,
@@ -217,7 +226,7 @@ class CAPTURE_EXPORT RequestManager final
   bool TryPrepareReprocessRequest(std::set<StreamType>* stream_types,
                                   cros::mojom::CameraMetadataPtr* settings,
                                   TakePhotoCallback* callback,
-                                  base::Optional<uint64_t>* input_buffer_id,
+                                  absl::optional<uint64_t>* input_buffer_id,
                                   cros::mojom::Effect* reprocess_effect);
 
   bool TryPreparePreviewRequest(std::set<StreamType>* stream_types,
@@ -268,11 +277,16 @@ class CAPTURE_EXPORT RequestManager final
   // SetRepeatingCaptureMetadata(), update them onto |capture_settings|.
   void UpdateCaptureSettings(cros::mojom::CameraMetadataPtr* capture_settings);
 
+  // The unique device id which is retrieved from VideoCaptureDeviceDescriptor.
+  std::string device_id_;
+
   mojo::Receiver<cros::mojom::Camera3CallbackOps> callback_ops_;
 
   std::unique_ptr<StreamCaptureInterface> capture_interface_;
 
   CameraDeviceContext* device_context_;
+
+  bool zero_shutter_lag_supported_;
 
   bool video_capture_use_gmb_;
 
@@ -365,11 +379,15 @@ class CAPTURE_EXPORT RequestManager final
   // duplicate or out of order of frames.
   std::map<StreamType, uint32_t> last_received_frame_number_map_;
 
-  CameraAppDeviceImpl* camera_app_device_;  // Weak.
+  // The JPEG thumbnail size chosen for current stream configuration.
+  gfx::Size jpeg_thumbnail_size_;
+
+  base::WeakPtr<CameraAppDeviceImpl> camera_app_device_;
+
+  // The API version of the camera device.
+  uint32_t device_api_version_;
 
   base::WeakPtrFactory<RequestManager> weak_ptr_factory_{this};
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(RequestManager);
 };
 
 }  // namespace media

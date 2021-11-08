@@ -4,6 +4,7 @@
 
 #include "services/network/expect_ct_reporter.h"
 
+#include <memory>
 #include <string>
 
 #include "base/base64.h"
@@ -135,7 +136,7 @@ void CheckReportCertificateChain(
     const base::ListValue& chain) {
   std::vector<std::string> pem_encoded_chain;
   expected_cert->GetPEMEncodedChain(&pem_encoded_chain);
-  ASSERT_EQ(pem_encoded_chain.size(), chain.GetSize());
+  ASSERT_EQ(pem_encoded_chain.size(), chain.GetList().size());
 
   for (size_t i = 0; i < pem_encoded_chain.size(); i++) {
     std::string cert_pem;
@@ -170,7 +171,7 @@ net::ct::SignedCertificateTimestamp::Origin SCTOriginStringToOrigin(
     return ::testing::AssertionFailure() << "Failed to serialize SCT";
   }
 
-  for (size_t i = 0; i < report_list.GetSize(); i++) {
+  for (size_t i = 0; i < report_list.GetList().size(); i++) {
     const base::DictionaryValue* report_sct;
     if (!report_list.GetDictionary(i, &report_sct)) {
       return ::testing::AssertionFailure()
@@ -217,7 +218,7 @@ net::ct::SignedCertificateTimestamp::Origin SCTOriginStringToOrigin(
 void CheckReportSCTs(
     const net::SignedCertificateTimestampAndStatusList& expected_scts,
     const base::ListValue& scts) {
-  EXPECT_EQ(expected_scts.size(), scts.GetSize());
+  EXPECT_EQ(expected_scts.size(), scts.GetList().size());
   for (const auto& expected_sct : expected_scts) {
     ASSERT_TRUE(
         FindSCTInReportList(expected_sct.sct, expected_sct.status, scts));
@@ -281,6 +282,10 @@ class TestExpectCTNetworkDelegate : public net::NetworkDelegateImpl {
  public:
   TestExpectCTNetworkDelegate() = default;
 
+  TestExpectCTNetworkDelegate(const TestExpectCTNetworkDelegate&) = delete;
+  TestExpectCTNetworkDelegate& operator=(const TestExpectCTNetworkDelegate&) =
+      delete;
+
   using OnBeforeURLRequestCallback =
       base::RepeatingCallback<void(net::URLRequest* request)>;
 
@@ -310,8 +315,6 @@ class TestExpectCTNetworkDelegate : public net::NetworkDelegateImpl {
  private:
   OnBeforeURLRequestCallback on_before_url_request_callback_;
   base::RepeatingClosure url_request_destroyed_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestExpectCTNetworkDelegate);
 };
 
 // A test fixture that allows tests to send a report and wait until the
@@ -321,10 +324,13 @@ class ExpectCTReporterWaitTest : public ::testing::Test {
   ExpectCTReporterWaitTest()
       : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {}
 
+  ExpectCTReporterWaitTest(const ExpectCTReporterWaitTest&) = delete;
+  ExpectCTReporterWaitTest& operator=(const ExpectCTReporterWaitTest&) = delete;
+
   void SetUp() override {
     // Initializes URLRequestContext after the thread is set up.
-    context_.reset(
-        new net::TestURLRequestContext(true /* delay_initialization */));
+    context_ = std::make_unique<net::TestURLRequestContext>(
+        true /* delay_initialization */);
     context_->set_network_delegate(&network_delegate_);
     context_->Init();
     net::URLRequestFailedJob::AddUrlHandler();
@@ -356,8 +362,6 @@ class ExpectCTReporterWaitTest : public ::testing::Test {
   TestExpectCTNetworkDelegate network_delegate_;
   std::unique_ptr<net::TestURLRequestContext> context_;
   base::test::TaskEnvironment task_environment_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExpectCTReporterWaitTest);
 };
 
 std::unique_ptr<net::test_server::HttpResponse> ReplyToPostWith200(

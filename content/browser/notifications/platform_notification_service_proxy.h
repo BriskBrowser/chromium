@@ -17,6 +17,10 @@
 
 class GURL;
 
+namespace base {
+class Time;
+}
+
 namespace blink {
 enum class ServiceWorkerStatusCode;
 }  // namespace blink
@@ -38,6 +42,11 @@ class CONTENT_EXPORT PlatformNotificationServiceProxy {
   PlatformNotificationServiceProxy(
       scoped_refptr<ServiceWorkerContextWrapper> service_worker_context,
       BrowserContext* browser_context);
+
+  PlatformNotificationServiceProxy(const PlatformNotificationServiceProxy&) =
+      delete;
+  PlatformNotificationServiceProxy& operator=(
+      const PlatformNotificationServiceProxy&) = delete;
 
   ~PlatformNotificationServiceProxy();
 
@@ -114,8 +123,6 @@ class CONTENT_EXPORT PlatformNotificationServiceProxy {
       this};
   base::WeakPtrFactory<PlatformNotificationServiceProxy> weak_ptr_factory_io_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(PlatformNotificationServiceProxy);
 };
 
 }  // namespace content

@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -42,8 +43,10 @@
 namespace base {
 namespace debug {
 
-#if defined(OS_LINUX) || defined(OS_CHROMEOS) || \
-    BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_WIN) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) ||                               \
+    BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_WIN) || defined(OS_ANDROID) || \
+    defined(OS_FUCHSIA)
+
 namespace {
 
 void BusyWork(std::vector<std::string>* vec) {
@@ -55,9 +58,10 @@ void BusyWork(std::vector<std::string>* vec) {
 }
 
 }  // namespace
+
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) ||
         // BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_WIN) ||
-        // defined(OS_ANDROID)
+        // defined(OS_ANDROID) || defined(OS_FUCHSIA)
 
 // Tests for SystemMetrics.
 // Exists as a class so it can be a friend of SystemMetrics.
@@ -65,8 +69,8 @@ class SystemMetricsTest : public testing::Test {
  public:
   SystemMetricsTest() = default;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(SystemMetricsTest);
+  SystemMetricsTest(const SystemMetricsTest&) = delete;
+  SystemMetricsTest& operator=(const SystemMetricsTest&) = delete;
 };
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
@@ -341,8 +345,9 @@ TEST_F(SystemMetricsTest, ParseVmstat) {
 }
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
 
-#if defined(OS_LINUX) || defined(OS_CHROMEOS) || \
-    BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) ||                               \
+    BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_WIN) || defined(OS_ANDROID) || \
+    defined(OS_FUCHSIA)
 
 // Test that ProcessMetrics::GetPlatformIndependentCPUUsage() doesn't return
 // negative values when the number of threads running on the process decreases
@@ -396,7 +401,8 @@ TEST_F(SystemMetricsTest, TestNoNegativeCpuUsage) {
 }
 
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) ||
-        // BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_WIN)
+        // BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_WIN) ||
+        // defined(OS_ANDROID) || defined(OS_FUCHSIA)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 TEST_F(SystemMetricsTest, ParseZramMmStat) {
@@ -537,23 +543,19 @@ TEST(ProcessMetricsTest, ParseProcTimeInState) {
   EXPECT_EQ(time_in_state[0].thread_id, 123);
   EXPECT_EQ(time_in_state[0].cluster_core_index, 0u);
   EXPECT_EQ(time_in_state[0].core_frequency_khz, 100000u);
-  EXPECT_EQ(time_in_state[0].cumulative_cpu_time,
-            base::TimeDelta::FromMilliseconds(40));
+  EXPECT_EQ(time_in_state[0].cumulative_cpu_time, base::Milliseconds(40));
   EXPECT_EQ(time_in_state[1].thread_id, 123);
   EXPECT_EQ(time_in_state[1].cluster_core_index, 0u);
   EXPECT_EQ(time_in_state[1].core_frequency_khz, 200000u);
-  EXPECT_EQ(time_in_state[1].cumulative_cpu_time,
-            base::TimeDelta::FromMilliseconds(50));
+  EXPECT_EQ(time_in_state[1].cumulative_cpu_time, base::Milliseconds(50));
   EXPECT_EQ(time_in_state[2].thread_id, 123);
   EXPECT_EQ(time_in_state[2].cluster_core_index, 4u);
   EXPECT_EQ(time_in_state[2].core_frequency_khz, 400000u);
-  EXPECT_EQ(time_in_state[2].cumulative_cpu_time,
-            base::TimeDelta::FromMilliseconds(30));
+  EXPECT_EQ(time_in_state[2].cumulative_cpu_time, base::Milliseconds(30));
   EXPECT_EQ(time_in_state[3].thread_id, 123);
   EXPECT_EQ(time_in_state[3].cluster_core_index, 4u);
   EXPECT_EQ(time_in_state[3].core_frequency_khz, 500000u);
-  EXPECT_EQ(time_in_state[3].cumulative_cpu_time,
-            base::TimeDelta::FromMilliseconds(20));
+  EXPECT_EQ(time_in_state[3].cumulative_cpu_time, base::Milliseconds(20));
 
   // Calling ParseProcTimeInState again adds to the vector.
   const char kStatThread456[] =
@@ -567,8 +569,7 @@ TEST(ProcessMetricsTest, ParseProcTimeInState) {
   EXPECT_EQ(time_in_state[4].thread_id, 456);
   EXPECT_EQ(time_in_state[4].cluster_core_index, 0u);
   EXPECT_EQ(time_in_state[4].core_frequency_khz, 1000000u);
-  EXPECT_EQ(time_in_state[4].cumulative_cpu_time,
-            base::TimeDelta::FromMilliseconds(100));
+  EXPECT_EQ(time_in_state[4].cumulative_cpu_time, base::Milliseconds(100));
 
   // Calling ParseProcTimeInState with invalid data returns false.
   EXPECT_FALSE(
@@ -603,7 +604,7 @@ TEST(ProcessMetricsTest, DISABLED_GetNumberOfThreads) {
   {
     std::unique_ptr<Thread> my_threads[kNumAdditionalThreads];
     for (int i = 0; i < kNumAdditionalThreads; ++i) {
-      my_threads[i].reset(new Thread("GetNumberOfThreadsTest"));
+      my_threads[i] = std::make_unique<Thread>("GetNumberOfThreadsTest");
       my_threads[i]->Start();
       ASSERT_EQ(GetNumberOfThreads(current), initial_threads + 1 + i);
     }
@@ -648,7 +649,7 @@ bool CheckEvent(const FilePath& signal_dir, const char* signal_file) {
 // Busy-wait for an event to be signaled.
 void WaitForEvent(const FilePath& signal_dir, const char* signal_file) {
   while (!CheckEvent(signal_dir, signal_file))
-    PlatformThread::Sleep(TimeDelta::FromMilliseconds(10));
+    PlatformThread::Sleep(Milliseconds(10));
 }
 
 // Subprocess to test the number of open file descriptors.
@@ -675,8 +676,7 @@ MULTIPROCESS_TEST_MAIN(ChildMain) {
 
   // Wait to be terminated.
   while (true)
-    PlatformThread::Sleep(TimeDelta::FromSeconds(1));
-  return 0;
+    PlatformThread::Sleep(Seconds(1));
 }
 
 }  // namespace
@@ -884,29 +884,6 @@ TEST(ProcessMetricsTestLinux, GetPerThreadCumulativeCPUTimeInState) {
 }
 
 #endif  // defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS)
-
-#if defined(OS_WIN)
-TEST(ProcessMetricsTest, GetDiskUsageBytesPerSecond) {
-  ScopedTempDir temp_dir;
-  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  const FilePath temp_path = temp_dir.GetPath().AppendASCII("dummy");
-
-  ProcessHandle handle = GetCurrentProcessHandle();
-  std::unique_ptr<ProcessMetrics> metrics(
-      ProcessMetrics::CreateProcessMetrics(handle));
-
-  // First access is returning zero bytes.
-  EXPECT_EQ(metrics->GetDiskUsageBytesPerSecond(), 0U);
-
-  // Write a megabyte on disk.
-  const int kMegabyte = 1024 * 1014;
-  std::string data(kMegabyte, 'x');
-  ASSERT_TRUE(base::WriteFile(temp_path, data));
-
-  // Validate that the counters move up.
-  EXPECT_GT(metrics->GetDiskUsageBytesPerSecond(), 0U);
-}
-#endif  // defined(OS_WIN)
 
 }  // namespace debug
 }  // namespace base

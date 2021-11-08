@@ -8,20 +8,20 @@
 #include <xcb/xcbext.h>
 
 #include <algorithm>
+#include <string>
 
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/no_destructor.h"
-#include "base/strings/string16.h"
 #include "base/threading/thread_local.h"
 #include "base/trace_event/trace_event.h"
+#include "ui/gfx/switches.h"
 #include "ui/gfx/x/bigreq.h"
 #include "ui/gfx/x/event.h"
 #include "ui/gfx/x/keyboard_state.h"
 #include "ui/gfx/x/randr.h"
-#include "ui/gfx/x/x11_switches.h"
 #include "ui/gfx/x/xkb.h"
 #include "ui/gfx/x/xproto.h"
 #include "ui/gfx/x/xproto_internal.h"
@@ -128,7 +128,8 @@ Connection::Connection(const std::string& address)
   DCHECK(connection_);
   if (Ready()) {
     auto buf = ReadBuffer(base::MakeRefCounted<UnretainedRefCountedMemory>(
-        xcb_get_setup(XcbConnection())));
+                              xcb_get_setup(XcbConnection())),
+                          true);
     setup_ = Read<Setup>(&buf);
     default_screen_ = &setup_.roots[DefaultScreenId()];
     InitRootDepthAndVisual();
@@ -143,7 +144,7 @@ Connection::Connection(const std::string& address)
   }
 
   ExtensionManager::Init(this);
-  auto enable_bigreq = bigreq().Enable({});
+  auto enable_bigreq = bigreq().Enable();
   // Xlib enables XKB on display creation, so we do that here to maintain
   // compatibility.
   xkb()
@@ -348,7 +349,7 @@ void Connection::Sync() {
     return;
   {
     base::AutoReset<bool> auto_reset(&syncing_, true);
-    GetInputFocus({}).Sync();
+    GetInputFocus().Sync();
   }
 }
 
@@ -361,10 +362,19 @@ void Connection::SynchronizeForTest(bool synchronous) {
 
 void Connection::ReadResponses() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  while (auto* event = xcb_poll_for_event(XcbConnection())) {
+  while (ReadResponse(false)) {
+  }
+}
+
+bool Connection::ReadResponse(bool queued) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  auto* event = queued ? xcb_poll_for_queued_event(XcbConnection())
+                       : xcb_poll_for_event(XcbConnection());
+  if (event) {
     events_.emplace_back(base::MakeRefCounted<MallocedRefCountedMemory>(event),
                          this);
   }
+  return event;
 }
 
 Event Connection::WaitForNextEvent() {
@@ -519,7 +529,7 @@ void Connection::ProcessNextResponse() {
   requests_.pop_front();
   if (last_non_void_request_id_.has_value() &&
       last_non_void_request_id_.value() == first_request_id_) {
-    last_non_void_request_id_ = base::nullopt;
+    last_non_void_request_id_ = absl::nullopt;
   }
   first_request_id_++;
   if (request.callback) {
@@ -663,7 +673,7 @@ void Connection::WaitForResponse(FutureImpl* future) {
       needs_extra_request_for_check = sequence_offset > last_non_void_offset;
     }
     if (needs_extra_request_for_check) {
-      GetInputFocus({}).IgnoreError();
+      GetInputFocus().IgnoreError();
       // The circular_deque may have swapped buffers, so we need to get a fresh
       // pointer to the request.
       request = GetRequestForFuture(future);

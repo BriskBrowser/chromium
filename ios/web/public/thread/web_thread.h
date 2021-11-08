@@ -5,6 +5,7 @@
 #ifndef IOS_WEB_PUBLIC_THREAD_WEB_THREAD_H_
 #define IOS_WEB_PUBLIC_THREAD_WEB_THREAD_H_
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -14,8 +15,8 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/single_thread_task_runner.h"
-#include "base/task_runner_util.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner_util.h"
 
 namespace base {
 class Location;
@@ -64,6 +65,9 @@ class WebThread {
     // identifier.
     ID_COUNT
   };
+
+  WebThread(const WebThread&) = delete;
+  WebThread& operator=(const WebThread&) = delete;
 
   // NOTE: Task posting APIs have moved to post_task.h. See web_task_traits.h.
 
@@ -161,7 +165,6 @@ class WebThread {
       ID identifier);
 
   WebThread() {}
-  DISALLOW_COPY_AND_ASSIGN(WebThread);
 };
 
 }  // namespace web

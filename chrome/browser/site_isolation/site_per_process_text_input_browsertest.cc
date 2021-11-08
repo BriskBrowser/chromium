@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <vector>
 
 #include "base/bind.h"
@@ -34,6 +35,7 @@
 #include "content/public/test/text_input_test_utils.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "third_party/blink/public/common/switches.h"
 #include "ui/base/ime/ime_text_span.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
@@ -67,17 +69,20 @@ class TextInputManagerChangeObserver
  public:
   explicit TextInputManagerChangeObserver(content::WebContents* web_contents)
       : TextInputManagerObserverBase(web_contents) {
-    tester()->SetUpdateTextInputStateCalledCallback(base::Bind(
+    tester()->SetUpdateTextInputStateCalledCallback(base::BindRepeating(
         &TextInputManagerChangeObserver::VerifyChange, base::Unretained(this)));
   }
+
+  TextInputManagerChangeObserver(const TextInputManagerChangeObserver&) =
+      delete;
+  TextInputManagerChangeObserver& operator=(
+      const TextInputManagerChangeObserver&) = delete;
 
  private:
   void VerifyChange() {
     if (tester()->IsTextInputStateChanged())
       OnSuccess();
   }
-
-  DISALLOW_COPY_AND_ASSIGN(TextInputManagerChangeObserver);
 };
 
 // This class observes |TextInputState.type| for a specific RWHV.
@@ -90,9 +95,13 @@ class ViewTextInputTypeObserver : public content::TextInputManagerObserverBase {
         web_contents_(web_contents),
         view_(rwhv),
         expected_type_(expected_type) {
-    tester()->SetUpdateTextInputStateCalledCallback(base::Bind(
+    tester()->SetUpdateTextInputStateCalledCallback(base::BindRepeating(
         &ViewTextInputTypeObserver::VerifyType, base::Unretained(this)));
   }
+
+  ViewTextInputTypeObserver(const ViewTextInputTypeObserver&) = delete;
+  ViewTextInputTypeObserver& operator=(const ViewTextInputTypeObserver&) =
+      delete;
 
  private:
   void VerifyType() {
@@ -106,8 +115,6 @@ class ViewTextInputTypeObserver : public content::TextInputManagerObserverBase {
   content::WebContents* web_contents_;
   content::RenderWidgetHostView* view_;
   const ui::TextInputType expected_type_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewTextInputTypeObserver);
 };
 
 // This class observes the |expected_view| for the first change in its
@@ -121,9 +128,14 @@ class ViewSelectionBoundsChangedObserver
       : TextInputManagerObserverBase(web_contents),
         expected_view_(expected_view) {
     tester()->SetOnSelectionBoundsChangedCallback(
-        base::Bind(&ViewSelectionBoundsChangedObserver::VerifyChange,
-                   base::Unretained(this)));
+        base::BindRepeating(&ViewSelectionBoundsChangedObserver::VerifyChange,
+                            base::Unretained(this)));
   }
+
+  ViewSelectionBoundsChangedObserver(
+      const ViewSelectionBoundsChangedObserver&) = delete;
+  ViewSelectionBoundsChangedObserver& operator=(
+      const ViewSelectionBoundsChangedObserver&) = delete;
 
  private:
   void VerifyChange() {
@@ -132,8 +144,6 @@ class ViewSelectionBoundsChangedObserver
   }
 
   const content::RenderWidgetHostView* const expected_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewSelectionBoundsChangedObserver);
 };
 
 // This class observes the |expected_view| for the first change in its
@@ -147,9 +157,14 @@ class ViewCompositionRangeChangedObserver
       : TextInputManagerObserverBase(web_contents),
         expected_view_(expected_view) {
     tester()->SetOnImeCompositionRangeChangedCallback(
-        base::Bind(&ViewCompositionRangeChangedObserver::VerifyChange,
-                   base::Unretained(this)));
+        base::BindRepeating(&ViewCompositionRangeChangedObserver::VerifyChange,
+                            base::Unretained(this)));
   }
+
+  ViewCompositionRangeChangedObserver(
+      const ViewCompositionRangeChangedObserver&) = delete;
+  ViewCompositionRangeChangedObserver& operator=(
+      const ViewCompositionRangeChangedObserver&) = delete;
 
  private:
   void VerifyChange() {
@@ -158,8 +173,6 @@ class ViewCompositionRangeChangedObserver
   }
 
   const content::RenderWidgetHostView* const expected_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewCompositionRangeChangedObserver);
 };
 
 // This class observes the |expected_view| for a change in the text selection.
@@ -171,9 +184,13 @@ class ViewTextSelectionObserver : public content::TextInputManagerObserverBase {
       : TextInputManagerObserverBase(web_contents),
         expected_view_(expected_view),
         expected_length_(expected_length) {
-    tester()->SetOnTextSelectionChangedCallback(base::Bind(
+    tester()->SetOnTextSelectionChangedCallback(base::BindRepeating(
         &ViewTextSelectionObserver::VerifyChange, base::Unretained(this)));
   }
+
+  ViewTextSelectionObserver(const ViewTextSelectionObserver&) = delete;
+  ViewTextSelectionObserver& operator=(const ViewTextSelectionObserver&) =
+      delete;
 
  private:
   void VerifyChange() {
@@ -187,8 +204,6 @@ class ViewTextSelectionObserver : public content::TextInputManagerObserverBase {
 
   const content::RenderWidgetHostView* const expected_view_;
   const size_t expected_length_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewTextSelectionObserver);
 };
 
 // This class observes all the text selection updates within a WebContents.
@@ -196,9 +211,12 @@ class TextSelectionObserver : public content::TextInputManagerObserverBase {
  public:
   explicit TextSelectionObserver(content::WebContents* web_contents)
       : TextInputManagerObserverBase(web_contents) {
-    tester()->SetOnTextSelectionChangedCallback(base::Bind(
+    tester()->SetOnTextSelectionChangedCallback(base::BindRepeating(
         &TextSelectionObserver::VerifyChange, base::Unretained(this)));
   }
+
+  TextSelectionObserver(const TextSelectionObserver&) = delete;
+  TextSelectionObserver& operator=(const TextSelectionObserver&) = delete;
 
   void WaitForSelectedText(const std::string& text) {
     selected_text_ = text;
@@ -214,8 +232,6 @@ class TextSelectionObserver : public content::TextInputManagerObserverBase {
   }
 
   std::string selected_text_;
-
-  DISALLOW_COPY_AND_ASSIGN(TextSelectionObserver);
 };
 
 // This class monitors all the changes in TextInputState and keeps a record of
@@ -225,9 +241,13 @@ class RecordActiveViewsObserver {
  public:
   explicit RecordActiveViewsObserver(content::WebContents* web_contents)
       : tester_(new content::TextInputManagerTester(web_contents)) {
-    tester_->SetUpdateTextInputStateCalledCallback(base::Bind(
+    tester_->SetUpdateTextInputStateCalledCallback(base::BindRepeating(
         &RecordActiveViewsObserver::RecordActiveView, base::Unretained(this)));
   }
+
+  RecordActiveViewsObserver(const RecordActiveViewsObserver&) = delete;
+  RecordActiveViewsObserver& operator=(const RecordActiveViewsObserver&) =
+      delete;
 
   const std::vector<const content::RenderWidgetHostView*>* active_views()
       const {
@@ -243,8 +263,6 @@ class RecordActiveViewsObserver {
 
   std::unique_ptr<content::TextInputManagerTester> tester_;
   std::vector<const content::RenderWidgetHostView*> active_views_;
-
-  DISALLOW_COPY_AND_ASSIGN(RecordActiveViewsObserver);
 };
 
 }  // namespace
@@ -253,10 +271,20 @@ class RecordActiveViewsObserver {
 class SitePerProcessTextInputManagerTest : public InProcessBrowserTest {
  public:
   SitePerProcessTextInputManagerTest() {}
+
+  SitePerProcessTextInputManagerTest(
+      const SitePerProcessTextInputManagerTest&) = delete;
+  SitePerProcessTextInputManagerTest& operator=(
+      const SitePerProcessTextInputManagerTest&) = delete;
+
   ~SitePerProcessTextInputManagerTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     content::IsolateAllSitesForTesting(command_line);
+    // Some builders are flaky due to slower loading interacting with
+    // deferred commits, and this test suite sometimes uses content
+    // that paints nothing upon load.
+    command_line->AppendSwitch(blink::switches::kAllowPreCommitInput);
   }
 
   void SetUpOnMainThread() override {
@@ -328,7 +356,7 @@ class SitePerProcessTextInputManagerTest : public InProcessBrowserTest {
     std::string path = base::StringPrintf("/cross_site_iframe_factory.html?%s",
                                           structure.c_str());
     GURL main_url(embedded_test_server()->GetURL("a.com", path));
-    ui_test_utils::NavigateToURL(browser(), main_url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   }
 
   // Iteratively uses ChildFrameAt(frame, i) to get the i-th child frame
@@ -340,9 +368,6 @@ class SitePerProcessTextInputManagerTest : public InProcessBrowserTest {
       current = ChildFrameAt(current, index);
     return current;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SitePerProcessTextInputManagerTest);
 };
 
 // The following test loads a page with multiple nested <iframe> elements which
@@ -446,9 +471,10 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
       content::GetRegisteredViewsCountFromTextInputManager(active_contents()));
 
   // Now crash the second <iframe> which has an active view.
-  destruction_observer.reset(
-      new content::TestRenderWidgetHostViewDestructionObserver(
-          frames[1]->GetView()));
+  destruction_observer =
+      std::make_unique<content::TestRenderWidgetHostViewDestructionObserver>(
+
+          frames[1]->GetView());
   {
     content::ScopedAllowRendererCrashes allow_renderer_crashes(frames[1]);
     frames[1]->GetProcess()->Shutdown(0);
@@ -553,7 +579,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
 
   content::TextInputManagerTypeObserver reset_state_observer(
       active_contents(), ui::TEXT_INPUT_TYPE_NONE);
-  ui_test_utils::NavigateToURL(browser(), GURL("about:blank"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL("about:blank")));
   reset_state_observer.Wait();
 }
 
@@ -996,6 +1022,9 @@ class InputMethodObserverBase {
         test_observer_(content::TestInputMethodObserver::Create(web_contents)) {
   }
 
+  InputMethodObserverBase(const InputMethodObserverBase&) = delete;
+  InputMethodObserverBase& operator=(const InputMethodObserverBase&) = delete;
+
   void Wait() {
     if (success_)
       return;
@@ -1010,9 +1039,9 @@ class InputMethodObserverBase {
     return test_observer_.get();
   }
 
-  const base::Closure success_closure() {
-    return base::Bind(&InputMethodObserverBase::OnSuccess,
-                      base::Unretained(this));
+  const base::RepeatingClosure success_closure() {
+    return base::BindRepeating(&InputMethodObserverBase::OnSuccess,
+                               base::Unretained(this));
   }
 
  private:
@@ -1025,8 +1054,6 @@ class InputMethodObserverBase {
   bool success_;
   std::unique_ptr<content::TestInputMethodObserver> test_observer_;
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(InputMethodObserverBase);
 };
 
 class InputMethodObserverForShowIme : public InputMethodObserverBase {
@@ -1037,8 +1064,9 @@ class InputMethodObserverForShowIme : public InputMethodObserverBase {
         success_closure());
   }
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(InputMethodObserverForShowIme);
+  InputMethodObserverForShowIme(const InputMethodObserverForShowIme&) = delete;
+  InputMethodObserverForShowIme& operator=(
+      const InputMethodObserverForShowIme&) = delete;
 };
 
 // TODO(ekaramad): This test is actually a unit test and should be moved to
@@ -1116,7 +1144,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
                        SubframeKeyboardEditCommands) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/frame_tree/page_with_one_frame.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
   content::WebContents* web_contents = active_contents();
 
   GURL frame_url(
@@ -1162,6 +1190,10 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
   class TextDeleteDelegate : public ui::TextEditKeyBindingsDelegateAuraLinux {
    public:
     TextDeleteDelegate() {}
+
+    TextDeleteDelegate(const TextDeleteDelegate&) = delete;
+    TextDeleteDelegate& operator=(const TextDeleteDelegate&) = delete;
+
     ~TextDeleteDelegate() override {}
 
     bool MatchEvent(
@@ -1173,9 +1205,6 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
       }
       return true;
     }
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(TextDeleteDelegate);
   };
 
   TextDeleteDelegate delegate;
@@ -1215,13 +1244,17 @@ class ShowDefinitionForWordObserver
   explicit ShowDefinitionForWordObserver(content::WebContents* web_contents)
       : content::RenderWidgetHostViewCocoaObserver(web_contents) {}
 
+  ShowDefinitionForWordObserver(const ShowDefinitionForWordObserver&) = delete;
+  ShowDefinitionForWordObserver& operator=(
+      const ShowDefinitionForWordObserver&) = delete;
+
   ~ShowDefinitionForWordObserver() override {}
 
   const std::string& WaitForWordLookUp() {
     if (did_receive_string_)
       return word_;
 
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
     return word_;
   }
@@ -1238,8 +1271,6 @@ class ShowDefinitionForWordObserver
   bool did_receive_string_ = false;
   std::string word_;
   std::unique_ptr<base::RunLoop> run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShowDefinitionForWordObserver);
 };
 
 // Flakey (https:://crbug.com/874417).
@@ -1308,9 +1339,9 @@ IN_PROC_BROWSER_TEST_F(
   int32_t child_process_id = child_frame->GetProcess()->GetID();
   int32_t child_frame_routing_id = child_frame->GetRoutingID();
 
-  text_input_local_frame.SetStringForRangeCallback(base::Bind(
+  text_input_local_frame.SetStringForRangeCallback(base::BindRepeating(
       [](int32_t process_id, int32_t routing_id,
-         const base::Closure& callback_on_io) {
+         const base::RepeatingClosure& callback_on_io) {
         // This runs before TextInputClientMac gets to handle the mojo message.
         // Then, by the time TextInputClientMac calls back into UI to show the
         // dictionary, the target RWH is already destroyed which will be a
@@ -1376,9 +1407,9 @@ IN_PROC_BROWSER_TEST_F(
   // thread.
   int32_t main_frame_process_id = main_frame->GetProcess()->GetID();
   int32_t main_frame_routing_id = main_frame->GetRoutingID();
-  text_input_local_frame.SetStringForRangeCallback(base::Bind(
+  text_input_local_frame.SetStringForRangeCallback(base::BindRepeating(
       [](int32_t process_id, int32_t routing_id,
-         const base::Closure& callback_on_io) {
+         const base::RepeatingClosure& callback_on_io) {
         // This runs before TextInputClientMac gets to handle the mojo message.
         // Then, by the time TextInputClientMac calls back into UI to show the
         // dictionary, the target RWH is already destroyed which will be a

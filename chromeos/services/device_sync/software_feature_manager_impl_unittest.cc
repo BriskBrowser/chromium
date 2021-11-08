@@ -82,6 +82,11 @@ class DeviceSyncSoftwareFeatureManagerImplTest
             {all_test_external_device_infos_[3],
              all_test_external_device_infos_[4]}) {}
 
+  DeviceSyncSoftwareFeatureManagerImplTest(
+      const DeviceSyncSoftwareFeatureManagerImplTest&) = delete;
+  DeviceSyncSoftwareFeatureManagerImplTest& operator=(
+      const DeviceSyncSoftwareFeatureManagerImplTest&) = delete;
+
   void SetUp() override {
     mock_cryptauth_client_factory_ =
         std::make_unique<MockCryptAuthClientFactory>(
@@ -327,11 +332,11 @@ class DeviceSyncSoftwareFeatureManagerImplTest
 
   // Set when a CryptAuthClient function returns. If empty, no callback has been
   // invoked.
-  base::Optional<Result> result_;
+  absl::optional<Result> result_;
 
   // The code passed to the error callback; varies depending on what
   // CryptAuthClient function is invoked.
-  base::Optional<NetworkRequestError> error_code_;
+  absl::optional<NetworkRequestError> error_code_;
 
   // For SetSoftwareFeatureState() tests.
   cryptauth::ToggleEasyUnlockRequest last_toggle_request_;
@@ -343,9 +348,6 @@ class DeviceSyncSoftwareFeatureManagerImplTest
       find_eligible_unlock_devices_callback_;
   std::vector<cryptauth::ExternalDeviceInfo> result_eligible_devices_;
   std::vector<cryptauth::IneligibleDevice> result_ineligible_devices_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DeviceSyncSoftwareFeatureManagerImplTest);
 };
 
 TEST_F(DeviceSyncSoftwareFeatureManagerImplTest,

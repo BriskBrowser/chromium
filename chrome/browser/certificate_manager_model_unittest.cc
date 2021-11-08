@@ -20,7 +20,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/certificate_provider/certificate_provider.h"
+#include "chrome/browser/ash/certificate_provider/certificate_provider.h"
 #include "chromeos/network/onc/certificate_scope.h"
 #include "chromeos/network/policy_certificate_provider.h"
 #endif
@@ -65,6 +65,10 @@ class CertificateManagerModelTest : public testing::Test {
  public:
   CertificateManagerModelTest() {}
 
+  CertificateManagerModelTest(const CertificateManagerModelTest&) = delete;
+  CertificateManagerModelTest& operator=(const CertificateManagerModelTest&) =
+      delete;
+
  protected:
   void SetUp() override {
     ASSERT_TRUE(test_nssdb_.is_open());
@@ -78,8 +82,7 @@ class CertificateManagerModelTest : public testing::Test {
     fake_observer_ = std::make_unique<FakeObserver>();
     certificate_manager_model_ = std::make_unique<CertificateManagerModel>(
         GetCertificateManagerModelParams(), fake_observer_.get(),
-        nss_cert_db_.get(), true /* is_user_db_available */,
-        true /* bool is_tpm_available */);
+        nss_cert_db_.get());
   }
 
   void TearDown() override {
@@ -111,9 +114,6 @@ class CertificateManagerModelTest : public testing::Test {
   std::unique_ptr<net::NSSCertDatabase> nss_cert_db_;
   std::unique_ptr<FakeObserver> fake_observer_;
   std::unique_ptr<CertificateManagerModel> certificate_manager_model_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CertificateManagerModelTest);
 };
 
 // CertificateManagerModel correctly lists CA certificates from the platform NSS
@@ -194,7 +194,7 @@ TEST_F(CertificateManagerModelTest, ListsClientCertsFromPlatform) {
   ASSERT_TRUE(platform_cert_info);
 
   EXPECT_EQ(net::CertType::USER_CERT, platform_cert_info->type());
-  EXPECT_EQ(base::UTF8ToUTF16("Client Cert A"), platform_cert_info->name());
+  EXPECT_EQ(u"Client Cert A", platform_cert_info->name());
   EXPECT_TRUE(platform_cert_info->can_be_deleted());
   EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kPlatform,
             platform_cert_info->source());
@@ -368,7 +368,7 @@ TEST_F(CertificateManagerModelChromeOSTest, ListsWebTrustedCertsFromPolicy) {
   ASSERT_TRUE(cert_info);
 
   EXPECT_EQ(net::CertType::CA_CERT, cert_info->type());
-  EXPECT_EQ(base::UTF8ToUTF16("pywebsocket"), cert_info->name());
+  EXPECT_EQ(u"pywebsocket", cert_info->name());
   EXPECT_FALSE(cert_info->can_be_deleted());
   EXPECT_FALSE(cert_info->untrusted());
   EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kPolicy,
@@ -395,7 +395,7 @@ TEST_F(CertificateManagerModelChromeOSTest, ListsNotWebTrustedCertsFromPolicy) {
   ASSERT_TRUE(cert_info);
 
   EXPECT_EQ(net::CertType::CA_CERT, cert_info->type());
-  EXPECT_EQ(base::UTF8ToUTF16("pywebsocket"), cert_info->name());
+  EXPECT_EQ(u"pywebsocket", cert_info->name());
   EXPECT_FALSE(cert_info->can_be_deleted());
   EXPECT_FALSE(cert_info->untrusted());
   EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kPolicy,
@@ -439,7 +439,7 @@ TEST_F(CertificateManagerModelChromeOSTest,
     EXPECT_EQ(platform_cert_info, policy_cert_info);
 
     EXPECT_EQ(net::CertType::CA_CERT, policy_cert_info->type());
-    EXPECT_EQ(base::UTF8ToUTF16("pywebsocket"), policy_cert_info->name());
+    EXPECT_EQ(u"pywebsocket", policy_cert_info->name());
     EXPECT_FALSE(policy_cert_info->can_be_deleted());
     EXPECT_FALSE(policy_cert_info->untrusted());
     EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kPolicy,
@@ -462,7 +462,7 @@ TEST_F(CertificateManagerModelChromeOSTest,
     ASSERT_TRUE(platform_cert_info);
 
     EXPECT_EQ(net::CertType::CA_CERT, platform_cert_info->type());
-    EXPECT_EQ(base::UTF8ToUTF16("pywebsocket"), platform_cert_info->name());
+    EXPECT_EQ(u"pywebsocket", platform_cert_info->name());
     EXPECT_TRUE(platform_cert_info->can_be_deleted());
     EXPECT_TRUE(platform_cert_info->untrusted());
     EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kPlatform,
@@ -507,7 +507,7 @@ TEST_F(CertificateManagerModelChromeOSTest,
     EXPECT_EQ(platform_cert_info, policy_cert_info);
 
     EXPECT_EQ(net::CertType::CA_CERT, platform_cert_info->type());
-    EXPECT_EQ(base::UTF8ToUTF16("pywebsocket"), platform_cert_info->name());
+    EXPECT_EQ(u"pywebsocket", platform_cert_info->name());
     EXPECT_TRUE(platform_cert_info->can_be_deleted());
     EXPECT_TRUE(platform_cert_info->untrusted());
     EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kPlatform,
@@ -532,7 +532,7 @@ TEST_F(CertificateManagerModelChromeOSTest,
     ASSERT_TRUE(policy_cert_info);
 
     EXPECT_EQ(net::CertType::CA_CERT, policy_cert_info->type());
-    EXPECT_EQ(base::UTF8ToUTF16("pywebsocket"), policy_cert_info->name());
+    EXPECT_EQ(u"pywebsocket", policy_cert_info->name());
     EXPECT_FALSE(policy_cert_info->can_be_deleted());
     EXPECT_FALSE(policy_cert_info->untrusted());
     EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kPolicy,
@@ -594,8 +594,7 @@ TEST_F(CertificateManagerModelChromeOSTest, ListsExtensionCerts) {
   ASSERT_TRUE(extension_cert_info);
 
   EXPECT_EQ(net::CertType::USER_CERT, extension_cert_info->type());
-  EXPECT_EQ(base::UTF8ToUTF16("Client Cert A (extension provided)"),
-            extension_cert_info->name());
+  EXPECT_EQ(u"Client Cert A (extension provided)", extension_cert_info->name());
   EXPECT_FALSE(extension_cert_info->can_be_deleted());
   EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kExtension,
             extension_cert_info->source());
@@ -632,7 +631,7 @@ TEST_F(CertificateManagerModelChromeOSTest,
     EXPECT_EQ(platform_cert_info, extension_cert_info);
 
     EXPECT_EQ(net::CertType::USER_CERT, platform_cert_info->type());
-    EXPECT_EQ(base::UTF8ToUTF16("Client Cert A"), platform_cert_info->name());
+    EXPECT_EQ(u"Client Cert A", platform_cert_info->name());
     EXPECT_TRUE(platform_cert_info->can_be_deleted());
     EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kPlatform,
               platform_cert_info->source());
@@ -656,7 +655,7 @@ TEST_F(CertificateManagerModelChromeOSTest,
     ASSERT_TRUE(extension_cert_info);
 
     EXPECT_EQ(net::CertType::USER_CERT, extension_cert_info->type());
-    EXPECT_EQ(base::UTF8ToUTF16("Client Cert A (extension provided)"),
+    EXPECT_EQ(u"Client Cert A (extension provided)",
               extension_cert_info->name());
     EXPECT_FALSE(extension_cert_info->can_be_deleted());
     EXPECT_EQ(CertificateManagerModel::CertInfo::Source::kExtension,

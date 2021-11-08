@@ -17,11 +17,6 @@
 #include "ui/views/controls/message_box_view.h"
 #include "ui/views/widget/widget.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/power/power_manager_client.h"
-#endif
-
 ////////////////////////////////////////////////////////////////////////////////
 // UpdateRecommendedMessageBox, public:
 
@@ -43,7 +38,7 @@ UpdateRecommendedMessageBox::UpdateRecommendedMessageBox() {
   SetModalType(ui::MODAL_TYPE_WINDOW);
   SetOwnedByWidget(true);
   SetTitle(IDS_UPDATE_RECOMMENDED_DIALOG_TITLE);
-  base::string16 update_message;
+  std::u16string update_message;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   update_message = l10n_util::GetStringUTF16(IDS_UPDATE_RECOMMENDED);
 #else

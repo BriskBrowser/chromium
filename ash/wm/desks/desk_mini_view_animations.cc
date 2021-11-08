@@ -6,19 +6,19 @@
 
 #include <utility>
 
-#include "ash/public/cpp/ash_features.h"
 #include "ash/shell.h"
 #include "ash/wm/desks/desk_mini_view.h"
 #include "ash/wm/desks/desks_bar_view.h"
-#include "ash/wm/desks/expanded_state_new_desk_button.h"
+#include "ash/wm/desks/expanded_desks_bar_button.h"
 #include "ash/wm/desks/zero_state_button.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_session.h"
+#include "base/containers/contains.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
-#include "ui/gfx/transform_util.h"
+#include "ui/gfx/geometry/transform_util.h"
 
 namespace ash {
 
@@ -26,17 +26,15 @@ namespace {
 
 constexpr gfx::Transform kEndTransform;
 
-constexpr base::TimeDelta kBarBackgroundDuration =
-    base::TimeDelta::FromMilliseconds(200);
+constexpr base::TimeDelta kBarBackgroundDuration = base::Milliseconds(200);
 
 constexpr base::TimeDelta kExistingMiniViewsAnimationDuration =
-    base::TimeDelta::FromMilliseconds(250);
+    base::Milliseconds(250);
 
 constexpr base::TimeDelta kRemovedMiniViewsFadeOutDuration =
-    base::TimeDelta::FromMilliseconds(200);
+    base::Milliseconds(200);
 
-constexpr base::TimeDelta kZeroStateAnimationDuration =
-    base::TimeDelta::FromMilliseconds(200);
+constexpr base::TimeDelta kZeroStateAnimationDuration = base::Milliseconds(200);
 
 // Scale for entering/exiting zero state.
 constexpr float kEnterOrExitZeroStateScale = 0.6f;
@@ -46,7 +44,7 @@ constexpr float kEnterOrExitZeroStateScale = 0.6f;
 void InitScopedAnimationSettings(ui::ScopedLayerAnimationSettings* settings,
                                  base::TimeDelta duration) {
   settings->SetTransitionDuration(duration);
-  settings->SetTweenType(gfx::Tween::FAST_OUT_SLOW_IN);
+  settings->SetTweenType(gfx::Tween::ACCEL_20_DECEL_60);
   settings->SetPreemptionStrategy(
       ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
 }
@@ -69,30 +67,34 @@ void AnimateMiniViews(std::vector<DeskMiniView*> mini_views,
     AnimateView(mini_view, begin_transform);
 }
 
+// Gets the scale transform for |view|, it can be scale up or scale down. The
+// anchor of the scale animation will be a point whose |x| is the center of the
+// desks bar while |y| is the top of the given |view|. GetMirroredX is used here
+// to make sure the transform is correct while in RTL layout.
+gfx::Transform GetScaleTransformForView(views::View* view, int bar_x_center) {
+  return gfx::GetScaleTransform(
+      gfx::Point(bar_x_center - view->GetMirroredX(), 0),
+      kEnterOrExitZeroStateScale);
+}
+
 // Scales down the given |view| to |kEnterOrExitZeroStateScale| and fading out
-// it at the same time. Scale down animation will be around the |start| point.
-void ScaleDownAndFadeOutView(views::View* view, const gfx::Point& start) {
+// it at the same time.
+void ScaleDownAndFadeOutView(views::View* view, int bar_x_center) {
   ui::Layer* layer = view->layer();
   ui::ScopedLayerAnimationSettings settings{layer->GetAnimator()};
   InitScopedAnimationSettings(&settings, kZeroStateAnimationDuration);
 
-  const gfx::Point end = view->bounds().CenterPoint();
-  layer->SetTransform(gfx::GetScaleTransform(
-      gfx::Point(start.x() - end.x(), start.y() - end.y()),
-      kEnterOrExitZeroStateScale));
+  layer->SetTransform(GetScaleTransformForView(view, bar_x_center));
   layer->SetOpacity(0.f);
 }
 
 // Scales up the given |view| from |kEnterOrExitZeroStateScale| to identity and
-// fading in it at the same time. Scale up animation will be around the |start|
-// point.
-void ScaleUpAndFadeInView(views::View* view, const gfx::Point& start) {
+// fading in it at the same time.
+void ScaleUpAndFadeInView(views::View* view, int bar_x_center) {
   DCHECK(view);
-  const gfx::Point end = view->bounds().CenterPoint();
   ui::Layer* layer = view->layer();
-  layer->SetTransform(gfx::GetScaleTransform(
-      gfx::Point(start.x() - end.x(), start.y() - end.y()),
-      kEnterOrExitZeroStateScale));
+  layer->SetTransform(GetScaleTransformForView(view, bar_x_center));
+  layer->SetOpacity(0.f);
 
   ui::ScopedLayerAnimationSettings settings{layer->GetAnimator()};
   InitScopedAnimationSettings(&settings, kZeroStateAnimationDuration);
@@ -108,8 +110,8 @@ void PositionWindowsInOverview() {
 
 // A self-deleting object that performs a fade out animation on
 // |removed_mini_view|'s layer by changing its opacity from 1 to 0 and scales
-// down it around the center of |bar_view| while switching back to zero state in
-// Bento. |removed_mini_view_| and the object itserlf will be deleted when the
+// down it around the center of |bar_view| while switching back to zero state.
+// |removed_mini_view_| and the object itserlf will be deleted when the
 // animation is complete.
 // TODO(afakhry): Consider generalizing HidingWindowAnimationObserverBase to be
 // reusable for the mini_view removal animation.
@@ -128,11 +130,8 @@ class RemovedMiniViewAnimation : public ui::ImplicitAnimationObserver {
 
     if (to_zero_state_) {
       DCHECK(bar_view_);
-      const gfx::Point start = bar_view->bounds().CenterPoint();
-      const gfx::Point end = removed_mini_view->bounds().CenterPoint();
-      layer->SetTransform(gfx::GetScaleTransform(
-          gfx::Point(start.x() - end.x(), start.y() - end.y()),
-          kEnterOrExitZeroStateScale));
+      layer->SetTransform(GetScaleTransformForView(
+          removed_mini_view, bar_view->bounds().CenterPoint().x()));
     } else {
       layer->SetTransform(kEndTransform);
     }
@@ -204,16 +203,23 @@ void PerformNewDeskMiniViewAnimation(
     layer->SetTransform(kEndTransform);
   }
 
-  // The new desk button in the expanded desks bar moves at the opposite
-  // direction of the existing mini views while creating a new mini view. The
-  // existing mini views will move from right to left while the new desk button
-  // will move from left to right. Since the newly added mini view will be added
-  // between the last mini view and the new desk button.
-  if (features::IsBentoEnabled()) {
-    gfx::Transform new_desk_button_begin_transform;
-    new_desk_button_begin_transform.Translate(-shift_x, 0);
-    AnimateView(bar_view->expanded_state_new_desk_button(),
-                new_desk_button_begin_transform);
+  // The new desk button and the desk templates button in the expanded desks bar
+  // moves at the opposite direction of the existing mini views while creating a
+  // new mini view. The existing mini views will move from right to left while
+  // the new desk button and the desk templates button will move from left to
+  // right. Since the newly added mini view will be added between the last mini
+  // view and the new desk button.
+  gfx::Transform new_desk_button_begin_transform;
+  new_desk_button_begin_transform.Translate(-shift_x, 0);
+  AnimateView(bar_view->expanded_state_new_desk_button(),
+              new_desk_button_begin_transform);
+
+  if (auto* expanded_state_desks_templates_button =
+          bar_view->expanded_state_desks_templates_button()) {
+    gfx::Transform desks_templates_begin_transform;
+    desks_templates_begin_transform.Translate(-shift_x, 0);
+    AnimateView(expanded_state_desks_templates_button,
+                desks_templates_begin_transform);
   }
 }
 
@@ -221,7 +227,8 @@ void PerformRemoveDeskMiniViewAnimation(
     DeskMiniView* removed_mini_view,
     std::vector<DeskMiniView*> mini_views_left,
     std::vector<DeskMiniView*> mini_views_right,
-    ExpandedStateNewDeskButton* expanded_state_new_desk_button,
+    ExpandedDesksBarButton* expanded_state_new_desk_button,
+    ExpandedDesksBarButton* expanded_state_desks_templates_button,
     int shift_x) {
   gfx::Transform mini_views_left_begin_transform;
   mini_views_left_begin_transform.Translate(shift_x, 0);
@@ -233,9 +240,9 @@ void PerformRemoveDeskMiniViewAnimation(
 
   AnimateMiniViews(mini_views_left, mini_views_left_begin_transform);
   AnimateMiniViews(mini_views_right, mini_views_right_begin_transform);
-
-  if (features::IsBentoEnabled()) {
-    AnimateView(expanded_state_new_desk_button,
+  AnimateView(expanded_state_new_desk_button, mini_views_right_begin_transform);
+  if (expanded_state_desks_templates_button) {
+    AnimateView(expanded_state_desks_templates_button,
                 mini_views_right_begin_transform);
   }
 }
@@ -246,11 +253,17 @@ void PerformZeroStateToExpandedStateMiniViewAnimation(DesksBarView* bar_view) {
   InitScopedAnimationSettings(&settings, kZeroStateAnimationDuration);
   layer->SetTransform(kEndTransform);
 
-  const gfx::Point start = bar_view->bounds().CenterPoint();
+  const int bar_x_center = bar_view->bounds().CenterPoint().x();
   for (auto* mini_view : bar_view->mini_views())
-    ScaleUpAndFadeInView(mini_view, start);
+    ScaleUpAndFadeInView(mini_view, bar_x_center);
 
-  ScaleUpAndFadeInView(bar_view->expanded_state_new_desk_button(), start);
+  ScaleUpAndFadeInView(bar_view->expanded_state_new_desk_button(),
+                       bar_x_center);
+  if (auto* expanded_state_desks_templates_button =
+          bar_view->expanded_state_desks_templates_button()) {
+    ScaleUpAndFadeInView(expanded_state_desks_templates_button, bar_x_center);
+  }
+
   PositionWindowsInOverview();
 }
 
@@ -262,7 +275,12 @@ void PerformExpandedStateToZeroStateMiniViewAnimation(
 
   const gfx::Rect bounds = bar_view->bounds();
   ScaleDownAndFadeOutView(bar_view->expanded_state_new_desk_button(),
-                          bounds.CenterPoint());
+                          bounds.CenterPoint().x());
+  if (auto* expanded_state_desks_templates_button =
+          bar_view->expanded_state_desks_templates_button()) {
+    ScaleDownAndFadeOutView(expanded_state_desks_templates_button,
+                            bounds.CenterPoint().x());
+  }
 
   ui::Layer* layer = bar_view->background_view()->layer();
   ui::ScopedLayerAnimationSettings settings{layer->GetAnimator()};
@@ -298,8 +316,8 @@ void PerformReorderDeskMiniViewAnimation(
 
   // Since |old_index| and |new_index| are unequal valid indices, there
   // must be at least two desks.
-  int shift_x = mini_views[0]->bounds().origin().x() -
-                mini_views[1]->bounds().origin().x();
+  int shift_x = mini_views[0]->GetMirroredBounds().x() -
+                mini_views[1]->GetMirroredBounds().x();
   shift_x = move_right ? -shift_x : shift_x;
   gfx::Transform desks_transform;
   desks_transform.Translate(shift_x, 0);
@@ -318,8 +336,8 @@ void PerformReorderDeskMiniViewAnimation(
   // Back to old position.
   gfx::Transform reorder_desk_transform;
   reorder_desk_transform.Translate(
-      mini_views[old_index]->bounds().origin().x() -
-          reorder_view->bounds().origin().x(),
+      mini_views[old_index]->GetMirroredBounds().x() -
+          reorder_view->GetMirroredBounds().x(),
       0);
   layer->SetTransform(reorder_desk_transform);
 

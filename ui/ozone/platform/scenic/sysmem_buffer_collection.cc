@@ -49,6 +49,28 @@ VkFormat VkFormatForBufferFormat(gfx::BufferFormat buffer_format) {
   }
 }
 
+size_t GetBytesPerPixel(gfx::BufferFormat buffer_format) {
+  switch (buffer_format) {
+    case gfx::BufferFormat::YVU_420:
+    case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::R_8:
+      return 1U;
+
+    case gfx::BufferFormat::RG_88:
+      return 2U;
+
+    case gfx::BufferFormat::BGRA_8888:
+    case gfx::BufferFormat::BGRX_8888:
+    case gfx::BufferFormat::RGBA_8888:
+    case gfx::BufferFormat::RGBX_8888:
+      return 4U;
+
+    default:
+      NOTREACHED();
+      return 1;
+  }
+}
+
 }  // namespace
 
 // static
@@ -75,16 +97,6 @@ bool SysmemBufferCollection::IsNativePixmapConfigSupported(
 
     case gfx::BufferUsage::SCANOUT_CPU_READ_WRITE:
     case gfx::BufferUsage::GPU_READ_CPU_READ_WRITE:
-#if defined(ARCH_CPU_X86_64)
-      // SwiftShader currently doesn't support liner image layouts (b/171299814)
-      // required for images accessed by CPU, so these formats cannot be
-      // supported with Goldfish Vulkan drivers running under emulator.It's not
-      // straightforward to detect format support here because this code runs in
-      // the renderer process. Disable these formats for all X64 devices for
-      // now.
-      // TODO(crbug.com/1141538): remove this workaround.
-      return false;
-#endif
       break;
 
     default:
@@ -108,7 +120,6 @@ bool SysmemBufferCollection::Initialize(
     gfx::BufferUsage usage,
     VkDevice vk_device,
     size_t min_buffer_count,
-    bool force_protected,
     bool register_with_image_pipe) {
   DCHECK(IsNativePixmapConfigSupported(format, usage));
   DCHECK(!collection_);
@@ -137,12 +148,12 @@ bool SysmemBufferCollection::Initialize(
   format_ = format;
   usage_ = usage;
   vk_device_ = vk_device;
-  is_protected_ = force_protected;
+  is_protected_ = false;
 
   if (register_with_image_pipe) {
-    scenic_overlay_view_.emplace(scenic_surface_factory->CreateScenicSession(),
-                                 scenic_surface_factory);
-    surface_factory_ = scenic_surface_factory;
+    overlay_view_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+    scenic_overlay_view_ = std::make_unique<ScenicOverlayView>(
+        scenic_surface_factory->CreateScenicSession(), scenic_surface_factory);
   }
 
   fuchsia::sysmem::BufferCollectionTokenSyncPtr collection_token;
@@ -188,10 +199,10 @@ scoped_refptr<gfx::NativePixmap> SysmemBufferCollection::CreateNativePixmap(
       buffers_info_.settings.image_format_constraints;
 
   // The logic should match LogicalBufferCollection::Allocate().
-  size_t stride = RoundUp(
-      std::max(static_cast<size_t>(format.min_bytes_per_row),
-               gfx::RowSizeForBufferFormat(image_size_.width(), format_, 0)),
-      format.bytes_per_row_divisor);
+  size_t stride =
+      RoundUp(std::max(static_cast<size_t>(format.min_bytes_per_row),
+                       image_size_.width() * GetBytesPerPixel(format_)),
+              format.bytes_per_row_divisor);
   size_t plane_offset = buffers_info_.buffers[buffer_index].vmo_usable_start;
   size_t plane_size = stride * image_size_.height();
   handle.planes.emplace_back(stride, plane_offset, plane_size,
@@ -217,7 +228,7 @@ bool SysmemBufferCollection::CreateVkImage(
     VkImageCreateInfo* vk_image_info,
     VkDeviceMemory* vk_device_memory,
     VkDeviceSize* mem_allocation_size,
-    base::Optional<gpu::VulkanYCbCrInfo>* ycbcr_info) {
+    absl::optional<gpu::VulkanYCbCrInfo>* ycbcr_info) {
   DCHECK_CALLED_ON_VALID_THREAD(vulkan_thread_checker_);
 
   if (vk_device_ != vk_device) {
@@ -226,18 +237,18 @@ bool SysmemBufferCollection::CreateVkImage(
     return false;
   }
 
-  VkBufferCollectionPropertiesFUCHSIA properties = {
-      VK_STRUCTURE_TYPE_BUFFER_COLLECTION_PROPERTIES_FUCHSIA};
-  if (vkGetBufferCollectionPropertiesFUCHSIA(vk_device_, vk_buffer_collection_,
-                                             &properties) != VK_SUCCESS) {
-    DLOG(ERROR) << "vkGetBufferCollectionPropertiesFUCHSIA failed";
+  VkBufferCollectionPropertiesFUCHSIAX properties = {
+      VK_STRUCTURE_TYPE_BUFFER_COLLECTION_PROPERTIES_FUCHSIAX};
+  if (vkGetBufferCollectionPropertiesFUCHSIAX(vk_device_, vk_buffer_collection_,
+                                              &properties) != VK_SUCCESS) {
+    DLOG(ERROR) << "vkGetBufferCollectionPropertiesFUCHSIAX failed";
     return false;
   }
 
   InitializeImageCreateInfo(vk_image_info, size);
 
-  VkBufferCollectionImageCreateInfoFUCHSIA image_format_fuchsia = {
-      VK_STRUCTURE_TYPE_BUFFER_COLLECTION_IMAGE_CREATE_INFO_FUCHSIA,
+  VkBufferCollectionImageCreateInfoFUCHSIAX image_format_fuchsia = {
+      VK_STRUCTURE_TYPE_BUFFER_COLLECTION_IMAGE_CREATE_INFO_FUCHSIAX,
   };
   image_format_fuchsia.collection = vk_buffer_collection_;
   image_format_fuchsia.index = buffer_index;
@@ -258,8 +269,12 @@ bool SysmemBufferCollection::CreateVkImage(
       properties.memoryTypeBits & requirements.memoryTypeBits;
   uint32_t memory_type = base::bits::CountTrailingZeroBits(viable_memory_types);
 
-  VkImportMemoryBufferCollectionFUCHSIA buffer_collection_info = {
-      VK_STRUCTURE_TYPE_IMPORT_MEMORY_BUFFER_COLLECTION_FUCHSIA};
+  VkMemoryDedicatedAllocateInfoKHR dedicated_allocate = {
+      VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR};
+  dedicated_allocate.image = *vk_image;
+  VkImportMemoryBufferCollectionFUCHSIAX buffer_collection_info = {
+      VK_STRUCTURE_TYPE_IMPORT_MEMORY_BUFFER_COLLECTION_FUCHSIAX,
+      &dedicated_allocate};
   buffer_collection_info.collection = vk_buffer_collection_;
   buffer_collection_info.index = buffer_index;
 
@@ -292,7 +307,7 @@ bool SysmemBufferCollection::CreateVkImage(
       buffers_info_.settings.image_format_constraints.color_space[0].type;
   switch (color_space) {
     case fuchsia::sysmem::ColorSpaceType::SRGB:
-      *ycbcr_info = base::nullopt;
+      *ycbcr_info = absl::nullopt;
       break;
 
     case fuchsia::sysmem::ColorSpaceType::REC709: {
@@ -318,23 +333,28 @@ bool SysmemBufferCollection::CreateVkImage(
   return true;
 }
 
-void SysmemBufferCollection::SetOnDeletedCallback(
+void SysmemBufferCollection::AddOnDeletedCallback(
     base::OnceClosure on_deleted) {
-  DCHECK(!on_deleted_);
-  on_deleted_ = std::move(on_deleted);
+  on_deleted_.push_back(std::move(on_deleted));
 }
 
 SysmemBufferCollection::~SysmemBufferCollection() {
   if (vk_buffer_collection_ != VK_NULL_HANDLE) {
-    vkDestroyBufferCollectionFUCHSIA(vk_device_, vk_buffer_collection_,
-                                     nullptr);
+    vkDestroyBufferCollectionFUCHSIAX(vk_device_, vk_buffer_collection_,
+                                      nullptr);
   }
 
   if (collection_)
     collection_->Close();
 
-  if (on_deleted_)
-    std::move(on_deleted_).Run();
+  for (auto& callback : on_deleted_)
+    std::move(callback).Run();
+
+  if (scenic_overlay_view_ &&
+      !overlay_view_task_runner_->BelongsToCurrentThread()) {
+    overlay_view_task_runner_->DeleteSoon(FROM_HERE,
+                                          std::move(scenic_overlay_view_));
+  }
 }
 
 bool SysmemBufferCollection::InitializeInternal(
@@ -350,7 +370,7 @@ bool SysmemBufferCollection::InitializeInternal(
   // overlay.
   fidl::InterfaceHandle<fuchsia::sysmem::BufferCollectionToken>
       collection_token_for_scenic;
-  if (scenic_overlay_view_.has_value()) {
+  if (scenic_overlay_view_) {
     collection_token->Duplicate(ZX_RIGHT_SAME_RIGHTS,
                                 collection_token_for_scenic.NewRequest());
   }
@@ -361,7 +381,7 @@ bool SysmemBufferCollection::InitializeInternal(
     return false;
   }
 
-  if (scenic_overlay_view_.has_value()) {
+  if (scenic_overlay_view_) {
     scenic_overlay_view_->Initialize(std::move(collection_token_for_scenic));
   }
 
@@ -396,14 +416,14 @@ bool SysmemBufferCollection::InitializeInternal(
   }
 
   zx::channel token_channel = collection_token_for_vulkan.TakeChannel();
-  VkBufferCollectionCreateInfoFUCHSIA buffer_collection_create_info = {
-      VK_STRUCTURE_TYPE_BUFFER_COLLECTION_CREATE_INFO_FUCHSIA};
+  VkBufferCollectionCreateInfoFUCHSIAX buffer_collection_create_info = {
+      VK_STRUCTURE_TYPE_BUFFER_COLLECTION_CREATE_INFO_FUCHSIAX};
   buffer_collection_create_info.collectionToken = token_channel.get();
-  if (vkCreateBufferCollectionFUCHSIA(vk_device_,
-                                      &buffer_collection_create_info, nullptr,
-                                      &vk_buffer_collection_) != VK_SUCCESS) {
+  if (vkCreateBufferCollectionFUCHSIAX(vk_device_,
+                                       &buffer_collection_create_info, nullptr,
+                                       &vk_buffer_collection_) != VK_SUCCESS) {
     vk_buffer_collection_ = VK_NULL_HANDLE;
-    DLOG(ERROR) << "vkCreateBufferCollectionFUCHSIA() failed";
+    DLOG(ERROR) << "vkCreateBufferCollectionFUCHSIAX() failed";
     return false;
   }
 
@@ -413,10 +433,10 @@ bool SysmemBufferCollection::InitializeInternal(
   VkImageCreateInfo image_create_info;
   InitializeImageCreateInfo(&image_create_info, min_size_);
 
-  if (vkSetBufferCollectionConstraintsFUCHSIA(vk_device_, vk_buffer_collection_,
-                                              &image_create_info) !=
+  if (vkSetBufferCollectionConstraintsFUCHSIAX(
+          vk_device_, vk_buffer_collection_, &image_create_info) !=
       VK_SUCCESS) {
-    DLOG(ERROR) << "vkSetBufferCollectionConstraintsFUCHSIA() failed";
+    DLOG(ERROR) << "vkSetBufferCollectionConstraintsFUCHSIAX() failed";
     return false;
   }
 
@@ -450,7 +470,7 @@ bool SysmemBufferCollection::InitializeInternal(
   is_protected_ = buffers_info_.settings.buffer_settings.is_secure;
 
   // Add all images to Image pipe for presentation later.
-  if (scenic_overlay_view_.has_value()) {
+  if (scenic_overlay_view_) {
     scenic_overlay_view_->AddImages(buffers_info_.buffer_count, image_size_);
   }
 
@@ -468,7 +488,8 @@ void SysmemBufferCollection::InitializeImageCreateInfo(
   vk_image_info->flags = is_protected_ ? VK_IMAGE_CREATE_PROTECTED_BIT : 0u;
   vk_image_info->imageType = VK_IMAGE_TYPE_2D;
   vk_image_info->format = VkFormatForBufferFormat(format_);
-  vk_image_info->extent = VkExtent3D{size.width(), size.height(), 1};
+  vk_image_info->extent = VkExtent3D{static_cast<uint32_t>(size.width()),
+                                     static_cast<uint32_t>(size.height()), 1};
   vk_image_info->mipLevels = 1;
   vk_image_info->arrayLayers = 1;
   vk_image_info->samples = VK_SAMPLE_COUNT_1_BIT;

@@ -16,6 +16,9 @@ class ProfileDestroyerTest : public BrowserWithTestWindowTest,
  public:
   ProfileDestroyerTest() : is_primary_otr_(GetParam()) {}
 
+  ProfileDestroyerTest(const ProfileDestroyerTest&) = delete;
+  ProfileDestroyerTest& operator=(const ProfileDestroyerTest&) = delete;
+
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
     GetOriginalProfile()->SetProfileDestructionObserver(
@@ -30,7 +33,7 @@ class ProfileDestroyerTest : public BrowserWithTestWindowTest,
       TestingProfile::Builder builder;
       Profile::OTRProfileID profile_id =
           is_primary_otr_ ? Profile::OTRProfileID::PrimaryID()
-                          : Profile::OTRProfileID("Test::ProfileDestroyer");
+                          : Profile::OTRProfileID::CreateUniqueForTesting();
       otr_profile_ =
           builder.BuildOffTheRecord(GetOriginalProfile(), profile_id);
       otr_profile_->SetProfileDestructionObserver(
@@ -67,8 +70,6 @@ class ProfileDestroyerTest : public BrowserWithTestWindowTest,
   TestingProfile* otr_profile_{nullptr};
 
   std::vector<scoped_refptr<content::SiteInstance>> site_instances_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileDestroyerTest);
 };
 
 // Expect immediate OTR profile destruction when no pending renderer

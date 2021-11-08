@@ -9,12 +9,13 @@
 #include "ash/assistant/util/histogram_util.h"
 #include "base/bind.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/controls/highlight_path_generator.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -53,11 +54,30 @@ AssistantButton::AssistantButton(AssistantButtonListener* listener,
   SetImageVerticalAlignment(views::ImageButton::ALIGN_MIDDLE);
 
   // Ink drop.
-  SetInkDropMode(InkDropMode::ON);
+  views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
   SetHasInkDropActionOnClick(true);
-  SetInkDropBaseColor(kInkDropBaseColor);
-  SetInkDropVisibleOpacity(kInkDropVisibleOpacity);
+  views::InkDrop::Get(this)->SetBaseColor(kInkDropBaseColor);
+  views::InkDrop::Get(this)->SetVisibleOpacity(kInkDropVisibleOpacity);
   views::InstallCircleHighlightPathGenerator(this, gfx::Insets(kInkDropInset));
+  views::InkDrop::UseInkDropForFloodFillRipple(views::InkDrop::Get(this));
+  views::InkDrop::Get(this)->SetCreateHighlightCallback(base::BindRepeating(
+      [](Button* host) {
+        auto highlight = std::make_unique<views::InkDropHighlight>(
+            gfx::SizeF(host->size()),
+            views::InkDrop::Get(host)->GetBaseColor());
+        highlight->set_visible_opacity(kInkDropHighlightOpacity);
+        return highlight;
+      },
+      this));
+  views::InkDrop::Get(this)->SetCreateRippleCallback(base::BindRepeating(
+      [](Button* host) -> std::unique_ptr<views::InkDropRipple> {
+        return std::make_unique<views::FloodFillInkDropRipple>(
+            host->size(), gfx::Insets(kInkDropInset),
+            views::InkDrop::Get(host)->GetInkDropCenterBasedOnLastEvent(),
+            views::InkDrop::Get(host)->GetBaseColor(),
+            views::InkDrop::Get(host)->GetVisibleOpacity());
+      },
+      this));
 }
 
 AssistantButton::~AssistantButton() = default;
@@ -92,31 +112,9 @@ void AssistantButton::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   // Note that the current assumption is that button bounds are square.
   DCHECK_EQ(width(), height());
   SetFocusPainter(views::Painter::CreateSolidRoundRectPainter(
-      SkColorSetA(GetInkDropBaseColor(), 0xff * kInkDropHighlightOpacity),
+      SkColorSetA(views::InkDrop::Get(this)->GetBaseColor(),
+                  0xff * kInkDropHighlightOpacity),
       width() / 2 - kInkDropInset, gfx::Insets(kInkDropInset)));
-}
-
-std::unique_ptr<views::InkDrop> AssistantButton::CreateInkDrop() {
-  std::unique_ptr<views::InkDropImpl> ink_drop =
-      std::make_unique<views::InkDropImpl>(this, size());
-  ink_drop->SetAutoHighlightMode(
-      views::InkDropImpl::AutoHighlightMode::SHOW_ON_RIPPLE);
-  return ink_drop;
-}
-
-std::unique_ptr<views::InkDropHighlight>
-AssistantButton::CreateInkDropHighlight() const {
-  auto highlight = std::make_unique<views::InkDropHighlight>(
-      gfx::SizeF(size()), GetInkDropBaseColor());
-  highlight->set_visible_opacity(kInkDropHighlightOpacity);
-  return highlight;
-}
-
-std::unique_ptr<views::InkDropRipple> AssistantButton::CreateInkDropRipple()
-    const {
-  return std::make_unique<views::FloodFillInkDropRipple>(
-      size(), gfx::Insets(kInkDropInset), GetInkDropCenterBasedOnLastEvent(),
-      GetInkDropBaseColor(), GetInkDropVisibleOpacity());
 }
 
 void AssistantButton::OnButtonPressed() {

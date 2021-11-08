@@ -10,6 +10,7 @@
 #include "third_party/blink/public/mojom/hid/hid.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
@@ -27,6 +28,7 @@ class ScriptPromiseResolver;
 class ScriptState;
 
 class HID : public EventTargetWithInlineData,
+            public ExecutionContextLifecycleObserver,
             public Supplement<Navigator>,
             public device::mojom::blink::HidManagerClient {
   DEFINE_WRAPPERTYPEINFO();
@@ -44,9 +46,14 @@ class HID : public EventTargetWithInlineData,
   ExecutionContext* GetExecutionContext() const override;
   const AtomicString& InterfaceName() const override;
 
+  // ExecutionContextLifecycleObserver:
+  void ContextDestroyed() override;
+
   // device::mojom::HidManagerClient:
   void DeviceAdded(device::mojom::blink::HidDeviceInfoPtr device_info) override;
   void DeviceRemoved(
+      device::mojom::blink::HidDeviceInfoPtr device_info) override;
+  void DeviceChanged(
       device::mojom::blink::HidDeviceInfoPtr device_info) override;
 
   // Web-exposed interfaces on hid object:
@@ -77,15 +84,16 @@ class HID : public EventTargetWithInlineData,
   // Opens a connection to HidService, or does nothing if the connection is
   // already open.
   void EnsureServiceConnection();
-  void OnServiceConnectionError();
+
+  // Closes the connection to HidService and resolves any pending promises.
+  void CloseServiceConnection();
+
   void FinishGetDevices(ScriptPromiseResolver*,
                         Vector<device::mojom::blink::HidDeviceInfoPtr>);
   void FinishRequestDevice(ScriptPromiseResolver*,
                            Vector<device::mojom::blink::HidDeviceInfoPtr>);
 
-  HeapMojoRemote<mojom::blink::HidService,
-                 HeapMojoWrapperMode::kWithoutContextObserver>
-      service_;
+  HeapMojoRemote<mojom::blink::HidService> service_;
   mojo::AssociatedReceiver<device::mojom::blink::HidManagerClient> receiver_{
       this};
   HeapHashSet<Member<ScriptPromiseResolver>> get_devices_promises_;

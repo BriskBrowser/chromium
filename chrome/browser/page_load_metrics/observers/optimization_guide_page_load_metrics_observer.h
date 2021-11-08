@@ -15,11 +15,15 @@ class OptimizationGuidePageLoadMetricsObserver
     : public page_load_metrics::PageLoadMetricsObserver {
  public:
   OptimizationGuidePageLoadMetricsObserver();
+
+  OptimizationGuidePageLoadMetricsObserver(
+      const OptimizationGuidePageLoadMetricsObserver&) = delete;
+  OptimizationGuidePageLoadMetricsObserver& operator=(
+      const OptimizationGuidePageLoadMetricsObserver&) = delete;
+
   ~OptimizationGuidePageLoadMetricsObserver() override;
 
   // page_load_metrics::PageLoadMetricsObserver:
-  void OnFirstContentfulPaintInPage(
-      const page_load_metrics::mojom::PageLoadTiming& timing) override;
   ObservePolicy OnHidden(
       const page_load_metrics::mojom::PageLoadTiming& timing) override;
   void OnComplete(
@@ -35,8 +39,6 @@ class OptimizationGuidePageLoadMetricsObserver
   // needed for the Optimization Guide. Not owned.
   OptimizationGuideWebContentsObserver*
       optimization_guide_web_contents_observer_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(OptimizationGuidePageLoadMetricsObserver);
 };
 
 #endif  // CHROME_BROWSER_PAGE_LOAD_METRICS_OBSERVERS_OPTIMIZATION_GUIDE_PAGE_LOAD_METRICS_OBSERVER_H_

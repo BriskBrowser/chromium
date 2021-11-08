@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_ACCESSIBILITY_MAIN_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_ACCESSIBILITY_MAIN_HANDLER_H_
 
-#include <memory>
-
 #include "base/macros.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
@@ -43,7 +41,7 @@ class AccessibilityMainHandler : public ::settings::SettingsPageUIHandler {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   void OnAccessibilityStatusChanged(
-      const AccessibilityStatusEventDetails& details);
+      const ash::AccessibilityStatusEventDetails& details);
 
   base::CallbackListSubscription accessibility_subscription_;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/windows_version.h"
@@ -20,7 +21,6 @@
 #include "media/capture/video/win/sink_filter_win.h"
 #include "media/capture/video/win/video_capture_device_factory_win.h"
 #include "media/capture/video/win/video_capture_device_mf_win.h"
-#include "media/capture/video/win/video_capture_dxgi_device_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -544,7 +544,7 @@ class MockMFCaptureEngine : public MockInterface<IMFCaptureEngine> {
         .WillByDefault(Return(MF_CAPTURE_ENGINE_INITIALIZED));
     // HW Cameras usually add about 500ms latency on init
     ON_CALL(*this, InitEventDelay)
-        .WillByDefault(Return(base::TimeDelta::FromMilliseconds(500)));
+        .WillByDefault(Return(base::Milliseconds(500)));
 
     base::TimeDelta event_delay = InitEventDelay();
 
@@ -554,8 +554,8 @@ class MockMFCaptureEngine : public MockInterface<IMFCaptureEngine> {
                        OnInitEventGuid(), OnInitStatus()),
         event_delay);
     // if zero is passed ensure event fires before wait starts
-    if (event_delay == base::TimeDelta::FromMilliseconds(0)) {
-      base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(200));
+    if (event_delay == base::Milliseconds(0)) {
+      base::PlatformThread::Sleep(base::Milliseconds(200));
     }
 
     return S_OK;
@@ -1257,7 +1257,7 @@ class VideoCaptureDeviceMFWinTest : public ::testing::Test {
   scoped_refptr<MockMFCaptureSource> capture_source_;
   scoped_refptr<MockCapturePreviewSink> capture_preview_sink_;
   base::test::TaskEnvironment task_environment_;
-  scoped_refptr<VideoCaptureDXGIDeviceManager> dxgi_device_manager_;
+  scoped_refptr<DXGIDeviceManager> dxgi_device_manager_;
 
  private:
   const bool media_foundation_supported_;
@@ -1363,7 +1363,7 @@ TEST_F(VideoCaptureDeviceMFWinTest, CallClientOnFireCaptureEngineInitEarly) {
     return MF_CAPTURE_ENGINE_INITIALIZED;
   });
   EXPECT_CALL(*(engine.Get()), InitEventDelay).WillOnce([]() {
-    return base::TimeDelta::FromMilliseconds(0);
+    return base::Milliseconds(0);
   });
 
   EXPECT_CALL(*(engine.Get()), OnCorrectInitializeQueued());
@@ -1766,7 +1766,7 @@ class VideoCaptureDeviceMFWinTestWithDXGI : public VideoCaptureDeviceMFWinTest {
     if (ShouldSkipD3D11Test())
       GTEST_SKIP();
 
-    dxgi_device_manager_ = VideoCaptureDXGIDeviceManager::Create();
+    dxgi_device_manager_ = DXGIDeviceManager::Create();
     VideoCaptureDeviceMFWinTest::SetUp();
   }
 };

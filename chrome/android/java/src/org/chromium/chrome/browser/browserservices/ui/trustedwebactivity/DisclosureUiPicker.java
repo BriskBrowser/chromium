@@ -6,15 +6,15 @@ package org.chromium.chrome.browser.browserservices.ui.trustedwebactivity;
 
 import static android.app.NotificationManager.IMPORTANCE_NONE;
 
-import static org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions.ChannelId.TWA_DISCLOSURE_INITIAL;
-import static org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions.ChannelId.TWA_DISCLOSURE_SUBSEQUENT;
+import static org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions.ChannelId.WEBAPPS;
+import static org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions.ChannelId.WEBAPPS_QUIET;
 
 import android.annotation.TargetApi;
 import android.app.NotificationChannel;
 import android.os.Build;
 
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider.TwaDisclosureUi;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider.TwaDisclosureUi;
 import org.chromium.chrome.browser.browserservices.ui.view.DisclosureInfobar;
 import org.chromium.chrome.browser.browserservices.ui.view.DisclosureNotification;
 import org.chromium.chrome.browser.browserservices.ui.view.DisclosureSnackbar;
@@ -82,8 +82,7 @@ public class DisclosureUiPicker implements NativeInitObserver {
         if (!mNotificationManager.areNotificationsEnabled()) return false;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true;
 
-        return isChannelEnabled(TWA_DISCLOSURE_INITIAL)
-                && isChannelEnabled(TWA_DISCLOSURE_SUBSEQUENT);
+        return isChannelEnabled(WEBAPPS) && isChannelEnabled(WEBAPPS_QUIET);
     }
 
     @TargetApi(Build.VERSION_CODES.O)

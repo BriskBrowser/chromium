@@ -7,13 +7,13 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/cxx17_backports.h"
 #include "base/notreached.h"
-#include "base/numerics/ranges.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/optional.h"
 #include "chrome/browser/notifications/notification_platform_bridge_delegate.h"
 #include "chromeos/crosapi/mojom/message_center.mojom.h"
 #include "chromeos/crosapi/mojom/notification.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_types.h"
 
@@ -59,24 +59,29 @@ crosapi::mojom::NotificationPtr ToMojo(
   mojo_note->origin_url = notification.origin_url();
   if (!notification.icon().IsEmpty())
     mojo_note->icon = notification.icon().AsImageSkia();
-  mojo_note->priority = base::ClampToRange(notification.priority(), -2, 2);
+  mojo_note->priority = base::clamp(notification.priority(), -2, 2);
   mojo_note->require_interaction = notification.never_timeout();
   mojo_note->timestamp = notification.timestamp();
   if (!notification.image().IsEmpty())
     mojo_note->image = notification.image().AsImageSkia();
-  if (!notification.small_image().IsEmpty())
+  if (!notification.small_image().IsEmpty()) {
     mojo_note->badge = notification.small_image().AsImageSkia();
+    mojo_note->badge_needs_additional_masking_has_value = true;
+    mojo_note->badge_needs_additional_masking =
+        notification.small_image_needs_additional_masking();
+  }
   for (const auto& item : notification.items()) {
     auto mojo_item = crosapi::mojom::NotificationItem::New();
     mojo_item->title = item.title;
     mojo_item->message = item.message;
     mojo_note->items.push_back(std::move(mojo_item));
   }
-  mojo_note->progress = base::ClampToRange(notification.progress(), -1, 100);
+  mojo_note->progress = base::clamp(notification.progress(), -1, 100);
   mojo_note->progress_status = notification.progress_status();
   for (const auto& button : notification.buttons()) {
     auto mojo_button = crosapi::mojom::ButtonInfo::New();
     mojo_button->title = button.title;
+    mojo_button->placeholder = button.placeholder;
     mojo_note->buttons.push_back(std::move(mojo_button));
   }
   mojo_note->pinned = notification.pinned();
@@ -112,7 +117,7 @@ class NotificationPlatformBridgeLacros::RemoteNotificationDelegate
 
   mojo::PendingRemote<crosapi::mojom::NotificationDelegate>
   BindNotificationDelegate() {
-    return receiver_.BindNewPipeAndPassRemote();
+    return receiver_.BindNewPipeAndPassRemoteWithVersion();
   }
 
   // crosapi::mojom::NotificationDelegate:
@@ -127,11 +132,11 @@ class NotificationPlatformBridgeLacros::RemoteNotificationDelegate
     bridge_delegate_->HandleNotificationClicked(notification_id_);
   }
 
-  void OnNotificationButtonClicked(uint32_t button_index) override {
-    // Chrome OS does not support inline reply.
+  void OnNotificationButtonClicked(
+      uint32_t button_index,
+      const absl::optional<::std::u16string>& reply) override {
     bridge_delegate_->HandleNotificationButtonClicked(
-        notification_id_, base::checked_cast<int>(button_index),
-        /*reply=*/base::nullopt);
+        notification_id_, base::checked_cast<int>(button_index), reply);
   }
 
   void OnNotificationSettingsButtonClicked() override {
@@ -203,7 +208,9 @@ void NotificationPlatformBridgeLacros::GetDisplayed(
 
 void NotificationPlatformBridgeLacros::SetReadyCallback(
     NotificationBridgeReadyCallback callback) {
-  std::move(callback).Run(!!message_center_remote_);
+  // Always return success even if |message_center_remote_| is not valid as we
+  // don't have another way of displaying notifications on ChromeOS via Lacros.
+  std::move(callback).Run(/*success=*/true);
 }
 
 void NotificationPlatformBridgeLacros::DisplayServiceShutDown(

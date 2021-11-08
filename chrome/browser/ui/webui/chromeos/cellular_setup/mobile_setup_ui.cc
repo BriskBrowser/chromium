@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 
 #include <string>
 #include <vector>
@@ -15,7 +16,7 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -65,20 +66,21 @@ const char kJsConnectivityChangedCallback[] =
     "mobile.MobileSetupPortal.onConnectivityChanged";
 
 // TODO(tbarzic): Localize these strings.
-const char kDefaultActivationError[] =
-    "$1 is unable to connect to $2 at this time. Please try again later.";
-const char kCellularDisabledError[] =
-    "Mobile network connections are not currently enabled on this device.";
-const char kNoCellularDeviceError[] = "Mobile network modem is not present.";
-const char kNoCellularServiceError[] =
-    "$1 is unable to connect at this time due to insufficient coverage.";
+const char16_t kDefaultActivationError[] =
+    u"$1 is unable to connect to $2 at this time. Please try again later.";
+const char16_t kCellularDisabledError[] =
+    u"Mobile network connections are not currently enabled on this device.";
+const char16_t kNoCellularDeviceError[] =
+    u"Mobile network modem is not present.";
+const char16_t kNoCellularServiceError[] =
+    u"$1 is unable to connect at this time due to insufficient coverage.";
 
 bool ActivationErrorRequiresCarrier(
     ash::MobileActivator::ActivationError error) {
   return error == ash::MobileActivator::ActivationError::kActivationFailed;
 }
 
-base::string16 GetActivationErrorMessage(
+std::u16string GetActivationErrorMessage(
     ash::MobileActivator::ActivationError error,
     const std::string& carrier) {
   // If the activation error message requires the carrier name, and none was
@@ -92,22 +94,21 @@ base::string16 GetActivationErrorMessage(
 
   switch (error) {
     case ash::MobileActivator::ActivationError::kNone:
-      return base::string16();
+      return std::u16string();
     case ash::MobileActivator::ActivationError::kActivationFailed: {
       return base::ReplaceStringPlaceholders(
-          base::UTF8ToUTF16(kDefaultActivationError),
-          std::vector<base::string16>(
+          kDefaultActivationError,
+          std::vector<std::u16string>(
               {ui::GetChromeOSDeviceName(), base::UTF8ToUTF16(carrier)}),
           nullptr);
     }
     case ash::MobileActivator::ActivationError::kCellularDisabled:
-      return base::UTF8ToUTF16(kCellularDisabledError);
+      return kCellularDisabledError;
     case ash::MobileActivator::ActivationError::kNoCellularDevice:
-      return base::UTF8ToUTF16(kNoCellularDeviceError);
+      return kNoCellularDeviceError;
     case ash::MobileActivator::ActivationError::kNoCellularService:
       return base::ReplaceStringPlaceholders(
-          base::UTF8ToUTF16(kNoCellularServiceError),
-          ui::GetChromeOSDeviceName(), nullptr);
+          kNoCellularServiceError, ui::GetChromeOSDeviceName(), nullptr);
   }
   NOTREACHED() << "Unexpected activation error";
   return GetActivationErrorMessage(
@@ -174,6 +175,10 @@ base::Value GetCellularNetworkInfoValue(const NetworkState* network,
 class MobileSetupUIHTMLSource : public content::URLDataSource {
  public:
   MobileSetupUIHTMLSource();
+
+  MobileSetupUIHTMLSource(const MobileSetupUIHTMLSource&) = delete;
+  MobileSetupUIHTMLSource& operator=(const MobileSetupUIHTMLSource&) = delete;
+
   ~MobileSetupUIHTMLSource() override {}
 
   // content::URLDataSource implementation.
@@ -192,8 +197,6 @@ class MobileSetupUIHTMLSource : public content::URLDataSource {
 
  private:
   base::WeakPtrFactory<MobileSetupUIHTMLSource> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MobileSetupUIHTMLSource);
 };
 
 // The handler for Javascript messages related to the "register" view.
@@ -202,6 +205,10 @@ class MobileSetupHandler : public content::WebUIMessageHandler,
                            public NetworkStateHandlerObserver {
  public:
   MobileSetupHandler();
+
+  MobileSetupHandler(const MobileSetupHandler&) = delete;
+  MobileSetupHandler& operator=(const MobileSetupHandler&) = delete;
+
   ~MobileSetupHandler() override;
 
   // WebUIMessageHandler implementation.
@@ -254,8 +261,6 @@ class MobileSetupHandler : public content::WebUIMessageHandler,
   // Initial value is true.
   bool lte_portal_reachable_;
   base::WeakPtrFactory<MobileSetupHandler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MobileSetupHandler);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -419,19 +424,19 @@ void MobileSetupHandler::Reset() {
 }
 
 void MobileSetupHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       kJsApiStartActivation,
       base::BindRepeating(&MobileSetupHandler::HandleStartActivation,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       kJsApiSetTransactionStatus,
       base::BindRepeating(&MobileSetupHandler::HandleSetTransactionStatus,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       kJsApiPaymentPortalLoad,
       base::BindRepeating(&MobileSetupHandler::HandlePaymentPortalLoad,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       kJsGetDeviceInfo,
       base::BindRepeating(&MobileSetupHandler::HandleGetDeviceInfo,
                           base::Unretained(this)));
@@ -462,12 +467,12 @@ void MobileSetupHandler::HandleSetTransactionStatus(
     return;
 
   const size_t kSetTransactionStatusParamCount = 1;
-  if (args->GetSize() != kSetTransactionStatusParamCount)
+  if (args->GetList().size() != kSetTransactionStatusParamCount)
     return;
   // Get change callback function name.
-  std::string status;
-  if (!args->GetString(0, &status))
+  if (!args->GetList()[0].is_string())
     return;
+  std::string status = args->GetList()[0].GetString();
 
   ash::MobileActivator::GetInstance()->OnSetTransactionStatus(
       base::LowerCaseEqualsASCII(status, kJsApiResultOK));
@@ -479,12 +484,12 @@ void MobileSetupHandler::HandlePaymentPortalLoad(const base::ListValue* args) {
     return;
 
   const size_t kPaymentPortalLoadParamCount = 1;
-  if (args->GetSize() != kPaymentPortalLoadParamCount)
+  if (args->GetList().size() != kPaymentPortalLoadParamCount)
     return;
   // Get change callback function name.
-  std::string result;
-  if (!args->GetString(0, &result))
+  if (!args->GetList()[0].is_string())
     return;
+  std::string result = args->GetList()[0].GetString();
 
   ash::MobileActivator::GetInstance()->OnPortalLoaded(
       base::LowerCaseEqualsASCII(result, kJsApiResultOK));

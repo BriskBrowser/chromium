@@ -5,13 +5,13 @@
 #ifndef CHROME_BROWSER_WEB_APPLICATIONS_WEB_APP_TAB_HELPER_H_
 #define CHROME_BROWSER_WEB_APPLICATIONS_WEB_APP_TAB_HELPER_H_
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/unguessable_token.h"
-#include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/app_registrar_observer.h"
-#include "chrome/browser/web_applications/components/web_app_id.h"
-#include "chrome/browser/web_applications/components/web_app_tab_helper_base.h"
+#include "chrome/browser/web_applications/app_registrar_observer.h"
+#include "chrome/browser/web_applications/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/browser/web_contents_user_data.h"
 
 namespace content {
 class WebContents;
@@ -19,11 +19,10 @@ class WebContents;
 
 namespace web_app {
 
-class WebAppProviderBase;
+class WebAppProvider;
 
-// Per-tab web app helper. Allows to associate a tab (web page) with a web app
-// (or legacy bookmark app).
-class WebAppTabHelper : public WebAppTabHelperBase,
+// Per-tab web app helper. Allows to associate a tab (web page) with a web app.
+class WebAppTabHelper : public content::WebContentsUserData<WebAppTabHelper>,
                         public content::WebContentsObserver,
                         public AppRegistrarObserver {
  public:
@@ -34,11 +33,10 @@ class WebAppTabHelper : public WebAppTabHelperBase,
   WebAppTabHelper& operator=(const WebAppTabHelper&) = delete;
   ~WebAppTabHelper() override;
 
-  // WebAppTabHelperBase:
-  const AppId& GetAppId() const override;
-  void SetAppId(const AppId& app_id) override;
-  const base::UnguessableToken& GetAudioFocusGroupIdForTesting() const override;
-  bool HasLoadedNonAboutBlankPage() const override;
+  const AppId& GetAppId() const;
+  void SetAppId(const AppId& app_id);
+  const base::UnguessableToken& GetAudioFocusGroupIdForTesting() const;
+  bool HasLoadedNonAboutBlankPage() const;
 
   // content::WebContentsObserver:
   void ReadyToCommitNavigation(
@@ -91,9 +89,11 @@ class WebAppTabHelper : public WebAppTabHelperBase,
 
   bool has_loaded_non_about_blank_page_ = false;
 
-  ScopedObserver<AppRegistrar, AppRegistrarObserver> observer_{this};
-  WebAppProviderBase* provider_ = nullptr;
+  base::ScopedObservation<WebAppRegistrar, AppRegistrarObserver> observation_{
+      this};
+  WebAppProvider* provider_ = nullptr;
 
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
 };
 
 }  // namespace web_app

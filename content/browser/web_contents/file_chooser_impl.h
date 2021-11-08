@@ -9,6 +9,7 @@
 #include "content/common/content_export.h"
 #include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/choosers/file_chooser.mojom.h"
 
 namespace content {
@@ -18,7 +19,7 @@ class RenderFrameHostImpl;
 // An implementation of blink::mojom::FileChooser and FileSelectListener
 // associated to RenderFrameHost.
 // TODO(sreejakshetty): Make FileChooserImpl per-frame and associate with
-// RenderDocumentHostUserData to ensure that the state is correctly tracked and
+// DocumentUserData to ensure that the state is correctly tracked and
 // deleted.
 class CONTENT_EXPORT FileChooserImpl : public blink::mojom::FileChooser,
                                        public WebContentsObserver {

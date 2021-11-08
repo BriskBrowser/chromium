@@ -40,14 +40,16 @@ class BookmarkBubbleSignInDelegateTest : public InProcessBrowserTest {
  public:
   BookmarkBubbleSignInDelegateTest() {}
 
+  BookmarkBubbleSignInDelegateTest(const BookmarkBubbleSignInDelegateTest&) =
+      delete;
+  BookmarkBubbleSignInDelegateTest& operator=(
+      const BookmarkBubbleSignInDelegateTest&) = delete;
+
   Profile* profile() { return browser()->profile(); }
 
   void ReplaceBlank(Browser* browser);
 
   void SignInBrowser(Browser* browser);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BookmarkBubbleSignInDelegateTest);
 };
 
 // The default browser created for tests start with one tab open on
@@ -58,12 +60,11 @@ void BookmarkBubbleSignInDelegateTest::ReplaceBlank(Browser* browser) {
   NavigateParams params(
       GetSingletonTabNavigateParams(browser, GURL("chrome:version")));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, std::move(params));
+  ShowSingletonTabOverwritingNTP(browser, &params);
 }
 
 void BookmarkBubbleSignInDelegateTest::SignInBrowser(Browser* browser) {
-  std::unique_ptr<BubbleSyncPromoDelegate> delegate;
-  delegate.reset(new BookmarkBubbleSignInDelegate(browser));
+  auto delegate = std::make_unique<BookmarkBubbleSignInDelegate>(browser);
   delegate->OnEnableSync(AccountInfo());
 }
 

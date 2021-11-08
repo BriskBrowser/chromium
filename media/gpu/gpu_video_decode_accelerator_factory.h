@@ -9,6 +9,7 @@
 
 #include "base/callback.h"
 #include "base/threading/thread_checker.h"
+#include "build/build_config.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_preferences.h"
@@ -37,6 +38,12 @@ class MediaLog;
 
 class MEDIA_GPU_EXPORT GpuVideoDecodeAcceleratorFactory {
  public:
+  GpuVideoDecodeAcceleratorFactory() = delete;
+  GpuVideoDecodeAcceleratorFactory(const GpuVideoDecodeAcceleratorFactory&) =
+      delete;
+  GpuVideoDecodeAcceleratorFactory& operator=(
+      const GpuVideoDecodeAcceleratorFactory&) = delete;
+
   ~GpuVideoDecodeAcceleratorFactory();
 
   // Return current GLContext.
@@ -87,18 +94,17 @@ class MEDIA_GPU_EXPORT GpuVideoDecodeAcceleratorFactory {
       const gpu::GpuPreferences& gpu_preferences,
       MediaLog* media_log) const;
 #endif
-#if BUILDFLAG(USE_V4L2_CODEC)
+#if BUILDFLAG(USE_VAAPI)
+  std::unique_ptr<VideoDecodeAccelerator> CreateVaapiVDA(
+      const gpu::GpuDriverBugWorkarounds& workarounds,
+      const gpu::GpuPreferences& gpu_preferences,
+      MediaLog* media_log) const;
+#elif BUILDFLAG(USE_V4L2_CODEC)
   std::unique_ptr<VideoDecodeAccelerator> CreateV4L2VDA(
       const gpu::GpuDriverBugWorkarounds& workarounds,
       const gpu::GpuPreferences& gpu_preferences,
       MediaLog* media_log) const;
-  std::unique_ptr<VideoDecodeAccelerator> CreateV4L2SVDA(
-      const gpu::GpuDriverBugWorkarounds& workarounds,
-      const gpu::GpuPreferences& gpu_preferences,
-      MediaLog* media_log) const;
-#endif
-#if BUILDFLAG(USE_VAAPI)
-  std::unique_ptr<VideoDecodeAccelerator> CreateVaapiVDA(
+  std::unique_ptr<VideoDecodeAccelerator> CreateV4L2SliceVDA(
       const gpu::GpuDriverBugWorkarounds& workarounds,
       const gpu::GpuPreferences& gpu_preferences,
       MediaLog* media_log) const;
@@ -119,8 +125,6 @@ class MEDIA_GPU_EXPORT GpuVideoDecodeAcceleratorFactory {
   const GpuVideoDecodeGLClient gl_client_;
   const AndroidOverlayMojoFactoryCB overlay_factory_cb_;
   base::ThreadChecker thread_checker_;
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(GpuVideoDecodeAcceleratorFactory);
 };
 
 }  // namespace media

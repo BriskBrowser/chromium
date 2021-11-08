@@ -18,15 +18,14 @@
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/infobar_commands.h"
 #import "ios/chrome/browser/ui/commands/load_query_commands.h"
+#import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_animator.h"
-#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_constants.h"
 #include "ios/chrome/browser/ui/location_bar/location_bar_steady_view.h"
 #import "ios/chrome/browser/ui/orchestrator/location_bar_offset_provider.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/browser/ui/whats_new/default_browser_utils.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -55,13 +54,7 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
 
 }  // namespace
 
-#if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
-@interface LocationBarViewController (Scribble) <
-    UIIndirectScribbleInteractionDelegate>
-@end
-#endif  // defined(__IPHONE14_0)
-
-@interface LocationBarViewController ()
+@interface LocationBarViewController () <UIIndirectScribbleInteractionDelegate>
 // The injected edit view.
 @property(nonatomic, strong) UIView* editView;
 
@@ -142,8 +135,7 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
 - (void)setIncognito:(BOOL)incognito {
   _incognito = incognito;
   self.locationBarSteadyView.colorScheme =
-      incognito ? [LocationBarSteadyViewColorScheme incognitoScheme]
-                : [LocationBarSteadyViewColorScheme standardScheme];
+      [LocationBarSteadyViewColorScheme standardScheme];
 }
 
 - (void)setDispatcher:(id<ActivityServiceCommands,
@@ -206,13 +198,9 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
                   action:@selector(showLongPressMenu:)];
   [_locationBarSteadyView.locationButton addGestureRecognizer:recognizer];
 
-#if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
-  if (@available(iOS 14, *)) {
-    UIIndirectScribbleInteraction* scribbleInteraction =
-        [[UIIndirectScribbleInteraction alloc] initWithDelegate:self];
-    [_locationBarSteadyView addInteraction:scribbleInteraction];
-  }
-#endif  // #if defined(__IPHONE_14_0)
+  UIIndirectScribbleInteraction* scribbleInteraction =
+      [[UIIndirectScribbleInteraction alloc] initWithDelegate:self];
+  [_locationBarSteadyView addInteraction:scribbleInteraction];
 
   DCHECK(self.editView) << "The edit view must be set at this point";
 
@@ -224,6 +212,7 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
   self.locationBarSteadyView.translatesAutoresizingMaskIntoConstraints = NO;
   AddSameConstraints(self.locationBarSteadyView, self.view);
 
+  [self updateTrailingButtonState];
   [self switchToEditing:NO];
 }
 
@@ -389,8 +378,6 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
 
 #pragma mark - UIIndirectScribbleInteractionDelegate
 
-#if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
-
 - (void)indirectScribbleInteraction:(UIIndirectScribbleInteraction*)interaction
               requestElementsInRect:(CGRect)rect
                          completion:
@@ -431,8 +418,6 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
 
   completion(self.delegate.omniboxScribbleForwardingTarget);
 }
-
-#endif  // defined(__IPHONE_14_0)
 
 #pragma mark - private
 
@@ -535,6 +520,7 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
 // here.
 - (void)shareButtonPressed {
   RecordAction(UserMetricsAction("MobileToolbarShareMenu"));
+  [self.delegate recordShareButtonPressed];
 }
 
 // Updates the cached clipboard content type and calls |completion| when the
@@ -597,12 +583,7 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
                action:@selector(searchCopiedText:)]);
 
     BOOL updateSuccessful = [self updateCachedClipboardStateWithCompletion:^() {
-#if !defined(__IPHONE_13_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_13_0
-      [menu setTargetRect:self.locationBarSteadyView.frame inView:self.view];
-      [menu setMenuVisible:YES animated:YES];
-#else
       [menu showMenuFromView:self.view rect:self.locationBarSteadyView.frame];
-#endif
       // When the menu is manually presented, it doesn't get focused by
       // Voiceover. This notification forces voiceover to select the
       // presented menu.
@@ -647,26 +628,16 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
 - (void)searchCopiedImage:(id)sender {
   RecordAction(
       UserMetricsAction("Mobile.OmniboxContextMenu.SearchCopiedImage"));
-  ClipboardRecentContent::GetInstance()->GetRecentImageFromClipboard(
-      base::BindOnce(^(base::Optional<gfx::Image> optionalImage) {
-        if (!optionalImage) {
-          return;
-        }
-        UIImage* image = optionalImage.value().ToUIImage();
-        dispatch_async(dispatch_get_main_queue(), ^{
-          [self.dispatcher searchByImage:image];
-          [self.dispatcher cancelOmniboxEdit];
-        });
-      }));
+  [self.delegate searchCopiedImage];
 }
 
 - (void)visitCopiedLink:(id)sender {
   // A search using clipboard link is activity that should indicate a user
   // that would be interested in setting Chrome as the default browser.
-  LogLikelyInterestedDefaultBrowserUserActivity();
-  RecordAction(UserMetricsAction("Mobile.OmniboxContextMenu.VisitCopiedLink"));
+  LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeGeneral);
+  [self.delegate locationBarVisitCopyLinkTapped];
   ClipboardRecentContent::GetInstance()->GetRecentURLFromClipboard(
-      base::BindOnce(^(base::Optional<GURL> optionalURL) {
+      base::BindOnce(^(absl::optional<GURL> optionalURL) {
         if (!optionalURL) {
           return;
         }
@@ -681,10 +652,10 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
 - (void)searchCopiedText:(id)sender {
   // A search using clipboard text is activity that should indicate a user
   // that would be interested in setting Chrome as the default browser.
-  LogLikelyInterestedDefaultBrowserUserActivity();
+  LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeGeneral);
   RecordAction(UserMetricsAction("Mobile.OmniboxContextMenu.SearchCopiedText"));
   ClipboardRecentContent::GetInstance()->GetRecentTextFromClipboard(
-      base::BindOnce(^(base::Optional<base::string16> optionalText) {
+      base::BindOnce(^(absl::optional<std::u16string> optionalText) {
         if (!optionalText) {
           return;
         }

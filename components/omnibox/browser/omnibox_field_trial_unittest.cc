@@ -5,13 +5,12 @@
 #include "components/omnibox/browser/omnibox_field_trial.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "base/command_line.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_params.h"
-#include "base/strings/string16.h"
-#include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "components/history/core/browser/url_database.h"
@@ -446,13 +445,13 @@ TEST_F(OmniboxFieldTrialTest, HalfLifeTimeDecay) {
   HUPScoringParams::ScoreBuckets buckets;
 
   // No decay by default.
-  EXPECT_EQ(1.0, buckets.HalfLifeTimeDecay(base::TimeDelta::FromDays(7)));
+  EXPECT_EQ(1.0, buckets.HalfLifeTimeDecay(base::Days(7)));
 
   buckets.set_half_life_days(7);
-  EXPECT_EQ(0.5, buckets.HalfLifeTimeDecay(base::TimeDelta::FromDays(7)));
-  EXPECT_EQ(0.25, buckets.HalfLifeTimeDecay(base::TimeDelta::FromDays(14)));
-  EXPECT_EQ(1.0, buckets.HalfLifeTimeDecay(base::TimeDelta::FromDays(0)));
-  EXPECT_EQ(1.0, buckets.HalfLifeTimeDecay(base::TimeDelta::FromDays(-1)));
+  EXPECT_EQ(0.5, buckets.HalfLifeTimeDecay(base::Days(7)));
+  EXPECT_EQ(0.25, buckets.HalfLifeTimeDecay(base::Days(14)));
+  EXPECT_EQ(1.0, buckets.HalfLifeTimeDecay(base::Days(0)));
+  EXPECT_EQ(1.0, buckets.HalfLifeTimeDecay(base::Days(-1)));
 }
 
 TEST_F(OmniboxFieldTrialTest, GetSuggestPollingStrategy) {

@@ -91,6 +91,10 @@ interface ServiceWorkerRegistration : EventTarget
     method getNotifications
     method showNotification
 
+# EyeDropper API should not be exposed in WebView because it is not supported
+# on Android, crbug.com/1249967
+interface EyeDropper
+
 # File System API disabled in WebView, crbug.com/589504, crbug.com/589843, b/6930981
 interface HTMLInputElement : HTMLElement
     getter webkitEntries
@@ -116,6 +120,9 @@ interface AuthenticatorAssertionResponse : AuthenticatorResponse
 interface PublicKeyCredential : Credential
 interface AuthenticatorResponse
 interface AuthenticatorAttestationResponse : AuthenticatorResponse
+
+# WebOTP API should not be exposed in WebView, crbug.com/1224417
+interface OTPCredential : Credential
 
 # Picture-in-Picture API is disabled in Android WebView, crbug.com/852449
 interface PictureInPictureEvent : Event
@@ -146,6 +153,11 @@ interface ServiceWorkerRegistration : EventTarget
 interface PeriodicSyncManager
 interface ServiceWorkerRegistration : EventTarget
     getter periodicSync
+
+# User Agent Client Hints are not enabled in Android WebView, crbug.com/921655
+interface Navigator
+    getter userAgentData
+interface NavigatorUAData
 
 # WebXR dependent interfaces are not supported on WebView crbug.com/1012899
 interface XRView
@@ -178,6 +190,14 @@ interface XRHitTestResult
 interface XRTransientInputHitTestSource
 interface XRAnchor
 interface XRAnchorSet
+interface XRLightEstimate
+interface XRLightProbe : EventTarget
+interface XRWebGLBinding
+    method getDepthInformation
+    method getReflectionCubeMap
+interface XRDepthInformation
+interface XRCPUDepthInformation : XRDepthInformation
+interface XRWebGLDepthInformation : XRDepthInformation
 
 # Web Serial API is not implemented on Android. If Bluetooth Classic support
 # were added this could change. https://crbug.com/1164036

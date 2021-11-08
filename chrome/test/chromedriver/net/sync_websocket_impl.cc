@@ -4,13 +4,15 @@
 
 #include "chrome/test/chromedriver/net/sync_websocket_impl.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/test/chromedriver/net/command_id.h"
 #include "chrome/test/chromedriver/net/timeout.h"
 #include "net/base/net_errors.h"
@@ -68,7 +70,7 @@ bool SyncWebSocketImpl::Core::Connect(const GURL& url) {
     context_getter_->GetNetworkTaskRunner()->PostTask(
         FROM_HERE, base::BindOnce(&SyncWebSocketImpl::Core::ConnectOnIO, this,
                                   url, &success, &event));
-    if (event.TimedWait(base::TimeDelta::FromSeconds(timeout)))
+    if (event.TimedWait(base::Seconds(timeout)))
       break;
     LOG(WARNING) << "Timed out connecting to Chrome, "
                  << (timeout < kMaxTimeout ? "retrying..." : "giving up.");
@@ -104,14 +106,14 @@ SyncWebSocket::StatusCode SyncWebSocketImpl::Core::ReceiveNextMessage(
   while (received_queue_.empty() && is_connected_) {
     base::TimeDelta next_wait = timeout.GetRemainingTime();
     if (next_wait <= base::TimeDelta())
-      return SyncWebSocket::kTimeout;
+      return SyncWebSocket::StatusCode::kTimeout;
     on_update_event_.TimedWait(next_wait);
   }
   if (!is_connected_)
-    return SyncWebSocket::kDisconnected;
+    return SyncWebSocket::StatusCode::kDisconnected;
   *message = received_queue_.front();
   received_queue_.pop_front();
-  return SyncWebSocket::kOk;
+  return SyncWebSocket::StatusCode::kOk;
 }
 
 bool SyncWebSocketImpl::Core::HasNextMessage() {
@@ -132,7 +134,7 @@ void SyncWebSocketImpl::Core::OnMessageReceived(const std::string& message) {
 
 void SyncWebSocketImpl::Core::DetermineRecipient(const std::string& message,
                                                  bool* send_to_chromedriver) {
-  base::Optional<base::Value> message_value =
+  absl::optional<base::Value> message_value =
       base::JSONReader::Read(message, base::JSON_REPLACE_INVALID_CHARACTERS);
   base::DictionaryValue* message_dict;
   if (!message_value || !message_value->GetAsDictionary(&message_dict)) {
@@ -169,7 +171,7 @@ void SyncWebSocketImpl::Core::ConnectOnIO(
   // stale memory, so don't use either parameters before returning.
   if (socket_ && is_connected_)
     return;
-  socket_.reset(new WebSocket(url, this));
+  socket_ = std::make_unique<WebSocket>(url, this);
   socket_->Connect(base::BindOnce(
       &SyncWebSocketImpl::Core::OnConnectCompletedOnIO, this, success, event));
 }

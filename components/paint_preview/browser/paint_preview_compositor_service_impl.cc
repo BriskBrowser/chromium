@@ -4,8 +4,8 @@
 
 #include "components/paint_preview/browser/paint_preview_compositor_service_impl.h"
 
-#include "base/bind_post_task.h"
 #include "base/callback.h"
+#include "base/task/bind_post_task.h"
 #include "components/paint_preview/browser/compositor_utils.h"
 #include "components/paint_preview/browser/paint_preview_compositor_client_impl.h"
 #include "components/paint_preview/public/paint_preview_compositor_client.h"
@@ -83,6 +83,19 @@ PaintPreviewCompositorServiceImpl::CreateCompositor(
                   weak_ptr_factory_.GetWeakPtr()))));
 
   return compositor;
+}
+
+void PaintPreviewCompositorServiceImpl::OnMemoryPressure(
+    base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
+  compositor_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](mojo::Remote<mojom::PaintPreviewCompositorCollection>* remote,
+             base::MemoryPressureListener::MemoryPressureLevel
+                 memory_pressure_level) {
+            remote->get()->OnMemoryPressure(memory_pressure_level);
+          },
+          compositor_service_.get(), memory_pressure_level));
 }
 
 bool PaintPreviewCompositorServiceImpl::HasActiveClients() const {

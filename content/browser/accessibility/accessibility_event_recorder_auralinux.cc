@@ -8,19 +8,19 @@
 #include <atk/atkutil.h>
 #include <atspi/atspi.h>
 
+#include "base/cxx17_backports.h"
 #include "base/process/process_handle.h"
-#include "base/stl_util.h"
-#include "base/strings/pattern.h"
 #include "base/strings/stringprintf.h"
-#include "content/browser/accessibility/accessibility_tree_formatter_utils_auralinux.h"
 #include "content/browser/accessibility/browser_accessibility_auralinux.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
-
-#if defined(ATK_CHECK_VERSION) && ATK_CHECK_VERSION(2, 16, 0)
-#define ATK_216
-#endif
+#include "ui/accessibility/platform/inspect/ax_inspect_utils_auralinux.h"
 
 namespace content {
+
+using ui::AtkRoleToString;
+using ui::ATSPIRoleToString;
+using ui::ATSPIStateToString;
+using ui::FindAccessible;
 
 // static
 AccessibilityEventRecorderAuraLinux*
@@ -55,17 +55,14 @@ gboolean AccessibilityEventRecorderAuraLinux::OnATKEventReceived(
 }
 
 bool AccessibilityEventRecorderAuraLinux::ShouldUseATSPI() {
-  return pid_ != base::GetCurrentProcId() ||
-         !application_name_match_pattern_.empty();
+  return pid_ != base::GetCurrentProcId() || !selector_.empty();
 }
 
 AccessibilityEventRecorderAuraLinux::AccessibilityEventRecorderAuraLinux(
     BrowserAccessibilityManager* manager,
     base::ProcessId pid,
     const AXTreeSelector& selector)
-    : AccessibilityEventRecorder(manager),
-      pid_(pid),
-      application_name_match_pattern_(selector.pattern) {
+    : AccessibilityEventRecorder(manager), pid_(pid), selector_(selector) {
   CHECK(!instance_) << "There can be only one instance of"
                     << " AccessibilityEventRecorder at a time.";
 
@@ -120,24 +117,6 @@ void AccessibilityEventRecorderAuraLinux::RemoveATKEventListeners() {
     atk_remove_global_event_listener(id);
 
   atk_listener_ids.clear();
-}
-
-// Pruning states which are not supported on older bots makes it possible to
-// run the events tests in more environments.
-bool AccessibilityEventRecorderAuraLinux::IncludeState(
-    AtkStateType state_type) {
-  switch (state_type) {
-#if defined(ATK_216)
-    case ATK_STATE_CHECKABLE:
-    case ATK_STATE_HAS_POPUP:
-    case ATK_STATE_READ_ONLY:
-      return false;
-#endif
-    case ATK_STATE_LAST_DEFINED:
-      return false;
-    default:
-      return true;
-  }
 }
 
 std::string AccessibilityEventRecorderAuraLinux::AtkObjectToString(
@@ -238,10 +217,8 @@ void AccessibilityEventRecorderAuraLinux::ProcessATKEvent(
   AtkStateSet* state_set = atk_object_ref_state_set(obj);
   for (int i = ATK_STATE_INVALID; i < ATK_STATE_LAST_DEFINED; i++) {
     AtkStateType state_type = static_cast<AtkStateType>(i);
-    if (atk_state_set_contains_state(state_set, state_type) &&
-        IncludeState(state_type)) {
+    if (atk_state_set_contains_state(state_set, state_type))
       states += " " + base::ToUpperASCII(atk_state_type_get_name(state_type));
-    }
   }
   states = base::CollapseWhitespaceASCII(states, false);
   base::ReplaceChars(states, " ", ",", &states);
@@ -347,24 +324,16 @@ void AccessibilityEventRecorderAuraLinux::ProcessATSPIEvent(
     const AtspiEvent* event) {
   GError* error = nullptr;
 
-  if (!application_name_match_pattern_.empty()) {
+  // Ignore irrelevant events, i.e. fired for other applications.
+  if (!pid_ && !selector_.empty()) {
     AtspiAccessible* application =
         atspi_accessible_get_application(event->source, &error);
-    if (error || !application)
-      return;
-
-    char* application_name = atspi_accessible_get_name(application, &error);
-    g_object_unref(application);
-    if (error || !application_name) {
+    if (error) {
       g_clear_error(&error);
       return;
     }
-
-    if (!base::MatchPattern(application_name,
-                            application_name_match_pattern_)) {
+    if (!application || application != FindAccessible(selector_))
       return;
-    }
-    free(application_name);
   }
 
   if (pid_) {

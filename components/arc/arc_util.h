@@ -10,8 +10,10 @@
 // users' preferences, and FeatureList.
 
 #include <stdint.h>
+
 #include <deque>
 #include <string>
+#include <vector>
 
 #include "chromeos/dbus/dbus_method_call_status.h"
 
@@ -20,7 +22,7 @@ class Window;
 }  // namespace aura
 
 namespace base {
-class CommandLine;
+struct SystemMemoryInfoKB;
 }  // namespace base
 
 namespace user_manager {
@@ -46,6 +48,19 @@ enum class UpstartOperation {
   // therefore the stop operation fails.)
   JOB_STOP_AND_START,
 };
+
+// Enum for configuring ureadahead mode of operation during ARCVM boot process.
+enum class ArcVmUreadaheadMode {
+  // ARCVM ureadahead is in readahead mode for normal user boot flow.
+  READAHEAD = 0,
+  // ARCVM ureadahead is turned on for generate mode in data collector flow.
+  GENERATE,
+  // ARCVM ureadahead is turned off for disabled mode.
+  DISABLED,
+};
+
+using SystemMemoryInfoCallback =
+    base::RepeatingCallback<bool(base::SystemMemoryInfoKB*)>;
 
 // Upstart Job Description
 struct JobDesc {
@@ -79,9 +94,25 @@ bool IsArcAvailable();
 // Returns true if ARC VM is enabled.
 bool IsArcVmEnabled();
 
+// Returns true if ARC VM realtime VCPU is enabled.
+// |cpus| is the number of logical cores that are currently online on the
+// device.
+bool IsArcVmRtVcpuEnabled(uint32_t cpus);
+
+// Returns true if ARC VM advised to use Huge Pages for guest memory.
+bool IsArcVmUseHugePages();
+
 // Returns true if all development configuration directives in the
 // vm_tools/init/arcvm_dev.conf file are ignored during ARCVM start.
 bool IsArcVmDevConfIgnored();
+
+// Returns true if ureadahead is disabled completely, including host and guest
+// parts. See also |GetArcVmUreadaheadMode|.
+bool IsUreadaheadDisabled();
+
+// Returns mode of operation for ureadahead during the ARCVM boot flow.
+// Valid modes are readahead, generate, or disabled.
+ArcVmUreadaheadMode GetArcVmUreadaheadMode(SystemMemoryInfoCallback callback);
 
 // Returns true if ARC should always start within the primary user session
 // (opted in user or not), and other supported mode such as guest and Kiosk
@@ -96,10 +127,6 @@ bool ShouldArcAlwaysStartWithNoPlayStore();
 // Returns true if ARC OptIn ui needs to be shown for testing.
 bool ShouldShowOptInForTesting();
 
-// Enables to always start ARC without Play Store for testing, by appending the
-// command line flag.
-void SetArcAlwaysStartWithoutPlayStoreForTesting();
-
 // Returns true if ARC is installed and running ARC kiosk apps on the current
 // device is officially supported.
 // It doesn't follow that ARC is available for user sessions and
@@ -110,13 +137,6 @@ void SetArcAlwaysStartWithoutPlayStoreForTesting();
 // Also not that this function may return true when ARC is not running in
 // Kiosk mode, it checks only ARC Kiosk availability.
 bool IsArcKioskAvailable();
-
-// For testing ARC in browser tests, this function should be called in
-// SetUpCommandLine(), and its argument should be passed to this function.
-// Also, in unittests, this can be called in SetUp() with
-// base::CommandLine::ForCurrentProcess().
-// |command_line| must not be nullptr.
-void SetArcAvailableCommandLineForTesting(base::CommandLine* command_line);
 
 // Returns true if ARC should run under Kiosk mode for the current profile.
 // As it can return true only when user is already initialized, it implies
@@ -147,10 +167,13 @@ bool IsArcOptInVerificationDisabled();
 
 constexpr int kNoTaskId = -1;
 constexpr int kSystemWindowTaskId = 0;
-// Returns the task id given by the exo shell's application id, or |kNoTaskId|
-// if not an ARC window.
-int GetWindowTaskId(const aura::Window* window);
-int GetTaskIdFromWindowAppId(const std::string& app_id);
+// Returns the task id given by the exo shell's application id, or
+// absl::nullopt if not an ARC window.
+absl::optional<int> GetWindowTaskId(const aura::Window* window);
+absl::optional<int> GetTaskIdFromWindowAppId(const std::string& app_id);
+absl::optional<int> GetWindowSessionId(const aura::Window* window);
+absl::optional<int> GetSessionIdFromWindowAppId(const std::string& app_id);
+absl::optional<int> GetWindowTaskOrSessionId(const aura::Window* window);
 
 // Returns true if ARC app icons are forced to cache.
 bool IsArcForceCacheAppIcon();
@@ -166,11 +189,6 @@ bool IsArcLocaleSyncDisabled();
 
 // Returns true in case ARC Play Auto Install flow is disabled.
 bool IsArcPlayAutoInstallDisabled();
-
-// Adjusts the amount of CPU the ARC instance is allowed to use. When
-// |cpu_restriction_state| is CPU_RESTRICTION_BACKGROUND, the limit is adjusted
-// so ARC can only use tightly restricted CPU resources.
-void SetArcCpuRestriction(CpuRestrictionState cpu_restriction_state);
 
 // Returns the Android density that should be used for the given device scale
 // factor used on chrome.

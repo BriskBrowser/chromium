@@ -28,7 +28,10 @@
 #include "components/sync/engine/sync_encryption_handler.h"
 #include "components/sync/engine/update_handler.h"
 #include "components/sync/protocol/model_type_state.pb.h"
-#include "components/sync/protocol/sync.pb.h"
+
+namespace sync_pb {
+class SyncEntity;
+}
 
 namespace syncer {
 
@@ -60,41 +63,82 @@ class ModelTypeWorker : public UpdateHandler,
   // Public for testing.
   enum DecryptionStatus { SUCCESS, DECRYPTION_PENDING, FAILED_TO_DECRYPT };
 
+  // This enum reflects the processor's state of having local changes.
+  enum HasLocalChangesState {
+    // There are no new nudged pending changes in the processor.
+    kNoNudgedLocalChanges,
+
+    // There are new pending changes in the processor which are not committed
+    // yet.
+    kNewlyNudgedLocalChanges,
+
+    // All known local changes are contributed in the last commit request (and
+    // there is no commit response yet).
+    kAllNudgedLocalChangesInFlight,
+  };
+
+  // |cryptographer|, |nudge_handler| and |cancelation_signal| must be non-null
+  // and outlive the worker. Calling this will construct the object but not
+  // more, ConnectSync() must be called immediately afterwards.
   ModelTypeWorker(ModelType type,
                   const sync_pb::ModelTypeState& initial_state,
-                  bool trigger_initial_sync,
-                  std::unique_ptr<Cryptographer> cryptographer,
+                  Cryptographer* cryptographer,
+                  bool encryption_enabled,
                   PassphraseType passphrase_type,
                   NudgeHandler* nudge_handler,
-                  std::unique_ptr<ModelTypeProcessor> model_type_processor,
                   CancelationSignal* cancelation_signal);
+
+  ModelTypeWorker(const ModelTypeWorker&) = delete;
+  ModelTypeWorker& operator=(const ModelTypeWorker&) = delete;
+
   ~ModelTypeWorker() override;
 
   // Public for testing.
-  // |cryptographer| can be null.
   // |response_data| must be not null.
   static DecryptionStatus PopulateUpdateResponseData(
-      const Cryptographer* cryptographer,
+      const Cryptographer& cryptographer,
       ModelType model_type,
       const sync_pb::SyncEntity& update_entity,
       UpdateResponseData* response_data);
 
+  // Initializes the two relevant communication channels: ModelTypeWorker ->
+  // ModelTypeProcessor (GetUpdates) and ModelTypeProcessor -> ModelTypeWorker
+  // (Commit). Both channels are closed when the worker is destroyed. This is
+  // done outside of the constructor to avoid the object being used while it's
+  // still being built.
+  // Must be called immediately after the constructor, prior to using other
+  // methods.
+  void ConnectSync(std::unique_ptr<ModelTypeProcessor> model_type_processor);
+
   ModelType GetModelType() const;
 
-  void UpdateCryptographer(std::unique_ptr<Cryptographer> cryptographer);
+  // Makes this an encrypted type, which means:
+  // a) Commits will be encrypted using the cryptographer passed on
+  // construction. Note that updates are always decrypted if possible,
+  // regardless of this method.
+  // b) The worker can only commit or push updates once the cryptographer has
+  // selected a default key to encrypt data (Cryptographer::CanEncrypt()). That
+  // used key will be listed in ModelTypeState.
+  // This is a no-op if encryption was already enabled on construction or by
+  // a previous call to this method.
+  void EnableEncryption();
+
+  // Must be called on every change to the state of the cryptographer passed on
+  // construction.
+  void OnCryptographerChange();
+
   void UpdatePassphraseType(PassphraseType type);
 
   // UpdateHandler implementation.
   bool IsInitialSyncEnded() const override;
   const sync_pb::DataTypeProgressMarker& GetDownloadProgress() const override;
   const sync_pb::DataTypeContext& GetDataTypeContext() const override;
-  SyncerError ProcessGetUpdatesResponse(
+  void ProcessGetUpdatesResponse(
       const sync_pb::DataTypeProgressMarker& progress_marker,
       const sync_pb::DataTypeContext& mutated_context,
       const SyncEntityList& applicable_updates,
       StatusController* status) override;
   void ApplyUpdates(StatusController* status) override;
-  void PassiveApplyUpdates(StatusController* status) override;
 
   // CommitQueue implementation.
   void NudgeForCommit() override;
@@ -102,10 +146,6 @@ class ModelTypeWorker : public UpdateHandler,
   // CommitContributor implementation.
   std::unique_ptr<CommitContribution> GetContribution(
       size_t max_entries) override;
-
-  // An alternative way to drive sending data to the processor, that should be
-  // called when a new encryption mechanism is ready.
-  void EncryptionAcceptedMaybeApplyUpdates();
 
   // Public for testing.
   // Returns true if this type should stop communicating because of outstanding
@@ -115,51 +155,29 @@ class ModelTypeWorker : public UpdateHandler,
   // Returns the estimate of dynamically allocated memory in bytes.
   size_t EstimateMemoryUsage() const;
 
-  base::WeakPtr<ModelTypeWorker> AsWeakPtr();
-
   bool HasLocalChangesForTest() const;
 
-  void SetMinGuResponsesToIgnoreKeyForTest(int min_gu_responses_to_ignore_key) {
-    min_gu_responses_to_ignore_key_ = min_gu_responses_to_ignore_key;
+  void SetMinGetUpdatesToIgnoreKeyForTest(int min_get_updates_to_ignore_key) {
+    min_get_updates_to_ignore_key_ = min_get_updates_to_ignore_key;
   }
+
+  bool IsEncryptionEnabledForTest() const { return encryption_enabled_; }
 
  private:
   struct UnknownEncryptionKeyInfo {
     // Not increased if the cryptographer knows it's in a pending state
     // (cf. Cryptographer::CanEncrypt()).
-    int gu_responses_while_should_have_been_known = 0;
+    int get_updates_while_should_have_been_known = 0;
   };
 
-  // Attempts to decrypt the given specifics and return them in the |out|
-  // parameter. The cryptographer must know the decryption key, i.e.
-  // cryptographer.CanDecrypt(specifics.encrypted()) must return true.
-  //
-  // Returns false if the decryption failed. There are no guarantees about the
-  // contents of |out| when that happens.
-  //
-  // In theory, this should never fail. Only corrupt or invalid entries could
-  // cause this to fail, and no clients are known to create such entries. The
-  // failure case is an attempt to be defensive against bad input.
-  static bool DecryptSpecifics(const Cryptographer& cryptographer,
-                               const sync_pb::EntitySpecifics& in,
-                               sync_pb::EntitySpecifics* out);
-
-  // Attempts to decrypt the given password specifics and return them in the
-  // |out| parameter. The cryptographer must know the decryption key, i.e.
-  // cryptographer.CanDecrypt(in.password().encrypted()) must return true.
-  //
-  // Returns false if the decryption failed. There are no guarantees about the
-  // contents of |out| when that happens.
-  //
-  // In theory, this should never fail. Only corrupt or invalid entries could
-  // cause this to fail, and no clients are known to create such entries. The
-  // failure case is an attempt to be defensive against bad input.
-  static bool DecryptPasswordSpecifics(const Cryptographer& cryptographer,
-                                       const sync_pb::EntitySpecifics& in,
-                                       sync_pb::EntitySpecifics* out);
-
-  // Helper function to actually send |pending_updates_| to the processor.
-  void ApplyPendingUpdates();
+  // Sends |pending_updates_| and |model_type_state_| to the processor if there
+  // are no encryption pendencies and initial sync is done. This is called in
+  // ApplyUpdates() during a GetUpdates cycle, but also if the processor must be
+  // informed of a new encryption key, or the worker just managed to decrypt
+  // some pending updates.
+  // If initial sync isn't done yet, the first ApplyUpdates() will take care of
+  // pushing the data in such cases instead (the processor relies on this).
+  void SendPendingUpdatesToProcessorIfReady();
 
   // Returns true if this type has successfully fetched all available updates
   // from the server at least once. Our state may or may not be stale, but at
@@ -171,10 +189,12 @@ class ModelTypeWorker : public UpdateHandler,
   // settings in a good state.
   bool CanCommitItems() const;
 
-  // Updates the encryption key name stored in |model_type_state_| if it differs
-  // from the default encryption key name in |cryptographer_|. Returns whether
-  // an update occurred.
-  bool UpdateEncryptionKeyName();
+  // If |encryption_enabled_| is false, sets the encryption key name in
+  // |model_type_state_| to the empty string. This should usually be a no-op.
+  // If |encryption_enabled_| is true *and* the cryptographer has selected a
+  // (non-empty) default key, sets the value to that default key.
+  // Returns whether the |model_type_state_| key name changed.
+  bool UpdateTypeEncryptionKeyName();
 
   // Iterates through all elements in |entries_pending_decryption_| and tries to
   // decrypt anything that has encrypted data.
@@ -210,7 +230,7 @@ class ModelTypeWorker : public UpdateHandler,
 
   // Returns true for keys that have remained unknown for so long that they are
   // not expected to arrive anytime soon. The worker ignores incoming updates
-  // encrypted with them, and drops pending ones on the next GetUpdatesResponse.
+  // encrypted with them, and drops pending ones on the next GetUpdates.
   // Those keys remain in |unknown_encryption_keys_by_name_|.
   bool ShouldIgnoreUpdatesEncryptedWith(const std::string& key_name);
 
@@ -222,25 +242,29 @@ class ModelTypeWorker : public UpdateHandler,
   // the definition of an unknown key, and returns their info.
   std::vector<UnknownEncryptionKeyInfo> RemoveKeysNoLongerUnknown();
 
-  ModelType type_;
+  const ModelType type_;
+
+  Cryptographer* const cryptographer_;
+
+  // Interface used to access and send nudges to the sync scheduler. Not owned.
+  NudgeHandler* const nudge_handler_;
+
+  // Cancellation signal is used to cancel blocking operation on engine
+  // shutdown.
+  CancelationSignal* const cancelation_signal_;
+
+  // Pointer to the ModelTypeProcessor associated with this worker. Initialized
+  // with ConnectSync().
+  std::unique_ptr<ModelTypeProcessor> model_type_processor_;
 
   // State that applies to the entire model type.
   sync_pb::ModelTypeState model_type_state_;
 
-  // Pointer to the ModelTypeProcessor associated with this worker. Never null.
-  std::unique_ptr<ModelTypeProcessor> model_type_processor_;
-
-  // A private copy of the most recent cryptographer known to sync.
-  // Initialized at construction time and updated with UpdateCryptographer().
-  // null if encryption is not enabled for this type.
-  std::unique_ptr<Cryptographer> cryptographer_;
+  bool encryption_enabled_;
 
   // A private copy of the most recent passphrase type. Initialized at
   // construction time and updated with UpdatePassphraseType().
   PassphraseType passphrase_type_;
-
-  // Interface used to access and send nudges to the sync scheduler. Not owned.
-  NudgeHandler* nudge_handler_;
 
   // A map of sync entities, keyed by server_id. Holds updates encrypted with
   // pending keys. Entries are stored in a map for de-duplication (applying only
@@ -263,22 +287,16 @@ class ModelTypeWorker : public UpdateHandler,
 
   // Indicates if processor has local changes. Processor only nudges worker once
   // and worker might not be ready to commit entities at the time.
-  bool has_local_changes_ = false;
+  HasLocalChangesState has_local_changes_state_ = kNoNudgedLocalChanges;
 
   // Remains constant in production code. Can be overridden in tests.
-  // |UnknownEncryptionKeyInfo::gu_responses_while_should_have_been_known| must
+  // |UnknownEncryptionKeyInfo::get_updates_while_should_have_been_known| must
   // be above this value before updates encrypted with the key are ignored.
-  int min_gu_responses_to_ignore_key_;
-
-  // Cancellation signal is used to cancel blocking operation on engine
-  // shutdown.
-  CancelationSignal* cancelation_signal_;
+  int min_get_updates_to_ignore_key_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<ModelTypeWorker> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ModelTypeWorker);
 };
 
 // GetLocalChangesRequest is a container for GetLocalChanges call response. It
@@ -301,6 +319,9 @@ class GetLocalChangesRequest
       public CancelationSignal::Observer {
  public:
   explicit GetLocalChangesRequest(CancelationSignal* cancelation_signal);
+
+  GetLocalChangesRequest(const GetLocalChangesRequest&) = delete;
+  GetLocalChangesRequest& operator=(const GetLocalChangesRequest&) = delete;
 
   // CancelationSignal::Observer implementation.
   void OnCancelationSignalReceived() override;
@@ -328,8 +349,6 @@ class GetLocalChangesRequest
   CancelationSignal* cancelation_signal_;
   base::WaitableEvent response_accepted_;
   CommitRequestDataList response_;
-
-  DISALLOW_COPY_AND_ASSIGN(GetLocalChangesRequest);
 };
 
 }  // namespace syncer

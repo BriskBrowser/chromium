@@ -5,7 +5,6 @@
 #ifndef COMPONENTS_SIGNIN_CORE_BROWSER_MIRROR_ACCOUNT_RECONCILOR_DELEGATE_H_
 #define COMPONENTS_SIGNIN_CORE_BROWSER_MIRROR_ACCOUNT_RECONCILOR_DELEGATE_H_
 
-#include <string>
 #include <vector>
 
 #include "base/macros.h"
@@ -19,6 +18,12 @@ class MirrorAccountReconcilorDelegate : public AccountReconcilorDelegate,
                                         public IdentityManager::Observer {
  public:
   explicit MirrorAccountReconcilorDelegate(IdentityManager* identity_manager);
+
+  MirrorAccountReconcilorDelegate(const MirrorAccountReconcilorDelegate&) =
+      delete;
+  MirrorAccountReconcilorDelegate& operator=(
+      const MirrorAccountReconcilorDelegate&) = delete;
+
   ~MirrorAccountReconcilorDelegate() override;
 
  protected:
@@ -55,8 +60,6 @@ class MirrorAccountReconcilorDelegate : public AccountReconcilorDelegate,
 
   IdentityManager* identity_manager_;
   bool reconcile_enabled_;
-
-  DISALLOW_COPY_AND_ASSIGN(MirrorAccountReconcilorDelegate);
 };
 
 }  // namespace signin

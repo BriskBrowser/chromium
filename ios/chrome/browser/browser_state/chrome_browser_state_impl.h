@@ -27,8 +27,11 @@ class PrefProxyConfigTracker;
 
 // This class is the implementation of ChromeBrowserState used for
 // non-incognito browsing.
-class ChromeBrowserStateImpl : public ChromeBrowserState {
+class ChromeBrowserStateImpl final : public ChromeBrowserState {
  public:
+  ChromeBrowserStateImpl(const ChromeBrowserStateImpl&) = delete;
+  ChromeBrowserStateImpl& operator=(const ChromeBrowserStateImpl&) = delete;
+
   ~ChromeBrowserStateImpl() override;
 
   // ChromeBrowserState:
@@ -39,7 +42,6 @@ class ChromeBrowserStateImpl : public ChromeBrowserState {
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
   BrowserStatePolicyConnector* GetPolicyConnector() override;
   PrefService* GetPrefs() override;
-  PrefService* GetOffTheRecordPrefs() override;
   ChromeBrowserStateIOData* GetIOData() override;
   void ClearNetworkingHistorySince(base::Time time,
                                    base::OnceClosure completion) override;
@@ -102,8 +104,6 @@ class ChromeBrowserStateImpl : public ChromeBrowserState {
   // components/keyed_service/ios/browser_state_dependency_manager.*
   // components/keyed_service/core/keyed_service.h
   // components/keyed_service/ios/browser_state_keyed_service_factory.*
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeBrowserStateImpl);
 };
 
 #endif  // IOS_CHROME_BROWSER_BROWSER_STATE_CHROME_BROWSER_STATE_IMPL_H_

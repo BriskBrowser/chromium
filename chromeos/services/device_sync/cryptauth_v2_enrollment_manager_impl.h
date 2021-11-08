@@ -10,7 +10,6 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/time/default_clock.h"
 #include "chromeos/services/device_sync/cryptauth_enrollment_manager.h"
 #include "chromeos/services/device_sync/cryptauth_enrollment_result.h"
@@ -19,6 +18,7 @@
 #include "chromeos/services/device_sync/cryptauth_scheduler.h"
 #include "chromeos/services/device_sync/proto/cryptauth_client_app_metadata.pb.h"
 #include "chromeos/services/device_sync/proto/cryptauth_common.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefService;
 class PrefRegistrySimple;
@@ -89,6 +89,11 @@ class CryptAuthV2EnrollmentManagerImpl
   // CryptAuthEnrollmentManagerImpl::RegisterPrefs().
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
+  CryptAuthV2EnrollmentManagerImpl(const CryptAuthV2EnrollmentManagerImpl&) =
+      delete;
+  CryptAuthV2EnrollmentManagerImpl& operator=(
+      const CryptAuthV2EnrollmentManagerImpl&) = delete;
+
   ~CryptAuthV2EnrollmentManagerImpl() override;
 
  protected:
@@ -106,7 +111,7 @@ class CryptAuthV2EnrollmentManagerImpl
   void Start() override;
   void ForceEnrollmentNow(
       cryptauth::InvocationReason invocation_reason,
-      const base::Optional<std::string>& session_id) override;
+      const absl::optional<std::string>& session_id) override;
   bool IsEnrollmentValid() const override;
   base::Time GetLastEnrollmentTime() const override;
   base::TimeDelta GetTimeToNextAttempt() const override;
@@ -117,13 +122,13 @@ class CryptAuthV2EnrollmentManagerImpl
 
   // CryptAuthScheduler::EnrollmentDelegate:
   void OnEnrollmentRequested(const cryptauthv2::ClientMetadata& client_metadata,
-                             const base::Optional<cryptauthv2::PolicyReference>&
+                             const absl::optional<cryptauthv2::PolicyReference>&
                                  client_directive_policy_reference) override;
 
   // CryptAuthGCMManager::Observer:
   void OnReenrollMessage(
-      const base::Optional<std::string>& session_id,
-      const base::Optional<CryptAuthFeatureType>& feature_type) override;
+      const absl::optional<std::string>& session_id,
+      const absl::optional<CryptAuthFeatureType>& feature_type) override;
 
   void Enroll();
   void OnEnrollmentFinished(const CryptAuthEnrollmentResult& enrollment_result);
@@ -146,8 +151,8 @@ class CryptAuthV2EnrollmentManagerImpl
 
   bool initial_v1_and_v2_user_key_pairs_disagree_ = false;
 
-  base::Optional<cryptauthv2::ClientMetadata> current_client_metadata_;
-  base::Optional<cryptauthv2::PolicyReference>
+  absl::optional<cryptauthv2::ClientMetadata> current_client_metadata_;
+  absl::optional<cryptauthv2::PolicyReference>
       client_directive_policy_reference_;
   std::unique_ptr<CryptAuthV2Enroller> enroller_;
 
@@ -161,8 +166,6 @@ class CryptAuthV2EnrollmentManagerImpl
   // CryptAuthV2EnrollmentManagerImpl.
   base::WeakPtrFactory<CryptAuthV2EnrollmentManagerImpl>
       scheduler_weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthV2EnrollmentManagerImpl);
 };
 
 }  // namespace device_sync

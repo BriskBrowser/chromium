@@ -19,6 +19,34 @@ namespace chromeos {
 
 namespace sync_wifi {
 
+namespace {
+
+bool IsAuthenticationError(ConnectionFailureReason reason) {
+  switch (reason) {
+    case ConnectionFailureReason::kFailedToConnect:
+    case ConnectionFailureReason::kDhcpFailure:
+    case ConnectionFailureReason::kDnsLookupFailure:
+    case ConnectionFailureReason::kOutOfRange:
+    case ConnectionFailureReason::kNotAssociated:
+    case ConnectionFailureReason::kTooManySTAs:
+      return false;
+
+    case ConnectionFailureReason::kBadPassphrase:
+    case ConnectionFailureReason::kNoFailure:
+    case ConnectionFailureReason::kBadWepKey:
+    case ConnectionFailureReason::kEapAuthentication:
+    case ConnectionFailureReason::kEapLocalTls:
+    case ConnectionFailureReason::kEapRemoteTls:
+    case ConnectionFailureReason::kPinMissing:
+    case ConnectionFailureReason::kNotAuthenticated:
+    case ConnectionFailureReason::kUnknown:
+    default:
+      return true;
+  }
+}
+
+}  // namespace
+
 // static
 ConnectionFailureReason
 SyncedNetworkMetricsLogger::ConnectionFailureReasonToEnum(
@@ -88,6 +116,8 @@ ApplyNetworkFailureReason SyncedNetworkMetricsLogger::ApplyFailureReasonToEnum(
 SyncedNetworkMetricsLogger::SyncedNetworkMetricsLogger(
     NetworkStateHandler* network_state_handler,
     NetworkConnectionHandler* network_connection_handler) {
+  initialized_timestamp_ = base::Time::Now();
+
   if (network_state_handler) {
     network_state_handler_ = network_state_handler;
     network_state_handler_->AddObserver(this, FROM_HERE);
@@ -96,6 +126,13 @@ SyncedNetworkMetricsLogger::SyncedNetworkMetricsLogger(
   if (network_connection_handler) {
     network_connection_handler_ = network_connection_handler;
     network_connection_handler_->AddObserver(this);
+  }
+
+  const NetworkState* active_wifi =
+      NetworkHandler::Get()->network_state_handler()->ConnectedNetworkByType(
+          NetworkTypePattern::WiFi());
+  if (active_wifi && IsEligible(active_wifi)) {
+    base::UmaHistogramBoolean(kConnectionResultAllHistogram, true);
   }
 }
 
@@ -152,15 +189,25 @@ void SyncedNetworkMetricsLogger::NetworkConnectionStateChanged(
     return;
   }
 
-  if (!connecting_guids_.contains(network->guid())) {
+  // Require that the network was previously in the 'connecting' state before
+  // transitioning to 'connected' in order to prevent double-counting a network
+  // if this function is executed multiple times while connected.  This is
+  // skipped when this class was recently created since 'connecting' may have
+  // happened before we were tracking.
+  if (!connecting_guids_.contains(network->guid()) &&
+      (base::Time::Now() - initialized_timestamp_) > base::Seconds(5)) {
     return;
   }
 
   if (network->connection_state() == shill::kStateFailure) {
-    base::UmaHistogramBoolean(kConnectionResultAllHistogram, false);
-    base::UmaHistogramEnumeration(
-        kConnectionFailureReasonAllHistogram,
-        ConnectionFailureReasonToEnum(network->GetError()));
+    ConnectionFailureReason reason =
+        ConnectionFailureReasonToEnum(network->GetError());
+
+    // Don't consider non-auth errors as failures.
+    if (IsAuthenticationError(reason)) {
+      base::UmaHistogramBoolean(kConnectionResultAllHistogram, false);
+    }
+    base::UmaHistogramEnumeration(kConnectionFailureReasonAllHistogram, reason);
   } else if (network->IsConnectedState()) {
     base::UmaHistogramBoolean(kConnectionResultAllHistogram, true);
   }
@@ -186,7 +233,7 @@ bool SyncedNetworkMetricsLogger::IsEligible(const NetworkState* network) {
 void SyncedNetworkMetricsLogger::OnConnectErrorGetProperties(
     const std::string& error_name,
     const std::string& service_path,
-    base::Optional<base::Value> shill_properties) {
+    absl::optional<base::Value> shill_properties) {
   if (!shill_properties) {
     base::UmaHistogramBoolean(kConnectionResultManualHistogram, false);
     base::UmaHistogramEnumeration(kConnectionFailureReasonManualHistogram,

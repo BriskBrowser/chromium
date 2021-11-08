@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "content/browser/direct_sockets/direct_sockets_service_impl.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
@@ -38,7 +39,7 @@ class DirectSocketsUnitTest : public RenderViewHostTestHarness {
     return direct_sockets_service().ValidateOptions(options);
   }
 
-  base::Optional<net::IPEndPoint> GetLocalAddr(
+  absl::optional<net::IPEndPoint> GetLocalAddr(
       const blink::mojom::DirectSocketOptions& options) {
     return DirectSocketsServiceImpl::GetLocalAddrForTesting(options);
   }
@@ -69,18 +70,12 @@ TEST_F(DirectSocketsUnitTest, WebContentsDestroyed) {
   EXPECT_EQ(ValidateOptions(options), net::ERR_CONTEXT_SHUT_DOWN);
 }
 
-// TODO(crbug.com/1119597): Allow the user to enter the address.
-TEST_F(DirectSocketsUnitTest, RemoteAddressCurrentlyRequired) {
-  blink::mojom::DirectSocketOptions options;
-  EXPECT_EQ(ValidateOptions(options), net::ERR_NAME_NOT_RESOLVED);
-}
-
 TEST_F(DirectSocketsUnitTest, PopulateLocalAddr) {
   blink::mojom::DirectSocketOptions options;
 
   // Test for default condition.
-  base::Optional<net::IPEndPoint> local_addr = GetLocalAddr(options);
-  EXPECT_EQ(local_addr, base::nullopt);
+  absl::optional<net::IPEndPoint> local_addr = GetLocalAddr(options);
+  EXPECT_EQ(local_addr, absl::nullopt);
 
   // Test with IPv4 address and default port(0) provided.
   options.local_hostname = "12.34.56.78";

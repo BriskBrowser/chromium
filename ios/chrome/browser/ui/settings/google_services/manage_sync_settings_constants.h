@@ -19,6 +19,8 @@ extern NSString* const kManageSyncTableViewAccessibilityIdentifier;
 typedef NS_ENUM(NSInteger, SyncSettingsSectionIdentifier) {
   // Section for all the sync settings.
   SyncDataTypeSectionIdentifier = kSectionIdentifierEnumZero,
+  // Sign out options.
+  SignOutSectionIdentifier,
   // Advanced settings.
   AdvancedSettingsSectionIdentifier,
   // Sync errors.
@@ -47,6 +49,8 @@ typedef NS_ENUM(NSInteger, SyncSettingsItemType) {
   SettingsDataTypeItemType,
   // Item for kAutofillWalletImportEnabled.
   AutocompleteWalletItemType,
+  // Sign out item,
+  SignOutItemType,
   // AdvancedSettingsSectionIdentifier section.
   // Encryption item.
   EncryptionItemType,
@@ -55,11 +59,13 @@ typedef NS_ENUM(NSInteger, SyncSettingsItemType) {
   // Data from Chrome sync.
   DataFromChromeSync,
   // Sync errors.
-  RestartAuthenticationFlowErrorItemType,
   ReauthDialogAsSyncIsInAuthErrorItemType,
   ShowPassphraseDialogErrorItemType,
   SyncNeedsTrustedVaultKeyErrorItemType,
+  SyncTrustedVaultRecoverabilityDegradedErrorItemType,
   SyncDisabledByAdministratorErrorItemType,
+  // Sign out item footer.
+  SignOutItemFooterType,
 };
 
 #endif  // IOS_CHROME_BROWSER_UI_SETTINGS_GOOGLE_SERVICES_MANAGE_SYNC_SETTINGS_CONSTANTS_H_

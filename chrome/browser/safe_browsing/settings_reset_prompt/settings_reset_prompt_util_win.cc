@@ -79,18 +79,21 @@ void MaybeShowSettingsResetPrompt(
     return;
 
   DefaultSettingsFetcher::FetchDefaultSettings(
-      base::BindOnce(&TryToShowSettingsResetPrompt, base::Passed(&model)));
+      base::BindOnce(&TryToShowSettingsResetPrompt, std::move(model)));
 }
 
 class SettingsResetPromptDelegateImpl : public SettingsResetPromptDelegate {
  public:
   SettingsResetPromptDelegateImpl();
+
+  SettingsResetPromptDelegateImpl(const SettingsResetPromptDelegateImpl&) =
+      delete;
+  SettingsResetPromptDelegateImpl& operator=(
+      const SettingsResetPromptDelegateImpl&) = delete;
+
   ~SettingsResetPromptDelegateImpl() override;
 
   void ShowSettingsResetPromptWithDelay() const override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SettingsResetPromptDelegateImpl);
 };
 
 SettingsResetPromptDelegateImpl::SettingsResetPromptDelegateImpl() = default;

@@ -5,11 +5,9 @@
 #ifndef CHROME_BROWSER_RESOURCE_COORDINATOR_TAB_LIFECYCLE_UNIT_SOURCE_H_
 #define CHROME_BROWSER_RESOURCE_COORDINATOR_TAB_LIFECYCLE_UNIT_SOURCE_H_
 
-#include <memory>
-
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "base/scoped_observer.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_source_base.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/browser_tab_strip_tracker.h"
@@ -40,6 +38,10 @@ class TabLifecycleUnitSource : public BrowserListObserver,
   class LifecycleStateObserver;
 
   explicit TabLifecycleUnitSource(UsageClock* usage_clock);
+
+  TabLifecycleUnitSource(const TabLifecycleUnitSource&) = delete;
+  TabLifecycleUnitSource& operator=(const TabLifecycleUnitSource&) = delete;
+
   ~TabLifecycleUnitSource() override;
 
   // Should be called once all the dependencies of this class have been created
@@ -114,6 +116,7 @@ class TabLifecycleUnitSource : public BrowserListObserver,
                     TabChangeType change_type) override;
 
   // BrowserListObserver:
+  void OnBrowserRemoved(Browser* browser) override;
   void OnBrowserSetLastActive(Browser* browser) override;
   void OnBrowserNoLongerActive(Browser* browser) override;
 
@@ -149,8 +152,6 @@ class TabLifecycleUnitSource : public BrowserListObserver,
 
   // The enterprise policy for setting a limit on total physical memory usage.
   bool memory_limit_enterprise_policy_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(TabLifecycleUnitSource);
 };
 
 }  // namespace resource_coordinator

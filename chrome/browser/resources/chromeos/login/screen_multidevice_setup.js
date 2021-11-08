@@ -15,7 +15,6 @@ Polymer({
     this.initializeLoginScreen('MultiDeviceSetupScreen', {});
   },
 
-
   get defaultControl() {
     return this.$.impl;
   },

@@ -96,7 +96,7 @@ class MockMediaRouter : public MediaRouterBase {
                     base::TimeDelta timeout,
                     bool incognito));
 
-  MOCK_METHOD1(DetachRoute, void(const MediaRoute::Id& route_id));
+  MOCK_METHOD1(DetachRoute, void(MediaRoute::Id route_id));
   MOCK_METHOD1(TerminateRoute, void(const MediaRoute::Id& route_id));
   MOCK_METHOD2(SendRouteMessage,
                void(const MediaRoute::Id& route_id,
@@ -112,7 +112,8 @@ class MockMediaRouter : public MediaRouterBase {
       const content::PresentationConnectionStateChangedCallback& callback)
       override {
     OnAddPresentationConnectionStateChangedCallbackInvoked(callback);
-    return connection_state_callbacks_.Add(callback);
+    return MediaRouterBase::AddPresentationConnectionStateChangedCallback(
+        route_id, callback);
   }
   MOCK_CONST_METHOD0(GetCurrentRoutes, std::vector<MediaRoute>());
 
@@ -124,6 +125,7 @@ class MockMediaRouter : public MediaRouterBase {
                     mojo::PendingRemote<mojom::MediaStatusObserver> observer));
   MOCK_METHOD0(GetLogger, LoggerImpl*());
 #endif  // !defined(OS_ANDROID)
+  MOCK_CONST_METHOD0(GetState, base::Value());
   MOCK_METHOD1(OnAddPresentationConnectionStateChangedCallbackInvoked,
                void(const content::PresentationConnectionStateChangedCallback&
                         callback));
@@ -139,11 +141,6 @@ class MockMediaRouter : public MediaRouterBase {
   MOCK_METHOD1(UnregisterRouteMessageObserver,
                void(RouteMessageObserver* observer));
   MOCK_METHOD0(GetMediaSinkServiceStatus, std::string());
-
- private:
-  base::CallbackList<void(
-      const content::PresentationConnectionStateChangeInfo&)>
-      connection_state_callbacks_;
 };
 
 }  // namespace media_router

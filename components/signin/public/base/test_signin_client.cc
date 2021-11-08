@@ -13,6 +13,11 @@
 #include "services/network/test/test_cookie_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "components/account_manager_core/account.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#endif
+
 TestSigninClient::TestSigninClient(
     PrefService* pref_service,
     network::TestURLLoaderFactory* test_url_loader_factory)
@@ -20,8 +25,7 @@ TestSigninClient::TestSigninClient(
       pref_service_(pref_service),
       are_signin_cookies_allowed_(true),
       network_calls_delayed_(false),
-      is_signout_allowed_(true),
-      is_dice_migration_completed_(false) {}
+      is_signout_allowed_(true) {}
 
 TestSigninClient::~TestSigninClient() {}
 
@@ -108,10 +112,19 @@ std::unique_ptr<GaiaAuthFetcher> TestSigninClient::CreateGaiaAuthFetcher(
                                            GetURLLoaderFactory());
 }
 
-void TestSigninClient::SetDiceMigrationCompleted() {
-  is_dice_migration_completed_ = true;
-}
-
 bool TestSigninClient::IsNonEnterpriseUser(const std::string& email) {
   return gaia::ExtractDomainName(email) == "gmail.com";
 }
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+absl::optional<account_manager::Account>
+TestSigninClient::GetInitialPrimaryAccount() {
+  return initial_primary_account_;
+}
+
+void TestSigninClient::SetInitialPrimaryAccountForTests(
+    const account_manager::Account& account) {
+  initial_primary_account_ = absl::make_optional(account);
+}
+
+#endif

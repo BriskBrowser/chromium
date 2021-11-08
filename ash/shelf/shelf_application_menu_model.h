@@ -37,9 +37,14 @@ class ASH_EXPORT ShelfApplicationMenuModel
 
   // Makes a menu with a |title|, |items|, and a separator for |delegate|.
   // |delegate| may be null in unit tests that do not execute commands.
-  ShelfApplicationMenuModel(const base::string16& title,
+  ShelfApplicationMenuModel(const std::u16string& title,
                             Items items,
                             ShelfItemDelegate* delegate);
+
+  ShelfApplicationMenuModel(const ShelfApplicationMenuModel&) = delete;
+  ShelfApplicationMenuModel& operator=(const ShelfApplicationMenuModel&) =
+      delete;
+
   ~ShelfApplicationMenuModel() override;
 
   // ui::SimpleMenuModel::Delegate:
@@ -58,8 +63,6 @@ class ASH_EXPORT ShelfApplicationMenuModel
 
   // A set containing the enabled command IDs.
   base::flat_set<int> enabled_commands_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShelfApplicationMenuModel);
 };
 
 }  // namespace ash

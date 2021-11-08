@@ -7,7 +7,7 @@
 
 #include "base/containers/flat_set.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/notifications/muted_notification_handler.h"
@@ -18,6 +18,9 @@ class WebContents;
 }  // namespace content
 
 class NotificationDisplayService;
+
+// To share with unit tests.
+extern const char kMuteNotificationId[];
 
 // This notification blocker listens to the events when the user starts
 // capturing a display. It will block notifications while such a capture is
@@ -66,6 +69,8 @@ class ScreenCaptureNotificationBlocker
     kNotifyMuted,
     // The user clicked on "Show" and we show all notifications as usual.
     kShowAll,
+    // The user clicked on "Snooze" to snooze all notifications in this session.
+    kSnooze,
   };
 
   NotifyState state_ = NotifyState::kNotifyMuted;
@@ -76,6 +81,8 @@ class ScreenCaptureNotificationBlocker
   int replaced_notification_count_ = 0;
   // Number of notifications closed during the current screen capture session.
   int closed_notification_count_ = 0;
+  // Number of notifications prevented from showing while we're snoozing.
+  int snoozed_notification_count_ = 0;
   // Flag if metrics have been reported for the current screen capture session.
   bool reported_session_metrics_ = false;
   // Timestamp of when the last "muted" notification got shown.
@@ -87,9 +94,9 @@ class ScreenCaptureNotificationBlocker
   // owns |this| so a raw pointer is safe here.
   NotificationDisplayService* notification_display_service_;
 
-  ScopedObserver<MediaStreamCaptureIndicator,
-                 MediaStreamCaptureIndicator::Observer>
-      observer_{this};
+  base::ScopedObservation<MediaStreamCaptureIndicator,
+                          MediaStreamCaptureIndicator::Observer>
+      observation_{this};
 
   // Storing raw pointers here is fine because MediaStreamCaptureIndicator
   // notifies us before the WebContents is destroyed.

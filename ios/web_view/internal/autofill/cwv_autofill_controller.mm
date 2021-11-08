@@ -12,15 +12,15 @@
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/values.h"
-#include "components/autofill/core/browser/autofill_manager.h"
+#include "components/autofill/core/browser/browser_autofill_manager.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #import "components/autofill/ios/browser/autofill_agent.h"
 #include "components/autofill/ios/browser/autofill_driver_ios.h"
+#import "components/autofill/ios/browser/autofill_java_script_feature.h"
 #import "components/autofill/ios/browser/autofill_util.h"
-#import "components/autofill/ios/browser/js_autofill_manager.h"
-#import "components/autofill/ios/browser/js_suggestion_manager.h"
+#import "components/autofill/ios/browser/suggestion_controller_java_script_feature.h"
 #include "components/autofill/ios/form_util/form_activity_params.h"
 #include "components/autofill/ios/form_util/unique_id_data_tab_helper.h"
 #include "components/keyed_service/core/service_access_type.h"
@@ -35,9 +35,7 @@
 #import "ios/web_view/internal/autofill/cwv_autofill_form_internal.h"
 #import "ios/web_view/internal/autofill/cwv_autofill_profile_internal.h"
 #import "ios/web_view/internal/autofill/cwv_autofill_suggestion_internal.h"
-#import "ios/web_view/internal/autofill/cwv_credit_card_expiration_fixer_internal.h"
 #import "ios/web_view/internal/autofill/cwv_credit_card_internal.h"
-#import "ios/web_view/internal/autofill/cwv_credit_card_name_fixer_internal.h"
 #import "ios/web_view/internal/autofill/cwv_credit_card_saver_internal.h"
 #import "ios/web_view/internal/autofill/cwv_credit_card_verifier_internal.h"
 #include "ios/web_view/internal/autofill/web_view_autocomplete_history_manager_factory.h"
@@ -49,10 +47,13 @@
 #import "ios/web_view/internal/passwords/web_view_account_password_store_factory.h"
 #import "ios/web_view/internal/passwords/web_view_password_manager_driver.h"
 #include "ios/web_view/internal/signin/web_view_identity_manager_factory.h"
-#import "ios/web_view/internal/sync/web_view_profile_sync_service_factory.h"
 #include "ios/web_view/internal/web_view_browser_state.h"
 #import "ios/web_view/public/cwv_autofill_controller_delegate.h"
 #import "net/base/mac/url_conversions.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 using autofill::FormRendererId;
 using autofill::FieldRendererId;
@@ -66,9 +67,6 @@ using autofill::FieldRendererId;
 
   // Autofill client associated with |webState|.
   std::unique_ptr<autofill::WebViewAutofillClientIOS> _autofillClient;
-
-  // Javascript autofill manager associated with |webState|.
-  JsAutofillManager* _JSAutofillManager;
 
   // The |webState| which this autofill controller should observe.
   web::WebState* _webState;
@@ -106,7 +104,6 @@ using autofill::FieldRendererId;
            autofillClient:(std::unique_ptr<autofill::WebViewAutofillClientIOS>)
                               autofillClient
             autofillAgent:(AutofillAgent*)autofillAgent
-        JSAutofillManager:(JsAutofillManager*)JSAutofillManager
           passwordManager:(std::unique_ptr<password_manager::PasswordManager>)
                               passwordManager
     passwordManagerClient:
@@ -136,9 +133,7 @@ using autofill::FieldRendererId;
 
     autofill::AutofillDriverIOS::PrepareForWebStateWebFrameAndDelegate(
         _webState, _autofillClient.get(), self, applicationLocale,
-        autofill::AutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
-
-    _JSAutofillManager = JSAutofillManager;
+        autofill::BrowserAutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
 
     _passwordManagerClient = std::move(passwordManagerClient);
     _passwordManagerClient->set_bridge(self);
@@ -174,17 +169,14 @@ using autofill::FieldRendererId;
         completionHandler:(nullable void (^)(void))completionHandler {
   web::WebFrame* frame =
       web::GetWebFrameWithId(_webState, base::SysNSStringToUTF8(frameID));
-  [_JSAutofillManager
-      clearAutofilledFieldsForFormName:formName
-                          formUniqueID:_lastFormActivityUniqueFormID
-                       fieldIdentifier:fieldIdentifier
-                         fieldUniqueID:_lastFormActivityUniqueFieldID
-                               inFrame:frame
-                     completionHandler:^(NSString*) {
-                       if (completionHandler) {
-                         completionHandler();
-                       }
-                     }];
+  autofill::AutofillJavaScriptFeature::GetInstance()
+      ->ClearAutofilledFieldsForFormName(
+          frame, formName, _lastFormActivityUniqueFormID, fieldIdentifier,
+          _lastFormActivityUniqueFieldID, base::BindOnce(^(NSString*) {
+            if (completionHandler) {
+              completionHandler();
+            }
+          }));
 }
 
 - (void)fetchSuggestionsForFormWithName:(NSString*)formName
@@ -295,20 +287,35 @@ using autofill::FieldRendererId;
 }
 
 - (void)focusPreviousField {
-  autofill::JsSuggestionManager::GetOrCreateForWebState(_webState)
-      ->SelectPreviousElementInFrameWithID(_lastFormActivityWebFrameID);
+  web::WebFrame* frame = _webState->GetWebFramesManager()->GetFrameWithId(
+      _lastFormActivityWebFrameID);
+
+  if (!frame)
+    return;
+
+  autofill::SuggestionControllerJavaScriptFeature::GetInstance()
+      ->SelectPreviousElementInFrame(frame);
 }
 
 - (void)focusNextField {
-  autofill::JsSuggestionManager::GetOrCreateForWebState(_webState)
-      ->SelectNextElementInFrameWithID(_lastFormActivityWebFrameID);
+  web::WebFrame* frame = _webState->GetWebFramesManager()->GetFrameWithId(
+      _lastFormActivityWebFrameID);
+
+  if (!frame)
+    return;
+
+  autofill::SuggestionControllerJavaScriptFeature::GetInstance()
+      ->SelectNextElementInFrame(frame);
 }
 
 - (void)checkIfPreviousAndNextFieldsAreAvailableForFocusWithCompletionHandler:
     (void (^)(BOOL previous, BOOL next))completionHandler {
-  autofill::JsSuggestionManager::GetOrCreateForWebState(_webState)
-      ->FetchPreviousAndNextElementsPresenceInFrameWithID(
-          _lastFormActivityWebFrameID, base::BindOnce(completionHandler));
+  web::WebFrame* frame = _webState->GetWebFramesManager()->GetFrameWithId(
+      _lastFormActivityWebFrameID);
+
+  autofill::SuggestionControllerJavaScriptFeature::GetInstance()
+      ->FetchPreviousAndNextElementsPresenceInFrame(
+          frame, base::BindOnce(completionHandler));
 }
 
 #pragma mark - CWVAutofillClientIOSBridge
@@ -336,39 +343,6 @@ using autofill::FieldRendererId;
 
 - (bool)isQueryIDRelevant:(int)queryID {
   return [_autofillAgent isQueryIDRelevant:queryID];
-}
-
-- (void)
-    confirmCreditCardAccountName:(const base::string16&)name
-                        callback:
-                            (base::OnceCallback<void(const base::string16&)>)
-                                callback {
-  if (![_delegate respondsToSelector:@selector(autofillController:
-                                         confirmCreditCardNameWithFixer:)]) {
-    return;
-  }
-
-  CWVCreditCardNameFixer* fixer = [[CWVCreditCardNameFixer alloc]
-      initWithName:base::SysUTF16ToNSString(name)
-          callback:std::move(callback)];
-  [_delegate autofillController:self confirmCreditCardNameWithFixer:fixer];
-}
-
-- (void)confirmCreditCardExpirationWithCard:(const autofill::CreditCard&)card
-                                   callback:
-                                       (base::OnceCallback<void(
-                                            const base::string16&,
-                                            const base::string16&)>)callback {
-  if (![_delegate respondsToSelector:@selector
-                  (autofillController:confirmCreditCardExpirationWithFixer:)]) {
-    return;
-  }
-
-  CWVCreditCardExpirationFixer* fixer = [[CWVCreditCardExpirationFixer alloc]
-      initWithCreditCard:card
-                callback:std::move(callback)];
-  [_delegate autofillController:self
-      confirmCreditCardExpirationWithFixer:fixer];
 }
 
 - (void)
@@ -665,7 +639,9 @@ showUnmaskPromptForCard:(const autofill::CreditCard&)creditCard
   }
 }
 
-- (void)showPasswordProtectionWarning:(NSString*)warningText {
+- (void)showPasswordProtectionWarning:(NSString*)warningText
+                           completion:(void (^)(safe_browsing::WarningAction))
+                                          completion {
   // No op.
 }
 

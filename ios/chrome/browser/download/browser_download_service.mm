@@ -9,9 +9,10 @@
 #import "ios/chrome/browser/download/ar_quick_look_tab_helper.h"
 #include "ios/chrome/browser/download/download_manager_metric_names.h"
 #import "ios/chrome/browser/download/download_manager_tab_helper.h"
-#include "ios/chrome/browser/download/pass_kit_mime_type.h"
+#include "ios/chrome/browser/download/mime_type_util.h"
+#import "ios/chrome/browser/download/mobileconfig_tab_helper.h"
 #import "ios/chrome/browser/download/pass_kit_tab_helper.h"
-#include "ios/chrome/browser/download/usdz_mime_type.h"
+#import "ios/chrome/browser/ui/download/features.h"
 #import "ios/web/public/download/download_controller.h"
 #import "ios/web/public/download/download_task.h"
 
@@ -28,7 +29,7 @@ DownloadMimeTypeResult GetUmaResult(const std::string& mime_type) {
   if (mime_type == "application/zip")
     return DownloadMimeTypeResult::ZipArchive;
 
-  if (mime_type == "application/x-apple-aspen-config")
+  if (mime_type == kMobileConfigurationType)
     return DownloadMimeTypeResult::iOSMobileConfig;
 
   if (mime_type == "application/x-msdownload")
@@ -37,7 +38,7 @@ DownloadMimeTypeResult GetUmaResult(const std::string& mime_type) {
   if (mime_type == "application/vnd.android.package-archive")
     return DownloadMimeTypeResult::AndroidPackageArchive;
 
-  if (mime_type == "text/vcard")
+  if (mime_type == kVcardMimeType)
     return DownloadMimeTypeResult::VirtualContactFile;
 
   if (mime_type == "text/calendar")
@@ -75,6 +76,9 @@ DownloadMimeTypeResult GetUmaResult(const std::string& mime_type) {
 
   if (mime_type == "application/java-archive")
     return DownloadMimeTypeResult::JavaArchive;
+
+  if (mime_type == kVcardMimeType)
+    return DownloadMimeTypeResult::Vcard;
 
   if (mime_type == kLegacyPixarUsdzMimeType)
     return DownloadMimeTypeResult::LegacyPixarUniversalSceneDescription;
@@ -122,6 +126,15 @@ void BrowserDownloadService::OnDownloadCreated(
     if (tab_helper) {
       tab_helper->Download(std::move(task));
     }
+  } else if (task->GetMimeType() == kMobileConfigurationType) {
+    MobileConfigTabHelper* tab_helper =
+        MobileConfigTabHelper::FromWebState(web_state);
+    if (tab_helper) {
+      tab_helper->Download(std::move(task));
+    }
+  } else if (task->GetMimeType() == kVcardMimeType &&
+             base::FeatureList::IsEnabled(kDownloadVcard)) {
+    // TODO(crbug.com/1244002): Implement a VcardTabHelper.
   } else {
     DownloadManagerTabHelper* tab_helper =
         DownloadManagerTabHelper::FromWebState(web_state);

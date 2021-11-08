@@ -20,6 +20,10 @@ namespace views {
 class CustomFrameViewTest : public ViewsTestBase {
  public:
   CustomFrameViewTest() = default;
+
+  CustomFrameViewTest(const CustomFrameViewTest&) = delete;
+  CustomFrameViewTest& operator=(const CustomFrameViewTest&) = delete;
+
   ~CustomFrameViewTest() override = default;
 
   CustomFrameView* custom_frame_view() { return custom_frame_view_; }
@@ -65,8 +69,6 @@ class CustomFrameViewTest : public ViewsTestBase {
 
   // Owned by |widget_|
   CustomFrameView* custom_frame_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(CustomFrameViewTest);
 };
 
 void CustomFrameViewTest::SetUp() {
@@ -156,7 +158,7 @@ TEST_F(CustomFrameViewTest, MaximizeRevealsRestoreButton) {
   widget()->Maximize();
   custom_frame_view()->Layout();
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
   // Restore buttons do not exist on Mac. The maximize button is instead a kind
   // of toggle, but has no effect on frame decorations.
   EXPECT_FALSE(restore_button()->GetVisible());
@@ -209,7 +211,7 @@ TEST_F(CustomFrameViewTest, LargerEdgeButtonsWhenMaximized) {
   widget()->Maximize();
   custom_frame_view()->Layout();
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
   // On Mac, "Maximize" should not alter the frame. Only fullscreen does that.
   EXPECT_EQ(close_button()->bounds().width(),
             close_button_initial_bounds.width());

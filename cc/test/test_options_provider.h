@@ -5,7 +5,6 @@
 #ifndef CC_TEST_TEST_OPTIONS_PROVIDER_H_
 #define CC_TEST_TEST_OPTIONS_PROVIDER_H_
 
-#include "base/containers/flat_map.h"
 #include "cc/paint/image_provider.h"
 #include "cc/paint/image_transfer_cache_entry.h"
 #include "cc/paint/paint_cache.h"
@@ -25,15 +24,10 @@ class TestOptionsProvider : public ImageProvider,
   const PaintOp::SerializeOptions& serialize_options() const {
     return serialize_options_;
   }
-  PaintOp::SerializeOptions& mutable_serialize_options() {
-    return serialize_options_;
-  }
   const PaintOp::DeserializeOptions& deserialize_options() const {
     return deserialize_options_;
   }
-  PaintOp::DeserializeOptions& mutable_deserialize_options() {
-    return deserialize_options_;
-  }
+
   ImageProvider* image_provider() { return this; }
   TransferCacheTestHelper* transfer_cache_helper() { return this; }
 
@@ -63,7 +57,6 @@ class TestOptionsProvider : public ImageProvider,
   ImageProvider::ScopedResult GetRasterContent(
       const DrawImage& draw_image) override;
 
-  testing::StrictMock<MockCanvas> canvas_;
   std::vector<DrawImage> decoded_images_;
 
   sk_sp<DiscardableManager> discardable_manager_;

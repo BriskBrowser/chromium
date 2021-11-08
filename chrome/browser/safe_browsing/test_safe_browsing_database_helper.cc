@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
@@ -14,9 +15,9 @@
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/safe_browsing/test_safe_browsing_service.h"
-#include "components/safe_browsing/core/db/v4_database.h"
-#include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
-#include "components/safe_browsing/core/db/v4_test_util.h"
+#include "components/safe_browsing/core/browser/db/v4_database.h"
+#include "components/safe_browsing/core/browser/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/core/browser/db/v4_test_util.h"
 #include "components/security_interstitials/core/unsafe_resource.h"
 
 namespace {
@@ -28,17 +29,17 @@ class FakeSafeBrowsingUIManager
  public:
   FakeSafeBrowsingUIManager() {}
 
+  FakeSafeBrowsingUIManager(const FakeSafeBrowsingUIManager&) = delete;
+  FakeSafeBrowsingUIManager& operator=(const FakeSafeBrowsingUIManager&) =
+      delete;
+
  protected:
   ~FakeSafeBrowsingUIManager() override {}
 
   void DisplayBlockingPage(const UnsafeResource& resource) override {
-    resource.callback_thread->PostTask(
-        FROM_HERE, base::BindOnce(resource.callback, true /* proceed */,
-                                  true /* showed_interstitial */));
+    resource.DispatchCallback(FROM_HERE, true /* proceed */,
+                              true /* showed_interstitial */);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FakeSafeBrowsingUIManager);
 };
 
 }  // namespace

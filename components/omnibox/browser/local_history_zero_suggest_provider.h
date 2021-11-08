@@ -5,8 +5,10 @@
 #ifndef COMPONENTS_OMNIBOX_BROWSER_LOCAL_HISTORY_ZERO_SUGGEST_PROVIDER_H_
 #define COMPONENTS_OMNIBOX_BROWSER_LOCAL_HISTORY_ZERO_SUGGEST_PROVIDER_H_
 
+#include <string>
+
+#include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 
@@ -44,9 +46,6 @@ class LocalHistoryZeroSuggestProvider : public AutocompleteProvider {
   LocalHistoryZeroSuggestProvider& operator=(
       const LocalHistoryZeroSuggestProvider&) = delete;
 
-  // Returns whether the primary account is available. No sync consent required.
-  bool IsSignedIn();
-
   // Queries the keyword search terms table of the in-memory URLDatabase for the
   // recent search terms submitted to the default search provider.
   void QueryURLDatabase(const AutocompleteInput& input);
@@ -54,7 +53,7 @@ class LocalHistoryZeroSuggestProvider : public AutocompleteProvider {
   // Called when the query results from HistoryService::QueryHistory are ready.
   // Deletes URLs in |results| that would generate |suggestion|. |query_time| is
   // the time HistoryService was queried.
-  void OnHistoryQueryResults(const base::string16& suggestion,
+  void OnHistoryQueryResults(const std::u16string& suggestion,
                              const base::TimeTicks& query_time,
                              history::QueryResults results);
 

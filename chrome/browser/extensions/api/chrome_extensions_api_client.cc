@@ -24,7 +24,6 @@
 #include "chrome/browser/extensions/api/management/chrome_management_api_delegate.h"
 #include "chrome/browser/extensions/api/messaging/chrome_messaging_delegate.h"
 #include "chrome/browser/extensions/api/metrics_private/chrome_metrics_private_delegate.h"
-#include "chrome/browser/extensions/api/networking_cast_private/chrome_networking_cast_private_delegate.h"
 #include "chrome/browser/extensions/api/storage/managed_value_store_cache.h"
 #include "chrome/browser/extensions/api/storage/sync_value_store_cache.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
@@ -40,13 +39,12 @@
 #include "chrome/browser/guest_view/web_view/chrome_web_view_permission_helper_delegate.h"
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
-#include "chrome/browser/ui/pdf/chrome_pdf_web_contents_helper_client.h"
 #include "chrome/browser/ui/webui/devtools_ui.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
-#include "components/pdf/browser/pdf_web_contents_helper.h"
 #include "components/signin/core/browser/signin_header_helper.h"
+#include "components/value_store/value_store_factory.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -61,18 +59,26 @@
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
 #include "extensions/browser/supervised_user_extensions_delegate.h"
-#include "extensions/browser/value_store/value_store_factory.h"
 #include "google_apis/gaia/gaia_urls.h"
+#include "pdf/buildflags.h"
 #include "printing/buildflags/buildflags.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/extensions/api/file_handlers/non_native_file_system_delegate_chromeos.h"
 #include "chrome/browser/extensions/api/media_perception_private/media_perception_api_delegate_chromeos.h"
 #include "chrome/browser/extensions/api/virtual_keyboard_private/chrome_virtual_keyboard_delegate.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "chrome/browser/extensions/clipboard_extension_helper_chromeos.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PDF)
+#include "chrome/browser/ui/pdf/chrome_pdf_web_contents_helper_client.h"
+#include "components/pdf/browser/pdf_web_contents_helper.h"
 #endif
 
 #if BUILDFLAG(ENABLE_PRINTING)
@@ -93,7 +99,7 @@ ChromeExtensionsAPIClient::~ChromeExtensionsAPIClient() {}
 
 void ChromeExtensionsAPIClient::AddAdditionalValueStoreCaches(
     content::BrowserContext* context,
-    const scoped_refptr<ValueStoreFactory>& factory,
+    const scoped_refptr<value_store::ValueStoreFactory>& factory,
     const scoped_refptr<base::ObserverListThreadSafe<SettingsObserver>>&
         observers,
     std::map<settings_namespace::Namespace, ValueStoreCache*>* caches) {
@@ -112,8 +118,10 @@ void ChromeExtensionsAPIClient::AttachWebContentsHelpers(
 #if BUILDFLAG(ENABLE_PRINTING)
   printing::InitializePrinting(web_contents);
 #endif
+#if BUILDFLAG(ENABLE_PDF)
   pdf::PDFWebContentsHelper::CreateForWebContentsWithClient(
       web_contents, std::make_unique<ChromePDFWebContentsHelperClient>());
+#endif
 
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       web_contents);
@@ -153,11 +161,11 @@ bool ChromeExtensionsAPIClient::ShouldHideBrowserNetworkRequest(
        request.initiator ==
            url::Origin::Create(GURL(chrome::kChromeUINewTabURL)));
 
-  // Hide requests made by the browser on behalf of the local NTP.
+  // Hide requests made by the browser on behalf of the 1P WebUI NTP.
   is_sensitive_request |=
       (is_browser_request &&
        request.initiator ==
-           url::Origin::Create(GURL(chrome::kChromeSearchLocalNtpUrl)));
+           url::Origin::Create(GURL(chrome::kChromeUINewTabPageURL)));
 
   // Hide requests made by the NTP Instant renderer.
   auto* instant_service =
@@ -322,23 +330,26 @@ ChromeExtensionsAPIClient::CreateDevicePermissionsPrompt(
   return std::make_unique<ChromeDevicePermissionsPrompt>(web_contents);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 bool ChromeExtensionsAPIClient::ShouldAllowDetachingUsb(int vid,
                                                         int pid) const {
+  // TOOD(huangs): Figure out how to do the following in Lacros, which does not
+  // have access to ash::CrosSettings (https://crbug.com/1219329).
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   const base::ListValue* policy_list;
-  if (chromeos::CrosSettings::Get()->GetList(chromeos::kUsbDetachableAllowlist,
-                                             &policy_list)) {
-    for (const auto& entry : *policy_list) {
+  if (ash::CrosSettings::Get()->GetList(chromeos::kUsbDetachableAllowlist,
+                                        &policy_list)) {
+    for (const auto& entry : policy_list->GetList()) {
       if (entry.FindIntKey(chromeos::kUsbDetachableAllowlistKeyVid) == vid &&
           entry.FindIntKey(chromeos::kUsbDetachableAllowlistKeyPid) == pid) {
         return true;
       }
     }
   }
-
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   return false;
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 std::unique_ptr<VirtualKeyboardDelegate>
 ChromeExtensionsAPIClient::CreateVirtualKeyboardDelegate(
@@ -371,18 +382,9 @@ ChromeExtensionsAPIClient::CreateDisplayInfoProvider() const {
 
 MetricsPrivateDelegate* ChromeExtensionsAPIClient::GetMetricsPrivateDelegate() {
   if (!metrics_private_delegate_)
-    metrics_private_delegate_.reset(new ChromeMetricsPrivateDelegate());
+    metrics_private_delegate_ =
+        std::make_unique<ChromeMetricsPrivateDelegate>();
   return metrics_private_delegate_.get();
-}
-
-NetworkingCastPrivateDelegate*
-ChromeExtensionsAPIClient::GetNetworkingCastPrivateDelegate() {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN) || defined(OS_MAC)
-  if (!networking_cast_private_delegate_)
-    networking_cast_private_delegate_ =
-        ChromeNetworkingCastPrivateDelegate::Create();
-#endif
-  return networking_cast_private_delegate_.get();
 }
 
 FileSystemDelegate* ChromeExtensionsAPIClient::GetFileSystemDelegate() {
@@ -424,9 +426,11 @@ ChromeExtensionsAPIClient::GetNonNativeFileSystemDelegate() {
   }
   return non_native_file_system_delegate_.get();
 }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 void ChromeExtensionsAPIClient::SaveImageDataToClipboard(
-    const std::vector<char>& image_data,
+    std::vector<uint8_t> image_data,
     api::clipboard::ImageType type,
     AdditionalDataItemList additional_items,
     base::OnceClosure success_callback,
@@ -434,10 +438,10 @@ void ChromeExtensionsAPIClient::SaveImageDataToClipboard(
   if (!clipboard_extension_helper_)
     clipboard_extension_helper_ = std::make_unique<ClipboardExtensionHelper>();
   clipboard_extension_helper_->DecodeAndSaveImageData(
-      image_data, type, std::move(additional_items),
+      std::move(image_data), type, std::move(additional_items),
       std::move(success_callback), std::move(error_callback));
 }
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 AutomationInternalApiDelegate*
 ChromeExtensionsAPIClient::GetAutomationInternalApiDelegate() {

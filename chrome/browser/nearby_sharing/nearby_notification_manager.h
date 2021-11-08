@@ -7,15 +7,16 @@
 
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "chrome/browser/nearby_sharing/nearby_notification_delegate.h"
+#include "chrome/browser/nearby_sharing/nearby_sharing_service.h"
 #include "chrome/browser/nearby_sharing/share_target.h"
 #include "chrome/browser/nearby_sharing/share_target_discovered_callback.h"
 #include "chrome/browser/nearby_sharing/transfer_metadata.h"
+#include "chrome/browser/nearby_sharing/transfer_metadata_builder.h"
 #include "chrome/browser/nearby_sharing/transfer_update_callback.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
-class NearbySharingService;
 class NotificationDisplayService;
 class PrefService;
 class Profile;
@@ -25,10 +26,11 @@ class SkBitmap;
 // be shown as simultaneous connections are not supported. All methods should be
 // called from the UI thread.
 class NearbyNotificationManager : public TransferUpdateCallback,
-                                  public ShareTargetDiscoveredCallback {
+                                  public ShareTargetDiscoveredCallback,
+                                  public NearbySharingService::Observer {
  public:
-  static constexpr base::TimeDelta kOnboardingDismissedTimeout =
-      base::TimeDelta::FromMinutes(15);
+  static constexpr base::TimeDelta kNearbyDeviceTryingToShareDismissedTimeout =
+      base::Minutes(15);
 
   enum class SuccessNotificationAction {
     kNone,
@@ -46,6 +48,19 @@ class NearbyNotificationManager : public TransferUpdateCallback,
     kText,         // Arbitrary text content
   };
 
+  class SettingsOpener {
+   public:
+    SettingsOpener() = default;
+    SettingsOpener(SettingsOpener&) = delete;
+    SettingsOpener& operator=(SettingsOpener&) = delete;
+    virtual ~SettingsOpener() = default;
+
+    // Open the chromeos settings page at the given uri, using
+    // |chrome::SettingsWindowManager| by default.
+    virtual void ShowSettingsPage(Profile* profile,
+                                  const std::string& sub_page);
+  };
+
   NearbyNotificationManager(
       NotificationDisplayService* notification_display_service,
       NearbySharingService* nearby_service,
@@ -61,6 +76,14 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   void OnShareTargetDiscovered(ShareTarget share_target) override;
   void OnShareTargetLost(ShareTarget share_target) override;
 
+  // NearbySharingService::Observer
+  void OnHighVisibilityChanged(bool in_high_visibility) override {}
+  void OnNearbyProcessStopped() override;
+  void OnShutdown() override {}
+  void OnFastInitiationDevicesDetected() override;
+  void OnFastInitiationDevicesNotDetected() override;
+  void OnFastInitiationScanningStopped() override;
+
   // Shows a progress notification of the data being transferred to or from
   // |share_target|. Has a cancel action to cancel the transfer.
   void ShowProgress(const ShareTarget& share_target,
@@ -72,10 +95,12 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   void ShowConnectionRequest(const ShareTarget& share_target,
                              const TransferMetadata& transfer_metadata);
 
-  // Shows an onboarding notification when a nearby device is attempting to
-  // share. Clicking it will make the local device visible to all nearby
-  // devices.
-  void ShowOnboarding();
+  // Show the notification that a nearby device is trying to share. If the user
+  // is not yet onboarded this notification will prompt the user to set up
+  // Nearby Share and redirect to the onboarding flow. If the user has already
+  // onboarded this notification will prompt the user to go into high visibility
+  // mode.
+  void ShowNearbyDeviceTryingToShare();
 
   // Shows a notification for send or receive success.
   void ShowSuccess(const ShareTarget& share_target);
@@ -84,12 +109,17 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   void ShowFailure(const ShareTarget& share_target,
                    const TransferMetadata& transfer_metadata);
 
+  // Shows a notification for send or receive cancellation.
+  void ShowCancelled(const ShareTarget& share_target);
+
   // Closes any currently shown transfer notification (e.g. progress or
   // connection).
   void CloseTransfer();
 
-  // Closes any currently shown onboarding notification.
-  void CloseOnboarding();
+  // Closes any currently shown notification that a nearby device is trying to
+  // share. It does not have any effect on the actual onboarding UI or the high
+  // visibility mode UI.
+  void CloseNearbyDeviceTryingToShare();
 
   // Gets the currently registered delegate for |notification_id|.
   NearbyNotificationDelegate* GetNotificationDelegate(
@@ -106,17 +136,19 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   // Accepts the currently in progress transfer.
   void AcceptTransfer();
 
-  // Called when the onboarding notification got clicked.
-  void OnOnboardingClicked();
+  // Called when the nearby device is trying notification got clicked.
+  void OnNearbyDeviceTryingToShareClicked();
 
-  // Called when the onboarding notification got dismissed. We won't show
-  // another one for a certain time period after this.
-  void OnOnboardingDismissed();
+  // Called when the nearby device is trying notification got dismissed. We
+  // won't show another one for a certain time period after this.
+  void OnNearbyDeviceTryingToShareDismissed();
 
   void CloseSuccessNotification();
 
   void SetOnSuccessClickedForTesting(
       base::OnceCallback<void(SuccessNotificationAction)> callback);
+  void SetSettingsOpenerForTesting(
+      std::unique_ptr<SettingsOpener> settings_opener);
 
  private:
   void ShowIncomingSuccess(const ShareTarget& share_target,
@@ -127,17 +159,18 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   NearbySharingService* nearby_service_;
   PrefService* pref_service_;
   Profile* profile_;
+  std::unique_ptr<SettingsOpener> settings_opener_;
 
   // Maps notification ids to notification delegates.
   base::flat_map<std::string, std::unique_ptr<NearbyNotificationDelegate>>
       delegate_map_;
 
   // ShareTarget of the current transfer.
-  base::Optional<ShareTarget> share_target_;
+  absl::optional<ShareTarget> share_target_;
 
   // Last transfer status reported to OnTransferUpdate(). Null when no transfer
   // is in progress.
-  base::Optional<TransferMetadata::Status> last_transfer_status_;
+  absl::optional<TransferMetadata::Status> last_transfer_status_;
 
   base::OnceCallback<void(SuccessNotificationAction)>
       success_action_test_callback_;

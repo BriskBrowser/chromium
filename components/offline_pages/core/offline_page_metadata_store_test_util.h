@@ -6,7 +6,6 @@
 #define COMPONENTS_OFFLINE_PAGES_CORE_OFFLINE_PAGE_METADATA_STORE_TEST_UTIL_H_
 
 #include <memory>
-#include <vector>
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
@@ -26,6 +25,12 @@ namespace offline_pages {
 class OfflinePageMetadataStoreTestUtil {
  public:
   OfflinePageMetadataStoreTestUtil();
+
+  OfflinePageMetadataStoreTestUtil(const OfflinePageMetadataStoreTestUtil&) =
+      delete;
+  OfflinePageMetadataStoreTestUtil& operator=(
+      const OfflinePageMetadataStoreTestUtil&) = delete;
+
   ~OfflinePageMetadataStoreTestUtil();
 
   // Builds a new store in a temporary directory.
@@ -60,8 +65,6 @@ class OfflinePageMetadataStoreTestUtil {
   std::unique_ptr<OfflinePageMetadataStore> store_;
   OfflinePageMetadataStore* store_ptr_;
   base::SimpleTestClock clock_;
-
-  DISALLOW_COPY_AND_ASSIGN(OfflinePageMetadataStoreTestUtil);
 };
 
 }  // namespace offline_pages

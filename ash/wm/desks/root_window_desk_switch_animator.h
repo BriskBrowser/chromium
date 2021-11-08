@@ -201,19 +201,6 @@ class ASH_EXPORT RootWindowDeskSwitchAnimator
     virtual ~Delegate() = default;
   };
 
-  // The space between the starting and ending desks screenshots in dips.
-  static constexpr int kDesksSpacing = 50;
-
-  // The animation layer has extra padding at its two edges. The width in dips
-  // is a ratio of the root window width. This padding is to notify users there
-  // are no more desks on that side by showing a black region as we swipe
-  // continuously.
-  static constexpr float kEdgePaddingRatio = 0.15f;
-
-  // In touchpad units, a touchpad swipe of this length will correspond to a
-  // full desk change.
-  static constexpr int kTouchpadSwipeLengthForDeskChange = 420;
-
   RootWindowDeskSwitchAnimator(aura::Window* root,
                                int starting_desk_index,
                                int ending_desk_index,
@@ -262,9 +249,9 @@ class ASH_EXPORT RootWindowDeskSwitchAnimator
   // units and then used to shift the animation layer. If the animation layer is
   // near its boundaries, this will return an index for the desk we should take
   // a screenshot for. If we are not near the boundaries, or if there is no next
-  // adjacent desk in the direction we are heading, return base::nullopt. The
+  // adjacent desk in the direction we are heading, return absl::nullopt. The
   // delegate is responsible for requesting the screenshot.
-  base::Optional<int> UpdateSwipeAnimation(float scroll_delta_x);
+  absl::optional<int> UpdateSwipeAnimation(float scroll_delta_x);
 
   // Maybe called after UpdateSwipeAnimation() if we need a new screenshot.
   // Updates |ending_desk_index_| and resets some other internal state related
@@ -380,8 +367,10 @@ class ASH_EXPORT RootWindowDeskSwitchAnimator
   // cases we do not want to notify our delegate that the animation is finished.
   bool setting_new_transform_ = false;
 
-  // Callback that is run after the ending screenshot is taken for testing
-  // purposes.
+  // Callbacks that are run after the screenshots are taken for testing
+  // purposes. Waiting for the ending screenshots means you will implicitly wait
+  // for the starting screenshots too.
+  base::OnceClosure on_starting_screenshot_taken_callback_for_testing_;
   base::OnceClosure on_ending_screenshot_taken_callback_for_testing_;
 
   base::WeakPtrFactory<RootWindowDeskSwitchAnimator> weak_ptr_factory_{this};

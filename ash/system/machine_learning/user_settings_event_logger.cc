@@ -56,7 +56,7 @@ UserSettingsEventLogger::UserSettingsEventLogger()
       is_playing_audio_(false),
       is_playing_video_(false),
       clock_(base::DefaultClock::GetInstance()) {
-  chromeos::CrasAudioHandler* audio_handler = chromeos::CrasAudioHandler::Get();
+  auto* audio_handler = CrasAudioHandler::Get();
   DCHECK(audio_handler);
 
   audio_handler->AddAudioObserver(this);
@@ -68,7 +68,7 @@ UserSettingsEventLogger::UserSettingsEventLogger()
 }
 
 UserSettingsEventLogger::~UserSettingsEventLogger() {
-  chromeos::CrasAudioHandler::Get()->RemoveAudioObserver(this);
+  CrasAudioHandler::Get()->RemoveAudioObserver(this);
   chromeos::PowerManagerClient::Get()->RemoveObserver(this);
   Shell::Get()->RemoveShellObserver(this);
   Shell::Get()->video_detector()->RemoveObserver(this);
@@ -276,7 +276,7 @@ void UserSettingsEventLogger::OnCastingSessionStartedOrStopped(
     --presenting_session_count_;
     DCHECK_GE(presenting_session_count_, 0);
     if (presenting_session_count_ == 0) {
-      presenting_timer_.Start(FROM_HERE, base::TimeDelta::FromMinutes(5), this,
+      presenting_timer_.Start(FROM_HERE, base::Minutes(5), this,
                               &UserSettingsEventLogger::OnPresentingTimerEnded);
     }
   }
@@ -295,7 +295,7 @@ void UserSettingsEventLogger::OnFullscreenStateChanged(
     is_recently_fullscreen_ = true;
     fullscreen_timer_.Stop();
   } else {
-    fullscreen_timer_.Start(FROM_HERE, base::TimeDelta::FromMinutes(5), this,
+    fullscreen_timer_.Start(FROM_HERE, base::Minutes(5), this,
                             &UserSettingsEventLogger::OnFullscreenTimerEnded);
   }
 }
@@ -344,9 +344,9 @@ void UserSettingsEventLogger::PopulateSharedFeatures(
           : UserSettingsEvent::Features::CLAMSHELL_MODE);
   const auto orientation =
       Shell::Get()->screen_orientation_controller()->GetCurrentOrientation();
-  if (IsLandscapeOrientation(orientation)) {
+  if (chromeos::IsLandscapeOrientation(orientation)) {
     features->set_device_orientation(UserSettingsEvent::Features::LANDSCAPE);
-  } else if (IsPortraitOrientation(orientation)) {
+  } else if (chromeos::IsPortraitOrientation(orientation)) {
     features->set_device_orientation(UserSettingsEvent::Features::PORTRAIT);
   }
 }

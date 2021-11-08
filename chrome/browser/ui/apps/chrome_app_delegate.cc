@@ -10,7 +10,6 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/strings/stringprintf.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/apps/platform_apps/audio_focus_web_contents_observer.h"
@@ -26,10 +25,10 @@
 #include "chrome/browser/profiles/scoped_profile_keep_alive.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/color_chooser.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
@@ -37,6 +36,7 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/color_chooser.h"
 #include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/media_stream_request.h"
@@ -53,7 +53,10 @@
 #include "services/service_manager/public/cpp/interface_provider.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/lock_screen_apps/state_controller.h"
+#include "chrome/browser/ash/lock_screen_apps/state_controller.h"
+#endif
+
+#if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/policy/dlp/dlp_content_tab_helper.h"
 #endif
 
@@ -137,6 +140,11 @@ class ChromeAppDelegate::NewWindowContentsDelegate
     : public content::WebContentsDelegate {
  public:
   NewWindowContentsDelegate() {}
+
+  NewWindowContentsDelegate(const NewWindowContentsDelegate&) = delete;
+  NewWindowContentsDelegate& operator=(const NewWindowContentsDelegate&) =
+      delete;
+
   ~NewWindowContentsDelegate() override {}
 
   void BecomeOwningDeletageOf(
@@ -151,8 +159,6 @@ class ChromeAppDelegate::NewWindowContentsDelegate
 
  private:
   std::vector<std::unique_ptr<content::WebContents>> owned_contents_;
-
-  DISALLOW_COPY_AND_ASSIGN(NewWindowContentsDelegate);
 };
 
 content::WebContents*
@@ -225,8 +231,8 @@ void ChromeAppDelegate::InitWebContents(content::WebContents* web_contents) {
 
   apps::AudioFocusWebContentsObserver::CreateForWebContents(web_contents);
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  policy::DlpContentTabHelper::CreateForWebContents(web_contents);
+#if defined(OS_CHROMEOS)
+  policy::DlpContentTabHelper::MaybeCreateForWebContents(web_contents);
 #endif
 
   zoom::ZoomController::CreateForWebContents(web_contents);
@@ -294,12 +300,6 @@ void ChromeAppDelegate::AddNewContents(
                          target_url, disposition, initial_rect);
 }
 
-content::ColorChooser* ChromeAppDelegate::ShowColorChooser(
-    content::WebContents* web_contents,
-    SkColor initial_color) {
-  return chrome::ShowColorChooser(web_contents, initial_color);
-}
-
 void ChromeAppDelegate::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
     scoped_refptr<content::FileSelectListener> listener,
@@ -363,8 +363,8 @@ void ChromeAppDelegate::SetTerminatingCallback(base::OnceClosure callback) {
 void ChromeAppDelegate::OnHide() {
   is_hidden_ = true;
   if (has_been_shown_) {
-    keep_alive_.reset();
     profile_keep_alive_.reset();
+    keep_alive_.reset();
     return;
   }
 
@@ -374,7 +374,7 @@ void ChromeAppDelegate::OnHide() {
       FROM_HERE,
       base::BindOnce(&ChromeAppDelegate::RelinquishKeepAliveAfterTimeout,
                      weak_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSeconds(kAppWindowFirstShowTimeoutSeconds));
+      base::Seconds(kAppWindowFirstShowTimeoutSeconds));
 }
 
 void ChromeAppDelegate::OnShow() {

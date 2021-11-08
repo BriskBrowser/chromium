@@ -4,14 +4,12 @@
 
 package org.chromium.chrome.browser.tasks;
 
-import static android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-
-import static com.google.android.material.appbar.AppBarLayout.LayoutParams.SCROLL_FLAG_ENTER_ALWAYS;
-import static com.google.android.material.appbar.AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL;
-
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.PorterDuff;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.util.AttributeSet;
 import android.view.View;
@@ -21,47 +19,49 @@ import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.Nullable;
 import androidx.appcompat.content.res.AppCompatResources;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.view.ViewCompat;
 
 import com.google.android.material.appbar.AppBarLayout;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.FeatureList;
 import org.chromium.base.MathUtils;
 import org.chromium.chrome.browser.feed.FeedSurfaceCoordinator;
-import org.chromium.chrome.browser.feed.shared.FeedFeatures;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.ntp.IncognitoDescriptionView;
 import org.chromium.chrome.browser.ntp.search.SearchBoxCoordinator;
-import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
+import org.chromium.chrome.browser.omnibox.SearchEngineLogoUtils;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.widget.CoordinatorLayoutForPointer;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
 import org.chromium.components.browser_ui.widget.displaystyle.ViewResizer;
 import org.chromium.components.content_settings.CookieControlsEnforcement;
-import org.chromium.ui.base.ViewUtils;
+import org.chromium.ui.base.WindowAndroid;
 
 // The view of the tasks surface.
 class TasksView extends CoordinatorLayoutForPointer {
     private static final int OMNIBOX_BOTTOM_PADDING_DP = 4;
 
     private final Context mContext;
-    private FrameLayout mBodyViewContainer;
     private FrameLayout mCarouselTabSwitcherContainer;
     private AppBarLayout mHeaderView;
     private AppBarLayout.OnOffsetChangedListener mFakeSearchBoxShrinkAnimation;
     private SearchBoxCoordinator mSearchBoxCoordinator;
     private IncognitoDescriptionView mIncognitoDescriptionView;
     private View.OnClickListener mIncognitoDescriptionLearnMoreListener;
-    private boolean mIncognitoCookieControlsCardIsVisible;
     private boolean mIncognitoCookieControlsToggleIsChecked;
     private OnCheckedChangeListener mIncognitoCookieControlsToggleCheckedListener;
     private @CookieControlsEnforcement int mIncognitoCookieControlsToggleEnforcement =
             CookieControlsEnforcement.NO_ENFORCEMENT;
     private View.OnClickListener mIncognitoCookieControlsIconClickListener;
     private UiConfig mUiConfig;
+    private boolean mIsIncognito;
 
     /** Default constructor needed to inflate via XML. */
     public TasksView(Context context, AttributeSet attrs) {
@@ -69,11 +69,12 @@ class TasksView extends CoordinatorLayoutForPointer {
         mContext = context;
     }
 
-    public void initialize(ActivityLifecycleDispatcher activityLifecycleDispatcher) {
+    public void initialize(ActivityLifecycleDispatcher activityLifecycleDispatcher,
+            boolean isIncognito, WindowAndroid windowAndroid) {
         assert mSearchBoxCoordinator
                 != null : "#onFinishInflate should be completed before the call to initialize.";
 
-        mSearchBoxCoordinator.initialize(activityLifecycleDispatcher);
+        mSearchBoxCoordinator.initialize(activityLifecycleDispatcher, isIncognito, windowAndroid);
     }
 
     @Override
@@ -83,14 +84,23 @@ class TasksView extends CoordinatorLayoutForPointer {
         mCarouselTabSwitcherContainer =
                 (FrameLayout) findViewById(R.id.carousel_tab_switcher_container);
         mSearchBoxCoordinator = new SearchBoxCoordinator(getContext(), this);
+
         mHeaderView = (AppBarLayout) findViewById(R.id.task_surface_header);
+        // TODO(https://crbug.com/1251632): Find out why scrolling was broken after
+        // crrev.com/c/3025127. Force the header view to be draggable as a workaround.
+        CoordinatorLayout.LayoutParams params =
+                (CoordinatorLayout.LayoutParams) mHeaderView.getLayoutParams();
+        AppBarLayout.Behavior behavior = new AppBarLayout.Behavior();
+        behavior.setDragCallback(new AppBarLayout.Behavior.DragCallback() {
+            @Override
+            public boolean canDrag(AppBarLayout appBarLayout) {
+                return true;
+            }
+        });
+        params.setBehavior(behavior);
+
         mUiConfig = new UiConfig(this);
         setHeaderPadding();
-        AppBarLayout.LayoutParams layoutParams =
-                (AppBarLayout.LayoutParams) (findViewById(R.id.scroll_component_container)
-                                                     .getLayoutParams());
-        layoutParams.setScrollFlags(SCROLL_FLAG_SCROLL);
-        adjustScrollMode(layoutParams);
         setTabCarouselTitleStyle();
     }
 
@@ -98,30 +108,7 @@ class TasksView extends CoordinatorLayoutForPointer {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         mUiConfig.updateDisplayStyle();
-        alignHeaderForFeedV2();
-    }
-
-    private void adjustScrollMode(AppBarLayout.LayoutParams layoutParams) {
-        if (!StartSurfaceConfiguration.START_SURFACE_VARIATION.getValue().equals("omniboxonly")
-                && !StartSurfaceConfiguration.START_SURFACE_VARIATION.getValue().equals(
-                        "trendyterms")) {
-            // Scroll mode is only relevant in omnibox-only variation and trendy-terms variation.
-            return;
-        }
-        String scrollMode = StartSurfaceConfiguration.START_SURFACE_OMNIBOX_SCROLL_MODE.getValue();
-        switch (scrollMode) {
-            case "quick":
-                layoutParams.setScrollFlags(SCROLL_FLAG_SCROLL | SCROLL_FLAG_ENTER_ALWAYS);
-                break;
-            case "pinned":
-                layoutParams.setScrollFlags(0 /* SCROLL_FLAG_NO_SCROLL */);
-                break;
-            case "top":
-            default:
-                return;
-        }
-        // This is only needed when the scroll mode is not "top".
-        layoutParams.bottomMargin = ViewUtils.dpToPx(getContext(), OMNIBOX_BOTTOM_PADDING_DP);
+        alignHeaderForFeed();
     }
 
     private void setTabCarouselTitleStyle() {
@@ -130,21 +117,12 @@ class TasksView extends CoordinatorLayoutForPointer {
         // ExploreSurfaceCoordinator.
         TextView titleDescription = (TextView) findViewById(R.id.tab_switcher_title_description);
         TextView moreTabs = (TextView) findViewById(R.id.more_tabs);
-        if (FeedFeatures.cachedIsReportingUserActions()) {
-            ApiCompatibilityUtils.setTextAppearance(
-                    titleDescription, R.style.TextAppearance_TextSmall_Secondary);
-            ApiCompatibilityUtils.setTextAppearance(
-                    moreTabs, R.style.TextAppearance_TextSmall_Blue);
-            ViewCompat.setPaddingRelative(titleDescription,
-                    mContext.getResources().getDimensionPixelSize(R.dimen.card_padding),
-                    titleDescription.getPaddingTop(), titleDescription.getPaddingEnd(),
-                    titleDescription.getPaddingBottom());
-        } else {
-            ApiCompatibilityUtils.setTextAppearance(
-                    titleDescription, R.style.TextAppearance_TextMediumThick_Primary);
-            ApiCompatibilityUtils.setTextAppearance(
-                    moreTabs, R.style.TextAppearance_TextMedium_Blue);
-        }
+        ApiCompatibilityUtils.setTextAppearance(
+                titleDescription, R.style.TextAppearance_TextAccentMediumThick_Secondary);
+        ApiCompatibilityUtils.setTextAppearance(moreTabs, R.style.TextAppearance_Button_Text_Blue);
+        ViewCompat.setPaddingRelative(titleDescription, titleDescription.getPaddingStart(),
+                titleDescription.getPaddingTop(), titleDescription.getPaddingEnd(),
+                titleDescription.getPaddingBottom());
     }
 
     ViewGroup getCarouselTabSwitcherContainer() {
@@ -199,16 +177,34 @@ class TasksView extends CoordinatorLayoutForPointer {
      */
     void setIncognitoMode(boolean isIncognito) {
         Resources resources = mContext.getResources();
-        int backgroundColor = ChromeColors.getPrimaryBackgroundColor(resources, isIncognito);
+        int backgroundColor = ChromeColors.getPrimaryBackgroundColor(mContext, isIncognito);
         setBackgroundColor(backgroundColor);
         mHeaderView.setBackgroundColor(backgroundColor);
 
-        mSearchBoxCoordinator.setBackground(AppCompatResources.getDrawable(mContext,
-                isIncognito ? R.drawable.fake_search_box_bg_incognito : R.drawable.ntp_search_box));
+        mSearchBoxCoordinator.setIncognitoMode(isIncognito);
+        Drawable searchBackground = AppCompatResources.getDrawable(mContext,
+                isIncognito ? R.drawable.fake_search_box_bg_incognito : R.drawable.ntp_search_box);
+        if (searchBackground instanceof RippleDrawable) {
+            Drawable shapeDrawable = ((RippleDrawable) searchBackground)
+                                             .findDrawableByLayerId(R.id.fake_search_box_bg_shape);
+            if (shapeDrawable != null) {
+                @ColorInt
+                int searchBackgroundColor = isIncognito
+                        ? getResources().getColor(R.color.toolbar_text_box_background_incognito)
+                        : ChromeColors.getSurfaceColor(
+                                mContext, R.dimen.toolbar_text_box_elevation);
+                shapeDrawable.mutate();
+                // TODO(https://crbug.com/1239289): Change back to #setTint once our min API level
+                // is 23.
+                shapeDrawable.setColorFilter(searchBackgroundColor, PorterDuff.Mode.SRC_IN);
+            }
+        }
+        mSearchBoxCoordinator.setBackground(searchBackground);
         int hintTextColor = isIncognito
                 ? ApiCompatibilityUtils.getColor(resources, R.color.locationbar_light_hint_text)
                 : ApiCompatibilityUtils.getColor(resources, R.color.locationbar_dark_hint_text);
         mSearchBoxCoordinator.setSearchBoxHintColor(hintTextColor);
+        mIsIncognito = isIncognito;
     }
 
     /**
@@ -224,12 +220,22 @@ class TasksView extends CoordinatorLayoutForPointer {
             containerView.setFocusable(true);
             containerView.setFocusableInTouchMode(true);
         }
-        mIncognitoDescriptionView = (IncognitoDescriptionView) containerView.findViewById(
-                R.id.new_tab_incognito_container);
+
+        ViewStub incognitoDescriptionViewStub =
+                (ViewStub) findViewById(R.id.task_view_incognito_layout_stub);
+        if (FeatureList.isInitialized()
+                && ChromeFeatureList.isEnabled(ChromeFeatureList.INCOGNITO_NTP_REVAMP)) {
+            incognitoDescriptionViewStub.setLayoutResource(
+                    R.layout.revamped_incognito_description_layout);
+        } else {
+            incognitoDescriptionViewStub.setLayoutResource(R.layout.incognito_description_layout);
+        }
+
+        mIncognitoDescriptionView =
+                (IncognitoDescriptionView) incognitoDescriptionViewStub.inflate();
         if (mIncognitoDescriptionLearnMoreListener != null) {
             setIncognitoDescriptionLearnMoreClickListener(mIncognitoDescriptionLearnMoreListener);
         }
-        setIncognitoCookieControlsCardVisibility(mIncognitoCookieControlsCardIsVisible);
         setIncognitoCookieControlsToggleChecked(mIncognitoCookieControlsToggleIsChecked);
         if (mIncognitoCookieControlsToggleCheckedListener != null) {
             setIncognitoCookieControlsToggleCheckedListener(
@@ -246,7 +252,7 @@ class TasksView extends CoordinatorLayoutForPointer {
      * @param isVisible Whether it's visible or not.
      */
     void setIncognitoDescriptionVisibility(boolean isVisible) {
-        mIncognitoDescriptionView.setVisibility(isVisible ? View.VISIBLE : View.GONE);
+        ((View) mIncognitoDescriptionView).setVisibility(isVisible ? View.VISIBLE : View.GONE);
     }
 
     /**
@@ -256,19 +262,8 @@ class TasksView extends CoordinatorLayoutForPointer {
     void setIncognitoDescriptionLearnMoreClickListener(View.OnClickListener listener) {
         mIncognitoDescriptionLearnMoreListener = listener;
         if (mIncognitoDescriptionView != null) {
-            mIncognitoDescriptionView.findViewById(R.id.learn_more).setOnClickListener(listener);
+            mIncognitoDescriptionView.setLearnMoreOnclickListener(listener);
             mIncognitoDescriptionLearnMoreListener = null;
-        }
-    }
-
-    /**
-     * Set the visibility of the cookie controls card on the incognito description.
-     * @param isVisible Whether it's visible or not.
-     */
-    void setIncognitoCookieControlsCardVisibility(boolean isVisible) {
-        mIncognitoCookieControlsCardIsVisible = isVisible;
-        if (mIncognitoDescriptionView != null) {
-            mIncognitoDescriptionView.showCookieControlsCard(isVisible);
         }
     }
 
@@ -350,14 +345,6 @@ class TasksView extends CoordinatorLayoutForPointer {
     }
 
     /**
-     * Set the visibility of the trendy terms section.
-     * @param isVisible whether the trendy terms section is visible or not.
-     */
-    void setTrendyTermsVisibility(boolean isVisible) {
-        findViewById(R.id.trendy_terms_recycler_view).setVisibility(isVisible ? VISIBLE : GONE);
-    }
-
-    /**
      * Reset the scrolling position by expanding the {@link #mHeaderView}.
      */
     void resetScrollPosition() {
@@ -399,12 +386,13 @@ class TasksView extends CoordinatorLayoutForPointer {
             int toolbarContainerTopMargin =
                     getResources().getDimensionPixelSize(R.dimen.location_bar_vertical_margin);
             View fakeSearchBoxView = findViewById(R.id.search_box);
+            View searchTextView = findViewById(R.id.search_box_text);
             if (fakeSearchBoxView == null) return;
             // If fake search box view is not null when creating this animation, it will not change.
             // So checking it once above is enough.
             mFakeSearchBoxShrinkAnimation = (appbarLayout, headerVerticalOffset)
                     -> updateFakeSearchBoxShrinkAnimation(headerVerticalOffset, fakeSearchBoxHeight,
-                            toolbarContainerTopMargin, fakeSearchBoxView);
+                            toolbarContainerTopMargin, fakeSearchBoxView, searchTextView);
         }
         mHeaderView.addOnOffsetChangedListener(mFakeSearchBoxShrinkAnimation);
     }
@@ -430,9 +418,11 @@ class TasksView extends CoordinatorLayoutForPointer {
      * @param originalFakeSearchBoxHeight The height of fake search box.
      * @param toolbarContainerTopMargin The top margin of toolbar container view.
      * @param fakeSearchBox The fake search box in start surface homepage.
+     * @param searchTextView  The search text view in fake search box.
      */
     private void updateFakeSearchBoxShrinkAnimation(int headerOffset,
-            int originalFakeSearchBoxHeight, int toolbarContainerTopMargin, View fakeSearchBox) {
+            int originalFakeSearchBoxHeight, int toolbarContainerTopMargin, View fakeSearchBox,
+            View searchTextView) {
         // When the header is scrolled up by fake search box height or so, reduce the fake search
         // box height.
         int reduceHeight = MathUtils.clamp(
@@ -452,6 +442,20 @@ class TasksView extends CoordinatorLayoutForPointer {
                 marginLayoutParams.rightMargin, marginLayoutParams.bottomMargin);
 
         fakeSearchBox.setLayoutParams(layoutParams);
+
+        // Update the translation X of search text view to make space for the search logo.
+        SearchEngineLogoUtils searchEngineLogoUtils = SearchEngineLogoUtils.getInstance();
+        assert searchEngineLogoUtils != null;
+
+        if (!searchEngineLogoUtils.shouldShowSearchEngineLogo(mIsIncognito)) {
+            return;
+        }
+
+        int finalTranslationX =
+                getResources().getDimensionPixelSize(R.dimen.location_bar_icon_end_padding_focused)
+                - getResources().getDimensionPixelSize(R.dimen.location_bar_icon_end_padding);
+        searchTextView.setTranslationX(
+                finalTranslationX * ((float) reduceHeight / toolbarContainerTopMargin));
     }
 
     /**
@@ -460,44 +464,28 @@ class TasksView extends CoordinatorLayoutForPointer {
      */
     private void setHeaderPadding() {
         int defaultPadding = 0;
-        int widePadding = getResources().getDimensionPixelSize(FeedFeatures.cachedIsV2Enabled()
-                        ? R.dimen.ntp_wide_card_lateral_margins_v2
-                        : R.dimen.ntp_wide_card_lateral_margins);
+        int widePadding =
+                getResources().getDimensionPixelSize(R.dimen.ntp_wide_card_lateral_margins);
 
         ViewResizer.createAndAttach(mHeaderView, mUiConfig, defaultPadding, widePadding);
-        alignHeaderForFeedV2();
+        alignHeaderForFeed();
     }
 
     /**
-     * Feed v2 has extra content padding, we need to align the header with it. However, the padding
+     * Feed has extra content padding, we need to align the header with it. However, the padding
      * of the header is already bound with ViewResizer in setHeaderPadding(), so we update the left
      * & right margins of MV tiles container and carousel tab switcher container.
      */
-    private void alignHeaderForFeedV2() {
-        if (!FeedFeatures.cachedIsV2Enabled()) {
-            return;
-        }
-
-        MarginLayoutParams MVParams =
+    private void alignHeaderForFeed() {
+        MarginLayoutParams mostVisitedLayoutParams =
                 (MarginLayoutParams) mHeaderView.findViewById(R.id.mv_tiles_container)
                         .getLayoutParams();
 
         MarginLayoutParams carouselTabSwitcherParams =
                 (MarginLayoutParams) mCarouselTabSwitcherContainer.getLayoutParams();
-
-        int margin = getResources().getDimensionPixelSize(
-                R.dimen.content_suggestions_card_modern_padding_v2);
-        if (getResources().getConfiguration().orientation == ORIENTATION_LANDSCAPE) {
-            MVParams.leftMargin = margin;
-            MVParams.rightMargin = margin;
-            carouselTabSwitcherParams.leftMargin = margin;
-            carouselTabSwitcherParams.rightMargin = margin;
-        } else {
-            MVParams.leftMargin = 0;
-            MVParams.rightMargin = 0;
-            carouselTabSwitcherParams.leftMargin =
-                    getResources().getDimensionPixelSize(R.dimen.tab_carousel_start_margin);
+            mostVisitedLayoutParams.leftMargin = 0;
+            mostVisitedLayoutParams.rightMargin = 0;
+            carouselTabSwitcherParams.leftMargin = 0;
             carouselTabSwitcherParams.rightMargin = 0;
-        }
     }
 }

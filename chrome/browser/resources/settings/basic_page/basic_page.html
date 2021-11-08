@@ -54,6 +54,10 @@
       iron-icon {
         margin-inline-start: 16px;
       }
+
+      :host-context([enable-landing-page-redesign]):host(:not([in-search-mode])) settings-section:not([active]) {
+        display: none;
+      }
     </style>
     <template is="dom-if" if="[[showBasicPage_(
         currentRoute_, inSearchMode, hasExpandedSection_)]]">
@@ -91,10 +95,17 @@
             <settings-autofill-page prefs="{{prefs}}"></settings-autofill-page>
           </settings-section>
         </template>
+        <template is="dom-if"
+            if="[[showPrivacyReviewPromo_(pageVisibility.privacy)]]" restamp>
+          <settings-section page-title="" nest-under-section="privacy"
+              no-search>
+            <settings-privacy-review-promo></settings-privacy-review-promo>
+          </settings-section>
+        </template>
         <template is="dom-if" if="[[showPage_(pageVisibility.safetyCheck)]]"
             restamp>
           <settings-section page-title="$i18n{safetyCheckSectionTitle}"
-              section="safetyCheck"
+              section="safetyCheck" nest-under-section="privacy"
               id="safetyCheckSettingsSection">
             <settings-safety-check-page prefs="{{prefs}}">
             </settings-safety-check-page>
@@ -155,7 +166,7 @@
         </h2>
       </template>
 
-      <settings-idle-load id="advancedPageTemplate" url="/lazy_load.html">
+      <settings-idle-load id="advancedPageTemplate">
         <template>
           <div id="advancedPage" hidden$="[[!showAdvancedPage_(
               currentRoute_, inSearchMode, hasExpandedSection_,
@@ -164,8 +175,16 @@
                 restamp>
               <settings-section page-title="$i18n{languagesPageTitle}"
                   section="languages">
+<if expr="chromeos">
+                <cr-link-row id="openChromeOSLanguagesSettings"
+                    on-click="onOpenChromeOSLanguagesSettingsClick_"
+                    label="$i18n{openChromeOSLanguagesSettingsLabel}" external>
+                </cr-link-row>
+</if>
+<if expr="not chromeos">
                 <settings-languages-page prefs="{{prefs}}">
                 </settings-languages-page>
+</if>
               </settings-section>
             </template>
             <template is="dom-if" if="[[showPage_(pageVisibility.downloads)]]"

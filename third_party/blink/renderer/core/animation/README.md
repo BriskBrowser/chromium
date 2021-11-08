@@ -20,10 +20,75 @@ https://chromium.slack.com#animations)
 *   [CSS Transitions Level 1](https://drafts.csswg.org/css-transitions-1/)
 *   [CSS Transitions Level 2](https://drafts.csswg.org/css-transitions-2/)
 *   [Web Animations Level 1](https://drafts.csswg.org/web-animations-1/)
+*   [Web Animations Level 2](https://drafts.csswg.org/web-animations-2/)
+*   [Scroll Animations Level 1](https://drafts.csswg.org/scroll-animations-1/)
 *   [CSS Properties and Values API Level 1 - Animation Behavior of Custom Properties](
 https://www.w3.org/TR/css-properties-values-api-1/#animation-behavior-of-custom-properties)
 *   Individual CSS property animation behaviour [e.g. transform interolation](
 https://www.w3.org/TR/css-transforms-1/#interpolation-of-transforms).
+
+## Timeline Time
+
+Each animation is linked to a timeline, which measures the passage of time and
+is used in determining the current time of the animation. All timelines
+implement the [AnimationTimeline interface][]. There are presently two types of
+timelines: document timeline, and scroll timeline. The timeline may also be
+unresolved. See the section titled "Timeline Details" for a full description
+of the timeline attributes. This section highlights a key difference between
+timeline types when it comes to the handling of time, which in turn should make
+it easier to follow the animations discussion below.
+
+### Document Timeline
+
+Document timelines measure the passage of time in milliseconds relative to an
+origin time. Whenever script is executed, a timeline time is computed based on
+the animation clock. The timeline time is held constant during script
+execution. The clock is updated when a new animation frame is produced.
+
+For a running animation, the link between the timeline time and the
+animation's current time is as follows:
+
+animation current time = (timeline time - animation start time) * playback rate
+
+For a document timeline, these times are internally represented as
+[AnimationTimeDelta][], and externally represented as optional doubles with
+implicit units of milliseconds.
+
+[AnimationTimeDelta]: https://cs.chromium.org/search?&q=class:blink::AnimationTimeDelta$
+
+### Scroll Timeline
+
+Scroll timelines are progress based and measure the passage of time as a
+percentage. Each scroll timeline has an effective range, which by default is
+the full scroll range; however, it may be set to a smaller range of scroll
+offsets. Scroll time is computed as follows:
+
+scroll time = (scroll position - effective start) /
+              (effective end - effective start) * 100%
+
+The value is clamped between 0 and 100%. The same equation holds between
+timeline time and animation current time. Also like document timelines, times
+are represented internally as [AnimationTimeDelta][]. Unlike document
+timelines, times are externally represented as [CSSNumericValue][] with
+explicit units of percent. The consistent internal treatment of time is
+maintained by using a fixed constant value for the conversion between percent
+and time. Internally, each progress-based animation, is normalized to 100s.
+Through most of the animation discussion below, we will use time calculations in
+milliseconds. It is important to remember that unit conversion is required in
+the case of a progress-based animation, when reporting or consuming values via
+JavaScript APIs.
+
+[CSSNumericValue]: http://drafts.css-houdini.org/css-typed-om/#numeric-value
+
+### Null (Unresolved) Timeline
+
+The timeline may be unresolved, by explicitly setting it to null for an
+animation. Note that this is not equivalent to using the default timeline. In
+the later case, the timeline is initialized based on the document timeline
+associated with the animated element's document  (document fragment when inside
+shadowDOM). In practice, a null timeline should be rarely encountered; however,
+it is important to keep in mind, since failure to track such edge cases can
+easily lead to crashes in the code.
 
 ## Types of animations
 
@@ -1072,17 +1137,14 @@ the current progress even if no longer transitioning the property.
 [CssKeyframeEffectModel]: https://cs.chromium.org/search/?q=class:blink::CssKeyframeEffectModel$
 [getComputedKeyframes]: https://cs.chromium.org/search/?q=function:blink::(CSS|)KeyframeEffectModel(Base|)::getComputedKeyframes$
 
-### AnimationTimeline / DocumentTimeline
+### Timeline details
+
+#### AnimationTimeline
 
 The [AnimationTimeline interface][] provides access to the current time and
 phase of a timeline. A timeline provides a real (DocumentTimeline) or abstract
 (ScrollTimeline) notion of time and is used to synchronize timing updates to
 animations.
-
-The [DocumentTimeline interface][] extends the [AnimationTimeline interface][]
-to add an originTime option for its constructor. The originTime is the time
-offset in milliseconds relative to the time origin (zero time) and may be used
-to synchronize animations across multiple document timelines.
 
 In addition to supporting the JavaScript interfaces the
 [AnimationTimeline class][] has a number of other responsibilities. These
@@ -1109,12 +1171,52 @@ constraint that the time origin needs to be initialized for the timeline to be
 active. A timeline in the 'inactive' phase has an unresolved value for
 currentTime.
 
+* **[duration attribute](https://cs.chromium.org/search/?q=function:blink::AnimationTimeline::duration$)**: gets the duration of
+the timeline, which is the maximum value a timeline may generate for its current
+time. When using a document timeline the value is unresolved. Scroll timelines
+are progress based, and the timeline time has a strict upper bound which is
+100%. This value is used to calculate the intrinsic iteration duration for the
+target  effect of an animation that is associated with the timeline when the
+effect’s iteration duration is auto. The value is computed such that the effect
+fills the available time.
+
 [AnimationTimeline interface]: https://drafts.csswg.org/web-animations/#the-animationtimeline-interface
-[DocumentTimeline interface]: hhttps://drafts.csswg.org/web-animations/#the-documenttimeline-interface
 [AnimationTimeline class]: https://cs.chromium.org/search/?q=class:blink::AnimationTimeline$
 
-TODO: Document ScrollTimeline
+#### DocumentTimeline
 
+The [DocumentTimeline interface][] extends the [AnimationTimeline interface][]
+to add an originTime option for its constructor. The originTime is the time
+offset in milliseconds relative to the time origin (zero time) and may be used
+to synchronize animations across multiple document timelines.
+
+[DocumentTimeline interface]: https://drafts.csswg.org/web-animations/#the-documenttimeline-interface
+
+#### ScrollTimeline
+
+The [ScrollTimeline interface][] provides additional attributes unique to
+scroll-linked animations. These are the scrolling container element, the
+scroll direction which drives the timeline, and offsets to determine the active
+range.
+
+* **[source attribute](https://cs.chromium.org/search/?q=function:blink::ScrollTimeline::scrollSource$)**: gets the element
+whose scroll position drives the progress of the timeline. Per spec, the
+attribute is 'source', but it is presently implemented as 'scrollSource'.
+
+* **[orientation attribute](https://cs.chromium.org/search/?q=function:blink::ScrollTimeline::orientation$)**: determines which
+scroll axis drives the timeline progress. The value may be one of the following:
+horizontal, vertical, inline, block.  The last two options are logical values
+and correspond to the language dependent writing direction, and page layout
+direction, respectively.
+
+* **[scrollOffsets attribute](https://cs.chromium.org/search/?q=function:blink::ScrollTimeline::scrollOffsets$)**: determines the
+range in which the timeline time is active. The value is an array of [container
+based offsets][] or [element based offsets][]. By default the range is
+[auto, auto] which is equivalent to the container offsets [0%, 100%].
+
+[ScrollTimeline interface]: https://drafts.csswg.org/scroll-animations-1/#scrolltimeline-interface
+[container based offsets]: https://drafts.csswg.org/scroll-animations-1/#container-based-offset-section
+[element based offsets]: https://drafts.csswg.org/scroll-animations-1/#element-based-offset-section
 
 ### Document extension
 
@@ -1359,7 +1461,7 @@ The Blink animation engine interacts with Blink/Chrome in the following ways:
 
     The most user visible functionality of the animation engine is animating
     CSS values. This means animations have a place in the [CSS cascade][] and
-    influence the [ComputedStyle][]s returned by [styleForElement()][].
+    influence the [ComputedStyle][]s returned by [ResolveStyle()][].
 
     The implementation for this lives under [ApplyAnimatedStandardProperties()][]
     for standard properties and [ApplyAnimatedCustomProperties()][] for custom
@@ -1368,13 +1470,13 @@ The Blink animation engine interacts with Blink/Chrome in the following ways:
 
     Animations can be controlled by CSS via the [`animation`](https://www.w3.org/TR/css-animations-1/#animation)
     and [`transition`](https://www.w3.org/TR/css-transitions-1/#transition-shorthand-property) properties.
-    In code this happens when [styleForElement()][] uses [CalculateAnimationUpdate()][]
+    In code this happens when [ResolveStyle()][] uses [CalculateAnimationUpdate()][]
     and [CalculateTransitionUpdate()][] to build a [set of mutations][] to make
     to the animation engine which gets [applied later][].
 
 [CSS cascade]: https://www.w3.org/TR/css-cascade-3/#cascade-origin
 [ComputedStyle]: https://cs.chromium.org/search/?q=class:blink::ComputedStyle$
-[styleForElement()]: https://cs.chromium.org/search/?q=function:StyleResolver::styleForElement
+[ResolveStyle()]: https://cs.chromium.org/search/?q=function:StyleResolver::ResolveStyle
 [ApplyAnimatedStandardProperties()]: https://cs.chromium.org/?type=cs&q=function:StyleResolver::ApplyAnimatedStandardProperties
 [ApplyAnimatedCustomProperties()]: https://cs.chromium.org/?type=cs&q=function:ApplyAnimatedCustomProperties
 [variable references]: https://www.w3.org/TR/css-variables-1/#using-variables
@@ -1541,7 +1643,7 @@ animation.startTime = 6000;  // 6 seconds
     [SampledEffect][] into its target element's [EffectStack][] and marks the
     elements style as dirty to ensure it gets updated later in the document
     lifecycle.
-4.  During the next [style resolve][styleForElement()] on the target element all
+4.  During the next [style resolve][ResolveStyle()] on the target element all
     the [SampledEffect][]s in its [EffectStack][] are incorporated into building
     the element's [ComputedStyle][].
 
@@ -1629,7 +1731,7 @@ other specs (for example Javascript callback based effects).
 #### Lifecycle of an [Interpolation][]
 
 [Interpolation][] is the data structure that [style
-resolution][styleForElement()] uses to resolve what animated value to apply
+resolution][ResolveStyle()] uses to resolve what animated value to apply
 to an animated element's [ComputedStyle][].
 
 1.   [Interpolation][]s are lazily
@@ -1639,7 +1741,7 @@ to an animated element's [ComputedStyle][].
      [apply][ApplyAnimatedStandardProperties()] to the associated [Element][]
      and stashed away in the [Element][]'s [ElementAnimations][]'
      [EffectStack][]'s [SampledEffect][]s.
-3.   During [style resolution][styleForElement()] on the target [Element][] all
+3.   During [style resolution][ResolveStyle()] on the target [Element][] all
      the [Interpolation][]s are [collected and organised by
      category][AdoptActiveInterpolations] according to whether it's a transition
      or not (transitions in Blink are

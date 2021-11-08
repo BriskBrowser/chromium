@@ -10,7 +10,6 @@
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "components/autofill/core/browser/ui/payments/card_name_fix_flow_view.h"
 
 namespace content {
@@ -26,6 +25,10 @@ class CardNameFixFlowViewAndroid : public CardNameFixFlowView {
   // |controller| must outlive |this|.
   CardNameFixFlowViewAndroid(CardNameFixFlowController* controller,
                              content::WebContents* web_contents);
+
+  CardNameFixFlowViewAndroid(const CardNameFixFlowViewAndroid&) = delete;
+  CardNameFixFlowViewAndroid& operator=(const CardNameFixFlowViewAndroid&) =
+      delete;
 
   void OnUserAccept(JNIEnv* env,
                     const base::android::JavaParamRef<jobject>& obj,
@@ -52,8 +55,6 @@ class CardNameFixFlowViewAndroid : public CardNameFixFlowView {
 
   CardNameFixFlowController* controller_;
   content::WebContents* web_contents_;
-
-  DISALLOW_COPY_AND_ASSIGN(CardNameFixFlowViewAndroid);
 };
 
 }  // namespace autofill

@@ -25,6 +25,7 @@ source_set("public") {
 
   deps = [
     "//base",
+    "//components/feed:feature_list",
     "//components/flags_ui",
     "//components/keyed_service/core",
   ]
@@ -61,6 +62,7 @@ if (is_android) {
       "android/java/src/org/chromium/components/feature_engagement/EventConstants.java",
       "android/java/src/org/chromium/components/feature_engagement/FeatureConstants.java",
       "android/java/src/org/chromium/components/feature_engagement/Tracker.java",
+      "android/java/src/org/chromium/components/feature_engagement/TriggerDetails.java",
     ]
 
     deps = [

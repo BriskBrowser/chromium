@@ -16,6 +16,7 @@
 #include "base/base_export.h"
 #include "base/command_line.h"
 #include "base/environment.h"
+#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
@@ -25,7 +26,7 @@
 #include "build/chromeos_buildflags.h"
 
 #if defined(OS_WIN)
-#include <windows.h>
+#include "base/win/windows_types.h"
 #elif defined(OS_FUCHSIA)
 #include <lib/fdio/spawn.h>
 #include <zircon/types.h>
@@ -67,15 +68,16 @@ struct BASE_EXPORT LaunchOptions {
   class BASE_EXPORT PreExecDelegate {
    public:
     PreExecDelegate() = default;
+
+    PreExecDelegate(const PreExecDelegate&) = delete;
+    PreExecDelegate& operator=(const PreExecDelegate&) = delete;
+
     virtual ~PreExecDelegate() = default;
 
     // Since this is to be run between fork and exec, and fork may have happened
     // while multiple threads were running, this function needs to be async
     // safe.
     virtual void RunAsyncSafe() = 0;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(PreExecDelegate);
   };
 #endif  // defined(OS_POSIX)
 
@@ -101,7 +103,7 @@ struct BASE_EXPORT LaunchOptions {
   // for a good overview of Windows handle inheritance.
   //
   // Implementation note: it might be nice to implement in terms of
-  // base::Optional<>, but then the natural default state (vector not present)
+  // absl::optional<>, but then the natural default state (vector not present)
   // would be "all inheritable handles" while we want "no inheritance."
   enum class Inherit {
     // Only those handles in |handles_to_inherit| vector are inherited. If the
@@ -224,12 +226,9 @@ struct BASE_EXPORT LaunchOptions {
   // that any TCC requests are not associated with the parent.
   bool disclaim_responsibility = false;
 
-#if defined(ARCH_CPU_ARM64)
-  // If true, the child process will be launched as x86_64 code under Rosetta
-  // translation. The executable being launched must contain x86_64 code, either
-  // as a thin Mach-O file targeting x86_64, or a fat file with an x86_64 slice.
-  bool launch_x86_64 = false;
-#endif  // ARCH_CPU_ARM64
+  // Apply a process scheduler policy to enable mitigations against CPU side-
+  // channel attacks.
+  bool enable_cpu_security_mitigations = false;
 #endif  // OS_MAC
 
 #if defined(OS_FUCHSIA)

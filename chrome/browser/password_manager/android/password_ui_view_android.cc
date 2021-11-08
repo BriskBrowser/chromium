@@ -25,13 +25,10 @@
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "chrome/android/chrome_jni_headers/PasswordUIView_jni.h"
-#include "chrome/browser/password_manager/password_store_factory.h"
-#include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/password_manager/core/browser/export/password_csv_writer.h"
 #include "components/password_manager/core/browser/form_parsing/form_parser.h"
-#include "components/password_manager/core/browser/leak_detection/authenticated_leak_check.h"
+#include "components/password_manager/core/browser/leak_detection/leak_detection_check_impl.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_ui_utils.h"
 #include "components/password_manager/core/browser/ui/credential_provider_interface.h"
@@ -45,9 +42,12 @@ using base::android::JavaParamRef;
 using base::android::JavaRef;
 using base::android::ScopedJavaLocalRef;
 
+using IsInsecureCredential = CredentialEditBridge::IsInsecureCredential;
+
 PasswordUIViewAndroid::PasswordUIViewAndroid(JNIEnv* env, jobject obj)
     : password_manager_presenter_(this), weak_java_ui_controller_(env, obj) {
   password_manager_presenter_.Initialize();
+  saved_passwords_presenter_.Init();
 }
 
 PasswordUIViewAndroid::~PasswordUIViewAndroid() {}
@@ -125,8 +125,8 @@ ScopedJavaLocalRef<jobject> PasswordUIViewAndroid::GetSavedPasswordEntry(
   if (!form) {
     return Java_PasswordUIView_createSavedPasswordEntry(
         env, ConvertUTF8ToJavaString(env, std::string()),
-        ConvertUTF16ToJavaString(env, base::string16()),
-        ConvertUTF16ToJavaString(env, base::string16()));
+        ConvertUTF16ToJavaString(env, std::u16string()),
+        ConvertUTF16ToJavaString(env, std::u16string()));
   }
   return Java_PasswordUIView_createSavedPasswordEntry(
       env,
@@ -216,7 +216,27 @@ void PasswordUIViewAndroid::HandleShowPasswordEntryEditingView(
       password_manager_presenter_.GetPassword(index);
   if (form && !credential_edit_bridge_) {
     credential_edit_bridge_ = CredentialEditBridge::MaybeCreate(
-        form,
+        *form, IsInsecureCredential(false),
+        password_manager_presenter_.GetUsernamesForRealm(index),
+        &saved_passwords_presenter_, &password_manager_presenter_,
+        base::BindOnce(&PasswordUIViewAndroid::OnEditUIDismissed,
+                       base::Unretained(this)),
+        context, settings_launcher);
+  }
+}
+
+void PasswordUIViewAndroid::HandleShowBlockedCredentialView(
+    JNIEnv* env,
+    const base::android::JavaRef<jobject>& context,
+    const base::android::JavaRef<jobject>& settings_launcher,
+    int index,
+    const JavaParamRef<jobject>& obj) {
+  const password_manager::PasswordForm* form =
+      password_manager_presenter_.GetPasswordException(index);
+  if (form && !credential_edit_bridge_) {
+    credential_edit_bridge_ = CredentialEditBridge::MaybeCreate(
+        *form, IsInsecureCredential(false), std::vector<std::u16string>(),
+        &saved_passwords_presenter_, &password_manager_presenter_,
         base::BindOnce(&PasswordUIViewAndroid::OnEditUIDismissed,
                        base::Unretained(this)),
         context, settings_launcher);
@@ -237,7 +257,7 @@ jboolean JNI_PasswordUIView_HasAccountForLeakCheckRequest(JNIEnv* env) {
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(
           ProfileManager::GetLastUsedProfile());
-  return password_manager::AuthenticatedLeakCheck::HasAccountForRequest(
+  return password_manager::LeakDetectionCheckImpl::HasAccountForRequest(
       identity_manager);
 }
 

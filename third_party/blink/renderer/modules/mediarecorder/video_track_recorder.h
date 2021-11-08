@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -88,10 +88,13 @@ class VideoTrackRecorder : public TrackRecorder<MediaStreamVideoSink> {
   // Video codec and its encoding profile/level.
   struct MODULES_EXPORT CodecProfile {
     CodecId codec_id;
-    base::Optional<media::VideoCodecProfile> profile;
-    base::Optional<uint8_t> level;
+    absl::optional<media::VideoCodecProfile> profile;
+    absl::optional<uint8_t> level;
 
     explicit CodecProfile(CodecId codec_id);
+    CodecProfile(CodecId codec_id,
+                 absl::optional<media::VideoCodecProfile> opt_profile,
+                 absl::optional<uint8_t> opt_level);
     CodecProfile(CodecId codec_id,
                  media::VideoCodecProfile profile,
                  uint8_t level);
@@ -138,13 +141,16 @@ class VideoTrackRecorder : public TrackRecorder<MediaStreamVideoSink> {
   // namely configuration, encoding (which might take some time) and
   // destruction. This task runner can be passed on the creation. If nothing is
   // passed, a new encoding thread is created and used.
-  class Encoder : public WTF::ThreadSafeRefCounted<Encoder> {
+  class MODULES_EXPORT Encoder : public WTF::ThreadSafeRefCounted<Encoder> {
    public:
     Encoder(const VideoTrackRecorder::OnEncodedVideoCB& on_encoded_video_cb,
             int32_t bits_per_second,
             scoped_refptr<base::SequencedTaskRunner> main_task_runner,
             scoped_refptr<base::SequencedTaskRunner> encoding_task_runner =
                 nullptr);
+
+    Encoder(const Encoder&) = delete;
+    Encoder& operator=(const Encoder&) = delete;
 
     // Start encoding |frame|, returning via |on_encoded_video_cb_|. This
     // call will also trigger an encode configuration upon first frame arrival
@@ -243,8 +249,6 @@ class VideoTrackRecorder : public TrackRecorder<MediaStreamVideoSink> {
     std::unique_ptr<WebGraphicsContext3DProvider> encoder_thread_context_;
 
     media::VideoFramePool frame_pool_;
-
-    DISALLOW_COPY_AND_ASSIGN(Encoder);
   };
 
   // Class to encapsulate the enumeration of CodecIds/VideoCodecProfiles
@@ -254,6 +258,10 @@ class VideoTrackRecorder : public TrackRecorder<MediaStreamVideoSink> {
    public:
     CodecEnumerator(const media::VideoEncodeAccelerator::SupportedProfiles&
                         vea_supported_profiles);
+
+    CodecEnumerator(const CodecEnumerator&) = delete;
+    CodecEnumerator& operator=(const CodecEnumerator&) = delete;
+
     ~CodecEnumerator();
 
     // Returns the first CodecId that has an associated VEA VideoCodecProfile,
@@ -281,8 +289,6 @@ class VideoTrackRecorder : public TrackRecorder<MediaStreamVideoSink> {
     HashMap<CodecId, media::VideoEncodeAccelerator::SupportedProfiles>
         supported_profiles_;
     CodecId preferred_codec_id_ = CodecId::LAST;
-
-    DISALLOW_COPY_AND_ASSIGN(CodecEnumerator);
   };
 
   explicit VideoTrackRecorder(base::OnceClosure on_track_source_ended_cb);
@@ -322,6 +328,10 @@ class MODULES_EXPORT VideoTrackRecorderImpl : public VideoTrackRecorder {
       base::OnceClosure on_track_source_ended_cb,
       int32_t bits_per_second,
       scoped_refptr<base::SequencedTaskRunner> main_task_runner);
+
+  VideoTrackRecorderImpl(const VideoTrackRecorderImpl&) = delete;
+  VideoTrackRecorderImpl& operator=(const VideoTrackRecorderImpl&) = delete;
+
   ~VideoTrackRecorderImpl() override;
 
   void Pause() override;
@@ -371,8 +381,6 @@ class MODULES_EXPORT VideoTrackRecorderImpl : public VideoTrackRecorder {
 
   scoped_refptr<base::SequencedTaskRunner> main_task_runner_;
   base::WeakPtrFactory<VideoTrackRecorderImpl> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(VideoTrackRecorderImpl);
 };
 
 // VideoTrackRecorderPassthrough uses the inherited WebMediaStreamSink to
@@ -384,6 +392,11 @@ class MODULES_EXPORT VideoTrackRecorderPassthrough : public VideoTrackRecorder {
       OnEncodedVideoCB on_encoded_video_cb,
       base::OnceClosure on_track_source_ended_cb,
       scoped_refptr<base::SequencedTaskRunner> main_task_runner);
+
+  VideoTrackRecorderPassthrough(const VideoTrackRecorderPassthrough&) = delete;
+  VideoTrackRecorderPassthrough& operator=(
+      const VideoTrackRecorderPassthrough&) = delete;
+
   ~VideoTrackRecorderPassthrough() override;
 
   // VideoTrackRecorderBase
@@ -417,8 +430,6 @@ class MODULES_EXPORT VideoTrackRecorderPassthrough : public VideoTrackRecorder {
   const scoped_refptr<base::SequencedTaskRunner> main_task_runner_;
   const OnEncodedVideoCB callback_;
   base::WeakPtrFactory<VideoTrackRecorderPassthrough> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(VideoTrackRecorderPassthrough);
 };
 }  // namespace blink
 

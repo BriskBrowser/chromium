@@ -40,10 +40,7 @@ bool IsAddPersonEnabled() {
 }
 
 NSString* GetProfileMenuTitle() {
-  const bool newPicker =
-      base::FeatureList::IsEnabled(features::kNewProfilePicker);
-  return l10n_util::GetNSStringWithFixup(
-      newPicker ? IDS_PROFILES_MENU_NAME : IDS_PROFILES_OPTIONS_GROUP_NAME);
+  return l10n_util::GetNSStringWithFixup(IDS_PROFILES_MENU_NAME);
 }
 
 }  // namespace
@@ -86,7 +83,7 @@ class Observer : public BrowserListObserver, public AvatarMenuObserver {
 
 @implementation ProfileMenuController
 
-- (id)initWithMainMenuItem:(NSMenuItem*)item {
+- (instancetype)initWithMainMenuItem:(NSMenuItem*)item {
   if ((self = [super init])) {
     _mainMenuItem = item;
 
@@ -203,14 +200,9 @@ class Observer : public BrowserListObserver, public AvatarMenuObserver {
   if (IsAddPersonEnabled()) {
     [[self menu] addItem:[NSMenuItem separatorItem]];
 
-    const bool newPicker =
-        base::FeatureList::IsEnabled(features::kNewProfilePicker);
-    item = [self
-        createItemWithTitle:l10n_util::GetNSStringWithFixup(
-                                newPicker
-                                    ? IDS_PROFILES_ADD_PROFILE_LABEL
-                                    : IDS_PROFILES_CREATE_NEW_PROFILE_OPTION)
-                     action:@selector(newProfile:)];
+    item = [self createItemWithTitle:l10n_util::GetNSStringWithFixup(
+                                         IDS_PROFILES_ADD_PROFILE_LABEL)
+                              action:@selector(newProfile:)];
     [[self menu] addItem:item];
   }
 

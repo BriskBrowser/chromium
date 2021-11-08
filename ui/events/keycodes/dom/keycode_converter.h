@@ -12,6 +12,10 @@
 #include "build/build_config.h"
 #include "ui/events/keycodes/dom/dom_key.h"
 
+#if defined(OS_CHROMEOS)
+#include "ui/events/keycodes/keyboard_codes_posix.h"
+#endif
+
 // For reference, the W3C UI Event spec is located at:
 // http://www.w3.org/TR/uievents/
 
@@ -73,6 +77,20 @@ class KeycodeConverter {
   static int DomCodeToEvdevCode(DomCode code);
 #endif
 
+#if defined(OS_CHROMEOS)
+  // If |key_code| is one of the keys (plus, minus, brackets, period, comma),
+  // that are treated positionally for keyboard shortcuts, this returns the
+  // DomCode of that key in the US layout. Any other key returns
+  // |DomCode::NONE|.
+  static DomCode MapUSPositionalShortcutKeyToDomCode(KeyboardCode key_code);
+
+  // If |code| is one of the keys (plus, minus, brackets, period, comma) that
+  // are treated positionally for keyboard shortcuts, this returns the
+  // KeyboardCode (aka VKEY) of that key in the US layout. Any other key
+  // returns |VKEY_UNKNOWN|
+  static KeyboardCode MapPositionalDomCodeToUSShortcutKey(DomCode code);
+#endif
+
   // Convert a UI Events |code| string value into a DomCode.
   static DomCode CodeStringToDomCode(const std::string& code);
 
@@ -98,6 +116,10 @@ class KeycodeConverter {
 
   // Returns true if the DomKey is a modifier.
   static bool IsDomKeyForModifier(DomKey dom_key);
+
+  // Returns true if the DomKey is a named key, as defined by
+  // https://www.w3.org/TR/uievents-key/#named-key-attribute-value
+  static bool IsDomKeyNamed(DomKey dom_key);
 
   // The following methods relate to USB keycodes.
   // Note that USB keycodes are not part of any web standard.

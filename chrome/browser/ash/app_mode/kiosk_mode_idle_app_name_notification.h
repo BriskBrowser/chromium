@@ -10,13 +10,12 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/timer/timer.h"
-// TODO(https://crbug.com/1164001): move to forward declaration when migrated to
-// chrome/browser/ash/.
-#include "chrome/browser/chromeos/ui/idle_app_name_notification_view.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "ui/base/user_activity/user_activity_observer.h"
 
 namespace ash {
+
+class IdleAppNameNotificationView;
 
 class KioskModeIdleAppNameNotification
     : public ui::UserActivityObserver,
@@ -27,6 +26,10 @@ class KioskModeIdleAppNameNotification
   static void Shutdown();
 
   KioskModeIdleAppNameNotification();
+  KioskModeIdleAppNameNotification(const KioskModeIdleAppNameNotification&) =
+      delete;
+  KioskModeIdleAppNameNotification& operator=(
+      const KioskModeIdleAppNameNotification&) = delete;
   ~KioskModeIdleAppNameNotification() override;
 
  private:
@@ -55,8 +58,6 @@ class KioskModeIdleAppNameNotification
 
   // The notification object which owns and shows the notification.
   std::unique_ptr<IdleAppNameNotificationView> notification_;
-
-  DISALLOW_COPY_AND_ASSIGN(KioskModeIdleAppNameNotification);
 };
 
 }  // namespace ash

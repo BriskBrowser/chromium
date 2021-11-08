@@ -7,22 +7,24 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace safe_browsing {
@@ -30,7 +32,7 @@ namespace safe_browsing {
 /*static*/
 void PromptForScanningModalDialog::ShowForWebContents(
     content::WebContents* web_contents,
-    const base::string16& filename,
+    const std::u16string& filename,
     base::OnceClosure accept_callback,
     base::OnceClosure open_now_callback) {
   constrained_window::ShowWebModalDialogViews(
@@ -42,9 +44,10 @@ void PromptForScanningModalDialog::ShowForWebContents(
 
 PromptForScanningModalDialog::PromptForScanningModalDialog(
     content::WebContents* web_contents,
-    const base::string16& filename,
+    const std::u16string& filename,
     base::OnceClosure accept_callback,
-    base::OnceClosure open_now_callback) {
+    base::OnceClosure open_now_callback)
+    : open_now_callback_(std::move(open_now_callback)) {
   SetModalType(ui::MODAL_TYPE_CHILD);
   SetTitle(IDS_DEEP_SCANNING_INFO_DIALOG_TITLE);
   SetButtonLabel(
@@ -65,7 +68,7 @@ PromptForScanningModalDialog::PromptForScanningModalDialog(
           IDS_DEEP_SCANNING_INFO_DIALOG_OPEN_NOW_BUTTON)));
 
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-      views::TEXT, views::TEXT));
+      views::DialogContentType::kText, views::DialogContentType::kText));
   views::GridLayout* layout =
       SetLayoutManager(std::make_unique<views::GridLayout>());
 
@@ -78,8 +81,8 @@ PromptForScanningModalDialog::PromptForScanningModalDialog(
 
   // Create the message label text.
   std::vector<size_t> offsets;
-  base::string16 message_text = base::ReplaceStringPlaceholders(
-      base::ASCIIToUTF16("$1 $2"),
+  std::u16string message_text = base::ReplaceStringPlaceholders(
+      u"$1 $2",
       {l10n_util::GetStringFUTF16(IDS_DEEP_SCANNING_INFO_DIALOG_MESSAGE,
                                   filename),
        l10n_util::GetStringUTF16(IDS_LEARN_MORE)},

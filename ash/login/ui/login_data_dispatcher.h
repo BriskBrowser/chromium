@@ -67,6 +67,14 @@ class ASH_EXPORT LoginDataDispatcher : public LoginScreenModel {
     virtual void OnFingerprintAuthResult(const AccountId& account_id,
                                          bool successful);
 
+    // Called when smart lock state is changed.
+    virtual void OnSmartLockStateChanged(const AccountId& user,
+                                         SmartLockState state);
+
+    // Called after a smart lock authentication attempt.
+    virtual void OnSmartLockAuthResult(const AccountId& account_id,
+                                       bool successful);
+
     // Called when auth should be enabled for |user|. By default, auth should be
     // enabled.
     virtual void OnAuthEnabledForUser(const AccountId& user);
@@ -93,13 +101,15 @@ class ASH_EXPORT LoginDataDispatcher : public LoginScreenModel {
     // Called when the lock screen note state changes.
     virtual void OnLockScreenNoteStateChanged(mojom::TrayActionState state);
 
-    // Called when an easy unlock icon should be displayed.
+    // TODO(https://crbug.com/1233614): Delete this method in favor of
+    // OnSmartLockStateChanged once SmartLock UI revamp is enabled. Called when
+    // an easy unlock icon should be displayed.
     virtual void OnShowEasyUnlockIcon(const AccountId& user,
-                                      const EasyUnlockIconOptions& icon);
+                                      const EasyUnlockIconInfo& icon_info);
 
     // Called when a warning message should be displayed, or hidden if |message|
     // is empty.
-    virtual void OnWarningMessageUpdated(const base::string16& message);
+    virtual void OnWarningMessageUpdated(const std::u16string& message);
 
     // Called when the system info has changed.
     virtual void OnSystemInfoChanged(bool show,
@@ -149,6 +159,10 @@ class ASH_EXPORT LoginDataDispatcher : public LoginScreenModel {
   };
 
   LoginDataDispatcher();
+
+  LoginDataDispatcher(const LoginDataDispatcher&) = delete;
+  LoginDataDispatcher& operator=(const LoginDataDispatcher&) = delete;
+
   ~LoginDataDispatcher() override;
 
   void AddObserver(Observer* observer);
@@ -164,12 +178,15 @@ class ASH_EXPORT LoginDataDispatcher : public LoginScreenModel {
   void SetPinEnabledForUser(const AccountId& user, bool enabled) override;
   void SetChallengeResponseAuthEnabledForUser(const AccountId& user,
                                               bool enabled) override;
-  void SetFingerprintState(const AccountId& account_id,
-                           FingerprintState state) override;
   void SetAvatarForUser(const AccountId& account_id,
                         const UserAvatar& avatar) override;
+  void SetFingerprintState(const AccountId& account_id,
+                           FingerprintState state) override;
   void NotifyFingerprintAuthResult(const AccountId& account_id,
                                    bool successful) override;
+  void SetSmartLockState(const AccountId& user, SmartLockState state) override;
+  void NotifySmartLockAuthResult(const AccountId& account_id,
+                                 bool successful) override;
   void EnableAuthForUser(const AccountId& account_id) override;
   void DisableAuthForUser(const AccountId& account_id,
                           const AuthDisabledData& auth_disabled_data) override;
@@ -180,9 +197,11 @@ class ASH_EXPORT LoginDataDispatcher : public LoginScreenModel {
                                     bool enabled) override;
   void ForceOnlineSignInForUser(const AccountId& user) override;
   void SetLockScreenNoteState(mojom::TrayActionState state);
+  // TODO(https://crbug.com/1233614): Delete ShowEasyUnlockIcon in favor of
+  // SetSmartLockState once SmartLock UI revamp is enabled.
   void ShowEasyUnlockIcon(const AccountId& user,
-                          const EasyUnlockIconOptions& icon) override;
-  void UpdateWarningMessage(const base::string16& message) override;
+                          const EasyUnlockIconInfo& icon_info) override;
+  void UpdateWarningMessage(const std::u16string& message) override;
   void SetSystemInfo(bool show,
                      bool enforced,
                      const std::string& os_version_label_text,
@@ -208,8 +227,6 @@ class ASH_EXPORT LoginDataDispatcher : public LoginScreenModel {
 
  private:
   base::ObserverList<Observer>::Unchecked observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(LoginDataDispatcher);
 };
 
 }  // namespace ash

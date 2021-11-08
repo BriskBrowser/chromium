@@ -8,7 +8,7 @@
 // #import {assertEquals, assertFalse, assertNotEquals, assertTrue} from '../../chai_assert.js';
 // #import {flush} from'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 // #import {Router, Route, routes} from 'chrome://os-settings/chromeos/os_settings.js';
-// #import {eventToPromise} from 'chrome://test/test_util.m.js';
+// #import {eventToPromise} from 'chrome://test/test_util.js';
 // #import {FakeUserActionRecorder} from './fake_user_action_recorder.m.js';
 // #import {FakeSettingsSearchHandler} from './fake_settings_search_handler.m.js';
 // #import {setSearchHandlerForTesting, setUserActionRecorderForTesting} from 'chrome://os-settings/chromeos/os_settings.js';
@@ -184,6 +184,15 @@ suite('OSSettingsSearchBox', () => {
     await waitForResultsFetched();
     assertFalse(dropDown.opened);
     assertEquals(searchBox.searchResults_.length, 1);
+
+    // The first item should be selected immediately when the search results
+    // change even if the change occurred while the dropdown was closed.
+    field.$.searchInput.focus();
+    await waitForListUpdate();
+    assertTrue(dropDown.opened);
+    assertEquals(
+        searchBox.getSelectedOsSearchResultRow_().searchResult.resultText,
+        searchBox.selectedItem_.resultText);
   });
 
   test('User action search event', async () => {

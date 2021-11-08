@@ -12,15 +12,15 @@
 #include "components/search_engines/template_url_service.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 // static
 SelectedKeywordView::KeywordLabelNames
-SelectedKeywordView::GetKeywordLabelNames(const base::string16& keyword,
+SelectedKeywordView::GetKeywordLabelNames(const std::u16string& keyword,
                                           TemplateURLService* service) {
   KeywordLabelNames names;
   if (service) {
@@ -86,7 +86,7 @@ void SelectedKeywordView::OnThemeChanged() {
     SetCustomImage(gfx::Image());
 }
 
-void SelectedKeywordView::SetKeyword(const base::string16& keyword) {
+void SelectedKeywordView::SetKeyword(const std::u16string& keyword) {
   if (keyword_ == keyword)
     return;
   keyword_ = keyword;
@@ -108,7 +108,7 @@ void SelectedKeywordView::SetKeyword(const base::string16& keyword) {
   NotifyAccessibilityEvent(ax::mojom::Event::kLiveRegionChanged, true);
 }
 
-const base::string16& SelectedKeywordView::GetKeyword() const {
+const std::u16string& SelectedKeywordView::GetKeyword() const {
   return keyword_;
 }
 
@@ -128,5 +128,5 @@ void SelectedKeywordView::SetLabelForCurrentWidth() {
 }
 
 BEGIN_METADATA(SelectedKeywordView, IconLabelBubbleView)
-ADD_PROPERTY_METADATA(base::string16, Keyword)
+ADD_PROPERTY_METADATA(std::u16string, Keyword)
 END_METADATA

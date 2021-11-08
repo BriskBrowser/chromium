@@ -6,10 +6,14 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/guid.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_constants.h"
@@ -19,13 +23,18 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_prefs.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/language/core/browser/pref_names.h"
+#include "components/live_caption/pref_names.h"
 #include "components/media_router/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "components/sync/driver/sync_driver_switches.h"
 #include "components/variations/variations.mojom.h"
 #include "components/variations/variations_client.h"
 #include "components/variations/variations_ids_provider.h"
-#include "content/public/browser/cors_origin_pattern_setter.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/browser/host_zoom_map.h"
+#include "content/public/browser/resource_context.h"
 #include "content/public/browser/shared_cors_origin_access_list.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
@@ -43,10 +52,6 @@
 #include "chrome/browser/profiles/android/jni_headers/OTRProfileID_jni.h"
 #endif
 
-#if !defined(OS_ANDROID)
-#include "content/public/browser/host_zoom_map.h"
-#endif
-
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/browser/extension_pref_store.h"
 #include "extensions/browser/extension_pref_value_map_factory.h"
@@ -54,7 +59,8 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chromeos/lacros/lacros_chrome_service_impl.h"
+#include "chrome/common/chrome_constants.h"
+#include "chromeos/lacros/lacros_service.h"
 #endif
 
 #if DCHECK_IS_ON()
@@ -79,6 +85,7 @@ namespace {
 
 const char kDevToolsOTRProfileIDPrefix[] = "Devtools::BrowserContext";
 const char kMediaRouterOTRProfileIDPrefix[] = "MediaRouter::Presentation";
+const char kTestOTRProfileIDPrefix[] = "Test::OTR";
 
 }  // namespace
 
@@ -98,17 +105,17 @@ bool Profile::OTRProfileID::AllowsBrowserWindows() const {
 
 // static
 const Profile::OTRProfileID Profile::OTRProfileID::PrimaryID() {
+  // OTRProfileID value should be same as
+  // |OTRProfileID.java#sPrimaryOTRProfileID| variable.
   return OTRProfileID("profile::primary_otr");
 }
 
 // static
-int Profile::OTRProfileID::first_unused_index_ = 0;
-
-// static
 Profile::OTRProfileID Profile::OTRProfileID::CreateUnique(
     const std::string& profile_id_prefix) {
-  return OTRProfileID(base::StringPrintf("%s-%i", profile_id_prefix.c_str(),
-                                         first_unused_index_++));
+  return OTRProfileID(base::StringPrintf(
+      "%s-%s", profile_id_prefix.c_str(),
+      base::GUID::GenerateRandomV4().AsLowercaseString().c_str()));
 }
 
 // static
@@ -119,6 +126,11 @@ Profile::OTRProfileID Profile::OTRProfileID::CreateUniqueForDevTools() {
 // static
 Profile::OTRProfileID Profile::OTRProfileID::CreateUniqueForMediaRouter() {
   return CreateUnique(kMediaRouterOTRProfileIDPrefix);
+}
+
+// static
+Profile::OTRProfileID Profile::OTRProfileID::CreateUniqueForTesting() {
+  return CreateUnique(kTestOTRProfileIDPrefix);
 }
 
 const std::string& Profile::OTRProfileID::ToString() const {
@@ -162,16 +174,26 @@ base::android::ScopedJavaLocalRef<jobject> JNI_OTRProfileID_GetPrimaryID(
   return Profile::OTRProfileID::PrimaryID().ConvertToJavaOTRProfileID(env);
 }
 
+// static
+Profile::OTRProfileID Profile::OTRProfileID::Deserialize(
+    const std::string& value) {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  base::android::ScopedJavaLocalRef<jstring> j_value =
+      base::android::ConvertUTF8ToJavaString(env, value);
+  base::android::ScopedJavaLocalRef<jobject> j_otr_profile_id =
+      Java_OTRProfileID_deserializeWithoutVerify(env, j_value);
+  return ConvertFromJavaOTRProfileID(env, j_otr_profile_id);
+}
+
 std::string Profile::OTRProfileID::Serialize() const {
   JNIEnv* env = base::android::AttachCurrentThread();
   return base::android::ConvertJavaStringToUTF8(
       env, Java_OTRProfileID_serialize(env, ConvertToJavaOTRProfileID(env)));
 }
-#endif
+#endif  // defined(OS_ANDROID)
 
 Profile::Profile()
-    : shared_cors_origin_access_list_(
-          content::SharedCorsOriginAccessList::Create()) {
+    : resource_context_(std::make_unique<content::ResourceContext>()) {
 #if DCHECK_IS_ON()
   base::AutoLock lock(g_profile_instances_lock.Get());
   g_profile_instances.Get().insert(this);
@@ -181,6 +203,10 @@ Profile::Profile()
 }
 
 Profile::~Profile() {
+  if (content::BrowserThread::IsThreadInitialized(content::BrowserThread::IO)) {
+    content::GetIOThreadTaskRunner({})->DeleteSoon(
+        FROM_HERE, std::move(resource_context_));
+  }
 #if DCHECK_IS_ON()
   base::AutoLock lock(g_profile_instances_lock.Get());
   g_profile_instances.Get().erase(this);
@@ -223,18 +249,21 @@ void Profile::RemoveObserver(ProfileObserver* observer) {
   observers_.RemoveObserver(observer);
 }
 
+base::FilePath Profile::GetBaseName() const {
+  return GetPath().BaseName();
+}
+
+std::string Profile::GetDebugName() const {
+  std::string name = GetBaseName().MaybeAsASCII();
+  return name.empty() ? "UnknownProfile" : name;
+}
+
 TestingProfile* Profile::AsTestingProfile() {
   return nullptr;
 }
 
-#if !defined(OS_ANDROID)
 ChromeZoomLevelPrefs* Profile::GetZoomLevelPrefs() {
   return nullptr;
-}
-#endif  // !defined(OS_ANDROID)
-
-PrefService* Profile::GetReadOnlyOffTheRecordPrefs() {
-  return GetOffTheRecordPrefs();
 }
 
 Profile::Delegate::~Delegate() {
@@ -254,8 +283,11 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
       prefs::kContextualSearchEnabled,
       std::string(),
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(
+      prefs::kContextualSearchWasFullyPrivacyEnabled, false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kContextualSearchPromoCardShownCount, 0);
 #endif  // defined(OS_ANDROID)
-  registry->RegisterBooleanPref(prefs::kSessionExitedCleanly, true);
   registry->RegisterStringPref(prefs::kSessionExitType, std::string());
   registry->RegisterBooleanPref(prefs::kDisableExtensions, false);
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -279,11 +311,9 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
                                std::string());
   registry->RegisterStringPref(prefs::kAccessibilityCaptionsTextShadow,
                                std::string());
-#if !defined(OS_ANDROID)
   registry->RegisterDictionaryPref(prefs::kPartitionDefaultZoomLevel);
   registry->RegisterDictionaryPref(prefs::kPartitionPerHostZoomLevels);
-#endif  // !defined(OS_ANDROID)
-  registry->RegisterStringPref(prefs::kDefaultApps, "install");
+  registry->RegisterStringPref(prefs::kPreinstalledApps, "install");
   registry->RegisterBooleanPref(prefs::kSpeechRecognitionFilterProfanities,
                                 true);
   registry->RegisterIntegerPref(prefs::kProfileIconVersion, 0);
@@ -315,6 +345,11 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
                                std::string());
 #endif
 
+#if defined(OS_ANDROID)
+  registry->RegisterStringPref(prefs::kCommerceMerchantViewerMessagesShownTime,
+                               std::string());
+#endif
+
 #if !defined(OS_ANDROID)
   registry->RegisterBooleanPref(
       media_router::prefs::kMediaRouterCloudServicesPrefSet, false,
@@ -339,30 +374,14 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   // chrome/browser/prefs/browser_prefs.cc.
 }
 
-std::string Profile::GetDebugName() const {
-  std::string name = GetPath().BaseName().MaybeAsASCII();
-  return name.empty() ? "UnknownProfile" : name;
-}
-
 bool Profile::IsRegularProfile() const {
-  return !IsOffTheRecord();
+  return profile_metrics::GetBrowserProfileType(this) ==
+         profile_metrics::BrowserProfileType::kRegular;
 }
 
 bool Profile::IsIncognitoProfile() const {
-  return IsPrimaryOTRProfile() && !IsGuestSession() && !IsSystemProfile();
-}
-
-// static
-bool Profile::IsEphemeralGuestProfileEnabled() {
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if defined(OS_WIN) || (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) || \
-    defined(OS_MAC)
-  return base::FeatureList::IsEnabled(
-      features::kEnableEphemeralGuestProfilesOnDesktop);
-#else
-  return false;
-#endif
+  return profile_metrics::GetBrowserProfileType(this) ==
+         profile_metrics::BrowserProfileType::kIncognito;
 }
 
 bool Profile::IsGuestSession() const {
@@ -373,25 +392,33 @@ bool Profile::IsGuestSession() const {
   return is_guest_session;
 #else
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-  DCHECK(chromeos::LacrosChromeServiceImpl::Get());
-  if (chromeos::LacrosChromeServiceImpl::Get()->init_params()->session_type !=
-      crosapi::mojom::SessionType::kUnknown) {
-    return chromeos::LacrosChromeServiceImpl::Get()
-               ->init_params()
-               ->session_type == crosapi::mojom::SessionType::kGuestSession;
+  DCHECK(chromeos::LacrosService::Get());
+  if (chromeos::LacrosService::Get()->init_params()->session_type ==
+      crosapi::mojom::SessionType::kGuestSession) {
+    return true;
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
-  return is_guest_profile_ && !IsEphemeralGuestProfileEnabled();
+  return profile_metrics::GetBrowserProfileType(this) ==
+         profile_metrics::BrowserProfileType::kGuest;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
-bool Profile::IsEphemeralGuestProfile() const {
-  return is_guest_profile_ && IsEphemeralGuestProfileEnabled();
+PrefService* Profile::GetReadOnlyOffTheRecordPrefs() {
+  return nullptr;
 }
 
 bool Profile::IsSystemProfile() const {
-  return is_system_profile_;
+  return profile_metrics::GetBrowserProfileType(this) ==
+         profile_metrics::BrowserProfileType::kSystem;
 }
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// static
+bool Profile::IsMainProfilePath(base::FilePath profile_path) {
+  // The main profile is the one with the "Default" path.
+  return profile_path.BaseName().value() == chrome::kInitialProfile;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 bool Profile::IsPrimaryOTRProfile() const {
   return IsOffTheRecord() && GetOTRProfileID() == OTRProfileID::PrimaryID();
@@ -408,7 +435,7 @@ bool Profile::CanUseDiskWhenOffTheRecord() {
 #endif
 }
 
-bool Profile::ShouldRestoreOldSessionCookies() const {
+bool Profile::ShouldRestoreOldSessionCookies() {
   return false;
 }
 
@@ -418,12 +445,12 @@ bool Profile::ShouldPersistSessionCookies() const {
 
 void Profile::MaybeSendDestroyedNotification() {
   TRACE_EVENT1("shutdown", "Profile::MaybeSendDestroyedNotification", "profile",
-               static_cast<void*>(this));
+               this);
 
   if (!sent_destroyed_notification_) {
     sent_destroyed_notification_ = true;
 
-    NotifyWillBeDestroyed(this);
+    NotifyWillBeDestroyed();
 
     for (auto& observer : observers_)
       observer.OnProfileWillBeDestroyed(this);
@@ -449,16 +476,12 @@ bool ProfileCompare::operator()(Profile* a, Profile* b) const {
   return a->GetOriginalProfile() < b->GetOriginalProfile();
 }
 
-#if !defined(OS_ANDROID)
 double Profile::GetDefaultZoomLevelForProfile() {
-  return GetDefaultStoragePartition(this)
-      ->GetHostZoomMap()
-      ->GetDefaultZoomLevel();
+  return GetDefaultStoragePartition()->GetHostZoomMap()->GetDefaultZoomLevel();
 }
-#endif  // !defined(OS_ANDROID)
 
 void Profile::Wipe() {
-  content::BrowserContext::GetBrowsingDataRemover(this)->Remove(
+  GetBrowsingDataRemover()->Remove(
       base::Time(), base::Time::Max(),
       chrome_browsing_data_remover::WIPE_PROFILE,
       chrome_browsing_data_remover::ALL_ORIGIN_TYPES);
@@ -471,8 +494,8 @@ void Profile::NotifyOffTheRecordProfileCreated(Profile* off_the_record) {
     observer.OnOffTheRecordProfileCreated(off_the_record);
 }
 
-Profile* Profile::GetPrimaryOTRProfile() {
-  return GetOffTheRecordProfile(OTRProfileID::PrimaryID());
+Profile* Profile::GetPrimaryOTRProfile(bool create_if_needed) {
+  return GetOffTheRecordProfile(OTRProfileID::PrimaryID(), create_if_needed);
 }
 
 bool Profile::HasPrimaryOTRProfile() {
@@ -503,64 +526,6 @@ variations::VariationsClient* Profile::GetVariationsClient() {
   return chrome_variations_client_.get();
 }
 
-content::SharedCorsOriginAccessList* Profile::GetSharedCorsOriginAccessList() {
-  return shared_cors_origin_access_list_.get();
-}
-
-void Profile::SetCorsOriginAccessListForOrigin(
-    TargetBrowserContexts target_mode,
-    const url::Origin& source_origin,
-    std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
-    std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
-    base::OnceClosure closure) {
-  using content::CorsOriginPatternSetter;
-  switch (target_mode) {
-    case content::BrowserContext::TargetBrowserContexts::kSingleContext: {
-      SetCorsOriginAccessListForThisContextOnly(
-          source_origin, std::move(allow_patterns), std::move(block_patterns),
-          std::move(closure));
-      break;
-    }
-
-    case content::BrowserContext::TargetBrowserContexts::kAllRelatedContexts: {
-      Profile* regular_profile = GetOriginalProfile();
-      std::vector<Profile*> otr_profiles = GetAllOffTheRecordProfiles();
-      // We need one callback for modifying the `regular_profile`, and one for
-      // each off-the-record profile.
-      auto barrier_closure =
-          BarrierClosure(1 + otr_profiles.size(), std::move(closure));
-      regular_profile->SetCorsOriginAccessListForThisContextOnly(
-          source_origin, CorsOriginPatternSetter::ClonePatterns(allow_patterns),
-          CorsOriginPatternSetter::ClonePatterns(block_patterns),
-          barrier_closure);
-      for (Profile* otr : otr_profiles) {
-        otr->SetCorsOriginAccessListForThisContextOnly(
-            source_origin,
-            CorsOriginPatternSetter::ClonePatterns(allow_patterns),
-            CorsOriginPatternSetter::ClonePatterns(block_patterns),
-            barrier_closure);
-      }
-      break;
-    }
-  }
-}
-
-void Profile::SetCorsOriginAccessListForThisContextOnly(
-    const url::Origin& source_origin,
-    std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
-    std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
-    base::OnceClosure closure) {
-  using content::CorsOriginPatternSetter;
-  auto barrier_closure = BarrierClosure(2, std::move(closure));
-  base::MakeRefCounted<CorsOriginPatternSetter>(
-      source_origin, CorsOriginPatternSetter::ClonePatterns(allow_patterns),
-      CorsOriginPatternSetter::ClonePatterns(block_patterns), barrier_closure)
-      ->ApplyToEachStoragePartition(this);
-
-  // Keep the per-profile access list up to date so that we can use this to
-  // restore NetworkContext settings at anytime, e.g. on restarting the
-  // network service.
-  shared_cors_origin_access_list_->SetForOrigin(
-      source_origin, std::move(allow_patterns), std::move(block_patterns),
-      barrier_closure);
+content::ResourceContext* Profile::GetResourceContext() {
+  return resource_context_.get();
 }

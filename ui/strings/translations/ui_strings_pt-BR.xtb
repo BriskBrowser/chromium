@@ -30,6 +30,7 @@
 <translation id="1710340000377843106">agora</translation>
 <translation id="1752946267035950200">{MINUTES,plural, =1{1 minuto}one{# minutos}other{# minutos}}</translation>
 <translation id="1761785978543082658"><ph name="QUANTITY" /> bytes</translation>
+<translation id="1770726142253415363">Movido para a linha <ph name="ROW_NUMBER" />, coluna <ph name="COLUMN_NUMBER" />.</translation>
 <translation id="1801827354178857021">Período</translation>
 <translation id="1803208670097017349">{MONTHS,plural, =1{ mês}one{# mês}other{# meses}}</translation>
 <translation id="1809410197924942083"><ph name="QUANTITY" /> MB/s</translation>
@@ -53,11 +54,13 @@
 <translation id="2192232475740621500">Usar baixa densidade</translation>
 <translation id="219905428774326614">Tela de início, todos os apps</translation>
 <translation id="2267918077332197517">Bloquear todas as notificações emitidas por este site</translation>
+<translation id="2283117145434822734">F6</translation>
 <translation id="2289052229480071835">Toque nas áreas de toque da tela.</translation>
 <translation id="2295140143284145483">Pesquisa</translation>
 <translation id="2297836609126180313"><ph name="QUANTITY" /> TB/s</translation>
 <translation id="2353636109065292463">Verificando sua conexão de Internet</translation>
 <translation id="2388990488038464401">Ligar para este número do seu smartphone?</translation>
+<translation id="2435457462613246316">Mostrar senha</translation>
 <translation id="24452542372838207">Expandir notificação</translation>
 <translation id="2445449901874883781">Usar alta densidade</translation>
 <translation id="2482878487686419369">Notificações</translation>
@@ -79,6 +82,7 @@
 <translation id="2824719307700604149">{YEARS,plural, =1{1 ano atrás}one{# ano atrás}other{# anos atrás}}</translation>
 <translation id="2878511608894704031">Excluir tudo</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{em 1 d}one{em # d}other{em # d}}</translation>
+<translation id="2922712708897119705">Coluna <ph name="COLUMN_NAME" /> em ordem decrescente.</translation>
 <translation id="2931838996092594335">clicar</translation>
 <translation id="2981684127883932071">Exibindo sugestões</translation>
 <translation id="3036649622769666520">Abrir arquivos</translation>
@@ -114,6 +118,7 @@
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3909791450649380159">&amp;Recortar</translation>
 <translation id="3990502903496589789">Borda direita</translation>
+<translation id="3994749195054421561">Coluna <ph name="COLUMN_NAME" /> em ordem crescente.</translation>
 <translation id="40579289237549812">{UNREAD_NOTIFICATIONS,plural, =1{1 notificação não lida}one{# notificação não lida}other{# notificações não lidas}}</translation>
 <translation id="4202807286478387388">pular</translation>
 <translation id="4250229828105606438">Captura de tela</translation>
@@ -123,6 +128,7 @@
 <translation id="4306392492252714209">Remover da área de transferência.</translation>
 <translation id="4316910396681052118">TODOS OS APPS</translation>
 <translation id="4491109536499578614">Imagem</translation>
+<translation id="4565377596337484307">Ocultar senha</translation>
 <translation id="4588090240171750605">Percorrer à direita</translation>
 <translation id="4631891353005174729"><ph name="APP_NAME_TYPE" />, avaliado com <ph name="RATING_SCORE" /> estrelas</translation>
 <translation id="4648249871170053485"><ph name="APP_NAME" />, recomendação de app</translation>
@@ -165,6 +171,7 @@
 <translation id="6012623610530968780">Página <ph name="SELECTED_PAGE" /> de <ph name="TOTAL_PAGE_NUM" /></translation>
 <translation id="6022924867608035986">Limpar texto da caixa de pesquisa</translation>
 <translation id="6040143037577758943">Fechar</translation>
+<translation id="6117103120090651229">Botão central</translation>
 <translation id="6119846243427417423">ativar</translation>
 <translation id="6129953537138746214">Espaço</translation>
 <translation id="6134259848159370930">Pesquise no dispositivo, em apps, nas configurações e na Web.</translation>
@@ -173,6 +180,7 @@
 <translation id="6156262341071374681">Expandir para ver todos os apps</translation>
 <translation id="6165508094623778733">Saiba mais</translation>
 <translation id="6166852626429024716">Pesquisar no dispositivo, em apps, nas configurações, na Web…</translation>
+<translation id="6237461503717005873"><ph name="ROW_NAME" /> selecionada.</translation>
 <translation id="6264365405983206840">Selecionar &amp;tudo</translation>
 <translation id="6351032674660237738">SUGESTÕES DE APPS</translation>
 <translation id="6364916375976753737">Percorrer à esquerda</translation>
@@ -213,6 +221,7 @@
 <translation id="7389409599945284130">- <ph name="MESSAGE" /></translation>
 <translation id="7410957453383678442">{MINUTES,plural, =1{Um minuto restante}one{# minutos restantes}other{# minutos restantes}}</translation>
 <translation id="7430878839542012341">Excluir essa pesquisa do seu histórico?</translation>
+<translation id="7437971918971306061">Coluna <ph name="COLUMN_NAME" /> não ordenada.</translation>
 <translation id="7460907917090416791"><ph name="QUANTITY" /> TB</translation>
 <translation id="7507604095951736240">Emojis</translation>
 <translation id="7620655452534002301">Removido.</translation>

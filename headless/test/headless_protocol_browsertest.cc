@@ -233,7 +233,14 @@ HEADLESS_PROTOCOL_TEST(VirtualTimeHistoryNavigation,
                        "emulation/virtual-time-history-navigation.js")
 HEADLESS_PROTOCOL_TEST(VirtualTimeHistoryNavigationSameDoc,
                        "emulation/virtual-time-history-navigation-same-doc.js")
-HEADLESS_PROTOCOL_TEST(VirtualTimeFetchKeepalive,
+
+// Flaky on Mac. TODO(crbug.com/1164173): Re-enable.
+#if defined(OS_MAC)
+#define MAYBE_VirtualTimeFetchKeepalive DISABLED_VirtualTimeFetchKeepalive
+#else
+#define MAYBE_VirtualTimeFetchKeepalive VirtualTimeFetchKeepalive
+#endif
+HEADLESS_PROTOCOL_TEST(MAYBE_VirtualTimeFetchKeepalive,
                        "emulation/virtual-time-fetch-keepalive.js")
 HEADLESS_PROTOCOL_TEST(VirtualTimeDisposeWhileRunning,
                        "emulation/virtual-time-dispose-while-running.js")
@@ -256,6 +263,18 @@ HEADLESS_PROTOCOL_TEST(MAYBE_VirtualTimeTimerSuspend,
                        "emulation/virtual-time-timer-suspended.js")
 #undef MAYBE_VirtualTimeTimerOrder
 #undef MAYBE_VirtualTimeTimerSuspend
+
+HEADLESS_PROTOCOL_TEST(Geolocation, "emulation/geolocation-crash.js")
+
+HEADLESS_PROTOCOL_TEST(DragStarted, "input/dragIntercepted.js")
+
+// https://crbug.com/1204620
+#if defined(OS_LINUX) || defined(OS_MAC) || defined(OS_WIN)
+#define MAYBE_InputClipboardOps DISABLED_InputClipboardOps
+#else
+#define MAYBE_InputClipboardOps InputClipboardOps
+#endif
+HEADLESS_PROTOCOL_TEST(MAYBE_InputClipboardOps, "input/input-clipboard-ops.js")
 
 HEADLESS_PROTOCOL_TEST(HeadlessSessionBasicsTest,
                        "sessions/headless-session-basics.js")

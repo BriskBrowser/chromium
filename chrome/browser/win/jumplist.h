@@ -90,6 +90,9 @@ class JumpList : public sessions::TabRestoreServiceObserver,
                  public history::TopSitesObserver,
                  public KeyedService {
  public:
+  JumpList(const JumpList&) = delete;
+  JumpList& operator=(const JumpList&) = delete;
+
   // Returns true if the custom JumpList is enabled.
   static bool Enabled();
 
@@ -182,6 +185,14 @@ class JumpList : public sessions::TabRestoreServiceObserver,
   void AddWindow(const sessions::TabRestoreService::Window& window,
                  const base::FilePath& cmd_line_profile_dir,
                  size_t max_items);
+
+  // Adds a new ShellLinkItem for each tab in |group| to the JumpList data
+  // provided that doing so will not exceed |max_items|. If
+  // |cmd_line_profile_dir| is not empty, it will be added to the command line
+  // switch --profile-directory.
+  void AddGroup(const sessions::TabRestoreService::Group& group,
+                const base::FilePath& cmd_line_profile_dir,
+                size_t max_items);
 
   // Starts loading a favicon for each URL in |icon_urls_|.
   // This function sends a query to HistoryService.
@@ -346,8 +357,6 @@ class JumpList : public sessions::TabRestoreServiceObserver,
 
   // For callbacks may run after destruction.
   base::WeakPtrFactory<JumpList> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(JumpList);
 };
 
 #endif  // CHROME_BROWSER_WIN_JUMPLIST_H_

@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/clear_collection_scope.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
@@ -29,7 +30,7 @@ void CheckNoItemsAreAssociated(const NGPhysicalBoxFragment& fragment) {
 void CheckIsLast(const NGFragmentItem& item) {
   if (const NGPhysicalBoxFragment* fragment = item.BoxFragment()) {
     if (!fragment->IsInline()) {
-      DCHECK(fragment->IsFloating());
+      DCHECK(!fragment->IsInlineBox());
       DCHECK_EQ(item.IsLastForNode(), !fragment->BreakToken());
     }
   }
@@ -41,10 +42,10 @@ void CheckIsLast(const NGFragmentItem& item) {
 NGFragmentItems::NGFragmentItems(NGFragmentItemsBuilder* builder)
     : text_content_(std::move(builder->text_content_)),
       first_line_text_content_(std::move(builder->first_line_text_content_)),
-      const_size_(builder->items_.size()),
+      size_(builder->items_.size()),
       size_of_earlier_fragments_(0) {
   NGFragmentItemsBuilder::ItemWithOffsetList& source_items = builder->items_;
-  for (wtf_size_t i = 0; i < const_size_; ++i) {
+  for (wtf_size_t i = 0; i < size_; ++i) {
     // Call the move constructor to move without |AddRef|. Items in
     // |NGFragmentItemsBuilder| are not used after |this| was constructed.
     new (&items_[i]) NGFragmentItem(std::move(source_items[i].item));
@@ -54,9 +55,9 @@ NGFragmentItems::NGFragmentItems(NGFragmentItemsBuilder* builder)
 NGFragmentItems::NGFragmentItems(const NGFragmentItems& other)
     : text_content_(other.text_content_),
       first_line_text_content_(other.first_line_text_content_),
-      const_size_(other.const_size_),
+      size_(other.size_),
       size_of_earlier_fragments_(other.size_of_earlier_fragments_) {
-  for (wtf_size_t i = 0; i < const_size_; ++i) {
+  for (wtf_size_t i = 0; i < size_; ++i) {
     const auto& other_item = other.items_[i];
     new (&items_[i]) NGFragmentItem(other_item);
 
@@ -70,7 +71,7 @@ NGFragmentItems::NGFragmentItems(const NGFragmentItems& other)
 }
 
 NGFragmentItems::~NGFragmentItems() {
-  for (unsigned i = 0; i < const_size_; ++i)
+  for (unsigned i = 0; i < size_; ++i)
     items_[i].~NGFragmentItem();
 }
 
@@ -80,7 +81,7 @@ bool NGFragmentItems::IsSubSpan(const Span& span) const {
 }
 
 void NGFragmentItems::FinalizeAfterLayout(
-    const HeapVector<Member<const NGLayoutResult>, 1>& results) {
+    const Vector<scoped_refptr<const NGLayoutResult>, 1>& results) {
 #if DCHECK_IS_ON()
   if (!RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled()) {
     for (const auto& result : results) {
@@ -95,6 +96,8 @@ void NGFragmentItems::FinalizeAfterLayout(
     wtf_size_t item_index;
   };
   HeapHashMap<Member<const LayoutObject>, LastItem> last_items;
+  ClearCollectionScope<HeapHashMap<Member<const LayoutObject>, LastItem>>
+      clear_scope(&last_items);
   wtf_size_t item_index = 0;
   for (const auto& result : results) {
     const auto& fragment =
@@ -116,14 +119,16 @@ void NGFragmentItems::FinalizeAfterLayout(
       DCHECK(layout_object->IsInLayoutNGInlineFormattingContext());
 
       item.SetDeltaToNextForSameLayoutObject(0);
-      if (UNLIKELY(layout_object->IsFloating())) {
+      const bool use_break_token =
+          layout_object->IsFloating() || !layout_object->IsInline();
+      if (UNLIKELY(use_break_token)) {
         // Fragments that aren't really on a line, such as floats, will have
         // block break tokens if they continue in a subsequent fragmentainer, so
         // just check that. Floats in particular will continue as regular box
         // fragment children in subsequent fragmentainers, i.e. they will not be
         // fragment items (even if we're in an inline formatting context). So
         // we're not going to find the last fragment by just looking for items.
-        DCHECK(item.BoxFragment() && item.BoxFragment()->IsFloating());
+        DCHECK(item.BoxFragment() && !item.BoxFragment()->IsInlineBox());
         item.SetIsLastForNode(!item.BoxFragment()->BreakToken());
       } else {
         DCHECK(layout_object->IsInline());
@@ -154,7 +159,13 @@ void NGFragmentItems::FinalizeAfterLayout(
       DCHECK_LT(last_index, fragment_items->EndItemIndex());
       DCHECK_LT(last_index, item_index);
       last_item->SetDeltaToNextForSameLayoutObject(item_index - last_index);
-      if (!layout_object->IsFloating())
+      // Because we found a following fragment, reset |IsLastForNode| for the
+      // last item except:
+      // a. |IsLastForNode| is computed from break token. The last item already
+      //    has the correct value.
+      // b. Ellipses for atomic inlines. |IsLastForNode| of the last box item
+      //    should be set to ease handling of this edge case.
+      if (!use_break_token && !(layout_object->IsBox() && item.IsEllipsis()))
         last_item->SetIsLastForNode(false);
 #if DCHECK_IS_ON()
       CheckIsLast(*last_item);
@@ -220,9 +231,6 @@ const NGFragmentItem* NGFragmentItems::EndOfReusableItems(
     if (item.Type() != NGFragmentItem::kLine)
       return &item;
 
-    const NGPhysicalLineBoxFragment* line_box_fragment = item.LineBoxFragment();
-    DCHECK(line_box_fragment);
-
     // If there is a dirty item in the middle of a line, its previous line is
     // not reusable, because the dirty item may affect the previous line to wrap
     // differently.
@@ -230,9 +238,22 @@ const NGFragmentItem* NGFragmentItems::EndOfReusableItems(
     if (!CanReuseAll(&line))
       return last_line_start;
 
+    const NGPhysicalLineBoxFragment& line_box_fragment =
+        *item.LineBoxFragment();
+
     // Abort if the line propagated its descendants to outside of the line.
     // They are propagated through NGLayoutResult, which we don't cache.
-    if (line_box_fragment->HasPropagatedDescendants())
+    if (line_box_fragment.HasPropagatedDescendants())
+      return &item;
+
+    // Abort if we are an empty line-box. We don't have any content, and might
+    // resolve the BFC block-offset at the incorrect position.
+    if (line_box_fragment.IsEmptyLineBox())
+      return &item;
+
+    // Abort reusing block-in-inline because it may need to set
+    // |NGPreviousInflowData|.
+    if (UNLIKELY(line_box_fragment.IsBlockInInline()))
       return &item;
 
     // TODO(kojii): Running the normal layout code at least once for this
@@ -240,7 +261,7 @@ const NGFragmentItem* NGFragmentItems::EndOfReusableItems(
     // partial. Remove the last fragment if it is the end of the
     // fragmentation to do so, but we should figure out how to setup the
     // states without doing this.
-    if (!line_box_fragment->BreakToken())
+    if (!line_box_fragment.BreakToken())
       return &item;
 
     last_line_start = &item;
@@ -389,10 +410,5 @@ void NGFragmentItems::CheckAllItemsAreValid() const {
     DCHECK(!item.IsLayoutObjectDestroyedOrMoved());
 }
 #endif
-
-void NGFragmentItems::Trace(Visitor* visitor) const {
-  for (const NGFragmentItem& item : Items())
-    visitor->Trace(item);
-}
 
 }  // namespace blink

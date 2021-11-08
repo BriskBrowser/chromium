@@ -9,6 +9,8 @@
 
 #include "net/cookies/cookie_access_delegate.h"
 #include "net/cookies/cookie_constants.h"
+#include "net/cookies/same_party_context.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace net {
 
@@ -20,6 +22,10 @@ class SchemefulSite;
 class TestCookieAccessDelegate : public CookieAccessDelegate {
  public:
   TestCookieAccessDelegate();
+
+  TestCookieAccessDelegate(const TestCookieAccessDelegate&) = delete;
+  TestCookieAccessDelegate& operator=(const TestCookieAccessDelegate&) = delete;
+
   ~TestCookieAccessDelegate() override;
 
   // CookieAccessDelegate implementation:
@@ -28,9 +34,13 @@ class TestCookieAccessDelegate : public CookieAccessDelegate {
   bool ShouldIgnoreSameSiteRestrictions(
       const GURL& url,
       const SiteForCookies& site_for_cookies) const override;
-  bool IsContextSamePartyWithSite(
+  SamePartyContext ComputeSamePartyContext(
       const net::SchemefulSite& site,
-      const net::SchemefulSite& top_frame_site,
+      const net::SchemefulSite* top_frame_site,
+      const std::set<net::SchemefulSite>& party_context) const override;
+  FirstPartySetsContextType ComputeFirstPartySetsContextType(
+      const net::SchemefulSite& site,
+      const absl::optional<net::SchemefulSite>& top_frame_site,
       const std::set<net::SchemefulSite>& party_context) const override;
   bool IsInNontrivialFirstPartySet(
       const net::SchemefulSite& site) const override;
@@ -62,8 +72,6 @@ class TestCookieAccessDelegate : public CookieAccessDelegate {
   std::map<std::string, bool> ignore_samesite_restrictions_schemes_;
   base::flat_map<net::SchemefulSite, std::set<net::SchemefulSite>>
       first_party_sets_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestCookieAccessDelegate);
 };
 
 }  // namespace net

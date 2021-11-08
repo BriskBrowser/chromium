@@ -63,18 +63,6 @@ Polymer({
     },
 
     /**
-     * True if redesign of account management flows is enabled.
-     * @private
-     */
-    isAccountManagementFlowsV2Enabled_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('isAccountManagementFlowsV2Enabled');
-      },
-      readOnly: true,
-    },
-
-    /**
      * @return {boolean} True if secondary account sign-ins are allowed, false
      *    otherwise.
      * @private
@@ -154,10 +142,19 @@ Polymer({
    * @private
    */
   getAccountListHeader_() {
-    if (this.isAccountManagementFlowsV2Enabled_ && this.isChildUser_) {
-      return loadTimeData.getString('accountListHeaderChild');
-    }
-    return loadTimeData.getString('accountListHeader');
+    return this.isChildUser_ ?
+        loadTimeData.getString('accountListHeaderChild') :
+        loadTimeData.getString('accountListHeader');
+  },
+
+  /**
+   * @return {string} accounts list description.
+   * @private
+   */
+  getAccountListDescription_() {
+    return this.isChildUser_ ?
+        loadTimeData.getString('accountListChildDescription') :
+        loadTimeData.getString('accountListDescription');
   },
 
   /**
@@ -224,15 +221,6 @@ Polymer({
   },
 
   /**
-   * @return {boolean} True if 'School account' label should be displayed for
-   *     secondary accounts.
-   * @private
-   */
-  shouldDisplayEduSecondaryAccountLabel_() {
-    return this.isChildUser_ && !this.isAccountManagementFlowsV2Enabled_;
-  },
-
-  /**
    * @return {boolean} True if managed badge should be shown next to the device
    *     account picture.
    * @private
@@ -290,7 +278,7 @@ Polymer({
     }
     // Format: 'This account is managed by
     //          <a target="_blank" href="chrome://management">google.com</a>'.
-    // Where href will be set by <settings-localized-link>.
+    // Where href will be set by <localized-link>.
     return loadTimeData.getStringF(
         'accountManagerManagementDescription',
         this.deviceAccount_.organization);
@@ -340,30 +328,7 @@ Polymer({
    */
   getAccounts_() {
     // TODO(crbug.com/1152711): rename the method to `getSecondaryAccounts_`.
-    if (this.isAccountManagementFlowsV2Enabled_) {
-      // Return only secondary accounts.
-      return this.accounts_.filter(account => !account.isDeviceAccount);
-    }
-
-    return this.accounts_;
-  },
-
-  /**
-   * @return {boolean} True if secondary accounts description should be shown.
-   * @private
-   */
-  shouldShowNoAccountsMessage_() {
-    return this.isAccountManagementFlowsV2Enabled_ &&
-        this.getAccounts_().length === 0;
-  },
-
-  /**
-   * @return {string} class list.
-   * @private
-   */
-  getBottomBorderClassList_() {
-    return this.shouldShowNoAccountsMessage_() ? 'settings-box border-bottom' :
-                                                 'settings-box';
+    return this.accounts_.filter(account => !account.isDeviceAccount);
   },
 
   /**
@@ -375,6 +340,14 @@ Polymer({
       this.browserProxy_.migrateAccount(event.model.item.email);
     } else {
       this.browserProxy_.reauthenticateAccount(event.model.item.email);
+    }
+  },
+
+  /** @private */
+  onManagedIconClick_() {
+    if (this.isChildUser_) {
+      parental_controls.ParentalControlsBrowserProxyImpl.getInstance()
+          .launchFamilyLinkSettings();
     }
   },
 
@@ -421,5 +394,6 @@ Polymer({
     this.browserProxy_.removeAccount(
         /** @type {?settings.Account} */ (this.actionMenuAccount_));
     this.closeActionMenu_();
+    this.$$('#add-account-button').focus();
   },
 });

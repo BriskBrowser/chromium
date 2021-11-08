@@ -13,9 +13,12 @@ class WebState;
 
 @class BubblePresenter;
 @class ContentSuggestionsHeaderViewController;
+@protocol DiscoverFeedDelegate;
+@class DiscoverFeedMetricsRecorder;
 @protocol NewTabPageCommands;
 @protocol NewTabPageControllerDelegate;
 @class NTPHomeMediator;
+@protocol ThumbStripSupporting;
 @class ViewRevealingVerticalPanHandler;
 
 // Coordinator to manage the Suggestions UI via a
@@ -36,8 +39,9 @@ class WebState;
 @property(nonatomic, strong, readonly)
     UICollectionViewController* viewController;
 
-// The pan gesture handler for the view controller.
-@property(nonatomic, weak) ViewRevealingVerticalPanHandler* panGestureHandler;
+// Allows for the in-flight enabling/disabling of the thumb strip.
+@property(nonatomic, weak, readonly) id<ThumbStripSupporting>
+    thumbStripSupporting;
 
 // NTP Mediator used by this Coordinator.
 // TODO(crbug.com/1114792): Move all usage of this mediator to NTPCoordinator.
@@ -51,11 +55,15 @@ class WebState;
 // Bubble presenter for displaying IPH bubbles relating to the NTP.
 @property(nonatomic, strong) BubblePresenter* bubblePresenter;
 
+// Metrics recorder for the Discover feed events related to ContentSuggestions.
+@property(nonatomic, strong)
+    DiscoverFeedMetricsRecorder* discoverFeedMetricsRecorder;
+
+// Delegate used to communicate to communicate events to the DiscoverFeed.
+@property(nonatomic, weak) id<DiscoverFeedDelegate> discoverFeedDelegate;
+
 // Dismisses all modals owned by the NTP mediator.
 - (void)dismissModals;
-
-// Called when a snapshot of the content will be taken.
-- (void)willUpdateSnapshot;
 
 // Stop any scrolling in the scroll view.
 - (void)stopScrolling;
@@ -63,9 +71,6 @@ class WebState;
 // The content inset and offset of the scroll view.
 - (UIEdgeInsets)contentInset;
 - (CGPoint)contentOffset;
-
-// The current NTP view.
-- (UIView*)view;
 
 // Reloads the suggestions.
 - (void)reload;
@@ -79,9 +84,8 @@ class WebState;
 // Constrains the named layout guide for the Discover header menu button.
 - (void)constrainDiscoverHeaderMenuButtonNamedGuide;
 
-// YES if the Discover feed is currently visible.
-- (BOOL)isDiscoverFeedVisible;
-
+// Configure Content Suggestions if showing the Start Surface.
+- (void)configureStartSurfaceIfNeeded;
 @end
 
 #endif  // IOS_CHROME_BROWSER_UI_CONTENT_SUGGESTIONS_CONTENT_SUGGESTIONS_COORDINATOR_H_

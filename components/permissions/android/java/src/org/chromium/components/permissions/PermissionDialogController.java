@@ -16,6 +16,7 @@ import org.chromium.base.ObserverList;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.components.content_settings.ContentSettingValues;
 import org.chromium.components.content_settings.ContentSettingsType;
+import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
@@ -56,12 +57,13 @@ public class PermissionDialogController
     public interface Observer {
         /**
          * Notifies the observer that the user has just completed a permissions prompt.
+         * @param window The {@link WindowAndroid} for the prompt that just finished.
          * @param permissions An array of ContentSettingsType, indicating the last dialog
          *         permissions.
          * @param result A ContentSettingValues type, indicating the last dialog result.
          */
-        void onDialogResult(
-                @ContentSettingsType int[] permissions, @ContentSettingValues int result);
+        void onDialogResult(WindowAndroid window, @ContentSettingsType int[] permissions,
+                @ContentSettingValues int result);
     }
 
     private final ObserverList<Observer> mObservers;
@@ -230,8 +232,9 @@ public class PermissionDialogController
                         .with(ModalDialogProperties.TITLE,
                                 context.getString(R.string.overlay_detected_dialog_title,
                                         BuildInfo.getInstance().hostPackageLabel))
-                        .with(ModalDialogProperties.MESSAGE, context.getResources(),
-                                R.string.overlay_detected_dialog_message)
+                        .with(ModalDialogProperties.MESSAGE,
+                                context.getResources().getString(
+                                        R.string.overlay_detected_dialog_message))
                         .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, context.getResources(),
                                 R.string.cancel)
                         .with(ModalDialogProperties.NEGATIVE_BUTTON_TEXT, context.getResources(),
@@ -292,11 +295,12 @@ public class PermissionDialogController
             // schedule the next dialog.
             if (mState == State.PROMPT_DENIED) {
                 mDialogDelegate.onCancel();
+                destroyDelegate(ContentSettingValues.BLOCK);
             } else {
                 assert mState == State.PROMPT_OPEN;
                 mDialogDelegate.onDismiss();
+                destroyDelegate(ContentSettingValues.DEFAULT);
             }
-            destroyDelegate(ContentSettingValues.BLOCK);
             scheduleDisplay();
         }
     }
@@ -322,8 +326,10 @@ public class PermissionDialogController
 
     private void destroyDelegate(@ContentSettingValues int result) {
         if (result != ContentSettingValues.DEFAULT) {
+            WindowAndroid currentWindow = mDialogDelegate.getWindow();
             for (Observer obs : mObservers) {
-                obs.onDialogResult(mDialogDelegate.getContentSettingsTypes().clone(), result);
+                obs.onDialogResult(
+                        currentWindow, mDialogDelegate.getContentSettingsTypes().clone(), result);
             }
         }
         mDialogDelegate.destroy();

@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "base/synchronization/waitable_event.h"
@@ -145,6 +146,8 @@ class FakeOSUserManager : public OSUserManager {
     is_device_domain_joined_ = is_device_domain_joined;
   }
 
+  void FailFindUserBySID(const wchar_t* sid, int number_of_failures);
+
   struct UserInfo {
     UserInfo(const wchar_t* domain,
              const wchar_t* password,
@@ -215,6 +218,7 @@ class FakeOSUserManager : public OSUserManager {
   std::map<std::wstring, UserInfo> username_to_info_;
   bool is_device_domain_joined_ = false;
   std::map<FAILEDOPERATIONS, HRESULT> failure_reasons_;
+  std::map<std::wstring, int> to_be_failed_find_user_sids_;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

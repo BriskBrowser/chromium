@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "base/containers/circular_deque.h"
-#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "google_apis/gcm/base/gcm_export.h"
@@ -107,6 +106,10 @@ class GCM_EXPORT MCSClient {
             GCMStore* gcm_store,
             scoped_refptr<base::SequencedTaskRunner> io_task_runner,
             GCMStatsRecorder* recorder);
+
+  MCSClient(const MCSClient&) = delete;
+  MCSClient& operator=(const MCSClient&) = delete;
+
   virtual ~MCSClient();
 
   // Initialize the client. Will load any previous id/token information as well
@@ -313,8 +316,6 @@ class GCM_EXPORT MCSClient {
   GCMStatsRecorder* recorder_;
 
   base::WeakPtrFactory<MCSClient> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MCSClient);
 };
 
 } // namespace gcm

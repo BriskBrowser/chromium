@@ -13,7 +13,7 @@ namespace android {
 enum CustomTabsVisibilityHistogram {
   VISIBLE_CUSTOM_TAB,
   VISIBLE_CHROME_TAB,
-  CUSTOM_TABS_VISIBILITY_MAX
+  kMaxValue = VISIBLE_CHROME_TAB,
 };
 
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.flags
@@ -26,9 +26,25 @@ enum class ActivityType {
   kMaxValue = kWebApk,
 };
 
-CustomTabsVisibilityHistogram GetCustomTabsVisibleValue();
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.flags
+enum class DarkModeState {
+  kUnknown,
+  // Both system and browser are in dark mode.
+  kDarkModeSystem,
+  // Browser is in dark mode, system is not/cannot be determined.
+  kDarkModeApp,
+  // Both system and browser are in light mode.
+  kLightModeSystem,
+  // Browser is in light mode, system is not/cannot be determined.
+  kLightModeApp,
+  kMaxValue = kLightModeApp,
+};
+
+CustomTabsVisibilityHistogram GetCustomTabsVisibleValue(ActivityType type);
 
 ActivityType GetActivityType();
+
+DarkModeState GetDarkModeState();
 
 bool GetIsInMultiWindowModeValue();
 

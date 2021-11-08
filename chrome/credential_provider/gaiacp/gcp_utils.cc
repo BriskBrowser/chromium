@@ -11,24 +11,23 @@
 #include <winternl.h>
 
 #define _NTDEF_  // Prevent redefition errors, must come after <winternl.h>
-#include <ntsecapi.h>  // For LsaLookupAuthenticationPackage()
-#include <sddl.h>      // For ConvertSidToStringSid()
-#include <security.h>  // For NEGOSSP_NAME_A
-#include <wbemidl.h>
-
 #include <atlbase.h>
 #include <atlcom.h>
 #include <atlcomcli.h>
-
 #include <malloc.h>
 #include <memory.h>
+#include <ntsecapi.h>  // For LsaLookupAuthenticationPackage()
+#include <sddl.h>      // For ConvertSidToStringSid()
+#include <security.h>  // For NEGOSSP_NAME_A
 #include <stdlib.h>
+#include <wbemidl.h>
 
 #include <iomanip>
 #include <memory>
 
 #include "base/base64.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
@@ -38,7 +37,7 @@
 #include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
+#include "base/strings/string_number_conversions_win.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -84,16 +83,19 @@ bool g_use_test_chrome_path = false;
 base::FilePath g_test_chrome_path(L"");
 
 const wchar_t kKernelLibFile[] = L"kernel32.dll";
+const wchar_t kOsRegistryPath[] =
+    L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+const wchar_t kOsMajorName[] = L"CurrentMajorVersionNumber";
+const wchar_t kOsMinorName[] = L"CurrentMinorVersionNumber";
+const wchar_t kOsBuildName[] = L"CurrentBuildNumber";
 const int kVersionStringSize = 128;
 
 constexpr wchar_t kDefaultMdmUrl[] =
     L"https://deviceenrollmentforwindows.googleapis.com/v1/discovery";
 
 constexpr int kMaxNumConsecutiveUploadDeviceFailures = 3;
-const base::TimeDelta kMaxTimeDeltaSinceLastUserPolicyRefresh =
-    base::TimeDelta::FromDays(1);
-const base::TimeDelta kMaxTimeDeltaSinceLastExperimentsFetch =
-    base::TimeDelta::FromDays(1);
+const base::TimeDelta kMaxTimeDeltaSinceLastUserPolicyRefresh = base::Days(1);
+const base::TimeDelta kMaxTimeDeltaSinceLastExperimentsFetch = base::Days(1);
 
 // Path elements for the path where the experiments are stored on disk.
 const wchar_t kGcpwExperimentsDirectory[] = L"Experiments";
@@ -468,8 +470,8 @@ HRESULT WaitForProcess(base::win::ScopedHandle::Handle process_handle,
       }
       case WAIT_FAILED:
       default: {
-        HRESULT hr = HRESULT_FROM_WIN32(::GetLastError());
-        LOGFN(ERROR) << "WaitForMultipleObjectsEx hr=" << putHR(hr);
+        HRESULT last_error_hr = HRESULT_FROM_WIN32(::GetLastError());
+        LOGFN(ERROR) << "WaitForMultipleObjectsEx hr=" << putHR(last_error_hr);
         is_done = true;
         break;
       }
@@ -712,7 +714,7 @@ HRESULT GetEntryPointArgumentForRunDll(HINSTANCE dll_handle,
   short_length =
       ::GetShortPathName(path_to_dll.value().c_str(), short_path, short_length);
   if (short_length >= base::size(short_path)) {
-    HRESULT hr = HRESULT_FROM_WIN32(::GetLastError());
+    hr = HRESULT_FROM_WIN32(::GetLastError());
     LOGFN(ERROR) << "GetShortPathNameW hr=" << putHR(hr);
     return hr;
   }
@@ -930,11 +932,11 @@ std::wstring GetSelectedLanguage() {
   return GetLanguageSelector().matched_candidate();
 }
 
-void SecurelyClearDictionaryValue(base::Optional<base::Value>* value) {
+void SecurelyClearDictionaryValue(absl::optional<base::Value>* value) {
   SecurelyClearDictionaryValueWithKey(value, kKeyPassword);
 }
 
-void SecurelyClearDictionaryValueWithKey(base::Optional<base::Value>* value,
+void SecurelyClearDictionaryValueWithKey(absl::optional<base::Value>* value,
                                          const std::string& password_key) {
   if (!value || !(*value) || !((*value)->is_dict()))
     return;
@@ -966,7 +968,7 @@ std::string SearchForKeyInStringDictUTF8(
     const std::initializer_list<base::StringPiece>& path) {
   DCHECK(path.size() > 0);
 
-  base::Optional<base::Value> json_obj =
+  absl::optional<base::Value> json_obj =
       base::JSONReader::Read(json_string, base::JSON_ALLOW_TRAILING_COMMAS);
   if (!json_obj || !json_obj->is_dict()) {
     LOGFN(ERROR) << "base::JSONReader::Read failed to translate to JSON";
@@ -1004,7 +1006,7 @@ HRESULT SearchForListInStringDictUTF8(
     std::vector<std::string>* output) {
   DCHECK(path.size() > 0);
 
-  base::Optional<base::Value> json_obj =
+  absl::optional<base::Value> json_obj =
       base::JSONReader::Read(json_string, base::JSON_ALLOW_TRAILING_COMMAS);
   if (!json_obj || !json_obj->is_dict()) {
     LOGFN(ERROR) << "base::JSONReader::Read failed to translate to JSON";
@@ -1015,8 +1017,7 @@ HRESULT SearchForListInStringDictUTF8(
   if (value && value->is_list()) {
     for (const base::Value& entry : value->GetList()) {
       if (entry.FindKey(list_key) && entry.FindKey(list_key)->is_string()) {
-        std::string value = entry.FindKey(list_key)->GetString();
-        output->push_back(value);
+        output->push_back(entry.FindKey(list_key)->GetString());
       } else {
         return E_FAIL;
       }
@@ -1119,15 +1120,7 @@ std::vector<std::string> GetMacAddresses() {
   return mac_addresses;
 }
 
-// The current solution is based on the version of the "kernel32.dll" file. A
-// cleaner alternative would be to use the GetVersionEx API. However, since
-// Windows 8.1 the values returned by that API are dependent on how
-// the application is manifested, and might not be the actual OS version.
-void GetOsVersion(std::string* version) {
-  if (g_use_test_os_version) {
-    *version = g_test_os_version;
-    return;
-  }
+void GetOsVersionFallback(std::string* version) {
   int buffer_size = GetFileVersionInfoSize(kKernelLibFile, nullptr);
   if (buffer_size) {
     std::vector<wchar_t> buffer(buffer_size, 0);
@@ -1148,6 +1141,45 @@ void GetOsVersion(std::string* version) {
       }
     }
   }
+}
+
+// The current solution is based on registries or the version of the
+// "kernel32.dll" file. A cleaner alternative would be to use the GetVersionEx
+// API. However, since Windows 8.1 the values returned by that API are dependent
+// on how the application is manifested, and might not be the actual OS version.
+// The format of the OS version is <Major>.<Minor>.<BuildNumber>. Eg: 10.0.18363
+void GetOsVersion(std::string* version) {
+  if (g_use_test_os_version) {
+    *version = g_test_os_version;
+    return;
+  }
+
+  // Fetching Windows version from registries.
+  // https://stackoverflow.com/questions/32729244
+  // https://stackoverflow.com/questions/31072543
+  DWORD major;
+  DWORD minor;
+  wchar_t build[32];
+  ULONG length = base::size(build);
+
+  HRESULT hr1 = GetMachineRegDWORD(kOsRegistryPath, kOsMajorName, &major);
+  HRESULT hr2 = GetMachineRegDWORD(kOsRegistryPath, kOsMinorName, &minor);
+  HRESULT hr3 =
+      GetMachineRegString(kOsRegistryPath, kOsBuildName, build, &length);
+
+  if (SUCCEEDED(hr1) && SUCCEEDED(hr2) && SUCCEEDED(hr3)) {
+    char version_buffer[kVersionStringSize];
+    snprintf(version_buffer, kVersionStringSize, "%lu.%lu.%ls", major, minor,
+             build);
+    *version = version_buffer;
+    return;
+  }
+  LOGFN(ERROR) << "Error while fetching Os version hr=" << hr1 << "," << hr2
+               << "," << hr3;
+
+  // Try getting the version from kernel.dll in case there is a issue with
+  // getting OS version from registries.
+  GetOsVersionFallback(version);
 }
 
 HRESULT GenerateDeviceId(std::string* device_id) {
@@ -1337,7 +1369,7 @@ base::TimeDelta GetTimeDeltaSinceLastFetch(const std::wstring& sid,
       base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds() -
       last_fetch_millis_int64;
 
-  return base::TimeDelta::FromMilliseconds(time_delta_from_last_fetch_ms);
+  return base::Milliseconds(time_delta_from_last_fetch_ms);
 }
 
 }  // namespace credential_provider

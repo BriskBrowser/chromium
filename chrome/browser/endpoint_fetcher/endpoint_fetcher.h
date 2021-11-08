@@ -91,16 +91,36 @@ class EndpointFetcher {
       const scoped_refptr<network::SharedURLLoaderFactory>& url_loader_factory,
       signin::IdentityManager* const identity_manager);
 
+  // This Constructor can be used in a background thread.
+  EndpointFetcher(
+      const GURL& url,
+      const std::string& http_method,
+      const std::string& content_type,
+      int64_t timeout_ms,
+      const std::string& post_data,
+      const std::vector<std::string>& headers,
+      const std::vector<std::string>& cors_exempt_headers,
+      const net::NetworkTrafficAnnotationTag& annotation_tag,
+      const scoped_refptr<network::SharedURLLoaderFactory>& url_loader_factory,
+      const bool is_oauth_fetch);
+
   EndpointFetcher(const EndpointFetcher& endpoint_fetcher) = delete;
 
   EndpointFetcher& operator=(const EndpointFetcher& endpoint_fetcher) = delete;
 
-  ~EndpointFetcher();
+  virtual ~EndpointFetcher();
 
   // TODO(crbug.com/999256) enable cancellation support
   void Fetch(EndpointFetcherCallback callback);
-  void PerformRequest(EndpointFetcherCallback endpoint_fetcher_callback,
-                      const char* key);
+  virtual void PerformRequest(EndpointFetcherCallback endpoint_fetcher_callback,
+                              const char* key);
+
+  std::string GetUrlForTesting();
+
+ protected:
+  // Used for Mock only. see MockEndpointFetcher class.
+  explicit EndpointFetcher(
+      const net::NetworkTrafficAnnotationTag& annotation_tag);
 
  private:
   void OnAuthTokenFetched(EndpointFetcherCallback callback,
@@ -123,6 +143,7 @@ class EndpointFetcher {
   int64_t timeout_ms_;
   const std::string post_data_;
   const std::vector<std::string> headers_;
+  const std::vector<std::string> cors_exempt_headers_;
   const net::NetworkTrafficAnnotationTag annotation_tag_;
   signin::ScopeSet oauth_scopes_;
 

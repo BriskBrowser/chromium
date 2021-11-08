@@ -22,16 +22,14 @@ namespace {
 
 base::android::ScopedJavaLocalRef<jobject> CreateJavaWindow(
     jlong native_window,
-    bool is_headless,
     bool enable_touch_input,
     bool is_remote_control_mode,
     bool turn_on_screen,
     const std::string& session_id) {
   JNIEnv* env = base::android::AttachCurrentThread();
   return Java_CastContentWindowAndroid_create(
-      env, native_window, is_headless, enable_touch_input,
-      is_remote_control_mode, turn_on_screen,
-      ConvertUTF8ToJavaString(env, session_id));
+      env, native_window, enable_touch_input, is_remote_control_mode,
+      turn_on_screen, ConvertUTF8ToJavaString(env, session_id));
 }
 
 constexpr char kContextInteractionId[] = "interactionId";
@@ -76,39 +74,37 @@ class GestureConsumedCallbackWrapper {
 }  // namespace
 
 CastContentWindowAndroid::CastContentWindowAndroid(
-    const CastContentWindow::CreateParams& params)
-    : CastContentWindow(params),
-      activity_id_(delegate_->GetId()),
+    mojom::CastWebViewParamsPtr params)
+    : CastContentWindow(std::move(params)),
       web_contents_attached_(false),
       java_window_(CreateJavaWindow(reinterpret_cast<jlong>(this),
-                                    params.is_headless,
-                                    params.enable_touch_input,
-                                    params.is_remote_control_mode,
-                                    params.turn_on_screen,
-                                    params.session_id)) {}
+                                    params_->enable_touch_input,
+                                    params_->is_remote_control_mode,
+                                    params_->turn_on_screen,
+                                    params_->session_id)) {}
 
 CastContentWindowAndroid::~CastContentWindowAndroid() {
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_CastContentWindowAndroid_onNativeDestroyed(env, java_window_);
 }
 
-void CastContentWindowAndroid::CreateWindowForWebContents(
-    CastWebContents* cast_web_contents,
+void CastContentWindowAndroid::CreateWindow(
     mojom::ZOrder /* z_order */,
     VisibilityPriority visibility_priority) {
-  DCHECK(cast_web_contents);
   if (web_contents_attached_) {
     RequestVisibility(visibility_priority);
     return;
   }
   JNIEnv* env = base::android::AttachCurrentThread();
   base::android::ScopedJavaLocalRef<jobject> java_web_contents =
-      cast_web_contents->web_contents()->GetJavaWebContents();
+      cast_web_contents()->web_contents()->GetJavaWebContents();
 
   Java_CastContentWindowAndroid_createWindowForWebContents(
       env, java_window_, java_web_contents,
+      ConvertUTF8ToJavaString(env, params_->activity_id),
       static_cast<int>(visibility_priority));
   web_contents_attached_ = true;
+  cast_web_contents()->web_contents()->Focus();
 }
 
 void CastContentWindowAndroid::GrantScreenAccess() {
@@ -130,8 +126,8 @@ void CastContentWindowAndroid::EnableTouchInput(bool enabled) {
 void CastContentWindowAndroid::OnActivityStopped(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jcaller) {
-  if (delegate_) {
-    delegate_->OnWindowDestroyed();
+  for (auto& observer : observers_) {
+    observer->OnWindowDestroyed();
   }
 }
 
@@ -162,11 +158,8 @@ void CastContentWindowAndroid::SetHostContext(base::Value host_context) {
 
 void CastContentWindowAndroid::NotifyVisibilityChange(
     VisibilityType visibility_type) {
-  if (delegate_) {
-    delegate_->OnVisibilityChange(visibility_type);
-  }
-  for (auto& observer : observer_list_) {
-    observer.OnVisibilityChange(visibility_type);
+  for (auto& observer : observers_) {
+    observer->OnVisibilityChange(visibility_type);
   }
 }
 
@@ -182,8 +175,8 @@ void CastContentWindowAndroid::ConsumeGesture(
     const base::android::JavaParamRef<jobject>& callback) {
   auto wrapper =
       std::make_unique<GestureConsumedCallbackWrapper>(env, callback);
-  if (delegate_) {
-    delegate_->ConsumeGesture(
+  if (gesture_router()) {
+    gesture_router()->ConsumeGesture(
         static_cast<GestureType>(gesture_type),
         base::BindOnce(&GestureConsumedCallbackWrapper::Invoke,
                        std::move(wrapper)));
@@ -197,12 +190,6 @@ void CastContentWindowAndroid::OnVisibilityChange(
     const base::android::JavaParamRef<jobject>& jcaller,
     int visibility_type) {
   NotifyVisibilityChange(static_cast<VisibilityType>(visibility_type));
-}
-
-base::android::ScopedJavaLocalRef<jstring> CastContentWindowAndroid::GetId(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& jcaller) {
-  return ConvertUTF8ToJavaString(env, activity_id_);
 }
 
 }  // namespace chromecast

@@ -79,6 +79,21 @@ TestWidgetBuilder& TestWidgetBuilder::SetContext(aura::Window* context) {
   return *this;
 }
 
+TestWidgetBuilder& TestWidgetBuilder::SetActivatable(bool activatable) {
+  DCHECK(!built_);
+  widget_init_params_.activatable =
+      activatable ? views::Widget::InitParams::Activatable::kYes
+                  : views::Widget::InitParams::Activatable::kNo;
+  return *this;
+}
+
+TestWidgetBuilder& TestWidgetBuilder::SetShowState(
+    ui::WindowShowState show_state) {
+  DCHECK(!built_);
+  widget_init_params_.show_state = show_state;
+  return *this;
+}
+
 TestWidgetBuilder& TestWidgetBuilder::SetWindowId(int window_id) {
   DCHECK(!built_);
   window_id_ = window_id;
@@ -105,7 +120,7 @@ std::unique_ptr<views::Widget> TestWidgetBuilder::BuildOwnsNativeWidget() {
       views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   widget->Init(std::move(widget_init_params_));
   if (window_id_ != aura::Window::kInitialId)
-    widget->GetNativeWindow()->set_id(window_id_);
+    widget->GetNativeWindow()->SetId(window_id_);
   if (show_)
     widget->Show();
   return widget;
@@ -120,7 +135,7 @@ views::Widget* TestWidgetBuilder::BuildOwnedByNativeWidget() {
       views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET;
   widget->Init(std::move(widget_init_params_));
   if (window_id_ != aura::Window::kInitialId)
-    widget->GetNativeWindow()->set_id(window_id_);
+    widget->GetNativeWindow()->SetId(window_id_);
   if (show_)
     widget->Show();
   return widget;

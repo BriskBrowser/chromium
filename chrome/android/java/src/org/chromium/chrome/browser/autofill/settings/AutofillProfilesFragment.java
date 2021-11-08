@@ -25,7 +25,6 @@ import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorDialog;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorObserverForTest;
-import org.chromium.chrome.browser.payments.AddressEditor;
 import org.chromium.chrome.browser.payments.AutofillAddress;
 import org.chromium.chrome.browser.payments.SettingsAutofillAndPaymentsObserver;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -173,10 +172,13 @@ public class AutofillProfilesFragment extends PreferenceFragmentCompat
             String guid = ((AutofillProfileEditorPreference) preference).getGUID();
             EditorDialog editorDialog = prepareEditorDialog(guid);
             mLastEditorDialogForTest = editorDialog;
-            AutofillAddress autofillAddress = guid == null
-                    ? null
-                    : new AutofillAddress(
-                            getActivity(), PersonalDataManager.getInstance().getProfile(guid));
+            AutofillAddress autofillAddress = null;
+            if (guid != null) {
+                AutofillProfile profile = PersonalDataManager.getInstance().getProfile(guid);
+                if (profile != null) {
+                    autofillAddress = new AutofillAddress(getActivity(), profile);
+                }
+            }
             editAddress(editorDialog, autofillAddress);
             return;
         }

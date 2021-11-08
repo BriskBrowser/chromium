@@ -17,6 +17,12 @@ PrintManager::PrintManager(content::WebContents* contents)
 
 PrintManager::~PrintManager() = default;
 
+void PrintManager::BindReceiver(
+    mojo::PendingAssociatedReceiver<mojom::PrintManagerHost> receiver,
+    content::RenderFrameHost* rfh) {
+  print_manager_host_receivers_.Bind(rfh, std::move(receiver));
+}
+
 void PrintManager::RenderFrameDeleted(
     content::RenderFrameHost* render_frame_host) {
   print_render_frames_.erase(render_frame_host);
@@ -29,24 +35,6 @@ void PrintManager::DidGetPrintedPagesCount(int32_t cookie,
   number_pages_ = number_pages;
 }
 
-void PrintManager::DidGetDocumentCookie(int32_t cookie) {
-  cookie_ = cookie;
-}
-
-#if BUILDFLAG(ENABLE_TAGGED_PDF)
-void PrintManager::SetAccessibilityTree(
-    int32_t cookie,
-    const ui::AXTreeUpdate& accessibility_tree) {}
-#endif
-
-void PrintManager::UpdatePrintSettings(int32_t cookie,
-                                       base::Value job_settings,
-                                       UpdatePrintSettingsCallback callback) {
-  auto params = mojom::PrintPagesParams::New();
-  params->params = mojom::PrintParams::New();
-  std::move(callback).Run(std::move(params), false);
-}
-
 void PrintManager::DidShowPrintDialog() {}
 
 void PrintManager::DidPrintDocument(mojom::DidPrintDocumentParamsPtr params,
@@ -57,37 +45,21 @@ void PrintManager::DidPrintDocument(mojom::DidPrintDocumentParamsPtr params,
 void PrintManager::ShowInvalidPrinterSettingsError() {}
 
 void PrintManager::PrintingFailed(int32_t cookie) {
-  if (cookie != cookie_) {
-    NOTREACHED();
+  // Note: Not redundant with cookie checks in the same method in other parts of
+  // the class hierarchy.
+  if (!IsValidCookie(cookie))
     return;
-  }
+
 #if defined(OS_ANDROID)
   PdfWritingDone(0);
 #endif
 }
 
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-void PrintManager::SetupScriptedPrintPreview(
-    SetupScriptedPrintPreviewCallback callback) {
-  std::move(callback).Run();
-}
-
-void PrintManager::ShowScriptedPrintPreview(bool source_is_modifiable) {}
-
-void PrintManager::RequestPrintPreview(
-    mojom::RequestPrintPreviewParamsPtr params) {}
-
-void PrintManager::CheckForCancel(int32_t preview_ui_id,
-                                  int32_t request_id,
-                                  CheckForCancelCallback callback) {}
-#endif
-
-bool PrintManager::IsPrintRenderFrameConnected(content::RenderFrameHost* rfh) {
+bool PrintManager::IsPrintRenderFrameConnected(
+    content::RenderFrameHost* rfh) const {
   auto it = print_render_frames_.find(rfh);
-  if (it == print_render_frames_.end())
-    return false;
-
-  return it->second.is_bound() && it->second.is_connected();
+  return it != print_render_frames_.end() && it->second.is_bound() &&
+         it->second.is_connected();
 }
 
 const mojo::AssociatedRemote<printing::mojom::PrintRenderFrame>&
@@ -107,10 +79,18 @@ PrintManager::GetPrintRenderFrame(content::RenderFrameHost* rfh) {
   return it->second;
 }
 
+content::RenderFrameHost* PrintManager::GetCurrentTargetFrame() {
+  return print_manager_host_receivers_.GetCurrentTargetFrame();
+}
+
 void PrintManager::PrintingRenderFrameDeleted() {
 #if defined(OS_ANDROID)
   PdfWritingDone(0);
 #endif
+}
+
+bool PrintManager::IsValidCookie(int cookie) const {
+  return cookie > 0 && cookie == cookie_;
 }
 
 }  // namespace printing

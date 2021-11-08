@@ -10,6 +10,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "gpu/ipc/service/gpu_ipc_service_export.h"
 #include "ui/gfx/geometry/size.h"
@@ -25,6 +26,9 @@ class ImageFactory;
 
 class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactory {
  public:
+  GpuMemoryBufferFactory(const GpuMemoryBufferFactory&) = delete;
+  GpuMemoryBufferFactory& operator=(const GpuMemoryBufferFactory&) = delete;
+
   virtual ~GpuMemoryBufferFactory() = default;
 
   // Creates a new factory instance for native GPU memory buffers. Returns null
@@ -67,14 +71,16 @@ class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactory {
   virtual void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
                                       int client_id) = 0;
 
+  // Fills |shared_memory| with the contents of the provided |buffer_handle|
+  virtual bool FillSharedMemoryRegionWithBufferContents(
+      gfx::GpuMemoryBufferHandle buffer_handle,
+      base::UnsafeSharedMemoryRegion shared_memory) = 0;
+
   // Type-checking downcast routine.
   virtual ImageFactory* AsImageFactory() = 0;
 
  protected:
   GpuMemoryBufferFactory() = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GpuMemoryBufferFactory);
 };
 
 }  // namespace gpu

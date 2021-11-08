@@ -15,12 +15,15 @@
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/console_message_storage.h"
+#include "third_party/blink/renderer/core/inspector/inspector_audits_issue.h"
 #include "third_party/blink/renderer/core/inspector/inspector_issue_storage.h"
 #include "third_party/blink/renderer/core/inspector/main_thread_debugger.h"
 #include "third_party/blink/renderer/core/inspector/worker_thread_debugger.h"
+#include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
@@ -99,7 +102,11 @@ WorkletGlobalScope::WorkletGlobalScope(
       worker_thread_(worker_thread),
       // Worklets should always have a parent LocalFrameToken.
       frame_token_(
-          creation_params->parent_context_token->GetAs<LocalFrameToken>()) {
+          creation_params->parent_context_token->GetAs<LocalFrameToken>()),
+      parent_cross_origin_isolated_capability_(
+          creation_params->parent_cross_origin_isolated_capability),
+      parent_direct_socket_capability_(
+          creation_params->parent_direct_socket_capability) {
   DCHECK((thread_type_ == ThreadType::kMainThread && frame_) ||
          (thread_type_ == ThreadType::kOffMainThread && worker_thread_));
 
@@ -128,6 +135,12 @@ WorkletGlobalScope::WorkletGlobalScope(
 
   // WorkletGlobalScopes are not currently provided with UKM source IDs.
   DCHECK_EQ(creation_params->ukm_source_id, ukm::kInvalidSourceId);
+
+  if (creation_params->code_cache_host_interface.is_valid()) {
+    code_cache_host_ =
+        std::make_unique<CodeCacheHost>(mojo::Remote<mojom::CodeCacheHost>(
+            std::move(creation_params->code_cache_host_interface)));
+  }
 }
 
 WorkletGlobalScope::~WorkletGlobalScope() = default;
@@ -179,6 +192,15 @@ void WorkletGlobalScope::AddInspectorIssue(
   }
 }
 
+void WorkletGlobalScope::AddInspectorIssue(AuditsIssue issue) {
+  if (IsMainThreadWorkletGlobalScope()) {
+    frame_->DomWindow()->AddInspectorIssue(std::move(issue));
+  } else {
+    worker_thread_->GetInspectorIssueStorage()->AddInspectorIssue(
+        this, std::move(issue));
+  }
+}
+
 void WorkletGlobalScope::ExceptionThrown(ErrorEvent* error_event) {
   if (IsMainThreadWorkletGlobalScope()) {
     MainThreadDebugger::Instance()->ExceptionThrown(this, error_event);
@@ -206,6 +228,14 @@ const base::UnguessableToken& WorkletGlobalScope::GetDevToolsToken() const {
     return frame_->GetDevToolsFrameToken();
   }
   return GetThread()->GetDevToolsWorkerToken();
+}
+
+CodeCacheHost* WorkletGlobalScope::GetCodeCacheHost() {
+  if (IsMainThreadWorkletGlobalScope())
+    return frame_->Loader().GetDocumentLoader()->GetCodeCacheHost();
+  if (!code_cache_host_)
+    return nullptr;
+  return code_cache_host_.get();
 }
 
 CoreProbeSink* WorkletGlobalScope::GetProbeSink() {
@@ -276,6 +306,14 @@ KURL WorkletGlobalScope::CompleteURL(const String& url) const {
     return KURL();
   // Always use UTF-8 in Worklets.
   return KURL(BaseURL(), url);
+}
+
+bool WorkletGlobalScope::CrossOriginIsolatedCapability() const {
+  return parent_cross_origin_isolated_capability_;
+}
+
+bool WorkletGlobalScope::DirectSocketCapability() const {
+  return parent_direct_socket_capability_;
 }
 
 ukm::UkmRecorder* WorkletGlobalScope::UkmRecorder() {

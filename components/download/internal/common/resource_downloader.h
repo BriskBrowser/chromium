@@ -75,6 +75,10 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const URLSecurityPolicy& url_security_policy,
       mojo::PendingRemote<device::mojom::WakeLockProvider> wake_lock_provider);
+
+  ResourceDownloader(const ResourceDownloader&) = delete;
+  ResourceDownloader& operator=(const ResourceDownloader&) = delete;
+
   ~ResourceDownloader() override;
 
   // DownloadResponseHandler::Delegate
@@ -149,7 +153,7 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
   GURL tab_referrer_url_;
 
   // URLLoader status when intercepting the navigation request.
-  base::Optional<network::URLLoaderCompletionStatus> url_loader_status_;
+  absl::optional<network::URLLoaderCompletionStatus> url_loader_status_;
 
   // TaskRunner to post callbacks to the |delegate_|
   scoped_refptr<base::SingleThreadTaskRunner> delegate_task_runner_;
@@ -167,8 +171,6 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
   // system enters power saving mode while a download is alive, it can cause
   // download to be interrupted.
   mojo::Remote<device::mojom::WakeLock> wake_lock_;
-
-  DISALLOW_COPY_AND_ASSIGN(ResourceDownloader);
 };
 
 }  // namespace download

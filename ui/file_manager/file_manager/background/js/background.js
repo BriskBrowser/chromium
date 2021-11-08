@@ -2,39 +2,39 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import {VolumeInfo} from '../../../externs/volume_info.m.js';
-// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
-// #import {Crostini} from '../../../externs/background/crostini.m.js';
-// #import {FileBrowserBackgroundFull} from '../../../externs/background/file_browser_background_full.m.js';
-// #import {mediaImportInterfaces} from '../../../externs/background/media_import_handler.m.js';
-// #import {mediaScannerInterfaces} from '../../../externs/background/media_scanner.m.js';
-// #import {duplicateFinderInterfaces} from '../../../externs/background/duplicate_finder.m.js';
-// #import {DriveSyncHandler} from '../../../externs/background/drive_sync_handler.m.js';
-// #import {importerHistoryInterfaces} from '../../../externs/background/import_history.m.js';
-// #import {FileOperationManager} from '../../../externs/background/file_operation_manager.m.js';
-// #import {ProgressCenter} from '../../../externs/background/progress_center.m.js';
-// #import {util, str} from '../../common/js/util.m.js';
-// #import {metrics} from '../../common/js/metrics.m.js';
-// #import {fileOperationUtil} from './file_operation_util.m.js';
-// #import {launcher, LaunchType, nextFileManagerWindowID, FILES_ID_PATTERN} from './launcher.m.js';
-// #import {FileOperationHandler} from './file_operation_handler.m.js';
-// #import {FileOperationManagerImpl} from './file_operation_manager.m.js';
-// #import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
-// #import {volumeManagerFactory} from './volume_manager_factory.m.js';
-// #import {LauncherSearch} from './launcher_search.m.js';
-// #import {MountMetrics} from './mount_metrics.m.js';
-// #import {CrostiniImpl} from './crostini.m.js';
-// #import {mediaImport} from './media_import_handler.m.js';
-// #import {mediaScanner} from './media_scanner.m.js';
-// #import {duplicateFinder} from './duplicate_finder.m.js';
-// #import {DriveSyncHandlerImpl} from './drive_sync_handler.m.js';
-// #import {DeviceHandler} from './device_handler.m.js';
-// #import {importer} from '../../common/js/importer_common.m.js';
-// #import {importerHistory} from './import_history.m.js';
-// #import {ProgressCenterImpl} from './progress_center.m.js';
-// #import {BackgroundBaseImpl} from './background_base.m.js';
-// clang-format on
+import {FilesAppState} from '../../common/js/files_app_state.js';
+import {importer} from '../../common/js/importer_common.js';
+import {metrics} from '../../common/js/metrics.js';
+import {str, util} from '../../common/js/util.js';
+import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
+import {xfm} from '../../common/js/xfm.js';
+import {Crostini} from '../../externs/background/crostini.js';
+import {DriveSyncHandler} from '../../externs/background/drive_sync_handler.js';
+import {duplicateFinderInterfaces} from '../../externs/background/duplicate_finder.js';
+import {FileBrowserBackgroundFull} from '../../externs/background/file_browser_background_full.js';
+import {FileOperationManager} from '../../externs/background/file_operation_manager.js';
+import {importerHistoryInterfaces} from '../../externs/background/import_history.js';
+import {mediaImportInterfaces} from '../../externs/background/media_import_handler.js';
+import {mediaScannerInterfaces} from '../../externs/background/media_scanner.js';
+import {ProgressCenter} from '../../externs/background/progress_center.js';
+import {VolumeInfo} from '../../externs/volume_info.js';
+import {VolumeManager} from '../../externs/volume_manager.js';
+
+import {BackgroundBaseImpl} from './background_base.js';
+import {CrostiniImpl} from './crostini.js';
+import {DeviceHandler} from './device_handler.js';
+import {DriveSyncHandlerImpl} from './drive_sync_handler.js';
+import {duplicateFinder} from './duplicate_finder.js';
+import {FileOperationHandler} from './file_operation_handler.js';
+import {FileOperationManagerImpl} from './file_operation_manager.js';
+import {fileOperationUtil} from './file_operation_util.js';
+import {importerHistory} from './import_history.js';
+import {FILES_ID_PATTERN, launcher, LaunchType, nextFileManagerWindowID} from './launcher.js';
+import {mediaImport} from './media_import_handler.js';
+import {mediaScanner} from './media_scanner.js';
+import {MountMetrics} from './mount_metrics.js';
+import {ProgressCenterImpl} from './progress_center.js';
+import {volumeManagerFactory} from './volume_manager_factory.js';
 
 /**
  * Root class of the background page.
@@ -125,12 +125,6 @@ class FileBrowserBackgroundImpl extends BackgroundBaseImpl {
      */
     this.stringData = null;
 
-    /**
-     * Provides drive search to app launcher.
-     * @private {!LauncherSearch}
-     */
-    this.launcherSearch_ = new LauncherSearch();
-
     if (!window.isSWA) {
       // Initialize listener for importer.handlePhotosAppMessage messages to
       // the files app back-end. FIXME: Files SWA needs to support photos
@@ -143,22 +137,22 @@ class FileBrowserBackgroundImpl extends BackgroundBaseImpl {
           this.onContextMenuClicked_.bind(this));
     }
 
-    chrome.contextMenus.onClicked.addListener(
-        this.onContextMenuClicked_.bind(this));
-
     // Initialize string and volume manager related stuffs.
     this.initializationPromise_.then(strings => {
       this.stringData = strings;
       this.initContextMenu_();
       this.crostini.initEnabled();
 
+      // Force disable of system notifications if the SWA feature flag is on.
+      if (!window.isSWA && util.isSwaEnabled()) {
+        xfm.notifications.setSystemNotificationEnabled(false);
+      }
       volumeManagerFactory.getInstance().then(volumeManager => {
         volumeManager.addEventListener(
             VolumeManagerCommon.VOLUME_ALREADY_MOUNTED,
             this.handleViewEvent_.bind(this));
 
         this.crostini.initVolumeManager(volumeManager);
-        this.crostini.listen();
       });
 
       this.fileOperationManager = new FileOperationManagerImpl();
@@ -211,12 +205,12 @@ class FileBrowserBackgroundImpl extends BackgroundBaseImpl {
   /**
    * Launches a new File Manager window.
    *
-   * @param {Object=} opt_appState App state.
+   * @param {!FilesAppState=} appState App state.
    * @return {!Promise<chrome.app.window.AppWindow|string>} Resolved with the
    *     App ID.
    */
-  async launchFileManager(opt_appState) {
-    return launcher.launchFileManager(opt_appState);
+  async launchFileManager(appState = {}) {
+    return launcher.launchFileManager(appState);
   }
 
   /**
@@ -379,7 +373,7 @@ class FileBrowserBackgroundImpl extends BackgroundBaseImpl {
    * @private
    * @override
    */
-  onLaunched_(launchData) {
+  async onLaunched_(launchData) {
     metrics.startInterval('Load.BackgroundLaunch');
     if (!launchData || !launchData.items || launchData.items.length == 0) {
       this.launch_(undefined);
@@ -397,11 +391,11 @@ class FileBrowserBackgroundImpl extends BackgroundBaseImpl {
     return this.initializationPromise_.then(() => {
       if (nextFileManagerWindowID == 0) {
         // The app just launched. Remove unneeded window state records.
-        chrome.storage.local.get(items => {
+        xfm.storage.local.get(null, items => {
           for (const key in items) {
             if (items.hasOwnProperty(key)) {
               if (key.match(FILES_ID_PATTERN)) {
-                chrome.storage.local.remove(key);
+                xfm.storage.local.remove(key);
               }
             }
           }
@@ -438,7 +432,7 @@ class FileBrowserBackgroundImpl extends BackgroundBaseImpl {
    */
   onRestarted_() {
     // Reopen file manager windows.
-    chrome.storage.local.get(items => {
+    xfm.storage.local.get(items => {
       for (const key in items) {
         if (items.hasOwnProperty(key)) {
           const match = key.match(FILES_ID_PATTERN);
@@ -446,7 +440,8 @@ class FileBrowserBackgroundImpl extends BackgroundBaseImpl {
             metrics.startInterval('Load.BackgroundRestart');
             const id = Number(match[1]);
             try {
-              const appState = /** @type {Object} */ (JSON.parse(items[key]));
+              const appState =
+                  /** @type {!FilesAppState} */ (JSON.parse(items[key]));
               launcher.launchFileManager(appState, id, undefined).then(() => {
                 metrics.recordInterval('Load.BackgroundRestart');
               });
@@ -589,7 +584,6 @@ const DIALOG_ID_PREFIX = 'dialog#';
  */
 let nextFileManagerDialogID = 0;
 
-
 /** @const {!string} */
 const GPLUS_PHOTOS_APP_ORIGIN =
     'chrome-extension://efjnaogkjbogokcnohkmnjdojkikgobo';
@@ -598,7 +592,7 @@ const GPLUS_PHOTOS_APP_ORIGIN =
  * Singleton instance of Background object.
  * @type {!FileBrowserBackgroundFull}
  */
-/* #export */ const background = new FileBrowserBackgroundImpl();
+export const background = new FileBrowserBackgroundImpl();
 window.background = background;
 
 /**

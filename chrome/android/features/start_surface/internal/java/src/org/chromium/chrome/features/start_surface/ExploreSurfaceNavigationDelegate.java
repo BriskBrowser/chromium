@@ -6,12 +6,12 @@ package org.chromium.chrome.features.start_surface;
 
 import androidx.annotation.Nullable;
 
+import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.native_page.NativePageNavigationDelegate;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tasks.ReturnToChromeExperimentsUtil;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.mojom.WindowOpenDisposition;
 
 /** Implementation of the {@link NativePageNavigationDelegate} for the explore surface. */
@@ -32,19 +32,20 @@ class ExploreSurfaceNavigationDelegate implements NativePageNavigationDelegate {
     @Override
     @Nullable
     public Tab openUrl(int windowOpenDisposition, LoadUrlParams loadUrlParams) {
-        // TODO(crbug.com/1159879): Set PageTransition.AUTO_BOOKMARK here.
-        boolean result = ReturnToChromeExperimentsUtil.willHandleLoadUrlFromStartSurface(
-                loadUrlParams.getUrl(), PageTransition.AUTO_TOPLEVEL,
+        Tab newTab = ReturnToChromeExperimentsUtil.handleLoadUrlFromStartSurface(loadUrlParams,
                 windowOpenDisposition == WindowOpenDisposition.OFF_THE_RECORD,
                 mParentTabSupplier.get());
-        assert result;
-        return null;
+        assert newTab != null;
+        RecordUserAction.record("ContentSuggestions.Feed.CardAction.Open.StartSurface");
+        return newTab;
     }
 
     @Override
-    public void navigateToHelpPage() {
-        // TODO(crbug.com/1159879): Set PageTransition.AUTO_BOOKMARK here.
-        openUrl(WindowOpenDisposition.CURRENT_TAB,
-                new LoadUrlParams(NEW_TAB_URL_HELP, PageTransition.AUTO_TOPLEVEL));
+    @Nullable
+    public Tab openUrlInGroup(int windowOpenDisposition, LoadUrlParams loadUrlParams) {
+        // 'open in group' has been disabled in crrev.com/c/2885469. We should never reach this
+        // method.
+        assert false; // NOTREACHED.
+        return null;
     }
 }

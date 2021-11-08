@@ -60,18 +60,23 @@ UINT GetMessageBoxFlagsFromType(chrome::MessageBoxType type) {
 
 // static
 chrome::MessageBoxResult ShowSync(gfx::NativeWindow parent,
-                                  const base::string16& title,
-                                  const base::string16& message,
+                                  const std::u16string& title,
+                                  const std::u16string& message,
                                   chrome::MessageBoxType type,
-                                  const base::string16& yes_text,
-                                  const base::string16& no_text,
-                                  const base::string16& checkbox_text) {
-  chrome::MessageBoxResult result = chrome::MESSAGE_BOX_RESULT_NO;
+                                  const std::u16string& yes_text,
+                                  const std::u16string& no_text,
+                                  const std::u16string& checkbox_text) {
+  static bool g_message_box_is_showing_sync = false;
+  // To avoid showing another MessageBoxDialog when one is already pending.
+  // Otherwise, this might lead to a stack overflow due to infinite runloops.
+  if (g_message_box_is_showing_sync)
+    return chrome::MESSAGE_BOX_RESULT_NO;
 
+  base::AutoReset<bool> is_showing(&g_message_box_is_showing_sync, true);
+  chrome::MessageBoxResult result = chrome::MESSAGE_BOX_RESULT_NO;
   // TODO(pkotwicz): Exit message loop when the dialog is closed by some other
   // means than |Cancel| or |Accept|. crbug.com/404385
   base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
-
   MessageBoxDialog::Show(
       parent, title, message, type, yes_text, no_text, checkbox_text,
       base::BindOnce(
@@ -81,7 +86,6 @@ chrome::MessageBoxResult ShowSync(gfx::NativeWindow parent,
             run_loop->Quit();
           },
           &run_loop, &result));
-
   run_loop.Run();
   return result;
 }
@@ -93,12 +97,12 @@ chrome::MessageBoxResult ShowSync(gfx::NativeWindow parent,
 // static
 chrome::MessageBoxResult MessageBoxDialog::Show(
     gfx::NativeWindow parent,
-    const base::string16& title,
-    const base::string16& message,
+    const std::u16string& title,
+    const std::u16string& message,
     chrome::MessageBoxType type,
-    const base::string16& yes_text,
-    const base::string16& no_text,
-    const base::string16& checkbox_text,
+    const std::u16string& yes_text,
+    const std::u16string& no_text,
+    const std::u16string& checkbox_text,
     MessageBoxDialog::MessageBoxResultCallback callback) {
   if (!callback)
     return ShowSync(parent, title, message, type, yes_text, no_text,
@@ -183,7 +187,7 @@ void MessageBoxDialog::OnDialogAccepted() {
   }
 }
 
-base::string16 MessageBoxDialog::GetWindowTitle() const {
+std::u16string MessageBoxDialog::GetWindowTitle() const {
   return window_title_;
 }
 
@@ -213,12 +217,12 @@ void MessageBoxDialog::OnWidgetActivationChanged(views::Widget* widget,
 ////////////////////////////////////////////////////////////////////////////////
 // MessageBoxDialog, private:
 
-MessageBoxDialog::MessageBoxDialog(const base::string16& title,
-                                   const base::string16& message,
+MessageBoxDialog::MessageBoxDialog(const std::u16string& title,
+                                   const std::u16string& message,
                                    chrome::MessageBoxType type,
-                                   const base::string16& yes_text,
-                                   const base::string16& no_text,
-                                   const base::string16& checkbox_text,
+                                   const std::u16string& yes_text,
+                                   const std::u16string& no_text,
+                                   const std::u16string& checkbox_text,
                                    bool is_system_modal)
     : window_title_(title),
       type_(type),
@@ -243,7 +247,7 @@ MessageBoxDialog::MessageBoxDialog(const base::string16& title,
                                   chrome::MESSAGE_BOX_RESULT_NO));
   SetOwnedByWidget(true);
 
-  base::string16 ok_text = yes_text;
+  std::u16string ok_text = yes_text;
   if (ok_text.empty()) {
     ok_text =
         type_ == chrome::MESSAGE_BOX_TYPE_QUESTION
@@ -254,7 +258,7 @@ MessageBoxDialog::MessageBoxDialog(const base::string16& title,
 
   // Only MESSAGE_BOX_TYPE_QUESTION has a Cancel button.
   if (type_ == chrome::MESSAGE_BOX_TYPE_QUESTION) {
-    base::string16 cancel_text = no_text;
+    std::u16string cancel_text = no_text;
     if (cancel_text.empty())
       cancel_text = l10n_util::GetStringUTF16(IDS_CANCEL);
     SetButtonLabel(ui::DIALOG_BUTTON_CANCEL, cancel_text);
@@ -291,58 +295,58 @@ const views::Widget* MessageBoxDialog::GetWidget() const {
 namespace chrome {
 
 void ShowWarningMessageBox(gfx::NativeWindow parent,
-                           const base::string16& title,
-                           const base::string16& message) {
+                           const std::u16string& title,
+                           const std::u16string& message) {
   MessageBoxDialog::Show(parent, title, message,
-                         chrome::MESSAGE_BOX_TYPE_WARNING, base::string16(),
-                         base::string16(), base::string16());
+                         chrome::MESSAGE_BOX_TYPE_WARNING, std::u16string(),
+                         std::u16string(), std::u16string());
 }
 
 void ShowWarningMessageBoxWithCheckbox(
     gfx::NativeWindow parent,
-    const base::string16& title,
-    const base::string16& message,
-    const base::string16& checkbox_text,
+    const std::u16string& title,
+    const std::u16string& message,
+    const std::u16string& checkbox_text,
     base::OnceCallback<void(bool checked)> callback) {
   MessageBoxDialog::Show(parent, title, message,
-                         chrome::MESSAGE_BOX_TYPE_WARNING, base::string16(),
-                         base::string16(), checkbox_text,
+                         chrome::MESSAGE_BOX_TYPE_WARNING, std::u16string(),
+                         std::u16string(), checkbox_text,
                          base::BindOnce(
                              [](base::OnceCallback<void(bool checked)> callback,
                                 MessageBoxResult message_box_result) {
                                std::move(callback).Run(message_box_result ==
                                                        MESSAGE_BOX_RESULT_YES);
                              },
-                             base::Passed(std::move(callback))));
+                             std::move(callback)));
 }
 
 MessageBoxResult ShowQuestionMessageBoxSync(gfx::NativeWindow parent,
-                                            const base::string16& title,
-                                            const base::string16& message) {
+                                            const std::u16string& title,
+                                            const std::u16string& message) {
   return MessageBoxDialog::Show(
       parent, title, message, chrome::MESSAGE_BOX_TYPE_QUESTION,
-      base::string16(), base::string16(), base::string16());
+      std::u16string(), std::u16string(), std::u16string());
 }
 
 void ShowQuestionMessageBox(
     gfx::NativeWindow parent,
-    const base::string16& title,
-    const base::string16& message,
+    const std::u16string& title,
+    const std::u16string& message,
     base::OnceCallback<void(MessageBoxResult)> callback) {
   MessageBoxDialog::Show(parent, title, message,
-                         chrome::MESSAGE_BOX_TYPE_QUESTION, base::string16(),
-                         base::string16(), base::string16(),
+                         chrome::MESSAGE_BOX_TYPE_QUESTION, std::u16string(),
+                         std::u16string(), std::u16string(),
                          std::move(callback));
 }
 
 MessageBoxResult ShowMessageBoxWithButtonText(gfx::NativeWindow parent,
-                                              const base::string16& title,
-                                              const base::string16& message,
-                                              const base::string16& yes_text,
-                                              const base::string16& no_text) {
+                                              const std::u16string& title,
+                                              const std::u16string& message,
+                                              const std::u16string& yes_text,
+                                              const std::u16string& no_text) {
   return MessageBoxDialog::Show(parent, title, message,
                                 chrome::MESSAGE_BOX_TYPE_QUESTION, yes_text,
-                                no_text, base::string16());
+                                no_text, std::u16string());
 }
 
 }  // namespace chrome

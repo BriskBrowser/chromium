@@ -238,7 +238,7 @@ class WprUpdater(object):
       return None, False
     archive = archive['DEFAULT']
     used_in_other_stories = any(
-        archive in config.values() for story, config in archives.iteritems()
+        archive in config.values() for story, config in archives.items()
         if story != self.story)
     return os.path.join(DATA_DIR, archive), used_in_other_stories
 
@@ -342,19 +342,28 @@ class WprUpdater(object):
         dest.write(line)
         return dest.name
 
+  def _GetTargetFromConfiguration(self, configuration):
+    """Returns the target that should be used for a Pinpoint job."""
+    if configuration == 'android-pixel2-perf':
+      return 'performance_test_suite_android_clank_monochrome_64_32_bundle'
+    elif configuration in ('linux-perf', 'win-10-perf',
+                           'mac-10_12_laptop_low_end-perf'):
+      return 'performance_test_suite'
+    raise RuntimeError('Unknown configuration %s' % configuration)
+
   def _StartPinpointJob(self, configuration):
     """Creates, starts a Pinpoint job and returns its URL."""
     try:
       resp = pinpoint_service.NewJob(
           base_git_hash='HEAD',
-          target='performance_test_suite',
+          target=self._GetTargetFromConfiguration(configuration),
           patch=self._GetBranchIssueUrl(),
           bug_id=self.bug_id or '',
           story=self.story,
           extra_test_args='--pageset-repeat=%d' % self.repeat,
           configuration=configuration,
-          benchmark='system_health.common_%s' % (
-            'desktop' if self._IsDesktop() else 'mobile'))
+          benchmark='system_health.common_%s' %
+          ('desktop' if self._IsDesktop() else 'mobile'))
     except request.RequestError as e:
       cli_helpers.Comment(
           'Failed to start a Pinpoint job for {config} automatically:\n {err}',

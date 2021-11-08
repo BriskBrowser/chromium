@@ -9,10 +9,11 @@
 #include "ash/wm/desks/desk_preview_view.h"
 #include "ash/wm/desks/desks_bar_view.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/screen.h"
 #include "ui/events/event_observer.h"
-#include "ui/gfx/transform_util.h"
+#include "ui/gfx/geometry/transform_util.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
@@ -22,21 +23,39 @@ namespace {
 // Scale of dragged desk proxy.
 constexpr float kDragProxyScale = 1.2f;
 // Time duration of scaling up dragged desk proxy.
-constexpr base::TimeDelta kDragProxyScaleUpDuration =
-    base::TimeDelta::FromMilliseconds(200);
+constexpr base::TimeDelta kDragProxyScaleUpDuration = base::Milliseconds(200);
 // Time duration of snapping back drag proxy.
-constexpr base::TimeDelta kDragProxySnapBackDuration =
-    base::TimeDelta::FromMilliseconds(300);
+constexpr base::TimeDelta kDragProxySnapBackDuration = base::Milliseconds(300);
 
 }  // namespace
 
 DeskDragProxy::DeskDragProxy(DesksBarView* desks_bar_view,
                              DeskMiniView* drag_view,
-                             const gfx::Vector2dF& init_offset)
+                             float init_offset_x)
     : desks_bar_view_(desks_bar_view),
       drag_view_(drag_view),
       drag_preview_size_(drag_view->GetPreviewBoundsInScreen().size()),
-      init_offset_(init_offset) {
+      preview_screen_y_(drag_view->GetPreviewBoundsInScreen().y()),
+      init_offset_x_(init_offset_x) {}
+
+DeskDragProxy::~DeskDragProxy() = default;
+
+void DeskDragProxy::OnImplicitAnimationsCompleted() {
+  DCHECK(desks_bar_view_);
+
+  state_ = State::kEnded;
+
+  // |this| is destroyed here.
+  desks_bar_view_->FinalizeDragDesk();
+}
+
+gfx::Rect DeskDragProxy::GetBoundsInScreen() const {
+  return gfx::Rect(
+      drag_widget_->GetWindowBoundsInScreen().origin(),
+      gfx::ScaleToFlooredSize(drag_preview_size_, kDragProxyScale));
+}
+
+void DeskDragProxy::InitAndScaleAndMoveToX(float location_screen_x) {
   DCHECK(drag_view_);
 
   aura::Window* root_window =
@@ -55,21 +74,8 @@ DeskDragProxy::DeskDragProxy(DesksBarView* desks_bar_view,
   drag_widget_->SetBounds(drag_view_->GetPreviewBoundsInScreen());
 
   drag_widget_->Show();
-}
 
-void DeskDragProxy::OnImplicitAnimationsCompleted() {
-  DCHECK(desks_bar_view_);
-
-  desks_bar_view_->FinalizeDragDesk();
-}
-
-gfx::Point DeskDragProxy::GetPositionInScreen() const {
-  return drag_widget_->GetWindowBoundsInScreen().origin();
-}
-
-void DeskDragProxy::ScaleAndMoveTo(const gfx::PointF& location_in_screen) {
   ui::Layer* layer = drag_widget_->GetLayer();
-
   // Perform and animate scaling.
   gfx::Transform scale_transform;
   scale_transform.Scale(kDragProxyScale, kDragProxyScale);
@@ -83,17 +89,20 @@ void DeskDragProxy::ScaleAndMoveTo(const gfx::PointF& location_in_screen) {
       scale_transform));
 
   // Perform Moving.
-  DragTo(location_in_screen);
+  DragToX(location_screen_x);
+
+  state_ = State::kStarted;
 }
 
-void DeskDragProxy::DragTo(const gfx::PointF& location_in_screen) {
+void DeskDragProxy::DragToX(float location_screen_x) {
   drag_widget_->SetBounds(
-      gfx::Rect(gfx::ToRoundedPoint(location_in_screen - init_offset_),
+      gfx::Rect(gfx::Point(base::ClampRound(location_screen_x - init_offset_x_),
+                           preview_screen_y_),
                 drag_preview_size_));
 }
 
 void DeskDragProxy::SnapBackToDragView() {
-  ui::Layer* layer = drag_widget_->GetLayer();
+  DCHECK_NE(state_, State::kSnappingBack);
 
   // Cache proxy's bounds and drag view's bounds.
   gfx::RectF scaled_proxy_bounds(drag_widget_->GetWindowBoundsInScreen());
@@ -103,13 +112,17 @@ void DeskDragProxy::SnapBackToDragView() {
   // Set bounds of drag view to drag proxy.
   drag_widget_->SetBounds(drag_view_bounds);
 
+  ui::Layer* layer = drag_widget_->GetLayer();
   // Animate snapping back.
   layer->SetTransform(gfx::TransformBetweenRects(gfx::RectF(drag_view_bounds),
                                                  scaled_proxy_bounds));
   ui::ScopedLayerAnimationSettings settings(layer->GetAnimator());
   settings.SetTransitionDuration(kDragProxySnapBackDuration);
+  settings.SetTweenType(gfx::Tween::ACCEL_LIN_DECEL_60);
   settings.AddObserver(this);
   layer->SetTransform(gfx::Transform());
+
+  state_ = State::kSnappingBack;
 }
 
 }  // namespace ash

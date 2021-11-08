@@ -6,13 +6,11 @@
 #define CHROME_BROWSER_NET_SYSTEM_NETWORK_CONTEXT_MANAGER_H_
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
 #include "chrome/browser/net/proxy_config_monitor.h"
 #include "chrome/browser/net/stub_resolver_config_reader.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -24,6 +22,8 @@
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom-forward.h"
 #include "services/network/public/mojom/ssl_config.mojom-forward.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -62,6 +62,10 @@ class NetLogProxySource;
 // to being compatible with the network service.
 class SystemNetworkContextManager {
  public:
+  SystemNetworkContextManager(const SystemNetworkContextManager&) = delete;
+  SystemNetworkContextManager& operator=(const SystemNetworkContextManager&) =
+      delete;
+
   ~SystemNetworkContextManager();
 
   // Creates the global instance of SystemNetworkContextManager. If an
@@ -137,6 +141,11 @@ class SystemNetworkContextManager {
   // or destroyed, and so that it's destroyed before Mojo is shut down.
   net_log::NetExportFileWriter* GetNetExportFileWriter();
 
+  // Returns whether the network sandbox is enabled. This depends on  policy but
+  // also feature status from sandbox. Called before there is an instance of
+  // SystemNetworkContextManager.
+  static bool IsNetworkSandboxEnabled();
+
   // Flushes all pending SSL configuration changes.
   void FlushSSLConfigManagerForTesting();
 
@@ -153,10 +162,12 @@ class SystemNetworkContextManager {
   GetHttpAuthDynamicParamsForTesting();
 
   // Enables Certificate Transparency and enforcing the Chrome Certificate
-  // Transparency Policy. For test use only. Use base::nullopt_t to reset to
+  // Transparency Policy. For test use only. Use absl::nullopt_t to reset to
   // the default state.
   static void SetEnableCertificateTransparencyForTesting(
-      base::Optional<bool> enabled);
+      absl::optional<bool> enabled);
+
+  static bool IsCertificateTransparencyEnabled();
 
   static void set_stub_resolver_config_reader_for_testing(
       StubResolverConfigReader* reader) {
@@ -165,7 +176,7 @@ class SystemNetworkContextManager {
 
  private:
   FRIEND_TEST_ALL_PREFIXES(
-      SystemNetworkContextServiceCertVerifierBuiltinFeaturePolicyTest,
+      SystemNetworkContextServiceCertVerifierBuiltinPermissionsPolicyTest,
       Test);
 
   class URLLoaderFactoryForSystem;
@@ -178,6 +189,10 @@ class SystemNetworkContextManager {
   // Creates parameters for the NetworkContext. May only be called once, since
   // it initializes some class members.
   network::mojom::NetworkContextParamsPtr CreateNetworkContextParams();
+
+  // Send the current value of the net.explicitly_allowed_network_ports pref to
+  // the network process.
+  void UpdateExplicitlyAllowedNetworkPorts();
 
   // The PrefService to retrieve all the pref values.
   PrefService* local_state_;
@@ -215,7 +230,7 @@ class SystemNetworkContextManager {
   StubResolverConfigReader stub_resolver_config_reader_;
   static StubResolverConfigReader* stub_resolver_config_reader_for_testing_;
 
-  DISALLOW_COPY_AND_ASSIGN(SystemNetworkContextManager);
+  static absl::optional<bool> certificate_transparency_enabled_for_testing_;
 };
 
 #endif  // CHROME_BROWSER_NET_SYSTEM_NETWORK_CONTEXT_MANAGER_H_

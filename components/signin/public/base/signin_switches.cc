@@ -4,6 +4,8 @@
 
 #include "components/signin/public/base/signin_switches.h"
 
+#include "base/feature_list.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 
 namespace switches {
@@ -18,9 +20,14 @@ const char kDisableSigninScopedDeviceId[] = "disable-signin-scoped-device-id";
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 const base::Feature kAccountIdMigration{"AccountIdMigration",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
-#else
-const base::Feature kForceAccountIdMigration{"ForceAccountIdMigration",
+#endif
+
+#if defined(OS_ANDROID) || defined(OS_IOS)
+const base::Feature kForceStartupSigninPromo{"ForceStartupSigninPromo",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
+
+const base::Feature kForceDisableExtendedSyncPromos{
+    "ForceDisableExtendedSyncPromos", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace switches

@@ -30,9 +30,15 @@ class ArcLockScreenBridge
   // or nullptr if the browser |context| is not allowed to use ARC.
   static ArcLockScreenBridge* GetForBrowserContext(
       content::BrowserContext* context);
+  static ArcLockScreenBridge* GetForBrowserContextForTesting(
+      content::BrowserContext* context);
 
   ArcLockScreenBridge(content::BrowserContext* context,
                       ArcBridgeService* bridge_service);
+
+  ArcLockScreenBridge(const ArcLockScreenBridge&) = delete;
+  ArcLockScreenBridge& operator=(const ArcLockScreenBridge&) = delete;
+
   ~ArcLockScreenBridge() override;
 
   // ConnectionObserver<mojom::LockScreenInstance> overrides:
@@ -48,8 +54,6 @@ class ArcLockScreenBridge
   THREAD_CHECKER(thread_checker_);
 
   ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
-
-  DISALLOW_COPY_AND_ASSIGN(ArcLockScreenBridge);
 };
 
 }  // namespace arc

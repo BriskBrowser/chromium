@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.tab;
 import android.content.Context;
 import android.view.View;
 
+import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -18,6 +19,9 @@ import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.GURL;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 /**
  * Tab is a visual/functional unit that encapsulates the content (not just web site content
  * from network but also other types of content such as NTP, navigation history, etc) and
@@ -25,6 +29,13 @@ import org.chromium.url.GURL;
  */
 public interface Tab extends TabLifecycle {
     public static final int INVALID_TAB_ID = -1;
+
+    @IntDef({TabLoadStatus.PAGE_LOAD_FAILED, TabLoadStatus.DEFAULT_PAGE_LOAD})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface TabLoadStatus {
+        int PAGE_LOAD_FAILED = 0;
+        int DEFAULT_PAGE_LOAD = 1;
+    }
 
     /**
      * Adds a {@link TabObserver} to be notified on {@link Tab} changes.
@@ -100,15 +111,6 @@ public interface Tab extends TabLifecycle {
      * @return The id representing this tab.
      */
     int getId();
-
-    /**
-     * @return The URL that is loaded in the current tab. This may not be the same as
-     *         the last committed URL if a new navigation is in progress.
-     *
-     * @deprecated Please use {@link #getUrl()} instead.
-     */
-    @Deprecated
-    String getUrlString();
 
     /**
      * @return Parameters that should be used for a lazily loaded Tab.  May be null.
@@ -202,8 +204,7 @@ public interface Tab extends TabLifecycle {
      * @param params parameters describing the url load. Note that it is important to set correct
      *         page transition as it is used for ranking URLs in the history so the omnibox
      *         can report suggestions correctly.
-     * @return FULL_PRERENDERED_PAGE_LOAD or PARTIAL_PRERENDERED_PAGE_LOAD if the page has been
-     *         prerendered. DEFAULT_PAGE_LOAD if it had not.
+     * @return PAGE_LOAD_FAILED if the URL could not be loaded, otherwise DEFAULT_PAGE_LOAD.
      */
     int loadUrl(LoadUrlParams params);
 
@@ -280,29 +281,14 @@ public interface Tab extends TabLifecycle {
     void setIsTabStateDirty(boolean isTabStateDirty);
 
     /**
-     * If set to true, any future navigations in the tab automatically get
-     * PageTransition.FROM_API_2 applied.
-     */
-    void setAddApi2TransitionToFutureNavigations(boolean shouldAdd);
-    boolean getAddApi2TransitionToFutureNavigations();
-
-    /**
-     * If true, all future navigations are hidden. See |HistoryTabHelper::hide_navigations_|
-     * for the specifics on this.
-     */
-    public void setHideFutureNavigations(boolean hide);
-    public boolean getHideFutureNavigations();
-
-    /**
-     * If true, new notification requests are blocked.
-     */
-    public void setShouldBlockNewNotificationRequests(boolean value);
-    public boolean getShouldBlockNewNotificationRequests();
-
-    /**
      * Set whether {@link Tab} metadata (specifically all {@link PersistedTabData})
      * will be saved. Not all Tabs need to be persisted across restarts.
      * The default value when a Tab is initialized is false.
      */
     void setIsTabSaveEnabled(boolean isSaveEnabled);
+
+    /**
+     * @return true if the {@link Tab} is a custom tab.
+     */
+    boolean isCustomTab();
 }

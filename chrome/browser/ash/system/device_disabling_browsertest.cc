@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include "ash/components/settings/cros_settings_names.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/bind.h"
@@ -12,20 +13,20 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "chrome/browser/ash/login/login_wizard.h"
+#include "chrome/browser/ash/login/test/device_state_mixin.h"
+#include "chrome/browser/ash/login/test/login_manager_mixin.h"
+#include "chrome/browser/ash/login/test/network_portal_detector_mixin.h"
+#include "chrome/browser/ash/login/test/oobe_base_test.h"
+#include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
+#include "chrome/browser/ash/login/ui/login_display_host.h"
+#include "chrome/browser/ash/login/ui/webui_login_view.h"
+#include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/ash/system/device_disabling_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/login/login_wizard.h"
-#include "chrome/browser/chromeos/login/test/device_state_mixin.h"
-#include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
-#include "chrome/browser/chromeos/login/test/network_portal_detector_mixin.h"
-#include "chrome/browser/chromeos/login/test/oobe_base_test.h"
-#include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host.h"
-#include "chrome/browser/chromeos/login/ui/webui_login_view.h"
-#include "chrome/browser/chromeos/login/wizard_controller.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/ui/webui/chromeos/login/device_disabled_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
@@ -36,7 +37,6 @@
 #include "chromeos/dbus/shill/fake_shill_manager_client.h"
 #include "chromeos/dbus/shill/shill_manager_client.h"
 #include "chromeos/dbus/shill/shill_service_client.h"
-#include "chromeos/settings/cros_settings_names.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
@@ -70,6 +70,9 @@ class DeviceDisablingTest
  public:
   DeviceDisablingTest() = default;
 
+  DeviceDisablingTest(const DeviceDisablingTest&) = delete;
+  DeviceDisablingTest& operator=(const DeviceDisablingTest&) = delete;
+
   // Sets up a device state blob that indicates the device is disabled.
   void SetDeviceDisabledPolicy();
 
@@ -90,11 +93,8 @@ class DeviceDisablingTest
   NetworkPortalDetectorMixin network_portal_detector_{&mixin_host_};
 
  private:
-  chromeos::DeviceStateMixin device_state_{
-      &mixin_host_,
-      chromeos::DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED};
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceDisablingTest);
+  DeviceStateMixin device_state_{
+      &mixin_host_, DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED};
 };
 
 void DeviceDisablingTest::SetDeviceDisabledPolicy() {
@@ -119,7 +119,7 @@ void DeviceDisablingTest::MarkDisabledAndWaitForPolicyFetch() {
 }
 
 void DeviceDisablingTest::SetUpOnMainThread() {
-  network_state_change_wait_run_loop_.reset(new base::RunLoop);
+  network_state_change_wait_run_loop_ = std::make_unique<base::RunLoop>();
 
   OobeBaseTest::SetUpOnMainThread();
 
@@ -197,8 +197,7 @@ IN_PROC_BROWSER_TEST_F(DeviceDisablingTest, DisableWithEphemeralUsers) {
   SigninScreenHandler* const signin_screen_handler =
       oobe_ui->signin_screen_handler();
   ASSERT_TRUE(signin_screen_handler);
-  signin_screen_handler->SetOfflineTimeoutForTesting(
-      base::TimeDelta::FromSeconds(0));
+  signin_screen_handler->SetOfflineTimeoutForTesting(base::Seconds(0));
   network_portal_detector_.SimulateDefaultNetworkState(
       NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_OFFLINE);
   network_state_change_wait_run_loop_->Run();
@@ -240,15 +239,17 @@ class PresetPolicyDeviceDisablingTest : public DeviceDisablingTest {
  public:
   PresetPolicyDeviceDisablingTest() {}
 
+  PresetPolicyDeviceDisablingTest(const PresetPolicyDeviceDisablingTest&) =
+      delete;
+  PresetPolicyDeviceDisablingTest& operator=(
+      const PresetPolicyDeviceDisablingTest&) = delete;
+
  protected:
   // DeviceDisablingTest:
   void SetUpInProcessBrowserTestFixture() override {
     DeviceDisablingTest::SetUpInProcessBrowserTestFixture();
     SetDeviceDisabledPolicy();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PresetPolicyDeviceDisablingTest);
 };
 
 // Same test as the one in DeviceDisablingTest, except the policy is being set

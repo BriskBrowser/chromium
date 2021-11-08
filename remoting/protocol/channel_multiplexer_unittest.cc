@@ -4,13 +4,14 @@
 
 #include "remoting/protocol/channel_multiplexer.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -78,10 +79,10 @@ class ChannelMultiplexerTest : public testing::Test {
     host_channel_factory_.PairWith(&client_channel_factory_);
 
     // Create pair of multiplexers and connect them to each other.
-    host_mux_.reset(
-        new ChannelMultiplexer(&host_channel_factory_, kMuxChannelName));
-    client_mux_.reset(
-        new ChannelMultiplexer(&client_channel_factory_, kMuxChannelName));
+    host_mux_ = std::make_unique<ChannelMultiplexer>(&host_channel_factory_,
+                                                     kMuxChannelName);
+    client_mux_ = std::make_unique<ChannelMultiplexer>(&client_channel_factory_,
+                                                       kMuxChannelName);
 
     // Make writes asynchronous in one direction
     host_channel_factory_.set_async_write(true);

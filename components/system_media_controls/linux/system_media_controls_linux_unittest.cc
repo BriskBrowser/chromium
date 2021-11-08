@@ -57,6 +57,11 @@ class SystemMediaControlsLinuxTest : public testing::Test,
  public:
   SystemMediaControlsLinuxTest()
       : task_environment_(base::test::TaskEnvironment::MainThreadType::UI) {}
+
+  SystemMediaControlsLinuxTest(const SystemMediaControlsLinuxTest&) = delete;
+  SystemMediaControlsLinuxTest& operator=(const SystemMediaControlsLinuxTest&) =
+      delete;
+
   ~SystemMediaControlsLinuxTest() override = default;
 
   void SetUp() override { StartMprisServiceAndWaitForReady(); }
@@ -175,8 +180,6 @@ class SystemMediaControlsLinuxTest : public testing::Test,
 
   base::flat_map<std::string, dbus::ExportedObject::MethodCallCallback>
       player_interface_exported_methods_;
-
-  DISALLOW_COPY_AND_ASSIGN(SystemMediaControlsLinuxTest);
 };
 
 TEST_F(SystemMediaControlsLinuxTest, ObserverNotifiedOfServiceReadyWhenAdded) {
@@ -320,11 +323,11 @@ TEST_F(SystemMediaControlsLinuxTest, ChangingMetadataEmitsSignal) {
 
   // Setting the title should emit an
   // org.freedesktop.DBus.Properties.PropertiesChanged signal.
-  GetService()->SetTitle(base::ASCIIToUTF16("Foo"));
+  GetService()->SetTitle(u"Foo");
   wait_for_signal.Run();
 
   // Setting the title to the same value as before should not emit a new signal.
-  GetService()->SetTitle(base::ASCIIToUTF16("Foo"));
+  GetService()->SetTitle(u"Foo");
 }
 
 }  // namespace internal

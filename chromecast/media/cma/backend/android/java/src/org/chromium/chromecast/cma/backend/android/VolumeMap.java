@@ -19,7 +19,7 @@ import org.chromium.chromecast.media.AudioContentType;
 
 /**
  * Implements the java-side of the volume control API that maps between volume levels ([0..100])
- * and dBFS values. It uses an Android Things specific system API.
+ * and dBFS values. It uses an Android API that was made public in SDK version 28.
  */
 @JNINamespace("chromecast::media")
 @TargetApi(Build.VERSION_CODES.N)

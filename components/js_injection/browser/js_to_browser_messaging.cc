@@ -9,6 +9,7 @@
 #include "components/js_injection/browser/web_message_host.h"
 #include "components/js_injection/browser/web_message_host_factory.h"
 #include "components/js_injection/browser/web_message_reply_proxy.h"
+#include "content/public/browser/disallow_activation_reason.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
@@ -51,7 +52,8 @@ class JsToBrowserMessaging::ReplyProxyImpl : public WebMessageReplyProxy {
     java_to_js_messaging_->OnPostMessage(message->message);
   }
   bool IsInBackForwardCache() override {
-    return render_frame_host_->IsInBackForwardCache();
+    return render_frame_host_->GetLifecycleState() ==
+           content::RenderFrameHost::LifecycleState::kInBackForwardCache;
   }
 
  private:
@@ -78,12 +80,14 @@ void JsToBrowserMessaging::OnBackForwardCacheStateChanged() {
 }
 
 void JsToBrowserMessaging::PostMessage(
-    const base::string16& message,
+    const std::u16string& message,
     std::vector<blink::MessagePortDescriptor> ports) {
   DCHECK(render_frame_host_);
 
-  if (render_frame_host_->IsInactiveAndDisallowReactivation())
+  if (render_frame_host_->IsInactiveAndDisallowActivation(
+          content::DisallowActivationReasonId::kJsInjectionPostMessage)) {
     return;
+  }
 
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(render_frame_host_);
@@ -132,8 +136,8 @@ void JsToBrowserMessaging::PostMessage(
 void JsToBrowserMessaging::SetBrowserToJsMessaging(
     mojo::PendingAssociatedRemote<mojom::BrowserToJsMessaging>
         java_to_js_messaging) {
-  if (render_frame_host_->IsInactiveAndDisallowReactivation())
-    return;
+  // TODO(https://crbug.com/1183557): this should really call
+  // IsInactiveAndDisallowReactivation().
 
   // A RenderFrame may inject JsToBrowserMessaging in the JavaScript context
   // more than once because of reusing of RenderFrame.

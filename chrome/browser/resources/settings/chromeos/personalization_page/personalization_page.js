@@ -37,11 +37,10 @@ Polymer({
     },
 
     /** @private */
-    isWallpaperWebUIEnabled_: {
+    isDarkModeAllowed_: {
       type: Boolean,
       value() {
-        return loadTimeData.getBoolean('isWallpaperWebUIEnabled') &&
-            this.showWallpaperRow_;
+        return loadTimeData.getBoolean('isDarkModeAllowed');
       },
       readOnly: true,
     },
@@ -117,13 +116,13 @@ Polymer({
   },
 
   /** @private */
-  navigateToWallpaper_() {
-    settings.Router.getInstance().navigateTo(settings.routes.WALLPAPER);
+  navigateToAmbientMode_() {
+    settings.Router.getInstance().navigateTo(settings.routes.AMBIENT_MODE);
   },
 
   /** @private */
-  navigateToAmbientMode_() {
-    settings.Router.getInstance().navigateTo(settings.routes.AMBIENT_MODE);
+  navigateToDarkMode_() {
+    settings.Router.getInstance().navigateTo(settings.routes.DARK_MODE);
   },
 
   /**

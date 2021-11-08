@@ -5,13 +5,13 @@
 #ifndef CHROME_BROWSER_SHELL_INTEGRATION_H_
 #define CHROME_BROWSER_SHELL_INTEGRATION_H_
 
+#include <map>
 #include <string>
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "ui/gfx/image/image_family.h"
 #include "url/gurl.h"
@@ -62,7 +62,7 @@ bool IsElevationNeededForSettingDefaultProtocolClient();
 // protocol of the requested url. This string may be a name or a path, but
 // neither is guaranteed and it should only be used as a display string.
 // Returns an empty string on failure.
-base::string16 GetApplicationNameForProtocol(const GURL& url);
+std::u16string GetApplicationNameForProtocol(const GURL& url);
 
 // Chrome's default web client state as a browser as a protocol client. If the
 // current install mode is not default, the brand's other modes are
@@ -125,7 +125,8 @@ bool IsRunningInAppMode();
 base::CommandLine CommandLineArgsForLauncher(
     const GURL& url,
     const std::string& extension_app_id,
-    const base::FilePath& profile_path);
+    const base::FilePath& profile_path,
+    const std::string& run_on_os_login_mode);
 
 // Append command line arguments for launching a new chrome.exe process
 // based on the current process.
@@ -137,7 +138,7 @@ void AppendProfileArgs(const base::FilePath& profile_path,
 #if !defined(OS_WIN)
 // Gets the name of the Chrome Apps menu folder in which to place app
 // shortcuts. This is needed for Mac and Linux.
-base::string16 GetAppShortcutsSubdirName();
+std::u16string GetAppShortcutsSubdirName();
 #endif
 
 // The type of callback used to communicate processing state to consumers of
@@ -157,6 +158,9 @@ using DefaultWebClientWorkerCallback =
 class DefaultWebClientWorker
     : public base::RefCountedThreadSafe<DefaultWebClientWorker> {
  public:
+  DefaultWebClientWorker(const DefaultWebClientWorker&) = delete;
+  DefaultWebClientWorker& operator=(const DefaultWebClientWorker&) = delete;
+
   // Controls whether the worker can use user interaction to set the default
   // web client. If false, the set-as-default operation will fail on OS where
   // it is required.
@@ -218,14 +222,15 @@ class DefaultWebClientWorker
   // setting the default protocol client. The pointer must be valid for the
   // lifetime of the worker.
   const char* worker_name_;
-
-  DISALLOW_COPY_AND_ASSIGN(DefaultWebClientWorker);
 };
 
 // Worker for checking and setting the default browser.
 class DefaultBrowserWorker : public DefaultWebClientWorker {
  public:
   DefaultBrowserWorker();
+
+  DefaultBrowserWorker(const DefaultBrowserWorker&) = delete;
+  DefaultBrowserWorker& operator=(const DefaultBrowserWorker&) = delete;
 
  protected:
   ~DefaultBrowserWorker() override;
@@ -236,8 +241,6 @@ class DefaultBrowserWorker : public DefaultWebClientWorker {
 
   // Set Chrome as the default browser.
   void SetAsDefaultImpl(base::OnceClosure on_finished_callback) override;
-
-  DISALLOW_COPY_AND_ASSIGN(DefaultBrowserWorker);
 };
 
 // Worker for checking and setting the default client application
@@ -247,6 +250,10 @@ class DefaultBrowserWorker : public DefaultWebClientWorker {
 class DefaultProtocolClientWorker : public DefaultWebClientWorker {
  public:
   explicit DefaultProtocolClientWorker(const std::string& protocol);
+
+  DefaultProtocolClientWorker(const DefaultProtocolClientWorker&) = delete;
+  DefaultProtocolClientWorker& operator=(const DefaultProtocolClientWorker&) =
+      delete;
 
   const std::string& protocol() const { return protocol_; }
 
@@ -261,8 +268,6 @@ class DefaultProtocolClientWorker : public DefaultWebClientWorker {
   void SetAsDefaultImpl(base::OnceClosure on_finished_callback) override;
 
   std::string protocol_;
-
-  DISALLOW_COPY_AND_ASSIGN(DefaultProtocolClientWorker);
 };
 
 }  // namespace shell_integration

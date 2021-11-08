@@ -13,11 +13,13 @@
 #include "base/base64url.h"
 #include "base/cancelable_callback.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
@@ -47,8 +49,8 @@ constexpr char kLegacyServerUrlPrefix[] =
     "https://clients1.google.com/tbproxy/af/query";
 constexpr char kApiServerDomain[] = "content-autofill.googleapis.com";
 constexpr char kApiServerUrlGetPrefix[] =
-    "https://content-autofill.googleapis.com/v1/pages:get";
-constexpr char kApiServerQueryPath[] = "/v1/pages:get";
+    "https://content-autofill.googleapis.com/v1/pages";
+constexpr char kApiServerQueryPath[] = "/v1/pages";
 
 // Makes an internal error that carries an error message.
 Status MakeInternalError(const std::string& error_message) {
@@ -151,13 +153,19 @@ StatusOr<std::string> GetQueryParameter<ApiEnv>(const GURL& url) {
     // This situation will never happen if check for the query path is
     // done before calling this function.
     return MakeInternalError(
-        base::StrCat({"could not get any value from query path  in "
+        base::StrCat({"could not get any value from query path in "
                       "Query GET URL: ",
                       url.spec()}));
   }
-  // +1 for extra "/".
-  value = value.substr(strlen(kApiServerQueryPath) + 1);
-  return value;
+  size_t slash = value.find('/', strlen(kApiServerQueryPath));
+  if (slash != std::string::npos) {
+    return value.substr(slash + 1);
+  } else {
+    return MakeInternalError(
+        base::StrCat({"could not get any value from query path in "
+                      "Query GET URL: ",
+                      url.spec()}));
+  }
 }
 
 // Returns whether the |url| points to a GET or POST query, or neither.
@@ -185,11 +193,8 @@ RequestType GetRequestTypeFromURL<ApiEnv>(const GURL& url) {
   }
 
   std::string path = url.path().substr(strlen(kApiServerQueryPath));
-  if (path.size() > 0 && path[0] == '/')  // Skip a /
-    path = path.substr(1);
-  if (path.size() == 0)
-    return RequestType::kQueryProtoPOST;
-  return RequestType::kQueryProtoGET;
+  return path == ":get" || path == ":get/" ? RequestType::kQueryProtoPOST
+                                           : RequestType::kQueryProtoGET;
 }
 
 // Gets query request protos from GET URL.
@@ -558,7 +563,7 @@ ServerCacheReplayer::Status PopulateCacheFromQueryNode(
         "could not cache query node content";
     if (fail_on_error) {
       return ServerCacheReplayer::Status{
-          ServerCacheReplayer::StatusCode::kBadNode, status_msg.as_string()};
+          ServerCacheReplayer::StatusCode::kBadNode, std::string(status_msg)};
     } else {
       // Keep a trace when not set to fail on bad node.
       VLOG(1) << status_msg;
@@ -577,7 +582,7 @@ std::vector<QueryNode> FindQueryNodesInDomainDict(
     return {};
   }
   std::vector<QueryNode> nodes;
-  for (const auto& pair : domain_dict.DictItems()) {
+  for (auto pair : domain_dict.DictItems()) {
     if (pair.first.find(url_prefix) != std::string::npos) {
       nodes.push_back(QueryNode{GURL(pair.first), &pair.second});
     }
@@ -777,14 +782,19 @@ AutofillQueryResponse ConvertResponse<LegacyEnv>(
       const auto& in_field = in.field(in_field_index);
       auto* out_field = out_form->add_field_suggestions();
       out_field->set_field_signature(query_field.signature());
+      int starting_index = 0;
+      // LegacyEnv Response is inconsistent on the overall type being in the
+      // predictions list, so first add the overall_type, and then address any
+      // additional predictions.
       if (in_field.has_overall_type_prediction()) {
-        out_field->set_primary_type_prediction(
+        out_field->add_predictions()->set_type(
             in_field.overall_type_prediction());
-      } else if (in_field.predictions_size() > 0) {
-        out_field->set_primary_type_prediction(in_field.predictions(0).type());
+        starting_index = 1;
       }
-      for (const auto& in_prediction : in_field.predictions())
-        out_field->add_predictions()->set_type(in_prediction.type());
+      for (int i = starting_index; i < in_field.predictions_size(); i++) {
+        out_field->add_predictions()->set_type(
+            in_field.predictions()[i].type());
+      }
       if (in_field.predictions().size() > 0 &&
           in_field.predictions(0).has_may_use_prefilled_placeholder()) {
         out_field->set_may_use_prefilled_placeholder(
@@ -925,9 +935,6 @@ std::ostream& operator<<(std::ostream& out,
     out << "\nForm";
     for (const auto& field : form.field_suggestions()) {
       out << "\n Field\n  signature: " << field.field_signature();
-      if (field.has_primary_type_prediction())
-        out << "\n  primary_type_prediction: "
-            << field.primary_type_prediction();
       for (const auto& prediction : field.predictions())
         out << "\n  prediction: " << prediction.type();
     }
@@ -994,7 +1001,7 @@ void CreateEmptyResponseForFormQuery(const AutofillPageQueryRequest_Form& form,
   auto* new_form = response->add_form_suggestions();
   for (int i = 0; i < form.fields_size(); i++) {
     auto* new_field = new_form->add_field_suggestions();
-    new_field->set_primary_type_prediction(0);
+    new_field->add_predictions()->set_type(0);
   }
 }
 

@@ -12,9 +12,10 @@
 #include "base/format_macros.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/strings/pattern.h"
+#include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
+#include "base/trace_event/traced_value.h"
 #include "build/build_config.h"
 #include "services/resource_coordinator/memory_instrumentation/aggregate_metrics_processor.h"
 #include "services/resource_coordinator/memory_instrumentation/memory_dump_map_converter.h"
@@ -191,6 +192,24 @@ std::unique_ptr<TracedValue> GetChromeDumpAndGlobalAndEdgesTracedValue(
   return traced_value;
 }
 
+mojom::AllocatorMemDumpPtr CreateAllocatorDumpForNode(const Node* node,
+                                                      bool recursive) {
+  base::flat_map<std::string, uint64_t> numeric_entries;
+  for (const auto& entry : node->const_entries()) {
+    if (entry.second.type == Node::Entry::Type::kUInt64)
+      numeric_entries.emplace(entry.first, entry.second.value_uint64);
+  }
+  base::flat_map<std::string, mojom::AllocatorMemDumpPtr> children;
+  if (recursive) {
+    for (const auto& child : node->const_children()) {
+      children.emplace(child.first,
+                       CreateAllocatorDumpForNode(child.second, true));
+    }
+  }
+  return mojom::AllocatorMemDump::New(std::move(numeric_entries),
+                                      std::move(children));
+}
+
 }  // namespace
 
 // static
@@ -297,6 +316,8 @@ void QueuedRequestDispatcher::SetUpAndDispatch(
   // the failed dump count and exit.
   if (request->args.pid != base::kNullProcessId &&
       request->pending_responses.empty()) {
+    DLOG(ERROR) << "Memory dump request failed due to missing pid "
+                << request->args.pid;
     request->failed_memory_dump_count++;
     return;
   }
@@ -525,16 +546,24 @@ void QueuedRequestDispatcher::Finalize(QueuedRequest* request,
         bool trace_os_success = tracing_observer->AddOsDumpToTraceIfEnabled(
             request->GetRequestArgs(), pid, *os_dump, raw_os_dump->memory_maps,
             timestamp);
-        if (!trace_os_success)
+        if (!trace_os_success) {
+          DLOG(ERROR) << "Tracing is disabled or not setup yet while receiving "
+                         "OS dump for pid "
+                      << pid;
           request->failed_memory_dump_count++;
+        }
       }
 
       if (raw_chrome_dump) {
         bool trace_chrome_success = AddChromeMemoryDumpToTrace(
             request->GetRequestArgs(), pid, *raw_chrome_dump, *global_graph,
             pid_to_process_type, tracing_observer, use_proto_writer, timestamp);
-        if (!trace_chrome_success)
+        if (!trace_chrome_success) {
+          DLOG(ERROR) << "Tracing is disabled or not setup yet while receiving "
+                         "Chrome dump for pid "
+                      << pid;
           request->failed_memory_dump_count++;
+        }
       }
     }
 
@@ -565,17 +594,17 @@ void QueuedRequestDispatcher::Finalize(QueuedRequest* request,
       const auto& process_graph =
           global_graph->process_node_graphs().find(pid)->second;
       for (const std::string& name : request->args.allocator_dump_names) {
-        auto* node = process_graph->FindNode(name);
+        bool is_recursive = base::EndsWith(name, "/*");
+        std::string node_name =
+            (is_recursive ? name.substr(0, name.length() - 2) : name);
+        Node* node = process_graph->FindNode(node_name);
+
         // Silently ignore any missing node in the process graph.
         if (!node)
           continue;
-        base::flat_map<std::string, uint64_t> numeric_entries;
-        for (const auto& entry : *node->entries()) {
-          if (entry.second.type == Node::Entry::Type::kUInt64)
-            numeric_entries.emplace(entry.first, entry.second.value_uint64);
-        }
+
         pmd->chrome_allocator_dumps.emplace(
-            name, mojom::AllocatorMemDump::New(std::move(numeric_entries)));
+            node_name, CreateAllocatorDumpForNode(node, is_recursive));
       }
     }
 
@@ -651,7 +680,7 @@ QueuedRequestDispatcher::ClientInfo::ClientInfo(
     mojom::ClientProcess* client,
     base::ProcessId pid,
     mojom::ProcessType process_type,
-    base::Optional<std::string> service_name)
+    absl::optional<std::string> service_name)
     : client(client),
       pid(pid),
       process_type(process_type),

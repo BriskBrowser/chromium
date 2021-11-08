@@ -2,9 +2,6 @@ rootWebArea
 ++genericContainer ignored
 ++++genericContainer ignored
 ++++++group
-++++++++listMarker name='• '
-++++++++listItem
-++++++++++genericContainer
-++++++++++++listMarker name='• '
-++++++++++genericContainer ignored
+++++++++listMarker name='%E2%80%A2 '
 ++++++genericContainer ignored
+++++++++genericContainer ignored

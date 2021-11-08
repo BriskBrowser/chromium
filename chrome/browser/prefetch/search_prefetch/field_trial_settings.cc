@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/command_line.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/system/sys_info.h"
 
 // Enables the feature completely with a few skipped checks to make local
@@ -15,10 +16,10 @@ const char kSearchPrefetchServiceCommandLineFlag[] =
     "enable-search-prefetch-service";
 
 const base::Feature kSearchPrefetchService{"SearchPrefetchService",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
+                                           base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kSearchPrefetchServicePrefetching{
-    "SearchPrefetchServicePrefetching", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SearchPrefetchServicePrefetching", base::FEATURE_ENABLED_BY_DEFAULT};
 
 bool SearchPrefetchServiceIsEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -43,10 +44,8 @@ bool SearchPrefetchServicePrefetchingIsEnabled() {
 }
 
 base::TimeDelta SearchPrefetchCachingLimit() {
-  return base::TimeDelta::FromMilliseconds(
-      base::GetFieldTrialParamByFeatureAsInt(kSearchPrefetchServicePrefetching,
-                                             "prefetch_caching_limit_ms",
-                                             60000));
+  return base::Milliseconds(base::GetFieldTrialParamByFeatureAsInt(
+      kSearchPrefetchServicePrefetching, "prefetch_caching_limit_ms", 60000));
 }
 
 size_t SearchPrefetchMaxAttemptsPerCachingDuration() {
@@ -56,18 +55,16 @@ size_t SearchPrefetchMaxAttemptsPerCachingDuration() {
   }
   return base::GetFieldTrialParamByFeatureAsInt(
       kSearchPrefetchServicePrefetching, "max_attempts_per_caching_duration",
-      2);
+      7);
 }
 
 base::TimeDelta SearchPrefetchErrorBackoffDuration() {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           kSearchPrefetchServiceCommandLineFlag)) {
-    return base::TimeDelta::FromSeconds(1);
+    return base::Seconds(1);
   }
-  return base::TimeDelta::FromMilliseconds(
-      base::GetFieldTrialParamByFeatureAsInt(kSearchPrefetchServicePrefetching,
-                                             "error_backoff_duration_ms",
-                                             60000));
+  return base::Milliseconds(base::GetFieldTrialParamByFeatureAsInt(
+      kSearchPrefetchServicePrefetching, "error_backoff_duration_ms", 60000));
 }
 
 bool SearchPrefetchOnlyFetchDefaultMatch() {

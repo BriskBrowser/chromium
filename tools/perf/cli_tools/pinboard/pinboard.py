@@ -29,7 +29,7 @@ JOBS_STATE_FILE = 'jobs_state.json'
 DATASET_PKL_FILE = 'dataset.pkl'
 DATASET_CSV_FILE = 'dataset.csv'
 
-CLOUD_STORAGE_DIR = 'gs://chrome-health-tvdata/pinboard'
+CLOUD_STORAGE_DIR = 'gs://showy-dashboard-data/pinboard'
 TZ = 'America/Los_Angeles'  # MTV-time.
 
 
@@ -96,7 +96,7 @@ ACTIVE_STORIES = set([
     'browse:tech:discourse_infinite_scroll:2018',
     'browse:social:twitter:2018',
     'browse:social:tumblr_infinite_scroll:2018',
-    'browse:media:googleplaystore:2018',
+    'browse:media:googleplaystore:2021',
     'browse:search:google:2020',
     'browse:news:cnn:2018',
     'browse:news:reddit:2020',
@@ -124,7 +124,7 @@ def StartPinpointJobs(state, date):
   configs = LoadJsonFile(JOB_CONFIGS_PATH)
   for config in configs:
     config['base_git_hash'] = revision
-    with tempfile_ext.NamedTemporaryFile() as tmp:
+    with tempfile_ext.NamedTemporaryFile(mode='w') as tmp:
       json.dump(config, tmp)
       tmp.close()
       output = subprocess.check_output(
@@ -194,7 +194,7 @@ def UpdateJobsState(state):
   storage are updated.
   """
   local_path = CachedFilePath(JOBS_STATE_FILE)
-  with tempfile_ext.NamedTemporaryFile() as tmp:
+  with tempfile_ext.NamedTemporaryFile(mode='w') as tmp:
     json.dump(state, tmp, sort_keys=True, indent=2, separators=(',', ': '))
     tmp.close()
     if not os.path.exists(local_path) or not filecmp.cmp(tmp.name, local_path):

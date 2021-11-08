@@ -37,15 +37,18 @@ class MockAccessoryView
     : public AutofillKeyboardAccessoryAdapter::AccessoryView {
  public:
   MockAccessoryView() {}
+
+  MockAccessoryView(const MockAccessoryView&) = delete;
+  MockAccessoryView& operator=(const MockAccessoryView&) = delete;
+
   MOCK_METHOD0(Initialize, bool());
   MOCK_METHOD0(Hide, void());
   MOCK_METHOD0(Show, void());
   MOCK_METHOD3(ConfirmDeletion,
-               void(const base::string16&,
-                    const base::string16&,
+               void(const std::u16string&,
+                    const std::u16string&,
                     base::OnceClosure));
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockAccessoryView);
+
 };
 
 Suggestion createPasswordEntry(std::string password,
@@ -179,19 +182,17 @@ TEST_F(AutofillKeyboardAccessoryAdapterTest, UseAdditionalLabelForElidedLabel) {
 
   // The 1st item is usually not visible (something like clear form) and has an
   // empty label. But it needs to be handled since UI might ask for it anyway.
-  EXPECT_EQ(adapter_as_controller()->GetSuggestionLabelAt(0), base::string16());
+  EXPECT_EQ(adapter_as_controller()->GetSuggestionLabelAt(0), std::u16string());
 
   // If there is a label, use it but cap at 8 bullets.
-  EXPECT_EQ(adapter_as_controller()->GetSuggestionLabelAt(1),
-            ASCIIToUTF16("********"));
+  EXPECT_EQ(adapter_as_controller()->GetSuggestionLabelAt(1), u"********");
 
   // If the label is empty, use the additional label:
   EXPECT_EQ(adapter_as_controller()->GetSuggestionLabelAt(2),
-            ASCIIToUTF16("psl.origin.eg ********"));
+            u"psl.origin.eg ********");
 
   // If the password has less than 8 bullets, show the exact amount.
-  EXPECT_EQ(adapter_as_controller()->GetSuggestionLabelAt(3),
-            ASCIIToUTF16("***"));
+  EXPECT_EQ(adapter_as_controller()->GetSuggestionLabelAt(3), u"***");
 }
 
 TEST_F(AutofillKeyboardAccessoryAdapterTest, ProvideReorderedSuggestions) {
@@ -226,7 +227,7 @@ TEST_F(AutofillKeyboardAccessoryAdapterTest, MapSelectedLineToChangedIndices) {
   controller()->set_suggestions(createSuggestions(/*clearItemOffset=*/2));
   NotifyAboutSuggestions();
 
-  EXPECT_CALL(*controller(), SetSelectedLine(base::Optional<int>(0)));
+  EXPECT_CALL(*controller(), SetSelectedLine(absl::optional<int>(0)));
   adapter_as_controller()->SetSelectedLine(1);
 
   EXPECT_CALL(*controller(), selected_line()).WillRepeatedly(Return(0));

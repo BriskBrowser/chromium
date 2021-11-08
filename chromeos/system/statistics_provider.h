@@ -116,6 +116,8 @@ COMPONENT_EXPORT(CHROMEOS_SYSTEM) extern const char kRegionKey[];
 COMPONENT_EXPORT(CHROMEOS_SYSTEM) extern const char kInitialLocaleKey[];
 COMPONENT_EXPORT(CHROMEOS_SYSTEM) extern const char kInitialTimezoneKey[];
 COMPONENT_EXPORT(CHROMEOS_SYSTEM) extern const char kKeyboardLayoutKey[];
+COMPONENT_EXPORT(CHROMEOS_SYSTEM)
+extern const char kKeyboardMechanicalLayoutKey[];
 
 // The key that will be present in RO VPD to indicate what identifier is used
 // for attestation-based registration of a device.
@@ -179,5 +181,24 @@ class COMPONENT_EXPORT(CHROMEOS_SYSTEM) StatisticsProvider {
 
 }  // namespace system
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+namespace system {
+using ::chromeos::system::kActivateDateKey;
+using ::chromeos::system::kBlockDevModeKey;
+using ::chromeos::system::kCheckEnrollmentKey;
+using ::chromeos::system::kEnterpriseManagementEmbargoEndDateKey;
+using ::chromeos::system::kHardwareClassKey;
+using ::chromeos::system::kIsVmKey;
+using ::chromeos::system::kIsVmValueFalse;
+using ::chromeos::system::kIsVmValueTrue;
+using ::chromeos::system::kOemKeyboardDrivenOobeKey;
+using ::chromeos::system::kRlzBrandCodeKey;
+using ::chromeos::system::kSerialNumberKeyForTest;
+using ::chromeos::system::StatisticsProvider;
+}  // namespace system
+}  // namespace ash
 
 #endif  // CHROMEOS_SYSTEM_STATISTICS_PROVIDER_H_

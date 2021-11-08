@@ -25,7 +25,7 @@ namespace ash {
 
 namespace desks_util {
 
-ASH_EXPORT size_t GetMaxNumberOfDesks();
+constexpr size_t kMaxNumberOfDesks = 8;
 
 ASH_EXPORT std::vector<int> GetDesksContainersIds();
 
@@ -62,6 +62,9 @@ ui::Compositor* GetSelectedCompositorForPerformanceMetrics();
 
 // Check if a desk is being dragged.
 ASH_EXPORT bool IsDraggingAnyDesk();
+
+// Returns whether a |window| is visible on all workspaces.
+ASH_EXPORT bool IsWindowVisibleOnAllWorkspaces(const aura::Window* window);
 
 // Move an item at |old_index| to |new_index|.
 template <typename T>

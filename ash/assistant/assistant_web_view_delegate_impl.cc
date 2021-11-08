@@ -6,8 +6,10 @@
 
 #include "ash/frame/non_client_frame_view_ash.h"
 #include "chromeos/ui/frame/caption_buttons/caption_button_model.h"
+#include "chromeos/ui/frame/default_frame_header.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/caption_button_types.h"
+#include "ui/views/window/frame_caption_button.h"
 #include "ui/views/window/non_client_view.h"
 
 namespace ash {
@@ -18,6 +20,12 @@ class AssistantWebContainerCaptionButtonModel
     : public chromeos::CaptionButtonModel {
  public:
   AssistantWebContainerCaptionButtonModel() = default;
+
+  AssistantWebContainerCaptionButtonModel(
+      const AssistantWebContainerCaptionButtonModel&) = delete;
+  AssistantWebContainerCaptionButtonModel& operator=(
+      const AssistantWebContainerCaptionButtonModel&) = delete;
+
   ~AssistantWebContainerCaptionButtonModel() override = default;
 
   // CaptionButtonModel:
@@ -31,11 +39,13 @@ class AssistantWebContainerCaptionButtonModel
 
       case views::CAPTION_BUTTON_ICON_MINIMIZE:
       case views::CAPTION_BUTTON_ICON_MAXIMIZE_RESTORE:
-      case views::CAPTION_BUTTON_ICON_LEFT_SNAPPED:
-      case views::CAPTION_BUTTON_ICON_RIGHT_SNAPPED:
+      case views::CAPTION_BUTTON_ICON_LEFT_TOP_SNAPPED:
+      case views::CAPTION_BUTTON_ICON_RIGHT_BOTTOM_SNAPPED:
       case views::CAPTION_BUTTON_ICON_MENU:
       case views::CAPTION_BUTTON_ICON_ZOOM:
       case views::CAPTION_BUTTON_ICON_LOCATION:
+      case views::CAPTION_BUTTON_ICON_CENTER:
+      case views::CAPTION_BUTTON_ICON_CUSTOM:
       case views::CAPTION_BUTTON_ICON_COUNT:
         return false;
     }
@@ -51,8 +61,6 @@ class AssistantWebContainerCaptionButtonModel
 
  private:
   bool back_button_visibility_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantWebContainerCaptionButtonModel);
 };
 
 }  // namespace
@@ -76,6 +84,12 @@ void AssistantWebViewDelegateImpl::UpdateBackButtonVisibility(
   auto* frame_view_ash =
       static_cast<NonClientFrameViewAsh*>(non_client_view->frame_view());
   frame_view_ash->SetCaptionButtonModel(std::move(caption_button_model));
+
+  if (visibility) {
+    views::FrameCaptionButton* back_button =
+        frame_view_ash->GetHeaderView()->GetFrameHeader()->GetBackButton();
+    back_button->SetPaintAsActive(widget->IsActive());
+  }
 }
 
 }  // namespace ash

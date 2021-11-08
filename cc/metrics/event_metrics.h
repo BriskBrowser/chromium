@@ -8,10 +8,10 @@
 #include <memory>
 #include <vector>
 
-#include "base/optional.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
 #include "cc/cc_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/types/event_type.h"
 #include "ui/events/types/scroll_input_type.h"
 
@@ -51,11 +51,15 @@ class CC_EXPORT EventMetrics {
     kGestureTwoFingerTap,
     kFirstGestureScrollUpdate,
     kMouseDragged,
-    kMaxValue = kMouseDragged,
+    kGesturePinchBegin,
+    kGesturePinchEnd,
+    kGesturePinchUpdate,
+    kInertialGestureScrollUpdate,
+    kMaxValue = kInertialGestureScrollUpdate,
   };
 
   // Type of scroll events. This list should be in the same order as values of
-  // EventLatencyScrollInputType enum from enums.xml file.
+  // `EventLatencyScrollInputType` enum from enums.xml file.
   enum class ScrollType {
     kAutoscroll,
     kScrollbar,
@@ -72,6 +76,14 @@ class CC_EXPORT EventMetrics {
     kMaxValue = kContinued,
   };
 
+  // Type of pinch events. This list should be in the same order as values of
+  // `EventLatencyPinchInputType` enum from enums.xml file.
+  enum class PinchType {
+    kTouchpad,
+    kTouchscreen,
+    kMaxValue = kTouchscreen,
+  };
+
   // Stages of event dispatch in different processes/threads.
   enum class DispatchStage {
     kGenerated,
@@ -83,19 +95,61 @@ class CC_EXPORT EventMetrics {
     kMaxValue = kRendererMainFinished,
   };
 
+  // Parameters to initialize an `EventMetrics` object for a scroll or pinch
+  // gesture event.
+  struct CC_EXPORT GestureParams {
+    // Extra parameters for scroll events.
+    struct CC_EXPORT ScrollParams {
+      // Constructor for all scroll events.
+      explicit ScrollParams(bool is_inertial);
+
+      // Constructor for scroll update events only.
+      ScrollParams(bool is_inertial, ScrollUpdateType update_type);
+
+      ScrollParams(const ScrollParams&);
+      ScrollParams& operator=(const ScrollParams&);
+
+      // Determines whether the scroll event is an inertial phase event (caused
+      // by a fling).
+      bool is_inertial;
+
+      // Determines whether the scroll update event is the first one in a
+      // sequence.
+      absl::optional<ScrollUpdateType> update_type;
+    };
+
+    // Constructor for all gesture (scroll and pinch) events.
+    explicit GestureParams(ui::ScrollInputType input_type);
+
+    // Constructor for scroll events only.
+    GestureParams(ui::ScrollInputType input_type, bool scroll_is_inertial);
+
+    // Constructor for scroll update events only.
+    GestureParams(ui::ScrollInputType input_type,
+                  bool scroll_is_inertial,
+                  ScrollUpdateType scroll_update_type);
+
+    GestureParams(const GestureParams&);
+    GestureParams& operator=(const GestureParams&);
+
+    // Determines the type of input device generating the event.
+    ui::ScrollInputType input_type;
+
+    // Extra parameters for scroll events.
+    absl::optional<ScrollParams> scroll_params;
+  };
+
   // Returns a new instance if the event is of a type we are interested in.
   // Otherwise, returns nullptr.
   static std::unique_ptr<EventMetrics> Create(
       ui::EventType type,
-      base::Optional<ScrollUpdateType> scroll_update_type,
-      base::Optional<ui::ScrollInputType> scroll_input_type,
+      absl::optional<GestureParams> gesture_params,
       base::TimeTicks timestamp);
 
   // Similar to `Create()` with an extra `base::TickClock` to use in tests.
   static std::unique_ptr<EventMetrics> CreateForTesting(
       ui::EventType type,
-      base::Optional<ScrollUpdateType> scroll_update_type,
-      base::Optional<ui::ScrollInputType> scroll_input_type,
+      absl::optional<GestureParams> gesture_params,
       base::TimeTicks timestamp,
       const base::TickClock* tick_clock);
 
@@ -107,8 +161,7 @@ class CC_EXPORT EventMetrics {
   // new event is not an interesting one, return value would be nullptr.
   static std::unique_ptr<EventMetrics> CreateFromExisting(
       ui::EventType type,
-      base::Optional<ScrollUpdateType> scroll_update_type,
-      base::Optional<ui::ScrollInputType> scroll_input_type,
+      absl::optional<GestureParams> gesture_params,
       DispatchStage last_dispatch_stage,
       const EventMetrics* existing);
 
@@ -122,11 +175,17 @@ class CC_EXPORT EventMetrics {
   // Returns a string representing event type.
   const char* GetTypeName() const;
 
-  const base::Optional<ScrollType>& scroll_type() const { return scroll_type_; }
+  const absl::optional<ScrollType>& scroll_type() const { return scroll_type_; }
 
   // Returns a string representing input type for a scroll event. Should only be
   // called for scroll events.
   const char* GetScrollTypeName() const;
+
+  const absl::optional<PinchType>& pinch_type() const { return pinch_type_; }
+
+  // Returns a string representing input type for a pinch event. Should only be
+  // called for pinch events.
+  const char* GetPinchTypeName() const;
 
   void SetDispatchStageTimestamp(DispatchStage stage);
   base::TimeTicks GetDispatchStageTimestamp(DispatchStage stage) const;
@@ -134,6 +193,8 @@ class CC_EXPORT EventMetrics {
   // Resets the metrics object to dispatch stage `stage` by setting timestamps
   // of dispatch stages after `stage` to null timestamp,
   void ResetToDispatchStage(DispatchStage stage);
+
+  bool HasSmoothInputEvent() const;
 
   std::unique_ptr<EventMetrics> Clone() const;
 
@@ -143,13 +204,13 @@ class CC_EXPORT EventMetrics {
  private:
   static std::unique_ptr<EventMetrics> CreateInternal(
       ui::EventType type,
-      base::Optional<ScrollUpdateType> scroll_update_type,
-      base::Optional<ui::ScrollInputType> scroll_input_type,
+      const absl::optional<GestureParams>& gesture_params,
       base::TimeTicks timestamp,
       const base::TickClock* tick_clock);
 
   EventMetrics(EventType type,
-               base::Optional<ScrollType> scroll_type,
+               absl::optional<ScrollType> scroll_type,
+               absl::optional<PinchType> pinch_type,
                base::TimeTicks timestamp,
                const base::TickClock* tick_clock);
 
@@ -157,7 +218,11 @@ class CC_EXPORT EventMetrics {
 
   // Only available for scroll events and represents the type of input device
   // for the event.
-  base::Optional<ScrollType> scroll_type_;
+  absl::optional<ScrollType> scroll_type_;
+
+  // Only available for pinch events and represents the type of input device for
+  // the event.
+  absl::optional<PinchType> pinch_type_;
 
   const base::TickClock* const tick_clock_;
 

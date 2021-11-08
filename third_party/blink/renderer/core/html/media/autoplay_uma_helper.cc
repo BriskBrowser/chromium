@@ -24,8 +24,7 @@ namespace blink {
 
 namespace {
 
-constexpr base::TimeDelta kMaxOffscreenDurationUma =
-    base::TimeDelta::FromHours(1);
+constexpr base::TimeDelta kMaxOffscreenDurationUma = base::Hours(1);
 constexpr int32_t kOffscreenDurationUmaBucketCount = 50;
 
 // Returns a int64_t with the following structure:
@@ -63,8 +62,6 @@ static void RecordAutoplaySourceMetrics(HTMLMediaElement* element,
                                         AutoplaySource source) {
   if (IsA<HTMLVideoElement>(element)) {
     base::UmaHistogramEnumeration("Media.Video.Autoplay", source);
-    if (element->muted())
-      base::UmaHistogramEnumeration("Media.Video.Autoplay.Muted", source);
     return;
   }
   base::UmaHistogramEnumeration("Media.Audio.Autoplay", source);
@@ -267,9 +264,8 @@ void AutoplayUmaHelper::MaybeStopRecordingMutedVideoOffscreenDuration() {
 
   UMA_HISTOGRAM_CUSTOM_TIMES(
       "Media.Video.Autoplay.Muted.PlayMethod.OffscreenDuration",
-      muted_video_autoplay_offscreen_duration_,
-      base::TimeDelta::FromMilliseconds(1), kMaxOffscreenDurationUma,
-      kOffscreenDurationUmaBucketCount);
+      muted_video_autoplay_offscreen_duration_, base::Milliseconds(1),
+      kMaxOffscreenDurationUma, kOffscreenDurationUmaBucketCount);
 
   muted_video_offscreen_duration_intersection_observer_->disconnect();
   muted_video_offscreen_duration_intersection_observer_ = nullptr;

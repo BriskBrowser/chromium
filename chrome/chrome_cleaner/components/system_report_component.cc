@@ -20,6 +20,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -27,7 +28,6 @@
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/process_iterator.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -635,22 +635,6 @@ void ReportProxySettingsInformation() {
   // Retrieve the default WinHTTP proxy configuration from the registry.
   WINHTTP_PROXY_INFO proxy_info;
   if (::WinHttpGetDefaultProxyConfiguration(&proxy_info)) {
-    const char* access_type = nullptr;
-    switch (proxy_info.dwAccessType) {
-      case WINHTTP_ACCESS_TYPE_NO_PROXY:
-        access_type = "no proxy";
-        break;
-      case WINHTTP_ACCESS_TYPE_DEFAULT_PROXY:
-        access_type = "default proxy";
-        break;
-      case WINHTTP_ACCESS_TYPE_NAMED_PROXY:
-        access_type = "named proxy";
-        break;
-      default:
-        access_type = "unknown";
-        break;
-    }
-
     // Report proxy information when it's not the default configuration.
     if (proxy_info.dwAccessType != WINHTTP_ACCESS_TYPE_NO_PROXY ||
         proxy_info.lpszProxy || proxy_info.lpszProxyBypass) {
@@ -713,7 +697,7 @@ void ReportInstalledExtensions(JsonParserAPI* json_parser,
   // phases combined.
   const base::TimeTicks end_time =
       base::TimeTicks::Now() +
-      base::TimeDelta::FromMilliseconds(kParseAttemptTimeoutMilliseconds);
+      base::Milliseconds(kParseAttemptTimeoutMilliseconds);
   extension_settings_done.TimedWait(end_time - base::TimeTicks::Now());
   master_preferences_done.TimedWait(end_time - base::TimeTicks::Now());
   default_extensions_done.TimedWait(end_time - base::TimeTicks::Now());
@@ -773,12 +757,13 @@ void ReportShortcutModifications(ShortcutParserAPI* shortcut_parser) {
   base::WaitableEvent event(WaitableEvent::ResetPolicy::MANUAL,
                             WaitableEvent::InitialState::NOT_SIGNALED);
 
-  std::set<base::FilePath> chrome_exe_paths;
-  ListChromeExePaths(&chrome_exe_paths);
+  std::set<base::FilePath> chrome_exe_directories;
+  ListChromeExeDirectories(&chrome_exe_directories);
 
+  const std::wstring kChromeExecutableName = L"chrome.exe";
   FilePathSet chrome_exe_file_path_set;
-  for (const auto& path : chrome_exe_paths)
-    chrome_exe_file_path_set.Insert(path);
+  for (const auto& path : chrome_exe_directories)
+    chrome_exe_file_path_set.Insert(path.Append(kChromeExecutableName));
 
   shortcut_parser->FindAndParseChromeShortcutsInFoldersAsync(
       paths_to_explore, chrome_exe_file_path_set,
@@ -794,7 +779,6 @@ void ReportShortcutModifications(ShortcutParserAPI* shortcut_parser) {
 
   InitializeFilePathSanitization();
 
-  const std::wstring kChromeExecutableName = L"chrome.exe";
   for (const ShortcutInformation& shortcut : shortcuts_found) {
     base::FilePath target_path(shortcut.target_path);
 

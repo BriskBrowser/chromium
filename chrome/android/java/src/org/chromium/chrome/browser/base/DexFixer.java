@@ -15,19 +15,17 @@ import androidx.annotation.WorkerThread;
 
 import dalvik.system.DexFile;
 
-import org.chromium.base.BuildConfig;
 import org.chromium.base.BuildInfo;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.compat.ApiHelperForM;
 import org.chromium.base.compat.ApiHelperForO;
-import org.chromium.base.library_loader.NativeLibraries;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
+import org.chromium.build.BuildConfig;
+import org.chromium.build.NativeLibraries;
 import org.chromium.chrome.browser.DeferredStartupHandler;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.version.ChromeVersionInfo;
@@ -141,7 +139,10 @@ public class DexFixer {
             // startup.
             SharedPreferencesManager prefManager = SharedPreferencesManager.getInstance();
             long versionCode = BuildInfo.getInstance().versionCode;
-            if (prefManager.readLong(ChromePreferenceKeys.ISOLATED_SPLITS_DEX_COMPILE_VERSION)
+            // The default value is always lesser than any non-negative versionCode. This prevents
+            // some tests from failing when application's versionCode is stuck at 0.
+            if (prefManager.readLong(
+                        ChromePreferenceKeys.ISOLATED_SPLITS_DEX_COMPILE_VERSION, versionCode - 1)
                     != versionCode) {
                 // Compiling the dex is an asynchronous operation anyways, so update the pref here
                 // rather than attempting to wait.
@@ -167,10 +168,6 @@ public class DexFixer {
                     }
                 }
             }
-        }
-
-        if (!CachedFeatureFlags.isEnabled(ChromeFeatureList.DEX_FIXER)) {
-            return DexFixerReason.NOT_NEEDED;
         }
 
         String oatPath = odexPathFromApkPath(appInfo.sourceDir);

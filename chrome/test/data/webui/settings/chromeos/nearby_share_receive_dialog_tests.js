@@ -4,7 +4,7 @@
 
 // clang-format off
 // #import {assertEquals} from '../../chai_assert.js';
-// #import {isChildVisible, waitAfterNextRender} from '../../test_util.m.js';
+// #import {isChildVisible, waitAfterNextRender} from '../../test_util.js';
 // #import {setNearbyShareSettingsForTesting, setReceiveManagerForTesting, setContactManagerForTesting} from 'chrome://os-settings/chromeos/os_settings.js';
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 // #import {FakeContactManager} from '../../nearby_share/shared/fake_nearby_contact_manager.m.js';
@@ -26,23 +26,28 @@ suite('NearbyShare', function() {
    * This allows both sub-suites to share the same setup logic but with a
    * different enabled state which changes the routing of the first view.
    * @param {boolean} enabled The value of the enabled setting.
+   * @param {boolean} isOnboardingComplete The value of the
+   *     isOnboardingComplete setting.
    */
-  function sharedSetup(enabled) {
+  function sharedSetup(enabled, isOnboardingComplete) {
     fakeReceiveManager = new nearby_share.FakeReceiveManager();
     fakeContactManager = new nearby_share.FakeContactManager();
     fakeSettings = new nearby_share.FakeNearbyShareSettings();
-    fakeSettings.setEnabled(true);
 
     nearby_share.setReceiveManagerForTesting(fakeReceiveManager);
     nearby_share.setContactManagerForTesting(fakeContactManager);
     nearby_share.setNearbyShareSettingsForTesting(fakeSettings);
 
     PolymerTest.clearBody();
+    fakeSettings.setEnabled(enabled);
+    fakeSettings.setIsOnboardingComplete(isOnboardingComplete);
 
     dialog = document.createElement('nearby-share-receive-dialog');
     dialog.settings = {
       enabled: enabled,
+      isOnboardingComplete: isOnboardingComplete,
     };
+    dialog.isSettingsRetreived = true;
     document.body.appendChild(dialog);
     Polymer.dom.flush();
   }
@@ -73,8 +78,8 @@ suite('NearbyShare', function() {
 
   suite('EnabledTests', function() {
     setup(function() {
-      sharedSetup(true);
-      dialog.showHighVisibilityPage();
+      sharedSetup(/*enabled=*/ true, /*isOnboardingComplete=*/ true);
+      dialog.showHighVisibilityPage(/*shutoffTimeoutInSeconds=*/ 5 * 60);
       Polymer.dom.flush();
     });
 
@@ -138,28 +143,44 @@ suite('NearbyShare', function() {
           // If a share target comes in, we show it.
           await fakeReceiveManager.unregisterForegroundReceiveSurface();
           Polymer.dom.flush();
+          assertTrue(dialog.closing_);
           assertFalse(isVisible('cr-dialog'));
         });
 
     test(
-        'unregister surface, OnTransferUpdate, does not close dialog',
+        'OnTransferUpdate, unregister surface, does not close dialog',
         async function() {
           await test_util.waitAfterNextRender(dialog);
           // When attached we enter high visibility mode by default
           assertTrue(isVisible('nearby-share-high-visibility-page'));
           assertFalse(isVisible('nearby-share-confirm-page'));
           // If a share target comes in, we show it.
-          await fakeReceiveManager.unregisterForegroundReceiveSurface();
           const target =
               fakeReceiveManager.simulateShareTargetArrival('testName', '1234');
           Polymer.dom.flush();
           assertFalse(dialog.closing_);
+          await fakeReceiveManager.unregisterForegroundReceiveSurface();
+          Polymer.dom.flush();
+          assertFalse(dialog.closing_);
         });
+
+    test('onStartAdvertisingFailure shows an error', async function() {
+      await test_util.waitAfterNextRender(dialog);
+      assertTrue(isVisible('nearby-share-high-visibility-page'));
+      const highVisibilityPage = dialog.$$('nearby-share-high-visibility-page');
+      assertFalse(!!highVisibilityPage.$$('#errorTitle'));
+
+      dialog.onStartAdvertisingFailure();
+      await test_util.waitAfterNextRender(dialog);
+
+      const errorTitle = highVisibilityPage.$$('#errorTitle');
+      assertTrue(!!errorTitle && errorTitle.textContent.length > 0);
+    });
   });
 
   suite('DisabledTests', function() {
     setup(function() {
-      sharedSetup(false);
+      sharedSetup(/*enabled=*/ false, /*isOnboardingComplete=*/ false);
     });
 
     teardown(function() {

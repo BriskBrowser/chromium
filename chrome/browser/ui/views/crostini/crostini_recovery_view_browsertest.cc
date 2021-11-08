@@ -4,22 +4,24 @@
 
 #include "chrome/browser/ui/views/crostini/crostini_recovery_view.h"
 
+#include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_base.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "chrome/browser/chromeos/crostini/crostini_manager.h"
-#include "chrome/browser/chromeos/crostini/crostini_test_helper.h"
-#include "chrome/browser/chromeos/crostini/crostini_util.h"
-#include "chrome/browser/chromeos/guest_os/guest_os_registry_service.h"
-#include "chrome/browser/chromeos/guest_os/guest_os_registry_service_factory.h"
+#include "chrome/browser/ash/crostini/crostini_manager.h"
+#include "chrome/browser/ash/crostini/crostini_test_helper.h"
+#include "chrome/browser/ash/crostini/crostini_util.h"
+#include "chrome/browser/ash/guest_os/guest_os_registry_service.h"
+#include "chrome/browser/ash/guest_os/guest_os_registry_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/crostini/crostini_dialogue_browser_test_util.h"
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chromeos/dbus/concierge/fake_concierge_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/fake_concierge_client.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -43,6 +45,11 @@ class CrostiniRecoveryViewBrowserTest : public CrostiniDialogBrowserTest {
   CrostiniRecoveryViewBrowserTest()
       : CrostiniDialogBrowserTest(true /*register_termina*/),
         app_id_(crostini::CrostiniTestHelper::GenerateAppId(kDesktopFileId)) {}
+
+  CrostiniRecoveryViewBrowserTest(const CrostiniRecoveryViewBrowserTest&) =
+      delete;
+  CrostiniRecoveryViewBrowserTest& operator=(
+      const CrostiniRecoveryViewBrowserTest&) = delete;
 
   void SetUpOnMainThread() override {
     CrostiniDialogBrowserTest::SetUpOnMainThread();
@@ -107,8 +114,6 @@ class CrostiniRecoveryViewBrowserTest : public CrostiniDialogBrowserTest {
 
  private:
   std::string app_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(CrostiniRecoveryViewBrowserTest);
 };
 
 // Test the dialog is actually launched.
@@ -134,7 +139,7 @@ IN_PROC_BROWSER_TEST_F(CrostiniRecoveryViewBrowserTest, Cancel) {
   SetUncleanStartup();
   RegisterApp();
   // Ensure Terminal System App is installed.
-  web_app::WebAppProvider::Get(browser()->profile())
+  web_app::WebAppProvider::GetForTest(browser()->profile())
       ->system_web_app_manager()
       .InstallSystemAppsForTesting();
 

@@ -13,13 +13,19 @@ class CredentialManagerDialogControllerMock
     : public CredentialManagerDialogController {
  public:
   CredentialManagerDialogControllerMock();
+
+  CredentialManagerDialogControllerMock(
+      const CredentialManagerDialogControllerMock&) = delete;
+  CredentialManagerDialogControllerMock& operator=(
+      const CredentialManagerDialogControllerMock&) = delete;
+
   ~CredentialManagerDialogControllerMock() override;
 
   MOCK_CONST_METHOD0(GetLocalForms, const FormsVector&());
-  MOCK_CONST_METHOD0(GetAccoutChooserTitle, base::string16());
+  MOCK_CONST_METHOD0(GetAccoutChooserTitle, std::u16string());
   MOCK_CONST_METHOD0(ShouldShowSignInButton, bool());
-  MOCK_CONST_METHOD0(GetAutoSigninPromoTitle, base::string16());
-  MOCK_CONST_METHOD0(GetAutoSigninText, base::string16());
+  MOCK_CONST_METHOD0(GetAutoSigninPromoTitle, std::u16string());
+  MOCK_CONST_METHOD0(GetAutoSigninText, std::u16string());
   MOCK_CONST_METHOD0(ShouldShowFooter, bool());
   MOCK_METHOD0(OnSmartLockLinkClicked, void());
   MOCK_METHOD2(OnChooseCredentials,
@@ -29,9 +35,6 @@ class CredentialManagerDialogControllerMock
   MOCK_METHOD0(OnAutoSigninOK, void());
   MOCK_METHOD0(OnAutoSigninTurnOff, void());
   MOCK_METHOD0(OnCloseDialog, void());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CredentialManagerDialogControllerMock);
 };
 
 #endif  // CHROME_BROWSER_UI_PASSWORDS_CREDENTIAL_MANAGER_DIALOG_CONTROLLER_MOCK_H_

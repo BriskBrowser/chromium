@@ -13,6 +13,7 @@
 #include "base/values.h"
 #include "components/sync/engine/events/protocol_event.h"
 #include "components/sync/protocol/sync.pb.h"
+#include "components/sync/protocol/sync_enums.pb.h"
 
 namespace syncer {
 
@@ -23,7 +24,14 @@ class ConfigureGetUpdatesRequestEvent : public ProtocolEvent {
       base::Time timestamp,
       sync_pb::SyncEnums::GetUpdatesOrigin origin,
       const sync_pb::ClientToServerMessage& request);
+
+  ConfigureGetUpdatesRequestEvent(const ConfigureGetUpdatesRequestEvent&) =
+      delete;
+  ConfigureGetUpdatesRequestEvent& operator=(
+      const ConfigureGetUpdatesRequestEvent&) = delete;
+
   ~ConfigureGetUpdatesRequestEvent() override;
+
   std::unique_ptr<ProtocolEvent> Clone() const override;
 
  private:
@@ -36,8 +44,6 @@ class ConfigureGetUpdatesRequestEvent : public ProtocolEvent {
   const base::Time timestamp_;
   const sync_pb::SyncEnums::GetUpdatesOrigin origin_;
   const sync_pb::ClientToServerMessage request_;
-
-  DISALLOW_COPY_AND_ASSIGN(ConfigureGetUpdatesRequestEvent);
 };
 
 }  // namespace syncer

@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "ash/assistant/assistant_controller_impl.h"
-#include "ash/public/cpp/assistant/assistant_client.h"
 #include "ash/public/cpp/assistant/assistant_state.h"
 #include "ash/public/cpp/assistant/controller/assistant_screen_context_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
@@ -21,11 +20,13 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
+#include "chromeos/services/assistant/public/cpp/assistant_browser_delegate.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "ui/accessibility/ax_assistant_structure.h"
 #include "ui/aura/client/aura_constants.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_tree_owner.h"
 #include "ui/gfx/codec/jpeg_codec.h"
 #include "ui/gfx/skbitmap_operations.h"
@@ -215,9 +216,8 @@ void AssistantScreenContextControllerImpl::RequestScreenshot(
 
   ui::GrabLayerSnapshotAsync(
       root_layer, source_rect,
-      base::BindOnce(&EncodeScreenshotAndRunCallback,
-                     base::Passed(std::move(callback)),
-                     base::Passed(std::move(layer_owner))));
+      base::BindOnce(&EncodeScreenshotAndRunCallback, std::move(callback),
+                     std::move(layer_owner)));
 }
 
 void AssistantScreenContextControllerImpl::OnAssistantControllerConstructed() {
@@ -233,8 +233,8 @@ void AssistantScreenContextControllerImpl::OnAssistantControllerDestroying() {
 void AssistantScreenContextControllerImpl::OnUiVisibilityChanged(
     AssistantVisibility new_visibility,
     AssistantVisibility old_visibility,
-    base::Optional<AssistantEntryPoint> entry_point,
-    base::Optional<AssistantExitPoint> exit_point) {
+    absl::optional<AssistantEntryPoint> entry_point,
+    absl::optional<AssistantExitPoint> exit_point) {
   // In Clamshell, we need to cache the Assistant structure when Launcher the
   // first to show, because we cannot retrieve the active ARC app window after
   // it lose focus. Later Assistant UI visibility changes inside the Launcher
@@ -283,11 +283,11 @@ void AssistantScreenContextControllerImpl::UpdateAssistantStructure(
 void AssistantScreenContextControllerImpl::RequestAssistantStructure() {
   DCHECK(AssistantState::Get()->IsScreenContextAllowed());
 
-  auto* assistant_client = AssistantClient::Get();
-  DCHECK(assistant_client);
+  auto* delegate = chromeos::assistant::AssistantBrowserDelegate::Get();
+  DCHECK(delegate);
 
   // Request and cache Assistant structure for the active window.
-  assistant_client->RequestAssistantStructure(
+  delegate->RequestAssistantStructure(
       base::BindOnce(&AssistantScreenContextControllerImpl::
                          OnRequestAssistantStructureCompleted,
                      weak_factory_.GetWeakPtr()));

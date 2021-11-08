@@ -5,7 +5,7 @@
 (async function() {
   TestRunner.addResult(
       `Tests that evals with sourceURL comment are shown in scripts panel.\n`);
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.showPanel('sources');
   await TestRunner.navigatePromise('resources/source-url-comment.html');
   await TestRunner.evaluateInPagePromise(`
@@ -51,7 +51,7 @@
 
       function didShowScriptSource(sourceFrame) {
         var panel = UI.panels.sources;
-        var uiSourceCodes = panel._workspace.uiSourceCodes();
+        var uiSourceCodes = panel.workspace.uiSourceCodes();
         var ignored = true;
         for (var i = 0; i < uiSourceCodes.length && ignored; ++i) {
           if (uiSourceCodes[i].url().indexOf('inlineScriptURL.js') !== -1)
@@ -85,7 +85,7 @@
 
       function didShowScriptSource(sourceFrame) {
         var panel = UI.panels.sources;
-        var uiSourceCodes = panel._workspace.uiSourceCodes();
+        var uiSourceCodes = panel.workspace.uiSourceCodes();
         for (var i = 0; i < uiSourceCodes.length; ++i) {
           if (uiSourceCodes[i].url().indexOf('scriptWithPoorSourceURL.js') !==
               -1)

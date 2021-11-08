@@ -75,6 +75,9 @@ class ShadowController::Impl :
   // Returns the singleton instance for the specified Env.
   static Impl* GetInstance(aura::Env* env);
 
+  Impl(const Impl&) = delete;
+  Impl& operator=(const Impl&) = delete;
+
   void set_delegate(std::unique_ptr<ShadowControllerDelegate> delegate) {
     delegate_ = std::move(delegate);
   }
@@ -132,8 +135,6 @@ class ShadowController::Impl :
       observation_manager_{this};
 
   std::unique_ptr<ShadowControllerDelegate> delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(Impl);
 };
 
 // static
@@ -212,7 +213,7 @@ void ShadowController::Impl::OnWindowBoundsChanged(
     const gfx::Rect& new_bounds,
     ui::PropertyChangeReason reason) {
   ui::Shadow* shadow = GetShadowForWindow(window);
-  if (shadow)
+  if (shadow && window->GetProperty(aura::client::kUseWindowBoundsForShadow))
     shadow->SetContentBounds(gfx::Rect(new_bounds.size()));
 }
 

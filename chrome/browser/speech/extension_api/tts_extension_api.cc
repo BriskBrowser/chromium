@@ -28,9 +28,29 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/speech/extension_api/tts_engine_extension_observer_chromeos.h"
+#include "chrome/common/extensions/extension_constants.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace constants = tts_extension_api_constants;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+namespace {
+
+// ChromeOS source that triggered text-to-speech utterance.
+//
+// These values are logged to UMA. Entries should not be renumbered and
+// numeric values should never be reused. Please keep in sync with
+// "TextToSpeechSource" in src/tools/metrics/histograms/enums.xml.
+enum class UMATextToSpeechSource {
+  kOther = 0,
+  kChromeVox = 1,
+  kSelectToSpeak = 2,
+
+  kMaxValue = kSelectToSpeak,
+};
+
+}  // namespace
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace events {
 const char kOnEvent[] = "tts.onEvent";
@@ -153,7 +173,7 @@ void TtsExtensionEventHandler::OnTtsEvent(content::TtsUtterance* utterance,
 
   auto event = std::make_unique<extensions::Event>(
       ::extensions::events::TTS_ON_EVENT, ::events::kOnEvent,
-      std::move(arguments), utterance->GetBrowserContext());
+      std::move(*arguments).TakeList(), utterance->GetBrowserContext());
   event->event_url = utterance->GetSrcUrl();
   extensions::EventRouter::Get(utterance->GetBrowserContext())
       ->DispatchEventToExtension(src_extension_id_, std::move(event));
@@ -163,27 +183,30 @@ void TtsExtensionEventHandler::OnTtsEvent(content::TtsUtterance* utterance,
 }
 
 ExtensionFunction::ResponseAction TtsSpeakFunction::Run() {
-  std::string text;
-  EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &text));
+  EXTENSION_FUNCTION_VALIDATE(args().size() >= 1);
+  EXTENSION_FUNCTION_VALIDATE(args()[0].is_string());
+  const std::string& text = args()[0].GetString();
   if (text.size() > 32768) {
     return RespondNow(Error(constants::kErrorUtteranceTooLong));
   }
 
   std::unique_ptr<base::DictionaryValue> options(new base::DictionaryValue());
-  if (args_->GetSize() >= 2) {
-    base::DictionaryValue* temp_options = NULL;
-    if (args_->GetDictionary(1, &temp_options))
-      options.reset(temp_options->DeepCopy());
+  if (args().size() >= 2) {
+    if (args()[1].is_dict()) {
+      const base::DictionaryValue& temp_options =
+          base::Value::AsDictionaryValue(args()[1]);
+      options.reset(temp_options.DeepCopy());
+    }
   }
 
   std::string voice_name;
-  if (options->HasKey(constants::kVoiceNameKey)) {
+  if (options->FindKey(constants::kVoiceNameKey)) {
     EXTENSION_FUNCTION_VALIDATE(
         options->GetString(constants::kVoiceNameKey, &voice_name));
   }
 
   std::string lang;
-  if (options->HasKey(constants::kLangKey))
+  if (options->FindKey(constants::kLangKey))
     EXTENSION_FUNCTION_VALIDATE(options->GetString(constants::kLangKey, &lang));
   if (!lang.empty() && !l10n_util::IsValidLocaleSyntax(lang)) {
     return RespondNow(Error(constants::kErrorInvalidLang));
@@ -192,51 +215,51 @@ ExtensionFunction::ResponseAction TtsSpeakFunction::Run() {
   // TODO(katie): Remove this after M73. This is just used to track how the
   // gender deprecation is progressing.
   std::string gender_str;
-  if (options->HasKey(constants::kGenderKey))
+  if (options->FindKey(constants::kGenderKey))
     EXTENSION_FUNCTION_VALIDATE(
         options->GetString(constants::kGenderKey, &gender_str));
   UMA_HISTOGRAM_BOOLEAN("TextToSpeech.Utterance.HasGender",
                         !gender_str.empty());
 
   double rate = blink::mojom::kSpeechSynthesisDoublePrefNotSet;
-  if (options->HasKey(constants::kRateKey)) {
-    EXTENSION_FUNCTION_VALIDATE(
-        options->GetDouble(constants::kRateKey, &rate));
+  if (base::Value* rate_value = options->FindKey(constants::kRateKey)) {
+    EXTENSION_FUNCTION_VALIDATE(rate_value->GetIfDouble());
+    rate = rate_value->GetIfDouble().value_or(rate);
     if (rate < 0.1 || rate > 10.0) {
       return RespondNow(Error(constants::kErrorInvalidRate));
     }
   }
 
   double pitch = blink::mojom::kSpeechSynthesisDoublePrefNotSet;
-  if (options->HasKey(constants::kPitchKey)) {
-    EXTENSION_FUNCTION_VALIDATE(
-        options->GetDouble(constants::kPitchKey, &pitch));
+  if (base::Value* pitch_value = options->FindKey(constants::kPitchKey)) {
+    EXTENSION_FUNCTION_VALIDATE(pitch_value->GetIfDouble());
+    pitch = pitch_value->GetIfDouble().value_or(pitch);
     if (pitch < 0.0 || pitch > 2.0) {
       return RespondNow(Error(constants::kErrorInvalidPitch));
     }
   }
 
   double volume = blink::mojom::kSpeechSynthesisDoublePrefNotSet;
-  if (options->HasKey(constants::kVolumeKey)) {
-    EXTENSION_FUNCTION_VALIDATE(
-        options->GetDouble(constants::kVolumeKey, &volume));
+  if (base::Value* volume_value = options->FindKey(constants::kVolumeKey)) {
+    EXTENSION_FUNCTION_VALIDATE(volume_value->GetIfDouble());
+    volume = volume_value->GetIfDouble().value_or(volume);
     if (volume < 0.0 || volume > 1.0) {
       return RespondNow(Error(constants::kErrorInvalidVolume));
     }
   }
 
   bool can_enqueue = false;
-  if (options->HasKey(constants::kEnqueueKey)) {
+  if (options->FindKey(constants::kEnqueueKey)) {
     EXTENSION_FUNCTION_VALIDATE(
         options->GetBoolean(constants::kEnqueueKey, &can_enqueue));
   }
 
   std::set<content::TtsEventType> required_event_types;
-  if (options->HasKey(constants::kRequiredEventTypesKey)) {
+  if (options->FindKey(constants::kRequiredEventTypesKey)) {
     base::ListValue* list;
     EXTENSION_FUNCTION_VALIDATE(
         options->GetList(constants::kRequiredEventTypesKey, &list));
-    for (size_t i = 0; i < list->GetSize(); ++i) {
+    for (size_t i = 0; i < list->GetList().size(); ++i) {
       std::string event_type;
       if (list->GetString(i, &event_type))
         required_event_types.insert(TtsEventTypeFromString(event_type.c_str()));
@@ -244,11 +267,11 @@ ExtensionFunction::ResponseAction TtsSpeakFunction::Run() {
   }
 
   std::set<content::TtsEventType> desired_event_types;
-  if (options->HasKey(constants::kDesiredEventTypesKey)) {
+  if (options->FindKey(constants::kDesiredEventTypesKey)) {
     base::ListValue* list;
     EXTENSION_FUNCTION_VALIDATE(
         options->GetList(constants::kDesiredEventTypesKey, &list));
-    for (size_t i = 0; i < list->GetSize(); ++i) {
+    for (size_t i = 0; i < list->GetList().size(); ++i) {
       std::string event_type;
       if (list->GetString(i, &event_type))
         desired_event_types.insert(TtsEventTypeFromString(event_type.c_str()));
@@ -256,16 +279,27 @@ ExtensionFunction::ResponseAction TtsSpeakFunction::Run() {
   }
 
   std::string voice_extension_id;
-  if (options->HasKey(constants::kExtensionIdKey)) {
+  if (options->FindKey(constants::kExtensionIdKey)) {
     EXTENSION_FUNCTION_VALIDATE(
         options->GetString(constants::kExtensionIdKey, &voice_extension_id));
   }
 
   int src_id = -1;
-  if (options->HasKey(constants::kSrcIdKey)) {
+  if (options->FindKey(constants::kSrcIdKey)) {
     EXTENSION_FUNCTION_VALIDATE(
         options->GetInteger(constants::kSrcIdKey, &src_id));
   }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  UMATextToSpeechSource source = UMATextToSpeechSource::kOther;
+  const std::string host = source_url().host();
+  if (host == extension_misc::kSelectToSpeakExtensionId) {
+    source = UMATextToSpeechSource::kSelectToSpeak;
+  } else if (host == extension_misc::kChromeVoxExtensionId) {
+    source = UMATextToSpeechSource::kChromeVox;
+  }
+  UMA_HISTOGRAM_ENUMERATION("TextToSpeech.Utterance.Source", source);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   // If we got this far, the arguments were all in the valid format, so
   // send the success response to the callback now - this ensures that
@@ -278,10 +312,13 @@ ExtensionFunction::ResponseAction TtsSpeakFunction::Run() {
     extensions::ExtensionHost* host =
         extensions::ProcessManager::Get(browser_context())
             ->GetBackgroundHostForExtension(extension()->id());
-    utterance = content::TtsUtterance::Create(host->host_contents());
-  } else {
-    utterance = content::TtsUtterance::Create(browser_context());
+
+    if (host && host->host_contents())
+      utterance = content::TtsUtterance::Create(host->host_contents());
   }
+
+  if (!utterance)
+    utterance = content::TtsUtterance::Create(browser_context());
 
   utterance->SetText(text);
   utterance->SetVoiceName(voice_name);
@@ -324,7 +361,8 @@ ExtensionFunction::ResponseAction TtsIsSpeakingFunction::Run() {
 
 ExtensionFunction::ResponseAction TtsGetVoicesFunction::Run() {
   std::vector<content::VoiceData> voices;
-  content::TtsController::GetInstance()->GetVoices(browser_context(), &voices);
+  content::TtsController::GetInstance()->GetVoices(browser_context(),
+                                                   source_url(), &voices);
 
   auto result_voices = std::make_unique<base::ListValue>();
   for (size_t i = 0; i < voices.size(); ++i) {
@@ -338,12 +376,12 @@ ExtensionFunction::ResponseAction TtsGetVoicesFunction::Run() {
     if (!voice.engine_id.empty())
       result_voice->SetString(constants::kExtensionIdKey, voice.engine_id);
 
-    auto event_types = std::make_unique<base::ListValue>();
-    for (auto iter = voice.events.begin(); iter != voice.events.end(); ++iter) {
-      const char* event_name_constant = TtsEventTypeToString(*iter);
-      event_types->AppendString(event_name_constant);
+    base::ListValue event_types;
+    for (auto& event : voice.events) {
+      const char* event_name_constant = TtsEventTypeToString(event);
+      event_types.Append(event_name_constant);
     }
-    result_voice->Set(constants::kEventTypesKey, std::move(event_types));
+    result_voice->SetKey(constants::kEventTypesKey, std::move(event_types));
 
     result_voices->Append(std::move(result_voice));
   }
@@ -357,6 +395,7 @@ TtsAPI::TtsAPI(content::BrowserContext* context) {
       ExtensionFunctionRegistry::GetInstance();
   registry.RegisterFunction<ExtensionTtsEngineUpdateVoicesFunction>();
   registry.RegisterFunction<ExtensionTtsEngineSendTtsEventFunction>();
+  registry.RegisterFunction<ExtensionTtsEngineSendTtsAudioFunction>();
   registry.RegisterFunction<TtsGetVoicesFunction>();
   registry.RegisterFunction<TtsIsSpeakingFunction>();
   registry.RegisterFunction<TtsSpeakFunction>();

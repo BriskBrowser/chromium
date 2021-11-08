@@ -20,19 +20,24 @@ class AuthenticatorClientPinEntrySheetView
  public:
   explicit AuthenticatorClientPinEntrySheetView(
       std::unique_ptr<AuthenticatorClientPinEntrySheetModel> model);
+
+  AuthenticatorClientPinEntrySheetView(
+      const AuthenticatorClientPinEntrySheetView&) = delete;
+  AuthenticatorClientPinEntrySheetView& operator=(
+      const AuthenticatorClientPinEntrySheetView&) = delete;
+
   ~AuthenticatorClientPinEntrySheetView() override;
 
  private:
   AuthenticatorClientPinEntrySheetModel* pin_entry_sheet_model();
 
   // AuthenticatorRequestSheetView:
-  std::unique_ptr<views::View> BuildStepSpecificContent() override;
+  std::pair<std::unique_ptr<views::View>, AutoFocus> BuildStepSpecificContent()
+      override;
 
   // AuthenticatorClientPinEntryView::Delegate:
-  void OnPincodeChanged(base::string16 pincode) override;
-  void OnConfirmationChanged(base::string16 pincode) override;
-
-  DISALLOW_COPY_AND_ASSIGN(AuthenticatorClientPinEntrySheetView);
+  void OnPincodeChanged(std::u16string pincode) override;
+  void OnConfirmationChanged(std::u16string pincode) override;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_WEBAUTHN_AUTHENTICATOR_CLIENT_PIN_ENTRY_SHEET_VIEW_H_

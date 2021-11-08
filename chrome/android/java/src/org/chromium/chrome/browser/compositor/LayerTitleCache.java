@@ -26,6 +26,7 @@ import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.resources.ResourceManager;
 import org.chromium.ui.resources.dynamics.BitmapDynamicResource;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
+import org.chromium.url.GURL;
 
 /**
  * A version of the {@link LayerTitleCache} that builds native cc::Layer objects
@@ -121,7 +122,7 @@ public class LayerTitleCache implements TitleCache {
         Bitmap originalFavicon = TabFavicon.getBitmap(tab);
         if (originalFavicon == null) {
             originalFavicon = mDefaultFaviconHelper.getDefaultFaviconBitmap(
-                    mContext.getResources(), tab.getUrlString(), !isDarkTheme);
+                    mContext.getResources(), tab.getUrl(), !isDarkTheme);
         }
 
         TitleBitmapFactory titleBitmapFactory =
@@ -155,11 +156,11 @@ public class LayerTitleCache implements TitleCache {
         // to get the correct profile.
         Profile profile = !tab.isIncognito()
                 ? Profile.getLastUsedRegularProfile()
-                : Profile.getLastUsedRegularProfile().getPrimaryOTRProfile();
+                : Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(/*createIfNeeded=*/true);
         mFaviconHelper.getLocalFaviconImageForURL(
-                profile, tab.getUrlString(), mFaviconSize, new FaviconImageCallback() {
+                profile, tab.getUrl(), mFaviconSize, new FaviconImageCallback() {
                     @Override
-                    public void onFaviconAvailable(Bitmap favicon, String iconUrl) {
+                    public void onFaviconAvailable(Bitmap favicon, GURL iconUrl) {
                         updateFaviconFromHistory(tab, favicon);
                     }
                 });
@@ -173,7 +174,7 @@ public class LayerTitleCache implements TitleCache {
     private String getTitleForTab(Tab tab, String defaultTitle) {
         String title = tab.getTitle();
         if (TextUtils.isEmpty(title)) {
-            title = tab.getUrlString();
+            title = tab.getUrl().getSpec();
             if (TextUtils.isEmpty(title)) {
                 title = defaultTitle;
                 if (TextUtils.isEmpty(title)) {

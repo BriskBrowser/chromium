@@ -75,6 +75,10 @@ namespace content {
 class ScrollLatencyBrowserTest : public ContentBrowserTest {
  public:
   ScrollLatencyBrowserTest() {}
+
+  ScrollLatencyBrowserTest(const ScrollLatencyBrowserTest&) = delete;
+  ScrollLatencyBrowserTest& operator=(const ScrollLatencyBrowserTest&) = delete;
+
   ~ScrollLatencyBrowserTest() override {}
 
   RenderWidgetHostImpl* GetWidgetHost() {
@@ -90,8 +94,7 @@ class ScrollLatencyBrowserTest : public ContentBrowserTest {
   void GiveItSomeTime() {
     base::RunLoop run_loop;
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, run_loop.QuitClosure(),
-        base::TimeDelta::FromMillisecondsD(10));
+        FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(10));
     run_loop.Run();
   }
 
@@ -204,18 +207,30 @@ class ScrollLatencyBrowserTest : public ContentBrowserTest {
  protected:
   base::HistogramTester histogram_tester_;
   uint32_t visual_state_callback_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(ScrollLatencyBrowserTest);
 };
+
+// Disabled due to flakiness https://crbug.com/1163246.
+#if defined(OS_LINUX) || defined(OS_WIN)
+#define MAYBE_MultipleWheelScroll DISABLED_MultipleWheelScroll
+#else
+#define MAYBE_MultipleWheelScroll MultipleWheelScroll
+#endif
 
 // Perform a smooth wheel scroll, and verify that our end-to-end wheel latency
 // metrics are recorded. See crbug.com/599910 for details.
-IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest, MultipleWheelScroll) {
+IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest, MAYBE_MultipleWheelScroll) {
   LoadURL();
   RunMultipleWheelScroll();
 }
 
-IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest, MultipleWheelScrollOnMain) {
+// Disabled due to flakiness https://crbug.com/1163246.
+#if defined(OS_LINUX) || defined(OS_WIN)
+#define MAYBE_MultipleWheelScrollOnMain DISABLED_MultipleWheelScrollOnMain
+#else
+#define MAYBE_MultipleWheelScrollOnMain MultipleWheelScrollOnMain
+#endif
+IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest,
+                       MAYBE_MultipleWheelScrollOnMain) {
   disable_threaded_scrolling_ = true;
   LoadURL();
   RunMultipleWheelScroll();
@@ -232,7 +247,7 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest,
   // Try to scroll upward, the GSU(s) will get ignored since the scroller is at
   // its extent.
   SyntheticSmoothScrollGestureParams params;
-  params.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+  params.gesture_source_type = content::mojom::GestureSourceType::kTouchInput;
   params.anchor = gfx::PointF(10, 10);
   params.distances.push_back(gfx::Vector2d(0, 60));
 
@@ -274,15 +289,13 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest,
 
 using ScrollThroughputBrowserTest = ScrollLatencyBrowserTest;
 
-// This test flakes on most platforms: https://crbug.com/1067492.
-IN_PROC_BROWSER_TEST_F(ScrollThroughputBrowserTest,
-                       DISABLED_ScrollThroughputMetrics) {
+IN_PROC_BROWSER_TEST_F(ScrollThroughputBrowserTest, ScrollThroughputMetrics) {
   LoadURL();
   auto scroll_update_watcher = std::make_unique<InputMsgWatcher>(
       GetWidgetHost(), blink::WebInputEvent::Type::kGestureScrollEnd);
 
   SyntheticSmoothScrollGestureParams params;
-  params.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+  params.gesture_source_type = content::mojom::GestureSourceType::kTouchInput;
   params.anchor = gfx::PointF(10, 10);
   params.distances.push_back(gfx::Vector2d(0, -6000));
   params.fling_velocity_x = 0;
@@ -297,21 +310,20 @@ IN_PROC_BROWSER_TEST_F(ScrollThroughputBrowserTest,
       base::BindOnce(&ScrollLatencyBrowserTest::OnSyntheticGestureCompleted,
                      base::Unretained(this)));
   run_loop_->Run();
+  scroll_update_watcher->GetAckStateWaitIfNecessary();
 
-  while (!GetSampleCountForHistogram(
-      "Graphics.Smoothness.PercentDroppedFrames.CompositorThread."
-      "TouchScroll")) {
+  const char histogram_name[] =
+      "Graphics.Smoothness.PercentDroppedFrames.ScrollingThread.TouchScroll";
+  while (!GetSampleCountForHistogram(histogram_name)) {
     GiveItSomeTime();
     FetchHistogramsFromChildProcesses();
   }
-  EXPECT_TRUE(VerifyRecordedSamplesForHistogram(
-      1,
-      "Graphics.Smoothness.PercentDroppedFrames.ScrollingThread.TouchScroll"));
 
-  RunUntilInputProcessed(GetWidgetHost());
-  FetchHistogramsFromChildProcesses();
-  EXPECT_TRUE(VerifyRecordedSamplesForHistogram(
-      1, "Event.Latency.ScrollBegin.Touch.BrowserNotifiedToBeforeGpuSwap2"));
+  // TODO(crbug.com/1067492): The following check is flaky.
+  // RunUntilInputProcessed(GetWidgetHost());
+  // FetchHistogramsFromChildProcesses();
+  // EXPECT_TRUE(VerifyRecordedSamplesForHistogram(
+  //     1, "Event.Latency.ScrollBegin.Touch.BrowserNotifiedToBeforeGpuSwap2"));
 }
 
 class ScrollLatencyScrollbarBrowserTest : public ScrollLatencyBrowserTest {
@@ -505,8 +517,9 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyScrollbarBrowserTest,
   RunScrollbarButtonLatencyTest();
 }
 
+// Disabled due to flakes; see https://crbug.com/1188553.
 IN_PROC_BROWSER_TEST_F(ScrollLatencyScrollbarBrowserTest,
-                       ScrollbarThumbDragLatency) {
+                       DISABLED_ScrollbarThumbDragLatency) {
   LoadURL();
 
   RunScrollbarThumbDragLatencyTest();
@@ -539,8 +552,14 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyCompositedScrollbarBrowserTest,
   RunScrollbarButtonLatencyTest();
 }
 
+// Crashes on Mac ASAN.  https://crbug.com/1188553
+#if defined(OS_MAC)
+#define MAYBE_ScrollbarThumbDragLatency DISABLED_ScrollbarThumbDragLatency
+#else
+#define MAYBE_ScrollbarThumbDragLatency ScrollbarThumbDragLatency
+#endif
 IN_PROC_BROWSER_TEST_F(ScrollLatencyCompositedScrollbarBrowserTest,
-                       ScrollbarThumbDragLatency) {
+                       MAYBE_ScrollbarThumbDragLatency) {
   LoadURL();
 
   RunScrollbarThumbDragLatencyTest();

@@ -11,7 +11,6 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/time/time.h"
 #include "components/infobars/core/infobar_manager.h"
 #include "third_party/skia/include/core/SkColor.h"
 
@@ -39,6 +38,10 @@ class InfoBarContainer : public InfoBarManager::Observer {
   };
 
   explicit InfoBarContainer(Delegate* delegate);
+
+  InfoBarContainer(const InfoBarContainer&) = delete;
+  InfoBarContainer& operator=(const InfoBarContainer&) = delete;
+
   ~InfoBarContainer() override;
 
   // Changes the InfoBarManager for which this container is showing infobars.
@@ -101,8 +104,6 @@ class InfoBarContainer : public InfoBarManager::Observer {
   // functionality in OnInfoBarStateChanged() once, to minimize unnecessary
   // layout and painting.
   bool ignore_infobar_state_changed_;
-
-  DISALLOW_COPY_AND_ASSIGN(InfoBarContainer);
 };
 
 }  // namespace infobars

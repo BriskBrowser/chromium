@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_PREDICTORS_PREDICTORS_FEATURES_H_
 
 #include "base/feature_list.h"
+#include "base/metrics/field_trial_params.h"
 
 namespace features {
 
@@ -48,10 +49,6 @@ bool ShouldUseOptimizationGuidePredictions();
 // Returns whether optimization guide predictions should always be retrieved,
 // even if local predictions are available for preconnect predictions.
 bool ShouldAlwaysRetrieveOptimizationGuidePredictions();
-
-// Returns whether optimization guide predictions should be retrieved on
-// cross-origin navigations.
-bool ShouldRetrieveOptimizationGuidePredictionsOnCrossOriginNavigations();
 
 // Returns the maximum number of preresolves that can be inflight at any given
 // time.

@@ -13,7 +13,6 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "chromeos/components/multidevice/remote_device_ref.h"
 #include "chromeos/components/multidevice/software_feature.h"
 #include "chromeos/services/device_sync/feature_status_change.h"
@@ -23,6 +22,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class TaskRunner;
@@ -54,6 +54,10 @@ class DeviceSyncClientImpl : public DeviceSyncClient,
   };
 
   DeviceSyncClientImpl();
+
+  DeviceSyncClientImpl(const DeviceSyncClientImpl&) = delete;
+  DeviceSyncClientImpl& operator=(const DeviceSyncClientImpl&) = delete;
+
   ~DeviceSyncClientImpl() override;
 
   void Initialize(scoped_refptr<base::TaskRunner> task_runner) override;
@@ -64,7 +68,7 @@ class DeviceSyncClientImpl : public DeviceSyncClient,
       mojom::DeviceSync::ForceEnrollmentNowCallback callback) override;
   void ForceSyncNow(mojom::DeviceSync::ForceSyncNowCallback callback) override;
   multidevice::RemoteDeviceRefList GetSyncedDevices() override;
-  base::Optional<multidevice::RemoteDeviceRef> GetLocalDeviceMetadata()
+  absl::optional<multidevice::RemoteDeviceRef> GetLocalDeviceMetadata()
       override;
   void SetSoftwareFeatureState(
       const std::string public_key,
@@ -101,10 +105,10 @@ class DeviceSyncClientImpl : public DeviceSyncClient,
   void LoadLocalDeviceMetadata();
 
   void OnGetSyncedDevicesCompleted(
-      const base::Optional<std::vector<multidevice::RemoteDevice>>&
+      const absl::optional<std::vector<multidevice::RemoteDevice>>&
           remote_devices);
   void OnGetLocalDeviceMetadataCompleted(
-      const base::Optional<multidevice::RemoteDevice>& local_device_metadata);
+      const absl::optional<multidevice::RemoteDevice>& local_device_metadata);
   void OnFindEligibleDevicesCompleted(
       FindEligibleDevicesCallback callback,
       mojom::NetworkRequestResult result_code,
@@ -125,7 +129,7 @@ class DeviceSyncClientImpl : public DeviceSyncClient,
   bool pending_notify_enrollment_finished_ = false;
   bool pending_notify_new_synced_devices_ = false;
 
-  base::Optional<std::string> local_instance_id_;
+  absl::optional<std::string> local_instance_id_;
 
   // TODO(https://crbug.com/1019206): Track only the local Instance ID after v1
   // DeviceSync is disabled, when the local device is guaranteed to have an
@@ -134,15 +138,20 @@ class DeviceSyncClientImpl : public DeviceSyncClient,
   // is possible that only v1 device data--which does not contain Instance
   // IDs--is loaded by the RemoteDeviceProvider. In that case, the local device
   // will not have an Instance ID until the very first v2 DeviceSync succeeds.
-  base::Optional<std::string> local_legacy_device_id_;
+  absl::optional<std::string> local_legacy_device_id_;
 
   base::WeakPtrFactory<DeviceSyncClientImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DeviceSyncClientImpl);
 };
 
 }  // namespace device_sync
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the migration is finished.
+namespace ash {
+namespace device_sync {
+using ::chromeos::device_sync::DeviceSyncClientImpl;
+}
+}  // namespace ash
 
 #endif  // CHROMEOS_SERVICES_DEVICE_SYNC_PUBLIC_CPP_DEVICE_SYNC_CLIENT_IMPL_H_

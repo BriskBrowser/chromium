@@ -69,36 +69,36 @@ class CORE_EXPORT SVGImageForContainer final : public Image {
         image, container_size_without_zoom, zoom, url));
   }
 
-  IntSize Size() const override;
-  FloatSize SizeAsFloat(RespectImageOrientationEnum) const override;
+  IntSize SizeWithConfig(SizeConfig) const override;
+  FloatSize SizeWithConfigAsFloat(SizeConfig) const override;
 
   bool HasIntrinsicSize() const override { return image_->HasIntrinsicSize(); }
 
-  bool ApplyShader(cc::PaintFlags&, const SkMatrix& local_matrix) override;
+  bool ApplyShader(cc::PaintFlags&,
+                   const SkMatrix& local_matrix,
+                   const FloatRect& dst_rect,
+                   const FloatRect& src_rect,
+                   const ImageDrawOptions& draw_options) override;
 
   void Draw(cc::PaintCanvas*,
             const cc::PaintFlags&,
-            const FloatRect&,
-            const FloatRect&,
-            const SkSamplingOptions&,
-            RespectImageOrientationEnum,
-            ImageClampingMode,
-            ImageDecodingMode) override;
+            const FloatRect& dest_rect,
+            const FloatRect& src_rect,
+            const ImageDrawOptions&) override;
 
   // FIXME: Implement this to be less conservative.
   bool CurrentFrameKnownToBeOpaque() override { return false; }
+
+  bool IsSVGImageForContainer() const override { return true; }
 
   PaintImage PaintImageForCurrentFrame() override;
 
  protected:
   void DrawPattern(GraphicsContext&,
-                   const FloatRect&,
-                   const FloatSize&,
-                   const FloatPoint&,
-                   SkBlendMode,
-                   const FloatRect&,
-                   const FloatSize& repeat_spacing,
-                   RespectImageOrientationEnum) override;
+                   const cc::PaintFlags&,
+                   const FloatRect& dest_rect,
+                   const ImageTilingInfo&,
+                   const ImageDrawOptions& draw_options) override;
 
  private:
   SVGImageForContainer(SVGImage* image,

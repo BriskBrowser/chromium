@@ -8,16 +8,21 @@
 #include "ash/public/cpp/message_center/arc_notification_manager_delegate.h"
 #include "ash/public/cpp/message_center/arc_notifications_host_initializer.h"
 #include "base/run_loop.h"
+#include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/simple_test_clock.h"
+#include "base/time/default_clock.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/apps/app_service/arc_apps.h"
-#include "chrome/browser/apps/app_service/arc_apps_factory.h"
+#include "chrome/browser/apps/app_service/publishers/arc_apps.h"
+#include "chrome/browser/apps/app_service/publishers/arc_apps_factory.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
+#include "chrome/browser/ash/arc/arc_util.h"
+#include "chrome/browser/ash/arc/session/arc_session_manager.h"
+#include "chrome/browser/badging/badge_manager.h"
 #include "chrome/browser/badging/badge_manager_factory.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
 #include "chrome/browser/extensions/api/notifications/extension_notification_display_helper.h"
 #include "chrome/browser/extensions/api/notifications/extension_notification_display_helper_factory.h"
 #include "chrome/browser/extensions/api/notifications/extension_notification_handler.h"
@@ -28,20 +33,19 @@
 #include "chrome/browser/notifications/profile_notification.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
+#include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
-#include "components/arc/arc_service_manager.h"
-#include "components/arc/arc_util.h"
 #include "components/arc/session/arc_bridge_service.h"
+#include "components/arc/session/arc_service_manager.h"
 #include "components/arc/session/connection_holder.h"
+#include "components/arc/test/arc_util_test_support.h"
 #include "components/arc/test/connection_holder_util.h"
 #include "components/arc/test/fake_app_instance.h"
 #include "components/ukm/test_ukm_recorder.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "extensions/browser/api/test/test_api.h"
-#include "extensions/browser/notification_types.h"
 #include "extensions/common/extension.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -91,8 +95,7 @@ std::vector<arc::mojom::AppInfoPtr> GetTestAppsList() {
 
 OptionalBool HasBadge(Profile* profile, const std::string& app_id) {
   auto has_badge = OptionalBool::kUnknown;
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile);
+  auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
   proxy->FlushMojoCallsForTesting();
   proxy->AppRegistryCache().ForOneApp(
       app_id, [&has_badge](const apps::AppUpdate& update) {
@@ -104,17 +107,33 @@ OptionalBool HasBadge(Profile* profile, const std::string& app_id) {
 void RemoveNotification(Profile* profile, const std::string& notification_id) {
   const std::string profile_notification_id =
       ProfileNotification::GetProfileNotificationId(
-          notification_id, NotificationUIManager::GetProfileID(profile));
+          notification_id, ProfileNotification::GetProfileID(profile));
   message_center::MessageCenter::Get()->RemoveNotification(
       profile_notification_id, true);
 }
 
 void UninstallApp(Profile* profile, const std::string& app_id) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile);
-  proxy->UninstallSilently(app_id, apps::mojom::UninstallSource::kUser);
+  auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
+  proxy->UninstallSilently(app_id, apps::mojom::UninstallSource::kAppList);
   proxy->FlushMojoCallsForTesting();
 }
+
+class ScopedBadgingClockOverride {
+ public:
+  ScopedBadgingClockOverride(badging::BadgeManager* badge_manager,
+                             const base::Clock* clock)
+      : badge_manager_(badge_manager) {
+    previous_clock_ = badge_manager_->SetClockForTesting(clock);
+  }
+
+  ~ScopedBadgingClockOverride() {
+    badge_manager_->SetClockForTesting(previous_clock_);
+  }
+
+ private:
+  badging::BadgeManager* const badge_manager_;
+  const base::Clock* previous_clock_;
+};
 
 }  // namespace
 
@@ -122,14 +141,9 @@ class AppNotificationsExtensionApiTest : public extensions::ExtensionApiTest {
  public:
   const Extension* LoadExtensionAndWait(const std::string& test_name) {
     base::FilePath extdir = test_data_dir_.AppendASCII(test_name);
-    content::WindowedNotificationObserver page_created(
-        extensions::NOTIFICATION_EXTENSION_BACKGROUND_PAGE_READY,
-        content::NotificationService::AllSources());
-    const extensions::Extension* extension = LoadExtension(extdir);
-    if (extension) {
-      page_created.Wait();
-    }
-    return extension;
+    // ExtensionApiTest::LoadExtension uses ChromeTestExtensionLoader, which
+    // waits for the extension background page to be ready before returning.
+    return LoadExtension(extdir);
   }
 
   const Extension* LoadAppWithWindowState(const std::string& test_name) {
@@ -247,13 +261,6 @@ class AppNotificationsWebNotificationTest
   AppNotificationsWebNotificationTest() = default;
   ~AppNotificationsWebNotificationTest() override = default;
 
-  void SetUp() override {
-    base::test::ScopedFeatureList scoped_feature_list_;
-    scoped_feature_list_.InitAndDisableFeature(
-        features::kDesktopPWAsAttentionBadgingCrOS);
-    extensions::PlatformAppBrowserTest::SetUp();
-  }
-
   // extensions::PlatformAppBrowserTest:
   void SetUpOnMainThread() override {
     extensions::PlatformAppBrowserTest::SetUpOnMainThread();
@@ -266,8 +273,8 @@ class AppNotificationsWebNotificationTest
     auto web_app_info = std::make_unique<WebApplicationInfo>();
     web_app_info->start_url = url;
     web_app_info->scope = scope;
-    std::string app_id =
-        web_app::InstallWebApp(browser()->profile(), std::move(web_app_info));
+    std::string app_id = web_app::test::InstallWebApp(browser()->profile(),
+                                                      std::move(web_app_info));
     content::TestNavigationObserver navigation_observer(url);
     navigation_observer.StartWatchingNewWebContents();
     web_app::LaunchWebAppBrowser(browser()->profile(), app_id);
@@ -280,7 +287,7 @@ class AppNotificationsWebNotificationTest
       const GURL& origin) {
     return std::make_unique<message_center::Notification>(
         message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
-        base::string16(), base::string16(), gfx::Image(),
+        std::u16string(), std::u16string(), gfx::Image(),
         base::UTF8ToUTF16(origin.host()), origin,
         message_center::NotifierId(origin),
         message_center::RichNotificationData(), nullptr);
@@ -600,22 +607,13 @@ IN_PROC_BROWSER_TEST_F(AppNotificationsWebNotificationTest,
   ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id3));
 }
 
-class WebAppBadgingTest : public AppNotificationsWebNotificationTest,
-                          public ::testing::WithParamInterface<std::string> {
+class WebAppBadgingTest : public AppNotificationsWebNotificationTest {
  protected:
   WebAppBadgingTest() = default;
   ~WebAppBadgingTest() override = default;
-
-  void SetUp() override {
-    base::test::ScopedFeatureList scoped_feature_list_;
-    scoped_feature_list_.InitAndEnableFeatureWithParameters(
-        features::kDesktopPWAsAttentionBadgingCrOS,
-        {{"badge-source", GetParam()}});
-    extensions::PlatformAppBrowserTest::SetUp();
-  }
 };
 
-IN_PROC_BROWSER_TEST_P(WebAppBadgingTest, SetAndClearBadgeWithApi) {
+IN_PROC_BROWSER_TEST_F(WebAppBadgingTest, SetAndClearBadgeWithApi) {
   ukm::TestUkmRecorder test_recorder;
   badging::BadgeManager* badge_manager_ =
       badging::BadgeManagerFactory::GetForProfile(profile());
@@ -624,18 +622,13 @@ IN_PROC_BROWSER_TEST_P(WebAppBadgingTest, SetAndClearBadgeWithApi) {
   ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
 
   badge_manager_->SetBadgeForTesting(app_id, 1, &test_recorder);
-  if (GetParam() ==
-      switches::kDesktopPWAsAttentionBadgingCrOSNotificationsOnly) {
-    ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
-  } else {
-    ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
-  }
+  ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
 
   badge_manager_->ClearBadgeForTesting(app_id, &test_recorder);
   ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
 }
 
-IN_PROC_BROWSER_TEST_P(WebAppBadgingTest,
+IN_PROC_BROWSER_TEST_F(WebAppBadgingTest,
                        SetAndClearBadgeWithApiAndNotifications) {
   ukm::TestUkmRecorder test_recorder;
   badging::BadgeManager* badge_manager_ =
@@ -645,12 +638,7 @@ IN_PROC_BROWSER_TEST_P(WebAppBadgingTest,
   ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
 
   badge_manager_->SetBadgeForTesting(app_id, 1, &test_recorder);
-  if (GetParam() ==
-      switches::kDesktopPWAsAttentionBadgingCrOSNotificationsOnly) {
-    ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
-  } else {
-    ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
-  }
+  ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
 
   const std::string notification_id = "notification-id";
   auto notification = CreateNotification(notification_id, GetOrigin());
@@ -664,24 +652,141 @@ IN_PROC_BROWSER_TEST_P(WebAppBadgingTest,
   ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
 
   badge_manager_->ClearBadgeForTesting(app_id, &test_recorder);
-  if (GetParam() == switches::kDesktopPWAsAttentionBadgingCrOSApiOnly) {
-    ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
-  } else {
-    ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
-  }
+  ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
 
   NotificationDisplayService::GetForProfile(profile())->Close(
       NotificationHandler::Type::WEB_PERSISTENT, notification_id);
   ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    WebAppBadgingTest,
-    ::testing::Values(
-        switches::kDesktopPWAsAttentionBadgingCrOSApiOnly,
-        switches::kDesktopPWAsAttentionBadgingCrOSApiAndNotifications,
-        switches::kDesktopPWAsAttentionBadgingCrOSNotificationsOnly));
+IN_PROC_BROWSER_TEST_F(WebAppBadgingTest, NotificationBeforeClearBadge) {
+  ukm::TestUkmRecorder test_recorder;
+
+  badging::BadgeManager* const badge_manager_ =
+      badging::BadgeManagerFactory::GetForProfile(profile());
+  base::SimpleTestClock clock;
+  clock.SetNow(base::Time::Now());
+  ScopedBadgingClockOverride clock_override(badge_manager_, &clock);
+
+  const std::string app_id = CreateWebApp(GetUrl1(), GetScope1());
+
+  const std::string notification_id = "notification-id";
+  const auto notification = CreateNotification(notification_id, GetOrigin());
+
+  {
+    auto metadata = std::make_unique<PersistentNotificationMetadata>();
+    metadata->service_worker_scope = GetScope1();
+    NotificationDisplayService::GetForProfile(profile())->Display(
+        NotificationHandler::Type::WEB_PERSISTENT, *notification,
+        std::move(metadata));
+  }
+
+  badge_manager_->ClearBadgeForTesting(app_id, &test_recorder);
+
+  // One day under the kBadgingOverrideLifetime threshold.
+  clock.Advance(base::Days(13));
+
+  ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
+
+  clock.Advance(base::Days(2));
+
+  ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
+
+  {
+    auto metadata = std::make_unique<PersistentNotificationMetadata>();
+    metadata->service_worker_scope = GetScope1();
+    NotificationDisplayService::GetForProfile(profile())->Display(
+        NotificationHandler::Type::WEB_PERSISTENT, *notification,
+        std::move(metadata));
+  }
+
+  ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
+}
+
+IN_PROC_BROWSER_TEST_F(WebAppBadgingTest, NotificationAfterClearBadge) {
+  ukm::TestUkmRecorder test_recorder;
+
+  badging::BadgeManager* const badge_manager_ =
+      badging::BadgeManagerFactory::GetForProfile(profile());
+  base::SimpleTestClock clock;
+  clock.SetNow(base::Time::Now());
+  ScopedBadgingClockOverride clock_override(badge_manager_, &clock);
+
+  const std::string app_id = CreateWebApp(GetUrl1(), GetScope1());
+
+  const std::string notification_id = "notification-id";
+  const auto notification = CreateNotification(notification_id, GetOrigin());
+
+  badge_manager_->ClearBadgeForTesting(app_id, &test_recorder);
+
+  // One day under the kBadgingOverrideLifetime threshold.
+  clock.Advance(base::Days(13));
+
+  ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
+
+  {
+    auto metadata = std::make_unique<PersistentNotificationMetadata>();
+    metadata->service_worker_scope = GetScope1();
+    NotificationDisplayService::GetForProfile(profile())->Display(
+        NotificationHandler::Type::WEB_PERSISTENT, *notification,
+        std::move(metadata));
+  }
+
+  ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
+
+  clock.Advance(base::Days(2));
+
+  {
+    auto metadata = std::make_unique<PersistentNotificationMetadata>();
+    metadata->service_worker_scope = GetScope1();
+    NotificationDisplayService::GetForProfile(profile())->Display(
+        NotificationHandler::Type::WEB_PERSISTENT, *notification,
+        std::move(metadata));
+  }
+
+  ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
+}
+
+IN_PROC_BROWSER_TEST_F(WebAppBadgingTest, NotificationAfterShowBadge) {
+  ukm::TestUkmRecorder test_recorder;
+
+  badging::BadgeManager* const badge_manager_ =
+      badging::BadgeManagerFactory::GetForProfile(profile());
+  base::SimpleTestClock clock;
+  clock.SetNow(base::Time::Now());
+  ScopedBadgingClockOverride clock_override(badge_manager_, &clock);
+
+  const std::string app_id = CreateWebApp(GetUrl1(), GetScope1());
+
+  const std::string notification_id = "notification-id";
+  const auto notification = CreateNotification(notification_id, GetOrigin());
+
+  badge_manager_->SetBadgeForTesting(app_id, 1, &test_recorder);
+
+  // One day under the kBadgingOverrideLifetime threshold.
+  clock.Advance(base::Days(13));
+
+  ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
+
+  clock.Advance(base::Days(2));
+
+  ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
+
+  {
+    auto metadata = std::make_unique<PersistentNotificationMetadata>();
+    metadata->service_worker_scope = GetScope1();
+    NotificationDisplayService::GetForProfile(profile())->Display(
+        NotificationHandler::Type::WEB_PERSISTENT, *notification,
+        std::move(metadata));
+  }
+
+  ASSERT_EQ(OptionalBool::kTrue, HasBadge(profile(), app_id));
+
+  NotificationDisplayService::GetForProfile(profile())->Close(
+      NotificationHandler::Type::WEB_PERSISTENT, notification_id);
+
+  ASSERT_EQ(OptionalBool::kFalse, HasBadge(profile(), app_id));
+}
 
 class FakeArcNotificationManagerDelegate
     : public ash::ArcNotificationManagerDelegate {

@@ -14,7 +14,7 @@ namespace {
 
 // TODO(crbug.com/1076270): Finalize a value for this, and possibly use
 // different values for different UI surfaces.
-constexpr base::TimeDelta kImpressionTimer = base::TimeDelta::FromSeconds(1);
+constexpr base::TimeDelta kImpressionTimer = base::Seconds(1);
 
 }  // namespace
 
@@ -23,7 +23,7 @@ AppListNotifierImpl::AppListNotifierImpl(
     : app_list_controller_(app_list_controller) {
   DCHECK(app_list_controller_);
   app_list_controller_->AddObserver(this);
-  OnAppListVisibilityWillChange(app_list_controller_->IsVisible(base::nullopt),
+  OnAppListVisibilityWillChange(app_list_controller_->IsVisible(),
                                 display::kInvalidDisplayId);
 }
 
@@ -61,7 +61,7 @@ void AppListNotifierImpl::NotifyResultsUpdated(
 }
 
 void AppListNotifierImpl::NotifySearchQueryChanged(
-    const base::string16& query) {
+    const std::u16string& query) {
   // In some cases the query can change after the launcher is closed, in
   // particular this happens when abandoning the launcher with a non-empty
   // query. Only do a state transition if the launcher is open.
@@ -74,6 +74,10 @@ void AppListNotifierImpl::NotifySearchQueryChanged(
   // an abandon triggered by the query change correctly uses the pre-abandon
   // query.
   query_ = query;
+
+  for (auto& observer : observers_) {
+    observer.OnQueryChanged(query);
+  }
 }
 
 void AppListNotifierImpl::NotifyUIStateChanged(ash::AppListViewState view) {

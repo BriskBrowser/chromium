@@ -13,6 +13,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/threading/platform_thread.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "content/child/child_process.h"
@@ -25,6 +26,8 @@
 #include "ipc/ipc_sender.h"
 #include "ppapi/proxy/plugin_globals.h"
 #include "services/tracing/public/cpp/trace_startup.h"
+#include "third_party/icu/source/common/unicode/unistr.h"
+#include "third_party/icu/source/i18n/unicode/timezone.h"
 #include "ui/base/ui_base_switches.h"
 
 #if defined(OS_WIN)
@@ -45,6 +48,7 @@
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "content/public/common/sandbox_init.h"
 #include "sandbox/policy/linux/sandbox_linux.h"
+#include "sandbox/policy/sandbox_type.h"
 #endif
 
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
@@ -105,6 +109,13 @@ int PpapiPluginMain(const MainFunctionParams& parameters) {
     setlocale(LC_ALL, locale.c_str());
     setenv("LANG", locale.c_str(), 0);
 #endif
+  }
+
+  if (command_line.HasSwitch(switches::kTimeZoneForTesting)) {
+    std::string time_zone =
+        command_line.GetSwitchValueASCII(switches::kTimeZoneForTesting);
+    icu::TimeZone::adoptDefault(
+        icu::TimeZone::createTimeZone(icu::UnicodeString(time_zone.c_str())));
   }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)

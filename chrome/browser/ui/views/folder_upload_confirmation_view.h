@@ -6,9 +6,8 @@
 #define CHROME_BROWSER_UI_VIEWS_FOLDER_UPLOAD_CONFIRMATION_VIEW_H_
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/shell_dialogs/selected_file_info.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace base {

@@ -38,6 +38,12 @@ class LockScreenSessionControllerClient : public TestSessionControllerClient {
     InitializeAndSetClient();
     CreatePredefinedUserSessions(1);
   }
+
+  LockScreenSessionControllerClient(const LockScreenSessionControllerClient&) =
+      delete;
+  LockScreenSessionControllerClient& operator=(
+      const LockScreenSessionControllerClient&) = delete;
+
   ~LockScreenSessionControllerClient() override = default;
 
   // TestSessionControllerClient:
@@ -60,7 +66,7 @@ class LockScreenSessionControllerClient : public TestSessionControllerClient {
  private:
   void CreateLockScreen() {
     auto lock_view = std::make_unique<views::View>();
-    lock_screen_widget_.reset(new views::Widget);
+    lock_screen_widget_ = std::make_unique<views::Widget>();
     views::Widget::InitParams params(
         views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
     gfx::Size ps = lock_view->GetPreferredSize();
@@ -80,8 +86,6 @@ class LockScreenSessionControllerClient : public TestSessionControllerClient {
   }
 
   std::unique_ptr<views::Widget> lock_screen_widget_;
-
-  DISALLOW_COPY_AND_ASSIGN(LockScreenSessionControllerClient);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -91,6 +95,11 @@ class LockScreenSessionControllerClient : public TestSessionControllerClient {
 class LockScreenAshFocusRulesTest : public AshTestBase {
  public:
   LockScreenAshFocusRulesTest() = default;
+
+  LockScreenAshFocusRulesTest(const LockScreenAshFocusRulesTest&) = delete;
+  LockScreenAshFocusRulesTest& operator=(const LockScreenAshFocusRulesTest&) =
+      delete;
+
   ~LockScreenAshFocusRulesTest() override = default;
 
   void SetUp() override {
@@ -144,7 +153,7 @@ class LockScreenAshFocusRulesTest : public AshTestBase {
     aura::Window* root_window = Shell::GetPrimaryRootWindow();
     aura::Window* container = Shell::GetContainer(root_window, container_id);
     aura::Window* window = new aura::Window(nullptr);
-    window->set_id(0);
+    window->SetId(0);
     window->SetType(aura::client::WINDOW_TYPE_NORMAL);
     window->Init(ui::LAYER_TEXTURED);
     window->Show();
@@ -157,8 +166,6 @@ class LockScreenAshFocusRulesTest : public AshTestBase {
   }
 
   std::unique_ptr<LockScreenSessionControllerClient> session_controller_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(LockScreenAshFocusRulesTest);
 };
 
 }  // namespace

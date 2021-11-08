@@ -10,9 +10,9 @@
 
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "chromeos/services/device_sync/proto/cryptauth_api.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -37,6 +37,11 @@ class CryptAuthEnrollmentManager {
   };
 
   CryptAuthEnrollmentManager();
+
+  CryptAuthEnrollmentManager(const CryptAuthEnrollmentManager&) = delete;
+  CryptAuthEnrollmentManager& operator=(const CryptAuthEnrollmentManager&) =
+      delete;
+
   virtual ~CryptAuthEnrollmentManager();
 
   void AddObserver(Observer* observer);
@@ -57,7 +62,7 @@ class CryptAuthEnrollmentManager {
   // obsolete.
   virtual void ForceEnrollmentNow(
       cryptauth::InvocationReason invocation_reason,
-      const base::Optional<std::string>& session_id) = 0;
+      const absl::optional<std::string>& session_id) = 0;
 
   // Returns true if a successful enrollment has been recorded and this
   // enrollment has not expired.
@@ -91,8 +96,6 @@ class CryptAuthEnrollmentManager {
 
  private:
   base::ObserverList<Observer>::Unchecked observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(CryptAuthEnrollmentManager);
 };
 
 }  // namespace device_sync

@@ -6,13 +6,16 @@
 
 #include <utility>
 
+#include "base/containers/cxx20_erase.h"
 #include "base/json/json_writer.h"
+#include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromecast/base/version.h"
 #include "chromecast/browser/cast_web_contents.h"
 #include "chromecast/browser/webview/proto/webview.pb.h"
 #include "chromecast/browser/webview/webview_input_method_observer.h"
 #include "chromecast/browser/webview/webview_navigation_throttle.h"
+#include "chromecast/common/user_agent.h"
 #include "chromecast/graphics/cast_focus_client_aura.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browsing_data_remover.h"
@@ -33,8 +36,18 @@
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/keycodes/keyboard_code_conversion.h"
+#include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/gfx/geometry/insets.h"
 
 namespace chromecast {
+
+namespace {
+
+base::TimeTicks TimeTicksFromTimestamp(int64_t timestamp) {
+  return base::TimeTicks() + base::Microseconds(timestamp);
+}
+
+}  // namespace
 
 WebContentController::WebviewWindowVisibilityObserver::
     WebviewWindowVisibilityObserver(aura::Window* window,
@@ -184,6 +197,14 @@ void WebContentController::ProcessRequest(
       }
       break;
 
+    case webview::WebviewRequest::kGetUserAgent:
+      HandleGetUserAgent(request.id());
+      break;
+
+    case webview::WebviewRequest::kFocus:
+      contents->GetNativeView()->Focus();
+      break;
+
     default:
       client_->OnError("Unknown request code");
       break;
@@ -198,7 +219,7 @@ void WebContentController::AttachTo(aura::Window* window, int window_id) {
 
   content::WebContents* contents = GetWebContents();
   auto* contents_window = contents->GetNativeView();
-  contents_window->set_id(window_id);
+  contents_window->SetId(window_id);
   // The aura window is hidden to avoid being shown via the usual layer method,
   // instead it is shows via a SurfaceDrawQuad by exo.
   contents_window->Hide();
@@ -220,8 +241,9 @@ void WebContentController::AttachTo(aura::Window* window, int window_id) {
 void WebContentController::OnVisible(aura::Window* window) {
   // Acquire initial focus.
   auto* contents = GetWebContents();
-  if (contents) contents->SetInitialFocus();
-  else {
+  if (contents) {
+    contents->SetInitialFocus();
+  } else {
     LOG(WARNING)
         << "Webview unable to acquire initial focus due to missing webcontents";
   }
@@ -263,8 +285,7 @@ void WebContentController::ProcessInputEvent(const webview::InputEvent& ev) {
         ui::TouchEvent evt(
             type, gfx::PointF(touch.x(), touch.y()),
             gfx::PointF(touch.root_x(), touch.root_y()),
-            base::TimeTicks() +
-                base::TimeDelta::FromMicroseconds(ev.timestamp()),
+            base::TimeTicks() + base::Microseconds(ev.timestamp()),
             ui::PointerDetails(
                 static_cast<ui::EventPointerType>(touch.pointer_type()),
                 static_cast<ui::PointerId>(touch.pointer_id()),
@@ -321,9 +342,8 @@ void WebContentController::ProcessInputEvent(const webview::InputEvent& ev) {
         ui::MouseEvent evt(
             type, gfx::PointF(mouse.x(), mouse.y()),
             gfx::PointF(mouse.root_x(), mouse.root_y()),
-            base::TimeTicks() +
-                base::TimeDelta::FromMicroseconds(ev.timestamp()),
-            ev.flags(), mouse.changed_button_flags());
+            base::TimeTicks() + base::Microseconds(ev.timestamp()), ev.flags(),
+            mouse.changed_button_flags());
         if (contents->GetAccessibilityMode().has_mode(
                 ui::AXMode::kWebContents)) {
           evt.set_flags(evt.flags() | ui::EF_TOUCH_ACCESSIBILITY);
@@ -339,30 +359,45 @@ void WebContentController::ProcessInputEvent(const webview::InputEvent& ev) {
         ui::DomKey dom_key =
             ui::KeycodeConverter::KeyStringToDomKey(ev.key().key_string());
 
-        // Backspace, delete, and tab have to be treated specially as they are
-        // characters according to DomKey, but they are non-printable.
-        bool is_printable_character =
-            dom_key.IsCharacter() && dom_key != ui::DomKey::TAB &&
-            dom_key != ui::DomKey::BACKSPACE && dom_key != ui::DomKey::DEL;
-
+        bool send_keypress = false;
+        ui::DomCode dom_code = UsLayoutDomKeyToDomCode(dom_key);
         ui::KeyboardCode keyboard_code =
-            is_printable_character
-                ? static_cast<ui::KeyboardCode>(dom_key.ToCharacter())
-                : NonPrintableDomKeyToKeyboardCode(dom_key);
-        ui::KeyEvent evt(type, keyboard_code,
-                         UsLayoutKeyboardCodeToDomCode(keyboard_code),
-                         ev.flags() | ui::EF_IS_SYNTHESIZED, dom_key,
-                         base::TimeTicks() +
-                             base::TimeDelta::FromMicroseconds(ev.timestamp()),
-                         is_printable_character);
+            DomCodeToUsLayoutNonLocatedKeyboardCode(dom_code);
 
-        // Marks the simulated key event is from a Virtual Keyboard.
-        ui::Event::Properties properties;
-        properties[ui::kPropertyFromVK] =
-            std::vector<uint8_t>(ui::kPropertyFromVKSize);
-        evt.SetProperties(properties);
+        if (dom_key.IsCharacter())
+          send_keypress = true;
 
-        handler->OnKeyEvent(&evt);
+        // Required to match desktop.
+        if (keyboard_code == ui::VKEY_BACK || (keyboard_code == ui::VKEY_TAB))
+          send_keypress = false;
+
+        if (dom_code == ui::DomCode::NONE) {
+          if (type != ui::ET_KEY_PRESSED)
+            return;
+          // Non-US layout keys should only generate a keypress event.
+          ui::KeyEvent key_press(type, keyboard_code, dom_code, ev.flags(),
+                                 dom_key,
+                                 TimeTicksFromTimestamp(ev.timestamp()), true);
+          handler->OnKeyEvent(&key_press);
+          return;
+        }
+
+        // Generate the keydown or keyup event.
+        ui::KeyEvent key_event(type, keyboard_code, dom_code, ev.flags(),
+                               dom_key, TimeTicksFromTimestamp(ev.timestamp()),
+                               false);
+        handler->OnKeyEvent(&key_event);
+
+        if (key_event.stopped_propagation())
+          return;
+
+        if (send_keypress && type == ui::ET_KEY_PRESSED) {
+          // Generate the keypress event.
+          ui::KeyEvent key_press(type, keyboard_code, dom_code, ev.flags(),
+                                 dom_key,
+                                 TimeTicksFromTimestamp(ev.timestamp()), true);
+          handler->OnKeyEvent(&key_press);
+        }
       } else {
         client_->OnError("key() not supplied for key event");
       }
@@ -477,8 +512,7 @@ void WebContentController::HandleClearCache() {
 
   // Remove disk cache and local storage.
   content::BrowsingDataRemover* remover =
-      content::BrowserContext::GetBrowsingDataRemover(
-          GetWebContents()->GetBrowserContext());
+      GetWebContents()->GetBrowserContext()->GetBrowsingDataRemover();
   remover->Remove(base::Time(), base::Time::Max(),
                   content::BrowsingDataRemover::DATA_TYPE_CACHE |
                       content::BrowsingDataRemover::DATA_TYPE_DOM_STORAGE,
@@ -491,8 +525,7 @@ void WebContentController::HandleClearCookies(int64_t id) {
       std::make_unique<webview::WebviewResponse>();
 
   content::BrowsingDataRemover* remover =
-      content::BrowserContext::GetBrowsingDataRemover(
-          GetWebContents()->GetBrowserContext());
+      GetWebContents()->GetBrowserContext()->GetBrowsingDataRemover();
   remover->Remove(base::Time(), base::Time::Max(),
                   content::BrowsingDataRemover::DATA_TYPE_COOKIES,
                   content::BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB |
@@ -529,6 +562,15 @@ void WebContentController::HandleSetInsets(const gfx::Insets& insets) {
     contents->GetTopLevelRenderWidgetHostView()->SetInsets(insets);
 }
 
+void WebContentController::HandleGetUserAgent(int64_t id) {
+  std::unique_ptr<webview::WebviewResponse> response =
+      std::make_unique<webview::WebviewResponse>();
+
+  response->set_id(id);
+  response->mutable_get_user_agent()->set_user_agent(GetUserAgent());
+  client_->EnqueueSend(std::move(response));
+}
+
 viz::SurfaceId WebContentController::GetSurfaceId() {
   content::WebContents* web_contents = GetWebContents();
   // Web contents are destroyed before controller for cast apps.
@@ -548,7 +590,7 @@ void WebContentController::OnSurfaceDestroying(exo::Surface* surface) {
   surface_ = nullptr;
 }
 
-void WebContentController::MainFrameWasResized(bool width_changed) {
+void WebContentController::PrimaryMainFrameWasResized(bool width_changed) {
   // The surface ID may have changed, so trigger a new commit to re-issue the
   // draw quad.
   if (surface_) {

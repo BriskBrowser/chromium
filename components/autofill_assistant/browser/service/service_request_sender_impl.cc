@@ -13,6 +13,7 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 namespace {
 
@@ -21,8 +22,8 @@ constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
         semantics {
           sender: "Autofill Assistant"
           description:
-            "Chromium posts requests to autofill assistant server to get
-            scripts for a URL."
+            "Chromium posts requests to autofill assistant server to get "
+            "scripts for a URL."
           trigger:
             "Matching URL."
           data: "None."
@@ -71,12 +72,12 @@ void SendRequestImpl(
   auto loader =
       loader_factory->CreateLoader(std::move(request), kTrafficAnnotation);
   loader->AttachStringForUpload(request_body, "application/x-protobuffer");
-#ifdef DEBUG
+#ifndef NDEBUG
   loader->SetAllowHttpErrorResults(true);
 #endif
   auto* const loader_ptr = loader.get();
   loader_ptr->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-      content::BrowserContext::GetDefaultStoragePartition(context)
+      context->GetDefaultStoragePartition()
           ->GetURLLoaderFactoryForBrowserProcess()
           .get(),
       base::BindOnce(&OnURLLoaderComplete, std::move(callback),
@@ -101,11 +102,15 @@ void SendRequestNoAuth(
 
   std::string query_str = base::StrCat({"key=", api_key});
   // query_str must remain valid until ReplaceComponents() has returned.
-  url::StringPieceReplacements<std::string> add_key;
+  GURL::Replacements add_key;
   add_key.SetQueryStr(query_str);
   GURL modified_url = url.ReplaceComponents(add_key);
 
+#ifdef NDEBUG
   VLOG(2) << "Sending request with api key to backend";
+#else
+  VLOG(2) << "Sending request with api key to backend: " << modified_url;
+#endif
   SendRequestImpl(CreateResourceRequest(modified_url), request_body, context,
                   loader_factory, std::move(callback));
 }
@@ -192,7 +197,11 @@ void ServiceRequestSenderImpl::SendRequestAuth(const GURL& url,
                               weak_ptr_factory_.GetWeakPtr(), url, access_token,
                               request_body, std::move(callback));
   }
+#ifdef NDEBUG
   VLOG(2) << "Sending request with access token to backend";
+#else
+  VLOG(2) << "Sending request with access token to backend: " << url;
+#endif
   SendRequestImpl(std::move(resource_request), request_body, context_,
                   loader_factory_.get(), std::move(callback));
 }

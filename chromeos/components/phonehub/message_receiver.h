@@ -29,6 +29,16 @@ class MessageReceiver {
     // properties, updated notifications, and removed notifications.
     virtual void OnPhoneStatusUpdateReceived(
         proto::PhoneStatusUpdate phone_status_update) {}
+
+    // Called when the remote phone sends the list of camera roll items that
+    // should be displayed via FetchCameraRollItemsResponse.
+    virtual void OnFetchCameraRollItemsResponseReceived(
+        const proto::FetchCameraRollItemsResponse& response) {}
+
+    // Called when the remote phone acknowledges whether the requested camera
+    // roll item file data is ready to be transferred.
+    virtual void OnFetchCameraRollItemDataResponseReceived(
+        const proto::FetchCameraRollItemDataResponse& response) {}
   };
 
   MessageReceiver(const MessageReceiver&) = delete;
@@ -45,6 +55,10 @@ class MessageReceiver {
       proto::PhoneStatusSnapshot phone_status_snapshot);
   void NotifyPhoneStatusUpdateReceived(
       proto::PhoneStatusUpdate phone_status_update);
+  void NotifyFetchCameraRollItemsResponseReceived(
+      const proto::FetchCameraRollItemsResponse& response);
+  void NotifyFetchCameraRollItemDataResponseReceived(
+      const proto::FetchCameraRollItemDataResponse& response);
 
  private:
   base::ObserverList<Observer> observer_list_;

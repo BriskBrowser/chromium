@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2017 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -47,29 +47,18 @@ class OptimizeWebUiTest(unittest.TestCase):
 
   def _read_out_file(self, file_name):
     assert self._out_folder
-    return open(os.path.join(self._out_folder, file_name), 'r').read()
+    with open(os.path.join(self._out_folder, file_name), 'r') as f:
+      return f.read()
 
   def _run_optimize(self, input_args):
     # TODO(dbeam): make it possible to _run_optimize twice? Is that useful?
     args = input_args + [
       '--depfile', os.path.join(self._out_folder, 'depfile.d'),
+      '--target_name', 'dummy_target_name',
       '--input', self._tmp_src_dir,
       '--out_folder', self._out_folder,
     ]
     optimize_webui.main(args)
-
-  def _write_files_to_src_dir(self):
-    self._write_file_to_src_dir('element.html', '<div>got here!</div>')
-    self._write_file_to_src_dir('element.js', "alert('yay');")
-    self._write_file_to_src_dir('element_in_dir/element_in_dir.html',
-                                '<script src="element_in_dir.js">')
-    self._write_file_to_src_dir('element_in_dir/element_in_dir.js',
-                                "alert('hello from element_in_dir');")
-    self._write_file_to_src_dir('ui.html', '''
-<link rel="import" href="element.html">
-<link rel="import" href="element_in_dir/element_in_dir.html">
-<script src="element.js"></script>
-''')
 
   def _write_v3_files_to_src_dir(self):
     self._write_file_to_src_dir('element.js', "alert('yay');")
@@ -124,7 +113,7 @@ import '../strings.m.js';
 alert('hello from element_in_dir');
 ''')
     self._write_file_to_src_dir('ui.js', '''
-import 'chrome://fake-host/strings.m.js';
+import './strings.m.js';
 import './element.js';
 import './element_in_dir/element_in_dir.js';
 ''')
@@ -153,22 +142,6 @@ import './element_in_dir/element_in_dir.js';
       self.assertIn('element.html', depfile_d)
       self.assertIn(os.path.normpath('element_in_dir/element_in_dir.html'),
                     depfile_d)
-
-  def testSimpleOptimize(self):
-    self._write_files_to_src_dir()
-    args = [
-      '--host', 'fake-host',
-      '--html_in_files', 'ui.html',
-      '--html_out_files', 'fast.html',
-      '--js_out_files', 'fast.js',
-    ]
-    self._run_optimize(args)
-
-    fast_html = self._read_out_file('fast.html')
-    self._check_output_html(fast_html)
-    self.assertIn('<script src="fast.js"></script>', fast_html)
-    self._check_output_js('fast.js')
-    self._check_output_depfile(True)
 
   def testV3SimpleOptimize(self):
     self._write_v3_files_to_src_dir()
@@ -248,12 +221,12 @@ import './element_in_dir/element_in_dir.js';
     self.assertIn('lazy_element.js', depfile_d)
 
     manifest = json.loads(self._read_out_file('out_manifest.json'))
-    self.assertEquals(3, len(manifest['files']))
+    self.assertEqual(3, len(manifest['files']))
     self.assertTrue('lazy.rollup.js' in manifest['files'])
     self.assertTrue('ui.rollup.js' in manifest['files'])
     self.assertTrue('shared.rollup.js' in manifest['files'])
 
-    self.assertEquals(
+    self.assertEqual(
         os.path.relpath(self._out_folder, _CWD).replace('\\', '/'),
         os.path.relpath(manifest['base_dir'], _CWD).replace('\\', '/'))
 

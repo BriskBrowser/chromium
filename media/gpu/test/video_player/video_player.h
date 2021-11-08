@@ -32,8 +32,7 @@ class VideoDecoderClient;
 struct VideoDecoderClientConfig;
 
 // Default timeout used when waiting for events.
-constexpr base::TimeDelta kDefaultEventWaitTimeout =
-    base::TimeDelta::FromSeconds(30);
+constexpr base::TimeDelta kDefaultEventWaitTimeout = base::Seconds(30);
 
 enum class VideoPlayerState : size_t {
   kUninitialized = 0,
@@ -49,7 +48,7 @@ enum class VideoPlayerEvent : size_t {
   kFlushDone,
   kResetting,
   kResetDone,
-  kConfigInfo,  // A config info was encountered in a H.264 video stream.
+  kConfigInfo,  // A config info was encountered in an H.264/HEVC video stream.
   kNumEvents,
 };
 
@@ -59,6 +58,9 @@ enum class VideoPlayerEvent : size_t {
 class VideoPlayer {
  public:
   using EventCallback = base::RepeatingCallback<bool(VideoPlayerEvent)>;
+
+  VideoPlayer(const VideoPlayer&) = delete;
+  VideoPlayer& operator=(const VideoPlayer&) = delete;
 
   ~VideoPlayer();
 
@@ -160,7 +162,6 @@ class VideoPlayer {
       VideoPlayerEvent::kNumEvents, std::numeric_limits<size_t>::max()};
 
   SEQUENCE_CHECKER(sequence_checker_);
-  DISALLOW_COPY_AND_ASSIGN(VideoPlayer);
 };
 
 }  // namespace test

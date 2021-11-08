@@ -4,6 +4,7 @@
 
 #import "ios/web/public/test/fakes/fake_download_task.h"
 
+#include "base/strings/sys_string_conversions.h"
 #include "ios/web/public/download/download_task_observer.h"
 #include "net/url_request/url_fetcher_response_writer.h"
 
@@ -33,9 +34,10 @@ DownloadTask::State FakeDownloadTask::GetState() const {
   return state_;
 }
 
-void FakeDownloadTask::Start(
-    std::unique_ptr<net::URLFetcherResponseWriter> writer) {
-  writer_ = std::move(writer);
+void FakeDownloadTask::Start(const base::FilePath& path,
+                             Destination destination_hint) {
+  response_data_ = nil;
+  response_path_ = path;
   state_ = State::kInProgress;
   OnDownloadUpdated();
 }
@@ -45,8 +47,12 @@ void FakeDownloadTask::Cancel() {
   OnDownloadUpdated();
 }
 
-net::URLFetcherResponseWriter* FakeDownloadTask::GetResponseWriter() const {
-  return writer_.get();
+NSData* FakeDownloadTask::GetResponseData() const {
+  return response_data_;
+}
+
+const base::FilePath& FakeDownloadTask::GetResponsePath() const {
+  return response_path_;
 }
 
 NSString* FakeDownloadTask::GetIndentifier() const {
@@ -97,7 +103,7 @@ std::string FakeDownloadTask::GetMimeType() const {
   return mime_type_;
 }
 
-base::string16 FakeDownloadTask::GetSuggestedFilename() const {
+std::u16string FakeDownloadTask::GetSuggestedFilename() const {
   return suggested_file_name_;
 }
 
@@ -120,6 +126,9 @@ void FakeDownloadTask::SetWebState(WebState* web_state) {
 }
 
 void FakeDownloadTask::SetDone(bool done) {
+  if (!response_data_) {
+    response_data_ = [NSData data];
+  }
   state_ = State::kComplete;
   OnDownloadUpdated();
 }
@@ -144,6 +153,11 @@ void FakeDownloadTask::SetReceivedBytes(int64_t received_bytes) {
   OnDownloadUpdated();
 }
 
+void FakeDownloadTask::SetResponseData(NSData* received_data) {
+  response_data_ = received_data;
+  OnDownloadUpdated();
+}
+
 void FakeDownloadTask::SetPercentComplete(int percent_complete) {
   percent_complete_ = percent_complete;
   OnDownloadUpdated();
@@ -161,7 +175,7 @@ void FakeDownloadTask::SetMimeType(const std::string& mime_type) {
 }
 
 void FakeDownloadTask::SetSuggestedFilename(
-    const base::string16& suggested_file_name) {
+    const std::u16string& suggested_file_name) {
   suggested_file_name_ = suggested_file_name;
   OnDownloadUpdated();
 }

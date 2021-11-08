@@ -17,7 +17,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/power_monitor/power_monitor.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
@@ -80,13 +80,14 @@ AudioRendererImpl::AudioRendererImpl(
   // won't remove the observer until we're destructed on |task_runner_| so we
   // must post it here if we're on the wrong thread.
   if (task_runner_->BelongsToCurrentThread()) {
-    base::PowerMonitor::AddObserver(this);
+    base::PowerMonitor::AddPowerSuspendObserver(this);
   } else {
     // Safe to post this without a WeakPtr because this class must be destructed
     // on the same thread and construction has not completed yet.
     task_runner_->PostTask(
         FROM_HERE,
-        base::BindOnce(IgnoreResult(&base::PowerMonitor::AddObserver), this));
+        base::BindOnce(
+            IgnoreResult(&base::PowerMonitor::AddPowerSuspendObserver), this));
   }
 
   // Do not add anything below this line since the above actions are only safe
@@ -96,7 +97,7 @@ AudioRendererImpl::AudioRendererImpl(
 AudioRendererImpl::~AudioRendererImpl() {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
-  base::PowerMonitor::RemoveObserver(this);
+  base::PowerMonitor::RemovePowerSuspendObserver(this);
 
   // If Render() is in progress, this call will wait for Render() to finish.
   // After this call, the |sink_| will not call back into |this| anymore.
@@ -135,7 +136,7 @@ void AudioRendererImpl::StartRendering_Locked() {
   lock_.AssertAcquired();
 
   sink_playing_ = true;
-
+  was_unmuted_ = was_unmuted_ || volume_ != 0;
   base::AutoUnlock auto_unlock(lock_);
   if (volume_ || !null_sink_)
     sink_->Play();
@@ -190,7 +191,8 @@ void AudioRendererImpl::SetMediaTime(base::TimeDelta time) {
   ended_timestamp_ = kInfiniteDuration;
   last_render_time_ = stop_rendering_time_ = base::TimeTicks();
   first_packet_timestamp_ = kNoTimestamp;
-  audio_clock_.reset(new AudioClock(time, audio_parameters_.sample_rate()));
+  audio_clock_ =
+      std::make_unique<AudioClock>(time, audio_parameters_.sample_rate());
 }
 
 base::TimeDelta AudioRendererImpl::CurrentMediaTime() {
@@ -275,7 +277,8 @@ TimeSource* AudioRendererImpl::GetTimeSource() {
 void AudioRendererImpl::Flush(base::OnceClosure callback) {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
-  TRACE_EVENT_ASYNC_BEGIN0("media", "AudioRendererImpl::Flush", this);
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("media", "AudioRendererImpl::Flush",
+                                    TRACE_ID_LOCAL(this));
 
   // Flush |sink_| now.  |sink_| must only be accessed on |task_runner_| and not
   // be called under |lock_|.
@@ -330,10 +333,6 @@ void AudioRendererImpl::ResetDecoderDone() {
       buffer_converter_->Reset();
     algorithm_->FlushBuffers();
   }
-
-  // Changes in buffering state are always posted. Flush callback must only be
-  // run after buffering state has been set back to nothing.
-  flush_cb_ = BindToCurrentLoop(std::move(flush_cb_));
   FinishFlush();
 }
 
@@ -363,7 +362,8 @@ void AudioRendererImpl::Initialize(DemuxerStream* stream,
   DCHECK(init_cb);
   DCHECK(state_ == kUninitialized || state_ == kFlushed);
   DCHECK(sink_);
-  TRACE_EVENT_ASYNC_BEGIN0("media", "AudioRendererImpl::Initialize", this);
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("media", "AudioRendererImpl::Initialize",
+                                    TRACE_ID_LOCAL(this));
 
   // If we are re-initializing playback (e.g. switching media tracks), stop the
   // sink first.
@@ -472,9 +472,9 @@ void AudioRendererImpl::OnDeviceInfoReceived(
 
   if (is_passthrough_) {
     AudioParameters::Format format = AudioParameters::AUDIO_FAKE;
-    if (codec == kCodecAC3) {
+    if (codec == AudioCodec::kAC3) {
       format = AudioParameters::AUDIO_BITSTREAM_AC3;
-    } else if (codec == kCodecEAC3) {
+    } else if (codec == AudioCodec::kEAC3) {
       format = AudioParameters::AUDIO_BITSTREAM_EAC3;
     } else {
       NOTREACHED();
@@ -534,11 +534,10 @@ void AudioRendererImpl::OnDeviceInfoReceived(
     // mixer will attempt to up-mix stereo source streams to just the left/right
     // speaker of the 5.1 setup, nulling out the other channels
     // (http://crbug.com/177872).
-    ChannelLayout hw_channel_layout =
-        hw_params.channel_layout() == CHANNEL_LAYOUT_DISCRETE ||
-                try_supported_channel_layouts
-            ? CHANNEL_LAYOUT_STEREO
-            : hw_params.channel_layout();
+    hw_channel_layout = hw_params.channel_layout() == CHANNEL_LAYOUT_DISCRETE ||
+                                try_supported_channel_layouts
+                            ? CHANNEL_LAYOUT_STEREO
+                            : hw_params.channel_layout();
     int hw_channel_count = ChannelLayoutToChannelCount(hw_channel_layout);
 
     // The layout we pass to |audio_parameters_| will be used for the lifetime
@@ -589,8 +588,8 @@ void AudioRendererImpl::OnDeviceInfoReceived(
     // Set the |audio_clock_| under lock in case this is a reinitialize and some
     // external caller to GetWallClockTimes() exists.
     base::AutoLock lock(lock_);
-    audio_clock_.reset(
-        new AudioClock(base::TimeDelta(), audio_parameters_.sample_rate()));
+    audio_clock_ = std::make_unique<AudioClock>(
+        base::TimeDelta(), audio_parameters_.sample_rate());
   }
 
   audio_decoder_stream_->Initialize(
@@ -628,8 +627,10 @@ void AudioRendererImpl::OnAudioDecoderStreamInitialized(bool success) {
     return;
   }
 
-  if (expecting_config_changes_)
-    buffer_converter_.reset(new AudioBufferConverter(audio_parameters_));
+  if (expecting_config_changes_) {
+    buffer_converter_ =
+        std::make_unique<AudioBufferConverter>(audio_parameters_);
+  }
 
   // We're all good! Continue initializing the rest of the audio renderer
   // based on the decoder format.
@@ -637,7 +638,7 @@ void AudioRendererImpl::OnAudioDecoderStreamInitialized(bool success) {
   auto params =
       (media_client ? media_client->GetAudioRendererAlgorithmParameters(
                           audio_parameters_)
-                    : base::nullopt);
+                    : absl::nullopt);
   if (params && !client_->IsVideoStreamAvailable()) {
     algorithm_ =
         std::make_unique<AudioRendererAlgorithm>(media_log_, params.value());
@@ -675,15 +676,21 @@ void AudioRendererImpl::OnAudioDecoderStreamInitialized(bool success) {
 
 void AudioRendererImpl::FinishInitialization(PipelineStatus status) {
   DCHECK(init_cb_);
-  TRACE_EVENT_ASYNC_END1("media", "AudioRendererImpl::Initialize", this,
-                         "status", PipelineStatusToString(status));
+  TRACE_EVENT_NESTABLE_ASYNC_END1("media", "AudioRendererImpl::Initialize",
+                                  TRACE_ID_LOCAL(this), "status",
+                                  PipelineStatusToString(status));
   std::move(init_cb_).Run(status);
 }
 
 void AudioRendererImpl::FinishFlush() {
   DCHECK(flush_cb_);
-  TRACE_EVENT_ASYNC_END0("media", "AudioRendererImpl::Flush", this);
-  std::move(flush_cb_).Run();
+  TRACE_EVENT_NESTABLE_ASYNC_END0("media", "AudioRendererImpl::Flush",
+                                  TRACE_ID_LOCAL(this));
+  // The |flush_cb_| must always post in order to avoid deadlocking, as some of
+  // the functions which may be bound here are re-entrant into lock-acquiring
+  // methods of AudioRendererImpl, and FinishFlush may be called while holding
+  // the lock. See crbug.com/c/1163459 for a detailed explanation of this.
+  task_runner_->PostTask(FROM_HERE, std::move(flush_cb_));
 }
 
 void AudioRendererImpl::OnPlaybackError(PipelineStatus error) {
@@ -727,7 +734,13 @@ void AudioRendererImpl::OnWaiting(WaitingReason reason) {
 
 void AudioRendererImpl::SetVolume(float volume) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  was_unmuted_ = was_unmuted_ || volume != 0;
+
+  // Only consider audio as unmuted if the volume is set to a non-zero value
+  // when the state is kPlaying.
+  if (state_ == kPlaying) {
+    was_unmuted_ = was_unmuted_ || volume != 0;
+  }
+
   if (state_ == kUninitialized || state_ == kInitializing) {
     volume_ = volume;
     return;
@@ -773,7 +786,7 @@ void AudioRendererImpl::SetVolume(float volume) {
 }
 
 void AudioRendererImpl::SetLatencyHint(
-    base::Optional<base::TimeDelta> latency_hint) {
+    absl::optional<base::TimeDelta> latency_hint) {
   base::AutoLock auto_lock(lock_);
 
   latency_hint_ = latency_hint;
@@ -932,8 +945,8 @@ bool AudioRendererImpl::HandleDecodedBuffer_Locked(
       if (buffer->timestamp() < start_timestamp_ &&
           (buffer->timestamp() + buffer->duration()) > start_timestamp_) {
         start_timestamp_ = buffer->timestamp();
-        audio_clock_.reset(new AudioClock(buffer->timestamp(),
-                                          audio_parameters_.sample_rate()));
+        audio_clock_ = std::make_unique<AudioClock>(
+            buffer->timestamp(), audio_parameters_.sample_rate());
       }
     } else if (state_ == kPlaying) {
       if (IsBeforeStartTime(*buffer))
@@ -941,7 +954,7 @@ bool AudioRendererImpl::HandleDecodedBuffer_Locked(
 
       // Trim off any additional time before the start timestamp.
       const base::TimeDelta trim_time = start_timestamp_ - buffer->timestamp();
-      if (trim_time > base::TimeDelta()) {
+      if (trim_time.is_positive()) {
         const int frames_to_trim = AudioTimestampHelper::TimeToFrames(
             trim_time, buffer->sample_rate());
         DVLOG(1) << __func__ << ": Trimming first audio buffer by "
@@ -1103,7 +1116,7 @@ int AudioRendererImpl::Render(base::TimeDelta delay,
 
   // Since this information is coming from the OS or potentially a fake stream,
   // it may end up with spurious values.
-  if (delay < base::TimeDelta())
+  if (delay.is_negative())
     delay = base::TimeDelta();
 
   int frames_written = 0;
@@ -1146,7 +1159,7 @@ int AudioRendererImpl::Render(base::TimeDelta delay,
       // way to generate audio delay.
       const base::TimeDelta play_delay =
           first_packet_timestamp_ - audio_clock_->back_timestamp();
-      if (play_delay > base::TimeDelta()) {
+      if (play_delay.is_positive()) {
         MEDIA_LOG(ERROR, media_log_)
             << "Cannot add delay for compressed audio bitstream foramt."
             << " Requested delay: " << play_delay;
@@ -1166,7 +1179,7 @@ int AudioRendererImpl::Render(base::TimeDelta delay,
       CHECK_GE(first_packet_timestamp_, base::TimeDelta());
       const base::TimeDelta play_delay =
           first_packet_timestamp_ - audio_clock_->back_timestamp();
-      if (play_delay > base::TimeDelta()) {
+      if (play_delay.is_positive()) {
         DCHECK_EQ(frames_written, 0);
 
         if (!play_delay_cb_for_testing_.is_null())

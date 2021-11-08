@@ -6,6 +6,7 @@
 
 #include <set>
 
+#include "base/allocator/buildflags.h"
 #include "base/feature_list.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
@@ -39,6 +40,7 @@
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/test/background_page_watcher.h"
 #include "extensions/test/test_extension_dir.h"
 #endif
@@ -86,11 +88,11 @@ void RequestGlobalDumpCallback(base::OnceClosure quit_closure,
 }
 
 void OnStartTracingDoneCallback(
-    base::trace_event::MemoryDumpLevelOfDetail explicit_dump_type,
+    base::trace_event::MemoryDumpLevelOfDetail dump_type,
     base::OnceClosure quit_closure) {
   memory_instrumentation::MemoryInstrumentation::GetInstance()
       ->RequestGlobalDumpAndAppendToTrace(
-          MemoryDumpType::EXPLICITLY_TRIGGERED, explicit_dump_type,
+          MemoryDumpType::PERIODIC_INTERVAL, dump_type,
           MemoryDumpDeterminism::NONE,
           BindOnce(&RequestGlobalDumpCallback, std::move(quit_closure)));
 }
@@ -100,6 +102,11 @@ class ProcessMemoryMetricsEmitterFake : public ProcessMemoryMetricsEmitter {
   explicit ProcessMemoryMetricsEmitterFake(base::RunLoop* run_loop,
                                            ukm::TestUkmRecorder* recorder)
       : run_loop_(run_loop), recorder_(recorder) {}
+
+  ProcessMemoryMetricsEmitterFake(const ProcessMemoryMetricsEmitterFake&) =
+      delete;
+  ProcessMemoryMetricsEmitterFake& operator=(
+      const ProcessMemoryMetricsEmitterFake&) = delete;
 
  private:
   ~ProcessMemoryMetricsEmitterFake() override {}
@@ -131,8 +138,6 @@ class ProcessMemoryMetricsEmitterFake : public ProcessMemoryMetricsEmitter {
   bool finished_memory_dump_ = false;
   bool finished_process_info_ = false;
   ukm::TestUkmRecorder* recorder_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProcessMemoryMetricsEmitterFake);
 };
 
 void CheckMemoryMetric(const std::string& name,
@@ -182,6 +187,16 @@ void CheckExperimentalMemoryMetricsForProcessType(
   CheckMemoryMetric(std::string("Memory.Experimental.") + process_type + "2.V8",
                     histogram_tester, count, ValueRestriction::NONE,
                     number_of_processes);
+
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  // It's a small metric, so should not be strictly zero in theory, but could be
+  // if purge comes at the wrong time, or the thread cache is not available on
+  // this platform.
+  CheckMemoryMetric(std::string("Memory.Experimental.") + process_type +
+                        "2.Small.Malloc.ThreadCache",
+                    histogram_tester, count, ValueRestriction::NONE,
+                    number_of_processes);
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 }
 
 void CheckExperimentalMemoryMetrics(
@@ -300,6 +315,11 @@ class ProcessMemoryMetricsEmitterTest
   ProcessMemoryMetricsEmitterTest() {
     scoped_feature_list_.InitAndEnableFeature(ukm::kUkmFeature);
   }
+
+  ProcessMemoryMetricsEmitterTest(const ProcessMemoryMetricsEmitterTest&) =
+      delete;
+  ProcessMemoryMetricsEmitterTest& operator=(
+      const ProcessMemoryMetricsEmitterTest&) = delete;
 
   ~ProcessMemoryMetricsEmitterTest() override {}
 
@@ -512,8 +532,6 @@ class ProcessMemoryMetricsEmitterTest
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   std::vector<std::unique_ptr<TestExtensionDir>> temp_dirs_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(ProcessMemoryMetricsEmitterTest);
 };
 
 // TODO(crbug.com/732501): Re-enable on Win once not flaky.
@@ -618,7 +636,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   ASSERT_TRUE(embedded_test_server()->Start());
   const GURL app_url = embedded_test_server()->GetURL("app.org", "/empty.html");
   const Extension* app = CreateHostedApp("App", GURL("http://app.org"));
-  ui_test_utils::NavigateToURL(browser(), app_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), app_url));
 
   // Verify that the hosted app has loaded.
   ProcessManager* pm = ProcessManager::Get(profile());
@@ -653,12 +671,23 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   CheckPageInfoUkmMetrics(url, true);
 }
 
+// TODO(crbug.com/1201588): Fix flakiness on Windows.
+#if defined(OS_WIN) || defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER)
+#define MAYBE_FetchAndEmitMetricsWithExtensionsAndHostReuse \
+  DISABLED_FetchAndEmitMetricsWithExtensionsAndHostReuse
+#else
+#define MAYBE_FetchAndEmitMetricsWithExtensionsAndHostReuse \
+  FetchAndEmitMetricsWithExtensionsAndHostReuse
+#endif
 IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
-                       FetchAndEmitMetricsWithExtensionsAndHostReuse) {
-  // This test does not work with --site-per-process flag since this test
-  // combines multiple extensions in the same process.
-  if (content::AreAllSitesIsolatedForTesting())
+                       MAYBE_FetchAndEmitMetricsWithExtensionsAndHostReuse) {
+  // When strict extension isolation is enabled, there is no process reuse for
+  // extensions, and this becomes the same as FetchAndEmitMetricsWithExtensions.
+  if (base::FeatureList::IsEnabled(
+          extensions_features::kStrictExtensionIsolation)) {
     return;
+  }
+
   // Limit the number of renderer processes to force reuse.
   content::RenderProcessHost::SetMaxRendererProcessCount(1);
   const Extension* extension1 = CreateExtension("Extension 1");
@@ -691,7 +720,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
 
   run_loop.Run();
 
-  constexpr int kNumRenderers = 2;
+  constexpr int kNumRenderers = 1;
   EXPECT_EQ(kNumRenderers, GetNumRenderers(browser()));
   constexpr int kNumExtensionProcesses = 1;
 
@@ -762,8 +791,8 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
 
   ASSERT_GT(events.size(), 1u);
   ASSERT_TRUE(trace_analyzer::CountMatches(
-      events, trace_analyzer::Query::EventNameIs(MemoryDumpTypeToString(
-                  MemoryDumpType::EXPLICITLY_TRIGGERED))));
+      events, trace_analyzer::Query::EventNameIs(
+                  MemoryDumpTypeToString(MemoryDumpType::PERIODIC_INTERVAL))));
 
   constexpr int kNumRenderers = 2;
   EXPECT_EQ(kNumRenderers, GetNumRenderers(browser()));

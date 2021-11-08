@@ -13,12 +13,13 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/containers/cxx20_erase.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
 #include "base/hash/md5.h"
-#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "chrome/browser/win/conflicts/module_list_filter.h"
 #include "chrome/chrome_elf/third_party_dlls/packed_list_format.h"
@@ -82,7 +83,7 @@ const base::FilePath::CharType kModuleListComponentRelativePath[] =
 
 uint32_t CalculateTimeDateStamp(base::Time time) {
   const auto delta = time.ToDeltaSinceWindowsEpoch();
-  return delta < base::TimeDelta() ? 0 : static_cast<uint32_t>(delta.InHours());
+  return delta.is_negative() ? 0 : static_cast<uint32_t>(delta.InHours());
 }
 
 ReadResult ReadModuleBlocklistCache(

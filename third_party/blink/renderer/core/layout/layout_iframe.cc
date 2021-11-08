@@ -25,7 +25,6 @@
 
 #include "third_party/blink/renderer/core/layout/layout_iframe.h"
 
-#include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/page/scrolling/root_scroller_controller.h"
 
 namespace blink {
@@ -45,7 +44,7 @@ bool LayoutIFrame::IsInlineBlockOrInlineTable() const {
 
 PaintLayerType LayoutIFrame::LayerTypeRequired() const {
   NOT_DESTROYED();
-  if (StyleRef().HasResize())
+  if (CanResize())
     return kNormalPaintLayer;
   return LayoutEmbeddedContent::LayerTypeRequired();
 }
@@ -53,7 +52,6 @@ PaintLayerType LayoutIFrame::LayerTypeRequired() const {
 void LayoutIFrame::UpdateLayout() {
   NOT_DESTROYED();
   DCHECK(NeedsLayout());
-  LayoutAnalyzer::Scope analyzer(*this);
 
   UpdateLogicalWidth();
   // No kids to layout as a replaced element.
@@ -68,11 +66,8 @@ void LayoutIFrame::UpdateLayout() {
 void LayoutIFrame::StyleWillChange(StyleDifference diff,
                                    const ComputedStyle& new_style) {
   NOT_DESTROYED();
-  if (Style() && StyleRef().UsedColorSchemeForInitialColors() !=
-                     new_style.UsedColorSchemeForInitialColors()) {
-    GetFrameOwnerElement()->SetColorScheme(
-        new_style.UsedColorSchemeForInitialColors());
-  }
+  if (Style() && StyleRef().UsedColorScheme() != new_style.UsedColorScheme())
+    GetFrameOwnerElement()->SetColorScheme(new_style.UsedColorScheme());
   LayoutEmbeddedContent::StyleWillChange(diff, new_style);
 }
 

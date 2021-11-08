@@ -7,19 +7,23 @@ package org.chromium.weblayer_private;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
+import android.os.RemoteException;
 
 import androidx.annotation.Nullable;
 
+import org.chromium.base.Callback;
+import org.chromium.base.Function;
 import org.chromium.base.PackageManagerUtils;
-import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.external_intents.ExternalNavigationDelegate;
 import org.chromium.components.external_intents.ExternalNavigationDelegate.StartActivityIfNeededResult;
-import org.chromium.components.external_intents.ExternalNavigationHandler.OverrideUrlLoadingResult;
 import org.chromium.components.external_intents.ExternalNavigationParams;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.url.GURL;
 import org.chromium.url.Origin;
+import org.chromium.weblayer_private.interfaces.APICallException;
+import org.chromium.weblayer_private.interfaces.ExternalIntentInIncognitoUserDecision;
 
 /**
  * WebLayer's implementation of the {@link ExternalNavigationDelegate}.
@@ -48,7 +52,7 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
     }
 
     @Override
-    public boolean shouldDisableExternalIntentRequestsForUrl(String url) {
+    public boolean shouldDisableExternalIntentRequestsForUrl(GURL url) {
         return false;
     }
 
@@ -73,26 +77,8 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
         assert !proxy
             : "|proxy| should be true only for instant apps, which WebLayer doesn't handle";
 
-        boolean isExternalProtocol = !UrlUtilities.isAcceptedScheme(intent.toUri(0));
-        boolean hasDefaultHandler = hasDefaultHandler(intent);
-
-        // Match CCT's custom behavior of keeping http(s) URLs with no default handler in the app.
-        // TODO(blundell): If/when CCT eliminates its special handling of this case, eliminate it
-        // from WebLayer as well.
-        if (!isExternalProtocol && !hasDefaultHandler) {
-            return StartActivityIfNeededResult.HANDLED_WITHOUT_ACTIVITY_START;
-        }
-
-        // Otherwise defer to ExternalNavigationHandler's default logic.
+        // Defer to ExternalNavigationHandler's default logic.
         return StartActivityIfNeededResult.DID_NOT_HANDLE;
-    }
-
-    // This method should never be invoked as WebLayer does not handle incoming intents.
-    @Override
-    public OverrideUrlLoadingResult handleIncognitoIntentTargetingSelf(
-            final Intent intent, final String referrerUrl, final String fallbackUrl) {
-        assert false;
-        return OverrideUrlLoadingResult.forNoOverride();
     }
 
     @Override
@@ -110,23 +96,6 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
     public void maybeSetWindowId(Intent intent) {}
 
     @Override
-    public boolean supportsCreatingNewTabs() {
-        // In WebLayer all URLs that ExternalNavigationHandler loads internally are loaded within
-        // the current tab; this flow is sufficient for WebLayer from a UX POV, and there is no
-        // reason to add the complexity of a flow to create new tabs here. In particular, in Chrome
-        // that new tab creation is done by launching an activity targeted at the Chrome package.
-        // This would not work for WebLayer as the embedder does not in general handle incoming
-        // browsing intents.
-        return false;
-    }
-
-    @Override
-    public void loadUrlInNewTab(final String url, final boolean launchIncognito) {
-        // Should never be invoked based on the implementation of supportsCreatingNewTabs().
-        assert false;
-    }
-
-    @Override
     public boolean canLoadUrlInCurrentTab() {
         return true;
     }
@@ -142,6 +111,34 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
     }
 
     @Override
+    public boolean hasCustomLeavingIncognitoDialog() {
+        return mTab.getExternalIntentInIncognitoCallbackProxy() != null;
+    }
+
+    @Override
+    public void presentLeavingIncognitoModalDialog(Callback<Boolean> onUserDecision) {
+        try {
+            mTab.getExternalIntentInIncognitoCallbackProxy().onExternalIntentInIncognito(
+                    (Integer result) -> {
+                        @ExternalIntentInIncognitoUserDecision
+                        int userDecision = result.intValue();
+                        switch (userDecision) {
+                            case ExternalIntentInIncognitoUserDecision.ALLOW:
+                                onUserDecision.onResult(Boolean.valueOf(true));
+                                break;
+                            case ExternalIntentInIncognitoUserDecision.DENY:
+                                onUserDecision.onResult(Boolean.valueOf(false));
+                                break;
+                            default:
+                                assert false;
+                        }
+                    });
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    @Override
     public void maybeAdjustInstantAppExtras(Intent intent, boolean isIntentToInstantApp) {}
 
     @Override
@@ -153,7 +150,7 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
     @Override
     // This is relevant only if the intent ends up being handled by this app, which does not happen
     // for WebLayer.
-    public void maybeSetPendingReferrer(Intent intent, String referrerUrl) {}
+    public void maybeSetPendingReferrer(Intent intent, GURL referrerUrl) {}
 
     @Override
     // This is relevant only if the intent ends up being handled by this app, which does not happen
@@ -162,7 +159,7 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
 
     @Override
     public boolean maybeLaunchInstantApp(
-            String url, String referrerUrl, boolean isIncomingRedirect, boolean isSerpReferrer) {
+            GURL url, GURL referrerUrl, boolean isIncomingRedirect, boolean isSerpReferrer) {
         return false;
     }
 
@@ -203,8 +200,20 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
     }
 
     @Override
+    public @IntentToAutofillAllowingAppResult int isIntentToAutofillAssistantAllowingApp(
+            ExternalNavigationParams params, Intent targetIntent,
+            Function<Intent, Boolean> canExternalAppHandleIntent) {
+        return IntentToAutofillAllowingAppResult.NONE;
+    }
+
+    @Override
     public boolean handleWithAutofillAssistant(ExternalNavigationParams params, Intent targetIntent,
-            String browserFallbackUrl, boolean isGoogleReferrer) {
+            GURL browserFallbackUrl, boolean isGoogleReferrer) {
+        return false;
+    }
+
+    @Override
+    public boolean shouldLaunchWebApksOnInitialIntent() {
         return false;
     }
 

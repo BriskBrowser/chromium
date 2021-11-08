@@ -47,15 +47,15 @@ KeyedService* AccessContextAuditServiceFactory::BuildServiceInstanceFor(
   // cookies.
   DCHECK(profile->ShouldPersistSessionCookies());
 
-  std::unique_ptr<AccessContextAuditService> context_audit_service(
-      new AccessContextAuditService(profile));
+  auto context_audit_service =
+      std::make_unique<AccessContextAuditService>(profile);
   if (!context_audit_service->Init(
           context->GetPath(),
-          content::BrowserContext::GetDefaultStoragePartition(context)
+          context->GetDefaultStoragePartition()
               ->GetCookieManagerForBrowserProcess(),
           HistoryServiceFactory::GetForProfile(
               profile, ServiceAccessType::EXPLICIT_ACCESS),
-          content::BrowserContext::GetDefaultStoragePartition(context))) {
+          context->GetDefaultStoragePartition())) {
     return nullptr;
   }
 

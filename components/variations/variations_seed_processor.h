@@ -8,15 +8,13 @@
 #include <stdint.h>
 
 #include <string>
-#include <vector>
 
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
+#include "base/component_export.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
-#include "base/strings/string16.h"
-#include "base/time/time.h"
 #include "base/version.h"
 #include "components/variations/proto/study.pb.h"
 #include "components/variations/proto/variations_seed.pb.h"
@@ -31,12 +29,16 @@ class ProcessedStudy;
 struct ClientFilterableState;
 
 // Helper class to instantiate field trials from a variations seed.
-class VariationsSeedProcessor {
+class COMPONENT_EXPORT(VARIATIONS) VariationsSeedProcessor {
  public:
   using UIStringOverrideCallback =
-      base::RepeatingCallback<void(uint32_t, const base::string16&)>;
+      base::RepeatingCallback<void(uint32_t, const std::u16string&)>;
 
   VariationsSeedProcessor();
+
+  VariationsSeedProcessor(const VariationsSeedProcessor&) = delete;
+  VariationsSeedProcessor& operator=(const VariationsSeedProcessor&) = delete;
+
   virtual ~VariationsSeedProcessor();
 
   // Creates field trials from the specified variations |seed|, filtered
@@ -47,7 +49,7 @@ class VariationsSeedProcessor {
       const VariationsSeed& seed,
       const ClientFilterableState& client_state,
       const UIStringOverrideCallback& override_callback,
-      const base::FieldTrial::EntropyProvider& low_entropy_provider,
+      const base::FieldTrial::EntropyProvider* low_entropy_provider,
       base::FeatureList* feature_list);
 
   // If the given |study| should alwoys use low entropy. This is true for any
@@ -55,6 +57,7 @@ class VariationsSeedProcessor {
   static bool ShouldStudyUseLowEntropy(const Study& study);
 
  private:
+  friend void CreateTrialFromStudyFuzzer(const Study& study);
   friend class VariationsSeedProcessorTest;
   FRIEND_TEST_ALL_PREFIXES(VariationsSeedProcessorTest,
                            AllowForceGroupAndVariationId);
@@ -85,10 +88,8 @@ class VariationsSeedProcessor {
   void CreateTrialFromStudy(
       const ProcessedStudy& processed_study,
       const UIStringOverrideCallback& override_callback,
-      const base::FieldTrial::EntropyProvider& low_entropy_provider,
+      const base::FieldTrial::EntropyProvider* low_entropy_provider,
       base::FeatureList* feature_list);
-
-  DISALLOW_COPY_AND_ASSIGN(VariationsSeedProcessor);
 };
 
 }  // namespace variations

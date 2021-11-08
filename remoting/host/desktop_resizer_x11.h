@@ -10,7 +10,6 @@
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/numerics/ranges.h"
 #include "remoting/base/logging.h"
 #include "remoting/host/desktop_resizer.h"
 #include "remoting/host/linux/x11_util.h"
@@ -75,7 +74,7 @@ class DesktopResizerX11 : public DesktopResizer {
   // its resolution.
   void SwitchToMode(const char* name);
 
-  x11::Connection connection_;
+  x11::Connection* connection_;
   x11::RandR* const randr_ = nullptr;
   const x11::Screen* const screen_ = nullptr;
   x11::Window root_;

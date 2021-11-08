@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/memory/weak_ptr.h"
+#include "chromeos/dbus/hermes/constants.h"
 #include "chromeos/dbus/hermes/fake_hermes_profile_client.h"
 #include "chromeos/dbus/hermes/hermes_response_status.h"
 #include "components/device_event_log/device_event_log.h"
@@ -26,7 +27,8 @@ template <>
 bool Property<hermes::profile::State>::PopValueFromReader(
     MessageReader* reader) {
   int32_t int_value;
-  if (!reader->PopInt32(&int_value)) {
+  if (!reader->PopVariantOfInt32(&int_value)) {
+    NET_LOG(ERROR) << "Unable to pop value for eSIM profile state.";
     return false;
   }
   switch (int_value) {
@@ -43,7 +45,7 @@ bool Property<hermes::profile::State>::PopValueFromReader(
 template <>
 void Property<hermes::profile::State>::AppendSetValueToWriter(
     MessageWriter* writer) {
-  writer->AppendInt32(set_value_);
+  writer->AppendVariantOfInt32(set_value_);
 }
 
 // dbus::Property specialization to read and write
@@ -56,7 +58,8 @@ template <>
 bool Property<hermes::profile::ProfileClass>::PopValueFromReader(
     MessageReader* reader) {
   int32_t int_value;
-  if (!reader->PopInt32(&int_value)) {
+  if (!reader->PopVariantOfInt32(&int_value)) {
+    NET_LOG(ERROR) << "Unable to pop value for eSIM profile class";
     return false;
   }
   switch (int_value) {
@@ -73,7 +76,7 @@ bool Property<hermes::profile::ProfileClass>::PopValueFromReader(
 template <>
 void Property<hermes::profile::ProfileClass>::AppendSetValueToWriter(
     MessageWriter* writer) {
-  writer->AppendInt32(set_value_);
+  writer->AppendVariantOfInt32(set_value_);
 }
 
 }  // namespace dbus
@@ -110,7 +113,7 @@ class HermesProfileClientImpl : public HermesProfileClient {
   HermesProfileClient& operator=(const HermesProfileClient&) = delete;
   ~HermesProfileClientImpl() override = default;
 
-  using Object = std::pair<dbus::ObjectProxy*, Properties*>;
+  using Object = std::pair<dbus::ObjectProxy*, std::unique_ptr<Properties>>;
   using ObjectMap = std::map<dbus::ObjectPath, Object>;
 
   // HermesProfileClient:
@@ -120,7 +123,7 @@ class HermesProfileClientImpl : public HermesProfileClient {
                                  hermes::profile::kEnable);
     dbus::ObjectProxy* object_proxy = GetObject(carrier_profile_path).first;
     object_proxy->CallMethodWithErrorResponse(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        &method_call, hermes_constants::kHermesNetworkOperationTimeoutMs,
         base::BindOnce(&HermesProfileClientImpl::OnHermesStatusResponse,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
@@ -131,20 +134,34 @@ class HermesProfileClientImpl : public HermesProfileClient {
                                  hermes::profile::kDisable);
     dbus::ObjectProxy* object_proxy = GetObject(carrier_profile_path).first;
     object_proxy->CallMethodWithErrorResponse(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        &method_call, hermes_constants::kHermesNetworkOperationTimeoutMs,
+        base::BindOnce(&HermesProfileClientImpl::OnHermesStatusResponse,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  void RenameProfile(const dbus::ObjectPath& carrier_profile_path,
+                     const std::string& new_name,
+                     HermesResponseCallback callback) override {
+    dbus::MethodCall method_call(hermes::kHermesProfileInterface,
+                                 hermes::profile::kRename);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendString(new_name);
+    dbus::ObjectProxy* object_proxy = GetObject(carrier_profile_path).first;
+    object_proxy->CallMethodWithErrorResponse(
+        &method_call, hermes_constants::kHermesNetworkOperationTimeoutMs,
         base::BindOnce(&HermesProfileClientImpl::OnHermesStatusResponse,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   Properties* GetProperties(
       const dbus::ObjectPath& carrier_profile_path) override {
-    return GetObject(carrier_profile_path).second;
+    return GetObject(carrier_profile_path).second.get();
   }
 
   TestInterface* GetTestInterface() override { return nullptr; }
 
  private:
-  Object GetObject(const dbus::ObjectPath& object_path) {
+  Object& GetObject(const dbus::ObjectPath& object_path) {
     ObjectMap::iterator it = object_map_.find(object_path);
     if (it != object_map_.end())
       return it->second;
@@ -152,16 +169,16 @@ class HermesProfileClientImpl : public HermesProfileClient {
     dbus::ObjectProxy* object_proxy =
         bus_->GetObjectProxy(hermes::kHermesServiceName, object_path);
 
-    Properties* properties = new Properties(
+    auto properties = std::make_unique<Properties>(
         object_proxy,
         base::BindRepeating(&HermesProfileClientImpl::OnPropertyChanged,
                             weak_ptr_factory_.GetWeakPtr(), object_path));
     properties->ConnectSignals();
     properties->GetAll();
 
-    Object object = std::make_pair(object_proxy, properties);
-    object_map_[object_path] = object;
-    return object;
+    Object object = std::make_pair(object_proxy, std::move(properties));
+    object_map_[object_path] = std::move(object);
+    return object_map_[object_path];
   }
 
   void OnPropertyChanged(const dbus::ObjectPath& object_path,

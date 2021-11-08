@@ -11,6 +11,8 @@ Depends on the `bq` tool, which is available as part of the Google Cloud SDK
 https://cloud.google.com/sdk/docs/quickstarts.
 """
 
+from __future__ import print_function
+
 import argparse
 import json
 import os
@@ -49,7 +51,7 @@ def ParseArgs():
                       required=True,
                       help='The billing project to use for BigQuery queries. '
                       'Must have access to the ResultDB BQ tables, e.g. '
-                      '"luci-resultdb.chromium.gpu_ci_test_results".')
+                      '"chrome-luci-data.chromium.gpu_ci_test_results".')
   return parser.parse_args()
 
 
@@ -73,8 +75,8 @@ def main():
   # Get the list of all tags being generated on the bots.
   generated_tags = set()
   for table in [
-      'luci-resultdb.chromium.gpu_ci_test_results',
-      'luci-resultdb.chromium.gpu_try_test_results'
+      'chrome-luci-data.chromium.gpu_ci_test_results',
+      'chrome-luci-data.chromium.gpu_try_test_results'
   ]:
     query = BQ_QUERY_TEMPLATE.format(table=table)
     cmd = [
@@ -90,7 +92,7 @@ def main():
       try:
         stdout = subprocess.check_output(cmd, stderr=devnull)
       except subprocess.CalledProcessError as e:
-        print e.output
+        print(e.output)
         raise
     results = json.loads(stdout)
     for pair in results:
@@ -100,19 +102,19 @@ def main():
 
   unused_tags = generated_tags - known_tags
   if unused_tags:
-    print 'Tags that were generated but unused:'
+    print('Tags that were generated but unused:')
     for t in unused_tags:
-      print t
-    print ''
+      print(t)
+    print('')
 
   stale_tags = known_tags - generated_tags
   if stale_tags:
-    print 'Tags that are known but not generated:'
+    print('Tags that are known but not generated:')
     for t in stale_tags:
-      print t
+      print(t)
 
   if not (unused_tags or stale_tags):
-    print 'Known and generated tags are in sync.'
+    print('Known and generated tags are in sync.')
 
 
 if __name__ == '__main__':

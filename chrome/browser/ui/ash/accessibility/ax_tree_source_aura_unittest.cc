@@ -54,6 +54,10 @@ size_t GetSize(AXAuraObjWrapper* tree) {
 class AXTreeSourceAuraTest : public ChromeViewsTestBase {
  public:
   AXTreeSourceAuraTest() {}
+
+  AXTreeSourceAuraTest(const AXTreeSourceAuraTest&) = delete;
+  AXTreeSourceAuraTest& operator=(const AXTreeSourceAuraTest&) = delete;
+
   ~AXTreeSourceAuraTest() override {}
 
   void SetUp() override {
@@ -67,7 +71,7 @@ class AXTreeSourceAuraTest : public ChromeViewsTestBase {
     content_ = widget_->SetContentsView(std::make_unique<View>());
 
     textfield_ = new Textfield();
-    textfield_->SetText(base::ASCIIToUTF16("Value"));
+    textfield_->SetText(u"Value");
     content_->AddChildView(textfield_);
     widget_->Show();
   }
@@ -85,9 +89,6 @@ class AXTreeSourceAuraTest : public ChromeViewsTestBase {
   AXAuraObjCache cache_;
   // A simulated desktop root with no delegate.
   AXRootObjWrapper root_wrapper_{nullptr, &cache_};
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AXTreeSourceAuraTest);
 };
 
 TEST_F(AXTreeSourceAuraTest, Accessors) {
@@ -168,11 +169,11 @@ TEST_F(AXTreeSourceAuraTest, Serialize) {
   // This is the initial serialization.
   ax_serializer.SerializeChanges(ax_tree.GetRoot(), &out_update);
 
-  // The update should just be the desktop node.
-  ASSERT_EQ(1U, out_update.nodes.size());
+  // The update should be the desktop node and the Lacros host node.
+  ASSERT_EQ(2U, out_update.nodes.size());
 
   // Try removing some child views and re-adding which should fire some events.
-  content_->RemoveAllChildViews(false /* delete_children */);
+  content_->RemoveAllChildViewsWithoutDeleting();
   content_->AddChildView(textfield_);
 
   // Grab the textfield since serialization only walks up the tree (not down

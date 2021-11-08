@@ -25,8 +25,10 @@
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/cpp/client_hints.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
+#include "third_party/blink/public/common/client_hints/client_hints.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "url/origin.h"
@@ -73,16 +75,24 @@ class CheckForCancelledOrPausedDelegate
     cancelled_or_paused_ = true;
   }
 
-  void RestartWithModifiedHeadersNow(
-      const net::HttpRequestHeaders& modified_headers) override {
-    cancelled_or_paused_ = true;
-  }
-
   bool cancelled_or_paused() const { return cancelled_or_paused_; }
 
  private:
   bool cancelled_or_paused_ = false;
 };
+
+// Computes the user agent value that should set for the User-Agent header.
+std::string GetUserAgentValue(const net::HttpRequestHeaders& headers) {
+  // If Sec-CH-UA-Reduced is set on the headers, it means that the token for the
+  // UserAgentReduction Origin Trial has been validated and we should send a
+  // reduced UA string on the request.
+  std::string header = network::GetClientHintToNameMap().at(
+      network::mojom::WebClientHintsType::kUAReduced);
+  std::string value;
+  return headers.GetHeader(header, &value) && value == "?1"
+             ? embedder_support::GetReducedUserAgent()
+             : embedder_support::GetUserAgent();
+}
 
 }  // namespace
 
@@ -144,10 +154,6 @@ bool BaseSearchPrefetchRequest::StartPrefetchRequest(Profile* profile) {
   // navigation, the request is relatively high priority.
   resource_request->priority = net::MEDIUM;
   resource_request->url = prefetch_url_;
-  // Search prefetch URL Loaders should check |report_raw_headers| on the
-  // intercepted request to clear out the raw headers when |report_raw_headers|
-  // is false.
-  resource_request->report_raw_headers = true;
   resource_request->credentials_mode =
       network::mojom::CredentialsMode::kInclude;
   resource_request->method = "GET";
@@ -164,18 +170,6 @@ bool BaseSearchPrefetchRequest::StartPrefetchRequest(Profile* profile) {
       resource_request->site_for_cookies);
   resource_request->referrer_policy = net::ReferrerPolicy::NO_REFERRER;
 
-  // Tack an 'Upgrade-Insecure-Requests' header to outgoing navigational
-  // requests, as described in
-  // https://w3c.github.io/webappsec/specs/upgrade/#feature-detect
-  resource_request->headers.SetHeader("Upgrade-Insecure-Requests", "1");
-  resource_request->headers.SetHeader(net::HttpRequestHeaders::kUserAgent,
-                                      embedder_support::GetUserAgent());
-  resource_request->headers.SetHeader(content::kCorsExemptPurposeHeaderName,
-                                      "prefetch");
-  resource_request->headers.SetHeader(
-      net::HttpRequestHeaders::kAccept,
-      content::FrameAcceptHeaderValue(/*allow_sxg_responses=*/true, profile));
-
   bool js_enabled = profile->GetPrefs() && profile->GetPrefs()->GetBoolean(
                                                prefs::kWebKitJavascriptEnabled);
 
@@ -184,8 +178,22 @@ bool BaseSearchPrefetchRequest::StartPrefetchRequest(Profile* profile) {
       profile->GetClientHintsControllerDelegate(),
       /*is_ua_override_on=*/false, js_enabled);
 
+  // Tack an 'Upgrade-Insecure-Requests' header to outgoing navigational
+  // requests, as described in
+  // https://w3c.github.io/webappsec/specs/upgrade/#feature-detect
+  resource_request->headers.SetHeader("Upgrade-Insecure-Requests", "1");
+
+  resource_request->headers.SetHeader(
+      net::HttpRequestHeaders::kUserAgent,
+      GetUserAgentValue(resource_request->headers));
+  resource_request->headers.SetHeader(content::kCorsExemptPurposeHeaderName,
+                                      "prefetch");
+  resource_request->headers.SetHeader(
+      net::HttpRequestHeaders::kAccept,
+      content::FrameAcceptHeaderValue(/*allow_sxg_responses=*/true, profile));
+
 #if defined(OS_ANDROID)
-  base::Optional<std::string> geo_header =
+  absl::optional<std::string> geo_header =
       GetGeolocationHeaderIfAllowed(resource_request->url, profile);
   if (geo_header) {
     resource_request->headers.AddHeaderFromString(geo_header.value());
@@ -210,7 +218,7 @@ bool BaseSearchPrefetchRequest::StartPrefetchRequest(Profile* profile) {
   auto* default_search = template_url_service->GetDefaultSearchProvider();
   DCHECK(default_search);
 
-  base::string16 prefetch_url_search_terms;
+  std::u16string prefetch_url_search_terms;
 
   default_search->ExtractSearchTermsFromURL(
       prefetch_url_, template_url_service->search_terms_data(),
@@ -225,11 +233,11 @@ bool BaseSearchPrefetchRequest::StartPrefetchRequest(Profile* profile) {
     // they call into the delegate in the destructor.
     throttle.reset();
 
-    base::string16 new_url_search_terms;
+    std::u16string new_url_search_terms;
 
     // Check that search terms still match. Google URLs can be changed by
-    // AndroidDarkSearch (and in other cases like safe search). Make sure the
-    // URL still has the same search terms for the DSE.
+    // by safe search (and other features as well) Make sure the URL still has
+    // the same search terms for the DSE.
     default_search->ExtractSearchTermsFromURL(
         resource_request->url, template_url_service->search_terms_data(),
         &new_url_search_terms);

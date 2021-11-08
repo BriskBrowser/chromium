@@ -88,7 +88,15 @@ public final class DeveloperUiService extends Service {
                 if (sOverriddenFlags.isEmpty()) {
                     disableDeveloperMode();
                 } else {
-                    enableDeveloperMode();
+                    try {
+                        enableDeveloperMode();
+                    } catch (IllegalStateException e) {
+                        assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                            : "Unable enable developer mode, this is only expected on Android S";
+                        String msg = "Unable to create foreground service (client is likely in "
+                                + "background). Continuing as a background service.";
+                        Log.w(TAG, msg);
+                    }
                 }
             }
         }
@@ -251,6 +259,15 @@ public final class DeveloperUiService extends Service {
         startForeground(FLAG_OVERRIDE_NOTIFICATION_ID, notification);
     }
 
+    /**
+     * Enables developer mode. This includes requesting foreground status, toggling
+     * {@code DEVELOPER_MODE_STATE_COMPONENT}'s enabled status, posting the notification, etc.
+     *
+     * @throws IllegalStateException if we're on Android S+ and we're currently running with
+     * background status. In this case, {@code mDeveloperModeEnabled} will be {@code false} and
+     * {@code DEVELOPER_MODE_STATE_COMPONENT} will be unmodified so that we can call try again when
+     * the next client connects.
+     */
     private void enableDeveloperMode() {
         synchronized (sLock) {
             if (mDeveloperModeEnabled) return;

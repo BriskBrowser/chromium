@@ -14,7 +14,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "net/dns/public/resolve_error_info.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
-#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/permissions_policy/permissions_policy.h"
 #include "third_party/blink/public/mojom/loader/referrer.mojom-forward.h"
 #include "ui/base/page_transition_types.h"
 
@@ -28,6 +28,7 @@ class SSLInfo;
 
 namespace content {
 
+class NavigationController;
 class NavigationHandle;
 class RenderFrameHost;
 class WebContents;
@@ -119,10 +120,13 @@ class NavigationSimulator {
 
   // Creates a NavigationSimulator that will be used to simulate a history
   // navigation to one of the |web_contents|'s navigation controller |offset|.
-  // E.g. offset -1 for back navigations and 1 for forward navigations.
+  // E.g. offset -1 for back navigations and 1 for forward navigations. If
+  // |is_renderer_initiated| is true, the navigation will simulate a history
+  // navigation initiated via JS.
   static std::unique_ptr<NavigationSimulator> CreateHistoryNavigation(
       int offset,
-      WebContents* web_contents);
+      WebContents* web_contents,
+      bool is_renderer_initiated);
 
   // Creates a NavigationSimulator that will be used to simulate a
   // renderer-initiated navigation to |original_url| started by
@@ -135,7 +139,7 @@ class NavigationSimulator {
   // LoadURL / Reload / GoToOffset / history.GoBack() scripts, etc. Can be used
   // to drive the navigation to completion.
   static std::unique_ptr<NavigationSimulator> CreateFromPending(
-      WebContents* contents);
+      NavigationController& controller);
 
   virtual ~NavigationSimulator() {}
 
@@ -273,13 +277,19 @@ class NavigationSimulator {
   virtual void SetIsSignedExchangeInnerResponse(
       bool is_signed_exchange_inner_response) = 0;
 
-  // Simulate receiving Feature-Policy headers.
-  virtual void SetFeaturePolicyHeader(
-      blink::ParsedFeaturePolicy feature_policy_header) = 0;
+  // Simulate receiving Permissions-Policy headers.
+  virtual void SetPermissionsPolicyHeader(
+      blink::ParsedPermissionsPolicy permissions_policy_header) = 0;
 
   // Provides the contents mime type to be set at commit. It should be
   // specified before calling |ReadyToCommit| or |Commit|.
   virtual void SetContentsMimeType(const std::string& contents_mime_type) = 0;
+
+  // Provides the response headers that should be received during the next
+  // |Redirect| call. These headers will only be applied to the next
+  // |Redirect| call, and will be reset afterwards.
+  virtual void SetRedirectHeaders(
+      scoped_refptr<net::HttpResponseHeaders> redirect_headers) = 0;
 
   // Provides the response headers received during |ReadyToCommit| specified
   // before calling |ReadyToCommit| or |Commit|.
@@ -287,6 +297,11 @@ class NavigationSimulator {
   // |SectContentsMimeType|.
   virtual void SetResponseHeaders(
       scoped_refptr<net::HttpResponseHeaders> response_headers) = 0;
+
+  // Provides the response body received during |ReadyToCommit|. Must be
+  // specified before calling |ReadyToCommit| or |Commit|.
+  virtual void SetResponseBody(
+      mojo::ScopedDataPipeConsumerHandle response_body) = 0;
 
   // Whether or not the NavigationSimulator automatically advances the
   // navigation past the stage requested (e.g. through asynchronous
@@ -310,6 +325,10 @@ class NavigationSimulator {
   // be preserved in reverse order, from canonical name (i.e. address record
   // name) through to query name. This method should be called before Commit().
   virtual void SetResponseDnsAliases(std::vector<std::string> aliases) = 0;
+
+  // Sets whether preload Link headers were received via Early Hints responses
+  // during the navigation.
+  virtual void SetEarlyHintsPreloadLinkHeaderReceived(bool received) = 0;
 
   // --------------------------------------------------------------------------
 

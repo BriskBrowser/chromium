@@ -46,13 +46,16 @@ class ContextMenuMatcher {
                      ui::SimpleMenuModel* menu_model,
                      base::RepeatingCallback<bool(const MenuItem*)> filter);
 
+  ContextMenuMatcher(const ContextMenuMatcher&) = delete;
+  ContextMenuMatcher& operator=(const ContextMenuMatcher&) = delete;
+
   // This is a helper function to append items for one particular extension.
   // The |index| parameter is used for assigning id's, and is incremented for
   // each item actually added. |is_action_menu| is used for browser and page
   // action context menus, in which menu items are not placed in submenus
   // and the extension's icon is not shown.
   void AppendExtensionItems(const MenuItem::ExtensionKey& extension_key,
-                            const base::string16& selection_text,
+                            const std::u16string& selection_text,
                             int* index,
                             bool is_action_menu);
 
@@ -63,9 +66,9 @@ class ContextMenuMatcher {
 
   // This function returns the top level context menu title of an extension
   // based on a printable selection text.
-  base::string16 GetTopLevelContextMenuTitle(
+  std::u16string GetTopLevelContextMenuTitle(
       const MenuItem::ExtensionKey& extension_key,
-      const base::string16& selection_text);
+      const std::u16string& selection_text);
 
   void set_smart_text_selection_enabled(bool enabled) {
     is_smart_text_selection_enabled_ = enabled;
@@ -98,7 +101,7 @@ class ContextMenuMatcher {
   // Used for recursively adding submenus of extension items.
   void RecursivelyAppendExtensionItems(const MenuItem::List& items,
                                        bool can_cross_incognito,
-                                       const base::string16& selection_text,
+                                       const std::u16string& selection_text,
                                        ui::SimpleMenuModel* menu_model,
                                        int* index,
                                        bool is_action_menu_top_level);
@@ -122,8 +125,6 @@ class ContextMenuMatcher {
 
   // Keep track of and clean up menu models for submenus.
   std::vector<std::unique_ptr<ui::SimpleMenuModel>> extension_menu_models_;
-
-  DISALLOW_COPY_AND_ASSIGN(ContextMenuMatcher);
 };
 
 }  // namespace extensions

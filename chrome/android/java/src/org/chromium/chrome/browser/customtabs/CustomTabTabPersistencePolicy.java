@@ -4,7 +4,10 @@
 
 package org.chromium.chrome.browser.customtabs;
 
+import static org.chromium.chrome.browser.dependency_injection.ChromeCommonQualifiers.SAVED_INSTANCE_SUPPLIER;
+
 import android.app.Activity;
+import android.os.Bundle;
 import android.util.Pair;
 import android.util.SparseBooleanArray;
 
@@ -17,19 +20,19 @@ import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.StreamUtil;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.BackgroundOnlyAsyncTask;
 import org.chromium.base.task.SequencedTaskRunner;
 import org.chromium.base.task.TaskRunner;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
-import org.chromium.chrome.browser.tab.TabStateFileManager;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabPersistencePolicy;
 import org.chromium.chrome.browser.tabmodel.TabPersistentStore;
 import org.chromium.chrome.browser.tabpersistence.TabStateDirectory;
+import org.chromium.chrome.browser.tabpersistence.TabStateFileManager;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -46,6 +49,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import javax.inject.Inject;
+import javax.inject.Named;
 
 /**
  * Handles the Custom Tab specific behaviors of tab persistence.
@@ -77,9 +81,10 @@ public class CustomTabTabPersistencePolicy implements TabPersistencePolicy {
     private boolean mDestroyed;
 
     @Inject
-    public CustomTabTabPersistencePolicy(ChromeActivity<?> activity) {
+    public CustomTabTabPersistencePolicy(Activity activity,
+            @Named(SAVED_INSTANCE_SUPPLIER) Supplier<Bundle> savedInstanceStateSupplier) {
         mTaskId = activity.getTaskId();
-        mShouldRestore = (activity.getSavedInstanceState() != null);
+        mShouldRestore = (savedInstanceStateSupplier.get() != null);
     }
 
     /**
@@ -395,7 +400,7 @@ public class CustomTabTabPersistencePolicy implements TabPersistencePolicy {
             try {
                 stream = new DataInputStream(
                         new BufferedInputStream(new FileInputStream(metadataFile)));
-                TabPersistentStore.readSavedStateFile(stream, null, tabIds, false);
+                TabPersistentStore.readSavedStateFile(stream, null, tabIds);
             } catch (Exception e) {
                 Log.e(TAG, "Unable to read state for " + metadataFile.getName() + ": " + e);
             } finally {

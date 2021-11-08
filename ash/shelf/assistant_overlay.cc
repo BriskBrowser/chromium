@@ -85,12 +85,19 @@ AssistantOverlay::AssistantOverlay(HomeButton* host_view)
   layer()->Add(ripple_layer_.get());
 }
 
-AssistantOverlay::~AssistantOverlay() = default;
+AssistantOverlay::~AssistantOverlay() {
+  StopObservingImplicitAnimations();
+}
 
 void AssistantOverlay::StartAnimation(bool show_icon) {
   animation_state_ = AnimationState::STARTING;
   show_icon_ = show_icon;
   SetVisible(true);
+
+  // Remove clip_rect from host_view_ and its ancestors as the animation goes
+  // beyond its size. We delete the object once end/hide/burst animation ends
+  // which will follow this starting animation.
+  scoped_no_clip_rect_ = host_view_->CreateScopedNoClipRect();
 
   // Setup ripple initial state.
   ripple_layer_->SetOpacity(0);
@@ -114,14 +121,13 @@ void AssistantOverlay::StartAnimation(bool show_icon) {
     transform.Scale(scale_factor, scale_factor);
 
     ui::ScopedLayerAnimationSettings settings(ripple_layer_->GetAnimator());
-    settings.SetTransitionDuration(
-        base::TimeDelta::FromMilliseconds(kRippleExpandDurationMs));
+    settings.SetTransitionDuration(base::Milliseconds(kRippleExpandDurationMs));
     settings.SetTweenType(gfx::Tween::FAST_OUT_SLOW_IN_2);
 
     ripple_layer_->SetTransform(transform);
 
     settings.SetTransitionDuration(
-        base::TimeDelta::FromMilliseconds(kRippleOpacityDurationMs));
+        base::Milliseconds(kRippleOpacityDurationMs));
     ripple_layer_->SetOpacity(kRippleOpacity);
   }
 }
@@ -141,11 +147,11 @@ void AssistantOverlay::BurstAnimation() {
     transform.Scale(scale_factor, scale_factor);
 
     ui::ScopedLayerAnimationSettings settings(ripple_layer_->GetAnimator());
-    settings.SetTransitionDuration(
-        base::TimeDelta::FromMilliseconds(kFullBurstDurationMs));
+    settings.SetTransitionDuration(base::Milliseconds(kFullBurstDurationMs));
     settings.SetTweenType(gfx::Tween::LINEAR_OUT_SLOW_IN);
     settings.SetPreemptionStrategy(
         ui::LayerAnimator::PreemptionStrategy::ENQUEUE_NEW_ANIMATION);
+    settings.AddObserver(this);
 
     ripple_layer_->SetTransform(transform);
     ripple_layer_->SetOpacity(0);
@@ -174,14 +180,14 @@ void AssistantOverlay::EndAnimation() {
     ui::ScopedLayerAnimationSettings settings(ripple_layer_->GetAnimator());
     settings.SetPreemptionStrategy(ui::LayerAnimator::PreemptionStrategy::
                                        IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
-    settings.SetTransitionDuration(
-        base::TimeDelta::FromMilliseconds(kFullRetractDurationMs));
+    settings.SetTransitionDuration(base::Milliseconds(kFullRetractDurationMs));
     settings.SetTweenType(gfx::Tween::SLOW_OUT_LINEAR_IN);
+    settings.AddObserver(this);
 
     ripple_layer_->SetTransform(transform);
 
     settings.SetTransitionDuration(
-        base::TimeDelta::FromMilliseconds(kRippleOpacityRetractDurationMs));
+        base::Milliseconds(kRippleOpacityRetractDurationMs));
     ripple_layer_->SetOpacity(0);
   }
 }
@@ -192,11 +198,11 @@ void AssistantOverlay::HideAnimation() {
   // Setup ripple animations.
   {
     ui::ScopedLayerAnimationSettings settings(ripple_layer_->GetAnimator());
-    settings.SetTransitionDuration(
-        base::TimeDelta::FromMilliseconds(kHideDurationMs));
+    settings.SetTransitionDuration(base::Milliseconds(kHideDurationMs));
     settings.SetTweenType(gfx::Tween::LINEAR_OUT_SLOW_IN);
     settings.SetPreemptionStrategy(
         ui::LayerAnimator::PreemptionStrategy::ENQUEUE_NEW_ANIMATION);
+    settings.AddObserver(this);
 
     ripple_layer_->SetOpacity(0);
   }
@@ -212,4 +218,9 @@ void AssistantOverlay::OnThemeChanged() {
       AshColorProvider::Get()->GetRippleAttributes().base_color);
   SchedulePaint();
 }
+
+void AssistantOverlay::OnImplicitAnimationsCompleted() {
+  scoped_no_clip_rect_.reset();
+}
+
 }  // namespace ash

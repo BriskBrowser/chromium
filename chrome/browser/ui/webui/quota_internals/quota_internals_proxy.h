@@ -15,7 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner_helpers.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "content/public/browser/browser_thread.h"
 #include "storage/browser/quota/quota_manager.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom-forward.h"
@@ -38,6 +38,9 @@ class QuotaInternalsProxy
  public:
   explicit QuotaInternalsProxy(QuotaInternalsHandler* handler);
 
+  QuotaInternalsProxy(const QuotaInternalsProxy&) = delete;
+  QuotaInternalsProxy& operator=(const QuotaInternalsProxy&) = delete;
+
   void RequestInfo(scoped_refptr<storage::QuotaManager> quota_manager);
   void TriggerStoragePressure(
       url::Origin origin,
@@ -49,8 +52,8 @@ class QuotaInternalsProxy
       content::BrowserThread::IO>;
   friend class QuotaInternalsHandler;
 
-  typedef storage::QuotaManager::QuotaTableEntries QuotaTableEntries;
-  typedef storage::QuotaManager::OriginInfoTableEntries OriginInfoTableEntries;
+  using QuotaTableEntries = storage::QuotaManager::QuotaTableEntries;
+  using BucketTableEntries = storage::QuotaManager::BucketTableEntries;
 
   virtual ~QuotaInternalsProxy();
 
@@ -67,7 +70,7 @@ class QuotaInternalsProxy
                          int64_t usage,
                          int64_t unlimited_usage);
   void DidDumpQuotaTable(const QuotaTableEntries& entries);
-  void DidDumpOriginInfoTable(const OriginInfoTableEntries& entries);
+  void DidDumpBucketTable(const BucketTableEntries& entries);
   void DidGetHostUsage(const std::string& host,
                        blink::mojom::StorageType type,
                        int64_t usage,
@@ -87,8 +90,6 @@ class QuotaInternalsProxy
       hosts_pending_;
   std::vector<PerHostStorageInfo> report_pending_;
   base::WeakPtrFactory<QuotaInternalsProxy> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(QuotaInternalsProxy);
 };
 }  // namespace quota_internals
 

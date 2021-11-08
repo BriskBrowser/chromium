@@ -13,7 +13,6 @@
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "components/download/public/common/download_item.h"
 
 namespace base {
@@ -63,7 +62,7 @@ class DownloadQuery {
     FILTER_FILENAME_REGEX,       // string
     FILTER_MIME,                 // string
     FILTER_PAUSED,               // bool
-    FILTER_QUERY,                // vector<base::string16>
+    FILTER_QUERY,                // vector<std::u16string>
     FILTER_STARTED_AFTER,        // string
     FILTER_STARTED_BEFORE,       // string
     FILTER_START_TIME,           // string
@@ -97,10 +96,14 @@ class DownloadQuery {
     DESCENDING,
   };
 
-  static bool MatchesQuery(const std::vector<base::string16>& query_terms,
+  static bool MatchesQuery(const std::vector<std::u16string>& query_terms,
                            const download::DownloadItem& item);
 
   DownloadQuery();
+
+  DownloadQuery(const DownloadQuery&) = delete;
+  DownloadQuery& operator=(const DownloadQuery&) = delete;
+
   ~DownloadQuery();
 
   // Adds a new filter of type |type| with value |value| and returns true if
@@ -159,8 +162,6 @@ class DownloadQuery {
   FilterCallbackVector filters_;
   SorterVector sorters_;
   size_t limit_;
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadQuery);
 };
 
 #endif  // CHROME_BROWSER_DOWNLOAD_DOWNLOAD_QUERY_H_

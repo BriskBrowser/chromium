@@ -2,28 +2,29 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// #import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
-// #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-// #import './i18n_setup.js';
+import './i18n_setup.js';
 
-cr.define('settings', function() {
+import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {dedupingMixin} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
   /**
    * @typedef {{
-   *   BASIC: !settings.Route,
-   *   ADVANCED: !settings.Route,
-   *   ABOUT: !settings.Route,
+   *   BASIC: !Route,
+   *   ADVANCED: !Route,
+   *   ABOUT: !Route,
    * }}
    */
-  /* #export */ let MinimumRoutes;
+  export let MinimumRoutes;
 
   /** Class for navigable routes. */
-  /* #export */ class Route {
+  export class Route {
     /** @param {string} path */
     constructor(path) {
       /** @type {string} */
       this.path = path;
 
-      /** @type {?settings.Route} */
+      /** @type {?Route} */
       this.parent = null;
 
       /** @type {number} */
@@ -31,7 +32,7 @@ cr.define('settings', function() {
 
       /**
        * @type {boolean} Whether this route corresponds to a navigable
-       *     dialog. Those routes don't belong to a "section".
+       *     dialog. Those routes must belong to a "section".
        */
       this.isNavigableDialog = false;
 
@@ -46,7 +47,7 @@ cr.define('settings', function() {
      * Returns a new Route instance that's a child of this route.
      * @param {string} path Extends this route's path if it doesn't contain a
      *     leading slash.
-     * @return {!settings.Route}
+     * @return {!Route}
      */
     createChild(path) {
       assert(path);
@@ -68,7 +69,7 @@ cr.define('settings', function() {
      * TODO(tommycli): Remove once we've obsoleted the concept of sections.
      * @param {string} path
      * @param {string} section
-     * @return {!settings.Route}
+     * @return {!Route}
      */
     createSection(path, section) {
       const route = this.createChild(path);
@@ -87,7 +88,7 @@ cr.define('settings', function() {
 
     /**
      * Returns true if this route matches or is an ancestor of the parameter.
-     * @param {!settings.Route} route
+     * @param {!Route} route
      * @return {boolean}
      */
     contains(route) {
@@ -104,7 +105,7 @@ cr.define('settings', function() {
      * @return {boolean}
      */
     isSubpage() {
-      return !!this.parent && !!this.section &&
+      return !this.isNavigableDialog && !!this.parent && !!this.section &&
           this.parent.section === this.section;
     }
   }
@@ -116,22 +117,22 @@ cr.define('settings', function() {
    */
   const CANONICAL_PATH_REGEX = /(^\/)([\/-\w]+)(\/$)/;
 
-  /** @type {?settings.Router} */
+  /** @type {?Router} */
   let routerInstance = null;
 
-  /* #export */ class Router {
-    /** @return {!settings.Router} The singleton instance. */
+  export class Router {
+    /** @return {!Router} The singleton instance. */
     static getInstance() {
       return assert(routerInstance);
     }
 
-    /** @param {!settings.Router} instance */
+    /** @param {!Router} instance */
     static setInstance(instance) {
       assert(!routerInstance);
       routerInstance = instance;
     }
 
-    /** @param {!settings.Router} instance */
+    /** @param {!Router} instance */
     static resetInstanceForTesting(instance) {
       if (routerInstance) {
         instance.routeObservers_ = routerInstance.routeObservers_;
@@ -139,19 +140,19 @@ cr.define('settings', function() {
       routerInstance = instance;
     }
 
-    /** @param {!settings.MinimumRoutes} availableRoutes */
+    /** @param {!MinimumRoutes} availableRoutes */
     constructor(availableRoutes) {
       /**
        * List of available routes. This is populated taking into account current
        * state (like guest mode).
-       * @private {!settings.MinimumRoutes}
+       * @private {!MinimumRoutes}
        */
       this.routes_ = availableRoutes;
 
       /**
        * The current active route. This updated is only by settings.navigateTo
        * or settings.initializeRouteFromUrl.
-       * @type {!settings.Route}
+       * @type {!Route}
        */
       this.currentRoute = this.routes_.BASIC;
 
@@ -183,7 +184,7 @@ cr.define('settings', function() {
       assert(this.routeObservers_.delete(observer));
     }
 
-    /** @return {settings.Route} */
+    /** @return {Route} */
     getRoute(routeName) {
       return this.routes_[routeName];
     }
@@ -195,7 +196,7 @@ cr.define('settings', function() {
 
     /**
      * Helper function to set the current route and notify all observers.
-     * @param {!settings.Route} route
+     * @param {!Route} route
      * @param {!URLSearchParams} queryParameters
      * @param {boolean} isPopstate
      */
@@ -211,7 +212,7 @@ cr.define('settings', function() {
       });
     }
 
-    /** @return {!settings.Route} */
+    /** @return {!Route} */
     getCurrentRoute() {
       return this.currentRoute;
     }
@@ -229,7 +230,7 @@ cr.define('settings', function() {
 
     /**
      * @param {string} path
-     * @return {?settings.Route} The matching canonical route, or null if none
+     * @return {?Route} The matching canonical route, or null if none
      *     matches.
      */
     getRouteForPath(path) {
@@ -245,8 +246,32 @@ cr.define('settings', function() {
     }
 
     /**
+     * Updates the URL parameters of the current route via exchanging the
+     * window history state. This changes the Settings route path, but doesn't
+     * change the route itself, hence does not push a new route history entry.
+     * Notifies routeChangedObservers.
+     * @param {!URLSearchParams} params
+     */
+    updateRouteParams(params) {
+      let url = this.currentRoute.path;
+      const queryString = params.toString();
+      if (queryString) {
+        url += '?' + queryString;
+      }
+      window.history.replaceState(window.history.state, '', url);
+
+      // We can't call |setCurrentRoute()| for the following, as it would also
+      // update |oldRoute| and |currentRoute|, which should not happen when
+      // only the URL parameters are updated.
+      this.currentQueryParameters_ = params;
+      new Set(this.routeObservers_).forEach((observer) => {
+        observer.currentRouteChanged(this.currentRoute, this.currentRoute);
+      });
+    }
+
+    /**
      * Navigates to a canonical route and pushes a new history entry.
-     * @param {!settings.Route} route
+     * @param {!Route} route
      * @param {URLSearchParams=} opt_dynamicParameters Navigations to the same
      *     URL parameters in a different order will still push to history.
      * @param {boolean=} opt_removeSearch Whether to strip the 'search' URL
@@ -346,36 +371,51 @@ cr.define('settings', function() {
     }
   }
 
-  /** @polymerBehavior */
-  /* #export */ const RouteObserverBehavior = {
-    /** @override */
-    attached() {
-      routerInstance.addObserver(this);
-
-      // Emulating Polymer data bindings, the observer is called when the
-      // element starts observing the route.
-      this.currentRouteChanged(routerInstance.currentRoute, undefined);
-    },
-
-    /** @override */
-    detached() {
-      routerInstance.removeObserver(this);
-    },
-
+  /**
+   * @polymer
+   * @mixinFunction
+   */
+  export const RouteObserverMixin = dedupingMixin(superClass => {
     /**
-     * @param {!settings.Route|undefined} opt_newRoute
-     * @param {!settings.Route|undefined} opt_oldRoute
+     * @polymer
+     * @mixinClass
      */
-    currentRouteChanged(opt_newRoute, opt_oldRoute) {
-      assertNotReached();
-    },
-  };
+    class RouteObserverMixin extends superClass {
+      /** @override */
+      connectedCallback() {
+        super.connectedCallback();
 
-  // #cr_define_end
-  return {
-    MinimumRoutes: MinimumRoutes,
-    Route: Route,    // The Route class definition.
-    Router: Router,  // The Router class definition.
-    RouteObserverBehavior: RouteObserverBehavior,
-  };
-});
+        routerInstance.addObserver(this);
+
+        // Emulating Polymer data bindings, the observer is called when the
+        // element starts observing the route.
+        this.currentRouteChanged(routerInstance.currentRoute, undefined);
+      }
+
+      /** @override */
+      disconnectedCallback() {
+        super.disconnectedCallback();
+
+        routerInstance.removeObserver(this);
+      }
+
+      /**
+       * @param {!Route} newRoute
+       * @param {!Route=} opt_oldRoute
+       */
+      currentRouteChanged(newRoute, opt_oldRoute) {
+        assertNotReached();
+      }
+    }
+
+    return /** @type {?} */ (RouteObserverMixin);
+  });
+
+  /** @interface */
+  export class RouteObserverMixinInterface {
+    /**
+     * @param {!Route} newRoute
+     * @param {!Route=} opt_oldRoute
+     */
+    currentRouteChanged(newRoute, opt_oldRoute) {}
+  }

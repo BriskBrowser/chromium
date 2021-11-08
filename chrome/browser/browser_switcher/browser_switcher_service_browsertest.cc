@@ -10,6 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/run_loop.h"
+#include "base/strings/stringprintf.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -98,10 +99,9 @@ class BrowserSwitcherServiceTest : public InProcessBrowserTest {
   ~BrowserSwitcherServiceTest() override = default;
 
   void SetUpInProcessBrowserTestFixture() override {
-    ON_CALL(provider_, IsInitializationComplete(testing::_))
-        .WillByDefault(testing::Return(true));
-    ON_CALL(provider_, IsFirstPolicyLoadComplete(testing::_))
-        .WillByDefault(testing::Return(true));
+    provider_.SetDefaultReturns(
+        /*is_initialization_complete_return=*/true,
+        /*is_first_policy_load_complete_return=*/true);
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
     BrowserSwitcherService::SetRefreshDelayForTesting(base::TimeDelta());
   }
@@ -533,6 +533,8 @@ IN_PROC_BROWSER_TEST_F(BrowserSwitcherServiceTest, WritesPrefsToCacheFile) {
   greylist.Append("foo.example.com");
   SetPolicy(&policies, policy::key::kBrowserSwitcherUrlGreylist,
             std::move(greylist));
+  SetPolicy(&policies, policy::key::kBrowserSwitcherParsingMode,
+            base::Value(static_cast<int>(ParsingMode::kIESiteListMode)));
   policy_provider().UpdateChromePolicy(policies);
   base::RunLoop().RunUntilIdle();
 
@@ -547,9 +549,10 @@ IN_PROC_BROWSER_TEST_F(BrowserSwitcherServiceTest, WritesPrefsToCacheFile) {
       "chrome.exe\n"
       "--force-dark-mode\n"
       "1\n"
-      "example.com\n"
+      "*://example.com/\n"
       "1\n"
-      "foo.example.com\n";
+      "*://foo.example.com/\n"
+      "ie_sitelist\n";
 
   base::ScopedAllowBlockingForTesting allow_blocking;
   std::string output;
@@ -651,8 +654,7 @@ IN_PROC_BROWSER_TEST_F(BrowserSwitcherServiceTest, CacheFileCorrectOnStartup) {
   SetUseIeSitelist(true);
   // Never refresh the sitelist. We want to check the state of cache.dat after
   // startup, not after the sitelist is downloaded.
-  BrowserSwitcherServiceWin::SetFetchDelayForTesting(
-      base::TimeDelta::FromHours(24));
+  BrowserSwitcherServiceWin::SetFetchDelayForTesting(base::Hours(24));
   BrowserSwitcherServiceWin::SetIeemSitelistUrlForTesting(kAValidUrl);
 
   content::URLLoaderInterceptor interceptor(
@@ -679,7 +681,8 @@ IN_PROC_BROWSER_TEST_F(BrowserSwitcherServiceTest, CacheFileCorrectOnStartup) {
       "\n"
       "1\n"
       "docs.google.com\n"
-      "0\n",
+      "0\n"
+      "default\n",
       expected_chrome_path.MaybeAsASCII().c_str());
 
   std::string output;
@@ -737,15 +740,16 @@ IN_PROC_BROWSER_TEST_F(BrowserSwitcherServiceTest,
   // No policies configured.
 
   // LBS extension is installed.
-  auto extension = extensions::ExtensionBuilder()
-                       .SetLocation(extensions::Manifest::INTERNAL)
-                       .SetID(kLBSExtensionId)
-                       .SetManifest(extensions::DictionaryBuilder()
-                                        .Set("name", "Legacy Browser Support")
-                                        .Set("manifest_version", 2)
-                                        .Set("version", "5.9")
-                                        .Build())
-                       .Build();
+  auto extension =
+      extensions::ExtensionBuilder()
+          .SetLocation(extensions::mojom::ManifestLocation::kInternal)
+          .SetID(kLBSExtensionId)
+          .SetManifest(extensions::DictionaryBuilder()
+                           .Set("name", "Legacy Browser Support")
+                           .Set("manifest_version", 2)
+                           .Set("version", "5.9")
+                           .Build())
+          .Build();
   extensions::ExtensionSystem::Get(browser()->profile())
       ->extension_service()
       ->AddExtension(extension.get());

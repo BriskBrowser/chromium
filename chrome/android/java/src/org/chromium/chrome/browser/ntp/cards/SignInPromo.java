@@ -7,23 +7,19 @@ package org.chromium.chrome.browser.ntp.cards;
 import android.content.Context;
 import android.text.format.DateUtils;
 
-import androidx.annotation.StringRes;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.signin.SigninActivityLauncherImpl;
+import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.ProfileDataCache;
 import org.chromium.chrome.browser.signin.services.SigninManager;
-import org.chromium.chrome.browser.signin.services.SigninManager.SignInAllowedObserver;
 import org.chromium.chrome.browser.signin.services.SigninManager.SignInStateObserver;
 import org.chromium.chrome.browser.signin.services.SigninPreferencesManager;
-import org.chromium.chrome.browser.signin.ui.SigninPromoController;
+import org.chromium.chrome.browser.ui.signin.SigninPromoController;
 import org.chromium.components.signin.AccountManagerFacade;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
 import org.chromium.components.signin.AccountsChangeObserver;
@@ -32,10 +28,11 @@ import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
 
 /**
- * Shows a card prompting the user to sign in. This item is also an {@link OptionalLeaf}, and sign
- * in state changes control its visibility.
+ * Superclass tracking whether a signin card could be shown.
+ *
+ * Subclasses are notified when relevant signin status changes.
  */
-public abstract class SignInPromo extends OptionalLeaf {
+public abstract class SignInPromo {
     /**
      * Period for which promos are suppressed if signin is refused in FRE.
      */
@@ -45,27 +42,16 @@ public abstract class SignInPromo extends OptionalLeaf {
     private static boolean sDisablePromoForTests;
 
     /**
-     * Whether the promo has been dismissed by the user.
-     */
-    private boolean mDismissed;
-
-    /**
      * Whether the signin status means that the user has the possibility to sign in.
      */
     private boolean mCanSignIn;
-
-    /**
-     * Whether the list of accounts is ready to be displayed. An attempt to display SignInPromo
-     * while accounts are not ready may cause ANR since the UI thread would be synchronously waiting
-     * for the accounts list.
-     */
-    private boolean mAccountsReady;
 
     /**
      * Whether personalized suggestions can be shown. If it's not the case, we have no reason to
      * offer the user to sign in.
      */
     private boolean mCanShowPersonalizedSuggestions;
+    private boolean mIsVisible;
 
     private final SigninObserver mSigninObserver;
     protected final SigninPromoController mSigninPromoController;
@@ -76,13 +62,12 @@ public abstract class SignInPromo extends OptionalLeaf {
 
         // TODO(bsazonov): Signin manager should check for native status in isSignInAllowed
         mCanSignIn = signinManager.isSignInAllowed()
-                && !signinManager.getIdentityManager().hasPrimaryAccount();
-        mAccountsReady = AccountManagerFacadeProvider.getInstance().isCachePopulated();
+                && !signinManager.getIdentityManager().hasPrimaryAccount(ConsentLevel.SYNC);
         updateVisibility();
 
-        mProfileDataCache = ProfileDataCache.createProfileDataCache(context);
+        mProfileDataCache = ProfileDataCache.createWithDefaultImageSizeAndNoBadge(context);
         mSigninPromoController = new SigninPromoController(
-                SigninAccessPoint.NTP_CONTENT_SUGGESTIONS, SigninActivityLauncherImpl.get());
+                SigninAccessPoint.NTP_CONTENT_SUGGESTIONS, SyncConsentActivityLauncherImpl.get());
 
         mSigninObserver = new SigninObserver(signinManager);
     }
@@ -111,7 +96,9 @@ public abstract class SignInPromo extends OptionalLeaf {
                 System.currentTimeMillis());
     }
 
-    /** @return Whether the {@link SignInPromo} should be created. */
+    /**
+     * @return Whether the {@link SignInPromo} should be created.
+     */
     public static boolean shouldCreatePromo() {
         return !sDisablePromoForTests
                 && !SharedPreferencesManager.getInstance().readBoolean(
@@ -133,60 +120,43 @@ public abstract class SignInPromo extends OptionalLeaf {
     }
 
     public boolean isUserSignedInButNotSyncing() {
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-            return false;
-        }
         IdentityManager identityManager = IdentityServicesProvider.get().getIdentityManager(
                 Profile.getLastUsedRegularProfile());
-        return identityManager.getPrimaryAccountInfo(ConsentLevel.NOT_REQUIRED) != null
-                && identityManager.getPrimaryAccountInfo(ConsentLevel.SYNC) == null;
-    }
-
-    @Override
-    @ItemViewType
-    protected int getItemViewType() {
-        return ItemViewType.PROMO;
-    }
-
-    @Override
-    protected void onBindViewHolder(NewTabPageViewHolder holder) {
-        // TODO(https://crbug.com/1069183): Dead code, remove in future refactor.
-    }
-
-    @Override
-    public String describeForTesting() {
-        return "SIGN_IN_PROMO";
+        return identityManager.hasPrimaryAccount(ConsentLevel.SIGNIN)
+                && !identityManager.hasPrimaryAccount(ConsentLevel.SYNC);
     }
 
     /** Notify that the content for this {@link SignInPromo} has changed. */
     protected abstract void notifyDataChanged();
 
     private void updateVisibility() {
+        final boolean isAccountsCachePopulated =
+                AccountManagerFacadeProvider.getInstance().getAccounts().isFulfilled();
         boolean canShowPersonalizedSigninPromo =
-                !mDismissed && mCanSignIn && mCanShowPersonalizedSuggestions && mAccountsReady;
-        boolean canShowPersonalizedSyncPromo = !mDismissed && isUserSignedInButNotSyncing()
-                && mCanShowPersonalizedSuggestions && mAccountsReady;
+                mCanSignIn && mCanShowPersonalizedSuggestions && isAccountsCachePopulated;
+        boolean canShowPersonalizedSyncPromo = isUserSignedInButNotSyncing()
+                && mCanShowPersonalizedSuggestions && isAccountsCachePopulated;
         setVisibilityInternal(canShowPersonalizedSigninPromo || canShowPersonalizedSyncPromo);
     }
 
-    @Override
-    protected boolean canBeDismissed() {
-        return true;
+    /**
+     * Updates visibility status. Overridden by subclasses that want to track visibility changes.
+     */
+    protected void setVisibilityInternal(boolean visibility) {
+        if (!mIsVisible && visibility) mSigninPromoController.increasePromoShowCount();
+        mIsVisible = visibility;
     }
 
-    /** Hides the sign in promo and sets a preference to make sure it is not shown again. */
-    @Override
-    public void dismiss(Callback<String> itemRemovedCallback) {
-        mDismissed = true;
-        updateVisibility();
+    /** Returns current visibility status of the underlying promo view. */
+    public boolean isVisible() {
+        return mIsVisible;
+    }
 
+    public void onDismissPromo() {
         SharedPreferencesManager.getInstance().writeBoolean(
                 ChromePreferenceKeys.SIGNIN_PROMO_NTP_PROMO_DISMISSED, true);
-
-        final @StringRes int promoHeader = mSigninPromoController.getDescriptionStringId();
-
-        mSigninObserver.unregister();
-        itemRemovedCallback.onResult(ContextUtils.getApplicationContext().getString(promoHeader));
+        mSigninPromoController.detach();
+        setVisibilityInternal(false);
     }
 
     @VisibleForTesting
@@ -203,8 +173,8 @@ public abstract class SignInPromo extends OptionalLeaf {
      * Observer to get notifications about various sign-in events.
      */
     @VisibleForTesting
-    public class SigninObserver implements SignInStateObserver, SignInAllowedObserver,
-                                           ProfileDataCache.Observer, AccountsChangeObserver {
+    public class SigninObserver
+            implements SignInStateObserver, ProfileDataCache.Observer, AccountsChangeObserver {
         private final SigninManager mSigninManager;
         private final AccountManagerFacade mAccountManagerFacade;
 
@@ -215,9 +185,7 @@ public abstract class SignInPromo extends OptionalLeaf {
             mSigninManager = signinManager;
             mAccountManagerFacade = AccountManagerFacadeProvider.getInstance();
 
-            mSigninManager.addSignInAllowedObserver(this);
             mSigninManager.addSignInStateObserver(this);
-
             mProfileDataCache.addObserver(this);
             mAccountManagerFacade.addObserver(this);
         }
@@ -226,7 +194,6 @@ public abstract class SignInPromo extends OptionalLeaf {
             if (mUnregistered) return;
             mUnregistered = true;
 
-            mSigninManager.removeSignInAllowedObserver(this);
             mSigninManager.removeSignInStateObserver(this);
             mProfileDataCache.removeObserver(this);
             mAccountManagerFacade.removeObserver(this);
@@ -264,7 +231,6 @@ public abstract class SignInPromo extends OptionalLeaf {
         // AccountsChangeObserver implementation.
         @Override
         public void onAccountsChanged() {
-            mAccountsReady = mAccountManagerFacade.isCachePopulated();
             // We don't change the visibility here to avoid the promo popping up in the feed
             // unexpectedly. If accounts are ready, the promo will be shown up on the next reload.
             notifyDataChanged();

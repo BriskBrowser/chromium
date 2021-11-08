@@ -23,12 +23,12 @@ ComponentsHandler::ComponentsHandler(
 ComponentsHandler::~ComponentsHandler() = default;
 
 void ComponentsHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "requestComponentsData",
       base::BindRepeating(&ComponentsHandler::HandleRequestComponentsData,
                           base::Unretained(this)));
 
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "checkUpdate", base::BindRepeating(&ComponentsHandler::HandleCheckUpdate,
                                          base::Unretained(this)));
 }
@@ -47,7 +47,8 @@ void ComponentsHandler::HandleRequestComponentsData(
   const base::Value& callback_id = args->GetList()[0];
 
   base::DictionaryValue result;
-  result.Set("components", LoadComponents());
+  result.SetKey("components",
+                base::Value::FromUniquePtrValue(LoadComponents()));
   ResolveJavascriptCallback(callback_id, result);
 }
 
@@ -56,7 +57,7 @@ void ComponentsHandler::HandleRequestComponentsData(
 // state e.g. If component state is currently updating then we need to disable
 // button. (https://code.google.com/p/chromium/issues/detail?id=272540)
 void ComponentsHandler::HandleCheckUpdate(const base::ListValue* args) {
-  if (args->GetSize() != 1) {
+  if (args->GetList().size() != 1) {
     NOTREACHED();
     return;
   }
@@ -84,7 +85,7 @@ void ComponentsHandler::OnEvent(Events event, const std::string& id) {
   FireWebUIListener("component-event", parameters);
 }
 
-base::string16 ComponentsHandler::ComponentEventToString(Events event) {
+std::u16string ComponentsHandler::ComponentEventToString(Events event) {
   switch (event) {
     case Events::COMPONENT_CHECKING_FOR_UPDATES:
       return l10n_util::GetStringUTF16(IDS_COMPONENTS_EVT_STATUS_STARTED);
@@ -108,7 +109,7 @@ base::string16 ComponentsHandler::ComponentEventToString(Events event) {
   return l10n_util::GetStringUTF16(IDS_COMPONENTS_UNKNOWN);
 }
 
-base::string16 ComponentsHandler::ServiceStatusToString(
+std::u16string ComponentsHandler::ServiceStatusToString(
     update_client::ComponentState state) {
   switch (state) {
     case update_client::ComponentState::kNew:

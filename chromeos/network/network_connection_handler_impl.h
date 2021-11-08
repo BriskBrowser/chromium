@@ -6,6 +6,7 @@
 #define CHROMEOS_NETWORK_NETWORK_CONNECTION_HANDLER_IMPL_H_
 
 #include "base/component_export.h"
+#include "base/timer/timer.h"
 #include "chromeos/dbus/dbus_method_call_status.h"
 #include "chromeos/network/network_cert_loader.h"
 #include "chromeos/network/network_connection_handler.h"
@@ -21,6 +22,11 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
       public base::SupportsWeakPtr<NetworkConnectionHandlerImpl> {
  public:
   NetworkConnectionHandlerImpl();
+
+  NetworkConnectionHandlerImpl(const NetworkConnectionHandlerImpl&) = delete;
+  NetworkConnectionHandlerImpl& operator=(const NetworkConnectionHandlerImpl&) =
+      delete;
+
   ~NetworkConnectionHandlerImpl() override;
 
   // NetworkConnectionHandler:
@@ -37,6 +43,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
   // NetworkStateHandlerObserver
   void NetworkListChanged() override;
   void NetworkPropertiesUpdated(const NetworkState* network) override;
+  void NetworkIdentifierTransitioned(const std::string& old_service_path,
+                                     const std::string& new_service_path,
+                                     const std::string& old_guid,
+                                     const std::string& new_guid) override;
 
   // NetworkCertLoader::Observer
   void OnCertificatesLoaded() override;
@@ -45,7 +55,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
       NetworkStateHandler* network_state_handler,
       NetworkConfigurationHandler* network_configuration_handler,
       ManagedNetworkConfigurationHandler* managed_network_configuration_handler,
-      CellularESimConnectionHandler* cellular_esim_connection_handler) override;
+      CellularConnectionHandler* cellular_connection_handler) override;
 
  private:
   struct ConnectRequest {
@@ -69,16 +79,21 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
     ConnectState connect_state;
     base::OnceClosure success_callback;
     network_handler::ErrorCallback error_callback;
+    std::unique_ptr<base::OneShotTimer> timer;
   };
 
   bool HasConnectingNetwork(const std::string& service_path);
 
   ConnectRequest* GetPendingRequest(const std::string& service_path);
+  bool HasPendingCellularRequest() const;
 
-  void OnEnableESimProfileFailure(
+  void OnPrepareCellularNetworkForConnectionFailure(
       const std::string& service_path,
-      const std::string& error_name,
-      std::unique_ptr<base::DictionaryValue> error_data);
+      const std::string& error_name);
+
+  void StartConnectTimer(const std::string& service_path,
+                         base::TimeDelta timeout);
+  void OnConnectTimeout(ConnectRequest* service_path);
 
   // Callback from Shill.Service.GetProperties. Parses |properties| to verify
   // whether or not the network appears to be configured. If configured,
@@ -87,7 +102,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
   // ConnectToNetwork(), see comment for info.
   void VerifyConfiguredAndConnect(bool check_error_state,
                                   const std::string& service_path,
-                                  base::Optional<base::Value> properties);
+                                  absl::optional<base::Value> properties);
 
   // Queues a connect request until certificates have loaded.
   void QueueConnectRequest(const std::string& service_path);
@@ -114,6 +129,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
   void HandleShillConnectFailure(const std::string& service_path,
                                  const std::string& error_name,
                                  const std::string& error_message);
+
+  // Sets connection request to started and calls callback if necessary.
+  void HandleNetworkConnectStarted(ConnectRequest* request);
 
   // Note: |service_path| is passed by value here, because in some cases
   // the value may be located in the map and then it can be deleted, producing
@@ -142,17 +160,15 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
   NetworkStateHandler* network_state_handler_ = nullptr;
   NetworkConfigurationHandler* configuration_handler_ = nullptr;
   ManagedNetworkConfigurationHandler* managed_configuration_handler_ = nullptr;
-  CellularESimConnectionHandler* cellular_esim_connection_handler_ = nullptr;
+  CellularConnectionHandler* cellular_connection_handler_ = nullptr;
 
   // Map of pending connect requests, used to prevent repeated attempts while
   // waiting for Shill and to trigger callbacks on eventual success or failure.
-  std::map<std::string, ConnectRequest> pending_requests_;
+  std::map<std::string, std::unique_ptr<ConnectRequest>> pending_requests_;
   std::unique_ptr<ConnectRequest> queued_connect_;
 
   // Track certificate loading state.
   bool certificates_loaded_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkConnectionHandlerImpl);
 };
 
 }  // namespace chromeos

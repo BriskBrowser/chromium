@@ -4,7 +4,8 @@
 
 #import "ios/chrome/browser/passwords/ios_chrome_password_manager_driver.h"
 
-#include "base/strings/string16.h"
+#include <string>
+
 #include "components/autofill/core/common/password_form_fill_data.h"
 #include "components/password_manager/core/browser/password_generation_frame_helper.h"
 #include "components/password_manager/core/browser/password_manager.h"
@@ -48,19 +49,19 @@ void IOSChromePasswordManagerDriver::FormEligibleForGenerationFound(
 }
 
 void IOSChromePasswordManagerDriver::GeneratedPasswordAccepted(
-    const base::string16& password) {
+    const std::u16string& password) {
   NOTIMPLEMENTED();
 }
 
 void IOSChromePasswordManagerDriver::FillSuggestion(
-    const base::string16& username,
-    const base::string16& password) {
+    const std::u16string& username,
+    const std::u16string& password) {
   NOTIMPLEMENTED();
 }
 
 void IOSChromePasswordManagerDriver::PreviewSuggestion(
-    const base::string16& username,
-    const base::string16& password) {
+    const std::u16string& username,
+    const std::u16string& password) {
   NOTIMPLEMENTED();
 }
 
@@ -84,18 +85,17 @@ IOSChromePasswordManagerDriver::GetPasswordAutofillManager() {
   return nullptr;
 }
 
-autofill::AutofillDriver* IOSChromePasswordManagerDriver::GetAutofillDriver() {
-  NOTIMPLEMENTED();
-  return nullptr;
-}
-
-bool IOSChromePasswordManagerDriver::IsMainFrame() const {
+bool IOSChromePasswordManagerDriver::IsInPrimaryMainFrame() const {
   // On IOS only processing of password forms in main frame is implemented.
   return true;
 }
 
 bool IOSChromePasswordManagerDriver::CanShowAutofillUi() const {
   return true;
+}
+
+::ui::AXTreeID IOSChromePasswordManagerDriver::GetAxTreeId() const {
+  return {};
 }
 
 const GURL& IOSChromePasswordManagerDriver::GetLastCommittedURL() const {

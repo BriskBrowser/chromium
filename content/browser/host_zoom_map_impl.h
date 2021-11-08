@@ -12,7 +12,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/sequenced_task_runner_helpers.h"
+#include "base/task/sequenced_task_runner_helpers.h"
 #include "content/public/browser/host_zoom_map.h"
 
 namespace content {
@@ -23,6 +23,10 @@ class WebContentsImpl;
 class CONTENT_EXPORT HostZoomMapImpl : public HostZoomMap {
  public:
   HostZoomMapImpl();
+
+  HostZoomMapImpl(const HostZoomMapImpl&) = delete;
+  HostZoomMapImpl& operator=(const HostZoomMapImpl&) = delete;
+
   ~HostZoomMapImpl() override;
 
   // HostZoomMap implementation:
@@ -121,7 +125,7 @@ class CONTENT_EXPORT HostZoomMapImpl : public HostZoomMap {
   void SendZoomLevelChange(const std::string& scheme, const std::string& host);
 
   // Callbacks called when zoom level changes.
-  base::CallbackList<void(const ZoomLevelChange&)>
+  base::RepeatingCallbackList<void(const ZoomLevelChange&)>
       zoom_level_changed_callbacks_;
 
   // Copy of the pref data.
@@ -135,8 +139,6 @@ class CONTENT_EXPORT HostZoomMapImpl : public HostZoomMap {
   TemporaryZoomLevels temporary_zoom_levels_;
 
   base::Clock* clock_;
-
-  DISALLOW_COPY_AND_ASSIGN(HostZoomMapImpl);
 };
 
 }  // namespace content

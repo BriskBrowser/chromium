@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/ui/ntp/incognito_view.h"
 
+#include "base/ios/ns_range.h"
 #include "components/content_settings/core/common/features.h"
 #include "components/google/core/common/google_util.h"
 #include "components/strings/grit/components_strings.h"
@@ -17,7 +18,6 @@
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
 #import "ios/chrome/common/string_util.h"
-#import "ios/chrome/common/ui/colors/dynamic_color_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/web/public/navigation/navigation_manager.h"
@@ -58,9 +58,7 @@ UIFont* TitleFont() {
 
 // Returns the color to use for body text.
 UIColor* BodyTextColor() {
-  return color::DarkModeDynamicColor(
-      [UIColor colorNamed:kTextSecondaryColor], true,
-      [UIColor colorNamed:kTextSecondaryDarkColor]);
+  return [UIColor colorNamed:kTextSecondaryColor];
 }
 
 // Returns a font, scaled to the current dynamic type settings, that is suitable
@@ -100,18 +98,18 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
       stringByTrimmingCharactersInSet:[NSCharacterSet
                                           whitespaceAndNewlineCharacterSet]];
 
-  NSRange emphasisRange;
-  listString =
-      ParseStringWithTag(listString, &emphasisRange, @"<em>", @"</em>");
+  const StringWithTag parsedString =
+      ParseStringWithTag(listString, @"<em>", @"</em>");
+
   NSMutableAttributedString* attributedText =
-      [[NSMutableAttributedString alloc] initWithString:listString];
+      [[NSMutableAttributedString alloc] initWithString:parsedString.string];
   [attributedText addAttribute:NSFontAttributeName
                          value:BodyFont()
                          range:NSMakeRange(0, attributedText.length)];
-  if (emphasisRange.location != NSNotFound) {
+  if (parsedString.range != NSMakeRange(NSNotFound, 0)) {
     [attributedText addAttribute:NSFontAttributeName
                            value:BoldBodyFont()
-                           range:emphasisRange];
+                           range:parsedString.range];
   }
   return attributedText;
 }
@@ -182,9 +180,7 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
         imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
     UIImageView* incognitoImageView =
         [[UIImageView alloc] initWithImage:incognitoImage];
-    incognitoImageView.tintColor = color::DarkModeDynamicColor(
-        [UIColor colorNamed:kTextPrimaryColor], true,
-        [UIColor colorNamed:kTextPrimaryDarkColor]);
+    incognitoImageView.tintColor = [UIColor colorNamed:kTextPrimaryColor];
     [_stackView addArrangedSubview:incognitoImageView];
     [_stackView setCustomSpacing:kStackViewImageSpacing
                        afterView:incognitoImageView];
@@ -367,13 +363,9 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
 
 // Adds views containing the text of the incognito page to |_stackView|.
 - (void)addTextSections {
-  UIColor* titleTextColor =
-      color::DarkModeDynamicColor([UIColor colorNamed:kTextPrimaryColor], true,
-                                  [UIColor colorNamed:kTextPrimaryDarkColor]);
+  UIColor* titleTextColor = [UIColor colorNamed:kTextPrimaryColor];
   UIColor* bodyTextColor = BodyTextColor();
-  UIColor* linkTextColor =
-      color::DarkModeDynamicColor([UIColor colorNamed:kBlueColor], true,
-                                  [UIColor colorNamed:kBlueDarkColor]);
+  UIColor* linkTextColor = [UIColor colorNamed:kBlueColor];
 
   // Title.
   UILabel* titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -406,10 +398,8 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
   [learnMoreButton addTarget:self
                       action:@selector(learnMoreButtonPressed)
             forControlEvents:UIControlEventTouchUpInside];
-  if (@available(iOS 13.4, *)) {
-      // TODO(crbug.com/1075616): Style as a link rather than a button.
-      learnMoreButton.pointerInteractionEnabled = YES;
-  }
+  // TODO(crbug.com/1075616): Style as a link rather than a button.
+  learnMoreButton.pointerInteractionEnabled = YES;
 
   UIStackView* subtitleStackView = [[UIStackView alloc]
       initWithArrangedSubviews:@[ subtitleLabel, learnMoreButton ]];

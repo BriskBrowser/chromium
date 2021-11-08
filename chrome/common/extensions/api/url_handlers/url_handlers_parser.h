@@ -19,7 +19,12 @@ namespace extensions {
 
 struct UrlHandlerInfo {
   UrlHandlerInfo();
+
+  UrlHandlerInfo(const UrlHandlerInfo&) = delete;
+  UrlHandlerInfo& operator=(const UrlHandlerInfo&) = delete;
+
   UrlHandlerInfo(UrlHandlerInfo&& other);
+
   ~UrlHandlerInfo();
 
   // ID identifying this handler in the manifest.
@@ -28,8 +33,6 @@ struct UrlHandlerInfo {
   std::string title;
   // URL patterns associated with this handler.
   URLPatternSet patterns;
-
-  DISALLOW_COPY_AND_ASSIGN(UrlHandlerInfo);
 };
 
 struct UrlHandlers : public Extension::ManifestData {
@@ -60,15 +63,17 @@ struct UrlHandlers : public Extension::ManifestData {
 class UrlHandlersParser : public ManifestHandler {
  public:
   UrlHandlersParser();
+
+  UrlHandlersParser(const UrlHandlersParser&) = delete;
+  UrlHandlersParser& operator=(const UrlHandlersParser&) = delete;
+
   ~UrlHandlersParser() override;
 
   // ManifestHandler API
-  bool Parse(Extension* extension, base::string16* error) override;
+  bool Parse(Extension* extension, std::u16string* error) override;
 
  private:
   base::span<const char* const> Keys() const override;
-
-  DISALLOW_COPY_AND_ASSIGN(UrlHandlersParser);
 };
 
 }  // namespace extensions

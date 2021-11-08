@@ -16,7 +16,7 @@ namespace {
 // The minimum time to wait before checking whether the phone has responded to
 // status messages sent by CrosStateSender, and re-sending the status messages
 // if there was no response (no phone status model exists).
-constexpr base::TimeDelta kMinimumRetryDelay = base::TimeDelta::FromSeconds(2u);
+constexpr base::TimeDelta kMinimumRetryDelay = base::Seconds(15u);
 
 // The amount the previous delay is multiplied by to determine the new amount
 // of time to wait before determining whether CrosStateSender should resend the
@@ -30,7 +30,7 @@ using multidevice_setup::mojom::FeatureState;
 
 CrosStateSender::CrosStateSender(
     MessageSender* message_sender,
-    ConnectionManager* connection_manager,
+    secure_channel::ConnectionManager* connection_manager,
     multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client,
     PhoneModel* phone_model)
     : CrosStateSender(message_sender,
@@ -41,7 +41,7 @@ CrosStateSender::CrosStateSender(
 
 CrosStateSender::CrosStateSender(
     MessageSender* message_sender,
-    ConnectionManager* connection_manager,
+    secure_channel::ConnectionManager* connection_manager,
     multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client,
     PhoneModel* phone_model,
     std::unique_ptr<base::OneShotTimer> timer)
@@ -74,7 +74,7 @@ void CrosStateSender::AttemptUpdateCrosState() {
 
   // Wait for connection to be established.
   if (connection_manager_->GetStatus() !=
-      ConnectionManager::Status::kConnected) {
+      secure_channel::ConnectionManager::Status::kConnected) {
     PA_LOG(VERBOSE) << "Could not start AttemptUpdateCrosState() because "
                     << "connection manager status is: "
                     << connection_manager_->GetStatus();
@@ -88,10 +88,16 @@ void CrosStateSender::PerformUpdateCrosState() {
   bool are_notifications_enabled =
       multidevice_setup_client_->GetFeatureState(
           Feature::kPhoneHubNotifications) == FeatureState::kEnabledByUser;
+  bool is_camera_roll_enabled =
+      multidevice_setup_client_->GetFeatureState(
+          Feature::kPhoneHubCameraRoll) == FeatureState::kEnabledByUser;
 
   PA_LOG(INFO) << "Attempting to send cros state with notifications enabled "
-               << "state as: " << are_notifications_enabled;
-  message_sender_->SendCrosState(are_notifications_enabled);
+               << "state as: " << are_notifications_enabled
+               << " and camera roll enabled state as: "
+               << is_camera_roll_enabled;
+  message_sender_->SendCrosState(are_notifications_enabled,
+                                 is_camera_roll_enabled);
 
   retry_timer_->Start(FROM_HERE, retry_delay_,
                       base::BindOnce(&CrosStateSender::OnRetryTimerFired,
@@ -105,7 +111,7 @@ void CrosStateSender::OnRetryTimerFired() {
   // retry sending the cros state.
   if (phone_model_->phone_status_model().has_value() ||
       connection_manager_->GetStatus() !=
-          ConnectionManager::Status::kConnected) {
+          secure_channel::ConnectionManager::Status::kConnected) {
     return;
   }
 

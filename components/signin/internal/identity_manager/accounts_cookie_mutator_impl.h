@@ -6,7 +6,6 @@
 #define COMPONENTS_SIGNIN_INTERNAL_IDENTITY_MANAGER_ACCOUNTS_COOKIE_MUTATOR_IMPL_H_
 
 #include <string>
-#include <vector>
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
@@ -33,6 +32,11 @@ class AccountsCookieMutatorImpl : public AccountsCookieMutator {
       ProfileOAuth2TokenService* token_service,
       GaiaCookieManagerService* gaia_cookie_manager_service,
       AccountTrackerService* account_tracker_service);
+
+  AccountsCookieMutatorImpl(const AccountsCookieMutatorImpl&) = delete;
+  AccountsCookieMutatorImpl& operator=(const AccountsCookieMutatorImpl&) =
+      delete;
+
   ~AccountsCookieMutatorImpl() override;
 
   void AddAccountToCookie(
@@ -55,6 +59,7 @@ class AccountsCookieMutatorImpl : public AccountsCookieMutator {
   std::unique_ptr<SetAccountsInCookieTask> SetAccountsInCookieForPartition(
       PartitionDelegate* partition_delegate,
       const MultiloginParameters& parameters,
+      gaia::GaiaSource source,
       base::OnceCallback<void(SetAccountsInCookieResult)>
           set_accounts_in_cookies_completed_callback) override;
 
@@ -67,6 +72,8 @@ class AccountsCookieMutatorImpl : public AccountsCookieMutator {
   void LogOutAllAccounts(
       gaia::GaiaSource source,
       LogOutFromCookieCompletedCallback completion_callback) override;
+
+  void RemoveLoggedOutAccountByGaiaId(const std::string& gaia_id) override;
 
  private:
   class MultiloginHelperWrapper : public SetAccountsInCookieTask {
@@ -82,8 +89,6 @@ class AccountsCookieMutatorImpl : public AccountsCookieMutator {
   ProfileOAuth2TokenService* token_service_;
   GaiaCookieManagerService* gaia_cookie_manager_service_;
   AccountTrackerService* account_tracker_service_;
-
-  DISALLOW_COPY_AND_ASSIGN(AccountsCookieMutatorImpl);
 };
 
 }  // namespace signin

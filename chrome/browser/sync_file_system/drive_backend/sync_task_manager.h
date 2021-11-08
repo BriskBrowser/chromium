@@ -74,6 +74,10 @@ class SyncTaskManager {
   SyncTaskManager(base::WeakPtr<Client> client,
                   size_t maximum_background_task,
                   const scoped_refptr<base::SequencedTaskRunner>& task_runner);
+
+  SyncTaskManager(const SyncTaskManager&) = delete;
+  SyncTaskManager& operator=(const SyncTaskManager&) = delete;
+
   virtual ~SyncTaskManager();
 
   // This needs to be called to start task scheduling.
@@ -127,17 +131,16 @@ class SyncTaskManager {
 
  private:
   struct PendingTask {
-    // TODO: Change |wrapped_once_closure| to base::OnceTask if
-    // std::priority_queue supports move-only type. In the meantime, we can
-    // wrap a base::OnceClosure via AdaptCallbackForRepeating.
-    base::RepeatingClosure wrapped_once_closure;
+    base::OnceClosure closure;
     Priority priority;
     int64_t seq;
 
     PendingTask();
     PendingTask(base::OnceClosure task, Priority pri, int seq);
-    PendingTask(const PendingTask& other);
     ~PendingTask();
+
+    PendingTask(PendingTask&& other);
+    PendingTask& operator=(PendingTask&& other);
   };
 
   struct PendingTaskComparator {
@@ -208,8 +211,6 @@ class SyncTaskManager {
   base::SequenceChecker sequence_checker_;
 
   base::WeakPtrFactory<SyncTaskManager> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SyncTaskManager);
 };
 
 }  // namespace drive_backend

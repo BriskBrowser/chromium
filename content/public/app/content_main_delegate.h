@@ -12,6 +12,10 @@
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 
+namespace variations {
+class VariationsIdsProvider;
+}
+
 namespace content {
 
 class ContentBrowserClient;
@@ -66,14 +70,20 @@ class CONTENT_EXPORT ContentMainDelegate {
   virtual int TerminateForFatalInitializationError();
 
   // Allows the embedder to perform platform-specific initialization before
-  // creating the main message loop.
-  virtual void PreCreateMainMessageLoop() {}
+  // BrowserMain() is invoked (i.e. before BrowserMainRunner, BrowserMainLoop,
+  // BrowserMainParts, etc. are created).
+  virtual void PreBrowserMain() {}
 
   // Returns true if content should create field trials and initialize the
   // FeatureList instance for this process. Default implementation returns true.
   // Embedders that need to control when and/or how FeatureList should be
   // created should override and return false.
   virtual bool ShouldCreateFeatureList();
+
+  // Creates and returns the VariationsIdsProvider. If null is returned,
+  // a VariationsIdsProvider is created with a mode of `kUseSignedInState`.
+  // VariationsIdsProvider is a singleton.
+  virtual variations::VariationsIdsProvider* CreateVariationsIdsProvider();
 
   // Allows the embedder to perform initialization once field trials/FeatureList
   // initialization has completed if ShouldCreateFeatureList() returns true.
@@ -92,6 +102,17 @@ class CONTENT_EXPORT ContentMainDelegate {
   //
   // |is_running_tests| indicates whether it is running in tests.
   virtual void PostEarlyInitialization(bool is_running_tests) {}
+
+#if defined(OS_WIN)
+  // Allows the embedder to indicate that console control events (e.g., Ctrl-C,
+  // Ctrl-break, or closure of the console) are to be handled. By default, these
+  // events are not handled, leading to process termination. When an embedder
+  // returns true to indicate that these events are to be handled, the
+  // embedder's ContentBrowserClient::SessionEnding function will be called
+  // when a console control event is received. All non-browser processes will
+  // swallow the event.
+  virtual bool ShouldHandleConsoleControlEvents();
+#endif
 
  protected:
   friend class ContentClientCreator;

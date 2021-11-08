@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "ui/display/types/display_configuration_params.h"
 #include "ui/display/types/display_constants.h"
@@ -38,6 +37,10 @@ class DrmGpuDisplayManager {
  public:
   DrmGpuDisplayManager(ScreenManager* screen_manager,
                        DrmDeviceManager* drm_device_manager);
+
+  DrmGpuDisplayManager(const DrmGpuDisplayManager&) = delete;
+  DrmGpuDisplayManager& operator=(const DrmGpuDisplayManager&) = delete;
+
   ~DrmGpuDisplayManager();
 
   // Sets a callback that will be notified when display configuration may have
@@ -86,8 +89,6 @@ class DrmGpuDisplayManager {
   std::vector<std::unique_ptr<DrmDisplay>> displays_;
 
   base::RepeatingClosure clear_overlay_cache_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(DrmGpuDisplayManager);
 };
 
 }  // namespace ui

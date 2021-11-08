@@ -4,9 +4,11 @@
 
 #include "third_party/blink/renderer/core/paint/compositing/compositing_inputs_updater.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/core/paint/compositing/paint_layer_compositor.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
 namespace blink {
 
@@ -20,6 +22,9 @@ class CompositingInputsUpdaterTest : public RenderingTest {
     EnableCompositing();
     RenderingTest::SetUp();
   }
+
+ private:
+  ScopedCompositeAfterPaintForTest cap_{false};
 };
 
 // Tests that transitioning a sticky away from an ancestor overflow layer that
@@ -142,18 +147,10 @@ TEST_F(CompositingInputsUpdaterTest,
       ->SetNeedsCompositingInputsUpdate();
 
   UpdateAllLifecyclePhasesForTest();
-  if (RuntimeEnabledFeatures::CompositingOptimizationsEnabled()) {
-    EXPECT_EQ(IntRect(8, 33, 200, 200),
-              target->Layer()->ClippedAbsoluteBoundingBox());
-    EXPECT_EQ(IntRect(8, 33, 200, 200),
-              target->Layer()->UnclippedAbsoluteBoundingBox());
-
-  } else {
-    EXPECT_EQ(IntRect(8, 8, 200, 200),
-              target->Layer()->ClippedAbsoluteBoundingBox());
-    EXPECT_EQ(IntRect(8, 8, 200, 200),
-              target->Layer()->UnclippedAbsoluteBoundingBox());
-  }
+  EXPECT_EQ(IntRect(8, 33, 200, 200),
+            target->Layer()->ClippedAbsoluteBoundingBox());
+  EXPECT_EQ(IntRect(8, 33, 200, 200),
+            target->Layer()->UnclippedAbsoluteBoundingBox());
 }
 
 TEST_F(CompositingInputsUpdaterTest, ClipPathAncestor) {
@@ -212,6 +209,33 @@ TEST_F(CompositingInputsUpdaterTest, LayoutContainmentLayer) {
   EXPECT_EQ(parent, child->NearestContainedLayoutLayer());
   EXPECT_EQ(grandchild, grandchild->NearestContainedLayoutLayer());
   EXPECT_EQ(grandchild, greatgrandchild->NearestContainedLayoutLayer());
+}
+
+TEST_F(CompositingInputsUpdaterTest,
+       DescendantHasDirectOrScrollingCompositingReason) {
+  SetBodyInnerHTML("<div id='target' style='contain: strict'>TARGET</div>");
+
+  PaintLayer* target = GetPaintLayerByElementId("target");
+  EXPECT_FALSE(target->HasCompositedLayerMapping());
+  EXPECT_FALSE(GetLayoutView()
+                   .Layer()
+                   ->DescendantHasDirectOrScrollingCompositingReason());
+
+  // Add compositing reason on target, which should schedule compositing inputs
+  // update using |target| as the CompositingInputsRoot.
+  GetDocument().getElementById("target")->setAttribute(
+      html_names::kStyleAttr, "contain: strict; will-change: opacity");
+  GetDocument().View()->UpdateLifecycleToLayoutClean(
+      DocumentUpdateReason::kTest);
+  EXPECT_TRUE(target->NeedsCompositingInputsUpdate());
+  EXPECT_FALSE(GetLayoutView().Layer()->ChildNeedsCompositingInputsUpdate());
+  EXPECT_EQ(target, GetLayoutView().Compositor()->GetCompositingInputsRoot());
+
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_TRUE(target->HasCompositedLayerMapping());
+  EXPECT_TRUE(GetLayoutView()
+                  .Layer()
+                  ->DescendantHasDirectOrScrollingCompositingReason());
 }
 
 }  // namespace blink

@@ -13,6 +13,10 @@
 #include "base/macros.h"
 #include "media/base/win/mf_initializer_export.h"
 
+struct ID3D11DeviceChild;
+struct ID3D11Device;
+struct IDXGIObject;
+
 namespace media {
 
 // Helper function to print HRESULT to std::string.
@@ -58,6 +62,10 @@ CreateEmptySampleWithBuffer(uint32_t buffer_length, int align);
 class MF_INITIALIZER_EXPORT MediaBufferScopedPointer {
  public:
   explicit MediaBufferScopedPointer(IMFMediaBuffer* media_buffer);
+
+  MediaBufferScopedPointer(const MediaBufferScopedPointer&) = delete;
+  MediaBufferScopedPointer& operator=(const MediaBufferScopedPointer&) = delete;
+
   ~MediaBufferScopedPointer();
 
   uint8_t* get() { return buffer_; }
@@ -69,27 +77,20 @@ class MF_INITIALIZER_EXPORT MediaBufferScopedPointer {
   uint8_t* buffer_;
   DWORD max_length_;
   DWORD current_length_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaBufferScopedPointer);
-};
-
-// Wrap around the usage of device handle from |device_manager|.
-class MF_INITIALIZER_EXPORT DXGIDeviceScopedHandle {
- public:
-  explicit DXGIDeviceScopedHandle(IMFDXGIDeviceManager* device_manager);
-  ~DXGIDeviceScopedHandle();
-
-  HRESULT LockDevice(REFIID riid, void** device_out);
-
- private:
-  Microsoft::WRL::ComPtr<IMFDXGIDeviceManager> device_manager_;
-
-  HANDLE device_handle_ = INVALID_HANDLE_VALUE;
 };
 
 // Copies |in_string| to |out_string| that is allocated with CoTaskMemAlloc().
 MF_INITIALIZER_EXPORT HRESULT CopyCoTaskMemWideString(LPCWSTR in_string,
                                                       LPWSTR* out_string);
+
+// Set the debug name of a D3D11 resource for use with ETW debugging tools.
+// D3D11 retains the string passed to this function.
+MF_INITIALIZER_EXPORT HRESULT
+SetDebugName(ID3D11DeviceChild* d3d11_device_child, const char* debug_string);
+MF_INITIALIZER_EXPORT HRESULT SetDebugName(ID3D11Device* d3d11_device,
+                                           const char* debug_string);
+MF_INITIALIZER_EXPORT HRESULT SetDebugName(IDXGIObject* dxgi_object,
+                                           const char* debug_string);
 
 }  // namespace media
 

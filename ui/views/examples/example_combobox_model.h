@@ -14,17 +14,19 @@ namespace examples {
 class ExampleComboboxModel : public ui::ComboboxModel {
  public:
   ExampleComboboxModel(const char* const* strings, int count);
+
+  ExampleComboboxModel(const ExampleComboboxModel&) = delete;
+  ExampleComboboxModel& operator=(const ExampleComboboxModel&) = delete;
+
   ~ExampleComboboxModel() override;
 
   // ui::ComboboxModel:
   int GetItemCount() const override;
-  base::string16 GetItemAt(int index) const override;
+  std::u16string GetItemAt(int index) const override;
 
  private:
   const char* const* const strings_;
   const int count_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExampleComboboxModel);
 };
 
 }  // namespace examples

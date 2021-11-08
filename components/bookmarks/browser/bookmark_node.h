@@ -55,8 +55,14 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   static const char kMobileBookmarksNodeGuid[];
   static const char kManagedNodeGuid[];
 
+  // A bug in sync caused some problematic GUIDs to be produced.
+  static const char kBannedGuidDueToPastSyncBug[];
+
   // Creates a new node with |id|, |guid| and |url|.
   BookmarkNode(int64_t id, const base::GUID& guid, const GURL& url);
+
+  BookmarkNode(const BookmarkNode&) = delete;
+  BookmarkNode& operator=(const BookmarkNode&) = delete;
 
   ~BookmarkNode() override;
 
@@ -67,7 +73,7 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   // Set the node's internal title. Note that this neither invokes observers
   // nor updates any bookmark model this node may be in. For that functionality,
   // BookmarkModel::SetTitle(..) should be used instead.
-  void SetTitle(const base::string16& title) override;
+  void SetTitle(const std::u16string& title) override;
 
   // Returns an unique id for this node.
   // For bookmark nodes that are managed by the bookmark model, the IDs are
@@ -129,7 +135,7 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   const MetaInfoMap* GetMetaInfoMap() const;
 
   // TitledUrlNode interface methods.
-  const base::string16& GetTitledUrlNodeTitle() const override;
+  const std::u16string& GetTitledUrlNodeTitle() const override;
   const GURL& GetTitledUrlNodeUrl() const override;
   std::vector<base::StringPiece16> GetTitledUrlNodeAncestorTitles()
       const override;
@@ -213,8 +219,6 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   std::unique_ptr<MetaInfoMap> meta_info_map_;
 
   const bool is_permanent_node_;
-
-  DISALLOW_COPY_AND_ASSIGN(BookmarkNode);
 };
 
 // BookmarkPermanentNode -------------------------------------------------------
@@ -225,6 +229,9 @@ class BookmarkPermanentNode : public BookmarkNode {
   // Permanent nodes are well-known, it's not allowed to create arbitrary ones.
   static std::unique_ptr<BookmarkPermanentNode> CreateManagedBookmarks(
       int64_t id);
+
+  BookmarkPermanentNode(const BookmarkPermanentNode&) = delete;
+  BookmarkPermanentNode& operator=(const BookmarkPermanentNode&) = delete;
 
   ~BookmarkPermanentNode() override;
 
@@ -250,12 +257,10 @@ class BookmarkPermanentNode : public BookmarkNode {
   BookmarkPermanentNode(int64_t id,
                         Type type,
                         const base::GUID& guid,
-                        const base::string16& title,
+                        const std::u16string& title,
                         bool visible_when_empty);
 
   const bool visible_when_empty_;
-
-  DISALLOW_COPY_AND_ASSIGN(BookmarkPermanentNode);
 };
 
 // If you are looking for gMock printing via PrintTo(), please check

@@ -38,6 +38,10 @@ namespace web {
 
 // Test fixture for loading https pages with self signed certificate.
 class BadSslResponseTest : public WebTestWithWebState {
+ public:
+  BadSslResponseTest(const BadSslResponseTest&) = delete;
+  BadSslResponseTest& operator=(const BadSslResponseTest&) = delete;
+
  protected:
   BadSslResponseTest()
       : WebTestWithWebState(std::make_unique<FakeWebClient>()),
@@ -63,13 +67,11 @@ class BadSslResponseTest : public WebTestWithWebState {
   net::test_server::EmbeddedTestServer https_server_;
   base::test::ScopedFeatureList scoped_feature_list_;
   std::unique_ptr<FakeWebStateObserver> web_state_observer_;
-  DISALLOW_COPY_AND_ASSIGN(BadSslResponseTest);
 };
 
 // Tests that an error page is shown for SSL cert errors when committed
 // interstitials are enabled.
 TEST_F(BadSslResponseTest, ShowSSLErrorPageCommittedInterstitial) {
-  web_client()->SetAllowCertificateErrors(false);
   const GURL url = https_server_.GetURL("/");
   test::LoadUrl(web_state(), url);
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^{

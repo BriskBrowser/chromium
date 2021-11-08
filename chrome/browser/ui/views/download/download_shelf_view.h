@@ -8,19 +8,24 @@
 #include <memory>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "chrome/browser/download/download_shelf.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/mouse_watcher.h"
 #include "ui/views/mouse_watcher_view_host.h"
 
 class Browser;
 class BrowserView;
 class DownloadItemView;
+
+namespace base {
+class Time;
+}
 
 namespace views {
 class ImageButton;
@@ -47,6 +52,8 @@ class DownloadShelfView : public DownloadShelf,
   bool IsShowing() const override;
   bool IsClosing() const override;
 
+  views::View* GetView() override;
+
   // views::AccessiblePaneView:
   // TODO(crbug.com/1005568): Replace these with a LayoutManager
   gfx::Size CalculatePreferredSize() const override;
@@ -68,6 +75,8 @@ class DownloadShelfView : public DownloadShelf,
 
   // Updates |button| according to the active theme.
   void ConfigureButtonForTheme(views::MdTextButton* button);
+
+  DownloadItemView* GetViewOfLastDownloadItemForTesting();
 
  protected:
   // DownloadShelf:
@@ -110,6 +119,16 @@ class DownloadShelfView : public DownloadShelf,
 
   // The window this shelf belongs to.
   BrowserView* parent_;
+
+  // Time since the last time the download shelf was opened.
+  base::Time last_opened_;
+
+  // Set the time when the download shelf becomes visible.
+  void SetLastOpened();
+
+  // Emits a histogram recording the time between the shelf being visible
+  // and it being closed.
+  void RecordShelfVisibleTime();
 
   views::MouseWatcher mouse_watcher_{
       std::make_unique<views::MouseWatcherViewHost>(this, gfx::Insets()), this};

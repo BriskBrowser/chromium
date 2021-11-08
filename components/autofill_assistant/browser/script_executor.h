@@ -6,7 +6,6 @@
 #define COMPONENTS_AUTOFILL_ASSISTANT_BROWSER_SCRIPT_EXECUTOR_H_
 
 #include <deque>
-#include <map>
 #include <memory>
 #include <ostream>
 #include <set>
@@ -19,6 +18,7 @@
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
 #include "components/autofill_assistant/browser/client_settings.h"
 #include "components/autofill_assistant/browser/details.h"
+#include "components/autofill_assistant/browser/full_card_requester.h"
 #include "components/autofill_assistant/browser/info_box.h"
 #include "components/autofill_assistant/browser/retry_timer.h"
 #include "components/autofill_assistant/browser/script.h"
@@ -26,7 +26,10 @@
 #include "components/autofill_assistant/browser/service.pb.h"
 #include "components/autofill_assistant/browser/top_padding.h"
 #include "components/autofill_assistant/browser/wait_for_dom_observer.h"
+#include "components/autofill_assistant/browser/web/element.h"
 #include "components/autofill_assistant/browser/web/element_finder.h"
+#include "components/autofill_assistant/browser/web/element_store.h"
+#include "services/metrics/public/cpp/ukm_recorder.h"
 
 namespace autofill_assistant {
 class ElementStore;
@@ -65,9 +68,12 @@ class ScriptExecutor : public ActionDelegate,
                  const std::string& global_payload,
                  const std::string& script_payload,
                  ScriptExecutor::Listener* listener,
-                 std::map<std::string, ScriptStatusProto>* scripts_state,
                  const std::vector<std::unique_ptr<Script>>* ordered_interrupts,
                  ScriptExecutorDelegate* delegate);
+
+  ScriptExecutor(const ScriptExecutor&) = delete;
+  ScriptExecutor& operator=(const ScriptExecutor&) = delete;
+
   ~ScriptExecutor() override;
 
   // What should happen after the script has run.
@@ -101,7 +107,7 @@ class ScriptExecutor : public ActionDelegate,
   void Run(const UserData* user_data, RunScriptCallback callback);
 
   const UserData* GetUserData() const override;
-  UserModel* GetUserModel() override;
+  UserModel* GetUserModel() const override;
 
   // Override ScriptExecutorDelegate::NavigationListener
   void OnNavigationStateChanged() override;
@@ -116,6 +122,10 @@ class ScriptExecutor : public ActionDelegate,
       const Selector& selector,
       base::OnceCallback<void(const ClientStatus&, base::TimeDelta)> callback)
       override;
+  void ShortWaitForElementWithSlowWarning(
+      const Selector& selector,
+      base::OnceCallback<void(const ClientStatus&, base::TimeDelta)> callback)
+      override;
   void WaitForDom(
       base::TimeDelta max_wait_time,
       bool allow_interrupt,
@@ -125,24 +135,26 @@ class ScriptExecutor : public ActionDelegate,
                base::OnceCallback<void(const ClientStatus&)>)> check_elements,
       base::OnceCallback<void(const ClientStatus&, base::TimeDelta)> callback)
       override;
+  void WaitForDomWithSlowWarning(
+      base::TimeDelta max_wait_time,
+      bool allow_interrupt,
+      WaitForDomObserver* observer,
+      base::RepeatingCallback<
+          void(BatchElementChecker*,
+               base::OnceCallback<void(const ClientStatus&)>)> check_elements,
+      base::OnceCallback<void(const ClientStatus&, base::TimeDelta)> callback)
+      override;
   void SetStatusMessage(const std::string& message) override;
-  std::string GetStatusMessage() override;
+  std::string GetStatusMessage() const override;
   void SetBubbleMessage(const std::string& message) override;
-  std::string GetBubbleMessage() override;
+  std::string GetBubbleMessage() const override;
+  void SetTtsMessage(const std::string& message) override;
+  TtsButtonState GetTtsButtonState() const override;
+  void MaybePlayTtsMessage() override;
   void FindElement(const Selector& selector,
                    ElementFinder::Callback callback) const override;
   void FindAllElements(const Selector& selector,
                        ElementFinder::Callback callback) const override;
-  void WaitUntilElementIsStable(
-      int max_rounds,
-      base::TimeDelta check_interval,
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&, base::TimeDelta)> callback)
-      override;
-  void ClickOrTapElement(
-      ClickType click_type,
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&)> callback) override;
   void CollectUserData(
       CollectUserDataOptions* collect_user_data_options) override;
   void SetLastSuccessfulUserDataOptions(std::unique_ptr<CollectUserDataOptions>
@@ -160,57 +172,15 @@ class ScriptExecutor : public ActionDelegate,
               bool browse_mode_invisible) override;
   void CleanUpAfterPrompt() override;
   void SetBrowseDomainsAllowlist(std::vector<std::string> domains) override;
-  void FillAddressForm(
-      const autofill::AutofillProfile* profile,
-      const Selector& selector,
-      base::OnceCallback<void(const ClientStatus&)> callback) override;
-  void FillCardForm(
-      std::unique_ptr<autofill::CreditCard> card,
-      const base::string16& cvc,
-      const Selector& selector,
-      base::OnceCallback<void(const ClientStatus&)> callback) override;
   void RetrieveElementFormAndFieldData(
       const Selector& selector,
       base::OnceCallback<void(const ClientStatus&,
                               const autofill::FormData& form_data,
                               const autofill::FormFieldData& field_data)>
           callback) override;
-  void SelectOption(
-      const std::string& re2,
-      bool case_sensitive,
-      SelectOptionProto::OptionComparisonAttribute option_comparison_attribute,
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&)> callback) override;
-  void ScrollToElementPosition(
-      const Selector& selector,
-      const TopPadding& top_padding,
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&)> callback) override;
+  void StoreScrolledToElement(const ElementFinder::Result& element) override;
   void SetTouchableElementArea(
       const ElementAreaProto& touchable_element_area) override;
-  void GetFieldValue(
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&, const std::string&)>
-          callback) override;
-  void GetStringAttribute(
-      const std::vector<std::string>& attributes,
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&, const std::string&)>
-          callback) override;
-  void SetValueAttribute(
-      const std::string& value,
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&)> callback) override;
-  void SetAttribute(
-      const std::vector<std::string>& attributes,
-      const std::string& value,
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&)> callback) override;
-  void SendKeyboardInput(
-      const std::vector<UChar32>& codepoints,
-      int key_press_delay_in_millisecond,
-      const ElementFinder::Result& element,
-      base::OnceCallback<void(const ClientStatus&)> callback) override;
   void ExpectNavigation() override;
   bool ExpectedNavigationHasStarted() override;
   bool WaitForNavigation(base::OnceCallback<void(bool)> callback) override;
@@ -231,20 +201,19 @@ class ScriptExecutor : public ActionDelegate,
   void LoadURL(const GURL& url) override;
   void Shutdown(bool show_feedback_chip) override;
   void Close() override;
-  autofill::PersonalDataManager* GetPersonalDataManager() override;
-  WebsiteLoginManager* GetWebsiteLoginManager() override;
-  content::WebContents* GetWebContents() override;
+  autofill::PersonalDataManager* GetPersonalDataManager() const override;
+  WebsiteLoginManager* GetWebsiteLoginManager() const override;
+  content::WebContents* GetWebContents() const override;
   ElementStore* GetElementStore() const override;
   WebController* GetWebController() const override;
-  std::string GetEmailAddressForAccessTokenAccount() override;
-  std::string GetLocale() override;
+  std::string GetEmailAddressForAccessTokenAccount() const override;
+  ukm::UkmRecorder* GetUkmRecorder() const override;
   void SetDetails(std::unique_ptr<Details> details,
                   base::TimeDelta delay) override;
   void AppendDetails(std::unique_ptr<Details> details,
                      base::TimeDelta delay) override;
   void ClearInfoBox() override;
   void SetInfoBox(const InfoBox& info_box) override;
-  void SetProgress(int progress) override;
   bool SetProgressActiveStepIdentifier(
       const std::string& active_step_identifier) override;
   void SetProgressActiveStep(int active_step) override;
@@ -254,14 +223,15 @@ class ScriptExecutor : public ActionDelegate,
       const ShowProgressBarProto::StepProgressBarConfiguration& configuration)
       override;
   void SetViewportMode(ViewportMode mode) override;
-  ViewportMode GetViewportMode() override;
+  ViewportMode GetViewportMode() const override;
   void SetPeekMode(ConfigureBottomSheetProto::PeekMode peek_mode) override;
-  ConfigureBottomSheetProto::PeekMode GetPeekMode() override;
+  ConfigureBottomSheetProto::PeekMode GetPeekMode() const override;
   void ExpandBottomSheet() override;
   void CollapseBottomSheet() override;
   void WaitForWindowHeightChange(
       base::OnceCallback<void(const ClientStatus&)> callback) override;
   const ClientSettings& GetSettings() const override;
+  void SetClientSettings(const ClientSettingsProto& client_settings) override;
   bool SetForm(
       std::unique_ptr<FormProto> form,
       base::RepeatingCallback<void(const FormProto::Result*)> changed_callback,
@@ -272,13 +242,19 @@ class ScriptExecutor : public ActionDelegate,
       base::OnceCallback<void(const ClientStatus&)> end_action_callback,
       base::OnceCallback<void(const ClientStatus&)>
           view_inflation_finished_callback) override;
+  void SetPersistentGenericUi(
+      std::unique_ptr<GenericUserInterfaceProto> generic_ui,
+      base::OnceCallback<void(const ClientStatus&)>
+          view_inflation_finished_callback) override;
   void ClearGenericUi() override;
+  void ClearPersistentGenericUi() override;
   void SetOverlayBehavior(
       ConfigureUiStateProto::OverlayBehavior overlay_behavior) override;
   void MaybeShowSlowWebsiteWarning(
       base::OnceCallback<void(bool)> callback) override;
   void MaybeShowSlowConnectionWarning() override;
   base::WeakPtr<ActionDelegate> GetWeakPtr() const override;
+  ProcessedActionStatusDetailsProto& GetLogInfo() override;
 
  private:
   // Helper for WaitForElementVisible that keeps track of the state required to
@@ -309,6 +285,10 @@ class ScriptExecutor : public ActionDelegate,
             void(BatchElementChecker*,
                  base::OnceCallback<void(const ClientStatus&)>)> check_elements,
         WaitForDomOperation::Callback callback);
+
+    WaitForDomOperation(const WaitForDomOperation&) = delete;
+    WaitForDomOperation& operator=(const WaitForDomOperation&) = delete;
+
     ~WaitForDomOperation() override;
 
     void Run();
@@ -401,8 +381,6 @@ class ScriptExecutor : public ActionDelegate,
     RetryTimer retry_timer_;
 
     base::WeakPtrFactory<WaitForDomOperation> weak_ptr_factory_{this};
-
-    DISALLOW_COPY_AND_ASSIGN(WaitForDomOperation);
   };
 
   void OnGetActions(base::TimeTicks start_time,
@@ -451,22 +429,17 @@ class ScriptExecutor : public ActionDelegate,
       int link,
       UserData* user_data,
       const UserModel* user_model);
-  void OnGetFullCard(GetFullCardCallback callback,
+  void OnGetFullCard(std::unique_ptr<FullCardRequester> full_card_requester,
+                     GetFullCardCallback callback,
                      const ClientStatus& status,
                      std::unique_ptr<autofill::CreditCard> card,
-                     const base::string16& cvc);
-  void OnChosen(UserAction::Callback callback,
-                std::unique_ptr<TriggerContext> context);
+                     const std::u16string& cvc);
   void OnWaitForDocumentReadyState(
       base::OnceCallback<void(const ClientStatus&, base::TimeDelta)> callback,
       const ClientStatus& status,
       DocumentReadyState ready_state,
       base::TimeDelta wait_time);
   void OnResume();
-
-  // Actions that can manipulate the UserActions should be interrupted, such
-  // that they do not overwrite the paused state.
-  bool ShouldInterruptOnPause(const ActionProto& proto);
 
   // Maybe shows the message specified in a callout, depending on the current
   // state and client settings.
@@ -485,7 +458,7 @@ class ScriptExecutor : public ActionDelegate,
   // change while the script is running, as a result of OnScriptListChanged
   // being called.
   const std::vector<std::unique_ptr<Script>>* const ordered_interrupts_;
-  std::map<std::string, ScriptStatusProto>* const scripts_state_;
+  std::unique_ptr<ElementStore> element_store_;
   RunScriptCallback callback_;
   std::vector<std::unique_ptr<Action>> actions_;
   std::vector<ProcessedActionProto> processed_actions_;
@@ -494,8 +467,7 @@ class ScriptExecutor : public ActionDelegate,
   bool should_clean_contextual_ui_on_finish_ = false;
   ActionProto::ActionInfoCase previous_action_type_ =
       ActionProto::ACTION_INFO_NOT_SET;
-  Selector last_focused_element_selector_;
-  TopPadding last_focused_element_top_padding_;
+  absl::optional<DomObjectFrameStack> last_focused_element_;
   std::unique_ptr<ElementAreaProto> touchable_element_area_;
 
   // Steps towards the requirements for calling |on_expected_navigation_done_|
@@ -529,16 +501,12 @@ class ScriptExecutor : public ActionDelegate,
     std::unique_ptr<WaitForDomOperation> wait_for_dom;
     std::unique_ptr<WaitForDocumentOperation> wait_for_document;
 
-    // Set to true when a direct action was used to trigger a UserAction within
-    // a prompt. This is reported to the backend.
-    bool direct_action = false;
-
     // This callback is set when a navigation event should terminate an ongoing
     // prompt action. Only a prompt action will set a valid callback here.
     base::OnceCallback<void()> end_prompt_on_navigation_callback;
   };
   CurrentActionData current_action_data_;
-  base::Optional<size_t> current_action_index_;
+  absl::optional<size_t> current_action_index_;
 
   const UserData* user_data_ = nullptr;
 
@@ -553,7 +521,6 @@ class ScriptExecutor : public ActionDelegate,
   int consecutive_slow_roundtrip_counter_ = 0;
 
   base::WeakPtrFactory<ScriptExecutor> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(ScriptExecutor);
 };
 }  // namespace autofill_assistant
 

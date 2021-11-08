@@ -4,7 +4,8 @@
 
 (async function() {
   TestRunner.addResult(`Verify that suggest box gets hidden whenever a cursor jumps over smart brace.\n`);
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('text_editor');
   await TestRunner.showPanel('sources');
   await TestRunner.addScriptTag('debugger/resources/edit-me.js');
 
@@ -20,7 +21,7 @@
   var testSuite = [
     function testSummonSuggestBox(next) {
       TestRunner.addSniffer(
-          TextEditor.TextEditorAutocompleteController.prototype, '_onSuggestionsShownForTest', onSuggestionsShown);
+          TextEditor.TextEditorAutocompleteController.prototype, 'onSuggestionsShownForTest', onSuggestionsShown);
 
       textEditor.setText('one\n()');
       textEditor.setSelection(TextUtils.TextRange.createFromLocation(1, 1));
@@ -34,7 +35,7 @@
 
     function testTypeSmartBrace(next) {
       TestRunner.addSniffer(
-          TextEditor.TextEditorAutocompleteController.prototype, '_onSuggestionsHiddenForTest', onSuggestionsHidden);
+          TextEditor.TextEditorAutocompleteController.prototype, 'onSuggestionsHiddenForTest', onSuggestionsHidden);
       SourcesTestRunner.typeIn(textEditor, ')', function() {});
 
       function onSuggestionsHidden() {

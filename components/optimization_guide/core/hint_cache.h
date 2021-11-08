@@ -8,10 +8,9 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/containers/mru_cache.h"
+#include "base/containers/lru_cache.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "base/time/clock.h"
 #include "components/optimization_guide/core/memory_hint.h"
@@ -39,6 +38,10 @@ class HintCache {
   // stored in-memory.
   explicit HintCache(OptimizationGuideStore* optimization_guide_store,
                      int max_host_keyed_memory_cache_size);
+
+  HintCache(const HintCache&) = delete;
+  HintCache& operator=(const HintCache&) = delete;
+
   ~HintCache();
 
   // Initializes the backing store contained within the hint cache, if provided,
@@ -126,6 +129,17 @@ class HintCache {
   // the entry is empty. If a hint exists but is expired, it returns false.
   bool HasURLKeyedEntryForURL(const GURL& url);
 
+  // Removes any URL-keyed hints that are in |urls|.
+  void RemoveHintsForURLs(const base::flat_set<GURL>& urls);
+
+  // Removes any host-keyed hints that are in |hosts|. Note that this will also
+  // remove any persisted hints from |hint_store()|. |on_success| will be called
+  // when the operation completes successfully. If the operation does not
+  // complete successfully, the callback will not be run so calling code must
+  // not expect it be called in every circumstance.
+  void RemoveHintsForHosts(base::OnceClosure on_success,
+                           const base::flat_set<std::string>& hosts);
+
   // Verifies and processes |hints| and moves the ones it supports into
   // |update_data| and caches any valid URL keyed hints.
   //
@@ -150,10 +164,10 @@ class HintCache {
 
  private:
   using HostKeyedHintCache =
-      base::HashingMRUCache<std::string, std::unique_ptr<MemoryHint>>;
+      base::HashingLRUCache<std::string, std::unique_ptr<MemoryHint>>;
 
   using URLKeyedHintCache =
-      base::HashingMRUCache<std::string, std::unique_ptr<MemoryHint>>;
+      base::HashingLRUCache<std::string, std::unique_ptr<MemoryHint>>;
 
   // The callback run after the store finishes initialization. This then runs
   // the callback initially provided by the Initialize() call.
@@ -193,8 +207,6 @@ class HintCache {
 
   // Weak ptr factory to get weak pointer of |this|.
   base::WeakPtrFactory<HintCache> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(HintCache);
 };
 
 }  // namespace optimization_guide

@@ -22,12 +22,17 @@ class LocalCardMigrationIconView : public PageActionIconView {
       CommandUpdater* command_updater,
       IconLabelBubbleView::Delegate* icon_label_bubble_delegate,
       PageActionIconView::Delegate* page_action_icon_delegate);
+
+  LocalCardMigrationIconView(const LocalCardMigrationIconView&) = delete;
+  LocalCardMigrationIconView& operator=(const LocalCardMigrationIconView&) =
+      delete;
+
   ~LocalCardMigrationIconView() override;
 
   // PageActionIconView:
   views::BubbleDialogDelegate* GetBubble() const override;
   void UpdateImpl() override;
-  base::string16 GetTextForTooltipAndAccessibleName() const override;
+  std::u16string GetTextForTooltipAndAccessibleName() const override;
 
  protected:
   // PageActionIconView:
@@ -42,8 +47,6 @@ class LocalCardMigrationIconView : public PageActionIconView {
   // IconLabelBubbleView:
   void AnimationProgressed(const gfx::Animation* animation) override;
   void AnimationEnded(const gfx::Animation* animation) override;
-
-  DISALLOW_COPY_AND_ASSIGN(LocalCardMigrationIconView);
 };
 
 }  // namespace autofill

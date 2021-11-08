@@ -12,26 +12,23 @@
 #include "base/component_export.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/optional.h"
-#include "base/sequenced_task_runner.h"
 #include "base/synchronization/lock.h"
+#include "base/task/sequenced_task_runner.h"
+#include "chromeos/dbus/cryptohome/UserDataAuth.pb.h"
 #include "chromeos/login/auth/auth_attempt_state.h"
 #include "chromeos/login/auth/authenticator.h"
+#include "chromeos/login/auth/safe_mode_delegate.h"
 #include "chromeos/login/auth/test_attempt_state.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class AuthFailure;
 
-namespace content {
-class BrowserContext;
-}
-
-namespace cryptohome {
-class BaseReply;
+namespace ash {
+class CryptohomeAuthenticatorTest;
 }
 
 namespace chromeos {
-
 class AuthStatusConsumer;
 
 // Authenticates a Chromium OS user against cryptohome.
@@ -40,7 +37,7 @@ class AuthStatusConsumer;
 //
 // At a high, level, here's what happens:
 // AuthenticateToLogin() calls a Cryptohome's method to perform offline login.
-// Resultes are stored in a AuthAttemptState owned by CryptohomeAuthenticator
+// Results are stored in a AuthAttemptState owned by CryptohomeAuthenticator
 // and then call Resolve().  Resolve() will attempt to
 // determine which AuthState we're in, based on the info at hand.
 // It then triggers further action based on the calculated AuthState; this
@@ -85,11 +82,9 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) CryptohomeAuthenticator
                              // but offline succeeded.
     GUEST_LOGIN = 16,        // Logged in guest mode.
     PUBLIC_ACCOUNT_LOGIN = 17,  // Logged into a public account.
-    // TODO(crbug/1155729): Remove this enum.
-    SUPERVISED_USER_LOGIN_DEPRECATED =
-        18,               // Logged in as deprecated legacy supervised user.
-    LOGIN_FAILED = 19,    // Obsolete: Login denied.
-    OWNER_REQUIRED = 20,  // Login is restricted to the owner only.
+    // SUPERVISED_USER_LOGIN_DEPRECATED = 18,
+    LOGIN_FAILED = 19,                // Obsolete: Login denied.
+    OWNER_REQUIRED = 20,              // Login is restricted to the owner only.
     FAILED_USERNAME_HASH = 21,        // Failed GetSanitizedUsername request.
     KIOSK_ACCOUNT_LOGIN = 22,         // Logged into a kiosk account.
     REMOVED_DATA_AFTER_FAILURE = 23,  // Successfully removed the user's
@@ -106,11 +101,14 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) CryptohomeAuthenticator
   };
 
   CryptohomeAuthenticator(scoped_refptr<base::SequencedTaskRunner> task_runner,
+                          std::unique_ptr<SafeModeDelegate> safe_mode_delegate,
                           AuthStatusConsumer* consumer);
 
+  CryptohomeAuthenticator(const CryptohomeAuthenticator&) = delete;
+  CryptohomeAuthenticator& operator=(const CryptohomeAuthenticator&) = delete;
+
   // Authenticator overrides.
-  void CompleteLogin(content::BrowserContext* context,
-                     const UserContext& user_context) override;
+  void CompleteLogin(const UserContext& user_context) override;
 
   // Given |user_context|, this method attempts to authenticate to your
   // Chrome OS device. As soon as we have successfully mounted the encrypted
@@ -118,10 +116,7 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) CryptohomeAuthenticator
   // with the username.
   // Upon failure to login consumer_->OnAuthFailure() is called
   // with an error message.
-  //
-  // Uses |context| when doing URL fetches.
-  void AuthenticateToLogin(content::BrowserContext* context,
-                           const UserContext& user_context) override;
+  void AuthenticateToLogin(const UserContext& user_context) override;
 
   // Initiates incognito ("browse without signing in") login.
   // Mounts tmpfs and notifies consumer on the success/failure.
@@ -132,13 +127,10 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) CryptohomeAuthenticator
   // success/failure.
   void LoginAsPublicSession(const UserContext& user_context) override;
 
-  // Initiates login into the kiosk mode account identified by |app_account_id|.
-  // Mounts an ephemeral guest cryptohome if |use_guest_mount| is |true|.
-  // Otherwise, mounts a public cryptohome, which will be ephemeral if the
-  // |DeviceEphemeralUsersEnabled| policy is enabled and non-ephemeral
-  // otherwise.
-  void LoginAsKioskAccount(const AccountId& app_account_id,
-                           bool use_guest_mount) override;
+  // Initiates login into kiosk mode account identified by |app_account_id|.
+  // The |app_account_id| is a generated account id for the account.
+  // So called Public mount is used to mount cryptohome.
+  void LoginAsKioskAccount(const AccountId& app_account_id) override;
 
   // Initiates login into the ARC kiosk mode account identified by
   // |app_account_id|.
@@ -162,7 +154,7 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) CryptohomeAuthenticator
   void ResyncEncryptedData() override;
 
   // Called after UnmountEx finishes.
-  void OnUnmountEx(base::Optional<cryptohome::BaseReply> reply);
+  void OnUnmountEx(absl::optional<user_data_auth::UnmountReply> reply);
 
   // Attempts to make a decision and call back |consumer_| based on
   // the state we have gathered at the time of call.  If a decision
@@ -183,24 +175,8 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) CryptohomeAuthenticator
  protected:
   ~CryptohomeAuthenticator() override;
 
-  using IsOwnerCallback = base::OnceCallback<void(bool is_owner)>;
-
-  // Method to be implemented in child. Return |true| if user specified in
-  // |context| exists on device.
-  virtual bool IsKnownUser(const UserContext& context) = 0;
-
-  // Method to be implemented in child. Return |true| if device is running
-  // in safe mode.
-  virtual bool IsSafeMode() = 0;
-
-  // Method to be implemented in child. Have to call |callback| with boolean
-  // parameter that indicates if user in |context| can act as an owner in
-  // safe mode.
-  virtual void CheckSafeModeOwnership(const UserContext& context,
-                                      IsOwnerCallback callback) = 0;
-
  private:
-  friend class CryptohomeAuthenticatorTest;
+  friend class ash::CryptohomeAuthenticatorTest;
   FRIEND_TEST_ALL_PREFIXES(CryptohomeAuthenticatorTest,
                            ResolveOwnerNeededDirectFailedMount);
   FRIEND_TEST_ALL_PREFIXES(CryptohomeAuthenticatorTest,
@@ -251,13 +227,15 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) CryptohomeAuthenticator
   void OnOwnershipChecked(bool is_owner);
 
   // Handles completion of cryptohome unmount.
-  void OnUnmount(base::Optional<bool> success);
+  void OnUnmount(absl::optional<bool> success);
 
   // Signal login completion status for cases when a new user is added via
   // an external authentication provider (i.e. GAIA extension).
   void ResolveLoginCompletionStatus();
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
+
+  std::unique_ptr<SafeModeDelegate> safe_mode_delegate_;
 
   std::unique_ptr<AuthAttemptState> current_state_;
   bool migrate_attempted_;
@@ -283,10 +261,14 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) CryptohomeAuthenticator
   // When |remove_user_data_on_failure_| is set, we delay calling
   // consumer_->OnAuthFailure() until we removed the user cryptohome.
   AuthFailure delayed_login_failure_;
-
-  DISALLOW_COPY_AND_ASSIGN(CryptohomeAuthenticator);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::CryptohomeAuthenticator;
+}
 
 #endif  // CHROMEOS_LOGIN_AUTH_CRYPTOHOME_AUTHENTICATOR_H_

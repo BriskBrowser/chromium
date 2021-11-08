@@ -6,9 +6,9 @@
 #define IOS_CHROME_BROWSER_UI_AUTHENTICATION_SIGNIN_NOTIFICATION_INFOBAR_DELEGATE_H_
 
 #include <memory>
+#include <string>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/sync/driver/sync_service_observer.h"
 #include "ios/chrome/browser/sync/sync_setup_service.h"
@@ -32,6 +32,12 @@ class SigninNotificationInfoBarDelegate : public ConfirmInfoBarDelegate {
   SigninNotificationInfoBarDelegate(ChromeBrowserState* browser_state,
                                     id<ApplicationSettingsCommands> dispatcher,
                                     UIViewController* view_controller);
+
+  SigninNotificationInfoBarDelegate(const SigninNotificationInfoBarDelegate&) =
+      delete;
+  SigninNotificationInfoBarDelegate& operator=(
+      const SigninNotificationInfoBarDelegate&) = delete;
+
   ~SigninNotificationInfoBarDelegate() override;
 
   // Creates a sign-in notification infobar and adds it to |infobar_manager|.
@@ -44,10 +50,10 @@ class SigninNotificationInfoBarDelegate : public ConfirmInfoBarDelegate {
   InfoBarIdentifier GetIdentifier() const override;
 
   // ConfirmInfoBarDelegate implementation.
-  base::string16 GetTitleText() const override;
-  base::string16 GetMessageText() const override;
+  std::u16string GetTitleText() const override;
+  std::u16string GetMessageText() const override;
   int GetButtons() const override;
-  base::string16 GetButtonLabel(InfoBarButton button) const override;
+  std::u16string GetButtonLabel(InfoBarButton button) const override;
   gfx::Image GetIcon() const override;
   bool UseIconBackgroundTint() const override;
   bool Accept() override;
@@ -55,15 +61,13 @@ class SigninNotificationInfoBarDelegate : public ConfirmInfoBarDelegate {
 
  private:
   gfx::Image icon_;
-  base::string16 title_;
-  base::string16 message_;
-  base::string16 button_text_;
+  std::u16string title_;
+  std::u16string message_;
+  std::u16string button_text_;
 
   // Dispatcher.
   __weak id<ApplicationSettingsCommands> dispatcher_ = nil;
   __weak UIViewController* base_view_controller_ = nil;
-
-  DISALLOW_COPY_AND_ASSIGN(SigninNotificationInfoBarDelegate);
 };
 
 #endif  // IOS_CHROME_BROWSER_UI_AUTHENTICATION_SIGNIN_NOTIFICATION_INFOBAR_DELEGATE_H_

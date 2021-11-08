@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "extensions/browser/extension_file_task_runner.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
 
@@ -96,8 +96,8 @@ void JsonFileSanitizer::JsonFileRead(
 
 void JsonFileSanitizer::JsonParsingDone(
     const base::FilePath& file_path,
-    base::Optional<base::Value> json_value,
-    const base::Optional<std::string>& error) {
+    absl::optional<base::Value> json_value,
+    const absl::optional<std::string>& error) {
   if (!json_value || !json_value->is_dict()) {
     ReportError(Status::kDecodingError, error ? *error : std::string());
     return;

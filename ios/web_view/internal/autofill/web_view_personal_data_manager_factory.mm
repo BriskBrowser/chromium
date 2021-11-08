@@ -66,6 +66,7 @@ WebViewPersonalDataManagerFactory::BuildServiceInstanceFor(
       ApplicationContext::GetInstance()->GetLocalState(),
       WebViewIdentityManagerFactory::GetForBrowserState(browser_state),
       /*client_profile_validator=*/nullptr, /*history_service=*/nullptr,
+      /*strike_database=*/nullptr, /*image_fetcher=*/nullptr,
       browser_state->IsOffTheRecord());
   return service;
 }

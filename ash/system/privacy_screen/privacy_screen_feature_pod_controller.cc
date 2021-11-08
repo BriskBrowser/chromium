@@ -68,7 +68,7 @@ void PrivacyScreenFeaturePodController::UpdateButton() {
   button_->SetLabel(
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_LABEL));
 
-  base::string16 tooltip_state;
+  std::u16string tooltip_state;
   if (is_enabled) {
     button_->SetSubLabel(l10n_util::GetStringUTF16(
         IDS_ASH_STATUS_TRAY_PRIVACY_SCREEN_ON_SUBLABEL));
@@ -91,8 +91,10 @@ void PrivacyScreenFeaturePodController::UpdateButton() {
 }
 
 void PrivacyScreenFeaturePodController::OnPrivacyScreenSettingChanged(
-    bool enabled) {
-  UpdateButton();
+    bool enabled,
+    bool notify_ui) {
+  if (notify_ui)
+    UpdateButton();
 }
 
 }  // namespace ash

@@ -32,6 +32,9 @@ import com.google.android.material.textfield.TextInputLayout;
 import org.chromium.chrome.R;
 import org.chromium.components.browser_ui.widget.TintedDrawable;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /** Handles validation and display of one field from the {@link EditorFieldModel}. */
 @VisibleForTesting
 public class EditorTextField extends FrameLayout implements EditorFieldView, View.OnClickListener {
@@ -96,7 +99,8 @@ public class EditorTextField extends FrameLayout implements EditorFieldView, Vie
         if (fieldModel.getActionIconAction() != null) {
             mActionIcon = (ImageView) mIconsLayer.findViewById(R.id.action_icon);
             mActionIcon.setImageDrawable(TintedDrawable.constructTintedDrawable(context,
-                    fieldModel.getActionIconResourceId(), R.color.default_icon_color_blue));
+                    fieldModel.getActionIconResourceId(),
+                    R.color.default_icon_color_accent1_tint_list));
             mActionIcon.setContentDescription(context.getResources().getString(
                     fieldModel.getActionIconDescriptionForAccessibility()));
             mActionIcon.setOnClickListener(this);
@@ -108,15 +112,18 @@ public class EditorTextField extends FrameLayout implements EditorFieldView, Vie
             mValueIcon.setVisibility(VISIBLE);
         }
 
-        // Validate the field when the user de-focuses it.
         mInput.setOnFocusChangeListener(new OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
+                // Validate the field when the user de-focuses it.
                 if (hasFocus) {
                     mHasFocusedAtLeastOnce = true;
                 } else if (mHasFocusedAtLeastOnce) {
                     // Show no errors until the user has already tried to edit the field once.
                     updateDisplayedError(!mEditorFieldModel.isValid());
+                }
+                if (mEditorFieldModel.hasLengthCounter()) {
+                    mInputLayout.setCounterEnabled(hasFocus);
                 }
             }
         });
@@ -158,7 +165,16 @@ public class EditorTextField extends FrameLayout implements EditorFieldView, Vie
             mInput.setThreshold(0);
         }
 
-        if (filter != null) mInput.setFilters(new InputFilter[] {filter});
+        List<InputFilter> filters = new ArrayList<>();
+        if (filter != null) filters.add(filter);
+        if (mEditorFieldModel.hasLengthCounter()) {
+            // Limit input length for field and counter.
+            filters.add(new InputFilter.LengthFilter(mEditorFieldModel.getLengthCounterLimit()));
+            mInputLayout.setCounterMaxLength(mEditorFieldModel.getLengthCounterLimit());
+        }
+        InputFilter[] filtersArr = new InputFilter[filters.size()];
+        filters.toArray(filtersArr);
+        mInput.setFilters(filtersArr);
         if (formatter != null) {
             mInput.addTextChangedListener(formatter);
             formatter.afterTextChanged(mInput.getText());

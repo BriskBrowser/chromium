@@ -10,11 +10,14 @@
 #include <string>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/files/file_path.h"
-#include "base/observer_list.h"
-#include "base/strings/string16.h"
+#include "base/scoped_observation.h"
+#include "build/branding_buildflags.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
+#include "chrome/browser/share/share_submenu_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/send_tab_to_self/send_tab_to_self_sub_menu_model.h"
 #include "components/renderer_context_menu/context_menu_content_type.h"
@@ -25,9 +28,14 @@
 #include "extensions/buildflags/buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "printing/buildflags/buildflags.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom-forward.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/geometry/vector2d.h"
+
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#include "chrome/browser/lens/region_search/lens_region_search_controller.h"
+#endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/context_menu_matcher.h"
@@ -36,7 +44,7 @@
 
 class AccessibilityLabelsMenuObserver;
 class ClickToCallContextMenuObserver;
-class CopyLinkToTextMenuObserver;
+class LinkToTextMenuObserver;
 class PrintPreviewContextMenuObserver;
 class Profile;
 class QuickAnswersMenuObserver;
@@ -68,10 +76,28 @@ namespace ui {
 class DataTransferEndpoint;
 }
 
-class RenderViewContextMenu : public RenderViewContextMenuBase {
+namespace web_app {
+class SystemWebAppDelegate;
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+namespace policy {
+class DlpRulesManager;
+}  // namespace policy
+#endif
+
+class RenderViewContextMenu : public RenderViewContextMenuBase,
+                              public ProtocolHandlerRegistry::Observer {
  public:
-  RenderViewContextMenu(content::RenderFrameHost* render_frame_host,
+  using ExecutePluginActionCallback =
+      base::OnceCallback<void(content::RenderFrameHost*,
+                              blink::mojom::PluginActionType)>;
+
+  RenderViewContextMenu(content::RenderFrameHost& render_frame_host,
                         const content::ContextMenuParams& params);
+
+  RenderViewContextMenu(const RenderViewContextMenu&) = delete;
+  RenderViewContextMenu& operator=(const RenderViewContextMenu&) = delete;
 
   ~RenderViewContextMenu() override;
 
@@ -92,6 +118,12 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   static void RegisterMenuShownCallbackForTesting(
       base::OnceCallback<void(RenderViewContextMenu*)> cb);
 
+  // Register a one-time callback that will be called the next time a plugin
+  // action is executed from a given render frame.
+  void RegisterExecutePluginActionCallbackForTesting(
+      base::OnceCallback<void(content::RenderFrameHost*,
+                              blink::mojom::PluginActionType)> cb);
+
  protected:
   Profile* GetProfile() const;
 
@@ -100,10 +132,10 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
 
   // Returns a (possibly truncated) version of the current selection text
   // suitable for putting in the title of a menu item.
-  base::string16 PrintableSelectionText();
+  std::u16string PrintableSelectionText();
 
   // Helper function to escape "&" as "&&".
-  void EscapeAmpersands(base::string16* text);
+  void EscapeAmpersands(std::u16string* text);
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   extensions::ContextMenuMatcher extension_items_;
@@ -117,6 +149,10 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   // Returns true if keyboard lock is active and requires the user to press and
   // hold escape to exit exclusive access mode.
   bool IsPressAndHoldEscRequiredToExitFullscreen() const;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  virtual const policy::DlpRulesManager* GetDlpRulesManager() const;
+#endif
 
  private:
   friend class RenderViewContextMenuTest;
@@ -137,7 +173,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   // string. Used by WriteURLToClipboard(), but kept in a separate function so
   // the formatting behavior can be tested without having to initialize the
   // clipboard. |url| must be valid and non-empty.
-  static base::string16 FormatURLForClipboard(const GURL& url);
+  static std::u16string FormatURLForClipboard(const GURL& url);
 
   // Writes the specified text/url to the system clipboard.
   void WriteURLToClipboard(const GURL& url);
@@ -173,7 +209,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void AppendPageItems();
   void AppendExitFullscreenItem();
   void AppendCopyItem();
-  void AppendCopyLinkToTextItem();
+  void AppendLinkToTextItems();
   void AppendPrintItem();
   void AppendMediaRouterItem();
   void AppendRotationItems();
@@ -195,12 +231,18 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void AppendPasswordItems();
   void AppendPictureInPictureItem();
   void AppendSharingItems();
+#if !defined(OS_FUCHSIA)
   void AppendClickToCallItem();
+#endif
   void AppendSharedClipboardItem();
+  void AppendRegionSearchItem();
   void AppendQRCodeGeneratorItem(bool for_image, bool draw_icon);
 
   std::unique_ptr<ui::DataTransferEndpoint> CreateDataEndpoint(
       bool notify_if_restricted) const;
+
+  // Helper function for checking policies.
+  bool IsSaveAsItemAllowedByPolicy() const;
 
   // Command enabled query functions.
   bool IsReloadEnabled() const;
@@ -217,6 +259,8 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   bool IsQRCodeGeneratorEnabled() const;
   bool IsRouteMediaEnabled() const;
   bool IsOpenLinkOTREnabled() const;
+  bool IsSearchWebForEnabled() const;
+  bool IsRegionSearchEnabled() const;
 
   // Command execution functions.
   void ExecOpenWebApp();
@@ -230,6 +274,8 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void ExecCopyLinkText();
   void ExecCopyImageAt();
   void ExecSearchLensForImage();
+  void ExecRegionSearch(int event_flags,
+                        bool is_google_default_search_provider);
   void ExecSearchWebForImage();
   void ExecLoadImage();
   void ExecPlayPause();
@@ -256,6 +302,9 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   // on URL.
   ProtocolHandlerRegistry::ProtocolHandlerList GetHandlersForLinkUrl();
 
+  // ProtocolHandlerRegistry::Observer:
+  void OnProtocolHandlerRegistryChanged() override;
+
   // The destination URL to use if the user tries to search for or navigate to
   // a text selection.
   GURL selection_navigation_url_;
@@ -263,8 +312,19 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   ui::SimpleMenuModel profile_link_submenu_model_;
   std::vector<base::FilePath> profile_link_paths_;
   bool multiple_profiles_open_;
+
+  // Protocol handling:
+  // - The submenu containing the installed protocol handlers.
   ui::SimpleMenuModel protocol_handler_submenu_model_;
+  // - The registry with the protocols.
   ProtocolHandlerRegistry* protocol_handler_registry_;
+  // - The observation of the registry.
+  base::ScopedObservation<ProtocolHandlerRegistry,
+                          ProtocolHandlerRegistry::Observer>
+      protocol_handler_registry_observation_{this};
+  // - Whether or not the registered protocols have changed since the menu was
+  //   built.
+  bool is_protocol_submenu_valid_ = false;
 
   // An observer that handles spelling suggestions, "Add to dictionary", and
   // "Use enhanced spell check" items.
@@ -296,7 +356,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   std::unique_ptr<PrintPreviewContextMenuObserver> print_preview_menu_observer_;
 #endif
 
-  std::unique_ptr<CopyLinkToTextMenuObserver> copy_link_to_text_menu_observer_;
+  std::unique_ptr<LinkToTextMenuObserver> link_to_text_menu_observer_;
 
   // In the case of a MimeHandlerView this will point to the WebContents that
   // embeds the MimeHandlerViewGuest. Otherwise this will be the same as
@@ -307,6 +367,9 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   std::unique_ptr<send_tab_to_self::SendTabToSelfSubMenuModel>
       send_tab_to_self_sub_menu_model_;
 
+  // Sharing submenu, if present.
+  std::unique_ptr<share::ShareSubmenuModel> share_submenu_model_;
+
   // Click to call menu observer.
   std::unique_ptr<ClickToCallContextMenuObserver>
       click_to_call_context_menu_observer_;
@@ -315,7 +378,23 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   std::unique_ptr<SharedClipboardContextMenuObserver>
       shared_clipboard_context_menu_observer_;
 
-  DISALLOW_COPY_AND_ASSIGN(RenderViewContextMenu);
+  // The system app (if any) associated with the WebContents we're in.
+  const web_app::SystemWebAppDelegate* system_app_ = nullptr;
+
+  // A one-time callback that will be called the next time a plugin action is
+  // executed from a given render frame.
+  ExecutePluginActionCallback execute_plugin_action_callback_;
+
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  // Controller for Lens Region Search feature. This controller will be
+  // destroyed as soon as the RenderViewContextMenu object is destroyed. The
+  // RenderViewContextMenu is reset every time it is shown, but persists between
+  // uses so that it doesn't go out of scope before finishing work. This means
+  // that when another context menu opens, the Lens Region Search feature will
+  // close if active.
+  std::unique_ptr<lens::LensRegionSearchController>
+      lens_region_search_controller_;
+#endif
 };
 
 #endif  // CHROME_BROWSER_RENDERER_CONTEXT_MENU_RENDER_VIEW_CONTEXT_MENU_H_

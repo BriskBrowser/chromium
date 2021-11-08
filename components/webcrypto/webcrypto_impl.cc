@@ -15,8 +15,8 @@
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
-#include "base/task_runner.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/task_runner.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
@@ -76,8 +76,11 @@ class CryptoThreadPool {
   CryptoThreadPool() : worker_thread_("WebCrypto") {
     base::Thread::Options options;
     options.joinable = false;
-    worker_thread_.StartWithOptions(options);
+    worker_thread_.StartWithOptions(std::move(options));
   }
+
+  CryptoThreadPool(const CryptoThreadPool&) = delete;
+  CryptoThreadPool& operator=(const CryptoThreadPool&) = delete;
 
   static bool PostTask(const base::Location& from_here, base::OnceClosure task);
 
@@ -88,8 +91,6 @@ class CryptoThreadPool {
   // the ThreadPool here and allowing multiple threads (SEQUENCED or even
   // PARALLEL ExecutionMode: http://crbug.com/623700).
   base::Thread worker_thread_;
-
-  DISALLOW_COPY_AND_ASSIGN(CryptoThreadPool);
 };
 
 base::LazyInstance<CryptoThreadPool>::Leaky crypto_thread_pool =

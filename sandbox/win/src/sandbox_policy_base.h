@@ -20,7 +20,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/process/launch.h"
 #include "base/win/scoped_handle.h"
-#include "sandbox/win/src/app_container_profile_base.h"
+#include "sandbox/win/src/app_container_base.h"
 #include "sandbox/win/src/crosscall_server.h"
 #include "sandbox/win/src/handle_closer.h"
 #include "sandbox/win/src/ipc_tags.h"
@@ -40,6 +40,9 @@ struct PolicyGlobal;
 class PolicyBase final : public TargetPolicy {
  public:
   PolicyBase();
+
+  PolicyBase(const PolicyBase&) = delete;
+  PolicyBase& operator=(const PolicyBase&) = delete;
 
   // TargetPolicy:
   void AddRef() override;
@@ -77,12 +80,14 @@ class PolicyBase final : public TargetPolicy {
   void AddRestrictingRandomSid() override;
   ResultCode AddAppContainerProfile(const wchar_t* package_name,
                                     bool create_profile) override;
-  scoped_refptr<AppContainerProfile> GetAppContainerProfile() override;
+  scoped_refptr<AppContainer> GetAppContainer() override;
   void SetEffectiveToken(HANDLE token) override;
   std::unique_ptr<PolicyInfo> GetPolicyInfo() override;
+  void SetAllowNoSandboxJob() override;
+  bool GetAllowNoSandboxJob() override;
 
   // Get the AppContainer profile as its internal type.
-  scoped_refptr<AppContainerProfileBase> GetAppContainerProfileBase();
+  scoped_refptr<AppContainerBase> GetAppContainerBase();
 
   // Creates a Job object with the level specified in a previous call to
   // SetJobLevel().
@@ -173,8 +178,6 @@ class PolicyBase final : public TargetPolicy {
   // target process. A null set means we need to close all handles of the
   // given type.
   HandleCloser handle_closer_;
-  PSID lowbox_sid_;
-  base::win::ScopedHandle lowbox_directory_;
   std::unique_ptr<Dispatcher> dispatcher_;
   bool lockdown_default_dacl_;
   bool add_restricting_random_sid_;
@@ -191,11 +194,10 @@ class PolicyBase final : public TargetPolicy {
   // shared with the target at times.
   base::HandlesToInheritVector handles_to_share_;
 
-  scoped_refptr<AppContainerProfileBase> app_container_profile_;
+  scoped_refptr<AppContainerBase> app_container_;
 
   HANDLE effective_token_;
-
-  DISALLOW_COPY_AND_ASSIGN(PolicyBase);
+  bool allow_no_sandbox_job_;
 };
 
 }  // namespace sandbox

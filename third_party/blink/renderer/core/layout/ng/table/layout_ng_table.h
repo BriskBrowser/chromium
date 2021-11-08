@@ -5,9 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_LAYOUT_NG_TABLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_LAYOUT_NG_TABLE_H_
 
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/layout_block.h"
-#include "third_party/blink/renderer/core/layout/ng/layout_ng_mixin.h"
+#include "third_party/blink/renderer/core/layout/ng/layout_ng_block.h"
 #include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_interface.h"
 #include "third_party/blink/renderer/core/layout/ng/table/ng_table_layout_algorithm_types.h"
 
@@ -31,10 +31,11 @@ class NGTableBorders;
 // on LayoutObject. They are invalidated inside
 // LayoutObject::SetNeeds*Layout.
 
-class CORE_EXPORT LayoutNGTable : public LayoutNGMixin<LayoutBlock>,
+class CORE_EXPORT LayoutNGTable : public LayoutNGBlock,
                                   public LayoutNGTableInterface {
  public:
   explicit LayoutNGTable(Element*);
+  ~LayoutNGTable() override;
 
   // TODO(atotic) Replace all H/VBorderSpacing with BorderSpacing?
   LogicalSize BorderSpacing() const {
@@ -49,10 +50,10 @@ class CORE_EXPORT LayoutNGTable : public LayoutNGMixin<LayoutBlock>,
 
   const NGTableBorders* GetCachedTableBorders() const {
     NOT_DESTROYED();
-    return cached_table_borders_;
+    return cached_table_borders_.get();
   }
 
-  void SetCachedTableBorders(const NGTableBorders*);
+  void SetCachedTableBorders(scoped_refptr<const NGTableBorders>);
 
   const NGTableTypes::Columns* GetCachedTableColumnConstraints();
 
@@ -90,8 +91,6 @@ class CORE_EXPORT LayoutNGTable : public LayoutNGMixin<LayoutBlock>,
   LayoutBox* CreateAnonymousBoxWithSameTypeAs(
       const LayoutObject* parent) const override;
 
-  void Paint(const PaintInfo&) const final;
-
   LayoutUnit BorderTop() const override;
 
   LayoutUnit BorderBottom() const override;
@@ -119,14 +118,25 @@ class CORE_EXPORT LayoutNGTable : public LayoutNGMixin<LayoutBlock>,
   PhysicalRect OverflowClipRect(const PhysicalOffset&,
                                 OverlayScrollbarClipBehavior) const override;
 
+#if DCHECK_IS_ON()
   void AddVisualEffectOverflow() final;
+#endif
 
   bool VisualRectRespectsVisibility() const override {
     NOT_DESTROYED();
     return false;
   }
 
-  void Trace(Visitor*) const override;
+  // Whether a table has opaque foreground depends on many factors, e.g. border
+  // spacing, missing cells, etc. For simplicity, just conservatively assume
+  // foreground of all tables are not opaque.
+  // Copied from LayoutTable.
+  bool ForegroundIsKnownToBeOpaqueInRect(
+      const PhysicalRect& local_rect,
+      unsigned max_depth_to_test) const override {
+    NOT_DESTROYED();
+    return false;
+  }
 
   // LayoutBlock methods end.
 
@@ -233,7 +243,7 @@ class CORE_EXPORT LayoutNGTable : public LayoutNGMixin<LayoutBlock>,
   void InvalidateCachedTableBorders();
 
   // Table borders are cached because computing collapsed borders is expensive.
-  Member<const NGTableBorders> cached_table_borders_;
+  scoped_refptr<const NGTableBorders> cached_table_borders_;
 
   // Table columns do not depend on any outside data (e.g. NGConstraintSpace).
   // They are cached because computing them is expensive.

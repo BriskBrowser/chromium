@@ -8,10 +8,10 @@
 #include <set>
 #include <string>
 
-#include "base/optional.h"
 #include "base/values.h"
 #include "chrome/browser/enterprise/connectors/common.h"
 #include "chrome/browser/enterprise/connectors/service_provider_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace enterprise_connectors {
 
@@ -24,19 +24,23 @@ class ReportingServiceSettings {
   ReportingServiceSettings(ReportingServiceSettings&&);
   ~ReportingServiceSettings();
 
-  // Get the settings to apply to a specific report. base::nullopt implies no
+  // Get the settings to apply to a specific report. absl::nullopt implies no
   // report should take place.
-  base::Optional<ReportingSettings> GetReportingSettings() const;
+  absl::optional<ReportingSettings> GetReportingSettings() const;
+
+  std::string service_provider_name() const { return service_provider_name_; }
 
  private:
   // Returns true if the settings were initialized correctly. If this returns
-  // false, then GetAnalysisSettings will always return base::nullopt.
+  // false, then GetAnalysisSettings will always return absl::nullopt.
   bool IsValid() const;
 
   // The service provider matching the name given in a Connector policy. nullptr
   // implies that a corresponding service provider doesn't exist and that these
   // settings are not valid.
   const ServiceProviderConfig::ServiceProvider* service_provider_ = nullptr;
+
+  std::string service_provider_name_;
 
   // The events that are enabled for the current service provider.
   std::set<std::string> enabled_event_names_;

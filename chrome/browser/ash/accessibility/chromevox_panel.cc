@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ash/accessibility/chromevox_panel.h"
 
+#include <memory>
+
 #include "ash/public/cpp/accessibility_controller.h"
 #include "ash/public/cpp/accessibility_controller_enums.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
@@ -11,6 +13,7 @@
 #include "extensions/common/constants.h"
 #include "ui/views/widget/widget.h"
 
+namespace ash {
 namespace {
 
 const char kChromeVoxPanelRelativeUrl[] = "/chromevox/panel/panel.html";
@@ -28,6 +31,12 @@ class ChromeVoxPanel::ChromeVoxPanelWebContentsObserver
   ChromeVoxPanelWebContentsObserver(content::WebContents* web_contents,
                                     ChromeVoxPanel* panel)
       : content::WebContentsObserver(web_contents), panel_(panel) {}
+
+  ChromeVoxPanelWebContentsObserver(const ChromeVoxPanelWebContentsObserver&) =
+      delete;
+  ChromeVoxPanelWebContentsObserver& operator=(
+      const ChromeVoxPanelWebContentsObserver&) = delete;
+
   ~ChromeVoxPanelWebContentsObserver() override {}
 
   void DidFinishNavigation(
@@ -47,14 +56,12 @@ class ChromeVoxPanel::ChromeVoxPanelWebContentsObserver
 
  private:
   ChromeVoxPanel* panel_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeVoxPanelWebContentsObserver);
 };
 
 ChromeVoxPanel::ChromeVoxPanel(content::BrowserContext* browser_context)
     : AccessibilityPanel(browser_context, GetUrlForContent(), kWidgetName) {
-  web_contents_observer_.reset(
-      new ChromeVoxPanelWebContentsObserver(GetWebContents(), this));
+  web_contents_observer_ = std::make_unique<ChromeVoxPanelWebContentsObserver>(
+      GetWebContents(), this);
 
   SetAccessibilityPanelFullscreen(false);
 }
@@ -80,10 +87,9 @@ void ChromeVoxPanel::Focus() {
 
 void ChromeVoxPanel::SetAccessibilityPanelFullscreen(bool fullscreen) {
   gfx::Rect bounds(0, 0, 0, kPanelHeight);
-  auto state = fullscreen ? ash::AccessibilityPanelState::FULLSCREEN
-                          : ash::AccessibilityPanelState::FULL_WIDTH;
-  ash::AccessibilityController::Get()->SetAccessibilityPanelBounds(bounds,
-                                                                   state);
+  auto state = fullscreen ? AccessibilityPanelState::FULLSCREEN
+                          : AccessibilityPanelState::FULL_WIDTH;
+  AccessibilityController::Get()->SetAccessibilityPanelBounds(bounds, state);
 }
 
 std::string ChromeVoxPanel::GetUrlForContent() {
@@ -93,3 +99,5 @@ std::string ChromeVoxPanel::GetUrlForContent() {
 
   return url;
 }
+
+}  // namespace ash

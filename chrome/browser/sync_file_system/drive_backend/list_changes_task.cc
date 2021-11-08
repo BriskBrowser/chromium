@@ -9,9 +9,9 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/cxx20_erase.h"
 #include "base/format_macros.h"
 #include "base/location.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_util.h"
 #include "chrome/browser/sync_file_system/drive_backend/metadata_database.h"
@@ -30,8 +30,7 @@ namespace drive_backend {
 ListChangesTask::ListChangesTask(SyncEngineContext* sync_context)
     : sync_context_(sync_context) {}
 
-ListChangesTask::~ListChangesTask() {
-}
+ListChangesTask::~ListChangesTask() = default;
 
 void ListChangesTask::RunPreflight(std::unique_ptr<SyncTaskToken> token) {
   token->InitializeTaskLog("List Changes");
@@ -51,15 +50,15 @@ void ListChangesTask::RunPreflight(std::unique_ptr<SyncTaskToken> token) {
 void ListChangesTask::StartListing(std::unique_ptr<SyncTaskToken> token) {
   drive_service()->GetChangeList(
       metadata_database()->GetLargestFetchedChangeID() + 1,
-      base::Bind(&ListChangesTask::DidListChanges,
-                 weak_ptr_factory_.GetWeakPtr(), base::Passed(&token)));
+      base::BindOnce(&ListChangesTask::DidListChanges,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(token)));
 }
 
 void ListChangesTask::DidListChanges(
     std::unique_ptr<SyncTaskToken> token,
-    google_apis::DriveApiErrorCode error,
+    google_apis::ApiErrorCode error,
     std::unique_ptr<google_apis::ChangeList> change_list) {
-  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = ApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     token->RecordLog("Failed to fetch change list.");
     SyncTaskManager::NotifyTaskDone(std::move(token),
@@ -93,10 +92,8 @@ void ListChangesTask::DidListChanges(
   if (!change_list->next_link().is_empty()) {
     drive_service()->GetRemainingChangeList(
         change_list->next_link(),
-        base::Bind(
-            &ListChangesTask::DidListChanges,
-            weak_ptr_factory_.GetWeakPtr(),
-            base::Passed(&token)));
+        base::BindOnce(&ListChangesTask::DidListChanges,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(token)));
     return;
   }
 
@@ -111,16 +108,16 @@ void ListChangesTask::DidListChanges(
   task_blocker->exclusive = true;
   SyncTaskManager::UpdateTaskBlocker(
       std::move(token), std::move(task_blocker),
-      base::Bind(&ListChangesTask::CheckInChangeList,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 change_list->largest_change_id()));
+      base::BindOnce(&ListChangesTask::CheckInChangeList,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     change_list->largest_change_id()));
 }
 
 void ListChangesTask::CheckInChangeList(int64_t largest_change_id,
                                         std::unique_ptr<SyncTaskToken> token) {
-  token->RecordLog(base::StringPrintf(
-      "Got %" PRIuS " changes, updating MetadataDatabase.",
-      change_list_.size()));
+  token->RecordLog(base::StringPrintf("Got %" PRIuS
+                                      " changes, updating MetadataDatabase.",
+                                      change_list_.size()));
 
   DCHECK(file_ids_.empty());
   file_ids_.reserve(change_list_.size());
@@ -140,7 +137,7 @@ void ListChangesTask::CheckInChangeList(int64_t largest_change_id,
 
 bool ListChangesTask::IsContextReady() {
   return sync_context_->GetMetadataDatabase() &&
-      sync_context_->GetDriveService();
+         sync_context_->GetDriveService();
 }
 
 MetadataDatabase* ListChangesTask::metadata_database() {

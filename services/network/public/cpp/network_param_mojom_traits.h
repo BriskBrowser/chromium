@@ -8,6 +8,7 @@
 #include "base/component_export.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "net/base/auth.h"
+#include "net/dns/public/resolve_error_info.h"
 #include "net/http/http_version.h"
 #include "services/network/public/mojom/network_param.mojom-shared.h"
 #include "url/mojom/origin_mojom_traits.h"
@@ -15,7 +16,7 @@
 namespace mojo {
 
 template <>
-class COMPONENT_EXPORT(NETWORK_CPP_BASE)
+class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
     StructTraits<network::mojom::AuthChallengeInfoDataView,
                  net::AuthChallengeInfo> {
  public:
@@ -48,7 +49,7 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE)
 };
 
 template <>
-class COMPONENT_EXPORT(NETWORK_CPP_BASE)
+class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
     StructTraits<network::mojom::HttpVersionDataView, net::HttpVersion> {
  public:
   static int16_t major_value(net::HttpVersion version) {
@@ -60,6 +61,24 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE)
 
   static bool Read(network::mojom::HttpVersionDataView data,
                    net::HttpVersion* out);
+};
+
+template <>
+class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
+    StructTraits<network::mojom::ResolveErrorInfoDataView,
+                 net::ResolveErrorInfo> {
+ public:
+  static int error(const net::ResolveErrorInfo& resolve_error_info) {
+    return resolve_error_info.error;
+  }
+
+  static bool is_secure_network_error(
+      const net::ResolveErrorInfo& resolve_error_info) {
+    return resolve_error_info.is_secure_network_error;
+  }
+
+  static bool Read(network::mojom::ResolveErrorInfoDataView data,
+                   net::ResolveErrorInfo* out);
 };
 
 }  // namespace mojo

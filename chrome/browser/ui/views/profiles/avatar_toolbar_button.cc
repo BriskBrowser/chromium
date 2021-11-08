@@ -10,10 +10,13 @@
 #include "base/compiler_specific.h"
 #include "base/feature_list.h"
 #include "base/notreached.h"
+#include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/profiles/avatar_menu.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
+#include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -21,10 +24,16 @@
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
+#include "chrome/browser/ui/views/chrome_view_class_properties.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/profiles/avatar_toolbar_button_delegate.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
+#include "chrome/browser/ui/views/user_education/feature_promo_controller_views.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/feature_engagement/public/feature_constants.h"
+#include "components/feature_engagement/public/tracker.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/color_palette.h"
@@ -33,7 +42,6 @@
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/button_controller.h"
 #include "ui/views/controls/button/label_button_border.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -43,16 +51,23 @@ constexpr int kIconSizeForNonTouchUi = 22;
 
 }  // namespace
 
-AvatarToolbarButton::AvatarToolbarButton(Browser* browser)
-    : AvatarToolbarButton(browser, nullptr) {}
+// static
+base::TimeDelta AvatarToolbarButton::g_iph_min_delay_after_creation =
+    base::Seconds(2);
 
-AvatarToolbarButton::AvatarToolbarButton(Browser* browser,
+AvatarToolbarButton::AvatarToolbarButton(BrowserView* browser_view)
+    : AvatarToolbarButton(browser_view, nullptr) {}
+
+AvatarToolbarButton::AvatarToolbarButton(BrowserView* browser_view,
                                          ToolbarIconContainerView* parent)
-    : ToolbarButton(PressedCallback()),
-      delegate_(std::make_unique<AvatarToolbarButtonDelegate>()),
-      browser_(browser),
-      parent_(parent) {
-  delegate_->Init(this, browser_->profile());
+    : ToolbarButton(base::BindRepeating(&AvatarToolbarButton::ButtonPressed,
+                                        base::Unretained(this))),
+      browser_(browser_view->browser()),
+      parent_(parent),
+      creation_time_(base::TimeTicks::Now()),
+      feature_promo_controller_(browser_view->feature_promo_controller()) {
+  delegate_ =
+      std::make_unique<AvatarToolbarButtonDelegate>(this, browser_->profile());
 
   // Activate on press for left-mouse-button only to mimic other MenuButtons
   // without drag-drop actions (specifically the adjacent browser menu).
@@ -95,7 +110,7 @@ void AvatarToolbarButton::UpdateIcon() {
   gfx::Image gaia_account_image = delegate_->GetGaiaAccountImage();
   for (auto state : kButtonStates)
     SetImageModel(state, GetAvatarIcon(state, gaia_account_image));
-  delegate_->ShowIdentityAnimation(gaia_account_image);
+  delegate_->MaybeShowIdentityAnimation(gaia_account_image);
 
   SetInsets();
 }
@@ -121,8 +136,8 @@ void AvatarToolbarButton::Layout() {
 }
 
 void AvatarToolbarButton::UpdateText() {
-  base::Optional<SkColor> color;
-  base::string16 text;
+  absl::optional<SkColor> color;
+  std::u16string text;
 
   switch (delegate_->GetState()) {
     case State::kIncognitoProfile: {
@@ -137,7 +152,6 @@ void AvatarToolbarButton::UpdateText() {
       text = delegate_->GetShortProfileName();
       break;
     }
-    case State::kPasswordsOnlySyncError:
     case State::kSyncError:
       color = AdjustHighlightColorForContrast(
           GetThemeProvider(), gfx::kGoogleRed300, gfx::kGoogleRed600,
@@ -151,14 +165,21 @@ void AvatarToolbarButton::UpdateText() {
       text = l10n_util::GetStringUTF16(IDS_AVATAR_BUTTON_SYNC_PAUSED);
       break;
     case State::kGuestSession: {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      // On ChromeOS all windows are either Guest or not Guest and the Guest
+      // avatar button is not actionable. Showing the number of open windows is
+      // not as helpful as on other desktop platforms. Please see
+      // crbug.com/1178520.
+      const int guest_window_count = 1;
+#else
       const int guest_window_count = delegate_->GetWindowCount();
+#endif
       SetAccessibleName(l10n_util::GetPluralStringFUTF16(
           IDS_GUEST_BUBBLE_ACCESSIBLE_TITLE, guest_window_count));
       text = l10n_util::GetPluralStringFUTF16(IDS_AVATAR_BUTTON_GUEST,
                                               guest_window_count);
       break;
     }
-    case State::kGenericProfile:
     case State::kNormal:
       if (delegate_->IsHighlightAnimationVisible()) {
         color = AdjustHighlightColorForContrast(
@@ -202,6 +223,14 @@ void AvatarToolbarButton::NotifyHighlightAnimationFinished() {
     observer.OnAvatarHighlightAnimationFinished();
 }
 
+void AvatarToolbarButton::MaybeShowProfileSwitchIPH() {
+  // If the tracker is already initialized, the callback is called immediately.
+  feature_promo_controller_->feature_engagement_tracker()
+      ->AddOnInitializedCallback(base::BindOnce(
+          &AvatarToolbarButton::MaybeShowProfileSwitchIPHInitialized,
+          weak_ptr_factory_.GetWeakPtr()));
+}
+
 void AvatarToolbarButton::OnMouseExited(const ui::MouseEvent& event) {
   delegate_->OnMouseExited();
   ToolbarButton::OnMouseExited(event);
@@ -222,44 +251,52 @@ void AvatarToolbarButton::OnHighlightChanged() {
   delegate_->OnHighlightChanged();
 }
 
-void AvatarToolbarButton::NotifyClick(const ui::Event& event) {
-  Button::NotifyClick(event);
-  delegate_->NotifyClick();
-  // TODO(bsep): Other toolbar buttons have a ToolbarView method as a callback
-  // and let it call ExecuteCommandWithDisposition on their behalf.
-  // Unfortunately, it's not possible to plumb IsKeyEvent through, so this has
-  // to be a special case.
+// static
+void AvatarToolbarButton::SetIPHMinDelayAfterCreationForTesting(
+    base::TimeDelta delay) {
+  g_iph_min_delay_after_creation = delay;
+}
+
+void AvatarToolbarButton::ButtonPressed() {
   browser_->window()->ShowAvatarBubbleFromAvatarButton(
       BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT,
       signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN,
-      event.IsKeyEvent());
+      /*is_source_accelerator=*/false);
 }
 
-base::string16 AvatarToolbarButton::GetAvatarTooltipText() const {
+void AvatarToolbarButton::AfterPropertyChange(const void* key,
+                                              int64_t old_value) {
+  if (key == kHasInProductHelpPromoKey)
+    delegate_->SetHasInProductHelpPromo(GetProperty(kHasInProductHelpPromoKey));
+  ToolbarButton::AfterPropertyChange(key, old_value);
+}
+
+std::u16string AvatarToolbarButton::GetAvatarTooltipText() const {
   switch (delegate_->GetState()) {
     case State::kIncognitoProfile:
       return l10n_util::GetStringUTF16(IDS_AVATAR_BUTTON_INCOGNITO_TOOLTIP);
     case State::kGuestSession:
       return l10n_util::GetStringUTF16(IDS_AVATAR_BUTTON_GUEST_TOOLTIP);
-    case State::kGenericProfile:
-      return l10n_util::GetStringUTF16(IDS_GENERIC_USER_AVATAR_LABEL);
     case State::kAnimatedUserIdentity:
       return delegate_->GetShortProfileName();
-    case State::kPasswordsOnlySyncError:
-      return l10n_util::GetStringFUTF16(
-          IDS_AVATAR_BUTTON_SYNC_ERROR_PASSWORDS_TOOLTIP,
-          delegate_->GetProfileName());
+    // kSyncPaused is just a type of sync error with different color, but should
+    // still use GetAvatarSyncErrorDescription() as tooltip.
     case State::kSyncError:
-      return l10n_util::GetStringFUTF16(IDS_AVATAR_BUTTON_SYNC_ERROR_TOOLTIP,
-                                        delegate_->GetProfileName());
-    case State::kSyncPaused:
-      return l10n_util::GetStringFUTF16(IDS_AVATAR_BUTTON_SYNC_PAUSED_TOOLTIP,
-                                        delegate_->GetProfileName());
+    case State::kSyncPaused: {
+      absl::optional<AvatarSyncErrorType> error =
+          delegate_->GetAvatarSyncErrorType();
+      DCHECK(error);
+      return l10n_util::GetStringFUTF16(
+          IDS_AVATAR_BUTTON_SYNC_ERROR_TOOLTIP,
+          delegate_->GetShortProfileName(),
+          GetAvatarSyncErrorDescription(*error,
+                                        delegate_->IsSyncFeatureEnabled()));
+    }
     case State::kNormal:
       return delegate_->GetProfileName();
   }
   NOTREACHED();
-  return base::string16();
+  return std::u16string();
 }
 
 ui::ImageModel AvatarToolbarButton::GetAvatarIcon(
@@ -276,15 +313,10 @@ ui::ImageModel AvatarToolbarButton::GetAvatarIcon(
                                             icon_size);
     case State::kGuestSession:
       return profiles::GetGuestAvatar(icon_size);
-    case State::kGenericProfile:
-      if (!base::FeatureList::IsEnabled(features::kNewProfilePicker)) {
-        return ui::ImageModel::FromVectorIcon(kUserAccountAvatarIcon,
-                                              icon_color, icon_size);
-      }
-      FALLTHROUGH;
     case State::kAnimatedUserIdentity:
-    case State::kPasswordsOnlySyncError:
     case State::kSyncError:
+    // TODO(crbug.com/1191411): If sync-the-feature is disabled, the icon should
+    // be different.
     case State::kSyncPaused:
     case State::kNormal:
       return ui::ImageModel::FromImage(profiles::GetSizedAvatarIcon(
@@ -302,6 +334,31 @@ void AvatarToolbarButton::SetInsets() {
   gfx::Insets layout_insets(
       touch_ui ? 0 : (kDefaultIconSize - kIconSizeForNonTouchUi) / 2);
   SetLayoutInsetDelta(layout_insets);
+}
+
+void AvatarToolbarButton::MaybeShowProfileSwitchIPHInitialized(bool success) {
+  if (!success)
+    return;  // IPH system initialization failed.
+
+  // Prevent showing the promo right when the browser was created. Wait a small
+  // delay for a smoother animation.
+  base::TimeDelta time_since_creation = base::TimeTicks::Now() - creation_time_;
+  if (time_since_creation < g_iph_min_delay_after_creation) {
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(
+            &AvatarToolbarButton::MaybeShowProfileSwitchIPHInitialized,
+            weak_ptr_factory_.GetWeakPtr(), /*success=*/true),
+        g_iph_min_delay_after_creation - time_since_creation);
+    return;
+  }
+
+  DCHECK(
+      feature_promo_controller_->feature_engagement_tracker()->IsInitialized());
+  if (browser_->window()->IsActive() ||
+      FeaturePromoControllerViews::IsActiveWindowCheckBlockedForTesting())
+    feature_promo_controller_->MaybeShowPromo(
+        feature_engagement::kIPHProfileSwitchFeature);
 }
 
 BEGIN_METADATA(AvatarToolbarButton, ToolbarButton)

@@ -71,6 +71,11 @@ public final class EventConstants {
     public static final String PREVIEWS_PAGE_LOADED = "preview_page_load";
 
     /**
+     * Add to homescreen events.
+     */
+    public static final String ADD_TO_HOMESCREEN_DIALOG_SHOWN = "add_to_homescreen_dialog_shown";
+
+    /**
      * Contextual Search panel was opened.
      */
     public static final String CONTEXTUAL_SEARCH_PANEL_OPENED = "contextual_search_panel_opened";
@@ -120,6 +125,12 @@ public final class EventConstants {
      */
     public static final String CONTEXTUAL_SEARCH_TAPPED_BUT_SHOULD_LONGPRESS =
             "contextual_search_tapped_but_should_longpress";
+
+    /**
+     * Contextual Search acknowledged the suggestion that they should longpress instead of tap.
+     */
+    public static final String CONTEXTUAL_SEARCH_ACKNOWLEDGED_IN_PANEL_HELP =
+            "contextual_search_acknowledged_in_panel_help";
 
     /**
      * Contextual Search user fully enabled access to page content through the opt-in.
@@ -172,6 +183,9 @@ public final class EventConstants {
     /** User has used Ephemeral Tab i.e. opened and browsed the content. */
     public static final String EPHEMERAL_TAB_USED = "ephemeral_tab_used";
 
+    /** 'Manage windows' menu for multi-instance support feature was tapped. */
+    public static final String INSTANCE_SWITCHER_IPH_USED = "instance_switcher_iph_used";
+
     /** HomepagePromo has been accepted. */
     public static final String NTP_SHOWN = "ntp_shown";
     public static final String NTP_HOME_BUTTON_CLICKED = "ntp_homebutton_clicked";
@@ -218,11 +232,57 @@ public final class EventConstants {
     /** PageInfo events. */
     public static final String PAGE_INFO_OPENED = "page_info_opened";
 
+    /** PageInfoStoreInfo events. */
+    public static final String PAGE_INFO_STORE_INFO_ROW_CLICKED =
+            "page_info_store_info_row_clicked";
+
     /** Permission events. */
     public static final String PERMISSION_REQUEST_SHOWN = "permission_request_shown";
 
     /** Screenshot events */
     public static final String SHARE_SCREENSHOT_SELECTED = "share_screenshot_clicked";
+
+    /** Sharing Hub link toggle events. */
+    public static final String SHARING_HUB_LINK_TOGGLE_CLICKED = "sharing_hub_link_toggle_clicked";
+
+    /** Mic toolbar IPH event */
+    public static final String SUCCESSFUL_VOICE_SEARCH = "successful_voice_search";
+
+    /** AdaptiveButtonInTopToolbarCustomization new tab events. */
+    public static final String ADAPTIVE_TOOLBAR_CUSTOMIZATION_NEW_TAB_OPENED =
+            "adaptive_toolbar_customization_new_tab_opened";
+
+    /** AdaptiveButtonInTopToolbarCustomization share events. */
+    public static final String ADAPTIVE_TOOLBAR_CUSTOMIZATION_SHARE_OPENED =
+            "adaptive_toolbar_customization_share_opened";
+
+    /** AdaptiveButtonInTopToolbarCustomization voice search events. */
+    public static final String ADAPTIVE_TOOLBAR_CUSTOMIZATION_VOICE_SEARCH_OPENED =
+            "adaptive_toolbar_customization_voice_search_opened";
+
+    /** WebFeed events. */
+    public static final String WEB_FEED_FOLLOW_INTRO_CLICKED = "web_feed_follow_intro_clicked";
+
+    /** Tab switcher home button events. */
+    public static final String START_SURFACE_TAB_SWITCHER_HOME_BUTTON_CLICKED =
+            "start_surface_tab_switcher_home_button_clicked";
+
+    /** Shared Highlighting button event */
+    public static final String IPH_SHARED_HIGHLIGHTING_BUTTON_CLICKED =
+            "iph_shared_highlighting_button_clicked";
+
+    /** Webnotes Stylize feature used from Sharing Hub */
+    public static final String SHARING_HUB_WEBNOTES_STYLIZE_USED =
+            "sharing_hub_webnotes_stylize_used";
+
+    /** AutoDark disabled from app menu events. */
+    public static final String AUTO_DARK_DISABLED_IN_APP_MENU = "auto_dark_disabled_in_app_menu";
+
+    /** AutoDark theme settings opened while feature enabled. */
+    public static final String AUTO_DARK_SETTINGS_OPENED = "auto_dark_settings_opened";
+
+    /** The feed swipe refresh event. */
+    public static final String FEED_SWIPE_REFRESHED = "feed_swipe_refresh_shown";
 
     /**
      * Do not instantiate.

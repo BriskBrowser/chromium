@@ -46,6 +46,9 @@ class ReputationServiceFactory : public BrowserContextKeyedServiceFactory {
     return base::Singleton<ReputationServiceFactory>::get();
   }
 
+  ReputationServiceFactory(const ReputationServiceFactory&) = delete;
+  ReputationServiceFactory& operator=(const ReputationServiceFactory&) = delete;
+
  private:
   friend struct base::DefaultSingletonTraits<ReputationServiceFactory>;
 
@@ -66,8 +69,6 @@ class ReputationServiceFactory : public BrowserContextKeyedServiceFactory {
       content::BrowserContext* context) const override {
     return chrome::GetBrowserContextOwnInstanceInIncognito(context);
   }
-
-  DISALLOW_COPY_AND_ASSIGN(ReputationServiceFactory);
 };
 
 // Returns whether or not the Safety Tip should be suppressed for the given URL.
@@ -158,6 +159,11 @@ void ReputationService::SetSensitiveKeywordsForTesting(
     size_t num_new_keywords) {
   sensitive_keywords_ = new_keywords;
   num_sensitive_keywords_ = num_new_keywords;
+}
+
+void ReputationService::ResetSensitiveKeywordsForTesting() {
+  sensitive_keywords_ = top500_domains::kTopKeywords;
+  num_sensitive_keywords_ = top500_domains::kNumTopKeywords;
 }
 
 void ReputationService::GetReputationStatusWithEngagedSites(

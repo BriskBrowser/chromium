@@ -29,6 +29,11 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramerVisitorInterface {
  public:
   BufferedSpdyFramerVisitorInterface() {}
 
+  BufferedSpdyFramerVisitorInterface(
+      const BufferedSpdyFramerVisitorInterface&) = delete;
+  BufferedSpdyFramerVisitorInterface& operator=(
+      const BufferedSpdyFramerVisitorInterface&) = delete;
+
   // Called if an error is detected in the spdy::SpdySerializedFrame protocol.
   virtual void OnError(
       http2::Http2DecoderAdapter::SpdyFramerError spdy_framer_error) = 0;
@@ -119,9 +124,6 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramerVisitorInterface {
 
  protected:
   virtual ~BufferedSpdyFramerVisitorInterface() {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BufferedSpdyFramerVisitorInterface);
 };
 
 class NET_EXPORT_PRIVATE BufferedSpdyFramer
@@ -133,6 +135,10 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
                      const NetLogWithSource& net_log,
                      TimeFunc time_func = base::TimeTicks::Now);
   BufferedSpdyFramer() = delete;
+
+  BufferedSpdyFramer(const BufferedSpdyFramer&) = delete;
+  BufferedSpdyFramer& operator=(const BufferedSpdyFramer&) = delete;
+
   ~BufferedSpdyFramer() override;
 
   // Sets callbacks to be called from the buffered spdy framer.  A visitor must
@@ -239,9 +245,6 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
   // Returns the maximum size of the header encoder compression table.
   uint32_t header_encoder_table_size() const;
 
-  // Returns the estimate of dynamically allocated memory in bytes.
-  size_t EstimateMemoryUsage() const;
-
  private:
   spdy::SpdyFramer spdy_framer_;
   http2::Http2DecoderAdapter deframer_;
@@ -274,9 +277,6 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
     spdy::SpdyStreamId last_accepted_stream_id;
     spdy::SpdyErrorCode error_code;
     std::string debug_data;
-
-    // Returns the estimate of dynamically allocated memory in bytes.
-    size_t EstimateMemoryUsage() const;
   };
   std::unique_ptr<GoAwayFields> goaway_fields_;
 
@@ -285,8 +285,6 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
   const uint32_t max_header_list_size_;
   NetLogWithSource net_log_;
   TimeFunc time_func_;
-
-  DISALLOW_COPY_AND_ASSIGN(BufferedSpdyFramer);
 };
 
 }  // namespace net

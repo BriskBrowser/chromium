@@ -13,8 +13,7 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
-#include "base/strings/string16.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/common/buildflags.h"
@@ -58,11 +57,11 @@ class AvatarMenu :
     bool active;
 
     // The name of this profile.
-    base::string16 name;
+    std::u16string name;
 
     // A string representing the username of the profile, if signed in.  Empty
     // when not signed in.
-    base::string16 username;
+    std::u16string username;
 
     // Whether or not the current profile is signed in. If true, |sync_state| is
     // expected to be the email of the signed in user.
@@ -104,6 +103,10 @@ class AvatarMenu :
   AvatarMenu(ProfileAttributesStorage* profile_storage,
              AvatarMenuObserver* observer,
              Browser* browser);
+
+  AvatarMenu(const AvatarMenu&) = delete;
+  AvatarMenu& operator=(const AvatarMenu&) = delete;
+
   ~AvatarMenu() override;
 
   // Sets |image| to the avatar corresponding to the profile at |profile_path|.
@@ -145,7 +148,7 @@ class AvatarMenu :
   // Returns information about a supervised user which will be displayed in the
   // avatar menu. If the profile does not belong to a supervised user, an empty
   // string will be returned.
-  base::string16 GetSupervisedUserInformation() const;
+  std::u16string GetSupervisedUserInformation() const;
 
   // This menu is also used for the always-present Mac and Linux system menubar.
   // If the last active browser changes, the menu will need to reference that
@@ -162,9 +165,9 @@ class AvatarMenu :
   // ProfileAttributesStorage::Observer:
   void OnProfileAdded(const base::FilePath& profile_path) override;
   void OnProfileWasRemoved(const base::FilePath& profile_path,
-      const base::string16& profile_name) override;
+                           const std::u16string& profile_name) override;
   void OnProfileNameChanged(const base::FilePath& profile_path,
-      const base::string16& old_profile_name) override;
+                            const std::u16string& old_profile_name) override;
   void OnProfileAuthInfoChanged(const base::FilePath& profile_path) override;
   void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
   void OnProfileHighResAvatarLoaded(
@@ -189,8 +192,8 @@ class AvatarMenu :
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   // Observes changes to a supervised user's custodian info.
-  ScopedObserver<SupervisedUserService, SupervisedUserServiceObserver>
-      supervised_user_observer_{this};
+  base::ScopedObservation<SupervisedUserService, SupervisedUserServiceObserver>
+      supervised_user_observation_{this};
 #endif
 
   // The storage that provides the profile attributes.
@@ -201,8 +204,6 @@ class AvatarMenu :
 
   // Browser in which this avatar menu resides. Weak.
   Browser* browser_;
-
-  DISALLOW_COPY_AND_ASSIGN(AvatarMenu);
 };
 
 #endif  // CHROME_BROWSER_PROFILES_AVATAR_MENU_H_

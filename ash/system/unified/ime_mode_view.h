@@ -22,6 +22,10 @@ class ImeModeView : public TrayItemView,
                     public SessionObserver {
  public:
   explicit ImeModeView(Shelf* shelf);
+
+  ImeModeView(const ImeModeView&) = delete;
+  ImeModeView& operator=(const ImeModeView&) = delete;
+
   ~ImeModeView() override;
 
   // IMEObserver:
@@ -42,14 +46,15 @@ class ImeModeView : public TrayItemView,
   const char* GetClassName() const override;
   void HandleLocaleChange() override;
 
+  // views::View:
+  void OnThemeChanged() override;
+
  private:
   void Update();
 
   bool ime_menu_on_shelf_activated_ = false;
 
   ScopedSessionObserver session_observer_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ImeModeView);
 };
 
 }  // namespace ash

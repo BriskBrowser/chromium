@@ -117,8 +117,14 @@ enum ShelfLaunchSource {
   // The item was launched from an app list search view.
   LAUNCH_FROM_APP_LIST_SEARCH,
 
+  // The item was launched from an app list search Recommendation.
+  LAUNCH_FROM_APP_LIST_RECOMMENDATION,
+
   // The item was launched from the shelf itself.
   LAUNCH_FROM_SHELF,
+
+  // The item was launched internally, for example from test.
+  LAUNCH_FROM_INTERNAL,
 };
 
 // The actions that may be performed when a shelf item is selected.
@@ -157,7 +163,14 @@ enum ShelfItemType {
   // - Extension "V1" (legacy packaged and hosted) apps,
   // - Extension "V2" (platform) apps,
   // - ARC (App Runtime for Chrome - Android Play Store) apps.
+  // - Lacros.
   TYPE_APP,
+
+  // Similar to TYPE_BROWSER_SHORTCUT, but not pinned.
+  // This is for the Lacros migration.
+  // After Lacros is completely made, TYPE_BROWSER_SHORTCUT and
+  // TYPE_UNPINNED_BROWSER_SHORTCUT will be removed, eventually.
+  TYPE_UNPINNED_BROWSER_SHORTCUT,
 
   // Represents an open dialog.
   TYPE_DIALOG,

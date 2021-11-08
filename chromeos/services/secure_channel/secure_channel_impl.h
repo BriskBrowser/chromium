@@ -61,6 +61,9 @@ class SecureChannelImpl : public mojom::SecureChannel,
     static Factory* test_factory_;
   };
 
+  SecureChannelImpl(const SecureChannelImpl&) = delete;
+  SecureChannelImpl& operator=(const SecureChannelImpl&) = delete;
+
   ~SecureChannelImpl() override;
 
  private:
@@ -170,7 +173,7 @@ class SecureChannelImpl : public mojom::SecureChannel,
   // Validates |device| and adds it to the |remote_device_cache_| if it is
   // valid. If it is not valid, the reason is provided as a return type, and the
   // device is not added to the cache.
-  base::Optional<InvalidRemoteDeviceReason> AddDeviceToCacheIfPossible(
+  absl::optional<InvalidRemoteDeviceReason> AddDeviceToCacheIfPossible(
       ApiFunctionName api_fn_name,
       const multidevice::RemoteDevice& device,
       ConnectionMedium connection_medium);
@@ -190,8 +193,6 @@ class SecureChannelImpl : public mojom::SecureChannel,
   base::flat_map<ConnectionDetails,
                  std::vector<ConnectionRequestWaitingForDisconnection>>
       disconnecting_details_to_requests_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(SecureChannelImpl);
 };
 
 std::ostream& operator<<(std::ostream& stream,

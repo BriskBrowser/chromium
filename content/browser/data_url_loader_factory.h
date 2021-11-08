@@ -9,6 +9,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/cpp/self_deleting_url_loader_factory.h"
+#include "url/gurl.h"
 
 namespace content {
 
@@ -28,6 +29,9 @@ class DataURLLoaderFactory : public network::SelfDeletingURLLoaderFactory {
   static mojo::PendingRemote<network::mojom::URLLoaderFactory>
   CreateForOneSpecificUrl(const GURL& url);
 
+  DataURLLoaderFactory(const DataURLLoaderFactory&) = delete;
+  DataURLLoaderFactory& operator=(const DataURLLoaderFactory&) = delete;
+
  private:
   // Initializes a factory with a GURL, which is useful if this factory will
   // be used only once with a GURL that can be larger than the GURL
@@ -41,7 +45,6 @@ class DataURLLoaderFactory : public network::SelfDeletingURLLoaderFactory {
   ~DataURLLoaderFactory() override;
   void CreateLoaderAndStart(
       mojo::PendingReceiver<network::mojom::URLLoader> loader,
-      int32_t routing_id,
       int32_t request_id,
       uint32_t options,
       const network::ResourceRequest& request,
@@ -50,8 +53,6 @@ class DataURLLoaderFactory : public network::SelfDeletingURLLoaderFactory {
       override;
 
   GURL url_;
-
-  DISALLOW_COPY_AND_ASSIGN(DataURLLoaderFactory);
 };
 
 }  // namespace content

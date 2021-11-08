@@ -92,7 +92,7 @@ void WebSocket::Connect(net::CompletionOnceCallback callback) {
     }
     base::ListValue endpoints;
     for (auto endpoint : addresses)
-      endpoints.AppendString(endpoint.ToStringWithoutPort());
+      endpoints.Append(endpoint.ToStringWithoutPort());
     std::string json;
     CHECK(base::JSONWriter::Write(endpoints, &json));
     VLOG(0) << "resolved " << url_.HostNoBracketsPiece() << " to " << json;
@@ -111,8 +111,8 @@ void WebSocket::Connect(net::CompletionOnceCallback callback) {
   }
 
   net::NetLogSource source;
-  socket_.reset(
-      new net::TCPClientSocket(addresses, nullptr, nullptr, nullptr, source));
+  socket_ = std::make_unique<net::TCPClientSocket>(addresses, nullptr, nullptr,
+                                                   nullptr, source);
 
   state_ = CONNECTING;
   connect_callback_ = std::move(callback);
@@ -297,8 +297,23 @@ void WebSocket::OnReadDuringOpen(const char* data, int len) {
       DCHECK_EQ(0u, current_frame_offset_);
       is_current_frame_masked_ = header->masked;
       current_masking_key_ = header->masking_key;
-    }
+      switch (header->opcode) {
+        case net::WebSocketFrameHeader::kOpCodeText:
+          is_current_message_opcode_text_ = true;
+          break;
 
+        case net::WebSocketFrameHeader::kOpCodeContinuation:
+          // This doesn't change the opcode of the current message.
+          break;
+
+        default:
+          is_current_message_opcode_text_ = false;
+          break;
+      }
+    }
+    if (!is_current_message_opcode_text_) {
+      continue;
+    }
     auto& buffer = frame_chunks[i]->payload;
     std::vector<char> payload(buffer.begin(), buffer.end());
     if (is_current_frame_masked_) {

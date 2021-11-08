@@ -11,16 +11,16 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/cxx17_backports.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"  // For CHECK macros.
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -39,6 +39,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/server/http_server_request_info.h"
 #include "net/server/http_server_response_info.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/transitional_url_loader_factory_owner.h"
@@ -85,9 +86,11 @@ class WrapperURLLoaderFactory : public network::mojom::URLLoaderFactory {
       : url_loader_factory_(std::move(url_loader_factory)),
         network_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
 
+  WrapperURLLoaderFactory(const WrapperURLLoaderFactory&) = delete;
+  WrapperURLLoaderFactory& operator=(const WrapperURLLoaderFactory&) = delete;
+
   void CreateLoaderAndStart(
       mojo::PendingReceiver<network::mojom::URLLoader> loader,
-      int32_t routing_id,
       int32_t request_id,
       uint32_t options,
       const network::ResourceRequest& request,
@@ -96,14 +99,14 @@ class WrapperURLLoaderFactory : public network::mojom::URLLoaderFactory {
       override {
     if (network_task_runner_->RunsTasksInCurrentSequence()) {
       url_loader_factory_->CreateLoaderAndStart(
-          std::move(loader), routing_id, request_id, options, request,
-          std::move(client), traffic_annotation);
+          std::move(loader), request_id, options, request, std::move(client),
+          traffic_annotation);
     } else {
       network_task_runner_->PostTask(
           FROM_HERE,
           base::BindOnce(&WrapperURLLoaderFactory::CreateLoaderAndStart,
-                         base::Unretained(this), std::move(loader), routing_id,
-                         request_id, options, request, std::move(client),
+                         base::Unretained(this), std::move(loader), request_id,
+                         options, request, std::move(client),
                          traffic_annotation));
     }
   }
@@ -117,8 +120,6 @@ class WrapperURLLoaderFactory : public network::mojom::URLLoaderFactory {
 
   // Runner for URLRequestContextGetter network thread.
   scoped_refptr<base::SequencedTaskRunner> network_task_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(WrapperURLLoaderFactory);
 };
 
 CommandMapping::CommandMapping(HttpMethod method,
@@ -263,6 +264,20 @@ HttpHandler::HttpHandler(
           kGet, "session/:sessionId/element/active",
           WrapToCommand("GetActiveElement",
                         base::BindRepeating(&ExecuteGetActiveElement))),
+      CommandMapping(
+          kGet, "session/:sessionId/element/:id/shadow",
+          WrapToCommand("GetElementShadowRoot",
+                        base::BindRepeating(&ExecuteGetElementShadowRoot))),
+      CommandMapping(
+          kPost, "session/:sessionId/shadow/:id/element",
+          WrapToCommand(
+              "FindChildElementFromShadowRoot",
+              base::BindRepeating(&ExecuteFindChildElementFromShadowRoot, 50))),
+      CommandMapping(
+          kPost, "session/:sessionId/shadow/:id/elements",
+          WrapToCommand("FindChildElementsFromShadowRoot",
+                        base::BindRepeating(
+                            &ExecuteFindChildElementsFromShadowRoot, 50))),
       CommandMapping(
           kPost, "session/:sessionId/element",
           WrapToCommand("FindElement",
@@ -842,6 +857,13 @@ HttpHandler::HttpHandler(
                             &ExecuteWebAuthnCommand,
                             base::BindRepeating(&ExecuteSetUserVerified)))),
 
+      // Extensions for Secure Payment Confirmation API:
+      // https://w3c.github.io/secure-payment-confirmation/#sctn-automation
+      CommandMapping(
+          kPost, "session/:sessionId/secure-payment-confirmation/set-mode",
+          WrapToCommand("SetSPCTransactionMode",
+                        base::BindRepeating(&ExecuteSetSPCTransactionMode))),
+
       // Extension for Permissions Standard Automation "set permission" command:
       // https://w3c.github.io/permissions/#set-permission-command
       CommandMapping(kPost, "session/:sessionId/permissions",
@@ -973,7 +995,8 @@ HttpHandler::HttpHandler(
           WrapToCommand("SendCommandFromWebSocket",
                         base::BindRepeating(&ExecuteSendCommandFromWebSocket))),
   };
-  command_map_.reset(new CommandMap(commands, commands + base::size(commands)));
+  command_map_ =
+      std::make_unique<CommandMap>(commands, commands + base::size(commands));
 }
 
 HttpHandler::~HttpHandler() {}
@@ -1167,109 +1190,133 @@ HttpHandler::PrepareStandardResponse(
   std::unique_ptr<net::HttpServerResponseInfo> response;
   switch (status.code()) {
     case kOk:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_OK));
+      response = std::make_unique<net::HttpServerResponseInfo>(net::HTTP_OK);
       break;
     // error codes
     case kElementClickIntercepted:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_BAD_REQUEST);
       break;
     case kElementNotInteractable:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_BAD_REQUEST);
       break;
     case kInvalidArgument:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_BAD_REQUEST);
       break;
     case kInvalidCookieDomain:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_BAD_REQUEST);
       break;
     case kInvalidElementState:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_BAD_REQUEST);
       break;
     case kInvalidSelector:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_BAD_REQUEST);
       break;
     case kInvalidSessionId:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
     case kJavaScriptError:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kMoveTargetOutOfBounds:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kNoSuchAlert:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
     case kNoSuchCookie:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
     case kNoSuchElement:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
     case kNoSuchFrame:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
     case kNoSuchWindow:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
     case kScriptTimeout:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kSessionNotCreated:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kStaleElementReference:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
     case kTimeout:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kUnableToSetCookie:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kUnexpectedAlertOpen:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kUnknownCommand:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
     case kUnknownError:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kUnsupportedOperation:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
     case kTargetDetached:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_NOT_FOUND));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
 
     // TODO(kereliuk): evaluate the usage of these as they relate to the spec
     case kElementNotVisible:
     case kXPathLookupError:
     case kNoSuchExecutionContext:
-      response.reset(new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_BAD_REQUEST);
       break;
     case kChromeNotReachable:
     case kDisconnected:
     case kForbidden:
     case kTabCrashed:
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
+      break;
+    case kNoSuchShadowRoot:
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
+      break;
+    case kDetachedShadowRoot:
+      response =
+          std::make_unique<net::HttpServerResponseInfo>(net::HTTP_NOT_FOUND);
       break;
 
     default:
       DCHECK(false);
-      response.reset(
-          new net::HttpServerResponseInfo(net::HTTP_INTERNAL_SERVER_ERROR));
+      response = std::make_unique<net::HttpServerResponseInfo>(
+          net::HTTP_INTERNAL_SERVER_ERROR);
       break;
   }
 
@@ -1415,12 +1462,12 @@ bool MatchesCommand(const std::string& method,
       std::string name = command_path_parts[i];
       name.erase(0, 1);
       CHECK(name.length());
-      url::RawCanonOutputT<base::char16> output;
+      url::RawCanonOutputT<char16_t> output;
       url::DecodeURLEscapeSequences(
           path_parts[i].data(), path_parts[i].length(),
           url::DecodeURLMode::kUTF8OrIsomorphic, &output);
-      std::string decoded = base::UTF16ToASCII(
-          base::string16(output.data(), output.length()));
+      std::string decoded =
+          base::UTF16ToASCII(std::u16string(output.data(), output.length()));
       // Due to crbug.com/533361, the url decoding libraries decodes all of the
       // % escape sequences except for %%. We need to handle this case manually.
       // So, replacing all the instances of "%%" with "%".

@@ -99,13 +99,13 @@ class TestDialURLFetcher : public DialURLFetcher {
   ~TestDialURLFetcher() override;
   void Start(const GURL& url,
              const std::string& method,
-             const base::Optional<std::string>& post_data,
+             const absl::optional<std::string>& post_data,
              int max_retries,
              bool set_origin_header) override;
   MOCK_METHOD4(DoStart,
                void(const GURL&,
                     const std::string&,
-                    const base::Optional<std::string>&,
+                    const absl::optional<std::string>&,
                     int));
   void StartDownload() override;
 
@@ -117,6 +117,10 @@ class TestDialActivityManager : public DialActivityManager {
  public:
   TestDialActivityManager(DialAppDiscoveryService* app_discovery_service,
                           network::TestURLLoaderFactory* factory);
+
+  TestDialActivityManager(const TestDialActivityManager&) = delete;
+  TestDialActivityManager& operator=(const TestDialActivityManager&) = delete;
+
   ~TestDialActivityManager() override;
 
   std::unique_ptr<DialURLFetcher> CreateFetcher(
@@ -125,7 +129,7 @@ class TestDialActivityManager : public DialActivityManager {
 
   void SetExpectedRequest(const GURL& url,
                           const std::string& method,
-                          const base::Optional<std::string>& post_data);
+                          const absl::optional<std::string>& post_data);
 
   MOCK_METHOD0(OnFetcherCreated, void());
 
@@ -134,9 +138,7 @@ class TestDialActivityManager : public DialActivityManager {
 
   GURL expected_url_;
   std::string expected_method_;
-  base::Optional<std::string> expected_post_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestDialActivityManager);
+  absl::optional<std::string> expected_post_data_;
 };
 
 // Helper function to create an IP endpoint object.

@@ -5,16 +5,19 @@
 #include "ash/system/unified/unified_slider_view.h"
 
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/element_style.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/paint_vector_icon.h"
+#include "ui/gfx/vector_icon_utils.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/border.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/highlight_path_generator.h"
+#include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
@@ -93,12 +96,11 @@ UnifiedSliderButton::UnifiedSliderButton(PressedCallback callback,
     SetTooltipText(l10n_util::GetStringUTF16(accessible_name_id));
 
   SetVectorIcon(icon);
-  SetBorder(views::CreateEmptyBorder(kUnifiedCircularButtonFocusPadding));
 
   // Focus ring is around the whole view's bounds, but the ink drop should be
   // the same size as the content.
   TrayPopupUtils::ConfigureTrayPopupButton(this);
-  focus_ring()->SetPathGenerator(
+  views::FocusRing::Get(this)->SetPathGenerator(
       std::make_unique<views::CircleHighlightPathGenerator>(gfx::Insets()));
   views::InstallCircleHighlightPathGenerator(
       this, kUnifiedCircularButtonFocusPadding);
@@ -126,31 +128,12 @@ void UnifiedSliderButton::PaintButtonContents(gfx::Canvas* canvas) {
           : AshColorProvider::ControlsLayerType::
                 kControlBackgroundColorInactive));
   flags.setStyle(cc::PaintFlags::kFill_Style);
-  canvas->DrawCircle(gfx::PointF(rect.CenterPoint()), kTrayItemCornerRadius,
-                     flags);
+  canvas->DrawCircle(gfx::PointF(rect.CenterPoint()), rect.width() / 2, flags);
 
   views::ImageButton::PaintButtonContents(canvas);
 }
 
-std::unique_ptr<views::InkDrop> UnifiedSliderButton::CreateInkDrop() {
-  return TrayPopupUtils::CreateInkDrop(this);
-}
-
-std::unique_ptr<views::InkDropRipple> UnifiedSliderButton::CreateInkDropRipple()
-    const {
-  return TrayPopupUtils::CreateInkDropRipple(
-      TrayPopupInkDropStyle::FILL_BOUNDS, this,
-      GetInkDropCenterBasedOnLastEvent());
-}
-
-std::unique_ptr<views::InkDropHighlight>
-UnifiedSliderButton::CreateInkDropHighlight() const {
-  return TrayPopupUtils::CreateInkDropHighlight(this);
-}
-
 void UnifiedSliderButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  if (!GetEnabled())
-    return;
   views::ImageButton::GetAccessibleNodeData(node_data);
   node_data->role = ax::mojom::Role::kToggleButton;
   node_data->SetCheckedState(toggled_ ? ax::mojom::CheckedState::kTrue
@@ -161,16 +144,12 @@ const char* UnifiedSliderButton::GetClassName() const {
   return "UnifiedSliderButton";
 }
 
-gfx::Size UnifiedSliderButton::CalculatePreferredSize() const {
-  return gfx::Size(kTrayItemSize + kUnifiedCircularButtonFocusPadding.width(),
-                   kTrayItemSize + kUnifiedCircularButtonFocusPadding.height());
-}
-
 void UnifiedSliderButton::OnThemeChanged() {
   views::ImageButton::OnThemeChanged();
   UpdateVectorIcon();
-  focus_ring()->SetColor(AshColorProvider::Get()->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kFocusRingColor));
+  views::FocusRing::Get(this)->SetColor(
+      AshColorProvider::Get()->GetControlsLayerColor(
+          AshColorProvider::ControlsLayerType::kFocusRingColor));
   SchedulePaint();
 }
 
@@ -178,8 +157,8 @@ void UnifiedSliderButton::UpdateVectorIcon() {
   if (!icon_)
     return;
 
-  AshColorProvider::Get()->DecorateIconButton(
-      this, *icon_, toggled_, GetDefaultSizeOfVectorIcon(*icon_));
+  element_style::DecorateSmallIconButton(this, *icon_, toggled_,
+                                         /*has_border=*/true);
 }
 
 UnifiedSliderView::UnifiedSliderView(views::Button::PressedCallback callback,
@@ -232,5 +211,19 @@ const char* UnifiedSliderView::GetClassName() const {
 }
 
 UnifiedSliderView::~UnifiedSliderView() = default;
+
+void UnifiedSliderView::CreateToastLabel() {
+  toast_label_ = AddChildView(std::make_unique<views::Label>());
+  TrayPopupUtils::SetLabelFontList(toast_label_,
+                                   TrayPopupUtils::FontStyle::kPodMenuHeader);
+}
+
+void UnifiedSliderView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  if (toast_label_) {
+    toast_label_->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+        AshColorProvider::ContentLayerType::kTextColorPrimary));
+  }
+}
 
 }  // namespace ash

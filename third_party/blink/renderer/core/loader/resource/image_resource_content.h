@@ -5,8 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_RESOURCE_IMAGE_RESOURCE_CONTENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_RESOURCE_IMAGE_RESOURCE_CONTENT_H_
 
-#include <memory>
 #include "base/auto_reset.h"
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_observer.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
@@ -109,13 +109,14 @@ class CORE_EXPORT ImageResourceContent final
   bool IsLoading() const;
   bool ErrorOccurred() const;
   bool LoadFailedOrCanceled() const;
+  bool IsAnimatedImageWithPaintedFirstFrame() const;
 
   // Redirecting methods to Resource.
   const KURL& Url() const;
   base::TimeTicks LoadResponseEnd() const;
   bool IsAccessAllowed() const;
   const ResourceResponse& GetResponse() const;
-  base::Optional<ResourceError> GetResourceError() const;
+  absl::optional<ResourceError> GetResourceError() const;
   // DEPRECATED: ImageResourceContents consumers shouldn't need to worry about
   // whether the underlying Resource is being revalidated.
   bool IsCacheValidator() const;
@@ -184,7 +185,7 @@ class CORE_EXPORT ImageResourceContent final
   // Returns true if the image content is well-compressed (and not full of
   // extraneous metadata). "well-compressed" is determined by comparing the
   // image's compression ratio against a specific value that is defined by an
-  // unoptimized image feature policy on |context|.
+  // unoptimized image policy on |context|.
   bool IsAcceptableCompressionRatio(ExecutionContext& context);
 
   void LoadDeferredImage(ResourceFetcher* fetcher);
@@ -238,8 +239,8 @@ class CORE_EXPORT ImageResourceContent final
 
   scoped_refptr<blink::Image> image_;
 
-  HashCountedSet<ImageResourceObserver*> observers_;
-  HashCountedSet<ImageResourceObserver*> finished_observers_;
+  HeapHashCountedSet<WeakMember<ImageResourceObserver>> observers_;
+  HeapHashCountedSet<WeakMember<ImageResourceObserver>> finished_observers_;
 
 #if DCHECK_IS_ON()
   bool is_update_image_being_called_ = false;
@@ -248,4 +249,4 @@ class CORE_EXPORT ImageResourceContent final
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_RESOURCE_IMAGE_RESOURCE_CONTENT_H_

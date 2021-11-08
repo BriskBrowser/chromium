@@ -19,7 +19,9 @@
 #include "components/sync_user_events/global_id_mapper.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #include "ios/chrome/browser/main/test_browser.h"
-#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
+#include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/authentication_service_fake.h"
 #include "ios/chrome/browser/sync/session_sync_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service.h"
 #include "ios/chrome/browser/sync/sync_setup_service_factory.h"
@@ -118,12 +120,23 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
 
     TestChromeBrowserState::Builder test_cbs_builder;
     test_cbs_builder.AddTestingFactory(
+        AuthenticationServiceFactory::GetInstance(),
+        base::BindRepeating(
+            &AuthenticationServiceFake::CreateAuthenticationService));
+    test_cbs_builder.AddTestingFactory(
         SyncSetupServiceFactory::GetInstance(),
         base::BindRepeating(&SyncSetupServiceMock::CreateKeyedService));
     test_cbs_builder.AddTestingFactory(
         SessionSyncServiceFactory::GetInstance(),
         base::BindRepeating(
             &BuildMockSessionSyncServiceForRecentTabsTableCoordinator));
+    test_cbs_builder.AddTestingFactory(
+        IOSChromeTabRestoreServiceFactory::GetInstance(),
+        IOSChromeTabRestoreServiceFactory::GetDefaultFactory());
+    test_cbs_builder.AddTestingFactory(
+        AuthenticationServiceFactory::GetInstance(),
+        base::BindRepeating(
+            &AuthenticationServiceFake::CreateAuthenticationService));
     chrome_browser_state_ = test_cbs_builder.Build();
 
     browser_ = std::make_unique<TestBrowser>(chrome_browser_state_.get(),
@@ -142,7 +155,8 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
                       BOOL syncCompleted,
                       BOOL hasForeignSessions) {
     if (signedIn) {
-      identity_test_env_.MakePrimaryAccountAvailable("test@test.com");
+      identity_test_env_.MakePrimaryAccountAvailable(
+          "test@test.com", signin::ConsentLevel::kSync);
     } else if (identity_test_env_.identity_manager()->HasPrimaryAccount(
                    signin::ConsentLevel::kSync)) {
       auto* account_mutator =
@@ -152,7 +166,7 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
       DCHECK(account_mutator);
       account_mutator->ClearPrimaryAccount(
           signin_metrics::SIGNOUT_TEST,
-          signin_metrics::SignoutDelete::IGNORE_METRIC);
+          signin_metrics::SignoutDelete::kIgnoreMetric);
     }
 
     SessionSyncServiceMockForRecentTabsTableCoordinator* session_sync_service =
@@ -160,8 +174,8 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
             SessionSyncServiceFactory::GetForBrowserState(
                 chrome_browser_state_.get()));
 
-    // Needed by ProfileSyncService's initialization, triggered during
-    // initialization of SyncSetupServiceMock.
+    // Needed by SyncService's initialization, triggered during initialization
+    // of SyncSetupServiceMock.
     ON_CALL(*session_sync_service, GetControllerDelegate())
         .WillByDefault(Return(fake_controller_delegate_.GetWeakPtr()));
     ON_CALL(*session_sync_service, GetGlobalIdMapper())
@@ -170,7 +184,7 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
     SyncSetupServiceMock* syncSetupService = static_cast<SyncSetupServiceMock*>(
         SyncSetupServiceFactory::GetForBrowserState(
             chrome_browser_state_.get()));
-    ON_CALL(*syncSetupService, IsSyncEnabled())
+    ON_CALL(*syncSetupService, CanSyncFeatureStart())
         .WillByDefault(Return(syncEnabled));
     ON_CALL(*syncSetupService, IsDataTypePreferred(syncer::PROXY_TABS))
         .WillByDefault(Return(true));
@@ -231,6 +245,7 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
 };
 
 TEST_F(RecentTabsTableCoordinatorTest, TestConstructorDestructor) {
+  SetupSyncState(NO, NO, NO, NO);
   CreateController();
   EXPECT_TRUE(coordinator_);
 }

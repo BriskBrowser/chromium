@@ -10,9 +10,10 @@
 #include "ash/ash_export.h"
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "base/macros.h"
-#include "base/time/time.h"
+#include "base/scoped_observation.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
 
@@ -36,15 +37,24 @@ class WindowCycleList;
 // until the cycling ends.  Thus we maintain the state of the windows
 // at the beginning of the gesture so you can cycle through in a consistent
 // order.
-class ASH_EXPORT WindowCycleController : public SessionObserver {
+class ASH_EXPORT WindowCycleController : public SessionObserver,
+                                         public DesksController::Observer {
  public:
   using WindowList = std::vector<aura::Window*>;
 
   enum class WindowCyclingDirection { kForward, kBackward };
   enum class KeyboardNavDirection { kUp, kDown, kLeft, kRight, kInvalid };
-  enum class ModeSwitchSource { kClick, kKeyboard };
+
+  // Enumeration of the sources of alt-tab mode switch.
+  // Note that these values are persisted to histograms so existing values
+  // should remain unchanged and new values should be added to the end.
+  enum class ModeSwitchSource { kClick, kKeyboard, kMaxValue = kKeyboard };
 
   WindowCycleController();
+
+  WindowCycleController(const WindowCycleController&) = delete;
+  WindowCycleController& operator=(const WindowCycleController&) = delete;
+
   ~WindowCycleController() override;
 
   // Returns true if cycling through windows is enabled. This is false at
@@ -68,14 +78,11 @@ class ASH_EXPORT WindowCycleController : public SessionObserver {
   // and announces these changes via ChromeVox.
   void HandleKeyboardNavigation(KeyboardNavDirection direction);
 
-  // Returns true if the direction is valid regarding the component that the
-  // focus is currently on. For example, moving the focus on the top most
-  // component, the tab slider button, further up is invalid.
-  bool IsValidKeyboardNavigation(KeyboardNavDirection direction);
+  // Drags the cycle view's mirror container |delta_x|.
+  void Drag(float delta_x);
 
-  // Scrolls the windows in the given |direction|. This does not move the focus
-  // ring.
-  void Scroll(WindowCyclingDirection direction);
+  // Starts a fling for the cycle view's mirror container base on |velocity_x|.
+  void StartFling(float velocity_x);
 
   // Returns true if we are in the middle of a window cycling gesture.
   bool IsCycling() const { return window_cycle_list_.get() != NULL; }
@@ -100,7 +107,15 @@ class ASH_EXPORT WindowCycleController : public SessionObserver {
   void SetFocusedWindow(aura::Window* window);
 
   // Checks whether |event| occurs within the cycle view.
-  bool IsEventInCycleView(ui::LocatedEvent* event);
+  bool IsEventInCycleView(const ui::LocatedEvent* event);
+
+  // Gets the window for the preview item located at |event|. Returns nullptr if
+  // |event| is not on the cycle view or a preview item, or |window_cycle_list_|
+  // does not exist.
+  aura::Window* GetWindowAtPoint(const ui::LocatedEvent* event);
+
+  // Returns whether or not the event is located in tab slider container.
+  bool IsEventInTabSliderContainer(const ui::LocatedEvent* event);
 
   // Returns whether or not the window cycle view is visible.
   bool IsWindowListVisible();
@@ -133,6 +148,17 @@ class ASH_EXPORT WindowCycleController : public SessionObserver {
   // user switches the alt-tab mode via keyboard navigation or button clicking.
   void OnModeChanged(bool per_desk, ModeSwitchSource source);
 
+  // DesksController::Observer:
+  void OnDeskAdded(const Desk* desk) override;
+  void OnDeskRemoved(const Desk* desk) override;
+  void OnDeskReordered(int old_index, int new_index) override {}
+  void OnDeskActivationChanged(const Desk* activated,
+                               const Desk* deactivated) override {}
+  void OnDeskSwitchAnimationLaunching() override {}
+  void OnDeskSwitchAnimationFinished() override {}
+  void OnDeskNameChanged(const Desk* desk,
+                         const std::u16string& new_name) override {}
+
  private:
   // Gets a list of windows from the currently open windows, removing windows
   // with transient roots already in the list. The returned list of windows
@@ -144,8 +170,15 @@ class ASH_EXPORT WindowCycleController : public SessionObserver {
   // initialized.
   void SaveCurrentActiveDeskAndWindow(const WindowList& window_list);
 
-  // Cycles to the next or previous window based on |direction|.
-  void Step(WindowCyclingDirection direction);
+  // Cycles to the next or previous window based on |direction| or to the
+  // default position if |starting_alt_tab_or_switching_mode| is true.
+  // This updates the highlight to the window to the right if |direction|
+  // is forward or left if backward. If |starting_alt_tab_or_switching_mode| is
+  // true and |direction| is forward, the highlight moves to the first
+  // non-active window in MRU list: the second window by default or the first
+  // window if it is not active.
+  void Step(WindowCyclingDirection direction,
+            bool starting_alt_tab_or_switching_mode);
 
   void StopCycling();
 
@@ -154,6 +187,11 @@ class ASH_EXPORT WindowCycleController : public SessionObserver {
   // Triggers alt-tab UI updates when the alt-tab mode is updated in the active
   // user prefs.
   void OnAltTabModePrefChanged();
+
+  // Returns true if the direction is valid regarding the component that the
+  // focus is currently on. For example, moving the focus on the top most
+  // component, the tab slider button, further up is invalid.
+  bool IsValidKeyboardNavigation(KeyboardNavDirection direction);
 
   std::unique_ptr<WindowCycleList> window_cycle_list_;
 
@@ -178,7 +216,8 @@ class ASH_EXPORT WindowCycleController : public SessionObserver {
   // The pref change registrar to observe changes in prefs value.
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
 
-  DISALLOW_COPY_AND_ASSIGN(WindowCycleController);
+  base::ScopedObservation<DesksController, DesksController::Observer>
+      desks_observation_{this};
 };
 
 }  // namespace ash

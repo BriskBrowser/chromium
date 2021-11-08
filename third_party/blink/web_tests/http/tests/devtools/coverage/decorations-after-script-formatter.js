@@ -5,7 +5,7 @@
 (async function() {
   'use strict';
   TestRunner.addResult(`Tests the gutter decorations in target source code after ScriptFormatterEditorAction\n`);
-  await TestRunner.loadModule('coverage_test_runner');
+  await TestRunner.loadLegacyModule('panels/coverage'); await TestRunner.loadTestModule('coverage_test_runner');
   await TestRunner.loadHTML(`
       <p id="id">PASS</p>
     `);
@@ -17,14 +17,8 @@
   await UI.inspectorView.showPanel('sources');
   await CoverageTestRunner.sourceDecorated('coverage.js');
 
-  var decoratorPromise = TestRunner.addSnifferPromise(Coverage.CoverageView.LineDecorator.prototype, '_innerDecorate');
-  var editorActions = await self.runtime.allInstances(Sources.SourcesView.EditorAction);
-  for (const action of editorActions) {
-    if (action instanceof Sources.ScriptFormatterEditorAction) {
-      action.toggleFormatScriptSource();
-      break;
-    }
-  }
+  var decoratorPromise = TestRunner.addSnifferPromise(Coverage.CoverageView.LineDecorator.prototype, 'innerDecorate');
+  Sources.ScriptFormatterEditorAction.instance().toggleFormatScriptSource();
   await decoratorPromise;
   CoverageTestRunner.dumpDecorationsInSourceFrame(UI.panels.sources.visibleView);
   TestRunner.completeTest();

@@ -7,14 +7,50 @@
  * information.
  */
 
+import '../../icons.js';
+import '../../prefs/prefs.js';
+import '../../settings_page/settings_animated_pages.js';
+import '../../settings_page/settings_section.js';
+import '../../settings_page/settings_subpage.js';
+import '../../settings_page_css.js';
+import '../../settings_shared_css.js';
+import '../os_icons.m.js';
+import '../os_reset_page/os_powerwash_dialog.js';
+import '//resources/cr_components/chromeos/localized_link/localized_link.js';
+import './detailed_build_info.js';
+import './update_warning_dialog.js';
+import '//resources/cr_elements/cr_button/cr_button.m.js';
+import '//resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import '//resources/cr_elements/cr_link_row/cr_link_row.js';
+import '//resources/cr_elements/icons.m.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+
+import {assert, assertNotReached} from '//resources/js/assert.m.js';
+import {I18nBehavior} from '//resources/js/i18n_behavior.m.js';
+import {parseHtmlSubset} from '//resources/js/parse_html_subset.m.js';
+import {WebUIListenerBehavior} from '//resources/js/web_ui_listener_behavior.m.js';
+import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../../i18n_setup.js';
+import {LifetimeBrowserProxyImpl} from '../../lifetime_browser_proxy.js';
+import {Route, Router} from '../../router.js';
+import {DeepLinkingBehavior} from '../deep_linking_behavior.m.js';
+import {recordClick, recordNavigation, recordPageBlur, recordPageFocus, recordSearch, recordSettingChange, setUserActionRecorderForTesting} from '../metrics_recorder.m.js';
+import {routes} from '../os_route.m.js';
+import {MainPageBehavior} from '../os_settings_page/main_page_behavior.js';
+import {RouteObserverBehavior} from '../route_observer_behavior.js';
+
+import {AboutPageBrowserProxy, AboutPageBrowserProxyImpl, AboutPageUpdateInfo, BrowserChannel, browserChannelToI18nId, ChannelInfo, isTargetChannelMoreStable, RegulatoryInfo, TPMFirmwareUpdateStatusChangedEvent, UpdateStatus, UpdateStatusChangedEvent, VersionInfo} from './about_page_browser_proxy.js';
+
 Polymer({
+  _template: html`{__html_template__}`,
   is: 'os-settings-about-page',
 
   behaviors: [
     DeepLinkingBehavior,
     WebUIListenerBehavior,
-    settings.MainPageBehavior,
-    settings.RouteObserverBehavior,
+    MainPageBehavior,
+    RouteObserverBehavior,
     I18nBehavior,
   ],
 
@@ -27,7 +63,7 @@ Polymer({
         progress: 0,
         rollback: false,
         powerwash: false,
-        status: UpdateStatus.DISABLED
+        status: UpdateStatus.UPDATED
       },
     },
 
@@ -127,10 +163,9 @@ Polymer({
       type: Object,
       value() {
         const map = new Map();
-        if (settings.routes.DETAILED_BUILD_INFO) {
+        if (routes.DETAILED_BUILD_INFO) {
           map.set(
-              settings.routes.DETAILED_BUILD_INFO.path,
-              '#detailed-build-info-trigger');
+              routes.DETAILED_BUILD_INFO.path, '#detailed-build-info-trigger');
         }
         return map;
       },
@@ -190,19 +225,13 @@ Polymer({
     'handleCrostiniEnabledChanged_(prefs.crostini.enabled.value)',
   ],
 
-  /** @private {?settings.AboutPageBrowserProxy} */
+  /** @private {?AboutPageBrowserProxy} */
   aboutBrowserProxy_: null,
-
-  /** @private {?settings.LifetimeBrowserProxy} */
-  lifetimeBrowserProxy_: null,
 
   /** @override */
   attached() {
-    this.aboutBrowserProxy_ = settings.AboutPageBrowserProxyImpl.getInstance();
+    this.aboutBrowserProxy_ = AboutPageBrowserProxyImpl.getInstance();
     this.aboutBrowserProxy_.pageReady();
-
-    this.lifetimeBrowserProxy_ =
-        settings.LifetimeBrowserProxyImpl.getInstance();
 
     this.addEventListener('target-channel-changed', e => {
       this.targetChannel_ = e.detail;
@@ -228,22 +257,21 @@ Polymer({
       this.hasInternetConnection_ = result;
     });
 
-    if (settings.Router.getInstance().getQueryParameters().get(
-            'checkForUpdate') === 'true') {
+    if (Router.getInstance().getQueryParameters().get('checkForUpdate') ===
+        'true') {
       this.onCheckUpdatesClick_();
     }
   },
 
   /**
-   * @param {!settings.Route} newRoute
-   * @param {settings.Route} oldRoute
+   * @param {!Route} newRoute
+   * @param {Route} oldRoute
    */
   currentRouteChanged(newRoute, oldRoute) {
-    settings.MainPageBehavior.currentRouteChanged.call(
-        this, newRoute, oldRoute);
+    MainPageBehavior.currentRouteChanged.call(this, newRoute, oldRoute);
 
     // Does not apply to this page.
-    if (newRoute !== settings.routes.ABOUT_ABOUT) {
+    if (newRoute !== routes.ABOUT_ABOUT) {
       return;
     }
 
@@ -259,9 +287,9 @@ Polymer({
     });
   },
 
-  // Override settings.MainPageBehavior method.
+  // Override MainPageBehavior method.
   containsRoute(route) {
-    return !route || settings.routes.ABOUT.contains(route);
+    return !route || routes.ABOUT.contains(route);
   },
 
   /** @private */
@@ -313,20 +341,26 @@ Polymer({
   onDiagnosticsClick_() {
     assert(this.showDiagnosticsApp_);
     this.aboutBrowserProxy_.openDiagnostics();
-    settings.recordSettingChange(chromeos.settings.mojom.Setting.kDiagnostics);
+    recordSettingChange(chromeos.settings.mojom.Setting.kDiagnostics);
   },
 
   /** @private */
   onRelaunchClick_() {
-    settings.recordSettingChange();
-    this.lifetimeBrowserProxy_.relaunch();
+    recordSettingChange();
+    LifetimeBrowserProxyImpl.getInstance().relaunch();
   },
 
   /** @private */
   updateShowUpdateStatus_() {
-    // Do not show the "updated" status if we haven't checked yet or the update
-    // warning dialog is shown to user.
-    if (this.currentUpdateStatusEvent_.status === UpdateStatus.UPDATED &&
+    // Do not show the "updated" status or error states from a previous update
+    // attempt if we haven't checked yet or the update warning dialog is shown
+    // to user.
+    if ((this.currentUpdateStatusEvent_.status === UpdateStatus.UPDATED ||
+         this.currentUpdateStatusEvent_.status ===
+             UpdateStatus.FAILED_DOWNLOAD ||
+         this.currentUpdateStatusEvent_.status === UpdateStatus.FAILED_HTTP ||
+         this.currentUpdateStatusEvent_.status ===
+             UpdateStatus.DISABLED_BY_ADMIN) &&
         (!this.hasCheckedForUpdates_ || this.showUpdateWarningDialog_)) {
       this.showUpdateStatus_ = false;
       return;
@@ -403,8 +437,8 @@ Polymer({
         if (this.currentChannel_ !== this.targetChannel_) {
           return this.i18nAdvanced('aboutUpgradeUpdatingChannelSwitch', {
             substitutions: [
-              this.i18nAdvanced(settings.browserChannelToI18nId(
-                  this.targetChannel_, this.isLts_)),
+              this.i18nAdvanced(
+                  browserChannelToI18nId(this.targetChannel_, this.isLts_)),
               progressPercent
             ]
           });
@@ -425,6 +459,12 @@ Polymer({
           });
         }
         return this.i18nAdvanced('aboutUpgradeUpdating');
+      case UpdateStatus.FAILED_HTTP:
+        return this.i18nAdvanced('aboutUpgradeTryAgain');
+      case UpdateStatus.FAILED_DOWNLOAD:
+        return this.i18nAdvanced('aboutUpgradeDownloadError');
+      case UpdateStatus.DISABLED_BY_ADMIN:
+        return this.i18nAdvanced('aboutUpgradeAdministrator');
       default:
         function formatMessage(msg) {
           return parseHtmlSubset('<b>' + msg + '</b>', ['br', 'pre'])
@@ -457,8 +497,10 @@ Polymer({
     switch (this.currentUpdateStatusEvent_.status) {
       case UpdateStatus.DISABLED_BY_ADMIN:
         return 'cr20:domain';
+      case UpdateStatus.FAILED_DOWNLOAD:
+      case UpdateStatus.FAILED_HTTP:
       case UpdateStatus.FAILED:
-        return 'cr:error';
+        return 'cr:error-outline';
       case UpdateStatus.UPDATED:
       case UpdateStatus.NEARLY_UPDATED:
         // TODO(crbug.com/986596): Don't use browser icons here. Fork them.
@@ -510,8 +552,7 @@ Polymer({
 
   /** @private */
   onDetailedBuildInfoClick_() {
-    settings.Router.getInstance().navigateTo(
-        settings.routes.DETAILED_BUILD_INFO);
+    Router.getInstance().navigateTo(routes.DETAILED_BUILD_INFO);
   },
 
   /**
@@ -533,6 +574,7 @@ Polymer({
   onCheckUpdatesClick_() {
     this.onUpdateStatusChanged_({status: UpdateStatus.CHECKING});
     this.aboutBrowserProxy_.requestUpdate();
+    this.$.updateStatusMessageInner.focus();
   },
 
   /**
@@ -549,8 +591,10 @@ Polymer({
     // update has failed. Disable it otherwise.
     const staleUpdatedStatus =
         !this.hasCheckedForUpdates_ && this.checkStatus_(UpdateStatus.UPDATED);
-
-    return staleUpdatedStatus || this.checkStatus_(UpdateStatus.FAILED);
+    return staleUpdatedStatus || this.checkStatus_(UpdateStatus.FAILED) ||
+        this.checkStatus_(UpdateStatus.FAILED_HTTP) ||
+        this.checkStatus_(UpdateStatus.FAILED_DOWNLOAD) ||
+        this.checkStatus_(UpdateStatus.DISABLED_BY_ADMIN);
   },
 
   /**

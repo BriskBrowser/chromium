@@ -14,14 +14,14 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/login/help_app_launcher.h"
-#include "chrome/browser/chromeos/login/oobe_configuration.h"
-#include "chrome/browser/chromeos/login/version_info_updater.h"
-#include "chrome/browser/chromeos/tpm_firmware_update.h"
+#include "chrome/browser/ash/login/help_app_launcher.h"
+#include "chrome/browser/ash/login/oobe_configuration.h"
+#include "chrome/browser/ash/login/version_info_updater.h"
+#include "chrome/browser/ash/tpm_firmware_update.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_webui_handler.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/event_source.h"
 
 namespace base {
@@ -48,21 +48,14 @@ class CoreOobeView {
     MODE_NARROW,
   };
 
-  virtual ~CoreOobeView() {}
+  virtual ~CoreOobeView() = default;
 
-  virtual void ShowSignInError(int login_attempts,
-                               const std::string& error_text,
-                               const std::string& help_link_text,
-                               HelpAppLauncher::HelpTopic help_topic_id) = 0;
   virtual void ResetSignInUI(bool force_online) = 0;
-  virtual void ClearErrors() = 0;
   virtual void ReloadContent(const base::DictionaryValue& dictionary) = 0;
-  virtual void ReloadEulaContent(const base::DictionaryValue& dictionary) = 0;
   virtual void SetVirtualKeyboardShown(bool shown) = 0;
   virtual void SetClientAreaSize(int width, int height) = 0;
   virtual void SetShelfHeight(int height) = 0;
   virtual void SetDialogPaddingMode(DialogPaddingMode mode) = 0;
-  virtual void ShowDeviceResetScreen() = 0;
   virtual void UpdateKeyboardState() = 0;
   virtual void FocusReturned(bool reverse) = 0;
   virtual void SetOrientation(bool is_horizontal) = 0;
@@ -79,6 +72,10 @@ class CoreOobeHandler : public BaseWebUIHandler,
                         public OobeConfiguration::Observer {
  public:
   explicit CoreOobeHandler(JSCallsContainer* js_calls_container);
+
+  CoreOobeHandler(const CoreOobeHandler&) = delete;
+  CoreOobeHandler& operator=(const CoreOobeHandler&) = delete;
+
   ~CoreOobeHandler() override;
 
   // BaseScreenHandler implementation:
@@ -123,19 +120,12 @@ class CoreOobeHandler : public BaseWebUIHandler,
 
  private:
   // CoreOobeView implementation:
-  void ShowSignInError(int login_attempts,
-                       const std::string& error_text,
-                       const std::string& help_link_text,
-                       HelpAppLauncher::HelpTopic help_topic_id) override;
   void ResetSignInUI(bool force_online) override;
-  void ClearErrors() override;
   void ReloadContent(const base::DictionaryValue& dictionary) override;
-  void ReloadEulaContent(const base::DictionaryValue& dictionary) override;
   void SetVirtualKeyboardShown(bool displayed) override;
   void SetClientAreaSize(int width, int height) override;
   void SetShelfHeight(int height) override;
   void SetDialogPaddingMode(CoreOobeView::DialogPaddingMode mode) override;
-  void ShowDeviceResetScreen() override;
   void FocusReturned(bool reverse) override;
   void SetOrientation(bool is_horizontal) override;
   void SetDialogSize(int width, int height) override;
@@ -157,7 +147,6 @@ class CoreOobeHandler : public BaseWebUIHandler,
   void HandleInitialized();
   void HandleUpdateCurrentScreen(const std::string& screen);
   void HandleSkipToLoginForTesting();
-  void HandleSkipToUpdateForTesting();
   void HandleLaunchHelpApp(double help_topic_id);
   void HandleToggleResetScreen();
   void HandleGetPrimaryDisplayNameForTesting(const base::ListValue* args);
@@ -173,7 +162,7 @@ class CoreOobeHandler : public BaseWebUIHandler,
   // tpm_firmware_update in settings.
   void HandleToggleResetScreenCallback(
       bool is_reset_allowed,
-      base::Optional<tpm_firmware_update::Mode> tpm_firmware_update_mode);
+      absl::optional<tpm_firmware_update::Mode> tpm_firmware_update_mode);
 
   // When keyboard_utils.js arrow key down event is reached, raise it
   // to tab/shift-tab event.
@@ -197,10 +186,14 @@ class CoreOobeHandler : public BaseWebUIHandler,
   mojo::Remote<ash::mojom::CrosDisplayConfigController> cros_display_config_;
 
   base::WeakPtrFactory<CoreOobeHandler> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CoreOobeHandler);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
+// source migration is finished.
+namespace ash {
+using ::chromeos::CoreOobeView;
+}
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CHROMEOS_LOGIN_CORE_OOBE_HANDLER_H_

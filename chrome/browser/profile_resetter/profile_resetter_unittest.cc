@@ -13,14 +13,13 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_path_override.h"
 #include "build/build_config.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
@@ -30,8 +29,10 @@
 #include "chrome/browser/profile_resetter/profile_reset_report.pb.h"
 #include "chrome/browser/profile_resetter/profile_resetter_test_base.h"
 #include "chrome/browser/profile_resetter/resettable_settings_snapshot.h"
-#include "chrome/browser/search/instant_service.h"
+#include "chrome/browser/search/background/ntp_custom_background_service.h"
+#include "chrome/browser/search/background/ntp_custom_background_service_factory.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
+#include "chrome/browser/themes/test/theme_service_changed_waiter.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -54,6 +55,7 @@
 #include "net/http/http_util.h"
 #include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"
 #include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "services/network/test/test_utils.h"
 #include "url/gurl.h"
@@ -68,6 +70,7 @@
 #include "base/win/shortcut.h"
 #endif
 
+using extensions::mojom::ManifestLocation;
 
 namespace {
 
@@ -157,7 +160,7 @@ void ProfileResetterTest::SetUp() {
   profile()->CreateWebDataService();
   TemplateURLServiceFactory::GetInstance()->SetTestingFactory(
       profile(), base::BindRepeating(&CreateTemplateURLServiceForTesting));
-  resetter_.reset(new ProfileResetter(profile()));
+  resetter_ = std::make_unique<ProfileResetter>(profile());
 }
 
 // PinnedTabsResetTest --------------------------------------------------------
@@ -172,7 +175,7 @@ class PinnedTabsResetTest : public BrowserWithTestWindowTest,
 
 void PinnedTabsResetTest::SetUp() {
   BrowserWithTestWindowTest::SetUp();
-  resetter_.reset(new ProfileResetter(profile()));
+  resetter_ = std::make_unique<ProfileResetter>(profile());
 }
 
 std::unique_ptr<content::WebContents> PinnedTabsResetTest::CreateWebContents() {
@@ -230,6 +233,10 @@ std::unique_ptr<BrandcodeConfigFetcher> ConfigParserTest::WaitForRequest(
 class ShortcutHandler {
  public:
   ShortcutHandler();
+
+  ShortcutHandler(const ShortcutHandler&) = delete;
+  ShortcutHandler& operator=(const ShortcutHandler&) = delete;
+
   ~ShortcutHandler();
 
   static bool IsSupported();
@@ -244,7 +251,6 @@ class ShortcutHandler {
 #if defined(OS_WIN)
   base::FilePath shortcut_path_;
 #endif
-  DISALLOW_COPY_AND_ASSIGN(ShortcutHandler);
 };
 
 #if defined(OS_WIN)
@@ -336,20 +342,11 @@ bool ShortcutHandler::IsFileHidden() const {
 }
 #endif  // defined(OS_WIN)
 
-// MockInstantService
-class MockInstantService : public InstantService {
- public:
-  explicit MockInstantService(Profile* profile) : InstantService(profile) {}
-  ~MockInstantService() override = default;
-
-  MOCK_METHOD0(ResetToDefault, void());
-};
-
 // helper functions -----------------------------------------------------------
 
-scoped_refptr<Extension> CreateExtension(const base::string16& name,
+scoped_refptr<Extension> CreateExtension(const std::u16string& name,
                                          const base::FilePath& path,
-                                         Manifest::Location location,
+                                         ManifestLocation location,
                                          extensions::Manifest::Type type,
                                          bool installed_by_default) {
   base::DictionaryValue manifest;
@@ -358,8 +355,8 @@ scoped_refptr<Extension> CreateExtension(const base::string16& name,
   manifest.SetInteger(extensions::manifest_keys::kManifestVersion, 2);
   switch (type) {
     case extensions::Manifest::TYPE_THEME:
-      manifest.Set(extensions::manifest_keys::kTheme,
-                   std::make_unique<base::DictionaryValue>());
+      manifest.SetKey(extensions::manifest_keys::kTheme,
+                      base::DictionaryValue());
       break;
     case extensions::Manifest::TYPE_HOSTED_APP:
       manifest.SetString(extensions::manifest_keys::kLaunchWebURL,
@@ -410,8 +407,8 @@ TEST_F(ProfileResetterTest, ResetDefaultSearchEngineNonOrganic) {
       TemplateURLServiceFactory::GetForProfile(profile());
   const TemplateURL* default_engine = model->GetDefaultSearchProvider();
   ASSERT_NE(static_cast<TemplateURL*>(NULL), default_engine);
-  EXPECT_EQ(base::ASCIIToUTF16("first"), default_engine->short_name());
-  EXPECT_EQ(base::ASCIIToUTF16("firstkey"), default_engine->keyword());
+  EXPECT_EQ(u"first", default_engine->short_name());
+  EXPECT_EQ(u"firstkey", default_engine->keyword());
   EXPECT_EQ("http://www.foo.com/s?q={searchTerms}", default_engine->url());
 }
 
@@ -530,50 +527,39 @@ TEST_F(ProfileResetterTest, ResetExtensionsByDisabling) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   ThemeService* theme_service = ThemeServiceFactory::GetForProfile(profile());
-  content::WindowedNotificationObserver theme_change_observer(
-      chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
-      content::Source<ThemeService>(theme_service));
+  test::ThemeServiceChangedWaiter waiter(theme_service);
 
   scoped_refptr<Extension> theme = CreateExtension(
-      base::ASCIIToUTF16("example1"), temp_dir.GetPath(), Manifest::UNPACKED,
+      u"example1", temp_dir.GetPath(), ManifestLocation::kUnpacked,
       extensions::Manifest::TYPE_THEME, false);
   service_->FinishInstallationForTest(theme.get());
-  theme_change_observer.Wait();
+  waiter.WaitForThemeChanged();
 
   EXPECT_FALSE(theme_service->UsingDefaultTheme());
 
   scoped_refptr<Extension> ext2 = CreateExtension(
-      base::ASCIIToUTF16("example2"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent")), Manifest::UNPACKED,
-      extensions::Manifest::TYPE_EXTENSION, false);
+      u"example2", base::FilePath(FILE_PATH_LITERAL("//nonexistent")),
+      ManifestLocation::kUnpacked, extensions::Manifest::TYPE_EXTENSION, false);
   service_->AddExtension(ext2.get());
   // Component extensions and policy-managed extensions shouldn't be disabled.
   scoped_refptr<Extension> ext3 = CreateExtension(
-      base::ASCIIToUTF16("example3"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent2")),
-      Manifest::COMPONENT,
-      extensions::Manifest::TYPE_EXTENSION,
+      u"example3", base::FilePath(FILE_PATH_LITERAL("//nonexistent2")),
+      ManifestLocation::kComponent, extensions::Manifest::TYPE_EXTENSION,
       false);
   service_->AddExtension(ext3.get());
-  scoped_refptr<Extension> ext4 =
-      CreateExtension(base::ASCIIToUTF16("example4"),
-                      base::FilePath(FILE_PATH_LITERAL("//nonexistent3")),
-                      Manifest::EXTERNAL_POLICY_DOWNLOAD,
-                      extensions::Manifest::TYPE_EXTENSION,
-                      false);
+  scoped_refptr<Extension> ext4 = CreateExtension(
+      u"example4", base::FilePath(FILE_PATH_LITERAL("//nonexistent3")),
+      ManifestLocation::kExternalPolicyDownload,
+      extensions::Manifest::TYPE_EXTENSION, false);
   service_->AddExtension(ext4.get());
   scoped_refptr<Extension> ext5 = CreateExtension(
-      base::ASCIIToUTF16("example5"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent4")),
-      Manifest::EXTERNAL_COMPONENT,
-      extensions::Manifest::TYPE_EXTENSION,
-      false);
+      u"example5", base::FilePath(FILE_PATH_LITERAL("//nonexistent4")),
+      ManifestLocation::kExternalComponent,
+      extensions::Manifest::TYPE_EXTENSION, false);
   service_->AddExtension(ext5.get());
   scoped_refptr<Extension> ext6 = CreateExtension(
-      base::ASCIIToUTF16("example6"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent5")),
-      Manifest::EXTERNAL_POLICY,
-      extensions::Manifest::TYPE_EXTENSION,
+      u"example6", base::FilePath(FILE_PATH_LITERAL("//nonexistent5")),
+      ManifestLocation::kExternalPolicy, extensions::Manifest::TYPE_EXTENSION,
       false);
   service_->AddExtension(ext6.get());
   EXPECT_EQ(6u, registry()->enabled_extensions().size());
@@ -591,15 +577,13 @@ TEST_F(ProfileResetterTest, ResetExtensionsByDisabling) {
 
 TEST_F(ProfileResetterTest, ResetExtensionsByDisablingNonOrganic) {
   scoped_refptr<Extension> ext2 = CreateExtension(
-      base::ASCIIToUTF16("example2"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent")), Manifest::UNPACKED,
-      extensions::Manifest::TYPE_EXTENSION, false);
+      u"example2", base::FilePath(FILE_PATH_LITERAL("//nonexistent")),
+      ManifestLocation::kUnpacked, extensions::Manifest::TYPE_EXTENSION, false);
   service_->AddExtension(ext2.get());
   // Components and external policy extensions shouldn't be deleted.
   scoped_refptr<Extension> ext3 = CreateExtension(
-      base::ASCIIToUTF16("example3"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent2")), Manifest::UNPACKED,
-      extensions::Manifest::TYPE_EXTENSION, false);
+      u"example3", base::FilePath(FILE_PATH_LITERAL("//nonexistent2")),
+      ManifestLocation::kUnpacked, extensions::Manifest::TYPE_EXTENSION, false);
   service_->AddExtension(ext3.get());
   EXPECT_EQ(2u, registry()->enabled_extensions().size());
 
@@ -619,28 +603,24 @@ TEST_F(ProfileResetterTest, ResetExtensionsAndDefaultApps) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   ThemeService* theme_service = ThemeServiceFactory::GetForProfile(profile());
-  content::WindowedNotificationObserver theme_change_observer(
-      chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
-      content::Source<ThemeService>(theme_service));
+  test::ThemeServiceChangedWaiter waiter(theme_service);
 
   scoped_refptr<Extension> ext1 = CreateExtension(
-      base::ASCIIToUTF16("example1"), temp_dir.GetPath(), Manifest::UNPACKED,
+      u"example1", temp_dir.GetPath(), ManifestLocation::kUnpacked,
       extensions::Manifest::TYPE_THEME, false);
   service_->FinishInstallationForTest(ext1.get());
-  theme_change_observer.Wait();
+  waiter.WaitForThemeChanged();
 
   EXPECT_FALSE(theme_service->UsingDefaultTheme());
 
   scoped_refptr<Extension> ext2 = CreateExtension(
-      base::ASCIIToUTF16("example2"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent2")), Manifest::UNPACKED,
-      extensions::Manifest::TYPE_EXTENSION, false);
+      u"example2", base::FilePath(FILE_PATH_LITERAL("//nonexistent2")),
+      ManifestLocation::kUnpacked, extensions::Manifest::TYPE_EXTENSION, false);
   service_->AddExtension(ext2.get());
 
   scoped_refptr<Extension> ext3 = CreateExtension(
-      base::ASCIIToUTF16("example2"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent3")), Manifest::UNPACKED,
-      extensions::Manifest::TYPE_HOSTED_APP, true);
+      u"example2", base::FilePath(FILE_PATH_LITERAL("//nonexistent3")),
+      ManifestLocation::kUnpacked, extensions::Manifest::TYPE_HOSTED_APP, true);
   service_->AddExtension(ext3.get());
   EXPECT_EQ(3u, registry()->enabled_extensions().size());
 
@@ -659,11 +639,10 @@ TEST_F(ProfileResetterTest, ResetExtensionsByReenablingExternalComponents) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
-  scoped_refptr<Extension> ext =
-      CreateExtension(base::ASCIIToUTF16("example"),
-                      base::FilePath(FILE_PATH_LITERAL("//nonexistent")),
-                      Manifest::EXTERNAL_COMPONENT,
-                      extensions::Manifest::TYPE_EXTENSION, false);
+  scoped_refptr<Extension> ext = CreateExtension(
+      u"example", base::FilePath(FILE_PATH_LITERAL("//nonexistent")),
+      ManifestLocation::kExternalComponent,
+      extensions::Manifest::TYPE_EXTENSION, false);
   service_->AddExtension(ext.get());
 
   service_->DisableExtension(ext->id(),
@@ -812,10 +791,10 @@ TEST_F(ConfigParserTest, ParseConfig) {
       settings->GetUrlsToRestoreOnStartup());
   EXPECT_TRUE(startup_list);
   std::vector<std::string> startup_pages;
-  for (auto i = startup_list->begin(); i != startup_list->end(); ++i) {
-    std::string url;
-    EXPECT_TRUE(i->GetAsString(&url));
-    startup_pages.push_back(url);
+  for (const auto& entry : startup_list->GetList()) {
+    std::string url_str;
+    EXPECT_TRUE(entry.GetAsString(&url_str));
+    startup_pages.push_back(url_str);
   }
   ASSERT_EQ(2u, startup_pages.size());
   EXPECT_EQ("http://goo.gl", startup_pages[0]);
@@ -827,9 +806,8 @@ TEST_F(ProfileResetterTest, CheckSnapshots) {
   EXPECT_EQ(0, empty_snap.FindDifferentFields(empty_snap));
 
   scoped_refptr<Extension> ext = CreateExtension(
-      base::ASCIIToUTF16("example"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent")), Manifest::UNPACKED,
-      extensions::Manifest::TYPE_EXTENSION, false);
+      u"example", base::FilePath(FILE_PATH_LITERAL("//nonexistent")),
+      ManifestLocation::kUnpacked, extensions::Manifest::TYPE_EXTENSION, false);
   ASSERT_TRUE(ext.get());
   service_->AddExtension(ext.get());
 
@@ -912,9 +890,8 @@ TEST_F(ProfileResetterTest, FeedbackSerializationAsProtoTest) {
                kDistributionConfig);
 
   scoped_refptr<Extension> ext = CreateExtension(
-      base::ASCIIToUTF16("example"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent")), Manifest::UNPACKED,
-      extensions::Manifest::TYPE_EXTENSION, false);
+      u"example", base::FilePath(FILE_PATH_LITERAL("//nonexistent")),
+      ManifestLocation::kUnpacked, extensions::Manifest::TYPE_EXTENSION, false);
   ASSERT_TRUE(ext.get());
   service_->AddExtension(ext.get());
 
@@ -973,9 +950,8 @@ struct FeedbackCapture {
 // Make sure GetReadableFeedback handles non-ascii letters.
 TEST_F(ProfileResetterTest, GetReadableFeedback) {
   scoped_refptr<Extension> ext = CreateExtension(
-      base::WideToUTF16(L"Tiësto"),
-      base::FilePath(FILE_PATH_LITERAL("//nonexistent")), Manifest::UNPACKED,
-      extensions::Manifest::TYPE_EXTENSION, false);
+      u"Tiësto", base::FilePath(FILE_PATH_LITERAL("//nonexistent")),
+      ManifestLocation::kUnpacked, extensions::Manifest::TYPE_EXTENSION, false);
   ASSERT_TRUE(ext.get());
   service_->AddExtension(ext.get());
 
@@ -1011,21 +987,20 @@ TEST_F(ProfileResetterTest, GetReadableFeedback) {
   ASSERT_TRUE(list);
   bool checked_extensions = false;
   bool checked_shortcuts = false;
-  for (size_t i = 0; i < list->GetSize(); ++i) {
+  for (size_t i = 0; i < list->GetList().size(); ++i) {
     base::DictionaryValue* dict = NULL;
     ASSERT_TRUE(list->GetDictionary(i, &dict));
     std::string value;
     ASSERT_TRUE(dict->GetString("key", &value));
     if (value == "Extensions") {
-      base::string16 extensions;
+      std::u16string extensions;
       EXPECT_TRUE(dict->GetString("value", &extensions));
-      EXPECT_EQ(base::WideToUTF16(L"Tiësto"), extensions);
+      EXPECT_EQ(u"Tiësto", extensions);
       checked_extensions = true;
     } else if (value == "Shortcut targets") {
-      base::string16 targets;
+      std::u16string targets;
       EXPECT_TRUE(dict->GetString("value", &targets));
-      EXPECT_NE(base::string16::npos,
-                targets.find(base::ASCIIToUTF16("foo.com"))) << targets;
+      EXPECT_NE(std::u16string::npos, targets.find(u"foo.com")) << targets;
       checked_shortcuts = true;
     }
   }
@@ -1046,11 +1021,20 @@ TEST_F(ProfileResetterTest, DestroySnapshotFast) {
 }
 
 TEST_F(ProfileResetterTest, ResetNTPCustomizationsTest) {
-  MockInstantService mock_ntp_service(profile());
-  resetter_->ntp_service_ = &mock_ntp_service;
-
-  EXPECT_CALL(mock_ntp_service, ResetToDefault());
+  auto* ntp_custom_background_service =
+      NtpCustomBackgroundServiceFactory::GetForProfile(profile());
+  ntp_custom_background_service->AddValidBackdropUrlForTesting(
+      GURL("https://background.com"));
+  ntp_custom_background_service->SetCustomBackgroundInfo(
+      /*background_url=*/GURL("https://background.com"),
+      /*attribution_line_1=*/"line 1",
+      /*attribution_line_2=*/"line 2",
+      /*action_url=*/GURL("https://action.com"),
+      /*collection_id=*/"");
+  EXPECT_TRUE(ntp_custom_background_service->GetCustomBackground().has_value());
   ResetAndWait(ProfileResetter::NTP_CUSTOMIZATIONS);
+  EXPECT_FALSE(
+      ntp_custom_background_service->GetCustomBackground().has_value());
 }
 
 }  // namespace

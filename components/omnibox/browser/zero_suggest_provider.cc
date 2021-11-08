@@ -16,8 +16,6 @@
 #include "base/json/json_string_value_serializer.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
-#include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -48,6 +46,7 @@
 #include "net/base/escape.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "url/gurl.h"
@@ -250,9 +249,8 @@ void ZeroSuggestProvider::ResetSession() {
   set_field_trial_triggered(false);
 }
 
-ZeroSuggestProvider::ZeroSuggestProvider(
-    AutocompleteProviderClient* client,
-    AutocompleteProviderListener* listener)
+ZeroSuggestProvider::ZeroSuggestProvider(AutocompleteProviderClient* client,
+                                         AutocompleteProviderListener* listener)
     : BaseSearchProvider(AutocompleteProvider::TYPE_ZERO_SUGGEST, client),
       listener_(listener),
       result_type_running_(NONE) {
@@ -288,7 +286,7 @@ const TemplateURL* ZeroSuggestProvider::GetTemplateURL(bool is_keyword) const {
 const AutocompleteInput ZeroSuggestProvider::GetInput(bool is_keyword) const {
   // The callers of this method won't look at the AutocompleteInput's
   // |from_omnibox_focus| member, so we can set its value to false.
-  AutocompleteInput input(base::string16(), current_page_classification_,
+  AutocompleteInput input(std::u16string(), current_page_classification_,
                           client()->GetSchemeClassifier());
   input.set_current_url(GURL(current_query_));
   input.set_current_title(current_title_);
@@ -298,7 +296,7 @@ const AutocompleteInput ZeroSuggestProvider::GetInput(bool is_keyword) const {
 }
 
 bool ZeroSuggestProvider::ShouldAppendExtraParams(
-      const SearchSuggestionParser::SuggestResult& result) const {
+    const SearchSuggestionParser::SuggestResult& result) const {
   // We always use the default provider for search, so append the params.
   return true;
 }
@@ -341,18 +339,17 @@ bool ZeroSuggestProvider::UpdateResults(const std::string& json_data) {
 
   // When running the REMOTE_NO_URL variant, we want to store suggestion
   // responses if non-empty.
-  if (base::FeatureList::IsEnabled(omnibox::kOmniboxZeroSuggestCaching) &&
-      result_type_running_ == REMOTE_NO_URL && !json_data.empty()) {
+  if (result_type_running_ == REMOTE_NO_URL && !json_data.empty()) {
     client()->GetPrefs()->SetString(omnibox::kZeroSuggestCachedResults,
                                     json_data);
 
     // If we received an empty result list, we should update the display, as it
     // may be showing cached results that should not be shown.
-    const base::ListValue* root_list = nullptr;
-    const base::ListValue* results_list = nullptr;
-    const bool non_empty_parsed_list = data->GetAsList(&root_list) &&
-                                       root_list->GetList(1, &results_list) &&
-                                       !results_list->empty();
+    //
+    // `data->GetList()[1]` is the results list.
+    const bool non_empty_parsed_list =
+        data->is_list() && data->GetList().size() >= 2u &&
+        data->GetList()[1].is_list() && !data->GetList()[1].GetList().empty();
     const bool non_empty_cache = !results_.suggest_results.empty() ||
                                  !results_.navigation_results.empty();
     if (non_empty_parsed_list && non_empty_cache)
@@ -448,18 +445,18 @@ AutocompleteMatch ZeroSuggestProvider::MatchForCurrentText() {
   // that it is in the first suggestion slot and inline autocompleted. It
   // gets dropped as soon as the user types something.
   AutocompleteInput tmp(GetInput(false));
-  tmp.UpdateText(permanent_text_, base::string16::npos, tmp.parts());
-  const base::string16 description =
+  tmp.UpdateText(permanent_text_, std::u16string::npos, tmp.parts());
+  const std::u16string description =
       (base::FeatureList::IsEnabled(omnibox::kDisplayTitleForCurrentUrl))
           ? current_title_
-          : base::string16();
+          : std::u16string();
 
   // We pass a nullptr as the |history_url_provider| parameter now to force
   // VerbatimMatch to do a classification, since the text can be a search query.
   // TODO(tommycli): Simplify this - probably just bypass VerbatimMatchForURL.
-  AutocompleteMatch match = VerbatimMatchForURL(
-      client(), tmp, GURL(current_query_), description,
-      /*history_url_provider=*/nullptr, results_.verbatim_relevance);
+  AutocompleteMatch match =
+      VerbatimMatchForURL(this, client(), tmp, GURL(current_query_),
+                          description, results_.verbatim_relevance);
   match.provider = this;
   return match;
 }
@@ -488,6 +485,12 @@ bool ZeroSuggestProvider::AllowZeroSuggestSuggestions(
         return input.focus_type() == OmniboxFocusType::DELETED_PERMANENT_TEXT &&
                base::FeatureList::IsEnabled(
                    omnibox::kClobberTriggersContextualWebZeroSuggest);
+      }
+
+      if (IsSearchResultsPage(page_class)) {
+        return input.focus_type() == OmniboxFocusType::DELETED_PERMANENT_TEXT &&
+               base::FeatureList::IsEnabled(
+                   omnibox::kClobberTriggersSRPZeroSuggest);
       }
 
       return false;
@@ -521,8 +524,7 @@ bool ZeroSuggestProvider::AllowZeroSuggestSuggestions(
 }
 
 void ZeroSuggestProvider::MaybeUseCachedSuggestions() {
-  if (!base::FeatureList::IsEnabled(omnibox::kOmniboxZeroSuggestCaching) ||
-      result_type_running_ != REMOTE_NO_URL) {
+  if (result_type_running_ != REMOTE_NO_URL) {
     return;
   }
 
@@ -573,10 +575,13 @@ ZeroSuggestProvider::ResultType ZeroSuggestProvider::TypeOfResultToRun(
       kOmniboxZeroSuggestEligibleHistogramName, static_cast<int>(eligibility),
       static_cast<int>(ZeroSuggestEligibility::ELIGIBLE_MAX_VALUE));
 
-  if (current_page_classification == OmniboxEventProto::CHROMEOS_APP_LIST)
+  if (current_page_classification == OmniboxEventProto::CHROMEOS_APP_LIST ||
+      current_page_classification ==
+          OmniboxEventProto::ANDROID_SHORTCUTS_WIDGET) {
     return REMOTE_NO_URL;
+  }
 
-  // Contextual Open Web - (same client side behavior for multiple variants).
+  // Contextual Open Web - does NOT include Search Results Page.
   if (current_page_classification == OmniboxEventProto::OTHER &&
       can_send_current_url) {
     if (input.focus_type() == OmniboxFocusType::ON_FOCUS &&
@@ -594,32 +599,29 @@ ZeroSuggestProvider::ResultType ZeroSuggestProvider::TypeOfResultToRun(
     }
   }
 
-  // Reactive Zero-Prefix Suggestions (rZPS) on NTP cases.
+  // Search Results page classification only.
+  if (IsSearchResultsPage(current_page_classification) &&
+      can_send_current_url) {
+    if (input.focus_type() == OmniboxFocusType::ON_FOCUS &&
+        base::FeatureList::IsEnabled(
+            omnibox::kOnFocusSuggestionsContextualWebAllowSRP)) {
+      return REMOTE_SEND_URL;
+    }
+
+    if (input.focus_type() == OmniboxFocusType::DELETED_PERMANENT_TEXT &&
+        base::FeatureList::IsEnabled(omnibox::kClobberTriggersSRPZeroSuggest)) {
+      return REMOTE_SEND_URL;
+    }
+  }
+
+  // Default to REMOTE_NO_URL on the NTP, if allowed.
   bool check_authentication_state = !base::FeatureList::IsEnabled(
       omnibox::kOmniboxTrendingZeroPrefixSuggestionsOnNTP);
   bool remote_no_url_allowed = RemoteNoUrlSuggestionsAreAllowed(
       client, template_url_service, check_authentication_state);
-  if (remote_no_url_allowed) {
-    // NTP Omnibox.
-    if ((current_page_classification == OmniboxEventProto::NTP ||
-         current_page_classification ==
-             OmniboxEventProto::INSTANT_NTP_WITH_OMNIBOX_AS_STARTING_FOCUS) &&
-        base::FeatureList::IsEnabled(
-            omnibox::kReactiveZeroSuggestionsOnNTPOmnibox)) {
-      return REMOTE_NO_URL;
-    }
-    // NTP Realbox.
-    if (current_page_classification == OmniboxEventProto::NTP_REALBOX &&
-        base::FeatureList::IsEnabled(
-            omnibox::kReactiveZeroSuggestionsOnNTPRealbox)) {
-      return REMOTE_NO_URL;
-    }
-  }
-
-  // For Desktop, Android, and iOS, default to REMOTE_NO_URL on the NTP, if
-  // allowed.
-  if (IsNTPPage(current_page_classification) && remote_no_url_allowed)
+  if (IsNTPPage(current_page_classification) && remote_no_url_allowed) {
     return REMOTE_NO_URL;
+  }
 
   return NONE;
 }

@@ -7,7 +7,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "remoting/base/logging.h"
 #include "remoting/host/client_session_control.h"
 #include "ui/gfx/x/connection.h"
@@ -21,14 +21,15 @@ class CurtainModeLinux : public CurtainMode {
  public:
   CurtainModeLinux();
 
+  CurtainModeLinux(const CurtainModeLinux&) = delete;
+  CurtainModeLinux& operator=(const CurtainModeLinux&) = delete;
+
   // Overriden from CurtainMode.
   bool Activate() override;
 
  private:
   // Returns true if the host is running under a virtual session.
   bool IsVirtualSession();
-
-  DISALLOW_COPY_AND_ASSIGN(CurtainModeLinux);
 };
 
 CurtainModeLinux::CurtainModeLinux() = default;
@@ -50,14 +51,14 @@ bool CurtainModeLinux::IsVirtualSession() {
   // Try to identify a virtual session. Since there's no way to tell from the
   // vendor string, we check for known virtual input devices.
   // TODO(rmsousa): Find a similar way to determine that the *output* is secure.
-  x11::Connection connection;
-  if (!connection.xinput().present()) {
+  x11::Connection* connection = x11::Connection::Get();
+  if (!connection->xinput().present()) {
     // If XInput is not available, assume it is not a virtual session.
     LOG(ERROR) << "X Input extension not available";
     return false;
   }
 
-  auto devices = connection.xinput().ListInputDevices({}).Sync();
+  auto devices = connection->xinput().ListInputDevices().Sync();
   if (!devices) {
     LOG(ERROR) << "ListInputDevices failed";
     return false;

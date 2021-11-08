@@ -18,7 +18,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/tick_clock.h"
 #include "media/base/audio_converter.h"
 #include "media/base/audio_parameters.h"
@@ -62,6 +62,10 @@ class FakeMediaSource final : public media::AudioConverter::InputCallback {
                   const FrameSenderConfig& audio_config,
                   const FrameSenderConfig& video_config,
                   bool keep_frames);
+
+  FakeMediaSource(const FakeMediaSource&) = delete;
+  FakeMediaSource& operator=(const FakeMediaSource&) = delete;
+
   ~FakeMediaSource() final;
 
   // Transcode this file as the source of video and audio frames.
@@ -177,8 +181,6 @@ class FakeMediaSource final : public media::AudioConverter::InputCallback {
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<FakeMediaSource> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FakeMediaSource);
 };
 
 }  // namespace cast

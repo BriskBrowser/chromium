@@ -15,14 +15,15 @@
 #include <stdio.h>
 
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -86,8 +87,8 @@ class GLHelperBenchmark : public testing::Test {
     gl_ = context_->GetImplementation();
     ContextSupport* support = context_->GetImplementation();
 
-    helper_.reset(new GLHelper(gl_, support));
-    helper_scaling_.reset(new GLHelperScaling(gl_, helper_.get()));
+    helper_ = std::make_unique<GLHelper>(gl_, support);
+    helper_scaling_ = std::make_unique<GLHelperScaling>(gl_, helper_.get());
   }
 
   void TearDown() override {
@@ -191,7 +192,7 @@ TEST_F(GLHelperBenchmark, ScaleBenchmark) {
           if (iterations > 2000) {
             break;
           }
-          if ((end_time - start_time) > base::TimeDelta::FromSeconds(1)) {
+          if ((end_time - start_time) > base::Seconds(1)) {
             break;
           }
         }

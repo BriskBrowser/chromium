@@ -9,8 +9,8 @@
 #include <string>
 
 #include "chrome/browser/enterprise/connectors/connectors_service.h"
-#include "components/safe_browsing/core/proto/csd.pb.h"
-#include "components/safe_browsing/core/realtime/url_lookup_service_base.h"
+#include "components/safe_browsing/core/browser/realtime/url_lookup_service_base.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -21,11 +21,11 @@ namespace network {
 class SharedURLLoaderFactory;
 }  // namespace network
 
-class PrefService;
-
 class Profile;
 
 namespace safe_browsing {
+
+class ReferrerChainProvider;
 
 // This class implements the real time lookup feature for a given user/profile.
 // It is separated from the base class for logic that is related to enterprise
@@ -37,13 +37,16 @@ class ChromeEnterpriseRealTimeUrlLookupService
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       VerdictCacheManager* cache_manager,
       Profile* profile,
-      const IsHistorySyncEnabledCallback& is_history_sync_enabled_callback,
+      base::RepeatingCallback<ChromeUserPopulation()>
+          get_user_population_callback,
       enterprise_connectors::ConnectorsService* connectors_service,
-      PrefService* pref_service,
-      const ChromeUserPopulation::ProfileManagementStatus&
-          profile_management_status,
-      bool is_under_advanced_protection,
-      bool is_off_the_record);
+      ReferrerChainProvider* referrer_chain_provider);
+
+  ChromeEnterpriseRealTimeUrlLookupService(
+      const ChromeEnterpriseRealTimeUrlLookupService&) = delete;
+  ChromeEnterpriseRealTimeUrlLookupService& operator=(
+      const ChromeEnterpriseRealTimeUrlLookupService&) = delete;
+
   ~ChromeEnterpriseRealTimeUrlLookupService() override;
 
   // RealTimeUrlLookupServiceBase:
@@ -56,12 +59,20 @@ class ChromeEnterpriseRealTimeUrlLookupService
   GURL GetRealTimeLookupUrl() const override;
   net::NetworkTrafficAnnotationTag GetTrafficAnnotationTag() const override;
   bool CanPerformFullURLLookupWithToken() const override;
-  void GetAccessToken(const GURL& url,
-                      RTLookupRequestCallback request_callback,
-                      RTLookupResponseCallback response_callback) override;
-  base::Optional<std::string> GetDMTokenString() const override;
+  bool CanAttachReferrerChain() const override;
+  int GetReferrerUserGestureLimit() const override;
+  bool CanSendPageLoadToken() const override;
+  void GetAccessToken(
+      const GURL& url,
+      const GURL& last_committed_url,
+      bool is_mainframe,
+      RTLookupRequestCallback request_callback,
+      RTLookupResponseCallback response_callback,
+      scoped_refptr<base::SequencedTaskRunner> callback_task_runner) override;
+  absl::optional<std::string> GetDMTokenString() const override;
   std::string GetMetricSuffix() const override;
   bool ShouldIncludeCredentials() const override;
+  double GetMinAllowedTimestampForReferrerChains() const override;
 
   // Unowned object used for checking profile based settings.
   Profile* profile_;
@@ -73,8 +84,6 @@ class ChromeEnterpriseRealTimeUrlLookupService
 
   base::WeakPtrFactory<ChromeEnterpriseRealTimeUrlLookupService> weak_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeEnterpriseRealTimeUrlLookupService);
 
 };  // class ChromeEnterpriseRealTimeUrlLookupService
 

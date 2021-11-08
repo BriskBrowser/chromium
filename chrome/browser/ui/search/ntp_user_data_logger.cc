@@ -11,8 +11,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "chrome/browser/after_startup_task_utils.h"
-#include "chrome/browser/search/instant_service.h"
-#include "chrome/browser/search/instant_service_factory.h"
+#include "chrome/browser/search/background/ntp_custom_background_service.h"
+#include "chrome/browser/search/background/ntp_custom_background_service_factory.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/ui/search/ntp_user_data_types.h"
 #include "chrome/common/pref_names.h"
@@ -20,106 +20,12 @@
 #include "components/ntp_tiles/metrics.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/ntp_features.h"
+#include "extensions/common/constants.h"
 
 namespace {
 
-// This enum must match the numbering for NewTabPageVoiceAction in enums.xml.
-// Do not reorder or remove items, only add new items before VOICE_ACTION_MAX.
-enum VoiceAction {
-  // Activated by clicking on the fakebox or realbox icon.
-  VOICE_ACTION_ACTIVATE_SEARCH_BOX = 0,
-  // Activated by keyboard shortcut.
-  VOICE_ACTION_ACTIVATE_KEYBOARD = 1,
-  // Close the voice overlay by a user's explicit action.
-  VOICE_ACTION_CLOSE_OVERLAY = 2,
-  // Submitted voice query.
-  VOICE_ACTION_QUERY_SUBMITTED = 3,
-  // Clicked on support link in error message.
-  VOICE_ACTION_SUPPORT_LINK_CLICKED = 4,
-  // Retried by clicking Try Again link.
-  VOICE_ACTION_TRY_AGAIN_LINK = 5,
-  // Retried by clicking microphone button.
-  VOICE_ACTION_TRY_AGAIN_MIC_BUTTON = 6,
-
-  VOICE_ACTION_MAX
-};
-
-// Converts |NTPLoggingEventType| to a |VoiceAction|, if the value
-// is an action value. Otherwise, |VOICE_ACTION_MAX| is returned.
-VoiceAction LoggingEventToVoiceAction(NTPLoggingEventType event) {
-  switch (event) {
-    case NTP_VOICE_ACTION_ACTIVATE_SEARCH_BOX:
-      return VOICE_ACTION_ACTIVATE_SEARCH_BOX;
-    case NTP_VOICE_ACTION_ACTIVATE_KEYBOARD:
-      return VOICE_ACTION_ACTIVATE_KEYBOARD;
-    case NTP_VOICE_ACTION_CLOSE_OVERLAY:
-      return VOICE_ACTION_CLOSE_OVERLAY;
-    case NTP_VOICE_ACTION_QUERY_SUBMITTED:
-      return VOICE_ACTION_QUERY_SUBMITTED;
-    case NTP_VOICE_ACTION_SUPPORT_LINK_CLICKED:
-      return VOICE_ACTION_SUPPORT_LINK_CLICKED;
-    case NTP_VOICE_ACTION_TRY_AGAIN_LINK:
-      return VOICE_ACTION_TRY_AGAIN_LINK;
-    case NTP_VOICE_ACTION_TRY_AGAIN_MIC_BUTTON:
-      return VOICE_ACTION_TRY_AGAIN_MIC_BUTTON;
-    default:
-      NOTREACHED();
-      return VOICE_ACTION_MAX;
-  }
-}
-
-// This enum must match the numbering for NewTabPageVoiceError in enums.xml.
-// Do not reorder or remove items, only add new items before VOICE_ERROR_MAX.
-enum VoiceError {
-  VOICE_ERROR_ABORTED = 0,
-  VOICE_ERROR_AUDIO_CAPTURE = 1,
-  VOICE_ERROR_BAD_GRAMMAR = 2,
-  VOICE_ERROR_LANGUAGE_NOT_SUPPORTED = 3,
-  VOICE_ERROR_NETWORK = 4,
-  VOICE_ERROR_NO_MATCH = 5,
-  VOICE_ERROR_NO_SPEECH = 6,
-  VOICE_ERROR_NOT_ALLOWED = 7,
-  VOICE_ERROR_OTHER = 8,
-  VOICE_ERROR_SERVICE_NOT_ALLOWED = 9,
-
-  VOICE_ERROR_MAX
-};
-
-// Converts |NTPLoggingEventType| to a |VoiceError|, if the value
-// is an error value. Otherwise, |VOICE_ERROR_MAX| is returned.
-VoiceError LoggingEventToVoiceError(NTPLoggingEventType event) {
-  switch (event) {
-    case NTP_VOICE_ERROR_ABORTED:
-      return VOICE_ERROR_ABORTED;
-    case NTP_VOICE_ERROR_AUDIO_CAPTURE:
-      return VOICE_ERROR_AUDIO_CAPTURE;
-    case NTP_VOICE_ERROR_BAD_GRAMMAR:
-      return VOICE_ERROR_BAD_GRAMMAR;
-    case NTP_VOICE_ERROR_LANGUAGE_NOT_SUPPORTED:
-      return VOICE_ERROR_LANGUAGE_NOT_SUPPORTED;
-    case NTP_VOICE_ERROR_NETWORK:
-      return VOICE_ERROR_NETWORK;
-    case NTP_VOICE_ERROR_NO_MATCH:
-      return VOICE_ERROR_NO_MATCH;
-    case NTP_VOICE_ERROR_NO_SPEECH:
-      return VOICE_ERROR_NO_SPEECH;
-    case NTP_VOICE_ERROR_NOT_ALLOWED:
-      return VOICE_ERROR_NOT_ALLOWED;
-    case NTP_VOICE_ERROR_OTHER:
-      return VOICE_ERROR_OTHER;
-    case NTP_VOICE_ERROR_SERVICE_NOT_ALLOWED:
-      return VOICE_ERROR_SERVICE_NOT_ALLOWED;
-    default:
-      NOTREACHED();
-      return VOICE_ERROR_MAX;
-  }
-}
-
 // Logs CustomizedShortcutSettings on the NTP.
-void LogCustomizedShortcutSettings(std::pair<bool, bool> settings) {
-  bool using_most_visited = settings.first;
-  bool is_visible = settings.second;
-
+void LogCustomizedShortcutSettings(bool using_most_visited, bool is_visible) {
   CustomizedShortcutSettings setting;
   if (is_visible && using_most_visited) {
     setting =
@@ -355,20 +261,24 @@ LogoClickType LoggingEventToLogoClick(NTPLoggingEventType event) {
   }
 }
 
+bool IsImpressionFromPreinstalledApp(
+    const ntp_tiles::NTPTileImpression& impression) {
+  return impression.url_for_rappor.is_valid() &&
+         impression.url_for_rappor.SchemeIs(extensions::kExtensionScheme) &&
+         extension_misc::IsPreinstalledAppId(impression.url_for_rappor.host());
+}
 }  // namespace
 
 // Helper macro to log a load time to UMA. There's no good reason why we don't
 // use one of the standard UMA_HISTORAM_*_TIMES macros, but all their ranges are
 // different, and it's not worth changing all the existing histograms.
-#define UMA_HISTOGRAM_LOAD_TIME(name, sample)                      \
-  UMA_HISTOGRAM_CUSTOM_TIMES(name, sample,                         \
-                             base::TimeDelta::FromMilliseconds(1), \
-                             base::TimeDelta::FromSeconds(60), 100)
+#define UMA_HISTOGRAM_LOAD_TIME(name, sample)                     \
+  UMA_HISTOGRAM_CUSTOM_TIMES(name, sample, base::Milliseconds(1), \
+                             base::Seconds(60), 100)
 
 NTPUserDataLogger::NTPUserDataLogger(Profile* profile, const GURL& ntp_url)
     : has_emitted_(false),
       should_record_doodle_load_time_(true),
-      modules_visible_(false),
       during_startup_(!AfterStartupTaskUtils::IsBrowserStartupComplete()),
       ntp_url_(ntp_url),
       profile_(profile) {}
@@ -392,44 +302,11 @@ void NTPUserDataLogger::LogOneGoogleBarFetchDuration(
 
 void NTPUserDataLogger::LogEvent(NTPLoggingEventType event,
                                  base::TimeDelta time) {
-  if (event == NTP_ALL_TILES_LOADED) {
-    EmitNtpStatistics(time);
-  }
-
-  // All other events can only be logged by the Google NTP
   if (!DefaultSearchProviderIsGoogle()) {
     return;
   }
 
   switch (event) {
-    case NTP_ALL_TILES_LOADED:
-      // permitted above for non-Google search providers
-      break;
-    case NTP_VOICE_ACTION_ACTIVATE_SEARCH_BOX:
-    case NTP_VOICE_ACTION_ACTIVATE_KEYBOARD:
-    case NTP_VOICE_ACTION_CLOSE_OVERLAY:
-    case NTP_VOICE_ACTION_QUERY_SUBMITTED:
-    case NTP_VOICE_ACTION_SUPPORT_LINK_CLICKED:
-    case NTP_VOICE_ACTION_TRY_AGAIN_LINK:
-    case NTP_VOICE_ACTION_TRY_AGAIN_MIC_BUTTON:
-      UMA_HISTOGRAM_ENUMERATION("NewTabPage.VoiceActions",
-                                LoggingEventToVoiceAction(event),
-                                VOICE_ACTION_MAX);
-      break;
-    case NTP_VOICE_ERROR_ABORTED:
-    case NTP_VOICE_ERROR_AUDIO_CAPTURE:
-    case NTP_VOICE_ERROR_BAD_GRAMMAR:
-    case NTP_VOICE_ERROR_LANGUAGE_NOT_SUPPORTED:
-    case NTP_VOICE_ERROR_NETWORK:
-    case NTP_VOICE_ERROR_NO_MATCH:
-    case NTP_VOICE_ERROR_NO_SPEECH:
-    case NTP_VOICE_ERROR_NOT_ALLOWED:
-    case NTP_VOICE_ERROR_OTHER:
-    case NTP_VOICE_ERROR_SERVICE_NOT_ALLOWED:
-      UMA_HISTOGRAM_ENUMERATION("NewTabPage.VoiceErrors",
-                                LoggingEventToVoiceError(event),
-                                VOICE_ERROR_MAX);
-      break;
     case NTP_STATIC_LOGO_SHOWN_FROM_CACHE:
       RecordDoodleImpression(time, /*is_cta=*/false, /*from_cache=*/true);
       break;
@@ -522,33 +399,16 @@ void NTPUserDataLogger::LogEvent(NTPLoggingEventType event,
     case NTP_CUSTOMIZE_SHORTCUT_VISIBILITY_TOGGLE_CLICKED:
       RecordAction(LoggingEventToShortcutUserActionName(event));
       break;
-    case NTP_MODULES_SHOWN:
-      UMA_HISTOGRAM_LOAD_TIME("NewTabPage.Modules.ShownTime", time);
-      break;
     case NTP_APP_RENDERED:
       UMA_HISTOGRAM_LOAD_TIME("NewTabPage.MainUi.ShownTime", time);
       break;
   }
 }
 
-void NTPUserDataLogger::LogSuggestionEventWithValue(
-    NTPSuggestionsLoggingEventType event,
-    int data,
-    base::TimeDelta time) {
-  // Only logged on the Google NTP.
-  if (!DefaultSearchProviderIsGoogle()) {
-    return;
-  }
-
-  switch (event) {
-    case NTPSuggestionsLoggingEventType::kShownCount:
-      UMA_HISTOGRAM_COUNTS_100("NewTabPage.SearchSuggestions.ShownCount", data);
-      break;
-    case NTPSuggestionsLoggingEventType::kIndexClicked:
-      UMA_HISTOGRAM_COUNTS_100("NewTabPage.SearchSuggestions.IndexClicked",
-                               data);
-      break;
-  }
+void NTPUserDataLogger::LogMostVisitedLoaded(base::TimeDelta time,
+                                             bool using_most_visited,
+                                             bool is_visible) {
+  EmitNtpStatistics(time, using_most_visited, is_visible);
 }
 
 void NTPUserDataLogger::LogMostVisitedImpression(
@@ -563,41 +423,14 @@ void NTPUserDataLogger::LogMostVisitedImpression(
 void NTPUserDataLogger::LogMostVisitedNavigation(
     const ntp_tiles::NTPTileImpression& impression) {
   ntp_tiles::metrics::RecordTileClick(impression);
+  if (IsImpressionFromPreinstalledApp(impression)) {
+    base::RecordAction(
+        base::UserMetricsAction("NewTabPage.PreinstalledApps.Clicked"));
+  }
 
   // Records the action. This will be available as a time-stamped stream
   // server-side and can be used to compute time-to-long-dwell.
   base::RecordAction(base::UserMetricsAction("MostVisited_Clicked"));
-}
-
-void NTPUserDataLogger::LogModuleImpression(const std::string& id,
-                                            base::TimeDelta time) {
-  UMA_HISTOGRAM_LOAD_TIME("NewTabPage.Modules.Impression", time);
-  base::UmaHistogramCustomTimes("NewTabPage.Modules.Impression." + id, time,
-                                base::TimeDelta::FromMilliseconds(1),
-                                base::TimeDelta::FromSeconds(60), 100);
-}
-
-void NTPUserDataLogger::LogModuleLoaded(const std::string& id,
-                                        base::TimeDelta duration,
-                                        base::TimeDelta time_since_navigation) {
-  UMA_HISTOGRAM_LOAD_TIME("NewTabPage.Modules.Loaded", time_since_navigation);
-  base::UmaHistogramCustomTimes("NewTabPage.Modules.Loaded." + id,
-                                time_since_navigation,
-                                base::TimeDelta::FromMilliseconds(1),
-                                base::TimeDelta::FromSeconds(60), 100);
-  UMA_HISTOGRAM_LOAD_TIME("NewTabPage.Modules.LoadDuration", duration);
-  base::UmaHistogramCustomTimes("NewTabPage.Modules.LoadDuration." + id,
-                                duration, base::TimeDelta::FromMilliseconds(1),
-                                base::TimeDelta::FromSeconds(60), 100);
-}
-
-void NTPUserDataLogger::LogModuleUsage(const std::string& id) {
-  UMA_HISTOGRAM_EXACT_LINEAR("NewTabPage.Modules.Usage", 1, 1);
-  base::UmaHistogramExactLinear("NewTabPage.Modules.Usage." + id, 1, 1);
-}
-
-void NTPUserDataLogger::SetModulesVisible(bool visible) {
-  modules_visible_ = visible;
 }
 
 bool NTPUserDataLogger::DefaultSearchProviderIsGoogle() const {
@@ -605,55 +438,41 @@ bool NTPUserDataLogger::DefaultSearchProviderIsGoogle() const {
 }
 
 bool NTPUserDataLogger::CustomBackgroundIsConfigured() const {
-  InstantService* instant_service =
-      InstantServiceFactory::GetForProfile(profile_);
-  return instant_service->IsCustomBackgroundSet();
+  return NtpCustomBackgroundServiceFactory::GetForProfile(profile_)
+      ->IsCustomBackgroundSet();
 }
 
-bool NTPUserDataLogger::AreShortcutsCustomized() const {
-  InstantService* instant_service =
-      InstantServiceFactory::GetForProfile(profile_);
-  return instant_service->AreShortcutsCustomized();
-}
-
-std::pair<bool, bool> NTPUserDataLogger::GetCurrentShortcutSettings() const {
-  InstantService* instant_service =
-      InstantServiceFactory::GetForProfile(profile_);
-  return instant_service->GetCurrentShortcutSettings();
-}
-
-void NTPUserDataLogger::EmitNtpStatistics(base::TimeDelta load_time) {
+void NTPUserDataLogger::EmitNtpStatistics(base::TimeDelta load_time,
+                                          bool using_most_visited,
+                                          bool is_visible) {
   // We only send statistics once per page.
   if (has_emitted_) {
     return;
   }
 
-  bool has_server_side_suggestions = false;
   int tiles_count = 0;
-  for (const base::Optional<ntp_tiles::NTPTileImpression>& impression :
+  int num_of_default_apps = 0;
+  for (const absl::optional<ntp_tiles::NTPTileImpression>& impression :
        logged_impressions_) {
     if (!impression.has_value()) {
       break;
     }
-    if (impression->source == ntp_tiles::TileSource::SUGGESTIONS_SERVICE) {
-      has_server_side_suggestions = true;
-    }
     ntp_tiles::metrics::RecordTileImpression(*impression);
     ++tiles_count;
+
+    if (IsImpressionFromPreinstalledApp(*impression)) {
+      ++num_of_default_apps;
+    }
   }
   ntp_tiles::metrics::RecordPageImpression(tiles_count);
+  UMA_HISTOGRAM_COUNTS_100("NewTabPage.NumberOfPreinstalledApps",
+                           num_of_default_apps);
 
   DVLOG(1) << "Emitting NTP load time: " << load_time << ", "
            << "number of tiles: " << tiles_count;
 
   UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime", load_time);
-
-  // Split between ML (aka SuggestionsService) and MV (aka TopSites).
-  if (has_server_side_suggestions) {
-    UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.MostLikely", load_time);
-  } else {
-    UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.MostVisited", load_time);
-  }
+  UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.MostVisited", load_time);
 
   // Note: This could be inaccurate if the default search engine was changed
   // since the page load started. That's unlikely enough to not warrant special
@@ -661,20 +480,10 @@ void NTPUserDataLogger::EmitNtpStatistics(base::TimeDelta load_time) {
   bool is_google = DefaultSearchProviderIsGoogle();
 
   // Split between NTP variants.
-  if (ntp_url_.SchemeIsHTTPOrHTTPS()) {
-    UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.Web", load_time);
-    // Only third-party NTPs can be loaded from the web.
-    UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.Web.Other", load_time);
-  } else if (ntp_url_ == GURL(chrome::kChromeSearchLocalNtpUrl)) {
-    UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.LocalNTP", load_time);
-    // Further split between Google and non-Google.
-    if (is_google) {
-      UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.LocalNTP.Google", load_time);
-    } else {
-      UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.LocalNTP.Other", load_time);
-    }
-  } else if (ntp_url_ == GURL(chrome::kChromeUINewTabPageURL)) {
+  if (ntp_url_ == GURL(chrome::kChromeUINewTabPageURL)) {
     UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.WebUINTP", load_time);
+  } else if (ntp_url_ == GURL(chrome::kChromeUINewTabPageThirdPartyURL)) {
+    UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.WebUI3PNTP", load_time);
   }
 
   // Split between Startup and non-startup.
@@ -685,9 +494,9 @@ void NTPUserDataLogger::EmitNtpStatistics(base::TimeDelta load_time) {
   }
 
   if (is_google) {
-    LogCustomizedShortcutSettings(GetCurrentShortcutSettings());
+    LogCustomizedShortcutSettings(using_most_visited, is_visible);
 
-    if (AreShortcutsCustomized()) {
+    if (!using_most_visited) {
       UMA_HISTOGRAM_ENUMERATION(
           "NewTabPage.Customized",
           LoggingEventToCustomizedFeature(NTP_SHORTCUT_CUSTOMIZED));
@@ -698,11 +507,6 @@ void NTPUserDataLogger::EmitNtpStatistics(base::TimeDelta load_time) {
           "NewTabPage.Customized",
           LoggingEventToCustomizedFeature(NTP_BACKGROUND_CUSTOMIZED));
     }
-  }
-
-  if (base::FeatureList::IsEnabled(ntp_features::kModules)) {
-    base::UmaHistogramBoolean("NewTabPage.Modules.VisibleOnNTPLoad",
-                              modules_visible_);
   }
 
   has_emitted_ = true;

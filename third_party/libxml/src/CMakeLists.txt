@@ -1,6 +1,16 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(libxml2 C)
+file(STRINGS "configure.ac" CONFIGURE_AC_LINES)
+foreach(line ${CONFIGURE_AC_LINES})
+	if(line MATCHES [[^m4_define\(\[(MAJOR_VERSION|MINOR_VERSION|MICRO_VERSION)\],[ \t]*([0-9]+)\)$]])
+		set(LIBXML_${CMAKE_MATCH_1} ${CMAKE_MATCH_2})
+	elseif(line MATCHES "^(LIBXML_MAJOR_VERSION|LIBXML_MINOR_VERSION|LIBXML_MICRO_VERSION)=([0-9]+)$")
+		set(${CMAKE_MATCH_1} ${CMAKE_MATCH_2})
+	endif()
+endforeach()
+set(VERSION "${LIBXML_MAJOR_VERSION}.${LIBXML_MINOR_VERSION}.${LIBXML_MICRO_VERSION}")
+
+project(libxml2 VERSION ${VERSION} LANGUAGES C)
 
 include(CheckCSourceCompiles)
 include(CheckFunctionExists)
@@ -10,16 +20,6 @@ include(CheckStructHasMember)
 include(CheckSymbolExists)
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
-
-set(LIBXML_MAJOR_VERSION 2)
-set(LIBXML_MINOR_VERSION 9)
-set(LIBXML_MICRO_VERSION 10)
-
-set(VERSION "${LIBXML_MAJOR_VERSION}.${LIBXML_MINOR_VERSION}.${LIBXML_MICRO_VERSION}")
-set(LIBXML_VERSION ${LIBXML_MAJOR_VERSION}0${LIBXML_MINOR_VERSION}0${LIBXML_MICRO_VERSION})
-set(LIBXML_VERSION_STRING "${LIBXML_VERSION}")
-set(LIBXML_VERSION_EXTRA "")
-set(LIBXML_VERSION_NUMBER ${LIBXML_VERSION})
 
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 set(LIBXML2_WITH_AUTOMATA ON)
@@ -104,6 +104,11 @@ foreach(VARIABLE IN ITEMS WITH_AUTOMATA WITH_C14N WITH_CATALOG WITH_DEBUG WITH_D
 		set(${VARIABLE} 0)
 	endif()
 endforeach()
+
+set(LIBXML_VERSION ${LIBXML_MAJOR_VERSION}0${LIBXML_MINOR_VERSION}0${LIBXML_MICRO_VERSION})
+set(LIBXML_VERSION_STRING "${LIBXML_VERSION}")
+set(LIBXML_VERSION_EXTRA "")
+set(LIBXML_VERSION_NUMBER ${LIBXML_VERSION})
 
 set(MODULE_EXTENSION "${CMAKE_SHARED_LIBRARY_SUFFIX}")
 
@@ -414,6 +419,7 @@ if(LIBXML2_WITH_TRIO)
 endif()
 
 add_library(LibXml2 ${LIBXML2_HDRS} ${LIBXML2_SRCS})
+add_library(LibXml2::LibXml2 ALIAS LibXml2)
 
 if(NOT BUILD_SHARED_LIBS)
 	target_compile_definitions(LibXml2 INTERFACE LIBXML_STATIC)
@@ -493,10 +499,10 @@ set_target_properties(
 	OUTPUT_NAME xml2
 	POSITION_INDEPENDENT_CODE ON
 	PREFIX lib
-	VERSION ${VERSION}
+	VERSION ${PROJECT_VERSION}
 )
 
-if(WIN32)
+if(MSVC)
 	if(BUILD_SHARED_LIBS)
 		set_target_properties(
 			LibXml2
@@ -537,6 +543,7 @@ if(LIBXML2_WITH_PROGRAMS)
 	)
 	foreach(PROGRAM ${PROGRAMS})
 		add_executable(${PROGRAM} ${PROGRAM}.c)
+		add_executable(LibXml2::${PROGRAM} ALIAS ${PROGRAM})
 		target_link_libraries(${PROGRAM} LibXml2)
 		if(HAVE_LIBHISTORY)
 			target_link_libraries(${PROGRAM} history)
@@ -637,7 +644,7 @@ if(LIBXML2_WITH_PYTHON)
 		IMPORT_PREFIX lib
 		OUTPUT_NAME xml2mod
 		PREFIX lib
-		VERSION ${VERSION}
+		VERSION ${PROJECT_VERSION}
 	)
 	install(
 		TARGETS	LibXml2Mod
@@ -659,30 +666,30 @@ install(DIRECTORY doc/ DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/libxml2 COMPONEN
 
 configure_package_config_file(
 	libxml2-config.cmake.cmake.in libxml2-config.cmake
-	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxml2-${VERSION}
+	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxml2-${PROJECT_VERSION}
 )
 
 install(
 	FILES ${CMAKE_CURRENT_BINARY_DIR}/libxml2-config.cmake
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxml2-${VERSION}
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxml2-${PROJECT_VERSION}
 	COMPONENT development
 )
 
 write_basic_package_version_file(
 	${CMAKE_CURRENT_BINARY_DIR}/libxml2-config-version.cmake
-	VERSION ${VERSION}
+	VERSION ${PROJECT_VERSION}
 	COMPATIBILITY ExactVersion
 )
 
 install(
 	FILES ${CMAKE_CURRENT_BINARY_DIR}/libxml2-config-version.cmake
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxml2-${VERSION}
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxml2-${PROJECT_VERSION}
 	COMPONENT development
 )
 
 install(
 	EXPORT LibXml2
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxml2-${VERSION}
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxml2-${PROJECT_VERSION}
 	NAMESPACE LibXml2::
 	FILE libxml2-export.cmake
 	COMPONENT development

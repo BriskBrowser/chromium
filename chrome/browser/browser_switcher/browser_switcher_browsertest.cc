@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -60,7 +61,7 @@ const char kTestUrlWithLineEnding[] = "http://example.com/foobar\n";
 
 #if defined(OS_WIN)
 std::string NativeToUTF8(const std::wstring& native) {
-  return base::UTF16ToUTF8(native);
+  return base::WideToUTF8(native);
 }
 #else
 std::string NativeToUTF8(const std::string& native) {
@@ -136,10 +137,9 @@ class BrowserSwitcherBrowserTest : public InProcessBrowserTest {
   }
 
   void SetUpInProcessBrowserTestFixture() override {
-    ON_CALL(provider_, IsInitializationComplete(testing::_))
-        .WillByDefault(testing::Return(true));
-    ON_CALL(provider_, IsFirstPolicyLoadComplete(testing::_))
-        .WillByDefault(testing::Return(true));
+    provider_.SetDefaultReturns(
+        /*is_initialization_complete_return=*/true,
+        /*is_first_policy_load_complete_return=*/true);
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
   }
 

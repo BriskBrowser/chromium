@@ -5,8 +5,6 @@
 #ifndef CHROMEOS_DBUS_CROS_HEALTHD_CROS_HEALTHD_CLIENT_H_
 #define CHROMEOS_DBUS_CROS_HEALTHD_CROS_HEALTHD_CLIENT_H_
 
-#include <memory>
-
 #include "base/callback_forward.h"
 #include "base/component_export.h"
 #include "base/files/scoped_file.h"
@@ -41,6 +39,9 @@ class COMPONENT_EXPORT(CROS_HEALTHD) CrosHealthdClient {
   // Returns the global instance which may be null if not initialized.
   static CrosHealthdClient* Get();
 
+  CrosHealthdClient(const CrosHealthdClient&) = delete;
+  CrosHealthdClient& operator=(const CrosHealthdClient&) = delete;
+
   // Uses D-Bus to bootstrap the Mojo connection between the cros_healthd daemon
   // and the browser. Returns a bound remote.
   virtual mojo::Remote<cros_healthd::mojom::CrosHealthdServiceFactory>
@@ -50,11 +51,13 @@ class COMPONENT_EXPORT(CROS_HEALTHD) CrosHealthdClient {
   // Initialize/Shutdown should be used instead.
   CrosHealthdClient();
   virtual ~CrosHealthdClient();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(CrosHealthdClient);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+using ::chromeos::CrosHealthdClient;
+}  // namespace ash
 
 #endif  // CHROMEOS_DBUS_CROS_HEALTHD_CROS_HEALTHD_CLIENT_H_

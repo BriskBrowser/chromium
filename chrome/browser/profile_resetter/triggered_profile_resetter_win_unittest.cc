@@ -21,6 +21,8 @@
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#include <windows.h>
+
 using base::win::RegKey;
 
 class TriggeredProfileResetterTest : public testing::Test {
@@ -95,9 +97,9 @@ TEST_F(TriggeredProfileResetterTest, HasLongToolName) {
       L"ToolMcToolToolMcToolToolMcToolToolMcToolToolMcToolToolMcToolToolMcTool"
       L"ToolMcToolToolMcToolToolMcToolThisIsTheToolThatNeverEndsYesItGoesOnAnd"
       L"OnMyFriend";
-  const base::char16 kExpectedToolName[] = STRING16_LITERAL(
-      "ToolMcToolToolMcToolToolMcToolToolMcToolToolMcToolToolMcToolToolMcToolTo"
-      "olMcToolToolMcToolToolMcTool");
+  const char16_t kExpectedToolName[] =
+      u"ToolMcToolToolMcToolToolMcToolToolMcToolToolMcToolToolMcToolToolMcTool"
+      u"ToolMcToolToolMcToolToolMcTool";
   SetRegTimestampAndToolName(kLongToolName, nullptr);
   TriggeredProfileResetter triggered_profile_resetter(profile_.get());
   triggered_profile_resetter.Activate();

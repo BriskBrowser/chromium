@@ -24,16 +24,21 @@ class WebTestPermissionManager
       public blink::test::mojom::PermissionAutomation {
  public:
   WebTestPermissionManager();
+
+  WebTestPermissionManager(const WebTestPermissionManager&) = delete;
+  WebTestPermissionManager& operator=(const WebTestPermissionManager&) = delete;
+
   ~WebTestPermissionManager() override;
 
   // PermissionManager overrides.
-  int RequestPermission(PermissionType permission,
-                        RenderFrameHost* render_frame_host,
-                        const GURL& requesting_origin,
-                        bool user_gesture,
-                        base::OnceCallback<void(blink::mojom::PermissionStatus)>
-                            callback) override;
-  int RequestPermissions(
+  void RequestPermission(
+      PermissionType permission,
+      RenderFrameHost* render_frame_host,
+      const GURL& requesting_origin,
+      bool user_gesture,
+      base::OnceCallback<void(blink::mojom::PermissionStatus)> callback)
+      override;
+  void RequestPermissions(
       const std::vector<PermissionType>& permission,
       RenderFrameHost* render_frame_host,
       const GURL& requesting_origin,
@@ -52,13 +57,14 @@ class WebTestPermissionManager
       content::PermissionType permission,
       content::RenderFrameHost* render_frame_host,
       const GURL& requesting_origin) override;
-  int SubscribePermissionStatusChange(
+  SubscriptionId SubscribePermissionStatusChange(
       PermissionType permission,
       RenderFrameHost* render_frame_host,
       const GURL& requesting_origin,
       base::RepeatingCallback<void(blink::mojom::PermissionStatus)> callback)
       override;
-  void UnsubscribePermissionStatusChange(int subscription_id) override;
+  void UnsubscribePermissionStatusChange(
+      SubscriptionId subscription_id) override;
 
   void SetPermission(PermissionType permission,
                      blink::mojom::PermissionStatus status,
@@ -98,7 +104,8 @@ class WebTestPermissionManager
   };
 
   struct Subscription;
-  using SubscriptionsMap = base::IDMap<std::unique_ptr<Subscription>>;
+  using SubscriptionsMap =
+      base::IDMap<std::unique_ptr<Subscription>, SubscriptionId>;
   using PermissionsMap = std::unordered_map<PermissionDescription,
                                             blink::mojom::PermissionStatus,
                                             PermissionDescription::Hash>;
@@ -116,10 +123,9 @@ class WebTestPermissionManager
 
   // List of subscribers currently listening to permission changes.
   SubscriptionsMap subscriptions_;
+  SubscriptionId::Generator subscription_id_generator_;
 
   mojo::ReceiverSet<blink::test::mojom::PermissionAutomation> receivers_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebTestPermissionManager);
 };
 
 }  // namespace content

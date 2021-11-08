@@ -20,6 +20,9 @@ class UrlCheckerDelegateImpl : public UrlCheckerDelegate {
       scoped_refptr<SafeBrowsingDatabaseManager> database_manager,
       scoped_refptr<SafeBrowsingUIManager> ui_manager);
 
+  UrlCheckerDelegateImpl(const UrlCheckerDelegateImpl&) = delete;
+  UrlCheckerDelegateImpl& operator=(const UrlCheckerDelegateImpl&) = delete;
+
  private:
   ~UrlCheckerDelegateImpl() override;
 
@@ -38,6 +41,8 @@ class UrlCheckerDelegateImpl : public UrlCheckerDelegate {
       bool is_main_frame) override;
 
   bool IsUrlAllowlisted(const GURL& url) override;
+  void SetPolicyAllowlistDomains(
+      const std::vector<std::string>& allowlist_domains) override;
   bool ShouldSkipRequestCheck(const GURL& original_url,
                               int frame_tree_node_id,
                               int render_process_id,
@@ -52,9 +57,9 @@ class UrlCheckerDelegateImpl : public UrlCheckerDelegate {
 
   scoped_refptr<SafeBrowsingDatabaseManager> database_manager_;
   scoped_refptr<SafeBrowsingUIManager> ui_manager_;
+  // A list of domains allowlisted by the enterprise policy.
+  std::vector<std::string> allowlist_domains_;
   SBThreatTypeSet threat_types_;
-
-  DISALLOW_COPY_AND_ASSIGN(UrlCheckerDelegateImpl);
 };
 
 }  // namespace safe_browsing

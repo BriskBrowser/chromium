@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/memory/ref_counted.h"
-#include "base/strings/string16.h"
 #include "components/security_state/core/security_state.h"
 
 class AutocompleteClassifier;
@@ -29,9 +28,9 @@ class LocationBarModelDelegate {
  public:
   // Formats |url| using AutocompleteInput::FormattedStringWithEquivalentMeaning
   // providing an appropriate AutocompleteSchemeClassifier for the embedder.
-  virtual base::string16 FormattedStringWithEquivalentMeaning(
+  virtual std::u16string FormattedStringWithEquivalentMeaning(
       const GURL& url,
-      const base::string16& formatted_url) const = 0;
+      const std::u16string& formatted_url) const = 0;
 
   // Returns true and sets |url| to the current navigation entry URL if it
   // exists. Otherwise returns false and leaves |url| unmodified.
@@ -50,9 +49,16 @@ class LocationBarModelDelegate {
   // in the location bar.
   virtual bool ShouldDisplayURL() const;
 
+  // Returns whether the omnibox should use the new security indicators for
+  // secure HTTPS connections.
+  virtual bool ShouldUseUpdatedConnectionSecurityIndicators() const;
+
   // Returns the underlying security level of the page without regard to any
   // user edits that may be in progress.
   virtual security_state::SecurityLevel GetSecurityLevel() const;
+
+  // Returns the underlying cert status of the page.
+  virtual net::CertStatus GetCertStatus() const;
 
   // Returns the underlying security state of the page without regard to any
   // user edits that may be in progress. Should never return nullptr.
@@ -82,6 +88,9 @@ class LocationBarModelDelegate {
 
   // Returns whether |url| corresponds to the user's home page.
   virtual bool IsHomePage(const GURL& url) const;
+
+  // Returns whether there is an accuracy tip shown for the active web contents.
+  virtual bool IsShowingAccuracyTip() const;
 
   // Returns the AutocompleteClassifier instance for the current page.
   virtual AutocompleteClassifier* GetAutocompleteClassifier();

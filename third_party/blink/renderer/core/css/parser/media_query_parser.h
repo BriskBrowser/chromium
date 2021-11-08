@@ -12,7 +12,6 @@
 #include "third_party/blink/renderer/core/css/parser/css_parser_mode.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token_range.h"
-#include "third_party/blink/renderer/core/css/parser/media_query_block_watcher.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -45,10 +44,6 @@ class MediaQueryData {
   void SetMediaType(const String&);
   std::unique_ptr<MediaQuery> TakeMediaQuery();
 
-  inline bool CurrentMediaQueryChanged() const {
-    return (restrictor_ != MediaQuery::kNone || media_type_set_ ||
-            expressions_.size() > 0);
-  }
   inline MediaQuery::RestrictorType Restrictor() { return restrictor_; }
 
   inline void SetRestrictor(MediaQuery::RestrictorType restrictor) {
@@ -87,49 +82,45 @@ class CORE_EXPORT MediaQueryParser {
   MediaQueryParser& operator=(const MediaQueryParser&) = delete;
   virtual ~MediaQueryParser();
 
+  // [ not | only ]
+  static MediaQuery::RestrictorType ConsumeRestrictor(CSSParserTokenRange&);
+
+  // https://drafts.csswg.org/mediaqueries-4/#typedef-media-type
+  static String ConsumeType(CSSParserTokenRange&);
+
+  // https://drafts.csswg.org/mediaqueries-4/#typedef-media-feature
+  //
+  // Currently, only <mf-boolean> and <mf-plain> productions are supported.
+  bool ConsumeFeature(CSSParserTokenRange&);
+
+  // https://drafts.csswg.org/mediaqueries-4/#typedef-media-and
+  //
+  // TODO(crbug.com/962417): This does currently not support the full grammar,
+  // and instead parses the following: [ and <media-feature> ]*
+  bool ConsumeAnd(CSSParserTokenRange&);
+
+  // Used for ParserType::kMediaConditionParser.
+  //
+  // Parsing a single condition is useful for the 'sizes' attribute.
+  //
+  // https://html.spec.whatwg.org/multipage/images.html#sizes-attribute
+  scoped_refptr<MediaQuerySet> ConsumeSingleCondition(CSSParserTokenRange);
+
   scoped_refptr<MediaQuerySet> ParseImpl(CSSParserTokenRange);
 
-  void ProcessToken(const CSSParserToken&, CSSParserTokenRange&);
+  // Like a regular Consume, except verifies that don't consume past
+  // block start/ends.
+  CSSParserToken ConsumeToken(CSSParserTokenRange&);
 
-  void ReadRestrictor(CSSParserTokenType,
-                      const CSSParserToken&,
-                      CSSParserTokenRange&);
-  void ReadMediaNot(CSSParserTokenType,
-                    const CSSParserToken&,
-                    CSSParserTokenRange&);
-  void ReadMediaType(CSSParserTokenType,
-                     const CSSParserToken&,
-                     CSSParserTokenRange&);
-  void ReadAnd(CSSParserTokenType, const CSSParserToken&, CSSParserTokenRange&);
-  void ReadFeatureStart(CSSParserTokenType,
-                        const CSSParserToken&,
-                        CSSParserTokenRange&);
-  void ReadFeature(CSSParserTokenType,
-                   const CSSParserToken&,
-                   CSSParserTokenRange&);
-  void ReadFeatureColon(CSSParserTokenType,
-                        const CSSParserToken&,
-                        CSSParserTokenRange&);
-  void ReadFeatureValue(CSSParserTokenType,
-                        const CSSParserToken&,
-                        CSSParserTokenRange&);
-  void ReadFeatureEnd(CSSParserTokenType,
-                      const CSSParserToken&,
-                      CSSParserTokenRange&);
-  void SkipUntilComma(CSSParserTokenType,
-                      const CSSParserToken&,
-                      CSSParserTokenRange&);
-  void SkipUntilBlockEnd(CSSParserTokenType,
-                         const CSSParserToken&,
-                         CSSParserTokenRange&);
-  void Done(CSSParserTokenType, const CSSParserToken&, CSSParserTokenRange&);
+  void ProcessToken(CSSParserTokenRange&);
 
-  using State = void (MediaQueryParser::*)(CSSParserTokenType,
-                                           const CSSParserToken&,
-                                           CSSParserTokenRange&);
+  void ReadRestrictor(CSSParserTokenRange&);
+  void SkipUntilComma(CSSParserTokenRange&);
+  void Done(CSSParserTokenRange&);
 
-  void SetStateAndRestrict(State, MediaQuery::RestrictorType);
-  void HandleBlocks(const CSSParserToken&);
+  using State = void (MediaQueryParser::*)(CSSParserTokenRange&);
+
+  void FinishQueryDataAndSetState(bool success, CSSParserTokenRange&);
 
   bool IsMediaFeatureAllowedInMode(const String& media_feature) const;
 
@@ -137,21 +128,11 @@ class CORE_EXPORT MediaQueryParser {
   ParserType parser_type_;
   MediaQueryData media_query_data_;
   scoped_refptr<MediaQuerySet> query_set_;
-  MediaQueryBlockWatcher block_watcher_;
   CSSParserMode mode_;
   const ExecutionContext* execution_context_;
 
   const static State kReadRestrictor;
-  const static State kReadMediaNot;
-  const static State kReadMediaType;
-  const static State kReadAnd;
-  const static State kReadFeatureStart;
-  const static State kReadFeature;
-  const static State kReadFeatureColon;
-  const static State kReadFeatureValue;
-  const static State kReadFeatureEnd;
   const static State kSkipUntilComma;
-  const static State kSkipUntilBlockEnd;
   const static State kDone;
 };
 

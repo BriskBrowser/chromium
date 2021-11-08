@@ -7,6 +7,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include "base/bind.h"
+#include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -30,6 +31,9 @@ class TestModel : public ui::SimpleMenuModel {
  public:
   TestModel() : ui::SimpleMenuModel(&delegate_), delegate_(this) {}
 
+  TestModel(const TestModel&) = delete;
+  TestModel& operator=(const TestModel&) = delete;
+
   void set_checked_command(int command) { checked_command_ = command; }
 
   void set_menu_open_callback(base::OnceClosure callback) {
@@ -43,6 +47,10 @@ class TestModel : public ui::SimpleMenuModel {
     bool IsCommandIdChecked(int command_id) const override {
       return command_id == model_->checked_command_;
     }
+
+    Delegate(const Delegate&) = delete;
+    Delegate& operator=(const Delegate&) = delete;
+
     bool IsCommandIdEnabled(int command_id) const override { return true; }
     void ExecuteCommand(int command_id, int event_flags) override {}
 
@@ -63,16 +71,12 @@ class TestModel : public ui::SimpleMenuModel {
 
    private:
     TestModel* model_;
-
-    DISALLOW_COPY_AND_ASSIGN(Delegate);
   };
 
  private:
   int checked_command_ = -1;
   Delegate delegate_;
   base::OnceClosure menu_open_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestModel);
 };
 
 enum class MenuType { NATIVE, VIEWS };
@@ -90,6 +94,10 @@ class MenuRunnerCocoaTest : public ViewsTestBase,
   static constexpr int kWindowOffset = 100;
 
   MenuRunnerCocoaTest() = default;
+
+  MenuRunnerCocoaTest(const MenuRunnerCocoaTest&) = delete;
+  MenuRunnerCocoaTest& operator=(const MenuRunnerCocoaTest&) = delete;
+
   ~MenuRunnerCocoaTest() override = default;
 
   void SetUp() override {
@@ -97,7 +105,7 @@ class MenuRunnerCocoaTest : public ViewsTestBase,
     ViewsTestBase::SetUp();
 
     menu_ = std::make_unique<TestModel>();
-    menu_->AddCheckItem(kTestCommandId, base::ASCIIToUTF16("Menu Item"));
+    menu_->AddCheckItem(kTestCommandId, u"Menu Item");
 
     parent_ = new views::Widget();
     parent_->Init(CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS));
@@ -147,7 +155,8 @@ class MenuRunnerCocoaTest : public ViewsTestBase,
     }
 
     runner_->RunMenuAt(parent_, nullptr, gfx::Rect(),
-                       MenuAnchorPosition::kTopLeft, MenuRunner::CONTEXT_MENU);
+                       MenuAnchorPosition::kTopLeft, MenuRunner::CONTEXT_MENU,
+                       nullptr);
     MaybeRunAsync();
   }
 
@@ -167,7 +176,7 @@ class MenuRunnerCocoaTest : public ViewsTestBase,
     }
 
     runner_->RunMenuAt(parent_, nullptr, anchor, MenuAnchorPosition::kTopLeft,
-                       MenuRunner::COMBOBOX);
+                       MenuRunner::COMBOBOX, nullptr);
     MaybeRunAsync();
   }
 
@@ -295,8 +304,6 @@ class MenuRunnerCocoaTest : public ViewsTestBase,
   }
 
   base::RepeatingClosure quit_closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(MenuRunnerCocoaTest);
 };
 
 // Crashes frequently, https://crbug.com/1073069

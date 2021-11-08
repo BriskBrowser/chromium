@@ -6,7 +6,7 @@
 #define MEDIA_CAPTURE_VIDEO_VIDEO_CAPTURE_DEVICE_FACTORY_H_
 
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "build/chromeos_buildflags.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
@@ -19,17 +19,21 @@ namespace media {
 // devices in the different platforms. VCDFs are created by MediaStreamManager
 // on UI thread and plugged into VideoCaptureManager, who owns and operates them
 // in Device Thread (a.k.a. Audio Thread).
-// Typical operation is to first call GetDeviceDescriptors() to obtain
-// information about available devices. The obtained descriptors can then be
-// used to either obtain the supported formats of a device using
-// GetSupportedFormats(), or to create an instance of VideoCaptureDevice for
-// the device using CreateDevice().
+// Typical operation is to first call GetDevicesInfo() to obtain information
+// about available devices. The obtained descriptors can then be used to either
+// obtain the supported formats of a device using GetSupportedFormats(), or to
+// create an instance of VideoCaptureDevice for the device using CreateDevice().
 // TODO(chfremer): Add a layer on top of the platform-specific implementations
 // that uses strings instead of descriptors as keys for accessing devices.
 // crbug.com/665065
 class CAPTURE_EXPORT VideoCaptureDeviceFactory {
  public:
   VideoCaptureDeviceFactory();
+
+  VideoCaptureDeviceFactory(const VideoCaptureDeviceFactory&) = delete;
+  VideoCaptureDeviceFactory& operator=(const VideoCaptureDeviceFactory&) =
+      delete;
+
   virtual ~VideoCaptureDeviceFactory();
 
   // Creates a VideoCaptureDevice object. Returns NULL if something goes wrong.
@@ -44,15 +48,8 @@ class CAPTURE_EXPORT VideoCaptureDeviceFactory {
       std::vector<VideoCaptureDeviceInfo> devices_info)>;
   virtual void GetDevicesInfo(GetDevicesInfoCallback callback) = 0;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  virtual bool IsSupportedCameraAppDeviceBridge();
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
  protected:
   base::ThreadChecker thread_checker_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(VideoCaptureDeviceFactory);
 };
 
 }  // namespace media

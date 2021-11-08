@@ -14,7 +14,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/services/removable_storage_writer/public/mojom/removable_storage_writer.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
@@ -32,6 +32,9 @@ class ImageWriterUtilityClient
   using ErrorCallback = base::OnceCallback<void(const std::string&)>;
   using ImageWriterUtilityClientFactory =
       base::RepeatingCallback<scoped_refptr<ImageWriterUtilityClient>()>;
+
+  ImageWriterUtilityClient(const ImageWriterUtilityClient&) = delete;
+  ImageWriterUtilityClient& operator=(const ImageWriterUtilityClient&) = delete;
 
   static scoped_refptr<ImageWriterUtilityClient> Create(
       const scoped_refptr<base::SequencedTaskRunner>& task_runner);
@@ -102,8 +105,6 @@ class ImageWriterUtilityClient
       removable_storage_writer_client_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(ImageWriterUtilityClient);
 };
 
 }  // namespace image_writer

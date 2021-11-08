@@ -15,22 +15,22 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/field_trial_params.h"
-#include "base/optional.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/version.h"
-#include "chrome/browser/chromeos/power/ml/smart_dim/metrics.h"
-#include "chrome/browser/chromeos/power/ml/smart_dim/ml_agent.h"
+#include "chrome/browser/ash/power/ml/smart_dim/metrics.h"
+#include "chrome/browser/ash/power/ml/smart_dim/ml_agent.h"
 #include "components/component_updater/component_updater_service.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace {
 
-using ::chromeos::power::ml::ComponentFileContents;
-using ::chromeos::power::ml::ComponentVersionType;
-using ::chromeos::power::ml::LoadComponentEvent;
-using ::chromeos::power::ml::LogComponentVersionType;
-using ::chromeos::power::ml::LogLoadComponentEvent;
+using ::ash::power::ml::ComponentFileContents;
+using ::ash::power::ml::ComponentVersionType;
+using ::ash::power::ml::LoadComponentEvent;
+using ::ash::power::ml::LogComponentVersionType;
+using ::ash::power::ml::LogLoadComponentEvent;
 
 const base::FilePath::CharType kSmartDimFeaturePreprocessorConfigFileName[] =
     FILE_PATH_LITERAL("example_preprocessor_config.pb");
@@ -39,7 +39,7 @@ const base::FilePath::CharType kSmartDimModelFileName[] =
 const base::FilePath::CharType kSmartDimMetaJsonFileName[] =
     FILE_PATH_LITERAL("smart_dim_meta.json");
 
-const char kDefaultVersion[] = "20200601.0";
+const char kDefaultVersion[] = "20210201.1";
 
 constexpr base::FeatureParam<std::string> kVersion{
     &chromeos::features::kSmartDimExperimentalComponent,
@@ -54,10 +54,9 @@ const uint8_t kSmartDimPublicKeySHA256[32] = {
 
 const char kMLSmartDimManifestName[] = "Smart Dim";
 
-
 // Read files from the component to strings, should be called from a blocking
 // task runner.
-base::Optional<ComponentFileContents> ReadComponentFiles(
+absl::optional<ComponentFileContents> ReadComponentFiles(
     const base::FilePath& meta_json_path,
     const base::FilePath& preprocessor_pb_path,
     const base::FilePath& model_path) {
@@ -66,7 +65,7 @@ base::Optional<ComponentFileContents> ReadComponentFiles(
       !base::ReadFileToString(preprocessor_pb_path, &preprocessor_proto) ||
       !base::ReadFileToString(model_path, &model_flatbuffer)) {
     DLOG(ERROR) << "Failed reading component files.";
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   return std::make_tuple(std::move(metadata_json),
@@ -75,13 +74,13 @@ base::Optional<ComponentFileContents> ReadComponentFiles(
 }
 
 void UpdateSmartDimMlAgent(
-    const base::Optional<ComponentFileContents>& result) {
-  if (result == base::nullopt) {
+    const absl::optional<ComponentFileContents>& result) {
+  if (result == absl::nullopt) {
     LogLoadComponentEvent(LoadComponentEvent::kReadComponentFilesError);
     return;
   }
 
-  chromeos::power::ml::SmartDimMlAgent::GetInstance()->OnComponentReady(
+  ash::power::ml::SmartDimMlAgent::GetInstance()->OnComponentReady(
       result.value());
 }
 
@@ -97,7 +96,7 @@ SmartDimComponentInstallerPolicy::~SmartDimComponentInstallerPolicy() = default;
 
 bool SmartDimComponentInstallerPolicy::
     SupportsGroupPolicyEnabledComponentUpdates() const {
-  return false;
+  return true;
 }
 
 bool SmartDimComponentInstallerPolicy::RequiresNetworkEncryption() const {
@@ -106,7 +105,7 @@ bool SmartDimComponentInstallerPolicy::RequiresNetworkEncryption() const {
 
 update_client::CrxInstaller::Result
 SmartDimComponentInstallerPolicy::OnCustomInstall(
-    const base::DictionaryValue& manifest,
+    const base::Value& manifest,
     const base::FilePath& install_dir) {
   return update_client::CrxInstaller::Result(0);  // Nothing custom here.
 }
@@ -116,12 +115,11 @@ void SmartDimComponentInstallerPolicy::OnCustomUninstall() {}
 void SmartDimComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& install_dir,
-    std::unique_ptr<base::DictionaryValue> manifest) {
+    base::Value manifest) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   // If IsDownloadWorkerReady(), newly downloaded components will take effect
   // on next reboot. This makes sure the updating happens at most once.
-  if (chromeos::power::ml::SmartDimMlAgent::GetInstance()
-          ->IsDownloadWorkerReady()) {
+  if (ash::power::ml::SmartDimMlAgent::GetInstance()->IsDownloadWorkerReady()) {
     DVLOG(1) << "Download_worker in SmartDimMlAgent is ready, does nothing.";
     return;
   }
@@ -141,14 +139,14 @@ void SmartDimComponentInstallerPolicy::ComponentReady(
 
 // Called during startup and installation before ComponentReady().
 bool SmartDimComponentInstallerPolicy::VerifyInstallation(
-    const base::DictionaryValue& manifest,
+    const base::Value& manifest,
     const base::FilePath& install_dir) const {
   // Get component version from manifest and compare to the expected_version_.
   // Note: versions should not be treated as simple strings, for example,
   // base::Version("2020.02.06") == base::Version("2020.2.6").
-  const auto* version_value = manifest.FindKey("version");
-  DCHECK(version_value);
-  const base::Version component_version(version_value->GetString());
+  const std::string* version_string = manifest.FindStringKey("version");
+  DCHECK(version_string);
+  const base::Version component_version(*version_string);
   const base::Version expected_version(expected_version_);
   if (component_version != expected_version) {
     DVLOG(1) << "Version " << component_version
@@ -187,9 +185,6 @@ SmartDimComponentInstallerPolicy::GetInstallerAttributes() const {
 }
 
 void RegisterSmartDimComponent(ComponentUpdateService* cus) {
-  if (!base::FeatureList::IsEnabled(chromeos::features::kSmartDimNewMlAgent))
-    return;
-
   DVLOG(1) << "Registering smart dim component.";
   const std::string expected_version = kVersion.Get();
 

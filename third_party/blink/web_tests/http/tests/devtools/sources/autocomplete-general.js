@@ -5,7 +5,8 @@
 (async function() {
   TestRunner.addResult(
       `This test checks how text editor updates autocompletion dictionary in a response to user input.\n`);
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('text_editor');
   await TestRunner.showPanel('sources');
   await TestRunner.addScriptTag('debugger/resources/edit-me.js');
 
@@ -25,7 +26,7 @@
       textEditor.setText('name1 name2 name3 name4\nna');
       textEditor.setSelection(TextUtils.TextRange.createFromLocation(1, 2));
       TestRunner.addSniffer(
-          TextEditor.TextEditorAutocompleteController.prototype, '_onSuggestionsShownForTest',
+          TextEditor.TextEditorAutocompleteController.prototype, 'onSuggestionsShownForTest',
           onAutocompletionSuggestBox);
       SourcesTestRunner.typeIn(textEditor, 'm');
       function onAutocompletionSuggestBox() {
@@ -67,7 +68,7 @@
   ];
 
   function dumpDictionary(next) {
-    var wordsInDictionary = textEditor._autocompleteController._dictionary.wordsWithPrefix('');
+    var wordsInDictionary = textEditor.autocompleteController.dictionary.wordsWithPrefix('');
     TestRunner.addResult('========= Text in editor =========');
     SourcesTestRunner.dumpTextWithSelection(textEditor);
     TestRunner.addResult('======= Words in dictionary =======');

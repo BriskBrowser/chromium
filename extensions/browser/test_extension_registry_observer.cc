@@ -15,6 +15,9 @@ class TestExtensionRegistryObserver::Waiter {
  public:
   Waiter() : observed_(false), extension_(nullptr) {}
 
+  Waiter(const Waiter&) = delete;
+  Waiter& operator=(const Waiter&) = delete;
+
   scoped_refptr<const Extension> Wait() {
     if (!observed_)
       run_loop_.Run();
@@ -31,8 +34,6 @@ class TestExtensionRegistryObserver::Waiter {
   bool observed_;
   base::RunLoop run_loop_;
   scoped_refptr<const Extension> extension_;
-
-  DISALLOW_COPY_AND_ASSIGN(Waiter);
 };
 
 TestExtensionRegistryObserver::TestExtensionRegistryObserver(
@@ -51,7 +52,7 @@ TestExtensionRegistryObserver::TestExtensionRegistryObserver(
       ready_waiter_(std::make_unique<Waiter>()),
       unloaded_waiter_(std::make_unique<Waiter>()),
       extension_id_(extension_id) {
-  extension_registry_observer_.Add(registry);
+  extension_registry_observation_.Observe(registry);
 }
 
 TestExtensionRegistryObserver::~TestExtensionRegistryObserver() {

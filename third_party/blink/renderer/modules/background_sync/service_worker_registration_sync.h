@@ -31,6 +31,11 @@ class ServiceWorkerRegistrationSync final
 
   explicit ServiceWorkerRegistrationSync(
       ServiceWorkerRegistration* registration);
+
+  ServiceWorkerRegistrationSync(const ServiceWorkerRegistrationSync&) = delete;
+  ServiceWorkerRegistrationSync& operator=(
+      const ServiceWorkerRegistrationSync&) = delete;
+
   virtual ~ServiceWorkerRegistrationSync();
 
   PeriodicSyncManager* periodicSync();
@@ -39,11 +44,8 @@ class ServiceWorkerRegistrationSync final
   void Trace(Visitor*) const override;
 
  private:
-  Member<ServiceWorkerRegistration> registration_;
   Member<SyncManager> sync_manager_;
   Member<PeriodicSyncManager> periodic_sync_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(ServiceWorkerRegistrationSync);
 };
 
 }  // namespace blink

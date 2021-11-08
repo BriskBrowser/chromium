@@ -6,7 +6,6 @@
 #define CONTENT_RENDERER_IN_PROCESS_RENDERER_THREAD_H_
 
 #include <memory>
-#include <string>
 
 #include "base/macros.h"
 #include "base/threading/thread.h"
@@ -22,6 +21,10 @@ class InProcessRendererThread : public base::Thread {
  public:
   InProcessRendererThread(const InProcessChildThreadParams& params,
                           int32_t renderer_client_id);
+
+  InProcessRendererThread(const InProcessRendererThread&) = delete;
+  InProcessRendererThread& operator=(const InProcessRendererThread&) = delete;
+
   ~InProcessRendererThread() override;
 
  protected:
@@ -32,8 +35,6 @@ class InProcessRendererThread : public base::Thread {
   const InProcessChildThreadParams params_;
   const int32_t renderer_client_id_;
   std::unique_ptr<RenderProcess> render_process_;
-
-  DISALLOW_COPY_AND_ASSIGN(InProcessRendererThread);
 };
 
 CONTENT_EXPORT base::Thread* CreateInProcessRendererThread(

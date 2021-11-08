@@ -26,11 +26,15 @@ class SurfaceFactoryCast : public SurfaceFactoryOzone {
   SurfaceFactoryCast();
   explicit SurfaceFactoryCast(
       std::unique_ptr<chromecast::CastEglPlatform> egl_platform);
+
+  SurfaceFactoryCast(const SurfaceFactoryCast&) = delete;
+  SurfaceFactoryCast& operator=(const SurfaceFactoryCast&) = delete;
+
   ~SurfaceFactoryCast() override;
 
   // SurfaceFactoryOzone implementation:
-  std::vector<gl::GLImplementation> GetAllowedGLImplementations() override;
-  GLOzone* GetGLOzone(gl::GLImplementation implementation) override;
+  std::vector<gl::GLImplementationParts> GetAllowedGLImplementations() override;
+  GLOzone* GetGLOzone(const gl::GLImplementationParts& implementation) override;
   std::unique_ptr<SurfaceOzoneCanvas> CreateCanvasForWidget(
       gfx::AcceleratedWidget widget) override;
   scoped_refptr<gfx::NativePixmap> CreateNativePixmap(
@@ -39,12 +43,10 @@ class SurfaceFactoryCast : public SurfaceFactoryOzone {
       gfx::Size size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
-      base::Optional<gfx::Size> framebuffer_size = base::nullopt) override;
+      absl::optional<gfx::Size> framebuffer_size = absl::nullopt) override;
 
  private:
   std::unique_ptr<GLOzoneEglCast> egl_implementation_;
-
-  DISALLOW_COPY_AND_ASSIGN(SurfaceFactoryCast);
 };
 
 }  // namespace ui

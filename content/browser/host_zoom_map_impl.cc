@@ -9,10 +9,12 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/default_clock.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "content/browser/renderer_host/navigation_entry_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
@@ -26,6 +28,10 @@
 #include "content/public/common/url_constants.h"
 #include "net/base/url_util.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
+
+#if defined(OS_ANDROID)
+#include "content/public/android/content_jni_headers/HostZoomMapImpl_jni.h"
+#endif
 
 namespace content {
 
@@ -64,16 +70,15 @@ GURL HostZoomMap::GetURLFromEntry(NavigationEntry* entry) {
 
 HostZoomMap* HostZoomMap::GetDefaultForBrowserContext(BrowserContext* context) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  StoragePartition* partition =
-      BrowserContext::GetDefaultStoragePartition(context);
+  StoragePartition* partition = context->GetDefaultStoragePartition();
   DCHECK(partition);
   return partition->GetHostZoomMap();
 }
 
 HostZoomMap* HostZoomMap::Get(SiteInstance* instance) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  StoragePartition* partition = BrowserContext::GetStoragePartition(
-      instance->GetBrowserContext(), instance);
+  StoragePartition* partition =
+      instance->GetBrowserContext()->GetStoragePartition(instance);
   DCHECK(partition);
   return partition->GetHostZoomMap();
 }
@@ -83,8 +88,8 @@ HostZoomMap* HostZoomMap::GetForWebContents(WebContents* contents) {
   // TODO(wjmaclean): Update this behaviour to work with OOPIF.
   // See crbug.com/528407.
   StoragePartition* partition =
-      BrowserContext::GetStoragePartition(contents->GetBrowserContext(),
-                                          contents->GetSiteInstance());
+      contents->GetBrowserContext()->GetStoragePartition(
+          contents->GetSiteInstance());
   DCHECK(partition);
   return partition->GetHostZoomMap();
 }
@@ -524,5 +529,26 @@ HostZoomMapImpl::~HostZoomMapImpl() {
 void HostZoomMapImpl::SetClockForTesting(base::Clock* clock) {
   clock_ = clock;
 }
+
+#if defined(OS_ANDROID)
+void JNI_HostZoomMapImpl_SetZoomLevel(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& j_web_contents,
+    jdouble new_zoom_level) {
+  WebContents* web_contents = WebContents::FromJavaWebContents(j_web_contents);
+  DCHECK(web_contents);
+
+  HostZoomMap::SetZoomLevel(web_contents, new_zoom_level);
+}
+
+jdouble JNI_HostZoomMapImpl_GetZoomLevel(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& j_web_contents) {
+  WebContents* web_contents = WebContents::FromJavaWebContents(j_web_contents);
+  DCHECK(web_contents);
+
+  return HostZoomMap::GetZoomLevel(web_contents);
+}
+#endif
 
 }  // namespace content

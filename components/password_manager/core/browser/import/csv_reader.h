@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_EXPORT_CSV_READER_H_
-#define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_EXPORT_CSV_READER_H_
+#ifndef COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_IMPORT_CSV_READER_H_
+#define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_IMPORT_CSV_READER_H_
 
 #include <map>
 #include <string>
@@ -18,6 +18,10 @@ namespace password_manager {
 class CSVTable {
  public:
   CSVTable();
+
+  CSVTable(const CSVTable&) = delete;
+  CSVTable& operator=(const CSVTable&) = delete;
+
   ~CSVTable();
 
   // Reads tabular data |csv| in a CSV (Comma Separated Values) format and fills
@@ -48,10 +52,8 @@ class CSVTable {
   // Values from the subsequent rows. Each map represents one row and maps the
   // column names to the value stored at that column in that row.
   std::vector<std::map<base::StringPiece, std::string>> records_;
-
-  DISALLOW_COPY_AND_ASSIGN(CSVTable);
 };
 
 }  // namespace password_manager
 
-#endif  // COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_EXPORT_CSV_READER_H_
+#endif  // COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_IMPORT_CSV_READER_H_

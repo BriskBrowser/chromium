@@ -16,6 +16,7 @@
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/timer/timer.h"
 #include "net/base/chunked_upload_data_stream.h"
 #include "net/base/ip_endpoint.h"
@@ -52,6 +53,9 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
                  URLFetcher::RequestType request_type,
                  URLFetcherDelegate* d,
                  net::NetworkTrafficAnnotationTag traffic_annotation);
+
+  URLFetcherCore(const URLFetcherCore&) = delete;
+  URLFetcherCore& operator=(const URLFetcherCore&) = delete;
 
   // Starts the load. It's important that this not happen in the constructor
   // because it causes the IO thread to begin AddRef()ing and Release()ing
@@ -97,7 +101,7 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
   // URL
   // will be considered the "first-party" when applying cookie blocking policy
   // to requests, and treated as the request's initiator.
-  void SetInitiator(const base::Optional<url::Origin>& initiator);
+  void SetInitiator(const absl::optional<url::Origin>& initiator);
   // Set the key and data callback that is used when setting the user
   // data on any URLRequest objects this object creates.
   void SetURLRequestUserData(
@@ -163,6 +167,10 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
   class Registry {
    public:
     Registry();
+
+    Registry(const Registry&) = delete;
+    Registry& operator=(const Registry&) = delete;
+
     ~Registry();
 
     void AddURLFetcherCore(URLFetcherCore* core);
@@ -176,8 +184,6 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
 
    private:
     std::set<URLFetcherCore*> fetchers_;
-
-    DISALLOW_COPY_AND_ASSIGN(Registry);
   };
 
   ~URLFetcherCore() override;
@@ -249,13 +255,13 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
   std::unique_ptr<URLRequest> request_;  // The actual request this wraps
   int load_flags_;                   // Flags for the load operation
   // Whether credentials are sent along with the request.
-  base::Optional<bool> allow_credentials_;
+  absl::optional<bool> allow_credentials_;
   int response_code_;                // HTTP status code for the request
   scoped_refptr<IOBuffer> buffer_;
                                      // Read buffer
   scoped_refptr<URLRequestContextGetter> request_context_getter_;
                                      // Cookie/cache info for the request
-  base::Optional<url::Origin> initiator_;  // The request's initiator
+  absl::optional<url::Origin> initiator_;  // The request's initiator
   // The user data to add to each newly-created URLRequest.
   const void* url_request_data_key_;
   URLFetcher::CreateDataCallback url_request_create_data_callback_;
@@ -357,8 +363,6 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
   const net::NetworkTrafficAnnotationTag traffic_annotation_;
 
   static base::LazyInstance<Registry>::DestructorAtExit g_registry;
-
-  DISALLOW_COPY_AND_ASSIGN(URLFetcherCore);
 };
 
 }  // namespace net

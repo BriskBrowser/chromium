@@ -10,7 +10,6 @@
 #include "base/callback_helpers.h"
 #include "base/containers/flat_map.h"
 #include "base/no_destructor.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/media/router/data_decoder_util.h"
@@ -72,12 +71,6 @@ void DialMediaRouteProvider::Init(
 
   message_sender_ =
       std::make_unique<BufferedMessageSender>(media_router_.get());
-
-  // TODO(crbug.com/816702): This needs to be set properly according to sinks
-  // discovered.
-  media_router_->OnSinkAvailabilityUpdated(
-      MediaRouteProviderId::DIAL,
-      mojom::MediaRouter::SinkAvailability::PER_SOURCE);
 }
 
 DialMediaRouteProvider::~DialMediaRouteProvider() {
@@ -101,20 +94,20 @@ void DialMediaRouteProvider::CreateRoute(const std::string& media_source,
         mojom::LogCategory::kRoute, kLoggerComponent,
         "Failed to create route. Cannot find sink with the sink id", sink_id,
         media_source, presentation_id);
-    std::move(callback).Run(base::nullopt, nullptr, "Unknown sink " + sink_id,
+    std::move(callback).Run(absl::nullopt, nullptr, "Unknown sink " + sink_id,
                             RouteRequestResult::SINK_NOT_FOUND);
     DialMediaRouteProviderMetrics::RecordCreateRouteResult(
         DialCreateRouteResult::kSinkNotFound);
     return;
   }
 
-  auto activity =
-      DialActivity::From(presentation_id, *sink, media_source, incognito);
+  auto activity = DialActivity::From(presentation_id, *sink, media_source,
+                                     origin, incognito);
   if (!activity) {
     logger_->LogError(mojom::LogCategory::kRoute, kLoggerComponent,
                       "Failed to create route. Unsupported source.", sink_id,
                       media_source, presentation_id);
-    std::move(callback).Run(base::nullopt, nullptr,
+    std::move(callback).Run(absl::nullopt, nullptr,
                             "Unsupported source " + media_source,
                             RouteRequestResult::NO_SUPPORTED_PROVIDER);
     DialMediaRouteProviderMetrics::RecordCreateRouteResult(
@@ -128,7 +121,7 @@ void DialMediaRouteProvider::CreateRoute(const std::string& media_source,
     logger_->LogError(mojom::LogCategory::kRoute, kLoggerComponent,
                       "Failed to create route. Route already exists.", sink_id,
                       media_source, presentation_id);
-    std::move(callback).Run(base::nullopt, nullptr, "Activity already exists",
+    std::move(callback).Run(absl::nullopt, nullptr, "Activity already exists",
                             RouteRequestResult::ROUTE_ALREADY_EXISTS);
     DialMediaRouteProviderMetrics::RecordCreateRouteResult(
         DialCreateRouteResult::kRouteAlreadyExists);
@@ -139,8 +132,8 @@ void DialMediaRouteProvider::CreateRoute(const std::string& media_source,
   logger_->LogInfo(mojom::LogCategory::kRoute, kLoggerComponent,
                    "Successfully created a new route.", sink_id, media_source,
                    presentation_id);
-  std::move(callback).Run(activity->route, nullptr, base::nullopt,
-                          RouteRequestResult::OK);
+  std::move(callback).Run(activity->route, /*presentation_connection*/ nullptr,
+                          /*error_text*/ absl::nullopt, RouteRequestResult::OK);
 
   // When a custom DIAL launch request is received, DialMediaRouteProvider will
   // create a MediaRoute immediately in order to start exchanging messages with
@@ -161,10 +154,17 @@ void DialMediaRouteProvider::JoinRoute(const std::string& media_source,
                                        base::TimeDelta timeout,
                                        bool incognito,
                                        JoinRouteCallback callback) {
-  NOTIMPLEMENTED();
-  std::move(callback).Run(
-      base::nullopt, nullptr, std::string("Not implemented"),
-      RouteRequestResult::ResultCode::NO_SUPPORTED_PROVIDER);
+  const DialActivity* activity = activity_manager_->GetActivityToJoin(
+      presentation_id, MediaSource(media_source), origin, incognito);
+  if (activity) {
+    std::move(callback).Run(
+        activity->route, /*presentation_connection*/ nullptr,
+        /*error_text*/ absl::nullopt, RouteRequestResult::OK);
+  } else {
+    std::move(callback).Run(absl::nullopt, /*presentation_connection*/ nullptr,
+                            "DIAL activity not found",
+                            RouteRequestResult::ROUTE_NOT_FOUND);
+  }
 }
 
 void DialMediaRouteProvider::ConnectRouteByRouteId(
@@ -178,7 +178,7 @@ void DialMediaRouteProvider::ConnectRouteByRouteId(
     ConnectRouteByRouteIdCallback callback) {
   NOTIMPLEMENTED();
   std::move(callback).Run(
-      base::nullopt, nullptr, std::string("Not implemented"),
+      absl::nullopt, nullptr, std::string("Not implemented"),
       RouteRequestResult::ResultCode::NO_SUPPORTED_PROVIDER);
 }
 
@@ -429,14 +429,16 @@ void DialMediaRouteProvider::HandleAppLaunchResult(
     bool success) {
   if (success) {
     logger_->LogInfo(mojom::LogCategory::kRoute, kLoggerComponent,
-                     "Successfully launched app.", "",
+                     "Successfully launched app.",
+                     MediaRoute::GetSinkIdFromMediaRouteId(route_id),
                      MediaRoute::GetMediaSourceIdFromMediaRouteId(route_id),
                      MediaRoute::GetPresentationIdFromMediaRouteId(route_id));
     DialMediaRouteProviderMetrics::RecordCreateRouteResult(
         DialCreateRouteResult::kSuccess);
   } else {
     logger_->LogError(mojom::LogCategory::kRoute, kLoggerComponent,
-                      "Failed to launch app.", "",
+                      "Failed to launch app.",
+                      MediaRoute::GetSinkIdFromMediaRouteId(route_id),
                       MediaRoute::GetMediaSourceIdFromMediaRouteId(route_id),
                       MediaRoute::GetPresentationIdFromMediaRouteId(route_id));
     DialMediaRouteProviderMetrics::RecordCreateRouteResult(
@@ -449,7 +451,7 @@ void DialMediaRouteProvider::DoTerminateRoute(const DialActivity& activity,
                                               const MediaSinkInternal& sink,
                                               TerminateRouteCallback callback) {
   const MediaRoute::Id& route_id = activity.route.media_route_id();
-  std::pair<base::Optional<std::string>, RouteRequestResult::ResultCode>
+  std::pair<absl::optional<std::string>, RouteRequestResult::ResultCode>
       can_stop_app = activity_manager_->CanStopApp(route_id);
   if (can_stop_app.second == RouteRequestResult::OK) {
     std::vector<mojom::RouteMessagePtr> messages;
@@ -476,7 +478,7 @@ void DialMediaRouteProvider::DoTerminateRoute(const DialActivity& activity,
 void DialMediaRouteProvider::HandleStopAppResult(
     const MediaRoute::Id& route_id,
     TerminateRouteCallback callback,
-    const base::Optional<std::string>& message,
+    const absl::optional<std::string>& message,
     RouteRequestResult::ResultCode result_code) {
   switch (result_code) {
     case RouteRequestResult::OK:
@@ -527,7 +529,8 @@ void DialMediaRouteProvider::NotifyAllOnRoutesUpdated() {
 void DialMediaRouteProvider::NotifyOnRoutesUpdated(
     const MediaSource::Id& source_id,
     const std::vector<MediaRoute>& routes) {
-  media_router_->OnRoutesUpdated(MediaRouteProviderId::DIAL, routes, source_id,
+  media_router_->OnRoutesUpdated(mojom::MediaRouteProviderId::DIAL, routes,
+                                 source_id,
                                  /* joinable_route_ids */ {});
 }
 
@@ -676,8 +679,8 @@ void DialMediaRouteProvider::NotifyOnSinksReceived(
     const MediaSource::Id& source_id,
     const std::vector<MediaSinkInternal>& sinks,
     const std::vector<url::Origin>& origins) {
-  media_router_->OnSinksReceived(MediaRouteProviderId::DIAL, source_id, sinks,
-                                 origins);
+  media_router_->OnSinksReceived(mojom::MediaRouteProviderId::DIAL, source_id,
+                                 sinks, origins);
 }
 
 std::vector<url::Origin> DialMediaRouteProvider::GetOrigins(
@@ -686,7 +689,10 @@ std::vector<url::Origin> DialMediaRouteProvider::GetOrigins(
       base::flat_map<std::string, std::vector<url::Origin>>>
       origin_allowlist(
           {{"YouTube",
-            {CreateOrigin("https://tv.youtube.com"),
+            {CreateOrigin("https://music.youtube.com/"),
+             CreateOrigin("https://music-green-qa.youtube.com/"),
+             CreateOrigin("https://music-release-qa.youtube.com/"),
+             CreateOrigin("https://tv.youtube.com"),
              CreateOrigin("https://tv-green-qa.youtube.com"),
              CreateOrigin("https://tv-release-qa.youtube.com"),
              CreateOrigin("https://web-green-qa.youtube.com"),

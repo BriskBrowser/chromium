@@ -6,10 +6,12 @@
 
 #include <utility>
 
-#include "content/renderer/loader/web_url_loader_impl.h"
 #include "content/renderer/service_worker/service_worker_context_client.h"
 #include "net/http/http_response_headers.h"
+#include "services/network/public/mojom/early_hints.mojom.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_error_type.mojom.h"
+#include "third_party/blink/public/platform/web_url_loader.h"
 
 namespace content {
 
@@ -17,14 +19,17 @@ NavigationPreloadRequest::NavigationPreloadRequest(
     ServiceWorkerContextClient* owner,
     int fetch_event_id,
     const GURL& url,
-    blink::mojom::FetchEventPreloadHandlePtr preload_handle)
+    mojo::PendingReceiver<network::mojom::URLLoaderClient>
+        preload_url_loader_client_receiver)
     : owner_(owner),
       fetch_event_id_(fetch_event_id),
       url_(url),
-      url_loader_(std::move(preload_handle->url_loader)),
-      receiver_(this, std::move(preload_handle->url_loader_client_receiver)) {}
+      receiver_(this, std::move(preload_url_loader_client_receiver)) {}
 
 NavigationPreloadRequest::~NavigationPreloadRequest() = default;
+
+void NavigationPreloadRequest::OnReceiveEarlyHints(
+    network::mojom::EarlyHintsPtr early_hints) {}
 
 void NavigationPreloadRequest::OnReceiveResponse(
     network::mojom::URLResponseHeadPtr response_head) {
@@ -32,9 +37,9 @@ void NavigationPreloadRequest::OnReceiveResponse(
   response_ = std::make_unique<blink::WebURLResponse>();
   // TODO(horo): Set report_security_info to true when DevTools is attached.
   const bool report_security_info = false;
-  WebURLLoaderImpl::PopulateURLResponse(url_, *response_head, response_.get(),
-                                        report_security_info,
-                                        -1 /* request_id */);
+  blink::WebURLLoader::PopulateURLResponse(
+      url_, *response_head, response_.get(), report_security_info,
+      -1 /* request_id */);
   MaybeReportResponseToOwner();
 }
 
@@ -46,9 +51,9 @@ void NavigationPreloadRequest::OnReceiveRedirect(
       response_head->headers->response_code()));
 
   response_ = std::make_unique<blink::WebURLResponse>();
-  WebURLLoaderImpl::PopulateURLResponse(url_, *response_head, response_.get(),
-                                        false /* report_security_info */,
-                                        -1 /* request_id */);
+  blink::WebURLLoader::PopulateURLResponse(
+      url_, *response_head, response_.get(), false /* report_security_info */,
+      -1 /* request_id */);
   owner_->OnNavigationPreloadResponse(fetch_event_id_, std::move(response_),
                                       mojo::ScopedDataPipeConsumerHandle());
   // This will delete |this|.

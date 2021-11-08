@@ -16,6 +16,11 @@ namespace extensions {
 class ShellVirtualKeyboardDelegate : public VirtualKeyboardDelegate {
  public:
   ShellVirtualKeyboardDelegate();
+
+  ShellVirtualKeyboardDelegate(const ShellVirtualKeyboardDelegate&) = delete;
+  ShellVirtualKeyboardDelegate& operator=(const ShellVirtualKeyboardDelegate&) =
+      delete;
+
   ~ShellVirtualKeyboardDelegate() override = default;
 
  protected:
@@ -24,7 +29,7 @@ class ShellVirtualKeyboardDelegate : public VirtualKeyboardDelegate {
       OnKeyboardSettingsCallback on_settings_callback) override;
   void OnKeyboardConfigChanged() override;
   bool HideKeyboard() override;
-  bool InsertText(const base::string16& text) override;
+  bool InsertText(const std::u16string& text) override;
   bool OnKeyboardLoaded() override;
   void SetHotrodKeyboard(bool enable) override;
   bool LockKeyboard(bool state) override;
@@ -57,8 +62,6 @@ class ShellVirtualKeyboardDelegate : public VirtualKeyboardDelegate {
 
  private:
   bool is_hotrod_keyboard_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(ShellVirtualKeyboardDelegate);
 };
 
 }  // namespace extensions

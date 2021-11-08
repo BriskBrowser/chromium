@@ -11,23 +11,24 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/tab_contents/web_contents_collection.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 
 class Browser;
 class TabStripModel;
 
 namespace content {
-class NotificationSource;
-class NotificationDetails;
 class WebContents;
 }  // namespace content
 
-class UnloadController : public content::NotificationObserver,
+class UnloadController : public WebContentsCollection::Observer,
                          public TabStripModelObserver {
  public:
   explicit UnloadController(Browser* browser);
+
+  UnloadController(const UnloadController&) = delete;
+  UnloadController& operator=(const UnloadController&) = delete;
+
   ~UnloadController() override;
 
   // Returns true if |contents| can be cleanly closed. When |browser_| is being
@@ -87,10 +88,9 @@ class UnloadController : public content::NotificationObserver,
  private:
   typedef std::set<content::WebContents*> UnloadListenerSet;
 
-  // Overridden from content::NotificationObserver:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
+  // WebContentsCollection::Observer:
+  void RenderProcessGone(content::WebContents* web_contents,
+                         base::TerminationStatus status) override;
 
   // Overridden from TabStripModelObserver:
   void OnTabStripModelChanged(
@@ -130,7 +130,7 @@ class UnloadController : public content::NotificationObserver,
 
   Browser* const browser_;
 
-  content::NotificationRegistrar registrar_;
+  WebContentsCollection web_contents_collection_;
 
   // Tracks tabs that need there beforeunload event fired before we can
   // close the browser. Only gets populated when we try to close the browser.
@@ -157,8 +157,6 @@ class UnloadController : public content::NotificationObserver,
   base::RepeatingCallback<void(bool)> on_close_confirmed_;
 
   base::WeakPtrFactory<UnloadController> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(UnloadController);
 };
 
 #endif  // CHROME_BROWSER_UI_UNLOAD_CONTROLLER_H_

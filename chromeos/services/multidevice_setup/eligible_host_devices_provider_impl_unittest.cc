@@ -9,7 +9,6 @@
 #include "ash/constants/ash_features.h"
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time_override.h"
 #include "chromeos/components/multidevice/remote_device_test_util.h"
@@ -32,6 +31,12 @@ const size_t kNumTestDevices = 6;
 
 class MultiDeviceSetupEligibleHostDevicesProviderImplTest
     : public ::testing::TestWithParam<std::tuple<bool, bool>> {
+ public:
+  MultiDeviceSetupEligibleHostDevicesProviderImplTest(
+      const MultiDeviceSetupEligibleHostDevicesProviderImplTest&) = delete;
+  MultiDeviceSetupEligibleHostDevicesProviderImplTest& operator=(
+      const MultiDeviceSetupEligibleHostDevicesProviderImplTest&) = delete;
+
  protected:
   MultiDeviceSetupEligibleHostDevicesProviderImplTest()
       : test_devices_(
@@ -119,8 +124,6 @@ class MultiDeviceSetupEligibleHostDevicesProviderImplTest
   bool use_connectivity_status_;
 
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(MultiDeviceSetupEligibleHostDevicesProviderImplTest);
 };
 
 TEST_P(MultiDeviceSetupEligibleHostDevicesProviderImplTest, Empty) {
@@ -275,7 +278,7 @@ TEST_P(MultiDeviceSetupEligibleHostDevicesProviderImplTest,
       []() {
         return base::Time() +
                EligibleHostDevicesProviderImpl::kInactiveDeviceThresholdInDays +
-               base::TimeDelta::FromDays(1000);
+               base::Days(1000);
       },
       nullptr, nullptr);
 
@@ -302,7 +305,7 @@ TEST_P(MultiDeviceSetupEligibleHostDevicesProviderImplTest,
           test_devices()[1].instance_id(),
           /*last_activity_time=*/base::Time::Now() -
               EligibleHostDevicesProviderImpl::kInactiveDeviceThresholdInDays -
-              base::TimeDelta::FromDays(1),
+              base::Days(1),
           cryptauthv2::ConnectivityStatus::ONLINE,
           /*last_update_time=*/base::Time::Now()));
 
@@ -314,7 +317,7 @@ TEST_P(MultiDeviceSetupEligibleHostDevicesProviderImplTest,
           cryptauthv2::ConnectivityStatus::ONLINE,
           /*last_update_time=*/base::Time::Now() -
               EligibleHostDevicesProviderImpl::kInactiveDeviceThresholdInDays -
-              base::TimeDelta::FromDays(1)));
+              base::Days(1)));
 
   // Do not filter out; times within threhhold
   device_activity_statuses.emplace_back(
@@ -361,7 +364,7 @@ TEST_P(MultiDeviceSetupEligibleHostDevicesProviderImplTest,
   fake_device_sync_client()->NotifyNewDevicesSynced();
   fake_device_sync_client()->InvokePendingGetDevicesActivityStatusCallback(
       device_sync::mojom::NetworkRequestResult::kInternalServerError,
-      base::nullopt);
+      absl::nullopt);
 
   multidevice::DeviceWithConnectivityStatusList eligible_active_devices =
       provider()->GetEligibleActiveHostDevices();

@@ -6,7 +6,6 @@
 #define CHROME_UPDATER_WIN_TEST_TEST_EXECUTABLES_H_
 
 #include "base/process/process.h"
-#include "base/strings/string16.h"
 
 namespace base {
 class CommandLine;

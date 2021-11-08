@@ -17,6 +17,10 @@ class CONTENT_EXPORT SyntheticTouchDriver : public SyntheticPointerDriver {
  public:
   SyntheticTouchDriver();
   explicit SyntheticTouchDriver(blink::SyntheticWebTouchEvent touch_event);
+
+  SyntheticTouchDriver(const SyntheticTouchDriver&) = delete;
+  SyntheticTouchDriver& operator=(const SyntheticTouchDriver&) = delete;
+
   ~SyntheticTouchDriver() override;
 
   void DispatchEvent(SyntheticGestureTarget* target,
@@ -32,7 +36,10 @@ class CONTENT_EXPORT SyntheticTouchDriver : public SyntheticPointerDriver {
       float width = 40.f,
       float height = 40.f,
       float rotation_angle = 0.f,
-      float force = 1.f,
+      float force = 0.5,
+      float tangential_pressure = 0.f,
+      int tilt_x = 0,
+      int tilt_y = 0,
       const base::TimeTicks& timestamp = base::TimeTicks::Now()) override;
   void Move(float x,
             float y,
@@ -41,7 +48,12 @@ class CONTENT_EXPORT SyntheticTouchDriver : public SyntheticPointerDriver {
             float width = 40.f,
             float height = 40.f,
             float rotation_angle = 0.f,
-            float force = 1.f) override;
+            float force = 0.5,
+            float tangential_pressure = 0.f,
+            int tilt_x = 0,
+            int tilt_y = 0,
+            SyntheticPointerActionParams::Button button =
+                SyntheticPointerActionParams::Button::NO_BUTTON) override;
   void Release(int index,
                SyntheticPointerActionParams::Button button =
                    SyntheticPointerActionParams::Button::LEFT,
@@ -63,10 +75,8 @@ class CONTENT_EXPORT SyntheticTouchDriver : public SyntheticPointerDriver {
 
   blink::SyntheticWebTouchEvent touch_event_;
   PointerIdIndexMap pointer_id_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyntheticTouchDriver);
 };
 
 }  // namespace content
 
-#endif  // CONTENT_COMMON_INPUT_SYNTHETIC_TOUCH_DRIVER_H_
+#endif  // CONTENT_BROWSER_RENDERER_HOST_INPUT_SYNTHETIC_TOUCH_DRIVER_H_

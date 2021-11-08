@@ -5,6 +5,7 @@
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
+#include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/extensions/extension_action_test_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -27,6 +28,10 @@ namespace extensions {
 class ManifestV3BrowserTest : public ExtensionBrowserTest {
  public:
   ManifestV3BrowserTest() {}
+
+  ManifestV3BrowserTest(const ManifestV3BrowserTest&) = delete;
+  ManifestV3BrowserTest& operator=(const ManifestV3BrowserTest&) = delete;
+
   ~ManifestV3BrowserTest() override {}
 
   void SetUpOnMainThread() override {
@@ -37,8 +42,6 @@ class ManifestV3BrowserTest : public ExtensionBrowserTest {
 
  private:
   ScopedCurrentChannel channel_override_{version_info::Channel::UNKNOWN};
-
-  DISALLOW_COPY_AND_ASSIGN(ManifestV3BrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest, ProgrammaticScriptInjection) {
@@ -53,7 +56,7 @@ IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest, ProgrammaticScriptInjection) {
          })";
   constexpr char kWorker[] =
       R"(chrome.tabs.onUpdated.addListener(
-             function listener(tabId, changeInfo, tab) {
+             async function listener(tabId, changeInfo, tab) {
            if (changeInfo.status != 'complete')
              return;
            let url = new URL(tab.url);
@@ -62,6 +65,7 @@ IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest, ProgrammaticScriptInjection) {
            // The tabs API equivalents of script injection are removed in MV3.
            chrome.test.assertEq(undefined, chrome.tabs.executeScript);
            chrome.test.assertEq(undefined, chrome.tabs.insertCSS);
+           chrome.test.assertEq(undefined, chrome.tabs.removeCSS);
 
            chrome.tabs.onUpdated.removeListener(listener);
 
@@ -69,18 +73,18 @@ IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest, ProgrammaticScriptInjection) {
              document.title = 'My New Title';
              return document.title;
            }
-           chrome.scripting.executeScript(
-               {
-                 target: {tabId: tabId},
-                 function: injectedFunction,
-               },
-               (results) => {
-                 chrome.test.assertNoLastError();
-                 chrome.test.assertTrue(!!results);
-                 chrome.test.assertEq(1, results.length);
-                 chrome.test.assertEq('My New Title', results[0].result);
-                 chrome.test.notifyPass();
-               });
+           try {
+             const results = await chrome.scripting.executeScript({
+               target: {tabId: tabId},
+               function: injectedFunction,
+             });
+             chrome.test.assertTrue(!!results);
+             chrome.test.assertEq(1, results.length);
+             chrome.test.assertEq('My New Title', results[0].result);
+             chrome.test.notifyPass();
+           } catch(error) {
+             chrome.test.notifyFail('executeScript promise rejected');
+           }
          });
          chrome.test.sendMessage('ready');)";
 
@@ -94,11 +98,12 @@ IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest, ProgrammaticScriptInjection) {
   ASSERT_TRUE(listener.WaitUntilSatisfied());
 
   ResultCatcher catcher;
-  ui_test_utils::NavigateToURL(
-      browser(), embedded_test_server()->GetURL("example.com", "/simple.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("example.com", "/simple.html")));
   ASSERT_TRUE(catcher.GetNextResult()) << catcher.message();
 
-  EXPECT_EQ(base::ASCIIToUTF16("My New Title"),
+  EXPECT_EQ(u"My New Title",
             browser()->tab_strip_model()->GetActiveWebContents()->GetTitle());
 }
 
@@ -137,7 +142,7 @@ IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest, ActionAPI) {
   std::unique_ptr<ExtensionActionTestHelper> action_test_util =
       ExtensionActionTestHelper::Create(browser());
   ASSERT_EQ(1, action_test_util->NumberOfBrowserActions());
-  EXPECT_EQ(extension->id(), action_test_util->GetExtensionId(0));
+  EXPECT_TRUE(action_test_util->HasAction(extension->id()));
 
   ExtensionAction* const action =
       ExtensionActionManager::Get(profile())->GetExtensionAction(*extension);
@@ -145,10 +150,33 @@ IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest, ActionAPI) {
   EXPECT_FALSE(action->HasIcon(ExtensionAction::kDefaultTabId));
 
   ResultCatcher catcher;
-  action_test_util->Press(0);
+  action_test_util->Press(extension->id());
   ASSERT_TRUE(catcher.GetNextResult()) << catcher.message();
 
   EXPECT_TRUE(action->HasIcon(ExtensionAction::kDefaultTabId));
+}
+
+IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest, SynthesizedAction) {
+  constexpr char kManifest[] =
+      R"({
+           "name": "Action API",
+           "manifest_version": 3,
+           "version": "0.1"
+         })";
+
+  TestExtensionDir test_dir;
+  test_dir.WriteManifest(kManifest);
+
+  const Extension* extension = LoadExtension(test_dir.UnpackedPath());
+  ASSERT_TRUE(extension);
+
+  ExtensionAction* const action =
+      ExtensionActionManager::Get(profile())->GetExtensionAction(*extension);
+  ASSERT_TRUE(action);
+  EXPECT_FALSE(action->GetIsVisible(ExtensionAction::kDefaultTabId));
+  int tab_id = ExtensionTabUtil::GetTabId(
+      browser()->tab_strip_model()->GetActiveWebContents());
+  EXPECT_FALSE(action->GetIsVisible(tab_id));
 }
 
 IN_PROC_BROWSER_TEST_F(ManifestV3BrowserTest,

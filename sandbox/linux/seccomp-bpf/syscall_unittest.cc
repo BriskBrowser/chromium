@@ -16,9 +16,9 @@
 
 #include <vector>
 
+#include "base/cxx17_backports.h"
+#include "base/memory/page_size.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/process/process_metrics.h"
-#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "sandbox/linux/bpf_dsl/bpf_dsl.h"
 #include "sandbox/linux/bpf_dsl/policy.h"
@@ -104,6 +104,10 @@ intptr_t CopySyscallArgsToAux(const struct arch_seccomp_data& args, void* aux) {
 class CopyAllArgsOnUnamePolicy : public bpf_dsl::Policy {
  public:
   explicit CopyAllArgsOnUnamePolicy(std::vector<uint64_t>* aux) : aux_(aux) {}
+
+  CopyAllArgsOnUnamePolicy(const CopyAllArgsOnUnamePolicy&) = delete;
+  CopyAllArgsOnUnamePolicy& operator=(const CopyAllArgsOnUnamePolicy&) = delete;
+
   ~CopyAllArgsOnUnamePolicy() override {}
 
   ResultExpr EvaluateSyscall(int sysno) const override {
@@ -117,8 +121,6 @@ class CopyAllArgsOnUnamePolicy : public bpf_dsl::Policy {
 
  private:
   std::vector<uint64_t>* aux_;
-
-  DISALLOW_COPY_AND_ASSIGN(CopyAllArgsOnUnamePolicy);
 };
 
 // We are testing Syscall::Call() by making use of a BPF filter that

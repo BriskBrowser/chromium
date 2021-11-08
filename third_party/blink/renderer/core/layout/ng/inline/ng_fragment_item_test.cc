@@ -105,6 +105,8 @@ TEST_F(NGFragmentItemTest, CopyMove) {
   // Test moving a line item.
   NGFragmentItem move_of_line(std::move(copy_of_line));
   EXPECT_EQ(move_of_line.LineBoxFragment(), line_item->LineBoxFragment());
+  // After the move, the source fragment should be released.
+  EXPECT_EQ(copy_of_line.LineBoxFragment(), nullptr);
   EXPECT_TRUE(move_of_line.IsInkOverflowComputed());
 
   // To test moving ink overflow, add an ink overflow to |move_of_line|.
@@ -364,6 +366,66 @@ TEST_F(NGFragmentItemTest, SelfPaintingInlineBox) {
   NGInlineCursor cursor;
   for (cursor.MoveTo(*text); cursor; cursor.MoveToNextForSameLayoutObject())
     EXPECT_TRUE(cursor.Current()->IsInkOverflowComputed());
+}
+
+TEST_F(NGFragmentItemTest, StartOffsetInContainer) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+    atomic {
+      display: inline-block;
+      width: 3ch;
+    }
+    </style>
+    <div id="container" style="font-size: 10px; width: 3ch">
+      012&shy;456&shy;<span>8</span>90&shy;<atomic></atomic>
+    </div>
+  )HTML");
+  auto* container =
+      To<LayoutBlockFlow>(GetLayoutObjectByElementId("container"));
+  NGInlineCursor cursor(*container);
+  while (!cursor.Current()->IsLayoutGeneratedText())
+    cursor.MoveToNext();
+  EXPECT_EQ(4u, cursor.Current()->StartOffsetInContainer(cursor));
+  for (cursor.MoveToNext(); !cursor.Current()->IsLayoutGeneratedText();)
+    cursor.MoveToNext();
+  EXPECT_EQ(8u, cursor.Current()->StartOffsetInContainer(cursor));
+  for (cursor.MoveToNext(); !cursor.Current()->IsLayoutGeneratedText();)
+    cursor.MoveToNext();
+  EXPECT_EQ(12u, cursor.Current()->StartOffsetInContainer(cursor));
+}
+
+TEST_F(NGFragmentItemTest, EllipsizedAtomicInline) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+    #container {
+      width: 100px;
+      white-space: pre;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+    #atomic {
+      display: inline-block;
+      width: 200px;
+    }
+    </style>
+    <div id="container"><span id="atomic"> </span>XXXXXX</div>
+  )HTML");
+  auto* container =
+      To<LayoutBlockFlow>(GetLayoutObjectByElementId("container"));
+  auto* atomic = GetLayoutObjectByElementId("atomic");
+  NGInlineCursor cursor(*container);
+  cursor.MoveToNext();
+  EXPECT_EQ(cursor.Current().GetLayoutObject(), atomic);
+  EXPECT_EQ(cursor.Current()->Type(), NGFragmentItem::kBox);
+  // When atomic inline is ellipsized, |IsLastForNode| should be set to the last
+  // |kBox| item, even if ellipses follow.
+  EXPECT_TRUE(cursor.Current()->IsLastForNode());
+  cursor.MoveToNext();
+  EXPECT_EQ(cursor.Current()->Type(), NGFragmentItem::kText);
+  cursor.MoveToNext();
+  EXPECT_EQ(cursor.Current().GetLayoutObject(), atomic);
+  EXPECT_EQ(cursor.Current()->Type(), NGFragmentItem::kGeneratedText);
+  EXPECT_TRUE(cursor.Current()->IsLastForNode());
 }
 
 // Various nodes/elements to test insertions.

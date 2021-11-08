@@ -29,17 +29,21 @@
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/omnibox/browser/autocomplete_match.h"
-#include "components/omnibox/browser/omnibox_popup_model.h"
+#include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test.h"
+#include "third_party/blink/public/common/chrome_debug_urls.h"
 #include "ui/accessibility/accessibility_switches.h"
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/ime/init/input_method_factory.h"
 #include "ui/base/ime/input_method.h"
+#include "ui/base/ime/mock_input_method.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/test/ui_controls.h"
@@ -62,13 +66,17 @@
 
 namespace {
 
-void SetClipboardText(ui::ClipboardBuffer buffer, const std::string& text) {
-  ui::ScopedClipboardWriter(buffer).WriteText(base::ASCIIToUTF16(text));
+void SetClipboardText(ui::ClipboardBuffer buffer, const std::u16string& text) {
+  ui::ScopedClipboardWriter(buffer).WriteText(text);
 }
 
 }  // namespace
 
 class OmniboxViewViewsTest : public InProcessBrowserTest {
+ public:
+  OmniboxViewViewsTest(const OmniboxViewViewsTest&) = delete;
+  OmniboxViewViewsTest& operator=(const OmniboxViewViewsTest&) = delete;
+
  protected:
   OmniboxViewViewsTest() = default;
   ~OmniboxViewViewsTest() override = default;
@@ -116,10 +124,8 @@ class OmniboxViewViewsTest : public InProcessBrowserTest {
     if (press_location == release_location) {
       generator.GestureTapAt(press_location);
     } else {
-      generator.GestureScrollSequence(press_location,
-                                      release_location,
-                                      base::TimeDelta::FromMilliseconds(10),
-                                      1);
+      generator.GestureScrollSequence(press_location, release_location,
+                                      base::Milliseconds(10), 1);
     }
   }
 
@@ -138,8 +144,6 @@ class OmniboxViewViewsTest : public InProcessBrowserTest {
 #endif
     return native_window;
   }
-
-  DISALLOW_COPY_AND_ASSIGN(OmniboxViewViewsTest);
 };
 
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, PasteAndGoDoesNotLeavePopupOpen) {
@@ -148,13 +152,13 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, PasteAndGoDoesNotLeavePopupOpen) {
   OmniboxViewViews* omnibox_view_views = static_cast<OmniboxViewViews*>(view);
 
   // Put an URL on the clipboard.
-  SetClipboardText(ui::ClipboardBuffer::kCopyPaste, "http://www.example.com/");
+  SetClipboardText(ui::ClipboardBuffer::kCopyPaste, u"http://www.example.com/");
 
   // Paste and go.
   omnibox_view_views->ExecuteCommand(IDC_PASTE_AND_GO, ui::EF_NONE);
 
   // The popup should not be open.
-  EXPECT_FALSE(view->model()->popup_model()->IsOpen());
+  EXPECT_FALSE(view->model()->PopupIsOpen());
 }
 
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DoNotNavigateOnDrop) {
@@ -163,12 +167,38 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DoNotNavigateOnDrop) {
   OmniboxViewViews* omnibox_view_views = static_cast<OmniboxViewViews*>(view);
 
   OSExchangeData data;
-  base::string16 input = base::ASCIIToUTF16("Foo bar baz");
+  std::u16string input = u"Foo bar baz";
   EXPECT_FALSE(data.HasString());
   data.SetString(input);
   EXPECT_TRUE(data.HasString());
 
-  omnibox_view_views->OnDrop(data);
+  ui::DropTargetEvent event(data, gfx::PointF(), gfx::PointF(),
+                            ui::DragDropTypes::DRAG_COPY);
+  omnibox_view_views->OnDrop(event);
+  EXPECT_EQ(input, omnibox_view_views->GetText());
+  EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
+  EXPECT_TRUE(omnibox_view_views->IsSelectAll());
+  EXPECT_FALSE(
+      browser()->tab_strip_model()->GetActiveWebContents()->IsLoading());
+}
+
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AyncDropCallback) {
+  OmniboxView* view = nullptr;
+  ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &view));
+  OmniboxViewViews* omnibox_view_views = static_cast<OmniboxViewViews*>(view);
+
+  OSExchangeData data;
+  std::u16string input = u"Foo bar baz";
+  EXPECT_FALSE(data.HasString());
+  data.SetString(input);
+  EXPECT_TRUE(data.HasString());
+
+  ui::DropTargetEvent event(data, gfx::PointF(), gfx::PointF(),
+                            ui::DragDropTypes::DRAG_COPY);
+  auto cb = omnibox_view_views->CreateDropCallback(event);
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  std::move(cb).Run(event, output_drag_op);
+
   EXPECT_EQ(input, omnibox_view_views->GetText());
   EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
   EXPECT_TRUE(omnibox_view_views->IsSelectAll());
@@ -180,7 +210,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DoNotNavigateOnDrop) {
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DISABLED_SelectAllOnClick) {
   OmniboxView* omnibox_view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
-  omnibox_view->SetUserText(base::ASCIIToUTF16("http://www.google.com/"));
+  omnibox_view->SetUserText(u"http://www.google.com/");
 
   // Take the focus away from the omnibox.
   ASSERT_NO_FATAL_FAILURE(ClickBrowserWindowCenter());
@@ -245,7 +275,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DISABLED_SelectAllOnClick) {
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectionClipboard) {
   OmniboxView* omnibox_view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
-  omnibox_view->SetUserText(base::ASCIIToUTF16("http://www.google.com/"));
+  omnibox_view->SetUserText(u"http://www.google.com/");
   OmniboxViewViews* omnibox_view_views =
       static_cast<OmniboxViewViews*>(omnibox_view);
   ASSERT_TRUE(omnibox_view_views);
@@ -266,13 +296,12 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectionClipboard) {
 
   // Middle click focuses the omnibox, pastes, and sets a trailing cursor.
   // Select-all on focus shouldn't alter the selection clipboard or cursor.
-  SetClipboardText(ui::ClipboardBuffer::kSelection, "123");
+  SetClipboardText(ui::ClipboardBuffer::kSelection, u"123");
   ASSERT_NO_FATAL_FAILURE(Click(ui_controls::MIDDLE,
                                 click_location, click_location));
   EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
   EXPECT_FALSE(omnibox_view->IsSelectAll());
-  EXPECT_EQ(base::ASCIIToUTF16("http://www.goo123gle.com/"),
-            omnibox_view->GetText());
+  EXPECT_EQ(u"http://www.goo123gle.com/", omnibox_view->GetText());
   EXPECT_EQ(17U, omnibox_view_views->GetCursorPosition());
 
   // The omnibox can move when it gains focus, so refresh the click location.
@@ -280,13 +309,12 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectionClipboard) {
                        cursor_x + render_text->display_rect().x());
 
   // Middle clicking again, with focus, pastes and updates the cursor.
-  SetClipboardText(ui::ClipboardBuffer::kSelection, "4567");
+  SetClipboardText(ui::ClipboardBuffer::kSelection, u"4567");
   ASSERT_NO_FATAL_FAILURE(Click(ui_controls::MIDDLE,
                                 click_location, click_location));
   EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
   EXPECT_FALSE(omnibox_view->IsSelectAll());
-  EXPECT_EQ(base::ASCIIToUTF16("http://www.goo4567123gle.com/"),
-            omnibox_view->GetText());
+  EXPECT_EQ(u"http://www.goo4567123gle.com/", omnibox_view->GetText());
   EXPECT_EQ(18U, omnibox_view_views->GetCursorPosition());
 }
 #endif  // OS_LINUX && !OS_CHROMEOS
@@ -297,7 +325,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectionClipboard) {
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectAllOnTap) {
   OmniboxView* omnibox_view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
-  omnibox_view->SetUserText(base::ASCIIToUTF16("http://www.google.com/"));
+  omnibox_view->SetUserText(u"http://www.google.com/");
 
   // Take the focus away from the omnibox.
   ASSERT_NO_FATAL_FAILURE(
@@ -335,18 +363,10 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectAllOnTap) {
 
   // Take the focus away and tap in the omnibox again, but drag a bit before
   // releasing. This shouldn't select text.
-  //
-  // Whether it'll focus depends on the state of the below feature: touch and
-  // drag will send a tap-down event, then a scroll or swipe event, but no
-  // complete tap event. When enabled, textfields will take focus on a complete
-  // tap instead of tap-down.
-  const bool focused_after_drag =
-      !base::FeatureList::IsEnabled(views::features::kTextfieldFocusOnTapUp);
   ASSERT_NO_FATAL_FAILURE(
       ui_test_utils::ClickOnView(browser(), VIEW_ID_TAB_CONTAINER));
   ASSERT_NO_FATAL_FAILURE(Tap(tap_location, tap2_location));
-  EXPECT_EQ(focused_after_drag,
-            ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
+  EXPECT_FALSE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
   EXPECT_FALSE(omnibox_view->IsSelectAll());
 }
 
@@ -359,7 +379,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest,
   views::TextfieldTestApi textfield_test_api(omnibox_view_views);
 
   // Put a URL on the clipboard.
-  SetClipboardText(ui::ClipboardBuffer::kCopyPaste, "http://www.example.com/");
+  SetClipboardText(ui::ClipboardBuffer::kCopyPaste, u"http://www.example.com/");
 
   // Tap to activate touch editing.
   gfx::Point omnibox_center =
@@ -379,7 +399,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest,
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectAllOnTabToFocus) {
   OmniboxView* omnibox_view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
-  ui_test_utils::NavigateToURL(browser(), GURL("http://www.google.com/"));
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GURL("http://www.google.com/")));
   // RevertAll after navigation to invalidate the selection range saved on blur.
   omnibox_view->RevertAll();
   EXPECT_FALSE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
@@ -402,27 +423,26 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, CloseOmniboxPopupOnTextDrag) {
 
   // Populate suggestions for the omnibox popup.
   AutocompleteController* autocomplete_controller =
-      omnibox_view->model()->popup_model()->autocomplete_controller();
+      omnibox_view->model()->autocomplete_controller();
   AutocompleteResult& results = autocomplete_controller->result_;
   ACMatches matches;
   AutocompleteMatch match(nullptr, 500, false,
                           AutocompleteMatchType::HISTORY_TITLE);
-  match.contents = base::ASCIIToUTF16("http://autocomplete-result/");
+  match.contents = u"http://autocomplete-result/";
   match.contents_class.push_back(
       ACMatchClassification(0, ACMatchClassification::URL));
   match.destination_url = GURL("http://autocomplete-result/");
   match.allowed_to_be_default_match = true;
   matches.push_back(match);
-  AutocompleteInput input(base::ASCIIToUTF16("a"),
-                          metrics::OmniboxEventProto::OTHER,
+  AutocompleteInput input(u"a", metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
   results.AppendMatches(input, matches);
   results.SortAndCull(
       input, TemplateURLServiceFactory::GetForProfile(browser()->profile()));
 
   // The omnibox popup should open with suggestions displayed.
-  omnibox_view->model()->popup_model()->OnResultChanged();
-  EXPECT_TRUE(omnibox_view->model()->popup_model()->IsOpen());
+  omnibox_view->model()->OnPopupResultChanged();
+  EXPECT_TRUE(omnibox_view->model()->PopupIsOpen());
 
   // The omnibox text should be selected.
   EXPECT_TRUE(omnibox_view->IsSelectAll());
@@ -433,14 +453,14 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, CloseOmniboxPopupOnTextDrag) {
                          ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
                          ui::EF_LEFT_MOUSE_BUTTON);
   omnibox_view_views->OnMousePressed(pressed);
-  EXPECT_TRUE(omnibox_view->model()->popup_model()->IsOpen());
+  EXPECT_TRUE(omnibox_view->model()->PopupIsOpen());
 
   // Simulate a mouse drag of the omnibox text, and the omnibox should close.
   ui::MouseEvent dragged(ui::ET_MOUSE_DRAGGED, point, point,
                          ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON, 0);
   omnibox_view_views->OnMouseDragged(dragged);
 
-  EXPECT_FALSE(omnibox_view->model()->popup_model()->IsOpen());
+  EXPECT_FALSE(omnibox_view->model()->PopupIsOpen());
 }
 
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, MaintainCursorAfterFocusCycle) {
@@ -449,28 +469,28 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, MaintainCursorAfterFocusCycle) {
 
   // Populate suggestions for the omnibox popup.
   AutocompleteController* autocomplete_controller =
-      omnibox_view->model()->popup_model()->autocomplete_controller();
+      omnibox_view->model()->autocomplete_controller();
   AutocompleteResult& results = autocomplete_controller->result_;
   ACMatches matches;
   AutocompleteMatch match(nullptr, 500, false,
                           AutocompleteMatchType::HISTORY_TITLE);
-  match.contents = base::ASCIIToUTF16("http://autocomplete-result/");
+  match.contents = u"http://autocomplete-result/";
   match.contents_class.push_back(
       ACMatchClassification(0, ACMatchClassification::URL));
   match.destination_url = GURL("http://autocomplete-result/");
   match.allowed_to_be_default_match = true;
   matches.push_back(match);
-  AutocompleteInput input(
-      base::ASCIIToUTF16("autocomplete-result"), 19, "autocomplete-result",
-      metrics::OmniboxEventProto::OTHER, TestSchemeClassifier());
+  AutocompleteInput input(u"autocomplete-result", 19, "autocomplete-result",
+                          metrics::OmniboxEventProto::OTHER,
+                          TestSchemeClassifier());
   input.set_current_url(GURL("http://autocomplete-result/"));
   results.AppendMatches(input, matches);
   results.SortAndCull(
       input, TemplateURLServiceFactory::GetForProfile(browser()->profile()));
 
   // The omnibox popup should open with suggestions displayed.
-  omnibox_view->model()->popup_model()->OnResultChanged();
-  EXPECT_TRUE(omnibox_view->model()->popup_model()->IsOpen());
+  omnibox_view->model()->OnPopupResultChanged();
+  EXPECT_TRUE(omnibox_view->model()->PopupIsOpen());
 
   // TODO(krb): For some reason, we need to hit End twice to be registered.
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_END, false,
@@ -484,7 +504,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, MaintainCursorAfterFocusCycle) {
   omnibox_view->GetSelectionBounds(&prev_start, &end);
 
   chrome::FocusAppMenu(browser());
-  EXPECT_FALSE(omnibox_view->model()->popup_model()->IsOpen());
+  EXPECT_FALSE(omnibox_view->model()->PopupIsOpen());
 
   // Re-focus.
   chrome::FocusLocationBar(browser());
@@ -532,13 +552,10 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, TextElideStatus) {
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, FragmentUnescapedForDisplay) {
   OmniboxView* view = nullptr;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &view));
-  ui_test_utils::NavigateToURL(browser(),
-                               GURL("http://example.com/#%E2%98%83"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), GURL("http://example.com/#%E2%98%83")));
 
-  EXPECT_EQ(view->GetText(),
-            OmniboxFieldTrial::ShouldRevealPathQueryRefOnHover()
-                ? base::UTF8ToUTF16("http://example.com/#\u2603")
-                : base::UTF8ToUTF16("example.com/#\u2603"));
+  EXPECT_EQ(view->GetText(), u"example.com/#\u2603");
 }
 
 // Ensure that when the user navigates between suggestions, that the accessible
@@ -548,14 +565,14 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, FragmentUnescapedForDisplay) {
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, FriendlyAccessibleLabel) {
   OmniboxView* omnibox_view = nullptr;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
-  base::string16 match_url = base::ASCIIToUTF16("https://google.com");
+  std::u16string match_url = u"https://google.com";
   AutocompleteMatch match(nullptr, 500, false,
                           AutocompleteMatchType::HISTORY_TITLE);
   match.contents = match_url;
   match.contents_class.push_back(
       ACMatchClassification(0, ACMatchClassification::URL));
   match.destination_url = GURL(match_url);
-  match.description = base::ASCIIToUTF16("Google");
+  match.description = u"Google";
   match.allowed_to_be_default_match = true;
 
   // Enter user input mode to prevent spurious unelision.
@@ -563,12 +580,11 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, FriendlyAccessibleLabel) {
 
   // Populate suggestions for the omnibox popup.
   AutocompleteController* autocomplete_controller =
-      omnibox_view->model()->popup_model()->autocomplete_controller();
+      omnibox_view->model()->autocomplete_controller();
   AutocompleteResult& results = autocomplete_controller->result_;
   ACMatches matches;
   matches.push_back(match);
-  AutocompleteInput input(base::ASCIIToUTF16("g"),
-                          metrics::OmniboxEventProto::OTHER,
+  AutocompleteInput input(u"g", metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
   results.AppendMatches(input, matches);
   results.SortAndCull(
@@ -576,8 +592,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, FriendlyAccessibleLabel) {
 
   // The omnibox popup should open with suggestions displayed.
   chrome::FocusLocationBar(browser());
-  omnibox_view->model()->popup_model()->OnResultChanged();
-  EXPECT_TRUE(omnibox_view->model()->popup_model()->IsOpen());
+  omnibox_view->model()->OnPopupResultChanged();
+  EXPECT_TRUE(omnibox_view->model()->PopupIsOpen());
   OmniboxViewViews* omnibox_view_views =
       static_cast<OmniboxViewViews*>(omnibox_view);
 
@@ -585,15 +601,13 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, FriendlyAccessibleLabel) {
   omnibox_view_views->OnTemporaryTextMaybeChanged(match_url, match, false,
                                                   false);
   omnibox_view->SelectAll(true);
-  EXPECT_EQ(base::ASCIIToUTF16("https://google.com"),
-            omnibox_view_views->GetText());
+  EXPECT_EQ(u"https://google.com", omnibox_view_views->GetText());
 
   // Test friendly label.
   const int kFriendlyPrefixLength = match.description.size() + 1;
   ui::AXNodeData node_data;
   omnibox_view_views->GetAccessibleNodeData(&node_data);
-  EXPECT_EQ(base::ASCIIToUTF16(
-                "Google https://google.com location from history, 1 of 1"),
+  EXPECT_EQ(u"Google https://google.com location from history, 1 of 1",
             node_data.GetString16Attribute(ax::mojom::StringAttribute::kValue));
   // Selection offsets are moved over by length the inserted descriptive text
   // prefix ("Google") + 1 for the space.
@@ -611,24 +625,23 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, FriendlyAccessibleLabel) {
   ui::AXActionData set_selection_action_data;
   set_selection_action_data.action = ax::mojom::Action::kSetSelection;
   set_selection_action_data.anchor_node_id = node_data.id;
+  set_selection_action_data.focus_node_id = node_data.id;
   set_selection_action_data.focus_offset = kFriendlyPrefixLength + 1;
   set_selection_action_data.anchor_offset = kFriendlyPrefixLength + 3;
   omnibox_view_views->HandleAccessibleAction(set_selection_action_data);
 
-  EXPECT_EQ(base::ASCIIToUTF16("https://google.com"),
-            omnibox_view_views->GetText());
+  EXPECT_EQ(u"https://google.com", omnibox_view_views->GetText());
 
   // Type "x" to replace the selected "tt" with that character.
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_X, false,
                                               false, false, false));
   // Second character should be an "x" now.
-  EXPECT_EQ(base::ASCIIToUTF16("hxps://google.com"),
-            omnibox_view_views->GetText());
+  EXPECT_EQ(u"hxps://google.com", omnibox_view_views->GetText());
 
   // When editing starts, the accessible value becomes the same as the raw
   // edited text.
   omnibox_view_views->GetAccessibleNodeData(&node_data);
-  EXPECT_EQ(base::ASCIIToUTF16("hxps://google.com"),
+  EXPECT_EQ(u"hxps://google.com",
             node_data.GetString16Attribute(ax::mojom::StringAttribute::kValue));
 }
 
@@ -641,14 +654,14 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AccessiblePopup) {
       static_cast<OmniboxViewViews*>(omnibox_view);
   chrome::FocusLocationBar(browser());
 
-  base::string16 match_url = base::ASCIIToUTF16("https://google.com");
+  std::u16string match_url = u"https://google.com";
   AutocompleteMatch match(nullptr, 500, false,
                           AutocompleteMatchType::HISTORY_TITLE);
   match.contents = match_url;
   match.contents_class.push_back(
       ACMatchClassification(0, ACMatchClassification::URL));
   match.destination_url = GURL(match_url);
-  match.description = base::ASCIIToUTF16("Google");
+  match.description = u"Google";
   match.allowed_to_be_default_match = true;
 
   OmniboxPopupContentsView* popup_view =
@@ -667,20 +680,19 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AccessiblePopup) {
 
   // Populate suggestions for the omnibox popup.
   AutocompleteController* autocomplete_controller =
-      omnibox_view->model()->popup_model()->autocomplete_controller();
+      omnibox_view->model()->autocomplete_controller();
   AutocompleteResult& results = autocomplete_controller->result_;
   ACMatches matches;
   matches.push_back(match);
-  AutocompleteInput input(base::ASCIIToUTF16("g"),
-                          metrics::OmniboxEventProto::OTHER,
+  AutocompleteInput input(u"g", metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
   results.AppendMatches(input, matches);
   results.SortAndCull(
       input, TemplateURLServiceFactory::GetForProfile(browser()->profile()));
 
   // The omnibox popup should open with suggestions displayed.
-  omnibox_view->model()->popup_model()->OnResultChanged();
-  EXPECT_TRUE(omnibox_view->model()->popup_model()->IsOpen());
+  omnibox_view->model()->OnPopupResultChanged();
+  EXPECT_TRUE(omnibox_view->model()->PopupIsOpen());
   ui::AXNodeData popup_node_data_2;
   popup_view->GetAccessibleNodeData(&popup_node_data_2);
   EXPECT_TRUE(popup_node_data_2.HasState(ax::mojom::State::kExpanded));
@@ -698,14 +710,16 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DISABLED_ReloadAfterKill) {
       static_cast<OmniboxViewViews*>(omnibox_view);
 
   // Open new tab page.
-  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUINewTabURL));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(),
+                                           GURL(chrome::kChromeUINewTabURL)));
 
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
   // Kill the tab with chrome://kill
   {
     content::ScopedAllowRendererCrashes scoped_allow_renderer_crashes;
-    ui_test_utils::NavigateToURL(browser(), GURL(content::kChromeUIKillURL));
+    ASSERT_TRUE(
+        ui_test_utils::NavigateToURL(browser(), GURL(blink::kChromeUIKillURL)));
     EXPECT_TRUE(tab->IsCrashed());
   }
 
@@ -714,7 +728,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DISABLED_ReloadAfterKill) {
   EXPECT_TRUE(content::WaitForLoadStop(tab));
 
   // Verify the omnibox contents, URL and icon.
-  EXPECT_EQ(base::ASCIIToUTF16(""), omnibox_view_views->GetText());
+  EXPECT_EQ(u"", omnibox_view_views->GetText());
   EXPECT_EQ(GURL(url::kAboutBlankURL),
             browser()->location_bar_model()->GetURL());
 }
@@ -730,21 +744,11 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AlwaysShowFullURLs) {
   ASSERT_TRUE(embedded_test_server()->Start());
   // Use a hostname ("a.test") since IP addresses aren't eligible for eliding.
   GURL url = embedded_test_server()->GetURL("a.test", "/title1.html");
-  base::string16 url_text = base::ASCIIToUTF16(url.spec());
+  std::u16string url_text = base::ASCIIToUTF16(url.spec());
 
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
-  // By default, the URL should be elided. Depending on field trial
-  // configuration, this will be implemented by pushing the scheme out of the
-  // display area or by eliding it from the actual text.
-  if (OmniboxFieldTrial::ShouldRevealPathQueryRefOnHover()) {
-    EXPECT_EQ(url_text, omnibox_view_views->GetText());
-    EXPECT_GT(
-        0, omnibox_view_views->GetRenderText()->GetUpdatedDisplayOffset().x());
-  } else {
-    EXPECT_EQ(url_text,
-              base::ASCIIToUTF16("http://") + omnibox_view_views->GetText());
-  }
+  EXPECT_EQ(url_text, u"http://" + omnibox_view_views->GetText());
 
   // After toggling the setting, the full URL should be shown.
   chrome::ToggleShowFullURLs(browser());
@@ -754,14 +758,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AlwaysShowFullURLs) {
 
   // Toggling the setting again should go back to the elided URL.
   chrome::ToggleShowFullURLs(browser());
-  if (OmniboxFieldTrial::ShouldRevealPathQueryRefOnHover()) {
-    EXPECT_EQ(url_text, omnibox_view_views->GetText());
-    EXPECT_GT(
-        0, omnibox_view_views->GetRenderText()->GetUpdatedDisplayOffset().x());
-  } else {
-    EXPECT_EQ(url_text,
-              base::ASCIIToUTF16("http://") + omnibox_view_views->GetText());
-  }
+  EXPECT_EQ(url_text, u"http://" + omnibox_view_views->GetText());
 }
 
 // The following set of tests require UIA accessibility support, which only
@@ -785,52 +782,122 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsUIATest, AccessibleOmnibox) {
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
   chrome::FocusLocationBar(browser());
 
-  base::string16 match_url = base::ASCIIToUTF16("https://example.com");
+  std::u16string match_url = u"https://example.com";
   AutocompleteMatch match(nullptr, 500, false,
                           AutocompleteMatchType::HISTORY_TITLE);
   match.contents = match_url;
   match.contents_class.push_back(
       ACMatchClassification(0, ACMatchClassification::URL));
   match.destination_url = GURL(match_url);
-  match.description = base::ASCIIToUTF16("Example");
+  match.description = u"Example";
   match.allowed_to_be_default_match = true;
 
-  EXPECT_FALSE(omnibox_view->model()->popup_model()->IsOpen());
+  EXPECT_FALSE(omnibox_view->model()->PopupIsOpen());
 
   HWND window_handle =
       browser()->window()->GetNativeWindow()->GetHost()->GetAcceleratedWidget();
-  UiaAccessibilityWaiterInfo info = {
-      window_handle, base::ASCIIToUTF16("textbox"),
-      base::ASCIIToUTF16("Address and search bar"),
-      ax::mojom::Event::kControlsChanged};
+  UiaAccessibilityWaiterInfo info = {window_handle, L"textbox",
+                                     L"Address and search bar",
+                                     ax::mojom::Event::kControlsChanged};
   UiaAccessibilityEventWaiter open_waiter(info);
 
   // Populate suggestions for the omnibox popup.
   AutocompleteController* autocomplete_controller =
-      omnibox_view->model()->popup_model()->autocomplete_controller();
+      omnibox_view->model()->autocomplete_controller();
   AutocompleteResult& results = autocomplete_controller->result_;
   ACMatches matches;
   matches.push_back(match);
-  AutocompleteInput input(base::ASCIIToUTF16("e"),
-                          metrics::OmniboxEventProto::OTHER,
+  AutocompleteInput input(u"e", metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
   results.AppendMatches(input, matches);
   results.SortAndCull(
       input, TemplateURLServiceFactory::GetForProfile(browser()->profile()));
 
   // The omnibox popup should open with suggestions displayed.
-  omnibox_view->model()->popup_model()->OnResultChanged();
+  omnibox_view->model()->OnPopupResultChanged();
 
   // Wait for ControllerFor property changed event.
   open_waiter.Wait();
 
-  EXPECT_TRUE(omnibox_view->model()->popup_model()->IsOpen());
+  EXPECT_TRUE(omnibox_view->model()->PopupIsOpen());
 
   UiaAccessibilityEventWaiter close_waiter(info);
   // Close the popup. Another property change event is expected.
   ClickBrowserWindowCenter();
   close_waiter.Wait();
-  EXPECT_FALSE(omnibox_view->model()->popup_model()->IsOpen());
+  EXPECT_FALSE(omnibox_view->model()->PopupIsOpen());
+}
+
+namespace {
+
+class OmniboxMockInputMethod : public ui::MockInputMethod {
+ public:
+  OmniboxMockInputMethod() : ui::MockInputMethod(nullptr) {}
+  // ui::MockInputMethod:
+  bool IsInputLocaleCJK() const override { return input_locale_cjk_; }
+  void SetInputLocaleCJK(bool is_cjk) { input_locale_cjk_ = is_cjk; }
+
+ private:
+  bool input_locale_cjk_ = false;
+};
+
+}  // namespace
+
+class OmniboxViewViewsIMETest : public OmniboxViewViewsTest {
+ public:
+  OmniboxViewViewsIMETest() = default;
+
+  // OmniboxViewViewsTest:
+  void SetUp() override {
+    input_method_ = new OmniboxMockInputMethod();
+    // Transfers ownership.
+    ui::SetUpInputMethodForTesting(input_method_);
+    InProcessBrowserTest::SetUp();
+  }
+
+ protected:
+  // OmniboxViewViewsTest:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    OmniboxViewViewsTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(switches::kEnableExperimentalUIAutomation);
+  }
+  OmniboxMockInputMethod* GetInputMethod() const { return input_method_; }
+
+ private:
+  OmniboxMockInputMethod* input_method_ = nullptr;
+};
+
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsIMETest, TextInputTypeChangedTest) {
+  chrome::FocusLocationBar(browser());
+  OmniboxView* view = nullptr;
+  ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &view));
+  OmniboxViewViews* omnibox_view_views = static_cast<OmniboxViewViews*>(view);
+  ui::InputMethod* input_method =
+      omnibox_view_views->GetWidget()->GetInputMethod();
+  EXPECT_EQ(input_method, GetInputMethod());
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_URL, omnibox_view_views->GetTextInputType());
+  GetInputMethod()->SetInputLocaleCJK(/*is_cjk=*/true);
+  omnibox_view_views->OnInputMethodChanged();
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_SEARCH, omnibox_view_views->GetTextInputType());
+
+  GetInputMethod()->SetInputLocaleCJK(/*is_cjk=*/false);
+  omnibox_view_views->OnInputMethodChanged();
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_URL, omnibox_view_views->GetTextInputType());
+}
+
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsIMETest, TextInputTypeInitRespectsIME) {
+  OmniboxMockInputMethod* input_method = new OmniboxMockInputMethod();
+  ui::SetUpInputMethodForTesting(input_method);
+  input_method->SetInputLocaleCJK(/*is_cjk=*/true);
+  Browser* browser_2 = CreateBrowser(browser()->profile());
+  OmniboxView* view = nullptr;
+  ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser_2, &view));
+  OmniboxViewViews* omnibox_view_views = static_cast<OmniboxViewViews*>(view);
+  EXPECT_EQ(omnibox_view_views->GetWidget()->GetInputMethod(), input_method);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_SEARCH, omnibox_view_views->GetTextInputType());
+  input_method->SetInputLocaleCJK(/*is_cjk=*/false);
+  omnibox_view_views->OnInputMethodChanged();
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_URL, omnibox_view_views->GetTextInputType());
 }
 #endif  // OS_WIN
 
@@ -851,25 +918,22 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsUIATest, AccessibleOmnibox) {
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, MAYBE_HandleExternalProtocolURLs) {
   OmniboxView* omnibox_view = nullptr;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
-  OmniboxPopupModel* popup_model = omnibox_view->model()->popup_model();
-  ASSERT_TRUE(popup_model);
   AutocompleteController* controller =
       omnibox_view->model()->autocomplete_controller();
   ASSERT_TRUE(controller);
 
-  auto set_text_and_perform_navigation = [this, omnibox_view, popup_model,
-                                          controller]() {
+  auto set_text_and_perform_navigation = [this, omnibox_view, controller]() {
     const char fake_protocol[] = "fake";
-    const char fake_url[] = "fake://path";
+    const char16_t fake_url[] = u"fake://path";
 
     EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
 
     // Set omnibox text and wait for autocomplete.
-    omnibox_view->SetUserText(base::ASCIIToUTF16(fake_url));
+    omnibox_view->SetUserText(fake_url);
     if (!controller->done())
       ui_test_utils::WaitForAutocompleteDone(browser());
     ASSERT_TRUE(controller->done());
-    ASSERT_TRUE(popup_model->IsOpen());
+    ASSERT_TRUE(omnibox_view->model()->PopupIsOpen());
 
     EXPECT_NE(ExternalProtocolHandler::BLOCK,
               ExternalProtocolHandler::GetBlockState(fake_protocol, nullptr,

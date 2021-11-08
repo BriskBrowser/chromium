@@ -4,11 +4,14 @@
 
 #include "chrome/credential_provider/extension/app_inventory_manager.h"
 
+#include <memory>
+
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/credential_provider/common/gcp_strings.h"
 #include "chrome/credential_provider/gaiacp/gcp_utils.h"
 #include "chrome/credential_provider/gaiacp/gcpw_strings.h"
 #include "chrome/credential_provider/gaiacp/logging.h"
+#include "chrome/credential_provider/gaiacp/mdm_utils.h"
 #include "chrome/credential_provider/gaiacp/os_user_manager.h"
 #include "chrome/credential_provider/gaiacp/reg_utils.h"
 #include "chrome/credential_provider/gaiacp/win_http_url_fetcher.h"
@@ -16,7 +19,7 @@
 namespace credential_provider {
 
 const base::TimeDelta kDefaultUploadAppInventoryRequestTimeout =
-    base::TimeDelta::FromMilliseconds(12000);
+    base::Milliseconds(12000);
 
 namespace {
 
@@ -32,6 +35,7 @@ const char kObfuscatedGaiaId[] = "obfuscated_gaia_id";
 const char kAppDisplayName[] = "name";
 const char kAppDisplayVersion[] = "version";
 const char kAppPublisher[] = "publisher";
+const char kAppType[] = "app_type";
 
 const wchar_t kInstalledWin32AppsRegistryPath[] =
     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
@@ -48,8 +52,7 @@ const wchar_t kUploadAppInventoryFromEsaEnabledRegKey[] =
     L"upload_app_inventory_from_esa";
 
 // The period of uploading app inventory to the backend.
-const base::TimeDelta kUploadAppInventoryExecutionPeriod =
-    base::TimeDelta::FromHours(3);
+const base::TimeDelta kUploadAppInventoryExecutionPeriod = base::Hours(3);
 
 // True when upload device details from ESA feature is enabled.
 bool g_upload_app_inventory_from_esa_enabled = false;
@@ -121,7 +124,7 @@ AppInventoryManager::AppInventoryManager(
     : upload_app_inventory_request_timeout_(
           upload_app_inventory_request_timeout) {
   g_upload_app_inventory_from_esa_enabled =
-      GetGlobalFlagOrDefault(kUploadAppInventoryFromEsaEnabledRegKey, 0) == 1;
+      GetGlobalFlagOrDefault(kUploadAppInventoryFromEsaEnabledRegKey, 1) == 1;
 }
 
 AppInventoryManager::~AppInventoryManager() = default;
@@ -162,7 +165,7 @@ HRESULT AppInventoryManager::UploadAppInventory(
     }
   }
 
-  request_dict_.reset(new base::Value(base::Value::Type::DICTIONARY));
+  request_dict_ = std::make_unique<base::Value>(base::Value::Type::DICTIONARY);
   request_dict_->SetStringKey(kUploadAppInventoryRequestUserSidParameterName,
                               base::WideToUTF8(context.user_sid));
   request_dict_->SetStringKey(kDmToken, base::WideToUTF8(dm_token_value));
@@ -186,7 +189,7 @@ HRESULT AppInventoryManager::UploadAppInventory(
   request_dict_->SetKey(kUploadAppInventoryRequestWin32AppsParameterName,
                         GetInstalledWin32Apps());
 
-  base::Optional<base::Value> request_result;
+  absl::optional<base::Value> request_result;
   hr = WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
       AppInventoryManager::Get()->GetGemServiceUploadAppInventoryUrl(),
       /* access_token= */ std::string(), {}, *request_dict_,
@@ -221,8 +224,8 @@ base::Value AppInventoryManager::GetInstalledWin32Apps() {
 
   base::Value app_info_value_list(base::Value::Type::LIST);
   for (std::wstring regPath : app_path_list) {
-    std::unique_ptr<base::Value> request_dict_;
-    request_dict_.reset(new base::Value(base::Value::Type::DICTIONARY));
+    auto request_dict =
+        std::make_unique<base::Value>(base::Value::Type::DICTIONARY);
 
     wchar_t display_name[256];
     ULONG display_length = base::size(display_name);
@@ -230,8 +233,8 @@ base::Value AppInventoryManager::GetInstalledWin32Apps() {
         GetMachineRegString(regPath, std::wstring(kAppDisplayNameRegistryKey),
                             display_name, &display_length);
     if (hr == S_OK) {
-      request_dict_->SetStringKey(kAppDisplayName,
-                                  base::WideToUTF8(display_name));
+      request_dict->SetStringKey(kAppDisplayName,
+                                 base::WideToUTF8(display_name));
 
       wchar_t display_version[256];
       ULONG version_length = base::size(display_version);
@@ -239,8 +242,8 @@ base::Value AppInventoryManager::GetInstalledWin32Apps() {
                                std::wstring(kAppDisplayVersionRegistryKey),
                                display_version, &version_length);
       if (hr == S_OK) {
-        request_dict_->SetStringKey(kAppDisplayVersion,
-                                    base::WideToUTF8(display_version));
+        request_dict->SetStringKey(kAppDisplayVersion,
+                                   base::WideToUTF8(display_version));
       }
 
       wchar_t publisher[256];
@@ -248,11 +251,14 @@ base::Value AppInventoryManager::GetInstalledWin32Apps() {
       hr = GetMachineRegString(regPath, std::wstring(kAppPublisherRegistryKey),
                                publisher, &publisher_length);
       if (hr == S_OK) {
-        request_dict_->SetStringKey(kAppPublisher, base::WideToUTF8(publisher));
+        request_dict->SetStringKey(kAppPublisher, base::WideToUTF8(publisher));
       }
 
+      // App_type value 1 refers to WIN_32 applications.
+      request_dict->SetIntKey(kAppType, 1);
+
       app_info_value_list.Append(
-          base::Value::FromUniquePtrValue(std::move(request_dict_)));
+          base::Value::FromUniquePtrValue(std::move(request_dict)));
     }
   }
 

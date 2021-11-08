@@ -13,13 +13,14 @@
 
 class Profile;
 class StatefulSSLHostStateDelegate;
+class TrustSafetySentimentService;
 
 namespace content_settings {
 class PageSpecificContentSettings;
 }
 
 namespace permissions {
-class ChooserContextBase;
+class ObjectPermissionContextBase;
 class PermissionDecisionAutoBlocker;
 }  // namespace permissions
 
@@ -38,14 +39,13 @@ class ChromePageInfoDelegate : public PageInfoDelegate {
       security_state::VisibleSecurityState visible_security_state);
 
   // PageInfoDelegate implementation
-  permissions::ChooserContextBase* GetChooserContext(
+  permissions::ObjectPermissionContextBase* GetChooserContext(
       ContentSettingsType type) override;
 #if BUILDFLAG(FULL_SAFE_BROWSING)
   safe_browsing::PasswordProtectionService* GetPasswordProtectionService()
       const override;
-  void OnUserActionOnPasswordUi(content::WebContents* web_contents,
-                                safe_browsing::WarningAction action) override;
-  base::string16 GetWarningDetailText() override;
+  void OnUserActionOnPasswordUi(safe_browsing::WarningAction action) override;
+  std::u16string GetWarningDetailText() override;
 #endif
   permissions::PermissionResult GetPermissionStatus(
       ContentSettingsType type,
@@ -53,7 +53,17 @@ class ChromePageInfoDelegate : public PageInfoDelegate {
 
 #if !defined(OS_ANDROID)
   bool CreateInfoBarDelegate() override;
+  // In Chrome's case, this may show the site settings page or an app settings
+  // page, depending on context.
   void ShowSiteSettings(const GURL& site_url) override;
+  void OpenCookiesDialog() override;
+  void OpenCertificateDialog(net::X509Certificate* certificate) override;
+  void OpenConnectionHelpCenterPage(const ui::Event& event) override;
+  void OpenSafetyTipHelpCenterPage() override;
+  void OpenContentSettingsExceptions(
+      ContentSettingsType content_settings_type) override;
+  void OnPageInfoActionOccurred(PageInfo::PageInfoAction action) override;
+  void OnUIClosing() override;
 #endif
 
   permissions::PermissionDecisionAutoBlocker* GetPermissionDecisionAutoblocker()
@@ -68,7 +78,7 @@ class ChromePageInfoDelegate : public PageInfoDelegate {
   GetPageSpecificContentSettingsDelegate() override;
 
 #if defined(OS_ANDROID)
-  const base::string16 GetClientApplicationName() override;
+  const std::u16string GetClientApplicationName() override;
 #endif
 
  private:
@@ -78,6 +88,12 @@ class ChromePageInfoDelegate : public PageInfoDelegate {
   GetChromePasswordProtectionService() const;
 #endif
   content::WebContents* web_contents_;
+#if !defined(OS_ANDROID)
+  // The sentiment service is owned by the profile and will outlive this. The
+  // service cannot be retrieved via |web_contents_| as that may be destroyed
+  // before this is.
+  TrustSafetySentimentService* sentiment_service_;
+#endif
   security_state::SecurityLevel security_level_for_tests_;
   security_state::VisibleSecurityState visible_security_state_for_tests_;
   bool security_state_for_tests_set_ = false;

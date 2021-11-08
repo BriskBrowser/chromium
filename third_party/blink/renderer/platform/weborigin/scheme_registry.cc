@@ -40,13 +40,13 @@ namespace blink {
 // Function defined in third_party/blink/public/web/blink.h.
 void SetDomainRelaxationForbiddenForTest(bool forbidden,
                                          const WebString& scheme) {
-  SchemeRegistry::SetDomainRelaxationForbiddenForURLScheme(forbidden,
-                                                           String(scheme));
+  SchemeRegistry::SetDomainRelaxationForbiddenForURLSchemeForTest(
+      forbidden, String(scheme));
 }
 
 // Function defined in third_party/blink/public/web/blink.h.
 void ResetDomainRelaxationForTest() {
-  SchemeRegistry::ResetDomainRelaxation();
+  SchemeRegistry::ResetDomainRelaxationForTest();
 }
 
 namespace {
@@ -103,13 +103,17 @@ class URLSchemesRegistry final {
   URLSchemesSet allowed_in_referrer_schemes;
   URLSchemesSet error_schemes;
   URLSchemesSet wasm_eval_csp_schemes;
+  URLSchemesSet allowing_shared_array_buffer_schemes;
+  URLSchemesSet web_ui_schemes;
+  URLSchemesSet code_cache_with_hashing_schemes;
 
  private:
   friend const URLSchemesRegistry& GetURLSchemesRegistry();
   friend URLSchemesRegistry& GetMutableURLSchemesRegistry();
+  friend URLSchemesRegistry& GetMutableURLSchemesRegistryForTest();
 
   static URLSchemesRegistry& GetInstance() {
-    DEFINE_STATIC_LOCAL(URLSchemesRegistry, schemes, ());
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(URLSchemesRegistry, schemes, ());
     return schemes;
   }
 };
@@ -122,6 +126,13 @@ URLSchemesRegistry& GetMutableURLSchemesRegistry() {
 #if DCHECK_IS_ON()
   DCHECK(WTF::IsBeforeThreadCreated());
 #endif
+  return URLSchemesRegistry::GetInstance();
+}
+
+URLSchemesRegistry& GetMutableURLSchemesRegistryForTest() {
+  // Bypasses thread check. This is used when TestRunner tries to mutate
+  // schemes_forbidden_from_domain_relaxation during a test or on resetting
+  // its internal states.
   return URLSchemesRegistry::GetInstance();
 }
 
@@ -153,7 +164,7 @@ bool SchemeRegistry::ShouldLoadURLSchemeAsEmptyDocument(const String& scheme) {
   return GetURLSchemesRegistry().empty_document_schemes.Contains(scheme);
 }
 
-void SchemeRegistry::SetDomainRelaxationForbiddenForURLScheme(
+void SchemeRegistry::SetDomainRelaxationForbiddenForURLSchemeForTest(
     bool forbidden,
     const String& scheme) {
   DCHECK_EQ(scheme, scheme.LowerASCII());
@@ -161,16 +172,16 @@ void SchemeRegistry::SetDomainRelaxationForbiddenForURLScheme(
     return;
 
   if (forbidden) {
-    GetMutableURLSchemesRegistry()
+    GetMutableURLSchemesRegistryForTest()
         .schemes_forbidden_from_domain_relaxation.insert(scheme);
   } else {
-    GetMutableURLSchemesRegistry()
+    GetMutableURLSchemesRegistryForTest()
         .schemes_forbidden_from_domain_relaxation.erase(scheme);
   }
 }
 
-void SchemeRegistry::ResetDomainRelaxation() {
-  GetMutableURLSchemesRegistry()
+void SchemeRegistry::ResetDomainRelaxationForTest() {
+  GetMutableURLSchemesRegistryForTest()
       .schemes_forbidden_from_domain_relaxation.clear();
 }
 
@@ -366,6 +377,22 @@ bool SchemeRegistry::ShouldTreatURLSchemeAsError(const String& scheme) {
   return GetURLSchemesRegistry().error_schemes.Contains(scheme);
 }
 
+void SchemeRegistry::RegisterURLSchemeAsAllowingSharedArrayBuffers(
+    const String& scheme) {
+  DCHECK_EQ(scheme, scheme.LowerASCII());
+  GetMutableURLSchemesRegistry().allowing_shared_array_buffer_schemes.insert(
+      scheme);
+}
+
+bool SchemeRegistry::ShouldTreatURLSchemeAsAllowingSharedArrayBuffers(
+    const String& scheme) {
+  DCHECK_EQ(scheme, scheme.LowerASCII());
+  if (scheme.IsEmpty())
+    return false;
+  return GetURLSchemesRegistry().allowing_shared_array_buffer_schemes.Contains(
+      scheme);
+}
+
 void SchemeRegistry::RegisterURLSchemeAsBypassingContentSecurityPolicy(
     const String& scheme,
     PolicyAreas policy_areas) {
@@ -388,11 +415,12 @@ bool SchemeRegistry::SchemeShouldBypassContentSecurityPolicy(
   if (scheme.IsEmpty() || policy_areas == kPolicyAreaNone)
     return false;
 
-  // get() returns 0 (PolicyAreaNone) if there is no entry in the map.
-  // Thus by default, schemes do not bypass CSP.
-  return (GetURLSchemesRegistry().content_security_policy_bypassing_schemes.at(
-              scheme) &
-          policy_areas) == policy_areas;
+  const auto& bypassing_schemes =
+      GetURLSchemesRegistry().content_security_policy_bypassing_schemes;
+  const auto it = bypassing_schemes.find(scheme);
+  if (it == bypassing_schemes.end())
+    return false;
+  return (it->value & policy_areas) == policy_areas;
 }
 
 void SchemeRegistry::RegisterURLSchemeBypassingSecureContextCheck(
@@ -422,6 +450,50 @@ bool SchemeRegistry::SchemeSupportsWasmEvalCSP(const String& scheme) {
     return false;
   DCHECK_EQ(scheme, scheme.LowerASCII());
   return GetURLSchemesRegistry().wasm_eval_csp_schemes.Contains(scheme);
+}
+
+void SchemeRegistry::RegisterURLSchemeAsWebUI(const String& scheme) {
+  DCHECK_EQ(scheme, scheme.LowerASCII());
+  GetMutableURLSchemesRegistry().web_ui_schemes.insert(scheme);
+}
+
+void SchemeRegistry::RemoveURLSchemeAsWebUI(const String& scheme) {
+  GetMutableURLSchemesRegistry().web_ui_schemes.erase(scheme);
+}
+
+bool SchemeRegistry::IsWebUIScheme(const String& scheme) {
+  if (scheme.IsEmpty())
+    return false;
+  DCHECK_EQ(scheme, scheme.LowerASCII());
+  return GetURLSchemesRegistry().web_ui_schemes.Contains(scheme);
+}
+
+void SchemeRegistry::RegisterURLSchemeAsWebUIForTest(const String& scheme) {
+  DCHECK_EQ(scheme, scheme.LowerASCII());
+  GetMutableURLSchemesRegistryForTest().web_ui_schemes.insert(scheme);
+}
+
+void SchemeRegistry::RemoveURLSchemeAsWebUIForTest(const String& scheme) {
+  GetMutableURLSchemesRegistryForTest().web_ui_schemes.erase(scheme);
+}
+
+void SchemeRegistry::RegisterURLSchemeAsCodeCacheWithHashing(
+    const String& scheme) {
+  DCHECK_EQ(scheme, scheme.LowerASCII());
+  GetMutableURLSchemesRegistry().code_cache_with_hashing_schemes.insert(scheme);
+}
+
+void SchemeRegistry::RemoveURLSchemeAsCodeCacheWithHashing(
+    const String& scheme) {
+  GetMutableURLSchemesRegistry().code_cache_with_hashing_schemes.erase(scheme);
+}
+
+bool SchemeRegistry::SchemeSupportsCodeCacheWithHashing(const String& scheme) {
+  if (scheme.IsEmpty())
+    return false;
+  DCHECK_EQ(scheme, scheme.LowerASCII());
+  return GetURLSchemesRegistry().code_cache_with_hashing_schemes.Contains(
+      scheme);
 }
 
 }  // namespace blink

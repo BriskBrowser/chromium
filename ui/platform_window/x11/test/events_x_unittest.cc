@@ -10,7 +10,6 @@
 #include <set>
 #include <utility>
 
-#include "base/stl_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "build/build_config.h"
@@ -48,8 +47,8 @@ void InitButtonEvent(x11::Event* event,
   *event = x11::Event(x11::ButtonEvent{
       .opcode = is_press ? x11::ButtonEvent::Press : x11::ButtonEvent::Release,
       .detail = static_cast<x11::Button>(button),
-      .event_x = location.x(),
-      .event_y = location.y(),
+      .event_x = static_cast<int16_t>(location.x()),
+      .event_y = static_cast<int16_t>(location.y()),
       .state = state,
   });
 }
@@ -89,6 +88,10 @@ std::string FlooredEventLocationString(const x11::Event& xev) {
 class EventsXTest : public testing::Test {
  public:
   EventsXTest() = default;
+
+  EventsXTest(const EventsXTest&) = delete;
+  EventsXTest& operator=(const EventsXTest&) = delete;
+
   ~EventsXTest() override = default;
 
   void SetUp() override {
@@ -97,9 +100,6 @@ class EventsXTest : public testing::Test {
     ResetTimestampRolloverCountersForTesting();
   }
   void TearDown() override { ResetTimestampRolloverCountersForTesting(); }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(EventsXTest);
 };
 
 TEST_F(EventsXTest, ButtonEvents) {
@@ -222,8 +222,8 @@ TEST_F(EventsXTest, ClickCount) {
   x11::Event event;
   gfx::Point location(5, 10);
 
-  base::TimeDelta time_stamp = base::TimeTicks::Now().since_origin() -
-                               base::TimeDelta::FromMilliseconds(10);
+  base::TimeDelta time_stamp =
+      base::TimeTicks::Now().since_origin() - base::Milliseconds(10);
   for (int i = 1; i <= 3; ++i) {
     InitButtonEvent(&event, true, location, 1, {});
     {
@@ -242,7 +242,7 @@ TEST_F(EventsXTest, ClickCount) {
       EXPECT_EQ(ui::ET_MOUSE_RELEASED, mouseev->type());
       EXPECT_EQ(i, mouseev->GetClickCount());
     }
-    time_stamp += base::TimeDelta::FromMilliseconds(1);
+    time_stamp += base::Milliseconds(1);
   }
 }
 
@@ -518,7 +518,7 @@ namespace {
 
 // Returns a fake TimeTicks based on the given millisecond offset.
 base::TimeTicks TimeTicksFromMillis(int64_t millis) {
-  return base::TimeTicks() + base::TimeDelta::FromMilliseconds(millis);
+  return base::TimeTicks() + base::Milliseconds(millis);
 }
 
 }  // namespace
@@ -763,7 +763,7 @@ TEST_F(EventsXTest, AutoRepeat) {
   }
 }
 
-// Checks that Event.Latency.OS.TOUCH_PRESSED, TOUCH_MOVED,
+// Checks that Event.Latency.OS2.TOUCH_PRESSED, TOUCH_MOVED,
 // and TOUCH_RELEASED histograms are computed properly.
 TEST_F(EventsXTest, EventLatencyOSTouchHistograms) {
   base::HistogramTester histogram_tester;
@@ -780,14 +780,17 @@ TEST_F(EventsXTest, EventLatencyOSTouchHistograms) {
                                gfx::Point(10, 10), {});
   auto touch_begin = ui::BuildTouchEventFromXEvent(*scoped_xevent);
   histogram_tester.ExpectTotalCount("Event.Latency.OS.TOUCH_PRESSED", 1);
+  histogram_tester.ExpectTotalCount("Event.Latency.OS2.TOUCH_PRESSED", 1);
   scoped_xevent.InitTouchEvent(0, x11::Input::DeviceEvent::TouchUpdate, 5,
                                gfx::Point(20, 20), {});
   auto touch_update = ui::BuildTouchEventFromXEvent(*scoped_xevent);
   histogram_tester.ExpectTotalCount("Event.Latency.OS.TOUCH_MOVED", 1);
+  histogram_tester.ExpectTotalCount("Event.Latency.OS2.TOUCH_MOVED", 1);
   scoped_xevent.InitTouchEvent(0, x11::Input::DeviceEvent::TouchEnd, 5,
                                gfx::Point(30, 30), {});
   auto touch_end = ui::BuildTouchEventFromXEvent(*scoped_xevent);
   histogram_tester.ExpectTotalCount("Event.Latency.OS.TOUCH_RELEASED", 1);
+  histogram_tester.ExpectTotalCount("Event.Latency.OS2.TOUCH_RELEASED", 1);
 }
 
 TEST_F(EventsXTest, EventLatencyOSMouseWheelHistogram) {
@@ -802,6 +805,7 @@ TEST_F(EventsXTest, EventLatencyOSMouseWheelHistogram) {
   });
   auto mouse_ev = ui::BuildMouseWheelEventFromXEvent(native_event);
   histogram_tester.ExpectTotalCount("Event.Latency.OS.MOUSE_WHEEL", 1);
+  histogram_tester.ExpectTotalCount("Event.Latency.OS2.MOUSE_WHEEL", 1);
 }
 
 }  // namespace ui

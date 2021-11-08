@@ -15,9 +15,9 @@
 #include "base/debug/alias.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -29,7 +29,6 @@
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/public/renderer/document_state.h"
 #include "content/public/renderer/worker_thread.h"
-#include "content/renderer/loader/web_url_loader_impl.h"
 #include "content/renderer/renderer_blink_platform_impl.h"
 #include "content/renderer/service_worker/embedded_worker_instance_client_impl.h"
 #include "content/renderer/service_worker/navigation_preload_request.h"
@@ -45,6 +44,7 @@
 #include "third_party/blink/public/mojom/blob/blob.mojom.h"
 #include "third_party/blink/public/mojom/browser_interface_broker.mojom.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/controller_service_worker.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_client.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
@@ -380,13 +380,12 @@ ServiceWorkerContextClient::CreateWorkerFetchContextOnInitiatorThread() {
       renderer_preferences_, script_url_, loader_factories_->PassInterface(),
       std::move(pending_script_loader_factory), script_url_to_skip_throttling_,
       GetContentClient()->renderer()->CreateURLLoaderThrottleProvider(
-          URLLoaderThrottleProviderType::kWorker),
+          blink::URLLoaderThrottleProviderType::kWorker),
       GetContentClient()
           ->renderer()
           ->CreateWebSocketHandshakeThrottleProvider(),
       std::move(preference_watcher_receiver_),
-      std::move(pending_subresource_loader_updater_), service_worker_route_id_,
-      cors_exempt_header_list_);
+      std::move(pending_subresource_loader_updater_), cors_exempt_header_list_);
 }
 
 void ServiceWorkerContextClient::OnNavigationPreloadResponse(
@@ -477,14 +476,14 @@ void ServiceWorkerContextClient::SendWorkerStarted(
 void ServiceWorkerContextClient::SetupNavigationPreload(
     int fetch_event_id,
     const blink::WebURL& url,
-    std::unique_ptr<blink::WebFetchEventPreloadHandle> preload_handle) {
+    blink::CrossVariantMojoReceiver<
+        network::mojom::URLLoaderClientInterfaceBase>
+        preload_url_loader_client_receiver) {
   DCHECK(worker_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(context_);
   auto preload_request = std::make_unique<NavigationPreloadRequest>(
       this, fetch_event_id, GURL(url),
-      blink::mojom::FetchEventPreloadHandle::New(
-          std::move(preload_handle->url_loader),
-          std::move(preload_handle->url_loader_client_receiver)));
+      std::move(preload_url_loader_client_receiver));
   context_->preload_requests.AddWithID(std::move(preload_request),
                                        fetch_event_id);
 }

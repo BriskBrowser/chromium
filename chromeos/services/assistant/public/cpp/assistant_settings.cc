@@ -16,9 +16,13 @@ AssistantSettings* g_instance = nullptr;
 SpeakerIdEnrollmentClient::SpeakerIdEnrollmentClient() = default;
 SpeakerIdEnrollmentClient::~SpeakerIdEnrollmentClient() = default;
 
-mojo::PendingRemote<::chromeos::libassistant::mojom::SpeakerIdEnrollmentClient>
+mojo::PendingRemote<chromeos::libassistant::mojom::SpeakerIdEnrollmentClient>
 SpeakerIdEnrollmentClient::BindNewPipeAndPassRemote() {
   return client_.BindNewPipeAndPassRemote();
+}
+
+void SpeakerIdEnrollmentClient::ResetReceiver() {
+  client_.reset();
 }
 
 // static

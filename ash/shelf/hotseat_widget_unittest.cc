@@ -8,15 +8,15 @@
 
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/test/app_list_test_helper.h"
+#include "ash/app_list/views/app_list_view.h"
 #include "ash/assistant/assistant_controller_impl.h"
+#include "ash/constants/ash_features.h"
 #include "ash/focus_cycler.h"
-#include "ash/home_screen/drag_window_from_shelf_controller_test_api.h"
-#include "ash/home_screen/home_screen_controller.h"
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
 #include "ash/public/cpp/presentation_time_recorder.h"
 #include "ash/public/cpp/test/assistant_test_api.h"
 #include "ash/public/cpp/test/shell_test_api.h"
+#include "ash/shelf/drag_window_from_shelf_controller_test_api.h"
 #include "ash/shelf/home_button.h"
 #include "ash/shelf/hotseat_widget.h"
 #include "ash/shelf/scrollable_shelf_view.h"
@@ -32,17 +32,19 @@
 #include "ash/shelf/test/hotseat_state_watcher.h"
 #include "ash/shelf/test/shelf_layout_manager_test_base.h"
 #include "ash/shelf/test/widget_animation_smoothness_inspector.h"
-#include "ash/shelf/test/widget_animation_waiter.h"
 #include "ash/shell.h"
+#include "ash/system/ime_menu/ime_menu_tray.h"
 #include "ash/system/overview/overview_button_tray.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/test/layer_animation_verifier.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
 #include "ash/wm/work_area_insets.h"
+#include "base/test/icu_test_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
@@ -52,6 +54,7 @@
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/views/test/widget_animation_waiter.h"
 #include "ui/wm/core/window_util.h"
 
 namespace ash {
@@ -143,7 +146,7 @@ class HotseatWidgetTest
     GetAppListTestHelper()->WaitUntilIdle();
 
     // Advance clock to make sure long press gesture is triggered.
-    task_environment()->AdvanceClock(base::TimeDelta::FromSeconds(5));
+    task_environment()->AdvanceClock(base::Seconds(5));
     GetAppListTestHelper()->WaitUntilIdle();
 
     GetEventGenerator()->ReleaseTouch();
@@ -155,7 +158,7 @@ class HotseatWidgetTest
     // otherwise, simulate tap on the home button,
     if (!navigation_buttons_shown_in_tablet_mode_ &&
         Shell::Get()->tablet_mode_controller()->InTabletMode()) {
-      Shell::Get()->home_screen_controller()->GoHome(GetPrimaryDisplay().id());
+      Shell::Get()->app_list_controller()->GoHome(GetPrimaryDisplay().id());
       return;
     }
 
@@ -176,7 +179,7 @@ class HotseatWidgetTest
     // toggle overview.
     if (!navigation_buttons_shown_in_tablet_mode_ &&
         Shell::Get()->tablet_mode_controller()->InTabletMode()) {
-      Shell::Get()->overview_controller()->StartOverview();
+      EnterOverview();
       return;
     }
 
@@ -196,7 +199,7 @@ class HotseatWidgetTest
     // toggle overview.
     if (!navigation_buttons_shown_in_tablet_mode_ &&
         Shell::Get()->tablet_mode_controller()->InTabletMode()) {
-      Shell::Get()->overview_controller()->EndOverview();
+      ExitOverview();
       return;
     }
 
@@ -222,6 +225,11 @@ class DisplayWorkAreaChangeCounter : public display::DisplayObserver {
   DisplayWorkAreaChangeCounter() {
     Shell::Get()->display_manager()->AddObserver(this);
   }
+
+  DisplayWorkAreaChangeCounter(const DisplayWorkAreaChangeCounter&) = delete;
+  DisplayWorkAreaChangeCounter& operator=(const DisplayWorkAreaChangeCounter&) =
+      delete;
+
   ~DisplayWorkAreaChangeCounter() override {
     Shell::Get()->display_manager()->RemoveObserver(this);
   }
@@ -236,8 +244,6 @@ class DisplayWorkAreaChangeCounter : public display::DisplayObserver {
 
  private:
   int work_area_change_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(DisplayWorkAreaChangeCounter);
 };
 
 // Watches the shelf for state changes.
@@ -451,7 +457,7 @@ TEST_P(HotseatWidgetTest, InAppShelfShowingContextMenu) {
   base::RunLoop run_loop;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(),
-      base::TimeDelta::FromMilliseconds(long_press_delay_ms));
+      base::Milliseconds(long_press_delay_ms));
   run_loop.Run();
   GetEventGenerator()->ReleaseTouch();
 
@@ -542,7 +548,7 @@ TEST_P(HotseatWidgetTest, SwipeUpInAppShelfShowsHotseat) {
       GetPrimaryShelf()->hotseat_widget()->GetWindowBoundsInScreen();
   gfx::Point start = hotseat_bounds.top_center();
   gfx::Point end = start + gfx::Vector2d(0, 80);
-  const base::TimeDelta kTimeDelta = base::TimeDelta::FromMilliseconds(100);
+  const base::TimeDelta kTimeDelta = base::Milliseconds(100);
   const int kNumScrollSteps = 4;
 
   GetEventGenerator()->GestureScrollSequence(start, end, kTimeDelta,
@@ -635,7 +641,7 @@ TEST_P(HotseatWidgetTest, SwipeUpOnHotseatBackgroundDoesNothing) {
                        ->GetWindowBoundsInScreen()
                        .top_center());
   const gfx::Point end(start + gfx::Vector2d(0, -300));
-  const base::TimeDelta kTimeDelta = base::TimeDelta::FromMilliseconds(100);
+  const base::TimeDelta kTimeDelta = base::Milliseconds(100);
   const int kNumScrollSteps = 4;
   GetEventGenerator()->GestureScrollSequence(start, end, kTimeDelta,
                                              kNumScrollSteps);
@@ -739,8 +745,8 @@ TEST_P(HotseatWidgetTest, GestureDraggingActiveWindowHidesHotseat) {
   start.Offset(0, -200);
   gfx::Point end = start;
   end.Offset(0, -200);
-  GetEventGenerator()->GestureScrollSequence(
-      start, end, base::TimeDelta::FromMilliseconds(10), 4);
+  GetEventGenerator()->GestureScrollSequence(start, end, base::Milliseconds(10),
+                                             4);
 
   EXPECT_EQ(HotseatState::kHidden, GetShelfLayoutManager()->hotseat_state());
   if (shelf_auto_hide_behavior() == ShelfAutoHideBehavior::kAlways)
@@ -767,8 +773,7 @@ TEST_P(HotseatWidgetTest, SwipeUpOnShelfShowsHotseatInSplitView) {
 
   // Go into split view mode by first going into overview, and then snapping
   // the open window on one side.
-  OverviewController* overview_controller = Shell::Get()->overview_controller();
-  overview_controller->StartOverview();
+  EnterOverview();
   SplitViewController* split_view_controller =
       SplitViewController::Get(Shell::GetPrimaryRootWindow());
   split_view_controller->SnapWindow(window.get(), SplitViewController::LEFT);
@@ -887,7 +892,7 @@ TEST_P(HotseatWidgetTest, ReleasingSlowDragBelowThreshold) {
                                ->GetWindowBoundsInScreen()
                                .height();
   const gfx::Point end(start + gfx::Vector2d(0, -hotseat_size / 2 + 1));
-  const base::TimeDelta kTimeDelta = base::TimeDelta::FromMilliseconds(1000);
+  const base::TimeDelta kTimeDelta = base::Milliseconds(1000);
   const int kNumScrollSteps = 4;
   GetEventGenerator()->GestureScrollSequence(start, end, kTimeDelta,
                                              kNumScrollSteps);
@@ -923,7 +928,7 @@ TEST_P(HotseatWidgetTest, ReleasingSlowDragAboveThreshold) {
                                ->GetWindowBoundsInScreen()
                                .height();
   const gfx::Point end(start + gfx::Vector2d(0, -hotseat_size * 3.0f / 2.0f));
-  const base::TimeDelta kTimeDelta = base::TimeDelta::FromMilliseconds(1000);
+  const base::TimeDelta kTimeDelta = base::Milliseconds(1000);
   const int kNumScrollSteps = 4;
   GetEventGenerator()->GestureScrollSequence(start, end, kTimeDelta,
                                              kNumScrollSteps);
@@ -1241,13 +1246,13 @@ TEST_P(HotseatWidgetTest, InAppToOverviewChangesStateOnceAutohiddenShelf) {
   {
     HotseatStateWatcher watcher(GetShelfLayoutManager());
     // Enter overview by using the controller.
-    Shell::Get()->overview_controller()->StartOverview();
+    EnterOverview();
     WaitForOverviewAnimation(/*enter=*/true);
 
     watcher.CheckEqual({HotseatState::kExtended});
   }
 
-  Shell::Get()->overview_controller()->EndOverview();
+  ExitOverview();
   WaitForOverviewAnimation(/*enter=*/false);
 
   // Test in-app -> overview again with the autohide shown shelf.
@@ -1258,7 +1263,7 @@ TEST_P(HotseatWidgetTest, InAppToOverviewChangesStateOnceAutohiddenShelf) {
   {
     HotseatStateWatcher watcher(GetShelfLayoutManager());
     // Enter overview by using the controller.
-    Shell::Get()->overview_controller()->StartOverview();
+    EnterOverview();
     WaitForOverviewAnimation(/*enter=*/true);
 
     watcher.CheckEqual({});
@@ -1274,11 +1279,11 @@ TEST_P(HotseatWidgetTest,
   TabletModeControllerTestApi().EnterTabletMode();
   DisplayWorkAreaChangeCounter counter;
 
-  Shell::Get()->overview_controller()->StartOverview();
+  EnterOverview();
   WaitForOverviewAnimation(/*enter=*/true);
   EXPECT_EQ(0, counter.count());
 
-  Shell::Get()->overview_controller()->StartOverview();
+  EnterOverview();
   WaitForOverviewAnimation(/*enter=*/true);
   EXPECT_EQ(0, counter.count());
 }
@@ -1416,12 +1421,11 @@ TEST_P(HotseatWidgetTest, SwipeDownOnFocusedHotseat) {
   gfx::Point start = hotseat_bounds.top_center();
   gfx::Point end = start + gfx::Vector2d(0, 80);
   GetEventGenerator()->GestureScrollSequence(
-      start, end, base::TimeDelta::FromMilliseconds(100), 4 /*scroll_steps*/);
+      start, end, base::Milliseconds(100), 4 /*scroll_steps*/);
   EXPECT_EQ(HotseatState::kHidden, GetShelfLayoutManager()->hotseat_state());
 
   // Focus to the next element in the hotseat. The hotseat should show again.
-  GetEventGenerator()->PressKey(ui::VKEY_TAB, 0);
-  GetEventGenerator()->ReleaseKey(ui::VKEY_TAB, 0);
+  PressAndReleaseKey(ui::VKEY_TAB);
   EXPECT_EQ(HotseatState::kExtended, GetShelfLayoutManager()->hotseat_state());
 }
 
@@ -1439,7 +1443,7 @@ TEST_P(HotseatWidgetTest, ExitOverviewWithClickOnHotseat) {
   // This point will not be visible.
   auto* overview_controller = Shell::Get()->overview_controller();
   auto* hotseat_widget = GetPrimaryShelf()->hotseat_widget();
-  overview_controller->StartOverview();
+  EnterOverview();
   ASSERT_TRUE(overview_controller->InOverviewSession());
   ASSERT_EQ(HotseatState::kExtended, GetShelfLayoutManager()->hotseat_state());
   gfx::Point far_left_point =
@@ -1497,6 +1501,36 @@ TEST_P(HotseatWidgetTest, DismissHotseatWhenSystemTrayShows) {
 
   EXPECT_EQ(ShelfAutoHideState::SHELF_AUTO_HIDE_HIDDEN,
             GetShelfLayoutManager()->auto_hide_state());
+}
+
+// Tests that the hotseat hides when it is in kExtendedMode and a status area
+// tray bubble is shown.
+TEST_P(HotseatWidgetTest, DismissHotseatWhenStatusAreaTrayShows) {
+  TabletModeControllerTestApi().EnterTabletMode();
+  std::unique_ptr<aura::Window> window =
+      AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 400, 400));
+  wm::ActivateWindow(window.get());
+  StatusAreaWidget* status_area_widget = GetShelfWidget()->status_area_widget();
+  status_area_widget->ime_menu_tray()->SetVisiblePreferred(true);
+
+  // Show the hotseat.
+  SwipeUpOnShelf();
+  ASSERT_EQ(HotseatState::kExtended, GetShelfLayoutManager()->hotseat_state());
+  EXPECT_FALSE(status_area_widget->ime_menu_tray()->GetBubbleView());
+
+  // Show the ime menu tray bubble, and wait for the hotseat to be hidden.
+  GetEventGenerator()->GestureTapAt(
+      status_area_widget->ime_menu_tray()->GetBoundsInScreen().CenterPoint());
+  base::RunLoop().RunUntilIdle();
+
+  // The hotseat should be hidden and the tray bubble should be shown.
+  EXPECT_EQ(HotseatState::kHidden, GetShelfLayoutManager()->hotseat_state());
+  EXPECT_TRUE(status_area_widget->ime_menu_tray()->GetBubbleView());
+
+  // Swiping up on the shelf should hide the tray bubble and extend the hotseat.
+  SwipeUpOnShelf();
+  EXPECT_FALSE(status_area_widget->ime_menu_tray()->GetBubbleView());
+  EXPECT_EQ(HotseatState::kExtended, GetShelfLayoutManager()->hotseat_state());
 }
 
 // Tests that the work area updates once each when going to/from tablet mode
@@ -1739,7 +1773,7 @@ TEST_P(HotseatWidgetTest, SwipeOnHotseatInOverview) {
   wm::ActivateWindow(window.get());
 
   OverviewController* overview_controller = Shell::Get()->overview_controller();
-  overview_controller->StartOverview();
+  EnterOverview();
 
   Shelf* const shelf = GetPrimaryShelf();
 
@@ -1789,7 +1823,7 @@ TEST_P(HotseatWidgetTest, SwipeOnHotseatInSplitViewWithOverview) {
   wm::ActivateWindow(window.get());
 
   OverviewController* overview_controller = Shell::Get()->overview_controller();
-  overview_controller->StartOverview();
+  EnterOverview();
 
   SplitViewController* split_view_controller =
       SplitViewController::Get(Shell::GetPrimaryRootWindow());
@@ -1907,7 +1941,7 @@ TEST_P(HotseatWidgetTest, HotseatHidesWhenSwipedToBezel) {
   const gfx::Point end =
       gfx::Point(shelf_widget_bounds.x() + shelf_widget_bounds.width() / 2,
                  shelf_widget_bounds.bottom() + 1);
-  const base::TimeDelta kTimeDelta = base::TimeDelta::FromMilliseconds(100);
+  const base::TimeDelta kTimeDelta = base::Milliseconds(100);
   const int kNumScrollSteps = 4;
 
   GetEventGenerator()->GestureScrollSequence(start, end, kTimeDelta,
@@ -2274,7 +2308,7 @@ TEST_P(HotseatWidgetTest, InitialAnimationPositionWithNonIdentityTransform) {
 
     // Set up an animation to identity transform.
     ui::ScopedLayerAnimationSettings animation(layer->GetAnimator());
-    animation.SetTransitionDuration(base::TimeDelta::FromMilliseconds(300));
+    animation.SetTransitionDuration(base::Milliseconds(300));
     layer->SetTransform(gfx::Transform());
   };
 
@@ -2495,7 +2529,7 @@ TEST_P(HotseatWidgetTest, PresentationTimeMetricDuringDrag) {
 TEST_P(HotseatWidgetTest, DISABLED_OverviewToHomeAnimationAndBackIsSmooth) {
   // Go into tablet mode and make sure animations are over.
   HotseatWidget* hotseat = GetPrimaryShelf()->hotseat_widget();
-  WidgetAnimationWaiter waiter(hotseat);
+  views::WidgetAnimationWaiter waiter(hotseat);
   TabletModeControllerTestApi().EnterTabletMode();
   waiter.WaitForAnimation();
 
@@ -2505,14 +2539,14 @@ TEST_P(HotseatWidgetTest, DISABLED_OverviewToHomeAnimationAndBackIsSmooth) {
   // Go into overview and back to know what to expect in terms of bounds.
   const gfx::Rect shown_hotseat_bounds = hotseat->GetWindowBoundsInScreen();
   {
-    WidgetAnimationWaiter waiter(hotseat);
+    views::WidgetAnimationWaiter waiter(hotseat);
     StartOverview();
     waiter.WaitForAnimation();
   }
 
   const gfx::Rect extended_hotseat_bounds = hotseat->GetWindowBoundsInScreen();
   {
-    WidgetAnimationWaiter waiter(hotseat);
+    views::WidgetAnimationWaiter waiter(hotseat);
     EndOverview();
     waiter.WaitForAnimation();
   }
@@ -2526,7 +2560,7 @@ TEST_P(HotseatWidgetTest, DISABLED_OverviewToHomeAnimationAndBackIsSmooth) {
 
   {
     WidgetAnimationSmoothnessInspector inspector(hotseat);
-    WidgetAnimationWaiter waiter(hotseat);
+    views::WidgetAnimationWaiter waiter(hotseat);
     StartOverview();
     waiter.WaitForAnimation();
     EXPECT_TRUE(inspector.CheckAnimation(4));
@@ -2537,7 +2571,7 @@ TEST_P(HotseatWidgetTest, DISABLED_OverviewToHomeAnimationAndBackIsSmooth) {
 
   {
     WidgetAnimationSmoothnessInspector inspector(hotseat);
-    WidgetAnimationWaiter waiter(hotseat);
+    views::WidgetAnimationWaiter waiter(hotseat);
     EndOverview();
     waiter.WaitForAnimation();
     EXPECT_TRUE(inspector.CheckAnimation(4));
@@ -2545,6 +2579,69 @@ TEST_P(HotseatWidgetTest, DISABLED_OverviewToHomeAnimationAndBackIsSmooth) {
 
   // And we should now be back where we started.
   EXPECT_EQ(shown_hotseat_bounds, hotseat->GetWindowBoundsInScreen());
+}
+
+class HotseatWidgetRTLTest : public ShelfLayoutManagerTestBase,
+                             public testing::WithParamInterface<bool> {
+ public:
+  // Use MOCK_TIME to increase number of commits during animation.
+  HotseatWidgetRTLTest()
+      : ShelfLayoutManagerTestBase(
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME),
+        scoped_locale_(GetParam() ? "ar" : "") {}
+  HotseatWidgetRTLTest(const HotseatWidgetRTLTest&) = delete;
+  HotseatWidgetRTLTest& operator=(const HotseatWidgetRTLTest&) = delete;
+  ~HotseatWidgetRTLTest() override = default;
+
+ private:
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_;
+};
+
+INSTANTIATE_TEST_SUITE_P(RTL, HotseatWidgetRTLTest, testing::Bool());
+
+// The test to verify the hotseat transition animation from the extended state
+// to the home launcher state.
+// TODO(https://crbug.com/1210530): Disable this test due to flakiness.
+TEST_P(HotseatWidgetRTLTest,
+       DISABLED_VerifyTransitionFromExtendedModeToHomeLauncher) {
+  TabletModeControllerTestApi().EnterTabletMode();
+  const auto app_id =
+      ShelfTestUtil::AddAppShortcut("fake_app", TYPE_PINNED_APP);
+
+  // Open a window so the hotseat transitions to hidden state.
+  std::unique_ptr<aura::Window> window =
+      AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 400, 400));
+  wm::ActivateWindow(window.get());
+
+  // Swipe the hotseat up to enter the extended mode.
+  SwipeUpOnShelf();
+  EXPECT_EQ(HotseatState::kExtended, GetShelfLayoutManager()->hotseat_state());
+
+  // Animation should be long enough in order to collect sufficient data.
+  // TODO(https://crbug.com/1208651): remove this line when we solve that issue.
+  ui::ScopedAnimationDurationScaleMode animation_duration(
+      ui::ScopedAnimationDurationScaleMode::NORMAL_DURATION);
+
+  // Wait until shelf animation completes.
+  auto* shelf_view = GetPrimaryShelf()->GetShelfViewForTesting();
+  ShelfViewTestAPI shelf_test_api(shelf_view);
+  shelf_test_api.RunMessageLoopUntilAnimationsDone();
+
+  // Observe a shelf icon.
+  auto* observed_view = shelf_view->GetShelfAppButton(app_id.id);
+  LayerAnimationVerifier verifier(
+      GetPrimaryShelf()->hotseat_widget()->GetNativeView()->layer(),
+      observed_view);
+
+  // Transit the hotseat from the extended state to the home launcher state.
+  // Wait until the transition animation finishes.
+  views::WidgetAnimationWaiter waiter(GetPrimaryShelf()->hotseat_widget());
+  FlingUpOnShelf();
+  waiter.WaitForAnimation();
+
+  // Verify the hotseat state at the end of the animation.
+  EXPECT_EQ(HotseatState::kShownHomeLauncher,
+            GetShelfLayoutManager()->hotseat_state());
 }
 
 }  // namespace ash

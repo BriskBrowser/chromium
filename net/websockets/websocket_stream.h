@@ -12,7 +12,6 @@
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/isolation_info.h"
@@ -21,6 +20,7 @@
 #include "net/websockets/websocket_event_interface.h"
 #include "net/websockets/websocket_handshake_request_info.h"
 #include "net/websockets/websocket_handshake_response_info.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class GURL;
 
@@ -68,7 +68,7 @@ class NET_EXPORT_PRIVATE WebSocketStreamRequestAPI
       WebSocketHttp2HandshakeStream* handshake_stream) = 0;
   virtual void OnFailure(const std::string& message,
                          int net_error,
-                         base::Optional<int> response_code) = 0;
+                         absl::optional<int> response_code) = 0;
 };
 
 // WebSocketStream is a transport-agnostic interface for reading and writing
@@ -104,7 +104,7 @@ class NET_EXPORT_PRIVATE WebSocketStream {
     // |message| contains defails of the failure.
     virtual void OnFailure(const std::string& message,
                            int net_error,
-                           base::Optional<int> response_code) = 0;
+                           absl::optional<int> response_code) = 0;
 
     // Called when the WebSocket Opening Handshake starts.
     virtual void OnStartOpeningHandshake(
@@ -134,7 +134,7 @@ class NET_EXPORT_PRIVATE WebSocketStream {
         scoped_refptr<HttpResponseHeaders> response_headers,
         const IPEndPoint& remote_endpoint,
         base::OnceCallback<void(const AuthCredentials*)> callback,
-        base::Optional<AuthCredentials>* credentials) = 0;
+        absl::optional<AuthCredentials>* credentials) = 0;
   };
 
   // Create and connect a WebSocketStream of an appropriate type. The actual
@@ -179,6 +179,9 @@ class NET_EXPORT_PRIVATE WebSocketStream {
       std::unique_ptr<ConnectDelegate> connect_delegate,
       std::unique_ptr<base::OneShotTimer> timer,
       std::unique_ptr<WebSocketStreamRequestAPI> api_delegate);
+
+  WebSocketStream(const WebSocketStream&) = delete;
+  WebSocketStream& operator=(const WebSocketStream&) = delete;
 
   // Derived classes must make sure Close() is called when the stream is not
   // closed on destruction.
@@ -270,9 +273,6 @@ class NET_EXPORT_PRIVATE WebSocketStream {
 
  protected:
   WebSocketStream();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebSocketStream);
 };
 
 // A helper function used in the implementation of CreateAndConnectStream() and

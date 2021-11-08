@@ -4,7 +4,6 @@
 
 #include "services/network/trust_tokens/trust_token_request_helper_factory.h"
 
-#include "base/optional.h"
 #include "base/strings/strcat.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -20,6 +19,7 @@
 #include "services/network/trust_tokens/test/trust_token_test_util.h"
 #include "services/network/trust_tokens/trust_token_parameterization.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
 
 namespace network {
@@ -67,7 +67,6 @@ class TrustTokenRequestHelperFactoryTest : public ::testing::Test {
   const mojom::TrustTokenParams& suitable_signing_params() const {
     return *suitable_params_;
   }
-  const net::NetLog& net_log() const { return *maker_.net_log(); }
 
   std::unique_ptr<net::URLRequest> CreateSuitableRequest() {
     auto ret = maker_.MakeURLRequest("https://destination.example");

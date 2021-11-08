@@ -63,8 +63,9 @@ AudioScheduledSourceHandler::UpdateSchedulingInfo(size_t quantum_frame_size,
   double start_frame_offset = 0;
 
   DCHECK(output_bus);
-  DCHECK_EQ(quantum_frame_size,
-            static_cast<size_t>(audio_utilities::kRenderQuantumFrames));
+  DCHECK_EQ(
+      quantum_frame_size,
+      static_cast<size_t>(GetDeferredTaskHandler().RenderQuantumFrames()));
 
   double sample_rate = Context()->sampleRate();
 
@@ -261,11 +262,13 @@ void AudioScheduledSourceHandler::NotifyEnded() {
   // let DispatchEvent take are of sending the event to the right
   // place,
   DCHECK(IsMainThread());
-  if (!Context() || !Context()->GetExecutionContext())
-    return;
-  if (GetNode())
-    GetNode()->DispatchEvent(*Event::Create(event_type_names::kEnded));
 
+  if (GetNode()) {
+    DispatchEventResult result =
+        GetNode()->DispatchEvent(*Event::Create(event_type_names::kEnded));
+    if (result == DispatchEventResult::kCanceledBeforeDispatch)
+      return;
+  }
   on_ended_notification_pending_ = false;
 }
 

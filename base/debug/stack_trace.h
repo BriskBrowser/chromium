@@ -12,7 +12,6 @@
 
 #include "base/base_export.h"
 #include "base/debug/debugging_buildflags.h"
-#include "base/macros.h"
 #include "build/build_config.h"
 
 #if defined(OS_POSIX)
@@ -84,6 +83,10 @@ class BASE_EXPORT StackTrace {
   StackTrace(const _CONTEXT* context);
 #endif
 
+  // Returns true if this current test environment is expected to have
+  // symbolized frames when printing a stack trace.
+  static bool WillSymbolizeToStreamForTesting();
+
   // Copying and assignment are allowed with the default functions.
 
   // Gets an array of instruction pointer values. |*count| will be set to the
@@ -99,7 +102,7 @@ class BASE_EXPORT StackTrace {
   // each output line.
   void PrintWithPrefix(const char* prefix_string) const;
 
-#if !defined(__UCLIBC__) & !defined(_AIX)
+#if !defined(__UCLIBC__) && !defined(_AIX)
   // Resolves backtrace to symbols and write to stream.
   void OutputToStream(std::ostream* os) const;
   // Resolves backtrace to symbols and write to stream, with the provided
@@ -225,14 +228,16 @@ BASE_EXPORT size_t TraceStackFramePointersFromBuffer(
 class BASE_EXPORT ScopedStackFrameLinker {
  public:
   ScopedStackFrameLinker(void* fp, void* parent_fp);
+
+  ScopedStackFrameLinker(const ScopedStackFrameLinker&) = delete;
+  ScopedStackFrameLinker& operator=(const ScopedStackFrameLinker&) = delete;
+
   ~ScopedStackFrameLinker();
 
  private:
   void* fp_;
   void* parent_fp_;
   void* original_parent_fp_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedStackFrameLinker);
 };
 
 #endif  // BUILDFLAG(CAN_UNWIND_WITH_FRAME_POINTERS)

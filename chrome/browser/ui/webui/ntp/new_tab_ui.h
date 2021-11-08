@@ -5,9 +5,9 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_NTP_NEW_TAB_UI_H_
 #define CHROME_BROWSER_UI_WEBUI_NTP_NEW_TAB_UI_H_
 
+#include <string>
+
 #include "base/macros.h"
-#include "base/strings/string16.h"
-#include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_ui_controller.h"
 
@@ -27,6 +27,10 @@ class PrefRegistrySyncable;
 class NewTabUI : public content::WebUIController {
  public:
   explicit NewTabUI(content::WebUI* web_ui);
+
+  NewTabUI(const NewTabUI&) = delete;
+  NewTabUI& operator=(const NewTabUI&) = delete;
+
   ~NewTabUI() override;
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
@@ -41,17 +45,21 @@ class NewTabUI : public content::WebUIController {
   // Adds "url", "title", and "direction" keys on incoming dictionary, setting
   // title as the url as a fallback on empty title.
   static void SetUrlTitleAndDirection(base::Value* dictionary,
-                                      const base::string16& title,
+                                      const std::u16string& title,
                                       const GURL& gurl);
 
   // Adds "full_name" and "full_name_direction" keys on incoming dictionary.
-  static void SetFullNameAndDirection(const base::string16& full_name,
+  static void SetFullNameAndDirection(const std::u16string& full_name,
                                       base::DictionaryValue* dictionary);
 
  private:
   class NewTabHTMLSource : public content::URLDataSource {
    public:
     explicit NewTabHTMLSource(Profile* profile);
+
+    NewTabHTMLSource(const NewTabHTMLSource&) = delete;
+    NewTabHTMLSource& operator=(const NewTabHTMLSource&) = delete;
+
     ~NewTabHTMLSource() override;
 
     // content::URLDataSource implementation.
@@ -68,17 +76,11 @@ class NewTabUI : public content::WebUIController {
    private:
     // Pointer back to the original profile.
     Profile* profile_;
-
-    DISALLOW_COPY_AND_ASSIGN(NewTabHTMLSource);
   };
 
   void OnShowBookmarkBarChanged();
 
   Profile* GetProfile() const;
-
-  PrefChangeRegistrar pref_change_registrar_;
-
-  DISALLOW_COPY_AND_ASSIGN(NewTabUI);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_NTP_NEW_TAB_UI_H_

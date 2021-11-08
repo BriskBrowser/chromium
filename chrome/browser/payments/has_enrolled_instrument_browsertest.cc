@@ -30,11 +30,14 @@ class HasEnrolledInstrumentTest
  public:
   HasEnrolledInstrumentTest() {
     if (GetParam() == STRICT_HAS_ENROLLED_INSTRUMENT) {
-      feature_list_.InitWithFeatures(
-          /*enabled_features=*/{features::kStrictHasEnrolledAutofillInstrument},
-          /*disabled_features=*/{features::kPaymentRequestSkipToGPay});
+      feature_list_.InitAndEnableFeature(
+          features::kStrictHasEnrolledAutofillInstrument);
     }
   }
+
+  HasEnrolledInstrumentTest(const HasEnrolledInstrumentTest&) = delete;
+  HasEnrolledInstrumentTest& operator=(const HasEnrolledInstrumentTest&) =
+      delete;
 
   ~HasEnrolledInstrumentTest() override = default;
 
@@ -104,8 +107,6 @@ class HasEnrolledInstrumentTest
 
  private:
   base::test::ScopedFeatureList feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(HasEnrolledInstrumentTest);
 };
 
 IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest, NoCard) {
@@ -140,7 +141,7 @@ IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest, InvalidCardNumber) {
   AddAutofillProfile(address);
   autofill::CreditCard card = CreatCreditCardForProfile(address);
   card.SetRawInfo(autofill::ServerFieldType::CREDIT_CARD_NUMBER,
-                  base::ASCIIToUTF16("1111111111111111"));
+                  u"1111111111111111");
   AddCreditCard(card);
 
   ExpectHasEnrolledInstrumentIs(false);
@@ -163,15 +164,15 @@ IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest, ExpiredCard) {
 IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest,
                        HaveNoNameShippingAndBillingAddress) {
   autofill::AutofillProfile address = autofill::test::GetFullProfile();
-  address.SetRawInfo(autofill::ServerFieldType::NAME_FIRST, base::string16());
-  address.SetRawInfo(autofill::ServerFieldType::NAME_MIDDLE, base::string16());
-  address.SetRawInfo(autofill::ServerFieldType::NAME_LAST, base::string16());
+  address.SetRawInfo(autofill::ServerFieldType::NAME_FIRST, std::u16string());
+  address.SetRawInfo(autofill::ServerFieldType::NAME_MIDDLE, std::u16string());
+  address.SetRawInfo(autofill::ServerFieldType::NAME_LAST, std::u16string());
   // For structured names, it is necessary to explicitly reset the full name
   // and the full name with the prefix.
-  address.SetInfo(autofill::ServerFieldType::NAME_FULL, base::string16(),
+  address.SetInfo(autofill::ServerFieldType::NAME_FULL, std::u16string(),
                   "en-US");
   address.SetInfo(autofill::ServerFieldType::NAME_FULL_WITH_HONORIFIC_PREFIX,
-                  base::string16(), "en-US");
+                  std::u16string(), "en-US");
   AddAutofillProfile(address);
   CreateAndAddCreditCardForProfile(address);
 
@@ -214,7 +215,7 @@ IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest,
                        HaveNoStreetShippingAndBillingAddress) {
   autofill::AutofillProfile address = autofill::test::GetFullProfile();
   address.SetRawInfo(autofill::ServerFieldType::ADDRESS_HOME_STREET_ADDRESS,
-                     base::string16());
+                     std::u16string());
   AddAutofillProfile(address);
   CreateAndAddCreditCardForProfile(address);
 
@@ -225,7 +226,7 @@ IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest,
 IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest, NoEmailAddress) {
   autofill::AutofillProfile address = autofill::test::GetFullProfile();
   address.SetRawInfo(autofill::ServerFieldType::EMAIL_ADDRESS,
-                     base::string16());
+                     std::u16string());
   AddAutofillProfile(address);
   CreateAndAddCreditCardForProfile(address);
 
@@ -249,7 +250,7 @@ IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest, NoEmailAddress) {
 IN_PROC_BROWSER_TEST_P(HasEnrolledInstrumentTest, InvalidEmailAddress) {
   autofill::AutofillProfile address = autofill::test::GetFullProfile();
   address.SetRawInfo(autofill::ServerFieldType::EMAIL_ADDRESS,
-                     base::ASCIIToUTF16("this-is-not-a-valid-email-address"));
+                     u"this-is-not-a-valid-email-address");
   AddAutofillProfile(address);
   CreateAndAddCreditCardForProfile(address);
 

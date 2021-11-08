@@ -4,8 +4,8 @@
 
 (async function() {
   TestRunner.addResult(`Verify that breakpoints are moved appropriately\n`);
-  await TestRunner.loadModule('sources_test_runner');
-  await TestRunner.loadModule('bindings_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
+  await TestRunner.loadTestModule('bindings_test_runner');
   await TestRunner.addScriptTag('resources/foo.js');
   await TestRunner.showPanel('sources');
 
@@ -53,9 +53,9 @@
   ]);
 
   function dumpBreakpointSidebarPane() {
-    var pane = self.runtime.sharedInstance(Sources.JavaScriptBreakpointsSidebarPane);
-    if (!pane._emptyElement.classList.contains('hidden'))
-      return TestRunner.textContentWithLineBreaks(pane._emptyElement);
+    var pane = Sources.JavaScriptBreakpointsSidebarPane.instance();
+    if (!pane.emptyElement.classList.contains('hidden'))
+      return TestRunner.textContentWithLineBreaks(pane.emptyElement);
     var entries = Array.from(pane.contentElement.querySelectorAll('.breakpoint-entry'));
     for (var entry of entries) {
       var uiLocation = Sources.JavaScriptBreakpointsSidebarPane.retrieveLocationForElement(entry);

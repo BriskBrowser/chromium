@@ -28,6 +28,11 @@ class FakeCellularSetup : public CellularSetupBase {
     StartActivationInvocation(
         mojo::PendingRemote<mojom::ActivationDelegate> activation_delegate,
         StartActivationCallback callback);
+
+    StartActivationInvocation(const StartActivationInvocation&) = delete;
+    StartActivationInvocation& operator=(const StartActivationInvocation&) =
+        delete;
+
     ~StartActivationInvocation();
 
     mojo::Remote<mojom::ActivationDelegate>& activation_delegate() {
@@ -45,11 +50,13 @@ class FakeCellularSetup : public CellularSetupBase {
 
     // Null until ExecuteCallback() has been invoked.
     std::unique_ptr<FakeCarrierPortalHandler> fake_carrier_portal_observer_;
-
-    DISALLOW_COPY_AND_ASSIGN(StartActivationInvocation);
   };
 
   FakeCellularSetup();
+
+  FakeCellularSetup(const FakeCellularSetup&) = delete;
+  FakeCellularSetup& operator=(const FakeCellularSetup&) = delete;
+
   ~FakeCellularSetup() override;
 
   std::vector<std::unique_ptr<StartActivationInvocation>>&
@@ -65,8 +72,6 @@ class FakeCellularSetup : public CellularSetupBase {
 
   std::vector<std::unique_ptr<StartActivationInvocation>>
       start_activation_invocations_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeCellularSetup);
 };
 
 }  // namespace cellular_setup

@@ -24,8 +24,6 @@ buildflag_header("vr_buildflags") {
 
 component("vr_ui") {
   sources = [
-    "animation.cc",
-    "animation.h",
     "databinding/binding.h",
     "databinding/binding_base.h",
     "databinding/vector_binding.h",
@@ -143,8 +141,6 @@ component("vr_ui") {
     "skia_surface_provider_factory.h",
     "target_property.cc",
     "target_property.h",
-    "transition.cc",
-    "transition.h",
     "ui.cc",
     "ui.h",
     "ui_element_renderer.cc",
@@ -168,7 +164,6 @@ component("vr_ui") {
   deps = [
     ":vr_base",
     "//base",
-    "//cc/animation",
     "//chrome/app:generated_resources",
     "//chrome/app/vector_icons",
     "//chrome/browser/vr/vector_icons",
@@ -182,6 +177,7 @@ component("vr_ui") {
     "//media",
     "//net",
     "//skia",
+    "//ui/gfx/animation/keyframe",
   ]
 
   if (use_native_partitions) {
@@ -254,7 +250,6 @@ component("vr_common") {
 
   deps = [
     "//base",
-    "//cc/animation",
     "//cc/paint",
     "//chrome/common:constants",
     "//components/omnibox/browser",
@@ -403,7 +398,6 @@ component("vr_base") {
 
 test("vr_common_unittests") {
   sources = [
-    "animation_unittest.cc",
     "base_scheduler_delegate_unittest.cc",
     "browser_renderer_unittest.cc",
     "databinding/binding_unittest.cc",
@@ -455,6 +449,8 @@ test("vr_common_unittests") {
     "//mojo/public/cpp/bindings",
     "//services/network:test_support",
     "//testing/gmock",
+    "//ui/gfx:test_support",
+    "//ui/gfx/animation/keyframe",
     "//ui/gfx/geometry",
   ]
   if (is_android) {
@@ -481,6 +477,7 @@ test("vr_pixeltests") {
   deps = [
     ":vr_gl_test_support",
     ":vr_test_support",
+    "//components/vector_icons",
   ]
   if (is_android) {
     deps += [ "//ui/android:ui_java" ]
@@ -616,7 +613,6 @@ if (!is_android) {
     sources = [
       "test/mock_xr_device_hook_base.cc",
       "test/mock_xr_device_hook_base.h",
-      "test/multi_class_browser_test.h",
     ]
 
     deps = [
@@ -653,12 +649,14 @@ if (!is_android) {
         "webxr_vr_permission_request_browser_test.cc",
         "webxr_vr_pixel_browser_test.cc",
         "webxr_vr_tab_browser_test.cc",
+        "webxr_vr_transition_browser_test.cc",
       ]
 
       deps += [
         ":vr_common",
         "//components/content_settings/core/browser",
         "//device/vr:directx_helpers",
+        "//device/vr:openxr_data",
       ]
 
       if (enable_openxr) {

@@ -51,6 +51,12 @@ var MockTts = function() {
    * @private {!Array<!Array<!Object>>}
    */
   this.pendingEvents_ = [];
+
+  /**
+   * @enum {string}
+   * @see https://developer.chrome.com/extensions/tts#type-EventType
+   */
+  this.EventType = chrome.tts.EventType;
 };
 
 MockTts.prototype = {
@@ -61,7 +67,7 @@ MockTts.prototype = {
     this.currentlySpeaking_ = true;
     if (options && options.onEvent) {
       this.options_ = options;
-      this.sendEvent({type: 'start', charIndex: 0});
+      this.sendEvent({type: this.EventType.START, charIndex: 0});
     }
     if (this.speechCallbackStack_.length > 0) {
       this.speechCallbackStack_.pop()(utterance);
@@ -71,7 +77,7 @@ MockTts.prototype = {
     this.pendingUtterances_ = [];
     this.currentlySpeaking_ = false;
     if (this.options_) {
-      this.sendEvent({type: 'end'});
+      this.sendEvent({type: this.EventType.END});
     }
   },
   /**
@@ -82,19 +88,26 @@ MockTts.prototype = {
   speakUntilCharIndex(nextStartIndex) {
     this.currentlySpeaking_ = true;
     if (this.options_) {
-      this.sendEvent({type: 'word', charIndex: nextStartIndex});
+      this.sendEvent({type: this.EventType.WORD, charIndex: nextStartIndex});
     }
   },
   stop() {
     this.pendingUtterances_ = [];
     this.currentlySpeaking_ = false;
     if (this.options_) {
-      this.sendEvent({type: 'cancelled'});
+      this.sendEvent({type: this.EventType.INTERRUPTED});
       this.options_ = null;
     }
   },
   getVoices(callback) {
-    callback([{voiceName: 'English US', lang: 'English'}]);
+    callback([{
+      voiceName: 'English US',
+      lang: 'en-US',
+      eventTypes: [
+        this.EventType.START, this.EventTypeEND, this.EventType.WORD,
+        this.EventType.CANCELLED
+      ]
+    }]);
   },
   isSpeaking(callback) {
     callback(this.currentlySpeaking_);

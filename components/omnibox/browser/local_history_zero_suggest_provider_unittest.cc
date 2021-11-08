@@ -34,7 +34,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
-using base::TimeDelta;
 using OmniboxFieldTrial::GetLocalHistoryZeroSuggestAgeThreshold;
 
 namespace {
@@ -161,7 +160,7 @@ void LocalHistoryZeroSuggestProviderTest::LoadURLs(
                                                             search_terms_data);
     client_->GetHistoryService()->AddPageWithDetails(
         GURL(search_url), base::UTF8ToUTF16(entry.title), entry.visit_count,
-        entry.typed_count, now - TimeDelta::FromSeconds(entry.age_in_seconds),
+        entry.typed_count, now - base::Seconds(entry.age_in_seconds),
         entry.hidden, history::SOURCE_BROWSED);
     client_->GetHistoryService()->SetKeywordSearchTermsForURL(
         GURL(search_url), entry.search_provider->id(),
@@ -216,7 +215,8 @@ void LocalHistoryZeroSuggestProviderTest::ExpectMatches(
 }
 
 void LocalHistoryZeroSuggestProviderTest::SignIn() {
-  identity_env_->MakeUnconsentedPrimaryAccountAvailable("test@email.com");
+  identity_env_->MakePrimaryAccountAvailable("test@email.com",
+                                             signin::ConsentLevel::kSignin);
 }
 
 void LocalHistoryZeroSuggestProviderTest::SignOut() {
@@ -286,78 +286,9 @@ TEST_F(LocalHistoryZeroSuggestProviderTest, Incognito) {
   ExpectMatches({{"hello world", kLocalHistoryZPSUnauthenticatedRelevance}});
 }
 
-// Tests that suggestions are returned regardless of the authentication state
-// when omnibox::kOmniboxLocalZeroSuggestForAuthenticatedUsers is enabled.
-#if defined(OS_IOS)
-// Tests that enable additional features fail on iOS.
-#define MAYBE_ZeroSuggestForAuthenticatedUsers_Enabled \
-  DISABLED_ZeroSuggestForAuthenticatedUsers_Enabled
-#else
-#define MAYBE_ZeroSuggestForAuthenticatedUsers_Enabled \
-  ZeroSuggestForAuthenticatedUsers_Enabled
-#endif
-TEST_F(LocalHistoryZeroSuggestProviderTest,
-       MAYBE_ZeroSuggestForAuthenticatedUsers_Enabled) {
-  LoadURLs({
-      {default_search_provider(), "hello world", "&foo=bar", 1},
-  });
-
-  scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
-  scoped_feature_list_->InitAndEnableFeature(
-      omnibox::kOmniboxLocalZeroSuggestForAuthenticatedUsers);
-
-  StartProviderAndWaitUntilDone();
-  ExpectMatches({{"hello world", kLocalHistoryZPSUnauthenticatedRelevance}});
-
-  SignIn();
-
-  StartProviderAndWaitUntilDone();
-  ExpectMatches({{"hello world", kLocalHistoryZPSAuthenticatedRelevance}});
-}
-
-// Tests that suggestions are returned for signed-out users only when
-// when omnibox::kOmniboxLocalZeroSuggestForAuthenticatedUsers is disabled.
-#if defined(OS_IOS)
-// Tests that enable additional features fail on iOS.
-#define MAYBE_ZeroSuggestForAuthenticatedUsers_Disabled \
-  DISABLED_ZeroSuggestForAuthenticatedUsers_Disabled
-#else
-#define MAYBE_ZeroSuggestForAuthenticatedUsers_Disabled \
-  ZeroSuggestForAuthenticatedUsers_Disabled
-#endif
-TEST_F(LocalHistoryZeroSuggestProviderTest,
-       MAYBE_ZeroSuggestForAuthenticatedUsers_Disabled) {
-  LoadURLs({
-      {default_search_provider(), "hello world", "&foo=bar", 1},
-  });
-
-  scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
-  scoped_feature_list_->InitAndDisableFeature(
-      omnibox::kOmniboxLocalZeroSuggestForAuthenticatedUsers);
-
-  EXPECT_CALL(*client_.get(), IsAuthenticated())
-      .WillOnce(testing::Return(false));
-
-  StartProviderAndWaitUntilDone();
-  ExpectMatches({{"hello world", kLocalHistoryZPSUnauthenticatedRelevance}});
-
-  EXPECT_CALL(*client_.get(), IsAuthenticated())
-      .WillOnce(testing::Return(true));
-  SignIn();
-
-  StartProviderAndWaitUntilDone();
-  ExpectMatches({});
-}
-
 // Tests that suggestions are returned only if FeatureFlags is configured
 // to return local history suggestions in the NTP.
-#if defined(OS_IOS)
-// Flaky thread check failure: https://crbug.com/1071877
-#define MAYBE_FeatureFlags DISABLED_FeatureFlags
-#else
-#define MAYBE_FeatureFlags FeatureFlags
-#endif
-TEST_F(LocalHistoryZeroSuggestProviderTest, MAYBE_FeatureFlags) {
+TEST_F(LocalHistoryZeroSuggestProviderTest, FeatureFlags) {
   LoadURLs({
       {default_search_provider(), "hello world", "&foo=bar", 1},
   });
@@ -371,30 +302,6 @@ TEST_F(LocalHistoryZeroSuggestProviderTest, MAYBE_FeatureFlags) {
 #else
   ExpectMatches({});
 #endif
-
-  // Verify that reactive zero-prefix suggestions enable local history
-  // zero-prefix suggestions on the NTP.
-  scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
-  scoped_feature_list_->InitAndEnableFeature(
-      omnibox::kReactiveZeroSuggestionsOnNTPRealbox);
-  StartProviderAndWaitUntilDone();
-  ExpectMatches({{"hello world", kLocalHistoryZPSUnauthenticatedRelevance}});
-
-  scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
-  scoped_feature_list_->InitAndEnableFeature(
-      omnibox::kReactiveZeroSuggestionsOnNTPOmnibox);
-  StartProviderAndWaitUntilDone();
-#if !defined(OS_IOS)  // Enabled by default on Desktop and Android NTP.
-  ExpectMatches({{"hello world", kLocalHistoryZPSUnauthenticatedRelevance}});
-#else
-  ExpectMatches({});
-#endif
-
-  StartProviderAndWaitUntilDone(
-      /*text=*/"", OmniboxFocusType::ON_FOCUS,
-      /*page_classification=*/
-      metrics::OmniboxEventProto::INSTANT_NTP_WITH_OMNIBOX_AS_STARTING_FOCUS);
-  ExpectMatches({{"hello world", kLocalHistoryZPSUnauthenticatedRelevance}});
 }
 
 // Tests that search terms are extracted from the default search provider's
@@ -569,12 +476,12 @@ TEST_F(LocalHistoryZeroSuggestProviderTest, Deletion) {
           default_search_provider()->id(),
           GetLocalHistoryZeroSuggestAgeThreshold());
   EXPECT_EQ(1U, visits.size());
-  EXPECT_EQ(base::ASCIIToUTF16("not to be deleted"), visits[0].normalized_term);
+  EXPECT_EQ(u"not to be deleted", visits[0].normalized_term);
 
   // Make sure search terms from other search providers that would produce the
   // deleted match are not deleted.
   visits = url_db->GetMostRecentNormalizedKeywordSearchTerms(
       other_search_provider->id(), GetLocalHistoryZeroSuggestAgeThreshold());
   EXPECT_EQ(1U, visits.size());
-  EXPECT_EQ(base::ASCIIToUTF16("hello world"), visits[0].normalized_term);
+  EXPECT_EQ(u"hello world", visits[0].normalized_term);
 }

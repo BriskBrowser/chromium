@@ -24,6 +24,13 @@ suite('NetworkProxySection', function() {
           value: true,
         },
       },
+      'ash': {
+        'lacros_proxy_controlling_extension': {
+          key: 'ash.lacros_proxy_controlling_extension',
+          type: chrome.settingsPrivate.PrefType.DICTIONARY,
+          value: {},
+        },
+      },
     };
     document.body.appendChild(proxySection);
     Polymer.dom.flush();
@@ -59,5 +66,18 @@ suite('NetworkProxySection', function() {
       source: mojom.OncSource.kUserPolicy,
     };
     assertTrue(allowSharedToggle.hidden);
+  });
+
+  test('Disabled UI state', function() {
+    const allowSharedToggle = proxySection.$.allowShared;
+    const networkProxy = proxySection.$$('network-proxy');
+
+    assertFalse(allowSharedToggle.disabled);
+    assertTrue(networkProxy.editable);
+
+    proxySection.disabled = true;
+
+    assertTrue(allowSharedToggle.disabled);
+    assertFalse(networkProxy.editable);
   });
 });

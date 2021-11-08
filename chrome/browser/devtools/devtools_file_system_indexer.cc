@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <iterator>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/callback.h"
@@ -24,12 +25,9 @@
 
 #include "content/public/browser/browser_thread.h"
 
-using base::Bind;
-using base::Callback;
 using base::FileEnumerator;
 using base::FilePath;
 using base::Time;
-using base::TimeDelta;
 using base::TimeTicks;
 using content::BrowserThread;
 using std::map;
@@ -66,6 +64,10 @@ const Trigram kUndefinedTrigram = -1;
 class Index {
  public:
   Index();
+
+  Index(const Index&) = delete;
+  Index& operator=(const Index&) = delete;
+
   // Index is only instantiated as a leak LazyInstance, so the destructor is
   // never called.
   ~Index() = delete;
@@ -91,8 +93,6 @@ class Index {
   IndexedFilesMap index_times_;
   vector<bool> is_normalized_;
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(Index);
 };
 
 base::LazyInstance<Index>::Leaky g_trigram_index = LAZY_INSTANCE_INITIALIZER;
@@ -259,8 +259,6 @@ void Index::NormalizeVectors() {
   }
 }
 
-typedef Callback<void(bool, const vector<bool>&)> IndexerCallback;
-
 }  // namespace
 
 DevToolsFileSystemIndexer::FileSystemIndexingJob::FileSystemIndexingJob(
@@ -304,16 +302,16 @@ void DevToolsFileSystemIndexer::FileSystemIndexingJob::CollectFilesToIndex() {
   if (stopped_)
     return;
   if (!file_enumerator_) {
-    file_enumerator_.reset(new FileEnumerator(
+    file_enumerator_ = std::make_unique<FileEnumerator>(
         pending_folders_.back(), false,
-        FileEnumerator::FILES | FileEnumerator::DIRECTORIES));
+        FileEnumerator::FILES | FileEnumerator::DIRECTORIES);
     pending_folders_.pop_back();
   }
   FilePath file_path = file_enumerator_->Next();
   if (file_path.empty() && !pending_folders_.empty()) {
-    file_enumerator_.reset(new FileEnumerator(
+    file_enumerator_ = std::make_unique<FileEnumerator>(
         pending_folders_.back(), false,
-        FileEnumerator::FILES | FileEnumerator::DIRECTORIES));
+        FileEnumerator::FILES | FileEnumerator::DIRECTORIES);
     pending_folders_.pop_back();
     impl_task_runner()->PostTask(
         FROM_HERE, BindOnce(&FileSystemIndexingJob::CollectFilesToIndex, this));
@@ -443,7 +441,7 @@ void DevToolsFileSystemIndexer::FileSystemIndexingJob::ReportWorked() {
   TimeTicks current_time = TimeTicks::Now();
   bool should_send_worked_nitification = true;
   if (!last_worked_notification_time_.is_null()) {
-    TimeDelta delta = current_time - last_worked_notification_time_;
+    base::TimeDelta delta = current_time - last_worked_notification_time_;
     if (delta.InMilliseconds() < kMinTimeoutBetweenWorkedNitification)
       should_send_worked_nitification = false;
   }

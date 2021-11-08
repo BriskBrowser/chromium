@@ -50,13 +50,14 @@ const char kSenderIdAuthSecret[] = "sharing_auth_secret";
 class MockInstanceIDDriver : public instance_id::InstanceIDDriver {
  public:
   MockInstanceIDDriver() : InstanceIDDriver(/*gcm_driver=*/nullptr) {}
+
+  MockInstanceIDDriver(const MockInstanceIDDriver&) = delete;
+  MockInstanceIDDriver& operator=(const MockInstanceIDDriver&) = delete;
+
   ~MockInstanceIDDriver() override = default;
 
   MOCK_METHOD1(GetInstanceID,
                instance_id::InstanceID*(const std::string& app_id));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockInstanceIDDriver);
 };
 
 class FakeInstanceID : public instance_id::InstanceID {
@@ -211,6 +212,9 @@ class SharingDeviceRegistrationTest : public testing::Test {
     if (sharing_device_registration_.IsRemoteCopySupported())
       features.insert(sync_pb::SharingSpecificFields::REMOTE_COPY);
 
+    if (sharing_device_registration_.IsSmsFetcherSupported())
+      features.insert(sync_pb::SharingSpecificFields::SMS_FETCHER);
+
     return features;
   }
 
@@ -232,8 +236,8 @@ class SharingDeviceRegistrationTest : public testing::Test {
   SharingDeviceRegistration sharing_device_registration_;
 
   // callback results
-  base::Optional<syncer::DeviceInfo::SharingInfo> local_sharing_info_;
-  base::Optional<SharingSyncPreference::FCMRegistration> fcm_registration_;
+  absl::optional<syncer::DeviceInfo::SharingInfo> local_sharing_info_;
+  absl::optional<SharingSyncPreference::FCMRegistration> fcm_registration_;
   SharingDeviceRegistrationResult result_;
 };
 

@@ -154,7 +154,7 @@ SavePackageFilePicker::SavePackageFilePicker(
       callback_(std::move(callback)) {
   base::FilePath suggested_path_copy = suggested_path;
   base::FilePath::StringType default_extension_copy = default_extension;
-  int file_type_index = 0;
+  size_t file_type_index = 0;
   ui::SelectFileDialog::FileTypeInfo file_type_info;
 
   file_type_info.allowed_paths =
@@ -165,16 +165,10 @@ SavePackageFilePicker::SavePackageFilePicker(
     save_types_.push_back(content::SAVE_PAGE_TYPE_UNKNOWN);
 
     base::FilePath::StringType extra_extension;
-    if (ShouldSaveAsMHTML()) {
-      default_extension_copy = FILE_PATH_LITERAL("mhtml");
-      suggested_path_copy = suggested_path_copy.ReplaceExtension(
-          default_extension_copy);
-    } else {
-      if (!suggested_path_copy.FinalExtension().empty() &&
-          !suggested_path_copy.MatchesExtension(FILE_PATH_LITERAL(".htm")) &&
-          !suggested_path_copy.MatchesExtension(FILE_PATH_LITERAL(".html"))) {
-        extra_extension = suggested_path_copy.FinalExtension().substr(1);
-      }
+    if (!ShouldSaveAsMHTML() && !suggested_path_copy.FinalExtension().empty() &&
+        !suggested_path_copy.MatchesExtension(FILE_PATH_LITERAL(".htm")) &&
+        !suggested_path_copy.MatchesExtension(FILE_PATH_LITERAL(".html"))) {
+      extra_extension = suggested_path_copy.FinalExtension().substr(1);
     }
 
     if (ShouldSaveAsOnlyHTML(web_contents)) {
@@ -231,18 +225,21 @@ SavePackageFilePicker::SavePackageFilePicker(
     file_type_index = 1;
   }
 
+  if (file_type_index < save_types_.size() &&
+      save_types_[file_type_index] == content::SAVE_PAGE_TYPE_AS_MHTML) {
+    default_extension_copy = FILE_PATH_LITERAL("mhtml");
+    suggested_path_copy =
+        suggested_path_copy.ReplaceExtension(default_extension_copy);
+  }
+
   if (g_should_prompt_for_filename) {
     select_file_dialog_ = ui::SelectFileDialog::Create(
         this, std::make_unique<ChromeSelectFilePolicy>(web_contents));
     select_file_dialog_->SelectFile(
-        ui::SelectFileDialog::SELECT_SAVEAS_FILE,
-        base::string16(),
-        suggested_path_copy,
-        &file_type_info,
-        file_type_index,
+        ui::SelectFileDialog::SELECT_SAVEAS_FILE, std::u16string(),
+        suggested_path_copy, &file_type_info, file_type_index,
         default_extension_copy,
-        platform_util::GetTopLevel(web_contents->GetNativeView()),
-        NULL);
+        platform_util::GetTopLevel(web_contents->GetNativeView()), NULL);
   } else {
     // Just use 'suggested_path_copy' instead of opening the dialog prompt.
     // Go through FileSelected() for consistency.

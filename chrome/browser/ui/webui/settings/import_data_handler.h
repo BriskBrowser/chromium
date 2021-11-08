@@ -27,6 +27,10 @@ class ImportDataHandler : public SettingsPageUIHandler,
                           public ui::SelectFileDialog::Listener {
  public:
   ImportDataHandler();
+
+  ImportDataHandler(const ImportDataHandler&) = delete;
+  ImportDataHandler& operator=(const ImportDataHandler&) = delete;
+
   ~ImportDataHandler() override;
 
   // SettingsPageUIHandler
@@ -62,6 +66,7 @@ class ImportDataHandler : public SettingsPageUIHandler,
   void FileSelected(const base::FilePath& path,
                     int index,
                     void* params) override;
+  void FileSelectionCanceled(void* params) override;
 
   std::unique_ptr<ImporterList> importer_list_;
 
@@ -73,8 +78,6 @@ class ImportDataHandler : public SettingsPageUIHandler,
   bool importer_list_loaded_{false};
 
   scoped_refptr<ui::SelectFileDialog> select_file_dialog_;
-
-  DISALLOW_COPY_AND_ASSIGN(ImportDataHandler);
 };
 
 }  // namespace settings

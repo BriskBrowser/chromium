@@ -21,9 +21,10 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread.h"
@@ -323,20 +324,20 @@ void MockChromeCleanerProcess::Options::SetReportedResults(
     case ItemsReporting::kUnsupported:
       // Defined as an optional object in which a registry keys vector is not
       // present.
-      registry_keys_ = base::Optional<std::vector<std::wstring>>();
+      registry_keys_ = absl::optional<std::vector<std::wstring>>();
       break;
 
     case ItemsReporting::kNotReported:
       // Defined as an optional object in which an empty registry keys vector is
       // present.
       registry_keys_ =
-          base::Optional<std::vector<std::wstring>>(base::in_place);
+          absl::optional<std::vector<std::wstring>>(absl::in_place);
       break;
 
     case ItemsReporting::kReported:
       // Defined as an optional object in which a non-empty registry keys vector
       // is present.
-      registry_keys_ = base::Optional<std::vector<std::wstring>>({
+      registry_keys_ = absl::optional<std::vector<std::wstring>>({
           L"HKCU:32\\Software\\Some\\Unwanted Software",
           L"HKCU:32\\Software\\Another\\Unwanted Software",
       });
@@ -387,7 +388,7 @@ int MockChromeCleanerProcess::Run() {
 
   base::Thread::Options thread_options(base::MessagePumpType::IO, 0);
   base::Thread io_thread("IPCThread");
-  EXPECT_TRUE(io_thread.StartWithOptions(thread_options));
+  EXPECT_TRUE(io_thread.StartWithOptions(std::move(thread_options)));
   if (::testing::Test::HasFailure())
     return kInternalTestFailureExitCode;
 

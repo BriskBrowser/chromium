@@ -25,12 +25,12 @@
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/arc/arc_optin_uma.h"
+#include "chrome/browser/ash/login/users/chrome_user_manager_util.h"
+#include "chrome/browser/ash/multidevice_setup/multidevice_setup_client_factory.h"
+#include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/arc/arc_optin_uma.h"
-#include "chrome/browser/chromeos/login/users/chrome_user_manager_util.h"
-#include "chrome/browser/chromeos/multidevice_setup/multidevice_setup_client_factory.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/metrics/cached_metrics_profile.h"
 #include "chrome/browser/metrics/enrollment_status.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -118,13 +118,13 @@ void ChromeOSMetricsProvider::LogCrash(const std::string& crash_type) {
 }
 
 EnrollmentStatus ChromeOSMetricsProvider::GetEnrollmentStatus() {
-  policy::BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
+  policy::BrowserPolicyConnectorAsh* connector =
+      g_browser_process->platform_part()->browser_policy_connector_ash();
   if (!connector)
     return EnrollmentStatus::kErrorGettingStatus;
 
-  return connector->IsEnterpriseManaged() ? EnrollmentStatus::kManaged
-                                          : EnrollmentStatus::kNonManaged;
+  return connector->IsDeviceEnterpriseManaged() ? EnrollmentStatus::kManaged
+                                                : EnrollmentStatus::kNonManaged;
 }
 
 void ChromeOSMetricsProvider::Init() {
@@ -203,7 +203,7 @@ void ChromeOSMetricsProvider::ProvideSystemProfileMetrics(
 
 void ChromeOSMetricsProvider::ProvideAccessibilityMetrics() {
   bool is_spoken_feedback_enabled =
-      AccessibilityManager::Get()->IsSpokenFeedbackEnabled();
+      ash::AccessibilityManager::Get()->IsSpokenFeedbackEnabled();
   UMA_HISTOGRAM_BOOLEAN("Accessibility.CrosSpokenFeedback.EveryReport",
                         is_spoken_feedback_enabled);
 }
@@ -268,7 +268,7 @@ void ChromeOSMetricsProvider::ProvideCurrentSessionData(
 void ChromeOSMetricsProvider::WriteLinkedAndroidPhoneProto(
     metrics::SystemProfileProto* system_profile_proto) {
   chromeos::multidevice_setup::MultiDeviceSetupClient* client =
-      chromeos::multidevice_setup::MultiDeviceSetupClientFactory::GetForProfile(
+      ash::multidevice_setup::MultiDeviceSetupClientFactory::GetForProfile(
           cached_profile_->GetMetricsProfile());
 
   if (!client)
@@ -325,7 +325,7 @@ void ChromeOSMetricsProvider::SetFullHardwareClass(
 
 void ChromeOSMetricsProvider::OnArcFeaturesParsed(
     base::OnceClosure callback,
-    base::Optional<arc::ArcFeatures> features) {
+    absl::optional<arc::ArcFeatures> features) {
   base::ScopedClosureRunner runner(std::move(callback));
   if (!features) {
     LOG(WARNING) << "ArcFeatures not available on this build";

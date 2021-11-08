@@ -27,6 +27,10 @@ class RelaunchRequiredDialogView : views::DialogDelegateView {
                              base::Time deadline,
                              base::RepeatingClosure on_accept);
 
+  RelaunchRequiredDialogView(const RelaunchRequiredDialogView&) = delete;
+  RelaunchRequiredDialogView& operator=(const RelaunchRequiredDialogView&) =
+      delete;
+
   ~RelaunchRequiredDialogView() override;
 
   // Returns the instance hosted by |widget|. |widget| must be an instance
@@ -38,8 +42,8 @@ class RelaunchRequiredDialogView : views::DialogDelegateView {
   void SetDeadline(base::Time deadline);
 
   // views::DialogDelegateView:
-  base::string16 GetWindowTitle() const override;
-  gfx::ImageSkia GetWindowIcon() override;
+  std::u16string GetWindowTitle() const override;
+  ui::ImageModel GetWindowIcon() override;
 
  private:
   RelaunchRequiredDialogView(base::Time deadline,
@@ -50,8 +54,6 @@ class RelaunchRequiredDialogView : views::DialogDelegateView {
 
   // Timer that schedules title refreshes.
   RelaunchRequiredTimer relaunch_required_timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(RelaunchRequiredDialogView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_RELAUNCH_NOTIFICATION_RELAUNCH_REQUIRED_DIALOG_VIEW_H_

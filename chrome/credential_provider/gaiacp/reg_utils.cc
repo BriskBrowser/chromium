@@ -7,7 +7,7 @@
 #include <atlbase.h>
 
 #include "base/base64.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
@@ -87,21 +87,6 @@ constexpr wchar_t kDefaultCredProviderKey[] = L"DefaultCredentialProvider";
 constexpr wchar_t kEnrollmentRegKey[] = L"SOFTWARE\\Google\\Enrollment";
 constexpr wchar_t kDmTokenRegKey[] = L"dmtoken";
 
-HRESULT SetMachineRegDWORD(const std::wstring& key_name,
-                           const std::wstring& name,
-                           DWORD value) {
-  base::win::RegKey key;
-  LONG sts = key.Create(HKEY_LOCAL_MACHINE, key_name.c_str(), KEY_WRITE);
-  if (sts != ERROR_SUCCESS)
-    return HRESULT_FROM_WIN32(sts);
-
-  sts = key.WriteValue(name.c_str(), value);
-  if (sts != ERROR_SUCCESS)
-    return HRESULT_FROM_WIN32(sts);
-
-  return S_OK;
-}
-
 HRESULT SetMachineRegBinaryInternal(const std::wstring& key_name,
                                     const std::wstring& name,
                                     const std::string& value,
@@ -136,6 +121,21 @@ std::wstring GetAccountPictureRegPathForUSer(const std::wstring& user_sid) {
 }
 
 }  // namespace
+
+HRESULT SetMachineRegDWORD(const std::wstring& key_name,
+                           const std::wstring& name,
+                           DWORD value) {
+  base::win::RegKey key;
+  LONG sts = key.Create(HKEY_LOCAL_MACHINE, key_name.c_str(), KEY_WRITE);
+  if (sts != ERROR_SUCCESS)
+    return HRESULT_FROM_WIN32(sts);
+
+  sts = key.WriteValue(name.c_str(), value);
+  if (sts != ERROR_SUCCESS)
+    return HRESULT_FROM_WIN32(sts);
+
+  return S_OK;
+}
 
 HRESULT MakeGcpwDefaultCP() {
   if (GetGlobalFlagOrDefault(kMakeGcpwDefaultCredProvider, 1))
@@ -456,6 +456,27 @@ HRESULT GetSidFromEmail(const std::wstring& email, wchar_t* sid, ULONG length) {
 
 HRESULT GetSidFromId(const std::wstring& id, wchar_t* sid, ULONG length) {
   return GetSidFromKey(kUserId, id, sid, length);
+}
+
+HRESULT GetSidFromDomainAccountInfo(const std::wstring& domain,
+                                    const std::wstring& username,
+                                    wchar_t* sid,
+                                    ULONG length) {
+  // Max SID length is 256 characters.
+  // https://docs.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-offlineuseraccounts-offlinedomainaccounts-offlinedomainaccount-sid
+  wchar_t sid1[256];
+  wchar_t sid2[256];
+
+  if (SUCCEEDED(GetSidFromKey(base::UTF8ToWide(kKeyDomain).c_str(), domain,
+                              sid1, length)) &&
+      SUCCEEDED(GetSidFromKey(base::UTF8ToWide(kKeyUsername).c_str(), username,
+                              sid2, length)) &&
+      wcsicmp(sid1, sid2) == 0) {
+    wcscpy_s(sid, length, sid1);
+    return S_OK;
+  } else {
+    return E_FAIL;
+  }
 }
 
 HRESULT GetIdFromSid(const wchar_t* sid, std::wstring* id) {

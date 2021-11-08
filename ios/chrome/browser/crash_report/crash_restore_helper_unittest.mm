@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
@@ -115,17 +115,6 @@ class CrashRestoreHelperTest : public PlatformTest {
   ChromeBrowserState* off_the_record_chrome_browser_state_;
   CrashRestoreHelper* helper_;
 };
-
-// Tests that moving session work correctly when multiple windows are not
-// supported.
-TEST_F(CrashRestoreHelperTest, MoveAsideSingleSession) {
-  ASSERT_TRUE(CreateSession(nil));
-  [CrashRestoreHelper moveAsideSessions:[NSSet setWithArray:@[ @"" ]]
-                        forBrowserState:chrome_browser_state_.get()];
-  EXPECT_TRUE(IsSessionErased(nil));
-  EXPECT_EQ(YES,
-            CheckAndDeleteSessionBackedUp(nil, chrome_browser_state_.get()));
-}
 
 // Tests that moving session work correctly when multiple windows are supported.
 TEST_F(CrashRestoreHelperTest, MoveAsideMultipleSessions) {

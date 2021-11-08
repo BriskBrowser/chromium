@@ -4,8 +4,8 @@
 
 #include "components/search_engines/template_url_prepopulate_data.h"
 
+#include "base/cxx17_backports.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "components/country_codes/country_codes.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -1338,7 +1338,7 @@ std::vector<std::unique_ptr<TemplateURLData>> GetPrepopulatedTemplateURLData(
   if (!list)
     return t_urls;
 
-  size_t num_engines = list->GetSize();
+  size_t num_engines = list->GetList().size();
   for (size_t i = 0; i != num_engines; ++i) {
     const base::DictionaryValue* engine;
     if (list->GetDictionary(i, &engine)) {

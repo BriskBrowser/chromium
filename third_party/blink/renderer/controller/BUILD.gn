@@ -26,6 +26,10 @@ component("controller") {
     "//v8",
   ]
 
+  if (use_blink_extensions_chromeos) {
+    deps += [ "//third_party/blink/renderer/extensions/chromeos" ]
+  }
+
   configs += [
     "//build/config/compiler:noshadowing",
     "//build/config/compiler:wexit_time_destructors",
@@ -42,6 +46,7 @@ component("controller") {
     "blink_initializer.h",
     "blink_leak_detector.cc",
     "blink_leak_detector.h",
+    "blink_shutdown.cc",
     "controller_export.h",
     "dev_tools_frontend_impl.cc",
     "dev_tools_frontend_impl.h",
@@ -128,6 +133,7 @@ test("blink_unittests") {
   data_deps = [
     ":blink_unittests_data",
     "//content/shell:pak",
+    "//testing/buildbot/filters:blink_unittests_filters",
   ]
 
   if (is_android) {
@@ -141,6 +147,15 @@ test("blink_unittests") {
     if (enable_chrome_android_internal) {
       data_deps += [ "//clank/build/bot/filters:blink_unittests_filters" ]
     }
+  }
+
+  if (is_fuchsia) {
+    additional_manifest_fragments = [
+      "//build/config/fuchsia/test/font_capabilities.test-cmx",
+
+      # TODO(crbug.com/1185811): Figure out why jit_capabilities is needed.
+      "//build/config/fuchsia/test/jit_capabilities.test-cmx",
+    ]
   }
 }
 

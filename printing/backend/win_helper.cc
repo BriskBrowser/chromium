@@ -11,13 +11,13 @@
 #include <memory>
 
 #include "base/check_op.h"
+#include "base/cxx17_backports.h"
 #include "base/debug/alias.h"
 #include "base/file_version_info.h"
 #include "base/files/file_path.h"
 #include "base/memory/free_deleter.h"
 #include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -145,11 +145,10 @@ bool PrinterChangeHandleTraits::CloseHandle(HANDLE handle) {
   return true;
 }
 
-bool ScopedPrinterHandle::OpenPrinterWithName(const base::char16* printer) {
+bool ScopedPrinterHandle::OpenPrinterWithName(const wchar_t* printer) {
   HANDLE temp_handle;
   // ::OpenPrinter may return error but assign some value into handle.
-  if (::OpenPrinter(const_cast<LPTSTR>(base::as_wcstr(printer)), &temp_handle,
-                    nullptr)) {
+  if (::OpenPrinter(const_cast<LPTSTR>(printer), &temp_handle, nullptr)) {
     Set(temp_handle);
   }
   return IsValid();
@@ -212,12 +211,12 @@ bool XPSModule::InitImpl() {
   return true;
 }
 
-HRESULT XPSModule::OpenProvider(const base::string16& printer_name,
+HRESULT XPSModule::OpenProvider(const std::wstring& printer_name,
                                 DWORD version,
                                 HPTPROVIDER* provider) {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  return g_open_provider_proc(base::as_wcstr(printer_name), version, provider);
+  return g_open_provider_proc(printer_name.c_str(), version, provider);
 }
 
 HRESULT XPSModule::GetPrintCapabilities(HPTPROVIDER provider,
@@ -426,7 +425,7 @@ std::string GetDriverInfo(HANDLE printer) {
 }
 
 std::unique_ptr<DEVMODE, base::FreeDeleter> XpsTicketToDevMode(
-    const base::string16& printer_name,
+    const std::wstring& printer_name,
     const std::string& print_ticket) {
   std::unique_ptr<DEVMODE, base::FreeDeleter> dev_mode;
   ScopedXPSInitializer xps_initializer;
@@ -470,7 +469,7 @@ bool IsDevModeWithColor(const DEVMODE* devmode) {
 
 std::unique_ptr<DEVMODE, base::FreeDeleter> CreateDevModeWithColor(
     HANDLE printer,
-    const base::string16& printer_name,
+    const std::wstring& printer_name,
     bool color) {
   std::unique_ptr<DEVMODE, base::FreeDeleter> default_ticket =
       CreateDevMode(printer, nullptr);
@@ -570,12 +569,11 @@ std::unique_ptr<DEVMODE, base::FreeDeleter> CreateDevMode(HANDLE printer,
 
 std::unique_ptr<DEVMODE, base::FreeDeleter> PromptDevMode(
     HANDLE printer,
-    const base::string16& printer_name,
+    const std::wstring& printer_name,
     DEVMODE* in,
     HWND window,
     bool* canceled) {
-  wchar_t* printer_name_ptr =
-      const_cast<wchar_t*>(base::as_wcstr(printer_name));
+  wchar_t* printer_name_ptr = const_cast<wchar_t*>(printer_name.c_str());
   LONG buffer_size = DocumentProperties(window, printer, printer_name_ptr,
                                         nullptr, nullptr, 0);
   if (buffer_size < static_cast<int>(sizeof(DEVMODE)))

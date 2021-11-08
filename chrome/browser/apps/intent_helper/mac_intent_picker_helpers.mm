@@ -7,9 +7,11 @@
 #import <Cocoa/Cocoa.h>
 #import <SafariServices/SafariServices.h>
 
-#include "base/optional.h"
+#include "base/feature_list.h"
 #include "base/strings/sys_string_conversions.h"
+#include "chrome/browser/browser_features.h"
 #include "net/base/mac/url_conversions.h"
+#include "ui/base/models/image_model.h"
 
 namespace apps {
 
@@ -32,27 +34,34 @@ IntentPickerAppInfo AppInfoForAppUrl(NSURL* app_url) {
   }
   app_icon.size = NSMakeSize(16, 16);
 
-  return IntentPickerAppInfo(PickerEntryType::kMacOs, gfx::Image(app_icon),
+  return IntentPickerAppInfo(PickerEntryType::kMacOs,
+                             ui::ImageModel::FromImage(gfx::Image(app_icon)),
                              base::SysNSStringToUTF8([app_url path]),
                              base::SysNSStringToUTF8(app_name));
 }
 
-base::Optional<IntentPickerAppInfo> AppInfoForUrl(const GURL& url) {
+}  // namespace
+
+absl::optional<IntentPickerAppInfo> FindMacAppForUrl(const GURL& url) {
+  static bool universal_links_enabled =
+      base::FeatureList::IsEnabled(features::kEnableUniveralLinks);
+  if (!universal_links_enabled)
+    return absl::nullopt;
+
   if (@available(macOS 10.15, *)) {
     NSURL* nsurl = net::NSURLWithGURL(url);
     if (!nsurl)
-      return base::nullopt;
+      return absl::nullopt;
 
     SFUniversalLink* link =
         [[[SFUniversalLink alloc] initWithWebpageURL:nsurl] autorelease];
+
     if (link)
       return AppInfoForAppUrl(link.applicationURL);
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
-
-}  // namespace
 
 void LaunchMacApp(const GURL& url, const std::string& launch_name) {
   [[NSWorkspace sharedWorkspace]
@@ -62,17 +71,6 @@ void LaunchMacApp(const GURL& url, const std::string& launch_name) {
                    options:0
              configuration:@{}
                      error:nil];
-}
-
-std::vector<IntentPickerAppInfo> FindMacAppsForUrl(
-    content::WebContents* web_contents,
-    const GURL& url,
-    std::vector<IntentPickerAppInfo> apps) {
-  // First, the Universal Link, if there is one.
-  if (auto app_info = AppInfoForUrl(url))
-    apps.push_back(std::move(app_info.value()));
-
-  return apps;
 }
 
 }  // namespace apps

@@ -12,7 +12,6 @@
 #include "extensions/browser/api/bluetooth/bluetooth_api.h"
 #include "extensions/browser/api/bluetooth/bluetooth_private_api.h"
 #include "extensions/browser/api/bluetooth_socket/bluetooth_socket_event_dispatcher.h"
-#include "extensions/browser/api/cast_channel/cast_channel_api.h"
 #include "extensions/browser/api/declarative_net_request/rules_monitor_service.h"
 #include "extensions/browser/api/feedback_private/feedback_private_api.h"
 #include "extensions/browser/api/hid/hid_device_manager.h"
@@ -39,13 +38,17 @@
 #include "extensions/browser/extension_message_filter.h"
 #include "extensions/browser/extension_prefs_factory.h"
 #include "extensions/browser/extension_protocols.h"
+#include "extensions/browser/extension_service_worker_message_filter.h"
 #include "extensions/browser/guest_view/extensions_guest_view_message_filter.h"
 #include "extensions/browser/process_manager_factory.h"
 #include "extensions/browser/renderer_startup_helper.h"
 #include "extensions/browser/updater/update_service_factory.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 #include "extensions/browser/api/clipboard/clipboard_api.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "extensions/browser/api/virtual_keyboard_private/virtual_keyboard_private_api.h"
 #include "extensions/browser/api/vpn_provider/vpn_service_factory.h"
 #include "extensions/browser/api/webcam_private/webcam_private_api.h"
@@ -66,8 +69,7 @@ void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   AudioAPI::GetFactoryInstance();
   BluetoothAPI::GetFactoryInstance();
   BluetoothPrivateAPI::GetFactoryInstance();
-  CastChannelAPI::GetFactoryInstance();
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
   ClipboardAPI::GetFactoryInstance();
 #endif
   api::BluetoothSocketEventDispatcher::GetFactoryInstance();
@@ -77,7 +79,9 @@ void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   declarative_net_request::RulesMonitorService::GetFactoryInstance();
   EnsureExtensionURLLoaderFactoryShutdownNotifierFactoryBuilt();
   EventRouterFactory::GetInstance();
+  ExtensionFunction::EnsureShutdownNotifierFactoryBuilt();
   ExtensionMessageFilter::EnsureShutdownNotifierFactoryBuilt();
+  ExtensionServiceWorkerMessageFilter::EnsureShutdownNotifierFactoryBuilt();
   ExtensionsGuestViewMessageFilter::EnsureShutdownNotifierFactoryBuilt();
   ExtensionPrefsFactory::GetInstance();
   FeedbackPrivateAPI::GetFactoryInstance();

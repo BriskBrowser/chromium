@@ -5,9 +5,11 @@
 #ifndef COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_CREDENTIAL_MANAGER_PENDING_PREVENT_SILENT_ACCESS_TASK_H_
 #define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_CREDENTIAL_MANAGER_PENDING_PREVENT_SILENT_ACCESS_TASK_H_
 
-#include "base/macros.h"
-#include "components/password_manager/core/browser/password_store.h"
+#include <memory>
+#include <vector>
+
 #include "components/password_manager/core/browser/password_store_consumer.h"
+#include "components/password_manager/core/browser/password_store_interface.h"
 
 namespace password_manager {
 
@@ -16,10 +18,10 @@ class CredentialManagerPendingPreventSilentAccessTaskDelegate {
  public:
   virtual ~CredentialManagerPendingPreventSilentAccessTaskDelegate() = default;
 
-  // Retrieves the profile PasswordStore.
-  virtual PasswordStore* GetProfilePasswordStore() = 0;
-  // Retrieves the account PasswordStore.
-  virtual PasswordStore* GetAccountPasswordStore() = 0;
+  // Retrieves the profile PasswordStoreInterface.
+  virtual PasswordStoreInterface* GetProfilePasswordStore() = 0;
+  // Retrieves the account PasswordStoreInterface.
+  virtual PasswordStoreInterface* GetAccountPasswordStore() = 0;
 
   // Finishes mediation tasks.
   virtual void DoneRequiringUserMediation() = 0;
@@ -31,16 +33,20 @@ class CredentialManagerPendingPreventSilentAccessTask
  public:
   explicit CredentialManagerPendingPreventSilentAccessTask(
       CredentialManagerPendingPreventSilentAccessTaskDelegate* delegate);
+  CredentialManagerPendingPreventSilentAccessTask(
+      const CredentialManagerPendingPreventSilentAccessTask&) = delete;
+  CredentialManagerPendingPreventSilentAccessTask& operator=(
+      const CredentialManagerPendingPreventSilentAccessTask&) = delete;
   ~CredentialManagerPendingPreventSilentAccessTask() override;
 
   // Adds an origin to require user mediation.
-  void AddOrigin(const PasswordStore::FormDigest& form_digest);
+  void AddOrigin(const PasswordFormDigest& form_digest);
 
   // PasswordStoreConsumer implementation.
   void OnGetPasswordStoreResults(
       std::vector<std::unique_ptr<PasswordForm>> results) override;
   void OnGetPasswordStoreResultsFrom(
-      PasswordStore* store,
+      PasswordStoreInterface* store,
       std::vector<std::unique_ptr<PasswordForm>> results) override;
 
  private:
@@ -49,8 +55,6 @@ class CredentialManagerPendingPreventSilentAccessTask
 
   // Number of password store requests to be resolved.
   int pending_requests_;
-
-  DISALLOW_COPY_AND_ASSIGN(CredentialManagerPendingPreventSilentAccessTask);
 };
 
 }  // namespace password_manager

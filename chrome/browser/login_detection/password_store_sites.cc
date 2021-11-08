@@ -12,8 +12,8 @@
 namespace login_detection {
 
 PasswordStoreSites::PasswordStoreSites(
-    scoped_refptr<password_manager::PasswordStore> password_store)
-    : password_store_(std::move(password_store)) {
+    password_manager::PasswordStoreInterface* password_store)
+    : password_store_(password_store) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (password_store_) {
     password_store_->AddObserver(this);
@@ -28,7 +28,16 @@ PasswordStoreSites::~PasswordStoreSites() {
 }
 
 void PasswordStoreSites::OnLoginsChanged(
-    const password_manager::PasswordStoreChangeList& changes) {
+    password_manager::PasswordStoreInterface* /*store*/,
+    const password_manager::PasswordStoreChangeList& /*changes*/) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Fetch the login list again.
+  password_store_->GetAllLogins(this);
+}
+
+void PasswordStoreSites::OnLoginsRetained(
+    password_manager::PasswordStoreInterface* /*store*/,
+    const std::vector<password_manager::PasswordForm>& /*retained_passwords*/) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Fetch the login list again.
   password_store_->GetAllLogins(this);
@@ -39,6 +48,9 @@ void PasswordStoreSites::OnGetPasswordStoreResults(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   password_sites_ = std::set<std::string>();
   for (const auto& entry : form_entries) {
+    if (!entry->url.SchemeIsHTTPOrHTTPS()) {
+      continue;
+    }
     password_sites_->insert(GetSiteNameForURL(entry->url));
   }
 }

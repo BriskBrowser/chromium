@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef UI_BASE_IME_WIN_ON_SCREEN_KEYBOARD_DISPLAY_MANAGER_TAP_TIP_H_
-#define UI_BASE_IME_WIN_ON_SCREEN_KEYBOARD_DISPLAY_MANAGER_TAP_TIP_H_
+#ifndef UI_BASE_IME_WIN_ON_SCREEN_KEYBOARD_DISPLAY_MANAGER_TAB_TIP_H_
+#define UI_BASE_IME_WIN_ON_SCREEN_KEYBOARD_DISPLAY_MANAGER_TAB_TIP_H_
 
 #include <string>
 
@@ -26,6 +26,12 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN)
     : public VirtualKeyboardController {
  public:
   OnScreenKeyboardDisplayManagerTabTip(HWND hwnd);
+
+  OnScreenKeyboardDisplayManagerTabTip(
+      const OnScreenKeyboardDisplayManagerTabTip&) = delete;
+  OnScreenKeyboardDisplayManagerTabTip& operator=(
+      const OnScreenKeyboardDisplayManagerTabTip&) = delete;
+
   ~OnScreenKeyboardDisplayManagerTabTip() override;
 
   // VirtualKeyboardController overrides.
@@ -54,10 +60,8 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN)
 
   // The location of TabTip.exe.
   std::wstring osk_path_;
-
-  DISALLOW_COPY_AND_ASSIGN(OnScreenKeyboardDisplayManagerTabTip);
 };
 
 }  // namespace ui
 
-#endif  // UI_BASE_IME_WIN_ON_SCREEN_KEYBOARD_DISPLAY_MANAGER_TAP_TIP_H_
+#endif  // UI_BASE_IME_WIN_ON_SCREEN_KEYBOARD_DISPLAY_MANAGER_TAB_TIP_H_

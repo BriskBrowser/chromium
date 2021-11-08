@@ -15,7 +15,6 @@
 
 #include "base/containers/flat_set.h"
 #include "base/time/time.h"
-#include "base/values.h"
 #include "cc/base/synced_property.h"
 #include "cc/input/browser_controls_offset_manager.h"
 #include "cc/input/event_listener_properties.h"
@@ -47,6 +46,7 @@ class ContextProvider;
 
 namespace cc {
 
+enum class ActivelyScrollingType;
 class DebugRectHistory;
 class DocumentTransitionRequest;
 class DroppedFrameCounter;
@@ -280,12 +280,12 @@ class CC_EXPORT LayerTreeImpl {
     hud_layer_ = layer_impl;
   }
 
-  gfx::ScrollOffset TotalScrollOffset() const;
-  gfx::ScrollOffset TotalMaxScrollOffset() const;
+  gfx::Vector2dF TotalScrollOffset() const;
+  gfx::Vector2dF TotalMaxScrollOffset() const;
 
   void AddPresentationCallbacks(
-      std::vector<LayerTreeHost::PresentationTimeCallback> callbacks);
-  std::vector<LayerTreeHost::PresentationTimeCallback>
+      std::vector<PresentationTimeCallbackBuffer::MainCallback> callbacks);
+  std::vector<PresentationTimeCallbackBuffer::MainCallback>
   TakePresentationCallbacks();
   bool has_presentation_callbacks() const {
     return !presentation_callbacks_.empty();
@@ -294,7 +294,6 @@ class CC_EXPORT LayerTreeImpl {
   // The following viewport related property nodes will only ever be set on the
   // main-frame's renderer (i.e. OOPIF and UI compositors will not have these
   // set.
-  using ViewportPropertyIds = LayerTreeHost::ViewportPropertyIds;
   void SetViewportPropertyIds(const ViewportPropertyIds& ids);
 
   const TransformNode* OverscrollElasticityTransformNode() const;
@@ -303,6 +302,7 @@ class CC_EXPORT LayerTreeImpl {
         const_cast<const LayerTreeImpl*>(this)
             ->OverscrollElasticityTransformNode());
   }
+  ElementId OverscrollElasticityEffectElementId() const;
   const TransformNode* PageScaleTransformNode() const;
   TransformNode* PageScaleTransformNode() {
     return const_cast<TransformNode*>(
@@ -324,7 +324,7 @@ class CC_EXPORT LayerTreeImpl {
         const_cast<const LayerTreeImpl*>(this)->OuterViewportScrollNode());
   }
 
-  LayerTreeHost::ViewportPropertyIds ViewportPropertyIdsForTesting() const {
+  ViewportPropertyIds ViewportPropertyIdsForTesting() const {
     return viewport_property_ids_;
   }
   LayerImpl* InnerViewportScrollLayerForTesting() const;
@@ -385,6 +385,12 @@ class CC_EXPORT LayerTreeImpl {
   bool TakeNewLocalSurfaceIdRequest();
   bool new_local_surface_id_request_for_testing() const {
     return new_local_surface_id_request_;
+  }
+
+  void SetVisualPropertiesUpdateDuration(
+      base::TimeDelta visual_properties_update_duration);
+  base::TimeDelta visual_properties_update_duration() const {
+    return visual_properties_update_duration_;
   }
 
   void SetDeviceViewportRect(const gfx::Rect& device_viewport_rect);
@@ -510,7 +516,7 @@ class CC_EXPORT LayerTreeImpl {
 
   void AddLayerShouldPushProperties(LayerImpl* layer);
   void ClearLayersThatShouldPushProperties();
-  const base::flat_set<LayerImpl*>& LayersThatShouldPushProperties() {
+  const base::flat_set<LayerImpl*>& LayersThatShouldPushProperties() const {
     return layers_that_should_push_properties_;
   }
 
@@ -707,7 +713,7 @@ class CC_EXPORT LayerTreeImpl {
   void ResetAllChangeTracking();
 
   void HandleTickmarksVisibilityChange();
-  void HandleScrollbarShowRequestsFromMain();
+  void HandleScrollbarShowRequests();
 
   void InvalidateRegionForImages(
       const PaintImageIdFlatSet& images_to_invalidate);
@@ -730,15 +736,23 @@ class CC_EXPORT LayerTreeImpl {
     return host_impl_->IsInSynchronousComposite();
   }
 
+  ActivelyScrollingType GetActivelyScrollingType() const {
+    return host_impl_->GetActivelyScrollingType();
+  }
+
+  bool CurrentScrollCheckerboardsDueToNoRecording() {
+    return host_impl_->CurrentScrollCheckerboardsDueToNoRecording();
+  }
+
   // These functions are used for plumbing DelegatedInkMetadata from blink
   // through the compositor and into viz via a compositor frame. They should
   // only be called after the JS API |updateInkTrailStartPoint| has been
   // called, which populates the metadata with provided information.
   void set_delegated_ink_metadata(
-      std::unique_ptr<viz::DelegatedInkMetadata> metadata) {
+      std::unique_ptr<gfx::DelegatedInkMetadata> metadata) {
     delegated_ink_metadata_ = std::move(metadata);
   }
-  std::unique_ptr<viz::DelegatedInkMetadata> take_delegated_ink_metadata() {
+  std::unique_ptr<gfx::DelegatedInkMetadata> take_delegated_ink_metadata() {
     return std::move(delegated_ink_metadata_);
   }
 
@@ -748,6 +762,10 @@ class CC_EXPORT LayerTreeImpl {
 
   bool device_viewport_rect_changed() const {
     return device_viewport_rect_changed_;
+  }
+
+  bool viewport_mobile_optimized() const {
+    return host_impl_->viewport_mobile_optimized();
   }
 
   // Add a document transition request from the embedder.
@@ -795,7 +813,7 @@ class CC_EXPORT LayerTreeImpl {
 
   int last_scrolled_scroll_node_index_;
 
-  LayerTreeHost::ViewportPropertyIds viewport_property_ids_;
+  ViewportPropertyIds viewport_property_ids_;
 
   LayerSelection selection_;
 
@@ -810,6 +828,7 @@ class CC_EXPORT LayerTreeImpl {
 
   viz::LocalSurfaceId local_surface_id_from_parent_;
   bool new_local_surface_id_request_ = false;
+  base::TimeDelta visual_properties_update_duration_;
   // Contains the physical rect of the device viewport, to be used in
   // determining what needs to be drawn.
   bool device_viewport_rect_changed_ = false;
@@ -909,12 +928,13 @@ class CC_EXPORT LayerTreeImpl {
   // Display transform hint to tag frames generated from this tree.
   gfx::OverlayTransform display_transform_hint_ = gfx::OVERLAY_TRANSFORM_NONE;
 
-  std::vector<LayerTreeHost::PresentationTimeCallback> presentation_callbacks_;
+  std::vector<PresentationTimeCallbackBuffer::MainCallback>
+      presentation_callbacks_;
 
   // Event metrics that are reported back from the main thread.
   EventMetrics::List events_metrics_from_main_thread_;
 
-  std::unique_ptr<viz::DelegatedInkMetadata> delegated_ink_metadata_;
+  std::unique_ptr<gfx::DelegatedInkMetadata> delegated_ink_metadata_;
 
   // Document transition requests to be transferred to Viz.
   std::vector<std::unique_ptr<DocumentTransitionRequest>>

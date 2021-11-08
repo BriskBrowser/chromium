@@ -13,8 +13,8 @@
 #include "base/message_loop/message_pump_for_io.h"
 #include "base/message_loop/message_pump_for_ui.h"
 #include "base/pending_task.h"
-#include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/task_time_observer.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_observer.h"
 #include "build/build_config.h"
 
@@ -269,7 +269,6 @@ class BASE_EXPORT CurrentIOThread : public CurrentThread {
   // Please see MessagePumpWin for definitions of these methods.
   HRESULT RegisterIOHandler(HANDLE file, MessagePumpForIO::IOHandler* handler);
   bool RegisterJobObject(HANDLE job, MessagePumpForIO::IOHandler* handler);
-  bool WaitForIOCompletion(DWORD timeout, MessagePumpForIO::IOHandler* filter);
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   // Please see WatchableIOMessagePumpPosix for definition.
   // Prefer base::FileDescriptorWatcher for non-critical IO.

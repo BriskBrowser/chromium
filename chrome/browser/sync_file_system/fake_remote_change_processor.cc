@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/sync_file_system/file_change.h"
 #include "chrome/browser/sync_file_system/sync_file_metadata.h"
@@ -103,8 +103,9 @@ void FakeRemoteChangeProcessor::ApplyRemoteChange(
 void FakeRemoteChangeProcessor::FinalizeRemoteSync(
     const storage::FileSystemURL& url,
     bool clear_local_changes,
-    const base::Closure& completion_callback) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, completion_callback);
+    base::OnceClosure completion_callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                std::move(completion_callback));
 }
 
 void FakeRemoteChangeProcessor::RecordFakeLocalChange(

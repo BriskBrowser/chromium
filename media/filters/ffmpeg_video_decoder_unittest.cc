@@ -65,6 +65,9 @@ class FFmpegVideoDecoderTest : public testing::Test {
     corrupt_i_frame_buffer_ = ReadTestDataFile("vp8-corrupt-I-frame");
   }
 
+  FFmpegVideoDecoderTest(const FFmpegVideoDecoderTest&) = delete;
+  FFmpegVideoDecoderTest& operator=(const FFmpegVideoDecoderTest&) = delete;
+
   ~FFmpegVideoDecoderTest() override { Destroy(); }
 
   void Initialize() {
@@ -215,9 +218,6 @@ class FFmpegVideoDecoderTest : public testing::Test {
   scoped_refptr<DecoderBuffer> corrupt_i_frame_buffer_;
 
   OutputFrames output_frames_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FFmpegVideoDecoderTest);
 };
 
 TEST_F(FFmpegVideoDecoderTest, Initialize_Normal) {
@@ -226,7 +226,7 @@ TEST_F(FFmpegVideoDecoderTest, Initialize_Normal) {
 
 TEST_F(FFmpegVideoDecoderTest, Initialize_OpenDecoderFails) {
   // Specify Theora w/o extra data so that avcodec_open2() fails.
-  VideoDecoderConfig config(kCodecTheora, VIDEO_CODEC_PROFILE_UNKNOWN,
+  VideoDecoderConfig config(VideoCodec::kTheora, VIDEO_CODEC_PROFILE_UNKNOWN,
                             VideoDecoderConfig::AlphaMode::kIsOpaque,
                             VideoColorSpace(), kNoTransformation, kCodedSize,
                             kVisibleRect, kNaturalSize, EmptyExtraData(),
@@ -258,6 +258,14 @@ TEST_F(FFmpegVideoDecoderTest, DecodeFrame_Normal) {
   // Simulate decoding a single frame.
   EXPECT_TRUE(DecodeSingleFrame(i_frame_buffer_).is_ok());
   ASSERT_EQ(1U, output_frames_.size());
+}
+
+TEST_F(FFmpegVideoDecoderTest, DecodeFrame_OOM) {
+  Initialize();
+  decoder_->force_allocation_error_for_testing();
+  EXPECT_MEDIA_LOG(_);
+  EXPECT_FALSE(DecodeSingleFrame(i_frame_buffer_).is_ok());
+  EXPECT_TRUE(output_frames_.empty());
 }
 
 TEST_F(FFmpegVideoDecoderTest, DecodeFrame_DecodeError) {

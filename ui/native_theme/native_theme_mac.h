@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/no_destructor.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/native_theme/native_theme_aura.h"
 #include "ui/native_theme/native_theme_base.h"
 #include "ui/native_theme/native_theme_export.h"
 
@@ -32,28 +33,29 @@ class NATIVE_THEME_EXPORT NativeThemeMac : public NativeThemeBase {
     COUNT
   };
 
+  NativeThemeMac(const NativeThemeMac&) = delete;
+  NativeThemeMac& operator=(const NativeThemeMac&) = delete;
+
   // Adjusts an SkColor based on the current system control tint. For example,
   // if the current tint is "graphite", this function maps the provided value to
   // an appropriate gray.
   static SkColor ApplySystemControlTint(SkColor color);
 
-  // Overridden from NativeTheme:
-  SkColor GetSystemColor(ColorId color_id,
-                         ColorScheme color_scheme) const override;
-
-  // Overridden from NativeTheme:
+  // NativeTheme:
+  SkColor GetSystemColorDeprecated(ColorId color_id,
+                                   ColorScheme color_scheme,
+                                   bool apply_processing) const override;
   SkColor GetSystemButtonPressedColor(SkColor base_color) const override;
-
-  // Overridden from NativeTheme:
   PreferredContrast CalculatePreferredContrast() const override;
 
-  // Overridden from NativeThemeBase:
+  // NativeThemeBase:
   void Paint(cc::PaintCanvas* canvas,
              Part part,
              State state,
              const gfx::Rect& rect,
              const ExtraParams& extra,
-             ColorScheme color_scheme) const override;
+             ColorScheme color_scheme,
+             const absl::optional<SkColor>& accent_color) const override;
   void PaintMenuPopupBackground(
       cc::PaintCanvas* canvas,
       const gfx::Size& size,
@@ -89,6 +91,11 @@ class NATIVE_THEME_EXPORT NativeThemeMac : public NativeThemeBase {
                                         bool round_left,
                                         bool round_right,
                                         bool focus);
+
+  // Returns the minimum size for the thumb. We will not inset the thumb if it
+  // will be smaller than this size. The scale parameter should be the device
+  // scale factor.
+  gfx::Size GetThumbMinSize(bool vertical, float scale) const;
 
  protected:
   friend class NativeTheme;
@@ -128,7 +135,7 @@ class NATIVE_THEME_EXPORT NativeThemeMac : public NativeThemeBase {
   // Used by the GetSystem to run the switch for MacOS override colors that may
   // use named NS system colors. This is a separate function from GetSystemColor
   // to make sure the NSAppearance can be set in a scoped way.
-  base::Optional<SkColor> GetOSColor(ColorId color_id,
+  absl::optional<SkColor> GetOSColor(ColorId color_id,
                                      ColorScheme color_scheme) const;
 
   enum ScrollbarPart {
@@ -137,22 +144,21 @@ class NATIVE_THEME_EXPORT NativeThemeMac : public NativeThemeBase {
     kTrackOuterBorder,
   };
 
-  base::Optional<SkColor> GetScrollbarColor(
+  absl::optional<SkColor> GetScrollbarColor(
       ScrollbarPart part,
       ColorScheme color_scheme,
       const ScrollbarExtraParams& extra_params) const;
 
-  int ScrollbarTrackBorderWidth() const { return 1; }
+  int ScrollbarTrackBorderWidth(float scale_from_dip) const {
+    constexpr float border_width = 1.0f;
+    return scale_from_dip * border_width;
+  }
 
   // The amount the thumb is inset from the ends and the inside edge of track
   // border.
-  int GetScrollbarThumbInset(bool is_overlay) const {
-    return is_overlay ? 2 : 3;
+  int GetScrollbarThumbInset(bool is_overlay, float scale_from_dip) const {
+    return scale_from_dip * (is_overlay ? 2.0f : 3.0f);
   }
-
-  // Returns the minimum size for the thumb. We will not inset the thumb if it
-  // will be smaller than this size.
-  gfx::Size GetThumbMinSize(bool vertical) const;
 
   base::scoped_nsobject<NativeThemeEffectiveAppearanceObserver>
       appearance_observer_;
@@ -162,8 +168,22 @@ class NATIVE_THEME_EXPORT NativeThemeMac : public NativeThemeBase {
   // contrast.
   std::unique_ptr<NativeTheme::ColorSchemeNativeThemeObserver>
       color_scheme_observer_;
+};
 
-  DISALLOW_COPY_AND_ASSIGN(NativeThemeMac);
+// Mac implementation of native theme support for web controls.
+// For consistency with older versions of Chrome for Mac, we do multiply
+// the border width and radius by the zoom, unlike the generic impl.
+class NativeThemeMacWeb : public NativeThemeAura {
+ public:
+  NativeThemeMacWeb();
+
+  float AdjustBorderWidthByZoom(float border_width,
+                                float zoom_level) const override;
+  float AdjustBorderRadiusByZoom(Part part,
+                                 float border_width,
+                                 float zoom_level) const override;
+
+  static NativeThemeMacWeb* instance();
 };
 
 }  // namespace ui

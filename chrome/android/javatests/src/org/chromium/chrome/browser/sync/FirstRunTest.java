@@ -9,7 +9,6 @@ import android.app.Instrumentation;
 import android.app.Instrumentation.ActivityMonitor;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Bundle;
 import android.support.test.InstrumentationRegistry;
 
 import androidx.test.filters.SmallTest;
@@ -35,9 +34,10 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.settings.SettingsActivity;
 import org.chromium.chrome.browser.sync.settings.AccountManagementFragment;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.ActivityUtils;
+import org.chromium.chrome.test.util.ActivityTestUtils;
 import org.chromium.chrome.test.util.browser.sync.SyncTestUtil;
 import org.chromium.components.signin.base.CoreAccountInfo;
+import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.concurrent.TimeoutException;
@@ -83,7 +83,7 @@ public class FirstRunTest {
             mActivity = (FirstRunActivity) activity;
 
             try {
-                mTestObserver.flowIsKnownCallback.waitForCallback(0);
+                mTestObserver.createPostNativeAndPoliciesPageSequence.waitForCallback(0);
             } catch (TimeoutException e) {
                 Assert.fail();
             }
@@ -95,27 +95,27 @@ public class FirstRunTest {
     private static final String TEST_ACTION = "com.artificial.package.TEST_ACTION";
 
     private static final class TestObserver implements FirstRunActivityObserver {
-        public final CallbackHelper flowIsKnownCallback = new CallbackHelper();
+        public final CallbackHelper createPostNativeAndPoliciesPageSequence = new CallbackHelper();
 
         @Override
-        public void onFlowIsKnown(Bundle freProperties) {
-            flowIsKnownCallback.notifyCalled();
+        public void onCreatePostNativeAndPoliciesPageSequence(FirstRunActivity caller) {
+            createPostNativeAndPoliciesPageSequence.notifyCalled();
         }
 
         @Override
-        public void onAcceptTermsOfService() {}
+        public void onAcceptTermsOfService(FirstRunActivity caller) {}
 
         @Override
-        public void onJumpToPage(int position) {}
+        public void onJumpToPage(FirstRunActivity caller, int position) {}
 
         @Override
-        public void onUpdateCachedEngineName() {}
+        public void onUpdateCachedEngineName(FirstRunActivity caller) {}
 
         @Override
-        public void onAbortFirstRunExperience() {}
+        public void onAbortFirstRunExperience(FirstRunActivity caller) {}
 
         @Override
-        public void onExitFirstRun() {}
+        public void onExitFirstRun(FirstRunActivity caller) {}
     }
 
     private final TestObserver mTestObserver = new TestObserver();
@@ -141,11 +141,11 @@ public class FirstRunTest {
     @FlakyTest(message = "https://crbug.com/616456")
     public void testSignIn() {
         CoreAccountInfo testAccountInfo = mSyncTestRule.addTestAccount();
-        Assert.assertNull(mSyncTestRule.getCurrentSignedInAccount());
+        Assert.assertNull(mSyncTestRule.getPrimaryAccount(ConsentLevel.SYNC));
         Assert.assertFalse(SyncTestUtil.isSyncRequested());
 
         processFirstRun(testAccountInfo.getEmail(), false /* ShowSettings */);
-        Assert.assertEquals(testAccountInfo, mSyncTestRule.getCurrentSignedInAccount());
+        Assert.assertEquals(testAccountInfo, mSyncTestRule.getPrimaryAccount(ConsentLevel.SYNC));
         SyncTestUtil.waitForSyncFeatureActive();
     }
 
@@ -164,7 +164,7 @@ public class FirstRunTest {
 
         // User should be signed in and the sync backend should initialize, but sync should not
         // become fully active until the settings page is closed.
-        Assert.assertEquals(testAccountInfo, mSyncTestRule.getCurrentSignedInAccount());
+        Assert.assertEquals(testAccountInfo, mSyncTestRule.getPrimaryAccount(ConsentLevel.SYNC));
         SyncTestUtil.waitForEngineInitialized();
         Assert.assertFalse(SyncTestUtil.isSyncFeatureActive());
 
@@ -187,7 +187,7 @@ public class FirstRunTest {
         mSyncTestRule.addTestAccount();
         Assert.assertFalse(SyncTestUtil.isSyncRequested());
         processFirstRun(null, false /* ShowSettings */);
-        Assert.assertNull(mSyncTestRule.getCurrentSignedInAccount());
+        Assert.assertNull(mSyncTestRule.getPrimaryAccount(ConsentLevel.SYNC));
         Assert.assertFalse(SyncTestUtil.isSyncRequested());
     }
 
@@ -205,7 +205,7 @@ public class FirstRunTest {
         SettingsActivity settingsActivity = null;
         if (showSettings) {
             settingsActivity =
-                    ActivityUtils.waitForActivity(InstrumentationRegistry.getInstrumentation(),
+                    ActivityTestUtils.waitForActivity(InstrumentationRegistry.getInstrumentation(),
                             SettingsActivity.class, new Runnable() {
                                 @Override
                                 public void run() {

@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "ash/app_list/views/search_box_view.h"
+#include "base/bind.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/label.h"
@@ -24,7 +25,7 @@ constexpr int kDialogWidth = 320;
 }  // namespace
 
 RemoveQueryConfirmationDialog::RemoveQueryConfirmationDialog(
-    const base::string16& query,
+    const std::u16string& query,
     RemovalConfirmationCallback confirm_callback)
     : confirm_callback_(std::move(confirm_callback)) {
   SetModalType(ui::MODAL_TYPE_WINDOW);
@@ -46,7 +47,8 @@ RemoveQueryConfirmationDialog::RemoveQueryConfirmationDialog(
   const views::LayoutProvider* provider = views::LayoutProvider::Get();
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical,
-      provider->GetDialogInsetsForContentType(views::TEXT, views::TEXT),
+      provider->GetDialogInsetsForContentType(views::DialogContentType::kText,
+                                              views::DialogContentType::kText),
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_VERTICAL)));
 
   views::Label* label = new views::Label(l10n_util::GetStringFUTF16(

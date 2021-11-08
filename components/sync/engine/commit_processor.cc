@@ -4,6 +4,7 @@
 
 #include "components/sync/engine/commit_processor.h"
 
+#include <map>
 #include <memory>
 #include <utility>
 
@@ -12,7 +13,6 @@
 #include "base/notreached.h"
 #include "components/sync/engine/commit_contribution.h"
 #include "components/sync/engine/commit_contributor.h"
-#include "components/sync/protocol/sync.pb.h"
 
 namespace syncer {
 
@@ -28,7 +28,7 @@ CommitProcessor::CommitProcessor(ModelTypeSet commit_types,
   DCHECK(commit_contributor_map);
 }
 
-CommitProcessor::~CommitProcessor() {}
+CommitProcessor::~CommitProcessor() = default;
 
 Commit::ContributionMap CommitProcessor::GatherCommitContributions(
     size_t max_entries) {

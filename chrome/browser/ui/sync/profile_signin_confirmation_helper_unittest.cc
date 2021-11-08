@@ -11,11 +11,10 @@
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/cxx17_backports.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -39,8 +38,8 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/users/scoped_test_user_manager.h"
-#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
+#include "chrome/browser/ash/login/users/scoped_test_user_manager.h"
+#include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
 #endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -85,9 +84,8 @@ class TestingPrefStoreWithCustomReadError : public TestingPrefStore {
   }
   PrefReadError GetReadError() const override { return read_error_; }
   bool IsInitializationComplete() const override { return true; }
-  void set_read_error(PrefReadError read_error) {
-    read_error_ = read_error;
-  }
+  void set_read_error(PrefReadError read_error) { read_error_ = read_error; }
+
  private:
   ~TestingPrefStoreWithCustomReadError() override {}
   PrefReadError read_error_;
@@ -97,28 +95,23 @@ class TestingPrefStoreWithCustomReadError : public TestingPrefStore {
 #if defined(OS_WIN)
 const base::FilePath::CharType kExtensionFilePath[] =
     FILE_PATH_LITERAL("c:\\foo");
-#elif defined(OS_POSIX)
-const base::FilePath::CharType kExtensionFilePath[] =
-    FILE_PATH_LITERAL("/oo");
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+const base::FilePath::CharType kExtensionFilePath[] = FILE_PATH_LITERAL("/oo");
 #endif
 
 static scoped_refptr<extensions::Extension> CreateExtension(
     const std::string& name,
     const std::string& id,
-    extensions::Manifest::Location location) {
+    extensions::mojom::ManifestLocation location) {
   base::DictionaryValue manifest;
   manifest.SetString(extensions::manifest_keys::kVersion, "1.0.0.0");
   manifest.SetInteger(extensions::manifest_keys::kManifestVersion, 2);
   manifest.SetString(extensions::manifest_keys::kName, name);
   std::string error;
   scoped_refptr<extensions::Extension> extension =
-    extensions::Extension::Create(
-        base::FilePath(kExtensionFilePath).AppendASCII(name),
-        location,
-        manifest,
-        extensions::Extension::NO_FLAGS,
-        id,
-        &error);
+      extensions::Extension::Create(
+          base::FilePath(kExtensionFilePath).AppendASCII(name), location,
+          manifest, extensions::Extension::NO_FLAGS, id, &error);
   return extension;
 }
 #endif
@@ -149,20 +142,20 @@ class ProfileSigninConfirmationHelperTest : public testing::Test {
         base::WrapUnique<sync_preferences::PrefServiceSyncable>(pref_service));
     builder.AddTestingFactory(BookmarkModelFactory::GetInstance(),
                               BookmarkModelFactory::GetDefaultFactory());
+    builder.AddTestingFactory(HistoryServiceFactory::GetInstance(),
+                              HistoryServiceFactory::GetDefaultFactory());
     profile_ = builder.Build();
 
     // Initialize the services we check.
     model_ = BookmarkModelFactory::GetForBrowserContext(profile_.get());
     bookmarks::test::WaitForBookmarkModelToLoad(model_);
-    ASSERT_TRUE(profile_->CreateHistoryService());
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     extensions::TestExtensionSystem* system =
         static_cast<extensions::TestExtensionSystem*>(
             extensions::ExtensionSystem::Get(profile_.get()));
     base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     system->CreateExtensionService(&command_line,
-                                   base::FilePath(kExtensionFilePath),
-                                   false);
+                                   base::FilePath(kExtensionFilePath), false);
 #endif
   }
 
@@ -181,8 +174,8 @@ class ProfileSigninConfirmationHelperTest : public testing::Test {
   BookmarkModel* model_;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
-  chromeos::ScopedTestUserManager test_user_manager_;
+  ash::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
+  ash::ScopedTestUserManager test_user_manager_;
 #endif
 };
 
@@ -199,8 +192,7 @@ TEST_F(ProfileSigninConfirmationHelperTest, PromptForNewProfile_Bookmarks) {
 
   // Profile is new but has bookmarks.
   profile_->SetIsNewProfile(true);
-  model_->AddURL(model_->bookmark_bar_node(), 0,
-                 base::string16(base::ASCIIToUTF16("foo")),
+  model_->AddURL(model_->bookmark_bar_node(), 0, std::u16string(u"foo"),
                  GURL("http://foo.com"));
   EXPECT_TRUE(GetCallbackResult(
       base::BindOnce(&ui::CheckShouldPromptForNewProfile, profile_.get())));
@@ -215,17 +207,16 @@ TEST_F(ProfileSigninConfirmationHelperTest, PromptForNewProfile_Extensions) {
   // Profile is new but has synced extensions (The web store doesn't count).
   profile_->SetIsNewProfile(true);
   scoped_refptr<extensions::Extension> webstore =
-      CreateExtension("web store",
-                      extensions::kWebStoreAppId,
-                      extensions::Manifest::COMPONENT);
+      CreateExtension("web store", extensions::kWebStoreAppId,
+                      extensions::mojom::ManifestLocation::kComponent);
   extensions::ExtensionPrefs::Get(profile_.get())
       ->AddGrantedPermissions(webstore->id(), extensions::PermissionSet());
   extensions->AddExtension(webstore.get());
   EXPECT_FALSE(GetCallbackResult(
       base::BindOnce(&ui::CheckShouldPromptForNewProfile, profile_.get())));
 
-  scoped_refptr<extensions::Extension> extension =
-      CreateExtension("foo", std::string(), extensions::Manifest::INTERNAL);
+  scoped_refptr<extensions::Extension> extension = CreateExtension(
+      "foo", std::string(), extensions::mojom::ManifestLocation::kInternal);
   extensions::ExtensionPrefs::Get(profile_.get())
       ->AddGrantedPermissions(extension->id(), extensions::PermissionSet());
   extensions->AddExtension(extension.get());

@@ -6,16 +6,15 @@ package org.chromium.chrome.browser.background_task_scheduler;
 
 import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.chrome.browser.attribution_reporting.AttributionReportingJobFactory;
 import org.chromium.chrome.browser.background_sync.BackgroundSyncBackgroundTask;
 import org.chromium.chrome.browser.background_sync.PeriodicBackgroundSyncChromeWakeUpTask;
-import org.chromium.chrome.browser.download.DownloadResumptionBackgroundTask;
 import org.chromium.chrome.browser.download.service.DownloadBackgroundTask;
 import org.chromium.chrome.browser.explore_sites.ExploreSitesBackgroundTask;
 import org.chromium.chrome.browser.notifications.NotificationTriggerBackgroundTask;
 import org.chromium.chrome.browser.notifications.scheduler.NotificationSchedulerTask;
-import org.chromium.chrome.browser.offline.measurements.OfflineMeasurementsBackgroundTask;
 import org.chromium.chrome.browser.offlinepages.OfflineBackgroundTask;
-import org.chromium.chrome.browser.offlinepages.prefetch.OfflineNotificationBackgroundTask;
+import org.chromium.chrome.browser.offlinepages.measurements.OfflineMeasurementsBackgroundTask;
 import org.chromium.chrome.browser.offlinepages.prefetch.PrefetchBackgroundTask;
 import org.chromium.chrome.browser.omaha.OmahaService;
 import org.chromium.chrome.browser.services.gcm.GCMBackgroundTask;
@@ -65,8 +64,6 @@ public class ChromeBackgroundTaskFactory implements BackgroundTaskFactory {
                 return new OfflineBackgroundTask();
             case TaskIds.OFFLINE_PAGES_PREFETCH_JOB_ID:
                 return new PrefetchBackgroundTask();
-            case TaskIds.OFFLINE_PAGES_PREFETCH_NOTIFICATION_JOB_ID:
-                return new OfflineNotificationBackgroundTask();
             case TaskIds.DOWNLOAD_SERVICE_JOB_ID:
             case TaskIds.DOWNLOAD_CLEANUP_JOB_ID:
             case TaskIds.DOWNLOAD_AUTO_RESUMPTION_JOB_ID:
@@ -74,8 +71,6 @@ public class ChromeBackgroundTaskFactory implements BackgroundTaskFactory {
                 return new DownloadBackgroundTask();
             case TaskIds.WEBAPK_UPDATE_JOB_ID:
                 return new WebApkUpdateTask();
-            case TaskIds.DOWNLOAD_RESUMPTION_JOB_ID:
-                return new DownloadResumptionBackgroundTask();
             case TaskIds.COMPONENT_UPDATE_JOB_ID:
                 return new UpdateTask();
             case TaskIds.DEPRECATED_EXPLORE_SITES_REFRESH_JOB_ID:
@@ -91,9 +86,12 @@ public class ChromeBackgroundTaskFactory implements BackgroundTaskFactory {
                 return new PeriodicBackgroundSyncChromeWakeUpTask();
             case TaskIds.OFFLINE_MEASUREMENT_JOB_ID:
                 return new OfflineMeasurementsBackgroundTask();
+            case TaskIds.ATTRIBUTION_PROVIDER_FLUSH_JOB_ID:
+                return AttributionReportingJobFactory.getAttributionReportingProviderFlushTask();
             // End of Java tasks. All native tasks should be listed here.
             case TaskIds.QUERY_TILE_JOB_ID:
             case TaskIds.FEEDV2_REFRESH_JOB_ID:
+            case TaskIds.WEBFEEDS_REFRESH_JOB_ID:
                 return new ProxyNativeTask();
             // When adding a new job id with a BackgroundTask, remember to add a specific case for
             // it here.

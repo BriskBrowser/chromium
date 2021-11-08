@@ -22,6 +22,8 @@ import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
 import org.chromium.ui.resources.dynamics.ViewResourceAdapter;
 
+import java.util.List;
+
 /**
  * Interface for the Tab Switcher.
  */
@@ -49,8 +51,7 @@ public interface TabSwitcher {
      * Called when the native initialization is completed.
      */
     void initWithNative(Context context, TabContentManager tabContentManager,
-            DynamicResourceLoader dynamicResourceLoader,
-            SnackbarManager.SnackbarManageable snackbarManageable,
+            DynamicResourceLoader dynamicResourceLoader, SnackbarManager snackbarManager,
             ModalDialogManager modalDialogManager);
 
     // TODO(960196): Remove the following interfaces when the associated bug is resolved.
@@ -128,6 +129,17 @@ public interface TabSwitcher {
          * @param activityCreationTimeMs {@link SystemClock#elapsedRealtime} at activity creation.
          */
         void onOverviewShownAtLaunch(long activityCreationTimeMs);
+
+        /**
+         * @return Whether any dialog is opened.
+         */
+        boolean isDialogVisible();
+
+        /**
+         * Shows the TabSelectionEditor.
+         */
+        @VisibleForTesting
+        default void showTabSelectionEditor(List<Tab> tabs) {}
     }
 
     /**

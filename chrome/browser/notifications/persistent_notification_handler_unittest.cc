@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/run_loop.h"
+#include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/notifications/metrics/mock_notification_metrics_logger.h"
 #include "chrome/browser/notifications/metrics/notification_metrics_logger_factory.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
@@ -79,6 +80,9 @@ class PersistentNotificationHandlerTest : public ::testing::Test {
 
   // ::testing::Test overrides:
   void SetUp() override {
+    HistoryServiceFactory::GetInstance()->SetTestingFactory(
+        &profile_, HistoryServiceFactory::GetDefaultFactory());
+
     mock_logger_ = static_cast<MockNotificationMetricsLogger*>(
         NotificationMetricsLoggerFactory::GetInstance()
             ->SetTestingFactoryAndUse(
@@ -111,7 +115,7 @@ TEST_F(PersistentNotificationHandlerTest, OnClick_WithoutPermission) {
       std::make_unique<PersistentNotificationHandler>();
 
   handler->OnClick(&profile_, origin_, kExampleNotificationId,
-                   base::nullopt /* action_index */, base::nullopt /* reply */,
+                   absl::nullopt /* action_index */, absl::nullopt /* reply */,
                    base::DoNothing());
 }
 
@@ -146,7 +150,7 @@ TEST_F(PersistentNotificationHandlerTest,
 
     display_service_tester_.SimulateClick(
         NotificationHandler::Type::WEB_PERSISTENT, kExampleNotificationId,
-        base::nullopt /* action_index */, base::nullopt /* reply */);
+        absl::nullopt /* action_index */, absl::nullopt /* reply */);
   }
 
   EXPECT_FALSE(display_service_tester_.GetNotification(kExampleNotificationId));

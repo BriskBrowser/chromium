@@ -33,13 +33,8 @@ void ContentCaptureSender::BindPendingReceiver(
   receiver_.Bind(std::move(pending_receiver));
 }
 
-void ContentCaptureSender::GetTaskTimingParameters(
-    base::TimeDelta& short_delay,
-    base::TimeDelta& long_delay) const {
-  short_delay = base::TimeDelta::FromMilliseconds(
-      features::TaskShortDelayInMilliseconds());
-  long_delay = base::TimeDelta::FromMilliseconds(
-      features::TaskLongDelayInMilliseconds());
+base::TimeDelta ContentCaptureSender::GetTaskInitialDelay() const {
+  return base::Milliseconds(features::TaskInitialDelayInMilliseconds());
 }
 
 void ContentCaptureSender::DidCaptureContent(
@@ -104,8 +99,7 @@ void ContentCaptureSender::FillContentCaptureData(
   }
   UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(
       "ContentCapture.GetBoundingBox", base::TimeTicks::Now() - start,
-      base::TimeDelta::FromMicroseconds(1),
-      base::TimeDelta::FromMilliseconds(10), 50);
+      base::Microseconds(1), base::Milliseconds(10), 50);
 }
 
 const mojo::AssociatedRemote<mojom::ContentCaptureReceiver>&

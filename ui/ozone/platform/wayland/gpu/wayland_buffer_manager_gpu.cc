@@ -9,7 +9,9 @@
 #include "base/bind.h"
 #include "base/process/process.h"
 #include "base/task/current_thread.h"
+#include "ui/gfx/geometry/rrect_f.h"
 #include "ui/gfx/linux/drm_util_linux.h"
+#include "ui/gfx/overlay_priority_hint.h"
 #include "ui/ozone/platform/wayland/gpu/wayland_surface_gpu.h"
 #include "ui/ozone/public/mojom/wayland/wayland_overlay_config.mojom.h"
 #include "ui/ozone/public/overlay_plane.h"
@@ -21,15 +23,32 @@ TypeConverter<ui::ozone::mojom::WaylandOverlayConfigPtr,
               ui::OverlayPlane>::Convert(const ui::OverlayPlane& input) {
   ui::ozone::mojom::WaylandOverlayConfigPtr wayland_overlay_config{
       ui::ozone::mojom::WaylandOverlayConfig::New()};
-  wayland_overlay_config->z_order = input.z_order;
-  wayland_overlay_config->transform = input.plane_transform;
-  wayland_overlay_config->bounds_rect = input.display_bounds;
-  wayland_overlay_config->crop_rect = input.crop_rect;
-  wayland_overlay_config->enable_blend = input.enable_blend;
+  wayland_overlay_config->z_order = input.overlay_plane_data.z_order;
+  wayland_overlay_config->transform = input.overlay_plane_data.plane_transform;
+  wayland_overlay_config->bounds_rect = input.overlay_plane_data.display_bounds;
+  wayland_overlay_config->crop_rect = input.overlay_plane_data.crop_rect;
+  wayland_overlay_config->enable_blend = input.overlay_plane_data.enable_blend;
+  wayland_overlay_config->opacity = input.overlay_plane_data.opacity;
+  wayland_overlay_config->damage_region = input.overlay_plane_data.damage_rect;
   wayland_overlay_config->access_fence_handle =
       !input.gpu_fence || input.gpu_fence->GetGpuFenceHandle().is_null()
           ? gfx::GpuFenceHandle()
           : input.gpu_fence->GetGpuFenceHandle().Clone();
+  wayland_overlay_config->priority_hint =
+      input.overlay_plane_data.priority_hint;
+
+  const auto& rounded_corners = input.overlay_plane_data.rounded_corners;
+  wayland_overlay_config->rounded_corners.clear();
+  // Push the corners in the following order - top left, top right, bottom
+  // right, and bottom left.
+  wayland_overlay_config->rounded_corners.push_back(
+      rounded_corners.GetCornerRadii(gfx::RRectF::Corner::kUpperLeft).x());
+  wayland_overlay_config->rounded_corners.push_back(
+      rounded_corners.GetCornerRadii(gfx::RRectF::Corner::kUpperRight).x());
+  wayland_overlay_config->rounded_corners.push_back(
+      rounded_corners.GetCornerRadii(gfx::RRectF::Corner::kLowerRight).x());
+  wayland_overlay_config->rounded_corners.push_back(
+      rounded_corners.GetCornerRadii(gfx::RRectF::Corner::kLowerLeft).x());
 
   return wayland_overlay_config;
 }
@@ -45,15 +64,19 @@ void WaylandBufferManagerGpu::Initialize(
     const base::flat_map<::gfx::BufferFormat, std::vector<uint64_t>>&
         buffer_formats_with_modifiers,
     bool supports_dma_buf,
-    bool supports_acquire_fence) {
-  DCHECK(supported_buffer_formats_with_modifiers_.empty());
+    bool supports_viewporter,
+    bool supports_acquire_fence,
+    bool supports_non_backed_solid_color_buffers) {
   supported_buffer_formats_with_modifiers_ = buffer_formats_with_modifiers;
 
 #if defined(WAYLAND_GBM)
   if (!supports_dma_buf)
     set_gbm_device(nullptr);
 #endif
+  supports_viewporter_ = supports_viewporter;
   supports_acquire_fence_ = supports_acquire_fence;
+  supports_non_backed_solid_color_buffers_ =
+      supports_non_backed_solid_color_buffers;
 
   BindHostInterface(std::move(remote_host));
 
@@ -62,7 +85,8 @@ void WaylandBufferManagerGpu::Initialize(
 
 void WaylandBufferManagerGpu::OnSubmission(gfx::AcceleratedWidget widget,
                                            uint32_t buffer_id,
-                                           gfx::SwapResult swap_result) {
+                                           gfx::SwapResult swap_result,
+                                           gfx::GpuFenceHandle release_fence) {
   base::AutoLock scoped_lock(lock_);
   DCHECK(io_thread_runner_->BelongsToCurrentThread());
   DCHECK_LE(commit_thread_runners_.count(widget), 1u);
@@ -73,7 +97,8 @@ void WaylandBufferManagerGpu::OnSubmission(gfx::AcceleratedWidget widget,
   it->second->PostTask(
       FROM_HERE,
       base::BindOnce(&WaylandBufferManagerGpu::SubmitSwapResultOnOriginThread,
-                     base::Unretained(this), widget, buffer_id, swap_result));
+                     base::Unretained(this), widget, buffer_id, swap_result,
+                     std::move(release_fence)));
 }
 
 void WaylandBufferManagerGpu::OnPresentation(
@@ -163,11 +188,10 @@ void WaylandBufferManagerGpu::CreateDmabufBasedBuffer(
                      buffer_id));
 }
 
-void WaylandBufferManagerGpu::CreateShmBasedBuffer(
-    base::ScopedFD shm_fd,
-    size_t length,
-    gfx::Size size,
-    uint32_t buffer_id) {
+void WaylandBufferManagerGpu::CreateShmBasedBuffer(base::ScopedFD shm_fd,
+                                                   size_t length,
+                                                   gfx::Size size,
+                                                   uint32_t buffer_id) {
   if (!remote_host_) {
     LOG(ERROR) << "Interface is not bound. Can't request "
                   "WaylandBufferManagerHost to create/commit/destroy buffers.";
@@ -182,16 +206,35 @@ void WaylandBufferManagerGpu::CreateShmBasedBuffer(
                      std::move(size), buffer_id));
 }
 
+void WaylandBufferManagerGpu::CreateSolidColorBuffer(SkColor color,
+                                                     const gfx::Size& size,
+                                                     uint32_t buf_id) {
+  if (!remote_host_) {
+    LOG(ERROR) << "Interface is not bound. Can't request "
+                  "WaylandBufferManagerHost to create/commit/destroy buffers.";
+    return;
+  }
+
+  // Do the mojo call on the IO child thread.
+  io_thread_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&WaylandBufferManagerGpu::CreateSolidColorBufferInternal,
+                     base::Unretained(this), color, size, buf_id));
+}
+
 void WaylandBufferManagerGpu::CommitBuffer(gfx::AcceleratedWidget widget,
                                            uint32_t buffer_id,
                                            const gfx::Rect& bounds_rect,
+                                           float surface_scale_factor,
                                            const gfx::Rect& damage_region) {
   std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlay_configs;
   // This surface only commits one buffer per frame, use INT32_MIN to attach
   // the buffer to root_surface of wayland window.
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       INT32_MIN, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, buffer_id,
-      bounds_rect, gfx::RectF(), damage_region, false, gfx::GpuFenceHandle()));
+      surface_scale_factor, bounds_rect, gfx::RectF(1.f, 1.f) /* no crop */,
+      damage_region, false, 1.0f /*opacity*/, gfx::GpuFenceHandle(),
+      gfx::OverlayPriorityHint::kNone, std::vector<float>()));
 
   CommitOverlays(widget, std::move(overlay_configs));
 }
@@ -228,7 +271,7 @@ void WaylandBufferManagerGpu::DestroyBuffer(gfx::AcceleratedWidget widget,
 
 void WaylandBufferManagerGpu::AddBindingWaylandBufferManagerGpu(
     mojo::PendingReceiver<ozone::mojom::WaylandBufferManagerGpu> receiver) {
-  receiver_.Bind(std::move(receiver));
+  receiver_set_.Add(this, std::move(receiver));
 }
 
 const std::vector<uint64_t>&
@@ -271,6 +314,14 @@ void WaylandBufferManagerGpu::CreateShmBasedBufferInternal(
                                      length, size, buffer_id);
 }
 
+void WaylandBufferManagerGpu::CreateSolidColorBufferInternal(
+    SkColor color,
+    const gfx::Size& size,
+    uint32_t buf_id) {
+  DCHECK(io_thread_runner_->BelongsToCurrentThread());
+  remote_host_->CreateSolidColorBuffer(size, color, buf_id);
+}
+
 void WaylandBufferManagerGpu::CommitOverlaysInternal(
     gfx::AcceleratedWidget widget,
     std::vector<ozone::mojom::WaylandOverlayConfigPtr> overlays) {
@@ -287,6 +338,12 @@ void WaylandBufferManagerGpu::DestroyBufferInternal(
 
 void WaylandBufferManagerGpu::BindHostInterface(
     mojo::PendingRemote<ozone::mojom::WaylandBufferManagerHost> remote_host) {
+  // WaylandBufferManagerHost may bind host again after an error. See
+  // WaylandBufferManagerHost::BindInterface for more details.
+  if (remote_host_.is_bound()) {
+    remote_host_.reset();
+    associated_receiver_.reset();
+  }
   remote_host_.Bind(std::move(remote_host));
 
   // Setup associated interface.
@@ -315,12 +372,13 @@ void WaylandBufferManagerGpu::ForgetTaskRunnerForWidgetOnIOThread(
 void WaylandBufferManagerGpu::SubmitSwapResultOnOriginThread(
     gfx::AcceleratedWidget widget,
     uint32_t buffer_id,
-    gfx::SwapResult swap_result) {
+    gfx::SwapResult swap_result,
+    gfx::GpuFenceHandle release_fence) {
   DCHECK_NE(widget, gfx::kNullAcceleratedWidget);
   auto* surface = GetSurface(widget);
   // The surface might be destroyed by the time the swap result is provided.
   if (surface)
-    surface->OnSubmission(buffer_id, swap_result);
+    surface->OnSubmission(buffer_id, swap_result, std::move(release_fence));
 }
 
 void WaylandBufferManagerGpu::SubmitPresentationOnOriginThread(

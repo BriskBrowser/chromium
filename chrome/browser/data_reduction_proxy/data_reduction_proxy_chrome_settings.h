@@ -6,13 +6,10 @@
 #define CHROME_BROWSER_DATA_REDUCTION_PROXY_DATA_REDUCTION_PROXY_CHROME_SETTINGS_H_
 
 #include <memory>
-#include <string>
 
 #include "base/macros.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "net/http/http_response_headers.h"
 
 class PrefService;
 class Profile;
@@ -21,12 +18,7 @@ namespace base {
 class SequencedTaskRunner;
 }  // namespace base
 
-namespace content {
-class NavigationHandle;
-}
-
 namespace data_reduction_proxy {
-class DataReductionProxyData;
 class DataStore;
 }  // namespace data_reduction_proxy
 
@@ -62,6 +54,11 @@ class DataReductionProxyChromeSettings
   // the UI thread.
   explicit DataReductionProxyChromeSettings(bool is_off_the_record_profile);
 
+  DataReductionProxyChromeSettings(const DataReductionProxyChromeSettings&) =
+      delete;
+  DataReductionProxyChromeSettings& operator=(
+      const DataReductionProxyChromeSettings&) = delete;
+
   // Destructs the settings object.
   ~DataReductionProxyChromeSettings() override;
 
@@ -75,17 +72,8 @@ class DataReductionProxyChromeSettings
       std::unique_ptr<data_reduction_proxy::DataStore> store,
       const scoped_refptr<base::SequencedTaskRunner>& db_task_runner);
 
-  // Gets the client type for the data reduction proxy.
-  static data_reduction_proxy::Client GetClient();
-
   // Public for testing.
   void MigrateDataReductionProxyOffProxyPrefs(PrefService* prefs);
-
-  // Builds an instance of DataReductionProxyData from the given |handle| and
-  // |headers|.
-  std::unique_ptr<data_reduction_proxy::DataReductionProxyData>
-  CreateDataFromNavigationHandle(content::NavigationHandle* handle,
-                                 const net::HttpResponseHeaders* headers);
 
   HttpsImageCompressionInfoBarDecider*
   https_image_compression_infobar_decider() {
@@ -124,8 +112,6 @@ class DataReductionProxyChromeSettings
 
   // Null before InitDataReductionProxySettings is called.
   Profile* profile_;
-
-  DISALLOW_COPY_AND_ASSIGN(DataReductionProxyChromeSettings);
 };
 
 #endif  // CHROME_BROWSER_DATA_REDUCTION_PROXY_DATA_REDUCTION_PROXY_CHROME_SETTINGS_H_

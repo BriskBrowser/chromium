@@ -15,16 +15,24 @@
 #include <string>
 #include <vector>
 
-#include "base/optional.h"
 #include "base/time/time.h"
+#include "base/win/windows_types.h"
 #include "chrome/installer/util/lzma_util.h"
 #include "chrome/installer/util/util_constants.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+class GURL;
+class WorkItemList;
 
 namespace base {
 class CommandLine;
 class FilePath;
 class Version;
 }  // namespace base
+
+namespace enterprise_connectors {
+class KeyRotationManager;
+}  // namespace enterprise_connectors
 
 namespace installer {
 
@@ -136,15 +144,31 @@ void DoLegacyCleanups(const InstallerState& installer_state,
 // a null time in case of error.
 base::Time GetConsoleSessionStartTime();
 
-// Returns a DM token decoded from the base-64 |encoded_token|, or null in case
+// Returns a DM token decoded from the base-64 `encoded_token`, or null in case
 // of a decoding error.  The returned DM token is an opaque binary blob and
 // should not be treated as an ASCII or UTF-8 string.
-base::Optional<std::string> DecodeDMTokenSwitchValue(
+absl::optional<std::string> DecodeDMTokenSwitchValue(
     const std::wstring& encoded_token);
+
+// Returns a nonce decoded from the base-64 `encoded_nonce`, or null in case
+// of a decoding error.  The returned nonce is an opaque binary blob and
+// should not be treated as an ASCII or UTF-8 string.
+absl::optional<std::string> DecodeNonceSwitchValue(
+    const std::string& encoded_nonce);
 
 // Saves a DM token to a global location on the machine accessible to all
 // install modes of the browser (i.e., stable and all three side-by-side modes).
 bool StoreDMToken(const std::string& token);
+
+// Rotates the device trust signing key and saves it to a global location on
+// the machine accessible to all install modes of the browser (i.e., stable and
+// all three side-by-side modes).
+bool RotateDeviceTrustKey(
+    std::unique_ptr<enterprise_connectors::KeyRotationManager>
+        key_rotation_manager,
+    const GURL& dm_server_url,
+    const std::string& dm_token,
+    const std::string& nonce);
 
 // Returns the file path to notification_helper.exe (in |version| directory).
 base::FilePath GetNotificationHelperPath(const base::FilePath& target_path,
@@ -153,6 +177,12 @@ base::FilePath GetNotificationHelperPath(const base::FilePath& target_path,
 // Returns the file path to elevation_service.exe (in |version| directory).
 base::FilePath GetElevationServicePath(const base::FilePath& target_path,
                                        const base::Version& version);
+
+// Adds or removes downgrade version registry value.
+void AddUpdateDowngradeVersionItem(HKEY root,
+                                   const base::Version& current_version,
+                                   const base::Version& new_version,
+                                   WorkItemList* list);
 
 }  // namespace installer
 

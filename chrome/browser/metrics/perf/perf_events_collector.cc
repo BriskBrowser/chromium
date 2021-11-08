@@ -12,12 +12,12 @@
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/rand_util.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/metrics/perf/cpu_identity.h"
 #include "chrome/browser/metrics/perf/process_type_collector.h"
@@ -41,6 +41,10 @@ const base::Feature kCWPCollectionOnHostAndGuest{
 const char kParseFrequenciesHistogramName[] =
     "ChromeOS.CWP.ParseCPUFrequencies";
 
+// Name of the histogram that represents the success and various failure modes
+// for parsing PSI CPU data.
+const char kParsePSICPUHistogramName[] = "ChromeOS.CWP.ParsePSICPU";
+
 // Limit the total size of protobufs that can be cached, so they don't take up
 // too much memory. If the size of cached protobufs exceeds this value, stop
 // collecting further perf data. The current value is 4 MB.
@@ -49,6 +53,9 @@ const size_t kCachedPerfDataProtobufSizeThreshold = 4 * 1024 * 1024;
 // Name of the perf events collector. It is appended to the UMA metric names
 // for reporting collection and upload status.
 const char kPerfCollectorName[] = "Perf";
+
+// File path that stores PSI CPU data.
+const char kPSICPUPath[] = "/proc/pressure/cpu";
 
 // Gets parameter named by |key| from the map. If it is present and is an
 // integer, stores the result in |out| and return true. Otherwise return false.
@@ -97,6 +104,15 @@ bool MicroarchitectureHasCyclesPPPEvent(const std::string& uarch) {
          uarch == "Broadwell" || uarch == "Kabylake" || uarch == "Tigerlake";
 }
 
+// Returns if a kernel release properly flushes PEBS on a context switch. The
+// fix landed in kernel 5.12 upstream, but it was backported to CrOS kernels
+// 4.14, 4.19, 5.4 and 5.10.
+bool KernelReleaseHasPEBSFlushingFix(const std::string& release) {
+  int32_t major, minor, bugfix;
+  ExtractVersionNumbers(release, &major, &minor, &bugfix);
+  return major >= 5 || (major == 4 && minor >= 14);
+}
+
 // Returns if a micro-architecture supports LBR callgraph profiling.
 bool MicroarchitectureHasLBRCallgraph(const std::string& uarch) {
   return uarch == "Haswell" || uarch == "Broadwell" || uarch == "Skylake" ||
@@ -113,9 +129,17 @@ bool KernelReleaseHasLBRCallgraph(const std::string& release) {
 // Hopefully we never need a space in a command argument.
 const char kPerfCommandDelimiter[] = " ";
 
-// Collect precise=3 (:ppp) cycle events on microarchitectures that support it.
+// Collect precise=3 (:ppp) cycle events on microarchitectures and kernels that
+// support it.
+const char kPerfCyclesPPPCmd[] = "perf record -a -e cycles:ppp -c 1000003";
+
 const char kPerfFPCallgraphPPPCmd[] =
     "perf record -a -e cycles:ppp -g -c 4000037";
+
+const char kPerfLBRCallgraphPPPCmd[] =
+    "perf record -a -e cycles:ppp -c 4000037 --call-graph lbr";
+
+const char kPerfCyclesPPPHGCmd[] = "perf record -a -e cycles:pppHG -c 1000003";
 
 const char kPerfFPCallgraphPPPHGCmd[] =
     "perf record -a -e cycles:pppHG -g -c 4000037";
@@ -203,8 +227,18 @@ const std::vector<RandomSelector::WeightAndValue> GetDefaultCommands_x86_64(
   }
   if (MicroarchitectureHasCyclesPPPEvent(cpu_uarch)) {
     fp_callgraph_cmd = kPerfFPCallgraphPPPCmd;
-    if (base::FeatureList::IsEnabled(kCWPCollectionOnHostAndGuest))
+    if (base::FeatureList::IsEnabled(kCWPCollectionOnHostAndGuest)) {
       fp_callgraph_cmd = kPerfFPCallgraphPPPHGCmd;
+    }
+    // Enable precise events for cycles.flat and cycles.lbr only if the kernel
+    // has the fix for flushing PEBS on context switch.
+    if (KernelReleaseHasPEBSFlushingFix(cpuid.release)) {
+      cycles_cmd = kPerfCyclesPPPCmd;
+      lbr_callgraph_cmd = kPerfLBRCallgraphPPPCmd;
+      if (base::FeatureList::IsEnabled(kCWPCollectionOnHostAndGuest)) {
+        cycles_cmd = kPerfCyclesPPPHGCmd;
+      }
+    }
   }
 
   cmds.emplace_back(WeightAndValue(50.0, cycles_cmd));
@@ -254,7 +288,7 @@ const std::vector<RandomSelector::WeightAndValue> GetDefaultCommands_x86_64(
   return cmds;
 }
 
-void OnCollectProcessTypes(SampledProfile* sampled_profile) {
+void CollectProcessTypes(SampledProfile* sampled_profile) {
   std::map<uint32_t, Process> process_types =
       ProcessTypeCollector::ChromeProcessTypes();
   std::map<uint32_t, Thread> thread_types =
@@ -395,25 +429,24 @@ void PerfCollector::SetCollectionParamsFromVariationParams(
   int64_t value;
   CollectionParams& collector_params = collection_params();
   if (GetInt64Param(params, "ProfileCollectionDurationSec", &value)) {
-    collector_params.collection_duration = base::TimeDelta::FromSeconds(value);
+    collector_params.collection_duration = base::Seconds(value);
   }
   if (GetInt64Param(params, "PeriodicProfilingIntervalMs", &value)) {
-    collector_params.periodic_interval =
-        base::TimeDelta::FromMilliseconds(value);
+    collector_params.periodic_interval = base::Milliseconds(value);
   }
   if (GetInt64Param(params, "ResumeFromSuspend::SamplingFactor", &value)) {
     collector_params.resume_from_suspend.sampling_factor = value;
   }
   if (GetInt64Param(params, "ResumeFromSuspend::MaxDelaySec", &value)) {
     collector_params.resume_from_suspend.max_collection_delay =
-        base::TimeDelta::FromSeconds(value);
+        base::Seconds(value);
   }
   if (GetInt64Param(params, "RestoreSession::SamplingFactor", &value)) {
     collector_params.restore_session.sampling_factor = value;
   }
   if (GetInt64Param(params, "RestoreSession::MaxDelaySec", &value)) {
     collector_params.restore_session.max_collection_delay =
-        base::TimeDelta::FromSeconds(value);
+        base::Seconds(value);
   }
 
   const std::string best_cpu_specifier =
@@ -495,11 +528,59 @@ void PerfCollector::ParseOutputProtoIfValid(
 
   bool posted = base::ThreadPool::PostTaskAndReply(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
-      base::BindOnce(&OnCollectProcessTypes, sampled_profile.get()),
+      base::BindOnce(&PerfCollector::PostCollectionProfileAnnotation,
+                     sampled_profile.get(), has_cycles),
       base::BindOnce(&PerfCollector::SaveSerializedPerfProto,
                      weak_factory_.GetWeakPtr(), std::move(sampled_profile),
                      std::move(perf_stdout)));
   DCHECK(posted);
+}
+
+// static.
+void PerfCollector::PostCollectionProfileAnnotation(
+    SampledProfile* sampled_profile,
+    bool has_cycles) {
+  CollectProcessTypes(sampled_profile);
+  if (has_cycles)
+    PerfCollector::CollectPSICPU(sampled_profile, kPSICPUPath);
+}
+
+// static.
+void PerfCollector::CollectPSICPU(SampledProfile* sampled_profile,
+                                  const std::string& psi_cpu_path) {
+  // Example file content: some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+  const char kContentPrefix[] = "some";
+  std::string content;
+  if (!ReadFileToString(base::FilePath(psi_cpu_path), &content)) {
+    base::UmaHistogramEnumeration(kParsePSICPUHistogramName,
+                                  ParsePSICPUStatus::kReadFileFailed);
+    return;
+  }
+  base::StringPairs kv_pairs;
+  if (content.rfind(kContentPrefix) != 0 ||
+      !base::SplitStringIntoKeyValuePairs(content.substr(5), '=', ' ',
+                                          &kv_pairs)) {
+    base::UmaHistogramEnumeration(kParsePSICPUHistogramName,
+                                  ParsePSICPUStatus::kUnexpectedDataFormat);
+    return;
+  }
+  // The first pair has PSI CPU data for the last 10 seconds and the second
+  // pair has PSI CPU data for the last 60 seconds.
+  double psi_cpu_last_10s_pct;
+  double psi_cpu_last_60s_pct;
+  if (!base::StringToDouble(kv_pairs[0].second, &psi_cpu_last_10s_pct) ||
+      !base::StringToDouble(kv_pairs[1].second, &psi_cpu_last_60s_pct)) {
+    base::UmaHistogramEnumeration(kParsePSICPUHistogramName,
+                                  ParsePSICPUStatus::kParsePSIValueFailed);
+    return;
+  }
+
+  base::UmaHistogramEnumeration(kParsePSICPUHistogramName,
+                                ParsePSICPUStatus::kSuccess);
+  sampled_profile->set_psi_cpu_last_10s_pct(
+      static_cast<float>(psi_cpu_last_10s_pct));
+  sampled_profile->set_psi_cpu_last_60s_pct(
+      static_cast<float>(psi_cpu_last_60s_pct));
 }
 
 base::WeakPtr<internal::MetricCollector> PerfCollector::GetWeakPtr() {

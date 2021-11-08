@@ -6,16 +6,25 @@
 #define UI_OZONE_PLATFORM_DRM_GPU_HARDWARE_DISPLAY_PLANE_MANAGER_LEGACY_H_
 
 #include <stdint.h>
-#include <memory>
 
 #include "base/macros.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_plane_manager.h"
+
+namespace gfx {
+struct GpuFenceHandle;
+}  // namespace gfx
 
 namespace ui {
 
 class HardwareDisplayPlaneManagerLegacy : public HardwareDisplayPlaneManager {
  public:
   explicit HardwareDisplayPlaneManagerLegacy(DrmDevice* device);
+
+  HardwareDisplayPlaneManagerLegacy(const HardwareDisplayPlaneManagerLegacy&) =
+      delete;
+  HardwareDisplayPlaneManagerLegacy& operator=(
+      const HardwareDisplayPlaneManagerLegacy&) = delete;
+
   ~HardwareDisplayPlaneManagerLegacy() override;
 
   // HardwareDisplayPlaneManager:
@@ -23,7 +32,7 @@ class HardwareDisplayPlaneManagerLegacy : public HardwareDisplayPlaneManager {
 
   bool Commit(HardwareDisplayPlaneList* plane_list,
               scoped_refptr<PageFlipRequest> page_flip_request,
-              std::unique_ptr<gfx::GpuFence>* out_fence) override;
+              gfx::GpuFenceHandle* release_fence) override;
   bool DisableOverlayPlanes(HardwareDisplayPlaneList* plane_list) override;
 
   bool SetColorCorrectionOnAllCrtcPlanes(
@@ -49,9 +58,6 @@ class HardwareDisplayPlaneManagerLegacy : public HardwareDisplayPlaneManager {
                     uint32_t crtc_index) const override;
   bool CommitColorMatrix(const CrtcProperties& crtc_props) override;
   bool CommitGammaCorrection(const CrtcProperties& crtc_props) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(HardwareDisplayPlaneManagerLegacy);
 };
 
 }  // namespace ui

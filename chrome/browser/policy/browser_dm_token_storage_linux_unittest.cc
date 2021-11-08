@@ -14,7 +14,7 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "base/test/scoped_path_override.h"
 #include "chrome/common/chrome_paths.h"
 #include "content/public/test/browser_task_environment.h"
@@ -59,8 +59,8 @@ TEST_F(BrowserDMTokenStorageLinuxTest, InitEnrollmentToken) {
   base::ScopedTempDir fake_policy_dir;
 
   ASSERT_TRUE(fake_policy_dir.CreateUniqueTempDir());
-  path_override.reset(new base::ScopedPathOverride(chrome::DIR_POLICY_FILES,
-                                                   fake_policy_dir.GetPath()));
+  path_override = std::make_unique<base::ScopedPathOverride>(
+      chrome::DIR_POLICY_FILES, fake_policy_dir.GetPath());
 
   base::FilePath dir_policy_files_path;
   ASSERT_TRUE(
@@ -82,8 +82,8 @@ TEST_F(BrowserDMTokenStorageLinuxTest, InitDMToken) {
   base::ScopedTempDir fake_user_data_dir;
 
   ASSERT_TRUE(fake_user_data_dir.CreateUniqueTempDir());
-  path_override.reset(new base::ScopedPathOverride(
-      chrome::DIR_USER_DATA, fake_user_data_dir.GetPath()));
+  path_override = std::make_unique<base::ScopedPathOverride>(
+      chrome::DIR_USER_DATA, fake_user_data_dir.GetPath());
 
   base::FilePath dir_user_data_path;
   ASSERT_TRUE(
@@ -105,8 +105,8 @@ TEST_F(BrowserDMTokenStorageLinuxTest, InitDMTokenWithoutDirectory) {
   base::ScopedTempDir fake_user_data_dir;
 
   ASSERT_TRUE(fake_user_data_dir.CreateUniqueTempDir());
-  path_override.reset(new base::ScopedPathOverride(
-      chrome::DIR_USER_DATA, fake_user_data_dir.GetPath()));
+  path_override = std::make_unique<base::ScopedPathOverride>(
+      chrome::DIR_USER_DATA, fake_user_data_dir.GetPath());
 
   base::FilePath dm_token_dir_path =
       fake_user_data_dir.GetPath().Append(kDmTokenBaseDir);
@@ -150,8 +150,8 @@ TEST_F(BrowserDMTokenStorageLinuxTest, SaveDMToken) {
   base::ScopedTempDir fake_user_data_dir;
 
   ASSERT_TRUE(fake_user_data_dir.CreateUniqueTempDir());
-  path_override.reset(new base::ScopedPathOverride(
-      chrome::DIR_USER_DATA, fake_user_data_dir.GetPath()));
+  path_override = std::make_unique<base::ScopedPathOverride>(
+      chrome::DIR_USER_DATA, fake_user_data_dir.GetPath());
 
   MockBrowserDMTokenStorageLinux storage_delegate;
   auto task = storage_delegate.SaveDMTokenTask(kDMToken,

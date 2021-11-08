@@ -28,11 +28,10 @@
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/path_service.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
@@ -49,6 +48,7 @@
 #include "services/network/cookie_access_delegate_impl.h"
 #include "services/network/network_service.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/url_constants.h"
 
 using base::WaitableEvent;
@@ -465,7 +465,8 @@ void CookieManager::SetCookieHelper(const GURL& host,
       host, value, workaround_http_secure_cookies_, &should_allow_cookie);
 
   std::unique_ptr<net::CanonicalCookie> cc(net::CanonicalCookie::Create(
-      new_host, value, base::Time::Now(), base::nullopt /* server_time */));
+      new_host, value, base::Time::Now(), absl::nullopt /* server_time */,
+      net::CookiePartitionKey::Todo()));
 
   if (!cc || !should_allow_cookie) {
     MaybeRunCookieCallback(std::move(callback), false);
@@ -511,12 +512,12 @@ void CookieManager::GetCookieListAsyncHelper(const GURL& host,
 
   if (GetMojoCookieManager()) {
     GetMojoCookieManager()->GetCookieList(
-        host, options,
+        host, options, net::CookiePartitionKeychain::Todo(),
         base::BindOnce(&CookieManager::GetCookieListCompleted,
                        base::Unretained(this), std::move(complete), result));
   } else {
     GetCookieStore()->GetCookieListWithOptionsAsync(
-        host, options,
+        host, options, net::CookiePartitionKeychain::Todo(),
         base::BindOnce(&CookieManager::GetCookieListCompleted,
                        base::Unretained(this), std::move(complete), result));
   }

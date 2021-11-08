@@ -25,6 +25,7 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/mojom/early_hints.mojom.h"
 #include "url/gurl.h"
 
 BackForwardSearchPrefetchURLLoader::BackForwardSearchPrefetchURLLoader(
@@ -59,13 +60,12 @@ void BackForwardSearchPrefetchURLLoader::SetUpForwardingClient(
   prefetch_request.load_flags |= net::LOAD_ONLY_FROM_CACHE;
   prefetch_request.url = prefetch_url_;
 
-  auto url_loader_factory =
-      content::BrowserContext::GetDefaultStoragePartition(profile_)
-          ->GetURLLoaderFactoryForBrowserProcess();
+  auto url_loader_factory = profile_->GetDefaultStoragePartition()
+                                ->GetURLLoaderFactoryForBrowserProcess();
 
   // Create a network service URL loader with passed in params.
   url_loader_factory->CreateLoaderAndStart(
-      network_url_loader_.BindNewPipeAndPassReceiver(), 0, 0,
+      network_url_loader_.BindNewPipeAndPassReceiver(), 0,
       network::mojom::kURLLoadOptionNone, prefetch_request,
       url_loader_receiver_.BindNewPipeAndPassRemote(
           base::ThreadTaskRunnerHandle::Get()),
@@ -97,13 +97,12 @@ void BackForwardSearchPrefetchURLLoader::RestartDirect() {
   if (service)
     service->ClearCacheEntry(resource_request_->url);
 
-  auto url_loader_factory =
-      content::BrowserContext::GetDefaultStoragePartition(profile_)
-          ->GetURLLoaderFactoryForBrowserProcess();
+  auto url_loader_factory = profile_->GetDefaultStoragePartition()
+                                ->GetURLLoaderFactoryForBrowserProcess();
 
   // Create a network service URL loader with passed in params.
   url_loader_factory->CreateLoaderAndStart(
-      network_url_loader_.BindNewPipeAndPassReceiver(), 0, 0,
+      network_url_loader_.BindNewPipeAndPassReceiver(), 0,
       network::mojom::kURLLoadOptionNone, *resource_request_,
       url_loader_receiver_.BindNewPipeAndPassRemote(
           base::ThreadTaskRunnerHandle::Get()),
@@ -114,6 +113,12 @@ void BackForwardSearchPrefetchURLLoader::RestartDirect() {
   if (paused_) {
     network_url_loader_->PauseReadingBodyFromNet();
   }
+}
+
+void BackForwardSearchPrefetchURLLoader::OnReceiveEarlyHints(
+    network::mojom::EarlyHintsPtr early_hints) {
+  DCHECK(forwarding_client_);
+  forwarding_client_->OnReceiveEarlyHints(std::move(early_hints));
 }
 
 void BackForwardSearchPrefetchURLLoader::OnReceiveResponse(
@@ -199,7 +204,7 @@ void BackForwardSearchPrefetchURLLoader::FollowRedirect(
     const std::vector<std::string>& removed_headers,
     const net::HttpRequestHeaders& modified_headers,
     const net::HttpRequestHeaders& modified_cors_exempt_headers,
-    const base::Optional<GURL>& new_url) {
+    const absl::optional<GURL>& new_url) {
   // This should never be called for a non-network service URLLoader.
   NOTREACHED();
 }

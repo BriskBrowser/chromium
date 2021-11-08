@@ -6,12 +6,12 @@
 #define CHROME_BROWSER_UI_VIEWS_DEVICE_CHOOSER_CONTENT_VIEW_H_
 
 #include <memory>
+#include <string>
 
-#include "base/strings/string16.h"
-#include "chrome/browser/chooser_controller/chooser_controller.h"
+#include "components/permissions/chooser_controller.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/models/table_model.h"
 #include "ui/gfx/range/range.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -27,12 +27,12 @@ class Throbber;
 // Used for WebUSB/WebBluetooth device selection for Chrome and extensions.
 class DeviceChooserContentView : public views::View,
                                  public ui::TableModel,
-                                 public ChooserController::View {
+                                 public permissions::ChooserController::View {
  public:
   METADATA_HEADER(DeviceChooserContentView);
   DeviceChooserContentView(
       views::TableViewObserver* table_view_observer,
-      std::unique_ptr<ChooserController> chooser_controller);
+      std::unique_ptr<permissions::ChooserController> chooser_controller);
   DeviceChooserContentView(const DeviceChooserContentView&) = delete;
   DeviceChooserContentView& operator=(const DeviceChooserContentView&) = delete;
   ~DeviceChooserContentView() override;
@@ -42,11 +42,11 @@ class DeviceChooserContentView : public views::View,
 
   // ui::TableModel:
   int RowCount() override;
-  base::string16 GetText(int row, int column_id) override;
+  std::u16string GetText(int row, int column_id) override;
   void SetObserver(ui::TableModelObserver* observer) override;
-  gfx::ImageSkia GetIcon(int row) override;
+  ui::ImageModel GetIcon(int row) override;
 
-  // ChooserController::View:
+  // permissions::ChooserController::View:
   void OnOptionsInitialized() override;
   void OnOptionAdded(size_t index) override;
   void OnOptionRemoved(size_t index) override;
@@ -58,7 +58,7 @@ class DeviceChooserContentView : public views::View,
   // Note that there is no way to update the window title - for any given
   // instance of DeviceChooserContentView, this method is only called once to
   // initially set the window title.
-  base::string16 GetWindowTitle() const;
+  std::u16string GetWindowTitle() const;
   std::unique_ptr<views::View> CreateExtraView();
   bool IsDialogButtonEnabled(ui::DialogButton button) const;
   void Accept();
@@ -80,7 +80,7 @@ class DeviceChooserContentView : public views::View,
  private:
   friend class DeviceChooserContentViewTest;
 
-  std::unique_ptr<ChooserController> chooser_controller_;
+  std::unique_ptr<permissions::ChooserController> chooser_controller_;
 
   // Boolean reflecting the status of the device adapter. For example if the
   // user has bluetooth turned on or off on their device. This is used to

@@ -7,10 +7,11 @@
 #include <list>
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/debug/alias.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
@@ -52,6 +53,9 @@ struct ClassInfo {
 // WARNING: this class may be used on multiple threads.
 class ClassRegistrar {
  public:
+  ClassRegistrar(const ClassRegistrar&) = delete;
+  ClassRegistrar& operator=(const ClassRegistrar&) = delete;
+
   ~ClassRegistrar();
 
   static ClassRegistrar* GetInstance();
@@ -93,8 +97,6 @@ class ClassRegistrar {
   int registered_count_;
 
   base::Lock lock_;
-
-  DISALLOW_COPY_AND_ASSIGN(ClassRegistrar);
 };
 
 ClassRegistrar::~ClassRegistrar() {}

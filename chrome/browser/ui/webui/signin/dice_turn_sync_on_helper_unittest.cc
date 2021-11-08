@@ -16,6 +16,7 @@
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/enterprise/browser_management/management_service_factory.h"
 #include "chrome/browser/policy/cloud/user_policy_signin_service.h"
 #include "chrome/browser/policy/cloud/user_policy_signin_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -25,7 +26,9 @@
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
 #include "chrome/browser/signin/test_signin_client_builder.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
+#include "chrome/browser/ui/webui/signin/signin_ui_error.h"
+#include "chrome/test/base/fake_profile_manager.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
@@ -33,10 +36,12 @@
 #include "components/policy/core/common/management/management_service.h"
 #include "components/policy/core/common/management/scoped_management_service_override_for_testing.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/base/account_consistency_method.h"
 #include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
+#include "components/signin/public/identity_manager/primary_account_mutator.h"
 #include "components/sync/driver/mock_sync_service.h"
 #include "components/sync/driver/sync_user_settings_mock.h"
 #include "components/unified_consent/url_keyed_data_collection_consent_helper.h"
@@ -44,6 +49,7 @@
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 using ::testing::AtLeast;
 using ::testing::Return;
@@ -55,13 +61,14 @@ namespace {
 const char kEmail[] = "foo@gmail.com";
 const char kPreviousEmail[] = "notme@bar.com";
 const char kEnterpriseEmail[] = "enterprise@managed.com";
+const char kEnterpriseHostedDomain[] = "managed.com";
 
 const signin_metrics::AccessPoint kAccessPoint =
     signin_metrics::AccessPoint::ACCESS_POINT_BOOKMARK_MANAGER;
 const signin_metrics::PromoAction kSigninPromoAction =
     signin_metrics::PromoAction::PROMO_ACTION_WITH_DEFAULT;
 const signin_metrics::Reason kSigninReason =
-    signin_metrics::Reason::REASON_REAUTHENTICATION;
+    signin_metrics::Reason::kReauthentication;
 
 // Builds a testing profile with the right setup for this test.
 std::unique_ptr<TestingProfile> BuildTestingProfile(
@@ -78,19 +85,19 @@ class TestDiceTurnSyncOnHelperDelegate : public DiceTurnSyncOnHelper::Delegate {
 
  private:
   // DiceTurnSyncOnHelper::Delegate:
-  void ShowLoginError(const std::string& email,
-                      const std::string& error_message) override;
+  void ShowLoginError(const SigninUIError& error) override;
   void ShowMergeSyncDataConfirmation(
       const std::string& previous_email,
       const std::string& new_email,
       DiceTurnSyncOnHelper::SigninChoiceCallback callback) override;
   void ShowEnterpriseAccountConfirmation(
-      const std::string& email,
+      const AccountInfo& account_info,
       DiceTurnSyncOnHelper::SigninChoiceCallback callback) override;
   void ShowSyncConfirmation(
       base::OnceCallback<void(LoginUIService::SyncConfirmationUIClosedResult)>
           callback) override;
   void ShowSyncDisabledConfirmation(
+      bool is_managed_account,
       base::OnceCallback<void(LoginUIService::SyncConfirmationUIClosedResult)>
           callback) override;
   void ShowSyncSettings() override;
@@ -99,39 +106,25 @@ class TestDiceTurnSyncOnHelperDelegate : public DiceTurnSyncOnHelper::Delegate {
   DiceTurnSyncOnHelperTest* test_fixture_;
 };
 
-// Simple ProfileManager creating testing profiles.
-class UnittestProfileManager : public ProfileManagerWithoutInit {
+// Simple ProfileManager creating testing profiles and allowing to register a
+// callback for the next profile creation.
+class UnittestProfileManager : public FakeProfileManager {
  public:
   explicit UnittestProfileManager(const base::FilePath& user_data_dir)
-      : ProfileManagerWithoutInit(user_data_dir) {}
+      : FakeProfileManager(user_data_dir) {}
 
- public:
   void NextProfileCreatedCallback(
       base::OnceCallback<void(Profile*)> next_profile_created_callback) {
     next_profile_created_callback_ = std::move(next_profile_created_callback);
   }
 
- protected:
-  std::unique_ptr<Profile> CreateProfileHelper(
-      const base::FilePath& path) override {
-    if (!base::PathExists(path) && !base::CreateDirectory(path))
-      return nullptr;
-    auto profile = BuildTestingProfile(path, /*delegate=*/nullptr);
-    if (next_profile_created_callback_)
-      std::move(next_profile_created_callback_).Run(profile.get());
-    return std::move(profile);
-  }
-
-  std::unique_ptr<Profile> CreateProfileAsyncHelper(
+  std::unique_ptr<TestingProfile> BuildTestingProfile(
       const base::FilePath& path,
       Delegate* delegate) override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(base::IgnoreResult(&base::CreateDirectory), path));
-    auto profile = BuildTestingProfile(path, this);
+    auto profile = ::BuildTestingProfile(path, delegate);
     if (next_profile_created_callback_)
       std::move(next_profile_created_callback_).Run(profile.get());
-    return std::move(profile);
+    return profile;
   }
 
  private:
@@ -198,8 +191,7 @@ class FakeUserPolicySigninService : public policy::UserPolicySigninService {
 std::unique_ptr<KeyedService> BuildMockSyncService(
     content::BrowserContext* context) {
   auto service = std::make_unique<testing::NiceMock<syncer::MockSyncService>>();
-  ON_CALL(*service, IsAuthenticatedAccountPrimary())
-      .WillByDefault(Return(true));
+  ON_CALL(*service, HasSyncConsent()).WillByDefault(Return(true));
   return service;
 }
 
@@ -210,15 +202,19 @@ std::unique_ptr<TestingProfile> BuildTestingProfile(
   profile_builder.AddTestingFactory(
       ChromeSigninClientFactory::GetInstance(),
       base::BindRepeating(&signin::BuildTestSigninClient));
-  profile_builder.AddTestingFactory(ProfileSyncServiceFactory::GetInstance(),
+  profile_builder.AddTestingFactory(SyncServiceFactory::GetInstance(),
                                     base::BindRepeating(&BuildMockSyncService));
   profile_builder.AddTestingFactory(
       policy::UserPolicySigninServiceFactory::GetInstance(),
       base::BindRepeating(&FakeUserPolicySigninService::Build));
   profile_builder.SetDelegate(delegate);
   profile_builder.SetPath(path);
+  // Use |signin::AccountConsistencyMethod::kDice| to ensure that profiles are
+  // treated as they would when DICE is enabled and profiles are cleared when
+  // sync is revoked only is there is a refresh token error..
   return IdentityTestEnvironmentProfileAdaptor::
-      CreateProfileForIdentityTestEnvironment(profile_builder);
+      CreateProfileForIdentityTestEnvironment(
+          profile_builder, signin::AccountConsistencyMethod::kDice);
 }
 
 }  // namespace
@@ -227,27 +223,12 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
  public:
   DiceTurnSyncOnHelperTest()
       : local_state_(TestingBrowserProcess::GetGlobal()) {
-    // The sync service and waits for policies to load before starting for
-    // enterprise users, managed devices and browsers. This means that services
-    // depending on it might have to wait too. By setting the management
-    // authorities to none by default, we assume that the default test is on an
-    // unmanaged device and browser thus we avoid unnecessarily waiting for
-    // policies to load. Tests expecting either an enterprise user, a managed
-    // device or browser should add the appropriate management authorities.
-    browser_management_ =
-        std::make_unique<policy::ScopedManagementServiceOverrideForTesting>(
-            policy::ManagementTarget::BROWSER,
-            base::flat_set<policy::EnterpriseManagementAuthority>());
-    platform_management_ =
-        std::make_unique<policy::ScopedManagementServiceOverrideForTesting>(
-            policy::ManagementTarget::PLATFORM,
-            base::flat_set<policy::EnterpriseManagementAuthority>());
   }
 
   void SetUp() override {
     EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
     TestingBrowserProcess::GetGlobal()->SetProfileManager(
-        new UnittestProfileManager(temp_dir_.GetPath()));
+        std::make_unique<UnittestProfileManager>(temp_dir_.GetPath()));
 
     profile_ = BuildTestingProfile(base::FilePath(), /*delegate=*/nullptr);
     identity_test_env_profile_adaptor_ =
@@ -270,6 +251,7 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
 
   // Basic accessors.
   Profile* profile() { return profile_.get(); }
+  Profile* new_profile() { return new_profile_; }
   signin::IdentityTestEnvironment* identity_test_env() {
     return identity_test_env_profile_adaptor_->identity_test_env();
   }
@@ -302,7 +284,7 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
 
   syncer::MockSyncService* GetMockSyncService(Profile* profile) {
     return static_cast<syncer::MockSyncService*>(
-        ProfileSyncServiceFactory::GetForProfile(profile));
+        SyncServiceFactory::GetForProfile(profile));
   }
 
   DiceTurnSyncOnHelper* CreateDiceTurnOnSyncHelper(
@@ -314,9 +296,17 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
   }
 
   void UseEnterpriseAccount() {
-    account_id_ =
-        identity_test_env()->MakeAccountAvailable(kEnterpriseEmail).account_id;
+    CoreAccountInfo core_account_info =
+        identity_test_env()->MakeAccountAvailable(kEnterpriseEmail);
+    account_id_ = core_account_info.account_id;
     user_policy_signin_service_->set_account(account_id_, kEnterpriseEmail);
+
+    // Update the account info to have a consistent hosted domain field.
+    AccountInfo account_info =
+        identity_manager()->FindExtendedAccountInfo(core_account_info);
+    EXPECT_FALSE(account_info.IsEmpty());
+    account_info.hosted_domain = kEnterpriseHostedDomain;
+    signin::UpdateAccountInfoForAccount(identity_manager(), account_info);
   }
 
   void UseInvalidAccount() { account_id_ = CoreAccountId("invalid_account"); }
@@ -354,28 +344,25 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
   }
 
   void CheckDelegateCalls() {
-    EXPECT_EQ(expected_login_error_email_, login_error_email_);
-    EXPECT_EQ(expected_login_error_message_, login_error_message_);
+    EXPECT_EQ(expected_login_error_, login_error_);
     EXPECT_EQ(expected_merge_data_previous_email_, merge_data_previous_email_);
     EXPECT_EQ(expected_merge_data_new_email_, merge_data_new_email_);
     EXPECT_EQ(expected_enterprise_confirmation_email_,
               enterprise_confirmation_email_);
     EXPECT_EQ(expected_switched_to_new_profile_, switched_to_new_profile_);
     EXPECT_EQ(expected_sync_confirmation_shown_, sync_confirmation_shown_);
-    EXPECT_EQ(expected_sync_disabled_confirmation_shown_,
-              sync_disabled_confirmation_shown_);
+    EXPECT_EQ(expected_sync_disabled_confirmation_,
+              sync_disabled_confirmation_);
     EXPECT_EQ(expected_sync_settings_shown_, sync_settings_shown_);
   }
 
   // Functions called by the DiceTurnSyncOnHelper::Delegate:
-  void OnShowLoginError(const std::string& email,
-                        const std::string& error_message) {
+  void OnShowLoginError(const SigninUIError& error) {
     EXPECT_FALSE(sync_confirmation_shown_);
-    EXPECT_FALSE(email.empty());
-    EXPECT_TRUE(login_error_email_.empty())
+    EXPECT_FALSE(error.IsOk());
+    EXPECT_FALSE(login_error_.has_value())
         << "Login error should be shown only once.";
-    login_error_email_ = email;
-    login_error_message_ = error_message;  // May be empty.
+    login_error_ = error;
   }
 
   void OnShowMergeSyncDataConfirmation(
@@ -396,13 +383,13 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
   }
 
   void OnShowEnterpriseAccountConfirmation(
-      const std::string& email,
+      const AccountInfo& account_info,
       DiceTurnSyncOnHelper::SigninChoiceCallback callback) {
     EXPECT_FALSE(sync_confirmation_shown_);
-    EXPECT_FALSE(email.empty());
+    EXPECT_FALSE(account_info.email.empty());
     EXPECT_TRUE(enterprise_confirmation_email_.empty())
         << "Enterprise confirmation should be shown only once.";
-    enterprise_confirmation_email_ = email;
+    enterprise_confirmation_email_ = account_info.email;
     if (run_delegate_callbacks_)
       std::move(callback).Run(enterprise_choice_);
   }
@@ -418,11 +405,13 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
   }
 
   void OnShowSyncDisabledConfirmation(
+      bool is_managed_account,
       base::OnceCallback<void(LoginUIService::SyncConfirmationUIClosedResult)>
           callback) {
-    EXPECT_FALSE(sync_disabled_confirmation_shown_)
+    EXPECT_EQ(sync_disabled_confirmation_, kNotShown)
         << "Sync disabled confirmation should be shown only once.";
-    sync_disabled_confirmation_shown_ = true;
+    sync_disabled_confirmation_ =
+        is_managed_account ? kShownManaged : kShownNonManaged;
     if (run_delegate_callbacks_)
       std::move(callback).Run(sync_confirmation_result_);
   }
@@ -451,28 +440,16 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
     EXPECT_NE(initial_device_id(),
               GetSigninScopedDeviceIdForProfile(new_profile));
 
+    new_profile_ = new_profile;
     switched_to_new_profile_ = true;
   }
 
   void OnDelegateDestroyed() { ++delegate_destroyed_; }
 
-  void SetBrowserManagementAuthorities(
-      base::flat_set<policy::EnterpriseManagementAuthority> authorities) {
-    browser_management_.reset();
-    browser_management_ =
-        std::make_unique<policy::ScopedManagementServiceOverrideForTesting>(
-            policy::ManagementTarget::BROWSER, std::move(authorities));
-  }
-
-  void SetPlatformManagementAuthorities(
-      base::flat_set<policy::EnterpriseManagementAuthority> authorities) {
-    platform_management_.reset();
-    platform_management_ =
-        std::make_unique<policy::ScopedManagementServiceOverrideForTesting>(
-            policy::ManagementTarget::PLATFORM, std::move(authorities));
-  }
-
  protected:
+  // Type of sync disabled confirmation shown.
+  enum SyncDisabledConfirmation { kNotShown, kShownManaged, kShownNonManaged };
+
   // Delegate behavior.
   DiceTurnSyncOnHelper::SigninChoice merge_data_choice_ =
       DiceTurnSyncOnHelper::SIGNIN_CHOICE_CANCEL;
@@ -483,14 +460,13 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
   bool run_delegate_callbacks_ = true;
 
   // Expected delegate calls.
-  std::string expected_login_error_email_;
-  std::string expected_login_error_message_;
+  absl::optional<SigninUIError> expected_login_error_;
   std::string expected_enterprise_confirmation_email_;
   std::string expected_merge_data_previous_email_;
   std::string expected_merge_data_new_email_;
   bool expected_switched_to_new_profile_ = false;
   bool expected_sync_confirmation_shown_ = false;
-  bool expected_sync_disabled_confirmation_shown_ = false;
+  SyncDisabledConfirmation expected_sync_disabled_confirmation_ = kNotShown;
   bool expected_sync_settings_shown_ = false;
 
  private:
@@ -512,14 +488,14 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
 
   // State of the delegate calls.
   int delegate_destroyed_ = 0;
-  std::string login_error_email_;
-  std::string login_error_message_;
+  absl::optional<SigninUIError> login_error_;
   std::string enterprise_confirmation_email_;
   std::string merge_data_previous_email_;
   std::string merge_data_new_email_;
   bool switched_to_new_profile_ = false;
+  Profile* new_profile_ = nullptr;
   bool sync_confirmation_shown_ = false;
-  bool sync_disabled_confirmation_shown_ = false;
+  SyncDisabledConfirmation sync_disabled_confirmation_ = kNotShown;
   bool sync_settings_shown_ = false;
 };
 
@@ -532,9 +508,8 @@ TestDiceTurnSyncOnHelperDelegate::~TestDiceTurnSyncOnHelperDelegate() {
 }
 
 void TestDiceTurnSyncOnHelperDelegate::ShowLoginError(
-    const std::string& email,
-    const std::string& error_message) {
-  test_fixture_->OnShowLoginError(email, error_message);
+    const SigninUIError& error) {
+  test_fixture_->OnShowLoginError(error);
 }
 
 void TestDiceTurnSyncOnHelperDelegate::ShowMergeSyncDataConfirmation(
@@ -546,9 +521,9 @@ void TestDiceTurnSyncOnHelperDelegate::ShowMergeSyncDataConfirmation(
 }
 
 void TestDiceTurnSyncOnHelperDelegate::ShowEnterpriseAccountConfirmation(
-    const std::string& email,
+    const AccountInfo& account_info,
     DiceTurnSyncOnHelper::SigninChoiceCallback callback) {
-  test_fixture_->OnShowEnterpriseAccountConfirmation(email,
+  test_fixture_->OnShowEnterpriseAccountConfirmation(account_info,
                                                      std::move(callback));
 }
 
@@ -559,9 +534,11 @@ void TestDiceTurnSyncOnHelperDelegate::ShowSyncConfirmation(
 }
 
 void TestDiceTurnSyncOnHelperDelegate::ShowSyncDisabledConfirmation(
+    bool is_managed_account,
     base::OnceCallback<void(LoginUIService::SyncConfirmationUIClosedResult)>
         callback) {
-  test_fixture_->OnShowSyncDisabledConfirmation(std::move(callback));
+  test_fixture_->OnShowSyncDisabledConfirmation(is_managed_account,
+                                                std::move(callback));
 }
 
 void TestDiceTurnSyncOnHelperDelegate::ShowSyncSettings() {
@@ -584,7 +561,7 @@ TEST_F(DiceTurnSyncOnHelperTest, InvalidAccount) {
 // Tests that the login error is displayed and that the account is kept.
 TEST_F(DiceTurnSyncOnHelperTest, CanOfferSigninErrorKeepAccount) {
   // Set expectations.
-  expected_login_error_email_ = kEmail;
+  expected_login_error_ = SigninUIError::Other(kEmail);
   // Configure the test.
   profile()->GetPrefs()->SetBoolean(prefs::kSigninAllowed, false);
   // Signin flow.
@@ -601,7 +578,7 @@ TEST_F(DiceTurnSyncOnHelperTest, CanOfferSigninErrorKeepAccount) {
 // Tests that the login error is displayed and that the account is removed.
 TEST_F(DiceTurnSyncOnHelperTest, CanOfferSigninErrorRemoveAccount) {
   // Set expectations.
-  expected_login_error_email_ = kEmail;
+  expected_login_error_ = SigninUIError::Other(kEmail);
   // Configure the test.
   profile()->GetPrefs()->SetBoolean(prefs::kSigninAllowed, false);
   // Signin flow.
@@ -619,7 +596,7 @@ TEST_F(DiceTurnSyncOnHelperTest, CanOfferSigninErrorRemoveAccount) {
 // removed upon the ABORT_SYNC action.
 TEST_F(DiceTurnSyncOnHelperTest, SyncDisabledAbortRemoveAccount) {
   // Set expectations.
-  expected_sync_disabled_confirmation_shown_ = true;
+  expected_sync_disabled_confirmation_ = kShownNonManaged;
   SetExpectationsForSyncDisabled(profile());
   // Configure the test.
   sync_confirmation_result_ =
@@ -642,7 +619,7 @@ TEST_F(DiceTurnSyncOnHelperTest, SyncDisabledAbortRemoveAccount) {
 // removed upon the ABORT_SYNC action (despite SigninAbortedMode::KEEP_ACCOUNT).
 TEST_F(DiceTurnSyncOnHelperTest, SyncDisabledAbortKeepAccount) {
   // Set expectations.
-  expected_sync_disabled_confirmation_shown_ = true;
+  expected_sync_disabled_confirmation_ = kShownNonManaged;
   SetExpectationsForSyncDisabled(profile());
   // Configure the test.
   sync_confirmation_result_ =
@@ -665,7 +642,32 @@ TEST_F(DiceTurnSyncOnHelperTest, SyncDisabledAbortKeepAccount) {
 // kept upon the SYNC_WITH_DEFAULT_SETTINGS action.
 TEST_F(DiceTurnSyncOnHelperTest, SyncDisabledContinueKeepAccount) {
   // Set expectations.
-  expected_sync_disabled_confirmation_shown_ = true;
+  expected_sync_disabled_confirmation_ = kShownNonManaged;
+  SetExpectationsForSyncDisabled(profile());
+  // Configure the test.
+  sync_confirmation_result_ = LoginUIService::SyncConfirmationUIClosedResult::
+      SYNC_WITH_DEFAULT_SETTINGS;
+
+  // Signin flow.
+  EXPECT_FALSE(
+      identity_manager()->HasPrimaryAccount(signin::ConsentLevel::kSync));
+  CreateDiceTurnOnSyncHelper(
+      DiceTurnSyncOnHelper::SigninAbortedMode::REMOVE_ACCOUNT);
+  base::RunLoop().RunUntilIdle();
+  // Check expectations.
+  EXPECT_TRUE(
+      identity_manager()->HasPrimaryAccount(signin::ConsentLevel::kSync));
+  EXPECT_TRUE(identity_manager()->HasAccountWithRefreshToken(account_id()));
+  CheckDelegateCalls();
+}
+
+// Tests that the sync disabled message is displayed and that the account is
+// kept upon the SYNC_WITH_DEFAULT_SETTINGS action.
+TEST_F(DiceTurnSyncOnHelperTest, SyncDisabledManagedContinueKeepAccount) {
+  // Reset the account info to be an enterprise account.
+  UseEnterpriseAccount();
+  // Set expectations.
+  expected_sync_disabled_confirmation_ = kShownManaged;
   SetExpectationsForSyncDisabled(profile());
   // Configure the test.
   sync_confirmation_result_ = LoginUIService::SyncConfirmationUIClosedResult::
@@ -806,6 +808,42 @@ TEST_F(DiceTurnSyncOnHelperTest, EnterpriseConfirmationNewProfile) {
   CheckDelegateCalls();
 }
 
+// Test that the unconsented primary account is kept if the user creates a new
+// account and cancels sync activation.
+TEST_F(DiceTurnSyncOnHelperTest, SignedInAccountUndoSyncKeepAccount) {
+  // Set expectations.
+  expected_enterprise_confirmation_email_ = kEnterpriseEmail;
+  expected_switched_to_new_profile_ = true;
+  expected_sync_confirmation_shown_ = true;
+  sync_confirmation_result_ =
+      LoginUIService::SyncConfirmationUIClosedResult::ABORT_SYNC;
+  SetExpectationsForSyncStartupCompletedForNextProfileCreated();
+  // Configure the test.
+  user_policy_signin_service()->set_dm_token("foo");
+  user_policy_signin_service()->set_client_id("bar");
+  enterprise_choice_ = DiceTurnSyncOnHelper::SIGNIN_CHOICE_NEW_PROFILE;
+  UseEnterpriseAccount();
+  identity_manager()->GetPrimaryAccountMutator()->SetPrimaryAccount(
+      account_id(), signin::ConsentLevel::kSignin);
+
+  // Signin flow.
+  CreateDiceTurnOnSyncHelper(
+      DiceTurnSyncOnHelper::SigninAbortedMode::KEEP_ACCOUNT);
+  // Check expectations.
+  base::RunLoop().RunUntilIdle();  // Profile creation is asynchronous.
+  EXPECT_FALSE(
+      identity_manager()->HasPrimaryAccount(signin::ConsentLevel::kSync));
+  EXPECT_FALSE(identity_manager()->HasAccountWithRefreshToken(account_id()));
+
+  DCHECK(new_profile());
+  auto* new_identity_manager =
+      IdentityManagerFactory::GetForProfile(new_profile());
+  DCHECK_NE(new_identity_manager, identity_manager());
+  EXPECT_EQ(account_id(), new_identity_manager->GetPrimaryAccountId(
+                              signin::ConsentLevel::kSignin));
+  CheckDelegateCalls();
+}
+
 // Tests that the sync confirmation is shown and the user can abort.
 TEST_F(DiceTurnSyncOnHelperTest, UndoSync) {
   // Set expectations.
@@ -916,9 +954,9 @@ TEST_F(DiceTurnSyncOnHelperTest, ShowSyncDialogForEndConsumerAccount) {
 TEST_F(DiceTurnSyncOnHelperTest,
        ShowSyncDialogBlockedUntilSyncStartupCompletedForCloudManagedDevices) {
   // Simulate a managed browser.
-  SetBrowserManagementAuthorities(
-      base::flat_set<policy::EnterpriseManagementAuthority>(
-          {policy::EnterpriseManagementAuthority::CLOUD_DOMAIN}));
+  policy::ScopedManagementServiceOverrideForTesting browser_management(
+      policy::ManagementServiceFactory::GetForProfile(profile()),
+      policy::EnterpriseManagementAuthority::CLOUD_DOMAIN);
 
   // Set expectations.
   expected_sync_confirmation_shown_ = false;
@@ -1026,9 +1064,9 @@ TEST_F(DiceTurnSyncOnHelperTest,
 TEST_F(DiceTurnSyncOnHelperTest,
        ShowSyncDialogBlockedUntilSyncStartupFailedForCloudManagedDevices) {
   // Simulate a managed platform.
-  SetPlatformManagementAuthorities(
-      base::flat_set<policy::EnterpriseManagementAuthority>(
-          {policy::EnterpriseManagementAuthority::CLOUD_DOMAIN}));
+  policy::ScopedManagementServiceOverrideForTesting platform_management(
+      policy::ManagementServiceFactory::GetForPlatform(),
+      policy::EnterpriseManagementAuthority::CLOUD_DOMAIN);
 
   // Set expectations.
   expected_sync_confirmation_shown_ = false;

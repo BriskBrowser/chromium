@@ -14,6 +14,12 @@ class ASH_EXPORT SessionLimitNotificationController
     : public SessionLengthLimitModel::Observer {
  public:
   SessionLimitNotificationController();
+
+  SessionLimitNotificationController(
+      const SessionLimitNotificationController&) = delete;
+  SessionLimitNotificationController& operator=(
+      const SessionLimitNotificationController&) = delete;
+
   ~SessionLimitNotificationController() override;
 
   // SessionLengthLimitModel::Observer:
@@ -24,7 +30,7 @@ class ASH_EXPORT SessionLimitNotificationController
 
   void UpdateNotification();
 
-  base::string16 ComposeNotificationTitle() const;
+  std::u16string ComposeNotificationTitle() const;
 
   static const char kNotificationId[];
 
@@ -36,8 +42,6 @@ class ASH_EXPORT SessionLimitNotificationController
       SessionLengthLimitModel::LIMIT_NONE;
 
   bool has_notification_been_shown_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(SessionLimitNotificationController);
 };
 
 }  // namespace ash

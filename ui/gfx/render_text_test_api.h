@@ -18,6 +18,9 @@ class RenderTextTestApi {
  public:
   RenderTextTestApi(RenderText* render_text) : render_text_(render_text) {}
 
+  RenderTextTestApi(const RenderTextTestApi&) = delete;
+  RenderTextTestApi& operator=(const RenderTextTestApi&) = delete;
+
   static const cc::PaintFlags& GetRendererPaint(
       internal::SkiaTextRenderer* renderer) {
     return renderer->flags_;
@@ -42,7 +45,7 @@ class RenderTextTestApi {
     render_text_->Draw(canvas, select_all);
   }
 
-  const base::string16& GetLayoutText() {
+  const std::u16string& GetLayoutText() {
     return render_text_->GetLayoutText();
   }
 
@@ -118,8 +121,6 @@ class RenderTextTestApi {
 
  private:
   RenderText* render_text_;
-
-  DISALLOW_COPY_AND_ASSIGN(RenderTextTestApi);
 };
 
 }  // namespace test

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {CustomMarginsOrientation, Margins, MarginsSetting, MarginsType, MeasurementSystem, MeasurementSystemUnitType, Size, State} from 'chrome://print/print_preview.js';
+import {CustomMarginsOrientation, Margins, MarginsType, MeasurementSystem, MeasurementSystemUnitType, PrintPreviewMarginControlContainerElement, PrintPreviewMarginControlElement, PrintPreviewModelElement, Size, State} from 'chrome://print/print_preview.js';
 import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {eventToPromise, fakeDataBind} from '../test_util.m.js';
+import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {eventToPromise, fakeDataBind} from 'chrome://webui-test/test_util.js';
 
 window.custom_margins_test = {};
 const custom_margins_test = window.custom_margins_test;
@@ -455,6 +455,7 @@ suite(custom_margins_test.suiteName, function() {
                   () => testAllTextboxes(controls, newMargin1, '1.2abc', true))
               .then(
                   () => testAllTextboxes(controls, newMargin1, '1.   2', true))
+              .then(() => testAllTextboxes(controls, newMargin1, '.', true))
               .then(() => testAllTextboxes(controls, newMargin1, value2, false))
               .then(() => testAllTextboxes(controls, newMargin2, value3, false))
               .then(
@@ -511,6 +512,9 @@ suite(custom_margins_test.suiteName, function() {
               .then(
                   () => testAllTextboxes(
                       controls, newMargin1Pts, '10,   2', true, newMargin1Pts))
+              .then(
+                  () => testAllTextboxes(
+                      controls, newMargin1Pts, ',', true, newMargin1Pts))
               .then(
                   () => testAllTextboxes(
                       controls, newMargin1Pts, newMargin2, false,
@@ -667,7 +671,8 @@ suite(custom_margins_test.suiteName, function() {
               // Workaround for mac so that this does not need to be an
               // interactive test: manually fire the focus event from the
               // control.
-              bottomControl.fire('text-focus');
+              bottomControl.dispatchEvent(new CustomEvent(
+                  'text-focus', {bubbles: true, composed: true}));
               return whenEventFired;
             })
             .then((args) => {

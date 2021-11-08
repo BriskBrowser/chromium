@@ -18,11 +18,11 @@ namespace payments {
 
 namespace {
 
-const char kNameFull[] = "Kirby Puckett";
-const char kPhoneNumber[] = "6515558946";
-const char kPhoneNumberInvalid[] = "123";
-const char kEmailAddress[] = "kirby@example.com";
-const char kEmailAddressInvalid[] = "kirby";
+const char16_t kNameFull[] = u"Kirby Puckett";
+const char16_t kPhoneNumber[] = u"6515558946";
+const char16_t kPhoneNumberInvalid[] = u"123";
+const char16_t kEmailAddress[] = u"kirby@example.com";
+const char16_t kEmailAddressInvalid[] = u"kirby";
 
 std::string GetLocale() {
   return g_browser_process->GetApplicationLocale();
@@ -52,11 +52,9 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest, HappyPath) {
   InvokePaymentRequestUI();
   OpenContactInfoEditorScreen();
 
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kNameFull), autofill::NAME_FULL);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kPhoneNumber),
-                          autofill::PHONE_HOME_WHOLE_NUMBER);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kEmailAddress),
-                          autofill::EMAIL_ADDRESS);
+  SetEditorTextfieldValue(kNameFull, autofill::NAME_FULL);
+  SetEditorTextfieldValue(kPhoneNumber, autofill::PHONE_HOME_WHOLE_NUMBER);
+  SetEditorTextfieldValue(kEmailAddress, autofill::EMAIL_ADDRESS);
 
   autofill::PersonalDataManager* personal_data_manager = GetDataManager();
   personal_data_manager->AddObserver(&personal_data_observer_);
@@ -73,14 +71,14 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest, HappyPath) {
   autofill::AutofillProfile* profile = personal_data_manager->GetProfiles()[0];
   DCHECK(profile);
 
-  EXPECT_EQ(base::ASCIIToUTF16(kNameFull),
+  EXPECT_EQ(kNameFull,
             profile->GetInfo(autofill::AutofillType(autofill::NAME_FULL),
                              GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16("16515558946"),
+  EXPECT_EQ(u"16515558946",
             profile->GetInfo(
                 autofill::AutofillType(autofill::PHONE_HOME_WHOLE_NUMBER),
                 GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16(kEmailAddress),
+  EXPECT_EQ(kEmailAddress,
             profile->GetInfo(autofill::AutofillType(autofill::EMAIL_ADDRESS),
                              GetLocale()));
 
@@ -96,11 +94,9 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   InvokePaymentRequestUI();
   OpenContactInfoEditorScreen();
 
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kNameFull), autofill::NAME_FULL);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kPhoneNumber),
-                          autofill::PHONE_HOME_WHOLE_NUMBER);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kEmailAddress),
-                          autofill::EMAIL_ADDRESS);
+  SetEditorTextfieldValue(kNameFull, autofill::NAME_FULL);
+  SetEditorTextfieldValue(kPhoneNumber, autofill::PHONE_HOME_WHOLE_NUMBER);
+  SetEditorTextfieldValue(kEmailAddress, autofill::EMAIL_ADDRESS);
 
   autofill::PersonalDataManager* personal_data_manager = GetDataManager();
   personal_data_manager->AddObserver(&personal_data_observer_);
@@ -120,14 +116,14 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   autofill::AutofillProfile* profile = personal_data_manager->GetProfiles()[0];
   DCHECK(profile);
 
-  EXPECT_EQ(base::ASCIIToUTF16(kNameFull),
+  EXPECT_EQ(kNameFull,
             profile->GetInfo(autofill::AutofillType(autofill::NAME_FULL),
                              GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16("16515558946"),
+  EXPECT_EQ(u"16515558946",
             profile->GetInfo(
                 autofill::AutofillType(autofill::PHONE_HOME_WHOLE_NUMBER),
                 GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16(kEmailAddress),
+  EXPECT_EQ(kEmailAddress,
             profile->GetInfo(autofill::AutofillType(autofill::EMAIL_ADDRESS),
                              GetLocale()));
 }
@@ -139,22 +135,19 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest, Validation) {
 
   // Insert invalid values into fields which have rules more complex than
   // just emptiness, and an empty string into simple required fields.
-  SetEditorTextfieldValue(base::string16(), autofill::NAME_FULL);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kPhoneNumberInvalid),
+  SetEditorTextfieldValue(std::u16string(), autofill::NAME_FULL);
+  SetEditorTextfieldValue(kPhoneNumberInvalid,
                           autofill::PHONE_HOME_WHOLE_NUMBER);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kEmailAddressInvalid),
-                          autofill::EMAIL_ADDRESS);
+  SetEditorTextfieldValue(kEmailAddressInvalid, autofill::EMAIL_ADDRESS);
 
   EXPECT_TRUE(IsEditorTextfieldInvalid(autofill::NAME_FULL));
   EXPECT_TRUE(IsEditorTextfieldInvalid(autofill::PHONE_HOME_WHOLE_NUMBER));
   EXPECT_TRUE(IsEditorTextfieldInvalid(autofill::EMAIL_ADDRESS));
 
   // Correct the problems.
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kNameFull), autofill::NAME_FULL);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kPhoneNumber),
-                          autofill::PHONE_HOME_WHOLE_NUMBER);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kEmailAddress),
-                          autofill::EMAIL_ADDRESS);
+  SetEditorTextfieldValue(kNameFull, autofill::NAME_FULL);
+  SetEditorTextfieldValue(kPhoneNumber, autofill::PHONE_HOME_WHOLE_NUMBER);
+  SetEditorTextfieldValue(kEmailAddress, autofill::EMAIL_ADDRESS);
 
   EXPECT_FALSE(IsEditorTextfieldInvalid(autofill::NAME_FULL));
   EXPECT_FALSE(IsEditorTextfieldInvalid(autofill::PHONE_HOME_WHOLE_NUMBER));
@@ -175,14 +168,14 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest, Validation) {
   autofill::AutofillProfile* profile = personal_data_manager->GetProfiles()[0];
   DCHECK(profile);
 
-  EXPECT_EQ(base::ASCIIToUTF16(kNameFull),
+  EXPECT_EQ(kNameFull,
             profile->GetInfo(autofill::AutofillType(autofill::NAME_FULL),
                              GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16("16515558946"),
+  EXPECT_EQ(u"16515558946",
             profile->GetInfo(
                 autofill::AutofillType(autofill::PHONE_HOME_WHOLE_NUMBER),
                 GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16(kEmailAddress),
+  EXPECT_EQ(kEmailAddress,
             profile->GetInfo(autofill::AutofillType(autofill::EMAIL_ADDRESS),
                              GetLocale()));
 }
@@ -194,8 +187,7 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   personal_data_manager->AddObserver(&personal_data_observer_);
 
   autofill::AutofillProfile incomplete_profile;
-  incomplete_profile.SetInfo(autofill::NAME_FULL, base::ASCIIToUTF16(kNameFull),
-                             GetLocale());
+  incomplete_profile.SetInfo(autofill::NAME_FULL, kNameFull, GetLocale());
   AddAutofillProfile(incomplete_profile);
 
   InvokePaymentRequestUI();
@@ -207,12 +199,9 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   ClickOnDialogViewAndWait(list_view->children().front());
 
   // Do not set name: This should have been populated when opening the screen.
-  EXPECT_EQ(base::ASCIIToUTF16(kNameFull),
-            GetEditorTextfieldValue(autofill::NAME_FULL));
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kPhoneNumber),
-                          autofill::PHONE_HOME_WHOLE_NUMBER);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kEmailAddress),
-                          autofill::EMAIL_ADDRESS);
+  EXPECT_EQ(kNameFull, GetEditorTextfieldValue(autofill::NAME_FULL));
+  SetEditorTextfieldValue(kPhoneNumber, autofill::PHONE_HOME_WHOLE_NUMBER);
+  SetEditorTextfieldValue(kEmailAddress, autofill::EMAIL_ADDRESS);
 
   // Wait until the web database has been updated and the notification sent.
   base::RunLoop save_data_loop;
@@ -226,14 +215,14 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   autofill::AutofillProfile* profile = personal_data_manager->GetProfiles()[0];
   DCHECK(profile);
 
-  EXPECT_EQ(base::ASCIIToUTF16(kNameFull),
+  EXPECT_EQ(kNameFull,
             profile->GetInfo(autofill::AutofillType(autofill::NAME_FULL),
                              GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16("16515558946"),
+  EXPECT_EQ(u"16515558946",
             profile->GetInfo(
                 autofill::AutofillType(autofill::PHONE_HOME_WHOLE_NUMBER),
                 GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16(kEmailAddress),
+  EXPECT_EQ(kEmailAddress,
             profile->GetInfo(autofill::AutofillType(autofill::EMAIL_ADDRESS),
                              GetLocale()));
 }
@@ -245,13 +234,11 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   personal_data_manager->AddObserver(&personal_data_observer_);
 
   autofill::AutofillProfile incomplete_profile;
-  incomplete_profile.SetInfo(autofill::NAME_FULL, base::ASCIIToUTF16(kNameFull),
-                             GetLocale());
+  incomplete_profile.SetInfo(autofill::NAME_FULL, kNameFull, GetLocale());
   AddAutofillProfile(incomplete_profile);
 
   autofill::AutofillProfile other_incomplete_profile;
-  other_incomplete_profile.SetInfo(autofill::NAME_FULL,
-                                   base::ASCIIToUTF16("other"), GetLocale());
+  other_incomplete_profile.SetInfo(autofill::NAME_FULL, u"other", GetLocale());
   AddAutofillProfile(other_incomplete_profile);
 
   InvokePaymentRequestUI();
@@ -267,10 +254,8 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   DCHECK(list_view);
   ClickOnDialogViewAndWait(list_view->children()[1]);
 
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kPhoneNumber),
-                          autofill::PHONE_HOME_WHOLE_NUMBER);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kEmailAddress),
-                          autofill::EMAIL_ADDRESS);
+  SetEditorTextfieldValue(kPhoneNumber, autofill::PHONE_HOME_WHOLE_NUMBER);
+  SetEditorTextfieldValue(kEmailAddress, autofill::EMAIL_ADDRESS);
 
   // Wait until the web database has been updated and the notification sent.
   base::RunLoop save_data_loop;
@@ -284,11 +269,11 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
       request->state()->selected_contact_profile();
   DCHECK(profile);
 
-  EXPECT_EQ(base::ASCIIToUTF16("16515558946"),
+  EXPECT_EQ(u"16515558946",
             profile->GetInfo(
                 autofill::AutofillType(autofill::PHONE_HOME_WHOLE_NUMBER),
                 GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16(kEmailAddress),
+  EXPECT_EQ(kEmailAddress,
             profile->GetInfo(autofill::AutofillType(autofill::EMAIL_ADDRESS),
                              GetLocale()));
 
@@ -304,11 +289,9 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   InvokePaymentRequestUI();
   OpenContactInfoEditorScreen();
 
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kNameFull), autofill::NAME_FULL);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kPhoneNumber),
-                          autofill::PHONE_HOME_WHOLE_NUMBER);
-  SetEditorTextfieldValue(base::ASCIIToUTF16(kEmailAddress),
-                          autofill::EMAIL_ADDRESS);
+  SetEditorTextfieldValue(kNameFull, autofill::NAME_FULL);
+  SetEditorTextfieldValue(kPhoneNumber, autofill::PHONE_HOME_WHOLE_NUMBER);
+  SetEditorTextfieldValue(kEmailAddress, autofill::EMAIL_ADDRESS);
 
   autofill::PersonalDataManager* personal_data_manager = GetDataManager();
   personal_data_manager->AddObserver(&personal_data_observer_);
@@ -329,14 +312,14 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
       request->state()->contact_profiles().back();
   DCHECK(profile);
 
-  EXPECT_EQ(base::ASCIIToUTF16(kNameFull),
+  EXPECT_EQ(kNameFull,
             profile->GetInfo(autofill::AutofillType(autofill::NAME_FULL),
                              GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16("16515558946"),
+  EXPECT_EQ(u"16515558946",
             profile->GetInfo(
                 autofill::AutofillType(autofill::PHONE_HOME_WHOLE_NUMBER),
                 GetLocale()));
-  EXPECT_EQ(base::ASCIIToUTF16(kEmailAddress),
+  EXPECT_EQ(kEmailAddress,
             profile->GetInfo(autofill::AutofillType(autofill::EMAIL_ADDRESS),
                              GetLocale()));
 }
@@ -353,7 +336,7 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   AddCreditCard(card);
 
   InvokePaymentRequestUI();
-  PayWithCreditCard(base::ASCIIToUTF16("123"));
+  PayWithCreditCard(u"123");
   RetryPaymentRequest(
       "{"
       "  payer: {"
@@ -364,11 +347,9 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
       "}",
       DialogEvent::CONTACT_INFO_EDITOR_OPENED, dialog_view());
 
-  EXPECT_EQ(base::ASCIIToUTF16("EMAIL ERROR"),
-            GetErrorLabelForType(autofill::EMAIL_ADDRESS));
-  EXPECT_EQ(base::ASCIIToUTF16("NAME ERROR"),
-            GetErrorLabelForType(autofill::NAME_FULL));
-  EXPECT_EQ(base::ASCIIToUTF16("PHONE ERROR"),
+  EXPECT_EQ(u"EMAIL ERROR", GetErrorLabelForType(autofill::EMAIL_ADDRESS));
+  EXPECT_EQ(u"NAME ERROR", GetErrorLabelForType(autofill::NAME_FULL));
+  EXPECT_EQ(u"PHONE ERROR",
             GetErrorLabelForType(autofill::PHONE_HOME_WHOLE_NUMBER));
 }
 
@@ -379,10 +360,8 @@ IN_PROC_BROWSER_TEST_F(
 
   autofill::AutofillProfile contact = autofill::test::GetFullProfile();
   // Set the same value in both of email and name field.
-  contact.SetRawInfo(autofill::EMAIL_ADDRESS,
-                     base::ASCIIToUTF16("johndoe@hades.com"));
-  contact.SetRawInfo(autofill::NAME_FULL,
-                     base::ASCIIToUTF16("johndoe@hades.com"));
+  contact.SetRawInfo(autofill::EMAIL_ADDRESS, u"johndoe@hades.com");
+  contact.SetRawInfo(autofill::NAME_FULL, u"johndoe@hades.com");
   AddAutofillProfile(contact);
 
   autofill::CreditCard card = autofill::test::GetCreditCard();
@@ -390,7 +369,7 @@ IN_PROC_BROWSER_TEST_F(
   AddCreditCard(card);
 
   InvokePaymentRequestUI();
-  PayWithCreditCard(base::ASCIIToUTF16("123"));
+  PayWithCreditCard(u"123");
   RetryPaymentRequest(
       "{"
       "  payer: {"
@@ -401,11 +380,9 @@ IN_PROC_BROWSER_TEST_F(
       "}",
       DialogEvent::CONTACT_INFO_EDITOR_OPENED, dialog_view());
 
-  EXPECT_EQ(base::ASCIIToUTF16("EMAIL ERROR"),
-            GetErrorLabelForType(autofill::EMAIL_ADDRESS));
-  EXPECT_EQ(base::ASCIIToUTF16("NAME ERROR"),
-            GetErrorLabelForType(autofill::NAME_FULL));
-  EXPECT_EQ(base::ASCIIToUTF16("PHONE ERROR"),
+  EXPECT_EQ(u"EMAIL ERROR", GetErrorLabelForType(autofill::EMAIL_ADDRESS));
+  EXPECT_EQ(u"NAME ERROR", GetErrorLabelForType(autofill::NAME_FULL));
+  EXPECT_EQ(u"PHONE ERROR",
             GetErrorLabelForType(autofill::PHONE_HOME_WHOLE_NUMBER));
 }
 
@@ -421,7 +398,7 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PaymentRequestContactInfoEditorTest,
   AddCreditCard(card);
 
   InvokePaymentRequestUI();
-  PayWithCreditCard(base::ASCIIToUTF16("123"));
+  PayWithCreditCard(u"123");
   RetryPaymentRequest(
       "{"
       "  payer: {"

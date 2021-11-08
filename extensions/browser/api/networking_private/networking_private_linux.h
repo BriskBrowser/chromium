@@ -29,11 +29,14 @@ namespace extensions {
 class NetworkingPrivateLinux : public NetworkingPrivateDelegate {
  public:
   using NetworkMap =
-      std::map<base::string16, std::unique_ptr<base::DictionaryValue>>;
+      std::map<std::u16string, std::unique_ptr<base::DictionaryValue>>;
 
   typedef std::vector<std::string> GuidList;
 
   NetworkingPrivateLinux();
+
+  NetworkingPrivateLinux(const NetworkingPrivateLinux&) = delete;
+  NetworkingPrivateLinux& operator=(const NetworkingPrivateLinux&) = delete;
 
   // NetworkingPrivateDelegate
   void GetProperties(const std::string& guid,
@@ -86,7 +89,7 @@ class NetworkingPrivateLinux : public NetworkingPrivateDelegate {
                                    const std::string& network_id,
                                    VoidCallback success_callback,
                                    FailureCallback failure_callback) override;
-  std::unique_ptr<base::ListValue> GetEnabledNetworkTypes() override;
+  base::Value GetEnabledNetworkTypes() override;
   std::unique_ptr<DeviceStateList> GetDeviceStateList() override;
   std::unique_ptr<base::DictionaryValue> GetGlobalPolicy() override;
   std::unique_ptr<base::DictionaryValue> GetCertificateLists() override;
@@ -264,8 +267,6 @@ class NetworkingPrivateLinux : public NetworkingPrivateDelegate {
   // Observers to Network Events.
   base::ObserverList<NetworkingPrivateDelegateObserver>::Unchecked
       network_events_observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkingPrivateLinux);
 };
 
 }  // namespace extensions

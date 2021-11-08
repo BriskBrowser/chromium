@@ -19,9 +19,9 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_setup_controller.h"
-#include "chrome/browser/chromeos/login/ui/fake_login_display_host.h"
-#include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/ash/login/demo_mode/demo_setup_controller.h"
+#include "chrome/browser/ash/login/ui/fake_login_display_host.h"
+#include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ui/webui/chromeos/login/demo_preferences_screen_handler.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
@@ -39,6 +39,10 @@ namespace {
 class TestDataReceiver {
  public:
   TestDataReceiver() = default;
+
+  TestDataReceiver(const TestDataReceiver&) = delete;
+  TestDataReceiver& operator=(const TestDataReceiver&) = delete;
+
   virtual ~TestDataReceiver() = default;
 
   bool data_received() const { return data_received_; }
@@ -53,22 +57,23 @@ class TestDataReceiver {
 
   void OnDataReceived(scoped_refptr<base::RefCountedMemory> bytes) {
     data_received_ = true;
-    data_ = base::StringPiece(reinterpret_cast<const char*>(bytes->front()),
-                              bytes->size())
-                .as_string();
+    data_ = std::string(base::StringPiece(
+        reinterpret_cast<const char*>(bytes->front()), bytes->size()));
   }
 
  private:
   bool data_received_ = false;
   std::string data_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestDataReceiver);
 };
 
 }  // namespace
 
 // Base class for ChromeOS offline terms tests.
 class ChromeOSTermsTest : public testing::Test {
+ public:
+  ChromeOSTermsTest(const ChromeOSTermsTest&) = delete;
+  ChromeOSTermsTest& operator=(const ChromeOSTermsTest&) = delete;
+
  protected:
   ChromeOSTermsTest() {}
   ~ChromeOSTermsTest() override = default;
@@ -138,8 +143,6 @@ class ChromeOSTermsTest : public testing::Test {
   chromeos::system::ScopedFakeStatisticsProvider statistics_provider_;
 
   std::unique_ptr<AboutUIHTMLSource> tested_html_source_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeOSTermsTest);
 };
 
 TEST_F(ChromeOSTermsTest, NoData) {
@@ -161,6 +164,11 @@ TEST_F(ChromeOSTermsTest, NoData) {
 
 // Demo mode ARC++ ToS and privacy policy test.
 class DemoModeChromeOSTermsTest : public ChromeOSTermsTest {
+ public:
+  DemoModeChromeOSTermsTest(const DemoModeChromeOSTermsTest&) = delete;
+  DemoModeChromeOSTermsTest& operator=(const DemoModeChromeOSTermsTest&) =
+      delete;
+
  protected:
   DemoModeChromeOSTermsTest() = default;
   ~DemoModeChromeOSTermsTest() override = default;
@@ -171,8 +179,7 @@ class DemoModeChromeOSTermsTest : public ChromeOSTermsTest {
 
     // Simulate Demo Mode setup.
     chromeos::DBusThreadManager::Initialize();
-    fake_login_display_host_ =
-        std::make_unique<chromeos::FakeLoginDisplayHost>();
+    fake_login_display_host_ = std::make_unique<ash::FakeLoginDisplayHost>();
     fake_login_display_host_->StartWizard(
         chromeos::DemoPreferencesScreenView::kScreenId);
     fake_login_display_host_->GetWizardController()
@@ -225,9 +232,7 @@ class DemoModeChromeOSTermsTest : public ChromeOSTermsTest {
   }
 
  private:
-  std::unique_ptr<chromeos::FakeLoginDisplayHost> fake_login_display_host_;
-
-  DISALLOW_COPY_AND_ASSIGN(DemoModeChromeOSTermsTest);
+  std::unique_ptr<ash::FakeLoginDisplayHost> fake_login_display_host_;
 };
 
 TEST_F(DemoModeChromeOSTermsTest, TermsSimpleRegion) {

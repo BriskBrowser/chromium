@@ -5,17 +5,21 @@
 #import <Cocoa/Cocoa.h>
 #include <stddef.h>
 
+#include "base/cxx17_backports.h"
 #import "base/mac/scoped_nsobject.h"
 #import "base/mac/scoped_objc_class_swizzler.h"
 #include "base/memory/singleton.h"
-#include "base/stl_util.h"
 #include "ui/base/cocoa/cocoa_base_utils.h"
+#include "ui/display/screen.h"
+#include "ui/events/event.h"
+#include "ui/events/event_dispatcher.h"
 #include "ui/events/event_processor.h"
 #include "ui/events/event_target.h"
 #include "ui/events/event_target_iterator.h"
 #include "ui/events/event_targeter.h"
 #import "ui/events/test/cocoa_test_event_utils.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
 
 namespace {
@@ -41,12 +45,6 @@ NSPoint ConvertRootPointToTarget(NSWindow* target,
                                  const gfx::Point& point_in_root) {
   DCHECK(GetActiveGenerator());
   gfx::Point point = point_in_root;
-
-  if (GetActiveGenerator()->assume_window_at_origin()) {
-    // When assuming the window is at the origin, ignore the titlebar as well.
-    NSRect content_rect = [target contentRectForFrameRect:[target frame]];
-    return NSMakePoint(point.x(), NSHeight(content_rect) - point.y());
-  }
 
   point -= gfx::ScreenRectFromNSRect([target frame]).OffsetFromOrigin();
   return NSMakePoint(point.x(), NSHeight([target frame]) - point.y());
@@ -248,6 +246,9 @@ class EventGeneratorDelegateMac : public ui::EventTarget,
   EventGeneratorDelegateMac(ui::test::EventGenerator* owner,
                             gfx::NativeWindow root_window,
                             gfx::NativeWindow target_window);
+  EventGeneratorDelegateMac(const EventGeneratorDelegateMac&) = delete;
+  EventGeneratorDelegateMac& operator=(const EventGeneratorDelegateMac&) =
+      delete;
   ~EventGeneratorDelegateMac() override;
 
   static EventGeneratorDelegateMac* instance() { return instance_; }
@@ -317,13 +318,12 @@ class EventGeneratorDelegateMac : public ui::EventTarget,
                               gfx::Point* point) const override {}
   void ConvertPointFromHost(const ui::EventTarget* hosted_target,
                             gfx::Point* point) const override {}
-  ui::EventDispatchDetails DispatchKeyEventToIME(EventTarget* target,
-                                                 ui::KeyEvent* event) override {
-    // InputMethodMac does not send native events nor do the necessary
-    // translation. Key events must be handled natively by an NSResponder which
-    // translates keyboard events into editing commands.
-    return ui::EventDispatchDetails();
-  }
+
+ protected:
+  // Overridden from ui::EventDispatcherDelegate (via ui::EventProcessor)
+  ui::EventDispatchDetails PreDispatchEvent(ui::EventTarget* target,
+                                            ui::Event* event) override
+      WARN_UNUSED_RESULT;
 
  private:
   static EventGeneratorDelegateMac* instance_;
@@ -342,8 +342,6 @@ class EventGeneratorDelegateMac : public ui::EventTarget,
 
   // Timestamp on the last scroll update, used to simulate scroll momentum.
   base::TimeTicks last_scroll_timestamp_;
-
-  DISALLOW_COPY_AND_ASSIGN(EventGeneratorDelegateMac);
 };
 
 // static
@@ -577,6 +575,28 @@ gfx::Point EventGeneratorDelegateMac::CenterOfWindow(
   // Assume the window is at the top-left of the coordinate system (even if
   // AppKit has moved it into the work area) see ConvertRootPointToTarget().
   return gfx::Point(NSWidth([window frame]) / 2, NSHeight([window frame]) / 2);
+}
+
+ui::EventDispatchDetails EventGeneratorDelegateMac::PreDispatchEvent(
+    ui::EventTarget* target,
+    ui::Event* event) {
+  // Set the TestScreen's cursor point before mouse event dispatch. The
+  // Screen's value is checked by views controls and other UI components; this
+  // pattern matches aura::WindowEventDispatcher::PreDispatchMouseEvent().
+  if (event->IsMouseEvent()) {
+    ui::MouseEvent* mouse_event = event->AsMouseEvent();
+    // Similar to the logic in Aura's
+    // EnvInputStateController::UpdateStateForMouseEvent(), capture change and
+    // synthesized events don't need to update the cursor location.
+    if (mouse_event->type() != ui::ET_MOUSE_CAPTURE_CHANGED &&
+        !(mouse_event->flags() & ui::EF_IS_SYNTHESIZED)) {
+      // Update the cursor location on screen.
+      owner_->set_current_screen_location(mouse_event->root_location());
+      display::Screen::GetScreen()->SetCursorScreenPointForTesting(
+          mouse_event->root_location());
+    }
+  }
+  return ui::EventDispatchDetails();
 }
 
 ui::test::EventGenerator* GetActiveGenerator() {

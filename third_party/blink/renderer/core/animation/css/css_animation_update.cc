@@ -17,14 +17,10 @@ void CSSAnimationUpdate::Copy(const CSSAnimationUpdate& update) {
   new_animations_ = update.NewAnimations();
   animations_with_updates_ = update.AnimationsWithUpdates();
   new_transitions_ = update.NewTransitions();
-  active_interpolations_for_custom_animations_ =
-      update.ActiveInterpolationsForCustomAnimations();
-  active_interpolations_for_standard_animations_ =
-      update.ActiveInterpolationsForStandardAnimations();
-  active_interpolations_for_custom_transitions_ =
-      update.ActiveInterpolationsForCustomTransitions();
-  active_interpolations_for_standard_transitions_ =
-      update.ActiveInterpolationsForStandardTransitions();
+  active_interpolations_for_animations_ =
+      update.ActiveInterpolationsForAnimations();
+  active_interpolations_for_transitions_ =
+      update.ActiveInterpolationsForTransitions();
   cancelled_animation_indices_ = update.CancelledAnimationIndices();
   animation_indices_with_pause_toggled_ =
       update.AnimationIndicesWithPauseToggled();
@@ -37,10 +33,8 @@ void CSSAnimationUpdate::Clear() {
   new_animations_.clear();
   animations_with_updates_.clear();
   new_transitions_.clear();
-  active_interpolations_for_custom_animations_.clear();
-  active_interpolations_for_standard_animations_.clear();
-  active_interpolations_for_custom_transitions_.clear();
-  active_interpolations_for_standard_transitions_.clear();
+  active_interpolations_for_animations_.clear();
+  active_interpolations_for_transitions_.clear();
   cancelled_animation_indices_.clear();
   animation_indices_with_pause_toggled_.clear();
   cancelled_transitions_.clear();
@@ -50,9 +44,9 @@ void CSSAnimationUpdate::Clear() {
 
 void CSSAnimationUpdate::StartTransition(
     const PropertyHandle& property,
-    const ComputedStyle* from,
-    const ComputedStyle* to,
-    const ComputedStyle* reversing_adjusted_start_value,
+    scoped_refptr<const ComputedStyle> from,
+    scoped_refptr<const ComputedStyle> to,
+    scoped_refptr<const ComputedStyle> reversing_adjusted_start_value,
     double reversing_shortening_factor,
     const InertEffect& effect) {
   NewTransition* new_transition = MakeGarbageCollected<NewTransition>();
@@ -72,12 +66,5 @@ void CSSAnimationUpdate::UnstartTransition(const PropertyHandle& property) {
 
 CSSAnimationUpdate::NewTransition::NewTransition() = default;
 CSSAnimationUpdate::NewTransition::~NewTransition() = default;
-
-void CSSAnimationUpdate::NewTransition::Trace(Visitor* visitor) const {
-  visitor->Trace(from);
-  visitor->Trace(to);
-  visitor->Trace(reversing_adjusted_start_value);
-  visitor->Trace(effect);
-}
 
 }  // namespace blink

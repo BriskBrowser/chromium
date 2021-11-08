@@ -8,9 +8,6 @@
 #include "base/callback_helpers.h"
 #include "build/branding_buildflags.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/media/router/media_router_feature.h"       // nogncheck
-#include "chrome/browser/media/router/mojo/media_router_desktop.h"  // nogncheck
-#include "components/media_router/common/mojom/media_router.mojom.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -19,29 +16,32 @@
 #include "extensions/common/permissions/permissions_data.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/remote_apps/remote_apps_impl.h"
-#include "chrome/browser/chromeos/remote_apps/remote_apps_manager.h"
-#include "chrome/browser/chromeos/remote_apps/remote_apps_manager_factory.h"
+#include "ash/components/enhanced_network_tts/mojom/enhanced_network_tts.mojom.h"
+#include "ash/webui/camera_app_ui/camera_app_ui.h"
+#include "chrome/browser/ash/enhanced_network_tts/enhanced_network_tts_impl.h"
+#include "chrome/browser/ash/remote_apps/remote_apps_impl.h"
+#include "chrome/browser/ash/remote_apps/remote_apps_manager.h"
+#include "chrome/browser/ash/remote_apps/remote_apps_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/speech/extension_api/tts_engine_extension_observer_chromeos.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chromeos/components/camera_app_ui/camera_app_ui.h"
 #include "chromeos/components/chromebox_for_meetings/buildflags/buildflags.h"
 #include "chromeos/components/remote_apps/mojom/remote_apps.mojom.h"
+#include "chromeos/language/language_packs/language_packs_impl.h"
+#include "chromeos/language/public/mojom/language_packs.mojom.h"
 #include "chromeos/services/media_perception/public/mojom/media_perception.mojom.h"
 #include "chromeos/services/tts/public/mojom/tts_service.mojom.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/media_perception_private/media_perception_api_delegate.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+#include "ui/accessibility/accessibility_features.h"
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 #include "chromeos/services/ime/public/mojom/input_engine.mojom.h"
-#include "chromeos/services/machine_learning/public/cpp/handwriting_recognizer_manager.h"
-#include "chromeos/services/machine_learning/public/cpp/service_connection.h"
-#include "chromeos/services/machine_learning/public/mojom/handwriting_recognizer_requestor.mojom.h"
-#include "ui/base/ime/chromeos/extension_ime_util.h"
-#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "chromeos/services/machine_learning/public/cpp/service_connection.h"  // nogncheck
+#include "ui/base/ime/ash/extension_ime_util.h"
+#include "ui/base/ime/ash/input_method_manager.h"
 #endif
 
 #if BUILDFLAG(PLATFORM_CFM)
@@ -62,27 +62,33 @@ namespace {
 void BindInputEngineManager(
     content::RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<chromeos::ime::mojom::InputEngineManager> receiver) {
-  chromeos::input_method::InputMethodManager::Get()->ConnectInputEngineManager(
+  ash::input_method::InputMethodManager::Get()->ConnectInputEngineManager(
       std::move(receiver));
 }
 
-void BindHandwritingRecognizerRequestor(
+void BindLanguagePacks(
+    content::RenderFrameHost* render_frame_host,
+    mojo::PendingReceiver<chromeos::language::mojom::LanguagePacks> receiver) {
+  chromeos::language_packs::LanguagePacksImpl::GetInstance().BindReceiver(
+      std::move(receiver));
+}
+
+void BindMachineLearningService(
     content::RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<
-        chromeos::machine_learning::mojom::HandwritingRecognizerRequestor>
-        receiver) {
+        chromeos::machine_learning::mojom::MachineLearningService> receiver) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  chromeos::machine_learning::HandwritingRecognizerManager::GetInstance()
-      ->AddReceiver(std::move(receiver));
+  chromeos::machine_learning::ServiceConnection::GetInstance()
+      ->BindMachineLearningService(std::move(receiver));
 }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
-void BindTtsStreamFactory(
+void BindGoogleTtsStream(
     content::RenderFrameHost* render_frame_host,
-    mojo::PendingReceiver<chromeos::tts::mojom::TtsStreamFactory> receiver) {
+    mojo::PendingReceiver<chromeos::tts::mojom::GoogleTtsStream> receiver) {
   TtsEngineExtensionObserverChromeOS::GetInstance(
       Profile::FromBrowserContext(render_frame_host->GetBrowserContext()))
-      ->BindTtsStreamFactory(std::move(receiver));
+      ->BindGoogleTtsStream(std::move(receiver));
 }
 
 void BindRemoteAppsFactory(
@@ -91,11 +97,22 @@ void BindRemoteAppsFactory(
         pending_receiver) {
   // |remote_apps_manager| will be null in non-managed guest sessions, but this
   // is already checked in |RemoteAppsImpl::IsAllowed()|.
-  chromeos::RemoteAppsManager* remote_apps_manager =
-      chromeos::RemoteAppsManagerFactory::GetForProfile(
+  ash::RemoteAppsManager* remote_apps_manager =
+      ash::RemoteAppsManagerFactory::GetForProfile(
           Profile::FromBrowserContext(render_frame_host->GetBrowserContext()));
   DCHECK(remote_apps_manager);
   remote_apps_manager->BindInterface(std::move(pending_receiver));
+}
+
+void BindEnhancedNetworkTts(
+    content::RenderFrameHost* render_frame_host,
+    mojo::PendingReceiver<ash::enhanced_network_tts::mojom::EnhancedNetworkTts>
+        receiver) {
+  ash::enhanced_network_tts::EnhancedNetworkTtsImpl::GetInstance()
+      .BindReceiverAndURLFactory(
+          std::move(receiver),
+          Profile::FromBrowserContext(render_frame_host->GetBrowserContext())
+              ->GetURLLoaderFactory());
 }
 
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -106,25 +123,18 @@ void PopulateChromeFrameBindersForExtension(
     content::RenderFrameHost* render_frame_host,
     const Extension* extension) {
   DCHECK(extension);
-  auto* context = render_frame_host->GetProcess()->GetBrowserContext();
-  if (media_router::MediaRouterEnabled(context) &&
-      extension->permissions_data()->HasAPIPermission(
-          APIPermission::kMediaRouterPrivate)) {
-    binder_map->Add<media_router::mojom::MediaRouter>(
-        base::BindRepeating(&media_router::MediaRouterDesktop::BindToReceiver,
-                            base::RetainedRef(extension), context));
-  }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // Registry InputEngineManager for official Google XKB Input only.
-  if (extension->id() == chromeos::extension_ime_util::kXkbExtensionId) {
+  if (extension->id() == ash::extension_ime_util::kXkbExtensionId) {
     binder_map->Add<chromeos::ime::mojom::InputEngineManager>(
         base::BindRepeating(&BindInputEngineManager));
-    binder_map->Add<
-        chromeos::machine_learning::mojom::HandwritingRecognizerRequestor>(
-        base::BindRepeating(&BindHandwritingRecognizerRequestor));
+    binder_map->Add<chromeos::language::mojom::LanguagePacks>(
+        base::BindRepeating(&BindLanguagePacks));
+    binder_map->Add<chromeos::machine_learning::mojom::MachineLearningService>(
+        base::BindRepeating(&BindMachineLearningService));
   }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
@@ -143,7 +153,7 @@ void PopulateChromeFrameBindersForExtension(
 #endif  // BUILDFLAG(PLATFORM_CFM)
 
   if (extension->permissions_data()->HasAPIPermission(
-          APIPermission::kMediaPerceptionPrivate)) {
+          mojom::APIPermissionID::kMediaPerceptionPrivate)) {
     extensions::ExtensionsAPIClient* client =
         extensions::ExtensionsAPIClient::Get();
     extensions::MediaPerceptionAPIDelegate* delegate = nullptr;
@@ -161,24 +171,21 @@ void PopulateChromeFrameBindersForExtension(
     }
   }
 
-  if (extension->id().compare(extension_misc::kCameraAppId) == 0 ||
-      extension->id().compare(extension_misc::kCameraAppDevId) == 0) {
-    binder_map->Add<cros::mojom::CameraAppDeviceProvider>(base::BindRepeating(
-        &chromeos::CameraAppUI::ConnectToCameraAppDeviceProvider));
-    binder_map->Add<chromeos_camera::mojom::CameraAppHelper>(
-        base::BindRepeating(&chromeos::CameraAppUI::ConnectToCameraAppHelper));
+  if (extension->id() == extension_misc::kGoogleSpeechSynthesisExtensionId) {
+    binder_map->Add<chromeos::tts::mojom::GoogleTtsStream>(
+        base::BindRepeating(&BindGoogleTtsStream));
   }
 
-  // TODO: extend to more extensions.
-  if (extension->id() == extension_misc::kGoogleSpeechSynthesisExtensionId ||
-      extension->id() == extension_misc::kEspeakSpeechSynthesisExtensionId) {
-    binder_map->Add<chromeos::tts::mojom::TtsStreamFactory>(
-        base::BindRepeating(&BindTtsStreamFactory));
-  }
-
-  if (chromeos::RemoteAppsImpl::IsAllowed(render_frame_host, extension)) {
+  if (ash::RemoteAppsImpl::IsAllowed(render_frame_host, extension)) {
     binder_map->Add<chromeos::remote_apps::mojom::RemoteAppsFactory>(
         base::BindRepeating(&BindRemoteAppsFactory));
+  }
+
+  // Limit the binding to EnhancedNetworkTts Extension.
+  if (features::IsEnhancedNetworkVoicesEnabled() &&
+      extension->id() == extension_misc::kEnhancedNetworkTtsExtensionId) {
+    binder_map->Add<ash::enhanced_network_tts::mojom::EnhancedNetworkTts>(
+        base::BindRepeating(&BindEnhancedNetworkTts));
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }

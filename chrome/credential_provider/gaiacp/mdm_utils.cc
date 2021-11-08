@@ -18,7 +18,6 @@
 #include "base/files/file_path.h"
 #include "base/json/json_writer.h"
 #include "base/scoped_native_library.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/win_util.h"
@@ -486,6 +485,11 @@ HRESULT EnrollToGoogleMdmIfNeeded(const base::Value& properties) {
   if (FAILED(hr))
     LOGFN(ERROR) << "RegisterWithGoogleDeviceManagement hr=" << putHR(hr);
   return hr;
+}
+
+bool IsEnrolledWithGoogleMdm() {
+  std::wstring mdm_url = GetMdmUrl();
+  return !mdm_url.empty() && IsEnrolledWithGoogleMdm(mdm_url);
 }
 
 std::wstring GetUserPasswordLsaStoreKey(const std::wstring& sid) {

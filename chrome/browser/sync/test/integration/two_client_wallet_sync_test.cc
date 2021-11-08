@@ -12,7 +12,7 @@
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/test_autofill_clock.h"
 #include "components/autofill/core/common/autofill_util.h"
-#include "components/sync/driver/profile_sync_service.h"
+#include "components/sync/driver/sync_service_impl.h"
 #include "components/sync/test/fake_server/fake_server_http_post_provider.h"
 #include "content/public/test/browser_test.h"
 #include "net/base/network_change_notifier.h"
@@ -57,6 +57,10 @@ const base::Time kEvenLaterTime = base::Time::FromDoubleT(6000);
 class TwoClientWalletSyncTest : public SyncTest {
  public:
   TwoClientWalletSyncTest() : SyncTest(TWO_CLIENT) {}
+
+  TwoClientWalletSyncTest(const TwoClientWalletSyncTest&) = delete;
+  TwoClientWalletSyncTest& operator=(const TwoClientWalletSyncTest&) = delete;
+
   ~TwoClientWalletSyncTest() override {}
 
   // Needed for AwaitQuiescence().
@@ -76,8 +80,6 @@ class TwoClientWalletSyncTest : public SyncTest {
 
  private:
   autofill::TestAutofillClock test_clock_;
-
-  DISALLOW_COPY_AND_ASSIGN(TwoClientWalletSyncTest);
 };
 
 IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest, UpdateCreditCardMetadata) {

@@ -10,11 +10,12 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/views/exclusive_access_bubble_views.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/fullscreen_control/fullscreen_control_view.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/fullscreen_control/fullscreen_control_view.h"
 #include "components/version_info/channel.h"
 #include "content/public/common/content_features.h"
 #include "ui/events/event.h"
@@ -56,11 +57,11 @@ constexpr float kExitHeightScaleFactor = 1.5f;
 constexpr float kShowFullscreenExitControlHeight = 3.f;
 
 // Time to wait to hide the popup after it is triggered.
-constexpr base::TimeDelta kMousePopupTimeout = base::TimeDelta::FromSeconds(3);
-constexpr base::TimeDelta kTouchPopupTimeout = base::TimeDelta::FromSeconds(10);
+constexpr base::TimeDelta kMousePopupTimeout = base::Seconds(3);
+constexpr base::TimeDelta kTouchPopupTimeout = base::Seconds(10);
 
 // Time to wait before showing the popup when the escape key is held.
-constexpr base::TimeDelta kKeyPressPopupDelay = base::TimeDelta::FromSeconds(1);
+constexpr base::TimeDelta kKeyPressPopupDelay = base::Seconds(1);
 
 bool IsExitUiEnabled() {
 #if defined(OS_MAC)
@@ -294,8 +295,6 @@ bool FullscreenControlHost::IsExitUiNeeded() {
 }
 
 float FullscreenControlHost::CalculateCursorBufferHeight() const {
-  float control_bottom = FullscreenControlPopup::GetButtonBottomOffset() +
-                         browser_view_->GetClientAreaBoundsInScreen().y();
-  DCHECK_GT(control_bottom, 0);
+  float control_bottom = FullscreenControlPopup::GetButtonBottomOffset();
   return control_bottom * kExitHeightScaleFactor;
 }

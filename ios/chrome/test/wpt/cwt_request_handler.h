@@ -6,16 +6,19 @@
 #define IOS_CHROME_TEST_WPT_CWT_REQUEST_HANDLER_H_
 
 #import <Foundation/Foundation.h>
+#import <XCTest/XCTest.h>
+
+#include <memory>
 #include <string>
 
 #include "base/files/file_path.h"
 #include "base/ios/block_types.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/values.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 // Implements a subset of the WebDriver protocol, for running Web Platform
 // Tests. This not intended to be a general-purpose WebDriver implementation.
@@ -41,6 +44,9 @@ class CWTRequestHandler {
   // |session_completion_handler| is a block to be called when a session is
   // closed.
   CWTRequestHandler(ProceduralBlock sesssion_completion_handler);
+
+  CWTRequestHandler(const CWTRequestHandler&) = delete;
+  CWTRequestHandler& operator=(const CWTRequestHandler&) = delete;
 
   ~CWTRequestHandler();
 
@@ -107,6 +113,9 @@ class CWTRequestHandler {
   // image.
   base::Value GetSnapshot();
 
+  // Returns the Chrome version and revision number for the current build.
+  base::Value GetVersionInfo();
+
   // Set the target tab's position and size. This is currently a no-op since
   // tabs cannot be arbitrarily sized or positioned on iOS. It may make sense
   // to implement this in the future on iPad-only, once multiwindow support on
@@ -115,7 +124,7 @@ class CWTRequestHandler {
 
   // Processes the given command, HTTP method, and request content. Returns the
   // result of processing the command, or nullopt_t if the command is unknown.
-  base::Optional<base::Value> ProcessCommand(
+  absl::optional<base::Value> ProcessCommand(
       const std::string& command,
       net::test_server::HttpMethod http_method,
       const std::string& request_content);
@@ -139,7 +148,8 @@ class CWTRequestHandler {
   // The directory used for test files for crash tests.
   base::FilePath test_case_directory_;
 
-  DISALLOW_COPY_AND_ASSIGN(CWTRequestHandler);
+  // The instance of Chrome that's being tested.
+  XCUIApplication* application_;
 };
 
 #endif  // IOS_CHROME_TEST_WPT_CWT_REQUEST_HANDLER_H_

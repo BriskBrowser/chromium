@@ -23,8 +23,6 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/child_process_launcher_utils.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -94,6 +92,10 @@ base::Process ProcessFromHandle(base::ProcessHandle handle) {
 class ChromeRenderProcessHostTest : public extensions::ExtensionBrowserTest {
  public:
   ChromeRenderProcessHostTest() {}
+
+  ChromeRenderProcessHostTest(const ChromeRenderProcessHostTest&) = delete;
+  ChromeRenderProcessHostTest& operator=(const ChromeRenderProcessHostTest&) =
+      delete;
 
   // Show a tab, activating the current one if there is one, and wait for
   // the renderer process to be created or foregrounded, returning the
@@ -165,7 +167,7 @@ class ChromeRenderProcessHostTest : public extensions::ExtensionBrowserTest {
 
     // Change the first tab to be the omnibox page (WebUI).
     GURL omnibox(chrome::kChromeUIOmniboxURL);
-    ui_test_utils::NavigateToURL(browser(), omnibox);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), omnibox));
 
     // The host objects from the page before the WebUI navigation stick around
     // until the old renderer cleans up and ACKs, which may happen later than
@@ -246,15 +248,18 @@ class ChromeRenderProcessHostTest : public extensions::ExtensionBrowserTest {
     EXPECT_NE(rph1, rph3);
     EXPECT_NE(rph2, rph3);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ChromeRenderProcessHostTest);
 };
 
 class ChromeRenderProcessHostTestWithCommandLine
     : public ChromeRenderProcessHostTest {
  public:
   ChromeRenderProcessHostTestWithCommandLine() = default;
+
+  ChromeRenderProcessHostTestWithCommandLine(
+      const ChromeRenderProcessHostTestWithCommandLine&) = delete;
+  ChromeRenderProcessHostTestWithCommandLine& operator=(
+      const ChromeRenderProcessHostTestWithCommandLine&) = delete;
+
   ~ChromeRenderProcessHostTestWithCommandLine() override = default;
 
  protected:
@@ -262,12 +267,15 @@ class ChromeRenderProcessHostTestWithCommandLine
     ChromeRenderProcessHostTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kRendererProcessLimit, "1");
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ChromeRenderProcessHostTestWithCommandLine);
 };
 
-IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, ProcessPerTab) {
+// TODO(crbug.com/1241506): Enable this test on macOS after the issue is fixed.
+#if defined(OS_MAC)
+#define MAYBE_ProcessPerTab DISABLED_ProcessPerTab
+#else
+#define MAYBE_ProcessPerTab ProcessPerTab
+#endif
+IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_ProcessPerTab) {
   // Set max renderers to 1 to force running out of processes.
   content::RenderProcessHost::SetMaxRendererProcessCount(1);
 
@@ -284,7 +292,7 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, ProcessPerTab) {
 
   // Change the first tab to be a WebUI page.
   GURL omnibox(chrome::kChromeUIOmniboxURL);
-  ui_test_utils::NavigateToURL(browser(), omnibox);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), omnibox));
 
   // The host objects from the page before the WebUI navigation stick around
   // until the old renderer cleans up and ACKs, which may happen later than the
@@ -340,6 +348,12 @@ class ChromeRenderProcessHostBackgroundingTest
     : public ChromeRenderProcessHostTest {
  public:
   ChromeRenderProcessHostBackgroundingTest() = default;
+
+  ChromeRenderProcessHostBackgroundingTest(
+      const ChromeRenderProcessHostBackgroundingTest&) = delete;
+  ChromeRenderProcessHostBackgroundingTest& operator=(
+      const ChromeRenderProcessHostBackgroundingTest&) = delete;
+
   ~ChromeRenderProcessHostBackgroundingTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -383,8 +397,6 @@ class ChromeRenderProcessHostBackgroundingTest
 #endif
     }
   }
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeRenderProcessHostBackgroundingTest);
 };
 
 #define EXPECT_PROCESS_IS_BACKGROUNDED(process_or_tab)                       \
@@ -409,7 +421,7 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostBackgroundingTest,
                        MAYBE_MultipleTabs) {
   // Change the first tab to be the omnibox page (TYPE_WEBUI).
   GURL omnibox(chrome::kChromeUIOmniboxURL);
-  ui_test_utils::NavigateToURL(browser(), omnibox);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), omnibox));
 
   // Create a new tab. It should be foreground.
   GURL page1("data:text/html,hello world1");
@@ -516,10 +528,8 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest,
   EXPECT_EQ(tab_count, browser()->tab_strip_model()->count());
   EXPECT_EQ(host_count, RenderProcessHostCount());
 
-  // close docked devtools
-  content::WindowedNotificationObserver close_observer(
-      content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
-      content::Source<WebContents>(devtools));
+  // Close docked devtools.
+  content::WebContentsDestroyedWatcher close_observer(devtools);
 
   chrome::ToggleDevToolsWindow(browser(), DevToolsToggleAction::Toggle(),
                                DevToolsOpenedByAction::kUnknown);
@@ -558,10 +568,8 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest,
   EXPECT_EQ(tab_count, browser()->tab_strip_model()->count());
   EXPECT_EQ(host_count, RenderProcessHostCount());
 
-  // close docked devtools
-  content::WindowedNotificationObserver close_observer(
-      content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
-      content::Source<content::WebContents>(devtools));
+  // Close docked devtools.
+  content::WebContentsDestroyedWatcher close_observer(devtools);
   chrome::ToggleDevToolsWindow(browser(), DevToolsToggleAction::Toggle(),
                                DevToolsOpenedByAction::kUnknown);
   close_observer.Wait();
@@ -575,34 +583,30 @@ class WindowDestroyer : public content::WebContentsObserver {
   WindowDestroyer(content::WebContents* web_contents, TabStripModel* model)
       : content::WebContentsObserver(web_contents), tab_strip_model_(model) {}
 
+  WindowDestroyer(const WindowDestroyer&) = delete;
+  WindowDestroyer& operator=(const WindowDestroyer&) = delete;
+
   // Wait for the browser window to be destroyed.
   void Wait() { ui_test_utils::WaitForBrowserToClose(); }
 
-  void RenderProcessGone(base::TerminationStatus status) override {
+  void PrimaryMainFrameRenderProcessGone(
+      base::TerminationStatus status) override {
     tab_strip_model_->CloseAllTabs();
   }
 
  private:
   TabStripModel* tab_strip_model_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowDestroyer);
 };
 
 // Test to ensure that while iterating through all listeners in
 // RenderProcessHost and invalidating them, we remove them properly and don't
 // access already freed objects. See http://crbug.com/255524.
-// Crashes on Win/Linux only.  http://crbug.com/606485.
-#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
-#define MAYBE_CloseAllTabsDuringProcessDied \
-  DISABLED_CloseAllTabsDuringProcessDied
-#else
-#define MAYBE_CloseAllTabsDuringProcessDied CloseAllTabsDuringProcessDied
-#endif
+// Disabled due to flakiness, see  http://crbug.com/606485.
 IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest,
-                       MAYBE_CloseAllTabsDuringProcessDied) {
+                       DISABLED_CloseAllTabsDuringProcessDied) {
   GURL url(chrome::kChromeUIOmniboxURL);
 
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   WebContents* wc1 = browser()->tab_strip_model()->GetWebContentsAt(0);
 
   content::WebContentsAddedObserver wc2_observer;
@@ -640,6 +644,11 @@ class ChromeRenderProcessHostBackgroundingTestWithAudio
  public:
   ChromeRenderProcessHostBackgroundingTestWithAudio() {}
 
+  ChromeRenderProcessHostBackgroundingTestWithAudio(
+      const ChromeRenderProcessHostBackgroundingTestWithAudio&) = delete;
+  ChromeRenderProcessHostBackgroundingTestWithAudio& operator=(
+      const ChromeRenderProcessHostBackgroundingTestWithAudio&) = delete;
+
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ChromeRenderProcessHostTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kProcessPerTab);
@@ -664,7 +673,7 @@ class ChromeRenderProcessHostBackgroundingTestWithAudio
     embedded_test_server()->StartAcceptingConnections();
 
     // Open a browser, navigate to the audio page and get its WebContents.
-    ui_test_utils::NavigateToURL(browser(), audio_url_);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), audio_url_));
     audio_tab_web_contents_ =
         browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -717,8 +726,6 @@ class ChromeRenderProcessHostBackgroundingTestWithAudio
 #if defined(OS_MAC)
   base::PortProvider* port_provider_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeRenderProcessHostBackgroundingTestWithAudio);
 };
 
 // Test to make sure that a process is backgrounded when the audio stops playing

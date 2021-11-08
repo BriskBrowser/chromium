@@ -2,13 +2,21 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import gpu_project_config
+from __future__ import print_function
+
 import inspect
 import itertools
-import mock
 import os
 import re
+import sys
 import unittest
+
+if sys.version_info[0] == 2:
+  import mock
+else:
+  import unittest.mock as mock
+
+import gpu_project_config
 
 from gpu_tests import gpu_helper
 from gpu_tests import gpu_integration_test
@@ -77,23 +85,16 @@ _get_generic = lambda tags: set(
 ResultType = json_results.ResultType
 
 INTEL_DRIVER_VERSION_SCHEMA = '''
-The version format of Intel graphics driver is AA.BB.CCC.DDDD.
-DDDD(old schema) or CCC.DDDD(new schema) is the build number. That is,
-indicates the actual driver number. The comparison between old schema
-and new schema is NOT valid. In such a condition the only comparison
-operator that returns true is "not equal".
+The version format of Intel graphics driver is AA.BB.CC.DDDD (legacy schema)
+and AA.BB.CCC.DDDD (new schema).
 
 AA.BB: You are free to specify the real number here, but they are meaningless
 when comparing two version numbers. Usually it's okay to leave it to "0.0".
 
-CCC: It's necessary for new schema. Regarding to old schema, you can specify
-the real number or any number less than 100 in order to differentiate from
-new schema.
+CC or CCC: It's meaningful to indicate different branches. Different CC means
+different branch, while all CCCs share the same branch.
 
-DDDD: It's always meaningful. It must not be "0" under old schema.
-
-Legal: "24.20.100.7000", "0.0.100.7000", "0.0.0.7000", "0.0.100.0"
-Illegal: "24.0.0.0", "24.20.0.0", "0.0.99.0"
+DDDD: It's always meaningful.
 '''
 
 
@@ -104,8 +105,6 @@ def check_intel_driver_version(version):
   for ver in ver_list:
     if not ver.isdigit():
       return False
-  if int(ver_list[2]) < 100 and ver_list[3] == '0':
-    return False
   return True
 
 
@@ -239,10 +238,13 @@ def CheckTestExpectationPatternsForConflicts(expectations, file_name):
 def _FindTestCases():
   test_cases = []
   for start_dir in gpu_project_config.CONFIG.start_dirs:
+    # Note we deliberately only scan the integration tests as a
+    # workaround for http://crbug.com/1195465 .
     modules_to_classes = discover.DiscoverClasses(
         start_dir,
         gpu_project_config.CONFIG.top_level_dir,
-        base_class=gpu_integration_test.GpuIntegrationTest)
+        base_class=gpu_integration_test.GpuIntegrationTest,
+        pattern='*_integration_test.py')
     test_cases.extend(modules_to_classes.values())
   return test_cases
 
@@ -254,7 +256,7 @@ class GpuTestExpectationsValidation(unittest.TestCase):
     errors = ''
     for test_case in _FindTestCases():
       if 'gpu_tests.gpu_integration_test_unittest' not in test_case.__module__:
-        for webgl_version in xrange(
+        for webgl_version in range(
             1, 2 + (test_case == webgl_conformance_test_class)):
           _ = list(
               test_case.GenerateGpuTests(
@@ -271,7 +273,7 @@ class GpuTestExpectationsValidation(unittest.TestCase):
         webgl_conformance_integration_test.WebGLConformanceIntegrationTest)
     for test_case in _FindTestCases():
       if 'gpu_tests.gpu_integration_test_unittest' not in test_case.__module__:
-        for webgl_version in xrange(
+        for webgl_version in range(
             1, 2 + (test_case == webgl_conformance_test_class)):
           _ = list(
               test_case.GenerateGpuTests(
@@ -294,7 +296,7 @@ class GpuTestExpectationsValidation(unittest.TestCase):
 
     webgl_test_class = (
         webgl_conformance_integration_test.WebGLConformanceIntegrationTest)
-    for webgl_version in xrange(1, 3):
+    for webgl_version in range(1, 3):
       _ = list(
           webgl_test_class.GenerateGpuTests(
               gpu_helper.GetMockArgs(webgl_version='%d.0.0' % webgl_version)))
@@ -307,7 +309,7 @@ class GpuTestExpectationsValidation(unittest.TestCase):
   def testForBrokenWebglExtensionExpectations(self):
     webgl_test_class = (
         webgl_conformance_integration_test.WebGLConformanceIntegrationTest)
-    for webgl_version in xrange(1, 3):
+    for webgl_version in range(1, 3):
       tests = [
           test[0] for test in webgl_test_class.GenerateGpuTests(
               gpu_helper.GetMockArgs(webgl_version='%d.0.0' % webgl_version))
@@ -317,10 +319,10 @@ class GpuTestExpectationsValidation(unittest.TestCase):
         expectations.parse_tagged_list(f.read())
 
         # remove non webgl extension expectations
-        for test in expectations.individual_exps.keys():
+        for test in list(expectations.individual_exps.keys()):
           if not test.lower().startswith('webglextension'):
             expectations.individual_exps.pop(test)
-        for test in expectations.glob_exps.keys():
+        for test in list(expectations.glob_exps.keys()):
           if not test.lower().startswith('webglextension'):
             expectations.glob_exps.pop(test)
 
@@ -486,7 +488,7 @@ class TestGpuTestExpectationsValidators(unittest.TestCase):
                          'a/c/* [ Failure ]\n')
     options = gpu_helper.GetMockArgs()
     test_class = gpu_integration_test.GpuIntegrationTest
-    with tempfile_ext.NamedTemporaryFile() as expectations_file,            \
+    with tempfile_ext.NamedTemporaryFile(mode='w') as expectations_file,    \
          mock.patch.object(
              test_class, 'GenerateGpuTests', return_value=[('a/b/c', ())]), \
          mock.patch.object(
@@ -557,3 +559,7 @@ def testDriverVersionComparision(self):
   self.assertTrue(
       gpu_helper.EvaluateVersionComparison('24.20.100.7000', 'eq',
                                            '25.20.100.7000', 'win', 'intel'))
+
+
+if __name__ == '__main__':
+  unittest.main(verbosity=2)

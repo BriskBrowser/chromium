@@ -8,20 +8,21 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/cxx17_backports.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/metrics/histogram.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/metrics/thread_watcher_report_hang.h"
@@ -33,6 +34,7 @@
 #include "components/omnibox/browser/omnibox_event_global_tracker.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
@@ -49,6 +51,9 @@ namespace {
 // one instance of this class exists.
 class ThreadWatcherObserver : public content::NotificationObserver {
  public:
+  ThreadWatcherObserver(const ThreadWatcherObserver&) = delete;
+  ThreadWatcherObserver& operator=(const ThreadWatcherObserver&) = delete;
+
   // |wakeup_interval| specifies how often to wake up thread watchers due to
   // new user activity.
   static void Start(const base::TimeDelta& wakeup_interval);
@@ -84,8 +89,6 @@ class ThreadWatcherObserver : public content::NotificationObserver {
   // Subscription for receiving callbacks that a URL was opened from the
   // omnibox.
   base::CallbackListSubscription omnibox_url_opened_subscription_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThreadWatcherObserver);
 };
 
 ThreadWatcherObserver* g_thread_watcher_observer_ = nullptr;
@@ -161,7 +164,7 @@ void ThreadWatcherObserver::OnUserActivityDetected() {
 ThreadWatcher::ThreadWatcher(const WatchingParams& params)
     : thread_id_(params.thread_id),
       thread_name_(params.thread_name),
-      watched_runner_(base::CreateSingleThreadTaskRunner({params.thread_id})),
+      watched_runner_(BrowserThread::GetTaskRunnerForThread(params.thread_id)),
       sleep_time_(params.sleep_time),
       unresponsive_time_(params.unresponsive_time),
       ping_time_(base::TimeTicks::Now()),
@@ -175,6 +178,7 @@ ThreadWatcher::ThreadWatcher(const WatchingParams& params)
       hung_processing_complete_(false),
       unresponsive_threshold_(params.unresponsive_threshold),
       crash_on_hang_(params.crash_on_hang) {
+  DCHECK(watched_runner_);
   DCHECK(WatchDogThread::CurrentlyOnWatchDogThread());
   Initialize();
 }
@@ -291,8 +295,7 @@ void ThreadWatcher::OnPongMessage(uint64_t ping_sequence_number) {
   // On ChromeOS, we log when the response time is long on the UI thread as part
   // of an effort to debug extreme jank reported by some users. This log message
   // can be used to correlate the period of jank with other system logs.
-  if (response_time > base::TimeDelta::FromSeconds(1) &&
-      thread_id_ == BrowserThread::UI) {
+  if (response_time > base::Seconds(1) && thread_id_ == BrowserThread::UI) {
     LOG(WARNING) << "Long response time on the UI thread: " << response_time;
   }
 #endif
@@ -357,18 +360,14 @@ void ThreadWatcher::Initialize() {
   const std::string response_time_histogram_name =
       "ThreadWatcher.ResponseTime." + thread_name_;
   response_time_histogram_ = base::Histogram::FactoryTimeGet(
-      response_time_histogram_name,
-      base::TimeDelta::FromMilliseconds(1),
-      base::TimeDelta::FromSeconds(100), 50,
-      base::Histogram::kUmaTargetedHistogramFlag);
+      response_time_histogram_name, base::Milliseconds(1), base::Seconds(100),
+      50, base::Histogram::kUmaTargetedHistogramFlag);
 
   const std::string unresponsive_time_histogram_name =
       "ThreadWatcher.Unresponsive." + thread_name_;
   unresponsive_time_histogram_ = base::Histogram::FactoryTimeGet(
-      unresponsive_time_histogram_name,
-      base::TimeDelta::FromMilliseconds(1),
-      base::TimeDelta::FromSeconds(100), 50,
-      base::Histogram::kUmaTargetedHistogramFlag);
+      unresponsive_time_histogram_name, base::Milliseconds(1),
+      base::Seconds(100), 50, base::Histogram::kUmaTargetedHistogramFlag);
 
   const std::string responsive_count_histogram_name =
       "ThreadWatcher.ResponsiveThreads." + thread_name_;
@@ -498,7 +497,7 @@ void ThreadWatcherList::StartWatchingAll(
                    &crash_on_hang_threads);
 
   ThreadWatcherObserver::Start(
-      base::TimeDelta::FromSeconds(kSleepSeconds * unresponsive_threshold));
+      base::Seconds(kSleepSeconds * unresponsive_threshold));
 
   WatchDogThread::PostTask(
       FROM_HERE, base::BindOnce(&ThreadWatcherList::SetStopped, false));
@@ -507,7 +506,7 @@ void ThreadWatcherList::StartWatchingAll(
       FROM_HERE,
       base::BindOnce(&ThreadWatcherList::InitializeAndStartWatching,
                      unresponsive_threshold, crash_on_hang_threads),
-      base::TimeDelta::FromSeconds(g_initialize_delay_seconds));
+      base::Seconds(g_initialize_delay_seconds));
 }
 
 // static
@@ -626,7 +625,7 @@ void ThreadWatcherList::ParseCommandLineCrashOnHangThreads(
     // unresponsive before considering it as hung.
     CHECK_LE(values.size(), 2U);
 
-    std::string thread_name = values[0].as_string();
+    std::string thread_name(values[0]);
 
     uint32_t crash_seconds = default_crash_seconds;
     if (values.size() >= 2 &&
@@ -668,10 +667,8 @@ void ThreadWatcherList::InitializeAndStartWatching(
     return;
   }
 
-  const base::TimeDelta kSleepTime =
-      base::TimeDelta::FromSeconds(kSleepSeconds);
-  const base::TimeDelta kUnresponsiveTime =
-      base::TimeDelta::FromSeconds(kUnresponsiveSeconds);
+  const base::TimeDelta kSleepTime = base::Seconds(kSleepSeconds);
+  const base::TimeDelta kUnresponsiveTime = base::Seconds(kUnresponsiveSeconds);
 
   StartWatching(BrowserThread::UI, "UI", kSleepTime, kUnresponsiveTime,
                 unresponsive_threshold, crash_on_hang_threads);
@@ -817,7 +814,7 @@ bool WatchDogThread::Started() const {
 
 void WatchDogThread::Init() {
   // This thread shouldn't be allowed to perform any blocking disk I/O.
-  base::ThreadRestrictions::SetIOAllowed(false);
+  base::DisallowBlocking();
 
   base::AutoLock lock(g_watchdog_lock.Get());
   CHECK(!g_watchdog_thread);
@@ -845,6 +842,9 @@ class StartupWatchDogThread : public base::Watchdog {
       : base::Watchdog(duration, "Startup watchdog thread", true) {
   }
 
+  StartupWatchDogThread(const StartupWatchDogThread&) = delete;
+  StartupWatchDogThread& operator=(const StartupWatchDogThread&) = delete;
+
   // Alarm is called if the time expires after an Arm() without someone calling
   // Disarm(). When Alarm goes off, in release mode we get the crash dump
   // without crashing and in debug mode we break into the debugger.
@@ -855,9 +855,6 @@ class StartupWatchDogThread : public base::Watchdog {
     WatchDogThread::PostTask(FROM_HERE, base::BindOnce(&metrics::StartupHang));
 #endif
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(StartupWatchDogThread);
 };
 
 // ShutdownWatchDogThread methods and members.
@@ -871,12 +868,12 @@ class ShutdownWatchDogThread : public base::Watchdog {
       : base::Watchdog(duration, "Shutdown watchdog thread", true) {
   }
 
+  ShutdownWatchDogThread(const ShutdownWatchDogThread&) = delete;
+  ShutdownWatchDogThread& operator=(const ShutdownWatchDogThread&) = delete;
+
   // Alarm is called if the time expires after an Arm() without someone calling
   // Disarm(). We crash the browser if this method is called.
   void Alarm() override { metrics::ShutdownHang(); }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ShutdownWatchDogThread);
 };
 
 }  // namespace
@@ -902,6 +899,14 @@ ShutdownWatcherHelper::~ShutdownWatcherHelper() {
 void ShutdownWatcherHelper::Arm(const base::TimeDelta& duration) {
   DCHECK_EQ(thread_id_, base::PlatformThread::CurrentId());
   DCHECK(!shutdown_watchdog_);
+  shutdown_watchdog_ =
+      new ShutdownWatchDogThread(GetPerChannelTimeout(duration));
+  shutdown_watchdog_->Arm();
+}
+
+// static
+base::TimeDelta ShutdownWatcherHelper::GetPerChannelTimeout(
+    base::TimeDelta duration) {
   base::TimeDelta actual_duration = duration;
 
   version_info::Channel channel = chrome::GetChannel();
@@ -915,8 +920,7 @@ void ShutdownWatcherHelper::Arm(const base::TimeDelta& duration) {
     actual_duration *= 2;
   }
 
-  shutdown_watchdog_ = new ShutdownWatchDogThread(actual_duration);
-  shutdown_watchdog_->Arm();
+  return actual_duration;
 }
 
 #endif  // !defined(OS_ANDROID)

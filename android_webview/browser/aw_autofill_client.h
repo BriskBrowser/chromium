@@ -54,6 +54,9 @@ namespace android_webview {
 class AwAutofillClient : public autofill::AutofillClient,
                          public content::WebContentsUserData<AwAutofillClient> {
  public:
+  AwAutofillClient(const AwAutofillClient&) = delete;
+  AwAutofillClient& operator=(const AwAutofillClient&) = delete;
+
   ~AwAutofillClient() override;
 
   void SetSaveFormData(bool enabled);
@@ -84,10 +87,10 @@ class AwAutofillClient : public autofill::AutofillClient,
       base::WeakPtr<autofill::CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
   void ConfirmAccountNameFixFlow(
-      base::OnceCallback<void(const base::string16&)> callback) override;
+      base::OnceCallback<void(const std::u16string&)> callback) override;
   void ConfirmExpirationDateFixFlow(
       const autofill::CreditCard& card,
-      base::OnceCallback<void(const base::string16&, const base::string16&)>
+      base::OnceCallback<void(const std::u16string&, const std::u16string&)>
           callback) override;
   void ConfirmSaveCreditCardLocally(
       const autofill::CreditCard& card,
@@ -103,6 +106,8 @@ class AwAutofillClient : public autofill::AutofillClient,
                                    base::OnceClosure callback) override;
   void ConfirmSaveAddressProfile(
       const autofill::AutofillProfile& profile,
+      const autofill::AutofillProfile* original_profile,
+      SaveAddressProfilePromptOptions options,
       AddressProfileSavePromptCallback callback) override;
   bool HasCreditCardScanFeature() override;
   void ScanCreditCard(CreditCardScanCallback callback) override;
@@ -110,8 +115,8 @@ class AwAutofillClient : public autofill::AutofillClient,
       const autofill::AutofillClient::PopupOpenArgs& open_args,
       base::WeakPtr<autofill::AutofillPopupDelegate> delegate) override;
   void UpdateAutofillPopupDataListValues(
-      const std::vector<base::string16>& values,
-      const std::vector<base::string16>& labels) override;
+      const std::vector<std::u16string>& values,
+      const std::vector<std::u16string>& labels) override;
   base::span<const autofill::Suggestion> GetPopupSuggestions() const override;
   void PinPopupView() override;
   autofill::AutofillClient::PopupOpenArgs GetReopenPopupArgs() const override;
@@ -122,8 +127,8 @@ class AwAutofillClient : public autofill::AutofillClient,
   void PropagateAutofillPredictions(
       content::RenderFrameHost* rfh,
       const std::vector<autofill::FormStructure*>& forms) override;
-  void DidFillOrPreviewField(const base::string16& autofilled_value,
-                             const base::string16& profile_full_name) override;
+  void DidFillOrPreviewField(const std::u16string& autofilled_value,
+                             const std::u16string& profile_full_name) override;
   bool IsContextSecure() const override;
   bool ShouldShowSigninPromo() override;
   bool AreServerCardsSupported() const override;
@@ -158,13 +163,7 @@ class AwAutofillClient : public autofill::AutofillClient,
   std::vector<autofill::Suggestion> suggestions_;
   base::WeakPtr<autofill::AutofillPopupDelegate> delegate_;
 
-  // Tracks whether the autocomplete enabled metric has already been logged for
-  // this client.
-  bool autocomplete_uma_recorded_ = false;
-
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(AwAutofillClient);
 };
 
 }  // namespace android_webview

@@ -22,14 +22,14 @@
 #include "chrome/browser/ui/views/profiles/avatar_toolbar_button.h"
 #include "chrome/browser/ui/webui/signin/dice_web_signin_intercept_ui.h"
 #include "chrome/common/webui_url_constants.h"
-#include "components/signin/public/identity_manager/consent_level.h"
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -100,12 +100,14 @@ void DiceWebSigninInterceptionBubbleView::RecordInterceptionResult(
   std::string histogram_base_name = "Signin.InterceptResult";
   switch (bubble_parameters.interception_type) {
     case DiceWebSigninInterceptor::SigninInterceptionType::kEnterprise:
+    case DiceWebSigninInterceptor::SigninInterceptionType::kEnterpriseForced:
       histogram_base_name.append(".Enterprise");
       break;
     case DiceWebSigninInterceptor::SigninInterceptionType::kMultiUser:
       histogram_base_name.append(".MultiUser");
       break;
     case DiceWebSigninInterceptor::SigninInterceptionType::kProfileSwitch:
+    case DiceWebSigninInterceptor::SigninInterceptionType::kProfileSwitchForced:
       histogram_base_name.append(".Switch");
       break;
   }

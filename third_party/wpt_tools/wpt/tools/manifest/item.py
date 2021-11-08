@@ -1,7 +1,6 @@
 import os.path
 from inspect import isabstract
-from six import iteritems, with_metaclass
-from six.moves.urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs
 from abc import ABCMeta, abstractproperty
 
 from .utils import to_os_path
@@ -42,7 +41,7 @@ class ManifestItemMeta(ABCMeta):
         return rv  # type: ignore
 
 
-class ManifestItem(with_metaclass(ManifestItemMeta)):
+class ManifestItem(metaclass=ManifestItemMeta):
     __slots__ = ("_tests_root", "path")
 
     def __init__(self, tests_root, path):
@@ -141,7 +140,7 @@ class URLManifestItem(ManifestItem):
     @property
     def https(self):
         # type: () -> bool
-        return "https" in self._flags or "serviceworker" in self._flags
+        return "https" in self._flags or "serviceworker" in self._flags or "serviceworker-module" in self._flags
 
     @property
     def h2(self):
@@ -200,11 +199,6 @@ class TestharnessTest(URLManifestItem):
         return self._extras.get("jsshell")
 
     @property
-    def quic(self):
-        # type: () -> Optional[bool]
-        return self._extras.get("quic")
-
-    @property
     def script_metadata(self):
         # type: () -> Optional[List[Tuple[Text, Text]]]
         return self._extras.get("script_metadata")
@@ -218,8 +212,6 @@ class TestharnessTest(URLManifestItem):
             rv[-1]["testdriver"] = self.testdriver
         if self.jsshell:
             rv[-1]["jsshell"] = True
-        if self.quic is not None:
-            rv[-1]["quic"] = self.quic
         if self.script_metadata:
             rv[-1]["script_metadata"] = [(k, v) for (k,v) in self.script_metadata]
         return rv
@@ -289,7 +281,7 @@ class RefTest(URLManifestItem):
         if self.dpi is not None:
             extras["dpi"] = self.dpi
         if self.fuzzy:
-            extras["fuzzy"] = list(iteritems(self.fuzzy))
+            extras["fuzzy"] = list(self.fuzzy.items())
         return rv
 
     @classmethod

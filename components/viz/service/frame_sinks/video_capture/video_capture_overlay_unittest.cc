@@ -11,12 +11,11 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "cc/test/pixel_comparator.h"
 #include "cc/test/pixel_test_utils.h"
 #include "components/viz/test/paths.h"
@@ -27,6 +26,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -61,6 +61,9 @@ class MockFrameSource : public VideoCaptureOverlay::FrameSource {
 class VideoCaptureOverlayTest : public testing::Test {
  public:
   VideoCaptureOverlayTest() = default;
+
+  VideoCaptureOverlayTest(const VideoCaptureOverlayTest&) = delete;
+  VideoCaptureOverlayTest& operator=(const VideoCaptureOverlayTest&) = delete;
 
   NiceMock<MockFrameSource>* frame_source() { return &frame_source_; }
 
@@ -131,8 +134,6 @@ class VideoCaptureOverlayTest : public testing::Test {
 
  private:
   NiceMock<MockFrameSource> frame_source_;
-
-  DISALLOW_COPY_AND_ASSIGN(VideoCaptureOverlayTest);
 };
 
 // Tests that, when the VideoCaptureOverlay binds to a mojo pending receiver, it
@@ -234,6 +235,10 @@ class VideoCaptureOverlayRenderTest
   VideoCaptureOverlayRenderTest()
       : trace_(__FILE__, __LINE__, VideoPixelFormatToString(pixel_format())) {}
 
+  VideoCaptureOverlayRenderTest(const VideoCaptureOverlayRenderTest&) = delete;
+  VideoCaptureOverlayRenderTest& operator=(
+      const VideoCaptureOverlayRenderTest&) = delete;
+
   VideoPixelFormat pixel_format() const { return GetParam(); }
 
   bool is_argb_test() const {
@@ -321,9 +326,8 @@ class VideoCaptureOverlayRenderTest
         }
 
         // Execute the YUV→RGB conversion.
-        gfx::ColorTransform::NewColorTransform(
-            frame.ColorSpace(), png_color_space,
-            gfx::ColorTransform::Intent::INTENT_ABSOLUTE)
+        gfx::ColorTransform::NewColorTransform(frame.ColorSpace(),
+                                               png_color_space)
             ->Transform(colors.get(), size.GetArea());
 
         // Map back from interleaved [0.0,1.0] values to intervealed ARGB,
@@ -398,8 +402,6 @@ class VideoCaptureOverlayRenderTest
 
  private:
   testing::ScopedTrace trace_;
-
-  DISALLOW_COPY_AND_ASSIGN(VideoCaptureOverlayRenderTest);
 };
 
 // static

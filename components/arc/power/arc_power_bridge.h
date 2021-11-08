@@ -11,16 +11,17 @@
 
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/timer/timer.h"
-#include "chromeos/dbus/concierge_client.h"
+#include "chromeos/dbus/concierge/concierge_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
+#include "components/arc/mojom/anr.mojom.h"
 #include "components/arc/mojom/power.mojom.h"
 #include "components/arc/session/connection_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/wake_lock.mojom.h"
 #include "services/device/public/mojom/wake_lock_provider.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/display/manager/display_configurator.h"
 
 namespace content {
@@ -42,15 +43,22 @@ class ArcPowerBridge : public KeyedService,
   class Observer : public base::CheckedObserver {
    public:
     // Notifies that wakefulness mode is changed.
-    virtual void OnWakefulnessChanged(mojom::WakefulnessMode mode) = 0;
+    virtual void OnWakefulnessChanged(mojom::WakefulnessMode mode) {}
+    virtual void OnPreAnr(mojom::AnrType type) {}
   };
 
   // Returns singleton instance for the given BrowserContext,
   // or nullptr if the browser |context| is not allowed to use ARC.
   static ArcPowerBridge* GetForBrowserContext(content::BrowserContext* context);
+  static ArcPowerBridge* GetForBrowserContextForTesting(
+      content::BrowserContext* context);
 
   ArcPowerBridge(content::BrowserContext* context,
                  ArcBridgeService* bridge_service);
+
+  ArcPowerBridge(const ArcPowerBridge&) = delete;
+  ArcPowerBridge& operator=(const ArcPowerBridge&) = delete;
+
   ~ArcPowerBridge() override;
 
   void AddObserver(Observer* observer);
@@ -86,6 +94,8 @@ class ArcPowerBridge : public KeyedService,
   void IsDisplayOn(IsDisplayOnCallback callback) override;
   void OnScreenBrightnessUpdateRequest(double percent) override;
   void OnWakefulnessChanged(mojom::WakefulnessMode mode) override;
+  void OnPreAnr(mojom::AnrType type) override;
+  void OnAnrRecoveryFailed(::arc::mojom::AnrType type) override;
 
   void SetWakeLockProviderForTesting(
       mojo::Remote<device::mojom::WakeLockProvider> provider) {
@@ -99,7 +109,7 @@ class ArcPowerBridge : public KeyedService,
   WakeLockRequestor* GetWakeLockRequestor(device::mojom::WakeLockType type);
 
   // Called on PowerManagerClient::GetScreenBrightnessPercent() completion.
-  void OnGetScreenBrightnessPercent(base::Optional<double> percent);
+  void OnGetScreenBrightnessPercent(absl::optional<double> percent);
 
   // Called by Android when ready to suspend.
   void OnAndroidSuspendReady(base::UnguessableToken token);
@@ -108,12 +118,12 @@ class ArcPowerBridge : public KeyedService,
   // SuspendVm D-Bus call.
   void OnConciergeSuspendVmResponse(
       base::UnguessableToken token,
-      base::Optional<vm_tools::concierge::SuspendVmResponse> reply);
+      absl::optional<vm_tools::concierge::SuspendVmResponse> reply);
 
   // Called by ConciergeClient when a response has been receive for the
   // ResumeVm D-Bus call.
   void OnConciergeResumeVmResponse(
-      base::Optional<vm_tools::concierge::ResumeVmResponse> reply);
+      absl::optional<vm_tools::concierge::ResumeVmResponse> reply);
 
   // Sends a PowerInstance::UpdateScreenBrightnessSettings mojo call to Android.
   void UpdateAndroidScreenBrightness(double percent);
@@ -147,8 +157,6 @@ class ArcPowerBridge : public KeyedService,
   bool is_suspending_ = false;
 
   base::WeakPtrFactory<ArcPowerBridge> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ArcPowerBridge);
 };
 
 }  // namespace arc

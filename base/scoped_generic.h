@@ -12,9 +12,6 @@
 #include <utility>
 
 #include "base/check.h"
-// TODO(crbug.com/1010217) Remove once no #includers are getting base/macros.h
-// by including this header.
-#include "base/macros.h"
 
 namespace base {
 
@@ -54,7 +51,7 @@ namespace base {
 //     }
 //   };
 //
-//   typedef ScopedGeneric<int, FooScopedTraits> ScopedFoo;
+//   using ScopedFoo = ScopedGeneric<int, FooScopedTraits>;
 //
 // A Traits type may choose to track ownership of objects in parallel with
 // ScopedGeneric. To do so, it must implement the Acquire and Release methods,
@@ -80,7 +77,7 @@ namespace base {
 //     }
 //   };
 //
-//   typedef ScopedGeneric<int, BarScopedTraits> ScopedBar;
+//   using ScopedBar = ScopedGeneric<int, BarScopedTraits>;
 struct ScopedGenericOwnershipTracking {};
 
 template<typename T, typename Traits>

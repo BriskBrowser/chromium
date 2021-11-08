@@ -14,8 +14,10 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/common/chrome_features.h"
+#include "chrome/browser/web_applications/web_app_provider.h"
 #include "content/public/browser/navigation_handle.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/image/image.h"
 
@@ -40,6 +42,14 @@ apps::mojom::AppType GetAppType(apps::PickerEntryType picker_entry_type) {
   return app_type;
 }
 
+web_app::WebAppRegistrar* MaybeGetWebAppRegistrar(
+    content::WebContents* web_contents) {
+  // Profile for web contents might not contain a web app provider. eg. kiosk
+  // profile in Chrome OS.
+  auto* provider = web_app::WebAppProvider::GetForWebContents(web_contents);
+  return provider ? &provider->registrar() : nullptr;
+}
+
 }  // namespace
 
 IntentPickerTabHelper::~IntentPickerTabHelper() = default;
@@ -59,7 +69,11 @@ void IntentPickerTabHelper::SetShouldShowIcon(
 }
 
 IntentPickerTabHelper::IntentPickerTabHelper(content::WebContents* web_contents)
-    : content::WebContentsObserver(web_contents) {}
+    : content::WebContentsObserver(web_contents),
+      registrar_(MaybeGetWebAppRegistrar(web_contents)) {
+  if (registrar_)
+    registrar_observation_.Observe(registrar_);
+}
 
 // static
 void IntentPickerTabHelper::LoadAppIcons(
@@ -79,7 +93,8 @@ void IntentPickerTabHelper::OnAppIconLoaded(
     IntentPickerIconLoaderCallback callback,
     size_t index,
     apps::mojom::IconValuePtr icon_value) {
-  apps[index].icon = gfx::Image(icon_value->uncompressed);
+  apps[index].icon_model =
+      ui::ImageModel::FromImage(gfx::Image(icon_value->uncompressed));
 
   if (index == apps.size() - 1)
     std::move(callback).Run(std::move(apps));
@@ -102,19 +117,13 @@ void IntentPickerTabHelper::LoadAppIcon(
   Profile* profile =
       Profile::FromBrowserContext(web_contents()->GetBrowserContext());
 
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile);
-
   constexpr bool allow_placeholder_icon = false;
-  auto icon_type =
-      (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon))
-          ? apps::mojom::IconType::kStandard
-          : apps::mojom::IconType::kUncompressed;
-  proxy->LoadIcon(app_type, app_id, icon_type, gfx::kFaviconSize,
-                  allow_placeholder_icon,
-                  base::BindOnce(&IntentPickerTabHelper::OnAppIconLoaded,
-                                 weak_factory_.GetWeakPtr(), std::move(apps),
-                                 std::move(callback), index));
+  apps::AppServiceProxyFactory::GetForProfile(profile)->LoadIcon(
+      app_type, app_id, apps::mojom::IconType::kStandard, gfx::kFaviconSize,
+      allow_placeholder_icon,
+      base::BindOnce(&IntentPickerTabHelper::OnAppIconLoaded,
+                     weak_factory_.GetWeakPtr(), std::move(apps),
+                     std::move(callback), index));
 }
 
 void IntentPickerTabHelper::DidFinishNavigation(
@@ -122,18 +131,34 @@ void IntentPickerTabHelper::DidFinishNavigation(
   // For a http/https scheme URL navigation, we will check if the
   // url can be handled by some apps, and show intent picker icon
   // or bubble if there are some apps available. We only want to check this if
-  // the navigation happens in the main frame, and the navigation is not the
-  // same document with same URL.
+  // the navigation happens in the primary main frame, and the navigation is not
+  // the same document with same URL.
   // TODO(crbug.com/826982): Check is not error page here. Adding this check
   // will break the browser test, given this is a refactor CL, will add check in
   // follow up CL.
-  if (navigation_handle->IsInMainFrame() && navigation_handle->HasCommitted() &&
+  if (navigation_handle->IsInPrimaryMainFrame() &&
+      navigation_handle->HasCommitted() &&
       (!navigation_handle->IsSameDocument() ||
        navigation_handle->GetURL() !=
            navigation_handle->GetPreviousMainFrameURL()) &&
       navigation_handle->GetURL().SchemeIsHTTPOrHTTPS()) {
-    apps::MaybeShowIntentPicker(navigation_handle);
+    bool should_show_icon = apps::MaybeShowIntentPicker(navigation_handle);
+    IntentPickerTabHelper::SetShouldShowIcon(web_contents(), should_show_icon);
   }
 }
 
-WEB_CONTENTS_USER_DATA_KEY_IMPL(IntentPickerTabHelper)
+void IntentPickerTabHelper::OnWebAppWillBeUninstalled(
+    const web_app::AppId& app_id) {
+  // WebAppTabHelper has an app_id but it is reset during
+  // OnWebAppWillBeUninstalled so using FindAppWithUrlInScope.
+  absl::optional<web_app::AppId> local_app_id =
+      registrar_->FindAppWithUrlInScope(web_contents()->GetLastCommittedURL());
+  if (app_id == local_app_id)
+    SetShouldShowIcon(web_contents(), false);
+}
+
+void IntentPickerTabHelper::OnAppRegistrarDestroyed() {
+  registrar_observation_.Reset();
+}
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(IntentPickerTabHelper);

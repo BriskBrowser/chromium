@@ -25,6 +25,13 @@ public class TestViewStructure extends ViewStructure implements TestViewStructur
     private int mChildCount;
     private ArrayList<TestViewStructure> mChildren = new ArrayList<TestViewStructure>();
     private boolean mDone = true;
+    private boolean mDumpHtmlTags;
+    private float mTextSize;
+    private int mFgColor;
+    private int mBgColor;
+    private int mStyle;
+    private int mSelectionStart;
+    private int mSelectionEnd;
 
     public TestViewStructure() {}
 
@@ -42,11 +49,36 @@ public class TestViewStructure extends ViewStructure implements TestViewStructur
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        recursiveDumpToString(builder, 0);
+        recursiveDumpToString(builder, 0, mDumpHtmlTags);
         return builder.toString();
     }
 
-    private void recursiveDumpToString(StringBuilder builder, int indent) {
+    @Override
+    public String getClassName() {
+        return mClassName;
+    }
+
+    @Override
+    public float getTextSize() {
+        return mTextSize;
+    }
+
+    @Override
+    public int getFgColor() {
+        return mFgColor;
+    }
+
+    @Override
+    public int getBgColor() {
+        return mBgColor;
+    }
+
+    @Override
+    public int getStyle() {
+        return mStyle;
+    }
+
+    private void recursiveDumpToString(StringBuilder builder, int indent, boolean dumpHtmlTags) {
         for (int i = 0; i < indent; i++) {
             builder.append("  ");
         }
@@ -61,10 +93,19 @@ public class TestViewStructure extends ViewStructure implements TestViewStructur
             builder.append("'");
         }
 
+        if (mBundle != null) {
+            String htmlTag = mBundle.getCharSequence("htmlTag").toString();
+            if (dumpHtmlTags && !TextUtils.isEmpty(htmlTag)) {
+                builder.append(" htmlTag='");
+                builder.append(htmlTag);
+                builder.append("'");
+            }
+        }
+
         builder.append("\n");
 
         for (TestViewStructure child : mChildren) {
-            child.recursiveDumpToString(builder, indent + 1);
+            child.recursiveDumpToString(builder, indent + 1, dumpHtmlTags);
         }
     }
 
@@ -90,12 +131,12 @@ public class TestViewStructure extends ViewStructure implements TestViewStructur
 
     @Override
     public int getTextSelectionStart() {
-        return 0;
+        return mSelectionStart;
     }
 
     @Override
     public int getTextSelectionEnd() {
-        return 0;
+        return mSelectionEnd;
     }
 
     @Override
@@ -115,13 +156,22 @@ public class TestViewStructure extends ViewStructure implements TestViewStructur
     }
 
     @Override
-    public void setChildCount(int num) {}
+    public void setChildCount(int num) {
+        mChildren.ensureCapacity(num);
+        for (int i = mChildCount; i < num; i++) {
+            mChildCount++;
+            mChildren.add(null);
+        }
+    }
 
     @Override
     public int addChildCount(int num) {
         int index = mChildCount;
-        mChildCount += num;
-        mChildren.ensureCapacity(mChildCount);
+        mChildren.ensureCapacity(mChildCount + num);
+        for (int i = 0; i < num; i++) {
+            mChildCount++;
+            mChildren.add(null);
+        }
         return index;
     }
 
@@ -131,16 +181,16 @@ public class TestViewStructure extends ViewStructure implements TestViewStructur
     }
 
     @Override
+    public void dumpHtmlTags() {
+        mDumpHtmlTags = true;
+    }
+
+    @Override
     public ViewStructure newChild(int index) {
         TestViewStructure viewStructure = new TestViewStructure();
-        if (index < mChildren.size()) {
-            mChildren.set(index, viewStructure);
-        } else if (index == mChildren.size()) {
-            mChildren.add(viewStructure);
-        } else {
-            // Failed intentionally, we shouldn't run into this case.
-            mChildren.add(index, viewStructure);
-        }
+        // Note: this will fail if index is out of bounds, to match
+        // the behavior of AssistViewStructure in practice.
+        mChildren.set(index, viewStructure);
         return viewStructure;
     }
 
@@ -158,6 +208,7 @@ public class TestViewStructure extends ViewStructure implements TestViewStructur
 
     @Override
     public void asyncCommit() {
+        assert !mDone;
         mDone = true;
     }
 
@@ -257,10 +308,19 @@ public class TestViewStructure extends ViewStructure implements TestViewStructur
     }
 
     @Override
-    public void setText(CharSequence text, int selectionStart, int selectionEnd) {}
+    public void setText(CharSequence text, int selectionStart, int selectionEnd) {
+        mText = text;
+        mSelectionStart = selectionStart;
+        mSelectionEnd = selectionEnd;
+    }
 
     @Override
-    public void setTextStyle(float size, int fgColor, int bgColor, int style) {}
+    public void setTextStyle(float size, int fgColor, int bgColor, int style) {
+        mTextSize = size;
+        mFgColor = fgColor;
+        mBgColor = bgColor;
+        mStyle = style;
+    }
 
     @Override
     public void setTextLines(int[] charOffsets, int[] baselines) {}

@@ -21,8 +21,10 @@ import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.IS_FAKE_S
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.IS_INCOGNITO;
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.IS_INCOGNITO_DESCRIPTION_INITIALIZED;
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.IS_INCOGNITO_DESCRIPTION_VISIBLE;
+import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.IS_LENS_BUTTON_VISIBLE;
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.IS_TAB_CAROUSEL_VISIBLE;
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.IS_VOICE_RECOGNITION_BUTTON_VISIBLE;
+import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.LENS_BUTTON_CLICK_LISTENER;
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.MORE_TABS_CLICK_LISTENER;
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.MV_TILES_CONTAINER_TOP_MARGIN;
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.MV_TILES_VISIBLE;
@@ -30,25 +32,14 @@ import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.TAB_SWITC
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.TASKS_SURFACE_BODY_TOP_MARGIN;
 import static org.chromium.chrome.browser.tasks.TasksSurfaceProperties.VOICE_SEARCH_BUTTON_CLICK_LISTENER;
 
-import android.content.res.Resources;
 import android.graphics.drawable.ColorDrawable;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.HorizontalScrollView;
-import android.widget.ListView;
-import android.widget.ScrollView;
 
-import androidx.core.widget.NestedScrollView;
-import androidx.test.espresso.UiController;
-import androidx.test.espresso.ViewAction;
-import androidx.test.espresso.action.ScrollToAction;
-import androidx.test.espresso.matcher.ViewMatchers;
 import androidx.test.filters.SmallTest;
 
-import org.hamcrest.Matcher;
-import org.hamcrest.Matchers;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -180,6 +171,29 @@ public class TasksViewBinderTest extends DummyUiActivityTestCase {
     }
 
     @Test
+    @SmallTest
+    public void testSetLensButtonVisibilityAndClickListener() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mTasksViewPropertyModel.set(IS_FAKE_SEARCH_BOX_VISIBLE, true);
+            mTasksViewPropertyModel.set(IS_LENS_BUTTON_VISIBLE, true);
+        });
+        assertTrue(isViewVisible(R.id.lens_camera_button));
+
+        mViewClicked.set(false);
+        onView(withId(R.id.lens_camera_button)).perform(click());
+        assertFalse(mViewClicked.get());
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mTasksViewPropertyModel.set(LENS_BUTTON_CLICK_LISTENER, mViewOnClickListener);
+        });
+        onView(withId(R.id.lens_camera_button)).perform(click());
+        assertTrue(mViewClicked.get());
+
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> mTasksViewPropertyModel.set(IS_LENS_BUTTON_VISIBLE, false));
+        assertFalse(isViewVisible(R.id.lens_camera_button));
+    }
+
+    @Test
     @UiThreadTest
     @SmallTest
     public void testSetMVTilesVisibility() {
@@ -200,7 +214,7 @@ public class TasksViewBinderTest extends DummyUiActivityTestCase {
         // Note that onView(R.id.more_tabs).perform(click()) can not be used since it requires 90
         // percent of the view's area is displayed to the users. However, this view has negative
         // margin which makes the percentage is less than 90.
-        // TODO (crbug.com/1025296): Investigate whether this would be a problem for real users.
+        // TODO (crbug.com/1186752): Investigate whether this would be a problem for real users.
         mTasksView.findViewById(R.id.more_tabs).performClick();
         assertFalse(mViewClicked.get());
         mTasksViewPropertyModel.set(MORE_TABS_CLICK_LISTENER, mViewOnClickListener);
@@ -213,13 +227,12 @@ public class TasksViewBinderTest extends DummyUiActivityTestCase {
     @SmallTest
     public void testSetIncognitoMode() {
         mTasksViewPropertyModel.set(IS_INCOGNITO, true);
-        Resources resources = getActivity().getResources();
-        int backgroundColor = ChromeColors.getPrimaryBackgroundColor(resources, true);
+        int backgroundColor = ChromeColors.getPrimaryBackgroundColor(getActivity(), true);
         ColorDrawable viewColor = (ColorDrawable) mTasksView.getBackground();
         assertEquals(backgroundColor, viewColor.getColor());
 
         mTasksViewPropertyModel.set(IS_INCOGNITO, false);
-        backgroundColor = ChromeColors.getPrimaryBackgroundColor(resources, false);
+        backgroundColor = ChromeColors.getPrimaryBackgroundColor(getActivity(), false);
         viewColor = (ColorDrawable) mTasksView.getBackground();
         assertEquals(backgroundColor, viewColor.getColor());
     }
@@ -242,33 +255,6 @@ public class TasksViewBinderTest extends DummyUiActivityTestCase {
         });
         assertTrue(isViewVisible(R.id.new_tab_incognito_container));
 
-        mViewClicked.set(false);
-        // Default scrollTo() cannot be used for NestedScrollView. Add a customized scrollTo for
-        // scrolling to learn_more button.
-        ViewAction customizedScrollTo = new ViewAction() {
-            @Override
-            public Matcher<View> getConstraints() {
-                return Matchers.allOf(
-                        ViewMatchers.withEffectiveVisibility(ViewMatchers.Visibility.VISIBLE),
-                        ViewMatchers.isDescendantOfA(
-                                Matchers.anyOf(ViewMatchers.isAssignableFrom(ScrollView.class),
-                                        ViewMatchers.isAssignableFrom(HorizontalScrollView.class),
-                                        ViewMatchers.isAssignableFrom(ListView.class),
-                                        ViewMatchers.isAssignableFrom(NestedScrollView.class))));
-            }
-
-            @Override
-            public String getDescription() {
-                return "scroll to";
-            }
-
-            @Override
-            public void perform(UiController uiController, View view) {
-                new ScrollToAction().perform(uiController, view);
-            }
-        };
-        onView(withId(R.id.learn_more)).perform(customizedScrollTo, click());
-        assertTrue(mViewClicked.get());
     }
 
     @Test

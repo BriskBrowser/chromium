@@ -9,7 +9,7 @@
 #include "base/check.h"
 #include "base/macros.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/login/saml/in_session_password_change_manager.h"
+#include "chrome/browser/ash/login/saml/in_session_password_change_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/login/auth/saml_password_attributes.h"
@@ -93,11 +93,11 @@ void ConfirmPasswordChangeHandler::OnEvent(
 }
 
 void ConfirmPasswordChangeHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getInitialState",
       base::BindRepeating(&ConfirmPasswordChangeHandler::HandleGetInitialState,
                           weak_factory_.GetWeakPtr()));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "changePassword",
       base::BindRepeating(&ConfirmPasswordChangeHandler::HandleChangePassword,
                           weak_factory_.GetWeakPtr()));

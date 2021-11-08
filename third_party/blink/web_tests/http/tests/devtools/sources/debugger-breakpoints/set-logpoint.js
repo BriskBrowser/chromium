@@ -4,8 +4,8 @@
 
 (async function() {
   TestRunner.addResult(`Tests setting logpoints.\n`);
-  await TestRunner.loadModule('console_test_runner');
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.showPanel('sources');
   await TestRunner.navigatePromise('resources/set-breakpoint.html');
 
@@ -19,7 +19,7 @@
       function didShowScriptSource(sourceFrame) {
         currentSourceFrame = sourceFrame;
         TestRunner.addResult('Script source was shown.');
-        const condition = Sources.BreakpointEditDialog._conditionForLogpoint(`"x is", x`);
+        const condition = Sources.BreakpointEditDialog.conditionForLogpoint(`"x is", x`);
         SourcesTestRunner
             .createNewBreakpoint(currentSourceFrame, 14, condition, true)
             .then(() => SourcesTestRunner.waitBreakpointSidebarPane())

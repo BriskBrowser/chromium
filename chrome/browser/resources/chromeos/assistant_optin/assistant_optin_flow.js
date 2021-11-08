@@ -6,10 +6,8 @@
 // <include src="setting_zippy.js">
 // <include src="voice_match_entry.js">
 // <include src="browser_proxy.js">
-// <include src="assistant_get_more.js">
 // <include src="assistant_loading.js">
 // <include src="assistant_related_info.js">
-// <include src="assistant_third_party.js">
 // <include src="assistant_value_prop.js">
 // <include src="assistant_voice_match.js">
 
@@ -31,9 +29,7 @@ const UIState = {
   LOADING: 'loading',
   VALUE_PROP: 'value-prop',
   RELATED_INFO: 'related-info',
-  THIRD_PARTY: 'third-party',
   VOICE_MATCH: 'voice-match',
-  GET_MORE: 'get-more',
 };
 
 Polymer({
@@ -47,6 +43,19 @@ Polymer({
   /** @override */
   created() {
     this.browserProxy_ = assistant.BrowserProxyImpl.getInstance();
+  },
+
+  /** @override */
+  attached() {
+    window.addEventListener('orientationchange', () => this.onWindowResized_());
+    window.addEventListener('resize', () => this.onWindowResized_());
+  },
+
+  /** @override */
+  detached() {
+    window.removeEventListener(
+        'orientationchange', () => this.onWindowResized_());
+    window.removeEventListener('resize', () => this.onWindowResized_());
   },
 
   /**
@@ -72,21 +81,10 @@ Polymer({
    * @param {?string} type The type of the flow.
    * @param {?string} captionBarHeight The height of the caption bar.
    */
-  onShow(type, captionBarHeight, oobeDialogHeight, oobeDialogWidth) {
+  onShow(type, captionBarHeight) {
     captionBarHeight = captionBarHeight ? captionBarHeight + 'px' : '0px';
     this.style.setProperty('--caption-bar-height', captionBarHeight);
-
-    if (oobeDialogHeight && oobeDialogWidth) {
-      document.documentElement.style.setProperty(
-          '--oobe-oobe-dialog-height-base', oobeDialogHeight + 'px');
-      document.documentElement.style.setProperty(
-          '--oobe-oobe-dialog-width-base', oobeDialogWidth + 'px');
-      if (parseInt(oobeDialogWidth) > parseInt(oobeDialogHeight)) {
-        document.documentElement.setAttribute('orientation', 'horizontal');
-      } else {
-        document.documentElement.setAttribute('orientation', 'vertical');
-      }
-    }
+    this.onWindowResized_();
 
     type = type ? type : this.FlowType.CONSENT_FLOW.toString();
     var flowType = Number(type);
@@ -102,12 +100,12 @@ Polymer({
         break;
     }
 
-    this.boundShowLoadingScreen = this.showLoadingScreen.bind(this);
-    this.boundOnScreenLoadingError = this.onScreenLoadingError.bind(this);
-    this.boundOnScreenLoaded = this.onScreenLoaded.bind(this);
+    this.boundShowLoadingScreen = () => this.showLoadingScreen();
+    this.boundOnScreenLoadingError = () => this.onScreenLoadingError();
+    this.boundOnScreenLoaded = () => this.onScreenLoaded();
 
     this.$.loading.onBeforeShow();
-    this.$.loading.addEventListener('reload', this.onReload.bind(this));
+    this.$.loading.addEventListener('reload', () => this.onReload());
 
     switch (this.flowType) {
       case this.FlowType.SPEAKER_ID_ENROLLMENT:
@@ -128,13 +126,11 @@ Polymer({
   reloadContent(data) {
     this.voiceMatchEnforcedOff = data['voiceMatchEnforcedOff'];
     this.voiceMatchDisabled = loadTimeData.getBoolean('voiceMatchDisabled');
-    this.betterAssistantEnabled =
-        loadTimeData.getBoolean('betterAssistantEnabled');
+    this.shouldSkipVoiceMatch = loadTimeData.getBoolean('shouldSkipVoiceMatch');
     data['flowType'] = this.flowType;
     this.$.valueProp.reloadContent(data);
     this.$.relatedInfo.reloadContent(data);
-    this.$.thirdParty.reloadContent(data);
-    this.$.getMore.reloadContent(data);
+    this.$.voiceMatch.reloadContent(data);
   },
 
   /**
@@ -147,12 +143,6 @@ Polymer({
       case 'settings':
         this.$.valueProp.addSettingZippy(data);
         break;
-      case 'disclosure':
-        this.$.thirdParty.addSettingZippy(data);
-        break;
-      case 'get-more':
-        this.$.getMore.addSettingZippy(data);
-        break;
       default:
         console.error('Undefined zippy data type: ' + type);
     }
@@ -164,36 +154,17 @@ Polymer({
   showNextScreen() {
     switch (this.currentStep) {
       case UIState.VALUE_PROP:
-        if (this.betterAssistantEnabled) {
-          this.showStep(UIState.RELATED_INFO);
-        } else {
-          this.showStep(UIState.THIRD_PARTY);
-        }
+        this.showStep(UIState.RELATED_INFO);
         break;
       case UIState.RELATED_INFO:
-        if (this.voiceMatchEnforcedOff || this.voiceMatchDisabled) {
+        if (this.voiceMatchEnforcedOff || this.voiceMatchDisabled ||
+            this.shouldSkipVoiceMatch) {
           this.browserProxy_.flowFinished();
-        } else {
-          this.showStep(UIState.VOICE_MATCH);
-        }
-        break;
-      case UIState.THIRD_PARTY:
-        if (this.voiceMatchEnforcedOff || this.voiceMatchDisabled) {
-          this.showStep(UIState.GET_MORE);
         } else {
           this.showStep(UIState.VOICE_MATCH);
         }
         break;
       case UIState.VOICE_MATCH:
-        if (this.flowType == this.FlowType.SPEAKER_ID_ENROLLMENT ||
-            this.flowType == this.FlowType.SPEAKER_ID_RETRAIN ||
-            this.betterAssistantEnabled) {
-          this.browserProxy_.flowFinished();
-        } else {
-          this.showStep(UIState.GET_MORE);
-        }
-        break;
-      case UIState.GET_MORE:
         this.browserProxy_.flowFinished();
         break;
       default:
@@ -226,6 +197,17 @@ Polymer({
       default:
         break;
     }
+  },
+
+  /**
+   * Called to show the next settings when there are multiple unbundled
+   * activity control settings in the Value prop screen.
+   */
+  onValuePropUpdate() {
+    if (this.currentStep !== UIState.VALUE_PROP) {
+      return;
+    }
+    this.$.valueProp.showNextStep();
   },
 
   /**
@@ -285,6 +267,33 @@ Polymer({
     this.applyToStepElements((screen) => {
       screen.reloadPage();
     }, this.currentStep);
+  },
+
+  /**
+   * Called during initialization, when the window is resized, or the window's
+   * orientation is updated.
+   */
+  onWindowResized_() {
+    // Dialog size and orientation value needs to be updated for in-session
+    // assistant dialog.
+    if (!document.documentElement.hasAttribute('screen')) {
+      document.documentElement.style.setProperty(
+          '--oobe-oobe-dialog-height-base', window.innerHeight + 'px');
+      document.documentElement.style.setProperty(
+          '--oobe-oobe-dialog-width-base', window.innerWidth + 'px');
+      if (window.innerWidth > window.innerHeight) {
+        document.documentElement.setAttribute('orientation', 'horizontal');
+      } else {
+        document.documentElement.setAttribute('orientation', 'vertical');
+      }
+    }
+    // In landscape mode, animation element should reside in subtitle slot which
+    // is shown at the bottom left of the screen. In portrait mode, animation
+    // element should reside in content slot which allows scrolling with the
+    // rest of the content.
+    const slot = window.innerWidth > window.innerHeight ? 'subtitle' : 'content';
+    this.$.valueProp.getAnimationContainer().slot = slot;
+    this.$.relatedInfo.getAnimationContainer().slot = slot;
   },
 });
 })();

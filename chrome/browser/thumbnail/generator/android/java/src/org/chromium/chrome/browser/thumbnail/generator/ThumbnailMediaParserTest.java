@@ -39,9 +39,6 @@ import java.io.File;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @Batch(Batch.PER_CLASS)
 public class ThumbnailMediaParserTest {
-    private static final long MAX_MEDIA_PARSER_POLL_TIME_MS = 10000;
-    private static final long MEDIA_PARSER_POLL_INTERVAL_MS = 1000;
-
     @Rule
     public ChromeBrowserTestRule mTestRule = new ChromeBrowserTestRule();
 
@@ -66,16 +63,14 @@ public class ThumbnailMediaParserTest {
 
         // The native MediaParser needs to be created on UI thread.
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            ThumbnailMediaParserBridge parser = new ThumbnailMediaParserBridge(
-                    mimeType, filePath, (ThumbnailMediaData mediaData) -> {
-                        result.mediaData = mediaData;
-                        result.done = true;
-                    });
-            parser.start();
+            ThumbnailMediaParserBridge.parse(mimeType, filePath, (ThumbnailMediaData mediaData) -> {
+                result.mediaData = mediaData;
+                result.done = true;
+            });
         });
 
         CriteriaHelper.pollUiThread(
-                () -> result.done, MAX_MEDIA_PARSER_POLL_TIME_MS, MEDIA_PARSER_POLL_INTERVAL_MS);
+                () -> result.done, 10000, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
         return result;
     }
 

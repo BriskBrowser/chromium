@@ -17,7 +17,14 @@ class PrintViewManagerBasic
     : public PrintViewManagerBase,
       public content::WebContentsUserData<PrintViewManagerBasic> {
  public:
+  PrintViewManagerBasic(const PrintViewManagerBasic&) = delete;
+  PrintViewManagerBasic& operator=(const PrintViewManagerBasic&) = delete;
+
   ~PrintViewManagerBasic() override;
+
+  static void BindPrintManagerHost(
+      mojo::PendingAssociatedReceiver<mojom::PrintManagerHost> receiver,
+      content::RenderFrameHost* rfh);
 
 #if defined(OS_ANDROID)
   // printing::PrintManager:
@@ -29,8 +36,6 @@ class PrintViewManagerBasic
   friend class content::WebContentsUserData<PrintViewManagerBasic>;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(PrintViewManagerBasic);
 };
 
 }  // namespace printing

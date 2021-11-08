@@ -4,6 +4,8 @@
 
 #include "chrome/browser/android/context_menu/context_menu_native_delegate_impl.h"
 
+#include <utility>
+
 #include "base/android/callback_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
@@ -23,6 +25,10 @@ namespace {
 
 class ContextMenuImageRequest : public ImageDecoder::ImageRequest {
  public:
+  ContextMenuImageRequest() = delete;
+  ContextMenuImageRequest(const ContextMenuImageRequest&) = delete;
+  ContextMenuImageRequest& operator=(const ContextMenuImageRequest&) = delete;
+
   static void Start(const JavaRef<jobject>& jcallback,
                     const std::vector<uint8_t>& thumbnail_data) {
     auto* request = new ContextMenuImageRequest(jcallback);
@@ -47,8 +53,6 @@ class ContextMenuImageRequest : public ImageDecoder::ImageRequest {
       : jcallback_(jcallback) {}
 
   const base::android::ScopedJavaGlobalRef<jobject> jcallback_;
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(ContextMenuImageRequest);
 };
 
 chrome::mojom::ImageFormat ToChromeMojomImageFormat(int image_format) {
@@ -169,7 +173,7 @@ void ContextMenuNativeDelegateImpl::RetrieveImageInternal(
       max_width_px * max_height_px, gfx::Size(max_width_px, max_height_px),
       image_format,
       base::BindOnce(
-          std::move(retrieve_callback), base::Passed(&chrome_render_frame),
+          std::move(retrieve_callback), std::move(chrome_render_frame),
           base::android::ScopedJavaGlobalRef<jobject>(env, jcallback)));
 }
 

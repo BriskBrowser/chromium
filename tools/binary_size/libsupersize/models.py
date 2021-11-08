@@ -55,7 +55,6 @@ BUILD_CONFIG_KEYS = (
 METADATA_APK_FILENAME = 'apk_file_name'  # Path relative to output_directory.
 METADATA_APK_SIZE = 'apk_size'  # File size of apk in bytes.
 METADATA_APK_SPLIT_NAME = 'apk_split_name'  # Name of the split if applicable.
-METADATA_APK_SPLIT_ON_DEMAND = 'apk_split_on_demand'  # Split is onDemand.
 METADATA_ZIPALIGN_OVERHEAD = 'zipalign_padding'  # Overhead from zipalign.
 METADATA_SIGNING_BLOCK_SIZE = 'apk_signature_block_size'  # Size in bytes.
 METADATA_MAP_FILENAME = 'map_file_name'  # Path relative to output_directory.
@@ -208,43 +207,59 @@ def ClassifySections(section_names):
   return frozenset(unsummed_sections), frozenset(summed_sections)
 
 
-class Container(object):
-  """Info for a single SuperSize input file (e.g., APK file).
+class BaseContainer:
+  """Base class for BaseContainer and DeltaContainer.
 
   Fields:
-    name: Container name. Must be unique among containers, and can be ''.
+    name: Container name. Must be unique among (non-Diff) Containers.
     short_name: Short container name for compact display. This, also needs to be
         unique among containers in the same SizeInfo, and can be ''.
-    metadata: A dict.
-    section_sizes: A dict of section_name -> size.
     classified_sections: Cache for ClassifySections().
   """
   __slots__ = (
       'name',
       'short_name',
-      'metadata',
-      'section_sizes',
       '_classified_sections',
   )
 
-  def __init__(self, name, metadata, section_sizes):
+  def __init__(self, name):
     # name == '' hints that only one container exists, and there's no need to
     # distinguish them. This can affect console output.
     self.name = name
     self.short_name = None  # Assigned by AssignShortNames().
-    self.metadata = metadata or {}
-    self.section_sizes = section_sizes  # E.g. {SECTION_TEXT: 0}
     self._classified_sections = None
+
+  def ClassifySections(self):
+    if self._classified_sections is None:
+      self._classified_sections = ClassifySections(self.section_sizes.keys())
+    return self._classified_sections
 
   @staticmethod
   def AssignShortNames(containers):
     for i, c in enumerate(containers):
       c.short_name = str(i) if c.name else ''
 
-  def ClassifySections(self):
-    if not self._classified_sections:
-      self._classified_sections = ClassifySections(self.section_sizes.keys())
-    return self._classified_sections
+  @property
+  def section_sizes(self):
+    pass
+
+
+class Container(BaseContainer):
+  """Info for a single SuperSize input file (e.g., APK file).
+
+  Fields:
+    metadata: A dict.
+    section_sizes: A dict of section_name -> size.
+  """
+  __slots__ = (
+      'metadata',
+      'section_sizes',
+  )
+
+  def __init__(self, name, metadata, section_sizes):
+    super().__init__(name)
+    self.metadata = metadata or {}
+    self.section_sizes = section_sizes  # E.g. {SECTION_TEXT: 0}
 
   @staticmethod
   def Empty():
@@ -257,7 +272,26 @@ class Container(object):
     return Container(name='(empty)', metadata={}, section_sizes={})
 
 
-class BaseSizeInfo(object):
+class DeltaContainer(BaseContainer):
+  """Delta version of Container."""
+  __slots__ = (
+      'before',
+      'after',
+  )
+
+  def __init__(self, name, before, after):
+    super().__init__(name)
+    self.before = before
+    self.after = after
+
+  @property
+  def section_sizes(self):
+    ret = collections.Counter(self.after.section_sizes)
+    ret.update({k: -v for k, v in self.before.section_sizes.items()})
+    return dict(ret)
+
+
+class BaseSizeInfo:
   """Base class for SizeInfo and DeltaSizeInfo.
 
   Fields:
@@ -288,7 +322,7 @@ class BaseSizeInfo(object):
     self._symbols = symbols
     self._native_symbols = None
     self._pak_symbols = None
-    Container.AssignShortNames(self.containers)
+    BaseContainer.AssignShortNames(self.containers)
 
   @property
   def symbols(self):
@@ -323,10 +357,6 @@ class BaseSizeInfo(object):
       ret.update(c.section_sizes)
     return dict(ret)
 
-  @property
-  def metadata(self):
-    return [c.metadata for c in self.containers]
-
   def ContainerForName(self, name, default=None):
     return next((c for c in self.containers if c.name == name), default)
 
@@ -347,10 +377,7 @@ class SizeInfo(BaseSizeInfo):
                raw_symbols,
                symbols=None,
                size_path=None):
-    super(SizeInfo, self).__init__(build_config,
-                                   containers,
-                                   raw_symbols,
-                                   symbols=symbols)
+    super().__init__(build_config, containers, raw_symbols, symbols=symbols)
     self.size_path = size_path
 
   @property
@@ -380,17 +407,53 @@ class DeltaSizeInfo(BaseSizeInfo):
   )
 
   def __init__(self, before, after, containers, raw_symbols):
-    super(DeltaSizeInfo, self).__init__(None, containers, raw_symbols)
+    super().__init__(None, containers, raw_symbols)
     self.before = before
     self.after = after
 
 
-class BaseSymbol(object):
+class BaseSymbol:
   """Base class for Symbol and SymbolGroup.
 
   Refer to module docs for field descriptions.
   """
   __slots__ = ()
+
+  @property
+  def container(self):
+    pass
+
+  @property
+  def section_name(self):
+    pass
+
+  @property
+  def size(self):
+    pass
+
+  @property
+  def padding(self):
+    pass
+
+  @property
+  def address(self):
+    pass
+
+  @property
+  def flags(self):
+    pass
+
+  @property
+  def aliases(self):
+    pass
+
+  @property
+  def full_name(self):
+    pass
+
+  @property
+  def name(self):
+    pass
 
   @property
   def container_name(self):
@@ -660,9 +723,11 @@ class DeltaSymbol(BaseSymbol):
 
   @property
   def flags(self):
+    # Compute the union of flags (|) instead of symmetric difference (^), as
+    # that is more useful when querying for symbols with flags.
     before_flags = self.before_symbol.flags if self.before_symbol else 0
     after_flags = self.after_symbol.flags if self.after_symbol else 0
-    return before_flags ^ after_flags
+    return before_flags | after_flags
 
   @property
   def object_path(self):
@@ -1002,8 +1067,7 @@ class SymbolGroup(BaseSymbol):
     return self.Filter(lambda s: s.pss >= min_pss)
 
   def WhereIsOnDemand(self, value=True):
-    ret = self.Filter(lambda s: not s.container or s.container.metadata.get(
-        METADATA_APK_SPLIT_ON_DEMAND))
+    ret = self.Filter(lambda s: s.container_name.endswith('?'))
     if not value:
       ret = ret.Inverted()
     return ret

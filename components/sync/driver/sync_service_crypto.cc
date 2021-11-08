@@ -9,15 +9,15 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/feature_list.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/sync/base/passphrase_enums.h"
 #include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/driver/sync_service.h"
-#include "components/sync/engine/nigori/nigori.h"
 #include "components/sync/engine/sync_string_conversions.h"
+#include "components/sync/nigori/nigori.h"
 
 namespace syncer {
 
@@ -55,13 +55,8 @@ class EmptyTrustedVaultClient : public TrustedVaultClient {
     NOTREACHED();
   }
 
-  void RemoveAllStoredKeys() override {
-    // Never invoked by SyncServiceCrypto.
-    NOTREACHED();
-  }
-
-  void MarkKeysAsStale(const CoreAccountInfo& account_info,
-                       base::OnceCallback<void(bool)> cb) override {
+  void MarkLocalKeysAsStale(const CoreAccountInfo& account_info,
+                            base::OnceCallback<void(bool)> cb) override {
     std::move(cb).Run(false);
   }
 
@@ -72,6 +67,7 @@ class EmptyTrustedVaultClient : public TrustedVaultClient {
 
   void AddTrustedRecoveryMethod(const std::string& gaia_id,
                                 const std::vector<uint8_t>& public_key,
+                                int method_type_hint,
                                 base::OnceClosure cb) override {
     // Never invoked by SyncServiceCrypto.
     NOTREACHED();
@@ -119,13 +115,12 @@ class SyncEncryptionObserverProxy : public SyncEncryptionHandler::Observer {
             observer_));
   }
 
-  void OnBootstrapTokenUpdated(const std::string& bootstrap_token,
-                               BootstrapTokenType type) override {
+  void OnBootstrapTokenUpdated(const std::string& bootstrap_token) override {
     task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(
             &SyncEncryptionHandler::Observer::OnBootstrapTokenUpdated,
-            observer_, bootstrap_token, type));
+            observer_, bootstrap_token));
   }
 
   void OnEncryptedTypesChanged(ModelTypeSet encrypted_types,
@@ -139,6 +134,7 @@ class SyncEncryptionObserverProxy : public SyncEncryptionHandler::Observer {
 
   void OnCryptographerStateChanged(Cryptographer* cryptographer,
                                    bool has_pending_keys) override {
+    // A null cryptographer is passed to avoid usage from another sequence.
     task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(
@@ -201,17 +197,11 @@ SyncServiceCrypto::State::State()
 
 SyncServiceCrypto::State::~State() = default;
 
-SyncServiceCrypto::SyncServiceCrypto(
-    const base::RepeatingClosure& notify_observers,
-    const base::RepeatingClosure& notify_required_user_action_changed,
-    const base::RepeatingCallback<void(ConfigureReason)>& reconfigure,
-    TrustedVaultClient* trusted_vault_client)
-    : notify_observers_(notify_observers),
-      notify_required_user_action_changed_(notify_required_user_action_changed),
-      reconfigure_(reconfigure),
+SyncServiceCrypto::SyncServiceCrypto(Delegate* delegate,
+                                     TrustedVaultClient* trusted_vault_client)
+    : delegate_(delegate),
       trusted_vault_client_(ResoveNullClient(trusted_vault_client)) {
-  DCHECK(notify_observers_);
-  DCHECK(reconfigure_);
+  DCHECK(delegate_);
   DCHECK(trusted_vault_client_);
 
   trusted_vault_client_->AddObserver(this);
@@ -249,7 +239,7 @@ bool SyncServiceCrypto::IsPassphraseRequired() const {
   return false;
 }
 
-bool SyncServiceCrypto::IsUsingSecondaryPassphrase() const {
+bool SyncServiceCrypto::IsUsingExplicitPassphrase() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return IsExplicitPassphrase(state_.cached_passphrase_type);
 }
@@ -271,7 +261,7 @@ bool SyncServiceCrypto::IsTrustedVaultRecoverabilityDegraded() const {
 bool SyncServiceCrypto::IsEncryptEverythingEnabled() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(state_.engine);
-  return state_.encrypt_everything || state_.encryption_pending;
+  return state_.encrypt_everything;
 }
 
 void SyncServiceCrypto::SetEncryptionPassphrase(const std::string& passphrase) {
@@ -379,6 +369,7 @@ void SyncServiceCrypto::SetSyncEngine(const CoreAccountInfo& account_info,
   if (state_.required_user_action ==
       RequiredUserAction::kUnknownDuringInitialization) {
     UpdateRequiredUserActionAndNotify(RequiredUserAction::kNone);
+    RefreshIsRecoverabilityDegraded();
   }
 
   // This indicates OnTrustedVaultKeyRequired() was called as part of the
@@ -398,8 +389,7 @@ SyncServiceCrypto::GetEncryptionObserverProxy() {
 
 ModelTypeSet SyncServiceCrypto::GetEncryptedDataTypes() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(state_.encrypted_types.Has(PASSWORDS));
-  DCHECK(state_.encrypted_types.Has(WIFI_CONFIGURATIONS));
+  DCHECK(state_.encrypted_types.HasAll(AlwaysEncryptedUserTypes()));
   // We may be called during the setup process before we're
   // initialized. In this case, we default to the sensitive types.
   return state_.encrypted_types;
@@ -445,7 +435,7 @@ void SyncServiceCrypto::OnPassphraseRequired(
 
   // Reconfigure without the encrypted types (excluded implicitly via the
   // failed datatypes handler).
-  reconfigure_.Run(CONFIGURE_REASON_CRYPTO);
+  delegate_->ReconfigureDataTypesDueToCrypto();
 }
 
 void SyncServiceCrypto::OnPassphraseAccepted() {
@@ -460,7 +450,7 @@ void SyncServiceCrypto::OnPassphraseAccepted() {
 
   // Make sure the data types that depend on the passphrase are started at
   // this time.
-  reconfigure_.Run(CONFIGURE_REASON_CRYPTO);
+  delegate_->ReconfigureDataTypesDueToCrypto();
 }
 
 void SyncServiceCrypto::OnTrustedVaultKeyRequired() {
@@ -505,22 +495,18 @@ void SyncServiceCrypto::OnTrustedVaultKeyAccepted() {
   }
 
   UpdateRequiredUserActionAndNotify(RequiredUserAction::kNone);
+  RefreshIsRecoverabilityDegraded();
 
   // Make sure the data types that depend on the decryption key are started at
   // this time.
-  reconfigure_.Run(CONFIGURE_REASON_CRYPTO);
+  delegate_->ReconfigureDataTypesDueToCrypto();
 }
 
 void SyncServiceCrypto::OnBootstrapTokenUpdated(
-    const std::string& bootstrap_token,
-    BootstrapTokenType type) {
+    const std::string& bootstrap_token) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(state_.engine);
-  if (type == PASSPHRASE_BOOTSTRAP_TOKEN) {
-    state_.engine->SetEncryptionBootstrapToken(bootstrap_token);
-  } else {
-    state_.engine->SetKeystoreEncryptionBootstrapToken(bootstrap_token);
-  }
+  delegate_->EncryptionBootstrapTokenChanged(bootstrap_token);
 }
 
 void SyncServiceCrypto::OnEncryptedTypesChanged(ModelTypeSet encrypted_types,
@@ -532,10 +518,9 @@ void SyncServiceCrypto::OnEncryptedTypesChanged(ModelTypeSet encrypted_types,
            << ModelTypeSetToString(state_.encrypted_types)
            << " (encrypt everything is set to "
            << (state_.encrypt_everything ? "true" : "false") << ")";
-  DCHECK(state_.encrypted_types.Has(PASSWORDS));
-  DCHECK(state_.encrypted_types.Has(WIFI_CONFIGURATIONS));
+  DCHECK(state_.encrypted_types.HasAll(AlwaysEncryptedUserTypes()));
 
-  notify_observers_.Run();
+  delegate_->CryptoStateChanged();
 }
 
 void SyncServiceCrypto::OnCryptographerStateChanged(
@@ -561,7 +546,7 @@ void SyncServiceCrypto::OnPassphraseTypeChanged(PassphraseType type,
     UpdateRequiredUserActionAndNotify(RequiredUserAction::kNone);
   }
 
-  notify_observers_.Run();
+  delegate_->CryptoStateChanged();
 }
 
 void SyncServiceCrypto::OnTrustedVaultKeysChanged() {
@@ -602,7 +587,7 @@ void SyncServiceCrypto::FetchTrustedVaultKeys(bool is_second_fetch_attempt) {
          state_.required_user_action ==
              RequiredUserAction::kTrustedVaultKeyRequiredButFetching);
 
-  UMA_HISTOGRAM_ENUMERATION(
+  base::UmaHistogramEnumeration(
       "Sync.TrustedVaultFetchKeysAttempt",
       is_second_fetch_attempt
           ? TrustedVaultFetchKeysAttemptForUMA::kSecondAttempt
@@ -630,7 +615,7 @@ void SyncServiceCrypto::TrustedVaultKeysFetchedFromClient(
 
   DCHECK(state_.engine);
 
-  UMA_HISTOGRAM_COUNTS_100("Sync.TrustedVaultFetchedKeysCount", keys.size());
+  base::UmaHistogramCounts100("Sync.TrustedVaultFetchedKeysCount", keys.size());
 
   if (keys.empty()) {
     // Nothing to do if no keys have been fetched from the client (e.g. user
@@ -655,14 +640,15 @@ void SyncServiceCrypto::TrustedVaultKeysAdded(bool is_second_fetch_attempt) {
                  state_.required_user_action !=
                      RequiredUserAction::kTrustedVaultKeyRequiredButFetching;
 
-  UMA_HISTOGRAM_BOOLEAN("Sync.TrustedVaultAddKeysAttemptIsSuccessful", success);
+  base::UmaHistogramBoolean("Sync.TrustedVaultAddKeysAttemptIsSuccessful",
+                            success);
 
   if (success) {
     return;
   }
 
   // Let trusted vault client know, that fetched keys were insufficient.
-  trusted_vault_client_->MarkKeysAsStale(
+  trusted_vault_client_->MarkLocalKeysAsStale(
       state_.account_info,
       base::BindOnce(&SyncServiceCrypto::TrustedVaultKeysMarkedAsStale,
                      weak_factory_.GetWeakPtr(), is_second_fetch_attempt));
@@ -709,7 +695,7 @@ void SyncServiceCrypto::FetchTrustedVaultKeysCompletedButInsufficient() {
 
   // Reconfigure without the encrypted types (excluded implicitly via the failed
   // datatypes handler).
-  reconfigure_.Run(CONFIGURE_REASON_CRYPTO);
+  delegate_->ReconfigureDataTypesDueToCrypto();
 }
 
 void SyncServiceCrypto::UpdateRequiredUserActionAndNotify(
@@ -722,12 +708,15 @@ void SyncServiceCrypto::UpdateRequiredUserActionAndNotify(
   }
 
   state_.required_user_action = new_required_user_action;
-  notify_required_user_action_changed_.Run();
-
-  RefreshIsRecoverabilityDegraded();
+  delegate_->CryptoRequiredUserActionChanged();
 }
 
 void SyncServiceCrypto::RefreshIsRecoverabilityDegraded() {
+  if (state_.cached_passphrase_type !=
+      PassphraseType::kTrustedVaultPassphrase) {
+    return;
+  }
+
   switch (state_.required_user_action) {
     case RequiredUserAction::kUnknownDuringInitialization:
     case RequiredUserAction::kFetchingTrustedVaultKeys:
@@ -741,7 +730,7 @@ void SyncServiceCrypto::RefreshIsRecoverabilityDegraded() {
   }
 
   if (!base::FeatureList::IsEnabled(
-          switches::kSyncSupportTrustedVaultPassphraseRecovery)) {
+          switches::kSyncTrustedVaultPassphraseRecovery)) {
     return;
   }
 
@@ -766,7 +755,7 @@ void SyncServiceCrypto::GetIsRecoverabilityDegradedCompleted(
       state_.required_user_action == RequiredUserAction::kNone) {
     UpdateRequiredUserActionAndNotify(
         RequiredUserAction::kTrustedVaultRecoverabilityDegraded);
-    notify_observers_.Run();
+    delegate_->CryptoStateChanged();
   }
 
   // Transition from degraded to non-degraded recoverability.
@@ -774,7 +763,14 @@ void SyncServiceCrypto::GetIsRecoverabilityDegradedCompleted(
       state_.required_user_action ==
           RequiredUserAction::kTrustedVaultRecoverabilityDegraded) {
     UpdateRequiredUserActionAndNotify(RequiredUserAction::kNone);
-    notify_observers_.Run();
+    delegate_->CryptoStateChanged();
+  }
+
+  if (!initial_trusted_vault_recoverability_logged_to_uma_) {
+    initial_trusted_vault_recoverability_logged_to_uma_ = true;
+    base::UmaHistogramBoolean(
+        "Sync.TrustedVaultRecoverabilityDegradedOnStartup",
+        is_recoverability_degraded);
   }
 }
 

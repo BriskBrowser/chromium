@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -131,7 +131,7 @@ class DeviceManagementServiceIntegrationTest
       DeviceManagementService::JobConfiguration::JobType type,
       bool critical,
       DMAuth auth_data,
-      base::Optional<std::string> oauth_token,
+      absl::optional<std::string> oauth_token,
       const em::DeviceManagementRequest request) {
     std::string payload;
     request.SerializeToString(&payload);
@@ -165,9 +165,9 @@ class DeviceManagementServiceIntegrationTest
 
   void SetUpOnMainThread() override {
     std::string service_url((this->*(GetParam()))());
-    service_.reset(new DeviceManagementService(
+    service_ = std::make_unique<DeviceManagementService>(
         std::unique_ptr<DeviceManagementService::Configuration>(
-            new MockDeviceManagementServiceConfiguration(service_url))));
+            new MockDeviceManagementServiceConfiguration(service_url)));
     service_->ScheduleInitialization(0);
   }
 
@@ -177,9 +177,9 @@ class DeviceManagementServiceIntegrationTest
   }
 
   void StartTestServer() {
-    test_server_.reset(new LocalPolicyTestServer(
+    test_server_ = std::make_unique<LocalPolicyTestServer>(
         "chrome/test/data/policy/"
-        "policy_device_management_service_browsertest.json"));
+        "policy_device_management_service_browsertest.json");
     ASSERT_TRUE(test_server_->Start());
   }
 
@@ -200,7 +200,14 @@ class DeviceManagementServiceIntegrationTest
   scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
 };
 
-IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest, Registration) {
+#if defined(OS_CHROMEOS)
+// Very flaky on ChromeOS: https://crbug.com/1262952
+#define MAYBE_Registration DISABLED_Registration
+#else
+#define MAYBE_Registration Registration
+#endif
+IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest,
+                       MAYBE_Registration) {
   PerformRegistration();
   EXPECT_FALSE(token_.empty());
 }
@@ -228,7 +235,14 @@ IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest,
   ASSERT_EQ("fake_auth_code", robot_auth_code_);
 }
 
-IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest, PolicyFetch) {
+// TODO(crbug.com/1254962): flaky on Mac builders
+#if defined(OS_MAC)
+#define MAYBE_PolicyFetch DISABLED_PolicyFetch
+#else
+#define MAYBE_PolicyFetch PolicyFetch
+#endif
+IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest,
+                       MAYBE_PolicyFetch) {
   PerformRegistration();
 
   base::RunLoop run_loop;
@@ -246,7 +260,14 @@ IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest, PolicyFetch) {
   run_loop.Run();
 }
 
-IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest, Unregistration) {
+#if defined(OS_MAC)
+// Flaky on Mac: https://crbug.com/1254962
+#define MAYBE_Unregistration DISABLED_Unregistration
+#else
+#define MAYBE_Unregistration Unregistration
+#endif
+IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest,
+                       MAYBE_Unregistration) {
   PerformRegistration();
 
   base::RunLoop run_loop;
@@ -263,7 +284,14 @@ IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest, Unregistration) {
   run_loop.Run();
 }
 
-IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest, AutoEnrollment) {
+#if defined(OS_MAC)
+// Flaky on Mac: https://crbug.com/1254962
+#define MAYBE_AutoEnrollment DISABLED_AutoEnrollment
+#else
+#define MAYBE_AutoEnrollment AutoEnrollment
+#endif
+IN_PROC_BROWSER_TEST_P(DeviceManagementServiceIntegrationTest,
+                       MAYBE_AutoEnrollment) {
   base::RunLoop run_loop;
   EXPECT_CALL(*this, OnJobDone(_, DM_STATUS_SUCCESS, _, _))
       .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));

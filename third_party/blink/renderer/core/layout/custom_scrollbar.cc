@@ -25,7 +25,8 @@
 
 #include "third_party/blink/renderer/core/layout/custom_scrollbar.h"
 
-#include "third_party/blink/renderer/core/css/pseudo_style_request.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
+#include "third_party/blink/renderer/core/css/style_request.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/layout/layout_custom_scrollbar_part.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
@@ -127,9 +128,9 @@ void CustomScrollbar::SetPressedPart(ScrollbarPart part,
   PositionScrollbarParts();
 }
 
-const ComputedStyle* CustomScrollbar::GetScrollbarPseudoElementStyle(
-    ScrollbarPart part_type,
-    PseudoId pseudo_id) {
+scoped_refptr<const ComputedStyle>
+CustomScrollbar::GetScrollbarPseudoElementStyle(ScrollbarPart part_type,
+                                                PseudoId pseudo_id) {
   Element* element = StyleSource();
   DCHECK(element);
   Document& document = element->GetDocument();
@@ -146,8 +147,9 @@ const ComputedStyle* CustomScrollbar::GetScrollbarPseudoElementStyle(
   if (!element->GetLayoutObject())
     return nullptr;
   const ComputedStyle* source_style = element->GetLayoutObject()->Style();
-  const ComputedStyle* part_style = element->UncachedStyleForPseudoElement(
-      PseudoElementStyleRequest(pseudo_id, this, part_type), source_style);
+  scoped_refptr<const ComputedStyle> part_style =
+      element->UncachedStyleForPseudoElement(
+          StyleRequest(pseudo_id, this, part_type, source_style));
   if (!part_style)
     return nullptr;
   return source_style->AddCachedPseudoElementStyle(std::move(part_style));
@@ -171,8 +173,9 @@ void CustomScrollbar::UpdateScrollbarParts() {
   bool is_horizontal = Orientation() == kHorizontalScrollbar;
   int old_thickness = is_horizontal ? Height() : Width();
   int new_thickness = 0;
-  if (auto* part = parts_.at(kScrollbarBGPart))
-    new_thickness = part->ComputeThickness();
+  auto it = parts_.find(kScrollbarBGPart);
+  if (it != parts_.end())
+    new_thickness = it->value->ComputeThickness();
 
   if (new_thickness != old_thickness) {
     SetFrameRect(
@@ -233,8 +236,9 @@ void CustomScrollbar::UpdateScrollbarPart(ScrollbarPart part_type) {
   if (part_type == kNoPart)
     return;
 
-  const ComputedStyle* part_style = GetScrollbarPseudoElementStyle(
-      part_type, PseudoForScrollbarPart(part_type));
+  scoped_refptr<const ComputedStyle> part_style =
+      GetScrollbarPseudoElementStyle(part_type,
+                                     PseudoForScrollbarPart(part_type));
   bool need_layout_object =
       part_style && part_style->Display() != EDisplay::kNone;
 
@@ -258,7 +262,9 @@ void CustomScrollbar::UpdateScrollbarPart(ScrollbarPart part_type) {
     }
   }
 
-  LayoutCustomScrollbarPart* part_layout_object = parts_.at(part_type);
+  auto it = parts_.find(part_type);
+  LayoutCustomScrollbarPart* part_layout_object =
+      it != parts_.end() ? it->value : nullptr;
   if (!part_layout_object && need_layout_object && scrollable_area_) {
     part_layout_object = LayoutCustomScrollbarPart::CreateAnonymous(
         &StyleSource()->GetDocument(), scrollable_area_, this, part_type);
@@ -276,12 +282,12 @@ void CustomScrollbar::UpdateScrollbarPart(ScrollbarPart part_type) {
 }
 
 IntRect CustomScrollbar::ButtonRect(ScrollbarPart part_type) const {
-  LayoutCustomScrollbarPart* part_layout_object = parts_.at(part_type);
-  if (!part_layout_object)
+  auto it = parts_.find(part_type);
+  if (it == parts_.end())
     return IntRect();
 
   bool is_horizontal = Orientation() == kHorizontalScrollbar;
-  int button_length = part_layout_object->ComputeLength();
+  int button_length = it->value->ComputeLength();
   IntRect button_rect(Location(), is_horizontal
                                       ? IntSize(button_length, Height())
                                       : IntSize(Width(), button_length));
@@ -290,20 +296,20 @@ IntRect CustomScrollbar::ButtonRect(ScrollbarPart part_type) const {
     case kBackButtonStartPart:
       break;
     case kForwardButtonEndPart:
-      button_rect.Move(is_horizontal ? Width() - button_length : 0,
-                       is_horizontal ? 0 : Height() - button_length);
+      button_rect.Offset(is_horizontal ? Width() - button_length : 0,
+                         is_horizontal ? 0 : Height() - button_length);
       break;
     case kForwardButtonStartPart: {
       IntRect previous_button = ButtonRect(kBackButtonStartPart);
-      button_rect.Move(is_horizontal ? previous_button.Width() : 0,
-                       is_horizontal ? 0 : previous_button.Height());
+      button_rect.Offset(is_horizontal ? previous_button.width() : 0,
+                         is_horizontal ? 0 : previous_button.height());
       break;
     }
     case kBackButtonEndPart: {
       IntRect next_button = ButtonRect(kForwardButtonEndPart);
-      button_rect.Move(
-          is_horizontal ? Width() - next_button.Width() - button_length : 0,
-          is_horizontal ? 0 : Height() - next_button.Height() - button_length);
+      button_rect.Offset(
+          is_horizontal ? Width() - next_button.width() - button_length : 0,
+          is_horizontal ? 0 : Height() - next_button.height() - button_length);
       break;
     }
     default:
@@ -342,12 +348,12 @@ IntRect CustomScrollbar::TrackPieceRectWithMargins(
 
   IntRect rect = old_rect;
   if (Orientation() == kHorizontalScrollbar) {
-    rect.SetX((rect.X() + part_layout_object->MarginLeft()).ToInt());
-    rect.SetWidth((rect.Width() - part_layout_object->MarginWidth()).ToInt());
+    rect.set_x((rect.x() + part_layout_object->MarginLeft()).ToInt());
+    rect.set_width((rect.width() - part_layout_object->MarginWidth()).ToInt());
   } else {
-    rect.SetY((rect.Y() + part_layout_object->MarginTop()).ToInt());
-    rect.SetHeight(
-        (rect.Height() - part_layout_object->MarginHeight()).ToInt());
+    rect.set_y((rect.y() + part_layout_object->MarginTop()).ToInt());
+    rect.set_height(
+        (rect.height() - part_layout_object->MarginHeight()).ToInt());
   }
   return rect;
 }
@@ -407,9 +413,9 @@ void CustomScrollbar::PositionScrollbarParts() {
     // TODO(crbug.com/1020913): This should be part of PaintPropertyTreeBuilder
     // when we support subpixel layout of overflow controls.
     part.value->GetMutableForPainting().FirstFragment().SetPaintOffset(
-        PhysicalOffset(part_rect.Location()));
+        PhysicalOffset(part_rect.origin()));
     // The part's frame_rect is relative to the scrollbar.
-    part_rect.MoveBy(-Location());
+    part_rect.Offset(-ToIntSize(Location()));
     part.value->SetFrameRect(LayoutRect(part_rect));
   }
 }

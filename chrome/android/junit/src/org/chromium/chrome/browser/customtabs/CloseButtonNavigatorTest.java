@@ -16,6 +16,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import android.os.Build;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -27,14 +29,14 @@ import org.robolectric.ParameterizedRobolectricTestRunner.Parameter;
 import org.robolectric.ParameterizedRobolectricTestRunner.Parameters;
 import org.robolectric.annotation.Config;
 
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.WebappExtras;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabController;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
 import org.chromium.chrome.browser.flags.ActivityType;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
 import org.chromium.chrome.browser.tasks.tab_management.TabUiUnitTestUtils;
-import org.chromium.chrome.browser.webapps.WebappExtras;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.NavigationEntry;
 import org.chromium.content_public.browser.NavigationHistory;
@@ -50,9 +52,8 @@ import java.util.Stack;
  * Tests for {@link CloseButtonNavigator}.
  */
 @RunWith(ParameterizedRobolectricTestRunner.class)
-@Config(sdk = 21, manifest = Config.NONE)
+@Config(sdk = Build.VERSION_CODES.M, manifest = Config.NONE)
 public class CloseButtonNavigatorTest {
-
     @Parameters
     public static Collection<Object[]> data() {
         return Arrays.asList(new Object[][] {{true}, {false}});
@@ -114,11 +115,9 @@ public class CloseButtonNavigatorTest {
         WebContents webContents = mock(WebContents.class);
         NavigationController navigationController = mock(NavigationController.class);
 
-        when(tab.getUrlString())
+        when(tab.getUrl())
                 .thenAnswer(invocation
-                        -> history.getEntryAtIndex(history.getCurrentEntryIndex())
-                                   .getUrl()
-                                   .getSpec());
+                        -> history.getEntryAtIndex(history.getCurrentEntryIndex()).getUrl());
         when(tab.getWebContents()).thenReturn(webContents);
         when(webContents.getNavigationController()).thenReturn(navigationController);
         when(navigationController.getNavigationHistory()).thenReturn(history);

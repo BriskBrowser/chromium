@@ -12,8 +12,8 @@
 #include "components/password_manager/core/common/password_manager_ui.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 ManagePasswordsIconViews::ManagePasswordsIconViews(
     CommandUpdater* updater,
@@ -77,19 +77,17 @@ const gfx::VectorIcon& ManagePasswordsIconViews::GetVectorIcon() const {
   return kKeyIcon;
 }
 
-base::string16 ManagePasswordsIconViews::GetTextForTooltipAndAccessibleName()
+std::u16string ManagePasswordsIconViews::GetTextForTooltipAndAccessibleName()
     const {
   switch (state_) {
     case password_manager::ui::INACTIVE_STATE:
     case password_manager::ui::CONFIRMATION_STATE:
     case password_manager::ui::CREDENTIAL_REQUEST_STATE:
     case password_manager::ui::AUTO_SIGNIN_STATE:
-    case password_manager::ui::CHROME_SIGN_IN_PROMO_STATE:
     case password_manager::ui::WILL_DELETE_UNSYNCED_ACCOUNT_PASSWORDS_STATE:
     case password_manager::ui::MANAGE_STATE:
     case password_manager::ui::PASSWORD_UPDATED_SAFE_STATE:
     case password_manager::ui::PASSWORD_UPDATED_MORE_TO_FIX:
-    case password_manager::ui::PASSWORD_UPDATED_UNSAFE_STATE:
       return l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_TOOLTIP_MANAGE);
     case password_manager::ui::PENDING_PASSWORD_UPDATE_STATE:
     case password_manager::ui::PENDING_PASSWORD_STATE:
@@ -98,7 +96,7 @@ base::string16 ManagePasswordsIconViews::GetTextForTooltipAndAccessibleName()
       return l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_TOOLTIP_MOVE);
   }
   NOTREACHED();
-  return base::string16();
+  return std::u16string();
 }
 
 void ManagePasswordsIconViews::AboutToRequestFocusFromTabTraversal(

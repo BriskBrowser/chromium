@@ -6,18 +6,18 @@
 
 #include <map>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "base/check_op.h"
-#include "base/optional.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/ui/tab_ui_helper.h"
 #include "chrome/browser/ui/tabs/tab_group_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/text_elider.h"
 
@@ -45,16 +45,16 @@ void TabGroup::SetVisualData(const tab_groups::TabGroupVisualData& visual_data,
   controller_->ChangeTabGroupVisuals(id_, visuals);
 }
 
-base::string16 TabGroup::GetContentString() const {
+std::u16string TabGroup::GetContentString() const {
   gfx::Range tabs_in_group = ListTabs();
   DCHECK_GT(tabs_in_group.length(), 0u);
 
   TabUIHelper* const tab_ui_helper = TabUIHelper::FromWebContents(
       controller_->GetWebContentsAt(tabs_in_group.start()));
   constexpr size_t kContextMenuTabTitleMaxLength = 30;
-  base::string16 format_string = l10n_util::GetPluralStringFUTF16(
+  std::u16string format_string = l10n_util::GetPluralStringFUTF16(
       IDS_TAB_CXMENU_PLACEHOLDER_GROUP_TITLE, tabs_in_group.length() - 1);
-  base::string16 short_title;
+  std::u16string short_title;
   gfx::ElideString(tab_ui_helper->GetTitle(), kContextMenuTabTitleMaxLength,
                    &short_title);
   return base::ReplaceStringPlaceholders(format_string, {short_title}, nullptr);
@@ -88,26 +88,30 @@ bool TabGroup::IsCustomized() const {
   return is_customized_;
 }
 
-base::Optional<int> TabGroup::GetFirstTab() const {
+bool TabGroup::IsSaved() const {
+  return is_saved_;
+}
+
+absl::optional<int> TabGroup::GetFirstTab() const {
   for (int i = 0; i < controller_->GetTabCount(); ++i) {
     if (controller_->GetTabGroupForTab(i) == id_)
       return i;
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-base::Optional<int> TabGroup::GetLastTab() const {
+absl::optional<int> TabGroup::GetLastTab() const {
   for (int i = controller_->GetTabCount() - 1; i >= 0; --i) {
     if (controller_->GetTabGroupForTab(i) == id_)
       return i;
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 gfx::Range TabGroup::ListTabs() const {
-  base::Optional<int> maybe_first_tab = GetFirstTab();
+  absl::optional<int> maybe_first_tab = GetFirstTab();
   if (!maybe_first_tab)
     return gfx::Range();
 
@@ -123,4 +127,12 @@ gfx::Range TabGroup::ListTabs() const {
   }
 
   return gfx::Range(first_tab, last_tab + 1);
+}
+
+void TabGroup::SaveGroup() {
+  is_saved_ = true;
+}
+
+void TabGroup::UnsaveGroup() {
+  is_saved_ = false;
 }

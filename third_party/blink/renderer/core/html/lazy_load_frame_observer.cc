@@ -26,7 +26,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -286,7 +285,7 @@ void LazyLoadFrameObserver::RecordVisibilityMetricsIfLoadedAndVisible() {
 
   base::TimeDelta visible_load_delay =
       time_when_first_load_finished_ - time_when_first_visible_;
-  if (visible_load_delay < base::TimeDelta())
+  if (visible_load_delay.is_negative())
     visible_load_delay = base::TimeDelta();
 
   switch (GetNetworkStateNotifier().EffectiveType()) {

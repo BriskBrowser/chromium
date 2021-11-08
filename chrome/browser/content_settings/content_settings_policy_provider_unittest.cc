@@ -117,7 +117,7 @@ TEST_F(PolicyProviderTest, GettingManagedContentSettings) {
       profile.GetTestingPrefService();
 
   auto value = std::make_unique<base::ListValue>();
-  value->AppendString("[*.]google.com");
+  value->Append("[*.]google.com");
   prefs->SetManagedPref(prefs::kManagedImagesBlockedForUrls, std::move(value));
 
   PolicyProvider provider(prefs);
@@ -130,9 +130,9 @@ TEST_F(PolicyProviderTest, GettingManagedContentSettings) {
   EXPECT_EQ(CONTENT_SETTING_DEFAULT,
             TestUtils::GetContentSetting(&provider, youtube_url, youtube_url,
                                          ContentSettingsType::COOKIES, false));
-  EXPECT_EQ(NULL, TestUtils::GetContentSettingValue(
-                      &provider, youtube_url, youtube_url,
-                      ContentSettingsType::COOKIES, false));
+  EXPECT_EQ(nullptr, TestUtils::GetContentSettingValue(
+                         &provider, youtube_url, youtube_url,
+                         ContentSettingsType::COOKIES, false));
 
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
             TestUtils::GetContentSetting(&provider, google_url, google_url,
@@ -140,9 +140,8 @@ TEST_F(PolicyProviderTest, GettingManagedContentSettings) {
   std::unique_ptr<base::Value> value_ptr(TestUtils::GetContentSettingValue(
       &provider, google_url, google_url, ContentSettingsType::IMAGES, false));
 
-  int int_value = -1;
-  value_ptr->GetAsInteger(&int_value);
-  EXPECT_EQ(CONTENT_SETTING_BLOCK, IntToContentSetting(int_value));
+  EXPECT_EQ(CONTENT_SETTING_BLOCK,
+            IntToContentSetting(value_ptr->GetIfInt().value_or(-1)));
 
   // The PolicyProvider does not allow setting content settings as they are
   // enforced via policies and not set by the user or extension. So a call to
@@ -168,22 +167,22 @@ TEST_F(PolicyProviderTest, AutoSelectCertificateList) {
   PolicyProvider provider(prefs);
   GURL google_url("https://mail.google.com");
   // Tests the default setting for auto selecting certificates
-  EXPECT_EQ(NULL, TestUtils::GetContentSettingValue(
-                      &provider, google_url, google_url,
-                      ContentSettingsType::AUTO_SELECT_CERTIFICATE, false));
+  EXPECT_EQ(nullptr, TestUtils::GetContentSettingValue(
+                         &provider, google_url, google_url,
+                         ContentSettingsType::AUTO_SELECT_CERTIFICATE, false));
 
   // Set the content settings pattern list for origins to auto select
   // certificates.
   std::string pattern_str("\"pattern\":\"[*.]google.com\"");
   std::string filter_str("\"filter\":{\"ISSUER\":{\"CN\":\"issuer name\"}}");
   auto value = std::make_unique<base::ListValue>();
-  value->AppendString("{" + pattern_str + "," + filter_str + "}");
+  value->Append("{" + pattern_str + "," + filter_str + "}");
   prefs->SetManagedPref(prefs::kManagedAutoSelectCertificateForUrls,
                         std::move(value));
   GURL youtube_url("https://www.youtube.com");
-  EXPECT_EQ(NULL, TestUtils::GetContentSettingValue(
-                      &provider, youtube_url, youtube_url,
-                      ContentSettingsType::AUTO_SELECT_CERTIFICATE, false));
+  EXPECT_EQ(nullptr, TestUtils::GetContentSettingValue(
+                         &provider, youtube_url, youtube_url,
+                         ContentSettingsType::AUTO_SELECT_CERTIFICATE, false));
   std::unique_ptr<base::Value> cert_filter_setting(
       TestUtils::GetContentSettingValue(
           &provider, google_url, google_url,

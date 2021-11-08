@@ -61,16 +61,39 @@ class ItemSuggestCache {
   ItemSuggestCache& operator=(const ItemSuggestCache&) = delete;
 
   // Returns the results currently in the cache.
-  base::Optional<ItemSuggestCache::Results> GetResults();
+  absl::optional<ItemSuggestCache::Results> GetResults();
 
   // Updates the cache by calling ItemSuggest.
   void UpdateCache();
 
-  static base::Optional<ItemSuggestCache::Results> ConvertJsonForTest(
+  static absl::optional<ItemSuggestCache::Results> ConvertJsonForTest(
       const base::Value* value);
 
   // Whether or not to override configuration of the cache with an experiment.
   static const base::Feature kExperiment;
+
+  // Possible outcomes of a call to the ItemSuggest API. These values persist to
+  // logs. Entries should not be renumbered and numeric values should never be
+  // reused.
+  enum class Status {
+    kOk = 0,
+    kDisabledByExperiment = 1,
+    kDisabledByPolicy = 2,
+    kInvalidServerUrl = 3,
+    kNoIdentityManager = 4,
+    kGoogleAuthError = 5,
+    kNetError = 6,
+    kResponseTooLarge = 7,
+    k3xxStatus = 8,
+    k4xxStatus = 9,
+    k5xxStatus = 10,
+    kEmptyResponse = 11,
+    kNoResultsInResponse = 12,
+    kJsonParseFailure = 13,
+    kJsonConversionFailure = 14,
+    kPostLaunchUpdateIgnored = 15,
+    kMaxValue = kPostLaunchUpdateIgnored,
+  };
 
  private:
   // Whether or not the ItemSuggestCache is enabled.
@@ -81,8 +104,22 @@ class ItemSuggestCache {
       &kExperiment, "server_url",
       "https://appsitemsuggest-pa.googleapis.com/v1/items"};
 
+  // Specifies the ItemSuggest backend that should be used to serve our
+  // requests.
+  static constexpr base::FeatureParam<std::string> kModelName{
+      &kExperiment, "model_name", "quick_access"};
+
   static constexpr base::FeatureParam<int> kMinMinutesBetweenUpdates{
       &kExperiment, "min_minutes_between_updates", 15};
+
+  // Whether ItemSuggest should be queried more than once per session. Multiple
+  // queries are issued if either this param is true or the suggested files
+  // experiment is enabled.
+  static constexpr base::FeatureParam<bool> kMultipleQueriesPerSession{
+      &kExperiment, "multiple_queries_per_session", false};
+
+  // Returns the body for the itemsuggest request. Affected by |kExperiment|.
+  std::string GetRequestBody();
 
   void OnTokenReceived(GoogleServiceAuthError error,
                        signin::AccessTokenInfo token_info);
@@ -91,15 +128,24 @@ class ItemSuggestCache {
   std::unique_ptr<network::SimpleURLLoader> MakeRequestLoader(
       const std::string& token);
 
-  base::Optional<Results> results_;
+  absl::optional<Results> results_;
 
   // Records the time of the last call to UpdateResults(), used to limit the
   // number of queries to the ItemSuggest backend.
   base::Time time_of_last_update_;
 
+  // Start time for latency metrics.
+  base::TimeTicks update_start_time_;
+
+  // Whether the cache has made at least one request to ItemSuggest this
+  // session. Used to prevent further updates in some cases.
+  bool made_request_;
+
   const bool enabled_;
   const GURL server_url_;
   const base::TimeDelta min_time_between_updates_;
+  // Whether we should query item suggest more than once per session.
+  const bool multiple_queries_per_session_;
 
   Profile* profile_;
   std::unique_ptr<signin::PrimaryAccountAccessTokenFetcher> token_fetcher_;

@@ -114,6 +114,8 @@ class NavigationSheetCoordinator implements BottomSheetContent, NavigationSheet 
     // no peek/half state.
     private boolean mFullyExpand;
 
+    private Profile mProfile;
+
     /**
      * Construct a new NavigationSheet.
      */
@@ -123,6 +125,7 @@ class NavigationSheetCoordinator implements BottomSheetContent, NavigationSheet 
         mBottomSheetController = bottomSheetController;
         mLayoutInflater = LayoutInflater.from(context);
         mToolbarView = mLayoutInflater.inflate(R.layout.navigation_sheet_toolbar, null);
+        mProfile = profile;
         mMediator = new NavigationSheetMediator(context, mModelList, profile, (position, index) -> {
             mDelegate.navigateToIndex(index);
             close(false);
@@ -149,8 +152,7 @@ class NavigationSheetCoordinator implements BottomSheetContent, NavigationSheet 
                 parent.getWidth() / 2);
         mItemHeight = getSizePx(context, R.dimen.navigation_popup_item_height);
         mContentPadding = getSizePx(context, R.dimen.navigation_sheet_content_top_padding)
-                + getSizePx(context, R.dimen.navigation_sheet_content_bottom_padding)
-                + getSizePx(context, R.dimen.navigation_sheet_content_wrap_padding);
+                + getSizePx(context, R.dimen.navigation_sheet_content_bottom_padding);
     }
 
     private static int getSizePx(Context context, @DimenRes int id) {
@@ -163,7 +165,10 @@ class NavigationSheetCoordinator implements BottomSheetContent, NavigationSheet 
                 (NavigationSheetView) mLayoutInflater.inflate(R.layout.navigation_sheet, null);
         ListView listview = (ListView) mContentView.findViewById(R.id.navigation_entries);
         listview.setAdapter(mModelAdapter);
-        NavigationHistory history = mDelegate.getHistory(mForward);
+        NavigationHistory history = mDelegate.getHistory(mForward, mProfile.isOffTheRecord());
+        // If there is no entry, the sheet should not be opened. This is the case when in a fresh
+        // Incognito NTP.
+        if (history.getEntryCount() == 0) return false;
         mMediator.populateEntries(history);
         if (!mBottomSheetController.get().requestShowContent(this, true)) {
             close(false);

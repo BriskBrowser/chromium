@@ -6,7 +6,10 @@
 #define CHROME_BROWSER_DOWNLOAD_DOWNLOAD_STATS_H_
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/download/download_commands.h"
 #include "chrome/browser/download/download_prompt_status.h"
+#include "chrome/browser/profiles/profile.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_path_reservation_tracker.h"
 
@@ -101,7 +104,15 @@ enum class DownloadCancelReason {
   kExistingDownloadPath = 0,
   // Canceled due to download target determiner confirmation result.
   kTargetConfirmationResult = 1,
-  kMaxValue = kTargetConfirmationResult
+  // Canceled due to no valid virtual path.
+  kNoValidPath = 2,
+  // Canceled due to no mixed content.
+  kMixedContent = 3,
+  // Canceled due to failed path reservacation.
+  kFailedPathReservation = 4,
+  // Canceled due to empty local path.
+  kEmptyLocalPath = 5,
+  kMaxValue = kEmptyLocalPath
 };
 
 // Increment one of the above counts.
@@ -112,7 +123,10 @@ void RecordDownloadSource(ChromeDownloadSource source);
 
 // Record that a download warning was shown.
 void RecordDangerousDownloadWarningShown(
-    download::DownloadDangerType danger_type);
+    download::DownloadDangerType danger_type,
+    const base::FilePath& file_path,
+    bool is_https,
+    bool has_user_gesture);
 
 // Record that the user opened the confirmation dialog for a dangerous download.
 void RecordOpenedDangerousConfirmDialog(
@@ -154,12 +168,63 @@ enum class DownloadShelfDragEvent {
 
 void RecordDownloadShelfDragEvent(DownloadShelfDragEvent drag_event);
 
-#ifdef OS_ANDROID
+void RecordDownloadStartPerProfileType(Profile* profile);
+
+#if defined(OS_ANDROID)
 // Records whether the download dialog is shown to the user.
 void RecordDownloadPromptStatus(DownloadPromptStatus status);
 
 // Records whether the download later dialog is shown to the user.
 void RecordDownloadLaterPromptStatus(DownloadLaterPromptStatus status);
-#endif  // OS_ANDROID
+#endif  // defined(OS_ANDROID)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Records that a notification for a download was suppressed.
+void RecordDownloadNotificationSuppressed();
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+enum class DownloadShelfContextMenuAction {
+  // Drop down button for download shelf context menu is visible
+  kDropDownShown = 0,
+  // Drop down button was pressed
+  kDropDownPressed = 1,
+  kShowInFolderEnabled = 2,
+  kShowInFolderClicked = 3,
+  kOpenWhenCompleteEnabled = 4,
+  kOpenWhenCompleteClicked = 5,
+  kAlwaysOpenTypeEnabled = 6,
+  kAlwaysOpenTypeClicked = 7,
+  kPlatformOpenEnabled = 8,
+  kPlatformOpenClicked = 9,
+  kCancelEnabled = 10,
+  kCancelClicked = 11,
+  kPauseEnabled = 12,
+  kPauseClicked = 13,
+  kResumeEnabled = 14,
+  kResumeClicked = 15,
+  kDiscardEnabled = 16,
+  kDiscardClicked = 17,
+  kKeepEnabled = 18,
+  kKeepClicked = 19,
+  kLearnMoreScanningEnabled = 20,
+  kLearnMoreScanningClicked = 21,
+  kLearnMoreInterruptedEnabled = 22,
+  kLearnMoreInterruptedClicked = 23,
+  kLearnMoreMixedContentEnabled = 24,
+  kLearnMoreMixedContentClicked = 25,
+  kCopyToClipboardEnabled = 26,
+  kCopyToClipboardClicked = 27,
+  kAnnotateEnabled = 28,
+  kAnnotateClicked = 29,
+  kDeepScanEnabled = 30,
+  kDeepScanClicked = 31,
+  kBypassDeepScanningEnabled = 32,
+  kBypassDeepScanningClicked = 33,
+  kMaxValue = kBypassDeepScanningClicked
+};
+
+DownloadShelfContextMenuAction DownloadCommandToShelfAction(
+    DownloadCommands::Command download_command,
+    bool clicked);
 
 #endif  // CHROME_BROWSER_DOWNLOAD_DOWNLOAD_STATS_H_

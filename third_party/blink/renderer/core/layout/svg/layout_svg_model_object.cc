@@ -71,18 +71,10 @@ void LayoutSVGModelObject::MapAncestorToLocal(
   SVGLayoutSupport::MapAncestorToLocal(*this, ancestor, transform_state, flags);
 }
 
-const LayoutObject* LayoutSVGModelObject::PushMappingToContainer(
-    const LayoutBoxModelObject* ancestor_to_stop_at,
-    LayoutGeometryMap& geometry_map) const {
-  NOT_DESTROYED();
-  return SVGLayoutSupport::PushMappingToContainer(this, ancestor_to_stop_at,
-                                                  geometry_map);
-}
-
 void LayoutSVGModelObject::AbsoluteQuads(Vector<FloatQuad>& quads,
                                          MapCoordinatesFlags mode) const {
   NOT_DESTROYED();
-  quads.push_back(LocalToAbsoluteQuad(StrokeBoundingBox(), mode));
+  quads.push_back(LocalToAbsoluteQuad(FloatRect(StrokeBoundingBox()), mode));
 }
 
 // This method is called from inside PaintOutline(), and since we call
@@ -91,7 +83,7 @@ void LayoutSVGModelObject::AddOutlineRects(Vector<PhysicalRect>& rects,
                                            const PhysicalOffset&,
                                            NGOutlineType) const {
   NOT_DESTROYED();
-  FloatRect visual_rect = VisualRectInLocalSVGCoordinates();
+  gfx::RectF visual_rect = VisualRectInLocalSVGCoordinates();
   bool was_empty = visual_rect.IsEmpty();
   SVGLayoutSupport::AdjustWithClipPathAndMask(*this, ObjectBoundingBox(),
                                               visual_rect);
@@ -103,7 +95,7 @@ void LayoutSVGModelObject::AddOutlineRects(Vector<PhysicalRect>& rects,
 
 FloatRect LayoutSVGModelObject::LocalBoundingBoxRectForAccessibility() const {
   NOT_DESTROYED();
-  return StrokeBoundingBox();
+  return FloatRect(StrokeBoundingBox());
 }
 
 void LayoutSVGModelObject::WillBeDestroyed() {

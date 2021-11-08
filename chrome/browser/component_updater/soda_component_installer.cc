@@ -5,13 +5,15 @@
 #include "chrome/browser/component_updater/soda_component_installer.h"
 
 #include "base/bind.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/component_updater/soda_language_pack_component_installer.h"
-#include "chrome/common/pref_names.h"
 #include "components/component_updater/component_updater_service.h"
 #include "components/crx_file/id_util.h"
+#include "components/live_caption/pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/soda/constants.h"
 #include "components/update_client/update_client_errors.h"
@@ -19,11 +21,18 @@
 #include "content/public/browser/browser_thread.h"
 #include "crypto/sha2.h"
 #include "media/base/media_switches.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+#include <memory>
+#include <utility>
 
 #if defined(OS_WIN)
 #include <aclapi.h>
 #include <windows.h>
-#include "sandbox/win/src/sid.h"
+
+#include "base/metrics/histogram_functions.h"
+#include "base/win/scoped_localalloc.h"
+#include "base/win/sid.h"
 #endif
 
 using content::BrowserThread;
@@ -43,6 +52,23 @@ static_assert(base::size(kSodaPublicKeySHA256) == crypto::kSHA256Length,
               "Wrong hash length");
 
 constexpr char kSodaManifestName[] = "SODA Library";
+
+#if defined(OS_WIN)
+
+constexpr base::FilePath::CharType kSodaIndicatorFile[] =
+#if defined(ARCH_CPU_X86)
+    FILE_PATH_LITERAL("SODAFiles/arch_x86");
+#elif defined(ARCH_CPU_X86_64)
+    FILE_PATH_LITERAL("SODAFiles/arch_x64");
+#elif defined(ARCH_CPU_ARM64)
+    FILE_PATH_LITERAL("SODAFiles/arch_arm64");
+#else
+    {};
+#endif
+
+static_assert(sizeof(kSodaIndicatorFile) > 0, "Unknown CPU architecture.");
+
+#endif
 
 }  // namespace
 
@@ -77,7 +103,12 @@ update_client::CrxInstaller::Result
 SodaComponentInstallerPolicy::SetComponentDirectoryPermission(
     const base::FilePath& install_dir) {
 #if defined(OS_WIN)
-  sandbox::Sid users_sid = sandbox::Sid(WinBuiltinUsersSid);
+  const absl::optional<base::win::Sid> users_sid =
+      base::win::Sid::FromKnownSid(base::win::WellKnownSid::kBuiltinUsers);
+  if (!users_sid) {
+    return update_client::CrxInstaller::Result(
+        update_client::InstallError::SET_PERMISSIONS_FAILED);
+  }
 
   // Initialize an EXPLICIT_ACCESS structure for an ACE.
   EXPLICIT_ACCESS explicit_access[1] = {};
@@ -87,22 +118,22 @@ SodaComponentInstallerPolicy::SetComponentDirectoryPermission(
   explicit_access[0].Trustee.TrusteeForm = TRUSTEE_IS_SID;
   explicit_access[0].Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
   explicit_access[0].Trustee.ptstrName =
-      reinterpret_cast<LPTSTR>(users_sid.GetPSID());
+      reinterpret_cast<LPTSTR>(users_sid->GetPSID());
 
-  PACL acl = nullptr;
+  PACL acl_ptr = nullptr;
   if (::SetEntriesInAcl(base::size(explicit_access), explicit_access, nullptr,
-                        &acl) != ERROR_SUCCESS) {
+                        &acl_ptr) != ERROR_SUCCESS) {
     return update_client::CrxInstaller::Result(
         update_client::InstallError::SET_PERMISSIONS_FAILED);
   }
+  base::win::ScopedLocalAllocTyped<ACL> acl =
+      base::win::TakeLocalAlloc(acl_ptr);
 
   // Change the security attributes.
   LPWSTR file_name = const_cast<LPWSTR>(install_dir.value().c_str());
-  bool success = ::SetNamedSecurityInfo(file_name, SE_FILE_OBJECT,
-                                        DACL_SECURITY_INFORMATION, nullptr,
-                                        nullptr, acl, nullptr) == ERROR_SUCCESS;
-  ::LocalFree(acl);
-  if (!success) {
+  if (::SetNamedSecurityInfo(file_name, SE_FILE_OBJECT,
+                             DACL_SECURITY_INFORMATION, nullptr, nullptr,
+                             acl.get(), nullptr) != ERROR_SUCCESS) {
     return update_client::CrxInstaller::Result(
         update_client::InstallError::SET_PERMISSIONS_FAILED);
   }
@@ -122,7 +153,7 @@ bool SodaComponentInstallerPolicy::RequiresNetworkEncryption() const {
 
 update_client::CrxInstaller::Result
 SodaComponentInstallerPolicy::OnCustomInstall(
-    const base::DictionaryValue& manifest,
+    const base::Value& manifest,
     const base::FilePath& install_dir) {
   return SodaComponentInstallerPolicy::SetComponentDirectoryPermission(
       install_dir);
@@ -131,15 +162,28 @@ SodaComponentInstallerPolicy::OnCustomInstall(
 void SodaComponentInstallerPolicy::OnCustomUninstall() {}
 
 bool SodaComponentInstallerPolicy::VerifyInstallation(
-    const base::DictionaryValue& manifest,
+    const base::Value& manifest,
     const base::FilePath& install_dir) const {
+#if defined(OS_WIN)
+  bool missing_indicator_file =
+      !base::PathExists(install_dir.Append(kSodaIndicatorFile));
+
+  base::UmaHistogramBoolean(
+      "Accessibility.LiveCaption.SodaVerificationFailureMissingIndicatorFile",
+      missing_indicator_file);
+
+  if (missing_indicator_file) {
+    return false;
+  }
+#endif
+
   return base::PathExists(install_dir.Append(speech::kSodaBinaryRelativePath));
 }
 
 void SodaComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& install_dir,
-    std::unique_ptr<base::DictionaryValue> manifest) {
+    base::Value manifest) {
   VLOG(1) << "Component ready, version " << version.GetString() << " in "
           << install_dir.value();
   if (on_installed_callback_)
@@ -175,71 +219,46 @@ void UpdateSodaInstallDirPref(PrefService* prefs,
 #endif
 }
 
-void RegisterPrefsForSodaComponent(PrefRegistrySimple* registry) {
-  registry->RegisterTimePref(prefs::kSodaScheduledDeletionTime, base::Time());
-  registry->RegisterFilePathPref(prefs::kSodaBinaryPath, base::FilePath());
-
-  // Register language pack config path preferences.
-  for (const speech::SodaLanguagePackComponentConfig& config :
-       speech::kLanguageComponentConfigs) {
-    registry->RegisterFilePathPref(config.config_path_pref, base::FilePath());
-  }
-}
-
 void RegisterSodaComponent(ComponentUpdateService* cus,
-                           PrefService* profile_prefs,
                            PrefService* global_prefs,
                            base::OnceClosure on_ready_callback,
                            base::OnceClosure on_registered_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (base::FeatureList::IsEnabled(media::kUseSodaForLiveCaption) &&
-      base::FeatureList::IsEnabled(media::kLiveCaption)) {
-    if (profile_prefs->GetBoolean(prefs::kLiveCaptionEnabled)) {
-      global_prefs->SetTime(prefs::kSodaScheduledDeletionTime, base::Time());
-      auto installer = base::MakeRefCounted<ComponentInstaller>(
-          std::make_unique<SodaComponentInstallerPolicy>(
-              base::BindRepeating(
-                  [](ComponentUpdateService* cus, PrefService* global_prefs,
-                     const base::FilePath& install_dir) {
-                    content::GetUIThreadTaskRunner(
-                        {base::TaskPriority::USER_BLOCKING})
-                        ->PostTask(FROM_HERE,
-                                   base::BindOnce(&UpdateSodaInstallDirPref,
-                                                  global_prefs, install_dir));
-                  },
-                  cus, global_prefs),
-              std::move(on_ready_callback)));
+      media::IsLiveCaptionFeatureEnabled()) {
+    auto installer = base::MakeRefCounted<ComponentInstaller>(
+        std::make_unique<SodaComponentInstallerPolicy>(
+            base::BindRepeating(
+                [](ComponentUpdateService* cus, PrefService* global_prefs,
+                   const base::FilePath& install_dir) {
+                  content::GetUIThreadTaskRunner(
+                      {base::TaskPriority::USER_BLOCKING})
+                      ->PostTask(FROM_HERE,
+                                 base::BindOnce(&UpdateSodaInstallDirPref,
+                                                global_prefs, install_dir));
+                },
+                cus, global_prefs),
+            std::move(on_ready_callback)));
 
-      installer->Register(cus, std::move(on_registered_callback));
-    } else {
-      base::Time deletion_time =
-          global_prefs->GetTime(prefs::kSodaScheduledDeletionTime);
-      if (!deletion_time.is_null() && deletion_time < base::Time::Now()) {
-        base::DeletePathRecursively(speech::GetSodaDirectory());
-        base::DeletePathRecursively(speech::GetSodaLanguagePacksDirectory());
-        global_prefs->SetTime(prefs::kSodaScheduledDeletionTime, base::Time());
-      }
-    }
+    installer->Register(cus, std::move(on_registered_callback));
   }
 }
 
-void RegisterSodaLanguageComponent(ComponentUpdateService* cus,
-                                   PrefService* profile_prefs,
-                                   PrefService* global_prefs,
-                                   base::OnceClosure on_ready_callback) {
+void RegisterSodaLanguageComponent(
+    ComponentUpdateService* cus,
+    const std::string& language,
+    PrefService* global_prefs,
+    OnSodaLanguagePackComponentReadyCallback on_ready_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (base::FeatureList::IsEnabled(media::kUseSodaForLiveCaption) &&
-      base::FeatureList::IsEnabled(media::kLiveCaption)) {
-    if (profile_prefs->GetBoolean(prefs::kLiveCaptionEnabled)) {
-      base::Optional<speech::SodaLanguagePackComponentConfig> config =
-          speech::GetLanguageComponentConfig(
-              profile_prefs->GetString(prefs::kLiveCaptionLanguageCode));
-      if (config) {
-        RegisterSodaLanguagePackComponent(config.value(), cus, global_prefs,
-                                          std::move(on_ready_callback));
-      }
+      media::IsLiveCaptionFeatureEnabled()) {
+    absl::optional<speech::SodaLanguagePackComponentConfig> config =
+        speech::GetLanguageComponentConfig(language);
+    if (config) {
+      RegisterSodaLanguagePackComponent(config.value(), cus, global_prefs,
+                                        std::move(on_ready_callback));
     }
   }
 }

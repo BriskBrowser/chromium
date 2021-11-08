@@ -20,10 +20,10 @@ class SequencedTaskRunner;
 
 namespace breadcrumbs {
 class BreadcrumbManager;
+class BreadcrumbPersistentStorageManager;
 }
 
 class ApplicationBreadcrumbsLogger;
-class BreadcrumbPersistentStorageManager;
 
 namespace network {
 class NetworkChangeManager;
@@ -34,6 +34,10 @@ class ApplicationContextImpl : public ApplicationContext {
   ApplicationContextImpl(base::SequencedTaskRunner* local_state_task_runner,
                          const base::CommandLine& command_line,
                          const std::string& locale);
+
+  ApplicationContextImpl(const ApplicationContextImpl&) = delete;
+  ApplicationContextImpl& operator=(const ApplicationContextImpl&) = delete;
+
   ~ApplicationContextImpl() override;
 
   // Called before the browser threads are created.
@@ -76,8 +80,8 @@ class ApplicationContextImpl : public ApplicationContext {
   SafeBrowsingService* GetSafeBrowsingService() override;
   network::NetworkConnectionTracker* GetNetworkConnectionTracker() override;
   BrowserPolicyConnectorIOS* GetBrowserPolicyConnector() override;
-  BreadcrumbPersistentStorageManager* GetBreadcrumbPersistentStorageManager()
-      override;
+  breadcrumbs::BreadcrumbPersistentStorageManager*
+  GetBreadcrumbPersistentStorageManager() override;
 
  private:
   // Sets the locale used by the application.
@@ -123,10 +127,6 @@ class ApplicationContextImpl : public ApplicationContext {
       network_connection_tracker_;
 
   scoped_refptr<SafeBrowsingService> safe_browsing_service_;
-
-  bool was_last_shutdown_clean_;
-
-  DISALLOW_COPY_AND_ASSIGN(ApplicationContextImpl);
 };
 
 #endif  // IOS_CHROME_BROWSER_APPLICATION_CONTEXT_IMPL_H_

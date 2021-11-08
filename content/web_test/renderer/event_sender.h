@@ -15,9 +15,9 @@
 #include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
 #include "third_party/blink/public/common/input/web_touch_point.h"
@@ -41,6 +41,7 @@ class Arguments;
 
 namespace content {
 class TestRunner;
+class WebFrameTestProxy;
 
 // Key event location code introduced in DOM Level 3.
 // See also: http://www.w3.org/TR/DOM-Level-3-Events/#events-keyboardevents
@@ -54,10 +55,14 @@ enum KeyLocationCode {
 class EventSender {
  public:
   EventSender(blink::WebFrameWidget*, content::TestRunner* test_runner);
+
+  EventSender(const EventSender&) = delete;
+  EventSender& operator=(const EventSender&) = delete;
+
   virtual ~EventSender();
 
   void Reset();
-  void Install(blink::WebLocalFrame*);
+  void Install(WebFrameTestProxy*);
 
   void SetContextMenuData(const blink::ContextMenuData&);
 
@@ -128,8 +133,6 @@ class EventSender {
 
   void DumpFilenameBeingDragged();
 
-  void GestureScrollFirstPoint(float x, float y);
-
   void TouchStart(gin::Arguments* args);
   void TouchMove(gin::Arguments* args);
   void TouchCancel(gin::Arguments* args);
@@ -146,9 +149,7 @@ class EventSender {
 
   void AddTouchPoint(float x, float y, gin::Arguments* args);
 
-  void GestureScrollBegin(blink::WebLocalFrame* frame, gin::Arguments* args);
-  void GestureScrollEnd(blink::WebLocalFrame* frame, gin::Arguments* args);
-  void GestureScrollUpdate(blink::WebLocalFrame* frame, gin::Arguments* args);
+  void GestureScrollPopup(blink::WebLocalFrame* frame, gin::Arguments* args);
   void GestureTap(blink::WebLocalFrame* frame, gin::Arguments* args);
   void GestureTapDown(blink::WebLocalFrame* frame, gin::Arguments* args);
   void GestureShowPress(blink::WebLocalFrame* frame, gin::Arguments* args);
@@ -157,7 +158,6 @@ class EventSender {
   void GestureLongTap(blink::WebLocalFrame* frame, gin::Arguments* args);
   void GestureTwoFingerTap(blink::WebLocalFrame* frame, gin::Arguments* args);
 
-  void MouseScrollBy(gin::Arguments* args, MouseScrollType scroll_type);
   void MouseMoveTo(blink::WebLocalFrame* frame, gin::Arguments* args);
   void MouseLeave(blink::WebPointerProperties::PointerType, int pointerId);
   void ScheduleAsynchronousClick(blink::WebLocalFrame* frame,
@@ -273,7 +273,7 @@ class EventSender {
 
   std::unique_ptr<blink::ContextMenuData> last_context_menu_data_;
 
-  base::Optional<blink::WebDragData> current_drag_data_;
+  absl::optional<blink::WebDragData> current_drag_data_;
 
   // Location of the touch point that initiated a gesture.
   gfx::PointF current_gesture_location_;
@@ -322,8 +322,6 @@ class EventSender {
   base::TimeTicks last_event_timestamp_;
 
   base::WeakPtrFactory<EventSender> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(EventSender);
 };
 
 }  // namespace content

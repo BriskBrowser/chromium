@@ -18,7 +18,7 @@ UserActionsUIHandler::~UserActionsUIHandler() {
 }
 
 void UserActionsUIHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "pageLoaded", base::BindRepeating(&UserActionsUIHandler::HandlePageLoaded,
                                         base::Unretained(this)));
 }
@@ -40,6 +40,6 @@ void UserActionsUIHandler::OnUserAction(const std::string& action,
   if (!IsJavascriptAllowed())
     return;
   base::Value user_action_name(action);
-  web_ui()->CallJavascriptFunctionUnsafe("userActions.observeUserAction",
-                                         user_action_name);
+
+  FireWebUIListener("user-action", user_action_name);
 }

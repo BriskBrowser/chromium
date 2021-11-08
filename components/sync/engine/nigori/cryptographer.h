@@ -17,9 +17,10 @@ namespace syncer {
 class Cryptographer {
  public:
   Cryptographer();
-  virtual ~Cryptographer();
 
-  virtual std::unique_ptr<Cryptographer> Clone() const = 0;
+  Cryptographer& operator=(const Cryptographer&) = delete;
+
+  virtual ~Cryptographer();
 
   // Returns whether this cryptographer is ready to encrypt data, using
   // EncryptString(). This usually means that a default encryption key is
@@ -56,9 +57,6 @@ class Cryptographer {
   // parses the decrypted content into a protocol buffer.
   bool Decrypt(const sync_pb::EncryptedData& encrypted,
                ::google::protobuf::MessageLite* message) const;
-
- private:
-  DISALLOW_ASSIGN(Cryptographer);
 };
 
 }  // namespace syncer

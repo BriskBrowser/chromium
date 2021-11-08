@@ -10,11 +10,15 @@
 #include "base/callback_forward.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
-#include "chrome/browser/web_applications/components/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_id.h"
 #include "ui/gfx/native_widget_types.h"
 
 class BrowserWindow;
 class Profile;
+
+namespace webapps {
+enum class WebappUninstallSource;
+}
 
 namespace web_app {
 
@@ -27,30 +31,23 @@ class WebAppDialogManager {
   WebAppDialogManager& operator=(const WebAppDialogManager&) = delete;
   ~WebAppDialogManager();
 
-  enum class UninstallSource {
-    kAppMenu,
-    kAppsPage,
-    kOsSettings,
-  };
-
   using Callback = base::OnceCallback<void(bool success)>;
 
-  bool CanUninstallWebApp(const AppId& app_id) const;
+  bool CanUserUninstallWebApp(const AppId& app_id) const;
   // The uninstall dialog will be modal to |parent_window|, or a non-modal if
   // |parent_window| is nullptr.
   void UninstallWebApp(const AppId& app_id,
-                       UninstallSource uninstall_source,
+                       webapps::WebappUninstallSource uninstall_source,
                        BrowserWindow* parent_window,
                        Callback callback);
 
   void UninstallWebApp(const AppId& app_id,
-                       UninstallSource uninstall_source,
+                       webapps::WebappUninstallSource uninstall_source,
                        gfx::NativeWindow parent_window,
                        Callback callback);
 
  private:
   void OnWebAppUninstallDialogClosed(WebAppUninstallDialog* dialog,
-                                     UninstallSource uninstall_source,
                                      Callback callback,
                                      bool uninstalled);
 

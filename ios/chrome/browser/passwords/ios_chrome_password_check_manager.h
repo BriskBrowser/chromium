@@ -9,7 +9,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "components/password_manager/core/browser/ui/bulk_leak_check_service_adapter.h"
 #include "components/password_manager/core/browser/ui/credential_utils.h"
 #include "components/password_manager/core/browser/ui/insecure_credentials_manager.h"
@@ -75,8 +75,11 @@ class IOSChromePasswordCheckManager
 
   // Edits |username| and |password| for |form| and its duplicates.
   bool EditPasswordForm(const password_manager::PasswordForm& form,
-                        base::StringPiece new_username,
-                        base::StringPiece new_password);
+                        const std::u16string& new_username,
+                        const std::u16string& new_password);
+
+  // Adds new password credentials |form| to the store.
+  bool AddPasswordForm(const password_manager::PasswordForm& form);
 
   // Edits password form using |insecure_credentials_manager_|.
   void EditCompromisedPasswordForm(const password_manager::PasswordForm& form,
@@ -94,8 +97,12 @@ class IOSChromePasswordCheckManager
     observers_.RemoveObserver(observer);
   }
 
+  password_manager::SavedPasswordsPresenter* GetSavedPasswordsPresenter() {
+    return &saved_passwords_presenter_;
+  }
+
  private:
-  friend class RefCounted<IOSChromePasswordCheckManager>;
+  friend class base::RefCounted<IOSChromePasswordCheckManager>;
   friend class IOSChromePasswordCheckManagerProxy;
 
   explicit IOSChromePasswordCheckManager(ChromeBrowserState* browser_state);
@@ -126,7 +133,7 @@ class IOSChromePasswordCheckManager
 
   // Handle to the password store, powering both |saved_passwords_presenter_|
   // and |insecure_credentials_manager_|.
-  scoped_refptr<password_manager::PasswordStore> password_store_;
+  scoped_refptr<password_manager::PasswordStoreInterface> password_store_;
 
   // Used by |insecure_credentials_manager_| to obtain the list of saved
   // passwords.
@@ -152,18 +159,20 @@ class IOSChromePasswordCheckManager
   base::Time start_time_;
 
   // A scoped observer for |saved_passwords_presenter_|.
-  ScopedObserver<password_manager::SavedPasswordsPresenter,
-                 password_manager::SavedPasswordsPresenter::Observer>
+  base::ScopedObservation<password_manager::SavedPasswordsPresenter,
+                          password_manager::SavedPasswordsPresenter::Observer>
       observed_saved_passwords_presenter_{this};
 
   // A scoped observer for |insecure_credentials_manager_|.
-  ScopedObserver<password_manager::InsecureCredentialsManager,
-                 password_manager::InsecureCredentialsManager::Observer>
+  base::ScopedObservation<
+      password_manager::InsecureCredentialsManager,
+      password_manager::InsecureCredentialsManager::Observer>
       observed_insecure_credentials_manager_{this};
 
   // A scoped observer for the BulkLeakCheckService.
-  ScopedObserver<password_manager::BulkLeakCheckServiceInterface,
-                 password_manager::BulkLeakCheckServiceInterface::Observer>
+  base::ScopedObservation<
+      password_manager::BulkLeakCheckServiceInterface,
+      password_manager::BulkLeakCheckServiceInterface::Observer>
       observed_bulk_leak_check_service_{this};
 
   // Observers to listen to password check changes.

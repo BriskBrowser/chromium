@@ -12,7 +12,6 @@
 #include "base/callback_list.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_switcher/browser_switcher_prefs.h"
@@ -120,7 +119,13 @@ class BrowserSwitcherService : public KeyedService {
       base::RepeatingCallback<AllRulesetsParsedCallbackSignature>;
 
  public:
+  BrowserSwitcherService() = delete;
+
   explicit BrowserSwitcherService(Profile* profile);
+
+  BrowserSwitcherService(const BrowserSwitcherService&) = delete;
+  BrowserSwitcherService& operator=(const BrowserSwitcherService&) = delete;
+
   ~BrowserSwitcherService() override;
 
   virtual void Init();
@@ -195,7 +200,8 @@ class BrowserSwitcherService : public KeyedService {
   base::CallbackListSubscription prefs_subscription_;
 
   // CallbackList for OnAllRulesetsParsed() listeners.
-  base::CallbackList<AllRulesetsParsedCallbackSignature> callback_list_;
+  base::RepeatingCallbackList<AllRulesetsParsedCallbackSignature>
+      callback_list_;
 
   base::OnceCallback<void()> all_rulesets_loaded_callback_for_testing_;
 
@@ -204,9 +210,6 @@ class BrowserSwitcherService : public KeyedService {
   std::unique_ptr<BrowserSwitcherSitelist> sitelist_;
 
   base::WeakPtrFactory<BrowserSwitcherService> weak_ptr_factory_{this};
-
- private:
-  DISALLOW_IMPLICIT_CONSTRUCTORS(BrowserSwitcherService);
 };
 
 }  // namespace browser_switcher

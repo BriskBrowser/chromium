@@ -5,7 +5,6 @@
 #include "ash/display/display_configuration_controller.h"
 
 #include "ash/display/display_configuration_controller_test_api.h"
-#include "ash/public/cpp/ash_switches.h"
 #include "ash/rotator/screen_rotation_animator.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
@@ -27,6 +26,12 @@ display::Display::Rotation GetDisplayRotation(int64_t display_id) {
 class DisplayConfigurationControllerSmoothRotationTest : public AshTestBase {
  public:
   DisplayConfigurationControllerSmoothRotationTest() = default;
+
+  DisplayConfigurationControllerSmoothRotationTest(
+      const DisplayConfigurationControllerSmoothRotationTest&) = delete;
+  DisplayConfigurationControllerSmoothRotationTest& operator=(
+      const DisplayConfigurationControllerSmoothRotationTest&) = delete;
+
   ~DisplayConfigurationControllerSmoothRotationTest() override = default;
 
   void SetUp() override {
@@ -35,9 +40,6 @@ class DisplayConfigurationControllerSmoothRotationTest : public AshTestBase {
     Shell::Get()->wallpaper_controller()->set_bypass_decode_for_testing();
     Shell::Get()->wallpaper_controller()->ShowDefaultWallpaperForTesting();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DisplayConfigurationControllerSmoothRotationTest);
 };
 
 }  // namespace

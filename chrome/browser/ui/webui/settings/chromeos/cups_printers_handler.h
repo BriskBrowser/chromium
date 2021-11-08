@@ -12,9 +12,11 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
+#include "chrome/browser/ash/printing/printer_event_tracker.h"
+// TODO(https://crbug.com/1164001): remove and use forward declaration.
+#include "chrome/browser/ash/printing/server_printers_fetcher.h"
 #include "chrome/browser/chromeos/printing/cups_printers_manager.h"
 #include "chrome/browser/chromeos/printing/printer_configurer.h"
-#include "chrome/browser/chromeos/printing/printer_event_tracker.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
 #include "chromeos/printing/ppd_provider.h"
 #include "chromeos/printing/printer_configuration.h"
@@ -38,9 +40,6 @@ class GURL;
 class Profile;
 
 namespace chromeos {
-
-class ServerPrintersFetcher;
-
 namespace settings {
 
 // Chrome OS CUPS printing settings page UI handler.
@@ -55,6 +54,10 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
       CupsPrintersManager* printers_manager);
 
   CupsPrintersHandler(Profile* profile, CupsPrintersManager* printers_manager);
+
+  CupsPrintersHandler(const CupsPrintersHandler&) = delete;
+  CupsPrintersHandler& operator=(const CupsPrintersHandler&) = delete;
+
   ~CupsPrintersHandler() override;
 
   // SettingsPageUIHandler overrides:
@@ -71,7 +74,8 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
                       CupsPrintersManager* printers_manager);
 
   // Gets all CUPS printers and return it to WebUI.
-  void HandleGetCupsPrintersList(const base::ListValue* args);
+  void HandleGetCupsSavedPrintersList(const base::ListValue* args);
+  void HandleGetCupsEnterprisePrintersList(const base::ListValue* args);
   void HandleUpdateCupsPrinter(const base::ListValue* args);
   void HandleRemoveCupsPrinter(const base::ListValue* args);
 
@@ -82,17 +86,13 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
   // Handles the callback for HandleGetPrinterInfo. |callback_id| is the
   // identifier to resolve the correct Promise. |result| indicates if the query
   // was successful. |printer_status| contains the current status of the
-  // printer. |make| is the detected printer manufacturer. |model| is the
-  // detected model. |make_and_model| is the unparsed printer-make-and-model
-  // string. |ipp_everywhere| indicates if configuration using the CUPS IPP
-  // Everywhere driver should be attempted. If |result| is not SUCCESS, the
-  // values of |printer_status|, |make|, |model|, |make_and_model|, and
-  // |ipp_everywhere| are not specified.
+  // printer. |make_and_model| is the unparsed printer-make-and-model string.
+  // |ipp_everywhere| indicates if configuration using the CUPS IPP Everywhere
+  // driver should be attempted. If |result| is not SUCCESS, the values of
+  // |printer_status|, |make_and_model|, and |ipp_everywhere| are not specified.
   void OnAutoconfQueried(const std::string& callback_id,
                          printing::PrinterQueryResult result,
                          const printing::PrinterStatus& printer_status,
-                         const std::string& make,
-                         const std::string& model,
                          const std::string& make_and_model,
                          const std::vector<std::string>& document_formats,
                          bool ipp_everywhere);
@@ -103,8 +103,6 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
       Printer printer,
       printing::PrinterQueryResult result,
       const printing::PrinterStatus& printer_status,
-      const std::string& make,
-      const std::string& model,
       const std::string& make_and_model,
       const std::vector<std::string>& document_formats,
       bool ipp_everywhere);
@@ -268,8 +266,6 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
       printers_manager_observation_{this};
 
   base::WeakPtrFactory<CupsPrintersHandler> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CupsPrintersHandler);
 };
 
 }  // namespace settings

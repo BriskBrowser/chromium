@@ -19,8 +19,6 @@ class ColorSpace;
 
 namespace blink {
 
-class CanvasResourceParams;
-
 enum class CanvasColorSpace {
   kSRGB,
   kRec2020,
@@ -43,6 +41,8 @@ constexpr const char* kF16CanvasPixelFormatName = "float16";
 // returns CanvasColorSpace::kSRGB.
 CanvasColorSpace PLATFORM_EXPORT
 CanvasColorSpaceFromName(const String& color_space_name);
+
+String PLATFORM_EXPORT CanvasColorSpaceToName(CanvasColorSpace color_space);
 
 // Return the SkColorSpace for the specified |color_space|.
 sk_sp<SkColorSpace> PLATFORM_EXPORT
@@ -67,10 +67,10 @@ class PLATFORM_EXPORT CanvasColorParams {
   CanvasPixelFormat PixelFormat() const { return pixel_format_; }
   OpacityMode GetOpacityMode() const { return opacity_mode_; }
 
-  const char* GetColorSpaceAsString() const;
+  String GetColorSpaceAsString() const;
   const char* GetPixelFormatAsString() const;
 
-  CanvasResourceParams GetAsResourceParams() const;
+  SkColorInfo GetSkColorInfo() const;
 
   // The pixel format to use for allocating SkSurfaces.
   SkColorType GetSkColorType() const;

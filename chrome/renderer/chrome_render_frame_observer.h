@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_render_frame.mojom.h"
 #include "components/safe_browsing/buildflags.h"
@@ -46,6 +45,11 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver,
  public:
   ChromeRenderFrameObserver(content::RenderFrame* render_frame,
                             web_cache::WebCacheImpl* web_cache_impl);
+
+  ChromeRenderFrameObserver(const ChromeRenderFrameObserver&) = delete;
+  ChromeRenderFrameObserver& operator=(const ChromeRenderFrameObserver&) =
+      delete;
+
   ~ChromeRenderFrameObserver() override;
 
   service_manager::BinderRegistry* registry() { return &registry_; }
@@ -77,11 +81,12 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver,
   void DidClearWindowObject() override;
   void DidMeaningfulLayout(blink::WebMeaningfulLayout layout_type) override;
   void OnDestruct() override;
+  void DraggableRegionsChanged() override;
 
   // chrome::mojom::ChromeRenderFrame:
   void SetWindowFeatures(
       blink::mojom::WindowFeaturesPtr window_features) override;
-  void ExecuteWebUIJavaScript(const base::string16& javascript) override;
+  void ExecuteWebUIJavaScript(const std::u16string& javascript) override;
   void RequestImageForContextNode(
       int32_t thumbnail_min_area_pixels,
       const gfx::Size& thumbnail_max_size_pixels,
@@ -140,15 +145,13 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver,
 
 #if !defined(OS_ANDROID)
   // Save the JavaScript to preload if ExecuteWebUIJavaScript is invoked.
-  std::vector<base::string16> webui_javascript_;
+  std::vector<std::u16string> webui_javascript_;
 #endif
 
   mojo::AssociatedReceiverSet<chrome::mojom::ChromeRenderFrame> receivers_;
 
   service_manager::BinderRegistry registry_;
   blink::AssociatedInterfaceRegistry associated_interfaces_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeRenderFrameObserver);
 };
 
 #endif  // CHROME_RENDERER_CHROME_RENDER_FRAME_OBSERVER_H_

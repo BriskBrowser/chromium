@@ -54,12 +54,13 @@ TEST(OriginIdentifierValueMapTest, SetDeleteValue) {
                ContentSettingsType::GEOLOCATION, base::Time(), base::Value(1),
                {});
 
-  int actual_value;
-  EXPECT_TRUE(map.GetValue(GURL("http://www.google.com"),
-                           GURL("http://www.google.com"),
-                           ContentSettingsType::GEOLOCATION)
-                  ->GetAsInteger(&actual_value));
-  EXPECT_EQ(1, actual_value);
+  {
+    const base::Value* value = map.GetValue(GURL("http://www.google.com"),
+                                            GURL("http://www.google.com"),
+                                            ContentSettingsType::GEOLOCATION);
+    ASSERT_TRUE(value->is_int());
+    EXPECT_EQ(1, value->GetInt());
+  }
   EXPECT_EQ(nullptr, map.GetValue(GURL("http://www.google.com"),
                                   GURL("http://www.google.com"),
                                   ContentSettingsType::NOTIFICATIONS));
@@ -70,11 +71,13 @@ TEST(OriginIdentifierValueMapTest, SetDeleteValue) {
   EXPECT_EQ(nullptr, map.GetValue(GURL("http://www.google.com"),
                                   GURL("http://www.google.com"),
                                   ContentSettingsType::NOTIFICATIONS));
-  EXPECT_TRUE(map.GetValue(GURL("http://www.google.com"),
-                           GURL("http://www.google.com"),
-                           ContentSettingsType::GEOLOCATION)
-                  ->GetAsInteger(&actual_value));
-  EXPECT_EQ(1, actual_value);
+  {
+    const base::Value* value = map.GetValue(GURL("http://www.google.com"),
+                                            GURL("http://www.google.com"),
+                                            ContentSettingsType::GEOLOCATION);
+    ASSERT_TRUE(value->is_int());
+    EXPECT_EQ(1, value->GetInt());
+  }
 
   // Delete existing value.
   map.DeleteValue(ContentSettingsPattern::FromString("[*.]google.com"),
@@ -99,12 +102,11 @@ TEST(OriginIdentifierValueMapTest, Clear) {
                ContentSettingsPattern::FromString("[*.]google.com"),
                ContentSettingsType::COOKIES, base::Time(), base::Value(1), {});
   EXPECT_FALSE(map.empty());
-  int actual_value;
-  EXPECT_TRUE(map.GetValue(GURL("http://www.google.com"),
-                           GURL("http://www.google.com"),
-                           ContentSettingsType::GEOLOCATION)
-                  ->GetAsInteger(&actual_value));
-  EXPECT_EQ(1, actual_value);
+  const base::Value* value =
+      map.GetValue(GURL("http://www.google.com"), GURL("http://www.google.com"),
+                   ContentSettingsType::GEOLOCATION);
+  ASSERT_TRUE(value->is_int());
+  EXPECT_EQ(1, value->GetInt());
 
   // Clear the map.
   map.clear();
@@ -125,18 +127,21 @@ TEST(OriginIdentifierValueMapTest, ListEntryPrecedences) {
                ContentSettingsPattern::FromString("[*.]google.com"),
                ContentSettingsType::COOKIES, base::Time(), base::Value(2), {});
 
-  int actual_value;
-  EXPECT_TRUE(map.GetValue(GURL("http://mail.google.com"),
-                           GURL("http://www.google.com"),
-                           ContentSettingsType::COOKIES)
-                  ->GetAsInteger(&actual_value));
-  EXPECT_EQ(1, actual_value);
+  {
+    const base::Value* value = map.GetValue(GURL("http://mail.google.com"),
+                                            GURL("http://www.google.com"),
+                                            ContentSettingsType::COOKIES);
+    ASSERT_TRUE(value->is_int());
+    EXPECT_EQ(1, value->GetInt());
+  }
 
-  EXPECT_TRUE(map.GetValue(GURL("http://www.google.com"),
-                           GURL("http://www.google.com"),
-                           ContentSettingsType::COOKIES)
-                  ->GetAsInteger(&actual_value));
-  EXPECT_EQ(2, actual_value);
+  {
+    const base::Value* value = map.GetValue(GURL("http://www.google.com"),
+                                            GURL("http://www.google.com"),
+                                            ContentSettingsType::COOKIES);
+    ASSERT_TRUE(value->is_int());
+    EXPECT_EQ(2, value->GetInt());
+  }
 }
 
 TEST(OriginIdentifierValueMapTest, IterateEmpty) {
@@ -154,7 +159,7 @@ TEST(OriginIdentifierValueMapTest, IterateNonempty) {
   ContentSettingsPattern sub_pattern =
       ContentSettingsPattern::FromString("sub.google.com");
   base::Time t1 = base::Time::Now();
-  base::Time t2 = t1 + base::TimeDelta::FromSeconds(1);
+  base::Time t2 = t1 + base::Seconds(1);
   map.SetValue(pattern, ContentSettingsPattern::Wildcard(),
                ContentSettingsType::COOKIES, t1, base::Value(1), {});
   map.SetValue(sub_pattern, ContentSettingsPattern::Wildcard(),
@@ -193,8 +198,7 @@ TEST(OriginIdentifierValueMapTest, UpdateLastModified) {
                {base::Time(), content_settings::SessionModel::Durable});
   map.SetValue(sub_pattern, ContentSettingsPattern::Wildcard(),
                ContentSettingsType::COOKIES, t1, base::Value(2),
-               {content_settings::GetConstraintExpiration(
-                    base::TimeDelta::FromSeconds(100)),
+               {content_settings::GetConstraintExpiration(base::Seconds(100)),
                 content_settings::SessionModel::UserSession});
 
   {
@@ -221,7 +225,7 @@ TEST(OriginIdentifierValueMapTest, UpdateLastModified) {
     EXPECT_EQ(rule.session_model, content_settings::SessionModel::Durable);
     ASSERT_FALSE(rule_iterator->HasNext());
   }
-  base::Time t2 = t1 + base::TimeDelta::FromSeconds(1);
+  base::Time t2 = t1 + base::Seconds(1);
   map.SetValue(pattern, ContentSettingsPattern::Wildcard(),
                ContentSettingsType::COOKIES, t2, base::Value(3), {});
 

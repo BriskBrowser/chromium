@@ -12,6 +12,7 @@
 #include "base/sequence_checker.h"
 #include "device/fido/cable/v2_constants.h"
 #include "device/fido/cable/websocket_adapter.h"
+#include "device/fido/fido_constants.h"
 #include "device/fido/fido_device.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
 
@@ -42,9 +43,13 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoTunnelDevice : public FidoDevice {
   // |Pairing| is reported by the tunnel server to be invalid (which can happen
   // if the user opts to unlink all devices) then |pairing_is_invalid| is
   // run.
-  FidoTunnelDevice(network::mojom::NetworkContext* network_context,
+  FidoTunnelDevice(FidoRequestType request_type,
+                   network::mojom::NetworkContext* network_context,
                    std::unique_ptr<Pairing> pairing,
                    base::OnceClosure pairing_is_invalid);
+
+  FidoTunnelDevice(const FidoTunnelDevice&) = delete;
+  FidoTunnelDevice& operator=(const FidoTunnelDevice&) = delete;
 
   ~FidoTunnelDevice() override;
 
@@ -125,7 +130,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoTunnelDevice : public FidoDevice {
     std::array<uint8_t, 32> psk;
     base::OnceCallback<void(std::unique_ptr<Pairing>)> pairing_callback;
     std::array<uint8_t, kQRSeedSize> local_identity_seed;
-    uint32_t tunnel_server_domain;
+    tunnelserver::KnownDomainID tunnel_server_domain;
   };
 
   struct PairedInfo {
@@ -137,16 +142,16 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoTunnelDevice : public FidoDevice {
     std::array<uint8_t, kEIDKeySize> eid_encryption_key;
     std::array<uint8_t, kP256X962Length> peer_identity;
     std::vector<uint8_t> secret;
-    base::Optional<CableEidArray> decrypted_eid;
-    base::Optional<std::array<uint8_t, 32>> psk;
-    base::Optional<std::vector<uint8_t>> handshake_message;
+    absl::optional<CableEidArray> decrypted_eid;
+    absl::optional<std::array<uint8_t, 32>> psk;
+    absl::optional<std::vector<uint8_t>> handshake_message;
     base::OnceClosure pairing_is_invalid;
   };
 
   void OnTunnelReady(
       WebSocketAdapter::Result result,
-      base::Optional<std::array<uint8_t, kRoutingIdSize>> routing_id);
-  void OnTunnelData(base::Optional<base::span<const uint8_t>> data);
+      absl::optional<std::array<uint8_t, kRoutingIdSize>> routing_id);
+  void OnTunnelData(absl::optional<base::span<const uint8_t>> data);
   void OnError();
   void MaybeFlushPendingMessage();
 
@@ -154,16 +159,14 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoTunnelDevice : public FidoDevice {
   absl::variant<QRInfo, PairedInfo> info_;
   const std::array<uint8_t, 8> id_;
   std::unique_ptr<WebSocketAdapter> websocket_client_;
-  base::Optional<HandshakeInitiator> handshake_;
-  base::Optional<HandshakeHash> handshake_hash_;
+  absl::optional<HandshakeInitiator> handshake_;
+  absl::optional<HandshakeHash> handshake_hash_;
   std::unique_ptr<Crypter> crypter_;
   std::vector<uint8_t> getinfo_response_bytes_;
   std::vector<uint8_t> pending_message_;
   DeviceCallback callback_;
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<FidoTunnelDevice> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FidoTunnelDevice);
 };
 
 }  // namespace cablev2

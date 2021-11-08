@@ -14,7 +14,7 @@
 #include "chrome/browser/signin/reauth_result.h"
 #include "chrome/browser/signin/reauth_util.h"
 #include "chrome/browser/signin/signin_promo.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/signin_view_controller.h"
@@ -30,10 +30,10 @@
 #include "content/public/browser/web_contents.h"
 #include "google_apis/gaia/core_account_id.h"
 #include "google_apis/gaia/gaia_urls.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/webview/webview.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
 
@@ -49,7 +49,7 @@ const int kReauthDialogHeight = 520;
 int GetSyncConfirmationDialogPreferredHeight(Profile* profile) {
   // If sync is disabled, then the sync confirmation dialog looks like an error
   // dialog and thus it has the same preferred size.
-  return ProfileSyncServiceFactory::IsSyncAllowed(profile)
+  return SyncServiceFactory::IsSyncAllowed(profile)
              ? kSyncConfirmationDialogHeight
              : kSigninErrorDialogHeight;
 }
@@ -70,7 +70,7 @@ SigninViewControllerDelegateViews::CreateSyncConfirmationWebView(
 std::unique_ptr<views::WebView>
 SigninViewControllerDelegateViews::CreateSigninErrorWebView(Browser* browser) {
   return CreateDialogWebView(browser, GURL(chrome::kChromeUISigninErrorURL),
-                             kSigninErrorDialogHeight, base::nullopt);
+                             kSigninErrorDialogHeight, absl::nullopt);
 }
 
 // static
@@ -82,6 +82,34 @@ SigninViewControllerDelegateViews::CreateReauthConfirmationWebView(
                              signin::GetReauthConfirmationURL(access_point),
                              kReauthDialogHeight, kReauthDialogWidth);
 }
+
+#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS_LACROS)
+// static
+std::unique_ptr<views::WebView>
+SigninViewControllerDelegateViews::CreateEnterpriseConfirmationWebView(
+    Browser* browser,
+    const AccountInfo& account_info,
+    SkColor profile_color,
+    base::OnceCallback<void(bool)> callback) {
+  std::unique_ptr<views::WebView> web_view = CreateDialogWebView(
+      browser, GURL(chrome::kChromeUIEnterpriseProfileWelcomeURL),
+      kSyncConfirmationDialogHeight, kSyncConfirmationDialogWidth);
+
+  EnterpriseProfileWelcomeUI* web_dialog_ui =
+      web_view->GetWebContents()
+          ->GetWebUI()
+          ->GetController()
+          ->GetAs<EnterpriseProfileWelcomeUI>();
+  DCHECK(web_dialog_ui);
+  web_dialog_ui->Initialize(
+      browser,
+      EnterpriseProfileWelcomeUI::ScreenType::kEnterpriseAccountCreation,
+      account_info, profile_color, std::move(callback));
+
+  return web_view;
+}
+#endif
 
 views::View* SigninViewControllerDelegateViews::GetContentsView() {
   return content_view_;
@@ -95,24 +123,24 @@ const views::Widget* SigninViewControllerDelegateViews::GetWidget() const {
   return content_view_->GetWidget();
 }
 
-void SigninViewControllerDelegateViews::DeleteDelegate() {
-  NotifyModalSigninClosed();
-  delete this;
-}
-
 bool SigninViewControllerDelegateViews::ShouldShowCloseButton() const {
   return should_show_close_button_;
 }
 
 void SigninViewControllerDelegateViews::CloseModalSignin() {
   NotifyModalSigninClosed();
-  if (modal_signin_widget_)
+  // Either `modal_signin_widget_` or `owned_content_view_` is nullptr.
+  if (modal_signin_widget_) {
+    DCHECK(!owned_content_view_);
     modal_signin_widget_->Close();
+  } else {
+    DCHECK(owned_content_view_);
+    delete this;
+  }
 }
 
 void SigninViewControllerDelegateViews::ResizeNativeView(int height) {
-  int max_height = browser()
-                       ->window()
+  int max_height = browser_->window()
                        ->GetWebContentsModalDialogHost()
                        ->GetMaximumDialogSize()
                        .height();
@@ -139,7 +167,7 @@ void SigninViewControllerDelegateViews::SetWebContents(
 }
 
 bool SigninViewControllerDelegateViews::HandleContextMenu(
-    content::RenderFrameHost* render_frame_host,
+    content::RenderFrameHost& render_frame_host,
     const content::ContextMenuParams& params) {
   // Discard the context menu
   return true;
@@ -172,7 +200,7 @@ void SigninViewControllerDelegateViews::AddNewContents(
 
 web_modal::WebContentsModalDialogHost*
 SigninViewControllerDelegateViews::GetWebContentsModalDialogHost() {
-  return browser()->window()->GetWebContentsModalDialogHost();
+  return browser_->window()->GetWebContentsModalDialogHost();
 }
 
 SigninViewControllerDelegateViews::SigninViewControllerDelegateViews(
@@ -181,15 +209,17 @@ SigninViewControllerDelegateViews::SigninViewControllerDelegateViews(
     ui::ModalType dialog_modal_type,
     bool wait_for_size,
     bool should_show_close_button)
-    : web_contents_(content_view->GetWebContents()),
+    : owned_content_view_(std::move(content_view)),
+      web_contents_(owned_content_view_->GetWebContents()),
       browser_(browser),
-      content_view_(content_view.release()),
-      modal_signin_widget_(nullptr),
+      content_view_(owned_content_view_.get()),
       should_show_close_button_(should_show_close_button) {
   DCHECK(web_contents_);
   DCHECK(browser_);
   DCHECK(browser_->tab_strip_model()->GetActiveWebContents())
       << "A tab must be active to present the sign-in modal dialog.";
+  DCHECK(owned_content_view_);
+  DCHECK(content_view_);
 
   SetButtons(ui::DIALOG_BUTTON_NONE);
 
@@ -199,6 +229,10 @@ SigninViewControllerDelegateViews::SigninViewControllerDelegateViews(
          dialog_modal_type == ui::MODAL_TYPE_WINDOW)
       << "Unsupported dialog modal type " << dialog_modal_type;
   SetModalType(dialog_modal_type);
+
+  RegisterDeleteDelegateCallback(base::BindOnce(
+      &SigninViewControllerDelegateViews::NotifyModalSigninClosed,
+      base::Unretained(this)));
 
   if (!wait_for_size)
     DisplayModal();
@@ -212,7 +246,7 @@ SigninViewControllerDelegateViews::CreateDialogWebView(
     Browser* browser,
     const GURL& url,
     int dialog_height,
-    base::Optional<int> opt_width) {
+    absl::optional<int> opt_width) {
   int dialog_width = opt_width.value_or(kModalDialogWidth);
   views::WebView* web_view = new views::WebView(browser->profile());
   web_view->LoadInitialURL(url);
@@ -236,15 +270,18 @@ SigninViewControllerDelegateViews::CreateDialogWebView(
 
 void SigninViewControllerDelegateViews::DisplayModal() {
   DCHECK(!modal_signin_widget_);
-
   content::WebContents* host_web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
+      browser_->tab_strip_model()->GetActiveWebContents();
 
   // Avoid displaying the sign-in modal view if there are no active web
   // contents. This happens if the user closes the browser window before this
   // dialog has a chance to be displayed.
   if (!host_web_contents)
     return;
+
+  // Ownership of this and the content view is transferred to the view
+  // hierarchy, through `modal_signin_widget_`.
+  owned_content_view_.release();
 
   gfx::NativeWindow window = host_web_contents->GetTopLevelNativeWindow();
   switch (GetModalType()) {
@@ -269,6 +306,7 @@ void SigninViewControllerDelegateViews::DisplayModal() {
       NOTREACHED() << "Unsupported dialog modal type " << GetModalType();
   }
 
+  DCHECK(modal_signin_widget_);
   content_view_->RequestFocus();
 }
 
@@ -306,3 +344,19 @@ SigninViewControllerDelegate::CreateReauthConfirmationDelegate(
           browser, access_point),
       browser, ui::MODAL_TYPE_CHILD, false, true);
 }
+
+#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS_LACROS)
+// static
+SigninViewControllerDelegate*
+SigninViewControllerDelegate::CreateEnterpriseConfirmationDelegate(
+    Browser* browser,
+    const AccountInfo& account_info,
+    SkColor profile_color,
+    base::OnceCallback<void(bool)> callback) {
+  return new SigninViewControllerDelegateViews(
+      SigninViewControllerDelegateViews::CreateEnterpriseConfirmationWebView(
+          browser, account_info, profile_color, std::move(callback)),
+      browser, ui::MODAL_TYPE_WINDOW, true, false);
+}
+#endif

@@ -10,7 +10,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/containers/flat_map.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -18,6 +17,7 @@
 #include "chrome/browser/media/router/discovery/dial/parsed_dial_app_info.h"
 #include "chrome/browser/media/router/discovery/dial/safe_dial_app_info_parser.h"
 #include "components/media_router/common/discovery/media_sink_internal.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace media_router {
@@ -38,7 +38,7 @@ struct DialAppInfoResult {
   DialAppInfoResult(std::unique_ptr<ParsedDialAppInfo> app_info,
                     DialAppInfoResultCode result_code,
                     const std::string& error_message = "",
-                    base::Optional<int> http_error_code = base::nullopt);
+                    absl::optional<int> http_error_code = absl::nullopt);
   DialAppInfoResult(DialAppInfoResult&& other);
   ~DialAppInfoResult();
 
@@ -50,7 +50,7 @@ struct DialAppInfoResult {
   // Optionally set to provide additional information for an error.
   std::string error_message;
   // Set when |result_code| is |kHttpError|.
-  base::Optional<int> http_error_code;
+  absl::optional<int> http_error_code;
 };
 
 // This class provides an API to fetch DIAL app info XML from an app URL and
@@ -70,6 +70,9 @@ class DialAppDiscoveryService {
                               DialAppInfoResult result)>;
 
   DialAppDiscoveryService();
+
+  DialAppDiscoveryService(const DialAppDiscoveryService&) = delete;
+  DialAppDiscoveryService& operator=(const DialAppDiscoveryService&) = delete;
 
   virtual ~DialAppDiscoveryService();
 
@@ -91,6 +94,10 @@ class DialAppDiscoveryService {
                    const std::string& app_name,
                    DialAppInfoCallback app_info_cb,
                    DialAppDiscoveryService* const service);
+
+    PendingRequest(const PendingRequest&) = delete;
+    PendingRequest& operator=(const PendingRequest&) = delete;
+
     ~PendingRequest();
 
     // Starts fetching the app info on |app_url_|.
@@ -105,7 +112,7 @@ class DialAppDiscoveryService {
 
     // Invoked when HTTP GET request fails.
     void OnDialAppInfoFetchError(const std::string& error_message,
-                                 base::Optional<int> http_response_code);
+                                 absl::optional<int> http_response_code);
 
     // Invoked when SafeDialAppInfoParser finishes parsing app info XML.
     // |app_info|: Parsed app info from utility process, or nullptr if parsing
@@ -126,7 +133,6 @@ class DialAppDiscoveryService {
 
     SEQUENCE_CHECKER(sequence_checker_);
     base::WeakPtrFactory<PendingRequest> weak_ptr_factory_{this};
-    DISALLOW_COPY_AND_ASSIGN(PendingRequest);
   };
 
   friend class PendingRequest;
@@ -144,7 +150,6 @@ class DialAppDiscoveryService {
   std::unique_ptr<SafeDialAppInfoParser> parser_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-  DISALLOW_COPY_AND_ASSIGN(DialAppDiscoveryService);
 };
 
 }  // namespace media_router

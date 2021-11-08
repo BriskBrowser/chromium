@@ -23,24 +23,27 @@ class PaymentMethodViewController : public PaymentRequestSheetController {
   PaymentMethodViewController(base::WeakPtr<PaymentRequestSpec> spec,
                               base::WeakPtr<PaymentRequestState> state,
                               base::WeakPtr<PaymentRequestDialogView> dialog);
+
+  PaymentMethodViewController(const PaymentMethodViewController&) = delete;
+  PaymentMethodViewController& operator=(const PaymentMethodViewController&) =
+      delete;
+
   ~PaymentMethodViewController() override;
 
  private:
   // PaymentRequestSheetController:
-  base::string16 GetSheetTitle() override;
+  std::u16string GetSheetTitle() override;
   void FillContentView(views::View* content_view) override;
   bool ShouldShowPrimaryButton() override;
   bool ShouldShowSecondaryButton() override;
-  base::string16 GetSecondaryButtonLabel() override;
-  views::Button::PressedCallback GetSecondaryButtonCallback() override;
+  std::u16string GetSecondaryButtonLabel() override;
+  ButtonCallback GetSecondaryButtonCallback() override;
   int GetSecondaryButtonId() override;
 
   PaymentRequestItemList payment_method_list_;
 
   // Whether or not adding a new card is allowed.
   bool enable_add_card_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentMethodViewController);
 };
 
 }  // namespace payments

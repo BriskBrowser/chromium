@@ -8,12 +8,13 @@
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/metrics/enrollment_status.h"
 #include "chromeos/crosapi/mojom/crosapi.mojom.h"
-#include "chromeos/lacros/lacros_chrome_service_impl.h"
+#include "chromeos/lacros/lacros_service.h"
+#include "third_party/metrics_proto/chrome_user_metrics_extension.pb.h"
 
 namespace {
 
 EnrollmentStatus GetEnrollmentStatus() {
-  auto* service = chromeos::LacrosChromeServiceImpl::Get();
+  auto* service = chromeos::LacrosService::Get();
   switch (service->init_params()->device_mode) {
     case crosapi::mojom::DeviceMode::kUnknown:
       return EnrollmentStatus::kErrorGettingStatus;
@@ -46,5 +47,6 @@ void LacrosMetricsProvider::ProvideStabilityMetrics(
 
 void LacrosMetricsProvider::ProvideCurrentSessionData(
     metrics::ChromeUserMetricsExtension* uma_proto) {
+  ProvideStabilityMetrics(uma_proto->mutable_system_profile());
   base::UmaHistogramBoolean("ChromeOS.IsLacrosBrowser", true);
 }

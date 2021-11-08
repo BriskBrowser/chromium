@@ -5,12 +5,12 @@
 // clang-format off
 // #import 'chrome://os-settings/chromeos/os_settings.js';
 
-// #import {TestBrowserProxy} from '../../test_browser_proxy.m.js';
-// #import {Router, routes, AccountManagerBrowserProxyImpl} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {TestBrowserProxy} from '../../test_browser_proxy.js';
+// #import {Router, routes, AccountManagerBrowserProxyImpl, ParentalControlsBrowserProxyImpl} from 'chrome://os-settings/chromeos/os_settings.js';
 // #import {assertEquals, assertFalse, assertNotEquals, assertTrue} from '../../chai_assert.js';
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 // #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
-// #import {waitAfterNextRender} from 'chrome://test/test_util.m.js';
+// #import {waitAfterNextRender} from 'chrome://test/test_util.js';
 // clang-format on
 
 cr.define('settings_people_page_account_manager', function() {
@@ -130,6 +130,26 @@ cr.define('settings_people_page_account_manager', function() {
     }
   }
 
+  /** @implements {parental_controls.ParentalControlsBrowserProxy} */
+  class TestParentalControlsBrowserProxy extends TestBrowserProxy {
+    constructor() {
+      super([
+        'showAddSupervisionDialog',
+        'launchFamilyLinkSettings',
+      ]);
+    }
+
+    /** @override */
+    launchFamilyLinkSettings() {
+      this.methodCalled('launchFamilyLinkSettings');
+    }
+
+    /** @override */
+    showAddSupervisionDialog() {
+      this.methodCalled('showAddSupervisionDialog');
+    }
+  }
+
   suite('AccountManagerTests', function() {
     let browserProxy = null;
     let accountManager = null;
@@ -141,7 +161,7 @@ cr.define('settings_people_page_account_manager', function() {
 
     setup(function() {
       browserProxy = new TestAccountManagerBrowserProxy();
-      settings.AccountManagerBrowserProxyImpl.instance_ = browserProxy;
+      settings.AccountManagerBrowserProxyImpl.setInstance(browserProxy);
       PolymerTest.clearBody();
 
       accountManager = document.createElement('settings-account-manager');
@@ -150,6 +170,7 @@ cr.define('settings_people_page_account_manager', function() {
       assertTrue(!!accountList);
 
       settings.Router.getInstance().navigateTo(settings.routes.ACCOUNT_MANAGER);
+      Polymer.dom.flush();
     });
 
     teardown(function() {
@@ -160,19 +181,15 @@ cr.define('settings_people_page_account_manager', function() {
     test('AccountListIsPopulatedAtStartup', async function() {
       await browserProxy.whenCalled('getAccounts');
       Polymer.dom.flush();
-      if (accountManager.isAccountManagementFlowsV2Enabled_) {
         // 1 device account + 3 secondary accounts were added in
         // |getAccounts()| mock above.
         assertEquals(3, accountList.items.length);
-      } else {
-        // 4 accounts were added in |getAccounts()| mock above.
-        assertEquals(4, accountList.items.length);
-      }
     });
 
     test('AddAccount', function() {
       assertFalse(accountManager.$$('#add-account-button').disabled);
-      assertTrue(accountManager.$$('#settings-box-user-message').hidden);
+        assertTrue(
+            accountManager.$$('.secondary-accounts-disabled-tooltip') === null);
       accountManager.$$('#add-account-button').click();
       assertEquals(1, browserProxy.getCallCount('addAccount'));
     });
@@ -216,10 +233,13 @@ cr.define('settings_people_page_account_manager', function() {
 
       const account = await browserProxy.whenCalled('removeAccount');
       assertEquals('456', account.id);
+      // Add account button should be in focus now.
+      assertEquals(
+          accountManager.$$('#add-account-button'),
+          accountManager.root.activeElement);
     });
 
     test('Deep link to remove account button', async () => {
-      loadTimeData.overrideValues({isDeepLinkingEnabled: true});
       await browserProxy.whenCalled('getAccounts');
       Polymer.dom.flush();
 
@@ -253,17 +273,10 @@ cr.define('settings_people_page_account_manager', function() {
       await browserProxy.whenCalled('getAccounts');
       Polymer.dom.flush();
 
-      if (accountManager.isAccountManagementFlowsV2Enabled_) {
         const managedBadge = accountManager.root.querySelector(
             '.device-account-icon .managed-badge');
         // Managed badge should be shown for managed accounts.
         assertFalse(managedBadge.hidden);
-      } else {
-        const managementLabel =
-            accountManager.root.querySelectorAll('.management-status')[0]
-                .innerHTML.trim();
-        assertEquals('Managed by Family Link', managementLabel);
-      }
     });
   });
 
@@ -278,7 +291,7 @@ cr.define('settings_people_page_account_manager', function() {
 
     setup(function() {
       browserProxy = new TestAccountManagerBrowserProxyForUnmanagedAccounts();
-      settings.AccountManagerBrowserProxyImpl.instance_ = browserProxy;
+      settings.AccountManagerBrowserProxyImpl.setInstance(browserProxy);
       PolymerTest.clearBody();
 
       accountManager = document.createElement('settings-account-manager');
@@ -297,17 +310,10 @@ cr.define('settings_people_page_account_manager', function() {
       await browserProxy.whenCalled('getAccounts');
       Polymer.dom.flush();
 
-      if (accountManager.isAccountManagementFlowsV2Enabled_) {
         const managedBadge = accountManager.root.querySelector(
             '.device-account-icon .managed-badge');
         // Managed badge should not be shown for unmanaged accounts.
         assertEquals(null, managedBadge);
-      } else {
-        const managementLabel =
-            accountManager.root.querySelectorAll('.management-status')[0]
-                .innerHTML.trim();
-        assertEquals('Primary account', managementLabel);
-      }
     });
   });
 
@@ -323,7 +329,7 @@ cr.define('settings_people_page_account_manager', function() {
 
     setup(function() {
       browserProxy = new TestAccountManagerBrowserProxy();
-      settings.AccountManagerBrowserProxyImpl.instance_ = browserProxy;
+      settings.AccountManagerBrowserProxyImpl.setInstance(browserProxy);
       PolymerTest.clearBody();
 
       accountManager = document.createElement('settings-account-manager');
@@ -332,6 +338,7 @@ cr.define('settings_people_page_account_manager', function() {
       assertTrue(!!accountList);
 
       settings.Router.getInstance().navigateTo(settings.routes.ACCOUNT_MANAGER);
+      Polymer.dom.flush();
     });
 
     teardown(function() {
@@ -340,13 +347,16 @@ cr.define('settings_people_page_account_manager', function() {
 
     test('AddAccountCanBeDisabledByPolicy', function() {
       assertTrue(accountManager.$$('#add-account-button').disabled);
-      assertFalse(accountManager.$$('#settings-box-user-message').hidden);
+        assertFalse(
+            accountManager.$$('.secondary-accounts-disabled-tooltip') === null);
     });
 
     test('UserMessageSetForAccountType', function() {
-      assertEquals(
-          loadTimeData.getString('accountManagerSecondaryAccountsDisabledText'),
-          accountManager.$$('#user-message-text').textContent.trim());
+        assertEquals(
+            loadTimeData.getString(
+                'accountManagerSecondaryAccountsDisabledText'),
+            accountManager.$$('.secondary-accounts-disabled-tooltip')
+                .tooltipText);
     });
   });
 
@@ -362,7 +372,7 @@ cr.define('settings_people_page_account_manager', function() {
 
     setup(function() {
       browserProxy = new TestAccountManagerBrowserProxy();
-      settings.AccountManagerBrowserProxyImpl.instance_ = browserProxy;
+      settings.AccountManagerBrowserProxyImpl.setInstance(browserProxy);
       PolymerTest.clearBody();
 
       accountManager = document.createElement('settings-account-manager');
@@ -371,6 +381,7 @@ cr.define('settings_people_page_account_manager', function() {
       assertTrue(!!accountList);
 
       settings.Router.getInstance().navigateTo(settings.routes.ACCOUNT_MANAGER);
+      Polymer.dom.flush();
     });
 
     teardown(function() {
@@ -378,10 +389,50 @@ cr.define('settings_people_page_account_manager', function() {
     });
 
     test('UserMessageSetForAccountType', function() {
+        assertEquals(
+            loadTimeData.getString(
+                'accountManagerSecondaryAccountsDisabledChildText'),
+            accountManager.$$('.secondary-accounts-disabled-tooltip')
+                .tooltipText);
+    });
+  });
+
+  suite('AccountManagerAccountChildAccountTests', function() {
+    let parentalControlsBrowserProxy = null;
+    let accountManager = null;
+
+    suiteSetup(function() {
+      loadTimeData.overrideValues(
+          {isChild: true, isDeviceAccountManaged: true});
+    });
+
+    setup(function() {
+      parentalControlsBrowserProxy = new TestParentalControlsBrowserProxy();
+      parental_controls.ParentalControlsBrowserProxyImpl.instance_ =
+          parentalControlsBrowserProxy;
+      PolymerTest.clearBody();
+
+      accountManager = document.createElement('settings-account-manager');
+      document.body.appendChild(accountManager);
+
+      settings.Router.getInstance().navigateTo(settings.routes.ACCOUNT_MANAGER);
+      Polymer.dom.flush();
+    });
+
+    teardown(function() {
+      accountManager.remove();
+    });
+
+    test('FamilyLinkIcon', function() {
+      const icon = accountManager.$$('.managed-message cr-icon-button');
+      assertTrue(!!icon, 'Could not find the managed icon');
+
+      assertEquals('cr20:kite', icon.ironIcon);
+
+      icon.click();
       assertEquals(
-          loadTimeData.getString(
-              'accountManagerSecondaryAccountsDisabledChildText'),
-          accountManager.$$('#user-message-text').textContent.trim());
+          parentalControlsBrowserProxy.getCallCount('launchFamilyLinkSettings'),
+          1);
     });
   });
 

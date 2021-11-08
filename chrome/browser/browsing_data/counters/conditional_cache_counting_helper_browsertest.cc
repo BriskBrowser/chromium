@@ -53,7 +53,7 @@ class ConditionalCacheCountingHelperBrowserTest : public InProcessBrowserTest {
 
   void WaitForTasksOnIOThread() {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
   }
 
@@ -61,9 +61,8 @@ class ConditionalCacheCountingHelperBrowserTest : public InProcessBrowserTest {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     last_size_ = -1;
     ConditionalCacheCountingHelper::Count(
-        content::BrowserContext::GetDefaultStoragePartition(
-            browser()->profile()),
-        begin_time, end_time,
+        browser()->profile()->GetDefaultStoragePartition(), begin_time,
+        end_time,
         base::BindOnce(
             &ConditionalCacheCountingHelperBrowserTest::CountCallback,
             base::Unretained(this)));
@@ -101,8 +100,9 @@ class ConditionalCacheCountingHelperBrowserTest : public InProcessBrowserTest {
           network::SimpleURLLoader::Create(std::move(request),
                                            TRAFFIC_ANNOTATION_FOR_TESTS);
       simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-          content::BrowserContext::GetDefaultStoragePartition(
-              browser()->profile())
+          browser()
+              ->profile()
+              ->GetDefaultStoragePartition()
               ->GetURLLoaderFactoryForBrowserProcess()
               .get(),
           simple_loader_helper.GetCallback());
@@ -126,14 +126,14 @@ IN_PROC_BROWSER_TEST_F(ConditionalCacheCountingHelperBrowserTest, Count) {
   base::Time t1 = base::Time::Now();
   CreateCacheEntries(keys1);
 
-  base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(kTimeoutMs));
+  base::PlatformThread::Sleep(base::Milliseconds(kTimeoutMs));
   base::Time t2 = base::Time::Now();
-  base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(kTimeoutMs));
+  base::PlatformThread::Sleep(base::Milliseconds(kTimeoutMs));
 
   std::set<std::string> keys2 = {"6", "7"};
   CreateCacheEntries(keys2);
 
-  base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(kTimeoutMs));
+  base::PlatformThread::Sleep(base::Milliseconds(kTimeoutMs));
   base::Time t3 = base::Time::Now();
 
   // Count all entries.

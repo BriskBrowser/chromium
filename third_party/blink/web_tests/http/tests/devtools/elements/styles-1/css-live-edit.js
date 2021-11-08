@@ -4,8 +4,8 @@
 
 (async function() {
   TestRunner.addResult(`Tests that styles are updated when live-editing css resource.\n`);
-  await TestRunner.loadModule('elements_test_runner');
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.showPanel('sources');
   await TestRunner.loadHTML(`
       <div id="foo"></div>
@@ -16,7 +16,7 @@
     SourcesTestRunner.showScriptSource('css-live-edit.css', didShowResource);
 
     function didShowResource(sourceFrame) {
-      TestRunner.addSniffer(SDK.CSSModel.prototype, '_fireStyleSheetChanged', didEditResource);
+      TestRunner.addSniffer(SDK.CSSModel.prototype, 'fireStyleSheetChanged', didEditResource);
       SourcesTestRunner.replaceInSource(sourceFrame, 'font-size: 12px;', 'font-size: 20px;');
     }
 

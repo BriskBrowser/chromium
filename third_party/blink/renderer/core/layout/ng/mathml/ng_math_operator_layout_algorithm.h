@@ -20,8 +20,8 @@ class CORE_EXPORT NGMathOperatorLayoutAlgorithm
   explicit NGMathOperatorLayoutAlgorithm(const NGLayoutAlgorithmParams& params);
 
  private:
-  const NGLayoutResult* Layout() final;
-  MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesInput&) const final;
+  scoped_refptr<const NGLayoutResult> Layout() final;
+  MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesFloatInput&) final;
   UChar32 GetBaseCodePoint() const;
 };
 

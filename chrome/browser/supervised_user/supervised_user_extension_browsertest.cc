@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
-#include "chrome/browser/chromeos/login/test/logged_in_user_mixin.h"
+#include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
@@ -109,10 +109,10 @@ class SupervisedUserExtensionTest : public ExtensionBrowserTest {
 
   // We want to log in as child user for all of the PRE tests, and regular user
   // otherwise.
-  chromeos::LoggedInUserMixin logged_in_user_mixin_{
+  ash::LoggedInUserMixin logged_in_user_mixin_{
       &mixin_host_,
-      content::IsPreTest() ? chromeos::LoggedInUserMixin::LogInType::kChild
-                           : chromeos::LoggedInUserMixin::LogInType::kRegular,
+      content::IsPreTest() ? ash::LoggedInUserMixin::LogInType::kChild
+                           : ash::LoggedInUserMixin::LogInType::kRegular,
       embedded_test_server(), this};
 };
 

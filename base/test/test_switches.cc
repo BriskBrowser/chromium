@@ -54,6 +54,11 @@ const char switches::kTestLauncherListTests[] = "test-launcher-list-tests";
 // Path to test results file in our custom test launcher format.
 const char switches::kTestLauncherOutput[] = "test-launcher-output";
 
+// Maximum output bytes allowed from a single test. Exceeding this limit
+// results in truncating the output and failing the test.
+const char switches::kTestLauncherOutputBytesLimit[] =
+    "test-launcher-output-bytes-limit";
+
 // Causes the test launcher to print information about leaked files and/or
 // directories in child process's temporary directories.
 const char switches::kTestLauncherPrintTempLeaks[] =
@@ -63,6 +68,17 @@ const char switches::kTestLauncherPrintTempLeaks[] =
 // standard output.
 const char switches::kTestLauncherPrintTestStdio[] =
     "test-launcher-print-test-stdio";
+
+// Print timestamps in test launcher. This is helpful for debugging test
+// slowness. Currently it prints out the following log:
+//   * The time at the end of each test.
+//   * The time while waiting for a test to run.
+// Using this flag helps you answer questions like "how long did it take
+// to run the first 10000 tests".
+// Please only keep this flag on builders temporarily because those logs
+// are a bit spammy.
+const char switches::kTestLauncherPrintTimestamps[] =
+    "test-launcher-print-timestamps";
 
 // Print a writable path and exit (for internal use).
 const char switches::kTestLauncherPrintWritablePath[] =

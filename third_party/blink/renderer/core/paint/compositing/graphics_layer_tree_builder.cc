@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/paint/compositing/paint_layer_compositor.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_paint_order_iterator.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/clear_collection_scope.h"
 
 namespace blink {
 
@@ -51,6 +52,7 @@ static bool ShouldAppendLayer(const PaintLayer& layer) {
 void GraphicsLayerTreeBuilder::Rebuild(PaintLayer& layer,
                                        GraphicsLayerVector& child_layers) {
   PendingOverflowControlReparents ignored;
+  ClearCollectionScope<PendingOverflowControlReparents> scope(&ignored);
   RebuildRecursive(layer, child_layers, ignored);
 }
 
@@ -77,6 +79,9 @@ void GraphicsLayerTreeBuilder::RebuildRecursive(
       has_composited_layer_mapping ? &this_layer_children : &child_layers;
 
   PendingOverflowControlReparents this_pending_reparents_children;
+  ClearCollectionScope<PendingOverflowControlReparents> scope(
+      &this_pending_reparents_children);
+
   PendingOverflowControlReparents* pending_reparents_for_children =
       has_composited_layer_mapping ? &this_pending_reparents_children
                                    : &pending_reparents;
@@ -122,31 +127,24 @@ void GraphicsLayerTreeBuilder::RebuildRecursive(
       RebuildRecursive(*child_layer, *layer_vector_for_children,
                        *pending_reparents_for_children);
     }
-  }
 
-  if (auto* embedded =
-          DynamicTo<LayoutEmbeddedContent>(layer.GetLayoutObject())) {
-    DCHECK(this_layer_children.IsEmpty());
-    PaintLayerCompositor* inner_compositor =
-        PaintLayerCompositor::FrameContentsCompositor(*embedded);
-    if (inner_compositor) {
-      // Disabler required because inner frame might be throttled.
-      DisableCompositingQueryAsserts disabler;
-      if (GraphicsLayer* inner_root_graphics_layer =
-              inner_compositor->RootGraphicsLayer()) {
-        // If inner_root_graphics_layer is non-null, then either the inner frame
-        // is up-to-date and in compositing mode; or the inner frame is
-        // throttled and we're using its pre-existing root graphics layer.
-        DCHECK(inner_compositor->RootLayer()
-                   ->GetLayoutObject()
-                   .GetFrameView()
-                   ->ShouldThrottleRendering() ||
-               inner_compositor->InCompositingMode());
-        layer_vector_for_children->push_back(inner_root_graphics_layer);
-        CHECK(layer.Compositor()->RootLayer()->GetCompositingReasons() &
-              CompositingReason::kRoot);
+    if (auto* embedded =
+            DynamicTo<LayoutEmbeddedContent>(layer.GetLayoutObject())) {
+      DCHECK(this_layer_children.IsEmpty());
+      PaintLayerCompositor* inner_compositor =
+          PaintLayerCompositor::FrameContentsCompositor(*embedded);
+      if (inner_compositor) {
+        // Disabler required because inner frame might be throttled.
+        DisableCompositingQueryAsserts disabler;
+        if (GraphicsLayer* inner_root_graphics_layer =
+                inner_compositor->RootGraphicsLayer()) {
+          // TODO(szager); Remove this after diagnosing crash
+          CHECK_EQ(inner_compositor->InCompositingMode(),
+                   (bool)inner_root_graphics_layer);
+          layer_vector_for_children->push_back(inner_root_graphics_layer);
+        }
+        inner_compositor->ClearRootLayerAttachmentDirty();
       }
-      inner_compositor->ClearRootLayerAttachmentDirty();
     }
   }
 

@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/trees/layer_tree_frame_sink.h"
 #include "cc/trees/layer_tree_frame_sink_client.h"
@@ -25,6 +26,7 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/compositor/compositor.h"
 #include "ui/compositor/paint_context.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -65,6 +67,12 @@ class ViewTreeHostRootView::LayerTreeViewTreeFrameSinkHolder
       : view_(view), frame_sink_(std::move(frame_sink)) {
     frame_sink_->BindToClient(this);
   }
+
+  LayerTreeViewTreeFrameSinkHolder(const LayerTreeViewTreeFrameSinkHolder&) =
+      delete;
+  LayerTreeViewTreeFrameSinkHolder& operator=(
+      const LayerTreeViewTreeFrameSinkHolder&) = delete;
+
   ~LayerTreeViewTreeFrameSinkHolder() override {
     if (frame_sink_)
       frame_sink_->DetachFromClient();
@@ -143,11 +151,10 @@ class ViewTreeHostRootView::LayerTreeViewTreeFrameSinkHolder
 
   // Overridden from cc::LayerTreeFrameSinkClient:
   void SetBeginFrameSource(viz::BeginFrameSource* source) override {}
-  base::Optional<viz::HitTestRegionList> BuildHitTestData() override {
+  absl::optional<viz::HitTestRegionList> BuildHitTestData() override {
     return {};
   }
-  void ReclaimResources(
-      const std::vector<viz::ReturnedResource>& resources) override {
+  void ReclaimResources(std::vector<viz::ReturnedResource> resources) override {
     if (delete_pending_)
       return;
     for (auto& entry : resources) {
@@ -215,8 +222,6 @@ class ViewTreeHostRootView::LayerTreeViewTreeFrameSinkHolder
   float last_frame_device_scale_factor_ = 1.0f;
   aura::Window* root_window_ = nullptr;
   bool delete_pending_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(LayerTreeViewTreeFrameSinkHolder);
 };
 
 ViewTreeHostRootView::ViewTreeHostRootView(views::Widget* widget)
@@ -280,7 +285,8 @@ ViewTreeHostRootView::ObtainResource() {
       buffer_size_,
       SK_B32_SHIFT ? gfx::BufferFormat::RGBA_8888
                    : gfx::BufferFormat::BGRA_8888,
-      gfx::BufferUsage::SCANOUT_CPU_READ_WRITE, gpu::kNullSurfaceHandle);
+      gfx::BufferUsage::SCANOUT_CPU_READ_WRITE, gpu::kNullSurfaceHandle,
+      nullptr);
   if (!resource->gpu_memory_buffer) {
     LOG(ERROR) << "Failed to create GPU memory buffer";
     return nullptr;
@@ -298,8 +304,10 @@ ViewTreeHostRootView::ObtainResource() {
 }
 
 ViewTreeHostRootView::~ViewTreeHostRootView() {
-  LayerTreeViewTreeFrameSinkHolder::DeleteWhenLastResourceHasBeenReclaimed(
-      std::move(frame_sink_holder_));
+  if (frame_sink_holder_) {
+    LayerTreeViewTreeFrameSinkHolder::DeleteWhenLastResourceHasBeenReclaimed(
+        std::move(frame_sink_holder_));
+  }
 }
 
 void ViewTreeHostRootView::Paint() {
@@ -437,7 +445,7 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
   }
 
   viz::TransferableResource transferable_resource;
-  transferable_resource.id = next_resource_id_++;
+  transferable_resource.id = id_generator_.GenerateNextId();
   transferable_resource.format = viz::RGBA_8888;
   transferable_resource.filter = GL_LINEAR;
   transferable_resource.size = buffer_size_;
@@ -456,14 +464,14 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
 
   viz::SharedQuadState* quad_state =
       render_pass->CreateAndAppendSharedQuadState();
-  quad_state->SetAll(
-      buffer_to_target_transform,
-      /*quad_layer_rect=*/output_rect,
-      /*visible_quad_layer_rect=*/output_rect,
-      /*mask_filter_info=*/gfx::MaskFilterInfo(),
-      /*clip_rect=*/gfx::Rect(),
-      /*is_clipped=*/false, /*are_contents_opaque=*/false, /*opacity=*/1.f,
-      /*blend_mode=*/SkBlendMode::kSrcOver, /*sorting_context_id=*/0);
+  quad_state->SetAll(buffer_to_target_transform,
+                     /*quad_layer_rect=*/output_rect,
+                     /*visible_layer_rect=*/output_rect,
+                     /*mask_filter_info=*/gfx::MaskFilterInfo(),
+                     /*clip_rect=*/absl::nullopt, /*are_contents_opaque=*/false,
+                     /*opacity=*/1.f,
+                     /*blend_mode=*/SkBlendMode::kSrcOver,
+                     /*sorting_context_id=*/0);
 
   viz::CompositorFrame frame;
   // TODO(eseckler): ViewTreeHostRootView should use BeginFrames and set

@@ -62,7 +62,7 @@ class InstanceUpdate {
 
   const std::string& AppId() const;
 
-  aura::Window* Window() const;
+  const Instance::InstanceKey& InstanceKey() const;
 
   const std::string& LaunchId() const;
   bool LaunchIdChanged() const;
@@ -75,6 +75,9 @@ class InstanceUpdate {
 
   content::BrowserContext* BrowserContext() const;
   bool BrowserContextChanged() const;
+
+  aura::Window* Window() const;
+  bool WindowChanged() const;
 
  private:
   Instance* state_;

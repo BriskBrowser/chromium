@@ -20,6 +20,10 @@ namespace plugins {
 // (blocked or disabled).
 class LoadablePluginPlaceholder : public PluginPlaceholderBase {
  public:
+  LoadablePluginPlaceholder(const LoadablePluginPlaceholder&) = delete;
+  LoadablePluginPlaceholder& operator=(const LoadablePluginPlaceholder&) =
+      delete;
+
   void set_blocked_for_prerendering(bool blocked_for_prerendering) {
     is_blocked_for_prerendering_ = blocked_for_prerendering;
   }
@@ -37,7 +41,7 @@ class LoadablePluginPlaceholder : public PluginPlaceholderBase {
 
   void OnSetIsPrerendering(bool is_prerendering);
 
-  void SetMessage(const base::string16& message);
+  void SetMessage(const std::u16string& message);
   void SetPluginInfo(const content::WebPluginInfo& plugin_info);
   const content::WebPluginInfo& GetPluginInfo() const;
   void SetIdentifier(const std::string& identifier);
@@ -73,7 +77,7 @@ class LoadablePluginPlaceholder : public PluginPlaceholderBase {
 
   content::WebPluginInfo plugin_info_;
 
-  base::string16 message_;
+  std::u16string message_;
 
   // True if the plugin was blocked because the page was being prerendered.
   // Plugin may be automatically be loaded when the page is displayed.
@@ -85,8 +89,6 @@ class LoadablePluginPlaceholder : public PluginPlaceholderBase {
   std::string identifier_;
 
   base::WeakPtrFactory<LoadablePluginPlaceholder> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(LoadablePluginPlaceholder);
 };
 
 }  // namespace plugins

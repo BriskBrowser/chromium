@@ -11,7 +11,6 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
-#include "base/time/time.h"
 #include "base/timer/elapsed_timer.h"
 #include "chrome/browser/ui/global_error/global_error_observer.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
@@ -21,7 +20,6 @@
 
 class BookmarkMenuDelegate;
 class Browser;
-class ExtensionToolbarMenuView;
 
 namespace views {
 class MenuButtonController;
@@ -58,8 +56,9 @@ class AppMenu : public views::MenuDelegate,
   views::MenuItemView* root_menu_item() { return root_; }
 
   // MenuDelegate overrides:
-  void GetLabelStyle(int command_id, LabelStyle* style) const override;
-  base::string16 GetTooltipText(int command_id,
+  const gfx::FontList* GetLabelFontList(int command_id) const override;
+  absl::optional<SkColor> GetLabelColor(int command_id) const override;
+  std::u16string GetTooltipText(int command_id,
                                 const gfx::Point& p) const override;
   bool IsTriggerableEvent(views::MenuItemView* menu,
                           const ui::Event& e) override;
@@ -73,6 +72,10 @@ class AppMenu : public views::MenuDelegate,
                                             const ui::DropTargetEvent& event,
                                             DropPosition* position) override;
   ui::mojom::DragOperation OnPerformDrop(
+      views::MenuItemView* menu,
+      DropPosition position,
+      const ui::DropTargetEvent& event) override;
+  views::View::DropCallback GetDropCallback(
       views::MenuItemView* menu,
       DropPosition position,
       const ui::DropTargetEvent& event) override;
@@ -102,10 +105,6 @@ class AppMenu : public views::MenuDelegate,
 
   // GlobalErrorObserver:
   void OnGlobalErrorsChanged() override;
-
-  ExtensionToolbarMenuView* extension_toolbar_for_testing() {
-    return extension_toolbar_;
-  }
 
  private:
   class CutCopyPasteView;
@@ -175,10 +174,6 @@ class AppMenu : public views::MenuDelegate,
 
   // Menu corresponding to IDC_TAKE_SCREENSHOT.
   views::MenuItemView* screenshot_menu_item_ = nullptr;
-
-  // The view within the IDC_EXTENSIONS_OVERFLOW_MENU item (only present with
-  // the toolbar action redesign enabled).
-  ExtensionToolbarMenuView* extension_toolbar_ = nullptr;
 
   // Used for managing "Recent tabs" menu items.
   std::unique_ptr<RecentTabsMenuModelDelegate> recent_tabs_menu_model_delegate_;

@@ -4,17 +4,19 @@
 
 #include "chrome/test/base/interactive_test_utils.h"
 
+#include <windows.h>
+
 #include <Psapi.h>
 
 #include <memory>
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/process/process_handle.h"
-#include "base/stl_util.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
@@ -71,14 +73,14 @@ bool ShowAndFocusNativeWindow(gfx::NativeWindow window) {
     wchar_t window_title[256];
     GetWindowText(foreground_window, window_title, base::size(window_title));
 
-    base::string16 lineage_str;
-    base::string16 window_contents;
+    std::wstring lineage_str;
+    std::wstring window_contents;
     DWORD foreground_process_id = 0;
     if (foreground_window) {
       GetWindowThreadProcessId(foreground_window, &foreground_process_id);
       ProcessLineage lineage = ProcessLineage::Create(foreground_process_id);
       if (!lineage.IsEmpty()) {
-        lineage_str = STRING16_LITERAL(", process lineage: ");
+        lineage_str = L", process lineage: ";
         lineage_str.append(lineage.ToString());
       }
 

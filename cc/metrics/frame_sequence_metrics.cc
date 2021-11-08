@@ -19,6 +19,36 @@
 
 namespace cc {
 
+bool ShouldReportForAnimation(FrameSequenceTrackerType sequence_type,
+                              FrameSequenceMetrics::ThreadType thread_type) {
+  if (sequence_type == FrameSequenceTrackerType::kCompositorAnimation)
+    return thread_type == FrameSequenceMetrics::ThreadType::kCompositor;
+
+  if (sequence_type == FrameSequenceTrackerType::kMainThreadAnimation ||
+      sequence_type == FrameSequenceTrackerType::kJSAnimation)
+    return thread_type == FrameSequenceMetrics::ThreadType::kMain;
+
+  return false;
+}
+
+bool ShouldReportForInteraction(
+    FrameSequenceTrackerType sequence_type,
+    FrameSequenceMetrics::ThreadType reporting_thread_type,
+    FrameSequenceMetrics::ThreadType metrics_effective_thread_type) {
+  // For scrollbar/touch/wheel scroll, the slower thread is the one we want to
+  // report. For pinch-zoom, it's the compositor-thread.
+  if (sequence_type == FrameSequenceTrackerType::kScrollbarScroll ||
+      sequence_type == FrameSequenceTrackerType::kTouchScroll ||
+      sequence_type == FrameSequenceTrackerType::kWheelScroll)
+    return reporting_thread_type == metrics_effective_thread_type;
+
+  if (sequence_type == FrameSequenceTrackerType::kPinchZoom)
+    return reporting_thread_type ==
+           FrameSequenceMetrics::ThreadType::kCompositor;
+
+  return false;
+}
+
 namespace {
 
 // Avoid reporting any throughput metric for sequences that do not have a
@@ -56,41 +86,6 @@ std::string GetMissedDeadlineHistogramName(FrameSequenceTrackerType type,
   return base::StrCat(
       {"Graphics.Smoothness.PercentMissedDeadlineFrames.", thread_name, ".",
        FrameSequenceTracker::GetFrameSequenceTrackerTypeName(type)});
-}
-
-std::string GetFrameSequenceLengthHistogramName(FrameSequenceTrackerType type) {
-  return base::StrCat(
-      {"Graphics.Smoothness.FrameSequenceLength.",
-       FrameSequenceTracker::GetFrameSequenceTrackerTypeName(type)});
-}
-
-bool ShouldReportForAnimation(FrameSequenceTrackerType sequence_type,
-                              FrameSequenceMetrics::ThreadType thread_type) {
-  if (sequence_type == FrameSequenceTrackerType::kCompositorAnimation)
-    return thread_type == FrameSequenceMetrics::ThreadType::kCompositor;
-
-  if (sequence_type == FrameSequenceTrackerType::kMainThreadAnimation ||
-      sequence_type == FrameSequenceTrackerType::kRAF)
-    return thread_type == FrameSequenceMetrics::ThreadType::kMain;
-
-  return false;
-}
-
-bool ShouldReportForInteraction(FrameSequenceMetrics* metrics,
-                                FrameSequenceMetrics::ThreadType thread_type) {
-  const auto sequence_type = metrics->type();
-
-  // For scrollbar/touch/wheel scroll, the slower thread is the one we want to
-  // report. For pinch-zoom, it's the compositor-thread.
-  if (sequence_type == FrameSequenceTrackerType::kScrollbarScroll ||
-      sequence_type == FrameSequenceTrackerType::kTouchScroll ||
-      sequence_type == FrameSequenceTrackerType::kWheelScroll)
-    return thread_type == metrics->GetEffectiveThread();
-
-  if (sequence_type == FrameSequenceTrackerType::kPinchZoom)
-    return thread_type == FrameSequenceMetrics::ThreadType::kCompositor;
-
-  return false;
 }
 
 bool IsInteractionType(FrameSequenceTrackerType sequence_type) {
@@ -238,10 +233,10 @@ void FrameSequenceMetrics::ReportMetrics() {
   const bool compositor_report = ThroughputData::CanReportHistogram(
       this, ThreadType::kCompositor, impl_throughput_);
 
-  base::Optional<int> impl_throughput_percent_dropped;
-  base::Optional<int> impl_throughput_percent_missed;
-  base::Optional<int> main_throughput_percent_dropped;
-  base::Optional<int> main_throughput_percent_missed;
+  absl::optional<int> impl_throughput_percent_dropped;
+  absl::optional<int> impl_throughput_percent_missed;
+  absl::optional<int> main_throughput_percent_dropped;
+  absl::optional<int> main_throughput_percent_missed;
 
   // Report the throughput metrics.
   if (compositor_report) {
@@ -258,8 +253,7 @@ void FrameSequenceMetrics::ReportMetrics() {
                               type_),
             impl_throughput_);
   }
-  if (main_report || type_ == FrameSequenceTrackerType::kCanvasAnimation ||
-      type_ == FrameSequenceTrackerType::kJSAnimation) {
+  if (main_report) {
     main_throughput_percent_dropped =
         ThroughputData::ReportDroppedFramePercentHistogram(
             this, ThreadType::kMain,
@@ -274,8 +268,8 @@ void FrameSequenceMetrics::ReportMetrics() {
 
   // Report for the 'scrolling thread' for the scrolling interactions.
   if (scrolling_thread_ != ThreadType::kUnknown) {
-    base::Optional<int> scrolling_thread_throughput_dropped;
-    base::Optional<int> scrolling_thread_throughput_missed;
+    absl::optional<int> scrolling_thread_throughput_dropped;
+    absl::optional<int> scrolling_thread_throughput_missed;
     switch (scrolling_thread_) {
       case ThreadType::kCompositor:
         scrolling_thread_throughput_dropped = impl_throughput_percent_dropped;
@@ -344,12 +338,16 @@ void FrameSequenceMetrics::ReportMetrics() {
   if (jank_reporter_) {
     if (jank_reporter_->thread_type() ==
             FrameSequenceMetrics::ThreadType::kCompositor &&
-        impl_throughput_.frames_expected >= kMinFramesForThroughputMetric)
+        impl_throughput_.frames_expected >= kMinFramesForThroughputMetric) {
+      DCHECK_EQ(jank_reporter_->thread_type(), this->GetEffectiveThread());
       jank_reporter_->ReportJankMetrics(impl_throughput_.frames_expected);
-    else if (jank_reporter_->thread_type() ==
-                 FrameSequenceMetrics::ThreadType::kMain &&
-             main_throughput_.frames_expected >= kMinFramesForThroughputMetric)
+    } else if (jank_reporter_->thread_type() ==
+                   FrameSequenceMetrics::ThreadType::kMain &&
+               main_throughput_.frames_expected >=
+                   kMinFramesForThroughputMetric) {
+      DCHECK_EQ(jank_reporter_->thread_type(), this->GetEffectiveThread());
       jank_reporter_->ReportJankMetrics(main_throughput_.frames_expected);
+    }
   }
 
   // Reset the metrics that reach reporting threshold.
@@ -406,6 +404,12 @@ bool FrameSequenceMetrics::ThroughputData::CanReportHistogram(
       thread_type == ThreadType::kMain)
     return false;
 
+  // RAF and CanvasAnimation are main thread only.
+  if ((sequence_type == FrameSequenceTrackerType::kRAF ||
+       sequence_type == FrameSequenceTrackerType::kCanvasAnimation) &&
+      thread_type == ThreadType::kCompositor)
+    return false;
+
   if (data.frames_expected < kMinFramesForThroughputMetric)
     return false;
 
@@ -413,7 +417,9 @@ bool FrameSequenceMetrics::ThroughputData::CanReportHistogram(
       ShouldReportForAnimation(sequence_type, thread_type);
 
   return is_animation || IsInteractionType(sequence_type) ||
-         sequence_type == FrameSequenceTrackerType::kVideo;
+         sequence_type == FrameSequenceTrackerType::kVideo ||
+         sequence_type == FrameSequenceTrackerType::kRAF ||
+         sequence_type == FrameSequenceTrackerType::kCanvasAnimation;
 }
 
 int FrameSequenceMetrics::ThroughputData::ReportDroppedFramePercentHistogram(
@@ -423,20 +429,7 @@ int FrameSequenceMetrics::ThroughputData::ReportDroppedFramePercentHistogram(
     const ThroughputData& data) {
   const auto sequence_type = metrics->type();
   DCHECK_LT(sequence_type, FrameSequenceTrackerType::kMaxType);
-  DCHECK(CanReportHistogram(metrics, thread_type, data) ||
-         sequence_type == FrameSequenceTrackerType::kCanvasAnimation ||
-         sequence_type == FrameSequenceTrackerType::kJSAnimation);
-
-  if (metrics->GetEffectiveThread() == thread_type) {
-    STATIC_HISTOGRAM_POINTER_GROUP(
-        GetFrameSequenceLengthHistogramName(sequence_type),
-        static_cast<int>(sequence_type),
-        static_cast<int>(FrameSequenceTrackerType::kMaxType),
-        Add(data.frames_expected),
-        base::Histogram::FactoryGet(
-            GetFrameSequenceLengthHistogramName(sequence_type), 1, 1000, 50,
-            base::HistogramBase::kUmaTargetedHistogramFlag));
-  }
+  DCHECK(CanReportHistogram(metrics, thread_type, data));
 
   // Throughput means the percent of frames that was expected to show on the
   // screen but didn't. In other words, the lower the throughput is, the
@@ -445,7 +438,8 @@ int FrameSequenceMetrics::ThroughputData::ReportDroppedFramePercentHistogram(
 
   const bool is_animation =
       ShouldReportForAnimation(sequence_type, thread_type);
-  const bool is_interaction = ShouldReportForInteraction(metrics, thread_type);
+  const bool is_interaction = ShouldReportForInteraction(
+      metrics->type(), thread_type, metrics->GetEffectiveThread());
 
   ThroughputUkmReporter* const ukm_reporter = metrics->ukm_reporter();
 
@@ -516,7 +510,8 @@ int FrameSequenceMetrics::ThroughputData::
 
   const bool is_animation =
       ShouldReportForAnimation(sequence_type, thread_type);
-  const bool is_interaction = ShouldReportForInteraction(metrics, thread_type);
+  const bool is_interaction = ShouldReportForInteraction(
+      metrics->type(), thread_type, metrics->GetEffectiveThread());
 
   if (is_animation) {
     TRACE_EVENT_INSTANT2(

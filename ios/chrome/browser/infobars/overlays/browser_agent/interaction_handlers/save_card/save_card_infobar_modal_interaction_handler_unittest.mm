@@ -25,13 +25,12 @@ class SaveCardInfobarModalInteractionHandlerTest : public PlatformTest {
  public:
   SaveCardInfobarModalInteractionHandlerTest()
       : delegate_factory_(),
-        prefs_(autofill::test::PrefServiceForTesting()),
         card_(base::GenerateGUID(), "https://www.example.com/") {
     infobar_ = std::make_unique<InfoBarIOS>(
         InfobarType::kInfobarTypeSaveCard,
         MockAutofillSaveCardInfoBarDelegateMobileFactory::
-            CreateMockAutofillSaveCardInfoBarDelegateMobileFactory(
-                false, prefs_.get(), card_));
+            CreateMockAutofillSaveCardInfoBarDelegateMobileFactory(false,
+                                                                   card_));
   }
 
   MockAutofillSaveCardInfoBarDelegateMobile& mock_delegate() {
@@ -42,15 +41,14 @@ class SaveCardInfobarModalInteractionHandlerTest : public PlatformTest {
  protected:
   SaveCardInfobarModalInteractionHandler handler_;
   MockAutofillSaveCardInfoBarDelegateMobileFactory delegate_factory_;
-  std::unique_ptr<PrefService> prefs_;
   autofill::CreditCard card_;
   std::unique_ptr<InfoBarIOS> infobar_;
 };
 
 TEST_F(SaveCardInfobarModalInteractionHandlerTest, UpdateCredentials) {
-  base::string16 cardholder_name = base::SysNSStringToUTF16(@"test name");
-  base::string16 expiration_date_month = base::SysNSStringToUTF16(@"06");
-  base::string16 expiration_date_year = base::SysNSStringToUTF16(@"2023");
+  std::u16string cardholder_name = base::SysNSStringToUTF16(@"test name");
+  std::u16string expiration_date_month = base::SysNSStringToUTF16(@"06");
+  std::u16string expiration_date_year = base::SysNSStringToUTF16(@"2023");
   EXPECT_CALL(mock_delegate(),
               UpdateAndAccept(cardholder_name, expiration_date_month,
                               expiration_date_year));

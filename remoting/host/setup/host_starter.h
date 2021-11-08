@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef REMOTING_HOST_HOST_STARTER
-#define REMOTING_HOST_HOST_STARTER
+#ifndef REMOTING_HOST_SETUP_HOST_STARTER_H_
+#define REMOTING_HOST_SETUP_HOST_STARTER_H_
 
 #include <string>
 
@@ -35,6 +35,9 @@ class HostStarter : public gaia::GaiaOAuthClient::Delegate,
   };
 
   typedef base::OnceCallback<void(Result)> CompletionCallback;
+
+  HostStarter(const HostStarter&) = delete;
+  HostStarter& operator=(const HostStarter&) = delete;
 
   ~HostStarter() override;
 
@@ -122,10 +125,8 @@ class HostStarter : public gaia::GaiaOAuthClient::Delegate,
 
   base::WeakPtr<HostStarter> weak_ptr_;
   base::WeakPtrFactory<HostStarter> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(HostStarter);
 };
 
 }  // namespace remoting
 
-#endif  // REMOTING_HOST_HOST_STARTER
+#endif  // REMOTING_HOST_SETUP_HOST_STARTER_H_

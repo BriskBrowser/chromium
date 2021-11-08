@@ -8,14 +8,15 @@
 #include <vector>
 
 #include "ash/accessibility/accessibility_controller_impl.h"
+#include "ash/constants/ash_constants.h"
 #include "ash/public/cpp/accessibility_event_rewriter_delegate.h"
-#include "ash/public/cpp/ash_constants.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "base/macros.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/base/ime/ash/fake_ime_keyboard.h"
 #include "ui/chromeos/events/event_rewriter_chromeos.h"
 #include "ui/chromeos/events/modifier_key.h"
 #include "ui/chromeos/events/pref_names.h"
@@ -24,6 +25,7 @@
 #include "ui/events/event_constants.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/event_rewriter.h"
+#include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/events/test/test_event_rewriter.h"
@@ -48,6 +50,11 @@ class ChromeVoxTestDelegate : public AccessibilityEventRewriterDelegate {
   // Count of captured events sent to the delegate.
   size_t chromevox_captured_event_count_ = 0;
 
+  // Last key event sent to ChromeVox.
+  ui::Event* GetLastChromeVoxKeyEvent() {
+    return last_chromevox_key_event_.get();
+  }
+
  private:
   // AccessibilityEventRewriterDelegate:
   void DispatchKeyEventToChromeVox(std::unique_ptr<ui::Event> event,
@@ -55,6 +62,7 @@ class ChromeVoxTestDelegate : public AccessibilityEventRewriterDelegate {
     chromevox_recorded_event_count_++;
     if (capture)
       chromevox_captured_event_count_++;
+    last_chromevox_key_event_ = std::move(event);
   }
   void DispatchMouseEvent(std::unique_ptr<ui::Event> event) override {
     chromevox_recorded_event_count_++;
@@ -62,6 +70,8 @@ class ChromeVoxTestDelegate : public AccessibilityEventRewriterDelegate {
   void SendSwitchAccessCommand(SwitchAccessCommand command) override {}
   void SendPointScanPoint(const gfx::PointF& point) override {}
   void SendMagnifierCommand(MagnifierCommand command) override {}
+
+  std::unique_ptr<ui::Event> last_chromevox_key_event_;
 };
 
 }  // namespace
@@ -71,8 +81,8 @@ class ChromeVoxAccessibilityEventRewriterTest
       public ui::EventRewriterChromeOS::Delegate {
  public:
   ChromeVoxAccessibilityEventRewriterTest() {
-    event_rewriter_chromeos_ =
-        std::make_unique<ui::EventRewriterChromeOS>(this, nullptr, false);
+    event_rewriter_chromeos_ = std::make_unique<ui::EventRewriterChromeOS>(
+        this, nullptr, false, &fake_ime_keyboard_);
   }
   ChromeVoxAccessibilityEventRewriterTest(
       const ChromeVoxAccessibilityEventRewriterTest&) = delete;
@@ -129,6 +139,24 @@ class ChromeVoxAccessibilityEventRewriterTest
     modifier_remapping_[pref_name] = static_cast<int>(value);
   }
 
+  bool RewriteEventForChromeVox(
+      const ui::Event& event,
+      const AccessibilityEventRewriter::Continuation continuation) {
+    return accessibility_event_rewriter_->RewriteEventForChromeVox(
+        event, continuation);
+  }
+
+  ui::KeyEvent* GetLastChromeVoxKeyEvent() {
+    if (delegate_.GetLastChromeVoxKeyEvent())
+      return delegate_.GetLastChromeVoxKeyEvent()->AsKeyEvent();
+    return nullptr;
+  }
+
+  void SetRemapPositionalKeys(bool value) {
+    accessibility_event_rewriter_
+        ->try_rewriting_positional_keys_for_chromevox_ = value;
+  }
+
  protected:
   // A test accessibility event delegate; simulates ChromeVox and Switch Access.
   ChromeVoxTestDelegate delegate_;
@@ -139,6 +167,7 @@ class ChromeVoxAccessibilityEventRewriterTest
 
   std::unique_ptr<AccessibilityEventRewriter> accessibility_event_rewriter_;
 
+  input_method::FakeImeKeyboard fake_ime_keyboard_;
   std::unique_ptr<ui::EventRewriterChromeOS> event_rewriter_chromeos_;
 
  private:
@@ -163,6 +192,12 @@ class ChromeVoxAccessibilityEventRewriterTest
   }
 
   bool IsSearchKeyAcceleratorReserved() const override { return false; }
+
+  bool NotifyDeprecatedRightClickRewrite() override { return false; }
+  bool NotifyDeprecatedFKeyRewrite() override { return false; }
+  bool NotifyDeprecatedSixPackKeyRewrite(ui::KeyboardCode key_code) override {
+    return false;
+  }
 
   std::map<std::string, int> modifier_remapping_;
 };
@@ -370,6 +405,39 @@ TEST_F(ChromeVoxAccessibilityEventRewriterTest,
   ExpectCounts(++recorded_count, ++delegate_count, captured_count);
 }
 
+TEST_F(ChromeVoxAccessibilityEventRewriterTest,
+       PositionalInputMethodKeysMightBeRewritten) {
+  AccessibilityControllerImpl* controller =
+      Shell::Get()->accessibility_controller();
+  controller->SetSpokenFeedbackEnabled(true, A11Y_NOTIFICATION_NONE);
+  EXPECT_TRUE(controller->spoken_feedback().enabled());
+
+  // Ensure remapping of positional keys (back to their absolute key codes) is
+  // in effect.
+  SetRemapPositionalKeys(true);
+
+  // Bracket right is a dom code which always causes an absolute key code to be
+  // sent to ChromeVox. The key code below is irrelevant.
+  ui::KeyEvent key_event(ui::ET_KEY_PRESSED, ui::VKEY_A,
+                         ui::DomCode::BRACKET_RIGHT, ui::EF_NONE);
+  AccessibilityEventRewriter::Continuation continuation;
+  RewriteEventForChromeVox(key_event, continuation);
+  auto* last_key_event = GetLastChromeVoxKeyEvent();
+  ASSERT_TRUE(last_key_event);
+
+  // This is key cap label "]" in a English input method.
+  EXPECT_EQ(ui::VKEY_OEM_6, last_key_event->key_code());
+
+  // Sanity check the flag, when off, using the same key event.
+  SetRemapPositionalKeys(false);
+  RewriteEventForChromeVox(key_event, continuation);
+  last_key_event = GetLastChromeVoxKeyEvent();
+  ASSERT_TRUE(last_key_event);
+
+  // Unmodified.
+  EXPECT_EQ(ui::VKEY_A, last_key_event->key_code());
+}
+
 // Records all key events for testing.
 class EventCapturer : public ui::EventHandler {
  public:
@@ -418,8 +486,8 @@ class SwitchAccessTestDelegate : public AccessibilityEventRewriterDelegate {
 class SwitchAccessAccessibilityEventRewriterTest : public AshTestBase {
  public:
   SwitchAccessAccessibilityEventRewriterTest() {
-    event_rewriter_chromeos_ =
-        std::make_unique<ui::EventRewriterChromeOS>(nullptr, nullptr, false);
+    event_rewriter_chromeos_ = std::make_unique<ui::EventRewriterChromeOS>(
+        nullptr, nullptr, false, &fake_ime_keyboard_);
   }
   ~SwitchAccessAccessibilityEventRewriterTest() override = default;
 
@@ -492,6 +560,7 @@ class SwitchAccessAccessibilityEventRewriterTest : public AshTestBase {
   EventCapturer event_capturer_;
   AccessibilityControllerImpl* controller_ = nullptr;
   std::unique_ptr<SwitchAccessTestDelegate> delegate_;
+  input_method::FakeImeKeyboard fake_ime_keyboard_;
   std::unique_ptr<AccessibilityEventRewriter> accessibility_event_rewriter_;
   std::unique_ptr<ui::EventRewriterChromeOS> event_rewriter_chromeos_;
 };
@@ -701,8 +770,8 @@ class MagnifierTestDelegate : public AccessibilityEventRewriterDelegate {
 class MagnifierAccessibilityEventRewriterTest : public AshTestBase {
  public:
   MagnifierAccessibilityEventRewriterTest() {
-    event_rewriter_chromeos_ =
-        std::make_unique<ui::EventRewriterChromeOS>(nullptr, nullptr, false);
+    event_rewriter_chromeos_ = std::make_unique<ui::EventRewriterChromeOS>(
+        nullptr, nullptr, false, &fake_ime_keyboard_);
   }
   ~MagnifierAccessibilityEventRewriterTest() override = default;
 
@@ -743,6 +812,7 @@ class MagnifierAccessibilityEventRewriterTest : public AshTestBase {
   EventCapturer event_capturer_;
   AccessibilityControllerImpl* controller_ = nullptr;
   std::unique_ptr<MagnifierTestDelegate> delegate_;
+  input_method::FakeImeKeyboard fake_ime_keyboard_;
   std::unique_ptr<AccessibilityEventRewriter> accessibility_event_rewriter_;
   std::unique_ptr<ui::EventRewriterChromeOS> event_rewriter_chromeos_;
 };

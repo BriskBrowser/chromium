@@ -50,7 +50,6 @@ import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
@@ -278,13 +277,16 @@ public class ReengagementNotificationControllerIntegrationTest {
                 mTabbedActivityTestRule.getActivity().getTabModelSelector().getTotalTabCount();
 
         final CallbackHelper tabAddedCallback = new CallbackHelper();
-        TabModelSelectorObserver selectorObserver = new EmptyTabModelSelectorObserver() {
+        TabModelSelectorObserver selectorObserver = new TabModelSelectorObserver() {
             @Override
             public void onNewTabCreated(Tab tab, @TabCreationState int creationState) {
                 tabAddedCallback.notifyCalled();
             }
         };
-        mTabbedActivityTestRule.getActivity().getTabModelSelector().addObserver(selectorObserver);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mTabbedActivityTestRule.getActivity().getTabModelSelector().addObserver(
+                    selectorObserver);
+        });
 
         Intent intent =
                 new Intent(InstrumentationRegistry.getTargetContext(), ReengagementActivity.class);
@@ -378,8 +380,6 @@ public class ReengagementNotificationControllerIntegrationTest {
         // TODO(crbug.com/1111584): Remove these overrides when FeatureList#isInitialized() works
         // as expected with test values.
         features.put(ChromeFeatureList.SEARCH_ENGINE_PROMO_EXISTING_DEVICE, false);
-        features.put(ChromeFeatureList.OMNIBOX_SEARCH_ENGINE_LOGO, false);
-        features.put(ChromeFeatureList.SHARE_BY_DEFAULT_IN_CCT, true);
         features.put(ChromeFeatureList.VOICE_SEARCH_AUDIO_CAPTURE_POLICY, false);
         FeatureList.setTestFeatures(features);
     }

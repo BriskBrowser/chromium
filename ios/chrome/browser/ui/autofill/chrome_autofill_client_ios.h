@@ -15,8 +15,8 @@
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/payments/card_unmask_delegate.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
-#include "components/autofill/core/browser/payments/strike_database.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/browser/strike_database.h"
 #include "components/autofill/core/browser/ui/payments/card_expiration_date_fix_flow_controller_impl.h"
 #include "components/autofill/core/browser/ui/payments/card_name_fix_flow_controller_impl.h"
 #include "components/autofill/core/browser/ui/payments/card_unmask_prompt_controller_impl.h"
@@ -44,6 +44,10 @@ class ChromeAutofillClientIOS : public AutofillClient {
                           infobars::InfoBarManager* infobar_manager,
                           id<AutofillClientIOSBridge> bridge,
                           password_manager::PasswordManager* password_manager);
+
+  ChromeAutofillClientIOS(const ChromeAutofillClientIOS&) = delete;
+  ChromeAutofillClientIOS& operator=(const ChromeAutofillClientIOS&) = delete;
+
   ~ChromeAutofillClientIOS() override;
 
   // Sets a weak reference to the view controller used to present UI.
@@ -75,10 +79,10 @@ class ChromeAutofillClientIOS : public AutofillClient {
                         base::WeakPtr<CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
   void ConfirmAccountNameFixFlow(
-      base::OnceCallback<void(const base::string16&)> callback) override;
+      base::OnceCallback<void(const std::u16string&)> callback) override;
   void ConfirmExpirationDateFixFlow(
       const CreditCard& card,
-      base::OnceCallback<void(const base::string16&, const base::string16&)>
+      base::OnceCallback<void(const std::u16string&, const std::u16string&)>
           callback) override;
   void ConfirmSaveCreditCardLocally(
       const CreditCard& card,
@@ -94,6 +98,8 @@ class ChromeAutofillClientIOS : public AutofillClient {
                                    base::OnceClosure callback) override;
   void ConfirmSaveAddressProfile(
       const AutofillProfile& profile,
+      const AutofillProfile* original_profile,
+      SaveAddressProfilePromptOptions options,
       AddressProfileSavePromptCallback callback) override;
   bool HasCreditCardScanFeature() override;
   void ScanCreditCard(CreditCardScanCallback callback) override;
@@ -101,8 +107,8 @@ class ChromeAutofillClientIOS : public AutofillClient {
       const PopupOpenArgs& open_args,
       base::WeakPtr<AutofillPopupDelegate> delegate) override;
   void UpdateAutofillPopupDataListValues(
-      const std::vector<base::string16>& values,
-      const std::vector<base::string16>& labels) override;
+      const std::vector<std::u16string>& values,
+      const std::vector<std::u16string>& labels) override;
   base::span<const Suggestion> GetPopupSuggestions() const override;
   void PinPopupView() override;
   PopupOpenArgs GetReopenPopupArgs() const override;
@@ -113,8 +119,8 @@ class ChromeAutofillClientIOS : public AutofillClient {
   void PropagateAutofillPredictions(
       content::RenderFrameHost* rfh,
       const std::vector<FormStructure*>& forms) override;
-  void DidFillOrPreviewField(const base::string16& autofilled_value,
-                             const base::string16& profile_full_name) override;
+  void DidFillOrPreviewField(const std::u16string& autofilled_value,
+                             const std::u16string& profile_full_name) override;
   bool IsContextSecure() const override;
   bool ShouldShowSigninPromo() override;
   bool AreServerCardsSupported() const override;
@@ -150,8 +156,6 @@ class ChromeAutofillClientIOS : public AutofillClient {
 
   // A weak reference to the view controller used to present UI.
   __weak UIViewController* base_view_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeAutofillClientIOS);
 };
 
 }  // namespace autofill

@@ -18,9 +18,11 @@
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/test/test_content_browser_client.h"
+#include "net/cookies/site_for_cookies.h"
 #include "net/dns/mock_host_resolver.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/switches.h"
 
 using testing::_;
 using testing::NotNull;
@@ -36,6 +38,13 @@ class WebContentsObserverBrowserTest : public ContentBrowserTest {
     host_resolver()->AddRule("*", "127.0.0.1");
     SetupCrossSiteRedirector(embedded_test_server());
     ASSERT_TRUE(embedded_test_server()->Start());
+  }
+
+  // Some platforms are flaky due to relatively slow loading interacting
+  // with deferred commits.
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    ContentBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(blink::switches::kAllowPreCommitInput);
   }
 
   WebContentsImpl* web_contents() const {
@@ -120,8 +129,8 @@ class ServiceWorkerAccessContentBrowserClient
 
   AllowServiceWorkerResult AllowServiceWorker(
       const GURL& scope,
-      const GURL& site_for_cookies,
-      const base::Optional<url::Origin>& top_frame_origin,
+      const net::SiteForCookies& site_for_cookies,
+      const absl::optional<url::Origin>& top_frame_origin,
       const GURL& script_url,
       BrowserContext* context) override {
     return AllowServiceWorkerResult::FromPolicy(!javascript_allowed_,
@@ -226,7 +235,7 @@ class CookieTracker : public WebContentsObserver {
 
     ContextType context_type;
     GlobalRoutingID frame_id;
-    int navigation_id = -1;
+    int64_t navigation_id = -1;
 
     GURL url;
     GURL first_party_url;

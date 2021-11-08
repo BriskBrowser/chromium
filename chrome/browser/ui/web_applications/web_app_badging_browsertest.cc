@@ -6,10 +6,10 @@
 #include "chrome/browser/badging/badge_manager.h"
 #include "chrome/browser/badging/badge_manager_factory.h"
 #include "chrome/browser/badging/test_badge_manager_delegate.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
-#include "chrome/browser/web_applications/components/web_app_provider_base.h"
-#include "chrome/browser/web_applications/components/web_application_info.h"
+#include "chrome/browser/web_applications/web_application_info.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
@@ -50,7 +50,7 @@ class WebAppBadgingBrowserTest : public WebAppControllerBrowserTest {
     auto sub_app_info = std::make_unique<WebApplicationInfo>();
     sub_app_info->start_url = sub_start_url;
     sub_app_info->scope = sub_start_url;
-    sub_app_info->open_as_window = true;
+    sub_app_info->user_display_mode = DisplayMode::kStandalone;
     sub_app_id_ = InstallWebApp(std::move(sub_app_info));
 
     content::WebContents* web_contents = OpenApplication(main_app_id_);
@@ -59,7 +59,7 @@ class WebAppBadgingBrowserTest : public WebAppControllerBrowserTest {
     // 2) A frame containing a sub app.
     // 3) A cross site frame, on |cross_site_frame_url|.
     // 4) A sub frame in the app's scope.
-    auto frames = web_contents->GetAllFrames();
+    auto frames = CollectAllRenderFrameHosts(web_contents->GetPrimaryPage());
     ASSERT_EQ(4u, frames.size());
 
     main_frame_ = web_contents->GetMainFrame();
@@ -138,7 +138,7 @@ class WebAppBadgingBrowserTest : public WebAppControllerBrowserTest {
         BadgeChange set_badge_change;
         set_badge_change.last_badge_content_ = set_app_badge.second;
         set_badge_change.was_flagged_ =
-            set_badge_change.last_badge_content_ == base::nullopt;
+            set_badge_change.last_badge_content_ == absl::nullopt;
 
         const AppId& set_app_id = set_app_badge.first;
         ASSERT_TRUE(badge_change_map_.find(set_app_id) ==
@@ -186,7 +186,7 @@ class WebAppBadgingBrowserTest : public WebAppControllerBrowserTest {
   // then calls setAppBadge() with |badge_value|.
   void SetBadgeInServiceWorkerAndWaitForChanges(
       const GURL& service_worker_scope,
-      base::Optional<uint64_t> badge_value,
+      absl::optional<uint64_t> badge_value,
       size_t expected_badge_change_count) {
     std::string message_data;
     if (badge_value) {
@@ -241,7 +241,7 @@ class WebAppBadgingBrowserTest : public WebAppControllerBrowserTest {
   struct BadgeChange {
     bool was_cleared_ = false;
     bool was_flagged_ = false;
-    base::Optional<uint64_t> last_badge_content_ = base::nullopt;
+    absl::optional<uint64_t> last_badge_content_ = absl::nullopt;
   };
 
   // Records a single badge update for multiple apps.
@@ -298,7 +298,7 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest, BadgeCanBeSetToAnInteger) {
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::Optional<uint64_t>(99u), badge_change.last_badge_content_);
+  ASSERT_EQ(absl::optional<uint64_t>(99u), badge_change.last_badge_content_);
 }
 
 // Tests that calls to |Badge.clear| are propagated across processes.
@@ -309,13 +309,13 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest,
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::Optional<uint64_t>(55u), badge_change.last_badge_content_);
+  ASSERT_EQ(absl::optional<uint64_t>(55u), badge_change.last_badge_content_);
 
   ExecuteScriptAndWaitForBadgeChange("navigator.clearAppBadge()", main_frame_);
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_TRUE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Tests that calling Badge.set(0) is equivalent to calling |Badge.clear| and
@@ -326,7 +326,7 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest, BadgeCanBeClearedWithZero) {
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_TRUE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Tests that setting the badge without content is propagated across processes.
@@ -336,7 +336,7 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest, BadgeCanBeSetWithoutAValue) {
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_TRUE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Tests that the badge can be set and cleared from an in scope frame.
@@ -348,14 +348,14 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest,
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_TRUE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 
   ExecuteScriptAndWaitForBadgeChange("navigator.clearAppBadge()",
                                      in_scope_frame_);
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_TRUE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Tests that changing the badge of a subframe with an app affects the
@@ -366,14 +366,14 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest, SubFrameBadgeAffectsSubApp) {
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(sub_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_TRUE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 
   ExecuteScriptAndWaitForBadgeChange("navigator.clearAppBadge()",
                                      sub_app_frame_);
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(sub_app_id(), &badge_change));
   ASSERT_TRUE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Tests that setting a badge on a subframe with an app only effects the sub
@@ -385,7 +385,7 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest, BadgeSubFrameAppViaNavigator) {
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(sub_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_TRUE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Tests that setting a badge on a subframe via call() craziness sets the
@@ -402,7 +402,7 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest, BadgeSubFrameAppViaCall) {
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(sub_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_TRUE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Test that badging through a service worker scoped to the sub app updates
@@ -425,7 +425,7 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest,
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(sub_app_id(), &badge_change));
   ASSERT_TRUE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Test that badging through a service worker scoped to the main app updates
@@ -434,30 +434,30 @@ IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest,
 IN_PROC_BROWSER_TEST_F(WebAppBadgingBrowserTest,
                        AppServiceWorkerBadgeAffectsMultipleApps) {
   SetBadgeInServiceWorkerAndWaitForChanges(app_service_worker_scope_,
-                                           base::nullopt,
+                                           absl::nullopt,
                                            /*expected_badge_change_count=*/2);
   BadgeChange badge_change;
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_TRUE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(sub_app_id(), &badge_change));
   ASSERT_FALSE(badge_change.was_cleared_);
   ASSERT_TRUE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 
   ClearBadgeInServiceWorkerAndWaitForChanges(app_service_worker_scope_,
                                              /*expected_badge_change_count=*/2);
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(main_app_id(), &badge_change));
   ASSERT_TRUE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 
   ASSERT_NO_FATAL_FAILURE(GetBadgeChange(sub_app_id(), &badge_change));
   ASSERT_TRUE(badge_change.was_cleared_);
   ASSERT_FALSE(badge_change.was_flagged_);
-  ASSERT_EQ(base::nullopt, badge_change.last_badge_content_);
+  ASSERT_EQ(absl::nullopt, badge_change.last_badge_content_);
 }
 
 // Tests that badging incognito windows does not cause a crash.

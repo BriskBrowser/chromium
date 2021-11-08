@@ -7,9 +7,9 @@
 
 #include "base/component_export.h"
 #include "base/macros.h"
-#include "chromeos/services/assistant/public/cpp/assistant_service.h"
+#include "chromeos/services/libassistant/public/cpp/assistant_suggestion.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace views {
 class BoxLayout;
@@ -38,23 +38,29 @@ class COMPONENT_EXPORT(ASSISTANT_UI) SuggestionChipView : public views::Button {
   gfx::Size CalculatePreferredSize() const override;
   int GetHeightForWidth(int width) const override;
   void ChildVisibilityChanged(views::View* child) override;
-  void OnPaintBackground(gfx::Canvas* canvas) override;
   void OnFocus() override;
   void OnBlur() override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
+  void OnThemeChanged() override;
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
 
   void SetIcon(const gfx::ImageSkia& icon);
-  const gfx::ImageSkia& GetIcon() const;
+  gfx::ImageSkia GetIcon() const;
 
-  void SetText(const base::string16& text);
-  const base::string16& GetText() const;
+  void SetText(const std::u16string& text);
+  const std::u16string& GetText() const;
 
   const base::UnguessableToken& suggestion_id() const { return suggestion_id_; }
 
  private:
   void InitLayout(const AssistantSuggestion& suggestion);
 
+  SkColor GetStrokeColor() const;
+
   AssistantViewDelegate* const delegate_;
+
+  // Whether to use dark/light mode colors, which default to dark.
+  const bool use_dark_light_mode_colors_;
 
   const base::UnguessableToken suggestion_id_;
 

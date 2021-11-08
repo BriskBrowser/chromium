@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/platform/graphics/animation_worklet_mutator_dispatcher_impl.h"
 
+#include <utility>
+
 #include "base/barrier_closure.h"
 #include "base/callback_helpers.h"
 #include "base/metrics/histogram_macros.h"
@@ -133,8 +135,7 @@ void AnimationWorkletMutatorDispatcherImpl::MutateSynchronously(
 
   UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(
       "Animation.AnimationWorklet.Dispatcher.SynchronousMutateDuration",
-      timer.Elapsed(), base::TimeDelta::FromMicroseconds(1),
-      base::TimeDelta::FromMilliseconds(100), 50);
+      timer.Elapsed(), base::Microseconds(1), base::Milliseconds(100), 50);
 }
 
 base::TimeTicks AnimationWorkletMutatorDispatcherImpl::NowTicks() const {
@@ -222,9 +223,9 @@ void AnimationWorkletMutatorDispatcherImpl::AsyncMutationsDone(
   auto done_callback = std::move(on_async_mutation_complete_);
   std::unique_ptr<AsyncMutationRequest> queued_request;
   if (queued_priority_request.get()) {
-    queued_request.reset(queued_priority_request.release());
+    queued_request = std::move(queued_priority_request);
   } else if (queued_replaceable_request.get()) {
-    queued_request.reset(queued_replaceable_request.release());
+    queued_request = std::move(queued_replaceable_request);
   }
   if (queued_request.get()) {
     mutator_input_map_ = CreateInputMap(*queued_request->input_state);
@@ -240,8 +241,8 @@ void AnimationWorkletMutatorDispatcherImpl::AsyncMutationsDone(
   // completion, and thus includes queuing time.
   UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(
       "Animation.AnimationWorklet.Dispatcher.AsynchronousMutateDuration",
-      NowTicks() - request_time, base::TimeDelta::FromMicroseconds(1),
-      base::TimeDelta::FromMilliseconds(100), 50);
+      NowTicks() - request_time, base::Microseconds(1), base::Milliseconds(100),
+      50);
 
   std::move(done_callback)
       .Run(update_applied ? MutateStatus::kCompletedWithUpdate
@@ -346,12 +347,11 @@ void AnimationWorkletMutatorDispatcherImpl::RequestMutations(
             // The mutator is created and destroyed on the worklet thread.
             WrapCrossThreadWeakPersistent(mutator),
             // The worklet input is not required after the Mutate call.
-            WTF::Passed(std::move(it->value)),
+            std::move(it->value),
             // The vector of outputs is wrapped in a scoped_refptr initialized
             // on the host thread. It can outlive the dispatcher during shutdown
             // of a process with a running animation.
-            outputs_, next_request_index++,
-            WTF::Passed(std::move(on_done_runner))));
+            outputs_, next_request_index++, std::move(on_done_runner)));
   }
 }
 

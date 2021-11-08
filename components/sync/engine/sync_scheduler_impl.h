@@ -40,21 +40,22 @@ class SyncSchedulerImpl : public SyncScheduler {
                     std::unique_ptr<Syncer> syncer,
                     bool ignore_auth_credentials);
 
+  SyncSchedulerImpl(const SyncSchedulerImpl&) = delete;
+  SyncSchedulerImpl& operator=(const SyncSchedulerImpl&) = delete;
+
   // Calls Stop().
   ~SyncSchedulerImpl() override;
 
   void Start(Mode mode, base::Time last_poll_time) override;
-  void ScheduleConfiguration(ConfigurationParams params) override;
+  void ScheduleConfiguration(sync_pb::SyncEnums::GetUpdatesOrigin origin,
+                             ModelTypeSet types_to_download,
+                             base::OnceClosure ready_task) override;
   void Stop() override;
-  void ScheduleLocalNudge(ModelTypeSet types,
-                          const base::Location& nudge_location) override;
-  void ScheduleLocalRefreshRequest(
-      ModelTypeSet types,
-      const base::Location& nudge_location) override;
+  void ScheduleLocalNudge(ModelType type) override;
+  void ScheduleLocalRefreshRequest(ModelTypeSet types) override;
   void ScheduleInvalidationNudge(
       ModelType type,
-      std::unique_ptr<InvalidationInterface> invalidation,
-      const base::Location& nudge_location) override;
+      std::unique_ptr<InvalidationInterface> invalidation) override;
   void ScheduleInitialSyncNudge(ModelType model_type) override;
   void SetNotificationsEnabled(bool notifications_enabled) override;
 
@@ -86,6 +87,21 @@ class SyncSchedulerImpl : public SyncScheduler {
   void ForceShortNudgeDelayForTest();
 
  private:
+  struct ConfigurationParams {
+    ConfigurationParams(sync_pb::SyncEnums::GetUpdatesOrigin origin,
+                        ModelTypeSet types_to_download,
+                        base::OnceClosure ready_task);
+    ~ConfigurationParams();
+
+    ConfigurationParams(const ConfigurationParams&) = delete;
+    ConfigurationParams& operator=(const ConfigurationParams&) = delete;
+
+    const sync_pb::SyncEnums::GetUpdatesOrigin origin;
+    const ModelTypeSet types_to_download;
+    // Callback to invoke on configuration completion.
+    base::OnceClosure ready_task;
+  };
+
   enum JobPriority {
     // Non-canary jobs respect exponential backoff.
     NORMAL_PRIORITY,
@@ -158,8 +174,7 @@ class SyncSchedulerImpl : public SyncScheduler {
   // on the passed in parameters and coalesce it with any other pending jobs,
   // then post a delayed task to run it.  It may also choose to drop the job or
   // save it for later, depending on the scheduler's current state.
-  void ScheduleNudgeImpl(const base::TimeDelta& delay,
-                         const base::Location& nudge_location);
+  void ScheduleNudgeImpl(const base::TimeDelta& delay);
 
   // Helper to signal listeners about changed retry time.
   void NotifyRetryTime(base::Time retry_time);
@@ -282,8 +297,6 @@ class SyncSchedulerImpl : public SyncScheduler {
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<SyncSchedulerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SyncSchedulerImpl);
 };
 
 }  // namespace syncer

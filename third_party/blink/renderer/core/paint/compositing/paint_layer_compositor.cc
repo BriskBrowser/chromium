@@ -25,7 +25,7 @@
 
 #include "third_party/blink/renderer/core/paint/compositing/paint_layer_compositor.h"
 
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/animation/document_animations.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
@@ -57,7 +57,6 @@
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_controller.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
@@ -169,48 +168,16 @@ void PaintLayerCompositor::UpdateInputsIfNeededRecursiveInternal(
 void PaintLayerCompositor::UpdateAssignmentsIfNeededRecursive(
     DocumentLifecycle::LifecycleState target_state) {
   DCHECK_GE(target_state, DocumentLifecycle::kCompositingAssignmentsClean);
-
-  CompositingReasonsStats compositing_reasons_stats;
-  UpdateAssignmentsIfNeededRecursiveInternal(target_state,
-                                             compositing_reasons_stats);
-  UMA_HISTOGRAM_CUSTOM_COUNTS("Blink.Compositing.LayerPromotionCount.Overlap",
-                              compositing_reasons_stats.overlap_layers, 1, 100,
-                              5);
-  UMA_HISTOGRAM_CUSTOM_COUNTS(
-      "Blink.Compositing.LayerPromotionCount.ActiveAnimation",
-      compositing_reasons_stats.active_animation_layers, 1, 100, 5);
-  UMA_HISTOGRAM_CUSTOM_COUNTS(
-      "Blink.Compositing.LayerPromotionCount.AssumedOverlap",
-      compositing_reasons_stats.assumed_overlap_layers, 1, 1000, 5);
-  UMA_HISTOGRAM_CUSTOM_COUNTS(
-      "Blink.Compositing.LayerPromotionCount.IndirectComposited",
-      compositing_reasons_stats.indirect_composited_layers, 1, 10000, 10);
-  UMA_HISTOGRAM_CUSTOM_COUNTS(
-      "Blink.Compositing.LayerPromotionCount.TotalComposited",
-      compositing_reasons_stats.total_composited_layers, 1, 1000, 10);
+  UpdateAssignmentsIfNeededRecursiveInternal(target_state);
 }
 
 void PaintLayerCompositor::UpdateAssignmentsIfNeededRecursiveInternal(
-    DocumentLifecycle::LifecycleState target_state,
-    CompositingReasonsStats& compositing_reasons_stats) {
+    DocumentLifecycle::LifecycleState target_state) {
   if (target_state == DocumentLifecycle::kCompositingInputsClean)
     return;
 
-  if (layout_view_->GetFrameView()->ShouldThrottleRendering()) {
-    if (auto* owner = layout_view_->GetFrame()->OwnerLayoutObject()) {
-      auto* parent_compositor = owner->View()->Compositor();
-      DCHECK(parent_compositor);
-      DisableCompositingQueryAsserts query_assert_disabler;
-      // TODO(szager): It's not clear how this can happen. Even if the child
-      // frame is throttled, if the child compositor has a root graphics layer,
-      // then the parent compositor should be in compositing mode.
-      DCHECK(parent_compositor->StaleInCompositingMode() ||
-             !RootGraphicsLayer());
-      if (!parent_compositor->StaleInCompositingMode() && RootGraphicsLayer())
-        root_layer_attachment_dirty_ = true;
-    }
+  if (layout_view_->GetFrameView()->ShouldThrottleRendering())
     return;
-  }
 
   if (DisplayLockUtilities::PrePaintBlockedInParentFrame(layout_view_))
     return;
@@ -231,15 +198,9 @@ void PaintLayerCompositor::UpdateAssignmentsIfNeededRecursiveInternal(
         local_frame->ContentLayoutObject()) {
       auto* child_compositor = local_frame->ContentLayoutObject()->Compositor();
       child_compositor->UpdateAssignmentsIfNeededRecursiveInternal(
-          target_state, compositing_reasons_stats);
+          target_state);
       if (child_compositor->root_layer_attachment_dirty_)
         SetNeedsCompositingUpdate(kCompositingUpdateRebuildTree);
-#if DCHECK_IS_ON()
-      // Even if the child frame is throttled, this should be consistent.
-      DisableCompositingQueryAsserts query_assert_disabler;
-      DCHECK_EQ(child_compositor->InCompositingMode(),
-                (bool)child_compositor->RootGraphicsLayer());
-#endif
     }
   }
 
@@ -250,7 +211,7 @@ void PaintLayerCompositor::UpdateAssignmentsIfNeededRecursiveInternal(
 
   ScriptForbiddenScope forbid_script;
 
-  UpdateAssignmentsIfNeeded(target_state, compositing_reasons_stats);
+  UpdateAssignmentsIfNeeded(target_state);
 
   Lifecycle().AdvanceTo(DocumentLifecycle::kCompositingAssignmentsClean);
 
@@ -307,8 +268,7 @@ static void AssertWholeTreeNotComposited(const PaintLayer& paint_layer) {
 #endif
 
 void PaintLayerCompositor::UpdateAssignmentsIfNeeded(
-    DocumentLifecycle::LifecycleState target_state,
-    CompositingReasonsStats& compositing_reasons_stats) {
+    DocumentLifecycle::LifecycleState target_state) {
   DCHECK(target_state >= DocumentLifecycle::kCompositingAssignmentsClean);
 
   CompositingUpdateType update_type = pending_update_type_;
@@ -320,13 +280,16 @@ void PaintLayerCompositor::UpdateAssignmentsIfNeeded(
   PaintLayer* update_root = RootLayer();
 
   HeapVector<Member<PaintLayer>> layers_needing_paint_invalidation;
+  ClearCollectionScope<HeapVector<Member<PaintLayer>>> scope(
+      &layers_needing_paint_invalidation);
 
   if (update_type >= kCompositingUpdateAfterCompositingInputChange) {
-    CompositingRequirementsUpdater(*layout_view_)
-        .Update(update_root, compositing_reasons_stats);
+    CompositingRequirementsUpdater(*layout_view_).Update(update_root);
 
     CompositingLayerAssigner layer_assigner(this);
     layer_assigner.Assign(update_root, layers_needing_paint_invalidation);
+    // TODO(szager): Remove this after diagnosing crash.
+    CHECK_EQ(compositing_, (bool)RootGraphicsLayer());
 
     if (layer_assigner.LayersChanged())
       update_type = std::max(update_type, kCompositingUpdateRebuildTree);
@@ -481,14 +444,10 @@ GraphicsLayer* PaintLayerCompositor::RootGraphicsLayer() const {
 }
 
 GraphicsLayer* PaintLayerCompositor::PaintRootGraphicsLayer() const {
-  // Shortcut: skip the fullscreen checks for popups, and for not-main-frame
-  // ordinary fullscreen mode. Don't use the shortcut for WebXR DOM overlay mode
-  // since that requires ancestor frames to be rendered as transparent.
+  // Shortcut: skip the fullscreen checks for popups.
   Document& doc = layout_view_->GetDocument();
-  if (doc.GetPage()->GetChromeClient().IsPopup() ||
-      (!IsMainFrame() && !doc.IsXrOverlay())) {
+  if (doc.GetPage()->GetChromeClient().IsPopup())
     return RootGraphicsLayer();
-  }
 
   // Start from the full screen overlay layer if exists. Other layers will be
   // skipped during painting.
@@ -506,34 +465,6 @@ void PaintLayerCompositor::UpdatePotentialCompositingReasonsFromStyle(
   auto reasons = CompositingReasonFinder::PotentialCompositingReasonsFromStyle(
       layer.GetLayoutObject());
   layer.SetPotentialCompositingReasonsFromStyle(reasons);
-}
-
-bool PaintLayerCompositor::CanBeComposited(const PaintLayer* layer) const {
-  LocalFrameView* frame_view = layer->GetLayoutObject().GetFrameView();
-  // Elements within an invisible frame must not be composited because they are
-  // not drawn.
-  if (frame_view && !frame_view->IsVisible())
-    return false;
-
-  DCHECK(!frame_view->ShouldThrottleRendering());
-
-  const bool has_compositor_animation =
-      CompositingReasonFinder::CompositingReasonsForAnimation(
-          layer->GetLayoutObject()) != CompositingReason::kNone;
-
-  return layout_view_->GetDocument()
-             .GetSettings()
-             ->GetAcceleratedCompositingEnabled() &&
-         (has_compositor_animation || !layer->SubtreeIsInvisible()) &&
-         layer->IsSelfPaintingLayer() &&
-         !layer->GetLayoutObject().IsLayoutFlowThread() &&
-         // Don't composite <foreignObject> for the moment, to reduce instances
-         // of the "fundamental compositing bug" breaking painting order.
-         // With CompositeSVG, foreignObjects will be correctly composited after
-         // paint in PaintArtifactCompositor without a GraphicsLayer.
-         // Composited descendants of foreignObject will still break painting
-         // order which will be fixed in CompositeAfterPaint.
-         !layer->GetLayoutObject().IsSVGForeignObject();
 }
 
 // If an element has composited negative z-index children, those children paint

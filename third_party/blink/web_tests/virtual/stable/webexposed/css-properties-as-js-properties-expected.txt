@@ -1,6 +1,8 @@
 This test (crudely) documents Blink's web-exposed CSS properties.  All changes to this list should go through Blink's feature review process: http://www.chromium.org/blink#new-features
 
 
+accentColor
+additiveSymbols
 alignContent
 alignItems
 alignSelf
@@ -15,6 +17,7 @@ animationIterationCount
 animationName
 animationPlayState
 animationTimingFunction
+appRegion
 appearance
 ascentOverride
 aspectRatio
@@ -126,7 +129,11 @@ columnSpan
 columnWidth
 columns
 contain
+containIntrinsicBlockSize
+containIntrinsicHeight
+containIntrinsicInlineSize
 containIntrinsicSize
+containIntrinsicWidth
 content
 contentVisibility
 counterIncrement
@@ -143,6 +150,7 @@ direction
 display
 dominantBaseline
 emptyCells
+fallback
 fill
 fillOpacity
 fillRule
@@ -166,6 +174,10 @@ fontOpticalSizing
 fontSize
 fontStretch
 fontStyle
+fontSynthesis
+fontSynthesisSmallCaps
+fontSynthesisStyle
+fontSynthesisWeight
 fontVariant
 fontVariantCaps
 fontVariantEastAsian
@@ -253,6 +265,7 @@ minInlineSize
 minWidth
 minZoom
 mixBlendMode
+negative
 objectFit
 objectPosition
 offset
@@ -279,6 +292,7 @@ overscrollBehaviorBlock
 overscrollBehaviorInline
 overscrollBehaviorX
 overscrollBehaviorY
+pad
 padding
 paddingBlock
 paddingBlockEnd
@@ -304,8 +318,10 @@ placeItems
 placeSelf
 pointerEvents
 position
+prefix
 quotes
 r
+range
 removeProperty
 resize
 right
@@ -339,13 +355,16 @@ scrollPaddingTop
 scrollSnapAlign
 scrollSnapStop
 scrollSnapType
+scrollbarGutter
 setProperty
 shapeImageThreshold
 shapeMargin
 shapeOutside
 shapeRendering
 size
+sizeAdjust
 speak
+speakAs
 src
 stopColor
 stopOpacity
@@ -357,7 +376,10 @@ strokeLinejoin
 strokeMiterlimit
 strokeOpacity
 strokeWidth
+suffix
+symbols
 syntax
+system
 tabSize
 tableLayout
 textAlign

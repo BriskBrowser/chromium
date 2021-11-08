@@ -75,6 +75,11 @@ public class WarmupManagerTest {
 
     @Before
     public void setUp() throws Exception {
+        // Unlike most of Chrome, the WarmupManager inflates layouts with the application context.
+        // This is because the inflation happens before an activity exists. If you're trying to fix
+        // a failing test, it's important to not add extra theme/style information to this context
+        // in this test because it could hide a real production issue. See https://crbug.com/1246329
+        // for an example.
         mContext = InstrumentationRegistry.getInstrumentation()
                            .getTargetContext()
                            .getApplicationContext();
@@ -92,14 +97,16 @@ public class WarmupManagerTest {
     private static Profile getNonPrimaryOTRProfile() {
         return TestThreadUtils.runOnUiThreadBlockingNoException((Callable<Profile>) () -> {
             OTRProfileID otrProfileID = OTRProfileID.createUnique("CCT:Incognito");
-            return Profile.getLastUsedRegularProfile().getOffTheRecordProfile(otrProfileID);
+            return Profile.getLastUsedRegularProfile().getOffTheRecordProfile(
+                    otrProfileID, /*createIfNeeded=*/true);
         });
     }
 
     private static Profile getPrimaryOTRProfile() {
         return TestThreadUtils.runOnUiThreadBlockingNoException(
                 (Callable<Profile>) ()
-                        -> Profile.getLastUsedRegularProfile().getPrimaryOTRProfile());
+                        -> Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(
+                                /*createIfNeeded=*/true));
     }
 
     private static Profile getRegularProfile() {

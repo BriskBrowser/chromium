@@ -68,7 +68,11 @@ void EventPath::InitializeWith(Node& node, Event* event) {
 }
 
 static inline bool EventPathShouldBeEmptyFor(Node& node) {
-  return node.IsPseudoElement() && !node.parentElement();
+  // Event path should be empty for orphaned pseudo elements, and nodes
+  // whose document is stopped. In corner cases (crbug.com/1210480), the node
+  // document can get detached before we can remove event listeners.
+  return (node.IsPseudoElement() && !node.parentElement()) ||
+         node.GetDocument().IsStopped();
 }
 
 void EventPath::Initialize() {
@@ -95,7 +99,7 @@ void EventPath::CalculatePath() {
   while (current) {
     if (event_ && current->KeepEventInNode(*event_))
       break;
-    if (current->IsChildOfShadowHost()) {
+    if (current->IsChildOfShadowHost() && !current->IsPseudoElement()) {
       if (HTMLSlotElement* slot = current->AssignedSlot()) {
         current = slot;
         nodes_in_path.push_back(current);

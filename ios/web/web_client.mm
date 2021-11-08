@@ -44,30 +44,21 @@ bool WebClient::IsAppSpecificURL(const GURL& url) const {
   return false;
 }
 
-bool WebClient::ShouldBlockUrlDuringRestore(const GURL& url,
-                                            WebState* web_state) const {
-  return false;
-}
-
-void WebClient::AddSerializableData(
-    web::SerializableUserDataManager* user_data_manager,
-    web::WebState* web_state) {}
-
-base::string16 WebClient::GetPluginNotSupportedText() const {
-  return base::string16();
+std::u16string WebClient::GetPluginNotSupportedText() const {
+  return std::u16string();
 }
 
 std::string WebClient::GetUserAgent(UserAgentType type) const {
   return std::string();
 }
 
-base::string16 WebClient::GetLocalizedString(int message_id) const {
-  return base::string16();
+std::u16string WebClient::GetLocalizedString(int message_id) const {
+  return std::u16string();
 }
 
 base::StringPiece WebClient::GetDataResource(
     int resource_id,
-    ui::ScaleFactor scale_factor) const {
+    ui::ResourceScaleFactor scale_factor) const {
   return base::StringPiece();
 }
 
@@ -90,16 +81,6 @@ NSString* WebClient::GetDocumentStartScriptForMainFrame(
   return @"";
 }
 
-void WebClient::AllowCertificateError(WebState* web_state,
-                                      int cert_error,
-                                      const net::SSLInfo& ssl_info,
-                                      const GURL& request_url,
-                                      bool overridable,
-                                      int64_t navigation_id,
-                                      base::OnceCallback<void(bool)> callback) {
-  std::move(callback).Run(false);
-}
-
 bool WebClient::IsLegacyTLSAllowedForHost(WebState* web_state,
                                           const std::string& hostname) {
   return false;
@@ -110,7 +91,7 @@ void WebClient::PrepareErrorPage(WebState* web_state,
                                  NSError* error,
                                  bool is_post,
                                  bool is_off_the_record,
-                                 const base::Optional<net::SSLInfo>& info,
+                                 const absl::optional<net::SSLInfo>& info,
                                  int64_t navigation_id,
                                  base::OnceCallback<void(NSString*)> callback) {
   DCHECK(error);
@@ -129,17 +110,15 @@ bool WebClient::EnableLongPressUIContextMenu() const {
   return false;
 }
 
-bool WebClient::ForceMobileVersionByDefault(const GURL&) {
+bool WebClient::RestoreSessionFromCache(web::WebState* web_state) const {
   return false;
 }
+
+void WebClient::CleanupNativeRestoreURLs(web::WebState* web_state) const {}
 
 UserAgentType WebClient::GetDefaultUserAgent(id<UITraitEnvironment> web_view,
                                              const GURL& url) {
   return UserAgentType::MOBILE;
-}
-
-bool WebClient::IsEmbedderBlockRestoreUrlEnabled() {
-  return false;
 }
 
 }  // namespace web

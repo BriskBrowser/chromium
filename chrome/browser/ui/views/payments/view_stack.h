@@ -7,9 +7,10 @@
 
 #include <vector>
 
+#include "base/gtest_prod_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/animation/bounds_animator.h"
 #include "ui/views/animation/bounds_animator_observer.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace payments {

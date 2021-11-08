@@ -3,13 +3,15 @@
 // found in the LICENSE file.
 
 #include "chrome/test/base/test_switches.h"
-#include "build/build_config.h"
-#include "ppapi/buildflags/buildflags.h"
 
 namespace switches {
 
 // Also emit full event trace logs for successful tests.
 const char kAlsoEmitSuccessLogs[] = "also-emit-success-logs";
+
+// Directory to output JavaScript code coverage. When supplied enables coverage
+// in selected browser tests.
+const char kDevtoolsCodeCoverage[] = "devtools-code-coverage";
 
 // Show the mean value of histograms that native performance tests
 // are monitoring. Note that this is only applicable for PerformanceTest

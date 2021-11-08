@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/system/unified/user_chooser_detailed_view_controller.h"
+
 #include <memory>
 
 #include "ash/public/cpp/ash_view_ids.h"
@@ -33,6 +35,12 @@ AccountId GetActiveUser() {
 class UserChooserDetailedViewControllerTest : public AshTestBase {
  public:
   UserChooserDetailedViewControllerTest() = default;
+
+  UserChooserDetailedViewControllerTest(
+      const UserChooserDetailedViewControllerTest&) = delete;
+  UserChooserDetailedViewControllerTest& operator=(
+      const UserChooserDetailedViewControllerTest&) = delete;
+
   ~UserChooserDetailedViewControllerTest() override = default;
 
   // AshTestBase
@@ -49,13 +57,12 @@ class UserChooserDetailedViewControllerTest : public AshTestBase {
  private:
   std::unique_ptr<ui::ScopedAnimationDurationScaleMode> disable_animations_;
   std::unique_ptr<SystemTrayTestApi> tray_test_api_;
-  DISALLOW_COPY_AND_ASSIGN(UserChooserDetailedViewControllerTest);
 };
 
 TEST_F(UserChooserDetailedViewControllerTest,
        ShowMultiProfileLoginWithOverview) {
-  // Enter ovewview mode.
-  Shell::Get()->overview_controller()->StartOverview();
+  // Enter overview mode.
+  EnterOverview();
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
   // Show system tray.
@@ -78,13 +85,13 @@ TEST_F(UserChooserDetailedViewControllerTest, SwitchUserWithOverview) {
   const AccountId secondary_user =
       AccountId::FromUserEmail("secondary@gmail.com");
   GetSessionControllerClient()->AddUserSession(secondary_user.GetUserEmail());
-  ASSERT_FALSE(GetActiveUser() == secondary_user);
+  ASSERT_NE(GetActiveUser(), secondary_user);
 
   // Create an activatable widget.
   std::unique_ptr<views::Widget> widget = CreateTestWidget();
 
   // Enter overview mode.
-  Shell::Get()->overview_controller()->StartOverview();
+  EnterOverview();
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
   // Show system tray.
@@ -102,7 +109,19 @@ TEST_F(UserChooserDetailedViewControllerTest, SwitchUserWithOverview) {
   tray_test_api()->ClickBubbleView(secondary_user_button_id);
 
   // Active user is switched.
-  EXPECT_TRUE(GetActiveUser() == secondary_user);
+  EXPECT_EQ(GetActiveUser(), secondary_user);
+}
+
+TEST_F(UserChooserDetailedViewControllerTest,
+       MultiProfileLoginDisabledForFamilyLinkUsers) {
+  EXPECT_TRUE(UserChooserDetailedViewController::IsUserChooserEnabled());
+
+  GetSessionControllerClient()->Reset();
+
+  // Log in as a child user.
+  SimulateUserLogin("child@gmail.com", user_manager::USER_TYPE_CHILD);
+
+  EXPECT_FALSE(UserChooserDetailedViewController::IsUserChooserEnabled());
 }
 
 }  // namespace ash

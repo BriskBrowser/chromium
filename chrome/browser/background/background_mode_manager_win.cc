@@ -6,9 +6,9 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/sequenced_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/win/registry.h"
 #include "chrome/browser/background/background_mode_manager.h"
@@ -37,7 +37,7 @@ void BackgroundModeManager::EnableLaunchOnStartup(bool should_launch) {
 }
 
 void BackgroundModeManager::DisplayClientInstalledNotification(
-    const base::string16& name) {
+    const std::u16string& name) {
   // Create a status tray notification balloon explaining to the user what has
   // been installed.
   CreateStatusTrayIcon();

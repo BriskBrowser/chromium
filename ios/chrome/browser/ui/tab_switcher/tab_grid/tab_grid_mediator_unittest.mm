@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "base/mac/foundation_util.h"
-#include "base/optional.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/sessions/core/live_tab.h"
 #include "components/sessions/core/session_id.h"
@@ -29,6 +28,7 @@
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_consumer.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_switcher_item.h"
 #import "ios/chrome/browser/web/page_placeholder_tab_helper.h"
+#import "ios/chrome/browser/web/session_state/web_session_state_tab_helper.h"
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
 #include "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
@@ -42,6 +42,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #include "third_party/ocmock/gtest_support.h"
 
@@ -67,7 +68,7 @@ class FakeTabRestoreService : public sessions::TabRestoreService {
     NOTREACHED();
   }
 
-  base::Optional<SessionID> CreateHistoricalTab(sessions::LiveTab* live_tab,
+  absl::optional<SessionID> CreateHistoricalTab(sessions::LiveTab* live_tab,
                                                 int index) override {
     auto tab = std::make_unique<Tab>();
     int entry_count =
@@ -78,7 +79,7 @@ class FakeTabRestoreService : public sessions::TabRestoreService {
       tab->navigations[i] = entry;
     }
     entries_.push_front(std::move(tab));
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   void BrowserClosing(sessions::LiveTabContext* context) override {
@@ -86,6 +87,19 @@ class FakeTabRestoreService : public sessions::TabRestoreService {
   }
 
   void BrowserClosed(sessions::LiveTabContext* context) override {
+    NOTREACHED();
+  }
+
+  void CreateHistoricalGroup(sessions::LiveTabContext* context,
+                             const tab_groups::TabGroupId& group) override {
+    NOTREACHED();
+  }
+
+  void GroupClosed(const tab_groups::TabGroupId& group) override {
+    NOTREACHED();
+  }
+
+  void GroupCloseStopped(const tab_groups::TabGroupId& group) override {
     NOTREACHED();
   }
 
@@ -205,6 +219,10 @@ std::unique_ptr<KeyedService> BuildFakeTabRestoreService(
   [self.items insertObject:itemID atIndex:toIndex];
 }
 
+- (void)dismissModals {
+  // No-op.
+}
+
 @end
 
 // Fake WebStateList delegate that attaches the required tab helper.
@@ -223,6 +241,7 @@ class TabHelperFakeWebStateListDelegate : public FakeWebStateListDelegate {
     PagePlaceholderTabHelper::CreateForWebState(web_state);
     NSString* identifier = TabIdTabHelper::FromWebState(web_state)->tab_id();
     SnapshotTabHelper::CreateForWebState(web_state, identifier);
+    WebSessionStateTabHelper::CreateForWebState(web_state);
   }
 };
 
@@ -252,7 +271,7 @@ class TabGridMediatorTest : public PlatformTest {
     ClosingWebStateObserverBrowserAgent::CreateForBrowser(browser_.get());
     SnapshotBrowserAgent::CreateForBrowser(browser_.get());
     SnapshotBrowserAgent::FromBrowser(browser_.get())
-        ->SetSessionID(base::SysNSStringToUTF8([[NSUUID UUID] UUIDString]));
+        ->SetSessionID([[NSUUID UUID] UUIDString]);
 
     // Insert some web states.
     for (int i = 0; i < 3; i++) {
@@ -302,6 +321,8 @@ class TabGridMediatorTest : public PlatformTest {
         [[TestSessionService alloc] init];
     SessionRestorationBrowserAgent::CreateForBrowser(browser_.get(),
                                                      test_session_service);
+    SessionRestorationBrowserAgent::FromBrowser(browser_.get())
+        ->SetSessionID([[NSUUID UUID] UUIDString]);
   }
 
  protected:
@@ -372,7 +393,9 @@ TEST_F(TabGridMediatorTest, ConsumerReplaceItem) {
   TabIdTabHelper::CreateForWebState(new_web_state.get());
   NSString* new_item_identifier =
       TabIdTabHelper::FromWebState(new_web_state.get())->tab_id();
-  web_state_list_->ReplaceWebStateAt(1, std::move(new_web_state));
+  @autoreleasepool {
+    web_state_list_->ReplaceWebStateAt(1, std::move(new_web_state));
+  }
   EXPECT_EQ(3UL, consumer_.items.count);
   EXPECT_NSEQ(new_item_identifier, consumer_.selectedItemID);
   EXPECT_NSEQ(new_item_identifier, consumer_.items[1]);

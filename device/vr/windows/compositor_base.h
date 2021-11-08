@@ -9,6 +9,7 @@
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "device/vr/public/mojom/isolated_xr_service.mojom.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/util/fps_meter.h"
 #include "device/vr/util/sliding_average.h"
@@ -61,6 +62,10 @@ class XRCompositorCommon : public base::Thread,
       base::OnceCallback<void(bool result, mojom::XRSessionPtr)>;
 
   XRCompositorCommon();
+
+  XRCompositorCommon(const XRCompositorCommon&) = delete;
+  XRCompositorCommon& operator=(const XRCompositorCommon&) = delete;
+
   ~XRCompositorCommon() override;
 
   // on_presentation_ended will be called when this the compositor stops
@@ -107,6 +112,13 @@ class XRCompositorCommon : public base::Thread,
 
   std::unordered_set<device::mojom::XRSessionFeature> enabled_features_;
 
+  // Override the default of false if you wish to use shared buffers across
+  // processes
+  virtual bool IsUsingSharedImages() const;
+
+  void SubmitFrameWithTextureHandle(int16_t frame_index,
+                                    mojo::PlatformHandle texture_handle) final;
+
  private:
   // base::Thread overrides:
   void Init() final;
@@ -139,9 +151,7 @@ class XRCompositorCommon : public base::Thread,
                    base::TimeDelta time_waited) final;
   void SubmitFrameDrawnIntoTexture(int16_t frame_index,
                                    const gpu::SyncToken&,
-                                   base::TimeDelta time_waited) final;
-  void SubmitFrameWithTextureHandle(int16_t frame_index,
-                                    mojo::PlatformHandle texture_handle) final;
+                                   base::TimeDelta time_waited) override;
   void UpdateLayerBounds(int16_t frame_id,
                          const gfx::RectF& left_bounds,
                          const gfx::RectF& right_bounds,
@@ -184,7 +194,7 @@ class XRCompositorCommon : public base::Thread,
   SlidingTimeDeltaAverage webxr_js_time_;
   SlidingTimeDeltaAverage webxr_gpu_time_;
 
-  base::Optional<OutstandingFrame> pending_frame_;
+  absl::optional<OutstandingFrame> pending_frame_;
 
   bool is_presenting_ = false;  // True if we have a presenting session.
   bool webxr_visible_ = true;   // The browser may hide a presenting session.
@@ -209,8 +219,6 @@ class XRCompositorCommon : public base::Thread,
       mojom::XRVisibilityState::VISIBLE;
   mojom::VRStageParametersPtr current_stage_parameters_;
   uint32_t stage_parameters_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(XRCompositorCommon);
 };
 
 }  // namespace device

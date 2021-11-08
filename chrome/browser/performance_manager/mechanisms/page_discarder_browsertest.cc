@@ -4,7 +4,6 @@
 
 #include "chrome/browser/performance_manager/mechanisms/page_discarder.h"
 
-#include "base/callback_forward.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -19,7 +18,7 @@ namespace performance_manager {
 
 using PageDiscarderBrowserTest = InProcessBrowserTest;
 
-IN_PROC_BROWSER_TEST_F(PageDiscarderBrowserTest, DiscardPageNode) {
+IN_PROC_BROWSER_TEST_F(PageDiscarderBrowserTest, DiscardPageNodes) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   content::WindowedNotificationObserver load(
@@ -41,8 +40,8 @@ IN_PROC_BROWSER_TEST_F(PageDiscarderBrowserTest, DiscardPageNode) {
              base::OnceClosure quit_closure) {
             EXPECT_TRUE(page_node);
             mechanism::PageDiscarder discarder;
-            discarder.DiscardPageNode(
-                page_node.get(),
+            discarder.DiscardPageNodes(
+                {page_node.get()},
                 base::BindOnce(
                     [](base::OnceClosure quit_closure, bool success) {
                       EXPECT_TRUE(success);
@@ -50,7 +49,7 @@ IN_PROC_BROWSER_TEST_F(PageDiscarderBrowserTest, DiscardPageNode) {
                     },
                     std::move(quit_closure)));
           },
-          PerformanceManager::GetPageNodeForWebContents(contents),
+          PerformanceManager::GetPrimaryPageNodeForWebContents(contents),
           std::move(quit_closure)));
   run_loop.Run();
 

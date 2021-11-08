@@ -11,6 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import android.content.Context;
 import android.support.test.InstrumentationRegistry;
 
 import androidx.test.filters.MediumTest;
@@ -22,7 +23,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.ContextUtils;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterProvider;
 import org.chromium.base.test.params.ParameterSet;
@@ -87,7 +87,7 @@ public class LocationBarModelTest {
     @SmallTest
     public void testDisplayAndEditText() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            TestLocationBarModel model = new TestLocationBarModel();
+            TestLocationBarModel model = new TestLocationBarModel(mActivityTestRule.getActivity());
             model.mUrl = UrlConstants.NTP_URL;
             assertDisplayAndEditText(model, "", null);
 
@@ -105,6 +105,12 @@ public class LocationBarModelTest {
             model.mDisplayUrl = "foo.com";
             model.mFullUrl = "https://foo.com";
             assertDisplayAndEditText(model, "foo.com", "https://foo.com");
+
+            // https://crbug.com/1214481
+            model.mUrl = "";
+            model.mDisplayUrl = "about:blank";
+            model.mFullUrl = "about:blank";
+            assertDisplayAndEditText(model, "about:blank", "about:blank");
         });
     }
 
@@ -244,9 +250,9 @@ public class LocationBarModelTest {
         private String mFullUrl;
         private String mUrl;
 
-        public TestLocationBarModel() {
+        public TestLocationBarModel(Context context) {
             // clang-format off
-            super(ContextUtils.getApplicationContext(), NewTabPageDelegate.EMPTY,
+            super(context, NewTabPageDelegate.EMPTY,
                     DomDistillerTabUtils::getFormattedUrlFromOriginalDistillerUrl,
                     window -> null, new LocationBarModel.OfflineStatus() {},
                     SearchEngineLogoUtils.getInstance());

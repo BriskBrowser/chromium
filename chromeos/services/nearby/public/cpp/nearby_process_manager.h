@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "chromeos/services/nearby/public/mojom/nearby_connections.mojom.h"
 #include "chromeos/services/nearby/public/mojom/sharing.mojom.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "mojo/public/cpp/bindings/shared_remote.h"
@@ -28,6 +29,20 @@ class NearbyProcessManager : public KeyedService {
     GetNearbySharingDecoder() const = 0;
   };
 
+  // These values are used for metrics. Entries should not be renumbered and
+  // numeric values should never be reused. If entries are added, kMaxValue
+  // should be updated.
+  enum class NearbyProcessShutdownReason {
+    kNormal = 0,
+    kCrash = 1,
+    kDecoderMojoPipeDisconnection = 3,
+    kConnectionsMojoPipeDisconnection = 4,
+    kMaxValue = kConnectionsMojoPipeDisconnection
+  };
+
+  using NearbyProcessStoppedCallback =
+      base::OnceCallback<void(NearbyProcessShutdownReason)>;
+
   ~NearbyProcessManager() override = default;
 
   // Returns a reference which allows clients invoke functions implemented by
@@ -48,10 +63,24 @@ class NearbyProcessManager : public KeyedService {
   // Note: This function returns null if the user session is initializing or
   // shutting down.
   virtual std::unique_ptr<NearbyProcessReference> GetNearbyProcessReference(
-      base::OnceClosure on_process_stopped_callback) = 0;
+      NearbyProcessStoppedCallback on_process_stopped_callback) = 0;
+
+ private:
+  using KeyedService::Shutdown;
 };
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const NearbyProcessManager::NearbyProcessShutdownReason& reason);
 
 }  // namespace nearby
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after the migration is finished.
+namespace ash {
+namespace nearby {
+using ::chromeos::nearby::NearbyProcessManager;
+}
+}  // namespace ash
 
 #endif  // CHROMEOS_SERVICES_NEARBY_PUBLIC_CPP_NEARBY_PROCESS_MANAGER_H_

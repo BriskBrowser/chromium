@@ -13,9 +13,9 @@
 #include "base/guid.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "components/sync/base/client_tag_hash.h"
 #include "components/sync/base/unique_position.h"
@@ -25,18 +25,25 @@
 #include "components/sync/engine/cycle/status_controller.h"
 #include "components/sync/engine/model_type_processor.h"
 #include "components/sync/engine/sync_engine_switches.h"
+#include "components/sync/protocol/autofill_specifics.pb.h"
+#include "components/sync/protocol/entity_specifics.pb.h"
+#include "components/sync/protocol/model_type_state.pb.h"
+#include "components/sync/protocol/password_specifics.pb.h"
+#include "components/sync/protocol/sync.pb.h"
+#include "components/sync/protocol/sync_entity.pb.h"
 #include "components/sync/test/engine/fake_cryptographer.h"
 #include "components/sync/test/engine/mock_model_type_processor.h"
 #include "components/sync/test/engine/mock_nudge_handler.h"
 #include "components/sync/test/engine/single_type_mock_server.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
-using base::TimeDelta;
-using sync_pb::BookmarkSpecifics;
 using sync_pb::EntitySpecifics;
 using sync_pb::ModelTypeState;
 using sync_pb::SyncEntity;
+using testing::IsNull;
+using testing::NotNull;
 
 namespace syncer {
 
@@ -115,15 +122,15 @@ class ModelTypeWorkerTest : public ::testing::Test {
   const ClientTagHash kHash2 = GenerateTagHash(kTag2);
   const ClientTagHash kHash3 = GenerateTagHash(kTag3);
 
-  explicit ModelTypeWorkerTest(ModelType model_type = PREFERENCES)
-      : model_type_(model_type),
-        foreign_encryption_key_index_(0),
-        update_encryption_filter_index_(0),
-        mock_type_processor_(nullptr),
-        mock_server_(std::make_unique<SingleTypeMockServer>(model_type)),
-        is_processor_disconnected_(false) {}
+  ModelTypeWorkerTest()
+      : ModelTypeWorkerTest(PREFERENCES, /*is_encrypted_type=*/false) {}
 
-  ~ModelTypeWorkerTest() override {}
+  ModelTypeWorkerTest(ModelType model_type, bool is_encrypted_type)
+      : model_type_(model_type),
+        is_encrypted_type_(is_encrypted_type),
+        mock_server_(std::make_unique<SingleTypeMockServer>(model_type)) {}
+
+  ~ModelTypeWorkerTest() override = default;
 
   // One of these Initialize functions should be called at the beginning of
   // each test.
@@ -167,62 +174,53 @@ class ModelTypeWorkerTest : public ::testing::Test {
 
   // Initialize with a custom initial ModelTypeState and pending updates.
   void InitializeWithState(const ModelType type, const ModelTypeState& state) {
-    DCHECK(!worker());
+    DCHECK(!worker_);
+    worker_ = std::make_unique<ModelTypeWorker>(
+        type, state, &cryptographer_, is_encrypted_type_,
+        PassphraseType::kImplicitPassphrase, &mock_nudge_handler_,
+        &cancelation_signal_);
 
     // We don't get to own this object. The |worker_| keeps a unique_ptr to it.
     auto processor = std::make_unique<MockModelTypeProcessor>();
     mock_type_processor_ = processor.get();
     processor->SetDisconnectCallback(base::BindOnce(
         &ModelTypeWorkerTest::DisconnectProcessor, base::Unretained(this)));
-
-    std::unique_ptr<Cryptographer> cryptographer_copy;
-    if (cryptographer_) {
-      cryptographer_copy = cryptographer_->Clone();
-    }
-
-    worker_ = std::make_unique<ModelTypeWorker>(
-        type, state, !state.initial_sync_done(), std::move(cryptographer_copy),
-        PassphraseType::kImplicitPassphrase, &mock_nudge_handler_,
-        std::move(processor), &cancelation_signal_);
-  }
-
-  void InitializeCryptographer() {
-    if (!cryptographer_) {
-      cryptographer_ = std::make_unique<FakeCryptographer>();
-    }
+    worker_->ConnectSync(std::move(processor));
   }
 
   // Mimic a Nigori update with a keybag that cannot be decrypted, which means
   // the cryptographer becomes unusable (no default key until the issue gets
   // resolved, via DecryptPendingKey()).
   void AddPendingKey() {
-    InitializeCryptographer();
+    AddPendingKeyWithoutEnablingEncryption();
+    if (!is_encrypted_type_ && worker()) {
+      worker()->EnableEncryption();
+    }
+    is_encrypted_type_ = true;
+  }
 
-    foreign_encryption_key_index_++;
-    cryptographer_->ClearDefaultEncryptionKey();
-
-    // Update the worker with the latest cryptographer.
+  void AddPendingKeyWithoutEnablingEncryption() {
+    DCHECK(encryption_keys_count_ == 0 ||
+           cryptographer_.GetDefaultEncryptionKeyName() ==
+               GetNthKeyName(encryption_keys_count_));
+    encryption_keys_count_++;
+    cryptographer_.ClearDefaultEncryptionKey();
     if (worker()) {
-      worker()->UpdateCryptographer(cryptographer_->Clone());
+      worker()->OnCryptographerChange();
     }
   }
 
-  // Update the local cryptographer with all relevant keys.
+  // Must only be called if there was a previous call to AddPendingKey().
+  // Decrypts the pending key and adds it to the cryptographer.
   void DecryptPendingKey() {
-    DCHECK_NE(foreign_encryption_key_index_, 0);
-    InitializeCryptographer();
+    DCHECK_GT(encryption_keys_count_, 0);
+    DCHECK(cryptographer_.GetDefaultEncryptionKeyName().empty());
+    std::string last_key_name = GetNthKeyName(encryption_keys_count_);
+    cryptographer_.AddEncryptionKey(last_key_name);
+    cryptographer_.SelectDefaultEncryptionKey(last_key_name);
 
-    std::string last_key_name;
-    for (int i = 1; i <= foreign_encryption_key_index_; ++i) {
-      last_key_name = GetNthKeyName(i);
-      cryptographer_->AddEncryptionKey(last_key_name);
-    }
-    cryptographer_->SelectDefaultEncryptionKey(last_key_name);
-
-    // Update the worker with the latest cryptographer.
     if (worker()) {
-      worker()->UpdateCryptographer(cryptographer_->Clone());
-      worker()->EncryptionAcceptedMaybeApplyUpdates();
+      worker()->OnCryptographerChange();
     }
   }
 
@@ -273,7 +271,7 @@ class ModelTypeWorkerTest : public ::testing::Test {
     worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
                                         server()->GetContext(), {&entity},
                                         &status_controller_);
-    worker()->PassiveApplyUpdates(&status_controller_);
+    worker()->ApplyUpdates(&status_controller_);
   }
 
   void TriggerPartialUpdateFromServer(int64_t version_offset,
@@ -375,8 +373,10 @@ class ModelTypeWorkerTest : public ::testing::Test {
   // about other tasks being run between the time when the commit request is
   // issued and the time when the commit response is received.
   void DoSuccessfulCommit() {
-    std::unique_ptr<CommitContribution> contribution(
-        worker()->GetContribution(INT_MAX));
+    DoSuccessfulCommit(worker()->GetContribution(INT_MAX));
+  }
+
+  void DoSuccessfulCommit(std::unique_ptr<CommitContribution> contribution) {
     DCHECK(contribution);
 
     sync_pb::ClientToServerMessage message;
@@ -406,35 +406,33 @@ class ModelTypeWorkerTest : public ::testing::Test {
 
   void ResetWorker() { worker_.reset(); }
 
-  // Returns the name of the encryption key in the cryptographer last passed to
-  // the CommitQueue. Returns an empty string if no cryptographer is
-  // in use. See also: DecryptPendingKey().
-  std::string GetLocalCryptographerKeyName() const {
-    if (!cryptographer_) {
-      return std::string();
-    }
-    return cryptographer_->GetDefaultEncryptionKeyName();
-  }
-
   MockModelTypeProcessor* processor() { return mock_type_processor_; }
   ModelTypeWorker* worker() { return worker_.get(); }
   SingleTypeMockServer* server() { return mock_server_.get(); }
   MockNudgeHandler* nudge_handler() { return &mock_nudge_handler_; }
   StatusController* status_controller() { return &status_controller_; }
+  std::string default_encryption_key_name() {
+    return cryptographer_.GetDefaultEncryptionKeyName();
+  }
 
  private:
+  base::test::SingleThreadTaskEnvironment task_environment_;
+
   const ModelType model_type_;
 
-  // The cryptographer itself. Null if we're not encrypting the type.
-  std::unique_ptr<FakeCryptographer> cryptographer_;
+  FakeCryptographer cryptographer_;
 
-  // The number of the most recent foreign encryption key known to our
-  // cryptographer. Note that not all of these will be decryptable.
-  int foreign_encryption_key_index_;
+  // Determines whether |worker_| has access to the cryptographer or not.
+  bool is_encrypted_type_ = false;
+
+  // The number of encryption keys known to the cryptographer. Keys are
+  // identified by an index from 1 to |encryption_keys_count_| and the last one
+  // might not have been decrypted yet.
+  int encryption_keys_count_ = 0;
 
   // The number of the encryption key used to encrypt incoming updates. A zero
   // value implies no encryption.
-  int update_encryption_filter_index_;
+  int update_encryption_filter_index_ = 0;
 
   CancelationSignal cancelation_signal_;
 
@@ -443,7 +441,7 @@ class ModelTypeWorkerTest : public ::testing::Test {
 
   // Non-owned, possibly null pointer. This object belongs to the
   // ModelTypeWorker under test.
-  MockModelTypeProcessor* mock_type_processor_;
+  MockModelTypeProcessor* mock_type_processor_ = nullptr;
 
   // A mock that emulates enough of the sync server that it can be used
   // a single UpdateHandler and CommitContributor pair. In this test
@@ -454,7 +452,7 @@ class ModelTypeWorkerTest : public ::testing::Test {
   // sync.
   MockNudgeHandler mock_nudge_handler_;
 
-  bool is_processor_disconnected_;
+  bool is_processor_disconnected_ = false;
 
   StatusController status_controller_;
 };
@@ -973,7 +971,7 @@ TEST_F(ModelTypeWorkerTest, EncryptedCommit) {
   AddPendingKey();
   DecryptPendingKey();
   ASSERT_EQ(1U, processor()->GetNumUpdateResponses());
-  EXPECT_EQ(GetLocalCryptographerKeyName(),
+  EXPECT_EQ(default_encryption_key_name(),
             processor()->GetNthUpdateState(0).encryption_key_name());
 
   // Normal commit request stuff.
@@ -1005,7 +1003,7 @@ TEST_F(ModelTypeWorkerTest, EncryptedDelete) {
   AddPendingKey();
   DecryptPendingKey();
   ASSERT_EQ(1U, processor()->GetNumUpdateResponses());
-  EXPECT_EQ(GetLocalCryptographerKeyName(),
+  EXPECT_EQ(default_encryption_key_name(),
             processor()->GetNthUpdateState(0).encryption_key_name());
 
   // Normal commit request stuff.
@@ -1154,7 +1152,7 @@ TEST_F(ModelTypeWorkerTest, InitializeWithCryptographer) {
   // possible, so that it will have the chance to re-encrypt local data if
   // necessary.
   ASSERT_EQ(1U, processor()->GetNumUpdateResponses());
-  EXPECT_EQ(GetLocalCryptographerKeyName(),
+  EXPECT_EQ(default_encryption_key_name(),
             processor()->GetNthUpdateState(0).encryption_key_name());
 }
 
@@ -1172,7 +1170,7 @@ TEST_F(ModelTypeWorkerTest, InitializeWithPendingCryptographer) {
   // Init the cryptographer, it'll push the EKN.
   DecryptPendingKey();
   ASSERT_EQ(1U, processor()->GetNumUpdateResponses());
-  EXPECT_EQ(GetLocalCryptographerKeyName(),
+  EXPECT_EQ(default_encryption_key_name(),
             processor()->GetNthUpdateState(0).encryption_key_name());
 }
 
@@ -1191,7 +1189,7 @@ TEST_F(ModelTypeWorkerTest, FirstInitializeWithCryptographer) {
   // Now perform first sync and make sure the EKN makes it.
   TriggerTypeRootUpdateFromServer();
   ASSERT_EQ(1U, processor()->GetNumUpdateResponses());
-  EXPECT_EQ(GetLocalCryptographerKeyName(),
+  EXPECT_EQ(default_encryption_key_name(),
             processor()->GetNthUpdateState(0).encryption_key_name());
 }
 
@@ -1209,7 +1207,7 @@ TEST_F(ModelTypeWorkerTest, CryptographerDuringInitialization) {
   // Now perform first sync and make sure the EKN makes it.
   TriggerTypeRootUpdateFromServer();
   ASSERT_EQ(1U, processor()->GetNumUpdateResponses());
-  EXPECT_EQ(GetLocalCryptographerKeyName(),
+  EXPECT_EQ(default_encryption_key_name(),
             processor()->GetNthUpdateState(0).encryption_key_name());
 }
 
@@ -1237,7 +1235,7 @@ TEST_F(ModelTypeWorkerTest, ReceiveUndecryptableEntries) {
   const UpdateResponseData& update = processor()->GetUpdateResponse(kHash1);
   EXPECT_EQ(kTag1, update.entity.specifics.preference().name());
   EXPECT_EQ(kValue1, update.entity.specifics.preference().value());
-  EXPECT_EQ(GetLocalCryptographerKeyName(), update.encryption_key_name);
+  EXPECT_EQ(default_encryption_key_name(), update.encryption_key_name);
 }
 
 TEST_F(ModelTypeWorkerTest, OverwriteUndecryptableUpdateWithDecryptableOne) {
@@ -1296,49 +1294,85 @@ TEST_F(ModelTypeWorkerTest, ReceiveCorruptEncryption) {
   EXPECT_TRUE(processor()->HasUpdateResponse(kHash1));
 }
 
+// See crbug.com/1178418 for more context.
+TEST_F(ModelTypeWorkerTest, DecryptUpdateIfPossibleDespiteEncryptionDisabled) {
+  // Make key 1 available to the underlying cryptographer without actually
+  // enabling encryption for the worker.
+  AddPendingKeyWithoutEnablingEncryption();
+  DecryptPendingKey();
+  NormalInitialize();
+  ASSERT_FALSE(worker()->IsEncryptionEnabledForTest());
+
+  // Send an update encrypted with the known key.
+  SyncEntity update;
+  update.set_id_string("1");
+  EncryptUpdateWithNthKey(1, update.mutable_specifics());
+  worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
+                                      server()->GetContext(), {&update},
+                                      status_controller());
+  worker()->ApplyUpdates(status_controller());
+
+  // Even though encryption is disabled for this worker, it should decrypt the
+  // update and pass it on to the processor.
+  EXPECT_FALSE(worker()->BlockForEncryption());
+  EXPECT_EQ(1u, processor()->GetNumUpdateResponses());
+  EXPECT_EQ(1u, processor()->GetNthUpdateResponse(0).size());
+}
+
 TEST_F(ModelTypeWorkerTest, TimeUntilEncryptionKeyFoundMetric) {
   base::HistogramTester histogram_tester;
   NormalInitialize();
-  int gu_responses_while_should_have_been_known = 0;
+  int get_updates_while_should_have_been_known = 0;
 
   // Send a GetUpdatesResponse containing data encrypted with an unknown key.
   // The cryptographer doesn't have pending keys, so in theory this key should
-  // have been known.
+  // have been known by now. This will cause
+  // |get_updates_while_should_have_been_known| to be incremented by the end
+  // of this GetUpdates cycle.
   SetUpdateEncryptionFilter(1);
-  TriggerUpdateFromServer(10, kTag1, kValue1);
-  gu_responses_while_should_have_been_known++;
+  TriggerPartialUpdateFromServer(10, kTag1, kValue1);
 
   // The fact that the data type is now blocked should have been recorded.
   histogram_tester.ExpectUniqueSample(
       "Sync.ModelTypeBlockedDueToUndecryptableUpdate",
       ModelTypeHistogramValue(worker()->GetModelType()), 1);
 
-  // Send empty GetUpdatesResponse. Again, the cryptographer isn't in a pending
-  // state, so increase |gu_responses_while_should_have_been_known|.
+  // Send empty GetUpdatesResponse. The counter shouldn't change.
   worker()->ProcessGetUpdatesResponse(
       server()->GetProgress(), server()->GetContext(), {}, status_controller());
-  gu_responses_while_should_have_been_known++;
+
+  // Finish the GetUpdates cycle. The counter should be set to 1.
+  ApplyUpdates();
+  get_updates_while_should_have_been_known++;
+
+  // An empty GetUpdates cycle. The counter should be set to 2.
+  worker()->ProcessGetUpdatesResponse(
+      server()->GetProgress(), server()->GetContext(), {}, status_controller());
+  ApplyUpdates();
+  get_updates_while_should_have_been_known++;
 
   // Send the Nigori containing the missing key. The key isn't available yet
   // though.
   AddPendingKey();
 
-  // Another empty GetUpdatesResponse. This one shouldn't be counted, since the
+  // Another empty GetUpdates cycle. This one shouldn't be counted, since the
   // cryptographer now knows it's lacking some keys.
   worker()->ProcessGetUpdatesResponse(
       server()->GetProgress(), server()->GetContext(), {}, status_controller());
+  ApplyUpdates();
 
   // Double check the histogram hasn't been recorded so far.
   const std::string histogram_name =
-      std::string("Sync.ModelTypeTimeUntilEncryptionKeyFound.") +
+      std::string("Sync.ModelTypeTimeUntilEncryptionKeyFound2.") +
       ModelTypeToHistogramSuffix(worker()->GetModelType());
   EXPECT_TRUE(histogram_tester.GetAllSamples(histogram_name).empty());
 
-  // Make the key available. The correct number of GetUpdatesResponse should
+  // Make the key available. The correct number of GetUpdates cycles should
   // have been recorded.
   DecryptPendingKey();
+  ASSERT_EQ(2, get_updates_while_should_have_been_known);
   histogram_tester.ExpectUniqueSample(
-      histogram_name, gu_responses_while_should_have_been_known, 1);
+      histogram_name, get_updates_while_should_have_been_known, 1);
 }
 
 TEST_F(ModelTypeWorkerTest, IgnoreUpdatesEncryptedWithKeysMissingForTooLong) {
@@ -1348,7 +1382,7 @@ TEST_F(ModelTypeWorkerTest, IgnoreUpdatesEncryptedWithKeysMissingForTooLong) {
       switches::kIgnoreSyncEncryptionKeysLongMissing);
 
   NormalInitialize();
-  worker()->SetMinGuResponsesToIgnoreKeyForTest(2);
+  worker()->SetMinGetUpdatesToIgnoreKeyForTest(2);
 
   // Send an update encrypted with a key that shall remain unknown.
   SetUpdateEncryptionFilter(1);
@@ -1358,9 +1392,10 @@ TEST_F(ModelTypeWorkerTest, IgnoreUpdatesEncryptedWithKeysMissingForTooLong) {
   // the worker is still blocked.
   EXPECT_TRUE(worker()->BlockForEncryption());
 
-  // Send empty GetUpdatesResponse, reaching the threshold of 2.
+  // Send empty GetUpdates, reaching the threshold of 2.
   worker()->ProcessGetUpdatesResponse(
       server()->GetProgress(), server()->GetContext(), {}, status_controller());
+  ApplyUpdates();
 
   // The undecryptable update should have been dropped and the worker is no
   // longer blocked.
@@ -1380,7 +1415,7 @@ TEST_F(ModelTypeWorkerTest, IgnoreUpdatesEncryptedWithKeysMissingForTooLong) {
   // Should have recorded that 1 incoming update was ignored.
   histogram_tester.ExpectUniqueSample(
       "Sync.ModelTypeUpdateDrop.DecryptionPendingForTooLong",
-      worker()->GetModelType(), 1);
+      ModelTypeHistogramValue(worker()->GetModelType()), 1);
 }
 
 // Test that processor has been disconnected from Sync when worker got
@@ -1462,8 +1497,18 @@ TEST_F(ModelTypeWorkerTest, CommitOnly) {
   EXPECT_FALSE(commit_response.specifics_hash.empty());
 }
 
-TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseData) {
+TEST_F(ModelTypeWorkerTest, ShouldPropagateCommitFailure) {
   NormalInitialize();
+  processor()->SetCommitRequest(GenerateCommitRequest(kTag1, kValue1));
+
+  DoCommitFailure();
+
+  EXPECT_EQ(1U, processor()->GetNumCommitFailures());
+  EXPECT_EQ(0U, processor()->GetNumCommitResponses());
+}
+
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
+     NonBookmarkNorWalletSucceeds) {
   sync_pb::SyncEntity entity;
 
   entity.set_id_string("SomeID");
@@ -1478,14 +1523,12 @@ TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseData) {
 
   base::HistogramTester histogram_tester;
 
-  EXPECT_EQ(
-      ModelTypeWorker::SUCCESS,
-      ModelTypeWorker::PopulateUpdateResponseData(
-          /*cryptographer=*/nullptr, PREFERENCES, entity, &response_data));
+  EXPECT_EQ(ModelTypeWorker::SUCCESS,
+            ModelTypeWorker::PopulateUpdateResponseData(
+                FakeCryptographer(), PREFERENCES, entity, &response_data));
   const EntityData& data = response_data.entity;
   EXPECT_FALSE(data.id.empty());
   EXPECT_FALSE(data.parent_id.empty());
-  EXPECT_FALSE(data.is_folder);
   EXPECT_EQ("CLIENT_TAG", data.client_tag_hash.value());
   EXPECT_EQ("SERVER_TAG", data.server_defined_unique_tag);
   EXPECT_FALSE(data.is_deleted());
@@ -1493,7 +1536,7 @@ TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseData) {
   EXPECT_EQ(kValue1, data.specifics.preference().value());
 }
 
-TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseDataForBookmarkTombstone) {
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest, BookmarkTombstone) {
   sync_pb::SyncEntity entity;
   // Production server sets the name to be "tombstone" for all tombstones.
   entity.set_name("tombstone");
@@ -1512,130 +1555,94 @@ TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseDataForBookmarkTombstone) {
   UpdateResponseData response_data;
   EXPECT_EQ(ModelTypeWorker::SUCCESS,
             ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, BOOKMARKS, entity, &response_data));
+                FakeCryptographer(), BOOKMARKS, entity, &response_data));
 
   const EntityData& data = response_data.entity;
   // A tombstone should remain a tombstone after populating the response data.
   EXPECT_TRUE(data.is_deleted());
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForBookmarkWithUniquePosition) {
-  NormalInitialize();
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
+     BookmarkWithUniquePositionInSyncEntity) {
+  const UniquePosition kUniquePosition =
+      UniquePosition::InitialPosition(UniquePosition::RandomSuffix());
   sync_pb::SyncEntity entity;
-
-  *entity.mutable_unique_position() =
-      UniquePosition::InitialPosition(UniquePosition::RandomSuffix()).ToProto();
+  *entity.mutable_unique_position() = kUniquePosition.ToProto();
   entity.set_client_defined_unique_tag("CLIENT_TAG");
   entity.set_server_defined_unique_tag("SERVER_TAG");
-  *entity.mutable_specifics() = GenerateSpecifics(kTag1, kValue1);
+  entity.mutable_specifics()->mutable_bookmark();
 
   UpdateResponseData response_data;
 
   EXPECT_EQ(ModelTypeWorker::SUCCESS,
             ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, BOOKMARKS, entity, &response_data));
+                FakeCryptographer(), BOOKMARKS, entity, &response_data));
   const EntityData& data = response_data.entity;
-  EXPECT_TRUE(
-      syncer::UniquePosition::FromProto(data.unique_position).IsValid());
+  EXPECT_TRUE(syncer::UniquePosition::FromProto(
+                  data.specifics.bookmark().unique_position())
+                  .Equals(kUniquePosition));
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForBookmarkWithPositionInParent) {
-  NormalInitialize();
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
+     BookmarkWithPositionInParent) {
   sync_pb::SyncEntity entity;
-
   entity.set_position_in_parent(5);
   entity.set_client_defined_unique_tag("CLIENT_TAG");
   entity.set_server_defined_unique_tag("SERVER_TAG");
-  *entity.mutable_specifics() = GenerateSpecifics(kTag1, kValue1);
+  entity.mutable_specifics()->mutable_bookmark();
 
   UpdateResponseData response_data;
 
   EXPECT_EQ(ModelTypeWorker::SUCCESS,
             ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, BOOKMARKS, entity, &response_data));
+                FakeCryptographer(), BOOKMARKS, entity, &response_data));
   const EntityData& data = response_data.entity;
-  EXPECT_TRUE(
-      syncer::UniquePosition::FromProto(data.unique_position).IsValid());
+  EXPECT_TRUE(syncer::UniquePosition::FromProto(
+                  data.specifics.bookmark().unique_position())
+                  .IsValid());
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForBookmarkWithInsertAfterItemId) {
-  NormalInitialize();
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
+     BookmarkWithInsertAfterItemId) {
   sync_pb::SyncEntity entity;
-
   entity.set_insert_after_item_id("ITEM_ID");
   entity.set_client_defined_unique_tag("CLIENT_TAG");
   entity.set_server_defined_unique_tag("SERVER_TAG");
-  *entity.mutable_specifics() = GenerateSpecifics(kTag1, kValue1);
+  entity.mutable_specifics()->mutable_bookmark();
 
   UpdateResponseData response_data;
 
   EXPECT_EQ(ModelTypeWorker::SUCCESS,
             ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, BOOKMARKS, entity, &response_data));
+                FakeCryptographer(), BOOKMARKS, entity, &response_data));
   const EntityData& data = response_data.entity;
-  EXPECT_TRUE(
-      syncer::UniquePosition::FromProto(data.unique_position).IsValid());
+  EXPECT_TRUE(syncer::UniquePosition::FromProto(
+                  data.specifics.bookmark().unique_position())
+                  .IsValid());
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForBookmarkWithMissingPosition) {
-  NormalInitialize();
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
+     BookmarkWithMissingPositionFallsBackToRandom) {
   sync_pb::SyncEntity entity;
-
   entity.set_client_defined_unique_tag("CLIENT_TAG");
   entity.set_server_defined_unique_tag("SERVER_TAG");
-  EntitySpecifics specifics;
-  specifics.mutable_bookmark()->set_url("http://www.url.com");
-
-  *entity.mutable_specifics() = specifics;
+  entity.mutable_specifics()->mutable_bookmark();
 
   UpdateResponseData response_data;
 
   EXPECT_EQ(ModelTypeWorker::SUCCESS,
             ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, BOOKMARKS, entity, &response_data));
+                FakeCryptographer(), BOOKMARKS, entity, &response_data));
   const EntityData& data = response_data.entity;
-  EXPECT_FALSE(
-      syncer::UniquePosition::FromProto(data.unique_position).IsValid());
+  EXPECT_TRUE(syncer::UniquePosition::FromProto(
+                  data.specifics.bookmark().unique_position())
+                  .IsValid());
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForNonBookmarkWithNoPosition) {
-  NormalInitialize();
-  sync_pb::SyncEntity entity;
-
-  EntitySpecifics specifics;
-  *entity.mutable_specifics() = GenerateSpecifics(kTag1, kValue1);
-
-  UpdateResponseData response_data;
-
-  EXPECT_EQ(
-      ModelTypeWorker::SUCCESS,
-      ModelTypeWorker::PopulateUpdateResponseData(
-          /*cryptographer=*/nullptr, PREFERENCES, entity, &response_data));
-  const EntityData& data = response_data.entity;
-  EXPECT_FALSE(
-      syncer::UniquePosition::FromProto(data.unique_position).IsValid());
-}
-
-TEST_F(ModelTypeWorkerTest, ShouldPropagateCommitFailure) {
-  NormalInitialize();
-  processor()->SetCommitRequest(GenerateCommitRequest(kTag1, kValue1));
-
-  DoCommitFailure();
-
-  EXPECT_EQ(1U, processor()->GetNumCommitFailures());
-  EXPECT_EQ(0U, processor()->GetNumCommitResponses());
-}
-
-TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseDataForBookmarkWithGUID) {
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest, BookmarkWithGUID) {
   const std::string kGuid1 = base::GenerateGUID();
   const std::string kGuid2 = base::GenerateGUID();
 
-  NormalInitialize();
   sync_pb::SyncEntity entity;
 
   // Generate specifics with a GUID.
@@ -1648,7 +1655,7 @@ TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseDataForBookmarkWithGUID) {
 
   EXPECT_EQ(ModelTypeWorker::SUCCESS,
             ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, BOOKMARKS, entity, &response_data));
+                FakeCryptographer(), BOOKMARKS, entity, &response_data));
 
   const EntityData& data = response_data.entity;
 
@@ -1656,14 +1663,13 @@ TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseDataForBookmarkWithGUID) {
   EXPECT_EQ(kGuid2, data.originator_client_item_id);
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForBookmarkWithMissingGUID) {
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest, BookmarkWithMissingGUID) {
   const std::string kGuid1 = base::GenerateGUID();
 
-  NormalInitialize();
   sync_pb::SyncEntity entity;
 
   // Generate specifics without a GUID.
+  entity.mutable_specifics()->mutable_bookmark();
   entity.set_originator_client_item_id(kGuid1);
   *entity.mutable_unique_position() =
       UniquePosition::InitialPosition(UniquePosition::RandomSuffix()).ToProto();
@@ -1672,7 +1678,7 @@ TEST_F(ModelTypeWorkerTest,
 
   EXPECT_EQ(ModelTypeWorker::SUCCESS,
             ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, BOOKMARKS, entity, &response_data));
+                FakeCryptographer(), BOOKMARKS, entity, &response_data));
 
   const EntityData& data = response_data.entity;
 
@@ -1680,15 +1686,15 @@ TEST_F(ModelTypeWorkerTest,
   EXPECT_EQ(kGuid1, data.specifics.bookmark().guid());
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForBookmarkWithMissingGUIDAndInvalidOCII) {
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
+     BookmarkWithMissingGUIDAndInvalidOCII) {
   const std::string kInvalidOCII = "INVALID OCII";
 
-  NormalInitialize();
   sync_pb::SyncEntity entity;
 
   // Generate specifics without a GUID and with an invalid
   // originator_client_item_id.
+  entity.mutable_specifics()->mutable_bookmark();
   entity.set_originator_client_item_id(kInvalidOCII);
   *entity.mutable_unique_position() =
       UniquePosition::InitialPosition(UniquePosition::RandomSuffix()).ToProto();
@@ -1697,7 +1703,7 @@ TEST_F(ModelTypeWorkerTest,
 
   EXPECT_EQ(ModelTypeWorker::SUCCESS,
             ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, BOOKMARKS, entity, &response_data));
+                FakeCryptographer(), BOOKMARKS, entity, &response_data));
 
   const EntityData& data = response_data.entity;
 
@@ -1705,9 +1711,8 @@ TEST_F(ModelTypeWorkerTest,
   EXPECT_TRUE(base::IsValidGUIDOutputString(data.specifics.bookmark().guid()));
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForWalletDataWithMissingClientTagHash) {
-  NormalInitialize();
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
+     WalletDataWithMissingClientTagHash) {
   UpdateResponseData response_data;
 
   // Set up the entity with an arbitrary value for an arbitrary field in the
@@ -1716,18 +1721,17 @@ TEST_F(ModelTypeWorkerTest,
   entity.mutable_specifics()->mutable_autofill_wallet()->set_type(
       sync_pb::AutofillWalletSpecifics::POSTAL_ADDRESS);
 
-  ASSERT_EQ(ModelTypeWorker::SUCCESS,
-            ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, AUTOFILL_WALLET_DATA, entity,
-                &response_data));
+  ASSERT_EQ(
+      ModelTypeWorker::SUCCESS,
+      ModelTypeWorker::PopulateUpdateResponseData(
+          FakeCryptographer(), AUTOFILL_WALLET_DATA, entity, &response_data));
 
   // The client tag hash gets filled in by the worker.
   EXPECT_FALSE(response_data.entity.client_tag_hash.value().empty());
 }
 
-TEST_F(ModelTypeWorkerTest,
-       PopulateUpdateResponseDataForOfferDataWithMissingClientTagHash) {
-  NormalInitialize();
+TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
+     OfferDataWithMissingClientTagHash) {
   UpdateResponseData response_data;
 
   // Set up the entity with an arbitrary value for an arbitrary field in the
@@ -1735,10 +1739,10 @@ TEST_F(ModelTypeWorkerTest,
   sync_pb::SyncEntity entity;
   entity.mutable_specifics()->mutable_autofill_offer()->set_id(1234567);
 
-  ASSERT_EQ(ModelTypeWorker::SUCCESS,
-            ModelTypeWorker::PopulateUpdateResponseData(
-                /*cryptographer=*/nullptr, AUTOFILL_WALLET_OFFER, entity,
-                &response_data));
+  ASSERT_EQ(
+      ModelTypeWorker::SUCCESS,
+      ModelTypeWorker::PopulateUpdateResponseData(
+          FakeCryptographer(), AUTOFILL_WALLET_OFFER, entity, &response_data));
 
   // The client tag hash gets filled in by the worker.
   EXPECT_FALSE(response_data.entity.client_tag_hash.value().empty());
@@ -1846,9 +1850,8 @@ class ModelTypeWorkerPasswordsTest : public ModelTypeWorkerTest {
  protected:
   const std::string kPassword = "SomePassword";
 
-  ModelTypeWorkerPasswordsTest() : ModelTypeWorkerTest(PASSWORDS) {
-    InitializeCryptographer();
-  }
+  ModelTypeWorkerPasswordsTest()
+      : ModelTypeWorkerTest(PASSWORDS, /*is_encrypted_type=*/true) {}
 };
 
 // Similar to EncryptedCommit but tests PASSWORDS specifically, which use a
@@ -1862,7 +1865,7 @@ TEST_F(ModelTypeWorkerPasswordsTest, PasswordCommit) {
   AddPendingKey();
   DecryptPendingKey();
   ASSERT_EQ(1U, processor()->GetNumUpdateResponses());
-  EXPECT_EQ(GetLocalCryptographerKeyName(),
+  EXPECT_EQ(default_encryption_key_name(),
             processor()->GetNthUpdateState(0).encryption_key_name());
 
   EntitySpecifics specifics;
@@ -2037,7 +2040,8 @@ TEST_F(ModelTypeWorkerPasswordsTest, ReceiveCorruptedPasswordEntities) {
 // to test some special encryption requirements for BOOKMARKS.
 class ModelTypeWorkerBookmarksTest : public ModelTypeWorkerTest {
  protected:
-  ModelTypeWorkerBookmarksTest() : ModelTypeWorkerTest(BOOKMARKS) {}
+  ModelTypeWorkerBookmarksTest()
+      : ModelTypeWorkerTest(BOOKMARKS, /*is_encrypted_type=*/false) {}
 };
 
 TEST_F(ModelTypeWorkerBookmarksTest, CanDecryptUpdateWithMissingBookmarkGUID) {
@@ -2221,6 +2225,126 @@ TEST_F(ModelTypeWorkerBookmarksTest,
                                                 .at(0)
                                                 ->entity.specifics.bookmark()
                                                 .guid()));
+}
+
+TEST_F(ModelTypeWorkerTest, ShouldNotHaveLocalChangesOnSuccessfulLastCommit) {
+  const size_t kMaxEntities = 5;
+
+  NormalInitialize();
+
+  ASSERT_FALSE(worker()->HasLocalChangesForTest());
+  processor()->SetCommitRequest(GenerateCommitRequest(kTag1, kValue1));
+  worker()->NudgeForCommit();
+  ASSERT_TRUE(worker()->HasLocalChangesForTest());
+
+  std::unique_ptr<CommitContribution> contribution(
+      worker()->GetContribution(kMaxEntities));
+  ASSERT_THAT(contribution, NotNull());
+  ASSERT_EQ(1u, contribution->GetNumEntries());
+
+  // Entities are in-flight and it's considered to have local changes.
+  EXPECT_TRUE(worker()->HasLocalChangesForTest());
+
+  // Finish the commit successfully.
+  DoSuccessfulCommit(std::move(contribution));
+  EXPECT_FALSE(worker()->HasLocalChangesForTest());
+}
+
+TEST_F(ModelTypeWorkerTest, ShouldHaveLocalChangesOnCommitFailure) {
+  NormalInitialize();
+
+  ASSERT_FALSE(worker()->HasLocalChangesForTest());
+  processor()->SetCommitRequest(GenerateCommitRequest(kTag1, kValue1));
+  worker()->NudgeForCommit();
+  ASSERT_TRUE(worker()->HasLocalChangesForTest());
+
+  DoCommitFailure();
+  EXPECT_TRUE(worker()->HasLocalChangesForTest());
+}
+
+TEST_F(ModelTypeWorkerTest, ShouldHaveLocalChangesOnSuccessfulNotLastCommit) {
+  const size_t kMaxEntities = 2;
+  NormalInitialize();
+
+  sync_pb::EntitySpecifics specifics;
+  specifics.mutable_bookmark();
+
+  ASSERT_FALSE(worker()->HasLocalChangesForTest());
+  processor()->AppendCommitRequest(kHash1, specifics);
+  processor()->AppendCommitRequest(kHash2, specifics);
+  processor()->AppendCommitRequest(kHash3, specifics);
+  worker()->NudgeForCommit();
+  ASSERT_TRUE(worker()->HasLocalChangesForTest());
+
+  std::unique_ptr<CommitContribution> contribution(
+      worker()->GetContribution(kMaxEntities));
+  ASSERT_THAT(contribution, NotNull());
+  ASSERT_EQ(kMaxEntities, contribution->GetNumEntries());
+  DoSuccessfulCommit(std::move(contribution));
+
+  // There are still changes in the processor waiting for commit.
+  EXPECT_TRUE(worker()->HasLocalChangesForTest());
+
+  // Commit the rest of entities.
+  DoSuccessfulCommit();
+  EXPECT_FALSE(worker()->HasLocalChangesForTest());
+}
+
+TEST_F(ModelTypeWorkerTest, ShouldHaveLocalChangesWhenNudgedWhileInFlight) {
+  const size_t kMaxEntities = 5;
+  NormalInitialize();
+
+  ASSERT_FALSE(worker()->HasLocalChangesForTest());
+  processor()->SetCommitRequest(GenerateCommitRequest(kTag1, kValue1));
+  worker()->NudgeForCommit();
+  ASSERT_TRUE(worker()->HasLocalChangesForTest());
+
+  // Start a commit.
+  std::unique_ptr<CommitContribution> contribution(
+      worker()->GetContribution(kMaxEntities));
+  ASSERT_THAT(contribution, NotNull());
+  ASSERT_EQ(1u, contribution->GetNumEntries());
+
+  // Add new data while the commit is in progress.
+  processor()->SetCommitRequest(GenerateCommitRequest(kTag2, kValue2));
+  worker()->NudgeForCommit();
+  EXPECT_TRUE(worker()->HasLocalChangesForTest());
+
+  // Finish the started commit request.
+  DoSuccessfulCommit(std::move(contribution));
+
+  // There are still entities to commit.
+  EXPECT_TRUE(worker()->HasLocalChangesForTest());
+
+  // Commit the rest of entities.
+  DoSuccessfulCommit();
+  EXPECT_FALSE(worker()->HasLocalChangesForTest());
+}
+
+TEST_F(ModelTypeWorkerTest, ShouldHaveLocalChangesWhenContributedMaxEntities) {
+  const size_t kMaxEntities = 2;
+  NormalInitialize();
+  ASSERT_FALSE(worker()->HasLocalChangesForTest());
+
+  processor()->AppendCommitRequest(kHash1, GenerateSpecifics(kTag1, kValue1));
+  processor()->AppendCommitRequest(kHash2, GenerateSpecifics(kTag2, kValue2));
+  worker()->NudgeForCommit();
+  ASSERT_TRUE(worker()->HasLocalChangesForTest());
+
+  std::unique_ptr<CommitContribution> contribution(
+      worker()->GetContribution(kMaxEntities));
+  ASSERT_THAT(contribution, NotNull());
+  ASSERT_EQ(kMaxEntities, contribution->GetNumEntries());
+  DoSuccessfulCommit(std::move(contribution));
+
+  // The worker is still not aware if there are more changes available. It is
+  // supposed that GetContribution() will be called until it returns less than
+  // |max_entities| items. This is not the intended behaviour, but this is how
+  // things currently work.
+  EXPECT_TRUE(worker()->HasLocalChangesForTest());
+  contribution = worker()->GetContribution(kMaxEntities);
+  ASSERT_THAT(contribution, IsNull());
+  EXPECT_FALSE(worker()->HasLocalChangesForTest());
 }
 
 }  // namespace syncer

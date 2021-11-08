@@ -4,8 +4,9 @@
 
 #import "ios/chrome/browser/ui/overlays/infobar_banner/passwords/save_password_infobar_banner_overlay_mediator.h"
 
+#include <string>
+
 #include "base/feature_list.h"
-#include "base/strings/string16.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/infobars/core/infobar.h"
@@ -16,7 +17,6 @@
 #import "ios/chrome/browser/passwords/ios_chrome_save_password_infobar_delegate.h"
 #import "ios/chrome/browser/passwords/test/mock_ios_chrome_save_passwords_infobar_delegate.h"
 #import "ios/chrome/browser/ui/infobars/banners/test/fake_infobar_banner_consumer.h"
-#import "ios/chrome/browser/ui/infobars/test/fake_infobar_ui_delegate.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -39,11 +39,11 @@ using SavePasswordInfobarBannerOverlayMediatorTest = PlatformTest;
 // consumer.
 TEST_F(SavePasswordInfobarBannerOverlayMediatorTest, SetUpConsumer) {
   // Create an InfoBarIOS with a IOSChromeSavePasswordInfoBarDelegate.
-  FakeInfobarUIDelegate* ui_delegate = [[FakeInfobarUIDelegate alloc] init];
   std::unique_ptr<IOSChromeSavePasswordInfoBarDelegate> passed_delegate =
       MockIOSChromeSavePasswordInfoBarDelegate::Create(kUsername, kPassword);
   IOSChromeSavePasswordInfoBarDelegate* delegate = passed_delegate.get();
-  InfoBarIOS infobar(ui_delegate, std::move(passed_delegate));
+  InfoBarIOS infobar(InfobarType::kInfobarTypePasswordSave,
+                     std::move(passed_delegate));
   // Package the infobar into an OverlayRequest, then create a mediator that
   // uses this request in order to set up a fake consumer.
   std::unique_ptr<OverlayRequest> request = OverlayRequest::CreateWithConfig<
@@ -62,7 +62,7 @@ TEST_F(SavePasswordInfobarBannerOverlayMediatorTest, SetUpConsumer) {
   NSString* subtitle =
       [NSString stringWithFormat:@"%@ %@", kUsername, password];
   NSString* bannerAccessibilityLabel =
-      [NSString stringWithFormat:@"%@, %@, %@", title, kUsername,
+      [NSString stringWithFormat:@"%@,%@, %@", title, kUsername,
                                  l10n_util::GetNSString(
                                      IDS_IOS_SETTINGS_PASSWORD_HIDDEN_LABEL)];
   EXPECT_NSEQ(bannerAccessibilityLabel, consumer.bannerAccessibilityLabel);

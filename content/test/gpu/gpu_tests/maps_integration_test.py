@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 import json
 import os
 import sys
@@ -106,15 +108,18 @@ class MapsIntegrationTest(expected_color_test.ExpectedColorTest):
       self.fail('Could not capture screenshot')
 
     dpr = tab.EvaluateJavaScript('window.devicePixelRatio')
-    print 'Maps\' devicePixelRatio is ' + str(dpr)
+    print('Maps\' devicePixelRatio is ' + str(dpr))
 
     # The bottom corners of Mac screenshots have black triangles due to the
     # rounded corners of Mac windows. So, crop the bottom few rows off now to
     # get rid of those. The triangles appear to be 5 pixels wide and tall
-    # regardless of DPI, so 10 pixels should be sufficient.
+    # regardless of DPI, so 10 pixels should be sufficient. However, when
+    # running under Python 3, 10 isn't quite enough for some reason, so use
+    # 20 instead.
     if self.browser.platform.GetOSName() == 'mac':
-      img_height, img_width = screenshot.shape[:2]
-      screenshot = image_util.Crop(screenshot, 0, 0, img_width, img_height - 10)
+      img_height = image_util.Height(screenshot)
+      img_width = image_util.Width(screenshot)
+      screenshot = image_util.Crop(screenshot, 0, 0, img_width, img_height - 20)
     x1, y1, x2, y2 = _GetCropBoundaries(screenshot)
     screenshot = image_util.Crop(screenshot, x1, y1, x2 - x1, y2 - y1)
 
@@ -161,17 +166,18 @@ def _GetCropBoundaries(screenshot):
     A 4-tuple (x1, y1, x2, y2) denoting the top left and bottom right
     coordinates to crop to.
   """
-  img_height, img_width = screenshot.shape[:2]
+  img_height = image_util.Height(screenshot)
+  img_width = image_util.Width(screenshot)
 
   def RowIsWhite(row):
-    for col in xrange(img_width):
+    for col in range(img_width):
       pixel = image_util.GetPixelColor(screenshot, col, row)
       if pixel.r != 255 or pixel.g != 255 or pixel.b != 255:
         return False
     return True
 
   def ColumnIsWhite(column):
-    for row in xrange(img_height):
+    for row in range(img_height):
       pixel = image_util.GetPixelColor(screenshot, column, row)
       if pixel.r != 255 or pixel.g != 255 or pixel.b != 255:
         return False
@@ -180,22 +186,22 @@ def _GetCropBoundaries(screenshot):
   x1 = y1 = 0
   x2 = img_width
   y2 = img_height
-  for column in xrange(img_width):
+  for column in range(img_width):
     if not ColumnIsWhite(column):
       x1 = column
       break
 
-  for row in xrange(img_height):
+  for row in range(img_height):
     if not RowIsWhite(row):
       y1 = row
       break
 
-  for column in xrange(x1 + 1, img_width):
+  for column in range(x1 + 1, img_width):
     if ColumnIsWhite(column):
       x2 = column
       break
 
-  for row in xrange(y1 + 1, img_height):
+  for row in range(y1 + 1, img_height):
     if RowIsWhite(row):
       y2 = row
       break

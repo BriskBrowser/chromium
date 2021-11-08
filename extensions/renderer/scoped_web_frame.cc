@@ -6,6 +6,7 @@
 
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/web/web_heap.h"
@@ -20,17 +21,23 @@ ScopedWebFrame::ScopedWebFrame()
       view_(blink::WebView::Create(
           /*client=*/nullptr,
           /*is_hidden=*/false,
+          /*is_prerendering=*/false,
           /*is_inside_portal=*/false,
+          /*is_fenced_frame=*/false,
           /*compositing_enabled=*/false,
+          /*widgets_never_composited=*/false,
           /*opener=*/nullptr,
           mojo::NullAssociatedReceiver(),
-          *agent_group_scheduler_)),
-      frame_(blink::WebLocalFrame::CreateMainFrame(
-          view_,
-          &frame_client_,
-          nullptr,
-          base::UnguessableToken::Create(),
-          nullptr)) {}
+          *agent_group_scheduler_,
+          /*session_storage_namespace_id=*/base::EmptyString(),
+          /*page_base_background_color=*/absl::nullopt)),
+      frame_(blink::WebLocalFrame::CreateMainFrame(view_,
+                                                   &frame_client_,
+                                                   nullptr,
+                                                   blink::LocalFrameToken(),
+                                                   nullptr)) {
+  view_->DidAttachLocalMainFrame();
+}
 
 ScopedWebFrame::~ScopedWebFrame() {
   view_->Close();

@@ -102,9 +102,6 @@ public interface BrowserPaymentRequest {
      */
     void addPaymentAppFactories(PaymentAppService service, PaymentAppFactoryDelegate delegate);
 
-    default void onWhetherGooglePayBridgeEligible(boolean googlePayBridgeEligible,
-            WebContents webContents, PaymentMethodData[] rawMethodData) {}
-
     /**
      * @return Whether at least one payment app (including basic-card payment app) is available
      *         (excluding the pending apps).
@@ -144,8 +141,9 @@ public interface BrowserPaymentRequest {
     /**
      * Called when a new payment app is created.
      * @param paymentApp The new payment app.
+     * @return True if the payment app should be used; false if it should be ignored.
      */
-    default void onPaymentAppCreated(PaymentApp paymentApp) {}
+    boolean onPaymentAppCreated(PaymentApp paymentApp);
 
     /**
      * @return Whether payment sheet based payment app is supported, e.g., user entering credit
@@ -177,11 +175,18 @@ public interface BrowserPaymentRequest {
     default void onInstrumentDetailsReady() {}
 
     /**
-     * Called if unable to retrieve payment details.
-     * @param errorMessage Developer-facing error message to be used when rejecting the promise
-     *                     returned from PaymentRequest.show().
+     * @return True if the app selector UI has been skipped. This method should not modify internal
+     *         states.
      */
-    default void onInstrumentDetailsError(String errorMessage) {}
+    default boolean hasSkippedAppSelector() {
+        return true;
+    }
+
+    /**
+     * Shows the app selector UI after the payment app invocation fails. This should be called
+     * when the payment invocation fails and if the app selector was not skipped.
+     */
+    default void showAppSelectorAfterPaymentAppInvokeFailed() {}
 
     /**
      * Opens a payment handler window and creates a WebContents with the given url to display in it.

@@ -34,11 +34,12 @@ import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabObserver;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorBase;
+import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.url.GURL;
 
 import java.util.Arrays;
@@ -78,8 +79,9 @@ public class CustomTabDeferredStartupTest {
         }
     }
 
-    static class NewTabObserver extends EmptyTabModelSelectorObserver
-            implements ApplicationStatus.ActivityStateListener, InflationObserver {
+    static class NewTabObserver implements TabModelSelectorObserver,
+                                           ApplicationStatus.ActivityStateListener,
+                                           InflationObserver {
         private BaseCustomTabActivity mActivity;
         private TabObserver mObserver;
 
@@ -154,14 +156,16 @@ public class CustomTabDeferredStartupTest {
     @DisableFeatures(ChromeFeatureList.TRUSTED_WEB_ACTIVITY_QUALITY_ENFORCEMENT_FORCED)
     // TODO(eirage): Make this test work with quality enforcement.
     public void testPageIsLoadedOnDeferredStartup() throws Exception {
-        PageLoadFinishedTabObserver tabObserver = new PageLoadFinishedTabObserver();
-        NewTabObserver newTabObserver = new NewTabObserver(tabObserver);
-        TabModelSelectorBase.setObserverForTests(newTabObserver);
-        ApplicationStatus.registerStateListenerForAllActivities(newTabObserver);
         CallbackHelper helper = new CallbackHelper();
-        PageIsLoadedDeferredStartupHandler handler =
-                new PageIsLoadedDeferredStartupHandler(tabObserver, helper);
-        DeferredStartupHandler.setInstanceForTests(handler);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            PageLoadFinishedTabObserver tabObserver = new PageLoadFinishedTabObserver();
+            NewTabObserver newTabObserver = new NewTabObserver(tabObserver);
+            TabModelSelectorBase.setObserverForTests(newTabObserver);
+            ApplicationStatus.registerStateListenerForAllActivities(newTabObserver);
+            PageIsLoadedDeferredStartupHandler handler =
+                    new PageIsLoadedDeferredStartupHandler(tabObserver, helper);
+            DeferredStartupHandler.setInstanceForTests(handler);
+        });
         CustomTabActivityTypeTestUtils.launchActivity(
                 mActivityType, mActivityTestRule, "about:blank");
         helper.waitForCallback(0);

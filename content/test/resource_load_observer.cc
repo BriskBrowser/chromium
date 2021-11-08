@@ -83,7 +83,7 @@ void ResourceLoadObserver::CheckResourceLoaded(
 }
 
 // Returns the resource with the given url if found, otherwise nullptr.
-blink::mojom::ResourceLoadInfoPtr* ResourceLoadObserver::FindResource(
+blink::mojom::ResourceLoadInfoPtr* ResourceLoadObserver::GetResource(
     const GURL& original_url) {
   for (auto& resource : resource_load_infos_) {
     if (resource->original_url == original_url)
@@ -131,6 +131,7 @@ void ResourceLoadObserver::ResourceLoadComplete(
 }
 
 void ResourceLoadObserver::DidLoadResourceFromMemoryCache(
+    content::RenderFrameHost* render_frame_host,
     const GURL& url,
     const std::string& mime_type,
     network::mojom::RequestDestination request_destination) {

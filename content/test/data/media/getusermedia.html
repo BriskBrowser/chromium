@@ -784,7 +784,7 @@
       assertEquals(video.videoHeight, canvas_height);
       var new_width = canvas_width - 1;
       var new_height = canvas_height - 1;
-      video.onprogress = () => {
+      video.ontimeupdate = () => {
         assertEquals(video.videoWidth, new_width);
         assertEquals(video.videoHeight, new_height);
         canvas_track.applyConstraints({width: {min: canvas_width + 1}})
@@ -997,5 +997,6 @@
           style="display:none"></canvas></td>
     </tr>
   </table>
+  <p>Some text so the document is ready for input.</p>
 </body>
 </html>

@@ -5,9 +5,10 @@
 #include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chrome/browser/extensions/ntp_overridden_bubble_delegate.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/extensions/settings_api_bubble_helpers.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -51,9 +52,9 @@ class OmniboxFocusInteractiveTest : public ExtensionBrowserTest {
     // Prevent a focus-stealing focus bubble that warns the user that "An
     // extension has changed what page is shown when you open a new tab."
     ExtensionPrefs* prefs = ExtensionPrefs::Get(browser()->profile());
-    prefs->UpdateExtensionPref(
-        extension->id(), NtpOverriddenBubbleDelegate::kNtpBubbleAcknowledged,
-        std::make_unique<base::Value>(true));
+    prefs->UpdateExtensionPref(extension->id(),
+                               kNtpOverridingExtensionAcknowledged,
+                               std::make_unique<base::Value>(true));
 
     return extension;
   }
@@ -340,7 +341,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxFocusInteractiveTest, OmniboxFocusStealing) {
 
   // Navigate to an extension resource.
   GURL ext_url = extension->GetResourceURL("ext.html");
-  ui_test_utils::NavigateToURL(browser(), ext_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), ext_url));
 
   // Focus the location bar / omnibox.
   chrome::FocusLocationBar(browser());
@@ -367,7 +368,14 @@ IN_PROC_BROWSER_TEST_F(OmniboxFocusInteractiveTest, OmniboxFocusStealing) {
 }
 
 // Tab focus should not be stolen by the omnibox - https://crbug.com/1127220.
-IN_PROC_BROWSER_TEST_F(OmniboxFocusInteractiveTest, TabFocusStealingFromOopif) {
+#if defined(OS_LINUX) || defined(OS_MAC)
+// Flaky on Linux/Mac, crbug.com/1254186.
+#define MAYBE_TabFocusStealingFromOopif DISABLED_TabFocusStealingFromOopif
+#else
+#define MAYBE_TabFocusStealingFromOopif TabFocusStealingFromOopif
+#endif
+IN_PROC_BROWSER_TEST_F(OmniboxFocusInteractiveTest,
+                       MAYBE_TabFocusStealingFromOopif) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   // CSP of the NTP page enforces that only HTTPS subframes may be used.
@@ -410,7 +418,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxFocusInteractiveTest, TabFocusStealingFromOopif) {
         &script_result));
     ASSERT_EQ("Frame injected successfully", script_result);
   }
-  const auto frames = web_contents->GetAllFrames();
+  const auto frames =
+      CollectAllRenderFrameHosts(web_contents->GetPrimaryPage());
   const auto it = base::ranges::find(
       frames, subframe_url, &content::RenderFrameHost::GetLastCommittedURL);
   ASSERT_NE(it, frames.cend());

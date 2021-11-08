@@ -373,6 +373,11 @@ UTF8ToUTF8(unsigned char* out, int *outlen,
     if (len < 0)
 	return(-1);
 
+    /*
+     * FIXME: Conversion functions must assure valid UTF-8, so we have
+     * to check for UTF-8 validity. Preferably, this converter shouldn't
+     * be used at all.
+     */
     memcpy(out, inb, len);
 
     *outlen = len;
@@ -2624,7 +2629,6 @@ xmlCharEncOutFunc(xmlCharEncodingHandler *handler, xmlBufferPtr out,
     int written;
     int writtentot = 0;
     int toconv;
-    int output = 0;
 
     if (handler == NULL) return(-1);
     if (out == NULL) return(-1);
@@ -2676,8 +2680,6 @@ retry:
         }
         ret = -3;
     }
-
-    if (ret >= 0) output += ret;
 
     /*
      * Attempt to handle error cases

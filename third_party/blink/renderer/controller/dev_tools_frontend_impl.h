@@ -64,6 +64,10 @@ class DevToolsFrontendImpl final
   DevToolsFrontendImpl(
       LocalFrame&,
       mojo::PendingAssociatedReceiver<mojom::blink::DevToolsFrontend>);
+
+  DevToolsFrontendImpl(const DevToolsFrontendImpl&) = delete;
+  DevToolsFrontendImpl& operator=(const DevToolsFrontendImpl&) = delete;
+
   ~DevToolsFrontendImpl() override;
   void DidClearWindowObject();
   void Trace(Visitor*) const override;
@@ -79,7 +83,7 @@ class DevToolsFrontendImpl final
   void SetupDevToolsExtensionAPI(const String& extension_api) override;
 
   // InspectorFrontendClient implementation.
-  void SendMessageToEmbedder(const String&) override;
+  void SendMessageToEmbedder(base::Value) override;
 
   Member<DevToolsHost> devtools_host_;
   String api_script_;
@@ -91,10 +95,8 @@ class DevToolsFrontendImpl final
   HeapMojoAssociatedReceiver<mojom::blink::DevToolsFrontend,
                              DevToolsFrontendImpl>
       receiver_{this, nullptr};
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsFrontendImpl);
 };
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CONTROLLER_DEV_TOOLS_FRONTEND_IMPL_H_

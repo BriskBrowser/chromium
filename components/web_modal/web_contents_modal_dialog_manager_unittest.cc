@@ -56,6 +56,11 @@ class TestNativeWebContentsModalDialogManager
       tracker_->SetState(NativeManagerTracker::NOT_SHOWN);
   }
 
+  TestNativeWebContentsModalDialogManager(
+      const TestNativeWebContentsModalDialogManager&) = delete;
+  TestNativeWebContentsModalDialogManager& operator=(
+      const TestNativeWebContentsModalDialogManager&) = delete;
+
   void Show() override {
     if (tracker_)
       tracker_->SetState(NativeManagerTracker::SHOWN);
@@ -80,8 +85,6 @@ class TestNativeWebContentsModalDialogManager
   SingleWebContentsDialogManagerDelegate* delegate_;
   gfx::NativeWindow dialog_;
   NativeManagerTracker* tracker_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestNativeWebContentsModalDialogManager);
 };
 
 class WebContentsModalDialogManagerTest
@@ -89,14 +92,20 @@ class WebContentsModalDialogManagerTest
  public:
   WebContentsModalDialogManagerTest() : next_dialog_id(1), manager(nullptr) {}
 
+  WebContentsModalDialogManagerTest(const WebContentsModalDialogManagerTest&) =
+      delete;
+  WebContentsModalDialogManagerTest& operator=(
+      const WebContentsModalDialogManagerTest&) = delete;
+
   void SetUp() override {
     content::RenderViewHostTestHarness::SetUp();
 
-    delegate.reset(new TestWebContentsModalDialogManagerDelegate);
+    delegate = std::make_unique<TestWebContentsModalDialogManagerDelegate>();
     WebContentsModalDialogManager::CreateForWebContents(web_contents());
     manager = WebContentsModalDialogManager::FromWebContents(web_contents());
     manager->SetDelegate(delegate.get());
-    test_api.reset(new WebContentsModalDialogManager::TestApi(manager));
+    test_api =
+        std::make_unique<WebContentsModalDialogManager::TestApi>(manager);
   }
 
   void TearDown() override {
@@ -120,8 +129,6 @@ class WebContentsModalDialogManagerTest
   std::unique_ptr<TestWebContentsModalDialogManagerDelegate> delegate;
   WebContentsModalDialogManager* manager;
   std::unique_ptr<WebContentsModalDialogManager::TestApi> test_api;
-
-  DISALLOW_COPY_AND_ASSIGN(WebContentsModalDialogManagerTest);
 };
 
 // Test that the dialog is shown immediately when the delegate indicates the web

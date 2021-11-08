@@ -8,15 +8,20 @@
 #include "ash/public/cpp/holding_space/holding_space_controller.h"
 #include "ash/public/cpp/holding_space/holding_space_model.h"
 #include "ash/system/holding_space/holding_space_item_view.h"
-#include "ash/system/holding_space/holding_space_item_view_delegate.h"
 #include "ash/system/holding_space/holding_space_util.h"
+#include "ash/system/holding_space/holding_space_view_delegate.h"
 #include "base/auto_reset.h"
+#include "base/bind.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "ui/compositor/callback_layer_animation_observer.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_animator.h"
+#include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/style/platform_style.h"
 
 namespace ash {
 
@@ -25,8 +30,7 @@ namespace {
 using ScrollBarMode = views::ScrollView::ScrollBarMode;
 
 // Animation.
-constexpr base::TimeDelta kAnimationDuration =
-    base::TimeDelta::FromMilliseconds(167);
+constexpr base::TimeDelta kAnimationDuration = base::Milliseconds(167);
 
 // Helpers ---------------------------------------------------------------------
 
@@ -83,9 +87,8 @@ class HoldingSpaceScrollView : public views::ScrollView,
     // avoid clipping of these focus rings. Note that a clip rect *does* need to
     // be applied to prevent this view from painting its contents outside of its
     // viewport.
-    const float kFocusInsets =
-        kHoldingSpaceFocusInsets -
-        (views::PlatformStyle::kFocusHaloThickness / 2.f);
+    const float kFocusInsets = kHoldingSpaceFocusInsets -
+                               (views::FocusRing::kDefaultHaloThickness / 2.f);
     gfx::Rect bounds = GetLocalBounds();
     bounds.Inset(gfx::Insets(kFocusInsets));
     layer()->SetClipRect(bounds);
@@ -116,9 +119,9 @@ class HoldingSpaceScrollView : public views::ScrollView,
 // HoldingSpaceItemViewsSection ------------------------------------------------
 
 HoldingSpaceItemViewsSection::HoldingSpaceItemViewsSection(
-    HoldingSpaceItemViewDelegate* delegate,
+    HoldingSpaceViewDelegate* delegate,
     std::set<HoldingSpaceItem::Type> supported_types,
-    const base::Optional<size_t>& max_count)
+    const absl::optional<size_t>& max_count)
     : delegate_(delegate),
       supported_types_(std::move(supported_types)),
       max_count_(max_count) {}
@@ -151,7 +154,7 @@ void HoldingSpaceItemViewsSection::Init() {
     container_ = AddChildView(CreateContainer());
   } else {
     auto* scroll = AddChildView(std::make_unique<HoldingSpaceScrollView>());
-    scroll->SetBackgroundColor(base::nullopt);
+    scroll->SetBackgroundColor(absl::nullopt);
     scroll->ClipHeightTo(0, INT_MAX);
     scroll->SetDrawOverflowIndicator(false);
     scroll->SetVerticalScrollBarMode(ScrollBarMode::kHiddenButEnabled);
@@ -162,6 +165,10 @@ void HoldingSpaceItemViewsSection::Init() {
 
   InitLayerForAnimations(container_);
   container_->SetVisible(false);
+
+  // The `container_`'s children should be announced "List item X of Y", where
+  // X is the 1-based child index and Y is the count of children.
+  container_->GetViewAccessibility().OverrideRole(ax::mojom::Role::kList);
 
   // Placeholder.
   auto placeholder = CreatePlaceholder();
@@ -196,6 +203,22 @@ void HoldingSpaceItemViewsSection::Reset() {
   // when asynchronously closing the holding space bubble. To prevent accessing
   // `delegate_` after deletion, prevent animation callbacks from being run.
   weak_factory_.InvalidateWeakPtrs();
+
+  // Propagate `Reset()` to children.
+  for (views::View* view : container_->children()) {
+    DCHECK(HoldingSpaceItemView::IsInstance(view));
+    HoldingSpaceItemView::Cast(view)->Reset();
+  }
+}
+
+std::vector<HoldingSpaceItemView*>
+HoldingSpaceItemViewsSection::GetHoldingSpaceItemViews() {
+  std::vector<HoldingSpaceItemView*> views;
+  for (views::View* view : container_->children()) {
+    DCHECK(HoldingSpaceItemView::IsInstance(view));
+    views.push_back(HoldingSpaceItemView::Cast(view));
+  }
+  return views;
 }
 
 void HoldingSpaceItemViewsSection::ChildPreferredSizeChanged(
@@ -256,7 +279,7 @@ void HoldingSpaceItemViewsSection::OnHoldingSpaceItemsAdded(
     const std::vector<const HoldingSpaceItem*>& items) {
   const bool needs_update = std::any_of(
       items.begin(), items.end(), [this](const HoldingSpaceItem* item) {
-        return item->IsFinalized() &&
+        return item->IsInitialized() &&
                base::Contains(supported_types_, item->type());
       });
   if (needs_update)
@@ -273,7 +296,7 @@ void HoldingSpaceItemViewsSection::OnHoldingSpaceItemsRemoved(
     MaybeAnimateOut();
 }
 
-void HoldingSpaceItemViewsSection::OnHoldingSpaceItemFinalized(
+void HoldingSpaceItemViewsSection::OnHoldingSpaceItemInitialized(
     const HoldingSpaceItem* item) {
   if (base::Contains(supported_types_, item->type()))
     MaybeAnimateOut();
@@ -284,7 +307,7 @@ void HoldingSpaceItemViewsSection::RemoveAllHoldingSpaceItemViews() {
   // not visible to the user.
   DCHECK(!IsDrawn() || !container_->IsDrawn() ||
          container_->layer()->opacity() == 0.f);
-  container_->RemoveAllChildViews(/*delete_children=*/true);
+  container_->RemoveAllChildViews();
   views_by_item_id_.clear();
 }
 
@@ -384,7 +407,7 @@ void HoldingSpaceItemViewsSection::AnimateOut(
       disable_animations ? base::TimeDelta() : kAnimationDuration;
 
   // If this section does not have a `placeholder_` and the model does not
-  // contain any associated and finalized items, then this section is becoming
+  // contain any associated and initialized items, then this section is becoming
   // invisible to the user and the `header_` needs to be animated out alongside
   // any content.
   bool animate_out_header = !placeholder_;
@@ -394,7 +417,7 @@ void HoldingSpaceItemViewsSection::AnimateOut(
       animate_out_header = std::none_of(
           supported_types_.begin(), supported_types_.end(),
           [&model](HoldingSpaceItem::Type supported_type) {
-            return model->ContainsFinalizedItemOfType(supported_type);
+            return model->ContainsInitializedItemOfType(supported_type);
           });
     }
   }
@@ -445,7 +468,7 @@ void HoldingSpaceItemViewsSection::OnAnimateOutCompleted(
   // All holding space item views are going to be removed after which views will
   // be re-added for those items which still exist. A `ScopedSelectionRestore`
   // will serve to persist the current selection during this modification.
-  HoldingSpaceItemViewDelegate::ScopedSelectionRestore scoped_selection_restore(
+  HoldingSpaceViewDelegate::ScopedSelectionRestore scoped_selection_restore(
       delegate_);
 
   // Disable propagation of `PreferredSizeChanged()` while performing batch
@@ -466,7 +489,8 @@ void HoldingSpaceItemViewsSection::OnAnimateOutCompleted(
     return;
 
   for (const auto& item : model->items()) {
-    if (item->IsFinalized() && base::Contains(supported_types_, item->type())) {
+    if (item->IsInitialized() &&
+        base::Contains(supported_types_, item->type())) {
       DCHECK(!base::Contains(views_by_item_id_, item->id()));
 
       // Remove the last holding space item view if already at max capacity.

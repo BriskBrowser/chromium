@@ -9,7 +9,6 @@ import android.os.SystemClock;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.MainDex;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.compat.ApiHelperForN;
 
@@ -18,8 +17,6 @@ import org.chromium.base.compat.ApiHelperForN;
  */
 @JNINamespace("chrome::android")
 public class UmaUtils {
-    private static boolean sRunningApplicationStart;
-
     // All these values originate from SystemClock.uptimeMillis().
     private static long sApplicationStartTimeMs;
     private static long sForegroundStartTimeMs;
@@ -29,7 +26,6 @@ public class UmaUtils {
      * Record the time in the application lifecycle at which Chrome code first runs
      * (Application.attachBaseContext()).
      */
-    @MainDex
     public static void recordMainEntryPointTime() {
         // We can't simply pass this down through a JNI call, since the JNI for chrome
         // isn't initialized until we start the native content browser component, and we

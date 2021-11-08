@@ -7,10 +7,10 @@
 #include <memory>
 
 #include "base/metrics/histogram_macros.h"
-#include "third_party/blink/public/common/feature_policy/policy_value.h"
-#include "third_party/blink/public/mojom/feature_policy/document_policy_feature.mojom-blink.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
-#include "third_party/blink/public/mojom/feature_policy/policy_value.mojom-blink.h"
+#include "third_party/blink/public/common/permissions_policy/policy_value.h"
+#include "third_party/blink/public/mojom/permissions_policy/document_policy_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/policy_value.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_info.h"
@@ -50,8 +50,8 @@ class NullImageResourceInfo final
     return true;
   }
   bool HasCacheControlNoStoreHeader() const override { return false; }
-  base::Optional<ResourceError> GetResourceError() const override {
-    return base::nullopt;
+  absl::optional<ResourceError> GetResourceError() const override {
+    return absl::nullopt;
   }
 
   void SetDecodedSize(size_t) override {}
@@ -111,6 +111,8 @@ void ImageResourceContent::SetImageResourceInfo(ImageResourceInfo* info) {
 
 void ImageResourceContent::Trace(Visitor* visitor) const {
   visitor->Trace(info_);
+  visitor->Trace(observers_);
+  visitor->Trace(finished_observers_);
   ImageObserver::Trace(visitor);
 }
 
@@ -246,27 +248,27 @@ void ImageResourceContent::NotifyObservers(
     NotifyFinishOption notifying_finish_option,
     CanDeferInvalidation defer) {
   {
-    Vector<ImageResourceObserver*> finished_observers_as_vector;
+    HeapVector<Member<ImageResourceObserver>> finished_observers_as_vector;
     {
       ProhibitAddRemoveObserverInScope prohibit_add_remove_observer_in_scope(
           this);
-      finished_observers_as_vector = finished_observers_.AsVector();
+      CopyToVector(finished_observers_, finished_observers_as_vector);
     }
 
-    for (auto* observer : finished_observers_as_vector) {
+    for (ImageResourceObserver* observer : finished_observers_as_vector) {
       if (finished_observers_.Contains(observer))
         observer->ImageChanged(this, defer);
     }
   }
   {
-    Vector<ImageResourceObserver*> observers_as_vector;
+    HeapVector<Member<ImageResourceObserver>> observers_as_vector;
     {
       ProhibitAddRemoveObserverInScope prohibit_add_remove_observer_in_scope(
           this);
-      observers_as_vector = observers_.AsVector();
+      CopyToVector(observers_, observers_as_vector);
     }
 
-    for (auto* observer : observers_as_vector) {
+    for (ImageResourceObserver* observer : observers_as_vector) {
       if (observers_.Contains(observer)) {
         observer->ImageChanged(this, defer);
         if (notifying_finish_option == kShouldNotifyFinish &&
@@ -300,7 +302,7 @@ scoped_refptr<Image> ImageResourceContent::CreateImage(bool is_multipart) {
 void ImageResourceContent::ClearImage() {
   if (!image_)
     return;
-  int64_t length = image_->Data() ? image_->Data()->size() : 0;
+  int64_t length = image_->HasData() ? image_->DataSize() : 0;
   v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(-length);
 
   // If our Image has an observer, it's always us so we need to clear the back
@@ -488,9 +490,9 @@ bool ImageResourceContent::IsAcceptableCompressionRatio(
 
   double resource_length =
       static_cast<double>(GetResponse().ExpectedContentLength());
-  if (resource_length <= 0 && image_->Data()) {
+  if (resource_length <= 0 && image_->HasData()) {
     // WPT and LayoutTests server returns -1 or 0 for the content length.
-    resource_length = static_cast<double>(image_->Data()->size());
+    resource_length = static_cast<double>(image_->DataSize());
   }
 
   // Calculate the image's compression ratio (in bytes per pixel) with both 1k
@@ -624,7 +626,12 @@ ResourceStatus ImageResourceContent::GetContentStatus() const {
   return content_status_;
 }
 
-// TODO(hiroshige): Consider removing the following methods, or stoping
+bool ImageResourceContent::IsAnimatedImageWithPaintedFirstFrame() const {
+  return (image_ && !image_->IsNull() && image_->MaybeAnimated() &&
+          image_->CurrentFrameIsComplete());
+}
+
+// TODO(hiroshige): Consider removing the following methods, or stopping
 // redirecting to ImageResource.
 const KURL& ImageResourceContent::Url() const {
   return info_->Url();
@@ -650,7 +657,7 @@ const ResourceResponse& ImageResourceContent::GetResponse() const {
   return info_->GetResponse();
 }
 
-base::Optional<ResourceError> ImageResourceContent::GetResourceError() const {
+absl::optional<ResourceError> ImageResourceContent::GetResourceError() const {
   return info_->GetResourceError();
 }
 

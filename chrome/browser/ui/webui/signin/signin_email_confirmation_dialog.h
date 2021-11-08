@@ -52,6 +52,10 @@ class SigninEmailConfirmationDialog : public ui::WebDialogDelegate,
       const std::string& email,
       Callback callback);
 
+  SigninEmailConfirmationDialog(const SigninEmailConfirmationDialog&) = delete;
+  SigninEmailConfirmationDialog& operator=(
+      const SigninEmailConfirmationDialog&) = delete;
+
   ~SigninEmailConfirmationDialog() override;
 
  private:
@@ -65,7 +69,7 @@ class SigninEmailConfirmationDialog : public ui::WebDialogDelegate,
 
   // WebDialogDelegate implementation.
   ui::ModalType GetDialogModalType() const override;
-  base::string16 GetDialogTitle() const override;
+  std::u16string GetDialogTitle() const override;
   GURL GetDialogContentURL() const override;
   void GetWebUIMessageHandlers(
       std::vector<content::WebUIMessageHandler*>* handlers) const override;
@@ -106,8 +110,6 @@ class SigninEmailConfirmationDialog : public ui::WebDialogDelegate,
 
   // Observer for lifecycle events of the web contents of the dialog.
   std::unique_ptr<DialogWebContentsObserver> dialog_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(SigninEmailConfirmationDialog);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_SIGNIN_SIGNIN_EMAIL_CONFIRMATION_DIALOG_H_

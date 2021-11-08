@@ -35,8 +35,7 @@ constexpr base::FeatureParam<int> kDefaultInactivityThresholdMs{
 // refrain from doing so again until either a network change has occurred or
 // a specified time interval has elapsed. This is the default time interval for
 // that behavior.
-constexpr base::TimeDelta kDefaultMinFailureLoggingInterval{
-    base::TimeDelta::FromSeconds(45)};
+constexpr base::TimeDelta kDefaultMinFailureLoggingInterval{base::Seconds(45)};
 
 #if defined(OS_ANDROID)
 // NOTE: This corresponds to the NQE.ConnectivityMonitor.NetworkChangeType
@@ -54,9 +53,9 @@ enum class NetworkChangeType {
 }  // namespace
 
 ConnectivityMonitor::ConnectivityMonitor()
-    : ConnectivityMonitor(base::TimeDelta::FromMilliseconds(
-                              kDefaultInactivityThresholdMs.Get()),
-                          kDefaultMinFailureLoggingInterval) {}
+    : ConnectivityMonitor(
+          base::Milliseconds(kDefaultInactivityThresholdMs.Get()),
+          kDefaultMinFailureLoggingInterval) {}
 
 ConnectivityMonitor::ConnectivityMonitor(
     base::TimeDelta inactivity_threshold,
@@ -190,10 +189,10 @@ void ConnectivityMonitor::SetReportCallbackForTesting(
   report_callback_for_testing_ = std::move(callback);
 }
 
-base::Optional<base::TimeDelta>
+absl::optional<base::TimeDelta>
 ConnectivityMonitor::GetTimeSinceLastFailureForTesting() {
   if (!time_last_failure_observed_)
-    return base::nullopt;
+    return absl::nullopt;
 
   return base::TimeTicks::Now() - *time_last_failure_observed_;
 }
@@ -212,7 +211,7 @@ void ConnectivityMonitor::OnNetworkMadeDefault(
 #if defined(OS_ANDROID)
   NetworkChangeType change_type = NetworkChangeType::kNoEarlyActivation;
   if (mobile_network_request_) {
-    const base::Optional<NetworkChangeNotifier::NetworkHandle>&
+    const absl::optional<NetworkChangeNotifier::NetworkHandle>&
         activated_network = mobile_network_request_->activated_network();
     if (!activated_network) {
       change_type = NetworkChangeType::kEarlyActivationOfUnknownNetwork;

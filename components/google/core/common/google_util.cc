@@ -10,13 +10,13 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/containers/flat_set.h"
+#include "base/containers/fixed_flat_set.h"
+#include "base/cxx17_backports.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -47,10 +47,11 @@ void StripTrailingDot(base::StringPiece* host) {
 // with a valid TLD that appears in |allowed_tlds|. If |subdomain_permission| is
 // ALLOW_SUBDOMAIN, we check against host "*.<domain_in_lower_case>.<TLD>"
 // instead.
+template <typename Container>
 bool IsValidHostName(base::StringPiece host,
                      base::StringPiece domain_in_lower_case,
                      SubdomainPermission subdomain_permission,
-                     const base::flat_set<base::StringPiece>& allowed_tlds) {
+                     const Container& allowed_tlds) {
   // Fast path to avoid searching the registry set.
   if (host.find(domain_in_lower_case) == base::StringPiece::npos)
     return false;
@@ -104,19 +105,21 @@ bool IsCanonicalHostGoogleHostname(base::StringPiece canonical_host,
   if (base_url.is_valid() && (canonical_host == base_url.host_piece()))
     return true;
 
-  static const base::NoDestructor<base::flat_set<base::StringPiece>>
-      google_tlds(std::initializer_list<base::StringPiece>({GOOGLE_TLD_LIST}));
+  static constexpr auto google_tlds =
+      base::MakeFixedFlatSet<base::StringPiece>({GOOGLE_TLD_LIST});
   return IsValidHostName(canonical_host, "google", subdomain_permission,
-                         *google_tlds);
+                         google_tlds);
 }
 
 bool IsCanonicalHostYoutubeHostname(base::StringPiece canonical_host,
                                     SubdomainPermission subdomain_permission) {
-  static const base::NoDestructor<base::flat_set<base::StringPiece>>
-      youtube_tlds(
-          std::initializer_list<base::StringPiece>({YOUTUBE_TLD_LIST}));
+  static constexpr auto youtube_tlds =
+      base::MakeFixedFlatSet<base::StringPiece>({YOUTUBE_TLD_LIST});
+
   return IsValidHostName(canonical_host, "youtube", subdomain_permission,
-                         *youtube_tlds);
+                         youtube_tlds) ||
+         IsValidHostName(canonical_host, "youtubekids", subdomain_permission,
+                         youtube_tlds);
 }
 
 // True if |url| is a valid URL with a host that is in the static list of
@@ -129,11 +132,11 @@ bool IsGoogleSearchSubdomainUrl(const GURL& url) {
   base::StringPiece host(url.host_piece());
   StripTrailingDot(&host);
 
-  static const base::NoDestructor<base::flat_set<base::StringPiece>>
-      google_subdomains(std::initializer_list<base::StringPiece>(
-          {"ipv4.google.com", "ipv6.google.com"}));
+  static constexpr auto google_subdomains =
+      base::MakeFixedFlatSet<base::StringPiece>(
+          {"ipv4.google.com", "ipv6.google.com"});
 
-  return google_subdomains->contains(host);
+  return google_subdomains.contains(host);
 }
 
 }  // namespace
@@ -146,7 +149,7 @@ bool HasGoogleSearchQueryParam(base::StringPiece str) {
   url::Component query(0, static_cast<int>(str.length())), key, value;
   while (url::ExtractQueryKeyValue(str.data(), &query, &key, &value)) {
     base::StringPiece key_str = str.substr(key.begin, key.len);
-    if (key_str == "q" || key_str == "as_q")
+    if (key_str == "q" || key_str == "as_q" || key_str == "imgurl")
       return true;
   }
   return false;
@@ -182,7 +185,7 @@ std::string GetGoogleCountryCode(const GURL& google_homepage_url) {
   // so use Spain instead.
   if (country_code == "cat")
     return "es";
-  return country_code.as_string();
+  return std::string(country_code);
 }
 
 GURL GetGoogleSearchURL(const GURL& google_homepage_url) {
@@ -258,7 +261,7 @@ bool IsGoogleSearchUrl(const GURL& url) {
   // Make sure the path is a known search path.
   base::StringPiece path(url.path_piece());
   bool is_home_page_base = IsPathHomePageBase(path);
-  if (!is_home_page_base && (path != "/search"))
+  if (!is_home_page_base && path != "/search" && path != "/imgres")
     return false;
 
   // Check for query parameter in URL parameter and hash fragment, depending on
@@ -355,10 +358,11 @@ GURL AppendToAsyncQueryParam(const GURL& url,
   url::Component key_range, value_range;
   while (url::ExtractQueryKeyValue(input.data(), &cursor, &key_range,
                                    &value_range)) {
-    const base::StringPiece key(input.data() + key_range.begin, key_range.len);
+    const base::StringPiece input_key(input.data() + key_range.begin,
+                                      key_range.len);
     std::string key_value_pair(input, key_range.begin,
                                value_range.end() - key_range.begin);
-    if (!replaced && key == param_name) {
+    if (!replaced && input_key == param_name) {
       // Check |replaced| as only the first match should be replaced.
       replaced = true;
       key_value_pair += "," + key_value;

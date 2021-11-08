@@ -6,8 +6,13 @@
 #define ASH_SYSTEM_PHONEHUB_PHONE_HUB_NOTIFICATION_CONTROLLER_H_
 
 #include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "ash/ash_export.h"
+#include "base/gtest_prod_util.h"
 #include "chromeos/components/phonehub/feature_status_provider.h"
 #include "chromeos/components/phonehub/notification_manager.h"
 #include "chromeos/components/phonehub/tether_controller.h"
@@ -46,9 +51,11 @@ class ASH_EXPORT PhoneHubNotificationController
   // notifications.
   void SetManager(chromeos::phonehub::PhoneHubManager* phone_hub_manager);
 
-  const base::string16 GetPhoneName() const;
+  const std::u16string GetPhoneName() const;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(PhoneHubNotificationControllerTest,
+                           CustomActionRowExpanded);
   FRIEND_TEST_ALL_PREFIXES(PhoneHubNotificationControllerTest,
                            ReplyBrieflyDisabled);
   FRIEND_TEST_ALL_PREFIXES(PhoneHubNotificationControllerTest,
@@ -74,9 +81,11 @@ class ASH_EXPORT PhoneHubNotificationController
   // Callbacks for user interactions.
   void OpenSettings();
   void DismissNotification(int64_t notification_id);
-  void HandleNotificationBodyClick(int64_t notification_id);
+  void HandleNotificationBodyClick(
+      int64_t notification_id,
+      const chromeos::phonehub::Notification::AppMetadata& app_metadata);
   void SendInlineReply(int64_t notification_id,
-                       const base::string16& inline_reply_text);
+                       const std::u16string& inline_reply_text);
 
   // Logs the number of PhoneHub notifications.
   void LogNotificationCount();
@@ -100,7 +109,14 @@ class ASH_EXPORT PhoneHubNotificationController
   static std::unique_ptr<message_center::MessageView>
   CreateCustomNotificationView(
       base::WeakPtr<PhoneHubNotificationController> notification_controller,
-      const message_center::Notification& notification);
+      const message_center::Notification& notification,
+      bool shown_in_popup);
+
+  static std::unique_ptr<message_center::MessageView>
+  CreateCustomActionNotificationView(
+      base::WeakPtr<PhoneHubNotificationController> notification_controller,
+      const message_center::Notification& notification,
+      bool shown_in_popup);
 
   chromeos::phonehub::NotificationInteractionHandler*
       notification_interaction_handler_ = nullptr;

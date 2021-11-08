@@ -34,9 +34,9 @@ bool g_crash_on_get_cookie_list = false;
 
 }  // namespace
 
-CookieManager::ListenerRegistration::ListenerRegistration() {}
+CookieManager::ListenerRegistration::ListenerRegistration() = default;
 
-CookieManager::ListenerRegistration::~ListenerRegistration() {}
+CookieManager::ListenerRegistration::~ListenerRegistration() = default;
 
 void CookieManager::ListenerRegistration::DispatchCookieStoreChange(
     const net::CookieChangeInfo& change) {
@@ -89,16 +89,18 @@ void CookieManager::GetAllCookiesWithAccessSemantics(
   cookie_store_->GetAllCookiesWithAccessSemanticsAsync(std::move(callback));
 }
 
-void CookieManager::GetCookieList(const GURL& url,
-                                  const net::CookieOptions& cookie_options,
-                                  GetCookieListCallback callback) {
+void CookieManager::GetCookieList(
+    const GURL& url,
+    const net::CookieOptions& cookie_options,
+    const net::CookiePartitionKeychain& cookie_partition_keychain,
+    GetCookieListCallback callback) {
 #if !defined(OS_IOS)
   if (g_crash_on_get_cookie_list)
     base::Process::TerminateCurrentProcessImmediately(1);
 #endif
 
-  cookie_store_->GetCookieListWithOptionsAsync(url, cookie_options,
-                                               std::move(callback));
+  cookie_store_->GetCookieListWithOptionsAsync(
+      url, cookie_options, cookie_partition_keychain, std::move(callback));
 }
 
 void CookieManager::SetCanonicalCookie(const net::CanonicalCookie& cookie,
@@ -133,9 +135,28 @@ void CookieManager::DeleteCookies(mojom::CookieDeletionFilterPtr filter,
       DeletionFilterToInfo(std::move(filter)), std::move(callback));
 }
 
+void CookieManager::DeleteSessionOnlyCookies(
+    DeleteSessionOnlyCookiesCallback callback) {
+  auto delete_cookie_predicate =
+      cookie_settings_.CreateDeleteCookieOnExitPredicate();
+  if (!delete_cookie_predicate) {
+    std::move(callback).Run(0);
+    return;
+  }
+
+  cookie_store_->DeleteMatchingCookiesAsync(
+      base::BindRepeating(
+          [](const DeleteCookiePredicate& predicate,
+             const net::CanonicalCookie& cookie) {
+            return predicate.Run(cookie.Domain(), cookie.IsSecure());
+          },
+          std::move(delete_cookie_predicate)),
+      std::move(callback));
+}
+
 void CookieManager::AddCookieChangeListener(
     const GURL& url,
-    const base::Optional<std::string>& name,
+    const absl::optional<std::string>& name,
     mojo::PendingRemote<mojom::CookieChangeListener> listener) {
   auto listener_registration = std::make_unique<ListenerRegistration>();
   listener_registration->listener.Bind(std::move(listener));
@@ -150,11 +171,13 @@ void CookieManager::AddCookieChangeListener(
   if (name) {
     listener_registration->subscription =
         cookie_store_->GetChangeDispatcher().AddCallbackForCookie(
-            url, *name, std::move(cookie_change_callback));
+            url, *name, net::CookiePartitionKey::Todo(),
+            std::move(cookie_change_callback));
   } else {
     listener_registration->subscription =
         cookie_store_->GetChangeDispatcher().AddCallbackForUrl(
-            url, std::move(cookie_change_callback));
+            url, net::CookiePartitionKey::Todo(),
+            std::move(cookie_change_callback));
   }
 
   listener_registration->listener.set_disconnect_handler(

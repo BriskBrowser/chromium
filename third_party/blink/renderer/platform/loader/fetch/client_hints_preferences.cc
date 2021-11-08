@@ -5,7 +5,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/client_hints_preferences.h"
 
 #include "base/command_line.h"
-#include "base/macros.h"
 #include "services/network/public/cpp/client_hints.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "third_party/blink/public/common/client_hints/client_hints.h"
@@ -19,38 +18,26 @@
 namespace blink {
 
 ClientHintsPreferences::ClientHintsPreferences() {
-  DCHECK_EQ(
-      static_cast<size_t>(network::mojom::WebClientHintsType::kMaxValue) + 1,
-      kClientHintsMappingsCount);
+  DCHECK_LE(
+      network::GetClientHintToNameMap().size(),
+      static_cast<size_t>(network::mojom::WebClientHintsType::kMaxValue) + 1);
 }
 
 void ClientHintsPreferences::UpdateFrom(
     const ClientHintsPreferences& preferences) {
-  for (size_t i = 0;
-       i < static_cast<int>(network::mojom::WebClientHintsType::kMaxValue) + 1;
-       ++i) {
-    network::mojom::WebClientHintsType type =
-        static_cast<network::mojom::WebClientHintsType>(i);
+  for (const auto& elem : network::GetClientHintToNameMap()) {
+    const auto& type = elem.first;
     enabled_hints_.SetIsEnabled(type, preferences.ShouldSend(type));
   }
 }
 
 void ClientHintsPreferences::CombineWith(
     const ClientHintsPreferences& preferences) {
-  for (size_t i = 0;
-       i < static_cast<int>(network::mojom::WebClientHintsType::kMaxValue) + 1;
-       ++i) {
-    network::mojom::WebClientHintsType type =
-        static_cast<network::mojom::WebClientHintsType>(i);
+  for (const auto& elem : network::GetClientHintToNameMap()) {
+    const auto& type = elem.first;
     if (preferences.ShouldSend(type))
       SetShouldSend(type);
   }
-}
-
-bool ClientHintsPreferences::UserAgentClientHintEnabled() {
-  return RuntimeEnabledFeatures::UserAgentClientHintEnabled() &&
-         !base::CommandLine::ForCurrentProcess()->HasSwitch(
-             switches::kUserAgentClientHintDisable);
 }
 
 void ClientHintsPreferences::UpdateFromHttpEquivAcceptCH(
@@ -69,10 +56,9 @@ void ClientHintsPreferences::UpdateFromHttpEquivAcceptCH(
     return;
 
   // Note: .Ascii() would convert tab to ?, which is undesirable.
-  base::Optional<std::vector<network::mojom::WebClientHintsType>> parsed_ch =
-      FilterAcceptCH(network::ParseClientHintsHeader(header_value.Latin1()),
-                     RuntimeEnabledFeatures::LangClientHintHeaderEnabled(),
-                     UserAgentClientHintEnabled());
+  absl::optional<std::vector<network::mojom::WebClientHintsType>> parsed_ch =
+      network::ParseClientHintsHeader(header_value.Latin1());
+
   if (!parsed_ch.has_value())
     return;
 
@@ -81,12 +67,8 @@ void ClientHintsPreferences::UpdateFromHttpEquivAcceptCH(
     enabled_hints_.SetIsEnabled(newly_enabled, true);
 
   if (context) {
-    for (size_t i = 0;
-         i <
-         static_cast<int>(network::mojom::WebClientHintsType::kMaxValue) + 1;
-         ++i) {
-      network::mojom::WebClientHintsType type =
-          static_cast<network::mojom::WebClientHintsType>(i);
+    for (const auto& elem : network::GetClientHintToNameMap()) {
+      const auto& type = elem.first;
       if (enabled_hints_.IsEnabled(type))
         context->CountClientHints(type);
     }
@@ -99,8 +81,18 @@ bool ClientHintsPreferences::IsClientHintsAllowed(const KURL& url) {
          network::IsOriginPotentiallyTrustworthy(url::Origin::Create(url));
 }
 
-WebEnabledClientHints ClientHintsPreferences::GetWebEnabledClientHints() const {
+EnabledClientHints ClientHintsPreferences::GetEnabledClientHints() const {
   return enabled_hints_;
+}
+
+bool ClientHintsPreferences::ShouldSend(
+    network::mojom::WebClientHintsType type) const {
+  return enabled_hints_.IsEnabled(type);
+}
+
+void ClientHintsPreferences::SetShouldSend(
+    network::mojom::WebClientHintsType type) {
+  enabled_hints_.SetIsEnabled(type, true);
 }
 
 }  // namespace blink

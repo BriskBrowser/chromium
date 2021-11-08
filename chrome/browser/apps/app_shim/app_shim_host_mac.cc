@@ -159,6 +159,14 @@ void AppShimHost::ProfileSelectedFromMenu(const base::FilePath& profile_path) {
   client_->OnShimSelectedProfile(this, profile_path);
 }
 
+void AppShimHost::UrlsOpened(const std::vector<GURL>& urls) {
+  client_->OnShimOpenedUrls(this, urls);
+}
+
+void AppShimHost::OpenAppWithOverrideUrl(const GURL& override_url) {
+  client_->OnShimOpenAppWithOverrideUrl(this, override_url);
+}
+
 base::FilePath AppShimHost::GetProfilePath() const {
   // This should only be used by single-profile-app paths.
   DCHECK(!profile_path_.empty());

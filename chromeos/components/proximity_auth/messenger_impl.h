@@ -29,8 +29,12 @@ class MessengerImpl : public Messenger,
   // Messages are relayed over the provided |channel|.
   //
   // The messenger begins observing messages as soon as it is constructed.
-  MessengerImpl(
+  explicit MessengerImpl(
       std::unique_ptr<chromeos::secure_channel::ClientChannel> channel);
+
+  MessengerImpl(const MessengerImpl&) = delete;
+  MessengerImpl& operator=(const MessengerImpl&) = delete;
+
   ~MessengerImpl() override;
 
   // Messenger:
@@ -102,8 +106,6 @@ class MessengerImpl : public Messenger,
   std::unique_ptr<PendingMessage> pending_message_;
 
   base::WeakPtrFactory<MessengerImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(MessengerImpl);
 };
 
 }  // namespace proximity_auth

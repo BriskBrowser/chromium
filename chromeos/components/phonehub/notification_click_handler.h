@@ -5,7 +5,8 @@
 #ifndef CHROMEOS_COMPONENTS_PHONEHUB_NOTIFICATION_CLICK_HANDLER_H_
 #define CHROMEOS_COMPONENTS_PHONEHUB_NOTIFICATION_CLICK_HANDLER_H_
 
-#include "base/observer_list.h"
+#include "base/observer_list_types.h"
+#include "chromeos/components/phonehub/notification.h"
 
 namespace chromeos {
 namespace phonehub {
@@ -16,9 +17,19 @@ class NotificationClickHandler : public base::CheckedObserver {
   ~NotificationClickHandler() override = default;
   // Called when the user clicks the PhoneHub notification which has a open
   // action.
-  virtual void HandleNotificationClick(int64_t notification_id) = 0;
+  virtual void HandleNotificationClick(
+      int64_t notification_id,
+      const Notification::AppMetadata& app_metadata) = 0;
 };
 
 }  // namespace phonehub
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when it moved to ash.
+namespace ash {
+namespace phonehub {
+using ::chromeos::phonehub::NotificationClickHandler;
+}  // namespace phonehub
+}  // namespace ash
+
 #endif  // CHROMEOS_COMPONENTS_PHONEHUB_NOTIFICATION_CLICK_HANDLER_H_

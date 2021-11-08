@@ -5,8 +5,6 @@
 #ifndef COMPONENTS_ARC_TEST_FAKE_TIMER_INSTANCE_H_
 #define COMPONENTS_ARC_TEST_FAKE_TIMER_INSTANCE_H_
 
-#include <vector>
-
 #include "components/arc/mojom/timer.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -16,6 +14,10 @@ namespace arc {
 class FakeTimerInstance : public mojom::TimerInstance {
  public:
   FakeTimerInstance();
+
+  FakeTimerInstance(const FakeTimerInstance&) = delete;
+  FakeTimerInstance& operator=(const FakeTimerInstance&) = delete;
+
   ~FakeTimerInstance() override;
 
   // mojom::TimerInstance overrides:
@@ -26,8 +28,6 @@ class FakeTimerInstance : public mojom::TimerInstance {
 
  private:
   mojo::Remote<mojom::TimerHost> host_remote_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeTimerInstance);
 };
 
 }  // namespace arc

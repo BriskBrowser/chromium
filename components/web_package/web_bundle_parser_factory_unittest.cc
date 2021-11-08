@@ -6,7 +6,6 @@
 
 #include "base/files/file.h"
 #include "base/files/file_path.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
@@ -15,6 +14,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace web_package {
 
@@ -55,7 +55,7 @@ class WebBundleParserFactoryTest : public testing::Test {
 
 TEST_F(WebBundleParserFactoryTest, FileDataSource) {
   base::FilePath test_file =
-      GetTestFilePath(base::FilePath(FILE_PATH_LITERAL("hello.wbn")));
+      GetTestFilePath(base::FilePath(FILE_PATH_LITERAL("hello_b2.wbn")));
 
   base::File file(test_file, base::File::FLAG_OPEN | base::File::FLAG_READ);
   ASSERT_TRUE(file.IsValid());
@@ -74,14 +74,14 @@ TEST_F(WebBundleParserFactoryTest, FileDataSource) {
   auto data_source = CreateFileDataSource(
       remote.InitWithNewPipeAndPassReceiver(), std::move(file));
 
-  base::Optional<std::vector<uint8_t>> result_data;
+  absl::optional<std::vector<uint8_t>> result_data;
   {
     base::RunLoop run_loop;
     data_source->Read(
         /*offset=*/0, test_length,
         base::BindLambdaForTesting(
             [&result_data,
-             &run_loop](const base::Optional<std::vector<uint8_t>>& data) {
+             &run_loop](const absl::optional<std::vector<uint8_t>>& data) {
               result_data = data;
               run_loop.QuitClosure().Run();
             }));
@@ -96,7 +96,7 @@ TEST_F(WebBundleParserFactoryTest, FileDataSource) {
         file_length - test_length, test_length,
         base::BindLambdaForTesting(
             [&result_data,
-             &run_loop](const base::Optional<std::vector<uint8_t>>& data) {
+             &run_loop](const absl::optional<std::vector<uint8_t>>& data) {
               result_data = data;
               run_loop.QuitClosure().Run();
             }));
@@ -111,7 +111,7 @@ TEST_F(WebBundleParserFactoryTest, FileDataSource) {
         file_length - test_length, test_length + 1,
         base::BindLambdaForTesting(
             [&result_data,
-             &run_loop](const base::Optional<std::vector<uint8_t>>& data) {
+             &run_loop](const absl::optional<std::vector<uint8_t>>& data) {
               result_data = data;
               run_loop.QuitClosure().Run();
             }));
@@ -126,7 +126,7 @@ TEST_F(WebBundleParserFactoryTest, FileDataSource) {
         file_length + 1, test_length,
         base::BindLambdaForTesting(
             [&result_data,
-             &run_loop](const base::Optional<std::vector<uint8_t>>& data) {
+             &run_loop](const absl::optional<std::vector<uint8_t>>& data) {
               result_data = data;
               run_loop.QuitClosure().Run();
             }));
@@ -137,7 +137,7 @@ TEST_F(WebBundleParserFactoryTest, FileDataSource) {
 
 TEST_F(WebBundleParserFactoryTest, GetParserForFile) {
   base::File file(
-      GetTestFilePath(base::FilePath(FILE_PATH_LITERAL("hello.wbn"))),
+      GetTestFilePath(base::FilePath(FILE_PATH_LITERAL("hello_b2.wbn"))),
       base::File::FLAG_OPEN | base::File::FLAG_READ);
   ASSERT_TRUE(file.IsValid());
 

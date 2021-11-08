@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -320,6 +319,15 @@ TEST(CommandLineTest, GetCommandLineStringForShell) {
       cl.GetCommandLineStringForShell(),
       FILE_PATH_LITERAL("program --switch /switch2 -- --single-argument %1"));
 }
+
+TEST(CommandLineTest, GetCommandLineStringWithUnsafeInsertSequences) {
+  CommandLine cl(FilePath(FILE_PATH_LITERAL("program")));
+  cl.AppendSwitchASCII("switch", "%1");
+  cl.AppendSwitch("%2");
+  cl.AppendArg("%3");
+  EXPECT_EQ(FILE_PATH_LITERAL("program --switch=%1 --%2 %3"),
+            cl.GetCommandLineStringWithUnsafeInsertSequences());
+}
 #endif  // defined(OS_WIN)
 
 // Tests that when AppendArguments is called that the program is set correctly
@@ -562,6 +570,57 @@ TEST(CommandLineTest, MultipleSameSwitch) {
   EXPECT_TRUE(cl.HasSwitch("baz"));
 
   EXPECT_EQ("two", cl.GetSwitchValueASCII("foo"));
+}
+
+// Helper class for the next test case
+class MergeDuplicateFoosSemicolon : public DuplicateSwitchHandler {
+ public:
+  ~MergeDuplicateFoosSemicolon() override;
+
+  void ResolveDuplicate(base::StringPiece key,
+                        CommandLine::StringPieceType new_value,
+                        CommandLine::StringType& out_value) override;
+};
+
+MergeDuplicateFoosSemicolon::~MergeDuplicateFoosSemicolon() = default;
+
+void MergeDuplicateFoosSemicolon::ResolveDuplicate(
+    base::StringPiece key,
+    CommandLine::StringPieceType new_value,
+    CommandLine::StringType& out_value) {
+  if (key != "mergeable-foo") {
+    out_value = CommandLine::StringType(new_value);
+    return;
+  }
+  if (!out_value.empty()) {
+#if defined(OS_WIN)
+    StrAppend(&out_value, {L";"});
+#else
+    StrAppend(&out_value, {";"});
+#endif
+  }
+  StrAppend(&out_value, {new_value});
+}
+
+// This flag is an exception to the rule that the second duplicate flag wins
+// Not thread safe
+TEST(CommandLineTest, MultipleFilterFileSwitch) {
+  const CommandLine::CharType* const argv[] = {
+      FILE_PATH_LITERAL("program"),
+      FILE_PATH_LITERAL("--mergeable-foo=one"),  // --first time
+      FILE_PATH_LITERAL("-baz"),
+      FILE_PATH_LITERAL("--mergeable-foo=two")  // --second time
+  };
+  CommandLine::SetDuplicateSwitchHandler(
+      std::make_unique<MergeDuplicateFoosSemicolon>());
+
+  CommandLine cl(size(argv), argv);
+
+  EXPECT_TRUE(cl.HasSwitch("mergeable-foo"));
+  EXPECT_TRUE(cl.HasSwitch("baz"));
+
+  EXPECT_EQ("one;two", cl.GetSwitchValueASCII("mergeable-foo"));
+  CommandLine::SetDuplicateSwitchHandler(nullptr);
 }
 
 #if defined(OS_WIN)

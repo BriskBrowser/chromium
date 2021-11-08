@@ -37,7 +37,7 @@ class ToolbarButtonTestApi {
   const gfx::Insets layout_inset_delta() const {
     return button_->layout_inset_delta_;
   }
-  const base::Optional<SkColor> last_border_color() const {
+  const absl::optional<SkColor> last_border_color() const {
     return button_->last_border_color_;
   }
   void SetAnimationTimingForTesting() {
@@ -99,6 +99,8 @@ using ToolbarButtonViewsTest = ChromeViewsTestBase;
 TEST_F(ToolbarButtonViewsTest, NoDefaultLayoutInsets) {
   ToolbarButton button;
   gfx::Insets default_insets = ::GetLayoutInsets(TOOLBAR_BUTTON);
+  // Colors and insets are not ready until OnThemeChanged()
+  button.OnThemeChanged();
   EXPECT_FALSE(button.GetLayoutInsets().has_value());
   EXPECT_EQ(default_insets, button.GetInsets());
 }
@@ -146,7 +148,7 @@ class ToolbarButtonUITest : public ChromeViewsTestBase {
     // something simple with at least one item so a menu gets shown. Note that
     // ToolbarButton takes ownership of the |model|.
     auto model = std::make_unique<ui::SimpleMenuModel>(nullptr);
-    model->AddItem(0, base::string16());
+    model->AddItem(0, std::u16string());
 
     widget_ = CreateTestWidget();
     button_ = widget_->SetContentsView(std::make_unique<TestToolbarButton>(
@@ -210,8 +212,8 @@ TEST_F(ToolbarButtonUITest, TestBorderUpdateColorChange) {
   button_->ResetBorderUpdateFlag();
   for (SkColor border_color : {SK_ColorRED, SK_ColorGREEN, SK_ColorBLUE}) {
     EXPECT_FALSE(button_->did_border_update());
-    button_->SetHighlight(base::string16(), border_color);
-    EXPECT_EQ(button_->border()->color(), border_color);
+    button_->SetHighlight(std::u16string(), border_color);
+    EXPECT_EQ(button_->GetBorder()->color(), border_color);
     EXPECT_TRUE(button_->did_border_update());
     button_->ResetBorderUpdateFlag();
   }

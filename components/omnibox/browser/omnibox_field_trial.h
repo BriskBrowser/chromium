@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/optional.h"
+#include "base/metrics/field_trial_params.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
@@ -107,6 +107,7 @@ struct HUPScoringParams {
 };
 
 namespace OmniboxFieldTrial {
+
 // A mapping that contains multipliers indicating that matches of the
 // specified type should have their relevance score multiplied by the
 // given number.  Omitted types are assumed to have multipliers of 1.0.
@@ -120,15 +121,6 @@ typedef std::map<AutocompleteMatchType::Type, float> DemotionMultipliers;
 // {3, 1.5}}, the score for 2 is inferred to be 1.5.  Values beyond the
 // end of the vector are assumed to have scores of 1.0.
 typedef std::vector<std::pair<size_t, double>> NumMatchesScores;
-
-// Do not change these values as they need to be in sync with values
-// specified in experiment configs on the variations server.
-enum EmphasizeTitlesCondition {
-  EMPHASIZE_WHEN_NONEMPTY = 0,
-  EMPHASIZE_WHEN_TITLE_MATCHES = 1,
-  EMPHASIZE_WHEN_ONLY_TITLE_MATCHES = 2,
-  EMPHASIZE_NEVER = 3
-};
 
 // ---------------------------------------------------------
 // For any experiment that's part of the bundled omnibox field trial.
@@ -302,7 +294,7 @@ int MaxNumHQPUrlsIndexedAtStartup();
 // bundled omnibox field trial.
 
 // Returns the number of visits HQP should use when computing frequency
-// scores.  Returns 10 if the epxeriment isn't active.
+// scores.  Returns 10 if the experiment isn't active.
 size_t HQPMaxVisitsToScore();
 
 // Returns the score that should be given to typed transitions.  (The score
@@ -360,39 +352,25 @@ bool HUPSearchDatabase();
 int KeywordScoreForSufficientlyCompleteMatch();
 
 // ---------------------------------------------------------
-// For the EmphasizeTitles experiment that's part of the bundled omnibox
-// field trial.
-
-// Returns the conditions under which the UI code should display the title
-// of a URL more prominently than the URL for input |input|. Normally the URL
-// is displayed more prominently. Returns NEVER_EMPHASIZE if the experiment
-// isn't active.
-EmphasizeTitlesCondition GetEmphasizeTitlesConditionForInput(
-    const AutocompleteInput& input);
-
-// ---------------------------------------------------------
 // For UI experiments.
-
-// Short bookmarks.
-// Determine whether bookmarks should look for exact matches only or prefix
-// matches as well when the input is short.
-bool IsShortBookmarkSuggestionsEnabled();
-bool IsShortBookmarkSuggestionsByTotalInputLengthEnabled();
-// If |...Counterfactual()| returns true, when applicable, the feature will be
-// logged as triggered but won't affect omnibox results.
-bool ShortBookmarkSuggestionsByTotalInputLengthCounterfactual();
-// Returns the minimum input length to enable prefix matches.
-size_t ShortBookmarkSuggestionsByTotalInputLengthThreshold();
-
-// Whether a single row of buttons is shown on suggestions with actionable
-// elements like keywords, tab-switch buttons, and Pedals.
-bool IsSuggestionButtonRowEnabled();
 
 // Returns true if the tab switch suggestions flag is enabled.
 bool IsTabSwitchSuggestionsEnabled();
 
-// Returns true if the Pedals and suggestion button row features are enabled.
-bool IsPedalSuggestionsEnabled();
+// Returns true if the second batch of Pedals is enabled for non-English
+// locales. This is only meaningful if batch 2 is enabled.
+bool IsPedalsBatch2NonEnglishEnabled();
+
+// Returns true if the third batch of Pedals is enabled.
+bool IsPedalsBatch3Enabled();
+
+// Returns true if the third batch of Pedals is enabled for non-English
+// locales. This is only meaningful if batch 3 is enabled.
+bool IsPedalsBatch3NonEnglishEnabled();
+
+// Returns true if the Pedals synonyms should be loaded from the translation
+// console.
+bool IsPedalsTranslationConsoleEnabled();
 
 // Returns true if the keyword button and suggestion button row features are
 // enabled.
@@ -401,23 +379,6 @@ bool IsKeywordSearchButtonEnabled();
 // Simply a convenient wrapper for testing a flag. Used downstream for an
 // assortment of keyword mode experiments.
 bool IsExperimentalKeywordModeEnabled();
-
-// Returns true if the new focus UI is enabled.
-bool IsRefinedFocusStateEnabled();
-
-// Rich autocompletion.
-bool IsRichAutocompletionEnabled();
-bool RichAutocompletionAutocompleteTitles();
-size_t RichAutocompletionAutocompleteTitlesMinChar();
-bool RichAutocompletionAutocompleteNonPrefixAll();
-bool RichAutocompletionAutocompleteNonPrefixShortcutProvider();
-size_t RichAutocompletionAutocompleteNonPrefixMinChar();
-bool RichAutocompletionShowAdditionalText();
-bool RichAutocompletionSplitTitleCompletion();
-bool RichAutocompletionSplitUrlCompletion();
-size_t RichAutocompletionSplitCompletionMinChar();
-bool RichAutocompletionCounterfactual();
-bool RichAutocompletionAutocompletePreferUrlsOverPrefixes();
 
 // On Device Head Suggestions feature and its helper functions.
 bool IsOnDeviceHeadSuggestEnabledForIncognito();
@@ -431,17 +392,13 @@ int OnDeviceHeadSuggestDelaySuggestRequestMs(bool is_incognito);
 // Function only works in non-incognito when server suggestions are available.
 std::string OnDeviceHeadSuggestDemoteMode();
 
-// Experiment to hide components of the URL in the steady state.
-bool ShouldRevealPathQueryRefOnHover();
-bool ShouldHidePathQueryRefOnInteraction();
-// If true, the above two features elide subdomains beyond the registrable
-// domain, as well as the path, query, and ref.
-bool ShouldMaybeElideToRegistrableDomain();
-int UnelideURLOnHoverThresholdMs();
-
 // Returns true if CGI parameter names should not be considered when scoring
 // suggestions.
 bool ShouldDisableCGIParamMatching();
+
+// If true, enables a third category on the manage search engines page for
+// active search engines.
+bool IsActiveSearchEnginesEnabled();
 
 // ---------------------------------------------------------
 // Clipboard URL suggestions:
@@ -522,12 +479,6 @@ extern const char kUIMaxAutocompleteMatchesParam[];
 extern const char kDynamicMaxAutocompleteUrlCutoffParam[];
 extern const char kDynamicMaxAutocompleteIncreasedLimitParam[];
 
-// Parameters used for ranking.
-extern const char kBubbleUrlSuggestionsAbsoluteGapParam[];
-extern const char kBubbleUrlSuggestionsRelativeGapParam[];
-extern const char kBubbleUrlSuggestionsAbsoluteBufferParam[];
-extern const char kBubbleUrlSuggestionsRelativeBufferParam[];
-
 // Parameter names used by on device head provider.
 // These four parameters are shared by both non-incognito and incognito.
 extern const char kOnDeviceHeadModelLocaleConstraint[];
@@ -543,43 +494,85 @@ extern const char kOnDeviceHeadSuggestDemoteMode[];
 // Non-const because some unittests modify this value.
 extern int kDefaultMinimumTimeBetweenSuggestQueriesMs;
 
-// Parameter names used for short bookmarks variations.
-extern const char
-    kShortBookmarkSuggestionsByTotalInputLengthCounterfactualParam[];
-extern const char kShortBookmarkSuggestionsByTotalInputLengthThresholdParam[];
-
-// Parameter names used for rich autocompletion variations.
-extern const char kRichAutocompletionAutocompleteTitlesParam[];
-extern const char kRichAutocompletionAutocompleteTitlesMinCharParam[];
-extern const char kRichAutocompletionAutocompleteNonPrefixAllParam[];
-extern const char
-    kRichAutocompletionAutocompleteNonPrefixShortcutProviderParam[];
-extern const char kRichAutocompletionAutocompleteNonPrefixMinCharParam[];
-extern const char kRichAutocompletionShowAdditionalTextParam[];
-extern const char kRichAutocompletionSplitTitleCompletionParam[];
-extern const char kRichAutocompletionSplitUrlCompletionParam[];
-extern const char kRichAutocompletionSplitCompletionMinCharParam[];
-extern const char kRichAutocompletionCounterfactualParam[];
-extern const char kRichAutocompletionAutocompletePreferUrlsOverPrefixesParam[];
-
 // Parameter names used by omnibox experiments that hide the path (and
 // optionally subdomains) in the steady state.
 extern const char kOmniboxUIUnelideURLOnHoverThresholdMsParam[];
 
-// Parameter names used by entity variations. Enabling 'shared decoder' will
-// share a decoder for all suggestion images. Enabling 'shared decoder without
-// timeout' will prevent the decoder from resetting while idle for 5 seconds.
-// Enabling the latter will implicitly enable the former.
-extern const char kEntitySuggestionsReduceLatencyDecoderTimeoutParam[];
-extern const char kEntitySuggestionsReduceLatencyDecoderWakeupParam[];
+// `FeatureParam`s
 
+// Rich autocompletion.
+bool IsRichAutocompletionEnabled();
+bool RichAutocompletionShowAdditionalText();
+extern const base::FeatureParam<bool> kRichAutocompletionAutocompleteTitles;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteTitlesShortcutProvider;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteTitlesNoInputsWithSpaces;
+extern const base::FeatureParam<int>
+    kRichAutocompletionAutocompleteTitlesMinChar;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteNonPrefixAll;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteNonPrefixShortcutProvider;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteNonPrefixNoInputsWithSpaces;
+extern const base::FeatureParam<int>
+    kRichAutocompletionAutocompleteNonPrefixMinChar;
+extern const base::FeatureParam<bool> kRichAutocompletionShowAdditionalText;
+extern const base::FeatureParam<bool> kRichAutocompletionSplitTitleCompletion;
+extern const base::FeatureParam<bool> kRichAutocompletionSplitUrlCompletion;
+extern const base::FeatureParam<int> kRichAutocompletionSplitCompletionMinChar;
+extern const base::FeatureParam<bool> kRichAutocompletionCounterfactual;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompletePreferUrlsOverPrefixes;
+
+// Bookmark paths.
 // Parameter names used for bookmark path variations that determine whether
 // bookmark suggestion texts will contain the title, URL, and/or path.
-extern const char kBookmarkPathsCounterfactual[];
-extern const char kBookmarkPathsUiReplaceTitle[];
-extern const char kBookmarkPathsUiReplaceUrl[];
-extern const char kBookmarkPathsUiAppendAfterTitle[];
-extern const char kBookmarkPathsUiDynamicReplaceUrl[];
+extern const base::FeatureParam<std::string> kBookmarkPathsCounterfactual;
+extern const base::FeatureParam<bool> kBookmarkPathsUiReplaceTitle;
+extern const base::FeatureParam<bool> kBookmarkPathsUiReplaceUrl;
+extern const base::FeatureParam<bool> kBookmarkPathsUiAppendAfterTitle;
+extern const base::FeatureParam<bool> kBookmarkPathsUiDynamicReplaceUrl;
+
+// Short bookmarks.
+// Determine whether bookmarks should look for exact matches only or prefix
+// matches as well when the input is short.
+bool IsShortBookmarkSuggestionsEnabled();
+bool IsShortBookmarkSuggestionsByTotalInputLengthEnabled();
+// Returns the minimum input length to enable prefix matches.
+size_t ShortBookmarkSuggestionsByTotalInputLengthThreshold();
+// If true, when applicable, the feature will be logged as triggered but won't
+// affect omnibox results.
+extern const base::FeatureParam<bool>
+    kShortBookmarkSuggestionsByTotalInputLengthCounterfactual;
+extern const base::FeatureParam<int>
+    kShortBookmarkSuggestionsByTotalInputLengthThreshold;
+
+// New params should be inserted above this comment and formatted as:
+// - Short comment categorizing the relevant features & params.
+// - Optional: `bool Is[FeatureName]Enabled();` helpers that check if the
+//   related features in `omnibox_features.h` are enabled.
+// - Optional: Helper getter functions to determine the param values when
+//   they're not trivial. E.g. a helper may be needed to return the min of 2
+//   params. Trivial helpers that simply return the param values should be
+//   omitted.
+// - `extern const base::FeatureParam<[T]> k[ParamName];` declarations for
+//   params. Param names should not begin with a `omnibox` prefix or end with a
+//   `Param` suffix. Names for the same or related feature should share a common
+//   prefix.
+// An example:
+/*
+  // Drive suggestions.
+  // True if the feature to enable the document provider is enabled.
+  bool IsDocumentSuggestionsEnabled();
+  // True if the feature to debounce the document provider is enabled.
+  bool IsDocumentDebouncingEnabled();
+  // The minimum input length for which to show document suggestions.
+  extern const base::FeatureParam<int> kDocumentMinChar;
+  // If true, document suggestions will be hidden but logged for analysis.
+  extern const base::FeatureParam<bool> kDocumentCounterfactual;
+*/
 
 namespace internal {
 // The bundled omnibox experiment comes with a set of parameters

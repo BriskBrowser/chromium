@@ -45,7 +45,8 @@ TEST(ExtensionActionHandlerTest, LoadInvisibleBrowserActionIconUnpacked) {
   file_util::SetReportErrorForInvisibleIconForTesting(true);
   std::string error;
   scoped_refptr<Extension> extension(file_util::LoadExtension(
-      extension_dir, Manifest::UNPACKED, Extension::NO_FLAGS, &error));
+      extension_dir, mojom::ManifestLocation::kUnpacked, Extension::NO_FLAGS,
+      &error));
   file_util::SetReportErrorForInvisibleIconForTesting(false);
   EXPECT_FALSE(extension);
   EXPECT_EQ(
@@ -63,13 +64,55 @@ TEST(ExtensionActionHandlerTest, LoadInvisiblePageActionIconUnpacked) {
   file_util::SetReportErrorForInvisibleIconForTesting(true);
   std::string error;
   scoped_refptr<Extension> extension(file_util::LoadExtension(
-      extension_dir, Manifest::UNPACKED, Extension::NO_FLAGS, &error));
+      extension_dir, mojom::ManifestLocation::kUnpacked, Extension::NO_FLAGS,
+      &error));
   file_util::SetReportErrorForInvisibleIconForTesting(false);
   EXPECT_FALSE(extension);
   EXPECT_EQ(
       "Icon 'invisible_icon.png' specified in 'page_action' is not "
       "sufficiently visible.",
       error);
+}
+
+using ExtensionActionHandlerManifestTest = ManifestTest;
+
+TEST_F(ExtensionActionHandlerManifestTest, NoActionSpecified_ManifestV2) {
+  constexpr char kManifest[] =
+      R"({
+           "name": "Test",
+           "manifest_version": 2,
+           "version": "0.1"
+         })";
+
+  base::Value manifest_value = base::test::ParseJson(kManifest);
+  ASSERT_TRUE(manifest_value.is_dict());
+  scoped_refptr<const Extension> extension =
+      LoadAndExpectSuccess(ManifestData(std::move(manifest_value), "test"));
+  ASSERT_TRUE(extension);
+
+  const ActionInfo* action_info =
+      GetActionInfoOfType(*extension, ActionInfo::TYPE_PAGE);
+  ASSERT_TRUE(action_info);
+}
+
+TEST_F(ExtensionActionHandlerManifestTest, NoActionSpecified_ManifestV3) {
+  constexpr char kManifest[] =
+      R"({
+           "name": "Test",
+           "manifest_version": 3,
+           "version": "0.1"
+         })";
+
+  base::Value manifest_value = base::test::ParseJson(kManifest);
+  ASSERT_TRUE(manifest_value.is_dict());
+  scoped_refptr<const Extension> extension =
+      LoadAndExpectSuccess(ManifestData(std::move(manifest_value), "test"));
+  ASSERT_TRUE(extension);
+
+  const ActionInfo* action_info =
+      GetActionInfoOfType(*extension, ActionInfo::TYPE_ACTION);
+  ASSERT_TRUE(action_info);
+  EXPECT_EQ(ActionInfo::STATE_DISABLED, action_info->default_state);
 }
 
 // A parameterized test suite to test each different extension action key
@@ -79,6 +122,11 @@ class ExtensionActionManifestTest
       public testing::WithParamInterface<ActionInfo::Type> {
  public:
   ExtensionActionManifestTest() {}
+
+  ExtensionActionManifestTest(const ExtensionActionManifestTest&) = delete;
+  ExtensionActionManifestTest& operator=(const ExtensionActionManifestTest&) =
+      delete;
+
   ~ExtensionActionManifestTest() override {}
 
   // Constructs and returns a ManifestData object with the provided
@@ -104,8 +152,6 @@ class ExtensionActionManifestTest
  private:
   // The "action" key is restricted to trunk.
   ScopedCurrentChannel scoped_channel_{version_info::Channel::UNKNOWN};
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionActionManifestTest);
 };
 
 // Tests that parsing an action succeeds and properly populates the given
@@ -230,20 +276,20 @@ TEST_P(ExtensionActionManifestTest, DefaultState) {
     // The expected error, if parsing was unsuccessful.
     const char* expected_error;
     // The expected state, if parsing was successful.
-    base::Optional<ActionInfo::DefaultState> expected_state;
+    absl::optional<ActionInfo::DefaultState> expected_state;
   } test_cases[] = {
       {kDefaultStateDisabled,
        default_state_allowed ? nullptr : key_disallowed_error,
-       default_state_allowed ? base::make_optional(ActionInfo::STATE_DISABLED)
-                             : base::nullopt},
+       default_state_allowed ? absl::make_optional(ActionInfo::STATE_DISABLED)
+                             : absl::nullopt},
       {kDefaultStateEnabled,
        default_state_allowed ? nullptr : key_disallowed_error,
-       default_state_allowed ? base::make_optional(ActionInfo::STATE_ENABLED)
-                             : base::nullopt},
+       default_state_allowed ? absl::make_optional(ActionInfo::STATE_ENABLED)
+                             : absl::nullopt},
       {kDefaultStateInvalid,
        default_state_allowed ? manifest_errors::kInvalidActionDefaultState
                              : key_disallowed_error,
-       base::nullopt},
+       absl::nullopt},
   };
 
   for (const auto& test_case : test_cases) {

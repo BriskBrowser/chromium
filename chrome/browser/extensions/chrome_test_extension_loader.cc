@@ -12,6 +12,7 @@
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
+#include "chrome/browser/extensions/load_error_waiter.h"
 #include "chrome/browser/extensions/unpacked_installer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/notification_details.h"
@@ -29,6 +30,7 @@
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/manifest_handlers/content_scripts_handler.h"
 #include "extensions/common/manifest_handlers/incognito_info.h"
+#include "extensions/common/mojom/host_id.mojom.h"
 #include "extensions/test/extension_background_page_waiter.h"
 #include "extensions/test/extension_test_notification_observer.h"
 #include "extensions/test/test_content_script_load_waiter.h"
@@ -130,12 +132,10 @@ bool ChromeTestExtensionLoader::WaitForExtensionReady(
   // Note: |user_script_manager| can be null in tests.
   if (user_script_manager &&
       !ContentScriptsInfo::GetContentScripts(&extension).empty()) {
-    UserScriptLoader* user_script_loader =
-        user_script_manager->manifest_script_loader();
-    HostID host_id(HostID::EXTENSIONS, extension_id_);
-    if (!user_script_loader->HasLoadedScripts(host_id)) {
+    ExtensionUserScriptLoader* user_script_loader =
+        user_script_manager->GetUserScriptLoaderForExtension(extension_id_);
+    if (!user_script_loader->HasLoadedScripts()) {
       ContentScriptLoadWaiter waiter(user_script_loader);
-      waiter.RestrictToHostID(host_id);
       waiter.Wait();
     }
   }
@@ -157,7 +157,13 @@ bool ChromeTestExtensionLoader::WaitForExtensionReady(
       IncognitoInfo::IsSplitMode(&extension)
           ? browser_context_
           : Profile::FromBrowserContext(browser_context_)->GetOriginalProfile();
-  ExtensionBackgroundPageWaiter(context_to_use, extension).Wait();
+
+  // If possible, wait for the extension's background context to be loaded.
+  std::string reason_unused;
+  if (ExtensionBackgroundPageWaiter::CanWaitFor(extension, reason_unused)) {
+    ExtensionBackgroundPageWaiter(context_to_use, extension)
+        .WaitForBackgroundInitialized();
+  }
 
   // TODO(devlin): Should this use |context_to_use|? Or should
   // WaitForExtensionViewsToLoad check both contexts if one is OTR?
@@ -316,13 +322,12 @@ scoped_refptr<const Extension> ChromeTestExtensionLoader::LoadUnpacked(
   if (install_param_.has_value()) {
     installer->set_install_param(*install_param_);
   }
+  LoadErrorWaiter waiter;
   installer->Load(file_path);
   if (!should_fail_) {
     extension = registry_observer.WaitForExtensionLoaded();
   } else {
-    EXPECT_TRUE(ExtensionTestNotificationObserver(browser_context_)
-                    .WaitForExtensionLoadError())
-        << "No load error observed";
+    EXPECT_TRUE(waiter.Wait()) << "No load error observed";
   }
 
   return extension;

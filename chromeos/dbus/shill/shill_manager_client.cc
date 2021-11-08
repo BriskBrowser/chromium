@@ -31,6 +31,10 @@ ShillManagerClient* g_instance = nullptr;
 class ShillManagerClientImpl : public ShillManagerClient {
  public:
   ShillManagerClientImpl() = default;
+
+  ShillManagerClientImpl(const ShillManagerClientImpl&) = delete;
+  ShillManagerClientImpl& operator=(const ShillManagerClientImpl&) = delete;
+
   ~ShillManagerClientImpl() override = default;
 
   ////////////////////////////////////
@@ -48,7 +52,11 @@ class ShillManagerClientImpl : public ShillManagerClient {
   void GetProperties(DBusMethodCallback<base::Value> callback) override {
     dbus::MethodCall method_call(shill::kFlimflamManagerInterface,
                                  shill::kGetPropertiesFunction);
-    helper_->CallValueMethod(&method_call, std::move(callback));
+    helper_->CallValueMethod(
+        &method_call,
+        base::BindOnce(&ShillClientHelper::OnGetProperties,
+                       dbus::ObjectPath(shill::kFlimflamServicePath),
+                       std::move(callback)));
   }
 
   void GetNetworksForGeolocation(
@@ -62,6 +70,14 @@ class ShillManagerClientImpl : public ShillManagerClient {
                    const base::Value& value,
                    base::OnceClosure callback,
                    ErrorCallback error_callback) override {
+    // This property is read-only and can only be mutated by the specialized
+    // method exposed in DBus API.
+    if (name == shill::kDNSProxyDOHProvidersProperty) {
+      SetDNSProxyDOHProviders(value, std::move(callback),
+                              std::move(error_callback));
+      return;
+    }
+
     dbus::MethodCall method_call(shill::kFlimflamManagerInterface,
                                  shill::kSetPropertyFunction);
     dbus::MessageWriter writer(&method_call);
@@ -165,15 +181,26 @@ class ShillManagerClientImpl : public ShillManagerClient {
   void Init(dbus::Bus* bus) {
     proxy_ = bus->GetObjectProxy(shill::kFlimflamServiceName,
                                  dbus::ObjectPath(shill::kFlimflamServicePath));
-    helper_.reset(new ShillClientHelper(proxy_));
+    helper_ = std::make_unique<ShillClientHelper>(proxy_);
     helper_->MonitorPropertyChanged(shill::kFlimflamManagerInterface);
   }
 
  private:
+  // Used by SetProperty call to reroute kDNSProxyDOHProviders to the underlying
+  // specialized method in the DBus API.
+  void SetDNSProxyDOHProviders(const base::Value& providers,
+                               base::OnceClosure callback,
+                               ErrorCallback error_callback) {
+    dbus::MethodCall method_call(shill::kFlimflamManagerInterface,
+                                 shill::kSetDNSProxyDOHProvidersFunction);
+    dbus::MessageWriter writer(&method_call);
+    ShillClientHelper::AppendServiceProperties(&writer, providers);
+    helper_->CallVoidMethodWithErrorCallback(&method_call, std::move(callback),
+                                             std::move(error_callback));
+  }
+
   dbus::ObjectProxy* proxy_ = nullptr;
   std::unique_ptr<ShillClientHelper> helper_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShillManagerClientImpl);
 };
 
 }  // namespace

@@ -24,13 +24,13 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
-import org.chromium.chrome.browser.policy.EnterpriseInfo;
-import org.chromium.components.browser_ui.widget.LoadingView;
+import org.chromium.chrome.browser.enterprise.util.EnterpriseInfo;
 import org.chromium.components.signin.ChildAccountStatus;
 import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
 import org.chromium.ui.text.SpanApplier.SpanInfo;
+import org.chromium.ui.widget.LoadingView;
 
 /**
 * Lightweight FirstRunActivity. It shows ToS dialog only.
@@ -87,8 +87,9 @@ public class LightweightFirstRunActivity
                 }
 
                 @ChildAccountStatus.Status
-                int childAccountStatus = freProperties.getInt(
-                        SigninFirstRunFragment.CHILD_ACCOUNT_STATUS, ChildAccountStatus.NOT_CHILD);
+                int childAccountStatus =
+                        freProperties.getInt(SyncConsentFirstRunFragment.CHILD_ACCOUNT_STATUS,
+                                ChildAccountStatus.NOT_CHILD);
                 initializeViews(ChildAccountStatus.isChild(childAccountStatus));
             }
         };
@@ -134,10 +135,6 @@ public class LightweightFirstRunActivity
 
         mLightweightFreButtons = findViewById(R.id.lightweight_fre_buttons);
         mOkButton = (Button) findViewById(R.id.button_primary);
-        int okButtonHorizontalPadding =
-                getResources().getDimensionPixelSize(R.dimen.fre_button_padding);
-        mOkButton.setPaddingRelative(okButtonHorizontalPadding, mOkButton.getPaddingTop(),
-                okButtonHorizontalPadding, mOkButton.getPaddingBottom());
         mOkButton.setOnClickListener(view -> acceptTermsOfService());
 
         ((Button) findViewById(R.id.button_secondary))

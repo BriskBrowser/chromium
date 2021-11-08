@@ -4,7 +4,7 @@
 
 package org.chromium.android_webview.test;
 
-import static org.chromium.android_webview.test.AwActivityTestRule.WAIT_TIMEOUT_MS;
+import static org.chromium.android_webview.test.AwActivityTestRule.SCALED_WAIT_TIMEOUT_MS;
 
 import android.support.test.InstrumentationRegistry;
 import android.util.Pair;
@@ -351,7 +351,7 @@ public class ClientOnPageFinishedTest {
                     "/about.html", CommonResources.ABOUT_HTML, null,
                     () -> {
                         try {
-                            Assert.assertTrue(latch.await(WAIT_TIMEOUT_MS,
+                            Assert.assertTrue(latch.await(SCALED_WAIT_TIMEOUT_MS,
                                     java.util.concurrent.TimeUnit.MILLISECONDS));
                         } catch (InterruptedException e) {
                             Assert.fail("Caught InterruptedException " + e);
@@ -493,8 +493,8 @@ public class ClientOnPageFinishedTest {
                         try {
                             // Delay the server response so that we guarantee stopLoading() comes
                             // before the server response.
-                            Assert.assertTrue(firstUrlLatch.await(
-                                    WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
+                            Assert.assertTrue(firstUrlLatch.await(SCALED_WAIT_TIMEOUT_MS,
+                                    java.util.concurrent.TimeUnit.MILLISECONDS));
                         } catch (InterruptedException e) {
                             Assert.fail("Caught InterruptedException " + e);
                         }
@@ -541,7 +541,7 @@ public class ClientOnPageFinishedTest {
                     "/stallingImage.html", "", null /* headers */, () -> {
                         serverImageUrlLatch.countDown();
                         try {
-                            Assert.assertTrue(testDoneLatch.await(WAIT_TIMEOUT_MS,
+                            Assert.assertTrue(testDoneLatch.await(SCALED_WAIT_TIMEOUT_MS,
                                     java.util.concurrent.TimeUnit.MILLISECONDS));
                         } catch (InterruptedException e) {
                             Assert.fail("Caught InterruptedException " + e);
@@ -556,7 +556,7 @@ public class ClientOnPageFinishedTest {
             mActivityTestRule.loadUrlAsync(mAwContents, mainPageUrl);
 
             Assert.assertTrue(serverImageUrlLatch.await(
-                    WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
+                    SCALED_WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             Assert.assertEquals(0, onPageFinishedHelper.getCallCount());
             // Our load isn't done since we haven't loaded the image - now cancel the load.
             mActivityTestRule.stopLoading(mAwContents);
@@ -612,6 +612,45 @@ public class ClientOnPageFinishedTest {
             mActivityTestRule.loadUrlAsync(mAwContents, redirectUrl);
             mActivityTestRule.waitForVisualStateCallback(mAwContents);
             Assert.assertEquals(webpageNotAvailable, mAwContents.getTitle());
+        } finally {
+            webServer.shutdown();
+        }
+    }
+
+    /**
+     * Fragment navigation triggered by history APIs can trigger onPageFinished.
+     */
+    @Test
+    @MediumTest
+    @Feature({"AndroidWebView"})
+    public void testCalledForHistoryApiFragmentNavigation() throws Throwable {
+        TestCallbackHelperContainer.OnPageFinishedHelper onPageFinishedHelper =
+                mContentsClient.getOnPageFinishedHelper();
+        AwActivityTestRule.enableJavaScriptOnUiThread(mAwContents);
+        TestWebServer webServer = TestWebServer.start();
+        try {
+            final String testHtml = "<html><head>Header</head><body>Body</body></html>";
+            final String testPath = "/test.html";
+            final String fragmentPath = "/test.html#fragment";
+
+            final String testUrl = webServer.setResponse(testPath, testHtml, null);
+            final String fragmentUrl = webServer.getResponseUrl(fragmentPath);
+
+            int currentCallCount = onPageFinishedHelper.getCallCount();
+            mActivityTestRule.loadUrlSync(mAwContents, onPageFinishedHelper, testUrl);
+            onPageFinishedHelper.waitForCallback(currentCallCount);
+            Assert.assertEquals(testUrl, onPageFinishedHelper.getUrl());
+            Assert.assertEquals(1, onPageFinishedHelper.getCallCount());
+
+            currentCallCount = onPageFinishedHelper.getCallCount();
+            // History APIs can trigger fragment navigation, and this fragment navigation will
+            // trigger onPageFinished, the parameter url carried by onPageFinished will be the
+            // parameter url carried by history API.
+            mActivityTestRule.executeJavaScriptAndWaitForResult(mAwContents, mContentsClient,
+                    "history.pushState(null, null, '" + fragmentPath + "');");
+            onPageFinishedHelper.waitForCallback(currentCallCount);
+            Assert.assertEquals(fragmentUrl, onPageFinishedHelper.getUrl());
+            Assert.assertEquals(2, onPageFinishedHelper.getCallCount());
         } finally {
             webServer.shutdown();
         }

@@ -31,9 +31,9 @@ FakeAutocompleteProviderClient::FakeAutocompleteProviderClient(
   history_service_ =
       history::CreateHistoryService(history_dir_.GetPath(), create_history_db);
 
-  in_memory_url_index_.reset(
-      new InMemoryURLIndex(bookmark_model_.get(), history_service_.get(),
-                           nullptr, history_dir_.GetPath(), SchemeSet()));
+  in_memory_url_index_ = std::make_unique<InMemoryURLIndex>(
+      bookmark_model_.get(), history_service_.get(), nullptr,
+      history_dir_.GetPath(), SchemeSet());
   in_memory_url_index_->Init();
 
   pref_service_ = std::make_unique<TestingPrefServiceSimple>();
@@ -64,7 +64,7 @@ FakeAutocompleteProviderClient::~FakeAutocompleteProviderClient() {
   run_loop.Run();
 }
 
-PrefService* FakeAutocompleteProviderClient::GetPrefs() {
+PrefService* FakeAutocompleteProviderClient::GetPrefs() const {
   return pref_service_.get();
 }
 
@@ -104,9 +104,6 @@ query_tiles::TileService* FakeAutocompleteProviderClient::GetQueryTileService()
   return tile_service_.get();
 }
 
-bool FakeAutocompleteProviderClient::IsTabOpenWithURL(
-    const GURL& url,
-    const AutocompleteInput* input) {
-  return !substring_to_match_.empty() &&
-         url.spec().find(substring_to_match_) != std::string::npos;
+const TabMatcher& FakeAutocompleteProviderClient::GetTabMatcher() const {
+  return fake_tab_matcher_;
 }

@@ -21,6 +21,7 @@
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/protocol/data_type_progress_marker.pb.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 
 using autofill::AutofillMetadata;
@@ -40,7 +41,9 @@ namespace {
 const int kDefaultCardExpMonth = 8;
 const int kDefaultCardExpYear = 2087;
 const char kDefaultCardLastFour[] = "1234";
+const char16_t kDefaultCardLastFour16[] = u"1234";
 const char kDefaultCardName[] = "Patrick Valenzuela";
+const char16_t kDefaultCardName16[] = u"Patrick Valenzuela";
 const sync_pb::WalletMaskedCreditCard_WalletCardType kDefaultCardType =
     sync_pb::WalletMaskedCreditCard::AMEX;
 
@@ -336,7 +339,7 @@ sync_pb::ModelTypeState GetWalletModelTypeState(syncer::ModelType model_type,
 
 void UnmaskServerCard(int profile,
                       const CreditCard& credit_card,
-                      const base::string16& full_number) {
+                      const std::u16string& full_number) {
   scoped_refptr<AutofillWebDataService> wds = GetProfileWebDataService(profile);
   wds->UnmaskServerCreditCard(credit_card, full_number);
   WaitForCurrentTasksToComplete(wds->GetDBTaskRunner());
@@ -370,7 +373,6 @@ sync_pb::SyncEntity CreateSyncWalletCard(const std::string& name,
   credit_card->set_exp_year(kDefaultCardExpYear);
   credit_card->set_last_four(last_four);
   credit_card->set_name_on_card(kDefaultCardName);
-  credit_card->set_status(sync_pb::WalletMaskedCreditCard::VALID);
   credit_card->set_type(kDefaultCardType);
   credit_card->set_instrument_id(instrument_id);
   if (!billing_address_id.empty()) {
@@ -405,18 +407,11 @@ sync_pb::SyncEntity CreateDefaultSyncPaymentsCustomerData() {
 }
 
 CreditCard GetDefaultCreditCard() {
-  return GetCreditCard(kDefaultCardID, kDefaultCardLastFour);
-}
-
-autofill::CreditCard GetCreditCard(const std::string& name,
-                                   const std::string& last_four) {
-  CreditCard card(CreditCard::MASKED_SERVER_CARD, name);
+  CreditCard card(CreditCard::MASKED_SERVER_CARD, kDefaultCardID);
   card.SetExpirationMonth(kDefaultCardExpMonth);
   card.SetExpirationYear(kDefaultCardExpYear);
-  card.SetNumber(base::UTF8ToUTF16(last_four));
-  card.SetRawInfo(autofill::CREDIT_CARD_NAME_FULL,
-                  base::UTF8ToUTF16(kDefaultCardName));
-  card.SetServerStatus(CreditCard::OK);
+  card.SetNumber(kDefaultCardLastFour16);
+  card.SetRawInfo(autofill::CREDIT_CARD_NAME_FULL, kDefaultCardName16);
   card.SetNetworkForMaskedCard(autofill::kAmericanExpressCard);
   card.set_billing_address_id(kDefaultBillingAddressID);
   return card;
@@ -489,11 +484,11 @@ sync_pb::SyncEntity CreateDefaultSyncCreditCardCloudTokenData() {
 void ExpectDefaultCreditCardValues(const CreditCard& card) {
   EXPECT_EQ(CreditCard::MASKED_SERVER_CARD, card.record_type());
   EXPECT_EQ(kDefaultCardID, card.server_id());
-  EXPECT_EQ(base::UTF8ToUTF16(kDefaultCardLastFour), card.LastFourDigits());
+  EXPECT_EQ(kDefaultCardLastFour16, card.LastFourDigits());
   EXPECT_EQ(autofill::kAmericanExpressCard, card.network());
   EXPECT_EQ(kDefaultCardExpMonth, card.expiration_month());
   EXPECT_EQ(kDefaultCardExpYear, card.expiration_year());
-  EXPECT_EQ(base::UTF8ToUTF16(kDefaultCardName),
+  EXPECT_EQ(kDefaultCardName16,
             card.GetRawInfo(autofill::ServerFieldType::CREDIT_CARD_NAME_FULL));
   EXPECT_EQ(kDefaultBillingAddressID, card.billing_address_id());
 }
@@ -681,7 +676,7 @@ FullUpdateTypeProgressMarkerChecker::FullUpdateTypeProgressMarkerChecker(
           min_required_progress_marker_timestamp),
       service_(service),
       model_type_(model_type) {
-  scoped_observer_.Add(service);
+  scoped_observation_.Observe(service);
 }
 
 FullUpdateTypeProgressMarkerChecker::~FullUpdateTypeProgressMarkerChecker() =

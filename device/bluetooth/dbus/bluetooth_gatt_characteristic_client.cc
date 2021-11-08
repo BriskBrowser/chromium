@@ -50,6 +50,11 @@ class BluetoothGattCharacteristicClientImpl
  public:
   BluetoothGattCharacteristicClientImpl() : object_manager_(nullptr) {}
 
+  BluetoothGattCharacteristicClientImpl(
+      const BluetoothGattCharacteristicClientImpl&) = delete;
+  BluetoothGattCharacteristicClientImpl& operator=(
+      const BluetoothGattCharacteristicClientImpl&) = delete;
+
   ~BluetoothGattCharacteristicClientImpl() override {
     object_manager_->UnregisterInterface(
         bluetooth_gatt_characteristic::kBluetoothGattCharacteristicInterface);
@@ -312,7 +317,7 @@ class BluetoothGattCharacteristicClientImpl
     if (bytes)
       value.assign(bytes, bytes + length);
 
-    std::move(callback).Run(value);
+    std::move(callback).Run(/*error_code=*/absl::nullopt, value);
   }
 
   // Called when a response for a failed method call is received.
@@ -343,8 +348,6 @@ class BluetoothGattCharacteristicClientImpl
   // invalidate its weak pointers before any other members are destroyed.
   base::WeakPtrFactory<BluetoothGattCharacteristicClientImpl> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(BluetoothGattCharacteristicClientImpl);
 };
 
 BluetoothGattCharacteristicClient::BluetoothGattCharacteristicClient() =

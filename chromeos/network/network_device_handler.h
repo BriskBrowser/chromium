@@ -17,10 +17,6 @@ namespace base {
 class Value;
 }
 
-namespace net {
-class IPEndPoint;
-}
-
 namespace chromeos {
 
 class NetworkStateHandler;
@@ -52,6 +48,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkDeviceHandler {
   static const char kErrorUnknown[];
 
   NetworkDeviceHandler();
+
+  NetworkDeviceHandler(const NetworkDeviceHandler&) = delete;
+  NetworkDeviceHandler& operator=(const NetworkDeviceHandler&) = delete;
+
   virtual ~NetworkDeviceHandler();
 
   // Invokes |callback| with the properties for the device matching
@@ -157,7 +157,8 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkDeviceHandler {
   // Enables/disables roaming of all cellular devices. This happens
   // asychronously in the background and applies also to devices which become
   // available in the future.
-  virtual void SetCellularAllowRoaming(bool allow_roaming) = 0;
+  virtual void SetCellularAllowRoaming(bool allow_roaming,
+                                       bool policy_allow_roaming) = 0;
 
   // Sets up MAC address randomization if available. This applies to devices
   // which become available in the future.
@@ -167,45 +168,8 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkDeviceHandler {
   // USB Ethernet device.
   virtual void SetUsbEthernetMacAddressSource(const std::string& source) = 0;
 
-  // Adds |ip_endpoint| to the list of tcp connections that the wifi device
-  // should monitor to wake the system from suspend.
-  virtual void AddWifiWakeOnPacketConnection(
-      const net::IPEndPoint& ip_endpoint,
-      base::OnceClosure callback,
-      network_handler::ErrorCallback error_callback) = 0;
-
-  // Adds |types| to the list of packet types that the device should monitor to
-  // wake the system from suspend.
-  virtual void AddWifiWakeOnPacketOfTypes(
-      const std::vector<std::string>& types,
-      base::OnceClosure callback,
-      network_handler::ErrorCallback error_callback) = 0;
-
-  // Removes |ip_endpoint| from the list of tcp connections that the wifi device
-  // should monitor to wake the system from suspend.
-  virtual void RemoveWifiWakeOnPacketConnection(
-      const net::IPEndPoint& ip_endpoint,
-      base::OnceClosure callback,
-      network_handler::ErrorCallback error_callback) = 0;
-
-  // Removes |types| from the list of packet types that the device should
-  // monitor to wake the system from suspend.
-  virtual void RemoveWifiWakeOnPacketOfTypes(
-      const std::vector<std::string>& types,
-      base::OnceClosure callback,
-      network_handler::ErrorCallback error_callback) = 0;
-
-  // Clears the list of tcp connections that the wifi device should monitor to
-  // wake the system from suspend.
-  virtual void RemoveAllWifiWakeOnPacketConnections(
-      base::OnceClosure callback,
-      network_handler::ErrorCallback error_callback) = 0;
-
   static std::unique_ptr<NetworkDeviceHandler> InitializeForTesting(
       NetworkStateHandler* network_state_handler);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NetworkDeviceHandler);
 };
 
 }  // namespace chromeos

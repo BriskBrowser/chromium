@@ -38,8 +38,7 @@ UsageStatsDatabase::UsageStatsDatabase(Profile* profile)
       suspension_db_initialized_(false),
       token_mapping_db_initialized_(false) {
   ProtoDatabaseProvider* db_provider =
-      content::BrowserContext::GetDefaultStoragePartition(profile)
-          ->GetProtoDatabaseProvider();
+      profile->GetDefaultStoragePartition()->GetProtoDatabaseProvider();
 
   base::FilePath usage_stats_dir = profile->GetPath().Append(kNamespace);
 
@@ -255,8 +254,7 @@ void UsageStatsDatabase::DeleteEventsWithMatchingDomains(
 }
 
 void UsageStatsDatabase::ExpireEvents(base::Time now) {
-  base::Time seven_days_ago =
-      now - base::TimeDelta::FromDays(EXPIRY_THRESHOLD_DAYS);
+  base::Time seven_days_ago = now - base::Days(EXPIRY_THRESHOLD_DAYS);
   DeleteEventsInRange(
       base::Time::FromDoubleT(1), seven_days_ago,
       base::BindOnce(&UsageStatsDatabase::OnWebsiteEventExpiryDone,

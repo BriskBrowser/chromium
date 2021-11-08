@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/i18n/uchar.h"
+#include "base/auto_reset.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
@@ -18,6 +18,7 @@
 #include "third_party/blink/renderer/core/editing/editor.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
@@ -155,6 +156,7 @@ void KeyboardEventManager::Trace(Visitor* visitor) const {
 }
 
 bool KeyboardEventManager::HandleAccessKey(const WebKeyboardEvent& evt) {
+  base::AutoReset<bool> is_handling_key_event(&is_handling_key_event_, true);
   // TODO: Ignoring the state of Shift key is what neither IE nor Firefox do.
   // IE matches lower and upper case access keys regardless of Shift key state -
   // but if both upper and lower case variants are present in a document, the
@@ -164,7 +166,7 @@ bool KeyboardEventManager::HandleAccessKey(const WebKeyboardEvent& evt) {
   if ((evt.GetModifiers() & (WebKeyboardEvent::kKeyModifiers &
                              ~WebInputEvent::kShiftKey)) != kAccessKeyModifiers)
     return false;
-  String key = String(base::i18n::ToUCharPtr(evt.unmodified_text));
+  String key = String(evt.unmodified_text);
   Element* elem =
       frame_->GetDocument()->GetElementByAccessKey(key.DeprecatedLower());
   if (!elem)
@@ -177,8 +179,7 @@ bool KeyboardEventManager::HandleAccessKey(const WebKeyboardEvent& evt) {
 
 WebInputEventResult KeyboardEventManager::KeyEvent(
     const WebKeyboardEvent& initial_key_event) {
-  frame_->GetChromeClient().ClearToolTip(*frame_);
-
+  base::AutoReset<bool> is_handling_key_event(&is_handling_key_event_, true);
   if (initial_key_event.windows_key_code == VK_CAPITAL)
     CapsLockStateMayHaveChanged();
 

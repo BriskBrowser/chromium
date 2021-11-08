@@ -5,9 +5,6 @@
 #ifndef CHROME_BROWSER_ANDROID_COMPOSITOR_SCENE_LAYER_SCROLLING_BOTTOM_VIEW_SCENE_LAYER_H_
 #define CHROME_BROWSER_ANDROID_COMPOSITOR_SCENE_LAYER_SCROLLING_BOTTOM_VIEW_SCENE_LAYER_H_
 
-#include <memory>
-#include <vector>
-
 #include "base/android/jni_android.h"
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
@@ -26,6 +23,11 @@ class ScrollingBottomViewSceneLayer : public SceneLayer {
  public:
   ScrollingBottomViewSceneLayer(JNIEnv* env,
                                 const base::android::JavaRef<jobject>& jobj);
+
+  ScrollingBottomViewSceneLayer(const ScrollingBottomViewSceneLayer&) = delete;
+  ScrollingBottomViewSceneLayer& operator=(
+      const ScrollingBottomViewSceneLayer&) = delete;
+
   ~ScrollingBottomViewSceneLayer() override;
 
   // Update the compositor version of the view.
@@ -53,8 +55,6 @@ class ScrollingBottomViewSceneLayer : public SceneLayer {
   SkColor background_color_;
   scoped_refptr<cc::Layer> view_container_;
   scoped_refptr<cc::UIResourceLayer> view_layer_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScrollingBottomViewSceneLayer);
 };
 
 }  // namespace android

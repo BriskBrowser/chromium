@@ -4,7 +4,7 @@
 
 import {PageCallbackRouter, PageRemote, ProfileData, TabSearchApiProxy} from 'chrome://tab-search.top-chrome/tab_search.js';
 
-import {TestBrowserProxy} from '../test_browser_proxy.m.js';
+import {TestBrowserProxy} from '../test_browser_proxy.js';
 
 /** @implements {TabSearchApiProxy} */
 export class TestTabSearchApiProxy extends TestBrowserProxy {
@@ -12,10 +12,10 @@ export class TestTabSearchApiProxy extends TestBrowserProxy {
     super([
       'closeTab',
       'getProfileData',
-      'showFeedbackPage',
+      'openRecentlyClosedEntry',
       'switchToTab',
+      'saveRecentlyClosedExpandedPref',
       'showUI',
-      'closeUI',
     ]);
 
     /** @type {!PageCallbackRouter} */
@@ -41,8 +41,9 @@ export class TestTabSearchApiProxy extends TestBrowserProxy {
   }
 
   /** @override */
-  showFeedbackPage() {
-    this.methodCalled('showFeedbackPage');
+  openRecentlyClosedEntry(id, withSearch, isTab, index) {
+    this.methodCalled(
+        'openRecentlyClosedEntry', [id, withSearch, isTab, index]);
   }
 
   /** @override */
@@ -51,13 +52,13 @@ export class TestTabSearchApiProxy extends TestBrowserProxy {
   }
 
   /** @override */
-  showUI() {
-    this.methodCalled('showUI');
+  saveRecentlyClosedExpandedPref(expanded) {
+    this.methodCalled('saveRecentlyClosedExpandedPref', [expanded]);
   }
 
   /** @override */
-  closeUI() {
-    this.methodCalled('closeUI');
+  showUI() {
+    this.methodCalled('showUI');
   }
 
   /** @override */

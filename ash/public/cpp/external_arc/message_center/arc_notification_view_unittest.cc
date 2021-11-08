@@ -12,6 +12,7 @@
 #include "ash/public/cpp/external_arc/message_center/mock_arc_notification_surface.h"
 #include "ash/public/cpp/message_center/arc_notification_constants.h"
 #include "ash/shell.h"
+#include "ash/system/message_center/message_view_factory.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/desks/desks_util.h"
 #include "base/bind.h"
@@ -22,13 +23,13 @@
 #include "ui/base/ime/dummy_text_input_client.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_client.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/public/cpp/notification.h"
-#include "ui/message_center/views/message_view_factory.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/image_button.h"
@@ -45,14 +46,15 @@ class TestTextInputClient : public ui::DummyTextInputClient {
  public:
   TestTextInputClient() : ui::DummyTextInputClient(ui::TEXT_INPUT_TYPE_TEXT) {}
 
+  TestTextInputClient(const TestTextInputClient&) = delete;
+  TestTextInputClient& operator=(const TestTextInputClient&) = delete;
+
   ui::TextInputType GetTextInputType() const override { return type_; }
 
   void set_text_input_type(ui::TextInputType type) { type_ = type; }
 
  private:
   ui::TextInputType type_ = ui::TEXT_INPUT_TYPE_NONE;
-
-  DISALLOW_COPY_AND_ASSIGN(TestTextInputClient);
 };
 
 }  // namespace
@@ -60,6 +62,10 @@ class TestTextInputClient : public ui::DummyTextInputClient {
 class ArcNotificationViewTest : public AshTestBase {
  public:
   ArcNotificationViewTest() = default;
+
+  ArcNotificationViewTest(const ArcNotificationViewTest&) = delete;
+  ArcNotificationViewTest& operator=(const ArcNotificationViewTest&) = delete;
+
   ~ArcNotificationViewTest() override = default;
 
   // views::ViewsTestBase
@@ -68,9 +74,9 @@ class ArcNotificationViewTest : public AshTestBase {
 
     item_ = std::make_unique<MockArcNotificationItem>(kDefaultNotificationKey);
 
-    message_center::MessageViewFactory::ClearCustomNotificationViewFactory(
+    MessageViewFactory::ClearCustomNotificationViewFactory(
         kArcNotificationCustomViewType);
-    message_center::MessageViewFactory::SetCustomNotificationViewFactory(
+    MessageViewFactory::SetCustomNotificationViewFactory(
         kArcNotificationCustomViewType,
         base::BindRepeating(
             &ArcNotificationViewTest::CreateCustomMessageViewForTest,
@@ -80,7 +86,8 @@ class ArcNotificationViewTest : public AshTestBase {
 
     std::unique_ptr<ArcNotificationView> notification_view(
         static_cast<ArcNotificationView*>(
-            message_center::MessageViewFactory::Create(*notification)));
+            MessageViewFactory::Create(*notification, /*shown_in_popup=*/false)
+                .release()));
     notification_view_ = notification_view.get();
     surface_ =
         std::make_unique<MockArcNotificationSurface>(kDefaultNotificationKey);
@@ -105,8 +112,7 @@ class ArcNotificationViewTest : public AshTestBase {
   std::unique_ptr<Notification> CreateSimpleNotification() {
     std::unique_ptr<Notification> notification = std::make_unique<Notification>(
         message_center::NOTIFICATION_TYPE_CUSTOM, kDefaultNotificationId,
-        base::UTF8ToUTF16("title"), base::UTF8ToUTF16("message"), gfx::Image(),
-        base::UTF8ToUTF16("display source"), GURL(),
+        u"title", u"message", gfx::Image(), u"display source", GURL(),
         message_center::NotifierId(
             message_center::NotifierType::ARC_APPLICATION, "test_app_id"),
         message_center::RichNotificationData(), nullptr);
@@ -191,7 +197,8 @@ class ArcNotificationViewTest : public AshTestBase {
  private:
   std::unique_ptr<message_center::MessageView> CreateCustomMessageViewForTest(
       ArcNotificationItem* item,
-      const Notification& notification) {
+      const Notification& notification,
+      bool shown_in_popup) {
     auto message_view =
         std::make_unique<ArcNotificationView>(item, notification);
     message_view->content_view_->SetPreferredSize(gfx::Size(100, 100));
@@ -203,8 +210,6 @@ class ArcNotificationViewTest : public AshTestBase {
   ArcNotificationView* notification_view_ = nullptr;  // owned by its widget.
 
   std::unique_ptr<MockArcNotificationItem> item_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArcNotificationViewTest);
 };
 
 TEST_F(ArcNotificationViewTest, Events) {
@@ -301,8 +306,7 @@ TEST_F(ArcNotificationViewTest, SnoozeButton) {
   rich_data.should_show_snooze_button = true;
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
       message_center::NOTIFICATION_TYPE_CUSTOM, kDefaultNotificationId,
-      base::UTF8ToUTF16("title"), base::UTF8ToUTF16("message"), gfx::Image(),
-      base::UTF8ToUTF16("display source"), GURL(),
+      u"title", u"message", gfx::Image(), u"display source", GURL(),
       message_center::NotifierId(message_center::NotifierType::ARC_APPLICATION,
                                  "test_app_id"),
       rich_data, nullptr);

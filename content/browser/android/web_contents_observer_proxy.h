@@ -6,7 +6,6 @@
 #define CONTENT_BROWSER_ANDROID_WEB_CONTENTS_OBSERVER_PROXY_H_
 
 #include <jni.h>
-#include <memory>
 
 #include "base/android/jni_weak_ref.h"
 #include "base/macros.h"
@@ -26,6 +25,10 @@ class RenderFrameHost;
 class WebContentsObserverProxy : public WebContentsObserver {
  public:
   WebContentsObserverProxy(JNIEnv* env, jobject obj, WebContents* web_contents);
+
+  WebContentsObserverProxy(const WebContentsObserverProxy&) = delete;
+  WebContentsObserverProxy& operator=(const WebContentsObserverProxy&) = delete;
+
   ~WebContentsObserverProxy() override;
 
   void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
@@ -34,7 +37,8 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void RenderFrameCreated(RenderFrameHost* render_frame_host) override;
   void RenderFrameDeleted(RenderFrameHost* render_frame_host) override;
   void RenderViewReady() override;
-  void RenderProcessGone(base::TerminationStatus termination_status) override;
+  void PrimaryMainFrameRenderProcessGone(
+      base::TerminationStatus termination_status) override;
   void DidStartLoading() override;
   void DidStopLoading() override;
   void LoadProgressChanged(double progress) override;
@@ -42,7 +46,8 @@ class WebContentsObserverProxy : public WebContentsObserver {
                    const GURL& validated_url,
                    int error_code) override;
   void DidChangeVisibleSecurityState() override;
-  void DocumentAvailableInMainFrame() override;
+  void DocumentAvailableInMainFrame(
+      RenderFrameHost* render_frame_host) override;
   void DidFirstVisuallyNonEmptyPaint() override;
   void OnVisibilityChanged(content::Visibility visibility) override;
   void TitleWasSet(NavigationEntry* entry) override;
@@ -61,7 +66,15 @@ class WebContentsObserverProxy : public WebContentsObserver {
       const EntryChangedDetails& change_details) override;
   void WebContentsDestroyed() override;
   void DidChangeThemeColor() override;
+  void MediaStartedPlaying(const MediaPlayerInfo& video_type,
+                           const MediaPlayerId& id) override;
+  void MediaStoppedPlaying(
+      const MediaPlayerInfo& video_type,
+      const MediaPlayerId& id,
+      WebContentsObserver::MediaStoppedReason reason) override;
   void MediaEffectivelyFullscreenChanged(bool is_fullscreen) override;
+  void DidToggleFullscreenModeForTab(bool entered_fullscreen,
+                                     bool will_cause_resize) override;
   bool SetToBaseURLForDataURLIfNeeded(GURL* url);
   void ViewportFitChanged(blink::mojom::ViewportFit value) override;
   void OnWebContentsFocused(RenderWidgetHost*) override;
@@ -69,8 +82,6 @@ class WebContentsObserverProxy : public WebContentsObserver {
 
   base::android::ScopedJavaGlobalRef<jobject> java_observer_;
   GURL base_url_of_last_started_data_url_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebContentsObserverProxy);
 };
 
 }  // namespace content

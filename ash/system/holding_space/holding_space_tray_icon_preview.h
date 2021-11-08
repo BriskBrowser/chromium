@@ -6,7 +6,6 @@
 #define ASH_SYSTEM_HOLDING_SPACE_HOLDING_SPACE_TRAY_ICON_PREVIEW_H_
 
 #include <memory>
-#include <string>
 
 #include "ash/ash_export.h"
 #include "base/callback.h"
@@ -27,6 +26,7 @@ class Layer;
 namespace ash {
 
 class HoldingSpaceItem;
+class HoldingSpaceProgressRing;
 class Shelf;
 enum class ShelfAlignment;
 
@@ -72,14 +72,17 @@ class ASH_EXPORT HoldingSpaceTrayIconPreview
   // Invoked when the `shelf_` configuration has changed.
   void OnShelfConfigChanged();
 
+  // Invoked when the theme of the parent `container_` has changed.
+  void OnThemeChanged();
+
   // Returns the holding space `item_` visually represented by this preview.
   const HoldingSpaceItem* item() const { return item_; }
 
   ui::Layer* layer() { return layer_owner_.layer(); }
 
-  const base::Optional<size_t>& index() const { return index_; }
+  const absl::optional<size_t>& index() const { return index_; }
 
-  const base::Optional<size_t>& pending_index() const { return pending_index_; }
+  const absl::optional<size_t>& pending_index() const { return pending_index_; }
   void set_pending_index(size_t index) { pending_index_ = index; }
 
  private:
@@ -140,6 +143,11 @@ class ASH_EXPORT HoldingSpaceTrayIconPreview
   // gets deleted before the preview.
   const HoldingSpaceItem* item_;
 
+  // Owns the `ui::Layer` which paints a ring to indicate progress of the
+  // associated holding space `item_`. NOTE: The `ui::Layer` is *not* painted if
+  // the holding space `item` is not in-progress.
+  std::unique_ptr<HoldingSpaceProgressRing> progress_ring_;
+
   // Whether or not this preview is currently using small dimensions. This is
   // done when in tablet mode and an app is in use.
   bool use_small_previews_ = false;
@@ -167,11 +175,11 @@ class ASH_EXPORT HoldingSpaceTrayIconPreview
 
   // If set, the preview index within the holding space tray icon. May be unset
   // during icon update transition before the preview is animated in.
-  base::Optional<size_t> index_;
+  absl::optional<size_t> index_;
 
   // If set, the index within the holding space tray icon to which the preview
   // is about to move. Set while the holding space tray icon is updating.
-  base::Optional<size_t> pending_index_;
+  absl::optional<size_t> pending_index_;
 
   // Subscription for changes to the holding space image backing
   // `contents_image_`.

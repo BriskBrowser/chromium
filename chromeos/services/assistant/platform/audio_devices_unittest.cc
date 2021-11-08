@@ -4,11 +4,11 @@
 
 #include "chromeos/services/assistant/platform/audio_devices.h"
 
+#include "ash/components/audio/audio_device.h"
+#include "ash/components/audio/cras_audio_handler.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
-#include "chromeos/audio/audio_device.h"
-#include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/dbus/audio/fake_cras_audio_client.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -31,11 +31,11 @@ class FakeAudioDevicesObserver : public AudioDevices::Observer {
   ~FakeAudioDevicesObserver() override = default;
 
   // AudioDevices::Observer implementation
-  void SetDeviceId(const base::Optional<std::string>& device_id) override {
+  void SetDeviceId(const absl::optional<std::string>& device_id) override {
     preferred_device_id_ = device_id;
   }
   void SetHotwordDeviceId(
-      const base::Optional<std::string>& device_id) override {
+      const absl::optional<std::string>& device_id) override {
     hotword_device_id_ = device_id;
   }
 
@@ -48,8 +48,8 @@ class FakeAudioDevicesObserver : public AudioDevices::Observer {
   }
 
  private:
-  base::Optional<std::string> preferred_device_id_;
-  base::Optional<std::string> hotword_device_id_;
+  absl::optional<std::string> preferred_device_id_;
+  absl::optional<std::string> hotword_device_id_;
 };
 
 class DeviceBuilder {

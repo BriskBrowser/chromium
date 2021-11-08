@@ -44,7 +44,8 @@ const int kRenderFrameID = 1;
 class SubresourceRedirectRobotsRulesParserTest : public testing::Test {
  public:
   SubresourceRedirectRobotsRulesParserTest()
-      : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+      : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
+        robots_rules_parser_(base::Seconds(1)) {}
   void SetUp() override {
     scoped_feature_list_.InitWithFeaturesAndParameters(
         {{blink::features::kSubresourceRedirect, {{}}}}, {});
@@ -149,7 +150,7 @@ TEST_F(SubresourceRedirectRobotsRulesParserTest,
        RulesReceiveTimeoutDisallowsAllPaths) {
   // Let the rule fetch timeout.
   VerifyRulesReceiveState(RobotsRulesParser::RulesReceiveState::kTimerRunning);
-  task_environment_.FastForwardBy(base::TimeDelta::FromSeconds(10));
+  task_environment_.FastForwardBy(base::Seconds(10));
   VerifyRobotsRulesReceiveResultHistogram(
       RobotsRulesParser::SubresourceRedirectRobotsRulesReceiveResult::kTimeout);
   VerifyRulesReceiveState(RobotsRulesParser::RulesReceiveState::kTimeout);
@@ -197,7 +198,8 @@ TEST_F(SubresourceRedirectRobotsRulesParserTest,
 // Verify if the callback is called before the decider gets destroyed.
 TEST_F(SubresourceRedirectRobotsRulesParserTest,
        VerifyCallbackCalledBeforeDeciderDestroy) {
-  auto robots_rules_parser = std::make_unique<RobotsRulesParser>();
+  auto robots_rules_parser =
+      std::make_unique<RobotsRulesParser>(base::Seconds(1));
   auto receiver1 = std::make_unique<CheckResultReceiver>();
   auto receiver2 = std::make_unique<CheckResultReceiver>();
 
@@ -235,7 +237,7 @@ TEST_F(SubresourceRedirectRobotsRulesParserTest,
 
   // Once the rule fetch timesout,the callback should get called with the
   // result.
-  task_environment_.FastForwardBy(base::TimeDelta::FromSeconds(10));
+  task_environment_.FastForwardBy(base::Seconds(10));
   VerifyRobotsRulesReceiveResultHistogram(
       RobotsRulesParser::SubresourceRedirectRobotsRulesReceiveResult::kTimeout);
   VerifyRulesReceiveState(RobotsRulesParser::RulesReceiveState::kTimeout);
@@ -376,6 +378,62 @@ TEST_F(SubresourceRedirectRobotsRulesParserTest, TestRulesAreCaseSensitive) {
                    RobotsRulesParser::CheckResult::kDisallowed);
 
   VerifyTotalRobotsRulesApplyHistograms(6);
+}
+
+TEST_F(SubresourceRedirectRobotsRulesParserTest,
+       TestRulesHandleSpecialGlobSymbols) {
+  SetUpRobotsRules({
+      {kRuleTypeAllow, "/allo?ed"},
+      {kRuleTypeAllow, "/foo"},
+      {kRuleTypeAllow, "/bar$"},
+      {kRuleTypeAllow, "/boo$$"},
+      {kRuleTypeAllow, "/baz*"},
+      {kRuleTypeAllow, "/bop*$"},
+      {kRuleTypeAllow, "*startwithstar"},
+      {kRuleTypeAllow, "*anchoredtoend$"},
+      {kRuleTypeDisallow, "/"},
+  });
+  VerifyReceivedRobotsRulesCountHistogram(9);
+
+  // The '?' character is *not* treated as a special globbing symbol.
+  CheckRobotsRules("/allo?ed.jpg", RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/allowed.jpg", RobotsRulesParser::CheckResult::kDisallowed);
+
+  // A pattern without a final '$' is not anchored to the end of the string.
+  CheckRobotsRules("/foo", RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/foo.jpg", RobotsRulesParser::CheckResult::kAllowed);
+
+  // A pattern with a final '$' is anchored to the end of the string.
+  CheckRobotsRules("/bar", RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/bar.jpg", RobotsRulesParser::CheckResult::kDisallowed);
+
+  // When a pattern ends with two '$' characters, the first '$' is a literal,
+  // and the second matches the end of the string.
+  CheckRobotsRules("/boo$", RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/boo$$", RobotsRulesParser::CheckResult::kDisallowed);
+  CheckRobotsRules("/boo", RobotsRulesParser::CheckResult::kDisallowed);
+  CheckRobotsRules("/boo$.jpg", RobotsRulesParser::CheckResult::kDisallowed);
+
+  // A trailing '*' has no effect, and it is compatible with '$'.
+  CheckRobotsRules("/baz", RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/bazfoo", RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/bop", RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/bopfoo", RobotsRulesParser::CheckResult::kAllowed);
+
+  // Patterns with leading '*' are not anchored to the beginning of the string.
+  CheckRobotsRules("/startwithstar", RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/ZZZstartwithstar",
+                   RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/ZZZstartwithstarbar",
+                   RobotsRulesParser::CheckResult::kAllowed);
+
+  // Patterns with leading '*' correctly interact with trailing '$'.
+  CheckRobotsRules("/ZZZanchoredtoend",
+                   RobotsRulesParser::CheckResult::kAllowed);
+  CheckRobotsRules("/ZZZanchoredtoendZZZ",
+                   RobotsRulesParser::CheckResult::kDisallowed);
+
+  VerifyTotalRobotsRulesApplyHistograms(19);
 }
 
 TEST_F(SubresourceRedirectRobotsRulesParserTest,

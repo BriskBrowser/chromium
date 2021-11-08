@@ -39,8 +39,6 @@ web::WebUIIOSDataSource* CreatePolicyUIHtmlSource() {
       {"labelAssetId", IDS_POLICY_LABEL_ASSET_ID},
       {"labelClientId", IDS_POLICY_LABEL_CLIENT_ID},
       {"labelDirectoryApiId", IDS_POLICY_LABEL_DIRECTORY_API_ID},
-      {"labelEnterpriseEnrollmentDomain",
-       IDS_POLICY_LABEL_ENTERPRISE_ENROLLMENT_DOMAIN},
       {"labelGaiaId", IDS_POLICY_LABEL_GAIA_ID},
       {"labelIsAffiliated", IDS_POLICY_LABEL_IS_AFFILIATED},
       {"labelLocation", IDS_POLICY_LABEL_LOCATION},
@@ -54,6 +52,7 @@ web::WebUIIOSDataSource* CreatePolicyUIHtmlSource() {
        IDS_POLICY_LABEL_MACHINE_ENROLLMENT_DEVICE_ID},
       {"labelIsOffHoursActive", IDS_POLICY_LABEL_IS_OFFHOURS_ACTIVE},
       {"labelPoliciesPush", IDS_POLICY_LABEL_PUSH_POLICIES},
+      {"labelPrecedence", IDS_POLICY_LABEL_PRECEDENCE},
       {"labelRefreshInterval", IDS_POLICY_LABEL_REFRESH_INTERVAL},
       {"labelStatus", IDS_POLICY_LABEL_STATUS},
       {"labelTimeSinceLastRefresh", IDS_POLICY_LABEL_TIME_SINCE_LAST_REFRESH},
@@ -65,6 +64,7 @@ web::WebUIIOSDataSource* CreatePolicyUIHtmlSource() {
       {"offHoursNotActive", IDS_POLICY_OFFHOURS_NOT_ACTIVE},
       {"policiesPushOff", IDS_POLICY_PUSH_POLICIES_OFF},
       {"policiesPushOn", IDS_POLICY_PUSH_POLICIES_ON},
+      {"policyCopyValue", IDS_POLICY_COPY_VALUE},
       {"policyLearnMore", IDS_POLICY_LEARN_MORE},
       {"reloadPolicies", IDS_POLICY_RELOAD_POLICIES},
       {"showExpandedStatus", IDS_POLICY_SHOW_EXPANDED_STATUS},
@@ -76,9 +76,14 @@ web::WebUIIOSDataSource* CreatePolicyUIHtmlSource() {
       {"statusDevice", IDS_POLICY_STATUS_DEVICE},
       {"statusMachine", IDS_POLICY_STATUS_MACHINE},
       {"statusUser", IDS_POLICY_STATUS_USER},
+      {"labelLastCloudReportSentTimestamp",
+       IDS_POLICY_LABEL_LAST_CLOUD_REPORT_SENT_TIMESTAMP},
+
   };
   source->AddLocalizedStrings(kStrings);
   source->UseStringsJs();
+
+  source->AddBoolean("hideExportButton", true);
 
   source->AddResourcePath("policy.css", IDR_POLICY_CSS);
   source->AddResourcePath("policy_base.js", IDR_POLICY_BASE_JS);

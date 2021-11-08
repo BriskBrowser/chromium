@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_store.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/extension_prefs.h"
@@ -24,6 +24,10 @@ class ContentSettingsService : public BrowserContextKeyedAPI,
                                public EarlyExtensionPrefsObserver {
  public:
   explicit ContentSettingsService(content::BrowserContext* context);
+
+  ContentSettingsService(const ContentSettingsService&) = delete;
+  ContentSettingsService& operator=(const ContentSettingsService&) = delete;
+
   ~ContentSettingsService() override;
 
   scoped_refptr<ContentSettingsStore> content_settings_store() const {
@@ -59,9 +63,8 @@ class ContentSettingsService : public BrowserContextKeyedAPI,
   static const char* service_name() { return "ContentSettingsService"; }
 
   scoped_refptr<ContentSettingsStore> content_settings_store_;
-  ScopedObserver<ExtensionPrefs, ExtensionPrefsObserver> scoped_observer_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ContentSettingsService);
+  base::ScopedObservation<ExtensionPrefs, ExtensionPrefsObserver>
+      scoped_observation_{this};
 };
 
 }  // namespace extensions

@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/task/post_task.h"
+#include "base/logging.h"
 #include "chromecast/browser/accessibility/accessibility_manager.h"
 #include "chromecast/browser/accessibility/proto/gallium_server_accessibility.grpc.pb.h"
 #include "chromecast/browser/cast_browser_process.h"
@@ -114,8 +114,8 @@ bool FlutterAccessibilityHelperBridge::OnAccessibilityEventRequest(
       std::make_unique<::gallium::castos::OnAccessibilityEventRequest>(
           *event_data);
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&FlutterAccessibilityHelperBridge::
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&FlutterAccessibilityHelperBridge::
                                     OnAccessibilityEventRequestInternal,
                                 base::Unretained(this), std::move(event)));
   return true;
@@ -140,26 +140,32 @@ void FlutterAccessibilityHelperBridge::OnAction(const ui::AXActionData& data) {
     case ax::mojom::Action::kScrollBackward:
       request.set_action_type(
           OnAccessibilityActionRequest_AccessibilityActionType_SCROLL_LEFT);
+      tree_source_->NotifyActionResult(data, false);
       break;
     case ax::mojom::Action::kScrollForward:
       request.set_action_type(
           OnAccessibilityActionRequest_AccessibilityActionType_SCROLL_RIGHT);
+      tree_source_->NotifyActionResult(data, false);
       break;
     case ax::mojom::Action::kScrollUp:
       request.set_action_type(
           OnAccessibilityActionRequest_AccessibilityActionType_SCROLL_UP);
+      tree_source_->NotifyActionResult(data, false);
       break;
     case ax::mojom::Action::kScrollDown:
       request.set_action_type(
           OnAccessibilityActionRequest_AccessibilityActionType_SCROLL_DOWN);
+      tree_source_->NotifyActionResult(data, false);
       break;
     case ax::mojom::Action::kScrollLeft:
       request.set_action_type(
           OnAccessibilityActionRequest_AccessibilityActionType_SCROLL_LEFT);
+      tree_source_->NotifyActionResult(data, false);
       break;
     case ax::mojom::Action::kScrollRight:
       request.set_action_type(
           OnAccessibilityActionRequest_AccessibilityActionType_SCROLL_RIGHT);
+      tree_source_->NotifyActionResult(data, false);
       break;
     case ax::mojom::Action::kCustomAction:
       request.set_action_type(
@@ -190,6 +196,13 @@ void FlutterAccessibilityHelperBridge::OnAction(const ui::AXActionData& data) {
   }
 
   bridge_delegate_->SendAccessibilityAction(request);
+}
+
+void FlutterAccessibilityHelperBridge::OnVirtualKeyboardBoundsChange(
+    const gfx::Rect& bounds) {
+  chromecast::shell::CastBrowserProcess::GetInstance()
+      ->accessibility_manager()
+      ->SetVirtualKeyboardBounds(bounds);
 }
 
 }  // namespace accessibility

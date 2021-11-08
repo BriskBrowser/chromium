@@ -9,6 +9,9 @@
 #include "base/test/test_switches.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "ui/aura/test/ui_controls_factory_aura.h"
+#include "ui/base/test/ui_controls.h"
+#include "ui/views/test/ui_controls_factory_desktop_aura_ozone.h"
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
@@ -32,6 +35,21 @@ std::string NameFromTestCase() {
                                          : name.substr(underscore + 1);
 }
 
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_WIN) || (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
+void InstallUIControlsAura() {
+#if defined(OS_WIN)
+  ui_controls::InstallUIControlsAura(aura::test::CreateUIControlsAura(nullptr));
+#elif defined(USE_OZONE)
+  ui_controls::InstallUIControlsAura(
+      views::test::CreateUIControlsDesktopAuraOzone());
+#else
+  ui_controls::EnableUIControls();
+#endif
+}
+#endif
+
 }  // namespace
 
 TestBrowserUi::TestBrowserUi() {
@@ -54,18 +72,37 @@ TestBrowserUi::~TestBrowserUi() = default;
 bool TestBrowserUi::VerifyPixelUi(views::Widget* widget,
                                   const std::string& screenshot_prefix,
                                   const std::string& screenshot_name) {
+  return VerifyPixelUi(widget->GetContentsView(), screenshot_prefix,
+                       screenshot_name);
+}
+
+bool TestBrowserUi::VerifyPixelUi(views::View* view,
+                                  const std::string& screenshot_prefix,
+                                  const std::string& screenshot_name) {
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           "browser-ui-tests-verify-pixels"))
     return true;
 
+  // Move the mouse away from the dialog to prvent any interference with the
+  // screenshots.
+  InstallUIControlsAura();
+  base::RunLoop run_loop;
+  EXPECT_TRUE(
+      ui_controls::SendMouseMoveNotifyWhenDone(0, 0, run_loop.QuitClosure()));
+  run_loop.Run();
+
+  // Clear widget focus to avoid flakiness caused by some widgets having focus
+  // and some not due to tests being run in parallel.
+  view->GetWidget()->GetFocusManager()->ClearFocus();
+
   // Wait for painting complete.
-  auto* compositor = widget->GetCompositor();
+  auto* compositor = view->GetWidget()->GetCompositor();
   ui::DrawWaiterForTest::WaitForCompositingEnded(compositor);
 
   BrowserSkiaGoldPixelDiff pixel_diff;
-  pixel_diff.Init(widget, screenshot_prefix);
-  return pixel_diff.CompareScreenshot(
-      screenshot_name, widget->GetContentsView(), GetPixelMatchAlgorithm());
+  pixel_diff.Init(view->GetWidget(), screenshot_prefix);
+  return pixel_diff.CompareScreenshot(screenshot_name, view,
+                                      GetPixelMatchAlgorithm());
 }
 
 void TestBrowserUi::SetPixelMatchAlgorithm(

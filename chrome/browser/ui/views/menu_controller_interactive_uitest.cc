@@ -15,14 +15,18 @@ class MenuControllerMnemonicTest : public MenuTestBase {
   MenuControllerMnemonicTest() {
   }
 
+  MenuControllerMnemonicTest(const MenuControllerMnemonicTest&) = delete;
+  MenuControllerMnemonicTest& operator=(const MenuControllerMnemonicTest&) =
+      delete;
+
   ~MenuControllerMnemonicTest() override {
   }
 
   // MenuTestBase overrides:
   void BuildMenu(views::MenuItemView* menu) override {
     ASSERT_NE(ui::VKEY_DIVIDE, '/');
-    menu->AppendMenuItem(1, base::ASCIIToUTF16("One&/"));
-    menu->AppendMenuItem(2, base::ASCIIToUTF16("Two"));
+    menu->AppendMenuItem(1, u"One&/");
+    menu->AppendMenuItem(2, u"Two");
   }
 
   void DoTestWithMenuOpen() override {
@@ -46,9 +50,6 @@ class MenuControllerMnemonicTest : public MenuTestBase {
     ASSERT_FALSE(menu()->GetSubmenu()->IsShowing());
     Done();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MenuControllerMnemonicTest);
 };
 
 // Pressing the mnemonic for a menu item should execute the command for that

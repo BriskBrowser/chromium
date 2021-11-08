@@ -309,12 +309,12 @@ cr.googleTranslate = (function() {
      * Translate the page contents.  Note that the translation is asynchronous.
      * You need to regularly check the state of |finished| and |errorCode| to
      * know if the translation finished or if there was an error.
-     * @param {string} originalLang The language the page is in.
+     * @param {string} sourceLang The language the page is in.
      * @param {string} targetLang The language the page should be translated to.
      * @return {boolean} False if the translate library was not ready, in which
      *                   case the translation is not started.  True otherwise.
      */
-    translate(originalLang, targetLang) {
+    translate(sourceLang, targetLang) {
       finished = false;
       errorCode = ERROR['NONE'];
       if (!libReady) {
@@ -322,7 +322,7 @@ cr.googleTranslate = (function() {
       }
       startTime = performance.now();
       try {
-        lib.translatePage(originalLang, targetLang, onTranslateProgress);
+        lib.translatePage(sourceLang, targetLang, onTranslateProgress);
       } catch (err) {
         console.error('Translate: ' + err);
         errorCode = ERROR['UNEXPECTED_SCRIPT_ERROR'];
@@ -421,7 +421,10 @@ cr.googleTranslate = (function() {
           errorCode = ERROR['SCRIPT_LOAD_ERROR'];
           return;
         }
-        eval(this.responseText);
+        // Execute translate script using an anonymous function on the window,
+        // this prevents issues with the code being inside of the scope of the
+        // XHR request.
+        new Function(this.responseText).call(window);
       };
       xhr.send();
     }

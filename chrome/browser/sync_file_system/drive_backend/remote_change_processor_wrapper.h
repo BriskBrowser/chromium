@@ -23,6 +23,10 @@ class RemoteChangeProcessorWrapper
   explicit RemoteChangeProcessorWrapper(
       RemoteChangeProcessor* remote_change_processor);
 
+  RemoteChangeProcessorWrapper(const RemoteChangeProcessorWrapper&) = delete;
+  RemoteChangeProcessorWrapper& operator=(const RemoteChangeProcessorWrapper&) =
+      delete;
+
   void PrepareForProcessRemoteChange(
       const storage::FileSystemURL& url,
       RemoteChangeProcessor::PrepareChangeCallback callback);
@@ -34,7 +38,7 @@ class RemoteChangeProcessorWrapper
 
   void FinalizeRemoteSync(const storage::FileSystemURL& url,
                           bool clear_local_changes,
-                          const base::Closure& completion_callback);
+                          base::OnceClosure completion_callback);
 
   void RecordFakeLocalChange(const storage::FileSystemURL& url,
                              const FileChange& change,
@@ -43,8 +47,6 @@ class RemoteChangeProcessorWrapper
  private:
   RemoteChangeProcessor* remote_change_processor_;
   base::SequenceChecker sequence_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(RemoteChangeProcessorWrapper);
 };
 
 }  // namespace drive_backend

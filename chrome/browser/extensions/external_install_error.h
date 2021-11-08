@@ -55,9 +55,13 @@ class ExternalInstallError : public WebstoreDataFetcherDelegate {
                        const std::string& extension_id,
                        AlertType error_type,
                        ExternalInstallManager* manager);
+
+  ExternalInstallError(const ExternalInstallError&) = delete;
+  ExternalInstallError& operator=(const ExternalInstallError&) = delete;
+
   ~ExternalInstallError() override;
 
-  void OnInstallPromptDone(ExtensionInstallPrompt::Result result);
+  void OnInstallPromptDone(ExtensionInstallPrompt::DoneCallbackPayload payload);
 
   void DidOpenBubbleView();
   void DidCloseBubbleView();
@@ -99,9 +103,10 @@ class ExternalInstallError : public WebstoreDataFetcherDelegate {
 
   // Called when the dialog has been successfully populated, and is ready to be
   // shown.
-  void OnDialogReady(ExtensionInstallPromptShowParams* show_params,
-                     ExtensionInstallPrompt::DoneCallback done_callback,
-                     std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt);
+  void OnDialogReady(
+      std::unique_ptr<ExtensionInstallPromptShowParams> show_params,
+      ExtensionInstallPrompt::DoneCallback done_callback,
+      std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt);
 
   // Removes the error.
   void RemoveError();
@@ -126,7 +131,6 @@ class ExternalInstallError : public WebstoreDataFetcherDelegate {
 
   // The UI for showing the error.
   std::unique_ptr<ExtensionInstallPrompt> install_ui_;
-  std::unique_ptr<ExtensionInstallPromptShowParams> install_ui_show_params_;
   std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt_;
 
   // The UI for the given error, which will take the form of either a menu
@@ -138,8 +142,6 @@ class ExternalInstallError : public WebstoreDataFetcherDelegate {
   std::unique_ptr<WebstoreDataFetcher> webstore_data_fetcher_;
 
   base::WeakPtrFactory<ExternalInstallError> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ExternalInstallError);
 };
 
 }  // namespace extensions

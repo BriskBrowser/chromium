@@ -10,7 +10,6 @@
 #include "ash/wm/video_detector.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/time/time.h"
 #include "base/timer/timer.h"
 
 namespace ash {
@@ -20,6 +19,10 @@ class ASH_EXPORT VideoActivityNotifier : public VideoDetector::Observer,
                                          public SessionObserver {
  public:
   explicit VideoActivityNotifier(VideoDetector* detector);
+
+  VideoActivityNotifier(const VideoActivityNotifier&) = delete;
+  VideoActivityNotifier& operator=(const VideoActivityNotifier&) = delete;
+
   ~VideoActivityNotifier() override;
 
   // VideoDetector::Observer implementation.
@@ -58,8 +61,6 @@ class ASH_EXPORT VideoActivityNotifier : public VideoDetector::Observer,
   base::RepeatingTimer notify_timer_;
 
   ScopedSessionObserver scoped_session_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(VideoActivityNotifier);
 };
 
 }  // namespace ash

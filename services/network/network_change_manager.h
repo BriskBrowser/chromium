@@ -6,7 +6,6 @@
 #define SERVICES_NETWORK_NETWORK_CHANGE_MANAGER_H_
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/component_export.h"
@@ -32,6 +31,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkChangeManager
   // Otherwise, the global net::NetworkChangeNotifier will be used.
   explicit NetworkChangeManager(
       std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier);
+
+  NetworkChangeManager(const NetworkChangeManager&) = delete;
+  NetworkChangeManager& operator=(const NetworkChangeManager&) = delete;
 
   ~NetworkChangeManager() override;
 
@@ -68,8 +70,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkChangeManager
   mojo::ReceiverSet<mojom::NetworkChangeManager> receivers_;
   std::vector<mojo::Remote<mojom::NetworkChangeManagerClient>> clients_;
   mojom::ConnectionType connection_type_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkChangeManager);
 };
 
 }  // namespace network

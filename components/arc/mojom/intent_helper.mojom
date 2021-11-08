@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// Next MinVersion: 43
+// Next MinVersion: 48
 
 module arc.mojom;
 
@@ -11,6 +11,7 @@ import "components/arc/mojom/bitmap.mojom";
 import "components/arc/mojom/camera_intent.mojom";
 import "components/arc/mojom/intent_common.mojom";
 import "components/arc/mojom/scale_factor.mojom";
+import "url/mojom/url.mojom";
 
 [Extensible]
 enum PatternType {
@@ -121,86 +122,53 @@ struct UrlWithMimeType {
 };
 
 // Describes a specific page in chrome://, about:blank, about:downloads and about:history.
+// This enum should have only the chrome pages used by ARC.
+// Numerical values should be used for each constant and should not be reused.
 [Extensible]
 enum ChromePage {
-  MULTIDEVICE,
-  MAIN,
-  POWER,
-  BLUETOOTH,
-  DATETIME,
-  DISPLAY,
-  WIFI,
-  LANGUAGES,
-  PRIVACY,
-  HELP,
-  ACCOUNTS,
-  APPEARANCE,
-  AUTOFILL,
-  BLUETOOTHDEVICES,
-  CHANGEPICTURE,
-  CLEARBROWSERDATA,
-  CLOUDPRINTERS,
-  CUPSPRINTERS,
-  DOWNLOADS,
-  KEYBOARDOVERLAY,
-  LOCKSCREEN,
-  MANAGEACCESSIBILITY,
-  NETWORKSTYPEVPN,
-  ONSTARTUP,
-  PASSWORDS,
-  POINTEROVERLAY,
-  RESET,
-  SEARCH,
-  STORAGE,
-  SYNCSETUP,
-  ABOUTBLANK,
-  ABOUTDOWNLOADS,
-  ABOUTHISTORY,
-  DEPRECATED_CROSTINIDISKRESIZE,
-  ACCESSIBILITY,
-  ACCOUNTMANAGER,
-  ANDROIDAPPSDETAILS,
-  ANDROIDAPPSDETAILSINBROWSERSETTINGS,
-  APPMANAGEMENT,
-  APPMANAGEMENTDETAILS,
-  ASSISTANT,
-  CONNECTEDDEVICES,
-  CROSTINISHAREDPATHS,
-  CROSTINISHAREDUSBDEVICES,
-  CROSTINIEXPORTIMPORT,
-  EXTERNALSTORAGE,
-  INTERNET,
-  KERBEROSACCOUNTS,
-  KNOWNNETWORKS,
-  MANAGEACCESSIBILITYTTS,
-  SMARTLOCKSETTINGS,
-  SWITCHACCESS,
-  STYLUS,
-  TETHERSETTINGS,
-  ETHERNET,
-  CELLULAR,
-  AMBIENTMODE,
-  DEPRECATED_PLUGINVMDETAILS,
-  PLUGINVMSHAREDPATHS,
-  OSACCESSIBILITY,
-  OSLANGUAGES,
-  OSLANGUAGESDETAILS,
-  OSLANGUAGESINPUTMETHODS,
-  OSPRINTING,
-  PRINTING,
-  OSPEOPLE,
-  OSPRIVACY,
-  OSSEARCH,
-  OSRESET,
-  OSLANGUAGESSMARTINPUTS,
-  DEPRECATED_DOWNLOADEDCONTENT,
-  OSLANGUAGESINPUT,
-  OSLANGUAGESLANGUAGES,
-  OSLANGUAGESEDITDICTIONARY,
-  KERBEROS,
-  KERBEROSACCOUNTSV2,
+  MULTIDEVICE = 0,
+  MAIN = 1,
+  POWER = 2,
+  BLUETOOTH = 3,
+  DATETIME = 4,
+  DISPLAY = 5,
+  WIFI = 6,
+  LANGUAGES = 7,
+  // TODO(b/181930573): Remove after P retires. This value is used only by P.
+  PRIVACY = 8,
+  HELP = 9,
+  ACCOUNTS = 10,
+  APPEARANCE = 11,
+  AUTOFILL = 12,
+  BLUETOOTHDEVICES = 13,
+  CHANGEPICTURE = 14,
+  CLEARBROWSERDATA = 15,
+  CLOUDPRINTERS = 16,
+  CUPSPRINTERS = 17,
+  DOWNLOADS = 18,
+  KEYBOARDOVERLAY = 19,
+  LOCKSCREEN = 20,
+  MANAGEACCESSIBILITY = 21,
+  NETWORKSTYPEVPN = 22,
+  ONSTARTUP = 23,
+  PASSWORDS = 24,
+  POINTEROVERLAY = 25,
+  RESET = 26,
+  SEARCH = 27,
+  STORAGE = 28,
+  SYNCSETUP = 29,
+  ABOUTBLANK = 30,
+  ABOUTDOWNLOADS = 31,
+  ABOUTHISTORY = 32,
+  // 33-48 are removed intentionally. Do not reuse them.
+  MANAGEACCESSIBILITYTTS = 49,
+  // 50-70 are removed intentionally. Do not reuse them.
+  OSLANGUAGESINPUT = 71,
+  OSLANGUAGESLANGUAGES = 72,
+  // 73-76 are removed intentionally. Do not reuse them.
+  SMARTPRIVACY = 77,
 
-  LAST = KERBEROSACCOUNTSV2
+  // Next value to be used is 78.
 };
 
 // Describes an unique chrome app.
@@ -234,6 +202,55 @@ struct TextSelectionAction {
   [MinVersion=23] ArcBitmap? bitmap_icon;
 };
 
+// Location and metadata for a single file attached to an app launch.
+struct LaunchFileInfo {
+  // URI location for the file, likely with a content:// scheme.
+  url.mojom.Url content_uri;
+
+  // MIME type for the file. Will be "application/octet-stream" if no more
+  // specific type can be determined.
+  string type;
+
+  // Human readable name for the file.
+  // TODO(crbug.com/1238215): Use BaseName instead, when available.
+  string name;
+
+  // Size of the file in bytes.
+  uint64 size;
+};
+
+// Contains the information needed to launch an app along with any data which
+// was shared to it.
+struct LaunchIntent {
+  string action;
+
+  // URI for the data to be handled by this intent.
+  url.mojom.Url? data;
+
+  // MIME type of the intent data.
+  string? type;
+
+  // The contents of Intent.EXTRA_SUBJECT.
+  string? extra_subject;
+
+  // The contents of Intent.EXTRA_TEXT.
+  string? extra_text;
+
+  // File metadata for files shared through Intent.EXTRA_STREAM.
+  array<LaunchFileInfo>? files;
+};
+
+// Contains information about an app's supported links.
+struct SupportedLinks {
+  // Android package name of the app.
+  string package_name;
+  // A list of all the link intent filters handled by the app. Should only
+  // include, link intents. That is, filters must have an http/https scheme and
+  // at least one authority. This field can be omitted when deleting supported
+  // links for an app.
+  array<IntentFilter>? filters;
+};
+
 // Interface to interact with a custom tab.
 // Close the interface pointer to close the custom tab.
 // Next method ID: 1
@@ -243,8 +260,8 @@ interface CustomTabSession {
 };
 
 // Handles intents from ARC in Chrome.
-// Deprecated method ID: 4, 10
-// Next method ID: 18
+// Deprecated method ID: 4, 9, 10, 16
+// Next method ID: 21
 interface IntentHelperHost {
   // Called when icons associated with the package are no longer up to date.
   [MinVersion=3] OnIconInvalidated@1(string package_name);
@@ -260,13 +277,6 @@ interface IntentHelperHost {
   // navigate to as well. No special URLs that allow access to privileged functions are allowed.
   OnOpenUrl@0(string url);
 
-  // DEPRECATED: Please use OnOpenCustomTab@17 instead.
-  [MinVersion=25] OnOpenCustomTabDeprecated@10(string url,
-                                               int32 task_id,
-                                               int32 surface_id,
-                                               int32 top_margin)
-      => (pending_remote<CustomTabSession>? session);
-
   // Opens the |url| with a custom tab.
   // |task_id| specifies the Android task on which the custom tab should be
   // shown.
@@ -275,10 +285,6 @@ interface IntentHelperHost {
 
   // Opens the wallpaper picker dialog.
   [MinVersion=6] OpenWallpaperPicker@3();
-
-  // Sets an image as the wallpaper.
-  // |jpeg_data| is a JPEG encoded wallpaper image.
-  [MinVersion=8] SetWallpaperDeprecated@4(array<uint8> jpeg_data);
 
   // Opens the volume control.
   [MinVersion=16] OpenVolumeControl@6();
@@ -291,7 +297,7 @@ interface IntentHelperHost {
   [MinVersion=23] OnOpenWebApp@8(string url);
 
   // Records Sharing files feature's metrics via Chrome.
-  [MinVersion=24] RecordShareFilesMetrics@9(ShareFiles flag);
+  [MinVersion=24] RecordShareFilesMetricsDeprecated@9(ShareFiles flag);
 
   // Does a reset of ARC; this wipes /data, and then re-calls on OOBE for
   // account binding to happen again, as if the user just went through OOBE.
@@ -324,14 +330,44 @@ interface IntentHelperHost {
   // Checks if given chrome app is enabled.
   [MinVersion=33] IsChromeAppEnabled@15(ChromeApp app) => (bool is_enabled);
 
-  // Send the preferred app changes from ARC to Chrome.
-  [MinVersion=34] OnPreferredAppsChanged@16(array<IntentFilter> added,
-                                            array<IntentFilter> deleted);
+  // DEPRECATED. Use OnSupportedLinksChanged() instead.
+  // TODO(crbug.com/1265318): Remove this method.
+  [MinVersion=34] OnPreferredAppsChangedDeprecated@16(
+      array<IntentFilter> added, array<IntentFilter> deleted);
+
+  // Called when the link capturing preference for one or more apps has changed.
+  // Set the apps in |added_packages| as handling their supported link
+  // IntentFilters, and removes the apps in |removed_packages| from handling
+  // supported links.
+  [MinVersion=47] OnSupportedLinksChanged@20(
+      array<SupportedLinks> added_packages,
+      array<SupportedLinks> removed_packages);
+
+  // Called when a new entry has been added to the MediaStore.Downloads
+  // collection of downloaded items with the specified metadata.
+  // |relative_path|      relative path of the download within the Download/
+  //                      folder (e.g. "Download/foo/bar.pdf"). The method
+  //                      implementation must verify that the `relative_path` is
+  //                      in fact within the Download/ folder (or subdirectory),
+  //                      treating ARC as an untrusted source.
+  // |owner_package_name| package name that contributed the download (e.g.
+  //                      "com.bar.foo").
+  [MinVersion=44] OnDownloadAdded@18(
+      string relative_path, string owner_package_name);
+
+  // Opens the web app for a specified URL, if it is installed, and delivers
+  // |intent| to it. If the URL is not installed, will open |intent.data| in a
+  // browser tab, unless |intent.data| is not set, in which case nothing
+  // happens.
+  // Note that the |start_url| is used for resolving the app to open, but the
+  // actual URL which is loaded is based on the contents of |intent|.
+  [MinVersion=45] OnOpenAppWithIntent@19(
+      url.mojom.Url start_url, LaunchIntent intent);
 };
 
 // Sends intents to ARC on behalf of Chrome.
-// Deprecated method ID: 7
-// Next method ID: 20
+// Deprecated method ID: 0, 7, 11, 12, 14, 18
+// Next method ID: 22
 interface IntentHelperInstance {
   // Sets the given package as a preferred package. The next time an ACTION_VIEW
   // intent is sent with a URL that requires disambiguation, instead of opening
@@ -349,30 +385,26 @@ interface IntentHelperInstance {
                                      IntentFilter intent_filter,
                                      IntentInfo intent_info);
 
-  // Reset the verified link domain status to always ask for the
-  // |package_names|.
-  // This method will be called when Chrome OS replaced the preferred package
-  // from an ARC app to something else.
-  [MinVersion=35] ResetVerifiedLinks@18(array<string> package_names);
+  // Set the verified link domain status to either always open (|always_open| is
+  // true) or always ask (|always_open| is false) for the |package_names|.
+  // This method will be called when Chrome OS changes the link capturing
+  // setting for an app.
+  [MinVersion=46] SetVerifiedLinks@21(array<string> package_names,
+                                      bool always_open);
 
-  // DEPRECATED. Use FileSystemInstance.GetFileSize() instead.
-  [MinVersion=15] GetFileSizeDeprecated@11(string url) => (int64 size);
-
-  // Passes an intent to an activity.
+  // DEPRECATED. Use HandleIntentWithWindowInfo() instead.
   [MinVersion=12] HandleIntent@10(IntentInfo intent, ActivityName activity);
+
+  // Passes an intent to an activity with a specific launch window info.
+  [MinVersion=43] HandleIntentWithWindowInfo@20(
+      IntentInfo intent, ActivityName activity, WindowInfo window_info);
 
   // Handles the URL by sending an ACTION_VIEW intent to the package. The
   // most suitable activity for the URL within the package will be started.
   [MinVersion=2] HandleUrl@2(string url, string package_name);
 
-  // DEPRECATED: Please use Init@13 instead.
-  InitDeprecated@0(pending_remote<IntentHelperHost> host_remote);
-
   // Establishes full-duplex communication with the host.
   [MinVersion=19] Init@13(pending_remote<IntentHelperHost> host_remote) => ();
-
-  // DEPRECATED. Use FileSystemInstance.OpenFileToRead() instead.
-  [MinVersion=15] OpenFileToReadDeprecated@12(string url) => (handle? fd);
 
   // Requests 48dp * 48dp icons of the |activities| suitable for the
   // |scale_factor|. An array of icon data will be returned.
@@ -402,12 +434,6 @@ interface IntentHelperInstance {
                                  string package_name,
                                  string cls,
                                  string extras);
-
-  // Asks TextClassifier to generate an action that can handle the |text|.
-  // |scale_factor| is used to find a suitable icon to show in the context menu.
-  [MinVersion=21] ClassifySelectionDeprecated@14(string text,
-                                                 ScaleFactor scale_factor)
-      => (TextSelectionAction? action);
 
   // Asks ChromeTextSelectionDelegate to generate actions that can handle the
   // |text|. |scale_factor| is used to find a suitable icon to show in the

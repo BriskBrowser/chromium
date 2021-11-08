@@ -17,6 +17,10 @@ namespace {
 class BaseError : public GlobalError {
  public:
   BaseError() { ++count_; }
+
+  BaseError(const BaseError&) = delete;
+  BaseError& operator=(const BaseError&) = delete;
+
   ~BaseError() override { --count_; }
 
   static int count() { return count_; }
@@ -26,9 +30,9 @@ class BaseError : public GlobalError {
     ADD_FAILURE();
     return 0;
   }
-  base::string16 MenuItemLabel() override {
+  std::u16string MenuItemLabel() override {
     ADD_FAILURE();
-    return base::string16();
+    return std::u16string();
   }
   void ExecuteMenuItem(Browser* browser) override { ADD_FAILURE(); }
 
@@ -40,8 +44,6 @@ class BaseError : public GlobalError {
  private:
   // This tracks the number BaseError objects that are currently instantiated.
   static int count_;
-
-  DISALLOW_COPY_AND_ASSIGN(BaseError);
 };
 
 int BaseError::count_ = 0;
@@ -54,18 +56,19 @@ class MenuError : public BaseError {
         severity_(severity) {
   }
 
+  MenuError(const MenuError&) = delete;
+  MenuError& operator=(const MenuError&) = delete;
+
   Severity GetSeverity() override { return severity_; }
 
   bool HasMenuItem() override { return true; }
   int MenuItemCommandID() override { return command_id_; }
-  base::string16 MenuItemLabel() override { return base::string16(); }
+  std::u16string MenuItemLabel() override { return std::u16string(); }
   void ExecuteMenuItem(Browser* browser) override {}
 
  private:
   int command_id_;
   Severity severity_;
-
-  DISALLOW_COPY_AND_ASSIGN(MenuError);
 };
 
 } // namespace

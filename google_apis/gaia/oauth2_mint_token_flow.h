@@ -12,7 +12,6 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "google_apis/gaia/oauth2_api_call_flow.h"
 #include "net/cookies/canonical_cookie.h"
 #include "services/network/public/mojom/url_response_head.mojom-forward.h"
@@ -127,6 +126,10 @@ class OAuth2MintTokenFlow : public OAuth2ApiCallFlow {
   };
 
   OAuth2MintTokenFlow(Delegate* delegate, const Parameters& parameters);
+
+  OAuth2MintTokenFlow(const OAuth2MintTokenFlow&) = delete;
+  OAuth2MintTokenFlow& operator=(const OAuth2MintTokenFlow&) = delete;
+
   ~OAuth2MintTokenFlow() override;
 
  protected:
@@ -199,8 +202,6 @@ class OAuth2MintTokenFlow : public OAuth2ApiCallFlow {
   Delegate* delegate_;
   Parameters parameters_;
   base::WeakPtrFactory<OAuth2MintTokenFlow> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(OAuth2MintTokenFlow);
 };
 
 #endif  // GOOGLE_APIS_GAIA_OAUTH2_MINT_TOKEN_FLOW_H_

@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/optional.h"
 #include "chrome/browser/nearby_sharing/proto/rpc_resources.pb.h"
 
 // Downloads the user's contact list from the server. NOTE: An instance should

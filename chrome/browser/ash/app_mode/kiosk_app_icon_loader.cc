@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/image_decoder/image_decoder.h"
@@ -39,7 +39,7 @@ class IconImageRequest : public ImageDecoder::ImageRequest {
     LOG(ERROR) << "Failed to decode icon image.";
     content::GetUIThreadTaskRunner({})->PostTask(
         FROM_HERE, base::BindOnce(std::move(result_callback_),
-                                  base::Optional<gfx::ImageSkia>()));
+                                  absl::optional<gfx::ImageSkia>()));
     delete this;
   }
 
@@ -59,15 +59,14 @@ void LoadOnBlockingPool(
     LOG(ERROR) << "Failed to read icon file.";
     content::GetUIThreadTaskRunner({})->PostTask(
         FROM_HERE, base::BindOnce(std::move(result_callback),
-                                  base::Optional<gfx::ImageSkia>()));
+                                  absl::optional<gfx::ImageSkia>()));
     return;
   }
 
   // IconImageRequest will delete itself on completion of ImageDecoder callback.
   IconImageRequest* image_request =
       new IconImageRequest(callback_task_runner, std::move(result_callback));
-  ImageDecoder::Start(image_request,
-                      std::vector<uint8_t>(data.begin(), data.end()));
+  ImageDecoder::Start(image_request, std::move(data));
 }
 
 KioskAppIconLoader::KioskAppIconLoader(Delegate* delegate)
@@ -88,7 +87,7 @@ void KioskAppIconLoader::Start(const base::FilePath& icon_path) {
 }
 
 void KioskAppIconLoader::OnImageDecodingFinished(
-    base::Optional<gfx::ImageSkia> result) {
+    absl::optional<gfx::ImageSkia> result) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (result.has_value()) {

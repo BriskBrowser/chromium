@@ -66,7 +66,8 @@ GLSurfaceEGLSurfaceControl::GLSurfaceEGLSurfaceControl(
       root_surface_(
           new gfx::SurfaceControl::Surface(window, root_surface_name_.c_str())),
       transaction_ack_timeout_manager_(task_runner),
-      gpu_task_runner_(std::move(task_runner)) {}
+      gpu_task_runner_(std::move(task_runner)),
+      using_on_commit_callback_(gfx::SurfaceControl::SupportsOnCommit()) {}
 
 GLSurfaceEGLSurfaceControl::~GLSurfaceEGLSurfaceControl() {
   Destroy();
@@ -113,7 +114,24 @@ void GLSurfaceEGLSurfaceControl::PrepareToDestroy(bool have_context) {
   weak_factory_.InvalidateWeakPtrs();
 }
 
+void GLSurfaceEGLSurfaceControl::PreserveChildSurfaceControls() {
+  TRACE_EVENT_INSTANT0(
+      "gpu", "GLSurfaceEGLSurfaceControl::PreserveChildSurfaceControls",
+      TRACE_EVENT_SCOPE_THREAD);
+  preserve_children_ = true;
+}
+
 void GLSurfaceEGLSurfaceControl::Destroy() {
+  TRACE_EVENT0("gpu", "GLSurfaceEGLSurfaceControl::Destroy");
+  // Detach all child layers to prevent leaking unless browser asked us not too.
+  if (!preserve_children_) {
+    gfx::SurfaceControl::Transaction transaction;
+    for (auto& surface : surface_list_) {
+      transaction.SetParent(*surface.surface, nullptr);
+    }
+    transaction.Apply();
+  }
+
   pending_transaction_.reset();
   surface_list_.clear();
   root_surface_.reset();
@@ -225,10 +243,15 @@ void GLSurfaceEGLSurfaceControl::CommitPendingTransaction(
   DCHECK_LE(pending_surfaces_count_, surface_list_.size());
   for (size_t i = pending_surfaces_count_; i < surface_list_.size(); ++i) {
     auto& surface_state = surface_list_[i];
-    pending_transaction_->SetBuffer(*surface_state.surface, nullptr,
-                                    base::ScopedFD());
-    pending_transaction_->SetVisibility(*surface_state.surface, false);
-    surface_state.visibility = false;
+    if (surface_state.hardware_buffer) {
+      pending_transaction_->SetBuffer(*surface_state.surface, nullptr,
+                                      base::ScopedFD());
+      surface_state.hardware_buffer = nullptr;
+    }
+    if (surface_state.visibility) {
+      pending_transaction_->SetVisibility(*surface_state.surface, false);
+      surface_state.visibility = false;
+    }
   }
 
   // TODO(khushalsagar): Consider using the SetDamageRect API for partial
@@ -245,13 +268,22 @@ void GLSurfaceEGLSurfaceControl::CommitPendingTransaction(
   current_frame_resources_.swap(pending_frame_resources_);
   pending_frame_resources_.clear();
 
-  gfx::SurfaceControl::Transaction::OnCompleteCb callback = base::BindOnce(
+  gfx::SurfaceControl::Transaction::OnCompleteCb complete_cb = base::BindOnce(
       &GLSurfaceEGLSurfaceControl::OnTransactionAckOnGpuThread,
       weak_factory_.GetWeakPtr(), std::move(completion_callback),
       std::move(present_callback), std::move(resources_to_release),
       std::move(primary_plane_fences_));
   primary_plane_fences_.reset();
-  pending_transaction_->SetOnCompleteCb(std::move(callback), gpu_task_runner_);
+  pending_transaction_->SetOnCompleteCb(std::move(complete_cb),
+                                        gpu_task_runner_);
+
+  if (using_on_commit_callback_) {
+    gfx::SurfaceControl::Transaction::OnCommitCb commit_cb = base::BindOnce(
+        &GLSurfaceEGLSurfaceControl::OnTransactionCommittedOnGpuThread,
+        weak_factory_.GetWeakPtr());
+    pending_transaction_->SetOnCommitCb(std::move(commit_cb), gpu_task_runner_);
+  }
+
   pending_surfaces_count_ = 0u;
   frame_rate_update_pending_ = false;
 
@@ -276,22 +308,12 @@ bool GLSurfaceEGLSurfaceControl::OnMakeCurrent(GLContext* context) {
 }
 
 bool GLSurfaceEGLSurfaceControl::ScheduleOverlayPlane(
-    int z_order,
-    gfx::OverlayTransform transform,
     GLImage* image,
-    const gfx::Rect& bounds_rect,
-    const gfx::RectF& crop_rect,
-    bool enable_blend,
-    std::unique_ptr<gfx::GpuFence> gpu_fence) {
+    std::unique_ptr<gfx::GpuFence> gpu_fence,
+    const gfx::OverlayPlaneData& overlay_plane_data) {
   if (surface_lost_) {
     LOG(ERROR) << "ScheduleOverlayPlane failed because surface is lost";
     return false;
-  }
-
-  const auto& image_color_space = GetNearestSupportedImageColorSpace(image);
-  if (!gfx::SurfaceControl::SupportsColorSpace(image_color_space)) {
-    LOG(ERROR) << "Not supported color space used with overlay : "
-               << image_color_space.ToString();
   }
 
   if (!pending_transaction_)
@@ -311,9 +333,10 @@ bool GLSurfaceEGLSurfaceControl::ScheduleOverlayPlane(
     surface_state.visibility = true;
   }
 
-  if (uninitialized || surface_state.z_order != z_order) {
-    surface_state.z_order = z_order;
-    pending_transaction_->SetZOrder(*surface_state.surface, z_order);
+  if (uninitialized || surface_state.z_order != overlay_plane_data.z_order) {
+    surface_state.z_order = overlay_plane_data.z_order;
+    pending_transaction_->SetZOrder(*surface_state.surface,
+                                    overlay_plane_data.z_order);
   }
 
   AHardwareBuffer* hardware_buffer = nullptr;
@@ -368,25 +391,57 @@ bool GLSurfaceEGLSurfaceControl::ScheduleOverlayPlane(
   if (hardware_buffer) {
     gfx::Size buffer_size = GetBufferSize(hardware_buffer);
     gfx::RectF scaled_rect =
-        gfx::ScaleRect(crop_rect, buffer_size.width(), buffer_size.height());
+        gfx::ScaleRect(overlay_plane_data.crop_rect, buffer_size.width(),
+                       buffer_size.height());
 
+    gfx::Rect dst = overlay_plane_data.display_bounds;
     gfx::Rect src = gfx::ToEnclosedRect(scaled_rect);
-    gfx::Rect dst = bounds_rect;
+
+    // When the video is being scrolled offscreen DisplayCompositor will crop it
+    // to only visible portion and adjust crop_rect accordingly. When the video
+    // is smaller than the surface is can lead to the crop rect being less than
+    // a pixel in size. This adjusts the crop rect size to at least 1 pixel as
+    // we want to stretch last visible pixel line/column in this case.
+    // Note: We will do it even if crop_rect width/height is exact 0.0f. In
+    // reality this should never happen and there is no way to display video
+    // with empty crop rect, so display compositor should not request this.
+
+    if (src.width() == 0) {
+      src.set_width(1);
+      if (src.right() > buffer_size.width())
+        src.set_x(buffer_size.width() - 1);
+    }
+    if (src.height() == 0) {
+      src.set_height(1);
+      if (src.bottom() > buffer_size.height())
+        src.set_y(buffer_size.height() - 1);
+    }
+
+    // When display compositor rounds up destination rect to integer coordinates
+    // it becomes slightly bigger. After we adjust source rect accordingly, it
+    // can become larger then a buffer so we clip it here. See crbug.com/1083412
+    src.Intersect(gfx::Rect(buffer_size));
 
     if (uninitialized || surface_state.src != src || surface_state.dst != dst ||
-        surface_state.transform != transform) {
+        surface_state.transform != overlay_plane_data.plane_transform) {
       surface_state.src = src;
       surface_state.dst = dst;
-      surface_state.transform = transform;
+      surface_state.transform = overlay_plane_data.plane_transform;
       pending_transaction_->SetGeometry(*surface_state.surface, src, dst,
-                                        transform);
+                                        overlay_plane_data.plane_transform);
     }
   }
 
-  bool opaque = !enable_blend;
+  bool opaque = !overlay_plane_data.enable_blend;
   if (uninitialized || surface_state.opaque != opaque) {
     surface_state.opaque = opaque;
     pending_transaction_->SetOpaque(*surface_state.surface, opaque);
+  }
+
+  const auto& image_color_space = overlay_plane_data.color_space;
+  if (!gfx::SurfaceControl::SupportsColorSpace(image_color_space)) {
+    LOG(DFATAL) << "Not supported color space used with overlay : "
+                << image_color_space.ToString();
   }
 
   if (uninitialized || surface_state.color_space != image_color_space) {
@@ -429,16 +484,13 @@ void GLSurfaceEGLSurfaceControl::OnTransactionAckOnGpuThread(
     SwapCompletionCallback completion_callback,
     PresentationCallback presentation_callback,
     ResourceRefs released_resources,
-    base::Optional<PrimaryPlaneFences> primary_plane_fences,
+    absl::optional<PrimaryPlaneFences> primary_plane_fences,
     gfx::SurfaceControl::TransactionStats transaction_stats) {
   TRACE_EVENT0("gpu",
                "GLSurfaceEGLSurfaceControl::OnTransactionAckOnGpuThread");
 
   DCHECK(gpu_task_runner_->BelongsToCurrentThread());
-  DCHECK(transaction_ack_pending_);
-
   transaction_ack_timeout_manager_.OnTransactionAck();
-  transaction_ack_pending_ = false;
 
   const bool has_context = context_->MakeCurrent(this);
   for (auto& surface_stat : transaction_stats.surface_stats) {
@@ -483,6 +535,23 @@ void GLSurfaceEGLSurfaceControl::OnTransactionAckOnGpuThread(
   pending_presentation_callback_queue_.push(std::move(pending_cb));
 
   CheckPendingPresentationCallbacks();
+
+  // If we don't use OnCommit, we advance transaction queue after we received
+  // OnComplete.
+  if (!using_on_commit_callback_)
+    AdvanceTransactionQueue();
+}
+
+void GLSurfaceEGLSurfaceControl::OnTransactionCommittedOnGpuThread() {
+  TRACE_EVENT0("gpu",
+               "GLSurfaceEGLSurfaceControl::OnTransactionCommittedOnGpuThread");
+  DCHECK(using_on_commit_callback_);
+  AdvanceTransactionQueue();
+}
+
+void GLSurfaceEGLSurfaceControl::AdvanceTransactionQueue() {
+  DCHECK(transaction_ack_pending_);
+  transaction_ack_pending_ = false;
 
   if (!pending_transaction_queue_.empty()) {
     transaction_ack_pending_ = true;
@@ -539,7 +608,7 @@ void GLSurfaceEGLSurfaceControl::CheckPendingPresentationCallbacks() {
         weak_factory_.GetWeakPtr()));
     gpu_task_runner_->PostDelayedTask(
         FROM_HERE, check_pending_presentation_callback_queue_task_.callback(),
-        base::TimeDelta::FromSeconds(1) / 60);
+        base::Seconds(1) / 60);
   }
 }
 
@@ -572,8 +641,8 @@ gfx::Rect GLSurfaceEGLSurfaceControl::ApplyDisplayInverse(
 }
 
 const gfx::ColorSpace&
-GLSurfaceEGLSurfaceControl::GetNearestSupportedImageColorSpace(
-    GLImage* image) const {
+GLSurfaceEGLSurfaceControl::GetNearestSupportedColorSpace(
+    const gfx::ColorSpace& buffer_color_space) const {
   static constexpr gfx::ColorSpace kSRGB = gfx::ColorSpace::CreateSRGB();
   static constexpr gfx::ColorSpace kP3 = gfx::ColorSpace::CreateDisplayP3D65();
 
@@ -582,7 +651,7 @@ GLSurfaceEGLSurfaceControl::GetNearestSupportedImageColorSpace(
     case GLSurfaceFormat::COLOR_SPACE_SRGB:
       return kSRGB;
     case GLSurfaceFormat::COLOR_SPACE_DISPLAY_P3:
-      return image->color_space() == kP3 ? kP3 : kSRGB;
+      return buffer_color_space == kP3 ? kP3 : kSRGB;
   }
 
   NOTREACHED();
@@ -649,9 +718,8 @@ void GLSurfaceEGLSurfaceControl::TransactionAckTimeoutManager::
       base::BindOnce(&GLSurfaceEGLSurfaceControl::TransactionAckTimeoutManager::
                          OnTransactionTimeout,
                      base::Unretained(this), current_transaction_id_));
-  gpu_task_runner_->PostDelayedTask(
-      FROM_HERE, hang_detection_cb_.callback(),
-      base::TimeDelta::FromSeconds(kIdleDelaySeconds));
+  gpu_task_runner_->PostDelayedTask(FROM_HERE, hang_detection_cb_.callback(),
+                                    base::Seconds(kIdleDelaySeconds));
 }
 
 void GLSurfaceEGLSurfaceControl::TransactionAckTimeoutManager::

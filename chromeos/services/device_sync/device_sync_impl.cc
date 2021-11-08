@@ -11,7 +11,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/optional.h"
 #include "base/time/default_clock.h"
 #include "base/timer/timer.h"
 #include "base/unguessable_token.h"
@@ -42,9 +41,10 @@
 #include "chromeos/services/device_sync/synced_bluetooth_address_tracker_impl.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/public/identity_manager/consent_level.h"
+#include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -52,16 +52,15 @@ namespace device_sync {
 
 namespace {
 
-constexpr base::TimeDelta kSetFeatureEnabledTimeout =
-    base::TimeDelta::FromSeconds(5);
+constexpr base::TimeDelta kSetFeatureEnabledTimeout = base::Seconds(5);
 
 // Timeout value for asynchronous operation.
 // TODO(https://crbug.com/933656): Use async execution time metrics to tune
 // this timeout value.
 constexpr base::TimeDelta kWaitingForClientAppMetadataTimeout =
-    base::TimeDelta::FromSeconds(60);
+    base::Seconds(60);
 
-constexpr base::TimeDelta kBaseRetryDelay = base::TimeDelta::FromSeconds(5);
+constexpr base::TimeDelta kBaseRetryDelay = base::Seconds(5);
 
 // This enum is tied directly to a UMA enum defined in
 // //tools/metrics/histograms/enums.xml, and should always reflect it (do not
@@ -143,8 +142,8 @@ void RecordGcmRegistrationMetrics(const base::TimeDelta& execution_time,
                                   bool success) {
   base::UmaHistogramCustomTimes(
       "CryptAuth.DeviceSyncService.GcmRegistration.ExecutionTime",
-      execution_time, base::TimeDelta::FromSeconds(1) /* min */,
-      base::TimeDelta::FromMinutes(10) /* max */, 100 /* buckets */);
+      execution_time, base::Seconds(1) /* min */, base::Minutes(10) /* max */,
+      100 /* buckets */);
 
   base::UmaHistogramBoolean(
       "CryptAuth.DeviceSyncService.GcmRegistration.Success", success);
@@ -154,7 +153,7 @@ void RecordClientAppMetadataFetchMetrics(const base::TimeDelta& execution_time,
                                          CryptAuthAsyncTaskResult result) {
   base::UmaHistogramCustomTimes(
       "CryptAuth.DeviceSyncService.ClientAppMetadataFetch.ExecutionTime",
-      execution_time, base::TimeDelta::FromSeconds(1) /* min */,
+      execution_time, base::Seconds(1) /* min */,
       kWaitingForClientAppMetadataTimeout /* max */, 100 /* buckets */);
 
   LogCryptAuthAsyncTaskSuccessMetric(
@@ -165,7 +164,7 @@ void RecordClientAppMetadataFetchMetrics(const base::TimeDelta& execution_time,
 void RecordInitializationMetrics(const base::TimeDelta& execution_time) {
   base::UmaHistogramCustomTimes(
       "CryptAuth.DeviceSyncService.Initialization.ExecutionTime",
-      execution_time, base::TimeDelta::FromSeconds(1) /* min */,
+      execution_time, base::Seconds(1) /* min */,
       kWaitingForClientAppMetadataTimeout /* max */, 100 /* buckets */);
 }
 
@@ -451,7 +450,7 @@ void DeviceSyncImpl::ForceEnrollmentNow(ForceEnrollmentNowCallback callback) {
   }
 
   cryptauth_enrollment_manager_->ForceEnrollmentNow(
-      cryptauth::INVOCATION_REASON_MANUAL, base::nullopt /* session_id */);
+      cryptauth::INVOCATION_REASON_MANUAL, absl::nullopt /* session_id */);
   std::move(callback).Run(true /* success */);
   RecordForceEnrollmentNowResult(
       ForceCryptAuthOperationResult::kSuccess /* result */);
@@ -474,7 +473,7 @@ void DeviceSyncImpl::ForceSyncNow(ForceSyncNowCallback callback) {
 
   if (features::ShouldUseV2DeviceSync()) {
     cryptauth_v2_device_manager_->ForceDeviceSyncNow(
-        cryptauthv2::ClientMetadata::MANUAL, base::nullopt /* session_id */);
+        cryptauthv2::ClientMetadata::MANUAL, absl::nullopt /* session_id */);
   }
 
   std::move(callback).Run(true /* success */);
@@ -488,7 +487,7 @@ void DeviceSyncImpl::GetLocalDeviceMetadata(
     PA_LOG(WARNING) << "DeviceSyncImpl::GetLocalDeviceMetadata() invoked "
                     << "before initialization was complete. Cannot return "
                     << "local device metadata.";
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
     return;
   }
 
@@ -501,7 +500,7 @@ void DeviceSyncImpl::GetSyncedDevices(GetSyncedDevicesCallback callback) {
   if (status_ != InitializationStatus::kReady) {
     PA_LOG(WARNING) << "DeviceSyncImpl::GetSyncedDevices() invoked before "
                     << "initialization was complete. Cannot return devices.";
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
     return;
   }
 
@@ -610,13 +609,15 @@ void DeviceSyncImpl::FindEligibleDevices(
     return;
   }
 
-  auto callback_holder = base::AdaptCallbackForRepeating(std::move(callback));
+  auto split_callback = base::SplitOnceCallback(std::move(callback));
   software_feature_manager_->FindEligibleDevices(
       software_feature,
       base::BindOnce(&DeviceSyncImpl::OnFindEligibleDevicesSuccess,
-                     weak_ptr_factory_.GetWeakPtr(), callback_holder),
+                     weak_ptr_factory_.GetWeakPtr(),
+                     std::move(split_callback.first)),
       base::BindOnce(&DeviceSyncImpl::OnFindEligibleDevicesError,
-                     weak_ptr_factory_.GetWeakPtr(), callback_holder));
+                     weak_ptr_factory_.GetWeakPtr(),
+                     std::move(split_callback.second)));
 }
 
 void DeviceSyncImpl::NotifyDevices(
@@ -654,7 +655,7 @@ void DeviceSyncImpl::GetDevicesActivityStatus(
         << "initialization was complete. Cannot get activity statuses.";
     std::move(callback).Run(
         mojom::NetworkRequestResult::kServiceNotYetInitialized,
-        base::nullopt /* device_activity_statuses */);
+        absl::nullopt /* device_activity_statuses */);
     return;
   }
 
@@ -786,7 +787,7 @@ void DeviceSyncImpl::Shutdown() {
 void DeviceSyncImpl::OnPrimaryAccountChanged(
     const signin::PrimaryAccountChangeEvent& event) {
   PA_LOG(VERBOSE) << "DeviceSyncImpl: OnPrimaryAccountChanged";
-  switch (event.GetEventTypeFor(signin::ConsentLevel::kNotRequired)) {
+  switch (event.GetEventTypeFor(signin::ConsentLevel::kSignin)) {
     case signin::PrimaryAccountChangeEvent::Type::kSet:
       identity_manager_->RemoveObserver(this);
       ProcessPrimaryAccountInfo(event.GetCurrentState().primary_account);
@@ -831,8 +832,8 @@ void DeviceSyncImpl::FetchAccountInfo() {
   status_ = InitializationStatus::kFetchingAccountInfo;
 
   // "Unconsented" because this feature is not tied to browser sync consent.
-  CoreAccountInfo primary_account = identity_manager_->GetPrimaryAccountInfo(
-      signin::ConsentLevel::kNotRequired);
+  CoreAccountInfo primary_account =
+      identity_manager_->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
   if (primary_account.account_id.empty()) {
     // Primary profile not loaded yet. This happens when adding a new account.
     PA_LOG(VERBOSE) << "DeviceSyncImpl: Waiting for primary account info";
@@ -950,7 +951,7 @@ void DeviceSyncImpl::OnClientAppMetadataFetchTimeout() {
 }
 
 void DeviceSyncImpl::OnClientAppMetadataFetched(
-    const base::Optional<cryptauthv2::ClientAppMetadata>& client_app_metadata) {
+    const absl::optional<cryptauthv2::ClientAppMetadata>& client_app_metadata) {
   DCHECK_EQ(status_, InitializationStatus::kWaitingForClientAppMetadata);
   timer_->Stop();
 
@@ -1097,7 +1098,7 @@ void DeviceSyncImpl::CompleteInitializationAfterSuccessfulEnrollment() {
                               initialization_start_timestamp_);
 }
 
-base::Optional<multidevice::RemoteDevice>
+absl::optional<multidevice::RemoteDevice>
 DeviceSyncImpl::GetSyncedDeviceWithPublicKey(
     const std::string& public_key) const {
   DCHECK_EQ(status_, InitializationStatus::kReady)
@@ -1110,7 +1111,7 @@ DeviceSyncImpl::GetSyncedDeviceWithPublicKey(
                                });
 
   if (it == synced_devices.end())
-    return base::nullopt;
+    return absl::nullopt;
 
   return *it;
 }
@@ -1128,7 +1129,7 @@ void DeviceSyncImpl::OnSetSoftwareFeatureStateSuccess() {
   if (features::ShouldUseV2DeviceSync()) {
     cryptauth_v2_device_manager_->ForceDeviceSyncNow(
         cryptauthv2::ClientMetadata::FEATURE_TOGGLED,
-        base::nullopt /* session_id */);
+        absl::nullopt /* session_id */);
   }
 
   RecordSetSoftwareFeatureStateResult(true /* success */);
@@ -1173,7 +1174,7 @@ void DeviceSyncImpl::OnSetFeatureStatusSuccess() {
 
   cryptauth_v2_device_manager_->ForceDeviceSyncNow(
       cryptauthv2::ClientMetadata::FEATURE_TOGGLED,
-      base::nullopt /* session_id */);
+      absl::nullopt /* session_id */);
 }
 
 void DeviceSyncImpl::OnSetFeatureStatusError(
@@ -1195,9 +1196,8 @@ void DeviceSyncImpl::OnSetFeatureStatusError(
 }
 
 void DeviceSyncImpl::OnFindEligibleDevicesSuccess(
-    const base::RepeatingCallback<void(mojom::NetworkRequestResult,
-                                       mojom::FindEligibleDevicesResponsePtr)>&
-        callback,
+    base::OnceCallback<void(mojom::NetworkRequestResult,
+                            mojom::FindEligibleDevicesResponsePtr)> callback,
     const std::vector<cryptauth::ExternalDeviceInfo>& eligible_device_infos,
     const std::vector<cryptauth::IneligibleDevice>& ineligible_devices) {
   DCHECK(features::ShouldUseV1DeviceSync());
@@ -1226,22 +1226,22 @@ void DeviceSyncImpl::OnFindEligibleDevicesSuccess(
     }
   }
 
-  callback.Run(mojom::NetworkRequestResult::kSuccess,
-               mojom::FindEligibleDevicesResponse::New(
-                   eligible_remote_devices, ineligible_remote_devices));
+  std::move(callback).Run(
+      mojom::NetworkRequestResult::kSuccess,
+      mojom::FindEligibleDevicesResponse::New(eligible_remote_devices,
+                                              ineligible_remote_devices));
 
   RecordFindEligibleDevicesResult(true /* success */);
 }
 
 void DeviceSyncImpl::OnFindEligibleDevicesError(
-    const base::RepeatingCallback<void(mojom::NetworkRequestResult,
-                                       mojom::FindEligibleDevicesResponsePtr)>&
-        callback,
+    base::OnceCallback<void(mojom::NetworkRequestResult,
+                            mojom::FindEligibleDevicesResponsePtr)> callback,
     NetworkRequestError error) {
   DCHECK(features::ShouldUseV1DeviceSync());
 
-  callback.Run(mojo::ConvertTo<mojom::NetworkRequestResult>(error),
-               nullptr /* response */);
+  std::move(callback).Run(mojo::ConvertTo<mojom::NetworkRequestResult>(error),
+                          nullptr /* response */);
 
   RecordFindEligibleDevicesResult(false /* success */);
   RecordFindEligibleDevicesResultFailureReason(
@@ -1293,7 +1293,7 @@ void DeviceSyncImpl::OnGetDevicesActivityStatusFinished(
   DCHECK(iter != get_devices_activity_status_callbacks_.end());
   std::move(iter->second)
       .Run(mojom::NetworkRequestResult::kSuccess,
-           base::make_optional(std::move(device_activity_status_result)));
+           absl::make_optional(std::move(device_activity_status_result)));
   get_devices_activity_status_callbacks_.erase(iter);
 }
 
@@ -1305,7 +1305,7 @@ void DeviceSyncImpl::OnGetDevicesActivityStatusError(
   auto iter = get_devices_activity_status_callbacks_.find(request_id);
   DCHECK(iter != get_devices_activity_status_callbacks_.end());
   std::move(iter->second)
-      .Run(mojo::ConvertTo<mojom::NetworkRequestResult>(error), base::nullopt);
+      .Run(mojo::ConvertTo<mojom::NetworkRequestResult>(error), absl::nullopt);
   get_devices_activity_status_callbacks_.erase(iter);
 }
 

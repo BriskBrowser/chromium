@@ -20,6 +20,9 @@ class AuthenticatorQRSheetView : public AuthenticatorRequestSheetView {
   explicit AuthenticatorQRSheetView(
       std::unique_ptr<AuthenticatorQRSheetModel> model);
 
+  AuthenticatorQRSheetView(const AuthenticatorQRSheetView&) = delete;
+  AuthenticatorQRSheetView& operator=(const AuthenticatorQRSheetView&) = delete;
+
   ~AuthenticatorQRSheetView() override;
 
   // RefreshQRCode causes a fresh QR code to be painted.
@@ -27,14 +30,13 @@ class AuthenticatorQRSheetView : public AuthenticatorRequestSheetView {
 
  private:
   // AuthenticatorRequestSheetView:
-  std::unique_ptr<views::View> BuildStepSpecificContent() override;
+  std::pair<std::unique_ptr<views::View>, AutoFocus> BuildStepSpecificContent()
+      override;
   void Update();
 
   AuthenticatorQRViewCentered* qr_view_ = nullptr;
   const std::string qr_string_;
   base::RepeatingTimer timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(AuthenticatorQRSheetView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_WEBAUTHN_AUTHENTICATOR_QR_SHEET_VIEW_H_

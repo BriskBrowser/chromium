@@ -4,13 +4,13 @@
 
 #include "ash/wm/overview/scoped_overview_transform_window.h"
 
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/overview/overview_utils.h"
 #include "ash/wm/window_state.h"
 #include "base/numerics/safe_conversions.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/layer.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"

@@ -4,6 +4,7 @@
 
 #include "net/cert/trial_comparison_cert_verifier.h"
 
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -17,6 +18,7 @@
 #include "net/cert/cert_verify_proc.h"
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/ev_root_ca_metadata.h"
+#include "net/cert/trial_comparison_cert_verifier_util.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
 #include "net/log/net_log_with_source.h"
@@ -41,7 +43,8 @@ namespace {
 MATCHER_P(CertChainMatches, expected_cert, "") {
   CertificateList actual_certs =
       X509Certificate::CreateCertificateListFromBytes(
-          arg.data(), arg.size(), X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
+          base::as_bytes(base::make_span(arg)),
+          X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
   if (actual_certs.empty()) {
     *result_listener << "failed to parse arg";
     return false;
@@ -76,7 +79,7 @@ class RepeatedTestClosure {
   void WaitForResult() {
     DCHECK(!run_loop_);
     if (!have_result_) {
-      run_loop_.reset(new base::RunLoop());
+      run_loop_ = std::make_unique<base::RunLoop>();
       run_loop_->Run();
       run_loop_.reset();
       DCHECK(have_result_);
@@ -109,6 +112,9 @@ class FakeCertVerifyProc : public CertVerifyProc {
         result_(result),
         main_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
 
+  FakeCertVerifyProc(const FakeCertVerifyProc&) = delete;
+  FakeCertVerifyProc& operator=(const FakeCertVerifyProc&) = delete;
+
   void WaitForVerifyCall() { verify_called_.WaitForResult(); }
   int num_verifications() const { return num_verifications_; }
 
@@ -137,8 +143,6 @@ class FakeCertVerifyProc : public CertVerifyProc {
   int num_verifications_ = 0;
   RepeatedTestClosure verify_called_;
   scoped_refptr<base::TaskRunner> main_task_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeCertVerifyProc);
 };
 
 int FakeCertVerifyProc::VerifyInternal(
@@ -167,6 +171,9 @@ class NotCalledCertVerifyProc : public CertVerifyProc {
  public:
   NotCalledCertVerifyProc() = default;
 
+  NotCalledCertVerifyProc(const NotCalledCertVerifyProc&) = delete;
+  NotCalledCertVerifyProc& operator=(const NotCalledCertVerifyProc&) = delete;
+
   // CertVerifyProc implementation:
   bool SupportsAdditionalTrustAnchors() const override { return false; }
 
@@ -183,8 +190,6 @@ class NotCalledCertVerifyProc : public CertVerifyProc {
                      const CertificateList& additional_trust_anchors,
                      CertVerifyResult* verify_result,
                      const NetLogWithSource& net_log) override;
-
-  DISALLOW_COPY_AND_ASSIGN(NotCalledCertVerifyProc);
 };
 
 int NotCalledCertVerifyProc::VerifyInternal(
@@ -208,6 +213,10 @@ void NotCalledCallback(int error) {
 class MockCertVerifyProc : public CertVerifyProc {
  public:
   MockCertVerifyProc() = default;
+
+  MockCertVerifyProc(const MockCertVerifyProc&) = delete;
+  MockCertVerifyProc& operator=(const MockCertVerifyProc&) = delete;
+
   // CertVerifyProc implementation:
   bool SupportsAdditionalTrustAnchors() const override { return false; }
   MOCK_METHOD9(VerifyInternal,
@@ -223,8 +232,6 @@ class MockCertVerifyProc : public CertVerifyProc {
 
  protected:
   ~MockCertVerifyProc() override = default;
-
-  DISALLOW_COPY_AND_ASSIGN(MockCertVerifyProc);
 };
 
 struct TrialReportInfo {
@@ -415,7 +422,7 @@ TEST_F(TrialComparisonCertVerifierTest, InitiallyDisallowedThenAllowed) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryValidSecondaryError, 1);
+      TrialComparisonResult::kPrimaryValidSecondaryError, 1);
 
   // Expect a report from the second verification.
   ASSERT_EQ(1U, reports.size());
@@ -499,7 +506,7 @@ TEST_F(TrialComparisonCertVerifierTest, InitiallyAllowedThenDisallowed) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryValidSecondaryError, 1);
+      TrialComparisonResult::kPrimaryValidSecondaryError, 1);
 
   // Expect a report from the first verification.
   ASSERT_EQ(1U, reports.size());
@@ -602,7 +609,7 @@ TEST_F(TrialComparisonCertVerifierTest, ConfigChangedDuringTrialVerification) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryValidSecondaryError, 1);
+      TrialComparisonResult::kPrimaryValidSecondaryError, 1);
 
   // Expect a report.
   ASSERT_EQ(1U, reports.size());
@@ -652,7 +659,7 @@ TEST_F(TrialComparisonCertVerifierTest, SameResult) {
   histograms_.ExpectTotalCount("Net.CertVerifier_Job_Latency_TrialSecondary",
                                1);
   histograms_.ExpectUniqueSample("Net.CertVerifier_TrialComparisonResult",
-                                 TrialComparisonCertVerifier::kEqual, 1);
+                                 TrialComparisonResult::kEqual, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, PrimaryVerifierErrorSecondaryOk) {
@@ -717,7 +724,7 @@ TEST_F(TrialComparisonCertVerifierTest, PrimaryVerifierErrorSecondaryOk) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryErrorSecondaryValid, 1);
+      TrialComparisonResult::kPrimaryErrorSecondaryValid, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, PrimaryVerifierOkSecondaryError) {
@@ -778,7 +785,7 @@ TEST_F(TrialComparisonCertVerifierTest, PrimaryVerifierOkSecondaryError) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryValidSecondaryError, 1);
+      TrialComparisonResult::kPrimaryValidSecondaryError, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, BothVerifiersDifferentErrors) {
@@ -841,7 +848,7 @@ TEST_F(TrialComparisonCertVerifierTest, BothVerifiersDifferentErrors) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kBothErrorDifferentDetails, 1);
+      TrialComparisonResult::kBothErrorDifferentDetails, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest,
@@ -903,7 +910,7 @@ TEST_F(TrialComparisonCertVerifierTest,
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kBothValidDifferentDetails, 1);
+      TrialComparisonResult::kBothValidDifferentDetails, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest,
@@ -963,7 +970,7 @@ TEST_F(TrialComparisonCertVerifierTest,
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kIgnoredConfigurationChanged, 1);
+      TrialComparisonResult::kIgnoredConfigurationChanged, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest,
@@ -1021,8 +1028,7 @@ TEST_F(TrialComparisonCertVerifierTest,
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kIgnoredDifferentPathReVerifiesEquivalent,
-      1);
+      TrialComparisonResult::kIgnoredDifferentPathReVerifiesEquivalent, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest,
@@ -1124,8 +1130,7 @@ TEST_F(TrialComparisonCertVerifierTest,
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kIgnoredDifferentPathReVerifiesEquivalent,
-      1);
+      TrialComparisonResult::kIgnoredDifferentPathReVerifiesEquivalent, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, BothVerifiersOkDifferentCertStatus) {
@@ -1196,7 +1201,7 @@ TEST_F(TrialComparisonCertVerifierTest, BothVerifiersOkDifferentCertStatus) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kBothValidDifferentDetails, 1);
+      TrialComparisonResult::kBothValidDifferentDetails, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, CancelledDuringPrimaryVerification) {
@@ -1261,7 +1266,7 @@ TEST_F(TrialComparisonCertVerifierTest, CancelledDuringPrimaryVerification) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryErrorSecondaryValid, 1);
+      TrialComparisonResult::kPrimaryErrorSecondaryValid, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, DeletedDuringPrimaryVerification) {
@@ -1430,7 +1435,7 @@ TEST_F(TrialComparisonCertVerifierTest, DeletedDuringTrialReport) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryErrorSecondaryValid, 1);
+      TrialComparisonResult::kPrimaryErrorSecondaryValid, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, DeletedAfterTrialVerificationStarted) {
@@ -1556,14 +1561,14 @@ TEST_F(TrialComparisonCertVerifierTest, MacUndesiredRevocationChecking) {
 
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kIgnoredMacUndesiredRevocationChecking, 1);
+      TrialComparisonResult::kIgnoredMacUndesiredRevocationChecking, 1);
 #else
   // Expect a report.
   EXPECT_EQ(1U, reports.size());
 
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryErrorSecondaryValid, 1);
+      TrialComparisonResult::kPrimaryErrorSecondaryValid, 1);
 #endif
 }
 
@@ -1623,7 +1628,7 @@ TEST_F(TrialComparisonCertVerifierTest, PrimaryRevokedSecondaryOk) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kPrimaryErrorSecondaryValid, 1);
+      TrialComparisonResult::kPrimaryErrorSecondaryValid, 1);
 
   // Expect a report.
   EXPECT_EQ(1U, reports.size());
@@ -1698,8 +1703,7 @@ TEST_F(TrialComparisonCertVerifierTest, MultipleEVPolicies) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kIgnoredMultipleEVPoliciesAndOneMatchesRoot,
-      1);
+      TrialComparisonResult::kIgnoredMultipleEVPoliciesAndOneMatchesRoot, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, MultipleEVPoliciesNoneValidForRoot) {
@@ -1764,7 +1768,7 @@ TEST_F(TrialComparisonCertVerifierTest, MultipleEVPoliciesNoneValidForRoot) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kBothValidDifferentDetails, 1);
+      TrialComparisonResult::kBothValidDifferentDetails, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, MultiplePoliciesOnlyOneIsEV) {
@@ -1833,7 +1837,7 @@ TEST_F(TrialComparisonCertVerifierTest, MultiplePoliciesOnlyOneIsEV) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kBothValidDifferentDetails, 1);
+      TrialComparisonResult::kBothValidDifferentDetails, 1);
 }
 
 TEST_F(TrialComparisonCertVerifierTest, LocallyTrustedLeaf) {
@@ -1884,7 +1888,7 @@ TEST_F(TrialComparisonCertVerifierTest, LocallyTrustedLeaf) {
                                1);
   histograms_.ExpectUniqueSample(
       "Net.CertVerifier_TrialComparisonResult",
-      TrialComparisonCertVerifier::kIgnoredLocallyTrustedLeaf, 1);
+      TrialComparisonResult::kIgnoredLocallyTrustedLeaf, 1);
 }
 
 }  // namespace net

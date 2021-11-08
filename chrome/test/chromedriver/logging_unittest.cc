@@ -7,8 +7,8 @@
 #include <memory>
 #include <vector>
 
+#include "base/cxx17_backports.h"
 #include "base/format_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/capabilities.h"
@@ -64,9 +64,7 @@ void ValidateLogEntry(base::ListValue *entries,
   std::string message;
   ASSERT_TRUE(entry->GetString("message", &message));
   EXPECT_EQ(expected_message, message);
-  double timestamp = 0;
-  EXPECT_TRUE(entry->GetDouble("timestamp", &timestamp));
-  EXPECT_LT(0, timestamp);
+  EXPECT_LT(0, entry->FindDoubleKey("timestamp").value());
 }
 
 }  // namespace
@@ -79,7 +77,7 @@ TEST(WebDriverLog, Levels) {
 
   std::unique_ptr<base::ListValue> entries(log.GetAndClearEntries());
 
-  ASSERT_EQ(2u, entries->GetSize());
+  ASSERT_EQ(2u, entries->GetList().size());
   ValidateLogEntry(entries.get(), 0, "INFO", "info message");
   ValidateLogEntry(entries.get(), 1, "SEVERE", "severe message");
 }
@@ -91,7 +89,7 @@ TEST(WebDriverLog, Off) {
 
   std::unique_ptr<base::ListValue> entries(log.GetAndClearEntries());
 
-  ASSERT_EQ(0u, entries->GetSize());
+  ASSERT_EQ(0u, entries->GetList().size());
 }
 
 TEST(WebDriverLog, All) {
@@ -101,7 +99,7 @@ TEST(WebDriverLog, All) {
 
   std::unique_ptr<base::ListValue> entries(log.GetAndClearEntries());
 
-  ASSERT_EQ(2u, entries->GetSize());
+  ASSERT_EQ(2u, entries->GetList().size());
   ValidateLogEntry(entries.get(), 0, "SEVERE", "severe message");
   ValidateLogEntry(entries.get(), 1, "DEBUG", "debug message");
 }
@@ -181,7 +179,7 @@ TEST(Logging, OverflowLogs) {
   log.AddEntry(Log::kError, "the 1st error is in the 2nd batch");
   ASSERT_EQ("the 1st error is in the 2nd batch", log.GetFirstErrorMessage());
   std::unique_ptr<base::ListValue> entries = log.GetAndClearEntries();
-  ASSERT_EQ(internal::kMaxReturnedEntries, entries->GetSize());
+  ASSERT_EQ(internal::kMaxReturnedEntries, entries->GetList().size());
   entries = log.GetAndClearEntries();
-  ASSERT_EQ(1u, entries->GetSize());
+  ASSERT_EQ(1u, entries->GetList().size());
 }

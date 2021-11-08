@@ -6,14 +6,12 @@
 #define COMPONENTS_ARC_SESSION_CONNECTION_HOLDER_H_
 
 #include <memory>
-#include <string>
 #include <type_traits>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
 #include "components/arc/session/connection_notifier.h"
 #include "components/arc/session/connection_observer.h"
@@ -63,6 +61,9 @@ class ConnectionHolderImpl {
  public:
   explicit ConnectionHolderImpl(ConnectionNotifier* connection_notifier)
       : connection_notifier_(connection_notifier) {}
+
+  ConnectionHolderImpl(const ConnectionHolderImpl&) = delete;
+  ConnectionHolderImpl& operator=(const ConnectionHolderImpl&) = delete;
 
   InstanceType* instance() { return IsConnected() ? instance_ : nullptr; }
   uint32_t instance_version() const {
@@ -174,8 +175,6 @@ class ConnectionHolderImpl {
   std::unique_ptr<mojo::Receiver<HostType>> receiver_;
 
   base::WeakPtrFactory<ConnectionHolderImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ConnectionHolderImpl);
 };
 
 // Single direction Mojo connection holder implementation.
@@ -191,6 +190,9 @@ class ConnectionHolderImpl<InstanceType, void> {
 
   explicit ConnectionHolderImpl(ConnectionNotifier* connection_notifier)
       : connection_notifier_(connection_notifier) {}
+
+  ConnectionHolderImpl(const ConnectionHolderImpl&) = delete;
+  ConnectionHolderImpl& operator=(const ConnectionHolderImpl&) = delete;
 
   InstanceType* instance() { return instance_; }
   uint32_t instance_version() const { return instance_version_; }
@@ -239,8 +241,6 @@ class ConnectionHolderImpl<InstanceType, void> {
   ConnectionNotifier* const connection_notifier_;
   InstanceType* instance_ = nullptr;
   uint32_t instance_version_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(ConnectionHolderImpl);
 };
 
 }  // namespace internal
@@ -261,6 +261,9 @@ class ConnectionHolder {
   using Instance = InstanceType;
 
   ConnectionHolder() = default;
+
+  ConnectionHolder(const ConnectionHolder&) = delete;
+  ConnectionHolder& operator=(const ConnectionHolder&) = delete;
 
   // Returns instance version if instance is connected or 0 otherwise.
   // This method is not intended to be used directly. Instead, prefer to use
@@ -339,8 +342,6 @@ class ConnectionHolder {
   internal::ConnectionNotifier connection_notifier_;
   internal::ConnectionHolderImpl<InstanceType, HostType> impl_{
       &connection_notifier_};
-
-  DISALLOW_COPY_AND_ASSIGN(ConnectionHolder);
 };
 
 }  // namespace arc

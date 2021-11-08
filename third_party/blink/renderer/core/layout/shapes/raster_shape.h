@@ -34,7 +34,6 @@
 #include "third_party/blink/renderer/core/layout/shapes/shape.h"
 #include "third_party/blink/renderer/core/layout/shapes/shape_interval.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -44,7 +43,7 @@ class RasterShapeIntervals {
 
  public:
   RasterShapeIntervals(unsigned size, int offset = 0) : offset_(offset) {
-    intervals_.resize(clampTo<int>(size));
+    intervals_.resize(ClampTo<int>(size));
   }
 
   void InitializeBounds();

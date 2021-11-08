@@ -7,9 +7,18 @@
  * when disabling peripheral data access setup.
  */
 
-const DISABLE_INDETERMINATE_TIMEOUT_MS = 5000;
+import '//resources/cr_elements/cr_button/cr_button.m.js';
+import '//resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import '//resources/polymer/v3_0/paper-progress/paper-progress.js';
+import '../../settings_shared_css.js';
+
+import {loadTimeData} from '//resources/js/load_time_data.m.js';
+import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {PrefsBehavior} from '../prefs_behavior.js';
 
 Polymer({
+  _template: html`{__html_template__}`,
   is: 'settings-peripheral-data-access-protection-dialog',
 
   behaviors: [
@@ -22,16 +31,8 @@ Polymer({
       notify: true,
     },
 
-    /** @private */
-    showDisablingDialog_: {
-      type: Boolean,
-      value: false,
-    },
-
-    /** @private */
-    resetPrefState_: {
-      type: Boolean,
-      value: true,
+    prefName: {
+      type: String,
     },
   },
 
@@ -40,26 +41,14 @@ Polymer({
    * @private
    */
   onDisableClicked_() {
-    this.resetPrefState_ = false;
-    this.showDisablingDialog_ = true;
-
-    setTimeout(() => {
-      this.$$('#warningDialog').close();
-    }, DISABLE_INDETERMINATE_TIMEOUT_MS);
+    // Send the new state immediately, this will also toggle the underlying
+    // setting-toggle-button associated with this pref.
+    this.setPrefValue(this.prefName, true);
+    this.$$('#warningDialog').close();
   },
 
   /** @private */
   onCancelButtonClicked_() {
     this.$$('#warningDialog').close();
-    this.handleDialogClosed_();
   },
-
-  /** @private */
-  handleDialogClosed_() {
-    // If we're closing the dialog because we're advancing to the disabling
-    // dialog, do not flip the pref state.
-    if (this.resetPrefState_) {
-      this.setPrefValue('cros.device.peripheral_data_access_enabled', true);
-    }
-  }
 });

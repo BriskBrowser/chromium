@@ -10,9 +10,10 @@
 #include "base/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/location.h"
-#include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
@@ -23,6 +24,8 @@
 #include "components/url_formatter/url_formatter.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/pathops/SkPathOps.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/theme_provider.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -31,8 +34,9 @@
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rrect_f.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/scoped_canvas.h"
-#include "ui/gfx/skia_util.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/native_theme/native_theme.h"
@@ -40,8 +44,6 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/scrollbar/scroll_bar_views.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
@@ -70,22 +72,20 @@ constexpr int kTextHorizPadding = 5;
 
 // Delays before we start hiding or showing the bubble after we receive a
 // show or hide request.
-constexpr auto kShowDelay = base::TimeDelta::FromMilliseconds(80);
-constexpr auto kHideDelay = base::TimeDelta::FromMilliseconds(250);
+constexpr auto kShowDelay = base::Milliseconds(80);
+constexpr auto kHideDelay = base::Milliseconds(250);
 
 // How long each fade should last for.
-constexpr auto kShowFadeDuration = base::TimeDelta::FromMilliseconds(120);
-constexpr auto kHideFadeDuration = base::TimeDelta::FromMilliseconds(200);
+constexpr auto kShowFadeDuration = base::Milliseconds(120);
+constexpr auto kHideFadeDuration = base::Milliseconds(200);
 constexpr int kFramerate = 25;
 
 // How long each expansion step should take.
-constexpr auto kMinExpansionStepDuration =
-    base::TimeDelta::FromMilliseconds(20);
-constexpr auto kMaxExpansionStepDuration =
-    base::TimeDelta::FromMilliseconds(150);
+constexpr auto kMinExpansionStepDuration = base::Milliseconds(20);
+constexpr auto kMaxExpansionStepDuration = base::Milliseconds(150);
 
 // How long to delay before destroying an unused status bubble widget.
-constexpr auto kDestroyPopupDelay = base::TimeDelta::FromSeconds(10);
+constexpr auto kDestroyPopupDelay = base::Seconds(10);
 
 const gfx::FontList& GetFont() {
   return views::style::GetFont(views::style::CONTEXT_LABEL,
@@ -157,8 +157,8 @@ class StatusBubbleViews::StatusView : public views::View {
   // views::View:
   gfx::Insets GetInsets() const override;
 
-  const base::string16& GetText() const;
-  void SetText(const base::string16& text);
+  const std::u16string& GetText() const;
+  void SetText(const std::u16string& text);
 
   BubbleState GetState() const { return state_; }
 
@@ -167,7 +167,7 @@ class StatusBubbleViews::StatusView : public views::View {
 
   // If |text| is empty, hides the bubble; otherwise, sets the bubble text to
   // |text| and shows the bubble.
-  void AnimateForText(const base::string16& text);
+  void AnimateForText(const std::u16string& text);
 
   // Show the bubble instantly.
   void ShowInstantly();
@@ -255,11 +255,11 @@ gfx::Insets StatusView::GetInsets() const {
   return gfx::Insets(kShadowThickness, kShadowThickness + kTextHorizPadding);
 }
 
-const base::string16& StatusView::GetText() const {
+const std::u16string& StatusView::GetText() const {
   return text_->GetText();
 }
 
-void StatusView::SetText(const base::string16& text) {
+void StatusView::SetText(const std::u16string& text) {
   if (text == GetText())
     return;
 
@@ -267,7 +267,7 @@ void StatusView::SetText(const base::string16& text) {
   OnPropertyChanged(&text_, views::kPropertyEffectsNone);
 }
 
-void StatusView::AnimateForText(const base::string16& text) {
+void StatusView::AnimateForText(const std::u16string& text) {
   if (text.empty()) {
     StartHiding();
   } else {
@@ -297,7 +297,7 @@ void StatusView::HideInstantly() {
   animation_->Stop();
   CancelTimer();
   SetOpacity(0.0);
-  SetText(base::string16());
+  SetText(std::u16string());
   state_ = BubbleState::kHidden;
   // Don't orderOut: the window on macOS. Doing so for a child window requires
   // it to be detached/reattached, which may trigger a space switch. Instead,
@@ -434,6 +434,11 @@ void StatusView::OnPaint(gfx::Canvas* canvas) {
   const float radius = kBubbleCornerRadius * scale;
 
   SkScalar rad[8] = {};
+  auto round_corner = [&rad, radius](gfx::RRectF::Corner c) {
+    int index = base::to_underlying(c);
+    rad[2 * index] = radius;
+    rad[2 * index + 1] = radius;
+  };
 
   // Top Edges - if the bubble is in its bottom position (sticking downwards),
   // then we square the top edges. Otherwise, we square the edges based on the
@@ -442,14 +447,9 @@ void StatusView::OnPaint(gfx::Canvas* canvas) {
   if (style_ != BubbleStyle::kBottom) {
     if (base::i18n::IsRTL() != (style_ == BubbleStyle::kStandardRight)) {
       // The text is RtL or the bubble is on the right side (but not both).
-
-      // Top Left corner.
-      rad[0] = radius;
-      rad[1] = radius;
+      round_corner(gfx::RRectF::Corner::kUpperLeft);
     } else {
-      // Top Right corner.
-      rad[2] = radius;
-      rad[3] = radius;
+      round_corner(gfx::RRectF::Corner::kUpperRight);
     }
   }
 
@@ -457,13 +457,20 @@ void StatusView::OnPaint(gfx::Canvas* canvas) {
   // position (sticking upward).
   if (style_ != BubbleStyle::kStandard &&
       style_ != BubbleStyle::kStandardRight) {
-    // Bottom Right Corner.
-    rad[4] = radius;
-    rad[5] = radius;
-
-    // Bottom Left Corner.
-    rad[6] = radius;
-    rad[7] = radius;
+    round_corner(gfx::RRectF::Corner::kLowerRight);
+    round_corner(gfx::RRectF::Corner::kLowerLeft);
+  } else {
+#if defined(OS_MAC)
+    // Mac's window has rounded corners, but the corner radius might be
+    // different on different versions. Status bubble will use its own round
+    // corner on Mac when there is no download shelf beneath.
+    if (!status_bubble_->download_shelf_is_visible_) {
+      if (base::i18n::IsRTL() != (style_ == BubbleStyle::kStandard))
+        round_corner(gfx::RRectF::Corner::kLowerLeft);
+      else
+        round_corner(gfx::RRectF::Corner::kLowerRight);
+    }
+#endif
   }
 
   // Snap to pixels to avoid shadow blurriness.
@@ -527,25 +534,23 @@ void StatusView::OnPaint(gfx::Canvas* canvas) {
   canvas->sk_canvas()->drawPath(stroke_path, flags);
 }
 
-DEFINE_ENUM_CONVERTERS(
-    StatusView::BubbleState,
-    {StatusView::BubbleState::kHidden, base::ASCIIToUTF16("kHidden")},
-    {StatusView::BubbleState::kPreFadeIn, base::ASCIIToUTF16("kPreFadeIn")},
-    {StatusView::BubbleState::kFadingIn, base::ASCIIToUTF16("kFadingIn")},
-    {StatusView::BubbleState::kShown, base::ASCIIToUTF16("kShown")},
-    {StatusView::BubbleState::kPreFadeOut, base::ASCIIToUTF16("kPreFadeOut")},
-    {StatusView::BubbleState::kFadingOut, base::ASCIIToUTF16("kFadingOut")})
+DEFINE_ENUM_CONVERTERS(StatusView::BubbleState,
+                       {StatusView::BubbleState::kHidden, u"kHidden"},
+                       {StatusView::BubbleState::kPreFadeIn, u"kPreFadeIn"},
+                       {StatusView::BubbleState::kFadingIn, u"kFadingIn"},
+                       {StatusView::BubbleState::kShown, u"kShown"},
+                       {StatusView::BubbleState::kPreFadeOut, u"kPreFadeOut"},
+                       {StatusView::BubbleState::kFadingOut, u"kFadingOut"})
 
-DEFINE_ENUM_CONVERTERS(
-    StatusView::BubbleStyle,
-    {StatusView::BubbleStyle::kBottom, base::ASCIIToUTF16("kBottom")},
-    {StatusView::BubbleStyle::kFloating, base::ASCIIToUTF16("kFloating")},
-    {StatusView::BubbleStyle::kStandard, base::ASCIIToUTF16("kStandard")},
-    {StatusView::BubbleStyle::kStandardRight,
-     base::ASCIIToUTF16("kStandardRight")})
+DEFINE_ENUM_CONVERTERS(StatusView::BubbleStyle,
+                       {StatusView::BubbleStyle::kBottom, u"kBottom"},
+                       {StatusView::BubbleStyle::kFloating, u"kFloating"},
+                       {StatusView::BubbleStyle::kStandard, u"kStandard"},
+                       {StatusView::BubbleStyle::kStandardRight,
+                        u"kStandardRight"})
 
 BEGIN_METADATA(StatusView, views::View)
-ADD_PROPERTY_METADATA(base::string16, Text)
+ADD_PROPERTY_METADATA(std::u16string, Text)
 ADD_READONLY_PROPERTY_METADATA(StatusView::BubbleState, State)
 ADD_PROPERTY_METADATA(StatusView::BubbleStyle, Style)
 END_METADATA
@@ -602,7 +607,7 @@ class StatusBubbleViews::StatusViewExpander
   StatusViewExpander& operator=(const StatusViewExpander&) = delete;
 
   // Manage the expansion of the bubble.
-  void StartExpansion(const base::string16& expanded_text,
+  void StartExpansion(const std::u16string& expanded_text,
                       int current_width,
                       int expansion_end);
 
@@ -620,7 +625,7 @@ class StatusBubbleViews::StatusViewExpander
   StatusView* status_view_;
 
   // Text elided (if needed) to fit maximum status bar width.
-  base::string16 expanded_text_;
+  std::u16string expanded_text_;
 
   // Widths at expansion start and end.
   int expansion_start_ = 0;
@@ -640,7 +645,7 @@ void StatusBubbleViews::StatusViewExpander::AnimationEnded(
 }
 
 void StatusBubbleViews::StatusViewExpander::StartExpansion(
-    const base::string16& expanded_text,
+    const std::u16string& expanded_text,
     int expansion_start,
     int expansion_end) {
   expanded_text_ = expanded_text;
@@ -763,7 +768,7 @@ void StatusBubbleViews::SetBounds(int x, int y, int w, int h) {
     AvoidMouse(last_mouse_moved_location_);
 }
 
-int StatusBubbleViews::GetWidthForURL(const base::string16& url_string) {
+int StatusBubbleViews::GetWidthForURL(const std::u16string& url_string) {
   // Get the width of the elided url
   int elided_url_width = gfx::GetStringWidth(url_string, GetFont());
   // Add proper paddings
@@ -775,7 +780,7 @@ void StatusBubbleViews::OnThemeChanged() {
     popup_->ThemeChanged();
 }
 
-void StatusBubbleViews::SetStatus(const base::string16& status_text) {
+void StatusBubbleViews::SetStatus(const std::u16string& status_text) {
   if (size_.IsEmpty())
     return;  // We have no bounds, don't attempt to show the popup.
 
@@ -812,7 +817,7 @@ void StatusBubbleViews::SetURL(const GURL& url) {
   // If we want to clear a displayed URL but there is a status still to
   // display, display that status instead.
   if (url.is_empty() && !status_text_.empty()) {
-    url_text_ = base::string16();
+    url_text_ = std::u16string();
     if (IsFrameVisible())
       view_->AnimateForText(status_text_);
     return;
@@ -824,7 +829,7 @@ void StatusBubbleViews::SetURL(const GURL& url) {
   url_text_ = url_formatter::ElideUrl(url, GetFont(), text_width);
 
   // Get the width of the URL if the bubble width is the maximum size.
-  base::string16 full_size_elided_url =
+  std::u16string full_size_elided_url =
       url_formatter::ElideUrl(url, GetFont(), GetMaxStatusBubbleWidth());
   int url_width = GetWidthForURL(full_size_elided_url);
 
@@ -858,7 +863,7 @@ void StatusBubbleViews::SetURL(const GURL& url) {
           FROM_HERE,
           base::BindOnce(&StatusBubbleViews::ExpandBubble,
                          expand_timer_factory_.GetWeakPtr()),
-          base::TimeDelta::FromMilliseconds(kExpandHoverDelayMS));
+          base::Milliseconds(kExpandHoverDelayMS));
     }
     // An URL is always treated as a left-to-right string. On right-to-left UIs
     // we need to explicitly mark the URL as LTR to make sure it is displayed
@@ -869,8 +874,8 @@ void StatusBubbleViews::SetURL(const GURL& url) {
 }
 
 void StatusBubbleViews::Hide() {
-  status_text_ = base::string16();
-  url_text_ = base::string16();
+  status_text_ = std::u16string();
+  url_text_ = std::u16string();
   if (view_)
     view_->HideInstantly();
 }

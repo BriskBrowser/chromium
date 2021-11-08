@@ -8,9 +8,9 @@
 #include "build/build_config.h"
 #include "chrome/browser/media/webrtc/desktop_media_picker.h"
 #include "chrome/browser/ui/views/desktop_capture/desktop_media_list_controller.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/tabbed_pane/tabbed_pane_listener.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace views {
@@ -26,6 +26,9 @@ class DesktopMediaPickerViews;
 class DesktopMediaPickerDialogView : public views::DialogDelegateView,
                                      public views::TabbedPaneListener {
  public:
+  // Used for UMA. Visible to this class's .cc file, but opaque beyond.
+  enum class DialogType : int;
+
   METADATA_HEADER(DesktopMediaPickerDialogView);
   DesktopMediaPickerDialogView(
       const DesktopMediaPicker::Params& params,
@@ -43,27 +46,58 @@ class DesktopMediaPickerDialogView : public views::DialogDelegateView,
   void OnSelectionChanged();
   void AcceptSource();
   void AcceptSpecificSource(content::DesktopMediaID source);
+  void Reject();
   void OnSourceListLayoutChanged();
+
+  // Relevant for UMA. (E.g. for DesktopMediaPickerViews to report
+  // when the dialog gets dismissed.)
+  DialogType GetDialogType() const;
 
   // views::TabbedPaneListener:
   void TabSelectedAt(int index) override;
 
   // views::DialogDelegateView:
   gfx::Size CalculatePreferredSize() const override;
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   views::View* GetInitiallyFocusedView() override;
   bool Accept() override;
+  bool Cancel() override;
   bool ShouldShowCloseButton() const override;
-  void DeleteDelegate() override;
 
  private:
   friend class DesktopMediaPickerViewsTestApi;
 
+  struct DisplaySurfaceCategory {
+    DisplaySurfaceCategory(
+        DesktopMediaList::Type type,
+        std::unique_ptr<DesktopMediaListController> controller,
+        bool audio_checked);
+
+    DisplaySurfaceCategory(DisplaySurfaceCategory&& other);
+
+    ~DisplaySurfaceCategory();
+
+    DesktopMediaList::Type type;
+    std::unique_ptr<DesktopMediaListController> controller;
+    bool audio_checked;
+  };
+
+  static bool AudioSupported(DesktopMediaList::Type type);
+
+  void SetAudioCheckboxAt(int index);
+
   void OnSourceTypeSwitched(int index);
+
+  int GetSelectedTabIndex() const;
 
   const DesktopMediaListController* GetSelectedController() const;
   DesktopMediaListController* GetSelectedController();
+
+  DesktopMediaList::Type GetSelectedSourceListType() const;
+
+  content::WebContents* const web_contents_;
+  const bool audio_requested_;
 
   DesktopMediaPickerViews* parent_;
 
@@ -72,10 +106,12 @@ class DesktopMediaPickerDialogView : public views::DialogDelegateView,
   views::Checkbox* audio_share_checkbox_ = nullptr;
 
   views::TabbedPane* tabbed_pane_ = nullptr;
-  std::vector<std::unique_ptr<DesktopMediaListController>> list_controllers_;
-  std::vector<content::DesktopMediaID::Type> source_types_;
+  std::vector<DisplaySurfaceCategory> categories_;
+  int previously_selected_category_ = 0;
 
-  base::Optional<content::DesktopMediaID> accepted_source_;
+  DialogType dialog_type_;
+
+  absl::optional<content::DesktopMediaID> accepted_source_;
 };
 
 // Implementation of DesktopMediaPicker for Views.

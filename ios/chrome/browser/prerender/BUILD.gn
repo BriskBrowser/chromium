@@ -44,7 +44,7 @@ source_set("prerender") {
     "//ios/chrome/browser/app_launcher:app_launcher",
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/crash_report:crash_report_internal",
-    "//ios/chrome/browser/geolocation:geolocation_internal",
+    "//ios/chrome/browser/geolocation",
     "//ios/chrome/browser/history:tab_helper",
     "//ios/chrome/browser/itunes_urls:itunes_urls",
     "//ios/chrome/browser/main:public",
@@ -94,7 +94,6 @@ source_set("unit_tests") {
 }
 
 source_set("eg2_tests") {
-  defines = [ "CHROME_EARL_GREY_2" ]
   configs += [
     "//build/config/compiler:enable_arc",
     "//build/config/ios:xctest_config",

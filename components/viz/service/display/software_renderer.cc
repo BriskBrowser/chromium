@@ -42,8 +42,8 @@
 #include "third_party/skia/include/effects/SkShaderMaskFilter.h"
 #include "ui/gfx/geometry/axis_transform2d.h"
 #include "ui/gfx/geometry/rect_conversions.h"
-#include "ui/gfx/skia_util.h"
-#include "ui/gfx/transform.h"
+#include "ui/gfx/geometry/skia_conversions.h"
+#include "ui/gfx/geometry/transform.h"
 
 namespace viz {
 namespace {
@@ -287,7 +287,7 @@ void SoftwareRenderer::DoDrawQuad(const DrawQuad* quad,
     if (settings_->allow_antialiasing &&
         (settings_->force_antialiasing || all_four_edges_are_exterior))
       current_paint_.setAntiAlias(true);
-    current_paint_.setFilterQuality(kLow_SkFilterQuality);
+    current_sampling_ = SkSamplingOptions(SkFilterMode::kLinear);
   }
 
   if (quad->ShouldDrawWithBlending() ||
@@ -346,6 +346,7 @@ void SoftwareRenderer::DoDrawQuad(const DrawQuad* quad,
     case DrawQuad::Material::kInvalid:
     case DrawQuad::Material::kYuvVideoContent:
     case DrawQuad::Material::kStreamVideoContent:
+    case DrawQuad::Material::kSharedElement:
       DrawUnsupportedQuad(quad);
       NOTREACHED();
       break;
@@ -395,7 +396,7 @@ void SoftwareRenderer::DrawPictureQuad(const PictureDrawQuad* quad) {
 
   SkCanvas* raster_canvas = current_canvas_;
 
-  base::Optional<skia::OpacityFilterCanvas> opacity_canvas;
+  absl::optional<skia::OpacityFilterCanvas> opacity_canvas;
   if (needs_transparency || disable_image_filtering) {
     // TODO(aelias): This isn't correct in all cases. We should detect these
     // cases and fall back to a persistent bitmap backing
@@ -438,9 +439,10 @@ void SoftwareRenderer::DrawTextureQuad(const TextureDrawQuad* quad) {
     return;
   }
 
-  // TODO(skaslev): Add support for non-premultiplied alpha.
   DisplayResourceProviderSoftware::ScopedReadLockSkImage lock(
-      resource_provider(), quad->resource_id());
+      resource_provider(), quad->resource_id(),
+      quad->premultiplied_alpha ? kPremul_SkAlphaType : kUnpremul_SkAlphaType);
+
   if (!lock.valid())
     return;
   const SkImage* image = lock.sk_image();
@@ -485,7 +487,8 @@ void SoftwareRenderer::DrawTileQuad(const TileDrawQuad* quad) {
   DCHECK(IsSoftwareResource(quad->resource_id()));
 
   DisplayResourceProviderSoftware::ScopedReadLockSkImage lock(
-      resource_provider(), quad->resource_id());
+      resource_provider(), quad->resource_id(),
+      quad->is_premultiplied ? kPremul_SkAlphaType : kUnpremul_SkAlphaType);
   if (!lock.valid())
     return;
 
@@ -549,16 +552,15 @@ void SoftwareRenderer::DrawRenderPassQuad(
   SkMatrix content_mat = SkMatrix::RectToRect(content_rect, dest_rect);
 
   sk_sp<SkShader> shader;
-  SkSamplingOptions sampling(current_paint_.getFilterQuality());
   if (!filter_image) {
-    shader = source_bitmap.makeShader(sampling, content_mat);
+    shader = source_bitmap.makeShader(current_sampling_, content_mat);
   } else {
-    shader = filter_image->makeShader(sampling, content_mat);
+    shader = filter_image->makeShader(current_sampling_, content_mat);
   }
 
   if (quad->mask_resource_id()) {
     DisplayResourceProviderSoftware::ScopedReadLockSkImage mask_lock(
-        resource_provider(), quad->mask_resource_id());
+        resource_provider(), quad->mask_resource_id(), kPremul_SkAlphaType);
     if (!mask_lock.valid())
       return;
 
@@ -570,7 +572,7 @@ void SoftwareRenderer::DrawRenderPassQuad(
     SkMatrix mask_mat = SkMatrix::RectToRect(mask_rect, dest_rect);
 
     current_paint_.setMaskFilter(SkShaderMaskFilter::Make(
-        mask_lock.sk_image()->makeShader(sampling, mask_mat)));
+        mask_lock.sk_image()->makeShader(current_sampling_, mask_mat)));
   }
 
   // If we have a backdrop filter shader, render its results first.
@@ -652,20 +654,15 @@ void SoftwareRenderer::CopyDrawnRenderPass(
       return;
   }
 
-  // Deliver the result. SoftwareRenderer supports RGBA_BITMAP and I420_PLANES
-  // only. For legacy reasons, if a RGBA_TEXTURE request is being made, clients
-  // are prepared to accept RGBA_BITMAP results.
-  //
-  // TODO(crbug/754872): Get rid of the legacy behavior and send empty results
-  // for RGBA_TEXTURE requests once tab capture is moved into VIZ.
-  const CopyOutputResult::Format result_format =
-      (request->result_format() == CopyOutputResult::Format::RGBA_TEXTURE)
-          ? CopyOutputResult::Format::RGBA_BITMAP
-          : request->result_format();
-  // Note: The CopyOutputSkBitmapResult automatically provides I420 format
+  // Deliver the result. SoftwareRenderer supports system memory destinations
+  // only. For legacy reasons, if a RGBA texture request is being made, clients
+  // are prepared to accept system memory results.
+
+  // Note: The CopyOutputSkBitmapResult already implies that results are
+  // returned in system memory and automatically provides I420 format
   // conversion, if needed.
   request->SendResult(std::make_unique<CopyOutputSkBitmapResult>(
-      result_format, geometry.result_selection, bitmap));
+      request->result_format(), geometry.result_selection, std::move(bitmap)));
 }
 
 void SoftwareRenderer::DidChangeVisibility() {
@@ -751,10 +748,10 @@ SkBitmap SoftwareRenderer::GetBackdropBitmap(
 gfx::Rect SoftwareRenderer::GetBackdropBoundingBoxForRenderPassQuad(
     const AggregatedRenderPassDrawQuad* quad,
     const cc::FilterOperations* backdrop_filters,
-    base::Optional<gfx::RRectF> backdrop_filter_bounds_input,
+    absl::optional<gfx::RRectF> backdrop_filter_bounds_input,
     gfx::Transform contents_device_transform,
     gfx::Transform* backdrop_filter_bounds_transform,
-    base::Optional<gfx::RRectF>* backdrop_filter_bounds,
+    absl::optional<gfx::RRectF>* backdrop_filter_bounds,
     gfx::Rect* unclipped_rect) const {
   DCHECK(backdrop_filter_bounds_transform);
   DCHECK(backdrop_filter_bounds);
@@ -794,7 +791,7 @@ sk_sp<SkShader> SoftwareRenderer::GetBackdropFilterShader(
       BackdropFiltersForPass(quad->render_pass_id);
   if (!ShouldApplyBackdropFilters(backdrop_filters, quad))
     return nullptr;
-  base::Optional<gfx::RRectF> backdrop_filter_bounds_input =
+  absl::optional<gfx::RRectF> backdrop_filter_bounds_input =
       BackdropFilterBoundsForPass(quad->render_pass_id);
   DCHECK(!FiltersForPass(quad->render_pass_id))
       << "Filters should always be in a separate Effect node";
@@ -812,7 +809,7 @@ sk_sp<SkShader> SoftwareRenderer::GetBackdropFilterShader(
       quad_rect_matrix;
   contents_device_transform.FlattenTo2d();
 
-  base::Optional<gfx::RRectF> backdrop_filter_bounds;
+  absl::optional<gfx::RRectF> backdrop_filter_bounds;
   gfx::Transform backdrop_filter_bounds_transform;
   gfx::Rect unclipped_rect;
   gfx::Rect backdrop_rect = GetBackdropBoundingBoxForRenderPassQuad(

@@ -15,14 +15,19 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/files/important_file_writer.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "base/values.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/engine/loopback_server/loopback_server_entity.h"
-#include "components/sync/protocol/loopback_server.pb.h"
 #include "components/sync/protocol/sync.pb.h"
 #include "net/http/http_status_code.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+namespace sync_pb {
+class LoopbackServerProto;
+class EntitySpecifics;
+class SyncEntity;
+}  // namespace sync_pb
 
 namespace fake_server {
 class FakeServer;
@@ -236,7 +241,7 @@ class LoopbackServer : public base::ImportantFileWriter::DataSerializer {
 
   ModelTypeSet throttled_types_;
 
-  base::Optional<sync_pb::ChipBag> bag_of_chips_;
+  absl::optional<sync_pb::ChipBag> bag_of_chips_;
 
   std::map<ModelType, int> migration_versions_;
 

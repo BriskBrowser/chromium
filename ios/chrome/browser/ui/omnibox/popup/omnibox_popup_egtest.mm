@@ -38,6 +38,7 @@ id<GREYMatcher> SwitchTabElementForUrl(const GURL& url) {
   return grey_allOf(
       grey_ancestor(PopupRowWithUrl(url)),
       grey_accessibilityID(kOmniboxPopupRowSwitchTabAccessibilityIdentifier),
+      grey_sufficientlyVisible(), grey_interactable(),
       nil);
 }
 
@@ -128,9 +129,15 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   // Type the URL of the first page in the omnibox to trigger it as suggestion.
   [ChromeEarlGreyUI focusOmniboxAndType:base::SysUTF8ToNSString(kPage1URL)];
 
-  // Switch to the first tab.
-  [[EarlGrey selectElementWithMatcher:SwitchTabElementForUrl(firstPageURL)]
+  // Switch to the first tab, scrolling the popup if necessary.
+  [[[EarlGrey
+      selectElementWithMatcher:grey_allOf(SwitchTabElementForUrl(firstPageURL),
+                                          grey_sufficientlyVisible(), nil)]
+         usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
+      onElementWithMatcher:grey_accessibilityID(
+                               kOmniboxPopupTableViewAccessibilityIdentifier)]
       performAction:grey_tap()];
+
   [ChromeEarlGrey waitForWebStateContainingText:kPage1];
 
   // Check that both tabs are opened (and that we switched tab and not just
@@ -271,7 +278,17 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       [NSString stringWithFormat:@"%@:%@", base::SysUTF8ToNSString(URL1.host()),
                                  base::SysUTF8ToNSString(URL1.port())];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:chrome_test_util::Omnibox()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(omniboxInput)];
+
+  // Omnibox can reorder itself in multiple animations, so add an extra wait
+  // here.
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:SwitchTabElementForUrl(
+                                                       URL1)];
   [[EarlGrey selectElementWithMatcher:SwitchTabElementForUrl(URL1)]
       performAction:grey_tap()];
   [ChromeEarlGrey waitForWebStateContainingText:kPage1];
@@ -309,7 +326,17 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 
   // Navigate to the other tab.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:chrome_test_util::Omnibox()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(base::SysUTF8ToNSString(URL1.host()))];
+
+  // Omnibox can reorder itself in multiple animations, so add an extra wait
+  // here.
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:SwitchTabElementForUrl(
+                                                       URL1)];
   [[EarlGrey selectElementWithMatcher:SwitchTabElementForUrl(URL1)]
       performAction:grey_tap()];
   [ChromeEarlGrey waitForWebStateContainingText:kPage1];
@@ -321,12 +348,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 // Tests that switching to closed tab opens the tab in foreground, except if it
 // is from NTP without history.
 - (void)testSwitchToClosedTab {
-  if (@available(iOS 13, *)) {
-    if ([ChromeEarlGrey isIPadIdiom]) {
-      // TODO(crbug.com/992480):test fails on iPad.
-      EARL_GREY_TEST_DISABLED(@"Test disabled on iPad.");
-    }
-  }
 // TODO(crbug.com/1067817): Test won't pass on iPad devices.
 #if !TARGET_IPHONE_SIMULATOR
   if ([ChromeEarlGrey isIPadIdiom]) {
@@ -347,8 +368,14 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   // Start typing url of the first page.
   [ChromeEarlGreyUI focusOmniboxAndType:base::SysUTF8ToNSString(kPage1URL)];
 
-  // Make sure that the "Switch to Open Tab" element is visible.
-  [[EarlGrey selectElementWithMatcher:SwitchTabElementForUrl(URL1)]
+  // Make sure that the "Switch to Open Tab" element is visible, scrolling the
+  // popup if necessary.
+  [[[EarlGrey
+      selectElementWithMatcher:grey_allOf(SwitchTabElementForUrl(URL1),
+                                          grey_sufficientlyVisible(), nil)]
+         usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
+      onElementWithMatcher:grey_accessibilityID(
+                               kOmniboxPopupTableViewAccessibilityIdentifier)]
       assertWithMatcher:grey_sufficientlyVisible()];
 
   // Close the first page.
@@ -392,19 +419,31 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       [NSString stringWithFormat:@"%@:%@", base::SysUTF8ToNSString(URL1.host()),
                                  base::SysUTF8ToNSString(URL1.port())];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:chrome_test_util::Omnibox()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(omniboxInput)];
 
   // Check that both elements are displayed.
-  [[EarlGrey selectElementWithMatcher:SwitchTabElementForUrl(URL1)]
-      assertWithMatcher:grey_sufficientlyVisible()];
-  [[EarlGrey selectElementWithMatcher:SwitchTabElementForUrl(URL2)]
-      assertWithMatcher:grey_sufficientlyVisible()];
+  // Omnibox can reorder itself in multiple animations, so add an extra wait
+  // here.
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:SwitchTabElementForUrl(
+                                                       URL1)];
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:SwitchTabElementForUrl(
+                                                       URL2)];
 }
 
 // Test that on iPhones, when the popup is scrolled, the keyboard is dismissed
 // but the omnibox is still expanded and the suggestions are visible.
 - (void)testScrollingDismissesKeyboardOnPhones {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:chrome_test_util::Omnibox()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(@"hello")];
 
   // Matcher for a URL-what-you-typed suggestion.
@@ -414,8 +453,9 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
           chrome_test_util::StaticTextWithAccessibilityLabel(@"hello")),
       grey_sufficientlyVisible(), nil);
 
-  [[EarlGrey selectElementWithMatcher:row]
-      assertWithMatcher:grey_sufficientlyVisible()];
+  // Omnibox can reorder itself in multiple animations, so add an extra wait
+  // here.
+  [ChromeEarlGrey waitForSufficientlyVisibleElementWithMatcher:row];
   GREYAssertTrue([EarlGrey isKeyboardShownWithError:nil],
                  @"Keyboard Should be Shown");
 

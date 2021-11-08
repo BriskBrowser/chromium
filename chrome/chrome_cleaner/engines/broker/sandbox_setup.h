@@ -6,7 +6,6 @@
 #define CHROME_CHROME_CLEANER_ENGINES_BROKER_SANDBOX_SETUP_H_
 
 #include <memory>
-#include <string>
 #include <utility>
 
 #include "base/callback.h"
@@ -28,6 +27,10 @@ namespace chrome_cleaner {
 class EngineSandboxSetupHooks : public MojoSandboxSetupHooks {
  public:
   explicit EngineSandboxSetupHooks(scoped_refptr<EngineClient> engine_client);
+
+  EngineSandboxSetupHooks(const EngineSandboxSetupHooks&) = delete;
+  EngineSandboxSetupHooks& operator=(const EngineSandboxSetupHooks&) = delete;
+
   ~EngineSandboxSetupHooks() override;
 
   // SandboxSetupHooks
@@ -38,8 +41,6 @@ class EngineSandboxSetupHooks : public MojoSandboxSetupHooks {
 
  private:
   scoped_refptr<EngineClient> engine_client_;
-
-  DISALLOW_COPY_AND_ASSIGN(EngineSandboxSetupHooks);
 };
 
 std::pair<ResultCode, scoped_refptr<EngineClient>> SpawnEngineSandbox(

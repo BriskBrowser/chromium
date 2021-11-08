@@ -11,10 +11,10 @@
 // #import {FakeQuickUnlockPrivate} from './fake_quick_unlock_private.m.js';
 // #import {FakeQuickUnlockUma} from './fake_quick_unlock_uma.m.js';
 // #import {LockScreenProgress} from 'chrome://resources/cr_components/chromeos/quick_unlock/lock_screen_constants.m.js';
-// #import {FakeSettingsPrivate} from 'chrome://test/settings/fake_settings_private.m.js';
+// #import {FakeSettingsPrivate} from 'chrome://test/settings/fake_settings_private.js';
 // #import {CrSettingsPrefs, Router, routes} from 'chrome://os-settings/chromeos/os_settings.js';
 // #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
-// #import {eventToPromise, waitAfterNextRender, waitBeforeNextRender} from '../../../test_util.m.js';
+// #import {eventToPromise, waitAfterNextRender, waitBeforeNextRender} from '../../../test_util.js';
 // clang-format on
 
 cr.define('settings_people_page_quick_unlock', function() {
@@ -110,7 +110,8 @@ cr.define('settings_people_page_quick_unlock', function() {
 
         Polymer.dom.flush();
 
-        passwordElement = passwordPromptDialog.$$('#passwordInput');
+        passwordElement =
+            passwordPromptDialog.shadowRoot.querySelector('#passwordInput');
       });
 
       test('PasswordCheckDoesNotChangeActiveMode', function() {
@@ -131,12 +132,15 @@ cr.define('settings_people_page_quick_unlock', function() {
       });
 
       test('InvalidPasswordInteractions', function() {
-        const confirmButton = passwordPromptDialog.$$('#confirmButton');
+        const confirmButton =
+            passwordPromptDialog.shadowRoot.querySelector('#confirmButton');
         quickUnlockPrivateApi.accountPassword = 'bar';
         passwordElement.value = 'foo';
         Polymer.dom.flush();
 
-        passwordPromptDialog.$$('cr-button[class="action-button"]').click();
+        passwordPromptDialog.shadowRoot
+            .querySelector('cr-button[class="action-button"]')
+            .click();
         Polymer.dom.flush();
 
         assertEquals(0, passwordElement.inputElement.selectionStart);
@@ -154,10 +158,13 @@ cr.define('settings_people_page_quick_unlock', function() {
       });
 
       test('TapConfirmButtonWithWrongPasswordRestoresFocus', function() {
-        const confirmButton = passwordPromptDialog.$$('#confirmButton');
+        const confirmButton =
+            passwordPromptDialog.shadowRoot.querySelector('#confirmButton');
         quickUnlockPrivateApi.accountPassword = 'bar';
         passwordElement.value = 'foo';
-        passwordPromptDialog.$$('cr-button[class="action-button"]').click();
+        passwordPromptDialog.shadowRoot
+            .querySelector('cr-button[class="action-button"]')
+            .click();
 
         assertTrue(passwordElement.hasAttribute('focused_'));
       });
@@ -207,7 +214,8 @@ cr.define('settings_people_page_quick_unlock', function() {
 
       test('ConfirmButtonDisabledWhenEmpty', function() {
         // Confirm button is diabled when there is nothing entered.
-        const confirmButton = passwordPromptDialog.$$('#confirmButton');
+        const confirmButton =
+            passwordPromptDialog.shadowRoot.querySelector('#confirmButton');
         assertTrue(!!confirmButton);
         assertTrue(confirmButton.disabled);
 
@@ -375,15 +383,13 @@ cr.define('settings_people_page_quick_unlock', function() {
       });
 
       test('Deep link to enable lock screen', async () => {
-        loadTimeData.overrideValues({isDeepLinkingEnabled: true});
-
         const params = new URLSearchParams;
         params.append('settingId', '303');
         settings.Router.getInstance().navigateTo(
             settings.routes.LOCK_SCREEN, params);
 
-        const deepLinkElement =
-            getFromElement('#enableLockScreen').$$('cr-toggle');
+        const deepLinkElement = getFromElement('#enableLockScreen')
+                                    .shadowRoot.querySelector('cr-toggle');
         assert(!!deepLinkElement);
         await test_util.waitAfterNextRender(deepLinkElement);
         assertEquals(

@@ -28,9 +28,7 @@
 #include <string>
 #include <vector>
 
-#include "base/containers/span.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/http/http_auth_handler.h"
@@ -46,6 +44,10 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNTLM : public HttpAuthHandler {
   class Factory : public HttpAuthHandlerFactory {
    public:
     Factory();
+
+    Factory(const Factory&) = delete;
+    Factory& operator=(const Factory&) = delete;
+
     ~Factory() override;
 
     int CreateAuthHandler(HttpAuthChallengeTokenizer* challenge,
@@ -72,8 +74,6 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNTLM : public HttpAuthHandler {
 #if defined(NTLM_SSPI)
     std::unique_ptr<SSPILibrary> sspi_library_;
 #endif  // defined(NTLM_SSPI)
-
-    DISALLOW_COPY_AND_ASSIGN(Factory);
   };
 
 #if defined(NTLM_PORTABLE)
@@ -84,6 +84,9 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNTLM : public HttpAuthHandler {
   HttpAuthHandlerNTLM(SSPILibrary* sspi_library,
                       const HttpAuthPreferences* http_auth_preferences);
 #endif
+
+  HttpAuthHandlerNTLM(const HttpAuthHandlerNTLM&) = delete;
+  HttpAuthHandlerNTLM& operator=(const HttpAuthHandlerNTLM&) = delete;
 
   // HttpAuthHandler
   bool NeedsIdentity() override;
@@ -118,8 +121,6 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNTLM : public HttpAuthHandler {
 #endif
 
   std::string channel_bindings_;
-
-  DISALLOW_COPY_AND_ASSIGN(HttpAuthHandlerNTLM);
 };
 
 }  // namespace net

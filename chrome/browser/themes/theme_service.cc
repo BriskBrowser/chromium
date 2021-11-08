@@ -7,42 +7,47 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/fixed_flat_map.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/metrics/user_metrics.h"
-#include "base/numerics/ranges.h"
 #include "base/one_shot_event.h"
-#include "base/optional.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/browser_features.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/theme_installed_infobar_delegate.h"
-#include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/browser/new_tab_page/chrome_colors/chrome_colors_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search/chrome_colors/chrome_colors_service.h"
 #include "chrome/browser/themes/browser_theme_pack.h"
 #include "chrome/browser/themes/custom_theme_supplier.h"
 #include "chrome/browser/themes/increased_contrast_theme_supplier.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service_factory.h"
+#include "chrome/browser/themes/theme_service_observer.h"
 #include "chrome/browser/themes/theme_syncable_service.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "components/infobars/content/content_infobar_manager.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_file_task_runner.h"
@@ -53,10 +58,12 @@
 #include "extensions/buildflags/buildflags.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/layout.h"
+#include "ui/color/color_provider.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "extensions/browser/extension_registry_observer.h"
 #endif
 
@@ -73,6 +80,49 @@ namespace {
 const int kRemoveUnusedThemesStartupDelay = 30;
 
 bool g_dont_write_theme_pack_for_testing = false;
+
+absl::optional<ui::ColorId> ThemeProviderColorIdToColorId(int color_id) {
+  static constexpr const auto kMap = base::MakeFixedFlatMap<int, ui::ColorId>({
+      {TP::COLOR_DOWNLOAD_SHELF, kColorDownloadShelf},
+      {TP::COLOR_DOWNLOAD_SHELF_BUTTON_BACKGROUND,
+       kColorDownloadShelfButtonBackground},
+      {TP::COLOR_DOWNLOAD_SHELF_BUTTON_TEXT, kColorDownloadShelfButtonText},
+      {TP::COLOR_OMNIBOX_BACKGROUND, kColorOmniboxBackground},
+      {TP::COLOR_OMNIBOX_BACKGROUND_HOVERED, kColorOmniboxBackgroundHovered},
+      {TP::COLOR_OMNIBOX_BUBBLE_OUTLINE, kColorOmniboxBubbleOutline},
+      {TP::COLOR_OMNIBOX_BUBBLE_OUTLINE_EXPERIMENTAL_KEYWORD_MODE,
+       kColorOmniboxBubbleOutlineExperimentalKeywordMode},
+      {TP::COLOR_OMNIBOX_SELECTED_KEYWORD, kColorOmniboxKeywordSelected},
+      {TP::COLOR_OMNIBOX_RESULTS_BG, kColorOmniboxResultsBackground},
+      {TP::COLOR_OMNIBOX_RESULTS_BG_HOVERED,
+       kColorOmniboxResultsBackgroundHovered},
+      {TP::COLOR_OMNIBOX_RESULTS_BG_SELECTED,
+       kColorOmniboxResultsBackgroundSelected},
+      {TP::COLOR_OMNIBOX_RESULTS_ICON, kColorOmniboxResultsIcon},
+      {TP::COLOR_OMNIBOX_RESULTS_ICON_SELECTED,
+       kColorOmniboxResultsIconSelected},
+      {TP::COLOR_OMNIBOX_RESULTS_TEXT_DIMMED, kColorOmniboxResultsTextDimmed},
+      {TP::COLOR_OMNIBOX_RESULTS_TEXT_DIMMED_SELECTED,
+       kColorOmniboxResultsTextDimmedSelected},
+      {TP::COLOR_OMNIBOX_RESULTS_TEXT_SELECTED,
+       kColorOmniboxResultsTextSelected},
+      {TP::COLOR_OMNIBOX_RESULTS_URL, kColorOmniboxResultsUrl},
+      {TP::COLOR_OMNIBOX_RESULTS_URL_SELECTED, kColorOmniboxResultsUrlSelected},
+      {TP::COLOR_OMNIBOX_SECURITY_CHIP_DANGEROUS,
+       kColorOmniboxSecurityChipDangerous},
+      {TP::COLOR_OMNIBOX_SECURITY_CHIP_DEFAULT,
+       kColorOmniboxSecurityChipDefault},
+      {TP::COLOR_OMNIBOX_SECURITY_CHIP_SECURE, kColorOmniboxSecurityChipSecure},
+      {TP::COLOR_OMNIBOX_TEXT, kColorOmniboxText},
+      {TP::COLOR_OMNIBOX_TEXT_DIMMED, kColorOmniboxTextDimmed},
+      {TP::COLOR_TOOLBAR, kColorToolbar},
+  });
+  auto* color_it = kMap.find(color_id);
+  if (color_it != kMap.cend()) {
+    return color_it->second;
+  }
+  return absl::nullopt;
+}
 
 // Writes the theme pack to disk on a separate thread.
 void WritePackToDiskCallback(BrowserThemePack* pack,
@@ -91,11 +141,13 @@ void WritePackToDiskCallback(BrowserThemePack* pack,
 class ThemeService::ThemeObserver
     : public extensions::ExtensionRegistryObserver {
  public:
-  explicit ThemeObserver(ThemeService* service)
-      : theme_service_(service), extension_registry_observer_(this) {
-    extension_registry_observer_.Add(
+  explicit ThemeObserver(ThemeService* service) : theme_service_(service) {
+    extension_registry_observation_.Observe(
         extensions::ExtensionRegistry::Get(theme_service_->profile_));
   }
+
+  ThemeObserver(const ThemeObserver&) = delete;
+  ThemeObserver& operator=(const ThemeObserver&) = delete;
 
   ~ThemeObserver() override {
   }
@@ -114,7 +166,7 @@ class ThemeService::ThemeObserver
 
   void OnExtensionLoaded(content::BrowserContext* browser_context,
                          const extensions::Extension* extension) override {
-    if (!extension->is_theme())
+    if (!extension->is_theme() || theme_service_->UsingPolicyTheme())
       return;
 
     bool is_new_version =
@@ -147,11 +199,9 @@ class ThemeService::ThemeObserver
 
   ThemeService* theme_service_;
 
-  ScopedObserver<extensions::ExtensionRegistry,
-                 extensions::ExtensionRegistryObserver>
-      extension_registry_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThemeObserver);
+  base::ScopedObservation<extensions::ExtensionRegistry,
+                          extensions::ExtensionRegistryObserver>
+      extension_registry_observation_{this};
 };
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
@@ -193,6 +243,9 @@ gfx::ImageSkia* ThemeService::BrowserThemeProvider::GetImageSkiaNamed(
 }
 
 SkColor ThemeService::BrowserThemeProvider::GetColor(int id) const {
+  if (auto color = GetColorProviderColor(id))
+    return color.value();
+
   return theme_helper_.GetColor(id, incognito_, GetThemeSupplier());
 }
 
@@ -231,13 +284,33 @@ bool ThemeService::BrowserThemeProvider::HasCustomColor(int id) const {
 
 base::RefCountedMemory* ThemeService::BrowserThemeProvider::GetRawData(
     int id,
-    ui::ScaleFactor scale_factor) const {
+    ui::ResourceScaleFactor scale_factor) const {
   return theme_helper_.GetRawData(id, GetThemeSupplier(), scale_factor);
 }
 
-const CustomThemeSupplier*
-ThemeService::BrowserThemeProvider::GetThemeSupplier() const {
-  return delegate_->GetThemeSupplier();
+absl::optional<SkColor>
+ThemeService::BrowserThemeProvider::GetColorProviderColor(int id) const {
+  if (base::FeatureList::IsEnabled(
+          features::kColorProviderRedirectionForThemeProvider)) {
+    if (auto provider_color_id = ThemeProviderColorIdToColorId(id)) {
+      const auto* const native_theme =
+          incognito_ ? ui::NativeTheme::GetInstanceForDarkUI()
+                     : ui::NativeTheme::GetInstanceForNativeUi();
+      auto* color_provider =
+          ui::ColorProviderManager::Get().GetColorProviderFor(
+              native_theme->GetColorProviderKey(GetThemeSupplier()));
+      return color_provider->GetColor(provider_color_id.value());
+    }
+  }
+  return absl::nullopt;
+}
+
+CustomThemeSupplier* ThemeService::BrowserThemeProvider::GetThemeSupplier()
+    const {
+  bool should_ignore_theme_supplier =
+      incognito_ && base::FeatureList::IsEnabled(
+                        features::kIncognitoBrandConsistencyForDesktop);
+  return should_ignore_theme_supplier ? nullptr : delegate_->GetThemeSupplier();
 }
 
 // ThemeService ---------------------------------------------------------------
@@ -267,7 +340,7 @@ void ThemeService::Init() {
   // TODO(https://crbug.com/953978): Use GetNativeTheme() for all platforms.
   ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
   if (native_theme)
-    native_theme_observer_.Add(native_theme);
+    native_theme_observation_.Observe(native_theme);
 
   InitFromPrefs();
 
@@ -281,7 +354,8 @@ void ThemeService::Init() {
       FROM_HERE, base::BindOnce(&ThemeService::OnExtensionServiceReady,
                                 weak_ptr_factory_.GetWeakPtr()));
 #endif
-  theme_syncable_service_.reset(new ThemeSyncableService(profile_, this));
+  theme_syncable_service_ =
+      std::make_unique<ThemeSyncableService>(profile_, this);
 
   // TODO(gayane): Temporary entry point for Chrome Colors. Remove once UI is
   // there.
@@ -300,13 +374,19 @@ void ThemeService::Init() {
     base::StringToInt(rgb[2], &b);
     BuildAutogeneratedThemeFromColor(SkColorSetRGB(r, g, b));
   }
+
+  pref_change_registrar_.Init(profile_->GetPrefs());
+  pref_change_registrar_.Add(
+      prefs::kPolicyThemeColor,
+      base::BindRepeating(&ThemeService::HandlePolicyColorUpdate,
+                          base::Unretained(this)));
 }
 
 void ThemeService::Shutdown() {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   theme_observer_.reset();
 #endif
-  native_theme_observer_.RemoveAll();
+  native_theme_observation_.Reset();
 }
 
 void ThemeService::OnNativeThemeUpdated(ui::NativeTheme* observed_theme) {
@@ -324,7 +404,7 @@ void ThemeService::OnNativeThemeUpdated(ui::NativeTheme* observed_theme) {
   }
 }
 
-const CustomThemeSupplier* ThemeService::GetThemeSupplier() const {
+CustomThemeSupplier* ThemeService::GetThemeSupplier() const {
   return theme_supplier_.get();
 }
 
@@ -348,6 +428,12 @@ void ThemeService::RevertToExtensionTheme(const std::string& extension_id) {
 }
 
 void ThemeService::UseDefaultTheme() {
+  if (UsingPolicyTheme()) {
+    DVLOG(1)
+        << "Default theme was not applied because a policy theme has been set.";
+    return;
+  }
+
   if (ready_)
     base::RecordAction(base::UserMetricsAction("Themes_Reset"));
 
@@ -385,15 +471,15 @@ bool ThemeService::UsingExtensionTheme() const {
 }
 
 bool ThemeService::UsingAutogeneratedTheme() const {
-  bool autogenerated = ThemeHelper::IsAutogeneratedTheme(GetThemeSupplier());
-
-  DCHECK_EQ(autogenerated,
-            profile_->GetPrefs()->HasPrefPath(prefs::kAutogeneratedThemeColor));
-  return autogenerated;
+  return ThemeHelper::IsAutogeneratedTheme(GetThemeSupplier());
 }
 
 std::string ThemeService::GetThemeID() const {
   return profile_->GetPrefs()->GetString(prefs::kCurrentThemeID);
+}
+
+bool ThemeService::UsingPolicyTheme() const {
+  return profile_->GetPrefs()->IsManagedPreference(prefs::kPolicyThemeColor);
 }
 
 void ThemeService::RemoveUnusedThemes() {
@@ -452,8 +538,24 @@ const ui::ThemeProvider& ThemeService::GetThemeProviderForProfile(
                                        : service->original_theme_provider_;
 }
 
+// static
+CustomThemeSupplier* ThemeService::GetThemeSupplierForProfile(
+    Profile* profile) {
+  return ThemeServiceFactory::GetForProfile(profile)->GetThemeSupplier();
+}
+
 void ThemeService::BuildAutogeneratedThemeFromColor(SkColor color) {
-  base::Optional<std::string> previous_theme_id;
+  if (UsingPolicyTheme()) {
+    DVLOG(1) << "Autogenerated theme was not applied because a policy theme"
+                " has been set.";
+    return;
+  }
+  BuildAutogeneratedThemeFromColor(color, /*store_user_prefs*/ true);
+}
+
+void ThemeService::BuildAutogeneratedThemeFromColor(SkColor color,
+                                                    bool store_in_prefs) {
+  absl::optional<std::string> previous_theme_id;
   if (UsingExtensionTheme())
     previous_theme_id = GetThemeID();
 
@@ -462,15 +564,29 @@ void ThemeService::BuildAutogeneratedThemeFromColor(SkColor color) {
   BrowserThemePack::BuildFromColor(color, pack.get());
   SwapThemeSupplier(std::move(pack));
   if (theme_supplier_) {
-    SetThemePrefsForColor(color);
-    if (previous_theme_id.has_value())
-      DisableExtension(previous_theme_id.value());
+    if (store_in_prefs) {
+      SetThemePrefsForColor(color);
+      // Only disable previous extension theme if new theme is saved to prefs,
+      // otherwise there may be issues (ex. when unsetting managed theme).
+      if (previous_theme_id.has_value())
+        DisableExtension(previous_theme_id.value());
+    }
     NotifyThemeChanged();
   }
 }
 
 SkColor ThemeService::GetAutogeneratedThemeColor() const {
   return profile_->GetPrefs()->GetInteger(prefs::kAutogeneratedThemeColor);
+}
+
+void ThemeService::BuildAutogeneratedPolicyTheme() {
+  BuildAutogeneratedThemeFromColor(GetPolicyThemeColor(),
+                                   /*store_user_prefs*/ false);
+}
+
+SkColor ThemeService::GetPolicyThemeColor() const {
+  DCHECK(UsingPolicyTheme());
+  return profile_->GetPrefs()->GetInteger(prefs::kPolicyThemeColor);
 }
 
 // static
@@ -487,7 +603,8 @@ ThemeService::BuildReinstallerForCurrentTheme() {
                        weak_ptr_factory_.GetWeakPtr(), GetThemeID());
   } else if (UsingAutogeneratedTheme()) {
     reinstall_callback = base::BindOnce(
-        &ThemeService::BuildAutogeneratedThemeFromColor,
+        static_cast<void (ThemeService::*)(SkColor)>(
+            &ThemeService::BuildAutogeneratedThemeFromColor),
         weak_ptr_factory_.GetWeakPtr(), GetAutogeneratedThemeColor());
   } else if (UsingSystemTheme()) {
     reinstall_callback = base::BindOnce(&ThemeService::UseSystemTheme,
@@ -501,8 +618,22 @@ ThemeService::BuildReinstallerForCurrentTheme() {
                                             std::move(reinstall_callback));
 }
 
+void ThemeService::AddObserver(ThemeServiceObserver* observer) {
+  observers_.AddObserver(observer);
+}
+
+void ThemeService::RemoveObserver(ThemeServiceObserver* observer) {
+  observers_.RemoveObserver(observer);
+}
+
 void ThemeService::SetCustomDefaultTheme(
     scoped_refptr<CustomThemeSupplier> theme_supplier) {
+  if (UsingPolicyTheme()) {
+    DVLOG(1) << "Custom default theme was not applied because a policy "
+                "theme has been set.";
+    return;
+  }
+
   ClearAllThemeData();
   SwapThemeSupplier(std::move(theme_supplier));
   NotifyThemeChanged();
@@ -516,7 +647,7 @@ void ThemeService::ClearAllThemeData() {
   if (!ready_)
     return;
 
-  base::Optional<std::string> previous_theme_id;
+  absl::optional<std::string> previous_theme_id;
   if (UsingExtensionTheme())
     previous_theme_id = GetThemeID();
 
@@ -531,6 +662,13 @@ void ThemeService::ClearAllThemeData() {
 
 void ThemeService::InitFromPrefs() {
   FixInconsistentPreferencesIfNeeded();
+
+  // If theme color policy was set while browser was off, apply it now.
+  if (UsingPolicyTheme()) {
+    BuildAutogeneratedPolicyTheme();
+    set_ready();
+    return;
+  }
 
   std::string current_id = GetThemeID();
   if (current_id == ThemeHelper::kDefaultThemeID) {
@@ -574,17 +712,9 @@ void ThemeService::NotifyThemeChanged() {
   if (!ready_)
     return;
 
-  DVLOG(1) << "Sending BROWSER_THEME_CHANGED";
-  // Redraw!
-  content::NotificationService* service =
-      content::NotificationService::current();
-  service->Notify(chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
-                  content::Source<ThemeService>(this),
-                  content::NotificationService::NoDetails());
-  // Notify sync that theme has changed.
-  if (theme_syncable_service_.get()) {
-    theme_syncable_service_->OnThemeChange();
-  }
+  // Redraw and notify sync that theme has changed.
+  for (auto& observer : observers_)
+    observer.OnThemeChanged();
 }
 
 void ThemeService::FixInconsistentPreferencesIfNeeded() {}
@@ -592,6 +722,7 @@ void ThemeService::FixInconsistentPreferencesIfNeeded() {}
 void ThemeService::DoSetTheme(const extensions::Extension* extension,
                               bool suppress_infobar) {
   DCHECK(extension->is_theme());
+  DCHECK(!UsingPolicyTheme());
   DCHECK(extensions::ExtensionSystem::Get(profile_)
              ->extension_service()
              ->IsExtensionEnabled(extension->id()));
@@ -610,7 +741,7 @@ void ThemeService::OnExtensionServiceReady() {
       FROM_HERE,
       base::BindOnce(&ThemeService::RemoveUnusedThemes,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSeconds(kRemoveUnusedThemesStartupDelay));
+      base::Seconds(kRemoveUnusedThemesStartupDelay));
 }
 
 void ThemeService::MigrateTheme() {
@@ -668,6 +799,12 @@ void ThemeService::OnThemeBuiltFromExtension(
     const extensions::ExtensionId& extension_id,
     scoped_refptr<BrowserThemePack> pack,
     bool suppress_infobar) {
+  if (UsingPolicyTheme()) {
+    DVLOG(1) << "Extension theme was not applied because a policy theme has "
+                "been set.";
+    return;
+  }
+
   if (!pack->is_valid()) {
     // TODO(erg): We've failed to install the theme; perhaps we should tell the
     // user? http://crbug.com/34780
@@ -691,7 +828,7 @@ void ThemeService::OnThemeBuiltFromExtension(
                                 base::RetainedRef(pack), extension->path()));
   std::unique_ptr<ThemeService::ThemeReinstaller> reinstaller =
       BuildReinstallerForCurrentTheme();
-  base::Optional<std::string> previous_theme_id;
+  absl::optional<std::string> previous_theme_id;
   if (UsingExtensionTheme())
     previous_theme_id = GetThemeID();
 
@@ -723,11 +860,25 @@ void ThemeService::OnThemeBuiltFromExtension(
           browser->tab_strip_model()->GetActiveWebContents();
       if (web_contents) {
         ThemeInstalledInfoBarDelegate::Create(
-            InfoBarService::FromWebContents(web_contents),
+            infobars::ContentInfoBarManager::FromWebContents(web_contents),
             ThemeServiceFactory::GetForProfile(profile_), extension->name(),
             extension->id(), std::move(reinstaller));
       }
     }
+  }
+}
+
+void ThemeService::HandlePolicyColorUpdate() {
+  if (UsingPolicyTheme()) {
+    BuildAutogeneratedPolicyTheme();
+  } else {
+    // If a policy theme is unset, load the previous theme from prefs.
+    InitFromPrefs();
+
+    // NotifyThemeChanged() isn't triggered in InitFromPrefs() for extension
+    // themes, so it's called here to make sure the browser's theme is updated.
+    if (UsingExtensionTheme())
+      NotifyThemeChanged();
   }
 }
 
@@ -768,7 +919,7 @@ bool ThemeService::DisableExtension(const std::string& extension_id) {
 
   if (registry->GetInstalledExtension(extension_id)) {
     // Do not disable the previous theme if it is already uninstalled. Sending
-    // NOTIFICATION_BROWSER_THEME_CHANGED causes the previous theme to be
+    // |ThemeServiceObserver::OnThemeChanged()| causes the previous theme to be
     // uninstalled when the notification causes the remaining infobar to close
     // and does not open any new infobars. See crbug.com/468280.
     service->DisableExtension(extension_id,

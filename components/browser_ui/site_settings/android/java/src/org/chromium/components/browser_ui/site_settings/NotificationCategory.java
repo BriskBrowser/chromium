@@ -4,11 +4,7 @@
 
 package org.chromium.components.browser_ui.site_settings;
 
-import android.content.Context;
-
-import androidx.core.app.NotificationManagerCompat;
-
-import org.chromium.components.embedder_support.browser_context.BrowserContextHandle;
+import org.chromium.content_public.browser.BrowserContextHandle;
 
 /**
  * Enables custom implementation for the notification site settings category, similar to
@@ -20,15 +16,5 @@ public class NotificationCategory extends SiteSettingsCategory {
         // be checked via Context#checkPermission(). Hence we pass an empty string here and override
         // #enabledForChrome() to use the notification-status checking API instead.
         super(browserContextHandle, Type.NOTIFICATIONS, "" /* androidPermission*/);
-    }
-
-    @Override
-    protected boolean enabledForChrome(Context context) {
-        if (!SiteSettingsFeatureList.isEnabled(
-                    SiteSettingsFeatureList.APP_NOTIFICATION_STATUS_MESSAGING)) {
-            return super.enabledForChrome(context);
-        }
-        NotificationManagerCompat manager = NotificationManagerCompat.from(context);
-        return manager.areNotificationsEnabled();
     }
 }

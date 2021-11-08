@@ -29,7 +29,6 @@
 
 #include "base/compiler_specific.h"
 #include "build/build_config.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 #if defined(OS_MAC)
 #include "third_party/blink/renderer/platform/audio/mac/vector_math_mac.h"
@@ -128,7 +127,7 @@ void Vclip(const float* source_p,
   float high_threshold = *high_threshold_p;
 
 #if DCHECK_IS_ON()
-  // Do the same DCHECKs that |clampTo| would do so that optimization paths do
+  // Do the same DCHECKs that |ClampTo| would do so that optimization paths do
   // not have to do them.
   for (size_t i = 0u; i < frames_to_process; ++i)
     DCHECK(!std::isnan(source_p[i]));
@@ -151,7 +150,7 @@ void Vclip(const float* source_p,
   float high_threshold = high_threshold_p;
 
 #if DCHECK_IS_ON()
-  // Do the same DCHECKs that |clampTo| would do so that optimization paths do
+  // Do the same DCHECKs that |ClampTo| would do so that optimization paths do
   // not have to do them.
   for (size_t i = 0u; i < frames_to_process; ++i)
     DCHECK(!std::isnan(source_p[i]));

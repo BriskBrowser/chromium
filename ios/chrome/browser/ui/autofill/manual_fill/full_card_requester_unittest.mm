@@ -6,11 +6,10 @@
 
 #include <string>
 
-#include "base/strings/string16.h"
 #import "base/test/ios/wait_util.h"
 #include "base/time/time.h"
-#include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
+#include "components/autofill/core/browser/browser_autofill_manager.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #import "components/autofill/ios/browser/autofill_agent.h"
 #include "components/autofill/ios/browser/autofill_driver_ios.h"
@@ -38,12 +37,16 @@ class FakeResultDelegate
     : public autofill::payments::FullCardRequest::ResultDelegate {
  public:
   FakeResultDelegate() : weak_ptr_factory_(this) {}
+
+  FakeResultDelegate(const FakeResultDelegate&) = delete;
+  FakeResultDelegate& operator=(const FakeResultDelegate&) = delete;
+
   ~FakeResultDelegate() override {}
 
   void OnFullCardRequestSucceeded(
       const autofill::payments::FullCardRequest& /* full_card_request */,
       const autofill::CreditCard& card,
-      const base::string16& cvc) override {}
+      const std::u16string& cvc) override {}
 
   void OnFullCardRequestFailed(
       autofill::payments::FullCardRequest::FailureType /* failure_type */)
@@ -55,8 +58,6 @@ class FakeResultDelegate
 
  private:
   base::WeakPtrFactory<FakeResultDelegate> weak_ptr_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeResultDelegate);
 };
 
 class PaymentRequestFullCardRequesterTest : public PlatformTest {
@@ -74,7 +75,7 @@ class PaymentRequestFullCardRequesterTest : public PlatformTest {
     AddCreditCard(autofill::test::GetCreditCard());  // Visa.
 
     auto frames_manager = std::make_unique<web::FakeWebFramesManager>();
-    auto main_frame = std::make_unique<web::FakeMainWebFrame>(
+    auto main_frame = web::FakeWebFrame::CreateMainWebFrame(
         /*security_origin=*/GURL());
     frames_manager->AddWebFrame(std::move(main_frame));
     web_state()->SetWebFramesManager(std::move(frames_manager));
@@ -97,10 +98,18 @@ class PaymentRequestFullCardRequesterTest : public PlatformTest {
     std::string locale("en");
     autofill::AutofillDriverIOS::PrepareForWebStateWebFrameAndDelegate(
         web_state(), autofill_client_.get(), nil, locale,
-        autofill::AutofillManager::DISABLE_AUTOFILL_DOWNLOAD_MANAGER);
+        autofill::BrowserAutofillManager::DISABLE_AUTOFILL_DOWNLOAD_MANAGER);
   }
 
   void TearDown() override {
+    // Remove the frame in order to destroy the AutofillDriver before the
+    // AutofillClient.
+    web::FakeWebFramesManager* frames_manager =
+        static_cast<web::FakeWebFramesManager*>(
+            web_state()->GetWebFramesManager());
+    std::string frame_id = frames_manager->GetMainWebFrame()->GetFrameId();
+    frames_manager->RemoveWebFrame(frame_id);
+
     personal_data_manager_.SetPrefService(nullptr);
     PlatformTest::TearDown();
   }
@@ -142,7 +151,7 @@ TEST_F(PaymentRequestFullCardRequesterTest, PresentAndDismiss) {
   EXPECT_EQ(nil, base_view_controller.presentedViewController);
   web::WebFrame* main_frame =
       web_state()->GetWebFramesManager()->GetMainWebFrame();
-  autofill::AutofillManager* autofill_manager =
+  autofill::BrowserAutofillManager* autofill_manager =
       autofill::AutofillDriverIOS::FromWebStateAndWebFrame(web_state(),
                                                            main_frame)
           ->autofill_manager();
@@ -151,12 +160,12 @@ TEST_F(PaymentRequestFullCardRequesterTest, PresentAndDismiss) {
                                   fake_result_delegate->GetWeakPtr());
 
   // Spin the run loop to trigger the animation.
-  base::test::ios::SpinRunLoopWithMaxDelay(base::TimeDelta::FromSecondsD(1.0));
+  base::test::ios::SpinRunLoopWithMaxDelay(base::Seconds(1.0));
   EXPECT_TRUE([base_view_controller.presentedViewController
       isMemberOfClass:[CardUnmaskPromptViewController class]]);
 
   full_card_requester.OnUnmaskVerificationResult(
-      autofill::AutofillClient::SUCCESS);
+      autofill::AutofillClient::PaymentsRpcResult::kSuccess);
 
   // Wait until the view controller is ordered to be dismissed and the animation
   // completes.
@@ -164,6 +173,6 @@ TEST_F(PaymentRequestFullCardRequesterTest, PresentAndDismiss) {
       ^bool {
         return !base_view_controller.presentedViewController;
       },
-      true, base::TimeDelta::FromSeconds(10));
+      true, base::Seconds(10));
   EXPECT_EQ(nil, base_view_controller.presentedViewController);
 }

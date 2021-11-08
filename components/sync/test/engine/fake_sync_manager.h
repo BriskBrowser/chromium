@@ -43,8 +43,11 @@ class FakeSyncManager : public SyncManager {
   // to include those types that didn't fail.
   FakeSyncManager(ModelTypeSet initial_sync_ended_types,
                   ModelTypeSet progress_marker_types,
-                  ModelTypeSet configure_fail_types,
-                  bool should_fail_on_init);
+                  ModelTypeSet configure_fail_types);
+
+  FakeSyncManager(const FakeSyncManager&) = delete;
+  FakeSyncManager& operator=(const FakeSyncManager&) = delete;
+
   ~FakeSyncManager() override;
 
   // Returns those types that have been downloaded since the last call to
@@ -69,7 +72,7 @@ class FakeSyncManager : public SyncManager {
   // loop for purposes of callbacks.
   void Init(InitArgs* args) override;
   ModelTypeSet InitialSyncEndedTypes() override;
-  ModelTypeSet GetEnabledTypes() override;
+  ModelTypeSet GetConnectedTypes() override;
   void UpdateCredentials(const SyncCredentials& credentials) override;
   void InvalidateCredentials() override;
   void StartSyncingNormally(base::Time last_poll_time) override;
@@ -87,6 +90,7 @@ class FakeSyncManager : public SyncManager {
   void ShutdownOnSyncThread() override;
   ModelTypeConnector* GetModelTypeConnector() override;
   std::unique_ptr<ModelTypeConnector> GetModelTypeConnectorProxy() override;
+  WeakHandle<DataTypeDebugInfoListener> GetDebugInfoListener() override;
   std::string cache_guid() override;
   std::string birthday() override;
   std::string bag_of_chips() override;
@@ -97,9 +101,8 @@ class FakeSyncManager : public SyncManager {
   void RefreshTypes(ModelTypeSet types) override;
   void OnCookieJarChanged(bool account_mismatch) override;
   void UpdateInvalidationClientId(const std::string&) override;
-  void UpdateSingleClientStatus(bool single_client) override;
-  void UpdateActiveDeviceFCMRegistrationTokens(
-      std::vector<std::string> fcm_registration_tokens) override;
+  void UpdateActiveDevicesInvalidationInfo(
+      ActiveDevicesInvalidationInfo active_devices_invalidation_info) override;
 
  private:
   scoped_refptr<base::SequencedTaskRunner> sync_task_runner_;
@@ -110,7 +113,6 @@ class FakeSyncManager : public SyncManager {
   std::string birthday_;
   std::string bag_of_chips_;
 
-  bool should_fail_on_init_;
   // Faked data state.
   ModelTypeSet initial_sync_ended_types_;
   ModelTypeSet progress_marker_types_;
@@ -135,8 +137,6 @@ class FakeSyncManager : public SyncManager {
 
   // Number of invalidations received per type since startup.
   std::map<ModelType, int> num_invalidations_received_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeSyncManager);
 };
 
 }  // namespace syncer

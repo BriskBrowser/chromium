@@ -16,9 +16,9 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/blocklist/opt_out_blocklist/opt_out_blocklist_data.h"
 #include "sql/database.h"
@@ -275,11 +275,10 @@ void LoadBlockListFromDataBase(
   int count = 0;
   while (statement.Step()) {
     ++count;
-    blocklist_data->AddEntry(statement.ColumnString(0), statement.ColumnBool(2),
-                             statement.ColumnInt64(3),
-                             base::Time() + base::TimeDelta::FromMicroseconds(
-                                                statement.ColumnInt64(1)),
-                             true);
+    blocklist_data->AddEntry(
+        statement.ColumnString(0), statement.ColumnBool(2),
+        statement.ColumnInt64(3),
+        base::Time() + base::Microseconds(statement.ColumnInt64(1)), true);
   }
 
   if (count > MaxRowsInOptOutDB()) {

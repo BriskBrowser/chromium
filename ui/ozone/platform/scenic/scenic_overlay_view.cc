@@ -32,14 +32,14 @@ ScenicOverlayView::ScenicOverlayView(
     scenic::SessionPtrAndListenerRequest session_and_listener_request,
     ScenicSurfaceFactory* scenic_surface_factory)
     : scenic_session_(std::move(session_and_listener_request)),
+      safe_presenter_(&scenic_session_),
       scenic_surface_factory_(scenic_surface_factory),
       view_(&scenic_session_,
             CreateViewToken(&view_holder_token_),
             kSessionDebugName) {
   scenic_session_.SetDebugName(kSessionDebugName);
-  scenic_session_.set_error_handler([](zx_status_t status) {
-    ZX_LOG(FATAL, status) << "Lost connection to scenic session.";
-  });
+  scenic_session_.set_error_handler(
+      base::LogFidlErrorAndExitProcess(FROM_HERE, "ScenicSession"));
 }
 
 ScenicOverlayView::~ScenicOverlayView() {
@@ -63,9 +63,8 @@ void ScenicOverlayView::Initialize(
   uint32_t image_pipe_id = scenic_session_.AllocResourceId();
   scenic_session_.Enqueue(
       scenic::NewCreateImagePipe2Cmd(image_pipe_id, image_pipe_.NewRequest()));
-  image_pipe_.set_error_handler([](zx_status_t status) {
-    ZX_LOG(FATAL, status) << "ImagePipe disconnected";
-  });
+  image_pipe_.set_error_handler(
+      base::LogFidlErrorAndExitProcess(FROM_HERE, "ImagePipe"));
 
   image_material_ = std::make_unique<scenic::Material>(&scenic_session_);
   image_material_->SetTexture(image_pipe_id);
@@ -76,10 +75,7 @@ void ScenicOverlayView::Initialize(
 
   view_.AddChild(shape);
   scenic_session_.ReleaseResource(image_pipe_id);
-  scenic_session_.Present2(
-      /*requested_presentation_time=*/0,
-      /*requested_prediction_span=*/0,
-      [](fuchsia::scenic::scheduling::FuturePresentationTimes info) {});
+  safe_presenter_.QueuePresent();
 
   // Since there is one ImagePipe for each BufferCollection, it is ok to use a
   // fixed buffer_collection_id.
@@ -123,10 +119,7 @@ void ScenicOverlayView::SetBlendMode(bool enable_blend) {
   // Setting alpha as |255| marks the image as opaque and no content below would
   // be seen. Anything lower than 255 allows blending.
   image_material_->SetColor(255, 255, 255, enable_blend ? 254 : 255);
-  scenic_session_.Present2(
-      /*requested_presentation_time=*/0,
-      /*requested_prediction_span=*/0,
-      [](fuchsia::scenic::scheduling::FuturePresentationTimes info) {});
+  safe_presenter_.QueuePresent();
 }
 
 bool ScenicOverlayView::CanAttachToAcceleratedWidget(

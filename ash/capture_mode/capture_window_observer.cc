@@ -4,12 +4,13 @@
 
 #include "ash/capture_mode/capture_window_observer.h"
 
+#include "ash/app_list/app_list_controller_impl.h"
+#include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/capture_mode/capture_mode_session.h"
-#include "ash/home_screen/home_screen_controller.h"
-#include "ash/home_screen/home_screen_delegate.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_finder.h"
 #include "ash/shell.h"
+#include "ui/compositor/layer.h"
 #include "ui/wm/public/activation_client.h"
 
 namespace ash {
@@ -29,24 +30,29 @@ CaptureWindowObserver::~CaptureWindowObserver() {
 void CaptureWindowObserver::UpdateSelectedWindowAtPosition(
     const gfx::Point& location_in_screen,
     const std::set<aura::Window*>& ignore_windows) {
+  if (capture_mode_session_->IsInCountDownAnimation())
+    return;
   location_in_screen_ = location_in_screen;
   // Find the toplevel window under the mouse/touch position.
   aura::Window* window =
       GetTopmostWindowAtPoint(location_in_screen_, ignore_windows);
+  SetSelectedWindow(window);
+  capture_mode_session_->UpdateCursor(location_in_screen, /*is_touch=*/false);
+}
+
+void CaptureWindowObserver::SetSelectedWindow(aura::Window* window) {
   if (window_ == window)
     return;
 
   // Don't capture wallpaper window.
   if (window && window->parent() &&
-      window->parent()->id() == kShellWindowId_WallpaperContainer) {
+      window->parent()->GetId() == kShellWindowId_WallpaperContainer) {
     window = nullptr;
   }
 
   // Don't capture home screen window.
-  if (window && window == Shell::Get()
-                              ->home_screen_controller()
-                              ->delegate()
-                              ->GetHomeScreenWindow()) {
+  if (window &&
+      window == Shell::Get()->app_list_controller()->GetHomeScreenWindow()) {
     window = nullptr;
   }
 
@@ -70,6 +76,11 @@ void CaptureWindowObserver::OnWindowVisibilityChanging(aura::Window* window,
                                                        bool visible) {
   DCHECK_EQ(window, window_);
   DCHECK(!visible);
+  if (capture_mode_session_->IsInCountDownAnimation()) {
+    CaptureModeController::Get()->Stop();
+    return;
+  }
+
   StopObserving();
   UpdateSelectedWindowAtPosition(location_in_screen_,
                                  /*ignore_windows=*/{window});
@@ -77,6 +88,11 @@ void CaptureWindowObserver::OnWindowVisibilityChanging(aura::Window* window,
 
 void CaptureWindowObserver::OnWindowDestroying(aura::Window* window) {
   DCHECK_EQ(window, window_);
+  if (capture_mode_session_->IsInCountDownAnimation()) {
+    CaptureModeController::Get()->Stop();
+    return;
+  }
+
   StopObserving();
   UpdateSelectedWindowAtPosition(location_in_screen_,
                                  /*ignore_windows=*/{window});

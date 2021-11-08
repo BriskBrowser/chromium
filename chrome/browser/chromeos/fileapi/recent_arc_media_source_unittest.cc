@@ -8,17 +8,17 @@
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/arc/fileapi/arc_documents_provider_util.h"
-#include "chrome/browser/chromeos/arc/fileapi/arc_file_system_mounter.h"
-#include "chrome/browser/chromeos/arc/fileapi/arc_file_system_operation_runner.h"
+#include "chrome/browser/ash/arc/arc_util.h"
+#include "chrome/browser/ash/arc/fileapi/arc_documents_provider_util.h"
+#include "chrome/browser/ash/arc/fileapi/arc_file_system_mounter.h"
+#include "chrome/browser/ash/arc/fileapi/arc_file_system_operation_runner.h"
 #include "chrome/browser/chromeos/fileapi/recent_arc_media_source.h"
 #include "chrome/browser/chromeos/fileapi/recent_file.h"
 #include "chrome/browser/chromeos/fileapi/recent_source.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/arc/arc_service_manager.h"
 #include "components/arc/mojom/file_system.mojom.h"
 #include "components/arc/session/arc_bridge_service.h"
+#include "components/arc/session/arc_service_manager.h"
 #include "components/arc/test/connection_holder_util.h"
 #include "components/arc/test/fake_file_system_instance.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
@@ -171,7 +171,7 @@ class RecentArcMediaSourceTest : public testing::Test {
   arc::FakeFileSystemInstance fake_file_system_;
 
   // Use the same initialization/destruction order as
-  // ChromeBrowserMainPartsChromeos.
+  // `ChromeBrowserMainPartsAsh`.
   std::unique_ptr<arc::ArcServiceManager> arc_service_manager_;
   std::unique_ptr<TestingProfile> profile_;
 

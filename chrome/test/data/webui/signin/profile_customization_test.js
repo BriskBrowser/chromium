@@ -9,7 +9,7 @@ import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 
 import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {isChildVisible} from '../test_util.m.js';
+import {isChildVisible} from '../test_util.js';
 
 import {TestProfileCustomizationBrowserProxy} from './test_profile_customization_browser_proxy.js';
 
@@ -24,6 +24,10 @@ suite('ProfileCustomizationTest', function() {
   const AVATAR_URL_1 = 'chrome://theme/IDR_PROFILE_AVATAR_1';
   /** @type {string} */
   const AVATAR_URL_2 = 'chrome://theme/IDR_PROFILE_AVATAR_2';
+  /** @type {string} */
+  const WELCOME_TEXT_1 = 'Welcome, Bob';
+  /** @type {string} */
+  const WELCOME_TEXT_2 = 'Hi, Elisa';
 
   setup(function() {
     loadTimeData.overrideValues({
@@ -31,12 +35,12 @@ suite('ProfileCustomizationTest', function() {
     });
     browserProxy = new TestProfileCustomizationBrowserProxy();
     browserProxy.setProfileInfo({
-      textColor: 'rgb(255, 0, 0)',
       backgroundColor: 'rgb(0, 255, 0)',
       pictureUrl: AVATAR_URL_1,
       isManaged: false,
+      welcomeTitle: WELCOME_TEXT_1,
     });
-    ProfileCustomizationBrowserProxyImpl.instance_ = browserProxy;
+    ProfileCustomizationBrowserProxyImpl.setInstance(browserProxy);
     document.body.innerHTML = '';
     app = /** @type {!ProfileCustomizationAppElement} */ (
         document.createElement('profile-customization-app'));
@@ -46,7 +50,7 @@ suite('ProfileCustomizationTest', function() {
 
   function checkImageUrl(elementId, expectedUrl) {
     assertTrue(isChildVisible(app, elementId));
-    const img = app.$$(elementId);
+    const img = app.shadowRoot.querySelector(elementId);
     assertEquals(expectedUrl, img.src);
   }
 
@@ -54,7 +58,7 @@ suite('ProfileCustomizationTest', function() {
   // change the name.
   test('ClickDone', function() {
     assertTrue(isChildVisible(app, '#doneButton'));
-    const doneButton = app.$$('#doneButton');
+    const doneButton = app.shadowRoot.querySelector('#doneButton');
     assertFalse(doneButton.disabled);
     doneButton.click();
     return browserProxy.whenCalled('done').then(
@@ -63,7 +67,7 @@ suite('ProfileCustomizationTest', function() {
 
   // Checks that the name can be changed.
   test('ChangeName', function() {
-    const nameInput = app.$$('#nameInput');
+    const nameInput = app.shadowRoot.querySelector('#nameInput');
     // Check the default value for the input.
     assertEquals('TestName', nameInput.value);
     assertFalse(nameInput.invalid);
@@ -74,7 +78,7 @@ suite('ProfileCustomizationTest', function() {
 
     // The button is disabled.
     assertTrue(isChildVisible(app, '#doneButton'));
-    const doneButton = app.$$('#doneButton');
+    const doneButton = app.shadowRoot.querySelector('#doneButton');
     assertTrue(doneButton.disabled);
 
     // Empty name.
@@ -95,28 +99,29 @@ suite('ProfileCustomizationTest', function() {
   });
 
   test('ProfileInfo', function() {
-    const header = app.$$('#header');
+    const header = app.shadowRoot.querySelector('#header');
     // Check initial info.
-    assertEquals('rgb(255, 0, 0)', getComputedStyle(header).color);
+    assertEquals(
+        app.shadowRoot.querySelector('#title').innerText, WELCOME_TEXT_1);
     assertEquals('rgb(0, 255, 0)', getComputedStyle(header).backgroundColor);
     checkImageUrl('#avatar', AVATAR_URL_1);
     assertFalse(isChildVisible(app, '#badge'));
     // Update the info.
-    const color1 = 'rgb(1, 2, 3)';
     const color2 = 'rgb(4, 5, 6)';
     webUIListenerCallback('on-profile-info-changed', {
-      textColor: color1,
       backgroundColor: color2,
       pictureUrl: AVATAR_URL_2,
       isManaged: true,
+      welcomeTitle: WELCOME_TEXT_2,
     });
-    assertEquals(color1, getComputedStyle(header).color);
+    assertEquals(
+        app.shadowRoot.querySelector('#title').innerText, WELCOME_TEXT_2);
     assertEquals(color2, getComputedStyle(header).backgroundColor);
     checkImageUrl('#avatar', AVATAR_URL_2);
     assertTrue(isChildVisible(app, '#badge'));
   });
 
   test('ThemeSelector', function() {
-    assertTrue(!!app.$$('#themeSelector'));
+    assertTrue(!!app.shadowRoot.querySelector('#themeSelector'));
   });
 });

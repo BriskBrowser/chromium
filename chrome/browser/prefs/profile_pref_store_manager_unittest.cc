@@ -12,12 +12,12 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
@@ -86,6 +86,9 @@ class PrefStoreReadObserver : public PrefStore::Observer {
     pref_store_->AddObserver(this);
   }
 
+  PrefStoreReadObserver(const PrefStoreReadObserver&) = delete;
+  PrefStoreReadObserver& operator=(const PrefStoreReadObserver&) = delete;
+
   ~PrefStoreReadObserver() override { pref_store_->RemoveObserver(this); }
 
   PersistentPrefStore::PrefReadError Read() {
@@ -108,8 +111,6 @@ class PrefStoreReadObserver : public PrefStore::Observer {
  private:
   scoped_refptr<PersistentPrefStore> pref_store_;
   base::OnceClosure stop_waiting_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrefStoreReadObserver);
 };
 
 const char kUnprotectedPref[] = "unprotected_pref";
@@ -164,7 +165,7 @@ class ProfilePrefStoreManagerTest : public testing::Test,
     // registered above for this test as kPreferenceResetTime is already
     // registered in ProfilePrefStoreManager::RegisterProfilePrefs.
     prefs::TrackedPreferenceMetadata pref_reset_time_config = {
-        (*configuration_.rbegin())->reporting_id + 1,
+        static_cast<size_t>((*configuration_.rbegin())->reporting_id + 1),
         user_prefs::kPreferenceResetTime, EnforcementLevel::ENFORCE_ON_LOAD,
         PrefTrackingStrategy::ATOMIC};
     configuration_.push_back(
@@ -175,8 +176,8 @@ class ProfilePrefStoreManagerTest : public testing::Test,
   }
 
   void ReloadConfiguration() {
-    manager_.reset(new ProfilePrefStoreManager(profile_dir_.GetPath(), seed_,
-                                               "device_id"));
+    manager_ = std::make_unique<ProfilePrefStoreManager>(profile_dir_.GetPath(),
+                                                         seed_, "device_id");
   }
 
   void TearDown() override {

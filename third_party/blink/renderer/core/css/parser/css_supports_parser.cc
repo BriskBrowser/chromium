@@ -7,21 +7,15 @@
 #include "third_party/blink/renderer/core/css/parser/css_parser_impl.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token_stream.h"
 #include "third_party/blink/renderer/core/css/parser/css_selector_parser.h"
+#include "third_party/blink/renderer/core/css/properties/css_parsing_utils.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 
 namespace blink {
 
-namespace {
+using css_parsing_utils::AtIdent;
+using css_parsing_utils::ConsumeIfIdent;
 
-// The result kUnknown must be converted to 'false' if passed to a context
-// which requires a boolean value.
-// TODO(crbug.com/1052274): This is supposed to happen at the top-level,
-// but currently happens on ConsumeGeneralEnclosed's result.
-CSSSupportsParser::Result EvalUnknown(CSSSupportsParser::Result result) {
-  return result == CSSSupportsParser::Result::kUnknown
-             ? CSSSupportsParser::Result::kUnsupported
-             : result;
-}
+namespace {
 
 // https://drafts.csswg.org/css-syntax/#typedef-any-value
 bool IsNextTokenAllowedForAnyValue(CSSParserTokenRange& range) {
@@ -55,20 +49,6 @@ CSSSupportsParser::Result CSSSupportsParser::ConsumeSupportsCondition(
   stream.ConsumeWhitespace();
   CSSSupportsParser supports_parser(parser);
   return supports_parser.ConsumeSupportsCondition(stream);
-}
-
-bool CSSSupportsParser::AtIdent(const CSSParserToken& token,
-                                const char* ident) {
-  return token.GetType() == kIdentToken &&
-         EqualIgnoringASCIICase(token.Value(), ident);
-}
-
-bool CSSSupportsParser::ConsumeIfIdent(CSSParserTokenStream& stream,
-                                       const char* ident) {
-  if (!AtIdent(stream.Peek(), ident))
-    return false;
-  stream.ConsumeIncludingWhitespace();
-  return true;
 }
 
 // <supports-condition> = not <supports-in-parens>
@@ -158,23 +138,17 @@ CSSSupportsParser::Result CSSSupportsParser::ConsumeSupportsInParens(
   // ( <supports-condition> )
   if (IsEnclosedSupportsCondition(first_token, stream.Peek())) {
     Result result = ConsumeSupportsCondition(stream);
-    return guard.AtEndOfBlock() ? result : Result::kParseFailure;
+    return stream.AtEnd() ? result : Result::kParseFailure;
   }
 
   // <supports-feature>
   if (IsSupportsFeature(first_token, stream.Peek())) {
     Result result = ConsumeSupportsFeature(first_token, stream);
-    return guard.AtEndOfBlock() ? result : Result::kParseFailure;
+    return stream.AtEnd() ? result : Result::kParseFailure;
   }
 
   // <general-enclosed>
-  //
-  // TODO(crbug.com/1052274): Support kUnknown beyond this point.
-  //
-  // The result kUnknown is supposed to be evaluated at the top level, but
-  // we have already shipped the behavior of evaluating it here, and Firefox
-  // does the same thing.
-  return EvalUnknown(ConsumeGeneralEnclosed(first_token, stream));
+  return ConsumeGeneralEnclosed(first_token, stream);
 }
 
 // <supports-feature> = <supports-selector-fn> | <supports-decl>
@@ -225,7 +199,7 @@ CSSSupportsParser::Result CSSSupportsParser::ConsumeGeneralEnclosed(
       return Result::kParseFailure;
 
     stream.ConsumeWhitespace();
-    return Result::kUnknown;
+    return Result::kUnsupported;
   }
   return Result::kParseFailure;
 }

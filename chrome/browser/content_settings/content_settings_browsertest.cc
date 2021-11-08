@@ -24,7 +24,6 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/test_launcher_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/browsing_data/content/cookie_helper.h"
@@ -49,6 +48,7 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/ppapi_test_utils.h"
+#include "content/public/test/prerender_test_util.h"
 #include "content/public/test/test_utils.h"
 #include "net/cookies/canonical_cookie_test_helpers.h"
 #include "net/dns/mock_host_resolver.h"
@@ -186,6 +186,14 @@ class CookieSettingsTest
       set_secure_scheme();
   }
 
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    // TODO(fivedots): Remove this switch once Storage Foundation is enabled
+    // by default.
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    "StorageFoundationAPI");
+    ContentSettingsTest::SetUpCommandLine(command_line);
+  }
+
   void set_secure_scheme() { secure_scheme_ = true; }
 
   std::string ReadCookie(Browser* browser) {
@@ -215,7 +223,7 @@ class CookieSettingsTest
     ASSERT_TRUE(ReadCookie(browser()).empty());
 
     Browser* incognito = CreateIncognitoBrowser();
-    ui_test_utils::NavigateToURL(incognito, GetPageURL());
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(incognito, GetPageURL()));
     ASSERT_TRUE(ReadCookie(incognito).empty());
     WriteCookie(incognito);
     ASSERT_EQ(cookies_enabled, !ReadCookie(incognito).empty());
@@ -227,13 +235,13 @@ class CookieSettingsTest
     CloseBrowserSynchronously(incognito);
 
     incognito = CreateIncognitoBrowser();
-    ui_test_utils::NavigateToURL(incognito, GetPageURL());
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(incognito, GetPageURL()));
     ASSERT_TRUE(ReadCookie(incognito).empty());
     CloseBrowserSynchronously(incognito);
   }
 
   void PreBasic() {
-    ui_test_utils::NavigateToURL(browser(), GetPageURL());
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
     ASSERT_TRUE(ReadCookie(browser()).empty());
 
     CookieCheckIncognitoWindow(true);
@@ -243,7 +251,7 @@ class CookieSettingsTest
   }
 
   void Basic() {
-    ui_test_utils::NavigateToURL(browser(), GetPageURL());
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
     ASSERT_FALSE(ReadCookie(browser()).empty());
   }
 
@@ -270,8 +278,7 @@ class CookieSettingsTest
     }
 
     auto* network_context =
-        content::BrowserContext::GetDefaultStoragePartition(browser->profile())
-            ->GetNetworkContext();
+        browser->profile()->GetDefaultStoragePartition()->GetNetworkContext();
     content::LoadBasicRequest(network_context, url);
 
     {
@@ -302,7 +309,7 @@ class CookieSettingsTest
 
   // Read a cookie with JavaScript cookie-store API
   std::string JSAsyncReadCookie(Browser* browser) {
-    return content::EvalJsWithManualReply(
+    return content::EvalJs(
                browser->tab_strip_model()->GetActiveWebContents(),
                "async function doGet() {"
                "  const cookies = await window.cookieStore.getAll();"
@@ -311,7 +318,8 @@ class CookieSettingsTest
                "    cookie_str += `${cookie.name}=${cookie.value};`;"
                "  window.domAutomationController.send(cookie_str);"
                "}"
-               "doGet()")
+               "doGet()",
+               content::EXECUTE_SCRIPT_USE_MANUAL_REPLY)
         .ExtractString();
   }
 
@@ -335,17 +343,18 @@ class CookieSettingsTest
 
   // Set a cookie with JavaScript cookie-store api.
   void JSAsyncWriteCookie(Browser* browser) {
-    content::EvalJsResult result = content::EvalJsWithManualReply(
-        browser->tab_strip_model()->GetActiveWebContents(),
-        "async function doSet() {"
-        "  await window.cookieStore.set("
-        "       { name: 'name',"
-        "         value: 'Good',"
-        "         expires: Date.now() + 3600*1000,"
-        "         sameSite: 'none' });"
-        "  window.domAutomationController.send(true);"
-        "}"
-        "doSet()");
+    content::EvalJsResult result =
+        content::EvalJs(browser->tab_strip_model()->GetActiveWebContents(),
+                        "async function doSet() {"
+                        "  await window.cookieStore.set("
+                        "       { name: 'name',"
+                        "         value: 'Good',"
+                        "         expires: Date.now() + 3600*1000,"
+                        "         sameSite: 'none' });"
+                        "  window.domAutomationController.send(true);"
+                        "}"
+                        "doSet()",
+                        content::EXECUTE_SCRIPT_USE_MANUAL_REPLY);
     // Failure ignored here since some tests purposefully try to set disallowed
     // cookies.
   }
@@ -390,7 +399,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BasicCookiesHttps) {
 
 // Verify that cookies are being blocked.
 IN_PROC_BROWSER_TEST_P(CookieSettingsTest, PRE_BlockCookies) {
-  ui_test_utils::NavigateToURL(browser(), GetPageURL());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
   CookieSettingsFactory::GetForProfile(browser()->profile())
       ->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
   WriteCookie(browser());
@@ -407,8 +416,14 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookies) {
 
 // Verify that cookies can be allowed and set using exceptions for particular
 // website(s) when all others are blocked.
-IN_PROC_BROWSER_TEST_P(CookieSettingsTest, AllowCookiesUsingExceptions) {
-  ui_test_utils::NavigateToURL(browser(), GetPageURL());
+// Flaky on Mac (crbug.com/1155077) and Linux (crbug.com/1242410).
+#if defined(OS_MAC) || defined(OS_LINUX)
+#define MAYBE_AllowCookiesUsingExceptions DISABLED_AllowCookiesUsingExceptions
+#else
+#define MAYBE_AllowCookiesUsingExceptions AllowCookiesUsingExceptions
+#endif
+IN_PROC_BROWSER_TEST_P(CookieSettingsTest, MAYBE_AllowCookiesUsingExceptions) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
   content_settings::CookieSettings* settings =
       CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
@@ -442,7 +457,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest, AllowCookiesUsingExceptions) {
 
 // Verify that cookies can be blocked for a specific website using exceptions.
 IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookiesUsingExceptions) {
-  ui_test_utils::NavigateToURL(browser(), GetPageURL());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
   content_settings::CookieSettings* settings =
       CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetCookieSetting(GetPageURL(), CONTENT_SETTING_BLOCK);
@@ -460,7 +475,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookiesUsingExceptions) {
 
   GURL unblocked_url = GetOtherServer()->GetURL("/cookie1.html");
 
-  ui_test_utils::NavigateToURL(browser(), unblocked_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), unblocked_url));
   ASSERT_FALSE(GetCookies(browser()->profile(), unblocked_url).empty());
   accepted = GetSiteSettingsCookieContainer(browser());
   blocked = GetSiteSettingsBlockedCookieContainer(browser());
@@ -496,9 +511,9 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest,
       "sub.a.test", "/set-cookie?included_cookie=1;domain=a.test"));
 
   // No cookies are present prior to setting them.
-  ui_test_utils::NavigateToURL(browser(), cookies_present_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), cookies_present_url));
   ASSERT_TRUE(HttpReadCookieWithURL(browser(), cookies_present_url).empty());
-  ui_test_utils::NavigateToURL(browser(), cookies_blocked_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), cookies_blocked_url));
   ASSERT_TRUE(HttpReadCookieWithURL(browser(), cookies_blocked_url).empty());
 
   // Set the cookies.
@@ -507,7 +522,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest,
   HttpWriteCookieWithURL(browser(), set_included_cookie_url);
 
   // Verify all cookies are present on |cookies_present_url|.
-  ui_test_utils::NavigateToURL(browser(), cookies_present_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), cookies_present_url));
   HttpReadCookieWithURL(browser(), cookies_present_url);
   browsing_data::CannedCookieHelper* accepted =
       GetSiteSettingsCookieContainer(browser());
@@ -521,7 +536,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest,
                   "included_cookie=1; host_cookie=1; path_cookie=1"));
 
   // Verify there is only one included cookie for |cookies_blocked_url|.
-  ui_test_utils::NavigateToURL(browser(), cookies_blocked_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), cookies_blocked_url));
   HttpReadCookieWithURL(browser(), cookies_blocked_url);
   accepted = GetSiteSettingsCookieContainer(browser());
   blocked = GetSiteSettingsBlockedCookieContainer(browser());
@@ -531,13 +546,13 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest,
   EXPECT_THAT(accepted_cookies, net::MatchesCookieLine("included_cookie=1"));
 
   // Set content settings to block cookies for |cookies_blocked_url|.
-  ui_test_utils::NavigateToURL(browser(), cookies_blocked_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), cookies_blocked_url));
   content_settings::CookieSettings* settings =
       CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetCookieSetting(cookies_blocked_url, CONTENT_SETTING_BLOCK);
 
   // Verify all cookies are still present on |cookies_present_url|.
-  ui_test_utils::NavigateToURL(browser(), cookies_present_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), cookies_present_url));
   HttpReadCookieWithURL(browser(), cookies_present_url);
   accepted = GetSiteSettingsCookieContainer(browser());
   blocked = GetSiteSettingsBlockedCookieContainer(browser());
@@ -549,7 +564,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest,
                   "included_cookie=1; host_cookie=1; path_cookie=1"));
 
   // Verify there is only one blocked cookie on |cookies_blocked_url|.
-  ui_test_utils::NavigateToURL(browser(), cookies_blocked_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), cookies_blocked_url));
   HttpReadCookieWithURL(browser(), cookies_blocked_url);
   accepted = GetSiteSettingsCookieContainer(browser());
   blocked = GetSiteSettingsBlockedCookieContainer(browser());
@@ -560,7 +575,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest,
 }
 
 IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookiesAlsoBlocksCacheStorage) {
-  ui_test_utils::NavigateToURL(browser(), GetPageURL());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
   content_settings::CookieSettings* settings =
       CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetCookieSetting(GetPageURL(), CONTENT_SETTING_BLOCK);
@@ -599,7 +614,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookiesAlsoBlocksCacheStorage) {
 }
 
 IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookiesAlsoBlocksIndexedDB) {
-  ui_test_utils::NavigateToURL(browser(), GetPageURL());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
   content_settings::CookieSettings* settings =
       CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetCookieSetting(GetPageURL(), CONTENT_SETTING_BLOCK);
@@ -663,7 +678,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookiesAlsoBlocksIndexedDB) {
 }
 
 IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookiesAlsoBlocksFileSystem) {
-  ui_test_utils::NavigateToURL(browser(), GetPageURL());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
   content_settings::CookieSettings* settings =
       CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetCookieSetting(GetPageURL(), CONTENT_SETTING_BLOCK);
@@ -711,6 +726,103 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookiesAlsoBlocksFileSystem) {
   }
 }
 
+IN_PROC_BROWSER_TEST_P(CookieSettingsTest,
+                       BlockCookiesAlsoBlocksStorageFoundation) {
+  set_secure_scheme();
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetPageURL()));
+  content_settings::CookieSettings* settings =
+      CookieSettingsFactory::GetForProfile(browser()->profile()).get();
+  settings->SetCookieSetting(GetPageURL(), CONTENT_SETTING_BLOCK);
+
+  const char kBaseExpected[] = "%s - Storage access is denied";
+
+  const char kBaseScript[] = R"(
+      (async function() {
+        const name = `%s`;
+        try {
+          await %s;
+        } catch(e) {
+          const error = e.toString();
+          const n = error.lastIndexOf(`: `);
+          const message = error.substring(n + 2)
+          return `${name} - ${message}`;
+        }
+        return `${name} - success`;
+      }())
+  )";
+
+  struct TestOp {
+    const char* name;
+    const char* code;
+  };
+
+  const TestOp kTestOps[] = {
+      {.name = "storageFoundation.open()",
+       .code = "storageFoundation.open('foo')"},
+      {.name = "storageFoundation.delete()",
+       .code = "storageFoundation.delete('foo')"},
+      {.name = "storageFoundation.rename()",
+       .code = "storageFoundation.rename('foo', 'bar')"},
+      {.name = "storageFoundation.getAll()",
+       .code = "storageFoundation.getAll()"},
+      {.name = "storageFoundation.requestCapacity()",
+       .code = "storageFoundation.requestCapacity(10)"},
+      {.name = "storageFoundation.releaseCapacity()",
+       .code = "storageFoundation.releaseCapacity(10)"},
+      {.name = "storageFoundation.getRemainingCapacity()",
+       .code = "storageFoundation.getRemainingCapacity()"},
+  };
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  for (auto& op : kTestOps) {
+    EXPECT_EQ(base::StringPrintf(kBaseExpected, op.name),
+              EvalJs(tab, base::StringPrintf(kBaseScript, op.name, op.code)));
+  }
+}
+
+IN_PROC_BROWSER_TEST_P(CookieSettingsTest,
+                       BlockCookiesAlsoBlocksSyncStorageFoundation) {
+  set_secure_scheme();
+  GURL url = GetServer()->GetURL("/sync_storage_foundation.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content_settings::CookieSettings* settings =
+      CookieSettingsFactory::GetForProfile(browser()->profile()).get();
+  settings->SetCookieSetting(GetPageURL(), CONTENT_SETTING_BLOCK);
+
+  const char kBaseExpected[] = "%s - Storage access is denied";
+  const char kBaseUnexpected[] = "%s - Success";
+  const char kBaseCall[] = "run('%s')";
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  const char* kTestOps[] = {
+      "openSync",
+      "deleteSync",
+      "renameSync",
+      "getAllSync",
+      "requestCapacitySync",
+      "releaseCapacitySync",
+      "getRemainingCapacitySync",
+  };
+
+  for (auto* op : kTestOps) {
+    EXPECT_TRUE(ExecJs(tab, base::StringPrintf(kBaseCall, op)));
+
+    std::u16string expected_title(
+        base::ASCIIToUTF16(base::StringPrintf(kBaseExpected, op)));
+    content::TitleWatcher title_watcher(tab, expected_title);
+
+    std::u16string unexpected_title(
+        base::ASCIIToUTF16(base::StringPrintf(kBaseUnexpected, op)));
+    title_watcher.AlsoWaitForTitle(unexpected_title);
+
+    EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(
     All,
     CookieSettingsTest,
@@ -738,11 +850,11 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest,
       CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
 
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   ASSERT_TRUE(GetCookies(browser()->profile(), url).empty());
 
   settings->SetCookieSetting(url, CONTENT_SETTING_SESSION_ONLY);
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   ASSERT_FALSE(GetCookies(browser()->profile(), url).empty());
 }
 
@@ -770,7 +882,7 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, RedirectLoopCookies) {
   MockWebContentsLoadFailObserver observer(web_contents);
   EXPECT_CALL(observer, DidFinishNavigation(IsErrorTooManyRedirects()));
 
-  ui_test_utils::NavigateToURL(browser(), test_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
 
   ASSERT_TRUE(::testing::Mock::VerifyAndClearExpectations(&observer));
 
@@ -794,7 +906,7 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, CookiesIgnoredFor204) {
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
-  ui_test_utils::NavigateToURL(browser(), test_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
 
   EXPECT_FALSE(
       PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame())
@@ -814,9 +926,10 @@ class ContentSettingsBackForwardCacheBrowserTest : public ContentSettingsTest {
           {// Set a very long TTL before expiration (longer than the test
            // timeout) so tests that are expecting deletion don't pass when
            // they shouldn't.
-           {"TimeToLiveInBackForwardCacheInSeconds", "3600"}}}},
+           {"TimeToLiveInBackForwardCacheInSeconds", "3600"},
+           {"ignore_outstanding_network_request_for_testing", "true"}}}},
         // Allow BackForwardCache for all devices regardless of their memory.
-        {features::kBackForwardCacheMemoryControl});
+        {features::kBackForwardCacheMemoryControls});
     ContentSettingsTest::SetUpCommandLine(command_line);
   }
 
@@ -834,7 +947,7 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsBackForwardCacheBrowserTest,
   CookieSettingsFactory::GetForProfile(browser()->profile())
       ->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
 
-  ui_test_utils::NavigateToURL(browser(), test_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -844,8 +957,9 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsBackForwardCacheBrowserTest,
       PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame())
           ->IsContentBlocked(ContentSettingsType::COOKIES));
 
-  ui_test_utils::NavigateToURL(browser(), other_url);
-  EXPECT_TRUE(main_frame->IsInBackForwardCache());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), other_url));
+  EXPECT_EQ(main_frame->GetLifecycleState(),
+            content::RenderFrameHost::LifecycleState::kInBackForwardCache);
   EXPECT_FALSE(
       PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame())
           ->IsContentBlocked(ContentSettingsType::COOKIES));
@@ -870,12 +984,12 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsBackForwardCacheBrowserTest,
   CookieSettingsFactory::GetForProfile(browser()->profile())
       ->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
 
-  ui_test_utils::NavigateToURL(browser(), test_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
   EXPECT_TRUE(
       PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame())
           ->IsContentBlocked(ContentSettingsType::COOKIES));
 
-  ui_test_utils::NavigateToURL(browser(), other_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), other_url));
   EXPECT_FALSE(
       PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame())
           ->IsContentBlocked(ContentSettingsType::COOKIES));
@@ -906,10 +1020,10 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, SecureCookies) {
       embedded_test_server()->GetURL("a.test", "/setsecurecookie.html");
   GURL https_url = https_server.GetURL("a.test", "/setsecurecookie.html");
 
-  ui_test_utils::NavigateToURL(browser(), http_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), http_url));
   EXPECT_TRUE(GetSiteSettingsCookieContainer(browser())->empty());
 
-  ui_test_utils::NavigateToURL(browser(), https_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), https_url));
   EXPECT_FALSE(GetSiteSettingsCookieContainer(browser())->empty());
 }
 
@@ -920,11 +1034,11 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, ContentSettingsBlockDataURLs) {
       ->SetDefaultContentSetting(ContentSettingsType::JAVASCRIPT,
                                  CONTENT_SETTING_BLOCK);
 
-  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  ASSERT_EQ(base::UTF8ToUTF16("Data URL"), web_contents->GetTitle());
+  ASSERT_EQ(u"Data URL", web_contents->GetTitle());
 
   EXPECT_TRUE(
       PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame())
@@ -947,7 +1061,7 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, RedirectCrossOrigin) {
   CookieSettingsFactory::GetForProfile(browser()->profile())
       ->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
 
-  ui_test_utils::NavigateToURL(browser(), test_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -957,9 +1071,40 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, RedirectCrossOrigin) {
           ->IsContentBlocked(ContentSettingsType::COOKIES));
 }
 
+IN_PROC_BROWSER_TEST_F(ContentSettingsTest, SendRendererContentRules) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url_1 = embedded_test_server()->GetURL("a.com", "/title1.html");
+  const GURL url_2 =
+      embedded_test_server()->GetURL("b.com", "/javaScriptTitle.html");
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url_1));
+  HostContentSettingsMap* map = HostContentSettingsMapFactory::GetForProfile(
+      Profile::FromBrowserContext(web_contents->GetBrowserContext()));
+  EXPECT_NE(map, nullptr);
+  EXPECT_FALSE(
+      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame())
+          ->IsContentBlocked(ContentSettingsType::JAVASCRIPT));
+  map->SetContentSettingDefaultScope(url_2, url_2,
+                                     ContentSettingsType::JAVASCRIPT,
+                                     ContentSetting::CONTENT_SETTING_BLOCK);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url_2));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(
+      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame())
+          ->IsContentBlocked(ContentSettingsType::JAVASCRIPT));
+}
+
 class ContentSettingsWorkerModulesBrowserTest : public ContentSettingsTest {
  public:
   ContentSettingsWorkerModulesBrowserTest() = default;
+
+  ContentSettingsWorkerModulesBrowserTest(
+      const ContentSettingsWorkerModulesBrowserTest&) = delete;
+  ContentSettingsWorkerModulesBrowserTest& operator=(
+      const ContentSettingsWorkerModulesBrowserTest&) = delete;
+
   ~ContentSettingsWorkerModulesBrowserTest() override = default;
 
  protected:
@@ -979,7 +1124,7 @@ class ContentSettingsWorkerModulesBrowserTest : public ContentSettingsTest {
       const std::string& content_type,
       const net::test_server::HttpRequest& request) const {
     if (request.relative_url != relative_url)
-      return std::unique_ptr<net::test_server::HttpResponse>();
+      return nullptr;
     std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
         std::make_unique<net::test_server::BasicHttpResponse>());
     http_response->set_code(net::HTTP_OK);
@@ -987,8 +1132,6 @@ class ContentSettingsWorkerModulesBrowserTest : public ContentSettingsTest {
     http_response->set_content_type(content_type);
     return std::move(http_response);
   }
-
-  DISALLOW_COPY_AND_ASSIGN(ContentSettingsWorkerModulesBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(ContentSettingsWorkerModulesBrowserTest,
@@ -1023,11 +1166,11 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsWorkerModulesBrowserTest,
 
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  base::string16 expected_title(base::ASCIIToUTF16("Imported"));
+  std::u16string expected_title(u"Imported");
   content::TitleWatcher title_watcher(web_contents, expected_title);
-  title_watcher.AlsoWaitForTitle(base::ASCIIToUTF16("Failed"));
+  title_watcher.AlsoWaitForTitle(u"Failed");
 
-  ui_test_utils::NavigateToURL(browser(), http_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), http_url));
 
   // The import must be executed successfully.
   EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
@@ -1076,11 +1219,11 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsWorkerModulesBrowserTest,
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
-  base::string16 expected_title(base::ASCIIToUTF16("Failed"));
+  std::u16string expected_title(u"Failed");
   content::TitleWatcher title_watcher(web_contents, expected_title);
-  title_watcher.AlsoWaitForTitle(base::ASCIIToUTF16("Imported"));
+  title_watcher.AlsoWaitForTitle(u"Imported");
 
-  ui_test_utils::NavigateToURL(browser(), http_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), http_url));
 
   // The import must be blocked.
   ui_test_utils::WaitForViewVisibility(
@@ -1114,7 +1257,7 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsWorkerModulesBrowserTest, CookieStore) {
   // Install service worker and wait for it to be activated.
   GURL setup_url =
       https_server_.GetURL("/service_worker/create_service_worker.html");
-  ui_test_utils::NavigateToURL(browser(), setup_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), setup_url));
   content::EvalJsResult result =
       content::EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
                       "register('/sw.js')");
@@ -1123,7 +1266,7 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsWorkerModulesBrowserTest, CookieStore) {
   // Navigate again, this time it should be active. Also add some JS helpers to
   // message the service worker asking it to set cookies.
   GURL page_url = https_server_.GetURL("/empty.html");
-  ui_test_utils::NavigateToURL(browser(), page_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), page_url));
 
   const char kClientScript[] = R"(
       function requestCookieSet(name) {
@@ -1187,4 +1330,164 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsWorkerModulesBrowserTest, CookieStore) {
     net::CookieList blocked_cookies = ExtractCookies(blocked);
     EXPECT_THAT(blocked_cookies, net::MatchesCookieLine("second=value"));
   }
+}
+
+class ContentSettingsWithPrerenderingBrowserTest : public ContentSettingsTest {
+ public:
+  ContentSettingsWithPrerenderingBrowserTest()
+      : prerender_test_helper_(base::BindRepeating(
+            &ContentSettingsWithPrerenderingBrowserTest::GetWebContents,
+            base::Unretained(this))) {}
+
+  void SetUp() override {
+    prerender_test_helper().SetUp(embedded_test_server());
+    ContentSettingsTest::SetUp();
+  }
+
+  void SetUpOnMainThread() override {
+    ContentSettingsTest::SetUpOnMainThread();
+    ASSERT_TRUE(embedded_test_server()->Start());
+  }
+
+  content::test::PrerenderTestHelper& prerender_test_helper() {
+    return prerender_test_helper_;
+  }
+
+  content::WebContents* GetWebContents() {
+    return browser()->tab_strip_model()->GetActiveWebContents();
+  }
+
+ private:
+  content::test::PrerenderTestHelper prerender_test_helper_;
+};
+
+// Used to wait for a prerendering page to set a cookie.
+class PrerenderCookieObserver : public content::WebContentsObserver {
+ public:
+  explicit PrerenderCookieObserver(content::WebContents* web_contents)
+      : content::WebContentsObserver(web_contents) {}
+  ~PrerenderCookieObserver() override = default;
+
+  void OnCookiesAccessed(content::NavigationHandle* navigation_handle,
+                         const content::CookieAccessDetails& details) override {
+    bool is_in_primary_frame =
+        navigation_handle->GetParentFrame()
+            ? navigation_handle->GetParentFrame()->GetPage().IsPrimary()
+            : navigation_handle->IsInPrimaryMainFrame();
+    if (is_in_primary_frame) {
+      cookie_accessed_in_primary_page_ = true;
+    } else {
+      run_loop_.Quit();
+    }
+  }
+
+  void OnCookiesAccessed(content::RenderFrameHost* rfh,
+                         const content::CookieAccessDetails& details) override {
+    if (rfh->GetPage().IsPrimary()) {
+      cookie_accessed_in_primary_page_ = true;
+    } else {
+      run_loop_.Quit();
+    }
+  }
+
+  bool CookieAccessedByPrimaryPage() const {
+    return cookie_accessed_in_primary_page_;
+  }
+
+  // Waits for the prerendering page to set a cookie.
+  void Wait() { run_loop_.Run(); }
+
+ private:
+  bool cookie_accessed_in_primary_page_ = false;
+  base::RunLoop run_loop_;
+};
+
+IN_PROC_BROWSER_TEST_F(ContentSettingsWithPrerenderingBrowserTest,
+                       PrerenderingPageSetsCookie) {
+  const GURL main_url = embedded_test_server()->GetURL("/empty.html");
+  const GURL prerender_url =
+      embedded_test_server()->GetURL("/set_cookie_header.html");
+
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
+  ASSERT_EQ(GetWebContents()->GetLastCommittedURL(), main_url);
+  auto* main_pscs = PageSpecificContentSettings::GetForFrame(
+      GetWebContents()->GetMainFrame());
+  ASSERT_FALSE(main_pscs->IsContentAllowed(ContentSettingsType::COOKIES));
+
+  {
+    PrerenderCookieObserver cookie_observer(GetWebContents());
+    prerender_test_helper().AddPrerender(prerender_url);
+    int host_id = prerender_test_helper().GetHostForUrl(prerender_url);
+    content::RenderFrameHost* prerender_frame =
+        prerender_test_helper().GetPrerenderedMainFrameHost(host_id);
+    EXPECT_NE(prerender_frame, nullptr);
+    // Ensure notification for cookie access by prerendering page has been sent.
+    cookie_observer.Wait();
+
+    auto* prerender_pscs =
+        PageSpecificContentSettings::GetForFrame(prerender_frame);
+    EXPECT_TRUE(prerender_pscs->IsContentAllowed(ContentSettingsType::COOKIES));
+    EXPECT_EQ(prerender_pscs->allowed_local_shared_objects().GetObjectCount(),
+              1u);
+    // Between when the cookie was set by the prerendering page and now, the
+    // main page might have accessed the cookie (for instance, when sending a
+    // request for a favicon) - check for the appropriate value based on
+    // observed behavior.
+    EXPECT_EQ(main_pscs->allowed_local_shared_objects().GetObjectCount(),
+              cookie_observer.CookieAccessedByPrimaryPage() ? 1u : 0u);
+  }
+
+  prerender_test_helper().NavigatePrimaryPage(prerender_url);
+
+  main_pscs = PageSpecificContentSettings::GetForFrame(
+      GetWebContents()->GetMainFrame());
+  EXPECT_TRUE(main_pscs->IsContentAllowed(ContentSettingsType::COOKIES));
+  EXPECT_EQ(main_pscs->allowed_local_shared_objects().GetObjectCount(), 1u);
+}
+
+IN_PROC_BROWSER_TEST_F(ContentSettingsWithPrerenderingBrowserTest,
+                       PrerenderingPageIframeSetsCookie) {
+  const GURL main_url = embedded_test_server()->GetURL("/empty.html");
+  const GURL prerender_url = embedded_test_server()->GetURL("/title1.html");
+  const GURL iframe_url =
+      embedded_test_server()->GetURL("/set_cookie_header.html");
+
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
+  ASSERT_EQ(GetWebContents()->GetLastCommittedURL(), main_url);
+
+  auto* main_pscs = PageSpecificContentSettings::GetForFrame(
+      GetWebContents()->GetMainFrame());
+  ASSERT_FALSE(main_pscs->IsContentAllowed(ContentSettingsType::COOKIES));
+
+  prerender_test_helper().AddPrerender(prerender_url);
+  int host_id = prerender_test_helper().GetHostForUrl(prerender_url);
+  content::RenderFrameHost* prerender_frame =
+      prerender_test_helper().GetPrerenderedMainFrameHost(host_id);
+  EXPECT_NE(prerender_frame, nullptr);
+
+  content::TestNavigationManager navigation_manager(GetWebContents(),
+                                                    iframe_url);
+  PrerenderCookieObserver cookie_observer(GetWebContents());
+  EXPECT_TRUE(content::ExecJs(
+      prerender_frame,
+      content::JsReplace("const iframe = document.createElement('iframe');"
+                         "iframe.src = $1;"
+                         "document.body.appendChild(iframe);",
+                         iframe_url)));
+  EXPECT_TRUE(navigation_manager.WaitForRequestStart());
+  navigation_manager.ResumeNavigation();
+  cookie_observer.Wait();
+  navigation_manager.WaitForNavigationFinished();
+
+  auto* prerender_pscs =
+      PageSpecificContentSettings::GetForFrame(prerender_frame);
+  EXPECT_TRUE(prerender_pscs->IsContentAllowed(ContentSettingsType::COOKIES));
+  EXPECT_EQ(prerender_pscs->allowed_local_shared_objects().GetObjectCount(),
+            1u);
+  // Between when the cookie was set by the prerendering page and now, the
+  // main page might have accessed the cookie (for instance, when sending a
+  // request for a favicon) - check for the appropriate value based on observed
+  // behavior.
+  EXPECT_EQ(main_pscs->allowed_local_shared_objects().GetObjectCount(),
+            cookie_observer.CookieAccessedByPrimaryPage() ? 1u : 0u);
 }

@@ -10,7 +10,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/dbus_thread_manager.h"  // nogncheck
 #include "chromeos/dbus/debug_daemon/fake_debug_daemon_client.h"
 #endif
 
@@ -36,6 +36,10 @@ class StubUploadList : public UploadList {
 class TestDebugDaemonClient : public chromeos::FakeDebugDaemonClient {
  public:
   TestDebugDaemonClient() = default;
+
+  TestDebugDaemonClient(const TestDebugDaemonClient&) = delete;
+  TestDebugDaemonClient& operator=(const TestDebugDaemonClient&) = delete;
+
   ~TestDebugDaemonClient() override = default;
 
   void UploadCrashes(UploadCrashesCallback callback) override {
@@ -47,8 +51,6 @@ class TestDebugDaemonClient : public chromeos::FakeDebugDaemonClient {
 
  private:
   int upload_crashes_called_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(TestDebugDaemonClient);
 };
 
 TestDebugDaemonClient* fake_debug_client() {
@@ -59,8 +61,9 @@ TestDebugDaemonClient* fake_debug_client() {
 TEST(CrashIdsSourceTest, CallsCrashSender) {
   content::BrowserTaskEnvironment task_environment;
 
-  auto setter = chromeos::DBusThreadManager::GetSetterForTesting();
-  setter->SetDebugDaemonClient(std::make_unique<TestDebugDaemonClient>());
+  chromeos::DBusThreadManager::Initialize();
+  chromeos::DBusThreadManager::GetSetterForTesting()->SetDebugDaemonClient(
+      std::make_unique<TestDebugDaemonClient>());
 
   CrashIdsSource source;
   source.SetUploadListForTesting(new StubUploadList());
@@ -70,6 +73,8 @@ TEST(CrashIdsSourceTest, CallsCrashSender) {
   source.Fetch(base::BindOnce([](std::unique_ptr<SystemLogsResponse>) {}));
 
   EXPECT_EQ(1, fake_debug_client()->upload_crashes_called());
+
+  chromeos::DBusThreadManager::Shutdown();
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 

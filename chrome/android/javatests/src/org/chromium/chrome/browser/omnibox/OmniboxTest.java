@@ -7,7 +7,7 @@ package org.chromium.chrome.browser.omnibox;
 import android.annotation.SuppressLint;
 import android.support.test.InstrumentationRegistry;
 import android.view.KeyEvent;
-import android.widget.ImageButton;
+import android.widget.ImageView;
 
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
@@ -24,6 +24,7 @@ import org.chromium.base.test.params.ParameterizedCommandLineFlags.Switches;
 import org.chromium.base.test.params.SkipCommandLineParameterization;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.EnormousTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
@@ -31,6 +32,7 @@ import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.omnibox.status.StatusCoordinator;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteController.OnSuggestionsReceivedListener;
+import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
@@ -40,13 +42,16 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.omnibox.AutocompleteResult;
+import org.chromium.components.search_engines.TemplateUrl;
+import org.chromium.components.search_engines.TemplateUrlService;
 import org.chromium.content_public.browser.test.util.KeyUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.ServerCertificate;
+
+import java.util.List;
 
 /**
  * Tests of the Omnibox.
@@ -179,7 +184,6 @@ public class OmniboxTest {
     @Test
     @MediumTest
     @SkipCommandLineParameterization
-    @DisableFeatures("OmniboxSearchEngineLogo")
     public void testSecurityIconOnHTTP() {
         EmbeddedTestServer testServer =
                 EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
@@ -191,14 +195,10 @@ public class OmniboxTest {
                     (LocationBarLayout) mActivityTestRule.getActivity().findViewById(
                             R.id.location_bar);
             StatusCoordinator statusCoordinator = locationBar.getStatusCoordinatorForTesting();
-            boolean securityIcon = statusCoordinator.isSecurityButtonShown();
-            if (mActivityTestRule.getActivity().isTablet()) {
-                Assert.assertTrue("Omnibox should have a Security icon", securityIcon);
-                Assert.assertEquals(R.drawable.omnibox_info,
-                        statusCoordinator.getSecurityIconResourceIdForTesting());
-            } else {
-                Assert.assertFalse("Omnibox should not have a Security icon", securityIcon);
-            }
+            boolean securityIcon = statusCoordinator.isSecurityViewShown();
+            Assert.assertTrue("Omnibox should have a Security icon", securityIcon);
+            Assert.assertEquals(R.drawable.omnibox_info,
+                    statusCoordinator.getSecurityIconResourceIdForTesting());
         } finally {
             testServer.stopAndDestroyServer();
         }
@@ -221,13 +221,14 @@ public class OmniboxTest {
                 onSSLStateUpdatedCallbackHelper.notifyCalled();
             }
         };
-        mActivityTestRule.getActivity().getActivityTab().addObserver(observer);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> mActivityTestRule.getActivity().getActivityTab().addObserver(observer));
 
         try {
             final String testHttpsUrl =
                     httpsTestServer.getURL("/chrome/test/data/android/omnibox/one.html");
 
-            ImageButton securityButton = (ImageButton) mActivityTestRule.getActivity().findViewById(
+            ImageView securityView = (ImageView) mActivityTestRule.getActivity().findViewById(
                     R.id.location_bar_status_icon);
 
             mActivityTestRule.loadUrl(testHttpsUrl);
@@ -237,16 +238,113 @@ public class OmniboxTest {
                     (LocationBarLayout) mActivityTestRule.getActivity().findViewById(
                             R.id.location_bar);
             StatusCoordinator statusCoordinator = locationBar.getStatusCoordinatorForTesting();
-            boolean securityIcon = statusCoordinator.isSecurityButtonShown();
+            boolean securityIcon = statusCoordinator.isSecurityViewShown();
             Assert.assertTrue("Omnibox should have a Security icon", securityIcon);
             Assert.assertEquals("location_bar_status_icon with wrong resource-id",
-                    R.id.location_bar_status_icon, securityButton.getId());
-            Assert.assertTrue(securityButton.isShown());
+                    R.id.location_bar_status_icon, securityView.getId());
+            Assert.assertTrue(securityView.isShown());
             Assert.assertEquals(R.drawable.omnibox_https_valid,
                     statusCoordinator.getSecurityIconResourceIdForTesting());
         } finally {
             httpsTestServer.stopAndDestroyServer();
         }
+    }
+
+    /**
+     * Test to verify that the security icon is present after
+     * <ol>
+     *   <li>visiting a https:// URL
+     *   <li>focusing the url bar
+     *   <li>pressing back
+     * </ol>
+     * All while the search engine is not the default one. See https://crbug.com/1173447
+     */
+    @Test
+    @MediumTest
+    @SkipCommandLineParameterization
+    public void testSecurityIconOnHTTPSFocusAndBack() throws Exception {
+        setNonDefaultSearchEngine();
+
+        EmbeddedTestServer httpsTestServer = EmbeddedTestServer.createAndStartHTTPSServer(
+                InstrumentationRegistry.getContext(), ServerCertificate.CERT_OK);
+        CallbackHelper onSSLStateUpdatedCallbackHelper = new CallbackHelper();
+        TabObserver observer = new EmptyTabObserver() {
+            @Override
+            public void onSSLStateUpdated(Tab tab) {
+                onSSLStateUpdatedCallbackHelper.notifyCalled();
+            }
+        };
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> mActivityTestRule.getActivity().getActivityTab().addObserver(observer));
+
+        try {
+            final String testHttpsUrl =
+                    httpsTestServer.getURL("/chrome/test/data/android/omnibox/one.html");
+
+            ImageView securityView = (ImageView) mActivityTestRule.getActivity().findViewById(
+                    R.id.location_bar_status_icon);
+
+            mActivityTestRule.loadUrl(testHttpsUrl);
+            onSSLStateUpdatedCallbackHelper.waitForCallback(0);
+            final LocationBarLayout locationBar =
+                    (LocationBarLayout) mActivityTestRule.getActivity().findViewById(
+                            R.id.location_bar);
+            final StatusCoordinator statusCoordinator =
+                    locationBar.getStatusCoordinatorForTesting();
+            final int firstIcon = statusCoordinator.getSecurityIconResourceIdForTesting();
+
+            UrlBar urlBar = (UrlBar) mActivityTestRule.getActivity().findViewById(R.id.url_bar);
+            TestThreadUtils.runOnUiThreadBlocking(() -> urlBar.requestFocus());
+            CriteriaHelper.pollUiThread(
+                    () -> statusCoordinator.getSecurityIconResourceIdForTesting() != firstIcon);
+            final int secondIcon = statusCoordinator.getSecurityIconResourceIdForTesting();
+            TestThreadUtils.runOnUiThreadBlocking(() -> urlBar.clearFocus());
+            CriteriaHelper.pollUiThread(
+                    () -> statusCoordinator.getSecurityIconResourceIdForTesting() != secondIcon);
+
+            boolean securityIcon = statusCoordinator.isSecurityViewShown();
+            Assert.assertTrue("Omnibox should have a Security icon", securityIcon);
+            Assert.assertEquals("location_bar_status_icon with wrong resource-id",
+                    R.id.location_bar_status_icon, securityView.getId());
+            Assert.assertTrue(securityView.isShown());
+            Assert.assertEquals(R.drawable.omnibox_https_valid,
+                    statusCoordinator.getSecurityIconResourceIdForTesting());
+        } finally {
+            httpsTestServer.stopAndDestroyServer();
+            restoreDefaultSearchEngine();
+        }
+    }
+
+    private void setNonDefaultSearchEngine() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> TemplateUrlServiceFactory.get().load());
+        CriteriaHelper.pollUiThread(() -> TemplateUrlServiceFactory.get().isLoaded());
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            TemplateUrlService service = TemplateUrlServiceFactory.get();
+
+            List<TemplateUrl> searchEngines = service.getTemplateUrls();
+            TemplateUrl defaultEngine = service.getDefaultSearchEngineTemplateUrl();
+
+            TemplateUrl notDefault = null;
+            for (TemplateUrl searchEngine : searchEngines) {
+                if (!searchEngine.equals(defaultEngine)) {
+                    notDefault = searchEngine;
+                    break;
+                }
+            }
+
+            Assert.assertNotNull(notDefault);
+
+            service.setSearchEngine(notDefault.getKeyword());
+        });
+    }
+
+    private void restoreDefaultSearchEngine() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            TemplateUrlService service = TemplateUrlServiceFactory.get();
+            TemplateUrl defaultEngine = service.getDefaultSearchEngineTemplateUrl();
+            service.setSearchEngine(defaultEngine.getKeyword());
+        });
     }
 
     /**
@@ -296,14 +394,14 @@ public class OmniboxTest {
             LocationBarLayout locationBarLayout =
                     (LocationBarLayout) mActivityTestRule.getActivity().findViewById(
                             R.id.location_bar);
-            ImageButton securityButton = (ImageButton) mActivityTestRule.getActivity().findViewById(
+            ImageView securityView = (ImageView) mActivityTestRule.getActivity().findViewById(
                     R.id.location_bar_status_icon);
 
             boolean securityIcon =
-                    locationBarLayout.getStatusCoordinatorForTesting().isSecurityButtonShown();
+                    locationBarLayout.getStatusCoordinatorForTesting().isSecurityViewShown();
             Assert.assertTrue("Omnibox should have a Security icon", securityIcon);
             Assert.assertEquals("location_bar_status_icon with wrong resource-id",
-                    R.id.location_bar_status_icon, securityButton.getId());
+                    R.id.location_bar_status_icon, securityView.getId());
 
             if (mActivityTestRule.getActivity().isTablet()) {
                 Assert.assertTrue(mActivityTestRule.getActivity()

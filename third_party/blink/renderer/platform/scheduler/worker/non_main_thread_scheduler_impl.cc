@@ -29,16 +29,14 @@ std::unique_ptr<NonMainThreadSchedulerImpl> NonMainThreadSchedulerImpl::Create(
                                                  proxy);
 }
 
-void NonMainThreadSchedulerImpl::Init() {
-  InitImpl();
-}
-
 scoped_refptr<NonMainThreadTaskQueue>
-NonMainThreadSchedulerImpl::CreateTaskQueue(const char* name) {
+NonMainThreadSchedulerImpl::CreateTaskQueue(const char* name,
+                                            bool can_be_throttled) {
   helper_.CheckOnValidThread();
   return helper_.NewTaskQueue(base::sequence_manager::TaskQueue::Spec(name)
                                   .SetShouldMonitorQuiescence(true)
-                                  .SetTimeDomain(nullptr));
+                                  .SetTimeDomain(nullptr),
+                              can_be_throttled);
 }
 
 void NonMainThreadSchedulerImpl::RunIdleTask(Thread::IdleTask task,
@@ -120,6 +118,15 @@ const base::TickClock* NonMainThreadSchedulerImpl::GetTickClock() {
 scoped_refptr<base::SingleThreadTaskRunner>
 NonMainThreadSchedulerImpl::DeprecatedDefaultTaskRunner() {
   return DefaultTaskRunner();
+}
+
+void NonMainThreadSchedulerImpl::AttachToCurrentThread() {
+  helper_.AttachToCurrentThread();
+}
+
+WTF::Vector<base::OnceClosure>&
+NonMainThreadSchedulerImpl::GetOnTaskCompletionCallbacks() {
+  return on_task_completion_callbacks_;
 }
 
 }  // namespace scheduler

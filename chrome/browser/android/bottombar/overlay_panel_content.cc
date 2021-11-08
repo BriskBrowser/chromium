@@ -4,6 +4,7 @@
 
 #include "chrome/browser/android/bottombar/overlay_panel_content.h"
 
+#include <memory>
 #include <set>
 
 #include "base/android/jni_string.h"
@@ -74,8 +75,8 @@ void OverlayPanelContent::RemoveLastHistoryEntry(
   // The deletion window is from the time a search URL was put in history, up
   // to a short amount of time later.
   base::Time begin_time = base::Time::FromJsTime(search_start_time_ms);
-  base::Time end_time = begin_time +
-      base::TimeDelta::FromSeconds(kHistoryDeletionWindowSeconds);
+  base::Time end_time =
+      begin_time + base::Seconds(kHistoryDeletionWindowSeconds);
 
   history::HistoryService* service = HistoryServiceFactory::GetForProfile(
       ProfileManager::GetActiveUserProfile(),
@@ -114,9 +115,9 @@ void OverlayPanelContent::SetWebContents(
   // TODO(pedrosimonetti): confirm if we need this after promoting it
   // to a real tab.
   TabAndroid::AttachTabHelpers(web_contents_.get());
-  web_contents_delegate_.reset(
-      new web_contents_delegate_android::WebContentsDelegateAndroid(
-          env, jweb_contents_delegate));
+  web_contents_delegate_ = std::make_unique<
+      web_contents_delegate_android::WebContentsDelegateAndroid>(
+      env, jweb_contents_delegate);
   web_contents_->SetDelegate(web_contents_delegate_.get());
 }
 
@@ -154,7 +155,7 @@ void OverlayPanelContent::UpdateBrowserControlsState(
   if (are_controls_hidden)
     state = cc::BrowserControlsState::kHidden;
 
-  web_contents_->GetMainFrame()->UpdateBrowserControlsState(
+  web_contents_->UpdateBrowserControlsState(
       state, cc::BrowserControlsState::kBoth, false);
 }
 

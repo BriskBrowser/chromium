@@ -29,6 +29,11 @@ class PaymentSheetViewController : public PaymentRequestSheetController,
   PaymentSheetViewController(base::WeakPtr<PaymentRequestSpec> spec,
                              base::WeakPtr<PaymentRequestState> state,
                              base::WeakPtr<PaymentRequestDialogView> dialog);
+
+  PaymentSheetViewController(const PaymentSheetViewController&) = delete;
+  PaymentSheetViewController& operator=(const PaymentSheetViewController&) =
+      delete;
+
   ~PaymentSheetViewController() override;
 
   // PaymentRequestSpec::Observer:
@@ -42,9 +47,9 @@ class PaymentSheetViewController : public PaymentRequestSheetController,
 
  private:
   // PaymentRequestSheetController:
-  base::string16 GetSecondaryButtonLabel() override;
+  std::u16string GetSecondaryButtonLabel() override;
   bool ShouldShowHeaderBackArrow() override;
-  base::string16 GetSheetTitle() override;
+  std::u16string GetSheetTitle() override;
   void FillContentView(views::View* content_view) override;
   std::unique_ptr<views::View> CreateExtraFooterView() override;
 
@@ -52,12 +57,12 @@ class PaymentSheetViewController : public PaymentRequestSheetController,
   // Where applicable, they also populate |accessible_content|, which shouldn't
   // be null, with the screen reader string that represents their contents.
   std::unique_ptr<views::View> CreateShippingSectionContent(
-      base::string16* accessible_content);
+      std::u16string* accessible_content);
   std::unique_ptr<PaymentRequestRowView> CreateShippingRow();
   std::unique_ptr<PaymentRequestRowView> CreatePaymentSheetSummaryRow();
   std::unique_ptr<PaymentRequestRowView> CreatePaymentMethodRow();
   std::unique_ptr<views::View> CreateContactInfoSectionContent(
-      base::string16* accessible_content);
+      std::u16string* accessible_content);
   std::unique_ptr<PaymentRequestRowView> CreateContactInfoRow();
   std::unique_ptr<PaymentRequestRowView> CreateShippingOptionRow();
   std::unique_ptr<views::View> CreateDataSourceRow();
@@ -65,8 +70,6 @@ class PaymentSheetViewController : public PaymentRequestSheetController,
   void AddShippingButtonPressed();
   void AddPaymentMethodButtonPressed();
   void AddContactInfoButtonPressed();
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentSheetViewController);
 };
 
 }  // namespace payments

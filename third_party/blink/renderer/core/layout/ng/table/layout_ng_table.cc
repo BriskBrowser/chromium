@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table.h"
 
-#include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
@@ -12,7 +11,9 @@
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_caption.h"
+#include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_cell_interface.h"
 #include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_column.h"
+#include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_row_interface.h"
 #include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_section.h"
 #include "third_party/blink/renderer/core/layout/ng/table/ng_table_borders.h"
 #include "third_party/blink/renderer/core/layout/ng/table/ng_table_layout_algorithm_helpers.h"
@@ -38,6 +39,8 @@ inline bool NeedsTableSection(const LayoutObject& object) {
 LayoutNGTable::LayoutNGTable(Element* element)
     : LayoutNGMixin<LayoutBlock>(element) {}
 
+LayoutNGTable::~LayoutNGTable() = default;
+
 wtf_size_t LayoutNGTable::ColumnCount() const {
   NOT_DESTROYED();
   const NGLayoutResult* cached_layout_result = GetCachedLayoutResult();
@@ -51,9 +54,10 @@ bool LayoutNGTable::HasCollapsedBorders() const {
   return cached_table_borders_ && cached_table_borders_->IsCollapsed();
 }
 
-void LayoutNGTable::SetCachedTableBorders(const NGTableBorders* table_borders) {
+void LayoutNGTable::SetCachedTableBorders(
+    scoped_refptr<const NGTableBorders> table_borders) {
   NOT_DESTROYED();
-  cached_table_borders_ = table_borders;
+  cached_table_borders_ = std::move(table_borders);
 }
 
 void LayoutNGTable::InvalidateCachedTableBorders() {
@@ -61,7 +65,7 @@ void LayoutNGTable::InvalidateCachedTableBorders() {
   // TODO(layout-dev) When cached borders are invalidated, we could do a
   // special kind of relayout where fragments can replace only TableBorders,
   // keep the geometry, and repaint.
-  cached_table_borders_.Clear();
+  cached_table_borders_.reset();
 }
 
 const NGTableTypes::Columns* LayoutNGTable::GetCachedTableColumnConstraints() {
@@ -85,7 +89,8 @@ void LayoutNGTable::GridBordersChanged() {
     SetShouldDoFullPaintInvalidationWithoutGeometryChange(
         PaintInvalidationReason::kStyle);
     // If borders change, table fragment must be regenerated.
-    SetNeedsLayout(layout_invalidation_reason::kTableChanged);
+    SetNeedsLayoutAndIntrinsicWidthsRecalc(
+        layout_invalidation_reason::kTableChanged);
   }
 }
 
@@ -93,6 +98,8 @@ void LayoutNGTable::TableGridStructureChanged() {
   NOT_DESTROYED();
   // Callers must ensure table layout gets invalidated.
   InvalidateCachedTableBorders();
+  if (StyleRef().BorderCollapse() == EBorderCollapse::kCollapse)
+    SetShouldDoFullPaintInvalidation(PaintInvalidationReason::kStyle);
 }
 
 bool LayoutNGTable::HasBackgroundForPaint() const {
@@ -113,13 +120,13 @@ bool LayoutNGTable::HasBackgroundForPaint() const {
 
 void LayoutNGTable::UpdateBlockLayout(bool relayout_children) {
   NOT_DESTROYED();
-  LayoutAnalyzer::BlockScope analyzer(*this);
 
   if (IsOutOfFlowPositioned()) {
     UpdateOutOfFlowBlockLayout();
     return;
   }
   UpdateInFlowBlockLayout();
+  UpdateMargins();
 }
 
 void LayoutNGTable::AddChild(LayoutObject* child, LayoutObject* before_child) {
@@ -189,9 +196,11 @@ void LayoutNGTable::StyleDidChange(StyleDifference diff,
   NOT_DESTROYED();
   // StyleDifference handles changes in table-layout, border-spacing.
   if (old_style) {
-    bool borders_changed = !old_style->BorderVisuallyEqual(StyleRef()) ||
-                           (diff.TextDecorationOrColorChanged() &&
-                            StyleRef().HasBorderColorReferencingCurrentColor());
+    bool borders_changed =
+        !old_style->BorderVisuallyEqual(StyleRef()) ||
+        old_style->GetWritingDirection() != StyleRef().GetWritingDirection() ||
+        old_style->IsFixedTableLayout() != StyleRef().IsFixedTableLayout() ||
+        old_style->EmptyCells() != StyleRef().EmptyCells();
     bool collapse_changed =
         StyleRef().BorderCollapse() != old_style->BorderCollapse();
     if (borders_changed || collapse_changed)
@@ -216,12 +225,12 @@ PhysicalRect LayoutNGTable::OverflowClipRect(
     const auto overflow_clip = GetOverflowClipAxes();
     IntRect infinite_rect = PhysicalRect::InfiniteIntRect();
     if ((overflow_clip & kOverflowClipX) == kNoOverflowClip) {
-      clip_rect.offset.left = LayoutUnit(infinite_rect.X());
-      clip_rect.size.width = LayoutUnit(infinite_rect.Width());
+      clip_rect.offset.left = LayoutUnit(infinite_rect.x());
+      clip_rect.size.width = LayoutUnit(infinite_rect.width());
     }
     if ((overflow_clip & kOverflowClipY) == kNoOverflowClip) {
-      clip_rect.offset.top = LayoutUnit(infinite_rect.Y());
-      clip_rect.size.height = LayoutUnit(infinite_rect.Height());
+      clip_rect.offset.top = LayoutUnit(infinite_rect.y());
+      clip_rect.size.height = LayoutUnit(infinite_rect.height());
     }
   } else {
     clip_rect = LayoutNGMixin<LayoutBlock>::OverflowClipRect(
@@ -247,49 +256,20 @@ PhysicalRect LayoutNGTable::OverflowClipRect(
   return clip_rect;
 }
 
+#if DCHECK_IS_ON()
 void LayoutNGTable::AddVisualEffectOverflow() {
   NOT_DESTROYED();
-  // TODO(1061423) Fragment painting: need a correct fragment.
-  if (const NGPhysicalBoxFragment* fragment = GetPhysicalFragment(0)) {
-    DCHECK_EQ(PhysicalFragmentCount(), 1u);
-    // Table's collapsed borders contribute to visual overflow.
-    // In the inline direction, table's border box does not include
-    // visual border width (largest border), but does include
-    // layout border width (border of first cell).
-    // Expands border box to include visual border width.
-    if (const NGTableBorders* collapsed_borders =
-            fragment->TableCollapsedBorders()) {
-      PhysicalRect borders_overflow = PhysicalBorderBoxRect();
-      NGBoxStrut table_borders = collapsed_borders->TableBorder();
-      auto visual_inline_strut =
-          collapsed_borders->GetCollapsedBorderVisualInlineStrut();
-      // Expand by difference between visual and layout border width.
-      table_borders.inline_start =
-          visual_inline_strut.first - table_borders.inline_start;
-      table_borders.inline_end =
-          visual_inline_strut.second - table_borders.inline_end;
-      table_borders.block_start = LayoutUnit();
-      table_borders.block_end = LayoutUnit();
-      borders_overflow.Expand(
-          table_borders.ConvertToPhysical(StyleRef().GetWritingDirection()));
-      AddSelfVisualOverflow(borders_overflow);
-    }
-  }
-  LayoutNGMixin<LayoutBlock>::AddVisualEffectOverflow();
+  // This is computed in |NGPhysicalBoxFragment::ComputeSelfInkOverflow| and
+  // that we should not reach here.
+  NOTREACHED();
 }
-
-void LayoutNGTable::Paint(const PaintInfo& paint_info) const {
-  NOT_DESTROYED();
-  DCHECK_EQ(PhysicalFragmentCount(), 1u);
-  NGBoxFragmentPainter(*LayoutNGMixin<LayoutBlock>::GetPhysicalFragment(0))
-      .Paint(paint_info);
-}
+#endif
 
 LayoutUnit LayoutNGTable::BorderLeft() const {
   NOT_DESTROYED();
-  // DCHECK(cached_table_borders_)
+  // DCHECK(cached_table_borders_.get())
   // ScrollAnchoring fails this DCHECK.
-  if (ShouldCollapseBorders() && cached_table_borders_) {
+  if (ShouldCollapseBorders() && cached_table_borders_.get()) {
     return cached_table_borders_->TableBorder()
         .ConvertToPhysical(Style()->GetWritingDirection())
         .left;
@@ -299,9 +279,9 @@ LayoutUnit LayoutNGTable::BorderLeft() const {
 
 LayoutUnit LayoutNGTable::BorderRight() const {
   NOT_DESTROYED();
-  // DCHECK(cached_table_borders_)
+  // DCHECK(cached_table_borders_.get())
   // ScrollAnchoring fails this DCHECK.
-  if (ShouldCollapseBorders() && cached_table_borders_) {
+  if (ShouldCollapseBorders() && cached_table_borders_.get()) {
     return cached_table_borders_->TableBorder()
         .ConvertToPhysical(Style()->GetWritingDirection())
         .right;
@@ -311,9 +291,9 @@ LayoutUnit LayoutNGTable::BorderRight() const {
 
 LayoutUnit LayoutNGTable::BorderTop() const {
   NOT_DESTROYED();
-  // DCHECK(cached_table_borders_)
+  // DCHECK(cached_table_borders_.get())
   // ScrollAnchoring fails this DCHECK.
-  if (ShouldCollapseBorders() && cached_table_borders_) {
+  if (ShouldCollapseBorders() && cached_table_borders_.get()) {
     return cached_table_borders_->TableBorder()
         .ConvertToPhysical(Style()->GetWritingDirection())
         .top;
@@ -323,9 +303,9 @@ LayoutUnit LayoutNGTable::BorderTop() const {
 
 LayoutUnit LayoutNGTable::BorderBottom() const {
   NOT_DESTROYED();
-  // DCHECK(cached_table_borders_)
+  // DCHECK(cached_table_borders_.get())
   // ScrollAnchoring fails this DCHECK.
-  if (ShouldCollapseBorders() && cached_table_borders_) {
+  if (ShouldCollapseBorders() && cached_table_borders_.get()) {
     return cached_table_borders_->TableBorder()
         .ConvertToPhysical(Style()->GetWritingDirection())
         .bottom;
@@ -363,7 +343,7 @@ LayoutUnit LayoutNGTable::PaddingRight() const {
 
 LayoutRectOutsets LayoutNGTable::BorderBoxOutsets() const {
   NOT_DESTROYED();
-  // DCHECK(cached_table_borders_)
+  // DCHECK(cached_table_borders_.get())
   // ScrollAnchoring fails this DCHECK.
   if (PhysicalFragmentCount() > 0) {
     return GetPhysicalFragment(0)->Borders().ToLayoutRectOutsets();
@@ -451,11 +431,6 @@ LayoutNGTableSectionInterface* LayoutNGTable::SectionBelowInterface(
       found = true;
   }
   return nullptr;
-}
-
-void LayoutNGTable::Trace(Visitor* visitor) const {
-  visitor->Trace(cached_table_borders_);
-  LayoutNGMixin<LayoutBlock>::Trace(visitor);
 }
 
 }  // namespace blink

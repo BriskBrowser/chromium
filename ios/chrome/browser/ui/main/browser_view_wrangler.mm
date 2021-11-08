@@ -16,9 +16,9 @@
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/main/browser_list.h"
 #import "ios/chrome/browser/main/browser_list_factory.h"
+#import "ios/chrome/browser/sessions/scene_util.h"
 #import "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
 #import "ios/chrome/browser/snapshots/snapshot_browser_agent.h"
-#import "ios/chrome/browser/tabs/tab_model.h"
 #import "ios/chrome/browser/ui/browser_view/browser_coordinator.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller_dependency_factory.h"
@@ -96,7 +96,7 @@
 
 @interface BrowserViewWrangler () {
   ChromeBrowserState* _browserState;
-  SceneState* _sceneState;
+  __weak SceneState* _sceneState;
   __weak id<ApplicationCommands> _applicationCommandEndpoint;
   __weak id<BrowsingDataCommands> _browsingDataCommandEndpoint;
   BOOL _isShutdown;
@@ -154,9 +154,14 @@
   DCHECK(_isShutdown) << "-shutdown must be called before -dealloc";
 }
 
-- (void)createMainBrowser {
+- (Browser*)createMainBrowser {
   _mainBrowser = [self buildBrowserForBrowserState:_browserState
                                     restoreSession:YES];
+  return _mainBrowser.get();
+}
+
+- (void)createMainCoordinatorAndInterface {
+  DCHECK(_mainBrowser);
 
   // Create the main coordinator, and thus the main interface.
   _mainBrowserCoordinator = [self coordinatorForBrowser:self.mainBrowser];
@@ -234,7 +239,14 @@
     WebStateList* webStateList = self.mainBrowser->GetWebStateList();
     breakpad::StopMonitoringTabStateForWebStateList(webStateList);
     breakpad::StopMonitoringURLsForWebStateList(webStateList);
-    [self.mainBrowser->GetTabModel() disconnect];
+    // Close all webstates in |webStateList|. Do this in an @autoreleasepool as
+    // WebStateList observers will be notified (they are unregistered later). As
+    // some of them may be implemented in Objective-C and unregister themselves
+    // in their -dealloc method, ensure they -autorelease introduced by ARC are
+    // processed before the WebStateList destructor is called.
+    @autoreleasepool {
+      webStateList->CloseAllWebStates(WebStateList::CLOSE_NO_FLAGS);
+    }
   }
 
   _mainBrowser = nullptr;
@@ -244,7 +256,14 @@
   if (_otrBrowser.get()) {
     WebStateList* webStateList = self.otrBrowser->GetWebStateList();
     breakpad::StopMonitoringTabStateForWebStateList(webStateList);
-    [self.otrBrowser->GetTabModel() disconnect];
+    // Close all webstates in |webStateList|. Do this in an @autoreleasepool as
+    // WebStateList observers will be notified (they are unregistered later). As
+    // some of them may be implemented in Objective-C and unregister themselves
+    // in their -dealloc method, ensure they -autorelease introduced by ARC are
+    // processed before the WebStateList destructor is called.
+    @autoreleasepool {
+      webStateList->CloseAllWebStates(WebStateList::CLOSE_NO_FLAGS);
+    }
   }
 
   _otrBrowser = std::move(otrBrowser);
@@ -256,6 +275,7 @@
   // It is theoretically possible that a Tab has been added to the webStateList
   // since the deletion has been scheduled. It is unlikely to happen for real
   // because it would require superhuman speed.
+  DCHECK(self.hasIncognitoInterface);
   DCHECK(self.otrBrowser->GetWebStateList()->empty());
   DCHECK(_browserState);
 
@@ -375,6 +395,7 @@
 - (std::unique_ptr<Browser>)buildBrowserForBrowserState:
                                 (ChromeBrowserState*)browserState
                                          restoreSession:(BOOL)restoreSession {
+  DCHECK(browserState);
   auto browser = Browser::Create(browserState);
   DCHECK_EQ(browser->GetBrowserState(), browserState);
 
@@ -406,53 +427,31 @@
 
 - (void)setSessionIDForBrowser:(Browser*)browser
                 restoreSession:(BOOL)restoreSession {
+  // The location were the session and snapshots are stored can change due to
+  // multiple factors, such as upgrading Chrome or iOS from a version that did
+  // not support multiple windows to one that does (e.g. Chrome M86 or earlier
+  // to M87, iOS 12.x to iOS 13.0+), or upgrading Chrome from M87-M89 to M90+,
+  // or restoring an iPhone backup to an iPad.
+  //
+  // As the migration code is relatively quick when there is nothing to do, it
+  // is always attempted (will result in one directory lookup). Trying to check
+  // if the migration has to be done can be quite tricky, as both permanent and
+  // off-the-record BrowserState need to be independently migrated, migration
+  // also needs to happen on device that do support multiple scenes, ...
+  //
+  // Once the migration has been performed, the function will be a no-op, so it
+  // is safe to call it multiple time for the same BrowserState.
+  MigrateSessionStorageForDirectory(
+      browser->GetBrowserState()->GetStatePath(), _sceneState.sceneSessionID,
+      _sceneState.appState.previousSingleWindowSessionID);
+
   SnapshotBrowserAgent::FromBrowser(browser)->SetSessionID(
-      base::SysNSStringToUTF8(_sceneState.sceneSessionID));
+      _sceneState.sceneSessionID);
 
   SessionRestorationBrowserAgent* restorationAgent =
       SessionRestorationBrowserAgent::FromBrowser(browser);
 
-  // crbug.com/1153606: when the app is distributed with multi-window enabled,
-  // the "swipe gesture" is sometimes interpreted as a "close window" gesture
-  // by iOS (reproduce easily if the user launch app, swipe it away in a loop).
-  // On the next start after iOS has decided the gesture is "close window", the
-  // session identifier will be reset to a different value.
-  //
-  // For device that support multiple windows (recent iPads running iOS 13+),
-  // the user has the option to restore recently closed windows (presented by
-  // iOS when user ask to see all windows). For other devices however they have
-  // no option to re-open the closed window and lose their data.
-  //
-  // To workaround this behaviour, the session identifier is saved, and on each
-  // run, if the device does not support multi-window, compared to the current
-  // session identifier. If there is a mismatch, load the session using the old
-  // identifier (which is used to construct path to Chrome's session data), and
-  // immediately save it with the new identifier.
-  //
-  // TODO(crbug.com/1165798): clean up this by using fixed identifier when the
-  // device do no support multi-windows.
-  if (!base::ios::IsMultipleScenesSupported() && restoreSession) {
-    NSString* previousSessionID =
-        _sceneState.appState.previousSingleWindowSessionID;
-    if (previousSessionID &&
-        ![_sceneState.sceneSessionID isEqualToString:previousSessionID]) {
-      restorationAgent->SetSessionID(
-          base::SysNSStringToUTF8(previousSessionID));
-      restorationAgent->RestoreSession();
-
-      restorationAgent->SetSessionID(
-          base::SysNSStringToUTF8(_sceneState.sceneSessionID));
-      restorationAgent->SaveSession(true);
-
-      // Fallback to the normal codepath. It will set the session identifier
-      // in the SessionRestorationBrowserAgent. Since the session has been
-      // loaded already, skip this step by setting |restoreSession| to NO.
-      restoreSession = NO;
-    }
-  }
-
-  restorationAgent->SetSessionID(
-      base::SysNSStringToUTF8(_sceneState.sceneSessionID));
+  restorationAgent->SetSessionID(_sceneState.sceneSessionID);
   if (restoreSession)
     restorationAgent->RestoreSession();
 }

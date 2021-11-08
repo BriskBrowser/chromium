@@ -32,7 +32,6 @@
 #include "base/bits.h"
 #include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
 
@@ -120,7 +119,13 @@ void* ArrayBufferContents::AllocateMemoryWithFlags(size_t size,
   // address, but this heuristics works with the current implementation of
   // PartitionAlloc (and PartitionAlloc doesn't support a better way for now).
   if (base::kAlignment < 16) {  // base::kAlignment is a compile-time constant.
-    size = base::bits::AlignUp(size, 16);
+    size_t aligned_size = base::bits::AlignUp(size, 16);
+    if (size == 0) {
+      aligned_size = 16;
+    }
+    if (aligned_size >= size) {  // Only when no overflow
+      size = aligned_size;
+    }
   }
 
   if (policy == kZeroInitialize) {
@@ -130,7 +135,8 @@ void* ArrayBufferContents::AllocateMemoryWithFlags(size_t size,
       flags, size, WTF_HEAP_PROFILER_TYPE_NAME(ArrayBufferContents));
   if (base::kAlignment < 16) {
     char* ptr = reinterpret_cast<char*>(data);
-    DCHECK_EQ(base::bits::AlignUp(ptr, 16), ptr);
+    DCHECK_EQ(base::bits::AlignUp(ptr, 16), ptr)
+        << "Pointer " << ptr << " not 16B aligned for size " << size;
   }
   InstanceCounters::IncrementCounter(
       InstanceCounters::kArrayBufferContentsCounter);

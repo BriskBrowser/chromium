@@ -11,15 +11,16 @@
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/grit/components_scaled_resources.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/background.h"
+#include "ui/views/border.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/view.h"
 
@@ -83,7 +84,7 @@ bool VirtualCardSelectionDialogViewImpl::IsDialogButtonEnabled(
 }
 
 views::View* VirtualCardSelectionDialogViewImpl::GetContentsView() {
-  RemoveAllChildViews(/*delete_children=*/true);
+  RemoveAllChildViews();
 
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical, gfx::Insets(),
@@ -91,7 +92,8 @@ views::View* VirtualCardSelectionDialogViewImpl::GetContentsView() {
           views::DISTANCE_UNRELATED_CONTROL_VERTICAL)));
   SetBorder(views::CreateEmptyBorder(
       ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-          views::TEXT, views::CONTROL)));
+          views::DialogContentType::kText,
+          views::DialogContentType::kControl)));
 
   auto* instructions = AddChildView(std::make_unique<views::Label>(
       controller_->GetContentExplanation(),
@@ -104,7 +106,7 @@ views::View* VirtualCardSelectionDialogViewImpl::GetContentsView() {
   return this;
 }
 
-base::string16 VirtualCardSelectionDialogViewImpl::GetWindowTitle() const {
+std::u16string VirtualCardSelectionDialogViewImpl::GetWindowTitle() const {
   return controller_->GetContentTitle();
 }
 

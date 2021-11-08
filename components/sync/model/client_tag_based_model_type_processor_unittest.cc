@@ -28,11 +28,13 @@
 #include "components/sync/model/conflict_resolution.h"
 #include "components/sync/model/data_type_activation_request.h"
 #include "components/sync/model/type_entities_count.h"
+#include "components/sync/protocol/entity_metadata.pb.h"
+#include "components/sync/protocol/entity_specifics.pb.h"
+#include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/test/engine/mock_model_type_worker.h"
 #include "components/sync/test/model/fake_model_type_sync_bridge.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using sync_pb::AutofillWalletSpecifics;
 using sync_pb::EntityMetadata;
 using sync_pb::EntitySpecifics;
 using sync_pb::ModelTypeState;
@@ -161,7 +163,7 @@ class TestModelTypeSyncBridge : public FakeModelTypeSyncBridge {
     return supports_incremental_updates_;
   }
 
-  base::Optional<ModelError> MergeSyncData(
+  absl::optional<ModelError> MergeSyncData(
       std::unique_ptr<MetadataChangeList> metadata_change_list,
       EntityChangeList entity_data) override {
     merge_call_count_++;
@@ -173,7 +175,7 @@ class TestModelTypeSyncBridge : public FakeModelTypeSyncBridge {
     return FakeModelTypeSyncBridge::MergeSyncData(
         std::move(metadata_change_list), std::move(entity_data));
   }
-  base::Optional<ModelError> ApplySyncChanges(
+  absl::optional<ModelError> ApplySyncChanges(
       std::unique_ptr<MetadataChangeList> metadata_change_list,
       EntityChangeList entity_changes) override {
     apply_call_count_++;
@@ -199,13 +201,20 @@ class TestModelTypeSyncBridge : public FakeModelTypeSyncBridge {
     }
   }
 
-  void OnCommitAttemptFailed(syncer::SyncCommitError commit_error) override {
+  CommitAttemptFailedBehavior OnCommitAttemptFailed(
+      syncer::SyncCommitError commit_error) override {
     commit_failures_count_++;
+    return commit_attempt_failed_behaviour_;
   }
 
   void SetOnCommitAttemptErrorsCallback(
       base::OnceCallback<void(const FailedCommitResponseDataList&)> callback) {
     on_commit_attempt_errors_callback_ = std::move(callback);
+  }
+
+  void EnableRetriesOnCommitFailure() {
+    commit_attempt_failed_behaviour_ =
+        CommitAttemptFailedBehavior::kShouldRetryOnNextCycle;
   }
 
  private:
@@ -232,6 +241,9 @@ class TestModelTypeSyncBridge : public FakeModelTypeSyncBridge {
   // callback capture behavior if set to true.
   bool synchronous_data_callback_ = false;
 
+  CommitAttemptFailedBehavior commit_attempt_failed_behaviour_ =
+      CommitAttemptFailedBehavior::kDontRetryOnNextCycle;
+
   base::OnceCallback<void(const FailedCommitResponseDataList&)>
       on_commit_attempt_errors_callback_;
 };
@@ -255,7 +267,7 @@ class TestModelTypeSyncBridge : public FakeModelTypeSyncBridge {
 //   metadata in storage on the bridge side.
 class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
  public:
-  ClientTagBasedModelTypeProcessorTest() {}
+  ClientTagBasedModelTypeProcessorTest() = default;
   ~ClientTagBasedModelTypeProcessorTest() override { CheckPostConditions(); }
 
   void SetUp() override {
@@ -429,7 +441,7 @@ class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
     EXPECT_TRUE(expect_error_);
     histogram_tester_->ExpectBucketCount("Sync.ModelTypeErrorSite.PREFERENCE",
                                          *expect_error_, /*count=*/1);
-    expect_error_ = base::nullopt;
+    expect_error_ = absl::nullopt;
     // Do not expect for a start callback anymore.
     if (run_loop_) {
       run_loop_->Quit();
@@ -462,7 +474,7 @@ class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
   MockModelTypeWorker* worker_;
 
   // Whether to expect an error from the processor (and from which site).
-  base::Optional<ClientTagBasedModelTypeProcessor::ErrorSite> expect_error_;
+  absl::optional<ClientTagBasedModelTypeProcessor::ErrorSite> expect_error_;
   std::unique_ptr<base::HistogramTester> histogram_tester_;
 };
 
@@ -562,8 +574,14 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, ShouldMergeLocalAndRemoteChanges) {
 
   EXPECT_EQ(0, bridge()->merge_call_count());
   // Initial sync with one server item.
+  base::HistogramTester histogram_tester;
   worker()->UpdateFromServer(GetHash(kKey2), GenerateSpecifics(kKey2, kValue2));
   EXPECT_EQ(1, bridge()->merge_call_count());
+
+  histogram_tester.ExpectUniqueSample(
+      "Sync.ModelTypeInitialUpdateReceived",
+      /*sample=*/syncer::ModelTypeHistogramValue(GetModelType()),
+      /*expected_count=*/1);
 
   // Now have data and metadata for both items, as well as a commit request for
   // the local item.
@@ -619,11 +637,17 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, ShouldApplyIncrementalUpdates) {
 
   // Check that data coming from sync is treated as a normal GetUpdates.
   OnSyncStarting();
+  base::HistogramTester histogram_tester;
   worker()->UpdateFromServer(GetHash(kKey2), GenerateSpecifics(kKey2, kValue2));
   EXPECT_EQ(0, bridge()->merge_call_count());
   EXPECT_EQ(1, bridge()->apply_call_count());
   EXPECT_EQ(2U, db()->data_count());
   EXPECT_EQ(2U, db()->metadata_count());
+
+  histogram_tester.ExpectUniqueSample(
+      "Sync.ModelTypeIncrementalUpdateReceived",
+      /*sample=*/syncer::ModelTypeHistogramValue(GetModelType()),
+      /*expected_count=*/1);
 }
 
 // Test that an error during the merge is propagated to the error handler.
@@ -1031,7 +1055,7 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, ShouldCommitLocalUpdate) {
   ASSERT_EQ(ctime, type_processor()->GetEntityModificationTime(kKey1));
 
   // Make sure the clock advances.
-  base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(1));
+  base::PlatformThread::Sleep(base::Milliseconds(1));
   ASSERT_NE(ctime, base::Time::Now());
 
   bridge()->WriteItem(kKey1, kValue2);
@@ -1102,7 +1126,7 @@ TEST_F(ClientTagBasedModelTypeProcessorTest,
   ASSERT_FALSE(ctime.is_null());
 
   // Make sure the clock advances.
-  base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(1));
+  base::PlatformThread::Sleep(base::Milliseconds(1));
   ASSERT_NE(ctime, base::Time::Now());
 
   bridge()->WriteItem(kKey1, kValue2);
@@ -1351,11 +1375,8 @@ TEST_F(ClientTagBasedModelTypeProcessorTest,
 // there is an HTTP error.
 TEST_F(ClientTagBasedModelTypeProcessorTest,
        ShouldRetryCommitAfterFullCommitFailure) {
-  base::test::ScopedFeatureList override_features_;
-  override_features_.InitAndEnableFeature(
-      switches::kSyncResetEntitiesStateOnCommitFailure);
-
   InitializeToReadyState();
+  bridge()->EnableRetriesOnCommitFailure();
   bridge()->WriteItem(kKey1, kValue1);
   worker()->VerifyPendingCommits({{GetHash(kKey1)}});
 
@@ -1371,7 +1392,7 @@ TEST_F(ClientTagBasedModelTypeProcessorTest,
   type_processor()->GetLocalChanges(
       INT_MAX, base::BindOnce(&CaptureCommitRequest, &commit_request));
   OnCommitDataLoaded();
-  EXPECT_EQ(1U, commit_request.size());
+  ASSERT_EQ(1U, commit_request.size());
   EXPECT_EQ(GetHash(kKey1), commit_request[0]->entity->client_tag_hash);
 }
 
@@ -2364,11 +2385,7 @@ TEST_F(ClientTagBasedModelTypeProcessorTest,
   type_processor()->ModelReadyToSync(std::move(metadata_batch));
   ASSERT_TRUE(type_processor()->IsModelReadyToSyncForTest());
 
-  base::HistogramTester histogram_tester;
   OnSyncStarting();
-  histogram_tester.ExpectBucketCount(
-      "Sync.PersistedModelTypeIdMismatch",
-      /*bucket=*/ModelTypeHistogramValue(GetModelType()), /*count=*/1);
 
   // Model should still be ready to sync.
   ASSERT_TRUE(type_processor()->IsModelReadyToSyncForTest());
@@ -2770,7 +2787,6 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, ShouldResetOnInvalidDataTypeId) {
 
   ResetStateWriteItem(kKey1, kValue1);
 
-  base::HistogramTester histogram_tester;
   OnSyncStarting();
   // Set different data type id.
   sync_pb::ModelTypeState model_type_state = db()->model_type_state();
@@ -2783,8 +2799,6 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, ShouldResetOnInvalidDataTypeId) {
 
   ModelReadyToSync();
   EXPECT_EQ(0U, ProcessorEntityCount());
-  histogram_tester.ExpectUniqueSample("Sync.PersistedModelTypeIdMismatch",
-                                      ModelTypeForHistograms::kPreferences, 1);
 }
 
 TEST_F(ClientTagBasedModelTypeProcessorTest,

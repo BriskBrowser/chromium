@@ -8,6 +8,7 @@
 
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/wm/overview/overview_constants.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
@@ -46,8 +47,8 @@ class DropTargetView::PlusIconView : public views::ImageView {
 };
 
 DropTargetView::DropTargetView(bool has_plus_icon) {
-  const int corner_radius =
-      views::LayoutProvider::Get()->GetCornerRadiusMetric(views::EMPHASIS_LOW);
+  const int corner_radius = views::LayoutProvider::Get()->GetCornerRadiusMetric(
+      views::Emphasis::kLow);
   background_view_ = AddChildView(std::make_unique<views::View>());
   background_view_->SetBackground(views::CreateRoundedRectBackground(
       kDropTargetBackgroundColor, corner_radius));
@@ -89,5 +90,8 @@ void DropTargetView::Layout() {
     plus_icon_->SetBoundsRect(icon_bounds);
   }
 }
+
+BEGIN_METADATA(DropTargetView, views::View)
+END_METADATA
 
 }  // namespace ash

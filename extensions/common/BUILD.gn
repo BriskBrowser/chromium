@@ -15,22 +15,18 @@ source_set("common_constants") {
   sources = [
     "constants.cc",
     "constants.h",
+    "logging_constants.h",
   ]
 
-  deps = [
+  public_deps = [
     "//base",
-    "//build:chromecast_buildflags",
     "//build:chromeos_buildflags",
     "//components/services/app_service/public/mojom",
-    "//components/version_info:channel",
-    "//ui/base",
   ]
 
-  configs += [
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    "//build/config/compiler:no_size_t_to_int_warning",
-    "//build/config/compiler:wexit_time_destructors",
-  ]
+  deps = [ "//build:chromecast_buildflags" ]
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 }
 
 if (enable_extensions) {
@@ -39,14 +35,27 @@ if (enable_extensions) {
     disable_variants = true
 
     sources = [
+      "mojom/activation_sequence.mojom",
+      "mojom/api_permission_id.mojom",
       "mojom/app_window.mojom",
       "mojom/channel.mojom",
+      "mojom/code_injection.mojom",
+      "mojom/css_origin.mojom",
+      "mojom/event_dispatcher.mojom",
+      "mojom/event_router.mojom",
+      "mojom/execution_world.mojom",
       "mojom/feature_session_type.mojom",
       "mojom/frame.mojom",
       "mojom/guest_view.mojom",
+      "mojom/host_id.mojom",
+      "mojom/injection_type.mojom",
       "mojom/keep_alive.mojom",
+      "mojom/manifest.mojom",
+      "mojom/permission_set.mojom",
       "mojom/renderer.mojom",
+      "mojom/run_location.mojom",
       "mojom/url_pattern_set.mojom",
+      "mojom/view_type.mojom",
     ]
 
     public_deps = [
@@ -71,18 +80,76 @@ if (enable_extensions) {
       {
         types = [
           {
+            mojom = "extensions.mojom.APIPermission"
+            cpp = "::std::unique_ptr<::extensions::APIPermission>"
+            move_only = true
+          },
+          {
+            mojom = "extensions.mojom.APIPermissionSet"
+            cpp = "::extensions::APIPermissionSet"
+            move_only = true
+          },
+          {
+            mojom = "extensions.mojom.ManifestPermission"
+            cpp = "::std::unique_ptr<::extensions::ManifestPermission>"
+            move_only = true
+          },
+          {
+            mojom = "extensions.mojom.ManifestPermissionSet"
+            cpp = "::extensions::ManifestPermissionSet"
+            move_only = true
+          },
+          {
+            mojom = "extensions.mojom.PermissionSet"
+            cpp = "::extensions::PermissionSet"
+            move_only = true
+          },
+        ]
+        traits_headers =
+            [ "//extensions/common/mojom/permission_set_mojom_traits.h" ]
+        traits_sources =
+            [ "//extensions/common/mojom/permission_set_mojom_traits.cc" ]
+      },
+      {
+        types = [
+          {
             mojom = "extensions.mojom.URLPattern"
             cpp = "::URLPattern"
           },
           {
             mojom = "extensions.mojom.URLPatternSet"
             cpp = "::extensions::URLPatternSet"
+            move_only = true
           },
         ]
         traits_headers =
             [ "//extensions/common/mojom/url_pattern_set_mojom_traits.h" ]
         traits_sources =
             [ "//extensions/common/mojom/url_pattern_set_mojom_traits.cc" ]
+      },
+      {
+        types = [
+          {
+            mojom = "extensions.mojom.ActivationSequence"
+            cpp = "::extensions::ActivationSequence"
+          },
+        ]
+        traits_headers =
+            [ "//extensions/common/mojom/activation_sequence_mojom_traits.h" ]
+        traits_sources =
+            [ "//extensions/common/mojom/activation_sequence_mojom_traits.cc" ]
+      },
+      {
+        types = [
+          {
+            mojom = "extensions.mojom.EventFilteringInfo"
+            cpp = "::extensions::EventFilteringInfo"
+          },
+        ]
+        traits_headers =
+            [ "//extensions/common/mojom/event_dispatcher_mojom_traits.h" ]
+        traits_sources =
+            [ "//extensions/common/mojom/event_dispatcher_mojom_traits.cc" ]
       },
     ]
     overridden_deps = [ "//content/public/common:interfaces" ]
@@ -137,6 +204,8 @@ if (enable_extensions) {
       "common_manifest_handlers.cc",
       "common_manifest_handlers.h",
       "common_param_traits.h",
+      "content_script_injection_url_getter.cc",
+      "content_script_injection_url_getter.h",
       "cors_util.cc",
       "cors_util.h",
       "csp_validator.cc",
@@ -165,7 +234,6 @@ if (enable_extensions) {
       "extension_l10n_util.h",
       "extension_message_generator.cc",
       "extension_message_generator.h",
-      "extension_messages.cc",
       "extension_messages.h",
       "extension_paths.cc",
       "extension_paths.h",
@@ -207,11 +275,8 @@ if (enable_extensions) {
       "features/simple_feature.h",
       "file_util.cc",
       "file_util.h",
-      "guest_view/extensions_guest_view_messages.h",
       "hashed_extension_id.cc",
       "hashed_extension_id.h",
-      "host_id.cc",
-      "host_id.h",
       "identifiability_metrics.cc",
       "identifiability_metrics.h",
       "image_util.cc",
@@ -236,6 +301,8 @@ if (enable_extensions) {
       "manifest_handlers/content_capabilities_handler.h",
       "manifest_handlers/content_scripts_handler.cc",
       "manifest_handlers/content_scripts_handler.h",
+      "manifest_handlers/cross_origin_isolation_info.cc",
+      "manifest_handlers/cross_origin_isolation_info.h",
       "manifest_handlers/csp_info.cc",
       "manifest_handlers/csp_info.h",
       "manifest_handlers/default_locale_handler.cc",
@@ -272,12 +339,6 @@ if (enable_extensions) {
       "manifest_handlers/shared_module_info.h",
       "manifest_handlers/web_accessible_resources_info.cc",
       "manifest_handlers/web_accessible_resources_info.h",
-      "manifest_handlers/web_app_file_handler.cc",
-      "manifest_handlers/web_app_file_handler.h",
-      "manifest_handlers/web_app_linked_shortcut_items.cc",
-      "manifest_handlers/web_app_linked_shortcut_items.h",
-      "manifest_handlers/web_app_shortcut_icons_handler.cc",
-      "manifest_handlers/web_app_shortcut_icons_handler.h",
       "manifest_handlers/webview_info.cc",
       "manifest_handlers/webview_info.h",
       "manifest_url_handlers.cc",
@@ -325,27 +386,30 @@ if (enable_extensions) {
       "stack_frame.h",
       "switches.cc",
       "switches.h",
+      "trace_util.cc",
+      "trace_util.h",
       "url_pattern.cc",
       "url_pattern.h",
       "url_pattern_set.cc",
       "url_pattern_set.h",
       "user_script.cc",
       "user_script.h",
+      "utils/base_string.cc",
+      "utils/base_string.h",
+      "utils/content_script_utils.cc",
+      "utils/content_script_utils.h",
       "value_builder.cc",
       "value_builder.h",
       "value_counter.cc",
       "value_counter.h",
       "verifier_formats.cc",
       "verifier_formats.h",
-      "view_type.cc",
-      "view_type.h",
+      "view_type_util.cc",
+      "view_type_util.h",
     ]
 
     configs += [
       "//build/config:precompiled_headers",
-
-      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-      "//build/config/compiler:no_size_t_to_int_warning",
       "//build/config/compiler:wexit_time_destructors",
     ]
 
@@ -357,6 +421,10 @@ if (enable_extensions) {
       "//ipc",
       "//skia",
     ]
+
+    # Allows including manifest_handler.h and permissions/permissions_info.h
+    # from mojom/permission_set_mojom_traits.cc.
+    allow_circular_includes_from = [ ":mojom" ]
 
     deps = [
       "//base",
@@ -458,7 +526,6 @@ if (enable_extensions) {
       "extension_builder_unittest.cc",
       "extension_icon_set_unittest.cc",
       "extension_l10n_util_unittest.cc",
-      "extension_messages_unittest.cc",
       "extension_resource_path_normalizer_unittest.cc",
       "extension_resource_unittest.cc",
       "extension_set_unittest.cc",
@@ -485,11 +552,9 @@ if (enable_extensions) {
       "manifest_handlers/oauth2_manifest_unittest.cc",
       "manifest_handlers/replacement_apps_unittest.cc",
       "manifest_handlers/shared_module_manifest_unittest.cc",
-      "manifest_handlers/web_app_file_handler_manifest_unittest.cc",
-      "manifest_handlers/web_app_linked_shortcut_items_unittest.cc",
-      "manifest_handlers/web_app_shortcut_icons_handler_unittest.cc",
       "manifest_unittest.cc",
       "message_bundle_unittest.cc",
+      "mojom/permission_set_mojom_traits_unittest.cc",
       "mojom/url_pattern_set_mojom_traits_unittest.cc",
       "permissions/api_permission_set_unittest.cc",
       "permissions/api_permission_unittest.cc",
@@ -539,7 +604,7 @@ if (enable_extensions) {
     }
 
     data = [
-      "//extensions/common/permissions/api_permission.h",
+      "//extensions/common/mojom/api_permission_id.mojom",
       "//tools/metrics/histograms/enums.xml",
     ]
   }

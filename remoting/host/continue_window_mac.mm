@@ -24,7 +24,7 @@
   remoting::ContinueWindow* _continue_window;
 }
 
-- (id)initWithWindow:(remoting::ContinueWindow*)continue_window;
+- (instancetype)initWithWindow:(remoting::ContinueWindow*)continue_window;
 - (void)show;
 - (void)hide;
 - (void)onCancel:(id)sender;
@@ -38,6 +38,10 @@ namespace remoting {
 class ContinueWindowMac : public ContinueWindow {
  public:
   ContinueWindowMac();
+
+  ContinueWindowMac(const ContinueWindowMac&) = delete;
+  ContinueWindowMac& operator=(const ContinueWindowMac&) = delete;
+
   ~ContinueWindowMac() override;
 
  protected:
@@ -47,8 +51,6 @@ class ContinueWindowMac : public ContinueWindow {
 
  private:
   base::scoped_nsobject<ContinueWindowMacController> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(ContinueWindowMac);
 };
 
 ContinueWindowMac::ContinueWindowMac() {
@@ -89,7 +91,7 @@ std::unique_ptr<HostWindow> HostWindow::CreateContinueWindow() {
 
 @implementation ContinueWindowMacController
 
-- (id)initWithWindow:(remoting::ContinueWindow*)continue_window {
+- (instancetype)initWithWindow:(remoting::ContinueWindow*)continue_window {
   if ((self = [super init])) {
     _continue_window = continue_window;
   }

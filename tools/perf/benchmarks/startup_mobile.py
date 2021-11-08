@@ -67,10 +67,8 @@ from devil.android.sdk import intent # pylint: disable=import-error
 #            --output-dir=/tmp/maps_pwa_output --upload
 # Note: "startup_mobile_benchmark" instead of "startup.mobile".
 
-# Updated the number of iterations to reduce repeats on a single device, and
-# increase repeats across devices, with changes on cross_device_test_config.py.
-_NUMBER_OF_ITERATIONS = 1
-_NUMBER_OF_ITERATIONS_FOR_WEBLAYER = 5
+_NUMBER_OF_ITERATIONS = 10
+_NUMBER_OF_ITERATIONS_FOR_WEBLAYER = 20
 _MAX_BATTERY_TEMP = 32
 
 class _MobileStartupSharedState(story_module.SharedState):
@@ -163,7 +161,7 @@ class _MobileStartupSharedState(story_module.SharedState):
     self.platform.WaitForBatteryTemperature(_MAX_BATTERY_TEMP)
     self.platform.StartActivity(intent.Intent(
         package='org.chromium.maps_go_webapk',
-        activity='org.chromium.webapk.shell_apk.h2o.H2OMainActivity',
+        activity='org.chromium.webapk.shell_apk.h2o.H2OOpaqueMainActivity',
         category='android.intent.category.LAUNCHER',
         action='android.intent.action.MAIN'),
                                 blocking=True)
@@ -213,7 +211,7 @@ class _MobileStartupSharedState(story_module.SharedState):
 
 
 def _DriveMobileStartupWithIntent(state, flush_caches):
-  for _ in xrange(state.number_of_iterations):
+  for _ in range(state.number_of_iterations):
     # TODO(pasko): Find a way to fail the benchmark when WPR is set up
     # incorrectly and error pages get loaded.
     state.LaunchBrowser('http://bbc.co.uk', flush_caches)
@@ -246,7 +244,7 @@ class _MobileStartupWithCctIntentStory(story_module.Story):
         _MobileStartupSharedState, name='cct:coldish:bbc')
 
   def Run(self, state):
-    for _ in xrange(state.number_of_iterations):
+    for _ in range(state.number_of_iterations):
       state.LaunchCCT('http://bbc.co.uk')
       with state.FindBrowser() as browser:
         action_runner = browser.foreground_tab.action_runner
@@ -259,7 +257,7 @@ class _MapsPwaStartupStory(story_module.Story):
         _MobileStartupSharedState, name='maps_pwa:with_http_cache')
 
   def Run(self, state):
-    for _ in xrange(state.number_of_iterations):
+    for _ in range(state.number_of_iterations):
       # TODO(pasko): Flush HTTP cache for 'maps_pwa:no_http_cache'.
       state.LaunchMapsPwa()
       with state.FindBrowser() as browser:

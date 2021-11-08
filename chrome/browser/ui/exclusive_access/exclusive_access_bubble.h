@@ -33,6 +33,10 @@ class ExclusiveAccessBubble : public gfx::AnimationDelegate {
   ExclusiveAccessBubble(ExclusiveAccessManager* manager,
                         const GURL& url,
                         ExclusiveAccessBubbleType bubble_type);
+
+  ExclusiveAccessBubble(const ExclusiveAccessBubble&) = delete;
+  ExclusiveAccessBubble& operator=(const ExclusiveAccessBubble&) = delete;
+
   ~ExclusiveAccessBubble() override;
 
   // Informs the ExclusiveAccessBubble of some user input, which may update
@@ -86,14 +90,14 @@ class ExclusiveAccessBubble : public gfx::AnimationDelegate {
   void ExitExclusiveAccess();
 
   // The following strings may change according to the content type and URL.
-  base::string16 GetCurrentMessageText() const;
-  base::string16 GetCurrentDenyButtonText() const;
-  base::string16 GetCurrentAllowButtonText() const;
+  std::u16string GetCurrentMessageText() const;
+  std::u16string GetCurrentDenyButtonText() const;
+  std::u16string GetCurrentAllowButtonText() const;
 
   // This string *may* contain the name of the key surrounded in pipe characters
   // ('|'), which should be drawn graphically as a key, not displayed literally.
   // |accelerator| is the name of the key to exit fullscreen mode.
-  base::string16 GetInstructionText(const base::string16& accelerator) const;
+  std::u16string GetInstructionText(const std::u16string& accelerator) const;
 
   bool IsHideTimeoutRunning() const;
 
@@ -116,16 +120,16 @@ class ExclusiveAccessBubble : public gfx::AnimationDelegate {
   // When this timer is active, prevent the bubble from hiding. This ensures it
   // will be displayed for a minimum amount of time (which can be extended by
   // the user moving the mouse to the top of the screen and holding it there).
-  base::OneShotTimer hide_timeout_;
+  base::RetainingOneShotTimer hide_timeout_;
 
   // Timer to see how long the user has been idle (from all input sources).
-  base::OneShotTimer idle_timeout_;
+  base::RetainingOneShotTimer idle_timeout_;
 
   // When this timer has elapsed, on the next mouse input, we will notify the
   // user about any currently active exclusive access. This is used to enact
   // both the initial debounce period, and the snooze period before re-notifying
   // the user (see notification display design note above).
-  base::OneShotTimer suppress_notify_timeout_;
+  base::RetainingOneShotTimer suppress_notify_timeout_;
 
   // Timer to poll the current mouse position.  We can't just listen for mouse
   // events without putting a non-empty HWND onscreen (or hooking Windows, which
@@ -137,8 +141,6 @@ class ExclusiveAccessBubble : public gfx::AnimationDelegate {
   // if the mouse has moved since our last check. Only used in non-simplified
   // fullscreen mode.
   gfx::Point last_mouse_pos_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExclusiveAccessBubble);
 };
 
 #endif  // CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_EXCLUSIVE_ACCESS_BUBBLE_H_

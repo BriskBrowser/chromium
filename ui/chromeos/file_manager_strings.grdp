@@ -14,6 +14,12 @@
   <message name="IDS_FILE_SYSTEM_PROVIDER_MANY_UNRESPONSIVE_WARNING" desc="A warning shown in a notification that more than one operations are taking longer than expected.">
     Some operations are taking longer than expected. Do you want to abort them?
   </message>
+  <message name="IDS_FILE_BROWSER_DRIVE_CONFIRM_COPY_TO_SHARED_DRIVE" desc="Confirmation dialog message when copying a file to a shared location.">
+    Copying this item will share it with everyone who can see the shared folder '<ph name="DESTINATION_NAME">$1</ph>'.
+  </message>
+  <message name="IDS_FILE_BROWSER_DRIVE_CONFIRM_MOVE_TO_SHARED_DRIVE" desc="Confirmation dialog message when moving a file to a shared location.">
+    Moving this item will share it with everyone who can see the shared folder '<ph name="DESTINATION_NAME">$1</ph>'.
+  </message>
   <message name="IDS_FILE_BROWSER_DRIVE_CONFIRM_TD_MEMBERS_LOSE_ACCESS" desc="Part of message in the confirmation dialog box when moving a file out of a Team Drive.">
     Members of '<ph name="SOURCE_NAME">$1</ph>' will lose access unless these items are shared with them.
   </message>
@@ -89,14 +95,17 @@
   <message name="IDS_FILE_BROWSER_DOCPROVIDER_ROOT_LABEL_WITH_SUMMARY" desc="A label for a documents provider root, which has both title and summary.">
     <ph name="ROOT_TITLE">$1<ex>MyCloudProvider</ex></ph> (<ph name="ROOT_SUMMARY">$2<ex>me@example.com</ex></ph>)
   </message>
-  <!-- TODO (oto@): remove this msg as part of files-ng clean up process. -->
   <message name="IDS_FILE_BROWSER_DOWNLOADS_DIRECTORY_WARNING" desc="Warning displayed to user when viewing downloads folder.">
-    <ph name="BEGIN_BOLD">&lt;strong&gt;</ph>Caution:<ph name="END_BOLD">&lt;/strong&gt;</ph>  These files are temporary and may be automatically deleted to free up disk space.  <ph name="BEGIN_LINK">&lt;a href="javascript://"&gt;</ph>Learn More<ph name="END_LINK">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph>
+    Caution: These files are temporary and may be automatically deleted to free up disk space.
   </message>
+  <message name="IDS_FILE_BROWSER_LEARN_MORE_LABEL" desc="A label for the 'Learn more' button to get more information about a banner.">
+    Learn more
+  </message>
+  <!-- TODO (crbug.com/1228128): Remove IDS_FILE_BROWSER_DOWNLOADS_DIRECTORY_WARNING_FILESNG once migrated to new banner framework. -->
   <message name="IDS_FILE_BROWSER_DOWNLOADS_DIRECTORY_WARNING_FILESNG" desc="Warning displayed to user when viewing downloads folder.">
     Caution: These files are temporary and may be automatically deleted to free up disk space.  <ph name="BEGIN_LINK">&lt;a href="javascript://"&gt;</ph>Learn More<ph name="END_LINK">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph>
   </message>
-  <message name="IDS_FILE_BROWSER_NAME_COLUMN_LABEL" desc="Name column label.">
+  <message name="IDS_FILE_BROWSER_NAME_COLUMN_LABEL" desc="Name column label." meaning="Name of an inanimate object">
     Name
   </message>
   <message name="IDS_FILE_BROWSER_SIZE_COLUMN_LABEL" desc="Size column label.">
@@ -238,9 +247,6 @@
     Unable to view Linux files
   </message>
 
-  <message name="IDS_FILE_BROWSER_EMPTY_FOLDER" desc="Label shown in an empty folder.">
-    Nothing to see here...
-  </message>
   <message name="IDS_FILE_BROWSER_NEW_FOLDER_BUTTON_LABEL" desc="Label on the 'New folder' button.">
     New folder
   </message>
@@ -275,6 +281,9 @@
   <message name="IDS_FILE_BROWSER_ARCHIVE_MOUNT_FAILED" desc="Error message when an archive mount operation failed.">
     Could not open "<ph name="PATH">$1<ex>zipfile.zip</ex></ph>"
   </message>
+  <message name="IDS_FILE_BROWSER_ARCHIVE_MOUNT_INVALID_PATH" desc="Error message when trying to mount an archive from an unsupported path.">
+    Could not open "<ph name="PATH">$1<ex>zipfile.zip</ex></ph>" from this location. Please copy to "My files" to open.
+  </message>
   <message name="IDS_FILE_BROWSER_UNMOUNT_FAILED" desc="Title of the error dialog when device unmount operation failed.">
    <ph name="BEGIN_BOLD">&lt;b&gt;</ph>Don't remove your device just yet!<ph name="END_BOLD">&lt;/b&gt;</ph>
    <ph name="LINE_BREAKS">&lt;br/&gt;&lt;br/&gt;</ph>
@@ -306,11 +315,8 @@
   <message name="IDS_FILE_BROWSER_SEND_FEEDBACK_BUTTON_LABEL" desc="Title for the action of sending user feedback.">
     Send feedback
   </message>
-  <message name="IDS_FILE_BROWSER_ADD_NEW_SERVICES_BUTTON_LABEL" desc="Title of the button in the left nav to add new services (file systems) to the Files app.">
-    Add new service
-  </message>
-  <message name="IDS_FILE_BROWSER_INSTALL_NEW_EXTENSION_LABEL" desc="Title of the menu item for installing new extensions from the web store.">
-    Install new service
+  <message name="IDS_FILE_BROWSER_SHOW_PROVIDERS_BUTTON_LABEL" desc="Title of the button in the left nav to display services (file systems) of the Files app.">
+    Services
   </message>
   <message name="IDS_FILE_BROWSER_TASK_VIEW" desc="Title of the action to view (no edit) a file.">
     View
@@ -371,136 +377,8 @@
     An error occured during installation of your Linux application.
   </message>
 
-  <message name="IDS_FILE_BROWSER_GALLERY_NO_IMAGES" desc="In the Gallery, the message that there are no images in this directory.">
-    No images in this directory.
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_ITEMS_SELECTED" desc="In the Gallery, the message showing the selected item count.">
-    <ph name="COUNT">$1<ex>3</ex></ph> items selected
-  </message>
-
-  <message name="IDS_FILE_BROWSER_GALLERY_THUMBNAIL" desc="In the Gallery, the title on the button that switches to the thumbnail view.">
-    Thumbnail view
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_SLIDE" desc="In the Gallery, the title on the button that switches to the slide view.">
-    Slide view
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_SLIDESHOW" desc="In the Gallery, the title on the button that starts the slide show.">
-    Slideshow
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_DELETE" desc="In the Gallery, the title on the button that deletes selected images.">
-    Delete
-  </message>
-
-  <message name="IDS_FILE_BROWSER_GALLERY_EDIT" desc="In the Gallery, the title on the button shows/hides editing buttons.">
-    Edit
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_PRINT" desc="In the Gallery, the title on the button showing the print dialog for the current image or video.">
-    Print
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_SHARE" desc="In the Gallery, the title on the button that lets the user share a photo.">
-    Share
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_EXIT" desc="In the Gallery, the title on the button that exits edit mode.">
-    Exit
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_ENTER_WHEN_DONE" desc="In the Gallery, the text in a floating panel that prompts the user to press enter when they are done with the changes to a photo.">
-    Press Enter when done
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_AUTOFIX" desc="In the Gallery, the title on the button that applies the Auto-Fix filter to a photo.">
-    Auto-fix
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_FIXED" desc="In the Gallery, the text in a floating panel that notifies that the photo has been automatically fixed.">
-    Fixed
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_CROP" desc="In the Gallery, the title on the button that cuts out a rectangular fragment from a photo">
-    Crop
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_ASPECT_RATIO_1_1" desc="Button label to fix aspect to 1:1 ratio when cropping.">
-    1x1
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_ASPECT_RATIO_6_4" desc="Button label to fix aspect to 6:4 ratio when cropping.">
-    6x4
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_ASPECT_RATIO_7_5" desc="Button label to fix aspect to 7:5 ratio when cropping.">
-    7x5
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_ASPECT_RATIO_16_9" desc="Button label to fix aspect to 16:9 ratio when cropping.">
-    16x9
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_RESIZE" desc="In the Gallery, the title on the button that resize a photo.">
-    Resize
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_FIXRATIO" desc="Togglable Button to fix the ratio of width/height input field when resizing.">
-    Fix ratio
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_HEIGHT" desc="Input field to set the new size for height.">
-    Height
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_INVALIDVALUE" desc="In the Gallery, the message informing that the input value is invalid.">
-    Input value is invalid.
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_WIDTH" desc="Input field to set the new size for width.">
-    Width
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_EXPOSURE" desc="In the Gallery, the title on the button that applies the Brightness/Contrast filter to a photo.">
-    Brightness
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_BRIGHTNESS" desc="In the Gallery, the text next to the Brightness slider.">
-    Brightness
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_CONTRAST" desc="In the Gallery, the text next to the Contrast slider.">
-    Contrast
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_ROTATE_LEFT" desc="In the Gallery, the title on the button that rotates the photo 90 degrees to the left (counterclockwise).">
-    Left
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_ROTATE_RIGHT" desc="In the Gallery, the title on the button that rotates the photo 90 degrees to the right (clockwise).">
-    Right
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_UNDO" desc="In the Gallery, the text on the button that reverts the most recent operation.">
-    Undo
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_REDO" desc="In the Gallery, the text on the button that performs again the operation that has been recently reverted.">
-    Redo
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_DONE" desc="In the Gallery, the text on the button that commit image edit.">
-    DONE
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_FILE_EXISTS" desc="In the Gallery, the message informing that file already exists when attempting to rename.">
-    File already exists
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_SAVED" meaning="saved to disk" desc="In the Gallery, the message informing that editing saved successfully.">
-    Saved
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_SAVE_FAILED" desc="In the Gallery, the message informing that it failed to save editing image.">
-    Failed to save image.
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_OVERWRITE_ORIGINAL" desc="In the Gallery, text on the button to overwrite original file along with the edited copy.">
-    Overwrite original
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_OVERWRITE_BUBBLE" desc="In the Gallery, text in the bubble informing user about saving and overwriting original file.">
-    Your edits are saved automatically.<ph name="BREAKS">&lt;br&gt;&lt;br&gt;<ex>&lt;br&gt;&lt;br&gt;</ex></ph>To keep a copy of the original image, uncheck "Overwrite original"
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_OVERWRITE_BUBBLE_CLOSE" desc="In the Gallery, close button on the bubble notifying user of overwriting original file.">
-    Close
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_READONLY_AND_NON_WRITABLE_FORMAT_WARNING" desc="In the Gallery, message informing that all edits will be saved to Downloads directory since the directory is readonly and the file is non-writable format of Gallery.">
-    Cannot save to <ph name="FOLDER_NAME">$1<ex>readonly-dir</ex></ph>. All edits will be saved to <ph name="DOWNLOADS_FOLDER">$2<ex>Downloads/fallbackdir</ex></ph> in the Downloads folder.
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_READONLY_WARNING" desc="In the Gallery, message informing that directory is readonly, and edited files will be saved to Downloads directory.">
-    Cannot save to <ph name="FOLDER_NAME">$1<ex>readonly-dir</ex></ph>. Edited images will be saved in the Downloads folder.
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_NON_WRITABLE_FORMAT_WARNING" desc="In the Gallery, message informing that Gallery cannot overwrite to the original file and all edits will be saved to a copy.">
-    All edits will be saved to <ph name="DOWNLOADS_FOLDER">$1<ex>Downloads/fallbackdir</ex></ph>.
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_IMAGE_ERROR" desc="In the Gallery, message informing that the image failed to load.">
-    This file could not be displayed.
-  </message>
   <message name="IDS_FILE_BROWSER_AUDIO_ERROR" desc="In the Audio Player, message informing that the file could not be played.">
     This file could not be played.
-  </message>
-  <message name="IDS_FILE_BROWSER_GALLERY_IMAGE_OFFLINE" desc="In the Gallery, message informing that the image could be displayed in the offline mode.">
-    This image is not available offline.
   </message>
   <message name="IDS_FILE_BROWSER_AUDIO_OFFLINE" desc="In the Audio Player, message informing that the audio file could not be played in the offline mode.">
     This file is not available offline.
@@ -544,8 +422,14 @@
   <message name="IDS_FILE_BROWSER_DELETE_BUTTON_LABEL" desc="Context menu item that deletes the currently-selected file(s).">
     Delete
   </message>
+  <message name="IDS_FILE_BROWSER_MOVE_TO_TRASH_BUTTON_LABEL" desc="Context menu item that moves the currently-selected file(s) to the trash / recycle bin.">
+    Move to Trash
+  </message>
   <message name="IDS_FILE_BROWSER_RESTORE_FROM_TRASH_BUTTON_LABEL" desc="Context menu item that restores the currently-selected file(s) from the trash / recycle bin.">
     Restore from trash
+  </message>
+  <message name="IDS_FILE_BROWSER_EMPTY_TRASH_BUTTON_LABEL" desc="Context menu item that empties (permanently deletes all items in) the trash / recycle bin.">
+    Empty Trash
   </message>
   <message name="IDS_FILE_BROWSER_PASTE_BUTTON_LABEL" desc="Context menu item that pastes the file(s) in the clipboard.">
     Paste
@@ -564,9 +448,6 @@
   </message>
   <message name="IDS_FILE_BROWSER_OPEN_WITH_BUTTON_LABEL" desc="Menu item label, showing dialog to choose extension to open selected files or directories.">
     Open with...
-  </message>
-  <message name="IDS_FILE_BROWSER_MORE_ACTIONS_BUTTON_LABEL" desc="Menu item label, showing dialog to choose extension to open/share/pack/etc... selected files or directories.">
-    More actions
   </message>
   <message name="IDS_FILE_BROWSER_GO_TO_FILE_LOCATION_BUTTON_LABEL" desc="Menu item label, navigating the user to the file's containing folder.">
     Go to file location
@@ -622,8 +503,14 @@
   <message name="IDS_FILE_BROWSER_UNABLE_TO_OPEN_WITH_PLUGIN_VM_DIRECTORY_NOT_SHARED_MESSAGE" desc="Body of the dialog shown to users when they try to open a file with an application in a virtual machine, but the file is not in a directory shared into the VM.">
     To open files with <ph name="APP_NAME">$1<ex>Paint (Windows)</ex></ph>, first move them to the Windows files folder.
   </message>
-  <message name="IDS_FILE_BROWSER_UNABLE_TO_OPEN_WITH_PLUGIN_VM_EXTERNAL_DRIVE_MESSAGE" desc="Body of the dialog shown to users when they try to open a file with an application in a virtual machine, but the file is on an external drive so isn't accessile from with the VM.">
+  <message name="IDS_FILE_BROWSER_UNABLE_TO_OPEN_WITH_PLUGIN_VM_EXTERNAL_DRIVE_MESSAGE" desc="Body of the dialog shown to users when they try to open a file with an application in a virtual machine, but the file is on an external drive so isn't accessible from within the VM.">
     To open files with <ph name="APP_NAME">$1<ex>Paint (Windows)</ex></ph>, first copy them to the Windows files folder.
+  </message>
+  <message name="IDS_FILE_BROWSER_UNABLE_TO_DROP_IN_PLUGIN_VM_DIRECTORY_NOT_SHARED_MESSAGE" desc="Body of the dialog shown to users when they try to drag and drop a file to Parallels, but the file is not in a directory shared into the VM. Do not translate 'Parallels Desktop'">
+    To drop files in Parallels Desktop, the file must be moved to Windows files.
+  </message>
+  <message name="IDS_FILE_BROWSER_UNABLE_TO_DROP_IN_PLUGIN_VM_EXTERNAL_DRIVE_MESSAGE" desc="Body of the dialog shown to users when they try to drag and drop a file to Parallels, but the file is on an external drive so isn't accessible from within the VM. Do not translate 'Parallels Desktop'">
+    To drop files in Parallels Desktop, the file must be copied to Windows files.
   </message>
   <message name="IDS_FILE_BROWSER_TOGGLE_HIDDEN_FILES_COMMAND_LABEL" desc="Label for menu or button with checkmark that toggles visibility of hidden files.">
     Show hidden files
@@ -858,6 +745,9 @@
   <message name="IDS_FILE_BROWSER_RESTORE_FROM_TRASH_ITEMS_REMAINING" desc="File Manager status message shown when restoring items from trash / recycle bin. 'Item' is used here as a generic term for file or directory.">
     Restoring <ph name="COUNT">$1<ex>10</ex></ph> items...
   </message>
+  <message name="IDS_FILE_BROWSER_TRASH_DELETED_FOREVER" desc="Message informing that items in the trash / recycle bin are deleted forever after 30 days.">
+    Items in the trash are deleted forever after 30 days.
+  </message>
   <message name="IDS_FILE_BROWSER_RESTORE_FROM_TRASH_ERROR" desc="Message informing about error while restoring an item or items from the trash / recycle bin.">
     An error occurred. Some items may not have been restored.
   </message>
@@ -943,6 +833,9 @@
  </message>
  <message name="IDS_FILE_BROWSER_UNDO_DELETE_ACTION_LABEL" desc="Undo label shown on toast to undo delete operation">
    Undo
+ </message>
+ <message name="IDS_FILE_BROWSER_CONFIRM_EMPTY_TRASH" desc="Asks the user if they are sure they want to empty the trash / recylce bin.">
+   Are you sure you want to empty Trash?
  </message>
 
   <message name="IDS_FILE_BROWSER_UNKNOWN_FILESYSTEM_WARNING" desc="Displayed when device contents cannot be read because filesystem is unknown.">
@@ -1161,6 +1054,12 @@
   <message name="IDS_FILE_BROWSER_OFFLINE_BANNER_MESSAGE" desc="Message informing the user that they can make files available offline.">
     You can make files available offline for access when you don't have an internet connection.
   </message>
+  <message name="IDS_FILE_BROWSER_DRIVE_OFFLINE_BANNER_TITLE" desc="Message title of banner informing user they can make files available offline.">
+    Make files available offline
+  </message>
+  <message name="IDS_FILE_BROWSER_DRIVE_OFFLINE_BANNER_SUBTITLE" desc="Message title of banner informing user they can make files available offline.">
+    Select a file, and toggle <ph name="OFFLINE_CHECKBOX_NAME">'$1'<ex>'Available offline'</ex></ph> on for offline access to your files.
+  </message>
   <message name="IDS_FILE_BROWSER_OFFLINE_PROGRESS_MESSAGE" desc="Message informing the user a Google Drive file is being downloaded for offline use.">
     Making <ph name="FILE_NAME">$1<ex>document.pdf</ex></ph> available offline
   </message>
@@ -1268,21 +1167,32 @@
   <message name="IDS_FILE_BROWSER_HOLDING_SPACE_WELCOME_TEXT" desc="In the Holding Space welcome banner, text of the welcome message.">
     Right-click a file, and select "Pin to shelf" for quick access to your files in shelf.
   </message>
+  <message name="IDS_FILE_BROWSER_PHOTOS_WELCOME_TITLE" desc="In the Google Photos welcome banner, title of banner.">
+    Easily access Google Photos
+  </message>
+  <message name="IDS_FILE_BROWSER_PHOTOS_WELCOME_TEXT" desc="In the Google Photos welcome banner, text of the welcome message.">
+    Choose from your recent photos.
+  </message>
+  <message name="IDS_FILE_BROWSER_PHOTOS_WELCOME_DISMISS" desc="In the Google Photos welcome banner, a text on the button to dismiss the banner.">
+    Got it
+  </message>
   <message name="IDS_FILE_BROWSER_HOLDING_SPACE_WELCOME_TEXT_IN_TABLET_MODE" desc="In the Holding Space welcome banner, text of the welcome message in tablet mode.">
     Touch &amp; hold a file and tap <ph name="ICON">$1</ph>, and select "Pin to shelf" for quick access to your files in shelf.
+  </message>
+  <message name="IDS_FILE_BROWSER_HOLDING_SPACE_WELCOME_TEXT_IN_TABLET_MODE_HTML" desc="In the Holding Space welcome banner, text of the welcome message in tablet mode.">
+    Touch &amp; hold a file and tap <ph name="ICON">&lt;span class='icon'&gt;&lt;/span&gt;</ph>, and select "Pin to shelf" for quick access to your files in shelf.
   </message>
   <message name="IDS_FILE_BROWSER_HOLDING_SPACE_WELCOME_DISMISS" desc="In the Holding Space welcome banner, text on the button to dismiss the banner.">
     Got it
   </message>
   <message name="IDS_FILE_BROWSER_NO_TASK_FOR_FILE" desc="Message shown when user tries to open file, which we can't handle.">
-    This file type is not supported. Please visit the <ph name="BEGIN_LINK">&lt;a target='_blank' href='$1'&gt;<ex>&lt;a target='_blank' href='$1'&gt;</ex></ph>Chrome Web Store<ph name="END_LINK">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph> to find an app that can open this type of file.
-    <ph name="BEGIN_LINK_HELP">&lt;a target='_blank' href='$2'&gt;<ex>&lt;a target='_blank' href='$2'&gt;</ex></ph>Learn More<ph name="END_LINK_HELP">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph>
+    This file type is not supported. <ph name="BEGIN_LINK_HELP">&lt;a target='_blank' href='$1'&gt;</ph>Learn More<ph name="END_LINK_HELP">&lt;/a&gt;</ph> about opening files on Chrome OS.
   </message>
   <message name="IDS_FILE_BROWSER_NO_TASK_FOR_EXECUTABLE" desc="Message shown when user tries to open a windows executable file, which we can't handle.">
-    This file is designed for a PC using Windows software. This is not compatible with your device which runs Chrome OS. <ph name="BEGIN_LINK_HELP">&lt;a target='_blank' href='$2'&gt;<ex>&lt;a target='_blank' href='$2'&gt;</ex></ph>Learn More<ph name="END_LINK_HELP">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph>
+    This file is designed for a PC using Windows software. This is not compatible with your device which runs Chrome OS. <ph name="BEGIN_LINK_HELP">&lt;a target='_blank' href='$1'&gt;</ph>Learn More<ph name="END_LINK_HELP">&lt;/a&gt;</ph> about opening files on Chrome OS.
   </message>
   <message name="IDS_FILE_BROWSER_NO_TASK_FOR_DMG" desc="Message shown when user tries to open a windows executable file, which we can't handle.">
-    This file is designed for a computer using Macintosh software. This is not compatible with your device which runs Chrome OS. Please search the <ph name="BEGIN_LINK">&lt;a target='_blank' href='$1'&gt;<ex>&lt;a target='_blank' href='$1'&gt;</ex></ph>Chrome Web Store<ph name="END_LINK">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph> for a suitable replacement app.<ph name="BEGIN_LINK_HELP">&lt;a target='_blank' href='$2'&gt;<ex>&lt;a target='_blank' href='$2'&gt;</ex></ph>Learn More<ph name="END_LINK_HELP">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph>
+    This file is designed for a computer using Macintosh software. This is not compatible with your device which runs Chrome OS. <ph name="BEGIN_LINK_HELP">&lt;a target='_blank' href='$1'&gt;</ph>Learn More<ph name="END_LINK_HELP">&lt;/a&gt;</ph> about opening files on Chrome OS.
   </message>
   <message name="IDS_FILE_BROWSER_NO_TASK_FOR_CRX_TITLE" desc="Message shown when a user tries to open a *.crx file, which we don't handle in the Files app.">
     Wait just a sec
@@ -1482,9 +1392,6 @@
 
   <message name="IDS_FILE_BROWSER_THUMBNAIL_VIEW_TOOLTIP" desc="Tooltip for the Thumbnail View button.">
     Thumbnail view
-  </message>
-  <message name="IDS_FILE_BROWSER_SHARE_BUTTON_TOOLTIP" desc="Tooltip for the button which provides share options in the Files app.">
-    More actions
   </message>
   <message name="IDS_FILE_BROWSER_SORT_BUTTON_TOOLTIP" desc="Tooltip for the button which provides sort options in the Files app.">
     Sort options

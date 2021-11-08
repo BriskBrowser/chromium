@@ -58,13 +58,13 @@ class PasswordAccessorySheetModernViewBinder {
             bindChipView(view.getUsername(), info.getFields().get(0));
             bindChipView(view.getPassword(), info.getFields().get(1));
 
-            view.getTitle().setVisibility(info.isPslMatch() ? View.VISIBLE : View.GONE);
+            view.getTitle().setVisibility(info.isExactMatch() ? View.GONE : View.VISIBLE);
             // Strip the trailing slash (for aesthetic reasons):
             view.getTitle().setText(stripScheme(info.getOrigin()).replaceFirst("/$", ""));
 
             // Set the default icon, then try to get a better one.
             mFaviconRequestOrigin = info.getOrigin(); // Save the origin for returning callback.
-            FaviconHelper faviconHelper = new FaviconHelper(view.getContext());
+            FaviconHelper faviconHelper = FaviconHelper.create(view.getContext());
             view.setIconForBitmap(faviconHelper.getDefaultIcon(info.getOrigin()));
             faviconHelper.fetchFavicon(info.getOrigin(), d -> setIcon(view, info.getOrigin(), d));
         }

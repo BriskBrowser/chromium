@@ -11,11 +11,11 @@
 #include <memory>
 
 #include "base/callback_forward.h"
-#include "base/containers/mru_cache.h"
+#include "base/containers/lru_cache.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "media/base/media_log.h"
 #include "media/base/video_decoder.h"
@@ -73,12 +73,13 @@ class VdaVideoDecoder : public VideoDecoder,
       const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
       GetStubCB get_stub_cb);
 
+  VdaVideoDecoder(const VdaVideoDecoder&) = delete;
+  VdaVideoDecoder& operator=(const VdaVideoDecoder&) = delete;
   ~VdaVideoDecoder() override;
   static void DestroyAsync(std::unique_ptr<VdaVideoDecoder>);
 
   // media::VideoDecoder implementation.
   VideoDecoderType GetDecoderType() const override;
-  std::string GetDisplayName() const override;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
                   CdmContext* cdm_context,
@@ -182,7 +183,7 @@ class VdaVideoDecoder : public VideoDecoder,
   std::map<int32_t, DecodeCB> decode_cbs_;
   // Records timestamps so that they can be mapped to output pictures. Must be
   // large enough to account for any amount of frame reordering.
-  base::MRUCache<int32_t, base::TimeDelta> timestamps_;
+  base::LRUCache<int32_t, base::TimeDelta> timestamps_;
 
   //
   // Shared state.
@@ -216,8 +217,6 @@ class VdaVideoDecoder : public VideoDecoder,
   base::WeakPtr<VdaVideoDecoder> parent_weak_this_;
   base::WeakPtrFactory<VdaVideoDecoder> gpu_weak_this_factory_{this};
   base::WeakPtrFactory<VdaVideoDecoder> parent_weak_this_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(VdaVideoDecoder);
 };
 
 }  // namespace media

@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 // clang-format off
-// #import {TestBrowserProxy} from '../../test_browser_proxy.m.js';
+// #import {TestBrowserProxy} from '../../test_browser_proxy.js';
 // #import {BrowserChannel,UpdateStatus} from 'chrome://os-settings/chromeos/os_settings.js';
 // clang-format on
 
@@ -25,11 +25,15 @@
       'openOsHelpPage',
       'openDiagnostics',
       'refreshTPMFirmwareUpdateStatus',
+      'requestUpdate',
       'setChannel',
     ]);
 
     /** @private {!UpdateStatus} */
     this.updateStatus_ = UpdateStatus.UPDATED;
+
+    /** @private {!boolean} */
+    this.sendUpdateStatus_ = true;
 
     /** @private {!VersionInfo} */
     this.versionInfo_ = {
@@ -66,6 +70,10 @@
     this.updateStatus_ = updateStatus;
   }
 
+  blockRefreshUpdateStatus() {
+    this.sendUpdateStatus_ = false;
+  }
+
   sendStatusNoInternet() {
     cr.webUIListenerCallback('update-status-changed', {
       progress: 0,
@@ -82,10 +90,12 @@
 
   /** @override */
   refreshUpdateStatus() {
-    cr.webUIListenerCallback('update-status-changed', {
-      progress: 1,
-      status: this.updateStatus_,
-    });
+    if (this.sendUpdateStatus_) {
+      cr.webUIListenerCallback('update-status-changed', {
+        progress: 1,
+        status: this.updateStatus_,
+      });
+    }
     this.methodCalled('refreshUpdateStatus');
   }
 
@@ -184,6 +194,13 @@
     this.methodCalled('refreshTPMFirmwareUpdateStatus');
     cr.webUIListenerCallback(
         'tpm-firmware-update-status-changed', this.tpmFirmwareUpdateStatus_);
+  }
+
+  /** @override */
+  requestUpdate() {
+    this.setUpdateStatus(UpdateStatus.UPDATING);
+    this.refreshUpdateStatus();
+    this.methodCalled('requestUpdate');
   }
 
   /** @override */

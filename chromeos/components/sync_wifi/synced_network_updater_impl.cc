@@ -26,7 +26,7 @@ namespace sync_wifi {
 namespace {
 
 const int kMaxRetries = 3;
-constexpr base::TimeDelta kTimeout = base::TimeDelta::FromMinutes(1);
+constexpr base::TimeDelta kTimeout = base::Minutes(1);
 
 }  // namespace
 
@@ -101,7 +101,7 @@ void SyncedNetworkUpdaterImpl::RemoveNetwork(const NetworkIdentifier& id) {
 
   NET_LOG(EVENT) << "Removing network " << NetworkGuidId(network->guid);
   std::string change_guid =
-      tracker_->TrackPendingUpdate(id, /*specifics=*/base::nullopt);
+      tracker_->TrackPendingUpdate(id, /*specifics=*/absl::nullopt);
   StartDeleteOperation(change_guid, id, network->guid);
 }
 
@@ -149,7 +149,7 @@ void SyncedNetworkUpdaterImpl::OnGetNetworkList(
 void SyncedNetworkUpdaterImpl::OnConfigureNetworkResult(
     const std::string& change_guid,
     const sync_pb::WifiConfigurationSpecifics& proto,
-    const base::Optional<std::string>& network_guid,
+    const absl::optional<std::string>& network_guid,
     const std::string& error_message) {
   auto id = NetworkIdentifier::FromProto(proto);
   if (network_guid) {
@@ -159,8 +159,7 @@ void SyncedNetworkUpdaterImpl::OnConfigureNetworkResult(
         NetworkHandler::Get()->network_metadata_store();
     metadata_store->SetIsConfiguredBySync(*network_guid);
     metadata_store->SetLastConnectedTimestamp(
-        *network_guid,
-        base::TimeDelta::FromMilliseconds(proto.last_connected_timestamp()));
+        *network_guid, base::Milliseconds(proto.last_connected_timestamp()));
   } else {
     NET_LOG(ERROR) << "Failed to configure network "
                    << NetworkId(NetworkStateFromNetworkIdentifier(id))
@@ -184,8 +183,7 @@ void SyncedNetworkUpdaterImpl::OnSetPropertiesResult(
         NetworkHandler::Get()->network_metadata_store();
     metadata_store->SetIsConfiguredBySync(network_guid);
     metadata_store->SetLastConnectedTimestamp(
-        network_guid,
-        base::TimeDelta::FromMilliseconds(proto.last_connected_timestamp()));
+        network_guid, base::Milliseconds(proto.last_connected_timestamp()));
   } else {
     NET_LOG(ERROR) << "Failed to update network "
                    << NetworkGuidId(network_guid);
@@ -233,7 +231,7 @@ void SyncedNetworkUpdaterImpl::HandleShillResult(const std::string& change_guid,
   }
 
   tracker_->IncrementCompletedAttempts(change_guid, id);
-  base::Optional<PendingNetworkConfigurationUpdate> update =
+  absl::optional<PendingNetworkConfigurationUpdate> update =
       tracker_->GetPendingUpdate(change_guid, id);
 
   if (update->completed_attempts() >= kMaxRetries) {

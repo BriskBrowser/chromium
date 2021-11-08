@@ -60,6 +60,10 @@ class OWNERSHIP_EXPORT OwnerSettingsService : public KeyedService {
 
   explicit OwnerSettingsService(
       const scoped_refptr<ownership::OwnerKeyUtil>& owner_key_util);
+
+  OwnerSettingsService(const OwnerSettingsService&) = delete;
+  OwnerSettingsService& operator=(const OwnerSettingsService&) = delete;
+
   ~OwnerSettingsService() override;
 
   base::WeakPtr<OwnerSettingsService> as_weak_ptr() {
@@ -119,6 +123,10 @@ class OWNERSHIP_EXPORT OwnerSettingsService : public KeyedService {
   bool SetDouble(const std::string& setting, double value);
   bool SetString(const std::string& setting, const std::string& value);
 
+  // Run callbacks in test setting. Mocks ownership when full device setup is
+  // not needed.
+  void RunPendingIsOwnerCallbacksForTesting(bool is_owner);
+
  protected:
   void ReloadKeypair();
 
@@ -148,8 +156,6 @@ class OWNERSHIP_EXPORT OwnerSettingsService : public KeyedService {
 
  private:
   base::WeakPtrFactory<OwnerSettingsService> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(OwnerSettingsService);
 };
 
 }  // namespace ownership

@@ -11,7 +11,6 @@
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/optional.h"
 #include "base/process/process_metrics.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/devtools/devtools_window.h"
@@ -32,8 +31,8 @@
 #include "chrome/browser/tab_contents/form_interaction_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/usb/usb_tab_helper.h"
-#include "chrome/browser/web_applications/components/web_app_ui_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_ui_manager.h"
 #include "components/device_event_log/device_event_log.h"
 #include "components/performance_manager/public/decorators/page_live_state_decorator.h"
 #include "components/permissions/permission_manager.h"
@@ -43,6 +42,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/frame/sudden_termination_disabler_type.mojom.h"
 #include "url/gurl.h"
 
@@ -259,7 +259,7 @@ TabLifecycleUnitSource::TabLifecycleUnit::AsTabLifecycleUnitExternal() {
   return external_impl_.get();
 }
 
-base::string16 TabLifecycleUnitSource::TabLifecycleUnit::GetTitle() const {
+std::u16string TabLifecycleUnitSource::TabLifecycleUnit::GetTitle() const {
   return web_contents()->GetTitle();
 }
 

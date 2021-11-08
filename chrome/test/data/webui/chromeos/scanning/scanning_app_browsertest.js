@@ -34,15 +34,10 @@ ScanningAppBrowserTest.prototype = {
   browsePreload: 'chrome://scanning/test_loader.html?module=chromeos/' +
       'scanning/scanning_app_unified_test.js',
 
-  extraLibraries: [
-    '//chrome/test/data/webui/test_browser_proxy.js',
-    '//ui/webui/resources/js/assert.js',
-    '//ui/webui/resources/js/promise_resolver.js',
-  ],
-
   featureList: {
     enabled: [
-      'chromeos::features::kScanningUI',
+      'chromeos::features::kScanAppMultiPageScan',
+      'chromeos::features::kScanAppSearchablePdf',
     ]
   },
 };
@@ -51,9 +46,10 @@ ScanningAppBrowserTest.prototype = {
 // You must register all suites in unified test here as well for consistency,
 // although technically is not necessary.
 const debug_suites_list = [
-  'ColorModeSelect', 'FileTypeSelect', 'LoadingPage', 'PageSizeSelect',
-  'ResolutionSelect', 'ScanApp', 'ScanDoneSection', 'ScannerSelect',
-  'ScanPreview', 'ScanToSelect', 'SourceSelect'
+  'ActionToolbar', 'ColorModeSelect', 'FileTypeSelect', 'LoadingPage',
+  'MultiPageCheckbox', 'MultiPageScan', 'PageSizeSelect', 'ResolutionSelect',
+  'ScanApp', 'ScanDoneSection', 'ScannerSelect', 'ScanPreview', 'ScanToSelect',
+  'SourceSelect'
 ];
 
 TEST_F('ScanningAppBrowserTest', 'All', function() {

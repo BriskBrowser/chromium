@@ -78,7 +78,7 @@ NSString* const kTranslateSettingsCategory = @"ChromeTranslateSettings";
     _prefs = prefs;
     _translationEnabled = [[PrefBackedBoolean alloc]
         initWithPrefService:_prefs
-                   prefName:prefs::kOfferTranslateEnabled];
+                   prefName:translate::prefs::kOfferTranslateEnabled];
     [_translationEnabled setObserver:self];
   }
   return self;
@@ -118,9 +118,9 @@ NSString* const kTranslateSettingsCategory = @"ChromeTranslateSettings";
   TableViewLinkHeaderFooterItem* footer =
       [[TableViewLinkHeaderFooterItem alloc] initWithType:ItemTypeFooter];
   footer.text = l10n_util::GetNSString(IDS_IOS_TRANSLATE_SETTING_DESCRIPTION);
-  footer.linkURL = google_util::AppendGoogleLocaleParam(
+  footer.urls = std::vector<GURL>{google_util::AppendGoogleLocaleParam(
       GURL(kTranslateLearnMoreUrl),
-      GetApplicationContext()->GetApplicationLocale());
+      GetApplicationContext()->GetApplicationLocale())};
   [model setFooter:footer forSectionWithIdentifier:SectionIdentifierTranslate];
 }
 

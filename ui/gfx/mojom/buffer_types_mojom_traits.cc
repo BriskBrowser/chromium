@@ -53,8 +53,11 @@ gfx::mojom::GpuMemoryBufferPlatformHandlePtr StructTraits<
     case gfx::DXGI_SHARED_HANDLE:
 #if defined(OS_WIN)
       DCHECK(handle.dxgi_handle.IsValid());
+      DCHECK(handle.dxgi_token.has_value());
       return gfx::mojom::GpuMemoryBufferPlatformHandle::NewDxgiHandle(
-          mojo::PlatformHandle(std::move(handle.dxgi_handle)));
+          gfx::mojom::DXGIHandle::New(
+              mojo::PlatformHandle(std::move(handle.dxgi_handle)),
+              std::move(handle.dxgi_token.value()), std::move(handle.region)));
 #else
       break;
 #endif
@@ -137,7 +140,10 @@ bool StructTraits<gfx::mojom::GpuMemoryBufferHandleDataView,
 #elif defined(OS_WIN)
     case gfx::mojom::GpuMemoryBufferPlatformHandleDataView::Tag::DXGI_HANDLE: {
       out->type = gfx::DXGI_SHARED_HANDLE;
-      out->dxgi_handle = platform_handle->get_dxgi_handle().TakeHandle();
+      auto dxgi_handle = std::move(platform_handle->get_dxgi_handle());
+      out->dxgi_handle = dxgi_handle->buffer_handle.TakeHandle();
+      out->dxgi_token = std::move(dxgi_handle->token);
+      out->region = std::move(dxgi_handle->shared_memory_handle);
       return true;
     }
 #elif defined(OS_ANDROID)

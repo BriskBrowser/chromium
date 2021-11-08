@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/files/file_path.h"
 #include "chrome/browser/nearby_sharing/nearby_share_settings.h"
 #include "chrome/browser/nearby_sharing/share_target_discovered_callback.h"
 #include "chrome/browser/nearby_sharing/transfer_update_callback.h"
@@ -72,6 +71,14 @@ class NearbySharingService : public KeyedService {
    public:
     virtual void OnHighVisibilityChangeRequested() {}
     virtual void OnHighVisibilityChanged(bool in_high_visibility) = 0;
+
+    virtual void OnNearbyProcessStopped() {}
+    virtual void OnStartAdvertisingFailure() {}
+    virtual void OnStartDiscoveryResult(bool success) {}
+
+    virtual void OnFastInitiationDevicesDetected() {}
+    virtual void OnFastInitiationDevicesNotDetected() {}
+    virtual void OnFastInitiationScanningStopped() {}
 
     // Called during the |KeyedService| shutdown, but before everything has been
     // cleaned up. It is safe to remove any observers on this event.
@@ -143,9 +150,13 @@ class NearbySharingService : public KeyedService {
   virtual void Reject(const ShareTarget& share_target,
                       StatusCodesCallback status_codes_callback) = 0;
 
-  // Cancels outoing shares to the remote |share_target|.
+  // Cancels outgoing shares to the remote |share_target|.
   virtual void Cancel(const ShareTarget& share_target,
                       StatusCodesCallback status_codes_callback) = 0;
+
+  // Returns true if the local user cancelled the transfer to remote
+  // |share_target|.
+  virtual bool DidLocalUserCancelTransfer(const ShareTarget& share_target) = 0;
 
   // Opens attachments from the remote |share_target|.
   virtual void Open(const ShareTarget& share_target,
@@ -154,9 +165,18 @@ class NearbySharingService : public KeyedService {
   // Opens an url target on a browser instance.
   virtual void OpenURL(GURL url) = 0;
 
+  // Sets a cleanup callback to be called once done with transfer for ARC.
+  virtual void SetArcTransferCleanupCallback(
+      base::OnceCallback<void()> callback) = 0;
+
   // Gets a delegate to handle events for |notification_id| or nullptr.
   virtual NearbyNotificationDelegate* GetNotificationDelegate(
       const std::string& notification_id) = 0;
+
+  // Records via Standard Feature Usage Logging whether or not advertising
+  // successfully starts when the user clicks the "Device nearby is sharing"
+  // notification.
+  virtual void RecordFastInitiationNotificationUsage(bool success) = 0;
 
   virtual NearbyShareSettings* GetSettings() = 0;
   virtual NearbyShareHttpNotifier* GetHttpNotifier() = 0;

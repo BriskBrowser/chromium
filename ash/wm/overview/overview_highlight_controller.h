@@ -10,15 +10,10 @@
 
 #include "ash/ash_export.h"
 #include "base/macros.h"
-#include "base/optional.h"
-#include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/geometry/rounded_corners_f.h"
-
-namespace views {
-class View;
-}
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
+class OverviewHighlightableView;
 class OverviewItem;
 class OverviewSession;
 
@@ -27,42 +22,8 @@ class OverviewSession;
 // overview items with arrow keys and trackpad swipes, or when tab dragging.
 class ASH_EXPORT OverviewHighlightController {
  public:
-  // An interface that must be implemented by classes that want to be
-  // highlighted in overview.
-  class OverviewHighlightableView {
-   public:
-    // Get the view class associated with |this|.
-    virtual views::View* GetView() = 0;
-
-    // Attempts to activate or close this view. Overriders may do nothing.
-    virtual void MaybeActivateHighlightedView() = 0;
-    virtual void MaybeCloseHighlightedView() = 0;
-
-    // Attempts to swap the view with its neighbor views. (Mainly used for
-    // |DeskMiniView|).
-    virtual void MaybeSwapHighlightedView(bool right) = 0;
-
-    void SetHighlightVisibility(bool visible);
-
-    // Returns true if this is the current highlighted view.
-    bool IsViewHighlighted() { return is_highlighted_; }
-
-    // Returns the point the accessibility magnifiers should focus when this is
-    // highlighted. If not overridden, this will return the centerpoint.
-    virtual gfx::Point GetMagnifierFocusPointInScreen();
-
-   protected:
-    virtual ~OverviewHighlightableView() = default;
-
-    // Highlights or unhighlights this view.
-    virtual void OnViewHighlighted() = 0;
-    virtual void OnViewUnhighlighted() = 0;
-
-   private:
-    bool is_highlighted_ = false;
-  };
-
   // TestApi is used for tests to get internal implementation details.
+  // TODO(dandersson): Move this class out.
   class ASH_EXPORT TestApi {
    public:
     explicit TestApi(OverviewHighlightController* highlight_controller);
@@ -75,6 +36,11 @@ class ASH_EXPORT OverviewHighlightController {
   };
 
   explicit OverviewHighlightController(OverviewSession* overview_session);
+
+  OverviewHighlightController(const OverviewHighlightController&) = delete;
+  OverviewHighlightController& operator=(const OverviewHighlightController&) =
+      delete;
+
   ~OverviewHighlightController();
 
   // Moves the focus ring to the next traversable view.
@@ -104,8 +70,11 @@ class ASH_EXPORT OverviewHighlightController {
   bool MaybeActivateHighlightedView();
   bool MaybeCloseHighlightedView();
 
-  // Swap the currently highlighted view with its neighbor views.
+  // Swaps the currently highlighted view with its neighbor views.
   bool MaybeSwapHighlightedView(bool right);
+
+  // Activates highlighted view when exiting overview mode.
+  bool MaybeActivateHighlightedViewOnOverviewExit();
 
   // Tries to get the item that is currently highlighted. Returns null if there
   // is no highlight, or if the highlight is on a desk view.
@@ -134,15 +103,13 @@ class ASH_EXPORT OverviewHighlightController {
 
   // If an item that is selected is deleted, store its index, so the next
   // traversal can pick up where it left off.
-  base::Optional<int> deleted_index_ = base::nullopt;
+  absl::optional<int> deleted_index_ = absl::nullopt;
 
   // The current view that is being highlighted, if any.
   OverviewHighlightableView* highlighted_view_ = nullptr;
 
   // The current view that is being tab dragged, if any.
   OverviewHighlightableView* tab_dragged_view_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(OverviewHighlightController);
 };
 
 }  // namespace ash

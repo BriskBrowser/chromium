@@ -21,7 +21,7 @@
 
 namespace sync_pb {
 class EntitySpecifics;
-}  // namespace sync_pb
+}
 
 namespace syncer {
 
@@ -44,14 +44,19 @@ class SyncableServiceBasedBridge : public ModelTypeSyncBridge {
       OnceModelTypeStoreFactory store_factory,
       std::unique_ptr<ModelTypeChangeProcessor> change_processor,
       SyncableService* syncable_service);
+
+  SyncableServiceBasedBridge(const SyncableServiceBasedBridge&) = delete;
+  SyncableServiceBasedBridge& operator=(const SyncableServiceBasedBridge&) =
+      delete;
+
   ~SyncableServiceBasedBridge() override;
 
   // ModelTypeSyncBridge implementation.
   std::unique_ptr<MetadataChangeList> CreateMetadataChangeList() override;
-  base::Optional<ModelError> MergeSyncData(
+  absl::optional<ModelError> MergeSyncData(
       std::unique_ptr<MetadataChangeList> metadata_change_list,
       EntityChangeList entity_change_list) override;
-  base::Optional<ModelError> ApplySyncChanges(
+  absl::optional<ModelError> ApplySyncChanges(
       std::unique_ptr<MetadataChangeList> metadata_change_list,
       EntityChangeList entity_change_list) override;
   void GetData(StorageKeyList storage_keys, DataCallback callback) override;
@@ -75,27 +80,27 @@ class SyncableServiceBasedBridge : public ModelTypeSyncBridge {
                                        ModelTypeChangeProcessor* other);
 
  private:
-  void OnStoreCreated(const base::Optional<ModelError>& error,
+  void OnStoreCreated(const absl::optional<ModelError>& error,
                       std::unique_ptr<ModelTypeStore> store);
   void OnReadAllDataForInit(std::unique_ptr<InMemoryStore> in_memory_store,
-                            const base::Optional<ModelError>& error);
-  void OnReadAllMetadataForInit(const base::Optional<ModelError>& error,
+                            const absl::optional<ModelError>& error);
+  void OnReadAllMetadataForInit(const absl::optional<ModelError>& error,
                                 std::unique_ptr<MetadataBatch> metadata_batch);
   void OnSyncableServiceReady(std::unique_ptr<MetadataBatch> metadata_batch);
-  base::Optional<ModelError> StartSyncableService() WARN_UNUSED_RESULT;
+  absl::optional<ModelError> StartSyncableService() WARN_UNUSED_RESULT;
   SyncChangeList StoreAndConvertRemoteChanges(
       std::unique_ptr<MetadataChangeList> metadata_change_list,
       EntityChangeList input_entity_change_list);
   void OnReadDataForProcessor(
       DataCallback callback,
-      const base::Optional<ModelError>& error,
+      const absl::optional<ModelError>& error,
       std::unique_ptr<ModelTypeStore::RecordList> record_list,
       std::unique_ptr<ModelTypeStore::IdList> missing_id_list);
   void OnReadAllDataForProcessor(
       DataCallback callback,
-      const base::Optional<ModelError>& error,
+      const absl::optional<ModelError>& error,
       std::unique_ptr<ModelTypeStore::RecordList> record_list);
-  void ReportErrorIfSet(const base::Optional<ModelError>& error);
+  void ReportErrorIfSet(const absl::optional<ModelError>& error);
 
   const ModelType type_;
   SyncableService* const syncable_service_;
@@ -110,8 +115,6 @@ class SyncableServiceBasedBridge : public ModelTypeSyncBridge {
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<SyncableServiceBasedBridge> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SyncableServiceBasedBridge);
 };
 
 }  // namespace syncer

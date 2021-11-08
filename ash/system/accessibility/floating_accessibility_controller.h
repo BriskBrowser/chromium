@@ -7,6 +7,7 @@
 
 #include "ash/accessibility/accessibility_observer.h"
 #include "ash/ash_export.h"
+#include "ash/constants/ash_constants.h"
 #include "ash/public/cpp/accessibility_controller_enums.h"
 #include "ash/public/cpp/ash_constants.h"
 #include "ash/system/accessibility/floating_accessibility_detailed_controller.h"
@@ -54,7 +55,7 @@ class ASH_EXPORT FloatingAccessibilityController
   views::Widget* GetBubbleWidget() override;
   // TrayBubbleView::Delegate:
   void BubbleViewDestroyed() override;
-  base::string16 GetAccessibleNameForBubble() override;
+  std::u16string GetAccessibleNameForBubble() override;
   // LocaleChangeObserver:
   void OnLocaleChanged() override;
 

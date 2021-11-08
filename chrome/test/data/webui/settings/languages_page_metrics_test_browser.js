@@ -4,16 +4,16 @@
 
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {LanguagesBrowserProxyImpl, LanguageSettingsActionType, LanguageSettingsMetricsProxy, LanguageSettingsMetricsProxyImpl} from 'chrome://settings/lazy_load.js';
+import {LanguagesBrowserProxyImpl, LanguageSettingsActionType, LanguageSettingsMetricsProxyImpl, LanguageSettingsPageImpressionType, SettingsLanguagesSubpageElement} from 'chrome://settings/lazy_load.js';
 import {CrSettingsPrefs} from 'chrome://settings/settings.js';
 
-import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {TestBrowserProxy} from '../test_browser_proxy.m.js';
-import {fakeDataBind} from '../test_util.m.js';
+import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
+import {fakeDataBind} from 'chrome://webui-test/test_util.js';
 
-import {getFakeLanguagePrefs} from './fake_language_settings_private.m.js';
-import {FakeSettingsPrivate} from './fake_settings_private.m.js';
-import {TestLanguagesBrowserProxy} from './test_languages_browser_proxy.m.js';
+import {getFakeLanguagePrefs} from './fake_language_settings_private.js';
+import {FakeSettingsPrivate} from './fake_settings_private.js';
+import {TestLanguagesBrowserProxy} from './test_languages_browser_proxy.js';
 
 /**
  * A test version of LanguageSettingsMetricsProxy.
@@ -23,22 +23,25 @@ import {TestLanguagesBrowserProxy} from './test_languages_browser_proxy.m.js';
  */
 class TestLanguageSettingsMetricsProxy extends TestBrowserProxy {
   constructor() {
-    super([
-      'recordSettingsMetric',
-    ]);
+    super(['recordSettingsMetric', 'recordPageImpressionMetric']);
   }
 
   /** @override */
   recordSettingsMetric(interaction) {
     this.methodCalled('recordSettingsMetric', interaction);
   }
+
+  /** @override */
+  recordPageImpressionMetric(interaction) {
+    this.methodCalled('recordPageImpressionMetric', interaction);
+  }
 }
 
 suite('LanguagesPageMetricsBrowser', function() {
   /** @type {!LanguageHelper} */
   let languageHelper;
-  /** @type {!SettingsLanguagesPageElement} */
-  let languagesPage;
+  /** @type {!SettingsLanguagesSubpageElement} */
+  let languagesSubpage;
   /** @type {!TestLanguagesBrowserProxy} */
   let browserProxy;
   /** @type {!TestLanguageSettingsMetricsProxy} */
@@ -60,41 +63,55 @@ suite('LanguagesPageMetricsBrowser', function() {
     return CrSettingsPrefs.initialized.then(function() {
       // Sets up test browser proxy.
       browserProxy = new TestLanguagesBrowserProxy();
-      LanguagesBrowserProxyImpl.instance_ = browserProxy;
+      LanguagesBrowserProxyImpl.setInstance(browserProxy);
 
       // Sets up test browser proxy.
       languageSettingsMetricsProxy = new TestLanguageSettingsMetricsProxy();
-      LanguageSettingsMetricsProxyImpl.instance_ = languageSettingsMetricsProxy;
+      LanguageSettingsMetricsProxyImpl.setInstance(
+          languageSettingsMetricsProxy);
 
       // Sets up fake languageSettingsPrivate API.
       const languageSettingsPrivate = browserProxy.getLanguageSettingsPrivate();
       languageSettingsPrivate.setSettingsPrefs(settingsPrefs);
 
-      languagesPage = /** @type {!SettingsLanguagesPageElement} */ (
-          document.createElement('settings-languages-page'));
+      const settingsLanguages = document.createElement('settings-languages');
+      settingsLanguages.prefs = settingsPrefs.prefs;
+      fakeDataBind(settingsPrefs, settingsLanguages, 'prefs');
+      document.body.appendChild(settingsLanguages);
+
+      languagesSubpage = /** @type {!SettingsLanguagesSubpageElement} */ (
+          document.createElement('settings-languages-subpage'));
 
       // Prefs would normally be data-bound to settings-languages-page.
-      languagesPage.prefs = settingsPrefs.prefs;
-      fakeDataBind(settingsPrefs, languagesPage, 'prefs');
+      languagesSubpage.prefs = settingsLanguages.prefs;
+      fakeDataBind(settingsLanguages, languagesSubpage, 'prefs');
 
-      document.body.appendChild(languagesPage);
-      languageHelper = languagesPage.languageHelper;
+      languagesSubpage.languageHelper = settingsLanguages.languageHelper;
+      fakeDataBind(settingsLanguages, languagesSubpage, 'language-helper');
+
+      languagesSubpage.languages = settingsLanguages.languages;
+      fakeDataBind(settingsLanguages, languagesSubpage, 'languages');
+
+      document.body.appendChild(languagesSubpage);
+      languageHelper = languagesSubpage.languageHelper;
       return languageHelper.whenReady();
     });
   });
 
   test('records when adding languages', async () => {
-    languagesPage.$$('#addLanguages').click();
+    languagesSubpage.shadowRoot.querySelector('#addLanguages').click();
     flush();
 
     assertEquals(
-        LanguageSettingsActionType.CLICK_ON_ADD_LANGUAGE,
-        await languageSettingsMetricsProxy.whenCalled('recordSettingsMetric'));
+        LanguageSettingsPageImpressionType.ADD_LANGUAGE,
+        await languageSettingsMetricsProxy.whenCalled(
+            'recordPageImpressionMetric'));
   });
 
   test('records when disabling translate.enable toggle', async () => {
-    languagesPage.setPrefValue('translate.enabled', true);
-    languagesPage.$$('#offerTranslateOtherLanguages').click();
+    languagesSubpage.setPrefValue('translate.enabled', true);
+    languagesSubpage.shadowRoot.querySelector('#offerTranslateOtherLanguages')
+        .click();
     flush();
 
     assertEquals(
@@ -103,8 +120,9 @@ suite('LanguagesPageMetricsBrowser', function() {
   });
 
   test('records when enabling translate.enable toggle', async () => {
-    languagesPage.setPrefValue('translate.enabled', false);
-    languagesPage.$$('#offerTranslateOtherLanguages').click();
+    languagesSubpage.setPrefValue('translate.enabled', false);
+    languagesSubpage.shadowRoot.querySelector('#offerTranslateOtherLanguages')
+        .click();
     flush();
 
     assertEquals(
@@ -112,17 +130,27 @@ suite('LanguagesPageMetricsBrowser', function() {
         await languageSettingsMetricsProxy.whenCalled('recordSettingsMetric'));
   });
 
-  test('records when ticking translate checkbox', async () => {
-    const languagesCollapse = languagesPage.$$('#languagesCollapse');
-    languagesCollapse.opened = true;
+  test('records when three-dot menu is opened', async () => {
+    const menuButtons =
+        languagesSubpage.shadowRoot.querySelector('#languagesSection')
+            .querySelectorAll('.list-item cr-icon-button.icon-more-vert');
 
-    const menuButtons = languagesCollapse.querySelectorAll(
-        '.list-item cr-icon-button.icon-more-vert');
+    menuButtons[0].click();
+    assertEquals(
+        LanguageSettingsPageImpressionType.LANGUAGE_OVERFLOW_MENU_OPENED,
+        await languageSettingsMetricsProxy.whenCalled(
+            'recordPageImpressionMetric'));
+  });
+
+  test('records when ticking translate checkbox', async () => {
+    const menuButtons =
+        languagesSubpage.shadowRoot.querySelector('#languagesSection')
+            .querySelectorAll('.list-item cr-icon-button.icon-more-vert');
 
     // Chooses the second language to change translate checkbox
     // as first language is the language used for translation.
     menuButtons[1].click();
-    const actionMenu = languagesPage.$$('#menu').get();
+    const actionMenu = languagesSubpage.shadowRoot.querySelector('#menu').get();
     assertTrue(actionMenu.open);
     const menuItems = actionMenu.querySelectorAll('.dropdown-item');
     for (const item of menuItems) {
@@ -146,14 +174,13 @@ suite('LanguagesPageMetricsBrowser', function() {
     }
 
     flush();
-    const languagesCollapse = languagesPage.$$('#languagesCollapse');
-    languagesCollapse.opened = true;
 
-    const menuButtons = languagesCollapse.querySelectorAll(
-        '.list-item cr-icon-button.icon-more-vert');
+    const menuButtons =
+        languagesSubpage.shadowRoot.querySelector('#languagesSection')
+            .querySelectorAll('.list-item cr-icon-button.icon-more-vert');
 
     menuButtons[1].click();
-    const actionMenu = languagesPage.$$('#menu').get();
+    const actionMenu = languagesSubpage.shadowRoot.querySelector('#menu').get();
     assertTrue(actionMenu.open);
 
     function getMenuItem(i18nKey) {

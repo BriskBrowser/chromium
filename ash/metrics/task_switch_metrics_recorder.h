@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ASH_METRICS_TASK_SWITCH_METRIC_RECORDER_H_
-#define ASH_METRICS_TASK_SWITCH_METRIC_RECORDER_H_
+#ifndef ASH_METRICS_TASK_SWITCH_METRICS_RECORDER_H_
+#define ASH_METRICS_TASK_SWITCH_METRICS_RECORDER_H_
 
 #include <memory>
 #include <string>
@@ -23,6 +23,11 @@ class TaskSwitchTimeTracker;
 class ASH_EXPORT TaskSwitchMetricsRecorder {
  public:
   TaskSwitchMetricsRecorder();
+
+  TaskSwitchMetricsRecorder(const TaskSwitchMetricsRecorder&) = delete;
+  TaskSwitchMetricsRecorder& operator=(const TaskSwitchMetricsRecorder&) =
+      delete;
+
   virtual ~TaskSwitchMetricsRecorder();
 
   // Notifies |this| that a "navigate to" task switch has occurred from the
@@ -64,10 +69,8 @@ class ASH_EXPORT TaskSwitchMetricsRecorder {
   // TaskSwitchTimeTracker is needed for a given source.
   std::unordered_map<int, std::unique_ptr<TaskSwitchTimeTracker>>
       histogram_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(TaskSwitchMetricsRecorder);
 };
 
 }  // namespace ash
 
-#endif  // ASH_METRICS_TASK_SWITCH_METRIC_RECORDER_H_
+#endif  // ASH_METRICS_TASK_SWITCH_METRICS_RECORDER_H_

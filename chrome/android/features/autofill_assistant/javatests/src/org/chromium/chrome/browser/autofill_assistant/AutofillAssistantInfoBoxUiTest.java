@@ -35,6 +35,7 @@ import org.chromium.chrome.browser.autofill_assistant.infobox.AssistantInfoBox;
 import org.chromium.chrome.browser.autofill_assistant.infobox.AssistantInfoBoxCoordinator;
 import org.chromium.chrome.browser.autofill_assistant.infobox.AssistantInfoBoxModel;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
+import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -50,6 +51,10 @@ public class AutofillAssistantInfoBoxUiTest {
 
     private TextView getExplanationView(AssistantInfoBoxCoordinator coordinator) {
         return coordinator.getView().findViewById(R.id.info_box_explanation);
+    }
+
+    private AssistantInfoBoxModel createModel() {
+        return TestThreadUtils.runOnUiThreadBlockingNoException(AssistantInfoBoxModel::new);
     }
 
     /** Creates a coordinator for use in UI tests, and adds it to the global view hierarchy. */
@@ -72,14 +77,15 @@ public class AutofillAssistantInfoBoxUiTest {
 
     @Before
     public void setUp() {
-        AutofillAssistantUiTestUtil.startOnBlankPage(mTestRule);
+        mTestRule.startCustomTabActivityWithIntent(CustomTabsTestUtils.createMinimalCustomTabIntent(
+                InstrumentationRegistry.getTargetContext(), "about:blank"));
     }
 
     /** Tests assumptions about the initial state of the infobox. */
     @Test
     @MediumTest
     public void testInitialState() throws Exception {
-        AssistantInfoBoxModel model = new AssistantInfoBoxModel();
+        AssistantInfoBoxModel model = createModel();
         AssistantInfoBoxCoordinator coordinator = createCoordinator(model);
 
         assertThat(model.get(AssistantInfoBoxModel.INFO_BOX), nullValue());
@@ -90,7 +96,7 @@ public class AutofillAssistantInfoBoxUiTest {
     @Test
     @MediumTest
     public void testMessageNoImage() throws Exception {
-        AssistantInfoBoxModel model = new AssistantInfoBoxModel();
+        AssistantInfoBoxModel model = createModel();
         AssistantInfoBoxCoordinator coordinator = createCoordinator(model);
         AssistantInfoBox infoBox = new AssistantInfoBox("", "Message");
 
@@ -114,7 +120,7 @@ public class AutofillAssistantInfoBoxUiTest {
     @Test
     @MediumTest
     public void testImage() throws Exception {
-        AssistantInfoBoxModel model = new AssistantInfoBoxModel();
+        AssistantInfoBoxModel model = createModel();
         AssistantInfoBoxCoordinator coordinator = createCoordinator(model);
         AssistantInfoBox infoBox = new AssistantInfoBox("x", "Message");
 
@@ -129,7 +135,7 @@ public class AutofillAssistantInfoBoxUiTest {
     @Test
     @MediumTest
     public void testVisibility() throws Exception {
-        AssistantInfoBoxModel model = new AssistantInfoBoxModel();
+        AssistantInfoBoxModel model = createModel();
         AssistantInfoBoxCoordinator coordinator = createCoordinator(model);
         AssistantInfoBox infoBox = new AssistantInfoBox("", "");
 

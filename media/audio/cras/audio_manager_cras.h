@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "media/audio/cras/audio_manager_cras_base.h"
+#include "media/audio/cras/cras_util.h"
 
 namespace media {
 
@@ -22,6 +23,10 @@ class MEDIA_EXPORT AudioManagerCras : public AudioManagerCrasBase {
  public:
   AudioManagerCras(std::unique_ptr<AudioThread> audio_thread,
                    AudioLogFactory* audio_log_factory);
+
+  AudioManagerCras(const AudioManagerCras&) = delete;
+  AudioManagerCras& operator=(const AudioManagerCras&) = delete;
+
   ~AudioManagerCras() override;
 
   // AudioManager implementation.
@@ -47,6 +52,9 @@ class MEDIA_EXPORT AudioManagerCras : public AudioManagerCrasBase {
       const std::string& output_device_id,
       const AudioParameters& input_params) override;
 
+ protected:
+  std::unique_ptr<CrasUtil> cras_util_;
+
  private:
   uint64_t GetPrimaryActiveInputNode();
   uint64_t GetPrimaryActiveOutputNode();
@@ -65,8 +73,6 @@ class MEDIA_EXPORT AudioManagerCras : public AudioManagerCrasBase {
   base::WeakPtr<AudioManagerCras> weak_this_;
 
   base::WeakPtrFactory<AudioManagerCras> weak_ptr_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioManagerCras);
 };
 
 }  // namespace media

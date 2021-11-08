@@ -16,10 +16,13 @@
 #include "ui/base/models/menu_model.h"
 #include "ui/base/models/menu_separator_types.h"
 #include "ui/base/models/simple_menu_model.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep_default.h"
+
+#if defined(OS_LINUX)
+#include "ui/ozone/public/ozone_platform.h"
+#endif
 
 namespace {
 
@@ -29,7 +32,7 @@ class TestMenuModel : public ui::SimpleMenuModel,
   TestMenuModel(bool checked,
                 bool enabled,
                 bool visible,
-                const base::string16& label,
+                const std::u16string& label,
                 const gfx::Image& icon,
                 const ui::Accelerator& accelerator)
       : ui::SimpleMenuModel(this),
@@ -66,7 +69,7 @@ class TestMenuModel : public ui::SimpleMenuModel,
     EXPECT_LE(command_id, 0);
     return visible_;
   }
-  base::string16 GetLabelForCommandId(int command_id) const override {
+  std::u16string GetLabelForCommandId(int command_id) const override {
     EXPECT_LE(command_id, 0);
     return label_;
   }
@@ -91,7 +94,7 @@ class TestMenuModel : public ui::SimpleMenuModel,
   const bool checked_;
   const bool enabled_;
   const bool visible_;
-  const base::string16 label_;
+  const std::u16string label_;
   const gfx::Image icon_;
   const ui::Accelerator accelerator_;
 };
@@ -185,7 +188,7 @@ class TestMenuModelBuilder {
   bool checked_ = false;
   bool enabled_ = true;
   bool visible_ = true;
-  base::string16 label_;
+  std::u16string label_;
   gfx::Image icon_;
   ui::Accelerator accelerator_;
 };
@@ -320,12 +323,12 @@ TEST(MenuPropertyListTest, ComputePropertiesIcon) {
   EXPECT_EQ(menu->ComputeProperties(), props);
 }
 
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if defined(OS_LINUX)
 TEST(MenuPropertyListTest, ComputePropertiesAccelerator) {
-  if (features::IsUsingOzonePlatform())
-    return;
+  // TODO(1136791): fix for Ozone/Wayland.
+  if (ui::OzonePlatform::GetPlatformNameForTest() != "x11")
+    GTEST_SKIP();
+
   auto builder = TestMenuModelBuilder();
 
   // No accelerator.

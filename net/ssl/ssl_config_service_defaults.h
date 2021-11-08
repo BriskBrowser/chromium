@@ -17,6 +17,10 @@ namespace net {
 class NET_EXPORT SSLConfigServiceDefaults : public SSLConfigService {
  public:
   SSLConfigServiceDefaults();
+
+  SSLConfigServiceDefaults(const SSLConfigServiceDefaults&) = delete;
+  SSLConfigServiceDefaults& operator=(const SSLConfigServiceDefaults&) = delete;
+
   ~SSLConfigServiceDefaults() override;
 
   // Returns the default SSL config settings.
@@ -25,14 +29,9 @@ class NET_EXPORT SSLConfigServiceDefaults : public SSLConfigService {
   bool CanShareConnectionWithClientCerts(
       const std::string& hostname) const override;
 
-  bool ShouldSuppressLegacyTLSWarning(
-      const std::string& hostname) const override;
-
  private:
   // Default value of prefs.
   const SSLContextConfig default_config_;
-
-  DISALLOW_COPY_AND_ASSIGN(SSLConfigServiceDefaults);
 };
 
 }  // namespace net

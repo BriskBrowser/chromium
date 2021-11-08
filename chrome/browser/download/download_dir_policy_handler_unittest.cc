@@ -28,7 +28,7 @@ namespace {
 
 const char* kUserIDHash = "deadbeef";
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 const char* kRelativeToDriveRoot = "/home/";
 #endif
 
@@ -55,7 +55,6 @@ class DownloadDirPolicyHandlerTest
   scoped_refptr<policy::ConfigurationPolicyPrefStore> recommended_store_;
 };
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(DownloadDirPolicyHandlerTest, SetDownloadDirectory) {
   policy::PolicyMap policy;
   EXPECT_FALSE(store_->GetValue(prefs::kPromptForDownload, NULL));
@@ -68,14 +67,11 @@ TEST_F(DownloadDirPolicyHandlerTest, SetDownloadDirectory) {
   const base::Value* value = NULL;
   EXPECT_TRUE(store_->GetValue(prefs::kPromptForDownload, &value));
   ASSERT_TRUE(value);
-  bool prompt_for_download = true;
-  bool result = value->GetAsBoolean(&prompt_for_download);
-  ASSERT_TRUE(result);
-  EXPECT_FALSE(prompt_for_download);
+  ASSERT_TRUE(value->is_bool());
+  EXPECT_FALSE(value->GetBool());
 }
-#endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 TEST_F(DownloadDirPolicyHandlerTest, SetDownloadToDrive) {
   EXPECT_FALSE(store_->GetValue(prefs::kPromptForDownload, NULL));
 
@@ -87,17 +83,17 @@ TEST_F(DownloadDirPolicyHandlerTest, SetDownloadToDrive) {
   UpdateProviderPolicy(policy);
 
   const base::Value* value = NULL;
-  bool prompt_for_download;
   EXPECT_TRUE(store_->GetValue(prefs::kPromptForDownload, &value));
   ASSERT_TRUE(value);
-  EXPECT_TRUE(value->GetAsBoolean(&prompt_for_download));
-  EXPECT_FALSE(prompt_for_download);
+  ASSERT_TRUE(value->is_bool());
+  EXPECT_FALSE(value->GetBool());
 
-  bool disable_drive;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   EXPECT_TRUE(store_->GetValue(drive::prefs::kDisableDrive, &value));
   ASSERT_TRUE(value);
-  EXPECT_TRUE(value->GetAsBoolean(&disable_drive));
-  EXPECT_FALSE(disable_drive);
+  ASSERT_TRUE(value->is_bool());
+  EXPECT_FALSE(value->GetBool());
+#endif
 
   std::string download_directory;
   EXPECT_TRUE(store_->GetValue(prefs::kDownloadDefaultDirectory, &value));

@@ -28,27 +28,27 @@ IncompatibleApplicationsHandler::IncompatibleApplicationsHandler() = default;
 IncompatibleApplicationsHandler::~IncompatibleApplicationsHandler() = default;
 
 void IncompatibleApplicationsHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "requestIncompatibleApplicationsList",
       base::BindRepeating(&IncompatibleApplicationsHandler::
                               HandleRequestIncompatibleApplicationsList,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "startApplicationUninstallation",
       base::BindRepeating(&IncompatibleApplicationsHandler::
                               HandleStartApplicationUninstallation,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getSubtitlePluralString",
       base::BindRepeating(
           &IncompatibleApplicationsHandler::HandleGetSubtitlePluralString,
           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getSubtitleNoAdminRightsPluralString",
       base::BindRepeating(&IncompatibleApplicationsHandler::
                               HandleGetSubtitleNoAdminRightsPluralString,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getListTitlePluralString",
       base::BindRepeating(
           &IncompatibleApplicationsHandler::HandleGetListTitlePluralString,
@@ -100,7 +100,7 @@ void IncompatibleApplicationsHandler::HandleRequestIncompatibleApplicationsList(
 
     // Also add the application to the list that is passed to the javascript.
     base::Value dict(base::Value::Type::DICTIONARY);
-    dict.SetKey("name", base::Value(application.info.name));
+    dict.SetKey("name", base::Value(base::WideToUTF8(application.info.name)));
     dict.SetKey("type",
                 base::Value(application.blocklist_action->message_type()));
     dict.SetKey("url",
@@ -123,7 +123,7 @@ void IncompatibleApplicationsHandler::HandleStartApplicationUninstallation(
 
   // Open the Apps & Settings page with the application name highlighted.
   uninstall_application::LaunchUninstallFlow(
-      base::UTF8ToUTF16(args->GetList()[0].GetString()));
+      base::UTF8ToWide(args->GetList()[0].GetString()));
 }
 
 void IncompatibleApplicationsHandler::HandleGetSubtitlePluralString(
@@ -165,7 +165,7 @@ void IncompatibleApplicationsHandler::OnApplicationRemoved(
 
   registry_key_watchers_.erase(application);
   FireWebUIListener("incompatible-application-removed",
-                    base::Value(application.name));
+                    base::Value(base::WideToUTF8(application.name)));
 }
 
 }  // namespace settings

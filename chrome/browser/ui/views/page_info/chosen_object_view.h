@@ -5,17 +5,18 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_PAGE_INFO_CHOSEN_OBJECT_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_PAGE_INFO_CHOSEN_OBJECT_VIEW_H_
 
-#include "base/strings/string16.h"
+#include <string>
+
 #include "components/page_info/page_info_ui.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace views {
 class ImageButton;
-class ImageView;
-}  // namespace views
+}
 
 class ChosenObjectViewObserver;
+class PageInfoRowView;
 
 // A ChosenObjectView is a row in the Page Info bubble that shows an individual
 // object (e.g. a Bluetooth device, a USB device) that the current site has
@@ -24,14 +25,15 @@ class ChosenObjectView : public views::View {
  public:
   METADATA_HEADER(ChosenObjectView);
   explicit ChosenObjectView(std::unique_ptr<PageInfoUI::ChosenObjectInfo> info,
-                            base::string16 display_name);
+                            std::u16string display_name);
   ChosenObjectView(const ChosenObjectView&) = delete;
   ChosenObjectView& operator=(const ChosenObjectView&) = delete;
   ~ChosenObjectView() override;
 
   void AddObserver(ChosenObjectViewObserver* observer);
+  void ResetPermission();
 
-  // views:View:
+  // views::View:
   void OnThemeChanged() override;
 
  private:
@@ -39,8 +41,8 @@ class ChosenObjectView : public views::View {
 
   void ExecuteDeleteCommand();
 
-  views::ImageView* icon_;             // Owned by the views hierarchy.
-  views::ImageButton* delete_button_;  // Owned by the views hierarchy.
+  views::ImageButton* delete_button_ = nullptr;
+  PageInfoRowView* row_view_ = nullptr;
 
   base::ObserverList<ChosenObjectViewObserver>::Unchecked observer_list_;
   std::unique_ptr<PageInfoUI::ChosenObjectInfo> info_;

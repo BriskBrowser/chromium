@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/compiler_specific.h"
 #include "chrome/browser/ui/views/global_media_controls/media_dialog_view.h"
 
 #include "base/callback_helpers.h"
+#include "base/containers/cxx20_erase.h"
+#include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -14,23 +17,29 @@
 #include "chrome/browser/ui/global_media_controls/media_toolbar_button_observer.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/global_media_controls/media_dialog_view_observer.h"
-#include "chrome/browser/ui/views/global_media_controls/media_notification_container_impl_view.h"
-#include "chrome/browser/ui/views/global_media_controls/media_notification_list_view.h"
 #include "chrome/browser/ui/views/global_media_controls/media_toolbar_button_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/browser/ui/views/user_education/new_badge_label.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/feature_engagement/public/feature_constants.h"
+#include "components/global_media_controls/public/views/media_item_ui_list_view.h"
+#include "components/global_media_controls/public/views/media_item_ui_view.h"
 #include "components/media_message_center/media_notification_view_impl.h"
 #include "components/media_router/browser/presentation/web_contents_presentation_manager.h"
 #include "components/media_router/browser/test/mock_media_router.h"
+#include "components/soda/constants.h"
 #include "content/public/browser/presentation_request.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_features.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/media_start_stop_observer.h"
 #include "media/base/media_switches.h"
+#include "net/dns/mock_host_resolver.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/toggle_button.h"
@@ -50,6 +59,10 @@ class MediaToolbarButtonWatcher : public MediaToolbarButtonObserver,
       : button_(button) {
     button_->AddObserver(this);
   }
+
+  MediaToolbarButtonWatcher(const MediaToolbarButtonWatcher&) = delete;
+  MediaToolbarButtonWatcher& operator=(const MediaToolbarButtonWatcher&) =
+      delete;
 
   ~MediaToolbarButtonWatcher() override {
     button_->RemoveObserver(this);
@@ -81,25 +94,39 @@ class MediaToolbarButtonWatcher : public MediaToolbarButtonObserver,
     MaybeStopWaiting();
   }
 
-  void OnMediaButtonHidden() override {}
+  void OnMediaButtonHidden() override {
+    waiting_for_button_hidden_ = false;
+    MaybeStopWaiting();
+  }
+
   void OnMediaButtonEnabled() override {}
   void OnMediaButtonDisabled() override {}
 
-  void WaitForDialogOpened() {
+  WARN_UNUSED_RESULT bool WaitForDialogOpened() {
     if (MediaDialogView::IsShowing())
-      return;
+      return true;
     waiting_for_dialog_opened_ = true;
     Wait();
+    return MediaDialogView::IsShowing();
   }
 
-  void WaitForButtonShown() {
+  WARN_UNUSED_RESULT bool WaitForButtonShown() {
     if (button_->GetVisible())
-      return;
+      return true;
     waiting_for_button_shown_ = true;
     Wait();
+    return button_->GetVisible();
   }
 
-  void WaitForDialogToContainText(const base::string16& text) {
+  WARN_UNUSED_RESULT bool WaitForButtonHidden() {
+    if (!button_->GetVisible())
+      return true;
+    waiting_for_button_hidden_ = true;
+    Wait();
+    return !button_->GetVisible();
+  }
+
+  void WaitForDialogToContainText(const std::u16string& text) {
     if (DialogContainsText(text))
       return;
 
@@ -110,12 +137,12 @@ class MediaToolbarButtonWatcher : public MediaToolbarButtonObserver,
     Wait();
   }
 
-  void WaitForNotificationCount(int count) {
-    if (GetNotificationCount() == count)
+  void WaitForItemCount(int count) {
+    if (GetItemCount() == count)
       return;
 
-    waiting_for_notification_count_ = true;
-    expected_notification_count_ = count;
+    waiting_for_item_count_ = true;
+    expected_item_count_ = count;
     observed_dialog_ = MediaDialogView::GetDialogViewForTesting();
     observed_dialog_->AddObserver(this);
     Wait();
@@ -144,14 +171,14 @@ class MediaToolbarButtonWatcher : public MediaToolbarButtonObserver,
     MaybeStopWaiting();
   }
 
-  void CheckNotificationCount() {
-    if (!waiting_for_notification_count_)
+  void CheckItemCount() {
+    if (!waiting_for_item_count_)
       return;
 
-    if (GetNotificationCount() != expected_notification_count_)
+    if (GetItemCount() != expected_item_count_)
       return;
 
-    waiting_for_notification_count_ = false;
+    waiting_for_item_count_ = false;
     MaybeStopWaiting();
   }
 
@@ -171,8 +198,7 @@ class MediaToolbarButtonWatcher : public MediaToolbarButtonObserver,
       return;
 
     if (!waiting_for_dialog_opened_ && !waiting_for_button_shown_ &&
-        !waiting_for_dialog_to_contain_text_ &&
-        !waiting_for_notification_count_ &&
+        !waiting_for_dialog_to_contain_text_ && !waiting_for_item_count_ &&
         !waiting_for_pip_visibility_changed_) {
       run_loop_->Quit();
     }
@@ -184,14 +210,13 @@ class MediaToolbarButtonWatcher : public MediaToolbarButtonObserver,
     run_loop_->Run();
   }
 
-  // Checks the title and artist of each notification in the dialog to see if
+  // Checks the title and artist of each item in the dialog to see if
   // |text| is contained anywhere in the dialog.
-  bool DialogContainsText(const base::string16& text) {
-    for (const auto& notification_pair :
-         MediaDialogView::GetDialogViewForTesting()
-             ->GetNotificationsForTesting()) {
+  bool DialogContainsText(const std::u16string& text) {
+    for (const auto& item_pair :
+         MediaDialogView::GetDialogViewForTesting()->GetItemsForTesting()) {
       const media_message_center::MediaNotificationViewImpl* view =
-          notification_pair.second->view_for_testing();
+          item_pair.second->view_for_testing();
       if (view->title_label_for_testing()->GetText().find(text) !=
               std::string::npos ||
           view->artist_label_for_testing()->GetText().find(text) !=
@@ -204,19 +229,19 @@ class MediaToolbarButtonWatcher : public MediaToolbarButtonObserver,
   }
 
   bool CheckPictureInPictureButtonVisibility(bool visible) {
-    const auto notification_pair = MediaDialogView::GetDialogViewForTesting()
-                                       ->GetNotificationsForTesting()
-                                       .begin();
+    const auto item_pair = MediaDialogView::GetDialogViewForTesting()
+                               ->GetItemsForTesting()
+                               .begin();
     const media_message_center::MediaNotificationViewImpl* view =
-        notification_pair->second->view_for_testing();
+        item_pair->second->view_for_testing();
 
     return view->picture_in_picture_button_for_testing()->GetVisible() ==
            visible;
   }
 
-  int GetNotificationCount() {
+  int GetItemCount() {
     return MediaDialogView::GetDialogViewForTesting()
-        ->GetNotificationsForTesting()
+        ->GetItemsForTesting()
         .size();
   }
 
@@ -225,16 +250,15 @@ class MediaToolbarButtonWatcher : public MediaToolbarButtonObserver,
 
   bool waiting_for_dialog_opened_ = false;
   bool waiting_for_button_shown_ = false;
-  bool waiting_for_notification_count_ = false;
+  bool waiting_for_button_hidden_ = false;
+  bool waiting_for_item_count_ = false;
   bool waiting_for_pip_visibility_changed_ = false;
 
   MediaDialogView* observed_dialog_ = nullptr;
   bool waiting_for_dialog_to_contain_text_ = false;
-  base::string16 expected_text_;
-  int expected_notification_count_ = 0;
+  std::u16string expected_text_;
+  int expected_item_count_ = 0;
   bool expected_pip_visibility_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaToolbarButtonWatcher);
 };
 
 class TestWebContentsPresentationManager
@@ -258,6 +282,7 @@ class TestWebContentsPresentationManager
   MOCK_CONST_METHOD0(HasDefaultPresentationRequest, bool());
   MOCK_CONST_METHOD0(GetDefaultPresentationRequest,
                      const content::PresentationRequest&());
+  MOCK_METHOD0(GetMediaRoutes, std::vector<media_router::MediaRoute>());
 
   void OnPresentationResponse(
       const content::PresentationRequest& presentation_request,
@@ -312,6 +337,11 @@ class TestMediaRouter : public media_router::MockMediaRouter {
 class MediaDialogViewBrowserTest : public InProcessBrowserTest {
  public:
   MediaDialogViewBrowserTest() = default;
+
+  MediaDialogViewBrowserTest(const MediaDialogViewBrowserTest&) = delete;
+  MediaDialogViewBrowserTest& operator=(const MediaDialogViewBrowserTest&) =
+      delete;
+
   ~MediaDialogViewBrowserTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -321,10 +351,12 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
   }
 
   void SetUp() override {
+    // TODO(crbug.com/1182859): Update this test to enable the
+    // kUseSodaForLiveCaption feature.
     feature_list_.InitWithFeatures(
         {media::kGlobalMediaControls, media::kGlobalMediaControlsForCast,
-         media::kLiveCaption},
-        {});
+         media::kLiveCaption, feature_engagement::kIPHLiveCaptionFeature},
+        {media::kUseSodaForLiveCaption});
 
     presentation_manager_ =
         std::make_unique<TestWebContentsPresentationManager>();
@@ -371,15 +403,19 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
 
   bool IsToolbarIconVisible() { return GetToolbarIcon()->GetVisible(); }
 
-  void WaitForVisibleToolbarIcon() {
-    MediaToolbarButtonWatcher(GetToolbarIcon()).WaitForButtonShown();
+  WARN_UNUSED_RESULT bool WaitForToolbarIconShown() {
+    return MediaToolbarButtonWatcher(GetToolbarIcon()).WaitForButtonShown();
+  }
+
+  WARN_UNUSED_RESULT bool WaitForToolbarIconHidden() {
+    return MediaToolbarButtonWatcher(GetToolbarIcon()).WaitForButtonHidden();
   }
 
   void OpenTestURL() {
     GURL url = ui_test_utils::GetTestUrl(
         base::FilePath(FILE_PATH_LITERAL("media/session")),
         base::FilePath(FILE_PATH_LITERAL("video-with-metadata.html")));
-    ui_test_utils::NavigateToURL(browser(), url);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   }
 
   void OpenDifferentMetadataURLInNewTab() {
@@ -396,7 +432,7 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
     // The test HTML files used in these tests contain "play()" functions that
     // play the video.
     GetActiveWebContents()->GetMainFrame()->ExecuteJavaScriptForTests(
-        base::ASCIIToUTF16("play()"), base::NullCallback());
+        u"play()", base::NullCallback());
   }
 
   void WaitForStart() {
@@ -415,15 +451,18 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
 
   void DisablePictureInPicture() {
     GetActiveWebContents()->GetMainFrame()->ExecuteJavaScriptForTests(
-        base::ASCIIToUTF16("disablePictureInPicture()"), base::NullCallback());
+        u"disablePictureInPicture()", base::NullCallback());
   }
 
   void EnablePictureInPicture() {
     GetActiveWebContents()->GetMainFrame()->ExecuteJavaScriptForTests(
-        base::ASCIIToUTF16("enablePictureInPicture()"), base::NullCallback());
+        u"enablePictureInPicture()", base::NullCallback());
   }
 
   void WaitForEnterPictureInPicture() {
+    if (GetActiveWebContents()->HasPictureInPictureVideo())
+      return;
+
     content::MediaStartStopObserver observer(
         GetActiveWebContents(),
         content::MediaStartStopObserver::Type::kEnterPictureInPicture);
@@ -431,25 +470,28 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
   }
 
   void WaitForExitPictureInPicture() {
+    if (!GetActiveWebContents()->HasPictureInPictureVideo())
+      return;
+
     content::MediaStartStopObserver observer(
         GetActiveWebContents(),
         content::MediaStartStopObserver::Type::kExitPictureInPicture);
     observer.Wait();
   }
 
-  void WaitForDialogOpened() {
-    MediaToolbarButtonWatcher(GetToolbarIcon()).WaitForDialogOpened();
+  WARN_UNUSED_RESULT bool WaitForDialogOpened() {
+    return MediaToolbarButtonWatcher(GetToolbarIcon()).WaitForDialogOpened();
   }
 
   bool IsDialogVisible() { return MediaDialogView::IsShowing(); }
 
-  void WaitForDialogToContainText(const base::string16& text) {
+  void WaitForDialogToContainText(const std::u16string& text) {
     MediaToolbarButtonWatcher(GetToolbarIcon())
         .WaitForDialogToContainText(text);
   }
 
-  void WaitForNotificationCount(int count) {
-    MediaToolbarButtonWatcher(GetToolbarIcon()).WaitForNotificationCount(count);
+  void WaitForItemCount(int count) {
+    MediaToolbarButtonWatcher(GetToolbarIcon()).WaitForItemCount(count);
   }
 
   void WaitForPictureInPictureButtonVisibility(bool visible) {
@@ -489,12 +531,11 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
     ClickButton(live_caption_button);
   }
 
-  void ClickNotificationByTitle(const base::string16& title) {
+  void ClickItemByTitle(const std::u16string& title) {
     ASSERT_TRUE(MediaDialogView::IsShowing());
-    MediaNotificationContainerImplView* notification =
-        GetNotificationByTitle(title);
-    ASSERT_NE(nullptr, notification);
-    ClickButton(notification);
+    global_media_controls::MediaItemUIView* item = GetItemByTitle(title);
+    ASSERT_NE(nullptr, item);
+    ClickButton(item);
   }
 
   content::WebContents* GetActiveWebContents() {
@@ -507,13 +548,13 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
                                  ->GetListViewForTesting()
                                  ->contents()
                                  ->children()) {
-      MediaNotificationContainerImplView* notification =
-          static_cast<MediaNotificationContainerImplView*>(view);
+      global_media_controls::MediaItemUIView* item =
+          static_cast<global_media_controls::MediaItemUIView*>(view);
 
-      if (seen_paused && notification->is_playing_for_testing())
+      if (seen_paused && item->is_playing_for_testing())
         return false;
 
-      if (!seen_paused && !notification->is_playing_for_testing())
+      if (!seen_paused && !item->is_playing_for_testing())
         seen_paused = true;
     }
 
@@ -552,6 +593,11 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
     MediaDialogView::GetDialogViewForTesting()->OnSodaInstalled();
   }
 
+  void OnSodaLanguagePackInstalled() {
+    MediaDialogView::GetDialogViewForTesting()->OnSodaLanguagePackInstalled(
+        speech::LanguageCode::kEnUs);
+  }
+
  protected:
   std::unique_ptr<TestWebContentsPresentationManager> presentation_manager_;
   TestMediaRouter* media_router_ = nullptr;
@@ -585,28 +631,28 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
     return nullptr;
   }
 
-  // Finds a MediaNotificationContainerImplView by title.
-  MediaNotificationContainerImplView* GetNotificationByTitle(
-      const base::string16& title) {
-    for (const auto& notification_pair :
-         MediaDialogView::GetDialogViewForTesting()
-             ->GetNotificationsForTesting()) {
+  // Finds a global_media_controls::MediaItemUIView by title.
+  global_media_controls::MediaItemUIView* GetItemByTitle(
+      const std::u16string& title) {
+    for (const auto& item_pair :
+         MediaDialogView::GetDialogViewForTesting()->GetItemsForTesting()) {
       const media_message_center::MediaNotificationViewImpl* view =
-          notification_pair.second->view_for_testing();
+          item_pair.second->view_for_testing();
       if (view->title_label_for_testing()->GetText() == title)
-        return notification_pair.second;
+        return item_pair.second;
     }
     return nullptr;
   }
 
   base::test::ScopedFeatureList feature_list_;
   base::CallbackListSubscription subscription_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaDialogViewBrowserTest);
 };
 
+// This test was first disabled on defined(OS_MAC) && defined(ARCH_CPU_ARM64)
+// for https://crbug.com/1222873.
+// Then got disabled on all platforms for https://crbug.com/1225531.
 IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
-                       ShowsMetadataAndControlsMedia) {
+                       DISABLED_ShowsMetadataAndControlsMedia) {
   // The toolbar icon should not start visible.
   EXPECT_FALSE(IsToolbarIconVisible());
 
@@ -620,7 +666,7 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
   // appear if it hasn't been clicked.
   StartPlayback();
   WaitForStart();
-  WaitForVisibleToolbarIcon();
+  EXPECT_TRUE(WaitForToolbarIconShown());
   EXPECT_TRUE(IsToolbarIconVisible());
   EXPECT_FALSE(IsDialogVisible());
 
@@ -630,13 +676,13 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
 
   // Clicking on the toolbar icon should open the dialog.
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   // The dialog should contain the title and artist. These are taken from
   // video-with-metadata.html.
-  WaitForDialogToContainText(base::ASCIIToUTF16("Big Buck Bunny"));
-  WaitForDialogToContainText(base::ASCIIToUTF16("Blender Foundation"));
+  WaitForDialogToContainText(u"Big Buck Bunny");
+  WaitForDialogToContainText(u"Blender Foundation");
 
   // Clicking on the pause button in the dialog should pause the media on the
   // page.
@@ -654,8 +700,16 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
   EXPECT_FALSE(IsDialogVisible());
 }
 
+#if defined(OS_MAC) && defined(ARCH_CPU_ARM64)
+// https://crbug.com/1222873
+#define MAYBE_ShowsMetadataAndControlsMediaInRTL \
+  DISABLED_ShowsMetadataAndControlsMediaInRTL
+#else
+#define MAYBE_ShowsMetadataAndControlsMediaInRTL \
+  ShowsMetadataAndControlsMediaInRTL
+#endif
 IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
-                       ShowsMetadataAndControlsMediaInRTL) {
+                       MAYBE_ShowsMetadataAndControlsMediaInRTL) {
   base::i18n::SetICUDefaultLocale("ar");
   ASSERT_TRUE(base::i18n::IsRTL());
 
@@ -672,7 +726,7 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
   // appear if it hasn't been clicked.
   StartPlayback();
   WaitForStart();
-  WaitForVisibleToolbarIcon();
+  EXPECT_TRUE(WaitForToolbarIconShown());
   EXPECT_TRUE(IsToolbarIconVisible());
   EXPECT_FALSE(IsDialogVisible());
 
@@ -682,12 +736,12 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
 
   // Clicking on the toolbar icon should open the dialog.
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   // The view containing playback controls should not be mirrored.
   EXPECT_FALSE(MediaDialogView::GetDialogViewForTesting()
-                   ->GetNotificationsForTesting()
+                   ->GetItemsForTesting()
                    .begin()
                    ->second->view_for_testing()
                    ->playback_button_container_for_testing()
@@ -695,8 +749,8 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
 
   // The dialog should contain the title and artist. These are taken from
   // video-with-metadata.html.
-  WaitForDialogToContainText(base::ASCIIToUTF16("Big Buck Bunny"));
-  WaitForDialogToContainText(base::ASCIIToUTF16("Blender Foundation"));
+  WaitForDialogToContainText(u"Big Buck Bunny");
+  WaitForDialogToContainText(u"Blender Foundation");
 
   // Clicking on the pause button in the dialog should pause the media on the
   // page.
@@ -741,18 +795,18 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, ShowsMultipleMediaSessions) {
 
   // Open the media dialog.
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   // The dialog should show both media sessions.
-  WaitForDialogToContainText(base::ASCIIToUTF16("Big Buck Bunny"));
-  WaitForDialogToContainText(base::ASCIIToUTF16("Blender Foundation"));
-  WaitForDialogToContainText(base::ASCIIToUTF16("Different Title"));
-  WaitForDialogToContainText(base::ASCIIToUTF16("Another Artist"));
+  WaitForDialogToContainText(u"Big Buck Bunny");
+  WaitForDialogToContainText(u"Blender Foundation");
+  WaitForDialogToContainText(u"Different Title");
+  WaitForDialogToContainText(u"Another Artist");
 }
 
 IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
-                       ClickingOnNotificationGoesBackToTab) {
+                       ClickingOnItemGoesBackToTab) {
   // Open a tab and play media.
   OpenTestURL();
   StartPlayback();
@@ -772,18 +826,25 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
 
   // Open the media dialog.
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   // Wait for the dialog to be populated.
-  WaitForDialogToContainText(base::ASCIIToUTF16("Big Buck Bunny"));
-  WaitForDialogToContainText(base::ASCIIToUTF16("Different Title"));
+  WaitForDialogToContainText(u"Big Buck Bunny");
+  WaitForDialogToContainText(u"Different Title");
 
   // The second tab should be the active tab.
   EXPECT_EQ(second_web_contents, GetActiveWebContents());
 
-  // Clicking the first notification should make the first tab active.
-  ClickNotificationByTitle(base::ASCIIToUTF16("Big Buck Bunny"));
+  // Clicking the first item should make the first tab active.
+  ClickItemByTitle(u"Big Buck Bunny");
+
+  // Allow the MediaSessionNotificationItem to flush its message to the
+  // MediaSessionImpl. There isn't currently a clean way for us to access the
+  // MediaSessionNotificationItem directly to force it to flush, so we use this
+  // non-ideal |RunUntilIdle()| call instead.
+  base::RunLoop().RunUntilIdle();
+
   EXPECT_EQ(first_web_contents, GetActiveWebContents());
 }
 
@@ -802,24 +863,31 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, ShowsCastSession) {
   base::RunLoop().RunUntilIdle();
   presentation_manager_->NotifyMediaRoutesChanged({route});
 
-  WaitForVisibleToolbarIcon();
+  EXPECT_TRUE(WaitForToolbarIconShown());
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   WaitForDialogToContainText(
       base::UTF8ToUTF16(route_description + " \xC2\xB7 " + sink_name));
-  WaitForNotificationCount(1);
+  WaitForItemCount(1);
 }
 
-IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, PictureInPicture) {
+#if defined(OS_MAC) && defined(ARCH_CPU_ARM64)
+// https://crbug.com/1224071
+#define MAYBE_PictureInPicture DISABLED_PictureInPicture
+#else
+#define MAYBE_PictureInPicture PictureInPicture
+#endif
+// Test is flaky crbug.com/1213256.
+IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, MAYBE_PictureInPicture) {
   // Open a tab and play media.
   OpenTestURL();
   StartPlayback();
   WaitForStart();
 
   // Open the media dialog.
-  WaitForVisibleToolbarIcon();
+  EXPECT_TRUE(WaitForToolbarIconShown());
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   ClickEnterPictureInPictureButtonOnDialog();
@@ -837,9 +905,9 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
   WaitForStart();
 
   // Open the media dialog.
-  WaitForVisibleToolbarIcon();
+  EXPECT_TRUE(WaitForToolbarIconShown());
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   DisablePictureInPicture();
@@ -849,8 +917,15 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
   WaitForPictureInPictureButtonVisibility(true);
 }
 
+// Flaky on linux (https://crbug.com/1218003).
+#if defined(OS_LINUX)
+#define MAYBE_PlayingSessionAlwaysDisplayFirst \
+  DISABLED_PlayingSessionAlwaysDisplayFirst
+#else
+#define MAYBE_PlayingSessionAlwaysDisplayFirst PlayingSessionAlwaysDisplayFirst
+#endif
 IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
-                       PlayingSessionAlwaysDisplayFirst) {
+                       MAYBE_PlayingSessionAlwaysDisplayFirst) {
   OpenTestURL();
   StartPlayback();
   WaitForStart();
@@ -861,11 +936,11 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
   StartPlayback();
   WaitForStart();
 
-  WaitForVisibleToolbarIcon();
+  EXPECT_TRUE(WaitForToolbarIconShown());
   EXPECT_TRUE(IsToolbarIconVisible());
 
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   // Pause the first session.
@@ -876,18 +951,18 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
   ClickToolbarIcon();
   EXPECT_FALSE(IsDialogVisible());
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   EXPECT_TRUE(IsPlayingSessionDisplayedFirst());
 }
 
-// Flaky on Mac: crbug.com/1163666
 #if defined(OS_MAC)
+// https://crbug.com/1222873
 #define MAYBE_LiveCaption DISABLED_LiveCaption
 #else
 #define MAYBE_LiveCaption LiveCaption
-#endif  // defined(OS_MAC)
+#endif
 IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, MAYBE_LiveCaption) {
   // Open a tab and play media.
   OpenTestURL();
@@ -895,9 +970,9 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, MAYBE_LiveCaption) {
   WaitForStart();
 
   // Open the media dialog.
-  WaitForVisibleToolbarIcon();
+  EXPECT_TRUE(WaitForToolbarIconShown());
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   // When media dialog opens and Live Caption is disabled, the New badge is
@@ -927,7 +1002,7 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, MAYBE_LiveCaption) {
   browser()->profile()->GetPrefs()->SetBoolean(prefs::kLiveCaptionEnabled,
                                                true);
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
   // When media dialog opens and Live Caption is enabled, the New badge is not
   // created. The regular title is visible.
@@ -942,16 +1017,23 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, MAYBE_LiveCaption) {
   EXPECT_TRUE(GetLiveCaptionTitleLabel()->GetVisible());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, LiveCaptionProgressUpdate) {
+#if defined(OS_MAC) && defined(ARCH_CPU_ARM64)
+// https://crbug.com/1222873
+#define MAYBE_LiveCaptionProgressUpdate DISABLED_LiveCaptionProgressUpdate
+#else
+#define MAYBE_LiveCaptionProgressUpdate LiveCaptionProgressUpdate
+#endif
+IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
+                       MAYBE_LiveCaptionProgressUpdate) {
   // Open a tab and play media.
   OpenTestURL();
   StartPlayback();
   WaitForStart();
 
   // Open the media dialog.
-  WaitForVisibleToolbarIcon();
+  EXPECT_TRUE(WaitForToolbarIconShown());
   ClickToolbarIcon();
-  WaitForDialogOpened();
+  EXPECT_TRUE(WaitForDialogOpened());
   EXPECT_TRUE(IsDialogVisible());
 
   EXPECT_EQ("Live Caption (English only)",
@@ -970,9 +1052,191 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, LiveCaptionProgressUpdate) {
   EXPECT_EQ("Downloading… 100%",
             base::UTF16ToUTF8(GetLiveCaptionTitleLabel()->GetText()));
 
+  OnSodaLanguagePackInstalled();
+  EXPECT_EQ("Downloading… 100%",
+            base::UTF16ToUTF8(GetLiveCaptionTitleLabel()->GetText()));
+
   OnSodaInstalled();
   EXPECT_EQ("Live Caption (English only)",
             base::UTF16ToUTF8(GetLiveCaptionTitleLabel()->GetText()));
+}
+
+class MediaDialogViewWithBackForwardCacheBrowserTest
+    : public MediaDialogViewBrowserTest {
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    MediaDialogViewBrowserTest::SetUpCommandLine(command_line);
+
+    std::vector<base::test::ScopedFeatureList::FeatureAndParams>
+        enabled_features;
+    std::map<std::string, std::string> params;
+#if defined(OS_ANDROID)
+    params["process_binding_strength"] = "NORMAL";
+#endif
+    enabled_features.emplace_back(features::kBackForwardCache, params);
+    enabled_features.emplace_back(
+        features::kBackForwardCacheMediaSessionService,
+        std::map<std::string, std::string>{});
+
+    std::vector<base::Feature> disabled_features = {
+        features::kBackForwardCacheMemoryControls,
+    };
+
+    feature_list_.InitWithFeaturesAndParameters(enabled_features,
+                                                disabled_features);
+  }
+
+  void SetUpOnMainThread() override {
+    embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
+    host_resolver()->AddRule("*", "127.0.0.1");
+
+    MediaDialogViewBrowserTest::SetUpOnMainThread();
+  }
+
+  content::RenderFrameHost* GetMainFrame() {
+    return GetActiveWebContents()->GetMainFrame();
+  }
+
+ protected:
+  base::FilePath GetTestDataDirectory() {
+    base::FilePath test_file_directory;
+    base::PathService::Get(chrome::DIR_TEST_DATA, &test_file_directory);
+    return test_file_directory;
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_F(MediaDialogViewWithBackForwardCacheBrowserTest,
+                       PlayAndCache) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL url1(embedded_test_server()->GetURL(
+      "a.test", "/media/session/video-with-metadata.html"));
+  GURL url2(embedded_test_server()->GetURL("b.test", "/title1.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url1));
+  content::RenderFrameHost* rfh = GetMainFrame();
+
+  StartPlayback();
+  WaitForStart();
+
+  // Open the media dialog.
+  EXPECT_TRUE(WaitForToolbarIconShown());
+  ClickToolbarIcon();
+  EXPECT_TRUE(WaitForDialogOpened());
+  EXPECT_TRUE(IsDialogVisible());
+
+  // Navigate to another page. The original page is cached.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url2));
+  EXPECT_EQ(content::RenderFrameHost::LifecycleState::kInBackForwardCache,
+            rfh->GetLifecycleState());
+  EXPECT_TRUE(WaitForToolbarIconHidden());
+  EXPECT_FALSE(IsDialogVisible());
+
+  // Go back to the original page. The original page is restored from the cache.
+  GetActiveWebContents()->GetController().GoBack();
+  EXPECT_TRUE(WaitForLoadStop(GetActiveWebContents()));
+  EXPECT_NE(content::RenderFrameHost::LifecycleState::kInBackForwardCache,
+            rfh->GetLifecycleState());
+  EXPECT_FALSE(IsDialogVisible());
+
+  EXPECT_TRUE(WaitForToolbarIconShown());
+  ClickToolbarIcon();
+  EXPECT_TRUE(WaitForDialogOpened());
+  EXPECT_TRUE(IsDialogVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaDialogViewWithBackForwardCacheBrowserTest,
+                       DISABLED_PauseAndCache) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL url1(embedded_test_server()->GetURL(
+      "a.test", "/media/session/video-with-metadata.html"));
+  GURL url2(embedded_test_server()->GetURL("b.test", "/title1.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url1));
+  content::RenderFrameHost* rfh = GetMainFrame();
+
+  StartPlayback();
+  WaitForStart();
+
+  // Open the media dialog.
+  EXPECT_TRUE(WaitForToolbarIconShown());
+  ClickToolbarIcon();
+  EXPECT_TRUE(WaitForDialogOpened());
+  EXPECT_TRUE(IsDialogVisible());
+
+  // Pause the media.
+  ClickPauseButtonOnDialog();
+  WaitForStop();
+  EXPECT_TRUE(IsDialogVisible());
+
+  // Close the dialog.
+  ClickToolbarIcon();
+  EXPECT_FALSE(IsDialogVisible());
+
+  // Navigate to another page. The original page is cached.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url2));
+  EXPECT_EQ(content::RenderFrameHost::LifecycleState::kInBackForwardCache,
+            rfh->GetLifecycleState());
+  EXPECT_TRUE(WaitForToolbarIconHidden());
+  EXPECT_FALSE(IsDialogVisible());
+
+  // Go back to the original page. The original page is restored from the cache.
+  GetActiveWebContents()->GetController().GoBack();
+  EXPECT_TRUE(WaitForLoadStop(GetActiveWebContents()));
+  EXPECT_NE(content::RenderFrameHost::LifecycleState::kInBackForwardCache,
+            rfh->GetLifecycleState());
+  EXPECT_FALSE(IsDialogVisible());
+
+  EXPECT_TRUE(WaitForToolbarIconShown());
+  ClickToolbarIcon();
+  EXPECT_TRUE(WaitForDialogOpened());
+  EXPECT_TRUE(IsDialogVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaDialogViewWithBackForwardCacheBrowserTest,
+                       DISABLED_CacheTwiceAndGoBack) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL url1(embedded_test_server()->GetURL(
+      "a.test", "/media/session/video-with-metadata.html"));
+  GURL url2(embedded_test_server()->GetURL(
+      "b.test", "/media/session/video-with-metadata.html"));
+  GURL url3(embedded_test_server()->GetURL(
+      "c.test", "/media/session/video-with-metadata.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url1));
+  content::RenderFrameHost* rfh1 = GetMainFrame();
+
+  StartPlayback();
+  WaitForStart();
+
+  // Open the media dialog.
+  EXPECT_TRUE(WaitForToolbarIconShown());
+  ClickToolbarIcon();
+  EXPECT_TRUE(WaitForDialogOpened());
+  EXPECT_TRUE(IsDialogVisible());
+
+  // Navigate to another page.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url2));
+  EXPECT_EQ(content::RenderFrameHost::LifecycleState::kInBackForwardCache,
+            rfh1->GetLifecycleState());
+  EXPECT_TRUE(WaitForToolbarIconHidden());
+  EXPECT_FALSE(IsDialogVisible());
+  content::RenderFrameHost* rfh2 = GetMainFrame();
+
+  StartPlayback();
+  WaitForStart();
+
+  // Navigate to yet another page.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url3));
+  EXPECT_EQ(content::RenderFrameHost::LifecycleState::kInBackForwardCache,
+            rfh2->GetLifecycleState());
+  EXPECT_TRUE(WaitForToolbarIconHidden());
+  EXPECT_FALSE(IsDialogVisible());
+
+  // Go back.
+  GetActiveWebContents()->GetController().GoBack();
+  EXPECT_TRUE(WaitForLoadStop(GetActiveWebContents()));
+  EXPECT_NE(content::RenderFrameHost::LifecycleState::kInBackForwardCache,
+            rfh2->GetLifecycleState());
 }
 
 #endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)

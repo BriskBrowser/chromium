@@ -9,6 +9,7 @@
 #include "ash/assistant/test/assistant_ash_test_base.h"
 #include "ash/fast_ink/fast_ink_points.h"
 #include "ash/highlighter/highlighter_controller_test_api.h"
+#include "ash/public/cpp/stylus_utils.h"
 #include "ash/shell.h"
 #include "ash/system/palette/mock_palette_tool_delegate.h"
 #include "ash/system/palette/palette_tool.h"
@@ -24,6 +25,10 @@ namespace {
 class TestHighlighterObserver : public HighlighterController::Observer {
  public:
   TestHighlighterObserver() = default;
+
+  TestHighlighterObserver(const TestHighlighterObserver&) = delete;
+  TestHighlighterObserver& operator=(const TestHighlighterObserver&) = delete;
+
   ~TestHighlighterObserver() override = default;
 
   // HighlighterController::Observer:
@@ -53,14 +58,16 @@ class TestHighlighterObserver : public HighlighterController::Observer {
   int disabled_by_session_abort_ = 0;
   int disabled_by_session_complete_ = 0;
   gfx::Rect last_recognized_rect_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestHighlighterObserver);
 };
 
 class HighlighterControllerTest : public AssistantAshTestBase {
  public:
   HighlighterControllerTest() = default;
+
+  HighlighterControllerTest(const HighlighterControllerTest&) = delete;
+  HighlighterControllerTest& operator=(const HighlighterControllerTest&) =
+      delete;
+
   ~HighlighterControllerTest() override = default;
 
   void SetUp() override {
@@ -110,9 +117,6 @@ class HighlighterControllerTest : public AssistantAshTestBase {
   std::unique_ptr<PaletteTool> tool_;
 
   HighlighterController* controller_ = nullptr;  // Not owned.
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(HighlighterControllerTest);
 };
 
 }  // namespace
@@ -120,6 +124,8 @@ class HighlighterControllerTest : public AssistantAshTestBase {
 // Test to ensure the class responsible for drawing the highlighter pointer
 // receives points from stylus movements as expected.
 TEST_F(HighlighterControllerTest, HighlighterRenderer) {
+  ash::stylus_utils::SetHasStylusInputForTesting();
+
   // The highlighter pointer mode only works with stylus.
   ui::test::EventGenerator* event_generator = GetEventGenerator();
   event_generator->EnterPenPointerMode();
@@ -428,11 +434,11 @@ TEST_F(HighlighterControllerTest, SelectionInsideScreen) {
   for (size_t i = 0; i < sizeof(display_scales) / sizeof(float); ++i) {
     // 2nd display is for offscreen test.
     std::string display_spec = base::StringPrintf(
-        "1000x1000*%.2f,500x1000*%.2f", display_scales[i], display_scales[i]);
+        "1000x999*%.2f,500x1000*%.2f", display_scales[i], display_scales[i]);
     SCOPED_TRACE(display_spec);
     UpdateDisplayAndWaitForCompositingEnded(display_spec);
 
-    const gfx::Rect screen(0, 0, 1000, 1000);
+    const gfx::Rect screen(0, 0, 1000, 999);
 
     // Rectangle completely offscreen.
     controller_test_api_->ResetSelection();

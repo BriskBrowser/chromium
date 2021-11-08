@@ -8,10 +8,10 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/cxx20_erase.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/synchronization/lock.h"
 #include "base/trace_event/trace_event.h"
 #include "media/audio/audio_device_description.h"
@@ -39,6 +39,10 @@ class AudioRendererSinkCache::WindowObserver final
   explicit WindowObserver(LocalDOMWindow& window)
       : Supplement<LocalDOMWindow>(window),
         ExecutionContextLifecycleObserver(&window) {}
+
+  WindowObserver(const WindowObserver&) = delete;
+  WindowObserver& operator=(const WindowObserver&) = delete;
+
   ~WindowObserver() override = default;
 
   void Trace(Visitor* visitor) const final {
@@ -51,8 +55,6 @@ class AudioRendererSinkCache::WindowObserver final
     if (auto* cache_instance = AudioRendererSinkCache::instance_)
       cache_instance->DropSinksForFrame(DomWindow()->GetLocalFrameToken());
   }
-
-  DISALLOW_COPY_AND_ASSIGN(WindowObserver);
 };
 
 const char AudioRendererSinkCache::WindowObserver::kSupplementName[] =

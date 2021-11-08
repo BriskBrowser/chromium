@@ -7,9 +7,8 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/null_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_simple_task_runner.h"
@@ -24,6 +23,7 @@
 #include "chromeos/services/secure_channel/public/mojom/secure_channel.mojom.h"
 #include "chromeos/services/secure_channel/secure_channel_initializer.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -98,7 +98,7 @@ class TestConnectionAttemptDelegate : public ConnectionAttempt::Delegate {
     client_channels_.push_back(std::move(channel));
   }
 
-  base::Optional<mojom::ConnectionAttemptFailureReason>
+  absl::optional<mojom::ConnectionAttemptFailureReason>
   last_connection_attempt_failure_reason() {
     return last_connection_attempt_failure_reason_;
   }
@@ -108,7 +108,7 @@ class TestConnectionAttemptDelegate : public ConnectionAttempt::Delegate {
   }
 
  private:
-  base::Optional<mojom::ConnectionAttemptFailureReason>
+  absl::optional<mojom::ConnectionAttemptFailureReason>
       last_connection_attempt_failure_reason_;
   std::vector<std::unique_ptr<ClientChannel>> client_channels_;
 };
@@ -116,6 +116,11 @@ class TestConnectionAttemptDelegate : public ConnectionAttempt::Delegate {
 }  // namespace
 
 class SecureChannelClientImplTest : public testing::Test {
+ public:
+  SecureChannelClientImplTest(const SecureChannelClientImplTest&) = delete;
+  SecureChannelClientImplTest& operator=(const SecureChannelClientImplTest&) =
+      delete;
+
  protected:
   SecureChannelClientImplTest()
       : test_remote_device_list_(
@@ -223,9 +228,6 @@ class SecureChannelClientImplTest : public testing::Test {
 
   const multidevice::RemoteDeviceList test_remote_device_list_;
   const multidevice::RemoteDeviceRefList test_remote_device_ref_list_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SecureChannelClientImplTest);
 };
 
 TEST_F(SecureChannelClientImplTest, TestInitiateConnectionToDevice) {

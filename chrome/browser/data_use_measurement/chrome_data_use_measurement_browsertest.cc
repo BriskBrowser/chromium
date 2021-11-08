@@ -9,6 +9,7 @@
 #include "base/strings/string_util.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -54,11 +55,11 @@ class ChromeDataUseMeasurementBrowsertestBase : public InProcessBrowserTest {
     return local_state()
                ->GetDictionary(
                    data_use_measurement::prefs::kDataUsedUserForeground)
-               ->size() +
+               ->DictSize() +
            local_state()
                ->GetDictionary(
                    data_use_measurement::prefs::kDataUsedUserBackground)
-               ->size();
+               ->DictSize();
   }
 
   void RetryUntilUserInitiatedDataUsePrefHasEntry() {
@@ -81,12 +82,19 @@ class ChromeDataUseMeasurementBrowsertest
   }
 };
 
+// Flaky on Linux (and Linux MSAN) and ChromeOS: https://crbug.com/1141975.
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#define MAYBE_DataUseTrackerPrefsUpdated DISABLED_DataUseTrackerPrefsUpdated
+#else
+#define MAYBE_DataUseTrackerPrefsUpdated DataUseTrackerPrefsUpdated
+#endif
+
 IN_PROC_BROWSER_TEST_F(ChromeDataUseMeasurementBrowsertest,
-                       DataUseTrackerPrefsUpdated) {
+                       MAYBE_DataUseTrackerPrefsUpdated) {
   SimulateNetworkChange(network::mojom::ConnectionType::CONNECTION_3G);
 
-  ui_test_utils::NavigateToURL(browser(),
-                               embedded_test_server()->GetURL("/title1.html"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/title1.html")));
   RetryUntilUserInitiatedDataUsePrefHasEntry();
 
   EXPECT_EQ(1u, GetCountEntriesUserInitiatedDataUsePrefs());

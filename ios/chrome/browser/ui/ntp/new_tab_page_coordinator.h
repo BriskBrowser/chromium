@@ -7,7 +7,7 @@
 
 #import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
 
-#import "ios/public/provider/chrome/browser/voice/logo_animation_controller.h"
+#import "ios/chrome/browser/ui/ntp/logo_animation_controller.h"
 
 namespace web {
 class WebState;
@@ -15,17 +15,12 @@ class WebState;
 
 @class BubblePresenter;
 @protocol NewTabPageControllerDelegate;
+@protocol ThumbStripSupporting;
 @class ViewRevealingVerticalPanHandler;
 
 // Coordinator handling the NTP.
 @interface NewTabPageCoordinator
     : ChromeCoordinator <LogoAnimationControllerOwnerOwner>
-
-// Initializes this Coordinator with its |browser|.
-- (instancetype)initWithBrowser:(Browser*)browser NS_DESIGNATED_INITIALIZER;
-
-- (instancetype)initWithBaseViewController:(UIViewController*)viewController
-                                   browser:(Browser*)browser NS_UNAVAILABLE;
 
 // ViewController associated with this coordinator.
 @property(nonatomic, strong, readonly) UIViewController* viewController;
@@ -41,6 +36,10 @@ class WebState;
 
 // The pan gesture handler for the view controller.
 @property(nonatomic, weak) ViewRevealingVerticalPanHandler* panGestureHandler;
+
+// Allows for the in-flight enabling/disabling of the thumb strip.
+@property(nonatomic, weak, readonly) id<ThumbStripSupporting>
+    thumbStripSupporting;
 
 // Exposes content inset of contentSuggestions collectionView to ensure all of
 // content is visible under the bottom toolbar.
@@ -80,9 +79,9 @@ class WebState;
 // Constrains the named layout guide for the Discover header menu button.
 - (void)constrainDiscoverHeaderMenuButtonNamedGuide;
 
-// Handles device rotation logic.
-// TODO(crbug.com/1177953): Detect device rotation in NewTabPageViewController.
-- (void)handleDeviceRotation;
+// TODO(crbug.com/1200303):Remove this method once we stop starting/stopping the
+// Coordinator when turning the feed on/off.
+- (void)disconnect;
 
 @end
 

@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "chrome/browser/ui/passwords/password_dialog_prompts.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 class AutoSigninFirstRunDialogView : public views::DialogDelegateView,
@@ -27,7 +27,7 @@ class AutoSigninFirstRunDialogView : public views::DialogDelegateView,
 
  private:
   // views::DialogDelegateView:
-  base::string16 GetWindowTitle() const override;
+  std::u16string GetWindowTitle() const override;
   void WindowClosing() override;
 
   // Sets up the child views.

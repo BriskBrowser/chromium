@@ -4,6 +4,8 @@
 
 #include "ash/multi_user/user_switch_animator.h"
 
+#include <memory>
+
 #include "ash/multi_user/multi_user_window_manager_impl.h"
 #include "ash/public/cpp/multi_user_window_manager_delegate.h"
 #include "ash/shell.h"
@@ -14,6 +16,7 @@
 #include "ash/wm/window_positioner.h"
 #include "base/bind.h"
 #include "ui/aura/client/aura_constants.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_tree_owner.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
@@ -26,8 +29,7 @@ namespace {
 
 // The minimal possible animation time for animations which should happen
 // "instantly".
-constexpr base::TimeDelta kMinimalAnimationTime =
-    base::TimeDelta::FromMilliseconds(1);
+constexpr base::TimeDelta kMinimalAnimationTime = base::Milliseconds(1);
 
 // logic while the user gets switched.
 class UserChangeActionDisabler {
@@ -37,13 +39,13 @@ class UserChangeActionDisabler {
     Shell::Get()->mru_window_tracker()->SetIgnoreActivations(true);
   }
 
+  UserChangeActionDisabler(const UserChangeActionDisabler&) = delete;
+  UserChangeActionDisabler& operator=(const UserChangeActionDisabler&) = delete;
+
   ~UserChangeActionDisabler() {
     WindowPositioner::DisableAutoPositioning(false);
     Shell::Get()->mru_window_tracker()->SetIgnoreActivations(false);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(UserChangeActionDisabler);
 };
 
 // Defines an animation watcher for the 'hide' animation of the first maximized
@@ -56,13 +58,16 @@ class MaximizedWindowAnimationWatcher : public ui::ImplicitAnimationObserver {
       std::unique_ptr<ui::LayerTreeOwner> old_layer)
       : old_layer_(std::move(old_layer)) {}
 
+  MaximizedWindowAnimationWatcher(const MaximizedWindowAnimationWatcher&) =
+      delete;
+  MaximizedWindowAnimationWatcher& operator=(
+      const MaximizedWindowAnimationWatcher&) = delete;
+
   // ui::ImplicitAnimationObserver:
   void OnImplicitAnimationsCompleted() override { delete this; }
 
  private:
   std::unique_ptr<ui::LayerTreeOwner> old_layer_;
-
-  DISALLOW_COPY_AND_ASSIGN(MaximizedWindowAnimationWatcher);
 };
 
 // Modifies the given |window_list| such that the most-recently used window (if
@@ -91,14 +96,15 @@ UserSwitchAnimator::UserSwitchAnimator(MultiUserWindowManagerImpl* owner,
       animation_step_(ANIMATION_STEP_HIDE_OLD_USER),
       screen_cover_(GetScreenCover(NULL)),
       windows_by_account_id_() {
-  Shell::Get()->overview_controller()->EndOverview();
+  Shell::Get()->overview_controller()->EndOverview(
+      OverviewEndAction::kUserSwitch);
   BuildUserToWindowsListMap();
   AdvanceUserTransitionAnimation();
 
   if (animation_speed_.is_zero()) {
     FinalizeAnimation();
   } else {
-    user_changed_animation_timer_.reset(new base::RepeatingTimer());
+    user_changed_animation_timer_ = std::make_unique<base::RepeatingTimer>();
     user_changed_animation_timer_->Start(
         FROM_HERE, animation_speed_,
         base::BindRepeating(&UserSwitchAnimator::AdvanceUserTransitionAnimation,
@@ -202,9 +208,9 @@ void UserSwitchAnimator::TransitionWindows(AnimationStep animation_step) {
   UserChangeActionDisabler disabler;
 
   // Animation duration.
-  base::TimeDelta duration = base::TimeDelta::FromMilliseconds(
-      std::max(kMinimalAnimationTime.InMilliseconds(),
-               2 * animation_speed_.InMilliseconds()));
+  base::TimeDelta duration =
+      base::Milliseconds(std::max(kMinimalAnimationTime.InMilliseconds(),
+                                  2 * animation_speed_.InMilliseconds()));
 
   switch (animation_step) {
     case ANIMATION_STEP_HIDE_OLD_USER: {

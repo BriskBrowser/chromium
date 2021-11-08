@@ -5,19 +5,17 @@
 #include "chrome/browser/ui/views/overlay/track_image_button.h"
 
 #include "chrome/app/vector_icons/vector_icons.h"
+#include "chrome/browser/ui/views/overlay/constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/vector_icons/vector_icons.h"
-#include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/vector_icons.h"
 
 namespace {
 
 const int kTrackImageSize = 24;
-
-constexpr SkColor kTrackIconColor = SK_ColorWHITE;
 
 }  // namespace
 
@@ -25,9 +23,10 @@ namespace views {
 
 TrackImageButton::TrackImageButton(PressedCallback callback,
                                    const gfx::VectorIcon& icon,
-                                   base::string16 label)
+                                   std::u16string label)
     : ImageButton(std::move(callback)),
-      image_(gfx::CreateVectorIcon(icon, kTrackImageSize, kTrackIconColor)) {
+      image_(
+          gfx::CreateVectorIcon(icon, kTrackImageSize, kPipWindowIconColor)) {
   SetImageHorizontalAlignment(views::ImageButton::ALIGN_CENTER);
   SetImageVerticalAlignment(views::ImageButton::ALIGN_MIDDLE);
   SetImage(views::Button::STATE_NORMAL, image_);

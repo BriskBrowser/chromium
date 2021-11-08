@@ -13,7 +13,7 @@
 #include "base/callback_helpers.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
+#include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/default_tick_clock.h"
@@ -26,6 +26,7 @@
 #include "components/viz/service/frame_sinks/video_capture/frame_sink_video_capturer_manager.h"
 #include "media/base/limits.h"
 #include "media/base/video_util.h"
+#include "media/capture/mojom/video_capture_buffer.mojom.h"
 #include "media/capture/mojom/video_capture_types.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
@@ -40,8 +41,7 @@ using media::VideoFrameMetadata;
   UMA_HISTOGRAM_CUSTOM_TIMES(                                             \
       base::StringPrintf("Viz.FrameSinkVideoCapturer.%s.CaptureDuration", \
                          name),                                           \
-      sample, base::TimeDelta::FromMilliseconds(1),                       \
-      base::TimeDelta::FromSeconds(1), 50)
+      sample, base::Milliseconds(1), base::Seconds(1), 50)
 
 namespace viz {
 
@@ -106,6 +106,11 @@ void FrameSinkVideoCapturerImpl::SetResolvedTarget(
     return;
   }
 
+  TRACE_EVENT_INSTANT2(
+      "gpu.capture", "SetResolvedTarget", TRACE_EVENT_SCOPE_THREAD, "current",
+      resolved_target_ ? resolved_target_->GetFrameSinkId().ToString() : "None",
+      "new", target ? target->GetFrameSinkId().ToString() : "None");
+
   if (resolved_target_) {
     resolved_target_->DetachCaptureClient(this);
   }
@@ -165,9 +170,8 @@ void FrameSinkVideoCapturerImpl::SetMinCapturePeriod(
     base::TimeDelta min_capture_period) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  constexpr base::TimeDelta kMinMinCapturePeriod =
-      base::TimeDelta::FromMicroseconds(base::Time::kMicrosecondsPerSecond /
-                                        media::limits::kMaxFramesPerSecond);
+  constexpr base::TimeDelta kMinMinCapturePeriod = base::Microseconds(
+      base::Time::kMicrosecondsPerSecond / media::limits::kMaxFramesPerSecond);
   if (min_capture_period < kMinMinCapturePeriod) {
     min_capture_period = kMinMinCapturePeriod;
   }
@@ -177,8 +181,7 @@ void FrameSinkVideoCapturerImpl::SetMinCapturePeriod(
   // advance between two successive frames.
   if (!base::TimeTicks::IsHighResolution()) {
     constexpr base::TimeDelta kMinLowResCapturePeriod =
-        base::TimeDelta::FromMicroseconds(base::Time::kMicrosecondsPerSecond /
-                                          30);
+        base::Microseconds(base::Time::kMicrosecondsPerSecond / 30);
     if (min_capture_period < kMinLowResCapturePeriod) {
       min_capture_period = kMinLowResCapturePeriod;
     }
@@ -226,18 +229,24 @@ void FrameSinkVideoCapturerImpl::SetAutoThrottlingEnabled(bool enabled) {
 }
 
 void FrameSinkVideoCapturerImpl::ChangeTarget(
-    const base::Optional<FrameSinkId>& frame_sink_id,
-    const SubtreeCaptureId& subtree_capture_id) {
+    const absl::optional<FrameSinkId>& frame_sink_id,
+    mojom::SubTargetPtr sub_target) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (frame_sink_id) {
     requested_target_ = *frame_sink_id;
-    request_subtree_id_ = subtree_capture_id;
+    region_specifier_ =
+        !sub_target ? CapturableFrameSink::RegionSpecifier()
+                    : sub_target->is_subtree_capture_id()
+                          ? sub_target->get_subtree_capture_id()
+                          : sub_target->is_region_capture_crop_id()
+                                ? sub_target->get_region_capture_crop_id()
+                                : CapturableFrameSink::RegionSpecifier();
     SetResolvedTarget(
         frame_sink_manager_->FindCapturableFrameSink(requested_target_));
   } else {
     requested_target_ = FrameSinkId();
-    request_subtree_id_ = SubtreeCaptureId();
+    region_specifier_ = CapturableFrameSink::RegionSpecifier();
     SetResolvedTarget(nullptr);
   }
 }
@@ -247,7 +256,14 @@ void FrameSinkVideoCapturerImpl::Start(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(consumer);
 
-  Stop();
+  if (video_capture_started_)
+    Stop();
+
+  video_capture_started_ = true;
+
+  if (resolved_target_)
+    resolved_target_->OnClientCaptureStarted();
+
   consumer_.Bind(std::move(consumer));
   // In the future, if the connection to the consumer is lost before a call to
   // Stop(), make that call on its behalf.
@@ -257,6 +273,9 @@ void FrameSinkVideoCapturerImpl::Start(
 }
 
 void FrameSinkVideoCapturerImpl::Stop() {
+  if (!video_capture_started_)
+    return;
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   refresh_frame_retry_timer_->Stop();
@@ -273,6 +292,11 @@ void FrameSinkVideoCapturerImpl::Stop() {
     consumer_->OnStopped();
     consumer_.reset();
   }
+
+  if (resolved_target_)
+    resolved_target_->OnClientCaptureStopped();
+
+  video_capture_started_ = false;
 }
 
 void FrameSinkVideoCapturerImpl::RequestRefreshFrame() {
@@ -336,21 +360,25 @@ void FrameSinkVideoCapturerImpl::RefreshSoon() {
   }
 
   // Detect whether the source size changed before attempting capture.
-  const gfx::Size& source_size = resolved_target_->GetActiveFrameSize();
-  if (source_size.IsEmpty()) {
-    // If the target's surface size is empty, that indicates it has not yet had
-    // its first frame composited. Since having content is obviously a
-    // requirement for video capture, the refresh must be attempted later.
+  const gfx::Rect capture_region =
+      resolved_target_->GetCopyOutputRequestRegion(region_specifier_);
+  if (capture_region.IsEmpty()) {
+    // If the capture region is empty, it means one of two things: the first
+    // frame has not been composited yet or the current region selected for
+    // capture has a current size of zero. We schedule a frame refresh here,
+    // although its not useful in all circumstances.
     ScheduleRefreshFrame();
     return;
   }
-  if (source_size != oracle_->source_size()) {
-    oracle_->SetSourceSize(source_size);
+
+  if (capture_region.size() != oracle_->source_size()) {
+    oracle_->SetSourceSize(capture_region.size());
     InvalidateEntireSource();
     if (log_to_webrtc_) {
       consumer_->OnLog(
-          base::StringPrintf("VFC: RefreshSoon() changed active frame size: %s",
-                             source_size.ToString().c_str()));
+          base::StringPrintf("FrameSinkVideoCapturerImpl::RefreshSoon() "
+                             "changed active frame size: %s",
+                             capture_region.size().ToString().c_str()));
     }
   }
 
@@ -370,20 +398,37 @@ void FrameSinkVideoCapturerImpl::OnFrameDamaged(
   DCHECK(!expected_display_time.is_null());
   DCHECK(resolved_target_);
 
-  if (frame_size == oracle_->source_size()) {
-    InvalidateRect(damage_rect);
+  const gfx::Rect capture_region =
+      resolved_target_->GetCopyOutputRequestRegion(region_specifier_);
+  if (capture_region.IsEmpty()) {
+    return;
+  }
+
+  if (capture_region.size() == oracle_->source_size()) {
+    if (!absl::holds_alternative<absl::monostate>(region_specifier_)) {
+      // The damage_rect may not be in the same coordinate space when we have
+      // a valid request subtree identifier, so to be safe we just invalidate
+      // the entire source.
+      InvalidateEntireSource();
+    } else {
+      InvalidateRect(damage_rect);
+    }
   } else {
-    oracle_->SetSourceSize(frame_size);
+    oracle_->SetSourceSize(capture_region.size());
     InvalidateEntireSource();
     if (log_to_webrtc_ && consumer_) {
-      consumer_->OnLog(
-          base::StringPrintf("VFC: OnFramedamaged() changed frame size: %s",
-                             frame_size.ToString().c_str()));
+      consumer_->OnLog(base::StringPrintf(
+          "FrameSinkVideoCapturerImpl::OnFrameDamaged() changed frame size: %s",
+          capture_region.size().ToString().c_str()));
     }
   }
 
   MaybeCaptureFrame(VideoCaptureOracle::kCompositorUpdate, damage_rect,
                     expected_display_time, frame_metadata);
+}
+
+bool FrameSinkVideoCapturerImpl::IsVideoCaptureStarted() {
+  return video_capture_started_;
 }
 
 gfx::Size FrameSinkVideoCapturerImpl::GetSourceSize() {
@@ -555,9 +600,14 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
     DCHECK_EQ(media::PIXEL_FORMAT_ARGB, pixel_format_);
     content_rect =
         media::ComputeLetterboxRegion(frame->visible_rect(), source_size);
+    // The media letterboxing computation explicitly allows for off-by-one
+    // errors due to computation, so we address those here.
+    if (content_rect.ApproximatelyEqual(frame->visible_rect(), 1)) {
+      content_rect = frame->visible_rect();
+    }
   }
 
-  // Determine what rectangluar region has changed since the last captured
+  // Determine what rectangular region has changed since the last captured
   // frame.
   gfx::Rect update_rect;
   if (dirty_rect_ == kMaxRect ||
@@ -611,7 +661,8 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
           strides = "strides:???";
       }
       consumer_->OnLog(base::StringPrintf(
-          "VFC: Ressurecting frame format=%s frame_coded_size: %s "
+          "FrameSinkVideoCapturerImpl: Resurrecting frame format=%s "
+          "frame_coded_size: %s "
           "frame_visible_rect: %s frame_natural_size: %s %s",
           VideoPixelFormatToString(frame->format()).c_str(),
           frame->coded_size().ToString().c_str(),
@@ -623,20 +674,29 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
     return;
   }
 
+  // The oracle only keeps track of the source size, which should be the
+  // size of the capture region. If the capture region is empty, we shouldn't
+  // capture.
+  const gfx::Rect capture_region =
+      resolved_target_->GetCopyOutputRequestRegion(region_specifier_);
+  if (capture_region.IsEmpty()) {
+    return;
+  }
+  DCHECK(capture_region.size() == source_size);
+
   // Request a copy of the next frame from the frame sink.
-  std::unique_ptr<CopyOutputRequest> request(new CopyOutputRequest(
+  auto request = std::make_unique<CopyOutputRequest>(
       pixel_format_ == media::PIXEL_FORMAT_I420
           ? CopyOutputRequest::ResultFormat::I420_PLANES
-          : CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+          : CopyOutputRequest::ResultFormat::RGBA,
+      CopyOutputRequest::ResultDestination::kSystemMemory,
       base::BindOnce(&FrameSinkVideoCapturerImpl::DidCopyFrame,
                      capture_weak_factory_.GetWeakPtr(), capture_frame_number,
                      oracle_frame_number, content_version_, content_rect,
-                     VideoCaptureOverlay::MakeCombinedRenderer(
-                         GetOverlaysInOrder(), content_rect, frame->format()),
-                     std::move(frame), base::TimeTicks::Now())));
+                     std::move(frame), base::TimeTicks::Now()));
   request->set_result_task_runner(base::SequencedTaskRunnerHandle::Get());
   request->set_source(copy_request_source_);
-  request->set_area(gfx::Rect(source_size));
+  request->set_area(capture_region);
   request->SetScaleRatio(
       gfx::Vector2d(source_size.width(), source_size.height()),
       gfx::Vector2d(content_rect.width(), content_rect.height()));
@@ -653,7 +713,7 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
     std::string format =
         pixel_format_ == media::PIXEL_FORMAT_I420 ? "I420" : "RGBA_bitmap";
     consumer_->OnLog(base::StringPrintf(
-        "VFC: Sending CopyRequest: "
+        "FrameSinkVideoCapturerImpl: Sending CopyRequest: "
         "format=%s area:%s "
         "scale_from: %s "
         "scale_to: %s "
@@ -663,8 +723,13 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
         request->scale_to().ToString().c_str(), utilization));
   }
 
+  const SubtreeCaptureId subtree_id =
+      absl::holds_alternative<SubtreeCaptureId>(region_specifier_)
+          ? absl::get<SubtreeCaptureId>(region_specifier_)
+          : SubtreeCaptureId();
+
   resolved_target_->RequestCopyOfOutput(
-      {LocalSurfaceId(), request_subtree_id_, std::move(request)});
+      {LocalSurfaceId(), subtree_id, std::move(request)});
 }
 
 void FrameSinkVideoCapturerImpl::DidCopyFrame(
@@ -672,7 +737,6 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
     OracleFrameNumber oracle_frame_number,
     int64_t content_version,
     const gfx::Rect& content_rect,
-    VideoCaptureOverlay::OnceRenderer overlay_renderer,
     scoped_refptr<VideoFrame> frame,
     base::TimeTicks request_time,
     std::unique_ptr<CopyOutputResult> result) {
@@ -692,20 +756,30 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
                                      frame->stride(VideoFrame::kUPlane),
                                      frame->stride(VideoFrame::kVPlane));
         break;
-      case CopyOutputResult::Format::RGBA_BITMAP:
-        format = "RGBA_Bitmap";
-        strides = base::StringPrintf("strideRGBA:%d",
-                                     frame->stride(VideoFrame::kARGBPlane));
+      case CopyOutputResult::Format::NV12_PLANES:
+        format = "NV12";
+        strides = base::StringPrintf("strideY:%d StrideUV:%d",
+                                     frame->stride(VideoFrame::kYPlane),
+                                     frame->stride(VideoFrame::kUVPlane));
         break;
-      case CopyOutputResult::Format::RGBA_TEXTURE:
-        format = "RGBA_Texture";
+      case CopyOutputResult::Format::RGBA:
         strides = base::StringPrintf("strideRGBA:%d",
                                      frame->stride(VideoFrame::kARGBPlane));
+
+        switch (result->destination()) {
+          case CopyOutputResult::Destination::kSystemMemory:
+            format = "RGBA_Bitmap";
+            break;
+          case CopyOutputResult::Destination::kNativeTextures:
+            format = "RGBA_Texture";
+            break;
+        }
         break;
     }
     consumer_->OnLog(base::StringPrintf(
-        "VFC: got CopyOutputResult: format=%s size:%s frame_coded_size: %s "
-        "frame_visible_rect: %s frame_natural_size: %s content_rect: %s %s",
+        "FrameSinkVideoCapturerImpl: got CopyOutputResult: format=%s size:%s "
+        "frame_coded_size: %s frame_visible_rect: %s frame_natural_size: %s "
+        "content_rect: %s %s",
         format.c_str(), result->size().ToString().c_str(),
         frame->coded_size().ToString().c_str(),
         frame->visible_rect().ToString().c_str(),
@@ -765,6 +839,10 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
   }
 
   if (frame) {
+    // TODO(crbug.com/1247761): the mouse overlay needs to get adjusted
+    // when we have a valid |crop_id_|.
+    auto overlay_renderer = VideoCaptureOverlay::MakeCombinedRenderer(
+        GetOverlaysInOrder(), content_rect, frame->format());
     if (overlay_renderer) {
       std::move(overlay_renderer).Run(frame.get());
     }
@@ -855,9 +933,7 @@ void FrameSinkVideoCapturerImpl::MaybeDeliverFrame(
                          frame->timestamp().InMicroseconds());
 
   // Clone a handle to the shared memory backing the populated video frame, to
-  // send to the consumer. The handle is READ_WRITE because the consumer is free
-  // to modify the content further (so long as it undoes its changes before the
-  // InFlightFrameDelivery::Done() call).
+  // send to the consumer.
   base::ReadOnlySharedMemoryRegion handle =
       frame_pool_.CloneHandleForDelivery(frame.get());
   DCHECK(handle.IsValid());

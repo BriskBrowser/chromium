@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ash/profiles/profile_helper.h"
 
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -17,15 +18,15 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_restrictions.h"
+#include "chrome/browser/ash/base/file_flusher.h"
+#include "chrome/browser/ash/login/helper.h"
+#include "chrome/browser/ash/login/signin/oauth2_login_manager.h"
+#include "chrome/browser/ash/login/signin/oauth2_login_manager_factory.h"
+#include "chrome/browser/ash/login/signin_partition_manager.h"
+#include "chrome/browser/ash/login/users/chrome_user_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_constants.h"
-#include "chrome/browser/chromeos/base/file_flusher.h"
-#include "chrome/browser/chromeos/login/helper.h"
-#include "chrome/browser/chromeos/login/signin/oauth2_login_manager.h"
-#include "chrome/browser/chromeos/login/signin/oauth2_login_manager_factory.h"
-#include "chrome/browser/chromeos/login/signin_partition_manager.h"
-#include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -43,15 +44,7 @@
 #include "extensions/browser/extension_system.h"
 
 namespace ash {
-
 namespace {
-
-// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
-// source migration is finished.
-namespace login = ::chromeos::login;
-using ::chromeos::ChromeUserManager;
-using ::chromeos::FileFlusher;
-using ::chromeos::OAuth2LoginManager;
 
 // This array contains a subset of the explicitly allowlisted extensions that
 // are defined in extensions/common/api/_behavior_features.json. The extension
@@ -138,7 +131,8 @@ Profile* GetIncognitoProfile(base::FilePath profile_dir) {
     return nullptr;
   }
 
-  return profile_manager->GetProfile(profile_dir)->GetPrimaryOTRProfile();
+  return profile_manager->GetProfile(profile_dir)
+      ->GetPrimaryOTRProfile(/*create_if_needed=*/true);
 }
 
 }  // anonymous namespace
@@ -278,7 +272,7 @@ std::string ProfileHelper::GetUserIdHashFromProfile(const Profile* profile) {
   if (!profile)
     return std::string();
 
-  std::string profile_dir = profile->GetPath().BaseName().value();
+  std::string profile_dir = profile->GetBaseName().value();
 
   // Don't strip prefix if the dir is not supposed to be prefixed.
   if (!ShouldAddProfileDirPrefix(profile_dir))
@@ -305,7 +299,7 @@ base::FilePath ProfileHelper::GetUserProfileDir(
 
 // static
 bool ProfileHelper::IsSigninProfile(const Profile* profile) {
-  return profile && IsSigninProfilePath(profile->GetPath().BaseName());
+  return profile && IsSigninProfilePath(profile->GetBaseName());
 }
 
 // static
@@ -317,7 +311,7 @@ bool ProfileHelper::IsSigninProfileInitialized() {
 
 // static
 bool ProfileHelper::IsLockScreenAppProfile(const Profile* profile) {
-  return profile && IsLockScreenAppProfilePath(profile->GetPath().BaseName());
+  return profile && IsLockScreenAppProfilePath(profile->GetBaseName());
 }
 
 // static
@@ -342,7 +336,7 @@ Profile* ProfileHelper::GetLockScreenIncognitoProfile() {
 
 // static
 bool ProfileHelper::IsLockScreenProfile(const Profile* profile) {
-  return profile && IsLockScreenProfilePath(profile->GetPath().BaseName());
+  return profile && IsLockScreenProfilePath(profile->GetBaseName());
 }
 
 // static
@@ -444,9 +438,8 @@ void ProfileHelperImpl::ProfileStartup(Profile* profile) {
   if (!IsSigninProfile(profile) &&
       user_manager::UserManager::Get()->IsLoggedInAsUserWithGaiaAccount() &&
       !user_manager::UserManager::Get()->IsLoggedInAsStub()) {
-    chromeos::OAuth2LoginManager* login_manager =
-        chromeos::OAuth2LoginManagerFactory::GetInstance()->GetForProfile(
-            profile);
+    auto* login_manager =
+        OAuth2LoginManagerFactory::GetInstance()->GetForProfile(profile);
     if (login_manager)
       login_manager->AddObserver(this);
   }
@@ -479,8 +472,7 @@ void ProfileHelperImpl::ClearSigninProfile(
       3, base::BindOnce(&ProfileHelperImpl::OnSigninProfileCleared,
                         weak_factory_.GetWeakPtr()));
   LOG_ASSERT(!browsing_data_remover_);
-  browsing_data_remover_ =
-      content::BrowserContext::GetBrowsingDataRemover(GetSigninProfile());
+  browsing_data_remover_ = GetSigninProfile()->GetBrowsingDataRemover();
   browsing_data_remover_->AddObserver(this);
   browsing_data_remover_->RemoveAndReply(
       base::Time(), base::Time::Max(),
@@ -550,7 +542,7 @@ Profile* ProfileHelperImpl::GetProfileByUser(const user_manager::User* user) {
   // GetActiveUserProfile() or GetProfileByUserIdHash() returns a new instance
   // of ProfileImpl(), but actually its off-the-record profile should be used.
   if (user_manager::UserManager::Get()->IsLoggedInAsGuest())
-    profile = profile->GetPrimaryOTRProfile();
+    profile = profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
 
   return profile;
 }
@@ -579,7 +571,7 @@ Profile* ProfileHelperImpl::GetProfileByUserUnsafe(
   // GetActiveUserProfile() or GetProfileByUserIdHash() returns a new instance
   // of ProfileImpl(), but actually its off-the-record profile should be used.
   if (profile && user_manager::UserManager::Get()->IsLoggedInAsGuest())
-    profile = profile->GetPrimaryOTRProfile();
+    profile = profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
   return profile;
 }
 
@@ -677,9 +669,8 @@ void ProfileHelperImpl::OnSessionRestoreStateChanged(
   if (state == OAuth2LoginManager::SESSION_RESTORE_DONE ||
       state == OAuth2LoginManager::SESSION_RESTORE_FAILED ||
       state == OAuth2LoginManager::SESSION_RESTORE_CONNECTION_FAILED) {
-    chromeos::OAuth2LoginManager* login_manager =
-        chromeos::OAuth2LoginManagerFactory::GetInstance()->GetForProfile(
-            user_profile);
+    auto* login_manager =
+        OAuth2LoginManagerFactory::GetInstance()->GetForProfile(user_profile);
     login_manager->RemoveObserver(this);
     ClearSigninProfile(base::OnceClosure());
   }
@@ -720,7 +711,7 @@ void ProfileHelperImpl::SetActiveUserIdForTesting(const std::string& user_id) {
 
 void ProfileHelperImpl::FlushProfile(Profile* profile) {
   if (!profile_flusher_)
-    profile_flusher_.reset(new FileFlusher);
+    profile_flusher_ = std::make_unique<FileFlusher>();
 
   // Flushes files directly under profile path since these are the critical
   // ones.

@@ -4,7 +4,6 @@
 
 cduvall@chromium.org
 ericorth@chromium.org
-falken@chromium.org
 jam@chromium.org
 kinuko@chromium.org
 mmenke@chromium.org
@@ -35,9 +34,10 @@ per-file network_quality*=file://net/nqe/OWNERS
 
 per-file BUILD.gn=file://net/nqe/OWNERS
 per-file BUILD.gn=file://services/network/resource_scheduler/OWNERS
+per-file BUILD.gn=file://services/network/sct_auditing/OWNERS
 
 # Content Security Policy
-per-file content_security_policy*=lfg@chromium.org
+per-file content_security_policy*=arthursonzogni@chromium.org
 per-file content_security_policy*=nasko@chromium.org
 
 # Cookies

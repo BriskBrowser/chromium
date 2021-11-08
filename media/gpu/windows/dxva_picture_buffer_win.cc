@@ -45,15 +45,6 @@ class DummyGLImage : public gl::GLImage {
                        const gfx::Rect& rect) override {
     return false;
   }
-  bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                            int z_order,
-                            gfx::OverlayTransform transform,
-                            const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect,
-                            bool enable_blend,
-                            std::unique_ptr<gfx::GpuFence> gpu_fence) override {
-    return false;
-  }
   void SetColorSpace(const gfx::ColorSpace& color_space) override {}
   void Flush() override {}
   void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
@@ -248,6 +239,9 @@ bool PbufferPictureBuffer::InitializeTexture(
     HRESULT hr = decoder.d3d11_device_->CreateTexture2D(
         &desc, nullptr, &dx11_decoding_texture_);
     RETURN_ON_HR_FAILURE(hr, "Failed to create texture", false);
+    RETURN_ON_HR_FAILURE(
+        SetDebugName(dx11_decoding_texture_.Get(), "DXVADecoder_PictureBuffer"),
+        "SetDebugNameFail", false);
     if (decoder.use_keyed_mutex_) {
       hr = dx11_decoding_texture_.As(&dx11_keyed_mutex_);
       RETURN_ON_HR_FAILURE(hr, "Failed to get keyed mutex", false);
@@ -513,7 +507,9 @@ bool EGLStreamPictureBuffer::BindSampleToTexture(
   dxgi_buffer->GetSubresourceIndex(&subresource);
 
   EGLAttrib frame_attributes[] = {
-      EGL_D3D_TEXTURE_SUBRESOURCE_ID_ANGLE, subresource, EGL_NONE,
+      EGL_D3D_TEXTURE_SUBRESOURCE_ID_ANGLE,
+      static_cast<EGLAttrib>(subresource),
+      EGL_NONE,
   };
 
   EGLBoolean result = eglStreamPostD3DTextureANGLE(
@@ -724,6 +720,9 @@ bool EGLStreamCopyPictureBuffer::Initialize(
   HRESULT hr = decoder.d3d11_device_->CreateTexture2D(&desc, nullptr,
                                                       &decoder_copy_texture_);
   RETURN_ON_HR_FAILURE(hr, "Failed to create texture", false);
+  RETURN_ON_HR_FAILURE(SetDebugName(decoder_copy_texture_.Get(),
+                                    "DXVADecoder_EGLStreamCopyPictureBuffer"),
+                       "SetDebugNameFail", false);
   DCHECK(decoder.use_keyed_mutex_);
   hr = decoder_copy_texture_.As(&dx11_keyed_mutex_);
   RETURN_ON_HR_FAILURE(hr, "Failed to get keyed mutex", false);

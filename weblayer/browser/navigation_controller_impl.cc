@@ -14,9 +14,11 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/mojom/navigation/was_activated_option.mojom-shared.h"
 #include "ui/base/page_transition_types.h"
 #include "weblayer/browser/navigation_entry_data.h"
 #include "weblayer/browser/navigation_ui_data_impl.h"
+#include "weblayer/browser/page_impl.h"
 #include "weblayer/browser/tab_impl.h"
 #include "weblayer/public/navigation_observer.h"
 
@@ -82,28 +84,15 @@ class NavigationControllerImpl::NavigationThrottleImpl
   ~NavigationThrottleImpl() override = default;
 
   void ScheduleCancel() { should_cancel_ = true; }
-  void ScheduleNavigate(
-      std::unique_ptr<content::NavigationController::LoadURLParams> params) {
-    load_params_ = std::move(params);
-  }
 
   // content::NavigationThrottle:
   ThrottleCheckResult WillStartRequest() override {
-    const bool should_cancel = should_cancel_;
-    if (load_params_)
-      controller_->DoNavigate(std::move(load_params_));
-    // WARNING: this may have been deleted.
-    return should_cancel ? CANCEL : PROCEED;
+    return should_cancel_ ? CANCEL : PROCEED;
   }
 
   ThrottleCheckResult WillRedirectRequest() override {
     controller_->WillRedirectRequest(this, navigation_handle());
-
-    const bool should_cancel = should_cancel_;
-    if (load_params_)
-      controller_->DoNavigate(std::move(load_params_));
-    // WARNING: this may have been deleted.
-    return should_cancel ? CANCEL : PROCEED;
+    return should_cancel_ ? CANCEL : PROCEED;
   }
 
   const char* GetNameForLogging() override {
@@ -113,7 +102,6 @@ class NavigationControllerImpl::NavigationThrottleImpl
  private:
   NavigationControllerImpl* controller_;
   bool should_cancel_ = false;
-  std::unique_ptr<content::NavigationController::LoadURLParams> load_params_;
 };
 
 NavigationControllerImpl::NavigationControllerImpl(TabImpl* tab)
@@ -132,9 +120,6 @@ NavigationControllerImpl::CreateNavigationThrottle(
   auto* navigation = navigation_map_[handle].get();
   if (navigation->should_stop_when_throttle_created())
     throttle->ScheduleCancel();
-  auto load_params = navigation->TakeParamsToLoadWhenSafe();
-  if (load_params)
-    throttle->ScheduleNavigate(std::move(load_params));
   return throttle;
 }
 
@@ -190,6 +175,25 @@ void NavigationControllerImpl::OnLargestContentfulPaint(
                                       largest_contentful_paint);
 }
 
+void NavigationControllerImpl::OnPageDestroyed(Page* page) {
+  for (auto& observer : observers_)
+    observer.OnPageDestroyed(page);
+}
+
+void NavigationControllerImpl::OnPageLanguageDetermined(
+    Page* page,
+    const std::string& language) {
+#if defined(OS_ANDROID)
+  JNIEnv* env = AttachCurrentThread();
+  Java_NavigationControllerImpl_onPageLanguageDetermined(
+      env, java_controller_, static_cast<PageImpl*>(page)->java_page(),
+      base::android::ConvertUTF8ToJavaString(env, language));
+#endif
+
+  for (auto& observer : observers_)
+    observer.OnPageLanguageDetermined(page, language);
+}
+
 #if defined(OS_ANDROID)
 void NavigationControllerImpl::SetNavigationControllerImpl(
     JNIEnv* env,
@@ -232,7 +236,7 @@ void NavigationControllerImpl::Navigate(
   params->navigation_ui_data = std::move(data);
 
   if (enable_auto_play)
-    params->was_activated = content::mojom::WasActivatedOption::kYes;
+    params->was_activated = blink::mojom::WasActivatedOption::kYes;
 
   DoNavigate(std::move(params));
 }
@@ -307,7 +311,7 @@ void NavigationControllerImpl::Navigate(
   load_params->should_replace_current_entry =
       params.should_replace_current_entry;
   if (params.enable_auto_play)
-    load_params->was_activated = content::mojom::WasActivatedOption::kYes;
+    load_params->was_activated = blink::mojom::WasActivatedOption::kYes;
 
   DoNavigate(std::move(load_params));
 }
@@ -337,6 +341,8 @@ void NavigationControllerImpl::Reload() {
 }
 
 void NavigationControllerImpl::Stop() {
+  CancelDelayedLoad();
+
   NavigationImpl* navigation = nullptr;
   if (navigation_starting_) {
     navigation_starting_->set_should_stop_when_throttle_created();
@@ -382,7 +388,10 @@ bool NavigationControllerImpl::IsNavigationEntrySkippable(int index) {
 
 void NavigationControllerImpl::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame())
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (!navigation_handle->IsInPrimaryMainFrame())
     return;
 
   // This function should not be called reentrantly.
@@ -396,6 +405,7 @@ void NavigationControllerImpl::DidStartNavigation(
                                               navigation);
   navigation->set_safe_to_set_request_headers(true);
   navigation->set_safe_to_disable_network_error_auto_reload(true);
+  navigation->set_safe_to_disable_intent_processing(true);
 
 #if defined(OS_ANDROID)
   // Desktop mode and per-navigation UA use the same mechanism and so don't
@@ -422,8 +432,11 @@ void NavigationControllerImpl::DidStartNavigation(
     {
       TRACE_EVENT0("weblayer",
                    "Java_NavigationControllerImpl_createNavigation");
-      Java_NavigationControllerImpl_createNavigation(
-          env, java_controller_, reinterpret_cast<jlong>(navigation));
+      ScopedJavaLocalRef<jobject> java_navigation =
+          Java_NavigationControllerImpl_createNavigation(
+              env, java_controller_, reinterpret_cast<jlong>(navigation));
+      navigation->SetJavaNavigation(
+          base::android::ScopedJavaGlobalRef<jobject>(java_navigation));
     }
     TRACE_EVENT0("weblayer", "Java_NavigationControllerImpl_navigationStarted");
     Java_NavigationControllerImpl_navigationStarted(
@@ -435,6 +448,7 @@ void NavigationControllerImpl::DidStartNavigation(
   navigation->set_safe_to_set_user_agent(false);
   navigation->set_safe_to_set_request_headers(false);
   navigation->set_safe_to_disable_network_error_auto_reload(false);
+  navigation->set_safe_to_disable_intent_processing(false);
 }
 
 void NavigationControllerImpl::DidRedirectNavigation(
@@ -447,7 +461,10 @@ void NavigationControllerImpl::DidRedirectNavigation(
 void NavigationControllerImpl::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
 #if defined(OS_ANDROID)
-  if (!navigation_handle->IsInMainFrame())
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (!navigation_handle->IsInPrimaryMainFrame())
     return;
 
   DCHECK(navigation_map_.find(navigation_handle) != navigation_map_.end());
@@ -463,12 +480,17 @@ void NavigationControllerImpl::ReadyToCommitNavigation(
 
 void NavigationControllerImpl::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame())
+  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
+  // frames. This caller was converted automatically to the primary main frame
+  // to preserve its semantics. Follow up to confirm correctness.
+  if (!navigation_handle->IsInPrimaryMainFrame())
     return;
 
   DelayDeletionHelper deletion_helper(this);
   DCHECK(navigation_map_.find(navigation_handle) != navigation_map_.end());
   auto* navigation = navigation_map_[navigation_handle].get();
+
+  navigation->set_finished();
 
   if (navigation_handle->HasCommitted()) {
     // Set state on NavigationEntry user data if a per-navigation user agent was
@@ -482,9 +504,29 @@ void NavigationControllerImpl::DidFinishNavigation(
           entry_data->set_per_navigation_user_agent_override(true);
       }
     }
+
+    auto* rfh = navigation_handle->GetRenderFrameHost();
+    PageImpl::GetOrCreateForPage(rfh->GetPage());
+    navigation->set_safe_to_get_page();
+
+#if defined(OS_ANDROID)
+    // Ensure that the Java-side Page object for this navigation is
+    // populated from and linked to the native Page object. Without this
+    // call, the Java-side navigation object won't be created and linked to
+    // the native object until/unless the client calls Navigation#getPage(),
+    // which is problematic when implementation-side callers need to bridge
+    // the C++ Page object into Java (e.g., to fire
+    // NavigationCallback#onPageLanguageDetermined()).
+    Java_NavigationControllerImpl_getOrCreatePageForNavigation(
+        AttachCurrentThread(), java_controller_, navigation->java_navigation());
+#endif
   }
 
-  if (navigation_handle->GetNetErrorCode() == net::OK &&
+  // In some corner cases (e.g., a tab closing with an ongoing navigation)
+  // navigations finish without committing but without any other error state.
+  // Such navigations are regarded as failed by WebLayer.
+  if (navigation_handle->HasCommitted() &&
+      navigation_handle->GetNetErrorCode() == net::OK &&
       !navigation_handle->IsErrorPage()) {
 #if defined(OS_ANDROID)
     if (java_controller_) {
@@ -596,6 +638,8 @@ void NavigationControllerImpl::NotifyLoadStateChanged() {
 
 void NavigationControllerImpl::DoNavigate(
     std::unique_ptr<content::NavigationController::LoadURLParams> params) {
+  CancelDelayedLoad();
+
   // Navigations should use the default user-agent (which may be overridden if
   // desktop mode is turned on). If the embedder wants a custom user-agent, the
   // embedder will call Navigation::SetUserAgentString() in DidStartNavigation.
@@ -608,19 +652,11 @@ void NavigationControllerImpl::DoNavigate(
 #endif
     params->override_user_agent =
         content::NavigationController::UA_OVERRIDE_FALSE;
-  if (navigation_starting_) {
+  if (navigation_starting_ || active_throttle_) {
     // DoNavigate() is being called reentrantly. Delay processing until it's
     // safe.
     Stop();
-    navigation_starting_->SetParamsToLoadWhenSafe(std::move(params));
-    return;
-  }
-
-  if (active_throttle_) {
-    // DoNavigate() is being called reentrantly. Delay processing until it's
-    // safe.
-    Stop();
-    active_throttle_->ScheduleNavigate(std::move(params));
+    ScheduleDelayedLoad(std::move(params));
     return;
   }
 
@@ -629,6 +665,23 @@ void NavigationControllerImpl::DoNavigate(
   // So that if the user had entered the UI in a bar it stops flashing the
   // caret.
   web_contents()->Focus();
+}
+
+void NavigationControllerImpl::ScheduleDelayedLoad(
+    std::unique_ptr<content::NavigationController::LoadURLParams> params) {
+  delayed_load_params_ = std::move(params);
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(&NavigationControllerImpl::ProcessDelayedLoad,
+                                weak_ptr_factory_.GetWeakPtr()));
+}
+
+void NavigationControllerImpl::CancelDelayedLoad() {
+  delayed_load_params_.reset();
+}
+
+void NavigationControllerImpl::ProcessDelayedLoad() {
+  if (delayed_load_params_)
+    DoNavigate(std::move(delayed_load_params_));
 }
 
 #if defined(OS_ANDROID)

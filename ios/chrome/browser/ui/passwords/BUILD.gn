@@ -13,18 +13,18 @@ source_set("passwords") {
     "password_breach_presenter.h",
     "password_breach_view_controller.h",
     "password_breach_view_controller.mm",
-    "password_constants.h",
-    "password_constants.mm",
     "password_protection_coordinator.h",
     "password_protection_coordinator.mm",
     "password_protection_view_controller.h",
     "password_protection_view_controller.mm",
   ]
   deps = [
+    ":constants",
     "resources",
     "//base",
     "//components/password_manager/core/browser",
     "//components/password_manager/core/common",
+    "//components/safe_browsing/core/browser/password_protection:password_protection_metrics_util",
     "//components/strings:components_strings_grit",
     "//ios/chrome/app/strings",
     "//ios/chrome/browser/main:public",
@@ -41,8 +41,15 @@ source_set("passwords") {
   frameworks = [ "UIKit.framework" ]
 }
 
-source_set("app_support+eg2") {
-  defines = [ "CHROME_EARL_GREY_2" ]
+source_set("constants") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  sources = [
+    "password_constants.h",
+    "password_constants.mm",
+  ]
+}
+
+source_set("eg_app_support+eg2") {
   configs += [
     "//build/config/compiler:enable_arc",
     "//build/config/ios:xctest_config",
@@ -61,8 +68,7 @@ source_set("app_support+eg2") {
   ]
 }
 
-source_set("test_support+eg2") {
-  defines = [ "CHROME_EARL_GREY_2" ]
+source_set("eg_test_support+eg2") {
   configs += [
     "//build/config/compiler:enable_arc",
     "//build/config/ios:xctest_config",
@@ -70,14 +76,16 @@ source_set("test_support+eg2") {
   testonly = true
   sources = [
     "password_breach_app_interface.h",
-    "password_constants.h",
-    "password_constants.mm",
+    "password_breach_app_interface_stub.mm",
   ]
-  deps = [ "//base" ]
+  deps = [
+    ":constants",
+    "//base",
+    "//ios/third_party/earl_grey2:test_lib",
+  ]
 }
 
 source_set("eg2_tests") {
-  defines = [ "CHROME_EARL_GREY_2" ]
   configs += [
     "//build/config/compiler:enable_arc",
     "//build/config/ios:xctest_config",
@@ -85,7 +93,8 @@ source_set("eg2_tests") {
   testonly = true
   sources = [ "password_breach_egtest.mm" ]
   deps = [
-    ":test_support+eg2",
+    ":constants",
+    ":eg_test_support+eg2",
     "//base",
     "//base/test:test_support",
     "//components/password_manager/core/common",

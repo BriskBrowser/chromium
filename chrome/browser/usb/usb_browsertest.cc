@@ -13,6 +13,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/chooser_bubble_testapi.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/usb/usb_chooser_context_factory.h"
 #include "chrome/browser/usb/usb_chooser_controller.h"
@@ -46,12 +47,16 @@ using device::mojom::UsbDeviceManager;
 
 namespace {
 
-class FakeChooserView : public ChooserController::View {
+class FakeChooserView : public permissions::ChooserController::View {
  public:
-  explicit FakeChooserView(std::unique_ptr<ChooserController> controller)
+  explicit FakeChooserView(
+      std::unique_ptr<permissions::ChooserController> controller)
       : controller_(std::move(controller)) {
     controller_->set_view(this);
   }
+
+  FakeChooserView(const FakeChooserView&) = delete;
+  FakeChooserView& operator=(const FakeChooserView&) = delete;
 
   ~FakeChooserView() override { controller_->set_view(nullptr); }
 
@@ -70,15 +75,16 @@ class FakeChooserView : public ChooserController::View {
   void OnRefreshStateChanged(bool refreshing) override { NOTREACHED(); }
 
  private:
-  std::unique_ptr<ChooserController> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeChooserView);
+  std::unique_ptr<permissions::ChooserController> controller_;
 };
 
 class FakeUsbChooser : public WebUsbChooser {
  public:
   explicit FakeUsbChooser(RenderFrameHost* render_frame_host)
       : WebUsbChooser(render_frame_host) {}
+
+  FakeUsbChooser(const FakeUsbChooser&) = delete;
+  FakeUsbChooser& operator=(const FakeUsbChooser&) = delete;
 
   ~FakeUsbChooser() override {}
 
@@ -98,13 +104,14 @@ class FakeUsbChooser : public WebUsbChooser {
 
  private:
   base::WeakPtrFactory<FakeUsbChooser> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FakeUsbChooser);
 };
 
 class TestContentBrowserClient : public ChromeContentBrowserClient {
  public:
   TestContentBrowserClient() {}
+
+  TestContentBrowserClient(const TestContentBrowserClient&) = delete;
+  TestContentBrowserClient& operator=(const TestContentBrowserClient&) = delete;
 
   ~TestContentBrowserClient() override {}
 
@@ -116,9 +123,9 @@ class TestContentBrowserClient : public ChromeContentBrowserClient {
       ChromeContentBrowserClient::CreateWebUsbService(render_frame_host,
                                                       std::move(receiver));
     } else {
-      usb_chooser_.reset(new FakeUsbChooser(render_frame_host));
-      web_usb_service_.reset(
-          new WebUsbServiceImpl(render_frame_host, usb_chooser_->GetWeakPtr()));
+      usb_chooser_ = std::make_unique<FakeUsbChooser>(render_frame_host);
+      web_usb_service_ = std::make_unique<WebUsbServiceImpl>(
+          render_frame_host, usb_chooser_->GetWeakPtr());
       web_usb_service_->BindReceiver(std::move(receiver));
     }
   }
@@ -129,8 +136,6 @@ class TestContentBrowserClient : public ChromeContentBrowserClient {
   bool use_real_chooser_ = false;
   std::unique_ptr<WebUsbServiceImpl> web_usb_service_;
   std::unique_ptr<WebUsbChooser> usb_chooser_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestContentBrowserClient);
 };
 
 class WebUsbTest : public InProcessBrowserTest {
@@ -151,8 +156,8 @@ class WebUsbTest : public InProcessBrowserTest {
         content::SetBrowserClientForTesting(&test_content_browser_client_);
 
     GURL url = embedded_test_server()->GetURL("localhost", "/simple_page.html");
-    ui_test_utils::NavigateToURL(browser(), url);
-    origin_ = url.GetOrigin();
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+    origin_ = url.DeprecatedGetOriginAsURL();
 
     RenderFrameHost* render_frame_host =
         browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
@@ -297,8 +302,7 @@ IN_PROC_BROWSER_TEST_F(WebUsbTest, AddRemoveDeviceEphemeral) {
   EXPECT_EQ("", content::EvalJs(web_contents, "removedPromise"));
 }
 
-// TODO(https://crbug.com/1069695): This is flaky on Linux, Mac, and Win.
-IN_PROC_BROWSER_TEST_F(WebUsbTest, DISABLED_NavigateWithChooserCrossOrigin) {
+IN_PROC_BROWSER_TEST_F(WebUsbTest, NavigateWithChooserCrossOrigin) {
   UseRealChooser();
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -307,14 +311,24 @@ IN_PROC_BROWSER_TEST_F(WebUsbTest, DISABLED_NavigateWithChooserCrossOrigin) {
       web_contents, 1 /* number_of_navigations */,
       content::MessageLoopRunner::QuitMode::DEFERRED);
 
+  auto waiter = test::ChooserBubbleUiWaiter::Create();
+
   EXPECT_TRUE(content::ExecJs(web_contents,
-                              R"(
-        navigator.usb.requestDevice({ filters: [] });
-        document.location.href = "https://google.com";
-      )"));
+                              "navigator.usb.requestDevice({ filters: [] })",
+                              content::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES));
+
+  // Wait for the chooser to be displayed before navigating to avoid a race
+  // between the two IPCs.
+  waiter->WaitForChange();
+  EXPECT_TRUE(waiter->has_shown());
+
+  EXPECT_TRUE(content::ExecJs(web_contents,
+                              "document.location.href = 'https://google.com'"));
 
   observer.Wait();
-  EXPECT_FALSE(chrome::IsDeviceChooserShowingForTesting(browser()));
+  waiter->WaitForChange();
+  EXPECT_TRUE(waiter->has_closed());
+  EXPECT_EQ(GURL("https://google.com"), web_contents->GetLastCommittedURL());
 }
 
 IN_PROC_BROWSER_TEST_F(WebUsbTest, ShowChooserInBackgroundTab) {

@@ -32,8 +32,7 @@ const char kAttestationServerDefault[] = "default";
 const char kAttestationServerTest[] = "test";
 
 // An arbitrary timeout for getting a certificate.
-constexpr base::TimeDelta kGetCertificateTimeout =
-    base::TimeDelta::FromSeconds(80);
+constexpr base::TimeDelta kGetCertificateTimeout = base::Seconds(80);
 
 AttestationClient* g_instance = nullptr;
 
@@ -55,7 +54,7 @@ bool ParseProto(dbus::Response* response,
   return true;
 }
 
-// "Real" implementation of AttestationClient taking to the Attestation daemon
+// "Real" implementation of AttestationClient talking to the Attestation daemon
 // on the Chrome OS side.
 class AttestationClientImpl : public AttestationClient {
  public:

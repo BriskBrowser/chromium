@@ -4,6 +4,8 @@
 
 #import "ios/chrome/test/wpt/cwt_webdriver_app_interface.h"
 
+#include <signal.h>
+
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/json/json_writer.h"
@@ -211,9 +213,9 @@ void DispatchSyncOnMainThread(void (^block)(void)) {
       "(%s).call(null, %s)", base::SysNSStringToUTF8(function).c_str(),
       scriptCompletionHandler.c_str());
 
-  __block base::Optional<base::Value> messageValue;
+  __block absl::optional<base::Value> messageValue;
   const web::WebState::ScriptCommandCallback callback =
-      base::BindRepeating(^(const base::DictionaryValue& value, const GURL&,
+      base::BindRepeating(^(const base::Value& value, const GURL&,
                             /*interacted*/ bool,
                             /*sender_frame*/ web::WebFrame*) {
         const base::Value* result = value.FindKey(kMessageResultKey);
@@ -310,6 +312,12 @@ void DispatchSyncOnMainThread(void (^block)(void)) {
 
 + (void)stopLoggingStderr {
   CWTStderrLogger::GetInstance()->StopRedirectingToFile();
+}
+
++ (void)installCleanExitHandlerForAbortSignal {
+  struct sigaction sa {};
+  sa.sa_handler = [](int) { exit(0); };
+  sigaction(SIGABRT, &sa, nullptr);
 }
 
 @end

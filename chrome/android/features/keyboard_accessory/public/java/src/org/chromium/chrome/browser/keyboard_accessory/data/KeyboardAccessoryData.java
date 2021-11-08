@@ -13,6 +13,7 @@ import androidx.annotation.Nullable;
 import org.chromium.base.Callback;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryAction;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryTabType;
+import org.chromium.url.GURL;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -147,11 +148,17 @@ public class KeyboardAccessoryData {
     public static final class Action {
         private final String mCaption;
         private final Callback<Action> mActionCallback;
+        private final Callback<Action> mLongPressCallback;
         private @AccessoryAction int mType;
 
         public Action(String caption, @AccessoryAction int type, Callback<Action> actionCallback) {
+            this(caption, type, actionCallback, null);
+        }
+        public Action(String caption, @AccessoryAction int type, Callback<Action> actionCallback,
+                @Nullable Callback<Action> longPressCallback) {
             mCaption = caption;
             mActionCallback = actionCallback;
+            mLongPressCallback = longPressCallback;
             mType = type;
         }
 
@@ -161,6 +168,10 @@ public class KeyboardAccessoryData {
 
         public Callback<Action> getCallback() {
             return mActionCallback;
+        }
+
+        public Callback<Action> getLongPressCallback() {
+            return mLongPressCallback;
         }
 
         public @AccessoryAction int getActionType() {
@@ -225,12 +236,18 @@ public class KeyboardAccessoryData {
      */
     public static final class UserInfo {
         private final String mOrigin;
+        private final GURL mIconUrl;
         private final List<UserInfoField> mFields = new ArrayList<>();
-        private final boolean mIsPslMatch;
+        private final boolean mIsExactMatch;
 
-        public UserInfo(String origin, boolean isPslMatch) {
+        public UserInfo(String origin, boolean isExactMatch) {
+            this(origin, isExactMatch, null);
+        }
+
+        public UserInfo(String origin, boolean isExactMatch, GURL iconUrl) {
             mOrigin = origin;
-            mIsPslMatch = isPslMatch;
+            mIsExactMatch = isExactMatch;
+            mIconUrl = iconUrl;
         }
 
         /**
@@ -256,10 +273,46 @@ public class KeyboardAccessoryData {
         }
 
         /**
-         * @return True iff the user info originates from a PSL match and is not a first-party item.
+         * @return True iff the user info originates from a first-party item and not from a PSL or
+         *         affiliated match.
          */
-        public boolean isPslMatch() {
-            return mIsPslMatch;
+        public boolean isExactMatch() {
+            return mIsExactMatch;
+        }
+
+        /**
+         * The url for the icon to be downloaded and displayed in the manual filling view. For
+         * credit cards, the `mOrigin` is used as an identifier for the icon. However, if the
+         * `mIconUrl` is set, it'll be used to download the icon and then display it.
+         */
+        public GURL getIconUrl() {
+            return mIconUrl;
+        }
+    }
+
+    /**
+     * Represents a Promo Code Offer to be shown on the manual fallback UI.
+     */
+    public static final class PromoCodeInfo {
+        private UserInfoField mPromoCode;
+        private String mDetailsText;
+
+        public PromoCodeInfo() {}
+
+        public void setPromoCode(UserInfoField promoCode) {
+            mPromoCode = promoCode;
+        }
+
+        public void setDetailsText(String detailsText) {
+            mDetailsText = detailsText;
+        }
+
+        public UserInfoField getPromoCode() {
+            return mPromoCode;
+        }
+
+        public String getDetailsText() {
+            return mDetailsText;
         }
     }
 
@@ -306,6 +359,7 @@ public class KeyboardAccessoryData {
         private final @AccessoryTabType int mSheetType;
         private OptionToggle mToggle;
         private final List<UserInfo> mUserInfoList = new ArrayList<>();
+        private final List<PromoCodeInfo> mPromoCodeInfoList = new ArrayList<>();
         private final List<FooterCommand> mFooterCommands = new ArrayList<>();
 
         /**
@@ -352,6 +406,13 @@ public class KeyboardAccessoryData {
          */
         public List<UserInfo> getUserInfoList() {
             return mUserInfoList;
+        }
+
+        /**
+         * Returns the list of {@link PromoCodeInfo} to be shown on the accessory sheet.
+         */
+        public List<PromoCodeInfo> getPromoCodeInfoList() {
+            return mPromoCodeInfoList;
         }
 
         /**

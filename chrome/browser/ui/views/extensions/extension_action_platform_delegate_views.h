@@ -28,6 +28,12 @@ class ExtensionActionPlatformDelegateViews
  public:
   ExtensionActionPlatformDelegateViews(
       ExtensionActionViewController* controller);
+
+  ExtensionActionPlatformDelegateViews(
+      const ExtensionActionPlatformDelegateViews&) = delete;
+  ExtensionActionPlatformDelegateViews& operator=(
+      const ExtensionActionPlatformDelegateViews&) = delete;
+
   ~ExtensionActionPlatformDelegateViews() override;
 
  private:
@@ -38,7 +44,6 @@ class ExtensionActionPlatformDelegateViews
       std::unique_ptr<extensions::ExtensionViewHost> host,
       bool grant_tab_permissions,
       ExtensionActionViewController::PopupShowAction show_action) override;
-  void ShowContextMenu() override;
 
   // extensions::CommandService::Observer:
   void OnExtensionCommandAdded(const std::string& extension_id,
@@ -63,8 +68,6 @@ class ExtensionActionPlatformDelegateViews
   base::ScopedObservation<extensions::CommandService,
                           extensions::CommandService::Observer>
       command_service_observation_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionActionPlatformDelegateViews);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSION_ACTION_PLATFORM_DELEGATE_VIEWS_H_

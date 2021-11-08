@@ -27,7 +27,7 @@
 #include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/google/google_brand.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/common/channel_info.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/sync_internals_util.h"
@@ -38,21 +38,22 @@
 #include "extensions/common/api/power.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
+#include "ui/display/types/display_constants.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/components/settings/cros_settings_names.h"
 #include "ash/public/ash_interfaces.h"
 #include "base/strings/stringprintf.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/arc/policy/arc_policy_bridge.h"
-#include "chrome/browser/chromeos/crosapi/browser_manager.h"
-#include "chrome/browser/chromeos/crosapi/browser_util.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
-#include "chrome/browser/chromeos/login/login_pref_names.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ash/arc/arc_util.h"
+#include "chrome/browser/ash/arc/policy/arc_policy_bridge.h"
+#include "chrome/browser/ash/crosapi/browser_manager.h"
+#include "chrome/browser/ash/crosapi/browser_util.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/login_pref_names.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/metrics/chromeos_metrics_provider.h"
 #include "chrome/browser/metrics/enrollment_status.h"
 #include "chromeos/dbus/util/version_loader.h"
-#include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/system/statistics_provider.h"
 #endif
 
@@ -78,7 +79,7 @@ constexpr char kPowerApiListKey[] = "chrome.power extensions";
 constexpr char kDataReductionProxyKey[] = "data_reduction_proxy";
 constexpr char kChromeVersionTag[] = "CHROME VERSION";
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 constexpr char kLacrosChromeVersionPrefix[] = "Lacros ";
 #endif
 
@@ -136,8 +137,6 @@ std::string GetPrimaryAccountTypeString() {
       return "guest";
     case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
       return "public_account";
-    case user_manager::USER_TYPE_SUPERVISED_DEPRECATED:
-      return "supervised";
     case user_manager::USER_TYPE_KIOSK_APP:
       return "kiosk_app";
     case user_manager::USER_TYPE_CHILD:
@@ -234,21 +233,15 @@ void PopulateEntriesAsync(SystemLogsResponse* response) {
 
 std::string GetChromeVersionString() {
   // Version of the current running browser.
-  std::string browser_version = chrome::GetVersionString();
-
-// This is used by simple lacros feedback for backward compatibility.
-// TODO(http://crbug.com/1132106): Remove after M87 beta when Feedback
-// crosapi is available in all ash versions.
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  browser_version = kLacrosChromeVersionPrefix + browser_version;
-#endif
+  std::string browser_version =
+      chrome::GetVersionString(chrome::WithExtendedStable(true));
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // If the device is receiving LTS updates, add a prefix to the version string.
   // The value of the policy is ignored here.
   std::string value;
-  const bool is_lts = chromeos::CrosSettings::Get()->GetString(
-      chromeos::kReleaseLtsTag, &value);
+  const bool is_lts =
+      ash::CrosSettings::Get()->GetString(chromeos::kReleaseLtsTag, &value);
   if (is_lts)
     browser_version = kLTSChromeVersionPrefix + browser_version;
 
@@ -368,9 +361,8 @@ void ChromeInternalLogSource::Fetch(SysLogsSourceCallback callback) {
     PopulateArcPolicyStatus(response.get());
   }
   response->emplace(kAccountTypeKey, GetPrimaryAccountTypeString());
-  response->emplace(kDemoModeConfigKey,
-                    chromeos::DemoSession::DemoConfigToString(
-                        chromeos::DemoSession::GetDemoConfig()));
+  response->emplace(kDemoModeConfigKey, ash::DemoSession::DemoConfigToString(
+                                            ash::DemoSession::GetDemoConfig()));
   PopulateLocalStateSettings(response.get());
   PopulateOnboardingTime(response.get());
 
@@ -396,15 +388,15 @@ void ChromeInternalLogSource::Fetch(SysLogsSourceCallback callback) {
 void ChromeInternalLogSource::PopulateSyncLogs(SystemLogsResponse* response) {
   // We are only interested in sync logs for the primary user profile.
   Profile* profile = ProfileManager::GetPrimaryUserProfile();
-  if (!profile || !ProfileSyncServiceFactory::HasSyncService(profile))
+  if (!profile || !SyncServiceFactory::HasSyncService(profile))
     return;
 
   // Add sync logs to |response|.
   std::unique_ptr<base::DictionaryValue> sync_logs =
       syncer::sync_ui_util::ConstructAboutInformation(
           syncer::sync_ui_util::IncludeSensitiveData(false),
-          ProfileSyncServiceFactory::GetForProfile(profile),
-          chrome::GetChannel());
+          SyncServiceFactory::GetForProfile(profile),
+          chrome::GetChannelName(chrome::WithExtendedStable(true)));
   std::string serialized_sync_logs;
   JSONStringValueSerializer(&serialized_sync_logs).Serialize(*sync_logs);
   response->emplace(kSyncDataKey, serialized_sync_logs);
@@ -507,7 +499,7 @@ void ChromeInternalLogSource::PopulateOnboardingTime(
   if (!profile)
     return;
   base::Time time =
-      profile->GetPrefs()->GetTime(chromeos::prefs::kOobeOnboardingTime);
+      profile->GetPrefs()->GetTime(ash::prefs::kOobeOnboardingTime);
   if (time.is_null())
     return;
 
@@ -548,7 +540,7 @@ void ChromeInternalLogSource::PopulateInstallerBrandCode(
 void ChromeInternalLogSource::PopulateLastUpdateState(
     SystemLogsResponse* response) {
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  const base::Optional<UpdateState> update_state = GetLastUpdateState();
+  const absl::optional<UpdateState> update_state = GetLastUpdateState();
   if (!update_state)
     return;  // There is nothing to include if no update check has completed.
 

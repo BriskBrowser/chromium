@@ -5,8 +5,6 @@
 #ifndef MEDIA_LEARNING_MOJO_PUBLIC_CPP_MOJO_LEARNING_TASK_CONTROLLER_H_
 #define MEDIA_LEARNING_MOJO_PUBLIC_CPP_MOJO_LEARNING_TASK_CONTROLLER_H_
 
-#include <utility>
-
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "media/learning/common/learning_task_controller.h"
@@ -25,20 +23,25 @@ class COMPONENT_EXPORT(MEDIA_LEARNING_MOJO) MojoLearningTaskController
   MojoLearningTaskController(
       const LearningTask& task,
       mojo::Remote<mojom::LearningTaskController> controller);
+
+  MojoLearningTaskController(const MojoLearningTaskController&) = delete;
+  MojoLearningTaskController& operator=(const MojoLearningTaskController&) =
+      delete;
+
   ~MojoLearningTaskController() override;
 
   // LearningTaskController
   void BeginObservation(
       base::UnguessableToken id,
       const FeatureVector& features,
-      const base::Optional<TargetValue>& default_target,
-      const base::Optional<ukm::SourceId>& source_id) override;
+      const absl::optional<TargetValue>& default_target,
+      const absl::optional<ukm::SourceId>& source_id) override;
   void CompleteObservation(base::UnguessableToken id,
                            const ObservationCompletion& completion) override;
   void CancelObservation(base::UnguessableToken id) override;
   void UpdateDefaultTarget(
       base::UnguessableToken id,
-      const base::Optional<TargetValue>& default_target) override;
+      const absl::optional<TargetValue>& default_target) override;
   const LearningTask& GetLearningTask() override;
   void PredictDistribution(const FeatureVector& features,
                            PredictionCB callback) override;
@@ -46,8 +49,6 @@ class COMPONENT_EXPORT(MEDIA_LEARNING_MOJO) MojoLearningTaskController
  private:
   LearningTask task_;
   mojo::Remote<mojom::LearningTaskController> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(MojoLearningTaskController);
 };
 
 }  // namespace learning

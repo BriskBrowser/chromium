@@ -11,16 +11,15 @@
 #include <map>
 #include <set>
 #include <string>
-#include <vector>
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
-#include "base/strings/string16.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "components/history/core/browser/history_db_task.h"
 #include "components/history/core/browser/history_service.h"
@@ -120,11 +119,11 @@ class InMemoryURLIndex : public KeyedService,
   // Scans the history index and returns a vector with all scored, matching
   // history items. This entry point simply forwards the call on to the
   // URLIndexPrivateData class. For a complete description of this function
-  // refer to that class.  If |cursor_position| is base::string16::npos, the
+  // refer to that class.  If |cursor_position| is std::u16string::npos, the
   // function doesn't do anything special with the cursor; this is equivalent
   // to the cursor being at the end.  In total, |max_matches| of items will be
   // returned in the |ScoredHistoryMatches| vector.
-  ScoredHistoryMatches HistoryItemsForTerms(const base::string16& term_string,
+  ScoredHistoryMatches HistoryItemsForTerms(const std::u16string& term_string,
                                             size_t cursor_position,
                                             size_t max_matches);
 
@@ -152,7 +151,6 @@ class InMemoryURLIndex : public KeyedService,
   friend class history::HQPPerfTestOnePopularURL;
   friend class InMemoryURLIndexTest;
   friend class InMemoryURLIndexCacheTest;
-  friend class RepeatableQueriesServiceTest;
   FRIEND_TEST_ALL_PREFIXES(InMemoryURLIndexTest, ExpireRow);
   FRIEND_TEST_ALL_PREFIXES(LimitedInMemoryURLIndexTest, Initialization);
 
@@ -178,6 +176,9 @@ class InMemoryURLIndex : public KeyedService,
     SchemeSet scheme_allowlist_;  // Schemes to be indexed.
     bool succeeded_;  // Indicates if the rebuild was successful.
     scoped_refptr<URLIndexPrivateData> data_;  // The rebuilt private data.
+    // When the task was first requested from the main thread. This is the same
+    // time as when this task object is constructed.
+    const base::TimeTicks task_creation_time_;
   };
 
   // Initializes all index data members in preparation for restoring the index
@@ -202,7 +203,7 @@ class InMemoryURLIndex : public KeyedService,
   // or rebuilding our private data from the history database. |succeeded|
   // will be true if the rebuild was successful. |data| will point to a new
   // instanceof the private data just rebuilt.
-  void DoneRebuidingPrivateDataFromHistoryDB(
+  void DoneRebuildingPrivateDataFromHistoryDB(
       bool succeeded,
       scoped_refptr<URLIndexPrivateData> private_data);
 
@@ -247,8 +248,7 @@ class InMemoryURLIndex : public KeyedService,
                     const history::RedirectList& redirects,
                     base::Time visit_time) override;
   void OnURLsModified(history::HistoryService* history_service,
-                      const history::URLRows& changed_urls,
-                      history::UrlsModifiedReason reason) override;
+                      const history::URLRows& changed_urls) override;
   void OnURLsDeleted(history::HistoryService* history_service,
                      const history::DeletionInfo& deletion_info) override;
   void OnHistoryServiceLoaded(

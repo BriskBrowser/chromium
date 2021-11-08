@@ -16,6 +16,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "media/mojo/mojom/media_player.mojom.h"
+#include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "third_party/blink/public/mojom/picture_in_picture/picture_in_picture.mojom.h"
@@ -51,28 +52,42 @@ class CONTENT_EXPORT PictureInPictureWindowControllerImpl
   static PictureInPictureWindowControllerImpl* GetOrCreateForWebContents(
       WebContents* web_contents);
 
+  PictureInPictureWindowControllerImpl(
+      const PictureInPictureWindowControllerImpl&) = delete;
+  PictureInPictureWindowControllerImpl& operator=(
+      const PictureInPictureWindowControllerImpl&) = delete;
+
   ~PictureInPictureWindowControllerImpl() override;
 
   using PlayerSet = std::set<int>;
 
   // PictureInPictureWindowController:
   void Show() override;
+  void FocusInitiator() override;
   void Close(bool should_pause_video) override;
   void CloseAndFocusInitiator() override;
-  void OnWindowDestroyed() override;
+  void OnWindowDestroyed(bool should_pause_video) override;
   OverlayWindow* GetWindowForTesting() override;
   void UpdateLayerBounds() override;
   bool IsPlayerActive() override;
   WebContents* GetWebContents() override;
   bool TogglePlayPause() override;
-  void UpdatePlaybackState(bool is_playing,
-                           bool reached_end_of_stream) override;
   void SkipAd() override;
   void NextTrack() override;
   void PreviousTrack() override;
+  void ToggleMicrophone() override;
+  void ToggleCamera() override;
+  void HangUp() override;
+
+  // Called by the MediaSessionImpl when the MediaSessionInfo changes.
+  void MediaSessionInfoChanged(
+      const media_session::mojom::MediaSessionInfoPtr& info);
 
   void MediaSessionActionsChanged(
       const std::set<media_session::mojom::MediaSessionAction>& actions);
+
+  void MediaSessionPositionChanged(
+      const absl::optional<media_session::MediaPosition>& media_position);
 
   gfx::Size GetSize();
 
@@ -98,7 +113,7 @@ class CONTENT_EXPORT PictureInPictureWindowControllerImpl
   PictureInPictureResult StartSession(
       PictureInPictureServiceImpl* service,
       const MediaPlayerId&,
-      mojo::PendingRemote<media::mojom::MediaPlayer> player_remote,
+      mojo::PendingAssociatedRemote<media::mojom::MediaPlayer> player_remote,
       const viz::SurfaceId& surface_id,
       const gfx::Size& natural_size,
       bool show_play_pause_button,
@@ -122,6 +137,9 @@ class CONTENT_EXPORT PictureInPictureWindowControllerImpl
   // Use PictureInPictureWindowControllerImpl::GetOrCreateForWebContents() to
   // create an instance.
   explicit PictureInPictureWindowControllerImpl(WebContents* web_contents);
+
+  // Recompute the playback state and update the window accordingly.
+  void UpdatePlaybackState();
 
   // Signal to the media player that |this| is leaving Picture-in-Picture mode.
   void OnLeavingPictureInPicture(bool should_pause_video);
@@ -153,6 +171,15 @@ class CONTENT_EXPORT PictureInPictureWindowControllerImpl
   bool media_session_action_skip_ad_handled_ = false;
   bool media_session_action_next_track_handled_ = false;
   bool media_session_action_previous_track_handled_ = false;
+  bool media_session_action_toggle_microphone_handled_ = false;
+  bool media_session_action_toggle_camera_handled_ = false;
+  bool media_session_action_hang_up_handled_ = false;
+
+  // Tracks the current microphone state.
+  bool microphone_muted_ = false;
+
+  // Tracks the current camera state.
+  bool camera_turned_on_ = false;
 
   // Used to hide play/pause button if video is a MediaStream or has infinite
   // duration. Play/pause button visibility can be overridden by the Media
@@ -165,9 +192,10 @@ class CONTENT_EXPORT PictureInPictureWindowControllerImpl
   // The session will be nullptr when there is no active session.
   std::unique_ptr<PictureInPictureSession> active_session_;
 
-  WEB_CONTENTS_USER_DATA_KEY_DECL();
+  // The media position info as last reported to us by MediaSessionImpl.
+  absl::optional<media_session::MediaPosition> media_position_;
 
-  DISALLOW_COPY_AND_ASSIGN(PictureInPictureWindowControllerImpl);
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
 };
 
 }  // namespace content

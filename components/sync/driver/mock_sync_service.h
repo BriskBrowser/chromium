@@ -37,11 +37,8 @@ class MockSyncService : public SyncService {
   MOCK_METHOD(DisableReasonSet, GetDisableReasons, (), (const override));
   MOCK_METHOD(TransportState, GetTransportState, (), (const override));
   MOCK_METHOD(bool, IsLocalSyncEnabled, (), (const override));
-  MOCK_METHOD(CoreAccountInfo,
-              GetAuthenticatedAccountInfo,
-              (),
-              (const override));
-  MOCK_METHOD(bool, IsAuthenticatedAccountPrimary, (), (const override));
+  MOCK_METHOD(CoreAccountInfo, GetAccountInfo, (), (const override));
+  MOCK_METHOD(bool, HasSyncConsent, (), (const override));
   MOCK_METHOD(GoogleServiceAuthError, GetAuthError, (), (const override));
   MOCK_METHOD(base::Time, GetAuthErrorTime, (), (const override));
   MOCK_METHOD(bool, RequiresClientUpgrade, (), (const override));
@@ -77,6 +74,7 @@ class MockSyncService : public SyncService {
               AddTrustedVaultRecoveryMethodFromWeb,
               (const std::string& gaia_id,
                const std::vector<uint8_t>& public_key,
+               int method_type_hint,
                base::OnceClosure callback),
               (override));
   MOCK_METHOD(void, AddObserver, (SyncServiceObserver * observer), (override));
@@ -126,7 +124,6 @@ class MockSyncService : public SyncService {
               RemoveProtocolEventObserver,
               (ProtocolEventObserver * observer),
               (override));
-  MOCK_METHOD(base::WeakPtr<JsController>, GetJsController, (), (override));
   MOCK_METHOD(
       void,
       GetAllNodesForDebugging,

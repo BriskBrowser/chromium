@@ -9,6 +9,7 @@
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/media/router/discovery/dial/dial_app_discovery_service.h"
 #include "components/media_router/common/media_source.h"
+#include "components/media_router/common/test/test_helper.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "services/network/public/cpp/simple_url_loader.h"
@@ -35,7 +36,7 @@ MockCastAppDiscoveryService::StartObservingMediaSinks(
 }
 scoped_refptr<base::SequencedTaskRunner>
 MockCastAppDiscoveryService::task_runner() {
-  return base::CreateSingleThreadTaskRunner({content::BrowserThread::IO});
+  return content::GetIOThreadTaskRunner({});
 }
 
 MockDialAppDiscoveryService::MockDialAppDiscoveryService() = default;
@@ -65,7 +66,7 @@ TestDialURLFetcher::~TestDialURLFetcher() = default;
 
 void TestDialURLFetcher::Start(const GURL& url,
                                const std::string& method,
-                               const base::Optional<std::string>& post_data,
+                               const absl::optional<std::string>& post_data,
                                int max_retries,
                                bool set_origin_header) {
   DoStart(url, method, post_data, max_retries);
@@ -99,7 +100,7 @@ std::unique_ptr<DialURLFetcher> TestDialActivityManager::CreateFetcher(
 void TestDialActivityManager::SetExpectedRequest(
     const GURL& url,
     const std::string& method,
-    const base::Optional<std::string>& post_data) {
+    const absl::optional<std::string>& post_data) {
   EXPECT_CALL(*this, OnFetcherCreated());
   expected_url_ = url;
   expected_method_ = method;
@@ -120,7 +121,7 @@ MediaSinkInternal CreateDialSink(int num) {
 
   media_router::MediaSink sink(unique_id, friendly_name,
                                media_router::SinkIconType::GENERIC,
-                               MediaRouteProviderId::EXTENSION);
+                               mojom::MediaRouteProviderId::DIAL);
   media_router::DialSinkExtraData extra_data;
   extra_data.ip_address = ip_endpoint.address();
   extra_data.model_name = base::StringPrintf("model name %d", num);
@@ -134,7 +135,7 @@ MediaSinkInternal CreateCastSink(int num) {
   std::string unique_id = base::StringPrintf("cast:<id%d>", num);
   net::IPEndPoint ip_endpoint = CreateIPEndPoint(num);
 
-  MediaSink sink(unique_id, friendly_name, SinkIconType::CAST);
+  MediaSink sink{CreateCastSink(unique_id, friendly_name)};
   CastSinkExtraData extra_data;
   extra_data.ip_endpoint = ip_endpoint;
   extra_data.port = ip_endpoint.port();

@@ -70,6 +70,18 @@ struct COMPONENT_EXPORT(CHROMEOS_NETWORK) CellularScanResult {
   std::string technology;  // Access technology.
 };
 
+// Struct for passing cellular SIM slot info data.
+struct COMPONENT_EXPORT(CHROMEOS_NETWORK) CellularSIMSlotInfo {
+  CellularSIMSlotInfo();
+  CellularSIMSlotInfo(const CellularSIMSlotInfo& other);
+  ~CellularSIMSlotInfo();
+  int32_t slot_id;      // The physical slot number.
+  std::string eid;      // For eSIM capable SIM cards only, the EID of
+                        // the SIM Card.
+  std::string iccid;    // The ICCID of the SIM Card.
+  bool primary;         // True if the slot is primary (active).
+};
+
 typedef std::vector<WifiAccessPoint> WifiAccessPointVector;
 typedef std::vector<CellTower> CellTowerVector;
 
@@ -106,6 +118,13 @@ COMPONENT_EXPORT(CHROMEOS_NETWORK)
 bool ParseCellularScanResults(const base::ListValue& list,
                               std::vector<CellularScanResult>* scan_results);
 
+// Parses |list|, which contains DictionaryValues and returns a vector of
+// CellularSIMSlotInfo in |sim_slot_infos|. Returns false if parsing fails,
+// in which case the contents of |sim_slot_infos| will be undefined.
+COMPONENT_EXPORT(CHROMEOS_NETWORK)
+bool ParseCellularSIMSlotInfo(const base::Value::ConstListView list,
+                              std::vector<CellularSIMSlotInfo>* sim_slot_infos);
+
 // Retrieves the ONC state dictionary for |network| using GetStateProperties.
 // This includes properties from the corresponding NetworkState if it exists.
 // Assumed to be called from the primary user profile.
@@ -141,5 +160,13 @@ std::string TranslateShillTypeToONC(const std::string& type);
 
 }  // namespace network_util
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when move to ash.
+namespace ash {
+using ::chromeos::CellTower;
+using ::chromeos::CellTowerVector;
+using ::chromeos::WifiAccessPoint;
+using ::chromeos::WifiAccessPointVector;
+}  // namespace ash
 
 #endif  // CHROMEOS_NETWORK_NETWORK_UTIL_H_

@@ -9,6 +9,7 @@
 #include "ash/clipboard/views/clipboard_history_item_view.h"
 #include "ash/public/cpp/clipboard_image_model_factory.h"
 #include "ash/wm/window_util.h"
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/clipboard/clipboard.h"
@@ -73,6 +74,10 @@ void ClipboardHistoryMenuModelAdapter::Run(
   DCHECK(item_snapshots_.empty());
   DCHECK(item_views_by_command_id_.empty());
 
+  // `Run()` should be called at most once for an instance.
+  DCHECK(!run_before_);
+  run_before_ = true;
+
   menu_open_time_ = base::TimeTicks::Now();
 
   int command_id = ClipboardHistoryUtil::kFirstItemCommandId;
@@ -85,7 +90,7 @@ void ClipboardHistoryMenuModelAdapter::Run(
   const ui::DataTransferEndpoint data_dst(ui::EndpointType::kDefault,
                                           /*notify_if_restricted=*/false);
   for (const auto& item : items) {
-    model_->AddItem(command_id, base::string16());
+    model_->AddItem(command_id, std::u16string());
     item_snapshots_.emplace(command_id, item);
     ++command_id;
   }
@@ -102,7 +107,7 @@ void ClipboardHistoryMenuModelAdapter::Run(
                       views::MenuRunner::FIXED_ANCHOR);
   menu_runner_->RunMenuAt(
       /*widget_owner=*/nullptr, /*menu_button_controller=*/nullptr, anchor_rect,
-      views::MenuAnchorPosition::kBubbleBelow, source_type);
+      views::MenuAnchorPosition::kBubbleBottomRight, source_type);
 }
 
 bool ClipboardHistoryMenuModelAdapter::IsRunning() const {
@@ -114,15 +119,15 @@ void ClipboardHistoryMenuModelAdapter::Cancel() {
   menu_runner_->Cancel();
 }
 
-base::Optional<int>
+absl::optional<int>
 ClipboardHistoryMenuModelAdapter::GetSelectedMenuItemCommand() const {
   DCHECK(root_view_);
 
   // `root_view_` may be selected if no menu item is under selection.
   auto* menu_item = root_view_->GetMenuController()->GetSelectedMenuItem();
   return menu_item && menu_item != root_view_
-             ? base::make_optional(menu_item->GetCommand())
-             : base::nullopt;
+             ? absl::make_optional(menu_item->GetCommand())
+             : absl::nullopt;
 }
 
 const ClipboardHistoryItem&
@@ -171,7 +176,7 @@ void ClipboardHistoryMenuModelAdapter::RemoveMenuItemWithCommandId(
   // Calculate `new_selected_command_id` before removing the item specified by
   // `command_id` from data structures because the item to be removed is
   // needed in calculation.
-  base::Optional<int> new_selected_command_id =
+  absl::optional<int> new_selected_command_id =
       CalculateSelectedCommandIdAfterDeletion(command_id);
 
   // Disable a11y for all item views. It ensures that when deleting multiple
@@ -238,7 +243,7 @@ void ClipboardHistoryMenuModelAdapter::RemoveMenuItemWithCommandId(
 }
 
 void ClipboardHistoryMenuModelAdapter::AdvancePseudoFocus(bool reverse) {
-  base::Optional<int> selected_command = GetSelectedMenuItemCommand();
+  absl::optional<int> selected_command = GetSelectedMenuItemCommand();
 
   // If no item is selected, select the topmost or bottom menu item depending
   // on the focus move direction.
@@ -291,7 +296,7 @@ ClipboardHistoryMenuModelAdapter::ClipboardHistoryMenuModelAdapter(
 
 void ClipboardHistoryMenuModelAdapter::AdvancePseudoFocusFromSelectedItem(
     bool reverse) {
-  base::Optional<int> selected_item_command = GetSelectedMenuItemCommand();
+  absl::optional<int> selected_item_command = GetSelectedMenuItemCommand();
   DCHECK(selected_item_command.has_value());
   auto selected_item_iter =
       item_views_by_command_id_.find(*selected_item_command);
@@ -354,7 +359,7 @@ int ClipboardHistoryMenuModelAdapter::CalculateSelectedCommandIdAfterDeletion(
 }
 
 void ClipboardHistoryMenuModelAdapter::RemoveItemView(int command_id) {
-  base::Optional<int> original_selected_command_id =
+  absl::optional<int> original_selected_command_id =
       GetSelectedMenuItemCommand();
 
   // The menu item view and its corresponding command should be removed at the
@@ -404,6 +409,13 @@ views::MenuItemView* ClipboardHistoryMenuModelAdapter::AppendMenuItem(
 }
 
 void ClipboardHistoryMenuModelAdapter::OnMenuClosed(views::MenuItemView* menu) {
+  // Terminate alive asynchronous calls on `RemoveItemView()`. It is pointless
+  // to update views when the menu is closed.
+  // Note that data members related to the asynchronous calls, such as
+  // `item_deletion_in_progress_count_` and `scoped_ignore_`, are not reset.
+  // Because when hitting here, this instance is going to be destructed soon.
+  weak_ptr_factory_.InvalidateWeakPtrs();
+
   ClipboardImageModelFactory::Get()->Deactivate();
   const base::TimeDelta user_journey_time =
       base::TimeTicks::Now() - menu_open_time_;

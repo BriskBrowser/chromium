@@ -36,6 +36,7 @@ import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.app.ChromeActivity;
@@ -123,7 +124,7 @@ public class PortalsTest {
         private final CallbackHelper mCallbackHelper;
 
         public LayoutAfterTabContentsSwappedObserver(Tab tab) {
-            tab.addObserver(this);
+            TestThreadUtils.runOnUiThreadBlocking(() -> tab.addObserver(this));
             mCallbackHelper = new CallbackHelper();
         }
 
@@ -147,7 +148,7 @@ public class PortalsTest {
     private void executeScriptAndAwaitSwap(Tab tab, String code) throws Exception {
         TabContentsSwapObserver swapObserver = new TabContentsSwapObserver();
         CallbackHelper swapWaiter = swapObserver.getCallbackHelper();
-        tab.addObserver(swapObserver);
+        TestThreadUtils.runOnUiThreadBlocking(() -> tab.addObserver(swapObserver));
 
         int currSwapCount = swapWaiter.getCallCount();
         JavaScriptUtils.executeJavaScript(tab.getWebContents(), code);
@@ -402,7 +403,7 @@ public class PortalsTest {
 
         TabContentsSwapObserver swapObserver = new TabContentsSwapObserver();
         CallbackHelper swapWaiter = swapObserver.getCallbackHelper();
-        tab.addObserver(swapObserver);
+        TestThreadUtils.runOnUiThreadBlocking(() -> tab.addObserver(swapObserver));
         int currSwapCount = swapWaiter.getCallCount();
 
         int dragStartX = 30;
@@ -522,7 +523,7 @@ public class PortalsTest {
         // user.
         List<HistoryItem> history = getBrowsingHistory(tab);
         Assert.assertEquals(1, history.size());
-        Assert.assertEquals(mainUrl, history.get(0).getUrl());
+        Assert.assertEquals(mainUrl, history.get(0).getUrl().getSpec());
         Assert.assertEquals(mainTitle, history.get(0).getTitle());
 
         executeScriptAndAwaitSwap(tab, "activatePortal();");
@@ -531,9 +532,9 @@ public class PortalsTest {
         // as a navigation in the tab, so this should be considered a page visit.
         history = getBrowsingHistory(tab);
         Assert.assertEquals(2, history.size());
-        Assert.assertEquals(portalUrl, history.get(0).getUrl());
+        Assert.assertEquals(portalUrl, history.get(0).getUrl().getSpec());
         Assert.assertEquals(portalTitle, history.get(0).getTitle());
-        Assert.assertEquals(mainUrl, history.get(1).getUrl());
+        Assert.assertEquals(mainUrl, history.get(1).getUrl().getSpec());
         Assert.assertEquals(mainTitle, history.get(1).getTitle());
     }
 
@@ -587,6 +588,7 @@ public class PortalsTest {
     @LargeTest
     @Feature({"Portals"})
     @MinAndroidSdkLevel(Build.VERSION_CODES.M)
+    @DisabledTest(message = "https://crbug.com/1174005")
     public void testMediaCaptureNotificationVisibleAfterAdoption() throws Exception {
         String mainUrl = mTestServer.getURL("/chrome/test/data/android/portals/media-capture.html");
         mActivityTestRule.startMainActivityWithURL(mainUrl);
@@ -621,6 +623,7 @@ public class PortalsTest {
     @LargeTest
     @Feature({"Portals"})
     @MinAndroidSdkLevel(Build.VERSION_CODES.M)
+    @FlakyTest(message = "https://crbug.com/1184291")
     public void testMediaNotificationDisappearsAfterActivation() throws Exception {
         String mainUrl =
                 mTestServer.getURL("/chrome/test/data/android/portals/media-notification.html");

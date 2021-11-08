@@ -11,7 +11,6 @@
 #include <wrl/module.h>
 
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "chrome/elevation_service/elevation_service_idl.h"
 
 namespace elevation_service {
@@ -28,6 +27,9 @@ class Elevator
  public:
   Elevator() = default;
 
+  Elevator(const Elevator&) = delete;
+  Elevator& operator=(const Elevator&) = delete;
+
   // Securely validates and runs the provided Chrome Recovery CRX elevated, by
   // first copying the CRX to a secure directory under %ProgramFiles% to
   // validate and unpack the CRX.
@@ -40,8 +42,6 @@ class Elevator
 
  private:
   ~Elevator() override = default;
-
-  DISALLOW_COPY_AND_ASSIGN(Elevator);
 };
 
 }  // namespace elevation_service

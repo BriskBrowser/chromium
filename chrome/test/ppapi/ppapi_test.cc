@@ -12,14 +12,13 @@
 #include "base/location.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -27,6 +26,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/infobars/content/content_infobar_manager.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
 #include "components/nacl/common/buildflags.h"
@@ -82,11 +82,8 @@ void PPAPITestMessageHandler::Reset() {
 }
 
 PPAPITestBase::InfoBarObserver::InfoBarObserver(PPAPITestBase* test_base)
-    : test_base_(test_base),
-      expecting_infobar_(false),
-      should_accept_(false),
-      infobar_observer_(this) {
-  infobar_observer_.Add(GetInfoBarService());
+    : test_base_(test_base), expecting_infobar_(false), should_accept_(false) {
+  infobar_observation_.Observe(GetInfoBarManager());
 }
 
 PPAPITestBase::InfoBarObserver::~InfoBarObserver() {
@@ -112,17 +109,18 @@ void PPAPITestBase::InfoBarObserver::OnInfoBarAdded(
 
 void PPAPITestBase::InfoBarObserver::OnManagerShuttingDown(
     infobars::InfoBarManager* manager) {
-  infobar_observer_.Remove(manager);
+  ASSERT_TRUE(infobar_observation_.IsObservingSource(manager));
+  infobar_observation_.Reset();
 }
 
 void PPAPITestBase::InfoBarObserver::VerifyInfoBarState() {
-  InfoBarService* infobar_service = GetInfoBarService();
-  EXPECT_EQ(expecting_infobar_ ? 1U : 0U, infobar_service->infobar_count());
+  infobars::ContentInfoBarManager* infobar_manager = GetInfoBarManager();
+  EXPECT_EQ(expecting_infobar_ ? 1U : 0U, infobar_manager->infobar_count());
   if (!expecting_infobar_)
     return;
   expecting_infobar_ = false;
 
-  infobars::InfoBar* infobar = infobar_service->infobar_at(0);
+  infobars::InfoBar* infobar = infobar_manager->infobar_at(0);
   ConfirmInfoBarDelegate* delegate =
       infobar->delegate()->AsConfirmInfoBarDelegate();
   ASSERT_TRUE(delegate != NULL);
@@ -131,13 +129,14 @@ void PPAPITestBase::InfoBarObserver::VerifyInfoBarState() {
   else
     delegate->Cancel();
 
-  infobar_service->RemoveInfoBar(infobar);
+  infobar_manager->RemoveInfoBar(infobar);
 }
 
-InfoBarService* PPAPITestBase::InfoBarObserver::GetInfoBarService() {
+infobars::ContentInfoBarManager*
+PPAPITestBase::InfoBarObserver::GetInfoBarManager() {
   content::WebContents* web_contents =
       test_base_->browser()->tab_strip_model()->GetActiveWebContents();
-  return InfoBarService::FromWebContents(web_contents);
+  return infobars::ContentInfoBarManager::FromWebContents(web_contents);
 }
 
 PPAPITestBase::PPAPITestBase() {
@@ -260,7 +259,7 @@ void PPAPITestBase::RunTestURL(const GURL& test_url) {
       browser()->tab_strip_model()->GetActiveWebContents(),
       &handler);
 
-  ui_test_utils::NavigateToURL(browser(), test_url);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
 
   ASSERT_TRUE(observer.Run()) << handler.error_message();
   EXPECT_STREQ("PASS", handler.message().c_str());
@@ -313,6 +312,16 @@ OutOfProcessPPAPITest::OutOfProcessPPAPITest() {
 void OutOfProcessPPAPITest::SetUpCommandLine(base::CommandLine* command_line) {
   PPAPITest::SetUpCommandLine(command_line);
   command_line->AppendSwitch(switches::kUseFakeUIForMediaStream);
+}
+
+void OutOfProcessPPAPITest::RunTest(const std::string& test_case) {
+#if defined(OS_WIN)
+  // See crbug.com/1231528 for context.
+  if (test_case == "Printing")
+    return;
+#endif
+
+  PPAPITestBase::RunTest(test_case);
 }
 
 // Send touch events to a plugin and expect the events to reach the renderer

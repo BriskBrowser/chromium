@@ -18,6 +18,11 @@ namespace extensions {
 class ExtensionNotificationHandler : public NotificationHandler {
  public:
   ExtensionNotificationHandler();
+
+  ExtensionNotificationHandler(const ExtensionNotificationHandler&) = delete;
+  ExtensionNotificationHandler& operator=(const ExtensionNotificationHandler&) =
+      delete;
+
   ~ExtensionNotificationHandler() override;
 
   // Extracts an extension ID from the URL for an app window, or an empty string
@@ -33,8 +38,8 @@ class ExtensionNotificationHandler : public NotificationHandler {
   void OnClick(Profile* profile,
                const GURL& origin,
                const std::string& notification_id,
-               const base::Optional<int>& action_index,
-               const base::Optional<base::string16>& reply,
+               const absl::optional<int>& action_index,
+               const absl::optional<std::u16string>& reply,
                base::OnceClosure completed_closure) override;
   void DisableNotifications(Profile* profile, const GURL& origin) override;
 
@@ -46,8 +51,6 @@ class ExtensionNotificationHandler : public NotificationHandler {
                          const std::string& name,
                          EventRouter::UserGestureState user_gesture,
                          std::unique_ptr<base::ListValue> args);
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionNotificationHandler);
 };
 
 }  // namespace extensions

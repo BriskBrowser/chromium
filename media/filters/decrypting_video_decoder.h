@@ -36,13 +36,16 @@ class MEDIA_EXPORT DecryptingVideoDecoder : public VideoDecoder {
   DecryptingVideoDecoder(
       const scoped_refptr<base::SequencedTaskRunner>& task_runner,
       MediaLog* media_log);
+
+  DecryptingVideoDecoder(const DecryptingVideoDecoder&) = delete;
+  DecryptingVideoDecoder& operator=(const DecryptingVideoDecoder&) = delete;
+
   ~DecryptingVideoDecoder() override;
 
   bool SupportsDecryption() const override;
 
   // VideoDecoder implementation.
   VideoDecoderType GetDecoderType() const override;
-  std::string GetDisplayName() const override;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
                   CdmContext* cdm_context,
@@ -122,8 +125,6 @@ class MEDIA_EXPORT DecryptingVideoDecoder : public VideoDecoder {
   std::unique_ptr<CallbackRegistration> event_cb_registration_;
 
   base::WeakPtrFactory<DecryptingVideoDecoder> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DecryptingVideoDecoder);
 };
 
 }  // namespace media

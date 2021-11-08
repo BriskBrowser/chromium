@@ -24,10 +24,10 @@ class MenuItemViewTestBasic : public MenuTestBase {
 
   // MenuTestBase implementation
   void BuildMenu(views::MenuItemView* menu) override {
-    menu->AppendMenuItem(1, ASCIIToUTF16("item 1"));
-    menu->AppendMenuItem(2, ASCIIToUTF16("item 2"));
+    menu->AppendMenuItem(1, u"item 1");
+    menu->AppendMenuItem(2, u"item 2");
     menu->AppendSeparator();
-    menu->AppendMenuItem(3, ASCIIToUTF16("item 3"));
+    menu->AppendMenuItem(3, u"item 3");
   }
 
   // Click on item INDEX.
@@ -73,8 +73,8 @@ class MenuItemViewTestInsert : public MenuTestBase {
 
   // MenuTestBase implementation
   void BuildMenu(views::MenuItemView* menu) override {
-    menu->AppendMenuItem(1, ASCIIToUTF16("item 1"));
-    menu->AppendMenuItem(2, ASCIIToUTF16("item 2"));
+    menu->AppendMenuItem(1, u"item 1");
+    menu->AppendMenuItem(2, u"item 2");
   }
 
   // Insert item at INSERT_INDEX and click item at SELECT_INDEX.
@@ -86,10 +86,9 @@ class MenuItemViewTestInsert : public MenuTestBase {
     ASSERT_EQ(2u, submenu->GetMenuItems().size());
 
     inserted_item_ = menu()->AddMenuItemAt(
-        INSERT_INDEX, 1000, ASCIIToUTF16("inserted item"), base::string16(),
-        base::string16(), ui::ThemedVectorIcon(), gfx::ImageSkia(),
-        ui::ThemedVectorIcon(), views::MenuItemView::Type::kNormal,
-        ui::NORMAL_SEPARATOR);
+        INSERT_INDEX, 1000, u"inserted item", std::u16string(),
+        std::u16string(), ui::ImageModel(), ui::ImageModel(),
+        views::MenuItemView::Type::kNormal, ui::NORMAL_SEPARATOR);
     ASSERT_TRUE(inserted_item_);
     menu()->ChildrenChanged();
 
@@ -164,10 +163,10 @@ class MenuItemViewTestInsertWithSubmenu : public MenuTestBase {
 
   // MenuTestBase implementation
   void BuildMenu(views::MenuItemView* menu) override {
-    submenu_ = menu->AppendSubMenu(1, ASCIIToUTF16("My Submenu"));
-    submenu_->AppendMenuItem(101, ASCIIToUTF16("submenu item 1"));
-    submenu_->AppendMenuItem(101, ASCIIToUTF16("submenu item 2"));
-    menu->AppendMenuItem(2, ASCIIToUTF16("item 2"));
+    submenu_ = menu->AppendSubMenu(1, u"My Submenu");
+    submenu_->AppendMenuItem(101, u"submenu item 1");
+    submenu_->AppendMenuItem(101, u"submenu item 2");
+    menu->AppendMenuItem(2, u"item 2");
     EXPECT_EQ(GetAXEventCount(ax::mojom::Event::kMenuStart), 0);
     EXPECT_EQ(GetAXEventCount(ax::mojom::Event::kMenuPopupStart), 0);
     EXPECT_EQ(GetAXEventCount(ax::mojom::Event::kMenuPopupEnd), 0);
@@ -187,10 +186,9 @@ class MenuItemViewTestInsertWithSubmenu : public MenuTestBase {
   // Insert item at INSERT_INDEX.
   void Step2() {
     inserted_item_ = menu()->AddMenuItemAt(
-        INSERT_INDEX, 1000, ASCIIToUTF16("inserted item"), base::string16(),
-        base::string16(), ui::ThemedVectorIcon(), gfx::ImageSkia(),
-        ui::ThemedVectorIcon(), views::MenuItemView::Type::kNormal,
-        ui::NORMAL_SEPARATOR);
+        INSERT_INDEX, 1000, u"inserted item", std::u16string(),
+        std::u16string(), ui::ImageModel(), ui::ImageModel(),
+        views::MenuItemView::Type::kNormal, ui::NORMAL_SEPARATOR);
     ASSERT_TRUE(inserted_item_);
     menu()->ChildrenChanged();
 
@@ -220,7 +218,13 @@ using MenuItemViewTestInsertWithSubmenu1 = MenuItemViewTestInsertWithSubmenu<1>;
 VIEW_TEST(MenuItemViewTestInsertWithSubmenu0, InsertItemWithSubmenu0)
 
 // If this flakes, disable and log details in http://crbug.com/523255.
-VIEW_TEST(MenuItemViewTestInsertWithSubmenu1, InsertItemWithSubmenu1)
+// Failing on Linux Ozone Tester (Wayland) (See crbug.com/1236048).
+#if defined(USE_OZONE)
+#define MAYBE_InsertItemWithSubmenu1 DISABLED_InsertItemWithSubmenu1
+#else
+#define MAYBE_InsertItemWithSubmenu1 InsertItemWithSubmenu1
+#endif
+VIEW_TEST(MenuItemViewTestInsertWithSubmenu1, MAYBE_InsertItemWithSubmenu1)
 
 // Test class for removing a menu item while the menu is open.
 template <int REMOVE_INDEX, int SELECT_INDEX>
@@ -233,9 +237,9 @@ class MenuItemViewTestRemove : public MenuTestBase {
 
   // MenuTestBase implementation
   void BuildMenu(views::MenuItemView* menu) override {
-    menu->AppendMenuItem(1, ASCIIToUTF16("item 1"));
-    menu->AppendMenuItem(2, ASCIIToUTF16("item 2"));
-    menu->AppendMenuItem(3, ASCIIToUTF16("item 3"));
+    menu->AppendMenuItem(1, u"item 1");
+    menu->AppendMenuItem(2, u"item 2");
+    menu->AppendMenuItem(3, u"item 3");
   }
 
   // Remove item at REMOVE_INDEX and click item at SELECT_INDEX.
@@ -308,10 +312,10 @@ class MenuItemViewTestRemoveWithSubmenu : public MenuTestBase {
 
   // MenuTestBase implementation
   void BuildMenu(views::MenuItemView* menu) override {
-    menu->AppendMenuItem(1, ASCIIToUTF16("item 1"));
-    submenu_ = menu->AppendSubMenu(2, ASCIIToUTF16("My Submenu"));
-    submenu_->AppendMenuItem(101, ASCIIToUTF16("submenu item 1"));
-    submenu_->AppendMenuItem(102, ASCIIToUTF16("submenu item 2"));
+    menu->AppendMenuItem(1, u"item 1");
+    submenu_ = menu->AppendSubMenu(2, u"My Submenu");
+    submenu_->AppendMenuItem(101, u"submenu item 1");
+    submenu_->AppendMenuItem(102, u"submenu item 2");
   }
 
   // Post submenu.

@@ -8,6 +8,7 @@
 
 #include "base/command_line.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/views/views_touch_selection_controller_factory.h"
 #include "ui/views/widget/native_widget_private.h"
 
@@ -31,7 +32,11 @@ ViewsDelegate::ViewsDelegate()
   ui::TouchEditingControllerFactory::SetInstance(
       editing_controller_factory_.get());
 
-#if defined(USE_AURA)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) || BUILDFLAG(IS_CHROMEOS_ASH)
+  // TouchSelectionMenuRunnerViews is not supported on Mac or Cast.
+  // It is also not used on Ash (the ChromeViewsDelegate() for Ash will
+  // immediately replace this). But tests running without the Chrome layer
+  // will not get the replacement.
   touch_selection_menu_runner_ =
       std::make_unique<TouchSelectionMenuRunnerViews>();
 #endif
@@ -61,8 +66,8 @@ bool ViewsDelegate::GetSavedWindowPlacement(
   return false;
 }
 
-void ViewsDelegate::NotifyMenuItemFocused(const base::string16& menu_name,
-                                          const base::string16& menu_item_name,
+void ViewsDelegate::NotifyMenuItemFocused(const std::u16string& menu_name,
+                                          const std::u16string& menu_item_name,
                                           int item_index,
                                           int item_count,
                                           bool has_submenu) {}
@@ -117,7 +122,7 @@ bool ViewsDelegate::WindowManagerProvidesTitleBar(bool maximized) {
   return false;
 }
 
-#if defined(OS_APPLE)
+#if defined(OS_MAC)
 ui::ContextFactory* ViewsDelegate::GetContextFactory() {
   return nullptr;
 }

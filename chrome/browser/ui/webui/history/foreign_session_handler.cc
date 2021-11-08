@@ -221,19 +221,19 @@ sync_sessions::OpenTabsUIDelegate* ForeignSessionHandler::GetOpenTabsUIDelegate(
 }
 
 void ForeignSessionHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "deleteForeignSession",
       base::BindRepeating(&ForeignSessionHandler::HandleDeleteForeignSession,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "getForeignSessions",
       base::BindRepeating(&ForeignSessionHandler::HandleGetForeignSessions,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "openForeignSession",
       base::BindRepeating(&ForeignSessionHandler::HandleOpenForeignSession,
                           base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
+  web_ui()->RegisterDeprecatedMessageCallback(
       "setForeignSessionCollapsed",
       base::BindRepeating(
           &ForeignSessionHandler::HandleSetForeignSessionCollapsed,
@@ -261,6 +261,13 @@ void ForeignSessionHandler::OnJavascriptAllowed() {
   }
 }
 
+void ForeignSessionHandler::OnJavascriptDisallowed() {
+  // Avoid notifying Javascript listeners due to foreign session changes, which
+  // is now disallowed and would otherwise run into CHECK failures in
+  // OnForeignSessionUpdated().
+  foreign_session_updated_subscription_ = base::CallbackListSubscription();
+}
+
 void ForeignSessionHandler::OnForeignSessionUpdated() {
   FireWebUIListener("foreign-sessions-changed",
                     std::move(GetForeignSessions()));
@@ -270,7 +277,7 @@ void ForeignSessionHandler::InitializeForeignSessions() {
   initial_session_list_ = GetForeignSessions();
 }
 
-base::string16 ForeignSessionHandler::FormatSessionTime(
+std::u16string ForeignSessionHandler::FormatSessionTime(
     const base::Time& time) {
   // Return a time like "1 hour ago", "2 days ago", etc.
   base::Time now = base::Time::Now();
@@ -351,14 +358,14 @@ base::Value ForeignSessionHandler::GetForeignSessions() {
 
 void ForeignSessionHandler::HandleOpenForeignSession(
     const base::ListValue* args) {
-  size_t num_args = args->GetSize();
+  size_t num_args = args->GetList().size();
   // Expect either 1 or 8 args. For restoring an entire session, only
   // one argument is required -- the session tag. To restore a tab,
   // the additional args required are the window id, the tab id,
   // and 4 properties of the event object (button, altKey, ctrlKey,
   // metaKey, shiftKey) for determining how to open the tab.
   if (num_args != 8U && num_args != 1U) {
-    LOG(ERROR) << "openForeignSession called with " << args->GetSize()
+    LOG(ERROR) << "openForeignSession called with " << args->GetList().size()
                << " arguments.";
     return;
   }
@@ -400,7 +407,7 @@ void ForeignSessionHandler::HandleOpenForeignSession(
 
 void ForeignSessionHandler::HandleDeleteForeignSession(
     const base::ListValue* args) {
-  if (args->GetSize() != 1U) {
+  if (args->GetList().size() != 1U) {
     LOG(ERROR) << "Wrong number of args to deleteForeignSession";
     return;
   }
@@ -420,7 +427,8 @@ void ForeignSessionHandler::HandleDeleteForeignSession(
 
 void ForeignSessionHandler::HandleSetForeignSessionCollapsed(
     const base::ListValue* args) {
-  if (args->GetSize() != 2U) {
+  const auto& list = args->GetList();
+  if (list.size() != 2U) {
     LOG(ERROR) << "Wrong number of args to setForeignSessionCollapsed";
     return;
   }
@@ -432,11 +440,11 @@ void ForeignSessionHandler::HandleSetForeignSessionCollapsed(
     return;
   }
 
-  bool is_collapsed;
-  if (!args->GetBoolean(1, &is_collapsed)) {
+  if (!list[1].is_bool()) {
     LOG(ERROR) << "Unable to extract boolean argument";
     return;
   }
+  const bool is_collapsed = list[1].GetBool();
 
   // Store session tags for collapsed sessions in a preference so that the
   // collapsed state persists.
@@ -445,7 +453,7 @@ void ForeignSessionHandler::HandleSetForeignSessionCollapsed(
   if (is_collapsed)
     update.Get()->SetBoolean(session_tag, true);
   else
-    update.Get()->Remove(session_tag, nullptr);
+    update.Get()->RemoveKey(session_tag);
 }
 
 }  // namespace browser_sync

@@ -6,20 +6,20 @@
 #define CHROME_BROWSER_CHROMEOS_EXTENSIONS_FILE_MANAGER_DRIVEFS_EVENT_ROUTER_H_
 
 #include <map>
-#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "ash/components/drivefs/drivefs_host_observer.h"
+#include "ash/components/drivefs/mojom/drivefs.mojom.h"
 #include "base/macros.h"
-#include "chromeos/components/drivefs/drivefs_host_observer.h"
-#include "chromeos/components/drivefs/mojom/drivefs.mojom.h"
+#include "base/values.h"
+#include "chrome/browser/chromeos/extensions/file_manager/system_notification_manager.h"
 #include "extensions/browser/extension_event_histogram_value.h"
 #include "url/gurl.h"
 
 namespace base {
 class FilePath;
-class ListValue;
 }
 
 namespace extensions {
@@ -36,8 +36,11 @@ namespace file_manager {
 // Files app's event router handling DriveFS-related events.
 class DriveFsEventRouter : public drivefs::DriveFsHostObserver {
  public:
-  DriveFsEventRouter();
+  explicit DriveFsEventRouter(SystemNotificationManager* notification_manager);
+  DriveFsEventRouter(const DriveFsEventRouter&) = delete;
   virtual ~DriveFsEventRouter();
+
+  DriveFsEventRouter& operator=(const DriveFsEventRouter&) = delete;
 
   // Triggers an event in the UI to display a confirmation dialog.
   void DisplayConfirmDialog(
@@ -47,6 +50,11 @@ class DriveFsEventRouter : public drivefs::DriveFsHostObserver {
   // Called from the UI to notify the caller of DisplayConfirmDialog() of the
   // dialog's result.
   void OnDialogResult(drivefs::mojom::DialogResult result);
+
+ protected:
+  SystemNotificationManager* system_notification_manager() {
+    return notification_manager_;
+  }
 
  private:
   struct SyncingStatusState {
@@ -65,53 +73,43 @@ class DriveFsEventRouter : public drivefs::DriveFsHostObserver {
       const std::vector<drivefs::mojom::FileChange>& changes) override;
   void OnError(const drivefs::mojom::DriveError& error) override;
 
-  void DispatchOnFileTransfersUpdatedEvent(
-      const extensions::api::file_manager_private::FileTransferStatus& status);
-
-  virtual std::set<std::string> GetEventListenerExtensionIds(
+  virtual std::set<GURL> GetEventListenerURLs(
       const std::string& event_name) = 0;
 
-  virtual GURL ConvertDrivePathToFileSystemUrl(
-      const base::FilePath& file_path,
-      const std::string& extension_id) = 0;
+  virtual GURL ConvertDrivePathToFileSystemUrl(const base::FilePath& file_path,
+                                               const GURL& listener_url) = 0;
 
   virtual std::string GetDriveFileSystemName() = 0;
 
   virtual bool IsPathWatched(const base::FilePath& path) = 0;
 
-  void DispatchOnFileTransfersUpdatedEventToExtension(
-      const std::string& extension_id,
+  void BroadcastOnFileTransfersUpdatedEvent(
       const extensions::api::file_manager_private::FileTransferStatus& status);
 
-  void DispatchOnPinTransfersUpdatedEvent(
+  void BroadcastOnPinTransfersUpdatedEvent(
       const extensions::api::file_manager_private::FileTransferStatus& status);
 
-  void DispatchOnPinTransfersUpdatedEventToExtension(
-      const std::string& extension_id,
-      const extensions::api::file_manager_private::FileTransferStatus& status);
-
-  void DispatchOnDirectoryChangedEventToExtension(
-      const std::string& extension_id,
+  void BroadcastOnDirectoryChangedEvent(
       const base::FilePath& directory,
       const extensions::api::file_manager_private::FileWatchEvent& event);
 
-  // Helper method for dispatching an event to an extension.
-  virtual void DispatchEventToExtension(
-      const std::string& extension_id,
+  // Helper method for broadcasting events.
+  virtual void BroadcastEvent(
       extensions::events::HistogramValue histogram_value,
       const std::string& event_name,
-      std::unique_ptr<base::ListValue> event_args) = 0;
+      std::vector<base::Value> event_args) = 0;
 
   static extensions::api::file_manager_private::FileTransferStatus
   CreateFileTransferStatus(
       const std::vector<drivefs::mojom::ItemEvent*>& item_events,
       SyncingStatusState* state);
 
+  // This is owned by EventRouter and only shared with this class.
+  SystemNotificationManager* notification_manager_;
+
   SyncingStatusState sync_status_state_;
   SyncingStatusState pin_status_state_;
   base::OnceCallback<void(drivefs::mojom::DialogResult)> dialog_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(DriveFsEventRouter);
 };
 
 }  // namespace file_manager

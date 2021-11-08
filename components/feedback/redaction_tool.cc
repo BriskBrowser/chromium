@@ -4,8 +4,8 @@
 
 #include "components/feedback/redaction_tool.h"
 
-#include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/files/file_path.h"
 #include "base/strings/strcat.h"
@@ -14,7 +14,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/chromeos_buildflags.h"
-#include "content/public/browser/browser_thread.h"
 #include "net/base/ip_address.h"
 #include "third_party/re2/src/re2/re2.h"
 
@@ -53,6 +52,8 @@ CustomPatternWithAlias kCustomPatternsWithContext[] = {
 
     // wpa_supplicant
     {"SSID", "(?i-s)(\\bssid[= ]')(.+)(')"},
+    {"SSID", "(?i-s)(\\bssid[= ]\")(.+)(\")"},
+    {"SSID", "(\\* SSID=)(.+)($)"},
     {"SSIDHex", "(?-s)(\\bSSID - hexdump\\(len=[0-9]+\\): )(.+)()"},
 
     // shill
@@ -75,6 +76,9 @@ CustomPatternWithAlias kCustomPatternsWithContext[] = {
     // UUIDs given by the 'blkid' tool. These don't necessarily look like
     // standard UUIDs, so treat them specially.
     {"UUID", R"xxx((UUID=")([0-9a-zA-Z-]+)("))xxx"},
+    // Also cover UUIDs given by the 'lvs' and 'pvs' tools, which similarly
+    // don't necessarily look like standard UUIDs.
+    {"UUID", R"xxx(("[lp]v_uuid":")([0-9a-zA-Z-]+)("))xxx"},
 
     // Volume labels presented in the 'blkid' tool, and as part of removable
     // media paths shown in various logs such as cros-disks (in syslog).
@@ -87,6 +91,9 @@ CustomPatternWithAlias kCustomPatternsWithContext[] = {
     // capture everything until the end of the line, since the mount path is the
     // last field.
     {"Volume Label", R"xxx((/media/removable/)(.+?)(['"/\n]|$))xxx"},
+
+    // IPP (Internet Printing Protocol) Addresses
+    {"IPP Address", R"xxx((ipp:\/\/)(.+?)(\/ipp))xxx"},
 };
 
 bool MaybeUnmapAddress(net::IPAddress* addr) {
@@ -253,7 +260,7 @@ std::string MaybeScrubIPAddress(const std::string& addr) {
 #define PORT DIGIT "*"
 
 // This is a diversion of RFC 3987
-#define SCHEME NCG("http|https|ftp|chrome|chrome-extension|android|rtsp")
+#define SCHEME NCG("http|https|ftp|chrome|chrome-extension|android|rtsp|file")
 
 #define IPRIVATE            \
   "["                       \
@@ -485,9 +492,9 @@ std::string RedactionTool::RedactMACAddresses(const std::string& input) {
   while (FindAndConsumeAndGetSkipped(&text, *mac_re, &skipped, &oui, &nic)) {
     // Look up the MAC address in the hash. Force the separator to be a colon
     // so that the same MAC with a different format will match in all cases.
-    std::string oui_string = base::ToLowerASCII(oui.as_string());
+    std::string oui_string = base::ToLowerASCII(std::string(oui));
     base::ReplaceChars(oui_string, kMacSeparatorChars, ":", &oui_string);
-    std::string nic_string = base::ToLowerASCII(nic.as_string());
+    std::string nic_string = base::ToLowerASCII(std::string(nic));
     base::ReplaceChars(nic_string, kMacSeparatorChars, ":", &nic_string);
     std::string mac = oui_string + ":" + nic_string;
     std::string replacement_mac = mac_addresses_[mac];
@@ -542,9 +549,9 @@ std::string RedactionTool::RedactHashes(const std::string& input) {
 
     // Look up the hash value address in the map of replacements.
     std::string hash_prefix_string =
-        base::ToLowerASCII(hash_prefix.as_string());
+        base::ToLowerASCII(std::string(hash_prefix));
     std::string hash =
-        hash_prefix_string + base::ToLowerASCII(hash_suffix.as_string());
+        hash_prefix_string + base::ToLowerASCII(std::string(hash_suffix));
     std::string replacement_hash = hashes_[hash];
     if (replacement_hash.empty()) {
       // If not found, build up a replacement value.
@@ -645,7 +652,7 @@ std::string RedactionTool::RedactCustomPatternWithContext(
   re2::StringPiece pre_match, pre_matched_id, matched_id, post_matched_id;
   while (FindAndConsumeAndGetSkipped(&text, *re, &skipped, &pre_matched_id,
                                      &matched_id, &post_matched_id)) {
-    std::string matched_id_as_string = matched_id.as_string();
+    std::string matched_id_as_string(matched_id);
     std::string replacement_id;
     if (identifier_space->count(matched_id_as_string) == 0) {
       // The weird NumberToString trick is because Windows does not like
@@ -727,17 +734,26 @@ std::string RedactionTool::RedactCustomPatternWithoutContext(
   re2::StringPiece text(input);
   re2::StringPiece skipped;
   re2::StringPiece matched_id;
+  const re2::StringPiece dash("-");
   while (FindAndConsumeAndGetSkipped(&text, *re, &skipped, &matched_id)) {
     if (IsUrlExempt(matched_id, first_party_extension_ids_)) {
       skipped.AppendToString(&result);
       matched_id.AppendToString(&result);
       continue;
     }
-    std::string matched_id_as_string = matched_id.as_string();
+    std::string matched_id_as_string(matched_id);
     std::string replacement_id;
     if (identifier_space->count(matched_id_as_string) == 0) {
       replacement_id = MaybeScrubIPAddress(matched_id_as_string);
       if (replacement_id != matched_id_as_string) {
+        // USB paths can be confused with IPv4 Addresses because they can look
+        // similar: n-n.n.n.n . Ignore replacement if previous char is `-`
+        if (skipped.ends_with(dash) && strcmp("IPv4", pattern.alias) == 0) {
+          skipped.AppendToString(&result);
+          matched_id.AppendToString(&result);
+          continue;
+        }
+
         // The weird NumberToString trick is because Windows does not like
         // to deal with %zu and a size_t in printf, nor does it support %llu.
         replacement_id = base::StringPrintf(

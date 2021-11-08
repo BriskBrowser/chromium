@@ -4,6 +4,8 @@
 
 #include "components/captive_portal/content/captive_portal_tab_reloader.h"
 
+#include <memory>
+
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/macros.h"
@@ -27,6 +29,10 @@ class TestCaptivePortalTabReloader : public CaptivePortalTabReloader {
   explicit TestCaptivePortalTabReloader(content::WebContents* web_contents)
       : CaptivePortalTabReloader(nullptr, web_contents, base::NullCallback()) {}
 
+  TestCaptivePortalTabReloader(const TestCaptivePortalTabReloader&) = delete;
+  TestCaptivePortalTabReloader& operator=(const TestCaptivePortalTabReloader&) =
+      delete;
+
   ~TestCaptivePortalTabReloader() override {}
 
   bool TimerRunning() { return slow_ssl_load_timer_.IsRunning(); }
@@ -44,11 +50,7 @@ class TestCaptivePortalTabReloader : public CaptivePortalTabReloader {
   // CaptivePortalTabReloader:
   MOCK_METHOD0(ReloadTab, void());
   MOCK_METHOD0(MaybeOpenCaptivePortalLoginTab, void());
-  MOCK_METHOD1(CheckForCaptivePortal,
-               void(CaptivePortalProbeReason probe_reason));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestCaptivePortalTabReloader);
+  MOCK_METHOD0(CheckForCaptivePortal, void());
 };
 
 class CaptivePortalTabReloaderTest : public content::RenderViewHostTestHarness {
@@ -56,8 +58,9 @@ class CaptivePortalTabReloaderTest : public content::RenderViewHostTestHarness {
   // testing::Test:
   void SetUp() override {
     content::RenderViewHostTestHarness::SetUp();
-    tab_reloader_.reset(
-        new testing::StrictMock<TestCaptivePortalTabReloader>(web_contents()));
+    tab_reloader_ =
+        std::make_unique<testing::StrictMock<TestCaptivePortalTabReloader>>(
+            web_contents());
 
     // Most tests don't run the message loop, so don't use a timer for them.
     tab_reloader_->set_slow_ssl_load_time(base::TimeDelta());
@@ -84,9 +87,7 @@ TEST_F(CaptivePortalTabReloaderTest, InternetConnected) {
             tab_reloader().state());
   EXPECT_TRUE(tab_reloader().TimerRunning());
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -113,9 +114,7 @@ TEST_F(CaptivePortalTabReloaderTest, InternetConnectedTimeout) {
             tab_reloader().state());
   EXPECT_TRUE(tab_reloader().TimerRunning());
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   tab_reloader().OnLoadCommitted(net::ERR_CONNECTION_TIMED_OUT,
                                  net::ResolveErrorInfo(net::OK));
   EXPECT_FALSE(tab_reloader().TimerRunning());
@@ -137,9 +136,7 @@ TEST_F(CaptivePortalTabReloaderTest, NoResponse) {
             tab_reloader().state());
   EXPECT_TRUE(tab_reloader().TimerRunning());
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -181,9 +178,7 @@ TEST_F(CaptivePortalTabReloaderTest, DoesNothingOnHttp) {
 TEST_F(CaptivePortalTabReloaderTest, Login) {
   tab_reloader().OnLoadStart(true);
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -220,9 +215,7 @@ TEST_F(CaptivePortalTabReloaderTest, Login) {
 TEST_F(CaptivePortalTabReloaderTest, LoginLate) {
   tab_reloader().OnLoadStart(true);
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -256,9 +249,7 @@ TEST_F(CaptivePortalTabReloaderTest, TimeoutFast) {
 
   // The error page commits, which should trigger a captive portal check,
   // since the timer's still running.
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   tab_reloader().OnLoadCommitted(net::ERR_CONNECTION_TIMED_OUT,
                                  net::ResolveErrorInfo(net::OK));
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -291,9 +282,7 @@ TEST_F(CaptivePortalTabReloaderTest, HttpBadSecureDnsConfig) {
 
   // The page encounters a secure DNS network error. The error page commits,
   // which should trigger a captive portal check, even for HTTP pages.
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kSecureDnsError))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   tab_reloader().OnLoadCommitted(
       net::ERR_NAME_NOT_RESOLVED,
       net::ResolveErrorInfo(net::ERR_CERT_COMMON_NAME_INVALID,
@@ -322,9 +311,7 @@ TEST_F(CaptivePortalTabReloaderTest,
   // The page encounters a secure DNS network error. The error page commits,
   // which should trigger a captive portal check. The SSL timer should be
   // cancelled.
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kSecureDnsError))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   tab_reloader().OnLoadCommitted(
       net::ERR_NAME_NOT_RESOLVED,
       net::ResolveErrorInfo(net::ERR_CERT_COMMON_NAME_INVALID,
@@ -351,9 +338,7 @@ TEST_F(CaptivePortalTabReloaderTest,
             tab_reloader().state());
   EXPECT_TRUE(tab_reloader().TimerRunning());
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -387,12 +372,7 @@ TEST_F(CaptivePortalTabReloaderTest,
             tab_reloader().state());
   EXPECT_TRUE(tab_reloader().TimerRunning());
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kSecureDnsError))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(2);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -426,9 +406,7 @@ TEST_F(CaptivePortalTabReloaderTest,
             tab_reloader().state());
   EXPECT_TRUE(tab_reloader().TimerRunning());
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -486,9 +464,7 @@ TEST_F(CaptivePortalTabReloaderTest, SSLProtocolError) {
 
   // The error page commits, which should trigger a captive portal check,
   // since the timer's still running.
-  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal(
-                                  CaptivePortalProbeReason::kSslProtocolError))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   tab_reloader().OnLoadCommitted(net::ERR_SSL_PROTOCOL_ERROR,
                                  net::ResolveErrorInfo(net::OK));
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -518,9 +494,7 @@ TEST_F(CaptivePortalTabReloaderTest, SSLProtocolErrorFastLogin) {
 
   // The error page commits, which should trigger a captive portal check,
   // since the timer's still running.
-  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal(
-                                  CaptivePortalProbeReason::kSslProtocolError))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   tab_reloader().OnLoadCommitted(net::ERR_SSL_PROTOCOL_ERROR,
                                  net::ResolveErrorInfo(net::OK));
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -559,9 +533,7 @@ TEST_F(CaptivePortalTabReloaderTest, SSLProtocolErrorAlreadyLoggedIn) {
 TEST_F(CaptivePortalTabReloaderTest, AlreadyLoggedIn) {
   tab_reloader().OnLoadStart(true);
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -652,9 +624,7 @@ TEST_F(CaptivePortalTabReloaderTest, BehindPortalResultWhileTimerRunning) {
             tab_reloader().state());
 
   // The rest proceeds as normal.
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
             tab_reloader().state());
@@ -718,9 +688,7 @@ TEST_F(CaptivePortalTabReloaderTest, HttpToHttpsRedirectInternetConnected) {
             tab_reloader().state());
   EXPECT_TRUE(tab_reloader().TimerRunning());
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,
@@ -748,9 +716,7 @@ TEST_F(CaptivePortalTabReloaderTest, HttpToHttpsRedirectLogin) {
   EXPECT_EQ(CaptivePortalTabReloader::STATE_TIMER_RUNNING,
             tab_reloader().state());
 
-  EXPECT_CALL(tab_reloader(),
-              CheckForCaptivePortal(CaptivePortalProbeReason::kTimeout))
-      .Times(1);
+  EXPECT_CALL(tab_reloader(), CheckForCaptivePortal()).Times(1);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(tab_reloader().TimerRunning());
   EXPECT_EQ(CaptivePortalTabReloader::STATE_MAYBE_BROKEN_BY_PORTAL,

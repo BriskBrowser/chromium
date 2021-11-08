@@ -13,8 +13,7 @@
 
 namespace {
 // The interval between two successive domain metrics reports.
-constexpr base::TimeDelta kDomainDiversityReportingInterval =
-    base::TimeDelta::FromDays(1);
+constexpr base::TimeDelta kDomainDiversityReportingInterval = base::Days(1);
 
 // Pref name for the persistent timestamp of the last report. This pref is
 // per local profile but not synced.
@@ -84,28 +83,28 @@ void DomainDiversityReporter::ComputeDomainMetrics() {
     int number_of_days_to_report = 7;
 
     // If the last report time is too far back in the past, simply use the
-    // highest possible value for |number_of_days_to_report| and skip its
+    // highest possible value for `number_of_days_to_report` and skip its
     // computation. This avoids calling LocalMidnight() on some very old
     // timestamp that may cause unexpected behaviors on certain
     // platforms/timezones (see https://crbug.com/1048145).
     // The beginning and the end of a 7-day period may differ by at most
     // 24 * 8 + 1(DST offset) hours; round up to FromDays(9) here.
     if (time_current_report_triggered - time_last_report_triggered <
-        base::TimeDelta::FromDays(number_of_days_to_report + 2)) {
+        base::Days(number_of_days_to_report + 2)) {
       // Compute the number of days that needs to be reported for based on
       // the last report time and current time.
       base::TimeDelta report_time_range =
           time_current_report_triggered.LocalMidnight() -
           time_last_report_triggered.LocalMidnight();
 
-      // Due to daylight saving time, |report_time_range| may not be a multiple
+      // Due to daylight saving time, `report_time_range` may not be a multiple
       // of 24 hours. A small time offset is therefore added to
-      // |report_time_range| so that the resulting time range is guaranteed to
+      // `report_time_range` so that the resulting time range is guaranteed to
       // be at least the correct number of days times 24. The number of days to
       // report is capped at 7 days.
-      number_of_days_to_report = std::min(
-          (report_time_range + base::TimeDelta::FromHours(4)).InDaysFloored(),
-          number_of_days_to_report);
+      number_of_days_to_report =
+          std::min((report_time_range + base::Hours(4)).InDaysFloored(),
+                   number_of_days_to_report);
     }
 
     if (number_of_days_to_report >= 1) {
@@ -134,7 +133,7 @@ void DomainDiversityReporter::ReportDomainMetrics(
     history::DomainDiversityResults result) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // An empty DomainDiversityResults indicates that |db_| is null in
+  // An empty DomainDiversityResults indicates that `db_` is null in
   // HistoryBackend.
   if (result.empty())
     return;

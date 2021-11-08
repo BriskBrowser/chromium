@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// #import {TestBrowserProxy} from '../../test_browser_proxy.m.js';
+// #import {TestBrowserProxy} from '../../test_browser_proxy.js';
 
 cr.define('settings', function() {
   /** @implements {settings.WallpaperBrowserProxy} */
@@ -12,7 +12,6 @@ cr.define('settings', function() {
         'isWallpaperSettingVisible',
         'isWallpaperPolicyControlled',
         'openWallpaperManager',
-        'fetchWallpaperCollections',
       ]);
 
       /** @private */
@@ -20,13 +19,6 @@ cr.define('settings', function() {
 
       /** @private */
       this.isWallpaperPolicyControlled_ = false;
-
-      /**
-       * @private
-       * @type {Array<!WallpaperCollection>}
-       */
-      this.wallpaperCollections_ =
-          [{id: '0', name: 'zero'}, {id: '1', name: 'one'}];
     }
 
     /** @override */
@@ -46,22 +38,9 @@ cr.define('settings', function() {
       this.methodCalled('openWallpaperManager');
     }
 
-    /** @override */
-    fetchWallpaperCollections() {
-      this.methodCalled('fetchWallpaperCollections');
-      return this.wallpaperCollections_.length ?
-          Promise.resolve(this.wallpaperCollections_) :
-          Promise.reject(null);
-    }
-
     /** @param {boolean} Whether the wallpaper is policy controlled. */
     setIsWallpaperPolicyControlled(isPolicyControlled) {
       this.isWallpaperPolicyControlled_ = isPolicyControlled;
-    }
-
-    /** @param {Array<!WallpaperCollection>} */
-    setWallpaperCollections(wallpaperCollections) {
-      this.wallpaperCollections_ = wallpaperCollections;
     }
   }
 

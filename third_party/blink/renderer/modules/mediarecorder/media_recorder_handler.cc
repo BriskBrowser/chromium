@@ -16,6 +16,7 @@
 #include "media/base/mime_util.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
+#include "media/muxers/live_webm_muxer_delegate.h"
 #include "media/muxers/webm_muxer.h"
 #include "third_party/blink/renderer/modules/mediarecorder/buildflags.h"
 #include "third_party/blink/renderer/modules/mediarecorder/media_recorder.h"
@@ -30,7 +31,6 @@
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
-using base::TimeDelta;
 using base::TimeTicks;
 
 namespace blink {
@@ -50,12 +50,12 @@ const float kNumPixelsPerSecondSmoothnessThresholdHigh = 1280 * 720 * 30.0;
 
 VideoTrackRecorder::CodecId CodecIdFromMediaVideoCodec(media::VideoCodec id) {
   switch (id) {
-    case media::kCodecVP8:
+    case media::VideoCodec::kVP8:
       return VideoTrackRecorder::CodecId::VP8;
-    case media::kCodecVP9:
+    case media::VideoCodec::kVP9:
       return VideoTrackRecorder::CodecId::VP9;
 #if BUILDFLAG(RTC_USE_H264)
-    case media::kCodecH264:
+    case media::VideoCodec::kH264:
       return VideoTrackRecorder::CodecId::H264;
 #endif
     default:
@@ -68,31 +68,31 @@ VideoTrackRecorder::CodecId CodecIdFromMediaVideoCodec(media::VideoCodec id) {
 media::VideoCodec MediaVideoCodecFromCodecId(VideoTrackRecorder::CodecId id) {
   switch (id) {
     case VideoTrackRecorder::CodecId::VP8:
-      return media::kCodecVP8;
+      return media::VideoCodec::kVP8;
     case VideoTrackRecorder::CodecId::VP9:
-      return media::kCodecVP9;
+      return media::VideoCodec::kVP9;
 #if BUILDFLAG(RTC_USE_H264)
     case VideoTrackRecorder::CodecId::H264:
-      return media::kCodecH264;
+      return media::VideoCodec::kH264;
 #endif
     case VideoTrackRecorder::CodecId::LAST:
-      return media::kUnknownVideoCodec;
+      return media::VideoCodec::kUnknown;
   }
   NOTREACHED() << "Unsupported video codec";
-  return media::kUnknownVideoCodec;
+  return media::VideoCodec::kUnknown;
 }
 
 media::AudioCodec CodecIdToMediaAudioCodec(AudioTrackRecorder::CodecId id) {
   switch (id) {
     case AudioTrackRecorder::CodecId::PCM:
-      return media::kCodecPCM;
+      return media::AudioCodec::kPCM;
     case AudioTrackRecorder::CodecId::OPUS:
-      return media::kCodecOpus;
+      return media::AudioCodec::kOpus;
     case AudioTrackRecorder::CodecId::LAST:
-      return media::kUnknownAudioCodec;
+      return media::AudioCodec::kUnknown;
   }
   NOTREACHED() << "Unsupported audio codec";
-  return media::kUnknownAudioCodec;
+  return media::AudioCodec::kUnknown;
 }
 
 // Extracts the first recognised CodecId of |codecs| or CodecId::LAST if none
@@ -263,7 +263,7 @@ bool MediaRecorderHandler::Start(int timeslice) {
 
   invalidated_ = false;
 
-  timeslice_ = base::TimeDelta::FromMilliseconds(timeslice);
+  timeslice_ = base::Milliseconds(timeslice);
   slice_origin_timestamp_ = base::TimeTicks::Now();
 
   video_tracks_ = media_stream_->VideoComponents();
@@ -290,8 +290,8 @@ bool MediaRecorderHandler::Start(int timeslice) {
   webm_muxer_ = std::make_unique<media::WebmMuxer>(
       CodecIdToMediaAudioCodec(audio_codec_id_), use_video_tracks,
       use_audio_tracks,
-      WTF::BindRepeating(&MediaRecorderHandler::WriteData,
-                         WrapWeakPersistent(this)));
+      std::make_unique<media::LiveWebmMuxerDelegate>(WTF::BindRepeating(
+          &MediaRecorderHandler::WriteData, WrapWeakPersistent(this))));
   if (timeslice > 0) {
     webm_muxer_->SetMaximumDurationToForceDataOutput(timeslice_);
   }
@@ -367,7 +367,7 @@ void MediaRecorderHandler::Stop() {
   invalidated_ = true;
 
   recording_ = false;
-  timeslice_ = base::TimeDelta::FromMilliseconds(0);
+  timeslice_ = base::Milliseconds(0);
   video_recorders_.clear();
   audio_recorders_.clear();
   webm_muxer_.reset();

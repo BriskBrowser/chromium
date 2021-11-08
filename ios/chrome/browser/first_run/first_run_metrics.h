@@ -71,6 +71,39 @@ enum ExternalLaunch {
   LAUNCH_SIZE
 };
 
+// The different stages of the first run experience. This is mapped to the
+// FirstRunStageResult enum in enums.xml for metrics.
+// TODO(crbug.com/1189815): Add welcome stage and record metrics.
+enum FirstRunStage {
+  // The first run experience has started.
+  kStart,
+  // The first run experience has completed.
+  kComplete,
+  // Sync screen is shown.
+  kSyncScreenStart,
+  // Sync screen is closed with sync.
+  kSyncScreenCompletionWithSync,
+  // Sync screen is closed without sync.
+  kSyncScreenCompletionWithoutSync,
+  // Sync screen is closed when user taps on advance sync settings button.
+  kSyncScreenCompletionWithSyncSettings,
+  // SignIn screen is shown.
+  kSignInScreenStart,
+  // SignIn screen is closed with sign in.
+  kSignInScreenCompletionWithSignIn,
+  // SignIn screen is closed without sign in.
+  kSignInScreenCompletionWithoutSignIn,
+  // Default browser screen is shown.
+  kDefaultBrowserScreenStart,
+  // Default browser screen is closed with opening Settings.app.
+  kDefaultBrowserScreenCompletionWithSettings,
+  // Default browser screen is closed without opening Settings.app.
+  kDefaultBrowserScreenCompletionWithoutSettings,
+  // Max value of the first run experience stages.
+  // kMaxValue should share the value of the highest enumerator.
+  kMaxValue = kDefaultBrowserScreenCompletionWithoutSettings,
+};
+
 }  // namespace first_run
 
 #endif  // IOS_CHROME_BROWSER_FIRST_RUN_FIRST_RUN_METRICS_H_

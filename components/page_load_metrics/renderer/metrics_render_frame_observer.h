@@ -16,6 +16,7 @@
 #include "components/subresource_filter/content/renderer/ad_resource_tracker.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "third_party/blink/public/common/loader/loading_behavior_flag.h"
+#include "third_party/blink/public/common/responsiveness_metrics/user_interaction_latency.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
 
@@ -40,21 +41,31 @@ class MetricsRenderFrameObserver
       public subresource_filter::AdResourceTracker::Observer {
  public:
   explicit MetricsRenderFrameObserver(content::RenderFrame* render_frame);
+
+  MetricsRenderFrameObserver(const MetricsRenderFrameObserver&) = delete;
+  MetricsRenderFrameObserver& operator=(const MetricsRenderFrameObserver&) =
+      delete;
+
   ~MetricsRenderFrameObserver() override;
 
   // RenderFrameObserver implementation
   void DidChangePerformanceTiming() override;
   void DidObserveInputDelay(base::TimeDelta input_delay) override;
+  void DidObserveUserInteraction(
+      base::TimeDelta max_event_duration,
+      base::TimeDelta total_event_duration,
+      blink::UserInteractionType interaction_type) override;
   void DidChangeCpuTiming(base::TimeDelta time) override;
   void DidObserveLoadingBehavior(blink::LoadingBehaviorFlag behavior) override;
-  void DidObserveNewFeatureUsage(blink::mojom::WebFeature feature) override;
-  void DidObserveNewCssPropertyUsage(blink::mojom::CSSSampleId css_property,
-                                     bool is_animated) override;
+  void DidObserveNewFeatureUsage(
+      const blink::UseCounterFeature& feature) override;
   void DidObserveLayoutShift(double score, bool after_input_or_scroll) override;
   void DidObserveLayoutNg(uint32_t all_block_count,
                           uint32_t ng_block_count,
                           uint32_t all_call_count,
-                          uint32_t ng_call_count) override;
+                          uint32_t ng_call_count,
+                          uint32_t flexbox_ng_block_count,
+                          uint32_t grid_ng_block_count) override;
   void DidObserveLazyLoadBehavior(
       blink::WebLocalFrameClient::LazyLoadBehavior lazy_load_behavior) override;
   void DidStartResponse(const GURL& response_url,
@@ -75,7 +86,7 @@ class MetricsRenderFrameObserver
                                       bool from_archive) override;
   void DidStartNavigation(
       const GURL& url,
-      base::Optional<blink::WebNavigationType> navigation_type) override;
+      absl::optional<blink::WebNavigationType> navigation_type) override;
   void DidSetPageLifecycleState() override;
 
   void ReadyToCommitNavigation(
@@ -161,8 +172,6 @@ class MetricsRenderFrameObserver
 
   // Will be null when we're not actively sending metrics.
   std::unique_ptr<PageTimingMetricsSender> page_timing_metrics_sender_;
-
-  DISALLOW_COPY_AND_ASSIGN(MetricsRenderFrameObserver);
 };
 
 }  // namespace page_load_metrics

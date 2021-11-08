@@ -3,9 +3,11 @@
 // found in the LICENSE file.
 
 HTMLImports.whenReady(() => {
-// <include src="../login/components/multi_step_behavior.js">
+// <include src="../login/components/behaviors/multi_step_behavior.js">
+// Need the display manager to imitate the oobe flow.
+// <include src="../login/components/display_manager_types.js">
+// <include src="../login/display_manager.js">
 // <include src="../login/components/oobe_types.js">
-// <include src="../login/components/oobe_buttons.js">
 // <include src="assistant_optin_flow.js">
 // <include src="browser_proxy.js">
 
@@ -21,9 +23,7 @@ cr.define('login.AssistantOptInFlowScreen', function() {
       $('assistant-optin-flow-card')
           .onShow(
               url.searchParams.get('flow-type'),
-              url.searchParams.get('caption-bar-height'),
-              url.searchParams.get('oobe-dialog-height'),
-              url.searchParams.get('oobe-dialog-width'));
+              url.searchParams.get('caption-bar-height'));
     },
 
     /**
@@ -56,6 +56,14 @@ cr.define('login.AssistantOptInFlowScreen', function() {
      */
     onVoiceMatchUpdate(state) {
       $('assistant-optin-flow-card').onVoiceMatchUpdate(state);
+    },
+
+    /**
+     * Called to show the next settings when there are multiple unbundled
+     * activity control settings in the Value prop screen.
+     */
+    onValuePropUpdate() {
+      $('assistant-optin-flow-card').onValuePropUpdate();
     },
 
     /**

@@ -11,7 +11,6 @@
 #include <string>
 #include <vector>
 
-#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
@@ -21,7 +20,7 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "url/gurl.h"
 
-class KeyedServiceBaseFactory;
+class BrowserContextKeyedServiceFactory;
 
 namespace content {
 class BrowserContext;
@@ -51,9 +50,11 @@ class ArcIntentHelperBridge : public KeyedService,
   // or nullptr if the browser |context| is not allowed to use ARC.
   static ArcIntentHelperBridge* GetForBrowserContext(
       content::BrowserContext* context);
+  static ArcIntentHelperBridge* GetForBrowserContextForTesting(
+      content::BrowserContext* context);
 
   // Returns factory for the ArcIntentHelperBridge.
-  static KeyedServiceBaseFactory* GetFactory();
+  static BrowserContextKeyedServiceFactory* GetFactory();
 
   // Appends '.' + |to_append| to the intent helper package name.
   static std::string AppendStringToIntentHelperPackageName(
@@ -68,6 +69,8 @@ class ArcIntentHelperBridge : public KeyedService,
 
   ArcIntentHelperBridge(content::BrowserContext* context,
                         ArcBridgeService* bridge_service);
+  ArcIntentHelperBridge(const ArcIntentHelperBridge&) = delete;
+  ArcIntentHelperBridge& operator=(const ArcIntentHelperBridge&) = delete;
   ~ArcIntentHelperBridge() override;
 
   // mojom::IntentHelperHost
@@ -76,21 +79,15 @@ class ArcIntentHelperBridge : public KeyedService,
       std::vector<IntentFilter> intent_filters) override;
   void OnOpenDownloads() override;
   void OnOpenUrl(const std::string& url) override;
-  void OnOpenCustomTabDeprecated(const std::string& url,
-                                 int32_t task_id,
-                                 int32_t surface_id,
-                                 int32_t top_margin,
-                                 OnOpenCustomTabCallback callback) override;
   void OnOpenCustomTab(const std::string& url,
                        int32_t task_id,
                        OnOpenCustomTabCallback callback) override;
   void OnOpenChromePage(mojom::ChromePage page) override;
   void FactoryResetArc() override;
   void OpenWallpaperPicker() override;
-  void SetWallpaperDeprecated(const std::vector<uint8_t>& jpeg_data) override;
   void OpenVolumeControl() override;
   void OnOpenWebApp(const std::string& url) override;
-  void RecordShareFilesMetrics(mojom::ShareFiles flag) override;
+  void RecordShareFilesMetricsDeprecated(mojom::ShareFiles flag) override;
   void LaunchCameraApp(uint32_t intent_id,
                        arc::mojom::CameraIntentMode mode,
                        bool should_handle_result,
@@ -103,8 +100,16 @@ class ArcIntentHelperBridge : public KeyedService,
   void CloseCameraApp() override;
   void IsChromeAppEnabled(arc::mojom::ChromeApp app,
                           IsChromeAppEnabledCallback callback) override;
-  void OnPreferredAppsChanged(std::vector<IntentFilter> added,
-                              std::vector<IntentFilter> deleted) override;
+  void OnPreferredAppsChangedDeprecated(
+      std::vector<IntentFilter> added,
+      std::vector<IntentFilter> deleted) override;
+  void OnSupportedLinksChanged(
+      std::vector<arc::mojom::SupportedLinksPtr> added_packages,
+      std::vector<arc::mojom::SupportedLinksPtr> removed_packages) override;
+  void OnDownloadAdded(const std::string& relative_path,
+                       const std::string& owner_package_name) override;
+  void OnOpenAppWithIntent(const GURL& start_url,
+                           arc::mojom::LaunchIntentPtr intent) override;
 
   // Retrieves icons for the |activities| and calls |callback|.
   // See ActivityIconLoader::GetActivityIcons() for more details.
@@ -184,8 +189,6 @@ class ArcIntentHelperBridge : public KeyedService,
   std::vector<IntentFilter> deleted_preferred_apps_;
 
   std::unique_ptr<Delegate> delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArcIntentHelperBridge);
 };
 
 }  // namespace arc

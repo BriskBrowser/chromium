@@ -4,14 +4,16 @@
 
 #include "services/device/usb/usb_service_win.h"
 
+// windows.h must be included first.
+#include <windows.h>
+
+#define INITGUID
+
+#include <devpkey.h>
 #include <objbase.h>
 #include <setupapi.h>
 #include <stdint.h>
 #include <usbiodef.h>
-#include "base/strings/string_piece_forward.h"
-
-#define INITGUID
-#include <devpkey.h>
 
 #include "base/bind.h"
 #include "base/containers/contains.h"
@@ -19,12 +21,13 @@
 #include "base/memory/free_deleter.h"
 #include "base/memory/ptr_util.h"
 #include "base/scoped_generic.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/scoped_thread_priority.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -48,7 +51,7 @@ bool IsCompositeDevice(const std::wstring& service_name) {
          base::EqualsCaseInsensitiveASCII(service_name, L"dg_ssudbus");
 }
 
-base::Optional<uint32_t> GetDeviceUint32Property(HDEVINFO dev_info,
+absl::optional<uint32_t> GetDeviceUint32Property(HDEVINFO dev_info,
                                                  SP_DEVINFO_DATA* dev_info_data,
                                                  const DEVPROPKEY& property) {
   // SetupDiGetDeviceProperty() makes an RPC which may block.
@@ -61,13 +64,13 @@ base::Optional<uint32_t> GetDeviceUint32Property(HDEVINFO dev_info,
           dev_info, dev_info_data, &property, &property_type,
           reinterpret_cast<PBYTE>(&buffer), sizeof(buffer), nullptr, 0) ||
       property_type != DEVPROP_TYPE_UINT32) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   return buffer;
 }
 
-base::Optional<std::wstring> GetDeviceStringProperty(
+absl::optional<std::wstring> GetDeviceStringProperty(
     HDEVINFO dev_info,
     SP_DEVINFO_DATA* dev_info_data,
     const DEVPROPKEY& property) {
@@ -81,7 +84,7 @@ base::Optional<std::wstring> GetDeviceStringProperty(
                                &property_type, nullptr, 0, &required_size, 0) ||
       GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
       property_type != DEVPROP_TYPE_STRING) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   std::wstring buffer;
@@ -89,13 +92,13 @@ base::Optional<std::wstring> GetDeviceStringProperty(
           dev_info, dev_info_data, &property, &property_type,
           reinterpret_cast<PBYTE>(base::WriteInto(&buffer, required_size)),
           required_size, nullptr, 0)) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   return buffer;
 }
 
-base::Optional<std::vector<std::wstring>> GetDeviceStringListProperty(
+absl::optional<std::vector<std::wstring>> GetDeviceStringListProperty(
     HDEVINFO dev_info,
     SP_DEVINFO_DATA* dev_info_data,
     const DEVPROPKEY& property) {
@@ -109,7 +112,7 @@ base::Optional<std::vector<std::wstring>> GetDeviceStringListProperty(
                                &property_type, nullptr, 0, &required_size, 0) ||
       GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
       property_type != DEVPROP_TYPE_STRING_LIST) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   std::wstring buffer;
@@ -117,7 +120,7 @@ base::Optional<std::vector<std::wstring>> GetDeviceStringListProperty(
           dev_info, dev_info_data, &property, &property_type,
           reinterpret_cast<PBYTE>(base::WriteInto(&buffer, required_size)),
           required_size, nullptr, 0)) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   // Windows string list properties use a NUL character as the delimiter.
@@ -126,7 +129,7 @@ base::Optional<std::vector<std::wstring>> GetDeviceStringListProperty(
 }
 
 std::wstring GetServiceName(HDEVINFO dev_info, SP_DEVINFO_DATA* dev_info_data) {
-  base::Optional<std::wstring> property =
+  absl::optional<std::wstring> property =
       GetDeviceStringProperty(dev_info, dev_info_data, DEVPKEY_Device_Service);
   if (!property.has_value())
     return std::wstring();
@@ -353,7 +356,7 @@ UsbDeviceWin::FunctionInfo GetFunctionInfo(const std::wstring& instance_id) {
     return info;
   }
 
-  base::Optional<std::vector<std::wstring>> hardware_ids =
+  absl::optional<std::vector<std::wstring>> hardware_ids =
       GetDeviceStringListProperty(dev_info.get(), &dev_info_data,
                                   DEVPKEY_Device_HardwareIds);
   if (!hardware_ids) {
@@ -441,7 +444,7 @@ class UsbServiceWin::BlockingTaskRunnerHelper {
                                                   &GUID_DEVINTERFACE_USB_DEVICE,
                                                   i, &device_interface_data);
          ++i) {
-      EnumerateDevice(dev_info.get(), &device_interface_data, base::nullopt);
+      EnumerateDevice(dev_info.get(), &device_interface_data, absl::nullopt);
     }
 
     if (GetLastError() != ERROR_NO_MORE_ITEMS)
@@ -482,7 +485,7 @@ class UsbServiceWin::BlockingTaskRunnerHelper {
  private:
   void EnumerateDevice(HDEVINFO dev_info,
                        SP_DEVICE_INTERFACE_DATA* device_interface_data,
-                       const base::Optional<std::wstring>& opt_device_path) {
+                       const absl::optional<std::wstring>& opt_device_path) {
     std::wstring device_path;
     std::wstring* device_path_ptr = &device_path;
     if (opt_device_path) {
@@ -587,11 +590,10 @@ class UsbServiceWin::BlockingTaskRunnerHelper {
 UsbServiceWin::UsbServiceWin()
     : UsbService(),
       blocking_task_runner_(CreateBlockingTaskRunner()),
-      helper_(nullptr, base::OnTaskRunnerDeleter(blocking_task_runner_)),
-      device_observer_(this) {
+      helper_(nullptr, base::OnTaskRunnerDeleter(blocking_task_runner_)) {
   DeviceMonitorWin* device_monitor = DeviceMonitorWin::GetForAllInterfaces();
   if (device_monitor)
-    device_observer_.Add(device_monitor);
+    device_observation_.Observe(device_monitor);
 
   helper_.reset(new BlockingTaskRunnerHelper(weak_factory_.GetWeakPtr()));
   blocking_task_runner_->PostTask(
@@ -671,9 +673,10 @@ void UsbServiceWin::CreateDeviceObject(
   auto device = base::MakeRefCounted<UsbDeviceWin>(
       device_path, hub_path, functions, bus_number, port_number, driver_type);
   devices_by_path_[device->device_path()] = device;
-  device->ReadDescriptors(base::BindOnce(&UsbServiceWin::DeviceReady,
-                                         weak_factory_.GetWeakPtr(), device,
-                                         driver_name));
+  device->ReadDescriptors(
+      blocking_task_runner_,
+      base::BindOnce(&UsbServiceWin::DeviceReady, weak_factory_.GetWeakPtr(),
+                     device, driver_name));
 }
 
 void UsbServiceWin::UpdateFunction(

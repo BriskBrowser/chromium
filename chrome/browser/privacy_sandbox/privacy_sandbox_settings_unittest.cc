@@ -4,14 +4,18 @@
 
 #include "chrome/browser/privacy_sandbox/privacy_sandbox_settings.h"
 
+#include "base/json/values_util.h"
 #include "base/test/gtest_util.h"
+#include "base/test/icu_test_util.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/util/values/values_util.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/federated_learning/floc_id_provider.h"
+#include "chrome/browser/privacy_sandbox/privacy_sandbox_settings.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/ui/webui/federated_learning/floc_internals.mojom.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
@@ -19,10 +23,13 @@
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/content_settings/core/test/content_settings_mock_provider.h"
 #include "components/content_settings/core/test/content_settings_test_utils.h"
+#include "components/federated_learning/features/features.h"
+#include "components/federated_learning/floc_id.h"
 #include "components/policy/core/common/mock_policy_service.h"
 #include "components/privacy_sandbox/privacy_sandbox_prefs.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/sync/base/user_selectable_type.h"
 #include "components/sync/driver/test_sync_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -30,8 +37,31 @@
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/federated_learning/floc.mojom.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "url/origin.h"
 
 namespace {
+
+class MockFlocIdProvider : public federated_learning::FlocIdProvider {
+ public:
+  blink::mojom::InterestCohortPtr GetInterestCohortForJsApi(
+      const GURL& url,
+      const absl::optional<url::Origin>& top_frame_origin) const override {
+    return blink::mojom::InterestCohort::New();
+  }
+  MOCK_METHOD(federated_learning::mojom::WebUIFlocStatusPtr,
+              GetFlocStatusForWebUi,
+              (),
+              (const, override));
+  MOCK_METHOD(void, MaybeRecordFlocToUkm, (ukm::SourceId), (override));
+  MOCK_METHOD(base::Time, GetApproximateNextComputeTime, (), (const, override));
+};
+
+class MockPrivacySandboxObserver : public PrivacySandboxSettings::Observer {
+ public:
+  MOCK_METHOD(void, OnFlocDataAccessibleSinceUpdated, (bool), (override));
+};
 
 // Define an additional content setting value to simulate an unmanaged default
 // content setting.
@@ -65,7 +95,6 @@ class PrivacySandboxSettingsTest : public testing::Test {
 
   // Sets up preferences and content settings based on provided parameters.
   void SetupTestState(
-      bool privacy_sandbox_available,
       bool privacy_sandbox_enabled,
       bool block_third_party_cookies,
       ContentSetting default_cookie_setting,
@@ -122,17 +151,6 @@ class PrivacySandboxSettingsTest : public testing::Test {
         map, std::move(managed_provider),
         HostContentSettingsMap::POLICY_PROVIDER);
 
-    // Setup privacy sandbox feature & preference.
-    feature_list()->Reset();
-    if (privacy_sandbox_available) {
-      feature_list()->InitWithFeatures(
-          {features::kPrivacySandboxSettings, features::kConversionMeasurement,
-           blink::features::kInterestCohortAPIOriginTrial},
-          {});
-    } else {
-      feature_list()->InitAndDisableFeature(features::kPrivacySandboxSettings);
-    }
-
     profile()->GetTestingPrefService()->SetUserPref(
         prefs::kPrivacySandboxApisEnabled,
         std::make_unique<base::Value>(privacy_sandbox_enabled));
@@ -161,124 +179,10 @@ class PrivacySandboxSettingsTest : public testing::Test {
   std::unique_ptr<PrivacySandboxSettings> privacy_sandbox_settings_;
 };
 
-TEST_F(PrivacySandboxSettingsTest, PrivacySandboxSettingsFunctional) {
-  // Check that the settings are only reported as functional when at least one
-  // privacy sandbox API is enabled.
-  feature_list()->InitWithFeatures(
-      {features::kPrivacySandboxSettings, features::kConversionMeasurement},
-      {});
-  EXPECT_TRUE(privacy_sandbox_settings()->PrivacySandboxSettingsFunctional());
-  feature_list()->Reset();
-
-  feature_list()->InitWithFeatures(
-      {features::kPrivacySandboxSettings,
-       blink::features::kInterestCohortAPIOriginTrial},
-      {});
-  EXPECT_TRUE(privacy_sandbox_settings()->PrivacySandboxSettingsFunctional());
-  feature_list()->Reset();
-
-  feature_list()->InitWithFeatures(
-      {features::kConversionMeasurement,
-       blink::features::kInterestCohortAPIOriginTrial},
-      {});
-  EXPECT_FALSE(privacy_sandbox_settings()->PrivacySandboxSettingsFunctional());
-  feature_list()->Reset();
-
-  feature_list()->InitWithFeatures({features::kPrivacySandboxSettings}, {});
-  EXPECT_FALSE(privacy_sandbox_settings()->PrivacySandboxSettingsFunctional());
-  feature_list()->Reset();
-}
-
-TEST_F(PrivacySandboxSettingsTest, CookieSettingAppliesWhenUiDisabled) {
-  // When the Privacy Sandbox UI is unavailable, the cookie setting should
-  // apply directly.
-  SetupTestState(
-      /*privacy_sandbox_available=*/false,
-      /*privacy_sandbox_enabled=*/false,
-      /*block_third_party_cookies=*/false,
-      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
-      /*user_cookie_exceptions=*/{},
-      /*managed_cookie_setting=*/kNoSetting,
-      /*managed_cookie_exceptions=*/{});
-  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"),
-      url::Origin::Create(GURL("https://test.com"))));
-
-  EXPECT_TRUE(privacy_sandbox_settings()->IsConversionMeasurementAllowed(
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-  EXPECT_TRUE(privacy_sandbox_settings()->ShouldSendConversionReport(
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://another-test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-
-  SetupTestState(
-      /*privacy_sandbox_available=*/false,
-      /*privacy_sandbox_enabled=*/false,
-      /*block_third_party_cookies=*/false,
-      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
-      /*user_cookie_exceptions=*/
-      {{"https://embedded.com", "https://test.com",
-        ContentSetting::CONTENT_SETTING_ALLOW},
-       {"https://another-test.com", "*",
-        ContentSetting::CONTENT_SETTING_BLOCK}},
-      /*managed_cookie_setting=*/kNoSetting,
-      /*managed_cookie_exceptions=*/{});
-
-  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"),
-      url::Origin::Create(GURL("https://test.com"))));
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://another-test.com"), base::nullopt));
-
-  EXPECT_TRUE(privacy_sandbox_settings()->IsConversionMeasurementAllowed(
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-  EXPECT_FALSE(privacy_sandbox_settings()->ShouldSendConversionReport(
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://another-test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-
-  SetupTestState(
-      /*privacy_sandbox_available=*/false,
-      /*privacy_sandbox_enabled=*/true,
-      /*block_third_party_cookies=*/false,
-      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
-      /*user_cookie_exceptions=*/
-      {{"https://embedded.com", "https://test.com",
-        ContentSetting::CONTENT_SETTING_ALLOW}},
-      /*managed_cookie_setting=*/kNoSetting,
-      {{"https://embedded.com", "https://test.com",
-        ContentSetting::CONTENT_SETTING_BLOCK}});
-
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"),
-      url::Origin::Create(GURL("https://test.com"))));
-  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"), base::nullopt));
-
-  EXPECT_FALSE(privacy_sandbox_settings()->IsConversionMeasurementAllowed(
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-
-  // Should  block due to impression origin.
-  EXPECT_FALSE(privacy_sandbox_settings()->ShouldSendConversionReport(
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://another-test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-
-  // Should  block due to conversion origin.
-  EXPECT_FALSE(privacy_sandbox_settings()->ShouldSendConversionReport(
-      url::Origin::Create(GURL("https://another-test.com")),
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-}
-
 TEST_F(PrivacySandboxSettingsTest, PreferenceOverridesDefaultContentSetting) {
   // When the Privacy Sandbox UI is available, the sandbox preference should
   // override the default cookie content setting.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -286,7 +190,7 @@ TEST_F(PrivacySandboxSettingsTest, PreferenceOverridesDefaultContentSetting) {
       /*managed_cookie_setting=*/kNoSetting,
       /*managed_cookie_exceptions=*/{});
 
-  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed(
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowedForContext(
       GURL("https://embedded.com"),
       url::Origin::Create(GURL("https://test.com"))));
 
@@ -298,21 +202,31 @@ TEST_F(PrivacySandboxSettingsTest, PreferenceOverridesDefaultContentSetting) {
       url::Origin::Create(GURL("https://another-test.com")),
       url::Origin::Create(GURL("https://embedded.com"))));
 
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com"),
+                 GURL("https://another-embedded.com")}));
+
   // An allow exception should not override the preference value.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
       /*user_cookie_exceptions=*/
       {{"https://embedded.com", "https://test.com",
+        ContentSetting::CONTENT_SETTING_ALLOW},
+       {"https://another-embedded.com", "https://test.com",
         ContentSetting::CONTENT_SETTING_ALLOW},
        {"https://embedded.com", "https://another-test.com",
         ContentSetting::CONTENT_SETTING_ALLOW}},
       /*managed_cookie_setting=*/kNoSetting,
       /*managed_cookie_exceptions=*/{});
 
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowedForContext(
       GURL("https://embedded.com"),
       url::Origin::Create(GURL("https://test.com"))));
 
@@ -323,52 +237,72 @@ TEST_F(PrivacySandboxSettingsTest, PreferenceOverridesDefaultContentSetting) {
       url::Origin::Create(GURL("https://test.com")),
       url::Origin::Create(GURL("https://another-test.com")),
       url::Origin::Create(GURL("https://embedded.com"))));
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com"),
+                 GURL("https://another-embedded.com")}));
 }
 
 TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
-  // When the Privacy Sandbox UI & preference are both enabled, targeted cookie
-  // block exceptions should still apply.
+  // When the Privacy Sandbox preference is enabled, targeted cookie block
+  // exceptions should still apply.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
-      /*privacy_sandbox_enabled=*/true,
-      /*block_third_party_cookies=*/false,
-      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
-      /*user_cookie_exceptions=*/
-      {{"https://embedded.com", "https://test.com",
-        ContentSetting::CONTENT_SETTING_BLOCK}},
-      /*managed_cookie_setting=*/kNoSetting,
-      /*managed_cookie_exceptions=*/{});
-
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"),
-      url::Origin::Create(GURL("https://test.com"))));
-
-  EXPECT_FALSE(privacy_sandbox_settings()->IsConversionMeasurementAllowed(
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-  EXPECT_FALSE(privacy_sandbox_settings()->ShouldSendConversionReport(
-      url::Origin::Create(GURL("https://test.com")),
-      url::Origin::Create(GURL("https://another-test.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-
-  // User created exceptions should not apply if a managed default coookie
-  // setting exists. What the managed default setting actually is should *not*
-  // affect whether APIs are enabled. The cookie managed state is reflected in
-  // the privacy sandbox preferences directly.
-  SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
       /*user_cookie_exceptions=*/
       {{"https://embedded.com", "https://test.com",
         ContentSetting::CONTENT_SETTING_BLOCK},
+       {"https://another-embedded.com", "*",
+        ContentSetting::CONTENT_SETTING_BLOCK}},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowedForContext(
+      GURL("https://embedded.com"),
+      url::Origin::Create(GURL("https://test.com"))));
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsConversionMeasurementAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      url::Origin::Create(GURL("https://embedded.com"))));
+  EXPECT_FALSE(privacy_sandbox_settings()->ShouldSendConversionReport(
+      url::Origin::Create(GURL("https://test.com")),
+      url::Origin::Create(GURL("https://another-test.com")),
+      url::Origin::Create(GURL("https://embedded.com"))));
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com"),
+                 GURL("https://another-embedded.com")}));
+
+  // User created exceptions should not apply if a managed default coookie
+  // setting exists. What the managed default setting actually is should *not*
+  // affect whether APIs are enabled. The cookie managed state is reflected in
+  // the privacy sandbox preferences directly.
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/true,
+      /*block_third_party_cookies=*/false,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*user_cookie_exceptions=*/
+      {{"https://embedded.com", "https://test.com",
+        ContentSetting::CONTENT_SETTING_BLOCK},
+       {"https://another-embedded.com", "https://test.com",
+        ContentSetting::CONTENT_SETTING_BLOCK},
        {"https://embedded.com", "https://another-test.com",
         ContentSetting::CONTENT_SETTING_BLOCK}},
       /*managed_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
       /*managed_cookie_exceptions=*/{});
 
-  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed(
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowedForContext(
       GURL("https://embedded.com"),
       url::Origin::Create(GURL("https://test.com"))));
   EXPECT_TRUE(privacy_sandbox_settings()->IsConversionMeasurementAllowed(
@@ -379,15 +313,25 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
       url::Origin::Create(GURL("https://another-test.com")),
       url::Origin::Create(GURL("https://embedded.com"))));
 
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com"),
+                 GURL("https://another-embedded.com")}));
+
   // Managed content setting exceptions should override both the privacy
   // sandbox pref and any user settings.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
       /*user_cookie_exceptions=*/
       {{"https://embedded.com", "https://test.com",
+        ContentSetting::CONTENT_SETTING_ALLOW},
+       {"https://another-embedded.com", "https://test.com",
         ContentSetting::CONTENT_SETTING_ALLOW},
        {"https://embedded.com", "https://another-test.com",
         ContentSetting::CONTENT_SETTING_ALLOW}},
@@ -395,10 +339,10 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
       {{"https://embedded.com", "https://test.com",
         ContentSetting::CONTENT_SETTING_BLOCK}});
 
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowedForContext(
       GURL("https://embedded.com"),
       url::Origin::Create(GURL("https://test.com"))));
-  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed(
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowedForContext(
       GURL("https://unrelated.com"),
       url::Origin::Create(GURL("https://unrelated.com"))));
 
@@ -417,11 +361,19 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
       url::Origin::Create(GURL("https://unrelated-d.com")),
       url::Origin::Create(GURL("https://unrelated-e.com"))));
 
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{GURL("https://another-embedded.com")},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com"),
+                 GURL("https://another-embedded.com")}));
+
   // A less specific block exception should not override a more specific allow
   // exception. The effective content setting in this scenario is still allow,
   // even though a block exception exists.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -436,14 +388,17 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
         ContentSetting::CONTENT_SETTING_BLOCK}},
       /*managed_cookie_setting=*/kNoSetting,
       /*managed_cookie_exceptions=*/{});
-  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed(
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowedForContext(
       GURL("https://embedded.com"),
       url::Origin::Create(GURL("https://test.com"))));
+
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
 
   // Exceptions which specify a top frame origin should not match against other
   // top frame origins, or an empty origin.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -455,8 +410,8 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
       {{"https://embedded.com", "https://test.com",
         ContentSetting::CONTENT_SETTING_BLOCK}});
 
-  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"), base::nullopt));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowedForContext(
+      GURL("https://embedded.com"), absl::nullopt));
 
   EXPECT_TRUE(privacy_sandbox_settings()->IsConversionMeasurementAllowed(
       url::Origin::Create(GURL("https://another-test.com")),
@@ -466,10 +421,18 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
       url::Origin::Create(GURL("https://yet-another-test.com")),
       url::Origin::Create(GURL("https://embedded.com"))));
 
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://another-test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com"),
+                 GURL("https://another-embedded.com")}));
+
   // Exceptions which specify a wildcard top frame origin should match both
   // empty top frames and non empty top frames.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -478,9 +441,9 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
       /*managed_cookie_setting=*/kNoSetting,
       /*managed_cookie_exceptions=*/{});
 
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"), base::nullopt));
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowedForContext(
+      GURL("https://embedded.com"), absl::nullopt));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowedForContext(
       GURL("https://embedded.com"),
       url::Origin::Create(GURL("https://test.com"))));
 
@@ -491,58 +454,95 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
       url::Origin::Create(GURL("https://test.com")),
       url::Origin::Create(GURL("https://another-test.com")),
       url::Origin::Create(GURL("https://embedded.com"))));
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{GURL("https://another-embedded.com")},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com"),
+                 GURL("https://another-embedded.com")}));
 }
 
-TEST_F(PrivacySandboxSettingsTest, ThirdPartyByDefault) {
-  // Check that when the UI is not enabled, all requests are considered
-  // as third party requests.
+TEST_F(PrivacySandboxSettingsTest, IsFledgeAllowed) {
+  // FLEDGE should be disabled if 3P cookies are blocked.
   SetupTestState(
-      /*privacy_sandbox_available=*/false,
-      /*privacy_sandbox_enabled=*/false,
+      /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
       /*user_cookie_exceptions=*/{},
       /*managed_cookie_setting=*/kNoSetting,
       /*managed_cookie_exceptions=*/{});
 
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"),
-      url::Origin::Create(GURL("https://embedded.com"))));
-  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed(
-      GURL("https://embedded.com"), base::nullopt));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com")}));
 
-  EXPECT_FALSE(privacy_sandbox_settings()->IsConversionMeasurementAllowed(
-      url::Origin::Create(GURL("https://embedded.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
-  EXPECT_FALSE(privacy_sandbox_settings()->ShouldSendConversionReport(
-      url::Origin::Create(GURL("https://embedded.com")),
-      url::Origin::Create(GURL("https://embedded.com")),
-      url::Origin::Create(GURL("https://embedded.com"))));
+  // FLEDGE should be disabled if all cookies are blocked.
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/true,
+      /*block_third_party_cookies=*/false,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com")}));
+
+  // FLEDGE should be disabled if the privacy sandbox is disabled, regardless
+  // of other cookie settings.
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/false,
+      /*block_third_party_cookies=*/false,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*user_cookie_exceptions=*/
+      {{"https://embedded.com", "https://test.com",
+        ContentSetting::CONTENT_SETTING_ALLOW}},
+      /*managed_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*managed_cookie_exceptions=*/
+      {{"https://embedded.com", "https://test.com",
+        ContentSetting::CONTENT_SETTING_ALLOW}});
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com")}));
+
+  // The managed cookie content setting should not override a disabled privacy
+  // sandbox setting.
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/false,
+      /*block_third_party_cookies=*/false,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*managed_cookie_exceptions=*/{});
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
+      url::Origin::Create(GURL("https://test.com")),
+      GURL("https://embedded.com")));
+  EXPECT_EQ(std::vector<GURL>{},
+            privacy_sandbox_settings()->FilterFledgeAllowedParties(
+                url::Origin::Create(GURL("https://test.com")),
+                {GURL("https://embedded.com")}));
 }
 
 TEST_F(PrivacySandboxSettingsTest, IsPrivacySandboxAllowed) {
   SetupTestState(
-      /*privacy_sandbox_available=*/false,
-      /*privacy_sandbox_enabled=*/false,
-      /*block_third_party_cookies=*/false,
-      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
-      /*user_cookie_exceptions=*/{},
-      /*managed_cookie_setting=*/kNoSetting,
-      /*managed_cookie_exceptions=*/{});
-  EXPECT_TRUE(privacy_sandbox_settings()->IsPrivacySandboxAllowed());
-
-  SetupTestState(
-      /*privacy_sandbox_available=*/false,
-      /*privacy_sandbox_enabled=*/false,
-      /*block_third_party_cookies=*/true,
-      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
-      /*user_cookie_exceptions=*/{},
-      /*managed_cookie_setting=*/kNoSetting,
-      /*managed_cookie_exceptions=*/{});
-  EXPECT_FALSE(privacy_sandbox_settings()->IsPrivacySandboxAllowed());
-
-  SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -552,7 +552,6 @@ TEST_F(PrivacySandboxSettingsTest, IsPrivacySandboxAllowed) {
   EXPECT_FALSE(privacy_sandbox_settings()->IsPrivacySandboxAllowed());
 
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -562,7 +561,6 @@ TEST_F(PrivacySandboxSettingsTest, IsPrivacySandboxAllowed) {
   EXPECT_FALSE(privacy_sandbox_settings()->IsPrivacySandboxAllowed());
 
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -570,6 +568,52 @@ TEST_F(PrivacySandboxSettingsTest, IsPrivacySandboxAllowed) {
       /*managed_cookie_setting=*/kNoSetting,
       /*managed_cookie_exceptions=*/{});
   EXPECT_TRUE(privacy_sandbox_settings()->IsPrivacySandboxAllowed());
+}
+
+TEST_F(PrivacySandboxSettingsTest, IsFlocAllowed) {
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/true,
+      /*block_third_party_cookies=*/true,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocAllowed());
+
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/false,
+      /*block_third_party_cookies=*/false,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed());
+
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/true,
+      /*block_third_party_cookies=*/false,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed());
+
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/false,
+      /*block_third_party_cookies=*/false,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocAllowed());
 }
 
 TEST_F(PrivacySandboxSettingsTest, FlocDataAccessibleSince) {
@@ -584,13 +628,349 @@ TEST_F(PrivacySandboxSettingsTest, FlocDataAccessibleSince) {
             privacy_sandbox_settings()->FlocDataAccessibleSince());
 }
 
-TEST_F(PrivacySandboxSettingsTest, ReconciliationOutcome) {
+TEST_F(PrivacySandboxSettingsTest, GetFlocDescriptionForDisplay) {
+  // Check that the returned FLoC description correctly takes into account the
+  // time between FLoC recomputes.
+  std::map<std::string, std::u16string> param_to_expected_string = {
+      {"1h", l10n_util::GetPluralStringFUTF16(
+                 IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION, 0)},
+      {"23h", l10n_util::GetPluralStringFUTF16(
+                  IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION, 0)},
+      {"24h", l10n_util::GetPluralStringFUTF16(
+                  IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION, 1)},
+      {"25h", l10n_util::GetPluralStringFUTF16(
+                  IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION, 1)},
+      {"60h", l10n_util::GetPluralStringFUTF16(
+                  IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION, 3)},
+      {"167h", l10n_util::GetPluralStringFUTF16(
+                   IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION, 7)},
+      {"168h", l10n_util::GetPluralStringFUTF16(
+                   IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION, 7)}};
+
+  for (const auto& param_expected : param_to_expected_string) {
+    feature_list()->InitAndEnableFeatureWithParameters(
+        federated_learning::kFederatedLearningOfCohorts,
+        {{"update_interval", param_expected.first}});
+    EXPECT_EQ(param_expected.second,
+              privacy_sandbox_settings()->GetFlocDescriptionForDisplay());
+    feature_list()->Reset();
+  }
+}
+
+TEST_F(PrivacySandboxSettingsTest, GetFlocIdForDisplay) {
+  // Check that the cohort identifier is correctly converted to a string when
+  // available.
+  feature_list()->InitWithFeatures(
+      {blink::features::kInterestCohortAPIOriginTrial}, {});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, true);
+  federated_learning::FlocId floc_id = federated_learning::FlocId::CreateValid(
+      123456, base::Time(), base::Time::Now(),
+      /*sorting_lsh_version=*/0);
+  floc_id.SaveToPrefs(profile()->GetTestingPrefService());
+
+  EXPECT_EQ(std::u16string(u"123456"),
+            privacy_sandbox_settings()->GetFlocIdForDisplay());
+
+  // If the FLoC preference, the Sandbox Preference, or the feature is disabled,
+  // or the FLoC ID is invalid, the invalid string should be returned.
+  feature_list()->Reset();
+  feature_list()->InitWithFeatures(
+      {}, {blink::features::kInterestCohortAPIOriginTrial});
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_INVALID),
+            privacy_sandbox_settings()->GetFlocIdForDisplay());
+
+  feature_list()->Reset();
+  feature_list()->InitWithFeatures(
+      {blink::features::kInterestCohortAPIOriginTrial}, {});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, false);
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_INVALID),
+            privacy_sandbox_settings()->GetFlocIdForDisplay());
+
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, true);
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_INVALID),
+            privacy_sandbox_settings()->GetFlocIdForDisplay());
+
+  floc_id.UpdateStatusAndSaveToPrefs(
+      profile()->GetTestingPrefService(),
+      federated_learning::FlocId::Status::kInvalidReset);
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_INVALID),
+            privacy_sandbox_settings()->GetFlocIdForDisplay());
+}
+
+TEST_F(PrivacySandboxSettingsTest, GetFlocIdNextUpdateForDisplay) {
+  // Check that date FLoC will be next updated is returned when available.
+  MockFlocIdProvider mock_floc_id_provider;
+  feature_list()->InitWithFeatures(
+      {blink::features::kInterestCohortAPIOriginTrial}, {});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, true);
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+
+  std::map<base::TimeDelta, std::u16string> offsets_to_expected_string = {
+      {base::Hours(23), l10n_util::GetPluralStringFUTF16(
+                            IDS_PRIVACY_SANDBOX_FLOC_TIME_TO_NEXT_COMPUTE, 0)},
+      {base::Hours(25), l10n_util::GetPluralStringFUTF16(
+                            IDS_PRIVACY_SANDBOX_FLOC_TIME_TO_NEXT_COMPUTE, 1)},
+      {base::Days(2), l10n_util::GetPluralStringFUTF16(
+                          IDS_PRIVACY_SANDBOX_FLOC_TIME_TO_NEXT_COMPUTE, 2)},
+      {base::Hours(60), l10n_util::GetPluralStringFUTF16(
+                            IDS_PRIVACY_SANDBOX_FLOC_TIME_TO_NEXT_COMPUTE, 3)},
+      {base::Hours(167),  // 1 hour less than 7 days.
+       l10n_util::GetPluralStringFUTF16(
+           IDS_PRIVACY_SANDBOX_FLOC_TIME_TO_NEXT_COMPUTE, 7)}};
+
+  for (const auto& offset_expected : offsets_to_expected_string) {
+    EXPECT_CALL(mock_floc_id_provider, GetApproximateNextComputeTime)
+        .WillOnce(testing::Return(base::Time::Now() + offset_expected.first));
+    EXPECT_EQ(
+        offset_expected.second,
+        privacy_sandbox_settings()->GetFlocIdNextUpdateForDisplay(
+            &mock_floc_id_provider, profile()->GetPrefs(), base::Time::Now()));
+    testing::Mock::VerifyAndClearExpectations(&mock_floc_id_provider);
+  }
+
+  // Check that disabling FLoC is also reflected in the returned string.
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+  EXPECT_CALL(mock_floc_id_provider, GetApproximateNextComputeTime).Times(0);
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(
+          IDS_PRIVACY_SANDBOX_FLOC_TIME_TO_NEXT_COMPUTE_INVALID),
+      privacy_sandbox_settings()->GetFlocIdNextUpdateForDisplay(
+          &mock_floc_id_provider, profile()->GetPrefs(), base::Time::Now()));
+  testing::Mock::VerifyAndClearExpectations(&mock_floc_id_provider);
+
+  // Disabling the FLoC feature should also invalidate the next compute time.
+  feature_list()->Reset();
+  feature_list()->InitWithFeatures(
+      {}, {blink::features::kInterestCohortAPIOriginTrial});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  testing::Mock::VerifyAndClearExpectations(&mock_floc_id_provider);
+}
+
+TEST_F(PrivacySandboxSettingsTest, GetFlocResetExplanationForDisplay) {
+  // Check that the string description indicating what happens when the user
+  // resets the FLoC ID updates appropriately based on the feature parameter.
+  std::map<std::string, std::u16string> param_to_expected_string = {
+      {"1h", l10n_util::GetPluralStringFUTF16(
+                 IDS_PRIVACY_SANDBOX_FLOC_RESET_EXPLANATION, 0)},
+      {"23h", l10n_util::GetPluralStringFUTF16(
+                  IDS_PRIVACY_SANDBOX_FLOC_RESET_EXPLANATION, 0)},
+      {"24h", l10n_util::GetPluralStringFUTF16(
+                  IDS_PRIVACY_SANDBOX_FLOC_RESET_EXPLANATION, 1)},
+      {"25h", l10n_util::GetPluralStringFUTF16(
+                  IDS_PRIVACY_SANDBOX_FLOC_RESET_EXPLANATION, 1)},
+      {"60h", l10n_util::GetPluralStringFUTF16(
+                  IDS_PRIVACY_SANDBOX_FLOC_RESET_EXPLANATION, 3)},
+      {"167h", l10n_util::GetPluralStringFUTF16(
+                   IDS_PRIVACY_SANDBOX_FLOC_RESET_EXPLANATION, 7)},
+      {"168h", l10n_util::GetPluralStringFUTF16(
+                   IDS_PRIVACY_SANDBOX_FLOC_RESET_EXPLANATION, 7)}};
+
+  for (const auto& param_expected : param_to_expected_string) {
+    feature_list()->InitAndEnableFeatureWithParameters(
+        federated_learning::kFederatedLearningOfCohorts,
+        {{"update_interval", param_expected.first}});
+    EXPECT_EQ(param_expected.second,
+              privacy_sandbox_settings()->GetFlocResetExplanationForDisplay());
+    feature_list()->Reset();
+  }
+}
+
+TEST_F(PrivacySandboxSettingsTest, GetFlocStatusForDisplay) {
+  // Check the status of the user's FLoC is correctly returned. This depends
+  // on whether the FLoC origin trial feature is enabled, and whether the user
+  // has FLoC enabled.
+  feature_list()->InitWithFeatures(
+      {blink::features::kInterestCohortAPIOriginTrial}, {});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, true);
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_STATUS_ACTIVE),
+            privacy_sandbox_settings()->GetFlocStatusForDisplay());
+
+  // The Privacy Sandbox APIs pref & FLoC pref should disable the trial when
+  // either is disabled.
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, false);
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_STATUS_NOT_ACTIVE),
+      privacy_sandbox_settings()->GetFlocStatusForDisplay());
+
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, true);
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_STATUS_NOT_ACTIVE),
+      privacy_sandbox_settings()->GetFlocStatusForDisplay());
+
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  feature_list()->Reset();
+  feature_list()->InitWithFeatures(
+      {}, {blink::features::kInterestCohortAPIOriginTrial});
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_PRIVACY_SANDBOX_FLOC_STATUS_ELIGIBLE_NOT_ACTIVE),
+            privacy_sandbox_settings()->GetFlocStatusForDisplay());
+}
+
+TEST_F(PrivacySandboxSettingsTest, IsFlocIdResettable) {
+  // Check that if FLoC is functional the FLoC ID is resettable, regardless of
+  // whether the FLoC ID is currently valid.
+  feature_list()->InitWithFeatures(
+      {blink::features::kInterestCohortAPIOriginTrial}, {});
+  federated_learning::FlocId floc_id = federated_learning::FlocId::CreateValid(
+      123456, base::Time(), base::Time::Now(),
+      /*sorting_lsh_version=*/0);
+  floc_id.SaveToPrefs(profile()->GetTestingPrefService());
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, true);
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocIdResettable());
+
+  feature_list()->Reset();
+  feature_list()->InitWithFeatures(
+      {}, {blink::features::kInterestCohortAPIOriginTrial});
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocIdResettable());
+
+  feature_list()->Reset();
+  feature_list()->InitWithFeatures(
+      {blink::features::kInterestCohortAPIOriginTrial}, {});
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocIdResettable());
+
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocIdResettable());
+
+  floc_id.UpdateStatusAndSaveToPrefs(
+      profile()->GetTestingPrefService(),
+      federated_learning::FlocId::Status::kInvalidReset);
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocIdResettable());
+}
+
+TEST_F(PrivacySandboxSettingsTest, IsFlocPrefEnabled) {
+  // IsFlocPrefEnabled should directly reflect the state of the FLoC pref.
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocPrefEnabled());
+
+  // The Privacy Sandbox APIs pref should not impact the return value.
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, false);
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFlocPrefEnabled());
+
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFlocPrefEnabled());
+}
+
+TEST_F(PrivacySandboxSettingsTest, SetFlocPrefEnabled) {
+  // The FLoc pref should always be updated by this function, regardless of
+  // other Sandbox State.
+  base::UserActionTester user_action_tester;
+  ASSERT_EQ(0, user_action_tester.GetActionCount(
+                   "Settings.PrivacySandbox.FlocEnabled"));
+  ASSERT_EQ(0, user_action_tester.GetActionCount(
+                   "Settings.PrivacySandbox.FlocDisabled"));
+
+  privacy_sandbox_settings()->SetFlocPrefEnabled(false);
+  EXPECT_FALSE(profile()->GetTestingPrefService()->GetBoolean(
+      prefs::kPrivacySandboxFlocEnabled));
+  ASSERT_EQ(0, user_action_tester.GetActionCount(
+                   "Settings.PrivacySandbox.FlocEnabled"));
+  ASSERT_EQ(1, user_action_tester.GetActionCount(
+                   "Settings.PrivacySandbox.FlocDisabled"));
+
+  // Disabling the sandbox shouldn't prevent the pref from being updated. This
+  // state is not directly allowable by the UI, but the state itself is valid
+  // as far as the PrivacySandboxSettings service is concerned.
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, false);
+  privacy_sandbox_settings()->SetFlocPrefEnabled(true);
+  EXPECT_TRUE(profile()->GetTestingPrefService()->GetBoolean(
+      prefs::kPrivacySandboxFlocEnabled));
+  ASSERT_EQ(1, user_action_tester.GetActionCount(
+                   "Settings.PrivacySandbox.FlocEnabled"));
+  ASSERT_EQ(1, user_action_tester.GetActionCount(
+                   "Settings.PrivacySandbox.FlocDisabled"));
+}
+
+TEST_F(PrivacySandboxSettingsTest, OnPrivacySandboxPrefChanged) {
+  // When either the main Privacy Sandbox pref, or the FLoC pref, are changed
+  // the FLoC ID should be reset.
+  MockPrivacySandboxObserver mock_privacy_sandbox_observer;
+  privacy_sandbox_settings()->AddObserver(&mock_privacy_sandbox_observer);
+  EXPECT_CALL(mock_privacy_sandbox_observer,
+              OnFlocDataAccessibleSinceUpdated(/*reset_compute_timer=*/true));
+
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, false);
+  testing::Mock::VerifyAndClearExpectations(&mock_privacy_sandbox_observer);
+
+  EXPECT_CALL(mock_privacy_sandbox_observer,
+              OnFlocDataAccessibleSinceUpdated(/*reset_compute_timer=*/true));
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+  testing::Mock::VerifyAndClearExpectations(&mock_privacy_sandbox_observer);
+
+  EXPECT_CALL(mock_privacy_sandbox_observer,
+              OnFlocDataAccessibleSinceUpdated(/*reset_compute_timer=*/true));
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+  testing::Mock::VerifyAndClearExpectations(&mock_privacy_sandbox_observer);
+
+  EXPECT_CALL(mock_privacy_sandbox_observer,
+              OnFlocDataAccessibleSinceUpdated(/*reset_compute_timer=*/true));
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxApisEnabled, true);
+  testing::Mock::VerifyAndClearExpectations(&mock_privacy_sandbox_observer);
+}
+
+class PrivacySandboxSettingsTestReconciliationBlocked
+    : public PrivacySandboxSettingsTest {
+ public:
+  void InitializePrefsBeforeStart() override {
+    // Set the reconciled preference to true here, so when the service is
+    // created prior to each test case running, it does not attempt to reconcile
+    // the preferences. Tests must call ResetReconciledPref before testing to
+    // reset the preference to it's default value.
+    profile()->GetTestingPrefService()->SetUserPref(
+        prefs::kPrivacySandboxPreferencesReconciled,
+        std::make_unique<base::Value>(true));
+  }
+
+  void ResetReconciledPref() {
+    profile()->GetTestingPrefService()->SetUserPref(
+        prefs::kPrivacySandboxPreferencesReconciled,
+        std::make_unique<base::Value>(false));
+  }
+};
+
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked, ReconciliationOutcome) {
   // Check that reconciling preferences has the appropriate outcome based on
   // the current user cookie settings.
+  ResetReconciledPref();
 
   // Blocking 3P cookies should disable.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -605,7 +985,6 @@ TEST_F(PrivacySandboxSettingsTest, ReconciliationOutcome) {
 
   // Blocking all cookies should disable.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -621,7 +1000,6 @@ TEST_F(PrivacySandboxSettingsTest, ReconciliationOutcome) {
   // Blocking cookies via content setting exceptions, now matter how broad,
   // should not disable.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -639,7 +1017,6 @@ TEST_F(PrivacySandboxSettingsTest, ReconciliationOutcome) {
   // If the user has already expressed control over the privacy sandbox, it
   // should not be disabled.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -657,7 +1034,6 @@ TEST_F(PrivacySandboxSettingsTest, ReconciliationOutcome) {
 
   // Allowing cookies should leave the sandbox enabled.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -675,7 +1051,6 @@ TEST_F(PrivacySandboxSettingsTest, ReconciliationOutcome) {
 
   // Reconciliation should not enable the privacy sandbox.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -692,11 +1067,12 @@ TEST_F(PrivacySandboxSettingsTest, ReconciliationOutcome) {
       prefs::kPrivacySandboxApisEnabled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, ImmediateReconciliationNoSync) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       ImmediateReconciliationNoSync) {
   // Check that if the user is not syncing preferences, reconciliation occurs
   // immediately.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -716,11 +1092,12 @@ TEST_F(PrivacySandboxSettingsTest, ImmediateReconciliationNoSync) {
       prefs::kPrivacySandboxPreferencesReconciled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, ImmediateReconciliationSyncComplete) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       ImmediateReconciliationSyncComplete) {
   // Check that if sync has completed a cycle that reconciliation occurs
   // immediately.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -736,11 +1113,12 @@ TEST_F(PrivacySandboxSettingsTest, ImmediateReconciliationSyncComplete) {
       prefs::kPrivacySandboxPreferencesReconciled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, ImmediateReconciliationPersistentSyncError) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       ImmediateReconciliationPersistentSyncError) {
   // Check that if sync has a persistent error that reconciliation occurs
   // immediately.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -757,11 +1135,12 @@ TEST_F(PrivacySandboxSettingsTest, ImmediateReconciliationPersistentSyncError) {
       prefs::kPrivacySandboxPreferencesReconciled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, ImmediateReconciliationNoDisable) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       ImmediateReconciliationNoDisable) {
   // Check that if the local settings would not disable the privacy sandbox
   // that reconciliation runs.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -775,11 +1154,12 @@ TEST_F(PrivacySandboxSettingsTest, ImmediateReconciliationNoDisable) {
       prefs::kPrivacySandboxPreferencesReconciled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationSyncSuccess) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       DelayedReconciliationSyncSuccess) {
   // Check that a sync service which has not yet started delays reconciliation
   // until it has completed a sync cycle.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -801,11 +1181,12 @@ TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationSyncSuccess) {
       prefs::kPrivacySandboxPreferencesReconciled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationSyncFailure) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       DelayedReconciliationSyncFailure) {
   // Check that a sync service which has not yet started delays reconciliation
   // until a persistent error has occurred.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -838,11 +1219,12 @@ TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationSyncFailure) {
       prefs::kPrivacySandboxPreferencesReconciled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationIdentityFailure) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       DelayedReconciliationIdentityFailure) {
   // Check that a sync service which has not yet started delays reconciliation
   // until a persistent identity error has occurred.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -858,7 +1240,8 @@ TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationIdentityFailure) {
       prefs::kPrivacySandboxPreferencesReconciled));
 
   // An account becoming available should not result in reconciliation.
-  identity_test_env()->MakePrimaryAccountAvailable("test@test.com");
+  identity_test_env()->MakePrimaryAccountAvailable("test@test.com",
+                                                   signin::ConsentLevel::kSync);
 
   EXPECT_FALSE(profile()->GetTestingPrefService()->GetBoolean(
       prefs::kPrivacySandboxPreferencesReconciled));
@@ -895,12 +1278,13 @@ TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationIdentityFailure) {
       prefs::kPrivacySandboxPreferencesReconciled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationSyncIssueThenManaged) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       DelayedReconciliationSyncIssueThenManaged) {
   // Check that if before an initial sync issue is resolved, the cookie settings
   // are disabled by policy, that reconciliation does not run until the policy
   // is removed.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -918,7 +1302,6 @@ TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationSyncIssueThenManaged) {
   // Apply a management state that is disabling cookies. This should result
   // in the policy service being observed when the sync issue is resolved.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -939,7 +1322,6 @@ TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationSyncIssueThenManaged) {
   // Removing the management state and firing the policy update listener should
   // result in reconciliation running.
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -957,10 +1339,11 @@ TEST_F(PrivacySandboxSettingsTest, DelayedReconciliationSyncIssueThenManaged) {
       prefs::kPrivacySandboxPreferencesReconciled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, NoReconciliationAlreadyRun) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       NoReconciliationAlreadyRun) {
   // Reconciliation should not run if it is recorded as already occurring.
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -979,33 +1362,21 @@ TEST_F(PrivacySandboxSettingsTest, NoReconciliationAlreadyRun) {
       prefs::kPrivacySandboxApisEnabled));
 }
 
-TEST_F(PrivacySandboxSettingsTest, NoReconciliationSandboxSettingsDisabled) {
-  // Reconciliation should not run if the privacy sandbox settings are not
-  // enabled.
-  SetupTestState(
-      /*privacy_sandbox_available=*/false,
-      /*privacy_sandbox_enabled=*/true,
-      /*block_third_party_cookies=*/true,
-      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
-      /*user_cookie_exceptions=*/{},
-      /*managed_cookie_setting=*/kNoSetting,
-      /*managed_cookie_exceptions=*/{});
-
-  privacy_sandbox_settings()->MaybeReconcilePrivacySandboxPref();
-
-  EXPECT_FALSE(profile()->GetTestingPrefService()->GetBoolean(
-      prefs::kPrivacySandboxPreferencesReconciled));
-}
-
-TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
+TEST_F(PrivacySandboxSettingsTestReconciliationBlocked,
+       MetricsLoggingOccursCorrectly) {
   base::HistogramTester histograms;
   const std::string histogram_name = "Settings.PrivacySandbox.Enabled";
+  ResetReconciledPref();
 
   // The histogram should start off empty.
   histograms.ExpectTotalCount(histogram_name, 0);
 
+  // For buckets that do not explicitly mention FLoC, it is assumed to be on,
+  // or its state is irrelevant, i.e. overriden by the Privacy Sandbox pref.
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, true);
+
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -1023,7 +1394,6 @@ TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
       1);
 
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -1041,7 +1411,6 @@ TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
       1);
 
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -1058,11 +1427,8 @@ TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
                            kPSEnabledBlockAll),
       1);
 
-  profile()->GetTestingPrefService()->SetUserPref(
-      prefs::kPrivacySandboxPreferencesReconciled,
-      std::make_unique<base::Value>(false));
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/false,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -1079,11 +1445,8 @@ TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
                            kPSDisabledAllowAll),
       1);
 
-  profile()->GetTestingPrefService()->SetUserPref(
-      prefs::kPrivacySandboxPreferencesReconciled,
-      std::make_unique<base::Value>(false));
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
@@ -1100,11 +1463,8 @@ TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
                            kPSDisabledBlock3P),
       1);
 
-  profile()->GetTestingPrefService()->SetUserPref(
-      prefs::kPrivacySandboxPreferencesReconciled,
-      std::make_unique<base::Value>(false));
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -1122,11 +1482,8 @@ TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
       1);
 
   // Verify that delayed reconciliation still logs properly.
-  profile()->GetTestingPrefService()->SetUserPref(
-      prefs::kPrivacySandboxPreferencesReconciled,
-      std::make_unique<base::Value>(false));
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/true,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -1158,11 +1515,8 @@ TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
                            kPSDisabledBlockAll),
       2);
 
-  profile()->GetTestingPrefService()->SetUserPref(
-      prefs::kPrivacySandboxPreferencesReconciled,
-      std::make_unique<base::Value>(false));
+  ResetReconciledPref();
   SetupTestState(
-      /*privacy_sandbox_available=*/true,
       /*privacy_sandbox_enabled=*/false,
       /*block_third_party_cookies=*/true,
       /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
@@ -1178,6 +1532,62 @@ TEST_F(PrivacySandboxSettingsTest, MetricsLoggingOccursCorrectly) {
       static_cast<int>(PrivacySandboxSettings::SettingsPrivacySandboxEnabled::
                            kPSDisabledPolicyBlockAll),
       1);
+
+  // Disable FLoC and test the buckets that reflect a disabled FLoC state.
+  ResetReconciledPref();
+  profile()->GetTestingPrefService()->SetBoolean(
+      prefs::kPrivacySandboxFlocEnabled, false);
+
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/true,
+      /*block_third_party_cookies=*/false,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+
+  privacy_sandbox_settings()->MaybeReconcilePrivacySandboxPref();
+
+  histograms.ExpectTotalCount(histogram_name, 9);
+  histograms.ExpectBucketCount(
+      histogram_name,
+      static_cast<int>(PrivacySandboxSettings::SettingsPrivacySandboxEnabled::
+                           kPSEnabledFlocDisabledAllowAll),
+      1);
+
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/true,
+      /*block_third_party_cookies=*/true,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_ALLOW,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+
+  privacy_sandbox_settings()->MaybeReconcilePrivacySandboxPref();
+
+  histograms.ExpectTotalCount(histogram_name, 10);
+  histograms.ExpectBucketCount(
+      histogram_name,
+      static_cast<int>(PrivacySandboxSettings::SettingsPrivacySandboxEnabled::
+                           kPSEnabledFlocDisabledBlock3P),
+      1);
+
+  SetupTestState(
+      /*privacy_sandbox_enabled=*/true,
+      /*block_third_party_cookies=*/true,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
+      /*user_cookie_exceptions=*/{},
+      /*managed_cookie_setting=*/kNoSetting,
+      /*managed_cookie_exceptions=*/{});
+
+  privacy_sandbox_settings()->MaybeReconcilePrivacySandboxPref();
+
+  histograms.ExpectTotalCount(histogram_name, 11);
+  histograms.ExpectBucketCount(
+      histogram_name,
+      static_cast<int>(PrivacySandboxSettings::SettingsPrivacySandboxEnabled::
+                           kPSEnabledFlocDisabledBlockAll),
+      1);
 }
 
 class PrivacySandboxSettingsTestCookiesClearOnExitTurnedOff
@@ -1187,7 +1597,7 @@ class PrivacySandboxSettingsTestCookiesClearOnExitTurnedOff
     profile()->GetTestingPrefService()->SetUserPref(
         prefs::kPrivacySandboxFlocDataAccessibleSince,
         std::make_unique<base::Value>(
-            ::util::TimeToValue(base::Time::FromTimeT(12345))));
+            ::base::TimeToValue(base::Time::FromTimeT(12345))));
   }
 };
 
@@ -1208,7 +1618,7 @@ class PrivacySandboxSettingsTestCookiesClearOnExitTurnedOn
     profile()->GetTestingPrefService()->SetUserPref(
         prefs::kPrivacySandboxFlocDataAccessibleSince,
         std::make_unique<base::Value>(
-            ::util::TimeToValue(base::Time::FromTimeT(12345))));
+            ::base::TimeToValue(base::Time::FromTimeT(12345))));
   }
 };
 

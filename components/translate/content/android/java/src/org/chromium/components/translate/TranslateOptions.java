@@ -7,12 +7,14 @@ package org.chromium.components.translate;
 import android.text.TextUtils;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -24,7 +26,7 @@ public class TranslateOptions {
      * A container for Language Code and it's translated representation and it's native UMA
      * specific hashcode.
      * For example for Spanish when viewed from a French locale, this will contain es, Espagnol,
-     * 114573335
+     *Español, 114573335
      **/
     public static class TranslateLanguageData {
         public final String mLanguageCode;
@@ -56,7 +58,7 @@ public class TranslateOptions {
 
         @Override
         public String toString() {
-            return "mLanguageCode:" + mLanguageCode + " - mlanguageRepresentation "
+            return "mLanguageCode:" + mLanguageCode + " - mLanguageRepresentation "
                     + mLanguageRepresentation + " - mLanguageUMAHashCode " + mLanguageUMAHashCode;
         }
     }
@@ -77,12 +79,14 @@ public class TranslateOptions {
     private String mTargetLanguageCode;
 
     private final ArrayList<TranslateLanguageData> mAllLanguages;
+    @Nullable
+    private String[] mContentLanguagesCodes;
 
-    // language code to translated language name map
+    // Language code to UI display language name map
     // Conceptually final
     private Map<String, String> mCodeToRepresentation;
 
-    // Langage code to its UMA hashcode representation.
+    // Language code to its UMA hashcode representation.
     private Map<String, Integer> mCodeToUMAHashCode;
 
     // Will reflect the state before the object was ever modified
@@ -95,9 +99,9 @@ public class TranslateOptions {
     private final boolean[] mOptions;
 
     private TranslateOptions(String sourceLanguageCode, String targetLanguageCode,
-            ArrayList<TranslateLanguageData> allLanguages, boolean neverLanguage,
-            boolean neverDomain, boolean alwaysLanguage, boolean triggeredFromMenu,
-            boolean[] originalOptions) {
+            ArrayList<TranslateLanguageData> allLanguages, String[] contentLanguages,
+            boolean neverLanguage, boolean neverDomain, boolean alwaysLanguage,
+            boolean triggeredFromMenu, boolean[] originalOptions) {
         assert Type.NUM_ENTRIES == 3;
         mOptions = new boolean[Type.NUM_ENTRIES];
         mOptions[Type.NEVER_LANGUAGE] = neverLanguage;
@@ -113,6 +117,7 @@ public class TranslateOptions {
         mTriggeredFromMenu = triggeredFromMenu;
 
         mAllLanguages = allLanguages;
+        mContentLanguagesCodes = contentLanguages;
         mCodeToRepresentation = new HashMap<String, String>();
         mCodeToUMAHashCode = new HashMap<String, Integer>();
         for (TranslateLanguageData language : allLanguages) {
@@ -125,8 +130,9 @@ public class TranslateOptions {
      * Creates a TranslateOptions by the given data.
      */
     public static TranslateOptions create(String sourceLanguageCode, String targetLanguageCode,
-            String[] languages, String[] codes, boolean alwaysTranslate, boolean triggeredFromMenu,
-            int[] hashCodes) {
+            String[] languages, String[] codes, boolean neverLanguage, boolean neverDomain,
+            boolean alwaysTranslate, boolean triggeredFromMenu, int[] hashCodes,
+            String[] contentLanguagesCodes) {
         assert languages.length == codes.length;
 
         ArrayList<TranslateLanguageData> languageList = new ArrayList<TranslateLanguageData>();
@@ -134,8 +140,10 @@ public class TranslateOptions {
             Integer hashCode = hashCodes != null ? Integer.valueOf(hashCodes[i]) : null;
             languageList.add(new TranslateLanguageData(codes[i], languages[i], hashCode));
         }
-        return new TranslateOptions(sourceLanguageCode, targetLanguageCode, languageList, false,
-                false, alwaysTranslate, triggeredFromMenu, null);
+
+        return new TranslateOptions(sourceLanguageCode, targetLanguageCode, languageList,
+                contentLanguagesCodes, neverLanguage, neverDomain, alwaysTranslate,
+                triggeredFromMenu, null);
     }
 
     /**
@@ -143,8 +151,13 @@ public class TranslateOptions {
      */
     TranslateOptions copy() {
         return new TranslateOptions(mSourceLanguageCode, mTargetLanguageCode, mAllLanguages,
-                mOptions[Type.NEVER_LANGUAGE], mOptions[Type.NEVER_DOMAIN],
+                mContentLanguagesCodes, mOptions[Type.NEVER_LANGUAGE], mOptions[Type.NEVER_DOMAIN],
                 mOptions[Type.ALWAYS_LANGUAGE], mTriggeredFromMenu, mOriginalOptions);
+    }
+
+    /** Updates content languages. */
+    public void updateContentLanguages(String[] contentLanguagesCodes) {
+        this.mContentLanguagesCodes = contentLanguagesCodes;
     }
 
     public String sourceLanguageName() {
@@ -179,6 +192,11 @@ public class TranslateOptions {
         return mAllLanguages;
     }
 
+    @Nullable
+    public String[] contentLanguages() {
+        return mContentLanguagesCodes;
+    }
+
     public boolean getTranslateState(@Type int type) {
         return mOptions[type];
     }
@@ -209,12 +227,12 @@ public class TranslateOptions {
      *
      * @return true if the toggling was possible
      */
-    public boolean toggleNeverTranslateLanguageState(boolean value) {
-        // Do not toggle if we are activating NeverLanguge but AlwaysTranslate
-        // for a language pair with the same source language is already active.
-        if (mOptions[Type.ALWAYS_LANGUAGE] && value) return false;
+    public void toggleNeverTranslateLanguageState(boolean value) {
+        // Ensure AlwaysTranslate is disabled if enabling NeverTranslate.
+        if (mOptions[Type.ALWAYS_LANGUAGE] && value) {
+            toggleAlwaysTranslateLanguageState(false);
+        }
         mOptions[Type.NEVER_LANGUAGE] = value;
-        return true;
     }
 
     /**
@@ -222,11 +240,12 @@ public class TranslateOptions {
      *
      * @return true if the toggling was possible
      */
-    public boolean toggleAlwaysTranslateLanguageState(boolean value) {
-        // Do not toggle if we are activating AlwaysLanguge but NeverLanguage is active already.
-        if (mOptions[Type.NEVER_LANGUAGE] && value) return false;
+    public void toggleAlwaysTranslateLanguageState(boolean value) {
+        // Ensure NeverTranslate is disabled if enabling AlwaysTranslate.
+        if (mOptions[Type.NEVER_LANGUAGE] && value) {
+            toggleNeverTranslateLanguageState(false);
+        }
         mOptions[Type.ALWAYS_LANGUAGE] = value;
-        return true;
     }
 
     /**
@@ -236,6 +255,20 @@ public class TranslateOptions {
      */
     public String getRepresentationFromCode(String languageCode) {
         return isValidLanguageCode(languageCode) ? mCodeToRepresentation.get(languageCode) : "";
+    }
+
+    /**
+     * Gets the language's native representation from a given language code.
+     * Only for content languages.
+     * @param languageCode ISO code for the language
+     * @return The native representation of the language.
+     */
+    public String getNativeRepresentationFromCode(String languageCode) {
+        if (isValidLanguageCode(languageCode)) {
+            Locale locale = Locale.forLanguageTag(languageCode);
+            return locale.getDisplayName(locale);
+        }
+        return "";
     }
 
     /**

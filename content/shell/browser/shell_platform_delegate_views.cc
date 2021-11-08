@@ -9,7 +9,8 @@
 #include <memory>
 
 #include "base/command_line.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -22,9 +23,11 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/clipboard/clipboard.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/color/color_id.h"
 #include "ui/events/event.h"
-#include "ui/native_theme/native_theme_color_id.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/controls/textfield/textfield.h"
@@ -32,8 +35,6 @@
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/test/desktop_test_views_delegate.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -42,6 +43,7 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ui/wm/test/wm_test_helper.h"
 #else  // !BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ui/display/screen.h"
 #include "ui/views/widget/desktop_aura/desktop_screen.h"
 #include "ui/wm/core/wm_state.h"
 #endif
@@ -64,6 +66,7 @@ struct ShellPlatformDelegate::PlatformData {
   std::unique_ptr<wm::WMTestHelper> wm_test_helper;
 #else
   std::unique_ptr<wm::WMState> wm_state;
+  std::unique_ptr<display::Screen> screen;
 #endif
 
   // TODO(danakj): This looks unused?
@@ -133,8 +136,8 @@ class ShellView : public views::View, public views::TextfieldController {
  private:
   // Initialize the UI control contained in shell window
   void InitShellWindow() {
-    SetBackground(CreateThemedSolidBackground(
-        this, ui::NativeTheme::kColorId_WindowBackground));
+    SetBackground(
+        CreateThemedSolidBackground(this, ui::kColorWindowBackground));
 
     auto contents_view = std::make_unique<views::View>();
     auto toolbar_view = std::make_unique<views::View>();
@@ -166,7 +169,7 @@ class ShellView : public views::View, public views::TextfieldController {
       auto back_button = std::make_unique<views::MdTextButton>(
           base::BindRepeating(&Shell::GoBackOrForward,
                               base::Unretained(shell_.get()), -1),
-          base::ASCIIToUTF16("Back"));
+          u"Back");
       gfx::Size back_button_size = back_button->GetPreferredSize();
       toolbar_column_set->AddColumn(
           views::GridLayout::CENTER, views::GridLayout::CENTER, 0,
@@ -176,7 +179,7 @@ class ShellView : public views::View, public views::TextfieldController {
       auto forward_button = std::make_unique<views::MdTextButton>(
           base::BindRepeating(&Shell::GoBackOrForward,
                               base::Unretained(shell_.get()), 1),
-          base::ASCIIToUTF16("Forward"));
+          u"Forward");
       gfx::Size forward_button_size = forward_button->GetPreferredSize();
       toolbar_column_set->AddColumn(
           views::GridLayout::CENTER, views::GridLayout::CENTER, 0,
@@ -185,7 +188,7 @@ class ShellView : public views::View, public views::TextfieldController {
       // Refresh button
       auto refresh_button = std::make_unique<views::MdTextButton>(
           base::BindRepeating(&Shell::Reload, base::Unretained(shell_.get())),
-          base::ASCIIToUTF16("Refresh"));
+          u"Refresh");
       gfx::Size refresh_button_size = refresh_button->GetPreferredSize();
       toolbar_column_set->AddColumn(
           views::GridLayout::CENTER, views::GridLayout::CENTER, 0,
@@ -194,7 +197,7 @@ class ShellView : public views::View, public views::TextfieldController {
       // Stop button
       auto stop_button = std::make_unique<views::MdTextButton>(
           base::BindRepeating(&Shell::Stop, base::Unretained(shell_.get())),
-          base::ASCIIToUTF16("Stop"));
+          u"Stop");
       gfx::Size stop_button_size = stop_button->GetPreferredSize();
       toolbar_column_set->AddColumn(
           views::GridLayout::CENTER, views::GridLayout::CENTER, 0,
@@ -203,7 +206,7 @@ class ShellView : public views::View, public views::TextfieldController {
       toolbar_column_set->AddPaddingColumn(0, 2);
       // URL entry
       auto url_entry = std::make_unique<views::Textfield>();
-      url_entry->SetAccessibleName(base::ASCIIToUTF16("Enter URL"));
+      url_entry->SetAccessibleName(u"Enter URL");
       url_entry->set_controller(this);
       url_entry->SetTextInputType(ui::TextInputType::TEXT_INPUT_TYPE_URL);
       toolbar_column_set->AddColumn(views::GridLayout::FILL,
@@ -246,7 +249,7 @@ class ShellView : public views::View, public views::TextfieldController {
   }
   // Overridden from TextfieldController
   void ContentsChanged(views::Textfield* sender,
-                       const base::string16& new_contents) override {}
+                       const std::u16string& new_contents) override {}
   bool HandleKeyEvent(views::Textfield* sender,
                       const ui::KeyEvent& key_event) override {
     if (key_event.type() == ui::ET_KEY_PRESSED && sender == url_entry_ &&
@@ -292,7 +295,7 @@ class ShellView : public views::View, public views::TextfieldController {
   std::unique_ptr<Shell> shell_;
 
   // Window title
-  base::string16 title_;
+  std::u16string title_;
 
   // Toolbar view contains forward/backward/reload button and URL entry
   View* toolbar_view_ = nullptr;
@@ -331,7 +334,8 @@ void ShellPlatformDelegate::Initialize(const gfx::Size& default_window_size) {
       std::make_unique<wm::WMTestHelper>(default_window_size);
 #else
   platform_->wm_state = std::make_unique<wm::WMState>();
-  views::InstallDesktopScreenIfNecessary();
+  CHECK(!display::Screen::GetScreen());
+  platform_->screen = views::CreateDesktopScreen();
 #endif
 
   platform_->views_delegate =
@@ -431,7 +435,7 @@ void ShellPlatformDelegate::SetAddressBarURL(Shell* shell, const GURL& url) {
 void ShellPlatformDelegate::SetIsLoading(Shell* shell, bool loading) {}
 
 void ShellPlatformDelegate::SetTitle(Shell* shell,
-                                     const base::string16& title) {
+                                     const std::u16string& title) {
   DCHECK(base::Contains(shell_data_map_, shell));
   ShellData& shell_data = shell_data_map_[shell];
 

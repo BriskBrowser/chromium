@@ -12,7 +12,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "base/atomicops.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/singleton.h"
 #include "base/synchronization/lock.h"

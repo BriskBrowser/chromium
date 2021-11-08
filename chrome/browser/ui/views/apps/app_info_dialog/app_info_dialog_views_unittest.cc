@@ -34,7 +34,9 @@
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_test.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
-#include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
+#include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
+#include "chrome/browser/ui/ash/shelf/chrome_shelf_item_factory.h"
+#include "chrome/browser/ui/ash/shelf/shelf_controller_helper.h"
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -60,6 +62,9 @@ class AppInfoDialogTestApi {
  public:
   explicit AppInfoDialogTestApi(AppInfoDialog* dialog) : dialog_(dialog) {}
 
+  AppInfoDialogTestApi(const AppInfoDialogTestApi&) = delete;
+  AppInfoDialogTestApi& operator=(const AppInfoDialogTestApi&) = delete;
+
   void ShowAppInWebStore() {
     auto* header_panel =
         static_cast<AppInfoHeaderPanel*>(dialog_->children().front());
@@ -68,8 +73,6 @@ class AppInfoDialogTestApi {
 
  private:
   AppInfoDialog* dialog_;
-
-  DISALLOW_COPY_AND_ASSIGN(AppInfoDialogTestApi);
 };
 
 }  // namespace test
@@ -86,14 +89,24 @@ class AppInfoDialogViewsTest : public BrowserWithTestWindowTest,
  public:
   AppInfoDialogViewsTest() = default;
 
+  AppInfoDialogViewsTest(const AppInfoDialogViewsTest&) = delete;
+  AppInfoDialogViewsTest& operator=(const AppInfoDialogViewsTest&) = delete;
+
   // Overridden from testing::Test:
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     shelf_model_ = std::make_unique<ash::ShelfModel>();
-    chrome_launcher_controller_ = std::make_unique<ChromeLauncherController>(
-        extension_environment_.profile(), shelf_model_.get());
-    chrome_launcher_controller_->Init();
+    chrome_shelf_item_factory_ = std::make_unique<ChromeShelfItemFactory>();
+    chrome_shelf_controller_ = std::make_unique<ChromeShelfController>(
+        extension_environment_.profile(), shelf_model_.get(),
+        chrome_shelf_item_factory_.get());
+    chrome_shelf_controller_->SetProfileForTest(
+        extension_environment_.profile());
+    chrome_shelf_controller_->SetShelfControllerHelperForTest(
+        std::make_unique<ShelfControllerHelper>(
+            extension_environment_.profile()));
+    chrome_shelf_controller_->Init();
     arc_test_.SetUp(extension_environment_.profile());
 #endif
     extension_ = extension_environment_.MakePackagedApp(kTestExtensionId, true);
@@ -107,7 +120,7 @@ class AppInfoDialogViewsTest : public BrowserWithTestWindowTest,
     chrome_app_ = nullptr;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     arc_test_.TearDown();
-    chrome_launcher_controller_.reset();
+    chrome_shelf_controller_.reset();
     shelf_model_.reset();
 #endif
 
@@ -117,6 +130,9 @@ class AppInfoDialogViewsTest : public BrowserWithTestWindowTest,
     if (browser) {
       browser->tab_strip_model()->CloseAllTabs();
       delete browser;
+      // Browser holds a ScopedProfileKeepAlive, which might post a task to the
+      // UI thread on destruction.
+      base::RunLoop().RunUntilIdle();
     }
     extension_environment_.DeleteProfile();
 
@@ -180,12 +196,10 @@ class AppInfoDialogViewsTest : public BrowserWithTestWindowTest,
           kInheritExistingTaskEnvironment};
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<ash::ShelfModel> shelf_model_;
-  std::unique_ptr<ChromeLauncherController> chrome_launcher_controller_;
+  std::unique_ptr<ChromeShelfItemFactory> chrome_shelf_item_factory_;
+  std::unique_ptr<ChromeShelfController> chrome_shelf_controller_;
   ArcAppTest arc_test_;
 #endif
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AppInfoDialogViewsTest);
 };
 
 // Tests that the dialog closes when the current app is uninstalled.
@@ -223,7 +237,7 @@ TEST_F(AppInfoDialogViewsTest, DestroyedProfileClosesDialog) {
   browser_window.reset();
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chrome_launcher_controller_.reset();
+  chrome_shelf_controller_.reset();
   shelf_model_.reset();
   arc_test_.TearDown();
 #endif
@@ -340,7 +354,7 @@ TEST_F(AppInfoDialogViewsTest, PinButtonsAreFocusedAfterPinUnpin) {
   EXPECT_TRUE(pin_button->HasFocus());
 
   // Avoid attempting to use sync, it's not initialized in this test.
-  auto sync_disabler = chrome_launcher_controller_->GetScopedPinSyncDisabler();
+  auto sync_disabler = chrome_shelf_controller_->GetScopedPinSyncDisabler();
 
   dialog_footer->SetPinnedToShelf(true);
   EXPECT_FALSE(pin_button->GetVisible());

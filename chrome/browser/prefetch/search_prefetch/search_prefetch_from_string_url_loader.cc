@@ -30,7 +30,7 @@ void SearchPrefetchFromStringURLLoader::FollowRedirect(
     const std::vector<std::string>& removed_headers,
     const net::HttpRequestHeaders& modified_headers,
     const net::HttpRequestHeaders& modified_cors_exempt_headers,
-    const base::Optional<GURL>& new_url) {
+    const absl::optional<GURL>& new_url) {
   NOTREACHED();
 }
 
@@ -103,15 +103,11 @@ void SearchPrefetchFromStringURLLoader::BindAndStart(
   mojo::ScopedDataPipeProducerHandle producer_handle;
   mojo::ScopedDataPipeConsumerHandle consumer_handle;
   MojoResult rv =
-      mojo::CreateDataPipe(nullptr, &producer_handle, &consumer_handle);
+      mojo::CreateDataPipe(nullptr, producer_handle, consumer_handle);
 
   if (rv != MOJO_RESULT_OK) {
     Finish(net::ERR_FAILED);
     return;
-  }
-
-  if (!request.report_raw_headers) {
-    head_->raw_request_response_info = nullptr;
   }
 
   client_->OnReceiveResponse(std::move(head_));

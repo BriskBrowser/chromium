@@ -5,8 +5,8 @@
 #include "ash/system/unified/camera_mic_tray_item_view.h"
 
 #include <algorithm>
+#include <string>
 
-#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/media_controller.h"
 #include "ash/public/cpp/vm_camera_mic_constants.h"
 #include "ash/session/session_controller_impl.h"
@@ -16,7 +16,6 @@
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/tray/tray_constants.h"
 #include "base/feature_list.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -82,12 +81,10 @@ const char* CameraMicTrayItemView::GetClassName() const {
 void CameraMicTrayItemView::Update() {
   // Hide for non-primary session because we only show the indicators for VMs
   // for now, and VMs support only the primary session.
-  SetVisible(active_ && is_primary_session_ &&
-             base::FeatureList::IsEnabled(
-                 chromeos::features::kVmCameraMicIndicatorsAndNotifications));
+  SetVisible(active_ && is_primary_session_);
 }
 
-base::string16 CameraMicTrayItemView::GetAccessibleNameString() const {
+std::u16string CameraMicTrayItemView::GetAccessibleNameString() const {
   return message_;
 }
 
@@ -96,7 +93,7 @@ views::View* CameraMicTrayItemView::GetTooltipHandlerForPoint(
   return GetLocalBounds().Contains(point) ? this : nullptr;
 }
 
-base::string16 CameraMicTrayItemView::GetTooltipText(
+std::u16string CameraMicTrayItemView::GetTooltipText(
     const gfx::Point& p) const {
   return message_;
 }

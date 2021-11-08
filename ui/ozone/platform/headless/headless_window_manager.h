@@ -7,10 +7,7 @@
 
 #include <stdint.h>
 
-#include <memory>
-
 #include "base/containers/id_map.h"
-#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "ui/gfx/native_widget_types.h"
@@ -23,6 +20,10 @@ class HeadlessWindow;
 class HeadlessWindowManager {
  public:
   HeadlessWindowManager();
+
+  HeadlessWindowManager(const HeadlessWindowManager&) = delete;
+  HeadlessWindowManager& operator=(const HeadlessWindowManager&) = delete;
+
   ~HeadlessWindowManager();
 
   // Register a new window. Returns the window id.
@@ -37,8 +38,6 @@ class HeadlessWindowManager {
  private:
   base::IDMap<HeadlessWindow*> windows_;
   base::ThreadChecker thread_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(HeadlessWindowManager);
 };
 
 }  // namespace ui

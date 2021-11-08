@@ -55,6 +55,10 @@ class PnaclTranslationCacheEntry
       net::DrainableIOBuffer* write_nexe,
       CompletionOnceCallback callback);
 
+  PnaclTranslationCacheEntry(const PnaclTranslationCacheEntry&) = delete;
+  PnaclTranslationCacheEntry& operator=(const PnaclTranslationCacheEntry&) =
+      delete;
+
   void Start();
 
   // Writes:                                ---
@@ -112,7 +116,6 @@ class PnaclTranslationCacheEntry
   CompletionOnceCallback write_callback_;
   scoped_refptr<net::DrainableIOBuffer> io_buf_;
   base::ThreadChecker thread_checker_;
-  DISALLOW_COPY_AND_ASSIGN(PnaclTranslationCacheEntry);
 };
 
 // static
@@ -153,12 +156,12 @@ PnaclTranslationCacheEntry::~PnaclTranslationCacheEntry() {
   // Ensure we have called the user's callback
   if (step_ != FINISHED) {
     if (!read_callback_.is_null()) {
-      content::GetIOThreadTaskRunner({})->PostTask(
+      content::GetUIThreadTaskRunner({})->PostTask(
           FROM_HERE, base::BindOnce(std::move(read_callback_), net::ERR_ABORTED,
                                     scoped_refptr<net::DrainableIOBuffer>()));
     }
     if (!write_callback_.is_null()) {
-      content::GetIOThreadTaskRunner({})->PostTask(
+      content::GetUIThreadTaskRunner({})->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(write_callback_), net::ERR_ABORTED));
     }
@@ -214,7 +217,7 @@ void PnaclTranslationCacheEntry::CloseEntry(int rv) {
     LOG(ERROR) << "Failed to close entry: " << net::ErrorToString(rv);
     entry_->Doom();
   }
-  content::GetIOThreadTaskRunner({})->PostTask(
+  content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE, base::BindOnce(&CloseDiskCacheEntry, entry_));
   Finish(rv);
 }
@@ -223,12 +226,12 @@ void PnaclTranslationCacheEntry::Finish(int rv) {
   step_ = FINISHED;
   if (is_read_) {
     if (!read_callback_.is_null()) {
-      content::GetIOThreadTaskRunner({})->PostTask(
+      content::GetUIThreadTaskRunner({})->PostTask(
           FROM_HERE, base::BindOnce(std::move(read_callback_), rv, io_buf_));
     }
   } else {
     if (!write_callback_.is_null()) {
-      content::GetIOThreadTaskRunner({})->PostTask(
+      content::GetUIThreadTaskRunner({})->PostTask(
           FROM_HERE, base::BindOnce(std::move(write_callback_), rv));
     }
   }
@@ -356,7 +359,7 @@ void PnaclTranslationCache::OnCreateBackendComplete(int rv) {
   }
   // Invoke our client's callback function.
   if (!init_callback_.is_null()) {
-    content::GetIOThreadTaskRunner({})->PostTask(
+    content::GetUIThreadTaskRunner({})->PostTask(
         FROM_HERE, base::BindOnce(std::move(init_callback_), rv));
   }
 }

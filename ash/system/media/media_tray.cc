@@ -4,9 +4,8 @@
 
 #include "ash/system/media/media_tray.h"
 
+#include "ash/constants/ash_pref_names.h"
 #include "ash/focus_cycler.h"
-#include "ash/public/cpp/ash_pref_names.h"
-#include "ash/public/cpp/media_notification_provider.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller_impl.h"
@@ -14,11 +13,13 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/system/media/media_notification_provider.h"
 #include "ash/system/tray/tray_bubble_view.h"
 #include "ash/system/tray/tray_bubble_wrapper.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_container.h"
 #include "ash/system/tray/tray_utils.h"
+#include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_util.h"
 #include "components/media_message_center/media_notification_view_impl.h"
@@ -27,10 +28,12 @@
 #include "components/prefs/pref_service.h"
 #include "media/base/media_switches.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/compositor/layer.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/managed_display_info.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -203,10 +206,6 @@ MediaTray::MediaTray(Shelf* shelf) : TrayBackgroundView(shelf) {
   auto icon = std::make_unique<views::ImageView>();
   icon->SetTooltipText(l10n_util::GetStringUTF16(
       IDS_ASH_GLOBAL_MEDIA_CONTROLS_BUTTON_TOOLTIP_TEXT));
-  icon->SetImage(gfx::CreateVectorIcon(
-      kGlobalMediaControlsIcon,
-      TrayIconColor(Shell::Get()->session_controller()->GetSessionState())));
-
   tray_container()->SetMargin(kMediaTrayPadding, 0);
   icon_ = tray_container()->AddChildView(std::move(icon));
 }
@@ -232,7 +231,7 @@ void MediaTray::OnNotificationListViewSizeChanged() {
   bubble_->GetBubbleView()->UpdateBubble();
 }
 
-base::string16 MediaTray::GetAccessibleNameForTray() {
+std::u16string MediaTray::GetAccessibleNameForTray() {
   return l10n_util::GetStringUTF16(
       IDS_ASH_GLOBAL_MEDIA_CONTROLS_BUTTON_TOOLTIP_TEXT);
 }
@@ -251,11 +250,11 @@ bool MediaTray::PerformAction(const ui::Event& event) {
   if (bubble_)
     CloseBubble();
   else
-    ShowBubble(event.IsMouseEvent() || event.IsGestureEvent());
+    ShowBubble();
   return true;
 }
 
-void MediaTray::ShowBubble(bool show_by_click) {
+void MediaTray::ShowBubble() {
   DCHECK(MediaNotificationProvider::Get());
   SetNotificationColorTheme();
 
@@ -272,7 +271,7 @@ void MediaTray::ShowBubble(bool show_by_click) {
   init_params.has_shadow = false;
   init_params.translucent = true;
   init_params.corner_radius = kTrayItemCornerRadius;
-  init_params.show_by_click = show_by_click;
+  init_params.reroute_event_handler = true;
 
   TrayBubbleView* bubble_view = new TrayBubbleView(init_params);
 
@@ -286,16 +285,8 @@ void MediaTray::ShowBubble(bool show_by_click) {
       MediaNotificationProvider::Get()->GetMediaNotificationListView(
           kMenuSeparatorWidth));
 
-  bubble_ = std::make_unique<TrayBubbleWrapper>(this, bubble_view,
-                                                false /*is_persistent*/);
+  bubble_ = std::make_unique<TrayBubbleWrapper>(this, bubble_view);
   SetIsActive(true);
-
-  // Only focus the widget if it's opened by the keyboard.
-  if (!show_by_click) {
-    views::Widget* widget = bubble_->GetBubbleWidget();
-    widget->widget_delegate()->SetCanActivate(true);
-    Shell::Get()->focus_cycler()->FocusWidget(widget);
-  }
 
   base::UmaHistogramBoolean("Media.CrosGlobalMediaControls.RepeatUsageOnShelf",
                             bubble_has_shown_);
@@ -358,7 +349,7 @@ void MediaTray::UpdateDisplayState() {
   SetVisiblePreferred(should_show);
 }
 
-base::string16 MediaTray::GetAccessibleNameForBubble() {
+std::u16string MediaTray::GetAccessibleNameForBubble() {
   return l10n_util::GetStringUTF16(IDS_ASH_GLOBAL_MEDIA_CONTROLS_TITLE);
 }
 
@@ -424,6 +415,13 @@ void MediaTray::AnchorUpdated() {
 
   bubble_->GetBubbleView()->SetAnchorRect(
       shelf()->GetStatusAreaWidget()->GetMediaTrayAnchorRect());
+}
+
+void MediaTray::OnThemeChanged() {
+  TrayBackgroundView::OnThemeChanged();
+  icon_->SetImage(gfx::CreateVectorIcon(
+      kGlobalMediaControlsIcon,
+      TrayIconColor(Shell::Get()->session_controller()->GetSessionState())));
 }
 
 }  // namespace ash

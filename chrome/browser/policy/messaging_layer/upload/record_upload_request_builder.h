@@ -5,12 +5,10 @@
 #ifndef CHROME_BROWSER_POLICY_MESSAGING_LAYER_UPLOAD_RECORD_UPLOAD_REQUEST_BUILDER_H_
 #define CHROME_BROWSER_POLICY_MESSAGING_LAYER_UPLOAD_RECORD_UPLOAD_REQUEST_BUILDER_H_
 
-#include <string>
-
-#include "base/optional.h"
 #include "base/strings/string_piece.h"
 #include "base/values.h"
-#include "components/reporting/proto/record.pb.h"
+#include "components/reporting/proto/synced/record.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace reporting {
 
@@ -82,55 +80,53 @@ class UploadEncryptedReportingRequestBuilder {
       bool attach_encryption_settings = false);
   ~UploadEncryptedReportingRequestBuilder();
 
-  // TODO(chromium:1165908) Have AddRecord take ownership of the record that is
-  // passed in.
-  UploadEncryptedReportingRequestBuilder& AddRecord(
-      const EncryptedRecord& record);
+  UploadEncryptedReportingRequestBuilder& AddRecord(EncryptedRecord record);
 
-  base::Optional<base::Value> Build();
+  absl::optional<base::Value> Build();
 
   static base::StringPiece GetEncryptedRecordListPath();
   static base::StringPiece GetAttachEncryptionSettingsPath();
 
   static const char kEncryptedRecordListKey_[];
 
-  base::Optional<base::Value> result_;
+  absl::optional<base::Value> result_;
 };
 
 // Builds a |base::Value| dictionary from a |EncryptedRecord|
 // proto.
 class EncryptedRecordDictionaryBuilder {
  public:
-  explicit EncryptedRecordDictionaryBuilder(const EncryptedRecord& record);
+  explicit EncryptedRecordDictionaryBuilder(EncryptedRecord record);
   ~EncryptedRecordDictionaryBuilder();
 
-  base::Optional<base::Value> Build();
+  absl::optional<base::Value> Build();
 
   static base::StringPiece GetEncryptedWrappedRecordPath();
-  static base::StringPiece GetUnsignedSequencingInformationKeyPath();
-  static base::StringPiece GetSequencingInformationKeyPath();
+  static base::StringPiece GetUnsignedSequenceInformationKeyPath();
+  static base::StringPiece GetSequenceInformationKeyPath();
   static base::StringPiece GetEncryptionInfoPath();
+  static base::StringPiece GetCompressionInformationPath();
 
  private:
-  base::Optional<base::Value> result_;
+  absl::optional<base::Value> result_;
 };
 
-// Builds a |base::Value| dictionary from a |SequencingInformation|
+// Builds a |base::Value| dictionary from a |SequenceInformation|
 // proto.
-class SequencingInformationDictionaryBuilder {
+class SequenceInformationDictionaryBuilder {
  public:
-  explicit SequencingInformationDictionaryBuilder(
-      const SequencingInformation& sequencing_information);
-  ~SequencingInformationDictionaryBuilder();
+  explicit SequenceInformationDictionaryBuilder(
+      const SequenceInformation& sequence_information);
+  ~SequenceInformationDictionaryBuilder();
 
-  base::Optional<base::Value> Build();
+  absl::optional<base::Value> Build();
 
   static base::StringPiece GetSequencingIdPath();
   static base::StringPiece GetGenerationIdPath();
   static base::StringPiece GetPriorityPath();
 
  private:
-  base::Optional<base::Value> result_;
+  absl::optional<base::Value> result_;
 };
 
 // Builds a |base::Value| dictionary from a |EncryptionInfo| proto.
@@ -140,13 +136,28 @@ class EncryptionInfoDictionaryBuilder {
       const EncryptionInfo& encryption_info);
   ~EncryptionInfoDictionaryBuilder();
 
-  base::Optional<base::Value> Build();
+  absl::optional<base::Value> Build();
 
   static base::StringPiece GetEncryptionKeyPath();
   static base::StringPiece GetPublicKeyIdPath();
 
  private:
-  base::Optional<base::Value> result_;
+  absl::optional<base::Value> result_;
+};
+
+// Builds a |base::Value| dictionary from a |CompressionInfo| proto.
+class CompressionInformationDictionaryBuilder {
+ public:
+  explicit CompressionInformationDictionaryBuilder(
+      const CompressionInformation& compression_info);
+  ~CompressionInformationDictionaryBuilder();
+
+  absl::optional<base::Value> Build();
+
+  static base::StringPiece GetCompressionAlgorithmPath();
+
+ private:
+  absl::optional<base::Value> result_;
 };
 
 }  // namespace reporting

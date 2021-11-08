@@ -7,13 +7,13 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/optional.h"
 #include "base/task/post_task.h"
 #include "media/base/video_util.h"
 #include "media/gpu/chromeos/gpu_buffer_layout.h"
 #include "media/gpu/chromeos/platform_video_frame_utils.h"
 #include "media/gpu/macros.h"
 #include "media/media_buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace media {
 
@@ -138,7 +138,7 @@ scoped_refptr<VideoFrame> PlatformVideoFramePool::GetFrame() {
   return wrapped_frame;
 }
 
-base::Optional<GpuBufferLayout> PlatformVideoFramePool::Initialize(
+CroStatus::Or<GpuBufferLayout> PlatformVideoFramePool::Initialize(
     const Fourcc& fourcc,
     const gfx::Size& coded_size,
     const gfx::Rect& visible_rect,
@@ -152,13 +152,13 @@ base::Optional<GpuBufferLayout> PlatformVideoFramePool::Initialize(
   VideoPixelFormat format = fourcc.ToVideoPixelFormat();
   if (format == PIXEL_FORMAT_UNKNOWN) {
     VLOGF(1) << "Unsupported fourcc: " << fourcc.ToString();
-    return base::nullopt;
+    return CroStatus::Codes::kFourccUnknownFormat;
   }
 
 #if !BUILDFLAG(USE_CHROMEOS_PROTECTED_MEDIA)
   if (use_protected) {
     VLOGF(1) << "Protected buffers unsupported";
-    return base::nullopt;
+    return CroStatus::Codes::kProtectedContentUnsupported;
   }
 #endif
 
@@ -186,13 +186,19 @@ base::Optional<GpuBufferLayout> PlatformVideoFramePool::Initialize(
     if (!frame) {
       VLOGF(1) << "Failed to create video frame " << format << " (fourcc "
                << fourcc.ToString() << ")";
-      return base::nullopt;
+      return CroStatus::Codes::kFailedToCreateVideoFrame;
     }
     frame_layout_ = GpuBufferLayout::Create(fourcc, frame->coded_size(),
                                             frame->layout().planes(),
                                             frame->layout().modifier());
+    if (!frame_layout_) {
+      VLOGF(1) << "Failed to create the layout (fourcc=" << fourcc.ToString()
+               << ", coded_size=" << frame->coded_size().ToString() << ")";
+      return CroStatus::Codes::kFailedToGetFrameLayout;
+    }
   }
 
+  DCHECK(frame_layout_);
   visible_rect_ = visible_rect;
   natural_size_ = natural_size;
   max_num_frames_ = max_num_frames;
@@ -203,7 +209,7 @@ base::Optional<GpuBufferLayout> PlatformVideoFramePool::Initialize(
   if (frame_available_cb_ && !IsExhausted_Locked())
     std::move(frame_available_cb_).Run();
 
-  return frame_layout_;
+  return *frame_layout_;
 }
 
 bool PlatformVideoFramePool::IsExhausted() {
@@ -241,9 +247,19 @@ void PlatformVideoFramePool::NotifyWhenFrameAvailable(base::OnceClosure cb) {
   frame_available_cb_ = std::move(cb);
 }
 
+void PlatformVideoFramePool::ReleaseAllFrames() {
+  DCHECK(parent_task_runner_->RunsTasksInCurrentSequence());
+  DVLOGF(4);
+  base::AutoLock auto_lock(lock_);
+  free_frames_.clear();
+  frames_in_use_.clear();
+  weak_this_factory_.InvalidateWeakPtrs();
+  weak_this_ = weak_this_factory_.GetWeakPtr();
+}
+
 // static
 void PlatformVideoFramePool::OnFrameReleasedThunk(
-    base::Optional<base::WeakPtr<PlatformVideoFramePool>> pool,
+    absl::optional<base::WeakPtr<PlatformVideoFramePool>> pool,
     scoped_refptr<base::SequencedTaskRunner> task_runner,
     scoped_refptr<VideoFrame> origin_frame) {
   DCHECK(pool);

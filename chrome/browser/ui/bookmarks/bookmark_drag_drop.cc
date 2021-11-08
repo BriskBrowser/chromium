@@ -29,12 +29,12 @@ using ::ui::mojom::DragOperation;
 BookmarkDragParams::BookmarkDragParams(
     std::vector<const bookmarks::BookmarkNode*> nodes,
     int drag_node_index,
-    gfx::NativeView view,
+    content::WebContents* web_contents,
     ui::mojom::DragEventSource source,
     gfx::Point start_point)
     : nodes(std::move(nodes)),
       drag_node_index(drag_node_index),
-      view(view),
+      web_contents(web_contents),
       source(source),
       start_point(start_point) {}
 BookmarkDragParams::~BookmarkDragParams() = default;
@@ -63,7 +63,8 @@ DragOperation DropBookmarks(Profile* profile,
         } else {
           model->Move(dragged_nodes[i], parent_node, index);
         }
-        index = size_t{parent_node->GetIndexOf(dragged_nodes[i]) + 1};
+        index =
+            static_cast<size_t>(parent_node->GetIndexOf(dragged_nodes[i]) + 1);
       }
       return copy ? DragOperation::kCopy : DragOperation::kMove;
     }

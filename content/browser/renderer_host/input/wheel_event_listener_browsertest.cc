@@ -53,6 +53,11 @@ namespace content {
 class WheelEventListenerBrowserTest : public ContentBrowserTest {
  public:
   WheelEventListenerBrowserTest() = default;
+
+  WheelEventListenerBrowserTest(const WheelEventListenerBrowserTest&) = delete;
+  WheelEventListenerBrowserTest& operator=(
+      const WheelEventListenerBrowserTest&) = delete;
+
   ~WheelEventListenerBrowserTest() override = default;
 
  protected:
@@ -71,7 +76,7 @@ class WheelEventListenerBrowserTest : public ContentBrowserTest {
     RenderWidgetHostImpl* host = GetWidgetHost();
     host->GetView()->SetSize(gfx::Size(400, 400));
 
-    base::string16 ready_title(base::ASCIIToUTF16("ready"));
+    std::u16string ready_title(u"ready");
     TitleWatcher watcher(shell()->web_contents(), ready_title);
     ignore_result(watcher.WaitAndGetTitle());
 
@@ -108,7 +113,6 @@ class WheelEventListenerBrowserTest : public ContentBrowserTest {
 
  private:
   base::test::ScopedFeatureList feature_list_;
-  DISALLOW_COPY_AND_ASSIGN(WheelEventListenerBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(WheelEventListenerBrowserTest,

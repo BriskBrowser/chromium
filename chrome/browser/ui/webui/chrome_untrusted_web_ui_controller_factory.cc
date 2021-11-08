@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/webui/chrome_untrusted_web_ui_controller_factory.h"
 
+#include <memory>
+
 #include "base/no_destructor.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -11,17 +13,31 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/common/url_constants.h"
+#include "printing/buildflags/buildflags.h"
 #include "ui/webui/webui_config.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+#include "chrome/browser/ui/webui/print_preview/print_preview_ui_untrusted.h"
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/ui/webui/video_tutorials/video_player_ui.h"
 #endif  // defined(OS_ANDROID)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/web_applications/terminal_ui.h"
+#include "ash/constants/ash_features.h"
+#include "ash/webui/eche_app_ui/untrusted_eche_app_ui.h"
+#include "ash/webui/file_manager/file_manager_untrusted_ui.h"
+#include "ash/webui/help_app_ui/help_app_kids_magazine_untrusted_ui.h"
+#include "ash/webui/personalization_app/untrusted_personalization_app_ui_config.h"
+#include "ash/webui/projector_app/untrusted_projector_ui_config.h"
+#include "chrome/browser/ash/web_applications/help_app/help_app_untrusted_ui_config.h"
+#include "chrome/browser/ash/web_applications/media_app/media_app_guest_ui_config.h"
+#include "chrome/browser/ash/web_applications/terminal_ui.h"
 #if !defined(OFFICIAL_BUILD)
-#include "chromeos/components/sample_system_web_app_ui/untrusted_sample_system_web_app_ui.h"
+#include "ash/webui/sample_system_web_app_ui/untrusted_sample_system_web_app_ui.h"
+#include "ash/webui/telemetry_extension_ui/telemetry_extension_untrusted_ui.h"
 #endif  // !defined(OFFICIAL_BUILD)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -46,15 +62,30 @@ WebUIConfigList CreateConfigs() {
   ALLOW_UNUSED_LOCAL(register_config);
 
   // Register WebUIConfigs below.
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+  register_config(std::make_unique<printing::PrintPreviewUIUntrustedConfig>());
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
+
 #if defined(OS_ANDROID)
   register_config(std::make_unique<video_tutorials::VideoPlayerUIConfig>());
 #endif  // defined(OS_ANDROID)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   register_config(std::make_unique<TerminalUIConfig>());
-#if !defined(OFFICIAL_BUILD)
+  register_config(std::make_unique<ash::eche_app::UntrustedEcheAppUIConfig>());
+  register_config(std::make_unique<MediaAppGuestUIConfig>());
+  register_config(std::make_unique<ash::UntrustedPersonalizationAppUIConfig>());
+  register_config(std::make_unique<ash::HelpAppUntrustedUIConfig>());
   register_config(
-      std::make_unique<chromeos::UntrustedSampleSystemWebAppUIConfig>());
+      std::make_unique<ash::HelpAppKidsMagazineUntrustedUIConfig>());
+  if (ash::features::IsProjectorEnabled())
+    register_config(std::make_unique<ash::UntrustedProjectorUIConfig>());
+  if (ash::features::IsFileManagerSwaEnabled())
+    register_config(
+        std::make_unique<ash::file_manager::FileManagerUntrustedUIConfig>());
+#if !defined(OFFICIAL_BUILD)
+  register_config(std::make_unique<ash::TelemetryExtensionUntrustedUIConfig>());
+  register_config(std::make_unique<ash::UntrustedSampleSystemWebAppUIConfig>());
 #endif  // !defined(OFFICIAL_BUILD)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 

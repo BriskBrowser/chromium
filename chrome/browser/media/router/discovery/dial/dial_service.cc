@@ -37,14 +37,13 @@
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "base/task_runner_util.h"
+#include "base/task/task_runner_util.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #endif
 
 using base::Time;
-using base::TimeDelta;
 using content::BrowserThread;
 using net::HttpResponseHeaders;
 using net::HttpUtil;
@@ -60,7 +59,7 @@ namespace media_router {
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
 void PostSendNetworkList(
     base::WeakPtr<DialServiceImpl> impl,
-    const base::Optional<net::NetworkInterfaceList>& networks) {
+    const absl::optional<net::NetworkInterfaceList>& networks) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE, base::BindOnce(&DialServiceImpl::SendNetworkList,
@@ -380,11 +379,10 @@ DialServiceImpl::DialServiceImpl(net::NetLog* net_log)
       discovery_active_(false),
       num_requests_sent_(0),
       max_requests_(kDialMaxRequests),
-      finish_delay_(TimeDelta::FromMilliseconds((kDialMaxRequests - 1) *
-                                                kDialRequestIntervalMillis) +
-                    TimeDelta::FromSeconds(kDialResponseTimeoutSecs)),
-      request_interval_(
-          TimeDelta::FromMilliseconds(kDialRequestIntervalMillis)) {
+      finish_delay_(base::Milliseconds((kDialMaxRequests - 1) *
+                                       kDialRequestIntervalMillis) +
+                    base::Seconds(kDialResponseTimeoutSecs)),
+      request_interval_(base::Milliseconds(kDialRequestIntervalMillis)) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   IPAddress address;
   bool success = address.AssignFromIPLiteral(kDialRequestAddress);
@@ -431,23 +429,22 @@ void DialServiceImpl::StartDiscovery() {
     return;
   }
 
-  auto task_runner = content::GetUIThreadTaskRunner({});
+  auto ui_task_runner = content::GetUIThreadTaskRunner({});
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  task_tracker_.PostTaskAndReplyWithResult(
-      task_runner.get(), FROM_HERE,
-      base::BindOnce(&GetBestBindAddressOnUIThread),
+  ui_task_runner->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&GetBestBindAddressOnUIThread),
       base::BindOnce(&DialServiceImpl::DiscoverOnAddresses,
-                     base::Unretained(this)));
+                     weak_ptr_factory_.GetWeakPtr()));
 #else
-  task_tracker_.PostTask(task_runner.get(), FROM_HERE,
-                         base::BindOnce(&GetNetworkListOnUIThread,
-                                        weak_ptr_factory_.GetWeakPtr()));
+  ui_task_runner->PostTask(FROM_HERE,
+                           base::BindOnce(&GetNetworkListOnUIThread,
+                                          weak_ptr_factory_.GetWeakPtr()));
 #endif
 }
 
 void DialServiceImpl::SendNetworkList(
-    const base::Optional<NetworkInterfaceList>& networks) {
+    const absl::optional<NetworkInterfaceList>& networks) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   using InterfaceIndexAddressFamily = std::pair<uint32_t, net::AddressFamily>;
@@ -488,7 +485,7 @@ void DialServiceImpl::DiscoverOnAddresses(
   }
 
   // Schedule a timer to finish the discovery process (and close the sockets).
-  if (finish_delay_ > TimeDelta::FromSeconds(0)) {
+  if (finish_delay_ > base::Seconds(0)) {
     finish_timer_.Start(FROM_HERE, finish_delay_, this,
                         &DialServiceImpl::FinishDiscovery);
   }

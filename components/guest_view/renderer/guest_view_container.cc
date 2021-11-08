@@ -4,6 +4,8 @@
 
 #include "components/guest_view/renderer/guest_view_container.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
@@ -14,6 +16,10 @@
 #include "content/public/renderer/render_frame_observer.h"
 #include "content/public/renderer/render_view.h"
 #include "ui/gfx/geometry/size.h"
+#include "v8/include/v8-context.h"
+#include "v8/include/v8-function.h"
+#include "v8/include/v8-microtask-queue.h"
+#include "v8/include/v8-primitive.h"
 
 namespace {
 
@@ -31,13 +37,15 @@ class GuestViewContainer::RenderFrameLifetimeObserver
   RenderFrameLifetimeObserver(GuestViewContainer* container,
                               content::RenderFrame* render_frame);
 
+  RenderFrameLifetimeObserver(const RenderFrameLifetimeObserver&) = delete;
+  RenderFrameLifetimeObserver& operator=(const RenderFrameLifetimeObserver&) =
+      delete;
+
   // content::RenderFrameObserver overrides.
   void OnDestruct() override;
 
  private:
   GuestViewContainer* container_;
-
-  DISALLOW_COPY_AND_ASSIGN(RenderFrameLifetimeObserver);
 };
 
 GuestViewContainer::RenderFrameLifetimeObserver::RenderFrameLifetimeObserver(
@@ -56,8 +64,8 @@ GuestViewContainer::GuestViewContainer(content::RenderFrame* render_frame)
       in_destruction_(false),
       destruction_isolate_(nullptr),
       element_resize_isolate_(nullptr) {
-  render_frame_lifetime_observer_.reset(
-      new RenderFrameLifetimeObserver(this, render_frame_));
+  render_frame_lifetime_observer_ =
+      std::make_unique<RenderFrameLifetimeObserver>(this, render_frame_);
 }
 
 GuestViewContainer::~GuestViewContainer() {

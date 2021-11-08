@@ -51,6 +51,11 @@ class TestManagePasswordsUIController : public ManagePasswordsUIController {
  public:
   explicit TestManagePasswordsUIController(content::WebContents* web_contents);
 
+  TestManagePasswordsUIController(const TestManagePasswordsUIController&) =
+      delete;
+  TestManagePasswordsUIController& operator=(
+      const TestManagePasswordsUIController&) = delete;
+
   void OnDialogHidden() override;
   AccountChooserPrompt* CreateAccountChooser(
       CredentialManagerDialogController* controller) override;
@@ -79,8 +84,6 @@ class TestManagePasswordsUIController : public ManagePasswordsUIController {
   AccountChooserPrompt* current_account_chooser_;
   AutoSigninFirstRunPrompt* current_autosignin_prompt_;
   CredentialLeakPrompt* current_credential_leak_prompt_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestManagePasswordsUIController);
 };
 
 TestManagePasswordsUIController::TestManagePasswordsUIController(
@@ -211,8 +214,8 @@ content::WebContents* PasswordDialogViewTest::SetupTabWithTestController(
   browser->tab_strip_model()->AppendWebContents(std::move(new_tab), true);
 
   // Navigate to a Web URL.
-  EXPECT_NO_FATAL_FAILURE(
-      ui_test_utils::NavigateToURL(browser, GURL("http://www.google.com")));
+  EXPECT_NO_FATAL_FAILURE(EXPECT_TRUE(
+      ui_test_utils::NavigateToURL(browser, GURL("http://www.google.com"))));
   EXPECT_EQ(controller_,
             ManagePasswordsUIController::FromWebContents(raw_new_tab));
   return raw_new_tab;
@@ -229,13 +232,13 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
       local_credentials;
   password_manager::PasswordForm form;
   form.url = origin;
-  form.display_name = base::ASCIIToUTF16("Peter");
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
+  form.display_name = u"Peter";
+  form.username_value = u"peter@pan.test";
   form.icon_url = GURL("broken url");
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
   form.icon_url = embedded_test_server()->GetURL("/icon.png");
-  form.display_name = base::ASCIIToUTF16("Peter Pan");
+  form.display_name = u"Peter Pan";
   form.federation_origin =
       url::Origin::Create(GURL("https://google.com/federation"));
   local_credentials.push_back(
@@ -265,14 +268,14 @@ IN_PROC_BROWSER_TEST_F(
       local_credentials;
   password_manager::PasswordForm form;
   form.url = origin;
-  form.display_name = base::ASCIIToUTF16("Peter");
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
+  form.display_name = u"Peter";
+  form.username_value = u"peter@pan.test";
   form.icon_url = GURL("broken url");
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
   GURL icon_url("https://google.com/icon.png");
   form.icon_url = icon_url;
-  form.display_name = base::ASCIIToUTF16("Peter Pan");
+  form.display_name = u"Peter Pan";
   form.federation_origin =
       url::Origin::Create(GURL("https://google.com/federation"));
   local_credentials.push_back(
@@ -301,8 +304,8 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
       local_credentials;
   password_manager::PasswordForm form;
   form.url = origin;
-  form.display_name = base::ASCIIToUTF16("Peter");
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
+  form.display_name = u"Peter";
+  form.username_value = u"peter@pan.test";
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
 
@@ -325,8 +328,8 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
       local_credentials;
   password_manager::PasswordForm form;
   form.url = origin;
-  form.display_name = base::ASCIIToUTF16("Peter");
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
+  form.display_name = u"Peter";
+  form.username_value = u"peter@pan.test";
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
 
@@ -336,10 +339,10 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
   EXPECT_TRUE(controller()->current_account_chooser());
   views::BubbleDialogDelegateView* dialog =
       controller()->current_account_chooser();
-  views::test::WidgetClosingObserver bubble_observer(dialog->GetWidget());
+  views::test::WidgetDestroyedWaiter bubble_observer(dialog->GetWidget());
   EXPECT_CALL(*this, OnChooseCredential(testing::Pointee(form)));
   dialog->Accept();
-  EXPECT_TRUE(bubble_observer.widget_closed());
+  bubble_observer.Wait();
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
@@ -349,8 +352,8 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
       local_credentials;
   password_manager::PasswordForm form;
   form.url = origin;
-  form.display_name = base::ASCIIToUTF16("Peter");
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
+  form.display_name = u"Peter";
+  form.username_value = u"peter@pan.test";
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
 
@@ -381,8 +384,8 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
       local_credentials;
   password_manager::PasswordForm form;
   form.url = origin;
-  form.display_name = base::ASCIIToUTF16("Peter");
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
+  form.display_name = u"Peter";
+  form.username_value = u"peter@pan.test";
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
 
@@ -414,8 +417,8 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest, PopupAccountChooserInIncognito) {
       local_credentials;
   password_manager::PasswordForm form;
   form.url = origin;
-  form.display_name = base::ASCIIToUTF16("Peter");
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
+  form.display_name = u"Peter";
+  form.username_value = u"peter@pan.test";
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
 
@@ -448,11 +451,11 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest, EscCancelsAutoSigninPrompt) {
   EXPECT_EQ(password_manager::ui::INACTIVE_STATE, controller()->GetState());
   AutoSigninFirstRunDialogView* dialog =
       controller()->current_autosignin_prompt();
-  views::test::WidgetClosingObserver bubble_observer(dialog->GetWidget());
+  views::test::WidgetDestroyedWaiter bubble_observer(dialog->GetWidget());
   ui::Accelerator esc(ui::VKEY_ESCAPE, 0);
   EXPECT_CALL(*controller(), OnDialogClosed());
   EXPECT_TRUE(dialog->GetWidget()->client_view()->AcceleratorPressed(esc));
-  EXPECT_TRUE(bubble_observer.widget_closed());
+  bubble_observer.Wait();
   content::RunAllPendingInMessageLoop();
   base::RunLoop().RunUntilIdle();
   testing::Mock::VerifyAndClearExpectations(controller());
@@ -470,10 +473,10 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest, PopupCredentialsLeakedPrompt) {
   EXPECT_EQ(password_manager::ui::INACTIVE_STATE, controller()->GetState());
   CredentialLeakDialogView* dialog =
       controller()->current_credential_leak_prompt();
-  views::test::WidgetClosingObserver bubble_observer(dialog->GetWidget());
+  views::test::WidgetDestroyedWaiter bubble_observer(dialog->GetWidget());
   ui::Accelerator esc(ui::VKEY_ESCAPE, 0);
   EXPECT_TRUE(dialog->GetWidget()->client_view()->AcceleratorPressed(esc));
-  EXPECT_TRUE(bubble_observer.widget_closed());
+  bubble_observer.Wait();
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
@@ -485,8 +488,8 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
   GURL origin("https://example.com");
   password_manager::PasswordForm form;
   form.url = origin;
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
-  form.password_value = base::ASCIIToUTF16("I can fly!");
+  form.username_value = u"peter@pan.test";
+  form.password_value = u"I can fly!";
 
   // Successful login alone will not prompt:
   client()->NotifySuccessfulLoginWithExistingPassword(WrapFormInManager(&form));
@@ -501,7 +504,7 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
   // Successful login with a distinct form after block will not prompt:
   blocked_form = std::make_unique<password_manager::PasswordForm>(form);
   client()->NotifyUserCouldBeAutoSignedIn(std::move(blocked_form));
-  form.username_value = base::ASCIIToUTF16("notpeter@pan.test");
+  form.username_value = u"notpeter@pan.test";
   client()->NotifySuccessfulLoginWithExistingPassword(WrapFormInManager(&form));
   ASSERT_FALSE(controller()->current_autosignin_prompt());
 
@@ -535,14 +538,14 @@ void PasswordDialogViewTest::ShowUi(const std::string& name) {
       local_credentials;
   password_manager::PasswordForm form;
   form.url = origin;
-  form.display_name = base::ASCIIToUTF16("Peter Pan");
-  form.username_value = base::ASCIIToUTF16("peter@pan.test");
+  form.display_name = u"Peter Pan";
+  form.username_value = u"peter@pan.test";
   if (name == "PopupAutoSigninPrompt") {
     form.icon_url = GURL("broken url");
     local_credentials.push_back(
         std::make_unique<password_manager::PasswordForm>(form));
     form.icon_url = GURL("https://google.com/icon.png");
-    form.display_name = base::ASCIIToUTF16("Peter");
+    form.display_name = u"Peter";
     form.federation_origin =
         url::Origin::Create(GURL("https://google.com/federation"));
     local_credentials.push_back(
@@ -557,20 +560,20 @@ void PasswordDialogViewTest::ShowUi(const std::string& name) {
         std::make_unique<password_manager::PasswordForm>(form));
     if (name == "PopupAccountChooserWithMultipleCredentialClickSignIn") {
       form.icon_url = GURL("https://google.com/icon.png");
-      form.display_name = base::ASCIIToUTF16("Tinkerbell");
-      form.username_value = base::ASCIIToUTF16("tinkerbell@pan.test");
+      form.display_name = u"Tinkerbell";
+      form.username_value = u"tinkerbell@pan.test";
       form.federation_origin =
           url::Origin::Create(GURL("https://google.com/neverland"));
       local_credentials.push_back(
           std::make_unique<password_manager::PasswordForm>(form));
-      form.display_name = base::ASCIIToUTF16("James Hook");
-      form.username_value = base::ASCIIToUTF16("james@pan.test");
+      form.display_name = u"James Hook";
+      form.username_value = u"james@pan.test";
       form.federation_origin =
           url::Origin::Create(GURL("https://google.com/jollyroger"));
       local_credentials.push_back(
           std::make_unique<password_manager::PasswordForm>(form));
-      form.display_name = base::ASCIIToUTF16("Wendy Darling");
-      form.username_value = base::ASCIIToUTF16("wendy@pan.test");
+      form.display_name = u"Wendy Darling";
+      form.username_value = u"wendy@pan.test";
       form.federation_origin =
           url::Origin::Create(GURL("https://google.com/london"));
       local_credentials.push_back(

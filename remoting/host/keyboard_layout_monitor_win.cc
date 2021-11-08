@@ -14,13 +14,13 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
-#include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_local.h"
 #include "base/timer/timer.h"
@@ -34,8 +34,7 @@ namespace remoting {
 
 namespace {
 
-constexpr base::TimeDelta POLL_INTERVAL =
-    base::TimeDelta::FromMilliseconds(1000);
+constexpr base::TimeDelta POLL_INTERVAL = base::Milliseconds(1000);
 // If second is equivalent to first (generates the same functions/characters at
 // all shift levels), second will be removed from the map.
 constexpr std::pair<ui::DomCode, ui::DomCode> POSSIBLE_EQUIVALENTS[] = {
@@ -290,7 +289,7 @@ void KeyboardLayoutMonitorWin::QueryLayoutOnInputThread(
         }
         // The key generated at least one character.
         key_actions[shift_level].set_character(
-            base::UTF16ToUTF8(base::StringPiece16(char_buffer, size)));
+            base::WideToUTF8(base::WStringPiece(char_buffer, size)));
         if (shift_level > 2) {
           has_altgr = true;
         }

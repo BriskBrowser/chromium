@@ -43,10 +43,7 @@ namespace blink {
 
 HTMLEmbedElement::HTMLEmbedElement(Document& document,
                                    const CreateElementFlags flags)
-    : HTMLPlugInElement(html_names::kEmbedTag,
-                        document,
-                        flags,
-                        kShouldPreferPlugInsForImages) {
+    : HTMLPlugInElement(html_names::kEmbedTag, document, flags) {
   EnsureUserAgentShadowRoot();
 }
 
@@ -103,9 +100,9 @@ void HTMLEmbedElement::ParseAttribute(
     wtf_size_t pos = service_type_.Find(";");
     if (pos != kNotFound)
       SetServiceType(service_type_.Left(pos));
+    SetDisposeView();
     if (GetLayoutObject()) {
       SetNeedsPluginUpdate(true);
-      SetDisposeView();
       GetLayoutObject()->SetNeedsLayoutAndFullPaintInvalidation(
           "Embed type changed");
     }
@@ -115,21 +112,25 @@ void HTMLEmbedElement::ParseAttribute(
     SetUrl(StripLeadingAndTrailingHTMLSpaces(params.new_value));
     SetDisposeView();
   } else if (params.name == html_names::kSrcAttr) {
+    // https://html.spec.whatwg.org/multipage/iframe-embed-object.html#the-embed-element
+    // The spec says that when the url attribute is changed and the embed
+    // element is "potentially active," we should run the embed element setup
+    // steps.
+    // We don't follow the "potentially active" definition precisely here, but
+    // it works.
     SetUrl(StripLeadingAndTrailingHTMLSpaces(params.new_value));
+    SetDisposeView();
     if (GetLayoutObject() && IsImageType()) {
-      SetDisposeView();
       if (!image_loader_)
         image_loader_ = MakeGarbageCollected<HTMLImageLoader>(this);
       image_loader_->UpdateFromElement(ImageLoader::kUpdateIgnorePreviousError);
     } else if (GetLayoutObject()) {
-      // Check if this Embed can transition from potentially-active to active
-      if (FastHasAttribute(html_names::kTypeAttr)) {
-        SetNeedsPluginUpdate(true);
-        ReattachOnPluginChangeIfNeeded();
-      } else {
+      if (!FastHasAttribute(html_names::kTypeAttr)) {
         UseCounter::Count(GetDocument(),
                           WebFeature::kEmbedElementWithoutTypeSrcChanged);
       }
+      SetNeedsPluginUpdate(true);
+      ReattachOnPluginChangeIfNeeded();
     }
   } else {
     HTMLPlugInElement::ParseAttribute(params);

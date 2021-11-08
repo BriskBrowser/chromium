@@ -13,9 +13,9 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chromeos/ui/base/window_properties.h"
-#include "components/arc/arc_service_manager.h"
 #include "components/arc/mojom/app.mojom.h"
 #include "components/arc/session/arc_bridge_service.h"
+#include "components/arc/session/arc_service_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/accessibility/ax_assistant_structure.h"
@@ -31,7 +31,7 @@ void CreateAssistantStructureAndRunCallback(
     ax::mojom::AssistantExtraPtr assistant_extra,
     const ui::AXTreeUpdate& update) {
   std::move(callback).Run(std::move(assistant_extra),
-                          ui::CreateAssistantTree(update, false));
+                          ui::CreateAssistantTree(update));
 }
 
 ax::mojom::AssistantExtraPtr CreateAssistantExtra(

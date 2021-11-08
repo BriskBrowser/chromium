@@ -11,8 +11,8 @@
 #include "build/buildflag.h"
 #include "chrome/browser/ui/passwords/account_avatar_fetcher.h"
 #include "components/password_manager/core/browser/password_form.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/style/typography.h"
 
 namespace gfx {
@@ -38,8 +38,8 @@ class CredentialsItemView : public AccountAvatarFetcherDelegate,
   METADATA_HEADER(CredentialsItemView);
 
   CredentialsItemView(PressedCallback callback,
-                      const base::string16& upper_text,
-                      const base::string16& lower_text,
+                      const std::u16string& upper_text,
+                      const std::u16string& lower_text,
                       const password_manager::PasswordForm* form,
                       network::mojom::URLLoaderFactory* loader_factory,
                       int upper_text_style = views::style::STYLE_PRIMARY,

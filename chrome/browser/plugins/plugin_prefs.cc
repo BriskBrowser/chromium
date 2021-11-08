@@ -35,11 +35,12 @@ using content::BrowserThread;
 
 namespace {
 
-bool IsPDFViewerPlugin(const base::string16& plugin_name) {
-  return (plugin_name ==
-          base::ASCIIToUTF16(ChromeContentClient::kPDFExtensionPluginName)) ||
-         (plugin_name ==
-          base::ASCIIToUTF16(ChromeContentClient::kPDFInternalPluginName));
+bool IsPDFViewerPlugin(const std::u16string& plugin_name) {
+  // This should only match the external PDF plugin, not the internal PDF
+  // plugin, which is also used for Print Preview. Note that only the PDF viewer
+  // and Print Preview can create the internal PDF plugin in the first place.
+  return plugin_name ==
+         base::ASCIIToUTF16(ChromeContentClient::kPDFExtensionPluginName);
 }
 
 }  // namespace
@@ -61,8 +62,7 @@ scoped_refptr<PluginPrefs> PluginPrefs::GetForTestingProfile(
 }
 
 PluginPrefs::PolicyStatus PluginPrefs::PolicyStatusForPlugin(
-    const base::string16& name) const {
-
+    const std::u16string& name) const {
   // Special handling for PDF based on its specific policy.
   if (IsPDFViewerPlugin(name) && always_open_pdf_externally_)
     return POLICY_DISABLED;
@@ -73,7 +73,7 @@ PluginPrefs::PolicyStatus PluginPrefs::PolicyStatusForPlugin(
 bool PluginPrefs::IsPluginEnabled(const content::WebPluginInfo& plugin) const {
   std::unique_ptr<PluginMetadata> plugin_metadata(
       PluginFinder::GetInstance()->GetPluginMetadata(plugin));
-  base::string16 group_name = plugin_metadata->name();
+  std::u16string group_name = plugin_metadata->name();
 
   // Check if the plugin or its group is enabled by policy.
   PolicyStatus plugin_status = PolicyStatusForPlugin(plugin.name);
@@ -115,8 +115,8 @@ void PluginPrefs::SetPrefs(PrefService* prefs) {
   {  // Scoped update of prefs::kPluginsPluginsList.
     ListPrefUpdate update(prefs_, prefs::kPluginsPluginsList);
     base::ListValue* saved_plugins_list = update.Get();
-    if (saved_plugins_list && !saved_plugins_list->empty()) {
-      for (auto& plugin_value : *saved_plugins_list) {
+    if (saved_plugins_list) {
+      for (auto& plugin_value : saved_plugins_list->GetList()) {
         base::DictionaryValue* plugin;
         if (!plugin_value.GetAsDictionary(&plugin)) {
           LOG(WARNING) << "Invalid entry in " << prefs::kPluginsPluginsList;

@@ -13,8 +13,6 @@
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
@@ -38,6 +36,10 @@ class MockStatsReportingDelegate : public StatsReportingDelegate {
       : report_tab_loader_stats_call_count_(0u),
         report_stats_collector_death_call_count_(0u),
         report_tab_time_since_active_call_count_(0u) {}
+
+  MockStatsReportingDelegate(const MockStatsReportingDelegate&) = delete;
+  MockStatsReportingDelegate& operator=(const MockStatsReportingDelegate&) =
+      delete;
 
   ~MockStatsReportingDelegate() override = default;
 
@@ -64,7 +66,7 @@ class MockStatsReportingDelegate : public StatsReportingDelegate {
       SessionRestoreStatsCollector::SessionRestorePaintFinishReasonUma
           finish_reason) {
     EXPECT_EQ(tab_count, tab_loader_stats_.tab_count);
-    EXPECT_EQ(base::TimeDelta::FromMilliseconds(foreground_tab_first_paint_ms),
+    EXPECT_EQ(base::Milliseconds(foreground_tab_first_paint_ms),
               tab_loader_stats_.foreground_tab_first_paint);
     EXPECT_EQ(tab_loader_stats_.tab_first_paint_reason, finish_reason);
   }
@@ -95,8 +97,6 @@ class MockStatsReportingDelegate : public StatsReportingDelegate {
   size_t report_stats_collector_death_call_count_;
   size_t report_tab_time_since_active_call_count_;
   TabLoaderStats tab_loader_stats_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockStatsReportingDelegate);
 };
 
 // A pass-through stats reporting delegate. This is used to decouple the
@@ -106,6 +106,12 @@ class MockStatsReportingDelegate : public StatsReportingDelegate {
 class PassthroughStatsReportingDelegate : public StatsReportingDelegate {
  public:
   PassthroughStatsReportingDelegate() : reporting_delegate_(nullptr) {}
+
+  PassthroughStatsReportingDelegate(const PassthroughStatsReportingDelegate&) =
+      delete;
+  PassthroughStatsReportingDelegate& operator=(
+      const PassthroughStatsReportingDelegate&) = delete;
+
   ~PassthroughStatsReportingDelegate() override {
     reporting_delegate_->ReportStatsCollectorDeath();
   }
@@ -124,8 +130,6 @@ class PassthroughStatsReportingDelegate : public StatsReportingDelegate {
 
  private:
   MockStatsReportingDelegate* reporting_delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(PassthroughStatsReportingDelegate);
 };
 
 }  // namespace
@@ -137,8 +141,14 @@ class SessionRestoreStatsCollectorTest : public testing::Test {
   SessionRestoreStatsCollectorTest()
       : task_environment_{base::test::TaskEnvironment::TimeSource::MOCK_TIME} {}
 
+  SessionRestoreStatsCollectorTest(const SessionRestoreStatsCollectorTest&) =
+      delete;
+  SessionRestoreStatsCollectorTest& operator=(
+      const SessionRestoreStatsCollectorTest&) = delete;
+
   void SetUp() override {
-    test_web_contents_factory_.reset(new content::TestWebContentsFactory);
+    test_web_contents_factory_ =
+        std::make_unique<content::TestWebContentsFactory>();
 
     // Ownership of the reporting delegate is passed to the
     // SessionRestoreStatsCollector, but a raw pointer is kept to it so it can
@@ -160,9 +170,7 @@ class SessionRestoreStatsCollectorTest : public testing::Test {
   }
 
   // Advances the test clock by 1ms.
-  void Tick() {
-    task_environment_.FastForwardBy(base::TimeDelta::FromMilliseconds(1));
-  }
+  void Tick() { task_environment_.FastForwardBy(base::Milliseconds(1)); }
 
   void Show(size_t tab_index) {
     restored_tabs_[tab_index].contents()->WasShown();
@@ -185,19 +193,18 @@ class SessionRestoreStatsCollectorTest : public testing::Test {
                                       &entries);
     // Create a last active time in the past.
     content::WebContentsTester::For(contents)->SetLastActiveTime(
-        base::TimeTicks::Now() - base::TimeDelta::FromMinutes(1));
+        base::TimeTicks::Now() - base::Minutes(1));
     restored_tabs_.push_back(
-        RestoredTab(contents, is_active, false, false, base::nullopt));
+        RestoredTab(contents, is_active, false, false, absl::nullopt));
     if (is_active)
       Show(restored_tabs_.size() - 1);
   }
 
-  // Generates a web contents destroyed notification for the given tab.
-  void GenerateWebContentsDestroyed(size_t tab_index) {
+  // Generates a render widget host destroyed notification for the given tab.
+  void GenerateRenderWidgetHostDestroyed(size_t tab_index) {
     content::WebContents* contents = restored_tabs_[tab_index].contents();
-    stats_collector_->Observe(content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
-                              content::Source<content::WebContents>(contents),
-                              content::NotificationService::NoDetails());
+    stats_collector_->RenderWidgetHostDestroyed(
+        contents->GetRenderWidgetHostView()->GetRenderWidgetHost());
   }
 
   // Generates a paint notification for the given tab.
@@ -231,9 +238,6 @@ class SessionRestoreStatsCollectorTest : public testing::Test {
   // to observe the behaviour of the SessionRestoreStatsCollector under test.
   PassthroughStatsReportingDelegate* passthrough_reporting_delegate_;
   SessionRestoreStatsCollector* stats_collector_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SessionRestoreStatsCollectorTest);
 };
 
 TEST_F(SessionRestoreStatsCollectorTest, MultipleTabsLoadSerially) {
@@ -280,7 +284,7 @@ TEST_F(SessionRestoreStatsCollectorTest, ForegroundTabOccluded) {
   // was not visible at one point during restore.
   GenerateRenderWidgetHostDidUpdateBackingStore(0);
   // Destroy the tab.
-  GenerateWebContentsDestroyed(0);
+  GenerateRenderWidgetHostDestroyed(0);
   mock_reporting_delegate.ExpectReportTabLoaderStatsCalled(
       1, 0,
       SessionRestoreStatsCollector::
@@ -337,7 +341,7 @@ TEST_F(SessionRestoreStatsCollectorTest, LoadingTabDestroyedBeforePaint) {
   mock_reporting_delegate.EnsureNoUnexpectedCalls();
 
   // Destroy the tab. Expect all timings to be zero.
-  GenerateWebContentsDestroyed(0);
+  GenerateRenderWidgetHostDestroyed(0);
   mock_reporting_delegate.ExpectReportTabLoaderStatsCalled(
       1, 0, SessionRestoreStatsCollector::PAINT_FINISHED_UMA_NO_PAINT);
   mock_reporting_delegate.ExpectEnded();

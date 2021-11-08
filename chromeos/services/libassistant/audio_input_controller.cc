@@ -29,13 +29,13 @@ void AudioInputController::SetHotwordEnabled(bool enable) {
 }
 
 void AudioInputController::SetDeviceId(
-    const base::Optional<std::string>& device_id) {
+    const absl::optional<std::string>& device_id) {
   DCHECK(device_id != "");
   audio_input().SetDeviceId(device_id);
 }
 
 void AudioInputController::SetHotwordDeviceId(
-    const base::Optional<std::string>& device_id) {
+    const absl::optional<std::string>& device_id) {
   DCHECK(device_id != "");
   audio_input().SetHotwordDeviceId(device_id);
 }
@@ -48,7 +48,14 @@ void AudioInputController::OnConversationTurnStarted() {
   audio_input().OnConversationTurnStarted();
 }
 
-void AudioInputController::OnConversationTurnFinished() {
+void AudioInputController::OnInteractionFinished(Resolution resolution) {
+  // TODO(b/179924068): Find a better way to handle the edge cases.
+  if (resolution != Resolution::NORMAL_WITH_FOLLOW_ON &&
+      resolution != Resolution::CANCELLED &&
+      resolution != Resolution::BARGE_IN) {
+    SetMicOpen(false);
+  }
+
   audio_input().OnConversationTurnFinished();
 }
 

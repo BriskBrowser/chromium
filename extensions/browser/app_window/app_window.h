@@ -28,7 +28,7 @@ class GURL;
 class SkRegion;
 
 namespace base {
-class DictionaryValue;
+class Value;
 }
 
 namespace content {
@@ -54,6 +54,10 @@ struct DraggableRegion;
 class AppWindowContents {
  public:
   AppWindowContents() {}
+
+  AppWindowContents(const AppWindowContents&) = delete;
+  AppWindowContents& operator=(const AppWindowContents&) = delete;
+
   virtual ~AppWindowContents() {}
 
   // Called to initialize the WebContents, before the app window is created.
@@ -75,9 +79,6 @@ class AppWindowContents {
   virtual content::WebContents* GetWebContents() const = 0;
 
   virtual extensions::WindowController* GetWindowController() const = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AppWindowContents);
 };
 
 // AppWindow is the type of window used by platform apps. App windows
@@ -226,6 +227,9 @@ class AppWindow : public content::WebContentsDelegate,
             AppDelegate* app_delegate,
             const Extension* extension);
 
+  AppWindow(const AppWindow&) = delete;
+  AppWindow& operator=(const AppWindow&) = delete;
+
   // Initializes the render interface, web contents, and native window.
   // |app_window_contents| will become owned by AppWindow.
   void Init(const GURL& url,
@@ -253,7 +257,7 @@ class AppWindow : public content::WebContentsDelegate,
 
   // NativeAppWindows should call this to determine what the window's title
   // is on startup and from within UpdateWindowTitle().
-  base::string16 GetTitle() const;
+  std::u16string GetTitle() const;
 
   // |callback| will be called when the first navigation was completed or window
   // is closed before that. |did_finish| argument of the |callback| is set to
@@ -360,7 +364,7 @@ class AppWindow : public content::WebContentsDelegate,
 
   // Retrieve the current state of the app window as a dictionary, to pass to
   // the renderer.
-  void GetSerializedState(base::DictionaryValue* properties) const;
+  void GetSerializedState(base::Value* properties) const;
 
   // Whether the app window wants to be alpha enabled.
   bool requested_alpha_enabled() const { return requested_alpha_enabled_; }
@@ -395,11 +399,6 @@ class AppWindow : public content::WebContentsDelegate,
   void ActivateContents(content::WebContents* contents) override;
   void CloseContents(content::WebContents* contents) override;
   bool ShouldSuppressDialogs(content::WebContents* source) override;
-  content::ColorChooser* OpenColorChooser(
-      content::WebContents* web_contents,
-      SkColor color,
-      const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions)
-      override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
                       scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;
@@ -594,8 +593,6 @@ class AppWindow : public content::WebContentsDelegate,
   bool did_finish_first_navigation_ = false;
 
   base::WeakPtrFactory<AppWindow> image_loader_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AppWindow);
 };
 
 }  // namespace extensions

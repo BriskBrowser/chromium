@@ -18,6 +18,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/services/app_service/public/cpp/file_handler_info.h"
 #include "content/public/browser/browser_context.h"
@@ -49,6 +50,8 @@
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "components/app_restore/app_launch_info.h"
+#include "components/app_restore/full_restore_utils.h"
 #include "components/user_manager/user_manager.h"
 #endif
 
@@ -414,7 +417,7 @@ void LaunchPlatformAppWithCommandLineAndLaunchId(
     std::unique_ptr<app_runtime::LaunchData> launch_data =
         std::make_unique<app_runtime::LaunchData>();
     if (!launch_id.empty())
-      launch_data->id.reset(new std::string(launch_id));
+      launch_data->id = std::make_unique<std::string>(launch_id);
     AppRuntimeEventRouter::DispatchOnLaunchedEvent(context, app, source,
                                                    std::move(launch_data));
     return;
@@ -451,7 +454,7 @@ void LaunchPlatformAppWithAction(
   CHECK(!action_data || !action_data->is_lock_screen_action ||
         !*action_data->is_lock_screen_action ||
         app->permissions_data()->HasAPIPermission(
-            extensions::APIPermission::kLockScreen))
+            extensions::mojom::APIPermissionID::kLockScreen))
       << "Launching lock screen action handler requires lockScreen permission.";
 
   scoped_refptr<PlatformAppPathLauncher> launcher =
@@ -474,6 +477,12 @@ void LaunchPlatformAppWithFileHandler(
     const Extension* app,
     const std::string& handler_id,
     const std::vector<base::FilePath>& entry_paths) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  auto launch_info = std::make_unique<app_restore::AppLaunchInfo>(
+      app->id(), handler_id, entry_paths);
+  full_restore::SaveAppLaunchInfo(context->GetPath(), std::move(launch_info));
+#endif
+
   scoped_refptr<PlatformAppPathLauncher> launcher =
       new PlatformAppPathLauncher(context, app, entry_paths);
   launcher->LaunchWithHandler(handler_id);

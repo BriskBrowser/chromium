@@ -29,6 +29,11 @@ enum class RequestType;
 class MockPermissionPromptFactory {
  public:
   explicit MockPermissionPromptFactory(PermissionRequestManager* manager);
+
+  MockPermissionPromptFactory(const MockPermissionPromptFactory&) = delete;
+  MockPermissionPromptFactory& operator=(const MockPermissionPromptFactory&) =
+      delete;
+
   ~MockPermissionPromptFactory();
 
   // Create method called by the PBM to show a bubble.
@@ -38,7 +43,8 @@ class MockPermissionPromptFactory {
 
   void ResetCounts();
 
-  void DocumentOnLoadCompletedInMainFrame();
+  void DocumentOnLoadCompletedInMainFrame(
+      content::RenderFrameHost* render_frame_host);
 
   void set_response_type(PermissionRequestManager::AutoResponseType type) {
     response_type_ = type;
@@ -86,8 +92,6 @@ class MockPermissionPromptFactory {
 
   // The bubble manager that will be associated with this factory.
   PermissionRequestManager* manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockPermissionPromptFactory);
 };
 
 }  // namespace permissions

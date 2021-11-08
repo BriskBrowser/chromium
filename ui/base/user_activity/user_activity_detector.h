@@ -29,6 +29,10 @@ class COMPONENT_EXPORT(UI_BASE) UserActivityDetector
   static const int kDisplayPowerChangeIgnoreMouseMs;
 
   UserActivityDetector();
+
+  UserActivityDetector(const UserActivityDetector&) = delete;
+  UserActivityDetector& operator=(const UserActivityDetector&) = delete;
+
   ~UserActivityDetector() override;
 
   // Returns the UserActivityDetector instance if one was created.
@@ -38,6 +42,9 @@ class COMPONENT_EXPORT(UI_BASE) UserActivityDetector
   std::string last_activity_name() const { return last_activity_name_; }
 
   void set_now_for_test(base::TimeTicks now) { now_for_test_ = now; }
+  void set_last_activity_time_for_test(base::TimeTicks value) {
+    last_activity_time_ = value;
+  }
 
   bool HasObserver(const UserActivityObserver* observer) const;
   void AddObserver(UserActivityObserver* observer);
@@ -87,8 +94,6 @@ class COMPONENT_EXPORT(UI_BASE) UserActivityDetector
   // is to avoid reporting mouse events that occur when displays are turned
   // on or off as user activity.
   base::TimeTicks honor_mouse_events_time_;
-
-  DISALLOW_COPY_AND_ASSIGN(UserActivityDetector);
 };
 
 }  // namespace ui

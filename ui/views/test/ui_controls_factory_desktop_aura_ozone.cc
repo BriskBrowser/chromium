@@ -12,7 +12,7 @@
 #include "base/check_op.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/env.h"
@@ -20,6 +20,7 @@
 #include "ui/aura/test/ui_controls_factory_aura.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/test/ui_controls_aura.h"
+#include "ui/ozone/public/ozone_platform.h"
 #include "ui/ozone/public/ozone_ui_controls_test_helper.h"
 #include "ui/views/test/test_desktop_screen_ozone.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
@@ -43,6 +44,10 @@ class UIControlsDesktopOzone : public UIControlsAura {
     DCHECK(ozone_ui_controls_test_helper_)
         << "The test suite cannot be run without OzoneUIControlsTestHelper.";
   }
+
+  UIControlsDesktopOzone(const UIControlsDesktopOzone&) = delete;
+  UIControlsDesktopOzone& operator=(const UIControlsDesktopOzone&) = delete;
+
   ~UIControlsDesktopOzone() override = default;
 
   bool SendKeyPress(gfx::NativeWindow window,
@@ -98,10 +103,13 @@ class UIControlsDesktopOzone : public UIControlsAura {
     screen->set_cursor_screen_point(gfx::Point(screen_x, screen_y));
 
     if (root_location != root_current_location &&
-        ozone_ui_controls_test_helper_->ButtonDownMask() == 0) {
+        ozone_ui_controls_test_helper_->ButtonDownMask() == 0 &&
+        !ozone_ui_controls_test_helper_->MustUseUiControlsForMoveCursorTo()) {
       // Move the cursor because EnterNotify/LeaveNotify are generated with the
       // current mouse position as a result of XGrabPointer()
       root_window->MoveCursorTo(root_location);
+      ozone_ui_controls_test_helper_->RunClosureAfterAllPendingUIEvents(
+          std::move(closure));
     } else {
       gfx::Point screen_point(root_location);
       host->ConvertDIPToScreenInPixels(&screen_point);
@@ -109,8 +117,6 @@ class UIControlsDesktopOzone : public UIControlsAura {
           host->GetAcceleratedWidget(), root_location, screen_point,
           std::move(closure));
     }
-    ozone_ui_controls_test_helper_->RunClosureAfterAllPendingUIEvents(
-        std::move(closure));
     return true;
   }
   bool SendMouseEvents(MouseButton type,
@@ -163,8 +169,6 @@ class UIControlsDesktopOzone : public UIControlsAura {
   }
 
   std::unique_ptr<ui::OzoneUIControlsTestHelper> ozone_ui_controls_test_helper_;
-
-  DISALLOW_COPY_AND_ASSIGN(UIControlsDesktopOzone);
 };
 
 }  // namespace

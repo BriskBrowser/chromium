@@ -10,8 +10,8 @@
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/win/windows_types.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 // The error status of LzmaUtil::Unpack which is used to publish metrics. Do not
 // change the order.
@@ -47,6 +47,10 @@ UnPackStatus UnPackArchive(const base::FilePath& archive,
 class LzmaUtilImpl {
  public:
   LzmaUtilImpl();
+
+  LzmaUtilImpl(const LzmaUtilImpl&) = delete;
+  LzmaUtilImpl& operator=(const LzmaUtilImpl&) = delete;
+
   ~LzmaUtilImpl();
 
   UnPackStatus OpenArchive(const base::FilePath& archivePath);
@@ -59,7 +63,7 @@ class LzmaUtilImpl {
   UnPackStatus UnPack(const base::FilePath& location,
                       base::FilePath* output_file);
 
-  base::Optional<DWORD> GetErrorCode() { return error_code_; }
+  absl::optional<DWORD> GetErrorCode() { return error_code_; }
 
   void CloseArchive();
 
@@ -69,9 +73,7 @@ class LzmaUtilImpl {
  private:
   base::File archive_file_;
   std::set<base::FilePath> directories_created_;
-  base::Optional<DWORD> error_code_;
-
-  DISALLOW_COPY_AND_ASSIGN(LzmaUtilImpl);
+  absl::optional<DWORD> error_code_;
 };
 
 #endif  // CHROME_INSTALLER_UTIL_LZMA_UTIL_H_

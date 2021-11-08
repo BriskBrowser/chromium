@@ -100,8 +100,8 @@ ChipRanker::ChipRanker(Profile* profile) : profile_(profile) {
 
 ChipRanker::~ChipRanker() = default;
 
-void ChipRanker::Train(const AppLaunchData& app_launch_data) {
-  const auto type = app_launch_data.ranking_item_type;
+void ChipRanker::Train(const LaunchData& launch_data) {
+  const auto type = launch_data.ranking_item_type;
   switch (type) {
     case RankingItemType::kApp:
       type_ranker_->Record(kApp);
@@ -134,7 +134,7 @@ void ChipRanker::Rank(Mixer::SortedResults* results) {
       case ash::AppListSearchResultType::kFileChip:
         local_results.emplace_back(&result);
         break;
-      case ash::AppListSearchResultType::kDriveQuickAccessChip:
+      case ash::AppListSearchResultType::kDriveChip:
         drive_results.emplace_back(&result);
         break;
       default:

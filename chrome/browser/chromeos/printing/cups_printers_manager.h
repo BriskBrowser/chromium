@@ -20,19 +20,22 @@ class PrefRegistrySimple;
 class PrefService;
 class Profile;
 
+namespace ash {
+class EnterprisePrintersProvider;
+class SyncedPrintersManager;
+class PrinterEventTracker;
+class UsbPrinterNotificationController;
+}  // namespace ash
+
 namespace user_prefs {
 class PrefRegistrySyncable;
-}
+}  // namespace user_prefs
 
 namespace chromeos {
 
-class EnterprisePrintersProvider;
 class PpdProvider;
 class PrinterConfigurer;
 class PrinterDetector;
-class PrinterEventTracker;
-class SyncedPrintersManager;
-class UsbPrinterNotificationController;
 
 // Returns true if |printer_uri| is an IPP uri.
 bool IsIppUri(const Uri& printer_uri);
@@ -65,16 +68,17 @@ class CupsPrintersManager : public PrinterInstallationManager,
   // Factory function that allows injected dependencies, for testing.  Ownership
   // is not taken of any of the raw-pointer arguments.
   static std::unique_ptr<CupsPrintersManager> CreateForTesting(
-      SyncedPrintersManager* synced_printers_manager,
+      ash::SyncedPrintersManager* synced_printers_manager,
       std::unique_ptr<PrinterDetector> usb_printer_detector,
       std::unique_ptr<PrinterDetector> zeroconf_printer_detector,
       scoped_refptr<PpdProvider> ppd_provider,
       std::unique_ptr<PrinterConfigurer> printer_configurer,
-      std::unique_ptr<UsbPrinterNotificationController>
+      std::unique_ptr<ash::UsbPrinterNotificationController>
           usb_notification_controller,
       std::unique_ptr<PrintServersManager> print_servers_manager,
-      std::unique_ptr<EnterprisePrintersProvider> enterprise_printers_provider,
-      PrinterEventTracker* event_tracker,
+      std::unique_ptr<ash::EnterprisePrintersProvider>
+          enterprise_printers_provider,
+      ash::PrinterEventTracker* event_tracker,
       PrefService* pref_service);
 
   // Register the profile printing preferences with the |registry|.
@@ -109,8 +113,8 @@ class CupsPrintersManager : public PrinterInstallationManager,
   void PrinterIsNotAutoconfigurable(const Printer& printer) override = 0;
 
   // Look for a printer with the given id in any class.  Returns a copy of the
-  // printer if found, base::nullopt if not found.
-  virtual base::Optional<Printer> GetPrinter(const std::string& id) const = 0;
+  // printer if found, absl::nullopt if not found.
+  virtual absl::optional<Printer> GetPrinter(const std::string& id) const = 0;
 
   // Log an event that the user started trying to set up the given printer,
   // but setup was not completed for some reason.

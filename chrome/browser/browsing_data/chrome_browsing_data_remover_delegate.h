@@ -8,9 +8,9 @@
 #include <memory>
 
 #include "base/callback_forward.h"
+#include "base/cancelable_callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/synchronization/waitable_event_watcher.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "build/build_config.h"
@@ -28,6 +28,7 @@
 #include "services/network/public/mojom/network_context.mojom.h"
 
 class Profile;
+class ScopedProfileKeepAlive;
 class WebappRegistry;
 
 namespace content {
@@ -47,6 +48,12 @@ class ChromeBrowsingDataRemoverDelegate
  public:
   explicit ChromeBrowsingDataRemoverDelegate(
       content::BrowserContext* browser_context);
+
+  ChromeBrowsingDataRemoverDelegate(const ChromeBrowsingDataRemoverDelegate&) =
+      delete;
+  ChromeBrowsingDataRemoverDelegate& operator=(
+      const ChromeBrowsingDataRemoverDelegate&) = delete;
+
   ~ChromeBrowsingDataRemoverDelegate() override;
 
   // KeyedService:
@@ -66,6 +73,8 @@ class ChromeBrowsingDataRemoverDelegate
       uint64_t origin_type_mask,
       base::OnceCallback<void(/*failed_data_types=*/uint64_t)> callback)
       override;
+  void OnStartRemoving() override;
+  void OnDoneRemoving() override;
 
 #if defined(OS_ANDROID)
   void OverrideWebappRegistryForTesting(
@@ -109,11 +118,11 @@ class ChromeBrowsingDataRemoverDelegate
     kNetworkErrorLogging = 21,
     kFlashDeauthorization = 22,
     kOfflinePages = 23,
-    kPrecache = 24,
+    kPrecache = 24,  // deprecated
     kExploreSites = 25,
     kLegacyStrikes = 26,
     kWebrtcEventLogs = 27,
-    kDrmLicenses = 28,
+    kCdmLicenses = 28,
     kHostCache = 29,
     kTpmAttestationKeys = 30,
     kStrikes = 31,
@@ -125,7 +134,9 @@ class ChromeBrowsingDataRemoverDelegate
     kAccountPasswords = 37,
     kAccountPasswordsSynced = 38,
     kAccountCompromisedCredentials = 39,
-    kMaxValue = kAccountCompromisedCredentials,
+    kFaviconCacheExpiration = 40,
+    kSecurePaymentConfirmationInstruments = 41,
+    kMaxValue = kSecurePaymentConfirmationInstruments,
   };
 
   // Called by CreateTaskCompletionClosure().
@@ -173,6 +184,11 @@ class ChromeBrowsingDataRemoverDelegate
   // The profile for which the data will be deleted.
   Profile* profile_;
 
+  // Prevents |profile_| from getting deleted. Only active between
+  // OnStartRemoving() and OnDoneRemoving(), i.e. while there are tasks in
+  // progress.
+  std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive_;
+
   // Start time to delete from.
   base::Time delete_begin_;
 
@@ -206,8 +222,6 @@ class ChromeBrowsingDataRemoverDelegate
 
   base::WeakPtrFactory<ChromeBrowsingDataRemoverDelegate> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeBrowsingDataRemoverDelegate);
 };
 
 #endif  // CHROME_BROWSER_BROWSING_DATA_CHROME_BROWSING_DATA_REMOVER_DELEGATE_H_

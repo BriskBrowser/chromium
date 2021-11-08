@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2020 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -185,11 +185,11 @@ class IOSAppConfigWriter(xml_formatted_writer.XMLFormattedWriter):
     element_type = _POLICY_TYPE_TO_XML_TAG[policy['type']]
     if element_type:
       attributes = {'keyName': policy['name']}
-      # Add a "future=true" attribute for future policies.
+      # Add a "<!--FUTURE POLICY-->" comment before future policies.
       if 'future_on' in policy:
         for config in policy['future_on']:
           if config['platform'] == 'ios':
-            attributes['future'] = 'true'
+            self.AddComment(self._policies, 'FUTURE POLICY')
       policy_element = self.AddElement(self._policies, element_type, attributes)
       self._WritePolicyDefaultValue(policy_element, policy)
       self._WritePolicyConstraint(policy_element, policy)

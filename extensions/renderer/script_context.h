@@ -16,13 +16,17 @@
 #include "base/threading/thread_checker.h"
 #include "base/unguessable_token.h"
 #include "extensions/common/features/feature.h"
+#include "extensions/common/mojom/api_permission_id.mojom-shared.h"
 #include "extensions/common/permissions/api_permission_set.h"
 #include "extensions/common/script_constants.h"
 #include "extensions/renderer/module_system.h"
 #include "extensions/renderer/safe_builtins.h"
 #include "extensions/renderer/script_injection_callback.h"
 #include "url/gurl.h"
-#include "v8/include/v8.h"
+#include "v8-exception.h"
+#include "v8/include/v8-context.h"
+#include "v8/include/v8-forward.h"
+#include "v8/include/v8-script.h"
 
 namespace blink {
 class WebDocumentLoader;
@@ -55,6 +59,10 @@ class ScriptContext {
                 Feature::Context context_type,
                 const Extension* effective_extension,
                 Feature::Context effective_context_type);
+
+  ScriptContext(const ScriptContext&) = delete;
+  ScriptContext& operator=(const ScriptContext&) = delete;
+
   ~ScriptContext();
 
   // Returns whether |url| from any Extension in |extension_set| is sandboxed,
@@ -185,12 +193,16 @@ class ScriptContext {
    public:
     ScopedFrameDocumentLoader(blink::WebLocalFrame* frame,
                               blink::WebDocumentLoader* document_loader);
+
+    ScopedFrameDocumentLoader(const ScopedFrameDocumentLoader&) = delete;
+    ScopedFrameDocumentLoader& operator=(const ScopedFrameDocumentLoader&) =
+        delete;
+
     ~ScopedFrameDocumentLoader();
 
    private:
     blink::WebLocalFrame* frame_;
     blink::WebDocumentLoader* document_loader_;
-    DISALLOW_COPY_AND_ASSIGN(ScopedFrameDocumentLoader);
   };
 
   // TODO(devlin): Move all these Get*URL*() methods out of here? While they are
@@ -244,7 +256,7 @@ class ScriptContext {
   // a context for an extension which has that permission, or by being a web
   // context which has been granted the corresponding capability by an
   // extension.
-  bool HasAPIPermission(APIPermission::ID permission) const;
+  bool HasAPIPermission(mojom::APIPermissionID permission) const;
 
   // Throws an Error in this context's JavaScript context, if this context does
   // not have access to |name|. Returns true if this context has access (i.e.
@@ -323,8 +335,6 @@ class ScriptContext {
   int64_t service_worker_version_id_;
 
   base::ThreadChecker thread_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScriptContext);
 };
 
 }  // namespace extensions

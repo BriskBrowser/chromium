@@ -11,11 +11,11 @@
 #include "chrome/browser/ui/omnibox/omnibox_theme.h"
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/animation/ink_drop_host_view.h"
 #include "ui/views/controls/image_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
 
 class CommandUpdater;
 class OmniboxView;
@@ -78,7 +78,7 @@ class PageActionIconView : public IconLabelBubbleView {
   virtual views::BubbleDialogDelegate* GetBubble() const = 0;
 
   // Retrieve the text to be used for a tooltip or accessible name.
-  virtual base::string16 GetTextForTooltipAndAccessibleName() const = 0;
+  virtual std::u16string GetTextForTooltipAndAccessibleName() const = 0;
 
   SkColor GetLabelColorForTesting() const;
 
@@ -109,7 +109,7 @@ class PageActionIconView : public IconLabelBubbleView {
   bool SetCommandEnabled(bool enabled) const;
 
   // Sets the tooltip text.
-  void SetTooltipText(const base::string16& tooltip);
+  void SetTooltipText(const std::u16string& tooltip);
 
   // Invoked prior to executing the command.
   virtual void OnExecuting(ExecuteSource execute_source) = 0;
@@ -119,7 +119,7 @@ class PageActionIconView : public IconLabelBubbleView {
 
   // views::IconLabelBubbleView:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-  base::string16 GetTooltipText(const gfx::Point& p) const override;
+  std::u16string GetTooltipText(const gfx::Point& p) const override;
   void ViewHierarchyChanged(
       const views::ViewHierarchyChangedDetails& details) override;
   void OnThemeChanged() override;

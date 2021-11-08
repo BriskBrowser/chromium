@@ -57,14 +57,16 @@ class CertNotificationForwarder : public NSSCertDatabase::Observer {
   explicit CertNotificationForwarder(CertDatabase* cert_db)
       : cert_db_(cert_db) {}
 
+  CertNotificationForwarder(const CertNotificationForwarder&) = delete;
+  CertNotificationForwarder& operator=(const CertNotificationForwarder&) =
+      delete;
+
   ~CertNotificationForwarder() override = default;
 
   void OnCertDBChanged() override { cert_db_->NotifyObserversCertDBChanged(); }
 
  private:
   CertDatabase* cert_db_;
-
-  DISALLOW_COPY_AND_ASSIGN(CertNotificationForwarder);
 };
 
 }  // namespace
@@ -93,7 +95,8 @@ NSSCertDatabase::NSSCertDatabase(crypto::ScopedPK11Slot public_slot,
   CHECK(public_slot_);
 
   CertDatabase* cert_db = CertDatabase::GetInstance();
-  cert_notification_forwarder_.reset(new CertNotificationForwarder(cert_db));
+  cert_notification_forwarder_ =
+      std::make_unique<CertNotificationForwarder>(cert_db);
   AddObserver(cert_notification_forwarder_.get());
 
   psm::EnsurePKCS12Init();
@@ -130,7 +133,7 @@ void NSSCertDatabase::ListCertsInfo(ListCertsInfoCallback callback) {
       std::move(callback));
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 crypto::ScopedPK11Slot NSSCertDatabase::GetSystemSlot() const {
   return crypto::ScopedPK11Slot();
 }
@@ -143,7 +146,7 @@ bool NSSCertDatabase::IsCertificateOnSlot(CERTCertificate* cert,
 
   return PK11_FindCertInSlot(slot, cert, nullptr) != CK_INVALID_HANDLE;
 }
-#endif
+#endif  // defined(OS_CHROMEOS)
 
 crypto::ScopedPK11Slot NSSCertDatabase::GetPublicSlot() const {
   return crypto::ScopedPK11Slot(PK11_ReferenceSlot(public_slot_.get()));
@@ -179,15 +182,22 @@ void NSSCertDatabase::ListModules(std::vector<crypto::ScopedPK11Slot>* modules,
   }
 }
 
+bool NSSCertDatabase::SetCertTrust(CERTCertificate* cert,
+                                   CertType type,
+                                   TrustBits trust_bits) {
+  bool success = psm::SetCertTrust(cert, type, trust_bits);
+  if (success)
+    NotifyObserversCertDBChanged();
+
+  return success;
+}
+
 int NSSCertDatabase::ImportFromPKCS12(
     PK11SlotInfo* slot_info,
     const std::string& data,
-    const base::string16& password,
+    const std::u16string& password,
     bool is_extractable,
     ScopedCERTCertificateList* imported_certs) {
-  DVLOG(1) << __func__ << " "
-           << PK11_GetModuleID(slot_info) << ":"
-           << PK11_GetSlotID(slot_info);
   int result = psm::nsPKCS12Blob_Import(slot_info,
                                         data.data(), data.size(),
                                         password,
@@ -200,7 +210,7 @@ int NSSCertDatabase::ImportFromPKCS12(
 }
 
 int NSSCertDatabase::ExportToPKCS12(const ScopedCERTCertificateList& certs,
-                                    const base::string16& password,
+                                    const std::u16string& password,
                                     std::string* output) const {
   return psm::nsPKCS12Blob_Export(output, certs, password);
 }
@@ -324,16 +334,6 @@ NSSCertDatabase::TrustBits NSSCertDatabase::GetCertTrust(
     default:
       return TRUST_DEFAULT;
   }
-}
-
-bool NSSCertDatabase::SetCertTrust(CERTCertificate* cert,
-                                   CertType type,
-                                   TrustBits trust_bits) {
-  bool success = psm::SetCertTrust(cert, type, trust_bits);
-  if (success)
-    NotifyObserversCertDBChanged();
-
-  return success;
 }
 
 bool NSSCertDatabase::DeleteCertAndKey(CERTCertificate* cert) {

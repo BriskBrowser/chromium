@@ -11,9 +11,11 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_container.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/border.h"
 #include "ui/views/view.h"
 
 namespace ash {
@@ -28,8 +30,7 @@ StatusAreaOverflowButtonTray::IconView::IconView()
     : slide_animation_(std::make_unique<gfx::SlideAnimation>(this)) {
   slide_animation_->Reset(1.0);
   slide_animation_->SetTweenType(gfx::Tween::EASE_OUT);
-  slide_animation_->SetSlideDuration(
-      base::TimeDelta::FromMilliseconds(kAnimationDurationMs));
+  slide_animation_->SetSlideDuration(base::Milliseconds(kAnimationDurationMs));
 
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
@@ -92,6 +93,7 @@ void StatusAreaOverflowButtonTray::IconView::UpdateRotation() {
 StatusAreaOverflowButtonTray::StatusAreaOverflowButtonTray(Shelf* shelf)
     : TrayBackgroundView(shelf), icon_(new IconView()) {
   tray_container()->AddChildView(icon_);
+  set_use_bounce_in_animation(false);
 }
 
 StatusAreaOverflowButtonTray::~StatusAreaOverflowButtonTray() {}
@@ -103,7 +105,7 @@ void StatusAreaOverflowButtonTray::ResetStateToCollapsed() {
   icon_->ToggleState(state_);
 }
 
-base::string16 StatusAreaOverflowButtonTray::GetAccessibleNameForTray() {
+std::u16string StatusAreaOverflowButtonTray::GetAccessibleNameForTray() {
   return l10n_util::GetStringUTF16(
       state_ == CLICK_TO_COLLAPSE ? IDS_ASH_STATUS_AREA_OVERFLOW_BUTTON_COLLAPSE
                                   : IDS_ASH_STATUS_AREA_OVERFLOW_BUTTON_EXPAND);

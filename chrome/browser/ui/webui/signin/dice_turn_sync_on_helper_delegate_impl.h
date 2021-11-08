@@ -15,6 +15,8 @@
 
 class Browser;
 class Profile;
+class SigninUIError;
+struct AccountInfo;
 
 // Default implementation for DiceTurnSyncOnHelper::Delegate.
 class DiceTurnSyncOnHelperDelegateImpl : public DiceTurnSyncOnHelper::Delegate,
@@ -22,23 +24,34 @@ class DiceTurnSyncOnHelperDelegateImpl : public DiceTurnSyncOnHelper::Delegate,
                                          public LoginUIService::Observer {
  public:
   explicit DiceTurnSyncOnHelperDelegateImpl(Browser* browser);
+
+  DiceTurnSyncOnHelperDelegateImpl(const DiceTurnSyncOnHelperDelegateImpl&) =
+      delete;
+  DiceTurnSyncOnHelperDelegateImpl& operator=(
+      const DiceTurnSyncOnHelperDelegateImpl&) = delete;
+
   ~DiceTurnSyncOnHelperDelegateImpl() override;
+
+ protected:
+  void ShowEnterpriseAccountConfirmation(
+      const AccountInfo& account_info,
+      DiceTurnSyncOnHelper::SigninChoiceCallback callback) override;
+  virtual void ShouldEnterpriseConfirmationPromptForNewProfile(
+      Profile* profile,
+      base::OnceCallback<void(bool)> callback);
 
  private:
   // DiceTurnSyncOnHelper::Delegate:
-  void ShowLoginError(const std::string& email,
-                      const std::string& error_message) override;
+  void ShowLoginError(const SigninUIError& error) override;
   void ShowMergeSyncDataConfirmation(
       const std::string& previous_email,
       const std::string& new_email,
-      DiceTurnSyncOnHelper::SigninChoiceCallback callback) override;
-  void ShowEnterpriseAccountConfirmation(
-      const std::string& email,
       DiceTurnSyncOnHelper::SigninChoiceCallback callback) override;
   void ShowSyncConfirmation(
       base::OnceCallback<void(LoginUIService::SyncConfirmationUIClosedResult)>
           callback) override;
   void ShowSyncDisabledConfirmation(
+      bool is_managed_account,
       base::OnceCallback<void(LoginUIService::SyncConfirmationUIClosedResult)>
           callback) override;
   void ShowSyncSettings() override;
@@ -57,8 +70,6 @@ class DiceTurnSyncOnHelperDelegateImpl : public DiceTurnSyncOnHelper::Delegate,
       sync_confirmation_callback_;
   base::ScopedObservation<LoginUIService, LoginUIService::Observer>
       scoped_login_ui_service_observation_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DiceTurnSyncOnHelperDelegateImpl);
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_SIGNIN_DICE_TURN_SYNC_ON_HELPER_DELEGATE_IMPL_H_

@@ -9,11 +9,11 @@
 #include <psapi.h>
 
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "base/command_line.h"
 #include "base/process/process_handle.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/multiprocess_test.h"
@@ -73,6 +73,10 @@ MULTIPROCESS_TEST_MAIN(ProcessWithLargeWorkingSet) {
 }
 
 class WorkingSetTrimmerTest : public GraphTestHarness {
+ public:
+  WorkingSetTrimmerTest(const WorkingSetTrimmerTest&) = delete;
+  WorkingSetTrimmerTest& operator=(const WorkingSetTrimmerTest&) = delete;
+
  protected:
   WorkingSetTrimmerTest() = default;
 
@@ -110,9 +114,6 @@ class WorkingSetTrimmerTest : public GraphTestHarness {
   base::Process child_process_;
   TestNodeWrapper<ProcessNodeImpl> process_node_ =
       CreateNode<ProcessNodeImpl>();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WorkingSetTrimmerTest);
 };
 
 }  // namespace

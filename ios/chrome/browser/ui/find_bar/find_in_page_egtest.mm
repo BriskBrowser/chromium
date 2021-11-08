@@ -15,6 +15,7 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
+#import "ios/chrome/test/earl_grey/chrome_xcui_actions.h"
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/web/public/test/http_server/http_server.h"
@@ -25,13 +26,6 @@
 #error "This file requires ARC support."
 #endif
 
-// TODO(crbug.com/1015113): The EG2 macro is breaking indexing for some reason
-// without the trailing semicolon.  For now, disable the extra semi warning
-// so Xcode indexing works for the egtest.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
-GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(FindInPageControllerAppInterface);
-
 namespace {
 
 // Test web page content.
@@ -40,7 +34,6 @@ const std::string kFindInPageResponse = "Find in page. Find in page.";
 }  // namespace
 
 // Tests for Find in Page.
-// Disabled all tests due to https://crbug.com/1107877.
 @interface FindInPageTestCase : WebHttpServerChromeTestCase
 
 // URL for a test page with |kFindInPageResponse|.
@@ -89,6 +82,7 @@ const std::string kFindInPageResponse = "Find in page. Find in page.";
 
   // Open Find in Page view.
   [self openFindInPage];
+
 }
 
 - (void)tearDown {
@@ -102,6 +96,7 @@ const std::string kFindInPageResponse = "Find in page. Find in page.";
 
 // Tests that find in page allows iteration between search results and displays
 // correct number of results.
+// TODO(crbug.com/1188709) : Fix failing test.
 - (void)DISABLED_testFindInPage {
   // Type "find".
   [self typeFindInPageText:@"find"];
@@ -119,6 +114,7 @@ const std::string kFindInPageResponse = "Find in page. Find in page.";
 // Tests that Find In Page search term retention is working as expected, e.g.
 // the search term is persisted between FIP runs, but in incognito search term
 // is not retained and not autofilled.
+// TODO(crbug.com/1188709) : Fix failing test.
 - (void)DISABLED_testFindInPageRetainsSearchTerm {
   // Type "find".
   [self typeFindInPageText:@"find"];
@@ -159,8 +155,7 @@ const std::string kFindInPageResponse = "Find in page. Find in page.";
 }
 
 // Tests accessibility of the Find in Page screen.
-//
-// Disabled due to https://crbug.com/1107877.
+// TODO(crbug.com/1188709) : Fix failing test.
 - (void)DISABLED_testAccessibilityOnFindInPage {
   [self typeFindInPageText:@"find"];
   [self assertResultStringIsResult:1 outOfTotal:2];
@@ -188,8 +183,8 @@ const std::string kFindInPageResponse = "Find in page. Find in page.";
 }
 
 - (void)typeFindInPageText:(NSString*)text {
-  [[EarlGrey selectElementWithMatcher:[self findInPageInputField]]
-      performAction:grey_typeText(text)];
+  chrome_test_util::TypeText(kFindInPageInputFieldId, 0, text);
+  [ChromeEarlGreyUI waitForAppToIdle];
 }
 
 - (id<GREYMatcher>)findInPageInputField {

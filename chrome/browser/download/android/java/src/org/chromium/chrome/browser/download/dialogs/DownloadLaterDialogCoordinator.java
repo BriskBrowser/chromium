@@ -134,8 +134,9 @@ public class DownloadLaterDialogCoordinator implements ModalDialogProperties.Con
                 .with(ModalDialogProperties.CONTROLLER, modalDialogController)
                 .with(ModalDialogProperties.CUSTOM_VIEW, mCustomView)
                 .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, context.getResources(),
-                        R.string.duplicate_download_infobar_download_button)
-                .with(ModalDialogProperties.PRIMARY_BUTTON_FILLED, true)
+                        R.string.download_later_dialog_positive_button_text)
+                .with(ModalDialogProperties.BUTTON_STYLES,
+                        ModalDialogProperties.ButtonStyles.PRIMARY_FILLED_NEGATIVE_OUTLINE)
                 .with(ModalDialogProperties.NEGATIVE_BUTTON_TEXT, context.getResources(),
                         R.string.cancel)
                 .build();
@@ -267,7 +268,7 @@ public class DownloadLaterDialogCoordinator implements ModalDialogProperties.Con
                 && choice != DownloadLaterDialogChoice.DOWNLOAD_LATER) {
             mDialogModel.set(ModalDialogProperties.POSITIVE_BUTTON_TEXT,
                     mContext.getResources().getString(
-                            R.string.duplicate_download_infobar_download_button));
+                            R.string.download_later_dialog_positive_button_text));
             mDownloadLaterDialogModel.set(
                     DownloadLaterDialogProperties.DONT_SHOW_AGAIN_DISABLED, false);
         }

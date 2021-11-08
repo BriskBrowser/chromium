@@ -31,6 +31,9 @@ class PlatformEventSourceTestAPI;
 // to the appropriate dispatchers.
 class EVENTS_EXPORT PlatformEventSource {
  public:
+  PlatformEventSource(const PlatformEventSource&) = delete;
+  PlatformEventSource& operator=(const PlatformEventSource&) = delete;
+
   virtual ~PlatformEventSource();
 
   // Returns the thread-local singleton.
@@ -66,11 +69,6 @@ class EVENTS_EXPORT PlatformEventSource {
   // wasn't any).
   std::unique_ptr<ScopedEventDispatcher> OverrideDispatcher(
       PlatformEventDispatcher* dispatcher);
-
-  // Called to indicate that the source should stop dispatching the current
-  // stream of events and wait until the next iteration of the message-loop to
-  // dispatch the rest of the events.
-  virtual void StopCurrentEventStream();
 
   void AddPlatformEventObserver(PlatformEventObserver* observer);
   void RemovePlatformEventObserver(PlatformEventObserver* observer);
@@ -119,8 +117,6 @@ class EVENTS_EXPORT PlatformEventSource {
   static bool ignore_native_platform_events_;
 
   PlatformEventObserverList observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(PlatformEventSource);
 };
 
 }  // namespace ui

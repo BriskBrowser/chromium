@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "cc/base/features.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/frame/find_in_page.mojom-blink.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink.h"
 #include "third_party/blink/public/web/web_script_source.h"
-#include "third_party/blink/renderer/bindings/core/v8/scroll_into_view_options_or_boolean.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_scroll_into_view_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_scroll_to_options.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_union_boolean_scrollintoviewoptions.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/frame/find_in_page.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
@@ -42,11 +43,10 @@ TEST_F(ScrollIntoViewTest, InstantScroll) {
   Compositor().BeginFrame();
   ASSERT_EQ(Window().scrollY(), 0);
   Element* content = GetDocument().getElementById("content");
-  ScrollIntoViewOptionsOrBoolean arg;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   options->setBlock("start");
-  arg.SetScrollIntoViewOptions(options);
-  content->scrollIntoView(arg);
+  content->scrollIntoView(
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options));
 
   ASSERT_EQ(Window().scrollY(), content->OffsetTop());
 }
@@ -162,11 +162,11 @@ TEST_F(ScrollIntoViewTest, SmoothScroll) {
       "<div id='content' style='height: 1000px'></div>");
 
   Element* content = GetDocument().getElementById("content");
-  ScrollIntoViewOptionsOrBoolean arg;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   options->setBlock("start");
   options->setBehavior("smooth");
-  arg.SetScrollIntoViewOptions(options);
+  auto* arg =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   Compositor().BeginFrame();
   ASSERT_EQ(Window().scrollY(), 0);
 
@@ -177,8 +177,9 @@ TEST_F(ScrollIntoViewTest, SmoothScroll) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       Window().scrollY(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 800
+           : 299),
       1);
 
   // Finish scrolling the container
@@ -201,11 +202,11 @@ TEST_F(ScrollIntoViewTest, NestedContainer) {
 
   Element* container = GetDocument().getElementById("container");
   Element* content = GetDocument().getElementById("content");
-  ScrollIntoViewOptionsOrBoolean arg;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   options->setBlock("start");
   options->setBehavior("smooth");
-  arg.SetScrollIntoViewOptions(options);
+  auto* arg =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   Compositor().BeginFrame();
   ASSERT_EQ(Window().scrollY(), 0);
   ASSERT_EQ(container->scrollTop(), 0);
@@ -217,8 +218,9 @@ TEST_F(ScrollIntoViewTest, NestedContainer) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       Window().scrollY(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 800
+           : 299),
       1);
   ASSERT_EQ(container->scrollTop(), 0);
 
@@ -232,8 +234,9 @@ TEST_F(ScrollIntoViewTest, NestedContainer) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       container->scrollTop(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 794
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 794
+           : 299),
       1);
 
   // Finish scrolling the inner container
@@ -262,11 +265,11 @@ TEST_F(ScrollIntoViewTest, NewScrollIntoViewAbortsCurrentAnimation) {
   Element* container2 = GetDocument().getElementById("container2");
   Element* content1 = GetDocument().getElementById("content1");
   Element* content2 = GetDocument().getElementById("content2");
-  ScrollIntoViewOptionsOrBoolean arg;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   options->setBlock("start");
   options->setBehavior("smooth");
-  arg.SetScrollIntoViewOptions(options);
+  auto* arg =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
 
   Compositor().BeginFrame();
   ASSERT_EQ(Window().scrollY(), 0);
@@ -279,8 +282,9 @@ TEST_F(ScrollIntoViewTest, NewScrollIntoViewAbortsCurrentAnimation) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       Window().scrollY(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 800
+           : 299),
       1);
   ASSERT_EQ(container1->scrollTop(), 0);
 
@@ -290,8 +294,8 @@ TEST_F(ScrollIntoViewTest, NewScrollIntoViewAbortsCurrentAnimation) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       Window().scrollY(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 171
-                                                                        : 61),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations) ? 171
+                                                                          : 61),
       1);
   ASSERT_EQ(container1->scrollTop(), 0);  // container1 should not scroll.
 
@@ -304,8 +308,9 @@ TEST_F(ScrollIntoViewTest, NewScrollIntoViewAbortsCurrentAnimation) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       container2->scrollTop(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 952
-                                                                        : 300),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 952
+           : 300),
       1);
 
   // Finish all the animation to make sure there is no another animation queued
@@ -334,11 +339,11 @@ TEST_F(ScrollIntoViewTest, ScrollWindowAbortsCurrentAnimation) {
 
   Element* container = GetDocument().getElementById("container");
   Element* content = GetDocument().getElementById("content");
-  ScrollIntoViewOptionsOrBoolean arg;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   options->setBlock("start");
   options->setBehavior("smooth");
-  arg.SetScrollIntoViewOptions(options);
+  auto* arg =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   Compositor().BeginFrame();
   ASSERT_EQ(Window().scrollY(), 0);
   ASSERT_EQ(container->scrollTop(), 0);
@@ -350,8 +355,9 @@ TEST_F(ScrollIntoViewTest, ScrollWindowAbortsCurrentAnimation) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       Window().scrollY(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 800
+           : 299),
       1);
   ASSERT_EQ(container->scrollTop(), 0);
 
@@ -365,8 +371,8 @@ TEST_F(ScrollIntoViewTest, ScrollWindowAbortsCurrentAnimation) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       Window().scrollY(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 165
-                                                                        : 58),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations) ? 165
+                                                                          : 58),
       1);
 
   Compositor().BeginFrame(1);
@@ -392,13 +398,13 @@ TEST_F(ScrollIntoViewTest, BlockAndInlineSettings) {
   int window_width = 800;
 
   Element* content = GetDocument().getElementById("content");
-  ScrollIntoViewOptionsOrBoolean arg1, arg2, arg3, arg4;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   ASSERT_EQ(Window().scrollY(), 0);
 
   options->setBlock("nearest");
   options->setInlinePosition("nearest");
-  arg1.SetScrollIntoViewOptions(options);
+  auto* arg1 =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   content->scrollIntoView(arg1);
   ASSERT_EQ(Window().scrollX(),
             content->OffsetLeft() + content_width - window_width);
@@ -407,14 +413,16 @@ TEST_F(ScrollIntoViewTest, BlockAndInlineSettings) {
 
   options->setBlock("start");
   options->setInlinePosition("start");
-  arg2.SetScrollIntoViewOptions(options);
+  auto* arg2 =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   content->scrollIntoView(arg2);
   ASSERT_EQ(Window().scrollX(), content->OffsetLeft());
   ASSERT_EQ(Window().scrollY(), content->OffsetTop());
 
   options->setBlock("center");
   options->setInlinePosition("center");
-  arg3.SetScrollIntoViewOptions(options);
+  auto* arg3 =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   content->scrollIntoView(arg3);
   ASSERT_EQ(Window().scrollX(),
             content->OffsetLeft() + (content_width - window_width) / 2);
@@ -423,7 +431,8 @@ TEST_F(ScrollIntoViewTest, BlockAndInlineSettings) {
 
   options->setBlock("end");
   options->setInlinePosition("end");
-  arg4.SetScrollIntoViewOptions(options);
+  auto* arg4 =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   content->scrollIntoView(arg4);
   ASSERT_EQ(Window().scrollX(),
             content->OffsetLeft() + content_width - window_width);
@@ -451,10 +460,10 @@ TEST_F(ScrollIntoViewTest, SmoothAndInstantInChain) {
   Element* container = GetDocument().getElementById("container");
   Element* inner_container = GetDocument().getElementById("inner_container");
   Element* content = GetDocument().getElementById("content");
-  ScrollIntoViewOptionsOrBoolean arg;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   options->setBlock("start");
-  arg.SetScrollIntoViewOptions(options);
+  auto* arg =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   Compositor().BeginFrame();
   ASSERT_EQ(Window().scrollY(), 0);
   ASSERT_EQ(container->scrollTop(), 0);
@@ -473,8 +482,9 @@ TEST_F(ScrollIntoViewTest, SmoothAndInstantInChain) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       container->scrollTop(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 794
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 794
+           : 299),
       1);
 
   // Finish scrolling the container
@@ -510,8 +520,9 @@ TEST_F(ScrollIntoViewTest, SmoothScrollAnchor) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       container->scrollTop(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 794
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 794
+           : 299),
       1);
 
   // Finish scrolling the container
@@ -553,10 +564,10 @@ TEST_F(ScrollIntoViewTest, ApplyRootElementScrollBehaviorToViewport) {
       "<div id='content' style='height: 1000px'></div></html>");
 
   Element* content = GetDocument().getElementById("content");
-  ScrollIntoViewOptionsOrBoolean arg;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   options->setBlock("start");
-  arg.SetScrollIntoViewOptions(options);
+  auto* arg =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   Compositor().BeginFrame();
   ASSERT_EQ(Window().scrollY(), 0);
 
@@ -567,8 +578,9 @@ TEST_F(ScrollIntoViewTest, ApplyRootElementScrollBehaviorToViewport) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       Window().scrollY(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 800
+           : 299),
       1);
 
   // Finish scrolling the container
@@ -742,8 +754,9 @@ TEST_F(ScrollIntoViewTest, SmoothUserScrollNotAbortedByProgrammaticScrolls) {
   Compositor().BeginFrame(0.2);
   ASSERT_NEAR(
       Window().scrollY(),
-      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
-                                                                        : 299),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 800
+           : 299),
       1);
 
   // ProgrammaticScroll that could interrupt the current smooth scroll.
@@ -768,22 +781,23 @@ TEST_F(ScrollIntoViewTest, LongDistanceSmoothScrollFinishedInThreeSeconds) {
   ASSERT_EQ(Window().scrollY(), 0);
 
   Element* target = GetDocument().getElementById("target");
-  ScrollIntoViewOptionsOrBoolean arg;
   ScrollIntoViewOptions* options = ScrollIntoViewOptions::Create();
   options->setBlock("start");
   options->setBehavior("smooth");
-  arg.SetScrollIntoViewOptions(options);
+  auto* arg =
+      MakeGarbageCollected<V8UnionBooleanOrScrollIntoViewOptions>(options);
   target->scrollIntoView(arg);
 
   // Scrolling the window
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(),
-              (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations)
-                   ? 79389
-                   : 16971),
-              1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(::features::kImpulseScrollAnimations)
+           ? 79389
+           : 16971),
+      1);
 
   // Finish scrolling the container
   Compositor().BeginFrame(0.5);

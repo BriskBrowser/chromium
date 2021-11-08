@@ -5,6 +5,8 @@
 #ifndef IOS_PUBLIC_PROVIDER_CHROME_BROWSER_SIGNIN_CHROME_IDENTITY_SERVICE_H_
 #define IOS_PUBLIC_PROVIDER_CHROME_BROWSER_SIGNIN_CHROME_IDENTITY_SERVICE_H_
 
+#include <CoreFoundation/CoreFoundation.h>
+
 #include <set>
 #include <string>
 #include <vector>
@@ -13,11 +15,8 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 
-class ChromeBrowserState;
 @class ChromeIdentity;
-@protocol ChromeIdentityBrowserOpener;
 @class ChromeIdentityInteractionManager;
-@protocol ChromeIdentityInteractionManagerDelegate;
 @class NSArray;
 @class NSDate;
 @class NSDictionary;
@@ -44,9 +43,6 @@ typedef void (^AccessTokenCallback)(NSString* token,
 // completed with success.
 typedef void (^ForgetIdentityCallback)(NSError* error);
 
-// Callback passed to method |GetAvatarForIdentity()|.
-typedef void (^GetAvatarCallback)(UIImage* avatar);
-
 // Callback passed to method |GetHostedDomainForIdentity()|.
 // |hosted_domain|:
 //   + nil, if error.
@@ -65,9 +61,36 @@ typedef void (^MDMStatusCallback)(bool is_blocked);
 // |animated| the view will be dismissed with animation if the value is YES.
 typedef void (^DismissASMViewControllerBlock)(BOOL animated);
 
+// Defines account capability state based on GCRSSOCapabilityResult.
+enum class ChromeIdentityCapabilityResult {
+  // Capability is not allowed for identity.
+  kFalse,
+  // Capability is allowed for identity.
+  kTrue,
+  // Capability has not been set for identity.
+  kUnknown,
+};
+
+// Callback to retrieve account capabilities. Maps |capability_result| to the
+// corresponding state in ChromeIdentityCapabilityResult.
+typedef void (^CapabilitiesCallback)(
+    ChromeIdentityCapabilityResult capability_result);
+
+// Callback for fetching the set of supported capabilities and their
+// corresponding states as defined in ChromeIdentityCapabilityResult.
+typedef void (^ChromeIdentityCapabilitiesFetchCompletionBlock)(
+    NSDictionary* capabilities,
+    NSError* error);
+
 // Opaque type representing the MDM (Mobile Device Management) status of the
 // device. Checking for equality is guaranteed to be valid.
 typedef int MDMDeviceStatus;
+
+// Value returned by IdentityIteratorCallback.
+enum IdentityIteratorCallbackResult {
+  kIdentityIteratorContinueIteration,
+  kIdentityIteratorInterruptIteration,
+};
 
 // ChromeIdentityService abstracts the signin flow on iOS.
 class ChromeIdentityService {
@@ -76,6 +99,10 @@ class ChromeIdentityService {
   class Observer {
    public:
     Observer() {}
+
+    Observer(const Observer&) = delete;
+    Observer& operator=(const Observer&) = delete;
+
     virtual ~Observer() {}
 
     // Handles identity list changed events.
@@ -97,20 +124,19 @@ class ChromeIdentityService {
 
     // Called when the ChromeIdentityService will be destroyed.
     virtual void OnChromeIdentityServiceWillBeDestroyed() {}
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(Observer);
   };
 
-  ChromeIdentityService();
-  virtual ~ChromeIdentityService();
+  // Callback invoked for each ChromeIdentity when iterating over them with
+  // `IterateOverIdentities()`.
+  using IdentityIteratorCallback =
+      base::RepeatingCallback<IdentityIteratorCallbackResult(ChromeIdentity*)>;
 
-  // Handles open URL authentication callback. Returns whether the URL was
-  // actually handled. This should be called within
-  // -[<UIApplicationDelegate> application:openURL:options:].
-  virtual bool HandleApplicationOpenURL(UIApplication* application,
-                                        NSURL* url,
-                                        NSDictionary* options);
+  ChromeIdentityService();
+
+  ChromeIdentityService(const ChromeIdentityService&) = delete;
+  ChromeIdentityService& operator=(const ChromeIdentityService&) = delete;
+
+  virtual ~ChromeIdentityService();
 
   // Handles open URL authentication callback. Returns whether the URL was
   // actually handled. This should be called within
@@ -151,28 +177,12 @@ class ChromeIdentityService {
   // Returns a new ChromeIdentityInteractionManager with |delegate| as its
   // delegate.
   virtual ChromeIdentityInteractionManager*
-  CreateChromeIdentityInteractionManager(
-      ChromeBrowserState* browser_state,
-      id<ChromeIdentityInteractionManagerDelegate> delegate) const;
+  CreateChromeIdentityInteractionManager() const;
 
-  // Returns YES if |identity| is valid and if the service has it in its list of
-  // identitites.
-  virtual bool IsValidIdentity(ChromeIdentity* identity);
-
-  // Returns the chrome identity having the gaia ID equal to |gaia_id| or |nil|
-  // if no matching identity is found.
-  virtual ChromeIdentity* GetIdentityWithGaiaID(const std::string& gaia_id);
-
-  // Returns true if there is at least one identity.
-  virtual bool HasIdentities();
-
-  // Returns all ChromeIdentity objects in an array.
-  virtual NSArray* GetAllIdentities();
-
-  // Returns all ChromeIdentity objects sorted by the ordering used in the
-  // account manager, which is typically based on the keychain ordering of
-  // accounts.
-  virtual NSArray* GetAllIdentitiesSortedForDisplay();
+  // Iterates over all known ChromeIdentities, sorted by the ordering used
+  // in account manager, which is typically based on the keychain ordering
+  // of accounts.
+  virtual void IterateOverIdentities(IdentityIteratorCallback callback);
 
   // Forgets the given identity on the device. This method logs the user out.
   // It is asynchronous because it needs to contact the server to revoke the
@@ -196,9 +206,9 @@ class ChromeIdentityService {
 
   // Fetches the profile avatar, from the cache or the network.
   // For high resolution iPads, returns large images (200 x 200) to avoid
-  // pixelization. Calls back on the main thread. |callback| may be nil.
-  virtual void GetAvatarForIdentity(ChromeIdentity* identity,
-                                    GetAvatarCallback callback);
+  // pixelization.
+  // Observer::OnProfileUpdate() will be called when the avatar is available.
+  virtual void GetAvatarForIdentity(ChromeIdentity* identity);
 
   // Synchronously returns any cached avatar, or nil.
   // GetAvatarForIdentity() should be generally used instead of this method.
@@ -217,7 +227,18 @@ class ChromeIdentityService {
   //     has a hosted domain.
   virtual NSString* GetCachedHostedDomainForIdentity(ChromeIdentity* identity);
 
-  // Retuns the MDM device status associated with |user_info|.
+  // Asynchronously returns the value of the account capability that determines
+  // whether Chrome should offer extended sync promos to |identity|. This value
+  // will have a refresh period of 24 hours, meaning that at retrieval it may be
+  // stale. If the value is not populated, as in a fresh install, the callback
+  // will evaluate to false.
+  void CanOfferExtendedSyncPromos(ChromeIdentity* identity,
+                                  CapabilitiesCallback callback);
+
+  // Returns true if the service can be used, and supports ChromeIdentity list.
+  virtual bool IsServiceSupported();
+
+  // Returns the MDM device status associated with |user_info|.
   virtual MDMDeviceStatus GetMDMDeviceStatus(NSDictionary* user_info);
 
   // Handles a potential MDM (Mobile Device Management) notification. Returns
@@ -241,6 +262,12 @@ class ChromeIdentityService {
   virtual bool IsInvalidGrantError(NSDictionary* user_info);
 
  protected:
+  // Asynchronously retrieves the list of supported capabilities for the given
+  // Chrome identity.
+  virtual void FetchCapabilities(
+      NSArray* capabilities,
+      ChromeIdentity* identity,
+      ChromeIdentityCapabilitiesFetchCompletionBlock completion);
   // Fires |OnIdentityListChanged| on all observers.
   // |keychainReload| is true if the identity list is updated by reloading the
   // keychain. This means that a first party Google app had added or removed
@@ -257,8 +284,6 @@ class ChromeIdentityService {
 
  private:
   base::ObserverList<Observer, true>::Unchecked observer_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeIdentityService);
 };
 
 }  // namespace ios

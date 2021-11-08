@@ -4,24 +4,25 @@
 
 import {assertEquals, assertFalse, assertTrue} from 'chrome://test/chai_assert.js';
 
-import {installMockChrome, MockCommandLinePrivate} from '../../../base/js/mock_chrome.m.js';
-import {reportPromise} from '../../../base/js/test_error_reporting.m.js';
-import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
-import {duplicateFinderInterfaces} from '../../../externs/background/duplicate_finder.m.js';
-import {importerHistoryInterfaces} from '../../../externs/background/import_history.m.js';
-import {mediaImportInterfaces} from '../../../externs/background/media_import_handler.m.js';
-import {VolumeInfo} from '../../../externs/volume_info.m.js';
-import {importer} from '../../common/js/importer_common.m.js';
-import {MockDirectoryEntry, MockFileSystem} from '../../common/js/mock_entry.m.js';
-import {importerTest} from '../../common/js/test_importer_common.m.js';
+import {importer} from '../../common/js/importer_common.js';
+import {MockCommandLinePrivate} from '../../common/js/mock_chrome.js';
+import {MockDirectoryEntry, MockFileSystem} from '../../common/js/mock_entry.js';
+import {reportPromise} from '../../common/js/test_error_reporting.js';
+import {importerTest} from '../../common/js/test_importer_common.js';
+import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
+import {xfm} from '../../common/js/xfm.js';
+import {duplicateFinderInterfaces} from '../../externs/background/duplicate_finder.js';
+import {importerHistoryInterfaces} from '../../externs/background/import_history.js';
+import {mediaImportInterfaces} from '../../externs/background/media_import_handler.js';
+import {VolumeInfo} from '../../externs/volume_info.js';
 
-import {fileOperationUtil} from './file_operation_util.m.js';
-import {mediaImport} from './media_import_handler.m.js';
-import {MockDriveSyncHandler} from './mock_drive_sync_handler.m.js';
-import {TestScanResult} from './mock_media_scanner.m.js';
-import {MockProgressCenter} from './mock_progress_center.m.js';
-import {MockVolumeManager} from './mock_volume_manager.m.js';
-import {importerTestHistory} from './test_import_history.m.js';
+import {fileOperationUtil} from './file_operation_util.js';
+import {mediaImport} from './media_import_handler.js';
+import {MockDriveSyncHandler} from './mock_drive_sync_handler.js';
+import {TestScanResult} from './mock_media_scanner.js';
+import {MockProgressCenter} from './mock_progress_center.js';
+import {MockVolumeManager} from './mock_volume_manager.js';
+import {importerTestHistory} from './test_import_history.js';
 
 /** @type {!MockProgressCenter} */
 let progressCenter;
@@ -58,33 +59,24 @@ window.metrics = {
   recordBoolean: function() {},
 };
 
-/**
- * Mock Chrome APIs
- * @type {!Object}
- */
-let mockChrome;
-
 // Set up the test components.
 export function setUp() {
   // Mock loadTimeData strings.
   window.loadTimeData.getString = id => id;
 
-  // Setup mock chrome APIs.
-  mockChrome = {
-    power: {
-      requestKeepAwakeWasCalled: false,
-      requestKeepAwakeStatus: false,
-      requestKeepAwake: function() {
-        mockChrome.power.requestKeepAwakeWasCalled = true;
-        mockChrome.power.requestKeepAwakeStatus = true;
-      },
-      releaseKeepAwake: function() {
-        mockChrome.power.requestKeepAwakeStatus = false;
-      }
-    },
+  // Setup mock xfm.power APIs.
+  xfm.power.requestKeepAwakeWasCalled = false;
+  xfm.power.requestKeepAwakeStatus = false;
+  xfm.power.requestKeepAwake =
+      /** @type{function(string):!Promise<boolean>} */ (function(type) {
+        xfm.power.requestKeepAwakeWasCalled = true;
+        xfm.power.requestKeepAwakeStatus = true;
+        return Promise.resolve(true);
+      });
+  xfm.power.releaseKeepAwake = function() {
+    xfm.power.requestKeepAwakeStatus = false;
   };
 
-  installMockChrome(mockChrome);
   new MockCommandLinePrivate();
 
   // Replace fileOperationUtil.copyTo with mock test function.
@@ -356,7 +348,7 @@ export function testKeepAwakeDuringImport(callback) {
          */
         (updateType, opt_task) => {
           // Assert that keepAwake is set while the task is active.
-          assertTrue(mockChrome.power.requestKeepAwakeStatus);
+          assertTrue(xfm.power.requestKeepAwakeStatus);
           switch (updateType) {
             case importer.UpdateType.COMPLETE:
               resolve();
@@ -370,8 +362,8 @@ export function testKeepAwakeDuringImport(callback) {
 
   reportPromise(
       whenImportDone.then(() => {
-        assertTrue(mockChrome.power.requestKeepAwakeWasCalled);
-        assertFalse(mockChrome.power.requestKeepAwakeStatus);
+        assertTrue(xfm.power.requestKeepAwakeWasCalled);
+        assertFalse(xfm.power.requestKeepAwakeStatus);
         const mockDirectoryEntry =
             /** @type {!MockDirectoryEntry} */ (destinationFileSystem.root);
         const copiedEntries = mockDirectoryEntry.getAllChildren();

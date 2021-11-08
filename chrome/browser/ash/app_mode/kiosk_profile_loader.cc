@@ -4,37 +4,37 @@
 
 #include "chrome/browser/ash/app_mode/kiosk_profile_loader.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/syslog_logging.h"
 #include "base/system/sys_info.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_types.h"
-#include "chrome/browser/chromeos/login/auth/chrome_login_performer.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_app_launcher.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ash/login/auth/chrome_login_performer.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/userdataauth/userdataauth_client.h"
 #include "chromeos/login/auth/auth_status_consumer.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/gaia/gaia_auth_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
 
 namespace {
 
-using ::chromeos::CryptohomeClient;
+using ::chromeos::UserDataAuthClient;
 using ::content::BrowserThread;
 
 KioskAppLaunchError::Error LoginFailureToKioskAppLaunchError(
@@ -60,7 +60,7 @@ constexpr int kFailedMountRetries = 3;
 ////////////////////////////////////////////////////////////////////////////////
 // KioskProfileLoader::CryptohomedChecker ensures cryptohome daemon is up
 // and running by issuing an IsMounted call. If the call does not go through
-// and base::nullopt is not returned, it will retry after some time out and at
+// and absl::nullopt is not returned, it will retry after some time out and at
 // the maximum five times before it gives up. Upon success, it resumes the
 // launch by logging in as a kiosk mode account.
 
@@ -69,10 +69,12 @@ class KioskProfileLoader::CryptohomedChecker
  public:
   explicit CryptohomedChecker(KioskProfileLoader* loader)
       : loader_(loader), retry_count_(0) {}
+  CryptohomedChecker(const CryptohomedChecker&) = delete;
+  CryptohomedChecker& operator=(const CryptohomedChecker&) = delete;
   ~CryptohomedChecker() {}
 
   void StartCheck() {
-    CryptohomeClient::Get()->WaitForServiceToBeAvailable(base::BindOnce(
+    UserDataAuthClient::Get()->WaitForServiceToBeAvailable(base::BindOnce(
         &CryptohomedChecker::OnServiceAvailibityChecked, AsWeakPtr()));
   }
 
@@ -89,7 +91,7 @@ class KioskProfileLoader::CryptohomedChecker
     const int retry_delay_in_milliseconds = 500 * (1 << retry_count_);
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, base::BindOnce(&CryptohomedChecker::StartCheck, AsWeakPtr()),
-        base::TimeDelta::FromMilliseconds(retry_delay_in_milliseconds));
+        base::Milliseconds(retry_delay_in_milliseconds));
   }
 
   void OnServiceAvailibityChecked(bool service_is_ready) {
@@ -98,18 +100,21 @@ class KioskProfileLoader::CryptohomedChecker
       return;
     }
 
-    CryptohomeClient::Get()->IsMounted(base::BindOnce(
-        &CryptohomedChecker::OnCryptohomeIsMounted, AsWeakPtr()));
+    UserDataAuthClient::Get()->IsMounted(
+        user_data_auth::IsMountedRequest(),
+        base::BindOnce(&CryptohomedChecker::OnCryptohomeIsMounted,
+                       AsWeakPtr()));
   }
 
-  void OnCryptohomeIsMounted(base::Optional<bool> is_mounted) {
-    if (!is_mounted.has_value()) {
+  void OnCryptohomeIsMounted(
+      absl::optional<user_data_auth::IsMountedReply> reply) {
+    if (!reply.has_value()) {
       Retry();
       return;
     }
 
-    // Proceed only when cryptohome is not mounded or running on dev box.
-    if (!is_mounted.value() || !base::SysInfo::IsRunningOnChromeOS()) {
+    // Proceed only when cryptohome is not mounted or running on dev box.
+    if (!reply->is_mounted() || !base::SysInfo::IsRunningOnChromeOS()) {
       ReportCheckResult(KioskAppLaunchError::Error::kNone);
     } else {
       SYSLOG(ERROR) << "Cryptohome is mounted before launching kiosk app.";
@@ -126,8 +131,6 @@ class KioskProfileLoader::CryptohomedChecker
 
   KioskProfileLoader* loader_;
   int retry_count_;
-
-  DISALLOW_COPY_AND_ASSIGN(CryptohomedChecker);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -135,11 +138,9 @@ class KioskProfileLoader::CryptohomedChecker
 
 KioskProfileLoader::KioskProfileLoader(const AccountId& app_account_id,
                                        KioskAppType app_type,
-                                       bool use_guest_mount,
                                        Delegate* delegate)
     : account_id_(app_account_id),
       app_type_(app_type),
-      use_guest_mount_(use_guest_mount),
       delegate_(delegate),
       failed_mount_attempts_(0) {}
 
@@ -148,24 +149,20 @@ KioskProfileLoader::~KioskProfileLoader() {}
 void KioskProfileLoader::Start() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   login_performer_.reset();
-  cryptohomed_checker_.reset(new CryptohomedChecker(this));
+  cryptohomed_checker_ = std::make_unique<CryptohomedChecker>(this);
   cryptohomed_checker_->StartCheck();
 }
 
 void KioskProfileLoader::LoginAsKioskAccount() {
-  login_performer_.reset(new ChromeLoginPerformer(this));
+  login_performer_ = std::make_unique<ChromeLoginPerformer>(this);
   switch (app_type_) {
     case KioskAppType::kArcApp:
-      // Arc kiosks do not support ephemeral mount.
-      DCHECK(!use_guest_mount_);
       login_performer_->LoginAsArcKioskAccount(account_id_);
       return;
     case KioskAppType::kChromeApp:
-      login_performer_->LoginAsKioskAccount(account_id_, use_guest_mount_);
+      login_performer_->LoginAsKioskAccount(account_id_);
       return;
     case KioskAppType::kWebApp:
-      // Web kiosks do not support ephemeral mount.
-      DCHECK(!use_guest_mount_);
       login_performer_->LoginAsWebKioskAccount(account_id_);
       return;
   }
@@ -186,16 +183,8 @@ void KioskProfileLoader::OnAuthSuccess(const UserContext& user_context) {
 
   failed_mount_attempts_ = 0;
 
-  // If we are launching a demo session, we need to start MountGuest with the
-  // guest username; this is because there are several places in the cros code
-  // which rely on the username sent to cryptohome to be $guest. Back in Chrome
-  // we switch this back to the demo user name to correctly identify this
-  // user as a demo user.
-  UserContext context = user_context;
-  if (context.GetAccountId() == user_manager::GuestAccountId())
-    context.SetAccountId(user_manager::DemoAccountId());
   UserSessionManager::GetInstance()->StartSession(
-      context, UserSessionManager::PRIMARY_USER_SESSION,
+      user_context, UserSessionManager::StartSessionType::kPrimary,
       false,  // has_auth_cookies
       false,  // Start session for user.
       this);

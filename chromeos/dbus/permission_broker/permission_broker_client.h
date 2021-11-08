@@ -53,6 +53,9 @@ class COMPONENT_EXPORT(PERMISSION_BROKER) PermissionBrokerClient {
   // Returns the global instance if initialized. May return null.
   static PermissionBrokerClient* Get();
 
+  PermissionBrokerClient(const PermissionBrokerClient&) = delete;
+  PermissionBrokerClient& operator=(const PermissionBrokerClient&) = delete;
+
   // CheckPathAccess requests a hint from the permission broker about whether
   // a later call to RequestPathAccess will be successful. It presumes that
   // the |interface_id| value passed to RequestPathAccess will be
@@ -167,11 +170,13 @@ class COMPONENT_EXPORT(PERMISSION_BROKER) PermissionBrokerClient {
   // Initialize/Shutdown should be used instead.
   PermissionBrokerClient();
   virtual ~PermissionBrokerClient();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PermissionBrokerClient);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+using ::chromeos::PermissionBrokerClient;
+}  // namespace ash
 
 #endif  // CHROMEOS_DBUS_PERMISSION_BROKER_PERMISSION_BROKER_CLIENT_H_

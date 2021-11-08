@@ -2,14 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/payments/android/payment_app_service_bridge.h"
-
 #include <vector>
 
 #include "base/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/payments/content/android/payment_app_service_bridge.h"
 #include "components/payments/content/payment_manifest_web_data_service.h"
 #include "components/payments/content/payment_request_spec.h"
 #include "content/public/browser/web_contents.h"
@@ -29,6 +28,7 @@ class MockCallback {
   MOCK_METHOD1(NotifyCanMakePaymentCalculated, void(bool can_make_payment));
   MOCK_METHOD1(NotifyPaymentAppCreationError, void(const std::string& error));
   MOCK_METHOD0(NotifyDoneCreatingPaymentApps, void(void));
+  MOCK_METHOD0(SetCanMakePaymentEvenWithoutApps, void(void));
 };
 
 class MockApp : public PaymentApp {
@@ -40,17 +40,17 @@ class MockApp : public PaymentApp {
   ~MockApp() override = default;
 
   // PaymentApp implementation:
-  MOCK_METHOD1(InvokePaymentApp, void(Delegate* delegate));
+  MOCK_METHOD1(InvokePaymentApp, void(base::WeakPtr<Delegate> delegate));
   MOCK_CONST_METHOD0(IsCompleteForPayment, bool());
   MOCK_CONST_METHOD0(GetCompletenessScore, uint32_t());
   MOCK_CONST_METHOD0(CanPreselect, bool());
-  MOCK_CONST_METHOD0(GetMissingInfoLabel, base::string16());
+  MOCK_CONST_METHOD0(GetMissingInfoLabel, std::u16string());
   MOCK_CONST_METHOD0(HasEnrolledInstrument, bool());
   MOCK_METHOD0(RecordUse, void());
   MOCK_CONST_METHOD0(NeedsInstallation, bool());
   MOCK_CONST_METHOD0(GetId, std::string());
-  MOCK_CONST_METHOD0(GetLabel, base::string16());
-  MOCK_CONST_METHOD0(GetSublabel, base::string16());
+  MOCK_CONST_METHOD0(GetLabel, std::u16string());
+  MOCK_CONST_METHOD0(GetSublabel, std::u16string());
   MOCK_CONST_METHOD3(IsValidForModifier,
                      bool(const std::string& method,
                           bool supported_networks_specified,
@@ -112,7 +112,9 @@ TEST_P(PaymentAppServiceBridgeUnitTest, Smoke) {
           base::BindRepeating(&MockCallback::NotifyPaymentAppCreationError,
                               base::Unretained(&mock_callback)),
           base::BindOnce(&MockCallback::NotifyDoneCreatingPaymentApps,
-                         base::Unretained(&mock_callback)))
+                         base::Unretained(&mock_callback)),
+          base::BindRepeating(&MockCallback::SetCanMakePaymentEvenWithoutApps,
+                              base::Unretained(&mock_callback)))
           ->GetWeakPtr();
 
   EXPECT_TRUE(bridge->SkipCreatingNativePaymentApps());
@@ -131,6 +133,9 @@ TEST_P(PaymentAppServiceBridgeUnitTest, Smoke) {
   auto app = std::make_unique<MockApp>();
   EXPECT_CALL(mock_callback, NotifyPaymentAppCreated(::testing::_));
   bridge->OnPaymentAppCreated(std::move(app));
+
+  EXPECT_CALL(mock_callback, SetCanMakePaymentEvenWithoutApps());
+  bridge->SetCanMakePaymentEvenWithoutApps();
 
   EXPECT_CALL(mock_callback, NotifyPaymentAppCreationError("some error"));
   bridge->OnPaymentAppCreationError("some error");

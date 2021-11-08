@@ -8,7 +8,7 @@
 #include "chrome/browser/sharing/sharing_ui_controller.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 
 namespace views {
 // TODO(ellyjones): Remove this.
@@ -45,7 +45,7 @@ class SharingIconView : public PageActionIconView {
   views::BubbleDialogDelegate* GetBubble() const override;
   void UpdateImpl() override;
   const gfx::VectorIcon& GetVectorIcon() const override;
-  base::string16 GetTextForTooltipAndAccessibleName() const override;
+  std::u16string GetTextForTooltipAndAccessibleName() const override;
 
   // gfx::AnimationDelegate:
   void AnimationProgressed(const gfx::Animation* animation) override;

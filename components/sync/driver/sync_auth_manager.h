@@ -7,7 +7,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "base/callback.h"
 #include "base/macros.h"
@@ -53,6 +52,10 @@ class SyncAuthManager : public signin::IdentityManager::Observer {
   SyncAuthManager(signin::IdentityManager* identity_manager,
                   const AccountStateChangedCallback& account_state_changed,
                   const CredentialsChangedCallback& credentials_changed);
+
+  SyncAuthManager(const SyncAuthManager&) = delete;
+  SyncAuthManager& operator=(const SyncAuthManager&) = delete;
+
   ~SyncAuthManager() override;
 
   // Tells the tracker to start listening for changes to the account/sign-in
@@ -91,15 +94,15 @@ class SyncAuthManager : public signin::IdentityManager::Observer {
   // internals UI.
   SyncTokenStatus GetSyncTokenStatus() const;
 
-  // Called by ProfileSyncService when Sync starts up and will try talking to
+  // Called by SyncServiceImpl when Sync starts up and will try talking to
   // the server soon. This initiates fetching an access token.
   void ConnectionOpened();
 
-  // Called by ProfileSyncService when the status of the connection to the Sync
+  // Called by SyncServiceImpl when the status of the connection to the Sync
   // server changed. Updates auth error state accordingly.
   void ConnectionStatusChanged(ConnectionStatus status);
 
-  // Called by ProfileSyncService when the connection to the Sync server is
+  // Called by SyncServiceImpl when the connection to the Sync server is
   // closed (due to Sync being shut down). Clears all related state (such as
   // cached access token, error from the server, etc).
   void ConnectionClosed();
@@ -203,8 +206,6 @@ class SyncAuthManager : public signin::IdentityManager::Observer {
   bool access_token_retried_ = false;
 
   base::WeakPtrFactory<SyncAuthManager> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SyncAuthManager);
 };
 
 }  // namespace syncer

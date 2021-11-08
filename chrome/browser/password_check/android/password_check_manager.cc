@@ -8,7 +8,7 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/password_check/android/password_check_bridge.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_utils.h"
 #include "components/password_manager/core/browser/password_form.h"
@@ -20,20 +20,23 @@
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
-#include "components/sync/driver/profile_sync_service.h"
 #include "components/url_formatter/url_formatter.h"
 #include "components/version_info/version_info.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
-base::string16 GetDisplayUsername(const base::string16& username) {
+std::u16string GetDisplayUsername(const std::u16string& username) {
   return username.empty()
              ? l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_EMPTY_LOGIN)
              : username;
 }
 
 }  // namespace
+
+constexpr base::FeatureParam<int> kCredentialLastUsedDaysThreshold{
+    &password_manager::features::kPasswordChangeOnlyRecentCredentials,
+    "credenital_last_used_days_threshold", /* two years */ 730};
 
 using password_manager::PasswordForm;
 
@@ -62,9 +65,10 @@ CompromisedCredentialForUI::~CompromisedCredentialForUI() = default;
 
 PasswordCheckManager::PasswordCheckManager(Profile* profile, Observer* observer)
     : observer_(observer), profile_(profile) {
-  observed_saved_passwords_presenter_.Add(&saved_passwords_presenter_);
-  observed_insecure_credentials_manager_.Add(&insecure_credentials_manager_);
-  observed_bulk_leak_check_service_.Add(
+  observed_saved_passwords_presenter_.Observe(&saved_passwords_presenter_);
+  observed_insecure_credentials_manager_.Observe(
+      &insecure_credentials_manager_);
+  observed_bulk_leak_check_service_.Observe(
       BulkLeakCheckServiceFactory::GetForProfile(profile));
 
   // Instructs the presenter and provider to initialize and build their caches.
@@ -134,6 +138,28 @@ void PasswordCheckManager::UpdateCredential(
   insecure_credentials_manager_.UpdateCredential(credential, new_password);
 }
 
+void PasswordCheckManager::OnEditCredential(
+    const password_manager::CredentialView& credential,
+    const base::android::JavaParamRef<jobject>& context,
+    const base::android::JavaParamRef<jobject>& settings_launcher) {
+  password_manager::SavedPasswordsPresenter::SavedPasswordsView forms =
+      insecure_credentials_manager_.GetSavedPasswordsFor(credential);
+  if (forms.empty() || credential_edit_bridge_)
+    return;
+
+  const PasswordForm form =
+      insecure_credentials_manager_.GetSavedPasswordsFor(credential)[0];
+
+  credential_edit_bridge_ = CredentialEditBridge::MaybeCreate(
+      std::move(form), CredentialEditBridge::IsInsecureCredential(true),
+      saved_passwords_presenter_.GetUsernamesForRealm(
+          credential.signon_realm, form.IsUsingAccountStore()),
+      &saved_passwords_presenter_, nullptr,
+      base::BindOnce(&PasswordCheckManager::OnEditUIDismissed,
+                     base::Unretained(this)),
+      context, settings_launcher);
+}
+
 void PasswordCheckManager::RemoveCredential(
     const password_manager::CredentialView& credential) {
   insecure_credentials_manager_.RemoveCredential(credential);
@@ -191,6 +217,9 @@ void PasswordCheckManager::OnStateChanged(State state) {
     profile_->GetPrefs()->SetDouble(
         password_manager::prefs::kLastTimePasswordCheckCompleted,
         base::Time::Now().ToDoubleT());
+    profile_->GetPrefs()->SetTime(
+        password_manager::prefs::kSyncedLastTimePasswordCheckCompleted,
+        base::Time::Now());
   }
 
   if (state != State::kRunning) {
@@ -253,7 +282,7 @@ CompromisedCredentialForUI PasswordCheckManager::MakeUICredential(
 
   } else {
     ui_credential.display_origin = url_formatter::FormatUrl(
-        credential.url.GetOrigin(),
+        credential.url.DeprecatedGetOriginAsURL(),
         url_formatter::kFormatUrlOmitDefaults |
             url_formatter::kFormatUrlOmitHTTPS |
             url_formatter::kFormatUrlOmitTrivialSubdomains |
@@ -267,19 +296,18 @@ CompromisedCredentialForUI PasswordCheckManager::MakeUICredential(
   ui_credential.has_startable_script =
       !credential.username.empty() && ShouldFetchPasswordScripts() &&
       password_script_fetcher_->IsScriptAvailable(
-          url::Origin::Create(ui_credential.url.GetOrigin()),
+          url::Origin::Create(ui_credential.url.DeprecatedGetOriginAsURL()),
           version_info::GetVersion());
   ui_credential.has_auto_change_button =
-      ui_credential.has_startable_script &&
-      base::FeatureList::IsEnabled(
-          password_manager::features::kPasswordChangeInSettings);
+      ui_credential.has_startable_script && IsEligibleForAutoChange(credential);
 
   return ui_credential;
 }
 
 void PasswordCheckManager::OnBulkCheckServiceShutDown() {
-  observed_bulk_leak_check_service_.Remove(
-      BulkLeakCheckServiceFactory::GetForProfile(profile_));
+  DCHECK(observed_bulk_leak_check_service_.IsObservingSource(
+      BulkLeakCheckServiceFactory::GetForProfile(profile_)));
+  observed_bulk_leak_check_service_.Reset();
 }
 
 PasswordCheckUIStatus PasswordCheckManager::GetUIStatus(State state) const {
@@ -309,22 +337,36 @@ PasswordCheckUIStatus PasswordCheckManager::GetUIStatus(State state) const {
 
 bool PasswordCheckManager::CanUseAccountCheck() const {
   SyncState sync_state = password_manager_util::GetPasswordSyncState(
-      ProfileSyncServiceFactory::GetForProfile(profile_));
+      SyncServiceFactory::GetForProfile(profile_));
   switch (sync_state) {
-    case SyncState::NOT_SYNCING:
+    case SyncState::kNotSyncing:
       ABSL_FALLTHROUGH_INTENDED;
-    case SyncState::SYNCING_WITH_CUSTOM_PASSPHRASE:
+    case SyncState::kSyncingWithCustomPassphrase:
       return false;
 
-    case SyncState::SYNCING_NORMAL_ENCRYPTION:
+    case SyncState::kSyncingNormalEncryption:
       ABSL_FALLTHROUGH_INTENDED;
-    case SyncState::ACCOUNT_PASSWORDS_ACTIVE_NORMAL_ENCRYPTION:
+    case SyncState::kAccountPasswordsActiveNormalEncryption:
       return true;
-
-    default:
-      NOTREACHED();
-      return false;
   }
+}
+
+bool PasswordCheckManager::IsEligibleForAutoChange(
+    const CredentialWithPassword& credential) const {
+  if (!base::FeatureList::IsEnabled(
+          password_manager::features::kPasswordChangeInSettings)) {
+    return false;
+  }
+
+  // return |true| if |kPasswordChangeOnlyRecentCredentials| feature is not
+  // enabled.
+  if (!base::FeatureList::IsEnabled(
+          password_manager::features::kPasswordChangeOnlyRecentCredentials)) {
+    return true;
+  }
+
+  return (base::Time::Now() - credential.last_used_time).InDays() <
+         kCredentialLastUsedDaysThreshold.Get();
 }
 
 bool PasswordCheckManager::AreScriptsRefreshed() const {
@@ -356,25 +398,21 @@ void PasswordCheckManager::OnScriptsFetched() {
 
 bool PasswordCheckManager::ShouldFetchPasswordScripts() const {
   SyncState sync_state = password_manager_util::GetPasswordSyncState(
-      ProfileSyncServiceFactory::GetForProfile(profile_));
+      SyncServiceFactory::GetForProfile(profile_));
 
   // Password change scripts are using password generation, so automatic
   // password change should not be offered to non sync users.
   switch (sync_state) {
-    case SyncState::NOT_SYNCING:
+    case SyncState::kNotSyncing:
       return false;
 
-    case SyncState::SYNCING_WITH_CUSTOM_PASSPHRASE:
+    case SyncState::kSyncingWithCustomPassphrase:
       ABSL_FALLTHROUGH_INTENDED;
-    case SyncState::SYNCING_NORMAL_ENCRYPTION:
+    case SyncState::kSyncingNormalEncryption:
       ABSL_FALLTHROUGH_INTENDED;
-    case SyncState::ACCOUNT_PASSWORDS_ACTIVE_NORMAL_ENCRYPTION:
+    case SyncState::kAccountPasswordsActiveNormalEncryption:
       return base::FeatureList::IsEnabled(
           password_manager::features::kPasswordScriptsFetching);
-
-    default:
-      NOTREACHED();
-      return false;
   }
 }
 
@@ -391,4 +429,8 @@ void PasswordCheckManager::FulfillPrecondition(CheckPreconditions condition) {
 
 void PasswordCheckManager::ResetPrecondition(CheckPreconditions condition) {
   fulfilled_preconditions_ &= ~condition;
+}
+
+void PasswordCheckManager::OnEditUIDismissed() {
+  credential_edit_bridge_.reset();
 }

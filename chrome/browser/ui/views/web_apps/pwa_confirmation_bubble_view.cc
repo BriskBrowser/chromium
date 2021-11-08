@@ -4,9 +4,10 @@
 
 #include "chrome/browser/ui/views/web_apps/pwa_confirmation_bubble_view.h"
 
+#include <string>
+
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -19,15 +20,16 @@
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
 #include "chrome/browser/ui/views/web_apps/web_app_info_image_source.h"
-#include "chrome/browser/web_applications/components/web_app_constants.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/browser/web_applications/components/web_app_prefs_utils.h"
+#include "chrome/browser/web_applications/web_app_constants.h"
+#include "chrome/browser/web_applications/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_prefs_utils.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/feature_engagement/public/event_constants.h"
 #include "components/feature_engagement/public/tracker.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/elide_url.h"
+#include "content/public/common/content_features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/text_elider.h"
@@ -49,7 +51,7 @@ std::unique_ptr<views::ImageView> CreateIconView(
     const WebApplicationInfo& web_app_info) {
   constexpr int kIconSize = 48;
   gfx::ImageSkia image(std::make_unique<WebAppInfoImageSource>(
-                           kIconSize, web_app_info.icon_bitmaps_any),
+                           kIconSize, web_app_info.icon_bitmaps.any),
                        gfx::Size(kIconSize, kIconSize));
 
   auto icon_image_view = std::make_unique<views::ImageView>();
@@ -58,7 +60,7 @@ std::unique_ptr<views::ImageView> CreateIconView(
 }
 
 // Returns a label containing the app name.
-std::unique_ptr<views::Label> CreateNameLabel(const base::string16& name) {
+std::unique_ptr<views::Label> CreateNameLabel(const std::u16string& name) {
   auto name_label = std::make_unique<views::Label>(
       name, views::style::CONTEXT_DIALOG_BODY_TEXT,
       views::style::TextStyle::STYLE_PRIMARY);
@@ -92,7 +94,7 @@ bool PWAConfirmationBubbleView::IsShowing() {
 }
 
 // static
-PWAConfirmationBubbleView* PWAConfirmationBubbleView::GetBubbleForTesting() {
+PWAConfirmationBubbleView* PWAConfirmationBubbleView::GetBubble() {
   return g_bubble_;
 }
 
@@ -121,15 +123,16 @@ PWAConfirmationBubbleView::PWAConfirmationBubbleView(
                  l10n_util::GetStringUTF16(IDS_INSTALL_PWA_BUTTON_LABEL));
   base::TrimWhitespace(web_app_info_->title, base::TRIM_ALL,
                        &web_app_info_->title);
-  // PWAs should always be configured to open in a window.
-  DCHECK(web_app_info_->open_as_window);
+  // PWAs should always be configured not to open in a browser tab.
+  DCHECK_NE(web_app_info_->user_display_mode,
+            blink::mojom::DisplayMode::kBrowser);
 
   const ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
 
   // Use CONTROL insets, because the icon is non-text (see documentation for
   // DialogContentType).
   gfx::Insets margin_insets = layout_provider->GetDialogInsetsForContentType(
-      views::CONTROL, views::CONTROL);
+      views::DialogContentType::kControl, views::DialogContentType::kControl);
   set_margins(margin_insets);
 
   int icon_label_spacing = layout_provider->GetDistanceMetric(
@@ -150,15 +153,16 @@ PWAConfirmationBubbleView::PWAConfirmationBubbleView(
       CreateOriginLabel(url::Origin::Create(web_app_info_->start_url))
           .release());
 
-  if (base::FeatureList::IsEnabled(features::kDesktopPWAsTabStrip)) {
+  if (base::FeatureList::IsEnabled(features::kDesktopPWAsTabStrip) &&
+      base::FeatureList::IsEnabled(features::kDesktopPWAsTabStripSettings)) {
     // This UI is only for prototyping and is not intended for shipping.
-    DCHECK_EQ(features::kDesktopPWAsTabStrip.default_state,
+    DCHECK_EQ(features::kDesktopPWAsTabStripSettings.default_state,
               base::FEATURE_DISABLED_BY_DEFAULT);
     tabbed_window_checkbox_ = labels->AddChildView(
         std::make_unique<views::Checkbox>(l10n_util::GetStringUTF16(
             IDS_BOOKMARK_APP_BUBBLE_OPEN_AS_TABBED_WINDOW)));
-    tabbed_window_checkbox_->SetChecked(
-        web_app_info_->enable_experimental_tabbed_window);
+    tabbed_window_checkbox_->SetChecked(web_app_info_->user_display_mode ==
+                                        web_app::DisplayMode::kTabbed);
   }
 
   chrome::RecordDialogCreation(chrome::DialogIdentifier::PWA_CONFIRMATION);
@@ -185,8 +189,8 @@ void PWAConfirmationBubbleView::WindowClosing() {
 
   // If |web_app_info_| is populated, then the bubble was not accepted.
   if (iph_state_ == chrome::PwaInProductHelpState::kShown && web_app_info_) {
-    web_app::AppId app_id =
-        web_app::GenerateAppIdFromURL(web_app_info_->start_url);
+    web_app::AppId app_id = web_app::GenerateAppId(web_app_info_->manifest_id,
+                                                   web_app_info_->start_url);
     UMA_HISTOGRAM_ENUMERATION("WebApp.InstallIphPromo.Result",
                               web_app::InstallIphResult::kCanceled);
     web_app::RecordInstallIphIgnored(prefs_, app_id, base::Time::Now());
@@ -199,14 +203,14 @@ void PWAConfirmationBubbleView::WindowClosing() {
 
 bool PWAConfirmationBubbleView::Accept() {
   DCHECK(web_app_info_);
-  if (tabbed_window_checkbox_) {
-    web_app_info_->enable_experimental_tabbed_window =
-        tabbed_window_checkbox_->GetChecked();
-  }
+  web_app_info_->user_display_mode =
+      tabbed_window_checkbox_ && tabbed_window_checkbox_->GetChecked()
+          ? web_app::DisplayMode::kTabbed
+          : web_app::DisplayMode::kStandalone;
 
   if (iph_state_ == chrome::PwaInProductHelpState::kShown) {
-    web_app::AppId app_id =
-        web_app::GenerateAppIdFromURL(web_app_info_->start_url);
+    web_app::AppId app_id = web_app::GenerateAppId(web_app_info_->manifest_id,
+                                                   web_app_info_->start_url);
     UMA_HISTOGRAM_ENUMERATION("WebApp.InstallIphPromo.Result",
                               web_app::InstallIphResult::kInstalled);
     web_app::RecordInstallIphInstalled(prefs_, app_id);

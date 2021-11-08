@@ -22,17 +22,17 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
+import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.RecentTabsPageTestUtils;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.components.signin.test.util.FakeProfileDataSource;
+import org.chromium.components.signin.test.util.FakeAccountInfoService;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.url.GURL;
@@ -47,18 +47,18 @@ import java.util.concurrent.ExecutionException;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class RecentTabsPageTest {
-    // FakeProfileDataSource is required to create the ProfileDataCache entry with sync_off badge
+    // FakeAccountInfoService is required to create the ProfileDataCache entry with sync_off badge
     // for Sync promo.
     @Rule
     public final AccountManagerTestRule mAccountManagerTestRule =
-            new AccountManagerTestRule(new FakeProfileDataSource());
+            new AccountManagerTestRule(new FakeAccountInfoService());
 
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().setRevision(2).build();
+            ChromeRenderTestRule.Builder.withPublicCorpus().setRevision(3).build();
 
     private FakeRecentlyClosedTabManager mManager;
     private Tab mTab;
@@ -76,6 +76,8 @@ public class RecentTabsPageTest {
     public void tearDown() {
         leaveRecentTabsPage();
         RecentTabsManager.setRecentlyClosedTabManagerForTests(null);
+        SharedPreferencesManager.getInstance().removeKey(
+                ChromePreferenceKeys.SYNC_PROMO_TOTAL_SHOW_COUNT);
     }
 
     @Test
@@ -99,34 +101,32 @@ public class RecentTabsPageTest {
     @Test
     @LargeTest
     @Feature("RenderTest")
-    @Features.DisableFeatures({ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY})
-    public void testPersonalizedSigninPromoInRecentTabsPageLegacy() throws Exception {
-        mAccountManagerTestRule.addAccount(mAccountManagerTestRule.createProfileDataFromName(
-                AccountManagerTestRule.TEST_ACCOUNT_EMAIL));
-        mPage = loadRecentTabsPage();
-        mRenderTestRule.render(
-                mPage.getView(), "personalized_signin_promo_recent_tabs_page_legacy");
-    }
-
-    @Test
-    @LargeTest
-    @Feature("RenderTest")
-    @Features.EnableFeatures({ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY})
     public void testPersonalizedSigninPromoInRecentTabsPage() throws Exception {
-        mAccountManagerTestRule.addAccount(mAccountManagerTestRule.createProfileDataFromName(
-                AccountManagerTestRule.TEST_ACCOUNT_EMAIL));
+        Assert.assertEquals(0,
+                SharedPreferencesManager.getInstance().readInt(
+                        ChromePreferenceKeys.SYNC_PROMO_TOTAL_SHOW_COUNT));
+        mAccountManagerTestRule.addAccountWithNameAndAvatar(
+                AccountManagerTestRule.TEST_ACCOUNT_EMAIL);
         mPage = loadRecentTabsPage();
         mRenderTestRule.render(mPage.getView(), "personalized_signin_promo_recent_tabs_page");
+        Assert.assertEquals(1,
+                SharedPreferencesManager.getInstance().readInt(
+                        ChromePreferenceKeys.SYNC_PROMO_TOTAL_SHOW_COUNT));
     }
 
     @Test
     @LargeTest
     @Feature("RenderTest")
-    @Features.EnableFeatures({ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY})
     public void testPersonalizedSyncPromoInRecentTabsPage() throws Exception {
+        Assert.assertEquals(0,
+                SharedPreferencesManager.getInstance().readInt(
+                        ChromePreferenceKeys.SYNC_PROMO_TOTAL_SHOW_COUNT));
         mAccountManagerTestRule.addTestAccountThenSignin();
         mPage = loadRecentTabsPage();
         mRenderTestRule.render(mPage.getView(), "personalized_sync_promo_recent_tabs_page");
+        Assert.assertEquals(1,
+                SharedPreferencesManager.getInstance().readInt(
+                        ChromePreferenceKeys.SYNC_PROMO_TOTAL_SHOW_COUNT));
     }
 
     /**

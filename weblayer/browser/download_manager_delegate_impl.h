@@ -22,6 +22,11 @@ class DownloadManagerDelegateImpl : public content::DownloadManagerDelegate,
  public:
   explicit DownloadManagerDelegateImpl(
       content::DownloadManager* download_manager);
+
+  DownloadManagerDelegateImpl(const DownloadManagerDelegateImpl&) = delete;
+  DownloadManagerDelegateImpl& operator=(const DownloadManagerDelegateImpl&) =
+      delete;
+
   ~DownloadManagerDelegateImpl() override;
 
   void set_download_dropped_closure_for_testing(
@@ -51,7 +56,7 @@ class DownloadManagerDelegateImpl : public content::DownloadManagerDelegate,
       const content::WebContents::Getter& web_contents_getter,
       const GURL& url,
       const std::string& request_method,
-      base::Optional<url::Origin> request_initiator,
+      absl::optional<url::Origin> request_initiator,
       bool from_download_cross_origin_redirect,
       bool content_initiated,
       content::CheckDownloadAllowedCallback check_download_allowed_cb) override;
@@ -78,8 +83,6 @@ class DownloadManagerDelegateImpl : public content::DownloadManagerDelegate,
   content::DownloadManager* download_manager_;
   base::RepeatingClosure download_dropped_callback_;
   base::WeakPtrFactory<DownloadManagerDelegateImpl> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadManagerDelegateImpl);
 };
 
 }  // namespace weblayer

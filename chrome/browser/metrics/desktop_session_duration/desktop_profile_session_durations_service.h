@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_METRICS_DESKTOP_SESSION_DURATION_DESKTOP_PROFILE_SESSION_DURATIONS_SERVICE_H_
 #define CHROME_BROWSER_METRICS_DESKTOP_SESSION_DURATION_DESKTOP_PROFILE_SESSION_DURATIONS_SERVICE_H_
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/password_manager/core/browser/password_session_durations_metrics_recorder.h"
@@ -33,6 +33,12 @@ class DesktopProfileSessionDurationsService
       syncer::SyncService* sync_service,
       signin::IdentityManager* identity_manager,
       DesktopSessionDurationTracker* tracker);
+
+  DesktopProfileSessionDurationsService(
+      const DesktopProfileSessionDurationsService&) = delete;
+  DesktopProfileSessionDurationsService& operator=(
+      const DesktopProfileSessionDurationsService&) = delete;
+
   ~DesktopProfileSessionDurationsService() override;
 
   // DesktopSessionDurationtracker::Observer:
@@ -49,11 +55,9 @@ class DesktopProfileSessionDurationsService
   std::unique_ptr<password_manager::PasswordSessionDurationsMetricsRecorder>
       password_metrics_recorder_;
 
-  ScopedObserver<DesktopSessionDurationTracker,
-                 DesktopSessionDurationTracker::Observer>
-      session_duration_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(DesktopProfileSessionDurationsService);
+  base::ScopedObservation<DesktopSessionDurationTracker,
+                          DesktopSessionDurationTracker::Observer>
+      session_duration_observation_{this};
 };
 
 }  // namespace metrics

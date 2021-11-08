@@ -48,6 +48,12 @@ class DownloadOfflineContentProvider
  public:
   explicit DownloadOfflineContentProvider(OfflineContentAggregator* aggregator,
                                           const std::string& name_space);
+
+  DownloadOfflineContentProvider(const DownloadOfflineContentProvider&) =
+      delete;
+  DownloadOfflineContentProvider& operator=(
+      const DownloadOfflineContentProvider&) = delete;
+
   ~DownloadOfflineContentProvider() override;
 
   // Should be called when a DownloadManager is available.
@@ -78,7 +84,7 @@ class DownloadOfflineContentProvider
                   RenameCallback callback) override;
   void ChangeSchedule(
       const offline_items_collection::ContentId& id,
-      base::Optional<offline_items_collection::OfflineItemSchedule> schedule)
+      absl::optional<offline_items_collection::OfflineItemSchedule> schedule)
       override;
 
   // Methods that can be run in reduced mode.
@@ -125,7 +131,7 @@ class DownloadOfflineContentProvider
                                     DownloadItem* item,
                                     DownloadItem::DownloadRenameResult result);
   void UpdateObservers(const OfflineItem& item,
-                       const base::Optional<UpdateDelta>& update_delta);
+                       const absl::optional<UpdateDelta>& update_delta);
   void CheckForExternallyRemovedDownloads();
 
   // Ensure that download core service is started.
@@ -145,8 +151,6 @@ class DownloadOfflineContentProvider
   Profile* profile_;
 
   base::WeakPtrFactory<DownloadOfflineContentProvider> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadOfflineContentProvider);
 };
 
 #endif  // CHROME_BROWSER_DOWNLOAD_DOWNLOAD_OFFLINE_CONTENT_PROVIDER_H_

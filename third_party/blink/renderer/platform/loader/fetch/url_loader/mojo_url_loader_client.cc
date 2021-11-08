@@ -8,20 +8,24 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/trace_event/trace_event.h"
 #include "mojo/public/cpp/system/data_pipe_drainer.h"
 #include "net/url_request/redirect_info.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/mojom/early_hints.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_back_forward_cache_loader_helper.h"
-#include "third_party/blink/public/platform/web_mojo_url_loader_client_observer.h"
+#include "third_party/blink/public/platform/web_resource_request_sender.h"
 #include "third_party/blink/renderer/platform/back_forward_cache_utils.h"
 #include "third_party/blink/renderer/platform/loader/fetch/back_forward_cache_loader_helper.h"
+#include "third_party/blink/renderer/platform/loader/fetch/loader_freeze_mode.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -29,20 +33,20 @@ namespace {
 
 constexpr size_t kDefaultMaxBufferedBodyBytesPerRequest = 100 * 1000;
 constexpr base::TimeDelta kGracePeriodToFinishLoadingWhileInBackForwardCache =
-    base::TimeDelta::FromSeconds(15);
+    base::Seconds(60);
 
 }  // namespace
 
 class MojoURLLoaderClient::DeferredMessage {
  public:
   DeferredMessage() = default;
-  virtual void HandleMessage(
-      WebMojoURLLoaderClientObserver* url_loader_client_observer) = 0;
-  virtual bool IsCompletionMessage() const = 0;
+  DeferredMessage(const DeferredMessage&) = delete;
+  DeferredMessage& operator=(const DeferredMessage&) = delete;
   virtual ~DeferredMessage() = default;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(DeferredMessage);
+  virtual void HandleMessage(
+      WebResourceRequestSender* resource_request_sender) = 0;
+  virtual bool IsCompletionMessage() const = 0;
 };
 
 class MojoURLLoaderClient::DeferredOnReceiveResponse final
@@ -53,8 +57,8 @@ class MojoURLLoaderClient::DeferredOnReceiveResponse final
       : response_head_(std::move(response_head)) {}
 
   void HandleMessage(
-      WebMojoURLLoaderClientObserver* url_loader_client_observer) override {
-    url_loader_client_observer->OnReceivedResponse(std::move(response_head_));
+      WebResourceRequestSender* resource_request_sender) override {
+    resource_request_sender->OnReceivedResponse(std::move(response_head_));
   }
   bool IsCompletionMessage() const override { return false; }
 
@@ -74,8 +78,8 @@ class MojoURLLoaderClient::DeferredOnReceiveRedirect final
         task_runner_(std::move(task_runner)) {}
 
   void HandleMessage(
-      WebMojoURLLoaderClientObserver* url_loader_client_observer) override {
-    url_loader_client_observer->OnReceivedRedirect(
+      WebResourceRequestSender* resource_request_sender) override {
+    resource_request_sender->OnReceivedRedirect(
         redirect_info_, std::move(response_head_), task_runner_);
   }
   bool IsCompletionMessage() const override { return false; }
@@ -93,8 +97,8 @@ class MojoURLLoaderClient::DeferredOnUploadProgress final
       : current_(current), total_(total) {}
 
   void HandleMessage(
-      WebMojoURLLoaderClientObserver* url_loader_client_observer) override {
-    url_loader_client_observer->OnUploadProgress(current_, total_);
+      WebResourceRequestSender* resource_request_sender) override {
+    resource_request_sender->OnUploadProgress(current_, total_);
   }
   bool IsCompletionMessage() const override { return false; }
 
@@ -110,8 +114,8 @@ class MojoURLLoaderClient::DeferredOnReceiveCachedMetadata final
       : data_(std::move(data)) {}
 
   void HandleMessage(
-      WebMojoURLLoaderClientObserver* url_loader_client_observer) override {
-    url_loader_client_observer->OnReceivedCachedMetadata(std::move(data_));
+      WebResourceRequestSender* resource_request_sender) override {
+    resource_request_sender->OnReceivedCachedMetadata(std::move(data_));
   }
   bool IsCompletionMessage() const override { return false; }
 
@@ -127,8 +131,8 @@ class MojoURLLoaderClient::DeferredOnStartLoadingResponseBody final
       : body_(std::move(body)) {}
 
   void HandleMessage(
-      WebMojoURLLoaderClientObserver* url_loader_client_observer) override {
-    url_loader_client_observer->OnStartLoadingResponseBody(std::move(body_));
+      WebResourceRequestSender* resource_request_sender) override {
+    resource_request_sender->OnStartLoadingResponseBody(std::move(body_));
   }
   bool IsCompletionMessage() const override { return false; }
 
@@ -142,8 +146,8 @@ class MojoURLLoaderClient::DeferredOnComplete final : public DeferredMessage {
       : status_(status) {}
 
   void HandleMessage(
-      WebMojoURLLoaderClientObserver* url_loader_client_observer) override {
-    url_loader_client_observer->OnRequestComplete(status_);
+      WebResourceRequestSender* resource_request_sender) override {
+    resource_request_sender->OnRequestComplete(status_);
   }
   bool IsCompletionMessage() const override { return true; }
 
@@ -191,7 +195,7 @@ class MojoURLLoaderClient::BodyBuffer final
                  "total_bytes_drained", static_cast<int>(total_bytes_drained_),
                  "added_bytes", static_cast<int>(num_bytes));
 
-    if (owner_->IsDeferredWithBackForwardCache()) {
+    if (owner_->freeze_mode() == WebLoaderFreezeMode::kBufferIncoming) {
       owner_->DidBufferLoadWhileInBackForwardCache(num_bytes);
       if (total_bytes_drained_ > max_bytes_drained_ ||
           !owner_->CanContinueBufferingWhileInBackForwardCache()) {
@@ -280,18 +284,18 @@ class MojoURLLoaderClient::BodyBuffer final
 };
 
 MojoURLLoaderClient::MojoURLLoaderClient(
-    WebMojoURLLoaderClientObserver* url_loader_client_observer,
+    WebResourceRequestSender* resource_request_sender,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     bool bypass_redirect_checks,
     const GURL& request_url,
     WebBackForwardCacheLoaderHelper back_forward_cache_loader_helper)
     : back_forward_cache_timeout_(
-          base::TimeDelta::FromSeconds(GetLoadingTasksUnfreezableParamAsInt(
+          base::Seconds(GetLoadingTasksUnfreezableParamAsInt(
               "grace_period_to_finish_loading_in_seconds",
               static_cast<int>(
                   kGracePeriodToFinishLoadingWhileInBackForwardCache
                       .InSeconds())))),
-      url_loader_client_observer_(url_loader_client_observer),
+      resource_request_sender_(resource_request_sender),
       task_runner_(std::move(task_runner)),
       bypass_redirect_checks_(bypass_redirect_checks),
       last_loaded_url_(request_url),
@@ -299,14 +303,15 @@ MojoURLLoaderClient::MojoURLLoaderClient(
 
 MojoURLLoaderClient::~MojoURLLoaderClient() = default;
 
-void MojoURLLoaderClient::SetDefersLoading(WebURLLoader::DeferType value) {
-  deferred_state_ = value;
-  if (value == WebURLLoader::DeferType::kNotDeferred) {
+void MojoURLLoaderClient::Freeze(WebLoaderFreezeMode mode) {
+  freeze_mode_ = mode;
+  if (mode == WebLoaderFreezeMode::kNone) {
     StopBackForwardCacheEvictionTimer();
     task_runner_->PostTask(
         FROM_HERE, WTF::Bind(&MojoURLLoaderClient::FlushDeferredMessages,
                              weak_factory_.GetWeakPtr()));
-  } else if (IsDeferredWithBackForwardCache() && !has_received_complete_ &&
+  } else if (mode == WebLoaderFreezeMode::kBufferIncoming &&
+             !has_received_complete_ &&
              !back_forward_cache_eviction_timer_.IsRunning()) {
     // We should evict the page associated with this load if the connection
     // takes too long until it either finished or failed.
@@ -318,19 +323,21 @@ void MojoURLLoaderClient::SetDefersLoading(WebURLLoader::DeferType value) {
   }
 }
 
+void MojoURLLoaderClient::OnReceiveEarlyHints(
+    network::mojom::EarlyHintsPtr early_hints) {}
+
 void MojoURLLoaderClient::OnReceiveResponse(
     network::mojom::URLResponseHeadPtr response_head) {
   TRACE_EVENT1("loading", "MojoURLLoaderClient::OnReceiveResponse", "url",
                last_loaded_url_.GetString().Utf8());
 
   has_received_response_head_ = true;
-  on_receive_response_time_ = base::TimeTicks::Now();
 
   if (NeedsStoringMessage()) {
     StoreAndDispatch(
         std::make_unique<DeferredOnReceiveResponse>(std::move(response_head)));
   } else {
-    url_loader_client_observer_->OnReceivedResponse(std::move(response_head));
+    resource_request_sender_->OnReceivedResponse(std::move(response_head));
   }
 }
 
@@ -378,8 +385,7 @@ void MojoURLLoaderClient::OnReceiveRedirect(
     const net::RedirectInfo& redirect_info,
     network::mojom::URLResponseHeadPtr response_head) {
   DCHECK(!has_received_response_head_);
-  if (deferred_state_ ==
-      blink::WebURLLoader::DeferType::kDeferredWithBackForwardCache) {
+  if (freeze_mode_ == WebLoaderFreezeMode::kBufferIncoming) {
     EvictFromBackForwardCache(
         blink::mojom::RendererEvictionReason::kNetworkRequestRedirected);
 
@@ -398,7 +404,7 @@ void MojoURLLoaderClient::OnReceiveRedirect(
     StoreAndDispatch(std::make_unique<DeferredOnReceiveRedirect>(
         redirect_info, std::move(response_head), task_runner_));
   } else {
-    url_loader_client_observer_->OnReceivedRedirect(
+    resource_request_sender_->OnReceivedRedirect(
         redirect_info, std::move(response_head), task_runner_);
   }
 }
@@ -411,7 +417,7 @@ void MojoURLLoaderClient::OnUploadProgress(
     StoreAndDispatch(std::make_unique<DeferredOnUploadProgress>(
         current_position, total_size));
   } else {
-    url_loader_client_observer_->OnUploadProgress(current_position, total_size);
+    resource_request_sender_->OnUploadProgress(current_position, total_size);
   }
   std::move(ack_callback).Run();
 }
@@ -421,7 +427,7 @@ void MojoURLLoaderClient::OnReceiveCachedMetadata(mojo_base::BigBuffer data) {
     StoreAndDispatch(
         std::make_unique<DeferredOnReceiveCachedMetadata>(std::move(data)));
   } else {
-    url_loader_client_observer_->OnReceivedCachedMetadata(std::move(data));
+    resource_request_sender_->OnReceivedCachedMetadata(std::move(data));
   }
 }
 
@@ -429,7 +435,7 @@ void MojoURLLoaderClient::OnTransferSizeUpdated(int32_t transfer_size_diff) {
   if (NeedsStoringMessage()) {
     accumulated_transfer_size_diff_during_deferred_ += transfer_size_diff;
   } else {
-    url_loader_client_observer_->OnTransferSizeUpdated(transfer_size_diff);
+    resource_request_sender_->OnTransferSizeUpdated(transfer_size_diff);
   }
 }
 
@@ -442,20 +448,13 @@ void MojoURLLoaderClient::OnStartLoadingResponseBody(
   DCHECK(!has_received_response_body_);
   has_received_response_body_ = true;
 
-  if (!on_receive_response_time_.is_null()) {
-    UMA_HISTOGRAM_TIMES(
-        "Renderer.OnReceiveResponseToOnStartLoadingResponseBody",
-        base::TimeTicks::Now() - on_receive_response_time_);
-  }
-
   if (!NeedsStoringMessage()) {
     // Send the message immediately.
-    url_loader_client_observer_->OnStartLoadingResponseBody(std::move(body));
+    resource_request_sender_->OnStartLoadingResponseBody(std::move(body));
     return;
   }
 
-  if (deferred_state_ !=
-      blink::WebURLLoader::DeferType::kDeferredWithBackForwardCache) {
+  if (freeze_mode_ != WebLoaderFreezeMode::kBufferIncoming) {
     // Defer the message, storing the original body pipe.
     StoreAndDispatch(
         std::make_unique<DeferredOnStartLoadingResponseBody>(std::move(body)));
@@ -470,7 +469,7 @@ void MojoURLLoaderClient::OnStartLoadingResponseBody(
   mojo::ScopedDataPipeProducerHandle new_body_producer;
   mojo::ScopedDataPipeConsumerHandle new_body_consumer;
   MojoResult result =
-      mojo::CreateDataPipe(nullptr, &new_body_producer, &new_body_consumer);
+      mojo::CreateDataPipe(nullptr, new_body_producer, new_body_consumer);
   if (result != MOJO_RESULT_OK) {
     OnComplete(
         network::URLLoaderCompletionStatus(net::ERR_INSUFFICIENT_RESOURCES));
@@ -488,18 +487,18 @@ void MojoURLLoaderClient::OnComplete(
   has_received_complete_ = true;
   StopBackForwardCacheEvictionTimer();
 
-  // Dispatch completion status to the WebMojoURLLoaderClientObserver.
+  // Dispatch completion status to the WebResourceRequestSender.
   // Except for errors, there must always be a response's body.
   DCHECK(has_received_response_body_ || status.error_code != net::OK);
   if (NeedsStoringMessage()) {
     StoreAndDispatch(std::make_unique<DeferredOnComplete>(status));
   } else {
-    url_loader_client_observer_->OnRequestComplete(status);
+    resource_request_sender_->OnRequestComplete(status);
   }
 }
 
 bool MojoURLLoaderClient::NeedsStoringMessage() const {
-  return deferred_state_ != WebURLLoader::DeferType::kNotDeferred ||
+  return freeze_mode_ != WebLoaderFreezeMode::kNone ||
          deferred_messages_.size() > 0 ||
          accumulated_transfer_size_diff_during_deferred_ > 0;
 }
@@ -507,7 +506,7 @@ bool MojoURLLoaderClient::NeedsStoringMessage() const {
 void MojoURLLoaderClient::StoreAndDispatch(
     std::unique_ptr<DeferredMessage> message) {
   DCHECK(NeedsStoringMessage());
-  if (deferred_state_ != WebURLLoader::DeferType::kNotDeferred) {
+  if (freeze_mode_ != WebLoaderFreezeMode::kNone) {
     deferred_messages_.emplace_back(std::move(message));
   } else if (deferred_messages_.size() > 0 ||
              accumulated_transfer_size_diff_during_deferred_ > 0) {
@@ -527,7 +526,7 @@ void MojoURLLoaderClient::OnConnectionClosed() {
 }
 
 void MojoURLLoaderClient::FlushDeferredMessages() {
-  if (deferred_state_ != WebURLLoader::DeferType::kNotDeferred)
+  if (freeze_mode_ != WebLoaderFreezeMode::kNone)
     return;
   WebVector<std::unique_ptr<DeferredMessage>> messages;
   messages.Swap(deferred_messages_);
@@ -546,10 +545,10 @@ void MojoURLLoaderClient::FlushDeferredMessages() {
       break;
     }
 
-    messages[index]->HandleMessage(url_loader_client_observer_);
+    messages[index]->HandleMessage(resource_request_sender_);
     if (!weak_this)
       return;
-    if (deferred_state_ != WebURLLoader::DeferType::kNotDeferred) {
+    if (freeze_mode_ != WebLoaderFreezeMode::kNone) {
       deferred_messages_.reserve(messages.size() - index - 1);
       for (size_t i = index + 1; i < messages.size(); ++i)
         deferred_messages_.emplace_back(std::move(messages[i]));
@@ -561,10 +560,10 @@ void MojoURLLoaderClient::FlushDeferredMessages() {
   if (accumulated_transfer_size_diff_during_deferred_ > 0) {
     auto transfer_size_diff = accumulated_transfer_size_diff_during_deferred_;
     accumulated_transfer_size_diff_during_deferred_ = 0;
-    url_loader_client_observer_->OnTransferSizeUpdated(transfer_size_diff);
+    resource_request_sender_->OnTransferSizeUpdated(transfer_size_diff);
     if (!weak_this)
       return;
-    if (deferred_state_ != WebURLLoader::DeferType::kNotDeferred) {
+    if (freeze_mode_ != WebLoaderFreezeMode::kNone) {
       if (has_completion_message) {
         DCHECK_GT(messages.size(), 0u);
         DCHECK(messages.back()->IsCompletionMessage());
@@ -587,7 +586,7 @@ void MojoURLLoaderClient::FlushDeferredMessages() {
       deferred_messages_.emplace_back(std::move(messages.back()));
       return;
     }
-    messages.back()->HandleMessage(url_loader_client_observer_);
+    messages.back()->HandleMessage(resource_request_sender_);
   }
 }
 

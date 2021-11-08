@@ -68,7 +68,8 @@ CrashReportUploadThread::~CrashReportUploadThread() {
 
 void CrashReportUploadThread::ReportPending(const UUID& report_uuid) {
   known_pending_report_uuids_.PushBack(report_uuid);
-  thread_.DoWorkNow();
+  if (thread_.is_running())
+    thread_.DoWorkNow();
 }
 
 void CrashReportUploadThread::Start() {
@@ -294,6 +295,10 @@ CrashReportUploadThread::UploadResult CrashReportUploadThread::UploadReport(
                                            "application/octet-stream");
 
   std::unique_ptr<HTTPTransport> http_transport(HTTPTransport::Create());
+  if (!http_transport) {
+    return UploadResult::kPermanentFailure;
+  }
+
   HTTPHeaders content_headers;
   http_multipart_builder.PopulateContentHeaders(&content_headers);
   for (const auto& content_header : content_headers) {

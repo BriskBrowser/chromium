@@ -4,6 +4,7 @@
 
 #include "content/shell/browser/shell_browser_context.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -25,19 +26,10 @@
 #include "content/public/common/content_switches.h"
 #include "content/shell/browser/shell_content_index_provider.h"
 #include "content/shell/browser/shell_download_manager_delegate.h"
+#include "content/shell/browser/shell_paths.h"
 #include "content/shell/browser/shell_permission_manager.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/test/mock_background_sync_controller.h"
-
-#if defined(OS_WIN)
-#include "base/base_paths_win.h"
-#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
-#include "base/nix/xdg_util.h"
-#elif defined(OS_MAC)
-#include "base/base_paths_mac.h"
-#elif defined(OS_FUCHSIA)
-#include "base/base_paths_fuchsia.h"
-#endif
 
 namespace content {
 
@@ -58,7 +50,7 @@ ShellBrowserContext::ShellBrowserContext(bool off_the_record,
 }
 
 ShellBrowserContext::~ShellBrowserContext() {
-  NotifyWillBeDestroyed(this);
+  NotifyWillBeDestroyed();
 
   // The SimpleDependencyManager should always be passed after the
   // BrowserContextDependencyManager. This is because the KeyedService instances
@@ -101,31 +93,7 @@ void ShellBrowserContext::InitWhileIOAllowed() {
     }
   }
 
-#if defined(OS_WIN)
-  CHECK(base::PathService::Get(base::DIR_LOCAL_APP_DATA, &path_));
-  path_ = path_.Append(std::wstring(L"content_shell"));
-#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
-  std::unique_ptr<base::Environment> env(base::Environment::Create());
-  base::FilePath config_dir(
-      base::nix::GetXDGDirectory(env.get(),
-                                 base::nix::kXdgConfigHomeEnvVar,
-                                 base::nix::kDotConfigDir));
-  path_ = config_dir.Append("content_shell");
-#elif defined(OS_MAC)
-  CHECK(base::PathService::Get(base::DIR_APP_DATA, &path_));
-  path_ = path_.Append("Chromium Content Shell");
-#elif defined(OS_ANDROID)
-  CHECK(base::PathService::Get(base::DIR_ANDROID_APP_DATA, &path_));
-  path_ = path_.Append(FILE_PATH_LITERAL("content_shell"));
-#elif defined(OS_FUCHSIA)
-  CHECK(base::PathService::Get(base::DIR_APP_DATA, &path_));
-  path_ = path_.Append(FILE_PATH_LITERAL("content_shell"));
-#else
-  NOTIMPLEMENTED();
-#endif
-
-  if (!base::PathExists(path_))
-    base::CreateDirectory(path_);
+  CHECK(base::PathService::Get(SHELL_DIR_USER_DATA, &path_));
 
   FinishInitWhileIOAllowed();
 }
@@ -135,12 +103,10 @@ void ShellBrowserContext::FinishInitWhileIOAllowed() {
   SimpleKeyMap::GetInstance()->Associate(this, key_.get());
 }
 
-#if !defined(OS_ANDROID)
 std::unique_ptr<ZoomLevelDelegate> ShellBrowserContext::CreateZoomLevelDelegate(
     const base::FilePath&) {
-  return std::unique_ptr<ZoomLevelDelegate>();
+  return nullptr;
 }
-#endif  // !defined(OS_ANDROID)
 
 base::FilePath ShellBrowserContext::GetPath() {
   return path_;
@@ -152,9 +118,9 @@ bool ShellBrowserContext::IsOffTheRecord() {
 
 DownloadManagerDelegate* ShellBrowserContext::GetDownloadManagerDelegate()  {
   if (!download_manager_delegate_.get()) {
-    download_manager_delegate_.reset(new ShellDownloadManagerDelegate());
-    download_manager_delegate_->SetDownloadManager(
-        BrowserContext::GetDownloadManager(this));
+    download_manager_delegate_ =
+        std::make_unique<ShellDownloadManagerDelegate>();
+    download_manager_delegate_->SetDownloadManager(GetDownloadManager());
   }
 
   return download_manager_delegate_.get();
@@ -169,6 +135,11 @@ BrowserPluginGuestManager* ShellBrowserContext::GetGuestManager() {
 }
 
 storage::SpecialStoragePolicy* ShellBrowserContext::GetSpecialStoragePolicy() {
+  return nullptr;
+}
+
+PlatformNotificationService*
+ShellBrowserContext::GetPlatformNotificationService() {
   return nullptr;
 }
 
@@ -188,7 +159,7 @@ SSLHostStateDelegate* ShellBrowserContext::GetSSLHostStateDelegate() {
 PermissionControllerDelegate*
 ShellBrowserContext::GetPermissionControllerDelegate() {
   if (!permission_manager_.get())
-    permission_manager_.reset(new ShellPermissionManager());
+    permission_manager_ = std::make_unique<ShellPermissionManager>();
   return permission_manager_.get();
 }
 
@@ -202,8 +173,10 @@ BackgroundFetchDelegate* ShellBrowserContext::GetBackgroundFetchDelegate() {
 }
 
 BackgroundSyncController* ShellBrowserContext::GetBackgroundSyncController() {
-  if (!background_sync_controller_)
-    background_sync_controller_.reset(new MockBackgroundSyncController());
+  if (!background_sync_controller_) {
+    background_sync_controller_ =
+        std::make_unique<MockBackgroundSyncController>();
+  }
   return background_sync_controller_.get();
 }
 

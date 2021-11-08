@@ -13,9 +13,9 @@ namespace blink {
 CustomLayoutFragment::CustomLayoutFragment(
     CustomLayoutChild* child,
     CustomLayoutToken* token,
-    const NGLayoutResult* layout_result,
+    scoped_refptr<const NGLayoutResult> layout_result,
     const LogicalSize& size,
-    const base::Optional<LayoutUnit> baseline,
+    const absl::optional<LayoutUnit> baseline,
     v8::Isolate* isolate)
     : child_(child),
       token_(token),
@@ -26,7 +26,7 @@ CustomLayoutFragment::CustomLayoutFragment(
   // Immediately store the result data, so that it remains immutable between
   // layout calls to the child.
   if (SerializedScriptValue* data = layout_result_->CustomLayoutData())
-    layout_worklet_world_v8_data_.Set(isolate, data->Deserialize(isolate));
+    layout_worklet_world_v8_data_.Reset(isolate, data->Deserialize(isolate));
 }
 
 const NGLayoutResult& CustomLayoutFragment::GetLayoutResult() const {
@@ -50,13 +50,12 @@ ScriptValue CustomLayoutFragment::data(ScriptState* script_state) const {
 
   return ScriptValue(
       script_state->GetIsolate(),
-      layout_worklet_world_v8_data_.NewLocal(script_state->GetIsolate()));
+      layout_worklet_world_v8_data_.Get(script_state->GetIsolate()));
 }
 
 void CustomLayoutFragment::Trace(Visitor* visitor) const {
   visitor->Trace(child_);
   visitor->Trace(token_);
-  visitor->Trace(layout_result_);
   visitor->Trace(layout_worklet_world_v8_data_);
   ScriptWrappable::Trace(visitor);
 }

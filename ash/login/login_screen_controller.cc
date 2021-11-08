@@ -6,11 +6,12 @@
 
 #include <utility>
 
+#include "ash/constants/ash_pref_names.h"
 #include "ash/focus_cycler.h"
 #include "ash/login/security_token_request_controller.h"
 #include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_data_dispatcher.h"
-#include "ash/public/cpp/ash_pref_names.h"
+#include "ash/public/cpp/child_accounts/parent_access_controller.h"
 #include "ash/public/cpp/login_screen_client.h"
 #include "ash/public/cpp/toast_data.h"
 #include "ash/root_window_controller.h"
@@ -65,11 +66,11 @@ void SetSystemTrayVisibility(SystemTrayVisibility visibility) {
 LoginScreenController::LoginScreenController(
     SystemTrayNotifier* system_tray_notifier)
     : system_tray_notifier_(system_tray_notifier) {
-  system_tray_notifier_->AddSystemTrayFocusObserver(this);
+  system_tray_notifier_->AddSystemTrayObserver(this);
 }
 
 LoginScreenController::~LoginScreenController() {
-  system_tray_notifier_->RemoveSystemTrayFocusObserver(this);
+  system_tray_notifier_->RemoveSystemTrayObserver(this);
 }
 
 // static
@@ -98,7 +99,7 @@ void LoginScreenController::AuthenticateUserWithPasswordOrPin(
       << static_cast<int>(authentication_stage_);
 
   if (!client_) {
-    std::move(callback).Run(base::nullopt);
+    std::move(callback).Run(absl::nullopt);
     return;
   }
 
@@ -119,7 +120,7 @@ void LoginScreenController::AuthenticateUserWithPasswordOrPin(
           base::BindOnce(&LoginScreenController::OnAuthenticateComplete,
                          weak_factory_.GetWeakPtr(), std::move(callback),
                          false),
-          base::TimeDelta::FromSeconds(1));
+          base::Seconds(1));
       return;
   }
 
@@ -152,7 +153,7 @@ void LoginScreenController::AuthenticateUserWithChallengeResponse(
       << static_cast<int>(authentication_stage_);
 
   if (!client_) {
-    std::move(callback).Run(/*success=*/base::nullopt);
+    std::move(callback).Run(/*success=*/absl::nullopt);
     return;
   }
 
@@ -163,14 +164,14 @@ void LoginScreenController::AuthenticateUserWithChallengeResponse(
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
-bool LoginScreenController::ValidateParentAccessCode(
+ParentCodeValidationResult LoginScreenController::ValidateParentAccessCode(
     const AccountId& account_id,
     base::Time validation_time,
     const std::string& code) {
   DCHECK(!validation_time.is_null());
 
   if (!client_)
-    return false;
+    return ParentCodeValidationResult::kInternalError;
 
   return client_->ValidateParentAccessCode(account_id, code, validation_time);
 }
@@ -221,6 +222,12 @@ void LoginScreenController::LoginAsGuest() {
   client_->LoginAsGuest();
 }
 
+void LoginScreenController::ShowGuestTosScreen() {
+  if (!client_)
+    return;
+  client_->ShowGuestTosScreen();
+}
+
 void LoginScreenController::OnMaxIncorrectPasswordAttempted(
     const AccountId& account_id) {
   if (!client_)
@@ -238,6 +245,12 @@ void LoginScreenController::ShowGaiaSignin(const AccountId& prefilled_account) {
   if (!client_)
     return;
   client_->ShowGaiaSignin(prefilled_account);
+}
+
+void LoginScreenController::ShowOsInstallScreen() {
+  if (!client_)
+    return;
+  client_->ShowOsInstallScreen();
 }
 
 void LoginScreenController::OnRemoveUserWarningShown() {
@@ -280,7 +293,7 @@ LoginScreenModel* LoginScreenController::GetModel() {
 void LoginScreenController::ShowKioskAppError(const std::string& message) {
   ToastData toast_data(
       "KioskAppError", base::UTF8ToUTF16(message), -1 /*duration_ms*/,
-      base::Optional<base::string16>(base::string16()) /*dismiss_text*/,
+      absl::optional<std::u16string>(std::u16string()) /*dismiss_text*/,
       true /*visible_on_lock_screen*/);
   Shell::Get()->toast_manager()->Show(toast_data);
 }
@@ -371,7 +384,7 @@ void LoginScreenController::ClearSecurityTokenPinRequest() {
   security_token_request_controller_.ClosePinUi();
 }
 bool LoginScreenController::SetLoginShelfGestureHandler(
-    const base::string16& nudge_text,
+    const std::u16string& nudge_text,
     const base::RepeatingClosure& fling_callback,
     base::OnceClosure exit_callback) {
   return Shelf::ForWindow(Shell::Get()->GetPrimaryRootWindow())
@@ -387,11 +400,13 @@ void LoginScreenController::ClearLoginShelfGestureHandler() {
 }
 
 void LoginScreenController::ShowLockScreen() {
+  CHECK(!LockScreen::HasInstance());
   OnShow();
   LockScreen::Show(LockScreen::ScreenType::kLock);
 }
 
 void LoginScreenController::ShowLoginScreen() {
+  CHECK(!LockScreen::HasInstance());
   // Login screen can only be used during login.
   session_manager::SessionState session_state =
       Shell::Get()->session_controller()->GetSessionState();
@@ -427,9 +442,8 @@ void LoginScreenController::ShowAccountAccessHelpApp(
   client_->ShowAccountAccessHelpApp(parent_window);
 }
 
-void LoginScreenController::ShowParentAccessHelpApp(
-    gfx::NativeWindow parent_window) {
-  client_->ShowParentAccessHelpApp(parent_window);
+void LoginScreenController::ShowParentAccessHelpApp() {
+  client_->ShowParentAccessHelpApp();
 }
 
 void LoginScreenController::ShowLockScreenNotificationSettings() {
@@ -452,7 +466,7 @@ void LoginScreenController::OnAuthenticateComplete(
     OnAuthenticateCallback callback,
     bool success) {
   authentication_stage_ = AuthenticationStage::kUserCallback;
-  std::move(callback).Run(base::make_optional<bool>(success));
+  std::move(callback).Run(absl::make_optional<bool>(success));
   authentication_stage_ = AuthenticationStage::kIdle;
 
   // During smart card login flow, multiple security token requests can be made.
@@ -476,6 +490,20 @@ void LoginScreenController::OnFocusLeavingSystemTray(bool reverse) {
   if (!client_)
     return;
   client_->OnFocusLeavingSystemTray(reverse);
+}
+
+void LoginScreenController::OnSystemTrayBubbleShown() {
+  if (!client_)
+    return;
+  client_->OnSystemTrayBubbleShown();
+}
+
+void LoginScreenController::OnLockScreenDestroyed() {
+  DCHECK_EQ(authentication_stage_, AuthenticationStage::kIdle);
+
+  // Still handle it to avoid crashes during Login/Lock/Unlock flows.
+  authentication_stage_ = AuthenticationStage::kIdle;
+  SetSystemTrayVisibility(SystemTrayVisibility::kAll);
 }
 
 void LoginScreenController::NotifyLoginScreenShown() {

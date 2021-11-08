@@ -6,8 +6,8 @@
 #define ASH_SYSTEM_MEDIA_MEDIA_TRAY_H_
 
 #include "ash/ash_export.h"
-#include "ash/public/cpp/media_notification_provider_observer.h"
 #include "ash/public/cpp/session/session_observer.h"
+#include "ash/system/media/media_notification_provider_observer.h"
 #include "ash/system/tray/tray_background_view.h"
 #include "ash/system/unified/top_shortcut_button.h"
 
@@ -56,15 +56,16 @@ class ASH_EXPORT MediaTray : public MediaNotificationProviderObserver,
   void OnNotificationListViewSizeChanged() override;
 
   // TrayBackgroundview implementations.
-  base::string16 GetAccessibleNameForTray() override;
+  std::u16string GetAccessibleNameForTray() override;
   void UpdateAfterLoginStatusChange() override;
   void HandleLocaleChange() override;
   bool PerformAction(const ui::Event& event) override;
-  void ShowBubble(bool show_by_click) override;
+  void ShowBubble() override;
   void CloseBubble() override;
   void HideBubbleWithView(const TrayBubbleView* bubble_view) override;
   void ClickedOutsideBubble() override;
   void AnchorUpdated() override;
+  void OnThemeChanged() override;
 
   // SessionObserver implementation.
   void OnLockStateChanged(bool locked) override;
@@ -81,7 +82,7 @@ class ASH_EXPORT MediaTray : public MediaNotificationProviderObserver,
   friend class MediaTrayTest;
 
   // TrayBubbleView::Delegate implementation.
-  base::string16 GetAccessibleNameForBubble() override;
+  std::u16string GetAccessibleNameForBubble() override;
 
   // Called when theme change, set colors for media notification view.
   void SetNotificationColorTheme();

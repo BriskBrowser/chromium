@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "base/strings/string_piece.h"
 #include "extensions/browser/extension_navigation_ui_data.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
@@ -15,6 +16,7 @@
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/common/manifest_handlers/web_accessible_resources_info.h"
 #include "extensions/common/manifest_handlers/webview_info.h"
+#include "services/network/public/cpp/request_destination.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "third_party/blink/public/common/loader/resource_type_util.h"
 
@@ -92,8 +94,7 @@ bool AllowCrossRendererResourceLoad(
   // When navigating in subframe, allow if it is the same origin
   // as the top-level frame. This can only be the case if the subframe
   // request is coming from the extension process.
-  if ((destination == network::mojom::RequestDestination::kIframe ||
-       destination == network::mojom::RequestDestination::kFrame) &&
+  if (network::IsRequestDestinationEmbeddedFrame(destination) &&
       process_map.Contains(child_id)) {
     *allowed = true;
     return true;
@@ -102,7 +103,7 @@ bool AllowCrossRendererResourceLoad(
   // Allow web accessible extension resources to be loaded as
   // subresources/sub-frames.
   if (WebAccessibleResourcesInfo::IsResourceWebAccessible(
-          extension, resource_path.as_string(), request.request_initiator)) {
+          extension, std::string(resource_path), request.request_initiator)) {
     *allowed = true;
     return true;
   }
@@ -137,7 +138,7 @@ bool AllowCrossRendererResourceLoadHelper(bool is_guest,
     }
 
     *allowed = WebviewInfo::IsResourceWebviewAccessible(
-        extension, partition_id, resource_path.as_string());
+        extension, partition_id, std::string(resource_path));
     return true;
   }
 
@@ -146,7 +147,7 @@ bool AllowCrossRendererResourceLoadHelper(bool is_guest,
 
 bool AllowSpecialCaseExtensionURLInGuest(
     const Extension* extension,
-    base::Optional<base::StringPiece> resource_path) {
+    absl::optional<base::StringPiece> resource_path) {
   // Allow mobile setup web UI (chrome://mobilesetup) to embed resources from
   // the component mobile activation extension in a webview. This is needed
   // because the activation web UI relies on the activation extension to

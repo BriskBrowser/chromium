@@ -13,6 +13,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.util.Pair;
 import android.view.KeyEvent;
+import android.view.ViewGroup.LayoutParams;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
@@ -21,11 +22,12 @@ import androidx.browser.customtabs.CustomTabsIntent;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeApplication;
+import org.chromium.chrome.browser.ChromeApplicationImpl;
 import org.chromium.chrome.browser.KeyboardShortcuts;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.app.tabmodel.TabModelOrchestrator;
-import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.browserservices.intents.WebappExtras;
 import org.chromium.chrome.browser.browserservices.ui.controller.Verifier;
 import org.chromium.chrome.browser.browserservices.ui.trustedwebactivity.TrustedWebActivityCoordinator;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityNavigationController;
@@ -39,8 +41,11 @@ import org.chromium.chrome.browser.customtabs.dependency_injection.BaseCustomTab
 import org.chromium.chrome.browser.customtabs.dependency_injection.BaseCustomTabActivityModule;
 import org.chromium.chrome.browser.customtabs.features.toolbar.CustomTabToolbarCoordinator;
 import org.chromium.chrome.browser.dependency_injection.ChromeActivityCommonsModule;
-import org.chromium.chrome.browser.feed.webfeed.WebFeedBridge;
+import org.chromium.chrome.browser.dependency_injection.ModuleFactoryOverrides;
 import org.chromium.chrome.browser.flags.ActivityType;
+import org.chromium.chrome.browser.flags.CachedFeatureFlags;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.metrics.UmaSessionStats;
 import org.chromium.chrome.browser.night_mode.NightModeStateProvider;
 import org.chromium.chrome.browser.night_mode.PowerSavingModeMonitor;
 import org.chromium.chrome.browser.night_mode.SystemNightModeMonitor;
@@ -54,7 +59,6 @@ import org.chromium.chrome.browser.ui.appmenu.AppMenuPropertiesDelegate;
 import org.chromium.chrome.browser.usage_stats.UsageStatsService;
 import org.chromium.chrome.browser.webapps.SameTaskWebApkActivity;
 import org.chromium.chrome.browser.webapps.WebappActivityCoordinator;
-import org.chromium.chrome.browser.webapps.WebappExtras;
 import org.chromium.components.embedder_support.delegate.WebContentsDelegateAndroid;
 
 /**
@@ -65,6 +69,10 @@ import org.chromium.components.embedder_support.delegate.WebContentsDelegateAndr
 public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTabActivityComponent> {
     protected static Integer sOverrideCoreCountForTesting;
 
+    // Fallback study name used for experiments ids.
+    public static final String GSA_FALLBACK_STUDY_NAME = "GsaExperiments";
+
+    protected BaseCustomTabRootUiCoordinator mBaseCustomTabRootUiCoordinator;
     protected BrowserServicesIntentDataProvider mIntentDataProvider;
     protected CustomTabDelegateFactory mDelegateFactory;
     protected CustomTabToolbarCoordinator mToolbarCoordinator;
@@ -142,13 +150,24 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
 
     @Override
     protected RootUiCoordinator createRootUiCoordinator() {
-        return new BaseCustomTabRootUiCoordinator(this, getShareDelegateSupplier(),
-                ()
-                        -> mToolbarCoordinator,
-                ()
-                        -> mNavigationController,
+        // clang-format off
+        mBaseCustomTabRootUiCoordinator = new BaseCustomTabRootUiCoordinator(this,
+                getShareDelegateSupplier(),
                 getActivityTabProvider(), mTabModelProfileSupplier, mBookmarkBridgeSupplier,
-                this::getContextualSearchManager, getTabModelSelectorSupplier());
+                this::getContextualSearchManager, getTabModelSelectorSupplier(),
+                getBrowserControlsManager(), getWindowAndroid(), getLifecycleDispatcher(),
+                getLayoutManagerSupplier(),
+                /* menuOrKeyboardActionController= */ this, this::getActivityThemeColor,
+                getModalDialogManagerSupplier(), /* appMenuBlocker= */ this, this::supportsAppMenu,
+                this::supportsFindInPage, getTabCreatorManagerSupplier(), getFullscreenManager(),
+                getCompositorViewHolderSupplier(), getTabContentManagerSupplier(),
+                getOverviewModeBehaviorSupplier(), this::getSnackbarManager, getActivityType(),
+                this::isInOverviewMode, this::isWarmOnResume,
+                /* appMenuDelegate= */ this, /* statusBarColorProvider= */ this,
+                getIntentRequestTracker(), () -> mToolbarCoordinator, () -> mNavigationController,
+                () -> mIntentDataProvider, getMultiWindowModeStateDispatcher());
+        // clang-format on
+        return mBaseCustomTabRootUiCoordinator;
     }
 
     @Override
@@ -159,15 +178,23 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
     @Override
     protected BaseCustomTabActivityComponent createComponent(
             ChromeActivityCommonsModule commonsModule) {
+        BaseCustomTabActivityModule.Factory overridenBaseCustomTabFactory =
+                ModuleFactoryOverrides.getOverrideFor(BaseCustomTabActivityModule.Factory.class);
+
         // mIntentHandler comes from the base class.
         IntentIgnoringCriterion intentIgnoringCriterion =
                 (intent) -> mIntentHandler.shouldIgnoreIntent(intent, /*startedActivity=*/true);
 
-        BaseCustomTabActivityModule baseCustomTabsModule = new BaseCustomTabActivityModule(
-                mIntentDataProvider, getStartupTabPreloader(), mNightModeStateController,
-                intentIgnoringCriterion, getTopUiThemeColorProvider());
+        BaseCustomTabActivityModule baseCustomTabsModule = overridenBaseCustomTabFactory != null
+                ? overridenBaseCustomTabFactory.create(mIntentDataProvider,
+                        getStartupTabPreloader(), mNightModeStateController,
+                        intentIgnoringCriterion, getTopUiThemeColorProvider(),
+                        new DefaultBrowserProviderImpl())
+                : new BaseCustomTabActivityModule(mIntentDataProvider, getStartupTabPreloader(),
+                        mNightModeStateController, intentIgnoringCriterion,
+                        getTopUiThemeColorProvider(), new DefaultBrowserProviderImpl());
         BaseCustomTabActivityComponent component =
-                ChromeApplication.getComponent().createBaseCustomTabActivityComponent(
+                ChromeApplicationImpl.getComponent().createBaseCustomTabActivityComponent(
                         commonsModule, baseCustomTabsModule);
 
         mDelegateFactory = component.resolveTabDelegateFactory();
@@ -283,9 +310,9 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
 
     @Override
     public void finishNativeInitialization() {
-        if (isTaskRoot() && UsageStatsService.isEnabled()) {
-            UsageStatsService.getInstance().createPageViewObserver(
-                    getTabModelSelector(), this, getTabContentManagerSupplier());
+        if (isTaskRoot()) {
+            UsageStatsService.createPageViewObserverIfEnabled(
+                    this, getActivityTabProvider(), getTabContentManagerSupplier());
         }
         if (!getIntentDataProvider().isWebappOrWebApkActivity()) {
             mTabController.finishNativeInitialization();
@@ -348,9 +375,7 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
                 mIntentDataProvider.isOpenedByChrome(),
                 mIntentDataProvider.shouldShowShareMenuItem(),
                 mIntentDataProvider.shouldShowStarButton(),
-                mIntentDataProvider.shouldShowDownloadButton(), mIntentDataProvider.isIncognito(),
-                getModalDialogManager(), new WebFeedBridge(),
-                mIntentDataProvider.shouldShowOpenInChromeMenuItem());
+                mIntentDataProvider.shouldShowDownloadButton(), mIntentDataProvider.isIncognito());
     }
 
     @Override
@@ -366,6 +391,18 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
     @Override
     public int getControlContainerHeightResource() {
         return R.dimen.custom_tabs_control_container_height;
+    }
+
+    @Override
+    protected int getToolbarShadowResource() {
+        final boolean themeRefactorEnabled =
+                CachedFeatureFlags.isEnabled(ChromeFeatureList.THEME_REFACTOR_ANDROID);
+        return themeRefactorEnabled ? R.drawable.toolbar_hairline : R.drawable.toolbar_shadow;
+    }
+
+    @Override
+    protected int getToolbarShadowLayoutHeight() {
+        return LayoutParams.WRAP_CONTENT;
     }
 
     @Override
@@ -441,15 +478,15 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
     @Override
     public int getActivityThemeColor() {
         BrowserServicesIntentDataProvider intentDataProvider = getIntentDataProvider();
-        if (!intentDataProvider.isOpenedByChrome() && intentDataProvider.hasCustomToolbarColor()) {
-            return intentDataProvider.getToolbarColor();
+        if (intentDataProvider.getColorProvider().hasCustomToolbarColor()) {
+            return intentDataProvider.getColorProvider().getToolbarColor();
         }
         return TabState.UNSPECIFIED_THEME_COLOR;
     }
 
     @Override
     public int getBaseStatusBarColor(Tab tab) {
-        return mStatusBarColorProvider.getBaseStatusBarColor(tab, super.getBaseStatusBarColor(tab));
+        return mStatusBarColorProvider.getBaseStatusBarColor(tab);
     }
 
     @Override
@@ -462,8 +499,9 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        Boolean result = KeyboardShortcuts.dispatchKeyEvent(
-                event, this, mToolbarCoordinator.toolbarIsInitialized());
+        Boolean result = KeyboardShortcuts.dispatchKeyEvent(event,
+                mToolbarCoordinator.toolbarIsInitialized(), getFullscreenManager(),
+                /* menuOrKeyboardActionController= */ this);
         return result != null ? result : super.dispatchKeyEvent(event);
     }
 
@@ -490,14 +528,16 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
         if (!mToolbarCoordinator.toolbarIsInitialized()) {
             return super.onKeyDown(keyCode, event);
         }
-        return KeyboardShortcuts.onKeyDown(event, this, true, false)
+        return KeyboardShortcuts.onKeyDown(event, true, false, getTabModelSelector(),
+                       /* menuOrKeyboardActionController= */ this, getToolbarManager())
                 || super.onKeyDown(keyCode, event);
     }
 
     @Override
     public boolean onMenuOrKeyboardAction(int id, boolean fromMenu) {
         // Disable creating new tabs, bookmark, history, print, help, focus_url, etc.
-        if (id == R.id.focus_url_bar || id == R.id.all_bookmarks_menu_id || id == R.id.help_id
+        if (id == R.id.focus_url_bar || id == R.id.all_bookmarks_menu_id
+                || id == R.id.add_to_reading_list_menu_id || id == R.id.help_id
                 || id == R.id.recent_tabs_menu_id || id == R.id.new_incognito_tab_menu_id
                 || id == R.id.new_tab_menu_id || id == R.id.open_history_menu_id) {
             return true;
@@ -516,5 +556,18 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
      */
     public boolean isInTwaMode() {
         return mTwaCoordinator == null ? false : mTwaCoordinator.shouldUseAppModeUi();
+    }
+
+    @Override
+    public void maybePreconnect() {
+        // The ids need to be set early on, this way prewarming will pick them up.
+        int[] experimentIds = mIntentDataProvider.getGsaExperimentIds();
+        if (experimentIds != null) {
+            // When ids are set through the intent, we don't want them to override the existing ids.
+            boolean override = false;
+            UmaSessionStats.registerExternalExperiment(
+                    GSA_FALLBACK_STUDY_NAME, experimentIds, override);
+        }
+        super.maybePreconnect();
     }
 }

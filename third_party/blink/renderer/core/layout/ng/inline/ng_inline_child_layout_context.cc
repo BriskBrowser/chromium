@@ -11,8 +11,8 @@ namespace blink {
 namespace {
 
 struct SameSizeAsNGInlineChildLayoutContext {
-  NGLogicalLineItems* line_items_;
-  base::Optional<NGInlineLayoutStateStack> box_states_;
+  NGLogicalLineItems line_items_;
+  absl::optional<NGInlineLayoutStateStack> box_states_;
   void* pointers[2];
   unsigned number;
   HeapVector<Member<const NGBlockBreakToken>> propagated_float_break_tokens_;
@@ -26,9 +26,10 @@ static_assert(
 
 }  // namespace
 
-NGInlineChildLayoutContext::NGInlineChildLayoutContext()
-    : logical_line_items_(MakeGarbageCollected<NGLogicalLineItems>()) {}
-NGInlineChildLayoutContext::~NGInlineChildLayoutContext() = default;
+NGInlineChildLayoutContext::NGInlineChildLayoutContext() = default;
+NGInlineChildLayoutContext::~NGInlineChildLayoutContext() {
+  propagated_float_break_tokens_.clear();
+}
 
 NGInlineLayoutStateStack*
 NGInlineChildLayoutContext::BoxStatesIfValidForItemIndex(

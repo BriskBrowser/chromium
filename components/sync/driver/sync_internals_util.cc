@@ -15,14 +15,15 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/chromeos_buildflags.h"
+#include "components/sync/base/time.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_token_status.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
 #include "components/sync/engine/sync_status.h"
 #include "components/sync/engine/sync_string_conversions.h"
-#include "components/sync/model/time.h"
 #include "components/sync/protocol/proto_enum_conversions.h"
+#include "components/version_info/version_info.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -51,9 +52,7 @@ const char kTrafficLogJS[] = "traffic_log.js";
 const char kInvalidationsJS[] = "invalidations.js";
 
 // Message handlers.
-const char kDispatchEvent[] = "chrome.sync.dispatchEvent";
 const char kGetAllNodes[] = "getAllNodes";
-const char kGetAllNodesCallback[] = "chrome.sync.getAllNodesCallback";
 const char kRequestDataAndRegisterForUpdates[] =
     "requestDataAndRegisterForUpdates";
 const char kRequestIncludeSpecificsInitialState[] =
@@ -62,11 +61,8 @@ const char kRequestListOfTypes[] = "requestListOfTypes";
 const char kRequestStart[] = "requestStart";
 const char kRequestStopKeepData[] = "requestStopKeepData";
 const char kRequestStopClearData[] = "requestStopClearData";
-const char kRequestUserEventsVisibility[] = "requestUserEventsVisibility";
 const char kSetIncludeSpecifics[] = "setIncludeSpecifics";
 const char kTriggerRefresh[] = "triggerRefresh";
-const char kUserEventsVisibilityCallback[] =
-    "chrome.sync.userEventsVisibilityCallback";
 const char kWriteUserEvent[] = "writeUserEvent";
 
 // Other strings.
@@ -244,15 +240,15 @@ std::string GetTransportStateString(syncer::SyncService::TransportState state) {
 // If version information is unavailable, returns "invalid."
 // TODO(zea): this approximately matches syncer::MakeUserAgentForSync in
 // sync_util.h. Unify the two if possible.
-std::string GetVersionString(version_info::Channel channel) {
+std::string GetVersionString(const std::string& channel) {
   // Build a version string that matches syncer::MakeUserAgentForSync with the
   // addition of channel info and proper OS names.
-  // chrome::GetChannelName() returns empty string for stable channel or
-  // unofficial builds, the channel string otherwise. We want to have "-devel"
-  // for unofficial builds only.
-  std::string version_modifier = version_info::GetChannelString(channel);
+  // |channel| will be an empty string for stable channel or unofficial builds,
+  // the channel string otherwise. We want to have "-devel" for unofficial
+  // builds only.
+  std::string version_modifier = channel;
   if (version_modifier.empty()) {
-    if (channel != version_info::Channel::STABLE) {
+    if (!version_info::IsOfficialBuild()) {
       version_modifier = "-devel";
     }
   } else {
@@ -263,17 +259,25 @@ std::string GetVersionString(version_info::Channel channel) {
          version_info::GetLastChange() + ")" + version_modifier;
 }
 
-std::string GetTimeStr(base::Time time, const std::string& default_msg) {
+std::string GetTimeStr(base::Time time,
+                       const std::string& default_msg = "n/a") {
   if (time.is_null())
     return default_msg;
   return GetTimeDebugString(time);
 }
 
+std::string GetTimeStrFromProto(int64_t proto_time,
+                                const std::string& default_msg = "n/a") {
+  if (proto_time == 0)
+    return default_msg;
+  return GetTimeDebugString(ProtoTimeToTime(proto_time));
+}
+
 // Analogous to GetTimeDebugString from components/sync/base/time.h. Consider
 // moving it there if more places need this.
 std::string GetTimeDeltaDebugString(base::TimeDelta t) {
-  base::string16 result;
-  if (!base::TimeDurationFormat(t, base::DURATION_WIDTH_WIDE, &result)) {
+  std::u16string result;
+  if (!base::TimeDurationFormat(t, base::DURATION_WIDTH_NUMERIC, &result)) {
     return "Invalid TimeDelta?!";
   }
   return base::UTF16ToUTF8(result);
@@ -285,7 +289,7 @@ std::string GetLastSyncedTimeString(base::Time last_synced_time) {
 
   base::TimeDelta time_since_last_sync = base::Time::Now() - last_synced_time;
 
-  if (time_since_last_sync < base::TimeDelta::FromMinutes(1))
+  if (time_since_last_sync < base::Minutes(1))
     return "Just now";
 
   return GetTimeDeltaDebugString(time_since_last_sync) + " ago";
@@ -298,15 +302,15 @@ std::string GetConnectionStatus(const SyncTokenStatus& status) {
     case CONNECTION_OK:
       return base::StringPrintf(
           "OK since %s",
-          GetTimeStr(status.connection_status_update_time, "n/a").c_str());
+          GetTimeStr(status.connection_status_update_time).c_str());
     case CONNECTION_AUTH_ERROR:
       return base::StringPrintf(
           "auth error since %s",
-          GetTimeStr(status.connection_status_update_time, "n/a").c_str());
+          GetTimeStr(status.connection_status_update_time).c_str());
     case CONNECTION_SERVER_ERROR:
       return base::StringPrintf(
           "server error since %s",
-          GetTimeStr(status.connection_status_update_time, "n/a").c_str());
+          GetTimeStr(status.connection_status_update_time).c_str());
   }
   NOTREACHED();
   return std::string();
@@ -321,7 +325,7 @@ std::string GetConnectionStatus(const SyncTokenStatus& status) {
 std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
     IncludeSensitiveData include_sensitive_data,
     SyncService* service,
-    version_info::Channel channel) {
+    const std::string& channel) {
   auto about_info = std::make_unique<base::DictionaryValue>();
 
   SectionList section_list;
@@ -355,7 +359,7 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
   Stat<std::string>* invalidator_id =
       section_identity->AddStringStat("Invalidator Client ID");
   Stat<std::string>* username = section_identity->AddStringStat("Username");
-  Stat<bool>* user_is_primary = section_identity->AddBoolStat("Is Primary");
+  Stat<bool>* user_has_consent = section_identity->AddBoolStat("Sync Consent");
 
   Section* section_credentials =
       section_list.AddSection("Credentials", /*is_sensitive=*/false);
@@ -408,8 +412,12 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
       section_encryption->AddStringStat("Keystore Migration Time");
   Stat<std::string>* passphrase_type =
       section_encryption->AddStringStat("Passphrase Type");
-  Stat<std::string>* passphrase_time =
-      section_encryption->AddStringStat("Passphrase Time");
+  Stat<std::string>* explicit_passphrase_time =
+      section_encryption->AddStringStat("Explicit passphrase Time");
+  Stat<std::string>* trusted_vault_migration_time =
+      section_encryption->AddStringStat("Trusted Vault Migration Time");
+  Stat<int>* trusted_vault_key_version =
+      section_encryption->AddIntStat("Trusted Vault Version/Epoch");
 
   Section* section_last_session = section_list.AddSection(
       "Status from Last Completed Session", /*is_sensitive=*/false);
@@ -473,12 +481,16 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
   transport_state->Set(GetTransportStateString(service->GetTransportState()));
   disable_reasons->Set(GetDisableReasonsString(service->GetDisableReasons()));
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (!chromeos::features::IsSplitSettingsSyncEnabled())
+  if (!chromeos::features::IsSyncSettingsCategorizationEnabled()) {
     os_feature_state->Set("Flag disabled");
-  else if (service->GetUserSettings()->IsOsSyncFeatureEnabled())
+  } else if (!chromeos::features::IsSyncConsentOptionalEnabled()) {
+    DCHECK(service->GetUserSettings()->IsOsSyncFeatureEnabled());
+    os_feature_state->Set("Enforced Enabled");
+  } else if (service->GetUserSettings()->IsOsSyncFeatureEnabled()) {
     os_feature_state->Set("Enabled");
-  else
+  } else {
     os_feature_state->Set("Disabled");
+  }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   feature_enabled->Set(service->IsSyncFeatureEnabled());
   setup_in_progress->Set(service->IsSetupInProgress());
@@ -505,18 +517,18 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
     server_url->Set(service->GetSyncServiceUrlForDebugging().spec());
 
   // Identity.
-  if (is_status_valid && !full_status.sync_id.empty())
-    sync_client_id->Set(full_status.sync_id);
+  if (is_status_valid && !full_status.cache_guid.empty())
+    sync_client_id->Set(full_status.cache_guid);
   if (is_status_valid && !full_status.invalidator_client_id.empty())
     invalidator_id->Set(full_status.invalidator_client_id);
   if (!is_local_sync_enabled_state) {
-    username->Set(service->GetAuthenticatedAccountInfo().email);
-    user_is_primary->Set(service->IsAuthenticatedAccountPrimary());
+    username->Set(service->GetAccountInfo().email);
+    user_has_consent->Set(service->HasSyncConsent());
   }
 
   // Credentials.
-  token_request_time->Set(GetTimeStr(token_status.token_request_time, "n/a"));
-  token_response_time->Set(GetTimeStr(token_status.token_response_time, "n/a"));
+  token_request_time->Set(GetTimeStr(token_status.token_request_time));
+  token_response_time->Set(GetTimeStr(token_status.token_response_time));
   std::string err = token_status.last_get_token_error.error_message();
   last_token_request_result->Set(err.empty() ? "OK" : err,
                                  /*is_good=*/err.empty());
@@ -553,12 +565,11 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
   // Encryption.
   if (service->IsSyncFeatureActive()) {
     is_using_explicit_passphrase->Set(
-        service->GetUserSettings()->IsUsingSecondaryPassphrase());
+        service->GetUserSettings()->IsUsingExplicitPassphrase());
     is_passphrase_required->Set(
         service->GetUserSettings()->IsPassphraseRequired());
-    passphrase_time->Set(
-        GetTimeStr(service->GetUserSettings()->GetExplicitPassphraseTime(),
-                   "No Passphrase Time"));
+    explicit_passphrase_time->Set(
+        GetTimeStr(service->GetUserSettings()->GetExplicitPassphraseTime()));
   }
   if (is_status_valid) {
     cryptographer_can_encrypt->Set(full_status.cryptographer_can_encrypt);
@@ -568,6 +579,14 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
     keystore_migration_time->Set(
         GetTimeStr(full_status.keystore_migration_time, "Not Migrated"));
     passphrase_type->Set(PassphraseTypeToString(full_status.passphrase_type));
+
+    if (full_status.passphrase_type ==
+        PassphraseType::kTrustedVaultPassphrase) {
+      trusted_vault_migration_time->Set(GetTimeStrFromProto(
+          full_status.trusted_vault_debug_info.migration_time()));
+      trusted_vault_key_version->Set(
+          full_status.trusted_vault_debug_info.key_version());
+    }
   }
 
   // Status from Last Completed Session.
@@ -626,7 +645,7 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
 
   // We don't need to check is_status_valid here.
   // full_status.sync_protocol_error is exported directly from the
-  // ProfileSyncService, even if the backend doesn't exist.
+  // SyncServiceImpl, even if the backend doesn't exist.
   const bool actionable_error_detected =
       full_status.sync_protocol_error.error_type != UNKNOWN_ERROR &&
       full_status.sync_protocol_error.error_type != SYNC_SUCCESS;

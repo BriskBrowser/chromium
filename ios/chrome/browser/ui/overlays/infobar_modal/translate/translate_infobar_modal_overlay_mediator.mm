@@ -66,9 +66,14 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
   self.newSourceLanguageIndex = kInvalidLanguageIndex;
   self.newTargetLanguageIndex = kInvalidLanguageIndex;
 
-  BOOL currentStepBeforeTranslate =
+  // The Translate button should be enabled whenever the page is untranslated,
+  // which may be before any translation has been triggered or after an error
+  // caused translation to fail.
+  BOOL currentStepUntranslated =
       self.config->current_step() ==
-      translate::TranslateStep::TRANSLATE_STEP_BEFORE_TRANSLATE;
+          translate::TranslateStep::TRANSLATE_STEP_BEFORE_TRANSLATE ||
+      self.config->current_step() ==
+          translate::TranslateStep::TRANSLATE_STEP_TRANSLATE_ERROR;
 
   [self.consumer
       setupModalViewControllerWithPrefs:
@@ -79,8 +84,7 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
                                          base::SysUTF16ToNSString(
                                              self.config
                                                  ->target_language_name())
-                             translateButtonEnabled:
-                                 currentStepBeforeTranslate]];
+                             translateButtonEnabled:currentStepUntranslated]];
 }
 
 - (void)setSourceLanguageSelectionConsumer:
@@ -109,7 +113,7 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
 
 #pragma mark - InfobarTranslateModalDelegate
 
-- (void)showOriginalLanguage {
+- (void)showSourceLanguage {
   [self recordInfobarEvent:translate::InfobarEvent::INFOBAR_REVERT];
   [self dispatchResponse:
             OverlayResponse::CreateWithInfo<
@@ -228,10 +232,10 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
                           self.config->language_names().at(languageIndex))]);
 
   self.newSourceLanguageIndex = languageIndex;
-  base::string16 sourceLanguage =
+  std::u16string sourceLanguage =
       self.config->language_names().at(languageIndex);
 
-  base::string16 targetLanguage = self.config->target_language_name();
+  std::u16string targetLanguage = self.config->target_language_name();
   if (self.newTargetLanguageIndex != kInvalidLanguageIndex) {
     targetLanguage =
         self.config->language_names().at(self.newTargetLanguageIndex);
@@ -253,10 +257,10 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
                           self.config->language_names().at(languageIndex))]);
 
   self.newTargetLanguageIndex = languageIndex;
-  base::string16 targetLanguage =
+  std::u16string targetLanguage =
       self.config->language_names().at(languageIndex);
 
-  base::string16 sourceLanguage = self.config->source_language_name();
+  std::u16string sourceLanguage = self.config->source_language_name();
   if (self.newSourceLanguageIndex != kInvalidLanguageIndex) {
     sourceLanguage =
         self.config->language_names().at(self.newSourceLanguageIndex);
@@ -274,17 +278,17 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
 
 - (NSArray<TableViewTextItem*>*)loadTranslateLanguageItemsForSelectingLanguage:
     (BOOL)sourceLanguage {
-  // In the instance that the user has already selected a different original
+  // In the instance that the user has already selected a different source
   // language, then we should be using that language as the one to potentially
   // check or not show.
-  base::string16 originalLanguageName =
+  std::u16string sourceLanguageName =
       self.newSourceLanguageIndex != kInvalidLanguageIndex
           ? self.config->language_names().at(self.newSourceLanguageIndex)
           : self.config->source_language_name();
   // In the instance that the user has already selected a different target
   // language, then we should be using that language as the one to potentially
   // check or not show.
-  base::string16 targetLanguageName =
+  std::u16string targetLanguageName =
       self.newTargetLanguageIndex != kInvalidLanguageIndex
           ? self.config->language_names().at(self.newTargetLanguageIndex)
           : self.config->target_language_name();
@@ -296,7 +300,7 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
     item.text =
         base::SysUTF16ToNSString(self.config->language_names().at((int)i));
 
-    if (self.config->language_names().at((int)i) == originalLanguageName) {
+    if (self.config->language_names().at((int)i) == sourceLanguageName) {
       if (!sourceLanguage) {
         // Disable for source language if selecting the target
         // language to prevent same language translation. Need to add item,
@@ -316,7 +320,7 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
     }
 
     if ((sourceLanguage &&
-         originalLanguageName == self.config->language_names().at((int)i)) ||
+         sourceLanguageName == self.config->language_names().at((int)i)) ||
         (!sourceLanguage &&
          targetLanguageName == self.config->language_names().at((int)i))) {
       item.checked = YES;
@@ -361,9 +365,13 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
                                         targetLanguage:(NSString*)targetLanguage
                                 translateButtonEnabled:
                                     (BOOL)translateButtonEnabled {
-  BOOL currentStepBeforeTranslate =
+  // Modal state following a translate error should be the same as on an
+  // untranslated page.
+  BOOL currentStepUntranslated =
       self.config->current_step() ==
-      translate::TranslateStep::TRANSLATE_STEP_BEFORE_TRANSLATE;
+          translate::TranslateStep::TRANSLATE_STEP_BEFORE_TRANSLATE ||
+      self.config->current_step() ==
+          translate::TranslateStep::TRANSLATE_STEP_TRANSLATE_ERROR;
   BOOL currentStepAfterTranslate =
       self.config->current_step() ==
       translate::TranslateStep::TRANSLATE_STEP_AFTER_TRANSLATE;
@@ -379,8 +387,8 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
     kEnableAndDisplayShowOriginalButtonPrefKey : @(currentStepAfterTranslate),
     kShouldAlwaysTranslatePrefKey :
         @(self.config->is_always_translate_enabled()),
-    kDisplayNeverTranslateLanguagePrefKey : @(currentStepBeforeTranslate),
-    kDisplayNeverTranslateSiteButtonPrefKey : @(currentStepBeforeTranslate),
+    kDisplayNeverTranslateLanguagePrefKey : @(currentStepUntranslated),
+    kDisplayNeverTranslateSiteButtonPrefKey : @(currentStepUntranslated),
     kIsTranslatableLanguagePrefKey : @(self.config->is_translatable_language()),
     kIsSiteOnNeverPromptListPrefKey :
         @(self.config->is_site_on_never_prompt_list()),

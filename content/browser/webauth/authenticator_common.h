@@ -15,11 +15,11 @@
 #include "base/containers/flat_set.h"
 #include "base/containers/span.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/timer/timer.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/authenticator_request_client_delegate.h"
-#include "content/public/browser/web_contents_observer.h"
+#include "content/public/browser/global_routing_id.h"
+#include "content/public/browser/web_authentication_request_proxy.h"
 #include "device/fido/authenticator_get_assertion_response.h"
 #include "device/fido/authenticator_make_credential_response.h"
 #include "device/fido/authenticator_selection_criteria.h"
@@ -29,6 +29,7 @@
 #include "device/fido/fido_transport_protocol.h"
 #include "device/fido/make_credential_request_handler.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
 #include "url/origin.h"
 
@@ -58,45 +59,32 @@ class BrowserContext;
 class RenderFrameHost;
 class WebAuthRequestSecurityChecker;
 
-namespace client_data {
-// These enumerate the possible values for the `type` member of
-// CollectedClientData. See
-// https://w3c.github.io/webauthn/#dom-collectedclientdata-type
-CONTENT_EXPORT extern const char kCreateType[];
-CONTENT_EXPORT extern const char kGetType[];
-}  // namespace client_data
-
 enum class RequestExtension;
-
-// Builds the CollectedClientData[1] dictionary with the given values,
-// serializes it to JSON, and returns the resulting string. For legacy U2F
-// requests coming from the CryptoToken U2F extension, modifies the object key
-// 'type' as required[2].
-// [1] https://w3c.github.io/webauthn/#dictdef-collectedclientdata
-// [2]
-// https://fidoalliance.org/specs/fido-u2f-v1.2-ps-20170411/fido-u2f-raw-message-formats-v1.2-ps-20170411.html#client-data
-CONTENT_EXPORT std::string SerializeWebAuthnCollectedClientDataToJson(
-    const std::string& type,
-    const std::string& origin,
-    base::span<const uint8_t> challenge,
-    bool is_cross_origin,
-    bool use_legacy_u2f_type_key = false);
 
 // Common code for any WebAuthn Authenticator interfaces.
 class CONTENT_EXPORT AuthenticatorCommon {
  public:
+  // Creates a new AuthenticatorCommon. Callers must ensure that this instance
+  // outlives the RenderFrameHost.
   explicit AuthenticatorCommon(RenderFrameHost* render_frame_host);
+
+  AuthenticatorCommon(const AuthenticatorCommon&) = delete;
+  AuthenticatorCommon& operator=(const AuthenticatorCommon&) = delete;
+
   virtual ~AuthenticatorCommon();
 
   // This is not-quite an implementation of blink::mojom::Authenticator. The
   // first two functions take the caller's origin explicitly. This allows the
-  // caller origin to be overridden if needed.
+  // caller origin to be overridden if needed. `GetAssertion()` also takes the
+  // optional `payment` to add to "clientDataJson" after the browser displays
+  // the payment confirmation dialog to the user.
   void MakeCredential(
       url::Origin caller_origin,
       blink::mojom::PublicKeyCredentialCreationOptionsPtr options,
       blink::mojom::Authenticator::MakeCredentialCallback callback);
   void GetAssertion(url::Origin caller_origin,
                     blink::mojom::PublicKeyCredentialRequestOptionsPtr options,
+                    blink::mojom::PaymentOptionsPtr payment,
                     blink::mojom::Authenticator::GetAssertionCallback callback);
   void IsUserVerifyingPlatformAuthenticatorAvailable(
       blink::mojom::Authenticator::
@@ -107,9 +95,25 @@ class CONTENT_EXPORT AuthenticatorCommon {
 
   void DisableUI();
 
+  // GetRenderFrameHost returns a pointer to the RenderFrameHost that was given
+  // to the constructor. Use this rather than keeping a copy of the
+  // RenderFrameHost* that was passed in.
+  //
+  // This object assumes that the RenderFrameHost overlives it but, in case it
+  // doesn't, this avoids holding a raw pointer and creating a use-after-free.
+  // If the RenderFrameHost has been destroyed then this function will return
+  // nullptr and the process will crash when it tries to use it.
+  RenderFrameHost* GetRenderFrameHost() const;
+
  protected:
+  // MaybeCreateRequestDelegate returns the embedder-provided implementation of
+  // AuthenticatorRequestClientDelegate, which encapsulates per-request state
+  // relevant to the embedder, e.g. because it is used to display browser UI.
+  //
+  // Chrome may return nullptr here in order to ensure that at most one request
+  // per WebContents is ongoing at once.
   virtual std::unique_ptr<AuthenticatorRequestClientDelegate>
-  CreateRequestDelegate();
+  MaybeCreateRequestDelegate();
 
   std::unique_ptr<AuthenticatorRequestClientDelegate> request_delegate_;
 
@@ -120,6 +124,12 @@ class CONTENT_EXPORT AuthenticatorCommon {
   enum class Focus {
     kDoCheck,
     kDontCheck,
+  };
+
+  enum class AttestationErasureOption {
+    kIncludeAttestation,
+    kEraseAttestationButIncludeAaguid,
+    kEraseAttestationAndAaguid,
   };
 
   // Replaces the current |request_| with a |MakeCredentialRequestHandler|,
@@ -146,7 +156,7 @@ class CONTENT_EXPORT AuthenticatorCommon {
   // Callback to handle the async response from a U2fDevice.
   void OnRegisterResponse(
       device::MakeCredentialStatus status_code,
-      base::Optional<device::AuthenticatorMakeCredentialResponse> response_data,
+      absl::optional<device::AuthenticatorMakeCredentialResponse> response_data,
       const device::FidoAuthenticator* authenticator);
 
   // Callback to complete the registration process once a decision about
@@ -158,7 +168,7 @@ class CONTENT_EXPORT AuthenticatorCommon {
   // Callback to handle the async response from a U2fDevice.
   void OnSignResponse(
       device::GetAssertionStatus status_code,
-      base::Optional<std::vector<device::AuthenticatorGetAssertionResponse>>
+      absl::optional<std::vector<device::AuthenticatorGetAssertionResponse>>
           response_data,
       const device::FidoAuthenticator* authenticator);
 
@@ -182,26 +192,39 @@ class CONTENT_EXPORT AuthenticatorCommon {
       AuthenticatorRequestClientDelegate::InterestingFailureReason reason,
       blink::mojom::AuthenticatorStatus status);
 
-  void InvokeCallbackAndCleanup(
-      blink::mojom::Authenticator::MakeCredentialCallback callback,
+  // Creates a make credential response
+  blink::mojom::MakeCredentialAuthenticatorResponsePtr
+  CreateMakeCredentialResponse(
+      device::AuthenticatorMakeCredentialResponse response_data,
+      AttestationErasureOption attestation_erasure);
+
+  // Runs |make_credential_response_callback_| and then Cleanup().
+  void CompleteMakeCredentialRequest(
       blink::mojom::AuthenticatorStatus status,
       blink::mojom::MakeCredentialAuthenticatorResponsePtr response = nullptr,
       Focus focus_check = Focus::kDontCheck);
-  void InvokeCallbackAndCleanup(
-      blink::mojom::Authenticator::GetAssertionCallback callback,
+
+  // Creates a get assertion response.
+  blink::mojom::GetAssertionAuthenticatorResponsePtr CreateGetAssertionResponse(
+      device::AuthenticatorGetAssertionResponse response_data);
+
+  // Runs |get_assertion_callback_| and then Cleanup().
+  void CompleteGetAssertionRequest(
       blink::mojom::AuthenticatorStatus status,
       blink::mojom::GetAssertionAuthenticatorResponsePtr response = nullptr);
 
-  BrowserContext* browser_context() const;
+  BrowserContext* GetBrowserContext() const;
 
   // Returns the FidoDiscoveryFactory for the current request. This may be a
   // real instance, or one injected by the Virtual Authenticator environment, or
   // a unit testing fake. InitDiscoveryFactory() must be called before this
   // accessor. It gets reset at the end of each request by Cleanup().
   device::FidoDiscoveryFactory* discovery_factory();
-  void InitDiscoveryFactory();
+  void InitDiscoveryFactory(bool is_u2f_api_request);
 
-  RenderFrameHost* const render_frame_host_;
+  WebAuthenticationRequestProxy* GetWebAuthnRequestProxyIfActive();
+
+  const GlobalRenderFrameHostId render_frame_host_id_;
   std::unique_ptr<device::FidoRequestHandlerBase> request_;
   std::unique_ptr<device::FidoDiscoveryFactory> discovery_factory_;
   device::FidoDiscoveryFactory* discovery_factory_testing_override_ = nullptr;
@@ -210,6 +233,9 @@ class CONTENT_EXPORT AuthenticatorCommon {
   blink::mojom::Authenticator::GetAssertionCallback
       get_assertion_response_callback_;
   std::string client_data_json_;
+  // Transport used during authentication. May be empty if unknown, e.g. on old
+  // Windows.
+  absl::optional<device::FidoTransportProtocol> transport_;
   // empty_allow_list_ is true iff a GetAssertion is currently pending and the
   // request did not list any credential IDs in the allow list.
   bool empty_allow_list_ = false;
@@ -219,13 +245,12 @@ class CONTENT_EXPORT AuthenticatorCommon {
   scoped_refptr<WebAuthRequestSecurityChecker> security_checker_;
   std::unique_ptr<base::OneShotTimer> timer_ =
       std::make_unique<base::OneShotTimer>();
-  base::Optional<std::string> app_id_;
-  base::Optional<device::CtapMakeCredentialRequest>
+  absl::optional<std::string> app_id_;
+  absl::optional<device::CtapMakeCredentialRequest>
       ctap_make_credential_request_;
-  base::Optional<device::MakeCredentialRequestHandler::Options>
-      make_credential_options_;
-  base::Optional<device::CtapGetAssertionRequest> ctap_get_assertion_request_;
-  base::Optional<device::CtapGetAssertionOptions> ctap_get_assertion_options_;
+  absl::optional<device::MakeCredentialOptions> make_credential_options_;
+  absl::optional<device::CtapGetAssertionRequest> ctap_get_assertion_request_;
+  absl::optional<device::CtapGetAssertionOptions> ctap_get_assertion_options_;
   // awaiting_attestation_response_ is true if the embedder has been queried
   // about an attestsation decision and the response is still pending.
   bool awaiting_attestation_response_ = false;
@@ -236,8 +261,6 @@ class CONTENT_EXPORT AuthenticatorCommon {
   base::flat_set<RequestExtension> requested_extensions_;
 
   base::WeakPtrFactory<AuthenticatorCommon> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AuthenticatorCommon);
 };
 
 }  // namespace content

@@ -7,7 +7,6 @@
 #include "ash/constants/ash_features.h"
 #include "ash/quick_answers/quick_answers_controller_impl.h"
 #include "ash/test/ash_test_base.h"
-#include "base/test/scoped_feature_list.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_controller.h"
@@ -27,10 +26,7 @@ constexpr gfx::Rect kDefaultAnchorBoundsInScreen =
 
 class QuickAnswersViewsTest : public AshTestBase {
  protected:
-  QuickAnswersViewsTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        chromeos::features::kQuickAnswers);
-  }
+  QuickAnswersViewsTest() = default;
   QuickAnswersViewsTest(const QuickAnswersViewsTest&) = delete;
   QuickAnswersViewsTest& operator=(const QuickAnswersViewsTest&) = delete;
   ~QuickAnswersViewsTest() override = default;
@@ -79,13 +75,13 @@ class QuickAnswersViewsTest : public AshTestBase {
         static_cast<QuickAnswersControllerImpl*>(QuickAnswersController::Get())
             ->quick_answers_ui_controller();
     quick_answers_view_ = std::make_unique<QuickAnswersView>(
-        anchor_bounds_, title, ui_controller);
+        anchor_bounds_, title, /*is_internal=*/false, ui_controller);
   }
 
   void CreateAndShowBasicMenu() {
     menu_delegate_ = std::make_unique<views::Label>();
     menu_model_ = std::make_unique<ui::SimpleMenuModel>(menu_delegate_.get());
-    menu_model_->AddItem(0, base::ASCIIToUTF16("Menu item"));
+    menu_model_->AddItem(0, u"Menu item");
     menu_runner_ = std::make_unique<views::MenuRunner>(
         menu_model_.get(), views::MenuRunner::CONTEXT_MENU);
     menu_parent_ = CreateTestWidget();
@@ -97,7 +93,6 @@ class QuickAnswersViewsTest : public AshTestBase {
  private:
   std::unique_ptr<QuickAnswersView> quick_answers_view_;
   gfx::Rect anchor_bounds_;
-  base::test::ScopedFeatureList scoped_feature_list_;
 
   // Menu.
   std::unique_ptr<views::Label> menu_delegate_;

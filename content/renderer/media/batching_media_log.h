@@ -11,7 +11,7 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "media/base/media_log.h"
@@ -40,6 +40,10 @@ class CONTENT_EXPORT BatchingMediaLog : public media::MediaLog {
 
   BatchingMediaLog(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                    std::vector<std::unique_ptr<EventHandler>> impl);
+
+  BatchingMediaLog(const BatchingMediaLog&) = delete;
+  BatchingMediaLog& operator=(const BatchingMediaLog&) = delete;
+
   ~BatchingMediaLog() override;
 
   // Will reset |last_ipc_send_time_| with the value of NowTicks().
@@ -84,23 +88,21 @@ class CONTENT_EXPORT BatchingMediaLog : public media::MediaLog {
   bool logged_rate_limit_warning_;
 
   // Limits the number of events we send over IPC to one.
-  base::Optional<media::MediaLogRecord> last_duration_changed_event_;
-  base::Optional<media::MediaLogRecord> last_buffering_state_event_;
+  absl::optional<media::MediaLogRecord> last_duration_changed_event_;
+  absl::optional<media::MediaLogRecord> last_buffering_state_event_;
 
   // Holds the earliest MEDIA_ERROR_LOG_ENTRY event added to this log. This is
   // most likely to contain the most specific information available describing
   // any eventual fatal error.
   // TODO(wolenetz): Introduce a reset method to clear this in cases like
   // non-fatal error recovery like decoder fallback.
-  base::Optional<media::MediaLogRecord> cached_media_error_for_message_;
+  absl::optional<media::MediaLogRecord> cached_media_error_for_message_;
 
   // Holds a copy of the most recent PIPELINE_ERROR, if any.
-  base::Optional<media::MediaLogRecord> last_pipeline_error_;
+  absl::optional<media::MediaLogRecord> last_pipeline_error_;
 
   base::WeakPtr<BatchingMediaLog> weak_this_;
   base::WeakPtrFactory<BatchingMediaLog> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(BatchingMediaLog);
 };
 
 }  // namespace content

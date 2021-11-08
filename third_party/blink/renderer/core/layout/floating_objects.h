@@ -25,12 +25,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_FLOATING_OBJECTS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_FLOATING_OBJECTS_H_
 
-#include <memory>
+#include "base/dcheck_is_on.h"
 #include "base/types/pass_key.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/clear_collection_scope.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
-#include "third_party/blink/renderer/platform/wtf/list_hash_set.h"
+#include "third_party/blink/renderer/platform/wtf/linked_hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/pod_free_list_arena.h"
 #include "third_party/blink/renderer/platform/wtf/pod_interval_tree.h"
 
@@ -193,7 +194,7 @@ struct FloatingObjectHashFunctions {
     return Equal(a, b.Get());
   }
 
-  static const bool safe_to_compare_to_empty_or_deleted = true;
+  static const bool safe_to_compare_to_empty_or_deleted = false;
 };
 struct FloatingObjectHashTranslator {
   STATIC_ONLY(FloatingObjectHashTranslator);
@@ -208,8 +209,9 @@ struct FloatingObjectHashTranslator {
   }
 };
 
-// TODO(yukiy): Use HeapLinkedHashSet here once it supports HashTranslator
-typedef HeapListHashSet<Member<FloatingObject>, 4, FloatingObjectHashFunctions>
+typedef HeapLinkedHashSet<Member<FloatingObject>,
+                          HashTraits<Member<FloatingObject>>,
+                          FloatingObjectHashFunctions>
     FloatingObjectSet;
 typedef FloatingObjectSet::const_iterator FloatingObjectSetIterator;
 typedef WTF::PODInterval<LayoutUnit, FloatingObject*> FloatingObjectInterval;

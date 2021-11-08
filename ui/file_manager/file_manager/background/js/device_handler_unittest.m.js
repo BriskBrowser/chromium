@@ -5,17 +5,18 @@
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://test/chai_assert.js';
 
-import {installMockChrome, MockChromeStorageAPI} from '../../../base/js/mock_chrome.m.js';
-import {reportPromise} from '../../../base/js/test_error_reporting.m.js';
-import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
-import {VolumeInfo} from '../../../externs/volume_info.m.js';
-import {importer} from '../../common/js/importer_common.m.js';
-import {metrics} from '../../common/js/metrics.m.js';
-import {MockFileSystem} from '../../common/js/mock_entry.m.js';
+import {importer} from '../../common/js/importer_common.js';
+import {metrics} from '../../common/js/metrics.js';
+import {installMockChrome, MockChromeStorageAPI} from '../../common/js/mock_chrome.js';
+import {MockFileSystem} from '../../common/js/mock_entry.js';
+import {reportPromise} from '../../common/js/test_error_reporting.js';
+import {util} from '../../common/js/util.js';
+import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
+import {VolumeInfo} from '../../externs/volume_info.js';
 
-import {DeviceHandler} from './device_handler.m.js';
-import {MockProgressCenter} from './mock_progress_center.m.js';
-import {MockVolumeManager} from './mock_volume_manager.m.js';
+import {DeviceHandler} from './device_handler.js';
+import {MockProgressCenter} from './mock_progress_center.js';
+import {MockVolumeManager} from './mock_volume_manager.js';
 
 /** @type {!MockVolumeManager} */
 let volumeManager;
@@ -30,6 +31,16 @@ let deviceHandler;
 let mockChrome;
 
 /**
+ * @type {boolean}
+ */
+let swaEnabledState = false;
+
+/**
+ * @type {function(): boolean}
+ */
+let restoreIsSwaEnabled;
+
+/**
  * Mock metrics.
  * @param {string} name
  * @param {*} value
@@ -40,14 +51,14 @@ metrics.recordEnum = function(name, value, opt_validValues) {};
 // Set up the test components.
 export function setUp() {
   // Set up string assets.
-  loadTimeData.data = {
+  loadTimeData.resetForTesting({
     DEVICE_UNSUPPORTED_MESSAGE: 'DEVICE_UNSUPPORTED: $1',
     DEVICE_UNKNOWN_MESSAGE: 'DEVICE_UNKNOWN: $1',
     MULTIPART_DEVICE_UNSUPPORTED_MESSAGE: 'MULTIPART_DEVICE_UNSUPPORTED: $1',
     FORMAT_PROGRESS_MESSAGE: 'FORMAT_PROGRESS_MESSAGE: $1',
     FORMAT_SUCCESS_MESSAGE: 'FORMAT_SUCCESS_MESSAGE: $1',
     FORMAT_FAILURE_MESSAGE: 'FORMAT_FAILURE_MESSAGE: $1',
-  };
+  });
   loadTimeData.getString = id => {
     return loadTimeData.data_[id] || id;
   };
@@ -64,7 +75,15 @@ export function setUp() {
 
   progressCenter = new MockProgressCenter();
 
+  restoreIsSwaEnabled = util.isSwaEnabled;
+  util.isSwaEnabled = () => swaEnabledState;
+  window.isSWA = false;
   deviceHandler = new DeviceHandler(progressCenter);
+}
+
+export function tearDown() {
+  util.isSwaEnabled = restoreIsSwaEnabled;
+  swaEnabledState = false;
 }
 
 function setUpInIncognitoContext() {
@@ -738,6 +757,72 @@ export function testMountCompleteInIncognito() {
   // This looks as if notification is not generated yet because the promise
   // is not settled yet. Same for testGoodDeviceNotNavigated.
   assertFalse(mockChrome.notifications.resolver.settled);
+}
+
+/**
+ * Test that the device handler does not emit notifications when in a SWA window
+ * if the isSwaEnabled flag is false.
+ */
+export function testIsSwaWindowTrueWithDisabledFlag() {
+  setUpInIncognitoContext();
+  window.isSWA = true;
+  swaEnabledState = false;
+  deviceHandler = new DeviceHandler(progressCenter);
+
+  mockChrome.fileManagerPrivate.onDeviceChanged.dispatch(
+      {type: 'format_start', devicePath: '/device/path', deviceLabel: 'label'});
+  assertEquals(0, progressCenter.getItemCount());
+
+  mockChrome.fileManagerPrivate.onDeviceChanged.dispatch({
+    type: 'format_success',
+    devicePath: '/device/path',
+    deviceLabel: 'label'
+  });
+  assertEquals(0, progressCenter.getItemCount());
+}
+
+/**
+ * Test that the device handler does not emit notifications when in a SWA window
+ * if the isSwaEnabled flag is true.
+ */
+export function testSwaWindowWithEnabledFlag() {
+  setUpInIncognitoContext();
+  window.isSWA = true;
+  swaEnabledState = false;
+  deviceHandler = new DeviceHandler(progressCenter);
+
+  mockChrome.fileManagerPrivate.onDeviceChanged.dispatch(
+      {type: 'format_start', devicePath: '/device/path', deviceLabel: 'label'});
+  assertEquals(0, progressCenter.getItemCount());
+
+  mockChrome.fileManagerPrivate.onDeviceChanged.dispatch({
+    type: 'format_success',
+    devicePath: '/device/path',
+    deviceLabel: 'label'
+  });
+  assertEquals(0, progressCenter.getItemCount());
+}
+
+/**
+ * Test that the device handler does not emit notifications when not in a SWA
+ * window if the isSwaEnabled flag is true.
+ */
+export function testNoSwaWindowWithEnabledFlag() {
+  setUpInIncognitoContext();
+  window.isSWA = false;
+  swaEnabledState = true;
+  deviceHandler = new DeviceHandler(progressCenter);
+
+  mockChrome.fileManagerPrivate.onDeviceChanged.dispatch(
+      {type: 'format_start', devicePath: '/device/path', deviceLabel: 'label'});
+  assertEquals(0, progressCenter.getItemCount());
+
+  mockChrome.fileManagerPrivate.onDeviceChanged.dispatch({
+    type: 'format_success',
+    devicePath: '/device/path',
+    deviceLabel: 'label'
+  });
+  assertEquals(0, progressCenter.getItemCount());
 }
 
 /**

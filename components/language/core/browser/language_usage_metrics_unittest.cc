@@ -30,6 +30,9 @@ class MetricsRecorder {
       base_samples_ = histogram->SnapshotSamples();
   }
 
+  MetricsRecorder(const MetricsRecorder&) = delete;
+  MetricsRecorder& operator=(const MetricsRecorder&) = delete;
+
   void CheckTotalCount(int count) {
     Snapshot();
     EXPECT_EQ(count, GetTotalCount());
@@ -69,8 +72,6 @@ class MetricsRecorder {
   std::string key_;
   std::unique_ptr<HistogramSamples> base_samples_;
   std::unique_ptr<HistogramSamples> samples_;
-
-  DISALLOW_COPY_AND_ASSIGN(MetricsRecorder);
 };
 
 void RecordPageLanguageVisits(UrlLanguageHistogram& language_histogram,
@@ -260,26 +261,26 @@ TEST(LanguageUsageMetricsTest, ParseAcceptLanguages) {
   EXPECT_EQ(ENGLISH, *it);
 }
 
-TEST(LanguageUsageMetricsTest, ToLanguageCode) {
+TEST(LanguageUsageMetricsTest, ToLanguageCodeHash) {
   const int SPANISH = 25971;
   const int JAPANESE = 27233;
 
   // Basic case.
-  EXPECT_EQ(JAPANESE, LanguageUsageMetrics::ToLanguageCode("ja"));
+  EXPECT_EQ(JAPANESE, LanguageUsageMetrics::ToLanguageCodeHash("ja"));
 
   // Case is ignored.
-  EXPECT_EQ(SPANISH, LanguageUsageMetrics::ToLanguageCode("Es"));
+  EXPECT_EQ(SPANISH, LanguageUsageMetrics::ToLanguageCodeHash("Es"));
 
   // Coutry code is ignored.
-  EXPECT_EQ(JAPANESE, LanguageUsageMetrics::ToLanguageCode("ja-JP"));
+  EXPECT_EQ(JAPANESE, LanguageUsageMetrics::ToLanguageCodeHash("ja-JP"));
 
   // Invalid locales are considered as unknown language.
-  EXPECT_EQ(0, LanguageUsageMetrics::ToLanguageCode(std::string()));
-  EXPECT_EQ(0, LanguageUsageMetrics::ToLanguageCode("1234"));
+  EXPECT_EQ(0, LanguageUsageMetrics::ToLanguageCodeHash(std::string()));
+  EXPECT_EQ(0, LanguageUsageMetrics::ToLanguageCodeHash("1234"));
 
   // "xx" is not acceptable because it doesn't exist in ISO 639-1 table.
   // However, LanguageUsageMetrics doesn't tell what code is valid.
-  EXPECT_EQ(30840, LanguageUsageMetrics::ToLanguageCode("xx"));
+  EXPECT_EQ(30840, LanguageUsageMetrics::ToLanguageCodeHash("xx"));
 }
 
 }  // namespace language

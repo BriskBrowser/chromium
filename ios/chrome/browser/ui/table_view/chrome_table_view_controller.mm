@@ -24,7 +24,7 @@
 #endif
 
 const CGFloat kTableViewSeparatorInset = 16;
-const CGFloat kTableViewSeparatorInsetWithIcon = 56;
+const CGFloat kTableViewSeparatorInsetWithIcon = 60;
 
 @interface ChromeTableViewController ()
 // The loading displayed by [self startLoadingIndicatorWithLoadingMessage:].
@@ -71,6 +71,14 @@ const CGFloat kTableViewSeparatorInsetWithIcon = 56;
     return nil;
   }
   return indexPath;
+}
+
+// TODO(crbug.com/1254652): Large titles appear collapsed in some case when
+// opening a tableView. e.g when opening History screen without entry. Remove
+// this method when the issue is fixed.
+- (void)viewWillAppear:(BOOL)animated {
+  [super viewWillAppear:animated];
+  [self.navigationController.navigationBar sizeToFit];
 }
 
 #pragma mark - Accessors

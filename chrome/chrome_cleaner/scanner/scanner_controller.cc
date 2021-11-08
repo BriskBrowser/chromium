@@ -62,7 +62,7 @@ int ScannerController::ScanOnly() {
   // Make sure the scanning process gets completed in a reasonable amount of
   // time, otherwise log it and terminate the process.
   base::TimeDelta watchdog_timeout =
-      base::TimeDelta::FromSeconds(watchdog_timeout_in_seconds_);
+      base::Seconds(watchdog_timeout_in_seconds_);
 
   Settings* settings = Settings::GetInstance();
   if (settings->scanning_timeout_overridden())
@@ -93,11 +93,11 @@ int ScannerController::ScanOnly() {
   }
 
   if (shortcut_parser_) {
-    std::set<base::FilePath> chrome_exe_paths;
-    ListChromeExePaths(&chrome_exe_paths);
+    std::set<base::FilePath> chrome_exe_directories;
+    ListChromeExeDirectories(&chrome_exe_directories);
     FilePathSet chrome_exe_file_path_set;
-    for (const auto& path : chrome_exe_paths)
-      chrome_exe_file_path_set.Insert(path);
+    for (const auto& path : chrome_exe_directories)
+      chrome_exe_file_path_set.Insert(path.Append(L"chrome.exe"));
 
     shortcut_parser_->FindAndParseChromeShortcutsInFoldersAsync(
         paths_to_explore, chrome_exe_file_path_set,

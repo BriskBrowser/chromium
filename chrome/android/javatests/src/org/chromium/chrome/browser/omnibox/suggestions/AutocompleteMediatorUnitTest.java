@@ -36,12 +36,13 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.jank_tracker.DummyJankTracker;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.omnibox.LocationBarDataProvider;
 import org.chromium.chrome.browser.omnibox.OmniboxSuggestionType;
 import org.chromium.chrome.browser.omnibox.UrlBarEditingTextStateProvider;
@@ -57,6 +58,7 @@ import org.chromium.components.omnibox.AutocompleteMatchBuilder;
 import org.chromium.components.omnibox.AutocompleteResult;
 import org.chromium.components.query_tiles.QueryTile;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
+import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
@@ -164,6 +166,9 @@ public class AutocompleteMediatorUnitTest {
     @Rule
     public TestRule mProcessor = new Features.JUnitProcessor();
 
+    @Rule
+    public JniMocker mJniMocker = new JniMocker();
+
     @Mock
     AutocompleteDelegateForTest mAutocompleteDelegate;
 
@@ -180,10 +185,10 @@ public class AutocompleteMediatorUnitTest {
     AutocompleteController mAutocompleteController;
 
     @Mock
-    LocationBarDataProvider mLocationBarDataProvider;
+    AutocompleteController.Natives mAutocompleteControllerJniMock;
 
     @Mock
-    ActivityLifecycleDispatcher mLifecycleDispatcher;
+    LocationBarDataProvider mLocationBarDataProvider;
 
     @Mock
     ModalDialogManager mModalDialogManager;
@@ -204,14 +209,23 @@ public class AutocompleteMediatorUnitTest {
 
         mHandler = new ImmediatePostingHandler();
 
-        mSuggestionModels = new ModelList();
-        mListModel = new PropertyModel(SuggestionListProperties.ALL_KEYS);
-        mListModel.set(SuggestionListProperties.SUGGESTION_MODELS, mSuggestionModels);
+        mJniMocker.mock(AutocompleteControllerJni.TEST_HOOKS, mAutocompleteControllerJniMock);
+        doReturn(mAutocompleteController).when(mAutocompleteControllerJniMock).getForProfile(any());
 
-        mMediator = new AutocompleteMediator(ContextUtils.getApplicationContext(),
-                mAutocompleteDelegate, mTextStateProvider, mAutocompleteController, mListModel,
-                mHandler, mLifecycleDispatcher,
-                () -> mModalDialogManager, null, null, mLocationBarDataProvider);
+        // clang-format off
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mSuggestionModels = new ModelList();
+            mListModel = new PropertyModel(SuggestionListProperties.ALL_KEYS);
+            mListModel.set(SuggestionListProperties.SUGGESTION_MODELS, mSuggestionModels);
+
+            mMediator = new AutocompleteMediator(ContextUtils.getApplicationContext(),
+                    mAutocompleteDelegate, mTextStateProvider, mListModel,
+                    mHandler, () -> mModalDialogManager, null, null,
+                    mLocationBarDataProvider, tab -> {}, null, url -> false, new DummyJankTracker(),
+                    (pixelSize, callback) -> {});
+            mMediator.setAutocompleteProfile(mProfile);
+        });
+        // clang-format on
         mMediator.getDropdownItemViewInfoListBuilderForTest().registerSuggestionProcessor(
                 mMockProcessor);
         mMediator.getDropdownItemViewInfoListBuilderForTest().setHeaderProcessorForTest(
@@ -281,7 +295,6 @@ public class AutocompleteMediatorUnitTest {
      */
     void setUpLocationBarDataProvider(String url, String title, int pageClassification) {
         when(mLocationBarDataProvider.hasTab()).thenReturn(true);
-        when(mLocationBarDataProvider.getProfile()).thenReturn(mProfile);
         when(mLocationBarDataProvider.getCurrentUrl()).thenReturn(url);
         when(mLocationBarDataProvider.getTitle()).thenReturn(title);
         when(mLocationBarDataProvider.getPageClassification(false)).thenReturn(pageClassification);
@@ -297,7 +310,7 @@ public class AutocompleteMediatorUnitTest {
         final int maximumListHeight = SUGGESTION_MIN_HEIGHT * 2;
 
         mMediator.onSuggestionDropdownHeightChanged(maximumListHeight);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(mSuggestionsList, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.fromCache(mSuggestionsList, null), "");
 
         Assert.assertEquals(mSuggestionsList.size(), mSuggestionModels.size());
         Assert.assertTrue(mListModel.get(SuggestionListProperties.VISIBLE));
@@ -313,7 +326,7 @@ public class AutocompleteMediatorUnitTest {
         final int maximumListHeight = SUGGESTION_MIN_HEIGHT * 7;
 
         mMediator.onSuggestionDropdownHeightChanged(maximumListHeight);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(null, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.EMPTY_RESULT, "");
 
         Assert.assertEquals(0, mSuggestionModels.size());
         Assert.assertFalse(mListModel.get(SuggestionListProperties.VISIBLE));
@@ -329,7 +342,7 @@ public class AutocompleteMediatorUnitTest {
         final int maximumListHeight = SUGGESTION_MIN_HEIGHT * 7;
 
         mMediator.onSuggestionDropdownHeightChanged(maximumListHeight);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(new ArrayList<>(), null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.EMPTY_RESULT, "");
 
         Assert.assertEquals(0, mSuggestionModels.size());
         Assert.assertFalse(mListModel.get(SuggestionListProperties.VISIBLE));
@@ -346,7 +359,7 @@ public class AutocompleteMediatorUnitTest {
                 (mSuggestionsList.size() - 2) * SUGGESTION_MIN_HEIGHT;
 
         mMediator.onSuggestionDropdownHeightChanged(heightWithOneConcealedItem);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(mSuggestionsList, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.fromCache(mSuggestionsList, null), "");
         Assert.assertTrue(
                 mMediator.getDropdownItemViewInfoListBuilderForTest().hasFullyConcealedElements());
 
@@ -391,7 +404,7 @@ public class AutocompleteMediatorUnitTest {
         // In both cases, the updated suggestions list height should be used to estimate presence of
         // fully concealed items on the suggestions list.
         mMediator.onSuggestionDropdownHeightChanged(heightOfOAllSuggestions);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(mSuggestionsList, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.fromCache(mSuggestionsList, null), "");
         Assert.assertFalse(
                 mMediator.getDropdownItemViewInfoListBuilderForTest().hasFullyConcealedElements());
 
@@ -402,7 +415,7 @@ public class AutocompleteMediatorUnitTest {
         List<AutocompleteMatch> newList =
                 buildDummySuggestionsList(mSuggestionsList.size(), "SuggestionB");
         mMediator.onSuggestionDropdownHeightChanged(heightWithOneConcealedItem);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(newList, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.fromCache(newList, null), "");
         Assert.assertTrue(
                 mMediator.getDropdownItemViewInfoListBuilderForTest().hasFullyConcealedElements());
     }
@@ -423,7 +436,7 @@ public class AutocompleteMediatorUnitTest {
 
         // Report height change with keyboard visible
         mMediator.onSuggestionDropdownHeightChanged(heightWithOneConcealedItem);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(mSuggestionsList, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.fromCache(mSuggestionsList, null), "");
         Assert.assertTrue(
                 mMediator.getDropdownItemViewInfoListBuilderForTest().hasFullyConcealedElements());
 
@@ -432,7 +445,7 @@ public class AutocompleteMediatorUnitTest {
         // is active.
         when(mAutocompleteDelegate.isKeyboardActive()).thenReturn(false);
         mMediator.onSuggestionDropdownHeightChanged(heightOfOAllSuggestions);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(mSuggestionsList, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.fromCache(mSuggestionsList, null), "");
         Assert.assertTrue(
                 mMediator.getDropdownItemViewInfoListBuilderForTest().hasFullyConcealedElements());
     }
@@ -454,8 +467,7 @@ public class AutocompleteMediatorUnitTest {
 
         mMediator.onNativeInitialized();
         mMediator.onTextChanged("", "");
-        verify(mAutocompleteController)
-                .startZeroSuggest(mProfile, "", url, pageClassification, title);
+        verify(mAutocompleteController).startZeroSuggest("", url, pageClassification, title);
     }
 
     @Test
@@ -475,7 +487,7 @@ public class AutocompleteMediatorUnitTest {
         mMediator.onTextChanged("test", "testing");
         mHandler.runQueuedTasks();
         verify(mAutocompleteController)
-                .start(mProfile, url, pageClassification, "test", 4, false, null, false);
+                .start(url, pageClassification, "test", 4, false, null, false);
     }
 
     @Test
@@ -496,9 +508,9 @@ public class AutocompleteMediatorUnitTest {
         mMediator.onTextChanged("nottest", "nottesting");
         mHandler.runQueuedTasks();
         verify(mAutocompleteController, times(1))
-                .start(mProfile, url, pageClassification, "nottest", 4, false, null, false);
+                .start(url, pageClassification, "nottest", 4, false, null, false);
         verify(mAutocompleteController, times(1))
-                .start(any(), any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
+                .start(any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
     }
 
     @Test
@@ -521,14 +533,13 @@ public class AutocompleteMediatorUnitTest {
         mMediator.onUrlFocusChange(false);
         mMediator.onUrlFocusChange(true);
         mHandler.runQueuedTasks();
-        verify(mAutocompleteController, never())
-                .startZeroSuggest(any(), any(), any(), anyInt(), any());
+        verify(mAutocompleteController, never()).startZeroSuggest(any(), any(), anyInt(), any());
 
         // Simulate native being inititalized. Make sure we only ever issue one request.
         mMediator.onNativeInitialized();
         mHandler.runQueuedTasks();
         verify(mAutocompleteController, times(1))
-                .startZeroSuggest(mProfile, "", url, pageClassification, title);
+                .startZeroSuggest("", url, pageClassification, title);
     }
 
     @Test
@@ -550,14 +561,12 @@ public class AutocompleteMediatorUnitTest {
         mMediator.onUrlFocusChange(true);
         mMediator.onUrlFocusChange(false);
         mHandler.runQueuedTasks();
-        verify(mAutocompleteController, never())
-                .startZeroSuggest(any(), any(), any(), anyInt(), any());
+        verify(mAutocompleteController, never()).startZeroSuggest(any(), any(), anyInt(), any());
 
         // Simulate native being inititalized. Make sure no suggest requests are sent.
         mMediator.onNativeInitialized();
         mHandler.runQueuedTasks();
-        verify(mAutocompleteController, never())
-                .startZeroSuggest(any(), any(), any(), anyInt(), any());
+        verify(mAutocompleteController, never()).startZeroSuggest(any(), any(), anyInt(), any());
     }
 
     @Test
@@ -583,18 +592,16 @@ public class AutocompleteMediatorUnitTest {
 
         mHandler.runQueuedTasks();
         verify(mAutocompleteController, never())
-                .start(any(), any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
-        verify(mAutocompleteController, never())
-                .startZeroSuggest(any(), any(), any(), anyInt(), any());
+                .start(any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
+        verify(mAutocompleteController, never()).startZeroSuggest(any(), any(), anyInt(), any());
 
         mMediator.onNativeInitialized();
         mHandler.runQueuedTasks();
         verify(mAutocompleteController, times(1))
-                .start(mProfile, url, pageClassification, "A", 0, true, null, false);
+                .start(url, pageClassification, "A", 0, true, null, false);
         verify(mAutocompleteController, times(1))
-                .start(any(), any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
-        verify(mAutocompleteController, never())
-                .startZeroSuggest(any(), any(), any(), anyInt(), any());
+                .start(any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
+        verify(mAutocompleteController, never()).startZeroSuggest(any(), any(), anyInt(), any());
     }
 
     @Test
@@ -618,16 +625,14 @@ public class AutocompleteMediatorUnitTest {
 
         mHandler.runQueuedTasks();
         verify(mAutocompleteController, never())
-                .start(any(), any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
-        verify(mAutocompleteController, never())
-                .startZeroSuggest(any(), any(), any(), anyInt(), any());
+                .start(any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
+        verify(mAutocompleteController, never()).startZeroSuggest(any(), any(), anyInt(), any());
 
         mMediator.onNativeInitialized();
         mHandler.runQueuedTasks();
         verify(mAutocompleteController, never())
-                .start(any(), any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
-        verify(mAutocompleteController, times(1))
-                .startZeroSuggest(any(), any(), any(), anyInt(), any());
+                .start(any(), anyInt(), any(), anyInt(), anyBoolean(), any(), anyBoolean());
+        verify(mAutocompleteController, times(1)).startZeroSuggest(any(), any(), anyInt(), any());
     }
 
     @Test
@@ -637,12 +642,12 @@ public class AutocompleteMediatorUnitTest {
     public void onSuggestionsReceived_sendsOnSuggestionsChanged() {
         mMediator.onNativeInitialized();
         mMediator.onSuggestionsReceived(
-                new AutocompleteResult(mSuggestionsList, null), "inline_autocomplete");
+                AutocompleteResult.fromCache(mSuggestionsList, null), "inline_autocomplete");
         verify(mAutocompleteDelegate).onSuggestionsChanged("inline_autocomplete", true);
 
         // Ensure duplicate requests are suppressed.
         mMediator.onSuggestionsReceived(
-                new AutocompleteResult(mSuggestionsList, null), "inline_autocomplete2");
+                AutocompleteResult.fromCache(mSuggestionsList, null), "inline_autocomplete2");
         verifyNoMoreInteractions(mAutocompleteDelegate);
     }
 
@@ -654,7 +659,7 @@ public class AutocompleteMediatorUnitTest {
         mMediator.onNativeInitialized();
         mMediator.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         mMediator.onSuggestionDropdownHeightChanged(Integer.MAX_VALUE);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(mSuggestionsList, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.fromCache(mSuggestionsList, null), "");
         Assert.assertEquals(mSuggestionsList.size(), mSuggestionModels.size());
         for (int i = 0; i < mSuggestionModels.size(); i++) {
             Assert.assertEquals(i + "th model does not have the expected layout direction.",
@@ -671,7 +676,7 @@ public class AutocompleteMediatorUnitTest {
     public void setLayoutDirection_afterInitialization() {
         mMediator.onNativeInitialized();
         mMediator.onSuggestionDropdownHeightChanged(Integer.MAX_VALUE);
-        mMediator.onSuggestionsReceived(new AutocompleteResult(mSuggestionsList, null), "");
+        mMediator.onSuggestionsReceived(AutocompleteResult.fromCache(mSuggestionsList, null), "");
         Assert.assertEquals(mSuggestionsList.size(), mSuggestionModels.size());
 
         mMediator.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
@@ -709,8 +714,7 @@ public class AutocompleteMediatorUnitTest {
         mMediator.onNativeInitialized();
         mMediator.onUrlFocusChange(true);
         mHandler.runQueuedTasks();
-        verify(mAutocompleteController)
-                .startZeroSuggest(mProfile, url, url, pageClassification, title);
+        verify(mAutocompleteController).startZeroSuggest(url, url, pageClassification, title);
     }
 
     @Test
@@ -731,14 +735,12 @@ public class AutocompleteMediatorUnitTest {
         // Signal focus prior to initializing native; confirm that zero suggest is not triggered.
         mMediator.onUrlFocusChange(true);
         mHandler.runQueuedTasks();
-        verify(mAutocompleteController, never())
-                .startZeroSuggest(any(), any(), any(), anyInt(), any());
+        verify(mAutocompleteController, never()).startZeroSuggest(any(), any(), anyInt(), any());
 
         // Initialize native and ensure zero suggest is triggered.
         mMediator.onNativeInitialized();
         mHandler.runQueuedTasks();
-        verify(mAutocompleteController)
-                .startZeroSuggest(mProfile, "", url, pageClassification, title);
+        verify(mAutocompleteController).startZeroSuggest("", url, pageClassification, title);
     }
 
     @Test

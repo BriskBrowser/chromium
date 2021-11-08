@@ -10,12 +10,12 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/login/auth/login_event_recorder.h"
+#include "chromeos/metrics/login_event_recorder.h"
 #include "components/account_id/account_id.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_names.h"
@@ -186,13 +186,11 @@ void LoginPerformer::LoginOffTheRecord() {
       base::BindOnce(&Authenticator::LoginOffTheRecord, authenticator_.get()));
 }
 
-void LoginPerformer::LoginAsKioskAccount(const AccountId& app_account_id,
-                                         bool use_guest_mount) {
+void LoginPerformer::LoginAsKioskAccount(const AccountId& app_account_id) {
   EnsureAuthenticator();
-  task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&Authenticator::LoginAsKioskAccount, authenticator_.get(),
-                     app_account_id, use_guest_mount));
+  task_runner_->PostTask(FROM_HERE,
+                         base::BindOnce(&Authenticator::LoginAsKioskAccount,
+                                        authenticator_.get(), app_account_id));
 }
 
 void LoginPerformer::LoginAsArcKioskAccount(
@@ -235,12 +233,10 @@ void LoginPerformer::EnsureExtendedAuthenticator() {
 void LoginPerformer::StartLoginCompletion() {
   VLOG(1) << "Online login completion started.";
   chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker("AuthStarted", false);
-  content::BrowserContext* browser_context = GetSigninContext();
   EnsureAuthenticator();
-  task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&chromeos::Authenticator::CompleteLogin,
-                     authenticator_.get(), browser_context, user_context_));
+  task_runner_->PostTask(FROM_HERE,
+                         base::BindOnce(&chromeos::Authenticator::CompleteLogin,
+                                        authenticator_.get(), user_context_));
   user_context_.ClearSecrets();
 }
 
@@ -249,12 +245,9 @@ void LoginPerformer::StartAuthentication() {
   chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker("AuthStarted", false);
   if (delegate_) {
     EnsureAuthenticator();
-    content::BrowserContext* browser_context = GetSigninContext();
-    task_runner_->PostTask(
-        FROM_HERE,
-        base::BindOnce(&Authenticator::AuthenticateToLogin,
-                       authenticator_.get(), base::Unretained(browser_context),
-                       user_context_));
+    task_runner_->PostTask(FROM_HERE,
+                           base::BindOnce(&Authenticator::AuthenticateToLogin,
+                                          authenticator_.get(), user_context_));
   } else {
     NOTREACHED();
   }

@@ -59,12 +59,16 @@ class ProfileItem : public PaymentRequestItemList::Item {
         profile_(profile) {
     Init();
   }
+
+  ProfileItem(const ProfileItem&) = delete;
+  ProfileItem& operator=(const ProfileItem&) = delete;
+
   ~ProfileItem() override {}
 
  private:
   // PaymentRequestItemList::Item:
   std::unique_ptr<views::View> CreateContentView(
-      base::string16* accessible_content) override {
+      std::u16string* accessible_content) override {
     DCHECK(profile_);
     DCHECK(accessible_content);
 
@@ -77,7 +81,7 @@ class ProfileItem : public PaymentRequestItemList::Item {
     }
   }
 
-  base::string16 GetNameForDataType() override {
+  std::u16string GetNameForDataType() override {
     return controller_->GetSheetTitle();
   }
 
@@ -98,8 +102,6 @@ class ProfileItem : public PaymentRequestItemList::Item {
 
   base::WeakPtr<ProfileListViewController> controller_;
   autofill::AutofillProfile* profile_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileItem);
 };
 
 // The ProfileListViewController subtype for the Shipping address list
@@ -117,6 +119,10 @@ class ShippingProfileViewController : public ProfileListViewController,
     PopulateList();
   }
 
+  ShippingProfileViewController(const ShippingProfileViewController&) = delete;
+  ShippingProfileViewController& operator=(
+      const ShippingProfileViewController&) = delete;
+
   ~ShippingProfileViewController() override {
     if (spec())
       spec()->RemoveObserver(this);
@@ -126,7 +132,7 @@ class ShippingProfileViewController : public ProfileListViewController,
   // ProfileListViewController:
   std::unique_ptr<views::View> GetLabel(
       autofill::AutofillProfile* profile,
-      base::string16* accessible_content) override {
+      std::u16string* accessible_content) override {
     return GetShippingAddressLabelWithMissingInfo(
         AddressStyleType::DETAILED, state()->GetApplicationLocale(), *profile,
         *(state()->profile_comparator()), accessible_content,
@@ -182,12 +188,12 @@ class ShippingProfileViewController : public ProfileListViewController,
         !spec()->selected_shipping_option_error().empty());
   }
 
-  base::string16 GetSheetTitle() override {
+  std::u16string GetSheetTitle() override {
     return spec() ? GetShippingAddressSectionString(spec()->shipping_type())
-                  : base::string16();
+                  : std::u16string();
   }
 
-  base::string16 GetSecondaryButtonLabel() override {
+  std::u16string GetSecondaryButtonLabel() override {
     return l10n_util::GetStringUTF16(IDS_PAYMENTS_ADD_ADDRESS);
   }
 
@@ -225,8 +231,6 @@ class ShippingProfileViewController : public ProfileListViewController,
   }
 
   base::WeakPtrFactory<ShippingProfileViewController> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ShippingProfileViewController);
 };
 
 class ContactProfileViewController : public ProfileListViewController {
@@ -239,13 +243,18 @@ class ContactProfileViewController : public ProfileListViewController {
     DCHECK(spec);
     PopulateList();
   }
+
+  ContactProfileViewController(const ContactProfileViewController&) = delete;
+  ContactProfileViewController& operator=(const ContactProfileViewController&) =
+      delete;
+
   ~ContactProfileViewController() override {}
 
  protected:
   // ProfileListViewController:
   std::unique_ptr<views::View> GetLabel(
       autofill::AutofillProfile* profile,
-      base::string16* accessible_content) override {
+      std::u16string* accessible_content) override {
     DCHECK(profile);
     return GetContactInfoLabel(
         AddressStyleType::DETAILED, state()->GetApplicationLocale(), *profile,
@@ -288,21 +297,18 @@ class ContactProfileViewController : public ProfileListViewController {
     return DialogViewID::CONTACT_INFO_SHEET_LIST_VIEW;
   }
 
-  base::string16 GetSheetTitle() override {
+  std::u16string GetSheetTitle() override {
     return l10n_util::GetStringUTF16(
         IDS_PAYMENT_REQUEST_CONTACT_INFO_SECTION_NAME);
   }
 
-  base::string16 GetSecondaryButtonLabel() override {
+  std::u16string GetSecondaryButtonLabel() override {
     return l10n_util::GetStringUTF16(IDS_PAYMENTS_ADD_CONTACT);
   }
 
   int GetSecondaryButtonId() override {
     return static_cast<int>(DialogViewID::PAYMENT_METHOD_ADD_CONTACT_BUTTON);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ContactProfileViewController);
 };
 
 }  // namespace
@@ -360,7 +366,7 @@ bool ProfileListViewController::ShouldShowPrimaryButton() {
   return false;
 }
 
-views::Button::PressedCallback
+PaymentRequestSheetController::ButtonCallback
 ProfileListViewController::GetSecondaryButtonCallback() {
   return base::BindRepeating(&ProfileListViewController::ShowEditor,
                              base::Unretained(this), nullptr);

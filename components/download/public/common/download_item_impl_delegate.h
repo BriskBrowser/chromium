@@ -12,7 +12,6 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "components/download/public/common/download_export.h"
 #include "components/download/public/common/download_item.h"
 #include "components/download/public/common/download_item_rename_handler.h"
@@ -22,6 +21,7 @@
 #include "components/services/quarantine/public/mojom/quarantine.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/device/public/mojom/wake_lock_provider.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace download {
 class DownloadItemImpl;
@@ -37,6 +37,10 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImplDelegate {
   using ShouldOpenDownloadCallback = base::OnceCallback<void(bool)>;
 
   DownloadItemImplDelegate();
+
+  DownloadItemImplDelegate(const DownloadItemImplDelegate&) = delete;
+  DownloadItemImplDelegate& operator=(const DownloadItemImplDelegate&) = delete;
+
   virtual ~DownloadItemImplDelegate();
 
   // Used for catching use-after-free errors.
@@ -49,7 +53,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImplDelegate {
       DownloadDangerType danger_type,
       DownloadItem::MixedContentStatus mixed_content_status,
       const base::FilePath& intermediate_path,
-      base::Optional<DownloadSchedule> download_schedule,
+      absl::optional<DownloadSchedule> download_schedule,
       DownloadInterruptReason interrupt_reason)>;
   // Request determination of the download target from the delegate.
   virtual void DetermineDownloadTarget(DownloadItemImpl* download,
@@ -136,8 +140,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImplDelegate {
  private:
   // For "Outlives attached DownloadItemImpl" invariant assertion.
   int count_;
-
-  DISALLOW_COPY_AND_ASSIGN(DownloadItemImplDelegate);
 };
 
 }  // namespace download

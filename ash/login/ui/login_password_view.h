@@ -5,15 +5,14 @@
 #ifndef ASH_LOGIN_UI_LOGIN_PASSWORD_VIEW_H_
 #define ASH_LOGIN_UI_LOGIN_PASSWORD_VIEW_H_
 
+#include <string>
+
 #include "ash/ash_export.h"
 #include "ash/ime/ime_controller_impl.h"
 #include "ash/login/ui/animated_rounded_image_view.h"
 #include "ash/login/ui/login_palette.h"
-#include "ash/login/ui/non_accessible_view.h"
 #include "ash/public/cpp/session/user_info.h"
-#include "base/scoped_observer.h"
-#include "base/strings/string16.h"
-#include "ui/base/ime/chromeos/ime_keyboard.h"
+#include "ui/base/ime/ash/ime_keyboard.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/view.h"
@@ -26,7 +25,7 @@ class ToggleImageButton;
 
 namespace ash {
 class ArrowButtonView;
-enum class EasyUnlockIconId;
+enum class EasyUnlockIconState;
 
 // Contains a textfield and a submit button. When the display password button
 // is visible, the textfield contains a button in the form of an eye icon that
@@ -57,27 +56,6 @@ class ASH_EXPORT LoginPasswordView : public views::View,
                                      public views::TextfieldController,
                                      public ImeControllerImpl::Observer {
  public:
-  // The login password row contains the password textfield and different
-  // buttons and indicators (easy unlock, display password, caps lock enabled).
-  class LoginPasswordRow : public views::View {
-   public:
-    LoginPasswordRow();
-    ~LoginPasswordRow() override = default;
-    LoginPasswordRow(const LoginPasswordRow&) = delete;
-    LoginPasswordRow& operator=(const LoginPasswordRow&) = delete;
-
-    void SetHighlight(bool enabled);
-
-    bool get_highlight_for_testing() { return is_highlighted_; }
-
-    // views::View:
-    void OnPaint(gfx::Canvas* canvas) override;
-
-   private:
-    bool is_highlighted_ = false;
-    views::FocusRing* focus_ring_;
-  };
-
   // TestApi is used for tests to get internal implementation details.
   class ASH_EXPORT TestApi {
    public:
@@ -91,11 +69,10 @@ class ASH_EXPORT LoginPasswordView : public views::View,
     views::ToggleImageButton* display_password_button() const;
     views::View* easy_unlock_icon() const;
     views::View* capslock_icon() const;
-    LoginPasswordRow* password_row() const;
     void set_immediately_hover_easy_unlock_icon();
 
     bool is_capslock_highlight_for_testing() {
-      return view_->is_capslock_higlight_for_testing_;
+      return view_->is_capslock_higlight_;
     }
 
    private:
@@ -103,12 +80,16 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   };
 
   using OnPasswordSubmit =
-      base::RepeatingCallback<void(const base::string16& password)>;
+      base::RepeatingCallback<void(const std::u16string& password)>;
   using OnPasswordTextChanged = base::RepeatingCallback<void(bool is_empty)>;
   using OnEasyUnlockIconHovered = base::RepeatingClosure;
 
   // Must call |Init| after construction.
   explicit LoginPasswordView(const LoginPalette& palette);
+
+  LoginPasswordView(const LoginPasswordView&) = delete;
+  LoginPasswordView& operator=(const LoginPasswordView&) = delete;
+
   ~LoginPasswordView() override;
 
   // |on_submit| is called when the user hits enter or has pressed the submit
@@ -120,15 +101,15 @@ class ASH_EXPORT LoginPasswordView : public views::View,
             const OnEasyUnlockIconHovered& on_easy_unlock_icon_hovered,
             views::Button::PressedCallback on_easy_unlock_icon_tapped);
 
-  // Is the password field enabled when there is no text?
+  // Whether or not the password field is enabled when there is no text.
   void SetEnabledOnEmptyPassword(bool enabled);
 
   // Change the active icon for easy unlock.
-  void SetEasyUnlockIcon(EasyUnlockIconId id,
-                         const base::string16& accessibility_label);
+  void SetEasyUnlockIcon(EasyUnlockIconState icon_state,
+                         const std::u16string& accessibility_label);
 
   // Set the textfield name used for accessibility.
-  void SetAccessibleName(const base::string16& name);
+  void SetAccessibleName(const std::u16string& name);
 
   // Enable or disable focus on the child elements (i.e.: password field and
   // submit button, or display password button if it is shown).
@@ -140,9 +121,6 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   // Clear the text and put the password into hide mode.
   void Reset();
 
-  // Clear all currently entered text.
-  void Clear();
-
   // Inserts the given numeric value to the textfield at the current cursor
   // position (most likely the end).
   void InsertNumber(int value);
@@ -152,7 +130,7 @@ class ASH_EXPORT LoginPasswordView : public views::View,
 
   // Set password field placeholder. The password view cannot set the text by
   // itself because it doesn't know which auth methods are enabled.
-  void SetPlaceholderText(const base::string16& placeholder_text);
+  void SetPlaceholderText(const std::u16string& placeholder_text);
 
   // Makes the textfield read-only and enables/disables submitting.
   void SetReadOnly(bool read_only);
@@ -167,12 +145,14 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   void InvertPasswordDisplayingState();
 
   // Hides the password. When |chromevox_exception| is true, the password is not
-  // hidden if ChromeVox is enabled.
+  // hidden if ChromeVox is enabled. There should be a ChromeVox exception iff
+  // it is triggered by a timer: a user action or a reset call should always
+  // hide password.
   void HidePassword(bool chromevox_exception);
 
   // views::TextfieldController:
   void ContentsChanged(views::Textfield* sender,
-                       const base::string16& new_contents) override;
+                       const std::u16string& new_contents) override;
   bool HandleKeyEvent(views::Textfield* sender,
                       const ui::KeyEvent& key_event) override;
 
@@ -186,25 +166,20 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   // field.
   void SubmitPassword();
 
+  // When theme changes, palette should be updated and some subviews
+  // recalculated.
+  void UpdatePalette(const LoginPalette& palette);
+
  private:
   class EasyUnlockIcon;
   class DisplayPasswordButton;
+  class LoginPasswordRow;
   class LoginTextfield;
   class AlternateIconsView;
   friend class TestApi;
 
   // Increases/decreases the contrast of the capslock icon.
   void SetCapsLockHighlighted(bool highlight);
-
-  // Highlight or remove highlight from password row.
-  void SetPasswordRowHighlighted(bool highlight);
-
-  // Add highlight to caps lock and password row, when textfield gets focus.
-  void AddHighlightToCapsLockAndRow();
-
-  // Remove highlight from caps lock and password row, when textfield looses
-  // focus.
-  void RemoveHighlightFromCapsLockAndRow();
 
   // Needs to be true in order for SubmitPassword to be ran. Returns true if the
   // textfield is not empty or if |enabled_on_empty_password| is true.
@@ -235,7 +210,6 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   LoginTextfield* textfield_ = nullptr;
   ArrowButtonView* submit_button_ = nullptr;
   DisplayPasswordButton* display_password_button_ = nullptr;
-  NonAccessibleView* password_end_space_ = nullptr;
   // Could show either the caps lock icon or the easy unlock icon.
   AlternateIconsView* left_icon_ = nullptr;
   views::ImageView* capslock_icon_ = nullptr;
@@ -243,9 +217,7 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   EasyUnlockIcon* easy_unlock_icon_ = nullptr;
   bool should_show_easy_unlock_ = false;
 
-  bool is_capslock_higlight_for_testing_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(LoginPasswordView);
+  bool is_capslock_higlight_ = false;
 };
 
 }  // namespace ash

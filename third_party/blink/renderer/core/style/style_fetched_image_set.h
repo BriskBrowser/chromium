@@ -44,7 +44,6 @@ class ImageResourceObserver;
 // alternatives via the referenced CSSImageSetValue.
 class StyleFetchedImageSet final : public StyleImage,
                                    public ImageResourceObserver {
-  USING_PRE_FINALIZER(StyleFetchedImageSet, Dispose);
 
  public:
   StyleFetchedImageSet(ImageResourceContent*,
@@ -65,8 +64,9 @@ class StyleFetchedImageSet final : public StyleImage,
   bool CanRender() const override;
   bool IsLoaded() const override;
   bool ErrorOccurred() const override;
-  FloatSize ImageSize(const Document&,
-                      float multiplier,
+  bool IsAccessAllowed(String&) const override;
+
+  FloatSize ImageSize(float multiplier,
                       const FloatSize& default_object_size,
                       RespectImageOrientationEnum) const override;
   bool HasIntrinsicSize() const override;
@@ -87,7 +87,6 @@ class StyleFetchedImageSet final : public StyleImage,
 
  private:
   bool IsEqual(const StyleImage& other) const override;
-  void Dispose();
 
   // ImageResourceObserver overrides
   String DebugName() const override { return "StyleFetchedImageSet"; }

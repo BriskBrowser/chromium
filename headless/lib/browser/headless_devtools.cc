@@ -4,6 +4,7 @@
 
 #include "headless/lib/browser/headless_devtools.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -41,6 +42,11 @@ class TCPEndpointServerSocketFactory : public content::DevToolsSocketFactory {
     }
   }
 
+  TCPEndpointServerSocketFactory(const TCPEndpointServerSocketFactory&) =
+      delete;
+  TCPEndpointServerSocketFactory& operator=(
+      const TCPEndpointServerSocketFactory&) = delete;
+
  private:
   // This function, and the logic below that uses it, is copied from
   // chrome/browser/devtools/remote_debugging_server.cc
@@ -52,7 +58,7 @@ class TCPEndpointServerSocketFactory : public content::DevToolsSocketFactory {
       return socket;
     if (socket->ListenWithAddressAndPort("::1", port, kBackLog) == net::OK)
       return socket;
-    return std::unique_ptr<net::ServerSocket>();
+    return nullptr;
   }
 
   // content::DevToolsSocketFactory.
@@ -64,7 +70,7 @@ class TCPEndpointServerSocketFactory : public content::DevToolsSocketFactory {
     if (socket->ListenWithAddressAndPort(endpoint_.host(), endpoint_.port(),
                                          kBackLog) == net::OK)
       return socket;
-    return std::unique_ptr<net::ServerSocket>();
+    return nullptr;
   }
 
   std::unique_ptr<net::ServerSocket> CreateForTethering(
@@ -73,8 +79,6 @@ class TCPEndpointServerSocketFactory : public content::DevToolsSocketFactory {
   }
 
   net::HostPortPair endpoint_;
-
-  DISALLOW_COPY_AND_ASSIGN(TCPEndpointServerSocketFactory);
 };
 
 #if defined(OS_POSIX)
@@ -84,13 +88,17 @@ class TCPAdoptServerSocketFactory : public content::DevToolsSocketFactory {
   explicit TCPAdoptServerSocketFactory(const size_t socket_fd)
       : socket_fd_(socket_fd) {}
 
+  TCPAdoptServerSocketFactory(const TCPAdoptServerSocketFactory&) = delete;
+  TCPAdoptServerSocketFactory& operator=(const TCPAdoptServerSocketFactory&) =
+      delete;
+
  private:
   std::unique_ptr<net::ServerSocket> CreateForHttpServer() override {
     std::unique_ptr<net::TCPServerSocket> tsock(
         new net::TCPServerSocket(nullptr, net::NetLogSource()));
     if (tsock->AdoptSocket(socket_fd_) != net::OK) {
       LOG(ERROR) << "Failed to adopt open socket";
-      return std::unique_ptr<net::ServerSocket>();
+      return nullptr;
     }
     // Note that we assume that the socket is already listening, so unlike
     // TCPEndpointServerSocketFactory, we don't call Listen.
@@ -103,8 +111,6 @@ class TCPAdoptServerSocketFactory : public content::DevToolsSocketFactory {
   }
 
   size_t socket_fd_;
-
-  DISALLOW_COPY_AND_ASSIGN(TCPAdoptServerSocketFactory);
 };
 #else   // defined(OS_POSIX)
 
@@ -112,6 +118,10 @@ class TCPAdoptServerSocketFactory : public content::DevToolsSocketFactory {
 class DummyTCPServerSocketFactory : public content::DevToolsSocketFactory {
  public:
   explicit DummyTCPServerSocketFactory() {}
+
+  DummyTCPServerSocketFactory(const DummyTCPServerSocketFactory&) = delete;
+  DummyTCPServerSocketFactory& operator=(const DummyTCPServerSocketFactory&) =
+      delete;
 
  private:
   std::unique_ptr<net::ServerSocket> CreateForHttpServer() override {
@@ -122,8 +132,6 @@ class DummyTCPServerSocketFactory : public content::DevToolsSocketFactory {
       std::string* out_name) override {
     return nullptr;
   }
-
-  DISALLOW_COPY_AND_ASSIGN(DummyTCPServerSocketFactory);
 };
 #endif  // defined(OS_POSIX)
 
@@ -145,7 +153,7 @@ void StartLocalDevToolsHttpHandler(HeadlessBrowserImpl* browser) {
 
   std::unique_ptr<content::DevToolsSocketFactory> socket_factory;
   const net::HostPortPair& endpoint = options->devtools_endpoint;
-  socket_factory.reset(new TCPEndpointServerSocketFactory(endpoint));
+  socket_factory = std::make_unique<TCPEndpointServerSocketFactory>(endpoint);
 
   content::DevToolsAgentHost::StartRemoteDebuggingServer(
       std::move(socket_factory),

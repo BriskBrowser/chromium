@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType} from 'chrome://print/print_preview.js';
+import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, PrintPreviewAdvancedSettingsDialogElement} from 'chrome://print/print_preview.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {keyEventOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {eventToPromise, fakeDataBind} from '../test_util.m.js';
+import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {eventToPromise, fakeDataBind} from 'chrome://webui-test/test_util.js';
 
 import {getCddTemplateWithAdvancedSettings} from './print_preview_test_utils.js';
 
@@ -88,7 +88,7 @@ suite(advanced_dialog_test.suiteName, function() {
    */
   function verifyListWithItemCount(count) {
     // Search box should be hidden if there is only 1 item.
-    const searchBox = dialog.$$('#searchBox');
+    const searchBox = dialog.shadowRoot.querySelector('#searchBox');
     assertEquals(count === 1, searchBox.hidden);
 
     // Verify item is displayed.
@@ -165,7 +165,8 @@ suite(advanced_dialog_test.suiteName, function() {
 
         const items = dialog.shadowRoot.querySelectorAll(
             'print-preview-advanced-settings-item');
-        const typedItemInput = items[2].$$('cr-input');  // Watermark
+        const typedItemInput =
+            items[2].shadowRoot.querySelector('cr-input');  // Watermark
 
         // Simulate typing a value and then pressing enter.
         typedItemInput.value = 'Hello World';
@@ -212,10 +213,11 @@ suite(advanced_dialog_test.suiteName, function() {
       assert(advanced_dialog_test.TestNames.AdvancedSettingsFilter),
       function() {
         setupDialog(3);
-        const searchBox = dialog.$$('#searchBox');
+        const searchBox = dialog.shadowRoot.querySelector('#searchBox');
         const items = dialog.shadowRoot.querySelectorAll(
             'print-preview-advanced-settings-item');
-        const noMatchHint = dialog.$$('.no-settings-match-hint');
+        const noMatchHint =
+            dialog.shadowRoot.querySelector('.no-settings-match-hint');
 
         // Query is initialized to null. All items are shown and the hint is
         // hidden.

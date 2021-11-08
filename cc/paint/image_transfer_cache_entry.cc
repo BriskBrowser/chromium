@@ -170,7 +170,7 @@ ClientImageTransferCacheEntry::ClientImageTransferCacheEntry(
   // 4-byte boundary.
   safe_size += 4;
   safe_size += pixmap_->computeByteSize();
-  size_ = safe_size.ValueOrDie();
+  size_ = safe_size.ValueOrDefault(0);
 }
 
 ClientImageTransferCacheEntry::ClientImageTransferCacheEntry(
@@ -224,7 +224,7 @@ ClientImageTransferCacheEntry::ClientImageTransferCacheEntry(
   for (size_t i = 0; i < num_yuva_pixmaps; ++i) {
     safe_size += yuv_pixmaps_->at(i)->computeByteSize();
   }
-  size_ = safe_size.ValueOrDie();
+  size_ = safe_size.ValueOrDefault(0);
 }
 
 ClientImageTransferCacheEntry::~ClientImageTransferCacheEntry() = default;
@@ -259,8 +259,7 @@ bool ClientImageTransferCacheEntry::Serialize(base::span<uint8_t> data) const {
   DCHECK_GE(data.size(), SerializedSize());
   // We don't need to populate the SerializeOptions here since the writer is
   // only used for serializing primitives.
-  PaintOp::SerializeOptions options(nullptr, nullptr, nullptr, nullptr, nullptr,
-                                    nullptr, false, false, 0, SkM44());
+  PaintOp::SerializeOptions options;
   PaintOpWriter writer(data.data(), data.size(), options);
   writer.Write(plane_config_);
 
@@ -394,8 +393,10 @@ bool ServiceImageTransferCacheEntry::Deserialize(
   plane_config_ = SkYUVAInfo::PlaneConfig::kUnknown;
   reader.Read(&plane_config_);
   if (plane_config_ != SkYUVAInfo::PlaneConfig::kUnknown) {
-    SkYUVAInfo::Subsampling subsampling;
+    SkYUVAInfo::Subsampling subsampling = SkYUVAInfo::Subsampling::kUnknown;
     reader.Read(&subsampling);
+    if (subsampling == SkYUVAInfo::Subsampling::kUnknown)
+      return false;
     subsampling_ = subsampling;
     uint32_t needs_mips;
     reader.Read(&needs_mips);
@@ -430,7 +431,7 @@ bool ServiceImageTransferCacheEntry::Deserialize(
           plane_stride == 0)
         return false;
 
-      size_t plane_bytes;
+      size_t plane_bytes = 0;
       reader.ReadSize(&plane_bytes);
       SkImageInfo plane_pixmap_info =
           SkImageInfo::Make(plane_width, plane_height, yuv_plane_color_type,

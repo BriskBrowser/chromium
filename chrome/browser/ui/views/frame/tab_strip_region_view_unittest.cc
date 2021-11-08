@@ -141,11 +141,11 @@ TEST_P(TabStripRegionViewTest, NewTabButtonInkDrop) {
   // ink drop container size should remain equal to the new tab button visible
   // bounds size. https://crbug.com/814105.
   for (int i = 0; i < 10; ++i) {
-    tab_strip_region_view_->new_tab_button()->AnimateInkDropToStateForTesting(
+    tab_strip_region_view_->new_tab_button()->AnimateToStateForTesting(
         views::InkDropState::ACTION_TRIGGERED);
     controller_->AddTab(i, true /* is_active */);
     CompleteAnimationAndLayout();
-    tab_strip_region_view_->new_tab_button()->AnimateInkDropToStateForTesting(
+    tab_strip_region_view_->new_tab_button()->AnimateToStateForTesting(
         views::InkDropState::HIDDEN);
   }
 }
@@ -212,7 +212,7 @@ TEST_F(TabStripRegionViewTestWithScrollingDisabled,
 
   // Add a few more tabs after the tabstrip is full to ensure tabs added
   // afterwards are not visible.
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 10; i++) {
     controller_->AddTab(0, false);
     CompleteAnimationAndLayout();
   }
@@ -251,8 +251,11 @@ TEST_F(TabStripRegionViewTestWithScrollingEnabled,
   }
 
   // Add a few more tabs after the tabstrip is full to ensure the tabstrip
-  // starts scrolling.
-  for (int i = 0; i < 5; i++) {
+  // starts scrolling. This needs to expand the tabstrip width by a decent
+  // amount in order to get the tabstrip to be wider than the entire tabstrip
+  // region, not just the portion of that that's allocated to the tabstrip
+  // itself (e.g. some of that space is for the NTB).
+  for (int i = 0; i < 10; i++) {
     controller_->AddTab(0, false);
     CompleteAnimationAndLayout();
   }

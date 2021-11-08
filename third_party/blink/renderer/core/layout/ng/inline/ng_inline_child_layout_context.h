@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_CHILD_LAYOUT_CONTEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_CHILD_LAYOUT_CONTEXT_H_
 
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_box_state.h"
@@ -32,12 +33,12 @@ class CORE_EXPORT NGInlineChildLayoutContext {
     DCHECK(!items_builder_ || !builder);
     items_builder_ = builder;
     if (builder)
-      builder->AddLogicalLineItemsPool(logical_line_items_);
+      builder->AddLogicalLineItemsPool(&logical_line_items_);
   }
 
   // Returns an instance of |NGLogicalLineItems|. This is reused when laying out
   // the next line.
-  NGLogicalLineItems* LogicalLineItems() { return logical_line_items_; }
+  NGLogicalLineItems* LogicalLineItems() { return &logical_line_items_; }
 
   // Returns the NGInlineLayoutStateStack in this context.
   bool HasBoxStates() const { return box_states_.has_value(); }
@@ -70,9 +71,9 @@ class CORE_EXPORT NGInlineChildLayoutContext {
   // transit, allocating separately is easier.
   NGFragmentItemsBuilder* items_builder_ = nullptr;
 
-  NGLogicalLineItems* logical_line_items_;
+  NGLogicalLineItems logical_line_items_;
 
-  base::Optional<NGInlineLayoutStateStack> box_states_;
+  absl::optional<NGInlineLayoutStateStack> box_states_;
 
   // The items and its index this context is set up for.
   const HeapVector<NGInlineItem>* items_ = nullptr;

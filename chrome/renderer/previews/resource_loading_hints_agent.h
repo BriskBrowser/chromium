@@ -5,11 +5,8 @@
 #ifndef CHROME_RENDERER_PREVIEWS_RESOURCE_LOADING_HINTS_AGENT_H_
 #define CHROME_RENDERER_PREVIEWS_RESOURCE_LOADING_HINTS_AGENT_H_
 
-#include <memory>
-
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "chrome/common/previews_resource_loading_hints.mojom.h"
 #include "chrome/renderer/lite_video/lite_video_hint_agent.h"
 #include "content/public/renderer/render_frame_observer.h"
@@ -33,11 +30,15 @@ class ResourceLoadingHintsAgent
   ResourceLoadingHintsAgent(
       blink::AssociatedInterfaceRegistry* associated_interfaces,
       content::RenderFrame* render_frame);
+
+  ResourceLoadingHintsAgent(const ResourceLoadingHintsAgent&) = delete;
+  ResourceLoadingHintsAgent& operator=(const ResourceLoadingHintsAgent&) =
+      delete;
+
   ~ResourceLoadingHintsAgent() override;
 
  private:
   // content::RenderFrameObserver:
-  void DidCreateNewDocument() override;
   void OnDestruct() override;
 
   GURL GetDocumentURL() const;
@@ -45,8 +46,6 @@ class ResourceLoadingHintsAgent
   // previews::mojom::PreviewsResourceLoadingHintsReceiver:
   void SetLiteVideoHint(
       previews::mojom::LiteVideoHintPtr lite_video_hint) override;
-  void SetBlinkOptimizationGuideHints(
-      blink::mojom::BlinkOptimizationGuideHintsPtr hints) override;
   void StopThrottlingMediaRequests() override;
 
   void SetReceiver(
@@ -58,10 +57,6 @@ class ResourceLoadingHintsAgent
   mojo::AssociatedReceiver<
       previews::mojom::PreviewsResourceLoadingHintsReceiver>
       receiver_{this};
-
-  blink::mojom::BlinkOptimizationGuideHintsPtr blink_optimization_guide_hints_;
-
-  DISALLOW_COPY_AND_ASSIGN(ResourceLoadingHintsAgent);
 };
 
 }  // namespace previews

@@ -99,7 +99,7 @@ void CastBrowserMetrics::Initialize() {
 
 void CastBrowserMetrics::Finalize() {
 #if !defined(OS_ANDROID)
-  // Set clean_shutdown bit.
+  // Signal that the session has exited cleanly.
   metrics_service_client_->GetMetricsService()->RecordCompletedSessionEnd();
 #endif  // !defined(OS_ANDROID)
 
@@ -122,7 +122,7 @@ void CastBrowserMetrics::CollectFinalMetricsForLog(
   // process termination will not be uploaded.
   content::FetchHistogramsAsynchronously(
       base::ThreadTaskRunnerHandle::Get(), std::move(done_callback),
-      base::TimeDelta::FromSeconds(kMetricsFetchTimeoutSeconds));
+      base::Seconds(kMetricsFetchTimeoutSeconds));
 }
 
 void CastBrowserMetrics::ProcessExternalEvents(base::OnceClosure cb) {

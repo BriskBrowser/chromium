@@ -286,6 +286,15 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     }
 
     /**
+     * @return web preference for force dark mode.
+     */
+    @CalledByNative
+    @Override
+    protected boolean isForceDarkWebContentEnabled() {
+        return mDelegate.isForceDarkWebContentEnabled();
+    }
+
+    /**
      * Return true if app banners are to be permitted in this tab. May need to be overridden.
      * @return true if app banners are permitted, and false otherwise.
      */
@@ -293,6 +302,11 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     @Override
     protected boolean canShowAppBanners() {
         return mDelegate.canShowAppBanners();
+    }
+
+    @CalledByNative
+    private boolean isTabLargeEnoughForDesktopSite() {
+        return TabUtils.isTabLargeEnoughForDesktopSite(mTab);
     }
 
     /**
@@ -349,6 +363,11 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     @Override
     public boolean shouldAnimateBrowserControlsHeightChanges() {
         return mDelegate.shouldAnimateBrowserControlsHeightChanges();
+    }
+
+    @Override
+    public boolean controlsResizeView() {
+        return mDelegate.controlsResizeView();
     }
 
     @VisibleForTesting

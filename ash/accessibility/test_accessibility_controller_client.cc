@@ -32,7 +32,7 @@ void TestAccessibilityControllerClient::TriggerAccessibilityAlertWithMessage(
   last_alert_message_ = message;
 }
 
-void TestAccessibilityControllerClient::PlayEarcon(chromeos::Sound sound_key) {
+void TestAccessibilityControllerClient::PlayEarcon(Sound sound_key) {
   sound_key_ = sound_key;
 }
 
@@ -84,9 +84,12 @@ void TestAccessibilityControllerClient::OnSelectToSpeakPanelAction(
   last_select_to_speak_panel_action_value_ = value;
 }
 
-base::Optional<chromeos::Sound>
+void TestAccessibilityControllerClient::SetA11yOverrideWindow(
+    aura::Window* a11y_override_window) {}
+
+absl::optional<Sound>
 TestAccessibilityControllerClient::GetPlayedEarconAndReset() {
-  return std::exchange(sound_key_, base::nullopt);
+  return std::exchange(sound_key_, absl::nullopt);
 }
 
 }  // namespace ash

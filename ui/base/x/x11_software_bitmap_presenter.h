@@ -9,7 +9,7 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/geometry/rect.h"
@@ -31,6 +31,10 @@ class COMPONENT_EXPORT(UI_BASE_X) X11SoftwareBitmapPresenter {
   X11SoftwareBitmapPresenter(x11::Connection* connection,
                              gfx::AcceleratedWidget widget,
                              bool enable_multibuffering);
+
+  X11SoftwareBitmapPresenter(const X11SoftwareBitmapPresenter&) = delete;
+  X11SoftwareBitmapPresenter& operator=(const X11SoftwareBitmapPresenter&) =
+      delete;
 
   ~X11SoftwareBitmapPresenter();
 
@@ -75,8 +79,6 @@ class COMPONENT_EXPORT(UI_BASE_X) X11SoftwareBitmapPresenter {
   gfx::Size viewport_pixel_size_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(X11SoftwareBitmapPresenter);
 };
 
 }  // namespace ui

@@ -47,6 +47,10 @@ class DrmWindowHost : public PlatformWindow,
                 DrmCursor* cursor,
                 DrmWindowHostManager* window_manager,
                 DrmDisplayHostManager* display_manager);
+
+  DrmWindowHost(const DrmWindowHost&) = delete;
+  DrmWindowHost& operator=(const DrmWindowHost&) = delete;
+
   ~DrmWindowHost() override;
 
   void Initialize();
@@ -63,7 +67,7 @@ class DrmWindowHost : public PlatformWindow,
   void PrepareForShutdown() override;
   void SetBounds(const gfx::Rect& bounds) override;
   gfx::Rect GetBounds() const override;
-  void SetTitle(const base::string16& title) override;
+  void SetTitle(const std::u16string& title) override;
   void SetCapture() override;
   void ReleaseCapture() override;
   bool HasCapture() const override;
@@ -76,7 +80,7 @@ class DrmWindowHost : public PlatformWindow,
   void Deactivate() override;
   void SetUseNativeFrame(bool use_native_frame) override;
   bool ShouldUseNativeFrame() const override;
-  void SetCursor(PlatformCursor cursor) override;
+  void SetCursor(scoped_refptr<PlatformCursor> cursor) override;
   void MoveCursorTo(const gfx::Point& location) override;
   void ConfineCursorToBounds(const gfx::Rect& bounds) override;
   void SetRestoredBoundsInPixels(const gfx::Rect& bounds) override;
@@ -110,8 +114,6 @@ class DrmWindowHost : public PlatformWindow,
   const gfx::AcceleratedWidget widget_;
 
   gfx::Rect cursor_confined_bounds_;
-
-  DISALLOW_COPY_AND_ASSIGN(DrmWindowHost);
 };
 
 }  // namespace ui

@@ -9,8 +9,9 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/sequenced_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/account_id/account_id.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -65,9 +66,9 @@ void UserCloudPolicyManager::Connect(
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
       client->GetURLLoaderFactory();
 
-  CreateComponentCloudPolicyService(
-      dm_protocol::kChromeExtensionPolicyType, component_policy_cache_path_,
-      POLICY_SOURCE_CLOUD, client.get(), schema_registry());
+  CreateComponentCloudPolicyService(dm_protocol::kChromeExtensionPolicyType,
+                                    component_policy_cache_path_, client.get(),
+                                    schema_registry());
   core()->Connect(std::move(client));
   core()->StartRefreshScheduler();
   core()->TrackRefreshDelayPref(local_state,
@@ -109,8 +110,14 @@ void UserCloudPolicyManager::GetChromePolicy(PolicyMap* policy_map) {
   // If the store has a verified policy blob received from the server then apply
   // the defaults for policies that haven't been configured by the administrator
   // given that this is an enterprise user.
-  // TODO(crbug.com/640950): We should just call SetEnterpriseUsersDefaults
-  // here.
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  if (!store()->has_policy())
+    return;
+
+  // TODO(https://crbug.com/1206315): Don't apply enterprise defaults for Child
+  // user.
+  SetEnterpriseUsersProfileDefaults(policy_map);
+#endif
 #if defined(OS_ANDROID)
   if (store()->has_policy() &&
       !policy_map->Get(key::kNTPContentSuggestionsEnabled)) {

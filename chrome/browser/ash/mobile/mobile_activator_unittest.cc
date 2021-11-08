@@ -10,9 +10,8 @@
 #include "base/macros.h"
 #include "base/test/task_environment.h"
 #include "base/values.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/network/network_connection_handler.h"
-#include "chromeos/network/network_handler.h"
+#include "chromeos/network/network_handler_test_helper.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "content/public/browser/browser_thread.h"
@@ -46,6 +45,10 @@ class TestMobileActivator : public MobileActivator {
         .WillByDefault(WithArgs<1>(
             Invoke(this, &TestMobileActivator::set_state_for_test)));
   }
+
+  TestMobileActivator(const TestMobileActivator&) = delete;
+  TestMobileActivator& operator=(const TestMobileActivator&) = delete;
+
   virtual ~TestMobileActivator() {}
 
   MOCK_METHOD3(ChangeState,
@@ -89,8 +92,6 @@ class TestMobileActivator : public MobileActivator {
   void DCheckOnThread(const BrowserThread::ID id) const {}
 
   NetworkState* cellular_network_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestMobileActivator);
 };
 
 class MobileActivatorTest : public testing::Test {
@@ -101,17 +102,15 @@ class MobileActivatorTest : public testing::Test {
     cellular_network_.PropertyChanged(shill::kTypeProperty,
                                       base::Value(shill::kTypeCellular));
   }
+
+  MobileActivatorTest(const MobileActivatorTest&) = delete;
+  MobileActivatorTest& operator=(const MobileActivatorTest&) = delete;
+
   ~MobileActivatorTest() override {}
 
  protected:
-  void SetUp() override {
-    DBusThreadManager::Initialize();
-    NetworkHandler::Initialize();
-  }
   void TearDown() override {
     mobile_activator_.TerminateActivation();
-    NetworkHandler::Shutdown();
-    DBusThreadManager::Shutdown();
   }
 
   void set_activator_state(const MobileActivator::PlanActivationState state) {
@@ -129,11 +128,9 @@ class MobileActivatorTest : public testing::Test {
   }
 
   base::test::SingleThreadTaskEnvironment task_environment_;
+  chromeos::NetworkHandlerTestHelper network_handler_test_helper_;
   NetworkState cellular_network_;
   TestMobileActivator mobile_activator_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MobileActivatorTest);
 };
 
 TEST_F(MobileActivatorTest, OTAHasNetworkConnection) {

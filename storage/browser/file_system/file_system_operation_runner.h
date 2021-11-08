@@ -43,10 +43,11 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
   using WriteCallback = FileSystemOperation::WriteCallback;
   using OpenFileCallback = FileSystemOperation::OpenFileCallback;
   using ErrorBehavior = FileSystemOperation::ErrorBehavior;
-  using CopyProgressCallback = FileSystemOperation::CopyProgressCallback;
+  using CopyOrMoveProgressCallback =
+      FileSystemOperation::CopyOrMoveProgressCallback;
   using CopyFileProgressCallback =
       FileSystemOperation::CopyFileProgressCallback;
-  using CopyOrMoveOption = FileSystemOperation::CopyOrMoveOption;
+  using CopyOrMoveOptionSet = FileSystemOperation::CopyOrMoveOptionSet;
   using GetMetadataField = FileSystemOperation::GetMetadataField;
 
   using OperationID = uint64_t;
@@ -58,6 +59,11 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
       const scoped_refptr<FileSystemContext>& file_system_context);
   FileSystemOperationRunner(base::PassKey<FileSystemContext>,
                             FileSystemContext* file_system_context);
+
+  FileSystemOperationRunner(const FileSystemOperationRunner&) = delete;
+  FileSystemOperationRunner& operator=(const FileSystemOperationRunner&) =
+      delete;
+
   virtual ~FileSystemOperationRunner();
 
   // Cancels all inflight operations.
@@ -82,9 +88,9 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
   // details.
   OperationID Copy(const FileSystemURL& src_url,
                    const FileSystemURL& dest_url,
-                   CopyOrMoveOption option,
+                   CopyOrMoveOptionSet options,
                    ErrorBehavior error_behavior,
-                   const CopyProgressCallback& progress_callback,
+                   const CopyOrMoveProgressCallback& progress_callback,
                    StatusCallback callback);
 
   // Moves a file or directory from |src_url| to |dest_url|. A new file
@@ -92,7 +98,9 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
   // For |option|, see file_system_operation.h for details.
   OperationID Move(const FileSystemURL& src_url,
                    const FileSystemURL& dest_url,
-                   CopyOrMoveOption option,
+                   CopyOrMoveOptionSet options,
+                   ErrorBehavior error_behavior,
+                   const CopyOrMoveProgressCallback& progress_callback,
                    StatusCallback callback);
 
   // Checks if a directory is present at |url|.
@@ -151,13 +159,10 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
                         const base::Time& last_modified_time,
                         StatusCallback callback);
 
-  // Opens a file at |url| with |file_flags|, where flags are OR'ed
-  // values of base::PlatformFileFlags.
-  //
-  // |peer_handle| is the process handle of a pepper plugin process, which
-  // is necessary for underlying IPC calls with Pepper plugins.
-  //
-  // This function is used only by Pepper as of writing.
+  // Opens a file at |url| with |file_flags|, where flags are OR'ed values of
+  // base::File::Flags. This operation is not supported on all filesystems or
+  // all situation e.g. it will always fail for the sandboxed system when in
+  // Incognito mode.
   OperationID OpenFile(const FileSystemURL& url,
                        int file_flags,
                        OpenFileCallback callback);
@@ -222,7 +227,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
   //
   OperationID CopyFileLocal(const FileSystemURL& src_url,
                             const FileSystemURL& dest_url,
-                            CopyOrMoveOption option,
+                            CopyOrMoveOptionSet options,
                             const CopyFileProgressCallback& progress_callback,
                             StatusCallback callback);
 
@@ -242,7 +247,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
   //
   OperationID MoveFileLocal(const FileSystemURL& src_url,
                             const FileSystemURL& dest_url,
-                            CopyOrMoveOption option,
+                            CopyOrMoveOptionSet options,
                             StatusCallback callback);
 
   // This is called only by pepper plugin as of writing to synchronously get
@@ -283,8 +288,8 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
                          scoped_refptr<ShareableFileReference> file_ref);
 
   void OnCopyProgress(const OperationID id,
-                      const CopyProgressCallback& callback,
-                      FileSystemOperation::CopyProgressType type,
+                      const CopyOrMoveProgressCallback& callback,
+                      FileSystemOperation::CopyOrMoveProgressType type,
                       const FileSystemURL& source_url,
                       const FileSystemURL& dest_url,
                       int64_t size);
@@ -324,8 +329,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemOperationRunner {
 
   base::WeakPtr<FileSystemOperationRunner> weak_ptr_;
   base::WeakPtrFactory<FileSystemOperationRunner> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(FileSystemOperationRunner);
 };
 
 }  // namespace storage

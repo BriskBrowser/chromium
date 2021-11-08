@@ -8,10 +8,10 @@
 #include "base/containers/circular_deque.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/login/lock/screen_locker.h"
+#include "chrome/browser/ash/login/lock/screen_locker_tester.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/login/lock/screen_locker.h"
-#include "chrome/browser/chromeos/login/lock/screen_locker_tester.h"
 #include "chrome/browser/extensions/api/braille_display_private/braille_controller_brlapi.h"
 #include "chrome/browser/extensions/api/braille_display_private/braille_display_private_api.h"
 #include "chrome/browser/extensions/api/braille_display_private/brlapi_connection.h"
@@ -167,7 +167,7 @@ class BrailleDisplayPrivateApiTest : public ExtensionApiTest {
   // steal events.  Some tests override this to keep the normal behaviour
   // of the accessibility manager.
   virtual void DisableAccessibilityManagerBraille() {
-    AccessibilityManager::SetBrailleControllerForTest(
+    ash::AccessibilityManager::SetBrailleControllerForTest(
         &stub_braille_controller_);
   }
 
@@ -184,7 +184,8 @@ IN_PROC_BROWSER_TEST_F(BrailleDisplayPrivateApiTest, WriteDots) {
   connection_data_.display_columns = 11;
   connection_data_.display_rows = 1;
   connection_data_.cell_size = 6;
-  ASSERT_TRUE(RunComponentExtensionTest("braille_display_private/write_dots"))
+  ASSERT_TRUE(RunExtensionTest("braille_display_private/write_dots", {},
+                               {.load_as_component = true}))
       << message_;
   ASSERT_EQ(3U, connection_data_.written_content.size());
   const std::string expected_content(
@@ -260,7 +261,8 @@ IN_PROC_BROWSER_TEST_F(BrailleDisplayPrivateApiTest, KeyEvents) {
                                             BRLAPI_KEY_CMD_PASSDOTS | i);
   }
 
-  ASSERT_TRUE(RunComponentExtensionTest("braille_display_private/key_events"));
+  ASSERT_TRUE(RunExtensionTest("braille_display_private/key_events", {},
+                               {.load_as_component = true}));
 }
 
 IN_PROC_BROWSER_TEST_F(BrailleDisplayPrivateApiTest, DisplayStateChanges) {
@@ -269,8 +271,8 @@ IN_PROC_BROWSER_TEST_F(BrailleDisplayPrivateApiTest, DisplayStateChanges) {
   connection_data_.cell_size = 6;
   connection_data_.pending_keys.push_back(kErrorKeyCode);
   connection_data_.reappear_on_disconnect = true;
-  ASSERT_TRUE(RunComponentExtensionTest(
-      "braille_display_private/display_state_changes"));
+  ASSERT_TRUE(RunExtensionTest("braille_display_private/display_state_changes",
+                               {}, {.load_as_component = true}));
 }
 
 class BrailleDisplayPrivateAPIUserTest : public BrailleDisplayPrivateApiTest {
@@ -326,7 +328,7 @@ class BrailleDisplayPrivateAPIUserTest : public BrailleDisplayPrivateApiTest {
 };
 
 IN_PROC_BROWSER_TEST_F(BrailleDisplayPrivateAPIUserTest, KeyEventOnLockScreen) {
-  chromeos::ScreenLockerTester tester;
+  ash::ScreenLockerTester tester;
 
   // Make sure the signin profile and active profile are different.
   Profile* signin_profile = chromeos::ProfileHelper::GetSigninProfile();

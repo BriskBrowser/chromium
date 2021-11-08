@@ -97,6 +97,14 @@ Polymer({
         chromeos.settings.mojom.Setting.kOfferTranslation,
       ]),
     },
+
+    /** @private */
+    languageSettingsV2Update2Enabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('enableLanguageSettingsV2Update2');
+      },
+    },
   },
 
   /** @private {?settings.LanguagesMetricsProxy} */
@@ -351,5 +359,58 @@ Polymer({
             translateTarget ?
         'translate-target' :
         'non-translate-target';
+  },
+
+  /**
+   * @param {boolean} update2Enabled
+   * @return {string}
+   * @private
+   */
+  getOfferTranslationLabel_(update2Enabled) {
+    return this.i18n(
+        update2Enabled ? 'offerGoogleTranslateLabel' : 'offerTranslationLabel');
+  },
+
+  /**
+   * @param {boolean} update2Enabled
+   * @return {string}
+   * @private
+   */
+  getOfferTranslationSublabel_(update2Enabled) {
+    return update2Enabled ? '' : this.i18n('offerTranslationSublabel');
+  },
+
+  /**
+   * @param {boolean} update2Enabled
+   * @return {string}
+   * @private
+   */
+  getLanguagePreferenceTitle_(update2Enabled) {
+    return this.i18n(
+        update2Enabled ? 'websiteLanguagesTitle' : 'languagesPreferenceTitle');
+  },
+
+  /**
+   * @param {boolean} update2Enabled
+   * @return {string}
+   * @private
+   */
+  getLanguagePreferenceDescription_(update2Enabled) {
+    return this.i18nAdvanced(
+        update2Enabled ? 'websiteLanguagesDescription' :
+                         'languagesPreferenceDescription');
+  },
+
+  /** @private */
+  openManageGoogleAccountLanguage_() {
+    this.languagesMetricsProxy_.recordInteraction(
+        settings.LanguagesPageInteraction.OPEN_MANAGE_GOOGLE_ACCOUNT_LANGUAGE);
+    window.open(loadTimeData.getString('googleAccountLanguagesURL'));
+  },
+
+  /** @private */
+  onLanguagePreferenceDescriptionLinkClick_() {
+    this.languagesMetricsProxy_.recordInteraction(
+        settings.LanguagesPageInteraction.OPEN_WEB_LANGUAGES_LEARN_MORE);
   },
 });

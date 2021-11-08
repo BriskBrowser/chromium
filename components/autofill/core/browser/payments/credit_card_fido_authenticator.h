@@ -6,19 +6,20 @@
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_PAYMENTS_CREDIT_CARD_FIDO_AUTHENTICATOR_H_
 
 #include <memory>
+#include <string>
 
-#include "base/strings/string16.h"
+#include "base/gtest_prod_util.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/autofill_driver.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/payments/fido_authentication_strike_database.h"
 #include "components/autofill/core/browser/payments/full_card_request.h"
-#include "components/autofill/core/browser/payments/internal_authenticator.h"
 #include "components/autofill/core/browser/payments/payments_client.h"
+#include "components/webauthn/core/browser/internal_authenticator.h"
 #include "device/fido/fido_constants.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
+#include "third_party/blink/public/mojom/webauthn/authenticator.mojom-forward.h"
 
 namespace autofill {
 
@@ -76,23 +77,46 @@ class CreditCardFIDOAuthenticator
     // Authorization of a new card.
     FOLLOWUP_AFTER_CVC_AUTH_FLOW,
   };
+  // The response of FIDO authentication, including necessary information needed
+  // by the subclasses.
+  struct FidoAuthenticationResponse {
+    FidoAuthenticationResponse() = default;
+    ~FidoAuthenticationResponse() = default;
+
+    // Whether the authentication was successful.
+    bool did_succeed = false;
+    // The fetched credit card if the authentication was successful. Can be
+    // nullptr if authentication failed.
+    const CreditCard* card = nullptr;
+    // The CVC of the fetched credit card. Can be empty string.
+    std::u16string cvc = std::u16string();
+    // The type of the failure of the full card request.
+    payments::FullCardRequest::FailureType failure_type =
+        payments::FullCardRequest::UNKNOWN;
+  };
   class Requester {
    public:
     virtual ~Requester() {}
     virtual void OnFIDOAuthenticationComplete(
-        bool did_succeed,
-        const CreditCard* card = nullptr,
-        const base::string16& cvc = base::string16()) = 0;
+        const FidoAuthenticationResponse& response) = 0;
     virtual void OnFidoAuthorizationComplete(bool did_succeed) = 0;
   };
   CreditCardFIDOAuthenticator(AutofillDriver* driver, AutofillClient* client);
+
+  CreditCardFIDOAuthenticator(const CreditCardFIDOAuthenticator&) = delete;
+  CreditCardFIDOAuthenticator& operator=(const CreditCardFIDOAuthenticator&) =
+      delete;
+
   ~CreditCardFIDOAuthenticator() override;
 
   // Invokes Authentication flow. Responds to |accessor_| with full pan.
-  void Authenticate(const CreditCard* card,
-                    base::WeakPtr<Requester> requester,
-                    base::TimeTicks form_parsed_timestamp,
-                    base::Value request_options);
+  // |context_token| is used to share context between different requests. It
+  // will be populated only for virtual card unmasking.
+  virtual void Authenticate(
+      const CreditCard* card,
+      base::WeakPtr<Requester> requester,
+      base::Value request_options,
+      absl::optional<std::string> context_token = absl::nullopt);
 
   // Invokes Registration flow. Sends credentials created from
   // |creation_options| along with the |card_authorization_token| to Payments in
@@ -144,7 +168,7 @@ class CreditCardFIDOAuthenticator
   Flow current_flow() { return current_flow_; }
 
  private:
-  friend class AutofillManagerTest;
+  friend class BrowserAutofillManagerTest;
   friend class CreditCardAccessManagerTest;
   friend class CreditCardFIDOAuthenticatorTest;
   friend class TestCreditCardFIDOAuthenticator;
@@ -193,7 +217,7 @@ class CreditCardFIDOAuthenticator
   void OnFullCardRequestSucceeded(
       const payments::FullCardRequest& full_card_request,
       const CreditCard& card,
-      const base::string16& cvc) override;
+      const std::u16string& cvc) override;
   void OnFullCardRequestFailed(
       payments::FullCardRequest::FailureType failure_type) override;
 
@@ -232,7 +256,7 @@ class CreditCardFIDOAuthenticator
   void UpdateUserPref();
 
   // Gets or creates Authenticator pointer to facilitate WebAuthn.
-  InternalAuthenticator* authenticator();
+  webauthn::InternalAuthenticator* authenticator();
 
   // Card being unmasked.
   const CreditCard* card_;
@@ -244,9 +268,6 @@ class CreditCardFIDOAuthenticator
   // together in order to support FIDO-only unmasking on future attempts.
   std::string card_authorization_token_;
 
-  // Meant for histograms recorded in FullCardRequest.
-  base::TimeTicks form_parsed_timestamp_;
-
   // The associated autofill driver. Weak reference.
   AutofillDriver* const autofill_driver_;
 
@@ -257,7 +278,7 @@ class CreditCardFIDOAuthenticator
   payments::PaymentsClient* const payments_client_;
 
   // Authenticator pointer to facilitate WebAuthn.
-  InternalAuthenticator* authenticator_ = nullptr;
+  webauthn::InternalAuthenticator* authenticator_ = nullptr;
 
   // Responsible for getting the full card details, including the PAN and the
   // CVC.
@@ -278,9 +299,11 @@ class CreditCardFIDOAuthenticator
   // Signaled when callback for IsUserVerifiable() is invoked.
   base::WaitableEvent user_is_verifiable_callback_received_;
 
-  base::WeakPtrFactory<CreditCardFIDOAuthenticator> weak_ptr_factory_{this};
+  // The context token used for sharing context between different server
+  // requests. Will be populated only for virtual card unmasking.
+  absl::optional<std::string> context_token_;
 
-  DISALLOW_COPY_AND_ASSIGN(CreditCardFIDOAuthenticator);
+  base::WeakPtrFactory<CreditCardFIDOAuthenticator> weak_ptr_factory_{this};
 };
 
 }  // namespace autofill

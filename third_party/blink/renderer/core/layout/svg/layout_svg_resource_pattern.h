@@ -49,7 +49,7 @@ class LayoutSVGResourcePattern final : public LayoutSVGResourcePaintServer {
   bool RemoveClientFromCache(SVGResourceClient&) override;
 
   bool ApplyShader(const SVGResourceClient&,
-                   const FloatRect& reference_box,
+                   const gfx::RectF& reference_box,
                    const AffineTransform* additional_transform,
                    PaintFlags&) override;
 
@@ -65,7 +65,7 @@ class LayoutSVGResourcePattern final : public LayoutSVGResourcePaintServer {
 
   bool FindCycleFromSelf() const override;
   std::unique_ptr<PatternData> BuildPatternData(
-      const FloatRect& object_bounding_box);
+      const gfx::RectF& object_bounding_box);
   sk_sp<PaintRecord> AsPaintRecord(const FloatSize&,
                                    const AffineTransform&) const;
 
@@ -92,4 +92,4 @@ class LayoutSVGResourcePattern final : public LayoutSVGResourcePaintServer {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_RESOURCE_PATTERN_H_

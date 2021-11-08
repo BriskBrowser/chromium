@@ -19,8 +19,10 @@
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/variations/variations_associated_data.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
+#include "ui/compositor/compositor.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
@@ -28,7 +30,6 @@
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_mask.h"
 #include "ui/views/controls/highlight_path_generator.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -66,9 +67,9 @@ NewTabButton::NewTabButton(TabStrip* tab_strip, PressedCallback callback)
   ink_drop_container_ =
       AddChildView(std::make_unique<views::InkDropContainerView>());
 
-  SetInkDropMode(InkDropMode::ON);
-  SetInkDropHighlightOpacity(0.16f);
-  SetInkDropVisibleOpacity(0.14f);
+  views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
+  views::InkDrop::Get(this)->SetHighlightOpacity(0.16f);
+  views::InkDrop::Get(this)->SetVisibleOpacity(0.14f);
 
   SetInstallFocusRingOnFocus(true);
   views::HighlightPathGenerator::Install(
@@ -78,6 +79,10 @@ NewTabButton::NewTabButton(TabStrip* tab_strip, PressedCallback callback)
 }
 
 NewTabButton::~NewTabButton() {
+  // TODO(pbos): Revisit explicit removal of InkDrop for classes that override
+  // Add/RemoveLayerBeneathView(). This is done so that the InkDrop doesn't
+  // access the non-override versions in ~View.
+  views::InkDrop::Remove(this);
 }
 
 void NewTabButton::FrameColorsChanged() {
@@ -85,8 +90,8 @@ void NewTabButton::FrameColorsChanged() {
   SchedulePaint();
 }
 
-void NewTabButton::AnimateInkDropToStateForTesting(views::InkDropState state) {
-  GetInkDrop()->AnimateToState(state);
+void NewTabButton::AnimateToStateForTesting(views::InkDropState state) {
+  views::InkDrop::Get(this)->GetInkDrop()->AnimateToState(state);
 }
 
 void NewTabButton::AddLayerBeneathView(ui::Layer* new_layer) {
@@ -138,7 +143,8 @@ void NewTabButton::OnGestureEvent(ui::GestureEvent* event) {
 
 void NewTabButton::NotifyClick(const ui::Event& event) {
   ImageButton::NotifyClick(event);
-  GetInkDrop()->AnimateToState(views::InkDropState::ACTION_TRIGGERED);
+  views::InkDrop::Get(this)->GetInkDrop()->AnimateToState(
+      views::InkDropState::ACTION_TRIGGERED);
 }
 
 void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
@@ -170,7 +176,7 @@ bool NewTabButton::GetHitTestMask(SkPath* mask) const {
 
 int NewTabButton::GetCornerRadius() const {
   return ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
-      views::EMPHASIS_MAXIMUM, GetContentsBounds().size());
+      views::Emphasis::kMaximum, GetContentsBounds().size());
 }
 
 void NewTabButton::PaintFill(gfx::Canvas* canvas) const {
@@ -180,7 +186,7 @@ void NewTabButton::PaintFill(gfx::Canvas* canvas) const {
   flags.setAntiAlias(true);
 
   const float scale = canvas->image_scale();
-  const base::Optional<int> bg_id =
+  const absl::optional<int> bg_id =
       tab_strip_->GetCustomBackgroundId(BrowserFrameActiveState::kUseCurrent);
   if (bg_id.has_value()) {
     float x_scale = scale;
@@ -264,7 +270,7 @@ SkPath NewTabButton::GetBorderPath(const gfx::Point& origin,
 }
 
 void NewTabButton::UpdateInkDropBaseColor() {
-  SetInkDropBaseColor(
+  views::InkDrop::Get(this)->SetBaseColor(
       color_utils::GetColorWithMaxContrast(GetButtonFillColor()));
 }
 

@@ -30,6 +30,10 @@ const base::FilePath::CharType kTestFile[] =
 class DefaultAppOrderTest : public testing::Test {
  public:
   DefaultAppOrderTest() {}
+
+  DefaultAppOrderTest(const DefaultAppOrderTest&) = delete;
+  DefaultAppOrderTest& operator=(const DefaultAppOrderTest&) = delete;
+
   ~DefaultAppOrderTest() override {}
 
   // testing::Test overrides:
@@ -49,8 +53,8 @@ class DefaultAppOrderTest : public testing::Test {
   }
 
   void SetExternalFile(const base::FilePath& path) {
-    path_override_.reset(new base::ScopedPathOverride(
-        chromeos::FILE_DEFAULT_APP_ORDER, path));
+    path_override_ = std::make_unique<base::ScopedPathOverride>(
+        chromeos::FILE_DEFAULT_APP_ORDER, path);
   }
 
   void CreateExternalOrderFile(const std::string& content) {
@@ -65,8 +69,6 @@ class DefaultAppOrderTest : public testing::Test {
 
   base::ScopedTempDir temp_dir_;
   std::unique_ptr<base::ScopedPathOverride> path_override_;
-
-  DISALLOW_COPY_AND_ASSIGN(DefaultAppOrderTest);
 };
 
 // Tests that the built-in default order is returned when ExternalLoader is not

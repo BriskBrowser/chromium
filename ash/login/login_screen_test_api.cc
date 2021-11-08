@@ -16,7 +16,7 @@
 #include "ash/login/ui/login_expanded_public_account_view.h"
 #include "ash/login/ui/login_password_view.h"
 #include "ash/login/ui/login_pin_view.h"
-#include "ash/login/ui/login_user_menu_view.h"
+#include "ash/login/ui/login_remove_account_dialog.h"
 #include "ash/login/ui/login_user_view.h"
 #include "ash/login/ui/pin_request_view.h"
 #include "ash/login/ui/pin_request_widget.h"
@@ -28,6 +28,7 @@
 #include "base/check.h"
 #include "base/run_loop.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/compositor/layer.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/controls/button/label_button.h"
@@ -110,6 +111,11 @@ class ShelfTestUiUpdateDelegate : public LoginShelfView::TestUiUpdateDelegate {
   }
 
   ShelfTestUiUpdateDelegate() = default;
+
+  ShelfTestUiUpdateDelegate(const ShelfTestUiUpdateDelegate&) = delete;
+  ShelfTestUiUpdateDelegate& operator=(const ShelfTestUiUpdateDelegate&) =
+      delete;
+
   ~ShelfTestUiUpdateDelegate() override {
     for (PendingCallback& entry : heap_)
       std::move(entry.callback).Run();
@@ -159,8 +165,6 @@ class ShelfTestUiUpdateDelegate : public LoginShelfView::TestUiUpdateDelegate {
   std::vector<PendingCallback> heap_;
 
   int64_t ui_update_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(ShelfTestUiUpdateDelegate);
 };
 
 // static
@@ -230,6 +234,11 @@ bool LoginScreenTestApi::IsParentAccessButtonShown() {
 // static
 bool LoginScreenTestApi::IsEnterpriseEnrollmentButtonShown() {
   return IsLoginShelfViewButtonShown(LoginShelfView::kEnterpriseEnrollment);
+}
+
+// static
+bool LoginScreenTestApi::IsOsInstallButtonShown() {
+  return IsLoginShelfViewButtonShown(LoginShelfView::kOsInstall);
 }
 
 // static
@@ -321,7 +330,7 @@ bool LoginScreenTestApi::IsManagedIconShown(const AccountId& account_id) {
 }
 
 // static
-bool LoginScreenTestApi::IsManagedMessageInMenuShown(
+bool LoginScreenTestApi::IsManagedMessageInDialogShown(
     const AccountId& account_id) {
   LoginBigUserView* big_user_view = GetBigUserView(account_id);
   if (!big_user_view) {
@@ -329,8 +338,9 @@ bool LoginScreenTestApi::IsManagedMessageInMenuShown(
     return false;
   }
   LoginUserView::TestApi user_test(big_user_view->GetUserView());
-  LoginUserMenuView::TestApi user_menu_test(user_test.menu());
-  auto* managed_user_data = user_menu_test.managed_user_data();
+  LoginRemoveAccountDialog::TestApi user_dialog_test(
+      user_test.remove_account_dialog());
+  auto* managed_user_data = user_dialog_test.managed_user_data();
   return managed_user_data && managed_user_data->GetVisible();
 }
 
@@ -367,22 +377,22 @@ void LoginScreenTestApi::SubmitPassword(const AccountId& account_id,
 }
 
 // static
-base::string16 LoginScreenTestApi::GetChallengeResponseLabel(
+std::u16string LoginScreenTestApi::GetChallengeResponseLabel(
     const AccountId& account_id) {
   if (GetFocusedUser() != account_id) {
     ADD_FAILURE() << "The user " << account_id.Serialize() << " is not focused";
-    return base::string16();
+    return std::u16string();
   }
   LoginBigUserView* big_user_view = GetBigUserView(account_id);
   if (!big_user_view) {
     ADD_FAILURE() << "Could not find user " << account_id.Serialize();
-    return base::string16();
+    return std::u16string();
   }
   LoginAuthUserView::TestApi auth_test(big_user_view->auth_user());
   if (!auth_test.challenge_response_label()->IsDrawn()) {
     ADD_FAILURE() << "Challenge-response label is not drawn for user "
                   << account_id.Serialize();
-    return base::string16();
+    return std::u16string();
   }
   return auth_test.challenge_response_label()->GetText();
 }
@@ -463,6 +473,11 @@ bool LoginScreenTestApi::ClickGuestButton() {
 // static
 bool LoginScreenTestApi::ClickEnterpriseEnrollmentButton() {
   return SimulateButtonPressedForTesting(LoginShelfView::kEnterpriseEnrollment);
+}
+
+// static
+bool LoginScreenTestApi::ClickOsInstallButton() {
+  return SimulateButtonPressedForTesting(LoginShelfView::kOsInstall);
 }
 
 // static
@@ -691,12 +706,12 @@ std::string LoginScreenTestApi::GetDisplayedName(const AccountId& account_id) {
 }
 
 // static
-base::string16 LoginScreenTestApi::GetDisabledAuthMessage(
+std::u16string LoginScreenTestApi::GetDisabledAuthMessage(
     const AccountId& account_id) {
   LoginBigUserView* big_user_view = GetBigUserView(account_id);
   if (!big_user_view) {
     ADD_FAILURE() << "Could not find user " << account_id.Serialize();
-    return base::string16();
+    return std::u16string();
   }
   LoginAuthUserView::TestApi auth_test(big_user_view->auth_user());
 
@@ -704,16 +719,16 @@ base::string16 LoginScreenTestApi::GetDisabledAuthMessage(
 }
 
 // static
-base::string16 LoginScreenTestApi::GetManagementDisclosureText(
+std::u16string LoginScreenTestApi::GetManagementDisclosureText(
     const AccountId& account_id) {
   LoginBigUserView* big_user_view = GetBigUserView(account_id);
   if (!big_user_view) {
     ADD_FAILURE() << "Could not find user " << account_id.Serialize();
-    return base::string16();
+    return std::u16string();
   }
   LoginUserView::TestApi user_test(big_user_view->GetUserView());
-  LoginUserMenuView::TestApi user_menu_test(user_test.menu());
-  return user_menu_test.management_disclosure_label()->GetText();
+  LoginRemoveAccountDialog::TestApi dialog(user_test.remove_account_dialog());
+  return dialog.management_disclosure_label()->GetText();
 }
 
 // static
@@ -725,10 +740,10 @@ bool LoginScreenTestApi::IsOobeDialogVisible() {
 }
 
 // static
-base::string16 LoginScreenTestApi::GetShutDownButtonLabel() {
+std::u16string LoginScreenTestApi::GetShutDownButtonLabel() {
   views::View* button = GetShutDownButton();
   if (!button)
-    return base::string16();
+    return std::u16string();
 
   return static_cast<views::LabelButton*>(button)->GetText();
 }
@@ -758,10 +773,10 @@ void LoginScreenTestApi::SetPinRequestWidgetShownCallback(
 }
 
 // static
-base::string16 LoginScreenTestApi::GetPinRequestWidgetTitle() {
+std::u16string LoginScreenTestApi::GetPinRequestWidgetTitle() {
   if (!PinRequestWidget::Get()) {
     ADD_FAILURE() << "No PIN request widget is shown";
-    return base::string16();
+    return std::u16string();
   }
   PinRequestWidget::TestApi pin_widget_test(PinRequestWidget::Get());
   PinRequestView::TestApi pin_view_test(pin_widget_test.pin_request_view());

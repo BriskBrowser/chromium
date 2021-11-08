@@ -25,13 +25,17 @@ class SyncSessionsWebContentsRouter;
 // these events to sessions sync.
 // A TabHelper is a WebContentsObserver tied to the top level WebContents for a
 // browser tab.
-// https://chromium.googlesource.com/chromium/src/+/master/docs/tab_helpers.md
+// https://chromium.googlesource.com/chromium/src/+/main/docs/tab_helpers.md
 class SyncSessionsRouterTabHelper
     : public content::WebContentsUserData<SyncSessionsRouterTabHelper>,
       public content::WebContentsObserver,
       public translate::TranslateDriver::LanguageDetectionObserver,
       public favicon::FaviconDriverObserver {
  public:
+  SyncSessionsRouterTabHelper(const SyncSessionsRouterTabHelper&) = delete;
+  SyncSessionsRouterTabHelper& operator=(const SyncSessionsRouterTabHelper&) =
+      delete;
+
   ~SyncSessionsRouterTabHelper() override;
 
   // WebContentsObserver implementation.
@@ -78,8 +82,6 @@ class SyncSessionsRouterTabHelper
   favicon::FaviconDriver* favicon_driver_;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(SyncSessionsRouterTabHelper);
 };
 
 }  // namespace sync_sessions

@@ -15,10 +15,11 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/chromeos/login/screens/error_screen.h"
-#include "chrome/browser/chromeos/login/signin_specifics.h"
-#include "chrome/browser/chromeos/login/ui/login_display.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
+// TODO(https://crbug.com/1164001): move to forward declaration.
+#include "chrome/browser/ash/login/error_screens_histogram_helper.h"
+#include "chrome/browser/ash/login/screens/error_screen.h"
+#include "chrome/browser/ash/login/signin_specifics.h"
+#include "chrome/browser/ash/login/ui/login_display.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_webui_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
@@ -29,25 +30,22 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_ui.h"
 #include "net/base/net_errors.h"
-#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ime/ash/input_method_manager.h"
 #include "ui/events/event_handler.h"
 
 class AccountId;
 
 namespace ash {
+class LoginDisplayHostMojo;
+
 namespace mojom {
 enum class TrayActionState;
 }  // namespace mojom
 }  // namespace ash
 
-namespace base {
-class ListValue;
-}
-
 namespace chromeos {
 
 class CoreOobeView;
-class ErrorScreensHistogramHelper;
 class GaiaScreenHandler;
 class UserContext;
 
@@ -56,10 +54,6 @@ class LoginDisplayWebUIHandler {
  public:
   virtual void ClearAndEnablePassword() = 0;
   virtual void OnPreferencesChanged() = 0;
-  virtual void ShowError(int login_attempts,
-                         const std::string& error_text,
-                         const std::string& help_link_text,
-                         HelpAppLauncher::HelpTopic help_topic_id) = 0;
   virtual void ShowAllowlistCheckFailedError() = 0;
 
  protected:
@@ -92,8 +86,6 @@ class SigninScreenHandlerDelegate {
   virtual void ShowWrongHWIDScreen() = 0;
 
   // --------------- Rest of the methods.
-  // Cancels user adding.
-  virtual void CancelUserAdding() = 0;
 
   // Let the delegate know about the handler it is supposed to be using.
   virtual void SetWebUIHandler(LoginDisplayWebUIHandler* webui_handler) = 0;
@@ -122,6 +114,10 @@ class SigninScreenHandler
       ErrorScreen* error_screen,
       CoreOobeView* core_oobe_view,
       GaiaScreenHandler* gaia_screen_handler);
+
+  SigninScreenHandler(const SigninScreenHandler&) = delete;
+  SigninScreenHandler& operator=(const SigninScreenHandler&) = delete;
+
   ~SigninScreenHandler() override;
 
   static std::string GetUserLastInputMethod(const std::string& username);
@@ -147,21 +143,17 @@ class SigninScreenHandler
   // configurations like MSAN, where it otherwise triggers on every run.
   void SetOfflineTimeoutForTesting(base::TimeDelta offline_timeout);
 
-  // Gets the keyboard remapped pref value for `pref_name` key. Returns true if
-  // successful, otherwise returns false.
-  bool GetKeyboardRemappedPrefValue(const std::string& pref_name, int* value);
-
  private:
+  friend class GaiaScreenHandler;
+  friend class ash::LoginDisplayHostMojo;
+  friend class ReportDnsCacheClearedOnUIThread;
+
   // TODO (crbug.com/1168114): check if it makes sense anymore, as we're always
   // showing GAIA
   enum UIState {
     UI_STATE_UNKNOWN = 0,
     UI_STATE_GAIA_SIGNIN,
   };
-
-  friend class GaiaScreenHandler;
-  friend class ReportDnsCacheClearedOnUIThread;
-  friend class LoginDisplayHostMojo;
 
   void ShowImpl();
 
@@ -187,10 +179,6 @@ class SigninScreenHandler
   // LoginDisplayWebUIHandler implementation:
   void ClearAndEnablePassword() override;
   void OnPreferencesChanged() override;
-  void ShowError(int login_attempts,
-                 const std::string& error_text,
-                 const std::string& help_link_text,
-                 HelpAppLauncher::HelpTopic help_topic_id) override;
   void ShowAllowlistCheckFailedError() override;
 
   // content::NotificationObserver implementation:
@@ -204,7 +192,7 @@ class SigninScreenHandler
                               bool authenticated_by_pin);
   void HandleLaunchIncognito();
   void HandleLaunchSAMLPublicSession(const std::string& email);
-  void HandleOfflineLogin(const base::ListValue* args);
+  void HandleOfflineLogin();
   void HandleToggleEnrollmentScreen();
   void HandleToggleResetScreen();
   void HandleToggleKioskAutolaunchScreen();
@@ -225,21 +213,16 @@ class SigninScreenHandler
                                 const std::string& password,
                                 bool authenticated_by_pin);
 
-  // Returns true iff
-  // (i)   log in is restricted to some user list,
-  // (ii)  all users in the restricted list are present.
-  bool AllAllowlistedUsersPresent();
-
   // Returns true if current visible screen is the Gaia sign-in page.
-  bool IsGaiaVisible() const;
+  bool IsGaiaVisible();
 
   // Returns true if current visible screen is the error screen over
   // Gaia sign-in page.
-  bool IsGaiaHiddenByError() const;
+  bool IsGaiaHiddenByError();
 
   // Returns true if current screen is the error screen over signin
   // screen.
-  bool IsSigninScreenHiddenByError() const;
+  bool IsSigninScreenHiddenByError();
 
   net::Error FrameError() const;
 
@@ -314,15 +297,15 @@ class SigninScreenHandler
   std::unique_ptr<AccountId> focused_pod_account_id_;
 
   base::WeakPtrFactory<SigninScreenHandler> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(SigninScreenHandler);
 };
 
 }  // namespace chromeos
 
 // TODO(https://crbug.com/1164001): remove when moved to ash.
 namespace ash {
+using ::chromeos::LoginDisplayWebUIHandler;
 using ::chromeos::SigninScreenHandler;
-}
+using ::chromeos::SigninScreenHandlerDelegate;
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CHROMEOS_LOGIN_SIGNIN_SCREEN_HANDLER_H_

@@ -5,16 +5,18 @@
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/run_loop.h"
-#include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
+#include "chrome/browser/browser_features.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/content_verifier_test_utils.h"
 #include "chrome/browser/extensions/extension_management_test_util.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/updater/chrome_update_client_config.h"
 #include "chrome/browser/extensions/updater/extension_update_client_base_browsertest.h"
 #include "chrome/browser/extensions/updater/extension_updater.h"
+#include "chrome/browser/profiles/profile_keep_alive_types.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
@@ -30,6 +32,9 @@
 #include "extensions/browser/updater/manifest_fetch_data.h"
 #include "extensions/common/extension_updater_uma.h"
 #include "extensions/common/extension_urls.h"
+#include "extensions/common/mojom/manifest.mojom-shared.h"
+
+using extensions::mojom::ManifestLocation;
 
 namespace extensions {
 
@@ -54,6 +59,14 @@ class UpdateServiceTest : public ExtensionUpdateClientBaseTest {
   }
 
   bool ShouldEnableContentVerification() override { return true; }
+
+  void ExpectProfileKeepAlive(bool expected) {
+    if (!base::FeatureList::IsEnabled(features::kDestroyProfileOnBrowserClose))
+      return;
+    EXPECT_EQ(expected,
+              g_browser_process->profile_manager()->HasKeepAliveForTesting(
+                  profile(), ProfileKeepAliveOrigin::kExtensionUpdater));
+  }
 };
 
 IN_PROC_BROWSER_TEST_F(UpdateServiceTest, NoUpdate) {
@@ -68,7 +81,7 @@ IN_PROC_BROWSER_TEST_F(UpdateServiceTest, NoUpdate) {
 
   const base::FilePath crx_path = test_data_dir_.AppendASCII("updater/v1.crx");
   const Extension* extension =
-      InstallExtension(crx_path, 1, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+      InstallExtension(crx_path, 1, ManifestLocation::kExternalPolicyDownload);
   ASSERT_TRUE(extension);
   EXPECT_EQ(kExtensionId, extension->id());
 
@@ -111,7 +124,7 @@ IN_PROC_BROWSER_TEST_F(UpdateServiceTest, UpdateCheckError) {
 
   const base::FilePath crx_path = test_data_dir_.AppendASCII("updater/v1.crx");
   const Extension* extension =
-      InstallExtension(crx_path, 1, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+      InstallExtension(crx_path, 1, ManifestLocation::kExternalPolicyDownload);
   ASSERT_TRUE(extension);
   EXPECT_EQ(kExtensionId, extension->id());
 
@@ -158,9 +171,9 @@ IN_PROC_BROWSER_TEST_F(UpdateServiceTest, TwoUpdateCheckErrors) {
   const base::FilePath crx_path1 = test_data_dir_.AppendASCII("updater/v1.crx");
   const base::FilePath crx_path2 = test_data_dir_.AppendASCII("updater/v2.crx");
   const Extension* extension1 =
-      InstallExtension(crx_path1, 1, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+      InstallExtension(crx_path1, 1, ManifestLocation::kExternalPolicyDownload);
   const Extension* extension2 =
-      InstallExtension(crx_path2, 1, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+      InstallExtension(crx_path2, 1, ManifestLocation::kExternalPolicyDownload);
   ASSERT_TRUE(extension1 && extension2);
 
   extensions::ExtensionUpdater::CheckParams params;
@@ -213,8 +226,10 @@ IN_PROC_BROWSER_TEST_F(UpdateServiceTest, SuccessfulUpdate) {
         return true;
       }));
 
+  ExpectProfileKeepAlive(false);
+
   const Extension* extension =
-      InstallExtension(crx_path, 1, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+      InstallExtension(crx_path, 1, ManifestLocation::kExternalPolicyDownload);
   ASSERT_TRUE(extension);
   EXPECT_EQ(kExtensionId, extension->id());
 
@@ -224,6 +239,8 @@ IN_PROC_BROWSER_TEST_F(UpdateServiceTest, SuccessfulUpdate) {
   params.ids = {kExtensionId};
   params.callback = run_loop.QuitClosure();
   extension_service()->updater()->CheckNow(std::move(params));
+
+  ExpectProfileKeepAlive(true);
 
   EXPECT_EQ(UpdateClientEvents::COMPONENT_UPDATED,
             WaitOnComponentUpdaterCompleteEvent(kExtensionId));
@@ -276,17 +293,17 @@ IN_PROC_BROWSER_TEST_F(UpdateServiceTest, PolicyCorrupted) {
   content_verifier_test::ForceInstallProvider policy(kExtensionId);
   system->management_policy()->RegisterProvider(&policy);
   auto external_provider = std::make_unique<MockExternalProvider>(
-      service, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+      service, ManifestLocation::kExternalPolicyDownload);
   external_provider->UpdateOrAddExtension(
       std::make_unique<ExternalInstallInfoUpdateUrl>(
           kExtensionId, std::string() /* install_parameter */,
           extension_urls::GetWebstoreUpdateUrl(),
-          Manifest::EXTERNAL_POLICY_DOWNLOAD, 0 /* creation_flags */,
+          ManifestLocation::kExternalPolicyDownload, 0 /* creation_flags */,
           true /* mark_acknowledged */));
   service->AddProviderForTesting(std::move(external_provider));
 
   const Extension* extension =
-      InstallExtension(crx_path, 1, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+      InstallExtension(crx_path, 1, ManifestLocation::kExternalPolicyDownload);
   ASSERT_TRUE(extension);
   EXPECT_EQ(kExtensionId, extension->id());
 
@@ -344,7 +361,7 @@ IN_PROC_BROWSER_TEST_F(UpdateServiceTest, UninstallExtensionWhileUpdating) {
   const base::FilePath crx_path = test_data_dir_.AppendASCII("updater/v1.crx");
 
   const Extension* extension =
-      InstallExtension(crx_path, 1, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+      InstallExtension(crx_path, 1, ManifestLocation::kExternalPolicyDownload);
   ASSERT_TRUE(extension);
   EXPECT_EQ(kExtensionId, extension->id());
 
@@ -387,10 +404,9 @@ class PolicyUpdateServiceTest : public ExtensionUpdateClientBaseTest,
   void SetUpInProcessBrowserTestFixture() override {
     ExtensionUpdateClientBaseTest::SetUpInProcessBrowserTestFixture();
 
-    ON_CALL(policy_provider_, IsInitializationComplete(testing::_))
-        .WillByDefault(testing::Return(true));
-    ON_CALL(policy_provider_, IsFirstPolicyLoadComplete(testing::_))
-        .WillByDefault(testing::Return(true));
+    policy_provider_.SetDefaultReturns(
+        /*is_initialization_complete_return=*/true,
+        /*is_first_policy_load_complete_return=*/true);
 
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
         &policy_provider_);

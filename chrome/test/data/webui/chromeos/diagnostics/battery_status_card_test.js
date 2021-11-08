@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 import 'chrome://diagnostics/battery_status_card.js';
-import {BatteryChargeStatus, BatteryHealth, BatteryInfo, ExternalPowerSource} from 'chrome://diagnostics/diagnostics_types.js';
+import {BatteryChargeStatus, BatteryHealth, BatteryInfo, ExternalPowerSource, RoutineType} from 'chrome://diagnostics/diagnostics_types.js';
 import {getDiagnosticsIcon} from 'chrome://diagnostics/diagnostics_utils.js';
 import {fakeBatteryChargeStatus, fakeBatteryChargeStatus2, fakeBatteryHealth, fakeBatteryHealth2, fakeBatteryInfo} from 'chrome://diagnostics/fake_data.js';
 import {FakeSystemDataProvider} from 'chrome://diagnostics/fake_system_data_provider.js';
@@ -12,7 +12,7 @@ import {mojoString16ToString} from 'chrome://diagnostics/mojo_utils.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 
 import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-import {flushTasks, isChildVisible} from '../../test_util.m.js';
+import {flushTasks, isChildVisible, isVisible} from '../../test_util.js';
 
 import * as dx_utils from './diagnostics_test_utils.js';
 
@@ -79,6 +79,31 @@ export function batteryStatusCardTestSuite() {
   }
 
   /**
+   * Returns the status badge.
+   * @return {!TextBadgeElement}
+   */
+  function getStatusBadge() {
+    const routineSectionElement = getRoutineSection();
+
+    return /** @type {!TextBadgeElement} */ (
+        routineSectionElement.$$('#testStatusBadge'));
+  }
+
+  /**
+   * Returns the status text.
+   * @return {!HTMLElement}
+   */
+  function getStatusTextElement() {
+    const routineSectionElement = getRoutineSection();
+
+    const statusText =
+        /** @type {!HTMLElement} */ (
+            routineSectionElement.$$('#testStatusText'));
+    assertTrue(!!statusText);
+    return statusText;
+  }
+
+  /**
    * Returns the Run Tests button from inside the routine-section.
    * @return {!CrButtonElement}
    */
@@ -110,23 +135,27 @@ export function batteryStatusCardTestSuite() {
     return initializeBatteryStatusCard(
                fakeBatteryInfo, fakeBatteryChargeStatus, fakeBatteryHealth)
         .then(() => {
-          const dataPoints =
-              dx_utils.getDataPointElements(batteryStatusElement);
           dx_utils.assertTextContains(
-              dataPoints[0].value,
+              dx_utils.getDataPointValue(
+                  batteryStatusElement, '#batteryHealth'),
               `${fakeBatteryHealth[0].batteryWearPercentage}`);
           dx_utils.assertTextContains(
-              dataPoints[0].tooltipText,
+              dx_utils.getDataPoint(batteryStatusElement, '#batteryHealth')
+                  .tooltipText,
               loadTimeData.getString('batteryHealthTooltipText'));
-          assertEquals(fakeBatteryHealth[0].cycleCount, dataPoints[1].value);
           dx_utils.assertTextContains(
-              dataPoints[1].tooltipText,
+              dx_utils.getDataPointValue(batteryStatusElement, '#cycleCount'),
+              `${fakeBatteryHealth[0].cycleCount}`);
+          dx_utils.assertTextContains(
+              dx_utils.getDataPoint(batteryStatusElement, '#cycleCount')
+                  .tooltipText,
               loadTimeData.getString('cycleCountTooltipText'));
           dx_utils.assertTextContains(
-              dataPoints[2].value,
+              dx_utils.getDataPointValue(batteryStatusElement, '#currentNow'),
               `${fakeBatteryChargeStatus[0].currentNowMilliamps}`);
           dx_utils.assertTextContains(
-              dataPoints[2].tooltipText,
+              dx_utils.getDataPoint(batteryStatusElement, '#currentNow')
+                  .tooltipText,
               loadTimeData.getString('currentNowTooltipText'));
           dx_utils.assertElementContainsText(
               batteryStatusElement.$$('#batteryStatusChipInfo'),
@@ -159,8 +188,7 @@ export function batteryStatusCardTestSuite() {
 
           assertEquals(routineSectionElement.routines.length, 1);
           assertEquals(
-              routineSectionElement.routines[0],
-              chromeos.diagnostics.mojom.RoutineType.kBatteryCharge);
+              routineSectionElement.routines[0], RoutineType.kBatteryCharge);
 
           batteryStatusElement.onBatteryChargeStatusUpdated(
               fakeBatteryChargeStatus[2]);
@@ -171,8 +199,21 @@ export function batteryStatusCardTestSuite() {
 
           assertEquals(routineSectionElement.routines.length, 1);
           assertEquals(
-              routineSectionElement.routines[0],
-              chromeos.diagnostics.mojom.RoutineType.kBatteryDischarge);
+              routineSectionElement.routines[0], RoutineType.kBatteryDischarge);
+
+          batteryStatusElement.onBatteryChargeStatusUpdated(
+              fakeBatteryChargeStatus[3]);
+          return flushTasks();
+        })
+        .then(() => {
+          const routineSectionElement = getRoutineSection();
+
+          assertEquals(
+              routineSectionElement.additionalMessage,
+              loadTimeData.getString('batteryChargeTestFullMessage'));
+          assertTrue(isRunTestsButtonDisabled());
+          assertTrue(isVisible(/** @type {!HTMLElement} */ (
+              routineSectionElement.$$('#messageIcon'))));
         });
   });
 
@@ -182,9 +223,7 @@ export function batteryStatusCardTestSuite() {
     return initializeBatteryStatusCard(
                fakeBatteryInfo, fakeBatteryChargeStatus, fakeBatteryHealth)
         .then(() => {
-          assertEquals(
-              chromeos.diagnostics.mojom.ExternalPowerSource.kAc,
-              getPowerAdapterStatus());
+          assertEquals(ExternalPowerSource.kAc, getPowerAdapterStatus());
           assertEquals(expectedBatteryIcon, batteryStatusElement.batteryIcon);
         });
   });
@@ -194,8 +233,7 @@ export function batteryStatusCardTestSuite() {
                fakeBatteryInfo, fakeBatteryChargeStatus2, fakeBatteryHealth2)
         .then(() => {
           assertEquals(
-              getPowerAdapterStatus(),
-              chromeos.diagnostics.mojom.ExternalPowerSource.kDisconnected);
+              getPowerAdapterStatus(), ExternalPowerSource.kDisconnected);
 
           const expectedIconRange = '71-77';
           assertEquals(

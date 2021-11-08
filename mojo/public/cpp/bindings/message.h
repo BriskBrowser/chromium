@@ -25,6 +25,7 @@
 #include "mojo/public/cpp/bindings/lib/unserialized_message_context.h"
 #include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
 #include "mojo/public/cpp/system/message.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace mojo {
 
@@ -42,6 +43,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) Message {
   static const uint32_t kFlagExpectsResponse = 1 << 0;
   static const uint32_t kFlagIsResponse = 1 << 1;
   static const uint32_t kFlagIsSync = 1 << 2;
+  static const uint32_t kFlagNoInterrupt = 1 << 3;
 
   // Constructs an uninitialized Message object.
   Message();
@@ -102,6 +104,9 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) Message {
   // |*handle| remains unchanged and the returned Message will be null (i.e.
   // calling IsNull() on it will return |true|).
   static Message CreateFromMessageHandle(ScopedMessageHandle* message_handle);
+
+  Message(const Message&) = delete;
+  Message& operator=(const Message&) = delete;
 
   ~Message();
 
@@ -253,6 +258,13 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) Message {
     heap_profiler_tag_ = heap_profiler_tag;
   }
 
+  // Get a global trace id identifying this message. Used for connecting the
+  // sender and the receiver in traces.
+  uint64_t GetTraceId() const;
+
+  // Write a representation of this object into a trace.
+  void WriteIntoTrace(perfetto::TracedValue ctx) const;
+
 #if defined(ENABLE_IPC_FUZZER)
   const char* interface_name() const { return interface_name_; }
   void set_interface_name(const char* interface_name) {
@@ -296,8 +308,6 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) Message {
   const char* interface_name_ = nullptr;
   const char* method_name_ = nullptr;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(Message);
 };
 
 class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) MessageFilter {
@@ -380,50 +390,14 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) PassThroughFilter
     : public MessageReceiver {
  public:
   PassThroughFilter();
+
+  PassThroughFilter(const PassThroughFilter&) = delete;
+  PassThroughFilter& operator=(const PassThroughFilter&) = delete;
+
   ~PassThroughFilter() override;
 
   // MessageReceiver:
   bool Accept(Message* message) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PassThroughFilter);
-};
-
-namespace internal {
-class SyncMessageResponseSetup;
-}
-
-// An object which should be constructed on the stack immediately before making
-// a sync request for which the caller wishes to perform custom validation of
-// the response value(s). It is illegal to make more than one sync call during
-// the lifetime of the topmost SyncMessageResponseContext, but it is legal to
-// nest contexts to support reentrancy.
-//
-// Usage should look something like:
-//
-//     SyncMessageResponseContext response_context;
-//     foo_interface->SomeSyncCall(&response_value);
-//     if (response_value.IsBad())
-//       response_context.ReportBadMessage("Bad response_value!");
-//
-class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) SyncMessageResponseContext {
- public:
-  SyncMessageResponseContext();
-  ~SyncMessageResponseContext();
-
-  static SyncMessageResponseContext* current();
-
-  void ReportBadMessage(const std::string& error);
-
-  ReportBadMessageCallback GetBadMessageCallback();
-
- private:
-  friend class internal::SyncMessageResponseSetup;
-
-  SyncMessageResponseContext* outer_context_;
-  Message response_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyncMessageResponseContext);
 };
 
 // Reports the currently dispatching Message as bad. Note that this is only
@@ -441,6 +415,11 @@ void ReportBadMessage(const std::string& error);
 // be called once per message.
 COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE)
 ReportBadMessageCallback GetBadMessageCallback();
+
+// Returns true if called directly within the stack frame of a message dispatch.
+// Unlike GetBadMessageCallback(), this can be called multiple times.
+COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE)
+bool IsInMessageDispatch();
 
 }  // namespace mojo
 

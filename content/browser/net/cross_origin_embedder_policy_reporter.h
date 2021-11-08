@@ -8,7 +8,7 @@
 #include <initializer_list>
 #include <string>
 
-#include "base/optional.h"
+#include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece.h"
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -16,6 +16,7 @@
 #include "net/base/network_isolation_key.h"
 #include "services/network/public/mojom/cross_origin_embedder_policy.mojom.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/frame/reporting_observer.mojom.h"
 #include "url/gurl.h"
 
@@ -39,14 +40,17 @@ class CONTENT_EXPORT CrossOriginEmbedderPolicyReporter final
   CrossOriginEmbedderPolicyReporter(
       StoragePartition* storage_partition,
       const GURL& context_url,
-      const base::Optional<std::string>& endpoint,
-      const base::Optional<std::string>& report_only_endpoint,
+      const absl::optional<std::string>& endpoint,
+      const absl::optional<std::string>& report_only_endpoint,
+      const base::UnguessableToken& reporting_source,
       const net::NetworkIsolationKey& network_isolation_key);
   ~CrossOriginEmbedderPolicyReporter() override;
   CrossOriginEmbedderPolicyReporter(const CrossOriginEmbedderPolicyReporter&) =
       delete;
   CrossOriginEmbedderPolicyReporter& operator=(
       const CrossOriginEmbedderPolicyReporter&) = delete;
+
+  void set_reporting_source(const base::UnguessableToken& reporting_source);
 
   // network::mojom::CrossOriginEmbedderPolicyReporter implementation.
   void QueueCorpViolationReport(const GURL& blocked_url,
@@ -69,6 +73,10 @@ class CONTENT_EXPORT CrossOriginEmbedderPolicyReporter final
   void QueueWorkerInitializationReport(const GURL& blocked_url,
                                        bool report_only);
 
+  base::WeakPtr<CrossOriginEmbedderPolicyReporter> GetWeakPtr() {
+    return weak_ptr_factory_.GetWeakPtr();
+  }
+
  private:
   void QueueAndNotify(std::initializer_list<
                           std::pair<base::StringPiece, base::StringPiece>> body,
@@ -78,13 +86,22 @@ class CONTENT_EXPORT CrossOriginEmbedderPolicyReporter final
   StoragePartition* const storage_partition_;
 
   const GURL context_url_;
-  const base::Optional<std::string> endpoint_;
-  const base::Optional<std::string> report_only_endpoint_;
+  const absl::optional<std::string> endpoint_;
+  const absl::optional<std::string> report_only_endpoint_;
+  // This reporting source is not owned by COEPReporter in any way. The
+  // COEPReporter is not responsible for cleaning up the reporting source, the
+  // actual owner of this token needs to manage the lifecycle (including
+  // cleaning up the reporting source from reporting cache).
+  base::UnguessableToken reporting_source_;
   const net::NetworkIsolationKey network_isolation_key_;
 
   mojo::ReceiverSet<network::mojom::CrossOriginEmbedderPolicyReporter>
       receiver_set_;
   mojo::Remote<blink::mojom::ReportingObserver> observer_;
+
+  // This must be the last member.
+  base::WeakPtrFactory<CrossOriginEmbedderPolicyReporter> weak_ptr_factory_{
+      this};
 };
 
 }  // namespace content

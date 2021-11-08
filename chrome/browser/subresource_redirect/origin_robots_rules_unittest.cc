@@ -6,13 +6,13 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
+#include "components/variations/scoped_variations_ids_provider.h"
 #include "net/base/escape.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
@@ -21,6 +21,7 @@
 #include "services/network/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/features.h"
 
 namespace subresource_redirect {
@@ -51,12 +52,12 @@ class RobotsRulesFetcherState {
         std::pair<int, base::TimeDelta>(response_code, retry_after);
   }
 
-  void OnRobotsRulesReceived(base::Optional<std::string> rules) {
+  void OnRobotsRulesReceived(absl::optional<std::string> rules) {
     robots_rules_received_.push_back(rules);
   }
 
-  base::Optional<std::pair<int, base::TimeDelta>> response_error_received_;
-  std::vector<base::Optional<std::string>> robots_rules_received_;
+  absl::optional<std::pair<int, base::TimeDelta>> response_error_received_;
+  std::vector<absl::optional<std::string>> robots_rules_received_;
   base::WeakPtrFactory<RobotsRulesFetcherState> weak_ptr_factory_{this};
 };
 
@@ -70,7 +71,8 @@ class SubresourceRedirectOriginRobotsRulesTest : public testing::Test {
     scoped_feature_list_.InitWithFeaturesAndParameters(
         {{blink::features::kSubresourceRedirect,
           {{"enable_login_robots_based_compression", "true"},
-           {"enable_public_image_hints_based_compression", "false"}}}},
+           {"enable_public_image_hints_based_compression", "false"},
+           {"enable_login_robots_for_low_memory", "true"}}}},
         {});
   }
 
@@ -107,11 +109,11 @@ class SubresourceRedirectOriginRobotsRulesTest : public testing::Test {
         url, status, std::move(head), content);
   }
 
-  base::Optional<std::pair<int, base::TimeDelta>> GetResponseErrorReceived() {
+  absl::optional<std::pair<int, base::TimeDelta>> GetResponseErrorReceived() {
     return rules_fetcher_state_->response_error_received_;
   }
 
-  std::vector<base::Optional<std::string>> GetRobotsRulesReceived() {
+  std::vector<absl::optional<std::string>> GetRobotsRulesReceived() {
     return rules_fetcher_state_->robots_rules_received_;
   }
 
@@ -125,6 +127,9 @@ class SubresourceRedirectOriginRobotsRulesTest : public testing::Test {
   base::test::TaskEnvironment task_environment_;
 
   base::HistogramTester histogram_tester_;
+
+  variations::ScopedVariationsIdsProvider scoped_variations_ids_provider_{
+      variations::VariationsIdsProvider::Mode::kUseSignedInState};
 
   std::unique_ptr<OriginRobotsRules> origin_robots_rules_;
   std::unique_ptr<RobotsRulesFetcherState> rules_fetcher_state_;
@@ -140,7 +145,7 @@ TEST_F(SubresourceRedirectOriginRobotsRulesTest, TestSuccessfulResponse) {
   EXPECT_EQ(0ULL, GetRobotsRulesReceived().size());
 
   EXPECT_TRUE(SimulateResponse(kLitePagesURL, kFooOrigin, kTestResponse));
-  EXPECT_EQ(base::nullopt, GetResponseErrorReceived());
+  EXPECT_EQ(absl::nullopt, GetResponseErrorReceived());
   histogram_tester_.ExpectUniqueSample(
       "SubresourceRedirect.RobotsRulesFetcher.CacheHit", false, 1);
   histogram_tester_.ExpectUniqueSample(
@@ -148,16 +153,16 @@ TEST_F(SubresourceRedirectOriginRobotsRulesTest, TestSuccessfulResponse) {
   histogram_tester_.ExpectUniqueSample(
       "SubresourceRedirect.RobotsRulesFetcher.ResponseCode", net::HTTP_OK, 1);
   EXPECT_THAT(GetRobotsRulesReceived(),
-              testing::ElementsAre(base::Optional<std::string>(kTestResponse)));
+              testing::ElementsAre(absl::optional<std::string>(kTestResponse)));
 
   // Subsequent calls will return the response immediately.
   GetRobotsRules();
   GetRobotsRules();
   EXPECT_THAT(GetRobotsRulesReceived(),
-              testing::ElementsAre(base::Optional<std::string>(kTestResponse),
-                                   base::Optional<std::string>(kTestResponse),
-                                   base::Optional<std::string>(kTestResponse)));
-  EXPECT_EQ(base::nullopt, GetResponseErrorReceived());
+              testing::ElementsAre(absl::optional<std::string>(kTestResponse),
+                                   absl::optional<std::string>(kTestResponse),
+                                   absl::optional<std::string>(kTestResponse)));
+  EXPECT_EQ(absl::nullopt, GetResponseErrorReceived());
 }
 
 TEST_F(SubresourceRedirectOriginRobotsRulesTest, TestSuccessfulCachedResponse) {
@@ -172,17 +177,17 @@ TEST_F(SubresourceRedirectOriginRobotsRulesTest, TestSuccessfulCachedResponse) {
       "SubresourceRedirect.RobotsRulesFetcher.NetErrorCode", 0, 1);
   histogram_tester_.ExpectUniqueSample(
       "SubresourceRedirect.RobotsRulesFetcher.ResponseCode", net::HTTP_OK, 1);
-  EXPECT_EQ(base::nullopt, GetResponseErrorReceived());
+  EXPECT_EQ(absl::nullopt, GetResponseErrorReceived());
   EXPECT_THAT(GetRobotsRulesReceived(),
-              testing::ElementsAre(base::Optional<std::string>(kTestResponse)));
+              testing::ElementsAre(absl::optional<std::string>(kTestResponse)));
 
   GetRobotsRules();
   GetRobotsRules();
   EXPECT_THAT(GetRobotsRulesReceived(),
-              testing::ElementsAre(base::Optional<std::string>(kTestResponse),
-                                   base::Optional<std::string>(kTestResponse),
-                                   base::Optional<std::string>(kTestResponse)));
-  EXPECT_EQ(base::nullopt, GetResponseErrorReceived());
+              testing::ElementsAre(absl::optional<std::string>(kTestResponse),
+                                   absl::optional<std::string>(kTestResponse),
+                                   absl::optional<std::string>(kTestResponse)));
+  EXPECT_EQ(absl::nullopt, GetResponseErrorReceived());
 }
 
 TEST_F(SubresourceRedirectOriginRobotsRulesTest, TestFailedResponse) {
@@ -201,14 +206,14 @@ TEST_F(SubresourceRedirectOriginRobotsRulesTest, TestFailedResponse) {
   EXPECT_THAT(
       *GetResponseErrorReceived(),
       testing::Pair(net::HTTP_INTERNAL_SERVER_ERROR, base::TimeDelta()));
-  EXPECT_THAT(GetRobotsRulesReceived(), testing::ElementsAre(base::nullopt));
+  EXPECT_THAT(GetRobotsRulesReceived(), testing::ElementsAre(absl::nullopt));
 
   // Subsequent calls will return the response immediately.
   GetRobotsRules();
   GetRobotsRules();
   EXPECT_THAT(
       GetRobotsRulesReceived(),
-      testing::ElementsAre(base::nullopt, base::nullopt, base::nullopt));
+      testing::ElementsAre(absl::nullopt, absl::nullopt, absl::nullopt));
 }
 
 TEST_F(SubresourceRedirectOriginRobotsRulesTest,
@@ -226,17 +231,17 @@ TEST_F(SubresourceRedirectOriginRobotsRulesTest,
   histogram_tester_.ExpectUniqueSample(
       "SubresourceRedirect.RobotsRulesFetcher.ResponseCode",
       net::HTTP_INTERNAL_SERVER_ERROR, 1);
-  EXPECT_THAT(*GetResponseErrorReceived(),
-              testing::Pair(net::HTTP_INTERNAL_SERVER_ERROR,
-                            base::TimeDelta::FromSeconds(120)));
-  EXPECT_THAT(GetRobotsRulesReceived(), testing::ElementsAre(base::nullopt));
+  EXPECT_THAT(
+      *GetResponseErrorReceived(),
+      testing::Pair(net::HTTP_INTERNAL_SERVER_ERROR, base::Seconds(120)));
+  EXPECT_THAT(GetRobotsRulesReceived(), testing::ElementsAre(absl::nullopt));
 
   // Subsequent calls will return the response immediately.
   GetRobotsRules();
   GetRobotsRules();
   EXPECT_THAT(
       GetRobotsRulesReceived(),
-      testing::ElementsAre(base::nullopt, base::nullopt, base::nullopt));
+      testing::ElementsAre(absl::nullopt, absl::nullopt, absl::nullopt));
 }
 
 TEST_F(SubresourceRedirectOriginRobotsRulesTest, TestNetErrorFailedResponse) {
@@ -252,15 +257,15 @@ TEST_F(SubresourceRedirectOriginRobotsRulesTest, TestNetErrorFailedResponse) {
       -net::ERR_ADDRESS_UNREACHABLE, 1);
   histogram_tester_.ExpectTotalCount(
       "SubresourceRedirect.RobotsRulesFetcher.ResponseCode", 0);
-  EXPECT_EQ(base::nullopt, GetResponseErrorReceived());
-  EXPECT_THAT(GetRobotsRulesReceived(), testing::ElementsAre(base::nullopt));
+  EXPECT_EQ(absl::nullopt, GetResponseErrorReceived());
+  EXPECT_THAT(GetRobotsRulesReceived(), testing::ElementsAre(absl::nullopt));
 
   // Subsequent calls will return the response immediately.
   GetRobotsRules();
   GetRobotsRules();
   EXPECT_THAT(
       GetRobotsRulesReceived(),
-      testing::ElementsAre(base::nullopt, base::nullopt, base::nullopt));
+      testing::ElementsAre(absl::nullopt, absl::nullopt, absl::nullopt));
 }
 
 }  // namespace subresource_redirect

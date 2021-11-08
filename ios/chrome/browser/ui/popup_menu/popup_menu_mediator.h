@@ -8,7 +8,7 @@
 #import <UIKit/UIKit.h>
 
 #import "ios/chrome/browser/ui/browser_container/browser_container_consumer.h"
-#import "ios/chrome/browser/ui/popup_menu/popup_menu_action_handler_commands.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_action_handler_delegate.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_ui_updating.h"
 
 namespace bookmarks {
@@ -23,13 +23,14 @@ class OverlayPresenter;
 class PrefService;
 class ReadingListModel;
 class TemplateURLService;
+class UrlLoadingBrowserAgent;
 class WebStateList;
 class BrowserPolicyConnectorIOS;
 
 // Mediator for the popup menu. This object is in charge of creating and
 // updating the items of the popup menu.
 @interface PopupMenuMediator
-    : NSObject <BrowserContainerConsumer, PopupMenuActionHandlerCommands>
+    : NSObject <BrowserContainerConsumer, PopupMenuActionHandlerDelegate>
 
 // Initializes the mediator with a |type| of popup menu, whether it
 // |isIncognito|, a |readingListModel| used to display the badge for the reading
@@ -47,8 +48,8 @@ class BrowserPolicyConnectorIOS;
 // WebState.
 @property(nonatomic, assign) WebStateList* webStateList;
 // The overlay presenter for OverlayModality::kWebContentArea.  This mediator
-// listens for overlay presentation events to determine whether the "Read Later"
-// button should be enabled.
+// listens for overlay presentation events to determine whether the "Add to
+// Reading List" button should be enabled.
 @property(nonatomic, assign) OverlayPresenter* webContentAreaOverlayPresenter;
 // The consumer to be configured with this mediator.
 @property(nonatomic, strong) id<PopupMenuConsumer> popupMenu;
@@ -65,6 +66,8 @@ class BrowserPolicyConnectorIOS;
 // The template url service to use for checking whether search by image is
 // available.
 @property(nonatomic, assign) TemplateURLService* templateURLService;
+// The URL loading service, used to load the reverse image search.
+@property(nonatomic, assign) UrlLoadingBrowserAgent* URLLoadingBrowserAgent;
 
 // Disconnect the mediator.
 - (void)disconnect;

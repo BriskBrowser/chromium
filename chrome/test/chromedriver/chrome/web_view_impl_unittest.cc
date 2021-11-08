@@ -137,9 +137,8 @@ TEST(EvaluateScriptAndGetValue, Ok) {
   Status status = internal::EvaluateScriptAndGetValue(
       &client, 0, std::string(), base::TimeDelta::Max(), false, &result);
   ASSERT_EQ(kOk, status.code());
-  int value;
-  ASSERT_TRUE(result && result->GetAsInteger(&value));
-  ASSERT_EQ(1, value);
+  ASSERT_TRUE(result && result->is_int());
+  ASSERT_EQ(1, result->GetInt());
 }
 
 TEST(EvaluateScriptAndGetObject, NoObject) {
@@ -185,9 +184,8 @@ TEST(ParseCallFunctionResult, Ok) {
   dict.SetInteger("value", 1);
   Status status = internal::ParseCallFunctionResult(dict, &result);
   ASSERT_EQ(kOk, status.code());
-  int value;
-  ASSERT_TRUE(result && result->GetAsInteger(&value));
-  ASSERT_EQ(1, value);
+  ASSERT_TRUE(result && result->is_int());
+  ASSERT_EQ(1, result->GetInt());
 }
 
 TEST(ParseCallFunctionResult, ScriptError) {
@@ -244,8 +242,8 @@ std::unique_ptr<SyncWebSocket> CreateMockSyncWebSocket(
 }  // namespace
 
 TEST(CreateChild, MultiLevel) {
-  SyncWebSocketFactory factory =
-      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
+  SyncWebSocketFactory factory = base::BindRepeating(
+      &CreateMockSyncWebSocket, SyncWebSocket::StatusCode::kOk);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -265,8 +263,8 @@ TEST(CreateChild, MultiLevel) {
 }
 
 TEST(CreateChild, IsNonBlocking_NoErrors) {
-  SyncWebSocketFactory factory =
-      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
+  SyncWebSocketFactory factory = base::BindRepeating(
+      &CreateMockSyncWebSocket, SyncWebSocket::StatusCode::kOk);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -285,8 +283,8 @@ TEST(CreateChild, IsNonBlocking_NoErrors) {
 }
 
 TEST(CreateChild, Load_NoErrors) {
-  SyncWebSocketFactory factory =
-      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
+  SyncWebSocketFactory factory = base::BindRepeating(
+      &CreateMockSyncWebSocket, SyncWebSocket::StatusCode::kOk);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -303,8 +301,8 @@ TEST(CreateChild, Load_NoErrors) {
 }
 
 TEST(CreateChild, WaitForPendingNavigations_NoErrors) {
-  SyncWebSocketFactory factory =
-      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kTimeout);
+  SyncWebSocketFactory factory = base::BindRepeating(
+      &CreateMockSyncWebSocket, SyncWebSocket::StatusCode::kTimeout);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -319,12 +317,12 @@ TEST(CreateChild, WaitForPendingNavigations_NoErrors) {
 
   // child_view gets no socket...
   ASSERT_NO_FATAL_FAILURE(child_view->WaitForPendingNavigations(
-      "1234", Timeout(base::TimeDelta::FromMilliseconds(10)), true));
+      "1234", Timeout(base::Milliseconds(10)), true));
 }
 
 TEST(CreateChild, IsPendingNavigation_NoErrors) {
-  SyncWebSocketFactory factory =
-      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
+  SyncWebSocketFactory factory = base::BindRepeating(
+      &CreateMockSyncWebSocket, SyncWebSocket::StatusCode::kOk);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -337,7 +335,7 @@ TEST(CreateChild, IsPendingNavigation_NoErrors) {
   std::unique_ptr<WebViewImpl> child_view =
       std::unique_ptr<WebViewImpl>(parent_view.CreateChild(sessionid, "1234"));
 
-  Timeout timeout(base::TimeDelta::FromMilliseconds(10));
+  Timeout timeout(base::Milliseconds(10));
   bool result;
   ASSERT_NO_FATAL_FAILURE(child_view->IsPendingNavigation(&timeout, &result));
 }

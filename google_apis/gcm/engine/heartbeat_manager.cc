@@ -62,7 +62,7 @@ HeartbeatManager::HeartbeatManager(
 
 HeartbeatManager::~HeartbeatManager() {
   // Stop listening for system suspend and resume events.
-  base::PowerMonitor::RemoveObserver(this);
+  base::PowerMonitor::RemovePowerSuspendObserver(this);
 }
 
 void HeartbeatManager::Start(
@@ -74,7 +74,7 @@ void HeartbeatManager::Start(
   trigger_reconnect_callback_ = trigger_reconnect_callback;
 
   // Listen for system suspend and resume events.
-  base::PowerMonitor::AddObserver(this);
+  base::PowerMonitor::AddPowerSuspendObserver(this);
 
   // Calculated the heartbeat interval just before we start the timer.
   UpdateHeartbeatInterval();
@@ -90,7 +90,7 @@ void HeartbeatManager::Stop() {
   heartbeat_timer_->Stop();
   waiting_for_ack_ = false;
 
-  base::PowerMonitor::RemoveObserver(this);
+  base::PowerMonitor::RemovePowerSuspendObserver(this);
 }
 
 void HeartbeatManager::OnHeartbeatAcked() {
@@ -156,7 +156,7 @@ void HeartbeatManager::OnResume() {
   // avoid any tight loop scenarios.
   // If the |send_heartbeat_callback_| is null, it means the heartbeat manager
   // hasn't been started, so do nothing.
-  if (elapsed > base::TimeDelta::FromMilliseconds(kMinSuspendTimeMs) &&
+  if (elapsed > base::Milliseconds(kMinSuspendTimeMs) &&
       !send_heartbeat_callback_.is_null())
     OnHeartbeatTriggered();
 }
@@ -186,9 +186,9 @@ void HeartbeatManager::RestartTimer() {
   }
 
   heartbeat_expected_time_ =
-      base::Time::Now() + base::TimeDelta::FromMilliseconds(interval_ms);
+      base::Time::Now() + base::Milliseconds(interval_ms);
   heartbeat_timer_->Start(
-      FROM_HERE, base::TimeDelta::FromMilliseconds(interval_ms),
+      FROM_HERE, base::Milliseconds(interval_ms),
       base::BindRepeating(&HeartbeatManager::OnHeartbeatTriggered,
                           weak_ptr_factory_.GetWeakPtr()));
 
@@ -200,7 +200,7 @@ void HeartbeatManager::RestartTimer() {
       FROM_HERE,
       base::BindOnce(&HeartbeatManager::CheckForMissedHeartbeat,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromMilliseconds(kHeartbeatMissedCheckMs));
+      base::Milliseconds(kHeartbeatMissedCheckMs));
 #endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 }
 
@@ -223,7 +223,7 @@ void HeartbeatManager::CheckForMissedHeartbeat() {
       FROM_HERE,
       base::BindOnce(&HeartbeatManager::CheckForMissedHeartbeat,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromMilliseconds(kHeartbeatMissedCheckMs));
+      base::Milliseconds(kHeartbeatMissedCheckMs));
 #endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 }
 

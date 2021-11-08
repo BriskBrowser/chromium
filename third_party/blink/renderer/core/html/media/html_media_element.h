@@ -29,10 +29,10 @@
 
 #include <memory>
 
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/timer/elapsed_timer.h"
 #include "media/mojo/mojom/media_player.mojom-blink.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/media/display_type.h"
 #include "third_party/blink/public/platform/web_media_player_client.h"
 #include "third_party/blink/public/platform/webaudiosourceprovider_impl.h"
@@ -45,16 +45,18 @@
 #include "third_party/blink/renderer/core/intersection_observer/intersection_observer.h"
 #include "third_party/blink/renderer/platform/audio/audio_source_provider.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/disallow_new_wrapper.h"
 #include "third_party/blink/renderer/platform/media/web_audio_source_provider_client.h"
-#include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver_set.h"
-#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
-#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote_set.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_receiver_set.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_remote.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_remote_set.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace cc {
 class Layer;
@@ -127,7 +129,8 @@ class CORE_EXPORT HTMLMediaElement
   // Binds |pending_receiver| and adds it to |media_player_receiver_set_|. Also
   // called from other Blink classes (e.g. PictureInPictureControllerImpl).
   void BindMediaPlayerReceiver(
-      mojo::PendingReceiver<media::mojom::blink::MediaPlayer> pending_receiver);
+      mojo::PendingAssociatedReceiver<media::mojom::blink::MediaPlayer>
+          pending_receiver);
 
   void Trace(Visitor*) const override;
 
@@ -151,8 +154,6 @@ class CORE_EXPORT HTMLMediaElement
     kLoadTextTrackResource = 1 << 1
   };
   void ScheduleTextTrackResourceLoad();
-
-  bool HasRemoteRoutes() const;
 
   // error state
   MediaError* error() const;
@@ -221,7 +222,7 @@ class CORE_EXPORT HTMLMediaElement
   bool Loop() const;
   void SetLoop(bool);
   ScriptPromise playForBindings(ScriptState*);
-  base::Optional<DOMExceptionCode> Play();
+  absl::optional<DOMExceptionCode> Play();
   void pause();
   double latencyHint() const;
   void setLatencyHint(double);
@@ -241,6 +242,7 @@ class CORE_EXPORT HTMLMediaElement
   // controls
   bool ShouldShowControls(
       const RecordMetricsBehavior = RecordMetricsBehavior::kDoNotRecord) const;
+  bool ShouldShowAllControls() const;
   DOMTokenList* controlsList() const;
   HTMLMediaElementControlsList* ControlsListInternal() const;
   double volume() const;
@@ -248,6 +250,8 @@ class CORE_EXPORT HTMLMediaElement
   bool muted() const;
   void setMuted(bool);
   virtual bool SupportsPictureInPicture() const { return false; }
+  void SetUserWantsControlsVisible(bool visible);
+  bool UserWantsControlsVisible() const;
 
   void TogglePlayState();
 
@@ -356,11 +360,31 @@ class CORE_EXPORT HTMLMediaElement
 
   void SetCcLayerForTesting(cc::Layer* layer) { SetCcLayer(layer); }
 
-  // Required by tests set mock receivers to check that messages are delivered.
-  void AddMediaPlayerObserverForTesting(
-      mojo::PendingRemote<media::mojom::blink::MediaPlayerObserver> observer);
+  // This should be called directly after creation.
+  void SetMediaPlayerHostForTesting(
+      mojo::PendingAssociatedRemote<media::mojom::blink::MediaPlayerHost> host);
 
   bool IsShowPosterFlagSet() const { return show_poster_flag_; }
+
+  // What LocalFrame should own our player?  Normally, players are tied to their
+  // HTMLMediaElement's LocalFrame for metrics, network fetch, etc.  This has
+  // the side-effect of requiring that a player is destroyed when the element's
+  // frame changes.  That causes playback to be user-visibly interrupted,
+  // potentially for multiple seconds.
+  //
+  // In some very restricted cases, related to picture-in-picture playback, it
+  // is okay to keep the player even when the element is moved to a new
+  // document.  It requires that everything is same-origin, and that lifetimes
+  // are looked after carefully so that the player does not outlive the frame
+  // that owns it.  However, it permits seamless playback when transitioning to
+  // picture in picture.  In this case, this function will return a different
+  // frame than our own.
+  //
+  // Note that new players can be created in this frame as well, so that a
+  // transfer back to the original opener frame when picture in picture is
+  // closed can be seamless too, even if the player was recreated for some
+  // reason while in picture in picture mode.
+  LocalFrame* LocalFrameForPlayer();
 
  protected:
   // Assert the correct order of the children in shadow dom when DCHECK is on.
@@ -370,12 +394,13 @@ class CORE_EXPORT HTMLMediaElement
   ~HTMLMediaElement() override;
   void Dispose();
 
-  // Returns a constant reference to the HeapMojoRemoteSet holding all the bound
-  // remotes for the media::mojom::blink::MediaPlayerObserver interface. Needed
-  // to allow sending messages directly from HTMLMediaElement's subclasses.
-  const HeapMojoRemoteSet<media::mojom::blink::MediaPlayerObserver>&
+  // Returns a constant reference to the HeapMojoAssociatedRemoteSet holding all
+  // the bound remotes for the media::mojom::blink::MediaPlayerObserver
+  // interface. Needed to allow sending messages directly from
+  // HTMLMediaElement's subclasses.
+  const HeapMojoAssociatedRemoteSet<media::mojom::blink::MediaPlayerObserver>&
   GetMediaPlayerObserverRemoteSet() {
-    return media_player_observer_remote_set_;
+    return media_player_observer_remote_set_->Value();
   }
 
   void ParseAttribute(const AttributeModificationParams&) override;
@@ -467,7 +492,6 @@ class CORE_EXPORT HTMLMediaElement
   void MediaSourceOpened(WebMediaSource*) final;
   void RemotePlaybackCompatibilityChanged(const WebURL&,
                                           bool is_compatible) final;
-  void OnBecamePersistentVideo(bool) override {}
   bool HasSelectedVideoTrack() final;
   WebMediaPlayer::TrackId GetSelectedVideoTrackId() final;
   bool WasAlwaysMuted() final;
@@ -477,7 +501,7 @@ class CORE_EXPORT HTMLMediaElement
   WebRemotePlaybackClient* RemotePlaybackClient() final {
     return remote_playback_client_;
   }
-  std::vector<TextTrackMetadata> GetTextTrackMetadata() override;
+  Vector<TextTrackMetadata> GetTextTrackMetadata() override;
   gfx::ColorSpace TargetColorSpace() override;
   bool WasAutoplayInitiated() override;
   bool IsInAutoPIP() const override { return false; }
@@ -492,8 +516,10 @@ class CORE_EXPORT HTMLMediaElement
       media::MediaContentType media_content_type) override;
   void DidPlayerMediaPositionStateChange(double playback_rate,
                                          base::TimeDelta duration,
-                                         base::TimeDelta position) override;
+                                         base::TimeDelta position,
+                                         bool end_of_media) override;
   void DidDisableAudioOutputSinkChanges() override;
+  void DidUseAudioServiceChange(bool uses_audio_service) override;
   void DidPlayerSizeChange(const gfx::Size& size) override;
   void DidBufferUnderflow() override;
   void DidSeek() override;
@@ -504,16 +530,19 @@ class CORE_EXPORT HTMLMediaElement
   media::mojom::blink::MediaPlayerHost& GetMediaPlayerHostRemote();
 
   // media::mojom::MediaPlayer  implementation.
-  void AddMediaPlayerObserver(
-      mojo::PendingRemote<media::mojom::blink::MediaPlayerObserver> observer)
-      override;
   void RequestPlay() override;
   void RequestPause(bool triggered_by_user) override;
   void RequestSeekForward(base::TimeDelta seek_time) override;
   void RequestSeekBackward(base::TimeDelta seek_time) override;
+  void RequestSeekTo(base::TimeDelta seek_time) override;
   void RequestEnterPictureInPicture() override {}
   void RequestExitPictureInPicture() override {}
+  void RequestMute(bool mute) override;
+  void SetVolumeMultiplier(double multiplier) override;
+  void SetPersistentState(bool persistent) override {}
+  void SetPowerExperimentState(bool enabled) override;
   void SetAudioSinkId(const String&) override;
+  void SuspendForFrameClosed() override;
 
   void LoadTimerFired(TimerBase*);
   void ProgressEventTimerFired(TimerBase*);
@@ -630,6 +659,14 @@ class CORE_EXPORT HTMLMediaElement
 
   Features GetFeatures() override;
 
+  void ResetMojoState();
+
+  // Adds a new MediaPlayerObserver remote that will be notified about media
+  // player events and returns a receiver that an observer implementation can
+  // bind to.
+  mojo::PendingAssociatedReceiver<media::mojom::blink::MediaPlayerObserver>
+  AddMediaPlayerObserverAndPassReceiver();
+
   HeapTaskRunnerTimer<HTMLMediaElement> load_timer_;
   HeapTaskRunnerTimer<HTMLMediaElement> progress_event_timer_;
   HeapTaskRunnerTimer<HTMLMediaElement> playback_progress_timer_;
@@ -655,7 +692,7 @@ class CORE_EXPORT HTMLMediaElement
   double volume_;
   double last_seek_time_;
 
-  base::Optional<base::ElapsedTimer> previous_progress_time_;
+  absl::optional<base::ElapsedTimer> previous_progress_time_;
 
   // Cached duration to suppress duplicate events if duration unchanged.
   double duration_;
@@ -740,6 +777,10 @@ class CORE_EXPORT HTMLMediaElement
 
   bool was_always_muted_ : 1;
 
+  // Set if the user has used the context menu to set the visibility of the
+  // controls.
+  absl::optional<bool> user_wants_controls_visible_;
+
   // Whether or not |web_media_player_| should apply pitch adjustments at
   // playback raters other than 1.0.
   bool preserves_pitch_ = true;
@@ -798,7 +839,7 @@ class CORE_EXPORT HTMLMediaElement
 
     // AudioSourceProvider
     void SetClient(AudioSourceProviderClient*) override;
-    void ProvideInput(AudioBus*, uint32_t frames_to_process) override;
+    void ProvideInput(AudioBus*, int frames_to_process) override;
 
     void Trace(Visitor*) const;
 
@@ -809,6 +850,32 @@ class CORE_EXPORT HTMLMediaElement
   };
 
   AudioSourceProviderImpl audio_source_provider_;
+
+  // Notify HTMLMediaElement when a document's ExecutionContext is destroyed.
+  // It allows us to disconnect from a previous document's frame if we were
+  // using it to support our WebMediaPlayer rather than our current frame.
+  class OpenerContextObserver final
+      : public GarbageCollected<OpenerContextObserver>,
+        public ContextLifecycleObserver {
+   public:
+    // Notify `element` when our context is destroyed.
+    explicit OpenerContextObserver(HTMLMediaElement* element);
+    ~OpenerContextObserver() final;
+
+    void Trace(Visitor* visitor) const final;
+
+   protected:
+    void ContextDestroyed() final;
+
+    Member<HTMLMediaElement> element_;
+  };
+
+  // Clean up things that are tied to any previous frame, including the player
+  // and mojo interfaces, when we switch to a new frame.
+  void AttachToNewFrame();
+
+  Member<Document> opener_document_;
+  Member<OpenerContextObserver> opener_context_observer_;
 
   friend class AutoplayPolicy;
   friend class AutoplayUmaHelperTest;
@@ -834,19 +901,23 @@ class CORE_EXPORT HTMLMediaElement
 
   Member<IntersectionObserver> lazy_load_intersection_observer_;
 
-  HeapMojoRemote<media::mojom::blink::MediaPlayerHost>
+  Member<DisallowNewWrapper<
+      HeapMojoAssociatedRemote<media::mojom::blink::MediaPlayerHost>>>
       media_player_host_remote_;
 
   // Multiple objects outside of the renderer process can register as observers,
   // so we need to store the remotes in a set here.
-  HeapMojoRemoteSet<media::mojom::blink::MediaPlayerObserver>
+  Member<DisallowNewWrapper<
+      HeapMojoAssociatedRemoteSet<media::mojom::blink::MediaPlayerObserver>>>
       media_player_observer_remote_set_;
 
   // A receiver set is needed here as there will be different objects in the
   // browser communicating with this object. This is done this way to avoid
   // routing everything through a single class (e.g. RFHI) and to keep this
   // logic contained inside MediaPlayer-related classes.
-  HeapMojoReceiverSet<media::mojom::blink::MediaPlayer, HTMLMediaElement>
+  Member<DisallowNewWrapper<
+      HeapMojoAssociatedReceiverSet<media::mojom::blink::MediaPlayer,
+                                    HTMLMediaElement>>>
       media_player_receiver_set_;
 };
 

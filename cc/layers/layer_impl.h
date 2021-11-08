@@ -25,6 +25,7 @@
 #include "cc/layers/draw_properties.h"
 #include "cc/layers/layer_collections.h"
 #include "cc/layers/performance_properties.h"
+#include "cc/layers/region_capture_bounds.h"
 #include "cc/layers/render_surface_impl.h"
 #include "cc/layers/touch_action_region.h"
 #include "cc/paint/element_id.h"
@@ -36,8 +37,8 @@
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
-#include "ui/gfx/geometry/scroll_offset.h"
-#include "ui/gfx/transform.h"
+#include "ui/gfx/geometry/transform.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 
 namespace viz {
 class ClientResourceProvider;
@@ -243,7 +244,7 @@ class CC_EXPORT LayerImpl {
     is_inner_viewport_scroll_layer_ = true;
   }
 
-  void SetCurrentScrollOffset(const gfx::ScrollOffset& scroll_offset);
+  void SetCurrentScrollOffset(const gfx::Vector2dF& scroll_offset);
 
   // Returns the delta of the scroll that was outside of the bounds of the
   // initial scroll
@@ -269,6 +270,9 @@ class CC_EXPORT LayerImpl {
   bool has_touch_action_regions() const {
     return !touch_action_region_.IsEmpty();
   }
+
+  void SetCaptureBounds(RegionCaptureBounds bounds);
+  const RegionCaptureBounds& capture_bounds() const { return capture_bounds_; }
 
   // Set or get the region that contains wheel event handler.
   // The |wheel_event_handler_region| specify the area where wheel event handler
@@ -373,19 +377,32 @@ class CC_EXPORT LayerImpl {
   // for layers that provide it.
   virtual Region GetInvalidationRegionForDebugging();
 
+  // Returns the visible rect that is used by damage tracker. This damage rect
+  // is computed as an eclosing rect of actual content size x transform to
+  // target space, which can be different from visible_drawing_content_rect. For
+  // example, the actual tile size of picture layer in the target surface can be
+  // bigger when e.g. the layer's raster scale is different from the scale of
+  // the layer's draw transform.
   // If you override this, and are making use of
   // PopulateScaledSharedQuadState(), make sure you call
-  // GetScaledEnclosingRectInTargetSpace(). See comment for
+  // GetScaledEnclosingVisibleRectInTargetSpace(). See comment for
   // PopulateScaledSharedQuadState().
-  virtual gfx::Rect GetEnclosingRectInTargetSpace() const;
+  virtual gfx::Rect GetEnclosingVisibleRectInTargetSpace() const;
 
-  // Returns the bounds of this layer in target space when scaled by |scale|.
-  // This function scales in the same way as
+  // Returns the visible bounds of this layer in target space when scaled by
+  // |scale|.  This function scales in the same way as
   // PopulateScaledSharedQuadStateQuadState(). See
   // PopulateScaledSharedQuadStateQuadState() for more details.
-  gfx::Rect GetScaledEnclosingRectInTargetSpace(float scale) const;
+  gfx::Rect GetScaledEnclosingVisibleRectInTargetSpace(float scale) const;
 
-  float GetIdealContentsScale() const;
+  // GetIdealContentsScale() returns the ideal 2D scale, clamped to not exceed
+  // GetPreferredRasterScale().
+  // GetIdealContentsScaleKey() returns the maximum component, a fallback to
+  // uniform scale for callers that don't support 2d scales yet.
+  // TODO(crbug.com/1196414): Remove GetIdealContentsScaleKey() in favor of
+  // GetIdealContentsScale().
+  gfx::Vector2dF GetIdealContentsScale() const;
+  float GetIdealContentsScaleKey() const;
 
   void NoteLayerPropertyChanged();
   void NoteLayerPropertyChangedFromPropertyTrees();
@@ -438,6 +455,7 @@ class CC_EXPORT LayerImpl {
 
  private:
   void ValidateQuadResourcesInternal(viz::DrawQuad* quad) const;
+  gfx::Transform GetScaledDrawTransform(float layer_to_content_scale) const;
 
   virtual const char* LayerTypeAsString() const;
 
@@ -486,6 +504,10 @@ class CC_EXPORT LayerImpl {
 
   Region non_fast_scrollable_region_;
   TouchActionRegion touch_action_region_;
+
+  // The bounds of elements marked for potential region capture, stored in
+  // the coordinate space of this layer.
+  RegionCaptureBounds capture_bounds_;
   Region wheel_event_handler_region_;
   SkColor background_color_;
   SkColor safe_opaque_background_color_;
@@ -524,11 +546,11 @@ class CC_EXPORT LayerImpl {
   mutable std::unique_ptr<Region> all_touch_action_regions_;
 
   bool needs_push_properties_ : 1;
-  bool scrollbars_hidden_ : 1;
 
-  // The needs_show_scrollbars_ bit tracks a pending request from Blink to show
-  // the overlay scrollbars. It's set on the scroll layer (not the scrollbar
-  // layers) and consumed by LayerTreeImpl::PushPropertiesTo during activation.
+  // The needs_show_scrollbars_ bit tracks a pending request to show the overlay
+  // scrollbars. It's set by UpdateScrollable() on the scroll layer (not the
+  // scrollbar layers) and consumed by LayerTreeImpl::PushPropertiesTo() and
+  // LayerTreeImpl::HandleScrollbarShowRequests().
   bool needs_show_scrollbars_ : 1;
 
   // This is set for layers that have a property because of which they are not

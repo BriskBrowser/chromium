@@ -44,7 +44,8 @@ MultiDeviceSetupClientImpl::MultiDeviceSetupClientImpl(
     : multidevice_setup_remote_(std::move(remote_setup)),
       remote_device_cache_(multidevice::RemoteDeviceCache::Factory::Create()),
       host_status_with_device_(GenerateDefaultHostStatusWithDevice()),
-      feature_states_map_(GenerateDefaultFeatureStatesMap()) {
+      feature_states_map_(GenerateDefaultFeatureStatesMap(
+          mojom::FeatureState::kUnavailableNoVerifiedHost_ClientNotReady)) {
   multidevice_setup_remote_->AddHostStatusObserver(
       GenerateHostStatusObserverRemote());
   multidevice_setup_remote_->AddFeatureStateObserver(
@@ -86,7 +87,7 @@ MultiDeviceSetupClientImpl::GetHostStatus() const {
 void MultiDeviceSetupClientImpl::SetFeatureEnabledState(
     mojom::Feature feature,
     bool enabled,
-    const base::Optional<std::string>& auth_token,
+    const absl::optional<std::string>& auth_token,
     mojom::MultiDeviceSetup::SetFeatureEnabledStateCallback callback) {
   multidevice_setup_remote_->SetFeatureEnabledState(
       feature, enabled, auth_token, std::move(callback));
@@ -94,6 +95,9 @@ void MultiDeviceSetupClientImpl::SetFeatureEnabledState(
 
 const MultiDeviceSetupClient::FeatureStatesMap&
 MultiDeviceSetupClientImpl::GetFeatureStates() const {
+  PA_LOG(VERBOSE)
+      << "Responding to GetFeaturesStates() with the following cached map: "
+      << FeatureStatesMapToString(feature_states_map_);
   return feature_states_map_;
 }
 
@@ -111,7 +115,7 @@ void MultiDeviceSetupClientImpl::TriggerEventForDebugging(
 
 void MultiDeviceSetupClientImpl::OnHostStatusChanged(
     mojom::HostStatus host_status,
-    const base::Optional<multidevice::RemoteDevice>& host_device) {
+    const absl::optional<multidevice::RemoteDevice>& host_device) {
   if (host_device) {
     remote_device_cache_->SetRemoteDevices({*host_device});
     host_status_with_device_ = std::make_pair(
@@ -119,7 +123,7 @@ void MultiDeviceSetupClientImpl::OnHostStatusChanged(
                          host_device->instance_id, host_device->GetDeviceId()));
   } else {
     host_status_with_device_ =
-        std::make_pair(host_status, base::nullopt /* host_device */);
+        std::make_pair(host_status, absl::nullopt /* host_device */);
   }
 
   NotifyHostStatusChanged(host_status_with_device_);
@@ -127,6 +131,8 @@ void MultiDeviceSetupClientImpl::OnHostStatusChanged(
 
 void MultiDeviceSetupClientImpl::OnFeatureStatesChanged(
     const FeatureStatesMap& feature_states_map) {
+  PA_LOG(INFO) << "Feature states have changed. New feature map: "
+               << FeatureStatesMapToString(feature_states_map);
   feature_states_map_ = feature_states_map;
   NotifyFeatureStateChanged(feature_states_map_);
 }

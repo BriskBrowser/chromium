@@ -5,8 +5,11 @@
 #include "components/exo/text_input.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
+#include "base/check.h"
+#include "base/logging.h"
 #include "base/strings/string_piece.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/surface.h"
@@ -73,15 +76,16 @@ void TextInput::Resync() {
     input_method_->OnCaretBoundsChanged(this);
 }
 
-void TextInput::SetSurroundingText(const base::string16& text,
-                                   uint32_t cursor_pos,
-                                   uint32_t anchor) {
+void TextInput::Reset() {
+  composition_ = ui::CompositionText();
+  if (input_method_)
+    input_method_->CancelComposition(this);
+}
+
+void TextInput::SetSurroundingText(const std::u16string& text,
+                                   const gfx::Range& cursor_pos) {
   surrounding_text_ = text;
-  cursor_pos_ = gfx::Range(cursor_pos);
-  if (anchor < cursor_pos)
-    cursor_pos_->set_start(anchor);
-  else
-    cursor_pos_->set_end(anchor);
+  cursor_pos_ = cursor_pos;
 }
 
 void TextInput::SetTypeModeFlags(ui::TextInputType type,
@@ -122,6 +126,7 @@ uint32_t TextInput::ConfirmCompositionText(bool keep_selection) {
   const uint32_t composition_text_length =
       static_cast<uint32_t>(composition_.text.length());
   delegate_->Commit(composition_.text);
+  composition_ = ui::CompositionText();
   return composition_text_length;
 }
 
@@ -132,17 +137,17 @@ void TextInput::ClearCompositionText() {
   delegate_->SetCompositionText(composition_);
 }
 
-void TextInput::InsertText(const base::string16& text,
+void TextInput::InsertText(const std::u16string& text,
                            InsertTextCursorBehavior cursor_behavior) {
   // TODO(crbug.com/1155331): Handle |cursor_behavior| correctly.
   delegate_->Commit(text);
 }
 
 void TextInput::InsertChar(const ui::KeyEvent& event) {
-  base::char16 ch = event.GetCharacter();
+  char16_t ch = event.GetCharacter();
   if (u_isprint(ch)) {
     InsertText(
-        base::string16(1, ch),
+        std::u16string(1, ch),
         ui::TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
     return;
   }
@@ -180,6 +185,11 @@ gfx::Rect TextInput::GetCaretBounds() const {
   return caret_bounds_ + window_->GetBoundsInScreen().OffsetFromOrigin();
 }
 
+gfx::Rect TextInput::GetSelectionBoundingBox() const {
+  NOTIMPLEMENTED();
+  return gfx::Rect();
+}
+
 bool TextInput::GetCompositionCharacterBounds(uint32_t index,
                                               gfx::Rect* rect) const {
   return false;
@@ -195,92 +205,80 @@ ui::TextInputClient::FocusReason TextInput::GetFocusReason() const {
 }
 
 bool TextInput::GetTextRange(gfx::Range* range) const {
-  if (!cursor_pos_)
+  if (!cursor_pos_.IsValid())
     return false;
   range->set_start(0);
   if (composition_.text.empty()) {
     range->set_end(surrounding_text_.size());
   } else {
-    range->set_end(surrounding_text_.size() - cursor_pos_->length() +
+    range->set_end(surrounding_text_.size() - cursor_pos_.length() +
                    composition_.text.size());
   }
   return true;
 }
 
 bool TextInput::GetCompositionTextRange(gfx::Range* range) const {
-  if (!cursor_pos_ || composition_.text.empty())
+  if (!cursor_pos_.IsValid() || composition_.text.empty())
     return false;
 
-  range->set_start(cursor_pos_->start());
-  range->set_end(cursor_pos_->start() + composition_.text.size());
+  range->set_start(cursor_pos_.start());
+  range->set_end(cursor_pos_.start() + composition_.text.size());
   return true;
 }
 
 bool TextInput::GetEditableSelectionRange(gfx::Range* range) const {
-  if (!cursor_pos_)
+  if (!cursor_pos_.IsValid())
     return false;
-  range->set_start(cursor_pos_->start());
-  range->set_end(cursor_pos_->end());
+  range->set_start(cursor_pos_.start());
+  range->set_end(cursor_pos_.end());
   return true;
 }
 
 bool TextInput::SetEditableSelectionRange(const gfx::Range& range) {
   if (surrounding_text_.size() < range.GetMax())
     return false;
-  auto start = ui::Utf8OffsetFromUtf16Offset(surrounding_text_, range.start());
-  if (!start)
-    return false;
-  auto end = ui::Utf8OffsetFromUtf16Offset(surrounding_text_, range.end());
-  if (!end)
-    return false;
-  delegate_->SetCursor(gfx::Range(*start, *end));
+  delegate_->SetCursor(surrounding_text_, range);
   return true;
 }
 
 bool TextInput::DeleteRange(const gfx::Range& range) {
   if (surrounding_text_.size() < range.GetMax())
     return false;
-  auto start = ui::Utf8OffsetFromUtf16Offset(surrounding_text_, range.start());
-  if (!start)
-    return false;
-  auto end = ui::Utf8OffsetFromUtf16Offset(surrounding_text_, range.end());
-  if (!end)
-    return false;
-  delegate_->DeleteSurroundingText(gfx::Range(*start, *end));
+  delegate_->DeleteSurroundingText(surrounding_text_, range);
   return true;
 }
 
 bool TextInput::GetTextFromRange(const gfx::Range& range,
-                                 base::string16* text) const {
+                                 std::u16string* text) const {
   gfx::Range text_range;
   if (!GetTextRange(&text_range) || !text_range.Contains(range))
     return false;
-  if (composition_.text.empty() || range.GetMax() <= cursor_pos_->GetMin()) {
+  if (composition_.text.empty() || range.GetMax() <= cursor_pos_.GetMin()) {
     text->assign(surrounding_text_, range.GetMin(), range.length());
     return true;
   }
-  size_t composition_end = cursor_pos_->GetMin() + composition_.text.size();
+  size_t composition_end = cursor_pos_.GetMin() + composition_.text.size();
   if (range.GetMin() >= composition_end) {
     size_t start =
-        range.GetMin() - composition_.text.size() + cursor_pos_->length();
+        range.GetMin() - composition_.text.size() + cursor_pos_.length();
     text->assign(surrounding_text_, start, range.length());
     return true;
   }
 
   size_t start_in_composition = 0;
-  if (range.GetMin() <= cursor_pos_->GetMin()) {
+  if (range.GetMin() <= cursor_pos_.GetMin()) {
     text->assign(surrounding_text_, range.GetMin(),
-                 cursor_pos_->GetMin() - range.GetMin());
+                 cursor_pos_.GetMin() - range.GetMin());
   } else {
-    start_in_composition = range.GetMin() - cursor_pos_->GetMin();
+    start_in_composition = range.GetMin() - cursor_pos_.GetMin();
   }
   if (range.GetMax() <= composition_end) {
     text->append(composition_.text, start_in_composition,
-                 range.GetMax() - cursor_pos_->GetMin() - start_in_composition);
+                 range.GetMax() - cursor_pos_.GetMin() - start_in_composition);
   } else {
     text->append(composition_.text, start_in_composition,
                  composition_.text.size() - start_in_composition);
-    text->append(surrounding_text_, cursor_pos_->GetMax(),
+    text->append(surrounding_text_, cursor_pos_.GetMax(),
                  range.GetMax() - composition_end);
   }
   return true;
@@ -305,20 +303,14 @@ bool TextInput::ChangeTextDirectionAndLayoutAlignment(
 }
 
 void TextInput::ExtendSelectionAndDelete(size_t before, size_t after) {
-  if (!cursor_pos_)
+  if (!cursor_pos_.IsValid())
     return;
   size_t utf16_start =
-      (cursor_pos_->GetMin() < before) ? 0 : (cursor_pos_->GetMin() - before);
+      std::max(static_cast<size_t>(cursor_pos_.GetMin()), before) - before;
   size_t utf16_end =
-      std::min(cursor_pos_->GetMax() + after, surrounding_text_.size());
-  auto start = ui::Utf8OffsetFromUtf16Offset(surrounding_text_, utf16_start);
-  if (!start)
-    return;
-  auto end = ui::Utf8OffsetFromUtf16Offset(surrounding_text_, utf16_end);
-  if (!end)
-    return;
-
-  delegate_->DeleteSurroundingText(gfx::Range(*start, *end));
+      std::min(cursor_pos_.GetMax() + after, surrounding_text_.size());
+  delegate_->DeleteSurroundingText(surrounding_text_,
+                                   gfx::Range(utf16_start, utf16_end));
 }
 
 void TextInput::EnsureCaretNotInRect(const gfx::Rect& rect) {}
@@ -342,9 +334,20 @@ bool TextInput::ShouldDoLearning() {
 bool TextInput::SetCompositionFromExistingText(
     const gfx::Range& range,
     const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) {
-  // TODO(https://crbug.com/952757): Implement this method.
-  NOTIMPLEMENTED_LOG_ONCE();
-  return false;
+  if (!cursor_pos_.IsValid())
+    return false;
+  if (surrounding_text_.size() < range.GetMax())
+    return false;
+
+  const auto composition_length = range.length();
+  for (const auto& span : ui_ime_text_spans) {
+    if (composition_length < std::max(span.start_offset, span.end_offset))
+      return false;
+  }
+
+  delegate_->SetCompositionFromExistingText(surrounding_text_, cursor_pos_,
+                                            range, ui_ime_text_spans);
+  return true;
 }
 
 gfx::Range TextInput::GetAutocorrectRange() const {
@@ -363,6 +366,32 @@ gfx::Rect TextInput::GetAutocorrectCharacterBounds() const {
 bool TextInput::SetAutocorrectRange(const gfx::Range& range) {
   NOTIMPLEMENTED_LOG_ONCE();
   return false;
+}
+
+absl::optional<ui::GrammarFragment> TextInput::GetGrammarFragment(
+    const gfx::Range& range) {
+  // TODO(https://crbug.com/1201454): Implement this method.
+  NOTIMPLEMENTED_LOG_ONCE();
+  return absl::nullopt;
+}
+
+bool TextInput::ClearGrammarFragments(const gfx::Range& range) {
+  // TODO(https://crbug.com/1201454): Implement this method.
+  NOTIMPLEMENTED_LOG_ONCE();
+  return false;
+}
+
+bool TextInput::AddGrammarFragments(
+    const std::vector<ui::GrammarFragment>& fragments) {
+  // TODO(https://crbug.com/1201454): Implement this method.
+  NOTIMPLEMENTED_LOG_ONCE();
+  return false;
+}
+
+void GetActiveTextInputControlLayoutBounds(
+    absl::optional<gfx::Rect>* control_bounds,
+    absl::optional<gfx::Rect>* selection_bounds) {
+  NOTIMPLEMENTED_LOG_ONCE();
 }
 
 void TextInput::OnKeyboardVisibilityChanged(bool is_visible) {

@@ -2,43 +2,38 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import {Menu} from 'chrome://resources/js/cr/ui/menu.m.js';
-// #import {MultiMenuButton} from './ui/multi_menu_button.m.js';
-// #import {VolumeInfo} from '../../../externs/volume_info.m.js';
-// #import {ProgressCenter} from '../../../externs/background/progress_center.m.js';
-// #import {Crostini} from '../../../externs/background/crostini.m.js';
-// #import {NamingController} from './naming_controller.m.js';
-// #import {TaskHistory} from './task_history.m.js';
-// #import {FileManagerUI} from './ui/file_manager_ui.m.js';
-// #import {DirectoryModel} from './directory_model.m.js';
-// #import {MetadataModel} from './metadata/metadata_model.m.js';
-// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
-// #import {FilesMenuItem} from './ui/files_menu.m.js';
-// #import {decorate} from 'chrome://resources/js/cr/ui.m.js';
-// #import {FilesPasswordDialog} from '../elements/files_password_dialog.m.js';
-// #import {ProgressCenterItem, ProgressItemType, ProgressItemState} from '../../common/js/progress_center_common.m.js';
-// #import {webStoreUtils} from './web_store_utils.m.js';
-// #import {FileTransferController} from './file_transfer_controller.m.js';
-// #import {FilesConfirmDialog} from './ui/files_confirm_dialog.m.js';
-// #import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
-// #import {FileType} from '../../common/js/file_type.m.js';
-// #import {SuggestAppsDialog} from './ui/suggest_apps_dialog.m.js';
-// #import {constants} from './constants.m.js';
-// #import {util, strf, str} from '../../common/js/util.m.js';
-// #import {AsyncUtil} from '../../common/js/async_util.m.js'
-// #import {metrics} from '../../common/js/metrics.m.js';
-// #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-// #import {assert} from 'chrome://resources/js/assert.m.js';
-// #import {DefaultTaskDialog} from './ui/default_task_dialog.m.js';
-// #import {ComboButton} from './ui/combobutton.m.js';
-// clang-format on
+import {assert} from 'chrome://resources/js/assert.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+
+import {AsyncUtil} from '../../common/js/async_util.js';
+import {FileType} from '../../common/js/file_type.js';
+import {metrics} from '../../common/js/metrics.js';
+import {ProgressCenterItem, ProgressItemState, ProgressItemType} from '../../common/js/progress_center_common.js';
+import {LEGACY_FILES_EXTENSION_ID, SWA_APP_ID, SWA_FILES_APP_URL} from '../../common/js/url_constants.js';
+import {str, strf, util} from '../../common/js/util.js';
+import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
+import {Crostini} from '../../externs/background/crostini.js';
+import {ProgressCenter} from '../../externs/background/progress_center.js';
+import {VolumeInfo} from '../../externs/volume_info.js';
+import {VolumeManager} from '../../externs/volume_manager.js';
+import {FilesPasswordDialog} from '../elements/files_password_dialog.js';
+
+import {constants} from './constants.js';
+import {DirectoryModel} from './directory_model.js';
+import {FileTransferController} from './file_transfer_controller.js';
+import {MetadataModel} from './metadata/metadata_model.js';
+import {NamingController} from './naming_controller.js';
+import {TaskHistory} from './task_history.js';
+import {ComboButton} from './ui/combobutton.js';
+import {DefaultTaskDialog} from './ui/default_task_dialog.js';
+import {FileManagerUI} from './ui/file_manager_ui.js';
+import {FilesConfirmDialog} from './ui/files_confirm_dialog.js';
 
 /**
  * Represents a collection of available tasks to execute for a specific list
  * of entries.
  */
-/* #export */ class FileTasks {
+export class FileTasks {
   /**
    * @param {!VolumeManager} volumeManager
    * @param {!MetadataModel} metadataModel
@@ -132,6 +127,7 @@
       volumeManager, metadataModel, directoryModel, ui, fileTransferController,
       entries, mimeTypes, taskHistory, namingController, crostini,
       progressCenter) {
+    /** @type {!Array<!chrome.fileManagerPrivate.FileTask>} */
     let tasks = [];
 
     // Cannot use fake entries with getFileTasks.
@@ -156,22 +152,10 @@
               constants.DEFAULT_CROSTINI_VM, entries[0],
               false /* persist */))) {
       tasks = tasks.filter(
-          task => task.taskId !== FileTasks.INSTALL_LINUX_PACKAGE_TASK_ID);
+          task => !util.descriptorEqual(
+              task.descriptor,
+              FileTasks.INSTALL_LINUX_PACKAGE_TASK_DESCRIPTOR));
     }
-
-    // Filters out Pack with Zip Archiver task because it will be accessible via
-    // 'Zip selection' context menu button
-    tasks = tasks.filter(
-        task => task.taskId !== FileTasks.ZIP_ARCHIVER_ZIP_TASK_ID &&
-            task.taskId !== FileTasks.ZIP_ARCHIVER_ZIP_USING_TMP_TASK_ID);
-
-    // The Files App and the Zip Archiver are two extensions that can handle ZIP
-    // files. Depending on the state of the FilesZipMount feature, we want to
-    // filter out one of these extensions.
-    const toExclude = util.isZipMountEnabled() ?
-        FileTasks.ZIP_ARCHIVER_UNZIP_TASK_ID :
-        FileTasks.FILES_OPEN_ZIP_TASK_ID;
-    tasks = tasks.filter(task => task.taskId !== toExclude);
 
     tasks = FileTasks.annotateTasks_(tasks, entries);
 
@@ -197,56 +181,6 @@
    */
   getOpenTaskItems() {
     return this.tasks_.filter(FileTasks.isOpenTask);
-  }
-
-  /**
-   * Gets tasks which are not categorized as OPEN tasks.
-   * @return {!Array<!chrome.fileManagerPrivate.FileTask>}
-   */
-  getNonOpenTaskItems() {
-    return this.tasks_.filter(task => !FileTasks.isOpenTask(task));
-  }
-
-  /**
-   * Opens the suggest file dialog.
-   *
-   * @param {function()} onSuccess Success callback.
-   * @param {function()} onCancelled User-cancelled callback.
-   * @param {function()} onFailure Failure callback.
-   */
-  openSuggestAppsDialog(onSuccess, onCancelled, onFailure) {
-    if (this.entries_.length !== 1) {
-      onFailure();
-      return;
-    }
-
-    const entry = this.entries_[0];
-    const mimeType = this.mimeTypes_[0];
-    const basename = entry.name;
-    const splitted = util.splitExtension(basename);
-    const extension = splitted[1];
-
-    // Returns with failure if the file has neither extension nor MIME type.
-    if (!extension && !mimeType) {
-      onFailure();
-      return;
-    }
-
-    const onDialogClosed = (result, itemId) => {
-      switch (result) {
-        case SuggestAppsDialog.Result.SUCCESS:
-          onSuccess();
-          break;
-        case SuggestAppsDialog.Result.FAILED:
-          onFailure();
-          break;
-        default:
-          onCancelled();
-      }
-    };
-
-    this.ui_.suggestAppsDialog.showByExtensionAndMime(
-        extension, mimeType, onDialogClosed);
   }
 
   /**
@@ -295,15 +229,10 @@
   }
 
   /**
-   * Records UMA statistics about Share action.
-   * @param {!FileTasks.SharingActionSourceForUMA} source The enum representing
-   *     the UI element that triggered the share action.
+   * Records UMA statistics for file types being shared in Share action.
    * @param {!Array<!FileEntry>} entries File entries to be shared.
    */
-  static recordSharingActionUMA_(source, entries) {
-    metrics.recordEnum(
-        'Share.ActionSource', source, FileTasks.ValidSharingActionSource);
-    metrics.recordSmallCount('Share.FileCount', entries.length);
+  static recordSharingFileTypesUMA_(entries) {
     for (const entry of entries) {
       metrics.recordEnum(
           'Share.FileType', FileTasks.getViewFileType(entry),
@@ -342,28 +271,27 @@
     }
   }
 
-  static recordZipHandlerUMA_(taskId) {
-    if (FileTasks.UMA_ZIP_HANDLER_TASK_IDS_.indexOf(taskId) != -1) {
-      metrics.recordEnum(
-          'ZipFileTask', taskId, FileTasks.UMA_ZIP_HANDLER_TASK_IDS_);
-    }
-  }
-
   /**
-   * Returns true if the taskId is for an internal task.
+   * Returns true if the descriptor is for an internal task.
    *
-   * @param {string} taskId Task identifier.
-   * @return {boolean} True if the task ID is for an internal task.
+   * @param {!chrome.fileManagerPrivate.FileTaskDescriptor} descriptor
+   * @return {boolean} True if the task descriptor is for an internal task.
    * @private
    */
-  static isInternalTask_(taskId) {
-    const [appId, taskType, actionId] = taskId.split('|');
-    if (appId !== chrome.runtime.id || taskType !== 'app') {
+  static isInternalTask_(descriptor) {
+    const {appId, taskType, actionId} = descriptor;
+    if (!isFilesAppId(appId)) {
       return false;
     }
-    switch (actionId) {
+
+    // Legacy Files app task type is 'app', Files SWA is 'web'.
+    if (!(taskType === 'app' || taskType == 'web')) {
+      return false;
+    }
+    const parsedActionId = parseActionId(actionId);
+
+    switch (parsedActionId) {
       case 'mount-archive':
-      case 'open-zip':
       case 'install-linux-package':
       case 'import-crostini-image':
         return true;
@@ -386,14 +314,6 @@
   }
 
   /**
-   * @param {!chrome.fileManagerPrivate.FileTask} task The task checked.
-   * @return {boolean} Whether or not this task is a file sharing task.
-   */
-  static isShareTask(task) {
-    return task.verb === chrome.fileManagerPrivate.Verb.SHARE_WITH;
-  }
-
-  /**
    * Annotates tasks returned from the API.
    *
    * @param {!Array<!chrome.fileManagerPrivate.FileTask>} tasks Input tasks from
@@ -404,22 +324,23 @@
    */
   static annotateTasks_(tasks, entries) {
     const result = [];
-    const id = chrome.runtime.id;
     for (const task of tasks) {
-      const [appId, taskType, actionId] = task.taskId.split('|');
+      const {appId, taskType, actionId} = task.descriptor;
+      const parsedActionId = parseActionId(actionId);
 
       // Skip internal Files app's handlers.
-      if (appId === id && (actionId === 'select' || actionId === 'open')) {
+      if (isFilesAppId(appId) &&
+          (parsedActionId === 'select' || parsedActionId === 'open')) {
         continue;
       }
 
       // Tweak images, titles of internal tasks.
-      if (appId === id && taskType === 'app') {
-        if (actionId === 'mount-archive') {
+      if (isFilesAppId(appId) && (taskType === 'app' || taskType === 'web')) {
+        if (parsedActionId === 'mount-archive') {
           task.iconType = 'archive';
           task.title = loadTimeData.getString('MOUNT_ARCHIVE');
           task.verb = undefined;
-        } else if (actionId === 'open-hosted-generic') {
+        } else if (parsedActionId === 'open-hosted-generic') {
           if (entries.length > 1) {
             task.iconType = 'generic';
           } else {  // Use specific icon.
@@ -427,35 +348,35 @@
           }
           task.title = loadTimeData.getString('TASK_OPEN');
           task.verb = undefined;
-        } else if (actionId === 'open-hosted-gdoc') {
+        } else if (parsedActionId === 'open-hosted-gdoc') {
           task.iconType = 'gdoc';
           task.title = loadTimeData.getString('TASK_OPEN_GDOC');
           task.verb = undefined;
-        } else if (actionId === 'open-hosted-gsheet') {
+        } else if (parsedActionId === 'open-hosted-gsheet') {
           task.iconType = 'gsheet';
           task.title = loadTimeData.getString('TASK_OPEN_GSHEET');
           task.verb = undefined;
-        } else if (actionId === 'open-hosted-gslides') {
+        } else if (parsedActionId === 'open-hosted-gslides') {
           task.iconType = 'gslides';
           task.title = loadTimeData.getString('TASK_OPEN_GSLIDES');
           task.verb = undefined;
-        } else if (actionId === 'install-linux-package') {
+        } else if (parsedActionId === 'install-linux-package') {
           task.iconType = 'crostini';
           task.title = loadTimeData.getString('TASK_INSTALL_LINUX_PACKAGE');
           task.verb = undefined;
-        } else if (actionId === 'import-crostini-image') {
+        } else if (parsedActionId === 'import-crostini-image') {
           task.iconType = 'tini';
           task.title = loadTimeData.getString('TASK_IMPORT_CROSTINI_IMAGE');
           task.verb = undefined;
-        } else if (actionId === 'view-swf') {
+        } else if (parsedActionId === 'view-swf') {
           task.iconType = 'generic';
           task.title = loadTimeData.getString('TASK_VIEW');
           task.verb = undefined;
-        } else if (actionId === 'view-pdf') {
+        } else if (parsedActionId === 'view-pdf') {
           task.iconType = 'pdf';
           task.title = loadTimeData.getString('TASK_VIEW');
           task.verb = undefined;
-        } else if (actionId === 'view-in-browser') {
+        } else if (parsedActionId === 'view-in-browser') {
           task.iconType = 'generic';
           task.title = loadTimeData.getString('TASK_VIEW');
           task.verb = undefined;
@@ -481,7 +402,8 @@
             // handlers from Android apps, since the title can already have an
             // appropriate verb.
             if (!(taskType == 'arc' &&
-                  (actionId == 'send' || actionId == 'send_multiple'))) {
+                  (parsedActionId == 'send' ||
+                   parsedActionId == 'send_multiple'))) {
               verbButtonLabel = 'SHARE_WITH_VERB_BUTTON_LABEL';
             }
             break;
@@ -525,34 +447,29 @@
   }
 
   /**
+   * Show dialog when user opens or drags a file with PluginVM and the file
+   * is not in PvmSharedDir or shared with PluginVM. The dialog tells the
+   * user to move or copy the file to PvmSharedDir and offers an action to do
+   * that.
+   *
    * @param {!Array<!Entry>} entries Selected entries to be moved or copied.
    * @param {!VolumeManager} volumeManager
+   * @param {!MetadataModel} metadataModel
    * @param {!FileManagerUI} ui FileManager UI to show dialog.
-   * @param {string} title Dialog title.
+   * @param {string} moveMessage Message if files are local and can be moved.
+   * @param {string} copyMessage Message if files should be copied.
    * @param {?FileTransferController} fileTransferController
    * @param {!DirectoryModel} directoryModel
    */
-  static showPluginVmMoveDialog(
-      entries, volumeManager, ui, title, fileTransferController,
-      directoryModel) {
-    if (entries.length == 0) {
-      return;
-    }
+  static showPluginVmNotSharedDialog(
+      entries, volumeManager, metadataModel, ui, moveMessage, copyMessage,
+      fileTransferController, directoryModel) {
+    assert(entries.length > 0);
     const isMyFiles = FileTasks.isMyFilesEntry(entries[0], volumeManager);
-    const [messageId, buttonId, toMove] = isMyFiles ?
-        [
-          'UNABLE_TO_OPEN_WITH_PLUGIN_VM_DIRECTORY_NOT_SHARED_MESSAGE',
-          'CONFIRM_MOVE_BUTTON_LABEL',
-          true,
-        ] :
-        [
-          'UNABLE_TO_OPEN_WITH_PLUGIN_VM_EXTERNAL_DRIVE_MESSAGE',
-          'CONFIRM_COPY_BUTTON_LABEL',
-          false,
-        ];
     const dialog = new FilesConfirmDialog(ui.element);
-    dialog.setOkLabel(strf(buttonId));
-    dialog.show(strf(messageId, title), async () => {
+    dialog.setOkLabel(strf(
+        isMyFiles ? 'CONFIRM_MOVE_BUTTON_LABEL' : 'CONFIRM_COPY_BUTTON_LABEL'));
+    dialog.show(isMyFiles ? moveMessage : copyMessage, async () => {
       if (!fileTransferController) {
         console.error('FileTransferController not set');
         return;
@@ -560,9 +477,11 @@
 
       const pvmDir = await FileTasks.getPvmSharedDir_(volumeManager);
 
+      assert(volumeManager.getLocationInfo(pvmDir));
+
       fileTransferController.executePaste(new FileTransferController.PastePlan(
-          entries.map(e => e.toURL()), [], pvmDir,
-          assert(volumeManager.getLocationInfo(pvmDir)), toMove));
+          entries.map(e => e.toURL()), [], pvmDir, metadataModel,
+          /*isMove=*/ isMyFiles));
       directoryModel.changeDirectoryEntry(pvmDir);
     });
   }
@@ -639,45 +558,14 @@
           textMessageId = 'NO_TASK_FOR_FILE';
       }
 
-      const webStoreUrl = webStoreUtils.createWebStoreLink(extension, mimeType);
-      const text =
-          strf(textMessageId, webStoreUrl, str('NO_TASK_FOR_FILE_URL'));
+      const text = strf(textMessageId, str('NO_TASK_FOR_FILE_URL'));
       const title = titleMessageId ? str(titleMessageId) : filename;
       this.ui_.alertDialog.showHtml(title, text, null, null, null);
       callback(false, this.entries_);
     };
 
     const onViewFilesFailure = () => {
-      if (extension &&
-          (FileTasks.EXTENSIONS_TO_SKIP_SUGGEST_APPS_.indexOf(extension) !==
-               -1 ||
-           constants.EXECUTABLE_EXTENSIONS.indexOf(assert(extension)) !== -1)) {
-        showAlert();
-        return;
-      }
-
-      this.openSuggestAppsDialog(
-          () => {
-            FileTasks
-                .create(
-                    this.volumeManager_, this.metadataModel_,
-                    this.directoryModel_, this.ui_,
-                    this.fileTransferController_, this.entries_,
-                    this.mimeTypes_, this.taskHistory_, this.namingController_,
-                    this.crostini_, this.progressCenter_)
-                .then(
-                    tasks => {
-                      tasks.executeDefault();
-                      callback(true, this.entries_);
-                    },
-                    () => {
-                      callback(false, this.entries_);
-                    });
-          },
-          () => {
-            callback(false, this.entries_);
-          },
-          showAlert);
+      showAlert();
     };
 
     const onViewFiles = result => {
@@ -709,8 +597,13 @@
     };
 
     this.checkAvailability_(() => {
-      const taskId = chrome.runtime.id + '|file|view-in-browser';
-      chrome.fileManagerPrivate.executeTask(taskId, this.entries_, onViewFiles);
+      const descriptor = {
+        appId: LEGACY_FILES_EXTENSION_ID,
+        taskType: 'file',
+        actionId: 'view-in-browser'
+      };
+      chrome.fileManagerPrivate.executeTask(
+          descriptor, this.entries_, onViewFiles);
     });
   }
 
@@ -723,10 +616,6 @@
     FileTasks.recordViewingFileTypeUMA_(this.volumeManager_, this.entries_);
     FileTasks.recordViewingRootTypeUMA_(
         this.volumeManager_, this.directoryModel_.getCurrentRootType());
-    if (FileTasks.isShareTask(task)) {
-      FileTasks.recordSharingActionUMA_(
-          FileTasks.SharingActionSourceForUMA.SHARE_BUTTON, this.entries_);
-    }
     this.executeInternal_(task);
   }
 
@@ -753,28 +642,34 @@
           });
           break;
         case taskResult.FAILED_PLUGIN_VM_DIRECTORY_NOT_SHARED:
-          FileTasks.showPluginVmMoveDialog(
-              this.entries_, this.volumeManager_, this.ui_, task.title,
-              this.fileTransferController_, this.directoryModel_);
+          const moveMessage = strf(
+              'UNABLE_TO_OPEN_WITH_PLUGIN_VM_DIRECTORY_NOT_SHARED_MESSAGE',
+              task.title);
+          const copyMessage = strf(
+              'UNABLE_TO_OPEN_WITH_PLUGIN_VM_EXTERNAL_DRIVE_MESSAGE',
+              task.title);
+          FileTasks.showPluginVmNotSharedDialog(
+              this.entries_, this.volumeManager_, this.metadataModel_, this.ui_,
+              moveMessage, copyMessage, this.fileTransferController_,
+              this.directoryModel_);
           break;
       }
     };
 
     this.checkAvailability_(() => {
-      this.taskHistory_.recordTaskExecuted(task.taskId);
+      this.taskHistory_.recordTaskExecuted(task.descriptor);
       let msg;
-      if (this.entries.length === 1) {
+      if (this.entries_.length === 1) {
         msg = strf('OPEN_A11Y', this.entries_[0].name);
       } else {
         msg = strf('OPEN_A11Y_PLURAL', this.entries_.length);
       }
       this.ui_.speakA11yMessage(msg);
-      if (FileTasks.isInternalTask_(task.taskId)) {
-        this.executeInternalTask_(task.taskId);
+      if (FileTasks.isInternalTask_(task.descriptor)) {
+        this.executeInternalTask_(task.descriptor);
       } else {
-        FileTasks.recordZipHandlerUMA_(task.taskId);
         chrome.fileManagerPrivate.executeTask(
-            task.taskId, this.entries_, onFileManagerPrivateExecuteTask);
+            task.descriptor, this.entries_, onFileManagerPrivateExecuteTask);
       }
     });
   }
@@ -875,27 +770,30 @@
   }
 
   /**
-   * Executes an internal task.
+   * Executes an internal task, which is a task Files app handles internally
+   * without calling into fileManagerPrivate to execute it.
    *
-   * @param {string} taskId The task id.
+   * @param {!chrome.fileManagerPrivate.FileTaskDescriptor} descriptor
    * @private
    */
-  executeInternalTask_(taskId) {
-    const actionId = taskId.split('|')[2];
-    if (actionId === 'mount-archive' || actionId === 'open-zip') {
+  executeInternalTask_(descriptor) {
+    const parsedActionId = parseActionId(descriptor.actionId);
+    if (parsedActionId === 'mount-archive') {
       this.mountArchives_();
       return;
     }
-    if (actionId === 'install-linux-package') {
+    if (parsedActionId === 'install-linux-package') {
       this.installLinuxPackageInternal_();
       return;
     }
-    if (actionId === 'import-crostini-image') {
+    if (parsedActionId === 'import-crostini-image') {
       this.importCrostiniImageInternal_();
       return;
     }
 
-    console.error('The specified task is not a valid internal task: ' + taskId);
+    console.error(
+        'The specified task is not a valid internal task: ' +
+        util.makeTaskID(descriptor));
   }
 
   /**
@@ -1022,7 +920,10 @@
       const item = new ProgressCenterItem();
       item.id = 'Cannot mount: ' + url;
       item.type = ProgressItemType.MOUNT_ARCHIVE;
-      item.message = strf('ARCHIVE_MOUNT_FAILED', filename);
+      const msgId = error === VolumeManagerCommon.VolumeError.INVALID_PATH ?
+          'ARCHIVE_MOUNT_INVALID_PATH' :
+          'ARCHIVE_MOUNT_FAILED';
+      item.message = strf(msgId, filename);
       item.state = ProgressItemState.ERROR;
       this.progressCenter_.updateItem(item);
 
@@ -1050,33 +951,27 @@
   }
 
   /**
-   * Displays the list of tasks in a open task picker combobutton and a share
-   * options menu.
+   * Displays the list of tasks in a open task picker combobutton..
    *
-   * @param {!cr.ui.ComboButton} openCombobutton The open task picker
+   * @param {!ComboButton} openCombobutton The open task picker
    *     combobutton.
-   * @param {!cr.ui.MultiMenuButton} shareMenuButton Button for share options.
    * @public
    */
-  display(openCombobutton, shareMenuButton) {
+  display(openCombobutton) {
     const openTasks = [];
-    const otherTasks = [];
     for (const task of this.tasks_) {
       if (FileTasks.isOpenTask(task)) {
         openTasks.push(task);
-      } else {
-        otherTasks.push(task);
       }
     }
     this.updateOpenComboButton_(openCombobutton, openTasks);
-    this.updateShareMenuButton_(shareMenuButton, otherTasks);
   }
 
   /**
    * Setup a task picker combobutton based on the given tasks. The combobutton
    * is not shown if there are no tasks, or if any entry is a directory.
    *
-   * @param {!cr.ui.ComboButton} combobutton
+   * @param {!ComboButton} combobutton
    * @param {!Array<!chrome.fileManagerPrivate.FileTask>} tasks
    */
   updateOpenComboButton_(combobutton, tasks) {
@@ -1123,85 +1018,6 @@
   }
 
   /**
-   * Setup a menu button for sharing options based on the given tasks.
-   * @param {!cr.ui.MultiMenuButton} shareMenuButton
-   * @param {!Array<!chrome.fileManagerPrivate.FileTask>} tasks
-   */
-  updateShareMenuButton_(shareMenuButton, tasks) {
-    const driveShareCommand =
-        shareMenuButton.menu.querySelector('cr-menu-item[command="#share"]');
-    const driveShareCommandSeparator =
-        shareMenuButton.menu.querySelector('#drive-share-separator');
-    const moreActionsSeparator =
-        shareMenuButton.menu.querySelector('#more-actions-separator');
-
-    // Update share command.
-    driveShareCommand.command.canExecuteChange(
-        this.ui_.listContainer.currentList);
-
-    // Hide share icon for New Folder creation.  See https://crbug.com/571355.
-    shareMenuButton.hidden =
-        (driveShareCommand.disabled && tasks.length == 0) ||
-        this.namingController_.isRenamingInProgress() ||
-        util.isSharesheetEnabled();
-    moreActionsSeparator.hidden = true;
-
-    // Show the separator if Drive share command is enabled and there is at
-    // least one other share actions.
-    driveShareCommandSeparator.hidden =
-        driveShareCommand.disabled || tasks.length == 0;
-
-    // Temporarily remove the more actions item while the rest of the menu
-    // items are being cleared out so we don't lose it and make it hidden for
-    // now
-    const moreActions = shareMenuButton.menu.querySelector(
-        'cr-menu-item[command="#show-submenu"]');
-    moreActions.remove();
-    moreActions.setAttribute('hidden', '');
-    // Remove the separator as well
-    moreActionsSeparator.remove();
-
-    // Clear menu items except for drive share menu and a separator for it.
-    // As querySelectorAll() returns live NodeList, we need to copy elements to
-    // Array object to modify DOM in the for loop.
-    const itemsToRemove = [].slice.call(shareMenuButton.menu.querySelectorAll(
-        'cr-menu-item:not([command="#share"])'));
-    for (const item of itemsToRemove) {
-      item.parentNode.removeChild(item);
-    }
-    // Clear menu items in the overflow sub-menu since we'll repopulate it
-    // with any relevant items below.
-    if (shareMenuButton.overflow !== null) {
-      while (shareMenuButton.overflow.firstChild !== null) {
-        shareMenuButton.overflow.removeChild(
-            shareMenuButton.overflow.firstChild);
-      }
-    }
-
-    // Add menu items for the new tasks.
-    const items = this.createItems_(tasks);
-    let menu = /** @type {!cr.ui.Menu} */ (shareMenuButton.menu);
-    for (let i = 0; i < items.length; i++) {
-      // If we have at least 10 entries, split off into a sub-menu
-      if (i == NUM_TOP_LEVEL_ENTRIES && MAX_NON_SPLIT_ENTRIES <= items.length) {
-        moreActions.removeAttribute('hidden');
-        moreActionsSeparator.hidden = false;
-        menu = shareMenuButton.overflow;
-      }
-      const menuitem = menu.addMenuItem(items[i]);
-      cr.ui.decorate(menuitem, cr.ui.FilesMenuItem);
-      menuitem.data = items[i];
-      if (items[i].iconType) {
-        menuitem.style.backgroundImage = '';
-        menuitem.setAttribute('file-type-icon', items[i].iconType);
-      }
-    }
-    // Replace the more actions menu item and separator
-    shareMenuButton.menu.appendChild(moreActionsSeparator);
-    shareMenuButton.menu.appendChild(moreActions);
-  }
-
-  /**
    * Creates sorted array of available task descriptions such as title and icon.
    *
    * @param {!Array<!chrome.fileManagerPrivate.FileTask>} tasks Tasks to create
@@ -1233,8 +1049,8 @@
       }
 
       // Sort by last-executed time.
-      const aTime = this.taskHistory_.getLastExecutedTime(a.task.taskId);
-      const bTime = this.taskHistory_.getLastExecutedTime(b.task.taskId);
+      const aTime = this.taskHistory_.getLastExecutedTime(a.task.descriptor);
+      const bTime = this.taskHistory_.getLastExecutedTime(b.task.descriptor);
       if (aTime != bTime) {
         return bTime - aTime;
       }
@@ -1273,7 +1089,7 @@
   /**
    * Shows modal task picker dialog with currently available list of tasks.
    *
-   * @param {cr.filebrowser.DefaultTaskDialog} taskDialog Task dialog to show
+   * @param {DefaultTaskDialog} taskDialog Task dialog to show
    *     and update.
    * @param {string} title Title to use.
    * @param {string} message Message to use.
@@ -1282,10 +1098,7 @@
    * @param {FileTasks.TaskPickerType} pickerType Task picker type.
    */
   showTaskPicker(taskDialog, title, message, onSuccess, pickerType) {
-    const tasks = pickerType == FileTasks.TaskPickerType.MoreActions ?
-        this.getNonOpenTaskItems() :
-        this.getOpenTaskItems();
-    let items = this.createItems_(tasks);
+    let items = this.createItems_(this.getOpenTaskItems());
     if (pickerType == FileTasks.TaskPickerType.ChangeDefault) {
       items = items.filter(item => !item.isGenericFileHandler);
     }
@@ -1293,7 +1106,8 @@
     let defaultIdx = 0;
     if (this.defaultTask_) {
       for (let j = 0; j < items.length; j++) {
-        if (items[j].task.taskId === this.defaultTask_.taskId) {
+        if (util.descriptorEqual(
+                items[j].task.descriptor, this.defaultTask_.descriptor)) {
           defaultIdx = j;
         }
       }
@@ -1331,7 +1145,7 @@
     // 2. Most recently executed or sole non-generic task.
     const latest = nonGenericTasks[0];
     if (nonGenericTasks.length == 1 ||
-        taskHistory.getLastExecutedTime(latest.taskId)) {
+        taskHistory.getLastExecutedTime(latest.descriptor)) {
       return latest;
     }
 
@@ -1358,51 +1172,14 @@
 }
 
 /**
- * The task ID of 'Install Linux package'.
- * @const {string}
+ * The task descriptor of 'Install Linux package'.
+ * @const {!chrome.fileManagerPrivate.FileTaskDescriptor}
  */
-FileTasks.INSTALL_LINUX_PACKAGE_TASK_ID =
-    chrome.runtime.id + '|app|install-linux-package';
-
-/**
- * The task ID of Files App's 'Open ZIP'.
- * @const {string}
- */
-FileTasks.FILES_OPEN_ZIP_TASK_ID = chrome.runtime.id + '|app|open-zip';
-
-/**
- * The app ID of the video player app.
- * @const {string}
- */
-FileTasks.VIDEO_PLAYER_ID = 'jcgeabjmjgoblfofpppfkcoakmfobdko';
-
-/**
- * The task id of the zip unpacker app.
- * @const {string}
- */
-FileTasks.ZIP_UNPACKER_TASK_ID = 'oedeeodfidgoollimchfdnbmhcpnklnd|app|zip';
-
-/**
- * The task id of unzip action of Zip Archiver app.
- * @const {string}
- */
-FileTasks.ZIP_ARCHIVER_UNZIP_TASK_ID =
-    'dmboannefpncccogfdikhmhpmdnddgoe|app|open';
-
-/**
- * The task id of zip action of Zip Archiver app.
- * @const {string}
- */
-FileTasks.ZIP_ARCHIVER_ZIP_TASK_ID =
-    'dmboannefpncccogfdikhmhpmdnddgoe|app|pack';
-
-/**
- * The task id of zip action of Zip Archiver app, using temporary dir as workdir
- * @const {string}
- */
-FileTasks.ZIP_ARCHIVER_ZIP_USING_TMP_TASK_ID =
-    'dmboannefpncccogfdikhmhpmdnddgoe|app|pack_using_tmp';
-
+FileTasks.INSTALL_LINUX_PACKAGE_TASK_DESCRIPTOR = {
+  appId: LEGACY_FILES_EXTENSION_ID,
+  taskType: 'app',
+  actionId: 'install-linux-package'
+};
 
 /**
  * Available tasks in task menu button.
@@ -1421,7 +1198,6 @@ FileTasks.TaskMenuButtonItemType = {
 FileTasks.TaskPickerType = {
   ChangeDefault: 'ChangeDefault',
   OpenWith: 'OpenWith',
-  MoreActions: 'MoreActions'
 };
 
 /**
@@ -1464,50 +1240,7 @@ FileTasks.UMA_INDEX_KNOWN_EXTENSIONS = Object.freeze([
 ]);
 
 /**
- * The list of extensions to skip the suggest app dialog.
- * @private @const {Array<string>}
- */
-FileTasks.EXTENSIONS_TO_SKIP_SUGGEST_APPS_ = Object.freeze([
-  '.crdownload',
-  '.dsc',
-  '.inf',
-  '.crx',
-]);
-
-/**
- * Task IDs of the zip file handlers to be recorded.
- * The indexes of the IDs must match with the values of
- * FileManagerZipHandlerType in enums.xml, and should not change.
- */
-FileTasks.UMA_ZIP_HANDLER_TASK_IDS_ = Object.freeze([
-  FileTasks.ZIP_UNPACKER_TASK_ID, FileTasks.ZIP_ARCHIVER_UNZIP_TASK_ID,
-  FileTasks.ZIP_ARCHIVER_ZIP_TASK_ID
-]);
-
-/**
- * Possible share action sources for UMA.
- * @enum {string}
- * @const
- */
-FileTasks.SharingActionSourceForUMA = {
-  UNKNOWN: 'Unknown',
-  CONTEXT_MENU: 'Context Menu',
-  SHARE_BUTTON: 'Share Button',
-};
-
-/**
- * A list of supported values for SharingActionSource enum. Keep this in sync
- * with SharingActionSource defined in //tools/metrics/histograms/enums.xml.
- */
-FileTasks.ValidSharingActionSource = Object.freeze([
-  FileTasks.SharingActionSourceForUMA.UNKNOWN,
-  FileTasks.SharingActionSourceForUMA.CONTEXT_MENU,
-  FileTasks.SharingActionSourceForUMA.SHARE_BUTTON,
-]);
-
-/**
- * The number of menu-item entries in the top level menu
- * before we split and show the 'More actions' option
+ * The number of menu-item entries in the top level menu.
  * @const {number}
  */
 const NUM_TOP_LEVEL_ENTRIES = 6;
@@ -1533,3 +1266,27 @@ const MAX_NON_SPLIT_ENTRIES = 10;
  * }}
  */
 FileTasks.ComboButtonItem;
+
+/**
+ * @param {string} appId
+ * @return {boolean} Whether the appId belongs to Files app (legacy or SWA).
+ */
+function isFilesAppId(appId) {
+  return appId === LEGACY_FILES_EXTENSION_ID || appId === SWA_APP_ID;
+}
+
+/**
+ * The SWA actionId is prefixed with chrome://file-manager/?ACTION_ID, just the
+ * sub-string compatible with the extension/legacy e.g.: "view-pdf".
+ *
+ * @param {string} actionId
+ * @return {string}
+ */
+export function parseActionId(actionId) {
+  if (window.isSWA) {
+    const swaUrl = SWA_FILES_APP_URL.toString() + '?';
+    return actionId.replace(swaUrl, '');
+  }
+
+  return actionId;
+}

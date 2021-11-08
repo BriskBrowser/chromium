@@ -22,17 +22,21 @@
 #include "chrome/browser/ui/views/extensions/expandable_container_view.h"
 #include "chrome/browser/ui/views/extensions/extension_permissions_view.h"
 #include "chrome/common/buildflags.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/page_navigator.h"
-#include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_urls.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_enums.mojom.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/border.h"
@@ -42,11 +46,11 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/controls/scroll_view.h"
+#include "ui/views/controls/separator.h"
+#include "ui/views/controls/textarea/textarea.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/metadata/metadata_header_macros.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 using content::OpenURLParams;
@@ -75,7 +79,7 @@ class RatingsView : public views::View {
 
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
     node_data->role = ax::mojom::Role::kStaticText;
-    base::string16 accessible_text;
+    std::u16string accessible_text;
     if (rating_count_ == 0) {
       accessible_text = l10n_util::GetStringUTF16(
           IDS_EXTENSION_PROMPT_NO_RATINGS_ACCESSIBLE_TEXT);
@@ -108,7 +112,7 @@ class RatingStar : public views::ImageView {
 
   // views::ImageView:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
-    node_data->role = ax::mojom::Role::kIgnored;
+    node_data->role = ax::mojom::Role::kNone;
   }
 };
 
@@ -120,7 +124,7 @@ END_METADATA
 class RatingLabel : public views::Label {
  public:
   METADATA_HEADER(RatingLabel);
-  RatingLabel(const base::string16& text, int text_context)
+  RatingLabel(const std::u16string& text, int text_context)
       : views::Label(text, text_context, views::style::STYLE_PRIMARY) {}
   RatingLabel(const RatingLabel&) = delete;
   RatingLabel& operator=(const RatingLabel&) = delete;
@@ -128,7 +132,7 @@ class RatingLabel : public views::Label {
 
   // views::Label:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
-    node_data->role = ax::mojom::Role::kIgnored;
+    node_data->role = ax::mojom::Role::kNone;
   }
 };
 
@@ -141,15 +145,14 @@ void AddResourceIcon(const gfx::ImageSkia* skia_image, void* data) {
 }
 
 void ShowExtensionInstallDialogImpl(
-    ExtensionInstallPromptShowParams* show_params,
+    std::unique_ptr<ExtensionInstallPromptShowParams> show_params,
     ExtensionInstallPrompt::DoneCallback done_callback,
     std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  gfx::NativeWindow parent_window = show_params->GetParentWindow();
   ExtensionInstallDialogView* dialog = new ExtensionInstallDialogView(
-      show_params->profile(), show_params->GetParentWebContents(),
-      std::move(done_callback), std::move(prompt));
-  constrained_window::CreateBrowserModalDialogViews(
-      dialog, show_params->GetParentWindow())
+      std::move(show_params), std::move(done_callback), std::move(prompt));
+  constrained_window::CreateBrowserModalDialogViews(dialog, parent_window)
       ->Show();
 }
 
@@ -181,7 +184,7 @@ END_METADATA
 // Represents one section in the scrollable info area, which could be a block of
 // permissions, a list of retained files, or a list of retained devices.
 struct ExtensionInfoSection {
-  base::string16 header;
+  std::u16string header;
   std::unique_ptr<views::View> contents_view;
 };
 
@@ -205,13 +208,57 @@ void AddPermissions(ExtensionInstallPrompt::Prompt* prompt,
 
 }  // namespace
 
+// A custom view for the justification section of the extension info. It
+// contains a text field into which users can enter their justification for
+// requesting an extension.
+class ExtensionInstallDialogView::ExtensionJustificationView
+    : public views::View {
+ public:
+  ExtensionJustificationView() {
+    SetLayoutManager(std::make_unique<views::BoxLayout>(
+        views::BoxLayout::Orientation::kVertical, gfx::Insets(),
+        ChromeLayoutProvider::Get()->GetDistanceMetric(
+            views::DISTANCE_RELATED_CONTROL_VERTICAL)));
+
+    auto header_label = std::make_unique<views::Label>(
+        l10n_util::GetStringUTF16(
+            IDS_ENTERPRISE_EXTENSION_REQUEST_JUSTIFICATION),
+        views::style::CONTEXT_DIALOG_BODY_TEXT);
+    header_label->SetMultiLine(true);
+    header_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    AddChildView(std::move(header_label));
+
+    auto justification_field = std::make_unique<views::Textarea>();
+    justification_field->SetPreferredSize(gfx::Size(0, 60));
+    justification_field->SetPlaceholderText(l10n_util::GetStringUTF16(
+        IDS_ENTERPRISE_EXTENSION_REQUEST_JUSTIFICATION_PLACEHOLDER));
+    justification_field_ = AddChildView(std::move(justification_field));
+  }
+  ExtensionJustificationView(const ExtensionJustificationView&) = delete;
+  ExtensionJustificationView& operator=(const ExtensionJustificationView&) =
+      delete;
+  ~ExtensionJustificationView() override = default;
+
+  // Get the text currently present in the justification text field.
+  std::u16string GetJustificationText() {
+    DCHECK(justification_field_);
+    return justification_field_->GetText();
+  }
+
+  void ChildPreferredSizeChanged(views::View* child) override {
+    PreferredSizeChanged();
+  }
+
+ private:
+  views::Textfield* justification_field_;
+};
+
 ExtensionInstallDialogView::ExtensionInstallDialogView(
-    Profile* profile,
-    content::PageNavigator* navigator,
+    std::unique_ptr<ExtensionInstallPromptShowParams> show_params,
     ExtensionInstallPrompt::DoneCallback done_callback,
     std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt)
-    : profile_(profile),
-      navigator_(navigator),
+    : profile_(show_params->profile()),
+      show_params_(std::move(show_params)),
       done_callback_(std::move(done_callback)),
       prompt_(std::move(prompt)),
       title_(prompt_->GetDialogTitle()),
@@ -228,6 +275,12 @@ ExtensionInstallDialogView::ExtensionInstallDialogView(
   DCHECK(buttons & ui::DIALOG_BUTTON_CANCEL);
 
   int default_button = ui::DIALOG_BUTTON_CANCEL;
+
+  // If the prompt is related to requesting an extension, set the default button
+  // to OK.
+  if (prompt_->type() ==
+      ExtensionInstallPrompt::PromptType::EXTENSION_REQUEST_PROMPT)
+    default_button = ui::DIALOG_BUTTON_OK;
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   // When we require parent permission next, we
@@ -275,9 +328,22 @@ ExtensionInstallDialogView::~ExtensionInstallDialogView() {
     OnDialogCanceled();
 }
 
+ExtensionInstallPromptShowParams*
+ExtensionInstallDialogView::GetShowParamsForTesting() {
+  return show_params_.get();
+}
+
+void ExtensionInstallDialogView::ClickLinkForTesting() {
+  LinkClicked();
+}
+
 void ExtensionInstallDialogView::SetInstallButtonDelayForTesting(
     int delay_in_ms) {
   g_install_delay_in_ms = delay_in_ms;
+}
+
+bool ExtensionInstallDialogView::IsJustificationFieldVisibleForTesting() {
+  return justification_view_ != nullptr;
 }
 
 void ExtensionInstallDialogView::ResizeWidget() {
@@ -294,7 +360,7 @@ void ExtensionInstallDialogView::VisibilityChanged(views::View* starting_from,
       // This base::Unretained is safe because the task is owned by the timer,
       // which is in turn owned by this object.
       enable_install_timer_.Start(
-          FROM_HERE, base::TimeDelta::FromMilliseconds(g_install_delay_in_ms),
+          FROM_HERE, base::Milliseconds(g_install_delay_in_ms),
           base::BindOnce(&ExtensionInstallDialogView::EnableInstallButton,
                          base::Unretained(this)));
     }
@@ -383,13 +449,31 @@ void ExtensionInstallDialogView::AddedToWidget() {
 void ExtensionInstallDialogView::OnDialogCanceled() {
   DCHECK(done_callback_);
 
+  // The dialog will be closed, so stop observing for any extension changes
+  // that could potentially crop up during that process (like the extension
+  // being uninstalled).
+  extension_registry_observation_.Reset();
+
   UpdateInstallResultHistogram(false);
   prompt_->OnDialogCanceled();
-  std::move(done_callback_).Run(ExtensionInstallPrompt::Result::USER_CANCELED);
+  std::move(done_callback_)
+      .Run(ExtensionInstallPrompt::DoneCallbackPayload(
+          ExtensionInstallPrompt::Result::USER_CANCELED));
 }
 
 void ExtensionInstallDialogView::OnDialogAccepted() {
   DCHECK(done_callback_);
+
+  // The dialog will be closed, so stop observing for any extension changes
+  // that could potentially crop up during that process (like the extension
+  // being uninstalled).
+  extension_registry_observation_.Reset();
+
+  bool expect_justification =
+      prompt_->type() ==
+          ExtensionInstallPrompt::PromptType::EXTENSION_REQUEST_PROMPT &&
+      base::FeatureList::IsEnabled(features::kExtensionWorkflowJustification);
+  DCHECK(expect_justification == !!justification_view_);
 
   UpdateInstallResultHistogram(true);
   prompt_->OnDialogAccepted();
@@ -400,7 +484,13 @@ void ExtensionInstallDialogView::OnDialogAccepted() {
               withhold_permissions_checkbox_->GetChecked()
           ? ExtensionInstallPrompt::Result::ACCEPTED_AND_OPTION_CHECKED
           : ExtensionInstallPrompt::Result::ACCEPTED;
-  std::move(done_callback_).Run(result);
+
+  std::move(done_callback_)
+      .Run(ExtensionInstallPrompt::DoneCallbackPayload(
+          result,
+          justification_view_
+              ? base::UTF16ToUTF8(justification_view_->GetJustificationText())
+              : std::string()));
 }
 
 bool ExtensionInstallDialogView::IsDialogButtonEnabled(
@@ -410,7 +500,7 @@ bool ExtensionInstallDialogView::IsDialogButtonEnabled(
   return true;
 }
 
-base::string16 ExtensionInstallDialogView::GetAccessibleWindowTitle() const {
+std::u16string ExtensionInstallDialogView::GetAccessibleWindowTitle() const {
   return title_;
 }
 
@@ -422,6 +512,11 @@ void ExtensionInstallDialogView::OnExtensionUninstalled(
     content::BrowserContext* browser_context,
     const extensions::Extension* extension,
     extensions::UninstallReason reason) {
+  // Extra checks for https://crbug.com/1259043.
+  // TODO(devlin): Remove these when we've validated there's no longer a crash.
+  CHECK(extension);
+  CHECK(prompt_);
+  CHECK(prompt_->extension());
   // Close the dialog if the extension is uninstalled.
   if (extension->id() != prompt_->extension()->id())
     return;
@@ -445,8 +540,9 @@ void ExtensionInstallDialogView::LinkClicked() {
                        WindowOpenDisposition::NEW_FOREGROUND_TAB,
                        ui::PAGE_TRANSITION_LINK, false);
 
-  if (navigator_) {
-    navigator_->OpenURL(params);
+  DCHECK(show_params_);
+  if (show_params_->GetParentWebContents()) {
+    show_params_->GetParentWebContents()->OpenURL(params);
   } else {
     chrome::ScopedTabbedBrowserDisplayer displayer(profile_);
     displayer.browser()->OpenURL(params);
@@ -459,8 +555,8 @@ void ExtensionInstallDialogView::CreateContents() {
 
   const ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
   auto extension_info_container = std::make_unique<CustomScrollableView>(this);
-  const gfx::Insets content_insets =
-      provider->GetDialogInsetsForContentType(views::CONTROL, views::CONTROL);
+  const gfx::Insets content_insets = provider->GetDialogInsetsForContentType(
+      views::DialogContentType::kControl, views::DialogContentType::kControl);
   extension_info_container->SetBorder(views::CreateEmptyBorder(
       0, content_insets.left(), 0, content_insets.right()));
   extension_info_container->SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -482,7 +578,7 @@ void ExtensionInstallDialogView::CreateContents() {
   }
 
   if (prompt_->GetRetainedFileCount()) {
-    std::vector<base::string16> details;
+    std::vector<std::u16string> details;
     for (size_t i = 0; i < prompt_->GetRetainedFileCount(); ++i) {
       details.push_back(prompt_->GetRetainedFile(i));
     }
@@ -492,7 +588,7 @@ void ExtensionInstallDialogView::CreateContents() {
   }
 
   if (prompt_->GetRetainedDeviceCount()) {
-    std::vector<base::string16> details;
+    std::vector<std::u16string> details;
     for (size_t i = 0; i < prompt_->GetRetainedDeviceCount(); ++i) {
       details.push_back(prompt_->GetRetainedDeviceMessageString(i));
     }
@@ -501,7 +597,11 @@ void ExtensionInstallDialogView::CreateContents() {
          std::make_unique<ExpandableContainerView>(details, content_width)});
   }
 
-  if (sections.empty()) {
+  const bool is_justification_field_enabled =
+      prompt_->type() ==
+          ExtensionInstallPrompt::PromptType::EXTENSION_REQUEST_PROMPT &&
+      base::FeatureList::IsEnabled(features::kExtensionWorkflowJustification);
+  if (sections.empty() && !is_justification_field_enabled) {
     // Use a smaller margin between the title area and buttons, since there
     // isn't any content.
     set_margins(gfx::Insets(ChromeLayoutProvider::Get()->GetDistanceMetric(
@@ -522,6 +622,19 @@ void ExtensionInstallDialogView::CreateContents() {
 
     if (section.contents_view)
       extension_info_container->AddChildView(section.contents_view.release());
+  }
+
+  // Add separate section for user justification. This section isn't added to
+  // the |sections| vector since it is later referenced to extract the textfield
+  // string.
+  if (is_justification_field_enabled) {
+    std::unique_ptr<views::Separator> separator =
+        std::make_unique<views::Separator>();
+    separator->SetColor(SK_ColorTRANSPARENT);
+    extension_info_container->AddChildView(std::move(separator));
+
+    justification_view_ = extension_info_container->AddChildView(
+        std::make_unique<ExtensionJustificationView>());
   }
 
   scroll_view_ = new views::ScrollView();

@@ -50,14 +50,15 @@ class MockPasswordFormManager : public PasswordFormManager {
       const autofill::FormData& form,
       password_manager::FormFetcher* form_fetcher,
       scoped_refptr<PasswordFormMetricsRecorder> metrics_recorder)
-      : PasswordFormManager(
-            client,
-            driver,
-            form,
-            form_fetcher,
-            std::make_unique<PasswordSaveManagerImpl>(
-                std::make_unique<password_manager::StubFormSaver>()),
-            metrics_recorder) {}
+      : PasswordFormManager(client,
+                            driver,
+                            form,
+                            form_fetcher,
+                            std::make_unique<PasswordSaveManagerImpl>(
+                                /*profile_form_saver=*/std::make_unique<
+                                    password_manager::StubFormSaver>(),
+                                /*account_form_saver=*/nullptr),
+                            metrics_recorder) {}
 
   // Constructor for federation credentials.
   MockPasswordFormManager(password_manager::PasswordManagerClient* client,
@@ -67,14 +68,16 @@ class MockPasswordFormManager : public PasswordFormManager {
             std::make_unique<password_manager::PasswordForm>(form),
             std::make_unique<password_manager::FakeFormFetcher>(),
             std::make_unique<PasswordSaveManagerImpl>(
-                std::make_unique<password_manager::StubFormSaver>())) {
+                /*profile_form_saver=*/std::make_unique<
+                    password_manager::StubFormSaver>(),
+                /*account_form_saver=*/nullptr)) {
     CreatePendingCredentials();
   }
 
-  ~MockPasswordFormManager() override = default;
+  MockPasswordFormManager(const MockPasswordFormManager&) = delete;
+  MockPasswordFormManager& operator=(const MockPasswordFormManager&) = delete;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockPasswordFormManager);
+  ~MockPasswordFormManager() override = default;
 };
 
 class TestSavePasswordInfoBarDelegate : public SavePasswordInfoBarDelegate {
@@ -95,6 +98,12 @@ class TestSavePasswordInfoBarDelegate : public SavePasswordInfoBarDelegate {
 class SavePasswordInfoBarDelegateTest : public ChromeRenderViewHostTestHarness {
  public:
   SavePasswordInfoBarDelegateTest();
+
+  SavePasswordInfoBarDelegateTest(const SavePasswordInfoBarDelegateTest&) =
+      delete;
+  SavePasswordInfoBarDelegateTest& operator=(
+      const SavePasswordInfoBarDelegateTest&) = delete;
+
   ~SavePasswordInfoBarDelegateTest() override = default;
 
   void SetUp() override;
@@ -120,14 +129,12 @@ class SavePasswordInfoBarDelegateTest : public ChromeRenderViewHostTestHarness {
 
  private:
   password_manager::FakeFormFetcher fetcher_;
-
-  DISALLOW_COPY_AND_ASSIGN(SavePasswordInfoBarDelegateTest);
 };
 
 SavePasswordInfoBarDelegateTest::SavePasswordInfoBarDelegateTest() {
   test_form_.url = GURL("https://example.com");
-  test_form_.username_value = base::ASCIIToUTF16("username");
-  test_form_.password_value = base::ASCIIToUTF16("12345");
+  test_form_.username_value = u"username";
+  test_form_.password_value = u"12345";
 
   // Create a simple sign-in form.
   observed_form_.url = test_form_.url;

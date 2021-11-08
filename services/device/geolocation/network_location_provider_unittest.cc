@@ -21,6 +21,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "net/base/net_errors.h"
@@ -29,9 +30,14 @@
 #include "services/device/geolocation/wifi_data_provider.h"
 #include "services/device/public/cpp/geolocation/geoposition.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "services/network/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(OS_MAC)
+#include "services/device/public/cpp/test/fake_geolocation_manager.h"
+#endif
 
 namespace device {
 
@@ -46,11 +52,14 @@ struct LocationUpdateListener {
                         const mojom::Geoposition& position) {
     last_position = position;
     update_count++;
+    if (position.error_code != mojom::Geoposition::ErrorCode::NONE)
+      error_count++;
   }
 
   const LocationProvider::LocationProviderUpdateCallback callback;
   mojom::Geoposition last_position;
   int update_count = 0;
+  int error_count = 0;
 };
 
 // A mock implementation of WifiDataProvider for testing. Adapted from
@@ -70,6 +79,9 @@ class MockWifiDataProvider : public WifiDataProvider {
   }
 
   MockWifiDataProvider() : start_calls_(0), stop_calls_(0), got_data_(true) {}
+
+  MockWifiDataProvider(const MockWifiDataProvider&) = delete;
+  MockWifiDataProvider& operator=(const MockWifiDataProvider&) = delete;
 
   // WifiDataProvider implementation.
   void StartDataProvider() override { ++start_calls_; }
@@ -108,8 +120,6 @@ class MockWifiDataProvider : public WifiDataProvider {
 
   WifiData data_;
   bool got_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockWifiDataProvider);
 };
 
 MockWifiDataProvider* MockWifiDataProvider::instance_ = nullptr;
@@ -119,25 +129,41 @@ class GeolocationNetworkProviderTest : public testing::Test {
  public:
   void TearDown() override {
     WifiDataProviderManager::ResetFactoryForTesting();
+    grant_system_permission_by_default_ = true;
   }
 
   std::unique_ptr<LocationProvider> CreateProvider(
       bool set_permission_granted,
       const std::string& api_key = std::string()) {
+#if defined(OS_MAC)
+    fake_geolocation_manager_ = std::make_unique<FakeGeolocationManager>();
     auto provider = std::make_unique<NetworkLocationProvider>(
-        test_url_loader_factory_.GetSafeWeakWrapper(), api_key,
-        &position_cache_);
+        test_url_loader_factory_.GetSafeWeakWrapper(),
+        fake_geolocation_manager_.get(), base::ThreadTaskRunnerHandle::Get(),
+        api_key, &position_cache_);
+    // For macOS we must simulate the granting of location permission
+    if (grant_system_permission_by_default_) {
+      fake_geolocation_manager_->SetSystemPermission(
+          LocationSystemPermissionStatus::kAllowed);
+      base::RunLoop().RunUntilIdle();
+    }
+#else
+    auto provider = std::make_unique<NetworkLocationProvider>(
+        test_url_loader_factory_.GetSafeWeakWrapper(),
+        /*geolocation_system_permission_manager=*/nullptr,
+        base::ThreadTaskRunnerHandle::Get(), api_key, &position_cache_);
+#endif
     if (set_permission_granted)
       provider->OnPermissionGranted();
-// For macOS we must simulate the granting of location permission
-#if defined(OS_MAC)
-    if (grant_system_permission_by_default_)
-      provider->OnSystemPermissionUpdated(/*granted=*/true);
-#endif
+
     return provider;
   }
 
   bool grant_system_permission_by_default_ = true;
+
+#if defined(OS_MAC)
+  std::unique_ptr<FakeGeolocationManager> fake_geolocation_manager_;
+#endif
 
  protected:
   GeolocationNetworkProviderTest()
@@ -161,7 +187,7 @@ class GeolocationNetworkProviderTest : public testing::Test {
       ap.radio_signal_strength = ap_count - i;
       ap.channel = IndexToChannel(i);
       ap.signal_to_noise = i + 42;
-      ap.ssid = base::ASCIIToUTF16("Some nice+network|name\\");
+      ap.ssid = u"Some nice+network|name\\";
       data.access_point_data.insert(ap);
     }
     return data;
@@ -174,7 +200,7 @@ class GeolocationNetworkProviderTest : public testing::Test {
       ap.radio_signal_strength = ap_count - i;
       ap.channel = IndexToChannel(i);
       ap.signal_to_noise = i + 42;
-      ap.ssid = base::ASCIIToUTF16("Some nice+network|name\\");
+      ap.ssid = u"Some nice+network|name\\";
       data.access_point_data.insert(ap);
     }
     return data;
@@ -257,7 +283,7 @@ class GeolocationNetworkProviderTest : public testing::Test {
     std::string upload_data = network::GetUploadData(pending_request.request);
     ASSERT_FALSE(upload_data.empty());
 
-    base::Optional<base::Value> parsed_json =
+    absl::optional<base::Value> parsed_json =
         base::JSONReader::Read(upload_data);
     ASSERT_TRUE(parsed_json);
 
@@ -268,12 +294,13 @@ class GeolocationNetworkProviderTest : public testing::Test {
       base::ListValue expected_wifi_aps_json;
       CreateReferenceWifiScanDataJson(expected_wifi_aps, wifi_start_index,
                                       &expected_wifi_aps_json);
-      EXPECT_EQ(size_t(expected_wifi_aps), expected_wifi_aps_json.GetSize());
+      EXPECT_EQ(size_t(expected_wifi_aps),
+                expected_wifi_aps_json.GetList().size());
 
       const base::ListValue* wifi_aps_json;
       ASSERT_TRUE(
           JsonGetList("wifiAccessPoints", *request_json, &wifi_aps_json));
-      for (size_t i = 0; i < expected_wifi_aps_json.GetSize(); ++i) {
+      for (size_t i = 0; i < expected_wifi_aps_json.GetList().size(); ++i) {
         const base::DictionaryValue* expected_json;
         ASSERT_TRUE(expected_wifi_aps_json.GetDictionary(i, &expected_json));
         const base::DictionaryValue* actual_json;
@@ -575,9 +602,9 @@ TEST_F(GeolocationNetworkProviderTest, MacOSSystemPermissionsTest) {
   // be called immediately.
   provider->OnPermissionGranted();
 
-  // Ensure the callback was never called.
+  // Ensure there was an error callback.
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(0, listener.update_count);
+  EXPECT_EQ(1, listener.error_count);
 
   // Now try to make a request for new wifi data.
   wifi_data_provider_->set_got_data(true);
@@ -598,7 +625,7 @@ TEST_F(GeolocationNetworkProviderTest, MacOSSystemPermissionsTest) {
   // Ensure that we immediately make a new network request to acquire the
   // location when permission is granted.
   static_cast<NetworkLocationProvider*>(provider.get())
-      ->OnSystemPermissionUpdated(true);
+      ->OnSystemPermissionUpdated(LocationSystemPermissionStatus::kAllowed);
   ASSERT_EQ(1, test_url_loader_factory_.NumPending());
 
   // Clear pending requests for later testing.
@@ -619,7 +646,7 @@ TEST_F(GeolocationNetworkProviderTest, MacOSSystemPermissionsTest) {
   // Ensure more network requests are not sent out when permission is denied
   // again.
   static_cast<NetworkLocationProvider*>(provider.get())
-      ->OnSystemPermissionUpdated(false);
+      ->OnSystemPermissionUpdated(LocationSystemPermissionStatus::kDenied);
   provider->StartProvider(false);
   wifi_data_provider_->SetData(CreateReferenceWifiScanData(4));
   base::RunLoop().RunUntilIdle();
@@ -750,8 +777,7 @@ TEST_F(GeolocationNetworkProviderTest, LastPositionNotUsedTooOld) {
   // Seed the last position cache with a geoposition value with the timestamp
   // set to 20 minutes ago.
   mojom::Geoposition last_position = CreateReferencePosition(0);
-  last_position.timestamp =
-      base::Time::Now() - base::TimeDelta::FromMinutes(20);
+  last_position.timestamp = base::Time::Now() - base::Minutes(20);
   EXPECT_TRUE(ValidateGeoposition(last_position));
   position_cache_.SetLastUsedNetworkPosition(last_position);
 

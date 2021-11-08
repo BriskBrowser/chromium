@@ -5,11 +5,17 @@
 package org.chromium.content_public.browser.test.mock;
 
 import org.chromium.base.Callback;
-import org.chromium.content_public.browser.FeaturePolicyFeature;
+import org.chromium.blink.mojom.AuthenticatorStatus;
+import org.chromium.content_public.browser.GlobalRenderFrameHostId;
+import org.chromium.content_public.browser.LifecycleState;
+import org.chromium.content_public.browser.PermissionsPolicyFeature;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.mojo.bindings.Interface;
 import org.chromium.url.GURL;
 import org.chromium.url.Origin;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Mock class for {@link RenderFrameHost}.
@@ -29,7 +35,12 @@ public class MockRenderFrameHost implements RenderFrameHost {
     public void getCanonicalUrlForSharing(Callback<GURL> callback) {}
 
     @Override
-    public boolean isFeatureEnabled(@FeaturePolicyFeature int feature) {
+    public List<RenderFrameHost> getAllRenderFrameHosts() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean isFeatureEnabled(@PermissionsPolicyFeature int feature) {
         return false;
     }
 
@@ -51,6 +62,11 @@ public class MockRenderFrameHost implements RenderFrameHost {
     }
 
     @Override
+    public boolean signalCloseWatcherIfActive() {
+        return false;
+    }
+
+    @Override
     public boolean isRenderFrameCreated() {
         return false;
     }
@@ -61,14 +77,25 @@ public class MockRenderFrameHost implements RenderFrameHost {
     }
 
     @Override
-    public int performGetAssertionWebAuthSecurityChecks(
-            String relyingPartyId, Origin effectiveOrigin) {
-        return 0;
+    public WebAuthSecurityChecksResults performGetAssertionWebAuthSecurityChecks(
+            String relyingPartyId, Origin effectiveOrigin,
+            boolean isPaymentCredentialGetAssertion) {
+        return new WebAuthSecurityChecksResults(AuthenticatorStatus.SUCCESS, false);
     }
 
     @Override
     public int performMakeCredentialWebAuthSecurityChecks(
-            String relyingPartyId, Origin effectiveOrigin) {
+            String relyingPartyId, Origin effectiveOrigin, boolean isPaymentCredentialCreation) {
         return 0;
+    }
+
+    @Override
+    public GlobalRenderFrameHostId getGlobalRenderFrameHostId() {
+        return new GlobalRenderFrameHostId(-1, -1);
+    }
+
+    @Override
+    public int getLifecycleState() {
+        return LifecycleState.ACTIVE;
     }
 }

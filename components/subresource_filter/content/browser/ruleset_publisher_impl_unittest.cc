@@ -18,8 +18,9 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/run_loop.h"
-#include "base/task_runner.h"
+#include "base/task/task_runner.h"
 #include "base/test/test_simple_task_runner.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/subresource_filter/content/browser/ruleset_service.h"
@@ -70,6 +71,11 @@ class SubresourceFilterRulesetPublisherImplTest : public ::testing::Test {
   SubresourceFilterRulesetPublisherImplTest()
       : existing_renderer_(&browser_context_) {}
 
+  SubresourceFilterRulesetPublisherImplTest(
+      const SubresourceFilterRulesetPublisherImplTest&) = delete;
+  SubresourceFilterRulesetPublisherImplTest& operator=(
+      const SubresourceFilterRulesetPublisherImplTest&) = delete;
+
  protected:
   void SetUp() override { ASSERT_TRUE(scoped_temp_dir_.CreateUniqueTempDir()); }
 
@@ -95,8 +101,6 @@ class SubresourceFilterRulesetPublisherImplTest : public ::testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   content::TestBrowserContext browser_context_;
   NotifyingMockRenderProcessHost existing_renderer_;
-
-  DISALLOW_COPY_AND_ASSIGN(SubresourceFilterRulesetPublisherImplTest);
 };
 
 class MockRulesetPublisherImpl : public RulesetPublisherImpl {
@@ -140,9 +144,10 @@ TEST_F(SubresourceFilterRulesetPublisherImplTest,
   base::WriteFile(scoped_temp_file(), kTestFileContents,
                   strlen(kTestFileContents));
 
-  base::File file;
-  file.Initialize(scoped_temp_file(),
-                  base::File::FLAG_OPEN | base::File::FLAG_READ);
+  RulesetFilePtr file(
+      new base::File(scoped_temp_file(),
+                     base::File::FLAG_OPEN | base::File::FLAG_READ),
+      base::OnTaskRunnerDeleter(base::SequencedTaskRunnerHandle::Get()));
 
   NotifyingMockRenderProcessHost existing_renderer(browser_context());
   MockClosureTarget publish_callback_target;

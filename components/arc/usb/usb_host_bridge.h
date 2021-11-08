@@ -53,10 +53,16 @@ class ArcUsbHostBridge : public KeyedService,
   // or nullptr if the browser |context| is not allowed to use ARC.
   static ArcUsbHostBridge* GetForBrowserContext(
       content::BrowserContext* context);
+  static ArcUsbHostBridge* GetForBrowserContextForTesting(
+      content::BrowserContext* context);
 
   // The constructor will register an Observer with ArcBridgeService.
   ArcUsbHostBridge(content::BrowserContext* context,
                    ArcBridgeService* bridge_service);
+
+  ArcUsbHostBridge(const ArcUsbHostBridge&) = delete;
+  ArcUsbHostBridge& operator=(const ArcUsbHostBridge&) = delete;
+
   ~ArcUsbHostBridge() override;
 
   // Returns the factory instance for this class.
@@ -68,10 +74,10 @@ class ArcUsbHostBridge : public KeyedService,
                          bool interactive,
                          RequestPermissionCallback callback) override;
   void OpenDeviceDeprecated(const std::string& guid,
-                            const base::Optional<std::string>& package,
+                            const absl::optional<std::string>& package,
                             OpenDeviceCallback callback) override;
   void OpenDevice(const std::string& guid,
-                  const base::Optional<std::string>& package,
+                  const absl::optional<std::string>& package,
                   OpenDeviceCallback callback) override;
   void GetDeviceInfo(const std::string& guid,
                      GetDeviceInfoCallback callback) override;
@@ -122,8 +128,6 @@ class ArcUsbHostBridge : public KeyedService,
 
   // WeakPtrFactory to use for callbacks.
   base::WeakPtrFactory<ArcUsbHostBridge> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ArcUsbHostBridge);
 };
 
 }  // namespace arc

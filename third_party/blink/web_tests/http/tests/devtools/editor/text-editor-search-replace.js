@@ -4,7 +4,7 @@
 
 (async function() {
   TestRunner.addResult(`Tests the search replace functionality.\n`);
-  await TestRunner.loadModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
   await TestRunner.showPanel('sources');
   await TestRunner.addScriptTag('../sources/debugger/resources/edit-me.js');
 
@@ -15,14 +15,14 @@
   function showReplaceField() {
     var searchableView = UI.panels.sources.searchableView();
     searchableView.showSearchField();
-    searchableView._replaceToggleButton.setToggled(true);
-    searchableView._updateSecondRowVisibility();
+    searchableView.replaceToggleButton.setToggled(true);
+    searchableView.updateSecondRowVisibility();
   }
 
   function runReplaceAll(searchValue, replaceValue) {
-    panel.searchableView()._searchInputElement.value = searchValue;
-    panel.searchableView()._replaceInputElement.value = replaceValue;
-    panel.searchableView()._replaceAll();
+    panel.searchableView().searchInputElement.value = searchValue;
+    panel.searchableView().replaceInputElement.value = replaceValue;
+    panel.searchableView().replaceAll();
   }
 
   function dumpTextEditor(message) {
@@ -31,7 +31,7 @@
   }
 
   function didShowScriptSource(sourceFrame) {
-    textEditor = sourceFrame._textEditor;
+    textEditor = sourceFrame.textEditor;
     showReplaceField();
 
     TestRunner.runTestSuite([
